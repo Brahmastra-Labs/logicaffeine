@@ -233,10 +233,8 @@ fn test_size_nested() {
     // λ(x:Prop). λ(y:Prop). x
     // SLam (SSort UProp) (SLam (SSort UProp) (SVar 1))
     // Size = 1 + 1 + (1 + 1 + 1) = 5
-    repl.execute(
-        "Definition nested : Syntax := SLam (SSort UProp) (SLam (SSort UProp) (SVar 1)).",
-    )
-    .expect("Define");
+    repl.execute("Definition nested : Syntax := SLam (SSort UProp) (SLam (SSort UProp) (SVar 1)).")
+        .expect("Define");
     repl.execute("Definition nested_size : Int := syn_size nested.")
         .expect("Define");
 

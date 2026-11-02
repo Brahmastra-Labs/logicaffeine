@@ -1,0 +1,200 @@
+{
+  "case": "T11-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 25,
+  "declarations": [
+    {
+      "type": "Type 1",
+      "name": "T11_007.Bundled",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T11_007.Bundled) (x y z : self.carrier), self.op (self.op x y) z = self.op x (self.op y z)",
+      "name": "T11_007.Bundled.assoc",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_007.Bundled \u2192 Type",
+      "name": "T11_007.Bundled.carrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_007.Bundled \u2192 Sort u} \u2192\n  (t : T11_007.Bundled) \u2192\n    ((carrier : Type) \u2192\n        (zero : carrier) \u2192\n          (op : carrier \u2192 carrier \u2192 carrier) \u2192\n            (leftId : \u2200 (x : carrier), op zero x = x) \u2192\n              (rightId : \u2200 (x : carrier), op x zero = x) \u2192\n                (assoc : \u2200 (x y z : carrier), op (op x y) z = op x (op y z)) \u2192\n                  motive\n                    { carrier := carrier, zero := zero, op := op, leftId := leftId, rightId := rightId,\n                      assoc := assoc }) \u2192\n      motive t",
+      "name": "T11_007.Bundled.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T11_007.Bundled) (x : self.carrier), self.op self.zero x = x",
+      "name": "T11_007.Bundled.leftId",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(carrier : Type) \u2192\n  (zero : carrier) \u2192\n    (op : carrier \u2192 carrier \u2192 carrier) \u2192\n      (\u2200 (x : carrier), op zero x = x) \u2192\n        (\u2200 (x : carrier), op x zero = x) \u2192 (\u2200 (x y z : carrier), op (op x y) z = op x (op y z)) \u2192 T11_007.Bundled",
+      "name": "T11_007.Bundled.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {carrier : Type} {zero : carrier} {op : carrier \u2192 carrier \u2192 carrier} {leftId : \u2200 (x : carrier), op zero x = x}\n  {rightId : \u2200 (x : carrier), op x zero = x} {assoc : \u2200 (x y z : carrier), op (op x y) z = op x (op y z)}\n  {carrier_1 : Type} {zero_1 : carrier_1} {op_1 : carrier_1 \u2192 carrier_1 \u2192 carrier_1}\n  {leftId_1 : \u2200 (x : carrier_1), op_1 zero_1 x = x} {rightId_1 : \u2200 (x : carrier_1), op_1 x zero_1 = x}\n  {assoc_1 : \u2200 (x y z : carrier_1), op_1 (op_1 x y) z = op_1 x (op_1 y z)},\n  { carrier := carrier, zero := zero, op := op, leftId := leftId, rightId := rightId, assoc := assoc } =\n      { carrier := carrier_1, zero := zero_1, op := op_1, leftId := leftId_1, rightId := rightId_1, assoc := assoc_1 } \u2192\n    carrier = carrier_1 \u2227 HEq zero zero_1 \u2227 HEq op op_1",
+      "name": "T11_007.Bundled.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (carrier : Type) (zero : carrier) (op : carrier \u2192 carrier \u2192 carrier) (leftId : \u2200 (x : carrier), op zero x = x)\n  (rightId : \u2200 (x : carrier), op x zero = x) (assoc : \u2200 (x y z : carrier), op (op x y) z = op x (op y z))\n  (carrier_1 : Type) (zero_1 : carrier_1) (op_1 : carrier_1 \u2192 carrier_1 \u2192 carrier_1)\n  (leftId_1 : \u2200 (x : carrier_1), op_1 zero_1 x = x) (rightId_1 : \u2200 (x : carrier_1), op_1 x zero_1 = x)\n  (assoc_1 : \u2200 (x y z : carrier_1), op_1 (op_1 x y) z = op_1 x (op_1 y z)),\n  ({ carrier := carrier, zero := zero, op := op, leftId := leftId, rightId := rightId, assoc := assoc } =\n      { carrier := carrier_1, zero := zero_1, op := op_1, leftId := leftId_1, rightId := rightId_1,\n        assoc := assoc_1 }) =\n    (carrier = carrier_1 \u2227 HEq zero zero_1 \u2227 HEq op op_1)",
+      "name": "T11_007.Bundled.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (carrier : Type) (zero : carrier) (op : carrier \u2192 carrier \u2192 carrier) (leftId : \u2200 (x : carrier), op zero x = x)\n  (rightId : \u2200 (x : carrier), op x zero = x) (assoc : \u2200 (x y z : carrier), op (op x y) z = op x (op y z)),\n  sizeOf { carrier := carrier, zero := zero, op := op, leftId := leftId, rightId := rightId, assoc := assoc } =\n    1 + sizeOf carrier + sizeOf zero",
+      "name": "T11_007.Bundled.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_007.Bundled} \u2192 v1 = v2 \u2192 T11_007.Bundled.noConfusionType P v1 v2",
+      "name": "T11_007.Bundled.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_007.Bundled \u2192 T11_007.Bundled \u2192 Sort u",
+      "name": "T11_007.Bundled.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(self : T11_007.Bundled) \u2192 self.carrier \u2192 self.carrier \u2192 self.carrier",
+      "name": "T11_007.Bundled.op",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_007.Bundled \u2192 Sort u} \u2192\n  ((carrier : Type) \u2192\n      (zero : carrier) \u2192\n        (op : carrier \u2192 carrier \u2192 carrier) \u2192\n          (leftId : \u2200 (x : carrier), op zero x = x) \u2192\n            (rightId : \u2200 (x : carrier), op x zero = x) \u2192\n              (assoc : \u2200 (x y z : carrier), op (op x y) z = op x (op y z)) \u2192\n                motive\n                  { carrier := carrier, zero := zero, op := op, leftId := leftId, rightId := rightId,\n                    assoc := assoc }) \u2192\n    (t : T11_007.Bundled) \u2192 motive t",
+      "name": "T11_007.Bundled.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_007.Bundled \u2192 Sort u} \u2192\n  (t : T11_007.Bundled) \u2192\n    ((carrier : Type) \u2192\n        (zero : carrier) \u2192\n          (op : carrier \u2192 carrier \u2192 carrier) \u2192\n            (leftId : \u2200 (x : carrier), op zero x = x) \u2192\n              (rightId : \u2200 (x : carrier), op x zero = x) \u2192\n                (assoc : \u2200 (x y z : carrier), op (op x y) z = op x (op y z)) \u2192\n                  motive\n                    { carrier := carrier, zero := zero, op := op, leftId := leftId, rightId := rightId,\n                      assoc := assoc }) \u2192\n      motive t",
+      "name": "T11_007.Bundled.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T11_007.Bundled) (x : self.carrier), self.op x self.zero = x",
+      "name": "T11_007.Bundled.rightId",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(self : T11_007.Bundled) \u2192 self.carrier",
+      "name": "T11_007.Bundled.zero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat), 0 < a \u2192 0 < a + b + c",
+      "name": "T11_007.allPositive",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Type",
+      "name": "T11_007.deepDependent",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_007.forcesFreshen",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_007.Bundled",
+      "name": "T11_007.natBundled",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T11_007.shared",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T11_007.sharedUnderBinder",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_007.spine10",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_007.usesAll",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T11_007.usesSharedManyTimes",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

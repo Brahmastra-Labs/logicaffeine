@@ -1,4 +1,4 @@
-//! Phase 125 — §1.2 Optatives (work/MISSING_ENGLISH.md).
+//! Phase 125 — Optatives.
 //!
 //! Wish clauses with no asserted truth:
 //!   "May you prosper!"        → Wish(speaker, ⟨Prosper(you)⟩)
@@ -11,18 +11,33 @@ use logicaffeine_language::compile;
 fn may_fronting_is_optative_wish() {
     let out = compile("May you prosper!").unwrap();
     eprintln!("may: {out}");
-    assert!(out.contains("Wish") || out.contains("Optative"), "optative wish operator: {out}");
-    assert!(out.contains("Prosper") || out.contains("prosper"), "the wish content: {out}");
+    assert!(
+        out.contains("Wish") || out.contains("Optative"),
+        "optative wish operator: {out}"
+    );
+    assert!(
+        out.contains("Prosper") || out.contains("prosper"),
+        "the wish content: {out}"
+    );
     // The wish is by the speaker (a wish, not a deontic 'may'-permission).
-    assert!(out.contains("Speaker") || out.contains("speaker"), "the wisher is the speaker: {out}");
+    assert!(
+        out.contains("Speaker") || out.contains("speaker"),
+        "the wisher is the speaker: {out}"
+    );
 }
 
 #[test]
 fn long_live_is_optative() {
     let out = compile("Long live the king!").unwrap();
     eprintln!("long-live: {out}");
-    assert!(out.contains("Wish") || out.contains("Optative"), "optative operator: {out}");
-    assert!(out.contains("King") || out.contains("king") || out.contains("Live"), "the wish content: {out}");
+    assert!(
+        out.contains("Wish") || out.contains("Optative"),
+        "optative operator: {out}"
+    );
+    assert!(
+        out.contains("King") || out.contains("king") || out.contains("Live"),
+        "the wish content: {out}"
+    );
 }
 
 #[test]
@@ -31,7 +46,10 @@ fn may_optative_distinct_from_plain_modal() {
     // modal reading (□/◇) of "may".
     let out = compile("May you prosper!").unwrap();
     eprintln!("distinct: {out}");
-    assert!(out.contains("Wish") || out.contains("Optative"), "optative, not a plain modal: {out}");
+    assert!(
+        out.contains("Wish") || out.contains("Optative"),
+        "optative, not a plain modal: {out}"
+    );
 }
 
 // ============================================================================

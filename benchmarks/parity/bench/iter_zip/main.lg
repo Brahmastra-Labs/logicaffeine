@@ -1,0 +1,27 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let m be 1000.
+Let mutable xs be a new Seq of Int.
+Let mutable ys be a new Seq of Int.
+Let mutable k be 0.
+While k is less than m:
+    Push k to xs.
+    Push k + m to ys.
+    Set k to k + 1.
+Let mutable sum be 0.
+Let mutable r be 0.
+While r is less than n:
+    Let z be zipSeq(xs, ys).
+    Let mutable i be 1.
+    While i is at most m:
+        Let p be item i of z.
+        Let a be p's first.
+        Let b be p's second.
+        Set sum to (sum + a + b) % 1000000007.
+        Set i to i + 1.
+    Set r to r + 1.
+Show sum.

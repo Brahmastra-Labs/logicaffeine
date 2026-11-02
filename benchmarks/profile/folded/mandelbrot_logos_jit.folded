@@ -1,0 +1,4 @@
+logos::main::loop@10 [jit] 170963105307
+logos::main::loop@20 [jit] 220491157
+logos::main::loop@10 [jit];[unknown] 21424633
+[unknown];_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_jit::adapt_region;logicaffeine_jit::kind_flow;logicaffeine_jit::fresh_list_kinds;logicaffeine_jit::kind_flow_sited 1791435

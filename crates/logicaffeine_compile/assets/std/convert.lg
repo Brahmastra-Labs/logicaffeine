@@ -1,0 +1,187 @@
+# Convert
+
+Value conversions, written in pure LOGOS and compiled through every execution tier.
+Auto-imported on first reference.
+
+## Note
+Renders an integer as its decimal text via string interpolation.
+
+## To numText (n: Int) -> Text:
+    Return "{n}".
+
+## Note
+Returns the byte code of the first byte of text `s`.
+
+## To ord (s: Text) -> Int:
+    Return item 1 of text_bytes(s).
+
+## Note
+Renders integer `n` in the given radix `base`, using digits `0`-`9` then lowercase letters for values 10 and up.
+
+## To toBase (n: Int) and (base: Int) -> Text:
+    If n is equal to 0:
+        Return "0".
+    Let mutable m be n.
+    Let digits be a new Seq of Int.
+    While m is greater than 0:
+        Let d be m % base.
+        Let mutable code be 48 + d.
+        If d is at least 10:
+            Set code to 97 + (d - 10).
+        Push code to digits.
+        Set m to m / base.
+    Let out be a new Seq of Int.
+    Let k be length of digits.
+    Let mutable i be k.
+    While i is at least 1:
+        Push item i of digits to out.
+        Set i to i - 1.
+    Return text_from_bytes(out).
+
+## Note
+Renders integer `n` in base 2 by delegating to `toBase`.
+
+## To toBinary (n: Int) -> Text:
+    Return toBase(n, 2).
+
+## Note
+Renders integer `n` in base 16 by delegating to `toBase`.
+
+## To toHexInt (n: Int) -> Text:
+    Return toBase(n, 16).
+
+## Note
+Renders integer `n` in base 8 by delegating to `toBase`.
+
+## To toOct (n: Int) -> Text:
+    Return toBase(n, 8).
+
+## Note
+Renders a boolean as the text `"true"` or `"false"`.
+
+## To formatBool (b: Bool) -> Text:
+    If b:
+        Return "true".
+    Return "false".
+
+## Note
+Parses truthy text — `"1"`, `"t"`, `"T"`, `"true"`, `"True"`, or `"TRUE"` yield true; anything else is false.
+
+## To parseBool (s: Text) -> Bool:
+    If s is equal to "1":
+        Return true.
+    If s is equal to "t":
+        Return true.
+    If s is equal to "T":
+        Return true.
+    If s is equal to "true":
+        Return true.
+    If s is equal to "True":
+        Return true.
+    If s is equal to "TRUE":
+        Return true.
+    Return false.
+
+## Note
+Wraps `s` in double quotes, escaping `"`, `\`, newline (as `\n`), and tab (as `\t`).
+
+## To quoteText (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Push 34 to out.
+    Repeat for c in sb:
+        If c is equal to 34:
+            Push 92 to out.
+            Push 34 to out.
+        Otherwise:
+            If c is equal to 92:
+                Push 92 to out.
+                Push 92 to out.
+            Otherwise:
+                If c is equal to 10:
+                    Push 92 to out.
+                    Push 110 to out.
+                Otherwise:
+                    If c is equal to 9:
+                        Push 92 to out.
+                        Push 116 to out.
+                    Otherwise:
+                        Push c to out.
+    Push 34 to out.
+    Return text_from_bytes(out).
+
+## Note
+Reports whether `s` can be raw-backquoted: false if it contains a backtick, DEL (127), or any control byte below 32 other than tab (9).
+
+## To canBackquote (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let mutable ok be true.
+    Repeat for c in sb:
+        If c is equal to 96:
+            Set ok to false.
+        If c is equal to 127:
+            Set ok to false.
+        If c is less than 32:
+            If c is greater than 9:
+                Set ok to false.
+            Otherwise:
+                If c is less than 9:
+                    Set ok to false.
+    Return ok.
+
+## Note
+Parses `s` as an integer, clamping any negative result to 0.
+
+## To parseUint (s: Text) -> Int:
+    Let n be parseInt(s).
+    If n is less than 0:
+        Return 0.
+    Return n.
+
+## Note
+Renders an integer as its decimal text via string interpolation.
+
+## To formatUint (n: Int) -> Text:
+    Return "{n}".
+
+## Note
+Converts an integer to a Real via the Int-times-Real coercion — a direct `n as f64` cast, not a decimal-text round-trip through `parseFloat`.
+
+## To toReal (n: Int) -> Real:
+    Return n + 0.0.
+
+## Note
+Appends the decimal text of integer `n` to `prefix`.
+
+## To appendInt (prefix: Text) and (n: Int) -> Text:
+    Return prefix combined with "{n}".
+
+## Note
+Appends the decimal text of integer `n` to `prefix`.
+
+## To appendUint (prefix: Text) and (n: Int) -> Text:
+    Return prefix combined with "{n}".
+
+## Note
+Appends the formatted boolean (`"true"`/`"false"`) to `prefix`.
+
+## To appendBool (prefix: Text) and (b: Bool) -> Text:
+    Return prefix combined with formatBool(b).
+
+## Note
+Appends the double-quoted, escaped form of `s` (via `quoteText`) to `prefix`.
+
+## To appendQuote (prefix: Text) and (s: Text) -> Text:
+    Return prefix combined with quoteText(s).
+
+## Note
+Wraps the character for code `c` (via `chr`) in single quotes.
+
+## To quoteRune (c: Int) -> Text:
+    Return "'" combined with chr(c) combined with "'".
+
+## Note
+Appends the single-quoted character for code `c` (via `quoteRune`) to `prefix`.
+
+## To appendQuoteRune (prefix: Text) and (c: Int) -> Text:
+    Return prefix combined with quoteRune(c).

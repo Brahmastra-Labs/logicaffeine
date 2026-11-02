@@ -1,0 +1,10 @@
+{
+  "capability": "iter.median_high",
+  "workload": "medianHigh(xs)",
+  "arg": "20000",
+  "expected": "822248884",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

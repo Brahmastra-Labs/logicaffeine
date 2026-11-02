@@ -1,0 +1,70 @@
+{
+  "id": "13.2",
+  "title": "Believing and Willing in Gensler's Notation",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Gensler writes 'u:A' for 'you believe A'. Underlining the believer turns it into a command: u̲:A means 'believe A'."
+    },
+    {
+      "type": "symbols",
+      "title": "The notation",
+      "symbols": [
+        {
+          "symbol": "u:A",
+          "name": "Believing",
+          "meaning": "You believe A."
+        },
+        {
+          "symbol": "u̲:A",
+          "name": "A command",
+          "meaning": "Believe A."
+        },
+        {
+          "symbol": "u:H(c̲, u)",
+          "name": "Willing",
+          "meaning": "You want Carol to harm you."
+        },
+        {
+          "symbol": "O u̲:A",
+          "name": "Evidence",
+          "meaning": "A is evident to you: you ought to believe A."
+        }
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Believing",
+      "lines": [
+        "You believe that C is true: u:C",
+        "Believe that C is true: u̲:C"
+      ],
+      "note": "The underline turns a description into a command."
+    },
+    {
+      "type": "worked",
+      "title": "Wanting",
+      "lines": [
+        "You want everyone to laugh: u:∀x L(x̲)",
+        "You want Carol to harm you: u:H(c̲, u)"
+      ],
+      "note": "Inside what you want, the person who would act is underlined."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which formula says 'Don't believe that Q is true'?",
+    "options": [
+      "¬u̲:Q",
+      "¬u:Q",
+      "u̲:¬Q",
+      "¬u̲:¬Q"
+    ],
+    "correct": 0,
+    "hint": "It is a command, and it forbids a belief. What gets underlined, and where does ¬ go?",
+    "explanation": "It forbids believing Q. The command is underlined and denied: ¬u̲:Q."
+  }
+}

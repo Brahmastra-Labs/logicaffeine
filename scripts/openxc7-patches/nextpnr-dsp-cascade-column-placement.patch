@@ -1,0 +1,68 @@
+diff --git a/xilinx/arch.cc b/xilinx/arch.cc
+index c1926c8a..a525c4ee 100644
+--- a/xilinx/arch.cc
++++ b/xilinx/arch.cc
+@@ -647,6 +647,46 @@ bool Arch::getBudgetOverride(const NetInfo *net_info, const PortRef &sink, delay
+ 
+ // -----------------------------------------------------------------------
+ 
++bool Arch::getClusterPlacement(ClusterId cluster, BelId root_bel,
++                               std::vector<std::pair<CellInfo *, BelId>> &placement) const
++{
++    CellInfo *root = getClusterRootCell(cluster);
++    if (root->type != id_DSP48E1_DSP48E1)
++        return BaseArch<ArchRanges>::getClusterPlacement(cluster, root_bel, placement);
++    placement.clear();
++    Loc loc = getBelLocation(root_bel);
++    if (root->constr_abs_z)
++        loc.z = root->constr_z;
++    BelId bel = getBelByLocation(loc);
++    if (bel == BelId() || !isValidBelForCellType(root->type, bel))
++        return false;
++    placement.emplace_back(root, bel);
++    for (auto child : root->constr_children) {
++        Loc next = loc;
++        next.z = child->constr_z;
++        if (child->constr_z == BEL_LOWER_DSP) {
++            // The next tile up the column holding a DSP: five rows on, six across an HCLK row.
++            bool found = false;
++            for (int dy = 1; dy <= 8 && !found; dy++) {
++                Loc probe(loc.x, loc.y - dy, BEL_LOWER_DSP);
++                BelId b = getBelByLocation(probe);
++                if (b != BelId() && isValidBelForCellType(child->type, b)) {
++                    next = probe;
++                    found = true;
++                }
++            }
++            if (!found)
++                return false;
++        }
++        BelId child_bel = getBelByLocation(next);
++        if (child_bel == BelId() || !isValidBelForCellType(child->type, child_bel))
++            return false;
++        placement.emplace_back(child, child_bel);
++        loc = next;
++    }
++    return true;
++}
++
+ bool Arch::place()
+ {
+     std::string placer = str_or_default(settings, id_placer, defaultPlacer);
+diff --git a/xilinx/arch.h b/xilinx/arch.h
+index adde9329..bb7c5df3 100644
+--- a/xilinx/arch.h
++++ b/xilinx/arch.h
+@@ -1490,6 +1490,12 @@ struct Arch : BaseArch<ArchRanges>
+     std::vector<PipId> getGroupPips(GroupId group) const { return {}; }
+     std::vector<GroupId> getGroupGroups(GroupId group) const { return {}; }
+ 
++    // A DSP cascade climbs its column one tile at a time, and a clock region's HCLK row interrupts the column every
++    // five tiles: each member of a cascade is placed on the next DSP up from the one before it, never at a fixed
++    // offset from the root, which no chain longer than half a region could satisfy.
++    bool getClusterPlacement(ClusterId cluster, BelId root_bel,
++                             std::vector<std::pair<CellInfo *, BelId>> &placement) const override;
++
+     // -------------------------------------------------
+     mutable IdString gnd_glbl, gnd_row, vcc_glbl, vcc_row;
+     delay_t estimateDelay(WireId src, WireId dst) const override;

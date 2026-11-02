@@ -1,0 +1,80 @@
+{
+  "case": "T01-002",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t01_universes/T01-002_type_zero_and_type_one.lean",
+  "source_sha256": "fa7557afc9eb18603cf4e365d5490fb2e79860125140404b5971cc3d3addefa7",
+  "ledger_sha256": "5cea6fa967730e7ad3a4c02140238333f9924461ef1635fd37c27fd5d19db1e6",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T01_002.acrossLevels",
+    "T01_002.bareType",
+    "T01_002.concreteType",
+    "T01_002.container",
+    "T01_002.containerAtNat",
+    "T01_002.higherAtContainer",
+    "T01_002.higherContainer",
+    "T01_002.ladder0",
+    "T01_002.ladder1",
+    "T01_002.ladder2",
+    "T01_002.sortOne",
+    "T01_002.sortTwo",
+    "T01_002.typeOne",
+    "T01_002.typeTwo",
+    "T01_002.typeZero",
+    "T01_002.typeZeroInhabitsTypeOne"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "38853d1d247faedd8da323dd1a8237debee2663551da3d67ec696b65eaf27b74",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 111,
+  "harvest": {
+    "roots": [
+      "T01_002.acrossLevels",
+      "T01_002.bareType",
+      "T01_002.concreteType",
+      "T01_002.container",
+      "T01_002.containerAtNat",
+      "T01_002.higherAtContainer",
+      "T01_002.higherContainer",
+      "T01_002.ladder0",
+      "T01_002.ladder1",
+      "T01_002.ladder2",
+      "T01_002.sortOne",
+      "T01_002.sortTwo",
+      "T01_002.typeOne",
+      "T01_002.typeTwo",
+      "T01_002.typeZero",
+      "T01_002.typeZeroInhabitsTypeOne"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

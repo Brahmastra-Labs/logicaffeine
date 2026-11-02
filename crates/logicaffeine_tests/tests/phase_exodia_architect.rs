@@ -32,7 +32,10 @@ fn union_find_basics_in_base() {
     let c = uf.make_set();
     assert_ne!(uf.find(a), uf.find(b));
     assert!(uf.union(a, b));
-    assert!(!uf.union(a, b), "re-union of the same class reports no merge");
+    assert!(
+        !uf.union(a, b),
+        "re-union of the same class reports no merge"
+    );
     assert_eq!(uf.find(a), uf.find(b));
     assert_ne!(uf.find(a), uf.find(c));
     assert!(uf.union(b, c));
@@ -94,7 +97,11 @@ fn egraph_congruence_propagates_transitively() {
     let ny = eg.add(CompilerENode::Not(my));
     eg.union(x, y);
     eg.rebuild();
-    assert_eq!(eg.find(nx), eg.find(ny), "congruence must chain through two levels");
+    assert_eq!(
+        eg.find(nx),
+        eg.find(ny),
+        "congruence must chain through two levels"
+    );
 }
 
 // =====================================================================
@@ -177,7 +184,11 @@ fn group1_identities_fire_for_proven_ints() {
         eg.set_scalar(x, ScalarKind::Int);
         let (built, expect) = build(&mut eg, x);
         eg.saturate(&rules::all());
-        assert_eq!(eg.find(built), eg.find(expect), "{name} must fire for proven ints");
+        assert_eq!(
+            eg.find(built),
+            eg.find(expect),
+            "{name} must fire for proven ints"
+        );
     }
 }
 
@@ -264,7 +275,11 @@ fn mul_pow2_becomes_shl() {
     let two = eg.add(CompilerENode::Int(2));
     let shl = eg.add(CompilerENode::Shl(x, two));
     eg.saturate(&rules::all());
-    assert_eq!(eg.find(mul), eg.find(shl), "proven-bounded x * 4 must unify with x << 2");
+    assert_eq!(
+        eg.find(mul),
+        eg.find(shl),
+        "proven-bounded x * 4 must unify with x << 2"
+    );
 }
 
 /// Group 3 CONDITIONAL: `x / 2^n → x >> n` requires an Oracle proof x ≥ 0.
@@ -283,7 +298,11 @@ fn div_pow2_to_shr_requires_nonneg_proof() {
     let two = eg.add(CompilerENode::Int(2));
     let shr = eg.add(CompilerENode::Shr(x, two));
     eg.saturate(&rules::all());
-    assert_eq!(eg.find(div), eg.find(shr), "x/4 with x ∈ [0,100] must become x >> 2");
+    assert_eq!(
+        eg.find(div),
+        eg.find(shr),
+        "x/4 with x ∈ [0,100] must become x >> 2"
+    );
 
     // refuses without it
     for range in [Some((-5i64, 100i64)), None] {
@@ -318,7 +337,11 @@ fn mod_pow2_to_and_requires_nonneg_proof() {
     let seven = eg.add(CompilerENode::Int(7));
     let masked = eg.add(CompilerENode::BitAnd(x, seven));
     eg.saturate(&rules::all());
-    assert_eq!(eg.find(md), eg.find(masked), "x % 8 with x ≥ 0 must become x & 7");
+    assert_eq!(
+        eg.find(md),
+        eg.find(masked),
+        "x % 8 with x ≥ 0 must become x & 7"
+    );
 
     let mut eg = CompilerEGraph::new();
     let x = eg.add(CompilerENode::Var(0, 0));
@@ -328,7 +351,11 @@ fn mod_pow2_to_and_requires_nonneg_proof() {
     let seven = eg.add(CompilerENode::Int(7));
     let masked = eg.add(CompilerENode::BitAnd(x, seven));
     eg.saturate(&rules::all());
-    assert_ne!(eg.find(md), eg.find(masked), "x % 8 must NOT mask without the proof");
+    assert_ne!(
+        eg.find(md),
+        eg.find(masked),
+        "x % 8 must NOT mask without the proof"
+    );
 }
 
 /// THE case GVN misses: associativity. (a + b) + c and a + (b + c) are
@@ -393,7 +420,11 @@ fn egraph_constant_folds_with_exact_overflow_semantics() {
     let class = eg.find(sum);
     for k in [i64::MIN, i64::MAX, 0] {
         let lit = eg.add(CompilerENode::Int(k));
-        assert_ne!(eg.find(lit), class, "i64::MAX + 1 must not fold to the wrapped {k}");
+        assert_ne!(
+            eg.find(lit),
+            class,
+            "i64::MAX + 1 must not fold to the wrapped {k}"
+        );
     }
 }
 
@@ -499,7 +530,10 @@ fn extraction_drops_proven_division() {
     let div = eg.add(CompilerENode::Div(x, four));
     eg.saturate(&rules::all());
     let tree = best_tree(&mut eg, div);
-    assert!(!tree_uses_div(&tree), "x/4 with x ≥ 0 must extract shift, not divide");
+    assert!(
+        !tree_uses_div(&tree),
+        "x/4 with x ≥ 0 must extract shift, not divide"
+    );
 }
 
 /// Extraction is total even with cycles in the class graph (x ≡ x + 0
@@ -564,7 +598,10 @@ fn registry_contains_the_exodia_gate_rules() {
         "add-assoc",
         "mul-comm",
     ] {
-        assert!(names.contains(&required), "missing rule '{required}' in {names:?}");
+        assert!(
+            names.contains(&required),
+            "missing rule '{required}' in {names:?}"
+        );
     }
 }
 
@@ -628,10 +665,12 @@ mod v2_pipeline {
             match s {
                 Stmt::Let { value, .. } | Stmt::Set { value, .. } => pred(value),
                 Stmt::Show { object, .. } => pred(object),
-                Stmt::While { cond, body, .. } => {
-                    pred(cond) || body.iter().any(|b| walk(b, pred))
-                }
-                Stmt::If { cond, then_block, else_block } => {
+                Stmt::While { cond, body, .. } => pred(cond) || body.iter().any(|b| walk(b, pred)),
+                Stmt::If {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
                     pred(cond)
                         || then_block.iter().any(|b| walk(b, pred))
                         || else_block
@@ -963,15 +1002,26 @@ mod fusion {
     #[test]
     fn fusion_rules_registered_and_certified() {
         let names: Vec<&'static str> = rules::all().iter().map(|r| r.name).collect();
-        for required in
-            ["len-copy", "index-copy", "copy-copy", "slice-full-copy", "len-slice-bounds"]
-        {
-            assert!(names.contains(&required), "missing rule '{required}' in {names:?}");
+        for required in [
+            "len-copy",
+            "index-copy",
+            "copy-copy",
+            "slice-full-copy",
+            "len-slice-bounds",
+        ] {
+            assert!(
+                names.contains(&required),
+                "missing rule '{required}' in {names:?}"
+            );
         }
         let all = rules::all();
-        let verified = rules::verify_all_with_kernel()
-            .unwrap_or_else(|e| panic!("certification failed: {e}"));
-        assert_eq!(verified, all.len(), "every rule (fusion included) must be certified");
+        let verified =
+            rules::verify_all_with_kernel().unwrap_or_else(|e| panic!("certification failed: {e}"));
+        assert_eq!(
+            verified,
+            all.len(),
+            "every rule (fusion included) must be certified"
+        );
     }
 
     /// Pipeline-level: `length of (copy of xs)` in a loop must residualize
@@ -1013,7 +1063,11 @@ mod fusion {
                 Stmt::While { cond, body, .. } => {
                     expr_has_len_of_copy(cond) || body.iter().any(stmt_has_len_of_copy)
                 }
-                Stmt::If { cond, then_block, else_block } => {
+                Stmt::If {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
                     expr_has_len_of_copy(cond)
                         || then_block.iter().any(stmt_has_len_of_copy)
                         || else_block
@@ -1040,7 +1094,10 @@ mod fusion {
         assert_eq!(err, None);
         let tw = tw_outcome_with_args(src, &[]);
         assert_eq!(out.trim(), tw.output.trim(), "v2 diverged from raw");
-        assert!(!survived, "length of (copy of xs) must residualize without the Copy");
+        assert!(
+            !survived,
+            "length of (copy of xs) must residualize without the Copy"
+        );
     }
 }
 
@@ -1200,8 +1257,7 @@ mod cross_statement {
                    Let z be p * q.\n\
                    Set p to parseInt(item 4 of arguments).\n\
                    Show z + p * q.\n";
-        let (out, muls) =
-            v2_metric_with_parity(src, &argv(&["bench", "6", "7", "9"]), count_muls);
+        let (out, muls) = v2_metric_with_parity(src, &argv(&["bench", "6", "7", "9"]), count_muls);
         assert_eq!(out, "105", "42 + 63");
         assert_eq!(
             muls,

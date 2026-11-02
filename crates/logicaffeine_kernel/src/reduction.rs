@@ -35,116 +35,638 @@
 //! - `syn_step`, `syn_eval`: Bounded evaluation
 //! - `syn_quote`, `syn_diag`: Reification and diagonalization
 //!
-//! # Fuel Limit
+//! # Divergence
 //!
-//! Normalization uses a fuel counter (default 10000) to prevent infinite loops.
-//! If fuel is exhausted, the current term is returned as-is.
+//! Normalization detects a CYCLING reduction (Brent's algorithm, O(1) memory) and falls back
+//! on a large step budget for divergence that does not cycle. `normalize_checked` reports
+//! which happened; `normalize` hands back how far it got, because its signature is public API.
 
 use crate::context::Context;
 use crate::omega;
-use crate::term::{int_lit, lit_bigint, Literal, Term, Universe};
+use crate::term::{int_lit, lit_bigint, Literal, Term};
 use crate::type_checker::substitute;
+
+/// Why a reduction stopped before reaching a normal form.
+///
+/// `normalize` hands back a bare `Term`, so "this is the normal form" and "this is as far as I
+/// got" are THE SAME ANSWER — and the caller cannot tell them apart. That is not a precision
+/// loss, it is a soundness channel: a conversion check that compares two abandoned reductions
+/// and finds them equal has certified nothing.
+///
+/// A δ-cycle (`a := b`, `b := a`) proves no fuel constant can close the gap, because that
+/// reduction has no normal form at all. Only an error channel can.
+///
+/// It is nevertheless CONSERVATIVE rather than unsound, and the reason is worth stating because
+/// it is what a future change can break: `reduce_step_opt` is a FUNCTION of the term, so two
+/// reductions holding the same term after the same number of steps hold it forever after and
+/// therefore have the same normal form. A conversion check built on "normalise both sides, then
+/// compare" can be INCOMPLETE when a budget runs out — never wrong. The same determinism makes
+/// the cycle answer safe: `normalize` hands the INPUT back, and the only term that can be
+/// mistaken for is itself. Collapsing every non-normalising term to one answer instead — a
+/// shared `Hole`, say — would identify two unrelated cycles and let `refl` prove an equation
+/// between two well-typed terms that are not equal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unreduced {
+    /// The reduction returned to a term it had already produced, so it cycles forever. The
+    /// term has NO normal form.
+    Cyclic,
+    /// The step budget ran out. The term may or may not have a normal form.
+    BudgetSpent,
+    /// The term nests deeper than the kernel will descend, so the reducer never started.
+    TooDeep,
+}
+
+thread_local! {
+    /// The first RESOURCE stop — a spent step budget or a term too deep to descend — of any
+    /// reduction run on this thread since the innermost [`observe_resource_stops`] began.
+    /// Recorded where the kernel gives up, whether or not its caller then carries on with the
+    /// partial term, because the caller that carries on is exactly the one that cannot tell.
+    static RESOURCE_STOP: std::cell::Cell<Option<Unreduced>> = const { std::cell::Cell::new(None) };
+}
+
+/// Record that kernel work stopped for want of a resource rather than reaching its answer.
+/// A cycle is not a resource stop: it is a proof that there is no normal form to reach.
+pub(crate) fn record_resource_stop(reason: Unreduced) {
+    if reason == Unreduced::Cyclic {
+        return;
+    }
+    RESOURCE_STOP.with(|stop| {
+        if stop.get().is_none() {
+            stop.set(Some(reason))
+        }
+    });
+}
+
+/// The resource stop recorded on this thread, for `term_store`'s sized-stack threads to carry
+/// back to the thread that started them.
+pub(crate) fn resource_stop_on_this_thread() -> Option<Unreduced> {
+    RESOURCE_STOP.with(|stop| stop.get())
+}
+
+/// Run `f` and report the first resource stop of any kernel work it did — a reduction that spent
+/// its step budget, or a term too deep to descend — on this thread or on any sized-stack thread
+/// the kernel started for it.
+///
+/// This is what makes "not equal" an answer. A conversion that returns `false` after one of its
+/// reductions stopped short has compared a partial term, and a partial term can differ from a
+/// normal form it never reached: that `false` is an UNDECIDED comparison, never evidence that the
+/// two sides differ. Only the conversion that ran knows whether it depended on such a stop, so
+/// the record is taken from inside it — never reconstructed afterwards by normalizing the whole
+/// sides again, which costs more than the conversion it audits and cannot even see what the
+/// conversion actually compared (`refute-cheap-first` refutes `(false, count 200)` against
+/// `(true, count 201)` at the booleans without ever evaluating `count`).
+///
+/// Observations nest: the record of the enclosing observation is restored afterwards, and learns
+/// of a stop inside this one too.
+pub fn observe_resource_stops<R>(f: impl FnOnce() -> R) -> (R, Option<Unreduced>) {
+    struct Enclosing(Option<Unreduced>);
+    impl Drop for Enclosing {
+        fn drop(&mut self) {
+            RESOURCE_STOP.with(|stop| {
+                let inner = stop.get();
+                stop.set(self.0.or(inner));
+            });
+        }
+    }
+    let enclosing = Enclosing(RESOURCE_STOP.with(|stop| stop.replace(None)));
+    let result = f();
+    let stopped = RESOURCE_STOP.with(|stop| stop.get());
+    drop(enclosing);
+    (result, stopped)
+}
+
+/// Run `f` WITHOUT letting its resource stops reach the enclosing observation — for work whose
+/// answer the verdict does not use (a debug differential that re-decides a pair already decided).
+pub fn discard_resource_stops<R>(f: impl FnOnce() -> R) -> R {
+    struct Enclosing(Option<Unreduced>);
+    impl Drop for Enclosing {
+        fn drop(&mut self) {
+            RESOURCE_STOP.with(|stop| stop.set(self.0));
+        }
+    }
+    let _enclosing = Enclosing(RESOURCE_STOP.with(|stop| stop.replace(None)));
+    f()
+}
+
+/// The maximum number of whole-term reduction steps. Large enough that no TERMINATING
+/// reduction the kernel is asked for hits it (a 20 000-step δ-chain has 50× headroom), because
+/// a budget that stops a terminating reduction is indistinguishable from a normal form. Cyclic
+/// divergence is caught by cycle detection below, long before this.
+const MAX_REDUCTION_STEPS: usize = 1 << 20;
+
+/// How much δ a reduction is allowed — Lean's `TransparencyMode`, narrowed to the axis that
+/// actually changes the answer.
+///
+/// FOLLOWING LEAN, INCLUDING WHERE IT IS SUBTLE. Reducibility in Lean is an ELABORATOR
+/// attribute: Lean's KERNEL unfolds every definition whatever its attribute, which is why
+/// `example : secret = 5 := rfl` on an `@[irreducible] def secret : Nat := 5` is refused by the
+/// elaborator and *accepted* by the kernel. So [`Transparency::All`] is the kernel's own
+/// setting and stays what [`normalize`] uses, and [`Transparency::Excluding`] is the
+/// elaborator's default transparency — the setting under which an `@[irreducible]` constant
+/// keeps its body AND stays folded. Collapsing the two in either direction is a real loss:
+/// always-transparent makes LOGOS prove by `rfl` what Lean's elaborator refuses (the
+/// over-permissive direction), and routing irreducibility through `add_declaration` instead
+/// throws the body away and manufactures a silent axiom.
+///
+/// The opacity set is supplied as a PREDICATE rather than read out of the `Context`, so the
+/// reducer does not have to know how the attribute is stored: a reducibility map in `Context`
+/// wires in as `Transparency::Excluding(&|n| ctx.is_irreducible(n))` and nothing here changes.
+#[derive(Clone, Copy)]
+pub enum Transparency<'a> {
+    /// Unfold every definition. The kernel's setting.
+    All,
+    /// Keep every constant the predicate accepts FOLDED, body intact. The elaborator's default.
+    ///
+    /// `+ Sync` is not decoration: without it `Transparency` is not `Send`, and a normalisation
+    /// entry point that cannot cross a thread boundary cannot be run on a SIZED STACK — which is
+    /// what stops a deep term ABORTING the process instead of failing. The bound costs nothing:
+    /// every predicate here is built from `Context::is_irreducible`, and `Context` is `Sync`.
+    Excluding(&'a (dyn Fn(&str) -> bool + Sync)),
+}
+
+impl Transparency<'_> {
+    /// Whether δ may unfold `name` at this transparency.
+    fn unfolds(&self, name: &str) -> bool {
+        match self {
+            Transparency::All => true,
+            Transparency::Excluding(opaque) => !(*opaque)(name),
+        }
+    }
+}
+
+/// Normalize a term, reporting honestly when the reduction did not finish.
+///
+/// `Err((partial, why))` carries the term the reducer had reached, so a caller that wants
+/// best-effort behaviour can still have it — but it has to ask for it, which is the whole
+/// point.
+///
+/// Divergence is detected with Brent's cycle-finding: one saved term (the "tortoise"), re-saved
+/// at powers of two, compared against each new term. It needs O(1) memory, finds a cycle of any
+/// period within about twice the cycle length, and — unlike a step budget — answers the δ-cycle
+/// case CORRECTLY rather than merely late.
+pub fn normalize_checked(ctx: &Context, term: &Term) -> Result<Term, (Term, Unreduced)> {
+    normalize_checked_at(ctx, term, Transparency::All)
+}
+
+/// [`normalize_checked`] at a chosen transparency — the honest face of [`normalize_at`].
+pub fn normalize_checked_at(
+    ctx: &Context,
+    term: &Term,
+    tr: Transparency<'_>,
+) -> Result<Term, (Term, Unreduced)> {
+    if let Some(r) = crate::annotation::erased(term, |term| normalize_checked_at(ctx, term, tr)) {
+        return r;
+    }
+    // A SIZED STACK, measured ONCE per outermost kernel call, and measured HERE because this is
+    // the one funnel every normalisation entry point reaches — `normalize`, `normalize_at`,
+    // `normalize_checked`, `normalize_elab` and `normalize_checked_elab` all end up in this
+    // function, so wiring it once is wiring it five times without five chances to forget one.
+    //
+    // It matters because `reduce_step_opt` descends with NATIVE recursion: a term deeper than
+    // the thread's stack does not fail, it ABORTS THE PROCESS, and a public entry point may
+    // never do that. `deepen_stack` runs a shallow term inline and a deep one on a scoped
+    // thread sized for it, and returns `None` on the re-entrant call inside its own closure —
+    // so the depth measurement is paid exactly once however deep the recursion goes.
+    let result =
+        match crate::term_store::deepen_stack(term, || normalize_checked_at_sized(ctx, term, tr)) {
+            Some(result) => result,
+            None => normalize_checked_at_sized(ctx, term, tr),
+        };
+    if let Err((_, reason)) = &result {
+        record_resource_stop(*reason);
+    }
+    result
+}
+
+/// [`normalize_checked`] within `steps` whole-term reduction steps rather than the kernel's full
+/// allowance: exactly the same normal form whenever one is reached within them, `BudgetSpent`
+/// sooner otherwise. A PROBE: its stop is not recorded as a resource stop of the enclosing
+/// conversion, because the caller answers it with another method, not with a refusal.
+pub(crate) fn normalize_checked_within(
+    ctx: &Context,
+    term: &Term,
+    steps: usize,
+) -> Result<Term, (Term, Unreduced)> {
+    if let Some(r) =
+        crate::annotation::erased(term, |term| normalize_checked_within(ctx, term, steps))
+    {
+        return r;
+    }
+    let limit = steps.min(MAX_REDUCTION_STEPS);
+    discard_resource_stops(|| {
+        match crate::term_store::deepen_stack(term, || {
+            normalize_sized(ctx, term, Transparency::All, limit)
+        }) {
+            Some(result) => result,
+            None => normalize_sized(ctx, term, Transparency::All, limit),
+        }
+    })
+}
+
+/// [`normalize_checked_at`]'s body, on a stack sized for `term`.
+fn normalize_checked_at_sized(
+    ctx: &Context,
+    term: &Term,
+    tr: Transparency<'_>,
+) -> Result<Term, (Term, Unreduced)> {
+    normalize_sized(ctx, term, tr, MAX_REDUCTION_STEPS)
+}
+
+/// The normalization pipeline within `limit` (at most `MAX_REDUCTION_STEPS`) whole-term steps.
+fn normalize_sized(
+    ctx: &Context,
+    term: &Term,
+    tr: Transparency<'_>,
+    limit: usize,
+) -> Result<Term, (Term, Unreduced)> {
+    // A NESTED normalization may be handed a term deeper than the stack its outermost kernel call
+    // was sized for: a reduct an earlier normalization in the same conversion built (and handed
+    // back partial at the depth door). `deepen_stack` answers `None` for a nested call, so the
+    // term is measured here and the stack grown for it, exactly as `normalize_progress` does for
+    // the terms it builds — a public entry point may refuse a deep term, but never abort.
+    let depth = crate::term_store::term_depth(term);
+    let sized = depth.min(crate::type_checker::MAX_TERM_DEPTH);
+    if sized > crate::term_store::INLINE_DEPTH
+        && crate::term_store::stack_bytes_for_depth(sized) > crate::term_store::kernel_stack_bytes()
+    {
+        return crate::term_store::grow_stack_for_depth(sized, || {
+            normalize_sized(ctx, term, tr, limit)
+        });
+    }
+    // A term past the door is refused here and not by `enter_kernel`, which admits every term once
+    // a kernel call is under way: a nested normalization can be handed the partial reduct an earlier
+    // one stopped at, one level past the door, and descending it would exhaust the stack. The
+    // refusal's partial term is cloned on the stack grown just above.
+    if depth > crate::type_checker::MAX_TERM_DEPTH {
+        return Err((term.clone(), Unreduced::TooDeep));
+    }
+    // `reduce_step_opt` descends into every subterm with native recursion, so a term deeper
+    // than the kernel's door is refused BEFORE the first clone — cloning a `Term` is itself
+    // recursive over its `Box`es, so even copying a deep enough term aborts the process.
+    let Some(_door) = crate::type_checker::enter_kernel_or_refuse(term) else {
+        return Err((term.clone(), Unreduced::TooDeep));
+    };
+    // `None` is the reducer SAYING there is no redex, not a structural comparison guessing it.
+    // That is one fewer Θ(size) walk per step — and, unlike `reduced == current`, it is right
+    // about a term holding a `NaN`, which is never equal to itself.
+    //
+    // The first question is asked on the BORROWED term, because the commonest input to a
+    // conversion check is ALREADY a normal form: that answer now costs one walk and a single
+    // clone (the one the return value needs), where the old shape cloned the whole term TWICE
+    // before taking a single step.
+    // The existing pure beta/zeta door gives the exact same normal form at
+    // every transparency. Its conservative shape/name checks exclude all other
+    // reduction rules. Use it where sharing repays the per-call store setup.
+    if depth >= 64 {
+        if let Some(nf) =
+            crate::term_store::beta_zeta_normal_form_in_context(ctx, term, limit as u64)
+        {
+            return Ok(nf);
+        }
+    }
+    // Spend from the existing budget; unsuccessful speculation does not reset it. A smaller limit
+    // is the same budget with `MAX_REDUCTION_STEPS - limit` already spent.
+    let mut spent = MAX_REDUCTION_STEPS - limit;
+    if shared_head::natural_result_candidate(ctx, term, tr) {
+        let allowance = limit as u64;
+        let (answer, remaining) = shared_head::natural_normal_form(ctx, term, tr, allowance);
+        spent += (allowance - remaining) as usize;
+        if let shared_head::NatReadbackOutcome::Normal(normal) = answer {
+            return Ok(normal);
+        }
+    }
+    normalize_tree_with_spent(ctx, term, tr, spent)
+}
+
+// Resume ordinary reduction with prior speculative work charged to its budget.
+fn normalize_tree_with_spent(
+    ctx: &Context,
+    term: &Term,
+    tr: Transparency<'_>,
+    spent: usize,
+) -> Result<Term, (Term, Unreduced)> {
+    if spent >= MAX_REDUCTION_STEPS {
+        return Err((term.clone(), Unreduced::BudgetSpent));
+    }
+    let Some(current) = reduce_step_opt(ctx, term, tr) else {
+        return Ok(term.clone());
+    };
+    normalize_progress(ctx, tr, current, term.clone(), 0, 1, spent + 1)
+}
+
+/// Resume with exactly the same fuel and cycle detector after stack growth.
+fn normalize_progress(
+    ctx: &Context,
+    tr: Transparency<'_>,
+    mut current: Term,
+    mut tortoise: Term,
+    mut since_save: usize,
+    mut save_at: usize,
+    mut steps: usize,
+) -> Result<Term, (Term, Unreduced)> {
+    let _probes = KProbeMemo::install();
+    loop {
+        let depth = crate::term_store::term_depth(&current);
+        if depth > crate::type_checker::MAX_TERM_DEPTH {
+            return Err((current, Unreduced::TooDeep));
+        }
+        if depth > crate::term_store::INLINE_DEPTH
+            && crate::term_store::stack_bytes_for_depth(depth)
+                > crate::term_store::kernel_stack_bytes()
+        {
+            return crate::term_store::grow_stack_for_depth(depth, || {
+                normalize_progress(ctx, tr, current, tortoise, since_save, save_at, steps)
+            });
+        }
+        if current == tortoise {
+            return Err((current, Unreduced::Cyclic));
+        }
+        since_save += 1;
+        if since_save == save_at {
+            tortoise = current.clone();
+            since_save = 0;
+            save_at *= 2;
+        }
+        if steps == MAX_REDUCTION_STEPS {
+            return Err((current, Unreduced::BudgetSpent));
+        }
+        if !reduce_step_in_place(ctx, &mut current, tr) {
+            return Ok(current);
+        }
+        steps += 1;
+    }
+}
 
 /// Normalize a term to its normal form.
 ///
 /// Repeatedly applies reduction rules until no more reductions are possible.
 /// This is a full normalization that reduces under binders.
+///
+/// This is the BEST-EFFORT face of [`normalize_checked`]: when the reduction cannot be
+/// finished it hands back how far it got, which is exactly the answer a caller cannot
+/// distinguish from success. It keeps this shape because `normalize` is re-exported from the
+/// crate root and callers across the workspace depend on the signature; every caller INSIDE the
+/// kernel that can carry an error should ask `normalize_checked` instead.
 pub fn normalize(ctx: &Context, term: &Term) -> Term {
-    let mut current = term.clone();
-    let mut fuel = 10000; // Safety limit to prevent infinite loops
+    normalize_at(ctx, term, Transparency::All)
+}
 
-    loop {
-        if fuel == 0 {
-            // If we hit the fuel limit, return what we have
-            return current;
-        }
-        fuel -= 1;
-
-        let reduced = reduce_step(ctx, &current);
-        if reduced == current {
-            return current;
-        }
-        current = reduced;
+/// [`normalize`] at a chosen transparency. At [`Transparency::Excluding`] the named constants
+/// keep their bodies and stay FOLDED, which is what `@[irreducible]` means at Lean's default
+/// transparency; `normalize` itself is the kernel's setting and unfolds everything.
+pub fn normalize_at(ctx: &Context, term: &Term, tr: Transparency<'_>) -> Term {
+    match normalize_checked_at(ctx, term, tr) {
+        Ok(normal) => normal,
+        // A CYCLING reduction has no normal form, and every term on the cycle is as good an
+        // answer as any other — so handing back an arbitrary one makes `normalize`
+        // non-idempotent (`normalize(a) = b`, `normalize(b) = a`) and every conversion check
+        // built on "normalize both sides, then compare" inherits the instability. Handing the
+        // term back unchanged is the one answer that is at least a FUNCTION.
+        Err((_partial, Unreduced::Cyclic)) => term.clone(),
+        Err((partial, _why)) => partial,
     }
 }
 
-/// Single-step reduction.
+/// [`normalize`] at the ELABORATOR's transparency, reading the context's own reducibility
+/// registry — the door that makes `@[irreducible]` reachable without every caller inventing its
+/// own opacity predicate.
 ///
-/// Reduces the outermost redex first (call-by-name), then recurses
-/// into subterms for full normalization.
-fn reduce_step(ctx: &Context, term: &Term) -> Term {
+/// [`Transparency::Excluding`] takes a PREDICATE so the reducer need not know how the attribute
+/// is stored; the cost of that freedom is that a caller has to build the closure, and two
+/// callers that build it differently would disagree about whether a constant unfolds — which is
+/// `def_eq` answering differently depending on who asked. This is the one closure, built from
+/// [`Context::is_irreducible`], so there is nothing to get wrong.
+///
+/// FOLLOWING LEAN, INCLUDING WHERE IT IS SUBTLE: this is NOT what the kernel uses. Lean's kernel
+/// unfolds every definition whatever its attribute — `example : secret = 5 := rfl` on an
+/// `@[irreducible] def secret := 5` is refused by the elaborator and accepted by the kernel —
+/// so [`normalize`] stays [`Transparency::All`] and this is the elaborator's face.
+pub fn normalize_elab(ctx: &Context, term: &Term) -> Term {
+    let opaque = |n: &str| ctx.is_irreducible(n);
+    normalize_at(ctx, term, Transparency::Excluding(&opaque))
+}
+
+/// [`normalize_elab`]'s honest face: the elaborator's transparency, and a reduction that did not
+/// finish reported as such rather than handed back as a normal form.
+pub fn normalize_checked_elab(ctx: &Context, term: &Term) -> Result<Term, (Term, Unreduced)> {
+    let opaque = |n: &str| ctx.is_irreducible(n);
+    normalize_checked_at(ctx, term, Transparency::Excluding(&opaque))
+}
+
+/// A rewrite that FIRED, reported as progress only if it actually changed the term.
+///
+/// Some rules are idempotent re-wrappings rather than genuine steps (a reflection builtin that
+/// re-normalises an already-normal argument, say), and a reducer that claimed progress for one
+/// of those would spin until the budget ran out. The comparison costs a walk, but it happens
+/// only on the path where a named rule already matched — never on the search for one.
+fn progressed(term: &Term, result: Term) -> Option<Term> {
+    if result == *term {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+thread_local! {
+    /// The ι follow-up steps nested inside one another on this thread (see `reduce_step_opt`).
+    static IOTA_FOLLOW_UPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many ι follow-up steps may nest. The stack a normalization runs on is sized at
+/// `term_store::BYTES_PER_RUNG` (48 KiB) per level of the term it holds; a `reduce_step_opt` frame
+/// is about 8.9 KB in a debug build (measured). Each nested follow-up adds one more frame per level
+/// descended, so the descent and four follow-ups — five frames, ≈ 45 KB — are what one rung holds.
+const IOTA_FOLLOW_UP_LIMIT: usize = 4;
+
+struct IotaFollowUp(usize);
+
+impl IotaFollowUp {
+    fn enter() -> Option<IotaFollowUp> {
+        let nested = IOTA_FOLLOW_UPS.with(|n| n.get());
+        if nested >= IOTA_FOLLOW_UP_LIMIT {
+            return None;
+        }
+        IOTA_FOLLOW_UPS.with(|n| n.set(nested + 1));
+        Some(IotaFollowUp(nested))
+    }
+}
+
+impl Drop for IotaFollowUp {
+    fn drop(&mut self) {
+        IOTA_FOLLOW_UPS.with(|n| n.set(self.0));
+    }
+}
+
+/// Single-step reduction — `None` means THERE WAS NO REDEX, so the term is already normal.
+///
+/// Reduces the outermost redex first (call-by-name), then recurses into subterms for full
+/// normalization.
+///
+/// **Why progress is a RETURN VALUE and not a comparison.** This used to answer with a `Term`
+/// alone, and [`normalize_checked_at`] recovered "did anything happen?" by comparing the answer
+/// to the input. That is wrong twice over. It costs a Θ(size) structural walk PER STEP, on top
+/// of the Θ(size) walk the step itself already paid — and it is only correct if term equality is
+/// REFLEXIVE, which it is not: `Literal::Float` compares with IEEE `==`, so a term holding a
+/// `NaN` is never equal to itself, the fixpoint test can never fire, and `normalize` spent its
+/// whole 2^20-step budget on a term that was ALREADY A NORMAL FORM — then reported
+/// `Unreduced::BudgetSpent` about it. Progress is something the reducer knows for certain;
+/// saying so is both exact and free, and it also stops every no-progress arm from cloning a
+/// term it is handing straight back.
+///
+/// A rule that FIRED and led back to where it started (`a := a`, `fix f. f`) reports progress and
+/// is caught by cycle detection as [`Unreduced::Cyclic`] — which is the honest answer, because
+/// such a term has no normal form. "There is no redex" and "there is a redex that leads nowhere"
+/// are different facts and must not share an answer.
+fn reduce_step_opt(ctx: &Context, term: &Term, tr: Transparency<'_>) -> Option<Term> {
+    #[cfg(test)]
+    TREE_REDUCTION_CALLS.with(|n| n.set(n.get() + 1));
+    // A registered `@[simp]` rule is a REWRITE the environment was told to perform, and it is
+    // tried before β/δ/ι rather than after — see [`try_simp_rewrite`] for why "when everything
+    // else is stuck" is the one placement that can never fire. In a context with no registered
+    // rule (every context the prelude builds) this is one `is_empty` on a slice.
+    if let Some(rewritten) = try_simp_rewrite(ctx, term) {
+        return Some(rewritten);
+    }
     match term {
         // Literals are in normal form
-        Term::Lit(_) => term.clone(),
+        Term::Lit(_) => None,
 
         // Delta for a universe-polymorphic reference: unfold its body with the universe
         // parameters instantiated by the level arguments.
-        Term::Const { name, levels } => {
-            if let Some((params, _ty, body)) = ctx.get_universe_poly(name) {
-                if params.len() == levels.len() {
-                    let subst: std::collections::HashMap<String, crate::term::Universe> =
-                        params.iter().cloned().zip(levels.iter().cloned()).collect();
-                    return crate::term::instantiate_universes(body, &subst);
+        //
+        // ONE KERNEL, ONE VERDICT. A `Const` whose level list does not match its declaration's
+        // universe PARAMETERS is not a term of the calculus, and `infer_type` refuses it. This
+        // arm used to fall through to `term.clone()` — the reducer answering "settled normal
+        // form" about a term that denotes nothing, so a conversion check that normalises both
+        // sides and compares would happily compare two meaningless terms and find them equal.
+        // The honest answer is [`Term::Hole`], the kernel's own "nothing determinate here",
+        // which `infer_type` refuses by construction (`CannotInferHole`). It is the one answer
+        // that neither passes for a normal form nor LAUNDERS the term: zipping the level list
+        // and dropping the extra would silently make `id.{0,1}` mean `id.{0}` and hand back
+        // something well typed.
+        //
+        // Malformedness is a property of the TERM, so it is decided before the transparency
+        // door — an `@[irreducible]` constant is still a constant; a mis-levelled one is not.
+        Term::Const { name, levels } => match const_step(ctx, name, levels) {
+            ConstStep::Unresolved => None,
+            ConstStep::Illformed => Some(Term::Hole),
+            ConstStep::Value => None,
+            ConstStep::Delta(subst, body) => {
+                if !tr.unfolds(name) {
+                    return None;
                 }
+                Some(crate::term::instantiate_universes(&body, &subst))
             }
-            term.clone()
-        }
+        },
 
         // Beta: (λx. body) arg → body[x := arg]
         Term::App(func, arg) => {
             // First try primitive reduction (add, sub, mul, etc.)
-            if let Some(result) = try_primitive_reduce(func, arg) {
-                return result;
+            if let Some(result) = try_primitive_reduce(ctx, func, arg, tr) {
+                return progressed(term, result);
+            }
+
+            // An attested alias is a checked structural definition. First give
+            // its operands one ordinary reduction step so nested compact
+            // arithmetic does not lose the alias head and expand into Peano
+            // recursion. Reuse the outer normalization budget and transparency.
+            if let Term::App(head, first) = func.as_ref() {
+                if let Term::Global(operation) = head.as_ref() {
+                    if crate::int_inductive::integer_alias_dependencies(operation).is_some_and(
+                        |dependencies| dependencies.iter().all(|name| tr.unfolds(name)),
+                    ) && crate::int_inductive::accelerates_integer_alias(ctx, operation)
+                    {
+                        if let Some(reduced_first) = reduce_step_opt(ctx, first, tr) {
+                            return Some(Term::App(
+                                Box::new(Term::App(head.clone(), Box::new(reduced_first))),
+                                arg.clone(),
+                            ));
+                        }
+                        if let Some(reduced_last) = reduce_step_opt(ctx, arg, tr) {
+                            return Some(Term::App(func.clone(), Box::new(reduced_last)));
+                        }
+                    }
+                }
             }
 
             // Try reflection builtins (syn_size, syn_max_var)
             if let Some(result) = try_reflection_reduce(ctx, func, arg) {
-                return result;
+                return progressed(term, result);
             }
 
             // Native reduction: `reduceBool t` evaluates `t` with the fast CBV evaluator
             // (the `native_decide` engine). This is the ONLY place the trusted evaluator
             // enters kernel reduction — gated behind the `reduceBool` primitive, which only
             // a `native_decide` proof (via the `ofReduceBool` axiom) ever mentions.
+            //
+            // THE SAME TWO GATES EVERY OTHER COMPUTATION RULE PASSES, and it is the rule that
+            // needs them most, being the one whose answer an AXIOM turns into a proof. It used
+            // to match a bare `Term::Global("reduceBool")` and ask neither:
+            //
+            //   * a DEFINITION of the name outranks the builtin — otherwise the reducer answers
+            //     something the context it type-checked the application against says the
+            //     constant does not mean, with no diagnostic anywhere;
+            //   * the rule may not fire at a type the DECLARATION denies — the answer is always
+            //     a `Bool` constructor, so a context declaring `reduceBool : Nat → Nat` got a
+            //     kernel where `infer_type` said `Nat` and `normalize` produced a `Bool`, which
+            //     is subject reduction failing, and it is the same divergence
+            //     `declaration_agrees_with_the_rule` was written to close for the Int table.
+            //
+            // NOT gated on transparency: this is a computation rule, not δ — Lean runs its
+            // `reduceNat?`/`reduceNative?` from `whnfImp` (`Lean/Meta/WHNF.lean:999-1004`)
+            // before `unfoldDefinition?` and without consulting `TransparencyMode`.
             if let Term::Global(name) = func.as_ref() {
-                if name == "reduceBool" {
+                if name == "reduceBool"
+                    && ctx.get_definition_body(name).is_none()
+                    && declaration_agrees_with_the_rule(ctx, name)
+                {
                     if let Some(b) = crate::eval::eval_bool(ctx, arg) {
-                        return Term::Global(if b { "true" } else { "false" }.to_string());
+                        return progressed(
+                            term,
+                            Term::Global(if b { "true" } else { "false" }.to_string()),
+                        );
                     }
                 }
             }
 
-            // Quotient computation: `Quot_lift A r B f h (Quot_mk A r a) ⤳ f a`.
-            if let Some(result) = try_quot_lift_reduce(func, arg) {
-                return result;
+            // Quotient computation: `Quot_lift A r B f h (Quot_mk A r a) ⤳ f a`, and `Quot_ind`'s.
+            if let Some(result) = try_quot_lift_reduce(ctx, func, arg) {
+                return progressed(term, result);
+            }
+
+            // Observational equality computes on its type (`observational`).
+            if let Some(result) = try_obs_reduce(ctx, func, arg) {
+                return progressed(term, result);
+            }
+
+            // ι for a fixpoint, at the column the termination guard admitted it on. Asked of
+            // the WHOLE spine, because the structural argument need not be the innermost one.
+            if let Some(result) = try_fix_unroll(ctx, term) {
+                return progressed(term, result);
             }
 
             // Then try to reduce at the head
             match func.as_ref() {
                 Term::Lambda { param, body, .. } => {
-                    // Beta reduction
-                    substitute(body, param, arg)
+                    // Beta reduction. The redex is GONE from the answer — substituting into a
+                    // body cannot reproduce the application that contained it — so this is
+                    // progress without needing to be compared.
+                    Some(substitute(body, param, arg))
                 }
-                // Fix application: (fix f. body) arg
-                // We need to check if arg is a constructor to unfold
-                Term::Fix { name, body } => {
-                    if is_constructor_form(ctx, arg) {
-                        // Unfold: (fix f. body) arg → body[f := fix f. body] arg
-                        let fix_term = Term::Fix {
-                            name: name.clone(),
-                            body: body.clone(),
-                        };
-                        let unfolded = substitute(body, name, &fix_term);
-                        Term::App(Box::new(unfolded), arg.clone())
-                    } else {
-                        // Try reducing the argument first
-                        let reduced_arg = reduce_step(ctx, arg);
-                        if reduced_arg != **arg {
-                            Term::App(func.clone(), Box::new(reduced_arg))
-                        } else {
-                            term.clone()
-                        }
-                    }
+                // Fix application. UNROLLING IS NOT DECIDED HERE: `try_fix_unroll` above asked
+                // the termination guard which column the recursion descends on and answered for
+                // the whole spine. This arm only makes progress in the ARGUMENT, so a structural
+                // argument that is not yet a constructor can become one.
+                //
+                // The test this arm used to make — "is the argument the innermost `App` happens
+                // to carry a constructor?" — was wrong in both directions at once. It left
+                // `Nat.add`, which recurses on its SECOND argument, stuck for every opaque
+                // first argument; and it UNROLLED on a constructor sitting in a non-structural
+                // column, where the guard promises no decreasing measure and the unrolling need
+                // never stop.
+                Term::Fix { .. } => {
+                    let reduced_arg = reduce_step_opt(ctx, arg, tr)?;
+                    Some(Term::App(func.clone(), Box::new(reduced_arg)))
                 }
                 // Mutual fix application: (mutualfix { fⱼ := bⱼ }.i) arg. When `arg` is a
                 // constructor, unfold the i-th body, substituting EACH sibling name by its
@@ -154,40 +676,26 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
                     if is_constructor_form(ctx, arg) {
                         let mut unfolded = defs[*index].1.clone();
                         for (j, (name_j, _)) in defs.iter().enumerate() {
-                            let proj = Term::MutualFix { defs: defs.clone(), index: j };
+                            let proj = Term::MutualFix {
+                                defs: defs.clone(),
+                                index: j,
+                            };
                             unfolded = substitute(&unfolded, name_j, &proj);
                         }
-                        Term::App(Box::new(unfolded), arg.clone())
+                        Some(Term::App(Box::new(unfolded), arg.clone()))
                     } else {
-                        let reduced_arg = reduce_step(ctx, arg);
-                        if reduced_arg != **arg {
-                            Term::App(func.clone(), Box::new(reduced_arg))
-                        } else {
-                            term.clone()
-                        }
+                        let reduced_arg = reduce_step_opt(ctx, arg, tr)?;
+                        Some(Term::App(func.clone(), Box::new(reduced_arg)))
                     }
                 }
-                // Nested application: ((f x) y) - reduce inner first
-                Term::App(_, _) => {
-                    let reduced_func = reduce_step(ctx, func);
-                    if reduced_func != **func {
-                        Term::App(Box::new(reduced_func), arg.clone())
-                    } else {
-                        // Try reducing argument
-                        let reduced_arg = reduce_step(ctx, arg);
-                        Term::App(func.clone(), Box::new(reduced_arg))
-                    }
-                }
-                // Other function forms - try reducing function position
+                // Nested application: ((f x) y) - reduce inner first, then the argument.
+                // Other function forms take the same route.
                 _ => {
-                    let reduced_func = reduce_step(ctx, func);
-                    if reduced_func != **func {
-                        Term::App(Box::new(reduced_func), arg.clone())
-                    } else {
-                        // Try reducing argument
-                        let reduced_arg = reduce_step(ctx, arg);
-                        Term::App(func.clone(), Box::new(reduced_arg))
+                    if let Some(reduced_func) = reduce_step_opt(ctx, func, tr) {
+                        return Some(Term::App(Box::new(reduced_func), arg.clone()));
                     }
+                    let reduced_arg = reduce_step_opt(ctx, arg, tr)?;
+                    Some(Term::App(func.clone(), Box::new(reduced_arg)))
                 }
             }
         }
@@ -198,28 +706,44 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
             motive,
             cases,
         } => {
-            if let Some((ctor_idx, args)) = extract_constructor(ctx, discriminant) {
-                // Select the corresponding case
-                let case = &cases[ctor_idx];
-                // Apply case to constructor arguments
-                let mut result = case.clone();
-                for arg in args {
-                    result = Term::App(Box::new(result), Box::new(arg));
-                }
-                // Reduce the result
-                reduce_step(ctx, &result)
+            // `cases.get`, NOT `cases[…]`. The index comes from `extract_constructor`, whose Peano
+            // bridge reports index 1 (`Succ`) for ANY positive `Lit(Nat(n))` regardless of which
+            // inductive the `Match` was written against — so a `Match` with fewer cases than that
+            // index used to panic and ABORT THE PROCESS out of `normalize`, a public entry point
+            // that must be total. An out-of-range index means the `Match` is malformed and the type
+            // checker will reject it; reduction's job is to make no progress, not to crash.
+            if let Some(result) = iota_branch(ctx, discriminant, motive, cases) {
+                // ι fired — the `Match` node is gone whatever happens next — then take one more
+                // step on the selected branch if it has one. That step can be another ι whose
+                // branch is stepped in turn, a recursion bounded by no term's depth, so only a few
+                // follow-ups nest; past them the branch is handed back and the normalization loop
+                // (which sizes its stack by the term it holds) takes the next step.
+                let Some(_follow_up) = IotaFollowUp::enter() else {
+                    return Some(result);
+                };
+                let stepped = reduce_step_opt(ctx, &result, tr);
+                Some(stepped.unwrap_or(result))
             } else {
-                // Try reducing the discriminant
-                let reduced_disc = reduce_step(ctx, discriminant);
-                if reduced_disc != **discriminant {
-                    Term::Match {
-                        discriminant: Box::new(reduced_disc),
+                // K and fieldless structure reduction require exactly one
+                // constructor. Multiple branches cannot use either rule, so
+                // do not recursively type-check their neutral scrutinees.
+                if let Some(constructor) = (cases.len() == 1)
+                    .then(|| k_constructor_form(ctx, discriminant, motive))
+                    .flatten()
+                {
+                    return Some(Term::Match {
+                        discriminant: Box::new(constructor),
                         motive: motive.clone(),
                         cases: cases.clone(),
-                    }
-                } else {
-                    term.clone()
+                    });
                 }
+                // Try reducing the discriminant
+                let reduced_disc = reduce_step_opt(ctx, discriminant, tr)?;
+                Some(Term::Match {
+                    discriminant: Box::new(reduced_disc),
+                    motive: motive.clone(),
+                    cases: cases.clone(),
+                })
             }
         }
 
@@ -229,17 +753,17 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
             param_type,
             body,
         } => {
-            let reduced_param_type = reduce_step(ctx, param_type);
-            let reduced_body = reduce_step(ctx, body);
-            if reduced_param_type != **param_type || reduced_body != **body {
-                Term::Lambda {
-                    param: param.clone(),
-                    param_type: Box::new(reduced_param_type),
-                    body: Box::new(reduced_body),
-                }
-            } else {
-                term.clone()
+            let reduced_param_type = reduce_step_opt(ctx, param_type, tr);
+            let reduced_body =
+                reduce_step_opt(&ctx.extend(param, (**param_type).clone()), body, tr);
+            if reduced_param_type.is_none() && reduced_body.is_none() {
+                return None;
             }
+            Some(Term::Lambda {
+                param: param.clone(),
+                param_type: Box::new(reduced_param_type.unwrap_or_else(|| (**param_type).clone())),
+                body: Box::new(reduced_body.unwrap_or_else(|| (**body).clone())),
+            })
         }
 
         // Reduce under Pi types
@@ -248,76 +772,1199 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
             param_type,
             body_type,
         } => {
-            let reduced_param_type = reduce_step(ctx, param_type);
-            let reduced_body_type = reduce_step(ctx, body_type);
-            if reduced_param_type != **param_type || reduced_body_type != **body_type {
-                Term::Pi {
-                    param: param.clone(),
-                    param_type: Box::new(reduced_param_type),
-                    body_type: Box::new(reduced_body_type),
-                }
-            } else {
-                term.clone()
+            let reduced_param_type = reduce_step_opt(ctx, param_type, tr);
+            let reduced_body_type =
+                reduce_step_opt(&ctx.extend(param, (**param_type).clone()), body_type, tr);
+            if reduced_param_type.is_none() && reduced_body_type.is_none() {
+                return None;
             }
+            Some(Term::Pi {
+                param: param.clone(),
+                param_type: Box::new(reduced_param_type.unwrap_or_else(|| (**param_type).clone())),
+                body_type: Box::new(reduced_body_type.unwrap_or_else(|| (**body_type).clone())),
+            })
         }
 
         // Reduce under Fix
         Term::Fix { name, body } => {
-            let reduced_body = reduce_step(ctx, body);
-            if reduced_body != **body {
-                Term::Fix {
-                    name: name.clone(),
-                    body: Box::new(reduced_body),
-                }
-            } else {
-                term.clone()
-            }
+            let reduced_body = reduce_step_opt(ctx, body, tr)?;
+            Some(Term::Fix {
+                name: name.clone(),
+                body: Box::new(reduced_body),
+            })
         }
 
         // Reduce under a MutualFix (each body once; sibling names are free Vars here, so
         // no unfolding happens — this only normalizes the bodies' own redexes).
         Term::MutualFix { defs, index } => {
-            let mut new_defs = Vec::with_capacity(defs.len());
-            let mut changed = false;
-            for (n, b) in defs {
-                let rb = reduce_step(ctx, b);
-                if rb != *b {
-                    changed = true;
-                }
-                new_defs.push((n.clone(), rb));
+            let stepped: Vec<Option<Term>> = defs
+                .iter()
+                .map(|(_, b)| reduce_step_opt(ctx, b, tr))
+                .collect();
+            if stepped.iter().all(Option::is_none) {
+                return None;
             }
-            if changed {
-                Term::MutualFix { defs: new_defs, index: *index }
-            } else {
-                term.clone()
-            }
+            let new_defs = defs
+                .iter()
+                .zip(stepped)
+                .map(|((n, b), rb)| (n.clone(), rb.unwrap_or_else(|| b.clone())))
+                .collect();
+            Some(Term::MutualFix {
+                defs: new_defs,
+                index: *index,
+            })
         }
 
-        // Zeta: `let x := v in b` → `b[x := v]`. The local definition is
-        // unfolded (the value is transparent), matching how the body was typed.
-        Term::Let { name, value, body, .. } => {
-            crate::type_checker::substitute(body, name, value)
-        }
+        // ζ, OCCURRENCE-GATED. `let x := v in b ⟶ b[x := v]` writes the value at EVERY
+        // occurrence, so a value bound once and used n times is written n times — and the term
+        // the kernel then checks is BIGGER than the one it was handed, which is the opposite of
+        // what a sharing construct is for. Gated on the occurrence count the value is written
+        // ONCE and the binding survives as the sharing node.
+        //
+        // A binder used at most once is substituted exactly as before, byte for byte, which is
+        // what keeps every `let_zeta` case and the ζ-transparency cases green: all of them are
+        // single-occurrence. The gate is re-read as reduction proceeds, because reduction
+        // ERASES occurrences — a body with three uses before reduction and one after must still
+        // expand, and does, on the next pass over the `Let` the previous pass rebuilt.
+        Term::Let {
+            name,
+            ty,
+            value,
+            body,
+        } => crate::term_store::zeta_or_share_opt(name, ty, value, body, &|t| {
+            reduce_step_opt(ctx, t, tr)
+        }),
 
         // Base cases: already in normal form
-        Term::Sort(_) | Term::Var(_) | Term::Hole => term.clone(),
+        Term::Sort(_) | Term::Var(_) | Term::Hole => None,
 
-        // Delta reduction: unfold definitions (but not axioms, constructors, or inductives)
+        // Delta reduction: unfold definitions (but not axioms, constructors, or inductives) —
+        // and not an `@[irreducible]` one below the kernel's own transparency, which is the
+        // whole point of the axis: the body is still THERE (so every equation it satisfies
+        // stays provable and no silent axiom is manufactured), it simply does not unfold here.
+        //
+        // A definition whose body is its own name (`a := a`) UNFOLDS — the rule fired — and the
+        // cycle detector then reports the reduction as `Cyclic`, which is true: the term has no
+        // normal form. Calling that "no redex" would be `normalize` certifying a normal form
+        // that does not exist.
         Term::Global(name) => {
-            if let Some(body) = ctx.get_definition_body(name) {
-                // Definition found - unfold to body
-                body.clone()
-            } else {
-                // Axiom, constructor, or inductive - no reduction
-                term.clone()
+            if !tr.unfolds(name) {
+                return None;
+            }
+            // Axiom, constructor, or inductive: no reduction.
+            Some(ctx.get_definition_body(name)?.clone())
+        }
+
+        // An annotation is consumed with the step its term takes, as Lean's `whnfCore` consumes
+        // `mdata`, and never by a step of its own: a step that only dropped an annotation would
+        // hand the cycle detector a term `==` to the one before it.
+        Term::Annotated { term, .. } => reduce_step_opt(ctx, term, tr),
+    }
+}
+
+/// Whether a `match` whose motive is `motive` may select a branch for `discriminant`.
+///
+/// Lean's recursor belongs to ONE inductive and fires only on that inductive's constructors
+/// (`getRecRuleFor`). A LOGOS `match` names its inductive through its motive's last binder
+/// (`λ indices… λ(x : I params indices). T`). When that binder's type is headed by a registered
+/// inductive other than the discriminant's, the match is ill-typed and must not compute: the
+/// `Nat` literal `3` is not the `Int` constructor `negSucc`, although both inductives have two
+/// constructors. A motive that does not name an inductive (a raw sort, an alias) is not refused
+/// here — the type checker is the authority on it, and this guard only removes wrong progress.
+///
+/// An ETA-SHORT motive (`λ y. tail y`, whose major-premise binder lives inside `tail`'s own
+/// type) has fewer lambdas than the discriminant's index telescope plus the major, so its last
+/// lambda binds an INDEX, not the major premise; there is no syntactic major domain to read, and
+/// the guard defers to the type checker exactly as it does for a motive that names no inductive.
+fn motive_admits(ctx: &Context, motive: &Term, discriminant: &Term) -> bool {
+    let Some(actual) = constructor_inductive_of(ctx, discriminant) else {
+        return true;
+    };
+    let mut domain = None;
+    let mut binders = 0usize;
+    let mut current = motive;
+    while let Term::Lambda {
+        param_type, body, ..
+    } = current
+    {
+        domain = Some(param_type.as_ref());
+        binders += 1;
+        current = body;
+    }
+    if binders <= ctx.inductive_num_indices(&actual) {
+        return true;
+    }
+    let Some(domain) = domain else { return true };
+    let mut head = domain;
+    while let Term::App(f, _) = head {
+        head = f;
+    }
+    let named = match head {
+        Term::Global(n) | Term::Const { name: n, .. } if ctx.is_inductive(n) => n,
+        _ => return true,
+    };
+    actual == *named
+}
+
+/// Select an ordinary constructor branch, shared by full and lazy reduction.
+/// Parameter removal and mutual-block case selection remain in the existing
+/// constructor decoder and case-position calculation.
+fn iota_branch(ctx: &Context, discriminant: &Term, motive: &Term, cases: &[Term]) -> Option<Term> {
+    if !motive_admits(ctx, motive, discriminant) {
+        return None;
+    }
+    let (i, args) = extract_constructor(ctx, discriminant)?;
+    let p = case_position(ctx, discriminant, i, cases.len())?;
+    let mut result = cases.get(p)?.clone();
+    for arg in args {
+        result = Term::App(Box::new(result), Box::new(arg));
+    }
+    Some(result)
+}
+
+#[cfg(test)]
+thread_local! {
+    static BOUNDED_SIZE_PENDING_PEAK: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+// Bound the work stack before extending wide case/definition vectors.
+// The Boolean records a conservative monomorphic-level fragment for readback;
+// ordinary conversion callers retain their previous Term-node admission.
+pub(crate) fn bounded_conversion_metrics(term: &Term) -> Option<(usize, usize, bool)> {
+    let mut pending = vec![(term, 0usize)];
+    let mut nodes = 0usize;
+    let mut depth = 0usize;
+    let mut plain_levels = true;
+    while let Some((t, d)) = pending.pop() {
+        #[cfg(test)]
+        BOUNDED_SIZE_PENDING_PEAK.with(|peak| peak.set(peak.get().max(pending.len() + 1)));
+        nodes += 1;
+        depth = depth.max(d);
+        let children = match t {
+            Term::App(..) | Term::Lambda { .. } | Term::Pi { .. } => 2,
+            Term::Let { .. } => 3,
+            Term::Match { cases, .. } => cases.len().checked_add(2)?,
+            Term::Fix { .. } => 1,
+            Term::MutualFix { defs, .. } => defs.len(),
+            _ => 0,
+        };
+        if nodes.checked_add(pending.len())?.checked_add(children)? > 4096 {
+            return None;
+        }
+        let next = d + 1;
+        match t {
+            Term::App(f, a) => {
+                pending.push((f, next));
+                pending.push((a, next));
+            }
+            Term::Lambda {
+                param_type, body, ..
+            } => {
+                pending.push((param_type, next));
+                pending.push((body, next));
+            }
+            Term::Pi {
+                param_type,
+                body_type,
+                ..
+            } => {
+                pending.push((param_type, next));
+                pending.push((body_type, next));
+            }
+            Term::Let {
+                ty, value, body, ..
+            } => {
+                pending.push((ty, next));
+                pending.push((value, next));
+                pending.push((body, next));
+            }
+            Term::Match {
+                discriminant,
+                motive,
+                cases,
+            } => {
+                pending.push((discriminant, next));
+                pending.push((motive, next));
+                pending.extend(cases.iter().map(|case| (case, next)));
+            }
+            Term::Fix { body, .. } => pending.push((body, next)),
+            Term::MutualFix { defs, .. } => {
+                pending.extend(defs.iter().map(|(_, body)| (body, next)))
+            }
+            Term::Const { .. } => plain_levels = false,
+            Term::Sort(u) => {
+                plain_levels &= matches!(
+                    u,
+                    crate::Universe::Prop | crate::Universe::SProp | crate::Universe::Type(_)
+                )
+            }
+            _ => {}
+        }
+    }
+    Some((nodes, depth, plain_levels))
+}
+
+/// Size check before cloning or substitution keeps the opportunistic path from
+/// materializing a large tree even when a single beta step duplicates its input.
+#[cfg(test)]
+thread_local! {
+    static BOUNDED_SIZE_CALLS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+pub(crate) fn bounded_conversion_size(term: &Term) -> Option<usize> {
+    #[cfg(test)]
+    BOUNDED_SIZE_CALLS.with(|count| {
+        if let Some(n) = count.get() {
+            count.set(Some(n + 1));
+        }
+    });
+    bounded_conversion_metrics(term).map(|(nodes, _, _)| nodes)
+}
+
+fn bounded_conversion_substitute(body: &Term, name: &str, value: &Term) -> Option<Term> {
+    let body_size = bounded_conversion_size(body)?;
+    let occurrences = crate::term_store::occurrence_count_in_term(body, name) as usize;
+    let value_size = bounded_conversion_size(value)?;
+    let upper_bound = body_size.checked_add(occurrences.checked_mul(value_size)?)?;
+    if upper_bound > 4096 {
+        return None;
+    }
+    Some(substitute(body, name, value))
+}
+
+fn bounded_conversion_substitute_owned(body: Term, name: &str, value: Term) -> Option<Term> {
+    let body_size = bounded_conversion_size(&body)?;
+    let value_size = bounded_conversion_size(&value)?;
+    let Some(occurrences) =
+        crate::term_store::bounded_occurrence_count_in_term(&body, name, 64, 4096)
+    else {
+        // The optimization's bounded lexical scan is optional. Preserve the
+        // existing behavior for deeper terms rather than adding a refusal.
+        return bounded_conversion_substitute(&body, name, &value);
+    };
+    let upper_bound = body_size.checked_add((occurrences as usize).checked_mul(value_size)?)?;
+    if upper_bound > 4096 {
+        return None;
+    }
+    Some(crate::type_checker::substitute_owned_value_counted(
+        body,
+        name,
+        value,
+        occurrences as usize,
+    ))
+}
+
+/// The shared admission boundary for small closed conversion bodies. This
+/// checks annotations and every branch, including parts head reduction may erase.
+pub(crate) fn bounded_closed_conversion_size(body: &Term) -> Option<usize> {
+    let size = bounded_conversion_size(body)?;
+    if !crate::term_store::is_closed_without_holes(body) {
+        return None;
+    }
+    Some(size)
+}
+
+/// One closed delta step on the head path only. Its size is a scheduling hint,
+/// not evidence of equality. Small wrappers can be exposed before a shared,
+/// expensive function body. Match discriminants are the only other head path.
+pub(crate) fn bounded_delta_head(ctx: &Context, term: &Term) -> Option<(usize, Term)> {
+    bounded_delta_head_impl(ctx, term, Transparency::All, bounded_conversion_size, false)
+}
+
+/// Same head-delta rule with caller transparency and pre-copy admission. The
+/// kernel wrapper above retains its original All policy and size admission.
+pub(crate) fn bounded_delta_head_with(
+    ctx: &Context,
+    term: &Term,
+    tr: Transparency<'_>,
+    admit: fn(&Term) -> Option<usize>,
+) -> Option<(usize, Term)> {
+    bounded_delta_head_impl(ctx, term, tr, admit, true)
+}
+
+fn bounded_delta_head_impl(
+    ctx: &Context,
+    term: &Term,
+    tr: Transparency<'_>,
+    admit: fn(&Term) -> Option<usize>,
+    bounded_telescope: bool,
+) -> Option<(usize, Term)> {
+    admit(term)?;
+    match term {
+        Term::Global(name) | Term::Const { name, .. } => {
+            if !tr.unfolds(name) {
+                return None;
+            }
+            let body = match term {
+                Term::Global(_) => {
+                    let body = ctx.get_definition_body(name)?;
+                    // This immutable monomorphic body is unchanged by cloning.
+                    // Retain its admission result and reject open/hole bodies
+                    // while borrowed, before allocating an unused copy. Explicit
+                    // universe instantiation below still needs its own recheck.
+                    let size = admit(body)?;
+                    if !crate::term_store::is_closed_without_holes(body) {
+                        return None;
+                    }
+                    return Some((size, body.clone()));
+                }
+                Term::Const { levels, .. } => {
+                    // const_step clones its header and body before resolving
+                    // levels. Reject oversized candidates while still borrowed,
+                    // using that resolver's exact lookup precedence.
+                    match ctx.get_universe_poly(name) {
+                        Some((params, ty, body)) => {
+                            // const_step also copies explicit parameter names before
+                            // resolving arity. Bound this borrowed metadata on the
+                            // elaborator route, including unused parameters. The
+                            // original kernel All wrapper retains its prior policy.
+                            if bounded_telescope
+                                && (params.len() > 16 || params.iter().any(|name| name.len() > 256))
+                            {
+                                return None;
+                            }
+                            admit(ty)?;
+                            admit(body)?;
+                        }
+                        None => {
+                            admit(ctx.get_global(name)?)?;
+                            if let Some(body) = ctx.get_definition_body(name) {
+                                admit(body)?;
+                            }
+                        }
+                    }
+                    match const_step(ctx, name, levels) {
+                        ConstStep::Delta(subst, body) => {
+                            crate::term::instantiate_universes(&body, &subst)
+                        }
+                        _ => return None,
+                    }
+                }
+                _ => unreachable!(),
+            };
+            let size = admit(&body)?;
+            if !crate::term_store::is_closed_without_holes(&body) {
+                return None;
+            }
+            Some((size, body))
+        }
+        Term::App(f, a) => {
+            let (size, f) = bounded_delta_head_impl(ctx, f, tr, admit, bounded_telescope)?;
+            Some((size, Term::App(Box::new(f), a.clone())))
+        }
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            let (size, disc) =
+                bounded_delta_head_impl(ctx, discriminant, tr, admit, bounded_telescope)?;
+            Some((
+                size,
+                Term::Match {
+                    discriminant: Box::new(disc),
+                    motive: motive.clone(),
+                    cases: cases.clone(),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Expose only a small head spine, leaving arguments, binder annotations and
+/// unselected branches unevaluated. This is an opportunistic conversion step;
+/// a resource boundary returns no result, never a claimed normal form.
+pub(crate) fn bounded_conversion_head(ctx: &Context, term: &Term) -> Option<Term> {
+    if !ctx.simp_rules().is_empty() {
+        return None;
+    }
+    let mut budget = 256;
+    let mut current = beta_iota_zeta_head(ctx, term, &mut budget)?;
+    loop {
+        if budget == 0 {
+            return None;
+        }
+        budget -= 1;
+        match bounded_delta_head(ctx, &current) {
+            Some((_, next)) => current = beta_iota_zeta_head(ctx, &next, &mut budget)?,
+            None => return Some(current),
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static BOUNDED_HEAD_CLONE_NODES: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+    static BOUNDED_HEAD_VISITS: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+/// Enable/reset an isolated test counter and return the preceding sample.
+#[cfg(test)]
+pub(crate) fn take_bounded_head_clone_nodes() -> usize {
+    BOUNDED_HEAD_CLONE_NODES.with(|count| count.replace(Some(0)).unwrap_or(0))
+}
+
+/// Count actual evaluator-loop entries, independently of copy and fuel totals.
+#[cfg(test)]
+pub(crate) fn take_bounded_head_visits() -> usize {
+    BOUNDED_HEAD_VISITS.with(|count| count.replace(Some(0)).unwrap_or(0))
+}
+
+/// Weak-head beta/iota/zeta and guarded fixpoint reduction without delta,
+/// primitives, or proof search. The caller shares one budget across an entire congruence proof.
+/// A depleted budget is inconclusive. Annotations and unused arguments stay lazy.
+pub(crate) fn beta_iota_zeta_head(ctx: &Context, term: &Term, budget: &mut usize) -> Option<Term> {
+    let _clone_nodes = bounded_conversion_size(term)?;
+    #[cfg(test)]
+    BOUNDED_HEAD_CLONE_NODES.with(|count| {
+        if let Some(previous) = count.get() {
+            count.set(Some(previous + _clone_nodes));
+        }
+    });
+    // Continuations own the siblings which the recursive evaluator used to
+    // leave in its callers. Moving a demanded child avoids copying its prefix;
+    // every evaluation visit still spends the original shared work allowance.
+    enum Frame {
+        Apply(Term),
+        Match { motive: Term, cases: Vec<Term> },
+    }
+    let mut frames = Vec::new();
+    let mut current = term.clone();
+    let mut entering = false; // the original input was preflighted above
+    'evaluate: loop {
+        #[cfg(test)]
+        BOUNDED_HEAD_VISITS.with(|count| {
+            if let Some(previous) = count.get() {
+                count.set(Some(previous + 1));
+            }
+        });
+        if entering {
+            bounded_conversion_size(&current)?;
+        }
+        if *budget == 0 {
+            return None;
+        }
+        *budget -= 1;
+        // A descended child was checked above, before spending its fuel.
+        // Only rewritten terms need the post-fuel check; current is unchanged here.
+        if !entering {
+            bounded_conversion_size(&current)?;
+        }
+        match current {
+            Term::Let {
+                name, value, body, ..
+            } => {
+                current = bounded_conversion_substitute_owned(*body, &name, *value)?;
+                entering = false;
+                continue;
+            }
+            Term::App(function, argument) => {
+                frames.push(Frame::Apply(*argument));
+                current = *function;
+                entering = true;
+                continue;
+            }
+            Term::Match {
+                discriminant,
+                motive,
+                cases,
+            } => {
+                frames.push(Frame::Match {
+                    motive: *motive,
+                    cases,
+                });
+                current = *discriminant;
+                entering = true;
+                continue;
+            }
+            _ => {}
+        }
+        // Returning through a continuation is not a fresh evaluation visit.
+        // This exactly mirrors the old call return, including partial spines.
+        while let Some(frame) = frames.pop() {
+            match frame {
+                Frame::Apply(argument) => {
+                    if let Term::Lambda { param, body, .. } = current {
+                        current = bounded_conversion_substitute_owned(*body, &param, argument)?;
+                        entering = false;
+                        continue 'evaluate;
+                    }
+                    let applied = Term::App(Box::new(current), Box::new(argument));
+                    let (head, args) = app_spine(&applied);
+                    if let Term::Fix { name, body } = head {
+                        let column = (args.iter().any(|a| is_constructor_form(ctx, a))
+                            && crate::termination::check_termination(ctx, name, body).is_ok())
+                        .then(|| crate::termination::structural_columns(ctx, body))
+                        .and_then(|columns| columns.first().copied());
+                        if column
+                            .and_then(|i| args.get(i))
+                            .is_some_and(|arg| is_constructor_form(ctx, arg))
+                        {
+                            let unfolded = bounded_conversion_substitute(body, name, head)?;
+                            current = args.iter().fold(unfolded, |f, a| {
+                                Term::App(Box::new(f), Box::new((*a).clone()))
+                            });
+                            entering = false;
+                            continue 'evaluate;
+                        }
+                    }
+                    current = applied;
+                }
+                Frame::Match { motive, cases } => {
+                    let full_inventory = constructor_inductive_of(ctx, &current)
+                        .is_some_and(|ind| ctx.get_constructors(&ind).len() == cases.len());
+                    if let Some(branch) = full_inventory
+                        .then(|| iota_branch(ctx, &current, &motive, &cases))
+                        .flatten()
+                    {
+                        current = branch;
+                        entering = false;
+                        continue 'evaluate;
+                    }
+                    current = Term::Match {
+                        discriminant: Box::new(current),
+                        motive: Box::new(motive),
+                        cases,
+                    };
+                }
             }
         }
+        return Some(current);
+    }
+}
+
+/// Read the result of a declared application spine without validating its
+/// arguments. Only a negative eligibility filter may consume this hint. Opaque
+/// type aliases and oversized substitutions return no hint and use full typing.
+fn declared_spine_type(ctx: &Context, term: &Term) -> Option<Term> {
+    bounded_conversion_size(term)?;
+    let mut head = term;
+    let mut args = Vec::new();
+    while let Term::App(f, a) = head {
+        args.push(a.as_ref());
+        head = f;
+    }
+    if !matches!(head, Term::Var(_) | Term::Global(_) | Term::Const { .. }) {
+        return None;
+    }
+    let mut ty = crate::infer_type(ctx, head).ok()?;
+    bounded_conversion_size(&ty)?;
+    for arg in args.into_iter().rev() {
+        let Term::Pi {
+            param, body_type, ..
+        } = ty
+        else {
+            return None;
+        };
+        ty = bounded_conversion_substitute(&body_type, &param, arg)?;
+    }
+    Some(ty)
+}
+
+/// Proof irrelevance permits replacing a K-like proof by its nullary constructor
+/// only when their complete types, including every index, are convertible.
+/// K-probe answers remembered for the rest of ONE normalization.
+///
+/// Full normalization walks the whole term on every step, so a single-case match whose
+/// discriminant is a stuck proof is probed again on every step while other redexes are
+/// contracted — Init's `WellFounded.Nat.fix_eq` spent almost all of its time re-deciding the
+/// same failed probe. The probe proper ([`k_constructor_checked`]) is a pure function of the
+/// proof and the context it is probed in. Each `normalize_progress` run has one root context and
+/// the in-place walker extends it only through the λ/Π binders it descends; `Context::extend`
+/// replaces a name's binding, so that context is the root plus, for every name bound on the
+/// walker's path, that name's current type. The key records exactly those types (read from the
+/// probed context itself) and the proof, by structural identity. A nested normalization (the
+/// probe type-checks and converts) runs with its own memo, and the probe runs with none, so no
+/// answer crosses a different root context. The cheap motive filter runs before any lookup.
+struct KProbeMemo {
+    /// Created on the first probe that passes the motive filter: most normalizations probe
+    /// nothing, and must not pay for a store they never use.
+    store: Option<crate::term_store::TermStore>,
+    path: Vec<String>,
+    answers: std::collections::HashMap<
+        (
+            Vec<(String, crate::term_store::TermId)>,
+            crate::term_store::TermId,
+        ),
+        Option<Term>,
+    >,
+}
+/// Memory bound for one normalization's remembered probes; beyond it the memo is dropped and
+/// every further probe is computed afresh, exactly as without the memo.
+const K_PROBE_MEMO_ENTRIES: usize = 256;
+const K_PROBE_MEMO_NODES: usize = 1 << 16;
+thread_local! {
+    static K_PROBE_MEMO: std::cell::RefCell<Option<KProbeMemo>> = const { std::cell::RefCell::new(None) };
+}
+struct KProbeScope(Option<KProbeMemo>);
+impl Drop for KProbeScope {
+    fn drop(&mut self) {
+        K_PROBE_MEMO.with(|slot| *slot.borrow_mut() = self.0.take());
+    }
+}
+impl KProbeMemo {
+    /// A fresh memo for this normalization; the enclosing one is restored on exit or unwind.
+    fn install() -> KProbeScope {
+        let fresh = KProbeMemo {
+            store: None,
+            path: Vec::new(),
+            answers: std::collections::HashMap::new(),
+        };
+        KProbeScope(K_PROBE_MEMO.with(|slot| slot.borrow_mut().replace(fresh)))
+    }
+    /// Record that the walker descends under a binder named `param`.
+    fn enter(param: &str) -> bool {
+        K_PROBE_MEMO.with(|slot| match slot.borrow_mut().as_mut() {
+            Some(memo) => {
+                memo.path.push(param.to_owned());
+                true
+            }
+            None => false,
+        })
+    }
+    fn leave(pushed: bool) {
+        if !pushed {
+            return;
+        }
+        K_PROBE_MEMO.with(|slot| {
+            if let Some(memo) = slot.borrow_mut().as_mut() {
+                memo.path.pop();
+            }
+        });
+    }
+    fn probe(ctx: &Context, discriminant: &Term, motive: &Term) -> Option<Term> {
+        if !k_motive_admits(ctx, motive) {
+            return None;
+        }
+        let key = K_PROBE_MEMO.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let memo = slot.as_mut()?;
+            let mut names = memo.path.clone();
+            names.sort();
+            names.dedup();
+            let store = memo
+                .store
+                .get_or_insert_with(crate::term_store::TermStore::new);
+            let mut locals = Vec::with_capacity(names.len());
+            for name in names {
+                // A path name is bound in the probed context by construction.
+                let ty = ctx.get(&name)?;
+                let id = store.intern(ty);
+                locals.push((name, id));
+            }
+            let key = (locals, store.intern(discriminant));
+            Some(match memo.answers.get(&key) {
+                Some(answer) => Err(answer.clone()),
+                None => Ok(key),
+            })
+        });
+        let key = match key {
+            Some(Err(answer)) => return answer,
+            Some(Ok(key)) => Some(key),
+            None => None,
+        };
+        // The probe type-checks and converts; it must neither see nor extend this memo.
+        let suspended = K_PROBE_MEMO.with(|slot| slot.borrow_mut().take());
+        let answer = k_constructor_checked(ctx, discriminant);
+        K_PROBE_MEMO.with(|slot| *slot.borrow_mut() = suspended);
+        if let Some(key) = key {
+            K_PROBE_MEMO.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                let Some(memo) = slot.as_mut() else {
+                    return;
+                };
+                if memo.answers.len() >= K_PROBE_MEMO_ENTRIES
+                    || memo
+                        .store
+                        .as_ref()
+                        .is_some_and(|store| store.len() >= K_PROBE_MEMO_NODES)
+                {
+                    *slot = None;
+                    return;
+                }
+                memo.answers.insert(key, answer.clone());
+            });
+        }
+        answer
+    }
+}
+
+fn k_constructor_form(ctx: &Context, proof: &Term, motive: &Term) -> Option<Term> {
+    if !k_motive_admits(ctx, motive) {
+        return None;
+    }
+    k_constructor_checked(ctx, proof)
+}
+
+/// The cheap negative filter: `false` only when the motive's visible major-premise type is an
+/// inductive family with neither a K nor a unit constructor.
+fn k_motive_admits(ctx: &Context, motive: &Term) -> bool {
+    // Indexed motives abstract over indices before the major premise. Only
+    // use the final domain when the lambda telescope visibly ends in a type;
+    // an eta-short motive may still hide more binders in its final application.
+    // This negative filter never establishes a reduction. Candidates still
+    // undergo full proof inference, sort, constructor and index checks.
+    let mut current = motive;
+    let mut major_type = None;
+    while let Term::Lambda {
+        param_type, body, ..
+    } = current
+    {
+        major_type = Some(param_type.as_ref());
+        current = body;
+    }
+    let exposed = beta_iota_zeta_head(ctx, current, &mut 64);
+    let terminal = exposed.as_ref().unwrap_or(current);
+    let terminal_type = matches!(terminal, Term::Sort(_) | Term::Pi { .. })
+        || matches!(declared_spine_type(ctx, terminal), Some(Term::Sort(_)));
+    if let Some(ty) = major_type.filter(|_| terminal_type) {
+        let mut head = ty;
+        while let Term::App(f, _) = head {
+            head = f;
+        }
+        if let Term::Global(name) | Term::Const { name, .. } = head {
+            if ctx.is_inductive(name)
+                && ctx.k_constructor(name).is_none()
+                && ctx.unit_constructor(name).is_none()
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// The K probe proper: infer the proof's type and check it against the constructor's. Its
+/// answer depends only on `proof` and `ctx`.
+fn k_constructor_checked(ctx: &Context, proof: &Term) -> Option<Term> {
+    #[cfg(test)]
+    K_PROBES.with(|count| count.set(count.get() + 1));
+    let proof_type = crate::infer_type(ctx, proof).ok()?;
+    let proof_type = normalize_checked(ctx, &proof_type).ok()?;
+    let mut head = &proof_type;
+    while let Term::App(f, _) = head {
+        head = f;
+    }
+    let (inductive, levels) = match head {
+        Term::Global(n) => (n.as_str(), None),
+        Term::Const { name, levels } => (name.as_str(), Some(levels)),
+        _ => return None,
+    };
+    let unit = ctx.unit_constructor(inductive);
+    let constructor = ctx.k_constructor(inductive).or(unit)?;
+    let sort = crate::type_checker::infer_sort(ctx, &proof_type).ok()?;
+    if unit.is_none() && (sort == crate::Universe::SProp || !sort.equiv(&crate::Universe::Prop)) {
+        return None;
+    }
+    let mut value = match levels {
+        Some(levels) => Term::Const {
+            name: constructor.into(),
+            levels: levels.clone(),
+        },
+        None => Term::Global(constructor.into()),
+    };
+    for arg in spine_args(&proof_type)
+        .into_iter()
+        .take(ctx.inductive_num_params(inductive))
+    {
+        value = Term::App(Box::new(value), Box::new(arg));
+    }
+    let value_type = crate::infer_type(ctx, &value).ok()?;
+    crate::type_checker::def_eq(ctx, &proof_type, &value_type).then_some(value)
+}
+
+#[cfg(test)]
+thread_local! {
+    static K_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// What the reducer may do with a `Term::Const { name, levels }` reference.
+///
+/// ONE WELL-FORMEDNESS TEST, NOT TWO. Whether `name.{levels}` is a term of the calculus is
+/// decided by [`crate::term::resolve_const_levels`], which is the same question `infer_type`
+/// asks and the same one `recheck::const_body` asks — so a reference typing refuses can never
+/// be a normal form to the reducer. The arm this replaces asked only HALF of it: it compared
+/// `params.len()` against `levels.len()` itself, and only for a name in the
+/// universe-polymorphic map. The consequence was live, and it is a typing/reduction divergence
+/// of exactly the kind this codebase calls conformance defect 3: a declaration whose TYPE is
+/// not level-CLOSED — a level variable outside its telescope — can never be instantiated, so
+/// `infer_type` refuses every reference to it, while the reducer's arity test passed (`0 == 0`)
+/// and it UNFOLDED THE BODY. `normalize` then made an ill-formed reference definitionally equal
+/// to a well-typed term, which is laundering rather than mere disagreement.
+///
+/// [`ConstStep::Unresolved`] is the one case that stays inert, and the line is drawn where it is
+/// on purpose. A reference that does not RESOLVE — no declaration at all, or a declaration with
+/// no level telescope, which is reached as a `Term::Global` and never as a `Const` — is an
+/// UNBOUND reference, and reduction has always left an unbound `Term::Global` alone: whether a
+/// name is bound is the type checker's business. A reference that DOES resolve and is ill-formed
+/// against the declaration it resolved to is a different fact, and it is the one that laundered.
+enum ConstStep {
+    /// The reference does not resolve — nothing is declared under the name, or what is declared
+    /// has no level telescope and is reachable only as a `Term::Global`. Inert, exactly as an
+    /// unbound `Term::Global` is inert.
+    Unresolved,
+    /// The reference is not a term of the calculus. `infer_type` refuses it, and so must the
+    /// reducer's answer: see the `Term::Hole` note on the `Term::Const` arm.
+    Illformed,
+    /// Well formed, and the declaration has no body — an axiom, inductive or constructor is a
+    /// VALUE, so there is no redex.
+    Value,
+    /// Well formed, with a body to unfold under this universe substitution.
+    Delta(
+        std::collections::HashMap<String, crate::term::Universe>,
+        Term,
+    ),
+}
+
+#[cfg(test)]
+thread_local! {
+    // Actual type/body clone events at polymorphic delta resolution.
+    static CONST_STEP_CLONES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Resolve a `Const` reference against the environment — the reducer's own lookup, written
+/// from the rule rather than shared, with the DECISION itself delegated to the one resolver.
+fn const_step(ctx: &Context, name: &str, levels: &[crate::term::Universe]) -> ConstStep {
+    // A `Const` is the UNIVERSE-POLYMORPHIC reference form. A declaration carries a telescope
+    // either by declaring one (`universe_polys`) or by mentioning a level variable in its type;
+    // a declaration with neither is reachable only as a `Global`.
+    let (declared, ty, body) = match ctx.get_universe_poly(name) {
+        Some((params, ty, body)) => {
+            #[cfg(test)]
+            CONST_STEP_CLONES.with(|count| count.set(count.get() + 2));
+            (Some(params.clone()), ty.clone(), Some(body.clone()))
+        }
+        None => match ctx.get_global(name) {
+            None => return ConstStep::Unresolved,
+            Some(ty) if !crate::term::mentions_level_var(ty) => return ConstStep::Unresolved,
+            Some(ty) => {
+                let body = ctx.get_definition_body(name);
+                #[cfg(test)]
+                CONST_STEP_CLONES
+                    .with(|count| count.set(count.get() + 1 + usize::from(body.is_some())));
+                (None, ty.clone(), body.cloned())
+            }
+        },
+    };
+    match crate::term::resolve_const_levels(name, declared.as_deref(), &ty, levels) {
+        Err(_) => ConstStep::Illformed,
+        Ok(subst) => match body {
+            Some(body) => ConstStep::Delta(subst, body),
+            None => ConstStep::Value,
+        },
+    }
+}
+
+// -------------------------------------------------------------------------
+// The `@[simp]` registry, CONSULTED
+// -------------------------------------------------------------------------
+
+/// The head symbol of an application spine — the `@[simp]` registry's DISPATCH KEY.
+///
+/// Written here rather than borrowed because the reducer must ask the question the registry
+/// answered: `SimpRule::compile` keys a rule by its left-hand side's head, and a rewriter that
+/// computed the head differently would look in the wrong bucket and silently never fire.
+fn simp_dispatch_head(t: &Term) -> Option<&str> {
+    let mut cur = t;
+    while let Term::App(f, _) = cur {
+        cur = f;
+    }
+    match cur {
+        Term::Global(n) => Some(n.as_str()),
+        Term::Const { name, .. } => Some(name.as_str()),
+        _ => None,
+    }
+}
+
+/// Try to rewrite `term` at the TOP with a registered `@[simp]` rule.
+///
+/// **Why this is tried BEFORE δ and not after.** The obvious placement — "at every subterm
+/// still stuck after β/δ/ι" — cannot work for the shape simp lemmas exist for. A rule's
+/// left-hand side is headed by a DEFINED constant (`size n ⟶ n`), and δ unfolds that constant
+/// on the very first step, so by the time a term is stuck the pattern is gone: `size (size n)`
+/// becomes `plus (plus n 0) 0`, which no `size` rule can ever match again. Lean's `simp`
+/// rewrites in preference to unfolding for precisely this reason, and so does this.
+///
+/// **What it costs when nobody registers anything**, which is every context the prelude
+/// builds: one `is_empty` on a slice. The dispatch beyond that is one spine walk and one hash
+/// lookup per node — never a linear scan of [`Context::simp_rules`], which is what the
+/// head-keyed registry exists to prevent.
+///
+/// **Why it cannot loop.** `SimpRule::compile` refuses `lhs = lhs` and a bare-variable
+/// left-hand side at the door, so no single rule rewrites a term to itself or matches
+/// everywhere; [`progressed`] refuses a rewrite that did not change the term; and a CYCLE
+/// between two rules is caught by [`normalize_checked_at`]'s Brent detection as
+/// [`Unreduced::Cyclic`], which is the honest answer — such a term has no normal form.
+///
+/// **What it does NOT do.** Matching is first-order and syntactic, exactly as
+/// [`crate::SimpRule::rewrite`] performs it — the rule and its matcher live together so a
+/// rewriter cannot accept what `add_simp_lemma` refused. It never matches up to conversion:
+/// a rule about `bulk` must not fire on a definitionally-equal `size` application, or one
+/// registered lemma would rewrite every term in the environment.
+/// **The SECOND kernel's door.** `recheck.rs::whnf` must apply the same rules or a proof that
+/// leans on a rewrite is accepted by one kernel and refused by the other. The matching itself
+/// is `SimpRule::rewrite`, which lives with the rule so the two rewriters cannot disagree about
+/// what a registered lemma means; only the WALK is each kernel's own.
+pub(crate) fn try_simp_rewrite(ctx: &Context, term: &Term) -> Option<Term> {
+    if ctx.simp_rules().is_empty() {
+        return None;
+    }
+    let head = simp_dispatch_head(term)?;
+    ctx.simp_rules_for(head).find_map(|rule| {
+        let rewritten = rule.rewrite(term)?;
+        if captures_a_free_name(term, &rewritten) {
+            return None;
+        }
+        progressed(term, rewritten)
+    })
+}
+
+/// Whether a rewrite would CAPTURE — turn a variable that was free in `term` into one bound by
+/// a binder the rule's right-hand side brought with it.
+///
+/// **This is a real hazard and it is the price of wiring a rewriter into a NAMED-variable
+/// kernel.** `SimpRule::rewrite` substitutes the matched terms into the rule's right-hand side
+/// with a substitution that tracks SHADOWING of the pattern variables — which is the right check
+/// for the pattern variable's own name and no check at all for the free names of what it was
+/// bound to. So a lemma whose right-hand side BINDS a name, `∀x. g x = (λn. x)`, rewrites `g n`
+/// in a scope holding a local `n` to `λn. n` — the identity where the lemma says the constant
+/// function. That is a wrong ANSWER inside `normalize`, therefore inside `def_eq`, therefore
+/// inside every `rfl`.
+///
+/// The rule that would fire is DECLINED rather than α-renamed, deliberately: renaming is the
+/// matcher's job and belongs with the matcher (`SimpRule::rewrite`, which owns the substitution
+/// and is the only place that can rename correctly). Declining is the conservative half — it can
+/// only make the simplifier weaker, never wrong — and it costs nothing in practice, because a
+/// right-hand side with no binder in it can never capture and that is almost every simp lemma.
+fn captures_a_free_name(term: &Term, rewritten: &Term) -> bool {
+    let mut free: Vec<&str> = Vec::new();
+    collect_free_names(term, &mut Vec::new(), &mut free);
+    if free.is_empty() {
+        return false;
+    }
+    binds_any_of(rewritten, &free)
+}
+
+/// The FREE variable names of `t`, first-occurrence order, duplicates removed.
+fn collect_free_names<'a>(t: &'a Term, bound: &mut Vec<&'a str>, out: &mut Vec<&'a str>) {
+    match t {
+        Term::Var(n) => {
+            if !bound.iter().any(|b| *b == n.as_str()) && !out.iter().any(|o| *o == n.as_str()) {
+                out.push(n.as_str());
+            }
+        }
+        Term::Sort(_) | Term::Global(_) | Term::Const { .. } | Term::Lit(_) | Term::Hole => {}
+        Term::App(f, a) => {
+            collect_free_names(f, bound, out);
+            collect_free_names(a, bound, out);
+        }
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => {
+            collect_free_names(param_type, bound, out);
+            bound.push(param.as_str());
+            collect_free_names(body_type, bound, out);
+            bound.pop();
+        }
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => {
+            collect_free_names(param_type, bound, out);
+            bound.push(param.as_str());
+            collect_free_names(body, bound, out);
+            bound.pop();
+        }
+        Term::Let {
+            name,
+            ty,
+            value,
+            body,
+        } => {
+            collect_free_names(ty, bound, out);
+            collect_free_names(value, bound, out);
+            bound.push(name.as_str());
+            collect_free_names(body, bound, out);
+            bound.pop();
+        }
+        Term::Fix { name, body } => {
+            bound.push(name.as_str());
+            collect_free_names(body, bound, out);
+            bound.pop();
+        }
+        Term::MutualFix { defs, .. } => {
+            for (n, _) in defs {
+                bound.push(n.as_str());
+            }
+            for (_, b) in defs {
+                collect_free_names(b, bound, out);
+            }
+            for _ in defs {
+                bound.pop();
+            }
+        }
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            collect_free_names(discriminant, bound, out);
+            collect_free_names(motive, bound, out);
+            for c in cases {
+                collect_free_names(c, bound, out);
+            }
+        }
+        Term::Annotated { term, .. } => collect_free_names(term, bound, out),
+    }
+}
+
+/// Whether `t` binds any of `names` anywhere inside it.
+fn binds_any_of(t: &Term, names: &[&str]) -> bool {
+    let binds = |n: &String| names.iter().any(|x| *x == n.as_str());
+    match t {
+        Term::Sort(_)
+        | Term::Var(_)
+        | Term::Global(_)
+        | Term::Const { .. }
+        | Term::Lit(_)
+        | Term::Hole => false,
+        Term::App(f, a) => binds_any_of(f, names) || binds_any_of(a, names),
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => binds(param) || binds_any_of(param_type, names) || binds_any_of(body_type, names),
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => binds(param) || binds_any_of(param_type, names) || binds_any_of(body, names),
+        Term::Let {
+            name,
+            ty,
+            value,
+            body,
+        } => {
+            binds(name)
+                || binds_any_of(ty, names)
+                || binds_any_of(value, names)
+                || binds_any_of(body, names)
+        }
+        Term::Fix { name, body } => binds(name) || binds_any_of(body, names),
+        Term::MutualFix { defs, .. } => {
+            defs.iter().any(|(n, b)| binds(n) || binds_any_of(b, names))
+        }
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            binds_any_of(discriminant, names)
+                || binds_any_of(motive, names)
+                || cases.iter().any(|c| binds_any_of(c, names))
+        }
+        Term::Annotated { term, .. } => binds_any_of(term, names),
     }
 }
 
 /// Check if a term is a constructor (possibly applied to arguments).
 fn is_constructor_form(ctx: &Context, term: &Term) -> bool {
-    extract_constructor(ctx, term).is_some()
+    // Integer literals retain their existing canonical-signature bridge. All
+    // other forms use borrowed metadata and never construct discarded fields.
+    if matches!(term, Term::Lit(Literal::Int(_) | Literal::BigInt(_))) {
+        return extract_constructor(ctx, term).is_some();
+    }
+    constructor_view(ctx, term).is_some()
+}
+
+/// Which entry of a `Match`'s case list belongs to the discriminant's constructor.
+///
+/// Usually that is the constructor's own position in its inductive's registration order. But an
+/// INDEXED family's match may be PRUNED — a constructor whose declared result index cannot equal
+/// the scrutinee's owes no branch (SPEC F, `type_checker::constructors_the_indices_allow`) — and
+/// then the case list is SHORTER than the constructor list: the second of two constructors is the
+/// FIRST of a one-case list. A `Term::Match` does not record which constructors its cases stand
+/// for, so the mapping is recomputed here, from the scrutinee's own indices.
+///
+/// This is where the ι-rule would otherwise go quietly wrong rather than merely get stuck:
+/// indexing a pruned list by the full position applies the WRONG branch to the right arguments.
+/// `None` means "cannot be determined" and no reduction happens — sound, and the type checker
+/// will have refused any match this cannot resolve.
+fn case_position(
+    ctx: &Context,
+    discriminant: &Term,
+    ctor_index: usize,
+    num_cases: usize,
+) -> Option<usize> {
+    // The overwhelming case: a full case list indexes directly.
+    let ind = constructor_inductive_of(ctx, discriminant)?;
+    let ctors = ctx.get_constructors(&ind);
+    if num_cases == ctors.len() {
+        return Some(ctor_index);
+    }
+    // A pruned list. Recover the scrutinee's indices from the constructor's declared result type
+    // with its ACTUAL arguments substituted, then ask which constructors those indices allow.
+    let num_params = ctx.inductive_num_params(&ind);
+    let (_, ctor_type) = *ctors.get(ctor_index)?;
+    let actual = spine_args(discriminant);
+    let mut binders: Vec<String> = Vec::new();
+    let mut cur = ctor_type;
+    while let Term::Pi {
+        param, body_type, ..
+    } = cur
+    {
+        binders.push(param.clone());
+        cur = body_type;
+    }
+    let mut result = cur.clone();
+    for (binder, value) in binders.iter().zip(actual.iter()) {
+        result = substitute(&result, binder, value);
+    }
+    let result_args = spine_args(&result);
+    let allowed =
+        crate::type_checker::constructors_the_indices_allow(ctx, &ind, num_params, &result_args);
+    if allowed.len() != num_cases {
+        return None;
+    }
+    allowed.iter().position(|&i| i == ctor_index)
+}
+
+/// The inductive a constructor-headed term belongs to, bridging a `Nat` literal to `Nat`.
+fn constructor_inductive_of(ctx: &Context, t: &Term) -> Option<String> {
+    if crate::int_inductive::literal_constructor(ctx, t).is_some() {
+        return Some("Int".to_string());
+    }
+    if matches!(t, Term::Lit(Literal::Nat(_))) {
+        return Some("Nat".to_string());
+    }
+    let mut head = t;
+    while let Term::App(f, _) = head {
+        head = f;
+    }
+    match head {
+        Term::Global(n) | Term::Const { name: n, .. } => {
+            ctx.constructor_inductive(n).map(|s| s.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// An application spine's arguments, in source order.
+fn spine_args(t: &Term) -> Vec<Term> {
+    let mut args = Vec::new();
+    let mut cur = t;
+    while let Term::App(f, a) = cur {
+        args.push((**a).clone());
+        cur = f;
+    }
+    args.reverse();
+    args
 }
 
 /// Extract constructor index and VALUE arguments from a term (skipping type arguments).
@@ -326,63 +1973,103 @@ fn is_constructor_form(ctx: &Context, term: &Term) -> bool {
 /// where `Cᵢ` is the i-th constructor of some inductive type.
 ///
 /// For polymorphic constructors like `Cons A h t`, this returns only [h, t], not [A, h, t].
-fn extract_constructor(ctx: &Context, term: &Term) -> Option<(usize, Vec<Term>)> {
-    // Peano bridge (K6): a `Nat` literal is constructor-form — `Nat(0)` is `Zero`,
-    // `Nat(n)` is `Succ (Nat (n-1))` — so a `match`/recursor computes on it, peeling one
-    // `Succ` per step. The indices are `Nat`'s own `Zero`/`Succ` registration positions.
-    if let Term::Lit(Literal::Nat(n)) = term {
-        let ctors = ctx.get_constructors("Nat");
-        let idx_of = |name: &str| ctors.iter().position(|(c, _)| *c == name);
-        // `n ≤ 0` is `Zero` (a well-formed Nat is non-negative; a negative literal — only
-        // reachable from untrusted input — collapses to `Zero` so the peel TERMINATES
-        // rather than descending toward −∞).
-        return if *n <= logicaffeine_base::BigInt::from_i64(0) {
-            idx_of("Zero").map(|i| (i, Vec::new()))
+/// Borrowed constructor metadata. Field materialization belongs to eliminators,
+/// not to the boolean recognition performed while looking for a fixpoint redex.
+enum ConstructorView<'a> {
+    Named {
+        index: usize,
+        parameters: usize,
+        term: &'a Term,
+    },
+    Natural {
+        index: usize,
+        value: &'a logicaffeine_base::BigInt,
+    },
+}
+fn constructor_view<'a>(ctx: &Context, term: &'a Term) -> Option<ConstructorView<'a>> {
+    if let Term::Lit(Literal::Nat(value)) = term {
+        if !crate::int_inductive::reads_nat_literal(ctx, value) {
+            return None;
+        }
+        let constructor = if *value <= logicaffeine_base::BigInt::from_i64(0) {
+            "Zero"
         } else {
-            let pred = n.sub(&logicaffeine_base::BigInt::from_i64(1));
-            idx_of("Succ").map(|i| (i, vec![Term::Lit(Literal::Nat(pred))]))
+            "Succ"
         };
+        let index = ctx
+            .constructor_headers("Nat")
+            .position(|(name, _)| name == constructor)?;
+        return Some(ConstructorView::Natural { index, value });
     }
-
-    let mut args = Vec::new();
-    let mut current = term;
-
-    // Collect arguments from nested applications
-    while let Term::App(func, arg) = current {
-        args.push((**arg).clone());
-        current = func;
+    let mut head = term;
+    while let Term::App(f, _) = head {
+        head = f;
     }
-    args.reverse();
+    let (Term::Global(name) | Term::Const { name, .. }) = head else {
+        return None;
+    };
+    let owner = ctx.constructor_inductive(name)?;
+    let (index, (_, ty)) = ctx
+        .constructor_headers(owner)
+        .enumerate()
+        .find(|(_, (candidate, _))| *candidate == name)?;
+    let parameters = ctx
+        .inductive_declared_params(owner)
+        .unwrap_or_else(|| count_type_params(ty));
+    Some(ConstructorView::Named {
+        index,
+        parameters,
+        term,
+    })
+}
+/// `term` as an explicit constructor application: itself when its head is a constructor, and one
+/// constructor layer of a numeral (`Zero`, `Succ n`, `Int_ofNat n`, `Int_negSucc n`).
+pub(crate) fn constructor_form(ctx: &Context, term: &Term) -> Option<Term> {
+    if let Some(layer) = crate::int_inductive::literal_constructor(ctx, term) {
+        return Some(layer);
+    }
+    match constructor_view(ctx, term)? {
+        ConstructorView::Natural { value, .. }
+            if *value <= logicaffeine_base::BigInt::from_i64(0) =>
+        {
+            Some(Term::Global("Zero".to_string()))
+        }
+        ConstructorView::Natural { value, .. } => Some(Term::App(
+            Box::new(Term::Global("Succ".to_string())),
+            Box::new(Term::Lit(Literal::Nat(
+                value.sub(&logicaffeine_base::BigInt::from_i64(1)),
+            ))),
+        )),
+        ConstructorView::Named { .. } => Some(term.clone()),
+    }
+}
 
-    // Check if head is a constructor
-    if let Term::Global(name) = current {
-        if let Some(inductive) = ctx.constructor_inductive(name) {
-            let ctors = ctx.get_constructors(inductive);
-            for (idx, (ctor_name, ctor_type)) in ctors.iter().enumerate() {
-                if *ctor_name == name {
-                    // The number of leading constructor arguments that are the inductive's
-                    // PARAMETERS (dropped before the case binders). For an indexed family
-                    // that declared its split we skip exactly those (`refl A x` → 2, so no
-                    // phantom value argument survives); otherwise fall back to the legacy
-                    // syntactic heuristic (leading Sort-typed Πs), leaving every existing
-                    // inductive's ι-reduction untouched.
-                    let num_type_params = ctx
-                        .inductive_declared_params(inductive)
-                        .unwrap_or_else(|| count_type_params(ctor_type));
-
-                    // Skip type arguments, return only value arguments
-                    let value_args = if num_type_params < args.len() {
-                        args[num_type_params..].to_vec()
-                    } else {
-                        vec![]
-                    };
-
-                    return Some((idx, value_args));
-                }
-            }
+fn extract_constructor(ctx: &Context, term: &Term) -> Option<(usize, Vec<Term>)> {
+    #[cfg(test)]
+    CONSTRUCTOR_MATERIALIZATIONS.with(|n| n.set(n.get() + 1));
+    if let Some(constructor) = crate::int_inductive::literal_constructor(ctx, term) {
+        return extract_constructor(ctx, &constructor);
+    }
+    match constructor_view(ctx, term)? {
+        ConstructorView::Natural { index, value } => {
+            let fields = if *value <= logicaffeine_base::BigInt::from_i64(0) {
+                Vec::new()
+            } else {
+                vec![Term::Lit(Literal::Nat(
+                    value.sub(&logicaffeine_base::BigInt::from_i64(1)),
+                ))]
+            };
+            Some((index, fields))
+        }
+        ConstructorView::Named {
+            index,
+            parameters,
+            term,
+        } => {
+            let (_, args) = app_spine(term);
+            Some((index, args.into_iter().skip(parameters).cloned().collect()))
         }
     }
-    None
 }
 
 /// Count leading type parameters in a constructor type.
@@ -393,7 +2080,12 @@ fn count_type_params(ty: &Term) -> usize {
     let mut count = 0;
     let mut current = ty;
 
-    while let Term::Pi { param_type, body_type, .. } = current {
+    while let Term::Pi {
+        param_type,
+        body_type,
+        ..
+    } = current
+    {
         if is_sort(param_type) {
             count += 1;
             current = body_type;
@@ -422,96 +2114,764 @@ fn app_spine(t: &Term) -> (&Term, Vec<&Term>) {
     (cur, args)
 }
 
-/// The quotient computation rule: `Quot_lift A r B f h (Quot_mk A r a) ⤳ f a`. Here `func`
-/// is `Quot_lift A r B f h` (5 args) and `arg` is `Quot_mk A r a` (3 args); the lifted
-/// function `f` is applied to the representative `a`, discarding the proof `h` and the class
-/// constructor (sound because `h` witnesses that `f` respects the relation).
-fn try_quot_lift_reduce(func: &Term, arg: &Term) -> Option<Term> {
+/// The certified observational equality's computation rules (`observational::reduce`), offered
+/// the application `func arg`.
+fn try_obs_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term> {
+    ctx.observational.as_ref()?;
+    let (head, mut args) = app_spine(func);
+    args.push(arg);
+    crate::observational::reduce(ctx, head, &args)
+}
+
+/// Quotient elimination applies the function to a constructed representative.
+/// Legacy lift spines have a respect proof; certified polymorphic induction
+/// has a Prop-valued motive and one fewer argument. Imported identities come
+/// from checked certificates, and representative universes must agree.
+fn try_quot_lift_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term> {
     let (fh, fargs) = app_spine(func);
-    if !matches!(fh, Term::Global(n) if n == "Quot_lift") || fargs.len() != 5 {
+    let (arity, universe) = match fh {
+        Term::Global(n) => {
+            let arity = match crate::quotient::prelude_kind(ctx, n)? {
+                crate::quotient::PreludeKind::Lift => 5,
+                crate::quotient::PreludeKind::Induction => 4,
+                _ => return None,
+            };
+            (arity, None)
+        }
+        Term::Const { name, levels } => {
+            let arity = match crate::quotient::kind(ctx, name, levels)? {
+                crate::quotient::Kind::Lift => 5,
+                crate::quotient::Kind::Induction => 4,
+                _ => return None,
+            };
+            (arity, Some(&levels[0]))
+        }
+        _ => return None,
+    };
+    if fargs.len() != arity {
         return None;
     }
     let (qh, qargs) = app_spine(arg);
-    if !matches!(qh, Term::Global(n) if n == "Quot_mk") || qargs.len() != 3 {
+    let constructor = match (qh, universe) {
+        (Term::Global(n), None) => {
+            crate::quotient::prelude_kind(ctx, n) == Some(crate::quotient::PreludeKind::Constructor)
+        }
+        (Term::Const { name, levels }, Some(u)) => {
+            crate::quotient::kind(ctx, name, levels) == Some(crate::quotient::Kind::Constructor)
+                && levels[0].equiv(u)
+        }
+        _ => false,
+    };
+    if !constructor || qargs.len() != 3 {
         return None;
     }
-    Some(Term::App(Box::new(fargs[3].clone()), Box::new(qargs[2].clone())))
+    Some(Term::App(
+        Box::new(fargs[3].clone()),
+        Box::new(qargs[2].clone()),
+    ))
+}
+
+/// ι FOR A FIXPOINT, at the column the TERMINATION GUARD admitted it on.
+///
+/// The specification is [`crate::termination::structural_columns`]'s, quoted there in full:
+///
+/// > `(fix f. λx₀ … λxₙ. e) a₀ … aₙ` unrolls exactly when the argument at the STRUCTURAL
+/// > position — `structural_columns(ctx, body)[0]` — is in constructor form.
+///
+/// The arm this stands beside asks the question of whatever argument the INNERMOST `App`
+/// happens to carry, which is always `a₀`. That is a strictly smaller rule, and the definition
+/// it leaves stuck is the commonest one there is: `Nat.add` recurses on its SECOND argument
+/// (`fix f. λm. λn. match n with …`), so the guard admits it with the structural column at
+/// position 1 and the reducer never unrolled it for a non-constructor `m`. `n + 0 = n` is
+/// `rfl` in Lean and was not `rfl` here — and `normalize` handed back a term still holding a
+/// δι-redex, which is the shape a conversion check cannot see past.
+///
+/// WHICH COLUMN is the guard's own answer and is asked of the guard, never guessed: a reducer
+/// that picked the column itself would compute a function the guard never checked. WHAT TO DO
+/// with the answer is this kernel's own code, and `recheck.rs` implements the same
+/// specification independently over de Bruijn levels.
+///
+/// Both halves are needed for `double_check` to mean anything here, and neither may be a copy
+/// of the other: today BOTH kernels are argument-0-only, so they agree by being wrong in the
+/// same way and the second kernel cannot see it.
+fn try_fix_unroll(ctx: &Context, term: &Term) -> Option<Term> {
+    let (head, args) = app_spine(term);
+    let Term::Fix { name, body } = head else {
+        return None;
+    };
+    // The guard's analysis walks the body, so it is asked only once something could possibly
+    // unroll. No argument in constructor form means no column can be satisfied, whichever one
+    // the guard names — and that is the shape every STUCK application has, which is the shape
+    // reduction spends most of its steps on.
+    if !args.iter().any(|a| is_constructor_form(ctx, a)) {
+        return None;
+    }
+    // An empty column list means the guard would REFUSE this body: there is no structural
+    // position, so there is no ι rule and the fixpoint is a value.
+    let column = *crate::termination::structural_columns(ctx, body).first()?;
+    if !is_constructor_form(ctx, args.get(column)?) {
+        return None;
+    }
+    let unfolded = substitute(body, name, head);
+    Some(args.iter().fold(unfolded, |f, a| {
+        Term::App(Box::new(f), Box::new((*a).clone()))
+    }))
+}
+
+// -------------------------------------------------------------------------
+// Primitive computation rules
+// -------------------------------------------------------------------------
+
+/// Lean 4's `Int.ediv` / `Int.emod` — the EUCLIDEAN convention, and TOTAL.
+///
+/// THE SPECIFICATION. Every engine that folds `div`/`mod` on literals implements THIS, each
+/// from the text, never by copying another engine's code — `reduction::try_primitive_reduce`
+/// (here), `recheck::try_builtin` (the second kernel), `eval::prim_arith` (the `native_decide`
+/// evaluator) and `simp::try_arithmetic` (the constant folder that certifies `simp` goals):
+///
+/// ```text
+///   b ≠ 0  ⟹  a = b·q + r   ∧   0 ≤ r < |b|      (the unique such pair)
+///   b = 0  ⟹  q = 0  ∧  r = a                     (`a = 0·0 + a`, so the identity survives)
+/// ```
+///
+/// Rust's `/` and `%` are TRUNCATED — the quotient rounds toward zero and the remainder
+/// carries the DIVIDEND's sign — so they agree with the spec above on every non-negative
+/// dividend and disagree on every negative one. That is exactly why a truncating
+/// implementation survives casual testing and then answers `(-7) / 2 = -3` where Lean answers
+/// `-4`: a silent wrong answer, the worst outcome there is.
+///
+/// This derivation corrects the truncated pair by one; `eval.rs` derives the same pair a
+/// different way (recovering `q` by exact division once `r` is known), so a slip in one
+/// derivation cannot hide in the other.
+fn ediv_emod_i64(a: i64, b: i64) -> Option<(i64, i64)> {
+    if b == 0 {
+        return Some((0, a));
+    }
+    // `None` only for `i64::MIN / -1`, which overflows the machine quotient; the caller
+    // promotes to the exact path rather than wrapping.
+    let q = a.checked_div(b)?;
+    let r = a.checked_rem(b)?;
+    if r >= 0 {
+        return Some((q, r));
+    }
+    if b > 0 {
+        Some((q.checked_sub(1)?, r.checked_add(b)?))
+    } else {
+        Some((q.checked_add(1)?, r.checked_sub(b)?))
+    }
+}
+
+/// The arbitrary-precision half of the same specification. Total in the same way, so the wide
+/// path and the narrow path answer identically on every value both can represent.
+fn ediv_emod_big(
+    a: &logicaffeine_base::BigInt,
+    b: &logicaffeine_base::BigInt,
+) -> (logicaffeine_base::BigInt, logicaffeine_base::BigInt) {
+    use logicaffeine_base::BigInt;
+    let Some((q, r)) = a.div_rem(b) else {
+        return (BigInt::from_i64(0), a.clone());
+    };
+    if !r.is_negative() {
+        return (q, r);
+    }
+    let one = BigInt::from_i64(1);
+    if !b.is_negative() {
+        (q.sub(&one), r.add(b))
+    } else {
+        (q.add(&one), r.sub(b))
+    }
+}
+
+fn bool_term(b: bool) -> Term {
+    Term::Global(if b { "true" } else { "false" }.to_string())
+}
+
+/// The `Int` computation rules: arithmetic on a machine fast path that PROMOTES on overflow,
+/// and order decided directly. `None` means "no rule for this name at these literal kinds",
+/// which is how a `Nat`, `Text` or `Float` operand keeps the term stuck instead of being
+/// silently read as an integer.
+fn int_binary(op: &str, xl: &Literal, yl: &Literal) -> Option<Term> {
+    // FAST PATH: both operands fit `i64`. Only an OVERFLOWING arithmetic op falls through —
+    // to be redone exactly in BigInt below.
+    if let (Literal::Int(a), Literal::Int(b)) = (xl, yl) {
+        let fast = match op {
+            "add" => a.checked_add(*b),
+            "sub" => a.checked_sub(*b),
+            "mul" => a.checked_mul(*b),
+            "div" => ediv_emod_i64(*a, *b).map(|(q, _)| q),
+            "mod" => ediv_emod_i64(*a, *b).map(|(_, r)| r),
+            _ => None,
+        };
+        if let Some(r) = fast {
+            return Some(Term::Lit(Literal::Int(r)));
+        }
+        // Bool-valued comparison primitives: ground order decided by computation, so
+        // `Eq Bool (le m n) true` holds by `refl` exactly when `m ≤ n` — the sound
+        // substrate for linear-arithmetic certificates.
+        let fast_bool = match op {
+            "le" => Some(a <= b),
+            "lt" => Some(a < b),
+            "ge" => Some(a >= b),
+            "gt" => Some(a > b),
+            _ => None,
+        };
+        if let Some(bl) = fast_bool {
+            return Some(bool_term(bl));
+        }
+    }
+
+    // EXACT PATH (K6): arbitrary-precision integer arithmetic, reached when an operand is a
+    // `BigInt` or an `i64` op overflowed. Results are canonicalised by `int_lit` (demote to
+    // `Int` when they fit), so a value has ONE literal and definitional equality of literals
+    // stays sound.
+    let (Some(xb), Some(yb)) = (lit_bigint(xl), lit_bigint(yl)) else {
+        return None;
+    };
+    let big = match op {
+        "add" => Some(xb.add(&yb)),
+        "sub" => Some(xb.sub(&yb)),
+        "mul" => Some(xb.mul(&yb)),
+        "div" => Some(ediv_emod_big(&xb, &yb).0),
+        "mod" => Some(ediv_emod_big(&xb, &yb).1),
+        _ => None,
+    };
+    if let Some(r) = big {
+        return Some(Term::Lit(int_lit(r)));
+    }
+    match op {
+        "le" => Some(bool_term(xb <= yb)),
+        "lt" => Some(bool_term(xb < yb)),
+        "ge" => Some(bool_term(xb >= yb)),
+        "gt" => Some(bool_term(xb > yb)),
+        _ => None,
+    }
+}
+
+/// The `Text` computation rules. Lean's `String` operations are recursions over
+/// `String.data`; `Text` is an opaque carrier, so they are primitive here — but they must
+/// COMPUTE, or `example : "ab" ++ "cd" = "abcd" := rfl` has no LOGOS form at all and an
+/// axiomatised `Text_append` makes the equation FALSE rather than unproved.
+///
+/// `Text_length` counts CHARACTERS, as Lean's `String.length` does — not bytes.
+fn text_binary(op: &str, xl: &Literal, yl: &Literal) -> Option<Term> {
+    let (Literal::Text(a), Literal::Text(b)) = (xl, yl) else {
+        return None;
+    };
+    match op {
+        "Text_append" => Some(Term::Lit(Literal::Text(format!("{a}{b}")))),
+        "Text_beq" => Some(bool_term(a == b)),
+        "Text_isPrefixOf" => Some(bool_term(b.starts_with(a.as_str()))),
+        _ => None,
+    }
+}
+
+/// Every binary computation rule, keyed by name and by the literal kinds it accepts. A new
+/// primitive type is a new ROW here, not another arm grafted onto the `Int` dispatch — which
+/// is what kept every `Text` operation unstatable.
+fn binary_prim(op: &str, xl: &Literal, yl: &Literal) -> Option<Term> {
+    int_binary(op, xl, yl).or_else(|| text_binary(op, xl, yl))
+}
+
+/// Every UNARY computation rule, same shape.
+fn unary_prim(op: &str, xl: &Literal) -> Option<Term> {
+    match (op, xl) {
+        ("Text_length", Literal::Text(s)) => Some(Term::Lit(Literal::Nat(
+            logicaffeine_base::BigInt::from_u64(s.chars().count() as u64),
+        ))),
+        _ => None,
+    }
+}
+
+// -------------------------------------------------------------------------
+// The accelerated `Nat` order — Lean's GMP `Nat.ble`/`Nat.blt`, with a check Lean does not do
+// -------------------------------------------------------------------------
+
+/// THE SPECIFICATION the acceleration stands in for, written as a program because that is what
+/// it is checked against:
+///
+/// ```text
+///   natLe : Nat → Nat → Bool
+///   natLe := fix f. λm. λn. match m { Zero   => true
+///                                   | Succ m✧ => match n { Zero   => false
+///                                                        | Succ n✧ => f m✧ n✧ } }
+///   natLt : Nat → Nat → Bool
+///   natLt := λm. λn. natLe (Succ m) n
+/// ```
+///
+/// A `Literal::Nat(k)` enters that recursion through the Peano bridge in
+/// [`extract_constructor`], which peels ONE `Succ` per unit — so deciding `m ≤ n` costs
+/// `min(m, n)` whole-term reduction steps. `Char`'s validity bound is `< 0x110000`, which is
+/// 1 114 112 steps against a 2^20 budget: the verdict is not slow, it is UNREACHABLE, and the
+/// bound gets refused for want of arithmetic rather than for being false.
+///
+/// Lean solves this by overriding `Nat.ble`/`Nat.blt` in the kernel with GMP, keyed on the
+/// constant's NAME and trusted to match the reference definition. **We do the same thing and
+/// check it.** The override below fires only when the constant is bound to exactly the program
+/// above — same skeleton, same case order, same recursive call, same declared type — so the
+/// fast answer IS the slow answer by construction, and a context that rebinds `natLe` silently
+/// loses the acceleration instead of silently getting the wrong value. That is a strictly
+/// smaller act of trust than Lean's, for one small structural comparison per fired redex.
+///
+/// The clamp is the boundary a fast path gets wrong: the Peano bridge sends a NEGATIVE
+/// `Literal::Nat` to `Zero` (a well-formed `Nat` is never negative, but the kernel can be
+/// HANDED one), so the literal comparison has to clamp the same way or the two spellings of one
+/// reduction disagree.
+fn nat_order_value(op: &str, xl: &Literal, yl: &Literal) -> Option<bool> {
+    let (Literal::Nat(a), Literal::Nat(b)) = (xl, yl) else {
+        return None;
+    };
+    let zero = logicaffeine_base::BigInt::from_i64(0);
+    let a = if a.is_negative() { &zero } else { a };
+    let b = if b.is_negative() { &zero } else { b };
+    match op {
+        "natLe" => Some(a <= b),
+        "natLt" => Some(a < b),
+        _ => None,
+    }
+}
+
+fn is_var_named(t: &Term, name: &str) -> bool {
+    matches!(t, Term::Var(n) if n == name)
+}
+
+fn is_global_named(t: &Term, name: &str) -> bool {
+    matches!(t, Term::Global(n) if n == name)
+}
+
+/// `Nat → Nat → Bool`, whatever the binders are called. Checked as well as the body, because a
+/// program with the right shape at the wrong type is a different function.
+fn is_nat_nat_bool(ty: &Term) -> bool {
+    let Term::Pi {
+        param_type: first,
+        body_type: rest,
+        ..
+    } = ty
+    else {
+        return false;
+    };
+    let Term::Pi {
+        param_type: second,
+        body_type: result,
+        ..
+    } = rest.as_ref()
+    else {
+        return false;
+    };
+    is_global_named(first, "Nat")
+        && is_global_named(second, "Nat")
+        && is_global_named(result, "Bool")
+}
+
+/// Whether `body` is the `natLe` program in the specification above, up to the names of its
+/// binders. The five binders must be pairwise DISTINCT: with shadowing, a term of this shape
+/// can compute something else entirely, and a matcher that read the shape without the scoping
+/// would accept it.
+fn is_min_recursion_order(body: &Term) -> bool {
+    let Term::Fix { name: f, body: abs } = body else {
+        return false;
+    };
+    let Term::Lambda {
+        param: m,
+        body: abs_n,
+        ..
+    } = abs.as_ref()
+    else {
+        return false;
+    };
+    let Term::Lambda {
+        param: n,
+        body: outer,
+        ..
+    } = abs_n.as_ref()
+    else {
+        return false;
+    };
+    let Term::Match {
+        discriminant: on_m,
+        cases: m_cases,
+        ..
+    } = outer.as_ref()
+    else {
+        return false;
+    };
+    if m_cases.len() != 2 || !is_var_named(on_m, m) || !is_global_named(&m_cases[0], "true") {
+        return false;
+    }
+    let Term::Lambda {
+        param: m_pred,
+        body: inner,
+        ..
+    } = &m_cases[1]
+    else {
+        return false;
+    };
+    let Term::Match {
+        discriminant: on_n,
+        cases: n_cases,
+        ..
+    } = inner.as_ref()
+    else {
+        return false;
+    };
+    if n_cases.len() != 2 || !is_var_named(on_n, n) || !is_global_named(&n_cases[0], "false") {
+        return false;
+    }
+    let Term::Lambda {
+        param: n_pred,
+        body: call,
+        ..
+    } = &n_cases[1]
+    else {
+        return false;
+    };
+    let Term::App(partial, second) = call.as_ref() else {
+        return false;
+    };
+    let Term::App(head, first) = partial.as_ref() else {
+        return false;
+    };
+    let names = [f, m, n, m_pred, n_pred];
+    let distinct = names
+        .iter()
+        .enumerate()
+        .all(|(i, a)| names[i + 1..].iter().all(|b| a != b));
+    distinct && is_var_named(head, f) && is_var_named(first, m_pred) && is_var_named(second, n_pred)
+}
+
+/// Whether `body` is `λm. λn. <le> (Succ m) n` — the `natLt` program, which is only the right
+/// function if `<le>` is itself the accelerated order.
+fn is_successor_shifted_order(body: &Term, le: &str) -> bool {
+    let Term::Lambda {
+        param: m,
+        body: abs_n,
+        ..
+    } = body
+    else {
+        return false;
+    };
+    let Term::Lambda {
+        param: n,
+        body: call,
+        ..
+    } = abs_n.as_ref()
+    else {
+        return false;
+    };
+    let Term::App(partial, second) = call.as_ref() else {
+        return false;
+    };
+    let Term::App(head, first) = partial.as_ref() else {
+        return false;
+    };
+    let Term::App(succ, shifted) = first.as_ref() else {
+        return false;
+    };
+    m != n
+        && is_global_named(head, le)
+        && is_global_named(succ, "Succ")
+        && is_var_named(shifted, m)
+        && is_var_named(second, n)
+}
+
+/// Whether `natLe` in this context IS the program the acceleration computes.
+fn accelerates_nat_le(ctx: &Context) -> bool {
+    ctx.get_global("natLe").is_some_and(is_nat_nat_bool)
+        && ctx
+            .get_definition_body("natLe")
+            .is_some_and(is_min_recursion_order)
+}
+
+/// The shortcut reads compact Nat literals as Zero/Succ and returns a constructor
+/// named true/false. Those are semantic dependencies, even when both order bodies
+/// are unchanged: a checked alias true : Bool := false must evaluate to false,
+/// and a legacy mutation of Nat's positional inventory must use the actual body.
+fn has_nat_order_carriers(ctx: &Context) -> bool {
+    if !crate::int_inductive::canonical_nat_environment(ctx)
+        || !ctx.is_inductive("Bool")
+        || ctx.get_global("Bool") != Some(&Term::Sort(crate::term::Universe::Type(0)))
+        || ctx.inductive_num_params("Bool") != 0
+        || ctx.poly_declaration("Bool").is_some()
+        || ctx.get_definition_body("Bool").is_some()
+        || ctx.get_constructors("Bool").len() != 2
+    {
+        return false;
+    }
+    ["false", "true"].into_iter().all(|name| {
+        ctx.constructor_inductive(name) == Some("Bool")
+            && ctx.get_global(name) == Some(&Term::Global("Bool".into()))
+            && ctx.poly_declaration(name).is_none()
+            && ctx.get_definition_body(name).is_none()
+    })
+}
+
+/// Whether op may be decided on two Nat literals in this context: the shared
+/// structural gate. The named, de Bruijn and two evaluation engines keep their
+/// own computations; all must refuse an override whose dependencies changed.
+pub(crate) fn accelerates_nat_order(ctx: &Context, op: &str) -> bool {
+    if !has_nat_order_carriers(ctx) {
+        return false;
+    }
+    match op {
+        "natLe" => accelerates_nat_le(ctx),
+        "natLt" => {
+            ctx.get_global("natLt").is_some_and(is_nat_nat_bool)
+                && ctx
+                    .get_definition_body("natLt")
+                    .is_some_and(|b| is_successor_shifted_order(b, "natLe"))
+                && accelerates_nat_le(ctx)
+        }
+        _ => false,
+    }
+}
+
+/// The non-dependent arrow spine of a type, as bare global names: `A → B → C` is
+/// `["A", "B", "C"]`. `None` for anything else, which is already a disagreement with every
+/// primitive's signature and so needs no further analysis. Binder NAMES are ignored, because a
+/// declaration is free to spell them however it likes; a domain or codomain that is not a bare
+/// global cannot be one of these signatures at all.
+fn arrow_spine_of_globals(ty: &Term) -> Option<Vec<&str>> {
+    let mut spine = Vec::new();
+    let mut cur = ty;
+    while let Term::Pi {
+        param_type,
+        body_type,
+        ..
+    } = cur
+    {
+        let Term::Global(name) = param_type.as_ref() else {
+            return None;
+        };
+        spine.push(name.as_str());
+        cur = body_type;
+    }
+    let Term::Global(name) = cur else {
+        return None;
+    };
+    spine.push(name);
+    Some(spine)
+}
+
+/// The type every computation rule below promises. ONE row per rule, because a rule without one
+/// is a rule nothing holds to a type — `R_reduction_extra`'s
+/// `every_primitive_the_reducer_computes_has_a_signature_it_is_held_to` fails if a new primitive
+/// arrives without its row.
+fn primitive_signature(op: &str) -> Option<&'static [&'static str]> {
+    Some(match op {
+        "add" | "sub" | "mul" | "div" | "mod" => &["Int", "Int", "Int"],
+        "le" | "lt" | "ge" | "gt" => &["Int", "Int", "Bool"],
+        "Text_append" => &["Text", "Text", "Text"],
+        "Text_beq" | "Text_isPrefixOf" => &["Text", "Text", "Bool"],
+        "Text_length" => &["Text", "Nat"],
+        // The NATIVE-REDUCTION hook. It computes no literal, so `binary_prim`/`unary_prim` never
+        // match it and it can never be fired BY this table — its row is here so the hook can ask
+        // `declaration_agrees_with_the_rule` the same question every other rule asks. Lean's own
+        // `Lean.reduceBool` is `Bool → Bool`.
+        "reduceBool" => &["Bool", "Bool"],
+        _ => return None,
+    })
+}
+
+/// Whether a computation rule of this kernel fires on the name `op` itself — a registered primitive
+/// operation, the native-reduction hook or a reflection rule — so that an application of `op` may
+/// compute although `op` has no body.
+pub(crate) fn computes_by_name(op: &str) -> bool {
+    primitive_signature(op).is_some() || reflection_signature(op).is_some()
+}
+
+/// Whether `name.{levels}` is a well-formed reference with no body to unfold (an axiom, an opaque
+/// constant, an inductive type or a constructor).
+pub(crate) fn const_is_value(ctx: &Context, name: &str, levels: &[crate::term::Universe]) -> bool {
+    matches!(const_step(ctx, name, levels), ConstStep::Value)
+}
+
+/// Whether the context's declaration of `op` — if it has one — AGREES with the type the
+/// computation rule's answer inhabits.
+///
+/// SUBJECT REDUCTION. A primitive rule fires on a NAME and a pair of literal kinds, and nothing
+/// used to make it look at the declared TYPE. So a context declaring
+/// `Text_append : Text → Text → Nat` got a kernel where `infer_type` answered `Nat` and
+/// `normalize` produced a `Text` literal — a term and its reduct with different types, which is
+/// the one thing a conversion check may not have, since every use of a reduct in place of its
+/// term assumes exactly that they are interchangeable. It is the same typing-versus-reduction
+/// divergence the codebase calls conformance defect 3, reached through the primitive table
+/// instead of through `get_global`'s resolution order.
+///
+/// A name the context does not declare at all is left alone: the application cannot be typed in
+/// that context either way, so there is no verdict to disagree with, and refusing here would
+/// take away the only route a `Text` operation currently has before the prelude declares one.
+pub(crate) fn declaration_agrees_with_the_rule(ctx: &Context, op: &str) -> bool {
+    let Some(signature) = primitive_signature(op) else {
+        return false;
+    };
+    match ctx.get_global(op) {
+        None => true,
+        Some(declared) => arrow_spine_of_globals(declared).is_some_and(|s| s == signature),
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReflectionType {
+    Syntax,
+    Derivation,
+    Int,
+    Nat,
+    Tactic,
+    TacticList,
+}
+
+/// Ground type schemas for the reflected computation rules, including higher-order tactics.
+fn reflection_signature(op: &str) -> Option<&'static [ReflectionType]> {
+    use ReflectionType::{
+        Derivation as D, Int as I, Nat as N, Syntax as S, Tactic as T, TacticList as L,
+    };
+    Some(match op {
+        "syn_size" | "syn_max_var" => &[S, I],
+        "syn_quote" | "syn_diag" | "syn_step" => &[S, S],
+        "syn_beta" | "induction_base_goal" => &[S, S, S],
+        "syn_eval" => &[I, S, S],
+        "syn_lift" => &[I, I, S, S],
+        "syn_subst" => &[S, I, S, S],
+        "concludes" => &[D, S],
+        "try_refl" | "try_compute" | "try_ring" | "try_lia" | "try_cc" | "try_simp"
+        | "try_omega" | "try_auto" | "try_decide" | "try_assumption" | "try_split" | "try_left"
+        | "try_right" | "try_bitblast" | "try_tabulate" | "try_hw_auto" | "try_inversion"
+        | "tact_fail" => &[S, D],
+        "induction_num_cases" => &[S, N],
+        "try_cong" => &[S, D, D],
+        "try_rewrite" | "try_rewrite_rev" => &[D, S, D],
+        "try_script" => &[S, S, D],
+        "tact_try" | "tact_repeat" | "tact_solve" => &[T, S, D],
+        "tact_first" => &[L, S, D],
+        "tact_orelse" | "tact_then" => &[T, T, S, D],
+        "induction_step_goal" => &[S, S, N, S],
+        "try_induction" | "try_destruct" => &[S, S, D, D],
+        "try_apply" => &[S, D, S, D],
+        _ => return None,
+    })
+}
+
+fn matches_reflection_type(ty: &Term, shape: ReflectionType) -> bool {
+    use ReflectionType::*;
+    match shape {
+        Tactic => matches_reflection_signature(ty, &[Syntax, Derivation]),
+        TacticList => matches!(ty, Term::App(head, elem)
+            if matches!(head.as_ref(), Term::Global(n) if n == "TList")
+                && matches_reflection_type(elem, Tactic)),
+        _ => {
+            let expected = match shape {
+                Syntax => "Syntax",
+                Derivation => "Derivation",
+                Int => "Int",
+                Nat => "Nat",
+                _ => unreachable!(),
+            };
+            matches!(ty, Term::Global(n) if n == expected)
+        }
+    }
+}
+
+fn matches_reflection_signature(mut ty: &Term, signature: &[ReflectionType]) -> bool {
+    for shape in &signature[..signature.len() - 1] {
+        let Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } = ty
+        else {
+            return false;
+        };
+        if !matches_reflection_type(param_type, *shape) {
+            return false;
+        }
+        ty = body_type;
+    }
+    matches_reflection_type(ty, signature[signature.len() - 1])
+}
+
+/// Both kernels gate the same declared primitive interface; their computations remain separate.
+pub(crate) fn reflection_declaration_agrees(ctx: &Context, op: &str) -> bool {
+    let Some(signature) = reflection_signature(op) else {
+        return false;
+    };
+    ctx.get_global(op)
+        .is_none_or(|ty| matches_reflection_signature(ty, signature))
 }
 
 /// Try to reduce a primitive operation.
 ///
-/// Returns Some(result) if this is a fully applied primitive like (add 3 4).
-/// Pattern: ((op x) y) where op is a builtin and x, y are literals.
-fn try_primitive_reduce(func: &Term, arg: &Term) -> Option<Term> {
-    // We need func = (op x) and arg = y
-    if let Term::App(op_term, x) = func {
-        if let Term::Global(op_name) = op_term.as_ref() {
-            if let (Term::Lit(xl), Term::Lit(yl)) = (x.as_ref(), arg) {
-                let bool_term =
-                    |b: bool| Term::Global(if b { "true" } else { "false" }.to_string());
-
-                // FAST PATH: both operands fit `i64`. Arithmetic is machine-checked; a
-                // comparison is decided directly. Only an OVERFLOWING arithmetic op falls
-                // through — to be redone exactly in BigInt below.
-                if let (Literal::Int(a), Literal::Int(b)) = (xl, yl) {
-                    let fast = match op_name.as_str() {
-                        "add" => a.checked_add(*b),
-                        "sub" => a.checked_sub(*b),
-                        "mul" => a.checked_mul(*b),
-                        "div" => a.checked_div(*b),
-                        "mod" => a.checked_rem(*b),
-                        _ => None,
-                    };
-                    if let Some(r) = fast {
-                        return Some(Term::Lit(Literal::Int(r)));
-                    }
-                    // Bool-valued comparison primitives: ground order decided by
-                    // computation, so `Eq Bool (le m n) true` holds by `refl` exactly when
-                    // `m ≤ n` — the sound substrate for linear-arithmetic certificates.
-                    let fast_bool = match op_name.as_str() {
-                        "le" => Some(a <= b),
-                        "lt" => Some(a < b),
-                        "ge" => Some(a >= b),
-                        "gt" => Some(a > b),
-                        _ => None,
-                    };
-                    if let Some(bl) = fast_bool {
-                        return Some(bool_term(bl));
-                    }
-                }
-
-                // EXACT PATH (K6): arbitrary-precision integer arithmetic, reached when an
-                // operand is a `BigInt` or an `i64` op overflowed. Results are canonicalised
-                // by `int_lit` (demote to `Int` when they fit), so a value has ONE literal
-                // and definitional equality of literals stays sound. `div`/`mod` by zero
-                // yield no result (the fixpoint stays stuck — unprovable, sound).
-                if let (Some(xb), Some(yb)) = (lit_bigint(xl), lit_bigint(yl)) {
-                    let big = match op_name.as_str() {
-                        "add" => Some(xb.add(&yb)),
-                        "sub" => Some(xb.sub(&yb)),
-                        "mul" => Some(xb.mul(&yb)),
-                        "div" => xb.div_rem(&yb).map(|(q, _)| q),
-                        "mod" => xb.div_rem(&yb).map(|(_, r)| r),
-                        _ => None,
-                    };
-                    if let Some(r) = big {
-                        return Some(Term::Lit(int_lit(r)));
-                    }
-                    let bool_result = match op_name.as_str() {
-                        "le" => Some(xb <= yb),
-                        "lt" => Some(xb < yb),
-                        "ge" => Some(xb >= yb),
-                        "gt" => Some(xb > yb),
-                        _ => None,
-                    };
-                    if let Some(b) = bool_result {
-                        return Some(bool_term(b));
-                    }
-                }
+/// Returns `Some(result)` for a fully applied primitive like `(add 3 4)` or `(Text_length "ab")`.
+///
+/// A primitive rule fires on a NAME, so it must never outrank a DEFINITION of that name: if
+/// the context binds `op` to a body, the kernel has to compute what the body says, or it
+/// disagrees with the very definition it type-checked the application against — a silent wrong
+/// answer with no diagnostic anywhere. Bodyless primitives retain their declared
+/// computation rules; checked definitions require attestation of the exact body
+/// and its dependencies before literal arithmetic can replace delta reduction.
+///
+/// An ACCELERATION is the one thing allowed through that gate, because it is checked against
+/// the body it is standing in for rather than merely named after it — see [`nat_order_value`].
+/// It is δ wearing a faster coat, so it asks the transparency door the same question δ asks:
+/// an `@[irreducible]` constant stays folded here too.
+fn try_primitive_reduce(
+    ctx: &Context,
+    func: &Term,
+    arg: &Term,
+    tr: Transparency<'_>,
+) -> Option<Term> {
+    let owned_y;
+    let yl = if let Term::Lit(literal) = arg {
+        literal
+    } else {
+        owned_y = crate::int_inductive::constructor_literal(ctx, arg)?;
+        &owned_y
+    };
+    match func {
+        // Unary: `op x`
+        Term::Global(op) => {
+            let result = unary_prim(op, yl)?;
+            if ctx.get_definition_body(op).is_some() || !declaration_agrees_with_the_rule(ctx, op) {
+                return None;
             }
+            Some(result)
         }
+        // Binary: `(op x) y`
+        Term::App(op_term, x) => {
+            let Term::Global(op) = op_term.as_ref() else {
+                return None;
+            };
+            let owned_x;
+            let xl = if let Term::Lit(literal) = x.as_ref() {
+                literal
+            } else {
+                owned_x = crate::int_inductive::constructor_literal(ctx, x)?;
+                &owned_x
+            };
+            if let Some(decided) = nat_order_value(op, xl, yl) {
+                // natLt's delta body calls natLe. An elaborator transparency
+                // that keeps that dependency folded must not bypass it either.
+                if tr.unfolds(op)
+                    && (op != "natLt" || tr.unfolds("natLe"))
+                    && accelerates_nat_order(ctx, op)
+                {
+                    return Some(bool_term(decided));
+                }
+                return None;
+            }
+            let result = binary_prim(op, xl, yl)?;
+            if ctx.get_definition_body(op).is_some() {
+                let dependencies = crate::int_inductive::integer_alias_dependencies(op)?;
+                if !dependencies.iter().all(|name| tr.unfolds(name))
+                    || !crate::int_inductive::accelerates_integer_alias(ctx, op)
+                {
+                    return None;
+                }
+            } else if !declaration_agrees_with_the_rule(ctx, op) {
+                return None;
+            }
+            Some(result)
+        }
+        _ => None,
     }
-    None
 }
 
 // -------------------------------------------------------------------------
@@ -524,7 +2884,26 @@ fn try_primitive_reduce(func: &Term, arg: &Term) -> Option<Term> {
 /// Pattern: ((syn_beta body) arg) for two-argument builtins.
 /// Pattern: (((syn_lift amount) cutoff) term) for three-argument builtins.
 /// Pattern: (((syn_subst replacement) index) term) for substitution.
+///
+/// An operation `reflection` defines runs natively only where its definition is attested
+/// (`reflection::attested`), and δ unfolds it everywhere else; the rest are assumptions whose rule
+/// fires on their declared signature and never past a definition of the name.
 fn try_reflection_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term> {
+    let mut head = func;
+    while let Term::App(f, _) = head {
+        head = f;
+    }
+    let Term::Global(name) = head else {
+        return None;
+    };
+    let gate = if crate::reflection::DEFINED.contains(&name.as_str()) {
+        crate::reflection::attested(ctx, name)
+    } else {
+        !ctx.is_definition(name) && reflection_declaration_agrees(ctx, name)
+    };
+    if !gate {
+        return None;
+    }
     // First, check for single-argument builtins
     if let Term::Global(op_name) = func {
         match op_name.as_str() {
@@ -605,6 +2984,31 @@ fn try_reflection_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term>
                 // Auto tactic: tries all tactics in sequence
                 let norm_arg = normalize(ctx, arg);
                 return try_try_auto_reduce(ctx, &norm_arg);
+            }
+            "try_decide" => {
+                // Decide tactic: decide a decidable proposition by reflection + computation
+                let norm_arg = normalize(ctx, arg);
+                return try_try_decide_reduce(ctx, &norm_arg);
+            }
+            "try_assumption" => {
+                // Assumption tactic: close the goal with a hypothesis (after intro)
+                let norm_arg = normalize(ctx, arg);
+                return try_try_assumption_reduce(ctx, &norm_arg);
+            }
+            "try_split" => {
+                // Split tactic: ∧-introduction (prove both conjuncts)
+                let norm_arg = normalize(ctx, arg);
+                return try_try_split_reduce(ctx, &norm_arg);
+            }
+            "try_left" => {
+                // Left tactic: ∨-introduction-left (prove the left disjunct)
+                let norm_arg = normalize(ctx, arg);
+                return try_try_left_reduce(ctx, &norm_arg);
+            }
+            "try_right" => {
+                // Right tactic: ∨-introduction-right (prove the right disjunct)
+                let norm_arg = normalize(ctx, arg);
+                return try_try_right_reduce(ctx, &norm_arg);
             }
             "try_bitblast" => {
                 // Bitblast tactic: prove Bit equalities by normalization
@@ -795,7 +3199,12 @@ fn try_reflection_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term>
                     let norm_ind_type = normalize(ctx, ind_type);
                     let norm_motive = normalize(ctx, motive);
                     let norm_idx = normalize(ctx, arg);
-                    return try_induction_step_goal_reduce(ctx, &norm_ind_type, &norm_motive, &norm_idx);
+                    return try_induction_step_goal_reduce(
+                        ctx,
+                        &norm_ind_type,
+                        &norm_motive,
+                        &norm_idx,
+                    );
                 }
             }
         }
@@ -811,7 +3220,12 @@ fn try_reflection_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term>
                     let norm_ind_type = normalize(ctx, ind_type);
                     let norm_motive = normalize(ctx, motive);
                     let norm_cases = normalize(ctx, arg);
-                    return try_try_induction_reduce(ctx, &norm_ind_type, &norm_motive, &norm_cases);
+                    return try_try_induction_reduce(
+                        ctx,
+                        &norm_ind_type,
+                        &norm_motive,
+                        &norm_cases,
+                    );
                 }
             }
         }
@@ -827,7 +3241,7 @@ fn try_reflection_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term>
                     let norm_ind_type = normalize(ctx, ind_type);
                     let norm_motive = normalize(ctx, motive);
                     let norm_cases = normalize(ctx, arg);
-                    return try_try_destruct_reduce(ctx, &norm_ind_type, &norm_motive, &norm_cases);
+                    return try_try_destruct_reduce(&norm_ind_type, &norm_motive, &norm_cases);
                 }
             }
         }
@@ -990,7 +3404,7 @@ fn try_syn_lift_reduce(ctx: &Context, amount: i64, cutoff: i64, term: &Term) -> 
                             // Free variable, shift
                             return Some(Term::App(
                                 Box::new(Term::Global("SVar".to_string())),
-                                Box::new(Term::Lit(Literal::Int(*k + amount))),
+                                Box::new(Term::Lit(Literal::Int(k.checked_add(amount)?))),
                             ));
                         } else {
                             // Bound variable, no shift
@@ -1025,8 +3439,7 @@ fn try_syn_lift_reduce(ctx: &Context, amount: i64, cutoff: i64, term: &Term) -> 
                     "SLam" | "SPi" => {
                         // Binder: param type at current cutoff, body at cutoff+1
                         let param_lifted = try_syn_lift_reduce(ctx, amount, cutoff, a)?;
-                        let body_lifted =
-                            try_syn_lift_reduce(ctx, amount, cutoff + 1, inner_arg)?;
+                        let body_lifted = try_syn_lift_reduce(ctx, amount, cutoff + 1, inner_arg)?;
                         return Some(Term::App(
                             Box::new(Term::App(
                                 Box::new(Term::Global(ctor_name.clone())),
@@ -1112,7 +3525,8 @@ fn syn_subst_impl(
                     "SApp" => {
                         // No binding, same index and replacement
                         let a_subst = syn_subst_impl(ctx, replacement, index, a, decrement)?;
-                        let b_subst = syn_subst_impl(ctx, replacement, index, inner_arg, decrement)?;
+                        let b_subst =
+                            syn_subst_impl(ctx, replacement, index, inner_arg, decrement)?;
                         return Some(Term::App(
                             Box::new(Term::App(
                                 Box::new(Term::Global("SApp".to_string())),
@@ -1246,23 +3660,17 @@ fn try_syn_arith_reduce(func: &Term, arg: &Term) -> Option<Term> {
                 return None;
             };
 
-            // Compute result based on operator
+            // Compute result based on operator. The reflected object language models the
+            // kernel's OWN arithmetic, so `div`/`mod` here are the same TOTAL Euclidean pair
+            // `try_primitive_reduce` computes: a reflected `div` that truncated while the
+            // kernel's rounded the other way would let `try_dcompute_conclude` certify
+            // `Eq Int (div (-7) 2) (-3)` — a FALSE equation, accepted by reflection.
             let result = match op.as_str() {
                 "add" => n.checked_add(m),
                 "sub" => n.checked_sub(m),
                 "mul" => n.checked_mul(m),
-                "div" => {
-                    if m == 0 {
-                        return None; // Division by zero: remain stuck
-                    }
-                    n.checked_div(m)
-                }
-                "mod" => {
-                    if m == 0 {
-                        return None; // Mod by zero: remain stuck
-                    }
-                    n.checked_rem(m)
-                }
+                "div" => ediv_emod_i64(n, m).map(|(q, _)| q),
+                "mod" => ediv_emod_i64(n, m).map(|(_, r)| r),
                 _ => None,
             };
 
@@ -1378,20 +3786,41 @@ fn try_syn_step_reduce(ctx: &Context, term: &Term) -> Option<Term> {
 /// - If fuel <= 0: return term unchanged
 /// - Otherwise: step and repeat until normal form or fuel exhausted
 fn try_syn_eval_reduce(ctx: &Context, fuel: i64, term: &Term) -> Option<Term> {
-    if fuel <= 0 {
-        return Some(term.clone());
+    match syn_eval_checked(ctx, fuel, term) {
+        // A fuelled evaluator's exhausted result is a legitimate answer for the OBJECT-language
+        // `syn_eval fuel t`, because the fuel is written in the term and the caller can see it.
+        // It is NOT a legitimate answer for a proof door, which is why the honest channel exists.
+        Ok(value) | Err(Some(value)) => Some(value),
+        Err(None) => None,
     }
+}
 
-    // Try one step
-    let stepped = try_syn_step_reduce(ctx, term)?;
-
-    // If term didn't change, it's in normal form (or stuck)
-    if &stepped == term {
-        return Some(term.clone());
+/// Bounded evaluation of a reflected term, reporting whether it FINISHED.
+///
+/// `Ok(v)` — reached a normal form (or a stuck term) with fuel to spare. `Err(Some(v))` — the
+/// fuel ran out at `v`, which is as far as it got and NOT the value of the expression.
+/// `Err(None)` — a step could not be taken at all.
+///
+/// Iterative on purpose. The recursive shape this replaces recursed ONCE PER STEP, so the fuel
+/// literal in `syn_eval <fuel> t` — a number the user writes in the term — set the native stack
+/// depth: a large enough one overflowed the stack and ABORTED THE PROCESS out of `normalize`, a
+/// total public entry point. Depth is now bounded by the heap, and the budget can be raised
+/// without buying a crash.
+fn syn_eval_checked(ctx: &Context, fuel: i64, term: &Term) -> Result<Term, Option<Term>> {
+    let mut current = term.clone();
+    let mut left = fuel;
+    while left > 0 {
+        let stepped = match try_syn_step_reduce(ctx, &current) {
+            Some(s) => s,
+            None => return Err(None),
+        };
+        if stepped == current {
+            return Ok(current);
+        }
+        current = stepped;
+        left -= 1;
     }
-
-    // Continue with reduced fuel
-    try_syn_eval_reduce(ctx, fuel - 1, &stepped)
+    Err(Some(current))
 }
 
 // -------------------------------------------------------------------------
@@ -1579,6 +4008,24 @@ fn try_syn_diag_reduce(ctx: &Context, term: &Term) -> Option<Term> {
 /// - DUnivElim d term → substitute term into forall body
 /// - DRefl T a → Eq T a a
 fn try_concludes_reduce(ctx: &Context, deriv: &Term) -> Option<Term> {
+    // A proof SCRIPT `try_script names goal` concludes its goal iff evaluating the script proves it.
+    // A failed or malformed script concludes the error sentinel, so the soundness gate rejects it.
+    if let Some((list, goal)) = extract_try_script(deriv) {
+        return match extract_script_names(&list) {
+            // The script proved the goal — but the CONCLUSION this door reports is compared
+            // against the stated goal by the REPL's soundness gate, so it must be a finished
+            // normal form. An abandoned reduction reported as the conclusion would let the gate
+            // match two partial terms and accept a theorem nothing certified.
+            Some(names) if eval_script_names(ctx, &names, &[], &goal) => {
+                match normalize_checked(ctx, &goal) {
+                    Ok(normal) => Some(normal),
+                    Err(_) => Some(make_sname_error()),
+                }
+            }
+            _ => Some(make_sname_error()),
+        };
+    }
+
     // DAxiom P → P
     if let Term::App(ctor_term, p) = deriv {
         if let Term::Global(ctor_name) = ctor_term.as_ref() {
@@ -1672,10 +4119,10 @@ fn try_concludes_reduce(ctx: &Context, deriv: &Term) -> Option<Term> {
     if let Term::App(partial1, new_goal) = deriv {
         if let Term::App(partial2, old_goal) = partial1.as_ref() {
             if let Term::App(partial3, hyp_proof) = partial2.as_ref() {
-                if let Term::App(ctor_term, hyp_name) = partial3.as_ref() {
+                if let Term::App(ctor_term, _) = partial3.as_ref() {
                     if let Term::Global(ctor_name) = ctor_term.as_ref() {
                         if ctor_name == "DApply" {
-                            return try_dapply_conclude(ctx, hyp_name, hyp_proof, old_goal, new_goal);
+                            return try_dapply_conclude(ctx, hyp_proof, old_goal, new_goal);
                         }
                     }
                 }
@@ -1763,47 +4210,62 @@ fn try_concludes_reduce(ctx: &Context, deriv: &Term) -> Option<Term> {
     None
 }
 
-/// Extract (A, B) from SApp (SApp (SName "Implies") A) B
+/// **THE ONE READER OF AN IMPLICATION**, whatever it happens to be spelled as.
 ///
-/// In kernel representation:
-/// SApp X Y = App(App(SApp, X), Y)
-/// So SApp (SApp (SName "Implies") A) B =
-///   App(App(SApp, App(App(SApp, App(SName, "Implies")), A)), B)
-fn extract_implication(term: &Term) -> Option<(Term, Term)> {
-    // term = App(App(SApp, X), B)
-    if let Term::App(outer, b) = term {
-        if let Term::App(sapp_outer, x) = outer.as_ref() {
-            if let Term::Global(ctor) = sapp_outer.as_ref() {
-                if ctor == "SApp" {
-                    // x = App(App(SApp, App(SName, "Implies")), A)
-                    if let Term::App(inner, a) = x.as_ref() {
-                        if let Term::App(sapp_inner, sname_implies) = inner.as_ref() {
-                            if let Term::Global(ctor2) = sapp_inner.as_ref() {
-                                if ctor2 == "SApp" {
-                                    // sname_implies = App(SName, "Implies")
-                                    if let Term::App(sname, text) = sname_implies.as_ref() {
-                                        if let Term::Global(sname_ctor) = sname.as_ref() {
-                                            if sname_ctor == "SName" {
-                                                if let Term::Lit(Literal::Text(s)) = text.as_ref() {
-                                                    if s == "Implies" || s == "implies" {
-                                                        return Some((
-                                                            a.as_ref().clone(),
-                                                            b.as_ref().clone(),
-                                                        ));
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+/// The reflected surface has THREE spellings of `A → B`, and until this function they never met:
+///
+/// * `SApp (SApp (SName "implies") A) B` — lower case, what `intro`, `decide`, `assumption` and
+///   the simp/cc goal readers build and match;
+/// * `SApp (SApp (SName "Implies") A) B` — capitalised, what `make_implies_syntax` builds, so
+///   every induction STEP case was stated in a dialect no script step could read;
+/// * a NON-DEPENDENT `SPi A B` — what the literate `Statement:` surface produces, because the
+///   infix `implies` desugars to a `Pi { param: "_" }` and `term_to_syntax` reflects a `Pi`
+///   faithfully as an `SPi`.
+///
+/// One spelling per producer and a different one per consumer is a seam, not a feature, and it
+/// was observable: `## Theorem: P1 Statement: (implies True True). Proof: auto.` certified while
+/// `## Theorem: P2 Statement: True implies True. Proof: auto.` — the SAME proposition, written
+/// the way the documentation teaches — did not, and `intro. assumption.` failed on the infix one
+/// too.
+///
+/// A DEPENDENT `SPi` is a QUANTIFIER and is refused here: its body mentions the bound variable,
+/// so discharging the antecedent does not hand you the conclusion. The test is conservative on
+/// purpose — a body mentioning ANY de Bruijn index is declined rather than renumbered, because
+/// re-indexing it wrongly would hand a tactic the wrong proposition and it would prove THAT.
+fn as_implication(term: &Term) -> Option<(Term, Term)> {
+    if let Some(pair) = extract_sapp2(term, "implies") {
+        return Some(pair);
+    }
+    if let Some(pair) = extract_sapp2(term, "Implies") {
+        return Some(pair);
+    }
+    let (antecedent, consequent) = extract_spi(term)?;
+    if syntax_mentions_svar(&consequent) {
+        return None;
+    }
+    Some((antecedent, consequent))
+}
+
+/// Whether a reflected term mentions any de Bruijn index — `SVar n` for any `n`.
+fn syntax_mentions_svar(term: &Term) -> bool {
+    match term {
+        Term::App(f, x) => {
+            if let Term::Global(ctor) = f.as_ref() {
+                if ctor == "SVar" {
+                    return true;
                 }
             }
+            syntax_mentions_svar(f) || syntax_mentions_svar(x)
         }
+        _ => false,
     }
-    None
+}
+
+/// Extract (A, B) from an implication, in any of its three spellings — see [`as_implication`],
+/// which this is now a name for. Kept because `DModusPonens` and the congruence-closure reader
+/// both call it by this name.
+fn extract_implication(term: &Term) -> Option<(Term, Term)> {
+    as_implication(term)
 }
 
 /// Extract all hypotheses from a chain of nested implications.
@@ -1893,9 +4355,95 @@ fn extract_slam_body(term: &Term) -> Option<Term> {
     None
 }
 
-/// Structural equality check for Syntax terms
+/// Equality of reflected `Syntax` propositions: structural, except that the two spellings of
+/// `Forall` are one proposition.
+///
+/// The encoding spells `Forall` two ways, and [`extract_forall_body`] reads both: Form 1,
+/// `Forall (SLam T b)`, and Form 2, `Forall T (SLam T b)`, whose domain repeats the one the λ
+/// carries. Every certifying door asks "is this the proposition that was owed?" through this one
+/// comparison, and owed formulas are built in Form 2 ([`make_forall_syntax_with_type`]), so a
+/// proof spelled in Form 1 compares equal. It is not a relaxation: a domain that differs, in
+/// either spelling, still compares unequal.
+///
+/// A reflected `Syntax` value is a tree of constructor applications, so the walk descends through
+/// `App` and compares every other node structurally. It allocates nothing, and the `a == b` fast
+/// path keeps the common case at one structural comparison.
 fn syntax_equal(a: &Term, b: &Term) -> bool {
-    a == b
+    a == b || syntax_equal_modulo_forall_spelling(a, b)
+}
+
+fn syntax_equal_modulo_forall_spelling(a: &Term, b: &Term) -> bool {
+    match (reflected_forall(a), reflected_forall(b)) {
+        (Some((domain_a, lam_a)), Some((domain_b, lam_b))) => {
+            syntax_equal_modulo_forall_spelling(domain_a, domain_b)
+                && syntax_equal_modulo_forall_spelling(lam_a, lam_b)
+        }
+        (None, None) => match (a, b) {
+            (Term::App(f_a, x_a), Term::App(f_b, x_b)) => {
+                syntax_equal_modulo_forall_spelling(f_a, f_b)
+                    && syntax_equal_modulo_forall_spelling(x_a, x_b)
+            }
+            _ => a == b,
+        },
+        _ => false,
+    }
+}
+
+/// The domain and λ of a reflected `Forall` in either spelling: Form 2 states its domain, Form 1
+/// reads it off its `SLam`. A Form-1 `Forall` applied to anything but an `SLam` has no domain to
+/// read and is not recognised.
+fn reflected_forall(term: &Term) -> Option<(&Term, &Term)> {
+    fn sapp_parts(t: &Term) -> Option<(&Term, &Term)> {
+        let Term::App(outer, arg) = t else {
+            return None;
+        };
+        let Term::App(ctor, func) = outer.as_ref() else {
+            return None;
+        };
+        match ctor.as_ref() {
+            Term::Global(name) if name == "SApp" => Some((func.as_ref(), arg.as_ref())),
+            _ => None,
+        }
+    }
+    fn slam_domain(t: &Term) -> Option<&Term> {
+        let Term::App(outer, _body) = t else {
+            return None;
+        };
+        let Term::App(ctor, domain) = outer.as_ref() else {
+            return None;
+        };
+        match ctor.as_ref() {
+            Term::Global(name) if name == "SLam" => Some(domain.as_ref()),
+            _ => None,
+        }
+    }
+
+    let (head, lam) = sapp_parts(term)?;
+    if is_sname_with_value(head, "Forall") {
+        return Some((slam_domain(lam)?, lam));
+    }
+    let (forall, domain) = sapp_parts(head)?;
+    is_sname_with_value(forall, "Forall").then_some((domain, lam))
+}
+
+/// The goal a `*_conclude` door is about to CERTIFY, normalised through the HONEST face.
+///
+/// `None` means the goal's own reduction did not finish, and the door must refuse.
+///
+/// Every certifying door began `let norm_goal = normalize(ctx, goal);` — the BEST-EFFORT face,
+/// which hands back HOW FAR IT GOT, applied to the very term whose truth is about to be
+/// certified. So a goal whose normalisation was abandoned reached the checker as a PARTIAL
+/// goal, was decided about, and was then returned as the concluded statement: the door
+/// certified something other than what it was asked about, with nothing anywhere saying so.
+/// That is DEFECT 9 at the door layer, and `simp_compute_check` and `try_dcompute_conclude`
+/// already make exactly this argument about the two SIDES of the equality while taking the
+/// goal itself from the unchecked face.
+///
+/// ONE helper rather than sixteen open-coded `normalize_checked` calls, because a door added
+/// later copies the line above it: the pit of success is that the only thing there is to copy
+/// is the honest one.
+fn goal_to_certify(ctx: &Context, goal: &Term) -> Option<Term> {
+    normalize_checked(ctx, goal).ok()
 }
 
 /// Build SName "Error"
@@ -1957,10 +4505,7 @@ fn make_slam(a: Term, b: Term) -> Term {
 
 /// Build SSort u
 fn make_ssort(u: Term) -> Term {
-    Term::App(
-        Box::new(Term::Global("SSort".to_string())),
-        Box::new(u),
-    )
+    Term::App(Box::new(Term::Global("SSort".to_string())), Box::new(u))
 }
 
 /// Build SVar n
@@ -2030,19 +4575,17 @@ fn term_to_syntax(term: &Term) -> Option<Term> {
         // Match expressions, Fix, Let, and Hole are complex - skip for now
         Term::Match { .. } | Term::Fix { .. } | Term::MutualFix { .. } | Term::Let { .. }
         | Term::Hole => None,
+
+        // The syntax layer encodes kernel meaning; an annotation is not part of it.
+        Term::Annotated { term, .. } => term_to_syntax(term),
     }
 }
 
 /// Build DHint derivation that references a hint by name.
 ///
 /// Uses DAxiom (SName "hint_name") to indicate the proof uses this hint.
-fn make_hint_derivation(hint_name: &str, goal: &Term) -> Term {
-    // Build: DAxiom (SApp (SName "Hint") (SName hint_name))
-    // This distinguishes hints from error derivations
-    let hint_marker = make_sapp(make_sname("Hint"), make_sname(hint_name));
-
-    // Actually, let's use a simpler approach: DAutoSolve goal
-    // This indicates auto succeeded, and we can trace which hint was used through debugging
+fn make_hint_derivation(goal: &Term) -> Term {
+    // DAutoSolve goal: auto succeeded; which hint was used shows when tracing.
     Term::App(
         Box::new(Term::Global("DAutoSolve".to_string())),
         Box::new(goal.clone()),
@@ -2053,7 +4596,7 @@ fn make_hint_derivation(hint_name: &str, goal: &Term) -> Term {
 ///
 /// Returns Some(derivation) if the hint's type matches the goal,
 /// otherwise returns None.
-fn try_apply_hint(ctx: &Context, hint_name: &str, hint_type: &Term, goal: &Term) -> Option<Term> {
+fn try_apply_hint(ctx: &Context, hint_type: &Term, goal: &Term) -> Option<Term> {
     // Convert hint type to syntax form
     let hint_syntax = term_to_syntax(hint_type)?;
 
@@ -2063,13 +4606,13 @@ fn try_apply_hint(ctx: &Context, hint_name: &str, hint_type: &Term, goal: &Term)
 
     // Direct match: hint type equals goal
     if syntax_equal(&norm_hint, &norm_goal) {
-        return Some(make_hint_derivation(hint_name, goal));
+        return Some(make_hint_derivation(goal));
     }
 
     // Try backward chaining for implications: if hint is P → Q and goal is Q,
     // try to prove P using auto and then apply the hint
     if let Term::App(outer, q) = &hint_syntax {
-        if let Term::App(pi_ctor, p) = outer.as_ref() {
+        if let Term::App(pi_ctor, _p) = outer.as_ref() {
             if let Term::Global(name) = pi_ctor.as_ref() {
                 if name == "SPi" {
                     // hint_type is SPi P Q, goal might be Q
@@ -2186,7 +4729,8 @@ fn extract_eq(term: &Term) -> Option<(Term, Term, Term)> {
                                             if let Term::Global(ctor3) = sapp_inner2.as_ref() {
                                                 if ctor3 == "SApp" {
                                                     // sname_eq = App(SName, "Eq")
-                                                    if let Term::App(sname, text) = sname_eq.as_ref()
+                                                    if let Term::App(sname, text) =
+                                                        sname_eq.as_ref()
                                                     {
                                                         if let Term::Global(sname_ctor) =
                                                             sname.as_ref()
@@ -2267,9 +4811,9 @@ fn try_try_refl_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 // RING TACTIC (POLYNOMIAL EQUALITY)
 // =============================================================================
 
-use crate::ring;
-use crate::lia;
 use crate::cc;
+use crate::lia;
+use crate::ring;
 use crate::simp;
 
 /// Ring tactic: try to prove a goal by polynomial normalization.
@@ -2320,7 +4864,9 @@ fn try_try_ring_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 ///
 /// DRingSolve goal → goal (if verified)
 fn try_dring_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
     // Extract T, lhs, rhs from Eq T lhs rhs
     if let Some((type_s, left, right)) = extract_eq(&norm_goal) {
@@ -2419,7 +4965,9 @@ fn try_try_lia_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 ///
 /// DLiaSolve goal → goal (if verified)
 fn try_dlia_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
     // Extract comparison and verify
     if let Some((rel, lhs_term, rhs_term)) = lia::extract_comparison(&norm_goal) {
@@ -2479,7 +5027,9 @@ fn try_try_cc_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 ///
 /// DccSolve goal → goal (if verified)
 fn try_dcc_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
     // Re-verify using congruence closure
     if cc::check_goal(&norm_goal) {
@@ -2502,11 +5052,13 @@ fn try_try_simp_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
     // Normalize the goal first
     let norm_goal = normalize(ctx, goal);
 
-    // Use simp::check_goal which handles:
+    // Use simp::check_goal (congruence closure) which handles:
     // - Reflexive equalities: (Eq a a)
     // - Constant folding: (Eq (add 2 3) 5)
     // - Hypothesis substitution: (implies (Eq x 0) (Eq (add x 1) 1))
-    if simp::check_goal(&norm_goal) {
+    // …or decide the equality by REFLECTION + kernel normalization (unfolds `## To` user
+    // definitions and evaluates arithmetic), so `(double 3) equals 6` is proven by computation.
+    if simp::check_goal(&norm_goal) || simp_compute_check(ctx, &norm_goal) {
         // Success! Return DSimpSolve goal
         return Some(Term::App(
             Box::new(Term::Global("DSimpSolve".to_string())),
@@ -2518,14 +5070,259 @@ fn try_try_simp_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
     Some(make_error_derivation())
 }
 
+/// Match a reflected 2-argument application `SApp (SApp (SName name) a) b`, returning `(a, b)`.
+/// (`extract_eq` is the 3-argument `Eq T a b` counterpart.)
+fn extract_sapp2(term: &Term, name: &str) -> Option<(Term, Term)> {
+    if let Term::App(outer, b) = term {
+        if let Term::App(sapp_outer, x) = outer.as_ref() {
+            if matches!(sapp_outer.as_ref(), Term::Global(c) if c == "SApp") {
+                if let Term::App(inner, a) = x.as_ref() {
+                    if let Term::App(sapp_inner, sname_app) = inner.as_ref() {
+                        if matches!(sapp_inner.as_ref(), Term::Global(c) if c == "SApp") {
+                            if let Term::App(sname, text) = sname_app.as_ref() {
+                                if matches!(sname.as_ref(), Term::Global(c) if c == "SName")
+                                    && matches!(text.as_ref(), Term::Lit(Literal::Text(s)) if s == name)
+                                {
+                                    return Some((a.as_ref().clone(), b.as_ref().clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Match a reflected 1-argument application `SApp (SName name) a`, returning `a` (e.g. `not P`).
+fn extract_sapp1(term: &Term, name: &str) -> Option<Term> {
+    if let Term::App(outer, arg) = term {
+        if let Term::App(sapp, sname_app) = outer.as_ref() {
+            if matches!(sapp.as_ref(), Term::Global(c) if c == "SApp") {
+                if let Term::App(sname, text) = sname_app.as_ref() {
+                    if matches!(sname.as_ref(), Term::Global(c) if c == "SName")
+                        && matches!(text.as_ref(), Term::Lit(Literal::Text(s)) if s == name)
+                    {
+                        return Some(arg.as_ref().clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Reflect a `Syntax` term to a real term, normalize it, and read off an integer literal — the
+/// ground value of a closed arithmetic expression, or `None` if it does not reduce to a literal.
+fn eval_int(ctx: &Context, syntax: &Term) -> Option<i64> {
+    let t = syntax_to_term(syntax)?;
+    // `normalize_checked`, not `normalize`: a literal read out of an ABANDONED reduction is
+    // not the value of the expression, and this feeds tactic decisions.
+    if let Ok(Term::Lit(Literal::Int(n))) = normalize_checked(ctx, &t) {
+        Some(n)
+    } else {
+        None
+    }
+}
+
+/// Structural substitution: replace every subterm equal to `from` with `to`. Used to apply an
+/// equality hypothesis (`x = 0`) as a rewrite. First-order — recurses through applications, which
+/// is all the reflected arithmetic goals contain.
+fn subst_structural(t: &Term, from: &Term, to: &Term) -> Term {
+    if t == from {
+        return to.clone();
+    }
+    match t {
+        Term::App(f, x) => Term::App(
+            Box::new(subst_structural(f, from, to)),
+            Box::new(subst_structural(x, from, to)),
+        ),
+        _ => t.clone(),
+    }
+}
+
+fn is_atom_var(t: &Term) -> bool {
+    matches!(t, Term::Global(_) | Term::Var(_))
+}
+
+/// Decide an (optionally hypothesis-guarded) equality goal by REFLECTION + kernel normalization.
+///
+/// Peels `implies H1 (implies H2 … conclusion)`, uses each equality hypothesis `a = b` as a rewrite
+/// (substituting the variable side by the other), reflects the conclusion's sides back to real terms
+/// and checks they share a normal form — i.e. definitional equality in the kernel. This unfolds user
+/// `## To` definitions and EVALUATES arithmetic, which the congruence-closure [`simp::check_goal`]
+/// cannot: `(double 3) equals 6` and `x = 0 → x + 1 = 1` both decide here.
+///
+/// When the variable rewrites do not close it, every equality hypothesis is used as a rewrite
+/// between normal forms instead ([`rewrite_by_hypotheses`]), which is how an induction step
+/// consumes its hypothesis.
+///
+/// Sound: same normal form ⟺ `refl`-inhabited; a false equality (`48 = 6·9` → `48` vs `54`) is
+/// rejected, and a hypothesis neither pass can use is conservatively DROPPED (so we only ever
+/// prove the conclusion when it holds under the rewrites we applied). Symbolic-only goals
+/// (`add a b = add b a`) return `false` and are left to `ring`.
+fn simp_compute_check(ctx: &Context, norm_goal: &Term) -> bool {
+    // Peel hypotheses off nested implications.
+    let mut hyps: Vec<Term> = Vec::new();
+    let mut current = norm_goal.clone();
+    while let Some((h, rest)) = as_implication(&current) {
+        hyps.push(h);
+        current = rest;
+    }
+
+    // The conclusion must be an equality.
+    let (_ty, left_s, right_s) = match extract_eq(&current) {
+        Some(t) => t,
+        None => return false,
+    };
+    let (mut l, mut r) = match (syntax_to_term(&left_s), syntax_to_term(&right_s)) {
+        (Some(l), Some(r)) => (l, r),
+        _ => return false,
+    };
+
+    // A pending declaration is unavailable, even if reduction would erase it
+    // or leave the same unresolved name on both sides.
+    if ctx.has_pending_dependency(&l)
+        || ctx.has_pending_dependency(&r)
+        || syntax_to_term(&_ty).is_some_and(|ty| ctx.has_pending_dependency(&ty))
+    {
+        return false;
+    }
+
+    let (conclusion_left, conclusion_right) = (l.clone(), r.clone());
+
+    // Apply each equality hypothesis as a rewrite (variable side → other side).
+    for h in &hyps {
+        let (hl, hr) = match extract_eq(h) {
+            Some((_, hl_s, hr_s)) => match (syntax_to_term(&hl_s), syntax_to_term(&hr_s)) {
+                (Some(hl), Some(hr)) => (hl, hr),
+                _ => continue,
+            },
+            None => continue,
+        };
+        let (from, to) = if is_atom_var(&hl) {
+            (hl, hr)
+        } else if is_atom_var(&hr) {
+            (hr, hl)
+        } else {
+            continue;
+        };
+        if ctx.has_pending_dependency(&from) || ctx.has_pending_dependency(&to) {
+            return false;
+        }
+        l = subst_structural(&l, &from, &to);
+        r = subst_structural(&r, &from, &to);
+    }
+
+    // THE HONEST COMPARISON. `normalize` hands back how far it got, so "these two reached the
+    // same normal form" and "these two were abandoned at the same place" are the same answer —
+    // and this is a door that ACCEPTS PROOFS. Two ABANDONED reductions comparing equal
+    // certifies nothing, so both sides must have actually FINISHED. `normalize_checked` is the
+    // only way to know.
+    if let (Ok(ln), Ok(rn)) = (normalize_checked(ctx, &l), normalize_checked(ctx, &r)) {
+        if ln == rn {
+            return true;
+        }
+    }
+    rewrite_by_hypotheses(ctx, &hyps, conclusion_left, conclusion_right)
+}
+
+/// How many rounds of rewrite-then-normalize [`rewrite_by_hypotheses`] runs before it gives up.
+const MAX_HYPOTHESIS_REWRITE_ROUNDS: usize = 16;
+
+/// Decide `l = r` under the equality hypotheses by rewriting with them BETWEEN NORMAL FORMS —
+/// what an induction step needs and a variable substitution cannot give.
+///
+/// The succ case of `0 + n = n` is `(0 + k = k) → 0 + (k+1) = k+1`. Substituting the variable
+/// side of the hypothesis (`k := 0 + k`) only moves the problem; the step is closed by FOLDING:
+/// `0 + (k+1)` computes to `Succ (0 + k)`, and the hypothesis turns that `0 + k` back into `k`.
+/// Both sides of every hypothesis are normalized first, so the rule meets the goal in the one
+/// shape reduction leaves it in — an unfolded `Nat_add` stuck on the open `k` is the same term
+/// in the hypothesis and in the goal. A hypothesis with an atom on one side rewrites the other
+/// side to that atom; any other hypothesis rewrites left to right.
+///
+/// Sound: every rewrite replaces a subterm `a` by `b` under the hypothesis `a = b`, and only at
+/// a position reached through APPLICATIONS from the root — never under a binder, a match or a
+/// fixpoint — so no variable of `a` or `b` is ever captured and the context around the rewritten
+/// subterm is a plain first-order application, where `a = b` gives `C[a] = C[b]`. A hypothesis
+/// whose sides cannot be normalized is dropped, which only proves less, and a pending
+/// declaration anywhere refuses the whole goal, as the variable rewrites above do. The answer is
+/// again two FINISHED normal forms compared, so an abandoned reduction certifies nothing, and a
+/// hypothesis that cannot be oriented toward termination (`f k = g (f k)`) spends at most
+/// [`MAX_HYPOTHESIS_REWRITE_ROUNDS`] rounds.
+fn rewrite_by_hypotheses(ctx: &Context, hyps: &[Term], mut l: Term, mut r: Term) -> bool {
+    let mut rules: Vec<(Term, Term)> = Vec::new();
+    for h in hyps {
+        let Some((_, a_s, b_s)) = extract_eq(h) else {
+            continue;
+        };
+        let (Some(a), Some(b)) = (syntax_to_term(&a_s), syntax_to_term(&b_s)) else {
+            continue;
+        };
+        if ctx.has_pending_dependency(&a) || ctx.has_pending_dependency(&b) {
+            return false;
+        }
+        let (Ok(a), Ok(b)) = (normalize_checked(ctx, &a), normalize_checked(ctx, &b)) else {
+            continue;
+        };
+        if a == b {
+            continue;
+        }
+        rules.push(if is_atom_var(&a) && !is_atom_var(&b) {
+            (b, a)
+        } else {
+            (a, b)
+        });
+    }
+    if rules.is_empty() {
+        return false;
+    }
+    for _ in 0..MAX_HYPOTHESIS_REWRITE_ROUNDS {
+        let (Ok(ln), Ok(rn)) = (normalize_checked(ctx, &l), normalize_checked(ctx, &r)) else {
+            return false;
+        };
+        if ln == rn {
+            return true;
+        }
+        let (next_l, rewrote_l) = rewrite_application_spine(&ln, &rules);
+        let (next_r, rewrote_r) = rewrite_application_spine(&rn, &rules);
+        if !rewrote_l && !rewrote_r {
+            return false;
+        }
+        l = next_l;
+        r = next_r;
+    }
+    false
+}
+
+/// Replace every outermost occurrence of a rule's left side by its right side, descending only
+/// through applications (see [`rewrite_by_hypotheses`] for why that is the sound frontier), and
+/// report whether anything was replaced.
+fn rewrite_application_spine(t: &Term, rules: &[(Term, Term)]) -> (Term, bool) {
+    if let Some((_, to)) = rules.iter().find(|(from, _)| from == t) {
+        return (to.clone(), true);
+    }
+    match t {
+        Term::App(f, x) => {
+            let (f, rewrote_f) = rewrite_application_spine(f, rules);
+            let (x, rewrote_x) = rewrite_application_spine(x, rules);
+            (Term::App(Box::new(f), Box::new(x)), rewrote_f || rewrote_x)
+        }
+        _ => (t.clone(), false),
+    }
+}
+
 /// Verify DSimpSolve proof.
 ///
 /// DSimpSolve goal → goal (if verified)
 fn try_dsimp_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
-    // Re-verify using simplification
-    if simp::check_goal(&norm_goal) {
+    // Re-verify using simplification OR reflection+normalization (same check as the reduce path).
+    if simp::check_goal(&norm_goal) || simp_compute_check(ctx, &norm_goal) {
         return Some(norm_goal);
     }
 
@@ -2661,7 +5458,9 @@ fn omega_hyp_constraints(
 ///
 /// DOmegaSolve goal → goal (if verified)
 fn try_domega_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
     // Re-verify using omega test
     // Handle implications
@@ -3008,7 +5807,7 @@ fn tabulate_verify_case(ctx: &Context, case: &Term) -> bool {
     }
 
     // Try to verify as an Eq
-    if let Some((type_s, left, right)) = extract_eq_syntax_parts(&norm) {
+    if let Some((_type_s, left, right)) = extract_eq_syntax_parts(&norm) {
         let fuel = 1000;
         if let (Some(left_eval), Some(right_eval)) = (
             try_syn_eval_reduce(ctx, fuel, &left),
@@ -3050,9 +5849,399 @@ fn is_sname_with_value(term: &Term, value: &str) -> bool {
     false
 }
 
+/// Whether an ATOMIC (non-connective) goal is decided by the arithmetic/equality tactics. Used by
+/// [`auto_prop_check`] at the leaves of a propositional goal.
+fn auto_atom_provable(ctx: &Context, goal: &Term) -> bool {
+    if simp::check_goal(goal) || simp_compute_check(ctx, goal) {
+        return true;
+    }
+    for reduce in [
+        try_try_ring_reduce,
+        try_try_omega_reduce,
+        try_try_lia_reduce,
+    ] {
+        if let Some(r) = reduce(ctx, goal) {
+            if !is_error_derivation(&r) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Decide a proposition by REFLECTION + kernel computation, returning `Some(true)` if it is
+/// decidably TRUE, `Some(false)` if decidably FALSE, and `None` if undecided (left to other tactics).
+///
+/// Handles: `True`/`False`; equalities and equality-hypothesis implications (via
+/// [`simp_compute_check`], which unfolds `## To` defs + evaluates arithmetic); `not P` (refute `P`);
+/// `And`/`Or`/`implies` over sub-decisions; and integer comparisons `Lt`/`le`/`Gt`/`ge` over closed
+/// literals (both directions — so `not (Lt 5 2)` and `not (Eq 2 3)` decide). Sound: every `Some(b)`
+/// follows from computation or an intro/refutation rule; symbolic goals return `None`.
+fn decide_prop(ctx: &Context, goal: &Term) -> Option<bool> {
+    let ng = normalize(ctx, goal);
+
+    if is_sname_with_value(&ng, "True") {
+        return Some(true);
+    }
+    if is_sname_with_value(&ng, "False") {
+        return Some(false);
+    }
+    // Equalities + implication-with-equality-hypotheses: a positive decision only.
+    if simp_compute_check(ctx, &ng) {
+        return Some(true);
+    }
+    if let Some(p) = extract_sapp1(&ng, "not") {
+        return decide_prop(ctx, &p).map(|b| !b);
+    }
+    if let Some((p, q)) = extract_sapp2(&ng, "And") {
+        return match (decide_prop(ctx, &p), decide_prop(ctx, &q)) {
+            (Some(false), _) | (_, Some(false)) => Some(false),
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        };
+    }
+    if let Some((p, q)) = extract_sapp2(&ng, "Or") {
+        return match (decide_prop(ctx, &p), decide_prop(ctx, &q)) {
+            (Some(true), _) | (_, Some(true)) => Some(true),
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        };
+    }
+    if as_implication(&ng).is_some() {
+        return decide_implication(ctx, &ng);
+    }
+    // Integer comparisons over closed literals (both directions).
+    let comparisons: [(&str, fn(i64, i64) -> bool); 4] = [
+        ("Lt", |a, b| a < b),
+        ("le", |a, b| a <= b),
+        ("Gt", |a, b| a > b),
+        ("ge", |a, b| a >= b),
+    ];
+    for (name, cmp) in comparisons {
+        if let Some((a_s, b_s)) = extract_sapp2(&ng, name) {
+            if let (Some(a), Some(b)) = (eval_int(ctx, &a_s), eval_int(ctx, &b_s)) {
+                return Some(cmp(a, b));
+            }
+            // Symbolic comparison (e.g. `x < x + 1`): defer the positive case to lia/omega.
+            return if auto_atom_provable(ctx, &ng) {
+                Some(true)
+            } else {
+                None
+            };
+        }
+    }
+    // A disequality survives to here only when both sides are distinct ground literals.
+    if let Some((_, a_s, b_s)) = extract_eq(&ng) {
+        if let (Some(a), Some(b)) = (eval_int(ctx, &a_s), eval_int(ctx, &b_s)) {
+            return Some(a == b);
+        }
+        return None;
+    }
+    // Atomic fallback: provable by the arithmetic tactics?
+    if auto_atom_provable(ctx, &ng) {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// Decide an implication goal `H1 -> H2 -> … -> C` by →-INTRODUCTION: assume the hypotheses and
+/// decide the conclusion. Handles a refutable hypothesis (the implication is vacuously true), the
+/// conclusion being one of the hypotheses (ASSUMPTION), an equality hypothesis used to REWRITE the
+/// conclusion — including a non-equality conclusion like `x = 5 -> x < 10`, which the equality-only
+/// `simp_compute_check` cannot — and a conclusion decidable on its own (weakening). Sound: assuming
+/// `P` to prove `Q` is exactly →-intro; a false `Q[hyps]` means the implication fails at that
+/// assignment, so it is not a theorem. Returns `None` when undecided.
+fn decide_implication(ctx: &Context, goal: &Term) -> Option<bool> {
+    let mut hyps: Vec<Term> = Vec::new();
+    let mut concl = normalize(ctx, goal);
+    while let Some((h, rest)) = as_implication(&concl) {
+        hyps.push(normalize(ctx, &h));
+        concl = normalize(ctx, &rest);
+    }
+    if hyps.is_empty() {
+        return None;
+    }
+
+    // Process the hypotheses left-to-right, threading the substitutions the equality hypotheses
+    // license. If any hypothesis becomes decidably FALSE once earlier equalities are applied, the
+    // hypothesis set is jointly UNSATISFIABLE, so the implication is vacuously true for ANY
+    // conclusion (this catches both a single false hypothesis and a contradictory pair like
+    // `x = 5` ∧ `x = 6`). This is sound: no assignment satisfies all antecedents.
+    let mut subst: Vec<(Term, Term)> = Vec::new();
+    for h in &hyps {
+        let mut hh = h.clone();
+        for (from, to) in &subst {
+            hh = subst_structural(&hh, from, to);
+        }
+        let hh = normalize(ctx, &hh);
+        if decide_prop(ctx, &hh) == Some(false) {
+            return Some(true); // contradictory hypotheses ⇒ vacuously true
+        }
+        if let Some((_, hl, hr)) = extract_eq(&hh) {
+            match (syntax_to_term(&hl), syntax_to_term(&hr)) {
+                (Some(l), Some(_)) if is_atom_var(&l) => subst.push((hl, hr)),
+                (Some(_), Some(r)) if is_atom_var(&r) => subst.push((hr, hl)),
+                _ => {}
+            }
+        }
+    }
+
+    // Assumption: the conclusion is (syntactically) one of the hypotheses.
+    if hyps.iter().any(|h| syntax_equal(h, &concl)) {
+        return Some(true);
+    }
+
+    // Rewrite the conclusion with the gathered equality substitutions, then decide it.
+    let mut c = concl;
+    for (from, to) in &subst {
+        c = subst_structural(&c, from, to);
+    }
+    decide_prop(ctx, &c)
+}
+
+/// Whether a propositional/decidable goal is provable — `decide_prop` says `Some(true)`. This is
+/// what lets `auto` (and the `decide` tactic) conclude `(And True True)`, `(not (Eq Int 2 3))`,
+/// `(not (Lt 5 2))`, `(implies True True)` — which the flat tactic list cannot.
+fn auto_prop_check(ctx: &Context, goal: &Term) -> bool {
+    decide_prop(ctx, goal) == Some(true)
+}
+
+// =============================================================================
+// TACTIC SEQUENCING — multi-step proof scripts (`intro. <closer>.`)
+//
+// A script is carried as `try_script <name-list> <goal>`, where the name-list is a reflected,
+// INERT list of tactic names (`SApp (SApp (SName "step") (SName "intro")) … (SName "end")`). Keeping
+// the steps as names (not `try_<kind> goal` terms) is essential: `try_<kind> goal` would REDUCE to
+// its derivation against the ORIGINAL goal before the evaluator runs, so a structural closer like
+// `left`/`split` (which needs the residual after `intro`, not the whole implication) could never be
+// applied correctly. The evaluator threads the residual goal + hypotheses itself.
+// =============================================================================
+
+/// The reflected `SName "s"` as a string.
+fn extract_sname_string(t: &Term) -> Option<String> {
+    if let Term::App(f, inner) = t {
+        if matches!(f.as_ref(), Term::Global(n) if n == "SName") {
+            if let Term::Lit(Literal::Text(s)) = inner.as_ref() {
+                return Some(s.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Match `try_script list goal` = `App(App(Global "try_script", list), goal)`.
+fn extract_try_script(term: &Term) -> Option<(Term, Term)> {
+    if let Term::App(outer, goal) = term {
+        if let Term::App(g, list) = outer.as_ref() {
+            if matches!(g.as_ref(), Term::Global(n) if n == "try_script") {
+                return Some(((**list).clone(), (**goal).clone()));
+            }
+        }
+    }
+    None
+}
+
+/// Decode the reflected script list into tactic names, or `None` if it is malformed.
+fn extract_script_names(list: &Term) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    let mut cur = list.clone();
+    loop {
+        if is_sname_with_value(&cur, "end") {
+            return Some(names);
+        }
+        let (name_s, rest) = extract_sapp2(&cur, "step")?;
+        names.push(extract_sname_string(&name_s)?);
+        cur = rest;
+    }
+}
+
+/// Build the reflected 2-argument application `SApp (SApp (SName name) a) b`.
+fn build_sapp2(name: &str, a: Term, b: Term) -> Term {
+    let sname = Term::App(
+        Box::new(Term::Global("SName".to_string())),
+        Box::new(Term::Lit(Literal::Text(name.to_string()))),
+    );
+    let sapp = |x: Term, y: Term| {
+        Term::App(
+            Box::new(Term::App(
+                Box::new(Term::Global("SApp".to_string())),
+                Box::new(x),
+            )),
+            Box::new(y),
+        )
+    };
+    sapp(sapp(sname, a), b)
+}
+
+/// Rebuild the implication `h1 -> h2 -> … -> goal` from a hypothesis list and a conclusion.
+fn wrap_implication(hyps: &[Term], goal: &Term) -> Term {
+    let mut result = goal.clone();
+    for h in hyps.iter().rev() {
+        result = build_sapp2("implies", h.clone(), result);
+    }
+    result
+}
+
+/// Run the reduce of the named single-shot tactic on `goal` (already normalized).
+fn run_named_tactic_reduce(ctx: &Context, kind: &str, goal: &Term) -> Option<Term> {
+    match kind {
+        "ring" => try_try_ring_reduce(ctx, goal),
+        "lia" => try_try_lia_reduce(ctx, goal),
+        "cc" => try_try_cc_reduce(ctx, goal),
+        "simp" => try_try_simp_reduce(ctx, goal),
+        "omega" => try_try_omega_reduce(ctx, goal),
+        "auto" => try_try_auto_reduce(ctx, goal),
+        "decide" => try_try_decide_reduce(ctx, goal),
+        "refl" => try_try_refl_reduce(ctx, goal),
+        "assumption" => try_try_assumption_reduce(ctx, goal),
+        "split" => try_try_split_reduce(ctx, goal),
+        "left" => try_try_left_reduce(ctx, goal),
+        "right" => try_try_right_reduce(ctx, goal),
+        _ => None,
+    }
+}
+
+/// Whether the named tactic proves `goal` under `hyps`. Tries it two sound ways: on the re-wrapped
+/// `hyps -> goal` (so a hypothesis-aware tactic like `auto`/`assumption`/`cc` uses the hypotheses)
+/// AND on the bare residual `goal` (so a structural tactic like `left`/`split`/`ring` — which cannot
+/// consume implications — proves it directly, valid by weakening). Either success discharges it.
+fn close_under_hyps(ctx: &Context, kind: &str, hyps: &[Term], goal: &Term) -> bool {
+    let ng = normalize(ctx, goal);
+    let non_error = |d: Option<Term>| d.is_some_and(|t| !is_error_derivation(&t));
+    if !hyps.is_empty() {
+        let wrapped = normalize(ctx, &wrap_implication(hyps, &ng));
+        if non_error(run_named_tactic_reduce(ctx, kind, &wrapped)) {
+            return true;
+        }
+    }
+    non_error(run_named_tactic_reduce(ctx, kind, &ng))
+}
+
+/// Evaluate a proof SCRIPT (list of tactic names) against a hypothesis context and current goal.
+/// Leading `intro`s open universal binders or move implication antecedents into the hypotheses.
+/// Universal variables retain their de Bruijn indices in the open goal. Lifting the previous
+/// hypotheses makes room for index zero without capturing a free variable or consulting a global
+/// name. The final closer must verify the residual proposition under those hypotheses.
+fn eval_script_names(ctx: &Context, names: &[String], hyps: &[Term], goal: &Term) -> bool {
+    match names.split_first() {
+        None => false, // empty script proves nothing
+        Some((first, rest)) if first == "intro" => {
+            let Ok(ng) = normalize_checked(ctx, goal) else {
+                return false;
+            };
+            if let Some(body) = extract_forall_body(&ng) {
+                let Some(lifted_hyps) = hyps
+                    .iter()
+                    .map(|hyp| try_syn_lift_reduce(ctx, 1, 0, hyp))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return false;
+                };
+                return eval_script_names(ctx, rest, &lifted_hyps, &body);
+            }
+            match as_implication(&ng) {
+                Some((p, q)) => {
+                    let mut h2 = hyps.to_vec();
+                    h2.push(normalize(ctx, &p));
+                    eval_script_names(ctx, rest, &h2, &q)
+                }
+                None => false, // no universal or implication binder to introduce
+            }
+        }
+        Some((closer, rest)) if rest.is_empty() => close_under_hyps(ctx, closer, hyps, goal),
+        _ => false, // a non-`intro` step before the final closer
+    }
+}
+
+/// A `DAutoSolve goal` derivation over the normalized goal — the shared proof object for the
+/// decision-procedure tactics (`decide`, `split`, `left`, `right`), verified by `try_dauto_solve_conclude`.
+fn dauto_solve(ctx: &Context, goal: &Term) -> Term {
+    Term::App(
+        Box::new(Term::Global("DAutoSolve".to_string())),
+        Box::new(normalize(ctx, goal)),
+    )
+}
+
+/// The `decide` tactic: prove a decidable proposition by reflection + computation. Succeeds exactly
+/// when [`decide_prop`] returns `Some(true)`. The derivation reuses `DAutoSolve` (whose conclusion
+/// re-runs the same decision through [`auto_prop_check`]), so a false or undecided goal yields an
+/// error derivation that the soundness gate rejects.
+fn try_try_decide_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
+    if decide_prop(ctx, goal) == Some(true) {
+        Some(dauto_solve(ctx, goal))
+    } else {
+        Some(make_error_derivation())
+    }
+}
+
+/// Whether `goal` follows from the hypotheses by →-introduction and ASSUMPTION alone: introduce each
+/// antecedent of an implication chain, then require the conclusion to be (syntactically) one of the
+/// gathered hypotheses. Directed — it does NOT invoke the decision procedure, so `assumption` proves
+/// exactly the goals that close by a hypothesis (`P -> P`, `P -> Q -> P`).
+fn prove_by_assumption(ctx: &Context, hyps: &[Term], goal: &Term) -> bool {
+    let ng = normalize(ctx, goal);
+    if hyps.iter().any(|h| syntax_equal(h, &ng)) {
+        return true;
+    }
+    if let Some((p, q)) = as_implication(&ng) {
+        let mut h2 = hyps.to_vec();
+        h2.push(normalize(ctx, &p));
+        return prove_by_assumption(ctx, &h2, &q);
+    }
+    false
+}
+
+/// The `assumption` tactic: close the goal with a hypothesis (after introducing implication
+/// antecedents). Reuses the `DAutoSolve` proof object.
+fn try_try_assumption_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
+    if prove_by_assumption(ctx, &[], goal) {
+        Some(dauto_solve(ctx, goal))
+    } else {
+        Some(make_error_derivation())
+    }
+}
+
+/// The `split` tactic: the ∧-introduction rule — prove a conjunction `And P Q` by proving BOTH
+/// conjuncts. Fails on a non-conjunction (directed, unlike `auto`).
+fn try_try_split_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
+    let ng = normalize(ctx, goal);
+    if let Some((p, q)) = extract_sapp2(&ng, "And") {
+        if decide_prop(ctx, &p) == Some(true) && decide_prop(ctx, &q) == Some(true) {
+            return Some(dauto_solve(ctx, &ng));
+        }
+    }
+    Some(make_error_derivation())
+}
+
+/// The `left` tactic: the ∨-introduction-left rule — prove a disjunction `Or P Q` by proving the
+/// LEFT disjunct `P`. Fails if `P` is not provable, even when the whole `Or` is (that is `right`).
+fn try_try_left_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
+    let ng = normalize(ctx, goal);
+    if let Some((p, _q)) = extract_sapp2(&ng, "Or") {
+        if decide_prop(ctx, &p) == Some(true) {
+            return Some(dauto_solve(ctx, &ng));
+        }
+    }
+    Some(make_error_derivation())
+}
+
+/// The `right` tactic: the ∨-introduction-right rule — prove `Or P Q` by proving the RIGHT disjunct `Q`.
+fn try_try_right_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
+    let ng = normalize(ctx, goal);
+    if let Some((_p, q)) = extract_sapp2(&ng, "Or") {
+        if decide_prop(ctx, &q) == Some(true) {
+            return Some(dauto_solve(ctx, &ng));
+        }
+    }
+    Some(make_error_derivation())
+}
+
 /// Verify DBitblastSolve proof by re-evaluating via syn_eval.
 fn try_dbitblast_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
     if let Some((type_s, left, right)) = extract_eq_syntax_parts(&norm_goal) {
         if is_bit_type(&type_s) {
             let fuel = 1000;
@@ -3068,7 +6257,9 @@ fn try_dbitblast_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
 
 /// Verify DTabulateSolve proof by re-running exhaustive enumeration.
 fn try_dtabulate_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
     // Re-verify: the goal must be a provable Pi-over-Bit
     if let Some((param_type, _)) = extract_spi(&norm_goal) {
         if is_bit_type(&param_type) {
@@ -3177,10 +6368,19 @@ fn try_try_auto_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
     // Try registered hints
     for hint_name in ctx.get_hints() {
         if let Some(hint_type) = ctx.get_global(hint_name) {
-            if let Some(result) = try_apply_hint(ctx, hint_name, hint_type, &norm_goal) {
+            if let Some(result) = try_apply_hint(ctx, hint_type, &norm_goal) {
                 return Some(result);
             }
         }
+    }
+
+    // Propositional structure (And / Or / implies over decidable atoms) — the flat tactic list
+    // above only decides atomic goals.
+    if auto_prop_check(ctx, &norm_goal) {
+        return Some(Term::App(
+            Box::new(Term::Global("DAutoSolve".to_string())),
+            Box::new(norm_goal),
+        ));
     }
 
     // All tactics failed
@@ -3189,7 +6389,9 @@ fn try_try_auto_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 
 /// Verify DAutoSolve proof by re-running tactic search.
 fn try_dauto_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
     // Handle trivial cases: True
     if let Term::App(ctor, inner) = &norm_goal {
@@ -3234,10 +6436,15 @@ fn try_dauto_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
     // Try registered hints
     for hint_name in ctx.get_hints() {
         if let Some(hint_type) = ctx.get_global(hint_name) {
-            if try_apply_hint(ctx, hint_name, hint_type, &norm_goal).is_some() {
+            if try_apply_hint(ctx, hint_type, &norm_goal).is_some() {
                 return Some(norm_goal);
             }
         }
+    }
+
+    // Propositional structure — must mirror the reduce path exactly, or the soundness gate rejects.
+    if auto_prop_check(ctx, &norm_goal) {
+        return Some(norm_goal);
     }
 
     Some(make_sname_error())
@@ -3269,10 +6476,7 @@ fn try_induction_num_cases_reduce(ctx: &Context, ind_type: &Term) -> Option<Term
     // Build Nat representation: Succ (Succ (... Zero))
     let mut result = Term::Global("Zero".to_string());
     for _ in 0..num_ctors {
-        result = Term::App(
-            Box::new(Term::Global("Succ".to_string())),
-            Box::new(result),
-        );
+        result = Term::App(Box::new(Term::Global("Succ".to_string())), Box::new(result));
     }
 
     Some(result)
@@ -3281,11 +6485,7 @@ fn try_induction_num_cases_reduce(ctx: &Context, ind_type: &Term) -> Option<Term
 /// Returns the base case goal for induction (first constructor).
 ///
 /// Given ind_type and motive (SLam T body), returns motive[ctor0/var].
-fn try_induction_base_goal_reduce(
-    ctx: &Context,
-    ind_type: &Term,
-    motive: &Term,
-) -> Option<Term> {
+fn try_induction_base_goal_reduce(ctx: &Context, ind_type: &Term, motive: &Term) -> Option<Term> {
     // Extract inductive name
     let ind_name = match extract_inductive_name_from_syntax(ind_type) {
         Some(name) => name,
@@ -3306,7 +6506,7 @@ fn try_induction_base_goal_reduce(
 
     // Build goal for first constructor (base case)
     let (ctor_name, _) = constructors[0];
-    build_case_expected(ctx, ctor_name, &constructors, &motive_body, ind_type)
+    build_case_expected(ctx, ctor_name, &constructors, &motive_body, ind_type, true)
 }
 
 /// Returns the goal for a specific constructor index.
@@ -3344,7 +6544,7 @@ fn try_induction_step_goal_reduce(
 
     // Build goal for the specified constructor
     let (ctor_name, _) = constructors[idx];
-    build_case_expected(ctx, ctor_name, &constructors, &motive_body, ind_type)
+    build_case_expected(ctx, ctor_name, &constructors, &motive_body, ind_type, true)
 }
 
 /// Convert a Nat term to usize.
@@ -3428,12 +6628,7 @@ fn try_try_induction_reduce(
 /// 3. Check that concludes(step) = ∀k:Nat. P(k) → P(Succ k)
 /// 4. If all checks pass, return Forall Nat motive
 /// 5. Otherwise, return Error
-fn try_dinduction_reduce(
-    ctx: &Context,
-    motive: &Term,
-    base: &Term,
-    step: &Term,
-) -> Option<Term> {
+fn try_dinduction_reduce(ctx: &Context, motive: &Term, base: &Term, step: &Term) -> Option<Term> {
     // Normalize all inputs
     let norm_motive = normalize(ctx, motive);
     let norm_base = normalize(ctx, base);
@@ -3582,7 +6777,9 @@ fn make_forall_syntax_with_type(type_s: &Term, body: &Term) -> Term {
 /// 3. If eval(A) == eval(B), return goal
 /// 4. Otherwise, return Error
 fn try_dcompute_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
-    let norm_goal = normalize(ctx, goal);
+    let Some(norm_goal) = goal_to_certify(ctx, goal) else {
+        return Some(make_sname_error());
+    };
 
     // Extract T, A, B from Eq T A B (as Syntax)
     // Pattern: SApp (SApp (SApp (SName "Eq") T) A) B
@@ -3593,15 +6790,22 @@ fn try_dcompute_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
     }
     let (_, a, b) = parts.unwrap();
 
-    // Evaluate A and B with generous fuel
-    let fuel = 1000;
-    let a_eval = match try_syn_eval_reduce(ctx, fuel, &a) {
-        Some(e) => e,
-        None => return Some(make_sname_error()),
-    };
-    let b_eval = match try_syn_eval_reduce(ctx, fuel, &b) {
-        Some(e) => e,
-        None => return Some(make_sname_error()),
+    // Evaluate A and B, and INSIST both evaluations finished. This door accepts proofs: two
+    // reductions abandoned at the same place compare equal and certify nothing, and the caller
+    // of `try_syn_eval_reduce` cannot tell that from success.
+    //
+    // The budget stays at the original 1000, MEASURED rather than guessed: raising it to 1<<16
+    // cost `tactic_qa_adversarial`'s two batteries 2.0-2.4× (3.7s→9.1s, 4.9s→10.1s) and bought
+    // nothing, because `syn_eval_checked` stops the instant the reflected term stops CHANGING —
+    // the only way to spend the budget is a genuinely diverging reflected reduction, and a
+    // ground arithmetic equality (all `DCompute` is ever asked) finishes in a handful of steps.
+    // 1000 is already two orders of magnitude of headroom.
+    const DCOMPUTE_BUDGET: i64 = 1000;
+    let (Ok(a_eval), Ok(b_eval)) = (
+        syn_eval_checked(ctx, DCOMPUTE_BUDGET, &a),
+        syn_eval_checked(ctx, DCOMPUTE_BUDGET, &b),
+    ) else {
+        return Some(make_sname_error());
     };
 
     // Compare normalized results
@@ -3682,12 +6886,7 @@ fn extract_eq_syntax_parts(term: &Term) -> Option<(Term, Term, Term)> {
 /// - Apply t1 to goal
 /// - If concludes returns Error, apply t2 to goal
 /// - Otherwise return t1's result
-fn try_tact_orelse_reduce(
-    ctx: &Context,
-    t1: &Term,
-    t2: &Term,
-    goal: &Term,
-) -> Option<Term> {
+fn try_tact_orelse_reduce(ctx: &Context, t1: &Term, t2: &Term, goal: &Term) -> Option<Term> {
     let norm_goal = normalize(ctx, goal);
 
     // Apply t1 to goal
@@ -3799,12 +6998,7 @@ fn try_tact_repeat_reduce(ctx: &Context, t: &Term, goal: &Term) -> Option<Term> 
 /// - Apply t1 to goal
 /// - If t1 fails, return Error
 /// - Otherwise apply t2 to the result of t1
-fn try_tact_then_reduce(
-    ctx: &Context,
-    t1: &Term,
-    t2: &Term,
-    goal: &Term,
-) -> Option<Term> {
+fn try_tact_then_reduce(ctx: &Context, t1: &Term, t2: &Term, goal: &Term) -> Option<Term> {
     let norm_goal = normalize(ctx, goal);
 
     // Apply t1 to goal
@@ -4045,12 +7239,7 @@ fn make_eq_syntax_three(type_s: &Term, a: &Term, b: &Term) -> Term {
 /// 4. Verify case count matches constructor count
 /// 5. For each constructor, verify case conclusion matches expected
 /// 6. Return Forall ind_type motive
-fn try_delim_conclude(
-    ctx: &Context,
-    ind_type: &Term,
-    motive: &Term,
-    cases: &Term,
-) -> Option<Term> {
+fn try_delim_conclude(ctx: &Context, ind_type: &Term, motive: &Term, cases: &Term) -> Option<Term> {
     // Normalize inputs
     let norm_ind_type = normalize(ctx, ind_type);
     let norm_motive = normalize(ctx, motive);
@@ -4099,7 +7288,14 @@ fn try_delim_conclude(
         // Build expected conclusion based on constructor
         // For base case (0-ary constructor): motive[ctor/var]
         // For step case (recursive constructor): requires IH pattern
-        let expected = match build_case_expected(ctx, ctor_name, &constructors, &motive_body, &norm_ind_type) {
+        let expected = match build_case_expected(
+            ctx,
+            ctor_name,
+            &constructors,
+            &motive_body,
+            &norm_ind_type,
+            true,
+        ) {
             Some(e) => e,
             None => return Some(make_sname_error()),
         };
@@ -4179,52 +7375,60 @@ fn extract_case_proofs(term: &Term) -> Option<Vec<Term>> {
     }
 }
 
-/// Build expected case conclusion for a constructor.
+/// THE CASE FORMULA for one constructor — the proposition a bullet must prove.
 ///
-/// For base case constructors (no recursive args): motive[ctor/var]
-/// For recursive constructors: ∀args. IH → motive[ctor args/var]
+/// For `C : Π(f₁:T₁) … (fₙ:Tₙ). Ind` the formula is
+///
+/// ```text
+///   ∀f₁ … ∀fₙ.  (IH for each RECURSIVE fᵢ) →  P (C f₁ … fₙ)
+/// ```
+///
+/// and the induction hypotheses are included only when `include_ih` — `induction` has them,
+/// `destruct`/`cases` does not, and that is the ENTIRE difference between the two eliminators.
+///
+/// **ONE BUILDER, NOT THREE.** This used to branch three ways, and two of the branches were
+/// wrong in the same direction — they checked a WEAKER proposition than the eliminator then
+/// conceded:
+///
+/// * a hard-coded `ind_name == "Nat"` arm, which is `build_recursive_case_formula` written a
+///   second time and therefore a second place for the formula to drift;
+/// * a `is_recursive_constructor` gate whose false branch substituted the BARE constructor —
+///   no field arguments and no quantifier. For `A Tag is either Zed or a Val with n: Nat.`
+///   the `Val` case was checked as `P Val`, a proposition about a partially applied
+///   constructor, while `DElim` went on to conclude `∀t:Tag, P t` — which includes every
+///   `P (Val n)` that was never proved. `∀t:Tag, t = t` with two `refl` bullets certified,
+///   while the same shape over a RECURSIVE constructor was correctly refused: the two
+///   answers differed only by which branch of the gate the constructor fell into.
+///
+/// `build_recursive_case_formula` degrades correctly when a constructor has no value fields
+/// (it substitutes the applied constructor, which is the base case), so the gate bought
+/// nothing it did not also get wrong.
 fn build_case_expected(
     ctx: &Context,
     ctor_name: &str,
     _constructors: &[(&str, &Term)],
     motive_body: &Term,
     ind_type: &Term,
+    include_ih: bool,
 ) -> Option<Term> {
-    // Extract inductive name to determine constructor patterns
     let ind_name = extract_inductive_name_from_syntax(ind_type)?;
-
-    // Special case for Nat - we know its structure
-    if ind_name == "Nat" {
-        if ctor_name == "Zero" {
-            // Base case: motive[Zero/var]
-            let zero = make_sname("Zero");
-            return try_syn_subst_reduce(ctx, &zero, 0, motive_body);
-        } else if ctor_name == "Succ" {
-            // Step case: ∀k:Nat. P(k) → P(Succ k)
-            // Use the same logic as DInduction
-            return build_induction_step_formula(ctx, motive_body);
+    match ctx.get_global(ctor_name) {
+        Some(ctor_ty) => build_recursive_case_formula(
+            ctx,
+            ctor_name,
+            ctor_ty,
+            motive_body,
+            ind_type,
+            &ind_name,
+            include_ih,
+        ),
+        // A constructor the context does not declare has no fields the kernel can see, so the
+        // only formula available is the one about the constructor itself.
+        None => {
+            let ctor_applied = apply_type_args_to_ctor(&make_sname(ctor_name), ind_type);
+            try_syn_subst_reduce(ctx, &ctor_applied, 0, motive_body)
         }
     }
-
-    // For other inductives, use heuristic based on constructor type
-    // Build the constructor as Syntax: SName "CtorName"
-    let ctor_syntax = make_sname(ctor_name);
-
-    // For polymorphic types, we need to apply the type argument to the constructor
-    // e.g., for List A, Nil becomes (SApp (SName "Nil") A)
-    let ctor_applied = apply_type_args_to_ctor(&ctor_syntax, ind_type);
-
-    // Get constructor type from context to determine if it's recursive
-    if let Some(ctor_ty) = ctx.get_global(ctor_name) {
-        // Check if constructor type contains the inductive type (recursive)
-        if is_recursive_constructor(ctx, ctor_ty, &ind_name, ind_type) {
-            // For recursive constructors, build the IH pattern
-            return build_recursive_case_formula(ctx, ctor_name, ctor_ty, motive_body, ind_type, &ind_name);
-        }
-    }
-
-    // Simple base case: substitute ctor into motive body
-    try_syn_subst_reduce(ctx, &ctor_applied, 0, motive_body)
 }
 
 /// Apply type arguments from ind_type to a constructor.
@@ -4304,51 +7508,6 @@ fn make_forall_syntax_generic(ind_type: &Term, motive: &Term) -> Term {
     )
 }
 
-/// Check if a constructor is recursive (has arguments of the inductive type).
-fn is_recursive_constructor(
-    _ctx: &Context,
-    ctor_ty: &Term,
-    ind_name: &str,
-    _ind_type: &Term,
-) -> bool {
-    // Traverse the constructor type looking for the inductive type in argument positions
-    // For Cons : Π(A:Type). A -> List A -> List A
-    // The "List A" argument makes it recursive
-
-    fn contains_inductive(term: &Term, ind_name: &str) -> bool {
-        match term {
-            Term::Global(name) => name == ind_name,
-            Term::App(f, a) => {
-                contains_inductive(f, ind_name) || contains_inductive(a, ind_name)
-            }
-            Term::Pi { param_type, body_type, .. } => {
-                contains_inductive(param_type, ind_name) || contains_inductive(body_type, ind_name)
-            }
-            Term::Lambda { param_type, body, .. } => {
-                contains_inductive(param_type, ind_name) || contains_inductive(body, ind_name)
-            }
-            _ => false,
-        }
-    }
-
-    // Check if any parameter type (not the final result) contains the inductive
-    fn check_params(term: &Term, ind_name: &str) -> bool {
-        match term {
-            Term::Pi { param_type, body_type, .. } => {
-                // Check if this parameter has the inductive type
-                if contains_inductive(param_type, ind_name) {
-                    return true;
-                }
-                // Check remaining parameters
-                check_params(body_type, ind_name)
-            }
-            _ => false,
-        }
-    }
-
-    check_params(ctor_ty, ind_name)
-}
-
 /// Build the case formula for a recursive constructor.
 ///
 /// For Cons : Π(A:Type). A -> List A -> List A
@@ -4361,6 +7520,7 @@ fn build_recursive_case_formula(
     motive_body: &Term,
     ind_type: &Term,
     ind_name: &str,
+    include_ih: bool,
 ) -> Option<Term> {
     // Extract type args from ind_type for matching
     let type_args = extract_type_args(ind_type);
@@ -4404,7 +7564,7 @@ fn build_recursive_case_formula(
     // Build implications from inside out (for recursive args)
     let mut body = p_ctor;
     for (i, (arg_ty, is_recursive)) in args.iter().enumerate().rev() {
-        if *is_recursive {
+        if *is_recursive && include_ih {
             // Add IH: P(arg) -> body
             // arg is at index (args.len() - 1 - i)
             let idx = (args.len() - 1 - i) as i64;
@@ -4445,7 +7605,11 @@ fn collect_ctor_args(ctor_ty: &Term, ind_name: &str, type_args: &[Term]) -> Vec<
 
     loop {
         match current {
-            Term::Pi { param_type, body_type, .. } => {
+            Term::Pi {
+                param_type,
+                body_type,
+                ..
+            } => {
                 if skip_count > 0 {
                     // Skip type parameter
                     skip_count -= 1;
@@ -4472,10 +7636,17 @@ fn contains_inductive_term(term: &Term, ind_name: &str) -> bool {
         Term::App(f, a) => {
             contains_inductive_term(f, ind_name) || contains_inductive_term(a, ind_name)
         }
-        Term::Pi { param_type, body_type, .. } => {
-            contains_inductive_term(param_type, ind_name) || contains_inductive_term(body_type, ind_name)
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => {
+            contains_inductive_term(param_type, ind_name)
+                || contains_inductive_term(body_type, ind_name)
         }
-        Term::Lambda { param_type, body, .. } => {
+        Term::Lambda {
+            param_type, body, ..
+        } => {
             contains_inductive_term(param_type, ind_name) || contains_inductive_term(body, ind_name)
         }
         _ => false,
@@ -4499,7 +7670,11 @@ fn kernel_type_to_syntax(term: &Term) -> Term {
                 Box::new(a_syn),
             )
         }
-        Term::Pi { param, param_type, body_type } => {
+        Term::Pi {
+            param: _,
+            param_type,
+            body_type,
+        } => {
             let pt_syn = kernel_type_to_syntax(param_type);
             let bt_syn = kernel_type_to_syntax(body_type);
             // SPi pt_syn bt_syn
@@ -4705,7 +7880,13 @@ fn can_constructor_match_args(
     let mut bindings: std::collections::HashMap<String, Term> = std::collections::HashMap::new();
 
     for (pattern, concrete) in result_args.iter().zip(hyp_args.iter()) {
-        if !can_unify_syntax_terms_with_bindings(ctx, pattern, concrete, &pattern_vars, &mut bindings) {
+        if !can_unify_syntax_terms_with_bindings(
+            ctx,
+            pattern,
+            concrete,
+            &pattern_vars,
+            &mut bindings,
+        ) {
             return false;
         }
     }
@@ -4726,7 +7907,9 @@ fn decompose_ctor_type_with_vars(ty: &Term) -> (Term, Vec<String>) {
     let mut current = ty;
     loop {
         match current {
-            Term::Pi { param, body_type, .. } => {
+            Term::Pi {
+                param, body_type, ..
+            } => {
                 vars.push(param.clone());
                 current = body_type;
             }
@@ -4796,8 +7979,19 @@ fn can_unify_syntax_terms_with_bindings(
         {
             if let (Term::Global(n1), Term::Global(n2)) = (sapp1.as_ref(), sapp2.as_ref()) {
                 if n1 == "SApp" && n2 == "SApp" {
-                    return can_unify_syntax_terms_with_bindings(ctx, func1, func2, pattern_vars, bindings)
-                        && can_unify_syntax_terms_with_bindings(ctx, arg1.as_ref(), arg2.as_ref(), pattern_vars, bindings);
+                    return can_unify_syntax_terms_with_bindings(
+                        ctx,
+                        func1,
+                        func2,
+                        pattern_vars,
+                        bindings,
+                    ) && can_unify_syntax_terms_with_bindings(
+                        ctx,
+                        arg1.as_ref(),
+                        arg2.as_ref(),
+                        pattern_vars,
+                        bindings,
+                    );
                 }
             }
         }
@@ -4999,7 +8193,7 @@ fn try_try_rewrite_reduce(
     let eq_conclusion = try_concludes_reduce(ctx, eq_proof)?;
 
     // Extract Eq A x y components
-    let (ty, lhs, rhs) = match extract_eq_components_from_syntax(&eq_conclusion) {
+    let (_, lhs, rhs) = match extract_eq_components_from_syntax(&eq_conclusion) {
         Some(components) => components,
         None => return Some(make_error_derivation()),
     };
@@ -5068,7 +8262,6 @@ fn try_drewrite_conclude(
 
 /// Destruct tactic: case analysis without induction hypotheses.
 fn try_try_destruct_reduce(
-    ctx: &Context,
     ind_type: &Term,
     motive: &Term,
     cases: &Term,
@@ -5091,43 +8284,84 @@ fn try_try_destruct_reduce(
     ))
 }
 
-/// Verify DDestruct derivation.
+/// Verify a `DDestruct` derivation — case analysis WITHOUT induction hypotheses.
+///
+/// Identical to [`try_delim_conclude`] but for the induction hypotheses, which is the entire
+/// difference between `cases` and `induction`, so the two share the case-formula builder and
+/// differ only in the `include_ih` flag they pass it.
+///
+/// **This used to check the case COUNT and nothing else** — its own comment said so — and then
+/// concede `∀x:Ind, P x`. `DDestruct` is a declared `Derivation` constructor and `try_destruct`
+/// is a declared tactic that builds one, so
+///
+/// ```text
+///   Definition fake : Derivation :=
+///     try_destruct (SName "Bool") (SLam (SName "Bool") (SName "False"))
+///       (DCase (DAxiom (SName "True")) (DCase (DAxiom (SName "True")) DCaseEnd)).
+///   Eval concludes fake.
+/// ```
+///
+/// answered `Forall Bool (λb. False)` — a derivation of `∀b:Bool, False` from two case proofs
+/// that were never looked at, and one `DAxiom` away from a proof of anything at all. Nothing in
+/// the literate surface reached it only because `destruct` is absent from that vocabulary, and
+/// a hole whose only fence is "no caller has been written yet" is a hole.
 fn try_ddestruct_conclude(
     ctx: &Context,
     ind_type: &Term,
     motive: &Term,
     cases: &Term,
 ) -> Option<Term> {
-    // Similar to DElim but without verifying IH in step cases
-    // For now, we accept the derivation and return Forall ind_type motive
+    let norm_ind_type = normalize(ctx, ind_type);
+    let norm_motive = normalize(ctx, motive);
+    let norm_cases = normalize(ctx, cases);
 
-    // Extract the inductive type name
-    let ind_name = extract_inductive_name_from_syntax(ind_type)?;
-
-    // Verify it's actually an inductive type
+    let ind_name = extract_inductive_name_from_syntax(&norm_ind_type)?;
     if !ctx.is_inductive(&ind_name) {
         return Some(make_sname_error());
     }
-
     let constructors = ctx.get_constructors(&ind_name);
+    if constructors.is_empty() {
+        return Some(make_sname_error());
+    }
 
-    // Extract case proofs
-    let case_proofs = match extract_case_proofs(cases) {
+    let case_proofs = match extract_case_proofs(&norm_cases) {
         Some(proofs) => proofs,
         None => return Some(make_sname_error()),
     };
-
-    // Verify case count matches
     if case_proofs.len() != constructors.len() {
         return Some(make_sname_error());
     }
 
-    // For each case, verify the conclusion matches the expected goal (without IH)
-    // For simplicity, we just check case count matches for now
-    // Full verification would check each case proves P(ctor args)
+    let motive_body = match extract_slam_body(&norm_motive) {
+        Some(body) => body,
+        None => return Some(make_sname_error()),
+    };
 
-    // Build Forall ind_type motive
-    Some(make_forall_syntax_with_type(ind_type, motive))
+    // EVERY case is checked against the proposition its constructor owes. `include_ih` is
+    // false: a `destruct` bullet is handed no induction hypothesis, so demanding one would
+    // refuse correct case proofs, and offering one would concede a hypothesis nobody proved.
+    for (i, (ctor_name, _ctor_type)) in constructors.iter().enumerate() {
+        let case_conc = match try_concludes_reduce(ctx, &case_proofs[i]) {
+            Some(c) => c,
+            None => return Some(make_sname_error()),
+        };
+        let expected = match build_case_expected(
+            ctx,
+            ctor_name,
+            &constructors,
+            &motive_body,
+            &norm_ind_type,
+            false,
+        ) {
+            Some(e) => e,
+            None => return Some(make_sname_error()),
+        };
+        if !syntax_equal(&case_conc, &expected) {
+            return Some(make_sname_error());
+        }
+    }
+
+    Some(make_forall_syntax_generic(&norm_ind_type, &norm_motive))
 }
 
 /// Apply tactic: manual backward chaining.
@@ -5162,7 +8396,7 @@ fn try_try_apply_reduce(
     }
 
     // Check if it's a forall that could match
-    if let Some(forall_body) = extract_forall_body(&hyp_conclusion) {
+    if let Some(_forall_body) = extract_forall_body(&hyp_conclusion) {
         // Try to match goal with forall body (simple syntactic check)
         // For now, if goal appears to be an instance of the forall body, accept it
         // Full implementation would do proper unification
@@ -5207,7 +8441,6 @@ fn try_try_apply_reduce(
 /// Verify DApply derivation.
 fn try_dapply_conclude(
     ctx: &Context,
-    hyp_name: &Term,
     hyp_proof: &Term,
     old_goal: &Term,
     new_goal: &Term,
@@ -5219,7 +8452,9 @@ fn try_dapply_conclude(
     // then new_goal should be A
     if let Some((antecedent, consequent)) = extract_spi(&hyp_conclusion) {
         if syntax_equal(&consequent, old_goal) {
-            if syntax_equal(&antecedent, new_goal) || extract_sname(new_goal) == Some("True".to_string()) {
+            if syntax_equal(&antecedent, new_goal)
+                || extract_sname(new_goal) == Some("True".to_string())
+            {
                 return Some(new_goal.clone());
             }
         }
@@ -5244,3 +8479,327 @@ fn try_dapply_conclude(
     Some(make_sname_error())
 }
 
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/normalize_tests.rs"]
+mod normalize_tests;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/reflection_signature_tests.rs"]
+mod reflection_signature_tests;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/lazy_head_tests.rs"]
+mod lazy_head_tests;
+
+mod shared_head;
+pub(crate) use shared_head::{
+    certified_application, certified_program, program_shape, CertifiedProgram, ProgramShape,
+};
+pub(crate) use shared_head::{
+    constructor_equivalent, constructors_disagree, natural_literal_conversion,
+};
+mod whnf_core;
+pub(crate) use whnf_core::{
+    beta_normal_form, certified_value, delta_head, unfold_head, whnf, whnf_core, Allowance,
+    Exhausted,
+};
+
+/// Optional inventory of real machine operations during atomic observation.
+/// These counters do not replenish or alter evaluator fuel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DagAtomWork {
+    pub eval: u64,
+    pub compute: u64,
+    pub force: u64,
+    pub returned: u64,
+    pub force_ready: u64,
+    pub force_suspended: u64,
+    pub force_blocked: u64,
+    pub return_update: u64,
+    pub return_apply: u64,
+    pub return_unroll: u64,
+    pub return_match: u64,
+    pub return_finish_unary: u64,
+    pub return_complete: u64,
+    pub return_unary_demand: u64,
+    pub thunk_allocations: u64,
+    pub capture_key_entries: u64,
+    pub ready_value_rewrites: u64,
+    pub lambda_values: u64,
+    pub eval_global: u64,
+    pub compute_global: u64,
+    pub global_cache_hits: u64,
+    pub delta: u64,
+    pub beta: u64,
+    pub zeta: u64,
+    pub iota: u64,
+    pub guarded_unroll: u64,
+    pub suspended_constructions: u64,
+    pub demanded_fresh_suspended: u64,
+    pub demanded_fresh_running: u64,
+    pub demanded_cached_suspended: u64,
+    pub demanded_ready: u64,
+    pub suspended_lambda_constructions: u64,
+    pub forced_lambda_suspensions: u64,
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/normalization_growth_controls.rs"]
+mod normalization_growth_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/bounded_fix_controls.rs"]
+mod bounded_fix_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/bounded_polymorphic_delta_work.rs"]
+mod bounded_polymorphic_delta_work;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/owned_bounded_spine_controls.rs"]
+mod owned_bounded_spine_controls;
+
+#[cfg(test)]
+thread_local! { static TREE_REDUCTION_CALLS: std::cell::Cell<usize> = const {std::cell::Cell::new(0)}; }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/bounded_size_scratch_controls.rs"]
+mod bounded_size_scratch_controls;
+
+#[cfg(test)]
+thread_local! {static CONSTRUCTOR_MATERIALIZATIONS:std::cell::Cell<usize>=const {std::cell::Cell::new(0)};}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/borrowed_constructor_controls.rs"]
+mod borrowed_constructor_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/owned_conversion_integration_controls.rs"]
+mod owned_conversion_integration_controls;
+
+fn assign_progress_in_place(term: &mut Term, result: Term) -> bool {
+    if result == *term {
+        return false;
+    }
+    *term = result;
+    true
+}
+
+/// The full reducer's existing one-step order, consuming only changed nodes.
+/// The outer normalizer retains its cycle detector, depth checks and step fuel.
+fn reduce_step_in_place(ctx: &Context, term: &mut Term, tr: Transparency<'_>) -> bool {
+    #[cfg(test)]
+    TREE_REDUCTION_CALLS.with(|n| n.set(n.get() + 1));
+    if let Some(result) = try_simp_rewrite(ctx, term) {
+        *term = result;
+        return true;
+    }
+    if let Term::App(func, arg) = term {
+        if let Some(result) = try_primitive_reduce(ctx, func, arg, tr) {
+            return assign_progress_in_place(term, result);
+        }
+        if let Term::App(head, first) = func.as_mut() {
+            if let Term::Global(operation) = head.as_ref() {
+                if crate::int_inductive::integer_alias_dependencies(operation)
+                    .is_some_and(|dependencies| dependencies.iter().all(|name| tr.unfolds(name)))
+                    && crate::int_inductive::accelerates_integer_alias(ctx, operation)
+                {
+                    if reduce_step_in_place(ctx, first, tr) {
+                        return true;
+                    }
+                    if reduce_step_in_place(ctx, arg, tr) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(result) = try_reflection_reduce(ctx, func, arg) {
+            return assign_progress_in_place(term, result);
+        }
+        if let Term::Global(name) = func.as_ref() {
+            if name == "reduceBool"
+                && ctx.get_definition_body(name).is_none()
+                && declaration_agrees_with_the_rule(ctx, name)
+            {
+                if let Some(value) = crate::eval::eval_bool(ctx, arg) {
+                    return assign_progress_in_place(
+                        term,
+                        Term::Global(if value { "true" } else { "false" }.into()),
+                    );
+                }
+            }
+        }
+        if let Some(result) = try_quot_lift_reduce(ctx, func, arg) {
+            return assign_progress_in_place(term, result);
+        }
+        if let Some(result) = try_obs_reduce(ctx, func, arg) {
+            return assign_progress_in_place(term, result);
+        }
+    }
+    if matches!(term, Term::App(..)) {
+        if let Some(result) = try_fix_unroll(ctx, term) {
+            return assign_progress_in_place(term, result);
+        }
+    }
+    match term {
+        Term::Lit(_) | Term::Sort(_) | Term::Var(_) | Term::Hole => false,
+        Term::Const { name, levels } => {
+            let result = match const_step(ctx, name, levels) {
+                ConstStep::Unresolved | ConstStep::Value => return false,
+                ConstStep::Illformed => Term::Hole,
+                ConstStep::Delta(subst, body) => {
+                    if !tr.unfolds(name) {
+                        return false;
+                    }
+                    crate::term::instantiate_universes(&body, &subst)
+                }
+            };
+            *term = result;
+            true
+        }
+        Term::App(func, arg) => match func.as_mut() {
+            Term::Lambda { .. } => {
+                let Term::App(func, arg) = std::mem::replace(term, Term::Hole) else {
+                    unreachable!()
+                };
+                let Term::Lambda { param, body, .. } = *func else {
+                    unreachable!()
+                };
+                *term = crate::type_checker::substitute_owned(*body, &param, &arg);
+                true
+            }
+            Term::Fix { .. } => reduce_step_in_place(ctx, arg, tr),
+            Term::MutualFix { defs, index } => {
+                if is_constructor_form(ctx, arg) {
+                    let mut unfolded = defs[*index].1.clone();
+                    for (j, (name, _)) in defs.iter().enumerate() {
+                        let projection = Term::MutualFix {
+                            defs: defs.clone(),
+                            index: j,
+                        };
+                        unfolded = substitute(&unfolded, name, &projection);
+                    }
+                    **func = unfolded;
+                    true
+                } else {
+                    reduce_step_in_place(ctx, arg, tr)
+                }
+            }
+            _ => {
+                if reduce_step_in_place(ctx, func, tr) {
+                    return true;
+                }
+                reduce_step_in_place(ctx, arg, tr)
+            }
+        },
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            if let Some(mut result) = iota_branch(ctx, discriminant, motive, cases) {
+                reduce_step_in_place(ctx, &mut result, tr);
+                *term = result;
+                return true;
+            }
+            if let Some(constructor) = (cases.len() == 1)
+                .then(|| KProbeMemo::probe(ctx, discriminant, motive))
+                .flatten()
+            {
+                **discriminant = constructor;
+                return true;
+            }
+            reduce_step_in_place(ctx, discriminant, tr)
+        }
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => {
+            let original_type = (**param_type).clone();
+            let domain_changed = reduce_step_in_place(ctx, param_type, tr);
+            let scope = KProbeMemo::enter(param);
+            let body_changed = reduce_step_in_place(&ctx.extend(param, original_type), body, tr);
+            KProbeMemo::leave(scope);
+            domain_changed || body_changed
+        }
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => {
+            let original_type = (**param_type).clone();
+            let domain_changed = reduce_step_in_place(ctx, param_type, tr);
+            let scope = KProbeMemo::enter(param);
+            let body_changed =
+                reduce_step_in_place(&ctx.extend(param, original_type), body_type, tr);
+            KProbeMemo::leave(scope);
+            domain_changed || body_changed
+        }
+        Term::Fix { body, .. } => reduce_step_in_place(ctx, body, tr),
+        Term::MutualFix { defs, .. } => {
+            let mut changed = false;
+            for (_, body) in defs {
+                changed |= reduce_step_in_place(ctx, body, tr);
+            }
+            changed
+        }
+        Term::Let { .. } => {
+            // The occurrence-gated sharing policy and its order, applied where the parts lie.
+            crate::term_store::zeta_or_share_in_place(
+                term,
+                &|t| reduce_step_in_place(ctx, t, tr),
+                &|t| reduce_step_opt(ctx, t, tr),
+            )
+        }
+        Term::Global(name) => {
+            if !tr.unfolds(name) {
+                return false;
+            }
+            let Some(body) = ctx.get_definition_body(name) else {
+                return false;
+            };
+            *term = body.clone();
+            true
+        }
+        // Consumed with its term's step, never by one of its own (see `reduce_step_opt`).
+        Term::Annotated { term: inner, .. } => {
+            if !reduce_step_in_place(ctx, inner, tr) {
+                return false;
+            }
+            let reduct = std::mem::replace(inner.as_mut(), Term::Hole);
+            *term = reduct;
+            true
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/owned_normalize_controls.rs"]
+mod owned_normalize_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/k_probe_controls.rs"]
+mod k_probe_controls;
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/nested_depth_controls.rs"]
+mod nested_depth_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/pending_compute_controls.rs"]
+mod pending_compute_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/borrowed_closed_controls.rs"]
+mod borrowed_closed_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/lazy_telescope_admission.rs"]
+mod lazy_telescope_admission;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/head_size_scan_controls.rs"]
+mod head_size_scan_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reduction/delta_borrowed_admission_controls.rs"]
+mod delta_borrowed_admission_controls;

@@ -1,17 +1,13 @@
 //! Responsive design system and mobile styling utilities.
 //!
-//! Centralizes all mobile/responsive concerns to ensure consistent behavior
-//! across device sizes. Provides breakpoints, touch target standards, and
-//! reusable CSS for mobile-first components.
+//! Centralizes the mobile/responsive CSS shared across pages so behavior stays
+//! consistent across device sizes: the base utilities and the mobile tab bar.
 //!
 //! # Breakpoint Strategy
 //!
 //! Mobile-first approach with these breakpoints:
-//! - `XS` (480px): Small phones
-//! - `SM` (640px): Large phones, small tablets
-//! - `MD` (768px): Tablets (primary mobile breakpoint)
-//! - `LG` (1024px): Small laptops
-//! - `XL` (1280px): Desktops
+//! - 768px: Tablets (primary mobile breakpoint, `--breakpoint-mobile`)
+//! - 1024px: Small laptops (`--breakpoint-tablet`)
 //!
 //! # Touch Target Standards
 //!
@@ -22,19 +18,16 @@
 //!
 //! # Usage
 //!
-//! Include base styles in your root component:
+//! Include the styles in the page component:
 //!
 //! ```no_run
 //! # use dioxus::prelude::*;
-//! use logicaffeine_web::ui::responsive::{MOBILE_BASE_STYLES, all_mobile_styles};
+//! use logicaffeine_web::ui::responsive::{MOBILE_BASE_STYLES, MOBILE_TAB_BAR_STYLES};
 //!
 //! # fn Example() -> Element {
 //! rsx! {
-//!     // Option 1: Just the base utilities
 //!     style { "{MOBILE_BASE_STYLES}" }
-//!
-//!     // Option 2: All mobile styles including tabs, panels, buttons
-//!     style { "{all_mobile_styles()}" }
+//!     style { "{MOBILE_TAB_BAR_STYLES}" }
 //! }
 //! # }
 //! ```
@@ -51,45 +44,89 @@
 //! | `.scroll-smooth` | iOS momentum scrolling |
 
 // =============================================================================
-// BREAKPOINTS
+// BREAKPOINTS, MEDIA QUERIES AND TOUCH
 // =============================================================================
 
-/// Standard breakpoint values used across the application
+/// The widths and heights the layout changes at, in CSS pixels.
 pub mod breakpoints {
-    /// Extra small devices (phones in portrait)
-    pub const XS: &str = "480px";
-    /// Small devices (phones in landscape, small tablets)
-    pub const SM: &str = "640px";
-    /// Medium devices (tablets)
-    pub const MD: &str = "768px";
-    /// Large devices (small laptops)
-    pub const LG: &str = "1024px";
-    /// Extra large devices (desktops)
-    pub const XL: &str = "1280px";
+    /// The widest phone held upright: iPhones are 390 to 430, Android phones 360 to 412.
+    pub const PHONE_MAX: u32 = 600;
+    /// The widest window that stacks the Studio's panels: an upright iPad mini (744) and iPad (768).
+    pub const MOBILE_MAX: u32 = 768;
+    /// The widest window the site's nav folds into its menu, and the widest upright tablet.
+    pub const TABLET_MAX: u32 = 1024;
+    /// The tallest window that is a phone turned on its side.
+    pub const SHORT_MAX: u32 = 500;
+    /// The narrowest phones, where the buttons tighten further.
+    pub const SMALL_PHONE_MAX: u32 = 480;
+    /// The width from which a frame on another page leaves its wider margins.
+    pub const FRAME_WIDE_MIN: u32 = 720;
 }
 
-/// Media query helpers - use these in your CSS strings
+/// The media queries the Studio's stylesheets and these shared ones use, by name. A stylesheet cannot
+/// read a custom property inside `@media`, so each query is written out in the CSS, and the one-Studio
+/// lock holds every `@media` the Studio draws from to one of [`media::ALL`]. The app's own `matchMedia`
+/// checks use the same strings.
 pub mod media {
-    pub const MOBILE: &str = "@media (max-width: 768px)";
-    pub const TABLET: &str = "@media (min-width: 769px) and (max-width: 1024px)";
-    pub const DESKTOP: &str = "@media (min-width: 1025px)";
-    pub const MOBILE_LANDSCAPE: &str = "@media (max-height: 500px) and (orientation: landscape)";
-    pub const TOUCH_DEVICE: &str = "@media (hover: none) and (pointer: coarse)";
-    pub const REDUCED_MOTION: &str = "@media (prefers-reduced-motion: reduce)";
+    /// A phone held upright.
+    pub const PHONE: &str = "(max-width: 600px)";
+    /// A phone or an upright tablet: the Studio's panels stack.
+    pub const MOBILE: &str = "(max-width: 768px)";
+    /// Wider than an upright tablet: the desktop's columns.
+    pub const DESKTOP: &str = "(min-width: 769px)";
+    /// An upright tablet the width of a small phone's landscape: iPad mini and iPad portrait.
+    pub const TABLET_PORTRAIT: &str = "(min-width: 601px) and (max-width: 768px)";
+    /// An upright tablet wider than 768px, an iPad Air or iPad Pro held upright, known by its finger.
+    pub const UPRIGHT_TABLET: &str = "(min-width: 769px) and (max-width: 1024px) and (orientation: portrait) and (pointer: coarse)";
+    /// A tablet turned on its side.
+    pub const TABLET_LANDSCAPE: &str = "(min-width: 769px) and (min-height: 501px) and (pointer: coarse)";
+    /// A phone turned on its side.
+    pub const PHONE_LANDSCAPE: &str = "(max-height: 500px) and (orientation: landscape)";
+    /// A finger, on any screen.
+    pub const COARSE: &str = "(pointer: coarse)";
+    /// A screen nothing hovers over.
+    pub const NO_HOVER: &str = "(hover: none)";
+    /// The narrowest phones.
+    pub const SMALL_PHONE: &str = "(max-width: 480px)";
+    /// Up to an upright tablet's width: the site's nav folds into its menu.
+    pub const TABLET: &str = "(max-width: 1024px)";
+    /// A small laptop or a tablet on its side: the menu's roomier layout.
+    pub const SMALL_LAPTOP: &str = "(min-width: 769px) and (max-width: 1024px)";
+    /// A frame on another page with room for its wider margins.
+    pub const FRAME_WIDE: &str = "(min-width: 720px)";
+    /// A reader who asked for less motion.
+    pub const REDUCED_MOTION: &str = "(prefers-reduced-motion: reduce)";
+
+    /// Where the Files tree is a drawer over the workbench, folded until the reader opens it: phones,
+    /// upright tablets, and a phone on its side.
+    pub const FILES_DRAWER: &[&str] = &[MOBILE, UPRIGHT_TABLET, PHONE_LANDSCAPE];
+    /// Where the panes show one at a time, or side by side in halves, so a pane's header folds nothing.
+    pub const PANES_FIXED: &[&str] = &[PHONE, PHONE_LANDSCAPE];
+
+    pub const ALL: &[&str] = &[
+        PHONE,
+        MOBILE,
+        DESKTOP,
+        TABLET_PORTRAIT,
+        UPRIGHT_TABLET,
+        TABLET_LANDSCAPE,
+        PHONE_LANDSCAPE,
+        COARSE,
+        NO_HOVER,
+        SMALL_PHONE,
+        TABLET,
+        SMALL_LAPTOP,
+        FRAME_WIDE,
+        REDUCED_MOTION,
+    ];
 }
 
-// =============================================================================
-// TOUCH TARGETS
-// =============================================================================
-
-/// WCAG 2.5 compliant touch target sizes
+/// Touch targets, in CSS pixels (WCAG 2.5.5).
 pub mod touch {
-    /// Minimum touch target size (44x44px per WCAG 2.5)
-    pub const MIN_TARGET: &str = "44px";
-    /// Comfortable touch target size
-    pub const COMFORTABLE_TARGET: &str = "48px";
-    /// Large touch target for primary actions
-    pub const LARGE_TARGET: &str = "56px";
+    /// The least a finger can press.
+    pub const MIN: u32 = 44;
+    /// A comfortable press.
+    pub const COMFORTABLE: u32 = 48;
 }
 
 // =============================================================================
@@ -524,221 +561,6 @@ pub const MOBILE_TAB_BAR_STYLES: &str = r#"
 }
 "#;
 
-// =============================================================================
-// MOBILE PANEL STYLES
-// =============================================================================
-
-/// Styles for switchable panel content (used with mobile tabs)
-pub const MOBILE_PANEL_STYLES: &str = r#"
-/* Desktop: show all panels side by side */
-.panel-container {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-}
-
-.panel {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: rgba(0, 0, 0, 0.3);
-}
-
-.panel-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #888;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.panel-content {
-    flex: 1;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-@media (max-width: 768px) {
-    .panel-container {
-        flex-direction: column;
-        position: relative;
-    }
-
-    /* On mobile, panels stack and only active one shows */
-    .panel {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.15s ease;
-        min-width: unset;
-    }
-
-    .panel.panel-active {
-        position: relative;
-        flex: 1;
-        opacity: 1;
-        pointer-events: auto;
-    }
-
-    /* Panel headers hidden on mobile (tabs replace them) */
-    .panel .panel-header {
-        display: none;
-    }
-
-    /* But show header for active panel if it has controls */
-    .panel.panel-active .panel-header.has-controls {
-        display: flex;
-        padding: 8px 12px;
-        background: rgba(0, 0, 0, 0.2);
-    }
-}
-"#;
-
-// =============================================================================
-// MOBILE BUTTON STYLES
-// =============================================================================
-
-/// Mobile-optimized button styles with proper touch targets
-pub const MOBILE_BUTTON_STYLES: &str = r#"
-@media (max-width: 768px) {
-    /* Ensure all buttons meet touch target requirements */
-    button,
-    .btn,
-    [role="button"] {
-        min-height: var(--touch-min, 44px);
-        min-width: var(--touch-min, 44px);
-        padding: 10px 16px;
-        font-size: 14px;
-    }
-
-    /* Toggle button groups */
-    .toggle-group {
-        gap: 6px;
-        padding: 4px;
-        border-radius: 8px;
-    }
-
-    .toggle-btn {
-        padding: 10px 16px;
-        font-size: 14px;
-        border-radius: 6px;
-        min-height: var(--touch-min, 44px);
-        min-width: var(--touch-min, 44px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    /* Small icon buttons */
-    .icon-btn {
-        width: var(--touch-min, 44px);
-        height: var(--touch-min, 44px);
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .icon-btn svg,
-    .icon-btn .icon {
-        width: 20px;
-        height: 20px;
-    }
-}
-"#;
-
-// =============================================================================
-// MOBILE INPUT STYLES
-// =============================================================================
-
-/// Mobile-optimized form input styles
-pub const MOBILE_INPUT_STYLES: &str = r#"
-@media (max-width: 768px) {
-    /* Text inputs and textareas */
-    input[type="text"],
-    input[type="email"],
-    input[type="password"],
-    input[type="search"],
-    textarea {
-        font-size: 16px; /* Prevents iOS zoom on focus */
-        min-height: var(--touch-min, 44px);
-        padding: 12px 16px;
-        border-radius: 10px;
-    }
-
-    textarea {
-        min-height: 120px;
-        resize: vertical;
-    }
-
-    /* Labels above inputs */
-    label {
-        font-size: 14px;
-        margin-bottom: 6px;
-    }
-
-    /* Form groups */
-    .form-group {
-        margin-bottom: 16px;
-    }
-}
-"#;
-
-// =============================================================================
-// MOBILE RESIZER ALTERNATIVE
-// =============================================================================
-
-/// On mobile, hide desktop resizers entirely
-pub const MOBILE_RESIZER_STYLES: &str = r#"
-.panel-resizer {
-    width: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    cursor: col-resize;
-    transition: background 0.2s ease;
-    flex-shrink: 0;
-}
-
-.panel-resizer:hover,
-.panel-resizer.active {
-    background: rgba(102, 126, 234, 0.5);
-}
-
-@media (max-width: 768px) {
-    .panel-resizer {
-        display: none;
-    }
-}
-"#;
-
-// =============================================================================
-// COMBINED MOBILE STYLES
-// =============================================================================
-
-/// All mobile styles combined - include this for a complete mobile solution
-pub fn all_mobile_styles() -> String {
-    format!(
-        "{}\n{}\n{}\n{}\n{}\n{}",
-        MOBILE_BASE_STYLES,
-        MOBILE_TAB_BAR_STYLES,
-        MOBILE_PANEL_STYLES,
-        MOBILE_BUTTON_STYLES,
-        MOBILE_INPUT_STYLES,
-        MOBILE_RESIZER_STYLES,
-    )
-}
-
-/// Generate a complete mobile-ready style block for a page
-/// This combines the base mobile utilities with any page-specific styles
-pub fn with_mobile_styles(page_styles: &str) -> String {
-    format!("{}\n{}", MOBILE_BASE_STYLES, page_styles)
-}
+#[cfg(test)]
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/responsive/tests.rs"]
+mod tests;

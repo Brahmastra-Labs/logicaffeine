@@ -1,0 +1,11 @@
+{
+  "capability": "iter.count_of",
+  "workload": "countOf(x,xs) \u2014 occurrences of x",
+  "arg": "40000",
+  "expected": "40007",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

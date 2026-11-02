@@ -5,11 +5,12 @@
   "prompt": "All pickpockets in Rome hurt people who are fortunate.",
   "options": [
     "all H is P",
-    "All P is H",
+    "all P is H",
     "P is H",
     "all p is H"
   ],
   "correct": 1,
-  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+  "hint": "The sentence is about every one of the pickpockets. What does it say they are?",
+  "explanation": "It says every pickpocket is one who hurts fortunate people. Both are kinds: all P is H.",
+  "section": "2.1"
 }

@@ -11,20 +11,22 @@ pub fn main() !void {
     var seed: i64 = 42;
     var i: i64 = 0;
     while (i < n) : (i += 1) {
-        seed = @mod(seed *% 1103515245 + 12345, 2147483648);
-        const v: usize = @intCast(@mod((seed >> 16) & 0x7fff, 1000));
+        seed = @rem(seed *% 1103515245 + 12345, 2147483648);
+        const v: usize = @intCast(@rem((seed >> 16) & 0x7fff, 1000));
         counts[v] += 1;
     }
     var max_freq: i64 = 0;
     var max_idx: i64 = 0;
-    var distinct: i64 = 0;
     for (0..1000) |j| {
-        if (counts[j] > 0) distinct += 1;
         if (counts[j] > max_freq) {
             max_freq = counts[j];
             max_idx = @intCast(j);
         }
     }
-    try stdout.interface.print("{} {} {}\n", .{ max_freq, max_idx, distinct });
+    var h: i64 = 0;
+    for (counts) |c| {
+        h = (h * 31 + c) & 268435455;
+    }
+    try stdout.interface.print("{} {} {}\n", .{ max_freq, max_idx, h });
     try stdout.interface.flush();
 }

@@ -1,0 +1,77 @@
+# The chip-sized SHA-256 CORE — a faithful SHA-256 compression shrunk to fit the soft-core's 256-word
+# on-board IMEM (nexys_soc_full.v). It keeps the REAL round function and message-schedule mathematics
+# unchanged — the SHA-256 sigma0/sigma1 (ssig0/ssig1, using rotr + the LOGICAL word32Shr), Sigma0/Sigma1
+# (bsig0/bsig1, three rotr's), ch/maj (word_and/word_not/xor), the wrapping Word32 + accumulator, the
+# FIPS-180-4 round constants K, the standard IV, and a Seq of Word32 message schedule on the heap — and
+# reduces only the COUNT of rounds/constants (8 rounds, 8 K-words, a 4-word schedule extension) so the whole
+# program fits <= 256 words. So it exercises EVERY Word32 instruction the full-core encoder lowers — word32,
+# intOfWord32 (unsigned Show), rotr, word32Shr, word_and, word_or, word_not, xor, wrapping +, and a
+# Seq of Word32 build/index — on real silicon. The full 64-round production hash is
+# benchmarks/programs/sha256/interp.lg (614 words, above the on-board IMEM).
+
+## To ssig0 (x: Word32) -> Word32:
+    Return rotr(x, 7) xor rotr(x, 18) xor word32Shr(x, 3).
+
+## To ssig1 (x: Word32) -> Word32:
+    Return rotr(x, 17) xor rotr(x, 19) xor word32Shr(x, 10).
+
+## To bsig0 (x: Word32) -> Word32:
+    Return rotr(x, 2) xor rotr(x, 13) xor rotr(x, 22).
+
+## To bsig1 (x: Word32) -> Word32:
+    Return rotr(x, 6) xor rotr(x, 11) xor rotr(x, 25).
+
+## To ch (x: Word32) and (y: Word32) and (z: Word32) -> Word32:
+    Return word_and(x, y) xor word_and(word_not(x), z).
+
+## To maj (x: Word32) and (y: Word32) and (z: Word32) -> Word32:
+    Return word_and(x, y) xor word_and(x, z) xor word_and(y, z).
+
+## Main
+
+Let mutable kk be a new Seq of Word32.
+Push word32(1116352408) to kk.
+Push word32(1899447441) to kk.
+Push word32(3049323471) to kk.
+Push word32(3921009573) to kk.
+Push word32(961987163) to kk.
+Push word32(1508970993) to kk.
+Push word32(2453635748) to kk.
+Push word32(2870763221) to kk.
+
+Let mutable sched be a new Seq of Word32.
+Push word32(2147483648) to sched.
+Let mutable z be 0.
+While z is less than 14:
+    Push word32(0) to sched.
+    Set z to z + 1.
+Push word32(256) to sched.
+Repeat for t from 16 to 19:
+    Let s0 be ssig0(item (t - 14) of sched).
+    Let s1 be ssig1(item (t - 1) of sched).
+    Let nw be s1 + (item (t - 6) of sched) + s0 + (item (t - 15) of sched).
+    Push nw to sched.
+
+Let mutable a be word32(1779033703).
+Let mutable b be word32(3144134277).
+Let mutable c be word32(1013904242).
+Let mutable d be word32(2773480762).
+Let mutable e be word32(1359893119).
+Let mutable f be word32(2600822924).
+Let mutable g be word32(528734635).
+Let mutable h be word32(1541459225).
+Repeat for t from 0 to 7:
+    Let t1 be h + bsig1(e) + ch(e, f, g) + (item (t + 1) of kk) + (item (t + 1) of sched).
+    Let t2 be bsig0(a) + maj(a, b, c).
+    Set h to g.
+    Set g to f.
+    Set f to e.
+    Set e to d + t1.
+    Set d to c.
+    Set c to b.
+    Set b to a.
+    Set a to t1 + t2.
+Show intOfWord32(a).
+Show intOfWord32(b).
+Show intOfWord32(c).
+Show intOfWord32(d).

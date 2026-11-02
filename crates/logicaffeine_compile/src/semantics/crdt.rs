@@ -15,7 +15,10 @@
 //! data-crate CRDT bounds.
 
 use crate::interpreter::RuntimeValue;
-use logicaffeine_data::crdt::{DeltaCrdt, Merge, MVRegister, ORSet, RemoveWins, ReplicaId, VClock, RGA};
+use logicaffeine_data::crdt::{
+    DeltaCrdt, GCounter, LatestWrite, MVRegister, Merge, ORMap, ORSet, PNCounter, RemoveWins,
+    ReplicaId, VClock, RGA,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A monotonic source of replica ids for CRDTs the interpreter constructs. Each `new`
@@ -33,11 +36,21 @@ pub fn next_replica_id() -> ReplicaId {
 /// A scalar CRDT element. CRDT collections are homogeneous, so a collection only ever
 /// holds one of these variants in practice; the enum exists because the interpreter is
 /// dynamically typed and the element type is not threaded through `struct_defs`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum CrdtScalar {
     Int(i64),
     Text(String),
     Bool(bool),
+}
+
+/// The placeholder a map entry holds before its first write merges in: a `LatestWrite` at stamp 0,
+/// which every real write (stamp ≥ 1) outranks, so the placeholder is never observed.
+impl Default for CrdtScalar {
+    fn default() -> Self {
+        CrdtScalar::Int(0)
+    }
 }
 
 impl CrdtScalar {
@@ -76,6 +89,177 @@ impl CrdtScalar {
     }
 }
 
+/// Every kind of CRDT the language has — the ONE table for what each is called in source, the code a
+/// `NewCrdt` op carries in bytecode, and the tag its full state / deltas carry on the wire. Both codes
+/// are stable wire formats: never renumber one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrdtKind {
+    Set,
+    SetRemoveWins,
+    Seq,
+    Register,
+    Counter,
+    PnCounter,
+    Map,
+}
+
+impl CrdtKind {
+    pub const ALL: [CrdtKind; 7] = [
+        CrdtKind::Set,
+        CrdtKind::SetRemoveWins,
+        CrdtKind::Seq,
+        CrdtKind::Register,
+        CrdtKind::Counter,
+        CrdtKind::PnCounter,
+        CrdtKind::Map,
+    ];
+
+    /// The CRDT a declared field type names, or `None` for a type that is not one.
+    pub fn of_type_name(name: &str) -> Option<CrdtKind> {
+        Some(match name {
+            "SharedSet" | "ORSet" | "SharedSet_AddWins" => CrdtKind::Set,
+            "SharedSet_RemoveWins" => CrdtKind::SetRemoveWins,
+            "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => {
+                CrdtKind::Seq
+            }
+            "ConvergentCount" | "GCounter" => CrdtKind::Counter,
+            "Tally" | "PNCounter" => CrdtKind::PnCounter,
+            "SharedMap" | "ORMap" => CrdtKind::Map,
+            _ => return None,
+        })
+    }
+
+    /// Whether `backend` lowers this CRDT — single-replica, running identically to the interpreter and
+    /// the VM. [`crate::compile::refuse_unlinkable`] refuses a program that builds a kind its backend
+    /// answers `false` for, naming the type. Exhaustive over kind × backend with no wildcard, so a new
+    /// kind or a new backend does not compile until every pair is decided; `crdt_backend_lock` runs
+    /// every pair and holds each answer to what the backend actually does.
+    pub const fn lowered_by(self, backend: crate::compile::Backend) -> bool {
+        use crate::compile::Backend;
+        match self {
+            CrdtKind::Set => match backend {
+                Backend::C => false,
+                Backend::CFromAst => false,
+                Backend::RiscV => false,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => false,
+            },
+            CrdtKind::SetRemoveWins => match backend {
+                Backend::C => false,
+                Backend::CFromAst => false,
+                Backend::RiscV => false,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => false,
+            },
+            CrdtKind::Seq => match backend {
+                Backend::C => true,
+                Backend::CFromAst => true,
+                Backend::RiscV => true,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => false,
+            },
+            CrdtKind::Register => match backend {
+                Backend::C => true,
+                Backend::CFromAst => true,
+                Backend::RiscV => true,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => true,
+            },
+            CrdtKind::Counter => match backend {
+                Backend::C => true,
+                Backend::CFromAst => true,
+                Backend::RiscV => true,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => false,
+            },
+            CrdtKind::PnCounter => match backend {
+                Backend::C => true,
+                Backend::CFromAst => true,
+                Backend::RiscV => true,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => false,
+            },
+            CrdtKind::Map => match backend {
+                Backend::C => false,
+                Backend::CFromAst => false,
+                Backend::RiscV => false,
+                Backend::WebAssembly => true,
+                Backend::SoftCore => false,
+            },
+        }
+    }
+
+    /// A fresh, empty replica of this kind with its own replica id.
+    pub fn fresh(self) -> CrdtValue {
+        let replica = next_replica_id();
+        match self {
+            CrdtKind::Set => CrdtValue::new_set(replica),
+            CrdtKind::SetRemoveWins => CrdtValue::new_set_remove_wins(replica),
+            CrdtKind::Seq => CrdtValue::new_seq(replica),
+            CrdtKind::Register => CrdtValue::new_register(replica),
+            CrdtKind::Counter => CrdtValue::new_counter(replica),
+            CrdtKind::PnCounter => CrdtValue::new_pn_counter(replica),
+            CrdtKind::Map => CrdtValue::new_map(replica),
+        }
+    }
+
+    /// The `kind` a `NewCrdt` op carries in bytecode.
+    pub const fn new_crdt_code(self) -> u8 {
+        match self {
+            CrdtKind::Set => 0,
+            CrdtKind::Seq => 1,
+            CrdtKind::Register => 2,
+            CrdtKind::SetRemoveWins => 3,
+            CrdtKind::Counter => 4,
+            CrdtKind::PnCounter => 5,
+            CrdtKind::Map => 6,
+        }
+    }
+
+    pub fn from_new_crdt_code(code: u8) -> Option<CrdtKind> {
+        Self::ALL.into_iter().find(|k| k.new_crdt_code() == code)
+    }
+
+    /// The tag leading a full-state or delta payload.
+    pub const fn state_tag(self) -> u8 {
+        match self {
+            CrdtKind::Set => 0,
+            CrdtKind::SetRemoveWins => 1,
+            CrdtKind::Seq => 2,
+            CrdtKind::Register => 3,
+            CrdtKind::Counter => 4,
+            CrdtKind::PnCounter => 5,
+            CrdtKind::Map => 6,
+        }
+    }
+
+    pub fn from_state_tag(tag: u8) -> Option<CrdtKind> {
+        Self::ALL.into_iter().find(|k| k.state_tag() == tag)
+    }
+
+    /// The name a program declares it by.
+    pub const fn type_name(self) -> &'static str {
+        match self {
+            CrdtKind::Set => "SharedSet",
+            CrdtKind::SetRemoveWins => "SharedSet (RemoveWins)",
+            CrdtKind::Seq => "SharedSequence",
+            CrdtKind::Register => "Divergent",
+            CrdtKind::Counter => "ConvergentCount",
+            CrdtKind::PnCounter => "Tally",
+            CrdtKind::Map => "SharedMap",
+        }
+    }
+
+    /// Why a backend that does not implement this CRDT refuses a program that uses it.
+    pub fn refusal(self, backend: &str) -> String {
+        format!(
+            "`{}` is a CRDT the {backend} backend does not implement — run the program on the \
+             interpreter or the VM, or build it with the Rust tier (`largo build`)",
+            self.type_name()
+        )
+    }
+}
+
 /// A live CRDT held by the interpreter. Wraps the actual `logicaffeine_data` type, so its
 /// convergence behaviour is identical to the compiled tier's by construction.
 #[derive(Debug, Clone)]
@@ -92,6 +276,16 @@ pub enum CrdtValue {
     /// `Divergent T` — multi-value register (`MVRegister`). Keeps concurrent writes until
     /// one is resolved.
     Register(MVRegister<CrdtScalar>),
+    /// `ConvergentCount` — grow-only counter (`GCounter`): each replica owns a slot, the value
+    /// is the sum, and merge is per-replica MAX. State-based ⇒ IDEMPOTENT: redelivering the same
+    /// remote state never double-counts (the very property a bare-`Int` op-based counter lacks).
+    Counter(GCounter),
+    /// `Tally` — increment/decrement counter (`PNCounter`): two G-Counters (increments and
+    /// decrements), value = Σinc − Σdec, merge per-replica MAX on both. Idempotent like `Counter`.
+    PnCounter(PNCounter),
+    /// `SharedMap from K to V` — observed-remove keys (add-wins), each value a Lamport-stamped
+    /// last-writer register (`ORMap<K, LatestWrite<V>>`), exactly the compiled tier's map.
+    Map(ORMap<CrdtScalar, LatestWrite<CrdtScalar>>),
 }
 
 impl CrdtValue {
@@ -111,12 +305,103 @@ impl CrdtValue {
         CrdtValue::Register(MVRegister::new(replica))
     }
 
+    pub fn new_counter(replica: ReplicaId) -> CrdtValue {
+        CrdtValue::Counter(GCounter::with_replica_id(replica))
+    }
+
+    pub fn new_pn_counter(replica: ReplicaId) -> CrdtValue {
+        CrdtValue::PnCounter(PNCounter::with_replica_id(replica))
+    }
+
+    pub fn new_map(replica: ReplicaId) -> CrdtValue {
+        CrdtValue::Map(ORMap::new(replica))
+    }
+
+    /// `Set <map>[key] to value`.
+    pub fn map_put(&mut self, key: &RuntimeValue, value: &RuntimeValue) -> Result<(), String> {
+        match self {
+            CrdtValue::Map(m) => {
+                m.put(
+                    CrdtScalar::from_runtime(key)?,
+                    CrdtScalar::from_runtime(value)?,
+                );
+                Ok(())
+            }
+            other => Err(format!("cannot set a key of a {}", other.kind())),
+        }
+    }
+
+    /// `<map>[key]` — the value under a PRESENT key; a missing key traps exactly as a `Map`'s does.
+    pub fn map_get(&self, key: &RuntimeValue) -> Result<RuntimeValue, String> {
+        match self {
+            CrdtValue::Map(m) => m
+                .value(&CrdtScalar::from_runtime(key)?)
+                .map(CrdtScalar::to_runtime)
+                .ok_or_else(|| {
+                    logicaffeine_data::failure::key_not_found(key.to_display_string().as_str())
+                }),
+            other => Err(format!("cannot index a {} by key", other.kind())),
+        }
+    }
+
+    /// `Increase/Decrease <counter> by N` — bump this replica's own slot. A grow-only
+    /// `ConvergentCount` rejects a decrement (that is what a `Tally` is for); a `Tally` takes both.
+    /// The per-replica slot is what makes a later merge idempotent.
+    pub fn bump(&mut self, amount: i64) -> Result<(), String> {
+        match self {
+            CrdtValue::Counter(c) => {
+                if amount < 0 {
+                    return Err(
+                        "a ConvergentCount is grow-only — use a Tally to decrement".to_string()
+                    );
+                }
+                c.increment(amount as u64);
+                Ok(())
+            }
+            CrdtValue::PnCounter(c) => {
+                if amount >= 0 {
+                    c.increment(amount as u64);
+                } else {
+                    c.decrement(amount.unsigned_abs());
+                }
+                Ok(())
+            }
+            other => Err(format!("cannot increment a {}", other.kind())),
+        }
+    }
+
+    /// The integer value of a counter (`GCounter` sum, or `PNCounter` inc−dec); `None` for a
+    /// non-counter CRDT. This is how a counter reads as a plain number for `Show` and comparison.
+    pub fn counter_value(&self) -> Option<i64> {
+        match self {
+            CrdtValue::Counter(c) => Some(c.value() as i64),
+            CrdtValue::PnCounter(c) => Some(c.value()),
+            _ => None,
+        }
+    }
+
+    /// Which CRDT this is.
+    pub fn crdt_kind(&self) -> CrdtKind {
+        match self {
+            CrdtValue::Set(_) => CrdtKind::Set,
+            CrdtValue::SetRemoveWins(_) => CrdtKind::SetRemoveWins,
+            CrdtValue::Seq(_) => CrdtKind::Seq,
+            CrdtValue::Register(_) => CrdtKind::Register,
+            CrdtValue::Counter(_) => CrdtKind::Counter,
+            CrdtValue::PnCounter(_) => CrdtKind::PnCounter,
+            CrdtValue::Map(_) => CrdtKind::Map,
+        }
+    }
+
     /// The CRDT kind, used for type errors and `type_name`.
     pub fn kind(&self) -> &'static str {
         match self {
             CrdtValue::Set(_) | CrdtValue::SetRemoveWins(_) => "SharedSet",
             CrdtValue::Seq(_) => "SharedSequence",
             CrdtValue::Register(_) => "Divergent",
+            CrdtValue::Counter(_) => "ConvergentCount",
+            CrdtValue::PnCounter(_) => "Tally",
+            CrdtValue::Map(_) => "SharedMap",
         }
     }
 
@@ -130,22 +415,24 @@ impl CrdtValue {
         }
     }
 
-    /// `Remove element from <set>` — observed-remove deletion.
+    /// `Remove element from <set>` / `Remove key from <map>` — observed-remove deletion.
     pub fn remove(&mut self, value: &RuntimeValue) -> Result<(), String> {
         let e = CrdtScalar::from_runtime(value)?;
         match self {
             CrdtValue::Set(s) => Ok(s.remove(&e)),
             CrdtValue::SetRemoveWins(s) => Ok(s.remove(&e)),
+            CrdtValue::Map(m) => Ok(m.remove(&e)),
             other => Err(format!("cannot remove an element from a {}", other.kind())),
         }
     }
 
-    /// `<set> contains element` — observed-remove membership.
+    /// `<set> contains element` / `<map> contains key` — observed-remove membership.
     pub fn contains(&self, value: &RuntimeValue) -> Result<bool, String> {
         let e = CrdtScalar::from_runtime(value)?;
         match self {
             CrdtValue::Set(s) => Ok(s.contains(&e)),
             CrdtValue::SetRemoveWins(s) => Ok(s.contains(&e)),
+            CrdtValue::Map(m) => Ok(m.contains_key(&e)),
             other => Err(format!("a {} has no membership test", other.kind())),
         }
     }
@@ -180,6 +467,9 @@ impl CrdtValue {
             CrdtValue::SetRemoveWins(s) => s.len(),
             CrdtValue::Seq(s) => s.len(),
             CrdtValue::Register(r) => r.values().len(),
+            CrdtValue::Map(m) => m.len(),
+            // A counter is a scalar, not a collection — it has no cardinality.
+            CrdtValue::Counter(_) | CrdtValue::PnCounter(_) => 0,
         }
     }
 
@@ -206,6 +496,22 @@ impl CrdtValue {
                 let mut vals: Vec<&CrdtScalar> = r.values();
                 vals.sort();
                 vals.into_iter().map(CrdtScalar::to_runtime).collect()
+            }
+            // A map's elements are its `(key, value)` pairs in key order — what `Repeat for` visits.
+            CrdtValue::Map(m) => m
+                .sorted_entries()
+                .into_iter()
+                .map(|(k, v)| {
+                    RuntimeValue::Tuple(std::rc::Rc::new(vec![
+                        k.to_runtime(),
+                        v.get().to_runtime(),
+                    ]))
+                })
+                .collect(),
+            // A counter's "elements" view is its single integer value (used only as a fallback;
+            // `render`/`crdt_values_equal` handle counters directly).
+            CrdtValue::Counter(_) | CrdtValue::PnCounter(_) => {
+                vec![RuntimeValue::Int(self.counter_value().unwrap_or(0))]
             }
         }
     }
@@ -246,6 +552,19 @@ impl CrdtValue {
                 a.merge(b);
                 Ok(())
             }
+            // Per-replica MAX (idempotent) — the join that never double-counts a redelivered state.
+            (CrdtValue::Counter(a), CrdtValue::Counter(b)) => {
+                a.merge(b);
+                Ok(())
+            }
+            (CrdtValue::PnCounter(a), CrdtValue::PnCounter(b)) => {
+                a.merge(b);
+                Ok(())
+            }
+            (CrdtValue::Map(a), CrdtValue::Map(b)) => {
+                a.merge(b);
+                Ok(())
+            }
             (a, b) => Err(format!("cannot merge a {} with a {}", a.kind(), b.kind())),
         }
     }
@@ -260,6 +579,11 @@ impl CrdtValue {
             CrdtValue::SetRemoveWins(s) => s.version(),
             CrdtValue::Seq(s) => s.version(),
             CrdtValue::Register(s) => s.version(),
+            CrdtValue::PnCounter(s) => s.version(),
+            CrdtValue::Map(s) => s.version(),
+            // A `GCounter` keeps no vector clock; its full state is tiny, so the sync ships it whole
+            // (a valid state-based delta) — always current, and idempotent to re-apply.
+            CrdtValue::Counter(_) => VClock::new(),
         }
     }
 
@@ -275,11 +599,16 @@ impl CrdtValue {
             out.extend(bincode::serialize(delta).ok()?);
             Some(out)
         }
+        let tag = self.crdt_kind().state_tag();
         match self {
-            CrdtValue::Set(s) => tagged(0, &s.delta_since(since)?),
-            CrdtValue::SetRemoveWins(s) => tagged(1, &s.delta_since(since)?),
-            CrdtValue::Seq(s) => tagged(2, &s.delta_since(since)?),
-            CrdtValue::Register(s) => tagged(3, &s.delta_since(since)?),
+            CrdtValue::Set(s) => tagged(tag, &s.delta_since(since)?),
+            CrdtValue::SetRemoveWins(s) => tagged(tag, &s.delta_since(since)?),
+            CrdtValue::Seq(s) => tagged(tag, &s.delta_since(since)?),
+            CrdtValue::Register(s) => tagged(tag, &s.delta_since(since)?),
+            // Counters ship full state as their delta (state-based, idempotent to merge).
+            CrdtValue::Counter(s) => tagged(tag, s),
+            CrdtValue::PnCounter(s) => tagged(tag, s),
+            CrdtValue::Map(s) => tagged(tag, &s.delta_since(since)?),
         }
     }
 
@@ -290,8 +619,11 @@ impl CrdtValue {
         let Some((&kind, body)) = bytes.split_first() else {
             return false;
         };
-        match (self, kind) {
-            (CrdtValue::Set(s), 0) => {
+        if CrdtKind::from_state_tag(kind) != Some(self.crdt_kind()) {
+            return false;
+        }
+        match self {
+            CrdtValue::Set(s) => {
                 match bincode::deserialize::<<ORSet<CrdtScalar> as DeltaCrdt>::Delta>(body) {
                     Ok(d) => {
                         s.apply_delta(&d);
@@ -300,8 +632,10 @@ impl CrdtValue {
                     Err(_) => false,
                 }
             }
-            (CrdtValue::SetRemoveWins(s), 1) => {
-                match bincode::deserialize::<<ORSet<CrdtScalar, RemoveWins> as DeltaCrdt>::Delta>(body) {
+            CrdtValue::SetRemoveWins(s) => {
+                match bincode::deserialize::<<ORSet<CrdtScalar, RemoveWins> as DeltaCrdt>::Delta>(
+                    body,
+                ) {
                     Ok(d) => {
                         s.apply_delta(&d);
                         true
@@ -309,7 +643,7 @@ impl CrdtValue {
                     Err(_) => false,
                 }
             }
-            (CrdtValue::Seq(s), 2) => {
+            CrdtValue::Seq(s) => {
                 match bincode::deserialize::<<RGA<CrdtScalar> as DeltaCrdt>::Delta>(body) {
                     Ok(d) => {
                         s.apply_delta(&d);
@@ -318,7 +652,7 @@ impl CrdtValue {
                     Err(_) => false,
                 }
             }
-            (CrdtValue::Register(s), 3) => {
+            CrdtValue::Register(s) => {
                 match bincode::deserialize::<<MVRegister<CrdtScalar> as DeltaCrdt>::Delta>(body) {
                     Ok(d) => {
                         s.apply_delta(&d);
@@ -327,8 +661,60 @@ impl CrdtValue {
                     Err(_) => false,
                 }
             }
-            _ => false,
+            // Counter deltas are full states — deserialize and MERGE (per-replica max, idempotent).
+            CrdtValue::Counter(s) => match bincode::deserialize::<GCounter>(body) {
+                Ok(d) => {
+                    s.merge(&d);
+                    true
+                }
+                Err(_) => false,
+            },
+            CrdtValue::PnCounter(s) => match bincode::deserialize::<PNCounter>(body) {
+                Ok(d) => {
+                    s.merge(&d);
+                    true
+                }
+                Err(_) => false,
+            },
+            CrdtValue::Map(s) => {
+                match bincode::deserialize::<
+                    <ORMap<CrdtScalar, LatestWrite<CrdtScalar>> as DeltaCrdt>::Delta,
+                >(body)
+                {
+                    Ok(d) => {
+                        s.apply_delta(&d);
+                        true
+                    }
+                    Err(_) => false,
+                }
+            }
         }
+    }
+
+    /// Serialize the WHOLE convergent state as a KIND-TAGGED payload — the state-based delta since
+    /// the empty clock (every variant produces a valid full state at `VClock::new()`). This is what
+    /// crosses a task/`Sync` boundary: the far side rebuilds a fresh replica and MERGES it, so
+    /// re-applying the same bytes is idempotent. Distinct from `crdt_to_wire` (which projects a
+    /// counter to a plain-Int relay form); this preserves the FULL per-replica CRDT state.
+    pub fn to_full_state_bytes(&self) -> Vec<u8> {
+        // Every variant yields `Some` at the empty clock (a full state is always producible), but a
+        // truncated-history variant could theoretically return `None`; degrade to an empty payload,
+        // which `from_full_state_bytes` reconstructs as a fresh (empty) replica.
+        self.delta_since_bytes(&VClock::new()).unwrap_or_default()
+    }
+
+    /// Reconstruct a CRDT from `to_full_state_bytes`: build a FRESH empty replica of the tagged kind,
+    /// then apply the state (a per-replica merge). A malformed / empty payload degrades to a fresh
+    /// grow-only counter (the safe default for the counter-`Sync` path). The fresh replica id keeps
+    /// the rebuilt value from aliasing the sender's live cell.
+    pub fn from_full_state_bytes(bytes: &[u8]) -> CrdtValue {
+        let kind = bytes
+            .first()
+            .and_then(|&t| CrdtKind::from_state_tag(t))
+            .unwrap_or(CrdtKind::Counter);
+        let mut cv = kind.fresh();
+        cv.apply_delta_bytes(bytes);
+        cv
     }
 
     /// `Show` rendering: a set renders in set notation `{…}` (matching a plain `Set`), a
@@ -336,7 +722,11 @@ impl CrdtValue {
     /// divergent, the brace-joined set of concurrent values).
     pub fn render(&self) -> String {
         let parts = || -> String {
-            self.to_runtime_vec().iter().map(render_runtime).collect::<Vec<_>>().join(", ")
+            self.to_runtime_vec()
+                .iter()
+                .map(render_runtime)
+                .collect::<Vec<_>>()
+                .join(", ")
         };
         match self {
             CrdtValue::Register(_) => match self.register_value() {
@@ -345,6 +735,19 @@ impl CrdtValue {
             },
             CrdtValue::Set(_) | CrdtValue::SetRemoveWins(_) => format!("{{{}}}", parts()),
             CrdtValue::Seq(_) => format!("[{}]", parts()),
+            // A map renders like a `Map` — `{key: value, …}` — in key order.
+            CrdtValue::Map(m) => format!(
+                "{{{}}}",
+                m.sorted_entries()
+                    .into_iter()
+                    .map(|(k, v)| format!("{}: {}", k.render(), v.get().render()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            // A counter renders as its integer value — the same as the compiled tier's `Showable`.
+            CrdtValue::Counter(_) | CrdtValue::PnCounter(_) => {
+                self.counter_value().unwrap_or(0).to_string()
+            }
         }
     }
 }
@@ -356,8 +759,12 @@ pub fn crdt_values_equal(a: &CrdtValue, b: &CrdtValue) -> bool {
         (CrdtValue::Set(_), CrdtValue::Set(_))
         | (CrdtValue::SetRemoveWins(_), CrdtValue::SetRemoveWins(_))
         | (CrdtValue::Seq(_), CrdtValue::Seq(_))
-        | (CrdtValue::Register(_), CrdtValue::Register(_)) => {
-            a.to_runtime_vec() == b.to_runtime_vec()
+        | (CrdtValue::Register(_), CrdtValue::Register(_))
+        | (CrdtValue::Map(_), CrdtValue::Map(_)) => a.to_runtime_vec() == b.to_runtime_vec(),
+        // Two counters are equal when their integer values agree (internal per-replica slots differ).
+        (CrdtValue::Counter(_), CrdtValue::Counter(_))
+        | (CrdtValue::PnCounter(_), CrdtValue::PnCounter(_)) => {
+            a.counter_value() == b.counter_value()
         }
         _ => false,
     }
@@ -374,118 +781,5 @@ fn render_runtime(v: &RuntimeValue) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A tiny deterministic PRNG (SplitMix64) so the property tests are exhaustively random
-    /// yet perfectly reproducible — no `rand`, no flakiness.
-    struct Rng(u64);
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-        fn below(&mut self, n: u64) -> u64 {
-            self.next() % n
-        }
-    }
-
-    fn int(n: u64) -> RuntimeValue {
-        RuntimeValue::Int(n as i64)
-    }
-
-    /// A random OR-Set: a fresh replica with a random add/remove op stream over a small
-    /// element domain (so collisions and removals actually happen).
-    fn rand_set(rng: &mut Rng, domain: u64, ops: usize) -> CrdtValue {
-        let mut s = CrdtValue::new_set(next_replica_id());
-        for _ in 0..ops {
-            let e = int(rng.below(domain));
-            if rng.below(3) == 0 {
-                let _ = s.remove(&e);
-            } else {
-                let _ = s.insert(&e);
-            }
-        }
-        s
-    }
-
-    /// A random RGA: a fresh replica appending random elements.
-    fn rand_seq(rng: &mut Rng, domain: u64, ops: usize) -> CrdtValue {
-        let mut s = CrdtValue::new_seq(next_replica_id());
-        for _ in 0..ops {
-            let _ = s.append(&int(rng.below(domain)));
-        }
-        s
-    }
-
-    /// `a ⊔ b` as a fresh value (never aliases an operand).
-    fn join(a: &CrdtValue, b: &CrdtValue) -> CrdtValue {
-        let mut out = a.clone();
-        out.merge(b).unwrap();
-        out
-    }
-
-    #[test]
-    fn orset_merge_obeys_the_crdt_laws() {
-        let mut rng = Rng(0xDEAD_BEEF);
-        for _ in 0..500 {
-            let a = rand_set(&mut rng, 6, 8);
-            let b = rand_set(&mut rng, 6, 8);
-            let c = rand_set(&mut rng, 6, 8);
-            assert!(crdt_values_equal(&join(&a, &b), &join(&b, &a)), "commutative");
-            assert!(
-                crdt_values_equal(&join(&join(&a, &b), &c), &join(&a, &join(&b, &c))),
-                "associative"
-            );
-            assert!(crdt_values_equal(&join(&a, &a), &a), "idempotent");
-        }
-    }
-
-    #[test]
-    fn rga_merge_obeys_the_crdt_laws() {
-        let mut rng = Rng(0x0123_4567);
-        for _ in 0..500 {
-            let a = rand_seq(&mut rng, 6, 6);
-            let b = rand_seq(&mut rng, 6, 6);
-            let c = rand_seq(&mut rng, 6, 6);
-            assert!(crdt_values_equal(&join(&a, &b), &join(&b, &a)), "commutative");
-            assert!(
-                crdt_values_equal(&join(&join(&a, &b), &c), &join(&a, &join(&b, &c))),
-                "associative"
-            );
-            assert!(crdt_values_equal(&join(&a, &a), &a), "idempotent");
-        }
-    }
-
-    /// The distinguishing OR-Set property, at the unit level: replica `a` observes-and-
-    /// removes "X", replica `b` adds "X" CONCURRENTLY; after the join "X" survives, because
-    /// `b`'s add carries a tag `a`'s remove never saw. A grow-set-with-one-tombstone fails.
-    #[test]
-    fn orset_add_wins_over_concurrent_remove() {
-        let x = int(42);
-        let mut a = CrdtValue::new_set(next_replica_id());
-        let mut b = CrdtValue::new_set(next_replica_id());
-        a.insert(&x).unwrap();
-        b.insert(&x).unwrap();
-        a.remove(&x).unwrap();
-        let m = join(&a, &b);
-        assert!(m.contains(&x).unwrap(), "the concurrent add must survive the remove");
-    }
-
-    #[test]
-    fn scalar_conversions_round_trip() {
-        for v in [
-            RuntimeValue::Int(-7),
-            RuntimeValue::Text(std::rc::Rc::new("héllo".to_string())),
-            RuntimeValue::Bool(true),
-        ] {
-            let s = CrdtScalar::from_runtime(&v).unwrap();
-            assert_eq!(s.to_runtime(), v);
-        }
-        // A non-scalar is refused at the seam, not silently coerced.
-        assert!(CrdtScalar::from_runtime(&RuntimeValue::Float(1.5)).is_err());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/semantics/crdt/tests.rs"]
+mod tests;

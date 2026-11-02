@@ -1,0 +1,30 @@
+# ★ C-TIER KNOWN EXECUTION DIVERGENCES — shrink-only ledger for the ultimate gauntlet's Invariant-B C leg.
+# Each line is a harvested-corpus program name whose C AOT output does NOT yet match VM(opt) — a documented
+# edge-case gap in `codegen_c` (the op-matrix only ever checked COMPILATION, so these were never execution-
+# tested until the gauntlet). A NEW divergence outside this list fails the lock (regression trap); a listed
+# program that starts matching must be DELETED here (the ledger only shrinks). Comments (#) and blanks ignored.
+#
+# --- (bool display ALL FIXED — `&`/`|`/`xor`-on-Bool typed Bool in types.rs; `not` on a Text now negates
+#     TRUTHINESS via a codegen_expr Expr::Not arm `(str_len(x)==0)` [empty text falsy] ≡ VM.) ---
+# --- (runtime traps FIXED — `logos_idx0` bounds-check (seq index/setat) + `logos_map_miss` (absent key) +
+#     Inspect no-matching-arm `else { exit(1) }`; all abort ≡ VM.) ---
+# --- (negative from-the-end indexing FIXED — codegen_c/runtime.rs `logos_idx0` maps k<0 to len+k for every
+#     seq get/set, so `item -1 of xs` is the last element ≡ VM. The remaining negative-index entries below are
+#     the ERROR cases that need a trap model, not the valid ones.) ---
+# --- (set union/intersection IMPLEMENTED — codegen_c/runtime.rs set_{i64,str}_{union,intersect} [insertion-
+#     order-preserving] + emit.rs Expr::Union/Intersection arms + types.rs typing; `a union b`/`a intersection b`
+#     ≡ VM.) ---
+# --- (map length FIXED — codegen_c/emit.rs Length handler now reads the Map struct's `.len` field instead
+#     of falling to the seq_i64_len default; `length of <map>` is the distinct-entry count ≡ VM.) ---
+# --- (format/interpolation FIXED — `combined with` Bool→true/false + Float→logos_fmt_f64 via stringify_num;
+#     bare-width `{n:5}` right-aligns to the width in c_format_spec_for_hole ≡ VM.) ---
+# --- (Int overflow at run time FIXED — an integer nothing bounds is exact on direct C (`LInt` with a machine-word
+#     fast path), so `4611686018427387904 + x - 30`, times 4, promotes as on every other tier ≡ VM.) ---
+# --- argv ---
+# --- (observation spans FIXED — codegen_c/emit.rs now emits `Stmt::During`'s body transparently like
+#     Splice/Reversibly; the trace-span name is a no-op, the body runs ≡ VM.) ---
+# --- (CRDT IMPLEMENTED — types.rs: `SharedSequence of T`→Seq_* + `Divergent T`→inner; emit.rs: grow-only
+#     ConvergentCount/GCounter traps on a negative net delta via field_is_grow_only_counter. append/show/
+#     resolve/increase all ≡ VM.) ---
+# --- (reversible `Swap a and b` IMPLEMENTED — codegen_c/emit.rs `Stmt::Swap` arm emits a typed temp-swap
+#     `{ ty __swap_tmp = a; a = b; b = __swap_tmp; }` ≡ VM.) ---

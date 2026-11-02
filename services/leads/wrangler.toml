@@ -1,0 +1,58 @@
+name = "logicaffeine-leads"
+main = "src/index.js"
+compatibility_date = "2026-09-30"
+workers_dev = false
+preview_urls = false
+
+# A route of its own on api.logicaffeine.com, so Cloudflare sends /lead here.
+[[routes]]
+pattern = "api.logicaffeine.com/lead"
+zone_name = "logicaffeine.com"
+
+[vars]
+ALLOWED_ORIGINS = "https://logicaffeine.com,https://www.logicaffeine.com,https://logicaffeine.pages.dev,https://*.logicaffeine.pages.dev"
+# The one recipient the worker ever mails; the prospect appears only as reply_to.
+NOTIFY_TO = "team@datacenter.dev"
+# On datacenter.dev, the domain verified in the Resend account that owns RESEND_API_KEY.
+NOTIFY_FROM = "pricing@datacenter.dev"
+
+# GO-LIVE: `npx wrangler secret put TURNSTILE_SECRET` (the pricing form widget's secret key) and
+# `npx wrangler secret put RESEND_API_KEY` (a Resend key with Sending access only, restricted to
+# datacenter.dev). Neither value ever goes in the repository, a file or chat.
+[secrets]
+required = ["TURNSTILE_SECRET", "RESEND_API_KEY"]
+
+# GO-LIVE: replace database_id with the id `npm run db:create` prints. The all-zero placeholder
+# fails the deploy workflow on purpose; without an id, wrangler would provision a database itself.
+[[d1_databases]]
+binding = "DB"
+database_name = "logos-leads"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# GO-LIVE: rate limit namespace ids are unique per account; confirm 1301 and 1302 are free.
+[[ratelimits]]
+name = "LEAD_IP_LIMIT"
+namespace_id = "1301"
+simple = { limit = 5, period = 60 }
+
+[[ratelimits]]
+name = "LEAD_EMAIL_LIMIT"
+namespace_id = "1302"
+simple = { limit = 3, period = 60 }
+
+# Daily: deletes leads older than 24 months, the retention the privacy policy states.
+[triggers]
+crons = ["17 3 * * *"]
+
+[observability]
+enabled = true
+
+# Invocation logs keep request metadata, which can include the client IP. The worker logs its own
+# structured events instead, and they carry no IP, email or phone.
+[observability.logs]
+enabled = true
+invocation_logs = false
+
+[observability.traces]
+enabled = true

@@ -42,7 +42,10 @@ fn text_metrics(s: &Rc<String>) -> (bool, usize) {
     CACHE.with(|c| {
         let mut c = c.borrow_mut();
         let len = s.len();
-        if let Some(e) = c.iter().find(|(rc, l, _, _)| *l == len && Rc::ptr_eq(rc, s)) {
+        if let Some(e) = c
+            .iter()
+            .find(|(rc, l, _, _)| *l == len && Rc::ptr_eq(rc, s))
+        {
             return (e.2, e.3);
         }
         let ascii = s.is_ascii();
@@ -66,25 +69,14 @@ pub fn text_is_ascii(s: &Rc<String>) -> bool {
     text_metrics(s).0
 }
 
-/// Resolve a 1-based LOGOS index (negative = end-relative: `-1` is the last
-/// element) to a 0-based offset — the Result-shaped twin of the data crate's
-/// `resolve_logos_index` (same rule, the interp's catchable errors).
+/// [`logicaffeine_data::logos_offset`] with the failure as a catchable error rather than a panic.
 fn resolve_index(i: i64, len: usize) -> Result<usize, String> {
-    if i >= 1 {
-        let idx = (i - 1) as usize;
-        if idx >= len {
-            return Err(format!("Index {} out of bounds", i));
-        }
-        Ok(idx)
-    } else if i <= -1 {
-        let back = i.unsigned_abs() as usize;
-        if back > len {
-            return Err(format!("Index {} out of bounds", i));
-        }
-        Ok(len - back)
-    } else {
-        Err("Index 0 out of bounds".to_string())
-    }
+    logicaffeine_data::logos_offset(i, len).ok_or_else(|| {
+        crate::semantics::failcode::message(
+            crate::semantics::failcode::FailCode::IndexOutOfBounds.code(),
+            i,
+        )
+    })
 }
 
 /// 1-based index for List/Tuple/Text; key lookup for Map; Text-keyed field
@@ -123,8 +115,16 @@ pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue
             let map = map.borrow();
             match map.get(key) {
                 Some(val) => Ok(val.clone()),
-                None => Err(format!("Key '{}' not found in map", key.to_display_string())),
+                None => Err(logicaffeine_data::failure::key_not_found(
+                    key.to_display_string().as_str(),
+                )),
             }
+        }
+        // A `SharedMap` reads its register under a present key (a missing key traps like a Map's).
+        (RuntimeValue::Crdt(c), key)
+            if matches!(&*c.borrow(), crate::semantics::crdt::CrdtValue::Map(_)) =>
+        {
+            c.borrow().map_get(key)
         }
         // Struct field read via index syntax (`item "field" of struct`).
         (RuntimeValue::Struct(s), RuntimeValue::Text(field)) => {
@@ -143,7 +143,11 @@ pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue
 
 /// `Set item idx of collection to value` — 1-based list set, or map insert.
 /// (Struct field set needs an environment reassign and stays engine-side.)
-pub fn index_set(coll: &RuntimeValue, idx: &RuntimeValue, value: RuntimeValue) -> Result<(), String> {
+pub fn index_set(
+    coll: &RuntimeValue,
+    idx: &RuntimeValue,
+    value: RuntimeValue,
+) -> Result<(), String> {
     match (coll, idx) {
         (RuntimeValue::List(items), RuntimeValue::Int(n)) => {
             let mut items = items.borrow_mut();
@@ -155,6 +159,12 @@ pub fn index_set(coll: &RuntimeValue, idx: &RuntimeValue, value: RuntimeValue) -
             assert_hashable_key(key)?;
             map.borrow_mut().insert(key.clone(), value);
             Ok(())
+        }
+        // A `SharedMap` write stamps the key's register (the CRDT is shared in place, like a Map).
+        (RuntimeValue::Crdt(c), key)
+            if matches!(&*c.borrow(), crate::semantics::crdt::CrdtValue::Map(_)) =>
+        {
+            c.borrow_mut().map_put(key, &value)
         }
         (RuntimeValue::List(_), _) => Err("List index must be an integer".to_string()),
         _ => Err(format!("Cannot index into {}", coll.type_name())),
@@ -188,7 +198,8 @@ pub fn assert_hashable_key(key: &RuntimeValue) -> Result<(), String> {
     }
 }
 
-/// 1-indexed, inclusive-end slice of a List. Out-of-range slices are empty.
+/// 1-indexed, inclusive-end slice of a List, under [`logicaffeine_data::logos_slice_range`]: one that reaches
+/// outside the list is empty.
 pub fn slice(
     coll: &RuntimeValue,
     start: &RuntimeValue,
@@ -197,13 +208,11 @@ pub fn slice(
     match (coll, start, end) {
         (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
             let items = items.borrow();
-            let start = (*s as usize).saturating_sub(1);
-            let end = *e as usize;
-            // Same out-of-range semantics as `slice.get(start..end)`: empty.
-            let payload = if start < end && end <= items.len() {
-                items.slice(start, end - 1)
-            } else {
+            let range = logicaffeine_data::logos_slice_range(*s, *e, items.len());
+            let payload = if range.is_empty() {
                 crate::interpreter::ListRepr::Boxed(Vec::new())
+            } else {
+                items.slice(range.start, range.end - 1)
             };
             Ok(RuntimeValue::List(Rc::new(RefCell::new(payload))))
         }
@@ -229,9 +238,7 @@ pub fn length_of(coll: &RuntimeValue) -> Result<RuntimeValue, String> {
 /// substring/char for Text.
 pub fn contains(coll: &RuntimeValue, val: &RuntimeValue) -> Result<RuntimeValue, String> {
     match coll {
-        RuntimeValue::List(items) => {
-            Ok(RuntimeValue::Bool(items.borrow().contains(val)))
-        }
+        RuntimeValue::List(items) => Ok(RuntimeValue::Bool(items.borrow().contains(val))),
         RuntimeValue::Set(items) => {
             let items = items.borrow();
             let found = items.iter().any(|item| values_equal(item, val));
@@ -311,7 +318,9 @@ pub fn range(start: &RuntimeValue, end: &RuntimeValue) -> Result<RuntimeValue, S
 /// The `Repeat` iteration snapshot: the collection is materialized ONCE before
 /// the loop, so mutation inside the body cannot extend or shrink the
 /// iteration. Text iterates per char (as 1-char Texts); a Map yields (key,
-/// value) Tuples in its (nondeterministic) iteration order.
+/// value) Tuples in insertion order. A shared collection yields what every
+/// replica holding its state agrees on: a sequence in its convergent order, a
+/// set sorted, a map's (key, value) Tuples by key.
 pub fn iteration_snapshot(v: &RuntimeValue) -> Result<Vec<RuntimeValue>, String> {
     match v {
         RuntimeValue::List(list) => Ok(list.borrow().to_values()),
@@ -325,6 +334,18 @@ pub fn iteration_snapshot(v: &RuntimeValue) -> Result<Vec<RuntimeValue>, String>
             .iter()
             .map(|(k, v)| RuntimeValue::Tuple(Rc::new(vec![k.clone(), v.clone()])))
             .collect()),
+        RuntimeValue::Crdt(c) => {
+            use crate::semantics::crdt::CrdtKind;
+            let c = c.borrow();
+            match c.crdt_kind() {
+                CrdtKind::Set | CrdtKind::SetRemoveWins | CrdtKind::Seq | CrdtKind::Map => {
+                    Ok(c.to_runtime_vec())
+                }
+                CrdtKind::Register | CrdtKind::Counter | CrdtKind::PnCounter => {
+                    Err(format!("Cannot iterate over {}", v.type_name()))
+                }
+            }
+        }
         _ => Err(format!("Cannot iterate over {}", v.type_name())),
     }
 }
@@ -362,7 +383,7 @@ thread_local! {
 }
 
 /// RAII guard: run the closure / dynamic extent under reference semantics on this
-/// thread. Re-entrant (nested PE calls compose). See [`FORCE_REFERENCE`].
+/// thread. Re-entrant (nested PE calls compose). See `FORCE_REFERENCE`.
 pub struct ReferenceScope;
 
 impl ReferenceScope {
@@ -422,9 +443,7 @@ pub fn list_push(coll: &RuntimeValue, value: RuntimeValue) -> Result<(), String>
 /// the list is empty (popping an empty list is NOT an error).
 pub fn list_pop(coll: &RuntimeValue) -> Result<RuntimeValue, String> {
     match coll {
-        RuntimeValue::List(items) => {
-            Ok(items.borrow_mut().pop().unwrap_or(RuntimeValue::Nothing))
-        }
+        RuntimeValue::List(items) => Ok(items.borrow_mut().pop().unwrap_or(RuntimeValue::Nothing)),
         _ => Err("Can only pop from a List".to_string()),
     }
 }
@@ -461,85 +480,73 @@ pub fn remove_from(coll: &RuntimeValue, value: &RuntimeValue) -> Result<(), Stri
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/semantics/collections/tests.rs"]
+mod tests;
 
-    fn list(items: Vec<RuntimeValue>) -> RuntimeValue {
-        RuntimeValue::List(Rc::new(RefCell::new(crate::interpreter::ListRepr::from_values(
-            items,
-        ))))
+/// A place the VM takes a machine integer: a list's index read (`ListRead`), a list's index stored to (`ListStore`),
+/// a text's index (`Text`), a tuple's position (`Tuple`), a range bound (`Range`), a slice bound (`Slice`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegerPlace {
+    ListRead,
+    ListStore,
+    Text,
+    Tuple,
+    Range,
+    Slice,
+}
+
+impl IntegerPlace {
+    /// Every place, in the order its code names it.
+    pub const ALL: [IntegerPlace; 6] = [
+        IntegerPlace::ListRead,
+        IntegerPlace::ListStore,
+        IntegerPlace::Text,
+        IntegerPlace::Tuple,
+        IntegerPlace::Range,
+        IntegerPlace::Slice,
+    ];
+
+    /// The code a compiled program hands its runtime for this place: its position in [`IntegerPlace::ALL`].
+    pub fn code(self) -> i32 {
+        IntegerPlace::ALL.iter().position(|p| *p == self).expect("every place is listed") as i32
     }
 
-    #[test]
-    fn index_is_one_based_with_end_relative_negatives() {
-        let xs = list(vec![RuntimeValue::Int(5), RuntimeValue::Int(6)]);
-        assert!(matches!(index_get(&xs, &RuntimeValue::Int(1)).unwrap(), RuntimeValue::Int(5)));
-        assert_eq!(index_get(&xs, &RuntimeValue::Int(0)).unwrap_err(), "Index 0 out of bounds");
-        assert_eq!(index_get(&xs, &RuntimeValue::Int(3)).unwrap_err(), "Index 3 out of bounds");
-        // Negative = end-relative: `-1` is the last element, `-2` the first.
-        assert!(matches!(index_get(&xs, &RuntimeValue::Int(-1)).unwrap(), RuntimeValue::Int(6)));
-        assert!(matches!(index_get(&xs, &RuntimeValue::Int(-2)).unwrap(), RuntimeValue::Int(5)));
-        // Out of range on the negative side is still loud.
-        assert_eq!(index_get(&xs, &RuntimeValue::Int(-3)).unwrap_err(), "Index -3 out of bounds");
+    /// The place `code` names.
+    pub fn of_code(code: i32) -> Option<IntegerPlace> {
+        usize::try_from(code).ok().and_then(|i| IntegerPlace::ALL.get(i).copied())
     }
+}
 
-    #[test]
-    fn text_indexing_is_chars_but_length_is_bytes() {
-        let s = RuntimeValue::Text(Rc::new("héllo".to_string()));
-        // 5 chars, 6 bytes.
-        let c = index_get(&s, &RuntimeValue::Int(2)).unwrap();
-        assert!(matches!(&c, RuntimeValue::Text(t) if **t == "é"));
-        assert!(matches!(length_of(&s).unwrap(), RuntimeValue::Int(6)));
-    }
-
-    #[test]
-    fn slice_is_one_indexed_inclusive_and_oob_is_empty() {
-        let xs = list((1..=5).map(RuntimeValue::Int).collect());
-        let s = slice(&xs, &RuntimeValue::Int(2), &RuntimeValue::Int(4)).unwrap();
-        if let RuntimeValue::List(items) = &s {
-            let v: Vec<i64> = items
-                .borrow()
-                .to_values()
-                .iter()
-                .map(|x| if let RuntimeValue::Int(n) = x { *n } else { panic!() })
-                .collect();
-            assert_eq!(v, vec![2, 3, 4]);
-        } else {
-            panic!("slice did not return a list");
-        }
-        let s = slice(&xs, &RuntimeValue::Int(4), &RuntimeValue::Int(99)).unwrap();
-        if let RuntimeValue::List(items) = &s {
-            assert!(items.borrow().is_empty());
-        }
-    }
-
-    #[test]
-    fn pop_of_empty_list_is_nothing_not_error() {
-        let xs = list(vec![]);
-        assert!(matches!(list_pop(&xs).unwrap(), RuntimeValue::Nothing));
-    }
-
-    #[test]
-    fn set_add_dedups_with_ieee_equality() {
-        // IEEE equality: 0.1 + 0.2 is NOT 0.3 (the artifact is real), so they
-        // are two distinct set elements…
-        let s = RuntimeValue::Set(Rc::new(RefCell::new(vec![RuntimeValue::Float(0.3)])));
-        set_add(&s, RuntimeValue::Float(0.1 + 0.2)).unwrap();
-        if let RuntimeValue::Set(items) = &s {
-            assert_eq!(items.borrow().len(), 2, "IEEE-distinct floats stay distinct");
-        }
-        // …while a bit-equal float DOES dedup.
-        set_add(&s, RuntimeValue::Float(0.3)).unwrap();
-        if let RuntimeValue::Set(items) = &s {
-            assert_eq!(items.borrow().len(), 2, "bit-equal float must dedup");
-        }
-    }
-
-    #[test]
-    fn range_requires_int_bounds() {
-        assert_eq!(
-            range(&RuntimeValue::Int(1), &RuntimeValue::Float(2.5)).unwrap_err(),
-            "Range requires Int bounds"
-        );
+/// What the VM says at `place` when it gets a whole number past i64, and when it gets a fraction: the sentences a
+/// compiled program that holds an exact number where the VM takes a machine integer refuses it with.
+pub fn integer_place_refusals(place: IntegerPlace) -> (String, String) {
+    use crate::semantics::failcode::{message, FailCode};
+    let list = || RuntimeValue::List(Rc::new(RefCell::new(crate::interpreter::ListRepr::from_values(Vec::new()))));
+    let pair = || RuntimeValue::Tuple(Rc::new(vec![RuntimeValue::Int(1), RuntimeValue::Int(2)]));
+    let fraction = || {
+        RuntimeValue::from_rational(logicaffeine_base::Rational::from_ratio_i64(1, 2).expect("a nonzero denominator"))
+    };
+    let past_word = || RuntimeValue::from_bigint(logicaffeine_base::BigInt::from_i64(2).pow(70));
+    let refused = |r: Result<RuntimeValue, String>| r.expect_err("the VM refuses it");
+    let past = |code: FailCode| message(code.code(), 0);
+    match place {
+        IntegerPlace::ListRead => (past(FailCode::ListIndexTooWide), refused(index_get(&list(), &fraction()))),
+        IntegerPlace::ListStore => (
+            past(FailCode::ListStoreIndexTooWide),
+            index_set(&list(), &fraction(), RuntimeValue::Int(0)).expect_err("the VM refuses it"),
+        ),
+        IntegerPlace::Text => (
+            past(FailCode::TextIndexTooWide),
+            refused(index_get(&RuntimeValue::Text(Rc::new("abc".to_string())), &fraction())),
+        ),
+        IntegerPlace::Tuple => (refused(index_get(&pair(), &past_word())), refused(index_get(&pair(), &fraction()))),
+        IntegerPlace::Range => (
+            refused(range(&RuntimeValue::Int(1), &past_word())),
+            refused(range(&RuntimeValue::Int(1), &fraction())),
+        ),
+        IntegerPlace::Slice => (
+            refused(slice(&list(), &past_word(), &RuntimeValue::Int(1))),
+            refused(slice(&list(), &fraction(), &RuntimeValue::Int(1))),
+        ),
     }
 }

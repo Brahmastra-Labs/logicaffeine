@@ -1,0 +1,56 @@
+{
+  "_what": "Every Sky130 block ledger scripts/record-sky130-signoff.py writes, its class, and \u2014 when its runs are not under tools/OpenLane/designs \u2014 the run_root they are under. A ledger is registered, and written with an empty `blocks` map, before its first run: the recorder writes only a registered ledger, and every registered path is a ledger on disk. Locks and flow scripts read ledgers from this list and never by file name (sky130_ledger_registry_lock).",
+  "classes": {
+    "signoff": "LOGOS blocks hardened as deliverables: each registered in codegen_sva::signoff_blocks at the period its slow corner meets, and held by every signoff lock.",
+    "comparative": "The comparative-synthesis bench's candidates, LOGOS and third-party RTL alike, at the period the bench sets: held to provenance, uniqueness, electrical completeness and power binding, never to signoff registration."
+  },
+  "ledgers": [
+    {
+      "path": "benchmarks/silicon/sky130_signoff.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/sky130_signoff_realbist.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/sky130_signoff_decision_bist.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/sky130_signoff_fabric.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/systolic_signoff.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/systolic_pipelined_signoff.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/gemm_signoff.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/caravel_macro_signoff.json",
+      "class": "signoff"
+    },
+    {
+      "path": "benchmarks/silicon/qor_sky130.json",
+      "class": "comparative",
+      "run_root": "tools/qor/openlane-bench/designs"
+    },
+    {
+      "path": "benchmarks/silicon/qor_sky130_control.json",
+      "class": "comparative",
+      "run_root": "tools/qor/openlane-stock/designs"
+    },
+    {
+      "path": "benchmarks/silicon/qor_sky130_power.json",
+      "class": "comparative",
+      "run_root": "tools/qor/openlane-bench/designs"
+    }
+  ]
+}

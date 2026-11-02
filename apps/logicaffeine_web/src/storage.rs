@@ -6,10 +6,9 @@
 //! # Storage Key
 //!
 //! All user progress is stored under `logos_user_progress`. This includes:
-//! - Exercise completion history
+//! - Exercise attempt history
 //! - SRS scheduling data
-//! - Streak and XP totals
-//! - Achievement unlock state
+//! - The Learn roadmap's finished lessons and the lesson left open
 //!
 //! # Usage
 //!

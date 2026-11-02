@@ -1,0 +1,111 @@
+# Chat
+
+A one-page chat room: `Publish`/`When a message arrives` delivers a message
+to every page on the topic, including the sender's own — `docs/frontend.md`'s
+Triggers ping example, extended to a real message log. A `## Store … shared
+on` holds the other shared fact the room needs — how many visitors are here —
+and `PresenceCount` shows it inside the page's own `View:`.
+
+## Note
+
+`## Store Presence shared on "chat-presence"` keeps `onlineCount` as a
+`Tally`: every replica's joins and leaves add up, so two visitors arriving at
+the same moment are both counted, where a plain field would keep whichever
+write it saw last. The standalone test further down `Mount`s `PresenceCount`
+on its own, the way `docs/frontend.md`'s "Testing a page" section tests a bare
+`## Component` — and every test in this file starts with the page already
+arrived: a `## Page` mounts itself before any test statement runs, so its
+`When the page loads:` join is every test's prologue. `PresenceCount` mounted
+on its own reads the shared store as the page's arrival left it, one visitor
+counted. A file with no page is the tool for a topic nobody has touched.
+
+## Store Presence shared on "chat-presence"
+
+State:
+    Let onlineCount: Tally be 0.
+
+Actions:
+    To join:
+        Increase onlineCount by 1.
+
+    To leave:
+        Decrease onlineCount by 1.
+
+## Component PresenceCount
+
+Use Presence.
+
+View:
+    <span id="online">{Presence's onlineCount} online</span>
+
+## Test: PresenceCount runs on its own, standalone
+
+Mount PresenceCount.
+Expect that the text of "#online" is equal to "1 online".
+
+## Page /
+
+Use Presence.
+
+State:
+    Let username be "ada".
+    Let draft be "".
+    Let pending be "".
+    Let messages be a new Seq of Text.
+
+Actions:
+    When the page loads:
+        Call Presence's join.
+
+    To send:
+        If draft is not equal to "":
+            Set pending to username + ": " + draft.
+            Publish pending on "chat-room".
+            Set draft to "".
+
+    When a message arrives on "chat-room" (m: Text):
+        Push m to messages.
+
+View:
+    <main class="card">
+      <header><h1>Chat room</h1><PresenceCount/></header>
+      <ul id="log">
+          {for each m in messages, at index i:}
+              <li id="msg-{i}">{m}</li>
+          {else:}
+              <li class="empty">No messages yet.</li>
+          {end}
+      </ul>
+      <form id="composer" on-submit.prevent={send}>
+          <label for="draft">Message</label>
+          <input id="draft" type="text" bind={draft} placeholder="Say something…">
+          <button type="submit">Send</button>
+      </form>
+    </main>
+
+## Test: an empty room shows its placeholder, one visitor present
+
+Expect that the text of ".empty" is equal to "No messages yet.".
+Expect that the text of "#online" is equal to "1 online".
+
+## Test: sending a message delivers it back to the same page
+
+Type "hello" into "#draft".
+Submit "#composer".
+Expect that the text of "#msg-1" is equal to "ada: hello".
+Expect that the value of "#draft" is equal to "".
+
+## Test: several messages keep their order
+
+Type "first" into "#draft".
+Submit "#composer".
+Type "second" into "#draft".
+Submit "#composer".
+Expect that the count of "#log li" is equal to 2.
+Expect that the text of "#msg-1" is equal to "ada: first".
+Expect that the text of "#msg-2" is equal to "ada: second".
+
+## Test: an empty draft sends nothing
+
+Submit "#composer".
+Expect that the text of ".empty" is equal to "No messages yet.".

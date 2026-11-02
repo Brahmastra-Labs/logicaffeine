@@ -1,0 +1,80 @@
+{
+  "case": "T00-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_020.ascribedFn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_020.ascribedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat",
+      "name": "T00_020.emptyListAscribed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int",
+      "name": "T00_020.numeralAsInt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_020.numeralAsNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_020.pinnedLevel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_020.plainNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_020.tripleAscribed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T00_020.viaShowBy",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_020.viaShowFrom",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

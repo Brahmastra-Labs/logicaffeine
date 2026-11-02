@@ -32,14 +32,66 @@
 //! The interpreter is async to support VFS file operations (OPFS on WASM,
 //! `tokio::fs` on native). All statement execution is `async fn`.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use async_recursion::async_recursion;
 
-use crate::ast::stmt::{BinaryOpKind, Block, ClosureBody, CompressionCodec, Expr, Literal, MatchArm, ReadSource, Stmt, TypeExpr};
+use crate::ast::stmt::{
+    BinaryOpKind, Block, ClosureBody, CompressionCodec, ExpectedOutput, Expr, Literal, MatchArm,
+    ReadSource, Stmt, TypeExpr,
+};
+
+/// The refusal for test-only statements reached outside the `largo test`
+/// runner's test mode (they are parser-gated to `## Test` bodies).
+const TEST_ONLY_STMT_ERR: &str =
+    "test-only statement outside the test runner — run it with `largo test`";
+
+/// Candidate shrinks for a value, smaller-first (toward the domain zero).
+fn shrink_candidates(v: &RuntimeValue) -> Vec<RuntimeValue> {
+    match v {
+        RuntimeValue::Int(0) => vec![],
+        RuntimeValue::Int(n) => {
+            let mut out = vec![RuntimeValue::Int(0), RuntimeValue::Int(n / 2)];
+            // step one toward zero (keeps a boundary counterexample minimal)
+            out.push(RuntimeValue::Int(if *n > 0 { n - 1 } else { n + 1 }));
+            out.retain(|c| c != v);
+            out
+        }
+        RuntimeValue::Bool(true) => vec![RuntimeValue::Bool(false)],
+        _ => vec![],
+    }
+}
+
+/// Map the language AST's observation category to the emission channel's.
+fn map_obs_category(c: logicaffeine_language::ast::stmt::ObsCategory) -> crate::observe::ObsCat {
+    use logicaffeine_language::ast::stmt::ObsCategory;
+    match c {
+        ObsCategory::Note => crate::observe::ObsCat::Note,
+        ObsCategory::Warn => crate::observe::ObsCat::Warn,
+        ObsCategory::Record => crate::observe::ObsCat::Record,
+    }
+}
+
+/// Format a failed `Expect` as a power-assert (Wave 5): the rendered condition,
+/// then each interesting subexpression annotated with its actual value, then an
+/// optional Socratic hint. Golden-locked by `failure_message_goldens`.
+fn format_expect_failure(
+    condition_text: &str,
+    annotations: &[(String, String)],
+    hint: Option<&str>,
+) -> String {
+    let mut s = format!("Expected that {condition_text}.");
+    for (text, value) in annotations {
+        s.push_str(&format!("\n    {text} → {value}"));
+    }
+    if let Some(h) = hint {
+        s.push_str(&format!("\n    Hint: {h}"));
+    }
+    s
+}
 use crate::intern::{Interner, Symbol};
 
 /// Map a surface `Send compressed with <codec>` choice to the wire codec.
@@ -51,14 +103,16 @@ fn wire_compression_of(codec: CompressionCodec) -> crate::concurrency::marshal::
         CompressionCodec::Zstd => WireCompression::Zstd,
     }
 }
-use crate::analysis::{PolicyRegistry, PolicyCondition};
+use crate::analysis::{PolicyCondition, PolicyRegistry};
 
 // VFS imports for async file operations
-use logicaffeine_system::fs::Vfs;
-use logicaffeine_runtime::{ChanId, RtPayload, SelectArm, TaskId};
 use crate::concurrency::bridge::{BlockingRequest, Yield, YieldFuture, YieldState};
 use crate::concurrency::driver::{ErrSink, InterpreterTask};
 use crate::concurrency::marshal;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::semantics::world::PageWorld;
+use logicaffeine_runtime::{ChanId, RtPayload, SelectArm, TaskId};
+use logicaffeine_system::fs::Vfs;
 
 /// Callback type for streaming output from the interpreter.
 /// Called each time `Show` executes with the output line.
@@ -76,12 +130,168 @@ pub struct StructValue {
     pub fields: HashMap<String, RuntimeValue>,
 }
 
+/// A place a statement writes through: a binding (`xs`), or a path of fields and items rooted at
+/// one (`b's tape`, `item 2 of b's rows`, `b's inner's n`), its item keys already evaluated.
+struct Place {
+    root: Symbol,
+    steps: Vec<PlaceStep>,
+}
+
+/// One step from a value into a part of it.
+enum PlaceStep {
+    /// `b's tape`
+    Field(String),
+    /// `item k of xs` — a 1-based position in a list, a key in a map, a field name in a record.
+    Item(RuntimeValue),
+}
+
+/// A [`Place`] before its item keys are evaluated.
+enum PlaceShape<'e, 'a> {
+    Field(Symbol),
+    Item(&'e Expr<'a>),
+}
+
+/// The shape of `e` as a place — `None` for an expression that names no place (a call, a
+/// literal, arithmetic).
+fn place_shape<'e, 'a>(e: &'e Expr<'a>) -> Option<(Symbol, Vec<PlaceShape<'e, 'a>>)> {
+    match e {
+        Expr::Identifier(root) => Some((*root, Vec::new())),
+        Expr::FieldAccess { object, field } => {
+            let (root, mut steps) = place_shape(object)?;
+            steps.push(PlaceShape::Field(*field));
+            Some((root, steps))
+        }
+        Expr::Index { collection, index } => {
+            let (root, mut steps) = place_shape(collection)?;
+            steps.push(PlaceShape::Item(index));
+            Some((root, steps))
+        }
+        _ => None,
+    }
+}
+
+/// Copy-on-write: a collection another binding shares is replaced by a copy of its own before a
+/// write reaches it. The copy is one level deep; a collection nested inside it is still shared
+/// until a write reaches THAT, which copies it in turn.
+fn own_collection(value: &mut RuntimeValue) {
+    fn shared<T>(rc: &Rc<T>) -> bool {
+        Rc::strong_count(rc) > 1 || Rc::weak_count(rc) > 0
+    }
+    match value {
+        RuntimeValue::List(rc) if shared(rc) => {
+            let own = Rc::new(RefCell::new(rc.borrow().clone()));
+            *rc = own;
+        }
+        RuntimeValue::Map(rc) if shared(rc) => {
+            let own = Rc::new(RefCell::new(rc.borrow().clone()));
+            *rc = own;
+        }
+        RuntimeValue::Set(rc) if shared(rc) => {
+            let own = Rc::new(RefCell::new(rc.borrow().clone()));
+            *rc = own;
+        }
+        _ => {}
+    }
+}
+
+/// The part of `value` one step names, to write through — `None` when there is no such part or
+/// the collection is shared. A packed list is materialized before lending an element, since
+/// its slot must hold `Nothing` until the mutable parameter returns.
+fn step_into<'v>(value: &'v mut RuntimeValue, step: &PlaceStep) -> Option<&'v mut RuntimeValue> {
+    match (value, step) {
+        (RuntimeValue::Struct(s), PlaceStep::Field(name)) => s.fields.get_mut(name),
+        (RuntimeValue::Struct(s), PlaceStep::Item(RuntimeValue::Text(name))) => {
+            s.fields.get_mut(name.as_str())
+        }
+        (RuntimeValue::List(rc), PlaceStep::Item(RuntimeValue::Int(k))) => {
+            let items = Rc::get_mut(rc)?.get_mut();
+            let position = logicaffeine_data::logos_offset(*k, items.len())?;
+            items.make_boxed().get_mut(position)
+        }
+        (RuntimeValue::Map(rc), PlaceStep::Item(key)) => Rc::get_mut(rc)?.get_mut().get_mut(key),
+        _ => None,
+    }
+}
+
+/// The value a declared type starts at, when a slot names a type and supplies no value of its own.
+///
+/// ★ ONE TABLE, EVERY READER. This was written out TWICE verbatim — once on the sync `new` path and
+/// once on the async one — which is the same shape as the two copies of the event vocabulary that
+/// drifted apart in both directions (`SELECTOR_EVENTS`: "it is one vocabulary, so it is one table,
+/// and both readers ask it"). Two copies of a type table disagree the first time somebody adds a
+/// type to one of them, and a CRDT field that silently defaults to `Nothing` on one path is a
+/// replica that never converges.
+pub fn default_for_declared_type(type_name: &str) -> RuntimeValue {
+    if let Some(c) = crdt_for_declared_type(type_name) {
+        return c;
+    }
+    match type_name {
+        "Int" | "Element" | "Event" | "View" | "Byte" => RuntimeValue::Int(0),
+        "Float" => RuntimeValue::Float(0.0),
+        "Bool" => RuntimeValue::Bool(false),
+        "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
+        "Char" => RuntimeValue::Char('\0'),
+        "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
+        "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
+        "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
+        _ => RuntimeValue::Nothing,
+    }
+}
+
+/// A fresh, empty CRDT replica for a declared CRDT type name, or `None` for a type that is not one.
+///
+/// A `Shared` struct's CRDT fields default to an empty LIVE CRDT, mirroring the compiled tier's
+/// `ORSet`/`RGA` field. Counter fields are per-replica CRDTs too (`GCounter`/`PNCounter`), so their
+/// merge is idempotent — a bare Int would merge by overwrite and lose concurrent increments.
+///
+/// Split out from [`default_for_declared_type`] because the CRDT half has a SECOND question to
+/// answer that the scalar half does not: "is this name a CRDT at all?" — which is what lets a
+/// declared type decide whether a slot holds a converging value, without that decision being
+/// spelled out again at every site that needs it.
+pub fn crdt_for_declared_type(type_name: &str) -> Option<RuntimeValue> {
+    let kind = crate::semantics::crdt::CrdtKind::of_type_name(type_name)?;
+    Some(RuntimeValue::Crdt(Rc::new(RefCell::new(kind.fresh()))))
+}
+
+/// Whether a declared type name is a COUNTER CRDT — one whose readable value is an Int total.
+///
+/// The counters are the CRDTs an Int literal can initialize: `Let n: Tally be 5.` is a counter at
+/// five, and the reference tier already projects a counter to its Int total on the wire. A set or
+/// a sequence has no such reading, so an Int beside one stays an error.
+pub fn is_counter_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "ConvergentCount" | "GCounter" | "Tally" | "PNCounter"
+    )
+}
+
 /// Kernel inductive value (boxed to reduce enum size).
 #[derive(Debug, Clone)]
 pub struct InductiveValue {
     pub inductive_type: String,
     pub constructor: String,
     pub args: Vec<RuntimeValue>,
+}
+
+/// A present Option: a real two-constructor inductive, not the payload itself.
+///
+/// One constructor for every producer, because the tag each backend derives its discriminant from
+/// is the CONSTRUCTOR NAME — a typo here would be a silent tier divergence, not a compile error.
+pub(crate) fn option_some(inner: RuntimeValue) -> RuntimeValue {
+    RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
+        inductive_type: "Option".to_string(),
+        constructor: "Some".to_string(),
+        args: vec![inner],
+    }))
+}
+
+/// An absent Option. Equal to `nothing` by R2, so every `x is equal to nothing` still holds.
+pub(crate) fn option_none() -> RuntimeValue {
+    RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
+        inductive_type: "Option".to_string(),
+        constructor: "None".to_string(),
+        args: Vec::new(),
+    }))
 }
 
 /// First-class closure value (boxed to reduce enum size).
@@ -107,8 +317,33 @@ pub struct ClosureValue {
 /// Fx is several times faster — with no DoS-resistance requirement (a
 /// single-program interpreter hashing its own program's keys). NOTE: removal
 /// must go through `shift_remove` (order-preserving), never `swap_remove`.
-pub type MapStorage =
-    indexmap::IndexMap<RuntimeValue, RuntimeValue, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+pub type MapStorage = indexmap::IndexMap<
+    RuntimeValue,
+    RuntimeValue,
+    std::hash::BuildHasherDefault<rustc_hash::FxHasher>,
+>;
+
+fn apply_capacity_hint(value: RuntimeValue, capacity: i64) -> RuntimeValue {
+    let capacity = capacity.max(0) as usize;
+    match &value {
+        RuntimeValue::List(list) => list.borrow_mut().reserve_hint(capacity),
+        RuntimeValue::Set(set) => {
+            let _ = set.borrow_mut().try_reserve(capacity);
+        }
+        RuntimeValue::Map(map) => {
+            let _ = map.borrow_mut().try_reserve(capacity);
+        }
+        _ => {}
+    }
+    match value {
+        RuntimeValue::Text(text) if text.capacity() < capacity => {
+            let mut reserved = String::with_capacity(capacity);
+            reserved.push_str(&text);
+            RuntimeValue::Text(Rc::new(reserved))
+        }
+        other => other,
+    }
+}
 
 /// The List payload behind `RuntimeValue::List`: homogeneous all-Int and
 /// all-Float lists store UNBOXED vectors (cache-dense, and the JIT can pin a
@@ -135,6 +370,12 @@ pub enum ListRepr {
     IntsI32(Vec<i32>),
     Floats(Vec<f64>),
     Bools(Vec<bool>),
+    /// A packed `Word32` ring list — each element the MASKED value (`0 ≤ x < 2³²`) stored in an `i64`, so the
+    /// forge pins it with the EXACT IntList buffer machinery (8-byte loads); the ONLY difference from `Ints`
+    /// is that a read yields a `Word(W32)` (and the forge tags an indexed load `Kind::Word32`), never an Int.
+    /// This is what lets a `Seq of Word32` (a sha256 message schedule / round-constant table) pin + tier.
+    /// Cold paths (wire codec, WASM lowering, structural mutation) de-optimize via `make_boxed`.
+    Words32(Vec<i64>),
     /// A flat string array (Arrow-style): all element bytes concatenated in one
     /// `data` buffer, with `ends[i]` the exclusive end offset of element `i` (so
     /// element `i` is `data[ends[i-1]..ends[i]]`, `ends.len()` == the count). This
@@ -149,7 +390,11 @@ pub enum ListRepr {
     /// pay nothing, and repeated indexing of the same element returns a cheap `Rc`
     /// clone instead of re-materializing — best of both worlds (flat to move,
     /// boxed-cheap to re-read).
-    Strings { data: Vec<u8>, ends: Vec<u32>, cache: RefCell<Vec<Option<Rc<String>>>> },
+    Strings {
+        data: Vec<u8>,
+        ends: Vec<u32>,
+        cache: RefCell<Vec<Option<Rc<String>>>>,
+    },
     /// A homogeneous struct list stored COLUMNAR (struct-of-arrays): instead of N
     /// boxed `StructValue`s (each a heap `Box` + a `HashMap`), the schema is held
     /// once (`type_name` + canonical sorted `field_names`) and each field becomes a
@@ -161,7 +406,11 @@ pub enum ListRepr {
     /// reference semantics are exactly those of a boxed list. Built by `from_values`
     /// for genuinely-homogeneous struct lists (same type, same field set); ragged
     /// lists stay `Boxed`. `columns` are all the same length (the row count).
-    Structs { type_name: String, field_names: Vec<String>, columns: Vec<ListRepr> },
+    Structs {
+        type_name: String,
+        field_names: Vec<String>,
+        columns: Vec<ListRepr>,
+    },
     /// A homogeneous inductive (enum/ADT) list stored COLUMNAR as a tagged union:
     /// instead of N boxed `InductiveValue`s, the type name is held once, the distinct
     /// constructor names are dictionaried (`ctor_dict`), each row carries a small
@@ -209,6 +458,33 @@ pub enum ListRepr {
 }
 
 impl ListRepr {
+    fn reserve_hint(&mut self, capacity: usize) {
+        match self {
+            ListRepr::Boxed(v) => {
+                let _ = v.try_reserve(capacity.saturating_sub(v.len()));
+            }
+            ListRepr::Ints(v) => {
+                let _ = v.try_reserve(capacity.saturating_sub(v.len()));
+            }
+            ListRepr::IntsI32(v) => {
+                let _ = v.try_reserve(capacity.saturating_sub(v.len()));
+            }
+            ListRepr::Floats(v) => {
+                let _ = v.try_reserve(capacity.saturating_sub(v.len()));
+            }
+            ListRepr::Bools(v) => {
+                let _ = v.try_reserve(capacity.saturating_sub(v.len()));
+            }
+            ListRepr::Words32(v) => {
+                let _ = v.try_reserve(capacity.saturating_sub(v.len()));
+            }
+            ListRepr::Strings { ends, .. } => {
+                let _ = ends.try_reserve(capacity.saturating_sub(ends.len()));
+            }
+            _ => {}
+        }
+    }
+
     /// Wrap a received record-list frame (`T_STRUCTS_VIEW` top-level) as a lazy zero-copy backing.
     /// `None` if the bytes are not a self-describing record-list view (the caller decodes eagerly).
     pub fn from_record_list_view(bytes: Rc<Vec<u8>>) -> Option<ListRepr> {
@@ -216,7 +492,12 @@ impl ListRepr {
             let view = crate::concurrency::marshal::view_message(&bytes)?;
             view.structs_schema()?
         };
-        Some(ListRepr::WireStructs { bytes, type_name, field_names, len })
+        Some(ListRepr::WireStructs {
+            bytes,
+            type_name,
+            field_names,
+            len,
+        })
     }
 
     /// Wrap a received aligned numeric column (`T_INTS_ALIGNED`/`T_FLOATS_ALIGNED`) as a lazy
@@ -225,10 +506,18 @@ impl ListRepr {
     pub fn from_aligned_column_view(bytes: Rc<Vec<u8>>) -> Option<ListRepr> {
         let view = crate::concurrency::marshal::view_message(&bytes)?;
         if let Some(s) = view.as_i64_slice() {
-            return Some(ListRepr::WireColumn { len: s.len(), floats: false, bytes });
+            return Some(ListRepr::WireColumn {
+                len: s.len(),
+                floats: false,
+                bytes,
+            });
         }
         if let Some(s) = view.as_f64_slice() {
-            return Some(ListRepr::WireColumn { len: s.len(), floats: true, bytes });
+            return Some(ListRepr::WireColumn {
+                len: s.len(),
+                floats: true,
+                bytes,
+            });
         }
         None
     }
@@ -249,11 +538,17 @@ impl ListRepr {
     }
 
     fn wire_column_to_values(bytes: &[u8], floats: bool) -> Vec<RuntimeValue> {
-        let Some(view) = crate::concurrency::marshal::view_message(bytes) else { return Vec::new() };
+        let Some(view) = crate::concurrency::marshal::view_message(bytes) else {
+            return Vec::new();
+        };
         if floats {
-            view.as_f64_slice().map(|s| s.iter().map(|&f| RuntimeValue::Float(f)).collect()).unwrap_or_default()
+            view.as_f64_slice()
+                .map(|s| s.iter().map(|&f| RuntimeValue::Float(f)).collect())
+                .unwrap_or_default()
         } else {
-            view.as_i64_slice().map(|s| s.iter().map(|&n| RuntimeValue::Int(n)).collect()).unwrap_or_default()
+            view.as_i64_slice()
+                .map(|s| s.iter().map(|&n| RuntimeValue::Int(n)).collect())
+                .unwrap_or_default()
         }
     }
 
@@ -275,7 +570,10 @@ impl ListRepr {
             let cell = view.structs_row_field_value(i, name)?;
             fields.insert(name.clone(), cell);
         }
-        Some(RuntimeValue::Struct(Box::new(StructValue { type_name: type_name.to_string(), fields })))
+        Some(RuntimeValue::Struct(Box::new(StructValue {
+            type_name: type_name.to_string(),
+            fields,
+        })))
     }
 }
 
@@ -311,6 +609,22 @@ impl ListRepr {
                     })
                     .collect(),
             )
+        } else if !values.is_empty()
+            && values
+                .iter()
+                .all(|v| matches!(v, RuntimeValue::Word(logicaffeine_base::WordVal::W32(_))))
+        {
+            // A homogeneous `Word32` list packs to `Vec<i64>` (masked), so the forge pins it as an IntList
+            // buffer and tags reads `Word32` — a `Seq of Word32` (sha256 schedule/constants) becomes tierable.
+            ListRepr::Words32(
+                values
+                    .into_iter()
+                    .map(|v| match v {
+                        RuntimeValue::Word(logicaffeine_base::WordVal::W32(w)) => w.0 as i64,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            )
         } else if !values.is_empty() && values.iter().all(|v| matches!(v, RuntimeValue::Text(_))) {
             // A homogeneous string list de-boxes to one flat contiguous buffer (bytes + end
             // offsets). It encodes as a single memcpy of the bytes — and the wire form is
@@ -341,7 +655,11 @@ impl ListRepr {
                     )
                 })
                 .collect();
-            ListRepr::Structs { type_name, field_names, columns }
+            ListRepr::Structs {
+                type_name,
+                field_names,
+                columns,
+            }
         } else if let Some(inductives) = Self::build_inductives(&values) {
             inductives
         } else {
@@ -394,7 +712,13 @@ impl ListRepr {
             .into_iter()
             .map(|cols| cols.into_iter().map(ListRepr::from_values).collect())
             .collect();
-        Some(ListRepr::Inductives { inductive_type, ctor_dict, ctors, ranks, arg_cols })
+        Some(ListRepr::Inductives {
+            inductive_type,
+            ctor_dict,
+            ctors,
+            ranks,
+            arg_cols,
+        })
     }
 
     /// Reconstruct row `i` of a columnar enum store as a boxed `InductiveValue`.
@@ -412,7 +736,7 @@ impl ListRepr {
         for col in &arg_cols[c] {
             args.push(col.get(r)?);
         }
-        Some(RuntimeValue::Inductive(Box::new(InductiveValue {
+        Some(RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
             inductive_type: inductive_type.to_string(),
             constructor: ctor_dict[c].clone(),
             args,
@@ -448,7 +772,12 @@ impl ListRepr {
     }
 
     /// Reconstruct row `i` of a columnar struct store as a boxed `StructValue`.
-    fn struct_row(type_name: &str, field_names: &[String], columns: &[ListRepr], i: usize) -> Option<RuntimeValue> {
+    fn struct_row(
+        type_name: &str,
+        field_names: &[String],
+        columns: &[ListRepr],
+        i: usize,
+    ) -> Option<RuntimeValue> {
         if i >= columns.first().map_or(0, |c| c.len()) {
             return None;
         }
@@ -456,12 +785,19 @@ impl ListRepr {
         for (j, fname) in field_names.iter().enumerate() {
             fields.insert(fname.clone(), columns[j].get(i)?);
         }
-        Some(RuntimeValue::Struct(Box::new(StructValue { type_name: type_name.to_string(), fields })))
+        Some(RuntimeValue::Struct(Box::new(StructValue {
+            type_name: type_name.to_string(),
+            fields,
+        })))
     }
 
     /// A flat string buffer with an empty (lazy) materialization cache.
     pub fn strings(data: Vec<u8>, ends: Vec<u32>) -> ListRepr {
-        ListRepr::Strings { data, ends, cache: RefCell::new(Vec::new()) }
+        ListRepr::Strings {
+            data,
+            ends,
+            cache: RefCell::new(Vec::new()),
+        }
     }
 
     /// Element `i` of a flat `Strings` buffer as an owned `String` (UTF-8 was
@@ -469,7 +805,9 @@ impl ListRepr {
     fn string_at(data: &[u8], ends: &[u32], i: usize) -> Option<String> {
         let end = *ends.get(i)? as usize;
         let start = if i == 0 { 0 } else { ends[i - 1] as usize };
-        std::str::from_utf8(data.get(start..end)?).ok().map(str::to_string)
+        std::str::from_utf8(data.get(start..end)?)
+            .ok()
+            .map(str::to_string)
     }
 
     pub fn len(&self) -> usize {
@@ -477,6 +815,7 @@ impl ListRepr {
             ListRepr::Boxed(v) => v.len(),
             ListRepr::Ints(v) => v.len(),
             ListRepr::IntsI32(v) => v.len(),
+            ListRepr::Words32(v) => v.len(),
             ListRepr::Floats(v) => v.len(),
             ListRepr::Bools(v) => v.len(),
             ListRepr::Strings { ends, .. } => ends.len(),
@@ -499,6 +838,7 @@ impl ListRepr {
             ListRepr::Boxed(_) => "boxed values",
             ListRepr::Ints(_) => "packed Vec<i64>",
             ListRepr::IntsI32(_) => "packed Vec<i32> (narrowed)",
+            ListRepr::Words32(_) => "packed Vec<i64> (word32)",
             ListRepr::Floats(_) => "packed Vec<f64>",
             ListRepr::Bools(_) => "packed Vec<bool>",
             ListRepr::Strings { .. } => "flat string buffer",
@@ -516,6 +856,7 @@ impl ListRepr {
             ListRepr::Boxed(v) => v.truncate(n),
             ListRepr::Ints(v) => v.truncate(n),
             ListRepr::IntsI32(v) => v.truncate(n),
+            ListRepr::Words32(v) => v.truncate(n),
             ListRepr::Floats(v) => v.truncate(n),
             ListRepr::Bools(v) => v.truncate(n),
             ListRepr::Strings { data, ends, cache } => {
@@ -556,6 +897,11 @@ impl ListRepr {
             ListRepr::Boxed(v) => v.get(i).cloned(),
             ListRepr::Ints(v) => v.get(i).map(|&n| RuntimeValue::Int(n)),
             ListRepr::IntsI32(v) => v.get(i).map(|&n| RuntimeValue::Int(n as i64)),
+            ListRepr::Words32(v) => v.get(i).map(|&x| {
+                RuntimeValue::Word(logicaffeine_base::WordVal::W32(logicaffeine_base::Word32(
+                    x as u32,
+                )))
+            }),
             ListRepr::Floats(v) => v.get(i).map(|&f| RuntimeValue::Float(f)),
             ListRepr::Bools(v) => v.get(i).map(|&b| RuntimeValue::Bool(b)),
             ListRepr::Strings { data, ends, cache } => {
@@ -573,15 +919,24 @@ impl ListRepr {
                 }
                 c[i].clone().map(RuntimeValue::Text)
             }
-            ListRepr::Structs { type_name, field_names, columns } => {
-                Self::struct_row(type_name, field_names, columns, i)
-            }
-            ListRepr::Inductives { inductive_type, ctor_dict, ctors, ranks, arg_cols } => {
-                Self::inductive_row(inductive_type, ctor_dict, ctors, ranks, arg_cols, i)
-            }
-            ListRepr::WireStructs { bytes, type_name, field_names, len } => {
-                Self::wire_struct_row(bytes, type_name, field_names, *len, i)
-            }
+            ListRepr::Structs {
+                type_name,
+                field_names,
+                columns,
+            } => Self::struct_row(type_name, field_names, columns, i),
+            ListRepr::Inductives {
+                inductive_type,
+                ctor_dict,
+                ctors,
+                ranks,
+                arg_cols,
+            } => Self::inductive_row(inductive_type, ctor_dict, ctors, ranks, arg_cols, i),
+            ListRepr::WireStructs {
+                bytes,
+                type_name,
+                field_names,
+                len,
+            } => Self::wire_struct_row(bytes, type_name, field_names, *len, i),
             ListRepr::WireColumn { bytes, floats, .. } => Self::wire_column_get(bytes, *floats, i),
         }
     }
@@ -592,7 +947,11 @@ impl ListRepr {
     /// field scan over a columnar struct list run at array speed.
     pub fn get_field(&self, i: usize, name: &str) -> Option<RuntimeValue> {
         match self {
-            ListRepr::Structs { field_names, columns, .. } => {
+            ListRepr::Structs {
+                field_names,
+                columns,
+                ..
+            } => {
                 let j = field_names.iter().position(|f| f == name)?;
                 columns[j].get(i)
             }
@@ -610,7 +969,11 @@ impl ListRepr {
     /// a non-columnar repr or a missing field.
     pub fn column(&self, name: &str) -> Option<&ListRepr> {
         match self {
-            ListRepr::Structs { field_names, columns, .. } => {
+            ListRepr::Structs {
+                field_names,
+                columns,
+                ..
+            } => {
                 let j = field_names.iter().position(|f| f == name)?;
                 Some(&columns[j])
             }
@@ -646,6 +1009,21 @@ impl ListRepr {
                     _ => unreachable!(),
                 }
             }
+            ListRepr::Words32(v) => {
+                let boxed = v
+                    .drain(..)
+                    .map(|x| {
+                        RuntimeValue::Word(logicaffeine_base::WordVal::W32(
+                            logicaffeine_base::Word32(x as u32),
+                        ))
+                    })
+                    .collect();
+                *self = ListRepr::Boxed(boxed);
+                match self {
+                    ListRepr::Boxed(v) => v,
+                    _ => unreachable!(),
+                }
+            }
             ListRepr::Bools(v) => {
                 let boxed = v.drain(..).map(RuntimeValue::Bool).collect();
                 *self = ListRepr::Boxed(boxed);
@@ -656,7 +1034,9 @@ impl ListRepr {
             }
             ListRepr::Strings { data, ends, .. } => {
                 let boxed = (0..ends.len())
-                    .filter_map(|i| Self::string_at(data, ends, i).map(|s| RuntimeValue::Text(Rc::new(s))))
+                    .filter_map(|i| {
+                        Self::string_at(data, ends, i).map(|s| RuntimeValue::Text(Rc::new(s)))
+                    })
                     .collect();
                 *self = ListRepr::Boxed(boxed);
                 match self {
@@ -664,11 +1044,18 @@ impl ListRepr {
                     _ => unreachable!(),
                 }
             }
-            ListRepr::Structs { type_name, field_names, columns } => {
+            ListRepr::Structs {
+                type_name,
+                field_names,
+                columns,
+            } => {
                 let n = columns.first().map_or(0, |c| c.len());
                 // Invariant (held by `from_values` and the wire decoder): every column
                 // is the same length, so no row is silently dropped on de-columnarize.
-                debug_assert!(columns.iter().all(|c| c.len() == n), "columnar struct columns must share one length");
+                debug_assert!(
+                    columns.iter().all(|c| c.len() == n),
+                    "columnar struct columns must share one length"
+                );
                 let boxed = (0..n)
                     .filter_map(|i| Self::struct_row(type_name, field_names, columns, i))
                     .collect();
@@ -678,11 +1065,19 @@ impl ListRepr {
                     _ => unreachable!(),
                 }
             }
-            ListRepr::Inductives { inductive_type, ctor_dict, ctors, ranks, arg_cols } => {
+            ListRepr::Inductives {
+                inductive_type,
+                ctor_dict,
+                ctors,
+                ranks,
+                arg_cols,
+            } => {
                 let n = ctors.len();
                 debug_assert_eq!(ranks.len(), n, "ranks and ctors must agree");
                 let boxed = (0..n)
-                    .filter_map(|i| Self::inductive_row(inductive_type, ctor_dict, ctors, ranks, arg_cols, i))
+                    .filter_map(|i| {
+                        Self::inductive_row(inductive_type, ctor_dict, ctors, ranks, arg_cols, i)
+                    })
                     .collect();
                 *self = ListRepr::Boxed(boxed);
                 match self {
@@ -692,7 +1087,12 @@ impl ListRepr {
             }
             // A mutation forces the lazy receive to fully decode (read every row in place) and
             // re-tag to `Boxed`, so reference semantics match a boxed list from that point on.
-            ListRepr::WireStructs { bytes, type_name, field_names, len } => {
+            ListRepr::WireStructs {
+                bytes,
+                type_name,
+                field_names,
+                len,
+            } => {
                 let len = *len;
                 let boxed: Vec<RuntimeValue> = {
                     let view = crate::concurrency::marshal::view_message(bytes);
@@ -780,24 +1180,56 @@ impl ListRepr {
             },
             (ListRepr::Floats(v), RuntimeValue::Float(f)) => v.push(*f),
             (ListRepr::Bools(v), RuntimeValue::Bool(b)) => v.push(*b),
+            (ListRepr::Words32(v), RuntimeValue::Word(logicaffeine_base::WordVal::W32(w))) => {
+                v.push(w.0 as i64)
+            }
+            // An empty list (Boxed or numeric) receiving its FIRST `Word32` specializes to the packed
+            // `Words32` lane — this is what makes a `Push word32(x)`-built `Seq of Word32` (a sha256 table)
+            // pin-eligible. A non-W32 into a Words32 (mixed) de-optimizes to Boxed via the fallthrough.
+            (ListRepr::Boxed(v), RuntimeValue::Word(logicaffeine_base::WordVal::W32(w)))
+                if v.is_empty() =>
+            {
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(w.0 as i64);
+                *self = ListRepr::Words32(out);
+            }
+            (ListRepr::Ints(v), RuntimeValue::Word(logicaffeine_base::WordVal::W32(w)))
+                if v.is_empty() =>
+            {
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(w.0 as i64);
+                *self = ListRepr::Words32(out);
+            }
             (ListRepr::Boxed(v), _) => v.push(value),
             (ListRepr::Ints(v), RuntimeValue::Float(f)) if v.is_empty() => {
-                *self = ListRepr::Floats(vec![*f]);
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(*f);
+                *self = ListRepr::Floats(out);
             }
             (ListRepr::Ints(v), RuntimeValue::Bool(b)) if v.is_empty() => {
-                *self = ListRepr::Bools(vec![*b]);
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(*b);
+                *self = ListRepr::Bools(out);
             }
             (ListRepr::Floats(v), RuntimeValue::Int(n)) if v.is_empty() => {
-                *self = ListRepr::Ints(vec![*n]);
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(*n);
+                *self = ListRepr::Ints(out);
             }
             (ListRepr::Floats(v), RuntimeValue::Bool(b)) if v.is_empty() => {
-                *self = ListRepr::Bools(vec![*b]);
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(*b);
+                *self = ListRepr::Bools(out);
             }
             (ListRepr::Bools(v), RuntimeValue::Int(n)) if v.is_empty() => {
-                *self = ListRepr::Ints(vec![*n]);
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(*n);
+                *self = ListRepr::Ints(out);
             }
             (ListRepr::Bools(v), RuntimeValue::Float(f)) if v.is_empty() => {
-                *self = ListRepr::Floats(vec![*f]);
+                let mut out = Vec::with_capacity(v.capacity().max(1));
+                out.push(*f);
+                *self = ListRepr::Floats(out);
             }
             _ => self.make_boxed().push(value),
         }
@@ -808,12 +1240,21 @@ impl ListRepr {
             ListRepr::Boxed(v) => v.pop(),
             ListRepr::Ints(v) => v.pop().map(RuntimeValue::Int),
             ListRepr::IntsI32(v) => v.pop().map(|n| RuntimeValue::Int(n as i64)),
+            ListRepr::Words32(v) => v.pop().map(|x| {
+                RuntimeValue::Word(logicaffeine_base::WordVal::W32(logicaffeine_base::Word32(
+                    x as u32,
+                )))
+            }),
             ListRepr::Floats(v) => v.pop().map(RuntimeValue::Float),
             ListRepr::Bools(v) => v.pop().map(RuntimeValue::Bool),
             ListRepr::Strings { data, ends, cache } => {
                 let last = ends.len().checked_sub(1)?;
                 let s = Self::string_at(data, ends, last)?;
-                let start = if last == 0 { 0 } else { ends[last - 1] as usize };
+                let start = if last == 0 {
+                    0
+                } else {
+                    ends[last - 1] as usize
+                };
                 data.truncate(start);
                 ends.pop();
                 let mut c = cache.borrow_mut();
@@ -848,13 +1289,18 @@ impl ListRepr {
             ListRepr::Boxed(v) => v.remove(i),
             ListRepr::Ints(v) => RuntimeValue::Int(v.remove(i)),
             ListRepr::IntsI32(v) => RuntimeValue::Int(v.remove(i) as i64),
+            ListRepr::Words32(v) => RuntimeValue::Word(logicaffeine_base::WordVal::W32(
+                logicaffeine_base::Word32(v.remove(i) as u32),
+            )),
             ListRepr::Floats(v) => RuntimeValue::Float(v.remove(i)),
             ListRepr::Bools(v) => RuntimeValue::Bool(v.remove(i)),
             // Removal in the middle is O(n) on a flat buffer; promote and remove.
             ListRepr::Strings { .. } => self.make_boxed().remove(i),
             ListRepr::Structs { .. } => self.make_boxed().remove(i),
             ListRepr::Inductives { .. } => self.make_boxed().remove(i),
-            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => self.make_boxed().remove(i),
+            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => {
+                self.make_boxed().remove(i)
+            }
         }
     }
 
@@ -864,32 +1310,42 @@ impl ListRepr {
         match (self, needle) {
             (ListRepr::Ints(v), RuntimeValue::Int(n)) => v.iter().position(|x| x == n),
             (ListRepr::Ints(_), _) => None,
-            (ListRepr::IntsI32(v), RuntimeValue::Int(n)) => {
-                i32::try_from(*n).ok().and_then(|nn| v.iter().position(|x| *x == nn))
-            }
+            (ListRepr::IntsI32(v), RuntimeValue::Int(n)) => i32::try_from(*n)
+                .ok()
+                .and_then(|nn| v.iter().position(|x| *x == nn)),
             (ListRepr::IntsI32(_), _) => None,
+            (ListRepr::Words32(v), RuntimeValue::Word(logicaffeine_base::WordVal::W32(w))) => {
+                v.iter().position(|x| *x == w.0 as i64)
+            }
+            (ListRepr::Words32(_), _) => None,
             (ListRepr::Floats(v), RuntimeValue::Float(f)) => {
                 v.iter().position(|x| (x - f).abs() < f64::EPSILON)
             }
             (ListRepr::Floats(_), _) => None,
             (ListRepr::Bools(v), RuntimeValue::Bool(b)) => v.iter().position(|x| x == b),
             (ListRepr::Bools(_), _) => None,
-            (ListRepr::Strings { data, ends, .. }, RuntimeValue::Text(t)) => {
-                (0..ends.len()).find(|&i| Self::string_at(data, ends, i).as_deref() == Some(t.as_str()))
-            }
+            (ListRepr::Strings { data, ends, .. }, RuntimeValue::Text(t)) => (0..ends.len())
+                .find(|&i| Self::string_at(data, ends, i).as_deref() == Some(t.as_str())),
             (ListRepr::Strings { .. }, _) => None,
-            (ListRepr::Boxed(v), _) => {
-                v.iter().position(|x| crate::semantics::compare::values_equal(x, needle))
-            }
+            (ListRepr::Boxed(v), _) => v
+                .iter()
+                .position(|x| crate::semantics::compare::values_equal(x, needle)),
             // A struct never equals a scalar needle, but a needle could be a struct;
             // reconstruct row-by-row and compare (rare path — search over structs).
-            (ListRepr::Structs { .. }, _) => (0..self.len())
-                .find(|&i| self.get(i).is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))),
-            (ListRepr::Inductives { .. }, _) => (0..self.len())
-                .find(|&i| self.get(i).is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))),
+            (ListRepr::Structs { .. }, _) => (0..self.len()).find(|&i| {
+                self.get(i)
+                    .is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))
+            }),
+            (ListRepr::Inductives { .. }, _) => (0..self.len()).find(|&i| {
+                self.get(i)
+                    .is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))
+            }),
             // The lazy receive: reconstruct rows/elements on demand and compare.
             (ListRepr::WireStructs { .. }, _) | (ListRepr::WireColumn { .. }, _) => (0..self.len())
-                .find(|&i| self.get(i).is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))),
+                .find(|&i| {
+                    self.get(i)
+                        .is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))
+                }),
         }
     }
 
@@ -903,22 +1359,53 @@ impl ListRepr {
             ListRepr::Boxed(v) => v.clone(),
             ListRepr::Ints(v) => v.iter().map(|&n| RuntimeValue::Int(n)).collect(),
             ListRepr::IntsI32(v) => v.iter().map(|&n| RuntimeValue::Int(n as i64)).collect(),
+            ListRepr::Words32(v) => v
+                .iter()
+                .map(|&x| {
+                    RuntimeValue::Word(logicaffeine_base::WordVal::W32(logicaffeine_base::Word32(
+                        x as u32,
+                    )))
+                })
+                .collect(),
             ListRepr::Floats(v) => v.iter().map(|&f| RuntimeValue::Float(f)).collect(),
             ListRepr::Bools(v) => v.iter().map(|&b| RuntimeValue::Bool(b)).collect(),
             ListRepr::Strings { data, ends, .. } => (0..ends.len())
-                .filter_map(|i| Self::string_at(data, ends, i).map(|s| RuntimeValue::Text(Rc::new(s))))
+                .filter_map(|i| {
+                    Self::string_at(data, ends, i).map(|s| RuntimeValue::Text(Rc::new(s)))
+                })
                 .collect(),
-            ListRepr::Structs { type_name, field_names, columns } => {
+            ListRepr::Structs {
+                type_name,
+                field_names,
+                columns,
+            } => {
                 let n = columns.first().map_or(0, |c| c.len());
-                (0..n).filter_map(|i| Self::struct_row(type_name, field_names, columns, i)).collect()
+                (0..n)
+                    .filter_map(|i| Self::struct_row(type_name, field_names, columns, i))
+                    .collect()
             }
-            ListRepr::Inductives { inductive_type, ctor_dict, ctors, ranks, arg_cols } => (0..ctors.len())
-                .filter_map(|i| Self::inductive_row(inductive_type, ctor_dict, ctors, ranks, arg_cols, i))
+            ListRepr::Inductives {
+                inductive_type,
+                ctor_dict,
+                ctors,
+                ranks,
+                arg_cols,
+            } => (0..ctors.len())
+                .filter_map(|i| {
+                    Self::inductive_row(inductive_type, ctor_dict, ctors, ranks, arg_cols, i)
+                })
                 .collect(),
-            ListRepr::WireStructs { bytes, type_name, field_names, len } => (0..*len)
+            ListRepr::WireStructs {
+                bytes,
+                type_name,
+                field_names,
+                len,
+            } => (0..*len)
                 .filter_map(|i| Self::wire_struct_row(bytes, type_name, field_names, *len, i))
                 .collect(),
-            ListRepr::WireColumn { bytes, floats, .. } => Self::wire_column_to_values(bytes, *floats),
+            ListRepr::WireColumn { bytes, floats, .. } => {
+                Self::wire_column_to_values(bytes, *floats)
+            }
         }
     }
 
@@ -928,15 +1415,22 @@ impl ListRepr {
             ListRepr::Boxed(v) => ListRepr::Boxed(v[start..=end].to_vec()),
             ListRepr::Ints(v) => ListRepr::Ints(v[start..=end].to_vec()),
             ListRepr::IntsI32(v) => ListRepr::IntsI32(v[start..=end].to_vec()),
+            ListRepr::Words32(v) => ListRepr::Words32(v[start..=end].to_vec()),
             ListRepr::Floats(v) => ListRepr::Floats(v[start..=end].to_vec()),
             ListRepr::Bools(v) => ListRepr::Bools(v[start..=end].to_vec()),
             ListRepr::Strings { data, ends, .. } => ListRepr::Boxed(
                 (start..=end)
-                    .filter_map(|i| Self::string_at(data, ends, i).map(|s| RuntimeValue::Text(Rc::new(s))))
+                    .filter_map(|i| {
+                        Self::string_at(data, ends, i).map(|s| RuntimeValue::Text(Rc::new(s)))
+                    })
                     .collect(),
             ),
             // Slicing stays columnar — slice each column to the same range.
-            ListRepr::Structs { type_name, field_names, columns } => ListRepr::Structs {
+            ListRepr::Structs {
+                type_name,
+                field_names,
+                columns,
+            } => ListRepr::Structs {
                 type_name: type_name.clone(),
                 field_names: field_names.clone(),
                 columns: columns.iter().map(|c| c.slice(start, end)).collect(),
@@ -968,9 +1462,37 @@ impl ListRepr {
     }
 }
 
+/// The empty value of whatever type `current` already holds — what a `Load` of a key that is not
+/// there gives back.
+///
+/// ★ ABSENCE MUST NOT RETYPE THE TARGET. A miss used to answer empty TEXT whatever the field was,
+/// so a `Load` into an Int field left a Text behind and the next `+ 1` CONCATENATED instead of
+/// adding. The bytecode tier decodes a tagged default and answered the field's zero, so the two
+/// tiers disagreed about a forgotten key — a page that behaves one way in a test and another in a
+/// browser. Shaping the miss like the value already in the variable needs no type table and gives
+/// both tiers the same answer.
+fn empty_like(current: Option<&RuntimeValue>) -> RuntimeValue {
+    match current {
+        Some(RuntimeValue::Int(_)) => RuntimeValue::Int(0),
+        Some(RuntimeValue::Float(_)) => RuntimeValue::Float(0.0),
+        Some(RuntimeValue::Bool(_)) => RuntimeValue::Bool(false),
+        _ => RuntimeValue::Text(Rc::new(String::new())),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
     Int(i64),
+    /// A CALLBACK a parent handed a child: the parent's instance path and the action to run on
+    /// it. This is the only direction data flows back up — a child never reaches into a
+    /// parent's record, it calls what the parent gave it, and the turn runs on the PARENT.
+    /// Behind one `Rc` so `RuntimeValue` stays 16 bytes (`nanbox_runtime_value_is_16_bytes`).
+    Action(Rc<ActionRef>),
+    /// A rendered VIEW: the handle of a detached fragment holding its nodes. `View` is a real
+    /// value — a `-> View` function returns one, a prop carries one, a Seq holds several — and
+    /// placing one in a template moves its nodes into the page. Distinct from `Int` so a text
+    /// hole can tell "a view to place" from "a number to print".
+    View(i64),
     /// An exact integer that does NOT fit `i64` — the overflow-safe continuation of
     /// `Int`. INVARIANT: `b.to_i64().is_none()` always holds (build via
     /// [`RuntimeValue::from_bigint`], which downsizes any in-range result back to
@@ -994,10 +1516,34 @@ pub enum RuntimeValue {
     /// the tower for `√` of a negative and for EE/signal math: `i·i = −1` exactly. NOT
     /// ordered (complex numbers have no total order), so it never appears in `compare`.
     Complex(Rc<logicaffeine_base::Complex>),
+    /// A floating-point complex `re + im·i` (each part `f64`) — LAPACK's `Z`, the INEXACT dual of
+    /// `Complex`. Unlike the exact Gaussian rationals it has a `sqrt`, so the sqrt-based complex
+    /// decompositions (Cholesky/QR/eig/SVD) can run. Any exact operand mixed with a float promotes
+    /// here, the way `Rational` promotes into `Float`.
+    ComplexF(Rc<logicaffeine_base::ComplexF>),
     /// An element of the ring ℤ/nℤ — an integer modulo a fixed modulus (the arbitrary-modulus
     /// generalisation of `Word`). Arithmetic wraps into `[0, modulus)`; the crypto/number-theory
     /// substrate (modular exponentiation, inverse). Equal only at the same value AND modulus.
     Modular(Rc<logicaffeine_base::Modular>),
+    /// A real algebraic number that is not rational (a rational is held as `Int`, `BigInt` or
+    /// `Rational`): `√2`, `(1 + √5)/2`, a root of `x^3 - x - 1`. Ordered and compared exactly.
+    Algebraic(Rc<logicaffeine_base::algebraic::Algebraic>),
+    /// A computable real that is not algebraic: an exponential or `π` form, whose equality is
+    /// decided exactly, or a general expression compared by refinement under a budget.
+    ExactReal(Rc<logicaffeine_base::exact_real::ExactReal>),
+    /// A hyperreal with a nonzero infinitesimal part, written in the program's infinitesimal
+    /// (`3 + dt`, `1/dt`); one with none is its standard value.
+    Hyperreal(Rc<crate::semantics::exact::HyperValue>),
+    /// An infinite integer: a polynomial in the generator `⌈1/dt⌉`, the trip count of a loop
+    /// that runs infinitely many times.
+    Hypernatural(Rc<crate::semantics::exact::NaturalValue>),
+    /// An infinite ordinal below ε₀ (a finite one is a natural number).
+    Ordinal(Rc<logicaffeine_base::ordinal::Ordinal>),
+    /// A value that depends on the residue of `⌈1/dt⌉`: `0 when ⌈1/dt⌉ is even, 1 when it is odd`.
+    Depends(Rc<crate::semantics::exact::DependsValue>),
+    /// The answer of a search over every natural number: settled by a certificate, or provisional
+    /// with the cases it checked.
+    Converging(Rc<logicaffeine_base::limit_value::Converging<RuntimeValue>>),
     Float(f64),
     Bool(bool),
     Text(Rc<String>),
@@ -1007,13 +1553,18 @@ pub enum RuntimeValue {
     Set(Rc<RefCell<Vec<RuntimeValue>>>),
     Map(Rc<RefCell<MapStorage>>),
     Struct(Box<StructValue>),
-    Inductive(Box<InductiveValue>),
+    /// Shared, never changed in place: a variant's arguments are fixed when it is built, so a binding, an argument
+    /// or an `Inspect` arm takes another handle to the same value rather than a copy of the tree below it.
+    Inductive(Rc<InductiveValue>),
     Function(Box<ClosureValue>),
     Nothing,
     Duration(i64),
     Date(i32),
     Moment(i64),
-    Span { months: i32, days: i32 },
+    Span {
+        months: i32,
+        days: i32,
+    },
     Time(i64),
     /// A channel handle (a `Pipe`) — an opaque token into the scheduler.
     Chan(ChanId),
@@ -1124,7 +1675,19 @@ impl std::hash::Hash for RuntimeValue {
                     | RuntimeValue::Rational(_) => unreachable!("handled above"),
                     RuntimeValue::Decimal(d) => d.hash(state),
                     RuntimeValue::Complex(c) => c.hash(state),
+                    RuntimeValue::ComplexF(c) => {
+                        state.write_u64(numeric::numeric_hash_f64(c.re()));
+                        state.write_u64(numeric::numeric_hash_f64(c.im()));
+                    }
                     RuntimeValue::Modular(m) => m.hash(state),
+                    RuntimeValue::Algebraic(a) => a.hash(state),
+                    RuntimeValue::ExactReal(x) => x.describe().hash(state),
+                    RuntimeValue::Hyperreal(h) => h.value.hash(state),
+                    RuntimeValue::Hypernatural(n) => n.value.hash(state),
+                    RuntimeValue::Ordinal(o) => o.hash(state),
+                    RuntimeValue::Depends(_) | RuntimeValue::Converging(_) => {
+                        other.to_display_string().hash(state)
+                    }
                     RuntimeValue::Bool(b) => b.hash(state),
                     RuntimeValue::Text(s) => s.hash(state),
                     RuntimeValue::Char(c) => c.hash(state),
@@ -1132,7 +1695,10 @@ impl std::hash::Hash for RuntimeValue {
                     RuntimeValue::Duration(d) => d.hash(state),
                     RuntimeValue::Date(d) => d.hash(state),
                     RuntimeValue::Moment(m) => m.hash(state),
-                    RuntimeValue::Span { months, days } => { months.hash(state); days.hash(state); }
+                    RuntimeValue::Span { months, days } => {
+                        months.hash(state);
+                        days.hash(state);
+                    }
                     RuntimeValue::Time(t) => t.hash(state),
                     // Tuples are VALUE keys: content-hashed, in order —
                     // coherent with their structural equality.
@@ -1162,8 +1728,18 @@ impl std::hash::Hash for RuntimeValue {
                     RuntimeValue::List(items) => items.borrow().len().hash(state),
                     RuntimeValue::Set(items) => items.borrow().len().hash(state),
                     RuntimeValue::Map(m) => m.borrow().len().hash(state),
-                    RuntimeValue::Inductive(i) => { i.inductive_type.hash(state); i.constructor.hash(state); }
+                    RuntimeValue::Inductive(i) => {
+                        i.inductive_type.hash(state);
+                        i.constructor.hash(state);
+                    }
                     RuntimeValue::Function(f) => f.body_index.hash(state),
+                    // A view hashes by the fragment it holds — two views are the same value
+                    // only when they are the same rendered nodes.
+                    RuntimeValue::View(h) => h.hash(state),
+                    RuntimeValue::Action(a) => {
+                        a.instance.hash(state);
+                        a.name.hash(state);
+                    }
                     RuntimeValue::Chan(c) => c.0.hash(state),
                     RuntimeValue::TaskHandle(t) => t.0.hash(state),
                     RuntimeValue::Peer(topic) => topic.hash(state),
@@ -1222,7 +1798,15 @@ impl RuntimeValue {
             RuntimeValue::Rational(_) => "Rational",
             RuntimeValue::Decimal(_) => "Decimal",
             RuntimeValue::Complex(_) => "Complex",
+            RuntimeValue::ComplexF(_) => "ComplexF",
             RuntimeValue::Modular(_) => "Modular",
+            RuntimeValue::Algebraic(_) => "Algebraic",
+            RuntimeValue::ExactReal(_) => "ExactReal",
+            RuntimeValue::Hyperreal(_) => "Hyperreal",
+            RuntimeValue::Hypernatural(_) => "Hypernatural",
+            RuntimeValue::Ordinal(_) => "Ordinal",
+            RuntimeValue::Depends(_) => "Depends",
+            RuntimeValue::Converging(_) => "Converging",
             RuntimeValue::Float(_) => "Float",
             RuntimeValue::Bool(_) => "Bool",
             RuntimeValue::Text(_) => "Text",
@@ -1234,6 +1818,8 @@ impl RuntimeValue {
             RuntimeValue::Struct(s) => &s.type_name,
             RuntimeValue::Inductive(ind) => ind.inductive_type.as_str(),
             RuntimeValue::Function(_) => "Function",
+            RuntimeValue::View(_) => "View",
+            RuntimeValue::Action(_) => "Action",
             RuntimeValue::Nothing => "Nothing",
             RuntimeValue::Duration(_) => "Duration",
             RuntimeValue::Date(_) => "Date",
@@ -1244,18 +1830,21 @@ impl RuntimeValue {
             RuntimeValue::TaskHandle(_) => "Task",
             RuntimeValue::Peer(_) => "PeerAgent",
             RuntimeValue::Crdt(c) => c.borrow().kind(),
-            RuntimeValue::Word(w) => {
-                if w.width() == 32 {
-                    "Word32"
-                } else {
-                    "Word64"
-                }
-            }
+            RuntimeValue::Word(w) => w.type_name(),
             RuntimeValue::Lanes(v) => v.type_name(),
             RuntimeValue::Quantity(_) => "Quantity",
             RuntimeValue::Money(_) => "Money",
             RuntimeValue::Uuid(_) => "Uuid",
         }
+    }
+
+    /// The truth of a value that decides a branch. A residue-dependent or provisional answer is an
+    /// error here: no branch may silently take it as true or false.
+    pub fn decided_truth(&self) -> Result<bool, String> {
+        if let Some(why) = crate::semantics::exact::undecided_branch(self) {
+            return Err(why);
+        }
+        Ok(self.is_truthy())
     }
 
     /// Checks if this value evaluates to true in a boolean context.
@@ -1267,8 +1856,12 @@ impl RuntimeValue {
     pub fn deep_clone(&self) -> RuntimeValue {
         match self {
             RuntimeValue::List(items) => {
-                let cloned: Vec<RuntimeValue> =
-                    items.borrow().to_values().iter().map(|v| v.deep_clone()).collect();
+                let cloned: Vec<RuntimeValue> = items
+                    .borrow()
+                    .to_values()
+                    .iter()
+                    .map(|v| v.deep_clone())
+                    .collect();
                 RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(cloned))))
             }
             RuntimeValue::Set(items) => {
@@ -1276,7 +1869,11 @@ impl RuntimeValue {
                 RuntimeValue::Set(Rc::new(RefCell::new(cloned)))
             }
             RuntimeValue::Map(m) => {
-                let cloned = m.borrow().iter().map(|(k, v)| (k.deep_clone(), v.deep_clone())).collect();
+                let cloned = m
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| (k.deep_clone(), v.deep_clone()))
+                    .collect();
                 RuntimeValue::Map(Rc::new(RefCell::new(cloned)))
             }
             RuntimeValue::Tuple(items) => {
@@ -1284,7 +1881,11 @@ impl RuntimeValue {
                 RuntimeValue::Tuple(Rc::new(cloned))
             }
             RuntimeValue::Struct(s) => {
-                let cloned_fields = s.fields.iter().map(|(k, v)| (k.clone(), v.deep_clone())).collect();
+                let cloned_fields = s
+                    .fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.deep_clone()))
+                    .collect();
                 RuntimeValue::Struct(Box::new(StructValue {
                     type_name: s.type_name.clone(),
                     fields: cloned_fields,
@@ -1292,14 +1893,16 @@ impl RuntimeValue {
             }
             RuntimeValue::Inductive(ind) => {
                 let cloned_args = ind.args.iter().map(|v| v.deep_clone()).collect();
-                RuntimeValue::Inductive(Box::new(InductiveValue {
+                RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
                     inductive_type: ind.inductive_type.clone(),
                     constructor: ind.constructor.clone(),
                     args: cloned_args,
                 }))
             }
             RuntimeValue::Function(f) => {
-                let cloned_env = f.captured_env.iter()
+                let cloned_env = f
+                    .captured_env
+                    .iter()
                     .map(|(k, v)| (k.clone(), v.deep_clone()))
                     .collect();
                 RuntimeValue::Function(Box::new(ClosureValue {
@@ -1312,9 +1915,7 @@ impl RuntimeValue {
             // A value-copy of a CRDT is an INDEPENDENT replica — deep-copy the inner state
             // so a later mutation of one copy does not alias the other (a shallow `Rc`
             // share would make a struct copy mutate the original's CRDT field).
-            RuntimeValue::Crdt(c) => {
-                RuntimeValue::Crdt(Rc::new(RefCell::new(c.borrow().clone())))
-            }
+            RuntimeValue::Crdt(c) => RuntimeValue::Crdt(Rc::new(RefCell::new(c.borrow().clone()))),
             other => other.clone(),
         }
     }
@@ -1331,6 +1932,7 @@ impl RuntimeValue {
             RuntimeValue::Rational(r) => !r.is_zero(),
             RuntimeValue::Decimal(d) => !d.is_zero(),
             RuntimeValue::Complex(c) => !c.is_zero(),
+            RuntimeValue::ComplexF(c) => !c.is_zero(),
             RuntimeValue::Word(w) => w.to_u64() != 0,
             RuntimeValue::Text(s) => !s.is_empty(),
             RuntimeValue::List(l) => l.borrow().len() != 0,
@@ -1352,15 +1954,40 @@ impl RuntimeValue {
             RuntimeValue::Word(w) => w.to_string(),
             // A lane vector renders like a Seq of its lanes — `[l0, l1, ...]` of unsigned values.
             RuntimeValue::Lanes(v) => {
-                let parts: Vec<String> =
-                    (0..v.lanes()).map(|i| v.lane(i).to_string()).collect();
+                let parts: Vec<String> = (0..v.lanes()).map(|i| v.lane(i).to_string()).collect();
                 format!("[{}]", parts.join(", "))
             }
             RuntimeValue::BigInt(b) => b.to_string(),
             RuntimeValue::Rational(r) => r.to_string(),
             RuntimeValue::Decimal(d) => d.to_string(),
             RuntimeValue::Complex(c) => c.to_string(),
+            RuntimeValue::ComplexF(c) => {
+                // Render like `Complex` (unit coefficient omitted) but with `fmt_f64` parts, so
+                // `2.0 + 1.0i` shows as `2+i` and `4.0 + 6.0i` as `4+6i`.
+                let fmt = logicaffeine_data::fmt::fmt_f64;
+                let (re, im) = (c.re(), c.im());
+                if im == 0.0 {
+                    fmt(re)
+                } else {
+                    let mag = im.abs();
+                    let icoef = if mag == 1.0 { String::new() } else { fmt(mag) };
+                    if re == 0.0 {
+                        format!("{}{}i", if im < 0.0 { "-" } else { "" }, icoef)
+                    } else {
+                        format!("{}{}{}i", fmt(re), if im < 0.0 { "-" } else { "+" }, icoef)
+                    }
+                }
+            }
             RuntimeValue::Modular(m) => m.to_string(),
+            RuntimeValue::Algebraic(_)
+            | RuntimeValue::ExactReal(_)
+            | RuntimeValue::Hyperreal(_)
+            | RuntimeValue::Hypernatural(_)
+            | RuntimeValue::Ordinal(_)
+            | RuntimeValue::Depends(_)
+            | RuntimeValue::Converging(_) => {
+                crate::semantics::exact::display(self).expect("an exact value displays")
+            }
             RuntimeValue::Quantity(qv) => qv.display(),
             RuntimeValue::Money(m) => m.to_string(),
             RuntimeValue::Uuid(u) => u.to_string(),
@@ -1370,8 +1997,11 @@ impl RuntimeValue {
             RuntimeValue::Char(c) => c.to_string(),
             RuntimeValue::List(items) => {
                 let items = items.borrow();
-                let parts: Vec<String> =
-                    items.to_values().iter().map(|v| v.to_display_string()).collect();
+                let parts: Vec<String> = items
+                    .to_values()
+                    .iter()
+                    .map(|v| v.to_display_string())
+                    .collect();
                 format!("[{}]", parts.join(", "))
             }
             RuntimeValue::Tuple(items) => {
@@ -1385,7 +2015,8 @@ impl RuntimeValue {
             }
             RuntimeValue::Map(m) => {
                 let m = m.borrow();
-                let pairs: Vec<String> = m.iter()
+                let pairs: Vec<String> = m
+                    .iter()
                     .map(|(k, v)| format!("{}: {}", k.to_display_string(), v.to_display_string()))
                     .collect();
                 format!("{{{}}}", pairs.join(", "))
@@ -1403,22 +2034,44 @@ impl RuntimeValue {
                         .map(|(k, v)| (k.as_str(), v.to_display_string()))
                         .collect();
                     field_strs.sort_by(|a, b| a.0.cmp(b.0));
-                    let joined: Vec<String> = field_strs.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+                    let joined: Vec<String> = field_strs
+                        .iter()
+                        .map(|(k, v)| format!("{k}: {v}"))
+                        .collect();
                     format!("{} {{ {} }}", s.type_name, joined.join(", "))
                 }
             }
             RuntimeValue::Inductive(ind) => {
+                // ★ R1 — AN OPTION DISPLAYS AS ITS PAYLOAD, never as its wrapper.
+                //
+                // `Option` is a real two-constructor inductive in the value model, but it must not
+                // LOOK like one: `Show some 42` has always printed `42` and `Show none` has always
+                // printed `nothing`, on every tier. Rendering it as `Some(42)` would silently
+                // rewrite the output of every program that shows one, which is the one thing a
+                // representation change is not allowed to do. Pinned by
+                // `option_tier_lock::showing_an_option_prints_its_payload_not_its_wrapper` and by
+                // `semantic_probes_lock`'s five-tier `option_some_is_transparent` probe.
+                if ind.inductive_type == "Option" {
+                    return match ind.args.first() {
+                        Some(inner) => inner.to_display_string(),
+                        None => "nothing".to_string(),
+                    };
+                }
                 if ind.args.is_empty() {
                     ind.constructor.clone()
                 } else {
-                    let arg_strs: Vec<String> = ind.args
-                        .iter()
-                        .map(|v| v.to_display_string())
-                        .collect();
+                    let arg_strs: Vec<String> =
+                        ind.args.iter().map(|v| v.to_display_string()).collect();
                     format!("{}({})", ind.constructor, arg_strs.join(", "))
                 }
             }
             RuntimeValue::Function(_) => "<closure>".to_string(),
+            // Showing a view renders it: the HTML of the fragment it holds. That is what makes
+            // `Show html of card("Hi")` and a server-rendered page the same one walk.
+            RuntimeValue::View(h) => crate::semantics::dom::render_children(*h),
+            // A callback is behavior, not text: showing one says so rather than inventing a
+            // rendering for it.
+            RuntimeValue::Action(_) => "<action>".to_string(),
             RuntimeValue::Chan(_) => "<channel>".to_string(),
             RuntimeValue::TaskHandle(_) => "<task>".to_string(),
             RuntimeValue::Peer(topic) => format!("<peer {topic}>"),
@@ -1543,6 +2196,13 @@ pub enum ControlFlow {
     Break,
 }
 
+/// Where a callback runs: the instance that owns the action, and which action it is.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ActionRef {
+    pub instance: String,
+    pub name: Symbol,
+}
+
 /// Stored function definition for user-defined functions.
 ///
 /// Captures the parameter list, body statements, and optional return type
@@ -1555,6 +2215,11 @@ pub struct FunctionDef<'a> {
     pub body: Block<'a>,
     /// Optional declared return type.
     pub return_type: Option<&'a TypeExpr<'a>>,
+    /// A `## To native` declaration: no body to run, so a call reaches the engine's own
+    /// implementation of the name or is refused by name.
+    pub is_native: bool,
+    /// The Rust function a native declaration names (`is native "crate::module::function"`).
+    pub native_path: Option<Symbol>,
 }
 
 /// Tree-walking interpreter for LOGOS programs.
@@ -1582,7 +2247,10 @@ struct Environment {
     // Shelved (locals, save_stack) of each caller. The save stack is shelved
     // WITH the locals so a callee's defines can never be recorded into a
     // caller's undo frame.
-    frame_stack: Vec<(HashMap<Symbol, RuntimeValue>, Vec<Vec<(Symbol, Option<RuntimeValue>)>>)>,
+    frame_stack: Vec<(
+        HashMap<Symbol, RuntimeValue>,
+        Vec<Vec<(Symbol, Option<RuntimeValue>)>>,
+    )>,
 }
 
 impl Environment {
@@ -1643,8 +2311,12 @@ impl Environment {
             };
             for (sym, old_val) in saves.into_iter().rev() {
                 match old_val {
-                    Some(val) => { map.insert(sym, val); }
-                    None => { map.remove(&sym); }
+                    Some(val) => {
+                        map.insert(sym, val);
+                    }
+                    None => {
+                        map.remove(&sym);
+                    }
                 }
             }
         }
@@ -1662,8 +2334,28 @@ impl Environment {
         if self.in_function() {
             self.locals.get(&name).or_else(|| self.globals.get(&name))
         } else {
-            self.main_block.get(&name).or_else(|| self.globals.get(&name))
+            self.main_block
+                .get(&name)
+                .or_else(|| self.globals.get(&name))
         }
+    }
+
+    /// The binding `name` resolves to, as [`Environment::lookup`] resolves it, to write through.
+    fn lookup_mut(&mut self, name: Symbol) -> Option<&mut RuntimeValue> {
+        let scoped = if self.in_function() {
+            &mut self.locals
+        } else {
+            &mut self.main_block
+        };
+        if scoped.contains_key(&name) {
+            return scoped.get_mut(&name);
+        }
+        self.globals.get_mut(&name)
+    }
+
+    /// The current function frame's own binding of `name`, taken out of the frame.
+    fn take_local(&mut self, name: Symbol) -> Option<RuntimeValue> {
+        self.locals.remove(&name)
     }
 
     fn assign(&mut self, name: Symbol, value: RuntimeValue) -> bool {
@@ -1712,14 +2404,184 @@ pub struct Interpreter<'a> {
     task: TaskState,
     /// The program's output lines. Public API consumed by `ui_bridge`.
     pub output: Vec<String>,
+    /// The `id` of the last `Stmt::Site` marker this task passed through (Wave 3: "runtime
+    /// failures carry a location") — `None` before the first one, or outside any component's
+    /// action/handler (`## Main`/`## Test`'s own top-level statements carry no marker; their
+    /// location already comes from `Parser::stmt_spans`). A runtime error renders with whichever
+    /// site is current when it is raised; see `Stmt::Site`'s own doc comment for why "current site"
+    /// alone is enough with no call stack. Public API consumed by `ui_bridge`/`compile.rs`, same as
+    /// `output` above, once the failure-site table itself reaches them (`FailureSite::render` needs
+    /// this id plus `Parser::failure_sites()[id]`, not this crate's to build alone yet).
+    pub current_site: Option<u32>,
     /// Set when this interpreter is a scheduled concurrent task: the side-channel
     /// to the scheduler. `None` for ordinary single-task execution.
     yield_state: Option<crate::concurrency::bridge::Yield<'a>>,
+    /// Where a scheduled task's failure goes: the run's one sink, shared with every task it launches,
+    /// so a launched task that fails fails the run (first failure kept), as it does on the VM. `None`
+    /// outside a scheduled run.
+    err_sink: Option<ErrSink>,
     /// All peer-messaging state — the relay handle, this node's inbox topic, the received-message
     /// buffer, the wire schema caches, and the FEC shard buffer — lifted into one shared
     /// [`crate::concurrency::net_inbox::NetInbox`] so the bytecode VM's task driver owns the SAME
     /// inbox and networking runs byte-identically on both tiers (no tier silently differs).
     netbox: crate::concurrency::net_inbox::NetInbox,
+    /// Open tcp.lg client connections (async tiers) — the VM driver owns its own
+    /// instance; both funnel through the ONE `exec_values` so semantics match.
+    tcpbox: crate::concurrency::tcp_registry::TcpRegistry,
+    /// Test mode (the `largo test` runner, constitution Wave 3): when armed,
+    /// `Expect` records-and-continues into this sink instead of erroring, and
+    /// every executed statement counts against a deterministic op budget.
+    test_mode: bool,
+    /// Recorded expectation failures (record-and-continue: one run reports all).
+    test_failures: Vec<String>,
+    /// Statements executed under test mode — deterministic, identical across
+    /// machines and parallelism (the flake-proof timeout's clock).
+    test_ops: u64,
+    /// How many ASSERTIONS this test executed — every `Expect`/`Expect this to
+    /// fail`/`Expect output:`/`For all` property. A test that finishes with zero
+    /// is VACUOUS (G13): the runner fails it rather than reporting a green that
+    /// checked nothing.
+    test_assertions: u64,
+    /// The op budget; exceeding it fails the test at the identical op, always.
+    test_budget: u64,
+    /// Property-generation stream (SplitMix64), seeded per test — the recorded
+    /// entropy behind `For all` (constitution §1.5).
+    gen_rng: u64,
+    /// `--prove` mode: over a FINITE domain, run every case exhaustively — a
+    /// proof, not a sample (constitution §1.6).
+    prove_mode: bool,
+    /// How many properties this run PROVED by exhaustion (finite domains).
+    properties_proven: u64,
+    /// General engine fuel (`largo run --max-steps`, the MCP `step_budget`):
+    /// one shared cell spans every interpreter of the run — the main task,
+    /// spawned tasks, closure children — so a runaway anywhere stops the
+    /// whole cohort at a deterministic op. `None` (every existing path) costs
+    /// one branch per statement.
+    fuel: Option<FuelHandles>,
+    /// The wall-clock budget for the request currently being served, armed only
+    /// while a `Serve` handler is running.
+    ///
+    /// The compiled tier races its handler against a timer by moving it to a
+    /// blocking thread; this one cannot, because the handler borrows `&mut self`
+    /// and runs inline on the single loop thread. So the budget is enforced from
+    /// the inside, at the same per-statement checkpoint the op budget uses.
+    ///
+    /// The granularity is honest and worth stating: the deadline is observed
+    /// BETWEEN statements, so a single long-running builtin still runs to
+    /// completion. It bounds a runaway loop, not a runaway primitive.
+    request_deadline: Option<std::time::Instant>,
+    /// Counts statements between clock reads, so an armed deadline costs a
+    /// wrapping increment per statement rather than a syscall.
+    deadline_tick: u32,
+    /// The `--tiers all` replay profile: test-only statements (`Expect`/
+    /// `ForAll`/…) execute as NO-OPS — the exact mirror of the VM compiler's
+    /// `compile_tiers`, so the cross-tier comparison runs TWO ENGINES on ONE
+    /// program (the computation around the assertions).
+    tiers_noop: bool,
+    /// Who carries out this run's driving statements (`Click`, `Mount`, `Navigate`, …).
+    page: PageSeat<'a>,
+    /// Called with its index after each top-level statement of `run`/`run_sync` finishes — lets
+    /// a caller driving a page through [`Interpreter::with_page`] observe the page once per test
+    /// statement in the course of ONE run, rather than re-running a growing prefix from scratch.
+    statement_observer: Option<Box<dyn FnMut(usize) + 'a>>,
+    /// The page's own program, as [`Interpreter::run_page_main`] ran it — what a reload
+    /// ([`crate::page_host::LoweredCalls::reload`]) runs again. `None` until the page's main has
+    /// run, and a host cannot call into a page that never loaded.
+    page_main: Option<Vec<Stmt<'a>>>,
+    /// The failure site in force when the most recent failed host call trapped
+    /// ([`crate::page_host::LoweredCalls::failure_site`]).
+    failed_call_site: Option<u32>,
+    /// The run real numbers the program defines by a function read their functions in, opened the
+    /// first time the program defines one ([`Interpreter::open_defined_run`]).
+    defined_run: Option<crate::semantics::defined::RunScope<'a>>,
+}
+
+/// Who carries out a run's driving statements.
+enum PageSeat<'a> {
+    /// No page: a task launched beside the test runs its function and drives nothing.
+    Unseated,
+    /// A page another engine executes — the bytecode VM's lowered page, or a real browser.
+    Driven(std::rc::Rc<std::cell::RefCell<dyn crate::page_host::DrivenPage + 'a>>),
+    /// The page's lowered program, run by this interpreter itself, through the one driver every
+    /// lowered tier shares.
+    Here(HostedPage),
+}
+
+/// A lowered page this interpreter runs itself ([`Interpreter::host_lowered_page`]).
+struct HostedPage {
+    /// The page's host; lent out (`None`) for as long as it is carrying a statement out on this
+    /// interpreter.
+    host: Option<crate::page_host::LoweredHost>,
+    /// The first driving statement the page could not carry at all, and why — a statement this
+    /// tier refuses, as opposed to one the page answered with a failure.
+    refused: Option<(crate::page_host::Drive, String)>,
+}
+
+impl HostedPage {
+    /// The seat of a page whose `## Page` component `page` names, if it mounts one by itself.
+    fn of(page: Option<String>) -> Self {
+        HostedPage {
+            host: Some(crate::page_host::LoweredHost::of_page(page)),
+            refused: None,
+        }
+    }
+}
+
+/// The shared fuel cell for one budgeted run, and its structured verdict.
+///
+/// Install with [`install_fuel`] before starting an engine, read
+/// `exhausted`/`remaining` after it returns, and [`clear_fuel`] when done.
+/// The boundary never string-sniffs: `exhausted` IS the budget-exceeded
+/// signal.
+#[derive(Clone)]
+pub struct FuelHandles {
+    /// The installed budget, for messages and `steps_used` accounting.
+    pub budget: u64,
+    /// Steps left; zero once exhausted.
+    pub remaining: std::rc::Rc<std::cell::Cell<u64>>,
+    /// Set at the deterministic op where the budget ran dry.
+    pub exhausted: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl FuelHandles {
+    /// The engine-agnostic exhaustion story (tree-walker and VM agree).
+    pub fn exhaust_message(&self) -> String {
+        format!(
+            "step budget of {} exhausted — the program was stopped at a deterministic op; \
+             raise --max-steps (or the MCP step_budget) to allow more",
+            self.budget
+        )
+    }
+}
+
+thread_local! {
+    /// The fuel active on this thread, picked up by every [`Interpreter::new`]
+    /// (the tree-walker's cooperative concurrency is single-threaded, so one
+    /// thread-local spans the whole task cohort) and consulted by the VM's
+    /// straight-line run path.
+    static ACTIVE_FUEL: std::cell::RefCell<Option<FuelHandles>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Arm a step budget for every engine started on this thread until
+/// [`clear_fuel`]. Returns the handles the caller reads after the run.
+pub fn install_fuel(budget: u64) -> FuelHandles {
+    let handles = FuelHandles {
+        budget,
+        remaining: std::rc::Rc::new(std::cell::Cell::new(budget)),
+        exhausted: std::rc::Rc::new(std::cell::Cell::new(false)),
+    };
+    ACTIVE_FUEL.with(|cell| *cell.borrow_mut() = Some(handles.clone()));
+    handles
+}
+
+/// Disarm the thread's fuel (always paired with [`install_fuel`]).
+pub fn clear_fuel() {
+    ACTIVE_FUEL.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// The fuel currently armed on this thread, if any.
+pub fn active_fuel() -> Option<FuelHandles> {
+    ACTIVE_FUEL.with(|cell| cell.borrow().clone())
 }
 
 /// The shared interpreter context: function definitions, type metadata, platform
@@ -1730,11 +2592,36 @@ pub struct Interpreter<'a> {
 struct SharedCtx<'a> {
     interner: &'a Interner,
     functions: HashMap<Symbol, FunctionDef<'a>>,
+    /// `## Component` / `## Page` / `## Store` definitions by name — what the lowering's gate reads
+    /// to explain a `Mount` the lowered page refused, what a route's server walk places, and what
+    /// says whether the program needs the relay.
+    components: HashMap<Symbol, crate::ast::component::ComponentDef<'a>>,
+    /// The program's type registry, as `with_type_registry` was given it — what the lowering's
+    /// own gate asks when it explains a `Mount` the lowered page refused.
+    types: Option<crate::analysis::TypeRegistry>,
     struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
     /// Enum type → its constructor names in declaration order. Feeds the wire type
     /// registry so `Send shared` elides enum type/constructor names (T_INDUCTIVE_TID),
     /// the enum analog of struct name elision.
     enum_defs: HashMap<Symbol, Vec<Symbol>>,
+    /// A variant's OWN field names, in DECLARATION order — the enum analog of `struct_defs`,
+    /// keyed by `(enum name, constructor name)`. Keyed by the constructor alone until this session:
+    /// two enums declaring a same-named variant with DIFFERENT field shapes (`a new Failure from
+    /// Outcome`/`a new Failure from Status`, made constructible together for the first time by the
+    /// `from`-qualification lang5 landed) would collide on one shared entry, whichever registered
+    /// second in the discovery pass's own `HashMap` iteration order silently winning — a real,
+    /// order-dependent wrong-field-order bug, not a cosmetic one, since `from`-qualification is
+    /// exactly what makes both enums' same-named variants constructible in one program. `Expr::
+    /// NewVariant`'s construction is written field-name-first and is documented as ORDER-INDEPENDENT
+    /// (`a new X with b 2 and a 1` is legal), but `RuntimeValue::Inductive` stores its payload
+    /// POSITIONALLY (`args: Vec<RuntimeValue>`) — this table is what lets construction re-seat each
+    /// evaluated value at its DECLARED index regardless of the order it was written in, so a later
+    /// positional read (`ind.args[i]`, `Inspect`'s destructuring bindings) always means "the i-th
+    /// DECLARED field", never "the i-th WRITTEN field". Only ever consulted AT CONSTRUCTION
+    /// (`Expr::NewVariant` already names its own enum), never at `Inspect`/match time — a match
+    /// binds positionally into whatever `args` construction already seated correctly, needing no
+    /// enum resolution of its own.
+    variant_fields: HashMap<(Symbol, Symbol), Vec<Symbol>>,
     vfs: Option<Arc<dyn Vfs>>,
     kernel_ctx: Option<Arc<crate::kernel::Context>>,
     policy_registry: Option<PolicyRegistry>,
@@ -1811,14 +2698,22 @@ impl TaskState {
     }
 }
 
+/// The message a request that outran its wall-clock budget carries. The serve
+/// loop matches on it to answer `503` (the peer should retry) rather than the
+/// `500` an ordinary handler failure gets.
+pub(crate) const REQUEST_TIMED_OUT: &str = "request exceeded its time budget";
+
 impl<'a> Interpreter<'a> {
     pub fn new(interner: &'a Interner) -> Self {
         Interpreter {
             ctx: SharedCtx {
                 interner,
                 functions: HashMap::new(),
+                components: HashMap::new(),
+                types: None,
                 struct_defs: HashMap::new(),
                 enum_defs: HashMap::new(),
+                variant_fields: HashMap::new(),
                 vfs: None,
                 kernel_ctx: None,
                 policy_registry: None,
@@ -1841,20 +2736,297 @@ impl<'a> Interpreter<'a> {
                 sym_chr: interner.lookup("chr"),
                 sym_count_ones: interner.lookup("count_ones"),
                 sym_args: interner.lookup("args"),
-                program_args: Vec::new(),
+                program_args: crate::semantics::argv_with_program_name(Vec::new()),
             },
             task: TaskState::new(),
             output: Vec::new(),
+            current_site: None,
             yield_state: None,
+            err_sink: None,
             netbox: crate::concurrency::net_inbox::NetInbox::new(),
+            tcpbox: crate::concurrency::tcp_registry::TcpRegistry::new(),
+            test_mode: false,
+            test_failures: Vec::new(),
+            test_ops: 0,
+            test_assertions: 0,
+            test_budget: u64::MAX,
+            gen_rng: 0,
+            prove_mode: false,
+            properties_proven: 0,
+            fuel: active_fuel(),
+            request_deadline: None,
+            deadline_tick: 0,
+            tiers_noop: false,
+            page: PageSeat::Here(HostedPage::of(None)),
+            statement_observer: None,
+            page_main: None,
+            failed_call_site: None,
+            defined_run: None,
         }
+    }
+
+    /// Arm test mode (the `largo test` runner): `Expect` records-and-continues
+    /// and every statement counts against the deterministic op `budget`.
+    pub fn enable_test_mode(&mut self, budget: u64) {
+        self.test_mode = true;
+        self.test_budget = budget;
+    }
+
+    /// Arm the `--tiers all` replay profile: test-only statements execute as
+    /// no-ops (the interpreter twin of the VM's `compile_tiers`), so the tier
+    /// differential compares the COMPUTATION on two engines, one program.
+    pub fn set_tiers_noop(&mut self, on: bool) {
+        self.tiers_noop = on;
+    }
+
+    /// Seed the property-generation stream (the runner keys this by test
+    /// identity so counterexamples are stable across runs).
+    pub fn set_gen_seed(&mut self, seed: u64) {
+        self.gen_rng = seed;
+    }
+
+    /// Enable `--prove` — finite-domain properties run exhaustively (a proof).
+    pub fn set_prove_mode(&mut self, on: bool) {
+        self.prove_mode = on;
+    }
+
+    /// How many properties were PROVED by exhaustion this run.
+    pub fn properties_proven(&self) -> u64 {
+        self.properties_proven
+    }
+
+    /// Next SplitMix64 draw from the property stream.
+    fn draw_u64(&mut self) -> u64 {
+        self.gen_rng = self.gen_rng.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.gen_rng;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Draw one value for a property domain (bounded so display and shrinking
+    /// stay tractable; integers in [-1000, 1000], naturals in [0, 1000]).
+    fn draw_domain(&mut self, domain: crate::ast::stmt::PropDomain) -> RuntimeValue {
+        use crate::ast::stmt::PropDomain;
+        let r = self.draw_u64();
+        match domain {
+            PropDomain::Integers => RuntimeValue::Int((r % 2001) as i64 - 1000),
+            PropDomain::Naturals => RuntimeValue::Int((r % 1001) as i64),
+            PropDomain::Booleans => RuntimeValue::Bool(r & 1 == 0),
+        }
+    }
+
+    /// Run a `For all` property: generate seeded cases, and on the first
+    /// failure shrink to a minimal counterexample and record it (§1.5/§1.6).
+    /// Pure-body statements run on the sync path (properties are pure), so this
+    /// one implementation serves both the async and sync `ForAll` arms.
+    fn run_property(
+        &mut self,
+        vars: &[Symbol],
+        domain: crate::ast::stmt::PropDomain,
+        constraint: Option<&'a Expr<'a>>,
+        body: &[Stmt<'a>],
+    ) -> Result<(), String> {
+        use crate::ast::stmt::PropDomain;
+        // A `For all` property is an assertion (G13 non-vacuity) — a test whose
+        // only check is a property is NOT vacuous.
+        self.test_assertions += 1;
+        // `--prove` over a FINITE domain: enumerate EVERY case — a proof, not a
+        // sample. Booleans^k is 2^k cases; small enough to exhaust for k≤16.
+        if self.prove_mode && domain == PropDomain::Booleans && vars.len() <= 16 {
+            let total = 1usize << vars.len();
+            let mut counterexample: Option<Vec<RuntimeValue>> = None;
+            for mask in 0..total {
+                let vals: Vec<RuntimeValue> = (0..vars.len())
+                    .map(|i| RuntimeValue::Bool(mask & (1 << i) != 0))
+                    .collect();
+                if self.property_fails(vars, constraint, body, &vals)? {
+                    counterexample = Some(vals);
+                    break;
+                }
+            }
+            if let Some(vals) = counterexample {
+                self.record_counterexample(vars, constraint, body, vals)?;
+            } else {
+                self.properties_proven += 1; // exhausted with no failure = PROVED
+            }
+            return Ok(());
+        }
+
+        const RUNS: u32 = 256;
+        let mut counterexample: Option<Vec<RuntimeValue>> = None;
+        for _ in 0..RUNS {
+            let vals: Vec<RuntimeValue> =
+                (0..vars.len()).map(|_| self.draw_domain(domain)).collect();
+            if self.property_fails(vars, constraint, body, &vals)? {
+                counterexample = Some(vals);
+                break;
+            }
+        }
+        if let Some(vals) = counterexample {
+            self.record_counterexample(vars, constraint, body, vals)?;
+        }
+        Ok(())
+    }
+
+    /// Shrink a failing case to its minimum and record it as a failure.
+    fn record_counterexample(
+        &mut self,
+        vars: &[Symbol],
+        constraint: Option<&'a Expr<'a>>,
+        body: &[Stmt<'a>],
+        vals: Vec<RuntimeValue>,
+    ) -> Result<(), String> {
+        let shrunk = self.shrink_property(vars, constraint, body, vals)?;
+        let binding = vars
+            .iter()
+            .zip(shrunk.iter())
+            .map(|(v, val)| {
+                format!(
+                    "{} = {}",
+                    self.ctx.interner.resolve(*v),
+                    val.to_display_string()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.test_failures
+            .push(format!("Property failed. Counterexample: {binding}"));
+        Ok(())
+    }
+
+    /// Bind `vals`, apply the filter, run the body, and report whether it FAILED
+    /// — never leaking the probe's own expectation failures.
+    fn property_fails(
+        &mut self,
+        vars: &[Symbol],
+        constraint: Option<&'a Expr<'a>>,
+        body: &[Stmt<'a>],
+        vals: &[RuntimeValue],
+    ) -> Result<bool, String> {
+        for (v, val) in vars.iter().zip(vals.iter()) {
+            self.define(*v, val.clone());
+        }
+        if let Some(c) = constraint {
+            if !self.evaluate_expr_sync(c)?.decided_truth()? {
+                return Ok(false); // filtered out — a non-case, never a failure
+            }
+        }
+        let before = self.test_failures.len();
+        for s in body.iter() {
+            self.execute_stmt_sync(s)?;
+        }
+        let failed = self.test_failures.len() > before;
+        self.test_failures.truncate(before);
+        Ok(failed)
+    }
+
+    /// Greedily shrink each value toward its domain zero, keeping the smallest
+    /// still-failing case (internal shrinking, §1.5).
+    fn shrink_property(
+        &mut self,
+        vars: &[Symbol],
+        constraint: Option<&'a Expr<'a>>,
+        body: &[Stmt<'a>],
+        mut vals: Vec<RuntimeValue>,
+    ) -> Result<Vec<RuntimeValue>, String> {
+        let mut improved = true;
+        let mut guard = 0;
+        while improved && guard < 1000 {
+            improved = false;
+            guard += 1;
+            for i in 0..vals.len() {
+                for cand in shrink_candidates(&vals[i]) {
+                    let mut trial = vals.clone();
+                    trial[i] = cand;
+                    if self.property_fails(vars, constraint, body, &trial)? {
+                        vals = trial;
+                        improved = true;
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(vals)
+    }
+
+    /// Take the recorded expectation failures (empties the sink).
+    pub fn take_test_failures(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.test_failures)
+    }
+
+    /// Statements executed under test mode — the deterministic op count.
+    pub fn test_ops(&self) -> u64 {
+        self.test_ops
+    }
+
+    /// How many assertions (`Expect`/`ForAll`) this test executed. Zero = a
+    /// VACUOUS test the runner must fail (G13).
+    pub fn test_assertions(&self) -> u64 {
+        self.test_assertions
+    }
+
+    /// Count one statement against the test budget; `Err` when exhausted —
+    /// at the identical op on every run (the timeout that cannot flake).
+    /// Also drains the general [`FuelHandles`] cell when one is armed
+    /// (`--max-steps` / MCP `step_budget`), which spans the whole cohort.
+    fn tick_test_budget(&mut self) -> Result<(), String> {
+        // A served request's wall-clock budget. Sampled every 512 statements so an
+        // ordinary program pays one branch and a served request cannot run away.
+        if let Some(deadline) = self.request_deadline {
+            self.deadline_tick = self.deadline_tick.wrapping_add(1);
+            if self.deadline_tick % 512 == 0 && std::time::Instant::now() > deadline {
+                return Err(REQUEST_TIMED_OUT.to_string());
+            }
+        }
+        if let Some(fuel) = &self.fuel {
+            let left = fuel.remaining.get();
+            if left == 0 {
+                fuel.exhausted.set(true);
+                return Err(fuel.exhaust_message());
+            }
+            fuel.remaining.set(left - 1);
+        }
+        if !self.test_mode {
+            return Ok(());
+        }
+        self.test_ops += 1;
+        if self.test_ops > self.test_budget {
+            return Err(format!(
+                "op budget of {} steps exhausted — a runaway test fails at the identical op \
+                 on every run; a test that legitimately needs more declares it: \
+                 `This test may run up to {} steps.`",
+                self.test_budget,
+                self.test_budget.saturating_mul(10)
+            ));
+        }
+        Ok(())
+    }
+
+    /// A Socratic hint keyed on a failed expectation's SHAPE (Wave 5). Float
+    /// equality is the classic trap: `x is 0.3` where `x` drifted.
+    fn expect_socratic_hint(condition: &Expr<'a>) -> Option<&'static str> {
+        if let Expr::BinaryOp {
+            op: BinaryOpKind::Eq,
+            left,
+            right,
+        } = condition
+        {
+            let floaty = |e: &Expr<'a>| matches!(e, Expr::Literal(Literal::Float(_)));
+            if floaty(left) || floaty(right) {
+                return Some(
+                    "floats drift — did you mean `is approximately X within <eps>`? (bare `is` is IEEE bit-exact)",
+                );
+            }
+        }
+        None
     }
 
     /// Supply the program arguments read by the `args()` system native. The
     /// vector is the full argv (index 0 is the program name), matching the
     /// compiled binary's `env::args()`.
     pub fn with_program_args(mut self, args: Vec<String>) -> Self {
-        self.ctx.program_args = args;
+        self.ctx.program_args = crate::semantics::argv_with_program_name(args);
         self
     }
 
@@ -1883,22 +3055,39 @@ impl<'a> Interpreter<'a> {
     /// This allows the interpreter to initialize default field values for
     /// structs created with `new Point` (no explicit fields).
     pub fn with_type_registry(mut self, registry: &crate::analysis::TypeRegistry) -> Self {
-        use crate::analysis::registry::{TypeDef, FieldType};
+        use crate::analysis::registry::{FieldType, TypeDef};
+        self.ctx.types = Some(registry.clone());
         for (name_sym, type_def) in registry.iter_types() {
             if let TypeDef::Struct { fields, .. } = type_def {
-                let field_defs: Vec<(Symbol, Symbol, bool)> = fields.iter().map(|f| {
-                    let type_sym = match &f.ty {
-                        FieldType::Primitive(s) | FieldType::Named(s) | FieldType::TypeParam(s) => *s,
-                        FieldType::Generic { base, .. } => *base,
-                    };
-                    (f.name, type_sym, f.is_public)
-                }).collect();
+                let field_defs: Vec<(Symbol, Symbol, bool)> = fields
+                    .iter()
+                    .map(|f| {
+                        let type_sym = match &f.ty {
+                            FieldType::Primitive(s)
+                            | FieldType::Named(s)
+                            | FieldType::TypeParam(s) => *s,
+                            FieldType::Generic { base, .. } => *base,
+                            // A tuple names no type with a scalar default.
+                            FieldType::Tuple(_) | FieldType::Record(_) => Symbol::EMPTY,
+                        };
+                        (f.name, type_sym, f.is_public)
+                    })
+                    .collect();
                 self.ctx.struct_defs.insert(*name_sym, field_defs);
             } else if let TypeDef::Enum { variants, .. } = type_def {
                 // Constructor names in declaration order — the order is the wire's ctor
                 // index, so both peers (deriving from the same program) agree.
                 let ctors: Vec<Symbol> = variants.iter().map(|v| v.name).collect();
                 self.ctx.enum_defs.insert(*name_sym, ctors);
+                // Each variant's OWN field names, in declaration order — see `variant_fields`'s
+                // own doc comment for why construction needs this, and why the key is
+                // `(enum, variant)` rather than the variant alone.
+                for v in variants {
+                    let field_names: Vec<Symbol> = v.fields.iter().map(|f| f.name).collect();
+                    self.ctx
+                        .variant_fields
+                        .insert((*name_sym, v.name), field_names);
+                }
             }
         }
         self
@@ -1911,10 +3100,259 @@ impl<'a> Interpreter<'a> {
         self
     }
 
-    /// Install the scheduler side-channel, marking this interpreter as a scheduled
-    /// concurrent task (used by the scheduler-driven run path).
-    pub(crate) fn install_yield_state(&mut self, ys: crate::concurrency::bridge::Yield<'a>) {
+    /// Drive this run's page through `p` — the bytecode VM's lowered page, or a real browser —
+    /// instead of hosting the page's lowered program here. The seam a host uses to run a
+    /// `## Test`'s statements ONCE and carry every driving verb (`Click`, `Mount`, `Navigate`, …)
+    /// to whichever tier `p` fronts; every other statement (`Let`, `Set`, `Expect`, …) still runs
+    /// here, against the interpreter's own evaluator.
+    pub fn with_page(
+        mut self,
+        p: std::rc::Rc<std::cell::RefCell<dyn crate::page_host::DrivenPage + 'a>>,
+    ) -> Self {
+        self.page = PageSeat::Driven(p);
+        self
+    }
+
+    /// Observe each top-level statement of `run`/`run_sync` by index, right after it finishes.
+    pub fn with_statement_observer(mut self, f: Box<dyn FnMut(usize) + 'a>) -> Self {
+        self.statement_observer = Some(f);
+        self
+    }
+
+    /// Host `program` as this run's page, LOWERED, on this very interpreter: the page's main
+    /// (`program`) runs once and settles, and from then on every driving statement this
+    /// interpreter meets is carried out on the page by the driver every lowered tier shares
+    /// ([`crate::page_host::LoweredHost`]), with this interpreter as the engine it calls into —
+    /// exactly as a browser drives the page's module. `auto_mounted` names the `## Page` component
+    /// the program mounts by itself, if any. A failing main is the page's failure; the page is
+    /// hosted either way, as a browser can still call into a module whose `main` trapped.
+    pub fn host_lowered_page(
+        &mut self,
+        program: &[Stmt<'a>],
+        auto_mounted: Option<String>,
+    ) -> Result<(), crate::page_host::DriveError> {
+        self.page = PageSeat::Here(HostedPage::of(auto_mounted));
+        let ran = self.run_page_main(program);
+        self.with_hosted_page(|host, me| host.settle(me));
+        ran.map_err(crate::page_host::DriveError::Failed)
+    }
+
+    /// Lend the page hosted here to `f` together with this interpreter, its engine — `None` when no
+    /// page is hosted here, or when its host is already carrying a statement out.
+    fn with_hosted_page<R>(
+        &mut self,
+        f: impl FnOnce(&mut crate::page_host::LoweredHost, &mut Self) -> R,
+    ) -> Option<R> {
+        let PageSeat::Here(hosted) = &mut self.page else {
+            return None;
+        };
+        let mut host = hosted.host.take()?;
+        let out = f(&mut host, self);
+        if let PageSeat::Here(hosted) = &mut self.page {
+            hosted.host = Some(host);
+        }
+        Some(out)
+    }
+
+    /// The first action failure the page hosted here ([`Interpreter::host_lowered_page`]) left
+    /// unabsorbed by any handler — the page's own failure to report.
+    pub fn hosted_page_failure(&self) -> Option<String> {
+        match &self.page {
+            PageSeat::Here(HostedPage {
+                host: Some(host), ..
+            }) => host.unhandled_failure().map(str::to_string),
+            _ => None,
+        }
+    }
+
+    /// Where the page's first unabsorbed failure happened (its `Stmt::Site`), when the page is
+    /// hosted here — the site a located error names, since the host's call has since returned.
+    pub fn page_failure_site(&self) -> Option<u32> {
+        match &self.page {
+            PageSeat::Here(HostedPage {
+                host: Some(host), ..
+            }) => host.unhandled_failure_site(),
+            _ => None,
+        }
+    }
+
+    /// The first action failure no handler absorbed, taken — whichever tier carried the page. A
+    /// program that ran to the end reports it as its own failure: the page went on answering, and
+    /// the failure still happened.
+    pub fn take_page_failure(&mut self) -> Option<String> {
+        match &mut self.page {
+            PageSeat::Unseated => None,
+            PageSeat::Driven(page) => page.borrow().unhandled_failure(),
+            PageSeat::Here(hosted) => hosted
+                .host
+                .as_mut()
+                .and_then(|h| h.take_unhandled_failure()),
+        }
+    }
+
+    /// The first driving statement the page hosted here could not carry at all, and why — `None`
+    /// while every statement has been carried (or answered with a failure of the page's own).
+    pub fn hosted_page_refusal(&self) -> Option<(&crate::page_host::Drive, &str)> {
+        match &self.page {
+            PageSeat::Here(HostedPage {
+                refused: Some((d, why)),
+                ..
+            }) => Some((d, why.as_str())),
+            _ => None,
+        }
+    }
+
+    /// Run `stmts` as the next top-level statements of the program this interpreter is already
+    /// running — no fresh program start: definitions stay registered, globals stay bound, a hosted
+    /// page stays hosted — until one returns or breaks, and answer that flow. What a host that
+    /// walks a test body one step at a time runs each step with.
+    pub fn run_statements(&mut self, stmts: &[Stmt<'a>]) -> Result<ControlFlow, String> {
+        for stmt in stmts {
+            match self.execute_stmt_sync(stmt)? {
+                ControlFlow::Continue => {}
+                flow => return Ok(flow),
+            }
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// [`Interpreter::run_statements`] on the async executor, for statements that need it.
+    pub async fn run_statements_async(
+        &mut self,
+        stmts: &[Stmt<'a>],
+    ) -> Result<ControlFlow, String> {
+        for stmt in stmts {
+            match self.execute_stmt(stmt).await? {
+                ControlFlow::Continue => {}
+                flow => return Ok(flow),
+            }
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// Carry the driving statement `d` out on the page seated here — the lowered program this
+    /// interpreter hosts, or the page another engine executes — with the driver every lowered tier
+    /// shares. A statement the page refuses or fails is this statement's failure.
+    fn drive_page(&mut self, d: crate::page_host::Drive) -> Result<ControlFlow, String> {
+        let outcome = match &mut self.page {
+            PageSeat::Unseated => {
+                return Err(format!(
+                "`{}` drives the page, and a task launched beside the test has no page to drive",
+                d.verb()
+            ))
+            }
+            PageSeat::Driven(page) => {
+                let page = page.clone();
+                let outcome = page.borrow_mut().drive(&d);
+                outcome
+            }
+            PageSeat::Here(_) => {
+                let Some(mut outcome) = self.with_hosted_page(|host, me| host.drive(me, &d)) else {
+                    return Err(format!(
+                        "`{}` drives the page, and the page's own code cannot drive the page it \
+                         is running in",
+                        d.verb()
+                    ));
+                };
+                if let (
+                    crate::page_host::Drive::Mount { component, .. },
+                    Err(crate::page_host::DriveError::Refused(why)),
+                ) = (&d, &mut outcome)
+                {
+                    if let Some(reason) = self.why_not_lowered(component) {
+                        *why = reason;
+                    }
+                }
+                if let (PageSeat::Here(hosted), Err(crate::page_host::DriveError::Refused(why))) =
+                    (&mut self.page, &outcome)
+                {
+                    hosted
+                        .refused
+                        .get_or_insert_with(|| (d.clone(), why.clone()));
+                }
+                outcome
+            }
+        };
+        outcome.map_err(|e| match e {
+            crate::page_host::DriveError::Failed(m) | crate::page_host::DriveError::Refused(m) => m,
+        })?;
+        Ok(ControlFlow::Continue)
+    }
+
+    /// Why the lowering left `component` without a mount entry, in the lowering's own words: the
+    /// compiler emits a program whole, and a component it cannot carry (a store shared across
+    /// replicas, an event modifier with no lowered dispatch, …) is left without its entry rather
+    /// than failing the program.
+    fn why_not_lowered(&self, component: &str) -> Option<String> {
+        let all: Vec<crate::ast::component::ComponentDef<'a>> =
+            self.ctx.components.values().cloned().collect();
+        let def = all
+            .iter()
+            .find(|d| self.ctx.interner.resolve(d.name) == component)?;
+        logicaffeine_language::parser::lgx_lower::lowerable(
+            def,
+            &all,
+            self.ctx.types.as_ref(),
+            self.ctx.interner,
+        )
+        .err()
+        .map(|why| {
+            format!(
+                "`Mount {component}` cannot run on this tier: {}",
+                why.message
+            )
+        })
+    }
+
+    /// `Serve fetches with routes.` — the single execution site for both statement executors.
+    fn serve_fetches_sync(&mut self) -> Result<ControlFlow, String> {
+        self.drive_page(crate::page_host::Drive::ServeFetchesWithRoutes)
+    }
+
+    /// `Given that METHOD "url" answers STATUS with BODY.` — the single execution site for both
+    /// statement executors.
+    fn given_fetch_sync(
+        &mut self,
+        method: Symbol,
+        url: &'a Expr<'a>,
+        status: &'a Expr<'a>,
+        body: &'a Expr<'a>,
+    ) -> Result<ControlFlow, String> {
+        let u = self.evaluate_expr_sync(url)?.to_display_string();
+        let st = match self.evaluate_expr_sync(status)? {
+            RuntimeValue::Int(n) => n,
+            other => {
+                return Err(format!(
+                    "`Given that … answers …` wants a numeric status, got {}.",
+                    other.type_name()
+                ))
+            }
+        };
+        let b = self.evaluate_expr_sync(body)?.to_display_string();
+        self.drive_page(crate::page_host::Drive::AnswerFetch {
+            method: self.ctx.interner.resolve(method).to_string(),
+            url: u,
+            status: st,
+            body: b,
+        })
+    }
+
+    /// `Advance time by N.` — the shared tail once `ms` is evaluated (the async executor awaits
+    /// it, the sync one does not; everything from here on is identical, and the single execution
+    /// site for both).
+    fn advance_time_ms(&mut self, ms: u64) -> Result<ControlFlow, String> {
+        self.drive_page(crate::page_host::Drive::AdvanceTime { ms })
+    }
+
+    /// Install the scheduler side-channel and the run's error sink, marking this interpreter as a
+    /// scheduled concurrent task (used by the scheduler-driven run path).
+    pub(crate) fn install_yield_state(
+        &mut self,
+        ys: crate::concurrency::bridge::Yield<'a>,
+        err_sink: ErrSink,
+    ) {
         self.yield_state = Some(ys);
+        self.err_sink = Some(err_sink);
     }
 
     /// Internal helper to emit output (calls callback if set, always adds to output vec)
@@ -1927,7 +3365,8 @@ impl<'a> Interpreter<'a> {
 
     /// Phase 102: Check if a name is a kernel inductive type.
     pub fn is_kernel_inductive(&self, name: &str) -> bool {
-        self.ctx.kernel_ctx
+        self.ctx
+            .kernel_ctx
             .as_ref()
             .map(|ctx| ctx.is_inductive(name))
             .unwrap_or(false)
@@ -1937,7 +3376,8 @@ impl<'a> Interpreter<'a> {
     ///
     /// Returns a vector of (constructor_name, arity) pairs.
     pub fn get_kernel_constructors(&self, name: &str) -> Vec<(String, usize)> {
-        self.ctx.kernel_ctx
+        self.ctx
+            .kernel_ctx
             .as_ref()
             .map(|ctx| {
                 ctx.get_constructors(name)
@@ -1952,14 +3392,284 @@ impl<'a> Interpreter<'a> {
             .unwrap_or_default()
     }
 
-    /// Execute a program (list of statements).
-    /// Phase 55: Now async for VFS operations.
-    pub async fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
-        // A program begins with no ambient exchange rates in scope — the same clean slate an
-        // AOT-compiled binary gets from a fresh process. Conversion reads what the program installs.
-        logicaffeine_base::money::clear_ambient_rates();
+    /// `Replay these actions: a, b.` — run each named action against the mounted page, in order.
+    ///
+    /// Each is a REAL TURN, so the transaction rule holds under replay: one that traps rolls back
+    /// and the actions AFTER it still run. A replay that stopped at the first trap could not
+    /// reproduce a sequence whose whole point is what happens after one.
+    ///
+    /// The single execution site for both statement executors, and a driving statement like any
+    /// other: the page this interpreter hosts, or one attached ([`Interpreter::with_page`]),
+    /// replays them.
+    fn replay_actions(&mut self, actions: &[Symbol]) -> Result<(), String> {
+        let named = actions
+            .iter()
+            .map(|a| self.ctx.interner.resolve(*a).to_string())
+            .collect();
+        self.drive_page(crate::page_host::Drive::Replay { actions: named })
+            .map(|_| ())
+    }
+
+    /// `value`'s JSON wire form for storage — the encode half of `Save`'s Seq/record codec. Returns
+    /// `None` for anything neither a JSON scalar, array, nor object can carry.
+    fn json_of_value(value: &RuntimeValue) -> Option<serde_json::Value> {
+        use serde_json::Value;
+        Some(match value {
+            RuntimeValue::Text(s) => Value::String(s.to_string()),
+            RuntimeValue::Int(n) => serde_json::json!(n),
+            RuntimeValue::Float(f) => serde_json::json!(f),
+            RuntimeValue::Bool(b) => Value::Bool(*b),
+            RuntimeValue::Char(c) => Value::String(c.to_string()),
+            RuntimeValue::List(items) => {
+                let elems: Option<Vec<Value>> = items
+                    .borrow()
+                    .to_values()
+                    .iter()
+                    .map(Self::json_of_value)
+                    .collect();
+                Value::Array(elems?)
+            }
+            RuntimeValue::Struct(s) => {
+                let mut map = serde_json::Map::new();
+                for (k, v) in &s.fields {
+                    map.insert(k.clone(), Self::json_of_value(v)?);
+                }
+                Value::Object(map)
+            }
+            _ => return None,
+        })
+    }
+
+    /// A JSON value with no shape to match it against — read off its OWN tag: what `Load` reads
+    /// back with no field to shape it by. A JSON object with no shape cannot become a properly
+    /// NAMED record, so it is refused rather than guessed at.
+    fn value_from_json_untyped(json: &serde_json::Value) -> Option<RuntimeValue> {
+        use serde_json::Value;
+        match json {
+            Value::String(s) => Some(RuntimeValue::Text(Rc::new(s.clone()))),
+            Value::Bool(b) => Some(RuntimeValue::Bool(*b)),
+            Value::Number(n) => match n.as_i64() {
+                Some(i) => Some(RuntimeValue::Int(i)),
+                None => n.as_f64().map(RuntimeValue::Float),
+            },
+            Value::Array(arr) => {
+                let values: Option<Vec<RuntimeValue>> =
+                    arr.iter().map(Self::value_from_json_untyped).collect();
+                Some(RuntimeValue::List(Rc::new(RefCell::new(
+                    ListRepr::from_values(values?),
+                ))))
+            }
+            _ => None,
+        }
+    }
+
+    /// `Save`'s durable-storage wire form, byte-for-byte the same scheme the lowered tier's own
+    /// `tagged_value` (`parser/lgx_lower/elements.rs`) writes: a one-letter tag, a colon, then the
+    /// value — `i`/`f`/`b`/`t` for the scalars, `j` (JSON, [`Self::json_of_value`]) for a Seq or a
+    /// record. `None` for anything the scheme cannot carry (a Chan, a Crdt, …), which `Save`
+    /// refuses by name.
+    fn tagged_storage_text(value: &RuntimeValue) -> Option<String> {
+        let tag = match value {
+            RuntimeValue::Int(_) => 'i',
+            RuntimeValue::Float(_) => 'f',
+            RuntimeValue::Bool(_) => 'b',
+            RuntimeValue::Text(_) | RuntimeValue::Char(_) => 't',
+            RuntimeValue::List(_) | RuntimeValue::Struct(_) => 'j',
+            _ => return None,
+        };
+        let body = if tag == 'j' {
+            Self::json_of_value(value)?.to_string()
+        } else {
+            value.to_display_string()
+        };
+        Some(format!("{tag}:{body}"))
+    }
+
+    /// The inverse of [`Self::tagged_storage_text`] — `Load`'s read of whatever EITHER tier's
+    /// `Save` wrote. A `j:`-tagged array/object has no field to shape it by here, so it decodes with
+    /// [`Self::value_from_json_untyped`]'s Int-if-whole/Float-if-fractional rule.
+    fn value_from_tagged_storage(text: &str) -> Option<RuntimeValue> {
+        let (tag, body) = text.split_once(':')?;
+        Some(match tag {
+            "i" => RuntimeValue::Int(body.parse().ok()?),
+            "f" => RuntimeValue::Float(body.parse().ok()?),
+            "b" => match body {
+                "true" => RuntimeValue::Bool(true),
+                "false" => RuntimeValue::Bool(false),
+                _ => return None,
+            },
+            "t" => RuntimeValue::Text(Rc::new(body.to_string())),
+            "j" => Self::value_from_json_untyped(&serde_json::from_str(body).ok()?)?,
+            _ => return None,
+        })
+    }
+
+    /// Answer a question about the rendered page. Reading the DOM is the same on every engine
+    /// that has one, so this is the ONE implementation the tiers share.
+    fn evaluate_dom_query(
+        &mut self,
+        query: &crate::ast::stmt::DomQuery<'a>,
+    ) -> Result<RuntimeValue, String> {
+        use crate::ast::stmt::DomQuery;
+        use crate::semantics::dom;
+        let selector = match query.selector() {
+            Some(sel) => Some(self.evaluate_expr_sync(sel)?),
+            None => None,
+        };
+        // `the count of xs` over a collection is its size — the same English, the reading the
+        // VALUE settles, since neither reading is decidable from the sentence alone. Answered by
+        // `length_of`, the one place the language decides what a collection's size is, so the two
+        // spellings of one question cannot drift apart.
+        //
+        // ★ ONLY A TEXT IS A SELECTOR. `the count of ".row"` asks how many elements of the page
+        // match, and reading it as a string length would answer a different question with an
+        // equally plausible-looking number. Every other value is a collection or an error — asking
+        // a Set for its selector reading gave 0 for a set with anything in it, which is the worst
+        // wrong answer available, because an empty set really does count 0.
+        if let (DomQuery::Count { .. }, Some(v)) = (query, &selector) {
+            if !matches!(v, RuntimeValue::Text(_)) {
+                return crate::semantics::collections::length_of(v);
+            }
+        }
+        let sel = selector
+            .as_ref()
+            .map(|v| v.to_display_string())
+            .unwrap_or_default();
+        let one = |q: &str| -> Result<i64, String> {
+            let node = dom::query_selector(&sel);
+            if node < 0 {
+                return Err(format!(
+                    "No element matches {sel:?}, so it has no {q}. Mount the component first, and \
+                     check the selector against the ids and classes its view renders."
+                ));
+            }
+            Ok(node)
+        };
+        Ok(match query {
+            DomQuery::Text { .. } => RuntimeValue::Text(Rc::new(dom::text_content(one("text")?))),
+            DomQuery::Value { .. } => RuntimeValue::Text(Rc::new(dom::get_value(one("value")?))),
+            DomQuery::Count { .. } => RuntimeValue::Int(dom::query_selector_all(&sel).len() as i64),
+            // ★ SEEN, NOT MERELY PRESENT. This was `query_selector(&sel) >= 0`, so an element
+            // that exists and is not shown answered "visible" — which made the one question a
+            // page test asks about a toggle unable to fail, since `hidden={flag}` and
+            // `class:hidden={flag}` both leave the element in the document. See `Dom::shown` for
+            // exactly what is decided and what is not.
+            DomQuery::Visible { .. } => RuntimeValue::Bool(dom::is_shown(&sel)),
+            // The complement, written from the same fact so the two can never disagree about an
+            // element that is somehow neither.
+            // The exact complement, so an element is never both and never neither.
+            DomQuery::Hidden { .. } => RuntimeValue::Bool(!dom::is_shown(&sel)),
+            // PRESENCE, not value — `disabled=""` is disabled, and comparing against a string
+            // would answer "false" for a control that really is disabled.
+            DomQuery::Disabled { .. } => {
+                let node = dom::query_selector(&sel);
+                RuntimeValue::Bool(node >= 0 && dom::has_attribute(node, "disabled"))
+            }
+            // The LIVE property (see `DomOp::SetChecked`), so this follows a click rather than
+            // reporting the markup the page started as.
+            DomQuery::Checked { .. } => {
+                let node = dom::query_selector(&sel);
+                RuntimeValue::Bool(node >= 0 && dom::get_checked(node))
+            }
+            DomQuery::Focused { .. } => {
+                let node = dom::query_selector(&sel);
+                RuntimeValue::Bool(node >= 0 && dom::focused() == node)
+            }
+            // The ACTIONS that have run, in order — including the ones that rolled back, because
+            // a turn that failed still HAPPENED and a test asking what the page did must see it.
+            DomQuery::Journal => {
+                let names: Vec<RuntimeValue> = crate::semantics::world::journal()
+                    .into_iter()
+                    .map(|e| RuntimeValue::Text(Rc::new(e.action)))
+                    .collect();
+                RuntimeValue::List(Rc::new(RefCell::new(crate::interpreter::ListRepr::Boxed(
+                    names,
+                ))))
+            }
+            // Did `first` run and `second` run AFTER it? "After", not "immediately after": a
+            // test that pinned adjacency would break the moment an unrelated turn appeared in
+            // between. `A then A` therefore needs a SECOND occurrence, never the same one twice.
+            DomQuery::JournalShows { first, second } => {
+                let want_first = self.ctx.interner.resolve(*first);
+                let want_second = self.ctx.interner.resolve(*second);
+                let entries = crate::semantics::world::journal();
+                let found = entries
+                    .iter()
+                    .position(|e| e.action == want_first)
+                    .is_some_and(|at| entries.iter().skip(at + 1).any(|e| e.action == want_second));
+                RuntimeValue::Bool(found)
+            }
+            DomQuery::Title => RuntimeValue::Text(Rc::new(dom::title())),
+            DomQuery::Url => RuntimeValue::Text(Rc::new(dom::route_path())),
+        })
+    }
+
+    /// The one element a selector names, or a message saying what to check. Every element verb
+    /// goes through here, so they all fail the same way.
+    fn require_element(&mut self, selector: &'a Expr<'a>, verb: &str) -> Result<i64, String> {
+        let sel = self.evaluate_expr_sync(selector)?.to_display_string();
+        let node = crate::semantics::dom::query_selector(&sel);
+        if node < 0 {
+            return Err(crate::semantics::drive::element_required(verb, &sel));
+        }
+        Ok(node)
+    }
+
+    /// Register every top-level `FunctionDef`/`StructDef` BEFORE any statement
+    /// runs, so a `## Main` that precedes a definition still resolves it — the
+    /// forward-reference semantics the VM already has via its Pass 1 (`fn_index`
+    /// over the whole program). Re-registration by the inline arms is an idempotent
+    /// re-insert, so ordering-dependent shadowing (a later redefinition) is
+    /// unaffected — the last definition still wins at its point of execution.
+    fn preregister_definitions(&mut self, stmts: &[Stmt<'a>]) {
         for stmt in stmts {
-            match self.execute_stmt(stmt).await? {
+            match stmt {
+                Stmt::FunctionDef {
+                    name,
+                    params,
+                    body,
+                    return_type,
+                    is_native,
+                    native_path,
+                    ..
+                } => {
+                    self.ctx
+                        .functions
+                        .entry(*name)
+                        .or_insert_with(|| FunctionDef {
+                            params: params.clone(),
+                            body: *body,
+                            return_type: *return_type,
+                            is_native: *is_native,
+                            native_path: *native_path,
+                        });
+                }
+                Stmt::StructDef { name, fields, .. } => {
+                    self.ctx
+                        .struct_defs
+                        .entry(*name)
+                        .or_insert_with(|| fields.clone());
+                }
+                Stmt::ComponentDef(def) => {
+                    self.ctx
+                        .components
+                        .entry(def.name)
+                        .or_insert_with(|| (**def).clone());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Execute a program (list of statements), on the async executor.
+    pub async fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        self.begin_program(stmts);
+        for (i, stmt) in stmts.iter().enumerate() {
+            let flow = self.execute_stmt(stmt).await?;
+            if let Some(f) = self.statement_observer.as_mut() {
+                f(i);
+            }
+            match flow {
                 ControlFlow::Return(_) => break,
                 ControlFlow::Break => break,
                 ControlFlow::Continue => {}
@@ -1974,18 +3684,27 @@ impl<'a> Interpreter<'a> {
     /// error (unreadable or non-random pad) — the caller propagates it as a program error, never
     /// proceeding to send plaintext.
     #[cfg(not(target_arch = "wasm32"))]
-    async fn activate_pnp_session(&mut self, bind: &crate::ast::SecurePad<'a>) -> Result<(), String> {
+    async fn activate_pnp_session(
+        &mut self,
+        bind: &crate::ast::SecurePad<'a>,
+    ) -> Result<(), String> {
         let path = self.evaluate_expr(bind.pad).await?.to_display_string();
         let bytes = std::fs::read(&path)
             .map_err(|e| format!("one-time pad '{path}' could not be read: {e}"))?;
-        let pool = crate::concurrency::pnp::PadPool::shared(bytes)
-            .map_err(|e| format!("one-time pad '{path}' rejected (not truly random / too small): {e:?}"))?;
+        let pool = crate::concurrency::pnp::PadPool::shared(bytes).map_err(|e| {
+            format!("one-time pad '{path}' rejected (not truly random / too small): {e:?}")
+        })?;
         let role = match bind.role {
             crate::ast::SecureRole::Initiator => crate::concurrency::pnp::Role::Initiator,
             crate::ast::SecureRole::Responder => crate::concurrency::pnp::Role::Responder,
         };
+        // Every run reads the same pad file, so its position is kept beside it: a run resumes past
+        // every byte an earlier run handed out, and a ledger it cannot read stops the connect.
+        let ledger = crate::concurrency::pnp::FileLedger::beside(std::path::Path::new(&path), role);
+        use crate::concurrency::pnp::PadLedgerStore;
+        ledger.update(&mut |_| false).map_err(|e| e.to_string())?;
         let session: std::rc::Rc<dyn crate::concurrency::channel::ActiveSession> =
-            std::rc::Rc::new(pool.session(role));
+            std::rc::Rc::new(pool.session_with_ledger(role, std::sync::Arc::new(ledger)));
         crate::concurrency::channel::install_session(Some(session));
         Ok(())
     }
@@ -1993,14 +3712,283 @@ impl<'a> Interpreter<'a> {
     /// On wasm the pad is provisioned through the VFS handle rather than host files (a future wiring);
     /// the clause is accepted but installs no session, matching the offline single-node tiers.
     #[cfg(target_arch = "wasm32")]
-    async fn activate_pnp_session(&mut self, _bind: &crate::ast::SecurePad<'a>) -> Result<(), String> {
+    async fn activate_pnp_session(
+        &mut self,
+        _bind: &crate::ast::SecurePad<'a>,
+    ) -> Result<(), String> {
         Ok(())
+    }
+
+    /// The single execution site for every `UiStmt` verb — driving (`Click`, `Navigate`,
+    /// `Hover`, …) and imperative (`Save`, `Toggle`, `CallStore`, `Mount`, …) alike. Both
+    /// statement executors — the async one and its sync twin — dispatch here instead of each
+    /// carrying its own copy of this match.
+    fn execute_ui(&mut self, ui: &crate::ast::stmt::UiStmt<'a>) -> Result<ControlFlow, String> {
+        use crate::page_host::Drive;
+        match ui {
+            crate::ast::stmt::UiStmt::Click { selector } => {
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Click { selector })
+            }
+            // `Submit "#form".` — the same shape as a click, on the event a form answers. A test
+            // that could only click would have to know which BUTTON submits a form, which is the
+            // page's business rather than the test's.
+            crate::ast::stmt::UiStmt::Submit { selector } => {
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Submit { selector })
+            }
+            // `Press "Enter" in "#draft".` — a key press on an element, or on the page when no
+            // element is named, so a page-level `When the user presses Escape:` is reachable.
+            crate::ast::stmt::UiStmt::Press { key, selector } => {
+                let key = self.evaluate_expr_sync(key)?.to_display_string();
+                let selector = match selector {
+                    Some(e) => self.evaluate_expr_sync(e)?.to_display_string(),
+                    None => "body".to_string(),
+                };
+                self.drive_page(Drive::Press { key, selector })
+            }
+            crate::ast::stmt::UiStmt::Choose { value, selector } => {
+                let value = self.evaluate_expr_sync(value)?.to_display_string();
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Choose { value, selector })
+            }
+            crate::ast::stmt::UiStmt::TypeInto { text, selector } => {
+                let text = self.evaluate_expr_sync(text)?.to_display_string();
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Type { text, selector })
+            }
+            crate::ast::stmt::UiStmt::SetTitle { title } => {
+                let t = self.evaluate_expr_sync(title)?.to_display_string();
+                crate::semantics::dom::set_title(&t);
+                Ok(ControlFlow::Continue)
+            }
+            // ★ `Scroll to "#card".` / `Select the text in "#draft".` — neither is a change to the
+            // document: scrolling and selecting are things a browser does TO a document that stays
+            // the same, which is why they are recorder STATE rather than ops, and why a test asks
+            // `dom::scrolled_to()` rather than reading the markup.
+            // ★ A tier with no browser cannot put anything on a real clipboard, hand the viewer a
+            // file, or raise a notification — but it can RECORD that the page asked, which is the
+            // part a test needs and the only part that is honest to claim.
+            crate::ast::stmt::UiStmt::CopyToClipboard { text } => {
+                let t = self.evaluate_expr_sync(text)?.to_display_string();
+                crate::semantics::dom::write_clipboard(&t);
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Download { bytes, name } => {
+                let content = self.evaluate_expr_sync(bytes)?.to_display_string();
+                let n = self.evaluate_expr_sync(name)?.to_display_string();
+                crate::semantics::dom::offer_download(&n, &content);
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Notify { message, tone } => {
+                let m = self.evaluate_expr_sync(message)?.to_display_string();
+                // The tone is the author's word for it (`Notify "Saved." as a success.`); a page
+                // that names none says so with the empty string rather than with a guess.
+                let t = tone.map(|t| self.ctx.interner.resolve(t).to_string()).unwrap_or_default();
+                crate::semantics::dom::notify(&m, &t);
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::ScrollTo { selector } => {
+                let node = self.require_element(selector, "Scroll to")?;
+                crate::semantics::dom::scroll_to(node);
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::SelectText { selector } => {
+                let node = self.require_element(selector, "Select the text in")?;
+                crate::semantics::dom::select_text(node);
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Focus { selector } => {
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Focus { selector })
+            }
+            crate::ast::stmt::UiStmt::Blur { selector } => {
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Blur { selector })
+            }
+            crate::ast::stmt::UiStmt::Hover { selector } => {
+                let selector = self.evaluate_expr_sync(selector)?.to_display_string();
+                self.drive_page(Drive::Hover { selector })
+            }
+            crate::ast::stmt::UiStmt::AddClass { class, selector } => {
+                let node = self.require_element(selector, "Add class")?;
+                let c = self.evaluate_expr_sync(class)?.to_display_string();
+                crate::semantics::dom::add_class(node, &c);
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::RemoveClass { class, selector } => {
+                let node = self.require_element(selector, "Remove class")?;
+                let c = self.evaluate_expr_sync(class)?.to_display_string();
+                crate::semantics::dom::remove_class(node, &c);
+                Ok(ControlFlow::Continue)
+            }
+            // ★ `Raise "offline".` — cause a window event, delivered to the PAGE; a dropped file is
+            // its own act, the file travelling with the drop to the handler it reaches.
+            crate::ast::stmt::UiStmt::RaiseWindowEvent { event, target, value } => {
+                let event = self.evaluate_expr_sync(event)?.to_display_string();
+                let target = self.evaluate_expr_sync(target)?.to_display_string();
+                let raised = self.evaluate_expr_sync(value)?;
+                if event == "filedropped" {
+                    let file = crate::semantics::dom::DroppedFile::from_value(&raised)?;
+                    return self.drive_page(Drive::DropFile { target, file });
+                }
+                self.drive_page(Drive::Raise { event, target, value: raised.to_display_string() })
+            }
+            // ★ `Publish M on "t".` — the frame goes to the transport, and THIS page's own
+            // subscribers hear it too, as the page's own `Publish` delivers it to them. From the
+            // page's own code the page cannot be driven, and its lowering delivers the message
+            // after the turn itself.
+            crate::ast::stmt::UiStmt::Publish { message, topic } => {
+                let topic = self.evaluate_expr_sync(topic)?.to_display_string();
+                let message = self.evaluate_expr_sync(message)?.to_display_string();
+                crate::semantics::dom::publish(&topic, &message);
+                if !self.page_can_be_driven() {
+                    return Ok(ControlFlow::Continue);
+                }
+                self.drive_page(Drive::Raise {
+                    event: format!("message:{topic}"),
+                    target: "body".to_string(),
+                    value: message,
+                })
+            }
+            // ★ `Go back.` — the visitor's Back button: the location steps back, and the page's
+            // route listeners hear the popstate as the page settles. At the first entry there is
+            // nowhere to go, and a browser does nothing there.
+            crate::ast::stmt::UiStmt::GoBack => {
+                if crate::semantics::dom::go_back().is_some() {
+                    self.with_hosted_page(|host, me| host.settle(me));
+                }
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Navigate { url } => {
+                let url = self.evaluate_expr_sync(url)?.to_display_string();
+                self.drive_page(Drive::Navigate { url })
+            }
+            crate::ast::stmt::UiStmt::ReplaceUrl { url } => {
+                let u = self.evaluate_expr_sync(url)?.to_display_string();
+                crate::semantics::dom::replace_route(&u);
+                Ok(ControlFlow::Continue)
+            }
+            // `Toggle done.` — a Bool flips. Anything else is a mistake worth naming, because a
+            // toggle only means something for a yes/no.
+            crate::ast::stmt::UiStmt::Toggle { field } => {
+                let name = self.ctx.interner.resolve(*field);
+                let current = self
+                    .lookup(*field)
+                    .map_err(|_| format!("`Toggle {name}` needs `{name}` to be a yes/no in scope."))?;
+                let RuntimeValue::Bool(b) = current else {
+                    return Err(format!(
+                        "`Toggle {name}` flips a yes/no, but `{name}` holds {}.",
+                        current.type_name()
+                    ));
+                };
+                self.assign(*field, RuntimeValue::Bool(!b))?;
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::StopTimer { name } => Err(format!(
+                "`Stop the timer {}` runs inside a component's `Actions:`, against that component's \
+                 own timers.",
+                self.ctx.interner.resolve(*name)
+            )),
+            crate::ast::stmt::UiStmt::StartTimer { name } => Err(format!(
+                "`Start the timer {}` runs inside a component's `Actions:`, against that component's \
+                 own timers.",
+                self.ctx.interner.resolve(*name)
+            )),
+            // `Save`, `Load` and `Forget` read and write the browser's own storage, in the tagged
+            // text every tier's `Save` writes (`parser/lgx_lower/elements.rs::tagged_value`).
+            crate::ast::stmt::UiStmt::Save { value, key } => {
+                let v = self.evaluate_expr_sync(value)?;
+                let k = self.evaluate_expr_sync(key)?.to_display_string();
+                let Some(tagged) = Self::tagged_storage_text(&v) else {
+                    return Err(format!(
+                        "`Save` keeps text, a number, a yes/no, a list or a record, and this value is \
+                         {} — storage holds text, and {} has none.",
+                        v.type_name(),
+                        v.type_name()
+                    ));
+                };
+                crate::semantics::storage::set(crate::semantics::storage::LOCAL, &k, &tagged)?;
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Load { key, var } => {
+                let k = self.evaluate_expr_sync(key)?.to_display_string();
+                let v = match crate::semantics::storage::get(crate::semantics::storage::LOCAL, &k)?
+                    .and_then(|text| Self::value_from_tagged_storage(&text))
+                {
+                    Some(v) => v,
+                    None => empty_like(self.lookup(*var).ok()),
+                };
+                self.assign(*var, v)?;
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Forget { key } => {
+                let k = self.evaluate_expr_sync(key)?.to_display_string();
+                crate::semantics::storage::remove(crate::semantics::storage::LOCAL, &k)?;
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Reload => self.drive_page(Drive::Reload),
+            // `Call Store's action` from a test: the store's action is the function its lowering
+            // compiled (`__act_<Store>_<action>`), and a test calls it as the page's own code does.
+            crate::ast::stmt::UiStmt::CallStore { store, action, args } => {
+                let store_name = self.ctx.interner.resolve(*store).to_string();
+                let action_name = self.ctx.interner.resolve(*action).to_string();
+                let lowered = logicaffeine_language::parser::lgx_lower::action_fn_name(&store_name, &action_name);
+                let function = self
+                    .ctx
+                    .interner
+                    .lookup(&lowered)
+                    .filter(|f| self.ctx.functions.contains_key(f))
+                    .ok_or_else(|| {
+                        format!("`{store_name}` has no action `{action_name}` — declare it under the store's `Actions:`.")
+                    })?;
+                let mut values = Vec::with_capacity(args.len());
+                for arg in args.iter() {
+                    values.push(self.evaluate_expr_sync(arg)?);
+                }
+                self.call_function_with_values_sync(function, values)?;
+                Ok(ControlFlow::Continue)
+            }
+            crate::ast::stmt::UiStmt::Mount { component, selector } => {
+                let at = match selector {
+                    Some(e) => Some(self.evaluate_expr_sync(e)?.to_display_string()),
+                    None => None,
+                };
+                self.drive_page(Drive::Mount { component: self.ctx.interner.resolve(*component).to_string(), at })
+            }
+        }
+    }
+
+    /// Whether a driving statement can reach the page now: one is seated, and it is not the page's
+    /// own code that is running.
+    fn page_can_be_driven(&self) -> bool {
+        match &self.page {
+            PageSeat::Unseated => false,
+            PageSeat::Driven(_) => true,
+            PageSeat::Here(hosted) => hosted.host.is_some(),
+        }
     }
 
     /// Execute a single statement.
     /// Phase 55: Now async for VFS operations.
     #[async_recursion(?Send)]
     async fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        self.tick_test_budget()?;
+        // `--tiers all` replay: test-only statements no-op — EXACTLY the set
+        // the VM's `compile_tiers` no-ops, so both engines run one program.
+        if self.tiers_noop
+            && matches!(
+                stmt,
+                Stmt::Expect { .. }
+                    | Stmt::ExpectFail { .. }
+                    | Stmt::ExpectOutput { .. }
+                    | Stmt::AdvanceTime { .. }
+                    | Stmt::GivenFile { .. }
+                    | Stmt::ForAll { .. }
+            )
+        {
+            return Ok(ControlFlow::Continue);
+        }
         match stmt {
             Stmt::Let { var, value, .. } => {
                 let val = self.evaluate_expr(value).await?;
@@ -2009,8 +3997,25 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Set { target, value } => {
+                if let Some((before, operands)) = self.text_appends(*target, value) {
+                    let mut pieces = Vec::with_capacity(operands.len());
+                    for operand in operands {
+                        pieces.push(self.evaluate_expr(operand).await?.to_display_string());
+                    }
+                    self.append_text(*target, before, pieces)?;
+                    return Ok(ControlFlow::Continue);
+                }
                 let val = self.evaluate_expr(value).await?;
                 self.assign(*target, val)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Swap { a, b } => {
+                // Reversible value exchange — the tree-walker twin of the VM's zero-garbage RevSwap.
+                let va = self.lookup(*a)?.clone();
+                let vb = self.lookup(*b)?.clone();
+                self.assign(*a, vb)?;
+                self.assign(*b, va)?;
                 Ok(ControlFlow::Continue)
             }
 
@@ -2019,9 +4024,13 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 let condition = self.evaluate_expr(cond).await?;
-                if condition.is_truthy() {
+                if condition.decided_truth()? {
                     let flow = self.execute_block(then_block).await?;
                     if !matches!(flow, ControlFlow::Continue) {
                         return Ok(flow);
@@ -2038,7 +4047,7 @@ impl<'a> Interpreter<'a> {
             Stmt::While { cond, body, .. } => {
                 loop {
                     let condition = self.evaluate_expr(cond).await?;
-                    if !condition.is_truthy() {
+                    if !condition.decided_truth()? {
                         break;
                     }
                     match self.execute_block(body).await? {
@@ -2050,7 +4059,11 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Repeat { pattern, iterable, body } => {
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
                 use crate::ast::stmt::Pattern;
 
                 let iter_val = self.evaluate_expr(iterable).await?;
@@ -2080,7 +4093,10 @@ impl<'a> Interpreter<'a> {
                                 }
                             } else {
                                 self.task.repeat_depth_async -= 1;
-                                return Err(format!("Expected tuple for pattern, got {}", item.type_name()));
+                                return Err(format!(
+                                    "Expected tuple for pattern, got {}",
+                                    item.type_name()
+                                ));
                             }
                         }
                     }
@@ -2122,11 +4138,21 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Break => Ok(ControlFlow::Break),
 
-            Stmt::FunctionDef { name, params, body, return_type, .. } => {
+            Stmt::FunctionDef {
+                name,
+                params,
+                body,
+                return_type,
+                is_native,
+                native_path,
+                ..
+            } => {
                 let func = FunctionDef {
                     params: params.clone(),
                     body: *body,
                     return_type: *return_type,
+                    is_native: *is_native,
+                    native_path: *native_path,
                 };
                 self.ctx.functions.insert(*name, func);
                 Ok(ControlFlow::Continue)
@@ -2137,117 +4163,203 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::SetField { object, field, value } => {
+            Stmt::SetField {
+                object,
+                field,
+                value,
+            } => {
                 let new_val = self.evaluate_expr(value).await?;
-                if let Expr::Identifier(obj_sym) = object {
-                    let mut obj_val = self.lookup(*obj_sym)?.clone();
-                    if let RuntimeValue::Struct(ref mut s) = obj_val {
-                        let field_name = self.ctx.interner.resolve(*field).to_string();
-                        s.fields.insert(field_name, new_val);
-                        self.assign(*obj_sym, obj_val)?;
-                    } else {
-                        return Err(format!("Cannot set field on non-struct value"));
-                    }
-                } else {
-                    return Err("SetField target must be an identifier".to_string());
-                }
+                let place = self.place(object).await?;
+                self.set_field_at(place, *field, new_val)?;
                 Ok(ControlFlow::Continue)
             }
 
+            // Every write below goes to a place owned by its binding first (`write_target`): a
+            // bare variable, or any path of fields and items (`Push 5 to item i of grid`,
+            // `Push 5 to a's b's c`) — never into a collection another binding shares.
             Stmt::Push { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                    let coll_val = self.lookup(*coll_sym)?;
-                    crate::semantics::collections::list_push(&coll_val, val)?;
-                } else if let Expr::FieldAccess { object, field } = collection {
-                    if let Expr::Identifier(obj_sym) = *object {
-                        let obj_val = self.lookup(*obj_sym)?;
-                        let field_name = self.ctx.interner.resolve(*field);
-                        crate::semantics::collections::push_to_struct_field(&obj_val, field_name, val)?;
-                    } else {
-                        return Err("Push to nested field access not supported".to_string());
+                if let Expr::FieldAccess {
+                    object: Expr::Identifier(obj_sym),
+                    field,
+                } = collection
+                {
+                    if let Some(place) = self.place(collection).await? {
+                        self.place_slot(&place, true);
                     }
+                    let obj_val = self.lookup(*obj_sym)?;
+                    let field_name = self.ctx.interner.resolve(*field);
+                    crate::semantics::collections::push_to_struct_field(obj_val, field_name, val)?;
                 } else {
-                    // Any place expression is an l-value: `Push 5 to item i of
-                    // grid`. Collections are shared handles, so pushing through
-                    // the evaluated handle mutates in place — the same aliasing
-                    // model as `Add`/`Remove` below.
-                    let coll_val = self.evaluate_expr(collection).await?;
+                    let coll_val = self.write_target(collection).await?;
                     crate::semantics::collections::list_push(&coll_val, val)?;
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Pop { collection, into } => {
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                    let coll_val = self.lookup(*coll_sym)?;
-                    let popped = crate::semantics::collections::list_pop(&coll_val)?;
-                    if let Some(into_var) = into {
-                        self.define(*into_var, popped);
-                    }
-                } else {
-                    return Err("Pop collection must be an identifier".to_string());
+                let coll_val = self.write_target(collection).await?;
+                let popped = crate::semantics::collections::list_pop(&coll_val)?;
+                if let Some(into_var) = into {
+                    self.define(*into_var, popped);
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Add { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                }
-                // The collection may be a bare variable OR a (CRDT/Set) struct field —
-                // `Add "Alice" to p's guests`. Field reads are shallow `Rc` clones, so
-                // mutating the resolved collection updates the value stored in the struct.
-                let coll_val = self.evaluate_expr(collection).await?;
+                let coll_val = self.write_target(collection).await?;
                 crate::semantics::collections::set_add(&coll_val, val)?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Remove { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                }
-                let coll_val = self.evaluate_expr(collection).await?;
+                let coll_val = self.write_target(collection).await?;
                 crate::semantics::collections::remove_from(&coll_val, &val)?;
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 let idx_val = self.evaluate_expr(index).await?;
                 let new_val = self.evaluate_expr(value).await?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    // Struct field set via index syntax: `Set item "field" of structVar to v`.
-                    // Mirrors the read side (`item "field" of struct`) so struct-field
-                    // mutation round-trips through the decompiler's CMapSet rendering.
-                    if let RuntimeValue::Text(field) = &idx_val {
-                        let cur = self.lookup(*coll_sym)?.clone();
-                        if let RuntimeValue::Struct(mut s) = cur {
-                            s.fields.insert(field.to_string(), new_val);
-                            self.assign(*coll_sym, RuntimeValue::Struct(s))?;
-                            return Ok(ControlFlow::Continue);
+                let target = match self.place(collection).await? {
+                    Some(place) => {
+                        match self.set_item_in_place(&place, &idx_val, new_val.clone()) {
+                            Some(done) => {
+                                done?;
+                                return Ok(ControlFlow::Continue);
+                            }
+                            None => self.read_place(&place)?,
                         }
                     }
-                    self.ensure_collection_owned(*coll_sym);
-                    let coll_val = self.lookup(*coll_sym)?;
-                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
-                } else {
-                    // Any place expression is an l-value: `Set item j of
-                    // (item i of grid) to v` writes the inner collection
-                    // through its shared handle.
-                    let coll_val = self.evaluate_expr(collection).await?;
-                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
-                }
+                    None => self.evaluate_expr(collection).await?,
+                };
+                crate::semantics::collections::index_set(&target, &idx_val, new_val)?;
                 Ok(ControlFlow::Continue)
             }
 
+            // A component definition is registered, not executed (`preregister_definitions`).
+            // An `## Error page STATUS` is part of the SERVER surface: the router renders it when
+            // a request 404s or 500s, and there is no router yet. Registering it silently — which
+            // is what every component kind used to get — meant a page declaring a 404 view got one
+            // quietly ignored, while its three sibling headers (`## Route`, `## Before each
+            // request`, `## Redirect`) refused by name. A declaration that is accepted and then
+            // does nothing is the worst outcome for whoever wrote it.
+            Stmt::ComponentDef(def)
+                if matches!(
+                    def.kind,
+                    crate::ast::component::ComponentKind::ErrorPage { .. }
+                ) =>
+            {
+                {
+                    // An error page whose template the server-side walk covers is a DECLARATION:
+                    // the router renders it in place of the bare status. One it cannot render is
+                    // still refused BY NAME, rather than leaving a declared page silently unused.
+                    let heading = logicaffeine_language::parser::lgx_lower::construct_heading(
+                        def,
+                        self.ctx.interner,
+                    );
+                    match def.view.as_ref() {
+                        Some(v) => match logicaffeine_language::parser::lgx_lower::view_html_lowerable(
+                            &v.nodes,
+                            self.ctx.interner,
+                        ) {
+                            Ok(()) => Ok(ControlFlow::Continue),
+                            Err(why) => Err(format!(
+                                "`{heading}` cannot be rendered on this tier yet: {}.",
+                                why.message
+                            )),
+                        },
+                        None => Err(format!(
+                            "`{heading}` cannot be rendered on this tier yet: it has no `View:` to render."
+                        )),
+                    }
+                }
+            }
+            Stmt::ComponentDef(_) | Stmt::DirectiveDef { .. } => Ok(ControlFlow::Continue),
+            Stmt::Ui(ui) => self.execute_ui(ui),
+            // A `## Route` whose body lowered to a function is a DECLARATION here — the function
+            // carries it, and `route(method, path)` dispatches. One that could not lower is
+            // refused BY NAME, saying which part is missing, rather than silently never being
+            // reachable through the dispatcher (which would read as a 404 for a route the author
+            // can see in their file).
+            Stmt::RouteDef {
+                method,
+                path,
+                params,
+                return_type,
+                body,
+                span,
+            } => {
+                match logicaffeine_language::parser::lgx_lower::route_lowerable(
+                    params,
+                    *return_type,
+                    body,
+                    self.ctx.interner,
+                    &|sym| self.ctx.struct_defs.contains_key(&sym),
+                    // The components this program declares — without them the server-side walk
+                    // refuses every template that places one, and the route silently leaves the
+                    // router.
+                    &self.ctx.components.values().cloned().collect::<Vec<_>>(),
+                    *span,
+                ) {
+                    Ok(()) => Ok(ControlFlow::Continue),
+                    Err(why) => Err(format!(
+                        "`{}` cannot run on this tier yet: {}.",
+                        logicaffeine_language::parser::lgx_lower::route_heading(
+                            *method,
+                            *path,
+                            self.ctx.interner
+                        ),
+                        why.message
+                    )),
+                }
+            }
+            // A `## Before each request` is a DECLARATION here — it lowered to a function and
+            // `route(method, path)` calls it before matching. Like a route, nothing runs at the
+            // point of declaration.
+            Stmt::MiddlewareDef { .. } => Ok(ControlFlow::Continue),
+            // A `## Redirect` is a DECLARATION — the router carries it.
+            Stmt::RedirectDef { .. } => Ok(ControlFlow::Continue),
+            Stmt::Replay { actions } => {
+                self.replay_actions(actions)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::ServeFetches => self.serve_fetches_sync(),
+            Stmt::GivenFetch {
+                method,
+                url,
+                status,
+                body,
+            } => self.given_fetch_sync(*method, url, status, body),
+            Stmt::Fetch { .. } => Err(
+                "A request that answers into an action (`Get … then loaded`) is sent by a \
+                 component's own `Actions:`, whose page completes it."
+                    .to_string(),
+            ),
             Stmt::Splice { body } => {
                 // Scope-TRANSPARENT by contract (see the AST doc): no block
                 // scoping — the gensym'd desugar temporaries live in the
                 // enclosing scope.
+                for s in body.iter() {
+                    let flow = self.execute_stmt(s).await?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow);
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Reversibly { body } => {
+                // Output-TRANSPARENT: the reversible/uncompute block runs its body in the enclosing
+                // scope exactly as if the statements were written directly. The block only changes
+                // the VM's LOWERING (to the zero-garbage reversible ISA); the tree-walker's observable
+                // behaviour is identical, which is precisely what lets tw ≡ VM hold across it.
                 for s in body.iter() {
                     let flow = self.execute_stmt(s).await?;
                     if !matches!(flow, ControlFlow::Continue) {
@@ -2279,17 +4391,213 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Assert { .. } | Stmt::Trust { .. } => {
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Assert { .. } | Stmt::Trust { .. } => Ok(ControlFlow::Continue),
 
-            Stmt::RuntimeAssert { condition, .. } => {
+            // A `## Test` block is a declaration: normal execution walks past
+            // it; the `largo test` runner collects and drives it (Wave 3).
+            Stmt::TestDef { .. } => Ok(ControlFlow::Continue),
+
+            // Test expectations (real semantics under the runner's test mode;
+            // fail-loud outside it).
+            Stmt::Expect { condition } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                self.test_assertions += 1;
                 let val = self.evaluate_expr(condition).await?;
-                if !val.is_truthy() {
-                    return Err("Assertion failed".to_string());
+                if !val.decided_truth()? {
+                    let cond_text =
+                        logicaffeine_language::printer::render_expr(condition, self.ctx.interner);
+                    let mut subs = Vec::new();
+                    logicaffeine_language::printer::subexpressions(condition, &mut subs);
+                    let mut annotations: Vec<(String, String)> = Vec::new();
+                    let mut seen = std::collections::HashSet::new();
+                    for sub in subs {
+                        let text =
+                            logicaffeine_language::printer::render_expr(sub, self.ctx.interner);
+                        if !seen.insert(text.clone()) {
+                            continue;
+                        }
+                        if let Ok(v) = self.evaluate_expr(sub).await {
+                            annotations.push((text, v.to_display_string()));
+                        }
+                    }
+                    let hint = Self::expect_socratic_hint(condition);
+                    self.test_failures
+                        .push(format_expect_failure(&cond_text, &annotations, hint));
                 }
                 Ok(ControlFlow::Continue)
             }
+            Stmt::ExpectFail { message, body } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                self.test_assertions += 1;
+                let mut failure: Option<String> = None;
+                for s in body.iter() {
+                    if let Err(e) = self.execute_stmt(s).await {
+                        failure = Some(e);
+                        break;
+                    }
+                }
+                match failure {
+                    None => self
+                        .test_failures
+                        .push("Expected this to fail — but the block succeeded.".to_string()),
+                    Some(actual) => {
+                        if let Some(expected) = message {
+                            let expected = self.ctx.interner.resolve(*expected);
+                            if actual != expected {
+                                self.test_failures.push(format!(
+                                    "Expected this to fail with {expected:?} — but it failed with {actual:?}."
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::ExpectOutput { expected } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                self.test_assertions += 1;
+                match expected {
+                    ExpectedOutput::Inline(sym) => {
+                        let expected_text = self.ctx.interner.resolve(*sym).to_string();
+                        let actual = self.output.join("\n");
+                        if actual != expected_text {
+                            self.test_failures.push(format!(
+                                "Expected output {expected_text:?} — but the test printed {actual:?}."
+                            ));
+                        }
+                    }
+                    ExpectedOutput::File(path) => {
+                        self.test_failures.push(format!(
+                            "Expected output as in {:?} — golden files land with the sealed world (Wave 4).",
+                            self.ctx.interner.resolve(*path)
+                        ));
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::AdvanceTime { millis } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                let ms = match self.evaluate_expr(millis).await? {
+                    RuntimeValue::Int(n) => n.max(0) as u64,
+                    // `3 seconds` lexes as a native Duration literal (ns).
+                    RuntimeValue::Duration(ns) => (ns.max(0) / 1_000_000) as u64,
+                    other => {
+                        return Err(format!(
+                            "Advance time needs a duration in milliseconds, got {}",
+                            other.type_name()
+                        ))
+                    }
+                };
+                self.advance_time_ms(ms)
+            }
+            Stmt::GivenFile { path, content } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                logicaffeine_system::testworld::seed_file(
+                    self.ctx.interner.resolve(*path).to_string(),
+                    self.ctx.interner.resolve(*content).to_string(),
+                );
+                Ok(ControlFlow::Continue)
+            }
+
+            // Observation statements emit to the SEPARATE observation channel
+            // (Wave 7) — never to program output. `During` is a
+            // scope-transparent span: run its body inline.
+            Stmt::Observe {
+                category,
+                message,
+                payloads,
+                sample,
+            } => {
+                if crate::observe::capturing() {
+                    let mut vals: Vec<(String, String)> = Vec::with_capacity(payloads.len());
+                    for (name, expr) in payloads.iter() {
+                        let v = self.evaluate_expr(expr).await?;
+                        vals.push((
+                            self.ctx.interner.resolve(*name).to_string(),
+                            v.to_display_string(),
+                        ));
+                    }
+                    crate::observe::emit(
+                        map_obs_category(*category),
+                        self.ctx.interner.resolve(*message).to_string(),
+                        vals,
+                        *sample,
+                        message.index() as u64,
+                    );
+                }
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::During { label, body } => {
+                // A lexical trace span: bracket the body with balanced
+                // enter/exit events, emitting exit on EVERY path (normal, early
+                // control flow, error) so a span can never leak (Wave 8).
+                let cap = crate::observe::capturing();
+                let name = if cap {
+                    self.ctx.interner.resolve(*label).to_string()
+                } else {
+                    String::new()
+                };
+                if cap {
+                    crate::observe::enter_span(name.clone());
+                }
+                let mut result: Result<ControlFlow, String> = Ok(ControlFlow::Continue);
+                for s in body.iter() {
+                    match self.execute_stmt(s).await {
+                        Ok(ControlFlow::Continue) => {}
+                        Ok(flow) => {
+                            result = Ok(flow);
+                            break;
+                        }
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                }
+                if cap {
+                    crate::observe::exit_span(name);
+                }
+                result
+            }
+            Stmt::ForAll {
+                vars,
+                domain,
+                constraint,
+                body,
+            } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                self.run_property(vars, *domain, *constraint, body)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::RuntimeAssert {
+                condition, reason, ..
+            } => {
+                let val = self.evaluate_expr(condition).await?;
+                if !val.decided_truth()? {
+                    return Err(match reason {
+                        Some(r) => crate::semantics::builtins::contract_reason_text(
+                            self.evaluate_expr(r).await?,
+                        )?,
+                        None => "Assertion failed".to_string(),
+                    });
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Fail { reason } => Err(self.evaluate_expr(reason).await?.to_display_string()),
 
             Stmt::Give { object, recipient } => {
                 let obj_val = self.evaluate_expr(object).await?;
@@ -2314,22 +4622,25 @@ impl<'a> Interpreter<'a> {
 
             // Phase 55: VFS operations now supported
             Stmt::ReadFrom { var, source } => {
-                let content = match source {
-                    ReadSource::Console => {
-                        // Console read not available in WASM interpreter
-                        String::new()
-                    }
-                    ReadSource::File(path_expr) => {
-                        let path = self.evaluate_expr(path_expr).await?.to_display_string();
-                        match &self.ctx.vfs {
-                            Some(vfs) => {
-                                vfs.read_to_string(&path).await
-                                    .map_err(|e| format!("Read error: {}", e))?
-                            }
-                            None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                let content =
+                    match source {
+                        ReadSource::Console => {
+                            // Console read not available in WASM interpreter
+                            String::new()
                         }
-                    }
-                };
+                        ReadSource::File(path_expr) => {
+                            let path = self.evaluate_expr(path_expr).await?.to_display_string();
+                            match &self.ctx.vfs {
+                                Some(vfs) => vfs.read_to_string(&path).await.map_err(|e| {
+                                    crate::semantics::builtins::vfs_read_failure(&e)
+                                })?,
+                                None => {
+                                    return Err("VFS not initialized. Use Interpreter::with_vfs()"
+                                        .to_string())
+                                }
+                            }
+                        }
+                    };
                 self.define(*var, RuntimeValue::Text(Rc::new(content)));
                 Ok(ControlFlow::Continue)
             }
@@ -2339,10 +4650,13 @@ impl<'a> Interpreter<'a> {
                 let path_val = self.evaluate_expr(path).await?.to_display_string();
                 match &self.ctx.vfs {
                     Some(vfs) => {
-                        vfs.write(&path_val, content_val.as_bytes()).await
-                            .map_err(|e| format!("Write error: {}", e))?;
+                        vfs.write(&path_val, content_val.as_bytes())
+                            .await
+                            .map_err(|e| crate::semantics::builtins::vfs_write_failure(&e))?;
                     }
-                    None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                    None => {
+                        return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string())
+                    }
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -2355,16 +4669,28 @@ impl<'a> Interpreter<'a> {
             // `Send <message> to <peer>` — publish the message on the peer's inbox
             // topic over the relay, tagged with our own inbox as the sender so the
             // recipient's `Await … from us` can match it.
-            Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed, indexed, deduped } => {
+            Stmt::SendMessage {
+                message,
+                destination,
+                compression,
+                cached,
+                unchecked,
+                layout,
+                shared,
+                computed,
+                indexed,
+                deduped,
+                unreliable: _,
+            } => {
                 use crate::concurrency::marshal::{
-                    default_integrity, message_to_wire_best, message_to_wire_cached, message_to_wire_with,
-                    with_compression_codec, with_dedup, with_integrity, with_numerics, with_structure,
-                    with_struct_view, with_type_registry, WireCodec, WireGoal, WireIntegrity, WireNumerics,
-                    WireSchemaCache, WireStructure,
+                    default_integrity, message_to_wire_best, message_to_wire_cached,
+                    message_to_wire_with, with_compression_codec, with_dedup, with_integrity,
+                    with_numerics, with_struct_view, with_structure, with_type_registry, WireCodec,
+                    WireGoal, WireIntegrity, WireNumerics, WireSchemaCache, WireStructure,
                 };
                 use logicaffeine_language::ast::SendLayout;
                 let dest = self.evaluate_expr(destination).await?;
-                let topic = Self::peer_topic_of(&dest)?;
+                let topic = crate::concurrency::net_inbox::peer_topic(&dest)?;
                 let msg = self.evaluate_expr(message).await?;
                 // `Send computed f` — COMPUTE-SHIPPING: lower a pure single-argument function
                 // into the sandboxed generator so the COMPUTATION crosses the wire (as a
@@ -2374,21 +4700,24 @@ impl<'a> Interpreter<'a> {
                 // refused here, never shipped.
                 let msg = if *computed {
                     match msg {
-                        RuntimeValue::Function(c) if c.generated.is_some() => RuntimeValue::Function(c),
+                        RuntimeValue::Function(c) if c.generated.is_some() => {
+                            RuntimeValue::Function(c)
+                        }
                         RuntimeValue::Function(c) => {
                             if c.param_names.len() != 1 {
                                 return Err(
-                                    "Send computed requires a single-argument pure function".to_string()
+                                    "Send computed requires a single-argument pure function"
+                                        .to_string(),
                                 );
                             }
-                            let expr = match self.ctx.closure_bodies.get(c.body_index) {
-                                Some(ClosureBodyRef::Expression(e)) => *e,
-                                _ => {
-                                    return Err(
-                                        "Send computed requires a pure expression-bodied function".to_string()
-                                    )
-                                }
-                            };
+                            let expr =
+                                match self.ctx.closure_bodies.get(c.body_index) {
+                                    Some(ClosureBodyRef::Expression(e)) => *e,
+                                    _ => return Err(
+                                        "Send computed requires a pure expression-bodied function"
+                                            .to_string(),
+                                    ),
+                                };
                             match crate::concurrency::marshal::lower_expr_to_genexpr(expr, c.param_names[0]) {
                                 Some(gen) => RuntimeValue::Function(Box::new(ClosureValue {
                                     body_index: usize::MAX,
@@ -2410,7 +4739,12 @@ impl<'a> Interpreter<'a> {
                     msg
                 };
                 // Owned so the schema-cache borrow below doesn't alias the inbox topic.
-                let from = self.netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                let from = self
+                    .netbox
+                    .inbox
+                    .as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_default();
                 // Advertise our type-registry epoch (set before the first-contact handshake below), so a
                 // same-program peer with a matching epoch negotiates type-id name elision.
                 self.netbox.my_profile.registry_epoch = self.build_wire_type_registry().epoch();
@@ -2421,7 +4755,11 @@ impl<'a> Interpreter<'a> {
                 // `cached` references a once-sent struct schema by id; `unchecked` drops
                 // the integrity checksum (latency↔safety). The wire is self-describing,
                 // so any peer decodes it regardless of which knobs the sender turned.
-                let integrity = if *unchecked { WireIntegrity::Raw } else { default_integrity() };
+                let integrity = if *unchecked {
+                    WireIntegrity::Raw
+                } else {
+                    default_integrity()
+                };
                 let numerics = match layout {
                     Some(SendLayout::Fast) => WireNumerics::Fixed,
                     Some(SendLayout::Packed) => WireNumerics::GroupVarint,
@@ -2468,56 +4806,97 @@ impl<'a> Interpreter<'a> {
                 let bytes = if plain {
                     // Pass the program's registry; type-id fires only when the peer's epoch matched
                     // (negotiated), so a raw / different-program peer still gets the plain encoding.
-                    self.netbox.encode_negotiated(&from, &msg, &topic, self.build_wire_type_registry())?
+                    self.netbox.encode_negotiated(
+                        &from,
+                        &msg,
+                        &topic,
+                        self.build_wire_type_registry(),
+                    )?
                 } else {
                     // `deduped` wraps the WHOLE encode: a subtree the same value reaches more than once
                     // ships once + backrefs, and the receiver rebuilds the sharing. A no-op when the
                     // knob is off, so the path below is byte-identical without it.
-                    with_dedup(*deduped, || with_struct_view(*indexed, || with_type_registry(registry, || -> Result<Vec<u8>, String> {
-                    // `smallest`/`best`: the message-level auto-tuner measures every dial
-                    // combination and ships the PROVABLY smallest encoding (never larger than
-                    // any single knob). It subsumes the numerics/structure/compression knobs,
-                    // and composes with `shared` (the registry is active here) and `redundant`
-                    // (FEC shards the result below). The cross-message schema cache (`cached`)
-                    // is a separate optimization and keeps its own path. `deduped` is excluded here:
-                    // the auto-tuner runs MANY encode passes, but the dedup id-table is per-encode, so
-                    // dedup takes the single-pass general path below instead.
-                    if matches!(layout, Some(SendLayout::Smallest)) && !*cached && !*deduped {
-                        return with_integrity(integrity, || {
-                            message_to_wire_best(&from, &msg, WireGoal::Smallest)
-                        });
-                    }
-                    if *cached {
-                        let cache = self
-                            .netbox
-                            .send_schema
-                            .entry(topic.clone())
-                            .or_insert_with(WireSchemaCache::content_addressed);
-                        let mut encode = || message_to_wire_cached(&from, &msg, WireCodec::Native, integrity, cache);
-                        with_structure(structure, || with_numerics(numerics, || match compression {
-                            Some(codec) => with_compression_codec(wire_compression_of(*codec), &mut encode),
-                            None => encode(),
-                        }))
-                    } else {
-                        let mut encode = || message_to_wire_with(&from, &msg, WireCodec::Native, integrity);
-                        with_structure(structure, || with_numerics(numerics, || match compression {
-                            Some(codec) => with_compression_codec(wire_compression_of(*codec), &mut encode),
-                            None => encode(),
-                        }))
-                    }
-                })))?
+                    with_dedup(*deduped, || {
+                        with_struct_view(*indexed, || {
+                            with_type_registry(registry, || -> Result<Vec<u8>, String> {
+                                // `smallest`/`best`: the message-level auto-tuner measures every dial
+                                // combination and ships the PROVABLY smallest encoding (never larger than
+                                // any single knob). It subsumes the numerics/structure/compression knobs,
+                                // and composes with `shared` (the registry is active here) and `redundant`
+                                // (FEC shards the result below). The cross-message schema cache (`cached`)
+                                // is a separate optimization and keeps its own path. `deduped` is excluded here:
+                                // the auto-tuner runs MANY encode passes, but the dedup id-table is per-encode, so
+                                // dedup takes the single-pass general path below instead.
+                                if matches!(layout, Some(SendLayout::Smallest))
+                                    && !*cached
+                                    && !*deduped
+                                {
+                                    return with_integrity(integrity, || {
+                                        message_to_wire_best(&from, &msg, WireGoal::Smallest)
+                                    });
+                                }
+                                if *cached {
+                                    let cache = self
+                                        .netbox
+                                        .send_schema
+                                        .entry(topic.clone())
+                                        .or_insert_with(WireSchemaCache::content_addressed);
+                                    let mut encode = || {
+                                        message_to_wire_cached(
+                                            &from,
+                                            &msg,
+                                            WireCodec::Native,
+                                            integrity,
+                                            cache,
+                                        )
+                                    };
+                                    with_structure(structure, || {
+                                        with_numerics(numerics, || match compression {
+                                            Some(codec) => with_compression_codec(
+                                                wire_compression_of(*codec),
+                                                &mut encode,
+                                            ),
+                                            None => encode(),
+                                        })
+                                    })
+                                } else {
+                                    let mut encode = || {
+                                        message_to_wire_with(
+                                            &from,
+                                            &msg,
+                                            WireCodec::Native,
+                                            integrity,
+                                        )
+                                    };
+                                    with_structure(structure, || {
+                                        with_numerics(numerics, || match compression {
+                                            Some(codec) => with_compression_codec(
+                                                wire_compression_of(*codec),
+                                                &mut encode,
+                                            ),
+                                            None => encode(),
+                                        })
+                                    })
+                                }
+                            })
+                        })
+                    })?
                 };
                 // Seal the encoded message under the active crypto session/suite — identity /
                 // byte-identical when none is engaged — before FEC/publish (compress → encrypt → FEC).
                 // A keyed session may fail closed (a one-time pad is exhausted): refuse the send rather
                 // than transmit plaintext.
-                let bytes = crate::concurrency::channel::seal_active_checked(bytes)
-                    .ok_or_else(|| "one-time pad exhausted — message not sent (PNP fail-closed)".to_string())?;
+                let bytes =
+                    crate::concurrency::channel::seal_active_checked(bytes).ok_or_else(|| {
+                        "one-time pad exhausted — message not sent (PNP fail-closed)".to_string()
+                    })?;
                 // Advertise our surface to this peer on FIRST contact — on its HANDSHAKE topic, never
                 // the data topic — so it can negotiate back. Absorbed by the peer's drain.
                 if let Some(hs) = self.netbox.first_contact_handshake(&topic) {
-                    self.netbox
-                        .publish(&crate::concurrency::net_inbox::handshake_topic_for(&topic), hs)?;
+                    self.netbox.publish(
+                        &crate::concurrency::net_inbox::handshake_topic_for(&topic),
+                        hs,
+                    )?;
                 }
                 if matches!(layout, Some(SendLayout::Redundant)) {
                     // FEC: split the encoded message into K data + (N−K) parity shards and
@@ -2525,7 +4904,10 @@ impl<'a> Interpreter<'a> {
                     // message from any K even if some are lost on the link.
                     let msg_id = self.netbox.next_msg_id();
                     let shards = crate::concurrency::fec::frame_redundant(
-                        msg_id, &bytes, REDUNDANT_K, REDUNDANT_N,
+                        msg_id,
+                        &bytes,
+                        REDUNDANT_K,
+                        REDUNDANT_N,
                     )
                     .ok_or_else(|| "redundant framing failed".to_string())?;
                     for shard in shards {
@@ -2540,11 +4922,16 @@ impl<'a> Interpreter<'a> {
             // `Await … from <peer> into x` — block (cooperatively) until a message
             // from that peer arrives on our inbox, then bind it to `x`. Messages
             // from other peers stay queued for their own `Await`.
-            Stmt::AwaitMessage { source, into, view, stream } => {
+            Stmt::AwaitMessage {
+                source,
+                into,
+                view,
+                stream,
+            } => {
                 let src = self.evaluate_expr(source).await?;
-                let want = Self::peer_topic_of(&src)?;
+                let want = crate::concurrency::net_inbox::peer_topic(&src)?;
                 if self.netbox.inbox.is_none() {
-                    return Err("Await requires a prior Listen to establish an inbox".to_string());
+                    return Err(crate::concurrency::net_inbox::AWAIT_WITHOUT_LISTEN.to_string());
                 }
                 // OFFLINE (no relay): the deterministic oracle reads from our own loopback outbox — a
                 // `Send … to <self>` already delivered the message locally, so `Await` resolves it (no
@@ -2560,15 +4947,23 @@ impl<'a> Interpreter<'a> {
 
             // `Stream <values> to <peer>` — batch the list into one framed stream message and
             // publish it to the peer's inbox; `Await stream from us` deframes it back into a list.
-            Stmt::StreamMessage { values, destination } => {
+            Stmt::StreamMessage {
+                values,
+                destination,
+            } => {
                 let dest = self.evaluate_expr(destination).await?;
-                let topic = Self::peer_topic_of(&dest)?;
+                let topic = crate::concurrency::net_inbox::peer_topic(&dest)?;
                 let list = self.evaluate_expr(values).await?;
                 let items = match &list {
                     RuntimeValue::List(rc) => rc.borrow().to_values(),
                     other => vec![other.clone()],
                 };
-                let from = self.netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                let from = self
+                    .netbox
+                    .inbox
+                    .as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_default();
                 let registry = self.build_wire_type_registry();
                 let blob = crate::concurrency::marshal::with_type_registry(registry, || {
                     crate::concurrency::marshal::frame_stream_message(&from, &items)
@@ -2591,12 +4986,16 @@ impl<'a> Interpreter<'a> {
 
                     if let RuntimeValue::Struct(ref mut s) = target_val {
                         for (field_name, source_field_val) in source_fields {
-                            let current = s.fields.get(&field_name)
+                            let current = s
+                                .fields
+                                .get(&field_name)
                                 .cloned()
                                 .unwrap_or(RuntimeValue::Int(0));
 
-                            let merged =
-                                crate::semantics::arith::crdt_merge_field(&current, source_field_val);
+                            let merged = crate::semantics::arith::crdt_merge_field(
+                                &current,
+                                source_field_val,
+                            );
                             s.fields.insert(field_name, merged);
                         }
                         self.assign(*target_sym, target_val)?;
@@ -2609,7 +5008,47 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::IncreaseCrdt { object, field, amount } => {
+            // The IDEMPOTENT sibling of `MergeCrdt`: a bare-`Int` field takes per-field MAX (not ADD), so a
+            // redelivered state never double-counts. Counter/other fields defer to `crdt_join_field`'s merge.
+            Stmt::JoinCrdt { source, target } => {
+                let source_val = self.evaluate_expr(source).await?;
+                let source_fields = match &source_val {
+                    RuntimeValue::Struct(s) => s.fields.clone(),
+                    _ => return Err("Converge source must be a struct".to_string()),
+                };
+
+                if let Expr::Identifier(target_sym) = target {
+                    let mut target_val = self.lookup(*target_sym)?.clone();
+
+                    if let RuntimeValue::Struct(ref mut s) = target_val {
+                        for (field_name, source_field_val) in source_fields {
+                            let current = s
+                                .fields
+                                .get(&field_name)
+                                .cloned()
+                                .unwrap_or(RuntimeValue::Int(0));
+
+                            let joined = crate::semantics::arith::crdt_join_field(
+                                &current,
+                                source_field_val,
+                            );
+                            s.fields.insert(field_name, joined);
+                        }
+                        self.assign(*target_sym, target_val)?;
+                    } else {
+                        return Err("Converge target must be a struct".to_string());
+                    }
+                } else {
+                    return Err("Converge target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::IncreaseCrdt {
+                object,
+                field,
+                amount,
+            } => {
                 let amount_val = self.evaluate_expr(amount).await?;
                 let amount_int = match amount_val {
                     RuntimeValue::Int(n) => n,
@@ -2621,12 +5060,17 @@ impl<'a> Interpreter<'a> {
 
                     if let RuntimeValue::Struct(ref mut s) = obj_val {
                         let field_name = self.ctx.interner.resolve(*field).to_string();
-                        let current = s.fields.get(&field_name)
+                        let current = s
+                            .fields
+                            .get(&field_name)
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
-                        let new_val =
-                            crate::semantics::arith::crdt_counter_bump(current, amount_int, &field_name)?;
+                        let new_val = crate::semantics::arith::crdt_counter_bump(
+                            current,
+                            amount_int,
+                            &field_name,
+                        )?;
                         s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
@@ -2638,7 +5082,11 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::DecreaseCrdt { object, field, amount } => {
+            Stmt::DecreaseCrdt {
+                object,
+                field,
+                amount,
+            } => {
                 let amount_val = self.evaluate_expr(amount).await?;
                 let amount_int = match amount_val {
                     RuntimeValue::Int(n) => n,
@@ -2650,7 +5098,9 @@ impl<'a> Interpreter<'a> {
 
                     if let RuntimeValue::Struct(ref mut s) = obj_val {
                         let field_name = self.ctx.interner.resolve(*field).to_string();
-                        let current = s.fields.get(&field_name)
+                        let current = s
+                            .fields
+                            .get(&field_name)
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
@@ -2683,7 +5133,11 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::ResolveConflict { object, field, value } => {
+            Stmt::ResolveConflict {
+                object,
+                field,
+                value,
+            } => {
                 let val = self.evaluate_expr(value).await?;
                 let obj_val = self.evaluate_expr(object).await?;
                 let field_name = self.ctx.interner.resolve(*field);
@@ -2706,63 +5160,7 @@ impl<'a> Interpreter<'a> {
                 Err("Resolve target must be a struct field".to_string())
             }
 
-            Stmt::Check { subject, predicate, is_capability, object, source_text, .. } => {
-                // Get the policy registry
-                let registry = match &self.ctx.policy_registry {
-                    Some(r) => r,
-                    None => return Err("Security Check requires policies. Use compiled Rust or add ## Policy block.".to_string()),
-                };
-
-                let subj_val = self.lookup(*subject)?.clone();
-                let subj_type_name = match &subj_val {
-                    RuntimeValue::Struct(s) => s.type_name.clone(),
-                    _ => return Err(format!("Check subject must be a struct, got {}", subj_val.type_name())),
-                };
-
-                // Find the subject type symbol
-                let subj_type_sym = match self.ctx.interner.lookup(&subj_type_name) {
-                    Some(sym) => sym,
-                    None => return Err(format!("Unknown type '{}' in Check statement", subj_type_name)),
-                };
-
-                let passed = if *is_capability {
-                    // Capability check: "user can publish document"
-                    let obj_val = match object {
-                        Some(obj_sym) => Some(self.lookup(*obj_sym)?.clone()),
-                        None => None,
-                    };
-
-                    let caps = registry.get_capabilities(subj_type_sym);
-                    let cap = caps
-                        .and_then(|caps| caps.iter().find(|c| c.action == *predicate));
-
-                    match cap {
-                        Some(cap) => self.evaluate_policy_condition(&cap.condition, &subj_val, obj_val.as_ref()),
-                        None => {
-                            let pred_name = self.ctx.interner.resolve(*predicate);
-                            return Err(format!("No capability '{}' defined for type '{}'", pred_name, subj_type_name));
-                        }
-                    }
-                } else {
-                    // Predicate check: "user is admin"
-                    let preds = registry.get_predicates(subj_type_sym);
-                    let pred_def = preds
-                        .and_then(|preds| preds.iter().find(|p| p.predicate_name == *predicate));
-
-                    match pred_def {
-                        Some(pred) => self.evaluate_policy_condition(&pred.condition, &subj_val, None),
-                        None => {
-                            let pred_name = self.ctx.interner.resolve(*predicate);
-                            return Err(format!("No predicate '{}' defined for type '{}'", pred_name, subj_type_name));
-                        }
-                    }
-                };
-
-                if !passed {
-                    return Err(format!("Security Check Failed: {}", source_text));
-                }
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Check { .. } => self.exec_check(stmt),
 
             // `Connect to "<relay>"` — open the transport: dial the relay and hold
             // the connection for `Sync` and peer messaging. Accepts the same
@@ -2771,8 +5169,7 @@ impl<'a> Interpreter<'a> {
             // URL passes through.
             Stmt::ConnectTo { address, secure } => {
                 let raw = self.evaluate_expr(address).await?.to_display_string();
-                let url = logicaffeine_system::addr::multiaddr_to_ws_url(&raw)
-                    .map_err(|e| format!("Connect address '{raw}' is not a ws:// URL or supported multiaddr: {e}"))?;
+                let url = crate::concurrency::net_inbox::relay_url(&raw)?;
                 // Activate the one-time-pad session first, so a bad pad fails the connect (fail-closed).
                 if let Some(bind) = secure {
                     self.activate_pnp_session(bind).await?;
@@ -2812,6 +5209,31 @@ impl<'a> Interpreter<'a> {
                 self.netbox.inbox = Some(Rc::new(topic));
                 Ok(ControlFlow::Continue)
             }
+            // HTTP server: bind a port and, per request, re-enter the LOGOS handler
+            // (a `Request -> Response` function) with the parsed request and write
+            // back its response. This is the host→LOGOS callback keystone — the
+            // accept loop runs inline on this thread (the interpreter is `!Send`),
+            // never spawning, so `&mut self` is simply borrowed across `.await`.
+            Stmt::Serve { port, handler } => {
+                let port_num: u16 = match self.evaluate_expr(port).await? {
+                    RuntimeValue::Int(n) if (0..=65535).contains(&n) => n as u16,
+                    RuntimeValue::Int(n) => {
+                        return Err(format!("Serve: port {n} is out of range (0-65535)"))
+                    }
+                    other => {
+                        return Err(format!(
+                            "Serve: port must be an Int, got {}",
+                            other.type_name()
+                        ))
+                    }
+                };
+                let handler_sym = match handler {
+                    Expr::Identifier(sym) => *sym,
+                    _ => return Err("Serve: the handler must be a named function".to_string()),
+                };
+                self.serve_http(port_num, handler_sym).await?;
+                Ok(ControlFlow::Continue)
+            }
             // `Let r be a PeerAgent at "<addr>"` — a handle to a remote peer; its
             // value is the peer's canonical inbox topic. Pure (no I/O); `Send`
             // and `Await` do the networking.
@@ -2823,48 +5245,7 @@ impl<'a> Interpreter<'a> {
             }
             Stmt::Sleep { milliseconds } => {
                 let val = self.evaluate_expr(milliseconds).await?;
-
-                // Under the deterministic scheduler (any program with tasks/channels), route
-                // the sleep through a scheduler timer — the same logical-tick scale as a
-                // `Select` `After` arm — so it integrates with task scheduling. Blocking on a
-                // raw host timer here would suspend the task with no scheduler request and
-                // panic the cooperative driver (and under a non-tokio executor there is no
-                // reactor at all).
-                if self.yield_state.is_some() {
-                    let ticks = match &val {
-                        RuntimeValue::Int(n) => (*n).max(0) as u64,
-                        RuntimeValue::Duration(d) => (*d).max(0) as u64,
-                        _ => return Err(format!("Sleep requires Duration or Int, got {}", val.type_name())),
-                    };
-                    if ticks > 0 {
-                        self.yield_request(BlockingRequest::Sleep(ticks)).await;
-                    }
-                    return Ok(ControlFlow::Continue);
-                }
-
-                let nanos = match val {
-                    RuntimeValue::Duration(nanos) => nanos,
-                    RuntimeValue::Int(ms) => ms.wrapping_mul(1_000_000), // ms → nanos
-                    _ => return Err(format!("Sleep requires Duration or Int, got {}", val.type_name())),
-                };
-
-                if nanos > 0 {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        // Use tokio re-exported from logicaffeine_system
-                        logicaffeine_system::tokio::time::sleep(
-                            std::time::Duration::from_nanos(nanos as u64)
-                        ).await;
-                    }
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        // On WASM, use gloo-timers for async sleep
-                        let millis = (nanos / 1_000_000) as u32;
-                        if millis > 0 {
-                            gloo_timers::future::TimeoutFuture::new(millis).await;
-                        }
-                    }
-                }
+                self.sleep_for(val).await?;
                 Ok(ControlFlow::Continue)
             }
             // `Sync x on "topic"` — a CRDT sync POINT over the relay: subscribe,
@@ -2874,32 +5255,48 @@ impl<'a> Interpreter<'a> {
             Stmt::Sync { var, topic } => {
                 let topic_str = self.evaluate_expr(topic).await?.to_display_string();
                 let current = self.lookup(*var)?.clone();
-                // Rich CRDT (ORSet / RGA / MVRegister) → δ-STATE sync: publish only what changed since
-                // our last sync on this topic (`delta_since`, per field), and merge incoming deltas IN
-                // PLACE through the shared `Rc`. The first sync ships the full state (delta since
-                // nothing); every later sync ships a handful of bytes for the NEW entries, never the
-                // whole collection. Idempotent + commutative, so redelivery / reordering still
+                // Rich COLLECTION CRDT (ORSet / RGA / MVRegister) → δ-STATE sync: publish only what
+                // changed since our last sync on this topic (`delta_since`, per field), and merge
+                // incoming deltas IN PLACE through the shared `Rc`. The first sync ships the full state
+                // (delta since nothing); every later sync ships a handful of bytes for the NEW entries,
+                // never the whole collection. Idempotent + commutative, so redelivery / reordering still
                 // converges. Covers a bare CrdtValue var (field name "") AND every CrdtValue field of a
-                // `Shared` struct — which is how programs actually hold them.
-                let crdt_fields: Vec<(String, std::rc::Rc<std::cell::RefCell<crate::semantics::crdt::CrdtValue>>)> =
-                    match &current {
-                        RuntimeValue::Crdt(rc) => vec![(String::new(), rc.clone())],
-                        RuntimeValue::Struct(s) => s
-                            .fields
-                            .iter()
-                            .filter_map(|(k, v)| match v {
-                                RuntimeValue::Crdt(rc) => Some((k.clone(), rc.clone())),
-                                _ => None,
-                            })
-                            .collect(),
-                        _ => Vec::new(),
-                    };
+                // `Shared` struct. A COUNTER CRDT (`ConvergentCount`/`Tally`) is EXCLUDED here: under
+                // Spec A a counter's readable wire projection is its Int TOTAL (`{"points":3}`), so it
+                // takes the `crdt_to_wire` JSON path below (`field_to_json` projects it to its scalar),
+                // not the opaque δ-state bytes — the same wire form a bare-Int counter shipped.
+                let is_counter = |rc: &std::rc::Rc<
+                    std::cell::RefCell<crate::semantics::crdt::CrdtValue>,
+                >| { rc.borrow().counter_value().is_some() };
+                let crdt_fields: Vec<(
+                    String,
+                    std::rc::Rc<std::cell::RefCell<crate::semantics::crdt::CrdtValue>>,
+                )> = match &current {
+                    RuntimeValue::Crdt(rc) if !is_counter(rc) => vec![(String::new(), rc.clone())],
+                    RuntimeValue::Crdt(_) => Vec::new(),
+                    RuntimeValue::Struct(s) => s
+                        .fields
+                        .iter()
+                        .filter_map(|(k, v)| match v {
+                            RuntimeValue::Crdt(rc) if !is_counter(rc) => {
+                                Some((k.clone(), rc.clone()))
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
                 if !crdt_fields.is_empty() {
                     let field_key = |name: &str| format!("{topic_str}\u{0}{name}");
                     // Each field's delta since the version we last shipped on this topic.
                     let mut frame: Vec<(String, Vec<u8>)> = Vec::new();
                     for (name, rc) in &crdt_fields {
-                        let since = self.netbox.sync_versions.get(&field_key(name)).cloned().unwrap_or_default();
+                        let since = self
+                            .netbox
+                            .sync_versions
+                            .get(&field_key(name))
+                            .cloned()
+                            .unwrap_or_default();
                         if let Some(d) = rc.borrow().delta_since_bytes(&since) {
                             frame.push((name.clone(), d));
                         }
@@ -2916,11 +5313,14 @@ impl<'a> Interpreter<'a> {
                         let incoming = net.drain();
                         // Merge every incoming field delta into the matching local CRDT field, in place.
                         for (_t, data) in incoming {
-                            let Ok(fields) = serde_json::from_slice::<Vec<(String, Vec<u8>)>>(&data) else {
+                            let Ok(fields) =
+                                serde_json::from_slice::<Vec<(String, Vec<u8>)>>(&data)
+                            else {
                                 continue;
                             };
                             for (name, delta) in fields {
-                                if let Some((_, rc)) = crdt_fields.iter().find(|(n, _)| *n == name) {
+                                if let Some((_, rc)) = crdt_fields.iter().find(|(n, _)| *n == name)
+                                {
                                     rc.borrow_mut().apply_delta_bytes(&delta);
                                 }
                             }
@@ -2972,7 +5372,9 @@ impl<'a> Interpreter<'a> {
                         };
                         self.define(*var, RuntimeValue::Text(Rc::new(content)));
                     }
-                    None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                    None => {
+                        return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string())
+                    }
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -3006,16 +5408,22 @@ impl<'a> Interpreter<'a> {
             Stmt::LaunchTask { function, args } => {
                 let mut arg_vals = Vec::with_capacity(args.len());
                 for a in args.iter() {
-                    arg_vals.push(self.evaluate_expr(a).await?);
+                    let val = self.evaluate_expr(a).await?;
+                    arg_vals.push(crossing_to_a_task(&val)?);
                 }
                 let child = self.spawn_child_task(*function, arg_vals);
                 self.yield_request(BlockingRequest::Spawn(child)).await;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::LaunchTaskWithHandle { handle, function, args } => {
+            Stmt::LaunchTaskWithHandle {
+                handle,
+                function,
+                args,
+            } => {
                 let mut arg_vals = Vec::with_capacity(args.len());
                 for a in args.iter() {
-                    arg_vals.push(self.evaluate_expr(a).await?);
+                    let val = self.evaluate_expr(a).await?;
+                    arg_vals.push(crossing_to_a_task(&val)?);
                 }
                 let child = self.spawn_child_task(*function, arg_vals);
                 let resume = self.yield_request(BlockingRequest::Spawn(child)).await;
@@ -3030,12 +5438,32 @@ impl<'a> Interpreter<'a> {
                 self.yield_request(BlockingRequest::Abort(tid)).await;
                 Ok(ControlFlow::Continue)
             }
-            Stmt::TrySendPipe { value, pipe, result } => {
+            Stmt::CloseChannel { channel } => {
+                let ch = self.eval_chan(channel).await?;
+                self.yield_request(BlockingRequest::Close(ch)).await;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::AwaitTask { handle, result } => {
+                let tid = self.eval_task(handle).await?;
+                let resume = self.yield_request(BlockingRequest::Await(tid)).await;
+                let value = marshal::rebuild(resume.into_payload());
+                if let Some(r) = result {
+                    self.define(*r, value);
+                }
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::TrySendPipe {
+                value,
+                pipe,
+                result,
+            } => {
                 let ch = self.eval_chan(pipe).await?;
                 let val = self.evaluate_expr(value).await?;
                 let payload = marshal::materialize(&val)
                     .map_err(|e| format!("cannot send value through a channel: {:?}", e))?;
-                let resume = self.yield_request(BlockingRequest::TrySend(ch, payload)).await;
+                let resume = self
+                    .yield_request(BlockingRequest::TrySend(ch, payload))
+                    .await;
                 let ok = matches!(resume.into_payload(), RtPayload::Bool(true));
                 if let Some(res) = result {
                     self.define(*res, RuntimeValue::Bool(ok));
@@ -3045,7 +5473,19 @@ impl<'a> Interpreter<'a> {
             Stmt::TryReceivePipe { var, pipe } => {
                 let ch = self.eval_chan(pipe).await?;
                 let resume = self.yield_request(BlockingRequest::TryRecv(ch)).await;
-                let value = marshal::rebuild(resume.into_payload());
+                // ★ A REAL OPTION, like every other producer of one. A try-receive answers
+                // "a value, or nothing", which IS an Option — but it used to hand back the bare
+                // value and the `Nothing` sentinel, so `Inspect x: When Some (v):` could only work
+                // while `Inspect` matched a `Some` arm against anything that was not the sentinel.
+                // With that catch-all gone it errored with "no arm for the value": honest, but a
+                // capability the sentence plainly promises.
+                //
+                // R1 keeps `Show x` printing the value or `nothing`, and R2 keeps
+                // `x is equal to nothing` true when empty, so every existing reader is unaffected.
+                let value = match marshal::rebuild(resume.into_payload()) {
+                    RuntimeValue::Nothing => option_none(),
+                    v => option_some(v),
+                };
                 self.define(*var, value);
                 Ok(ControlFlow::Continue)
             }
@@ -3079,23 +5519,25 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
-            // Escape blocks contain raw Rust code and cannot be interpreted
-            Stmt::Escape { .. } => {
-                Err(
-                    "Escape blocks contain raw Rust code and cannot be interpreted. \
-                     Use `largo build` or `largo run` to compile and run this program."
-                    .to_string()
-                )
-            }
+            // Only the Rust backends compile an Escape; every other tier refuses it with the one message.
+            Stmt::Escape { .. } => Err(crate::semantics::escape::REFUSAL.to_string()),
 
             // Dependencies are compilation metadata. No-op in interpreter.
-            Stmt::Require { .. } => {
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Require { .. } => Ok(ControlFlow::Continue),
 
             // Theorems and definitions are proof-layer declarations verified at
             // compile-time, not executed.
-            Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => Ok(ControlFlow::Continue),
+            Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => {
+                Ok(ControlFlow::Continue)
+            }
+
+            // A failure-site marker (Wave 3): the reference tier's own job with it is exactly
+            // "current site = id" — see `Stmt::Site`'s and `current_site`'s own doc comments for
+            // why no call stack is needed. A trap renders with whichever site is current.
+            Stmt::Site(id) => {
+                self.current_site = Some(*id);
+                Ok(ControlFlow::Continue)
+            }
         }
     }
 
@@ -3119,18 +5561,29 @@ impl<'a> Interpreter<'a> {
 
     /// The loud message for a non-exhaustive `Inspect` — no arm matched the
     /// scrutinee's actual variant and there was no `Otherwise`. Exhaustiveness
-    /// or a wildcard is required; a silent no-op hid the missing arm. Kept
-    /// value-agnostic so it is byte-identical to the VM's compile-time
-    /// `FailWith` (the VM cannot name the runtime variant at emit time).
-    fn inspect_unhandled(&self, _target: &RuntimeValue) -> String {
-        "Inspect has no arm for the value and no Otherwise (matches must be exhaustive)".to_string()
+    /// or a wildcard is required; a silent no-op hid the missing arm. Names the
+    /// value's own variant and type (gauntlet finding G5) through the ONE shared
+    /// constructor `semantics::builtins::inspect_unhandled_message` — the VM
+    /// calls the identical function on the identical `RuntimeValue` shape (its
+    /// `Value` wraps this crate's own `RuntimeValue` directly), so a mistyped
+    /// arm fails with the same words on both tiers.
+    fn inspect_unhandled(&self, target: &RuntimeValue) -> String {
+        let variant = match target {
+            RuntimeValue::Inductive(i) => i.constructor.as_str(),
+            _ => "the value",
+        };
+        crate::semantics::builtins::inspect_unhandled_message(target.type_name(), variant)
     }
 
     /// Execute Inspect (pattern matching).
     /// Phase 55: Now async.
     /// Phase 102: Extended to handle kernel inductives.
     #[async_recursion(?Send)]
-    async fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<ControlFlow, String> {
+    async fn execute_inspect(
+        &mut self,
+        target: &RuntimeValue,
+        arms: &[MatchArm<'a>],
+    ) -> Result<ControlFlow, String> {
         for arm in arms {
             // Handle Otherwise (wildcard) case
             if arm.variant.is_none() {
@@ -3155,6 +5608,21 @@ impl<'a> Interpreter<'a> {
                             let flow = result?;
                             return Ok(flow);
                         }
+                        // The transparent Option encoding, for a STRUCT payload: `some x` IS x,
+                        // so `some(a new Response …)` is a Response and a `Some` arm has to match
+                        // it. Without this the arm above rejects it (its `type_name` is
+                        // `Response`, not `Some`) and the `other` arm below is never reached,
+                        // because this branch already claimed the value — so `Option of <any
+                        // record>` could not be inspected AT ALL, while `Option of Int` worked
+                        // fine. That asymmetry is invisible until someone writes the first
+                        // `-> Option of Response`, which is the plan's own middleware signature.
+                        // ★ A STRUCT NO LONGER ANSWERS A `Some` ARM. This existed because an
+                        // Option was transparent — `some (a new Response …)` WAS the Response, so
+                        // without it `Option of <record>` could not be inspected at all while
+                        // `Option of Int` worked, an asymmetry that stayed invisible until the
+                        // first `-> Option of Response`. A real Option is an `Inductive` now and
+                        // is matched by name, so leaving this would let a plain record claim to be
+                        // a present Option.
                     }
                 }
 
@@ -3176,34 +5644,49 @@ impl<'a> Interpreter<'a> {
                     }
                 }
 
+                // The transparent Option encoding: `some x` IS x and `none` IS
+                // Nothing, so Some/None arms match presence/absence for
+                // non-enum values (the boxed `a new Some …` form matches
+                // through the arms above).
+                RuntimeValue::Nothing => {
+                    if let Some(variant) = arm.variant {
+                        if self.ctx.interner.resolve(variant) == "None" {
+                            let flow = self.execute_block(arm.body).await?;
+                            return Ok(flow);
+                        }
+                    }
+                }
+
+                // ★ THE TRANSPARENT CATCH-ALL IS GONE. It answered a `Some` arm with ANY value
+                // that was not the sentinel, which was the encoding's entire presence rule. An
+                // Option now arrives as an `Inductive("Option", …)` and is matched by name above,
+                // so this clause would only ever make a bare `7` claim to be a present Option.
                 _ => {}
             }
         }
         Err(self.inspect_unhandled(target))
     }
 
-    /// Resolve a `Send … to <dest>` / `Await … from <src>` operand to a relay
-    /// topic: a `PeerAgent` uses its topic; a string is canonicalized as an
-    /// address; anything else is a type error.
-    fn peer_topic_of(value: &RuntimeValue) -> Result<String, String> {
-        match value {
-            RuntimeValue::Peer(topic) => Ok((**topic).clone()),
-            RuntimeValue::Text(s) => Ok(logicaffeine_system::addr::canonical_topic(s)),
-            other => Err(format!(
-                "Send/Await expects a PeerAgent or address string, got {}",
-                other.type_name()
-            )),
-        }
-    }
-
     /// Build the wire type registry from the program's struct definitions. A peer running
     /// the SAME program derives the identical (content-addressed) ids, so a `Send shared`
     /// struct can ship its id instead of its field names and the receiver resolves it.
+    /// Skips a compiler-provided struct (`TypeRegistry::is_builtin_struct`, `HttpError`/`File`)
+    /// — the compiler hands EVERY program those two whether it names them or not, so leaving them
+    /// in would advertise a non-zero epoch (and inflate the registry) for a program with no
+    /// struct/enum types of its own, breaking the "same program ⇒ same registry" contract that
+    /// the sibling `type_registry_for_vm` build in `ui_bridge.rs` already honors.
     fn build_wire_type_registry(&self) -> crate::concurrency::marshal::WireTypeRegistry {
+        let is_builtin = |name_sym: &Symbol| {
+            self.ctx
+                .types
+                .as_ref()
+                .is_some_and(|t| t.is_builtin_struct(*name_sym))
+        };
         let schemas: Vec<(String, Vec<String>)> = self
             .ctx
             .struct_defs
             .iter()
+            .filter(|(name_sym, _)| !is_builtin(name_sym))
             .map(|(name_sym, fields)| {
                 let type_name = self.ctx.interner.resolve(*name_sym).to_string();
                 let field_names = fields
@@ -3219,7 +5702,10 @@ impl<'a> Interpreter<'a> {
             .iter()
             .map(|(name_sym, ctors)| {
                 let type_name = self.ctx.interner.resolve(*name_sym).to_string();
-                let ctor_names = ctors.iter().map(|c| self.ctx.interner.resolve(*c).to_string()).collect();
+                let ctor_names = ctors
+                    .iter()
+                    .map(|c| self.ctx.interner.resolve(*c).to_string())
+                    .collect();
                 (type_name, ctor_names)
             })
             .collect();
@@ -3274,6 +5760,11 @@ impl<'a> Interpreter<'a> {
     #[async_recursion(?Send)]
     async fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
         match expr {
+            Expr::View(_) => Err(
+                "A view is drawn by the component it belongs to — place it in that component's `View:`."
+                    .to_string(),
+            ),
+            Expr::Dom(q) => self.evaluate_dom_query(q),
             Expr::Literal(lit) => self.evaluate_literal(lit),
 
             Expr::Identifier(sym) => {
@@ -3295,19 +5786,19 @@ impl<'a> Interpreter<'a> {
                 match op {
                     BinaryOpKind::And => {
                         let left_val = self.evaluate_expr(left).await?;
-                        if !left_val.is_truthy() {
+                        if !left_val.decided_truth()? {
                             return Ok(RuntimeValue::Bool(false));
                         }
                         let right_val = self.evaluate_expr(right).await?;
-                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
+                        Ok(RuntimeValue::Bool(right_val.decided_truth()?))
                     }
                     BinaryOpKind::Or => {
                         let left_val = self.evaluate_expr(left).await?;
-                        if left_val.is_truthy() {
+                        if left_val.decided_truth()? {
                             return Ok(RuntimeValue::Bool(true));
                         }
                         let right_val = self.evaluate_expr(right).await?;
-                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
+                        Ok(RuntimeValue::Bool(right_val.decided_truth()?))
                     }
                     _ => {
                         let left_val = self.evaluate_expr(left).await?;
@@ -3428,32 +5919,7 @@ impl<'a> Interpreter<'a> {
                         let field_name = self.ctx.interner.resolve(*field_sym).to_string();
                         if !fields.contains_key(&field_name) {
                             let type_name_str = self.ctx.interner.resolve(*type_sym).to_string();
-                            let default = match type_name_str.as_str() {
-                                "Int" => RuntimeValue::Int(0),
-                                "Float" => RuntimeValue::Float(0.0),
-                                "Bool" => RuntimeValue::Bool(false),
-                                "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
-                                "Char" => RuntimeValue::Char('\0'),
-                                "Byte" => RuntimeValue::Int(0),
-                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
-                                "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
-                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
-                                // A `Shared` struct's CRDT fields default to an empty live
-                                // CRDT, mirroring the compiled tier's `ORSet`/`RGA` field.
-                                "SharedSet" | "ORSet" | "SharedSet_AddWins" =>
-                                    RuntimeValue::Crdt(Rc::new(RefCell::new(
-                                        crate::semantics::crdt::CrdtValue::new_set(
-                                            crate::semantics::crdt::next_replica_id())))),
-                                "SharedSet_RemoveWins" =>
-                                    RuntimeValue::Crdt(Rc::new(RefCell::new(
-                                        crate::semantics::crdt::CrdtValue::new_set_remove_wins(
-                                            crate::semantics::crdt::next_replica_id())))),
-                                "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" =>
-                                    RuntimeValue::Crdt(Rc::new(RefCell::new(
-                                        crate::semantics::crdt::CrdtValue::new_seq(
-                                            crate::semantics::crdt::next_replica_id())))),
-                                _ => RuntimeValue::Nothing,
-                            };
+                            let default = default_for_declared_type(type_name_str.as_str());
                             fields.insert(field_name, default);
                         }
                     }
@@ -3468,13 +5934,39 @@ impl<'a> Interpreter<'a> {
                 let inductive_type = self.ctx.interner.resolve(*enum_name).to_string();
                 let constructor = self.ctx.interner.resolve(*variant).to_string();
 
-                let mut args = Vec::new();
-                for (_, field_expr) in fields {
-                    let field_val = self.evaluate_expr(field_expr).await?;
-                    args.push(field_val);
-                }
+                // Construction is written field-name-first and is documented ORDER-
+                // INDEPENDENT (`a new X with b 2 and a 1` is legal) — `Inductive` stores its
+                // payload POSITIONALLY (`args: Vec<RuntimeValue>`), so each evaluated value is
+                // re-seated at its DECLARED index (not its WRITTEN index) using the variant's
+                // own field list (`variant_fields`, from the discovery-pass registry).
+                // Evaluation itself still runs in WRITTEN order (side effects follow the
+                // author's own text); only the STORAGE position is corrected. Falls back to
+                // write order when no declaration is known (a dynamic/built-in variant, or no
+                // type registry at all). Keyed by `(enum_name, variant)`, not `variant` alone —
+                // `Expr::NewVariant` already names its own enum, so no ambiguity is possible even
+                // when another enum declares a same-named variant with a different field shape.
+                let declared = self.ctx.variant_fields.get(&(*enum_name, *variant)).cloned();
+                let args = match &declared {
+                    Some(names) => {
+                        let mut slots: Vec<Option<RuntimeValue>> = (0..names.len()).map(|_| None).collect();
+                        for (field_name, field_expr) in fields {
+                            let field_val = self.evaluate_expr(field_expr).await?;
+                            if let Some(pos) = names.iter().position(|n| n == field_name) {
+                                slots[pos] = Some(field_val);
+                            }
+                        }
+                        slots.into_iter().map(|v| v.unwrap_or(RuntimeValue::Nothing)).collect()
+                    }
+                    None => {
+                        let mut args = Vec::with_capacity(fields.len());
+                        for (_, field_expr) in fields {
+                            args.push(self.evaluate_expr(field_expr).await?);
+                        }
+                        args
+                    }
+                };
 
-                Ok(RuntimeValue::Inductive(Box::new(InductiveValue {
+                Ok(RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
                     inductive_type,
                     constructor,
                     args,
@@ -3489,17 +5981,29 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Nothing)
             }
 
-            Expr::WithCapacity { value, .. } => {
-                self.evaluate_expr(value).await
+            Expr::WithCapacity { value, capacity } => {
+                let capacity = match self.evaluate_expr(capacity).await? {
+                    RuntimeValue::Int(capacity) => capacity,
+                    _ => return Err("Capacity requires an Int".to_string()),
+                };
+                let value = self.evaluate_expr(value).await?;
+                Ok(apply_capacity_hint(value, capacity))
             }
 
+            // ★ AN OPTION IS A REAL TAGGED VALUE. It used to be TRANSPARENT — `some x` evaluated
+            // to `x` and `none` to the `Nothing` sentinel — which meant presence was inferred from
+            // bits rather than carried. That works only while the payload can never BE the
+            // sentinel, and it cannot survive `some none` (both levels collapse) or a compiled
+            // tier where `some 0` and `none` are the same machine word.
+            //
+            // Display and equality are unchanged: R1 renders the payload (`to_display_string`),
+            // R2 keeps `none` equal to `nothing` (`semantics::compare`). See `option_tier_lock`.
             Expr::OptionSome { value } => {
-                self.evaluate_expr(value).await
+                let inner = self.evaluate_expr(value).await?;
+                Ok(option_some(inner))
             }
 
-            Expr::OptionNone => {
-                Ok(RuntimeValue::Nothing)
-            }
+            Expr::OptionNone => Ok(option_none()),
 
             Expr::Not { operand } => {
                 let val = self.evaluate_expr(operand).await?;
@@ -3536,8 +6040,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Escape { .. } => {
-                Err("Escape expressions contain raw Rust code and cannot be interpreted. \
-                     Use `largo build` or `largo run` to compile and run this program.".to_string())
+                Err(crate::semantics::escape::REFUSAL.to_string())
             }
 
             Expr::Closure { params, body, .. } => {
@@ -3589,20 +6092,30 @@ impl<'a> Interpreter<'a> {
         match lit {
             Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
             Literal::Float(f) => Ok(RuntimeValue::Float(*f)),
-            Literal::Text(sym) => Ok(RuntimeValue::Text(Rc::new(self.ctx.interner.resolve(*sym).to_string()))),
+            Literal::Text(sym) => Ok(RuntimeValue::Text(Rc::new(
+                self.ctx.interner.resolve(*sym).to_string(),
+            ))),
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),
             Literal::Char(c) => Ok(RuntimeValue::Char(*c)),
             Literal::Duration(nanos) => Ok(RuntimeValue::Duration(*nanos)),
             Literal::Date(days) => Ok(RuntimeValue::Date(*days)),
             Literal::Moment(nanos) => Ok(RuntimeValue::Moment(*nanos)),
-            Literal::Span { months, days } => Ok(RuntimeValue::Span { months: *months, days: *days }),
+            Literal::Span { months, days } => Ok(RuntimeValue::Span {
+                months: *months,
+                days: *days,
+            }),
             Literal::Time(nanos) => Ok(RuntimeValue::Time(*nanos)),
         }
     }
 
     /// Apply a binary operator (delegates to the shared semantics kernel).
-    fn apply_binary_op(&self, op: BinaryOpKind, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    fn apply_binary_op(
+        &self,
+        op: BinaryOpKind,
+        left: RuntimeValue,
+        right: RuntimeValue,
+    ) -> Result<RuntimeValue, String> {
         crate::semantics::arith::binary_op(op, left, right)
     }
 
@@ -3614,12 +6127,49 @@ impl<'a> Interpreter<'a> {
         crate::semantics::compare::values_equal(left, right)
     }
 
+    /// Coerce a function's return value to a NAMED RECORD type: a `-> (quotient: Int, remainder: Int)`
+    /// function returns a positional tuple `(a, b)`, which becomes a self-describing `StructValue` with the
+    /// record's field names — so `r's quotient` resolves through the ordinary struct field lookup on every
+    /// tier. A non-record return, or a non-tuple/arity-mismatch value, passes through unchanged.
+    fn coerce_record_return(&self, val: RuntimeValue, function: Symbol) -> RuntimeValue {
+        let rt = match self
+            .ctx
+            .functions
+            .get(&function)
+            .and_then(|f| f.return_type)
+        {
+            Some(rt) => rt,
+            None => return val,
+        };
+        if let crate::ast::stmt::TypeExpr::Record { field_names, .. } = rt {
+            if let RuntimeValue::Tuple(elems) = &val {
+                if elems.len() == field_names.len() {
+                    let mut fields = HashMap::with_capacity(field_names.len());
+                    for (n, v) in field_names.iter().zip(elems.iter()) {
+                        fields.insert(self.ctx.interner.resolve(*n).to_string(), v.clone());
+                    }
+                    return RuntimeValue::Struct(Box::new(StructValue {
+                        type_name: "Record".to_string(),
+                        fields,
+                    }));
+                }
+            }
+        }
+        val
+    }
+
     /// Call a function (built-in or user-defined).
     #[async_recursion(?Send)]
-    async fn call_function(&mut self, function: Symbol, args: &[&'async_recursion Expr<'a>]) -> Result<RuntimeValue, String> {
+    async fn call_function(
+        &mut self,
+        function: Symbol,
+        args: &[&'async_recursion Expr<'a>],
+    ) -> Result<RuntimeValue, String> {
         // Built-in functions — Symbol comparison (integer) instead of string matching
         let func_sym = Some(function);
-        if func_sym == self.ctx.sym_show {
+        if self.declares(function) {
+            // The program's own function: resolved below, ahead of every builtin and intercept.
+        } else if func_sym == self.ctx.sym_show {
             for arg in args {
                 let val = self.evaluate_expr(arg).await?;
                 self.emit_output(val.to_display_string());
@@ -3635,7 +6185,57 @@ impl<'a> Interpreter<'a> {
                 .iter()
                 .map(|s| RuntimeValue::Text(Rc::new(s.clone())))
                 .collect();
-            return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items)))));
+            return Ok(RuntimeValue::List(Rc::new(RefCell::new(
+                ListRepr::from_values(items),
+            ))));
+        } else if self.pbkdf2_accel(function, args.len()) {
+            // crypto.lg's `pbkdf2Sha256` is the FIPS/RFC-locked pure-LOGOS SPEC the
+            // AOT tiers compile — but SCRAM's Hi() mandates 4096 iterations (~16k
+            // interpreted SHA-256 compressions ≈ 32s on the tree-walker), untenable
+            // for a live handshake. Route the interpreted tier through the native
+            // reference, which is byte-identical (crypto_accel_lock.rs): the whole
+            // language's `hashlib`-in-C arrangement, no corner cut.
+            let pw = self.evaluate_expr(&args[0]).await?;
+            let salt = self.evaluate_expr(&args[1]).await?;
+            let iters = self.evaluate_expr(&args[2]).await?;
+            let (pw, salt, iters) = crate::semantics::builtins::pbkdf2_arguments(&pw, &salt, &iters)?;
+            let dk = crate::crypto_accel::pbkdf2_sha256(&pw, &salt, iters);
+            return Ok(crate::semantics::builtins::bytes_to_seq(&dk));
+        } else if let Some(kernel) = self.native_kernel(function, args.len()) {
+            // A standard-library native kernel (`crypto.lg`'s `## To native` ML-KEM / ML-DSA
+            // functions): the same Rust kernel the compiled tier links and the VM's
+            // `CallBuiltin(NativeKernel)` runs.
+            let mut vals = Vec::with_capacity(args.len());
+            for arg in args {
+                vals.push(self.evaluate_expr(arg).await?);
+            }
+            return kernel.call(&vals);
+        } else if let Some(id) = self.system_native_id(function, args.len()) {
+            // file.lg's `read`/`write`, random.lg's `randomInt`/`randomFloat`, env.lg's `get` and
+            // time.lg's `now`, EMPTY-bodied on the executing tiers: route through the ONE shared builtin
+            // implementation (the VM emits the same `CallBuiltin`, so the tiers cannot drift). The
+            // native guard in `system_native_id` keeps declarer-wins: a user-defined function of
+            // the same name with a real body is never intercepted.
+            let mut vals = Vec::with_capacity(args.len());
+            for arg in args {
+                vals.push(self.evaluate_expr(arg).await?);
+            }
+            return crate::semantics::builtins::call_builtin(id, vals);
+        } else if self.sleep_native(function, args.len()) {
+            // time.lg's `sleep(ms)` — the `Sleep` statement's wait, answering nothing.
+            let val = self.evaluate_expr(&args[0]).await?;
+            self.sleep_for(val).await?;
+            return Ok(RuntimeValue::Nothing);
+        } else if let Some(op) = self.tcp_native_op(function, args.len()) {
+            // tcp.lg natives — blocking socket IO through the holder's TcpRegistry.
+            // The ONE value-level exec (`exec_values`) is shared with the VM's io
+            // driver, so argument decoding, semantics, and Err wording cannot
+            // drift between tiers. Async twin only: sockets suspend.
+            let mut vals = Vec::with_capacity(args.len());
+            for arg in args {
+                vals.push(self.evaluate_expr(arg).await?);
+            }
+            return self.tcpbox.exec_values(op, vals).await;
         } else if let Some(id) = self.builtin_id(function) {
             // Arity is checked BEFORE evaluating arguments (kernel rule).
             crate::semantics::builtins::check_arity(id, args.len())?;
@@ -3652,7 +6252,14 @@ impl<'a> Interpreter<'a> {
                 }
                 v
             };
+            if id == crate::semantics::builtins::BuiltinId::DefinedReal {
+                return self.open_defined_run().define(vals);
+            }
             return crate::semantics::builtins::call_builtin(id, vals);
+        }
+
+        if let Some(refusal) = self.native_refusal(function) {
+            return Err(refusal);
         }
 
         // User-defined function lookup — extract metadata without cloning params
@@ -3671,20 +6278,51 @@ impl<'a> Interpreter<'a> {
 
             // Evaluate arguments before pushing scope
             let mut arg_values = Vec::with_capacity(param_count);
-            for arg in args {
-                arg_values.push(self.evaluate_expr(arg).await?);
+            let mut lent: Vec<(usize, Place)> = Vec::new();
+            for (i, arg) in args.iter().enumerate() {
+                if matches!(
+                    self.ctx.functions[&function].params[i].1,
+                    TypeExpr::Mutable { .. }
+                ) {
+                    let place = match self.place(arg).await {
+                        Ok(place) => place,
+                        Err(e) => {
+                            let values = self.values_to_give_back(&lent, &mut arg_values);
+                            self.give_back(lent, values);
+                            return Err(e);
+                        }
+                    };
+                    if let Some(value) = place.as_ref().and_then(|place| self.lend(place)) {
+                        arg_values.push(value);
+                        lent.push((i, place.expect("a lent argument names a place")));
+                        continue;
+                    }
+                }
+                match self.evaluate_expr(arg).await {
+                    Ok(v) => arg_values.push(v),
+                    Err(e) => {
+                        let values = self.values_to_give_back(&lent, &mut arg_values);
+                        self.give_back(lent, values);
+                        return Err(e);
+                    }
+                }
             }
 
             // Bind parameters in a FRESH frame — the lexical barrier: the body
             // sees params, its own bindings, and globals; never caller locals.
             if self.task.call_depth >= crate::semantics::MAX_CALL_DEPTH {
-            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
-        }
-        self.task.call_depth += 1;
-        self.task.env.push_frame();
+                let values = self.values_to_give_back(&lent, &mut arg_values);
+                self.give_back(lent, values);
+                return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+            }
+            self.task.call_depth += 1;
+            self.task.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.ctx.functions[&function].params[i].0;
-                self.task.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+                self.task.env.define(
+                    param_name,
+                    std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing),
+                );
             }
 
             // Execute function body
@@ -3756,16 +6394,23 @@ impl<'a> Interpreter<'a> {
             self.task.repeat_depth_async = prev_repeat;
             self.task.tco_fn_async = prev_tco;
 
+            let returned = self.lent_values(function, &lent);
             self.task.env.pop_frame();
-        self.task.call_depth -= 1;
+            self.give_back(lent, returned);
+            self.task.call_depth -= 1;
             match body_err {
                 Some(e) => Err(e),
-                None => Ok(return_value),
+                None => Ok(self.coerce_record_return(return_value, function)),
             }
         } else {
             // Fallback: check if the function name is a variable holding a closure
-            let maybe_closure = self.task.env.lookup(function)
-                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+            let maybe_closure = self.task.env.lookup(function).and_then(|v| {
+                if let RuntimeValue::Function(c) = v {
+                    Some((**c).clone())
+                } else {
+                    None
+                }
+            });
 
             if let Some(closure) = maybe_closure {
                 let mut arg_values = Vec::with_capacity(args.len());
@@ -3774,7 +6419,10 @@ impl<'a> Interpreter<'a> {
                 }
                 self.call_closure_value(&closure, arg_values).await
             } else {
-                Err(format!("Unknown function: {}", self.ctx.interner.resolve(function)))
+                Err(format!(
+                    "Unknown function: {}",
+                    self.ctx.interner.resolve(function)
+                ))
             }
         }
     }
@@ -3804,7 +6452,10 @@ impl<'a> Interpreter<'a> {
     async fn eval_task(&mut self, expr: &Expr<'a>) -> Result<TaskId, String> {
         match self.evaluate_expr(expr).await? {
             RuntimeValue::TaskHandle(id) => Ok(id),
-            other => Err(format!("expected a task handle, found {}", other.type_name())),
+            other => Err(format!(
+                "expected a task handle, found {}",
+                other.type_name()
+            )),
         }
     }
 
@@ -3841,23 +6492,70 @@ impl<'a> Interpreter<'a> {
             ctx: self.ctx.clone(),
             task: TaskState::new(),
             output: Vec::new(),
+            current_site: None,
             yield_state: Some(ys.clone()),
+            err_sink: self.err_sink.clone(),
             netbox: crate::concurrency::net_inbox::NetInbox::new(),
+            tcpbox: crate::concurrency::tcp_registry::TcpRegistry::new(),
+            // Spawned tasks do NOT inherit test mode: a test-only statement
+            // inside a task body fails loudly (never silently), and per-task
+            // budget/failure aggregation is the concurrency-testing wave's
+            // design (constitution Wave 12).
+            test_mode: false,
+            test_failures: Vec::new(),
+            test_ops: 0,
+            test_assertions: 0,
+            request_deadline: None,
+            deadline_tick: 0,
+            test_budget: u64::MAX,
+            gen_rng: 0,
+            prove_mode: false,
+            properties_proven: 0,
+            // General fuel DOES span tasks: one cell for the whole cohort.
+            fuel: self.fuel.clone(),
+            tiers_noop: false,
+            // A spawned task is a background continuation, never the top-level test driver — it
+            // drives no page and nothing observes its statements.
+            page: PageSeat::Unseated,
+            statement_observer: None,
+            page_main: None,
+            failed_call_site: None,
+            defined_run: None,
         };
         let fut = Box::pin(async move {
-            child.call_function_with_values(function, args).await.map(|_| ())
+            child
+                .call_function_with_values(function, args)
+                .await
+                .map(|_| ())
         });
-        Box::new(InterpreterTask::new(fut, ys, None))
+        Box::new(InterpreterTask::new(fut, ys, self.err_sink.clone()))
     }
 
     #[async_recursion(?Send)]
-    async fn call_function_with_values(&mut self, function: Symbol, mut args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
+    async fn call_function_with_values(
+        &mut self,
+        function: Symbol,
+        mut args: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, String> {
         // Handle built-in "show" via Symbol comparison
         if Some(function) == self.ctx.sym_show {
             for val in args {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
+        }
+        if let Some(id) = self.system_native_id(function, args.len()) {
+            return crate::semantics::builtins::call_builtin(id, args);
+        }
+        if let Some(kernel) = self.native_kernel(function, args.len()) {
+            return kernel.call(&args);
+        }
+        if self.sleep_native(function, args.len()) {
+            self.sleep_for(args.remove(0)).await?;
+            return Ok(RuntimeValue::Nothing);
+        }
+        if let Some(refusal) = self.native_refusal(function) {
+            return Err(refusal);
         }
 
         if let Some(func) = self.ctx.functions.get(&function) {
@@ -3867,18 +6565,23 @@ impl<'a> Interpreter<'a> {
             if args.len() != param_count {
                 return Err(format!(
                     "Function {} expects {} arguments, got {}",
-                    self.ctx.interner.resolve(function), param_count, args.len()
+                    self.ctx.interner.resolve(function),
+                    param_count,
+                    args.len()
                 ));
             }
 
             if self.task.call_depth >= crate::semantics::MAX_CALL_DEPTH {
-            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
-        }
-        self.task.call_depth += 1;
-        self.task.env.push_frame();
+                return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+            }
+            self.task.call_depth += 1;
+            self.task.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.ctx.functions[&function].params[i].0;
-                self.task.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
+                self.task.env.define(
+                    param_name,
+                    std::mem::replace(&mut args[i], RuntimeValue::Nothing),
+                );
             }
 
             // TCO on the async path — mirror of the sync twin in
@@ -3950,24 +6653,179 @@ impl<'a> Interpreter<'a> {
             self.task.tco_fn_async = prev_tco;
 
             self.task.env.pop_frame();
-        self.task.call_depth -= 1;
+            self.task.call_depth -= 1;
             match body_err {
                 Some(e) => Err(e),
-                None => Ok(return_value),
+                None => Ok(self.coerce_record_return(return_value, function)),
             }
         } else {
-            let maybe_closure = self.task.env.lookup(function)
-                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+            let maybe_closure = self.task.env.lookup(function).and_then(|v| {
+                if let RuntimeValue::Function(c) = v {
+                    Some((**c).clone())
+                } else {
+                    None
+                }
+            });
 
             if let Some(closure) = maybe_closure {
                 self.call_closure_value(&closure, args).await
             } else {
-                Err(format!("Unknown function: {}", self.ctx.interner.resolve(function)))
+                Err(format!(
+                    "Unknown function: {}",
+                    self.ctx.interner.resolve(function)
+                ))
             }
         }
     }
 
     /// Map a function symbol to its kernel builtin, via the cached symbols.
+    /// The system-native seam ([`crate::semantics::builtins::system_native`]): the shared builtin
+    /// when `f` is a `## To native` declaration of `read`, `write`, `randomInt`, `randomFloat`, `get`
+    /// or `now` at its arity. A user-defined function with a real body always wins (declarer-wins), so
+    /// these names are NOT reserved the way [`Self::builtin_id`] names are.
+    fn system_native_id(
+        &self,
+        f: Symbol,
+        argc: usize,
+    ) -> Option<crate::semantics::builtins::BuiltinId> {
+        let id = crate::semantics::builtins::system_native(self.ctx.interner.resolve(f), argc)?;
+        self.ctx
+            .functions
+            .get(&f)
+            .is_some_and(|fd| fd.is_native)
+            .then_some(id)
+    }
+
+    /// time.lg's `sleep(ms)` as its `## To native` declaration, which waits as the `Sleep`
+    /// statement does.
+    fn sleep_native(&self, f: Symbol, argc: usize) -> bool {
+        argc == 1
+            && self.ctx.interner.resolve(f) == "sleep"
+            && self.ctx.functions.get(&f).is_some_and(|fd| fd.is_native)
+    }
+
+    /// The `Sleep` statement's wait, which `sleep(ms)` shares. Under the deterministic scheduler
+    /// (any program with tasks or channels) it is a scheduler timer on the logical-tick scale a
+    /// `Select` `After` arm uses, so it integrates with task scheduling: blocking on a raw host timer
+    /// would suspend the task with no scheduler request and panic the cooperative driver (and under
+    /// a non-tokio executor there is no reactor at all). Otherwise it is a real wait, which a tokio
+    /// reactor drives when one is present (`largo run`, relay hosts) and a plain sync context (the
+    /// playground harness, tests) blocks for instead of panicking on a missing reactor.
+    async fn sleep_for(&mut self, val: RuntimeValue) -> Result<(), String> {
+        if self.yield_state.is_some() {
+            let ticks = sleep_ticks(&val)?;
+            if ticks > 0 {
+                self.yield_request(BlockingRequest::Sleep(ticks)).await;
+            }
+            return Ok(());
+        }
+        let nanos = sleep_nanos(&val)?;
+        if nanos > 0 {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let dur = std::time::Duration::from_nanos(nanos as u64);
+                match logicaffeine_system::tokio::runtime::Handle::try_current() {
+                    Ok(_) => logicaffeine_system::tokio::time::sleep(dur).await,
+                    Err(_) => std::thread::sleep(dur),
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let millis = (nanos / 1_000_000) as u32;
+                if millis > 0 {
+                    gloo_timers::future::TimeoutFuture::new(millis).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Self::sleep_for`] where nothing can be awaited: the sync twin runs no scheduler and no
+    /// reactor, so this is the blocking wait. A browser cannot block its thread, so there it does
+    /// not wait at all.
+    fn sleep_for_sync(&mut self, val: RuntimeValue) -> Result<(), String> {
+        let nanos = sleep_nanos(&val)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if nanos > 0 {
+            std::thread::sleep(std::time::Duration::from_nanos(nanos as u64));
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = nanos;
+        Ok(())
+    }
+
+    /// The refusal for a call that reached a `## To native` declaration none of the engine's seams
+    /// took: there is no body to run, and an empty answer would be a wrong one.
+    fn native_refusal(&self, f: Symbol) -> Option<String> {
+        let fd = self.ctx.functions.get(&f)?;
+        fd.is_native.then(|| {
+            crate::semantics::builtins::unimplemented_native(
+                self.ctx.interner.resolve(f),
+                fd.native_path.map(|p| self.ctx.interner.resolve(p)),
+            )
+        })
+    }
+
+    /// crypto.lg's `pbkdf2Sha256` at its 3-arg signature. The interpreted tiers
+    /// substitute the byte-identical native reference (`crypto_accel`) for the
+    /// pure Hi() loop, which is far too slow to INTERPRET for a live SCRAM
+    /// handshake (4096 iterations ≈ 16k SHA-256 compressions). The name denotes
+    /// exactly PBKDF2-HMAC-SHA256, so the native output is the only correct one;
+    /// guarded on the function being defined so a bare call to an undefined name
+    /// still raises the normal "Unknown function" error rather than silently
+    /// succeeding.
+    fn pbkdf2_accel(&self, f: Symbol, argc: usize) -> bool {
+        argc == 3
+            && self.ctx.interner.resolve(f) == "pbkdf2Sha256"
+            && crate::loader::is_library_function("pbkdf2Sha256")
+    }
+
+    /// "Declarer wins": does the program define `f` itself, with a body? A native declaration
+    /// (`## To native …`, empty-bodied here) defers to the engine; the standard library's own
+    /// accelerated definitions defer to their native implementation (`pbkdf2_accel`).
+    fn declares(&self, f: Symbol) -> bool {
+        self.ctx
+            .functions
+            .get(&f)
+            .is_some_and(|d| !d.is_native)
+            && !self.pbkdf2_accel(f, 3)
+    }
+
+    /// A standard-library native kernel, same declarer-wins rule as [`Self::system_native_id`]: the
+    /// kernel only when `f` is its `## To native` declaration at the kernel's arity.
+    fn native_kernel(
+        &self,
+        f: Symbol,
+        argc: usize,
+    ) -> Option<crate::semantics::native_kernels::NativeKernel> {
+        let kernel = crate::semantics::native_kernels::NativeKernel::from_name(
+            self.ctx.interner.resolve(f),
+        )?;
+        (kernel.arity() == argc
+            && self
+                .ctx
+                .functions
+                .get(&f)
+                .is_some_and(|fd| fd.is_native))
+        .then_some(kernel)
+    }
+
+    /// tcp.lg's native seam, same declarer-wins rule as [`Self::system_native_id`]:
+    /// the op only when `f` is the native declaration at the right arity.
+    fn tcp_native_op(
+        &self,
+        f: Symbol,
+        argc: usize,
+    ) -> Option<crate::concurrency::tcp_registry::TcpOp> {
+        let op =
+            crate::concurrency::tcp_registry::TcpOp::from_name(self.ctx.interner.resolve(f), argc)?;
+        self.ctx
+            .functions
+            .get(&f)
+            .is_some_and(|fd| fd.is_native)
+            .then_some(op)
+    }
+
     fn builtin_id(&self, f: Symbol) -> Option<crate::semantics::builtins::BuiltinId> {
         use crate::semantics::builtins::BuiltinId as B;
         let s = Some(f);
@@ -4028,62 +6886,283 @@ impl<'a> Interpreter<'a> {
         if self.task.env.assign(name, value) {
             Ok(())
         } else {
-            Err(format!("Undefined variable: {}", self.ctx.interner.resolve(name)))
+            Err(format!(
+                "Undefined variable: {}",
+                self.ctx.interner.resolve(name)
+            ))
         }
     }
 
     fn lookup(&self, name: Symbol) -> Result<&RuntimeValue, String> {
-        self.task.env.lookup(name)
+        self.task
+            .env
+            .lookup(name)
             .ok_or_else(|| format!("Undefined variable: {}", self.ctx.interner.resolve(name)))
     }
 
-    /// True if `sym` is a `mutable` parameter of the function whose body is
-    /// currently executing. Such a parameter passes by reference (Mutable Value
-    /// Semantics escape hatch), so its mutations must reach the caller's
-    /// collection in place — copy-on-write is suppressed for it.
-    fn is_mutable_param(&self, sym: Symbol) -> bool {
-        let Some(fn_sym) = self.task.tco_fn_sync.or(self.task.tco_fn_async) else {
-            return false;
+    /// `e` as a place, its item keys evaluated — `None` for an expression that names no place.
+    fn place_sync(&mut self, e: &Expr<'a>) -> Result<Option<Place>, String> {
+        let Some((root, shape)) = place_shape(e) else {
+            return Ok(None);
         };
-        let Some(fdef) = self.ctx.functions.get(&fn_sym) else {
-            return false;
-        };
-        fdef.params
-            .iter()
-            .any(|(p, ty)| *p == sym && matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. }))
+        let mut steps = Vec::with_capacity(shape.len());
+        for step in shape {
+            steps.push(match step {
+                PlaceShape::Field(f) => PlaceStep::Field(self.ctx.interner.resolve(f).to_string()),
+                PlaceShape::Item(k) => PlaceStep::Item(self.evaluate_expr_sync(k)?),
+            });
+        }
+        Ok(Some(Place { root, steps }))
     }
 
-    /// Copy-on-write for value semantics. Before mutating the collection bound to
-    /// `sym`, ensure it is uniquely owned: if another binding shares the same
-    /// allocation (`Rc` strong count > 1) — from `Let b be a`, a plain parameter,
-    /// or storage inside another collection — replace `sym` with a deep copy so
-    /// the mutation cannot be observed through that other binding. Sound: it
-    /// never UNDER-copies (any alias bumps the count), so it can only ever copy
-    /// when it might otherwise alias. A `mutable` parameter is exempt — it
-    /// deliberately mutates the caller's collection in place.
-    fn ensure_collection_owned(&mut self, sym: Symbol) {
-        // MVS migration gate. Copy-on-write value semantics for collections must
-        // land in LOCKSTEP across the tree-walker, VM, and AOT: the debug shadow
-        // oracle (ui_bridge) cross-checks the VM against the tree-walker on every
-        // program, so flipping one engine alone makes every aliasing-observable
-        // program diverge. This tree-walker COW is implemented and validated;
-        // it stays gated (off by default) until the VM + AOT flip together.
-        if !crate::semantics::collections::value_semantics_enabled() {
-            return;
-        }
-        if self.is_mutable_param(sym) {
-            return;
-        }
-        let shared = match self.task.env.lookup(sym) {
-            Some(RuntimeValue::List(rc)) => Rc::strong_count(rc) > 1,
-            Some(RuntimeValue::Map(rc)) => Rc::strong_count(rc) > 1,
-            Some(RuntimeValue::Set(rc)) => Rc::strong_count(rc) > 1,
-            _ => false,
+    /// [`Interpreter::place_sync`] on the async executor.
+    #[async_recursion(?Send)]
+    async fn place(&mut self, e: &Expr<'a>) -> Result<Option<Place>, String> {
+        let Some((root, shape)) = place_shape(e) else {
+            return Ok(None);
         };
-        if shared {
-            let owned = self.task.env.lookup(sym).map(|v| v.deep_clone());
-            if let Some(owned) = owned {
-                self.task.env.assign(sym, owned);
+        let mut steps = Vec::with_capacity(shape.len());
+        for step in shape {
+            steps.push(match step {
+                PlaceShape::Field(f) => PlaceStep::Field(self.ctx.interner.resolve(f).to_string()),
+                PlaceShape::Item(k) => PlaceStep::Item(self.evaluate_expr(k).await?),
+            });
+        }
+        Ok(Some(Place { root, steps }))
+    }
+
+    /// The value at `place`, to write through — Mutable Value Semantics' ownership rule: every
+    /// collection on the path from the binding to it (and, when `own_target`, the value itself)
+    /// is first made the binding's OWN (`own_collection`), so a write through `place` is seen
+    /// through that binding and no other — not through a `Let` that copied it, not through the
+    /// caller whose value a plain parameter copied. `None` when the binding or a step does not
+    /// exist. Under reference semantics (`LOGOS_VALUE_SEMANTICS=0`) nothing is copied.
+    fn place_slot(&mut self, place: &Place, own_target: bool) -> Option<&mut RuntimeValue> {
+        let cow = crate::semantics::collections::value_semantics_enabled();
+        let mut here = self.task.env.lookup_mut(place.root)?;
+        for step in &place.steps {
+            if cow {
+                own_collection(here);
+            }
+            here = step_into(here, step)?;
+        }
+        if cow && own_target {
+            own_collection(here);
+        }
+        Some(here)
+    }
+
+    /// The value at `place`, read with its already-evaluated item keys — what reading the place's
+    /// expression answers, in the evaluator's own words when a step has nothing there.
+    fn read_place(&self, place: &Place) -> Result<RuntimeValue, String> {
+        let mut here = self.lookup(place.root)?.clone();
+        for step in &place.steps {
+            here = match (step, &here) {
+                (PlaceStep::Field(name), RuntimeValue::Struct(s)) => s
+                    .fields
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("Field '{name}' not found"))?,
+                (PlaceStep::Field(_), other) => {
+                    return Err(format!("Cannot access field on {}", other.type_name()))
+                }
+                (PlaceStep::Item(key), value) => {
+                    crate::semantics::collections::index_get(value, key)?
+                }
+            };
+        }
+        Ok(here)
+    }
+
+    /// The collection a write goes to: the place `target` names, owned by its binding
+    /// ([`Interpreter::place_slot`]) — or, when no step of the place can be written through, the
+    /// value the place holds — or the value `target` evaluates to when it names no place. Each
+    /// item key is evaluated exactly once.
+    fn write_target_sync(&mut self, target: &Expr<'a>) -> Result<RuntimeValue, String> {
+        match self.place_sync(target)? {
+            Some(place) => match self.place_slot(&place, true) {
+                Some(slot) => Ok(slot.clone()),
+                None => self.read_place(&place),
+            },
+            None => self.evaluate_expr_sync(target),
+        }
+    }
+
+    /// [`Interpreter::write_target_sync`] on the async executor.
+    #[async_recursion(?Send)]
+    async fn write_target(&mut self, target: &Expr<'a>) -> Result<RuntimeValue, String> {
+        match self.place(target).await? {
+            Some(place) => match self.place_slot(&place, true) {
+                Some(slot) => Ok(slot.clone()),
+                None => self.read_place(&place),
+            },
+            None => self.evaluate_expr(target).await,
+        }
+    }
+
+    /// `Set <object>'s <field> to <value>.` — the field of the record `object` names, written in
+    /// its binding's own copy of the record.
+    fn set_field_at(
+        &mut self,
+        place: Option<Place>,
+        field: Symbol,
+        value: RuntimeValue,
+    ) -> Result<(), String> {
+        let Some(place) = place else {
+            return Err("SetField target must be a variable, a field or an item".to_string());
+        };
+        self.lookup(place.root)?;
+        let name = self.ctx.interner.resolve(field).to_string();
+        match self.place_slot(&place, true) {
+            Some(RuntimeValue::Struct(s)) => {
+                s.fields.insert(name, value);
+                Ok(())
+            }
+            _ => Err("Cannot set field on non-struct value".to_string()),
+        }
+    }
+
+    /// `Set item <key> of <collection> to <value>.` through the place `place` names — the item of
+    /// its collection, or the field of a record named by its text (`Set item "n" of box to 5.`,
+    /// the read side's twin). The slot is reached ONCE: a second ownership pass while a copy of
+    /// the collection is held would count that copy as a sharer and write into a fresh collection
+    /// nobody holds. `None` when the place cannot be written, for the caller to write the evaluated
+    /// value instead.
+    fn set_item_in_place(
+        &mut self,
+        place: &Place,
+        key: &RuntimeValue,
+        value: RuntimeValue,
+    ) -> Option<Result<(), String>> {
+        let slot = self.place_slot(place, true)?;
+        Some(match (slot, key) {
+            (RuntimeValue::Struct(s), RuntimeValue::Text(field)) => {
+                s.fields.insert(field.to_string(), value);
+                Ok(())
+            }
+            (slot, _) => {
+                let target = slot.clone();
+                crate::semantics::collections::index_set(&target, key, value)
+            }
+        })
+    }
+
+    /// `Set t to t + a + b …` (`+` or `combined with`, left-nested) where `t` holds Text: the Text
+    /// `t` holds as the statement starts, and the operands appended to it, in order. Whatever they
+    /// are, each lands as it shows — exactly what `+` and `combined with` make of a Text on the
+    /// left. `None` for any other `Set`.
+    fn text_appends<'e>(
+        &self,
+        target: Symbol,
+        value: &'e Expr<'a>,
+    ) -> Option<(Rc<String>, Vec<&'e Expr<'a>>)> {
+        let Some(RuntimeValue::Text(before)) = self.task.env.lookup(target) else {
+            return None;
+        };
+        let mut operands = Vec::new();
+        let mut here = value;
+        loop {
+            match here {
+                Expr::BinaryOp {
+                    op: BinaryOpKind::Add | BinaryOpKind::Concat,
+                    left,
+                    right,
+                } => {
+                    operands.push(*right);
+                    here = left;
+                }
+                Expr::Identifier(sym) if *sym == target && !operands.is_empty() => break,
+                _ => return None,
+            }
+        }
+        operands.reverse();
+        Some((before.clone(), operands))
+    }
+
+    /// Append `pieces` — the operands, evaluated after `before` was read — to the Text `target`
+    /// held as the statement started. When the binding still holds that very string, the pieces go
+    /// onto its end: in place when nothing else holds it (amortised O(1) per append, a growing
+    /// buffer), onto a copy of its own when something does, so no other binding sees the append.
+    /// When an operand rebound `target`, the result is built from `before` and overwrites it, as
+    /// `Set` does.
+    fn append_text(
+        &mut self,
+        target: Symbol,
+        before: Rc<String>,
+        pieces: Vec<String>,
+    ) -> Result<(), String> {
+        let slot =
+            self.task.env.lookup_mut(target).ok_or_else(|| {
+                format!("Undefined variable: {}", self.ctx.interner.resolve(target))
+            })?;
+        if let RuntimeValue::Text(held) = slot {
+            if Rc::ptr_eq(held, &before) {
+                drop(before);
+                let text = Rc::make_mut(held);
+                for piece in &pieces {
+                    text.push_str(piece);
+                }
+                return Ok(());
+            }
+        }
+        let mut text =
+            String::with_capacity(before.len() + pieces.iter().map(String::len).sum::<usize>());
+        text.push_str(&before);
+        for piece in &pieces {
+            text.push_str(piece);
+        }
+        *slot = RuntimeValue::Text(Rc::new(text));
+        Ok(())
+    }
+
+    /// A `mutable` parameter is IN-OUT: its argument, when the argument names a place, is LENT to
+    /// the call — the place's value moves into the parameter and the place is empty until the call
+    /// returns. The callee then holds the value exactly as the caller did: written in place while
+    /// nobody else shares it, copied first where somebody does (a plain parameter's copy passed on
+    /// as `mutable` keeps its caller's value out of reach). `None` when the place cannot be written.
+    fn lend(&mut self, place: &Place) -> Option<RuntimeValue> {
+        self.place_slot(place, false)
+            .map(|slot| std::mem::replace(slot, RuntimeValue::Nothing))
+    }
+
+    /// The final value of every lent parameter, taken out of the callee's frame — which must still
+    /// be the current one. `lent` pairs each lent parameter's position with its place.
+    fn lent_values(
+        &mut self,
+        function: Symbol,
+        lent: &[(usize, Place)],
+    ) -> Vec<Option<RuntimeValue>> {
+        lent.iter()
+            .map(|(i, _)| {
+                let param = self.ctx.functions[&function].params[*i].0;
+                self.task.env.take_local(param)
+            })
+            .collect()
+    }
+
+    /// The lent arguments' values, taken back out of `arg_values` — for a call that stops before
+    /// its frame exists (a later argument failed, or the depth limit refused it).
+    fn values_to_give_back(
+        &self,
+        lent: &[(usize, Place)],
+        arg_values: &mut [RuntimeValue],
+    ) -> Vec<Option<RuntimeValue>> {
+        lent.iter()
+            .map(|(i, _)| {
+                Some(std::mem::replace(
+                    &mut arg_values[*i],
+                    RuntimeValue::Nothing,
+                ))
+            })
+            .collect()
+    }
+
+    /// Put each lent value back into the place it was lent from: once the call is over — returned
+    /// or failed — a `mutable` parameter's writes are the caller's own.
+    fn give_back(&mut self, lent: Vec<(usize, Place)>, values: Vec<Option<RuntimeValue>>) {
+        for ((_, place), value) in lent.into_iter().zip(values) {
+            if let (Some(value), Some(slot)) = (value, self.place_slot(&place, false)) {
+                *slot = value;
             }
         }
     }
@@ -4132,10 +7211,57 @@ impl<'a> Interpreter<'a> {
     /// Execute a program synchronously (no async/Future allocation).
     /// Use when `needs_async(stmts)` returns false.
     pub fn run_sync(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
-        // Hermetic program start: no ambient exchange rates carried in (mirrors a fresh AOT process).
+        self.begin_program(stmts);
+        self.run_top_level_sync(stmts, true)
+    }
+
+    /// Hermetic program start: a fresh process's world ([`crate::semantics::world::begin_run`]),
+    /// and then the engine's own start ([`Interpreter::begin_engine`]).
+    fn begin_program(&mut self, stmts: &[Stmt<'a>]) {
+        crate::semantics::world::begin_run();
+        self.begin_engine(stmts);
+    }
+
+    /// The engine's own start — no ambient exchange rates carried in (a fresh AOT process's clean
+    /// slate), a stream of its own ([`crate::semantics::dom::retire_stream`]), and every definition
+    /// registered before the first statement runs — leaving the world it runs in, the document and
+    /// the storage profile, to whoever holds them.
+    fn begin_engine(&mut self, stmts: &[Stmt<'a>]) {
         logicaffeine_base::money::clear_ambient_rates();
-        for stmt in stmts {
-            match self.execute_stmt_sync(stmt)? {
+        crate::semantics::dom::retire_stream();
+        self.preregister_definitions(stmts);
+        self.seat_page_of(stmts);
+    }
+
+    /// A whole program run ([`Interpreter::run`]/[`Interpreter::run_sync`]) hosts the program's own
+    /// page LOWERED, on this very interpreter, through the driver every lowered tier shares
+    /// ([`crate::page_host::LoweredHost`]): its main is the program up to the first statement that
+    /// acts on the page ([`crate::page_host::page_main_len`]), and the `## Page` it mounts by itself
+    /// is the one a reload mounts again. A page whose main already ran on this interpreter keeps
+    /// both; a page another engine executes ([`PageSeat::Driven`]) is left where it is.
+    fn seat_page_of(&mut self, stmts: &[Stmt<'a>]) {
+        if self.page_main.is_some() || !matches!(self.page, PageSeat::Here(_)) {
+            return;
+        }
+        let interner = self.ctx.interner;
+        let main = crate::page_host::page_main_len(stmts, interner);
+        self.page_main = Some(stmts[..main].to_vec());
+        self.page = PageSeat::Here(HostedPage::of(
+            crate::page_host::auto_mounted_page_component(stmts, interner),
+        ));
+    }
+
+    /// Execute `stmts` as top-level statements, in order, until one returns or breaks; `observed`
+    /// reports each finished statement's index to the statement observer.
+    fn run_top_level_sync(&mut self, stmts: &[Stmt<'a>], observed: bool) -> Result<(), String> {
+        for (i, stmt) in stmts.iter().enumerate() {
+            let flow = self.execute_stmt_sync(stmt)?;
+            if observed {
+                if let Some(f) = self.statement_observer.as_mut() {
+                    f(i);
+                }
+            }
+            match flow {
                 ControlFlow::Return(_) => break,
                 ControlFlow::Break => break,
                 ControlFlow::Continue => {}
@@ -4144,7 +7270,95 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    /// Run the page's own program once, as a browser runs a page module's `main`: its definitions
+    /// are registered and its top-level statements build the globals every later host call reads
+    /// ([`crate::page_host::LoweredCalls`]). The page arrives in the world its host holds — the
+    /// document and the storage earlier visits left, which loading a module never clears — so only
+    /// the engine starts (`Interpreter::begin_engine`). Its statements are not observed — the
+    /// page's main is the page arriving, not a statement of whatever drives it. A failure is the
+    /// page's to report and leaves the interpreter callable, as a browser can still call into a
+    /// module whose `main` trapped.
+    pub fn run_page_main(&mut self, program: &[Stmt<'a>]) -> Result<(), String> {
+        if self.page_main.is_some() {
+            return Err(
+                "tree-walker: the page's main has already run, and running it again would \
+                        re-initialize every global the page is using"
+                    .to_string(),
+            );
+        }
+        self.page_main = Some(program.to_vec());
+        self.begin_engine(program);
+        self.run_top_level_sync(program, false)
+    }
+
+    /// Refuse a host call into a page whose main has not run — `what` names the call.
+    fn require_page_main(&self, what: &str) -> Result<(), String> {
+        if self.page_main.is_some() {
+            Ok(())
+        } else {
+            Err(format!(
+                "tree-walker: cannot call {what} before the page's main has run — main registers \
+                 every function and initializes the globals every function reads"
+            ))
+        }
+    }
+
+    /// One call the host makes into the page. A host call is its own entry into the program, so
+    /// the failure site in force when it was made is the one in force after it returns, whichever
+    /// sentence the call itself passed through or failed in.
+    fn host_call<R>(
+        &mut self,
+        call: impl FnOnce(&mut Self) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let site = self.current_site;
+        let outcome = call(self);
+        if outcome.is_err() {
+            self.failed_call_site = self.current_site;
+        }
+        self.current_site = site;
+        outcome
+    }
+
+    /// Run `f` at the program's top level, whatever the host was in the middle of: no function
+    /// frame, no open block, no block-scoped binding in view, no self-tail-call in progress — so a
+    /// page's main binds its globals as globals even when a reload is asked for from inside a
+    /// test's `If` or a handler's frame. Everything shelved comes back exactly as it was.
+    fn at_top_level<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let env = &mut self.task.env;
+        let frames = std::mem::take(&mut env.frame_stack);
+        let locals = std::mem::take(&mut env.locals);
+        let saves = std::mem::take(&mut env.save_stack);
+        let block = std::mem::take(&mut env.main_block);
+        let tco = self.task.tco_fn_sync.take();
+        let repeat = std::mem::replace(&mut self.task.repeat_depth_sync, 0);
+        let outcome = f(self);
+        let env = &mut self.task.env;
+        env.frame_stack = frames;
+        env.locals = locals;
+        env.save_stack = saves;
+        env.main_block = block;
+        self.task.tco_fn_sync = tco;
+        self.task.repeat_depth_sync = repeat;
+        outcome
+    }
+
     fn execute_stmt_sync(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        self.tick_test_budget()?;
+        // `--tiers all` replay: test-only statements no-op — EXACTLY the set
+        // the VM's `compile_tiers` no-ops, so both engines run one program.
+        if self.tiers_noop
+            && matches!(
+                stmt,
+                Stmt::Expect { .. }
+                    | Stmt::ExpectFail { .. }
+                    | Stmt::ExpectOutput { .. }
+                    | Stmt::AdvanceTime { .. }
+                    | Stmt::GivenFile { .. }
+                    | Stmt::ForAll { .. }
+            )
+        {
+            return Ok(ControlFlow::Continue);
+        }
         match stmt {
             Stmt::Let { var, value, .. } => {
                 let val = self.evaluate_expr_sync(value)?;
@@ -4153,8 +7367,25 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Set { target, value } => {
+                if let Some((before, operands)) = self.text_appends(*target, value) {
+                    let mut pieces = Vec::with_capacity(operands.len());
+                    for operand in operands {
+                        pieces.push(self.evaluate_expr_sync(operand)?.to_display_string());
+                    }
+                    self.append_text(*target, before, pieces)?;
+                    return Ok(ControlFlow::Continue);
+                }
                 let val = self.evaluate_expr_sync(value)?;
                 self.assign(*target, val)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Swap { a, b } => {
+                // Reversible value exchange — the tree-walker twin of the VM's zero-garbage RevSwap.
+                let va = self.lookup(*a)?.clone();
+                let vb = self.lookup(*b)?.clone();
+                self.assign(*a, vb)?;
+                self.assign(*b, va)?;
                 Ok(ControlFlow::Continue)
             }
 
@@ -4163,9 +7394,13 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 let condition = self.evaluate_expr_sync(cond)?;
-                if condition.is_truthy() {
+                if condition.decided_truth()? {
                     let flow = self.execute_block_sync(then_block)?;
                     if !matches!(flow, ControlFlow::Continue) {
                         return Ok(flow);
@@ -4182,7 +7417,7 @@ impl<'a> Interpreter<'a> {
             Stmt::While { cond, body, .. } => {
                 loop {
                     let condition = self.evaluate_expr_sync(cond)?;
-                    if !condition.is_truthy() {
+                    if !condition.decided_truth()? {
                         break;
                     }
                     match self.execute_block_sync(body)? {
@@ -4194,87 +7429,31 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Repeat { pattern, iterable, body } => {
-                use crate::ast::stmt::Pattern;
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => self.exec_repeat(stmt),
 
-                let iter_val = self.evaluate_expr_sync(iterable)?;
-                let items = crate::semantics::collections::iteration_snapshot(&iter_val)?;
-
-                self.push_scope();
-                // A `Repeat` owns a live iterator: suppress TCO of any self-call
-                // detected inside it (jumping to the body start would abandon the
-                // iterator), matching the VM's `is_repeat` guard exactly.
-                self.task.repeat_depth_sync += 1;
-                for item in items {
-                    match pattern {
-                        Pattern::Identifier(sym) => {
-                            self.define(*sym, item);
-                        }
-                        Pattern::Tuple(syms) => {
-                            if let RuntimeValue::Tuple(ref tuple_vals) = item {
-                                if syms.len() != tuple_vals.len() {
-                                    self.task.repeat_depth_sync -= 1;
-                                    return Err(format!(
-                                        "Cannot bind a {}-tuple to {} names",
-                                        tuple_vals.len(),
-                                        syms.len()
-                                    ));
-                                }
-                                for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
-                                    self.define(*sym, val.clone());
-                                }
-                            } else {
-                                self.task.repeat_depth_sync -= 1;
-                                return Err(format!("Expected tuple for pattern, got {}", item.type_name()));
-                            }
-                        }
-                    }
-
-                    match self.execute_block_sync(body)? {
-                        ControlFlow::Break => break,
-                        ControlFlow::Return(v) => {
-                            self.task.repeat_depth_sync -= 1;
-                            self.pop_scope();
-                            return Ok(ControlFlow::Return(v));
-                        }
-                        ControlFlow::Continue => {}
-                    }
-                }
-                self.task.repeat_depth_sync -= 1;
-                self.pop_scope();
-                Ok(ControlFlow::Continue)
-            }
-
-            Stmt::Return { value } => {
-                // A direct self-tail-call `Return self(args)` becomes a loop-back
-                // in `call_function_sync`: signal it via `pending_tail_call` and
-                // return control to the body driver (which sees the sentinel and
-                // restarts instead of using the value). Args are evaluated here —
-                // a nested self-call in an argument stays ordinary recursion.
-                if let Some(expr) = value {
-                    if let Some(call_args) = self.self_tail_call_args_sync(*expr) {
-                        let mut vals = Vec::with_capacity(call_args.len());
-                        for a in call_args {
-                            vals.push(self.evaluate_expr_sync(a)?);
-                        }
-                        self.task.pending_tail_call = Some(vals);
-                        return Ok(ControlFlow::Return(RuntimeValue::Nothing));
-                    }
-                }
-                let ret_val = match value {
-                    Some(expr) => self.evaluate_expr_sync(expr)?,
-                    None => RuntimeValue::Nothing,
-                };
-                Ok(ControlFlow::Return(ret_val))
-            }
+            Stmt::Return { value } => self.exec_return(stmt),
 
             Stmt::Break => Ok(ControlFlow::Break),
 
-            Stmt::FunctionDef { name, params, body, return_type, .. } => {
+            Stmt::FunctionDef {
+                name,
+                params,
+                body,
+                return_type,
+                is_native,
+                native_path,
+                ..
+            } => {
                 let func = FunctionDef {
                     params: params.clone(),
                     body: *body,
                     return_type: *return_type,
+                    is_native: *is_native,
+                    native_path: *native_path,
                 };
                 self.ctx.functions.insert(*name, func);
                 Ok(ControlFlow::Continue)
@@ -4285,110 +7464,162 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::SetField { object, field, value } => {
+            Stmt::SetField {
+                object,
+                field,
+                value,
+            } => {
                 let new_val = self.evaluate_expr_sync(value)?;
-                if let Expr::Identifier(obj_sym) = object {
-                    let mut obj_val = self.lookup(*obj_sym)?.clone();
-                    if let RuntimeValue::Struct(ref mut s) = obj_val {
-                        let field_name = self.ctx.interner.resolve(*field).to_string();
-                        s.fields.insert(field_name, new_val);
-                        self.assign(*obj_sym, obj_val)?;
-                    } else {
-                        return Err(format!("Cannot set field on non-struct value"));
-                    }
-                } else {
-                    return Err("SetField target must be an identifier".to_string());
-                }
+                let place = self.place_sync(object)?;
+                self.set_field_at(place, *field, new_val)?;
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Push { value, collection } => {
-                let val = self.evaluate_expr_sync(value)?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                    let coll_val = self.lookup(*coll_sym)?;
-                    crate::semantics::collections::list_push(&coll_val, val)?;
-                } else if let Expr::FieldAccess { object, field } = collection {
-                    if let Expr::Identifier(obj_sym) = *object {
-                        let obj_val = self.lookup(*obj_sym)?;
-                        let field_name = self.ctx.interner.resolve(*field);
-                        crate::semantics::collections::push_to_struct_field(&obj_val, field_name, val)?;
-                    } else {
-                        return Err("Push to nested field access not supported".to_string());
-                    }
-                } else {
-                    // Any place expression is an l-value; see the async Push
-                    // handler for the aliasing rationale.
-                    let coll_val = self.evaluate_expr_sync(collection)?;
-                    crate::semantics::collections::list_push(&coll_val, val)?;
-                }
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Push { value, collection } => self.exec_push(stmt),
 
             Stmt::Pop { collection, into } => {
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                    let coll_val = self.lookup(*coll_sym)?;
-                    let popped = crate::semantics::collections::list_pop(&coll_val)?;
-                    if let Some(into_var) = into {
-                        self.define(*into_var, popped);
-                    }
-                } else {
-                    return Err("Pop collection must be an identifier".to_string());
+                let coll_val = self.write_target_sync(collection)?;
+                let popped = crate::semantics::collections::list_pop(&coll_val)?;
+                if let Some(into_var) = into {
+                    self.define(*into_var, popped);
                 }
                 Ok(ControlFlow::Continue)
             }
 
+            // The collection is any place — a bare variable or a field (`Add "Alice" to p's
+            // guests`), owned by its binding before the write.
             Stmt::Add { value, collection } => {
                 let val = self.evaluate_expr_sync(value)?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                }
-                // Resolve the collection generally — a bare variable or a (CRDT/Set)
-                // struct field, e.g. `Add "Alice" to p's guests`.
-                let coll_val = self.evaluate_expr_sync(collection)?;
+                let coll_val = self.write_target_sync(collection)?;
                 crate::semantics::collections::set_add(&coll_val, val)?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Remove { value, collection } => {
                 let val = self.evaluate_expr_sync(value)?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    self.ensure_collection_owned(*coll_sym);
-                }
-                let coll_val = self.evaluate_expr_sync(collection)?;
+                let coll_val = self.write_target_sync(collection)?;
                 crate::semantics::collections::remove_from(&coll_val, &val)?;
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::SetIndex { collection, index, value } => {
-                let idx_val = self.evaluate_expr_sync(index)?;
-                let new_val = self.evaluate_expr_sync(value)?;
-                if let Expr::Identifier(coll_sym) = collection {
-                    // Struct field set via index syntax (mirrors the read side); see the
-                    // async SetIndex handler for rationale.
-                    if let RuntimeValue::Text(field) = &idx_val {
-                        let cur = self.lookup(*coll_sym)?.clone();
-                        if let RuntimeValue::Struct(mut s) = cur {
-                            s.fields.insert(field.to_string(), new_val);
-                            self.assign(*coll_sym, RuntimeValue::Struct(s))?;
-                            return Ok(ControlFlow::Continue);
-                        }
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => self.exec_set_index(stmt),
+
+            // A component definition is registered, not executed (`preregister_definitions`).
+            // An `## Error page STATUS` is part of the SERVER surface: the router renders it when
+            // a request 404s or 500s, and there is no router yet. Registering it silently — which
+            // is what every component kind used to get — meant a page declaring a 404 view got one
+            // quietly ignored, while its three sibling headers (`## Route`, `## Before each
+            // request`, `## Redirect`) refused by name. A declaration that is accepted and then
+            // does nothing is the worst outcome for whoever wrote it.
+            Stmt::ComponentDef(def)
+                if matches!(
+                    def.kind,
+                    crate::ast::component::ComponentKind::ErrorPage { .. }
+                ) =>
+            {
+                {
+                    // An error page whose template the server-side walk covers is a DECLARATION:
+                    // the router renders it in place of the bare status. One it cannot render is
+                    // still refused BY NAME, rather than leaving a declared page silently unused.
+                    let heading = logicaffeine_language::parser::lgx_lower::construct_heading(
+                        def,
+                        self.ctx.interner,
+                    );
+                    match def.view.as_ref() {
+                        Some(v) => match logicaffeine_language::parser::lgx_lower::view_html_lowerable(
+                            &v.nodes,
+                            self.ctx.interner,
+                        ) {
+                            Ok(()) => Ok(ControlFlow::Continue),
+                            Err(why) => Err(format!(
+                                "`{heading}` cannot be rendered on this tier yet: {}.",
+                                why.message
+                            )),
+                        },
+                        None => Err(format!(
+                            "`{heading}` cannot be rendered on this tier yet: it has no `View:` to render."
+                        )),
                     }
-                    self.ensure_collection_owned(*coll_sym);
-                    let coll_val = self.lookup(*coll_sym)?;
-                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
-                } else {
-                    // Any place expression is an l-value; see the async
-                    // SetIndex handler for rationale.
-                    let coll_val = self.evaluate_expr_sync(collection)?;
-                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
+                }
+            }
+            Stmt::ComponentDef(_) | Stmt::DirectiveDef { .. } => Ok(ControlFlow::Continue),
+            Stmt::Ui(ui) => self.execute_ui(ui),
+            // A `## Route` whose body lowered to a function is a DECLARATION here — the function
+            // carries it, and `route(method, path)` dispatches. One that could not lower is
+            // refused BY NAME, saying which part is missing, rather than silently never being
+            // reachable through the dispatcher (which would read as a 404 for a route the author
+            // can see in their file).
+            Stmt::RouteDef {
+                method,
+                path,
+                params,
+                return_type,
+                body,
+                span,
+            } => {
+                match logicaffeine_language::parser::lgx_lower::route_lowerable(
+                    params,
+                    *return_type,
+                    body,
+                    self.ctx.interner,
+                    &|sym| self.ctx.struct_defs.contains_key(&sym),
+                    // The components this program declares — without them the server-side walk
+                    // refuses every template that places one, and the route silently leaves the
+                    // router.
+                    &self.ctx.components.values().cloned().collect::<Vec<_>>(),
+                    *span,
+                ) {
+                    Ok(()) => Ok(ControlFlow::Continue),
+                    Err(why) => Err(format!(
+                        "`{}` cannot run on this tier yet: {}.",
+                        logicaffeine_language::parser::lgx_lower::route_heading(
+                            *method,
+                            *path,
+                            self.ctx.interner
+                        ),
+                        why.message
+                    )),
+                }
+            }
+            // A `## Before each request` is a DECLARATION here — it lowered to a function and
+            // `route(method, path)` calls it before matching. Like a route, nothing runs at the
+            // point of declaration.
+            Stmt::MiddlewareDef { .. } => Ok(ControlFlow::Continue),
+            // A `## Redirect` is a DECLARATION — the router carries it.
+            Stmt::RedirectDef { .. } => Ok(ControlFlow::Continue),
+            Stmt::Replay { actions } => {
+                self.replay_actions(actions)?;
+                Ok(ControlFlow::Continue)
+            }
+            Stmt::ServeFetches => self.serve_fetches_sync(),
+            Stmt::GivenFetch {
+                method,
+                url,
+                status,
+                body,
+            } => self.given_fetch_sync(*method, url, status, body),
+            Stmt::Fetch { .. } => Err(
+                "A request that answers into an action (`Get … then loaded`) is sent by a \
+                 component's own `Actions:`, whose page completes it."
+                    .to_string(),
+            ),
+            Stmt::Splice { body } => {
+                // Scope-transparent; see the async Splice handler.
+                for s in body.iter() {
+                    let flow = self.execute_stmt_sync(s)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow);
+                    }
                 }
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Splice { body } => {
-                // Scope-transparent; see the async Splice handler.
+            Stmt::Reversibly { body } => {
+                // Output-transparent; see the async Reversibly handler.
                 for s in body.iter() {
                     let flow = self.execute_stmt_sync(s)?;
                     if !matches!(flow, ControlFlow::Continue) {
@@ -4419,17 +7650,83 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Assert { .. } | Stmt::Trust { .. } => {
+            Stmt::Assert { .. } | Stmt::Trust { .. } => Ok(ControlFlow::Continue),
+
+            // A `## Test` block is a declaration: normal execution walks past
+            // it; the `largo test` runner collects and drives it (Wave 3).
+            Stmt::TestDef { .. } => Ok(ControlFlow::Continue),
+
+            // Test expectations (real semantics under the runner's test mode;
+            // fail-loud outside it).
+            Stmt::Expect { condition } => self.exec_expect(stmt),
+            Stmt::ExpectFail { message, body } => self.exec_expect_fail(stmt),
+            Stmt::ExpectOutput { expected } => self.exec_expect_output(stmt),
+            Stmt::AdvanceTime { millis } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                let ms = match self.evaluate_expr_sync(millis)? {
+                    RuntimeValue::Int(n) => n.max(0) as u64,
+                    // `3 seconds` lexes as a native Duration literal (ns).
+                    RuntimeValue::Duration(ns) => (ns.max(0) / 1_000_000) as u64,
+                    other => {
+                        return Err(format!(
+                            "Advance time needs a duration in milliseconds, got {}",
+                            other.type_name()
+                        ))
+                    }
+                };
+                self.advance_time_ms(ms)
+            }
+            Stmt::GivenFile { path, content } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                logicaffeine_system::testworld::seed_file(
+                    self.ctx.interner.resolve(*path).to_string(),
+                    self.ctx.interner.resolve(*content).to_string(),
+                );
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::RuntimeAssert { condition, .. } => {
+            // Observation emits to the observation channel (Wave 7); `During`
+            // runs its body inline (scope-transparent span).
+            Stmt::Observe {
+                category,
+                message,
+                payloads,
+                sample,
+            } => self.exec_observe(stmt),
+            Stmt::During { label, body } => self.exec_during(stmt),
+            Stmt::ForAll {
+                vars,
+                domain,
+                constraint,
+                body,
+            } => {
+                if !self.test_mode {
+                    return Err(TEST_ONLY_STMT_ERR.to_string());
+                }
+                self.run_property(vars, *domain, *constraint, body)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::RuntimeAssert {
+                condition, reason, ..
+            } => {
                 let val = self.evaluate_expr_sync(condition)?;
-                if !val.is_truthy() {
-                    return Err("Assertion failed".to_string());
+                if !val.decided_truth()? {
+                    return Err(match reason {
+                        Some(r) => crate::semantics::builtins::contract_reason_text(
+                            self.evaluate_expr_sync(r)?,
+                        )?,
+                        None => "Assertion failed".to_string(),
+                    });
                 }
                 Ok(ControlFlow::Continue)
             }
+
+            Stmt::Fail { reason } => Err(self.evaluate_expr_sync(reason)?.to_display_string()),
 
             Stmt::Give { object, recipient } => {
                 let obj_val = self.evaluate_expr_sync(object)?;
@@ -4453,21 +7750,15 @@ impl<'a> Interpreter<'a> {
             }
 
             // Async-only operations — unreachable in sync path (checked by needs_async)
-            Stmt::ReadFrom { var, source } => {
-                match source {
-                    ReadSource::Console => {
-                        self.define(*var, RuntimeValue::Text(Rc::new(String::new())));
-                        Ok(ControlFlow::Continue)
-                    }
-                    ReadSource::File(_) => {
-                        Err("File read requires async execution path".to_string())
-                    }
+            Stmt::ReadFrom { var, source } => match source {
+                ReadSource::Console => {
+                    self.define(*var, RuntimeValue::Text(Rc::new(String::new())));
+                    Ok(ControlFlow::Continue)
                 }
-            }
+                ReadSource::File(_) => Err("File read requires async execution path".to_string()),
+            },
 
-            Stmt::WriteFile { .. } => {
-                Err("File write requires async execution path".to_string())
-            }
+            Stmt::WriteFile { .. } => Err("File write requires async execution path".to_string()),
 
             Stmt::Spawn { name, .. } => {
                 self.define(*name, RuntimeValue::Nothing);
@@ -4485,96 +7776,23 @@ impl<'a> Interpreter<'a> {
                 Err("Await (peer messaging) requires the async execution path".to_string())
             }
 
-            Stmt::MergeCrdt { source, target } => {
-                let source_val = self.evaluate_expr_sync(source)?;
-                let source_fields = match &source_val {
-                    RuntimeValue::Struct(s) => s.fields.clone(),
-                    _ => return Err("Merge source must be a struct".to_string()),
-                };
+            Stmt::MergeCrdt { source, target } => self.exec_merge_crdt(stmt),
 
-                if let Expr::Identifier(target_sym) = target {
-                    let mut target_val = self.lookup(*target_sym)?.clone();
+            // The IDEMPOTENT sibling of `MergeCrdt`: a bare-`Int` field takes per-field MAX (not ADD), so a
+            // redelivered state never double-counts. Counter/other fields defer to `crdt_join_field`'s merge.
+            Stmt::JoinCrdt { source, target } => self.exec_join_crdt(stmt),
 
-                    if let RuntimeValue::Struct(ref mut s) = target_val {
-                        for (field_name, source_field_val) in source_fields {
-                            let current = s.fields.get(&field_name)
-                                .cloned()
-                                .unwrap_or(RuntimeValue::Int(0));
+            Stmt::IncreaseCrdt {
+                object,
+                field,
+                amount,
+            } => self.exec_increase_crdt(stmt),
 
-                            let merged =
-                                crate::semantics::arith::crdt_merge_field(&current, source_field_val);
-                            s.fields.insert(field_name, merged);
-                        }
-                        self.assign(*target_sym, target_val)?;
-                    } else {
-                        return Err("Merge target must be a struct".to_string());
-                    }
-                } else {
-                    return Err("Merge target must be an identifier".to_string());
-                }
-                Ok(ControlFlow::Continue)
-            }
-
-            Stmt::IncreaseCrdt { object, field, amount } => {
-                let amount_val = self.evaluate_expr_sync(amount)?;
-                let amount_int = match amount_val {
-                    RuntimeValue::Int(n) => n,
-                    _ => return Err("CRDT increment amount must be an integer".to_string()),
-                };
-
-                if let Expr::Identifier(obj_sym) = object {
-                    let mut obj_val = self.lookup(*obj_sym)?.clone();
-
-                    if let RuntimeValue::Struct(ref mut s) = obj_val {
-                        let field_name = self.ctx.interner.resolve(*field).to_string();
-                        let current = s.fields.get(&field_name)
-                            .cloned()
-                            .unwrap_or(RuntimeValue::Int(0));
-
-                        let new_val =
-                            crate::semantics::arith::crdt_counter_bump(current, amount_int, &field_name)?;
-                        s.fields.insert(field_name, new_val);
-                        self.assign(*obj_sym, obj_val)?;
-                    } else {
-                        return Err("Cannot increase field on non-struct value".to_string());
-                    }
-                } else {
-                    return Err("IncreaseCrdt target must be an identifier".to_string());
-                }
-                Ok(ControlFlow::Continue)
-            }
-
-            Stmt::DecreaseCrdt { object, field, amount } => {
-                let amount_val = self.evaluate_expr_sync(amount)?;
-                let amount_int = match amount_val {
-                    RuntimeValue::Int(n) => n,
-                    _ => return Err("CRDT decrement amount must be an integer".to_string()),
-                };
-
-                if let Expr::Identifier(obj_sym) = object {
-                    let mut obj_val = self.lookup(*obj_sym)?.clone();
-
-                    if let RuntimeValue::Struct(ref mut s) = obj_val {
-                        let field_name = self.ctx.interner.resolve(*field).to_string();
-                        let current = s.fields.get(&field_name)
-                            .cloned()
-                            .unwrap_or(RuntimeValue::Int(0));
-
-                        let new_val = crate::semantics::arith::crdt_counter_bump(
-                            current,
-                            amount_int.wrapping_neg(),
-                            &field_name,
-                        )?;
-                        s.fields.insert(field_name, new_val);
-                        self.assign(*obj_sym, obj_val)?;
-                    } else {
-                        return Err("Cannot decrease field on non-struct value".to_string());
-                    }
-                } else {
-                    return Err("DecreaseCrdt target must be an identifier".to_string());
-                }
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::DecreaseCrdt {
+                object,
+                field,
+                amount,
+            } => self.exec_decrease_crdt(stmt),
 
             Stmt::AppendToSequence { sequence, value } => {
                 let val = self.evaluate_expr_sync(value)?;
@@ -4589,58 +7807,19 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::ResolveConflict { object, field, value } => {
-                let val = self.evaluate_expr_sync(value)?;
-                let obj_val = self.evaluate_expr_sync(object)?;
-                let field_name = self.ctx.interner.resolve(*field);
-                if let RuntimeValue::Struct(s) = &obj_val {
-                    if let Some(RuntimeValue::Crdt(rc)) = s.fields.get(field_name) {
-                        rc.borrow_mut().resolve(&val)?;
-                        return Ok(ControlFlow::Continue);
-                    }
-                }
-                if let Expr::Identifier(obj_sym) = object {
-                    let mut owner = self.lookup(*obj_sym)?.clone();
-                    if let RuntimeValue::Struct(ref mut s) = owner {
-                        s.fields.insert(field_name.to_string(), val);
-                        self.assign(*obj_sym, owner)?;
-                        return Ok(ControlFlow::Continue);
-                    }
-                }
-                Err("Resolve target must be a struct field".to_string())
-            }
+            Stmt::ResolveConflict {
+                object,
+                field,
+                value,
+            } => self.exec_resolve_conflict(stmt),
 
-            Stmt::Check { subject, predicate, is_capability, object, source_text, .. } => {
-                let registry = match &self.ctx.policy_registry {
-                    Some(r) => r,
-                    None => return Err("Security Check requires policies. Use compiled Rust or add ## Policy block.".to_string()),
-                };
-
-                let subj_val = self.lookup(*subject)?.clone();
-                // The object is only consulted (and only looked up) for
-                // capability checks.
-                let obj_val = if *is_capability {
-                    match object {
-                        Some(obj_sym) => Some(self.lookup(*obj_sym)?.clone()),
-                        None => None,
-                    }
-                } else {
-                    None
-                };
-                crate::semantics::policy::check_policy(
-                    registry,
-                    self.ctx.interner,
-                    &subj_val,
-                    *predicate,
-                    *is_capability,
-                    obj_val.as_ref(),
-                    source_text,
-                )?;
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Check { .. } => self.exec_check(stmt),
 
             Stmt::Listen { .. } | Stmt::ConnectTo { .. } => {
                 Err("Networking (Connect/Listen) requires the async execution path".to_string())
+            }
+            Stmt::Serve { .. } => {
+                Err("`Serve` (HTTP server) requires the async execution path".to_string())
             }
             // A PeerAgent handle is pure (just its canonical topic), so it works
             // outside the async path; the `Send`/`Await` that use it do not.
@@ -4650,44 +7829,613 @@ impl<'a> Interpreter<'a> {
                 self.define(*var, RuntimeValue::Peer(Rc::new(topic)));
                 Ok(ControlFlow::Continue)
             }
-            Stmt::Sleep { .. } => {
-                Err("Sleep requires async execution path".to_string())
-            }
-            Stmt::Sync { .. } => {
-                Err("Sync requires the async execution path".to_string())
-            }
-            Stmt::Mount { .. } => {
-                Err("Mount requires async execution path".to_string())
-            }
+            Stmt::Sleep { .. } => Err("Sleep requires async execution path".to_string()),
+            Stmt::Sync { .. } => Err("Sync requires the async execution path".to_string()),
+            Stmt::Mount { .. } => Err("Mount requires async execution path".to_string()),
 
-            Stmt::LaunchTask { .. } |
-            Stmt::LaunchTaskWithHandle { .. } |
-            Stmt::CreatePipe { .. } |
-            Stmt::SendPipe { .. } |
-            Stmt::ReceivePipe { .. } |
-            Stmt::TrySendPipe { .. } |
-            Stmt::TryReceivePipe { .. } |
-            Stmt::StopTask { .. } |
-            Stmt::Select { .. } => {
-                Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
-            }
+            Stmt::LaunchTask { .. }
+            | Stmt::LaunchTaskWithHandle { .. }
+            | Stmt::CreatePipe { .. }
+            | Stmt::SendPipe { .. }
+            | Stmt::ReceivePipe { .. }
+            | Stmt::TrySendPipe { .. }
+            | Stmt::TryReceivePipe { .. }
+            | Stmt::StopTask { .. }
+            | Stmt::CloseChannel { .. }
+            | Stmt::AwaitTask { .. }
+            | Stmt::Select { .. } => Err(
+                "Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode"
+                    .to_string(),
+            ),
 
-            Stmt::Escape { .. } => {
-                Err(
-                    "Escape blocks contain raw Rust code and cannot be interpreted. \
-                     Use `largo build` or `largo run` to compile and run this program."
-                    .to_string()
-                )
-            }
+            Stmt::Escape { .. } => Err(crate::semantics::escape::REFUSAL.to_string()),
 
-            Stmt::Require { .. } => {
-                Ok(ControlFlow::Continue)
-            }
+            Stmt::Require { .. } => Ok(ControlFlow::Continue),
 
             Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => {
                 Ok(ControlFlow::Continue)
             }
+
+            // A failure-site marker (Wave 3) — see the identical arm in `execute_stmt` (the async
+            // twin of this function).
+            Stmt::Site(id) => {
+                self.current_site = Some(*id);
+                Ok(ControlFlow::Continue)
+            }
         }
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_check(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::Check {
+            subject,
+            predicate,
+            is_capability,
+            object,
+            source_text,
+            ..
+        } = stmt
+        else {
+            unreachable!()
+        };
+        let registry = match &self.ctx.policy_registry {
+            Some(r) => r,
+            None => return Err(crate::semantics::policy::NO_POLICIES.to_string()),
+        };
+
+        let subj_val = self.lookup(*subject)?.clone();
+        // The object is only consulted (and only looked up) for
+        // capability checks.
+        let obj_val = if *is_capability {
+            match object {
+                Some(obj_sym) => Some(self.lookup(*obj_sym)?.clone()),
+                None => None,
+            }
+        } else {
+            None
+        };
+        crate::semantics::policy::check_policy(
+            registry,
+            self.ctx.interner,
+            &subj_val,
+            *predicate,
+            *is_capability,
+            obj_val.as_ref(),
+            source_text,
+        )?;
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_resolve_conflict(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::ResolveConflict {
+            object,
+            field,
+            value,
+        } = stmt
+        else {
+            unreachable!()
+        };
+        let val = self.evaluate_expr_sync(value)?;
+        let obj_val = self.evaluate_expr_sync(object)?;
+        let field_name = self.ctx.interner.resolve(*field);
+        if let RuntimeValue::Struct(s) = &obj_val {
+            if let Some(RuntimeValue::Crdt(rc)) = s.fields.get(field_name) {
+                rc.borrow_mut().resolve(&val)?;
+                return Ok(ControlFlow::Continue);
+            }
+        }
+        if let Expr::Identifier(obj_sym) = object {
+            let mut owner = self.lookup(*obj_sym)?.clone();
+            if let RuntimeValue::Struct(ref mut s) = owner {
+                s.fields.insert(field_name.to_string(), val);
+                self.assign(*obj_sym, owner)?;
+                return Ok(ControlFlow::Continue);
+            }
+        }
+        Err("Resolve target must be a struct field".to_string())
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_decrease_crdt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::DecreaseCrdt {
+            object,
+            field,
+            amount,
+        } = stmt
+        else {
+            unreachable!()
+        };
+        let amount_val = self.evaluate_expr_sync(amount)?;
+        let amount_int = match amount_val {
+            RuntimeValue::Int(n) => n,
+            _ => return Err("CRDT decrement amount must be an integer".to_string()),
+        };
+
+        if let Expr::Identifier(obj_sym) = object {
+            let mut obj_val = self.lookup(*obj_sym)?.clone();
+
+            if let RuntimeValue::Struct(ref mut s) = obj_val {
+                let field_name = self.ctx.interner.resolve(*field).to_string();
+                let current = s
+                    .fields
+                    .get(&field_name)
+                    .cloned()
+                    .unwrap_or(RuntimeValue::Int(0));
+
+                let new_val = crate::semantics::arith::crdt_counter_bump(
+                    current,
+                    amount_int.wrapping_neg(),
+                    &field_name,
+                )?;
+                s.fields.insert(field_name, new_val);
+                self.assign(*obj_sym, obj_val)?;
+            } else {
+                return Err("Cannot decrease field on non-struct value".to_string());
+            }
+        } else {
+            return Err("DecreaseCrdt target must be an identifier".to_string());
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_increase_crdt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::IncreaseCrdt {
+            object,
+            field,
+            amount,
+        } = stmt
+        else {
+            unreachable!()
+        };
+        let amount_val = self.evaluate_expr_sync(amount)?;
+        let amount_int = match amount_val {
+            RuntimeValue::Int(n) => n,
+            _ => return Err("CRDT increment amount must be an integer".to_string()),
+        };
+
+        if let Expr::Identifier(obj_sym) = object {
+            let mut obj_val = self.lookup(*obj_sym)?.clone();
+
+            if let RuntimeValue::Struct(ref mut s) = obj_val {
+                let field_name = self.ctx.interner.resolve(*field).to_string();
+                let current = s
+                    .fields
+                    .get(&field_name)
+                    .cloned()
+                    .unwrap_or(RuntimeValue::Int(0));
+
+                let new_val =
+                    crate::semantics::arith::crdt_counter_bump(current, amount_int, &field_name)?;
+                s.fields.insert(field_name, new_val);
+                self.assign(*obj_sym, obj_val)?;
+            } else {
+                return Err("Cannot increase field on non-struct value".to_string());
+            }
+        } else {
+            return Err("IncreaseCrdt target must be an identifier".to_string());
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_join_crdt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::JoinCrdt { source, target } = stmt else {
+            unreachable!()
+        };
+        let source_val = self.evaluate_expr_sync(source)?;
+        let source_fields = match &source_val {
+            RuntimeValue::Struct(s) => s.fields.clone(),
+            _ => return Err("Converge source must be a struct".to_string()),
+        };
+
+        if let Expr::Identifier(target_sym) = target {
+            let mut target_val = self.lookup(*target_sym)?.clone();
+
+            if let RuntimeValue::Struct(ref mut s) = target_val {
+                for (field_name, source_field_val) in source_fields {
+                    let current = s
+                        .fields
+                        .get(&field_name)
+                        .cloned()
+                        .unwrap_or(RuntimeValue::Int(0));
+
+                    let joined =
+                        crate::semantics::arith::crdt_join_field(&current, source_field_val);
+                    s.fields.insert(field_name, joined);
+                }
+                self.assign(*target_sym, target_val)?;
+            } else {
+                return Err("Converge target must be a struct".to_string());
+            }
+        } else {
+            return Err("Converge target must be an identifier".to_string());
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_merge_crdt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::MergeCrdt { source, target } = stmt else {
+            unreachable!()
+        };
+        let source_val = self.evaluate_expr_sync(source)?;
+        let source_fields = match &source_val {
+            RuntimeValue::Struct(s) => s.fields.clone(),
+            _ => return Err("Merge source must be a struct".to_string()),
+        };
+
+        if let Expr::Identifier(target_sym) = target {
+            let mut target_val = self.lookup(*target_sym)?.clone();
+
+            if let RuntimeValue::Struct(ref mut s) = target_val {
+                for (field_name, source_field_val) in source_fields {
+                    let current = s
+                        .fields
+                        .get(&field_name)
+                        .cloned()
+                        .unwrap_or(RuntimeValue::Int(0));
+
+                    let merged =
+                        crate::semantics::arith::crdt_merge_field(&current, source_field_val);
+                    s.fields.insert(field_name, merged);
+                }
+                self.assign(*target_sym, target_val)?;
+            } else {
+                return Err("Merge target must be a struct".to_string());
+            }
+        } else {
+            return Err("Merge target must be an identifier".to_string());
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_during(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::During { label, body } = stmt else {
+            unreachable!()
+        };
+        // Balanced span bracketing on every exit path (Wave 8).
+        let cap = crate::observe::capturing();
+        let name = if cap {
+            self.ctx.interner.resolve(*label).to_string()
+        } else {
+            String::new()
+        };
+        if cap {
+            crate::observe::enter_span(name.clone());
+        }
+        let mut result: Result<ControlFlow, String> = Ok(ControlFlow::Continue);
+        for s in body.iter() {
+            match self.execute_stmt_sync(s) {
+                Ok(ControlFlow::Continue) => {}
+                Ok(flow) => {
+                    result = Ok(flow);
+                    break;
+                }
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+        }
+        if cap {
+            crate::observe::exit_span(name);
+        }
+        result
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_observe(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::Observe {
+            category,
+            message,
+            payloads,
+            sample,
+        } = stmt
+        else {
+            unreachable!()
+        };
+        if crate::observe::capturing() {
+            let mut vals: Vec<(String, String)> = Vec::with_capacity(payloads.len());
+            for (name, expr) in payloads.iter() {
+                let v = self.evaluate_expr_sync(expr)?;
+                vals.push((
+                    self.ctx.interner.resolve(*name).to_string(),
+                    v.to_display_string(),
+                ));
+            }
+            crate::observe::emit(
+                map_obs_category(*category),
+                self.ctx.interner.resolve(*message).to_string(),
+                vals,
+                *sample,
+                message.index() as u64,
+            );
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_expect_output(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::ExpectOutput { expected } = stmt else {
+            unreachable!()
+        };
+        if !self.test_mode {
+            return Err(TEST_ONLY_STMT_ERR.to_string());
+        }
+        self.test_assertions += 1;
+        match expected {
+            ExpectedOutput::Inline(sym) => {
+                let expected_text = self.ctx.interner.resolve(*sym).to_string();
+                let actual = self.output.join("\n");
+                if actual != expected_text {
+                    self.test_failures.push(format!(
+                        "Expected output {expected_text:?} — but the test printed {actual:?}."
+                    ));
+                }
+            }
+            ExpectedOutput::File(path) => {
+                self.test_failures.push(format!(
+                        "Expected output as in {:?} — golden files land with the sealed world (Wave 4).",
+                        self.ctx.interner.resolve(*path)
+                    ));
+            }
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_expect_fail(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::ExpectFail { message, body } = stmt else {
+            unreachable!()
+        };
+        if !self.test_mode {
+            return Err(TEST_ONLY_STMT_ERR.to_string());
+        }
+        self.test_assertions += 1;
+        let mut failure: Option<String> = None;
+        for s in body.iter() {
+            if let Err(e) = self.execute_stmt_sync(s) {
+                failure = Some(e);
+                break;
+            }
+        }
+        match failure {
+            None => self
+                .test_failures
+                .push("Expected this to fail — but the block succeeded.".to_string()),
+            Some(actual) => {
+                if let Some(expected) = message {
+                    let expected = self.ctx.interner.resolve(*expected);
+                    if actual != expected {
+                        self.test_failures.push(format!(
+                                "Expected this to fail with {expected:?} — but it failed with {actual:?}."
+                            ));
+                    }
+                }
+            }
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_expect(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::Expect { condition } = stmt else {
+            unreachable!()
+        };
+        if !self.test_mode {
+            return Err(TEST_ONLY_STMT_ERR.to_string());
+        }
+        self.test_assertions += 1;
+        let val = self.evaluate_expr_sync(condition)?;
+        if !val.decided_truth()? {
+            let cond_text =
+                logicaffeine_language::printer::render_expr(condition, self.ctx.interner);
+            let mut subs = Vec::new();
+            logicaffeine_language::printer::subexpressions(condition, &mut subs);
+            let mut annotations: Vec<(String, String)> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for sub in subs {
+                let text = logicaffeine_language::printer::render_expr(sub, self.ctx.interner);
+                if !seen.insert(text.clone()) {
+                    continue;
+                }
+                if let Ok(v) = self.evaluate_expr_sync(sub) {
+                    annotations.push((text, v.to_display_string()));
+                }
+            }
+            let hint = Self::expect_socratic_hint(condition);
+            self.test_failures
+                .push(format_expect_failure(&cond_text, &annotations, hint));
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_set_index(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } = stmt
+        else {
+            unreachable!()
+        };
+        let idx_val = self.evaluate_expr_sync(index)?;
+        let new_val = self.evaluate_expr_sync(value)?;
+        let target = match self.place_sync(collection)? {
+            Some(place) => match self.set_item_in_place(&place, &idx_val, new_val.clone()) {
+                Some(done) => {
+                    done?;
+                    return Ok(ControlFlow::Continue);
+                }
+                None => self.read_place(&place)?,
+            },
+            None => self.evaluate_expr_sync(collection)?,
+        };
+        crate::semantics::collections::index_set(&target, &idx_val, new_val)?;
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_push(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::Push { value, collection } = stmt else {
+            unreachable!()
+        };
+        let val = self.evaluate_expr_sync(value)?;
+        if let Expr::FieldAccess {
+            object: Expr::Identifier(obj_sym),
+            field,
+        } = collection
+        {
+            if let Some(place) = self.place_sync(collection)? {
+                self.place_slot(&place, true);
+            }
+            let obj_val = self.lookup(*obj_sym)?;
+            let field_name = self.ctx.interner.resolve(*field);
+            crate::semantics::collections::push_to_struct_field(obj_val, field_name, val)?;
+        } else {
+            let coll_val = self.write_target_sync(collection)?;
+            crate::semantics::collections::list_push(&coll_val, val)?;
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_return(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::Return { value } = stmt else {
+            unreachable!()
+        };
+        // A direct self-tail-call `Return self(args)` becomes a loop-back
+        // in `call_function_sync`: signal it via `pending_tail_call` and
+        // return control to the body driver (which sees the sentinel and
+        // restarts instead of using the value). Args are evaluated here —
+        // a nested self-call in an argument stays ordinary recursion.
+        if let Some(expr) = value {
+            if let Some(call_args) = self.self_tail_call_args_sync(*expr) {
+                let mut vals = Vec::with_capacity(call_args.len());
+                for a in call_args {
+                    vals.push(self.evaluate_expr_sync(a)?);
+                }
+                self.task.pending_tail_call = Some(vals);
+                return Ok(ControlFlow::Return(RuntimeValue::Nothing));
+            }
+        }
+        let ret_val = match value {
+            Some(expr) => self.evaluate_expr_sync(expr)?,
+            None => RuntimeValue::Nothing,
+        };
+        Ok(ControlFlow::Return(ret_val))
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn exec_repeat(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        let Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } = stmt
+        else {
+            unreachable!()
+        };
+        use crate::ast::stmt::Pattern;
+
+        let iter_val = self.evaluate_expr_sync(iterable)?;
+        let items = crate::semantics::collections::iteration_snapshot(&iter_val)?;
+
+        self.push_scope();
+        // A `Repeat` owns a live iterator: suppress TCO of any self-call
+        // detected inside it (jumping to the body start would abandon the
+        // iterator), matching the VM's `is_repeat` guard exactly.
+        self.task.repeat_depth_sync += 1;
+        for item in items {
+            match pattern {
+                Pattern::Identifier(sym) => {
+                    self.define(*sym, item);
+                }
+                Pattern::Tuple(syms) => {
+                    if let RuntimeValue::Tuple(ref tuple_vals) = item {
+                        if syms.len() != tuple_vals.len() {
+                            self.task.repeat_depth_sync -= 1;
+                            return Err(format!(
+                                "Cannot bind a {}-tuple to {} names",
+                                tuple_vals.len(),
+                                syms.len()
+                            ));
+                        }
+                        for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
+                            self.define(*sym, val.clone());
+                        }
+                    } else {
+                        self.task.repeat_depth_sync -= 1;
+                        return Err(format!(
+                            "Expected tuple for pattern, got {}",
+                            item.type_name()
+                        ));
+                    }
+                }
+            }
+
+            match self.execute_block_sync(body)? {
+                ControlFlow::Break => break,
+                ControlFlow::Return(v) => {
+                    self.task.repeat_depth_sync -= 1;
+                    self.pop_scope();
+                    return Ok(ControlFlow::Return(v));
+                }
+                ControlFlow::Continue => {}
+            }
+        }
+        self.task.repeat_depth_sync -= 1;
+        self.pop_scope();
+        Ok(ControlFlow::Continue)
     }
 
     fn execute_block_sync(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
@@ -4705,7 +8453,11 @@ impl<'a> Interpreter<'a> {
         Ok(ControlFlow::Continue)
     }
 
-    fn execute_inspect_sync(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<ControlFlow, String> {
+    fn execute_inspect_sync(
+        &mut self,
+        target: &RuntimeValue,
+        arms: &[MatchArm<'a>],
+    ) -> Result<ControlFlow, String> {
         for arm in arms {
             if arm.variant.is_none() {
                 let flow = self.execute_block_sync(arm.body)?;
@@ -4729,6 +8481,21 @@ impl<'a> Interpreter<'a> {
                             let flow = result?;
                             return Ok(flow);
                         }
+                        // The transparent Option encoding, for a STRUCT payload: `some x` IS x,
+                        // so `some(a new Response …)` is a Response and a `Some` arm has to match
+                        // it. Without this the arm above rejects it (its `type_name` is
+                        // `Response`, not `Some`) and the `other` arm below is never reached,
+                        // because this branch already claimed the value — so `Option of <any
+                        // record>` could not be inspected AT ALL, while `Option of Int` worked
+                        // fine. That asymmetry is invisible until someone writes the first
+                        // `-> Option of Response`, which is the plan's own middleware signature.
+                        // ★ A STRUCT NO LONGER ANSWERS A `Some` ARM. This existed because an
+                        // Option was transparent — `some (a new Response …)` WAS the Response, so
+                        // without it `Option of <record>` could not be inspected at all while
+                        // `Option of Int` worked, an asymmetry that stayed invisible until the
+                        // first `-> Option of Response`. A real Option is an `Inductive` now and
+                        // is matched by name, so leaving this would let a plain record claim to be
+                        // a present Option.
                     }
                 }
 
@@ -4750,6 +8517,20 @@ impl<'a> Interpreter<'a> {
                     }
                 }
 
+                // The transparent Option encoding: `some x` IS x and `none` IS
+                // Nothing, so Some/None arms match presence/absence for
+                // non-enum values (the boxed `a new Some …` form matches
+                // through the arms above).
+                RuntimeValue::Nothing => {
+                    if let Some(variant) = arm.variant {
+                        if self.ctx.interner.resolve(variant) == "None" {
+                            let flow = self.execute_block_sync(arm.body)?;
+                            return Ok(flow);
+                        }
+                    }
+                }
+
+                // The sync twin of the removed transparent catch-all — see the async copy.
                 _ => {}
             }
         }
@@ -4758,6 +8539,11 @@ impl<'a> Interpreter<'a> {
 
     fn evaluate_expr_sync(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
         match expr {
+            Expr::View(_) => Err(
+                "A view is drawn by the component it belongs to — place it in that component's `View:`."
+                    .to_string(),
+            ),
+            Expr::Dom(q) => self.evaluate_dom_query(q),
             Expr::Literal(lit) => self.evaluate_literal(lit),
 
             Expr::Identifier(sym) => {
@@ -4775,31 +8561,7 @@ impl<'a> Interpreter<'a> {
                 self.lookup(*sym).cloned()
             }
 
-            Expr::BinaryOp { op, left, right } => {
-                match op {
-                    BinaryOpKind::And => {
-                        let left_val = self.evaluate_expr_sync(left)?;
-                        if !left_val.is_truthy() {
-                            return Ok(RuntimeValue::Bool(false));
-                        }
-                        let right_val = self.evaluate_expr_sync(right)?;
-                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
-                    }
-                    BinaryOpKind::Or => {
-                        let left_val = self.evaluate_expr_sync(left)?;
-                        if left_val.is_truthy() {
-                            return Ok(RuntimeValue::Bool(true));
-                        }
-                        let right_val = self.evaluate_expr_sync(right)?;
-                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
-                    }
-                    _ => {
-                        let left_val = self.evaluate_expr_sync(left)?;
-                        let right_val = self.evaluate_expr_sync(right)?;
-                        self.apply_binary_op(*op, left_val, right_val)
-                    }
-                }
-            }
+            Expr::BinaryOp { op, left, right } => self.eval_binary_op(expr),
 
             Expr::Call { function, args } => {
                 self.call_function_sync(*function, args)
@@ -4884,83 +8646,9 @@ impl<'a> Interpreter<'a> {
                 }
             }
 
-            Expr::New { type_name, init_fields, .. } => {
-                let name = self.ctx.interner.resolve(*type_name).to_string();
+            Expr::New { type_name, init_fields, .. } => self.eval_new(expr),
 
-                if name == "Seq" || name == "List" {
-                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))));
-                }
-
-                if name == "Set" || name == "HashSet" {
-                    return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
-                }
-
-                if name == "Map" || name == "HashMap" {
-                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))));
-                }
-
-                let mut fields = HashMap::new();
-                for (field_sym, field_expr) in init_fields {
-                    let field_name = self.ctx.interner.resolve(*field_sym).to_string();
-                    let field_val = self.evaluate_expr_sync(field_expr)?;
-                    fields.insert(field_name, field_val);
-                }
-
-                if let Some(def) = self.ctx.struct_defs.get(type_name) {
-                    for (field_sym, type_sym, _) in def {
-                        let field_name = self.ctx.interner.resolve(*field_sym).to_string();
-                        if !fields.contains_key(&field_name) {
-                            let type_name_str = self.ctx.interner.resolve(*type_sym).to_string();
-                            let default = match type_name_str.as_str() {
-                                "Int" => RuntimeValue::Int(0),
-                                "Float" => RuntimeValue::Float(0.0),
-                                "Bool" => RuntimeValue::Bool(false),
-                                "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
-                                "Char" => RuntimeValue::Char('\0'),
-                                "Byte" => RuntimeValue::Int(0),
-                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
-                                "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
-                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
-                                // A `Shared` struct's CRDT fields default to an empty live
-                                // CRDT, mirroring the compiled tier's `ORSet`/`RGA` field.
-                                "SharedSet" | "ORSet" | "SharedSet_AddWins" =>
-                                    RuntimeValue::Crdt(Rc::new(RefCell::new(
-                                        crate::semantics::crdt::CrdtValue::new_set(
-                                            crate::semantics::crdt::next_replica_id())))),
-                                "SharedSet_RemoveWins" =>
-                                    RuntimeValue::Crdt(Rc::new(RefCell::new(
-                                        crate::semantics::crdt::CrdtValue::new_set_remove_wins(
-                                            crate::semantics::crdt::next_replica_id())))),
-                                "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" =>
-                                    RuntimeValue::Crdt(Rc::new(RefCell::new(
-                                        crate::semantics::crdt::CrdtValue::new_seq(
-                                            crate::semantics::crdt::next_replica_id())))),
-                                _ => RuntimeValue::Nothing,
-                            };
-                            fields.insert(field_name, default);
-                        }
-                    }
-                }
-
-                Ok(RuntimeValue::Struct(Box::new(StructValue { type_name: name, fields })))
-            }
-
-            Expr::NewVariant { enum_name, variant, fields } => {
-                let inductive_type = self.ctx.interner.resolve(*enum_name).to_string();
-                let constructor = self.ctx.interner.resolve(*variant).to_string();
-
-                let mut args = Vec::new();
-                for (_, field_expr) in fields {
-                    let field_val = self.evaluate_expr_sync(field_expr)?;
-                    args.push(field_val);
-                }
-
-                Ok(RuntimeValue::Inductive(Box::new(InductiveValue {
-                    inductive_type,
-                    constructor,
-                    args,
-                })))
-            }
+            Expr::NewVariant { enum_name, variant, fields } => self.eval_new_variant(expr),
 
             Expr::ManifestOf { .. } => {
                 Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))))
@@ -4970,85 +8658,35 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Nothing)
             }
 
-            Expr::WithCapacity { value, .. } => {
-                self.evaluate_expr_sync(value)
+            Expr::WithCapacity { value, capacity } => {
+                let capacity = match self.evaluate_expr_sync(capacity)? {
+                    RuntimeValue::Int(capacity) => capacity,
+                    _ => return Err("Capacity requires an Int".to_string()),
+                };
+                let value = self.evaluate_expr_sync(value)?;
+                Ok(apply_capacity_hint(value, capacity))
             }
 
+            // The sync twin of the boxed Option above — same rule, same reasons.
             Expr::OptionSome { value } => {
-                self.evaluate_expr_sync(value)
+                let inner = self.evaluate_expr_sync(value)?;
+                Ok(option_some(inner))
             }
 
-            Expr::OptionNone => {
-                Ok(RuntimeValue::Nothing)
-            }
+            Expr::OptionNone => Ok(option_none()),
 
             Expr::Not { operand } => {
                 let val = self.evaluate_expr_sync(operand)?;
                 crate::semantics::arith::not_value(val)
             }
 
-            Expr::InterpolatedString(parts) => {
-                let mut result = String::new();
-                for part in parts {
-                    match part {
-                        crate::ast::stmt::StringPart::Literal(sym) => {
-                            result.push_str(self.ctx.interner.resolve(*sym));
-                        }
-                        crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
-                            let val = self.evaluate_expr_sync(value)?;
-                            if *debug {
-                                let prefix = match value {
-                                    Expr::Identifier(sym) => self.ctx.interner.resolve(*sym).to_string(),
-                                    _ => "expr".to_string(),
-                                };
-                                result.push_str(&prefix);
-                                result.push('=');
-                            }
-                            if let Some(spec_sym) = format_spec {
-                                let spec = self.ctx.interner.resolve(*spec_sym);
-                                result.push_str(&apply_format_spec(&val, spec));
-                            } else {
-                                result.push_str(&val.to_display_string());
-                            }
-                        }
-                    }
-                }
-                Ok(RuntimeValue::Text(Rc::new(result)))
-            }
+            Expr::InterpolatedString(parts) => self.eval_interpolated_string(expr),
 
             Expr::Escape { .. } => {
-                Err("Escape expressions contain raw Rust code and cannot be interpreted. \
-                     Use `largo build` or `largo run` to compile and run this program.".to_string())
+                Err(crate::semantics::escape::REFUSAL.to_string())
             }
 
-            Expr::Closure { params, body, .. } => {
-                let free_vars = self.collect_free_vars_in_closure(params, body);
-                let mut captured_env = HashMap::new();
-                for sym in &free_vars {
-                    if let Some(val) = self.task.env.lookup(*sym) {
-                        captured_env.insert(*sym, val.deep_clone());
-                    }
-                }
-
-                let body_index = self.ctx.closure_bodies.len();
-                match body {
-                    ClosureBody::Expression(expr) => {
-                        self.ctx.closure_bodies.push(ClosureBodyRef::Expression(expr));
-                    }
-                    ClosureBody::Block(block) => {
-                        self.ctx.closure_bodies.push(ClosureBodyRef::Block(block));
-                    }
-                }
-
-                let param_names: Vec<Symbol> = params.iter().map(|(name, _)| *name).collect();
-
-                Ok(RuntimeValue::Function(Box::new(ClosureValue {
-                    body_index,
-                    captured_env,
-                    param_names,
-                    generated: None,
-                })))
-            }
+            Expr::Closure { params, body, .. } => self.eval_closure(expr),
 
             Expr::CallExpr { callee, args } => {
                 let callee_val = self.evaluate_expr_sync(callee)?;
@@ -5061,6 +8699,228 @@ impl<'a> Interpreter<'a> {
                 } else {
                     Err(format!("Cannot call value of type {}", callee_val.type_name()))
                 }
+            }
+        }
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn eval_closure(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        let Expr::Closure { params, body, .. } = expr else {
+            unreachable!()
+        };
+        let free_vars = self.collect_free_vars_in_closure(params, body);
+        let mut captured_env = HashMap::new();
+        for sym in &free_vars {
+            if let Some(val) = self.task.env.lookup(*sym) {
+                captured_env.insert(*sym, val.deep_clone());
+            }
+        }
+
+        let body_index = self.ctx.closure_bodies.len();
+        match body {
+            ClosureBody::Expression(expr) => {
+                self.ctx
+                    .closure_bodies
+                    .push(ClosureBodyRef::Expression(expr));
+            }
+            ClosureBody::Block(block) => {
+                self.ctx.closure_bodies.push(ClosureBodyRef::Block(block));
+            }
+        }
+
+        let param_names: Vec<Symbol> = params.iter().map(|(name, _)| *name).collect();
+
+        Ok(RuntimeValue::Function(Box::new(ClosureValue {
+            body_index,
+            captured_env,
+            param_names,
+            generated: None,
+        })))
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn eval_interpolated_string(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        let Expr::InterpolatedString(parts) = expr else {
+            unreachable!()
+        };
+        let mut result = String::new();
+        for part in parts {
+            match part {
+                crate::ast::stmt::StringPart::Literal(sym) => {
+                    result.push_str(self.ctx.interner.resolve(*sym));
+                }
+                crate::ast::stmt::StringPart::Expr {
+                    value,
+                    format_spec,
+                    debug,
+                } => {
+                    let val = self.evaluate_expr_sync(value)?;
+                    if *debug {
+                        let prefix = match value {
+                            Expr::Identifier(sym) => self.ctx.interner.resolve(*sym).to_string(),
+                            _ => "expr".to_string(),
+                        };
+                        result.push_str(&prefix);
+                        result.push('=');
+                    }
+                    if let Some(spec_sym) = format_spec {
+                        let spec = self.ctx.interner.resolve(*spec_sym);
+                        result.push_str(&apply_format_spec(&val, spec));
+                    } else {
+                        result.push_str(&val.to_display_string());
+                    }
+                }
+            }
+        }
+        Ok(RuntimeValue::Text(Rc::new(result)))
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn eval_new_variant(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        let Expr::NewVariant {
+            enum_name,
+            variant,
+            fields,
+        } = expr
+        else {
+            unreachable!()
+        };
+        let inductive_type = self.ctx.interner.resolve(*enum_name).to_string();
+        let constructor = self.ctx.interner.resolve(*variant).to_string();
+
+        // See the async `Expr::NewVariant` arm's own comment: construction is written
+        // field-name-first and order-independent, but `Inductive` stores its payload
+        // positionally — re-seat each evaluated value at its DECLARED index, not its
+        // WRITTEN one. Keyed by `(enum_name, variant)` — see `variant_fields`'s own doc
+        // comment for why the variant name alone is not a safe key.
+        let declared = self
+            .ctx
+            .variant_fields
+            .get(&(*enum_name, *variant))
+            .cloned();
+        let args = match &declared {
+            Some(names) => {
+                let mut slots: Vec<Option<RuntimeValue>> = (0..names.len()).map(|_| None).collect();
+                for (field_name, field_expr) in fields {
+                    let field_val = self.evaluate_expr_sync(field_expr)?;
+                    if let Some(pos) = names.iter().position(|n| n == field_name) {
+                        slots[pos] = Some(field_val);
+                    }
+                }
+                slots
+                    .into_iter()
+                    .map(|v| v.unwrap_or(RuntimeValue::Nothing))
+                    .collect()
+            }
+            None => {
+                let mut args = Vec::with_capacity(fields.len());
+                for (_, field_expr) in fields {
+                    args.push(self.evaluate_expr_sync(field_expr)?);
+                }
+                args
+            }
+        };
+
+        Ok(RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
+            inductive_type,
+            constructor,
+            args,
+        })))
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn eval_new(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        let Expr::New {
+            type_name,
+            init_fields,
+            ..
+        } = expr
+        else {
+            unreachable!()
+        };
+        let name = self.ctx.interner.resolve(*type_name).to_string();
+
+        if name == "Seq" || name == "List" {
+            return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(
+                Vec::new(),
+            )))));
+        }
+
+        if name == "Set" || name == "HashSet" {
+            return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
+        }
+
+        if name == "Map" || name == "HashMap" {
+            return Ok(RuntimeValue::Map(Rc::new(RefCell::new(
+                MapStorage::default(),
+            ))));
+        }
+
+        let mut fields = HashMap::new();
+        for (field_sym, field_expr) in init_fields {
+            let field_name = self.ctx.interner.resolve(*field_sym).to_string();
+            let field_val = self.evaluate_expr_sync(field_expr)?;
+            fields.insert(field_name, field_val);
+        }
+
+        if let Some(def) = self.ctx.struct_defs.get(type_name) {
+            for (field_sym, type_sym, _) in def {
+                let field_name = self.ctx.interner.resolve(*field_sym).to_string();
+                if !fields.contains_key(&field_name) {
+                    let type_name_str = self.ctx.interner.resolve(*type_sym).to_string();
+                    let default = default_for_declared_type(type_name_str.as_str());
+                    fields.insert(field_name, default);
+                }
+            }
+        }
+
+        Ok(RuntimeValue::Struct(Box::new(StructValue {
+            type_name: name,
+            fields,
+        })))
+    }
+
+    /// One arm of the walker above, in a frame of its own: in a debug build every arm's
+    /// locals share the enclosing frame, so the widest arms set the stack cost of EVERY
+    /// recursion level — and one LOGOS call costs several of these frames.
+    #[inline(never)]
+    fn eval_binary_op(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        let Expr::BinaryOp { op, left, right } = expr else {
+            unreachable!()
+        };
+        match op {
+            BinaryOpKind::And => {
+                let left_val = self.evaluate_expr_sync(left)?;
+                if !left_val.decided_truth()? {
+                    return Ok(RuntimeValue::Bool(false));
+                }
+                let right_val = self.evaluate_expr_sync(right)?;
+                Ok(RuntimeValue::Bool(right_val.decided_truth()?))
+            }
+            BinaryOpKind::Or => {
+                let left_val = self.evaluate_expr_sync(left)?;
+                if left_val.decided_truth()? {
+                    return Ok(RuntimeValue::Bool(true));
+                }
+                let right_val = self.evaluate_expr_sync(right)?;
+                Ok(RuntimeValue::Bool(right_val.decided_truth()?))
+            }
+            _ => {
+                let left_val = self.evaluate_expr_sync(left)?;
+                let right_val = self.evaluate_expr_sync(right)?;
+                self.apply_binary_op(*op, left_val, right_val)
             }
         }
     }
@@ -5088,10 +8948,16 @@ impl<'a> Interpreter<'a> {
         crate::tail_call::direct_self_tail_args(expr, cur, param_count)
     }
 
-    fn call_function_sync(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+    fn call_function_sync(
+        &mut self,
+        function: Symbol,
+        args: &[&Expr<'a>],
+    ) -> Result<RuntimeValue, String> {
         // Built-in functions — Symbol comparison (integer) instead of string matching
         let func_sym = Some(function);
-        if func_sym == self.ctx.sym_show {
+        if self.declares(function) {
+            // The program's own function: resolved below, ahead of every builtin and intercept.
+        } else if func_sym == self.ctx.sym_show {
             for arg in args {
                 let val = self.evaluate_expr_sync(arg)?;
                 self.emit_output(val.to_display_string());
@@ -5107,7 +8973,45 @@ impl<'a> Interpreter<'a> {
                 .iter()
                 .map(|s| RuntimeValue::Text(Rc::new(s.clone())))
                 .collect();
-            return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items)))));
+            return Ok(RuntimeValue::List(Rc::new(RefCell::new(
+                ListRepr::from_values(items),
+            ))));
+        } else if self.pbkdf2_accel(function, args.len()) {
+            // Byte-identical native PBKDF2-HMAC-SHA256 — same rationale as the
+            // async twin (crypto_accel is the FIPS/RFC-locked reference; the pure
+            // Hi() loop is too slow to interpret).
+            let pw = self.evaluate_expr_sync(&args[0])?;
+            let salt = self.evaluate_expr_sync(&args[1])?;
+            let iters = self.evaluate_expr_sync(&args[2])?;
+            let (pw, salt, iters) = crate::semantics::builtins::pbkdf2_arguments(&pw, &salt, &iters)?;
+            let dk = crate::crypto_accel::pbkdf2_sha256(&pw, &salt, iters);
+            return Ok(crate::semantics::builtins::bytes_to_seq(&dk));
+        } else if let Some(kernel) = self.native_kernel(function, args.len()) {
+            // A standard-library native kernel — the same seam as the async twin.
+            let mut vals = Vec::with_capacity(args.len());
+            for arg in args {
+                vals.push(self.evaluate_expr_sync(arg)?);
+            }
+            return kernel.call(&vals);
+        } else if let Some(id) = self.system_native_id(function, args.len()) {
+            // The system natives — the same shared builtin seam as the async twin and the VM's
+            // `CallBuiltin` (must match exactly).
+            let mut vals = Vec::with_capacity(args.len());
+            for arg in args {
+                vals.push(self.evaluate_expr_sync(arg)?);
+            }
+            return crate::semantics::builtins::call_builtin(id, vals);
+        } else if self.sleep_native(function, args.len()) {
+            let val = self.evaluate_expr_sync(&args[0])?;
+            self.sleep_for_sync(val)?;
+            return Ok(RuntimeValue::Nothing);
+        } else if self.tcp_native_op(function, args.len()).is_some() {
+            // Sockets suspend — a tcp program routes to the async twin via
+            // `needs_async`; reaching here is a routing bug, surfaced loudly.
+            return Err(format!(
+                "{} (tcp) requires the async interpreter path",
+                self.ctx.interner.resolve(function)
+            ));
         } else if let Some(id) = self.builtin_id(function) {
             // Arity is checked BEFORE evaluating arguments (kernel rule).
             crate::semantics::builtins::check_arity(id, args.len())?;
@@ -5124,7 +9028,14 @@ impl<'a> Interpreter<'a> {
                 }
                 v
             };
+            if id == crate::semantics::builtins::BuiltinId::DefinedReal {
+                return self.open_defined_run().define(vals);
+            }
             return crate::semantics::builtins::call_builtin(id, vals);
+        }
+
+        if let Some(refusal) = self.native_refusal(function) {
+            return Err(refusal);
         }
 
         // User-defined function lookup — extract metadata without cloning params
@@ -5142,18 +9053,49 @@ impl<'a> Interpreter<'a> {
             }
 
             let mut arg_values = Vec::with_capacity(param_count);
-            for arg in args {
-                arg_values.push(self.evaluate_expr_sync(arg)?);
+            let mut lent: Vec<(usize, Place)> = Vec::new();
+            for (i, arg) in args.iter().enumerate() {
+                if matches!(
+                    self.ctx.functions[&function].params[i].1,
+                    TypeExpr::Mutable { .. }
+                ) {
+                    let place = match self.place_sync(arg) {
+                        Ok(place) => place,
+                        Err(e) => {
+                            let values = self.values_to_give_back(&lent, &mut arg_values);
+                            self.give_back(lent, values);
+                            return Err(e);
+                        }
+                    };
+                    if let Some(value) = place.as_ref().and_then(|place| self.lend(place)) {
+                        arg_values.push(value);
+                        lent.push((i, place.expect("a lent argument names a place")));
+                        continue;
+                    }
+                }
+                match self.evaluate_expr_sync(arg) {
+                    Ok(v) => arg_values.push(v),
+                    Err(e) => {
+                        let values = self.values_to_give_back(&lent, &mut arg_values);
+                        self.give_back(lent, values);
+                        return Err(e);
+                    }
+                }
             }
 
             if self.task.call_depth >= crate::semantics::MAX_CALL_DEPTH {
-            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
-        }
-        self.task.call_depth += 1;
-        self.task.env.push_frame();
+                let values = self.values_to_give_back(&lent, &mut arg_values);
+                self.give_back(lent, values);
+                return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+            }
+            self.task.call_depth += 1;
+            self.task.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.ctx.functions[&function].params[i].0;
-                self.task.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+                self.task.env.define(
+                    param_name,
+                    std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing),
+                );
             }
 
             // TCO: while executing THIS function's body, a self-tail-call is a
@@ -5231,16 +9173,23 @@ impl<'a> Interpreter<'a> {
             self.task.repeat_depth_sync = prev_repeat;
             self.task.tco_fn_sync = prev_tco;
 
+            let returned = self.lent_values(function, &lent);
             self.task.env.pop_frame();
-        self.task.call_depth -= 1;
+            self.give_back(lent, returned);
+            self.task.call_depth -= 1;
             match body_err {
                 Some(e) => Err(e),
-                None => Ok(return_value),
+                None => Ok(self.coerce_record_return(return_value, function)),
             }
         } else {
             // Fallback: check if the function name is a variable holding a closure
-            let maybe_closure = self.task.env.lookup(function)
-                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+            let maybe_closure = self.task.env.lookup(function).and_then(|v| {
+                if let RuntimeValue::Function(c) = v {
+                    Some((**c).clone())
+                } else {
+                    None
+                }
+            });
 
             if let Some(closure) = maybe_closure {
                 let mut arg_values = Vec::with_capacity(args.len());
@@ -5249,18 +9198,38 @@ impl<'a> Interpreter<'a> {
                 }
                 self.call_closure_value_sync(&closure, arg_values)
             } else {
-                Err(format!("Unknown function: {}", self.ctx.interner.resolve(function)))
+                Err(format!(
+                    "Unknown function: {}",
+                    self.ctx.interner.resolve(function)
+                ))
             }
         }
     }
 
-    fn call_function_with_values_sync(&mut self, function: Symbol, mut args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
+    fn call_function_with_values_sync(
+        &mut self,
+        function: Symbol,
+        mut args: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, String> {
         // Handle built-in "show" via Symbol comparison
         if Some(function) == self.ctx.sym_show {
             for val in args {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
+        }
+        if let Some(id) = self.system_native_id(function, args.len()) {
+            return crate::semantics::builtins::call_builtin(id, args);
+        }
+        if let Some(kernel) = self.native_kernel(function, args.len()) {
+            return kernel.call(&args);
+        }
+        if self.sleep_native(function, args.len()) {
+            self.sleep_for_sync(args.remove(0))?;
+            return Ok(RuntimeValue::Nothing);
+        }
+        if let Some(refusal) = self.native_refusal(function) {
+            return Err(refusal);
         }
 
         if let Some(func) = self.ctx.functions.get(&function) {
@@ -5270,18 +9239,23 @@ impl<'a> Interpreter<'a> {
             if args.len() != param_count {
                 return Err(format!(
                     "Function {} expects {} arguments, got {}",
-                    self.ctx.interner.resolve(function), param_count, args.len()
+                    self.ctx.interner.resolve(function),
+                    param_count,
+                    args.len()
                 ));
             }
 
             if self.task.call_depth >= crate::semantics::MAX_CALL_DEPTH {
-            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
-        }
-        self.task.call_depth += 1;
-        self.task.env.push_frame();
+                return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+            }
+            self.task.call_depth += 1;
+            self.task.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.ctx.functions[&function].params[i].0;
-                self.task.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
+                self.task.env.define(
+                    param_name,
+                    std::mem::replace(&mut args[i], RuntimeValue::Nothing),
+                );
             }
 
             // TCO: while executing THIS function's body, a self-tail-call is a
@@ -5360,19 +9334,27 @@ impl<'a> Interpreter<'a> {
             self.task.tco_fn_sync = prev_tco;
 
             self.task.env.pop_frame();
-        self.task.call_depth -= 1;
+            self.task.call_depth -= 1;
             match body_err {
                 Some(e) => Err(e),
-                None => Ok(return_value),
+                None => Ok(self.coerce_record_return(return_value, function)),
             }
         } else {
-            let maybe_closure = self.task.env.lookup(function)
-                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+            let maybe_closure = self.task.env.lookup(function).and_then(|v| {
+                if let RuntimeValue::Function(c) = v {
+                    Some((**c).clone())
+                } else {
+                    None
+                }
+            });
 
             if let Some(closure) = maybe_closure {
                 self.call_closure_value_sync(&closure, args)
             } else {
-                Err(format!("Unknown function: {}", self.ctx.interner.resolve(function)))
+                Err(format!(
+                    "Unknown function: {}",
+                    self.ctx.interner.resolve(function)
+                ))
             }
         }
     }
@@ -5422,6 +9404,18 @@ impl<'a> Interpreter<'a> {
         seen: &mut std::collections::HashSet<Symbol>,
     ) {
         match expr {
+            Expr::Dom(q) => {
+                if let Some(sel) = q.selector() {
+                    Self::collect_symbols_from_expr(sel, exclude, out, seen);
+                }
+            }
+            Expr::View(v) => {
+                let (view_exprs, view_blocks) = v.exprs_and_blocks();
+                for e in view_exprs {
+                    Self::collect_symbols_from_expr(e, exclude, out, seen);
+                }
+                let _ = &view_blocks;
+            }
             Expr::Identifier(sym) => {
                 if !exclude.contains(sym) && seen.insert(*sym) {
                     out.push(*sym);
@@ -5447,12 +9441,18 @@ impl<'a> Interpreter<'a> {
                 Self::collect_symbols_from_expr(collection, exclude, out, seen);
                 Self::collect_symbols_from_expr(index, exclude, out, seen);
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 Self::collect_symbols_from_expr(collection, exclude, out, seen);
                 Self::collect_symbols_from_expr(start, exclude, out, seen);
                 Self::collect_symbols_from_expr(end, exclude, out, seen);
             }
-            Expr::Copy { expr: e } | Expr::Give { value: e } | Expr::Length { collection: e }
+            Expr::Copy { expr: e }
+            | Expr::Give { value: e }
+            | Expr::Length { collection: e }
             | Expr::Not { operand: e } => {
                 Self::collect_symbols_from_expr(e, exclude, out, seen);
             }
@@ -5475,19 +9475,34 @@ impl<'a> Interpreter<'a> {
                     Self::collect_symbols_from_expr(e, exclude, out, seen);
                 }
             }
-            Expr::Contains { collection, value } | Expr::Union { left: collection, right: value }
-            | Expr::Intersection { left: collection, right: value } => {
+            Expr::Contains { collection, value }
+            | Expr::Union {
+                left: collection,
+                right: value,
+            }
+            | Expr::Intersection {
+                left: collection,
+                right: value,
+            } => {
                 Self::collect_symbols_from_expr(collection, exclude, out, seen);
                 Self::collect_symbols_from_expr(value, exclude, out, seen);
             }
             Expr::ManifestOf { zone } | Expr::OptionSome { value: zone } => {
                 Self::collect_symbols_from_expr(zone, exclude, out, seen);
             }
-            Expr::ChunkAt { index, zone } | Expr::WithCapacity { value: index, capacity: zone } => {
+            Expr::ChunkAt { index, zone }
+            | Expr::WithCapacity {
+                value: index,
+                capacity: zone,
+            } => {
                 Self::collect_symbols_from_expr(index, exclude, out, seen);
                 Self::collect_symbols_from_expr(zone, exclude, out, seen);
             }
-            Expr::Closure { params: inner_params, body: inner_body, .. } => {
+            Expr::Closure {
+                params: inner_params,
+                body: inner_body,
+                ..
+            } => {
                 // Nested closure: exclude inner params too
                 let mut inner_exclude = exclude.clone();
                 for (s, _) in inner_params {
@@ -5539,8 +9554,17 @@ impl<'a> Interpreter<'a> {
                     Self::collect_symbols_from_expr(value, &bound, out, seen);
                     bound.insert(*var);
                 }
-                Stmt::Set { value, .. } => {
+                Stmt::Set { target, value } => {
                     Self::collect_symbols_from_expr(value, &bound, out, seen);
+                    // The TARGET is a reference too. Everything else here reaches a name
+                    // through an expression, and a `Set`'s target is the one name that arrives
+                    // as a bare symbol — so leaving it out made a body whose ONLY use of an
+                    // outer name was a write look like a body that never mentioned it. The VM
+                    // promotes a Main binding to a global slot exactly when this walk names it,
+                    // so the write then had nowhere to land ("Undefined variable" at the store).
+                    if !bound.contains(target) && seen.insert(*target) {
+                        out.push(*target);
+                    }
                 }
                 Stmt::Call { function, args } => {
                     if !bound.contains(function) && seen.insert(*function) {
@@ -5553,7 +9577,11 @@ impl<'a> Interpreter<'a> {
                 Stmt::Return { value: Some(e) } => {
                     Self::collect_symbols_from_expr(e, &bound, out, seen);
                 }
-                Stmt::If { cond, then_block, else_block } => {
+                Stmt::If {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
                     Self::collect_symbols_from_expr(cond, &bound, out, seen);
                     Self::collect_symbols_from_block(then_block, &bound, out, seen);
                     if let Some(eb) = else_block {
@@ -5564,7 +9592,11 @@ impl<'a> Interpreter<'a> {
                     Self::collect_symbols_from_expr(cond, &bound, out, seen);
                     Self::collect_symbols_from_block(body, &bound, out, seen);
                 }
-                Stmt::Repeat { pattern, iterable, body } => {
+                Stmt::Repeat {
+                    pattern,
+                    iterable,
+                    body,
+                } => {
                     Self::collect_symbols_from_expr(iterable, &bound, out, seen);
                     let mut body_bound = bound.clone();
                     match pattern {
@@ -5582,12 +9614,17 @@ impl<'a> Interpreter<'a> {
                 Stmt::Show { object, .. } | Stmt::Give { object, .. } => {
                     Self::collect_symbols_from_expr(object, &bound, out, seen);
                 }
-                Stmt::Push { value, collection } | Stmt::Add { value, collection }
+                Stmt::Push { value, collection }
+                | Stmt::Add { value, collection }
                 | Stmt::Remove { value, collection } => {
                     Self::collect_symbols_from_expr(value, &bound, out, seen);
                     Self::collect_symbols_from_expr(collection, &bound, out, seen);
                 }
-                Stmt::SetIndex { collection, index, value } => {
+                Stmt::SetIndex {
+                    collection,
+                    index,
+                    value,
+                } => {
                     Self::collect_symbols_from_expr(collection, &bound, out, seen);
                     Self::collect_symbols_from_expr(index, &bound, out, seen);
                     Self::collect_symbols_from_expr(value, &bound, out, seen);
@@ -5596,8 +9633,16 @@ impl<'a> Interpreter<'a> {
                     Self::collect_symbols_from_expr(object, &bound, out, seen);
                     Self::collect_symbols_from_expr(value, &bound, out, seen);
                 }
-                Stmt::RuntimeAssert { condition, .. } => {
+                Stmt::RuntimeAssert {
+                    condition, reason, ..
+                } => {
                     Self::collect_symbols_from_expr(condition, &bound, out, seen);
+                    if let Some(r) = reason {
+                        Self::collect_symbols_from_expr(r, &bound, out, seen);
+                    }
+                }
+                Stmt::Fail { reason } => {
+                    Self::collect_symbols_from_expr(reason, &bound, out, seen);
                 }
                 Stmt::Zone { body, .. } => {
                     Self::collect_symbols_from_block(body, &bound, out, seen);
@@ -5614,6 +9659,394 @@ impl<'a> Interpreter<'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Run the HTTP server for a `Serve` statement: bind `port`, then serve
+    /// connections CONCURRENTLY, re-entering the LOGOS handler function with a
+    /// `Request` value per request and writing back its `Response`.
+    ///
+    /// Hosting: the interpreter is normally driven by `futures::executor` (no
+    /// tokio reactor — the `largo serve`/`largo run` path), so with no runtime
+    /// current this stands up a current-thread tokio runtime and blocks on the
+    /// loop; when a runtime IS already current (an async host awaiting
+    /// `interpret_for_ui`), it serves on that ambient runtime directly.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn serve_http(&mut self, port: u16, handler: Symbol) -> Result<(), String> {
+        // The ONE deployment/dev-proxy seam: `LOGOS_PORT` (then `PORT`)
+        // overrides the program's port expression — shared with the AOT tier
+        // through `env_port_override` so the tiers cannot drift.
+        let port = logicaffeine_system::http::server::env_port_override(port);
+        if logicaffeine_system::tokio::runtime::Handle::try_current().is_ok() {
+            return self.serve_http_concurrent(port, handler).await;
+        }
+        let rt = logicaffeine_system::tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("Serve: cannot start async runtime: {e}"))?;
+        rt.block_on(self.serve_http_concurrent(port, handler))
+    }
+
+    /// The concurrent serve loop. The interpreter is `!Send`, so nothing is
+    /// spawned: every connection is an OWNED future (socket + buffer inside) in
+    /// one `FuturesUnordered` driven inline on this thread, overlapped with the
+    /// accept future by `select!` — a stalled or held-open connection can never
+    /// head-of-line-block the rest. Handler calls are the only points that
+    /// touch `&mut self`, so they serialize naturally (one at a time, exactly
+    /// the single-threaded language model); reads and writes overlap freely.
+    ///
+    /// Crash-proofing: a handler failure (runtime error, or a non-`Response`
+    /// return) answers the shared `internal_error` 500 for THAT request — the
+    /// detail goes to stderr, never the wire — and the loop keeps serving
+    /// (`call_function_with_values` unwinds its frame on error, so no state
+    /// poisons later requests). Keep-alive follows the shared
+    /// `request_wants_keep_alive` law; a parse error answers 400 and closes;
+    /// at most `MAX_INFLIGHT` connections are held at once.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn serve_http_concurrent(&mut self, port: u16, handler: Symbol) -> Result<(), String> {
+        use futures::stream::{FuturesUnordered, StreamExt};
+        use logicaffeine_system::http::server::{
+            internal_error, read_error_response, try_upgrade, Conn, Listener, ReadError,
+            UpgradeHandler,
+        };
+        use logicaffeine_system::http::wire::{
+            request_wants_keep_alive, HttpRequest, HttpResponse,
+        };
+        use logicaffeine_system::http::{
+            service_unavailable, shutdown_requested, Admission, Lifecycle, LifecycleConfig,
+        };
+        use std::time::Duration;
+
+        /// One connection's next lifecycle event, with the connection handed
+        /// back so the loop can continue it.
+        enum Step {
+            /// The next read attempt finished: a request, or the read error
+            /// that ends the connection.
+            Request(Conn, Result<HttpRequest, ReadError>),
+            /// The connection is done (response written with `close`, write
+            /// failed, or the peer went away).
+            Closed,
+        }
+        type StepFut = std::pin::Pin<Box<dyn std::future::Future<Output = Step>>>;
+
+        /// Read one request under the configured body cap and read deadline.
+        ///
+        /// The deadline is the slowloris defense: a peer that connects and then
+        /// dribbles bytes is dropped rather than holding a connection forever. The
+        /// cap is what turns an announced-but-enormous body into a defined `413`
+        /// instead of an allocation.
+        async fn read_bounded(
+            conn: &mut Conn,
+            max_body: usize,
+            deadline: Duration,
+        ) -> Option<Result<HttpRequest, ReadError>> {
+            match logicaffeine_system::tokio::time::timeout(
+                deadline,
+                conn.read_request_capped(max_body),
+            )
+            .await
+            {
+                Ok(read) => Some(read),
+                Err(_) => None,
+            }
+        }
+
+        /// A fresh or idle connection: read its next request.
+        fn read_step(mut conn: Conn, max_body: usize, deadline: Duration) -> StepFut {
+            Box::pin(async move {
+                match read_bounded(&mut conn, max_body, deadline).await {
+                    Some(read) => Step::Request(conn, read),
+                    None => Step::Closed,
+                }
+            })
+        }
+
+        /// Write `resp` with the decided disposition, then (keep-alive) read
+        /// the connection's next request or (close / write error) finish.
+        fn write_step(
+            mut conn: Conn,
+            resp: HttpResponse,
+            keep_alive: bool,
+            max_body: usize,
+            deadline: Duration,
+        ) -> StepFut {
+            Box::pin(async move {
+                if conn.write_response_conn(&resp, keep_alive).await.is_err() || !keep_alive {
+                    return Step::Closed;
+                }
+                match read_bounded(&mut conn, max_body, deadline).await {
+                    Some(read) => Step::Request(conn, read),
+                    None => Step::Closed,
+                }
+            })
+        }
+
+        // The SAME lifecycle the compiled tier gets, read from the SAME place, so
+        // the three tiers cannot drift: readiness, bounded backpressure, the body
+        // cap, the read deadline, the drain timeout and the optional probe paths.
+        let lifecycle = Lifecycle::new(LifecycleConfig::from_env());
+        lifecycle.set_ready(true);
+        let cfg = lifecycle.config();
+        let (max_body, read_deadline, max_inflight) =
+            (cfg.max_body, cfg.read_deadline, cfg.max_inflight);
+        let (drain_timeout, request_timeout) = (cfg.drain_timeout, cfg.request_timeout);
+
+        // The address, not just the port: `LOGOS_HOST` names the interface
+        // (default loopback) and `env_bind_address` composes it with the port,
+        // so a deployed binary can be reached from outside its own machine and
+        // every tier binds the same address from the same environment.
+        let addr = logicaffeine_system::http::server::env_bind_address(port);
+        let listener = Listener::bind(&addr)
+            .await
+            .map_err(|e| format!("Serve: cannot bind {addr}: {e}"))?;
+        let bound = listener.local_addr().map_err(|e| format!("Serve: {e}"))?;
+        // Announced at once on stdout (`announce_serving`, the one announcement every tier
+        // makes), not pushed into the program's output: the streaming host echoes
+        // `self.output` as it grows, so pushing it as well would announce the port twice.
+        logicaffeine_system::http::server::announce_serving(bound);
+
+        // A program whose pages talk to the relay answers `/_relay` itself (`analysis::relay`) — the
+        // same table, and the same `try_upgrade` decision, a compiled backend serves.
+        let upgrades: std::collections::BTreeMap<String, UpgradeHandler> = if self
+            .ctx
+            .components
+            .values()
+            .any(crate::analysis::relay::component_uses_the_relay)
+        {
+            logicaffeine_system::relay::RelayHub::new()
+                .upgrades()
+                .into_iter()
+                .map(|(path, handler)| (path.to_string(), handler))
+                .collect()
+        } else {
+            std::collections::BTreeMap::new()
+        };
+
+        let shutdown = shutdown_requested();
+        futures::pin_mut!(shutdown);
+        let mut draining = false;
+        let mut inflight: FuturesUnordered<StepFut> = FuturesUnordered::new();
+        loop {
+            // A drain ends the loop once the work that was already accepted is
+            // finished — that is the whole difference between a graceful stop and
+            // dropping requests on the floor.
+            if draining && inflight.is_empty() {
+                return Ok(());
+            }
+            logicaffeine_system::tokio::select! {
+                accepted = listener.accept(), if !draining && inflight.len() < max_inflight => {
+                    if let Ok(conn) = accepted {
+                        inflight.push(read_step(conn, max_body, read_deadline));
+                    }
+                }
+                // A stop request: stop advertising readiness so traffic moves away,
+                // stop accepting, and give the in-flight work its deadline to finish.
+                _ = &mut shutdown, if !draining => {
+                    lifecycle.set_ready(false);
+                    draining = true;
+                    let _ = logicaffeine_system::tokio::time::timeout(
+                        drain_timeout,
+                        std::future::pending::<()>(),
+                    );
+                }
+                Some(step) = inflight.next() => {
+                    match step {
+                        Step::Request(conn, Ok(req)) => {
+                            // An upgrade ends this connection's HTTP life: answered and handed over,
+                            // or — when its handshake cannot complete — dropped with no response.
+                            match try_upgrade(&req, &upgrades) {
+                                Some(Ok((response, handler))) => {
+                                    inflight.push(Box::pin(async move {
+                                        conn.upgrade(response, handler).await;
+                                        Step::Closed
+                                    }));
+                                    continue;
+                                }
+                                Some(Err(())) => continue,
+                                None => {}
+                            }
+                            let keep_alive = request_wants_keep_alive(&req);
+                            // A configured probe answers before admission, so a
+                            // monitor gets a reply during an overload or a drain.
+                            if let Some(resp) = lifecycle.probe_response(&req.path) {
+                                inflight.push(write_step(conn, resp, keep_alive, max_body, read_deadline));
+                                continue;
+                            }
+                            // Admission: once draining, or once the slots are full,
+                            // a request is shed immediately rather than queued into
+                            // an unbounded wait.
+                            let guard = match lifecycle.admit() {
+                                Admission::Admit(g) => g,
+                                Admission::NotReady | Admission::Overloaded => {
+                                    inflight.push(write_step(conn, service_unavailable(), false, max_body, read_deadline));
+                                    continue;
+                                }
+                            };
+                            let request_value = Self::http_request_to_value(&req);
+                            // Arm this request's wall-clock budget. The handler runs
+                            // inline on this thread, so the budget is enforced from
+                            // inside the tree-walker rather than by racing a timer.
+                            self.request_deadline = Some(std::time::Instant::now() + request_timeout);
+                            let outcome =
+                                self.call_function_with_values(handler, vec![request_value]).await;
+                            self.request_deadline = None;
+                            let resp = match outcome {
+                                Ok(value) => match Self::value_to_http_response(&value) {
+                                    Ok(resp) => resp,
+                                    Err(e) => {
+                                        eprintln!("Serve: handler error: {e}");
+                                        internal_error()
+                                    }
+                                },
+                                // A request that outran its budget is a 503: the work
+                                // was abandoned, and the peer may retry. Any other
+                                // failure is the handler's own, and a 500.
+                                Err(e) if e == crate::interpreter::REQUEST_TIMED_OUT => {
+                                    eprintln!("Serve: {e}");
+                                    service_unavailable()
+                                }
+                                Err(e) => {
+                                    eprintln!("Serve: handler error: {e}");
+                                    internal_error()
+                                }
+                            };
+                            drop(guard);
+                            lifecycle.notify_slot_freed();
+                            inflight.push(write_step(conn, resp, keep_alive, max_body, read_deadline));
+                        }
+                        Step::Request(conn, Err(ReadError::Parse(ref e))) => {
+                            // Match the native tier's status law exactly: an oversized
+                            // body is 413, every other malformed request is 400.
+                            inflight.push(write_step(conn, read_error_response(e), false, max_body, read_deadline));
+                        }
+                        // A clean close or socket error between requests: the
+                        // connection just ends.
+                        Step::Request(_, Err(_)) | Step::Closed => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn serve_http(&mut self, _port: u16, _handler: Symbol) -> Result<(), String> {
+        Err("`Serve` (HTTP server) is not available in the browser".to_string())
+    }
+
+    /// Build a LOGOS `Request` struct value from a parsed HTTP request. The
+    /// `headers` map carries the wire parser's lowercased names; `query`
+    /// carries the percent-decoded parameters. Both are inserted in the wire
+    /// map's (sorted) order, matching the AOT bridge byte for byte.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn http_request_to_value(
+        req: &logicaffeine_system::http::wire::HttpRequest,
+    ) -> RuntimeValue {
+        let text_map = |src: &std::collections::BTreeMap<String, String>| {
+            let mut m = MapStorage::default();
+            for (k, v) in src {
+                m.insert(
+                    RuntimeValue::Text(Rc::new(k.clone())),
+                    RuntimeValue::Text(Rc::new(v.clone())),
+                );
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+        let mut fields = HashMap::new();
+        fields.insert(
+            "method".to_string(),
+            RuntimeValue::Text(Rc::new(req.method.clone())),
+        );
+        fields.insert(
+            "path".to_string(),
+            RuntimeValue::Text(Rc::new(req.path.clone())),
+        );
+        fields.insert(
+            "body".to_string(),
+            RuntimeValue::Text(Rc::new(String::from_utf8_lossy(&req.body).into_owned())),
+        );
+        fields.insert("headers".to_string(), text_map(&req.headers));
+        fields.insert("query".to_string(), text_map(&req.query));
+        RuntimeValue::Struct(Box::new(StructValue {
+            type_name: "Request".to_string(),
+            fields,
+        }))
+    }
+
+    /// Read a LOGOS `Response` struct value into an HTTP response to serialize.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn value_to_http_response(
+        value: &RuntimeValue,
+    ) -> Result<logicaffeine_system::http::wire::HttpResponse, String> {
+        use logicaffeine_system::http::wire::HttpResponse;
+        use std::collections::BTreeMap;
+
+        let s = match value {
+            RuntimeValue::Struct(s) => s,
+            other => {
+                return Err(format!(
+                    "Serve: handler must return a Response, got {}",
+                    other.type_name()
+                ))
+            }
+        };
+        let status = match s.fields.get("status") {
+            Some(RuntimeValue::Int(n)) if (100..=599).contains(n) => *n as u16,
+            Some(RuntimeValue::Int(n)) => {
+                return Err(format!(
+                    "Serve: response status {n} is out of range (100-599)"
+                ))
+            }
+            _ => 200,
+        };
+        // The `contentType` field is authoritative but must be wire-safe: a
+        // CR/LF smuggled into it must never split the response (`safe_content_type`
+        // is the shared law both tiers apply).
+        let content_type = match s.fields.get("contentType") {
+            Some(RuntimeValue::Text(t)) => {
+                logicaffeine_system::http::wire::safe_content_type(t).to_string()
+            }
+            _ => "text/plain".to_string(),
+        };
+        // A non-empty `bytes` field is a raw binary body (a `.wasm`, an image …) and
+        // wins over the text `body`; each Int is one byte.
+        let bytes_body = match s.fields.get("bytes") {
+            Some(RuntimeValue::List(list)) => {
+                let l = list.borrow();
+                (l.len() > 0).then(|| {
+                    (0..l.len())
+                        .filter_map(|i| l.get(i))
+                        .map(|v| match v {
+                            RuntimeValue::Int(n) => n as u8,
+                            _ => 0,
+                        })
+                        .collect::<Vec<u8>>()
+                })
+            }
+            _ => None,
+        };
+        let body = bytes_body.unwrap_or_else(|| match s.fields.get("body") {
+            Some(RuntimeValue::Text(t)) => t.as_bytes().to_vec(),
+            Some(other) => other.to_display_string().into_bytes(),
+            None => Vec::new(),
+        });
+        // Merge the Response's `headers` map through the shared denylist +
+        // response-splitting filter (`response_header_allowed` — one law for
+        // both tiers), then set the authoritative Content-Type last.
+        let mut headers = BTreeMap::new();
+        if let Some(RuntimeValue::Map(m)) = s.fields.get("headers") {
+            for (k, v) in m.borrow().iter() {
+                if let (RuntimeValue::Text(name), RuntimeValue::Text(value)) = (k, v) {
+                    if logicaffeine_system::http::wire::response_header_allowed(name, value) {
+                        headers.insert(name.to_string(), value.to_string());
+                    }
+                }
+            }
+        }
+        headers.insert("Content-Type".to_string(), content_type);
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
     }
 
     /// Execute a closure with pre-evaluated argument values (async).
@@ -5639,12 +10072,17 @@ impl<'a> Interpreter<'a> {
                 Some(RuntimeValue::Int(n)) => *n,
                 _ => 0,
             };
-            return Ok(RuntimeValue::Int(crate::concurrency::marshal::gen_eval(expr, i)));
+            return Ok(RuntimeValue::Int(crate::concurrency::marshal::gen_eval(
+                expr, i,
+            )));
         }
 
         // Extract body reference from side-table (breaks borrow on self)
         let body_index = closure.body_index;
-        let is_block = matches!(self.ctx.closure_bodies.get(body_index), Some(ClosureBodyRef::Block(_)));
+        let is_block = matches!(
+            self.ctx.closure_bodies.get(body_index),
+            Some(ClosureBodyRef::Block(_))
+        );
 
         // A closure body is a fresh frame (lexical barrier): it sees its
         // captures, its parameters, and globals — never the caller's locals.
@@ -5661,7 +10099,10 @@ impl<'a> Interpreter<'a> {
 
         // Bind parameters
         for (i, param_sym) in closure.param_names.iter().enumerate() {
-            self.task.env.define(*param_sym, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+            self.task.env.define(
+                *param_sym,
+                std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing),
+            );
         }
 
         let result = if is_block {
@@ -5698,6 +10139,64 @@ impl<'a> Interpreter<'a> {
         result
     }
 
+    /// Open the run real numbers the program defines by a function read their functions in, or hand
+    /// it an evaluator over the program as it stands now: the closure a real is defined by was built
+    /// just before, and a child sees the closures its context held when it was made. The evaluator
+    /// calls a closure in a child interpreter over the same program, which shares nothing with this
+    /// one but the program and the fuel, so a digit read in the middle of an operation leaves this
+    /// interpreter's state as it was.
+    fn open_defined_run(&mut self) -> &crate::semantics::defined::RunScope<'a> {
+        let child = RefCell::new(Interpreter::evaluation_child(self.ctx.clone(), self.fuel.clone()));
+        let (ctx, fuel) = (self.ctx.clone(), self.fuel.clone());
+        let evaluator: crate::semantics::defined::Evaluator<'a> = Rc::new(move |closure, n| {
+            let RuntimeValue::Function(c) = closure else {
+                return Err(format!("a real number is defined by a function, got {}", closure.type_name()));
+            };
+            let args = vec![RuntimeValue::Int(n)];
+            match child.try_borrow_mut() {
+                Ok(mut child) => child.call_closure_value_sync(c, args),
+                Err(_) => Interpreter::evaluation_child(ctx.clone(), fuel.clone()).call_closure_value_sync(c, args),
+            }
+        });
+        match &self.defined_run {
+            Some(run) => run.renew(evaluator),
+            None => self.defined_run = Some(crate::semantics::defined::open_run(evaluator)),
+        }
+        self.defined_run.as_ref().expect("the run is open")
+    }
+
+    /// An interpreter over `ctx` that runs one function value and nothing else: no page, no task of
+    /// the scheduler's, no output anyone reads.
+    fn evaluation_child(ctx: SharedCtx<'a>, fuel: Option<FuelHandles>) -> Interpreter<'a> {
+        Interpreter {
+            ctx,
+            task: TaskState::new(),
+            output: Vec::new(),
+            current_site: None,
+            yield_state: None,
+            err_sink: None,
+            netbox: crate::concurrency::net_inbox::NetInbox::new(),
+            tcpbox: crate::concurrency::tcp_registry::TcpRegistry::new(),
+            test_mode: false,
+            test_failures: Vec::new(),
+            test_ops: 0,
+            test_assertions: 0,
+            test_budget: u64::MAX,
+            gen_rng: 0,
+            prove_mode: false,
+            properties_proven: 0,
+            fuel,
+            request_deadline: None,
+            deadline_tick: 0,
+            tiers_noop: false,
+            page: PageSeat::Unseated,
+            statement_observer: None,
+            page_main: None,
+            failed_call_site: None,
+            defined_run: None,
+        }
+    }
+
     /// Execute a closure with pre-evaluated argument values (sync).
     fn call_closure_value_sync(
         &mut self,
@@ -5718,11 +10217,16 @@ impl<'a> Interpreter<'a> {
                 Some(RuntimeValue::Int(n)) => *n,
                 _ => 0,
             };
-            return Ok(RuntimeValue::Int(crate::concurrency::marshal::gen_eval(expr, i)));
+            return Ok(RuntimeValue::Int(crate::concurrency::marshal::gen_eval(
+                expr, i,
+            )));
         }
 
         let body_index = closure.body_index;
-        let is_block = matches!(self.ctx.closure_bodies.get(body_index), Some(ClosureBodyRef::Block(_)));
+        let is_block = matches!(
+            self.ctx.closure_bodies.get(body_index),
+            Some(ClosureBodyRef::Block(_))
+        );
 
         // A closure body is a fresh frame (lexical barrier); see the async twin.
         if self.task.call_depth >= crate::semantics::MAX_CALL_DEPTH {
@@ -5736,7 +10240,10 @@ impl<'a> Interpreter<'a> {
         }
 
         for (i, param_sym) in closure.param_names.iter().enumerate() {
-            self.task.env.define(*param_sym, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+            self.task.env.define(
+                *param_sym,
+                std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing),
+            );
         }
 
         let result = if is_block {
@@ -5774,6 +10281,147 @@ impl<'a> Interpreter<'a> {
     }
 }
 
+/// The tree-walker as the engine a lowered page runs on ([`crate::page_host::LoweredPage`]'s
+/// host calls): the page's main has run through [`Interpreter::run_page_main`], and every call
+/// lands on the globals it built — the same model, the same failure contract and the same refusals
+/// as the bytecode VM's [`crate::vm::session::Session`]. A call that fails unwinds every frame,
+/// scope and loop it opened and leaves the page callable.
+impl<'a> crate::page_host::LoweredCalls for Interpreter<'a> {
+    fn call(&mut self, name: &str, args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
+        self.require_page_main(&format!("`{name}`"))?;
+        let function = self
+            .ctx
+            .interner
+            .lookup(name)
+            .filter(|f| self.ctx.functions.contains_key(f))
+            .ok_or_else(|| format!("tree-walker: this program has no function `{name}`"))?;
+        let expected = self.ctx.functions[&function].params.len();
+        if args.len() != expected {
+            return Err(format!(
+                "`{name}` expects {expected} arguments, got {}",
+                args.len()
+            ));
+        }
+        self.host_call(|me| me.call_function_with_values_sync(function, args))
+    }
+
+    fn call_value(
+        &mut self,
+        callee: &RuntimeValue,
+        args: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, String> {
+        self.require_page_main("a closure")?;
+        match callee {
+            RuntimeValue::Function(closure) => {
+                self.host_call(|me| me.call_closure_value_sync(closure, args))
+            }
+            other => Err(format!("Cannot call value of type {}", other.type_name())),
+        }
+    }
+
+    fn has(&self, name: &str) -> bool {
+        self.ctx
+            .interner
+            .lookup(name)
+            .is_some_and(|f| self.ctx.functions.contains_key(&f))
+    }
+
+    /// The page's main run again at the top level, over the globals it builds: every one of them
+    /// starts over, and a binding the page's main does not make — whatever drives the page bound
+    /// for itself — is left exactly as it was.
+    fn reload(&mut self) -> Result<(), String> {
+        self.require_page_main("a reload")?;
+        let program = self.page_main.clone().unwrap_or_default();
+        self.at_top_level(|me| me.host_call(|me| me.run_top_level_sync(&program, false)))
+    }
+
+    fn lines(&self) -> &[String] {
+        &self.output
+    }
+
+    fn failure_site(&self) -> Option<u32> {
+        self.failed_call_site
+    }
+}
+
+/// The stack a tree-walker session runs on.
+///
+/// A LOGOS call costs the tree-walker a chain of Rust frames — statement, expression, call, and
+/// the statement inside it — so the depth every engine promises ([`crate::semantics::
+/// MAX_CALL_DEPTH`], which the bytecode VM reaches on any thread because its frames live on the
+/// heap) needs far more stack than the 2 MiB an ordinary thread gets. The reservation is virtual:
+/// pages are committed only as deep recursion touches them.
+pub const SESSION_STACK_BYTES: usize = 256 * 1024 * 1024;
+
+thread_local! {
+    /// Whether this thread is a session thread [`on_session_stack`] started.
+    static ON_SESSION_STACK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A [`PageWorld`] handed between a session's caller and the session's thread.
+#[cfg(not(target_arch = "wasm32"))]
+struct WorldHandoff(PageWorld);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WorldHandoff {
+    /// The world, arrived — installed as the receiving thread's.
+    fn arrive(self) {
+        self.0.restore();
+    }
+}
+
+// SAFETY: a world holds `Rc`s (a listener's closure, a request's completion), which may share their
+// counts with values the caller still holds. It crosses threads only in `on_session_stack`, and only
+// by value — no reference into it crosses: into the session thread as that thread starts, back out
+// as it finishes, while the caller is parked in the scope's join the whole time. So exactly one
+// thread ever touches those counts at once, and the spawn and the join order every access on one
+// side before every access on the other. Nothing inside the session can carry one of those `Rc`s
+// anywhere else: every other thread takes only `Send` data, which an `Rc` is not, and this is the
+// one `unsafe` crossing that carries page state (census: `session_world_lock`); whatever the
+// session still holds when it ends is dropped on its thread before the join returns.
+#[cfg(not(target_arch = "wasm32"))]
+unsafe impl Send for WorldHandoff {}
+
+/// Run one tree-walker session on a thread whose stack holds the full call depth
+/// ([`SESSION_STACK_BYTES`]), and hand its result back.
+///
+/// ★ THE SESSION RUNS IN ITS CALLER'S WORLD. The page world
+/// ([`crate::semantics::world::PageWorld`]) moves to the session's thread as the session starts
+/// and back as it ends, so the session reads what its caller set up
+/// and its caller reads what the session left — a session on its own stack is the session run in
+/// place, and nothing reads the world from the wrong thread. A session started inside a session
+/// runs where it is. A panic inside reaches the caller unchanged, after the world it left.
+pub fn on_session_stack<R: Send>(session: impl FnOnce() -> R + Send) -> R {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if ON_SESSION_STACK.with(|on| on.get()) {
+            return session();
+        }
+        let world = WorldHandoff(PageWorld::take());
+        let (ran, world) = std::thread::scope(|scope| {
+            let worker = std::thread::Builder::new()
+                .name("logos-session".to_string())
+                .stack_size(SESSION_STACK_BYTES)
+                .spawn_scoped(scope, move || {
+                    ON_SESSION_STACK.with(|on| on.set(true));
+                    world.arrive();
+                    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(session));
+                    (ran, WorldHandoff(PageWorld::take()))
+                })
+                .expect("spawn the tree-walker session thread");
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        });
+        world.arrive();
+        ran.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        session()
+    }
+}
+
 /// Check whether a program requires async execution.
 ///
 /// Only 4 statement types need async: ReadFrom (file), WriteFile, Sleep, Mount.
@@ -5782,11 +10430,44 @@ fn apply_format_spec(val: &RuntimeValue, spec: &str) -> String {
     crate::semantics::format::apply_format_spec(val, spec)
 }
 
-pub fn needs_async(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|s| stmt_needs_async(s))
+/// A value as a launched task receives it: materialized as it crosses to the task, which may run on a
+/// worker thread of its own, and rebuilt there — a value that cannot cross refused in the words a
+/// channel refuses it with, as the VM's spawn does.
+fn crossing_to_a_task(val: &RuntimeValue) -> Result<RuntimeValue, String> {
+    let payload =
+        marshal::materialize(val).map_err(|e| format!("cannot send value through a channel: {:?}", e))?;
+    Ok(marshal::rebuild(payload))
 }
 
-fn stmt_needs_async(stmt: &Stmt) -> bool {
+/// A `Sleep`'s length on the scheduler's logical-tick scale: an Int or a Duration, as written.
+fn sleep_ticks(val: &RuntimeValue) -> Result<u64, String> {
+    match val {
+        RuntimeValue::Int(n) => Ok((*n).max(0) as u64),
+        RuntimeValue::Duration(d) => Ok((*d).max(0) as u64),
+        _ => Err(format!(
+            "Sleep requires Duration or Int, got {}",
+            val.type_name()
+        )),
+    }
+}
+
+/// A `Sleep`'s length in nanoseconds: a Duration as it is, an Int as milliseconds.
+fn sleep_nanos(val: &RuntimeValue) -> Result<i64, String> {
+    match val {
+        RuntimeValue::Duration(nanos) => Ok(*nanos),
+        RuntimeValue::Int(ms) => Ok(ms.wrapping_mul(1_000_000)),
+        _ => Err(format!(
+            "Sleep requires Duration or Int, got {}",
+            val.type_name()
+        )),
+    }
+}
+
+pub fn needs_async(stmts: &[Stmt], interner: &Interner) -> bool {
+    stmts.iter().any(|s| stmt_needs_async(s, interner))
+}
+
+fn stmt_needs_async(stmt: &Stmt, interner: &Interner) -> bool {
     match stmt {
         Stmt::ReadFrom { source, .. } => {
             matches!(source, ReadSource::File(_))
@@ -5794,17 +10475,50 @@ fn stmt_needs_async(stmt: &Stmt) -> bool {
         Stmt::WriteFile { .. } | Stmt::Sleep { .. } | Stmt::Mount { .. } => true,
         // Networking over the relay is async (dial + subscribe await).
         Stmt::Sync { .. } | Stmt::Listen { .. } | Stmt::ConnectTo { .. } => true,
+        // The HTTP server binds a tokio listener and awaits per-request handling.
+        Stmt::Serve { .. } => true,
         // Peer messaging rides the relay (subscribe/publish/poll) — async only.
         Stmt::SendMessage { .. } | Stmt::AwaitMessage { .. } | Stmt::StreamMessage { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
-            needs_async(then_block)
-                || else_block.as_ref().map_or(false, |b| needs_async(b))
+        // tcp.lg natives block on sockets — async only. The prelude splices tcp.lg
+        // ONLY when the program references one of its names (declarer-wins fixpoint),
+        // so the spliced EMPTY-bodied native declaration IS the reference detector.
+        Stmt::FunctionDef {
+            name,
+            is_native: true,
+            ..
+        } if matches!(
+            interner.resolve(*name),
+            "tcpConnect"
+                | "tcpSend"
+                | "tcpRecv"
+                | "tcpRecvExact"
+                | "tcpClose"
+                | "tcpSetTimeout"
+                | "tcpListen"
+                | "tcpAccept"
+                | "tcpListenerPort"
+                | "tcpShutdownWrite"
+                | "tcpConnectTls"
+                | "tcpUpgradeTls"
+        ) =>
+        {
+            true
         }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => needs_async(body),
-        Stmt::FunctionDef { body, .. } => needs_async(body),
-        Stmt::Zone { body, .. } => needs_async(body),
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => needs_async(tasks),
-        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| needs_async(arm.body)),
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            needs_async(then_block, interner)
+                || else_block
+                    .as_ref()
+                    .map_or(false, |b| needs_async(b, interner))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => needs_async(body, interner),
+        Stmt::FunctionDef { body, .. } => needs_async(body, interner),
+        Stmt::Zone { body, .. } => needs_async(body, interner),
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => needs_async(tasks, interner),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| needs_async(arm.body, interner)),
         _ => false,
     }
 }
@@ -5818,6 +10532,28 @@ fn count_pi_args(term: &crate::kernel::Term) -> usize {
         Term::Pi { body_type, .. } => 1 + count_pi_args(body_type),
         _ => 0,
     }
+}
+
+/// RUN-ONLY tree-walking-interpreter timing — the interpreter analog of [`crate::vm::run_nanos`].
+/// Executes the SAME statements the register-bytecode VM and the FPGA soft-core run, returning the MIN
+/// wall-time in nanoseconds over `iters` runs (a fresh `Interpreter` each run, symmetric with `run_nanos`
+/// building a fresh `Vm`). `Interpreter::new` is light (interned-symbol lookups only, no stdlib-prelude
+/// load), so this is a clean run-only number — the slowest tier of the cross-tier speed table
+/// (`benchmarks/silicon/benchmark_timing.json`): tree-walk (this) → bytecode VM (`run_nanos`) → native
+/// silicon (the on-chip cycle counter).
+pub fn interp_nanos<'a>(stmts: &[Stmt<'a>], interner: &'a Interner, iters: usize) -> Option<u128> {
+    {
+        let mut it = Interpreter::new(interner);
+        let _ = it.run_sync(stmts); // warm up
+    }
+    let mut best = u128::MAX;
+    for _ in 0..iters {
+        let mut it = Interpreter::new(interner);
+        let t = std::time::Instant::now();
+        let _ = it.run_sync(stmts);
+        best = best.min(t.elapsed().as_nanos());
+    }
+    Some(best)
 }
 
 /// Result from program interpretation.
@@ -5834,440 +10570,25 @@ pub struct InterpreterResult {
 }
 
 #[cfg(test)]
-mod ints_i32_repr_tests {
-    use super::*;
-
-    fn i32_buf(vals: &[i64]) -> ListRepr {
-        let mut r = ListRepr::IntsI32(Vec::new());
-        for &v in vals {
-            r.push(RuntimeValue::Int(v));
-        }
-        r
-    }
-
-    #[test]
-    fn push_and_get_sign_extend() {
-        let r = i32_buf(&[-1, 0, 7, i32::MIN as i64, i32::MAX as i64]);
-        assert!(matches!(r, ListRepr::IntsI32(_)), "stays half-width when every value fits i32");
-        assert_eq!(r.get(0), Some(RuntimeValue::Int(-1)), "negative sign-extends losslessly");
-        assert_eq!(r.get(3), Some(RuntimeValue::Int(i32::MIN as i64)));
-        assert_eq!(r.get(4), Some(RuntimeValue::Int(i32::MAX as i64)));
-        assert_eq!(r.len(), 5);
-    }
-
-    #[test]
-    fn push_out_of_range_widens_and_preserves_values() {
-        // A value just past i32::MAX forces the whole buffer to full width;
-        // every earlier element survives, bit-identical to a never-narrowed run.
-        let mut r = i32_buf(&[1, -2, 100]);
-        r.push(RuntimeValue::Int(i32::MAX as i64 + 1));
-        assert!(matches!(r, ListRepr::Ints(_)), "an out-of-range push widens to full-width Ints");
-        assert_eq!(r.get(0), Some(RuntimeValue::Int(1)));
-        assert_eq!(r.get(1), Some(RuntimeValue::Int(-2)));
-        assert_eq!(r.get(2), Some(RuntimeValue::Int(100)));
-        assert_eq!(r.get(3), Some(RuntimeValue::Int(i32::MAX as i64 + 1)));
-    }
-
-    #[test]
-    fn set_out_of_range_widens() {
-        let mut r = i32_buf(&[5, 5, 5]);
-        r.set(1, RuntimeValue::Int(i64::MIN));
-        assert!(matches!(r, ListRepr::Ints(_)), "an out-of-range in-place store widens");
-        assert_eq!(r.get(0), Some(RuntimeValue::Int(5)));
-        assert_eq!(r.get(1), Some(RuntimeValue::Int(i64::MIN)));
-        assert_eq!(r.get(2), Some(RuntimeValue::Int(5)));
-    }
-
-    #[test]
-    fn set_in_range_truncates_losslessly() {
-        let mut r = i32_buf(&[0, 0, 0]);
-        r.set(2, RuntimeValue::Int(-12345));
-        assert!(matches!(r, ListRepr::IntsI32(_)), "in-range store stays half-width");
-        assert_eq!(r.get(2), Some(RuntimeValue::Int(-12345)));
-    }
-
-    #[test]
-    fn non_int_push_promotes_to_boxed() {
-        // Soundness net: a narrowed buffer that somehow receives a non-Int value
-        // boxes rather than dropping the type — never silently wrong.
-        let mut r = i32_buf(&[1, 2]);
-        r.push(RuntimeValue::Float(3.5));
-        assert!(matches!(r, ListRepr::Boxed(_)));
-        assert_eq!(r.get(2), Some(RuntimeValue::Float(3.5)));
-        assert_eq!(r.get(0), Some(RuntimeValue::Int(1)));
-    }
-
-    #[test]
-    fn clone_round_trips_to_values() {
-        let r = i32_buf(&[-7, 42, i32::MIN as i64]);
-        let snap = r.clone();
-        assert_eq!(snap.to_values(), r.to_values());
-        assert_eq!(
-            r.to_values(),
-            vec![
-                RuntimeValue::Int(-7),
-                RuntimeValue::Int(42),
-                RuntimeValue::Int(i32::MIN as i64)
-            ]
-        );
-    }
-
-    #[test]
-    fn pop_truncate_position_match_full_width() {
-        let mut r = i32_buf(&[10, 20, 30]);
-        assert_eq!(r.position(&RuntimeValue::Int(20)), Some(1));
-        assert_eq!(r.position(&RuntimeValue::Int(99)), None);
-        assert_eq!(r.pop(), Some(RuntimeValue::Int(30)));
-        r.truncate(1);
-        assert_eq!(r.len(), 1);
-        assert_eq!(r.get(0), Some(RuntimeValue::Int(10)));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/interpreter/ints_i32_repr_tests.rs"]
+mod ints_i32_repr_tests;
 
 #[cfg(test)]
-mod structs_repr_tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    fn point(x: i64, y: i64) -> RuntimeValue {
-        let mut f = HashMap::new();
-        f.insert("x".to_string(), RuntimeValue::Int(x));
-        f.insert("y".to_string(), RuntimeValue::Int(y));
-        RuntimeValue::Struct(Box::new(StructValue { type_name: "Point".to_string(), fields: f }))
-    }
-    fn int_field(v: &RuntimeValue, name: &str) -> i64 {
-        match v {
-            RuntimeValue::Struct(sv) => match sv.fields.get(name) {
-                Some(RuntimeValue::Int(n)) => *n,
-                other => panic!("field {name} not an int: {other:?}"),
-            },
-            other => panic!("not a struct: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn from_values_homogeneous_structs_is_columnar() {
-        let r = ListRepr::from_values(vec![point(0, 0), point(1, 2), point(2, 4)]);
-        assert!(matches!(r, ListRepr::Structs { .. }), "a homogeneous struct list de-boxes to columns");
-        assert_eq!(r.len(), 3);
-        assert!(!r.is_empty());
-    }
-
-    #[test]
-    fn structs_get_reconstructs_exact() {
-        let r = ListRepr::from_values(vec![point(0, 0), point(1, 2), point(2, 4)]);
-        let s = r.get(1).unwrap();
-        assert_eq!(int_field(&s, "x"), 1);
-        assert_eq!(int_field(&s, "y"), 2);
-        assert!(r.get(3).is_none(), "out-of-range index is None");
-    }
-
-    #[test]
-    fn structs_to_values_reconstructs_all_rows() {
-        let r = ListRepr::from_values(vec![point(5, 6), point(7, 8)]);
-        let vs = r.to_values();
-        assert_eq!(vs.len(), 2);
-        assert_eq!(int_field(&vs[0], "x"), 5);
-        assert_eq!(int_field(&vs[1], "y"), 8);
-    }
-
-    #[test]
-    fn structs_truncate_is_columnwise() {
-        let mut r = ListRepr::from_values(vec![point(0, 0), point(1, 1), point(2, 2)]);
-        r.truncate(2);
-        assert!(matches!(r, ListRepr::Structs { .. }), "truncate keeps it columnar");
-        assert_eq!(r.len(), 2);
-        assert_eq!(int_field(&r.get(1).unwrap(), "x"), 1);
-    }
-
-    #[test]
-    fn columnar_field_read_is_direct() {
-        let r = ListRepr::from_values(vec![point(10, 20), point(30, 40)]);
-        // get_field reads one column directly — no StructValue reconstruction.
-        assert_eq!(r.get_field(0, "x"), Some(RuntimeValue::Int(10)));
-        assert_eq!(r.get_field(1, "y"), Some(RuntimeValue::Int(40)));
-        assert_eq!(r.get_field(0, "z"), None, "missing field");
-        assert!(r.get_field(5, "x").is_none(), "out of range");
-        // the column accessor exposes the raw packed column for array-speed scans.
-        match r.column("x") {
-            Some(ListRepr::Ints(v)) => assert_eq!(v, &vec![10, 30]),
-            other => panic!("expected an Ints column, got {other:?}"),
-        }
-        // a boxed list has no columns.
-        let boxed = ListRepr::Boxed(vec![point(1, 2)]);
-        assert!(boxed.get_field(0, "x").is_none());
-        assert!(boxed.column("x").is_none());
-    }
-
-    #[test]
-    fn structs_mutation_decolumnarizes_and_stays_correct() {
-        // A set to a non-struct value de-columnarizes (make_boxed) but preserves
-        // every prior row exactly — the soundness invariant.
-        let mut r = ListRepr::from_values(vec![point(0, 0), point(1, 1), point(2, 2)]);
-        r.set(1, RuntimeValue::Int(99));
-        assert!(matches!(r, ListRepr::Boxed(_)), "a mutating set de-columnarizes");
-        assert_eq!(int_field(&r.get(0).unwrap(), "x"), 0);
-        assert_eq!(r.get(1), Some(RuntimeValue::Int(99)));
-        assert_eq!(int_field(&r.get(2).unwrap(), "y"), 2);
-    }
-
-    #[test]
-    fn structs_push_stays_correct() {
-        let mut r = ListRepr::from_values(vec![point(0, 0)]);
-        r.push(point(1, 1));
-        assert_eq!(r.len(), 2);
-        assert_eq!(int_field(&r.get(0).unwrap(), "x"), 0);
-        assert_eq!(int_field(&r.get(1).unwrap(), "x"), 1);
-    }
-
-    #[test]
-    fn heterogeneous_structs_stay_boxed() {
-        // Ragged field set ⇒ boxed.
-        let mut only_x = HashMap::new();
-        only_x.insert("x".to_string(), RuntimeValue::Int(9));
-        let odd = RuntimeValue::Struct(Box::new(StructValue { type_name: "Point".to_string(), fields: only_x }));
-        let r = ListRepr::from_values(vec![point(0, 0), odd]);
-        assert!(matches!(r, ListRepr::Boxed(_)), "ragged field sets stay boxed");
-
-        // Mixed type names ⇒ boxed.
-        let mut cf = HashMap::new();
-        cf.insert("x".to_string(), RuntimeValue::Int(1));
-        cf.insert("y".to_string(), RuntimeValue::Int(2));
-        let q = RuntimeValue::Struct(Box::new(StructValue { type_name: "Other".to_string(), fields: cf }));
-        let r2 = ListRepr::from_values(vec![point(0, 0), q]);
-        assert!(matches!(r2, ListRepr::Boxed(_)), "mixed type names stay boxed");
-    }
-
-    #[test]
-    fn columnar_field_scan_is_faster_than_boxed_and_iteration_is_not_slower() {
-        // The in-memory win, measured on the shared `ListRepr` primitive (both the
-        // tree-walker and the VM read lists through it). Reported with --nocapture;
-        // the asserts are noise-robust (huge margins / not-slower).
-        use std::time::Instant;
-        const N: usize = 5000;
-        const ITERS: u32 = 300;
-
-        let rows: Vec<RuntimeValue> = (0..N as i64).map(|i| point(i, i * 2)).collect();
-        let columnar = ListRepr::from_values(rows.clone());
-        assert!(matches!(columnar, ListRepr::Structs { .. }), "the columnar baseline must be Structs");
-        let boxed = ListRepr::Boxed(rows);
-
-        // (a) FIELD SCAN — sum the "x" field across the list. Columnar reads the raw
-        //     Vec<i64> column (array speed); boxed reconstructs/clones each struct and
-        //     hashmap-looks-up "x". This is the "arrays not heap" win.
-        let scan_columnar = || -> i64 {
-            match columnar.column("x") {
-                Some(ListRepr::Ints(v)) => v.iter().copied().sum(),
-                _ => unreachable!(),
-            }
-        };
-        let scan_boxed = || -> i64 {
-            let mut s = 0i64;
-            for i in 0..boxed.len() {
-                if let Some(RuntimeValue::Struct(sv)) = boxed.get(i) {
-                    if let Some(RuntimeValue::Int(x)) = sv.fields.get("x") {
-                        s += *x;
-                    }
-                }
-            }
-            s
-        };
-        assert_eq!(scan_columnar(), scan_boxed(), "the two scans must agree");
-
-        let t = Instant::now();
-        for _ in 0..ITERS {
-            std::hint::black_box(scan_columnar());
-        }
-        let col_ns = t.elapsed().as_nanos().max(1);
-        let t = Instant::now();
-        for _ in 0..ITERS {
-            std::hint::black_box(scan_boxed());
-        }
-        let box_ns = t.elapsed().as_nanos().max(1);
-        println!(
-            "\n[E3] field scan (sum x over {N}, ×{ITERS}): columnar {col_ns} ns vs boxed {box_ns} ns  ({:.1}× faster)",
-            box_ns as f64 / col_ns as f64
-        );
-        assert!(col_ns * 2 <= box_ns, "columnar field scan should be ≥2× faster: columnar {col_ns} vs boxed {box_ns}");
-
-        // (b) FULL-ROW iteration — reconstruct every struct. Roughly a wash (both
-        //     reprs box a StructValue per element), reported for honesty; asserted only
-        //     "not catastrophically slower".
-        let iter_repr = |r: &ListRepr| {
-            let mut acc = 0i64;
-            for i in 0..r.len() {
-                if let Some(RuntimeValue::Struct(sv)) = r.get(i) {
-                    if let (Some(RuntimeValue::Int(x)), Some(RuntimeValue::Int(y))) =
-                        (sv.fields.get("x"), sv.fields.get("y"))
-                    {
-                        acc += x + y;
-                    }
-                }
-            }
-            acc
-        };
-        assert_eq!(iter_repr(&columnar), iter_repr(&boxed), "full-row iteration must agree");
-        let t = Instant::now();
-        for _ in 0..ITERS {
-            std::hint::black_box(iter_repr(&columnar));
-        }
-        let col_it = t.elapsed().as_nanos().max(1);
-        let t = Instant::now();
-        for _ in 0..ITERS {
-            std::hint::black_box(iter_repr(&boxed));
-        }
-        let box_it = t.elapsed().as_nanos().max(1);
-        println!(
-            "[E3] full-row iter (×{ITERS}): columnar {col_it} ns vs boxed {box_it} ns  ({:.2}× of boxed)",
-            col_it as f64 / box_it as f64
-        );
-        assert!(col_it <= box_it * 3, "full-row iteration must not be catastrophically slower: {col_it} vs {box_it}");
-    }
-
-    #[test]
-    fn zero_field_structs_stay_boxed_and_keep_count() {
-        // A columnar store has no column to carry the row count when the struct has
-        // no fields, so such a list MUST stay boxed (and report the right length).
-        let unit = || RuntimeValue::Struct(Box::new(StructValue { type_name: "Unit".to_string(), fields: HashMap::new() }));
-        let r = ListRepr::from_values(vec![unit(), unit(), unit()]);
-        assert!(matches!(r, ListRepr::Boxed(_)), "zero-field struct list stays boxed");
-        assert_eq!(r.len(), 3, "row count is preserved");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/interpreter/structs_repr_tests.rs"]
+mod structs_repr_tests;
 
 #[cfg(test)]
-mod enums_repr_tests {
-    use super::*;
-
-    fn nullary(ty: &str, ctor: &str) -> RuntimeValue {
-        RuntimeValue::Inductive(Box::new(InductiveValue { inductive_type: ty.into(), constructor: ctor.into(), args: vec![] }))
-    }
-    fn with_args(ty: &str, ctor: &str, args: Vec<RuntimeValue>) -> RuntimeValue {
-        RuntimeValue::Inductive(Box::new(InductiveValue { inductive_type: ty.into(), constructor: ctor.into(), args }))
-    }
-    fn ctor_of(v: &RuntimeValue) -> String {
-        match v {
-            RuntimeValue::Inductive(i) => i.constructor.clone(),
-            other => panic!("not an inductive: {other:?}"),
-        }
-    }
-    fn int_arg(v: &RuntimeValue, j: usize) -> i64 {
-        match v {
-            RuntimeValue::Inductive(i) => match &i.args[j] {
-                RuntimeValue::Int(n) => *n,
-                other => panic!("arg {j} not an int: {other:?}"),
-            },
-            other => panic!("not an inductive: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn from_values_nullary_enums_is_columnar() {
-        let r = ListRepr::from_values(vec![nullary("Color", "Red"), nullary("Color", "Green"), nullary("Color", "Red")]);
-        assert!(matches!(r, ListRepr::Inductives { .. }), "a nullary enum list de-boxes to columns");
-        assert_eq!(r.len(), 3);
-        assert_eq!(ctor_of(&r.get(0).unwrap()), "Red");
-        assert_eq!(ctor_of(&r.get(1).unwrap()), "Green");
-        assert_eq!(ctor_of(&r.get(2).unwrap()), "Red");
-        assert!(r.get(3).is_none());
-    }
-
-    #[test]
-    fn from_values_uniform_arg_enums_is_columnar() {
-        let r = ListRepr::from_values(vec![
-            with_args("Boxed", "B", vec![RuntimeValue::Int(1)]),
-            with_args("Boxed", "B", vec![RuntimeValue::Int(2)]),
-        ]);
-        assert!(matches!(r, ListRepr::Inductives { .. }), "a uniform-arg enum list packs columnar");
-        assert_eq!(int_arg(&r.get(0).unwrap(), 0), 1);
-        assert_eq!(int_arg(&r.get(1).unwrap(), 0), 2);
-    }
-
-    #[test]
-    fn from_values_mixed_arity_enums_is_columnar() {
-        // Option-like: Some(1), None, Some(2), None, Some(3) — a tagged union, packed
-        // as dense per-constructor arg columns.
-        let rows = vec![
-            with_args("Option", "Some", vec![RuntimeValue::Int(1)]),
-            nullary("Option", "None"),
-            with_args("Option", "Some", vec![RuntimeValue::Int(2)]),
-            nullary("Option", "None"),
-            with_args("Option", "Some", vec![RuntimeValue::Int(3)]),
-        ];
-        let r = ListRepr::from_values(rows);
-        assert!(matches!(r, ListRepr::Inductives { .. }), "a mixed-arity enum list packs columnar");
-        assert_eq!(r.len(), 5);
-        assert_eq!(ctor_of(&r.get(0).unwrap()), "Some");
-        assert_eq!(int_arg(&r.get(0).unwrap(), 0), 1);
-        assert_eq!(ctor_of(&r.get(1).unwrap()), "None");
-        assert_eq!(ctor_of(&r.get(2).unwrap()), "Some");
-        assert_eq!(int_arg(&r.get(2).unwrap(), 0), 2);
-        assert_eq!(ctor_of(&r.get(3).unwrap()), "None");
-        assert_eq!(ctor_of(&r.get(4).unwrap()), "Some");
-        assert_eq!(int_arg(&r.get(4).unwrap(), 0), 3);
-    }
-
-    #[test]
-    fn enums_to_values_reconstructs_all_rows() {
-        let rows = vec![with_args("Option", "Some", vec![RuntimeValue::Int(7)]), nullary("Option", "None")];
-        let vs = ListRepr::from_values(rows).to_values();
-        assert_eq!(vs.len(), 2);
-        assert_eq!(ctor_of(&vs[0]), "Some");
-        assert_eq!(int_arg(&vs[0], 0), 7);
-        assert_eq!(ctor_of(&vs[1]), "None");
-    }
-
-    #[test]
-    fn enums_mutation_decolumnarizes_and_stays_correct() {
-        let mut r = ListRepr::from_values(vec![nullary("Color", "Red"), nullary("Color", "Green")]);
-        r.set(1, RuntimeValue::Int(99));
-        assert!(matches!(r, ListRepr::Boxed(_)), "a mutating set de-columnarizes");
-        assert_eq!(ctor_of(&r.get(0).unwrap()), "Red");
-        assert_eq!(r.get(1), Some(RuntimeValue::Int(99)));
-    }
-
-    #[test]
-    fn heterogeneous_enums_stay_boxed() {
-        let r = ListRepr::from_values(vec![nullary("Color", "Red"), nullary("Suit", "Spade")]);
-        assert!(matches!(r, ListRepr::Boxed(_)), "mixed inductive types stay boxed");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/interpreter/enums_repr_tests.rs"]
+mod enums_repr_tests;
 
 #[cfg(test)]
-mod float_comparison_tests {
-    use super::*;
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/interpreter/float_comparison_tests.rs"]
+mod float_comparison_tests;
 
-    fn expect_bool(r: Result<RuntimeValue, String>, want: bool, label: &str) {
-        match r {
-            Ok(RuntimeValue::Bool(b)) => assert_eq!(b, want, "{label}"),
-            other => panic!("{label}: expected Bool, got {:?}", other.map(|v| v.type_name().to_string())),
-        }
-    }
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/interpreter/page_seam_tests.rs"]
+mod page_seam_tests;
 
-    #[test]
-    fn float_relational_uses_ieee_semantics() {
-        use RuntimeValue::{Float, Int};
-        let interner = Interner::new();
-        let interp = Interpreter::new(&interner);
-        let nan = f64::NAN;
-
-        // -0.0 and +0.0 are equal under IEEE 754.
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Float(-0.0), Float(0.0)), false, "-0.0 < 0.0");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Gt, Float(0.0), Float(-0.0)), false, "0.0 > -0.0");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::LtEq, Float(-0.0), Float(0.0)), true, "-0.0 <= 0.0");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Float(-0.0), Float(0.0)), true, "-0.0 >= 0.0");
-
-        // NaN is unordered: every relational comparison is false.
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Float(nan), Float(1.0)), false, "NaN < 1");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Gt, Float(nan), Float(1.0)), false, "NaN > 1");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::LtEq, Float(nan), Float(nan)), false, "NaN <= NaN");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Float(1.0), Float(nan)), false, "1 >= NaN");
-
-        // Ordinary comparisons still work, including mixed Int/Float and pure Int.
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Float(1.5), Float(2.5)), true, "1.5 < 2.5");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Int(2), Float(2.5)), true, "2 < 2.5");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Float(2.5), Int(2)), true, "2.5 >= 2");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Int(3), Int(5)), true, "3 < 5");
-        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Int(5), Int(5)), true, "5 >= 5");
-    }
-}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/interpreter/lowered_calls_tests.rs"]
+mod lowered_calls_tests;

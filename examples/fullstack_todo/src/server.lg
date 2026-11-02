@@ -1,0 +1,121 @@
+# Server
+
+The whole backend: a store, four routes, and `Serve on port 8080.`
+
+There is no request-dispatch code here. A `## Route` block says which method and
+path it answers, what it takes, and what it returns — and that is the router.
+The JSON on the wire is DERIVED from `## A Todo has:` in `shared.lg`, so nothing
+in this file serialises anything by hand.
+
+Import Shared.
+
+## Note
+Where the list lives. A newline-delimited JSON file, so the demo needs no database
+and the file is readable in a text editor while you poke at the app.
+
+## To storePath () -> Text:
+    Return "todos.json".
+
+## Note
+Read the store, or an empty list the first time the app runs.
+
+A file that does not exist yet is not an error — it is a new install — so this
+answers an empty list rather than failing, and the app works on a machine where
+nobody has added a todo yet.
+
+The file format is `id|text|done`, one todo per line. It is the server's PRIVATE
+storage, not the wire: what a client receives is JSON, derived from `## A Todo has:`
+and produced by the route return type. Keeping them separate means the on-disk
+shape can change without touching a single client.
+
+## To loadTodos () -> Seq of Todo:
+    Let mutable out be a new Seq of Todo.
+    Let mutable raw be "".
+    Inspect read(storePath()):
+        When Ok (t):
+            Set raw to t.
+        When Err (e):
+            Set raw to "".
+    Repeat for line in lines(raw):
+        If length of text_bytes(line) is greater than 0:
+            Let parts be split(line, "|").
+            If length of parts is at least 3:
+                Let idText be item 1 of parts.
+                Let text be item 2 of parts.
+                Let doneText be item 3 of parts.
+                If isIntText(idText):
+                    Push (a new Todo with id parseInt(idText) and text text and done (doneText is equal to "1")) to out.
+    Return out.
+
+## Note
+Write the list back in the same private line format `loadTodos` reads.
+
+## To saveTodos (todos: Seq of Todo) -> Bool:
+    Let mutable out be "".
+    Repeat for t in todos:
+        Let flag be doneFlag(t's done).
+        Set out to out + "{t's id}|{t's text}|{flag}\n".
+    Inspect write(storePath(), out):
+        When Ok (v):
+            Return true.
+        When Err (e):
+            Return false.
+
+## Note
+`1` when done, `0` when not — the store's own spelling of a Bool.
+
+## To doneFlag (done: Bool) -> Text:
+    If done:
+        Return "1".
+    Return "0".
+
+## Note
+The next free id: one past the highest in use.
+
+Counting the list would reuse an id after a deletion, and a reused id makes two
+different todos indistinguishable to anything that remembers one.
+
+## To nextId (todos: Seq of Todo) -> Int:
+    Let mutable top be 0.
+    Repeat for t in todos:
+        If t's id is greater than top:
+            Set top to t's id.
+    Return top + 1.
+
+## Route GET /api/todos -> Seq of Todo:
+    Return loadTodos().
+
+## Route POST /api/todos (text: Text) -> Seq of Todo:
+    Let todos be loadTodos().
+    If text is equal to "":
+        Return todos.
+    Let mutable next be a new Seq of Todo.
+    Repeat for t in todos:
+        Push t to next.
+    Push (a new Todo with id nextId(todos) and text text and done false) to next.
+    Let saved be saveTodos(next).
+    Return next.
+
+## Route POST /api/todos/toggle/:id (id: Int) -> Seq of Todo:
+    Let todos be loadTodos().
+    Let mutable next be a new Seq of Todo.
+    Repeat for t in todos:
+        If t's id is equal to id:
+            Push (a new Todo with id t's id and text t's text and done (not t's done)) to next.
+        If t's id is not id:
+            Push t to next.
+    Let saved be saveTodos(next).
+    Return next.
+
+## Route POST /api/todos/delete/:id (id: Int) -> Seq of Todo:
+    Let todos be loadTodos().
+    Let mutable next be a new Seq of Todo.
+    Repeat for t in todos:
+        If t's id is not id:
+            Push t to next.
+    Let saved be saveTodos(next).
+    Return next.
+
+## Main
+
+Serve on port 8080.

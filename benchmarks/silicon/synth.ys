@@ -1,0 +1,5 @@
+read_verilog rev_alu.v
+hierarchy -check -top rev_alu
+proc; opt; techmap; opt; clean
+write_verilog -noattr rev_alu_netlist.v
+stat

@@ -12,7 +12,7 @@ pub fn main() !void {
     while (i <= n) : (i += 1) {
         var k: i64 = i;
         while (k != 1) {
-            if (@mod(k, 2) == 0) {
+            if (@rem(k, 2) == 0) {
                 k = @divTrunc(k, 2);
             } else {
                 k = 3 * k + 1;

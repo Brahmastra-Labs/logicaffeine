@@ -1,0 +1,52 @@
+# Fib — Fibonacci by fast doubling, the recurrence unrolled over the six bits of n (n below 64).
+#
+# RDU lane: whole-program. F(2k) = F(k) · (2·F(k+1) − F(k)) and F(2k+1) = F(k)² + F(k+1)², one doubling step
+# per bit of n from the top; the bit selects between the two candidates by arithmetic (`c + bit * (d - c)`),
+# so the whole function is a branch-free ALU dataflow program — the form a recursion takes on a dataflow
+# chip. `largo emit rdu` lowers `fib` as a Scalar stage applied lane-wise over an input vector
+# (y[i] = fib(x[i])) on the SN50 descriptor, with the per-PE SAT certificate of the routed body (the body
+# is ALU-only) beside the choreography certificate.
+#
+# A data-dependent recursion (`Return fib(n - 1) + fib(n - 2).`) needs a call stack, which the dataflow lane
+# does not have: it is refused by name, and runs ≡VM on the whole-program call-stack engine instead.
+
+## To fib (n: Int) -> Int:
+    Let mutable a be 0.
+    Let mutable b be 1.
+    Let bit5 be (n shifted right by 5) & 1.
+    Let c5 be a * (2 * b - a).
+    Let d5 be a * a + b * b.
+    Set a to c5 + bit5 * (d5 - c5).
+    Set b to d5 + bit5 * c5.
+    Let bit4 be (n shifted right by 4) & 1.
+    Let c4 be a * (2 * b - a).
+    Let d4 be a * a + b * b.
+    Set a to c4 + bit4 * (d4 - c4).
+    Set b to d4 + bit4 * c4.
+    Let bit3 be (n shifted right by 3) & 1.
+    Let c3 be a * (2 * b - a).
+    Let d3 be a * a + b * b.
+    Set a to c3 + bit3 * (d3 - c3).
+    Set b to d3 + bit3 * c3.
+    Let bit2 be (n shifted right by 2) & 1.
+    Let c2 be a * (2 * b - a).
+    Let d2 be a * a + b * b.
+    Set a to c2 + bit2 * (d2 - c2).
+    Set b to d2 + bit2 * c2.
+    Let bit1 be (n shifted right by 1) & 1.
+    Let c1 be a * (2 * b - a).
+    Let d1 be a * a + b * b.
+    Set a to c1 + bit1 * (d1 - c1).
+    Set b to d1 + bit1 * c1.
+    Let bit0 be n & 1.
+    Let c0 be a * (2 * b - a).
+    Let d0 be a * a + b * b.
+    Set a to c0 + bit0 * (d0 - c0).
+    Set b to d0 + bit0 * c0.
+    Return a.
+
+## Main
+
+Show fib(10).
+Show fib(40).
+Show fib(63).

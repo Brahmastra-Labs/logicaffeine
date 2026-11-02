@@ -150,7 +150,6 @@ To run:
     assert!(
         result.success,
         "P2P program should compile and run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
 }

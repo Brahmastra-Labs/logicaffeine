@@ -87,7 +87,10 @@ fn unroll_entry<'a>(
     // The rotate builtins, resolved to their existing symbols (idempotent, non-inserting). A loop whose
     // induction variable feeds a `rotl`/`rotr` shift amount unrolls even at the top level — see
     // `plan_unroll`. Absent from the program ⇒ empty set ⇒ the crypto path never fires.
-    let rotate_syms: HashSet<Symbol> = ["rotl", "rotr"].iter().filter_map(|n| interner.lookup(n)).collect();
+    let rotate_syms: HashSet<Symbol> = ["rotl", "rotr"]
+        .iter()
+        .filter_map(|n| interner.lookup(n))
+        .collect();
     // Nothing to do when there are neither scalarizable arrays (SROA path) nor rotate builtins (crypto path).
     if scalarizable.is_empty() && rotate_syms.is_empty() {
         return (stmts, false);
@@ -193,41 +196,88 @@ fn unroll_block<'a>(
         {
             // Counted-`While`: an init `Let`/`Set` at idx then `While` at idx+1.
             if let Some((cl, _consumed)) = extract_counted_while(&refs, idx) {
-                if let Some(plan) = plan_unroll(&cl, in_loop, *budget, scalarizable, rotate_syms) {
+                let planned = plan_unroll(&cl, in_loop, *budget, scalarizable, rotate_syms)
+                    .and_then(|plan| Some((iteration_bodies(&cl, &plan, expr_arena, stmt_arena)?, plan)));
+                if let Some((bodies, plan)) = planned {
                     *budget -= plan.values.len();
                     // Keep the init binding so the counter stays declared and
                     // mutable for the trailing reset (and any later reuse).
                     out.push(block[idx].clone());
-                    emit_unrolled(&cl, &plan, &mut out, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+                    emit_unrolled(
+                        bodies,
+                        &mut out,
+                        budget,
+                        scalarizable,
+                        rotate_syms,
+                        expr_arena,
+                        stmt_arena,
+                    );
                     let fin = expr_arena.alloc(Expr::Literal(Literal::Number(plan.final_val)));
-                    out.push(Stmt::Set { target: cl.var, value: fin });
+                    out.push(Stmt::Set {
+                        target: cl.var,
+                        value: fin,
+                    });
                     idx += 2;
                     continue;
                 }
             }
             // Counted-`Repeat` over an inclusive constant range.
             if let Some(cl) = extract_counted_repeat(&block[idx]) {
-                if let Some(plan) = plan_unroll(&cl, in_loop, *budget, scalarizable, rotate_syms) {
+                let planned = plan_unroll(&cl, in_loop, *budget, scalarizable, rotate_syms)
+                    .and_then(|plan| Some((iteration_bodies(&cl, &plan, expr_arena, stmt_arena)?, plan)));
+                if let Some((bodies, plan)) = planned {
                     *budget -= plan.values.len();
-                    emit_unrolled(&cl, &plan, &mut out, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+                    emit_unrolled(
+                        bodies,
+                        &mut out,
+                        budget,
+                        scalarizable,
+                        rotate_syms,
+                        expr_arena,
+                        stmt_arena,
+                    );
                     idx += 1;
                     continue;
                 }
             }
         }
-        out.push(descend_stmt(&block[idx], in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena));
+        out.push(descend_stmt(
+            &block[idx],
+            in_loop,
+            budget,
+            scalarizable,
+            rotate_syms,
+            expr_arena,
+            stmt_arena,
+        ));
         idx += 1;
     }
     out
 }
 
-/// Emit the unrolled body: for each iteration value, substitute the induction
-/// variable with that literal and recursively unroll the result (so inner
-/// triangular loops, whose bounds become constant once the outer variable is a
-/// literal, unroll on the same pass).
-fn emit_unrolled<'a>(
+/// The loop's body once for each iteration value, the induction variable replaced by that literal;
+/// `None` when the substitution cannot reach every read of the variable, and the loop stays rolled.
+fn iteration_bodies<'a>(
     cl: &CountedLoop<'a>,
     plan: &UnrollPlan,
+    expr_arena: &'a Arena<Expr<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+) -> Option<Vec<Vec<Stmt<'a>>>> {
+    plan.values
+        .iter()
+        .map(|&v| {
+            let lit: &'a Expr<'a> = expr_arena.alloc(Expr::Literal(Literal::Number(v)));
+            let subs: HashMap<Symbol, &'a Expr<'a>> = HashMap::from([(cl.var, lit)]);
+            substitute_block(cl.body_without_increment, &subs, expr_arena, stmt_arena)
+        })
+        .collect()
+}
+
+/// Emit the unrolled body: each iteration's substituted body, recursively unrolled (so inner
+/// triangular loops, whose bounds become constant once the outer variable is a literal, unroll on
+/// the same pass).
+fn emit_unrolled<'a>(
+    bodies: Vec<Vec<Stmt<'a>>>,
     out: &mut Vec<Stmt<'a>>,
     budget: &mut usize,
     scalarizable: &HashSet<Symbol>,
@@ -235,12 +285,16 @@ fn emit_unrolled<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
 ) {
-    for &v in &plan.values {
-        let lit: &'a Expr<'a> = expr_arena.alloc(Expr::Literal(Literal::Number(v)));
-        let mut subs: HashMap<Symbol, &'a Expr<'a>> = HashMap::new();
-        subs.insert(cl.var, lit);
-        let sub_body = substitute_block(cl.body_without_increment, &subs, expr_arena, stmt_arena);
-        let unrolled = unroll_block(&sub_body, true, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+    for sub_body in bodies {
+        let unrolled = unroll_block(
+            &sub_body,
+            true,
+            budget,
+            scalarizable,
+            rotate_syms,
+            expr_arena,
+            stmt_arena,
+        );
         out.extend(unrolled);
     }
 }
@@ -258,30 +312,86 @@ fn descend_stmt<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
 ) -> Stmt<'a> {
     match s {
-        Stmt::While { cond, body, decreasing } => {
-            let nb = unroll_block(body, true, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
-            Stmt::While { cond: *cond, body: stmt_arena.alloc_slice(nb), decreasing: *decreasing }
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
+            let nb = unroll_block(
+                body,
+                true,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
+            Stmt::While {
+                cond: *cond,
+                body: stmt_arena.alloc_slice(nb),
+                decreasing: *decreasing,
+            }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
-            let nb = unroll_block(body, true, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
+            let nb = unroll_block(
+                body,
+                true,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
             Stmt::Repeat {
                 pattern: pattern.clone(),
                 iterable: *iterable,
                 body: stmt_arena.alloc_slice(nb),
             }
         }
-        Stmt::If { cond, then_block, else_block } => {
-            let nt = unroll_block(then_block, in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let nt = unroll_block(
+                then_block,
+                in_loop,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
             let ne = match else_block {
                 Some(eb) => {
-                    let neb = unroll_block(eb, in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+                    let neb = unroll_block(
+                        eb,
+                        in_loop,
+                        budget,
+                        scalarizable,
+                        rotate_syms,
+                        expr_arena,
+                        stmt_arena,
+                    );
                     Some(stmt_arena.alloc_slice(neb) as &[Stmt<'a>])
                 }
                 None => None,
             };
-            Stmt::If { cond: *cond, then_block: stmt_arena.alloc_slice(nt), else_block: ne }
+            Stmt::If {
+                cond: *cond,
+                then_block: stmt_arena.alloc_slice(nt),
+                else_block: ne,
+            }
         }
-        Stmt::Inspect { target, arms, has_otherwise } => {
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        } => {
             let na = arms
                 .iter()
                 .map(|a| MatchArm {
@@ -289,11 +399,21 @@ fn descend_stmt<'a>(
                     variant: a.variant,
                     bindings: a.bindings.clone(),
                     body: stmt_arena.alloc_slice(unroll_block(
-                        a.body, in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena,
+                        a.body,
+                        in_loop,
+                        budget,
+                        scalarizable,
+                        rotate_syms,
+                        expr_arena,
+                        stmt_arena,
                     )),
                 })
                 .collect();
-            Stmt::Inspect { target: *target, arms: na, has_otherwise: *has_otherwise }
+            Stmt::Inspect {
+                target: *target,
+                arms: na,
+                has_otherwise: *has_otherwise,
+            }
         }
         Stmt::FunctionDef {
             name,
@@ -307,7 +427,15 @@ fn descend_stmt<'a>(
             export_target,
             opt_flags,
         } => {
-            let nb = unroll_block(body, false, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+            let nb = unroll_block(
+                body,
+                false,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
             Stmt::FunctionDef {
                 name: *name,
                 generics: generics.clone(),
@@ -321,8 +449,21 @@ fn descend_stmt<'a>(
                 opt_flags: opt_flags.clone(),
             }
         }
-        Stmt::Zone { name, capacity, source_file, body } => {
-            let nb = unroll_block(body, in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
+        Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body,
+        } => {
+            let nb = unroll_block(
+                body,
+                in_loop,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
             Stmt::Zone {
                 name: *name,
                 capacity: *capacity,
@@ -331,12 +472,32 @@ fn descend_stmt<'a>(
             }
         }
         Stmt::Concurrent { tasks } => {
-            let nb = unroll_block(tasks, in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
-            Stmt::Concurrent { tasks: stmt_arena.alloc_slice(nb) }
+            let nb = unroll_block(
+                tasks,
+                in_loop,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
+            Stmt::Concurrent {
+                tasks: stmt_arena.alloc_slice(nb),
+            }
         }
         Stmt::Parallel { tasks } => {
-            let nb = unroll_block(tasks, in_loop, budget, scalarizable, rotate_syms, expr_arena, stmt_arena);
-            Stmt::Parallel { tasks: stmt_arena.alloc_slice(nb) }
+            let nb = unroll_block(
+                tasks,
+                in_loop,
+                budget,
+                scalarizable,
+                rotate_syms,
+                expr_arena,
+                stmt_arena,
+            );
+            Stmt::Parallel {
+                tasks: stmt_arena.alloc_slice(nb),
+            }
         }
         other => other.clone(),
     }
@@ -347,9 +508,8 @@ fn descend_stmt<'a>(
 // ---------------------------------------------------------------------------
 
 /// Every statement in `stmts` (and their nested blocks) must be one that
-/// `partial_eval::substitute_stmt` fully rewrites — otherwise its catch-all
-/// `clone()` would copy a statement WITHOUT substituting the induction variable
-/// inside it. Fail-closed: any unrecognized statement kind aborts unrolling.
+/// `partial_eval::substitute_stmt` rewrites case by case. Fail-closed: any other
+/// statement kind keeps the loop rolled.
 fn body_substitutable(stmts: &[Stmt]) -> bool {
     stmts.iter().all(stmt_substitutable)
 }
@@ -369,7 +529,11 @@ fn stmt_substitutable(s: &Stmt) -> bool {
         | Stmt::Remove { .. }
         | Stmt::RuntimeAssert { .. }
         | Stmt::Break => true,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             body_substitutable(then_block)
                 && match else_block {
                     Some(eb) => body_substitutable(eb),
@@ -388,9 +552,11 @@ fn stmt_substitutable(s: &Stmt) -> bool {
 fn owns_break(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::Break => true,
-        Stmt::If { then_block, else_block, .. } => {
-            owns_break(then_block) || matches!(else_block, Some(eb) if owns_break(eb))
-        }
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => owns_break(then_block) || matches!(else_block, Some(eb) if owns_break(eb)),
         Stmt::Inspect { arms, .. } => arms.iter().any(|a| owns_break(a.body)),
         _ => false,
     })
@@ -401,9 +567,11 @@ fn owns_break(stmts: &[Stmt]) -> bool {
 fn body_has_push(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::Push { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
-            body_has_push(then_block) || matches!(else_block, Some(eb) if body_has_push(eb))
-        }
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => body_has_push(then_block) || matches!(else_block, Some(eb) if body_has_push(eb)),
         Stmt::While { body, .. } | Stmt::Repeat { body, .. } => body_has_push(body),
         Stmt::Inspect { arms, .. } => arms.iter().any(|a| body_has_push(a.body)),
         _ => false,
@@ -416,7 +584,8 @@ fn body_has_push(stmts: &[Stmt]) -> bool {
 /// hand-written block ciphers/hashes chase by fully unrolling. A rotate by an ALREADY-constant amount is
 /// excluded: it needs no unrolling to be constant.
 fn loop_rotates_by_ivar(body: &[Stmt], ivar: Symbol, rotate_syms: &HashSet<Symbol>) -> bool {
-    body.iter().any(|s| stmt_rotates_by_ivar(s, ivar, rotate_syms))
+    body.iter()
+        .any(|s| stmt_rotates_by_ivar(s, ivar, rotate_syms))
 }
 
 fn stmt_rotates_by_ivar(s: &Stmt, ivar: Symbol, rot: &HashSet<Symbol>) -> bool {
@@ -424,7 +593,11 @@ fn stmt_rotates_by_ivar(s: &Stmt, ivar: Symbol, rot: &HashSet<Symbol>) -> bool {
         Stmt::Let { value, .. } | Stmt::Set { value, .. } | Stmt::Show { object: value, .. } => {
             expr_rotates_by_ivar(value, ivar, rot)
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             expr_rotates_by_ivar(collection, ivar, rot)
                 || expr_rotates_by_ivar(index, ivar, rot)
                 || expr_rotates_by_ivar(value, ivar, rot)
@@ -438,7 +611,11 @@ fn stmt_rotates_by_ivar(s: &Stmt, ivar: Symbol, rot: &HashSet<Symbol>) -> bool {
         Stmt::Return { value } => matches!(value, Some(v) if expr_rotates_by_ivar(v, ivar, rot)),
         Stmt::Call { args, .. } => args.iter().any(|a| expr_rotates_by_ivar(a, ivar, rot)),
         Stmt::RuntimeAssert { condition, .. } => expr_rotates_by_ivar(condition, ivar, rot),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_rotates_by_ivar(cond, ivar, rot)
                 || loop_rotates_by_ivar(then_block, ivar, rot)
                 || matches!(else_block, Some(eb) if loop_rotates_by_ivar(eb, ivar, rot))
@@ -470,18 +647,24 @@ fn expr_rotates_by_ivar(e: &Expr, ivar: Symbol, rot: &HashSet<Symbol>) -> bool {
             args.iter().any(|a| expr_rotates_by_ivar(a, ivar, rot))
         }
         Expr::CallExpr { callee, args } => {
-            expr_rotates_by_ivar(callee, ivar, rot) || args.iter().any(|a| expr_rotates_by_ivar(a, ivar, rot))
+            expr_rotates_by_ivar(callee, ivar, rot)
+                || args.iter().any(|a| expr_rotates_by_ivar(a, ivar, rot))
         }
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
-            expr_rotates_by_ivar(left, ivar, rot) || expr_rotates_by_ivar(right, ivar, rot)
-        }
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => expr_rotates_by_ivar(left, ivar, rot) || expr_rotates_by_ivar(right, ivar, rot),
         Expr::Index { collection, index } => {
             expr_rotates_by_ivar(collection, ivar, rot) || expr_rotates_by_ivar(index, ivar, rot)
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             expr_rotates_by_ivar(collection, ivar, rot)
                 || expr_rotates_by_ivar(start, ivar, rot)
                 || expr_rotates_by_ivar(end, ivar, rot)
@@ -494,7 +677,9 @@ fn expr_rotates_by_ivar(e: &Expr, ivar: Symbol, rot: &HashSet<Symbol>) -> bool {
         Expr::FieldAccess { object, .. } => expr_rotates_by_ivar(object, ivar, rot),
         Expr::Copy { expr } => expr_rotates_by_ivar(expr, ivar, rot),
         Expr::Give { value } | Expr::OptionSome { value } => expr_rotates_by_ivar(value, ivar, rot),
-        Expr::List(items) | Expr::Tuple(items) => items.iter().any(|i| expr_rotates_by_ivar(i, ivar, rot)),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| expr_rotates_by_ivar(i, ivar, rot))
+        }
         _ => false,
     }
 }
@@ -555,7 +740,11 @@ fn collect_indexed_roots(stmts: &[Stmt], out: &mut HashSet<Symbol>) {
 
 fn stmt_indexed_roots(s: &Stmt, out: &mut HashSet<Symbol>) {
     match s {
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             if let Some(r) = root_symbol(collection) {
                 out.insert(r);
             }
@@ -592,7 +781,11 @@ fn stmt_indexed_roots(s: &Stmt, out: &mut HashSet<Symbol>) {
                 expr_indexed_roots(a, out);
             }
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_indexed_roots(cond, out);
             collect_indexed_roots(then_block, out);
             if let Some(eb) = else_block {
@@ -626,7 +819,11 @@ fn expr_indexed_roots(e: &Expr, out: &mut HashSet<Symbol>) {
             expr_indexed_roots(collection, out);
             expr_indexed_roots(index, out);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             if let Some(r) = root_symbol(collection) {
                 out.insert(r);
             }

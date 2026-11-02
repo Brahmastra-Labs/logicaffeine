@@ -10,8 +10,8 @@
 //! If the safety property on the doubled state space holds → liveness holds.
 //! If violated → extract lasso-shaped counterexample (prefix + loop).
 
+use crate::equivalence::{CycleState, SignalValue, Trace};
 use crate::ir::VerifyExpr;
-use crate::equivalence::{Trace, CycleState, SignalValue};
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
 
@@ -37,7 +37,6 @@ pub fn check_liveness(
     property: &VerifyExpr,
     max_k: u32,
 ) -> LivenessResult {
-
     // Collect signal names for trace extraction
     let mut all_vars = HashSet::new();
     collect_vars(init, &mut all_vars);
@@ -139,14 +138,17 @@ fn extract_signal_names(all_vars: &HashSet<String>) -> Vec<String> {
 }
 
 /// Extract a concrete trace from a SAT solver model.
-fn extract_liveness_trace(
-    solver: &z3::Solver,
-    k: u32,
-    signal_names: &[String],
-) -> Trace {
+fn extract_liveness_trace(solver: &z3::Solver, k: u32, signal_names: &[String]) -> Trace {
     let model = match solver.get_model() {
         Some(m) => m,
-        None => return Trace { cycles: vec![CycleState { cycle: 0, signals: HashMap::new() }] },
+        None => {
+            return Trace {
+                cycles: vec![CycleState {
+                    cycle: 0,
+                    signals: HashMap::new(),
+                }],
+            }
+        }
     };
 
     let mut cycles = Vec::new();
@@ -170,7 +172,10 @@ fn extract_liveness_trace(
             }
         }
         if !signals.is_empty() {
-            cycles.push(CycleState { cycle: step as usize, signals });
+            cycles.push(CycleState {
+                cycle: step as usize,
+                signals,
+            });
         }
     }
 
@@ -205,13 +210,17 @@ fn find_loop_point(trace: &Trace) -> usize {
 
 /// Check if two signal maps represent the same state.
 fn states_match(a: &HashMap<String, SignalValue>, b: &HashMap<String, SignalValue>) -> bool {
-    if a.len() != b.len() { return false; }
+    if a.len() != b.len() {
+        return false;
+    }
     for (key, val_a) in a {
         match b.get(key) {
             Some(val_b) => {
                 let sa = format!("{:?}", val_a);
                 let sb = format!("{:?}", val_b);
-                if sa != sb { return false; }
+                if sa != sb {
+                    return false;
+                }
             }
             None => return false,
         }
@@ -221,7 +230,9 @@ fn states_match(a: &HashMap<String, SignalValue>, b: &HashMap<String, SignalValu
 
 fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
     match expr {
-        VerifyExpr::Var(name) => { vars.insert(name.clone()); }
+        VerifyExpr::Var(name) => {
+            vars.insert(name.clone());
+        }
         VerifyExpr::Binary { left, right, .. } => {
             collect_vars(left, vars);
             collect_vars(right, vars);

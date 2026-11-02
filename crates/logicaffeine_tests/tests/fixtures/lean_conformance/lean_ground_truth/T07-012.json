@@ -1,0 +1,352 @@
+{
+  "case": "T07-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 44,
+  "declarations": [
+    {
+      "type": "T07_012.BMonoid \u2192 T07_012.BMonoid \u2192 Type",
+      "name": "T07_012.BHom",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192\n  {motive : T07_012.BHom m n \u2192 Sort u} \u2192\n    (t : T07_012.BHom m n) \u2192\n      ((toFun : m.carrier \u2192 n.carrier) \u2192\n          (map_one : toFun m.one = n.one) \u2192 motive { toFun := toFun, map_one := map_one }) \u2192\n        motive t",
+      "name": "T07_012.BHom.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {m n : T07_012.BMonoid} (self : T07_012.BHom m n), self.toFun m.one = n.one",
+      "name": "T07_012.BHom.map_one",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192 (toFun : m.carrier \u2192 n.carrier) \u2192 toFun m.one = n.one \u2192 T07_012.BHom m n",
+      "name": "T07_012.BHom.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {m n : T07_012.BMonoid} {toFun : m.carrier \u2192 n.carrier} {map_one : toFun m.one = n.one}\n  {toFun_1 : m.carrier \u2192 n.carrier} {map_one_1 : toFun_1 m.one = n.one},\n  { toFun := toFun, map_one := map_one } = { toFun := toFun_1, map_one := map_one_1 } \u2192 toFun = toFun_1",
+      "name": "T07_012.BHom.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {m n : T07_012.BMonoid} (toFun : m.carrier \u2192 n.carrier) (map_one : toFun m.one = n.one)\n  (toFun_1 : m.carrier \u2192 n.carrier) (map_one_1 : toFun_1 m.one = n.one),\n  ({ toFun := toFun, map_one := map_one } = { toFun := toFun_1, map_one := map_one_1 }) = (toFun = toFun_1)",
+      "name": "T07_012.BHom.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {m n : T07_012.BMonoid} (toFun : m.carrier \u2192 n.carrier) (map_one : toFun m.one = n.one),\n  sizeOf { toFun := toFun, map_one := map_one } = 1 + sizeOf map_one",
+      "name": "T07_012.BHom.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_012.BHom m n} \u2192 v1 = v2 \u2192 T07_012.BHom.noConfusionType P v1 v2",
+      "name": "T07_012.BHom.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192 Sort u \u2192 T07_012.BHom m n \u2192 T07_012.BHom m n \u2192 Sort u",
+      "name": "T07_012.BHom.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192\n  {motive : T07_012.BHom m n \u2192 Sort u} \u2192\n    ((toFun : m.carrier \u2192 n.carrier) \u2192\n        (map_one : toFun m.one = n.one) \u2192 motive { toFun := toFun, map_one := map_one }) \u2192\n      (t : T07_012.BHom m n) \u2192 motive t",
+      "name": "T07_012.BHom.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192\n  {motive : T07_012.BHom m n \u2192 Sort u} \u2192\n    (t : T07_012.BHom m n) \u2192\n      ((toFun : m.carrier \u2192 n.carrier) \u2192\n          (map_one : toFun m.one = n.one) \u2192 motive { toFun := toFun, map_one := map_one }) \u2192\n        motive t",
+      "name": "T07_012.BHom.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{m n : T07_012.BMonoid} \u2192 T07_012.BHom m n \u2192 m.carrier \u2192 n.carrier",
+      "name": "T07_012.BHom.toFun",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T07_012.BMonoid",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T07_012.BMonoid \u2192 Type",
+      "name": "T07_012.BMonoid.carrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_012.BMonoid \u2192 Sort u} \u2192\n  (t : T07_012.BMonoid) \u2192\n    ((carrier : Type) \u2192\n        (mul : carrier \u2192 carrier \u2192 carrier) \u2192\n          (one : carrier) \u2192\n            (one_mul : \u2200 (a : carrier), mul one a = a) \u2192\n              motive { carrier := carrier, mul := mul, one := one, one_mul := one_mul }) \u2192\n      motive t",
+      "name": "T07_012.BMonoid.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(carrier : Type) \u2192\n  (mul : carrier \u2192 carrier \u2192 carrier) \u2192 (one : carrier) \u2192 (\u2200 (a : carrier), mul one a = a) \u2192 T07_012.BMonoid",
+      "name": "T07_012.BMonoid.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {carrier : Type} {mul : carrier \u2192 carrier \u2192 carrier} {one : carrier} {one_mul : \u2200 (a : carrier), mul one a = a}\n  {carrier_1 : Type} {mul_1 : carrier_1 \u2192 carrier_1 \u2192 carrier_1} {one_1 : carrier_1}\n  {one_mul_1 : \u2200 (a : carrier_1), mul_1 one_1 a = a},\n  { carrier := carrier, mul := mul, one := one, one_mul := one_mul } =\n      { carrier := carrier_1, mul := mul_1, one := one_1, one_mul := one_mul_1 } \u2192\n    carrier = carrier_1 \u2227 HEq mul mul_1 \u2227 HEq one one_1",
+      "name": "T07_012.BMonoid.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (carrier : Type) (mul : carrier \u2192 carrier \u2192 carrier) (one : carrier) (one_mul : \u2200 (a : carrier), mul one a = a)\n  (carrier_1 : Type) (mul_1 : carrier_1 \u2192 carrier_1 \u2192 carrier_1) (one_1 : carrier_1)\n  (one_mul_1 : \u2200 (a : carrier_1), mul_1 one_1 a = a),\n  ({ carrier := carrier, mul := mul, one := one, one_mul := one_mul } =\n      { carrier := carrier_1, mul := mul_1, one := one_1, one_mul := one_mul_1 }) =\n    (carrier = carrier_1 \u2227 HEq mul mul_1 \u2227 HEq one one_1)",
+      "name": "T07_012.BMonoid.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (carrier : Type) (mul : carrier \u2192 carrier \u2192 carrier) (one : carrier) (one_mul : \u2200 (a : carrier), mul one a = a),\n  sizeOf { carrier := carrier, mul := mul, one := one, one_mul := one_mul } = 1 + sizeOf carrier + sizeOf one",
+      "name": "T07_012.BMonoid.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(self : T07_012.BMonoid) \u2192 self.carrier \u2192 self.carrier \u2192 self.carrier",
+      "name": "T07_012.BMonoid.mul",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T07_012.BMonoid} \u2192 v1 = v2 \u2192 T07_012.BMonoid.noConfusionType P v1 v2",
+      "name": "T07_012.BMonoid.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T07_012.BMonoid \u2192 T07_012.BMonoid \u2192 Sort u",
+      "name": "T07_012.BMonoid.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(self : T07_012.BMonoid) \u2192 self.carrier",
+      "name": "T07_012.BMonoid.one",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T07_012.BMonoid) (a : self.carrier), self.mul self.one a = a",
+      "name": "T07_012.BMonoid.one_mul",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_012.BMonoid \u2192 Sort u} \u2192\n  ((carrier : Type) \u2192\n      (mul : carrier \u2192 carrier \u2192 carrier) \u2192\n        (one : carrier) \u2192\n          (one_mul : \u2200 (a : carrier), mul one a = a) \u2192\n            motive { carrier := carrier, mul := mul, one := one, one_mul := one_mul }) \u2192\n    (t : T07_012.BMonoid) \u2192 motive t",
+      "name": "T07_012.BMonoid.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_012.BMonoid \u2192 Sort u} \u2192\n  (t : T07_012.BMonoid) \u2192\n    ((carrier : Type) \u2192\n        (mul : carrier \u2192 carrier \u2192 carrier) \u2192\n          (one : carrier) \u2192\n            (one_mul : \u2200 (a : carrier), mul one a = a) \u2192\n              motive { carrier := carrier, mul := mul, one := one, one_mul := one_mul }) \u2192\n      motive t",
+      "name": "T07_012.BMonoid.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_012.UMonoid",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_012.UMonoid \u03b1 \u2192 Sort u} \u2192\n    (t : T07_012.UMonoid \u03b1) \u2192\n      ((mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192\n          (one : \u03b1) \u2192 (one_mul : \u2200 (a : \u03b1), mul one a = a) \u2192 motive { mul := mul, one := one, one_mul := one_mul }) \u2192\n        motive t",
+      "name": "T07_012.UMonoid.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 (one : \u03b1) \u2192 (\u2200 (a : \u03b1), mul one a = a) \u2192 T07_012.UMonoid \u03b1",
+      "name": "T07_012.UMonoid.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_012.UMonoid \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_012.UMonoid.mul",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_012.UMonoid \u03b1} \u2192 v1 = v2 \u2192 T07_012.UMonoid.noConfusionType P v1 v2",
+      "name": "T07_012.UMonoid.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_012.UMonoid \u03b1 \u2192 T07_012.UMonoid \u03b1 \u2192 Sort u",
+      "name": "T07_012.UMonoid.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_012.UMonoid \u03b1] \u2192 \u03b1",
+      "name": "T07_012.UMonoid.one",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [self : T07_012.UMonoid \u03b1] (a : \u03b1), T07_012.UMonoid.mul T07_012.UMonoid.one a = a",
+      "name": "T07_012.UMonoid.one_mul",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_012.UMonoid \u03b1 \u2192 Sort u} \u2192\n    ((mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192\n        (one : \u03b1) \u2192 (one_mul : \u2200 (a : \u03b1), mul one a = a) \u2192 motive { mul := mul, one := one, one_mul := one_mul }) \u2192\n      (t : T07_012.UMonoid \u03b1) \u2192 motive t",
+      "name": "T07_012.UMonoid.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_012.UMonoid \u03b1 \u2192 Sort u} \u2192\n    (t : T07_012.UMonoid \u03b1) \u2192\n      ((mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192\n          (one : \u03b1) \u2192 (one_mul : \u2200 (a : \u03b1), mul one a = a) \u2192 motive { mul := mul, one := one, one_mul := one_mul }) \u2192\n        motive t",
+      "name": "T07_012.UMonoid.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(m : T07_012.BMonoid) \u2192 m.carrier \u2192 m.carrier \u2192 m.carrier",
+      "name": "T07_012.bcombine",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(m : T07_012.BMonoid) \u2192 T07_012.BHom m m",
+      "name": "T07_012.idHom",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (m : T07_012.BMonoid), id m.one = id m.one",
+      "name": "T07_012.idHom.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T07_012.UMonoid Nat",
+      "name": "T07_012.instUMonoidNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_012.BMonoid",
+      "name": "T07_012.natBMonoid",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_012.UMonoid \u03b1] \u2192 T07_012.BMonoid",
+      "name": "T07_012.toBundled",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(m : T07_012.BMonoid) \u2192 T07_012.UMonoid m.carrier",
+      "name": "T07_012.toUnbundled",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_012.UMonoid \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_012.ucombine",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

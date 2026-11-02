@@ -1,0 +1,57 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_semantics/LF_W03_NestedParams.lean",
+  "source_sha256": "328e9f0379b0816c18b6dcffc05698cf0799d3e7fe742aa0cfd2c104b5fdee3d",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LF_W03.PTree",
+    "LF_W03.NTree",
+    "LF_W03.PairTree",
+    "LF_W03.DeepTree",
+    "LF_W03.count",
+    "LF_W03.labels",
+    "LF_W03.sample",
+    "LF_W03.count_sample",
+    "LF_W03.labels_sample",
+    "LF_W03.finSum",
+    "LF_W03.finSample",
+    "LF_W03.finSum_sample",
+    "LF_W03.pairCount",
+    "LF_W03.pairSample",
+    "LF_W03.pairCount_sample",
+    "LF_W03.deepCount",
+    "LF_W03.deepSample",
+    "LF_W03.deepCount_sample"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "730315be5cdfc0b4f9ece1158aa842487e22ceb9cf5f752070dd93b10f29d7a8",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 12930,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated"
+}

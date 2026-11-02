@@ -1,0 +1,1928 @@
+# Math
+
+Integer and numeric helpers, written in pure LOGOS and compiled through every execution
+tier. Auto-imported on first reference (e.g. naming `gcd`), like every stdlib module.
+
+## Note
+Greatest common divisor of `a` and `b` by the Euclidean algorithm, using their absolute values so the result is non-negative.
+
+## To gcd (a: Int, b: Int) -> Int:
+    Let x be a.
+    If x is less than 0:
+        Set x to 0 - x.
+    Let y be b.
+    If y is less than 0:
+        Set y to 0 - y.
+    While y is greater than 0:
+        Let temp be y.
+        Set y to x % y.
+        Set x to temp.
+    Return x.
+
+## Note
+Constrains `x` to the range `[lo, hi]`, returning `lo` if `x` is below it and `hi` if above.
+
+## To clamp (x: Int, lo: Int, hi: Int) -> Int:
+    If x is less than lo:
+        Return lo.
+    If x is greater than hi:
+        Return hi.
+    Return x.
+
+## Note
+Computes `n!`, the product of the integers from 2 through `n` (returns 1 for `n` less than 2).
+
+## To factorial (n: Int) -> Int:
+    Let mutable result be 1.
+    Let mutable i be 2.
+    While i is at most n:
+        Set result to result * i.
+        Set i to i + 1.
+    Return result.
+
+## Note
+Product of the consecutive integers from `a` through `b` inclusive; returns 1 when `a` is greater than `b`.
+
+## To mulRange (a: Int) and (b: Int) -> Int:
+    If a is greater than b:
+        Return 1.
+    Let mutable prod be 1.
+    Let mutable k be a.
+    While k is at most b:
+        Set prod to prod * k.
+        Set k to k + 1.
+    Return prod.
+
+## Note
+Least common multiple of `a` and `b`, computed as `abs(a * b) / gcd(a, b)`; returns 0 if either input is 0.
+
+## To lcm (a: Int, b: Int) -> Int:
+    If a is equal to 0:
+        Return 0.
+    If b is equal to 0:
+        Return 0.
+    Let g be gcd(a, b).
+    Let p be abs(a * b).
+    Return p / g.
+
+## Note
+Sine of `x` (radians) via the Taylor series `x - x³/3! + x⁵/5! - …` accumulated through eight terms.
+
+## To pow2int (k: Int) -> Real:
+    Let mutable r be 1.0.
+    If k is at least 0:
+        Let mutable i be 0.
+        While i is less than k:
+            Set r to r * 2.0.
+            Set i to i + 1.
+        Return r.
+    Let mutable i be 0.
+    While i is less than (0 - k):
+        Set r to r * 0.5.
+        Set i to i + 1.
+    Return r.
+
+## Note
+Sine of a range-reduced argument `r` with `|r| <= pi/4`, via the Taylor series accurate to
+full double precision on that interval. Not for direct use — see `sin`, which reduces first.
+
+## To sinCore (r: Real) -> Real:
+    Let r2 be r * r.
+    Return r * (1.0 + r2 * (-0.16666666666666666 + r2 * (0.008333333333333333 + r2 * (-0.0001984126984126984 + r2 * (2.7557319223985893e-06 + r2 * (-2.505210838544172e-08 + r2 * (1.6059043836821613e-10 + r2 * (-7.647163731819816e-13))))))))
+
+## Note
+Cosine of a range-reduced argument `r` with `|r| <= pi/4`, full-double-precision Taylor.
+
+## To cosCore (r: Real) -> Real:
+    Let r2 be r * r.
+    Return 1.0 + r2 * (-0.5 + r2 * (0.041666666666666664 + r2 * (-0.001388888888888889 + r2 * (2.48015873015873e-05 + r2 * (-2.7557319223985894e-07 + r2 * (2.08767569878681e-09 + r2 * (-1.1470745597729725e-11)))))))
+
+## Note
+Sine of `x` in radians, world-class: Cody-Waite reduction `x = n·(pi/2)
+
++ r` (splitting pi/2 into hi+lo so `n·pi/2` stays exact for |x| up to ~1e6),
+then the quadrant `n mod 4` selects sin/cos of `r ∈ [-pi/4, pi/4]`. Accurate to
+full double precision, unlike a bare Taylor series.
+## To roundR (y: Real) -> Real:
+    Return (y + 6755399441055744.0) - 6755399441055744.0.
+
+## Note
+Floor of `y` as a `Real` — the magic-constant round, nudged down when it rounded up.
+
+## To floorR (y: Real) -> Real:
+    Let rr be (y + 6755399441055744.0) - 6755399441055744.0.
+    If rr is greater than y:
+        Return rr - 1.0.
+    Return rr.
+
+## Note
+Sine of `x` in radians, world-class: Cody-Waite reduction `x = n·(pi/2)
+
++ r` (pi/2 split hi+lo so `n·pi/2` stays exact for |x| up to ~1e6), then the
+quadrant `n mod 4` selects sin/cos of `r ∈ [-pi/4, pi/4]`. Full double
+precision, entirely in `Real` arithmetic.
+## To sin (x: Real) -> Real:
+    Let nr be roundR(x * 0.6366197723675814).
+    Let r be (x - (nr * 1.5707963267341256)) - (nr * 6.077100506506192e-11).
+    Let q be nr - (4.0 * floorR(nr * 0.25)).
+    If q is equal to 0.0:
+        Return sinCore(r).
+    If q is equal to 1.0:
+        Return cosCore(r).
+    If q is equal to 2.0:
+        Return 0.0 - sinCore(r).
+    Return 0.0 - cosCore(r).
+
+## Note
+Integer square root: the largest integer whose square is at most `n`, found by Newton's iteration.
+
+## To isqrt (n: Int) -> Int:
+    If n is less than 2:
+        Return n.
+    Let mutable x be n.
+    Let mutable y be (x + 1) / 2.
+    While y is less than x:
+        Set x to y.
+        Set y to (x + (n / x)) / 2.
+    Return x.
+
+## Note
+Sign of `x`: returns -1 if negative, 1 if positive, and 0 if zero.
+
+## To sign (x: Int) -> Int:
+    If x is less than 0:
+        Return 0 - 1.
+    If x is greater than 0:
+        Return 1.
+    Return 0.
+
+## Note
+Cosine of `x` (radians) via the Taylor series `1 - x²/2! + x⁴/4! - …` accumulated through eight terms.
+
+## To cos (x: Real) -> Real:
+    Let nr be roundR(x * 0.6366197723675814).
+    Let r be (x - (nr * 1.5707963267341256)) - (nr * 6.077100506506192e-11).
+    Let q be nr - (4.0 * floorR(nr * 0.25)).
+    If q is equal to 0.0:
+        Return cosCore(r).
+    If q is equal to 1.0:
+        Return 0.0 - sinCore(r).
+    If q is equal to 2.0:
+        Return 0.0 - cosCore(r).
+    Return sinCore(r).
+
+## Note
+Tangent of `x` (radians), computed as `sin(x) / cos(x)`.
+
+## To tan (x: Real) -> Real:
+    Return sin(x) / cos(x).
+
+## Note
+Exponential `e^x` via the Taylor series `1 + x + x²/2! + …` accumulated through twenty terms.
+
+## To exp (x: Real) -> Real:
+    Let kr be roundR(x * 1.4426950408889634).
+    Let r be (x - (kr * 0.6931471803691238)) - (kr * 1.9082149292705877e-10).
+    Let mutable p be 1.1470745597729725e-11.
+    Set p to 1.6059043836821613e-10 + r * p.
+    Set p to 2.08767569878681e-09 + r * p.
+    Set p to 2.505210838544172e-08 + r * p.
+    Set p to 2.7557319223985888e-07 + r * p.
+    Set p to 2.7557319223985893e-06 + r * p.
+    Set p to 2.48015873015873e-05 + r * p.
+    Set p to 0.0001984126984126984 + r * p.
+    Set p to 0.001388888888888889 + r * p.
+    Set p to 0.008333333333333333 + r * p.
+    Set p to 0.041666666666666664 + r * p.
+    Set p to 0.16666666666666666 + r * p.
+    Set p to 0.5 + r * p.
+    Set p to 1.0 + r * p.
+    Set p to 1.0 + r * p.
+    Return p * pow2int(floor(kr)).
+
+## Note
+Sine core with a caller-specified term count: identical to `sinCore` but the Taylor series runs exactly
+`terms` iterations, so the caller trades accuracy for speed (7 ≈ full double precision).
+
+## To sinCoreP (r: Real, terms: Int) -> Real:
+    Let r2 be r * r.
+    Let mutable term be r.
+    Let mutable result be r.
+    Let mutable k be 1.0.
+    Let mutable i be 1.
+    While i is at most terms:
+        Set term to ((0.0 - term) * r2) / ((2.0 * k) * ((2.0 * k) + 1.0)).
+        Set result to result + term.
+        Set k to k + 1.0.
+        Set i to i + 1.
+    Return result.
+
+## Note
+Cosine core with a caller-specified term count `terms` (see `sinCoreP`).
+
+## To cosCoreP (r: Real, terms: Int) -> Real:
+    Let r2 be r * r.
+    Let mutable term be 1.0.
+    Let mutable result be 1.0.
+    Let mutable k be 1.0.
+    Let mutable i be 1.
+    While i is at most terms:
+        Set term to ((0.0 - term) * r2) / (((2.0 * k) - 1.0) * (2.0 * k)).
+        Set result to result + term.
+        Set k to k + 1.0.
+        Set i to i + 1.
+    Return result.
+
+## Note
+Sine with caller-chosen precision `terms`: the Cody-Waite reduction stays exact; only the core length varies.
+
+## To sinP (x: Real, terms: Int) -> Real:
+    Let nr be roundR(x * 0.6366197723675814).
+    Let r be (x - (nr * 1.5707963267341256)) - (nr * 6.077100506506192e-11).
+    Let q be nr - (4.0 * floorR(nr * 0.25)).
+    If q is equal to 0.0:
+        Return sinCoreP(r, terms).
+    If q is equal to 1.0:
+        Return cosCoreP(r, terms).
+    If q is equal to 2.0:
+        Return 0.0 - sinCoreP(r, terms).
+    Return 0.0 - cosCoreP(r, terms).
+
+## Note
+Cosine with caller-chosen precision `terms` (see `sinP`).
+
+## To cosP (x: Real, terms: Int) -> Real:
+    Let nr be roundR(x * 0.6366197723675814).
+    Let r be (x - (nr * 1.5707963267341256)) - (nr * 6.077100506506192e-11).
+    Let q be nr - (4.0 * floorR(nr * 0.25)).
+    If q is equal to 0.0:
+        Return cosCoreP(r, terms).
+    If q is equal to 1.0:
+        Return 0.0 - sinCoreP(r, terms).
+    If q is equal to 2.0:
+        Return 0.0 - cosCoreP(r, terms).
+    Return sinCoreP(r, terms).
+
+## Note
+Exponential with caller-chosen precision `terms`: same `x = k·ln2 + r` reduction as `exp`, variable core.
+
+## To expP (x: Real, terms: Int) -> Real:
+    Let kr be roundR(x * 1.4426950408889634).
+    Let r be (x - (kr * 0.6931471803691238)) - (kr * 1.9082149292705877e-10).
+    Let mutable term be 1.0.
+    Let mutable result be 1.0.
+    Let mutable j be 1.0.
+    Let mutable i be 1.
+    While i is at most terms:
+        Set term to (term * r) / j.
+        Set result to result + term.
+        Set j to j + 1.0.
+        Set i to i + 1.
+    Return result * pow2int(floor(kr)).
+
+## Note
+Natural logarithm with caller-chosen precision `terms`: exact `x = m·2^e` reduction, variable atanh series.
+
+## To lnP (x: Real, terms: Int) -> Real:
+    Let mutable m be x.
+    Let mutable e be 0.0.
+    While m is at least 1.3333333333333333:
+        Set m to m * 0.5.
+        Set e to e + 1.0.
+    While m is less than 0.6666666666666666:
+        Set m to m * 2.0.
+        Set e to e - 1.0.
+    Let y be (m - 1.0) / (m + 1.0).
+    Let y2 be y * y.
+    Let mutable term be y.
+    Let mutable result be y.
+    Let mutable k be 1.0.
+    Let mutable i be 1.
+    While i is at most terms:
+        Set term to term * y2.
+        Set result to result + (term / ((2.0 * k) + 1.0)).
+        Set k to k + 1.0.
+        Set i to i + 1.
+    Return (e * 0.6931471803691238) + ((e * 1.9082149292705877e-10) + (2.0 * result)).
+
+## Note
+Euclidean length `sqrt(x² + y²)`, the hypotenuse of a right triangle with legs `x` and `y`.
+
+## To hypot (x: Real, y: Real) -> Real:
+    Return sqrt((x * x) + (y * y)).
+
+## Note
+Cube root of `x` via forty Newton iterations, handling negative inputs by cubing the absolute value and negating.
+
+## To cbrt (x: Real) -> Real:
+    If x is equal to 0.0:
+        Return 0.0.
+    Let mutable neg be false.
+    Let mutable av be x.
+    If x is less than 0.0:
+        Set neg to true.
+        Set av to 0.0 - x.
+    Let mutable g be exp(ln(av) * 0.3333333333333333).
+    Let mutable k be 1.
+    While k is at most 3:
+        Set g to ((2.0 * g) + (av / (g * g))) / 3.0.
+        Set k to k + 1.
+    If neg is equal to true:
+        Return 0.0 - g.
+    Return g.
+
+## Note
+Hyperbolic sine `(e^x - e^-x) / 2`.
+
+## To sinh (x: Real) -> Real:
+    Return (exp(x) - exp(0.0 - x)) / 2.0.
+
+## Note
+Hyperbolic cosine `(e^x + e^-x) / 2`.
+
+## To cosh (x: Real) -> Real:
+    Return (exp(x) + exp(0.0 - x)) / 2.0.
+
+## Note
+Hyperbolic tangent, computed as `sinh(x) / cosh(x)`.
+
+## To tanh (x: Real) -> Real:
+    Return sinh(x) / cosh(x).
+
+## Note
+Natural logarithm of `x` via the `atanh` series in `y = (x-1)/(x+1)`, summed through thirty terms.
+
+## To ln (x: Real) -> Real:
+    Let mutable m be x.
+    Let mutable e be 0.0.
+    While m is at least 1.3333333333333333:
+        Set m to m * 0.5.
+        Set e to e + 1.0.
+    While m is less than 0.6666666666666666:
+        Set m to m * 2.0.
+        Set e to e - 1.0.
+    Let y be (m - 1.0) / (m + 1.0).
+    Let y2 be y * y.
+    Let mutable term be y.
+    Let mutable result be y.
+    Let mutable k be 1.0.
+    While k is at most 12.0:
+        Set term to term * y2.
+        Set result to result + (term / ((2.0 * k) + 1.0)).
+        Set k to k + 1.0.
+    Return (e * 0.6931471803691238) + ((e * 1.9082149292705877e-10) + (2.0 * result)).
+
+## Note
+Base-2 logarithm, computed as `ln(x) / ln(2)`.
+
+## To log2 (x: Real) -> Real:
+    Let mutable m be x.
+    Let mutable e be 0.0.
+    While m is at least 1.3333333333333333:
+        Set m to m * 0.5.
+        Set e to e + 1.0.
+    While m is less than 0.6666666666666666:
+        Set m to m * 2.0.
+        Set e to e - 1.0.
+    Let y be (m - 1.0) / (m + 1.0).
+    Let y2 be y * y.
+    Let mutable term be y.
+    Let mutable result be y.
+    Let mutable k be 1.0.
+    While k is at most 12.0:
+        Set term to term * y2.
+        Set result to result + (term / ((2.0 * k) + 1.0)).
+        Set k to k + 1.0.
+    Return e + ((2.0 * result) * 1.4426950408889634).
+
+## Note
+Base-10 logarithm, computed as `ln(x) / ln(10)`.
+
+## To log10 (x: Real) -> Real:
+    Let mutable m be x.
+    Let mutable e be 0.0.
+    While m is at least 1.3333333333333333:
+        Set m to m * 0.5.
+        Set e to e + 1.0.
+    While m is less than 0.6666666666666666:
+        Set m to m * 2.0.
+        Set e to e - 1.0.
+    Let y be (m - 1.0) / (m + 1.0).
+    Let y2 be y * y.
+    Let mutable term be y.
+    Let mutable result be y.
+    Let mutable k be 1.0.
+    While k is at most 12.0:
+        Set term to term * y2.
+        Set result to result + (term / ((2.0 * k) + 1.0)).
+        Set k to k + 1.0.
+    Return (e * 0.3010299956639812) + ((2.0 * result) * 0.4342944819032518).
+
+## Note
+Truncates `x` toward zero, returning the integer part (floor for non-negative `x`, ceiling for negative).
+
+## To trunc (x: Real) -> Int:
+    If x is less than 0.0:
+        Return 0 - floor(0.0 - x).
+    Return floor(x).
+
+## Note
+The integer part of `x` (truncated toward zero) returned as a `Real`; the `modf` integral half.
+
+## To modfInt (x: Real) -> Real:
+    Return trunc(x) + 0.0.
+
+## Note
+The fractional part of `x` (`x` minus its truncated integer part), keeping `x`'s sign; the `modf` fractional half.
+
+## To modfFrac (x: Real) -> Real:
+    Return x - (trunc(x) + 0.0).
+
+## Note
+The base-2 exponent of `x` as an integer: the `e` such that `abs(x)` lies in `[2^e, 2^(e+1))`; returns 0 for `x` equal to 0.
+
+## To ilogb (x: Real) -> Int:
+    Let mutable a be x.
+    If a is less than 0.0:
+        Set a to 0.0 - a.
+    If a is equal to 0.0:
+        Return 0.
+    Let mutable e be 0.
+    While a is at least 2.0:
+        Set a to a / 2.0.
+        Set e to e + 1.
+    While a is less than 1.0:
+        Set a to a * 2.0.
+        Set e to e - 1.
+    Return e.
+
+## Note
+The base-2 exponent of `x` returned as a `Real`, i.e. `ilogb(x)` converted to floating point.
+
+## To logb (x: Real) -> Real:
+    Return ilogb(x) + 0.0.
+
+## Note
+The `frexp` mantissa: `x` scaled into the half-open range `[0.5, 1)` (negated to keep `x`'s sign); returns 0 for `x` equal to 0.
+
+## To frexpFrac (x: Real) -> Real:
+    Let mutable a be x.
+    If a is equal to 0.0:
+        Return 0.0.
+    Let mutable neg be false.
+    If a is less than 0.0:
+        Set neg to true.
+        Set a to 0.0 - a.
+    While a is at least 1.0:
+        Set a to a / 2.0.
+    While a is less than 0.5:
+        Set a to a * 2.0.
+    If neg:
+        Return 0.0 - a.
+    Return a.
+
+## Note
+The `frexp` exponent `e` such that `x = mantissa * 2^e` with mantissa in `[0.5, 1)`, computed as `ilogb(x) + 1`; returns 0 for `x` equal to 0.
+
+## To frexpExp (x: Real) -> Int:
+    If x is equal to 0.0:
+        Return 0.
+    Return ilogb(x) + 1.
+
+## Note
+Three-way comparison of `a` and `b`: returns -1 if `a < b`, 1 if `a > b`, and 0 if equal.
+
+## To cmpInt (a: Int) and (b: Int) -> Int:
+    If a is less than b:
+        Return 0 - 1.
+    If a is greater than b:
+        Return 1.
+    Return 0.
+
+## Note
+Three-way comparison of the absolute values of `a` and `b`: returns -1, 0, or 1.
+
+## To cmpAbsInt (a: Int) and (b: Int) -> Int:
+    Let mutable x be a.
+    If x is less than 0:
+        Set x to 0 - x.
+    Let mutable y be b.
+    If y is less than 0:
+        Set y to 0 - y.
+    Return cmpInt(x, y).
+
+## Note
+Truncated-division quotient of `a` by `b` (rounded toward zero); the quotient half of `quoRem`.
+
+## To quoRemQ (a: Int) and (b: Int) -> Int:
+    Let mutable aa be a.
+    If aa is less than 0:
+        Set aa to 0 - aa.
+    Let mutable bb be b.
+    If bb is less than 0:
+        Set bb to 0 - bb.
+    Let mutable q be aa / bb.
+    If a is less than 0:
+        Set q to 0 - q.
+    If b is less than 0:
+        Set q to 0 - q.
+    Return q.
+
+## Note
+Truncated-division remainder `a - quoRemQ(a, b) * b`, whose sign follows the dividend `a`; the remainder half of `quoRem`.
+
+## To quoRemR (a: Int) and (b: Int) -> Int:
+    Return a - quoRemQ(a, b) * b.
+
+## Note
+Euclidean modulus of `a` by `b`: a non-negative remainder in `[0, abs(b))`; the modulus half of `divMod`.
+
+## To divModM (a: Int) and (b: Int) -> Int:
+    Let mutable r be quoRemR(a, b).
+    If r is less than 0:
+        Let mutable bb be b.
+        If bb is less than 0:
+            Set bb to 0 - bb.
+        Set r to r + bb.
+    Return r.
+
+## Note
+Euclidean-division quotient `(a - divModM(a, b)) / b`, paired with the non-negative modulus; the quotient half of `divMod`.
+
+## To divModQ (a: Int) and (b: Int) -> Int:
+    Let mutable q be quoRemQ(a, b).
+    Let r be quoRemR(a, b).
+    If r is less than 0:
+        If b is greater than 0:
+            Set q to q - 1.
+        If b is less than 0:
+            Set q to q + 1.
+    Return q.
+
+## Note
+Converts an angle `x` from radians to degrees (`x * 180 / π`).
+
+## To degrees (x: Real) -> Real:
+    Return x * 57.29577951308232.
+
+## Note
+Converts an angle `x` from degrees to radians (`x * π / 180`).
+
+## To radians (x: Real) -> Real:
+    Return x * 0.017453292519943295.
+
+## Note
+Returns the magnitude of `x` carrying the sign of `y` (negative when `y < 0`, otherwise positive).
+
+## To copysign (x: Real, y: Real) -> Real:
+    Let mutable m be x.
+    If x is less than 0.0:
+        Set m to 0.0 - x.
+    If y is less than 0.0:
+        Return 0.0 - m.
+    Return m.
+
+## Note
+The smaller of two reals `x` and `y`.
+
+## To fmin (x: Real, y: Real) -> Real:
+    If x is less than y:
+        Return x.
+    Return y.
+
+## Note
+The larger of two reals `x` and `y`.
+
+## To fmax (x: Real, y: Real) -> Real:
+    If x is greater than y:
+        Return x.
+    Return y.
+
+## Note
+Computes `e^x - 1` as `exp(x) - 1`.
+
+## To expm1 (x: Real) -> Real:
+    Return exp(x) - 1.0.
+
+## Note
+Computes `ln(1 + x)`.
+
+## To log1p (x: Real) -> Real:
+    Return ln(1.0 + x).
+
+## Note
+Integer power `base^exp` computed by exponentiation-by-squaring (exact, non-modular).
+
+## To powExact (base: Int, exp: Int) -> Int:
+    Let mutable acc be 1.
+    Let mutable b be base.
+    Let mutable e be exp.
+    While e is greater than 0:
+        If (e mod 2) is equal to 1:
+            Set acc to acc * b.
+        Set e to e / 2.
+        Set b to b * b.
+    Return acc.
+
+## Note
+Modular exponentiation `base^exp mod m`, computed by exponentiation-by-squaring with reduction at each step.
+
+## To powMod (base: Int, exp: Int, m: Int) -> Int:
+    Let mutable acc be 1.
+    Let mutable b be base mod m.
+    Let mutable e be exp.
+    While e is greater than 0:
+        If (e mod 2) is equal to 1:
+            Set acc to (acc * b) mod m.
+        Set e to e / 2.
+        Set b to (b * b) mod m.
+    Return acc.
+
+## Note
+The Jacobi symbol `(a/n)` for odd `n`, computed by reciprocity; returns -1, 0, or 1.
+
+## To jacobi (a: Int) and (n: Int) -> Int:
+    Let mutable x be a mod n.
+    Let mutable m be n.
+    Let mutable result be 1.
+    While x is greater than 0:
+        While (x mod 2) is equal to 0:
+            Set x to x / 2.
+            Let r be m mod 8.
+            If r is equal to 3:
+                Set result to 0 - result.
+            If r is equal to 5:
+                Set result to 0 - result.
+        Let t be x.
+        Set x to m.
+        Set m to t.
+        If (x mod 4) is equal to 3:
+            If (m mod 4) is equal to 3:
+                Set result to 0 - result.
+        Set x to x mod m.
+    If m is equal to 1:
+        Return result.
+    Return 0.
+
+## Note
+One Miller-Rabin witness round: returns true if base `a` proves `n` composite, given the odd part `d` and power `r` with `n - 1 = d * 2^r`.
+
+## To mrIsComposite (a: Int) and (d: Int) and (n: Int) and (r: Int) -> Bool:
+    Let mutable x be powMod(a, d, n).
+    If x is equal to 1:
+        Return false.
+    If x is equal to (n - 1):
+        Return false.
+    Let mutable i be 1.
+    While i is less than r:
+        Set x to (x * x) mod n.
+        If x is equal to (n - 1):
+            Return false.
+        Set i to i + 1.
+    Return true.
+
+## Note
+Deterministic Miller-Rabin primality test over the fixed bases 2 through 37, correct for all 64-bit integers.
+
+## To isProbablePrime (n: Int) -> Bool:
+    If n is less than 2:
+        Return false.
+    If (n mod 2) is equal to 0:
+        If n is equal to 2:
+            Return true.
+        Return false.
+    Let mutable d be n - 1.
+    Let mutable r be 0.
+    While (d mod 2) is equal to 0:
+        Set d to d / 2.
+        Set r to r + 1.
+    Let mutable prime be true.
+    Let bases be [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37].
+    Repeat for a in bases:
+        If a is less than n:
+            If mrIsComposite(a, d, n, r):
+                Set prime to false.
+    Return prime.
+
+## Note
+Modular square root of `a` mod prime `p` via Tonelli-Shanks (with the `p ≡ 3 mod 4` fast path); returns 0 when `a` is 0.
+
+## To modSqrt (a: Int) and (p: Int) -> Int:
+    Let aa be a mod p.
+    If aa is equal to 0:
+        Return 0.
+    If (p mod 4) is equal to 3:
+        Return powMod(aa, (p + 1) / 4, p).
+    Let mutable q be p - 1.
+    Let mutable s be 0.
+    While (q mod 2) is equal to 0:
+        Set q to q / 2.
+        Set s to s + 1.
+    Let mutable z be 2.
+    While powMod(z, (p - 1) / 2, p) is less than (p - 1):
+        Set z to z + 1.
+    Let mutable m be s.
+    Let mutable c be powMod(z, q, p).
+    Let mutable t be powMod(aa, q, p).
+    Let mutable r be powMod(aa, (q + 1) / 2, p).
+    While t is greater than 1:
+        Let mutable i be 0.
+        Let mutable t2 be t.
+        While t2 is greater than 1:
+            Set t2 to (t2 * t2) mod p.
+            Set i to i + 1.
+        Let mutable b be c.
+        Let mutable j be 0.
+        While j is less than (m - i - 1):
+            Set b to (b * b) mod p.
+            Set j to j + 1.
+        Set m to i.
+        Set c to (b * b) mod p.
+        Set t to (t * c) mod p.
+        Set r to (r * b) mod p.
+    Return r.
+
+## Note
+Modular multiplicative inverse of `x` mod `m` via the extended Euclidean algorithm; returns 0 when no inverse exists.
+
+## To modInverse (x: Int, m: Int) -> Int:
+    Let mutable oldR be x mod m.
+    If oldR is less than 0:
+        Set oldR to oldR + m.
+    Let mutable r be m.
+    Let mutable oldS be 1.
+    Let mutable s be 0.
+    While r is greater than 0:
+        Let quotient be oldR / r.
+        Let tmpR be oldR - quotient * r.
+        Set oldR to r.
+        Set r to tmpR.
+        Let tmpS be oldS - quotient * s.
+        Set oldS to s.
+        Set s to tmpS.
+    If oldR is greater than 1:
+        Return 0.
+    Let inv be oldS mod m.
+    If inv is less than 0:
+        Return inv + m.
+    Return inv.
+
+## Note
+Binomial coefficient "n choose k" via a multiplicative loop over the smaller of `k` and `n - k`; returns 0 when `k` is out of range.
+
+## To binomial (n: Int, k: Int) -> Int:
+    If k is less than 0:
+        Return 0.
+    If k is greater than n:
+        Return 0.
+    Let mutable kk be k.
+    If kk is greater than n - kk:
+        Set kk to n - kk.
+    Let mutable acc be 1.
+    Let mutable i be 1.
+    While i is at most kk:
+        Set acc to acc * (n - kk + i) / i.
+        Set i to i + 1.
+    Return acc.
+
+## Note
+Rational core for `atan` on the Cephes-reduced argument `a` (|a| ≤ tan π/8): the minimax
+`a + a·z·P(z)/Q(z)` with `z = a²`, sqrt-free and accurate to one ULP.
+
+## To ratAtan (a: Real) -> Real:
+    Let z be a * a.
+    Let pn be ((((-8.750608600031904122785e-1 * z - 1.615753718733365076637e1) * z - 7.500855792314704667340e1) * z - 1.228866684490136173410e2) * z - 6.485021904942025371773e1).
+    Let qd be (((((z + 2.485846490142306297962e1) * z + 1.650270098316988542046e2) * z + 4.328810604912902668951e2) * z + 4.853903996359136964868e2) * z + 1.945506571482613964425e2).
+    Return (((z * pn) / qd) * a) + a.
+
+## Note
+Cephes reduced argument for `atan` (`x ≥ 0`): a reciprocal above tan 3π/8, else the Möbius
+map `(x-1)/(x+1)` above tan π/8, else `x` itself — so `ratAtan` sees |a| ≤ tan π/8.
+
+## To atanReduce (x: Real) -> Real:
+    If x is greater than 2.41421356237309504880:
+        Return 0.0 - (1.0 / x).
+    If x is greater than 0.41421356237309504880:
+        Return (x - 1.0) / (x + 1.0).
+    Return x.
+
+## Note
+The angle offset that `atanReduce` folded out — π/2, π/4, or 0 for the three reduced ranges.
+
+## To atanOffset (x: Real) -> Real:
+    If x is greater than 2.41421356237309504880:
+        Return 1.5707963267948966.
+    If x is greater than 0.41421356237309504880:
+        Return 0.7853981633974483.
+    Return 0.0.
+
+## Note
+`atan` for non-negative `x`: `atanOffset(x) + ratAtan(atanReduce(x))`, arranged so the costly
+`ratAtan` is evaluated once rather than inside every reduction branch.
+
+## To atanPos (x: Real) -> Real:
+    Return atanOffset(x) + ratAtan(atanReduce(x)).
+
+## Note
+Absolute value of a `Real` (branch form so it lifts into the SIMD reduction like `floorR`).
+
+## To absR (x: Real) -> Real:
+    If x is less than 0.0:
+        Return 0.0 - x.
+    Return x.
+
+## Note
+Sign of a `Real` as ±1.0 (0 counts as +1) — carries `atan`'s odd symmetry through `atanPos(|x|)`.
+
+## To atanSign (x: Real) -> Real:
+    If x is less than 0.0:
+        Return 0.0 - 1.0.
+    Return 1.0.
+
+## Note
+Arctangent of `x` (radians): the odd identity `atan(x) = sign(x)·atan(|x|)` over the
+non-negative Cephes core `atanPos` — sqrt-free, one ULP, and vectorizable across a loop.
+
+## To atan (x: Real) -> Real:
+    Return atanPos(absR(x)) * atanSign(x).
+
+## Note
+Arcsine of `x`, computed as `atan(x / sqrt(1 - x²))`.
+
+## To asin (x: Real) -> Real:
+    Return atan(x / sqrt(1.0 - x * x)).
+
+## Note
+Arccosine of `x`, computed as `π/2 - asin(x)`.
+
+## To acos (x: Real) -> Real:
+    Return 1.5707963267948966 - asin(x).
+
+## Note
+Two-argument arctangent giving the angle (radians) of the point `(x, y)` in the correct quadrant, in `(-π, π]`.
+
+## To atan2 (y: Real, x: Real) -> Real:
+    If x is greater than 0.0:
+        Return atan(y / x).
+    If x is less than 0.0:
+        Return atan(y / x) + copysign(3.141592653589793, y).
+    If y is greater than 0.0:
+        Return 1.5707963267948966.
+    If y is less than 0.0:
+        Return 0.0 - 1.5707963267948966.
+    Return 0.0.
+
+## Note
+Base-2 exponential `2^x`, computed as `exp(x * ln 2)`.
+
+## To exp2 (x: Real) -> Real:
+    Let f be x - floorR(x).
+    Return pow2int(floor(x)) * exp(f * 0.6931471805599453).
+
+## Note
+Scales `x` by a power of two, returning `x * 2^n`.
+
+## To ldexp (x: Real, n: Real) -> Real:
+    Return x * pow2int(floor(n)).
+
+## Note
+The unit in the last place at `x`: the magnitude of the gap between `x` and the next representable double (`math.ulp`). For a normal `x` this is `2^(exponent-52)`.
+
+`ulp(0)` is the smallest positive subnormal.
+
+## To ulp (x: Real) -> Real:
+    If x is equal to 0.0:
+        Return ldexp(1.0, 0.0 - 1074.0).
+    Let e be frexpExp(absReal(x)) - 53.
+    Return ldexp(1.0, e + 0.0).
+
+## Note
+The next representable double after `x` in the direction of `y` (`math.nextafter`).
+
+`x` when equal, a subnormal step from zero, otherwise `x` ± its ulp — halved when stepping down off an exact power of two (that binade's ulp is smaller).
+
+## To nextafter (x: Real, y: Real) -> Real:
+    If x is equal to y:
+        Return y.
+    If x is equal to 0.0:
+        Return copysign(ldexp(1.0, 0.0 - 1074.0), y).
+    Let u be ulp(x).
+    Let mutable away be false.
+    If y is greater than x:
+        If x is greater than 0.0:
+            Set away to true.
+    If y is less than x:
+        If x is less than 0.0:
+            Set away to true.
+    If away is equal to true:
+        Return x + copysign(u, x).
+    Let f be frexpFrac(x).
+    If f is equal to 0.5:
+        Return x - copysign(u * 0.5, x).
+    If f is equal to (0.0 - 0.5):
+        Return x - copysign(u * 0.5, x).
+    Return x - copysign(u, x).
+
+## Note
+Inverse hyperbolic sine, computed as `ln(x + sqrt(x² + 1))`.
+
+## To asinh (x: Real) -> Real:
+    Return ln(x + sqrt(x * x + 1.0)).
+
+## Note
+Inverse hyperbolic cosine, computed as `ln(x + sqrt(x² - 1))`.
+
+## To acosh (x: Real) -> Real:
+    Return ln(x + sqrt(x * x - 1.0)).
+
+## Note
+Inverse hyperbolic tangent, computed as `0.5 * ln((1 + x) / (1 - x))`.
+
+## To atanh (x: Real) -> Real:
+    Return 0.5 * ln((1.0 + x) / (1.0 - x)).
+
+## Note
+Integer power of ten `10^n`, computed via `powExact`.
+
+## To pow10 (n: Int) -> Int:
+    Return powExact(10, n).
+
+## Note
+Number of `k`-permutations of `n`, the falling factorial `n * (n-1) * … * (n-k+1)`; returns 0 when `k` is out of range.
+
+## To perm (n: Int) and (k: Int) -> Int:
+    If k is less than 0:
+        Return 0.
+    If k is greater than n:
+        Return 0.
+    Let mutable acc be 1.
+    Let mutable i be 0.
+    While i is less than k:
+        Set acc to acc * (n - i).
+        Set i to i + 1.
+    Return acc.
+
+## Note
+Positive difference `max(x - y, 0)`: `x - y` when `x > y`, otherwise 0.
+
+## To dimReal (x: Real) and (y: Real) -> Real:
+    Return fmax(x - y, 0.0).
+
+## Note
+True when `x` is negative (its sign bit is set), i.e. `x < 0`.
+
+## To signbitReal (x: Real) -> Bool:
+    Return x is less than 0.0.
+
+## Note
+Floating-point remainder of `x / y` with the quotient truncated toward zero, so the result carries the sign of `x`.
+
+## To fmodReal (x: Real) and (y: Real) -> Real:
+    Let q be trunc(x / y).
+    Let qf be q + 0.0.
+    Return x - qf * y.
+
+## Note
+Euclidean distance between points `(x1, y1)` and `(x2, y2)`, computed via `hypot`.
+
+## To distReal (x1: Real) and (y1: Real) and (x2: Real) and (y2: Real) -> Real:
+    Return hypot(x2 - x1, y2 - y1).
+
+## Note
+Fused multiply-add `x * y + z`.
+
+## To fma (x: Real) and (y: Real) and (z: Real) -> Real:
+    Return (x * y) + z.
+
+## Note
+The error function `erf(x)` via the Abramowitz-Stegun rational-times-Gaussian approximation, odd-symmetric in `x`.
+
+## To erf (x: Real) -> Real:
+    Let mutable sign be 1.0.
+    Let mutable ax be x.
+    If x is less than 0.0:
+        Set sign to 0.0 - 1.0.
+        Set ax to 0.0 - x.
+    If ax is greater than 2.0:
+        Let t be 1.0 / (1.0 + 0.3275911 * ax).
+        Let p1 be (0.0 - 1.453152027) + (1.061405429 * t).
+        Let p2 be 1.421413741 + (p1 * t).
+        Let p3 be (0.0 - 0.284496736) + (p2 * t).
+        Let p4 be 0.254829592 + (p3 * t).
+        Let poly be p4 * t.
+        Return sign * (1.0 - poly * exp(0.0 - ax * ax)).
+    Let x2 be ax * ax.
+    Let mutable term be ax.
+    Let mutable sumv be ax.
+    Let mutable n be 1.0.
+    While n is at most 40.0:
+        Set term to ((term * (0.0 - x2)) * ((2.0 * n) - 1.0)) / (n * ((2.0 * n) + 1.0)).
+        Set sumv to sumv + term.
+        Set n to n + 1.0.
+    Return sign * (1.1283791670955126 * sumv).
+
+## Note
+The complementary error function `1 - erf(x)`.
+
+## To erfc (x: Real) -> Real:
+    Return 1.0 - erf(x).
+
+## Note
+Inverse error function: the `y` with `erf(y) = x`, for `x` in `(-1, 1)`, via Giles' rational approximation (`math.Erfinv`).
+
+## To erfinv (x: Real) -> Real:
+    Let mutable w be 0.0 - ln((1.0 - x) * (1.0 + x)).
+    Let mutable p be 0.0.
+    If w is less than 5.0:
+        Set w to w - 2.5.
+        Set p to 0.0000000281022636.
+        Set p to 0.000000343273939 + (p * w).
+        Set p to (0.0 - 0.0000035233877) + (p * w).
+        Set p to (0.0 - 0.00000439150654) + (p * w).
+        Set p to 0.00021858087 + (p * w).
+        Set p to (0.0 - 0.00125372503) + (p * w).
+        Set p to (0.0 - 0.00417768164) + (p * w).
+        Set p to 0.246640727 + (p * w).
+        Set p to 1.50140941 + (p * w).
+    Otherwise:
+        Set w to sqrt(w) - 3.0.
+        Set p to 0.0 - 0.000200214257.
+        Set p to 0.000100950558 + (p * w).
+        Set p to 0.00134934322 + (p * w).
+        Set p to (0.0 - 0.00367342844) + (p * w).
+        Set p to 0.00573950773 + (p * w).
+        Set p to (0.0 - 0.0076224613) + (p * w).
+        Set p to 0.00943887047 + (p * w).
+        Set p to 1.00167406 + (p * w).
+        Set p to 2.83297682 + (p * w).
+    Return p * x.
+
+## Note
+Inverse complementary error function: the `y` with `erfc(y) = x`, equal to `erfinv(1 - x)` (`math.Erfcinv`).
+
+## To erfcinv (x: Real) -> Real:
+    Return erfinv(1.0 - x).
+
+## Note
+Rounds `q` to the nearest integer using banker's rounding, breaking exact `.5` ties toward the even integer.
+
+## To roundHalfEven (q: Real) -> Int:
+    Let f be floor(q).
+    Let diff be q - (f + 0.0).
+    If diff is less than 0.5:
+        Return f.
+    If diff is greater than 0.5:
+        Return f + 1.
+    If (f mod 2) is equal to 0:
+        Return f.
+    Return f + 1.
+
+## Note
+IEEE remainder of `x / y`: `x - round(x/y) * y` with the quotient rounded half-to-even, so the result lies in `[-y/2, y/2]`.
+
+## To remainderReal (x: Real) and (y: Real) -> Real:
+    Let q be x / y.
+    Let n be roundHalfEven(q).
+    Let nf be n + 0.0.
+    Return x - nf * y.
+
+## Note
+Rounds `x` half-to-even (banker's rounding) and returns the result as a `Real`.
+
+## To roundEvenReal (x: Real) -> Real:
+    Return roundHalfEven(x) + 0.0.
+
+## Note
+Absolute value of the real `x`.
+
+## To absReal (x: Real) -> Real:
+    If x is less than 0.0:
+        Return 0.0 - x.
+    Return x.
+
+## Note
+The larger of two reals `a` and `b`.
+
+## To maxReal (a: Real) and (b: Real) -> Real:
+    If a is greater than b:
+        Return a.
+    Return b.
+
+## Note
+True when `a` and `b` are approximately equal: their absolute difference is within `1e-9` times the larger magnitude.
+
+## To isClose (a: Real) and (b: Real) -> Bool:
+    Let diff be absReal(a - b).
+    Let scale be maxReal(absReal(a), absReal(b)).
+    Return diff is at most (0.000000001 * scale).
+
+## Note
+The constant π (3.141592653589793).
+
+## To piReal () -> Real:
+    Return 3.141592653589793.
+
+## Note
+Euler's number `e` (2.718281828459045).
+
+## To eReal () -> Real:
+    Return 2.718281828459045.
+
+## Note
+The constant τ, equal to `2π` (6.283185307179586).
+
+## To tauReal () -> Real:
+    Return 6.283185307179586.
+
+## Note
+Left-pads the decimal text `s` with `0` characters to at least `width` digits, so a fractional part
+keeps any leading zeros when rendered.
+
+## To padZerosLeft (s: Text, width: Int) -> Text:
+    Let mutable n be length of s.
+    Let mutable out be s.
+    While n is less than width:
+        Set out to "0" combined with out.
+        Set n to n + 1.
+    Return out.
+
+## Note
+π to `digits` decimal places, computed EXACTLY via Machin's formula `π = 16·arctan(1/5)
+
+− 4·arctan(1/239)` in arbitrary-precision integer arithmetic — the precision is
+bounded only by `digits`, never by floating point. `pi(10000)` yields ten-
+thousand correct digits. Self-contained (every bignum is a local, so it lowers
+identically on every execution tier).
+## To pi (digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale be 1.
+    Let mutable si be 0.
+    While si is less than d:
+        Set scale to scale * 10.
+        Set si to si + 1.
+    Let mutable term be scale / 5.
+    Let mutable a be 0.
+    Let mutable k be 0.
+    Let mutable sign be 1.
+    While term is greater than 0:
+        Let denom be (2 * k) + 1.
+        If sign is greater than 0:
+            Set a to a + (term / denom).
+        Otherwise:
+            Set a to a - (term / denom).
+        Set term to term / 25.
+        Set sign to 0 - sign.
+        Set k to k + 1.
+    Set term to scale / 239.
+    Let mutable b be 0.
+    Set k to 0.
+    Set sign to 1.
+    While term is greater than 0:
+        Let denomB be (2 * k) + 1.
+        If sign is greater than 0:
+            Set b to b + (term / denomB).
+        Otherwise:
+            Set b to b - (term / denomB).
+        Set term to term / 57121.
+        Set sign to 0 - sign.
+        Set k to k + 1.
+    Let piScaledGuarded be (16 * a) - (4 * b).
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than guard:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let piScaled be piScaledGuarded / gp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be piScaled / denomP.
+    Let frac be piScaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+τ (`2π`) to `digits` decimal places, exact — the same Machin computation as `pi` scaled by two.
+
+## To tauDigits (digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale be 1.
+    Let mutable si be 0.
+    While si is less than d:
+        Set scale to scale * 10.
+        Set si to si + 1.
+    Let mutable term be scale / 5.
+    Let mutable a be 0.
+    Let mutable k be 0.
+    Let mutable sign be 1.
+    While term is greater than 0:
+        Let denom be (2 * k) + 1.
+        If sign is greater than 0:
+            Set a to a + (term / denom).
+        Otherwise:
+            Set a to a - (term / denom).
+        Set term to term / 25.
+        Set sign to 0 - sign.
+        Set k to k + 1.
+    Set term to scale / 239.
+    Let mutable b be 0.
+    Set k to 0.
+    Set sign to 1.
+    While term is greater than 0:
+        Let denomB be (2 * k) + 1.
+        If sign is greater than 0:
+            Set b to b + (term / denomB).
+        Otherwise:
+            Set b to b - (term / denomB).
+        Set term to term / 57121.
+        Set sign to 0 - sign.
+        Set k to k + 1.
+    Let piScaledGuarded be (16 * a) - (4 * b).
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than guard:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let tauScaled be (2 * piScaledGuarded) / gp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be tauScaled / denomP.
+    Let frac be tauScaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+Euler's number `e` to `digits` decimal places, computed EXACTLY via the series `e = Σ 1/k!` in
+arbitrary-precision integer arithmetic. Precision bounded only by `digits`.
+
+## To eDigits (digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale be 1.
+    Let mutable si be 0.
+    While si is less than d:
+        Set scale to scale * 10.
+        Set si to si + 1.
+    Let mutable total be 0.
+    Let mutable term be scale.
+    Let mutable k be 1.
+    While term is greater than 0:
+        Set total to total + term.
+        Set term to term / k.
+        Set k to k + 1.
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than guard:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let eScaled be total / gp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be eScaled / denomP.
+    Let frac be eScaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+Square root of a non-negative integer `n` to `digits` decimal places, computed EXACTLY via integer Newton's method on `n · 10^(2·digits)` — arbitrary precision, no floating point.
+
+`sqrtDigits(2, 100)` gives 100 correct digits of √2.
+## To sqrtDigits (n: Int, digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale2 be 1.
+    Let mutable si be 0.
+    While si is less than (2 * d):
+        Set scale2 to scale2 * 10.
+        Set si to si + 1.
+    Let x be n * scale2.
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than d:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let mutable g be (n + 1) * gp.
+    Let mutable done be false.
+    While done is equal to false:
+        Let ng be (g + (x / g)) / 2.
+        If ng is at least g:
+            Set done to true.
+        Otherwise:
+            Set g to ng.
+    Let mutable guardp be 1.
+    Let mutable ggi be 0.
+    While ggi is less than guard:
+        Set guardp to guardp * 10.
+        Set ggi to ggi + 1.
+    Let sScaled be g / guardp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be sScaled / denomP.
+    Let frac be sScaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+The golden ratio φ = (1 + √5) / 2 to `digits` decimal places, computed EXACTLY (integer √5 by Newton).
+
+## To phiDigits (digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale2 be 1.
+    Let mutable si be 0.
+    While si is less than (2 * d):
+        Set scale2 to scale2 * 10.
+        Set si to si + 1.
+    Let mutable scale be 1.
+    Let mutable sj be 0.
+    While sj is less than d:
+        Set scale to scale * 10.
+        Set sj to sj + 1.
+    Let x be 5 * scale2.
+    Let mutable g be 6 * scale.
+    Let mutable done be false.
+    While done is equal to false:
+        Let ng be (g + (x / g)) / 2.
+        If ng is at least g:
+            Set done to true.
+        Otherwise:
+            Set g to ng.
+    Let phiScaledGuarded be (scale + g) / 2.
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than guard:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let phiScaled be phiScaledGuarded / gp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be phiScaled / denomP.
+    Let frac be phiScaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+The natural logarithm of 2 to `digits` decimal places, computed EXACTLY via `ln 2 = 2·atanh(1/3)` in
+arbitrary-precision integer arithmetic.
+
+## To ln2Digits (digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale be 1.
+    Let mutable si be 0.
+    While si is less than d:
+        Set scale to scale * 10.
+        Set si to si + 1.
+    Let mutable term be scale / 3.
+    Let mutable total be 0.
+    Let mutable k be 0.
+    While term is greater than 0:
+        Set total to total + (term / ((2 * k) + 1)).
+        Set term to term / 9.
+        Set k to k + 1.
+    Let ln2Guarded be 2 * total.
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than guard:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let ln2Scaled be ln2Guarded / gp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be ln2Scaled / denomP.
+    Let frac be ln2Scaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+The natural logarithm of a positive integer `x` to `digits` decimal places, computed exactly.
+
+The natural logarithm of a positive integer `x` to `digits` decimal places, computed EXACTLY: reduce
+`x = m·2^e` with `m ∈ [1,2)`, then `ln x = e·ln 2 + 2·atanh((m−1)/(m+1))` — all arbitrary-precision
+integer arithmetic, precision bounded only by `digits`. `lnDigits(10, 1000)` gives 1000 digits of ln 10.
+
+## To lnDigits (x: Int, digits: Int) -> Text:
+    Let guard be 15.
+    Let d be digits + guard.
+    Let mutable scale be 1.
+    Let mutable si be 0.
+    While si is less than d:
+        Set scale to scale * 10.
+        Set si to si + 1.
+    Let twoScale be 2 * scale.
+    Let mutable nn be x * scale.
+    Let mutable e be 0.
+    While nn is at least twoScale:
+        Set nn to nn / 2.
+        Set e to e + 1.
+    Let z be ((nn - scale) * scale) / (nn + scale).
+    Let mutable t be z.
+    Let mutable total be 0.
+    Let mutable k be 0.
+    While t is greater than 0:
+        Set total to total + (t / ((2 * k) + 1)).
+        Set t to (t * z) / scale.
+        Set t to (t * z) / scale.
+        Set k to k + 1.
+    Let lnm be 2 * total.
+    Let mutable term be scale / 3.
+    Let mutable ln2tot be 0.
+    Let mutable j be 0.
+    While term is greater than 0:
+        Set ln2tot to ln2tot + (term / ((2 * j) + 1)).
+        Set term to term / 9.
+        Set j to j + 1.
+    Let ln2s be 2 * ln2tot.
+    Let lnxGuarded be (e * ln2s) + lnm.
+    Let mutable gp be 1.
+    Let mutable gi be 0.
+    While gi is less than guard:
+        Set gp to gp * 10.
+        Set gi to gi + 1.
+    Let lnxScaled be lnxGuarded / gp.
+    Let mutable denomP be 1.
+    Let mutable di be 0.
+    While di is less than digits:
+        Set denomP to denomP * 10.
+        Set di to di + 1.
+    Let ip be lnxScaled / denomP.
+    Let frac be lnxScaled mod denomP.
+    Return "{ip}." combined with padZerosLeft("{frac}", digits).
+
+## Note
+Complex exponential `e^(x+yi) = e^x·(cos y + i·sin y)` for the complex argument `x + yi`.
+
+## To cExp (x: Real) and (y: Real) -> ComplexF:
+    Let m be exp(x).
+    Return complex(m * cos(y), m * sin(y)).
+
+## Note
+Principal complex logarithm of `x + yi`: real part `ln|z|` and imaginary part the phase `atan2(y, x)`.
+
+## To cLog (x: Real) and (y: Real) -> ComplexF:
+    Return complex(ln(hypot(x, y)), atan2(y, x)).
+
+## Note
+Principal complex square root of `x + yi`, with the imaginary part signed to match `y`.
+
+## To cSqrt (x: Real) and (y: Real) -> ComplexF:
+    Let r be hypot(x, y).
+    Let re be sqrt((r + x) / 2.0).
+    Let mutable im be sqrt((r - x) / 2.0).
+    If y is less than 0.0:
+        Set im to 0.0 - im.
+    Return complex(re, im).
+
+## Note
+Complex sine of `x + yi`: `sin(x)·cosh(y) + i·cos(x)·sinh(y)`.
+
+## To cSin (x: Real) and (y: Real) -> ComplexF:
+    Return complex(sin(x) * cosh(y), cos(x) * sinh(y)).
+
+## Note
+Complex cosine of `x + yi`: `cos(x)·cosh(y) - i·sin(x)·sinh(y)`.
+
+## To cCos (x: Real) and (y: Real) -> ComplexF:
+    Return complex(cos(x) * cosh(y), 0.0 - (sin(x) * sinh(y))).
+
+## Note
+Complex hyperbolic sine of `x + yi`: `sinh(x)·cos(y) + i·cosh(x)·sin(y)`.
+
+## To cSinh (x: Real) and (y: Real) -> ComplexF:
+    Return complex(sinh(x) * cos(y), cosh(x) * sin(y)).
+
+## Note
+Complex hyperbolic cosine of `x + yi`: `cosh(x)·cos(y) + i·sinh(x)·sin(y)`.
+
+## To cCosh (x: Real) and (y: Real) -> ComplexF:
+    Return complex(cosh(x) * cos(y), sinh(x) * sin(y)).
+
+## Note
+Complex tangent of `x + yi`, using `sin(2x)` and `sinh(2y)` over `cos(2x) + cosh(2y)`.
+
+## To cTan (x: Real) and (y: Real) -> ComplexF:
+    Let d be cos(2.0 * x) + cosh(2.0 * y).
+    Return complex(sin(2.0 * x) / d, sinh(2.0 * y) / d).
+
+## Note
+Complex hyperbolic tangent of `x + yi`, using `sinh(2x)` and `sin(2y)` over `cosh(2x) + cos(2y)`.
+
+## To cTanh (x: Real) and (y: Real) -> ComplexF:
+    Let d be cosh(2.0 * x) + cos(2.0 * y).
+    Return complex(sinh(2.0 * x) / d, sin(2.0 * y) / d).
+
+## Note
+Complex cotangent of `x + yi`, the reciprocal of the complex tangent (`cos(z)/sin(z)`).
+
+## To cCot (x: Real) and (y: Real) -> ComplexF:
+    Let d be cos(2.0 * x) + cosh(2.0 * y).
+    Let a be sin(2.0 * x) / d.
+    Let b be sinh(2.0 * y) / d.
+    Let denom be (a * a) + (b * b).
+    Return complex(a / denom, 0.0 - (b / denom)).
+
+## Note
+Complex power `z^w = exp(w·log z)` on the principal branch; `0^0 = 1` and `0^w = 0` for `w ≠ 0`.
+
+## To cPow (x: Real, y: Real, u: Real, v: Real) -> ComplexF:
+    If x is equal to 0.0:
+        If y is equal to 0.0:
+            If u is equal to 0.0:
+                If v is equal to 0.0:
+                    Return complex(1.0, 0.0).
+            Return complex(0.0, 0.0).
+    Let lr be ln(hypot(x, y)).
+    Let li be atan2(y, x).
+    Let pr be (u * lr) - (v * li).
+    Let pi be (u * li) + (v * lr).
+    Return cExp(pr, pi).
+
+## Note
+Phase (argument) of the complex number `x + yi` in radians, computed as `atan2(y, x)`.
+
+## To cPhase (x: Real) and (y: Real) -> Real:
+    Return atan2(y, x).
+
+## Note
+Builds a complex number from polar coordinates: `r·cos(phi) + i·r·sin(phi)`.
+
+## To cRect (r: Real) and (phi: Real) -> ComplexF:
+    Return complex(r * cos(phi), r * sin(phi)).
+
+## Note
+Complex conjugate of `x + yi`, i.e. `x - yi` (the imaginary part negated).
+
+## To cConj (x: Real) and (y: Real) -> ComplexF:
+    Return complex(x, 0.0 - y).
+
+## Note
+True when `x` is NaN, detected by the fact that NaN is the only value not equal to itself.
+
+## To isNaN (x: Real) -> Bool:
+    If x is equal to x:
+        Return false.
+    Return true.
+
+## Note
+True when `x` is finite; detects infinities and NaN by checking whether `x - x` is NaN.
+
+## To isFinite (x: Real) -> Bool:
+    Let d be x - x.
+    If isNaN(d):
+        Return false.
+    Return true.
+
+## Note
+True when `x` is infinite (positive or negative), i.e. not NaN and not finite.
+
+## To isInf (x: Real) -> Bool:
+    If isNaN(x):
+        Return false.
+    If isFinite(x):
+        Return false.
+    Return true.
+
+## Note
+Reciprocal `1 / x`.
+
+## To recip (x: Real) -> Real:
+    Return 1.0 / x.
+
+## Note
+The fractional part of `x`, keeping `x`'s sign (`x` minus its truncation toward zero).
+
+## To fract (x: Real) -> Real:
+    Return modfFrac(x).
+
+## Note
+Logarithm of `x` to an arbitrary base, computed as `ln(x) / ln(base)`.
+
+## To logBase (x: Real, base: Real) -> Real:
+    Return ln(x) / ln(base).
+
+## Note
+Integer power `x^n` by repeated multiplication; a negative `n` returns the reciprocal.
+
+## To powi (x: Real, n: Int) -> Real:
+    Let mutable r be 1.0.
+    Let mutable k be n.
+    If n is less than 0:
+        Set k to 0 - n.
+    Let mutable i be 0.
+    While i is less than k:
+        Set r to r * x.
+        Set i to i + 1.
+    If n is less than 0:
+        Return 1.0 / r.
+    Return r.
+
+## Note
+Euclidean division: the quotient `q` for which the remainder `a - q*b` lies in `[0, |b|)`.
+
+## To divEuclid (a: Real, b: Real) -> Real:
+    Let mutable q be trunc(a / b).
+    Let r be a - ((q + 0.0) * b).
+    If r is less than 0.0:
+        If b is greater than 0.0:
+            Set q to q - 1.
+        Otherwise:
+            Set q to q + 1.
+    Return q + 0.0.
+
+## Note
+Euclidean remainder, always in `[0, |b|)` regardless of the signs of `a` and `b`.
+
+## To remEuclid (a: Real, b: Real) -> Real:
+    Let m be a - ((trunc(a / b) + 0.0) * b).
+    If m is less than 0.0:
+        Return m + absReal(b).
+    Return m.
+
+## Note
+Rounds `x` to the nearest integer, ties to even (banker's rounding), returned as an `Int`.
+
+## To lrint (x: Real) -> Int:
+    Let f be floor(x).
+    Let d be x - (f + 0.0).
+    If d is less than 0.5:
+        Return f.
+    If d is greater than 0.5:
+        Return f + 1.
+    If (f mod 2) is equal to 0:
+        Return f.
+    Return f + 1.
+
+## Note
+Rounds `x` to the nearest integer, ties to even, returned as a `Real` (`rint`/`nearbyint`).
+
+## To rint (x: Real) -> Real:
+    Return lrint(x) + 0.0.
+
+## Note
+Gamma function via the Lanczos approximation (`g = 7`), with the reflection formula for `x < 0.5`.
+
+## To gamma (z: Real) -> Real:
+    If z is less than 0.5:
+        Return 3.141592653589793 / (sin(3.141592653589793 * z) * gamma(1.0 - z)).
+    Let zz be z - 1.0.
+    Let mutable x be 0.99999999999980993.
+    Set x to x + (676.5203681218851 / (zz + 1.0)).
+    Set x to x + ((0.0 - 1259.1392167224028) / (zz + 2.0)).
+    Set x to x + (771.32342877765313 / (zz + 3.0)).
+    Set x to x + ((0.0 - 176.61502916214059) / (zz + 4.0)).
+    Set x to x + (12.507343278686905 / (zz + 5.0)).
+    Set x to x + ((0.0 - 0.13857109526572012) / (zz + 6.0)).
+    Set x to x + (9.9843695780195716e-6 / (zz + 7.0)).
+    Set x to x + (1.5056327351493116e-7 / (zz + 8.0)).
+    Let t be zz + 7.5.
+    Return 2.5066282746310002 * (exp((zz + 0.5) * ln(t)) * (exp(0.0 - t) * x)).
+
+## Note
+Natural log of the absolute value of the gamma function, evaluated directly so large arguments do not overflow.
+
+## To lgamma (z: Real) -> Real:
+    If z is less than 0.5:
+        Return ln(3.141592653589793 / absReal(sin(3.141592653589793 * z))) - lgamma(1.0 - z).
+    Let zz be z - 1.0.
+    Let mutable x be 0.99999999999980993.
+    Set x to x + (676.5203681218851 / (zz + 1.0)).
+    Set x to x + ((0.0 - 1259.1392167224028) / (zz + 2.0)).
+    Set x to x + (771.32342877765313 / (zz + 3.0)).
+    Set x to x + ((0.0 - 176.61502916214059) / (zz + 4.0)).
+    Set x to x + (12.507343278686905 / (zz + 5.0)).
+    Set x to x + ((0.0 - 0.13857109526572012) / (zz + 6.0)).
+    Set x to x + (9.9843695780195716e-6 / (zz + 7.0)).
+    Set x to x + (1.5056327351493116e-7 / (zz + 8.0)).
+    Let t be zz + 7.5.
+    Return 0.9189385332046727 + (((zz + 0.5) * ln(t)) - t) + ln(x).
+
+## Note
+True when `x` is a normal float: finite, nonzero, and at or above the smallest normal magnitude.
+
+## To isNormal (x: Real) -> Bool:
+    If isFinite(x):
+        If absReal(x) is at least 2.2250738585072014e-308:
+            Return true.
+    Return false.
+
+## Note
+Classifies `x` as one of `"nan"`, `"infinite"`, `"zero"`, `"subnormal"`, or `"normal"`.
+
+## To fpclassify (x: Real) -> Text:
+    If isNaN(x):
+        Return "nan".
+    If isInf(x):
+        Return "infinite".
+    If x is equal to 0.0:
+        Return "zero".
+    If absReal(x) is at least 2.2250738585072014e-308:
+        Return "normal".
+    Return "subnormal".
+
+## Note
+Polar coordinates `(r, phi)` of the complex number `x + yi`: magnitude and phase.
+
+## To cPolar (x: Real) and (y: Real) -> (Real, Real):
+    Return (hypot(x, y), atan2(y, x)).
+
+## Note
+True when both components of `x + yi` are finite.
+
+## To cIsFinite (x: Real) and (y: Real) -> Bool:
+    If isFinite(x):
+        If isFinite(y):
+            Return true.
+    Return false.
+
+## Note
+True when either component of `x + yi` is infinite.
+
+## To cIsInf (x: Real) and (y: Real) -> Bool:
+    If isInf(x):
+        Return true.
+    If isInf(y):
+        Return true.
+    Return false.
+
+## Note
+True when either component of `x + yi` is NaN.
+
+## To cIsNaN (x: Real) and (y: Real) -> Bool:
+    If isNaN(x):
+        Return true.
+    If isNaN(y):
+        Return true.
+    Return false.
+
+## Note
+Complex `isclose`: true when `|a - b| <= 1e-9 * max(|a|, |b|)` (relative tolerance, no absolute floor).
+
+## To cIsClose (ax: Real, ay: Real, bx: Real, by: Real) -> Bool:
+    Let d be hypot(ax - bx, ay - by).
+    Let ma be hypot(ax, ay).
+    Let mb be hypot(bx, by).
+    Let mutable mx be ma.
+    If mb is greater than ma:
+        Set mx to mb.
+    If d is at most (0.000000001 * mx):
+        Return true.
+    Return false.
+
+## Note
+Complex base-10 logarithm `ln(z) / ln(10)` = `log10|z| + i·arg(z)/ln(10)`.
+
+## To cLog10 (x: Real) and (y: Real) -> ComplexF:
+    Return complex(ln(hypot(x, y)) / 2.302585092994046, atan2(y, x) / 2.302585092994046).
+
+## Note
+Real part of the principal complex square root of `a + bi` (used by the complex inverse trig).
+
+## To cSqrtRe (a: Real) and (b: Real) -> Real:
+    Return sqrt((hypot(a, b) + a) / 2.0).
+
+## Note
+Imaginary part of the principal complex square root of `a + bi`, sign carried from `b`.
+
+## To cSqrtIm (a: Real) and (b: Real) -> Real:
+    Return copysign(sqrt((hypot(a, b) - a) / 2.0), b).
+
+## Note
+Real part of `asinh(x + yi) = log(z + sqrt(z² + 1))`.
+
+## To cAsinhRe (x: Real) and (y: Real) -> Real:
+    Let wr be ((x * x) - (y * y)) + 1.0.
+    Let wi be 2.0 * (x * y).
+    Let sr be cSqrtRe(wr, wi).
+    Let si be cSqrtIm(wr, wi).
+    Return ln(hypot(x + sr, y + si)).
+
+## Note
+Imaginary part of `asinh(x + yi)`.
+
+## To cAsinhIm (x: Real) and (y: Real) -> Real:
+    Let wr be ((x * x) - (y * y)) + 1.0.
+    Let wi be 2.0 * (x * y).
+    Let sr be cSqrtRe(wr, wi).
+    Let si be cSqrtIm(wr, wi).
+    Return atan2(y + si, x + sr).
+
+## Note
+Complex inverse hyperbolic sine.
+
+## To cAsinh (x: Real) and (y: Real) -> ComplexF:
+    Return complex(cAsinhRe(x, y), cAsinhIm(x, y)).
+
+## Note
+Complex arcsine, `asin(z) = -i·asinh(iz)` (so `re = asinhIm(iz)`, `im = -asinhRe(iz)`).
+
+## To cAsin (x: Real) and (y: Real) -> ComplexF:
+    Return complex(cAsinhIm(0.0 - y, x), 0.0 - cAsinhRe(0.0 - y, x)).
+
+## Note
+Complex arccosine, `acos(z) = pi/2 - asin(z)`.
+
+## To cAcos (x: Real) and (y: Real) -> ComplexF:
+    Let ar be cAsinhIm(0.0 - y, x).
+    Let ai be 0.0 - cAsinhRe(0.0 - y, x).
+    Return complex(1.5707963267948966 - ar, 0.0 - ai).
+
+## Note
+Real part of `atanh(x + yi) = ½(log(1 + z) - log(1 - z))`.
+
+## To cAtanhRe (x: Real) and (y: Real) -> Real:
+    Return 0.5 * (ln(hypot(1.0 + x, y)) - ln(hypot(1.0 - x, 0.0 - y))).
+
+## Note
+Imaginary part of `atanh(x + yi)`.
+
+## To cAtanhIm (x: Real) and (y: Real) -> Real:
+    Return 0.5 * (atan2(y, 1.0 + x) - atan2(0.0 - y, 1.0 - x)).
+
+## Note
+Complex inverse hyperbolic tangent.
+
+## To cAtanh (x: Real) and (y: Real) -> ComplexF:
+    Return complex(cAtanhRe(x, y), cAtanhIm(x, y)).
+
+## Note
+Complex arctangent, `atan(z) = -i·atanh(iz)`.
+
+## To cAtan (x: Real) and (y: Real) -> ComplexF:
+    Return complex(cAtanhIm(0.0 - y, x), 0.0 - cAtanhRe(0.0 - y, x)).
+
+## Note
+Complex inverse hyperbolic cosine, `acosh(z) = log(z + sqrt(z + 1)·sqrt(z - 1))`.
+
+## To cAcosh (x: Real) and (y: Real) -> ComplexF:
+    Let pr be cSqrtRe(x + 1.0, y).
+    Let pim be cSqrtIm(x + 1.0, y).
+    Let qr be cSqrtRe(x - 1.0, y).
+    Let qim be cSqrtIm(x - 1.0, y).
+    Let mr be (pr * qr) - (pim * qim).
+    Let mi be (pr * qim) + (pim * qr).
+    Let ur be x + mr.
+    Let ui be y + mi.
+    Return complex(ln(hypot(ur, ui)), atan2(ui, ur)).
+
+## Note
+Sine and cosine of `x` together as `(sin x, cos x)` (`math.Sincos`).
+
+## To sincos (x: Real) -> (Real, Real):
+    Return (sin(x), cos(x)).
+
+## Note
+Positive infinity when `sign >= 0`, negative infinity otherwise (`math.Inf`); produced by float overflow.
+
+## To mathInf (sign: Int) -> Real:
+    Let big be 1.0e308 * 1.0e308.
+    If sign is less than 0:
+        Return 0.0 - big.
+    Return big.
+
+## Note
+An IEEE-754 NaN (`math.NaN` / `math.nan`), produced as `inf - inf`.
+
+## To mathNan () -> Real:
+    Let big be 1.0e308 * 1.0e308.
+    Return big - big.
+
+## Note
+The complex infinity `∞ + ∞i`, both parts positive infinity (Go's `cmplx.Inf`).
+
+## To cInf () -> ComplexF:
+    Let big be mathInf(1).
+    Return complex(big, big).
+
+## Note
+The complex NaN `NaN + NaN·i`, both parts NaN (Go's `cmplx.NaN`).
+
+## To cNan () -> ComplexF:
+    Let bad be mathNan().
+    Return complex(bad, bad).
+
+## Note
+The imaginary-axis infinity `0 + ∞i` (Python's `cmath.infj`).
+
+## To cInfj () -> ComplexF:
+    Let big be mathInf(1).
+    Return complex(0.0, big).
+
+## Note
+The imaginary-axis NaN `0 + NaN·i` (Python's `cmath.nanj`).
+
+## To cNanj () -> ComplexF:
+    Let bad be mathNan().
+    Return complex(0.0, bad).

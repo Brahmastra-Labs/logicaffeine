@@ -118,6 +118,80 @@ impl Cnf {
         }
     }
 
+    /// Add a clause verbatim (canonicalised exactly as the Tseitin encoder's own clauses are).
+    /// The seam a caller that builds its clause literals itself — a bit-blaster asserting the
+    /// negation of a gate DAG, say — pushes through, so it shares this table's canonicalisation
+    /// and duplicate suppression instead of reimplementing them.
+    pub fn add_clause(&mut self, lits: Vec<Lit>) {
+        self.push_clause(lits);
+    }
+
+    /// The literal of a named Boolean atom, allocating its variable the first time it is seen.
+    /// Same table [`encode`](Self::encode) uses for `ProofExpr::Atom`, so the two agree on
+    /// variable numbering.
+    pub fn atom_lit(&mut self, name: &str) -> Lit {
+        Lit::pos(self.atom_var(name.to_string()))
+    }
+
+    /// Tseitin-define `x ↔ (a ∧ b)` and return `x`, reusing the cached auxiliary when this
+    /// conjunction has been encoded before. The primitive behind `encode(And(..))`, exposed so a
+    /// caller holding a gate DAG can encode it WITHOUT first materialising the `ProofExpr` tree
+    /// (which is exponentially larger than the DAG for a reconvergent datapath).
+    pub fn encode_and(&mut self, a: Lit, b: Lit) -> Lit {
+        let (a, b) = order2(a, b);
+        if let Some(&x) = self.expr_cache.get(&(OP_AND, a, b)) {
+            return x;
+        }
+        let x = Lit::pos(self.fresh());
+        self.push_clause(vec![x.negated(), a]);
+        self.push_clause(vec![x.negated(), b]);
+        self.push_clause(vec![x, a.negated(), b.negated()]);
+        self.expr_cache.insert((OP_AND, a, b), x);
+        x
+    }
+
+    /// Tseitin-define `x ↔ (a ∨ b)` and return `x`. See [`encode_and`](Self::encode_and).
+    pub fn encode_or(&mut self, a: Lit, b: Lit) -> Lit {
+        let (a, b) = order2(a, b);
+        if let Some(&x) = self.expr_cache.get(&(OP_OR, a, b)) {
+            return x;
+        }
+        let x = Lit::pos(self.fresh());
+        self.push_clause(vec![x.negated(), a, b]);
+        self.push_clause(vec![x, a.negated()]);
+        self.push_clause(vec![x, b.negated()]);
+        self.expr_cache.insert((OP_OR, a, b), x);
+        x
+    }
+
+    /// Tseitin-define `x ↔ (¬a ∨ b)` and return `x`. See [`encode_and`](Self::encode_and).
+    pub fn encode_implies(&mut self, a: Lit, b: Lit) -> Lit {
+        if let Some(&x) = self.expr_cache.get(&(OP_IMPL, a, b)) {
+            return x;
+        }
+        let x = Lit::pos(self.fresh());
+        self.push_clause(vec![x.negated(), a.negated(), b]);
+        self.push_clause(vec![x, a]);
+        self.push_clause(vec![x, b.negated()]);
+        self.expr_cache.insert((OP_IMPL, a, b), x);
+        x
+    }
+
+    /// Tseitin-define `x ↔ (a ↔ b)` and return `x`. See [`encode_and`](Self::encode_and).
+    pub fn encode_iff(&mut self, a: Lit, b: Lit) -> Lit {
+        let (a, b) = order2(a, b);
+        if let Some(&x) = self.expr_cache.get(&(OP_IFF, a, b)) {
+            return x;
+        }
+        let x = Lit::pos(self.fresh());
+        self.push_clause(vec![x.negated(), a.negated(), b]);
+        self.push_clause(vec![x.negated(), a, b.negated()]);
+        self.push_clause(vec![x, a, b]);
+        self.push_clause(vec![x, a.negated(), b.negated()]);
+        self.expr_cache.insert((OP_IFF, a, b), x);
+        x
+    }
+
     /// Tseitin-encode `e`, returning a literal whose truth equals `e`'s, and emitting the
     /// defining clauses for any auxiliary variables. Returns `None` if `e` is not a
     /// quantifier-free propositional formula over recognisable atoms (so the caller can
@@ -126,59 +200,22 @@ impl Cnf {
         match e {
             ProofExpr::Not(p) => Some(self.encode(p)?.negated()),
             ProofExpr::And(p, q) => {
-                let (a, b) = order2(self.encode(p)?, self.encode(q)?);
-                if let Some(&x) = self.expr_cache.get(&(OP_AND, a, b)) {
-                    return Some(x);
-                }
-                let x = Lit::pos(self.fresh());
-                // x ↔ (a ∧ b)
-                self.push_clause(vec![x.negated(), a]);
-                self.push_clause(vec![x.negated(), b]);
-                self.push_clause(vec![x, a.negated(), b.negated()]);
-                self.expr_cache.insert((OP_AND, a, b), x);
-                Some(x)
+                let (a, b) = (self.encode(p)?, self.encode(q)?);
+                Some(self.encode_and(a, b))
             }
             ProofExpr::Or(p, q) => {
-                let (a, b) = order2(self.encode(p)?, self.encode(q)?);
-                if let Some(&x) = self.expr_cache.get(&(OP_OR, a, b)) {
-                    return Some(x);
-                }
-                let x = Lit::pos(self.fresh());
-                // x ↔ (a ∨ b)
-                self.push_clause(vec![x.negated(), a, b]);
-                self.push_clause(vec![x, a.negated()]);
-                self.push_clause(vec![x, b.negated()]);
-                self.expr_cache.insert((OP_OR, a, b), x);
-                Some(x)
+                let (a, b) = (self.encode(p)?, self.encode(q)?);
+                Some(self.encode_or(a, b))
             }
             ProofExpr::Implies(p, q) => {
                 // p → q  ≡  ¬p ∨ q (NOT commutative, so no `order2`).
                 let a = self.encode(p)?;
                 let b = self.encode(q)?;
-                if let Some(&x) = self.expr_cache.get(&(OP_IMPL, a, b)) {
-                    return Some(x);
-                }
-                let x = Lit::pos(self.fresh());
-                // x ↔ (¬a ∨ b)
-                self.push_clause(vec![x.negated(), a.negated(), b]);
-                self.push_clause(vec![x, a]);
-                self.push_clause(vec![x, b.negated()]);
-                self.expr_cache.insert((OP_IMPL, a, b), x);
-                Some(x)
+                Some(self.encode_implies(a, b))
             }
             ProofExpr::Iff(p, q) => {
-                let (a, b) = order2(self.encode(p)?, self.encode(q)?);
-                if let Some(&x) = self.expr_cache.get(&(OP_IFF, a, b)) {
-                    return Some(x);
-                }
-                let x = Lit::pos(self.fresh());
-                // x ↔ (a ↔ b)
-                self.push_clause(vec![x.negated(), a.negated(), b]);
-                self.push_clause(vec![x.negated(), a, b.negated()]);
-                self.push_clause(vec![x, a, b]);
-                self.push_clause(vec![x, a.negated(), b.negated()]);
-                self.expr_cache.insert((OP_IFF, a, b), x);
-                Some(x)
+                let (a, b) = (self.encode(p)?, self.encode(q)?);
+                Some(self.encode_iff(a, b))
             }
             _ => {
                 // An atom (Predicate / Identity / Atom): a single Boolean variable.
@@ -352,135 +389,13 @@ fn term_key(t: &ProofTerm) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{ProofExpr, ProofTerm};
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/cnf/tests.rs"]
+mod tests;
 
-    fn c(s: &str) -> ProofTerm {
-        ProofTerm::Constant(s.to_string())
-    }
-    fn pred(name: &str, args: Vec<ProofTerm>) -> ProofExpr {
-        ProofExpr::Predicate { name: name.to_string(), args, world: None }
-    }
-    fn not(e: ProofExpr) -> ProofExpr {
-        ProofExpr::Not(Box::new(e))
-    }
-    fn or(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::Or(Box::new(a), Box::new(b))
-    }
-    fn and(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::And(Box::new(a), Box::new(b))
-    }
-    fn imp(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::Implies(Box::new(a), Box::new(b))
-    }
-    fn id(a: ProofTerm, b: ProofTerm) -> ProofExpr {
-        ProofExpr::Identity(a, b)
-    }
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/cnf/cnf_more_tests.rs"]
+mod cnf_more_tests;
 
-    #[test]
-    fn reflexive_entailment() {
-        let p = pred("P", vec![c("a")]);
-        assert_eq!(cdcl_entails(&[p.clone()], &p), Some(true));
-    }
-
-    #[test]
-    fn disjunctive_syllogism() {
-        // P ∨ Q, ¬P ⊨ Q
-        let p = pred("P", vec![c("a")]);
-        let q = pred("Q", vec![c("a")]);
-        let prem = vec![or(p.clone(), q.clone()), not(p.clone())];
-        assert_eq!(cdcl_entails(&prem, &q), Some(true));
-        // …but P ∨ Q alone does NOT entail Q.
-        assert_eq!(cdcl_entails(&[or(p.clone(), q.clone())], &q), Some(false));
-    }
-
-    #[test]
-    fn modus_ponens() {
-        // P, P → Q ⊨ Q
-        let p = pred("P", vec![c("a")]);
-        let q = pred("Q", vec![c("a")]);
-        let prem = vec![p.clone(), imp(p.clone(), q.clone())];
-        assert_eq!(cdcl_entails(&prem, &q), Some(true));
-    }
-
-    #[test]
-    fn non_entailment_is_false_not_none() {
-        let p = pred("P", vec![c("a")]);
-        let q = pred("Q", vec![c("a")]);
-        assert_eq!(cdcl_entails(&[p], &q), Some(false));
-    }
-
-    #[test]
-    fn identity_is_symmetric() {
-        // a = b ⊨ b = a (same variable, so ¬(b=a) clashes immediately).
-        let prem = vec![id(c("a"), c("b"))];
-        assert_eq!(cdcl_entails(&prem, &id(c("b"), c("a"))), Some(true));
-    }
-
-    #[test]
-    fn two_value_grid_forces_the_cell() {
-        // A 2-trip × 2-state bijection: each trip in FL or ME; at most one trip per state;
-        // Alpha in FL ⇒ Beta in ME. The Untrusted CDCL tier must force it.
-        let in_ = |t: &str, s: &str| pred("In", vec![c(t), c(s)]);
-        let fl = "Florida";
-        let me = "Maine";
-        let prem = vec![
-            // closures: each trip takes a state
-            or(in_("Alpha", fl), in_("Alpha", me)),
-            or(in_("Beta", fl), in_("Beta", me)),
-            // at-most-one per state (functionality): two trips can't share a state
-            imp(in_("Alpha", fl), not(in_("Beta", fl))),
-            imp(in_("Alpha", me), not(in_("Beta", me))),
-            // each state taken by some trip (column closure)
-            or(in_("Alpha", fl), in_("Beta", fl)),
-            or(in_("Alpha", me), in_("Beta", me)),
-            // the pin
-            in_("Alpha", fl),
-        ];
-        assert_eq!(cdcl_entails(&prem, &in_("Beta", me)), Some(true), "Beta∈Maine is forced");
-        assert_eq!(cdcl_entails(&prem, &in_("Beta", fl)), Some(false), "Beta∈Florida is refuted");
-    }
-
-    #[test]
-    fn negated_conjunction_clausifies_directly_without_aux() {
-        // ¬(P ∧ Q) ≡ ¬P ∨ ¬Q — one binary clause, NO Tseitin auxiliary. Every at-most-one
-        // constraint is this shape; minting an aux per pair bloated the CNF and the solve.
-        let p = pred("P", vec![c("a")]);
-        let q = pred("Q", vec![c("a")]);
-        let mut cnf = Cnf::new();
-        cnf.assert(&not(and(p, q))).unwrap();
-        assert_eq!(cnf.num_atoms(), 2, "only P and Q are atoms");
-        assert_eq!(cnf.num_vars(), 2, "no auxiliary variable should be minted");
-        assert_eq!(cnf.clauses().len(), 1, "exactly one clause");
-        assert_eq!(cnf.clauses()[0].len(), 2, "the binary clause ¬P ∨ ¬Q");
-    }
-
-    #[test]
-    fn negated_conjunction_preserves_models() {
-        // Soundness guard for the De Morgan clause: P ∧ ¬(P ∧ Q) ⊨ ¬Q, but ¬(P ∧ Q) alone does not.
-        let p = pred("P", vec![c("a")]);
-        let q = pred("Q", vec![c("a")]);
-        assert_eq!(
-            cdcl_entails(&[p.clone(), not(and(p.clone(), q.clone()))], &not(q.clone())),
-            Some(true)
-        );
-        assert_eq!(cdcl_entails(&[not(and(p, q.clone()))], &not(q)), Some(false));
-    }
-
-    #[test]
-    fn nested_demorgan_and_double_negation_clausify() {
-        // ¬((P ∧ Q) ∧ R) ≡ ¬P ∨ ¬Q ∨ ¬R (one ternary clause, no aux); ¬¬P ≡ P.
-        let (p, q, r) = (pred("P", vec![c("a")]), pred("Q", vec![c("a")]), pred("R", vec![c("a")]));
-        let mut cnf = Cnf::new();
-        cnf.assert(&not(and(and(p, q), r))).unwrap();
-        assert_eq!(cnf.num_vars(), 3, "no aux for a nested negated conjunction");
-        assert_eq!(cnf.clauses().len(), 1);
-        assert_eq!(cnf.clauses()[0].len(), 3, "ternary clause ¬P ∨ ¬Q ∨ ¬R");
-
-        let p2 = pred("P", vec![c("a")]);
-        let mut cnf2 = Cnf::new();
-        cnf2.assert(&not(not(p2))).unwrap();
-        assert_eq!(cnf2.num_vars(), 1, "¬¬P is just P");
-    }
-}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/cnf/cnf_differential_tests.rs"]
+mod cnf_differential_tests;

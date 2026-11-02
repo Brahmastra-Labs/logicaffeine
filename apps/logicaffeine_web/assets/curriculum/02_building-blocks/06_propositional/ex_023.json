@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If R then P, and C",
   "options": [
-    "$ ((R \\supset P) \\cdot C) $",
-    "$ R \\supset P \\cdot C $",
-    "$ (R \\supset (P \\cdot C)) $",
-    "$ (R \\supset P) \\cdot C $"
+    "(R → P) ∧ C",
+    "R → (P ∧ C)",
+    "(R → P) ∨ C",
+    "(R → P) → C"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'and' joins the two largest parts?",
+  "explanation": "The main connective is ∧, joining R → P and C: (R → P) ∧ C.",
+  "section": "6.2"
 }

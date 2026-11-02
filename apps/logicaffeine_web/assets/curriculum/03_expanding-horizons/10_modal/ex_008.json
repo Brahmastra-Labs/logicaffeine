@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "'You're mean' is consistent with 'You're bitter'",
   "options": [
-    "$ (M \\cdot B) $",
-    "$ (\\lozenge M \\cdot B) $",
-    "$ \\lozenge (M \\cdot B) $",
-    "$ (\\lozenge M \\cdot \\lozenge B) $"
+    "M ∧ B",
+    "◇M ∧ B",
+    "◇(M ∧ B)",
+    "◇M ∧ ◇B"
   ],
   "correct": 2,
-  "hint": "What does 'consistent' mean in logic? Is it saying both ARE true, or that both COULD BE true together?",
-  "explanation": "Two statements are 'consistent' if there's a possible world where BOTH are true simultaneously. The diamond (◇) means 'possibly'. So ◇(M · B) says: 'It's POSSIBLE that (you're mean AND you're bitter).' This is weaker than just (M · B), which would claim they ARE both true. Consistency is about possibility, not actuality."
+  "hint": "Does 'consistent' say both are true, or that both could be true together?",
+  "explanation": "Consistent means both could be true together: ◇(M ∧ B). It does not claim that they are true.",
+  "section": "10.2"
 }

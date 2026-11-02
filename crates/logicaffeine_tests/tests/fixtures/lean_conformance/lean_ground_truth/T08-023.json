@@ -1,0 +1,54 @@
+{
+  "case": "T08-023",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "\u2200 (a b : Nat) (p : Nat \u2192 Nat \u2192 Prop), a = b \u2192 p a a \u2192 p b a",
+      "name": "T08_023.convAtHyp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f : Nat \u2192 Nat \u2192 Nat) (a b : Nat), a = b \u2192 f a a = f b a",
+      "name": "T08_023.enterArgument",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), a = b \u2192 a + a = b + a",
+      "name": "T08_023.lhsOnly",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), a = b \u2192 a + a = a + b",
+      "name": "T08_023.nthOccurrence",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat), a = b \u2192 a + c = b + c",
+      "name": "T08_023.singleOccurrence",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f g : Nat \u2192 Nat), (\u2200 (x : Nat), f x = g x) \u2192 (fun x => f x) = fun x => g x",
+      "name": "T08_023.underBinder",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,84 @@
+{
+  "case": "T05-009",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t05_elaboration/T05-009_anonymous_constructor.lean",
+  "source_sha256": "41775856369e0853a83ccb3a3a56b121a1b9a4208f1e610e8e0a26e798d6a011",
+  "ledger_sha256": "a57133752b73ae60021a5159efec1cce80740c2879689e725f51a707cc0aa4dc",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T05_009.NestedPair",
+    "T05_009.NestedPair.head",
+    "T05_009.NestedPair.mk",
+    "T05_009.NestedPair.rest",
+    "T05_009.Pair",
+    "T05_009.Pair.fst",
+    "T05_009.Pair.mk",
+    "T05_009.Pair.snd",
+    "T05_009.Point",
+    "T05_009.Point.mk",
+    "T05_009.Point.x",
+    "T05_009.Point.y",
+    "T05_009.Triple",
+    "T05_009.Triple.a",
+    "T05_009.Triple.b",
+    "T05_009.Triple.c",
+    "T05_009.Triple.mk",
+    "T05_009.emptyPair"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "fb45371b76b27fdd948b8b307ff7103800ce3a8c0c55349732ee5f31a67e7a8b",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 384,
+  "harvest": {
+    "roots": [
+      "T05_009.NestedPair",
+      "T05_009.NestedPair.head",
+      "T05_009.NestedPair.mk",
+      "T05_009.NestedPair.rest",
+      "T05_009.Pair",
+      "T05_009.Pair.fst",
+      "T05_009.Pair.mk",
+      "T05_009.Pair.snd",
+      "T05_009.Point",
+      "T05_009.Point.mk",
+      "T05_009.Point.x",
+      "T05_009.Point.y",
+      "T05_009.Triple",
+      "T05_009.Triple.a",
+      "T05_009.Triple.b",
+      "T05_009.Triple.c",
+      "T05_009.Triple.mk",
+      "T05_009.emptyPair"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

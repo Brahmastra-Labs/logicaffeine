@@ -1,0 +1,10 @@
+{
+  "capability": "iter.slice",
+  "workload": "sliceSeq(xs,1000,2000) 1-based inclusive",
+  "arg": "60000",
+  "expected": "2198902250",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

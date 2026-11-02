@@ -2,17 +2,18 @@
   "id": "Q_3.26",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "\"God\" means \"object of ultimate concern\".",
+  "prompt": "A sandwich is any food made with bread.",
   "options": [
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Could someone's 'object of ultimate concern' be something other than God? What about career, family, or money?",
-  "explanation": "This definition is TOO BROAD. Many people's 'object of ultimate concern' might be their family, their nation, or even their career — but we wouldn't call those things 'God'. The definition captures too many things that don't fit the term. It fails to pick out what's distinctive about the concept of God."
+  "hint": "Can you think of something that fits this definition but is not a sandwich?",
+  "explanation": "Toast and bread pudding are made with bread, but they are not sandwiches.",
+  "section": "3.2"
 }

@@ -1,0 +1,73 @@
+{
+  "case": "T11-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_006.captureViaSubst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T11_006.dependentShadow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat) \u2192 Nat \u2192 Nat",
+      "name": "T11_006.hygienic",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_006.innerWins",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T11_006.letShadow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_006.outerWins",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T11_006.shadowsAGlobal",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T11_006.termTwice_",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T11_006.tripleShadow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T11_006.lean:86:39: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T11_006.lean:101:46: warning: unused variable `n`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T11_006.lean:105:48: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T11_006.lean:105:57: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T11_006.lean:113:21: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`"
+}

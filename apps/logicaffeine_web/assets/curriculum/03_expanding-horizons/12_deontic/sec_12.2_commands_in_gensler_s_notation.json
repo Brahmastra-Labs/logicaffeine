@@ -1,0 +1,74 @@
+{
+  "id": "12.2",
+  "title": "Commands in Gensler's Notation",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Harry Gensler's imperative logic tells describing an act apart from commanding it. An underlined letter marks the person told to act."
+    },
+    {
+      "type": "symbols",
+      "title": "The notation",
+      "symbols": [
+        {
+          "symbol": "H(u, m)",
+          "name": "A description",
+          "meaning": "You help Madonna."
+        },
+        {
+          "symbol": "H(u̲, m)",
+          "name": "A command",
+          "meaning": "Help Madonna."
+        },
+        {
+          "symbol": "O H(u̲, m)",
+          "name": "Ought",
+          "meaning": "You ought to help Madonna."
+        },
+        {
+          "symbol": "R H(u̲, m)",
+          "name": "May",
+          "meaning": "It is all right for you to help Madonna."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "'X is consistent' is written ◇X."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Commands",
+      "lines": [
+        "Sing, Tom: S(t̲)",
+        "Don't disturb Tom: ¬D(u̲, t)"
+      ],
+      "note": "Tom is told to sing, so t is underlined. In the second, you are told, so u is underlined."
+    },
+    {
+      "type": "worked",
+      "title": "Ought and may",
+      "lines": [
+        "Tom ought to pray: O P(t̲)",
+        "It's permissible for you to sell: R S(u̲)"
+      ],
+      "note": "O means obligatory. R, for all right, means permissible."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which formula says 'Thank Tom'?",
+    "options": [
+      "T(u̲, t)",
+      "T(u, t)",
+      "O T(u̲, t)",
+      "T(t̲)"
+    ],
+    "correct": 0,
+    "hint": "Who is told to act, you or Tom? Is there an ought?",
+    "explanation": "It commands you to thank Tom, so u is underlined and there is no O: T(u̲, t)."
+  }
+}

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're bitter unless you're short",
   "options": [
-    "$ (B \\equiv S) $",
-    "$ B \\equiv S $",
-    "$ (B \\supset \\, \\sim S) $",
-    "$ (B \\vee S) $"
+    "B ↔ S",
+    "B → ¬S",
+    "B ∧ S",
+    "B ∨ S"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A unless B' means A ∨ B.",
+  "explanation": "'Unless' is read as or, so the formula is B ∨ S.",
+  "section": "6.2"
 }

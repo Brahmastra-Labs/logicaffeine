@@ -8,7 +8,12 @@ use std::fmt;
 /// Primitive literal values.
 ///
 /// These are opaque values that compute via hardware ALU, not recursion.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `PartialEq` is written by hand rather than derived, because it is THE KERNEL'S EQUALITY:
+/// `type_checker::types_equal` and `recheck::def_eq` both compare two `Term::Lit` through this
+/// one impl, so it decides literal conversion in BOTH kernels at once and the de Bruijn
+/// criterion gives it no protection whatever. See the impl below for what the derive got wrong.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Literal {
     /// 64-bit signed integer
@@ -30,9 +35,7 @@ pub enum Literal {
     /// definitional equality stays sound. Serialized as a decimal string, stable across
     /// `BigInt`'s internal limb layout. Produced by `int_lit`; never constructed directly
     /// for a value that fits `i64`.
-    BigInt(
-        #[cfg_attr(feature = "serde", serde(with = "bigint_dec"))] logicaffeine_base::BigInt,
-    ),
+    BigInt(#[cfg_attr(feature = "serde", serde(with = "bigint_dec"))] logicaffeine_base::BigInt),
     /// Arbitrary-precision NATURAL-number literal — a compact, accelerated form of the
     /// unary Peano numeral `Succ^n Zero` (K6). `Nat(n)` is DEFINITIONALLY EQUAL to `Succ`
     /// applied `n` times to `Zero`: the kernel bridges the two in `extract_constructor`
@@ -80,6 +83,36 @@ mod bigint_dec {
     }
 }
 
+/// Literal equality — identical to the derive on every arm but `Float`.
+///
+/// **Why `Float` is not compared with `==`.** IEEE-754 equality is not an equivalence relation:
+/// it is not REFLEXIVE at `NaN`, and it identifies `0.0` with `-0.0`, which have distinct
+/// encodings. A kernel whose conversion is not reflexive cannot retype `refl Float x : x = x`
+/// for a `NaN`, and one that identifies two distinct values proves an equation Lean refuses
+/// (`(0.0 : Float) = -0.0` is not closed by `rfl` there). Both are wrong, in opposite
+/// directions, and [`impl Eq for Literal`](Literal) is a written claim that neither happens.
+///
+/// `f64::to_bits` is the independent model the comparison is stated against: total, reflexive
+/// at every bit pattern including each `NaN` payload, and injective, so two literals are equal
+/// exactly when they are the same IEEE value. It is also what `term_store`'s interner already
+/// keys floats on, so id equality and `Term` equality now agree — the `float_free` caveat that
+/// module carries was about exactly this disagreement.
+impl PartialEq for Literal {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Literal::Int(a), Literal::Int(b)) => a == b,
+            (Literal::Float(a), Literal::Float(b)) => a.to_bits() == b.to_bits(),
+            (Literal::Text(a), Literal::Text(b)) => a == b,
+            (Literal::Duration(a), Literal::Duration(b)) => a == b,
+            (Literal::Date(a), Literal::Date(b)) => a == b,
+            (Literal::Moment(a), Literal::Moment(b)) => a == b,
+            (Literal::BigInt(a), Literal::BigInt(b)) => a == b,
+            (Literal::Nat(a), Literal::Nat(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 impl Eq for Literal {}
 
 impl fmt::Display for Literal {
@@ -123,8 +156,11 @@ impl fmt::Display for Literal {
                 let mins = (time_secs % 3600) / 60;
                 let secs_rem = time_secs % 60;
                 let (year, month, day) = days_to_ymd(days);
-                write!(f, "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-                       year, month, day, hours, mins, secs_rem)
+                write!(
+                    f,
+                    "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+                    year, month, day, hours, mins, secs_rem
+                )
             }
             Literal::BigInt(n) => write!(f, "{}", n),
             Literal::Nat(n) => write!(f, "{}", n),
@@ -137,7 +173,11 @@ fn days_to_ymd(days: i64) -> (i64, u8, u8) {
     // Civil date from days since epoch using the algorithm from Howard Hinnant
     // https://howardhinnant.github.io/date_algorithms.html
     let z = days + 719468;
-    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let era = if z >= 0 {
+        z / 146097
+    } else {
+        (z - 146096) / 146097
+    };
     let doe = (z - era * 146097) as u32;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe as i64 + era * 400;
@@ -157,7 +197,8 @@ fn days_to_ymd(days: i64) -> (i64, u8, u8) {
 ///
 /// - `Prop` is the universe of propositions (the impredicative bottom; `Prop ≤` all)
 /// - `Type(n)` is the concrete universe at level n
-/// - `Var(u)` is a universe variable (ranges over `Type` levels, `≥ Type 0`)
+/// - `Var(u)` is a universe variable; it ranges over `Prop` and the `Type` levels (never `SProp`,
+///   which is a sort and not a level), so a level that mentions one may be `Prop`
 /// - `Succ(ℓ)` is `ℓ + 1`
 /// - `Max(ℓ₁, ℓ₂)` is the least upper bound (used in Π-type formation)
 ///
@@ -191,12 +232,36 @@ pub enum Universe {
 }
 
 impl Universe {
-    /// Get the successor universe: `Type n → Type (n+1)`, `Prop → Type 1`, and a
+    /// Get the successor universe: `Type n → Type (n+1)`, `Prop → Type 0`, and a
     /// symbolic `Succ(ℓ)` for a level that mentions variables.
+    ///
+    /// `Prop.succ()` is `Type 0`, NOT `Type 1`. This function and `level_leq` must agree, and
+    /// `level_leq` decides everything over `level_order`'s ℕ-model, in which `Prop ↦ 0` and
+    /// `Type n ↦ n+1`. In that model `succ(Prop)` is level 1, which is spelled `Type 0`. Returning
+    /// `Type 1` made the successor operation and the level ORDERING disagree by one about `Prop`
+    /// alone — the algebra was not self-consistent, and it also put us one level off Lean, which
+    /// says `Prop : Type 0`.
+    ///
+    /// `SProp` moves with it for the same reason: `to_lnat` puts it at 0 as well, so its successor
+    /// is `Type 0` by the identical argument. The discriminator is narrow, which is why this
+    /// survived: `Prop → Type` agrees either way because the codomain's level already dominates;
+    /// only `Prop → Nat` (`Type 0` in Lean, `Type 1` here) told them apart.
     pub fn succ(&self) -> Universe {
         match self {
-            Universe::SProp | Universe::Prop => Universe::Type(1),
-            Universe::Type(n) => Universe::Type(n + 1),
+            Universe::SProp | Universe::Prop => Universe::Type(0),
+            // AT THE CEILING of the machine representation the successor stays SYMBOLIC. Both
+            // machine answers to `Type(u32::MAX) + 1` are catastrophic and neither is a
+            // judgement: wrapping gives `Type u32::MAX : Type 0`, and `Type 0 ≤ Type u32::MAX`
+            // by cumulativity, so a universe contains itself — Girard's paradox, from which a
+            // closed term of type `False` follows; and overflowing makes the kernel's answer to
+            // a malformed input "the process is gone", which cannot be part of a trusted base.
+            // `to_lnat` decides the ordering in `u64`, where `Succ(Type u32::MAX)` is an
+            // ordinary level strictly above `Type u32::MAX`, so the symbolic answer is total,
+            // sound and fully comparable — and it costs the ordinary levels nothing.
+            Universe::Type(n) => match n.checked_add(1) {
+                Some(next) => Universe::Type(next),
+                None => Universe::Succ(Box::new(self.clone())),
+            },
             other => Universe::Succ(Box::new(other.clone())),
         }
     }
@@ -228,7 +293,9 @@ impl Universe {
             // A concrete non-Prop codomain: the Π is predicative.
             Universe::Type(_) | Universe::Succ(_) => self.max(other),
             _ => {
-                if self.equiv(other) {
+                // Construction preserves symbolic levels. Semantic equivalence is
+                // decided when checking conversion, not each time a Pi is formed.
+                if self == other {
                     // imax(a, a) = a (a = 0 ⇒ 0; a ≥ 1 ⇒ max(a,a) = a).
                     self.clone()
                 } else {
@@ -245,11 +312,50 @@ impl Universe {
         level_leq(self, other)
     }
 
+    /// Whether every instantiation of this level's variables puts it at `Type 0` or above: a
+    /// family in `Sort ℓ` is then never a proposition. `Sort u` may be `Prop` (at `u := 0`);
+    /// `Sort (u+1)` and `Sort (max 1 u)` never are.
+    pub fn is_never_prop(&self) -> bool {
+        level_leq(&Universe::Type(0), self)
+    }
+
+    /// The least universe LEVEL at or above this one: itself, with `SProp` raised to `Prop`. `SProp`
+    /// is a sort and never a level, and `SProp ≤ Prop`, so a level variable solved from a type in
+    /// `SProp` takes `Prop`, and cumulativity carries the type into `Sort Prop`.
+    pub fn least_level(&self) -> Universe {
+        match self {
+            Universe::SProp => Universe::Prop,
+            Universe::Prop | Universe::Type(_) | Universe::Var(_) => self.clone(),
+            Universe::Succ(l) => l.least_level().succ(),
+            Universe::Max(a, b) => a.least_level().max(&b.least_level()),
+            Universe::IMax(a, b) => a.least_level().imax(&b.least_level()),
+        }
+    }
+
+    /// Whether `SProp` occurs anywhere in this level expression.
+    pub fn mentions_sprop(&self) -> bool {
+        match self {
+            Universe::SProp => true,
+            Universe::Prop | Universe::Type(_) | Universe::Var(_) => false,
+            Universe::Succ(l) => l.mentions_sprop(),
+            Universe::Max(a, b) | Universe::IMax(a, b) => a.mentions_sprop() || b.mentions_sprop(),
+        }
+    }
+
     /// Definitional equality of two level expressions, accounting for the algebra
     /// (`max`, `imax`, `succ`, variables) — NOT the derived structural equality.
     /// Decided as mutual subtyping over all variable instantiations.
     pub fn equiv(&self, other: &Universe) -> bool {
         level_leq(self, other) && level_leq(other, self)
+    }
+
+    /// The same rigid-level equivalence as `equiv`, charged to a shared construction budget.
+    pub(crate) fn equiv_bounded(
+        &self,
+        other: &Universe,
+        budget: &mut crate::recursor::bounded::RecursorBudget,
+    ) -> crate::recursor::bounded::GenerationResult<bool> {
+        level_order::equivalent(self, other, budget)
     }
 
     /// Substitute universe variables (replacing each `Var(v)` by `subst[v]`) throughout
@@ -265,171 +371,16 @@ impl Universe {
     }
 }
 
-/// A level in the ℕ-ENCODING used by the decision core: `Prop = 0`, `Type n = n+1`,
-/// and every universe VARIABLE ranges over all of ℕ (so a variable may be `Prop`,
-/// which is what closes the `Sort u := Nat` unsoundness — `Type 0 ≤ u` is false, since
-/// `u` could be `Prop`). This mirrors Lean's level model.
-#[derive(Clone, Debug)]
-enum LNat {
-    Const(u64),
-    Var(String),
-    Succ(Box<LNat>),
-    Max(Box<LNat>, Box<LNat>),
-    /// `imax(a, b) = 0` when `b = 0`, else `max(a, b)`.
-    IMax(Box<LNat>, Box<LNat>),
-}
+#[path = "term_level_order.rs"]
+mod level_order;
 
-fn to_lnat(u: &Universe) -> LNat {
-    match u {
-        // SProp is handled directly in `level_leq` and never survives inside a compound
-        // level (max/imax/succ collapse it), so this is a never-hit fallback.
-        Universe::SProp => LNat::Const(0),
-        Universe::Prop => LNat::Const(0),
-        Universe::Type(n) => LNat::Const(*n as u64 + 1),
-        Universe::Var(v) => LNat::Var(v.clone()),
-        Universe::Succ(l) => LNat::Succ(Box::new(to_lnat(l))),
-        Universe::Max(a, b) => LNat::Max(Box::new(to_lnat(a)), Box::new(to_lnat(b))),
-        Universe::IMax(a, b) => LNat::IMax(Box::new(to_lnat(a)), Box::new(to_lnat(b))),
-    }
-}
+#[cfg(test)]
+thread_local! { static LEVEL_COMPARISONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 
-/// Simplify an [`LNat`], resolving every `imax` whose right argument's Prop-ness is
-/// determined and pushing `imax` down over `max`/`imax` until its right argument is a
-/// bare variable (or a constant). After this, an unresolved `imax` has the form
-/// `imax(_, Var v)`, so the remaining case analysis is on those `v`.
-fn simp_lnat(t: &LNat) -> LNat {
-    match t {
-        LNat::Const(_) | LNat::Var(_) => t.clone(),
-        LNat::Succ(l) => LNat::Succ(Box::new(simp_lnat(l))),
-        LNat::Max(a, b) => LNat::Max(Box::new(simp_lnat(a)), Box::new(simp_lnat(b))),
-        LNat::IMax(a, b) => {
-            let a = simp_lnat(a);
-            let b = simp_lnat(b);
-            match &b {
-                // b = 0 ⇒ imax = 0.
-                LNat::Const(0) => LNat::Const(0),
-                // b ≥ 1 (a positive constant or a successor) ⇒ imax = max(a, b).
-                LNat::Const(_) | LNat::Succ(_) => simp_lnat(&LNat::Max(Box::new(a), Box::new(b))),
-                // imax(a, max(b1,b2)) = max(imax(a,b1), imax(a,b2)).
-                LNat::Max(b1, b2) => simp_lnat(&LNat::Max(
-                    Box::new(LNat::IMax(Box::new(a.clone()), b1.clone())),
-                    Box::new(LNat::IMax(Box::new(a), b2.clone())),
-                )),
-                // imax(a, imax(b1,b2)) = imax(max(a,b1), b2).
-                LNat::IMax(b1, b2) => simp_lnat(&LNat::IMax(
-                    Box::new(LNat::Max(Box::new(a), b1.clone())),
-                    b2.clone(),
-                )),
-                // imax(a, v): stays symbolic (v may be 0 or ≥ 1).
-                LNat::Var(_) => LNat::IMax(Box::new(a), Box::new(b)),
-            }
-        }
-    }
-}
-
-/// A variable that still appears as the right argument of an `imax` — the pivot to
-/// case-split on. `None` when the term is imax-free (a pure `max`/`succ`/`const`/`var`).
-fn imax_pivot(t: &LNat) -> Option<String> {
-    match t {
-        LNat::Const(_) | LNat::Var(_) => None,
-        LNat::Succ(l) => imax_pivot(l),
-        LNat::Max(a, b) => imax_pivot(a).or_else(|| imax_pivot(b)),
-        LNat::IMax(a, b) => match &**b {
-            LNat::Var(v) => Some(v.clone()),
-            _ => imax_pivot(a).or_else(|| imax_pivot(b)),
-        },
-    }
-}
-
-/// Substitute `Var(v)` by `repl` throughout an [`LNat`].
-fn subst_lnat(t: &LNat, v: &str, repl: &LNat) -> LNat {
-    match t {
-        LNat::Const(_) => t.clone(),
-        LNat::Var(x) => {
-            if x == v {
-                repl.clone()
-            } else {
-                t.clone()
-            }
-        }
-        LNat::Succ(l) => LNat::Succ(Box::new(subst_lnat(l, v, repl))),
-        LNat::Max(a, b) => {
-            LNat::Max(Box::new(subst_lnat(a, v, repl)), Box::new(subst_lnat(b, v, repl)))
-        }
-        LNat::IMax(a, b) => {
-            LNat::IMax(Box::new(subst_lnat(a, v, repl)), Box::new(subst_lnat(b, v, repl)))
-        }
-    }
-}
-
-/// A flat atom of an imax-free level: `var + offset` (`var = None` ⇒ a constant
-/// `offset`). A level is a `max` of atoms.
-fn lnat_atoms(t: &LNat, off: u64, out: &mut Vec<(Option<String>, u64)>) {
-    match t {
-        LNat::Const(c) => out.push((None, c + off)),
-        LNat::Var(v) => out.push((Some(v.clone()), off)),
-        LNat::Succ(l) => lnat_atoms(l, off + 1, out),
-        LNat::Max(a, b) => {
-            lnat_atoms(a, off, out);
-            lnat_atoms(b, off, out);
-        }
-        // An imax-free term never contains IMax (guaranteed by the pivot loop).
-        LNat::IMax(..) => unreachable!("lnat_atoms on an unresolved imax"),
-    }
-}
-
-/// Decide `a ≤ b` for an IMAX-FREE pair, over ALL variable assignments (each variable
-/// ranges over ℕ ≥ 0). `max(A) ≤ max(B)` holds iff every atom of `A` is dominated by
-/// `B`: a constant `c` needs `c ≤ min max(B)` (all variables at 0); a `var+off` atom
-/// needs `B` to contain the SAME variable with offset `≥ off` (else driving it to ∞
-/// breaks the bound).
-fn leq_linear(a: &LNat, b: &LNat) -> bool {
-    let mut atoms_a = Vec::new();
-    lnat_atoms(a, 0, &mut atoms_a);
-    let mut atoms_b = Vec::new();
-    lnat_atoms(b, 0, &mut atoms_b);
-    // `min max(B)`: every variable at 0, so each atom contributes its offset.
-    let b_min = atoms_b.iter().map(|(_, off)| *off).max().unwrap_or(0);
-    atoms_a.iter().all(|(v, off)| match v {
-        None => *off <= b_min,
-        Some(name) => atoms_b
-            .iter()
-            .any(|(bv, boff)| bv.as_deref() == Some(name.as_str()) && *boff >= *off),
-    })
-}
-
-/// Decide cumulative `a ≤ b`, SOUND over all instantiations of the universe variables
-/// (each ranges over ℕ, `Prop = 0`). Unresolved `imax(_, v)` is handled by splitting
-/// `v` into the `Prop` case (`v := 0`) and the positive case (`v := succ v′`); each
-/// split removes a pivot, so the recursion terminates.
 fn level_leq(a: &Universe, b: &Universe) -> bool {
-    // SProp is the bottom sort — `SProp ≤ everything`, and only `SProp ≤ SProp`. Handled
-    // BEFORE the `Prop=0` level encoding, which never sees `SProp` (max/imax/succ collapse
-    // it away, so it only ever appears bare here).
-    if matches!(a, Universe::SProp) {
-        return true;
-    }
-    if matches!(b, Universe::SProp) {
-        return false;
-    }
-    lnat_leq(&simp_lnat(&to_lnat(a)), &simp_lnat(&to_lnat(b)))
-}
-
-fn lnat_leq(a: &LNat, b: &LNat) -> bool {
-    match imax_pivot(a).or_else(|| imax_pivot(b)) {
-        Some(v) => {
-            // v = Prop (0).
-            let zero = LNat::Const(0);
-            let a0 = simp_lnat(&subst_lnat(a, &v, &zero));
-            let b0 = simp_lnat(&subst_lnat(b, &v, &zero));
-            // v ≥ 1: v := succ(v′) for a fresh v′ (bakes the `≥ 1` into an offset).
-            let vpos = LNat::Succ(Box::new(LNat::Var(format!("{v}✦"))));
-            let ap = simp_lnat(&subst_lnat(a, &v, &vpos));
-            let bp = simp_lnat(&subst_lnat(b, &v, &vpos));
-            lnat_leq(&a0, &b0) && lnat_leq(&ap, &bp)
-        }
-        None => leq_linear(a, b),
-    }
+    #[cfg(test)]
+    LEVEL_COMPARISONS.with(|n| n.set(n.get() + 1));
+    level_order::leq(a, b)
 }
 
 /// Unified term representation.
@@ -440,7 +391,10 @@ fn lnat_leq(a: &LNat, b: &LNat) -> bool {
 /// - `Pi` - dependent function types: Π(x:A). B
 /// - `Lambda` - functions: λ(x:A). t
 /// - `App` - application: f x
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `==` is the kernel's identity: it compares kernel meaning and does not see
+/// [`Term::Annotated`]. [`Term::identical`] is the comparison that does.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Term {
     /// Universe: Type n or Prop
@@ -542,105 +496,268 @@ pub enum Term {
     /// Represents an argument that should be inferred by the type checker.
     /// Used in Literate syntax like `X equals Y` where the type of X/Y is implicit.
     Hole,
+
+    /// `term`, carrying an [`Annotation`](crate::Annotation): a binder's kind, or where `term` came
+    /// from. TRANSPARENT — no judgment of the kernel reads it, `==` does not see it, and a
+    /// certificate cannot carry it (it has no serialized form). See `annotation.rs`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    Annotated {
+        annotation: crate::annotation::Annotation,
+        term: Box<Term>,
+    },
+}
+
+/// Equality of KERNEL MEANING: annotations are peeled at every node, so a term equals its
+/// annotated copy. Every other variant compares exactly as the derive did, field by field in
+/// declaration order.
+impl PartialEq for Term {
+    fn eq(&self, other: &Term) -> bool {
+        match (self.peel_annotations(), other.peel_annotations()) {
+            (Term::Sort(a), Term::Sort(b)) => a == b,
+            (Term::Var(a), Term::Var(b)) => a == b,
+            (Term::Global(a), Term::Global(b)) => a == b,
+            (Term::Const { name: m, levels: a }, Term::Const { name: n, levels: b }) => {
+                m == n && a == b
+            }
+            (
+                Term::Pi {
+                    param: p,
+                    param_type: s,
+                    body_type: t,
+                },
+                Term::Pi {
+                    param: q,
+                    param_type: u,
+                    body_type: v,
+                },
+            ) => p == q && s == u && t == v,
+            (
+                Term::Lambda {
+                    param: p,
+                    param_type: s,
+                    body: t,
+                },
+                Term::Lambda {
+                    param: q,
+                    param_type: u,
+                    body: v,
+                },
+            ) => p == q && s == u && t == v,
+            (Term::App(f, a), Term::App(g, b)) => f == g && a == b,
+            (
+                Term::Match {
+                    discriminant: d,
+                    motive: m,
+                    cases: cs,
+                },
+                Term::Match {
+                    discriminant: e,
+                    motive: n,
+                    cases: ds,
+                },
+            ) => d == e && m == n && cs == ds,
+            (Term::Fix { name: m, body: s }, Term::Fix { name: n, body: t }) => m == n && s == t,
+            (Term::MutualFix { defs: a, index: i }, Term::MutualFix { defs: b, index: j }) => {
+                a == b && i == j
+            }
+            (
+                Term::Let {
+                    name: m,
+                    ty: s1,
+                    value: s2,
+                    body: s3,
+                },
+                Term::Let {
+                    name: n,
+                    ty: t1,
+                    value: t2,
+                    body: t3,
+                },
+            ) => m == n && s1 == t1 && s2 == t2 && s3 == t3,
+            (Term::Lit(a), Term::Lit(b)) => a == b,
+            (Term::Hole, Term::Hole) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Term {}
+
+enum SyntaxDisplayPart<'a> {
+    Term(&'a Term),
+    Universe(&'a Universe),
+    Text(&'a str),
+    Index(usize),
+    Levels(&'a [Universe]),
+    Cases(&'a [Term]),
+    Definitions(&'a [(String, Term)]),
+}
+
+// Formatting is also used on unfinished reductions in diagnostics. Such terms
+// may exceed the kernel's input depth, so both term and universe walks use a
+// borrowed work stack. Sequence continuations keep memory proportional to depth.
+fn display_syntax(part: SyntaxDisplayPart<'_>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    use SyntaxDisplayPart as Part;
+    let mut pending = vec![part];
+    while let Some(part) = pending.pop() {
+        match part {
+            Part::Text(text) => f.write_str(text)?,
+            Part::Index(index) => write!(f, "{}", index)?,
+            Part::Levels(levels) => {
+                if let Some((first, rest)) = levels.split_first() {
+                    if !rest.is_empty() {
+                        pending.extend([Part::Levels(rest), Part::Text(", ")]);
+                    }
+                    pending.push(Part::Universe(first));
+                }
+            }
+            Part::Cases(cases) => {
+                if let Some((first, rest)) = cases.split_first() {
+                    if !rest.is_empty() {
+                        pending.extend([Part::Cases(rest), Part::Text(" | ")]);
+                    }
+                    pending.push(Part::Term(first));
+                }
+            }
+            Part::Definitions(definitions) => {
+                if let Some(((name, body), rest)) = definitions.split_first() {
+                    write!(f, "{} := ", name)?;
+                    if !rest.is_empty() {
+                        pending.extend([Part::Definitions(rest), Part::Text(", ")]);
+                    }
+                    pending.push(Part::Term(body));
+                }
+            }
+            Part::Universe(universe) => match universe {
+                Universe::SProp => f.write_str("SProp")?,
+                Universe::Prop => f.write_str("Prop")?,
+                Universe::Type(n) => write!(f, "Type{}", n)?,
+                Universe::Var(name) => f.write_str(name)?,
+                Universe::Succ(inner) => {
+                    f.write_str("(")?;
+                    pending.extend([Part::Text("+1)"), Part::Universe(inner)]);
+                }
+                Universe::Max(left, right) | Universe::IMax(left, right) => {
+                    f.write_str(if matches!(universe, Universe::Max(..)) {
+                        "max("
+                    } else {
+                        "imax("
+                    })?;
+                    pending.extend([
+                        Part::Text(")"),
+                        Part::Universe(right),
+                        Part::Text(", "),
+                        Part::Universe(left),
+                    ]);
+                }
+            },
+            Part::Term(term) => match term {
+                Term::Sort(universe) => pending.push(Part::Universe(universe)),
+                Term::Var(name) | Term::Global(name) => f.write_str(name)?,
+                Term::Const { name, levels } => {
+                    write!(f, "{}.{{", name)?;
+                    pending.extend([Part::Text("}"), Part::Levels(levels)]);
+                }
+                Term::Pi {
+                    param,
+                    param_type,
+                    body_type,
+                } => {
+                    if param == "_" {
+                        pending.extend([
+                            Part::Term(body_type),
+                            Part::Text(" -> "),
+                            Part::Term(param_type),
+                        ]);
+                    } else {
+                        write!(f, "Π({}:", param)?;
+                        pending.extend([
+                            Part::Term(body_type),
+                            Part::Text("). "),
+                            Part::Term(param_type),
+                        ]);
+                    }
+                }
+                Term::Lambda {
+                    param,
+                    param_type,
+                    body,
+                } => {
+                    write!(f, "λ({}:", param)?;
+                    pending.extend([Part::Term(body), Part::Text("). "), Part::Term(param_type)]);
+                }
+                Term::App(func, arg) => {
+                    f.write_str("(")?;
+                    let arrow = matches!(arg.as_ref(), Term::Pi { param, .. } if param == "_");
+                    pending.extend([
+                        Part::Text(if arrow { "))" } else { ")" }),
+                        Part::Term(arg),
+                        Part::Text(if arrow { " (" } else { " " }),
+                        Part::Term(func),
+                    ]);
+                }
+                Term::Match {
+                    discriminant,
+                    motive,
+                    cases,
+                } => {
+                    f.write_str("match ")?;
+                    pending.extend([
+                        Part::Cases(cases),
+                        Part::Text(" with "),
+                        Part::Term(motive),
+                        Part::Text(" return "),
+                        Part::Term(discriminant),
+                    ]);
+                }
+                Term::Fix { name, body } => {
+                    write!(f, "fix {}. ", name)?;
+                    pending.push(Part::Term(body));
+                }
+                Term::MutualFix { defs, index } => {
+                    f.write_str("mutualfix { ")?;
+                    pending.extend([
+                        Part::Index(*index),
+                        Part::Text(" }."),
+                        Part::Definitions(defs),
+                    ]);
+                }
+                Term::Let {
+                    name,
+                    ty,
+                    value,
+                    body,
+                } => {
+                    write!(f, "let {}:", name)?;
+                    pending.extend([
+                        Part::Term(body),
+                        Part::Text(" in "),
+                        Part::Term(value),
+                        Part::Text(" := "),
+                        Part::Term(ty),
+                    ]);
+                }
+                Term::Lit(literal) => write!(f, "{}", literal)?,
+                Term::Hole => f.write_str("_")?,
+                Term::Annotated { annotation, term } => {
+                    write!(f, "@[{}] ", annotation)?;
+                    pending.push(Part::Term(term));
+                }
+            },
+        }
+    }
+    Ok(())
 }
 
 impl fmt::Display for Universe {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Universe::SProp => write!(f, "SProp"),
-            Universe::Prop => write!(f, "Prop"),
-            Universe::Type(n) => write!(f, "Type{}", n),
-            Universe::Var(v) => write!(f, "{}", v),
-            Universe::Succ(l) => write!(f, "({}+1)", l),
-            Universe::Max(a, b) => write!(f, "max({}, {})", a, b),
-            Universe::IMax(a, b) => write!(f, "imax({}, {})", a, b),
-        }
+        display_syntax(SyntaxDisplayPart::Universe(self), f)
     }
 }
 
 impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Term::Sort(u) => write!(f, "{}", u),
-            Term::Var(name) => write!(f, "{}", name),
-            Term::Global(name) => write!(f, "{}", name),
-            Term::Const { name, levels } => {
-                write!(f, "{}.{{", name)?;
-                for (i, l) in levels.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", l)?;
-                }
-                write!(f, "}}")
-            }
-            Term::Pi {
-                param,
-                param_type,
-                body_type,
-            } => {
-                // Use arrow notation for non-dependent functions (param = "_")
-                if param == "_" {
-                    write!(f, "{} -> {}", param_type, body_type)
-                } else {
-                    write!(f, "Π({}:{}). {}", param, param_type, body_type)
-                }
-            }
-            Term::Lambda {
-                param,
-                param_type,
-                body,
-            } => {
-                write!(f, "λ({}:{}). {}", param, param_type, body)
-            }
-            Term::App(func, arg) => {
-                // Arrow types (Pi with _) need inner parens when used as args
-                let arg_needs_inner_parens =
-                    matches!(arg.as_ref(), Term::Pi { param, .. } if param == "_");
-
-                if arg_needs_inner_parens {
-                    write!(f, "({} ({}))", func, arg)
-                } else {
-                    write!(f, "({} {})", func, arg)
-                }
-            }
-            Term::Match {
-                discriminant,
-                motive,
-                cases,
-            } => {
-                write!(f, "match {} return {} with ", discriminant, motive)?;
-                for (i, case) in cases.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, " | ")?;
-                    }
-                    write!(f, "{}", case)?;
-                }
-                Ok(())
-            }
-            Term::Fix { name, body } => {
-                write!(f, "fix {}. {}", name, body)
-            }
-            Term::MutualFix { defs, index } => {
-                write!(f, "mutualfix {{ ")?;
-                for (i, (name, body)) in defs.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{} := {}", name, body)?;
-                }
-                write!(f, " }}.{}", index)
-            }
-            Term::Let { name, ty, value, body } => {
-                write!(f, "let {}:{} := {} in {}", name, ty, value, body)
-            }
-            Term::Lit(lit) => {
-                write!(f, "{}", lit)
-            }
-            Term::Hole => {
-                write!(f, "_")
-            }
-        }
+        display_syntax(SyntaxDisplayPart::Term(self), f)
     }
 }
 
@@ -659,12 +776,20 @@ pub fn instantiate_universes(
             levels: levels.iter().map(|l| l.substitute(subst)).collect(),
         },
         Term::Var(_) | Term::Global(_) | Term::Lit(_) | Term::Hole => term.clone(),
-        Term::Pi { param, param_type, body_type } => Term::Pi {
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => Term::Pi {
             param: param.clone(),
             param_type: Box::new(instantiate_universes(param_type, subst)),
             body_type: Box::new(instantiate_universes(body_type, subst)),
         },
-        Term::Lambda { param, param_type, body } => Term::Lambda {
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => Term::Lambda {
             param: param.clone(),
             param_type: Box::new(instantiate_universes(param_type, subst)),
             body: Box::new(instantiate_universes(body, subst)),
@@ -673,10 +798,17 @@ pub fn instantiate_universes(
             Box::new(instantiate_universes(f, subst)),
             Box::new(instantiate_universes(a, subst)),
         ),
-        Term::Match { discriminant, motive, cases } => Term::Match {
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => Term::Match {
             discriminant: Box::new(instantiate_universes(discriminant, subst)),
             motive: Box::new(instantiate_universes(motive, subst)),
-            cases: cases.iter().map(|c| instantiate_universes(c, subst)).collect(),
+            cases: cases
+                .iter()
+                .map(|c| instantiate_universes(c, subst))
+                .collect(),
         },
         Term::Fix { name, body } => Term::Fix {
             name: name.clone(),
@@ -689,11 +821,626 @@ pub fn instantiate_universes(
                 .collect(),
             index: *index,
         },
-        Term::Let { name, ty, value, body } => Term::Let {
+        Term::Let {
+            name,
+            ty,
+            value,
+            body,
+        } => Term::Let {
             name: name.clone(),
             ty: Box::new(instantiate_universes(ty, subst)),
             value: Box::new(instantiate_universes(value, subst)),
             body: Box::new(instantiate_universes(body, subst)),
         },
+        Term::Annotated { annotation, term } => Term::Annotated {
+            annotation: annotation.clone(),
+            term: Box::new(instantiate_universes(term, subst)),
+        },
     }
 }
+
+// =================================================================================================
+// Universe-polymorphic references — the specification BOTH kernels implement
+// =================================================================================================
+//
+// `Term::Const { name, levels }` is the only instantiating form, and three places have to agree
+// about what it MEANS: the main kernel's typing rule, the de Bruijn re-checker's, and the
+// reducer's δ step. When they are written three times they disagree three ways — one of them
+// silently, by handing an ill-formed reference back as a settled normal form. So the decision
+// lives HERE, once, as pure syntax over `(declared params, stored type, level arguments)`, and
+// each kernel calls it with its own lookup. Sharing the SPECIFICATION is what makes two
+// independent implementations meaningful; sharing the arithmetic is what makes a bug invisible
+// in both.
+//
+// The rules, in the order they are decided:
+//
+// 1. **The level telescope.** An explicitly universe-polymorphic definition carries its own
+//    parameter list. Every other declaration — inductive, constructor, definition, axiom —
+//    AUTO-BINDS the free level variables of its stored type, in FIRST-OCCURRENCE order. That is
+//    Lean's auto-bound-implicit rule, and deriving it rather than storing it is why one
+//    registration path cannot disagree with another about what a name's telescope is.
+// 2. **Closure.** `free_level_vars(ty) ⊆ params`. A declaration carrying a level variable no
+//    parameter binds is refused at every reference — never instantiated with a partial
+//    substitution, which silently retains the free level and leaves the declaration usable at
+//    exactly one instantiation.
+// 3. **Arity.** `|levels| = |params|`, zipped POSITIONALLY. A level list on a monomorphic name
+//    is a statement about a declaration that does not exist, so it is refused too.
+// 4. **Bare references.** A bare `Term::Global` naming a declaration with a level telescope is an
+//    instance of it. At an application's head its levels are solved from the arguments
+//    (`type_checker::implicit_levels_for_head`); anywhere else it stands at the declaration's own
+//    parameters, as its type is read there. A stored term writes the second kind out
+//    ([`bare_references_at_own_levels`]), so rule 1 sees those levels and binds them, and an
+//    instantiation of the declaration around the reference moves them with everything else. Left
+//    implicit, `P2 : Sort u := B2` over `B2 : Sort u` would be checked where its own `u` and
+//    `B2`'s coincide and used where they do not: `P2.{0}` a proposition holding `B2`'s two
+//    constructors.
+
+/// Why a `Term::Const` reference could not be resolved. Every kernel and the reducer report the
+/// same three failures, so a reference refused by typing is never a normal form to the reducer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstError {
+    /// The level list does not match the declaration's telescope.
+    Arity {
+        name: String,
+        expected: usize,
+        got: usize,
+    },
+    /// The declaration's stored type mentions a level variable its parameter list does not bind.
+    /// Instantiating it would leave that level free, so the declaration is refused outright.
+    LevelNotClosed { name: String, level: String },
+    /// A level argument is or contains `SProp`, which is a sort and never a level.
+    SPropLevel { name: String },
+}
+
+impl fmt::Display for ConstError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConstError::Arity { name, expected, got } => write!(
+                f,
+                "universe-polymorphic '{name}' expects {expected} level argument(s), got {got}",
+            ),
+            ConstError::LevelNotClosed { name, level } => write!(
+                f,
+                "declaration '{name}' carries the level variable '{level}', which none of its \
+                 universe parameters binds — it could never be instantiated, so no reference to \
+                 it is well-formed",
+            ),
+            ConstError::SPropLevel { name } => write!(
+                f,
+                "'{name}' is instantiated at SProp, which is a sort and not a universe level: a level \
+                 ranges over Prop and the Type levels, so a polymorphic family checked as possibly \
+                 relevant can never become definitionally irrelevant",
+            ),
+        }
+    }
+}
+
+/// The free universe VARIABLES of a level expression, appended in first-occurrence order
+/// (duplicates suppressed).
+fn level_vars_of_universe(u: &Universe, out: &mut Vec<String>) {
+    match u {
+        Universe::SProp | Universe::Prop | Universe::Type(_) => {}
+        Universe::Var(v) => {
+            if !out.iter().any(|x| x == v) {
+                out.push(v.clone());
+            }
+        }
+        Universe::Succ(l) => level_vars_of_universe(l, out),
+        Universe::Max(a, b) | Universe::IMax(a, b) => {
+            level_vars_of_universe(a, out);
+            level_vars_of_universe(b, out);
+        }
+    }
+}
+
+/// The free universe variables of a TERM, in first-occurrence order under a left-to-right
+/// pre-order walk. This order is the positional contract a `Const`'s level list is zipped
+/// against, so it is part of the specification rather than an implementation detail: a
+/// declaration written `Π(A : Sort u). Π(B : Sort v). Sort v` has telescope `[u, v]`, and a
+/// swapped instantiation is therefore observable wherever the level expression is asymmetric.
+///
+/// Levels written INSIDE a nested `Const`'s own level arguments count: they are levels this
+/// declaration must supply, so they must be bound here.
+pub fn free_level_vars(term: &Term) -> Vec<String> {
+    #[cfg(test)]
+    LEVEL_COLLECTION_CALLS.with(|n| n.set(n.get() + 1));
+    let mut out = Vec::new();
+    collect_level_vars(term, &mut out);
+    out
+}
+
+fn collect_level_vars(term: &Term, out: &mut Vec<String>) {
+    // Pre-order, left to right, on a stack of its own: the order is the positional contract, and a
+    // door reads a term's levels before its depth limit has been checked.
+    let mut work = vec![term];
+    while let Some(t) = work.pop() {
+        match t {
+            Term::Sort(u) => level_vars_of_universe(u, out),
+            Term::Var(_) | Term::Global(_) | Term::Lit(_) | Term::Hole => {}
+            Term::Const { levels, .. } => {
+                for l in levels {
+                    level_vars_of_universe(l, out);
+                }
+            }
+            Term::Pi {
+                param_type,
+                body_type,
+                ..
+            } => {
+                work.push(body_type);
+                work.push(param_type);
+            }
+            Term::Lambda {
+                param_type, body, ..
+            } => {
+                work.push(body);
+                work.push(param_type);
+            }
+            Term::App(f, a) => {
+                work.push(a);
+                work.push(f);
+            }
+            Term::Match {
+                discriminant,
+                motive,
+                cases,
+            } => {
+                work.extend(cases.iter().rev());
+                work.push(motive);
+                work.push(discriminant);
+            }
+            Term::Fix { body, .. } => work.push(body),
+            Term::MutualFix { defs, .. } => work.extend(defs.iter().rev().map(|(_, b)| b)),
+            Term::Let {
+                ty, value, body, ..
+            } => {
+                work.push(body);
+                work.push(value);
+                work.push(ty);
+            }
+            Term::Annotated { term, .. } => work.push(term),
+        }
+    }
+}
+
+/// The level telescope rule 1 gives a definition whose body mentions levels its type does not: the
+/// type's level variables, then the body's, each in first-occurrence order. `None` when the body
+/// adds none, so the type alone derives the telescope.
+pub fn definition_telescope(ty: &Term, body: &Term) -> Option<Vec<String>> {
+    let mut levels = free_level_vars(ty);
+    let declared = levels.len();
+    collect_level_vars(body, &mut levels);
+    (levels.len() > declared).then_some(levels)
+}
+
+/// `term`, in place, with each bare reference that is not an application's head written at the
+/// level parameters `own_levels` gives its declaration (rule 4): `QUnit` becomes `QUnit.{u}`, and
+/// `QUnit_rec P c x` keeps its bare head. A term with no such reference is read once and left as
+/// it is. Both walks keep a stack of their own, since a door writes a term before its depth limit
+/// has been checked.
+pub fn bare_references_at_own_levels(
+    term: &mut Term,
+    own_levels: &dyn Fn(&str) -> Option<Vec<String>>,
+) {
+    if !mentions_bare_reference(term, own_levels) {
+        return;
+    }
+    let mut work: Vec<(&mut Term, bool)> = vec![(term, false)];
+    while let Some((node, head)) = work.pop() {
+        if let Term::Global(name) = node {
+            if !head {
+                if let Some(params) = own_levels(name) {
+                    let name = std::mem::take(name);
+                    *node = Term::Const {
+                        name,
+                        levels: params.into_iter().map(Universe::Var).collect(),
+                    };
+                }
+            }
+            continue;
+        }
+        match node {
+            Term::Sort(_)
+            | Term::Var(_)
+            | Term::Global(_)
+            | Term::Const { .. }
+            | Term::Lit(_)
+            | Term::Hole => {}
+            Term::App(f, a) => {
+                work.push((f, true));
+                work.push((a, false));
+            }
+            Term::Pi {
+                param_type,
+                body_type: body,
+                ..
+            }
+            | Term::Lambda {
+                param_type, body, ..
+            } => {
+                work.push((param_type, false));
+                work.push((body, false));
+            }
+            Term::Match {
+                discriminant,
+                motive,
+                cases,
+            } => {
+                work.push((discriminant, false));
+                work.push((motive, false));
+                work.extend(cases.iter_mut().map(|c| (c, false)));
+            }
+            Term::Fix { body, .. } => work.push((body, false)),
+            Term::MutualFix { defs, .. } => work.extend(defs.iter_mut().map(|(_, b)| (b, false))),
+            Term::Let {
+                ty, value, body, ..
+            } => {
+                work.push((ty, false));
+                work.push((value, false));
+                work.push((body, false));
+            }
+            Term::Annotated { term, .. } => work.push((term, head)),
+        }
+    }
+}
+
+/// Whether [`bare_references_at_own_levels`] has anything to write in `term`.
+fn mentions_bare_reference(term: &Term, own_levels: &dyn Fn(&str) -> Option<Vec<String>>) -> bool {
+    let mut work: Vec<(&Term, bool)> = vec![(term, false)];
+    while let Some((node, head)) = work.pop() {
+        match node {
+            Term::Global(name) => {
+                if !head && own_levels(name).is_some() {
+                    return true;
+                }
+            }
+            Term::Sort(_) | Term::Var(_) | Term::Const { .. } | Term::Lit(_) | Term::Hole => {}
+            Term::App(f, a) => {
+                work.push((f, true));
+                work.push((a, false));
+            }
+            Term::Pi {
+                param_type,
+                body_type: body,
+                ..
+            }
+            | Term::Lambda {
+                param_type, body, ..
+            } => {
+                work.push((param_type, false));
+                work.push((body, false));
+            }
+            Term::Match {
+                discriminant,
+                motive,
+                cases,
+            } => {
+                work.push((discriminant, false));
+                work.push((motive, false));
+                work.extend(cases.iter().map(|c| (c, false)));
+            }
+            Term::Fix { body, .. } => work.push((body, false)),
+            Term::MutualFix { defs, .. } => work.extend(defs.iter().map(|(_, b)| (b, false))),
+            Term::Let {
+                ty, value, body, ..
+            } => {
+                work.push((ty, false));
+                work.push((value, false));
+                work.push((body, false));
+            }
+            Term::Annotated { term, .. } => work.push((term, head)),
+        }
+    }
+    false
+}
+
+/// Whether `t` mentions any free universe VARIABLE — allocation-free and short-circuiting.
+///
+/// This is the GUARD in front of `free_level_vars`, and it is load-bearing for speed rather than
+/// for meaning: the application rule asks the question at every node of every application, and
+/// collecting a `Vec` there made registering the standard library two orders of magnitude slower.
+/// Almost every declaration is monomorphic, so the answer is almost always "no" and must cost
+/// nothing to learn.
+pub fn mentions_level_var(t: &Term) -> bool {
+    level_var_scan(t, &|_| true)
+}
+
+/// Whether `t` mentions an unsolved level METAVARIABLE (a `?`-prefixed level variable) —
+/// allocation-free and short-circuiting, for the same reason.
+pub fn mentions_level_meta(t: &Term) -> bool {
+    level_var_scan(t, &|v| is_level_meta(v))
+}
+
+/// Short-circuiting search for a level variable satisfying `pred`.
+///
+/// Recursive and ALLOCATION-FREE by design. This runs at every application node of every
+/// type-check, so a `Vec` here — even one that is usually empty — is a malloc per node; the
+/// recursion instead costs a stack frame that the kernel's depth door already bounds, and the
+/// walk short-circuits on the first hit.
+fn level_var_scan(t: &Term, pred: &dyn Fn(&str) -> bool) -> bool {
+    match t {
+        Term::Sort(u) => universe_mentions(u, pred),
+        Term::Var(_) | Term::Global(_) | Term::Lit(_) | Term::Hole => false,
+        Term::Const { levels, .. } => levels.iter().any(|l| universe_mentions(l, pred)),
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => level_var_scan(param_type, pred) || level_var_scan(body_type, pred),
+        Term::Lambda {
+            param_type, body, ..
+        } => level_var_scan(param_type, pred) || level_var_scan(body, pred),
+        Term::App(f, a) => level_var_scan(f, pred) || level_var_scan(a, pred),
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            level_var_scan(discriminant, pred)
+                || level_var_scan(motive, pred)
+                || cases.iter().any(|c| level_var_scan(c, pred))
+        }
+        Term::Fix { body, .. } => level_var_scan(body, pred),
+        Term::MutualFix { defs, .. } => defs.iter().any(|(_, b)| level_var_scan(b, pred)),
+        Term::Let {
+            ty, value, body, ..
+        } => level_var_scan(ty, pred) || level_var_scan(value, pred) || level_var_scan(body, pred),
+        Term::Annotated { term, .. } => level_var_scan(term, pred),
+    }
+}
+
+/// Whether a level expression mentions a variable satisfying `pred` — allocation-free.
+pub fn universe_mentions(u: &Universe, pred: &dyn Fn(&str) -> bool) -> bool {
+    match u {
+        Universe::SProp | Universe::Prop | Universe::Type(_) => false,
+        Universe::Var(v) => pred(v),
+        Universe::Succ(l) => universe_mentions(l, pred),
+        Universe::Max(a, b) | Universe::IMax(a, b) => {
+            universe_mentions(a, pred) || universe_mentions(b, pred)
+        }
+    }
+}
+
+/// The level telescope of a declaration (rule 1 above). `declared` is `Some` only for an
+/// explicitly universe-polymorphic definition, which carries its own ordered parameter list;
+/// every other declaration auto-binds what its type mentions.
+pub fn level_telescope(declared: Option<&[String]>, ty: &Term) -> Vec<String> {
+    match declared {
+        Some(params) => params.to_vec(),
+        None => free_level_vars(ty),
+    }
+}
+
+/// Resolve a `Term::Const { name, levels }` against a declaration, producing the universe
+/// substitution to apply to its type AND its body (rules 1-3 above). This is the ONE place the
+/// decision is made; `instantiate_universes` applies the result.
+pub fn resolve_const_levels(
+    name: &str,
+    declared: Option<&[String]>,
+    ty: &Term,
+    levels: &[Universe],
+) -> Result<std::collections::HashMap<String, Universe>, ConstError> {
+    // Explicit telescopes already own their ordered names. Validate closure
+    // with the existing left-to-right short-circuiting scan; only a diagnostic
+    // allocates an offending name. Inferred telescopes are closed by construction.
+    let inferred;
+    let params = match declared {
+        Some(params) => {
+            let missing = std::cell::RefCell::new(None);
+            level_var_scan(ty, &|level| {
+                if params.iter().any(|param| param == level) {
+                    return false;
+                }
+                *missing.borrow_mut() = Some(level.to_owned());
+                true
+            });
+            if let Some(level) = missing.into_inner() {
+                return Err(ConstError::LevelNotClosed {
+                    name: name.to_owned(),
+                    level,
+                });
+            }
+            params
+        }
+        None => {
+            inferred = free_level_vars(ty);
+            &inferred
+        }
+    };
+    if params.len() != levels.len() {
+        return Err(ConstError::Arity {
+            name: name.to_string(),
+            expected: params.len(),
+            got: levels.len(),
+        });
+    }
+    if levels.iter().any(Universe::mentions_sprop) {
+        return Err(ConstError::SPropLevel {
+            name: name.to_string(),
+        });
+    }
+    Ok(params.iter().cloned().zip(levels.iter().cloned()).collect())
+}
+
+// =================================================================================================
+// Level metavariables — implicit instantiation at a bare reference
+// =================================================================================================
+//
+// A bare `Term::Global` naming a declaration with a level telescope carries NO levels, so the
+// levels have to be solved from the use site — which is what Lean's elaborator does and what a
+// Mathlib file relies on in almost every line. The representation reuses the elaborator's own
+// convention rather than adding a `Universe` variant: a level metavariable is a `Universe::Var`
+// whose name begins with `?`, a spelling no source-level universe parameter can have.
+//
+// That choice is load-bearing for SOUNDNESS, not only for compatibility: an UNSOLVED `?`-level
+// is an ordinary level variable to `level_leq`, where `Type 0 ⋠ ?u` because a variable ranges
+// over all of ℕ including `Prop`. So a metavariable that never gets solved makes the reference
+// FAIL rather than succeed — the conservative direction. Defaulting it to `Type 0` (the tempting
+// move) would do the opposite.
+
+/// The marker a level metavariable's name begins with — the elaborator's convention for a term
+/// metavariable, reused so the two never collide with a source-level universe parameter.
+pub const LEVEL_META_MARKER: char = '?';
+
+/// Whether a universe variable name denotes a metavariable awaiting a solution.
+pub fn is_level_meta(name: &str) -> bool {
+    name.starts_with(LEVEL_META_MARKER)
+}
+
+/// Fresh level metavariables for `params`, named after the declaration they came from.
+///
+/// The name is DERIVED (`?u@Box`) rather than drawn from a counter, so the kernel stays a pure
+/// function of its input: two runs, two threads and two orders of evaluation produce the same
+/// term and the same diagnostic. Two references to the SAME declaration therefore share a
+/// metavariable name — which is harmless, because each application rule solves its own
+/// substitution locally, and in the one case where two unsolved copies could meet in a single
+/// level expression the shared name forces them EQUAL, which can only refuse a term, never
+/// admit one.
+pub fn fresh_level_metas(
+    owner: &str,
+    params: &[String],
+) -> std::collections::HashMap<String, Universe> {
+    params
+        .iter()
+        .map(|p| {
+            (
+                p.clone(),
+                Universe::Var(format!("{LEVEL_META_MARKER}{p}@{owner}")),
+            )
+        })
+        .collect()
+}
+
+/// Solve level metavariables by matching an expected type (the PATTERN, which may contain
+/// metavariables) against an actual one, recording solutions in `subst`.
+///
+/// Only a BARE metavariable is solved, and only once: a first solution wins, and a compound
+/// level containing a metavariable (`max ?u v`) is left alone rather than inverted. This is a
+/// heuristic for CHOOSING an instantiation, never a substitute for checking it — the caller
+/// still checks the argument against the substituted domain, so an unhelpful choice makes the
+/// application fail rather than succeed.
+pub fn unify_levels(
+    pattern: &Term,
+    actual: &Term,
+    subst: &mut std::collections::HashMap<String, Universe>,
+) {
+    match (pattern.peel_annotations(), actual.peel_annotations()) {
+        (Term::Sort(p), Term::Sort(a)) => unify_level(p, a, subst),
+        (
+            Term::Pi {
+                param_type: p1,
+                body_type: b1,
+                ..
+            },
+            Term::Pi {
+                param_type: p2,
+                body_type: b2,
+                ..
+            },
+        ) => {
+            unify_levels(p1, p2, subst);
+            unify_levels(b1, b2, subst);
+        }
+        (
+            Term::Lambda {
+                param_type: p1,
+                body: b1,
+                ..
+            },
+            Term::Lambda {
+                param_type: p2,
+                body: b2,
+                ..
+            },
+        ) => {
+            unify_levels(p1, p2, subst);
+            unify_levels(b1, b2, subst);
+        }
+        (Term::App(f1, a1), Term::App(f2, a2)) => {
+            unify_levels(f1, f2, subst);
+            unify_levels(a1, a2, subst);
+        }
+        (
+            Term::Const {
+                name: n1,
+                levels: l1,
+            },
+            Term::Const {
+                name: n2,
+                levels: l2,
+            },
+        ) if n1 == n2 && l1.len() == l2.len() => {
+            for (p, a) in l1.iter().zip(l2.iter()) {
+                unify_level(p, a, subst);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The level half of [`unify_levels`]: solve a bare metavariable, else look inside a matching
+/// algebraic shape.
+fn unify_level(
+    pattern: &Universe,
+    actual: &Universe,
+    subst: &mut std::collections::HashMap<String, Universe>,
+) {
+    match pattern {
+        Universe::Var(v) if is_level_meta(v) => {
+            // An occurs check: solving `?u := succ ?u` would build a cyclic level.
+            let mut occurring = Vec::new();
+            level_vars_of_universe(actual, &mut occurring);
+            if occurring.iter().any(|x| x == v) {
+                return;
+            }
+            subst
+                .entry(v.clone())
+                .or_insert_with(|| actual.least_level());
+        }
+        // A concrete level is a successor too: `Type 0` is `succ Prop` and `Type n` is
+        // `succ (Type (n-1))`, so `Type u` meets `Type 1` at `u := Type 0` exactly as it meets
+        // `succ (Type 0)`.
+        Universe::Succ(p) => match actual {
+            Universe::Succ(a) => unify_level(p, a, subst),
+            Universe::Type(0) => unify_level(p, &Universe::Prop, subst),
+            Universe::Type(n) => unify_level(p, &Universe::Type(n - 1), subst),
+            _ => {}
+        },
+        Universe::Max(p1, p2) => {
+            if let Universe::Max(a1, a2) = actual {
+                unify_level(p1, a1, subst);
+                unify_level(p2, a2, subst);
+            }
+        }
+        Universe::IMax(p1, p2) => {
+            if let Universe::IMax(a1, a2) = actual {
+                unify_level(p1, a1, subst);
+                unify_level(p2, a2, subst);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/term/universe_algebra_tests.rs"]
+mod universe_algebra_tests;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/term/display_date_and_serde_tests.rs"]
+mod display_date_and_serde_tests;
+
+#[cfg(test)]
+thread_local! {static LEVEL_COLLECTION_CALLS: std::cell::Cell<usize> = const {std::cell::Cell::new(0)};}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/term/borrowed_telescope_controls.rs"]
+mod borrowed_telescope_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/term/universe_constructor_controls.rs"]
+mod universe_constructor_controls;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/term/level_order_controls.rs"]
+mod level_order_controls;

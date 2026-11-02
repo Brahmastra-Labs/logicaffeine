@@ -15,7 +15,11 @@ fn socrates_proof_trace_is_visible() {
     )
     .expect("the theorem should parse");
 
-    assert!(t.verified, "Socrates is mortal should be PROVED; err: {:?}", t.error);
+    assert!(
+        t.verified,
+        "Socrates is mortal should be PROVED; err: {:?}",
+        t.error
+    );
 
     // English-in → FOL-out is visible (the renderer lowercases predicate symbols).
     assert!(
@@ -23,13 +27,25 @@ fn socrates_proof_trace_is_visible() {
         "premises rendered as FOL; got: {:?}",
         t.premises
     );
-    assert!(t.goal.contains("mortal(Socrates)"), "goal rendered as FOL; got: {}", t.goal);
+    assert!(
+        t.goal.contains("mortal(Socrates)"),
+        "goal rendered as FOL; got: {}",
+        t.goal
+    );
 
     // The PROOF TRACE itself is visible and is a rendered derivation tree showing the
     // inference steps (modus ponens over a universally-instantiated premise).
-    let trace = t.trace.expect("a verified proof carries a derivation trace");
-    assert!(trace.contains("└─"), "trace is a rendered proof tree; got:\n{trace}");
-    assert!(trace.contains("ModusPonens"), "trace shows the inference rule; got:\n{trace}");
+    let trace = t
+        .trace
+        .expect("a verified proof carries a derivation trace");
+    assert!(
+        trace.contains("└─"),
+        "trace is a rendered proof tree; got:\n{trace}"
+    );
+    assert!(
+        trace.contains("ModusPonens"),
+        "trace shows the inference rule; got:\n{trace}"
+    );
     assert!(
         trace.contains("mortal(Socrates)"),
         "trace shows the proved conclusion; got:\n{trace}"
@@ -46,5 +62,8 @@ fn unprovable_theorem_reports_no_proof() {
          Proof: Auto.\n",
     )
     .expect("the theorem should parse");
-    assert!(!t.verified, "no premise makes men mortal, so it must not verify");
+    assert!(
+        !t.verified,
+        "no premise makes men mortal, so it must not verify"
+    );
 }

@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 
+use crate::analysis::{FieldType, LogosType, TypeDef, TypeRegistry};
 use crate::intern::{Interner, Symbol};
-use crate::analysis::{FieldType, LogosType};
 
 // ============================================================================
 // Core types
@@ -51,11 +51,22 @@ pub enum InferType {
     Moment,
     Time,
     Span,
+    /// A DOM element handle. Nominal: distinct from `Int` and from `Event`, even though
+    /// every tier represents it as an i64 handle at runtime.
+    Element,
+    /// A DOM event handle (the argument of an event handler). Nominal, like `Element`.
+    Event,
+    /// A view value (a template with its captured bindings). Nominal.
+    View,
     Seq(Box<InferType>),
     Map(Box<InferType>, Box<InferType>),
     Set(Box<InferType>),
     Option(Box<InferType>),
-    UserDefined(Symbol),
+    /// A user struct or enum, applied to its type arguments (`Box of Int` is `UserDefined(Box,
+    /// [Int])`; a type with no parameters has none). An EMPTY argument list also stands for a bare
+    /// reference to a generic type whose arguments were not written, and unifies with any
+    /// application of it.
+    UserDefined(Symbol, Vec<InferType>),
     // Inference-only types
     Var(TyVar),
     Function(Vec<InferType>, Box<InferType>),
@@ -65,14 +76,40 @@ pub enum InferType {
 /// A type error detected during unification or checking.
 #[derive(Debug, Clone)]
 pub enum TypeError {
-    Mismatch { expected: InferType, found: InferType },
-    InfiniteType { var: TyVar, ty: InferType },
-    ArityMismatch { expected: usize, found: usize },
-    FieldNotFound { type_name: Symbol, field_name: Symbol },
-    NotAFunction { found: InferType },
+    Mismatch {
+        expected: InferType,
+        found: InferType,
+    },
+    InfiniteType {
+        var: TyVar,
+        ty: InferType,
+    },
+    ArityMismatch {
+        expected: usize,
+        found: usize,
+    },
+    FieldNotFound {
+        type_name: Symbol,
+        field_name: Symbol,
+    },
+    NotAFunction {
+        found: InferType,
+    },
+    /// A call to a name that exists NOWHERE in the post-prelude program — not a
+    /// user function, not a builtin, not a bound variable, not a variant
+    /// constructor. Caught at check time by
+    /// [`crate::analysis::known_calls::check_unknown_calls`], with the same
+    /// message every runtime tier uses (`Unknown function: <name>`), or a
+    /// retired builtin's own refusal
+    /// ([`crate::semantics::builtins::retired_builtin`]).
+    UnknownFunction {
+        name: Symbol,
+    },
     /// Dimension-incoherent quantity arithmetic (`2 meters + 1 gram`) caught statically by the
     /// [`crate::analysis::dimension_check::DimensionChecker`]. Carries its own ready message.
-    DimensionMismatch { message: std::string::String },
+    DimensionMismatch {
+        message: std::string::String,
+    },
 }
 
 impl TypeError {
@@ -82,6 +119,7 @@ impl TypeError {
             TypeError::ArityMismatch { expected, .. } => format!("{} arguments", expected),
             TypeError::FieldNotFound { .. } => "a known field".to_string(),
             TypeError::NotAFunction { .. } => "a function".to_string(),
+            TypeError::UnknownFunction { .. } => "a defined function".to_string(),
             TypeError::InfiniteType { .. } => "a finite type".to_string(),
             TypeError::DimensionMismatch { .. } => "a matching dimension".to_string(),
         }
@@ -93,6 +131,7 @@ impl TypeError {
             TypeError::ArityMismatch { found, .. } => format!("{} arguments", found),
             TypeError::FieldNotFound { field_name, .. } => format!("{:?}", field_name),
             TypeError::NotAFunction { found } => found.to_logos_name(),
+            TypeError::UnknownFunction { name } => format!("{:?}", name),
             TypeError::InfiniteType { ty, .. } => ty.to_logos_name(),
             TypeError::DimensionMismatch { message } => message.clone(),
         }
@@ -108,27 +147,37 @@ impl TypeError {
         use crate::error::ParseErrorKind;
         match self {
             TypeError::Mismatch { expected, found } => ParseErrorKind::TypeMismatchDetailed {
-                expected: expected.to_logos_name(),
-                found: found.to_logos_name(),
+                expected: expected.describe(interner),
+                found: found.describe(interner),
                 context: String::new(),
             },
             TypeError::InfiniteType { var, ty } => ParseErrorKind::InfiniteType {
                 var_description: format!("type variable α{}", var.0),
-                type_description: ty.to_logos_name(),
+                type_description: ty.describe(interner),
             },
             TypeError::ArityMismatch { expected, found } => ParseErrorKind::ArityMismatch {
                 function: String::from("function"),
                 expected: *expected,
                 found: *found,
             },
-            TypeError::FieldNotFound { type_name, field_name } => ParseErrorKind::FieldNotFound {
+            TypeError::FieldNotFound {
+                type_name,
+                field_name,
+            } => ParseErrorKind::FieldNotFound {
                 type_name: interner.resolve(*type_name).to_string(),
                 field_name: interner.resolve(*field_name).to_string(),
                 available: vec![],
             },
             TypeError::NotAFunction { found } => ParseErrorKind::NotAFunction {
-                found_type: found.to_logos_name(),
+                found_type: found.describe(interner),
             },
+            TypeError::UnknownFunction { name } => {
+                let name = interner.resolve(*name);
+                ParseErrorKind::Custom(match crate::semantics::builtins::retired_builtin(name) {
+                    Some(refusal) => refusal.to_string(),
+                    None => format!("Unknown function: {}", name),
+                })
+            }
             TypeError::DimensionMismatch { message } => ParseErrorKind::Custom(message.clone()),
         }
     }
@@ -148,6 +197,29 @@ pub struct TypeScheme {
     pub vars: Vec<TyVar>,
     /// The body type, which may contain `InferType::Var(tv)` for each `tv` in `vars`.
     pub body: InferType,
+}
+
+/// Where the names in a written type are looked up while converting it: the program's registry
+/// (so a user struct or enum is a `UserDefined`, not `Unknown`) and the type parameters in scope,
+/// each standing for the type it is currently bound to.
+pub struct TypeScope<'s> {
+    pub interner: &'s Interner,
+    pub registry: Option<&'s TypeRegistry>,
+    pub params: &'s HashMap<Symbol, InferType>,
+    /// Each bare type name that IS a namespaced type (`Point` for `Geometry::Point`), so both
+    /// spellings read as one type (see `TypeRegistry::namespaced_twins`).
+    pub twins: Option<&'s HashMap<Symbol, Symbol>>,
+}
+
+impl TypeScope<'_> {
+    /// The one identity a user type named `name` has: its namespaced twin when the bare spelling
+    /// names one, else itself.
+    pub fn canonical(&self, name: Symbol) -> Symbol {
+        self.twins
+            .and_then(|t| t.get(&name))
+            .copied()
+            .unwrap_or(name)
+    }
 }
 
 /// Union-Find table implementing Robinson unification with occurs check.
@@ -189,13 +261,30 @@ impl UnificationTable {
     /// Each call site of a generic function gets independent fresh variables so that
     /// two calls to `identity(42)` and `identity(true)` do not interfere.
     pub fn instantiate(&mut self, scheme: &TypeScheme) -> InferType {
+        self.instantiate_with(scheme, &[]).0
+    }
+
+    /// [`Self::instantiate`], also carrying `also` through the same fresh variables — so a
+    /// function's declared type arguments come out as what THIS instantiation solves them to.
+    pub fn instantiate_with(
+        &mut self,
+        scheme: &TypeScheme,
+        also: &[InferType],
+    ) -> (InferType, Vec<InferType>) {
         if scheme.vars.is_empty() {
-            return scheme.body.clone();
+            return (scheme.body.clone(), also.to_vec());
         }
-        let subst: HashMap<TyVar, TyVar> = scheme.vars.iter()
+        let subst: HashMap<TyVar, TyVar> = scheme
+            .vars
+            .iter()
             .map(|&old_tv| (old_tv, self.fresh_var()))
             .collect();
-        self.substitute_vars(&scheme.body, &subst)
+        let body = self.substitute_vars(&scheme.body, &subst);
+        let also = also
+            .iter()
+            .map(|t| self.substitute_vars(t, &subst))
+            .collect();
+        (body, also)
     }
 
     /// Substitute type variables according to `subst`, walking the type recursively.
@@ -220,9 +309,20 @@ impl UnificationTable {
                 Box::new(self.substitute_vars(v, subst)),
             ),
             InferType::Set(inner) => InferType::Set(Box::new(self.substitute_vars(inner, subst))),
-            InferType::Option(inner) => InferType::Option(Box::new(self.substitute_vars(inner, subst))),
+            InferType::Option(inner) => {
+                InferType::Option(Box::new(self.substitute_vars(inner, subst)))
+            }
+            InferType::UserDefined(sym, args) => InferType::UserDefined(
+                *sym,
+                args.iter()
+                    .map(|a| self.substitute_vars(a, subst))
+                    .collect(),
+            ),
             InferType::Function(params, ret) => InferType::Function(
-                params.iter().map(|p| self.substitute_vars(p, subst)).collect(),
+                params
+                    .iter()
+                    .map(|p| self.substitute_vars(p, subst))
+                    .collect(),
                 Box::new(self.substitute_vars(ret, subst)),
             ),
             other => other.clone(),
@@ -269,6 +369,9 @@ impl UnificationTable {
             }
             InferType::Set(inner) => InferType::Set(Box::new(self.resolve(inner))),
             InferType::Option(inner) => InferType::Option(Box::new(self.resolve(inner))),
+            InferType::UserDefined(sym, args) => {
+                InferType::UserDefined(*sym, args.iter().map(|a| self.resolve(a)).collect())
+            }
             InferType::Function(params, ret) => {
                 let params = params.iter().map(|p| self.resolve(p)).collect();
                 InferType::Function(params, Box::new(self.resolve(ret)))
@@ -291,11 +394,12 @@ impl UnificationTable {
                 }
             }
             InferType::Seq(inner) => InferType::Seq(Box::new(self.zonk(inner))),
-            InferType::Map(k, v) => {
-                InferType::Map(Box::new(self.zonk(k)), Box::new(self.zonk(v)))
-            }
+            InferType::Map(k, v) => InferType::Map(Box::new(self.zonk(k)), Box::new(self.zonk(v))),
             InferType::Set(inner) => InferType::Set(Box::new(self.zonk(inner))),
             InferType::Option(inner) => InferType::Option(Box::new(self.zonk(inner))),
+            InferType::UserDefined(sym, args) => {
+                InferType::UserDefined(*sym, args.iter().map(|a| self.zonk(a)).collect())
+            }
             InferType::Function(params, ret) => {
                 let params = params.iter().map(|p| self.zonk(p)).collect();
                 InferType::Function(params, Box::new(self.zonk(ret)))
@@ -310,18 +414,26 @@ impl UnificationTable {
         infer_to_logos(&zonked)
     }
 
-    /// Unify two types, binding type variables as needed.
+    /// Unify what was written (`found`) with what its position promises (`expected`) — a
+    /// return type, a parameter, a field, an annotation, an element type — binding type
+    /// variables as needed. The order only names the sides of a mismatch, and every caller
+    /// passes the value's type first.
     ///
     /// Returns `Ok(())` if unification succeeds (bindings may be updated).
     /// Returns `Err(TypeError)` on a genuine type contradiction.
-    pub fn unify(&mut self, a: &InferType, b: &InferType) -> Result<(), TypeError> {
-        let a = self.walk(a);
-        let b = self.walk(b);
-        self.unify_walked(&a, &b)
+    pub fn unify(&mut self, found: &InferType, expected: &InferType) -> Result<(), TypeError> {
+        let found = self.walk(found);
+        let expected = self.walk(expected);
+        self.unify_walked(&found, &expected)
     }
 
     fn unify_walked(&mut self, a: &InferType, b: &InferType) -> Result<(), TypeError> {
         match (a, b) {
+            // Unknown unifies with anything (propagated uncertainty) — and binds nothing: a
+            // variable joined with `Unknown` has learned nothing, and stays open for the
+            // constraints that do know its type.
+            (InferType::Unknown, _) | (_, InferType::Unknown) => Ok(()),
+
             // Same variable: trivially unified
             (InferType::Var(va), InferType::Var(vb)) if va == vb => Ok(()),
 
@@ -341,9 +453,6 @@ impl UnificationTable {
                 Ok(())
             }
 
-            // Unknown unifies with anything (propagated uncertainty)
-            (InferType::Unknown, _) | (_, InferType::Unknown) => Ok(()),
-
             // Ground type equality
             (InferType::Int, InferType::Int) => Ok(()),
             (InferType::Float, InferType::Float) => Ok(()),
@@ -358,6 +467,11 @@ impl UnificationTable {
             (InferType::Moment, InferType::Moment) => Ok(()),
             (InferType::Time, InferType::Time) => Ok(()),
             (InferType::Span, InferType::Span) => Ok(()),
+            // The DOM handle types are nominal: each unifies only with itself — never with
+            // `Int` (the runtime representation is not the type) and never with each other.
+            (InferType::Element, InferType::Element) => Ok(()),
+            (InferType::Event, InferType::Event) => Ok(()),
+            (InferType::View, InferType::View) => Ok(()),
 
             // Nat embeds into Int for numeric contexts
             (InferType::Nat, InferType::Int) | (InferType::Int, InferType::Nat) => Ok(()),
@@ -372,8 +486,24 @@ impl UnificationTable {
             (InferType::Rational, InferType::Int | InferType::Nat)
             | (InferType::Int | InferType::Nat, InferType::Rational) => Ok(()),
 
-            // User-defined types unify if same name
-            (InferType::UserDefined(a), InferType::UserDefined(b)) if a == b => Ok(()),
+            // User-defined types unify when they name the same type and their arguments unify. A
+            // bare reference (no arguments) unifies with every application of its type.
+            (InferType::UserDefined(a, a_args), InferType::UserDefined(b, b_args)) if a == b => {
+                if a_args.is_empty() || b_args.is_empty() {
+                    return Ok(());
+                }
+                if a_args.len() != b_args.len() {
+                    return Err(TypeError::ArityMismatch {
+                        expected: a_args.len(),
+                        found: b_args.len(),
+                    });
+                }
+                let (a_args, b_args) = (a_args.clone(), b_args.clone());
+                for (x, y) in a_args.iter().zip(b_args.iter()) {
+                    self.unify(x, y)?;
+                }
+                Ok(())
+            }
 
             // Structural recursion
             (InferType::Seq(a_inner), InferType::Seq(b_inner)) => {
@@ -416,10 +546,10 @@ impl UnificationTable {
                 self.unify(&a_ret, &b_ret)
             }
 
-            // Type mismatch
+            // Type mismatch: `a` is the value's type, `b` its position's (see `unify`).
             (a, b) => Err(TypeError::Mismatch {
-                expected: a.clone(),
-                found: b.clone(),
+                expected: b.clone(),
+                found: a.clone(),
             }),
         }
     }
@@ -434,7 +564,10 @@ impl UnificationTable {
                 match &resolved {
                     InferType::Var(rtv) => {
                         if *rtv == tv {
-                            Err(TypeError::InfiniteType { var: tv, ty: ty.clone() })
+                            Err(TypeError::InfiniteType {
+                                var: tv,
+                                ty: ty.clone(),
+                            })
                         } else {
                             Ok(())
                         }
@@ -448,6 +581,12 @@ impl UnificationTable {
             InferType::Map(k, v) => {
                 self.occurs_check(tv, k)?;
                 self.occurs_check(tv, v)
+            }
+            InferType::UserDefined(_, args) => {
+                for a in args {
+                    self.occurs_check(tv, a)?;
+                }
+                Ok(())
             }
             InferType::Function(params, ret) => {
                 for p in params {
@@ -485,71 +624,126 @@ impl InferType {
         interner: &Interner,
         type_params: &HashMap<Symbol, TyVar>,
     ) -> InferType {
+        let params = type_params
+            .iter()
+            .map(|(s, tv)| (*s, InferType::Var(*tv)))
+            .collect();
+        Self::from_type_expr_in(
+            ty,
+            &TypeScope {
+                interner,
+                registry: None,
+                params: &params,
+                twins: None,
+            },
+        )
+    }
+
+    /// Convert a `TypeExpr` to `InferType` inside `scope`: a type parameter becomes the type it
+    /// stands for, and a user struct or enum becomes `UserDefined` applied to its arguments.
+    pub fn from_type_expr_in(ty: &crate::ast::stmt::TypeExpr, scope: &TypeScope) -> InferType {
         use crate::ast::stmt::TypeExpr;
         match ty {
             // A `mutable` parameter unifies as its underlying type.
-            TypeExpr::Mutable { inner } => {
-                Self::from_type_expr_with_params(inner, interner, type_params)
-            }
+            TypeExpr::Mutable { inner } => Self::from_type_expr_in(inner, scope),
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-                // Check if this name is a generic type parameter
-                if let Some(&tv) = type_params.get(sym) {
-                    return InferType::Var(tv);
-                }
-                Self::from_type_name(interner.resolve(*sym))
+                Self::from_applied_name(*sym, None, scope)
             }
             TypeExpr::Generic { base, params } => {
-                let base_name = interner.resolve(*base);
-                match base_name {
-                    "Seq" | "List" | "Vec" => {
-                        let elem = params
-                            .first()
-                            .map(|p| InferType::from_type_expr_with_params(p, interner, type_params))
-                            .unwrap_or(InferType::Unit);
-                        InferType::Seq(Box::new(elem))
-                    }
-                    "Map" | "HashMap" => {
-                        let key = params
-                            .first()
-                            .map(|p| InferType::from_type_expr_with_params(p, interner, type_params))
-                            .unwrap_or(InferType::String);
-                        let val = params
-                            .get(1)
-                            .map(|p| InferType::from_type_expr_with_params(p, interner, type_params))
-                            .unwrap_or(InferType::String);
-                        InferType::Map(Box::new(key), Box::new(val))
-                    }
-                    "Set" | "HashSet" => {
-                        let elem = params
-                            .first()
-                            .map(|p| InferType::from_type_expr_with_params(p, interner, type_params))
-                            .unwrap_or(InferType::Unit);
-                        InferType::Set(Box::new(elem))
-                    }
-                    "Option" | "Maybe" => {
-                        let inner = params
-                            .first()
-                            .map(|p| InferType::from_type_expr_with_params(p, interner, type_params))
-                            .unwrap_or(InferType::Unit);
-                        InferType::Option(Box::new(inner))
-                    }
-                    _ => InferType::Unknown,
-                }
+                let args = params
+                    .iter()
+                    .map(|p| Self::from_type_expr_in(p, scope))
+                    .collect();
+                Self::from_applied_name(*base, Some(args), scope)
             }
-            TypeExpr::Refinement { base, .. } => {
-                InferType::from_type_expr_with_params(base, interner, type_params)
-            }
-            TypeExpr::Persistent { inner } => {
-                InferType::from_type_expr_with_params(inner, interner, type_params)
-            }
+            // A tuple/record type — inference treats it structurally-opaquely (like `Pair`/`Triple`, which
+            // fall to `Unknown` above). The VM boundary + codegen carry the real per-position types.
+            TypeExpr::Tuple(_) => InferType::Unknown,
+            TypeExpr::Record { .. } => InferType::Unknown,
+            TypeExpr::Refinement { base, .. } => Self::from_type_expr_in(base, scope),
+            TypeExpr::Persistent { inner } => Self::from_type_expr_in(inner, scope),
             TypeExpr::Function { inputs, output } => {
                 let param_types: Vec<InferType> = inputs
                     .iter()
-                    .map(|p| InferType::from_type_expr_with_params(p, interner, type_params))
+                    .map(|p| Self::from_type_expr_in(p, scope))
                     .collect();
-                let ret_type = InferType::from_type_expr_with_params(output, interner, type_params);
+                let ret_type = Self::from_type_expr_in(output, scope);
                 InferType::Function(param_types, Box::new(ret_type))
             }
+        }
+    }
+
+    /// The type a written name denotes, bare (`applied` is `None`) or applied to type arguments:
+    /// a type parameter in scope, a built-in collection or `Option`, a primitive, or a registered
+    /// user struct/enum (through any alias). `Option` is always the built-in, whatever the prelude
+    /// declares; a user's own `Maybe` is theirs, and only an undeclared `Maybe` is `Option`. A
+    /// bare collection name names no element type (`Unknown`); an applied one missing an argument
+    /// keeps its historical default.
+    fn from_applied_name(
+        base: Symbol,
+        applied: Option<Vec<InferType>>,
+        scope: &TypeScope,
+    ) -> InferType {
+        if applied.as_ref().map_or(true, |args| args.is_empty()) {
+            if let Some(param) = scope.params.get(&base) {
+                return param.clone();
+            }
+        }
+        let name = scope.interner.resolve(base);
+        let user = scope.registry.and_then(|r| r.get(base));
+        let declared_by_user = matches!(user, Some(TypeDef::Struct { .. } | TypeDef::Enum { .. }));
+        let is_option = name == "Option" || (name == "Maybe" && !declared_by_user);
+        let Some(args) = applied else {
+            if is_option {
+                return InferType::Option(Box::new(InferType::Unknown));
+            }
+            let primitive = Self::from_type_name(name);
+            if primitive != InferType::Unknown {
+                return primitive;
+            }
+            return match user {
+                Some(TypeDef::Struct { .. } | TypeDef::Enum { .. }) => {
+                    InferType::UserDefined(scope.canonical(base), Vec::new())
+                }
+                Some(TypeDef::Alias { target }) if *target != base => {
+                    Self::from_applied_name(*target, None, scope)
+                }
+                _ => InferType::Unknown,
+            };
+        };
+        let mut args = args.into_iter();
+        if is_option {
+            return InferType::Option(Box::new(args.next().unwrap_or(InferType::Unit)));
+        }
+        match name {
+            "Seq" | "List" | "Vec" => {
+                return InferType::Seq(Box::new(args.next().unwrap_or(InferType::Unit)))
+            }
+            "Set" | "HashSet" => {
+                return InferType::Set(Box::new(args.next().unwrap_or(InferType::Unit)))
+            }
+            "Map" | "HashMap" => {
+                let k = args.next().unwrap_or(InferType::String);
+                let v = args.next().unwrap_or(InferType::String);
+                return InferType::Map(Box::new(k), Box::new(v));
+            }
+            _ => {}
+        }
+        let args: Vec<InferType> = args.collect();
+        if args.is_empty() {
+            let primitive = Self::from_type_name(name);
+            if primitive != InferType::Unknown {
+                return primitive;
+            }
+        }
+        match user {
+            Some(TypeDef::Struct { .. } | TypeDef::Enum { .. }) => {
+                InferType::UserDefined(scope.canonical(base), args)
+            }
+            Some(TypeDef::Alias { target }) if *target != base => {
+                Self::from_applied_name(*target, Some(args), scope)
+            }
+            _ => InferType::Unknown,
         }
     }
 
@@ -562,55 +756,51 @@ impl InferType {
         interner: &Interner,
         type_params: &HashMap<Symbol, TyVar>,
     ) -> InferType {
+        let params = type_params
+            .iter()
+            .map(|(s, tv)| (*s, InferType::Var(*tv)))
+            .collect();
+        Self::from_field_type_in(
+            ty,
+            &TypeScope {
+                interner,
+                registry: None,
+                params: &params,
+                twins: None,
+            },
+        )
+    }
+
+    /// Convert a registry `FieldType` to `InferType` inside `scope` — how a generic record's field
+    /// is read at one application of the record (`value: T` of a `Box of Int` is `Int`).
+    pub fn from_field_type_in(ty: &FieldType, scope: &TypeScope) -> InferType {
         match ty {
-            FieldType::Primitive(sym) => InferType::from_type_name(interner.resolve(*sym)),
+            FieldType::Primitive(sym) => InferType::from_type_name(scope.interner.resolve(*sym)),
             FieldType::Named(sym) => {
-                let name = interner.resolve(*sym);
-                let primitive = InferType::from_type_name(name);
-                if primitive == InferType::Unknown {
-                    InferType::UserDefined(*sym)
-                } else {
-                    primitive
+                if let Some(param) = scope.params.get(sym) {
+                    return param.clone();
+                }
+                // A field of one of the exact extension's types is typed as a binding declared one is.
+                if crate::analysis::tower::TOWER_TYPES.contains(&scope.interner.resolve(*sym)) {
+                    return InferType::Unknown;
+                }
+                match Self::from_applied_name(*sym, None, scope) {
+                    InferType::Unknown => InferType::UserDefined(scope.canonical(*sym), Vec::new()),
+                    known => known,
                 }
             }
             FieldType::Generic { base, params } => {
-                let base_name = interner.resolve(*base);
-                let converted: Vec<InferType> = params
+                let args = params
                     .iter()
-                    .map(|p| InferType::from_field_type(p, interner, type_params))
+                    .map(|p| Self::from_field_type_in(p, scope))
                     .collect();
-                match base_name {
-                    "Seq" | "List" | "Vec" => {
-                        InferType::Seq(Box::new(
-                            converted.into_iter().next().unwrap_or(InferType::Unit),
-                        ))
-                    }
-                    "Map" | "HashMap" => {
-                        let mut it = converted.into_iter();
-                        let k = it.next().unwrap_or(InferType::String);
-                        let v = it.next().unwrap_or(InferType::String);
-                        InferType::Map(Box::new(k), Box::new(v))
-                    }
-                    "Set" | "HashSet" => {
-                        InferType::Set(Box::new(
-                            converted.into_iter().next().unwrap_or(InferType::Unit),
-                        ))
-                    }
-                    "Option" | "Maybe" => {
-                        InferType::Option(Box::new(
-                            converted.into_iter().next().unwrap_or(InferType::Unit),
-                        ))
-                    }
-                    _ => InferType::Unknown,
-                }
+                Self::from_applied_name(*base, Some(args), scope)
             }
             FieldType::TypeParam(sym) => {
-                if let Some(tv) = type_params.get(sym) {
-                    InferType::Var(*tv)
-                } else {
-                    InferType::Unknown
-                }
+                scope.params.get(sym).cloned().unwrap_or(InferType::Unknown)
             }
+            // A tuple is structurally opaque to inference, exactly as a written `(A, B)` is.
+            FieldType::Tuple(_) | FieldType::Record(_) => InferType::Unknown,
         }
     }
 
@@ -649,12 +839,51 @@ impl InferType {
             "Moment" => InferType::Moment,
             "Time" => InferType::Time,
             "Span" => InferType::Span,
+            "Element" => InferType::Element,
+            "Event" => InferType::Event,
+            "View" => InferType::View,
             _ => InferType::Unknown,
         }
     }
 
-    /// Human-readable type name in Logos terms, for error messages.
+    /// Human-readable type name in Logos terms, for error messages: a user type by its own name
+    /// and arguments (`Outcome`, `Box of Int`).
+    pub fn describe(&self, interner: &crate::intern::Interner) -> std::string::String {
+        self.render(Some(interner))
+    }
+
+    /// [`describe`](Self::describe) where no interner is at hand: a user type reads as "a
+    /// user-defined type".
     pub fn to_logos_name(&self) -> std::string::String {
+        self.render(None)
+    }
+
+    /// The name a program writes for this type when it is one of the language's own scalars
+    /// (`Int`, `Real`, `Text`, …); `None` for a collection, a user type, a function or a variable.
+    pub fn primitive_name(&self) -> Option<&'static str> {
+        Some(match self {
+            InferType::Int => "Int",
+            InferType::Float => "Real",
+            InferType::Bool => "Bool",
+            InferType::Char => "Char",
+            InferType::Byte => "Byte",
+            InferType::String => "Text",
+            InferType::Unit => "Unit",
+            InferType::Nat => "Nat",
+            InferType::Rational => "Rational",
+            InferType::Duration => "Duration",
+            InferType::Date => "Date",
+            InferType::Moment => "Moment",
+            InferType::Time => "Time",
+            InferType::Span => "Span",
+            InferType::Element => "Element",
+            InferType::Event => "Event",
+            InferType::View => "View",
+            _ => return None,
+        })
+    }
+
+    fn render(&self, interner: Option<&crate::intern::Interner>) -> std::string::String {
         match self {
             InferType::Int => "Int".into(),
             InferType::Float => "Real".into(),
@@ -670,21 +899,32 @@ impl InferType {
             InferType::Moment => "Moment".into(),
             InferType::Time => "Time".into(),
             InferType::Span => "Span".into(),
-            InferType::Seq(inner) => format!("Seq of {}", inner.to_logos_name()),
+            InferType::Element => "Element".into(),
+            InferType::Event => "Event".into(),
+            InferType::View => "View".into(),
+            InferType::Seq(inner) => format!("Seq of {}", inner.render(interner)),
             InferType::Map(k, v) => {
-                format!("Map of {} and {}", k.to_logos_name(), v.to_logos_name())
+                format!("Map of {} and {}", k.render(interner), v.render(interner))
             }
-            InferType::Set(inner) => format!("Set of {}", inner.to_logos_name()),
-            InferType::Option(inner) => format!("Option of {}", inner.to_logos_name()),
-            InferType::UserDefined(_) => "a user-defined type".into(),
+            InferType::Set(inner) => format!("Set of {}", inner.render(interner)),
+            InferType::Option(inner) => format!("Option of {}", inner.render(interner)),
+            InferType::UserDefined(name, args) => match interner {
+                Some(interner) if args.is_empty() => interner.resolve(*name).to_string(),
+                Some(interner) => {
+                    let args: Vec<std::string::String> =
+                        args.iter().map(|a| a.render(Some(interner))).collect();
+                    format!("{} of {}", interner.resolve(*name), args.join(" and "))
+                }
+                None => "a user-defined type".into(),
+            },
             InferType::Var(_) => "an unknown type".into(),
             InferType::Function(params, ret) => {
                 let params_str = params
                     .iter()
-                    .map(|p| p.to_logos_name())
+                    .map(|p| p.render(interner))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("fn({}) -> {}", params_str, ret.to_logos_name())
+                format!("fn({}) -> {}", params_str, ret.render(interner))
             }
             InferType::Unknown => "unknown".into(),
         }
@@ -711,6 +951,9 @@ impl InferType {
             InferType::Moment => LogosType::Moment,
             InferType::Time => LogosType::Time,
             InferType::Span => LogosType::Span,
+            InferType::Element => LogosType::Element,
+            InferType::Event => LogosType::Event,
+            InferType::View => LogosType::View,
             InferType::Seq(inner) => LogosType::Seq(Box::new(inner.to_logos_type_ground())),
             InferType::Map(k, v) => LogosType::Map(
                 Box::new(k.to_logos_type_ground()),
@@ -718,7 +961,7 @@ impl InferType {
             ),
             InferType::Set(inner) => LogosType::Set(Box::new(inner.to_logos_type_ground())),
             InferType::Option(inner) => LogosType::Option(Box::new(inner.to_logos_type_ground())),
-            InferType::UserDefined(sym) => LogosType::UserDefined(*sym),
+            InferType::UserDefined(sym, _) => LogosType::UserDefined(*sym),
             InferType::Function(params, ret) => LogosType::Function(
                 params.iter().map(|p| p.to_logos_type_ground()).collect(),
                 Box::new(ret.to_logos_type_ground()),
@@ -745,7 +988,9 @@ pub fn unify_numeric(a: &InferType, b: &InferType) -> Result<InferType, TypeErro
         (InferType::Nat, InferType::Int) | (InferType::Int, InferType::Nat) => Ok(InferType::Int),
         (InferType::Nat, InferType::Nat) => Ok(InferType::Nat),
         (InferType::Byte, InferType::Byte) => Ok(InferType::Byte),
-        (InferType::Byte, InferType::Int) | (InferType::Int, InferType::Byte) => Ok(InferType::Byte),
+        (InferType::Byte, InferType::Int) | (InferType::Int, InferType::Byte) => {
+            Ok(InferType::Byte)
+        }
         _ => Err(TypeError::Mismatch {
             expected: InferType::Int,
             found: a.clone(),
@@ -770,13 +1015,16 @@ pub fn infer_to_logos(ty: &InferType) -> LogosType {
         InferType::Moment => LogosType::Moment,
         InferType::Time => LogosType::Time,
         InferType::Span => LogosType::Span,
+        InferType::Element => LogosType::Element,
+        InferType::Event => LogosType::Event,
+        InferType::View => LogosType::View,
         InferType::Seq(inner) => LogosType::Seq(Box::new(infer_to_logos(inner))),
         InferType::Map(k, v) => {
             LogosType::Map(Box::new(infer_to_logos(k)), Box::new(infer_to_logos(v)))
         }
         InferType::Set(inner) => LogosType::Set(Box::new(infer_to_logos(inner))),
         InferType::Option(inner) => LogosType::Option(Box::new(infer_to_logos(inner))),
-        InferType::UserDefined(sym) => LogosType::UserDefined(*sym),
+        InferType::UserDefined(sym, _) => LogosType::UserDefined(*sym),
         InferType::Function(params, ret) => LogosType::Function(
             params.iter().map(infer_to_logos).collect(),
             Box::new(infer_to_logos(ret)),
@@ -790,586 +1038,5 @@ pub fn infer_to_logos(ty: &InferType) -> LogosType {
 // ============================================================================
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::analysis::{FieldDef, TypeDef};
-
-    // =========================================================================
-    // UnificationTable::fresh / find
-    // =========================================================================
-
-    #[test]
-    fn fresh_produces_distinct_vars() {
-        let mut table = UnificationTable::new();
-        let a = table.fresh();
-        let b = table.fresh();
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn unbound_var_finds_itself() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            assert_eq!(table.find(tv), InferType::Var(tv));
-        } else {
-            panic!("expected Var");
-        }
-    }
-
-    // =========================================================================
-    // Unify ground types
-    // =========================================================================
-
-    #[test]
-    fn unify_identical_ground_types() {
-        let mut table = UnificationTable::new();
-        assert!(table.unify(&InferType::Int, &InferType::Int).is_ok());
-        assert!(table.unify(&InferType::Float, &InferType::Float).is_ok());
-        assert!(table.unify(&InferType::Bool, &InferType::Bool).is_ok());
-        assert!(table.unify(&InferType::String, &InferType::String).is_ok());
-        assert!(table.unify(&InferType::Unit, &InferType::Unit).is_ok());
-    }
-
-    #[test]
-    fn unify_different_ground_types_fails() {
-        let mut table = UnificationTable::new();
-        let result = table.unify(&InferType::Int, &InferType::String);
-        assert!(result.is_err());
-        assert!(matches!(result, Err(TypeError::Mismatch { .. })));
-    }
-
-    #[test]
-    fn unify_int_float_fails() {
-        let mut table = UnificationTable::new();
-        let result = table.unify(&InferType::Int, &InferType::Float);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn unify_nat_int_succeeds() {
-        let mut table = UnificationTable::new();
-        assert!(table.unify(&InferType::Nat, &InferType::Int).is_ok());
-        assert!(table.unify(&InferType::Int, &InferType::Nat).is_ok());
-    }
-
-    #[test]
-    fn unify_unknown_with_any_succeeds() {
-        let mut table = UnificationTable::new();
-        assert!(table.unify(&InferType::Unknown, &InferType::Int).is_ok());
-        assert!(table.unify(&InferType::String, &InferType::Unknown).is_ok());
-        assert!(table.unify(&InferType::Unknown, &InferType::Unknown).is_ok());
-    }
-
-    // =========================================================================
-    // Unify variables with ground types
-    // =========================================================================
-
-    #[test]
-    fn var_unifies_with_int() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Var(tv), &InferType::Int).unwrap();
-            assert_eq!(table.find(tv), InferType::Int);
-        }
-    }
-
-    #[test]
-    fn int_unifies_with_var() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Int, &InferType::Var(tv)).unwrap();
-            assert_eq!(table.find(tv), InferType::Int);
-        }
-    }
-
-    #[test]
-    fn two_vars_unify_chain() {
-        let mut table = UnificationTable::new();
-        let va = table.fresh();
-        let vb = table.fresh();
-        let tva = if let InferType::Var(tv) = va { tv } else { panic!() };
-        let tvb = if let InferType::Var(tv) = vb { tv } else { panic!() };
-        table.unify(&InferType::Var(tva), &InferType::Var(tvb)).unwrap();
-        // Bind tvb to Int, then zonk(tva) should follow chain to Int
-        table.unify(&InferType::Var(tvb), &InferType::Int).unwrap();
-        let zonked = table.zonk(&InferType::Var(tva));
-        assert_eq!(zonked, InferType::Int);
-    }
-
-    #[test]
-    fn var_conflicting_types_fails() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Var(tv), &InferType::Int).unwrap();
-            let result = table.unify(&InferType::Var(tv), &InferType::String);
-            // After binding tv → Int, unifying Int with String fails
-            assert!(result.is_err());
-        }
-    }
-
-    // =========================================================================
-    // Occurs check
-    // =========================================================================
-
-    #[test]
-    fn occurs_check_detects_infinite_type() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            let circular = InferType::Seq(Box::new(InferType::Var(tv)));
-            let result = table.unify(&InferType::Var(tv), &circular);
-            assert!(result.is_err());
-            assert!(matches!(result, Err(TypeError::InfiniteType { .. })));
-        }
-    }
-
-    // =========================================================================
-    // Zonk
-    // =========================================================================
-
-    #[test]
-    fn zonk_resolves_bound_var() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Var(tv), &InferType::Bool).unwrap();
-            let zonked = table.zonk(&InferType::Var(tv));
-            assert_eq!(zonked, InferType::Bool);
-        }
-    }
-
-    #[test]
-    fn zonk_unbound_var_becomes_unknown() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            let zonked = table.zonk(&InferType::Var(tv));
-            assert_eq!(zonked, InferType::Unknown);
-        }
-    }
-
-    #[test]
-    fn zonk_nested_resolves_inner_var() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Var(tv), &InferType::Int).unwrap();
-            let ty = InferType::Seq(Box::new(InferType::Var(tv)));
-            let zonked = table.zonk(&ty);
-            assert_eq!(zonked, InferType::Seq(Box::new(InferType::Int)));
-        }
-    }
-
-    #[test]
-    fn zonk_chain_of_vars() {
-        let mut table = UnificationTable::new();
-        let tva = if let InferType::Var(tv) = table.fresh() { tv } else { panic!() };
-        let tvb = if let InferType::Var(tv) = table.fresh() { tv } else { panic!() };
-        let tvc = if let InferType::Var(tv) = table.fresh() { tv } else { panic!() };
-        // Chain: tva → tvb → tvc → Float
-        table.unify(&InferType::Var(tva), &InferType::Var(tvb)).unwrap();
-        table.unify(&InferType::Var(tvb), &InferType::Var(tvc)).unwrap();
-        table.unify(&InferType::Var(tvc), &InferType::Float).unwrap();
-        assert_eq!(table.zonk(&InferType::Var(tva)), InferType::Float);
-    }
-
-    // =========================================================================
-    // Nested generic unification
-    // =========================================================================
-
-    #[test]
-    fn unify_seq_of_same_type() {
-        let mut table = UnificationTable::new();
-        let a = InferType::Seq(Box::new(InferType::Int));
-        let b = InferType::Seq(Box::new(InferType::Int));
-        assert!(table.unify(&a, &b).is_ok());
-    }
-
-    #[test]
-    fn unify_seq_of_different_types_fails() {
-        let mut table = UnificationTable::new();
-        let a = InferType::Seq(Box::new(InferType::Int));
-        let b = InferType::Seq(Box::new(InferType::String));
-        assert!(table.unify(&a, &b).is_err());
-    }
-
-    #[test]
-    fn unify_seq_with_var_element() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            let a = InferType::Seq(Box::new(InferType::Var(tv)));
-            let b = InferType::Seq(Box::new(InferType::Float));
-            table.unify(&a, &b).unwrap();
-            assert_eq!(table.find(tv), InferType::Float);
-        }
-    }
-
-    #[test]
-    fn unify_map_types() {
-        let mut table = UnificationTable::new();
-        let a = InferType::Map(Box::new(InferType::String), Box::new(InferType::Int));
-        let b = InferType::Map(Box::new(InferType::String), Box::new(InferType::Int));
-        assert!(table.unify(&a, &b).is_ok());
-    }
-
-    #[test]
-    fn unify_function_types_same_arity() {
-        let mut table = UnificationTable::new();
-        let a = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        let b = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        assert!(table.unify(&a, &b).is_ok());
-    }
-
-    #[test]
-    fn unify_function_arity_mismatch_fails() {
-        let mut table = UnificationTable::new();
-        let a = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        let b = InferType::Function(
-            vec![InferType::Int, InferType::Int],
-            Box::new(InferType::Bool),
-        );
-        let result = table.unify(&a, &b);
-        assert!(matches!(result, Err(TypeError::ArityMismatch { expected: 1, found: 2 })));
-    }
-
-    // =========================================================================
-    // InferType → LogosType conversion (to_logos_type)
-    // =========================================================================
-
-    #[test]
-    fn to_logos_type_ground_primitives() {
-        let table = UnificationTable::new();
-        assert_eq!(table.to_logos_type(&InferType::Int), LogosType::Int);
-        assert_eq!(table.to_logos_type(&InferType::Float), LogosType::Float);
-        assert_eq!(table.to_logos_type(&InferType::Bool), LogosType::Bool);
-        assert_eq!(table.to_logos_type(&InferType::String), LogosType::String);
-        assert_eq!(table.to_logos_type(&InferType::Unit), LogosType::Unit);
-        assert_eq!(table.to_logos_type(&InferType::Nat), LogosType::Nat);
-    }
-
-    #[test]
-    fn to_logos_type_unbound_var_becomes_unknown() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        assert_eq!(table.to_logos_type(&v), LogosType::Unknown);
-    }
-
-    #[test]
-    fn to_logos_type_bound_var_resolves() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Var(tv), &InferType::Int).unwrap();
-            assert_eq!(table.to_logos_type(&InferType::Var(tv)), LogosType::Int);
-        }
-    }
-
-    #[test]
-    fn to_logos_type_seq_resolves_inner() {
-        let mut table = UnificationTable::new();
-        let v = table.fresh();
-        if let InferType::Var(tv) = v {
-            table.unify(&InferType::Var(tv), &InferType::String).unwrap();
-            let ty = InferType::Seq(Box::new(InferType::Var(tv)));
-            assert_eq!(
-                table.to_logos_type(&ty),
-                LogosType::Seq(Box::new(LogosType::String))
-            );
-        }
-    }
-
-    #[test]
-    fn to_logos_type_function_converts_to_logos_function() {
-        let table = UnificationTable::new();
-        let ty = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        assert_eq!(
-            table.to_logos_type(&ty),
-            LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool))
-        );
-    }
-
-    #[test]
-    fn to_logos_type_function_two_params_converts() {
-        let table = UnificationTable::new();
-        let ty = InferType::Function(
-            vec![InferType::Int, InferType::String],
-            Box::new(InferType::Bool),
-        );
-        assert_eq!(
-            table.to_logos_type(&ty),
-            LogosType::Function(
-                vec![LogosType::Int, LogosType::String],
-                Box::new(LogosType::Bool)
-            )
-        );
-    }
-
-    #[test]
-    fn to_logos_type_function_zero_params_converts() {
-        let table = UnificationTable::new();
-        let ty = InferType::Function(vec![], Box::new(InferType::Unit));
-        assert_eq!(
-            table.to_logos_type(&ty),
-            LogosType::Function(vec![], Box::new(LogosType::Unit))
-        );
-    }
-
-    #[test]
-    fn to_logos_type_function_nested_converts() {
-        // fn(fn(Int) -> Bool) -> String
-        let table = UnificationTable::new();
-        let inner = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        let outer = InferType::Function(vec![inner], Box::new(InferType::String));
-        assert_eq!(
-            table.to_logos_type(&outer),
-            LogosType::Function(
-                vec![LogosType::Function(
-                    vec![LogosType::Int],
-                    Box::new(LogosType::Bool)
-                )],
-                Box::new(LogosType::String)
-            )
-        );
-    }
-
-    // =========================================================================
-    // from_type_expr
-    // =========================================================================
-
-    #[test]
-    fn from_type_expr_function_produces_function_type() {
-        use crate::ast::stmt::TypeExpr;
-        let mut interner = Interner::new();
-        let int_sym = interner.intern("Int");
-        let bool_sym = interner.intern("Bool");
-        let int_ty = TypeExpr::Primitive(int_sym);
-        let bool_ty = TypeExpr::Primitive(bool_sym);
-        let fn_ty = TypeExpr::Function {
-            inputs: std::slice::from_ref(&int_ty),
-            output: &bool_ty,
-        };
-        let result = InferType::from_type_expr(&fn_ty, &interner);
-        assert_eq!(
-            result,
-            InferType::Function(vec![InferType::Int], Box::new(InferType::Bool))
-        );
-    }
-
-    #[test]
-    fn from_type_expr_seq_of_int() {
-        use crate::ast::stmt::TypeExpr;
-        let mut interner = Interner::new();
-        let seq_sym = interner.intern("Seq");
-        let int_sym = interner.intern("Int");
-        let int_ty = TypeExpr::Primitive(int_sym);
-        let ty = TypeExpr::Generic {
-            base: seq_sym,
-            params: std::slice::from_ref(&int_ty),
-        };
-        let result = InferType::from_type_expr(&ty, &interner);
-        assert_eq!(result, InferType::Seq(Box::new(InferType::Int)));
-    }
-
-    // =========================================================================
-    // from_field_type with TypeParam
-    // =========================================================================
-
-    #[test]
-    fn from_field_type_type_param_resolves_to_var() {
-        let mut interner = Interner::new();
-        let t_sym = interner.intern("T");
-        let tv = TyVar(0);
-        let mut type_params = HashMap::new();
-        type_params.insert(t_sym, tv);
-
-        let field_ty = FieldType::TypeParam(t_sym);
-        let result = InferType::from_field_type(&field_ty, &interner, &type_params);
-        assert_eq!(result, InferType::Var(tv));
-    }
-
-    #[test]
-    fn from_field_type_missing_type_param_becomes_unknown() {
-        let mut interner = Interner::new();
-        let t_sym = interner.intern("T");
-        let type_params = HashMap::new();
-        let field_ty = FieldType::TypeParam(t_sym);
-        let result = InferType::from_field_type(&field_ty, &interner, &type_params);
-        assert_eq!(result, InferType::Unknown);
-    }
-
-    #[test]
-    fn from_field_type_primitive() {
-        let mut interner = Interner::new();
-        let int_sym = interner.intern("Int");
-        let field_ty = FieldType::Primitive(int_sym);
-        let result = InferType::from_field_type(&field_ty, &interner, &HashMap::new());
-        assert_eq!(result, InferType::Int);
-    }
-
-    #[test]
-    fn from_field_type_generic_seq_of_type_param() {
-        let mut interner = Interner::new();
-        let seq_sym = interner.intern("Seq");
-        let t_sym = interner.intern("T");
-        let tv = TyVar(0);
-        let mut type_params = HashMap::new();
-        type_params.insert(t_sym, tv);
-
-        let field_ty = FieldType::Generic {
-            base: seq_sym,
-            params: vec![FieldType::TypeParam(t_sym)],
-        };
-        let result = InferType::from_field_type(&field_ty, &interner, &type_params);
-        assert_eq!(result, InferType::Seq(Box::new(InferType::Var(tv))));
-    }
-
-    // =========================================================================
-    // unify_numeric helper
-    // =========================================================================
-
-    #[test]
-    fn numeric_float_wins() {
-        assert_eq!(
-            unify_numeric(&InferType::Int, &InferType::Float).unwrap(),
-            InferType::Float
-        );
-        assert_eq!(
-            unify_numeric(&InferType::Float, &InferType::Int).unwrap(),
-            InferType::Float
-        );
-    }
-
-    #[test]
-    fn numeric_int_plus_int_is_int() {
-        assert_eq!(
-            unify_numeric(&InferType::Int, &InferType::Int).unwrap(),
-            InferType::Int
-        );
-    }
-
-    #[test]
-    fn numeric_nat_plus_int_is_int() {
-        assert_eq!(
-            unify_numeric(&InferType::Nat, &InferType::Int).unwrap(),
-            InferType::Int
-        );
-    }
-
-    #[test]
-    fn numeric_nat_plus_nat_is_nat() {
-        assert_eq!(
-            unify_numeric(&InferType::Nat, &InferType::Nat).unwrap(),
-            InferType::Nat
-        );
-    }
-
-    #[test]
-    fn numeric_string_fails() {
-        let result = unify_numeric(&InferType::String, &InferType::Int);
-        assert!(result.is_err());
-    }
-
-    // =========================================================================
-    // to_logos_name
-    // =========================================================================
-
-    #[test]
-    fn logos_name_primitives() {
-        assert_eq!(InferType::Int.to_logos_name(), "Int");
-        assert_eq!(InferType::Float.to_logos_name(), "Real");
-        assert_eq!(InferType::String.to_logos_name(), "Text");
-        assert_eq!(InferType::Bool.to_logos_name(), "Bool");
-    }
-
-    #[test]
-    fn logos_name_seq() {
-        let ty = InferType::Seq(Box::new(InferType::Int));
-        assert_eq!(ty.to_logos_name(), "Seq of Int");
-    }
-
-    #[test]
-    fn logos_name_function() {
-        let ty = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        assert_eq!(ty.to_logos_name(), "fn(Int) -> Bool");
-    }
-
-    // =========================================================================
-    // TypeError helpers
-    // =========================================================================
-
-    #[test]
-    fn type_error_mismatch_strings() {
-        let err = TypeError::Mismatch {
-            expected: InferType::Int,
-            found: InferType::String,
-        };
-        assert_eq!(err.expected_str(), "Int");
-        assert_eq!(err.found_str(), "Text");
-    }
-
-    #[test]
-    fn type_error_arity_mismatch_strings() {
-        let err = TypeError::ArityMismatch { expected: 2, found: 3 };
-        assert_eq!(err.expected_str(), "2 arguments");
-        assert_eq!(err.found_str(), "3 arguments");
-    }
-
-    // =========================================================================
-    // Phase 5: infer_to_logos for Function types
-    // =========================================================================
-
-    #[test]
-    fn infer_to_logos_function_single_param() {
-        let ty = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        assert_eq!(
-            super::infer_to_logos(&ty),
-            LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool))
-        );
-    }
-
-    #[test]
-    fn infer_to_logos_function_zero_params() {
-        let ty = InferType::Function(vec![], Box::new(InferType::Unit));
-        assert_eq!(
-            super::infer_to_logos(&ty),
-            LogosType::Function(vec![], Box::new(LogosType::Unit))
-        );
-    }
-
-    #[test]
-    fn infer_to_logos_function_two_params() {
-        let ty = InferType::Function(
-            vec![InferType::String, InferType::Float],
-            Box::new(InferType::Bool),
-        );
-        assert_eq!(
-            super::infer_to_logos(&ty),
-            LogosType::Function(
-                vec![LogosType::String, LogosType::Float],
-                Box::new(LogosType::Bool)
-            )
-        );
-    }
-
-    #[test]
-    fn infer_to_logos_function_nested() {
-        // fn(fn(Int) -> Bool) -> String
-        let inner = InferType::Function(vec![InferType::Int], Box::new(InferType::Bool));
-        let outer = InferType::Function(vec![inner], Box::new(InferType::String));
-        assert_eq!(
-            super::infer_to_logos(&outer),
-            LogosType::Function(
-                vec![LogosType::Function(
-                    vec![LogosType::Int],
-                    Box::new(LogosType::Bool)
-                )],
-                Box::new(LogosType::String)
-            )
-        );
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/analysis/unify/tests.rs"]
+mod tests;

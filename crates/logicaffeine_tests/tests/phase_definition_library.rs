@@ -96,10 +96,7 @@ Proof: Auto.
         vec!["gizmo".to_string()],
         "widget uses gizmo"
     );
-    assert!(
-        uses_of("gizmo").is_empty(),
-        "gizmo uses only primitives"
-    );
+    assert!(uses_of("gizmo").is_empty(), "gizmo uses only primitives");
     assert_eq!(
         graph.theorem_uses,
         vec!["widget".to_string()],

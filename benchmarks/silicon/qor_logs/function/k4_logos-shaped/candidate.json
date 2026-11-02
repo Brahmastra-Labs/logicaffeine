@@ -1,0 +1,85 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [
+   {
+    "contract": "s_in",
+    "dut": "s_in",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K4",
+  "mems": [],
+  "name": "k4_logos",
+  "outputs": [
+   {
+    "contract": "s_out",
+    "dut": "s_out",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "rst"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start"
+   },
+   {
+    "bits": 1600,
+    "dir": "In",
+    "name": "s_in"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   },
+   {
+    "bits": 1600,
+    "dir": "Out",
+    "name": "s_out"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done",
+    "start": "start"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "rst"
+  },
+  "top": "keccak_core"
+ },
+ "files": [
+  "keccak_core.v"
+ ],
+ "golden_signature": "d8258bee4adc0dca",
+ "harness": "qorbist_k4_logos.v",
+ "harness_top": "qorbist_k4_logos",
+ "kernel": "K4",
+ "kernel_name": "keccak_f1600",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "rtl-generator",
+ "testbench": "tb_qor.v"
+}

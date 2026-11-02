@@ -25,7 +25,7 @@ Push 0.001660076642744037 * daysPerYear to bvx. Push 0.007699011184197404 * days
 Push 0.0009547919384243266 * solarMass to bm.
 
 Push 8.34336671824458 to bx. Push 4.124798564124305 to posY. Push 0.0 - 0.4035234171143214 to bz.
-Push 0.0 - 0.002767425107268624 * daysPerYear to bvx. Push 0.004998528012349172 * daysPerYear to bvy. Push 0.00002304172975737639 * daysPerYear to bvz.
+Push 0.0 - 0.002767425107268624 * daysPerYear to bvx. Push 0.004998528012349172 * daysPerYear to bvy. Push 0.000023041729757376393 * daysPerYear to bvz.
 Push 0.0002858859806661308 * solarMass to bm.
 
 Push 12.894369562139131 to bx. Push 0.0 - 15.111151401698631 to posY. Push 0.0 - 0.22330757889265573 to bz.
@@ -34,7 +34,7 @@ Push 0.00004366244043351563 * solarMass to bm.
 
 Push 15.379697114850917 to bx. Push 0.0 - 25.919314609987964 to posY. Push 0.17925877295037118 to bz.
 Push 0.0026806777249038932 * daysPerYear to bvx. Push 0.001628241700382423 * daysPerYear to bvy. Push 0.0 - 0.00009515922545197159 * daysPerYear to bvz.
-Push 0.00005151389020466114 * solarMass to bm.
+Push 0.000051513890204661145 * solarMass to bm.
 
 Let mutable px be 0.0.
 Let mutable py be 0.0.

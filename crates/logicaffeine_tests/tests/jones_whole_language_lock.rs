@@ -33,6 +33,13 @@ enum JonesClass {
     Executable,
     /// Declaration / proof-layer / meta — no runtime effect, correctly excluded.
     NonExecutable,
+    /// The LGX web surface: components, directives, routes, the action vocabulary, typed fetch,
+    /// and a `View` value. Executable — the tree-walker runs it — but OUTSIDE the partial
+    /// evaluator's executable core today: it has no Core-IR encoding, so a program using it is
+    /// not a Jones corpus program. This class exists so that fact is DECLARED rather than
+    /// hidden behind a wildcard; when the frontend ops land in the Core IR these rows move to
+    /// `Executable` and the Jones-optimality assertions start covering them.
+    FrontendSurface,
 }
 
 /// ★ COMPILE-TIME LOCK (statements) ★ — exhaustive, no `_` arm.
@@ -49,9 +56,46 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
         | Stmt::Trust { .. }
         | Stmt::Require { .. } => JonesClass::NonExecutable,
 
+        // `## Test` blocks and the test-only statements the parser confines to
+        // their bodies: declarations to the projection — the `largo test`
+        // runner drives them on the interpreter tier; a specialized program
+        // never executes them.
+        Stmt::TestDef { .. }
+        | Stmt::Expect { .. }
+        | Stmt::ExpectFail { .. }
+        | Stmt::ExpectOutput { .. }
+        | Stmt::AdvanceTime { .. }
+        | Stmt::GivenFile { .. }
+        // Observation statements are the SEPARATE observability channel
+        // (constitution Part 2), elided from the specialized program; `During`
+        // is a scope-transparent span whose body the surrounding list encodes.
+        // Neither is part of the executable core the PE dissolves.
+        | Stmt::Observe { .. }
+        | Stmt::During { .. }
+        // `For all` is a test-only property; the runner drives it, a
+        // specialized program never generates cases.
+        | Stmt::ForAll { .. } => JonesClass::NonExecutable,
+
+        // The LGX web frontend — see `FrontendSurface`.
+        Stmt::ComponentDef(_)
+        | Stmt::DirectiveDef { .. }
+        | Stmt::RouteDef { .. }
+        | Stmt::MiddlewareDef { .. }
+        | Stmt::RedirectDef { .. }
+        | Stmt::Ui(_)
+        | Stmt::GivenFetch { .. }
+        | Stmt::ServeFetches
+        | Stmt::Replay { .. }
+        | Stmt::Fetch { .. }
+        // A failure-site marker (Wave 3) only ever appears inside an LGX action/handler body —
+        // it cannot exist in a program without a `## Component`, so it is exactly as much
+        // "the LGX web frontend" as `ComponentDef` itself.
+        | Stmt::Site(_) => JonesClass::FrontendSurface,
+
         // Everything else is executable code the PE must dissolve. All are Core-IR encodable
         // today (statement encodings are complete — see `futamura_all_statements_lock`).
-        Stmt::Let { .. }
+        Stmt::Swap { .. }
+        | Stmt::Let { .. }
         | Stmt::Set { .. }
         | Stmt::Call { .. }
         | Stmt::If { .. }
@@ -60,6 +104,7 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
         | Stmt::Return { .. }
         | Stmt::Break
         | Stmt::RuntimeAssert { .. }
+        | Stmt::Fail { .. }
         | Stmt::Give { .. }
         | Stmt::Show { .. }
         | Stmt::SetField { .. }
@@ -72,6 +117,11 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
         | Stmt::Remove { .. }
         | Stmt::SetIndex { .. }
         | Stmt::Splice { .. }
+        // A `Reversibly:` block is executable code the PE dissolves exactly like `Splice`:
+        // `compile.rs` encodes both `Stmt::Splice { body } | Stmt::Reversibly { body }` as an
+        // always-taken `CIf`, so its body is Core-IR encoded inline (the reverse in-place ops are
+        // a VM-only forward-identical encoding).
+        | Stmt::Reversibly { .. }
         | Stmt::Zone { .. }
         | Stmt::Concurrent { .. }
         | Stmt::Parallel { .. }
@@ -82,12 +132,14 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
         | Stmt::AwaitMessage { .. }
         | Stmt::StreamMessage { .. }
         | Stmt::MergeCrdt { .. }
+        | Stmt::JoinCrdt { .. }
         | Stmt::IncreaseCrdt { .. }
         | Stmt::DecreaseCrdt { .. }
         | Stmt::AppendToSequence { .. }
         | Stmt::ResolveConflict { .. }
         | Stmt::Check { .. }
         | Stmt::Listen { .. }
+        | Stmt::Serve { .. }
         | Stmt::ConnectTo { .. }
         | Stmt::LetPeerAgent { .. }
         | Stmt::Sleep { .. }
@@ -101,6 +153,8 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
         | Stmt::TrySendPipe { .. }
         | Stmt::TryReceivePipe { .. }
         | Stmt::StopTask { .. }
+        | Stmt::CloseChannel { .. }
+        | Stmt::AwaitTask { .. }
         | Stmt::Select { .. }
         | Stmt::Escape { .. } => JonesClass::Executable,
     }
@@ -111,6 +165,10 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
 #[allow(dead_code)]
 fn every_expr_has_a_jones_class(e: &Expr<'_>) -> JonesClass {
     match e {
+        // A template and a page query are the LGX web surface, not Core-IR values — see
+        // `FrontendSurface`.
+        Expr::View(_) | Expr::Dom(_) => JonesClass::FrontendSurface,
+
         // Every executable expression now has a Core-IR encoding — the gap is CLOSED. `ManifestOf`
         // and `ChunkAt` are opaque Core nodes (`CManifestOf` / `CChunkAt`) that survive PE 1:1 and
         // decompile back to source; `WithCapacity`'s hint erases to its inner value.
@@ -180,9 +238,13 @@ fn newly_encoded_variants_are_jones_optimal() {
         "0",
     )];
     for (name, prog, expected) in cases {
-        let residual = decompile(prog).unwrap_or_else(|e| panic!("[{name}] P1 projection failed: {e}"));
+        let residual =
+            decompile(prog).unwrap_or_else(|e| panic!("[{name}] P1 projection failed: {e}"));
         let d = count_dispatch(&residual);
-        assert_eq!(d, 0, "[{name}] P1 residual carries {d} dispatch unit(s):\n{residual}");
+        assert_eq!(
+            d, 0,
+            "[{name}] P1 residual carries {d} dispatch unit(s):\n{residual}"
+        );
         assert_run_equals(prog, expected);
     }
 }
@@ -203,9 +265,13 @@ fn executable_construct_p1_coverage() {
         ("repeat_for_in", "## Main\nLet mutable s be 0.\nRepeat for x in [4, 5, 6]:\n    Set s to s + x.\nShow s.", "15"),
     ];
     for (name, prog, expected) in cases {
-        let residual = decompile(prog).unwrap_or_else(|e| panic!("[{name}] P1 projection failed: {e}"));
+        let residual =
+            decompile(prog).unwrap_or_else(|e| panic!("[{name}] P1 projection failed: {e}"));
         let d = count_dispatch(&residual);
-        assert_eq!(d, 0, "[{name}] P1 residual carries {d} dispatch unit(s):\n{residual}");
+        assert_eq!(
+            d, 0,
+            "[{name}] P1 residual carries {d} dispatch unit(s):\n{residual}"
+        );
         assert_run_equals(prog, expected);
     }
 }
@@ -228,9 +294,13 @@ fn zone_introspection_round_trips_through_p1() {
         ),
     ];
     for (name, prog, needle) in cases {
-        let residual = decompile(prog).unwrap_or_else(|e| panic!("[{name}] P1 projection failed: {e}"));
+        let residual =
+            decompile(prog).unwrap_or_else(|e| panic!("[{name}] P1 projection failed: {e}"));
         let d = count_dispatch(&residual);
-        assert_eq!(d, 0, "[{name}] P1 residual carries {d} dispatch unit(s):\n{residual}");
+        assert_eq!(
+            d, 0,
+            "[{name}] P1 residual carries {d} dispatch unit(s):\n{residual}"
+        );
         assert!(
             residual.contains(needle),
             "[{name}] construct dropped from residual (no '{needle}'):\n{residual}"

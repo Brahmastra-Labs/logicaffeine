@@ -1,0 +1,24 @@
+{
+  "case": "T02-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 2,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T02_005.Threshold",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_005.example_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

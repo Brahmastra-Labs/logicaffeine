@@ -1,0 +1,66 @@
+{
+  "case": "T08-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), \u2203 m, m = n + 1",
+      "name": "T08_017.appliedWitness",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n = 5",
+      "name": "T08_017.asTerm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n = 0",
+      "name": "T08_017.closedWitness",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f : Nat \u2192 Nat) (a : Nat), \u2203 m, m = f a",
+      "name": "T08_017.functionWitness",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), \u2203 m, m = n",
+      "name": "T08_017.localVariableWitness",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 a b, a + b = 2",
+      "name": "T08_017.nestedExists",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n + 1 = 1",
+      "name": "T08_017.useCloses",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2203 n, p n) \u2192 \u2203 m, p m",
+      "name": "T08_017.witnessRoundTrip",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

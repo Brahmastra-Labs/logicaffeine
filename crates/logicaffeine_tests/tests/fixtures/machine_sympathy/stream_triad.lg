@@ -1,0 +1,22 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let s be 3.0.
+Let mutable a be a new Seq of Float.
+Let mutable b be a new Seq of Float.
+Let mutable c be a new Seq of Float.
+Repeat for i from 1 to n:
+    Push 0.0 to a.
+    Push ((i * 7) % 8) / 8.0 to b.
+    Push ((i * 3) % 8) / 8.0 to c.
+Repeat for pass from 1 to 4:
+    Repeat for i from 1 to n:
+        Set item i of a to item i of b + s * item i of c.
+    Repeat for i from 1 to n:
+        Set item i of c to item i of a * 0.5.
+Let mutable checksum be 0.0.
+Repeat for v in a:
+    Set checksum to checksum + v.
+Show checksum.

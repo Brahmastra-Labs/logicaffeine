@@ -1,0 +1,10 @@
+{
+  "capability": "heap.new",
+  "workload": "heapLen(heapNew())=0",
+  "arg": "5000000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

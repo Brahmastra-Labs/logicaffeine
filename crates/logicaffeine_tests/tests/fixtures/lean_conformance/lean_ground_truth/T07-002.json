@@ -1,0 +1,271 @@
+{
+  "case": "T07-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 33,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_002.Pointed",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T07_002.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T07_002.Pointed.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_002.Pointed \u03b1",
+      "name": "T07_002.Pointed.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_002.Pointed \u03b1} \u2192 v1 = v2 \u2192 T07_002.Pointed.noConfusionType P v1 v2",
+      "name": "T07_002.Pointed.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_002.Pointed \u03b1 \u2192 T07_002.Pointed \u03b1 \u2192 Sort u",
+      "name": "T07_002.Pointed.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_002.Pointed \u03b1] \u2192 \u03b1",
+      "name": "T07_002.Pointed.point",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Pointed \u03b1 \u2192 Sort u} \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 (t : T07_002.Pointed \u03b1) \u2192 motive t",
+      "name": "T07_002.Pointed.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T07_002.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T07_002.Pointed.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_002.Sized",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Sized \u03b1 \u2192 Sort u} \u2192 (t : T07_002.Sized \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T07_002.Sized.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T07_002.Sized \u03b1",
+      "name": "T07_002.Sized.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_002.Sized \u03b1} \u2192 v1 = v2 \u2192 T07_002.Sized.noConfusionType P v1 v2",
+      "name": "T07_002.Sized.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_002.Sized \u03b1 \u2192 T07_002.Sized \u03b1 \u2192 Sort u",
+      "name": "T07_002.Sized.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Sized \u03b1 \u2192 Sort u} \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 (t : T07_002.Sized \u03b1) \u2192 motive t",
+      "name": "T07_002.Sized.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Sized \u03b1 \u2192 Sort u} \u2192 (t : T07_002.Sized \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T07_002.Sized.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_002.Sized \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T07_002.Sized.size",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_002.Tagged",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Tagged \u03b1 \u2192 Sort u} \u2192 (t : T07_002.Tagged \u03b1) \u2192 ((tag : Nat) \u2192 motive { tag := tag }) \u2192 motive t",
+      "name": "T07_002.Tagged.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Nat \u2192 T07_002.Tagged \u03b1",
+      "name": "T07_002.Tagged.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_002.Tagged \u03b1} \u2192 v1 = v2 \u2192 T07_002.Tagged.noConfusionType P v1 v2",
+      "name": "T07_002.Tagged.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_002.Tagged \u03b1 \u2192 T07_002.Tagged \u03b1 \u2192 Sort u",
+      "name": "T07_002.Tagged.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Tagged \u03b1 \u2192 Sort u} \u2192 ((tag : Nat) \u2192 motive { tag := tag }) \u2192 (t : T07_002.Tagged \u03b1) \u2192 motive t",
+      "name": "T07_002.Tagged.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_002.Tagged \u03b1 \u2192 Sort u} \u2192 (t : T07_002.Tagged \u03b1) \u2192 ((tag : Nat) \u2192 motive { tag := tag }) \u2192 motive t",
+      "name": "T07_002.Tagged.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T07_002.Tagged \u03b1] \u2192 Nat",
+      "name": "T07_002.Tagged.tag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_002.Tagged Nat",
+      "name": "T07_002.dup\u2081",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_002.Tagged Nat",
+      "name": "T07_002.dup\u2082",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_002.Pointed Nat",
+      "name": "T07_002.instPointedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_002.Sized \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T07_002.measure",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_002.Pointed Bool",
+      "name": "T07_002.pointedBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_002.Sized Nat",
+      "name": "T07_002.sizedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool",
+      "name": "T07_002.usesBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_002.usesNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_002.whichTag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

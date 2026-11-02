@@ -1,0 +1,16 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 0.
+While i is less than n:
+    Let cp0 be i % 1112064.
+    Let mutable cp be cp0.
+    If cp is at least 55296:
+        Set cp to cp + 2048.
+    Set sum to sum + runeLen(cp).
+    Set i to i + 1.
+Show sum.

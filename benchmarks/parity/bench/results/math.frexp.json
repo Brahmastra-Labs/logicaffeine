@@ -1,0 +1,17 @@
+{
+  "capability": "math.frexp",
+  "arg": "1000000",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "means_ms": {
+    "logos": 45.046,
+    "go": 3.661,
+    "python": 140.567
+  },
+  "logos_ms": 45.046,
+  "speedups_vs_logos": {
+    "go": 0.081,
+    "python": 3.121
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.081
+}

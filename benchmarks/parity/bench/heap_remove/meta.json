@@ -1,0 +1,10 @@
+{
+  "capability": "heap.remove",
+  "workload": "len(remove(heapify(xs), pos)) = M-1",
+  "arg": "40000",
+  "expected": "163800000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

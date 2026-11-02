@@ -1,0 +1,159 @@
+# Operator functions
+
+Named function forms of the built-in operators, for passing to higher-order routines (map,
+filter, reduce). Pure LOGOS over the native operators; identical on every tier. Auto-imported on
+reference.
+
+## Note
+Returns `x + y`, the function form of integer addition.
+
+## To opAdd (x: Int, y: Int) -> Int:
+    Return x + y.
+
+## Note
+Returns `x - y`, the function form of integer subtraction.
+
+## To opSub (x: Int, y: Int) -> Int:
+    Return x - y.
+
+## Note
+Returns `x * y`, the function form of integer multiplication.
+
+## To opMul (x: Int, y: Int) -> Int:
+    Return x * y.
+
+## Note
+Returns `x / y`, integer (floor) division.
+
+## To opFloorDiv (x: Int, y: Int) -> Int:
+    Return x / y.
+
+## Note
+Returns `x mod y`, the integer remainder.
+
+## To opMod (x: Int, y: Int) -> Int:
+    Return x mod y.
+
+## Note
+Returns `0 - x`, the arithmetic negation of `x`.
+
+## To opNeg (x: Int) -> Int:
+    Return 0 - x.
+
+## Note
+Returns the absolute value of `x`: negates it when negative, otherwise returns `x` unchanged.
+
+## To opAbs (x: Int) -> Int:
+    If x is less than 0:
+        Return 0 - x.
+    Return x.
+
+## Note
+Returns `x & y`, the bitwise AND of two integers.
+
+## To opAnd (x: Int, y: Int) -> Int:
+    Return x & y.
+
+## Note
+Returns `x | y`, the bitwise OR of two integers.
+
+## To opOr (x: Int, y: Int) -> Int:
+    Return x | y.
+
+## Note
+Returns `x xor y`, the bitwise exclusive-OR of two integers.
+
+## To opXor (x: Int, y: Int) -> Int:
+    Return x xor y.
+
+## Note
+Returns `x` shifted left by `y` bits.
+
+## To opLshift (x: Int, y: Int) -> Int:
+    Return x shifted left by y.
+
+## Note
+Returns `x` shifted right by `y` bits.
+
+## To opRshift (x: Int, y: Int) -> Int:
+    Return x shifted right by y.
+
+## Note
+Returns true when `x` is less than `y`, otherwise false.
+
+## To opLt (x: Int, y: Int) -> Bool:
+    If x is less than y:
+        Return true.
+    Return false.
+
+## Note
+Returns true when `x` is less than or equal to `y` (false only when `x` is greater than `y`).
+
+## To opLe (x: Int, y: Int) -> Bool:
+    If x is greater than y:
+        Return false.
+    Return true.
+
+## Note
+Returns true when `x` is greater than `y`, otherwise false.
+
+## To opGt (x: Int, y: Int) -> Bool:
+    If x is greater than y:
+        Return true.
+    Return false.
+
+## Note
+Returns true when `x` is greater than or equal to `y` (false only when `x` is less than `y`).
+
+## To opGe (x: Int, y: Int) -> Bool:
+    If x is less than y:
+        Return false.
+    Return true.
+
+## Note
+Returns true when `x` is equal to `y`, otherwise false.
+
+## To opEq (x: Int, y: Int) -> Bool:
+    If x is equal to y:
+        Return true.
+    Return false.
+
+## Note
+Returns true when `x` is not equal to `y` (false only when they are equal).
+
+## To opNe (x: Int, y: Int) -> Bool:
+    If x is equal to y:
+        Return false.
+    Return true.
+
+## Note
+Returns the logical negation of `x`: false when `x` is true, otherwise true.
+
+## To opNot (x: Bool) -> Bool:
+    If x is equal to true:
+        Return false.
+    Return true.
+
+## Note
+Returns the boolean `x` unchanged, its truthiness.
+
+## To opTruth (x: Bool) -> Bool:
+    Return x.
+
+## Note
+Returns `x` unchanged, the unary-plus identity.
+
+## To opPos (x: Int) -> Int:
+    Return x.
+
+## Note
+Returns the bitwise NOT of `x`, computed as `(0 - x) - 1` (the two's-complement `~x`).
+
+## To opInvert (x: Int) -> Int:
+    Return (0 - x) - 1.
+
+## Note
+Returns `a / b`, floating-point (true) division of two Reals.
+
+## To opTrueDiv (a: Real) and (b: Real) -> Real:
+    Return a / b.

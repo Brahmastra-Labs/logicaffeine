@@ -38,7 +38,8 @@ fn e2e_test_three_node_convergence() {
     let topic = unique_topic();
 
     // Node A: Increments by 10
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -53,10 +54,13 @@ Sleep 8000.
 Show state's clicks.
 If state's clicks equals 30:
     Show "A_SYNC_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     // Node B: Increments by 8
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -71,10 +75,13 @@ Sleep 8000.
 Show state's clicks.
 If state's clicks equals 30:
     Show "B_SYNC_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     // Node C: Increments by 12
-    let source_c = format!(r#"## Definition
+    let source_c = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -89,20 +96,34 @@ Sleep 8000.
 Show state's clicks.
 If state's clicks equals 30:
     Show "C_SYNC_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     // Compile all
     let result_a = compile_logos(&source_a);
-    assert!(result_a.success, "Node A should compile: {}", result_a.stderr);
+    assert!(
+        result_a.success,
+        "Node A should compile: {}",
+        result_a.stderr
+    );
 
     let result_b = compile_logos(&source_b);
-    assert!(result_b.success, "Node B should compile: {}", result_b.stderr);
+    assert!(
+        result_b.success,
+        "Node B should compile: {}",
+        result_b.stderr
+    );
 
     let result_c = compile_logos(&source_c);
-    assert!(result_c.success, "Node C should compile: {}", result_c.stderr);
+    assert!(
+        result_c.success,
+        "Node C should compile: {}",
+        result_c.stderr
+    );
 
     // Run all as separate processes
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -110,7 +131,7 @@ If state's clicks equals 30:
 
     thread::sleep(Duration::from_millis(300));
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -118,16 +139,22 @@ If state's clicks equals 30:
 
     thread::sleep(Duration::from_millis(300));
 
-    let mut child_c = Command::new(&result_c.binary_path)
+    let child_c = Command::new(&result_c.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start Node C");
 
     // Wait for all with timeout
-    let output_a = child_a.wait_with_output().expect("Failed to wait for Node A");
-    let output_b = child_b.wait_with_output().expect("Failed to wait for Node B");
-    let output_c = child_c.wait_with_output().expect("Failed to wait for Node C");
+    let output_a = child_a
+        .wait_with_output()
+        .expect("Failed to wait for Node A");
+    let output_b = child_b
+        .wait_with_output()
+        .expect("Failed to wait for Node B");
+    let output_c = child_c
+        .wait_with_output()
+        .expect("Failed to wait for Node C");
 
     let stdout_a = String::from_utf8_lossy(&output_a.stdout);
     let stdout_b = String::from_utf8_lossy(&output_b.stdout);
@@ -163,7 +190,8 @@ fn e2e_test_node_join_mid_session() {
     let topic = unique_topic();
 
     // Node A: Starts early and increments
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -176,10 +204,13 @@ Increase state's clicks by 25.
 Show "A: incremented by 25".
 Sleep 15000.
 Show state's clicks.
-"#, topic);
+"#,
+        topic
+    );
 
     // Node B: Joins late but should catch up
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -191,16 +222,26 @@ Sleep 18000.
 Show state's clicks.
 If state's clicks equals 25:
     Show "LATE_JOINER_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
-    assert!(result_a.success, "Node A should compile: {}", result_a.stderr);
+    assert!(
+        result_a.success,
+        "Node A should compile: {}",
+        result_a.stderr
+    );
 
     let result_b = compile_logos(&source_b);
-    assert!(result_b.success, "Node B should compile: {}", result_b.stderr);
+    assert!(
+        result_b.success,
+        "Node B should compile: {}",
+        result_b.stderr
+    );
 
     // Start A first
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -209,18 +250,25 @@ If state's clicks equals 25:
     // Wait 5 seconds, then start B
     thread::sleep(Duration::from_secs(5));
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start Node B");
 
-    let output_a = child_a.wait_with_output().expect("Failed to wait for Node A");
-    let output_b = child_b.wait_with_output().expect("Failed to wait for Node B");
+    let output_a = child_a
+        .wait_with_output()
+        .expect("Failed to wait for Node A");
+    let output_b = child_b
+        .wait_with_output()
+        .expect("Failed to wait for Node B");
 
     let stdout_b = String::from_utf8_lossy(&output_b.stdout);
 
-    eprintln!("=== Node A stdout ===\n{}", String::from_utf8_lossy(&output_a.stdout));
+    eprintln!(
+        "=== Node A stdout ===\n{}",
+        String::from_utf8_lossy(&output_a.stdout)
+    );
     eprintln!("=== Node B stdout ===\n{}", stdout_b);
 
     if stdout_b.contains("LATE_JOINER_SUCCESS") {
@@ -235,13 +283,12 @@ If state's clicks equals 25:
 #[test]
 fn e2e_test_concurrent_writes_before_sync() {
     use std::process::{Command, Stdio};
-    use std::thread;
-    use std::time::Duration;
 
     let topic = unique_topic();
 
     // All nodes start and increment immediately, then wait for sync
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -255,9 +302,12 @@ Sleep 20000.
 Show state's clicks.
 If state's clicks equals 15:
     Show "CONCURRENT_A_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -271,9 +321,12 @@ Sleep 20000.
 Show state's clicks.
 If state's clicks equals 15:
     Show "CONCURRENT_B_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
-    let source_c = format!(r#"## Definition
+    let source_c = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -287,7 +340,9 @@ Sleep 20000.
 Show state's clicks.
 If state's clicks equals 15:
     Show "CONCURRENT_C_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
@@ -296,19 +351,19 @@ If state's clicks equals 15:
     assert!(result_a.success && result_b.success && result_c.success);
 
     // Start all nearly simultaneously
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start Node A");
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start Node B");
 
-    let mut child_c = Command::new(&result_c.binary_path)
+    let child_c = Command::new(&result_c.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

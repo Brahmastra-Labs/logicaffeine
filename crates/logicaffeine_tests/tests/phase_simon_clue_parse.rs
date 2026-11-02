@@ -17,8 +17,15 @@ fn clue1_hunting_vacation_and_2004_holiday_xor() {
         assert!(o.contains(needle), "clue1 lost {needle}; got: {o}");
     }
     // Both assignments of the XOR (Neal↔one / the-other↔Connecticut) must appear.
-    assert!(o.contains('∨'), "clue1 must be an exclusive disjunction; got: {o}");
-    assert_eq!(o.matches("Neal").count(), 2, "clue1 XOR names Neal in both arms; got: {o}");
+    assert!(
+        o.contains('∨'),
+        "clue1 must be an exclusive disjunction; got: {o}"
+    );
+    assert_eq!(
+        o.matches("Neal").count(),
+        2,
+        "clue1 XOR names Neal in both arms; got: {o}"
+    );
 }
 
 /// Clue 2 — definite "the Florida trip" identified with "the hunting trip".
@@ -35,8 +42,15 @@ fn clue2_florida_trip_is_hunting_trip() {
 fn clue3_neither_nor_keeps_both_subjects() {
     let o = ok("Neither the holiday with Bill nor the Florida vacation is the 2001 trip.");
     assert!(o.contains("Bill"), "clue3 lost Bill; got: {o}");
-    assert!(o.contains("Florida"), "clue3 lost the Florida vacation; got: {o}");
-    assert_eq!(o.matches("2001_trip").count(), 2, "clue3 denies BOTH ≠ 2001 trip; got: {o}");
+    assert!(
+        o.contains("Florida"),
+        "clue3 lost the Florida vacation; got: {o}"
+    );
+    assert_eq!(
+        o.matches("2001_trip").count(),
+        2,
+        "clue3 denies BOTH ≠ 2001 trip; got: {o}"
+    );
 }
 
 /// Clue 4 — definite "the holiday with Yvonne" + contraction "wasn't" → negation.
@@ -51,11 +65,16 @@ fn clue4_yvonne_holiday_not_in_kentucky() {
 /// Clue 5 — of-pair XOR over a skydiving trip and a Maine holiday.
 #[test]
 fn clue5_skydiving_and_maine_xor() {
-    let o = ok("Of the skydiving trip and the Maine holiday, one was in 2003 and the other was with Bill.");
+    let o = ok(
+        "Of the skydiving trip and the Maine holiday, one was in 2003 and the other was with Bill.",
+    );
     for needle in ["Skydive", "Maine", "2003", "Bill"] {
         assert!(o.contains(needle), "clue5 lost {needle}; got: {o}");
     }
-    assert!(o.contains('∨'), "clue5 must be an exclusive disjunction; got: {o}");
+    assert!(
+        o.contains('∨'),
+        "clue5 must be an exclusive disjunction; got: {o}"
+    );
 }
 
 /// Clue 6 — fused "the 2003 holiday" + contraction "wasn't" → negated cycling.

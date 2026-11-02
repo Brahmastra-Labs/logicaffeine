@@ -10,6 +10,7 @@
     "all C is M"
   ],
   "correct": 2,
-  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"M\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+  "hint": "Read 'not A unless B' as 'if A, then B'. What does that say about everyone who is A?",
+  "explanation": "Not mean unless comical means every mean person is comical: all M is C.",
+  "section": "2.1"
 }

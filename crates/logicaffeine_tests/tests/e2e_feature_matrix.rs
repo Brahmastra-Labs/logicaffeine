@@ -5,7 +5,10 @@
 //! hide: ownership, borrowing, type inference, and clone issues at feature boundaries.
 
 mod common;
-use common::{run_logos, compile_logos, assert_panics, assert_exact_output, assert_interpreter_output, assert_interpreter_output_lines};
+use common::{
+    assert_exact_output, assert_interpreter_output, assert_interpreter_output_lines, assert_panics,
+    compile_logos, run_logos,
+};
 
 // =============================================================================
 // Category 1: Functions + Collections Integration
@@ -137,8 +140,7 @@ Show length of b's items.
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -169,8 +171,7 @@ Show sum.
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -202,8 +203,7 @@ Show sum.
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -253,8 +253,7 @@ Show length of pts.
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -292,8 +291,7 @@ Show sum.
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -359,8 +357,7 @@ Show height(tree).
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -396,8 +393,7 @@ Show sumLeaves(tree).
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -490,8 +486,7 @@ Show length of s's elements.
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -581,8 +576,7 @@ fn e2e_pipe_send_receive_multiple() {
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -614,8 +608,7 @@ fn e2e_concurrent_struct_computation() {
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -645,8 +638,7 @@ fn e2e_parallel_computation() {
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -677,8 +669,7 @@ fn e2e_select_receive_with_computation() {
     assert!(
         result.success,
         "Should compile and run.\nGenerated:\n{}\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -888,9 +879,7 @@ If tags contains "logos":
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -922,9 +911,7 @@ Show length of list's items.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -952,9 +939,7 @@ Show item "timeout" of cfg's settings.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -983,9 +968,7 @@ If prof's tags contains "rust":
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1074,9 +1057,7 @@ Call process with Give cfg's data.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1108,9 +1089,7 @@ Show Call consume with Give makeData().
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1141,9 +1120,7 @@ Call process with Give item 1 of lists.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1181,9 +1158,7 @@ Show length of m's rows.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1224,9 +1199,7 @@ Show length of cube's matrices.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1254,9 +1227,7 @@ Show length of matrix.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -1283,9 +1254,7 @@ Show length of retrieved.
     assert!(
         result.success,
         "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
-        source,
-        result.rust_code,
-        result.stderr
+        source, result.rust_code, result.stderr
     );
     assert_eq!(
         result.stdout.trim(),
@@ -2342,8 +2311,11 @@ Show result.
 }
 
 #[test]
-fn e2e_string_self_append_codegen_uses_write() {
-    // Verify generated Rust code uses write!() for self-append pattern
+fn e2e_string_self_append_codegen_uses_itoa_push() {
+    // Self-append with an integer operand lowers to the in-place itoa fast path:
+    // each operand is pushed directly (`.push` for the char literal, `.push_i64`
+    // for the integer — no `fmt::Display` vtable), never a reallocating
+    // `result = format!(...)`. Byte-identical to the old `write!` shape, faster.
     use logicaffeine_compile::compile_program_full;
     let source = r#"## Main
 Let mutable result be "".
@@ -2353,30 +2325,30 @@ Show result.
 "#;
     let output = compile_program_full(source).expect("should compile");
     assert!(
-        output.rust_code.contains("write!(result,"),
-        "Expected write!() in generated code, got:\n{}",
+        output.rust_code.contains(".push_i64("),
+        "Expected the itoa fast path .push_i64() for the integer operand, got:\n{}",
         output.rust_code
     );
     assert!(
         !output.rust_code.contains("result = format!"),
-        "Should NOT have result = format!() for self-append, got:\n{}",
+        "Self-append must not reallocate via `result = format!()`, got:\n{}",
         output.rust_code
     );
-    // String literals inside write!() should be &str, not String::from()
-    // e.g. write!(result, "{}{}", i, " ") not write!(result, "{}{}", i, String::from(" "))
-    let write_line = output.rust_code.lines()
-        .find(|l| l.contains("write!(result,"))
-        .expect("should have a write! line");
+    // Char/string literals in the fast path are appended directly (`.push(' ')`),
+    // never wrapped in a throwaway `String::from(" ")`.
     assert!(
-        !write_line.contains("String::from"),
-        "write!() args should use &str literals, not String::from(): {}",
-        write_line
+        !output.rust_code.contains("String::from(\" \")"),
+        "literal ' ' should be pushed directly, not via String::from(): {}",
+        output.rust_code
     );
 }
 
 #[test]
-fn e2e_string_self_reference_codegen_uses_format() {
-    // s = s + s should NOT use write!() (borrow conflict), must use format!()
+fn e2e_string_self_reference_no_borrow_conflict() {
+    // `s = s + s` must never lower to `write!(s, …, s)`, which would borrow `s`
+    // both mutably (the sink) and immutably (an operand) at once. Any correct
+    // lowering is accepted: `s = format!(…)` or the stronger const-fold
+    // `s = String::from("abab")`.
     use logicaffeine_compile::compile_program_full;
     let source = r#"## Main
 Let mutable s be "ab".
@@ -2385,10 +2357,11 @@ Show s.
 "#;
     let output = compile_program_full(source).expect("should compile");
     assert!(
-        output.rust_code.contains("s = format!"),
-        "Expected s = format!() for self-referencing concat, got:\n{}",
+        !output.rust_code.contains("write!(s,"),
+        "self-referencing concat must not emit a borrow-conflicting `write!(s, …)`, got:\n{}",
         output.rust_code
     );
+    assert_exact_output(source, "abab");
 }
 
 // =============================================================================
@@ -2536,7 +2509,11 @@ Let mutable s be "" with capacity 100.
 Show s.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.rust_code.contains("String::with_capacity("),
         "Should generate String::with_capacity.\nGenerated Rust:\n{}",
@@ -2552,7 +2529,11 @@ Let mutable s be "hello" with capacity 100.
 Show s.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.rust_code.contains("String::with_capacity("),
         "Should generate String::with_capacity.\nGenerated Rust:\n{}",
@@ -2574,7 +2555,11 @@ Push 1 to v.
 Show length of v.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.rust_code.contains("with_capacity("),
         "Should generate with_capacity.\nGenerated Rust:\n{}",
@@ -2591,7 +2576,11 @@ Set item 1 of m to 10.
 Show item 1 of m.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.rust_code.contains("with_capacity("),
         "Should generate with_capacity.\nGenerated Rust:\n{}",
@@ -2634,7 +2623,11 @@ Let mutable s be "" with capacity n * 6.
 Show s.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.rust_code.contains("String::with_capacity("),
         "Should generate String::with_capacity with expression.\nGenerated Rust:\n{}",
@@ -2661,15 +2654,19 @@ Let count: Int be Escape to Rust:
 Show count.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.rust_code.contains("String::with_capacity("),
         "Should generate String::with_capacity.\nGenerated Rust:\n{}",
         result.rust_code
     );
     assert!(
-        result.rust_code.contains("write!("),
-        "Should generate write!() for self-append.\nGenerated Rust:\n{}",
+        result.rust_code.contains(".push_i64("),
+        "Should use the itoa fast path (.push_i64) for the integer self-append.\nGenerated Rust:\n{}",
         result.rust_code
     );
     assert!(
@@ -2687,7 +2684,11 @@ Let mutable s be "hello".
 Show s.
 "#,
     );
-    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         !result.rust_code.contains("with_capacity"),
         "Should NOT generate with_capacity when not specified.\nGenerated Rust:\n{}",

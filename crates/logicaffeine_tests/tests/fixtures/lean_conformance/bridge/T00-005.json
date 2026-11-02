@@ -1,0 +1,117 @@
+{
+  "case": "T00-005",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_005.anonymousImplicit",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_anonymous_implicit",
+      "logos": "Actual independently audited imported declaration T00_005.anonymousImplicit from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.applyToPolyFn",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "({\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1) \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_apply_to_poly_fn",
+      "logos": "Actual independently audited imported declaration T00_005.applyToPolyFn from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.domainFromExpectedType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Bool \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_domain_from_expected_type",
+      "logos": "Actual independently audited imported declaration T00_005.domainFromExpectedType from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.idNat",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_id_nat",
+      "logos": "Actual independently audited imported declaration T00_005.idNat from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.implicitId",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_implicit_id",
+      "logos": "Actual independently audited imported declaration T00_005.implicitId from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.instanceDefault",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{\u03b1 : Type} \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_instance_default",
+      "logos": "Actual independently audited imported declaration T00_005.instanceDefault from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.mixedKinds",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{\u03b1 : Type} \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1 \u2192 Bool \u2192 \u03b1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_mixed_kinds",
+      "logos": "Actual independently audited imported declaration T00_005.mixedKinds from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.mixedTelescope",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Bool \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_mixed_telescope",
+      "logos": "Actual independently audited imported declaration T00_005.mixedTelescope from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.pickMiddle",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_pick_middle",
+      "logos": "Actual independently audited imported declaration T00_005.pickMiddle from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_005.strictImplicitId",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "\u2983\u03b1 : Type\u2984 \u2192 \u03b1 \u2192 \u03b1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_structural_binder_bridge::original_strict_implicit_id",
+      "logos": "Actual independently audited imported declaration T00_005.strictImplicitId from T00-005.structural.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    }
+  ]
+}

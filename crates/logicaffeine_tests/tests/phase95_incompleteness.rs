@@ -70,9 +70,7 @@ fn test_sname_false_type() {
     let mut repl = Repl::new();
 
     // SName "False" should have type Syntax
-    let result = repl
-        .execute("Check (SName \"False\").")
-        .expect("Check");
+    let result = repl.execute("Check (SName \"False\").").expect("Check");
     assert_eq!(result, "(SName \"False\") : Syntax");
 }
 

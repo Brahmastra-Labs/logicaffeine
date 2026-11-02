@@ -1,0 +1,1 @@
+{"total":603243788,"frames":["all","main","solve"],"kinds":["synthetic","compute","compute"],"tree":[0,603243788,[[1,603243788,[[2,603243788,[]]]]]],"trim":{"min_frac":0.005,"folded_below_frac":0.005,"max_depth":48,"max_nodes":400},"top_self":[{"frame":"solve","self_pct":100.0}],"buckets":{"alloc_pct":0.0,"stdout_pct":0.0,"fmt_pct":0.0,"output_pct":0.0,"compute_pct":100.0}}

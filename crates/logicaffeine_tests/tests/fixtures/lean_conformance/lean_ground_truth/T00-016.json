@@ -1,0 +1,128 @@
+{
+  "case": "T00-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 15,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T00_016.ascribedWithImplicit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b1",
+      "name": "T00_016.constFn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(b : Bool) \u2192 if b = true then Nat else Bool",
+      "name": "T00_016.dependentMotive",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Bool \u2192 Sort u_1) \u2192 (b : Bool) \u2192 (Unit \u2192 motive true) \u2192 (Unit \u2192 motive false) \u2192 motive b",
+      "name": "T00_016.dependentMotive.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "1 = 1",
+      "name": "T00_016.eqWithImplicitType",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_016.implicitsPresent",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 Fin (n + 1)",
+      "name": "T00_016.motiveInferred",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (n : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((k : Nat) \u2192 motive k.succ) \u2192 motive n",
+      "name": "T00_016.motiveInferred.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "0 < 0 + 1",
+      "name": "T00_016.motiveInferred.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (k : Nat), k + 1 < k + 1 + 1",
+      "name": "T00_016.motiveInferred.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2228 q \u2192 q \u2228 p",
+      "name": "T00_016.orElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop) (motive : p \u2228 q \u2192 Prop) (h : p \u2228 q), (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hq : q), motive \u22ef) \u2192 motive h",
+      "name": "T00_016.orElim.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat",
+      "name": "T00_016.polyAtLevelZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_016.resolvedInstance",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1",
+      "name": "T00_016.usesInstance",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

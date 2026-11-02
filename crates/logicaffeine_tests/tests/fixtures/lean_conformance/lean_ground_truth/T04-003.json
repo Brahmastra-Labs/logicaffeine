@@ -1,0 +1,321 @@
+{
+  "case": "T04-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 39,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T04_003.Forest",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192 {motive_2 : T04_003.Forest \u2192 Sort u} \u2192 T04_003.Forest \u2192 Sort (max 1 u)",
+      "name": "T04_003.Forest.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T04_003.Tree \u2192 Prop} {motive_2 : T04_003.Forest \u2192 Prop} (t : T04_003.Forest),\n  (\u2200 (t : T04_003.Tree), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T04_003.Forest), t.ibelow \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T04_003.Forest.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  {motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n    (t : T04_003.Forest) \u2192\n      ((t : T04_003.Tree) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T04_003.Forest) \u2192 t.below \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T04_003.Forest.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n  (t : T04_003.Forest) \u2192\n    motive_2 T04_003.Forest.nil \u2192\n      ((a : T04_003.Tree) \u2192 (a_1 : T04_003.Forest) \u2192 motive_2 (T04_003.Forest.cons a a_1)) \u2192 motive_2 t",
+      "name": "T04_003.Forest.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_003.Tree \u2192 T04_003.Forest \u2192 T04_003.Forest",
+      "name": "T04_003.Forest.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : T04_003.Tree} {a_1 : T04_003.Forest} {a_2 : T04_003.Tree} {a_3 : T04_003.Forest},\n  T04_003.Forest.cons a a_1 = T04_003.Forest.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T04_003.Forest.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a : T04_003.Tree) (a_1 : T04_003.Forest) (a_2 : T04_003.Tree) (a_3 : T04_003.Forest),\n  (T04_003.Forest.cons a a_1 = T04_003.Forest.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T04_003.Forest.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T04_003.Tree) (a_1 : T04_003.Forest), sizeOf (T04_003.Forest.cons a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T04_003.Forest.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Prop} \u2192 {motive_2 : T04_003.Forest \u2192 Prop} \u2192 T04_003.Forest \u2192 Prop",
+      "name": "T04_003.Forest.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_003.Forest",
+      "name": "T04_003.Forest.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T04_003.Forest.nil = 1",
+      "name": "T04_003.Forest.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T04_003.Forest} \u2192 v1 = v2 \u2192 T04_003.Forest.noConfusionType P v1 v2",
+      "name": "T04_003.Forest.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T04_003.Forest \u2192 T04_003.Forest \u2192 Sort u",
+      "name": "T04_003.Forest.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  {motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n    ((a : T04_003.Forest) \u2192 motive_2 a \u2192 motive_1 (T04_003.Tree.node a)) \u2192\n      motive_2 T04_003.Forest.nil \u2192\n        ((a : T04_003.Tree) \u2192\n            (a_1 : T04_003.Forest) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T04_003.Forest.cons a a_1)) \u2192\n          (t : T04_003.Forest) \u2192 motive_2 t",
+      "name": "T04_003.Forest.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  {motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n    (t : T04_003.Forest) \u2192\n      ((a : T04_003.Forest) \u2192 motive_2 a \u2192 motive_1 (T04_003.Tree.node a)) \u2192\n        motive_2 T04_003.Forest.nil \u2192\n          ((a : T04_003.Tree) \u2192\n              (a_1 : T04_003.Forest) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T04_003.Forest.cons a a_1)) \u2192\n            motive_2 t",
+      "name": "T04_003.Forest.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T04_003.Tree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192 {motive_2 : T04_003.Forest \u2192 Sort u} \u2192 T04_003.Tree \u2192 Sort (max 1 u)",
+      "name": "T04_003.Tree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T04_003.Tree \u2192 Prop} {motive_2 : T04_003.Forest \u2192 Prop} (t : T04_003.Tree),\n  (\u2200 (t : T04_003.Tree), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T04_003.Forest), t.ibelow \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T04_003.Tree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  {motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n    (t : T04_003.Tree) \u2192\n      ((t : T04_003.Tree) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T04_003.Forest) \u2192 t.below \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T04_003.Tree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  (t : T04_003.Tree) \u2192 ((a : T04_003.Forest) \u2192 motive_1 (T04_003.Tree.node a)) \u2192 motive_1 t",
+      "name": "T04_003.Tree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Prop} \u2192 {motive_2 : T04_003.Forest \u2192 Prop} \u2192 T04_003.Tree \u2192 Prop",
+      "name": "T04_003.Tree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T04_003.Tree} \u2192 v1 = v2 \u2192 T04_003.Tree.noConfusionType P v1 v2",
+      "name": "T04_003.Tree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T04_003.Tree \u2192 T04_003.Tree \u2192 Sort u",
+      "name": "T04_003.Tree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_003.Forest \u2192 T04_003.Tree",
+      "name": "T04_003.Tree.node",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T04_003.Forest}, T04_003.Tree.node a = T04_003.Tree.node a_1 \u2192 a = a_1",
+      "name": "T04_003.Tree.node.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T04_003.Forest), (T04_003.Tree.node a = T04_003.Tree.node a_1) = (a = a_1)",
+      "name": "T04_003.Tree.node.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T04_003.Forest), sizeOf (T04_003.Tree.node a) = 1 + sizeOf a",
+      "name": "T04_003.Tree.node.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  {motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n    ((a : T04_003.Forest) \u2192 motive_2 a \u2192 motive_1 (T04_003.Tree.node a)) \u2192\n      motive_2 T04_003.Forest.nil \u2192\n        ((a : T04_003.Tree) \u2192\n            (a_1 : T04_003.Forest) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T04_003.Forest.cons a a_1)) \u2192\n          (t : T04_003.Tree) \u2192 motive_1 t",
+      "name": "T04_003.Tree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T04_003.Tree \u2192 Sort u} \u2192\n  {motive_2 : T04_003.Forest \u2192 Sort u} \u2192\n    (t : T04_003.Tree) \u2192\n      ((a : T04_003.Forest) \u2192 motive_2 a \u2192 motive_1 (T04_003.Tree.node a)) \u2192\n        motive_2 T04_003.Forest.nil \u2192\n          ((a : T04_003.Tree) \u2192\n              (a_1 : T04_003.Forest) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T04_003.Forest.cons a a_1)) \u2192\n            motive_1 t",
+      "name": "T04_003.Tree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_003.evenFrom",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_003.Forest \u2192 Nat",
+      "name": "T04_003.forestSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T04_003.Forest \u2192 Sort u_1) \u2192\n  (x : T04_003.Forest) \u2192\n    (Unit \u2192 motive T04_003.Forest.nil) \u2192\n      ((t : T04_003.Tree) \u2192 (f : T04_003.Forest) \u2192 motive (T04_003.Forest.cons t f)) \u2192 motive x",
+      "name": "T04_003.forestSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T04_003.isEven",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((n : Nat) \u2192 motive n.succ) \u2192 motive x",
+      "name": "T04_003.isEven.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T04_003.isOdd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_003.oddFrom",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_003.Tree \u2192 Nat",
+      "name": "T04_003.treeSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T04_003.Tree \u2192 Sort u_1) \u2192\n  (x : T04_003.Tree) \u2192 ((f : T04_003.Forest) \u2192 motive (T04_003.Tree.node f)) \u2192 motive x",
+      "name": "T04_003.treeSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

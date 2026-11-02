@@ -1,0 +1,28 @@
+diff --git a/xilinx/pack_dsp_xc7.cc b/xilinx/pack_dsp_xc7.cc
+index bb5c5956..3deb60b9 100644
+--- a/xilinx/pack_dsp_xc7.cc
++++ b/xilinx/pack_dsp_xc7.cc
+@@ -31,7 +31,7 @@ void XC7Packer::walk_dsp(CellInfo *root, CellInfo *current_cell, int constr_z)
+         if (ni->users.entries() > 1)
+             log_error("Port %s connected to net %s has more than one user", port.c_str(), ni->name.c_str(ctx));
+ 
+-        PortRef& user = *ni->users.end();
++        PortRef& user = *ni->users.begin();
+         if (user.cell->type != id_DSP48E1_DSP48E1)
+             log_error("User %s of net %s is not a DSP block, but %s",
+                 user.cell->name.c_str(ctx), ni->name.c_str(ctx), user.cell->type.c_str(ctx));
+@@ -43,9 +43,13 @@ void XC7Packer::walk_dsp(CellInfo *root, CellInfo *current_cell, int constr_z)
+         NetInfo *cout_net = port.second.net;
+ 
+         if (cout_net == nullptr) continue;
++        // A cascade-out net that exists but drives NOTHING (a non-cascaded single DSP — e.g. an int8 8×8
++        // multiply) has zero users; the original code fell through to `*users.end()` on an empty store and
++        // aborted (std::out_of_range). No users means no cascade — skip it.
++        if (cout_net->users.entries() == 0) continue;
+ 
+         check_illegal_fanout(cout_net, port.first.c_str(ctx));
+-        PortRef& user = *cout_net->users.end();
++        PortRef& user = *cout_net->users.begin();
+         CellInfo *cout_cell = user.cell;
+         NPNR_ASSERT(cout_cell != nullptr);
+ 

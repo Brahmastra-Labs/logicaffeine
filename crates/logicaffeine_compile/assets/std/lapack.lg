@@ -1,0 +1,1223 @@
+# LAPACK
+
+Dense factorizations in double precision, written in pure LOGOS on top of the naive BLAS
+kernels. Ported faithfully from the netlib reference algorithms, minus the blocking and LDA
+machinery — the supercompiler specializes and unrolls. Reachable today with only the `sqrt`
+builtin: Cholesky, LU (partial pivoting), QR (Householder). SVD awaits the transcendentals
+builtins (`sin`/`cos`/`atan2`) and lands once those are wired through every tier.
+
+Matrices are flattened row-major `Seq of Float`. Factorizations return their factor(s) in the
+same layout — Cholesky's `L` is returned full `n × n` with an explicit zero upper triangle, so
+downstream reconstruction sums range naturally over `p ≤ min(i, j)`. Auto-imported on first
+reference, like every stdlib module.
+
+(NOTE for editors: keep all prose ABOVE the first `## To` — literate Logos strips only the
+leading prose; a paragraph BETWEEN `## To` sections is parsed as code and breaks the module.
+The result-record declarations MUST live under a `## Definition` heading: the prelude splice drops
+everything before the first `## ` section, so a bare leading `A X has:` never reaches the AOT
+backend and a function returning it fails to compile — under `## Definition` it is kept.)
+
+## Note
+The result records the factorizations return: LU factors + pivots, QR's `Q`/`R`, SVD's `U`/`S`/`V`, symmetric eigenpairs, real/imag eigenvalues, and the Schur form `T`/`Z`.
+
+## Definition
+A LuResult has:
+    a lu, which is Seq of Float.
+    a piv, which is Seq of Int.
+
+A QrResult has:
+    a q, which is Seq of Float.
+    a r, which is Seq of Float.
+
+A SvdResult has:
+    a u, which is Seq of Float.
+    a s, which is Seq of Float.
+    a v, which is Seq of Float.
+
+A SymEig has:
+    a vals, which is Seq of Float.
+    a vecs, which is Seq of Float.
+
+An EigVals has:
+    a wr, which is Seq of Float.
+    a wi, which is Seq of Float.
+
+A SchurResult has:
+    a t, which is Seq of Float.
+    a z, which is Seq of Float.
+
+## Note
+Cholesky factorization `A = L·Lᵀ` of a symmetric positive-definite `A`, lower triangle (reference LAPACK `DPOTRF`). Column `j`: `L[j][j] = sqrt(A[j][j] - Σ L[j][k]²)`, below it divide by `L[j][j]`.
+
+## To potrf (n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable el be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to el.
+    Repeat for j from 1 to n:
+        Let mutable d be item ((j - 1) * n + j) of a.
+        Repeat for k from 1 to (j - 1):
+            Let ljk be item ((j - 1) * n + k) of el.
+            Set d to d - ljk * ljk.
+        Let ljj be sqrt(d).
+        Set item ((j - 1) * n + j) of el to ljj.
+        Repeat for i from (j + 1) to n:
+            Let mutable s be item ((i - 1) * n + j) of a.
+            Repeat for k from 1 to (j - 1):
+                Set s to s - (item ((i - 1) * n + k) of el) * (item ((j - 1) * n + k) of el).
+            Set item ((i - 1) * n + j) of el to s / ljj.
+    Return el.
+
+## Note
+LU factorization with partial pivoting `P·A = L·U` (reference LAPACK `DGETRF`). Unit-lower `L` and upper `U` are packed into one `n × n` matrix; row interchanges are returned in `piv`.
+
+## To getrf (n: Int, a: Seq of Float) -> LuResult:
+    Let mutable fac be a.
+    Let mutable pv be a new Seq of Int.
+    Repeat for t from 1 to n:
+        Push 0 to pv.
+    Repeat for k from 1 to n:
+        Let mutable p be k.
+        Let mutable maxv be abs(item ((k - 1) * n + k) of fac).
+        Repeat for i from (k + 1) to n:
+            Let v be abs(item ((i - 1) * n + k) of fac).
+            If v is greater than maxv:
+                Set maxv to v.
+                Set p to i.
+        Set item k of pv to p.
+        If p is not k:
+            Repeat for j from 1 to n:
+                Let tmp be item ((k - 1) * n + j) of fac.
+                Set item ((k - 1) * n + j) of fac to item ((p - 1) * n + j) of fac.
+                Set item ((p - 1) * n + j) of fac to tmp.
+        Let pivot be item ((k - 1) * n + k) of fac.
+        Repeat for i from (k + 1) to n:
+            Let factor be (item ((i - 1) * n + k) of fac) / pivot.
+            Set item ((i - 1) * n + k) of fac to factor.
+            Repeat for j from (k + 1) to n:
+                Set item ((i - 1) * n + j) of fac to (item ((i - 1) * n + j) of fac) - factor * (item ((k - 1) * n + j) of fac).
+    Return a new LuResult with lu fac and piv pv.
+
+## Note
+Solve `A·x = b` from an existing LU factorization (reference LAPACK `DGETRS`): apply the row interchanges to `b`, then forward-substitute through `L` and back-substitute through `U`.
+
+## To getrs (n: Int, f: LuResult, b: Seq of Float) -> Seq of Float:
+    Let fac be f's lu.
+    Let pv be f's piv.
+    Let mutable x be b.
+    Repeat for k from 1 to n:
+        Let p be item k of pv.
+        If p is not k:
+            Let tmp be item k of x.
+            Set item k of x to item p of x.
+            Set item p of x to tmp.
+    Repeat for i from 1 to n:
+        Let mutable s be item i of x.
+        Repeat for j from 1 to (i - 1):
+            Set s to s - (item ((i - 1) * n + j) of fac) * (item j of x).
+        Set item i of x to s.
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set s to s - (item ((i - 1) * n + j) of fac) * (item j of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of fac).
+    Return x.
+
+## Note
+The driver `A·x = b` (reference LAPACK `DGESV`): factor with `getrf`, then solve with `getrs`.
+
+## To gesv (n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let f be getrf(n, a).
+    Return getrs(n, f, b).
+
+## Note
+QR factorization `A = Q·R` of an `m × n` `A` via Householder reflectors, forming `Q` explicitly (reference LAPACK `DGEQRF` + `DORGQR`). `Q` is `m × m` orthogonal, `R` is `m × n` upper-triangular.
+
+## To geqrf (m: Int, n: Int, a: Seq of Float) -> QrResult:
+    Let mutable rmat be a.
+    Let mutable qmat be a new Seq of Float.
+    Repeat for t from 1 to (m * m):
+        Push 0.0 to qmat.
+    Repeat for i from 1 to m:
+        Set item ((i - 1) * m + i) of qmat to 1.0.
+    Repeat for k from 1 to n:
+        Let mutable normx be 0.0.
+        Repeat for i from k to m:
+            Let rik be item ((i - 1) * n + k) of rmat.
+            Set normx to normx + rik * rik.
+        Set normx to sqrt(normx).
+        If normx is greater than 0.0:
+            Let rkk be item ((k - 1) * n + k) of rmat.
+            Let mutable alpha be 0.0 - normx.
+            If rkk is less than 0.0:
+                Set alpha to normx.
+            Let mutable v be a new Seq of Float.
+            Repeat for s from 1 to m:
+                Push 0.0 to v.
+            Set item k of v to rkk - alpha.
+            Repeat for i from (k + 1) to m:
+                Set item i of v to item ((i - 1) * n + k) of rmat.
+            Let mutable vn be 0.0.
+            Repeat for i from k to m:
+                Let vi be item i of v.
+                Set vn to vn + vi * vi.
+            If vn is greater than 0.0:
+                Repeat for j from k to n:
+                    Let mutable d be 0.0.
+                    Repeat for i from k to m:
+                        Set d to d + (item i of v) * (item ((i - 1) * n + j) of rmat).
+                    Let beta be 2.0 * d / vn.
+                    Repeat for i from k to m:
+                        Set item ((i - 1) * n + j) of rmat to (item ((i - 1) * n + j) of rmat) - beta * (item i of v).
+                Repeat for rr from 1 to m:
+                    Let mutable dq be 0.0.
+                    Repeat for i from k to m:
+                        Set dq to dq + (item ((rr - 1) * m + i) of qmat) * (item i of v).
+                    Let betaq be 2.0 * dq / vn.
+                    Repeat for i from k to m:
+                        Set item ((rr - 1) * m + i) of qmat to (item ((rr - 1) * m + i) of qmat) - betaq * (item i of v).
+    Return a new QrResult with q qmat and r rmat.
+
+## Note
+Singular value decomposition `A = U·Σ·Vᵀ` of an `m × n` `A` (`m ≥ n`) by one-sided Jacobi with the tangent rotation, `sqrt` only (reference LAPACK `DGESVJ`). Singular values are returned unordered.
+
+## To svd (m: Int, n: Int, a: Seq of Float) -> SvdResult:
+    Let mutable umat be a.
+    Let mutable vmat be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to vmat.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of vmat to 1.0.
+    Repeat for sweep from 1 to 60:
+        Repeat for p from 1 to (n - 1):
+            Repeat for q from (p + 1) to n:
+                Let mutable alpha be 0.0.
+                Let mutable beta be 0.0.
+                Let mutable gamma be 0.0.
+                Repeat for i from 1 to m:
+                    Let uip be item ((i - 1) * n + p) of umat.
+                    Let uiq be item ((i - 1) * n + q) of umat.
+                    Set alpha to alpha + uip * uip.
+                    Set beta to beta + uiq * uiq.
+                    Set gamma to gamma + uip * uiq.
+                If abs(gamma) is greater than 0.0:
+                    Let zeta be (beta - alpha) / (2.0 * gamma).
+                    Let mutable tsign be 1.0.
+                    If zeta is less than 0.0:
+                        Set tsign to 0.0 - 1.0.
+                    Let tval be tsign / (abs(zeta) + sqrt(1.0 + zeta * zeta)).
+                    Let cval be 1.0 / sqrt(1.0 + tval * tval).
+                    Let sval be cval * tval.
+                    Repeat for i from 1 to m:
+                        Let uip be item ((i - 1) * n + p) of umat.
+                        Let uiq be item ((i - 1) * n + q) of umat.
+                        Set item ((i - 1) * n + p) of umat to cval * uip - sval * uiq.
+                        Set item ((i - 1) * n + q) of umat to sval * uip + cval * uiq.
+                    Repeat for i from 1 to n:
+                        Let vip be item ((i - 1) * n + p) of vmat.
+                        Let viq be item ((i - 1) * n + q) of vmat.
+                        Set item ((i - 1) * n + p) of vmat to cval * vip - sval * viq.
+                        Set item ((i - 1) * n + q) of vmat to sval * vip + cval * viq.
+    Let mutable sig be a new Seq of Float.
+    Repeat for j from 1 to n:
+        Let mutable nrm be 0.0.
+        Repeat for i from 1 to m:
+            Let uij be item ((i - 1) * n + j) of umat.
+            Set nrm to nrm + uij * uij.
+        Set nrm to sqrt(nrm).
+        Push nrm to sig.
+        If nrm is greater than 0.0:
+            Repeat for i from 1 to m:
+                Set item ((i - 1) * n + j) of umat to (item ((i - 1) * n + j) of umat) / nrm.
+    Return a new SvdResult with u umat and s sig and v vmat.
+
+## Note
+Symmetric eigendecomposition `A = V·Λ·Vᵀ` by two-sided cyclic Jacobi with the tangent rotation, `sqrt` only (reference LAPACK `DSYEV`). Eigenvalues and eigenvectors are returned unordered.
+
+## To syev (n: Int, a: Seq of Float) -> SymEig:
+    Let mutable amat be a.
+    Let mutable vmat be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to vmat.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of vmat to 1.0.
+    Repeat for sweep from 1 to 60:
+        Repeat for p from 1 to (n - 1):
+            Repeat for q from (p + 1) to n:
+                Let apq be item ((p - 1) * n + q) of amat.
+                If abs(apq) is greater than 0.0:
+                    Let app be item ((p - 1) * n + p) of amat.
+                    Let aqq be item ((q - 1) * n + q) of amat.
+                    Let theta be (aqq - app) / (2.0 * apq).
+                    Let mutable tsign be 1.0.
+                    If theta is less than 0.0:
+                        Set tsign to 0.0 - 1.0.
+                    Let tval be tsign / (abs(theta) + sqrt(theta * theta + 1.0)).
+                    Let cval be 1.0 / sqrt(tval * tval + 1.0).
+                    Let sval be tval * cval.
+                    Repeat for i from 1 to n:
+                        Let aip be item ((i - 1) * n + p) of amat.
+                        Let aiq be item ((i - 1) * n + q) of amat.
+                        Set item ((i - 1) * n + p) of amat to cval * aip - sval * aiq.
+                        Set item ((i - 1) * n + q) of amat to sval * aip + cval * aiq.
+                    Repeat for j from 1 to n:
+                        Let apj be item ((p - 1) * n + j) of amat.
+                        Let aqj be item ((q - 1) * n + j) of amat.
+                        Set item ((p - 1) * n + j) of amat to cval * apj - sval * aqj.
+                        Set item ((q - 1) * n + j) of amat to sval * apj + cval * aqj.
+                    Repeat for i from 1 to n:
+                        Let vip be item ((i - 1) * n + p) of vmat.
+                        Let viq be item ((i - 1) * n + q) of vmat.
+                        Set item ((i - 1) * n + p) of vmat to cval * vip - sval * viq.
+                        Set item ((i - 1) * n + q) of vmat to sval * vip + cval * viq.
+    Let mutable eig be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Push item ((i - 1) * n + i) of amat to eig.
+    Return a new SymEig with vals eig and vecs vmat.
+
+## Note
+Determinant via the LU factorization (reference LAPACK idiom): the product of `U`'s diagonal,
+negated once for every row interchange the pivoting performed.
+
+## To det (n: Int, a: Seq of Float) -> Float:
+    Let f be getrf(n, a).
+    Let lu be f's lu.
+    Let piv be f's piv.
+    Let mutable d be 1.0.
+    Repeat for i from 1 to n:
+        Set d to d * (item ((i - 1) * n + i) of lu).
+    Repeat for i from 1 to n:
+        If (item i of piv) is not i:
+            Set d to 0.0 - d.
+    Return d.
+
+## Note
+Matrix inverse: solve `A·X = I` one column at a time through a single LU factorization
+(reference LAPACK `DGETRI` in spirit).
+
+## To inv (n: Int, a: Seq of Float) -> Seq of Float:
+    Let f be getrf(n, a).
+    Let mutable result be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to result.
+    Repeat for col from 1 to n:
+        Let mutable e be a new Seq of Float.
+        Repeat for i from 1 to n:
+            Push 0.0 to e.
+        Set item col of e to 1.0.
+        Let x be getrs(n, f, e).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + col) of result to item i of x.
+    Return result.
+
+## Note
+Linear least squares `min ‖A·x − b‖` for an overdetermined `A` (`m ≥ n`) via QR (reference LAPACK
+`DGELS`): with `A = Q·R`, the minimizer solves the upper-triangular `R·x = Qᵀ·b`.
+
+## To lstsq (m: Int, n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let f be geqrf(m, n, a).
+    Let qmat be f's q.
+    Let rmat be f's r.
+    Let mutable c be a new Seq of Float.
+    Repeat for j from 1 to n:
+        Let mutable s be 0.0.
+        Repeat for i from 1 to m:
+            Set s to s + (item ((i - 1) * m + j) of qmat) * (item i of b).
+        Push s to c.
+    Let mutable x be c.
+    Repeat for jj from 1 to n:
+        Let i be n + 1 - jj.
+        Let mutable s be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set s to s - (item ((i - 1) * n + j) of rmat) * (item j of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of rmat).
+    Return x.
+
+## Note
+Inverse of an upper-triangular matrix (reference LAPACK `DTRTRI`, uplo='U'). The result is the
+upper-triangular `X` solving `U·X = I`, computed a column at a time by back substitution.
+
+## To trtri (n: Int, u: Seq of Float) -> Seq of Float:
+    Let mutable x be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to x.
+    Repeat for j from 1 to n:
+        Set item ((j - 1) * n + j) of x to 1.0 / (item ((j - 1) * n + j) of u).
+        Repeat for ii from 1 to (j - 1):
+            Let i be j - ii.
+            Let mutable s be 0.0.
+            Repeat for kk from (i + 1) to j:
+                Set s to s - (item ((i - 1) * n + kk) of u) * (item ((kk - 1) * n + j) of x).
+            Set item ((i - 1) * n + j) of x to s / (item ((i - 1) * n + i) of u).
+    Return x.
+
+## Note
+Frobenius norm `‖A‖_F = sqrt(Σ aᵢⱼ²)` of an `m × n` matrix (reference LAPACK `DLANGE`, 'F').
+
+## To lange (m: Int, n: Int, a: Seq of Float) -> Float:
+    Let mutable acc be 0.0.
+    Repeat for i from 1 to (m * n):
+        Let v be item i of a.
+        Set acc to acc + v * v.
+    Return sqrt(acc).
+
+## Note
+The 2-norm condition number `σ_max / σ_min` of a square matrix, from its singular values
+(reference LAPACK idiom `DGESVD` + ratio). Large values flag near-singularity.
+
+## To cond (n: Int, a: Seq of Float) -> Float:
+    Let f be svd(n, n, a).
+    Let sig be f's s.
+    Let mutable smax be item 1 of sig.
+    Let mutable smin be item 1 of sig.
+    Repeat for i from 2 to n:
+        Let si be item i of sig.
+        If si is greater than smax:
+            Set smax to si.
+        If si is less than smin:
+            Set smin to si.
+    Return smax / smin.
+
+## Note
+Numerical rank: the count of singular values above a relative tolerance `σ_max · 1e-9`
+(reference LAPACK idiom, the SVD-based rank test).
+
+## To rank (m: Int, n: Int, a: Seq of Float) -> Int:
+    Let f be svd(m, n, a).
+    Let sig be f's s.
+    Let mutable smax be 0.0.
+    Repeat for i from 1 to n:
+        Let si be item i of sig.
+        If si is greater than smax:
+            Set smax to si.
+    Let tol be smax * 0.000000001.
+    Let mutable r be 0.
+    Repeat for i from 1 to n:
+        If (item i of sig) is greater than tol:
+            Set r to r + 1.
+    Return r.
+
+## Note
+Moore–Penrose pseudo-inverse `A⁺ = V·Σ⁺·Uᵀ` via the SVD (reference LAPACK `DGESVD`). `Σ⁺` inverts each singular value above tolerance and zeros the rest, the least-squares inverse. Returned `n × m`.
+
+## To pinv (m: Int, n: Int, a: Seq of Float) -> Seq of Float:
+    Let f be svd(m, n, a).
+    Let umat be f's u.
+    Let sig be f's s.
+    Let vmat be f's v.
+    Let mutable result be a new Seq of Float.
+    Repeat for t from 1 to (n * m):
+        Push 0.0 to result.
+    Repeat for j from 1 to n:
+        Repeat for i from 1 to m:
+            Let mutable acc be 0.0.
+            Repeat for l from 1 to n:
+                Let sl be item l of sig.
+                If sl is greater than 0.000000001:
+                    Set acc to acc + (item ((j - 1) * n + l) of vmat) * (item ((i - 1) * n + l) of umat) / sl.
+            Set item ((j - 1) * m + i) of result to acc.
+    Return result.
+
+## Note
+Solve `A·x = b` for a symmetric positive-definite `A` (reference LAPACK `DPOSV`): Cholesky-factor `A = L·Lᵀ`, forward-substitute `L·y = b`, then back-substitute `Lᵀ·x = y`. No pivoting.
+
+## To posv (n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let el be potrf(n, a).
+    Let mutable y be b.
+    Repeat for i from 1 to n:
+        Let mutable fs be item i of y.
+        Repeat for j from 1 to (i - 1):
+            Set fs to fs - (item ((i - 1) * n + j) of el) * (item j of y).
+        Set item i of y to fs / (item ((i - 1) * n + i) of el).
+    Let mutable x be y.
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set s to s - (item ((j - 1) * n + i) of el) * (item j of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of el).
+    Return x.
+
+## Note
+Solve a tridiagonal `A·x = b` by the Thomas algorithm (reference LAPACK `DGTSV`). `A` is three vectors: sub-diagonal `dl` (n-1), diagonal `d` (n), super-diagonal `du` (n-1). O(n) total.
+
+## To gtsv (n: Int, dl: Seq of Float, d: Seq of Float, du: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable cp be du.
+    Let mutable dp be b.
+    Let d1 be item 1 of d.
+    Set item 1 of cp to (item 1 of du) / d1.
+    Set item 1 of dp to (item 1 of b) / d1.
+    Repeat for i from 2 to n:
+        Let denom be (item i of d) - (item (i - 1) of dl) * (item (i - 1) of cp).
+        If i is less than n:
+            Set item i of cp to (item i of du) / denom.
+        Set item i of dp to ((item i of b) - (item (i - 1) of dl) * (item (i - 1) of dp)) / denom.
+    Let mutable x be dp.
+    Repeat for ii from 1 to (n - 1):
+        Let i be n - ii.
+        Set item i of x to (item i of dp) - (item i of cp) * (item (i + 1) of x).
+    Return x.
+
+## Note
+Generalized symmetric-definite eigenproblem `A·x = λ·B·x` (`A` symmetric, `B` SPD; reference LAPACK `DSYGV`). Reduce via `B = L·Lᵀ` to `C = L⁻¹·A·L⁻ᵀ`, `syev(C)`, then back-transform `x = L⁻ᵀ·y`.
+
+## To sygv (n: Int, a: Seq of Float, b: Seq of Float) -> SymEig:
+    Let el be potrf(n, b).
+    Let mutable linv be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to linv.
+    Repeat for col from 1 to n:
+        Let mutable xcol be a new Seq of Float.
+        Repeat for i from 1 to n:
+            Push 0.0 to xcol.
+        Set item col of xcol to 1.0.
+        Repeat for i from 1 to n:
+            Let mutable fs be item i of xcol.
+            Repeat for j from 1 to (i - 1):
+                Set fs to fs - (item ((i - 1) * n + j) of el) * (item j of xcol).
+            Set item i of xcol to fs / (item ((i - 1) * n + i) of el).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + col) of linv to item i of xcol.
+    Let mutable mmat be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to mmat.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for kk from 1 to n:
+                Set s to s + (item ((i - 1) * n + kk) of linv) * (item ((kk - 1) * n + j) of a).
+            Set item ((i - 1) * n + j) of mmat to s.
+    Let mutable cmat be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to cmat.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for kk from 1 to n:
+                Set s to s + (item ((i - 1) * n + kk) of mmat) * (item ((j - 1) * n + kk) of linv).
+            Set item ((i - 1) * n + j) of cmat to s.
+    Let e be syev(n, cmat).
+    Let lam be e's vals.
+    Let yv be e's vecs.
+    Let mutable xv be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to xv.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for kk from 1 to n:
+                Set s to s + (item ((kk - 1) * n + i) of linv) * (item ((kk - 1) * n + j) of yv).
+            Set item ((i - 1) * n + j) of xv to s.
+    Return a new SymEig with vals lam and vecs xv.
+
+## Note
+Eigenvalues of a general real matrix by shifted QR toward real Schur form (reference LAPACK `DGEEV`): real eigenvalues off the diagonal, complex pairs from `2×2` blocks. Real `wr`, imaginary `wi`.
+
+## To geev (n: Int, a: Seq of Float) -> EigVals:
+    Let mutable h be a.
+    Repeat for iter from 1 to 500:
+        Let mu be item ((n - 1) * n + n) of h.
+        Let mutable hs be h.
+        Repeat for d from 1 to n:
+            Set item ((d - 1) * n + d) of hs to (item ((d - 1) * n + d) of hs) - mu.
+        Let f be geqrf(n, n, hs).
+        Let qm be f's q.
+        Let rm be f's r.
+        Let mutable hn be a new Seq of Float.
+        Repeat for t from 1 to (n * n):
+            Push 0.0 to hn.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable s be 0.0.
+                Repeat for kk from 1 to n:
+                    Set s to s + (item ((i - 1) * n + kk) of rm) * (item ((kk - 1) * n + j) of qm).
+                Set item ((i - 1) * n + j) of hn to s.
+        Repeat for d from 1 to n:
+            Set item ((d - 1) * n + d) of hn to (item ((d - 1) * n + d) of hn) + mu.
+        Set h to hn.
+    Let mutable reals be a new Seq of Float.
+    Let mutable imags be a new Seq of Float.
+    Repeat for t from 1 to n:
+        Push 0.0 to reals.
+        Push 0.0 to imags.
+    Let mutable idx be 1.
+    While idx is less than (n + 1):
+        Let mutable sub be 0.0.
+        If idx is less than n:
+            Set sub to abs(item (idx * n + idx) of h).
+        If sub is less than 0.00000001:
+            Set item idx of reals to item ((idx - 1) * n + idx) of h.
+            Set idx to idx + 1.
+        Otherwise:
+            Let pp be item ((idx - 1) * n + idx) of h.
+            Let qq be item ((idx - 1) * n + (idx + 1)) of h.
+            Let rr be item (idx * n + idx) of h.
+            Let ss be item (idx * n + (idx + 1)) of h.
+            Let tr be pp + ss.
+            Let dt be pp * ss - qq * rr.
+            Let disc be tr * tr / 4.0 - dt.
+            If disc is less than 0.0:
+                Let re be tr / 2.0.
+                Let im be sqrt(0.0 - disc).
+                Set item idx of reals to re.
+                Set item idx of imags to im.
+                Set item (idx + 1) of reals to re.
+                Set item (idx + 1) of imags to 0.0 - im.
+            Otherwise:
+                Let sq be sqrt(disc).
+                Set item idx of reals to tr / 2.0 + sq.
+                Set item (idx + 1) of reals to tr / 2.0 - sq.
+            Set idx to idx + 2.
+    Return a new EigVals with wr reals and wi imags.
+
+## Note
+Induced 1-norm `‖A‖₁ = max column-sum of |aᵢⱼ|` (reference LAPACK `DLANGE`, '1').
+
+## To norm1 (m: Int, n: Int, a: Seq of Float) -> Float:
+    Let mutable best be 0.0.
+    Repeat for j from 1 to n:
+        Let mutable colsum be 0.0.
+        Repeat for i from 1 to m:
+            Set colsum to colsum + abs(item ((i - 1) * n + j) of a).
+        If colsum is greater than best:
+            Set best to colsum.
+    Return best.
+
+## Note
+Induced ∞-norm `‖A‖∞ = max row-sum of |aᵢⱼ|` (reference LAPACK `DLANGE`, 'I').
+
+## To normInf (m: Int, n: Int, a: Seq of Float) -> Float:
+    Let mutable best be 0.0.
+    Repeat for i from 1 to m:
+        Let mutable rowsum be 0.0.
+        Repeat for j from 1 to n:
+            Set rowsum to rowsum + abs(item ((i - 1) * n + j) of a).
+        If rowsum is greater than best:
+            Set best to rowsum.
+    Return best.
+
+## Note
+Max entrywise norm `max |aᵢⱼ|` (reference LAPACK `DLANGE`, 'M').
+
+## To normMax (m: Int, n: Int, a: Seq of Float) -> Float:
+    Let mutable best be 0.0.
+    Repeat for i from 1 to (m * n):
+        Let v be abs(item i of a).
+        If v is greater than best:
+            Set best to v.
+    Return best.
+
+## Note
+Solve `A·x = b` from an existing Cholesky factor `L` (`A = L·Lᵀ`), reference LAPACK `DPOTRS`:
+forward-substitute `L·y = b`, then back-substitute `Lᵀ·x = y` (reading `Lᵀ[i][j]` as `L[j][i]`).
+
+## To potrs (n: Int, el: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable y be b.
+    Repeat for i from 1 to n:
+        Let mutable fs be item i of y.
+        Repeat for j from 1 to (i - 1):
+            Set fs to fs - (item ((i - 1) * n + j) of el) * (item j of y).
+        Set item i of y to fs / (item ((i - 1) * n + i) of el).
+    Let mutable x be y.
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set s to s - (item ((j - 1) * n + i) of el) * (item j of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of el).
+    Return x.
+
+## Note
+Inverse of a symmetric positive-definite matrix through its Cholesky factor (reference LAPACK `DPOTRI`): solve `A·X = I` one column at a time with `potrs`. Cheaper and more stable than `inv` for SPD.
+
+## To potri (n: Int, a: Seq of Float) -> Seq of Float:
+    Let el be potrf(n, a).
+    Let mutable result be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to result.
+    Repeat for col from 1 to n:
+        Let mutable ecol be a new Seq of Float.
+        Repeat for i from 1 to n:
+            Push 0.0 to ecol.
+        Set item col of ecol to 1.0.
+        Let x be potrs(n, el, ecol).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + col) of result to item i of x.
+    Return result.
+
+## Note
+Inverse of a lower-triangular matrix (reference LAPACK `DTRTRI`, uplo='L'). The result is the
+lower-triangular `X` solving `L·X = I`, filled a column at a time by forward substitution.
+
+## To trtriLower (n: Int, el: Seq of Float) -> Seq of Float:
+    Let mutable x be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to x.
+    Repeat for j from 1 to n:
+        Set item ((j - 1) * n + j) of x to 1.0 / (item ((j - 1) * n + j) of el).
+        Repeat for i from (j + 1) to n:
+            Let mutable s be 0.0.
+            Repeat for kk from j to (i - 1):
+                Set s to s - (item ((i - 1) * n + kk) of el) * (item ((kk - 1) * n + j) of x).
+            Set item ((i - 1) * n + j) of x to s / (item ((i - 1) * n + i) of el).
+    Return x.
+
+## Note
+Trace: the sum of the diagonal entries of an `n × n` matrix. (Named `matTrace` to avoid
+colliding with programs that use `trace` as an ordinary identifier.)
+
+## To matTrace (n: Int, a: Seq of Float) -> Float:
+    Let mutable t be 0.0.
+    Repeat for i from 1 to n:
+        Set t to t + (item ((i - 1) * n + i) of a).
+    Return t.
+
+## Note
+Integer matrix power `A^k` by repeated multiplication (`A^0` is the identity).
+
+## To matpow (n: Int, a: Seq of Float, k: Int) -> Seq of Float:
+    Let mutable result be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to result.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of result to 1.0.
+    Repeat for p from 1 to k:
+        Let mutable nx be a new Seq of Float.
+        Repeat for t from 1 to (n * n):
+            Push 0.0 to nx.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable acc be 0.0.
+                Repeat for kk from 1 to n:
+                    Set acc to acc + (item ((i - 1) * n + kk) of result) * (item ((kk - 1) * n + j) of a).
+                Set item ((i - 1) * n + j) of nx to acc.
+        Set result to nx.
+    Return result.
+
+## Note
+Kronecker product `A ⊗ B`: an `m × n` `A` and a `p × q` `B` give an `(mp) × (nq)` block matrix
+whose `(i,j)` block is `A[i][j] · B`. All row-major.
+
+## To kron (m: Int, n: Int, p: Int, q: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let cols be n * q.
+    Let mutable out be a new Seq of Float.
+    Repeat for t from 1 to (m * p * n * q):
+        Push 0.0 to out.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Let aij be item ((i - 1) * n + j) of a.
+            Repeat for r from 1 to p:
+                Repeat for sc from 1 to q:
+                    Let row be (i - 1) * p + r.
+                    Let col be (j - 1) * q + sc.
+                    Set item ((row - 1) * cols + col) of out to aij * (item ((r - 1) * q + sc) of b).
+    Return out.
+
+## Note
+Matrix exponential `e^A` by scaling-and-squaring with a Taylor series (dense `expm`). Scale `A` by `2^s` until its ∞-norm `≤ 1/2`, sum `I + A/2ˢ + (A/2ˢ)²/2! + …`, square `s` times. No transcendental.
+
+## To expm (n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable nrm be 0.0.
+    Repeat for i from 1 to n:
+        Let mutable rowsum be 0.0.
+        Repeat for j from 1 to n:
+            Set rowsum to rowsum + abs(item ((i - 1) * n + j) of a).
+        If rowsum is greater than nrm:
+            Set nrm to rowsum.
+    Let mutable s be 0.
+    Let mutable scale be 1.0.
+    While (nrm / scale) is greater than 0.5:
+        Set s to s + 1.
+        Set scale to scale * 2.0.
+    Let mutable ascaled be a.
+    Repeat for i from 1 to (n * n):
+        Set item i of ascaled to (item i of ascaled) / scale.
+    Let mutable result be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to result.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of result to 1.0.
+    Let mutable term be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to term.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of term to 1.0.
+    Repeat for k from 1 to 18:
+        Let mutable newterm be a new Seq of Float.
+        Repeat for t from 1 to (n * n):
+            Push 0.0 to newterm.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable acc be 0.0.
+                Repeat for kk from 1 to n:
+                    Set acc to acc + (item ((i - 1) * n + kk) of term) * (item ((kk - 1) * n + j) of ascaled).
+                Set item ((i - 1) * n + j) of newterm to acc / k.
+        Set term to newterm.
+        Repeat for i from 1 to (n * n):
+            Set item i of result to (item i of result) + (item i of term).
+    Repeat for sq from 1 to s:
+        Let mutable sqr be a new Seq of Float.
+        Repeat for t from 1 to (n * n):
+            Push 0.0 to sqr.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable acc be 0.0.
+                Repeat for kk from 1 to n:
+                    Set acc to acc + (item ((i - 1) * n + kk) of result) * (item ((kk - 1) * n + j) of result).
+                Set item ((i - 1) * n + j) of sqr to acc.
+        Set result to sqr.
+    Return result.
+
+## Note
+The `n × n` identity matrix.
+
+## To eye (n: Int) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to out.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of out to 1.0.
+    Return out.
+
+## Note
+Transpose of an `m × n` matrix (row-major), giving an `n × m` matrix.
+
+## To transpose (m: Int, n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for t from 1 to (m * n):
+        Push 0.0 to out.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Set item ((j - 1) * m + i) of out to item ((i - 1) * n + j) of a.
+    Return out.
+
+## Note
+Elementwise matrix sum `A + B`.
+
+## To matadd (m: Int, n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to (m * n):
+        Let v be (item i of a) + (item i of b).
+        Push v to out.
+    Return out.
+
+## Note
+Elementwise matrix difference `A - B`.
+
+## To matsub (m: Int, n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to (m * n):
+        Let v be (item i of a) - (item i of b).
+        Push v to out.
+    Return out.
+
+## Note
+Hadamard (elementwise) product `A ∘ B`.
+
+## To hadamard (m: Int, n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to (m * n):
+        Let v be (item i of a) * (item i of b).
+        Push v to out.
+    Return out.
+
+## Note
+Outer product `x · yᵀ` of an `m`-vector and an `n`-vector, giving an `m × n` matrix. (Named
+`outerProduct` to avoid colliding with programs that use `outer` as an ordinary identifier.)
+
+## To outerProduct (m: Int, n: Int, x: Seq of Float, y: Seq of Float) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Let v be (item i of x) * (item j of y).
+            Push v to out.
+    Return out.
+
+## Note
+Extract the diagonal of an `n × n` matrix as a length-`n` vector.
+
+## To diagOf (n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Let v be item ((i - 1) * n + i) of a.
+        Push v to out.
+    Return out.
+
+## Note
+Matrix square root `X` with `X·X = A` by the Denman–Beavers iteration (dense `sqrtm`): `Y ← ½(Y + Z⁻¹)`, `Z ← ½(Z + Y⁻¹)` from `Y=A`, `Z=I`, so `Y → A^½`. Needs eigenvalues off the negative real axis.
+
+## To sqrtm (n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable y be a.
+    Let mutable z be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to z.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of z to 1.0.
+    Repeat for iter from 1 to 40:
+        Let yi be inv(n, y).
+        Let zi be inv(n, z).
+        Let mutable ynew be a new Seq of Float.
+        Let mutable znew be a new Seq of Float.
+        Repeat for t from 1 to (n * n):
+            Push 0.0 to ynew.
+            Push 0.0 to znew.
+        Repeat for i from 1 to (n * n):
+            Let yv be 0.5 * ((item i of y) + (item i of zi)).
+            Let zv be 0.5 * ((item i of z) + (item i of yi)).
+            Set item i of ynew to yv.
+            Set item i of znew to zv.
+        Set y to ynew.
+        Set z to znew.
+    Return y.
+
+## Note
+Minimum-norm least squares `min ‖A·x − b‖` via the pseudo-inverse `x = A⁺·b` (reference LAPACK `DGELSD`). Unlike QR-based `lstsq`, handles rank-deficient `A` since the SVD zeros tiny singular values.
+
+## To gelsd (m: Int, n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let p be pinv(m, n, a).
+    Let mutable x be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Let mutable s be 0.0.
+        Repeat for j from 1 to m:
+            Set s to s + (item ((i - 1) * m + j) of p) * (item j of b).
+        Push s to x.
+    Return x.
+
+## Note
+Normalize a vector to unit Euclidean length `x / ‖x‖`.
+
+## To normalize (n: Int, x: Seq of Float) -> Seq of Float:
+    Let mutable ss be 0.0.
+    Repeat for i from 1 to n:
+        Set ss to ss + (item i of x) * (item i of x).
+    Let nrm be sqrt(ss).
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Let v be (item i of x) / nrm.
+        Push v to out.
+    Return out.
+
+## Note
+The 3-D vector cross product `x × y`.
+
+## To cross (x: Seq of Float, y: Seq of Float) -> Seq of Float:
+    Let x1 be item 1 of x.
+    Let x2 be item 2 of x.
+    Let x3 be item 3 of x.
+    Let y1 be item 1 of y.
+    Let y2 be item 2 of y.
+    Let y3 be item 3 of y.
+    Let c1 be x2 * y3 - x3 * y2.
+    Let c2 be x3 * y1 - x1 * y3.
+    Let c3 be x1 * y2 - x2 * y1.
+    Let mutable out be a new Seq of Float.
+    Push c1 to out.
+    Push c2 to out.
+    Push c3 to out.
+    Return out.
+
+## Note
+Upper-Hessenberg reduction `H = Qᵀ·A·Q` by two-sided Householder reflectors (reference LAPACK `DGEHRD`), a similarity transform preserving eigenvalues. Symmetric `A` reduces to tridiagonal. Sqrt-only.
+
+## To hessenberg (n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable h be a.
+    Repeat for k from 1 to (n - 2):
+        Let mutable normx be 0.0.
+        Repeat for i from (k + 1) to n:
+            Let hik be item ((i - 1) * n + k) of h.
+            Set normx to normx + hik * hik.
+        Set normx to sqrt(normx).
+        If normx is greater than 0.0:
+            Let hk1k be item (k * n + k) of h.
+            Let mutable alpha be 0.0 - normx.
+            If hk1k is less than 0.0:
+                Set alpha to normx.
+            Let mutable v be a new Seq of Float.
+            Repeat for t from 1 to n:
+                Push 0.0 to v.
+            Set item (k + 1) of v to hk1k - alpha.
+            Repeat for i from (k + 2) to n:
+                Set item i of v to item ((i - 1) * n + k) of h.
+            Let mutable vn be 0.0.
+            Repeat for i from (k + 1) to n:
+                Let vi be item i of v.
+                Set vn to vn + vi * vi.
+            If vn is greater than 0.0:
+                Repeat for j from 1 to n:
+                    Let mutable d be 0.0.
+                    Repeat for i from (k + 1) to n:
+                        Set d to d + (item i of v) * (item ((i - 1) * n + j) of h).
+                    Let beta be 2.0 * d / vn.
+                    Repeat for i from (k + 1) to n:
+                        Set item ((i - 1) * n + j) of h to (item ((i - 1) * n + j) of h) - beta * (item i of v).
+                Repeat for r from 1 to n:
+                    Let mutable dd be 0.0.
+                    Repeat for j from (k + 1) to n:
+                        Set dd to dd + (item ((r - 1) * n + j) of h) * (item j of v).
+                    Let betar be 2.0 * dd / vn.
+                    Repeat for j from (k + 1) to n:
+                        Set item ((r - 1) * n + j) of h to (item ((r - 1) * n + j) of h) - betar * (item j of v).
+    Return h.
+
+## Note
+Polar decomposition `A = Q·H` (`Q` orthogonal, `H` symmetric PSD): the factor `Q = U·Vᵀ` from the SVD is the nearest orthogonal matrix to `A`, re-orthonormalizing a drifted rotation. Returns `Q`.
+
+## To polar (n: Int, a: Seq of Float) -> Seq of Float:
+    Let f be svd(n, n, a).
+    Let umat be f's u.
+    Let vmat be f's v.
+    Let mutable q be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to q.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for k from 1 to n:
+                Set s to s + (item ((i - 1) * n + k) of umat) * (item ((j - 1) * n + k) of vmat).
+            Set item ((i - 1) * n + j) of q to s.
+    Return q.
+
+## Note
+Gram–Schmidt orthonormalization of the `n` columns of an `m × n` matrix, giving a matrix whose
+columns are orthonormal (the modified projection subtracts each earlier column as it goes).
+
+## To gramSchmidt (m: Int, n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable q be a.
+    Repeat for j from 1 to n:
+        Repeat for k from 1 to (j - 1):
+            Let mutable r be 0.0.
+            Repeat for i from 1 to m:
+                Set r to r + (item ((i - 1) * n + k) of q) * (item ((i - 1) * n + j) of q).
+            Repeat for i from 1 to m:
+                Set item ((i - 1) * n + j) of q to (item ((i - 1) * n + j) of q) - r * (item ((i - 1) * n + k) of q).
+        Let mutable nrm be 0.0.
+        Repeat for i from 1 to m:
+            Let qij be item ((i - 1) * n + j) of q.
+            Set nrm to nrm + qij * qij.
+        Set nrm to sqrt(nrm).
+        Repeat for i from 1 to m:
+            Set item ((i - 1) * n + j) of q to (item ((i - 1) * n + j) of q) / nrm.
+    Return q.
+
+## Note
+Real Schur decomposition `A = Z·T·Zᵀ` (reference LAPACK `DGEES`): `T` quasi-upper-triangular (diagonal/`2×2` blocks carry the eigenvalues), `Z` orthogonal. The `geev` shifted-QR accumulating `Z`.
+
+## To schur (n: Int, a: Seq of Float) -> SchurResult:
+    Let mutable tmat be a.
+    Let mutable zmat be a new Seq of Float.
+    Repeat for w from 1 to (n * n):
+        Push 0.0 to zmat.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of zmat to 1.0.
+    Repeat for iter from 1 to 500:
+        Let mu be item ((n - 1) * n + n) of tmat.
+        Let mutable ts be tmat.
+        Repeat for d from 1 to n:
+            Set item ((d - 1) * n + d) of ts to (item ((d - 1) * n + d) of ts) - mu.
+        Let f be geqrf(n, n, ts).
+        Let qm be f's q.
+        Let rm be f's r.
+        Let mutable tn be a new Seq of Float.
+        Repeat for w from 1 to (n * n):
+            Push 0.0 to tn.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable s be 0.0.
+                Repeat for kk from 1 to n:
+                    Set s to s + (item ((i - 1) * n + kk) of rm) * (item ((kk - 1) * n + j) of qm).
+                Set item ((i - 1) * n + j) of tn to s.
+        Repeat for d from 1 to n:
+            Set item ((d - 1) * n + d) of tn to (item ((d - 1) * n + d) of tn) + mu.
+        Set tmat to tn.
+        Let mutable zn be a new Seq of Float.
+        Repeat for w from 1 to (n * n):
+            Push 0.0 to zn.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable s be 0.0.
+                Repeat for kk from 1 to n:
+                    Set s to s + (item ((i - 1) * n + kk) of zmat) * (item ((kk - 1) * n + j) of qm).
+                Set item ((i - 1) * n + j) of zn to s.
+        Set zmat to zn.
+    Return a new SchurResult with t tmat and z zmat.
+
+## Note
+Right eigenvectors of a general real matrix with a REAL spectrum (reference LAPACK `DGEEV`). From the Schur form `A = Z·T·Zᵀ`, back-substitute each `T`-eigenvector, map `x = Z·y`, normalize.
+
+## To eigVectors (n: Int, a: Seq of Float) -> SymEig:
+    Let sr be schur(n, a).
+    Let tmat be sr's t.
+    Let zmat be sr's z.
+    Let mutable eigvals be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Push item ((i - 1) * n + i) of tmat to eigvals.
+    Let mutable eigvecs be a new Seq of Float.
+    Repeat for w from 1 to (n * n):
+        Push 0.0 to eigvecs.
+    Repeat for col from 1 to n:
+        Let lam be item ((col - 1) * n + col) of tmat.
+        Let mutable y be a new Seq of Float.
+        Repeat for w from 1 to n:
+            Push 0.0 to y.
+        Set item col of y to 1.0.
+        Repeat for kk from 1 to (col - 1):
+            Let k be col - kk.
+            Let mutable s be 0.0.
+            Repeat for j from (k + 1) to col:
+                Set s to s + (item ((k - 1) * n + j) of tmat) * (item j of y).
+            Let denom be (item ((k - 1) * n + k) of tmat) - lam.
+            Set item k of y to (0.0 - s) / denom.
+        Repeat for i from 1 to n:
+            Let mutable xi be 0.0.
+            Repeat for j from 1 to n:
+                Set xi to xi + (item ((i - 1) * n + j) of zmat) * (item j of y).
+            Set item ((i - 1) * n + col) of eigvecs to xi.
+        Let mutable nrm be 0.0.
+        Repeat for i from 1 to n:
+            Let vic be item ((i - 1) * n + col) of eigvecs.
+            Set nrm to nrm + vic * vic.
+        Set nrm to sqrt(nrm).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + col) of eigvecs to (item ((i - 1) * n + col) of eigvecs) / nrm.
+    Return a new SymEig with vals eigvals and vecs eigvecs.
+
+## Note
+Spectral radius `max |λ|` — the largest eigenvalue magnitude (from `geev`, over the complex
+`wr + i·wi`). Governs the convergence of iterations `xₖ₊₁ = A·xₖ`.
+
+## To spectralRadius (n: Int, a: Seq of Float) -> Float:
+    Let e be geev(n, a).
+    Let er be e's wr.
+    Let ei be e's wi.
+    Let mutable best be 0.0.
+    Repeat for i from 1 to n:
+        Let re be item i of er.
+        Let im be item i of ei.
+        Let mag be sqrt(re * re + im * im).
+        If mag is greater than best:
+            Set best to mag.
+    Return best.
+
+## Note
+Operator 2-norm `‖A‖₂` — the largest singular value (from `svd`).
+
+## To matrixNorm2 (n: Int, a: Seq of Float) -> Float:
+    Let f be svd(n, n, a).
+    Let sig be f's s.
+    Let mutable best be 0.0.
+    Repeat for i from 1 to n:
+        Let si be item i of sig.
+        If si is greater than best:
+            Set best to si.
+    Return best.
+
+## Note
+Positive-definiteness test for a symmetric matrix: true when every eigenvalue is positive
+(from `syev`).
+
+## To isPosDef (n: Int, a: Seq of Float) -> Bool:
+    Let e be syev(n, a).
+    Let ev be e's vals.
+    Let mutable ok be true.
+    Repeat for i from 1 to n:
+        If (item i of ev) is less than 0.000001:
+            Set ok to false.
+    Return ok.
+
+## Note
+Matrix logarithm `log(A)`, the inverse of `expm`, by inverse scaling-and-squaring (dense `logm`). Take square roots until `A` is near `I`, sum `log(I+X)` on `X = A^(1/2ᵏ) − I`, scale by `2ᵏ`. No log.
+
+## To logm (n: Int, a: Seq of Float) -> Seq of Float:
+    Let mutable m be a.
+    Let mutable kk be 0.
+    Let mutable dist be 1.0.
+    While dist is greater than 0.3:
+        Let mutable dsum be 0.0.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable e be item ((i - 1) * n + j) of m.
+                If i is equal to j:
+                    Set e to e - 1.0.
+                Set dsum to dsum + e * e.
+        Set dist to sqrt(dsum).
+        If dist is greater than 0.3:
+            Set m to sqrtm(n, m).
+            Set kk to kk + 1.
+        If kk is greater than 30:
+            Set dist to 0.0.
+    Let mutable x be m.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of x to (item ((i - 1) * n + i) of x) - 1.0.
+    Let mutable result be x.
+    Let mutable term be x.
+    Let mutable sgn be 0.0 - 1.0.
+    Repeat for p from 2 to 16:
+        Let mutable tn be a new Seq of Float.
+        Repeat for w from 1 to (n * n):
+            Push 0.0 to tn.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable s be 0.0.
+                Repeat for c from 1 to n:
+                    Set s to s + (item ((i - 1) * n + c) of term) * (item ((c - 1) * n + j) of x).
+                Set item ((i - 1) * n + j) of tn to s.
+        Set term to tn.
+        Let coef be sgn / p.
+        Repeat for i from 1 to (n * n):
+            Set item i of result to (item i of result) + coef * (item i of term).
+        Set sgn to 0.0 - sgn.
+    Let mutable scale be 1.0.
+    Repeat for p from 1 to kk:
+        Set scale to scale * 2.0.
+    Repeat for i from 1 to (n * n):
+        Set item i of result to (item i of result) * scale.
+    Return result.
+
+## Note
+Real matrix power `Aᵗ = expm(t · log(A))` for any real `t`, composing `logm` and `expm`. `t = ½` gives the square root, `t = 2` the square, `t = -1` the inverse, fractional `t` a fractional power.
+
+## To matPowReal (n: Int, a: Seq of Float, t: Float) -> Seq of Float:
+    Let la be logm(n, a).
+    Let mutable tla be la.
+    Repeat for i from 1 to (n * n):
+        Set item i of tla to (item i of tla) * t.
+    Return expm(n, tla).
+
+## Note
+Eigenvalues of a real symmetric TRIDIAGONAL matrix (reference LAPACK `DSTEV`): diagonal `d` (length `n`), off-diagonal `e` (length `n−1`). Assembles the dense tridiagonal and diagonalizes with `syev`.
+
+## To stev (n: Int, d: Seq of Float, e: Seq of Float) -> Seq of Float:
+    Let mutable a be a new Seq of Float.
+    Repeat for t from 1 to (n * n):
+        Push 0.0 to a.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of a to item i of d.
+    Repeat for i from 1 to (n - 1):
+        Set item ((i - 1) * n + (i + 1)) of a to item i of e.
+        Set item (i * n + i) of a to item i of e.
+    Let ev be syev(n, a).
+    Return ev's vals.
+
+## Note
+Matrix-form linear solve — the digital half of the four-fabric `Solve` statement (`Solve M times x equals v for x.` desugars to this): row-major flatten, then `gesv`.
+
+The relaxation fabric's settling solver is the certificate-gated ACCELERATOR for
+the same equation; this exact path is the correctness story.
+## To solveLinear (a: Seq of Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let n be the length of b.
+    Let mutable flat be a new Seq of Float.
+    Repeat for each row in a:
+        Repeat for each cell in row:
+            Push cell to flat.
+    Return gesv(n, flat, b).
+
+## Note
+Exact minimizer of the strongly convex quadratic `½·xᵀ·Q·x + bᵀ·x` — the digital half of the `Minimize` statement: the gradient vanishes at `Q·x = −b`, so the minimizer IS a linear solve.
+
+The soft-spin/gradient-flow fabrics accelerate; this is the answer they are
+judged against.
+## To minimizeQuadratic (q: Seq of Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable nb be a new Seq of Float.
+    Repeat for each c in b:
+        Push 0.0 - c to nb.
+    Return solveLinear(q, nb).

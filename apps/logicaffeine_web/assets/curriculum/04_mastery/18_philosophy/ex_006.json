@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "This view was influentially criticized by Frege and Husserl.",
-  "explanation": "Psychologism claims logical laws are psychological generalizations about human reasoning. Frege and Husserl argued this confuses logic's normative force (how we SHOULD reason) with descriptive psychology (how we DO reason). Humans often reason illogically - that doesn't change logical truth.",
-  "visual_concept": "We commit fallacies all the time. If logic were just psychology, those fallacies would be 'logical' for us. But they're not - logic judges our reasoning."
+  "explanation": "Psychologism takes logical laws to describe how people think. Frege and Husserl replied that logic says how we should think, and people often reason badly.",
+  "visual_concept": "We commit fallacies all the time. If logic were just psychology, those fallacies would be 'logical' for us. But they're not - logic judges our reasoning.",
+  "section": "18.3"
 }

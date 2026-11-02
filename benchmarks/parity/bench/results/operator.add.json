@@ -1,0 +1,12 @@
+{
+  "capability": "operator.add",
+  "timing_n": "892914693",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "c": 618.327,
+    "go": 1745.912,
+    "rust": 6285.788
+  },
+  "min_speedup": 618.327
+}

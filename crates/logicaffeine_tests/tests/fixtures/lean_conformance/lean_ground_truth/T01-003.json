@@ -1,0 +1,125 @@
+{
+  "case": "T01-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 13,
+  "declarations": [
+    {
+      "type": "True \u2192 True",
+      "name": "T01_003.atProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T01_003.atTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T01_003.atTypeZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Prop",
+      "name": "T01_003.polyAxiom",
+      "levels": [
+        "u"
+      ],
+      "kind": "axiom",
+      "axioms": [
+        "T01_003.polyAxiom"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_003.polyId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T01_003.polyInBodyOnly",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T01_003.polyPair",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type v",
+      "name": "T01_003.polySecond",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_003.polyTypeId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_003.usesPolyAxiom",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "T01_003.polyAxiom"
+      ]
+    },
+    {
+      "type": "Prop",
+      "name": "T01_003.usesPolyAxiomAtProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "T01_003.polyAxiom"
+      ]
+    },
+    {
+      "type": "Sort w \u2192 Sort w",
+      "name": "T01_003.usesW1",
+      "levels": [
+        "w"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort w \u2192 Sort w",
+      "name": "T01_003.usesW2",
+      "levels": [
+        "w"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

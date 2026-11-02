@@ -1,0 +1,124 @@
+{
+  "case": "T09-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 16,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), \u27e6n\u27e7 = \u27e6n\u27e7",
+      "name": "T09_001.bracketing",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y z : Nat), ((x \u2295 y) \u2295 z) = (x \u2295 y) \u2295 z",
+      "name": "T09_001.compoundArgument",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Prop",
+      "name": "T09_001.divides",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), (x \u2295 0) = x",
+      "name": "T09_001.inTacticProof",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_001.myOp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), (a \u2295 b) = a + b * 2",
+      "name": "T09_001.myOp.eq_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_001.myOther",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat), (x \u2295 y) = x \u2295 y",
+      "name": "T09_001.notationIsTransparent",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y z : Nat), (x \u2295 y \u2297 z) = x \u2295 y \u2297 z",
+      "name": "T09_001.precedenceMatters",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), (a \u2223\u2223 b) \u2194 a \u2223\u2223 b",
+      "name": "T09_001.propNotation",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_001.wrap",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat), (x \u2295 y) = x \u2295 y",
+      "name": "T09_001.writtenOut",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_001.\u00abterm_\u2223\u2223_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_001.\u00abterm_\u2295_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_001.\u00abterm_\u2297_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_001.\u00abterm\u27e6_\u27e7\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

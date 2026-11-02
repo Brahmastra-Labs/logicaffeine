@@ -1,0 +1,31 @@
+Bitstream Id                     : 0x123450789ABCDEF
+Pr Interface Id                  : eeeeeeee-eeee-eeee-2222-222222222222
+ ------- Command line Input START ----
+ 
+ Freq High             : 100
+ Freq Low              : 50
+ ------- Command line Input END   ----
+
+AFU Resource found.
+
+Approximate frequency:
+High clock = 100.0 MHz
+Low clock  =  50.0 MHz
+ 
+
+Approximate frequency:
+High clock = 100.0 MHz
+Low clock  =  50.0 MHz
+ 
+afu-vf.sh: the accelerator is 0000:01:00.2 with no driver bound (no IOMMU: a program run as root drives it through sw/logos_hal_pci.c)
+logos_step: position 0 of 8, token 760: 12572283 cycles
+logos_step: position 1 of 8, token 6511: 12583493 cycles
+logos_step: position 2 of 8, token 314: 12595664 cycles
+logos_step: position 3 of 8, token 9338: 12606310 cycles
+logos_step: position 4 of 8, token 369: 12617828 cycles
+logos_step: position 5 of 8, token 11751: 12631735 cycles
+logos_step: position 6 of 8, token 13: 12639710 cycles
+{"tokens": [760, 6511, 314, 9338, 369, 11751, 13, 198], "sequences": [[760, 6511, 314, 9338, 369, 11751, 13, 198]], "prompt": 5, "cycles": [12572283, 12583493, 12595664, 12606310, 12617828, 12631735, 12639710, 12651453], "faults": 0, "checks_failed": 0}
+logos_step: position 7 of 8, token 198: 12651453 cycles
+card-step-flat.sh: exit 0 after 43 s at 100 MHz
+afu-vf.sh: 0000:01:00.0 is back on dfl-pci

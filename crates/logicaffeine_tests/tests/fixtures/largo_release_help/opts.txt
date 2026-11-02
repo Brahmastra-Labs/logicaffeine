@@ -1,0 +1,47 @@
+Report which optimizations actually fire when compiling a LOGOS file.
+
+Compiles the file on the AOT, run-path, and VM-compile paths with the firing trace on, and lists the optimizations that genuinely changed the program (not merely the ones that are enabled). Useful for understanding and auditing what the compiler did to a given program.
+
+# Example
+
+```bash largo opts src/main.lg largo opts src/main.lg --json largo opts src/main.lg --json --jit -- 1000 ```
+
+Usage: largo opts [OPTIONS] <FILE> [-- <ARGS>...]
+
+Arguments:
+  <FILE>
+          The `.lg` source file to analyze
+
+  [ARGS]...
+          Arguments presented to the traced program after `argv[0]`
+
+Options:
+      --json
+          Emit the fired optimizations as JSON (keyword list)
+
+      --jit
+          Execute through a private native tier and include a distinct JIT optimizer/lowering/decline trace. Program arguments follow `--`
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo opts src/main.lg
+  largo opts src/main.lg --json
+  largo opts src/main.lg --json --jit -- 1000

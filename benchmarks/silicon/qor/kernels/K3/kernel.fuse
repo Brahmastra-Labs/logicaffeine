@@ -1,0 +1,56 @@
+// K3 gemm8 for Calyx through Dahlia, in the shape of Calyx's own frontends/systolic-lang/hls_gemm/gemm8.fuse:
+// the tile is copied from the interface memories into banked local memories, its 64 sums run unrolled 8x8
+// over the eight-step contraction, and the sums are copied out. Row i of a_int is call slot i; w_int[r][c]
+// is the weight tile. A widening `as` zero-extends, so each int8 operand is sign-extended explicitly as it
+// is copied in, and the local sums restart from zero every call.
+decl a_int: bit<8>[8][8];
+decl w_int: bit<8>[8][8];
+decl o_int: bit<32>[8][8];
+
+let A: bit<32>[8 bank 8][8];
+let B: bit<32>[8][8 bank 8];
+let C: bit<32>[8 bank 8][8 bank 8];
+
+view A_sh = A[_: bank 1][_: bank 1];
+view B_sh = B[_: bank 1][_: bank 1];
+view C_sh = C[_: bank 1][_: bank 1];
+
+for (let i: ubit<4> = 0..8) {
+  for (let j: ubit<4> = 0..8) {
+    let av: bit<8> = a_int[i][j];
+    let wv: bit<8> = w_int[i][j];
+    ---
+    let a32: bit<32> = (av as bit<32>);
+    let w32: bit<32> = (wv as bit<32>);
+    ---
+    if (av < (0 as bit<8>)) {
+      a32 := a32 - (256 as bit<32>);
+    }
+    ---
+    if (wv < (0 as bit<8>)) {
+      w32 := w32 - (256 as bit<32>);
+    }
+    ---
+    A_sh[i][j] := a32;
+    B_sh[i][j] := w32;
+    C_sh[i][j] := (0 as bit<32>);
+  }
+}
+
+---
+for (let i: ubit<4> = 0..8) unroll 8 {
+  for (let j: ubit<4> = 0..8) unroll 8 {
+    for (let k: ubit<4> = 0..8) {
+      let v: bit<32> = A[i][k] * B[k][j];
+    } combine {
+      C[i][j] += v;
+    }
+  }
+}
+
+---
+for (let i: ubit<4> = 0..8) {
+  for (let j: ubit<4> = 0..8) {
+    o_int[i][j] := C_sh[i][j];
+  }
+}

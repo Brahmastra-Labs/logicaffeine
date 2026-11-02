@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 1,
-  "hint": "Can you think of a genuine doctor that this definition would wrongly EXCLUDE?",
-  "explanation": "Many doctors are women, whom 'a man who is licensed...' leaves out. Excluding genuine doctors makes the definition TOO NARROW."
+  "hint": "Can you think of a doctor that this definition leaves out?",
+  "explanation": "Many doctors are women, and 'a man' leaves them out.",
+  "section": "3.2"
 }

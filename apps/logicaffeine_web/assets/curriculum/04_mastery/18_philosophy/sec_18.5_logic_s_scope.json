@@ -1,0 +1,49 @@
+{
+  "id": "18.5",
+  "title": "Logic's Scope",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Does one logic govern all reasoning? Some say logic is universal. Others say different subjects need different logics."
+    },
+    {
+      "type": "definition",
+      "term": "Logical pluralism",
+      "definition": "The view that more than one logic can be correct, each for its own purpose."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Everyday if",
+      "lines": [
+        "'If you mow the lawn, I will pay you.' You do not mow it."
+      ],
+      "note": "Classically, the if then sentence is now true. In ordinary speech, the offer simply lapses."
+    },
+    {
+      "type": "worked",
+      "title": "Many logics",
+      "lines": [
+        "Classical logic for mathematics.",
+        "Intuitionist logic for constructions.",
+        "Paraconsistent logic for messy data."
+      ],
+      "note": "A pluralist accepts each in its place."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does logical pluralism claim?",
+    "options": [
+      "There is only one correct logic",
+      "Logic does not exist",
+      "Different purposes may need different logics",
+      "Every logic is wrong"
+    ],
+    "correct": 2,
+    "hint": "Plural means more than one.",
+    "explanation": "Pluralists hold that there is no single true logic. Different purposes may rightly use different logics."
+  }
+}

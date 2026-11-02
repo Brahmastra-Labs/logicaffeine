@@ -238,10 +238,6 @@ fn verify_collective_vs_distributive_output() {
 
     // Both should have sigma for "the boys"
     for r in &readings {
-        assert!(
-            r.contains("σ"),
-            "All readings should use sigma. Got: {}",
-            r
-        );
+        assert!(r.contains("σ"), "All readings should use sigma. Got: {}", r);
     }
 }

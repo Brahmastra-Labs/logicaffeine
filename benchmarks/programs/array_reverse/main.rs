@@ -15,5 +15,7 @@ fn main() {
         lo += 1;
         hi -= 1;
     }
-    println!("{} {} {}", arr[0], arr[n - 1], arr[n / 2]);
+    let mut checksum: i64 = 0;
+    for &v in &arr { checksum = (checksum * 31 + v) & 268435455; }
+    println!("{} {} {}", arr[0], arr[n - 1], checksum);
 }

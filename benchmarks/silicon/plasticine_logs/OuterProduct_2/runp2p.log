@@ -1,0 +1,34 @@
+Allocate vec1 of size 256 at 0x5dcf7eefbc00 (103145769253888)
+Allocate vec2 of size 256 at 0x5dcf7eefd080 (103145769259136)
+Allocate out of size 256 * 256 at 0x79b54b892040 (133819563319360)
+Run simulation with with 280 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 280 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.0574767
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          85029 Hz
+     20000          85187 Hz
+     30000          92836 Hz
+Simulation complete at cycle 33029
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.0930092 GB/s
+Average DRAM Write Bandwidth: 7.93678 GB/s
+script Elapsed seconds: 2.15151
+Exiting... 😊
+Destruct DRAM.
+out Result: 
+out Gold: 
+PASS: true (OuterProduct)
+Complete Simulation
+Runtime:0:02.47

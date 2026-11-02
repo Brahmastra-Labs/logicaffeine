@@ -1,0 +1,37 @@
+Initialize a LOGOS project in the current directory.
+
+Similar to [`New`][Commands::New] but works in an existing directory. Creates the manifest and source structure without creating a new folder.
+
+# Example
+
+```bash mkdir my_project && cd my_project largo init ```
+
+Usage: largo init [OPTIONS]
+
+Options:
+      --name <NAME>
+          Project name. If omitted, uses the current directory name
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  mkdir app && cd app
+  largo init
+  largo init --name my_app

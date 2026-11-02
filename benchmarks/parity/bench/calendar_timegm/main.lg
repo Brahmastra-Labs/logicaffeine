@@ -1,0 +1,18 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 0.
+While i is less than n:
+    Let yy be 2000 + (i % 50).
+    Let mo be 1 + (i % 12).
+    Let dd be 1 + (i % 28).
+    Let hh be i % 24.
+    Let mm be i % 60.
+    Let ss be i % 60.
+    Set sum to (sum + timegm(yy, mo, dd, hh, mm, ss)) % 1000000007.
+    Set i to i + 1.
+Show sum.

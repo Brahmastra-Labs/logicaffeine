@@ -55,7 +55,8 @@ fn test_orset_string_serialization() {
     set.add("a".repeat(1000)); // Long string
 
     let bytes = bincode::serialize(&set).expect("Serialization should succeed");
-    let decoded: ORSet<String> = bincode::deserialize(&bytes).expect("Deserialization should succeed");
+    let decoded: ORSet<String> =
+        bincode::deserialize(&bytes).expect("Deserialization should succeed");
 
     assert_eq!(decoded.len(), 5);
     assert!(decoded.contains(&"".to_string()));

@@ -1,0 +1,73 @@
+{
+  "case": "T08-028",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (p : Prop), p",
+      "name": "T08_028.bareAdmit",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), p",
+      "name": "T08_028.bareSorry",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), q \u2192 p \u2227 q",
+      "name": "T08_028.dependsOnSorry",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 p \u2227 q",
+      "name": "T08_028.partialSorry",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop) (n : Nat), p n",
+      "name": "T08_028.sorryUnderBinder",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T08_028.stubbedFunction",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), p",
+      "name": "T08_028.termSorry",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T08_028.lean:94:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T08_028.lean:97:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T08_028.lean:100:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T08_028.lean:104:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T08_028.lean:110:4: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T08_028.lean:117:8: warning: declaration uses 'sorry'"
+}

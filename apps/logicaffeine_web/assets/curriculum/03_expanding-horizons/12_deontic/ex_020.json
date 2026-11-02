@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Would that someone fly",
   "options": [
-    "$ (\\exists x)Fx $",
-    "$ (\\exists x)F\\underline{x} $",
-    "$ O(\\exists x)F\\underline{x} $",
-    "$ (\\exists \\underline{x} )Fx $"
+    "∃x F(x)",
+    "∃x F(x̲)",
+    "O∃x F(x̲)",
+    "∃x̲ F(x)"
   ],
   "correct": 1,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "An optative for an indefinite agent. F is the predicate 'fly' (not a prohibition): (∃x)F͟x — would that some person (∃x) fly."
+  "hint": "This is a wish about someone. Who would act?",
+  "explanation": "A wish that someone fly: ∃x F(x̲), with the flier underlined.",
+  "section": "12.2"
 }

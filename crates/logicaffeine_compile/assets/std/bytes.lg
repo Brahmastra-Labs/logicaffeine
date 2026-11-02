@@ -1,0 +1,706 @@
+# Byte-sequence operations
+
+Sequence-level byte operations the element-wise iterators omit. Auto-imported on reference.
+
+## Note
+Returns true only when `xs` and `ys` have equal length and every byte matches position by position.
+
+## To bytesEqual (xs: Seq of Int) and (ys: Seq of Int) -> Bool:
+    Let n be length of xs.
+    Let m be length of ys.
+    If n is greater than m:
+        Return false.
+    If m is greater than n:
+        Return false.
+    Let mutable i be 1.
+    While i is at most n:
+        If (item i of xs) is equal to (item i of ys):
+            Set i to i + 1.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+Lexicographically compares `xs` and `ys` byte by byte, returning -1, 1, or 0; if one is a prefix of the other the shorter sorts first.
+
+## To bytesCompare (xs: Seq of Int) and (ys: Seq of Int) -> Int:
+    Let nx be length of xs.
+    Let ny be length of ys.
+    Let mutable n be nx.
+    If ny is less than nx:
+        Set n to ny.
+    Let mutable i be 1.
+    While i is at most n:
+        Let cx be item i of xs.
+        Let cy be item i of ys.
+        If cx is less than cy:
+            Return 0 - 1.
+        If cx is greater than cy:
+            Return 1.
+        Set i to i + 1.
+    If nx is less than ny:
+        Return 0 - 1.
+    If nx is greater than ny:
+        Return 1.
+    Return 0.
+
+## Note
+Returns true when `sub` occurs in `xs` starting at 1-based index `pos`, false if it would run past the end.
+
+## To bytesMatchAt (xs: Seq of Int) and (sub: Seq of Int) and (pos: Int) -> Bool:
+    Let m be length of sub.
+    Let n be length of xs.
+    If pos + m - 1 is greater than n:
+        Return false.
+    Let mutable j be 1.
+    While j is at most m:
+        If (item (pos + j - 1) of xs) is equal to (item j of sub):
+            Set j to j + 1.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+Returns the 1-based index of the first occurrence of `sub` in `xs`, or 0 if absent; an empty `sub` returns 1.
+
+## To bytesIndexSub (xs: Seq of Int) and (sub: Seq of Int) -> Int:
+    Let n be length of xs.
+    Let m be length of sub.
+    If m is equal to 0:
+        Return 1.
+    Let mutable i be 1.
+    While i is at most n - m + 1:
+        If bytesMatchAt(xs, sub, i):
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Returns true when `sub` occurs anywhere in `xs`, by checking `bytesIndexSub` found a positive index.
+
+## To bytesContainsSub (xs: Seq of Int) and (sub: Seq of Int) -> Bool:
+    If bytesIndexSub(xs, sub) is greater than 0:
+        Return true.
+    Return false.
+
+## Note
+Returns true when `xs` begins with `prefix`, false if `prefix` is longer than `xs`.
+
+## To bytesHasPrefix (xs: Seq of Int) and (prefix: Seq of Int) -> Bool:
+    Let m be length of prefix.
+    If m is greater than (length of xs):
+        Return false.
+    Return bytesMatchAt(xs, prefix, 1).
+
+## Note
+Returns true when `xs` ends with `suffix`, false if `suffix` is longer than `xs`.
+
+## To bytesHasSuffix (xs: Seq of Int) and (suffix: Seq of Int) -> Bool:
+    Let m be length of suffix.
+    Let n be length of xs.
+    If m is greater than n:
+        Return false.
+    Return bytesMatchAt(xs, suffix, n - m + 1).
+
+## Note
+Counts how many bytes in `xs` equal `c`.
+
+## To bytesCountByte (xs: Seq of Int) and (c: Int) -> Int:
+    Let mutable total be 0.
+    Repeat for v in xs:
+        If v is equal to c:
+            Set total to total + 1.
+    Return total.
+
+## Note
+Returns `xs` with all leading and trailing bytes equal to `c` removed.
+
+## To bytesTrimByte (xs: Seq of Int) and (c: Int) -> Seq of Int:
+    Let n be length of xs.
+    Let mutable lo be 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If lo is greater than n:
+            Set go to false.
+        Otherwise:
+            If item lo of xs is equal to c:
+                Set lo to lo + 1.
+            Otherwise:
+                Set go to false.
+    Let mutable hi be n.
+    Set go to true.
+    While go is equal to true:
+        If hi is less than lo:
+            Set go to false.
+        Otherwise:
+            If item hi of xs is equal to c:
+                Set hi to hi - 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns the 1-based index of the first byte in `xs` equal to `c`, or 0 if none matches.
+
+## To bytesIndexByte (xs: Seq of Int) and (c: Int) -> Int:
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        If item i of xs is equal to c:
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Returns the 1-based index of the last occurrence of `sub` in `xs`, or 0 if absent.
+
+## To bytesLastIndexSub (xs: Seq of Int) and (sub: Seq of Int) -> Int:
+    Let n be length of xs.
+    Let m be length of sub.
+    Let mutable found be 0.
+    Let mutable i be 1.
+    While i is at most n - m + 1:
+        If bytesMatchAt(xs, sub, i):
+            Set found to i.
+        Set i to i + 1.
+    Return found.
+
+## Note
+If `xs` starts with `prefix`, returns `xs` with that prefix removed; otherwise returns `xs` unchanged.
+
+## To bytesTrimPrefix (xs: Seq of Int) and (prefix: Seq of Int) -> Seq of Int:
+    If bytesHasPrefix(xs, prefix):
+        Let m be length of prefix.
+        Let n be length of xs.
+        Let out be a new Seq of Int.
+        Let mutable i be m + 1.
+        While i is at most n:
+            Push item i of xs to out.
+            Set i to i + 1.
+        Return out.
+    Return xs.
+
+## Note
+If `xs` ends with `suffix`, returns `xs` with that suffix removed; otherwise returns `xs` unchanged.
+
+## To bytesTrimSuffix (xs: Seq of Int) and (suffix: Seq of Int) -> Seq of Int:
+    If bytesHasSuffix(xs, suffix):
+        Let m be length of suffix.
+        Let n be length of xs.
+        Let out be a new Seq of Int.
+        Let mutable i be 1.
+        While i is at most n - m:
+            Push item i of xs to out.
+            Set i to i + 1.
+        Return out.
+    Return xs.
+
+## Note
+Returns a copy of `xs` with every byte equal to `orig` replaced by `repl`.
+
+## To bytesReplaceByte (xs: Seq of Int) and (orig: Int) and (repl: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        If v is equal to orig:
+            Push repl to out.
+        Otherwise:
+            Push v to out.
+    Return out.
+
+## Note
+Returns `xs` concatenated with itself `reps` times.
+
+## To bytesRepeat (xs: Seq of Int) and (reps: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable k be 1.
+    While k is at most reps:
+        Repeat for v in xs:
+            Push v to out.
+        Set k to k + 1.
+    Return out.
+
+## Note
+Returns `xs` with each lowercase ASCII byte (97-122) shifted up by 32 to uppercase; other bytes are unchanged.
+
+## To bytesToUpper (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        Let mutable u be v.
+        If v is at least 97:
+            If v is at most 122:
+                Set u to v - 32.
+        Push u to out.
+    Return out.
+
+## Note
+Returns `xs` with each uppercase ASCII byte (65-90) shifted down by 32 to lowercase; other bytes are unchanged.
+
+## To bytesToLower (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        Let mutable u be v.
+        If v is at least 65:
+            If v is at most 90:
+                Set u to v + 32.
+        Push u to out.
+    Return out.
+
+## Note
+Returns true when byte `c` is ASCII whitespace: space (32), tab (9), newline (10), carriage return (13), vertical tab (11), or form feed (12).
+
+## To bytesByteIsSpace (c: Int) -> Bool:
+    If c is equal to 32:
+        Return true.
+    If c is equal to 9:
+        Return true.
+    If c is equal to 10:
+        Return true.
+    If c is equal to 13:
+        Return true.
+    If c is equal to 11:
+        Return true.
+    If c is equal to 12:
+        Return true.
+    Return false.
+
+## Note
+Returns `xs` with leading and trailing ASCII whitespace bytes (per `bytesByteIsSpace`) removed.
+
+## To bytesTrimSpace (xs: Seq of Int) -> Seq of Int:
+    Let n be length of xs.
+    Let mutable lo be 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If lo is greater than n:
+            Set go to false.
+        Otherwise:
+            If bytesByteIsSpace(item lo of xs):
+                Set lo to lo + 1.
+            Otherwise:
+                Set go to false.
+    Let mutable hi be n.
+    Set go to true.
+    While go is equal to true:
+        If hi is less than lo:
+            Set go to false.
+        Otherwise:
+            If bytesByteIsSpace(item hi of xs):
+                Set hi to hi - 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns `xs` with all leading bytes equal to `c` removed.
+
+## To bytesTrimLeft (xs: Seq of Int) and (c: Int) -> Seq of Int:
+    Let n be length of xs.
+    Let mutable lo be 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If lo is greater than n:
+            Set go to false.
+        Otherwise:
+            If item lo of xs is equal to c:
+                Set lo to lo + 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most n:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns `xs` with all trailing bytes equal to `c` removed.
+
+## To bytesTrimRight (xs: Seq of Int) and (c: Int) -> Seq of Int:
+    Let n be length of xs.
+    Let mutable hi be n.
+    Let mutable go be true.
+    While go is equal to true:
+        If hi is less than 1:
+            Set go to false.
+        Otherwise:
+            If item hi of xs is equal to c:
+                Set hi to hi - 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most hi:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Single-byte predicate: true when `b` is a lowercase ASCII letter (97-122).
+
+## To byteIsLowerC (b: Int) -> Bool:
+    If b is less than 97:
+        Return false.
+    If b is greater than 122:
+        Return false.
+    Return true.
+
+## Note
+Single-byte predicate: true when `b` is an uppercase ASCII letter (65-90).
+
+## To byteIsUpperC (b: Int) -> Bool:
+    If b is less than 65:
+        Return false.
+    If b is greater than 90:
+        Return false.
+    Return true.
+
+## Note
+Maps a nibble value `n` (0-15) to its lowercase hex ASCII byte: 0-9 to '0'-'9', 10-15 to 'a'-'f'.
+
+## To byteHexDigit (n: Int) -> Int:
+    If n is less than 10:
+        Return 48 + n.
+    Return 87 + n.
+
+## Note
+Maps a hex ASCII byte `c` to its nibble value: '0'-'9', 'a'-'f', or 'A'-'F' to 0-15; other bytes yield 0.
+
+## To byteHexVal (c: Int) -> Int:
+    If c is at least 48:
+        If c is at most 57:
+            Return c - 48.
+    If c is at least 97:
+        If c is at most 102:
+            Return c - 87.
+    If c is at least 65:
+        If c is at most 70:
+            Return c - 55.
+    Return 0.
+
+## Note
+Encodes `xs` as a lowercase hex string, emitting two hex digits (high then low nibble) per byte.
+
+## To bytesToHex (xs: Seq of Int) -> Text:
+    Let out be a new Seq of Int.
+    Repeat for b in xs:
+        Push byteHexDigit(b / 16) to out.
+        Push byteHexDigit(b mod 16) to out.
+    Return text_from_bytes(out).
+
+## Note
+Decodes hex text `s` into bytes, combining each pair of hex digits (high nibble times 16 plus low) into one byte.
+
+## To bytesFromHex (s: Text) -> Seq of Int:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While (i + 1) is at most n:
+        Let hi be byteHexVal(item i of sb).
+        Let lo be byteHexVal(item (i + 1) of sb).
+        Push (hi * 16) + lo to out.
+        Set i to i + 2.
+    Return out.
+
+## Note
+Returns true when `xs` is non-empty and every byte is an ASCII digit (48-57).
+
+## To bytesIsDigit (xs: Seq of Int) -> Bool:
+    If length of xs is equal to 0:
+        Return false.
+    Repeat for b in xs:
+        If b is less than 48:
+            Return false.
+        If b is greater than 57:
+            Return false.
+    Return true.
+
+## Note
+Returns true when `xs` is non-empty and every byte is an ASCII letter (lowercase or uppercase).
+
+## To bytesIsAlpha (xs: Seq of Int) -> Bool:
+    If length of xs is equal to 0:
+        Return false.
+    Repeat for b in xs:
+        If byteIsLowerC(b) is equal to false:
+            If byteIsUpperC(b) is equal to false:
+                Return false.
+    Return true.
+
+## Note
+Returns true when `xs` is non-empty and every byte is ASCII whitespace: space (32) or 9-13.
+
+## To bytesIsSpace (xs: Seq of Int) -> Bool:
+    If length of xs is equal to 0:
+        Return false.
+    Repeat for b in xs:
+        Let ok be false.
+        If b is equal to 32:
+            Set ok to true.
+        If b is at least 9:
+            If b is at most 13:
+                Set ok to true.
+        If ok is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Returns true when `xs` contains no lowercase letters and at least one uppercase letter.
+
+## To bytesIsUpper (xs: Seq of Int) -> Bool:
+    Let mutable seen be false.
+    Repeat for b in xs:
+        If byteIsLowerC(b):
+            Return false.
+        If byteIsUpperC(b):
+            Set seen to true.
+    Return seen.
+
+## Note
+Returns true when `xs` contains no uppercase letters and at least one lowercase letter.
+
+## To bytesIsLower (xs: Seq of Int) -> Bool:
+    Let mutable seen be false.
+    Repeat for b in xs:
+        If byteIsUpperC(b):
+            Return false.
+        If byteIsLowerC(b):
+            Set seen to true.
+    Return seen.
+
+## Note
+Returns `xs` with the first byte uppercased and every subsequent uppercase letter lowercased.
+
+## To bytesCapitalize (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable first be true.
+    Repeat for b in xs:
+        If first is equal to true:
+            If byteIsLowerC(b):
+                Push b - 32 to out.
+            Otherwise:
+                Push b to out.
+            Set first to false.
+        Otherwise:
+            If byteIsUpperC(b):
+                Push b + 32 to out.
+            Otherwise:
+                Push b to out.
+    Return out.
+
+## Note
+Returns `xs` with each lowercase letter uppercased and each uppercase letter lowercased; other bytes unchanged.
+
+## To bytesSwapCase (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for b in xs:
+        If byteIsLowerC(b):
+            Push b - 32 to out.
+        Otherwise:
+            If byteIsUpperC(b):
+                Push b + 32 to out.
+            Otherwise:
+                Push b to out.
+    Return out.
+
+## Note
+Titlecases `xs`: the first letter of each run of letters is uppercased and the rest lowercased, tracking whether the previous byte was a letter.
+
+## To bytesTitle (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable prevAlpha be false.
+    Repeat for b in xs:
+        Let lower be byteIsLowerC(b).
+        Let upper be byteIsUpperC(b).
+        If lower is equal to true:
+            If prevAlpha is equal to false:
+                Push b - 32 to out.
+            Otherwise:
+                Push b to out.
+            Set prevAlpha to true.
+        Otherwise:
+            If upper is equal to true:
+                If prevAlpha is equal to true:
+                    Push b + 32 to out.
+                Otherwise:
+                    Push b to out.
+                Set prevAlpha to true.
+            Otherwise:
+                Push b to out.
+                Set prevAlpha to false.
+    Return out.
+
+## Note
+Single-byte predicate: true when `b` is an ASCII digit (48-57).
+
+## To byteIsDigitC (b: Int) -> Bool:
+    If b is less than 48:
+        Return false.
+    If b is greater than 57:
+        Return false.
+    Return true.
+
+## Note
+Left-justifies `xs` to `width` bytes by appending `pad` bytes on the right; returns `xs` unchanged if already at least `width` long.
+
+## To bytesLjust (xs: Seq of Int) and (width: Int) and (pad: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for b in xs:
+        Push b to out.
+    Let mutable i be length of xs.
+    While i is less than width:
+        Push pad to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Right-justifies `xs` to `width` bytes by prepending `pad` bytes on the left; returns `xs` unchanged if already at least `width` long.
+
+## To bytesRjust (xs: Seq of Int) and (width: Int) and (pad: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be length of xs.
+    While i is less than width:
+        Push pad to out.
+        Set i to i + 1.
+    Repeat for b in xs:
+        Push b to out.
+    Return out.
+
+## Note
+Centers `xs` within `width` bytes using `pad` on both sides; returns `xs` unchanged if already at least `width` long. Extra padding favors the left on odd margins.
+
+## To bytesCenter (xs: Seq of Int) and (width: Int) and (pad: Int) -> Seq of Int:
+    Let n be length of xs.
+    If n is at least width:
+        Return xs.
+    Let marg be width - n.
+    Let mutable extra be 0.
+    If (marg mod 2) is equal to 1:
+        If (width mod 2) is equal to 1:
+            Set extra to 1.
+    Let left be (marg / 2) + extra.
+    Let right be marg - left.
+    Let out be a new Seq of Int.
+    Let mutable i be 0.
+    While i is less than left:
+        Push pad to out.
+        Set i to i + 1.
+    Repeat for b in xs:
+        Push b to out.
+    Set i to 0.
+    While i is less than right:
+        Push pad to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Left-pads `xs` with '0' bytes to `width`, keeping any leading '+' or '-' sign first; returns `xs` unchanged if already at least `width` long.
+
+## To bytesZfill (xs: Seq of Int) and (width: Int) -> Seq of Int:
+    Let n be length of xs.
+    If n is at least width:
+        Return xs.
+    Let out be a new Seq of Int.
+    Let mutable start be 1.
+    If n is at least 1:
+        Let f be item 1 of xs.
+        If f is equal to 43:
+            Push 43 to out.
+            Set start to 2.
+        If f is equal to 45:
+            Push 45 to out.
+            Set start to 2.
+    Let mutable z be 0.
+    While z is less than (width - n):
+        Push 48 to out.
+        Set z to z + 1.
+    Let mutable i be start.
+    While i is at most n:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Replaces each tab byte in `xs` with spaces up to the next `tabsize` column boundary, resetting the column count on newline or carriage return.
+
+## To bytesExpandtabs (xs: Seq of Int) and (tabsize: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable col be 0.
+    Repeat for b in xs:
+        If b is equal to 9:
+            If tabsize is greater than 0:
+                Let spaces be tabsize - (col mod tabsize).
+                Let mutable k be 0.
+                While k is less than spaces:
+                    Push 32 to out.
+                    Set col to col + 1.
+                    Set k to k + 1.
+        Otherwise:
+            Push b to out.
+            If b is equal to 10:
+                Set col to 0.
+            Otherwise:
+                If b is equal to 13:
+                    Set col to 0.
+                Otherwise:
+                    Set col to col + 1.
+    Return out.
+
+## Note
+Returns true when `xs` is non-empty and every byte is an ASCII digit or letter.
+
+## To bytesIsAlnum (xs: Seq of Int) -> Bool:
+    If length of xs is equal to 0:
+        Return false.
+    Repeat for b in xs:
+        Let mutable ok be false.
+        If byteIsDigitC(b):
+            Set ok to true.
+        If byteIsLowerC(b):
+            Set ok to true.
+        If byteIsUpperC(b):
+            Set ok to true.
+        If ok is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Returns true when every byte in `xs` is 127 or below; the empty sequence returns true.
+
+## To bytesIsAscii (xs: Seq of Int) -> Bool:
+    Repeat for b in xs:
+        If b is greater than 127:
+            Return false.
+    Return true.
+
+## Note
+Returns true when `xs` is titlecased: each uppercase letter starts a word (not preceded by a cased byte) and lowercase letters only follow cased bytes, with at least one cased byte present.
+
+## To bytesIsTitle (xs: Seq of Int) -> Bool:
+    Let mutable cased be false.
+    Let mutable prevCased be false.
+    Repeat for b in xs:
+        If byteIsUpperC(b):
+            If prevCased is equal to true:
+                Return false.
+            Set cased to true.
+            Set prevCased to true.
+        Otherwise:
+            If byteIsLowerC(b):
+                If prevCased is equal to false:
+                    Return false.
+                Set cased to true.
+                Set prevCased to true.
+            Otherwise:
+                Set prevCased to false.
+    Return cased.

@@ -1,0 +1,59 @@
+{
+  "case": "T00-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "Bool \u2192 Bool",
+      "name": "T00_001.binderNamedLikeAGlobal",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_001.identityNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_001.innerTypeMentionsOuter",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_001.pickOuter",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_001.shadowedInnermost",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_001.shadowedOutermost",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_001.usesSectionVar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T00_001.lean:58:25: warning: unused variable `b`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T00_001.lean:63:6: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T00_001.lean:63:15: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T00_001.lean:87:53: warning: unused variable `n`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`"
+}

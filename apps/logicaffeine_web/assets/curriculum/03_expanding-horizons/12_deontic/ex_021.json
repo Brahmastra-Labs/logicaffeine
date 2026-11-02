@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Bluff only if you cheer",
   "options": [
-    "$ (B\\underline{u}\\supset C\\underline{u}  ) $",
-    "$ (B\\underline{u}\\supset Cu ) $",
-    "$ (OB\\underline{u}\\supset Cu ) $",
-    "$ (Bu\\supset Cu) $"
+    "B(u̲) → C(u̲)",
+    "B(u̲) → C(u)",
+    "O B(u̲) → C(u)",
+    "B(u) → C(u)"
   ],
   "correct": 1,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'A only if B' is A ⊃ B. The command B͟u ('you bluff') holds only if Cu ('you cheer'): (B͟u ⊃ Cu)."
+  "hint": "'A only if B' is A → B. Which part is the command?",
+  "explanation": "Bluffing is commanded, so B(u̲), and cheering is described, so C(u): B(u̲) → C(u).",
+  "section": "12.2"
 }

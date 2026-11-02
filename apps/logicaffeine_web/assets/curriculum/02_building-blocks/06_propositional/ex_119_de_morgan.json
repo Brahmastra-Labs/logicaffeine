@@ -10,6 +10,7 @@
     "¬(P ∧ Q)"
   ],
   "correct": 0,
-  "hint": "Negation turns OR into AND and distributes onto each part.",
-  "explanation": "De Morgan: ¬(P ∨ Q) ≡ ¬P ∧ ¬Q — 'neither P nor Q' means 'not P and not Q'. The mirror law is ¬(P ∧ Q) ≡ ¬P ∨ ¬Q. Note that ¬P ∨ ¬Q is the negation of the AND, not of the OR."
+  "hint": "Denying an or turns it into an and of denials.",
+  "explanation": "By De Morgan's law, ¬(P ∨ Q) is equivalent to ¬P ∧ ¬Q: neither P nor Q. The mirror law makes ¬(P ∧ Q) equivalent to ¬P ∨ ¬Q.",
+  "section": "6.3"
 }

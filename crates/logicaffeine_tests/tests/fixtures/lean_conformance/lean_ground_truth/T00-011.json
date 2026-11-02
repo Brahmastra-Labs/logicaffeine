@@ -1,0 +1,120 @@
+{
+  "case": "T00-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 14,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T00_011.deepProj",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u00d7 Bool) \u00d7 Nat",
+      "name": "T00_011.nestedPair",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u00d7 Bool \u2192 Nat",
+      "name": "T00_011.pfst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_011.positives",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u00d7 Bool \u2192 Bool",
+      "name": "T00_011.psnd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u00d7 Fin (n + 1)",
+      "name": "T00_011.sigmaDep",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "2 < 3 + 1",
+      "name": "T00_011.sigmaDep.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "(n : Nat) \u00d7 Fin (n + 1) \u2192 Nat",
+      "name": "T00_011.sigmaFst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(s : (n : Nat) \u00d7 Fin (n + 1)) \u2192 Fin (s.fst + 1)",
+      "name": "T00_011.sigmaSnd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(_ : Nat) \u00d7 Bool \u2192 Nat",
+      "name": "T00_011.snonDep",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (s : T00_011.positives), s.val > 0",
+      "name": "T00_011.subProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_011.positives \u2192 Nat",
+      "name": "T00_011.subVal",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_011.positives",
+      "name": "T00_011.three",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "3 > 0",
+      "name": "T00_011.three.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

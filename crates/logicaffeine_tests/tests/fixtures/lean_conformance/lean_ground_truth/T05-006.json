@@ -1,0 +1,155 @@
+{
+  "case": "T05-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T05_006.Wrap",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_006.Wrap \u2192 Sort u} \u2192 (t : T05_006.Wrap) \u2192 ((val tag : Nat) \u2192 motive { val := val, tag := tag }) \u2192 motive t",
+      "name": "T05_006.Wrap.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T05_006.Wrap",
+      "name": "T05_006.Wrap.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {val tag val_1 tag_1 : Nat}, { val := val, tag := tag } = { val := val_1, tag := tag_1 } \u2192 val = val_1 \u2227 tag = tag_1",
+      "name": "T05_006.Wrap.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (val tag val_1 tag_1 : Nat),\n  ({ val := val, tag := tag } = { val := val_1, tag := tag_1 }) = (val = val_1 \u2227 tag = tag_1)",
+      "name": "T05_006.Wrap.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (val tag : Nat), sizeOf { val := val, tag := tag } = 1 + sizeOf val + sizeOf tag",
+      "name": "T05_006.Wrap.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_006.Wrap} \u2192 v1 = v2 \u2192 T05_006.Wrap.noConfusionType P v1 v2",
+      "name": "T05_006.Wrap.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_006.Wrap \u2192 T05_006.Wrap \u2192 Sort u",
+      "name": "T05_006.Wrap.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_006.Wrap \u2192 Sort u} \u2192 ((val tag : Nat) \u2192 motive { val := val, tag := tag }) \u2192 (t : T05_006.Wrap) \u2192 motive t",
+      "name": "T05_006.Wrap.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_006.Wrap \u2192 Sort u} \u2192 (t : T05_006.Wrap) \u2192 ((val tag : Nat) \u2192 motive { val := val, tag := tag }) \u2192 motive t",
+      "name": "T05_006.Wrap.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_006.Wrap \u2192 Nat",
+      "name": "T05_006.Wrap.tag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_006.Wrap \u2192 Nat",
+      "name": "T05_006.Wrap.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 optParam Nat (1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) \u2192 Nat",
+      "name": "T05_006.bigDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 optParam Nat 7 \u2192 Nat \u2192 Nat",
+      "name": "T05_006.midDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 optParam Nat 4 \u2192 Nat",
+      "name": "T05_006.rawOpt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 optParam Nat (n * 2) \u2192 Nat",
+      "name": "T05_006.sized",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(a : optParam Nat 2) \u2192 optParam Nat (a + 1) \u2192 Nat",
+      "name": "T05_006.twoDefaults",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_006.Wrap",
+      "name": "T05_006.w1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 optParam Nat 3 \u2192 Nat",
+      "name": "T05_006.withDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

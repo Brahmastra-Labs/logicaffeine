@@ -5,7 +5,7 @@ fn gcd(a_in: i64, b_in: i64) i64 {
     var b = b_in;
     while (b > 0) {
         const t = b;
-        b = @mod(a, b);
+        b = @rem(a, b);
         a = t;
     }
     return a;

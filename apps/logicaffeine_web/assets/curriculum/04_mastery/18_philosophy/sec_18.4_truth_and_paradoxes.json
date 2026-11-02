@@ -1,0 +1,48 @@
+{
+  "id": "18.4",
+  "title": "Truth and Paradoxes",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The **liar paradox**: 'This sentence is false.' If it is true, it is false. If it is false, it is true."
+    },
+    {
+      "type": "paragraph",
+      "text": "Alfred Tarski showed that a consistent language cannot contain its own truth predicate. Truth for a language has to be defined in a metalanguage."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Tarski's hierarchy",
+      "lines": [
+        "L0 talks about things.",
+        "L1 can say what is true in L0.",
+        "L2 can say what is true in L1."
+      ],
+      "note": "Each language speaks only of truth in the ones below it, so no sentence calls itself false."
+    },
+    {
+      "type": "worked",
+      "title": "Convention T",
+      "lines": [
+        "'Snow is white' is true if and only if snow is white."
+      ],
+      "note": "A theory of truth must give every sentence a clause like this."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What did Tarski conclude about truth?",
+    "options": [
+      "Truth cannot be defined",
+      "A consistent language cannot contain its own truth predicate",
+      "The liar sentence is true",
+      "Paradoxes do not matter"
+    ],
+    "correct": 1,
+    "hint": "Where must truth for a language be defined?",
+    "explanation": "Defining 'true in L' inside L leads to the liar. Truth for L has to be defined in a metalanguage."
+  }
+}

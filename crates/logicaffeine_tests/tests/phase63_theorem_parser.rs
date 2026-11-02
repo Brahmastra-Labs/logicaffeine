@@ -45,7 +45,9 @@ Proof: Auto.
 
     // Should contain proof steps indicating success
     assert!(
-        output.contains("Proved") || output.contains("ModusPonens") || output.contains("PremiseMatch"),
+        output.contains("Proved")
+            || output.contains("ModusPonens")
+            || output.contains("PremiseMatch"),
         "Expected proof output, got: {}",
         output
     );
@@ -66,7 +68,11 @@ Proof: Auto.
 "#;
 
     let result = compile_theorem(input);
-    assert!(result.is_ok(), "Failed to prove Plato's wisdom: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Failed to prove Plato's wisdom: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     println!("Plato proof:\n{}", output);
@@ -90,7 +96,10 @@ Proof: Auto.
     let result = compile_theorem(input);
 
     // Should fail with a helpful error
-    assert!(result.is_err(), "Theorem should have failed - missing premise!");
+    assert!(
+        result.is_err(),
+        "Theorem should have failed - missing premise!"
+    );
 
     let error = result.unwrap_err();
     let error_msg = format!("{:?}", error);
@@ -116,7 +125,10 @@ Proof: Auto.
 "#;
 
     let result = compile_theorem(input);
-    assert!(result.is_err(), "Theorem should have failed - no logical path!");
+    assert!(
+        result.is_err(),
+        "Theorem should have failed - no logical path!"
+    );
 }
 
 // =============================================================================

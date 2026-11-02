@@ -1,0 +1,10 @@
+{
+  "capability": "heap.pushpop",
+  "workload": "peek(pushpop(heapify(xs), r%1000))",
+  "arg": "25000",
+  "expected": "218504055",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

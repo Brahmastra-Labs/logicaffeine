@@ -2,5 +2,6 @@
   "id": "introduction",
   "title": "Introduction",
   "pedagogy": "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound vs. unsound arguments.",
-  "order": 1
+  "order": 1,
+  "summary": "What logic is, valid and sound arguments, and how LOGOS writes a sentence."
 }

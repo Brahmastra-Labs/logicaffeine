@@ -1,1 +1,1 @@
-∀x((Men(x) → Mortal(x)))
+∀x((Man(x) → Mortal(x)))

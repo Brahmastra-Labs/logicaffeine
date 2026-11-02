@@ -3,6 +3,14 @@
 //! `[features]`, every `pub mod` accounted for, fences that are honest about
 //! what compiles, and version claims that track the workspace.
 //!
+//! Every README also has one shape, so a reader who has read one knows where to
+//! look in the next: its title is the package name, its second paragraph opens
+//! with the crate's place in the workspace (`Part of the [Logicaffeine](…)
+//! workspace, tier N.`, N computed from the manifests), and it ends with the
+//! navigation footer whose Changelog link is the crate's own. Its Cargo
+//! `description` is one plain line: no trailing period, at most
+//! `DESCRIPTION_MAX` characters.
+//!
 //! The battery below runs per crate so a failure names the crate and the
 //! violated invariant. Exemptions are declared in the consts at the top with a
 //! reason string; the goal is that they stay empty.
@@ -25,10 +33,11 @@ const FEATURE_EXEMPT: &[(&str, &str, &str)] = &[];
 
 /// (version token, reason) — README version strings that are not the workspace
 /// version. Every entry must justify itself.
-const VERSION_ALLOW: &[(&str, &str)] = &[
-    ("0.0.9", "libcrux dev-oracle crate version cited in the tests README"),
-    ("0.0.0", "out-of-band tool version (wirebench, wiki_trace)"),
-];
+const VERSION_ALLOW: &[(&str, &str)] =
+    &[("0.0.0", "out-of-band tool version (wirebench, wiki_trace)")];
+
+/// The longest Cargo `description` a member may carry: one line on crates.io and the docs landing page.
+const DESCRIPTION_MAX: usize = 160;
 
 /// Crates on the docs site beyond the publishable set (deliberate inclusions).
 const SITE_EXTRA: &[&str] = &["logicaffeine_web"];
@@ -39,7 +48,9 @@ const SITE_EXTRA: &[&str] = &["logicaffeine_web"];
 const ALLOWED_FENCES: &[&str] = &["rust", "rust,no_run", "bash", "sh", "text", "logos", "toml"];
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
 }
 
 mod checks {
@@ -112,7 +123,11 @@ mod checks {
                     body.push('\n');
                     i += 1;
                 }
-                out.push(Fence { line: start, info, body });
+                out.push(Fence {
+                    line: start,
+                    info,
+                    body,
+                });
             }
             i += 1;
         }
@@ -165,8 +180,12 @@ mod checks {
         let text = read(&format!("{dir}/README.md"));
         let mut bad = Vec::new();
         for (n, target) in link_targets(&text) {
-            let Some(rest) = target.strip_prefix(REPO_URL) else { continue };
-            let Some(rest) = rest.strip_prefix('/') else { continue };
+            let Some(rest) = target.strip_prefix(REPO_URL) else {
+                continue;
+            };
+            let Some(rest) = rest.strip_prefix('/') else {
+                continue;
+            };
             let (kind, rest) = match rest.split_once('/') {
                 Some(pair) => pair,
                 None => continue,
@@ -179,15 +198,23 @@ mod checks {
                 continue;
             };
             if git_ref != "main" {
-                bad.push(format!("{dir}/README.md:{n} → {target} (pin to main, not {git_ref})"));
+                bad.push(format!(
+                    "{dir}/README.md:{n} → {target} (pin to main, not {git_ref})"
+                ));
                 continue;
             }
             let path = path.split(['#', '?']).next().unwrap_or(path);
             if !exists(path) {
-                bad.push(format!("{dir}/README.md:{n} → {target} ({path} does not exist)"));
+                bad.push(format!(
+                    "{dir}/README.md:{n} → {target} ({path} does not exist)"
+                ));
             }
         }
-        assert!(bad.is_empty(), "repo links must resolve in the working tree:\n{}", bad.join("\n"));
+        assert!(
+            bad.is_empty(),
+            "repo links must resolve in the working tree:\n{}",
+            bad.join("\n")
+        );
     }
 
     pub fn feature_parity(dir: &str) {
@@ -241,11 +268,18 @@ mod checks {
         // A README may document the `default` feature row; that is never drift.
         documented.remove("default");
         let exempt = |name: &str| {
-            FEATURE_EXEMPT.iter().any(|(d, f, _)| *d == dir && *f == name)
+            FEATURE_EXEMPT
+                .iter()
+                .any(|(d, f, _)| *d == dir && *f == name)
         };
-        let missing: Vec<&String> =
-            declared.iter().filter(|f| !documented.contains(*f) && !exempt(f)).collect();
-        let phantom: Vec<&String> = documented.iter().filter(|f| !declared.contains(*f)).collect();
+        let missing: Vec<&String> = declared
+            .iter()
+            .filter(|f| !documented.contains(*f) && !exempt(f))
+            .collect();
+        let phantom: Vec<&String> = documented
+            .iter()
+            .filter(|f| !declared.contains(*f))
+            .collect();
         assert!(
             missing.is_empty() && phantom.is_empty(),
             "{dir}: feature-table drift — undocumented {missing:?}, phantom {phantom:?} (declared {declared:?})"
@@ -262,7 +296,9 @@ mod checks {
         let mut missing = Vec::new();
         for (i, line) in lines.iter().enumerate() {
             let t = line.trim_start();
-            let Some(rest) = t.strip_prefix("pub mod ") else { continue };
+            let Some(rest) = t.strip_prefix("pub mod ") else {
+                continue;
+            };
             let name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
@@ -278,7 +314,9 @@ mod checks {
             if hidden {
                 continue;
             }
-            let exempt = PUB_MOD_EXEMPT.iter().any(|(d, m, _)| *d == dir && *m == name);
+            let exempt = PUB_MOD_EXEMPT
+                .iter()
+                .any(|(d, m, _)| *d == dir && *m == name);
             if exempt {
                 continue;
             }
@@ -310,13 +348,20 @@ mod checks {
             {
                 let token = token.trim_matches('.');
                 let parts: Vec<&str> = token.split('.').collect();
-                if parts.len() != 3 || !parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+                if parts.len() != 3
+                    || !parts
+                        .iter()
+                        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+                {
                     continue;
                 }
                 if token == ws || VERSION_ALLOW.iter().any(|(v, _)| *v == token) {
                     continue;
                 }
-                bad.push(format!("{dir}/README.md:{} → {token} (workspace is {ws})", n + 1));
+                bad.push(format!(
+                    "{dir}/README.md:{} → {token} (workspace is {ws})",
+                    n + 1
+                ));
             }
         }
         assert!(bad.is_empty(), "stale version claims:\n{}", bad.join("\n"));
@@ -340,9 +385,10 @@ mod checks {
             return;
         }
         let manifest = cargo_toml(dir);
-        let package = manifest.get("package").and_then(|p| p.as_table()).unwrap_or_else(|| {
-            panic!("{dir}/Cargo.toml has no [package]")
-        });
+        let package = manifest
+            .get("package")
+            .and_then(|p| p.as_table())
+            .unwrap_or_else(|| panic!("{dir}/Cargo.toml has no [package]"));
         assert_eq!(
             package.get("readme").and_then(|r| r.as_str()),
             Some("README.md"),
@@ -350,10 +396,15 @@ mod checks {
         );
         let description_ok = match package.get("description") {
             Some(toml::Value::String(s)) => !s.trim().is_empty(),
-            Some(toml::Value::Table(t)) => t.get("workspace").and_then(|w| w.as_bool()) == Some(true),
+            Some(toml::Value::Table(t)) => {
+                t.get("workspace").and_then(|w| w.as_bool()) == Some(true)
+            }
             _ => false,
         };
-        assert!(description_ok, "{dir}/Cargo.toml must set a non-empty description");
+        assert!(
+            description_ok,
+            "{dir}/Cargo.toml must set a non-empty description"
+        );
     }
 
     pub fn fence_hygiene(dir: &str) {
@@ -366,7 +417,10 @@ mod checks {
         for f in fences(&text) {
             let info: String = f.info.split_whitespace().collect();
             if info.is_empty() {
-                bad.push(format!("{rel}:{} → bare ``` fence (rustdoc doctests it; tag it, e.g. ```text)", f.line));
+                bad.push(format!(
+                    "{rel}:{} → bare ``` fence (rustdoc doctests it; tag it, e.g. ```text)",
+                    f.line
+                ));
                 continue;
             }
             if info.split(',').any(|attr| attr == "ignore") {
@@ -377,7 +431,10 @@ mod checks {
                 continue;
             }
             if !ALLOWED_FENCES.contains(&info.as_str()) {
-                bad.push(format!("{rel}:{} → ```{info} not in the allowlist {ALLOWED_FENCES:?}", f.line));
+                bad.push(format!(
+                    "{rel}:{} → ```{info} not in the allowlist {ALLOWED_FENCES:?}",
+                    f.line
+                ));
                 continue;
             }
             if info.starts_with("rust") {
@@ -400,6 +457,159 @@ mod checks {
         }
         assert!(bad.is_empty(), "fence hygiene:\n{}", bad.join("\n"));
     }
+
+    fn package_name(dir: &str) -> String {
+        cargo_toml(dir)["package"]["name"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    pub fn title(dir: &str) {
+        if skip_if_absent(dir) {
+            return;
+        }
+        let text = read(&format!("{dir}/README.md"));
+        let first = text.lines().next().unwrap_or_default();
+        let want = format!("# {}", package_name(dir));
+        assert_eq!(
+            first, want,
+            "{dir}/README.md must open with its package name as the title"
+        );
+    }
+
+    pub fn part_of(dir: &str) {
+        if skip_if_absent(dir) {
+            return;
+        }
+        let text = read(&format!("{dir}/README.md"));
+        let lead =
+            format!("Part of the [Logicaffeine]({REPO_URL}/blob/main/README.md) workspace, tier ");
+        let before_sections: Vec<&str> =
+            text.lines().take_while(|l| !l.starts_with("## ")).collect();
+        let line = before_sections.iter().find(|l| l.starts_with(&lead)).unwrap_or_else(|| {
+            panic!("{dir}/README.md must state its place before its first section: a paragraph opening `{lead}N.`")
+        });
+        let stated: u32 = line[lead.len()..]
+            .split('.')
+            .next()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("{dir}/README.md: `{line}` does not name a tier number"));
+        let computed = crate::shape::tier(&package_name(dir));
+        assert_eq!(
+            stated, computed,
+            "{dir}/README.md says tier {stated}; its manifest puts it at tier {computed}"
+        );
+    }
+
+    pub fn footer(dir: &str) {
+        if skip_if_absent(dir) {
+            return;
+        }
+        let text = read(&format!("{dir}/README.md"));
+        let lines: Vec<&str> = text.trim_end().lines().collect();
+        let want = format!(
+            "[Docs index]({REPO_URL}/blob/main/docs/README.md) · [Root README]({REPO_URL}/blob/main/README.md) · \
+             [Changelog]({REPO_URL}/blob/main/{dir}/CHANGELOG.md)"
+        );
+        assert!(
+            lines.len() >= 2 && lines[lines.len() - 2] == "---" && lines[lines.len() - 1] == want,
+            "{dir}/README.md must end with `---` and the footer\n{want}"
+        );
+        assert!(
+            exists(&format!("{dir}/CHANGELOG.md")),
+            "{dir} has no CHANGELOG.md for its footer to link"
+        );
+    }
+
+    pub fn description_style(dir: &str) {
+        if skip_if_absent(dir) {
+            return;
+        }
+        let manifest = cargo_toml(dir);
+        let Some(d) = manifest["package"]
+            .get("description")
+            .and_then(|d| d.as_str())
+        else {
+            return;
+        };
+        assert!(
+            !d.trim_end().ends_with('.'),
+            "{dir}/Cargo.toml description ends with a period: {d:?}"
+        );
+        assert!(
+            !d.contains('\n'),
+            "{dir}/Cargo.toml description spans lines"
+        );
+        assert!(
+            d.chars().count() <= DESCRIPTION_MAX,
+            "{dir}/Cargo.toml description is {} characters (at most {DESCRIPTION_MAX}): {d:?}",
+            d.chars().count()
+        );
+    }
+}
+
+mod shape {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    /// Package name → the internal package names it depends on (normal, build and target-specific
+    /// edges), for every workspace member.
+    fn graph() -> BTreeMap<String, BTreeSet<String>> {
+        let mut out = BTreeMap::new();
+        for dir in crate::workspace_members() {
+            let manifest: toml::Value =
+                toml::from_str(&checks::read(&format!("{dir}/Cargo.toml"))).unwrap();
+            let name = manifest["package"]["name"].as_str().unwrap().to_string();
+            let mut tables: Vec<&toml::Value> = ["dependencies", "build-dependencies"]
+                .iter()
+                .filter_map(|t| manifest.get(*t))
+                .collect();
+            if let Some(targets) = manifest.get("target").and_then(|t| t.as_table()) {
+                for target in targets.values() {
+                    tables.extend(
+                        ["dependencies", "build-dependencies"]
+                            .iter()
+                            .filter_map(|t| target.get(*t)),
+                    );
+                }
+            }
+            let deps = tables
+                .iter()
+                .filter_map(|t| t.as_table())
+                .flat_map(|t| t.keys().cloned())
+                .collect();
+            out.insert(name, deps);
+        }
+        out
+    }
+
+    /// A member's tier: one more than the highest tier among its internal dependencies, 0 with none.
+    pub fn tier(package: &str) -> u32 {
+        fn walk(
+            p: &str,
+            g: &BTreeMap<String, BTreeSet<String>>,
+            memo: &mut BTreeMap<String, u32>,
+        ) -> u32 {
+            if let Some(t) = memo.get(p) {
+                return *t;
+            }
+            let t = g[p]
+                .iter()
+                .filter(|d| g.contains_key(*d))
+                .map(|d| walk(d, g, memo) + 1)
+                .max()
+                .unwrap_or(0);
+            memo.insert(p.to_string(), t);
+            t
+        }
+        let g = graph();
+        assert!(
+            g.contains_key(package),
+            "{package} is not a workspace member"
+        );
+        walk(package, &g, &mut BTreeMap::new())
+    }
 }
 
 macro_rules! readme_battery {
@@ -415,6 +625,10 @@ macro_rules! readme_battery {
             #[test] fn lib_includes_readme()        { crate::checks::include_str_present(DIR) }
             #[test] fn cargo_metadata_present()     { crate::checks::cargo_metadata(DIR) }
             #[test] fn fence_hygiene()              { crate::checks::fence_hygiene(DIR) }
+            #[test] fn title_is_the_package_name()  { crate::checks::title(DIR) }
+            #[test] fn states_its_place_and_tier()  { crate::checks::part_of(DIR) }
+            #[test] fn ends_with_the_footer()       { crate::checks::footer(DIR) }
+            #[test] fn describes_itself_plainly()   { crate::checks::description_style(DIR) }
         })*
     };
 }
@@ -443,27 +657,68 @@ readme_battery! {
     nano:       "apps/logicaffeine_nano",
 }
 
+/// The workspace's member directories, expanded as cargo expands `workspace.members`: a `dir/*` entry is
+/// every subdirectory of `dir` holding a `Cargo.toml`. Any other glob is refused rather than read literally.
+fn workspace_members() -> Vec<String> {
+    let root: toml::Value =
+        toml::from_str(&checks::read("Cargo.toml")).expect("parse root Cargo.toml");
+    let mut out = Vec::new();
+    for member in root["workspace"]["members"]
+        .as_array()
+        .expect("workspace.members")
+    {
+        let member = member.as_str().unwrap();
+        match member.strip_suffix("/*") {
+            Some(parent) => {
+                assert!(
+                    !parent.contains(['*', '?', '[']),
+                    "unsupported member glob {member:?}"
+                );
+                let mut dirs: Vec<String> = std::fs::read_dir(repo_root().join(parent))
+                    .unwrap_or_else(|e| panic!("{parent}: {e}"))
+                    .flatten()
+                    .filter(|e| e.path().join("Cargo.toml").is_file())
+                    .map(|e| format!("{parent}/{}", e.file_name().to_string_lossy()))
+                    .collect();
+                dirs.sort();
+                out.extend(dirs);
+            }
+            None => {
+                assert!(
+                    !member.contains(['*', '?', '[']),
+                    "unsupported member glob {member:?}"
+                );
+                out.push(member.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Every workspace member with a README must be in the battery — a new crate
 /// cannot dodge the ratchet. Battery dirs must exist (except the git-ignored
 /// nano, which is optional by design).
 #[test]
 fn registry_covers_all_members() {
-    let root: toml::Value =
-        toml::from_str(&checks::read("Cargo.toml")).expect("parse root Cargo.toml");
-    let members = root["workspace"]["members"].as_array().expect("workspace.members");
     let mut missing = Vec::new();
-    for member in members {
-        let dir = member.as_str().unwrap();
+    for dir in workspace_members() {
+        let dir = dir.as_str();
         if repo_root().join(dir).join("README.md").exists() && !ALL_DIRS.contains(&dir) {
             missing.push(dir.to_string());
         }
     }
-    assert!(missing.is_empty(), "members with READMEs missing from the battery: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "members with READMEs missing from the battery: {missing:?}"
+    );
     for dir in ALL_DIRS {
         if *dir == "apps/logicaffeine_nano" {
             continue;
         }
-        assert!(repo_root().join(dir).exists(), "battery dir {dir} does not exist (typo?)");
+        assert!(
+            repo_root().join(dir).exists(),
+            "battery dir {dir} does not exist (typo?)"
+        );
     }
 }
 
@@ -486,14 +741,16 @@ fn nano_lockstep() {
         return;
     }
     let ws = checks::workspace_version();
-    let manifest: toml::Value =
-        toml::from_str(&checks::read("apps/logicaffeine_nano/Cargo.toml")).expect("parse nano Cargo.toml");
+    let manifest: toml::Value = toml::from_str(&checks::read("apps/logicaffeine_nano/Cargo.toml"))
+        .expect("parse nano Cargo.toml");
     assert_eq!(
         manifest["package"]["version"].as_str(),
         Some(ws.as_str()),
         "nano package version must track the workspace"
     );
-    let deps = manifest["dependencies"].as_table().expect("nano [dependencies]");
+    let deps = manifest["dependencies"]
+        .as_table()
+        .expect("nano [dependencies]");
     for (name, spec) in deps {
         if !name.starts_with("logicaffeine-") {
             continue;
@@ -511,12 +768,8 @@ fn nano_lockstep() {
 /// extras beyond that set).
 #[test]
 fn docs_site_curates_published_crates() {
-    let root: toml::Value =
-        toml::from_str(&checks::read("Cargo.toml")).expect("parse root Cargo.toml");
-    let members = root["workspace"]["members"].as_array().expect("workspace.members");
     let mut publishable = BTreeSet::new();
-    for member in members {
-        let dir = member.as_str().unwrap();
+    for dir in workspace_members() {
         let manifest: toml::Value =
             toml::from_str(&checks::read(&format!("{dir}/Cargo.toml"))).unwrap();
         let package = &manifest["package"];
@@ -545,7 +798,10 @@ fn docs_site_curates_published_crates() {
             }
         }
     }
-    assert!(!curated.is_empty(), "could not parse CRATES=( … ) from build.sh");
+    assert!(
+        !curated.is_empty(),
+        "could not parse CRATES=( … ) from build.sh"
+    );
 
     let missing: Vec<&String> = publishable.difference(&curated).collect();
     let unexpected: Vec<&String> = curated
@@ -590,7 +846,10 @@ fn branding_consistent() {
         if manifest_path.exists() {
             let manifest: toml::Value =
                 toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
-            if let Some(desc) = manifest["package"].get("description").and_then(|d| d.as_str()) {
+            if let Some(desc) = manifest["package"]
+                .get("description")
+                .and_then(|d| d.as_str())
+            {
                 if desc.contains("LogicAffeine") {
                     bad.push(format!("{dir}/Cargo.toml description"));
                 }
@@ -601,4 +860,33 @@ fn branding_consistent() {
         bad.is_empty(),
         "`LogicAffeine` in prose/descriptions (the brand is Logicaffeine / LOGOS): {bad:?}"
     );
+}
+
+/// Every version exemption is used by some README: a dead entry would quietly admit that version later.
+#[test]
+fn every_version_exemption_is_in_use() {
+    let readmes: Vec<String> = ALL_DIRS
+        .iter()
+        .map(|d| repo_root().join(d).join("README.md"))
+        .filter(|p| p.exists())
+        .map(|p| fs::read_to_string(p).unwrap())
+        .collect();
+    let dead: Vec<&str> = VERSION_ALLOW
+        .iter()
+        .map(|(v, _)| *v)
+        .filter(|v| !readmes.iter().any(|r| r.contains(v)))
+        .collect();
+    assert!(
+        dead.is_empty(),
+        "version exemptions no README uses (remove them): {dead:?}"
+    );
+}
+
+/// The tier computation reads the manifests the way `tier_map_lock` does: dependency-free crates are
+/// tier 0 and the CLI sits above the compiler.
+#[test]
+fn the_tier_computation_reads_the_manifests() {
+    assert_eq!(shape::tier("logicaffeine-base"), 0);
+    assert!(shape::tier("logicaffeine-cli") > shape::tier("logicaffeine-compile"));
+    assert!(shape::tier("logicaffeine-compile") > shape::tier("logicaffeine-language"));
 }

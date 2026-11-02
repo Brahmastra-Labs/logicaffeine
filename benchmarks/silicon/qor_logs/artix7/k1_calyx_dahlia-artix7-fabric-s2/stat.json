@@ -1,0 +1,78 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\main": {
+         "num_wires":         1123,
+         "num_wire_bits":     6585,
+         "num_pub_wires":     612,
+         "num_pub_wire_bits": 4870,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         1752,
+         "num_cells_by_type": {
+            "CARRY4": 46,
+            "FDRE": 595,
+            "LUT2": 155,
+            "LUT3": 5,
+            "LUT4": 66,
+            "LUT5": 265,
+            "LUT6": 534,
+            "MUXF7": 73,
+            "MUXF8": 13
+         }
+      },
+      "\\qorsyn_k1_calyx_dahlia": {
+         "num_wires":         295,
+         "num_wire_bits":     5988,
+         "num_pub_wires":     137,
+         "num_pub_wire_bits": 5066,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         560,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 223,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 42,
+            "LUT3": 3,
+            "LUT4": 12,
+            "LUT5": 31,
+            "LUT6": 132,
+            "OBUF": 16,
+            "main": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         1418,
+         "num_wire_bits":     12573,
+         "num_pub_wires":     749,
+         "num_pub_wire_bits": 9936,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         2311,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 46,
+            "FDRE": 818,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 197,
+            "LUT3": 8,
+            "LUT4": 78,
+            "LUT5": 296,
+            "LUT6": 666,
+            "MUXF7": 73,
+            "MUXF8": 13,
+            "OBUF": 16
+         }
+      }
+}
+

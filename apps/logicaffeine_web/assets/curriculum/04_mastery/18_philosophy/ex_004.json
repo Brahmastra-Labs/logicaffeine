@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Quine argued there's no sharp line between truths of meaning and truths of fact.",
-  "explanation": "Quine's 'Two Dogmas of Empiricism' (1951) attacked the idea that logical/analytic truths ('all bachelors are unmarried') are fundamentally different from empirical/synthetic truths. He argued all beliefs face experience as a web - even logical laws could be revised if doing so simplified our total theory.",
-  "visual_concept": "Instead of two types of truth, Quine saw a spectrum: some beliefs are more central to our web, but none are absolutely unrevisable."
+  "explanation": "In Two Dogmas of Empiricism (1951), Quine argued there is no sharp line between truths of meaning and truths of fact. Even logic could be revised.",
+  "visual_concept": "Instead of two types of truth, Quine saw a spectrum: some beliefs are more central to our web, but none are absolutely unrevisable.",
+  "section": "18.3"
 }

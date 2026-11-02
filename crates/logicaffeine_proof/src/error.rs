@@ -42,37 +42,21 @@ pub enum ProofError {
 
     /// Unification failed due to occurs check.
     /// This prevents infinite types like x = f(x).
-    OccursCheck {
-        variable: String,
-        term: ProofTerm,
-    },
+    OccursCheck { variable: String, term: ProofTerm },
 
     /// Unification failed because terms could not be unified.
-    UnificationFailed {
-        left: ProofTerm,
-        right: ProofTerm,
-    },
+    UnificationFailed { left: ProofTerm, right: ProofTerm },
 
     /// Expression-level unification failed.
-    ExprUnificationFailed {
-        left: ProofExpr,
-        right: ProofExpr,
-    },
+    ExprUnificationFailed { left: ProofExpr, right: ProofExpr },
 
     /// Symbol mismatch during unification.
-    SymbolMismatch {
-        left: String,
-        right: String,
-    },
+    SymbolMismatch { left: String, right: String },
 
     /// Arity mismatch during unification.
-    ArityMismatch {
-        expected: usize,
-        found: usize,
-    },
+    ArityMismatch { expected: usize, found: usize },
 
     // --- Higher-Order Pattern Unification ---
-
     /// The pattern has non-distinct arguments (e.g., ?F(x, x))
     /// Miller patterns require distinct bound variables.
     PatternNotDistinct(String),
@@ -83,17 +67,17 @@ pub enum ProofError {
 
     /// RHS uses variables not in pattern scope.
     /// In ?P(x) = Body, Body must only use variables that appear in the pattern.
-    ScopeViolation {
-        var: String,
-        allowed: Vec<String>,
-    },
+    ScopeViolation { var: String, allowed: Vec<String> },
 }
 
 impl fmt::Display for ProofError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ProofError::NoProofFound => {
-                write!(f, "No proof found: the goal could not be derived from the knowledge base")
+                write!(
+                    f,
+                    "No proof found: the goal could not be derived from the knowledge base"
+                )
             }
             ProofError::DepthExceeded => {
                 write!(f, "Proof search exceeded maximum depth limit")
@@ -106,16 +90,28 @@ impl fmt::Display for ProofError {
                 )
             }
             ProofError::UnificationFailed { left, right } => {
-                write!(f, "Unification failed: cannot unify '{}' with '{}'", left, right)
+                write!(
+                    f,
+                    "Unification failed: cannot unify '{}' with '{}'",
+                    left, right
+                )
             }
             ProofError::ExprUnificationFailed { left, right } => {
-                write!(f, "Expression unification failed: cannot unify '{}' with '{}'", left, right)
+                write!(
+                    f,
+                    "Expression unification failed: cannot unify '{}' with '{}'",
+                    left, right
+                )
             }
             ProofError::SymbolMismatch { left, right } => {
                 write!(f, "Symbol mismatch: '{}' vs '{}'", left, right)
             }
             ProofError::ArityMismatch { expected, found } => {
-                write!(f, "Arity mismatch: expected {} arguments, found {}", expected, found)
+                write!(
+                    f,
+                    "Arity mismatch: expected {} arguments, found {}",
+                    expected, found
+                )
             }
             ProofError::PatternNotDistinct(var) => {
                 write!(f, "Pattern has duplicate variable '{}': Miller patterns require distinct bound variables", var)
@@ -124,7 +120,11 @@ impl fmt::Display for ProofError {
                 write!(f, "Not a valid Miller pattern: '{}' (arguments must be bound variable references)", expr)
             }
             ProofError::ScopeViolation { var, allowed } => {
-                write!(f, "Scope violation: variable '{}' not in pattern scope {:?}", var, allowed)
+                write!(
+                    f,
+                    "Scope violation: variable '{}' not in pattern scope {:?}",
+                    var, allowed
+                )
             }
         }
     }

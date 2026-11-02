@@ -1,0 +1,83 @@
+The capital of France is
+__prompt__
+def fibonacci(n):
+    """Return the n-th Fibonacci number."""
+
+__prompt__
+Question: What is 17 multiplied by 23?
+Answer:
+__prompt__
+Translate to French: The weather is beautiful today.
+French:
+__prompt__
+Il était une fois, dans un petit village au bord de la mer,
+__prompt__
+東京は日本の首都であり、
+__prompt__
+人工智能的发展历史可以追溯到
+__prompt__
+Москва — столица России, и
+__prompt__
+In 1969, Neil Armstrong became the first person to
+__prompt__
+The three laws of thermodynamics state that
+__prompt__
+SELECT name, COUNT(*) FROM orders
+WHERE created_at > '2024-01-01'
+GROUP BY
+__prompt__
+fn main() {
+    let v: Vec<i32> = (1..=10).collect();
+    let sum: i32 =
+__prompt__
+List of prime numbers: 2, 3, 5, 7, 11, 13,
+__prompt__
+Dear hiring manager,
+
+I am writing to apply for
+__prompt__
+Q: If a train travels 120 km in 1.5 hours, what is its average speed?
+A:
+__prompt__
+The mitochondria is the powerhouse of the cell because
+__prompt__
+<html>
+<head>
+<title>
+__prompt__
+Once upon a time there was a dragon who
+__prompt__
+To make a cup of tea, first
+__prompt__
+x = [1, 2, 3]
+y = [i * i for i in x]
+print(y)  # prints
+__prompt__
+The derivative of sin(x) with respect to x is
+__prompt__
+Shakespeare wrote Romeo and Juliet in
+__prompt__
+العربية لغة جميلة، وهي
+__prompt__
+Der schnelle braune Fuchs springt über
+__prompt__
+1, 1, 2, 3, 5, 8, 13, 21,
+__prompt__
+The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox
+__prompt__
+In machine learning, overfitting occurs when
+__prompt__
+Recipe: chocolate chip cookies
+Ingredients:
+-
+__prompt__
+#include <stdio.h>
+
+int main(void) {
+    printf("
+__prompt__
+E = mc^2 means that
+__prompt__
+The Pacific Ocean is the largest ocean on Earth, covering approximately
+__prompt__
+Summary of the plot of Moby-Dick: Captain Ahab

@@ -29,7 +29,11 @@ fn test_parse_polymorphic_list() {
 Show "parsed".
 "#;
     let result = logicaffeine_compile::compile::compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse polymorphic inductive: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse polymorphic inductive: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -43,7 +47,11 @@ fn test_parse_multi_param_generic() {
 Show "parsed".
 "#;
     let result = logicaffeine_compile::compile::compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse multi-param generic: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse multi-param generic: {:?}",
+        result
+    );
 }
 
 // =============================================================================

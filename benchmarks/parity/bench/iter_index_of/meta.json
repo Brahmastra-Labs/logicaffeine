@@ -1,0 +1,11 @@
+{
+  "capability": "iter.index_of",
+  "workload": "indexOfInt(x,xs) 1-based, 0 if absent",
+  "arg": "60000",
+  "expected": "120997680",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

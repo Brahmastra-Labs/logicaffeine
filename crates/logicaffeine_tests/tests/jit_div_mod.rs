@@ -155,7 +155,11 @@ fn div_by_zero_mid_loop_error_parity() {
         "tiered deopt replay diverged from tree-walker"
     );
     assert!(vm_tiered.error.is_some(), "division by zero must error");
-    assert_eq!(norm(&vm_tiered.output), "7", "partial output before the error must survive");
+    assert_eq!(
+        norm(&vm_tiered.output),
+        "7",
+        "partial output before the error must survive"
+    );
 }
 
 /// Same for `%` — the modulo error string is distinct in the kernel.
@@ -208,7 +212,11 @@ fn conditionally_written_flag_survives_region_completion() {
     let tier = ForgeTier::new();
     let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
     assert_eq!(vm.error, None);
-    assert_eq!(norm(&vm.output), "95", "π(500) — conditional write must not be clobbered");
+    assert_eq!(
+        norm(&vm.output),
+        "95",
+        "π(500) — conditional write must not be clobbered"
+    );
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(norm(&tw.output), "95");
 }

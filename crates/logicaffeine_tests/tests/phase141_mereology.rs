@@ -17,12 +17,8 @@
 //! theorem doors (`check_theorem_smt` for Z3, `verify_theorem` for the plain
 //! FOL the kernel can certify).
 
-use logicaffeine_compile::{
-    check_theorem_premises_consistent, check_theorem_smt, verify_theorem,
-};
-use logicaffeine_proof::oracle::{
-    oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict,
-};
+use logicaffeine_compile::{check_theorem_premises_consistent, check_theorem_smt, verify_theorem};
+use logicaffeine_proof::oracle::{oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict};
 use logicaffeine_proof::{ProofExpr, ProofTerm};
 
 fn c(name: &str) -> ProofTerm {
@@ -46,10 +42,7 @@ fn ident(a: ProofTerm, b: ProofTerm) -> ProofExpr {
 }
 
 fn theorem(premises: &[&str], goal: &str) -> String {
-    let givens: String = premises
-        .iter()
-        .map(|p| format!("Given: {p}\n"))
-        .collect();
+    let givens: String = premises.iter().map(|p| format!("Given: {p}\n")).collect();
     format!("## Theorem: Phase141\n{givens}Prove: {goal}\nProof: Auto.\n")
 }
 
@@ -178,12 +171,13 @@ fn mass_predicates_are_cumulative() {
     let theory = SmtTheory {
         cumulative_predicates: vec!["water".to_string()],
     };
-    let premises = vec![
-        pred("water", vec![c("A")]),
-        pred("water", vec![c("B")]),
-    ];
+    let premises = vec![pred("water", vec![c("A")]), pred("water", vec![c("B")])];
     assert_eq!(
-        oracle_entails_with_theory(&premises, &pred("water", vec![sum(c("A"), c("B"))]), &theory),
+        oracle_entails_with_theory(
+            &premises,
+            &pred("water", vec![sum(c("A"), c("B"))]),
+            &theory
+        ),
         SmtVerdict::Entailed,
         "CUM: Water(a) ∧ Water(b) ⊢ Water(a⊕b)"
     );

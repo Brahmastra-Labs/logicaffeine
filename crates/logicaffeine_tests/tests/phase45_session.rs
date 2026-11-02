@@ -20,7 +20,11 @@ fn test_incremental_anaphora() {
     // Turn 1: Introduce the group
     let out1 = session.eval("The boys lifted the piano.").unwrap();
     println!("Turn 1: {}", out1);
-    assert!(out1.contains("σBoy"), "Should have sigma for boys. Got: {}", out1);
+    assert!(
+        out1.contains("σBoy"),
+        "Should have sigma for boys. Got: {}",
+        out1
+    );
 
     // Turn 2: Refer to them via pronoun
     let out2 = session.eval("They smiled.").unwrap();
@@ -28,11 +32,23 @@ fn test_incremental_anaphora() {
 
     // The 'They' should resolve to the bound variable from Turn 1
     // Note: "smile" is lexically shortened to "Smil" in the predicate
-    assert!(out2.contains("Smil"), "Should have Smil predicate. Got: {}", out2);
+    assert!(
+        out2.contains("Smil"),
+        "Should have Smil predicate. Got: {}",
+        out2
+    );
     // Verify pronoun resolved (not deictic fallback with "?")
-    assert!(!out2.contains("?"), "Should not have unresolved pronoun. Got: {}", out2);
+    assert!(
+        !out2.contains("?"),
+        "Should not have unresolved pronoun. Got: {}",
+        out2
+    );
     // The pronoun resolves to the Boys - could be σBoy or Boy depending on telescope resolution
-    assert!(out2.contains("Boy"), "They should resolve to Boy. Got: {}", out2);
+    assert!(
+        out2.contains("Boy"),
+        "They should resolve to Boy. Got: {}",
+        out2
+    );
 }
 
 /// Simple singular anaphora: "A man entered. He sat."
@@ -42,11 +58,19 @@ fn test_incremental_singular_anaphora() {
 
     let out1 = session.eval("A man entered.").unwrap();
     println!("Turn 1: {}", out1);
-    assert!(out1.contains("Man"), "Should have Man predicate. Got: {}", out1);
+    assert!(
+        out1.contains("Man"),
+        "Should have Man predicate. Got: {}",
+        out1
+    );
 
     let out2 = session.eval("He sat.").unwrap();
     println!("Turn 2: {}", out2);
-    assert!(out2.contains("Sit"), "Should have Sit predicate. Got: {}", out2);
+    assert!(
+        out2.contains("Sit"),
+        "Should have Sit predicate. Got: {}",
+        out2
+    );
     assert!(!out2.contains("?"), "Should resolve 'He'. Got: {}", out2);
 }
 
@@ -103,8 +127,16 @@ fn test_incremental_modal_subordination() {
     println!("Turn 2: {}", out2);
 
     // "It" should resolve to wolf in the modal context, not deictic
-    assert!(out2.contains("Eat"), "Should have Eat predicate. Got: {}", out2);
-    assert!(!out2.contains("Agent(e2, X)"), "Should not have deictic X. Got: {}", out2);
+    assert!(
+        out2.contains("Eat"),
+        "Should have Eat predicate. Got: {}",
+        out2
+    );
+    assert!(
+        !out2.contains("Agent(e2, X)"),
+        "Should not have deictic X. Got: {}",
+        out2
+    );
 }
 
 // ============================================
@@ -141,7 +173,10 @@ fn test_modal_barrier_blocks_indicative() {
     // What is NOT acceptable: using variable 'x' from the modal scope
     match result {
         Err(e) => {
-            println!("CORRECT: Indicative mode rejected hypothetical wolf: {:?}", e);
+            println!(
+                "CORRECT: Indicative mode rejected hypothetical wolf: {:?}",
+                e
+            );
             // This is the ideal behavior
         }
         Ok(out2) => {

@@ -1,0 +1,10 @@
+{
+  "capability": "math.probable_prime",
+  "workload": "count isProbablePrime(i)",
+  "arg": "50000",
+  "expected": "5133",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

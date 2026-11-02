@@ -31,10 +31,12 @@
 //! ```
 
 use crate::{
-    analysis, Arena, CompileOptions, drs, Interner, lambda, lexicon, Lexer, mwe,
-    OutputFormat, Parser, pragmatics, semantics, SymbolRegistry, ParseError, token,
+    analysis,
     arena_ctx::AstContext,
-    parser::{NegativeScopeMode, ModalPreference, QuantifierParsing},
+    drs, lambda, lexicon, mwe,
+    parser::{ModalPreference, NegativeScopeMode, QuantifierParsing},
+    pragmatics, semantics, token, Arena, CompileOptions, Interner, Lexer, OutputFormat, ParseError,
+    Parser, SymbolRegistry,
 };
 
 /// Maximum number of readings in a parse forest.
@@ -49,21 +51,36 @@ pub fn compile(input: &str) -> Result<String, ParseError> {
 /// Compile with conversational (scalar) implicature enrichment (§8.7). The literal
 /// `compile` output is unchanged; this adds the `+> Implicature(…)` line.
 pub fn compile_pragmatic(input: &str) -> Result<String, ParseError> {
-    compile_with_options(input, CompileOptions {
-        format: OutputFormat::Unicode,
-        pragmatic: true,
-    })
+    compile_with_options(
+        input,
+        CompileOptions {
+            format: OutputFormat::Unicode,
+            pragmatic: true,
+        },
+    )
 }
 
 /// Compile with simple FOL format.
 pub fn compile_simple(input: &str) -> Result<String, ParseError> {
-    compile_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL, pragmatic: false })
+    compile_with_options(
+        input,
+        CompileOptions {
+            format: OutputFormat::SimpleFOL,
+            pragmatic: false,
+        },
+    )
 }
 
 /// Compile with Kripke semantics lowering.
 /// Modal operators are transformed into explicit possible world quantification.
 pub fn compile_kripke(input: &str) -> Result<String, ParseError> {
-    compile_with_options(input, CompileOptions { format: OutputFormat::Kripke, pragmatic: false })
+    compile_with_options(
+        input,
+        CompileOptions {
+            format: OutputFormat::Kripke,
+            pragmatic: false,
+        },
+    )
 }
 
 /// Compile to Kripke-lowered FOL and pass the AST to a callback.
@@ -182,18 +199,22 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     if constraints.is_empty() {
         Ok(main_output)
     } else {
-        let constraint_strs: Vec<String> = constraints.iter().map(|c| {
-            match c.relation {
+        let constraint_strs: Vec<String> = constraints
+            .iter()
+            .map(|c| match c.relation {
                 drs::TimeRelation::Precedes => format!("Precedes({}, {})", c.left, c.right),
                 drs::TimeRelation::Equals => format!("{}={}", c.left, c.right),
-            }
-        }).collect();
+            })
+            .collect();
         Ok(format!("{} ∧ {}", main_output, constraint_strs.join(" ∧ ")))
     }
 }
 
 /// Compile with shared WorldState for cross-sentence discourse.
-pub fn compile_with_world_state(input: &str, world_state: &mut drs::WorldState) -> Result<String, ParseError> {
+pub fn compile_with_world_state(
+    input: &str,
+    world_state: &mut drs::WorldState,
+) -> Result<String, ParseError> {
     compile_with_world_state_options(input, world_state, CompileOptions::default())
 }
 
@@ -214,7 +235,12 @@ pub fn compile_with_discourse(
     world_state: &mut drs::WorldState,
     interner: &mut Interner,
 ) -> Result<String, ParseError> {
-    compile_with_world_state_interner_options(input, world_state, interner, CompileOptions::default())
+    compile_with_world_state_interner_options(
+        input,
+        world_state,
+        interner,
+        CompileOptions::default(),
+    )
 }
 
 /// Compile with full control over WorldState, Interner, and options.
@@ -278,12 +304,13 @@ pub fn compile_with_world_state_interner_options(
     if constraints.is_empty() {
         Ok(main_output)
     } else {
-        let constraint_strs: Vec<String> = constraints.iter().map(|c| {
-            match c.relation {
+        let constraint_strs: Vec<String> = constraints
+            .iter()
+            .map(|c| match c.relation {
                 drs::TimeRelation::Precedes => format!("Precedes({}, {})", c.left, c.right),
                 drs::TimeRelation::Equals => format!("{}={}", c.left, c.right),
-            }
-        }).collect();
+            })
+            .collect();
         Ok(format!("{} ∧ {}", main_output, constraint_strs.join(" ∧ ")))
     }
 }
@@ -298,7 +325,10 @@ pub fn compile_all_scopes(input: &str) -> Result<Vec<String>, ParseError> {
 }
 
 /// Returns all scope readings with specified output format.
-pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> Result<Vec<String>, ParseError> {
+pub fn compile_all_scopes_with_options(
+    input: &str,
+    options: CompileOptions,
+) -> Result<Vec<String>, ParseError> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -352,7 +382,12 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
             &intensional_role_arena,
         );
         for reading in intensional_readings {
-            let reading = semantics::apply_axioms(reading, &intensional_arena, &intensional_term_arena, &mut interner);
+            let reading = semantics::apply_axioms(
+                reading,
+                &intensional_arena,
+                &intensional_term_arena,
+                &mut interner,
+            );
             let mut registry = SymbolRegistry::new();
             results.push(reading.transpile(&mut registry, &interner, options.format));
         }
@@ -399,9 +434,9 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         discovery.run()
     };
 
-    let has_lexical_ambiguity = tokens.iter().any(|t| {
-        matches!(t.kind, token::TokenType::Ambiguous { .. })
-    });
+    let has_lexical_ambiguity = tokens
+        .iter()
+        .any(|t| matches!(t.kind, token::TokenType::Ambiguous { .. }));
 
     let has_pp_ambiguity = tokens.iter().any(|t| {
         if let token::TokenType::Preposition(sym) = &t.kind {
@@ -468,9 +503,15 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
     });
 
     // Detect modal polysemy (may, can, could)
-    let has_may = tokens.iter().any(|t| matches!(t.kind, token::TokenType::May));
-    let has_can = tokens.iter().any(|t| matches!(t.kind, token::TokenType::Can));
-    let has_could = tokens.iter().any(|t| matches!(t.kind, token::TokenType::Could));
+    let has_may = tokens
+        .iter()
+        .any(|t| matches!(t.kind, token::TokenType::May));
+    let has_can = tokens
+        .iter()
+        .any(|t| matches!(t.kind, token::TokenType::Can));
+    let has_could = tokens
+        .iter()
+        .any(|t| matches!(t.kind, token::TokenType::Could));
 
     let mut results: Vec<String> = Vec::new();
 
@@ -493,7 +534,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_noun_priority_mode(false);
 
         if let Ok(ast) = parser.parse() {
@@ -539,7 +586,11 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 for (slot, &i) in amb_positions.iter().enumerate() {
                     let pick = rem % option_counts[slot];
                     rem /= option_counts[slot];
-                    if let token::TokenType::Ambiguous { primary, alternatives } = &tokens[i].kind {
+                    if let token::TokenType::Ambiguous {
+                        primary,
+                        alternatives,
+                    } = &tokens[i].kind
+                    {
                         variant[i].kind = if pick == 0 {
                             (**primary).clone()
                         } else {
@@ -574,9 +625,15 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 );
 
                 if let Ok(ast) = parser.parse() {
-                    let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+                    let ast =
+                        semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
                     let ast = if options.format == OutputFormat::Kripke {
-                        semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+                        semantics::apply_kripke_lowering(
+                            ast,
+                            ast_ctx.exprs,
+                            ast_ctx.terms,
+                            &mut interner,
+                        )
                     } else {
                         ast
                     };
@@ -609,7 +666,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_pp_attachment_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -646,12 +709,23 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_collective_mode(true);
 
         if let Ok(ast) = parser.parse() {
             if let Ok(transformed) = parser.transform_cardinal_to_group(ast) {
-                let transformed = semantics::apply_axioms(transformed, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+                let transformed = semantics::apply_axioms(
+                    transformed,
+                    ast_ctx.exprs,
+                    ast_ctx.terms,
+                    &mut interner,
+                );
                 let mut registry = SymbolRegistry::new();
                 let reading = transformed.transpile(&mut registry, &interner, options.format);
                 if !results.contains(&reading) {
@@ -682,7 +756,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_distributive_marker(true);
 
         if let Ok(ast) = parser.parse() {
@@ -714,7 +794,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_event_reading_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -751,7 +837,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_negative_scope_mode(NegativeScopeMode::Wide);
 
         if let Ok(ast) = parser.parse() {
@@ -788,7 +880,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_modal_preference(ModalPreference::Epistemic);
 
         if let Ok(ast) = parser.parse() {
@@ -825,7 +923,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry.clone(),
+        );
         parser.set_modal_preference(ModalPreference::Deontic);
 
         if let Ok(ast) = parser.parse() {
@@ -862,7 +966,13 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::new(
+            tokens.clone(),
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry,
+        );
         parser.set_negative_scope_mode(NegativeScopeMode::Wide);
         parser.set_modal_preference(ModalPreference::Deontic);
 
@@ -897,7 +1007,10 @@ pub fn compile_discourse(sentences: &[&str]) -> Result<String, ParseError> {
 }
 
 /// Compile multiple sentences as a discourse with specified options.
-pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOptions) -> Result<String, ParseError> {
+pub fn compile_discourse_with_options(
+    sentences: &[&str],
+    options: CompileOptions,
+) -> Result<String, ParseError> {
     let mut interner = Interner::new();
     let mut world_state = drs::WorldState::new();
     let mut results = Vec::new();
@@ -937,7 +1050,13 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
         );
 
         // Pass 2: Parse with WorldState (DRS persists across sentences)
-        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::new(
+            tokens,
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry,
+        );
         parser.set_discourse_event_var(event_var_symbol);
         // Swap DRS from WorldState into Parser at start
         parser.swap_drs_with_world_state();
@@ -955,13 +1074,21 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
     let event_history = world_state.event_history();
     let mut precedes = Vec::new();
     for i in 0..event_history.len().saturating_sub(1) {
-        precedes.push(format!("Precedes({}, {})", event_history[i], event_history[i + 1]));
+        precedes.push(format!(
+            "Precedes({}, {})",
+            event_history[i],
+            event_history[i + 1]
+        ));
     }
 
     if precedes.is_empty() {
         Ok(results.join(" ∧ "))
     } else {
-        Ok(format!("{} ∧ {}", results.join(" ∧ "), precedes.join(" ∧ ")))
+        Ok(format!(
+            "{} ∧ {}",
+            results.join(" ∧ "),
+            precedes.join(" ∧ ")
+        ))
     }
 }
 
@@ -976,7 +1103,10 @@ pub fn compile_ambiguous(input: &str) -> Result<Vec<String>, ParseError> {
 }
 
 /// Compile with PP attachment ambiguity detection and specified options.
-pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> Result<Vec<String>, ParseError> {
+pub fn compile_ambiguous_with_options(
+    input: &str,
+    options: CompileOptions,
+) -> Result<Vec<String>, ParseError> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -1009,7 +1139,13 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
 
     // Pass 2: Parse with type context
     let mut world_state = drs::WorldState::new();
-    let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ctx, type_registry.clone());
+    let mut parser = Parser::new(
+        tokens.clone(),
+        &mut world_state,
+        &mut interner,
+        ctx,
+        type_registry.clone(),
+    );
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
@@ -1042,7 +1178,13 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
         );
 
         let mut world_state2 = drs::WorldState::new();
-        let mut parser2 = Parser::new(tokens, &mut world_state2, &mut interner, ctx2, type_registry);
+        let mut parser2 = Parser::new(
+            tokens,
+            &mut world_state2,
+            &mut interner,
+            ctx2,
+            type_registry,
+        );
         parser2.set_pp_attachment_mode(true);
         let ast2 = parser2.parse()?;
         let ast2 = semantics::apply_axioms(ast2, ctx2.exprs, ctx2.terms, &mut interner);
@@ -1061,10 +1203,10 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
 // Theorem Compilation
 // ═══════════════════════════════════════════════════════════════════
 
-use crate::ast::{self, Stmt};
-use crate::token::Span;
+use crate::ast::Stmt;
 use crate::error::ParseErrorKind;
 use crate::proof_convert::logic_expr_to_proof_expr;
+use crate::token::Span;
 
 /// Compile and prove a theorem block.
 pub fn compile_theorem(input: &str) -> Result<String, ParseError> {
@@ -1133,28 +1275,36 @@ pub fn compile_theorem(input: &str) -> Result<String, ParseError> {
     // and the `verified` flag on `TheoremCompileResult`. An explicit `Proof:` tactic
     // SCRIPT (English-esque vernacular) is run through the tactic framework instead,
     // then certified through the SAME kernel door (`qed` → `check_derivation`).
-    let outcome = if let crate::ast::theorem::ProofStrategy::Script(src) = &theorem.strategy {
-        use logicaffeine_proof::tactic::ProofState;
-        let mut st =
-            ProofState::start_with_names(premises.clone(), &theorem.premise_names, goal.clone());
-        let fail = |err: String| logicaffeine_proof::verify::VerifiedProof {
-            derivation: None,
-            proof_term: None,
-            kernel_ctx: Default::default(),
-            verified: false,
-            verification_error: Some(err),
-        };
-        match st.run_script(src) {
-            Ok(_) => st.qed().unwrap_or_else(|e| fail(format!("{e:?}"))),
-            Err(e) => fail(e.to_string()),
+    use crate::ast::theorem::ProofStrategy;
+    let (outcome, discharged) = match &theorem.strategy {
+        ProofStrategy::Auto => (
+            logicaffeine_proof::verify::prove_certify_check(&premises, &goal),
+            0,
+        ),
+        ProofStrategy::Script(src) => {
+            run_proof_sketch(&premises, &theorem.premise_names, &goal, src, None)
         }
-    } else {
-        logicaffeine_proof::verify::prove_certify_check(&premises, &goal)
+        // A one-word `Proof:` line names a SINGLE step. It runs through the same engine —
+        // there is one proof-step namespace — and the only difference is the diagnostic
+        // when the word is not a step at all.
+        ProofStrategy::ByRule(rule) => {
+            run_proof_sketch(&premises, &theorem.premise_names, &goal, rule, Some(rule))
+        }
+        // `Proof: Induction on n.` in its structured form. Lowering it to the script the
+        // tactic engine already speaks keeps ONE driver rather than a second, divergent one.
+        ProofStrategy::Induction(variable) => run_proof_sketch(
+            &premises,
+            &theorem.premise_names,
+            &goal,
+            &format!("induction {variable}"),
+            None,
+        ),
     };
     match outcome.derivation {
         Some(derivation) if outcome.verified => Ok(format!(
-            "Theorem '{}' Proved! [kernel-verified]\n{}",
+            "Theorem '{}' Proved! [kernel-verified]{}\n{}",
             theorem.name,
+            discharged_note(discharged),
             derivation.display_tree()
         )),
         Some(derivation) => Ok(format!(
@@ -1177,33 +1327,125 @@ pub fn compile_theorem(input: &str) -> Result<String, ParseError> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The vernacular `Proof:` line is an English proof SKETCH, not a Lean tactic block.
+///
+/// It names the METHOD; the routine obligations the method leaves are discharged by the
+/// same certified automation `Proof: Auto.` uses, and the count comes back so the answer can
+/// SAY how much the author left to the machine (see `discharged_note`). Nothing about the
+/// trust door moves: every step, sketched or swept, is assembled into one derivation and
+/// certified through `qed` → `check_derivation` → the kernel. The engine-level script API
+/// (`ProofState::run_script` + `qed`) keeps Lean's strict "close every goal" discipline
+/// untouched — the sketch reading belongs to the vernacular surface, not to the engine.
+///
+/// A step that ERRORS is never swept: the sweep runs only after the sketch itself ran
+/// clean, so a misspelt tactic, a missing hypothesis or an inapplicable rule still fails
+/// loudly instead of being proved around.
+///
+/// `rule_name` is `Some` for a [`ProofStrategy::ByRule`](crate::ast::theorem::ProofStrategy::ByRule)
+/// line — a one-word proof. It changes only the DIAGNOSTIC: a word the tactic namespace does
+/// not carry is reported as what it is (a kernel inference-rule name) rather than leaving the
+/// author to read "unknown tactic" and guess.
+pub fn run_proof_sketch(
+    premises: &[logicaffeine_proof::ProofExpr],
+    premise_names: &[Option<String>],
+    goal: &logicaffeine_proof::ProofExpr,
+    script: &str,
+    rule_name: Option<&str>,
+) -> (logicaffeine_proof::verify::VerifiedProof, usize) {
+    use logicaffeine_proof::tactic::{ProofState, TacticError};
 
-    #[test]
-    fn test_compile_simple_sentence() {
-        let result = compile("John runs.");
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.contains("Run"));
-        assert!(output.contains("John"));
+    /// A sketch cannot leave more obligations than this and still be a sketch; the bound
+    /// keeps a pathological script from turning one theorem into an unbounded proof search.
+    const MAX_RESIDUAL_OBLIGATIONS: usize = 64;
+
+    let fail = |err: String| logicaffeine_proof::verify::VerifiedProof {
+        derivation: None,
+        proof_term: None,
+        kernel_ctx: Default::default(),
+        verified: false,
+        verification_error: Some(err),
+    };
+
+    let mut st = ProofState::start_with_names(premises.to_vec(), premise_names, goal.clone());
+    if let Err(e) = st.run_script(script) {
+        let mut message = e.to_string();
+        if let Some(rule) = rule_name {
+            if message.contains("unknown tactic") {
+                // The word is one of TWO things, and saying the wrong one is worse than
+                // saying nothing: a rule name is answered with the spelling that applies it,
+                // and a word that is neither is told it is neither. Asking
+                // `InferenceRule::from_name` is what separates them — the message used to
+                // call every unknown one-word proof line an inference rule, which was a
+                // FALSE statement about `Proof: Frobnicate.`
+                message.push_str(
+                    &if logicaffeine_proof::InferenceRule::from_name(rule).is_some() {
+                        format!(
+                            " — `{rule}` names a kernel INFERENCE RULE, not a proof step. \
+                         The vernacular has one proof-step namespace (the tactics); write \
+                         `Proof: By {rule}.` to apply that rule to the facts in scope in one \
+                         kernel-certified step, `Proof: Auto.` to let the prover select the \
+                         rule that applies, or name a tactic (assumption, intro, cases, \
+                         induction, simp, …)"
+                        )
+                    } else {
+                        format!(
+                            " — `{rule}` is neither a proof step nor a kernel inference rule. \
+                         Write `Proof: Auto.` to let the prover search, name a tactic \
+                         (assumption, intro, cases, induction, simp, …), or name a rule with \
+                         `Proof: By <Rule>.`"
+                        )
+                    },
+                );
+            }
+        }
+        return (fail(message), 0);
     }
 
-    #[test]
-    fn test_compile_with_unicode_format() {
-        let options = CompileOptions { format: OutputFormat::Unicode, pragmatic: false };
-        let result = compile_with_options("Every dog barks.", options);
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert!(output.contains("∀") || output.contains("Forall"));
-    }
-
-    #[test]
-    fn test_compile_all_scopes() {
-        let result = compile_all_scopes("Every woman loves a man.");
-        assert!(result.is_ok());
-        let readings = result.unwrap();
-        assert!(readings.len() >= 1);
+    let mut discharged = 0usize;
+    let mut remaining = usize::MAX;
+    loop {
+        match st.qed() {
+            Ok(vp) => return (vp, discharged),
+            Err(TacticError::GoalsRemain(open)) => {
+                // Strict decrease OR stop: `auto` closes the focused goal or fails, so a
+                // count that did not shrink means the sweep is spinning.
+                if open >= remaining || discharged >= MAX_RESIDUAL_OBLIGATIONS {
+                    return (
+                        fail(format!(
+                            "the proof sketch left {open} obligation(s) the automation could \
+                             not discharge"
+                        )),
+                        discharged,
+                    );
+                }
+                remaining = open;
+                if let Err(e) = st.run_script("auto") {
+                    return (
+                        fail(format!(
+                            "the proof sketch left {open} obligation(s) the automation could \
+                             not discharge: {e}"
+                        )),
+                        discharged,
+                    );
+                }
+                discharged += 1;
+            }
+            Err(e) => return (fail(format!("{e:?}")), discharged),
+        }
     }
 }
+
+/// How the certified answer reports obligations the AUTHOR did not write and the automation
+/// closed. Empty when the sketch was a complete proof, so a full tactic script reads exactly
+/// as it did before.
+fn discharged_note(discharged: usize) -> String {
+    match discharged {
+        0 => String::new(),
+        1 => " (1 residual obligation discharged by automation)".to_string(),
+        n => format!(" ({n} residual obligations discharged by automation)"),
+    }
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/compile/tests.rs"]
+mod tests;

@@ -198,3 +198,70 @@ fn string_search_build_shape_tiers_and_counts() {
         "the string_search build loop must tier through the regalloc REGION backend (got {ra})"
     );
 }
+
+/// An Int appended to the accumulator (`Set text to text + i + " "`) is its decimal text, exactly what the VM's
+/// `Text + Int` writes (`to_display_string`), negative values and zero included. The build loop tiers, and the bytes
+/// match the tree-walker's (a checksum over every byte, plus the length).
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn int_appends_tier_and_write_the_vms_digits() {
+    let src = "## Main\n\
+               Let mutable text be \"\".\n\
+               Let mutable i be 0.\n\
+               While i is less than 30000:\n\
+               \x20   Set text to text + (i - 15000) + \" \".\n\
+               \x20   Set i to i + 1.\n\
+               Let mutable h be 0.\n\
+               Repeat for b in text_bytes(text):\n\
+               \x20   Set h to (h * 31 + b) & 268435455.\n\
+               Show length of text.\n\
+               Show h.\n";
+    let (_, err, ra) = tiered_region(src);
+    assert_eq!(err, None);
+    assert!(
+        ra >= 1,
+        "the Int-append build loop must tier through the regalloc REGION backend (got {ra})"
+    );
+}
+
+/// The same build with a snapshot taken partway: the append after the snapshot is not sole-owned, so it copies, and
+/// the snapshot keeps the prefix it captured. (A loop that copies the accumulator stays on bytecode by design; the
+/// tree-walker comparison inside `tiered_region` is what holds here.)
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn int_appends_after_an_alias_copy_on_write() {
+    let src = "## Main\n\
+               Let mutable text be \"\".\n\
+               Let mutable saved be \"\".\n\
+               Let mutable i be 0.\n\
+               While i is less than 30000:\n\
+               \x20   If i equals 777:\n\
+               \x20       Set saved to text.\n\
+               \x20   Set text to text + i + \",\".\n\
+               \x20   Set i to i + 1.\n\
+               Show length of saved.\n\
+               Show length of text.\n";
+    let (out, err, _ra) = tiered_region(src);
+    assert_eq!(err, None);
+    assert_eq!(
+        out, "2998\n168890",
+        "the snapshot keeps its 777-number prefix; the text holds all 30000"
+    );
+}
+
+/// The strings benchmark builds its text with Int appends and then scans it: both loops tier.
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn the_strings_benchmark_tiers_its_build_and_its_scan() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/programs/strings/main.lg"
+    ))
+    .expect("strings/main.lg");
+    let (_, err, ra) = tiered_region_args(&src, &["strings".to_string(), "20000".to_string()]);
+    assert_eq!(err, None);
+    assert!(
+        ra >= 2,
+        "the build loop and the scan must both tier (got {ra})"
+    );
+}

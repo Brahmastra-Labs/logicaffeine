@@ -1,0 +1,40 @@
+  11050000           5241 Hz
+  11060000           5254 Hz
+  11070000           5867 Hz
+  11080000           5499 Hz
+  11090000           5246 Hz
+  11100000           5145 Hz
+  11110000           5393 Hz
+  11120000           5512 Hz
+  11130000           5463 Hz
+  11140000           5446 Hz
+  11150000           5249 Hz
+  11160000           5254 Hz
+  11170000           5418 Hz
+  11180000           5601 Hz
+  11190000           5473 Hz
+  11200000           5331 Hz
+  11210000           5258 Hz
+  11220000           5361 Hz
+  11230000           5453 Hz
+  11240000           5812 Hz
+  11250000           5275 Hz
+  11260000           5278 Hz
+  11270000           5282 Hz
+  11280000           5396 Hz
+  11290000           6112 Hz
+  11300000           4729 Hz
+  11310000           4342 Hz
+Simulation complete at cycle 11312412
+script> dumpstate logs/state.json
+script> stat
+Average DRAM Read Bandwidth: 11.8646 GB/s
+Average DRAM Write Bandwidth: 0.37077 GB/s
+script> Elapsed seconds: 2385.75
+Exiting... 😊
+Destruct DRAM.
+C Gold: 
+C Result: 
+PASS: true (GEMM)
+Complete Simulation
+Runtime:39:51.71

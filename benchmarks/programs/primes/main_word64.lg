@@ -1,0 +1,20 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be word64(parseInt(item 2 of arguments)).
+Let count be word64(0).
+Let i be word64(2).
+While i is at most n:
+    Let isPrime be word64(1).
+    Let d be word64(2).
+    While d * d is at most i:
+        If i % d equals word64(0):
+            Set isPrime to word64(0).
+            Break.
+        Set d to d + word64(1).
+    If isPrime equals word64(1):
+        Set count to count + word64(1).
+    Set i to i + word64(1).
+Show count.

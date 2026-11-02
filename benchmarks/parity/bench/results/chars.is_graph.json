@@ -1,0 +1,30 @@
+{
+  "capability": "chars.is_graph",
+  "arg": "20000000",
+  "timing_n": "1011455905",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 142.286,
+    "c": 441.46,
+    "rust": 1082.215,
+    "go": 825.933,
+    "python": 48198.083
+  },
+  "wall_ms": {
+    "logos": 142.656,
+    "c": 441.607,
+    "rust": 1082.458,
+    "go": 826.389,
+    "python": 48207.073
+  },
+  "logos_ms": 142.286,
+  "speedups_vs_logos": {
+    "c": 3.103,
+    "rust": 7.606,
+    "go": 5.805,
+    "python": 338.74
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 3.103
+}

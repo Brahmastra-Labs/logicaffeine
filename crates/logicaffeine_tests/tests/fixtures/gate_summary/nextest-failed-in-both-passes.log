@@ -1,0 +1,26 @@
+════════════════════════════════════════════════════════════════════
+ logicaffeine — full test baseline (FAST / nextest)
+════════════════════════════════════════════════════════════════════
+
+ PASS 1/2 — cargo nextest run (unit + integration, ignored included)
+──────────────────────────────────────────────────────────────────────
+        PASS [   0.012s] (    1/4) logicaffeine-base numeric::tests::rational_from_f64_exact
+        FAIL [   0.031s] (    2/4) logicaffeine-compile::dom_tier_refusal_lock native_tiers_re_render_by_rebuilding_never_by_reusing_the_node
+        FAIL [   0.304s] (    3/4) logicaffeine-compile::wasm_aot_lock the_generics_corpus_runs_on_wasm
+        PASS [   0.009s] (    4/4) logicaffeine-tests::phase1_garden_path the_horse_raced
+     Summary [  10.000s] 4 tests run: 2 passed, 2 failed, 0 skipped
+        FAIL [   0.031s] (    2/4) logicaffeine-compile::dom_tier_refusal_lock native_tiers_re_render_by_rebuilding_never_by_reusing_the_node
+        FAIL [   0.304s] (    3/4) logicaffeine-compile::wasm_aot_lock the_generics_corpus_runs_on_wasm
+
+──────────────────────────────────────────────────────────────────────
+ PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile, --features wasm-jit)
+──────────────────────────────────────────────────────────────────────
+        FAIL [   0.031s] (  1/2) logicaffeine-compile::dom_tier_refusal_lock native_tiers_re_render_by_rebuilding_never_by_reusing_the_node
+        PASS [   0.020s] (  2/2) logicaffeine-compile::wasm_dom_lock mounts
+     Summary [   2.000s] 2 tests run: 1 passed, 1 failed, 40 skipped
+        FAIL [   0.031s] (  1/2) logicaffeine-compile::dom_tier_refusal_lock native_tiers_re_render_by_rebuilding_never_by_reusing_the_node
+
+──────────────────────────────────────────────────────────────────────
+ PASS 2/2 — cargo test --doc (doctests)
+──────────────────────────────────────────────────────────────────────
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s

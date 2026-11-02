@@ -1,0 +1,10 @@
+{
+  "capability": "text.last_index_any",
+  "workload": "lastIndexAny(s,'XYZ') 1-based/0",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

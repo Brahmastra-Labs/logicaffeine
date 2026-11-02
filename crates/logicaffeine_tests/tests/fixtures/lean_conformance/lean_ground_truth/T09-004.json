@@ -1,0 +1,87 @@
+{
+  "case": "T09-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 11,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_004.mixed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_004.mixed 8 = 50",
+      "name": "T09_004.mixedTranslates",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_004.tacticCloseWithRfl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_004.termDoubleIfEven_",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_004.termEnvIsNonEmpty",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_004.termTheAnswer",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "8 = 8",
+      "name": "T09_004.usesBranchingElab",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "5 = 5",
+      "name": "T09_004.usesBranchingElabOdd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "42 = 42",
+      "name": "T09_004.usesCustomElab",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T09_004.usesCustomTactic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "1 = 1",
+      "name": "T09_004.usesEnvReadingElab",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

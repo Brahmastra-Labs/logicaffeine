@@ -1,0 +1,32 @@
+Allocate a_dram of size 32 * 32 at 0x5ec4998dc480 (104198482805888)
+Allocate b_dram of size 32 * 32 at 0x5ec4998de4c0 (104198482814144)
+Allocate c_dram of size 32 * 32 at 0x5ec4998df500 (104198482818304)
+Run simulation with with 271 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 271 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.19805
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          30797 Hz
+Simulation complete at cycle 17248
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.897959 GB/s
+Average DRAM Write Bandwidth: 0.237477 GB/s
+script Elapsed seconds: 2.42276
+Exiting... 😊
+Destruct DRAM.
+C Gold: 
+C Result: 
+PASS: true (GEMM)
+Complete Simulation
+Runtime:0:02.90

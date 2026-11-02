@@ -1,0 +1,11 @@
+{
+  "capability": "text.lines",
+  "workload": "lines(s) \u2014 #lines (no newlines -> 1)",
+  "arg": "40000",
+  "expected": "40000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

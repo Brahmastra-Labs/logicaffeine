@@ -1,4 +1,4 @@
-//! Phase 8 (work/FINISH_INTERPRETER.md) — the AOT dual-mode performance contract.
+//! The AOT dual-mode performance contract.
 //!
 //! Two guarantees:
 //!   1. **Mode A (default, free-running multicore)** stays byte-identical to
@@ -117,8 +117,14 @@ fn aot_default_codegen_for_benchmark_is_byte_identical() {
         );
     }
     // And it is a plain threaded `_logos_main`, exactly as today.
-    assert!(rust.contains("fn _logos_main()"), "expected the synchronous main shape:\n{rust}");
-    assert!(!rust.contains("async fn main()"), "non-concurrent program must not be async:\n{rust}");
+    assert!(
+        rust.contains("fn _logos_main()"),
+        "expected the synchronous main shape:\n{rust}"
+    );
+    assert!(
+        !rust.contains("async fn main()"),
+        "non-concurrent program must not be async:\n{rust}"
+    );
 }
 
 #[test]
@@ -128,7 +134,10 @@ fn aot_default_codegen_for_concurrent_program_unchanged_modeA() {
     // NO seeded/deterministic machinery (that is opt-in Mode B only).
     let src = DETERMINATE_CORPUS[0].1;
     let rust = compile_to_rust(src).expect("compiles");
-    assert!(rust.contains("async fn main()"), "Mode A concurrent main is async:\n{rust}");
+    assert!(
+        rust.contains("async fn main()"),
+        "Mode A concurrent main is async:\n{rust}"
+    );
     assert!(
         rust.contains("tokio::") || rust.contains("logicaffeine_system::concurrency"),
         "Mode A concurrent program uses the tokio platform runtime:\n{rust}"
@@ -158,7 +167,10 @@ fn aot_mode_b_select_emits_seeded_pick_mode_a_does_not() {
     // choice function); Mode A keeps the raw `tokio::select!`. This is the ONLY
     // emission difference between the two modes.
     let mode_a = logicaffeine_compile::compile_to_rust(SELECT_BOTH_READY).expect("compiles");
-    assert!(mode_a.contains("tokio::select!"), "Mode A keeps raw tokio::select!:\n{mode_a}");
+    assert!(
+        mode_a.contains("tokio::select!"),
+        "Mode A keeps raw tokio::select!:\n{mode_a}"
+    );
     assert!(
         !mode_a.contains("seeded_pick"),
         "Mode A must NOT carry the seeded pick:\n{mode_a}"
@@ -170,7 +182,10 @@ fn aot_mode_b_select_emits_seeded_pick_mode_a_does_not() {
         mode_b.contains("logicaffeine_system::concurrency::seeded_pick"),
         "Mode B lowers Select via the shared seeded chooser:\n{mode_b}"
     );
-    assert!(mode_b.contains("__logos_ready"), "Mode B collects ready arms:\n{mode_b}");
+    assert!(
+        mode_b.contains("__logos_ready"),
+        "Mode B collects ready arms:\n{mode_b}"
+    );
 }
 
 #[test]
@@ -197,7 +212,11 @@ fn aot_production_output_in_allowed_set() {
     use std::collections::BTreeSet;
 
     let allowed: BTreeSet<String> = (0..32u64)
-        .map(|s| run_treewalker_concurrent_seeded(SELECT_BOTH_READY, s).lines.join("\n"))
+        .map(|s| {
+            run_treewalker_concurrent_seeded(SELECT_BOTH_READY, s)
+                .lines
+                .join("\n")
+        })
         .collect();
     // The select races two ready arms, so the interpreter must exhibit BOTH
     // winners across the sweep — otherwise the "allowed set" is trivial.
@@ -208,7 +227,11 @@ fn aot_production_output_in_allowed_set() {
     );
 
     let produced = common::run_logos(SELECT_BOTH_READY);
-    assert!(produced.success, "Mode A program runs:\n{}", produced.stderr);
+    assert!(
+        produced.success,
+        "Mode A program runs:\n{}",
+        produced.stderr
+    );
     let out = produced.stdout.trim().to_string();
     assert!(
         allowed.contains(&out),

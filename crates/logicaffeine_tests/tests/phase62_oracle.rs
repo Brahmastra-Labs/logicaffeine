@@ -85,7 +85,10 @@ fn test_oracle_fallback_for_arithmetic() {
 
     let result = engine.prove(goal);
 
-    assert!(result.is_ok(), "Oracle should verify arithmetic implication");
+    assert!(
+        result.is_ok(),
+        "Oracle should verify arithmetic implication"
+    );
 
     let proof = result.unwrap();
     assert!(

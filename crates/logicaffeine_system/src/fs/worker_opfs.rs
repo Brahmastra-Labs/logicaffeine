@@ -73,12 +73,9 @@ impl WorkerOpfsVfs {
         let opts = web_sys::WorkerOptions::new();
         opts.set_type(web_sys::WorkerType::Classic);
 
-        let worker = web_sys::Worker::new_with_options("/assets/opfs-worker.js", &opts)
-            .map_err(|e| {
-                VfsError::PermissionDenied(format!(
-                    "Failed to create OPFS worker: {:?}",
-                    e
-                ))
+        let worker =
+            web_sys::Worker::new_with_options("/assets/opfs-worker.js", &opts).map_err(|e| {
+                VfsError::PermissionDenied(format!("Failed to create OPFS worker: {:?}", e))
             })?;
 
         let pending: PendingRequests = Rc::new(RefCell::new(HashMap::new()));
@@ -137,21 +134,28 @@ impl WorkerOpfsVfs {
 
         // Create request object
         let request = js_sys::Object::new();
-        js_sys::Reflect::set(&request, &JsValue::from_str("id"), &JsValue::from(id))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set request id: {:?}", e),
-            )))?;
-        js_sys::Reflect::set(&request, &JsValue::from_str("op"), &JsValue::from_str(op))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set request op: {:?}", e),
-            )))?;
-        js_sys::Reflect::set(&request, &JsValue::from_str("args"), args)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        js_sys::Reflect::set(&request, &JsValue::from_str("id"), &JsValue::from(id)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set request id: {:?}", e),
+                ))
+            },
+        )?;
+        js_sys::Reflect::set(&request, &JsValue::from_str("op"), &JsValue::from_str(op)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set request op: {:?}", e),
+                ))
+            },
+        )?;
+        js_sys::Reflect::set(&request, &JsValue::from_str("args"), args).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to set request args: {:?}", e),
-            )))?;
+            ))
+        })?;
 
         // Create promise for response
         let pending = self.pending.clone();
@@ -181,8 +185,8 @@ impl WorkerOpfsVfs {
             .unwrap_or(false);
 
         if !ok {
-            let error = js_sys::Reflect::get(&result, &JsValue::from_str("error"))
-                .unwrap_or(JsValue::NULL);
+            let error =
+                js_sys::Reflect::get(&result, &JsValue::from_str("error")).unwrap_or(JsValue::NULL);
             let name = js_sys::Reflect::get(&error, &JsValue::from_str("name"))
                 .ok()
                 .and_then(|v| v.as_string())
@@ -209,21 +213,28 @@ impl WorkerOpfsVfs {
 
         // Create request object
         let request = js_sys::Object::new();
-        js_sys::Reflect::set(&request, &JsValue::from_str("id"), &JsValue::from(id))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set request id: {:?}", e),
-            )))?;
-        js_sys::Reflect::set(&request, &JsValue::from_str("op"), &JsValue::from_str(op))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set request op: {:?}", e),
-            )))?;
-        js_sys::Reflect::set(&request, &JsValue::from_str("args"), args)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        js_sys::Reflect::set(&request, &JsValue::from_str("id"), &JsValue::from(id)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set request id: {:?}", e),
+                ))
+            },
+        )?;
+        js_sys::Reflect::set(&request, &JsValue::from_str("op"), &JsValue::from_str(op)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set request op: {:?}", e),
+                ))
+            },
+        )?;
+        js_sys::Reflect::set(&request, &JsValue::from_str("args"), args).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to set request args: {:?}", e),
-            )))?;
+            ))
+        })?;
 
         // Create promise for response
         let pending = self.pending.clone();
@@ -255,8 +266,8 @@ impl WorkerOpfsVfs {
             .unwrap_or(false);
 
         if !ok {
-            let error = js_sys::Reflect::get(&result, &JsValue::from_str("error"))
-                .unwrap_or(JsValue::NULL);
+            let error =
+                js_sys::Reflect::get(&result, &JsValue::from_str("error")).unwrap_or(JsValue::NULL);
             let name = js_sys::Reflect::get(&error, &JsValue::from_str("name"))
                 .ok()
                 .and_then(|v| v.as_string())
@@ -276,9 +287,7 @@ impl WorkerOpfsVfs {
     fn map_js_error(name: &str, message: &str) -> VfsError {
         match name {
             "NotFoundError" => VfsError::NotFound(message.to_string()),
-            "NotAllowedError" | "SecurityError" => {
-                VfsError::PermissionDenied(message.to_string())
-            }
+            "NotAllowedError" | "SecurityError" => VfsError::PermissionDenied(message.to_string()),
             "QuotaExceededError" => VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Quota exceeded: {}", message),
@@ -299,20 +308,24 @@ impl WorkerOpfsVfs {
 impl Vfs for WorkerOpfsVfs {
     async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         let result = self.send_request("read", &args).await?;
 
         // Extract data from response
-        let data = js_sys::Reflect::get(&result, &JsValue::from_str("data"))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        let data = js_sys::Reflect::get(&result, &JsValue::from_str("data")).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to get data from response: {:?}", e),
-            )))?;
+            ))
+        })?;
 
         let uint8_array = js_sys::Uint8Array::new(&data);
         Ok(uint8_array.to_vec())
@@ -325,61 +338,74 @@ impl Vfs for WorkerOpfsVfs {
 
     async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         // Create Uint8Array and transfer buffer for zero-copy
         let data = js_sys::Uint8Array::new_with_length(contents.len() as u32);
         data.copy_from(contents);
 
-        js_sys::Reflect::set(&args, &JsValue::from_str("data"), &data)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        js_sys::Reflect::set(&args, &JsValue::from_str("data"), &data).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to set data: {:?}", e),
-            )))?;
+            ))
+        })?;
 
         // Transfer the buffer for zero-copy
         let transfer = js_sys::Array::new();
         transfer.push(&data.buffer());
 
-        self.send_request_with_transfer("write", &args, &transfer).await?;
+        self.send_request_with_transfer("write", &args, &transfer)
+            .await?;
         Ok(())
     }
 
     async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         let data = js_sys::Uint8Array::new_with_length(contents.len() as u32);
         data.copy_from(contents);
 
-        js_sys::Reflect::set(&args, &JsValue::from_str("data"), &data)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        js_sys::Reflect::set(&args, &JsValue::from_str("data"), &data).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to set data: {:?}", e),
-            )))?;
+            ))
+        })?;
 
         let transfer = js_sys::Array::new();
         transfer.push(&data.buffer());
 
-        self.send_request_with_transfer("append", &args, &transfer).await?;
+        self.send_request_with_transfer("append", &args, &transfer)
+            .await?;
         Ok(())
     }
 
     async fn exists(&self, path: &str) -> VfsResult<bool> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         let result = self.send_request("exists", &args).await?;
 
@@ -392,11 +418,14 @@ impl Vfs for WorkerOpfsVfs {
 
     async fn remove(&self, path: &str) -> VfsResult<()> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         self.send_request("remove", &args).await?;
         Ok(())
@@ -404,11 +433,14 @@ impl Vfs for WorkerOpfsVfs {
 
     async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         self.send_request("createDirAll", &args).await?;
         Ok(())
@@ -416,16 +448,22 @@ impl Vfs for WorkerOpfsVfs {
 
     async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("from"), &JsValue::from_str(from))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set from: {:?}", e),
-            )))?;
-        js_sys::Reflect::set(&args, &JsValue::from_str("to"), &JsValue::from_str(to))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set to: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("from"), &JsValue::from_str(from)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set from: {:?}", e),
+                ))
+            },
+        )?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("to"), &JsValue::from_str(to)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set to: {:?}", e),
+                ))
+            },
+        )?;
 
         self.send_request("rename", &args).await?;
         Ok(())
@@ -433,19 +471,24 @@ impl Vfs for WorkerOpfsVfs {
 
     async fn list_dir(&self, path: &str) -> VfsResult<Vec<DirEntry>> {
         let args = js_sys::Object::new();
-        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to set path: {:?}", e),
-            )))?;
+        js_sys::Reflect::set(&args, &JsValue::from_str("path"), &JsValue::from_str(path)).map_err(
+            |e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set path: {:?}", e),
+                ))
+            },
+        )?;
 
         let result = self.send_request("listDir", &args).await?;
 
-        let entries_js = js_sys::Reflect::get(&result, &JsValue::from_str("entries"))
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to get entries: {:?}", e),
-            )))?;
+        let entries_js =
+            js_sys::Reflect::get(&result, &JsValue::from_str("entries")).map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to get entries: {:?}", e),
+                ))
+            })?;
 
         let entries_array: js_sys::Array = entries_js.unchecked_into();
         let mut entries = Vec::with_capacity(entries_array.length() as usize);

@@ -1,0 +1,117 @@
+Info: Device utilisation:
+Info: 	          SLICE_LUTX: 46134/126800    36%
+Info: 	           SLICE_FFX:  6532/126800     5%
+Info: 	              CARRY4:  2450/15850    15%
+Info: 	          PSEUDO_GND:     1/30932     0%
+Info: 	          PSEUDO_VCC:     1/30932     0%
+Info: 	               HARD0:     0/ 2376     0%
+Info: 	   RAMB18E1_RAMB18E1:     0/  270     0%
+Info: 	   FIFO18E1_FIFO18E1:     0/  135     0%
+Info: 	RAMBFIFO36E1_RAMBFIFO36E1:     0/  135     0%
+Info: 	   RAMB36E1_RAMB36E1:     0/  135     0%
+Info: 	     DSP48E1_DSP48E1:    64/  240    26%
+Info: 	                 PAD:    18/  876     2%
+Info: 	       IOB33M_OUTBUF:     0/  144     0%
+Info: 	       IOB33S_OUTBUF:     0/  144     0%
+Info: 	        IOB33_OUTBUF:    16/  300     5%
+Info: 	     IOB33M_INBUF_EN:     0/  144     0%
+Info: 	     IOB33S_INBUF_EN:     0/  144     0%
+Info: 	      IOB33_INBUF_EN:     2/  300     0%
+Info: 	IOB33M_TERM_OVERRIDE:     0/  144     0%
+Info: 	IOB33S_TERM_OVERRIDE:     0/  144     0%
+Info: 	 IOB33_TERM_OVERRIDE:     0/  300     0%
+Info: 	       PULL_OR_KEEP1:     0/  588     0%
+Info: 	   IDELAYE2_IDELAYE2:     0/  300     0%
+Info: 	        OLOGICE3_TFF:     0/  300     0%
+Info: 	      OLOGICE3_OUTFF:     0/  300     0%
+Info: 	       OLOGICE3_MISR:     0/  300     0%
+Info: 	 OSERDESE2_OSERDESE2:     0/  300     0%
+Info: 	        ILOGICE3_IFF:     0/  300     0%
+Info: 	ILOGICE3_ZHOLD_DELAY:     0/  300     0%
+Info: 	 ISERDESE2_ISERDESE2:     0/  300     0%
+Info: 	         BUFIO_BUFIO:     0/   24     0%
+Info: 	IDELAYCTRL_IDELAYCTRL:     0/    6     0%
+Info: 	            BUFGCTRL:     1/   32     3%
+Info: 	           BUFG_BUFG:     0/   32     0%
+Info: 	            INVERTER:     0/  144     0%
+Info: 	        OLOGICE2_TFF:     0/  300     0%
+Info: 	      OLOGICE2_OUTFF:     0/  300     0%
+Info: 	 PLLE2_ADV_PLLE2_ADV:     0/    6     0%
+Info: 	           SELMUX2_1:  8037/48750    16%
+Info: 	       BUFHCE_BUFHCE:     0/   96     0%
+Info: 	              BUFFER:     0/  288     0%
+Info: 	        ILOGICE2_IFF:     0/  300     0%
+Info: 	       OLOGICE2_MISR:     0/  300     0%
+Info:     iter=18 wires=953447 overused=2 overuse=2 archfail=NA
+Info:     iter=19 wires=953447 overused=2 overuse=2 archfail=NA
+Info:     iter=20 wires=953447 overused=2 overuse=2 archfail=NA
+Info:     iter=21 wires=953447 overused=2 overuse=2 archfail=NA
+Info:     iter=22 wires=953448 overused=0 overuse=0 archfail=0
+Info: Max frequency for clock '$iopadmap$clk': 32.56 MHz (FAIL at 100.00 MHz)
+Info: Routing complete.
+ERROR: Max frequency for clock '$iopadmap$clk': 45.10 MHz (FAIL at 100.00 MHz)
+Info: Critical path report for clock '$iopadmap$clk' (posedge -> posedge):
+Info:  0.1  0.1  Source u_dut.$auto$ff.cc:266:slice$52061.Q
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$110345.A2
+Info:  0.1  5.4  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$110345.O6
+Info:                Sink u_dut.mesh.mesh_4_1.tile_0_0.shift_offset[0]$LUT$19464.A1
+Info:  0.1  6.0  Source u_dut.mesh.mesh_4_1.tile_0_0.shift_offset[0]$LUT$19464.O6
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16511.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S0
+Info:  0.5  6.5  Source u_dut.$auto$alumacc.cc:485:replace_alu$16511.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O2
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$126006.A4
+Info:  0.1  7.9  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$126006.O6
+Info:                Sink u_dut.mesh.mesh_4_1.tile_0_0._io_out_c_zeros_T_4[0]$LUT$19488.A1
+Info:  0.1  9.6  Source u_dut.mesh.mesh_4_1.tile_0_0._io_out_c_zeros_T_4[0]$LUT$19488.O6
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S0
+Info:  0.5 10.1  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[1].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 10.4  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[1].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[2].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 10.6  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[2].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[3].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 10.8  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[3].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[4].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 11.0  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[4].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[5].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 11.2  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[5].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[6].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 11.5  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[6].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[7].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.2 11.8  Source u_dut.$auto$alumacc.cc:485:replace_alu$16514.genblk1.slice[7].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O2
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$119385.A2
+Info:  0.1 12.4  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$119385.O6
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$119416.A3
+Info:  0.1 12.9  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$119416.O6
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122730.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.A1
+Info:  0.1 15.1  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122730.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.O6
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122730.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.0
+Info:  0.2 15.3  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122730.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122730.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.1
+Info:  0.1 15.4  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122730.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.OUT
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.X[0]$LUT$19156.A2
+Info:  0.1 16.1  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.X[0]$LUT$19156.O6
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S0
+Info:  0.5 16.5  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[1].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 16.8  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[1].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[2].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 17.0  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[2].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[3].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 17.2  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[3].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[4].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 17.5  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[4].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[5].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 17.7  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[5].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[6].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.3 18.1  Source u_dut.$auto$alumacc.cc:485:replace_alu$16505.genblk1.slice[6].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O3
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$117375.A4
+Info:  0.1 18.9  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$117375.O5
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122622.A2
+Info:  0.1 19.8  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$122622.O6
+Info:                Sink u_dut.$flatten\mesh.\mesh_4_1.\tile_0_0.$gt$/mnt/build/qor-ws/logs/tmp1i4kafz0/MeshWithDelays.v:1600$1792.genblk1.slice[1].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S1
+Info:  0.6 20.3  Source u_dut.$flatten\mesh.\mesh_4_1.\tile_0_0.$gt$/mnt/build/qor-ws/logs/tmp1i4kafz0/MeshWithDelays.v:1600$1792.genblk1.slice[1].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O2
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$113906.A1
+Info:  0.1 21.2  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$113906.O6
+Info:                Sink u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$113925.A6
+Info:  0.1 22.0  Source u_dut.$abc$108039$auto$blifparse.cc:525:parse_blif$113925.O6
+Info:                Sink u_dut.$auto$ff.cc:266:slice$65583.D

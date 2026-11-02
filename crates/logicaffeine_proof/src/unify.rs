@@ -173,22 +173,12 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
         }
 
         // Reduce inside binary connectives
-        ProofExpr::And(l, r) => ProofExpr::And(
-            Box::new(beta_reduce(l)),
-            Box::new(beta_reduce(r)),
-        ),
-        ProofExpr::Or(l, r) => ProofExpr::Or(
-            Box::new(beta_reduce(l)),
-            Box::new(beta_reduce(r)),
-        ),
-        ProofExpr::Implies(l, r) => ProofExpr::Implies(
-            Box::new(beta_reduce(l)),
-            Box::new(beta_reduce(r)),
-        ),
-        ProofExpr::Iff(l, r) => ProofExpr::Iff(
-            Box::new(beta_reduce(l)),
-            Box::new(beta_reduce(r)),
-        ),
+        ProofExpr::And(l, r) => ProofExpr::And(Box::new(beta_reduce(l)), Box::new(beta_reduce(r))),
+        ProofExpr::Or(l, r) => ProofExpr::Or(Box::new(beta_reduce(l)), Box::new(beta_reduce(r))),
+        ProofExpr::Implies(l, r) => {
+            ProofExpr::Implies(Box::new(beta_reduce(l)), Box::new(beta_reduce(r)))
+        }
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(Box::new(beta_reduce(l)), Box::new(beta_reduce(r))),
         ProofExpr::Not(inner) => ProofExpr::Not(Box::new(beta_reduce(inner))),
 
         // Reduce inside quantifiers
@@ -208,13 +198,21 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
         },
 
         // Reduce inside modal and temporal operators
-        ProofExpr::Modal { domain, force, flavor, body } => ProofExpr::Modal {
+        ProofExpr::Modal {
+            domain,
+            force,
+            flavor,
+            body,
+        } => ProofExpr::Modal {
             domain: domain.clone(),
             force: *force,
             flavor: flavor.clone(),
             body: Box::new(beta_reduce(body)),
         },
-        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => ProofExpr::Counterfactual {
             antecedent: Box::new(beta_reduce(antecedent)),
             consequent: Box::new(beta_reduce(consequent)),
         },
@@ -222,7 +220,11 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
             operator: operator.clone(),
             body: Box::new(beta_reduce(body)),
         },
-        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+        ProofExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => ProofExpr::TemporalBinary {
             operator: operator.clone(),
             left: Box::new(beta_reduce(left)),
             right: Box::new(beta_reduce(right)),
@@ -239,7 +241,11 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
             let reduced_scrutinee = beta_reduce(scrutinee);
 
             // Try iota reduction: if scrutinee is a Ctor, select matching arm
-            if let ProofExpr::Ctor { name: ctor_name, args: ctor_args } = &reduced_scrutinee {
+            if let ProofExpr::Ctor {
+                name: ctor_name,
+                args: ctor_args,
+            } = &reduced_scrutinee
+            {
                 for arm in arms {
                     if &arm.ctor == ctor_name {
                         // Found matching arm - substitute constructor args for bindings
@@ -256,11 +262,14 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
             // No iota reduction possible - just reduce subexpressions
             ProofExpr::Match {
                 scrutinee: Box::new(reduced_scrutinee),
-                arms: arms.iter().map(|arm| MatchArm {
-                    ctor: arm.ctor.clone(),
-                    bindings: arm.bindings.clone(),
-                    body: beta_reduce(&arm.body),
-                }).collect(),
+                arms: arms
+                    .iter()
+                    .map(|arm| MatchArm {
+                        ctor: arm.ctor.clone(),
+                        bindings: arm.bindings.clone(),
+                        body: beta_reduce(&arm.body),
+                    })
+                    .collect(),
             }
         }
 
@@ -287,7 +296,11 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
 /// Unlike [`collect_free_vars`], this descends into every binder form (modal,
 /// temporal, event, match, fixpoint, …) so it is sound to use for capture
 /// detection.
-fn free_vars_expr(expr: &ProofExpr, bound: &mut Vec<String>, acc: &mut std::collections::HashSet<String>) {
+fn free_vars_expr(
+    expr: &ProofExpr,
+    bound: &mut Vec<String>,
+    acc: &mut std::collections::HashSet<String>,
+) {
     match expr {
         ProofExpr::Atom(s) => {
             if !bound.iter().any(|b| b == s) {
@@ -319,7 +332,10 @@ fn free_vars_expr(expr: &ProofExpr, bound: &mut Vec<String>, acc: &mut std::coll
             bound.pop();
         }
         ProofExpr::Modal { body, .. } => free_vars_expr(body, bound, acc),
-        ProofExpr::Counterfactual { antecedent, consequent } => {
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
             free_vars_expr(antecedent, bound, acc);
             free_vars_expr(consequent, bound, acc);
         }
@@ -332,7 +348,9 @@ fn free_vars_expr(expr: &ProofExpr, bound: &mut Vec<String>, acc: &mut std::coll
             free_vars_expr(f, bound, acc);
             free_vars_expr(a, bound, acc);
         }
-        ProofExpr::NeoEvent { event_var, roles, .. } => {
+        ProofExpr::NeoEvent {
+            event_var, roles, ..
+        } => {
             bound.push(event_var.clone());
             for (_, t) in roles {
                 free_vars_term(t, bound, acc);
@@ -370,6 +388,13 @@ fn free_vars_expr(expr: &ProofExpr, bound: &mut Vec<String>, acc: &mut std::coll
         ProofExpr::Hole(_) | ProofExpr::Unsupported(_) => {}
         ProofExpr::Term(t) => free_vars_term(t, bound, acc),
     }
+}
+
+/// Whether `var` occurs free in `expr` — binder-aware, see [`free_vars_expr`].
+pub(crate) fn occurs_free(var: &str, expr: &ProofExpr) -> bool {
+    let mut free = std::collections::HashSet::new();
+    free_vars_expr(expr, &mut Vec::new(), &mut free);
+    free.contains(var)
 }
 
 fn free_vars_term(term: &ProofTerm, bound: &[String], acc: &mut std::collections::HashSet<String>) {
@@ -419,7 +444,10 @@ fn all_names_expr(expr: &ProofExpr, acc: &mut std::collections::HashSet<String>)
             all_names_expr(body, acc);
         }
         ProofExpr::Modal { body, .. } => all_names_expr(body, acc),
-        ProofExpr::Counterfactual { antecedent, consequent } => {
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
             all_names_expr(antecedent, acc);
             all_names_expr(consequent, acc);
         }
@@ -432,7 +460,9 @@ fn all_names_expr(expr: &ProofExpr, acc: &mut std::collections::HashSet<String>)
             all_names_expr(f, acc);
             all_names_expr(a, acc);
         }
-        ProofExpr::NeoEvent { event_var, roles, .. } => {
+        ProofExpr::NeoEvent {
+            event_var, roles, ..
+        } => {
             acc.insert(event_var.clone());
             for (_, t) in roles {
                 all_names_term(t, acc);
@@ -498,7 +528,10 @@ fn alpha_rename_expr(expr: &ProofExpr, from: &str, to: &str) -> ProofExpr {
         ProofExpr::Atom(s) => ProofExpr::Atom(s.clone()),
         ProofExpr::Predicate { name, args, world } => ProofExpr::Predicate {
             name: name.clone(),
-            args: args.iter().map(|a| alpha_rename_term(a, from, to)).collect(),
+            args: args
+                .iter()
+                .map(|a| alpha_rename_term(a, from, to))
+                .collect(),
             world: world.clone(),
         },
         ProofExpr::Identity(l, r) => ProofExpr::Identity(
@@ -552,13 +585,21 @@ fn alpha_rename_expr(expr: &ProofExpr, from: &str, to: &str) -> ProofExpr {
                 }
             }
         }
-        ProofExpr::Modal { domain, force, flavor, body } => ProofExpr::Modal {
+        ProofExpr::Modal {
+            domain,
+            force,
+            flavor,
+            body,
+        } => ProofExpr::Modal {
             domain: domain.clone(),
             force: *force,
             flavor: flavor.clone(),
             body: Box::new(alpha_rename_expr(body, from, to)),
         },
-        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => ProofExpr::Counterfactual {
             antecedent: Box::new(alpha_rename_expr(antecedent, from, to)),
             consequent: Box::new(alpha_rename_expr(consequent, from, to)),
         },
@@ -566,7 +607,11 @@ fn alpha_rename_expr(expr: &ProofExpr, from: &str, to: &str) -> ProofExpr {
             operator: operator.clone(),
             body: Box::new(alpha_rename_expr(body, from, to)),
         },
-        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+        ProofExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => ProofExpr::TemporalBinary {
             operator: operator.clone(),
             left: Box::new(alpha_rename_expr(left, from, to)),
             right: Box::new(alpha_rename_expr(right, from, to)),
@@ -575,34 +620,47 @@ fn alpha_rename_expr(expr: &ProofExpr, from: &str, to: &str) -> ProofExpr {
             Box::new(alpha_rename_expr(f, from, to)),
             Box::new(alpha_rename_expr(a, from, to)),
         ),
-        ProofExpr::NeoEvent { event_var, verb, roles } => {
+        ProofExpr::NeoEvent {
+            event_var,
+            verb,
+            roles,
+        } => {
             if event_var == from {
                 expr.clone()
             } else {
                 ProofExpr::NeoEvent {
                     event_var: event_var.clone(),
                     verb: verb.clone(),
-                    roles: roles.iter().map(|(r, t)| (r.clone(), alpha_rename_term(t, from, to))).collect(),
+                    roles: roles
+                        .iter()
+                        .map(|(r, t)| (r.clone(), alpha_rename_term(t, from, to)))
+                        .collect(),
                 }
             }
         }
         ProofExpr::Ctor { name, args } => ProofExpr::Ctor {
             name: name.clone(),
-            args: args.iter().map(|a| alpha_rename_expr(a, from, to)).collect(),
+            args: args
+                .iter()
+                .map(|a| alpha_rename_expr(a, from, to))
+                .collect(),
         },
         ProofExpr::Match { scrutinee, arms } => ProofExpr::Match {
             scrutinee: Box::new(alpha_rename_expr(scrutinee, from, to)),
-            arms: arms.iter().map(|arm| {
-                if arm.bindings.iter().any(|b| b == from) {
-                    arm.clone()
-                } else {
-                    MatchArm {
-                        ctor: arm.ctor.clone(),
-                        bindings: arm.bindings.clone(),
-                        body: alpha_rename_expr(&arm.body, from, to),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    if arm.bindings.iter().any(|b| b == from) {
+                        arm.clone()
+                    } else {
+                        MatchArm {
+                            ctor: arm.ctor.clone(),
+                            bindings: arm.bindings.clone(),
+                            body: alpha_rename_expr(&arm.body, from, to),
+                        }
                     }
-                }
-            }).collect(),
+                })
+                .collect(),
         },
         ProofExpr::Fixpoint { name, body } => {
             if name == from {
@@ -616,7 +674,10 @@ fn alpha_rename_expr(expr: &ProofExpr, from: &str, to: &str) -> ProofExpr {
         }
         ProofExpr::TypedVar { name, typename } => {
             if name == from {
-                ProofExpr::TypedVar { name: to.to_string(), typename: typename.clone() }
+                ProofExpr::TypedVar {
+                    name: to.to_string(),
+                    typename: typename.clone(),
+                }
             } else {
                 expr.clone()
             }
@@ -633,12 +694,17 @@ fn alpha_rename_term(term: &ProofTerm, from: &str, to: &str) -> ProofTerm {
         ProofTerm::Variable(s) => ProofTerm::Variable(s.clone()),
         ProofTerm::BoundVarRef(s) => ProofTerm::BoundVarRef(s.clone()),
         ProofTerm::Constant(s) => ProofTerm::Constant(s.clone()),
-        ProofTerm::Function(n, args) => {
-            ProofTerm::Function(n.clone(), args.iter().map(|a| alpha_rename_term(a, from, to)).collect())
-        }
-        ProofTerm::Group(args) => {
-            ProofTerm::Group(args.iter().map(|a| alpha_rename_term(a, from, to)).collect())
-        }
+        ProofTerm::Function(n, args) => ProofTerm::Function(
+            n.clone(),
+            args.iter()
+                .map(|a| alpha_rename_term(a, from, to))
+                .collect(),
+        ),
+        ProofTerm::Group(args) => ProofTerm::Group(
+            args.iter()
+                .map(|a| alpha_rename_term(a, from, to))
+                .collect(),
+        ),
     }
 }
 
@@ -671,7 +737,41 @@ fn rebind_for_subst(
 fn substitute_expr_for_var(body: &ProofExpr, var: &str, replacement: &ProofExpr) -> ProofExpr {
     let mut repl_fvs = std::collections::HashSet::new();
     free_vars_expr(replacement, &mut Vec::new(), &mut repl_fvs);
-    subst_expr_avoiding(body, var, replacement, &repl_fvs)
+    subst_expr_avoiding(
+        body,
+        var,
+        replacement,
+        &repl_fvs,
+        Occurrences::TermsAndAtoms,
+    )
+}
+
+/// Instantiate one binder: `body[var := t]`, the formula a quantifier's body states of `t`.
+///
+/// Every free occurrence of `var` in a term position becomes `t`, once: `t` is not read again, so it may
+/// mention `var` itself (`P(a)[a := succ(a)]` is `P(succ(a))`). A binder that rebinds `var` shadows it, and a
+/// binder whose name is free in `t` is renamed first, so no free variable of `t` is captured. A propositional
+/// atom is not a term position and is left as it is.
+pub fn instantiate_expr(body: &ProofExpr, var: &str, t: &ProofTerm) -> ProofExpr {
+    let mut repl_fvs = std::collections::HashSet::new();
+    free_vars_term(t, &[], &mut repl_fvs);
+    subst_expr_avoiding(
+        body,
+        var,
+        &ProofExpr::Term(t.clone()),
+        &repl_fvs,
+        Occurrences::Terms,
+    )
+}
+
+/// Where [`subst_expr_avoiding`] replaces the variable.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Occurrences {
+    /// Term positions only: instantiating a binder with a term.
+    Terms,
+    /// Term positions and propositional atoms: β-reducing with an expression argument, where a
+    /// term-level function's variable may be written as an atom.
+    TermsAndAtoms,
 }
 
 fn subst_expr_avoiding(
@@ -679,11 +779,15 @@ fn subst_expr_avoiding(
     var: &str,
     replacement: &ProofExpr,
     repl_fvs: &std::collections::HashSet<String>,
+    at: Occurrences,
 ) -> ProofExpr {
     match body {
         ProofExpr::Predicate { name, args, world } => ProofExpr::Predicate {
             name: name.clone(),
-            args: args.iter().map(|t| substitute_term_for_var(t, var, replacement)).collect(),
+            args: args
+                .iter()
+                .map(|t| substitute_term_for_var(t, var, replacement))
+                .collect(),
             world: world.clone(),
         },
 
@@ -694,7 +798,7 @@ fn subst_expr_avoiding(
 
         ProofExpr::Atom(a) => {
             // If the atom matches the variable, replace it
-            if a == var {
+            if a == var && at == Occurrences::TermsAndAtoms {
                 replacement.clone()
             } else {
                 ProofExpr::Atom(a.clone())
@@ -702,91 +806,135 @@ fn subst_expr_avoiding(
         }
 
         ProofExpr::And(l, r) => ProofExpr::And(
-            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs)),
-            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs)),
+            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs, at)),
+            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs, at)),
         ),
         ProofExpr::Or(l, r) => ProofExpr::Or(
-            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs)),
-            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs)),
+            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs, at)),
+            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs, at)),
         ),
         ProofExpr::Implies(l, r) => ProofExpr::Implies(
-            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs)),
-            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs)),
+            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs, at)),
+            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs, at)),
         ),
         ProofExpr::Iff(l, r) => ProofExpr::Iff(
-            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs)),
-            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs)),
+            Box::new(subst_expr_avoiding(l, var, replacement, repl_fvs, at)),
+            Box::new(subst_expr_avoiding(r, var, replacement, repl_fvs, at)),
         ),
-        ProofExpr::Not(inner) => ProofExpr::Not(
-            Box::new(subst_expr_avoiding(inner, var, replacement, repl_fvs))
-        ),
+        ProofExpr::Not(inner) => ProofExpr::Not(Box::new(subst_expr_avoiding(
+            inner,
+            var,
+            replacement,
+            repl_fvs,
+            at,
+        ))),
 
         // Quantifiers: shadowing stops substitution; otherwise alpha-rename the
         // binder away from the replacement's free vars to avoid capture.
-        ProofExpr::ForAll { variable, body: inner } => {
+        ProofExpr::ForAll {
+            variable,
+            body: inner,
+        } => {
             if variable == var {
                 body.clone()
             } else {
                 let (v, b) = rebind_for_subst(variable, inner, repl_fvs);
                 ProofExpr::ForAll {
                     variable: v,
-                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs)),
+                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs, at)),
                 }
             }
         }
-        ProofExpr::Exists { variable, body: inner } => {
+        ProofExpr::Exists {
+            variable,
+            body: inner,
+        } => {
             if variable == var {
                 body.clone()
             } else {
                 let (v, b) = rebind_for_subst(variable, inner, repl_fvs);
                 ProofExpr::Exists {
                     variable: v,
-                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs)),
+                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs, at)),
                 }
             }
         }
 
-        ProofExpr::Lambda { variable, body: inner } => {
+        ProofExpr::Lambda {
+            variable,
+            body: inner,
+        } => {
             if variable == var {
                 body.clone()
             } else {
                 let (v, b) = rebind_for_subst(variable, inner, repl_fvs);
                 ProofExpr::Lambda {
                     variable: v,
-                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs)),
+                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs, at)),
                 }
             }
         }
 
         ProofExpr::App(f, a) => ProofExpr::App(
-            Box::new(subst_expr_avoiding(f, var, replacement, repl_fvs)),
-            Box::new(subst_expr_avoiding(a, var, replacement, repl_fvs)),
+            Box::new(subst_expr_avoiding(f, var, replacement, repl_fvs, at)),
+            Box::new(subst_expr_avoiding(a, var, replacement, repl_fvs, at)),
         ),
 
-        ProofExpr::Modal { domain, force, flavor, body: inner } => ProofExpr::Modal {
+        ProofExpr::Modal {
+            domain,
+            force,
+            flavor,
+            body: inner,
+        } => ProofExpr::Modal {
             domain: domain.clone(),
             force: *force,
             flavor: flavor.clone(),
-            body: Box::new(subst_expr_avoiding(inner, var, replacement, repl_fvs)),
+            body: Box::new(subst_expr_avoiding(inner, var, replacement, repl_fvs, at)),
         },
 
-        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
-            antecedent: Box::new(subst_expr_avoiding(antecedent, var, replacement, repl_fvs)),
-            consequent: Box::new(subst_expr_avoiding(consequent, var, replacement, repl_fvs)),
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => ProofExpr::Counterfactual {
+            antecedent: Box::new(subst_expr_avoiding(
+                antecedent,
+                var,
+                replacement,
+                repl_fvs,
+                at,
+            )),
+            consequent: Box::new(subst_expr_avoiding(
+                consequent,
+                var,
+                replacement,
+                repl_fvs,
+                at,
+            )),
         },
 
-        ProofExpr::Temporal { operator, body: inner } => ProofExpr::Temporal {
+        ProofExpr::Temporal {
+            operator,
+            body: inner,
+        } => ProofExpr::Temporal {
             operator: operator.clone(),
-            body: Box::new(subst_expr_avoiding(inner, var, replacement, repl_fvs)),
+            body: Box::new(subst_expr_avoiding(inner, var, replacement, repl_fvs, at)),
         },
 
-        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+        ProofExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => ProofExpr::TemporalBinary {
             operator: operator.clone(),
-            left: Box::new(subst_expr_avoiding(left, var, replacement, repl_fvs)),
-            right: Box::new(subst_expr_avoiding(right, var, replacement, repl_fvs)),
+            left: Box::new(subst_expr_avoiding(left, var, replacement, repl_fvs, at)),
+            right: Box::new(subst_expr_avoiding(right, var, replacement, repl_fvs, at)),
         },
 
-        ProofExpr::NeoEvent { event_var, verb, roles } => {
+        ProofExpr::NeoEvent {
+            event_var,
+            verb,
+            roles,
+        } => {
             if event_var == var {
                 // event_var shadows var
                 body.clone()
@@ -804,7 +952,10 @@ fn subst_expr_avoiding(
                         .iter()
                         .map(|(r, t)| {
                             let renamed = alpha_rename_term(t, event_var, &fresh);
-                            (r.clone(), substitute_term_for_var(&renamed, var, replacement))
+                            (
+                                r.clone(),
+                                substitute_term_for_var(&renamed, var, replacement),
+                            )
                         })
                         .collect(),
                 }
@@ -822,40 +973,52 @@ fn subst_expr_avoiding(
 
         ProofExpr::Ctor { name, args } => ProofExpr::Ctor {
             name: name.clone(),
-            args: args.iter().map(|a| subst_expr_avoiding(a, var, replacement, repl_fvs)).collect(),
+            args: args
+                .iter()
+                .map(|a| subst_expr_avoiding(a, var, replacement, repl_fvs, at))
+                .collect(),
         },
 
         ProofExpr::Match { scrutinee, arms } => ProofExpr::Match {
-            scrutinee: Box::new(subst_expr_avoiding(scrutinee, var, replacement, repl_fvs)),
-            arms: arms.iter().map(|arm| {
-                // Don't substitute if var is bound in this arm
-                if arm.bindings.iter().any(|b| b == var) {
-                    arm.clone()
-                } else {
-                    // Alpha-rename any binding that would capture a free var of
-                    // the replacement before substituting into the arm body.
-                    let mut arm_body = arm.body.clone();
-                    let mut new_bindings = arm.bindings.clone();
-                    let mut avoid = repl_fvs.clone();
-                    all_names_expr(&arm_body, &mut avoid);
-                    for b in &arm.bindings {
-                        avoid.insert(b.clone());
-                    }
-                    for binding in new_bindings.iter_mut() {
-                        if repl_fvs.contains(binding) {
-                            let fresh = fresh_proof_name(binding, &avoid);
-                            arm_body = alpha_rename_expr(&arm_body, binding, &fresh);
-                            avoid.insert(fresh.clone());
-                            *binding = fresh;
+            scrutinee: Box::new(subst_expr_avoiding(
+                scrutinee,
+                var,
+                replacement,
+                repl_fvs,
+                at,
+            )),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    // Don't substitute if var is bound in this arm
+                    if arm.bindings.iter().any(|b| b == var) {
+                        arm.clone()
+                    } else {
+                        // Alpha-rename any binding that would capture a free var of
+                        // the replacement before substituting into the arm body.
+                        let mut arm_body = arm.body.clone();
+                        let mut new_bindings = arm.bindings.clone();
+                        let mut avoid = repl_fvs.clone();
+                        all_names_expr(&arm_body, &mut avoid);
+                        for b in &arm.bindings {
+                            avoid.insert(b.clone());
+                        }
+                        for binding in new_bindings.iter_mut() {
+                            if repl_fvs.contains(binding) {
+                                let fresh = fresh_proof_name(binding, &avoid);
+                                arm_body = alpha_rename_expr(&arm_body, binding, &fresh);
+                                avoid.insert(fresh.clone());
+                                *binding = fresh;
+                            }
+                        }
+                        MatchArm {
+                            ctor: arm.ctor.clone(),
+                            bindings: new_bindings,
+                            body: subst_expr_avoiding(&arm_body, var, replacement, repl_fvs, at),
                         }
                     }
-                    MatchArm {
-                        ctor: arm.ctor.clone(),
-                        bindings: new_bindings,
-                        body: subst_expr_avoiding(&arm_body, var, replacement, repl_fvs),
-                    }
-                }
-            }).collect(),
+                })
+                .collect(),
         },
 
         ProofExpr::Fixpoint { name, body: inner } => {
@@ -865,7 +1028,7 @@ fn subst_expr_avoiding(
                 let (v, b) = rebind_for_subst(name, inner, repl_fvs);
                 ProofExpr::Fixpoint {
                     name: v,
-                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs)),
+                    body: Box::new(subst_expr_avoiding(&b, var, replacement, repl_fvs, at)),
                 }
             }
         }
@@ -890,16 +1053,19 @@ fn substitute_term_for_var(term: &ProofTerm, var: &str, replacement: &ProofExpr)
             expr_to_term(replacement)
         }
         // BoundVarRef also participates in substitution (for instantiating quantified formulas)
-        ProofTerm::BoundVarRef(v) if v == var => {
-            expr_to_term(replacement)
-        }
+        ProofTerm::BoundVarRef(v) if v == var => expr_to_term(replacement),
         ProofTerm::Variable(_) | ProofTerm::Constant(_) | ProofTerm::BoundVarRef(_) => term.clone(),
         ProofTerm::Function(name, args) => ProofTerm::Function(
             name.clone(),
-            args.iter().map(|a| substitute_term_for_var(a, var, replacement)).collect(),
+            args.iter()
+                .map(|a| substitute_term_for_var(a, var, replacement))
+                .collect(),
         ),
         ProofTerm::Group(terms) => ProofTerm::Group(
-            terms.iter().map(|t| substitute_term_for_var(t, var, replacement)).collect(),
+            terms
+                .iter()
+                .map(|t| substitute_term_for_var(t, var, replacement))
+                .collect(),
         ),
     }
 }
@@ -919,9 +1085,7 @@ fn expr_to_term(expr: &ProofExpr) -> ProofTerm {
         }
 
         // Predicates with args become functions
-        ProofExpr::Predicate { name, args, .. } => {
-            ProofTerm::Function(name.clone(), args.clone())
-        }
+        ProofExpr::Predicate { name, args, .. } => ProofTerm::Function(name.clone(), args.clone()),
 
         // Constructors become functions
         ProofExpr::Ctor { name, args } => {
@@ -1006,12 +1170,10 @@ fn unify_terms_with_subst(
         (ProofTerm::Constant(c1), ProofTerm::Constant(c2)) if c1 == c2 => Ok(()),
 
         // Different constants cannot unify
-        (ProofTerm::Constant(c1), ProofTerm::Constant(c2)) => {
-            Err(ProofError::SymbolMismatch {
-                left: c1.clone(),
-                right: c2.clone(),
-            })
-        }
+        (ProofTerm::Constant(c1), ProofTerm::Constant(c2)) => Err(ProofError::SymbolMismatch {
+            left: c1.clone(),
+            right: c2.clone(),
+        }),
 
         // Variable on the left: bind it to the right term
         (ProofTerm::Variable(v), t) => {
@@ -1134,6 +1296,12 @@ fn occurs(var: &str, term: &ProofTerm) -> bool {
 /// Replaces all variables in the term according to the substitution mapping.
 /// Handles transitive chains: if `{x ↦ y, y ↦ z}`, then applying to `x` yields `z`.
 ///
+/// The substitution is read as TRIANGULAR, which is what a unifier produces: a replacement is itself
+/// resolved against the map. That is sound only on an acyclic map, and a unifier's is (its occurs check
+/// refuses `x ↦ …x…`). A cyclic map has no resolution, so reaching `x` again while resolving `x` panics,
+/// naming the cycle, instead of recursing until the stack is gone. Instantiating one binder,
+/// `body[x := t]` with `t` free to mention `x`, is not this operation: use [`instantiate_expr`].
+///
 /// # Arguments
 ///
 /// * `term` - The term to transform
@@ -1161,30 +1329,45 @@ fn occurs(var: &str, term: &ProofTerm) -> bool {
 /// // result = Mortal(Socrates)
 /// ```
 pub fn apply_subst_to_term(term: &ProofTerm, subst: &Substitution) -> ProofTerm {
+    resolve_term(term, subst, &mut Vec::new())
+}
+
+/// [`apply_subst_to_term`], with `resolving` the variables whose replacements are being resolved on the
+/// way down to `term`.
+fn resolve_term(term: &ProofTerm, subst: &Substitution, resolving: &mut Vec<String>) -> ProofTerm {
     match term {
-        ProofTerm::Variable(v) => {
-            if let Some(replacement) = subst.get(v) {
-                // Recursively apply to handle chains like {x ↦ y, y ↦ z}
-                apply_subst_to_term(replacement, subst)
-            } else {
-                term.clone()
-            }
-        }
         // BoundVarRef participates in substitution (for instantiating quantified formulas)
-        ProofTerm::BoundVarRef(v) => {
-            if let Some(replacement) = subst.get(v) {
-                apply_subst_to_term(replacement, subst)
-            } else {
-                term.clone()
+        ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) => match subst.get(v) {
+            Some(replacement) => {
+                if resolving.iter().any(|r| r == v) {
+                    resolving.push(v.clone());
+                    panic!(
+                        "cyclic substitution {}: a triangular substitution resolves each replacement against the map, \
+                         and this one never resolves; a unifier's map is acyclic, and instantiating a binder \
+                         (`body[x := t]`) is `unify::instantiate_expr`",
+                        resolving.join(" ↦ ")
+                    );
+                }
+                resolving.push(v.clone());
+                let resolved = resolve_term(replacement, subst, resolving);
+                resolving.pop();
+                resolved
             }
-        }
+            None => term.clone(),
+        },
         ProofTerm::Constant(_) => term.clone(),
         ProofTerm::Function(name, args) => {
-            let new_args = args.iter().map(|a| apply_subst_to_term(a, subst)).collect();
+            let new_args = args
+                .iter()
+                .map(|a| resolve_term(a, subst, resolving))
+                .collect();
             ProofTerm::Function(name.clone(), new_args)
         }
         ProofTerm::Group(terms) => {
-            let new_terms = terms.iter().map(|t| apply_subst_to_term(t, subst)).collect();
+            let new_terms = terms
+                .iter()
+                .map(|t| resolve_term(t, subst, resolving))
+                .collect();
             ProofTerm::Group(new_terms)
         }
     }
@@ -1251,8 +1434,16 @@ fn unify_exprs_with_subst(
 
         // Predicate unification: same name, unify arguments
         (
-            ProofExpr::Predicate { name: n1, args: a1, world: w1 },
-            ProofExpr::Predicate { name: n2, args: a2, world: w2 },
+            ProofExpr::Predicate {
+                name: n1,
+                args: a1,
+                world: w1,
+            },
+            ProofExpr::Predicate {
+                name: n2,
+                args: a2,
+                world: w2,
+            },
         ) => {
             if n1 != n2 {
                 return Err(ProofError::SymbolMismatch {
@@ -1308,12 +1499,24 @@ fn unify_exprs_with_subst(
         // Quantifiers: Alpha-equivalence - bound variable names are arbitrary
         // ∃e P(e) ≡ ∃x P(x) because they describe the same logical content
         (
-            ProofExpr::ForAll { variable: v1, body: b1 },
-            ProofExpr::ForAll { variable: v2, body: b2 },
+            ProofExpr::ForAll {
+                variable: v1,
+                body: b1,
+            },
+            ProofExpr::ForAll {
+                variable: v2,
+                body: b2,
+            },
         )
         | (
-            ProofExpr::Exists { variable: v1, body: b1 },
-            ProofExpr::Exists { variable: v2, body: b2 },
+            ProofExpr::Exists {
+                variable: v1,
+                body: b1,
+            },
+            ProofExpr::Exists {
+                variable: v2,
+                body: b2,
+            },
         ) => {
             // Generate a fresh constant to substitute for both bound variables.
             // Using a constant (not a variable) avoids capture issues.
@@ -1333,8 +1536,14 @@ fn unify_exprs_with_subst(
 
         // Lambda expressions: Alpha-equivalence - λx.P(x) ≡ λy.P(y)
         (
-            ProofExpr::Lambda { variable: v1, body: b1 },
-            ProofExpr::Lambda { variable: v2, body: b2 },
+            ProofExpr::Lambda {
+                variable: v1,
+                body: b1,
+            },
+            ProofExpr::Lambda {
+                variable: v2,
+                body: b2,
+            },
         ) => {
             // Same alpha-renaming technique as quantifiers
             let fresh = fresh_alpha_constant();
@@ -1407,8 +1616,14 @@ fn unify_exprs_with_subst(
         // Temporal operators: Past(P), Future(P)
         // Same operator required, then unify bodies
         (
-            ProofExpr::Temporal { operator: op1, body: b1 },
-            ProofExpr::Temporal { operator: op2, body: b2 },
+            ProofExpr::Temporal {
+                operator: op1,
+                body: b1,
+            },
+            ProofExpr::Temporal {
+                operator: op2,
+                body: b2,
+            },
         ) => {
             if op1 != op2 {
                 return Err(ProofError::ExprUnificationFailed {
@@ -1422,8 +1637,16 @@ fn unify_exprs_with_subst(
         // Binary temporal operators: Until(P,Q), Release(P,Q)
         // Same operator required, then unify both children
         (
-            ProofExpr::TemporalBinary { operator: op1, left: l1, right: r1 },
-            ProofExpr::TemporalBinary { operator: op2, left: l2, right: r2 },
+            ProofExpr::TemporalBinary {
+                operator: op1,
+                left: l1,
+                right: r1,
+            },
+            ProofExpr::TemporalBinary {
+                operator: op2,
+                left: l2,
+                right: r2,
+            },
         ) => {
             if op1 != op2 {
                 return Err(ProofError::ExprUnificationFailed {
@@ -1473,10 +1696,9 @@ pub fn apply_subst_to_expr(expr: &ProofExpr, subst: &Substitution) -> ProofExpr 
             args: args.iter().map(|a| apply_subst_to_term(a, subst)).collect(),
             world: world.clone(),
         },
-        ProofExpr::Identity(l, r) => ProofExpr::Identity(
-            apply_subst_to_term(l, subst),
-            apply_subst_to_term(r, subst),
-        ),
+        ProofExpr::Identity(l, r) => {
+            ProofExpr::Identity(apply_subst_to_term(l, subst), apply_subst_to_term(r, subst))
+        }
         ProofExpr::Atom(a) => ProofExpr::Atom(a.clone()),
         ProofExpr::And(l, r) => ProofExpr::And(
             Box::new(apply_subst_to_expr(l, subst)),
@@ -1517,13 +1739,21 @@ pub fn apply_subst_to_expr(expr: &ProofExpr, subst: &Substitution) -> ProofExpr 
                 body: Box::new(apply_subst_to_expr(body, subst)),
             }
         }
-        ProofExpr::Modal { domain, force, flavor, body } => ProofExpr::Modal {
+        ProofExpr::Modal {
+            domain,
+            force,
+            flavor,
+            body,
+        } => ProofExpr::Modal {
             domain: domain.clone(),
             force: *force,
             flavor: flavor.clone(),
             body: Box::new(apply_subst_to_expr(body, subst)),
         },
-        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => ProofExpr::Counterfactual {
             antecedent: Box::new(apply_subst_to_expr(antecedent, subst)),
             consequent: Box::new(apply_subst_to_expr(consequent, subst)),
         },
@@ -1531,7 +1761,11 @@ pub fn apply_subst_to_expr(expr: &ProofExpr, subst: &Substitution) -> ProofExpr 
             operator: operator.clone(),
             body: Box::new(apply_subst_to_expr(body, subst)),
         },
-        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+        ProofExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => ProofExpr::TemporalBinary {
             operator: operator.clone(),
             left: Box::new(apply_subst_to_expr(left, subst)),
             right: Box::new(apply_subst_to_expr(right, subst)),
@@ -1551,7 +1785,11 @@ pub fn apply_subst_to_expr(expr: &ProofExpr, subst: &Substitution) -> ProofExpr 
             Box::new(apply_subst_to_expr(f, subst)),
             Box::new(apply_subst_to_expr(a, subst)),
         ),
-        ProofExpr::NeoEvent { event_var, verb, roles } => ProofExpr::NeoEvent {
+        ProofExpr::NeoEvent {
+            event_var,
+            verb,
+            roles,
+        } => ProofExpr::NeoEvent {
             event_var: event_var.clone(),
             verb: verb.clone(),
             roles: roles
@@ -1836,7 +2074,7 @@ fn collect_free_vars_impl(expr: &ProofExpr, vars: &mut Vec<String>, bound: &mut 
         }
         ProofExpr::Term(t) => collect_free_vars_term(t, vars, bound),
         ProofExpr::Hole(_) => {} // Holes don't contribute free vars
-        _ => {} // Other cases don't add free vars
+        _ => {}                  // Other cases don't add free vars
     }
 }
 
@@ -1872,12 +2110,12 @@ fn rename_vars_to_bound(expr: &ProofExpr, bound_vars: &[String]) -> ProofExpr {
 
 /// Build λx₁.λx₂...λxₙ. body
 fn build_lambda(vars: Vec<String>, body: ProofExpr) -> ProofExpr {
-    vars.into_iter().rev().fold(body, |acc, var| {
-        ProofExpr::Lambda {
+    vars.into_iter()
+        .rev()
+        .fold(body, |acc, var| ProofExpr::Lambda {
             variable: var,
             body: Box::new(acc),
-        }
-    })
+        })
 }
 
 // =============================================================================
@@ -1916,12 +2154,7 @@ pub fn match_expr_pattern(pattern: &ProofExpr, target: &ProofExpr) -> Option<Sub
 
 /// Bind `name ↦ value`, enforcing consistency with any existing binding and
 /// rejecting values that mention an enclosing bound variable (escape check).
-fn match_bind(
-    subst: &mut Substitution,
-    bound: &[String],
-    name: &str,
-    value: &ProofTerm,
-) -> bool {
+fn match_bind(subst: &mut Substitution, bound: &[String], name: &str, value: &ProofTerm) -> bool {
     if let Some(existing) = subst.get(name) {
         return existing == value;
     }
@@ -1992,8 +2225,16 @@ fn match_expr_into(
 ) -> bool {
     match (pattern, target) {
         (
-            ProofExpr::Predicate { name: pn, args: pa, world: pw },
-            ProofExpr::Predicate { name: tn, args: ta, world: tw },
+            ProofExpr::Predicate {
+                name: pn,
+                args: pa,
+                world: pw,
+            },
+            ProofExpr::Predicate {
+                name: tn,
+                args: ta,
+                world: tw,
+            },
         ) => {
             if pn != tn || pa.len() != ta.len() || pw != tw {
                 return false;
@@ -2017,12 +2258,24 @@ fn match_expr_into(
         }
         (ProofExpr::Not(p), ProofExpr::Not(t)) => match_expr_into(p, t, subst, bound),
         (
-            ProofExpr::ForAll { variable: pv, body: pb },
-            ProofExpr::ForAll { variable: tv, body: tb },
+            ProofExpr::ForAll {
+                variable: pv,
+                body: pb,
+            },
+            ProofExpr::ForAll {
+                variable: tv,
+                body: tb,
+            },
         )
         | (
-            ProofExpr::Exists { variable: pv, body: pb },
-            ProofExpr::Exists { variable: tv, body: tb },
+            ProofExpr::Exists {
+                variable: pv,
+                body: pb,
+            },
+            ProofExpr::Exists {
+                variable: tv,
+                body: tb,
+            },
         ) => {
             if pv != tv {
                 return false;
@@ -2039,168 +2292,5 @@ fn match_expr_into(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_unify_same_constant() {
-        let t1 = ProofTerm::Constant("a".into());
-        let t2 = ProofTerm::Constant("a".into());
-        let result = unify_terms(&t1, &t2);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_unify_different_constants() {
-        let t1 = ProofTerm::Constant("a".into());
-        let t2 = ProofTerm::Constant("b".into());
-        let result = unify_terms(&t1, &t2);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_unify_var_constant() {
-        let t1 = ProofTerm::Variable("x".into());
-        let t2 = ProofTerm::Constant("a".into());
-        let result = unify_terms(&t1, &t2);
-        assert!(result.is_ok());
-        let subst = result.unwrap();
-        assert_eq!(subst.get("x"), Some(&ProofTerm::Constant("a".into())));
-    }
-
-    #[test]
-    fn test_occurs_check() {
-        let t1 = ProofTerm::Variable("x".into());
-        let t2 = ProofTerm::Function("f".into(), vec![ProofTerm::Variable("x".into())]);
-        let result = unify_terms(&t1, &t2);
-        assert!(matches!(result, Err(ProofError::OccursCheck { .. })));
-    }
-
-    #[test]
-    fn test_compose_substitutions() {
-        let mut s1 = Substitution::new();
-        s1.insert("x".into(), ProofTerm::Variable("y".into()));
-
-        let mut s2 = Substitution::new();
-        s2.insert("y".into(), ProofTerm::Constant("a".into()));
-
-        let composed = compose_substitutions(s1, s2);
-
-        // x should map to a (via y)
-        assert_eq!(composed.get("x"), Some(&ProofTerm::Constant("a".into())));
-        // y should also map to a
-        assert_eq!(composed.get("y"), Some(&ProofTerm::Constant("a".into())));
-    }
-
-    // =========================================================================
-    // ALPHA-EQUIVALENCE TESTS
-    // =========================================================================
-
-    #[test]
-    fn test_alpha_equivalence_exists() {
-        // ∃e P(e) should unify with ∃x P(x)
-        let e1 = ProofExpr::Exists {
-            variable: "e".to_string(),
-            body: Box::new(ProofExpr::Predicate {
-                name: "run".to_string(),
-                args: vec![ProofTerm::Variable("e".to_string())],
-                world: None,
-            }),
-        };
-
-        let e2 = ProofExpr::Exists {
-            variable: "x".to_string(),
-            body: Box::new(ProofExpr::Predicate {
-                name: "run".to_string(),
-                args: vec![ProofTerm::Variable("x".to_string())],
-                world: None,
-            }),
-        };
-
-        let result = unify_exprs(&e1, &e2);
-        assert!(
-            result.is_ok(),
-            "Alpha-equivalent expressions should unify: {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn test_alpha_equivalence_forall() {
-        // ∀x P(x) should unify with ∀y P(y)
-        let e1 = ProofExpr::ForAll {
-            variable: "x".to_string(),
-            body: Box::new(ProofExpr::Predicate {
-                name: "mortal".to_string(),
-                args: vec![ProofTerm::Variable("x".to_string())],
-                world: None,
-            }),
-        };
-
-        let e2 = ProofExpr::ForAll {
-            variable: "y".to_string(),
-            body: Box::new(ProofExpr::Predicate {
-                name: "mortal".to_string(),
-                args: vec![ProofTerm::Variable("y".to_string())],
-                world: None,
-            }),
-        };
-
-        let result = unify_exprs(&e1, &e2);
-        assert!(
-            result.is_ok(),
-            "Alpha-equivalent universals should unify: {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn test_alpha_equivalence_nested() {
-        // ∃e (Run(e) ∧ Agent(e, John)) should unify with ∃x (Run(x) ∧ Agent(x, John))
-        let e1 = ProofExpr::Exists {
-            variable: "e".to_string(),
-            body: Box::new(ProofExpr::And(
-                Box::new(ProofExpr::Predicate {
-                    name: "run".to_string(),
-                    args: vec![ProofTerm::Variable("e".to_string())],
-                    world: None,
-                }),
-                Box::new(ProofExpr::Predicate {
-                    name: "agent".to_string(),
-                    args: vec![
-                        ProofTerm::Variable("e".to_string()),
-                        ProofTerm::Constant("John".to_string()),
-                    ],
-                    world: None,
-                }),
-            )),
-        };
-
-        let e2 = ProofExpr::Exists {
-            variable: "x".to_string(),
-            body: Box::new(ProofExpr::And(
-                Box::new(ProofExpr::Predicate {
-                    name: "run".to_string(),
-                    args: vec![ProofTerm::Variable("x".to_string())],
-                    world: None,
-                }),
-                Box::new(ProofExpr::Predicate {
-                    name: "agent".to_string(),
-                    args: vec![
-                        ProofTerm::Variable("x".to_string()),
-                        ProofTerm::Constant("John".to_string()),
-                    ],
-                    world: None,
-                }),
-            )),
-        };
-
-        let result = unify_exprs(&e1, &e2);
-        assert!(
-            result.is_ok(),
-            "Nested alpha-equivalent expressions should unify: {:?}",
-            result
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/unify/tests.rs"]
+mod tests;

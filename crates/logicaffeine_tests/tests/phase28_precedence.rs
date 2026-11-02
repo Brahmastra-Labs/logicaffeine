@@ -70,7 +70,11 @@ fn mixed_precedence_complex() {
     // With precedence: (A and B) or (C and D)
     // The two And groups should be separate, joined by Or
     let result = compile("A cat runs and a dog walks or a bird flies and a fish swims.");
-    assert!(result.is_ok(), "Should parse mixed precedence: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse mixed precedence: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     // Should have both And and Or

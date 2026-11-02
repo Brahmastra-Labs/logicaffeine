@@ -1,0 +1,12 @@
+{
+  "capability": "text.replace",
+  "workload": "replace(s,'0','XY'), length fold",
+  "arg": "15000",
+  "expected": "66742500",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -1,24 +1,19 @@
 import * as path from "path";
 import { commands, ExtensionContext, tasks, Uri, window, workspace } from "vscode";
 import { findProjectRoot, largoTask, runModeArgs } from "./largo";
-import { getLicense, promptAndStoreLicense } from "./license";
 
 /**
  * The code-lens commands the language server emits (`Run` over `## Main`,
- * `Verify`/`Prove` over `## Theorem`, `Check Proof` over `## Proof`), plus the
- * license command backing Verify. Every id here must be contributed in
- * package.json — the integration suite locks registration so a lens can never
- * dead-end again.
+ * `Verify`/`Prove` over `## Theorem`, `Check Proof` over `## Proof`). Every id
+ * here must be contributed in package.json — the integration suite locks
+ * registration so a lens can never dead-end again.
  */
 export function registerCommands(context: ExtensionContext) {
   context.subscriptions.push(
     commands.registerCommand("logicaffeine.run", (uri?: string) => runProject(uri)),
-    commands.registerCommand("logicaffeine.verify", (uri?: string) =>
-      verifyProject(context, uri),
-    ),
+    commands.registerCommand("logicaffeine.verify", (uri?: string) => verifyProject(uri)),
     commands.registerCommand("logicaffeine.prove", (uri?: string) => proveFile(uri)),
     commands.registerCommand("logicaffeine.checkProof", (uri?: string) => proveFile(uri)),
-    commands.registerCommand("logicaffeine.setLicense", () => promptAndStoreLicense(context)),
   );
 }
 
@@ -75,36 +70,14 @@ async function runProject(uri?: string): Promise<void> {
   );
 }
 
-async function verifyProject(context: ExtensionContext, uri?: string): Promise<void> {
+async function verifyProject(uri?: string): Promise<void> {
   const file = await targetFile(uri);
   if (!file) return;
   await saveIfDirty(file);
   const root = await requireProjectRoot(file);
   if (!root) return;
 
-  const license = await getLicense(context);
-  if (!license) {
-    const choice = await window.showWarningMessage(
-      "Verification (preview) needs a license key (Pro and up).",
-      "Set License Key",
-      "Run Anyway",
-    );
-    if (choice === "Set License Key") {
-      const stored = await promptAndStoreLicense(context);
-      if (!stored) return;
-      return verifyProject(context, uri);
-    }
-    if (choice !== "Run Anyway") return;
-  }
-
-  await tasks.executeTask(
-    largoTask({
-      name: "largo verify",
-      args: ["verify"],
-      cwd: root,
-      env: license ? { LOGOS_LICENSE: license } : undefined,
-    }),
-  );
+  await tasks.executeTask(largoTask({ name: "largo verify", args: ["verify"], cwd: root }));
 }
 
 async function proveFile(uri?: string): Promise<void> {

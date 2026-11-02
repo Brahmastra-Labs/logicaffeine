@@ -1,0 +1,4 @@
+main { max-width: 34rem; margin: 4rem auto; padding: 0 1rem; }
+.lede { font-size: 1.15rem; color: var(--muted); }
+nav a { margin-right: 1rem; }
+.posts { padding-left: 1.1rem; }

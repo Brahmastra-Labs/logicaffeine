@@ -1,0 +1,10 @@
+{
+  "capability": "text.wrap",
+  "workload": "wrapText(s,40) \u2014 #lines (greedy, no long-word break)",
+  "arg": "6000",
+  "expected": "605880",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

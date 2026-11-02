@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="460" viewBox="0 0 720 460" font-family="monospace">
+<rect width="720" height="460" fill="#0b0f14"/>
+<text x="70" y="30" fill="#00d4ff" font-size="18">LOGOS on Tenstorrent — peak throughput per dollar</text>
+<text x="70" y="50" fill="#8aa" font-size="12">x: price (USD, log)   y: peak dense-compute TOPS (log, native AI precision)   published specs</text>
+<line x1="70" y1="390" x2="650" y2="390" stroke="#334"/>
+<line x1="70" y1="70" x2="70" y2="390" stroke="#334"/>
+<circle cx="168.7" cy="359.5" r="7" fill="#c98"/>
+<text x="179.7" y="353.5" fill="#dde" font-size="12">Intel Core i9-14900K</text>
+<text x="179.7" y="368.5" fill="#7c9" font-size="11">1 TOPS (fp32) · 0.002 TOPS/$ · 0.01 TOPS/W</text>
+<circle cx="402.4" cy="125.9" r="7" fill="#00d4ff"/>
+<text x="413.4" y="119.9" fill="#dde" font-size="12">Tenstorrent Wormhole n150</text>
+<text x="413.4" y="134.9" fill="#7c9" font-size="11">262 TOPS (fp8) · 0.262 TOPS/$ · 1.64 TOPS/W</text>
+<circle cx="551.3" cy="100.5" r="7" fill="#00d4ff"/>
+<text x="562.3" y="94.5" fill="#dde" font-size="12">Tenstorrent Wormhole n300</text>
+<text x="562.3" y="109.5" fill="#7c9" font-size="11">466 TOPS (fp8) · 0.333 TOPS/$ · 1.55 TOPS/W</text>
+<text x="70" y="440" fill="#00d4ff" font-size="13">Tenstorrent Wormhole n300: best TOPS/$ — 151x the CPU</text>
+</svg>

@@ -1,0 +1,104 @@
+{
+  "tier": "t01_universes",
+  "test_binary": "lean_conformance_t01_universes",
+  "cases": [
+    {
+      "id": "T01-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "prop_is_its_own_universe_constructor_not_type_zero",
+      "why": ""
+    },
+    {
+      "id": "T01-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "type_indices_agree_with_lean_and_the_successor_ladder_holds",
+      "why": ""
+    },
+    {
+      "id": "T01-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_universe_parameter_binds_on_an_axiom",
+      "why": ""
+    },
+    {
+      "id": "T01-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "universe_max_is_decided_by_equiv_never_by_structural_equality",
+      "why": ""
+    },
+    {
+      "id": "T01-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "imax_stays_symbolic_when_the_codomain_level_is_a_variable",
+      "why": ""
+    },
+    {
+      "id": "T01-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_universe_polymorphic_definition_serves_every_instantiation",
+      "why": ""
+    },
+    {
+      "id": "T01-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_universe_polymorphic_container_survives_two_instantiations",
+      "why": ""
+    },
+    {
+      "id": "T01-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_monomorphised_instance_keeps_an_eliminator_at_its_own_level",
+      "why": ""
+    },
+    {
+      "id": "T01-009",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "cumulativity_is_coq_style_shallow_and_the_lift_distinction_survives",
+      "why": "LOGOS is cumulative \u2014 SProp <= Prop <= Type i <= Type j, plus contravariance in a Pi's domain and covariance in its codomain \u2014 where Lean 4 has no cumulativity at all and ships ULift/PLift to move between levels by hand. Ours is the standard cumulative-CIC rule (Coq, Matita, Lean 3): a strictly larger typing relation, sound, and it removes lifting bureaucracy from ordinary mathematics rather than adding expressive power Lean lacks. It is also SHALLOW \u2014 it fires only between two Sorts and under a Pi codomain; every other position, a type constructor's argument included, is invariant and goes to definitional equality \u2014 so every type distinction Lean uses ULift to express is still expressible here and still enforced exactly where it carries content: the test builds ULift : Type 0 -> Type 1 and pins that ULift Nat and Nat are unrelated in both directions, and that Cont (Type 0) and Cont (Type 1) are not interchangeable. The honest cost is auditing precision, asserted in the same test: a body at Type 0 satisfies a type stated at Type 1, so LOGOS's acceptance of a term is never by itself evidence that its levels are the ones the author meant \u2014 which is exactly why every universe defect in this tier is checked against the level algebra directly rather than against whether the kernel said yes."
+    },
+    {
+      "id": "T01-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::prop_lives_in_type_zero_exactly_as_lean_says",
+      "why": ""
+    },
+    {
+      "id": "T01-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_universe_parameter_binds_on_a_structure",
+      "why": ""
+    },
+    {
+      "id": "T01-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_unwritten_level_is_solved_by_elaboration",
+      "why": ""
+    },
+    {
+      "id": "T01-013",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "sprop_large_elimination_must_not_derive_zero_equals_one",
+      "why": "The corpus report that SProp is vestigial is STALE. It is a real bottom sort with a complete level algebra (SProp <= Prop <= Type n and none of the converses), impredicative Pi formation, and definitional proof irrelevance implemented in BOTH kernels \u2014 Lean 4 has no counterpart, so this is a deliberate divergence in our favour and sprop_is_a_real_definitionally_irrelevant_bottom_sort proves it green. It is nevertheless a Gap today, because the sort is not safe to use: the large-elimination gate matches Term::Sort(Universe::Prop) syntactically, so an SProp-sorted inductive with two constructors eliminates into Type with no restriction while proof_irrelevance \u2014 which DOES match SProp \u2014 makes its two constructors definitionally equal. Those compose: the deciding test derives Eq Nat Zero (Succ Zero) by large-eliminating such an inductive into Nat, retyping refl across the two constructors, and transporting along the resulting equation with Eq's J, and double_check reports Agreed. Until the gate covers SProp the divergence is a liability rather than a win, so this stays Gap rather than Native."
+    },
+    {
+      "id": "T01-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_prop_eliminator_reaches_every_level_lean_reaches",
+      "why": ""
+    }
+  ]
+}

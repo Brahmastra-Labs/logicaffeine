@@ -1,0 +1,45 @@
+{
+  "case": "T12-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), (\u2200 (x : Nat), P x) \u2192 P 0",
+      "name": "T12_009.allImpliesOne",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), \u2203 y, y > x",
+      "name": "T12_009.alternating",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop) (Q : (n : Nat) \u2192 P n \u2192 Prop) (n : Nat) (h : P n), Q n h \u2192 Q n h",
+      "name": "T12_009.dependentArrow",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 x, x > 0",
+      "name": "T12_009.existsSucc",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), x \u2264 x",
+      "name": "T12_009.leReflQuantified",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

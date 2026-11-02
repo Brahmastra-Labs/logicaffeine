@@ -8,8 +8,8 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "EXODIA Forge: Z3 stencil specifications, witness verification and template synthesis (offline tooling — never in the runtime path)"
+license = "MIT"
+description = "Z3 specs for the EXODIA JIT's integer ALU stencils, checked against its machine code, plus bijectivity proofs for the VM's reversible ops"
 readme = "README.md"
 # Offline dev tooling consumed only by the (unpublished) test harness; kept off
 # crates.io so the published surface stays intentional.

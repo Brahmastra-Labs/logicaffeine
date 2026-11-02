@@ -1,0 +1,11 @@
+{
+  "capability": "iter.range",
+  "workload": "rangeSeq(0,hi) built repeatedly, fold its length mod 1e9+7",
+  "arg": "100000",
+  "expected": "100100000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls rangeSeq() WITHOUT defining it \u2014 auto-imported from iter.lg (inclusive lo..hi). Python counterpart materializes list(range(0,hi+1)) so both allocate the same span."
+}

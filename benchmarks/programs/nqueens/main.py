@@ -10,5 +10,11 @@ def solve(row, cols, diag1, diag2, n):
         count += solve(row + 1, cols | bit, (diag1 | bit) << 1, (diag2 | bit) >> 1, n)
     return count
 
-n = int(sys.argv[1])
-print(solve(0, 0, 0, 0, n))
+
+def main():
+    n = int(sys.argv[1])
+    print(solve(0, 0, 0, 0, n))
+
+
+if __name__ == "__main__":
+    main()

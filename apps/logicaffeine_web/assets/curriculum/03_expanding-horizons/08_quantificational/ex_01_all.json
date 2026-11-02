@@ -5,7 +5,10 @@
   "prompt": "Translate this universal claim:",
   "template": "All {Noun:Plural} are {Adjective}.",
   "constraints": {
-    "Adjective": ["Intersective"]
+    "Adjective": [
+      "Intersective"
+    ]
   },
-  "hint": "Universal: ∀x(Restrictor(x) → Scope(x)). Use → not ∧."
+  "hint": "Universal: ∀x(Restrictor(x) → Scope(x)). Use → not ∧.",
+  "section": "8.2"
 }

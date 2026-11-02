@@ -1,0 +1,40 @@
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 7081.74 mean 779.68
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 5573.51 mean 759.24
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 6575.65 mean 729.41
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 10593.04 mean 799.96
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 5563.32 mean 649.56
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 6064.37 mean 594.02
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 6064.35 mean 558.51
+   100 scores: min 16.66 	0.01/0.01/25/0.01/1 	max 8070.01 mean 784.52
+   100 scores: min 16.16 	0.01/0.01/24/0.02/1 	max 8574.65 mean 724.31
+   100 scores: min 16.16 	0.01/0.01/24/0.02/1 	max 6566.48 mean 750.06
+   100 scores: min 16.16 	0.01/0.01/24/0.02/1 	max 5566.44 mean 790.71
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 8078.67 mean 739.62
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 6565.52 mean 796.12
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 6564.42 mean 711.10
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 7085.75 mean 775.97
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 7065.43 mean 700.07
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 5065.51 mean 730.57
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 7064.39 mean 725.57
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 6562.89 mean 649.11
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 10580.34 mean 815.82
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 5569.44 mean 730.47
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 5559.26 mean 644.09
+   100 scores: min 15.16 	0.01/0.01/22/0.02/1 	max 8083.70 mean 780.09
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 7077.67 mean 805.77
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 6561.33 mean 689.77
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 9587.97 mean 815.31
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 6060.33 mean 966.66
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 7570.05 mean 809.81
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 4568.32 mean 795.38
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 6073.53 mean 821.00
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 8074.53 mean 1026.11
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 7087.67 mean 749.20
+   100 scores: min 15.15 	0.01/0.01/22/0.01/1 	max 7070.13 mean 845.09
+All static routes:
+All dynamic routes:
+Best score is 15.15
+Used 1 VCs for endpoint coloring.
+	Used 1 VCs.
+cp script_hybrid script
+Runtime:4:09.20

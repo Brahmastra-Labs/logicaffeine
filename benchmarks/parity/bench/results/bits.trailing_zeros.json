@@ -1,0 +1,12 @@
+{
+  "capability": "bits.trailing_zeros",
+  "timing_n": "212812536",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "c": 1.145,
+    "go": 3.763,
+    "rust": 4.077
+  },
+  "min_speedup": 1.145
+}

@@ -4,8 +4,8 @@
 
 mod common;
 
-use logicaffeine_compile::compile::compile_to_rust;
 use common::{assert_output, assert_runs};
+use logicaffeine_compile::compile::compile_to_rust;
 
 // =============================================================================
 // Set Bias Tests
@@ -59,7 +59,9 @@ Show "done"."#;
 
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(
-        rust.contains("logicaffeine_data::crdt::ORSet<String, logicaffeine_data::crdt::RemoveWins>"),
+        rust.contains(
+            "logicaffeine_data::crdt::ORSet<String, logicaffeine_data::crdt::RemoveWins>"
+        ),
         "RemoveWins should emit ORSet with RemoveWins. Got:\n{}",
         rust
     );
@@ -206,7 +208,9 @@ Show "done"."#;
 
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(
-        rust.contains("logicaffeine_data::crdt::ORMap<String, i64>"),
+        rust.contains(
+            "logicaffeine_data::crdt::ORMap<String, logicaffeine_data::crdt::LatestWrite<i64>>"
+        ),
         "SharedMap should emit ORMap. Got:\n{}",
         rust
     );
@@ -224,7 +228,9 @@ Show "done"."#;
 
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(
-        rust.contains("logicaffeine_data::crdt::ORMap<String, bool>"),
+        rust.contains(
+            "logicaffeine_data::crdt::ORMap<String, logicaffeine_data::crdt::LatestWrite<bool>>"
+        ),
         "ORMap should emit ORMap. Got:\n{}",
         rust
     );
@@ -253,13 +259,38 @@ Show "done"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Verify all types are generated correctly
-    assert!(rust.contains("logicaffeine_data::crdt::PNCounter"), "Should have PNCounter for Tally");
-    assert!(rust.contains("logicaffeine_data::crdt::ORSet<String, logicaffeine_data::crdt::AddWins>"), "Should have AddWins ORSet");
-    assert!(rust.contains("logicaffeine_data::crdt::ORSet<String, logicaffeine_data::crdt::RemoveWins>"), "Should have RemoveWins ORSet");
-    assert!(rust.contains("logicaffeine_data::crdt::RGA<String>"), "Should have RGA");
-    assert!(rust.contains("logicaffeine_data::crdt::YATA<String>"), "Should have YATA");
-    assert!(rust.contains("logicaffeine_data::crdt::ORMap<String, i64>"), "Should have ORMap");
-    assert!(rust.contains("logicaffeine_data::crdt::MVRegister<String>"), "Should have MVRegister");
+    assert!(
+        rust.contains("logicaffeine_data::crdt::PNCounter"),
+        "Should have PNCounter for Tally"
+    );
+    assert!(
+        rust.contains("logicaffeine_data::crdt::ORSet<String, logicaffeine_data::crdt::AddWins>"),
+        "Should have AddWins ORSet"
+    );
+    assert!(
+        rust.contains(
+            "logicaffeine_data::crdt::ORSet<String, logicaffeine_data::crdt::RemoveWins>"
+        ),
+        "Should have RemoveWins ORSet"
+    );
+    assert!(
+        rust.contains("logicaffeine_data::crdt::RGA<String>"),
+        "Should have RGA"
+    );
+    assert!(
+        rust.contains("logicaffeine_data::crdt::YATA<String>"),
+        "Should have YATA"
+    );
+    assert!(
+        rust.contains(
+            "logicaffeine_data::crdt::ORMap<String, logicaffeine_data::crdt::LatestWrite<i64>>"
+        ),
+        "Should have ORMap"
+    );
+    assert!(
+        rust.contains("logicaffeine_data::crdt::MVRegister<String>"),
+        "Should have MVRegister"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

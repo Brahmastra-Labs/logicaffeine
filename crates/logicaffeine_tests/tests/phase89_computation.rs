@@ -353,10 +353,7 @@ fn test_step_church_numeral() {
     // We substitute SVar 42 for index 0 in body
     // In the inner lambda, we substitute at index 1
     // SVar 1 matches! Gets replaced by lift(SVar 42) = SVar 43
-    assert_eq!(
-        result,
-        "((SLam (SSort UProp)) ((SApp (SVar 43)) (SVar 0)))"
-    );
+    assert_eq!(result, "((SLam (SSort UProp)) ((SApp (SVar 43)) (SVar 0)))");
 }
 
 // =============================================================================

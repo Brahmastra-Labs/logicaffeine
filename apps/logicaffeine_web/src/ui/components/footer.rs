@@ -6,10 +6,9 @@
 //! - Tablet (769-1024px): 2-column layout
 //! - Mobile (≤768px): Single column layout
 
-use dioxus::prelude::*;
-use crate::ui::components::icon::{Icon, IconVariant, IconSize};
-use crate::ui::components::theme_picker::ThemePicker;
+use crate::ui::components::icon::{Icon, IconSize, IconVariant};
 use crate::ui::components::main_nav::LOGO_SVG;
+use dioxus::prelude::*;
 
 const FOOTER_STYLES: &str = r#"
 .site-footer {
@@ -180,24 +179,6 @@ const FOOTER_STYLES: &str = r#"
     color: var(--text-primary, #f0f0f0);
 }
 
-.footer-bottom-right {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-}
-
-.footer-theme-section {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.footer-theme-label {
-    font-size: 12px;
-    color: var(--text-tertiary, #909090);
-    font-weight: 500;
-}
-
 /* Tablet: 2-column layout */
 @media (min-width: 769px) and (max-width: 1024px) {
     .footer-grid {
@@ -270,15 +251,6 @@ const FOOTER_STYLES: &str = r#"
         justify-content: center;
         gap: 16px;
     }
-
-    .footer-bottom-right {
-        flex-direction: column;
-        gap: 16px;
-    }
-
-    .footer-theme-section {
-        justify-content: center;
-    }
 }
 "#;
 
@@ -291,10 +263,7 @@ pub enum FooterVariant {
 }
 
 #[component]
-pub fn Footer(
-    #[props(default)]
-    variant: FooterVariant,
-) -> Element {
+pub fn Footer(#[props(default)] variant: FooterVariant) -> Element {
     let current_year = 2026; // Static for now, could use chrono
 
     if variant == FooterVariant::Minimal {
@@ -304,7 +273,7 @@ pub fn Footer(
                 div { class: "footer-container",
                     div { class: "footer-bottom",
                         span { class: "footer-copyright",
-                            "© {current_year} Brahmastra Labs. All rights reserved."
+                            "© {current_year} Datacenter.Dev. Released under the MIT License."
                         }
                         div { class: "footer-bottom-links",
                             Link { to: "/privacy", class: "footer-bottom-link", "Privacy Policy" }
@@ -371,7 +340,7 @@ pub fn Footer(
                         h4 { class: "footer-section-title", "Resources" }
                         nav { class: "footer-section-links",
                             Link { to: "/roadmap", class: "footer-link", "Roadmap" }
-                            Link { to: "/pricing", class: "footer-link", "Contact" }
+                            Link { to: "/contact", class: "footer-link", "Contact" }
                             Link { to: "/news", class: "footer-link", "News" }
                             a {
                                 href: "https://github.com/Brahmastra-Labs/logicaffeine",
@@ -401,17 +370,11 @@ pub fn Footer(
                 // Bottom bar
                 div { class: "footer-bottom",
                     span { class: "footer-copyright",
-                        "© {current_year} Brahmastra Labs. All rights reserved."
+                        "© {current_year} Datacenter.Dev. Released under the MIT License."
                     }
-                    div { class: "footer-bottom-right",
-                        div { class: "footer-theme-section",
-                            span { class: "footer-theme-label", "Theme:" }
-                            ThemePicker {}
-                        }
-                        div { class: "footer-bottom-links",
-                            Link { to: "/privacy", class: "footer-bottom-link", "Privacy" }
-                            Link { to: "/terms", class: "footer-bottom-link", "Terms" }
-                        }
+                    div { class: "footer-bottom-links",
+                        Link { to: "/privacy", class: "footer-bottom-link", "Privacy" }
+                        Link { to: "/terms", class: "footer-bottom-link", "Terms" }
                     }
                 }
             }

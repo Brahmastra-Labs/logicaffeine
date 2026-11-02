@@ -1,0 +1,52 @@
+{
+  "case": "T08-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 q \u2227 p",
+      "name": "T08_004.commBoundary",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 p",
+      "name": "T08_004.conjunctViaCases",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), \u00acp \u2192 p \u2192 False",
+      "name": "T08_004.defeqBoundary",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2192 p",
+      "name": "T08_004.firstMatch",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), q \u2192 p \u2192 p",
+      "name": "T08_004.plain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "True",
+      "name": "T08_004.trivialOnTrue",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,4 @@
+_dl_start_user;_dl_init;call_init;_init;[unknown] 434032
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela 299714
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela;elf_machine_rela;resolve_map;_dl_lookup_symbol_x;do_lookup_x 249999
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_map_object_deps;scratch_buffer_set_array_size;__libc_scratch_buffer_set_array_size 249999

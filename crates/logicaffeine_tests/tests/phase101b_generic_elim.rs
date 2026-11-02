@@ -36,7 +36,10 @@ fn test_delim_type() {
     let result = repl.execute("Check DElim.").expect("Check DElim");
     // DElim : Syntax -> Syntax -> Derivation -> Derivation
     // (ind_type, motive, cases)
-    assert_eq!(result, "DElim : Syntax -> Syntax -> Derivation -> Derivation");
+    assert_eq!(
+        result,
+        "DElim : Syntax -> Syntax -> Derivation -> Derivation"
+    );
 }
 
 // =============================================================================
@@ -54,12 +57,17 @@ fn test_build_case_chain() {
         .expect("Define case2");
 
     // Build chain: DCase case1 (DCase case2 DCaseEnd)
-    let result = repl.execute("Definition cases : Derivation := DCase case1 (DCase case2 DCaseEnd).");
+    let result =
+        repl.execute("Definition cases : Derivation := DCase case1 (DCase case2 DCaseEnd).");
     assert!(result.is_ok(), "Should build case chain: {:?}", result);
 
     // Type check the chain
     let output = repl.execute("Check cases.").expect("Check cases");
-    assert!(output.contains("Derivation"), "Cases should be Derivation: {}", output);
+    assert!(
+        output.contains("Derivation"),
+        "Cases should be Derivation: {}",
+        output
+    );
 }
 
 // =============================================================================
@@ -79,7 +87,8 @@ fn test_delim_nat_type_check() {
         .expect("Define base");
 
     // Step case (using axiom for simplicity)
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition step_formula : Syntax :=
             SApp (SApp (SName "Forall") (SName "Nat"))
                 (SLam (SName "Nat")
@@ -88,7 +97,9 @@ fn test_delim_nat_type_check() {
                         (SApp (SApp (SApp (SName "Eq") (SName "Nat"))
                             (SApp (SName "Succ") (SVar 0)))
                             (SApp (SName "Succ") (SVar 0))))).
-    "#).expect("Define step_formula");
+    "#,
+    )
+    .expect("Define step_formula");
     repl.execute("Definition step : Derivation := DAxiom step_formula.")
         .expect("Define step");
 
@@ -97,8 +108,13 @@ fn test_delim_nat_type_check() {
         .expect("Define cases");
 
     // DElim (SName "Nat") motive cases
-    let result = repl.execute(r#"Definition elim_proof : Derivation := DElim (SName "Nat") motive cases."#);
-    assert!(result.is_ok(), "Should type-check DElim on Nat: {:?}", result);
+    let result =
+        repl.execute(r#"Definition elim_proof : Derivation := DElim (SName "Nat") motive cases."#);
+    assert!(
+        result.is_ok(),
+        "Should type-check DElim on Nat: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -110,7 +126,8 @@ fn test_delim_nat_concludes() {
         .expect("Define motive");
     repl.execute(r#"Definition base : Derivation := DRefl (SName "Nat") (SName "Zero")."#)
         .expect("Define base");
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition step_formula : Syntax :=
             SApp (SApp (SName "Forall") (SName "Nat"))
                 (SLam (SName "Nat")
@@ -119,7 +136,9 @@ fn test_delim_nat_concludes() {
                         (SApp (SApp (SApp (SName "Eq") (SName "Nat"))
                             (SApp (SName "Succ") (SVar 0)))
                             (SApp (SName "Succ") (SVar 0))))).
-    "#).expect("Define step_formula");
+    "#,
+    )
+    .expect("Define step_formula");
     repl.execute("Definition step : Derivation := DAxiom step_formula.")
         .expect("Define step");
     repl.execute("Definition cases : Derivation := DCase base (DCase step DCaseEnd).")
@@ -128,10 +147,15 @@ fn test_delim_nat_concludes() {
         .expect("Define elim_proof");
 
     // concludes should return Forall Nat motive
-    let result = repl.execute("Eval (concludes elim_proof).").expect("Eval concludes");
+    let result = repl
+        .execute("Eval (concludes elim_proof).")
+        .expect("Eval concludes");
 
-    assert!(result.contains("Forall") || result.contains("forall"),
-        "Should conclude with universal: {}", result);
+    assert!(
+        result.contains("Forall") || result.contains("forall"),
+        "Should conclude with universal: {}",
+        result
+    );
     assert!(result.contains("Nat"), "Should mention Nat: {}", result);
 }
 
@@ -143,36 +167,42 @@ fn test_delim_nat_concludes() {
 fn test_delim_list_type_check() {
     let mut repl = Repl::new();
 
-    // First define List (from Phase 101a)
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    // First define PList (from Phase 101a)
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Motive: λl:List Nat. Eq (List Nat) l l
-    repl.execute(r#"
+    // Motive: λl:PList Nat. Eq (PList Nat) l l
+    repl.execute(
+        r#"
         Definition motive : Syntax :=
-            SLam (SApp (SName "List") (SName "Nat"))
-                (SApp (SApp (SApp (SName "Eq") (SApp (SName "List") (SName "Nat")))
+            SLam (SApp (SName "PList") (SName "Nat"))
+                (SApp (SApp (SApp (SName "Eq") (SApp (SName "PList") (SName "Nat")))
                     (SVar 0))
                     (SVar 0)).
-    "#).expect("Define motive");
+    "#,
+    )
+    .expect("Define motive");
 
-    // Nil case: Eq (List Nat) (Nil Nat) (Nil Nat) by reflexivity
-    repl.execute(r#"
+    // Nil case: Eq (PList Nat) (Nil Nat) (Nil Nat) by reflexivity
+    repl.execute(
+        r#"
         Definition nil_case : Derivation :=
-            DRefl (SApp (SName "List") (SName "Nat")) (SApp (SName "Nil") (SName "Nat")).
-    "#).expect("Define nil_case");
+            DRefl (SApp (SName "PList") (SName "Nat")) (SApp (SName "Nil") (SName "Nat")).
+    "#,
+    )
+    .expect("Define nil_case");
 
     // Cons case (axiom for now)
     repl.execute(r#"
         Definition cons_formula : Syntax :=
             SApp (SApp (SName "Forall") (SName "Nat"))
                 (SLam (SName "Nat")
-                    (SApp (SApp (SName "Forall") (SApp (SName "List") (SName "Nat")))
-                        (SLam (SApp (SName "List") (SName "Nat"))
+                    (SApp (SApp (SName "Forall") (SApp (SName "PList") (SName "Nat")))
+                        (SLam (SApp (SName "PList") (SName "Nat"))
                             (SApp (SApp (SName "Implies")
-                                (SApp (SApp (SApp (SName "Eq") (SApp (SName "List") (SName "Nat")))
+                                (SApp (SApp (SApp (SName "Eq") (SApp (SName "PList") (SName "Nat")))
                                     (SVar 0)) (SVar 0)))
-                                (SApp (SApp (SApp (SName "Eq") (SApp (SName "List") (SName "Nat")))
+                                (SApp (SApp (SApp (SName "Eq") (SApp (SName "PList") (SName "Nat")))
                                     (SApp (SApp (SApp (SName "Cons") (SName "Nat")) (SVar 1)) (SVar 0)))
                                     (SApp (SApp (SApp (SName "Cons") (SName "Nat")) (SVar 1)) (SVar 0))))))).
     "#).expect("Define cons_formula");
@@ -183,12 +213,18 @@ fn test_delim_list_type_check() {
     repl.execute("Definition cases : Derivation := DCase nil_case (DCase cons_case DCaseEnd).")
         .expect("Define cases");
 
-    // DElim on List Nat
-    let result = repl.execute(r#"
+    // DElim on PList Nat
+    let result = repl.execute(
+        r#"
         Definition elim_proof : Derivation :=
-            DElim (SApp (SName "List") (SName "Nat")) motive cases.
-    "#);
-    assert!(result.is_ok(), "Should type-check DElim on List: {:?}", result);
+            DElim (SApp (SName "PList") (SName "Nat")) motive cases.
+    "#,
+    );
+    assert!(
+        result.is_ok(),
+        "Should type-check DElim on PList: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -214,7 +250,11 @@ fn test_delim_wrong_number_of_cases() {
 
     // concludes should return Error
     let result = repl.execute("Eval (concludes bad_elim).").expect("Eval");
-    assert!(result.contains("Error"), "Should error with wrong case count: {}", result);
+    assert!(
+        result.contains("Error"),
+        "Should error with wrong case count: {}",
+        result
+    );
 }
 
 #[test]
@@ -241,7 +281,11 @@ fn test_delim_wrong_case_conclusion() {
 
     // concludes should return Error (base case doesn't match)
     let result = repl.execute("Eval (concludes bad_elim).").expect("Eval");
-    assert!(result.contains("Error"), "Should error with wrong case: {}", result);
+    assert!(
+        result.contains("Error"),
+        "Should error with wrong case: {}",
+        result
+    );
 }
 
 #[test]
@@ -258,7 +302,11 @@ fn test_delim_unknown_inductive() {
 
     // concludes should return Error (Unknown not an inductive)
     let result = repl.execute("Eval (concludes bad_elim).").expect("Eval");
-    assert!(result.contains("Error"), "Should error with unknown inductive: {}", result);
+    assert!(
+        result.contains("Error"),
+        "Should error with unknown inductive: {}",
+        result
+    );
 }
 
 // =============================================================================
@@ -270,7 +318,10 @@ fn test_dcase_type_error() {
     let mut repl = Repl::new();
     // DCase expects Derivation, not Syntax
     let result = repl.execute(r#"Check (DCase (SName "x") DCaseEnd)."#);
-    assert!(result.is_err(), "Should reject Syntax where Derivation expected");
+    assert!(
+        result.is_err(),
+        "Should reject Syntax where Derivation expected"
+    );
 }
 
 #[test]
@@ -285,6 +336,10 @@ fn test_delim_type_error_motive() {
 fn test_delim_type_error_cases() {
     let mut repl = Repl::new();
     // DElim expects Derivation for cases, not Syntax
-    let result = repl.execute(r#"Check (DElim (SName "Nat") (SName "motive") (SName "not_cases"))."#);
-    assert!(result.is_err(), "Should reject Syntax where Derivation expected");
+    let result =
+        repl.execute(r#"Check (DElim (SName "Nat") (SName "motive") (SName "not_cases"))."#);
+    assert!(
+        result.is_err(),
+        "Should reject Syntax where Derivation expected"
+    );
 }

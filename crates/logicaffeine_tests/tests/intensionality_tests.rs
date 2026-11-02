@@ -22,24 +22,34 @@ fn seek_unicorn_produces_two_readings() {
     eprintln!("DEBUG: Got {} readings: {:?}", readings.len(), readings);
 
     assert_eq!(
-        readings.len(), 2,
+        readings.len(),
+        2,
         "Should produce exactly 2 readings (de re and de dicto), got {}: {:?}",
-        readings.len(), readings
+        readings.len(),
+        readings
     );
 
     // De Re: ∃x(U(x) ∧ Seek(j, x)) - a specific unicorn exists
     // Note: "U" is the abbreviated form of "Unicorn" from the symbol registry
-    let has_de_re = readings.iter().any(|r| {
-        r.contains("∃x") && r.contains("Seek") && r.contains("Theme(e, x)")
-    });
+    let has_de_re = readings
+        .iter()
+        .any(|r| r.contains("∃x") && r.contains("Seek") && r.contains("Theme(e, x)"));
 
     // De Dicto: Seek(j, ^U) - seeking the concept (Montague up-arrow)
-    let has_de_dicto = readings.iter().any(|r| {
-        r.contains("Seek") && r.contains("^")
-    });
+    let has_de_dicto = readings
+        .iter()
+        .any(|r| r.contains("Seek") && r.contains("^"));
 
-    assert!(has_de_re, "Should have de re reading (existential over unicorn). Got: {:?}", readings);
-    assert!(has_de_dicto, "Should have de dicto reading (intension marker ^). Got: {:?}", readings);
+    assert!(
+        has_de_re,
+        "Should have de re reading (existential over unicorn). Got: {:?}",
+        readings
+    );
+    assert!(
+        has_de_dicto,
+        "Should have de dicto reading (intension marker ^). Got: {:?}",
+        readings
+    );
 }
 
 #[test]
@@ -53,7 +63,8 @@ fn fear_produces_two_readings() {
     assert!(
         readings.len() >= 2,
         "Opaque verb 'fear' should produce multiple readings, got {}: {:?}",
-        readings.len(), readings
+        readings.len(),
+        readings
     );
 }
 
@@ -93,9 +104,11 @@ fn kick_ball_produces_single_reading() {
 
     // Non-opaque verb: only de re reading (no intensional ambiguity)
     assert_eq!(
-        readings.len(), 1,
+        readings.len(),
+        1,
         "Non-opaque verb should have single extensional reading, got {}: {:?}",
-        readings.len(), readings
+        readings.len(),
+        readings
     );
 }
 
@@ -107,7 +120,8 @@ fn love_produces_single_reading() {
 
     // 'love' is not opaque - only extensional reading
     assert_eq!(
-        readings.len(), 1,
+        readings.len(),
+        1,
         "Non-opaque verb 'love' should have single reading"
     );
 }
@@ -181,7 +195,8 @@ fn definite_with_opaque_is_de_re_only() {
     // Definite descriptions with opaque verbs are typically de re only
     // (the specific unicorn that exists and is known)
     assert_eq!(
-        readings.len(), 1,
+        readings.len(),
+        1,
         "Definite NP with opaque verb should be de re only"
     );
 }
@@ -194,7 +209,8 @@ fn proper_name_with_opaque_is_de_re_only() {
 
     // Proper names are always de re (rigid designators)
     assert_eq!(
-        readings.len(), 1,
+        readings.len(),
+        1,
         "Proper name with opaque verb should be de re only"
     );
 }

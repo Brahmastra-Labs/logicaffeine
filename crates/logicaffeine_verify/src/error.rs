@@ -15,7 +15,6 @@
 //! | Category | Error Types | User Action |
 //! |----------|-------------|-------------|
 //! | Logic | `ContradictoryAssertion`, `BoundsViolation`, `RefinementViolation` | Fix the logical issue |
-//! | License | `LicenseRequired`, `LicenseInvalid`, `LicenseInsufficientPlan` | Provide valid license |
 //! | Solver | `SolverUnknown`, `SolverError` | Simplify or restructure |
 //! | Termination | `TerminationViolation` | Add decreasing variant |
 
@@ -90,30 +89,6 @@ pub enum VerificationErrorKind {
     RefinementViolation {
         /// The name of the refinement type.
         type_name: String,
-    },
-
-    /// Verification requires a license key.
-    ///
-    /// **Action:** Provide a license key via `--license <key>` or the
-    /// `LOGOS_LICENSE` environment variable.
-    LicenseRequired,
-
-    /// The license key is invalid or expired.
-    ///
-    /// **Action:** Check that your license key is correct and active.
-    LicenseInvalid {
-        /// The reason the license was rejected.
-        reason: String,
-    },
-
-    /// The license plan doesn't include verification.
-    ///
-    /// Verification requires Pro, Premium, Lifetime, or Enterprise plan.
-    ///
-    /// **Action:** Upgrade your plan at <https://logicaffeine.com/pricing>.
-    LicenseInsufficientPlan {
-        /// The user's current plan.
-        current: String,
     },
 
     /// Z3 returned unknown (timeout or undecidable).
@@ -193,7 +168,11 @@ impl fmt::Display for VerificationError {
                     writeln!(f, "Counter-example: {}", ce)?;
                 }
             }
-            VerificationErrorKind::BoundsViolation { var, expected, found } => {
+            VerificationErrorKind::BoundsViolation {
+                var,
+                expected,
+                found,
+            } => {
                 writeln!(f, "Value '{}' violates its constraint.", var)?;
                 writeln!(f)?;
                 writeln!(f, "Expected: {}", expected)?;
@@ -204,23 +183,11 @@ impl fmt::Display for VerificationError {
                 writeln!(f)?;
                 writeln!(f, "{}", self.explanation)?;
             }
-            VerificationErrorKind::LicenseRequired => {
-                writeln!(f, "Verification requires a license key.")?;
-                writeln!(f)?;
-                writeln!(f, "Use --license <key> or set the LOGOS_LICENSE environment variable.")?;
-                writeln!(f, "Get a license at https://logicaffeine.com/pricing")?;
-            }
-            VerificationErrorKind::LicenseInvalid { reason } => {
-                writeln!(f, "License validation failed: {}", reason)?;
-            }
-            VerificationErrorKind::LicenseInsufficientPlan { current } => {
-                writeln!(f, "Verification requires Pro, Premium, Lifetime, or Enterprise plan.")?;
-                writeln!(f)?;
-                writeln!(f, "Current plan: {}", current)?;
-                writeln!(f, "Upgrade at https://logicaffeine.com/pricing")?;
-            }
             VerificationErrorKind::SolverUnknown => {
-                writeln!(f, "The solver could not determine if the assertion is valid.")?;
+                writeln!(
+                    f,
+                    "The solver could not determine if the assertion is valid."
+                )?;
                 writeln!(f)?;
                 writeln!(f, "This may be due to complexity or timeout.")?;
             }
@@ -230,7 +197,11 @@ impl fmt::Display for VerificationError {
             VerificationErrorKind::TerminationViolation { variant, reason } => {
                 writeln!(f, "Cannot prove loop terminates.")?;
                 writeln!(f)?;
-                writeln!(f, "Variant '{}' does not strictly decrease: {}", variant, reason)?;
+                writeln!(
+                    f,
+                    "Variant '{}' does not strictly decrease: {}",
+                    variant, reason
+                )?;
             }
         }
         Ok(())
@@ -240,54 +211,15 @@ impl fmt::Display for VerificationError {
 impl std::error::Error for VerificationError {}
 
 impl VerificationError {
-    // ---- License Errors ----
-
-    /// Create a license required error.
-    ///
-    /// Use when verification is attempted without providing a license key.
-    pub fn license_required() -> Self {
-        Self {
-            kind: VerificationErrorKind::LicenseRequired,
-            span: None,
-            explanation: String::new(),
-            counterexample: None,
-        }
-    }
-
-    /// Create a license invalid error.
-    ///
-    /// Use when the provided license key fails validation.
-    pub fn license_invalid(reason: impl Into<String>) -> Self {
-        Self {
-            kind: VerificationErrorKind::LicenseInvalid {
-                reason: reason.into(),
-            },
-            span: None,
-            explanation: String::new(),
-            counterexample: None,
-        }
-    }
-
-    /// Create an insufficient plan error.
-    ///
-    /// Use when the license is valid but the plan doesn't include verification.
-    pub fn insufficient_plan(current: impl Into<String>) -> Self {
-        Self {
-            kind: VerificationErrorKind::LicenseInsufficientPlan {
-                current: current.into(),
-            },
-            span: None,
-            explanation: String::new(),
-            counterexample: None,
-        }
-    }
-
     // ---- Logic Errors ----
 
     /// Create a contradictory assertion error.
     ///
     /// Use when Z3 proves the negation of an assertion is satisfiable.
-    pub fn contradiction(explanation: impl Into<String>, counterexample: Option<CounterExample>) -> Self {
+    pub fn contradiction(
+        explanation: impl Into<String>,
+        counterexample: Option<CounterExample>,
+    ) -> Self {
         Self {
             kind: VerificationErrorKind::ContradictoryAssertion,
             span: None,
@@ -319,7 +251,10 @@ impl VerificationError {
     /// Create a refinement type violation error.
     ///
     /// Use when a value does not satisfy its refinement type predicate.
-    pub fn refinement_violation(type_name: impl Into<String>, explanation: impl Into<String>) -> Self {
+    pub fn refinement_violation(
+        type_name: impl Into<String>,
+        explanation: impl Into<String>,
+    ) -> Self {
         Self {
             kind: VerificationErrorKind::RefinementViolation {
                 type_name: type_name.into(),

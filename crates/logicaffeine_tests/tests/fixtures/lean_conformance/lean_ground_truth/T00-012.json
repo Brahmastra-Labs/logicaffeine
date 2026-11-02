@@ -1,0 +1,60 @@
+{
+  "case": "T00-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_012.bump",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_012.dup",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Fin (2 ^ 10)",
+      "name": "T00_012.finByComputation",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "1000 < 2 ^ 10",
+      "name": "T00_012.finByComputation.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_012.tower",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((n : Nat) \u2192 motive n.succ) \u2192 motive x",
+      "name": "T00_012.tower.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

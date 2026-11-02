@@ -1,0 +1,10 @@
+{
+  "capability": "encoding.base32hex",
+  "workload": "base32hexEncode(s) length fold",
+  "arg": "30000",
+  "expected": "194472000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

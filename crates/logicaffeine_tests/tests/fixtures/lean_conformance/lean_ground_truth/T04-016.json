@@ -1,0 +1,72 @@
+{
+  "case": "T04-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Type",
+      "name": "T04_016.belowType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T04_016.lenBrec",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : (ys : List Nat) \u2192 List.below ys \u2192 Sort u_1) \u2192\n  (ys : List Nat) \u2192\n    (below : List.below ys) \u2192\n      ((x : List.below []) \u2192 motive [] x) \u2192\n        ((head : Nat) \u2192 (tail : List Nat) \u2192 (b : List.below (head :: tail)) \u2192 motive (head :: tail) b) \u2192 motive ys below",
+      "name": "T04_016.lenBrec.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_016.plainStructural",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((n : Nat) \u2192 motive n.succ) \u2192 motive x",
+      "name": "T04_016.plainStructural.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n \u2264 n",
+      "name": "T04_016.strongLe",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_016.sumBrec",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : (k : Nat) \u2192 Nat.below k \u2192 Sort u_1) \u2192\n  (k : Nat) \u2192\n    (below : Nat.below k) \u2192\n      ((x : Nat.below 0) \u2192 motive 0 x) \u2192 ((m : Nat) \u2192 (b : Nat.below (m + 1)) \u2192 motive m.succ b) \u2192 motive k below",
+      "name": "T04_016.sumBrec.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -49,18 +49,8 @@ cd "$SCRIPT_DIR"
 PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
 
-BENCHMARKS=(
-    fib ackermann nqueens
-    bubble_sort mergesort quicksort counting_sort heap_sort
-    nbody mandelbrot spectral_norm pi_leibniz
-    gcd collatz primes
-    sieve matrix_mult prefix_sum array_reverse array_fill
-    collect two_sum histogram
-    knapsack coins
-    fannkuch
-    strings binary_trees
-    loop_sum fib_iterative graph_bfs string_search
-)
+# The benchmark list is the suite registry (benchmarks/lib/benchmarks.tsv), loaded here with the rest of it.
+. "$SCRIPT_DIR/lib/suite.sh"
 
 START="${START:-1}"
 BUDGET_S="${BUDGET_S:-1}"
@@ -334,11 +324,8 @@ detect_os() {
 }
 
 info "Phase 1: building largo (release) and setting up projects..."
-cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$SCRIPT_DIR/.logos-bench-target/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/largo"
-if [ ! -f "$LARGO" ]; then fail "Could not find largo binary"; exit 1; fi
+. "$SCRIPT_DIR/lib/largo.sh"
+largo_build || exit 1
 ok "largo built"
 
 RUNNABLE=()

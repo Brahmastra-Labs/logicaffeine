@@ -1,0 +1,10 @@
+{
+  "capability": "iter.count_where",
+  "workload": "countWhere((n)->n>500000, xs)",
+  "arg": "60000",
+  "expected": "4388812",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

@@ -6,27 +6,56 @@ use logicaffeine_compile::compile::compile_to_c;
 // Unit Tests — Verify Generated C Code Structure
 // =============================================================================
 
+/// Whether `c` defines the function whose name and C parameter list are `head` (`fib(int64_t n)`): its result is an
+/// `int64_t` where the integer is proven to stay a machine word, or the exact `LInt` where nothing bounds it (the
+/// shared exactness rule), and the body follows.
+fn defines(c: &str, head: &str) -> bool {
+    ["int64_t", "LInt"]
+        .iter()
+        .any(|ret| c.contains(&format!("\n{ret} {head} {{")))
+}
+
 #[test]
 fn codegen_c_hello_world() {
     let source = "## Main\nShow 42.";
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("#include"), "Should have C includes, got:\n{}", c_code);
-    assert!(c_code.contains("int main("), "Should have main function, got:\n{}", c_code);
-    assert!(c_code.contains("42"), "Should contain literal 42, got:\n{}", c_code);
+    assert!(
+        c_code.contains("#include"),
+        "Should have C includes, got:\n{}",
+        c_code
+    );
+    assert!(
+        c_code.contains("int main("),
+        "Should have main function, got:\n{}",
+        c_code
+    );
+    assert!(
+        c_code.contains("42"),
+        "Should contain literal 42, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
 fn codegen_c_let_and_show() {
     let source = "## Main\nLet x be 5.\nShow x.";
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t x = 5"), "Should declare int64_t variable, got:\n{}", c_code);
+    assert!(
+        c_code.contains("int64_t x = 5"),
+        "Should declare int64_t variable, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
 fn codegen_c_arithmetic() {
     let source = "## Main\nLet x be 2 + 3.\nShow x.";
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t x = 5"), "Should fold 2+3 to 5, got:\n{}", c_code);
+    assert!(
+        c_code.contains("int64_t x = 5"),
+        "Should fold 2+3 to 5, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -39,8 +68,16 @@ fn codegen_c_function_def() {
 ## Main
 Show fib(10)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t fib(int64_t n)"), "Should have fib function, got:\n{}", c_code);
-    assert!(c_code.contains("return"), "Should have return statement, got:\n{}", c_code);
+    assert!(
+        defines(&c_code, "fib(int64_t n)"),
+        "Should have fib function, got:\n{}",
+        c_code
+    );
+    assert!(
+        c_code.contains("return"),
+        "Should have return statement, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -51,8 +88,16 @@ Push 10 to items.
 Push 20 to items.
 Show length of items."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("Seq_i64"), "Should use Seq_i64 type, got:\n{}", c_code);
-    assert!(c_code.contains("seq_i64_push"), "Should use push helper, got:\n{}", c_code);
+    assert!(
+        c_code.contains("Seq_i64"),
+        "Should use Seq_i64 type, got:\n{}",
+        c_code
+    );
+    assert!(
+        c_code.contains("seq_i64_push"),
+        "Should use push helper, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -63,7 +108,11 @@ While i is less than 5:
     Set i to i + 1.
 Show i."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("while"), "Should have while loop, got:\n{}", c_code);
+    assert!(
+        c_code.contains("while"),
+        "Should have while loop, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -80,8 +129,16 @@ If x is less than 10:
 Otherwise:
     Show 0."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("if ("), "Should have if statement, got:\n{}", c_code);
-    assert!(c_code.contains("else"), "Should have else clause, got:\n{}", c_code);
+    assert!(
+        c_code.contains("if ("),
+        "Should have if statement, got:\n{}",
+        c_code
+    );
+    assert!(
+        c_code.contains("else"),
+        "Should have else clause, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -91,7 +148,37 @@ Let m be a new Map of Int to Int.
 Set item 1 of m to 42.
 Show item 1 of m."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("Map_i64_i64"), "Should use Map_i64_i64 type, got:\n{}", c_code);
+    assert!(
+        c_code.contains("Map_i64_i64"),
+        "Should use Map_i64_i64 type, got:\n{}",
+        c_code
+    );
+}
+
+#[test]
+fn codegen_c_counted_map_fill_reserves_once() {
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let seen be a new Map of Int to Int.
+Let i be 1.
+While i is at most n:
+    Set item i of seen to i.
+    Set i to i + 1.
+Show item n of seen."#;
+    let c_code = compile_to_c(source).unwrap();
+    let reserve = c_code
+        .find("map_i64_i64_reserve(&seen, logos_counted_fill(")
+        .filter(|&at| c_code[at..].contains(", n, 0, 1));"));
+    let fill = c_code.find("map_i64_i64_set(&seen,");
+    assert!(
+        matches!((reserve, fill), (Some(r), Some(f)) if r < f),
+        "counted map fill should reserve its proven upper bound before the loop, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -104,8 +191,16 @@ Let arguments be args().
 Let n be parseInt(item 2 of arguments).
 Show n."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("logos_args"), "Should use logos_args, got:\n{}", c_code);
-    assert!(c_code.contains("logos_parseInt"), "Should use logos_parseInt, got:\n{}", c_code);
+    assert!(
+        c_code.contains("logos_args"),
+        "Should use logos_args, got:\n{}",
+        c_code
+    );
+    assert!(
+        c_code.contains("logos_parseInt"),
+        "Should use logos_parseInt, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -114,7 +209,11 @@ fn codegen_c_string_concat() {
 Let s be "hello" + " " + "world".
 Show s."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("str_concat"), "Should use str_concat helper, got:\n{}", c_code);
+    assert!(
+        c_code.contains("str_concat"),
+        "Should use str_concat helper, got:\n{}",
+        c_code
+    );
 }
 
 // =============================================================================
@@ -129,15 +228,27 @@ fn codegen_c_keyword_escape_double() {
 ## Main
 Show double(5)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("logos_double"), "C keyword 'double' should be escaped to 'logos_double', got:\n{}", c_code);
-    assert!(!c_code.contains("int64_t double("), "Should NOT emit raw 'double' as function name, got:\n{}", c_code);
+    assert!(
+        c_code.contains("logos_double"),
+        "C keyword 'double' should be escaped to 'logos_double', got:\n{}",
+        c_code
+    );
+    assert!(
+        !c_code.contains("int64_t double("),
+        "Should NOT emit raw 'double' as function name, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
 fn codegen_c_keyword_escape_int_var() {
     let source = "## Main\nLet int be 5.\nShow int.";
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("logos_int"), "C keyword 'int' should be escaped to 'logos_int', got:\n{}", c_code);
+    assert!(
+        c_code.contains("logos_int"),
+        "C keyword 'int' should be escaped to 'logos_int', got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -148,14 +259,22 @@ fn codegen_c_keyword_escape_float_function() {
 ## Main
 Show float(42)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("logos_float"), "C keyword 'float' should be escaped to 'logos_float', got:\n{}", c_code);
+    assert!(
+        c_code.contains("logos_float"),
+        "C keyword 'float' should be escaped to 'logos_float', got:\n{}",
+        c_code
+    );
 }
 
 #[test]
 fn codegen_c_keyword_escape_char_var() {
     let source = "## Main\nLet char be 65.\nShow char.";
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("logos_char"), "C keyword 'char' should be escaped to 'logos_char', got:\n{}", c_code);
+    assert!(
+        c_code.contains("logos_char"),
+        "C keyword 'char' should be escaped to 'logos_char', got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -168,8 +287,16 @@ fn codegen_c_no_escape_normal_names() {
 ## Main
 Show fib(10)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t fib("), "Normal names should not be escaped, got:\n{}", c_code);
-    assert!(!c_code.contains("logos_fib"), "Normal names should not be prefixed, got:\n{}", c_code);
+    assert!(
+        defines(&c_code, "fib(int64_t n)"),
+        "Normal names should not be escaped, got:\n{}",
+        c_code
+    );
+    assert!(
+        !c_code.contains("logos_fib"),
+        "Normal names should not be prefixed, got:\n{}",
+        c_code
+    );
 }
 
 #[test]
@@ -186,7 +313,11 @@ If x is not 3:
 Otherwise:
     Show 0."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("!="), "Not-equals should produce != operator, got:\n{}", c_code);
+    assert!(
+        c_code.contains("!="),
+        "Not-equals should produce != operator, got:\n{}",
+        c_code
+    );
 }
 
 // =============================================================================
@@ -208,7 +339,7 @@ Let arguments be args().
 Let n be parseInt(item 2 of arguments).
 Show fib(n)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t fib("), "Should have fib function");
+    assert!(defines(&c_code, "fib(int64_t n)"), "Should have fib function");
     assert!(c_code.contains("int main("), "Should have main");
 }
 
@@ -229,7 +360,11 @@ Let arguments be args().
 Let n be parseInt(item 2 of arguments).
 Show ackermann(3, n)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t ackermann("), "Should have ackermann function");
+    assert!(
+        defines(&c_code, "ackermann(int64_t m, LInt n)")
+            || defines(&c_code, "ackermann(int64_t m, int64_t n)"),
+        "Should have ackermann function"
+    );
 }
 
 #[test]
@@ -260,7 +395,10 @@ Let arguments be args().
 Let limit be parseInt(item 2 of arguments).
 Show sieve(limit)."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("int64_t sieve("), "Should have sieve function");
+    assert!(
+        defines(&c_code, "sieve(int64_t limit)"),
+        "Should have sieve function"
+    );
     assert!(c_code.contains("Seq_bool"), "Should use Seq_bool");
 }
 
@@ -708,14 +846,16 @@ fn e2e_c_and_true() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_and_false() {
-    let source = "## Main\nIf 3 is less than 5 and 10 is less than 2:\n    Show 1.\nOtherwise:\n    Show 0.";
+    let source =
+        "## Main\nIf 3 is less than 5 and 10 is less than 2:\n    Show 1.\nOtherwise:\n    Show 0.";
     common::assert_c_output(source, "0");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_or_true() {
-    let source = "## Main\nIf 3 is less than 5 or 10 is less than 2:\n    Show 1.\nOtherwise:\n    Show 0.";
+    let source =
+        "## Main\nIf 3 is less than 5 or 10 is less than 2:\n    Show 1.\nOtherwise:\n    Show 0.";
     common::assert_c_output(source, "1");
 }
 
@@ -1111,11 +1251,12 @@ Show item 7 of m."#;
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_map_missing_key() {
+    // Reading an absent key traps (≡ interpreter + VM): `item k of m` requires `k` present.
     let source = r#"## Main
 Let mutable m be a new Map of Int to Int.
 Set item 1 of m to 42.
 Show item 999 of m."#;
-    common::assert_c_output(source, "0");
+    common::assert_c_traps(source, "missing map key");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1318,6 +1459,8 @@ Show item 7 of arr."#;
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_map_frequency_count() {
+    // Frequency counting under trap-on-miss: the first occurrence of a key is seeded via a
+    // `contains` guard (an absent-key read would trap), then incremented on later occurrences.
     let source = r#"## Main
 Let mutable data be a new Seq of Int.
 Push 1 to data.
@@ -1330,7 +1473,10 @@ Let mutable freq be a new Map of Int to Int.
 Let mutable i be 1.
 While i is at most length of data:
     Let val be item i of data.
-    Set item val of freq to item val of freq + 1.
+    If freq contains val:
+        Set item val of freq to item val of freq + 1.
+    Otherwise:
+        Set item val of freq to 1.
     Set i to i + 1.
 Show item 1 of freq.
 Show item 2 of freq.
@@ -1816,11 +1962,12 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_map_str_i64_missing_key() {
+    // Reading an absent key traps (≡ interpreter + VM), for Text-keyed maps too.
     let source = r#"## Main
 Let mutable m be a new Map of Text to Int.
 Set item "x" of m to 42.
 Show item "missing" of m."#;
-    common::assert_c_output(source, "0");
+    common::assert_c_traps(source, "missing map key");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1887,17 +2034,20 @@ Otherwise:
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn e2e_c_map_i64_str_default_value() {
+fn e2e_c_map_i64_str_missing_key() {
+    // Reading an absent key traps (≡ interpreter + VM) — there is no silent default, for Text values either.
     let source = r#"## Main
 Let mutable m be a new Map of Int to Text.
 Set item 1 of m to "hello".
 Show item 999 of m."#;
-    common::assert_c_output(source, "");
+    common::assert_c_traps(source, "missing map key");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_map_word_frequency() {
+    // Word frequency under trap-on-miss: seed a new word's count via a `contains` guard
+    // (a raw absent-key read traps), then increment on repeats.
     let source = r#"## Main
 Let mutable words be a new Seq of Text.
 Push "hello" to words.
@@ -1909,7 +2059,10 @@ Let mutable freq be a new Map of Text to Int.
 Let mutable i be 1.
 While i is at most length of words:
     Let w be item i of words.
-    Set item w of freq to item w of freq + 1.
+    If freq contains w:
+        Set item w of freq to item w of freq + 1.
+    Otherwise:
+        Set item w of freq to 1.
     Set i to i + 1.
 Show item "hello" of freq.
 Show item "world" of freq."#;
@@ -1919,11 +2072,12 @@ Show item "world" of freq."#;
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_c_map_str_str_missing_key() {
+    // Reading an absent key traps (≡ interpreter + VM) for Text→Text maps too.
     let source = r#"## Main
 Let mutable m be a new Map of Text to Text.
 Set item "a" of m to "alpha".
 Show item "missing" of m."#;
-    common::assert_c_output(source, "");
+    common::assert_c_traps(source, "missing map key");
 }
 
 // =============================================================================
@@ -2168,7 +2322,9 @@ fn e2e_c_struct_show() {
 ## Main
 Let p be a new Point with x 10 and y 20.
 Show p."#;
-    common::assert_c_output(source, "Point(x: 10, y: 20)");
+    // Whole-struct Show is byte-identical to the interpreter oracle: `Name { field: value }`,
+    // brace-delimited with fields sorted by name (here x < y already).
+    common::assert_c_output(source, "Point { x: 10, y: 20 }");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2181,7 +2337,9 @@ fn e2e_c_struct_show_with_text() {
 ## Main
 Let p be a new Person with name "Bob" and age 25.
 Show p."#;
-    common::assert_c_output(source, "Person(name: Bob, age: 25)");
+    // Fields render SORTED by name (age before name), matching the interpreter oracle's
+    // deterministic display order — not declaration order.
+    common::assert_c_output(source, "Person { age: 25, name: Bob }");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3054,10 +3212,16 @@ Let mutable text be "hello".
 Set text to text + " world".
 Show text."#;
     let c_code = compile_to_c(source).unwrap();
-    assert!(c_code.contains("str_append"),
-        "Self-append should use str_append, got:\n{}", c_code);
-    assert!(!c_code.contains("str_concat(text"),
-        "Self-append should NOT use str_concat for the target variable, got:\n{}", c_code);
+    assert!(
+        c_code.contains("str_append"),
+        "Self-append should use str_append, got:\n{}",
+        c_code
+    );
+    assert!(
+        !c_code.contains("str_concat(text"),
+        "Self-append should NOT use str_concat for the target variable, got:\n{}",
+        c_code
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

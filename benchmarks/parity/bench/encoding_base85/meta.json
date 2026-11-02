@@ -1,0 +1,10 @@
+{
+  "capability": "encoding.base85",
+  "workload": "base85Encode(s) length fold",
+  "arg": "30000",
+  "expected": "151867500",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Provided that T, S",
   "options": [
-    "$ T \\supset S $",
-    "$ (T \\equiv S) $",
-    "$ (T \\supset S) $",
-    "$ (S \\supset T) $"
+    "T ↔ S",
+    "S → T",
+    "T → S",
+    "T ∧ S"
   ],
   "correct": 2,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What follows 'provided that' is the if part.",
+  "explanation": "'Provided that' marks the if part, so the formula is T → S.",
+  "section": "6.2"
 }

@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.last_index_sub",
+  "workload": "bytesLastIndexSub(xs,sub) 1-based/0",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

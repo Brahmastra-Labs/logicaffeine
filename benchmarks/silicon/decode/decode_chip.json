@@ -1,0 +1,1810 @@
+{
+  "what": "What a system of SRAM-resident LOGOS decode chips must achieve to beat a GPU deployment's FLOOR (its memory roofline with every overhead at zero) by the speedup, per user at batch one. Each requirement is a pair of latency budgets: the most one dependent stage may take on chip with chip-to-chip hops free, and the most one chip-to-chip hop may take at the design's own on-chip stage latency. `demonstrated` is the per-stage latency a vendor's published per-user rate implies, the yardstick for a budget. Regenerate with `cargo run -p logicaffeine-compile --example decode_chip_report`; spatial_decode_chip_lock holds the file to the model.",
+  "deployment": {
+    "ctx": 4096,
+    "weights": {
+      "PerWeight": 1.0
+    },
+    "kv_bytes": 2.0,
+    "state_bytes": 4.0,
+    "activation_bytes": 2.0,
+    "speculative": false
+  },
+  "speedup": 5.0,
+  "nodes": [
+    {
+      "name": "n5",
+      "sram_bits_per_mm2": {
+        "value": 33344716.8,
+        "provenance": "Published",
+        "cite": "tomshardware.com/news/no-sram-scaling-implies-on-more-expensive-cpus-and-gpus (reporting WikiChip on TSMC's IEDM 2022 paper): N5's \"0.021 µm^² SRAM bitcell (which roughly translates to 31.8 Mib/mm^²)\""
+      },
+      "sram_read_per_cycle_per_byte": {
+        "value": 0.0003864734299516908,
+        "provenance": "Modeled",
+        "cite": "not published for an N5 SRAM dataflow die; inherited from groq.com/product-spec-sheet-groqchip-processor: \"230 MB SRAM per chip\", \"Up to 80 TB/s on-die memory bandwidth\", \"@900 MHz\" — 80e12 / (230e6 × 0.9e9) bytes read per cycle per byte held"
+      },
+      "clock_ghz": {
+        "value": 0.9,
+        "provenance": "Modeled",
+        "cite": "not published for an N5 SRAM dataflow die; inherited from groq.com/product-spec-sheet-groqchip-processor: \"(INT8, FP16 @900 MHz)\" at 14nm"
+      },
+      "sources": [
+        "tomshardware.com/news/no-sram-scaling-implies-on-more-expensive-cpus-and-gpus",
+        "groq.com/product-spec-sheet-groqchip-processor"
+      ]
+    },
+    {
+      "name": "sky130",
+      "sram_bits_per_mm2": {
+        "value": 57580.9653073489,
+        "provenance": "Derived",
+        "cite": "open_pdks sky130A libs.ref/sky130_sram_macros/lef/sky130_sram_2kbyte_1rw1r_32x512_8.lef: \"SIZE 683.1 BY 416.54\" for 2 KiB (\"2kbyte\"), the largest sky130 SRAM macro; 16,384 bits over 0.28454 mm², periphery included"
+      },
+      "sram_read_per_cycle_per_byte": {
+        "value": 0.001953125,
+        "provenance": "Derived",
+        "cite": "open_pdks sky130A libs.ref/sky130_sram_macros/lef/sky130_sram_2kbyte_1rw1r_32x512_8.lef: \"1rw1r_32x512\", a 32-bit read port on 512 words — four bytes per cycle from each 2 KiB"
+      },
+      "clock_ghz": {
+        "value": 0.05128205128205128,
+        "provenance": "Measured",
+        "cite": "benchmarks/silicon/systolic_pipelined_signoff.json: systolic_pipe16_realbist \"clock_period_ns\": 19.5, the largest array our OpenLane sky130 signoff has closed"
+      },
+      "sources": [
+        "open_pdks sky130A libs.ref/sky130_sram_macros/lef/sky130_sram_2kbyte_1rw1r_32x512_8.lef",
+        "benchmarks/silicon/systolic_pipelined_signoff.json"
+      ]
+    }
+  ],
+  "models": [
+    {
+      "model": "llama-3.1-8b-instruct-q8_0",
+      "weight_bytes_per_token": 7505727744.0,
+      "held_bytes": 8567931136.0,
+      "stages": 227,
+      "gpu_floors": [
+        {
+          "machine": "h100-sxm",
+          "chips": 1,
+          "floor_tok_s": 416.52524867736093,
+          "binds": "Memory"
+        },
+        {
+          "machine": "h100-sxm",
+          "chips": 8,
+          "floor_tok_s": 3329.1044100954223,
+          "binds": "Memory"
+        },
+        {
+          "machine": "b200",
+          "chips": 1,
+          "floor_tok_s": 994.6871610205656,
+          "binds": "Memory"
+        },
+        {
+          "machine": "b200",
+          "chips": 8,
+          "floor_tok_s": 7950.100083809962,
+          "binds": "Memory"
+        }
+      ],
+      "demonstrated": [
+        {
+          "label": "Cerebras Inference, Llama 3.1 8B, launch (2024-08-27)",
+          "machine": "cerebras-wse3",
+          "chips": 1,
+          "published_tok_s": 1800.0,
+          "stage_latency_s": 2.4442043061872595e-6
+        }
+      ],
+      "requirements": [
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 416.52524867736093,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 2082.6262433868046,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 2.100627008266107e-6,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 2.4082147487963865e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                91315.08757972713
+              ],
+              [
+                5e-8,
+                49234.180003817695
+              ],
+              [
+                1e-7,
+                33265.590375250984
+              ],
+              [
+                2.5e-7,
+                16860.252483055545
+              ],
+              [
+                5e-7,
+                9254.024495762433
+              ],
+              [
+                1e-6,
+                4864.733818442459
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 416.52524867736093,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 2082.6262433868046,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 2.100627008266107e-6,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 2.033115033696678e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                11891.237424991767
+              ],
+              [
+                5e-8,
+                10700.275545629242
+              ],
+              [
+                1e-7,
+                9689.402589248692
+              ],
+              [
+                2.5e-7,
+                7549.703248717762
+              ],
+              [
+                5e-7,
+                5518.595154946827
+              ],
+              [
+                1e-6,
+                3588.016261942029
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 416.52524867736093,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 2976,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 2082.6262433868046,
+            "floor_tok_s": 4077.804951877543,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 1.0304375500991028e-6,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": 2.4791910468746834e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                3468.0549305954455
+              ],
+              [
+                5e-8,
+                3069.498977219102
+              ],
+              [
+                1e-7,
+                2741.3327700031655
+              ],
+              [
+                2.5e-7,
+                2075.610043798199
+              ],
+              [
+                5e-7,
+                1477.5717889219445
+              ],
+              [
+                1e-6,
+                937.3950698885993
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 3329.1044100954223,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 16645.522050477113,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 2.5002457865206385e-7,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 2.5392371534824385e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                91315.08757972713
+              ],
+              [
+                5e-8,
+                49234.180003817695
+              ],
+              [
+                1e-7,
+                33265.590375250984
+              ],
+              [
+                2.5e-7,
+                16860.252483055545
+              ],
+              [
+                5e-7,
+                9254.024495762433
+              ],
+              [
+                1e-6,
+                4864.733818442459
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 3329.1044100954223,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 16645.522050477113,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 2.5002457865206385e-7,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                11891.237424991767
+              ],
+              [
+                5e-8,
+                10700.275545629242
+              ],
+              [
+                1e-7,
+                9689.402589248692
+              ],
+              [
+                2.5e-7,
+                7549.703248717762
+              ],
+              [
+                5e-7,
+                5518.595154946827
+              ],
+              [
+                1e-6,
+                3588.016261942029
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 3329.1044100954223,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 2976,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 16645.522050477113,
+            "floor_tok_s": 4077.804951877543,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                3468.0549305954455
+              ],
+              [
+                5e-8,
+                3069.498977219102
+              ],
+              [
+                1e-7,
+                2741.3327700031655
+              ],
+              [
+                2.5e-7,
+                2075.610043798199
+              ],
+              [
+                5e-7,
+                1477.5717889219445
+              ],
+              [
+                1e-6,
+                937.3950698885993
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 994.6871610205656,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 4973.4358051028275,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 8.711348248483938e-7,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 9.76959745535765e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                91315.08757972713
+              ],
+              [
+                5e-8,
+                49234.180003817695
+              ],
+              [
+                1e-7,
+                33265.590375250984
+              ],
+              [
+                2.5e-7,
+                16860.252483055545
+              ],
+              [
+                5e-7,
+                9254.024495762433
+              ],
+              [
+                1e-6,
+                4864.733818442459
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 994.6871610205656,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 4973.4358051028275,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 8.711348248483938e-7,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 6.018600304360499e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                11891.237424991767
+              ],
+              [
+                5e-8,
+                10700.275545629242
+              ],
+              [
+                1e-7,
+                9689.402589248692
+              ],
+              [
+                2.5e-7,
+                7549.703248717762
+              ],
+              [
+                5e-7,
+                5518.595154946827
+              ],
+              [
+                1e-6,
+                3588.016261942029
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 994.6871610205656,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 2976,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 4973.4358051028275,
+            "floor_tok_s": 4077.804951877543,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                3468.0549305954455
+              ],
+              [
+                5e-8,
+                3069.498977219102
+              ],
+              [
+                1e-7,
+                2741.3327700031655
+              ],
+              [
+                2.5e-7,
+                2075.610043798199
+              ],
+              [
+                5e-7,
+                1477.5717889219445
+              ],
+              [
+                1e-6,
+                937.3950698885993
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 7950.100083809962,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 39750.50041904981,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 9.6195057447514e-8,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 7.48503752793564e-8,
+            "by_hop_latency": [
+              [
+                2e-9,
+                91315.08757972713
+              ],
+              [
+                5e-8,
+                49234.180003817695
+              ],
+              [
+                1e-7,
+                33265.590375250984
+              ],
+              [
+                2.5e-7,
+                16860.252483055545
+              ],
+              [
+                5e-7,
+                9254.024495762433
+              ],
+              [
+                1e-6,
+                4864.733818442459
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 7950.100083809962,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 6,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 39750.50041904981,
+            "floor_tok_s": 405605.77796910104,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": 9.6195057447514e-8,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                11891.237424991767
+              ],
+              [
+                5e-8,
+                10700.275545629242
+              ],
+              [
+                1e-7,
+                9689.402589248692
+              ],
+              [
+                2.5e-7,
+                7549.703248717762
+              ],
+              [
+                5e-7,
+                5518.595154946827
+              ],
+              [
+                1e-6,
+                3588.016261942029
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 7950.100083809962,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 2976,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 39750.50041904981,
+            "floor_tok_s": 4077.804951877543,
+            "stages": 227,
+            "collectives": 65,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                3468.0549305954455
+              ],
+              [
+                5e-8,
+                3069.498977219102
+              ],
+              [
+                1e-7,
+                2741.3327700031655
+              ],
+              [
+                2.5e-7,
+                2075.610043798199
+              ],
+              [
+                5e-7,
+                1477.5717889219445
+              ],
+              [
+                1e-6,
+                937.3950698885993
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "model": "llama-3.1-70b-instruct-q4_k_m",
+      "weight_bytes_per_token": 69506998528.0,
+      "held_bytes": 71899840768.0,
+      "stages": 563,
+      "gpu_floors": [
+        {
+          "machine": "h100-sxm",
+          "chips": 1,
+          "floor_tok_s": 47.28332359544911,
+          "binds": "Memory"
+        },
+        {
+          "machine": "h100-sxm",
+          "chips": 8,
+          "floor_tok_s": 378.0692182793994,
+          "binds": "Memory"
+        },
+        {
+          "machine": "b200",
+          "chips": 1,
+          "floor_tok_s": 112.91539963092293,
+          "binds": "Memory"
+        },
+        {
+          "machine": "b200",
+          "chips": 8,
+          "floor_tok_s": 902.8518645478212,
+          "binds": "Memory"
+        }
+      ],
+      "demonstrated": [
+        {
+          "label": "Cerebras Inference, Llama 3.1 70B, launch (2024-08-27)",
+          "machine": "cerebras-wse3",
+          "chips": 4,
+          "published_tok_s": 450.0,
+          "stage_latency_s": 3.944161934310638e-6
+        },
+        {
+          "label": "Cerebras Inference, Llama 3.1 70B (2024-10-24)",
+          "machine": "cerebras-wse3",
+          "chips": 4,
+          "published_tok_s": 2100.0,
+          "stage_latency_s": 8.428622077888861e-7
+        }
+      ],
+      "requirements": [
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 47.28332359544911,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 236.41661797724555,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 7.4987479731462e-6,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 4.342830506413427e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                27338.213802339546
+              ],
+              [
+                5e-8,
+                12055.915156193632
+              ],
+              [
+                1e-7,
+                7619.231376576344
+              ],
+              [
+                2.5e-7,
+                3621.2618608226344
+              ],
+              [
+                5e-7,
+                1931.819018730817
+              ],
+              [
+                1e-6,
+                999.3535835587107
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 47.28332359544911,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 236.41661797724555,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 7.4987479731462e-6,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 4.155034325139039e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                4587.367536125586
+              ],
+              [
+                5e-8,
+                3782.74992809257
+              ],
+              [
+                1e-7,
+                3198.3834533135246
+              ],
+              [
+                2.5e-7,
+                2185.5155384103687
+              ],
+              [
+                5e-7,
+                1430.496579266678
+              ],
+              [
+                1e-6,
+                845.9822157257737
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 47.28332359544911,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 24974,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 236.41661797724555,
+            "floor_tok_s": 1639.562954267407,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 6.420573104047498e-6,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": 1.4466560459637265e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                1349.5700051004578
+              ],
+              [
+                5e-8,
+                1167.0017382846731
+              ],
+              [
+                1e-7,
+                1022.864339474491
+              ],
+              [
+                2.5e-7,
+                746.3261612814907
+              ],
+              [
+                5e-7,
+                514.496782185661
+              ],
+              [
+                1e-6,
+                317.34478856769084
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 378.0692182793994,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 1890.346091396997,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 9.253599726160195e-7,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 5.117565475123156e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                27338.213802339546
+              ],
+              [
+                5e-8,
+                12055.915156193632
+              ],
+              [
+                1e-7,
+                7619.231376576344
+              ],
+              [
+                2.5e-7,
+                3621.2618608226344
+              ],
+              [
+                5e-7,
+                1931.819018730817
+              ],
+              [
+                1e-6,
+                999.3535835587107
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 378.0692182793994,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 1890.346091396997,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 9.253599726160195e-7,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 3.2396036623787263e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                4587.367536125586
+              ],
+              [
+                5e-8,
+                3782.74992809257
+              ],
+              [
+                1e-7,
+                3198.3834533135246
+              ],
+              [
+                2.5e-7,
+                2185.5155384103687
+              ],
+              [
+                5e-7,
+                1430.496579266678
+              ],
+              [
+                1e-6,
+                845.9822157257737
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 378.0692182793994,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 24974,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 1890.346091396997,
+            "floor_tok_s": 1639.562954267407,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                1349.5700051004578
+              ],
+              [
+                5e-8,
+                1167.0017382846731
+              ],
+              [
+                1e-7,
+                1022.864339474491
+              ],
+              [
+                2.5e-7,
+                746.3261612814907
+              ],
+              [
+                5e-7,
+                514.496782185661
+              ],
+              [
+                1e-6,
+                317.34478856769084
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 112.91539963092293,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 564.5769981546147,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 3.131814551190285e-6,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 1.7977129944453465e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                27338.213802339546
+              ],
+              [
+                5e-8,
+                12055.915156193632
+              ],
+              [
+                1e-7,
+                7619.231376576344
+              ],
+              [
+                2.5e-7,
+                3621.2618608226344
+              ],
+              [
+                5e-7,
+                1931.819018730817
+              ],
+              [
+                1e-6,
+                999.3535835587107
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 112.91539963092293,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 564.5769981546147,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 3.131814551190285e-6,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 1.6099168131709227e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                4587.367536125586
+              ],
+              [
+                5e-8,
+                3782.74992809257
+              ],
+              [
+                1e-7,
+                3198.3834533135246
+              ],
+              [
+                2.5e-7,
+                2185.5155384103687
+              ],
+              [
+                5e-7,
+                1430.496579266678
+              ],
+              [
+                1e-6,
+                845.9822157257737
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 112.91539963092293,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 24974,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 564.5769981546147,
+            "floor_tok_s": 1639.562954267407,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 2.053639682091594e-6,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": 4.286090411764876e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                1349.5700051004578
+              ],
+              [
+                5e-8,
+                1167.0017382846731
+              ],
+              [
+                1e-7,
+                1022.864339474491
+              ],
+              [
+                2.5e-7,
+                746.3261612814907
+              ],
+              [
+                5e-7,
+                514.496782185661
+              ],
+              [
+                1e-6,
+                317.34478856769084
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 902.8518645478212,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 4514.259322739106,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 3.792083259682621e-7,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 1.9345077415549598e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                27338.213802339546
+              ],
+              [
+                5e-8,
+                12055.915156193632
+              ],
+              [
+                1e-7,
+                7619.231376576344
+              ],
+              [
+                2.5e-7,
+                3621.2618608226344
+              ],
+              [
+                5e-7,
+                1931.819018730817
+              ],
+              [
+                1e-6,
+                999.3535835587107
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 902.8518645478212,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 44,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 4514.259322739106,
+            "floor_tok_s": 199854.0412566588,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": 3.792083259682621e-7,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 5.654592881054443e-9,
+            "by_hop_latency": [
+              [
+                2e-9,
+                4587.367536125586
+              ],
+              [
+                5e-8,
+                3782.74992809257
+              ],
+              [
+                1e-7,
+                3198.3834533135246
+              ],
+              [
+                2.5e-7,
+                2185.5155384103687
+              ],
+              [
+                5e-7,
+                1430.496579266678
+              ],
+              [
+                1e-6,
+                845.9822157257737
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 902.8518645478212,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 24974,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 4514.259322739106,
+            "floor_tok_s": 1639.562954267407,
+            "stages": 563,
+            "collectives": 161,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                1349.5700051004578
+              ],
+              [
+                5e-8,
+                1167.0017382846731
+              ],
+              [
+                1e-7,
+                1022.864339474491
+              ],
+              [
+                2.5e-7,
+                746.3261612814907
+              ],
+              [
+                5e-7,
+                514.496782185661
+              ],
+              [
+                1e-6,
+                317.34478856769084
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "model": "qwen3.8-27b-q8_0",
+      "weight_bytes_per_token": 25632541696.0,
+      "held_bytes": 27329263616.0,
+      "stages": 451,
+      "gpu_floors": [
+        {
+          "machine": "h100-sxm",
+          "chips": 1,
+          "floor_tok_s": 127.79026683117989,
+          "binds": "Memory"
+        },
+        {
+          "machine": "h100-sxm",
+          "chips": 8,
+          "floor_tok_s": 1011.2498020727563,
+          "binds": "Memory"
+        },
+        {
+          "machine": "b200",
+          "chips": 1,
+          "floor_tok_s": 305.1707864625172,
+          "binds": "Memory"
+        },
+        {
+          "machine": "b200",
+          "chips": 8,
+          "floor_tok_s": 2414.9249004722433,
+          "binds": "Memory"
+        }
+      ],
+      "demonstrated": [],
+      "requirements": [
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 127.79026683117989,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 638.9513341558994,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 3.4587650927043645e-6,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 2.392067527641656e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                42606.01220259739
+              ],
+              [
+                5e-8,
+                18371.92892320541
+              ],
+              [
+                1e-7,
+                11536.571414352098
+              ],
+              [
+                2.5e-7,
+                5451.645201356974
+              ],
+              [
+                5e-7,
+                2901.2344428135743
+              ],
+              [
+                1e-6,
+                1498.843943334298
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 127.79026683117989,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 638.9513341558994,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 3.4587650927043645e-6,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 2.166761756754485e-6,
+            "by_hop_latency": [
+              [
+                2e-9,
+                5924.413203037331
+              ],
+              [
+                5e-8,
+                5006.180426425714
+              ],
+              [
+                1e-7,
+                4310.287453441351
+              ],
+              [
+                2.5e-7,
+                3041.79652162724
+              ],
+              [
+                5e-7,
+                2040.803464691307
+              ],
+              [
+                1e-6,
+                1230.7645528837375
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x h100-sxm",
+          "baseline_floor_tok_s": 127.79026683117989,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 9493,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 638.9513341558994,
+            "floor_tok_s": 3642.1536667628334,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 2.8557468963552718e-6,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": 6.656841012359896e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                2728.8782919289292
+              ],
+              [
+                5e-8,
+                2206.828687710472
+              ],
+              [
+                1e-7,
+                1840.1331532575064
+              ],
+              [
+                2.5e-7,
+                1227.9899163980788
+              ],
+              [
+                5e-7,
+                789.9899211561087
+              ],
+              [
+                1e-6,
+                461.0761934088562
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 1011.2498020727563,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 5056.249010363782,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 4.270813861815592e-7,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 2.7223907548384967e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                42606.01220259739
+              ],
+              [
+                5e-8,
+                18371.92892320541
+              ],
+              [
+                1e-7,
+                11536.571414352098
+              ],
+              [
+                2.5e-7,
+                5451.645201356974
+              ],
+              [
+                5e-7,
+                2901.2344428135743
+              ],
+              [
+                1e-6,
+                1498.843943334298
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 1011.2498020727563,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 5056.249010363782,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 4.270813861815592e-7,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 4.6933304596682664e-8,
+            "by_hop_latency": [
+              [
+                2e-9,
+                5924.413203037331
+              ],
+              [
+                5e-8,
+                5006.180426425714
+              ],
+              [
+                1e-7,
+                4310.287453441351
+              ],
+              [
+                2.5e-7,
+                3041.79652162724
+              ],
+              [
+                5e-7,
+                2040.803464691307
+              ],
+              [
+                1e-6,
+                1230.7645528837375
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x h100-sxm",
+          "baseline_floor_tok_s": 1011.2498020727563,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 9493,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 5056.249010363782,
+            "floor_tok_s": 3642.1536667628334,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                2728.8782919289292
+              ],
+              [
+                5e-8,
+                2206.828687710472
+              ],
+              [
+                1e-7,
+                1840.1331532575064
+              ],
+              [
+                2.5e-7,
+                1227.9899163980788
+              ],
+              [
+                5e-7,
+                789.9899211561087
+              ],
+              [
+                1e-6,
+                461.0761934088562
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 305.1707864625172,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 1525.853932312586,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 1.441705902341354e-6,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 9.816897061630202e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                42606.01220259739
+              ],
+              [
+                5e-8,
+                18371.92892320541
+              ],
+              [
+                1e-7,
+                11536.571414352098
+              ],
+              [
+                2.5e-7,
+                5451.645201356974
+              ],
+              [
+                5e-7,
+                2901.2344428135743
+              ],
+              [
+                1e-6,
+                1498.843943334298
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 305.1707864625172,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 1525.853932312586,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 1.441705902341354e-6,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": 7.563839352758453e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                5924.413203037331
+              ],
+              [
+                5e-8,
+                5006.180426425714
+              ],
+              [
+                1e-7,
+                4310.287453441351
+              ],
+              [
+                2.5e-7,
+                3041.79652162724
+              ],
+              [
+                5e-7,
+                2040.803464691307
+              ],
+              [
+                1e-6,
+                1230.7645528837375
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "1 x b200",
+          "baseline_floor_tok_s": 305.1707864625172,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 9493,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 1525.853932312586,
+            "floor_tok_s": 3642.1536667628334,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 8.386877059922491e-7,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": 1.6197773642218488e-7,
+            "by_hop_latency": [
+              [
+                2e-9,
+                2728.8782919289292
+              ],
+              [
+                5e-8,
+                2206.828687710472
+              ],
+              [
+                1e-7,
+                1840.1331532575064
+              ],
+              [
+                2.5e-7,
+                1227.9899163980788
+              ],
+              [
+                5e-7,
+                789.9899211561087
+              ],
+              [
+                1e-6,
+                461.0761934088562
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 2414.9249004722433,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 12074.624502361217,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 1.7218835023490786e-7,
+            "design_stage_s": 2.8888888888888887e-8,
+            "hop_budget_s": 9.401154182192691e-8,
+            "by_hop_latency": [
+              [
+                2e-9,
+                42606.01220259739
+              ],
+              [
+                5e-8,
+                18371.92892320541
+              ],
+              [
+                1e-7,
+                11536.571414352098
+              ],
+              [
+                2.5e-7,
+                5451.645201356974
+              ],
+              [
+                5e-7,
+                2901.2344428135743
+              ],
+              [
+                1e-6,
+                1498.843943334298
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 2414.9249004722433,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "n5",
+            "die_mm2": 800.0,
+            "network": "Mesh",
+            "chips": 17,
+            "sram_per_chip_bytes": 1667235840.0,
+            "target_tok_s": 12074.624502361217,
+            "floor_tok_s": 363380.2831462961,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": 1.7218835023490786e-7,
+            "design_stage_s": 3.511111111111111e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                5924.413203037331
+              ],
+              [
+                5e-8,
+                5006.180426425714
+              ],
+              [
+                1e-7,
+                4310.287453441351
+              ],
+              [
+                2.5e-7,
+                3041.79652162724
+              ],
+              [
+                5e-7,
+                2040.803464691307
+              ],
+              [
+                1e-6,
+                1230.7645528837375
+              ]
+            ]
+          }
+        },
+        {
+          "baseline": "8 x b200",
+          "baseline_floor_tok_s": 2414.9249004722433,
+          "speedup": 5.0,
+          "requirement": {
+            "node": "sky130",
+            "die_mm2": 800.0,
+            "network": "Tree",
+            "chips": 9493,
+            "sram_per_chip_bytes": 2879048.265367445,
+            "target_tok_s": 12074.624502361217,
+            "floor_tok_s": 3642.1536667628334,
+            "stages": 451,
+            "collectives": 129,
+            "stage_budget_s": null,
+            "design_stage_s": 1.56e-7,
+            "hop_budget_s": null,
+            "by_hop_latency": [
+              [
+                2e-9,
+                2728.8782919289292
+              ],
+              [
+                5e-8,
+                2206.828687710472
+              ],
+              [
+                1e-7,
+                1840.1331532575064
+              ],
+              [
+                2.5e-7,
+                1227.9899163980788
+              ],
+              [
+                5e-7,
+                789.9899211561087
+              ],
+              [
+                1e-6,
+                461.0761934088562
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

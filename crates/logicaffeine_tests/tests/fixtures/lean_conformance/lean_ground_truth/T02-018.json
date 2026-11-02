@@ -1,0 +1,75 @@
+{
+  "case": "T02-018",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "{\u03b2 : Type} \u2192 (\u03b2 \u2192 \u03b2) \u2192 \u03b2 \u2192 \u03b2",
+      "name": "T02_018.applyTwice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_018.bothAB",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 List \u03b1 \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1",
+      "name": "T02_018.headOrDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : List \u03b1 \u2192 Sort u_1) \u2192\n    (xs : List \u03b1) \u2192 (Unit \u2192 motive []) \u2192 ((y : \u03b1) \u2192 (tail : List \u03b1) \u2192 motive (y :: tail)) \u2192 motive xs",
+      "name": "T02_018.headOrDefault.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_018.noN",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_018.onlyB",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_018.topLevelK",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_018.useN",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_018.useNTwice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

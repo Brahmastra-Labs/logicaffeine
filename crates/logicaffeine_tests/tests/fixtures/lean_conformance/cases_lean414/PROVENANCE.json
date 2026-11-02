@@ -1,0 +1,15 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-001_de_bruijn_to_named_var.lean",
+  "source_sha256": "b39faf2a414f0d4b19055b7bf04416aaaf8990aa3e323bd3d1a3dd27707699bf",
+  "export": "T00-001.ndjson",
+  "export_sha256": "8dd9ea6ee632b627982c1611056307611e54c1fd193d49762edf93730a39fc93",
+  "lean": "leanprover/lean4:v4.14.0",
+  "exporter_repository": "https://github.com/leanprover/lean4export.git",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "exporter_adjustment": "Only lean-toolchain changed to Lean4.14.0; Export.lean and Main.lean unchanged.",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declared_scope": "Original-case import smoke. Not a completed per-declaration oracle, axiom/loss audit, or bridge."
+}

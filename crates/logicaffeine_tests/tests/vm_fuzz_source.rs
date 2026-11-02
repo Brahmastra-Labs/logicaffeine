@@ -11,7 +11,9 @@ struct SplitMix64 {
 
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
-        SplitMix64 { state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15) }
+        SplitMix64 {
+            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+        }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -63,7 +65,11 @@ fn gen_source(seed: u64) -> String {
             }
             2 => {
                 let v = pick(&mut rng);
-                src.push_str(&format!("Set {v} to {} % {}.\n", pick(&mut rng), 1 + rng.below(5)));
+                src.push_str(&format!(
+                    "Set {v} to {} % {}.\n",
+                    pick(&mut rng),
+                    1 + rng.below(5)
+                ));
             }
             3 => {
                 let v = pick(&mut rng);
@@ -113,7 +119,10 @@ fn vm_fuzz_source_differential() {
             vm,
             tw
         );
-        assert_eq!(vm.error, tw.error, "SEED={seed} error diverged for source:\n{src}");
+        assert_eq!(
+            vm.error, tw.error,
+            "SEED={seed} error diverged for source:\n{src}"
+        );
     }
 }
 

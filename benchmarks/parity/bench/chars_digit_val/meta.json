@@ -1,0 +1,10 @@
+{
+  "capability": "chars.digit_val",
+  "workload": "sum of charDigitVal(i%128)",
+  "arg": "20000000",
+  "expected": "-11406250",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

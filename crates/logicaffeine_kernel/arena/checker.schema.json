@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/leanprover/lean-kernel-arena/schemas/checker.json",
+  "title": "Lean Kernel Arena Checker Configuration",
+  "description": "Schema for checker YAML configuration files",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Version identifier for the checker. If omitted but both `ref` and `rev` are present, the arena will display `ref (rev7)` where `rev7` is the last 7 characters of `rev`."
+    },
+    "description": {
+      "type": "string",
+      "description": "Multi-line description of the checker (supports Pandoc Markdown)"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri", 
+      "description": "Git repository URL to clone"
+    },
+    "ref": {
+      "type": "string",
+      "description": "Git branch or tag to checkout"
+    },
+    "rev": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{7,40}$", 
+      "description": "Git commit hash to checkout"
+    },
+    "dir": {
+      "type": "string",
+      "description": "Local directory path relative to checkers/ directory"
+    },
+    "build": {
+      "type": "string",
+      "description": "Shell command to build the checker"
+    },
+    "run": {
+      "type": "string", 
+      "description": "Shell command to run the checker. $IN variable points to input test file"
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Time limit in seconds for running the checker on any one test. Where the test sets a time limit too, the smaller one applies. A checker exceeding it is killed and the result is recorded with status 'timeout' (treated like an error, i.e. as declined). Set this rather than wrapping the run command in `timeout`, which the arena could not kill reliably."
+    },
+    "disable": {
+      "type": "boolean",
+      "description": "If true, this checker will be ignored and not built or run"
+    },
+    "declines": {
+      "description": "Test name or list of test names that this checker declines without running them (recorded as declined, as if the checker had exited with code 2)",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      ]
+    },
+    "threads": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Worker threads the checker runs concurrently; the parallel runner reserves this many CPU slots to avoid oversubscribing (default: 1)"
+    }
+  },
+  "required": ["run"],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "title": "Git repository checker",
+      "required": ["url", "run"],
+      "not": {
+        "required": ["dir"]
+      }
+    },
+    {
+      "title": "Local directory checker", 
+      "required": ["dir", "run"],
+      "not": {
+        "anyOf": [
+          { "required": ["url"] },
+          { "required": ["ref"] },
+          { "required": ["rev"] }
+        ]
+      }
+    },
+    {
+      "title": "Simple checker",
+      "required": ["run"],
+      "not": {
+        "anyOf": [
+          { "required": ["url"] },
+          { "required": ["dir"] },
+          { "required": ["ref"] },
+          { "required": ["rev"] }
+        ]
+      }
+    }
+  ]
+}

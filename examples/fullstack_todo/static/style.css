@@ -1,0 +1,21 @@
+/* fullstack_todo — static assets are served at the site root (this file is /style.css).
+   The site's tokens and element defaults; each component's own rules live in its `Style:`. */
+:root {
+  --border: #d8dce4;
+  --accent: #4b46e5;
+  --danger: #c0322b;
+}
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #f4f5fb;
+  color: #1b1e28;
+}
+button {
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+}

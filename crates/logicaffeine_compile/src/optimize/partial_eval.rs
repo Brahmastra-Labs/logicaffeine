@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use crate::arena::Arena;
-use crate::ast::stmt::{Expr, Literal, Stmt, TypeExpr, Block, StringPart};
+use crate::ast::stmt::{Block, Expr, Literal, Stmt, StringPart, TypeExpr};
 use crate::intern::{Interner, Symbol};
-use std::collections::HashSet;
 
 use super::bta::{self, BindingTime, Division};
 use super::effects::EffectEnv;
@@ -54,7 +53,7 @@ fn spec_key_embeds(earlier: &SpecKey, later: &SpecKey) -> bool {
     let mut strict = false;
     for (e, l) in ea.iter().zip(la.iter()) {
         match (e, l) {
-            (None, _) => {} // dynamic embeds in anything
+            (None, _) => {}                  // dynamic embeds in anything
             (Some(_), None) => return false, // static does not embed in dynamic
             (Some(e_lit), Some(l_lit)) => {
                 if !literal_embeds(e_lit, l_lit) {
@@ -83,16 +82,29 @@ fn literal_embeds(a: &Literal, b: &Literal) -> bool {
 fn collect_func_defs<'a>(stmts: &[Stmt<'a>]) -> HashMap<Symbol, FuncInfo<'a>> {
     let mut defs = HashMap::new();
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, generics, return_type, is_native, opt_flags, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            generics,
+            return_type,
+            is_native,
+            opt_flags,
+            ..
+        } = stmt
+        {
             if !is_native {
-                defs.insert(*name, FuncInfo {
-                    name: *name,
-                    params: params.clone(),
-                    body,
-                    generics: generics.clone(),
-                    return_type: *return_type,
-                    opt_flags: opt_flags.clone(),
-                });
+                defs.insert(
+                    *name,
+                    FuncInfo {
+                        name: *name,
+                        params: params.clone(),
+                        body,
+                        generics: generics.clone(),
+                        return_type: *return_type,
+                        opt_flags: opt_flags.clone(),
+                    },
+                );
             }
         }
     }
@@ -141,20 +153,20 @@ fn stmt_has_io(stmt: &Stmt) -> bool {
         Stmt::IncreaseCrdt { .. }
         | Stmt::DecreaseCrdt { .. }
         | Stmt::MergeCrdt { .. }
+        | Stmt::JoinCrdt { .. }
         | Stmt::AppendToSequence { .. }
         | Stmt::ResolveConflict { .. } => true,
         // A Select is nondeterministic and a Concurrent/Parallel block is a concurrency
         // boundary — disqualifying regardless of their body contents.
         Stmt::Select { .. } | Stmt::Concurrent { .. } | Stmt::Parallel { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
-            body_has_io(then_block)
-                || else_block.map_or(false, |eb| body_has_io(eb))
-        }
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => body_has_io(then_block) || else_block.map_or(false, |eb| body_has_io(eb)),
         Stmt::While { body, .. } | Stmt::Repeat { body, .. } => body_has_io(body),
-        Stmt::Zone { body, .. } => body_has_io(body),
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| body_has_io(arm.body))
-        }
+        Stmt::Zone { body, .. } | Stmt::Reversibly { body } => body_has_io(body),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| body_has_io(arm.body)),
         _ => false,
     }
 }
@@ -168,7 +180,11 @@ fn body_has_escape(stmts: &[Stmt]) -> bool {
                     return true;
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 if body_has_escape(then_block) {
                     return true;
                 }
@@ -219,10 +235,13 @@ fn classify_arg<'a>(arg: &Expr<'a>, division: Option<&Division>) -> Option<Liter
     }
 }
 
-fn compute_spec_key<'a>(function: Symbol, args: &[&'a Expr<'a>], division: Option<&Division>) -> (SpecKey, Vec<Option<Literal>>) {
-    let arg_classifications: Vec<Option<Literal>> = args.iter()
-        .map(|a| classify_arg(a, division))
-        .collect();
+fn compute_spec_key<'a>(
+    function: Symbol,
+    args: &[&'a Expr<'a>],
+    division: Option<&Division>,
+) -> (SpecKey, Vec<Option<Literal>>) {
+    let arg_classifications: Vec<Option<Literal>> =
+        args.iter().map(|a| classify_arg(a, division)).collect();
     let key = (function, arg_classifications.clone());
     (key, arg_classifications)
 }
@@ -233,25 +252,54 @@ fn is_mixed(classifications: &[Option<Literal>]) -> bool {
     has_static && has_dynamic
 }
 
-fn make_spec_name(interner: &mut Interner, func_name: Symbol, classifications: &[Option<Literal>]) -> Symbol {
-    let base = interner.resolve(func_name);
-    let mut name = base.to_string();
+/// The name of `func_name` specialized to the static arguments in `classifications`: the function's name,
+/// then each static argument's position and value. A name `taken` already (a function of the program, or
+/// another specialization) gets a trailing `_` until it is not, since two functions under one name would be
+/// one function.
+fn make_spec_name(
+    interner: &mut Interner,
+    func_name: Symbol,
+    classifications: &[Option<Literal>],
+    taken: &dyn Fn(Symbol) -> bool,
+) -> Symbol {
+    let mut name = interner.resolve(func_name).to_string();
     for (i, c) in classifications.iter().enumerate() {
         if let Some(lit) = c {
             name.push_str(&format!("_s{}_{}", i, literal_to_name_part(lit)));
         }
     }
-    interner.intern(&name)
+    let mut sym = interner.intern(&name);
+    while taken(sym) {
+        name.push('_');
+        sym = interner.intern(&name);
+    }
+    sym
 }
 
+/// A literal's part of a specialization's name: an identifier fragment, and a different one for every
+/// literal. A float is named by its bits, so `15.0` is not `15` and `-0.0` is not `0.0`.
 fn literal_to_name_part(lit: &Literal) -> String {
+    fn signed(n: i64) -> String {
+        if n < 0 {
+            format!("m{}", n.unsigned_abs())
+        } else {
+            n.to_string()
+        }
+    }
     match lit {
-        Literal::Number(n) => format!("{}", n),
-        Literal::Float(f) => format!("{}", f).replace('.', "d").replace('-', "n"),
-        Literal::Boolean(b) => format!("{}", b),
+        Literal::Number(n) => signed(*n),
+        Literal::Float(f) => format!("f{:x}", f.to_bits()),
+        Literal::Boolean(b) => b.to_string(),
         Literal::Text(s) => format!("t{:x}", s.index()),
         Literal::Nothing => "nothing".to_string(),
-        _ => "x".to_string(),
+        Literal::Char(c) => format!("c{:x}", *c as u32),
+        Literal::Duration(n) => format!("du{}", signed(*n)),
+        Literal::Date(n) => format!("da{}", signed(*n as i64)),
+        Literal::Moment(n) => format!("mo{}", signed(*n)),
+        Literal::Span { months, days } => {
+            format!("sp{}_{}", signed(*months as i64), signed(*days as i64))
+        }
+        Literal::Time(n) => format!("ti{}", signed(*n)),
     }
 }
 
@@ -272,7 +320,8 @@ fn substitute_expr<'a>(
             let new_left = substitute_expr(left, substitutions, expr_arena);
             let new_right = substitute_expr(right, substitutions, expr_arena);
             if std::ptr::eq(new_left as *const _, *left as *const _)
-                && std::ptr::eq(new_right as *const _, *right as *const _) {
+                && std::ptr::eq(new_right as *const _, *right as *const _)
+            {
                 expr
             } else {
                 expr_arena.alloc(Expr::BinaryOp {
@@ -287,17 +336,25 @@ fn substitute_expr<'a>(
             if std::ptr::eq(new_operand as *const _, *operand as *const _) {
                 expr
             } else {
-                expr_arena.alloc(Expr::Not { operand: new_operand })
+                expr_arena.alloc(Expr::Not {
+                    operand: new_operand,
+                })
             }
         }
         Expr::Call { function, args } => {
-            let new_args: Vec<&'a Expr<'a>> = args.iter()
+            let new_args: Vec<&'a Expr<'a>> = args
+                .iter()
                 .map(|a| substitute_expr(a, substitutions, expr_arena))
                 .collect();
-            let changed = new_args.iter().zip(args.iter())
+            let changed = new_args
+                .iter()
+                .zip(args.iter())
                 .any(|(new, old)| !std::ptr::eq(*new as *const _, *old as *const _));
             if changed {
-                expr_arena.alloc(Expr::Call { function: *function, args: new_args })
+                expr_arena.alloc(Expr::Call {
+                    function: *function,
+                    args: new_args,
+                })
             } else {
                 expr
             }
@@ -306,10 +363,14 @@ fn substitute_expr<'a>(
             let new_coll = substitute_expr(collection, substitutions, expr_arena);
             let new_idx = substitute_expr(index, substitutions, expr_arena);
             if std::ptr::eq(new_coll as *const _, *collection as *const _)
-                && std::ptr::eq(new_idx as *const _, *index as *const _) {
+                && std::ptr::eq(new_idx as *const _, *index as *const _)
+            {
                 expr
             } else {
-                expr_arena.alloc(Expr::Index { collection: new_coll, index: new_idx })
+                expr_arena.alloc(Expr::Index {
+                    collection: new_coll,
+                    index: new_idx,
+                })
             }
         }
         Expr::Length { collection } => {
@@ -317,19 +378,30 @@ fn substitute_expr<'a>(
             if std::ptr::eq(new_coll as *const _, *collection as *const _) {
                 expr
             } else {
-                expr_arena.alloc(Expr::Length { collection: new_coll })
+                expr_arena.alloc(Expr::Length {
+                    collection: new_coll,
+                })
             }
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             let new_coll = substitute_expr(collection, substitutions, expr_arena);
             let new_start = substitute_expr(start, substitutions, expr_arena);
             let new_end = substitute_expr(end, substitutions, expr_arena);
             if std::ptr::eq(new_coll as *const _, *collection as *const _)
                 && std::ptr::eq(new_start as *const _, *start as *const _)
-                && std::ptr::eq(new_end as *const _, *end as *const _) {
+                && std::ptr::eq(new_end as *const _, *end as *const _)
+            {
                 expr
             } else {
-                expr_arena.alloc(Expr::Slice { collection: new_coll, start: new_start, end: new_end })
+                expr_arena.alloc(Expr::Slice {
+                    collection: new_coll,
+                    start: new_start,
+                    end: new_end,
+                })
             }
         }
         Expr::FieldAccess { object, field } => {
@@ -337,107 +409,189 @@ fn substitute_expr<'a>(
             if std::ptr::eq(new_obj as *const _, *object as *const _) {
                 expr
             } else {
-                expr_arena.alloc(Expr::FieldAccess { object: new_obj, field: *field })
+                expr_arena.alloc(Expr::FieldAccess {
+                    object: new_obj,
+                    field: *field,
+                })
             }
         }
         Expr::Contains { collection, value } => {
             let new_coll = substitute_expr(collection, substitutions, expr_arena);
             let new_val = substitute_expr(value, substitutions, expr_arena);
             if std::ptr::eq(new_coll as *const _, *collection as *const _)
-                && std::ptr::eq(new_val as *const _, *value as *const _) {
+                && std::ptr::eq(new_val as *const _, *value as *const _)
+            {
                 expr
             } else {
-                expr_arena.alloc(Expr::Contains { collection: new_coll, value: new_val })
+                expr_arena.alloc(Expr::Contains {
+                    collection: new_coll,
+                    value: new_val,
+                })
             }
         }
-        Expr::NewVariant { enum_name, variant, fields } => {
-            let new_fields: Vec<(Symbol, &'a Expr<'a>)> = fields.iter()
+        Expr::NewVariant {
+            enum_name,
+            variant,
+            fields,
+        } => {
+            let new_fields: Vec<(Symbol, &'a Expr<'a>)> = fields
+                .iter()
                 .map(|(name, val)| (*name, substitute_expr(val, substitutions, expr_arena)))
                 .collect();
-            let changed = new_fields.iter().zip(fields.iter())
-                .any(|((_, new_v), (_, old_v))| !std::ptr::eq(*new_v as *const _, *old_v as *const _));
+            let changed = new_fields
+                .iter()
+                .zip(fields.iter())
+                .any(|((_, new_v), (_, old_v))| {
+                    !std::ptr::eq(*new_v as *const _, *old_v as *const _)
+                });
             if changed {
-                expr_arena.alloc(Expr::NewVariant { enum_name: *enum_name, variant: *variant, fields: new_fields })
+                expr_arena.alloc(Expr::NewVariant {
+                    enum_name: *enum_name,
+                    variant: *variant,
+                    fields: new_fields,
+                })
             } else {
                 expr
             }
         }
-        Expr::New { type_name, type_args, init_fields } => {
-            let new_fields: Vec<(Symbol, &'a Expr<'a>)> = init_fields.iter()
+        Expr::New {
+            type_name,
+            type_args,
+            init_fields,
+        } => {
+            let new_fields: Vec<(Symbol, &'a Expr<'a>)> = init_fields
+                .iter()
                 .map(|(name, val)| (*name, substitute_expr(val, substitutions, expr_arena)))
                 .collect();
-            let changed = new_fields.iter().zip(init_fields.iter())
-                .any(|((_, new_v), (_, old_v))| !std::ptr::eq(*new_v as *const _, *old_v as *const _));
+            let changed =
+                new_fields
+                    .iter()
+                    .zip(init_fields.iter())
+                    .any(|((_, new_v), (_, old_v))| {
+                        !std::ptr::eq(*new_v as *const _, *old_v as *const _)
+                    });
             if changed {
-                expr_arena.alloc(Expr::New { type_name: *type_name, type_args: type_args.clone(), init_fields: new_fields })
+                expr_arena.alloc(Expr::New {
+                    type_name: *type_name,
+                    type_args: type_args.clone(),
+                    init_fields: new_fields,
+                })
             } else {
                 expr
             }
         }
         Expr::OptionSome { value } => {
             let new_val = substitute_expr(value, substitutions, expr_arena);
-            if std::ptr::eq(new_val as *const _, *value as *const _) { expr }
-            else { expr_arena.alloc(Expr::OptionSome { value: new_val }) }
+            if std::ptr::eq(new_val as *const _, *value as *const _) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::OptionSome { value: new_val })
+            }
         }
         Expr::Copy { expr: inner } => {
             let new_inner = substitute_expr(inner, substitutions, expr_arena);
-            if std::ptr::eq(new_inner as *const _, *inner as *const _) { expr }
-            else { expr_arena.alloc(Expr::Copy { expr: new_inner }) }
+            if std::ptr::eq(new_inner as *const _, *inner as *const _) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Copy { expr: new_inner })
+            }
         }
         Expr::Give { value } => {
             let new_val = substitute_expr(value, substitutions, expr_arena);
-            if std::ptr::eq(new_val as *const _, *value as *const _) { expr }
-            else { expr_arena.alloc(Expr::Give { value: new_val }) }
+            if std::ptr::eq(new_val as *const _, *value as *const _) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Give { value: new_val })
+            }
         }
         Expr::List(items) => {
-            let new_items: Vec<&'a Expr<'a>> = items.iter()
+            let new_items: Vec<&'a Expr<'a>> = items
+                .iter()
                 .map(|item| substitute_expr(item, substitutions, expr_arena))
                 .collect();
-            let changed = new_items.iter().zip(items.iter())
+            let changed = new_items
+                .iter()
+                .zip(items.iter())
                 .any(|(new, old)| !std::ptr::eq(*new as *const _, *old as *const _));
-            if changed { expr_arena.alloc(Expr::List(new_items)) }
-            else { expr }
+            if changed {
+                expr_arena.alloc(Expr::List(new_items))
+            } else {
+                expr
+            }
         }
         Expr::Tuple(items) => {
-            let new_items: Vec<&'a Expr<'a>> = items.iter()
+            let new_items: Vec<&'a Expr<'a>> = items
+                .iter()
                 .map(|item| substitute_expr(item, substitutions, expr_arena))
                 .collect();
-            let changed = new_items.iter().zip(items.iter())
+            let changed = new_items
+                .iter()
+                .zip(items.iter())
                 .any(|(new, old)| !std::ptr::eq(*new as *const _, *old as *const _));
-            if changed { expr_arena.alloc(Expr::Tuple(new_items)) }
-            else { expr }
+            if changed {
+                expr_arena.alloc(Expr::Tuple(new_items))
+            } else {
+                expr
+            }
         }
         Expr::Range { start, end } => {
             let new_start = substitute_expr(start, substitutions, expr_arena);
             let new_end = substitute_expr(end, substitutions, expr_arena);
             if std::ptr::eq(new_start as *const _, *start as *const _)
-                && std::ptr::eq(new_end as *const _, *end as *const _) { expr }
-            else { expr_arena.alloc(Expr::Range { start: new_start, end: new_end }) }
+                && std::ptr::eq(new_end as *const _, *end as *const _)
+            {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Range {
+                    start: new_start,
+                    end: new_end,
+                })
+            }
         }
         Expr::Union { left, right } => {
             let new_left = substitute_expr(left, substitutions, expr_arena);
             let new_right = substitute_expr(right, substitutions, expr_arena);
             if std::ptr::eq(new_left as *const _, *left as *const _)
-                && std::ptr::eq(new_right as *const _, *right as *const _) { expr }
-            else { expr_arena.alloc(Expr::Union { left: new_left, right: new_right }) }
+                && std::ptr::eq(new_right as *const _, *right as *const _)
+            {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Union {
+                    left: new_left,
+                    right: new_right,
+                })
+            }
         }
         Expr::Intersection { left, right } => {
             let new_left = substitute_expr(left, substitutions, expr_arena);
             let new_right = substitute_expr(right, substitutions, expr_arena);
             if std::ptr::eq(new_left as *const _, *left as *const _)
-                && std::ptr::eq(new_right as *const _, *right as *const _) { expr }
-            else { expr_arena.alloc(Expr::Intersection { left: new_left, right: new_right }) }
+                && std::ptr::eq(new_right as *const _, *right as *const _)
+            {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Intersection {
+                    left: new_left,
+                    right: new_right,
+                })
+            }
         }
         Expr::CallExpr { callee, args } => {
             let new_callee = substitute_expr(callee, substitutions, expr_arena);
-            let new_args: Vec<&'a Expr<'a>> = args.iter()
+            let new_args: Vec<&'a Expr<'a>> = args
+                .iter()
                 .map(|a| substitute_expr(a, substitutions, expr_arena))
                 .collect();
             let changed = !std::ptr::eq(new_callee as *const _, *callee as *const _)
-                || new_args.iter().zip(args.iter())
+                || new_args
+                    .iter()
+                    .zip(args.iter())
                     .any(|(new, old)| !std::ptr::eq(*new as *const _, *old as *const _));
             if changed {
-                expr_arena.alloc(Expr::CallExpr { callee: new_callee, args: new_args })
+                expr_arena.alloc(Expr::CallExpr {
+                    callee: new_callee,
+                    args: new_args,
+                })
             } else {
                 expr
             }
@@ -446,19 +600,35 @@ fn substitute_expr<'a>(
             let new_val = substitute_expr(value, substitutions, expr_arena);
             let new_cap = substitute_expr(capacity, substitutions, expr_arena);
             if std::ptr::eq(new_val as *const _, *value as *const _)
-                && std::ptr::eq(new_cap as *const _, *capacity as *const _) { expr }
-            else { expr_arena.alloc(Expr::WithCapacity { value: new_val, capacity: new_cap }) }
+                && std::ptr::eq(new_cap as *const _, *capacity as *const _)
+            {
+                expr
+            } else {
+                expr_arena.alloc(Expr::WithCapacity {
+                    value: new_val,
+                    capacity: new_cap,
+                })
+            }
         }
         Expr::InterpolatedString(parts) => {
-            let new_parts: Vec<StringPart<'a>> = parts.iter()
+            let new_parts: Vec<StringPart<'a>> = parts
+                .iter()
                 .map(|part| match part {
                     StringPart::Literal(_) => part.clone(),
-                    StringPart::Expr { value, format_spec, debug } => {
+                    StringPart::Expr {
+                        value,
+                        format_spec,
+                        debug,
+                    } => {
                         let new_val = substitute_expr(value, substitutions, expr_arena);
                         if std::ptr::eq(new_val as *const _, *value as *const _) {
                             part.clone()
                         } else {
-                            StringPart::Expr { value: new_val, format_spec: *format_spec, debug: *debug }
+                            StringPart::Expr {
+                                value: new_val,
+                                format_spec: *format_spec,
+                                debug: *debug,
+                            }
                         }
                     }
                 })
@@ -476,7 +646,12 @@ fn substitute_stmt<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
 ) -> Stmt<'a> {
     match stmt {
-        Stmt::Let { var, value, mutable, ty } => Stmt::Let {
+        Stmt::Let {
+            var,
+            value,
+            mutable,
+            ty,
+        } => Stmt::Let {
             var: *var,
             value: substitute_expr(value, substitutions, expr_arena),
             mutable: *mutable,
@@ -495,14 +670,23 @@ fn substitute_stmt<'a>(
         },
         Stmt::Call { function, args } => Stmt::Call {
             function: *function,
-            args: args.iter().map(|a| substitute_expr(a, substitutions, expr_arena)).collect(),
+            args: args
+                .iter()
+                .map(|a| substitute_expr(a, substitutions, expr_arena))
+                .collect(),
         },
-        Stmt::If { cond, then_block, else_block } => {
-            let new_then: Vec<Stmt<'a>> = then_block.iter()
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let new_then: Vec<Stmt<'a>> = then_block
+                .iter()
                 .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
                 .collect();
             let new_else = else_block.map(|eb| {
-                let stmts: Vec<Stmt<'a>> = eb.iter()
+                let stmts: Vec<Stmt<'a>> = eb
+                    .iter()
                     .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
                     .collect();
                 stmt_arena.alloc_slice(stmts) as &[Stmt<'a>]
@@ -513,8 +697,13 @@ fn substitute_stmt<'a>(
                 else_block: new_else,
             }
         }
-        Stmt::While { cond, body, decreasing } => {
-            let new_body: Vec<Stmt<'a>> = body.iter()
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
                 .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
                 .collect();
             Stmt::While {
@@ -523,8 +712,13 @@ fn substitute_stmt<'a>(
                 decreasing: *decreasing,
             }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
-            let new_body: Vec<Stmt<'a>> = body.iter()
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
                 .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
                 .collect();
             Stmt::Repeat {
@@ -533,7 +727,11 @@ fn substitute_stmt<'a>(
                 body: stmt_arena.alloc_slice(new_body),
             }
         }
-        Stmt::SetIndex { collection, index, value } => Stmt::SetIndex {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => Stmt::SetIndex {
             collection: substitute_expr(collection, substitutions, expr_arena),
             index: substitute_expr(index, substitutions, expr_arena),
             value: substitute_expr(value, substitutions, expr_arena),
@@ -542,7 +740,11 @@ fn substitute_stmt<'a>(
             value: substitute_expr(value, substitutions, expr_arena),
             collection: substitute_expr(collection, substitutions, expr_arena),
         },
-        Stmt::SetField { object, field, value } => Stmt::SetField {
+        Stmt::SetField {
+            object,
+            field,
+            value,
+        } => Stmt::SetField {
             object: substitute_expr(object, substitutions, expr_arena),
             field: *field,
             value: substitute_expr(value, substitutions, expr_arena),
@@ -559,41 +761,76 @@ fn substitute_stmt<'a>(
             value: substitute_expr(value, substitutions, expr_arena),
             collection: substitute_expr(collection, substitutions, expr_arena),
         },
-        Stmt::Inspect { target, arms, has_otherwise } => {
-            let new_arms: Vec<_> = arms.iter().map(|arm| {
-                let new_body: Vec<Stmt<'a>> = arm.body.iter()
-                    .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
-                    .collect();
-                crate::ast::stmt::MatchArm {
-                    enum_name: arm.enum_name,
-                    variant: arm.variant,
-                    bindings: arm.bindings.clone(),
-                    body: stmt_arena.alloc_slice(new_body),
-                }
-            }).collect();
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        } => {
+            let new_arms: Vec<_> = arms
+                .iter()
+                .map(|arm| {
+                    let new_body: Vec<Stmt<'a>> = arm
+                        .body
+                        .iter()
+                        .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
+                        .collect();
+                    crate::ast::stmt::MatchArm {
+                        enum_name: arm.enum_name,
+                        variant: arm.variant,
+                        bindings: arm.bindings.clone(),
+                        body: stmt_arena.alloc_slice(new_body),
+                    }
+                })
+                .collect();
             Stmt::Inspect {
                 target: substitute_expr(target, substitutions, expr_arena),
                 arms: new_arms,
                 has_otherwise: *has_otherwise,
             }
         }
-        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert {
+            condition,
+            hard,
+            dim,
+            reason,
+        } => Stmt::RuntimeAssert {
             condition: substitute_expr(condition, substitutions, expr_arena),
             hard: *hard,
+            dim: *dim,
+            reason: reason.map(|r| substitute_expr(r, substitutions, expr_arena)),
         },
+        Stmt::Splice { body } => {
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
+                .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
+                .collect();
+            Stmt::Splice {
+                body: stmt_arena.alloc_slice(new_body),
+            }
+        }
         other => other.clone(),
     }
 }
 
+/// `block` with every read of a name in `substitutions` replaced by its expression, or `None` when a
+/// read is left: one inside a form the substitution carries through unchanged, or a name the block
+/// binds again. A value folded into a block reaches every place it is read there, or the block is not
+/// rewritten — the check is the exhaustive effect walk's (`mentions::stmt_touches`), so a form the
+/// substitution has no case for can only stop a fold, never leave a name dangling.
 pub(crate) fn substitute_block<'a>(
     block: Block<'a>,
     substitutions: &HashMap<Symbol, &'a Expr<'a>>,
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
-) -> Vec<Stmt<'a>> {
-    block.iter()
+) -> Option<Vec<Stmt<'a>>> {
+    let out: Vec<Stmt<'a>> = block
+        .iter()
         .map(|s| substitute_stmt(s, substitutions, expr_arena, stmt_arena))
-        .collect()
+        .collect();
+    let left = out
+        .iter()
+        .any(|s| substitutions.keys().any(|name| super::mentions::stmt_touches(s, *name)));
+    (!left).then_some(out)
 }
 
 fn count_stmts(stmts: &[Stmt]) -> usize {
@@ -601,7 +838,11 @@ fn count_stmts(stmts: &[Stmt]) -> usize {
     for stmt in stmts {
         count += 1;
         match stmt {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 count += count_stmts(then_block);
                 if let Some(eb) = else_block {
                     count += count_stmts(eb);
@@ -619,6 +860,26 @@ fn count_stmts(stmts: &[Stmt]) -> usize {
     count
 }
 
+/// Whether a written type names any of `names` (a function's type parameters) anywhere inside it.
+fn type_mentions_any(t: &TypeExpr, names: &[Symbol]) -> bool {
+    match t {
+        TypeExpr::Primitive(s) | TypeExpr::Named(s) => names.contains(s),
+        TypeExpr::Generic { base, params } => {
+            names.contains(base) || params.iter().any(|p| type_mentions_any(p, names))
+        }
+        TypeExpr::Tuple(items) => items.iter().any(|p| type_mentions_any(p, names)),
+        TypeExpr::Record { field_types, .. } => {
+            field_types.iter().any(|p| type_mentions_any(p, names))
+        }
+        TypeExpr::Function { inputs, output } => {
+            inputs.iter().any(|p| type_mentions_any(p, names)) || type_mentions_any(output, names)
+        }
+        TypeExpr::Refinement { base: inner, .. }
+        | TypeExpr::Persistent { inner }
+        | TypeExpr::Mutable { inner } => type_mentions_any(inner, names),
+    }
+}
+
 fn try_specialize_call<'a>(
     function: Symbol,
     args: &[&'a Expr<'a>],
@@ -629,25 +890,37 @@ fn try_specialize_call<'a>(
     interner: &mut Interner,
     effect_env: Option<&EffectEnv>,
 ) -> Option<(Symbol, Vec<&'a Expr<'a>>)> {
-    // Build a BTA division from known literal arguments for enhanced classification
-    let mut division = Division::new();
+    // Each argument is an expression of the CALLER, so it is classified with nothing bound: a literal
+    // or a closed constant expression is static, an identifier is dynamic. The caller's known constants
+    // are already literals here (every specialization round runs after fold and propagation). The
+    // callee's parameter bindings are not a scope an argument can be read in: there a caller's `beta`
+    // would be taken for the callee's own `beta`.
+    let (_, mut classifications) = compute_spec_key(function, args, Some(&Division::new()));
+    // A parameter typed by the callee's own type parameters is never folded: the constant would
+    // fix `T` in a clone whose signature is still generic over it (`applyTwice_s1_1<T>` returning
+    // the literal `1` as a `T`).
     if let Some(func_info) = func_defs.get(&function) {
-        for (i, (param_sym, _)) in func_info.params.iter().enumerate() {
-            if let Some(arg) = args.get(i) {
-                if let Expr::Literal(lit) = arg {
-                    division.insert(*param_sym, BindingTime::Static(lit.clone()));
+        for (i, (_, param_type)) in func_info.params.iter().enumerate() {
+            // A mutable argument denotes storage even when its current value is constant.
+            if matches!(param_type, TypeExpr::Mutable { .. })
+                || type_mentions_any(param_type, &func_info.generics)
+            {
+                if let Some(c) = classifications.get_mut(i) {
+                    *c = None;
                 }
             }
         }
     }
-    let (key, classifications) = compute_spec_key(function, args, Some(&division));
+    let key = (function, classifications.clone());
 
     if !is_mixed(&classifications) {
         return None;
     }
 
     if let Some(&cached_name) = registry.cache.get(&key) {
-        let dynamic_args: Vec<&'a Expr<'a>> = args.iter().zip(classifications.iter())
+        let dynamic_args: Vec<&'a Expr<'a>> = args
+            .iter()
+            .zip(classifications.iter())
             .filter(|(_, c)| c.is_none())
             .map(|(a, _)| *a)
             .collect();
@@ -655,7 +928,11 @@ fn try_specialize_call<'a>(
     }
 
     // Check if this specialization embeds in a previous one (termination guard)
-    if registry.history.iter().any(|prev| spec_key_embeds(prev, &key)) {
+    if registry
+        .history
+        .iter()
+        .any(|prev| spec_key_embeds(prev, &key))
+    {
         return None;
     }
 
@@ -668,9 +945,7 @@ fn try_specialize_call<'a>(
 
     // The specialization folds a static argument into the body and drops the parameter.
     // That is only sound when the callee has no opaque effectful boundary: IO, escape,
-    // a security check, nondeterminism, or concurrency. Folding across a concurrency /
-    // networking statement would drop a parameter the substitution cannot reach (its
-    // `substitute_stmt` arm is the verbatim catch-all), leaving a dangling free variable.
+    // a security check, nondeterminism, or concurrency.
     let safe_to_specialize = if let Some(env) = effect_env {
         let fn_name = interner.resolve(function);
         env.function_is_specialization_safe(fn_name)
@@ -685,7 +960,9 @@ fn try_specialize_call<'a>(
         return None;
     }
 
-    let spec_name = make_spec_name(interner, func_info.name, &classifications);
+    let spec_name = make_spec_name(interner, func_info.name, &classifications, &|sym| {
+        func_defs.contains_key(&sym) || registry.cache.values().any(|name| *name == sym)
+    });
 
     let mut substitutions: HashMap<Symbol, &'a Expr<'a>> = HashMap::new();
     let mut new_params: Vec<(Symbol, &'a TypeExpr<'a>)> = Vec::new();
@@ -699,7 +976,7 @@ fn try_specialize_call<'a>(
         }
     }
 
-    let specialized_body = substitute_block(func_info.body, &substitutions, expr_arena, stmt_arena);
+    let specialized_body = substitute_block(func_info.body, &substitutions, expr_arena, stmt_arena)?;
 
     let folded = super::fold::fold_stmts(specialized_body, expr_arena, stmt_arena, interner);
     let optimized = super::dce::eliminate_dead_code(folded, stmt_arena, expr_arena);
@@ -717,8 +994,13 @@ fn try_specialize_call<'a>(
     *registry.variant_count.entry(function).or_insert(0) += 1;
 
     // Cascade: walk specialized body for further specialization candidates
-    let cascaded: Vec<Stmt<'a>> = optimized.into_iter()
-        .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+    let cascaded: Vec<Stmt<'a>> = optimized
+        .into_iter()
+        .map(|s| {
+            specialize_in_stmt(
+                s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            )
+        })
         .collect();
 
     let new_body = stmt_arena.alloc_slice(cascaded);
@@ -738,7 +1020,9 @@ fn try_specialize_call<'a>(
 
     registry.new_funcs.push(new_func);
 
-    let dynamic_args: Vec<&'a Expr<'a>> = args.iter().zip(classifications.iter())
+    let dynamic_args: Vec<&'a Expr<'a>> = args
+        .iter()
+        .zip(classifications.iter())
         .filter(|(_, c)| c.is_none())
         .map(|(a, _)| *a)
         .collect();
@@ -757,39 +1041,61 @@ fn specialize_in_expr<'a>(
 ) -> &'a Expr<'a> {
     match expr {
         Expr::Call { function, args } => {
-            let new_args: Vec<&'a Expr<'a>> = args.iter()
-                .map(|a| specialize_in_expr(a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            let new_args: Vec<&'a Expr<'a>> = args
+                .iter()
+                .map(|a| {
+                    specialize_in_expr(
+                        a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
 
             if let Some((spec_name, dynamic_args)) = try_specialize_call(
-                *function, &new_args, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                *function, &new_args, func_defs, registry, expr_arena, stmt_arena, interner,
+                effect_env,
             ) {
                 expr_arena.alloc(Expr::Call {
                     function: spec_name,
                     args: dynamic_args,
                 })
             } else {
-                let changed = new_args.iter().zip(args.iter())
+                let changed = new_args
+                    .iter()
+                    .zip(args.iter())
                     .any(|(new, old)| !std::ptr::eq(*new as *const _, *old as *const _));
                 if changed {
-                    expr_arena.alloc(Expr::Call { function: *function, args: new_args })
+                    expr_arena.alloc(Expr::Call {
+                        function: *function,
+                        args: new_args,
+                    })
                 } else {
                     expr
                 }
             }
         }
         Expr::BinaryOp { op, left, right } => {
-            let new_left = specialize_in_expr(left, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
-            let new_right = specialize_in_expr(right, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
+            let new_left = specialize_in_expr(
+                left, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
+            let new_right = specialize_in_expr(
+                right, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
             if std::ptr::eq(new_left as *const _, *left as *const _)
-                && std::ptr::eq(new_right as *const _, *right as *const _) {
+                && std::ptr::eq(new_right as *const _, *right as *const _)
+            {
                 expr
             } else {
-                expr_arena.alloc(Expr::BinaryOp { op: *op, left: new_left, right: new_right })
+                expr_arena.alloc(Expr::BinaryOp {
+                    op: *op,
+                    left: new_left,
+                    right: new_right,
+                })
             }
         }
         Expr::Not { operand } => {
-            let new_op = specialize_in_expr(operand, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
+            let new_op = specialize_in_expr(
+                operand, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
             if std::ptr::eq(new_op as *const _, *operand as *const _) {
                 expr
             } else {
@@ -810,44 +1116,89 @@ fn specialize_in_stmt<'a>(
     effect_env: Option<&EffectEnv>,
 ) -> Stmt<'a> {
     match stmt {
-        Stmt::Let { var, value, mutable, ty } => Stmt::Let {
+        Stmt::Let {
             var,
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value,
+            mutable,
+            ty,
+        } => Stmt::Let {
+            var,
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
             mutable,
             ty,
         },
         Stmt::Set { target, value } => Stmt::Set {
             target,
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::Return { value } => Stmt::Return {
-            value: value.map(|v| specialize_in_expr(v, func_defs, registry, expr_arena, stmt_arena, interner, effect_env)),
+            value: value.map(|v| {
+                specialize_in_expr(
+                    v, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                )
+            }),
         },
         Stmt::Show { object, recipient } => Stmt::Show {
-            object: specialize_in_expr(object, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            object: specialize_in_expr(
+                object, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
             recipient,
         },
         Stmt::Call { function, args } => {
-            let new_args: Vec<&'a Expr<'a>> = args.iter()
-                .map(|a| specialize_in_expr(a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            let new_args: Vec<&'a Expr<'a>> = args
+                .iter()
+                .map(|a| {
+                    specialize_in_expr(
+                        a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
 
             if let Some((spec_name, dynamic_args)) = try_specialize_call(
-                function, &new_args, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                function, &new_args, func_defs, registry, expr_arena, stmt_arena, interner,
+                effect_env,
             ) {
-                Stmt::Call { function: spec_name, args: dynamic_args }
+                Stmt::Call {
+                    function: spec_name,
+                    args: dynamic_args,
+                }
             } else {
-                Stmt::Call { function, args: new_args }
+                Stmt::Call {
+                    function,
+                    args: new_args,
+                }
             }
         }
-        Stmt::If { cond, then_block, else_block } => {
-            let new_cond = specialize_in_expr(cond, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
-            let new_then: Vec<Stmt<'a>> = then_block.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let new_cond = specialize_in_expr(
+                cond, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
+            let new_then: Vec<Stmt<'a>> = then_block
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
             let new_else = else_block.map(|eb| {
-                let stmts: Vec<Stmt<'a>> = eb.iter().cloned()
-                    .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                let stmts: Vec<Stmt<'a>> = eb
+                    .iter()
+                    .cloned()
+                    .map(|s| {
+                        specialize_in_stmt(
+                            s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                        )
+                    })
                     .collect();
                 stmt_arena.alloc_slice(stmts) as &[Stmt<'a>]
             });
@@ -857,10 +1208,22 @@ fn specialize_in_stmt<'a>(
                 else_block: new_else,
             }
         }
-        Stmt::While { cond, body, decreasing } => {
-            let new_cond = specialize_in_expr(cond, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
-            let new_body: Vec<Stmt<'a>> = body.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
+            let new_cond = specialize_in_expr(
+                cond, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
             Stmt::While {
                 cond: new_cond,
@@ -868,10 +1231,22 @@ fn specialize_in_stmt<'a>(
                 decreasing,
             }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
-            let new_iter = specialize_in_expr(iterable, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
-            let new_body: Vec<Stmt<'a>> = body.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
+            let new_iter = specialize_in_expr(
+                iterable, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
             Stmt::Repeat {
                 pattern,
@@ -879,61 +1254,153 @@ fn specialize_in_stmt<'a>(
                 body: stmt_arena.alloc_slice(new_body),
             }
         }
-        Stmt::SetIndex { collection, index, value } => Stmt::SetIndex {
-            collection: specialize_in_expr(collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            index: specialize_in_expr(index, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => Stmt::SetIndex {
+            collection: specialize_in_expr(
+                collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            index: specialize_in_expr(
+                index, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::Push { value, collection } => Stmt::Push {
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            collection: specialize_in_expr(collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            collection: specialize_in_expr(
+                collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
-        Stmt::SetField { object, field, value } => Stmt::SetField {
-            object: specialize_in_expr(object, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        Stmt::SetField {
+            object,
             field,
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value,
+        } => Stmt::SetField {
+            object: specialize_in_expr(
+                object, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            field,
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::Give { object, recipient } => Stmt::Give {
-            object: specialize_in_expr(object, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            recipient: specialize_in_expr(recipient, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            object: specialize_in_expr(
+                object, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            recipient: specialize_in_expr(
+                recipient, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::Add { value, collection } => Stmt::Add {
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            collection: specialize_in_expr(collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            collection: specialize_in_expr(
+                collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::Remove { value, collection } => Stmt::Remove {
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            collection: specialize_in_expr(collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            collection: specialize_in_expr(
+                collection, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
-        Stmt::Inspect { target, arms, has_otherwise } => {
-            let new_target = specialize_in_expr(target, func_defs, registry, expr_arena, stmt_arena, interner, effect_env);
-            let new_arms: Vec<_> = arms.into_iter().map(|arm| {
-                let new_body: Vec<Stmt<'a>> = arm.body.iter().cloned()
-                    .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
-                    .collect();
-                crate::ast::stmt::MatchArm {
-                    enum_name: arm.enum_name,
-                    variant: arm.variant,
-                    bindings: arm.bindings,
-                    body: stmt_arena.alloc_slice(new_body),
-                }
-            }).collect();
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        } => {
+            let new_target = specialize_in_expr(
+                target, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            );
+            let new_arms: Vec<_> = arms
+                .into_iter()
+                .map(|arm| {
+                    let new_body: Vec<Stmt<'a>> = arm
+                        .body
+                        .iter()
+                        .cloned()
+                        .map(|s| {
+                            specialize_in_stmt(
+                                s, func_defs, registry, expr_arena, stmt_arena, interner,
+                                effect_env,
+                            )
+                        })
+                        .collect();
+                    crate::ast::stmt::MatchArm {
+                        enum_name: arm.enum_name,
+                        variant: arm.variant,
+                        bindings: arm.bindings,
+                        body: stmt_arena.alloc_slice(new_body),
+                    }
+                })
+                .collect();
             Stmt::Inspect {
                 target: new_target,
                 arms: new_arms,
                 has_otherwise,
             }
         }
-        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
-            condition: specialize_in_expr(condition, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        Stmt::RuntimeAssert {
+            condition,
             hard,
+            dim,
+            reason,
+        } => Stmt::RuntimeAssert {
+            condition: specialize_in_expr(
+                condition, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            hard,
+            dim,
+            reason: reason.map(|r| {
+                specialize_in_expr(
+                    r, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                )
+            }),
         },
-        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
+        Stmt::FunctionDef {
+            name,
+            params,
+            generics,
+            body,
+            return_type,
+            is_native,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
+        } => {
             if is_native {
-                return Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags };
+                return Stmt::FunctionDef {
+                    name,
+                    params,
+                    generics,
+                    body,
+                    return_type,
+                    is_native,
+                    native_path,
+                    is_exported,
+                    export_target,
+                    opt_flags,
+                };
             }
-            let new_body: Vec<Stmt<'a>> = body.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
             Stmt::FunctionDef {
                 name,
@@ -954,79 +1421,187 @@ fn specialize_in_stmt<'a>(
         // within. Each statement is rebuilt as the SAME variant in the SAME order — the
         // boundary is never folded across, and no effect is reordered or duplicated.
         Stmt::Concurrent { tasks } => {
-            let new_tasks: Vec<Stmt<'a>> = tasks.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            let new_tasks: Vec<Stmt<'a>> = tasks
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
-            Stmt::Concurrent { tasks: stmt_arena.alloc_slice(new_tasks) }
+            Stmt::Concurrent {
+                tasks: stmt_arena.alloc_slice(new_tasks),
+            }
         }
         Stmt::Parallel { tasks } => {
-            let new_tasks: Vec<Stmt<'a>> = tasks.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            let new_tasks: Vec<Stmt<'a>> = tasks
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
-            Stmt::Parallel { tasks: stmt_arena.alloc_slice(new_tasks) }
+            Stmt::Parallel {
+                tasks: stmt_arena.alloc_slice(new_tasks),
+            }
         }
-        Stmt::Zone { name, capacity, source_file, body } => {
-            let new_body: Vec<Stmt<'a>> = body.iter().cloned()
-                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+        Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body,
+        } => {
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect();
-            Stmt::Zone { name, capacity, source_file, body: stmt_arena.alloc_slice(new_body) }
+            Stmt::Zone {
+                name,
+                capacity,
+                source_file,
+                body: stmt_arena.alloc_slice(new_body),
+            }
+        }
+        Stmt::Reversibly { body } => {
+            let new_body: Vec<Stmt<'a>> = body
+                .iter()
+                .cloned()
+                .map(|s| {
+                    specialize_in_stmt(
+                        s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
+                .collect();
+            Stmt::Reversibly {
+                body: stmt_arena.alloc_slice(new_body),
+            }
         }
         Stmt::Select { branches } => {
-            let new_branches: Vec<crate::ast::stmt::SelectBranch<'a>> = branches.into_iter().map(|b| match b {
-                crate::ast::stmt::SelectBranch::Receive { var, pipe, body } => {
-                    let new_body: Vec<Stmt<'a>> = body.iter().cloned()
-                        .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
-                        .collect();
-                    crate::ast::stmt::SelectBranch::Receive {
-                        var,
-                        pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-                        body: stmt_arena.alloc_slice(new_body),
+            let new_branches: Vec<crate::ast::stmt::SelectBranch<'a>> = branches
+                .into_iter()
+                .map(|b| match b {
+                    crate::ast::stmt::SelectBranch::Receive { var, pipe, body } => {
+                        let new_body: Vec<Stmt<'a>> = body
+                            .iter()
+                            .cloned()
+                            .map(|s| {
+                                specialize_in_stmt(
+                                    s, func_defs, registry, expr_arena, stmt_arena, interner,
+                                    effect_env,
+                                )
+                            })
+                            .collect();
+                        crate::ast::stmt::SelectBranch::Receive {
+                            var,
+                            pipe: specialize_in_expr(
+                                pipe, func_defs, registry, expr_arena, stmt_arena, interner,
+                                effect_env,
+                            ),
+                            body: stmt_arena.alloc_slice(new_body),
+                        }
                     }
-                }
-                crate::ast::stmt::SelectBranch::Timeout { milliseconds, body } => {
-                    let new_body: Vec<Stmt<'a>> = body.iter().cloned()
-                        .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
-                        .collect();
-                    crate::ast::stmt::SelectBranch::Timeout {
-                        milliseconds: specialize_in_expr(milliseconds, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-                        body: stmt_arena.alloc_slice(new_body),
+                    crate::ast::stmt::SelectBranch::Timeout { milliseconds, body } => {
+                        let new_body: Vec<Stmt<'a>> = body
+                            .iter()
+                            .cloned()
+                            .map(|s| {
+                                specialize_in_stmt(
+                                    s, func_defs, registry, expr_arena, stmt_arena, interner,
+                                    effect_env,
+                                )
+                            })
+                            .collect();
+                        crate::ast::stmt::SelectBranch::Timeout {
+                            milliseconds: specialize_in_expr(
+                                milliseconds,
+                                func_defs,
+                                registry,
+                                expr_arena,
+                                stmt_arena,
+                                interner,
+                                effect_env,
+                            ),
+                            body: stmt_arena.alloc_slice(new_body),
+                        }
                     }
-                }
-            }).collect();
-            Stmt::Select { branches: new_branches }
+                })
+                .collect();
+            Stmt::Select {
+                branches: new_branches,
+            }
         }
         Stmt::SendPipe { value, pipe } => Stmt::SendPipe {
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            pipe: specialize_in_expr(
+                pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
-        Stmt::TrySendPipe { value, pipe, result } => Stmt::TrySendPipe {
-            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
-            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        Stmt::TrySendPipe {
+            value,
+            pipe,
+            result,
+        } => Stmt::TrySendPipe {
+            value: specialize_in_expr(
+                value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
+            pipe: specialize_in_expr(
+                pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
             result,
         },
         Stmt::ReceivePipe { var, pipe } => Stmt::ReceivePipe {
             var,
-            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            pipe: specialize_in_expr(
+                pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::TryReceivePipe { var, pipe } => Stmt::TryReceivePipe {
             var,
-            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            pipe: specialize_in_expr(
+                pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         Stmt::LaunchTask { function, args } => Stmt::LaunchTask {
             function,
-            args: args.iter()
-                .map(|a| specialize_in_expr(a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            args: args
+                .iter()
+                .map(|a| {
+                    specialize_in_expr(
+                        a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect(),
         },
-        Stmt::LaunchTaskWithHandle { handle, function, args } => Stmt::LaunchTaskWithHandle {
+        Stmt::LaunchTaskWithHandle {
             handle,
             function,
-            args: args.iter()
-                .map(|a| specialize_in_expr(a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+            args,
+        } => Stmt::LaunchTaskWithHandle {
+            handle,
+            function,
+            args: args
+                .iter()
+                .map(|a| {
+                    specialize_in_expr(
+                        a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+                    )
+                })
                 .collect(),
         },
         Stmt::StopTask { handle } => Stmt::StopTask {
-            handle: specialize_in_expr(handle, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            handle: specialize_in_expr(
+                handle, func_defs, registry, expr_arena, stmt_arena, interner, effect_env,
+            ),
         },
         other => other,
     }
@@ -1039,7 +1614,14 @@ pub fn specialize_stmts<'a>(
     interner: &mut Interner,
 ) -> (Vec<Stmt<'a>>, usize) {
     let mut variant_count = HashMap::new();
-    specialize_stmts_with_state(stmts, expr_arena, stmt_arena, interner, &mut variant_count, None)
+    specialize_stmts_with_state(
+        stmts,
+        expr_arena,
+        stmt_arena,
+        interner,
+        &mut variant_count,
+        None,
+    )
 }
 
 pub fn specialize_stmts_with_state<'a>(
@@ -1058,14 +1640,27 @@ pub fn specialize_stmts_with_state<'a>(
         registry.bta_cache = Some(cache.clone());
     }
 
-    let specialized: Vec<Stmt<'a>> = stmts.into_iter()
-        .map(|stmt| specialize_in_stmt(stmt, &func_defs, &mut registry, expr_arena, stmt_arena, interner, Some(&effect_env)))
+    let specialized: Vec<Stmt<'a>> = stmts
+        .into_iter()
+        .map(|stmt| {
+            specialize_in_stmt(
+                stmt,
+                &func_defs,
+                &mut registry,
+                expr_arena,
+                stmt_arena,
+                interner,
+                Some(&effect_env),
+            )
+        })
         .collect();
 
     let changes = registry.new_funcs.len();
     *persistent_variant_count = registry.variant_count;
     let mut result = registry.new_funcs;
     result.extend(specialized);
+    // The next propagation round must recognize loans to newly created callees.
+    crate::analysis::callgraph::install_lending_parameters(&result);
     (result, changes)
 }
 
@@ -1111,12 +1706,24 @@ fn cleanup_pass<'a>(
     for (i, stmt) in stmts.iter().enumerate() {
         match stmt {
             // Remove Let x = x (identity binding)
-            Stmt::Let { var, value: Expr::Identifier(src), .. } if var == src => {
+            Stmt::Let {
+                var,
+                value: Expr::Identifier(src),
+                ..
+            } if var == src => {
                 continue;
             }
             // Collapse Let x = lit; Return x → Return lit
-            Stmt::Let { var, value, mutable: false, .. } => {
-                if let Some(Stmt::Return { value: Some(Expr::Identifier(ret_var)) }) = stmts.get(i + 1) {
+            Stmt::Let {
+                var,
+                value,
+                mutable: false,
+                ..
+            } => {
+                if let Some(Stmt::Return {
+                    value: Some(Expr::Identifier(ret_var)),
+                }) = stmts.get(i + 1)
+                {
                     if var == ret_var {
                         if let Expr::Literal(_) = value {
                             result.push(Stmt::Return { value: Some(value) });
@@ -1129,9 +1736,17 @@ fn cleanup_pass<'a>(
                 result.push(cleanup_stmt(stmt, expr_arena, stmt_arena));
             }
             // Skip Return that was already folded into a Let
-            Stmt::Return { value: Some(Expr::Identifier(ret_var)) } => {
+            Stmt::Return {
+                value: Some(Expr::Identifier(ret_var)),
+            } => {
                 if i > 0 {
-                    if let Stmt::Let { var, value: Expr::Literal(_), mutable: false, .. } = &stmts[i - 1] {
+                    if let Stmt::Let {
+                        var,
+                        value: Expr::Literal(_),
+                        mutable: false,
+                        ..
+                    } = &stmts[i - 1]
+                    {
                         if var == ret_var {
                             continue;
                         }
@@ -1140,7 +1755,11 @@ fn cleanup_pass<'a>(
                 result.push(cleanup_stmt(stmt, expr_arena, stmt_arena));
             }
             // Single-arm Inspect with only Otherwise → inline body
-            Stmt::Inspect { arms, has_otherwise: true, .. } if arms.len() == 1 => {
+            Stmt::Inspect {
+                arms,
+                has_otherwise: true,
+                ..
+            } if arms.len() == 1 => {
                 let arm = &arms[0];
                 if arm.variant.is_none() {
                     // Otherwise-only: inline body
@@ -1166,7 +1785,11 @@ fn cleanup_stmt<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
 ) -> Stmt<'a> {
     match stmt {
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             let new_then = cleanup_pass(then_block, expr_arena, stmt_arena);
             let new_else = else_block.map(|eb| {
                 let cleaned = cleanup_pass(eb, expr_arena, stmt_arena);
@@ -1178,7 +1801,11 @@ fn cleanup_stmt<'a>(
                 else_block: new_else,
             }
         }
-        Stmt::While { cond, body, decreasing } => {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
             let new_body = cleanup_pass(body, expr_arena, stmt_arena);
             Stmt::While {
                 cond,
@@ -1186,7 +1813,18 @@ fn cleanup_stmt<'a>(
                 decreasing: *decreasing,
             }
         }
-        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
+        Stmt::FunctionDef {
+            name,
+            params,
+            generics,
+            body,
+            return_type,
+            is_native,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
+        } => {
             if *is_native {
                 return stmt.clone();
             }
@@ -1204,7 +1842,11 @@ fn cleanup_stmt<'a>(
                 opt_flags: opt_flags.clone(),
             }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
             let new_body = cleanup_pass(body, expr_arena, stmt_arena);
             Stmt::Repeat {
                 pattern: pattern.clone(),

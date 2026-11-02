@@ -55,7 +55,13 @@ fn parity_comparison_ops_across_type_pairs() {
     operands.extend_from_slice(FLOATS);
     operands.extend_from_slice(BOOLS);
 
-    for op in ["is less than", "is greater than", "is at most", "is at least", "equals"] {
+    for op in [
+        "is less than",
+        "is greater than",
+        "is at most",
+        "is at least",
+        "equals",
+    ] {
         for a in &operands {
             for b in &operands {
                 assert_parity(&format!(

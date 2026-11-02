@@ -1,0 +1,70 @@
+{
+  "case": "T08-019",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_019.firstAlternative",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T08_019.firstBacktracks",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_019.nested",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), r \u2192 p \u2192 q \u2192 r",
+      "name": "T08_019.repeatIntros",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_019.repeatNoOp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T08_019.tryApplies",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_019.tryMultiStep",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_019.tryNoOp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

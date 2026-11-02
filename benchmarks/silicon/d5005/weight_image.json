@@ -1,0 +1,340 @@
+{
+  "rows": [
+    {
+      "header": "qwen3.8-27b-iq4_xs",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 491158,
+      "data_bytes": 15225972736,
+      "padding_bytes": 5949120,
+      "check_bytes": 0,
+      "channel_lines": [
+        59499939,
+        59499500,
+        59499630,
+        59499710
+      ],
+      "spread_lines": 439,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-iq4_xs",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 459217,
+      "data_bytes": 15225972736,
+      "padding_bytes": 23616820,
+      "check_bytes": 1836868,
+      "channel_lines": [
+        52956495,
+        52956314,
+        52956255,
+        52956303
+      ],
+      "spread_lines": 240,
+      "largest_tile_lines": 499
+    },
+    {
+      "header": "qwen3.8-27b-q3_k_m",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 430567,
+      "data_bytes": 13154072576,
+      "padding_bytes": 11642048,
+      "check_bytes": 0,
+      "channel_lines": [
+        51428359,
+        51428548,
+        51428680,
+        51428704
+      ],
+      "spread_lines": 345,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-q3_k_m",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 391291,
+      "data_bytes": 13154072576,
+      "padding_bytes": 10096500,
+      "check_bytes": 1565164,
+      "channel_lines": [
+        45714322,
+        45714378,
+        45714414,
+        45714306
+      ],
+      "spread_lines": 108,
+      "largest_tile_lines": 499
+    },
+    {
+      "header": "qwen3.8-27b-q4_0",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 520075,
+      "data_bytes": 16098789376,
+      "padding_bytes": 1980672,
+      "check_bytes": 0,
+      "channel_lines": [
+        62893461,
+        62893822,
+        62893732,
+        62893517
+      ],
+      "spread_lines": 361,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-q4_0",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 485863,
+      "data_bytes": 16098789376,
+      "padding_bytes": 29872060,
+      "check_bytes": 1943452,
+      "channel_lines": [
+        56009178,
+        56008899,
+        56009046,
+        56009056
+      ],
+      "spread_lines": 279,
+      "largest_tile_lines": 481
+    },
+    {
+      "header": "qwen3.8-27b-q4_k_m",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 563733,
+      "data_bytes": 17192421376,
+      "padding_bytes": 5351744,
+      "check_bytes": 0,
+      "channel_lines": [
+        67178884,
+        67178742,
+        67178677,
+        67178902
+      ],
+      "spread_lines": 225,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-q4_k_m",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 522132,
+      "data_bytes": 17192421376,
+      "padding_bytes": 29309360,
+      "check_bytes": 2088528,
+      "channel_lines": [
+        59805053,
+        59804808,
+        59805020,
+        59804831
+      ],
+      "spread_lines": 245,
+      "largest_tile_lines": 499
+    },
+    {
+      "header": "qwen3.8-27b-q5_k_m",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 694479,
+      "data_bytes": 20673898496,
+      "padding_bytes": 1822784,
+      "check_bytes": 0,
+      "channel_lines": [
+        80764739,
+        80764425,
+        80764570,
+        80764411
+      ],
+      "spread_lines": 328,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-q5_k_m",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 606968,
+      "data_bytes": 20673898496,
+      "padding_bytes": 11172704,
+      "check_bytes": 2427872,
+      "channel_lines": [
+        71831728,
+        71831523,
+        71831685,
+        71831440
+      ],
+      "spread_lines": 288,
+      "largest_tile_lines": 499
+    },
+    {
+      "header": "qwen3.8-27b-q6_k",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 815763,
+      "data_bytes": 23610587136,
+      "padding_bytes": 24433792,
+      "check_bytes": 0,
+      "channel_lines": [
+        92324229,
+        92324377,
+        92324202,
+        92324394
+      ],
+      "spread_lines": 192,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-q6_k",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 758945,
+      "data_bytes": 23610587136,
+      "padding_bytes": 18017572,
+      "check_bytes": 3035780,
+      "channel_lines": [
+        82054398,
+        82054366,
+        82054227,
+        82054238
+      ],
+      "spread_lines": 171,
+      "largest_tile_lines": 467
+    },
+    {
+      "header": "qwen3.8-27b-q8_0",
+      "beat": "Data64",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 64,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": false
+      },
+      "tensors": 851,
+      "tiles": 1022071,
+      "data_bytes": 28654073856,
+      "padding_bytes": 0,
+      "check_bytes": 0,
+      "channel_lines": [
+        111929808,
+        111929984,
+        111929976,
+        111930136
+      ],
+      "spread_lines": 328,
+      "largest_tile_lines": 510
+    },
+    {
+      "header": "qwen3.8-27b-q8_0",
+      "beat": "Full72",
+      "layout": {
+        "channels": 4,
+        "line_bytes": 72,
+        "tile_lines": 512,
+        "capacity_lines": 134217728,
+        "check": true
+      },
+      "tensors": 851,
+      "tiles": 1022071,
+      "data_bytes": 28654073856,
+      "padding_bytes": 31824380,
+      "check_bytes": 4088284,
+      "channel_lines": [
+        99618006,
+        99618153,
+        99617858,
+        99618018
+      ],
+      "spread_lines": 295,
+      "largest_tile_lines": 454
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "case": "T08-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_002.exactAnonCtor",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 p \u2192 q",
+      "name": "T08_002.exactApplied",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_002.exactBareHyp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2192 False) \u2192 \u00acp",
+      "name": "T08_002.exactDefeq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n \u2264 n",
+      "name": "T08_002.exactGlobal",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 if True then p else p",
+      "name": "T08_002.exactIota",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2200 (n : Nat), p n) \u2192 \u2200 (n : Nat), p n",
+      "name": "T08_002.exactLambda",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_002.viaAssumption",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

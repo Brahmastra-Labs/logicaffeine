@@ -1,0 +1,35 @@
+## Main
+Let n be 32.
+Let mutable arr be a new Seq of Int.
+Let mutable seed be 42.
+Let mutable i be 0.
+While i is less than n:
+    Set seed to (seed * 25173 + 13849) % 65536.
+    Push (seed / 2) % 64 to arr.
+    Set i to i + 1.
+Let mutable counts be a new Seq of Int.
+Set i to 0.
+While i is less than 64:
+    Push 0 to counts.
+    Set i to i + 1.
+Set i to 1.
+While i is at most n:
+    Let v be item i of arr.
+    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.
+    Set i to i + 1.
+Let mutable sorted be a new Seq of Int.
+Let mutable v be 0.
+While v is less than 64:
+    Let mutable c be 0.
+    While c is less than item (v + 1) of counts:
+        Push v to sorted.
+        Set c to c + 1.
+    Set v to v + 1.
+Let mutable checksum be 0.
+Set i to 1.
+While i is at most n:
+    Set checksum to (checksum + item i of sorted) % 1000000007.
+    Set i to i + 1.
+Show item 1 of sorted.
+Show item n of sorted.
+Show checksum.

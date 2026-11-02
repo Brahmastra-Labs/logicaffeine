@@ -2,9 +2,9 @@
 //!
 //! DotContext combines a VClock with a "cloud" of non-contiguous dots.
 
+use super::super::replica::ReplicaId;
 use super::dot::Dot;
 use super::vclock::VClock;
-use super::super::replica::ReplicaId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -92,6 +92,13 @@ impl DotContext {
         &self.clock
     }
 
+    /// How many distinct events this context has observed — every replica's contiguous counter plus
+    /// the out-of-order dots. An event that has seen another has observed strictly more, so this is a
+    /// Lamport clock over the events the context tracks.
+    pub fn observed(&self) -> u64 {
+        self.clock.total() + self.cloud.len() as u64
+    }
+
     /// Get the version as a VClock clone (for DeltaCrdt).
     pub fn version(&self) -> VClock {
         self.clock.clone()
@@ -99,66 +106,5 @@ impl DotContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_context_new() {
-        let ctx = DotContext::new();
-        assert!(!ctx.has_seen(&Dot::new(1, 1)));
-    }
-
-    #[test]
-    fn test_context_next() {
-        let mut ctx = DotContext::new();
-        let d1 = ctx.next(42);
-        let d2 = ctx.next(42);
-        assert_eq!(d1.counter, 1);
-        assert_eq!(d2.counter, 2);
-        assert!(ctx.has_seen(&d1));
-        assert!(ctx.has_seen(&d2));
-    }
-
-    #[test]
-    fn test_context_add_contiguous() {
-        let mut ctx = DotContext::new();
-        ctx.add(Dot::new(1, 1));
-        ctx.add(Dot::new(1, 2));
-        ctx.add(Dot::new(1, 3));
-
-        assert!(ctx.has_seen(&Dot::new(1, 1)));
-        assert!(ctx.has_seen(&Dot::new(1, 2)));
-        assert!(ctx.has_seen(&Dot::new(1, 3)));
-        assert!(!ctx.has_seen(&Dot::new(1, 4)));
-    }
-
-    #[test]
-    fn test_context_add_out_of_order() {
-        let mut ctx = DotContext::new();
-        ctx.add(Dot::new(1, 3)); // Into cloud
-        ctx.add(Dot::new(1, 1)); // Into clock
-        ctx.add(Dot::new(1, 2)); // Should trigger compaction
-
-        assert!(ctx.has_seen(&Dot::new(1, 1)));
-        assert!(ctx.has_seen(&Dot::new(1, 2)));
-        assert!(ctx.has_seen(&Dot::new(1, 3)));
-        // Cloud should be empty after compaction
-        assert!(ctx.cloud.is_empty());
-    }
-
-    #[test]
-    fn test_context_merge() {
-        let mut a = DotContext::new();
-        let mut b = DotContext::new();
-
-        a.next(1);
-        a.next(1);
-        b.next(2);
-
-        a.merge(&b);
-
-        assert!(a.has_seen(&Dot::new(1, 1)));
-        assert!(a.has_seen(&Dot::new(1, 2)));
-        assert!(a.has_seen(&Dot::new(2, 1)));
-    }
-}
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_data/crdt/causal/context/tests.rs"]
+mod tests;

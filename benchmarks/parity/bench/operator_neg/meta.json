@@ -1,0 +1,10 @@
+{
+  "capability": "operator.neg",
+  "workload": "sum of opNeg(i) over 1..n",
+  "arg": "3000000",
+  "expected": "-4500001500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

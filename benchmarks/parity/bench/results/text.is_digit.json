@@ -1,0 +1,24 @@
+{
+  "capability": "text.is_digit",
+  "arg": "40000",
+  "timing_n": "574675",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 202.696,
+    "c": 19.983,
+    "python": 65.656
+  },
+  "wall_ms": {
+    "logos": 203.148,
+    "c": 20.237,
+    "python": 76.43
+  },
+  "logos_ms": 202.696,
+  "speedups_vs_logos": {
+    "c": 0.099,
+    "python": 0.324
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.099
+}

@@ -38,7 +38,8 @@ fn e2e_test_causal_order_preserved() {
     let topic = unique_topic();
 
     // Node A: Sequential increments with delay between
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -54,10 +55,13 @@ Increase state's clicks by 20.
 Show "A: second increment (20)".
 Sleep 15000.
 Show state's clicks.
-"#, topic);
+"#,
+        topic
+    );
 
     // Node B: Joins and observes. Should see final state (30) or at least both
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -69,14 +73,16 @@ Sleep 20000.
 Show state's clicks.
 If state's clicks equals 30:
     Show "CAUSAL_ORDER_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
 
     assert!(result_a.success && result_b.success);
 
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -84,7 +90,7 @@ If state's clicks equals 30:
 
     thread::sleep(Duration::from_millis(300));
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -111,13 +117,12 @@ If state's clicks equals 30:
 #[test]
 fn e2e_test_concurrent_detection_across_nodes() {
     use std::process::{Command, Stdio};
-    use std::thread;
-    use std::time::Duration;
 
     let topic = unique_topic();
 
     // A writes 100 without seeing B
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -132,10 +137,13 @@ Sleep 15000.
 Show state's clicks.
 If state's clicks equals 350:
     Show "CONCURRENT_A_CONVERGED".
-"#, topic);
+"#,
+        topic
+    );
 
     // B writes 250 without seeing A
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -150,7 +158,9 @@ Sleep 15000.
 Show state's clicks.
 If state's clicks equals 350:
     Show "CONCURRENT_B_CONVERGED".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
@@ -158,13 +168,13 @@ If state's clicks equals 350:
     assert!(result_a.success && result_b.success);
 
     // Start simultaneously to maximize concurrency
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start Node A");
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -179,8 +189,8 @@ If state's clicks equals 350:
     eprintln!("=== A ===\n{}", stdout_a);
     eprintln!("=== B ===\n{}", stdout_b);
 
-    let success = stdout_a.contains("CONCURRENT_A_CONVERGED")
-        && stdout_b.contains("CONCURRENT_B_CONVERGED");
+    let success =
+        stdout_a.contains("CONCURRENT_A_CONVERGED") && stdout_b.contains("CONCURRENT_B_CONVERGED");
 
     if success {
         eprintln!("✓ CONCURRENT DETECTION TEST PASSED: Both nodes converged to 350");
@@ -201,7 +211,8 @@ fn e2e_test_happens_before_chain() {
     let topic = unique_topic();
 
     // A writes first (50)
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -214,10 +225,13 @@ Increase state's clicks by 50.
 Show "A: wrote 50".
 Sleep 20000.
 Show state's clicks.
-"#, topic);
+"#,
+        topic
+    );
 
     // B waits for A, then writes (25)
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -230,10 +244,13 @@ Increase state's clicks by 25.
 Show "B: wrote 25".
 Sleep 15000.
 Show state's clicks.
-"#, topic);
+"#,
+        topic
+    );
 
     // C joins late and should see 75 total
-    let source_c = format!(r#"## Definition
+    let source_c = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -245,7 +262,9 @@ Sleep 22000.
 Show state's clicks.
 If state's clicks equals 75:
     Show "HAPPENS_BEFORE_CHAIN_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
@@ -253,7 +272,7 @@ If state's clicks equals 75:
 
     assert!(result_a.success && result_b.success && result_c.success);
 
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -261,7 +280,7 @@ If state's clicks equals 75:
 
     thread::sleep(Duration::from_millis(300));
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -269,7 +288,7 @@ If state's clicks equals 75:
 
     thread::sleep(Duration::from_millis(300));
 
-    let mut child_c = Command::new(&result_c.binary_path)
+    let child_c = Command::new(&result_c.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

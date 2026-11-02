@@ -2,14 +2,15 @@
   "id": "I_1.5",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "Which logical form represents 'Alice runs'?",
+  "prompt": "Which formula says 'Alice is happy'?",
   "options": [
-    "Runs(Alice)",
-    "Alice(Runs)",
-    "∀x(Runs(x))",
-    "Runs ∧ Alice"
+    "Happy(Alice)",
+    "Alice(Happy)",
+    "∀x Happy(x)",
+    "Happy ∧ Alice"
   ],
   "correct": 0,
-  "hint": "Think of it like a function call in programming: which is the function (action), and which is the input (person)?",
-  "explanation": "In logic, predicates work like functions: Runs(Alice) means 'apply the RUNS predicate to ALICE'. The predicate (action/property) comes first, then the subject goes in parentheses. Alice(Runs) would mean 'apply Alice to Runs' — but Alice isn't a predicate! And 'Runs ∧ Alice' treats them as separate propositions, losing the connection between Alice and running."
+  "hint": "Which word names the property, and which names the individual?",
+  "explanation": "Happy is the predicate and Alice the constant: Happy(Alice). Alice(Happy) swaps their roles, ∀x Happy(x) says everything is happy, and Happy ∧ Alice treats two names as sentences.",
+  "section": "1.4"
 }

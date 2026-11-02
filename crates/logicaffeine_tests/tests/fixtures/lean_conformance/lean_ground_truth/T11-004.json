@@ -1,0 +1,77 @@
+{
+  "case": "T11-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "Bool",
+      "name": "T11_004.boolSide",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 \u03b3 : Type} \u2192 (\u03b2 \u2192 \u03b3) \u2192 (\u03b1 \u2192 \u03b2) \u2192 \u03b1 \u2192 \u03b3",
+      "name": "T11_004.compose",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T11_004.explicitUnderscore",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T11_004.idImp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T11_004.idPoly",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T11_004.natSide",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Nat \u2192 \u03b1 \u2192 List \u03b1",
+      "name": "T11_004.replicate",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (n : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((m : Nat) \u2192 motive m.succ) \u2192 motive n",
+      "name": "T11_004.replicate.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : DecidableEq \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 Bool",
+      "name": "T11_004.useDecEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

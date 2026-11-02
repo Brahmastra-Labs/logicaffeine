@@ -1,0 +1,86 @@
+# Task board
+
+## Note
+
+`Card` is a WRAPPER: it draws a frame and puts whatever it is given inside it. The
+`{children}` hole is where the caller's markup goes, and `Style:` is scoped to this
+component alone, so its `.card` rules cannot reach anything else on the page.
+
+## Component Card (title: Text)
+Style:
+    .card { border: 1px solid #d0d0d0; border-radius: 6px; padding: 12px; margin: 8px 0; }
+    .card h3 { margin: 0 0 8px 0; font: 600 15px system-ui, sans-serif; }
+View:
+    <div class="card"><h3>{title}</h3>{children}</div>
+
+## Note
+
+`Row` is a leaf with a CONDITIONAL class. When `done` is false it carries no `done` word
+at all — and the served markup says exactly that, which is what lets the pre-rendered
+page hydrate without the browser having to correct it.
+
+## Component Row (label: Text) and (done: Bool)
+Style:
+    .row.done span { text-decoration: line-through; color: #888; }
+View:
+    <li class="row" class:done={done}><span>{label}</span></li>
+
+## Page /
+State:
+    Let todos be ["write the parser", "lower the view", "ship it"].
+    Let doneCount be 1.
+    Let remaining always be (length of todos) - doneCount.
+Actions:
+    To complete:
+        If doneCount is less than (length of todos):
+            Set doneCount to doneCount + 1.
+
+    To reset:
+        Set doneCount to 0.
+View:
+    <main>
+        <h1>Task board</h1>
+        <Card title="This week">
+            <ul>
+                {for each todo in todos, at index i:}
+                    <Row label={todo} done={i is at most doneCount} />
+                {end}
+            </ul>
+            <p id="left">{remaining} left</p>
+        </Card>
+        <button id="done" on-click={complete}>complete one</button>
+        <button id="reset" on-click={reset}>reset</button>
+    </main>
+
+## Test: the first task starts done and the count agrees with the rows
+
+Expect that the count of ".row" is equal to 3.
+Expect that the count of ".row.done" is equal to 1.
+Expect that the text of ".row.done" is equal to "write the parser".
+Expect that the text of "#left" is equal to "2 left".
+
+## Test: completing one strikes the next row and counts it down
+
+Click "#done".
+Expect that the count of ".row.done" is equal to 2.
+Expect that the text of "#left" is equal to "1 left".
+
+## Test: completing stops at the last task
+
+Click "#done".
+Click "#done".
+Click "#done".
+Expect that the count of ".row.done" is equal to 3.
+Expect that the text of "#left" is equal to "0 left".
+
+## Test: reset clears every strike
+
+Click "#done".
+Click "#reset".
+Expect that the count of ".row.done" is equal to 0.
+Expect that the text of "#left" is equal to "3 left".
+
+## Test: the card frames the list it was given
+
+Expect that the text of ".card h3" is equal to "This week".
+Expect that the count of ".card li" is equal to 3.

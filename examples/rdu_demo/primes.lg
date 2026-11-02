@@ -1,0 +1,37 @@
+# Primes — primality below 121 by trial division against a table of small primes.
+#
+# RDU lane: whole-program. The division loop is unrolled into dataflow: a `Seq` on the state plane (heap
+# cells), a helper called four times and inlined at each use (the Futamura projection of the call), and
+# if-conversion of every `If` (a short-circuit `and` included) into predicated selects. `largo emit rdu`
+# lowers `is_prime` as a Scalar stage applied lane-wise over an input vector on the SN50 descriptor. The
+# remainder is a functional-unit cell and the table lives on the heap, so the per-PE certificate is
+# honestly `Uncertified` (no bit-blast lowering) and equivalence is by evaluation against the VM; the
+# choreography certificate still rechecks.
+
+## To is_prime (n: Int) -> Int:
+    Let small be [2, 3, 5, 7].
+    Let mutable prime be 1.
+    If n is less than 2:
+        Set prime to 0.
+    If divides(item 1 of small, n) is 1:
+        Set prime to 0.
+    If divides(item 2 of small, n) is 1:
+        Set prime to 0.
+    If divides(item 3 of small, n) is 1:
+        Set prime to 0.
+    If divides(item 4 of small, n) is 1:
+        Set prime to 0.
+    Return prime.
+
+## To divides (d: Int, n: Int) -> Int:
+    Let mutable r be 0.
+    If n is greater than d and n % d is 0:
+        Set r to 1.
+    Return r.
+
+## Main
+
+Show is_prime(97).
+Show is_prime(91).
+Show is_prime(2).
+Show is_prime(119).

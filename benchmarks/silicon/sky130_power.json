@@ -1,0 +1,39 @@
+{
+ "_provenance": "OpenLane Sky130 signoff, OpenSTA report_power on the post-route RC-extracted netlist the ledger ships (tools/OpenLane/designs/logos_soft_core_scalar/runs/RUN_2026.10.15_17.14.37, 31492840-byte GDS) at its 15 ns signoff clock, typical corner. Switching activity is OpenSTA's propagated default (no workload VCD) — a signoff EDA power number, not a bench-measured one.",
+ "design": "soft_core_scalar",
+ "pdk": "sky130A (OpenLane)",
+ "run": "tools/OpenLane/designs/logos_soft_core_scalar/runs/RUN_2026.10.15_17.14.37",
+ "gds_bytes": 31492840,
+ "clock_period_ns": 15.0,
+ "simulated_cycles": 4000,
+ "signature_port": "out",
+ "signature": "0000000f",
+ "signature_changes": 0,
+ "signature_trajectory_sha256": "2de30b90e757f0e0831eca0aefc644f49d14d4c2a47a185759e45d0de0542f06",
+ "rtl_signature": "0000000f",
+ "rtl_signature_trajectory_sha256": "2de30b90e757f0e0831eca0aefc644f49d14d4c2a47a185759e45d0de0542f06",
+ "cells": 69206,
+ "die_mm2": 0.5923,
+ "clock_mhz": 66.667,
+ "setup_slack_ns": 0.41,
+ "fmax_mhz": 68.5,
+ "corner": "typical",
+ "power_w": {
+  "internal": 0.0235,
+  "switching": 0.00595,
+  "leakage": 1.24e-07,
+  "total": 0.0295
+ },
+ "split_pct": {
+  "sequential": 45.8,
+  "combinational": 54.2,
+  "internal": 79.7,
+  "switching": 20.2,
+  "leakage": 0.0
+ },
+ "corners_mw": {
+  "ss_100C_1v60": 23.5,
+  "tt_025C_1v80": 29.5,
+  "ff_n40C_1v95": 34.0
+ }
+}

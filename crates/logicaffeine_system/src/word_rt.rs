@@ -280,6 +280,12 @@ pub fn int_of_word16(w: Word16) -> i64 {
     w.0 as i64
 }
 
+/// The unsigned value of a `Word8` as an `Int` (0..255) — the compiled form of `intOfWord8(w)`.
+#[inline]
+pub fn int_of_word8(w: Word8) -> i64 {
+    w.0 as i64
+}
+
 // ── Lanes4Word64 — the Poly1305 accumulator lane config ───────────────────────────────────────
 
 /// Pack the first 4 `Int`s of a Seq into a `Lanes4Word64` — the compiled form of `lanes4Word64(s)`.

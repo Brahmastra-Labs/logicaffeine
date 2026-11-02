@@ -80,7 +80,7 @@ fn test_predecessor_function() {
     match &ty {
         Term::Pi {
             param_type,
-            body_type,
+            body_type: _,
             ..
         } => {
             assert!(

@@ -25,4 +25,9 @@ While c is at most 6:
         Set item (j + 1) of dp to (item (j + 1) of dp + item (j - coin + 1) of dp) % 1000000007.
         Set j to j + 1.
     Set c to c + 1.
-Show item (n + 1) of dp.
+Let mutable checksum be 0.
+Set i to 1.
+While i is at most n + 1:
+    Set checksum to (checksum * 31 + item i of dp) & 268435455.
+    Set i to i + 1.
+Show "" + item (n + 1) of dp + " " + checksum.

@@ -4,10 +4,10 @@
 //! - Diamond P (force <= 0.5) → Exists w'(Accessible(w, w') And P(w'))
 //! - Box P (force > 0.5) → ForAll w'(Accessible(w, w') Implies P(w'))
 
-use logicaffeine_base::Arena;
 use crate::ast::{LogicExpr, ModalDomain, ModalVector, NeoEventData, QuantifierKind, Term};
-use logicaffeine_base::{Interner, Symbol};
 use crate::token::TokenType;
+use logicaffeine_base::Arena;
+use logicaffeine_base::{Interner, Symbol};
 
 /// Context for tracking world variables during Kripke lowering.
 ///
@@ -110,7 +110,12 @@ fn lower_expr<'a>(
             }
         }
 
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } => {
             let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Quantifier {
                 kind: *kind,
@@ -163,15 +168,25 @@ fn lower_expr<'a>(
                 TemporalOperator::Always => {
                     // G(φ) → ∀w'(Accessible_Temporal(w, w') → φ(w'))
                     lower_temporal_unary(
-                        body, ctx, expr_arena, term_arena, interner,
-                        "Accessible_Temporal", true,
+                        body,
+                        ctx,
+                        expr_arena,
+                        term_arena,
+                        interner,
+                        "Accessible_Temporal",
+                        true,
                     )
                 }
                 TemporalOperator::Eventually => {
                     // F(φ) → ∃w'(Reachable_Temporal(w, w') ∧ φ(w'))
                     lower_temporal_unary(
-                        body, ctx, expr_arena, term_arena, interner,
-                        "Reachable_Temporal", false,
+                        body,
+                        ctx,
+                        expr_arena,
+                        term_arena,
+                        interner,
+                        "Reachable_Temporal",
+                        false,
                     )
                 }
                 TemporalOperator::BoundedEventually(n) => {
@@ -186,8 +201,13 @@ fn lower_expr<'a>(
                     // X(φ) → ∀w'(Next_Temporal(w, w') → φ(w'))
                     ctx.tick_clock();
                     lower_temporal_unary(
-                        body, ctx, expr_arena, term_arena, interner,
-                        "Next_Temporal", true,
+                        body,
+                        ctx,
+                        expr_arena,
+                        term_arena,
+                        interner,
+                        "Next_Temporal",
+                        true,
                     )
                 }
                 // Priorian tense operators — pass through (linguistic, not hardware)
@@ -203,7 +223,11 @@ fn lower_expr<'a>(
             result
         }
 
-        LogicExpr::TemporalBinary { operator, left, right } => {
+        LogicExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => {
             // φ U ψ → ψ(w) ∨ (φ(w) ∧ ∃w'(Next_Temporal(w,w') ∧ (φ U ψ)(w')))
             // For now: lower both operands with world threading
             let new_left = lower_expr(left, ctx, expr_arena, term_arena, interner);
@@ -215,10 +239,8 @@ fn lower_expr<'a>(
             let next_name = interner.intern("Next_Temporal");
             let accessibility = expr_arena.alloc(LogicExpr::Predicate {
                 name: next_name,
-                args: term_arena.alloc_slice([
-                    Term::Variable(source_world),
-                    Term::Variable(target_world),
-                ]),
+                args: term_arena
+                    .alloc_slice([Term::Variable(source_world), Term::Variable(target_world)]),
                 world: None,
             });
 
@@ -291,7 +313,12 @@ fn lower_expr<'a>(
             })
         }
 
-        LogicExpr::Control { verb, subject, object, infinitive } => {
+        LogicExpr::Control {
+            verb,
+            subject,
+            object,
+            infinitive,
+        } => {
             let new_infinitive = lower_expr(infinitive, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Control {
                 verb: *verb,
@@ -322,7 +349,11 @@ fn lower_expr<'a>(
             expr_arena.alloc(LogicExpr::YesNoQuestion { body: new_body })
         }
 
-        LogicExpr::Focus { kind, focused, scope } => {
+        LogicExpr::Focus {
+            kind,
+            focused,
+            scope,
+        } => {
             let new_scope = lower_expr(scope, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Focus {
                 kind: *kind,
@@ -338,7 +369,10 @@ fn lower_expr<'a>(
             })
         }
 
-        LogicExpr::Counterfactual { antecedent, consequent } => {
+        LogicExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
             let new_antecedent = lower_expr(antecedent, ctx, expr_arena, term_arena, interner);
             let new_consequent = lower_expr(consequent, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Counterfactual {
@@ -361,13 +395,19 @@ fn lower_expr<'a>(
         }
         LogicExpr::Exclamative { degree_var, body } => {
             let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
-            expr_arena.alloc(LogicExpr::Exclamative { degree_var: *degree_var, body: new_body })
+            expr_arena.alloc(LogicExpr::Exclamative {
+                degree_var: *degree_var,
+                body: new_body,
+            })
         }
         LogicExpr::Optative { wish } => {
             let new_wish = lower_expr(wish, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Optative { wish: new_wish })
         }
-        LogicExpr::Implicature { assertion, implicature } => {
+        LogicExpr::Implicature {
+            assertion,
+            implicature,
+        } => {
             let new_assertion = lower_expr(assertion, ctx, expr_arena, term_arena, interner);
             let new_implicature = lower_expr(implicature, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Implicature {
@@ -394,9 +434,13 @@ fn lower_expr<'a>(
             })
         }
 
-        LogicExpr::Presupposition { assertion, presupposition } => {
+        LogicExpr::Presupposition {
+            assertion,
+            presupposition,
+        } => {
             let new_assertion = lower_expr(assertion, ctx, expr_arena, term_arena, interner);
-            let new_presupposition = lower_expr(presupposition, ctx, expr_arena, term_arena, interner);
+            let new_presupposition =
+                lower_expr(presupposition, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Presupposition {
                 assertion: new_assertion,
                 presupposition: new_presupposition,
@@ -411,7 +455,13 @@ fn lower_expr<'a>(
             })
         }
 
-        LogicExpr::GroupQuantifier { group_var, count, member_var, restriction, body } => {
+        LogicExpr::GroupQuantifier {
+            group_var,
+            count,
+            member_var,
+            restriction,
+            body,
+        } => {
             let new_restriction = lower_expr(restriction, ctx, expr_arena, term_arena, interner);
             let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::GroupQuantifier {
@@ -461,10 +511,7 @@ fn lower_modal<'a>(
 
     let accessibility = expr_arena.alloc(LogicExpr::Predicate {
         name: access_name,
-        args: term_arena.alloc_slice([
-            Term::Variable(source_world),
-            Term::Variable(target_world),
-        ]),
+        args: term_arena.alloc_slice([Term::Variable(source_world), Term::Variable(target_world)]),
         world: None, // Accessibility predicate is a meta-level relation
     });
 
@@ -541,10 +588,7 @@ fn lower_temporal_unary<'a>(
     let access_name = interner.intern(predicate_name);
     let accessibility = expr_arena.alloc(LogicExpr::Predicate {
         name: access_name,
-        args: term_arena.alloc_slice([
-            Term::Variable(source_world),
-            Term::Variable(target_world),
-        ]),
+        args: term_arena.alloc_slice([Term::Variable(source_world), Term::Variable(target_world)]),
         world: None,
     });
 

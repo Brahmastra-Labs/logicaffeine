@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you aren't poor then you aren't beautiful",
   "options": [
-    "$ \\sim(P \\supset \\sim B) $",
-    "$ \\sim P \\supset \\sim B $",
-    "$ (\\sim P \\supset \\sim B) $",
-    "$ (\\sim P \\vee B) $"
+    "¬(P → ¬B)",
+    "¬P ∨ B",
+    "¬P → ¬B",
+    "¬P ∧ ¬B"
   ],
   "correct": 2,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part ¬P to the then part ¬B: ¬P → ¬B.",
+  "section": "6.2"
 }

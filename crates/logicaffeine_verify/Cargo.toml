@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Z3-based static verification for Logicaffeine (requires Pro+ license)"
+license = "MIT"
+description = "Z3-based static verification and model checking for Logicaffeine"
 readme = "README.md"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [features]
 # Build Z3 from vendored source and link it statically — the release-binary
@@ -23,15 +24,6 @@ static-link-z3 = ["z3/vendored"]
 # SMT solver
 z3 = "0.20"
 
-# Serialization for license cache
+# Serialization for certificates and the verification IR
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# HTTP client for license validation
-ureq = { version = "2.9", features = ["json"] }
-
-# User directories for cache
-dirs = "5.0"
-
-[dev-dependencies]
-tempfile = "3"

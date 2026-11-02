@@ -2,7 +2,7 @@
 //!
 //! Export VerifyExpr to standard SMT-LIB2 format readable by Z3, CVC5, Yices, etc.
 
-use crate::ir::{VerifyExpr, VerifyOp, VerifyType, BitVecOp};
+use crate::ir::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
 use std::collections::HashSet;
 
 /// Export a VerifyExpr to SMT-LIB2 format.
@@ -69,7 +69,11 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
         VerifyExpr::Bool(true) => "true".into(),
         VerifyExpr::Bool(false) => "false".into(),
         VerifyExpr::Int(n) => {
-            if *n < 0 { format!("(- {})", -n) } else { n.to_string() }
+            if *n < 0 {
+                format!("(- {})", -n)
+            } else {
+                n.to_string()
+            }
         }
         VerifyExpr::Var(name) => name.clone(),
         VerifyExpr::Binary { op, left, right } => {
@@ -81,7 +85,9 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
                 VerifyOp::Mul => "*",
                 VerifyOp::Div => "div",
                 // Floor division: real division then floor (`to_int` is floor) — exact toward -inf.
-                VerifyOp::FloorDiv => return format!("(to_int (/ (to_real {}) (to_real {})))", l, r),
+                VerifyOp::FloorDiv => {
+                    return format!("(to_int (/ (to_real {}) (to_real {})))", l, r)
+                }
                 VerifyOp::Eq => "=",
                 VerifyOp::Neq => return format!("(not (= {} {}))", l, r),
                 VerifyOp::Gt => ">",
@@ -97,13 +103,15 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
         VerifyExpr::Not(inner) => format!("(not {})", expr_to_smtlib(inner)),
         VerifyExpr::Iff(l, r) => format!("(= {} {})", expr_to_smtlib(l), expr_to_smtlib(r)),
         VerifyExpr::ForAll { vars, body } => {
-            let bindings: Vec<String> = vars.iter()
+            let bindings: Vec<String> = vars
+                .iter()
                 .map(|(n, t)| format!("({} {})", n, type_to_smtlib(t)))
                 .collect();
             format!("(forall ({}) {})", bindings.join(" "), expr_to_smtlib(body))
         }
         VerifyExpr::Exists { vars, body } => {
-            let bindings: Vec<String> = vars.iter()
+            let bindings: Vec<String> = vars
+                .iter()
                 .map(|(n, t)| format!("({} {})", n, type_to_smtlib(t)))
                 .collect();
             format!("(exists ({}) {})", bindings.join(" "), expr_to_smtlib(body))
@@ -150,10 +158,23 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
             format!("(concat {} {})", expr_to_smtlib(l), expr_to_smtlib(r))
         }
         VerifyExpr::Select { array, index } => {
-            format!("(select {} {})", expr_to_smtlib(array), expr_to_smtlib(index))
+            format!(
+                "(select {} {})",
+                expr_to_smtlib(array),
+                expr_to_smtlib(index)
+            )
         }
-        VerifyExpr::Store { array, index, value } => {
-            format!("(store {} {} {})", expr_to_smtlib(array), expr_to_smtlib(index), expr_to_smtlib(value))
+        VerifyExpr::Store {
+            array,
+            index,
+            value,
+        } => {
+            format!(
+                "(store {} {} {})",
+                expr_to_smtlib(array),
+                expr_to_smtlib(index),
+                expr_to_smtlib(value)
+            )
         }
         VerifyExpr::AtState { expr, .. } => expr_to_smtlib(expr),
         VerifyExpr::Transition { from, to } => {

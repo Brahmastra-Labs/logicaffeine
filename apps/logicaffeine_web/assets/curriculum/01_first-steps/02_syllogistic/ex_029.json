@@ -10,6 +10,7 @@
     "t is not c"
   ],
   "correct": 0,
-  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
-  "explanation": "\"t\" refers to a specific individual, so use lowercase. The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+  "hint": "'This terrorist' points at one person. Is 'a candid person' one person, or a kind?",
+  "explanation": "'This terrorist' is one person, so a small letter. 'A candid person' is a kind, so a capital: t is not C.",
+  "section": "2.1"
 }

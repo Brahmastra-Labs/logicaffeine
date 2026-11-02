@@ -6,8 +6,8 @@
 //!
 //! This is the bridge between the SVA verification pipeline and the CoIC kernel.
 
-use logicaffeine_kernel::{Term, Literal};
 use super::sva_to_verify::BoundedExpr;
+use logicaffeine_kernel::{Literal, Term};
 
 /// Encode a BoundedExpr as a kernel Term.
 ///
@@ -68,10 +68,7 @@ pub fn encode_bounded_expr(expr: &BoundedExpr) -> Term {
 
         BoundedExpr::Not(inner) => {
             let e = encode_bounded_expr(inner);
-            Term::App(
-                Box::new(Term::Global("Not".to_string())),
-                Box::new(e),
-            )
+            Term::App(Box::new(Term::Global("Not".to_string())), Box::new(e))
         }
 
         BoundedExpr::Implies(left, right) => {
@@ -189,6 +186,19 @@ pub fn encode_bounded_expr(expr: &BoundedExpr) -> Term {
                 Box::new(right),
             )
         }
+        // The CGRA mux tile — an uninterpreted `bv_ite`, mirroring `bv_concat`. Sound: the kernel
+        // reasons about it opaquely (never proving a false equivalence through it). The fabric's
+        // real proof is the exhaustive our-SAT bit-blast, not this kernel encoding.
+        BoundedExpr::BitVecIte { cond, then, else_ } => Term::App(
+            Box::new(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global("bv_ite".to_string())),
+                    Box::new(encode_bounded_expr(cond)),
+                )),
+                Box::new(encode_bounded_expr(then)),
+            )),
+            Box::new(encode_bounded_expr(else_)),
+        ),
         BoundedExpr::ArraySelect { array, index } => {
             let a = encode_bounded_expr(array);
             let i = encode_bounded_expr(index);
@@ -200,7 +210,11 @@ pub fn encode_bounded_expr(expr: &BoundedExpr) -> Term {
                 Box::new(i),
             )
         }
-        BoundedExpr::ArrayStore { array, index, value } => {
+        BoundedExpr::ArrayStore {
+            array,
+            index,
+            value,
+        } => {
             let a = encode_bounded_expr(array);
             let i = encode_bounded_expr(index);
             let v = encode_bounded_expr(value);
@@ -272,10 +286,7 @@ pub fn encode_bounded_expr(expr: &BoundedExpr) -> Term {
             // Uninterpreted function: encode as nested application f(a1)(a2)...
             let mut term = Term::Global(name.clone());
             for arg in args {
-                term = Term::App(
-                    Box::new(term),
-                    Box::new(encode_bounded_expr(arg)),
-                );
+                term = Term::App(Box::new(term), Box::new(encode_bounded_expr(arg)));
             }
             term
         }
@@ -287,10 +298,7 @@ pub fn encode_bounded_expr(expr: &BoundedExpr) -> Term {
 fn nat_literal(n: usize) -> Term {
     let mut term = Term::Global("Zero".to_string());
     for _ in 0..n {
-        term = Term::App(
-            Box::new(Term::Global("Succ".to_string())),
-            Box::new(term),
-        );
+        term = Term::App(Box::new(Term::Global("Succ".to_string())), Box::new(term));
     }
     term
 }

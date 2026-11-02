@@ -1,0 +1,24 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To gcd (a: Word64, b: Word64) -> Word64:
+    Let x be a.
+    Let y be b.
+    While y is greater than word64(0):
+        Let temp be y.
+        Set y to x % y.
+        Set x to temp.
+    Return x.
+
+## Main
+Let arguments be args().
+Let n be word64(parseInt(item 2 of arguments)).
+Let sum be word64(0).
+Let i be word64(1).
+While i is at most n:
+    Let j be i.
+    While j is at most n:
+        Set sum to sum + gcd(i, j).
+        Set j to j + word64(1).
+    Set i to i + word64(1).
+Show sum.

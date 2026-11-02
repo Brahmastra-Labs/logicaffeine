@@ -9,7 +9,7 @@
 //! These transformations capture the pragmatic insight that modal questions
 //! directed at the addressee often function as requests, not information-seeking.
 
-use crate::ast::{LogicExpr, ModalDomain, ThematicRole, Term};
+use crate::ast::{LogicExpr, ModalDomain, Term, ThematicRole};
 use logicaffeine_base::Arena;
 use logicaffeine_base::Interner;
 
@@ -30,7 +30,8 @@ pub fn apply_pragmatics<'a>(
         }
         LogicExpr::Question { body, .. } => {
             if let LogicExpr::Modal { vector, operand } = body {
-                if vector.domain == ModalDomain::Alethic && vector.force > 0.0 && vector.force < 1.0 {
+                if vector.domain == ModalDomain::Alethic && vector.force > 0.0 && vector.force < 1.0
+                {
                     if is_addressee_agent(operand, interner) {
                         return expr_arena.alloc(LogicExpr::Imperative { action: *operand });
                     }
@@ -40,7 +41,8 @@ pub fn apply_pragmatics<'a>(
         }
         LogicExpr::YesNoQuestion { body } => {
             if let LogicExpr::Modal { vector, operand } = body {
-                if vector.domain == ModalDomain::Alethic && vector.force > 0.0 && vector.force < 1.0 {
+                if vector.domain == ModalDomain::Alethic && vector.force > 0.0 && vector.force < 1.0
+                {
                     if is_addressee_agent(operand, interner) {
                         return expr_arena.alloc(LogicExpr::Imperative { action: *operand });
                     }

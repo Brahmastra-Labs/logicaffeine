@@ -1,0 +1,66 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [
+   {
+    "contract": "x",
+    "dut": "in0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K2",
+  "mems": [],
+  "name": "k2_logos_pipe",
+  "outputs": [
+   {
+    "contract": "y",
+    "dut": "result",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in0"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "result"
+   }
+  ],
+  "protocol": {
+   "Registered": {
+    "latency": 17
+   }
+  },
+  "reset": null,
+  "top": "fabric_horner_seq"
+ },
+ "files": [
+  "fabric_horner_seq.v"
+ ],
+ "golden_signature": "f4d6a9ba1686c68b",
+ "harness": "qorbist_k2_logos_pipe.v",
+ "harness_top": "qorbist_k2_logos_pipe",
+ "kernel": "K2",
+ "kernel_name": "horner",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "registered, latency 17",
+ "source_kind": "compiled-from-lg",
+ "testbench": "tb_qor.v"
+}

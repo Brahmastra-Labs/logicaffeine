@@ -1,0 +1,92 @@
+{
+  "case": "T03-014",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-014_class_as_structure.lean",
+  "source_sha256": "240d9d4b19eda3a08d198bebed664aca70886e92468246a60d0642e336c720f2",
+  "ledger_sha256": "ccb707922a8287eba6ddd443bf2bf1f6795342bee9066385bdeba4e046ec197e",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_014.Convert",
+    "T03_014.Convert.convert",
+    "T03_014.Convert.mk",
+    "T03_014.Measured",
+    "T03_014.Measured.height",
+    "T03_014.Measured.mk",
+    "T03_014.Measured.weight",
+    "T03_014.Pointed",
+    "T03_014.Pointed.mk",
+    "T03_014.Pointed.point",
+    "T03_014.Sizeable",
+    "T03_014.Sizeable.mk",
+    "T03_014.Sizeable.size",
+    "T03_014.instConvertBoolNat",
+    "T03_014.instConvertNat",
+    "T03_014.instMeasuredBool",
+    "T03_014.instPointedBool",
+    "T03_014.instPointedNat",
+    "T03_014.instSizeableList",
+    "T03_014.instSizeableNat",
+    "T03_014.pointOfSame",
+    "T03_014.repeatPoint"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "417a610d878f18970b68451ccdad92cecbce57d2f310a8b4e80cb5bbf0a55240",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1616,
+  "harvest": {
+    "roots": [
+      "T03_014.Convert",
+      "T03_014.Convert.convert",
+      "T03_014.Convert.mk",
+      "T03_014.Measured",
+      "T03_014.Measured.height",
+      "T03_014.Measured.mk",
+      "T03_014.Measured.weight",
+      "T03_014.Pointed",
+      "T03_014.Pointed.mk",
+      "T03_014.Pointed.point",
+      "T03_014.Sizeable",
+      "T03_014.Sizeable.mk",
+      "T03_014.Sizeable.size",
+      "T03_014.instConvertBoolNat",
+      "T03_014.instConvertNat",
+      "T03_014.instMeasuredBool",
+      "T03_014.instPointedBool",
+      "T03_014.instPointedNat",
+      "T03_014.instSizeableList",
+      "T03_014.instSizeableNat",
+      "T03_014.pointOfSame",
+      "T03_014.repeatPoint"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

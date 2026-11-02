@@ -1,4 +1,4 @@
-use tower_lsp::lsp_types::Position;
+use lsp_types::Position;
 
 /// Maps between byte offsets and LSP `Position` (line, character).
 ///
@@ -27,11 +27,22 @@ impl LineIndex {
         }
     }
 
+    /// Largest char boundary `<= i` (clamped to the source length). Keeps a
+    /// COMPUTED offset (e.g. `span.start + name.len()`) from slicing mid-char and
+    /// panicking — position math must be total over every `usize`.
+    fn floor_char_boundary(&self, i: usize) -> usize {
+        let mut i = i.min(self.source.len());
+        while i > 0 && !self.source.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+
     /// Convert a byte offset to an LSP `Position`.
     ///
     /// Returns `(line, character)` where character is a UTF-16 code unit offset.
     pub fn position(&self, byte_offset: usize) -> Position {
-        let byte_offset = byte_offset.min(self.source.len());
+        let byte_offset = self.floor_char_boundary(byte_offset);
 
         let line = self
             .line_starts
@@ -48,6 +59,21 @@ impl LineIndex {
         }
     }
 
+    /// Byte offset of the end of `line`'s CONTENT — just before its `\n` (and a
+    /// preceding `\r`), or `source.len()` for the last line. Used to clip a
+    /// multi-line token span to a single line for the semantic-token encoder.
+    pub fn line_end_offset(&self, line: usize) -> usize {
+        let end = match self.line_starts.get(line + 1) {
+            Some(&next) => next.saturating_sub(1), // the '\n'
+            None => self.source.len(),
+        };
+        if end > 0 && self.source.as_bytes().get(end - 1) == Some(&b'\r') {
+            end - 1
+        } else {
+            end
+        }
+    }
+
     /// Return the byte offset of the start of `line` (0-indexed).
     /// Returns `source.len()` if `line` is out of bounds.
     pub fn line_start_offset(&self, line: usize) -> usize {
@@ -57,10 +83,11 @@ impl LineIndex {
             .unwrap_or(self.source.len())
     }
 
-    /// Compute the UTF-16 length of a byte range in the source.
+    /// Compute the UTF-16 length of a byte range in the source. Offsets are
+    /// snapped to char boundaries so a computed range can never panic the slice.
     pub fn utf16_length(&self, byte_start: usize, byte_end: usize) -> u32 {
-        let start = byte_start.min(self.source.len());
-        let end = byte_end.min(self.source.len());
+        let start = self.floor_char_boundary(byte_start);
+        let end = self.floor_char_boundary(byte_end);
         if start >= end {
             return 0;
         }
@@ -75,13 +102,12 @@ impl LineIndex {
         }
 
         let line_start = self.line_starts[line];
-        let line_end = self
-            .line_starts
-            .get(line + 1)
-            .copied()
-            .unwrap_or(self.source.len());
+        // Scan only the line's CONTENT (terminator excluded): LSP clamps a
+        // character past the line to the line length, so an out-of-range Position
+        // must resolve to this line's end, not cross the `\n` into the next line.
+        let content_end = self.line_end_offset(line);
 
-        let line_text = &self.source[line_start..line_end];
+        let line_text = &self.source[line_start..content_end];
         let mut utf16_offset = 0u32;
         let target = position.character;
 
@@ -92,110 +118,10 @@ impl LineIndex {
             utf16_offset += ch.len_utf16() as u32;
         }
 
-        line_end
+        content_end
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn single_line() {
-        let idx = LineIndex::new("hello world");
-        assert_eq!(idx.position(0), Position { line: 0, character: 0 });
-        assert_eq!(idx.position(5), Position { line: 0, character: 5 });
-        assert_eq!(idx.position(11), Position { line: 0, character: 11 });
-    }
-
-    #[test]
-    fn multi_line() {
-        let idx = LineIndex::new("abc\ndef\nghi");
-        assert_eq!(idx.position(0), Position { line: 0, character: 0 });
-        assert_eq!(idx.position(3), Position { line: 0, character: 3 });
-        assert_eq!(idx.position(4), Position { line: 1, character: 0 });
-        assert_eq!(idx.position(7), Position { line: 1, character: 3 });
-        assert_eq!(idx.position(8), Position { line: 2, character: 0 });
-    }
-
-    #[test]
-    fn roundtrip() {
-        let src = "Let x be 5.\nSet x to 10.\nShow x.\n";
-        let idx = LineIndex::new(src);
-        for offset in 0..src.len() {
-            let pos = idx.position(offset);
-            let back = idx.offset(pos);
-            assert_eq!(back, offset, "roundtrip failed at offset {offset}");
-        }
-    }
-
-    #[test]
-    fn offset_from_position() {
-        let idx = LineIndex::new("abc\ndef\nghi");
-        assert_eq!(idx.offset(Position { line: 0, character: 0 }), 0);
-        assert_eq!(idx.offset(Position { line: 1, character: 0 }), 4);
-        assert_eq!(idx.offset(Position { line: 2, character: 2 }), 10);
-    }
-
-    #[test]
-    fn empty_source() {
-        let idx = LineIndex::new("");
-        assert_eq!(idx.position(0), Position { line: 0, character: 0 });
-        assert_eq!(idx.offset(Position { line: 0, character: 0 }), 0);
-    }
-
-    #[test]
-    fn out_of_bounds_offset() {
-        let idx = LineIndex::new("abc");
-        let pos = idx.position(100);
-        assert_eq!(pos, Position { line: 0, character: 3 });
-    }
-
-    #[test]
-    fn out_of_bounds_position() {
-        let idx = LineIndex::new("abc");
-        let offset = idx.offset(Position { line: 5, character: 0 });
-        assert_eq!(offset, 3);
-    }
-
-    #[test]
-    fn line_start_offset_returns_correct_values() {
-        let idx = LineIndex::new("abc\ndef\nghi");
-        assert_eq!(idx.line_start_offset(0), 0);
-        assert_eq!(idx.line_start_offset(1), 4);
-        assert_eq!(idx.line_start_offset(2), 8);
-    }
-
-    #[test]
-    fn line_start_offset_out_of_bounds() {
-        let idx = LineIndex::new("abc\ndef");
-        // Out of bounds should return source length
-        assert_eq!(idx.line_start_offset(99), 7);
-    }
-
-    #[test]
-    fn windows_line_endings() {
-        let src = "abc\r\ndef\r\nghi";
-        let idx = LineIndex::new(src);
-        // \r\n: the \n is at byte 4, so line 1 starts at byte 5
-        let pos = idx.position(5);
-        assert_eq!(pos, Position { line: 1, character: 0 });
-        let back = idx.offset(pos);
-        assert_eq!(back, 5);
-    }
-
-    #[test]
-    fn multibyte_utf8_roundtrip() {
-        // 'é' is 2 bytes in UTF-8 but 1 UTF-16 code unit
-        let src = "café\nworld";
-        let idx = LineIndex::new(src);
-        // 'c'=0, 'a'=1, 'f'=2, 'é'=3..4, '\n'=5, 'w'=6
-        let pos_e_accent = idx.position(3);
-        assert_eq!(pos_e_accent.line, 0);
-        assert_eq!(pos_e_accent.character, 3, "UTF-16 offset of 'é' should be 3");
-        let pos_world = idx.position(6);
-        assert_eq!(pos_world, Position { line: 1, character: 0 });
-        let back = idx.offset(pos_world);
-        assert_eq!(back, 6);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/line_index/tests.rs"]
+mod tests;

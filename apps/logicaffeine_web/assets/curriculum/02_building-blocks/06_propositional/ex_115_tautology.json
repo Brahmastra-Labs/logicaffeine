@@ -10,6 +10,7 @@
     "P ↔ ¬P"
   ],
   "correct": 0,
-  "hint": "A tautology can never be false. Build the truth table and look for a column of all T.",
-  "explanation": "P ∨ ¬P (the law of excluded middle) is true whether P is true or false, so it is a tautology. P ∧ ¬P is a contradiction (always false); P → ¬P and P ↔ ¬P are each false in at least one row, so they are contingent or contradictory, not tautologies."
+  "hint": "A tautology can never be false. Try P true, then P false.",
+  "explanation": "P ∨ ¬P is true whether P is true or false, so it is a tautology. P ∧ ¬P is never true, and P → ¬P and P ↔ ¬P are false in at least one row.",
+  "section": "6.3"
 }

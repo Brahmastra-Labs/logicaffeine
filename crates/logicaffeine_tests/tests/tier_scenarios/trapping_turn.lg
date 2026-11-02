@@ -1,0 +1,21 @@
+# A turn that traps, and the page after it
+
+## Component App
+State:
+    Let n be 0.
+    Let boom be 0.
+Actions:
+    To bad:
+        Set n to 5.
+        Set boom to item 9 of [1].
+    To good:
+        Set n to 3.
+View:
+    <main><p id="n">{n}</p><button id="b" on-click={bad}>x</button><button id="g" on-click={good}>y</button></main>
+
+## Test: the page still answers after a trapping turn
+    Mount App.
+    Click "#b".
+    Expect that the text of "#n" is equal to "0".
+    Click "#g".
+    Expect that the text of "#n" is equal to "3".

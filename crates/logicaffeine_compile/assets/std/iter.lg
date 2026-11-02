@@ -1,0 +1,708 @@
+# Iterators
+
+Aggregate and ordering operations over sequences, written in pure LOGOS and compiled through
+every execution tier. Integer sequences today; the generic/closure-taking higher-order forms
+(map/filter/reduce) are tracked separately in the parity catalog. Auto-imported on reference.
+
+## Note
+Sums every element of `xs`, returning 0 for an empty sequence.
+
+## To sumSeq (xs: Seq of Int) -> Int:
+    Let mutable total be 0.
+    Repeat for v in xs:
+        Set total to total + v.
+    Return total.
+
+## Note
+Returns the smallest element of `xs`, seeded from the first item and scanning the rest.
+
+## To minSeq (xs: Seq of Int) -> Int:
+    Let mutable m be item 1 of xs.
+    Repeat for v in xs:
+        If v is less than m:
+            Set m to v.
+    Return m.
+
+## Note
+Returns the largest element of `xs`, seeded from the first item and scanning the rest.
+
+## To maxSeq (xs: Seq of Int) -> Int:
+    Let mutable m be item 1 of xs.
+    Repeat for v in xs:
+        If v is greater than m:
+            Set m to v.
+    Return m.
+
+## Note
+Returns a new sequence with the elements of `xs` in reverse order, walking indices from the last down to the first.
+
+## To reverseSeq (xs: Seq of Int) -> Seq of Int:
+    Let n be length of xs.
+    Let out be a new Seq of Int.
+    Let mutable i be n.
+    While i is at least 1:
+        Push item i of xs to out.
+        Set i to i - 1.
+    Return out.
+
+## Note
+Returns `xs` sorted in ascending order using an in-place insertion sort over a copy.
+
+## To sortSeq (xs: Seq of Int) -> Seq of Int:
+    Let n be length of xs.
+    If n is at most 1:
+        Return xs.
+    Let mid be n / 2.
+    Return mergeSeq(sortSeq(sliceSeq(xs, 1, mid)), sortSeq(sliceSeq(xs, mid + 1, n))).
+
+## Note
+Merge two already-sorted `Int` sequences into one sorted sequence, preserving order
+of equal elements (the stable merge step of `sortSeq`'s O(n log n) mergesort).
+
+## To mergeSeq (a: Seq of Int) and (b: Seq of Int) -> Seq of Int:
+    Let mutable out be a new Seq of Int.
+    Let la be length of a.
+    Let lb be length of b.
+    Let mutable i be 1.
+    Let mutable j be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        If i is greater than la:
+            Set more to false.
+        Otherwise:
+            If j is greater than lb:
+                Set more to false.
+            Otherwise:
+                If item i of a is at most item j of b:
+                    Push item i of a to out.
+                    Set i to i + 1.
+                Otherwise:
+                    Push item j of b to out.
+                    Set j to j + 1.
+    While i is at most la:
+        Push item i of a to out.
+        Set i to i + 1.
+    While j is at most lb:
+        Push item j of b to out.
+        Set j to j + 1.
+    Return out.
+
+## Note
+Applies `f` to every element of `xs` and returns the sequence of results.
+
+## To mapSeq (f: fn(Int) -> Int) and (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        Push f(v) to out.
+    Return out.
+
+## Note
+Returns the elements of `xs` for which predicate `p` holds, preserving order.
+
+## To filterSeq (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        If p(v):
+            Push v to out.
+    Return out.
+
+## Note
+Returns true if predicate `p` holds for at least one element of `xs`, else false.
+
+## To anySeq (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Bool:
+    Repeat for v in xs:
+        If p(v):
+            Return true.
+    Return false.
+
+## Note
+Returns true if predicate `p` holds for every element of `xs`, else false.
+
+## To allSeq (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Bool:
+    Repeat for v in xs:
+        Let ok be p(v).
+        If ok is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Left-folds `xs` with `f`, starting from `init` and combining each element into the accumulator.
+
+## To reduceSeq (f: fn(Int, Int) -> Int) and (init: Int) and (xs: Seq of Int) -> Int:
+    Let mutable acc be init.
+    Repeat for v in xs:
+        Set acc to f(acc, v).
+    Return acc.
+
+## Note
+A pair of two Int fields, `first` and `second`.
+
+## A IntPair has:
+    a first, which is Int.
+    a second, which is Int.
+
+## Note
+Pairs each element of `xs` with its 1-based index, returning `IntPair`s of `first` index and `second` value.
+
+## To enumerateSeq (xs: Seq of Int) -> Seq of IntPair:
+    Let out be a new Seq of IntPair.
+    Let mutable i be 1.
+    Repeat for v in xs:
+        Push (a new IntPair with first i and second v) to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Pairs elements of `xs` and `ys` positionally into `IntPair`s, stopping at the shorter length.
+
+## To zipSeq (xs: Seq of Int) and (ys: Seq of Int) -> Seq of IntPair:
+    Let out be a new Seq of IntPair.
+    Let n be min(length of xs, length of ys).
+    Let mutable i be 1.
+    While i is at most n:
+        Push (a new IntPair with first (item i of xs) and second (item i of ys)) to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns the elements of `xs` with duplicates removed, keeping the first occurrence of each value.
+
+## To uniqueSeq (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let seen be a new Map of Int to Int.
+    Repeat for v in xs:
+        Let mutable isNew be true.
+        If seen contains v:
+            Set isNew to false.
+        If isNew is equal to true:
+            Push v to out.
+            Set item v of seen to 1.
+    Return out.
+
+## Note
+Returns the first `n` elements of `xs`, or all of them if `xs` is shorter than `n`.
+
+## To takeSeq (n: Int) and (xs: Seq of Int) -> Seq of Int:
+    Let total be length of xs.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        If i is at most total:
+            Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns `xs` with its first `n` elements removed, keeping the remaining tail.
+
+## To dropSeq (n: Int) and (xs: Seq of Int) -> Seq of Int:
+    Let total be length of xs.
+    Let out be a new Seq of Int.
+    Let mutable i be n + 1.
+    While i is at most total:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns true if `x` appears anywhere in `xs`, else false.
+
+## To containsSeq (x: Int) and (xs: Seq of Int) -> Bool:
+    Repeat for v in xs:
+        If v is equal to x:
+            Return true.
+    Return false.
+
+## Note
+Multiplies every element of `xs` together, returning 1 for an empty sequence.
+
+## To productSeq (xs: Seq of Int) -> Int:
+    Let mutable p be 1.
+    Repeat for v in xs:
+        Set p to p * v.
+    Return p.
+
+## Note
+Returns the ascending sequence of integers from `lo` through `hi` inclusive.
+
+## To rangeSeq (lo: Int) and (hi: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push i to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns a sequence containing the value `x` repeated `n` times.
+
+## To repeatVal (x: Int) and (n: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Push x to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns the first element of `xs`.
+
+## To firstOf (xs: Seq of Int) -> Int:
+    Return item 1 of xs.
+
+## Note
+Returns the last element of `xs`, indexed by its length.
+
+## To lastOf (xs: Seq of Int) -> Int:
+    Return item (length of xs) of xs.
+
+## Note
+Returns a new sequence with the elements of `xs` followed by the elements of `ys`.
+
+## To concatSeq (xs: Seq of Int) and (ys: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        Push v to out.
+    Repeat for v in ys:
+        Push v to out.
+    Return out.
+
+## Note
+Returns the contiguous elements of `xs` from index `lo` through `hi` inclusive.
+
+## To sliceSeq (xs: Seq of Int) and (lo: Int) and (hi: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns the 1-based index of the first occurrence of `x` in `xs`, or 0 if absent.
+
+## To indexOfInt (x: Int) and (xs: Seq of Int) -> Int:
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        If item i of xs is equal to x:
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Returns how many elements of `xs` are equal to `x`.
+
+## To countOf (x: Int) and (xs: Seq of Int) -> Int:
+    Let mutable total be 0.
+    Repeat for v in xs:
+        If v is equal to x:
+            Set total to total + 1.
+    Return total.
+
+## Note
+Sorts `xs` and returns the lower median, the element at index `(n + 1) / 2` (integer division).
+
+## To medianLow (xs: Seq of Int) -> Int:
+    Let s be sortSeq(xs).
+    Let n be length of s.
+    Let mid be (n + 1) / 2.
+    Return item mid of s.
+
+## Note
+Sorts `xs` and returns the upper median, the element at index `n / 2 + 1` (integer division).
+
+## To medianHigh (xs: Seq of Int) -> Int:
+    Let s be sortSeq(xs).
+    Let n be length of s.
+    Let mid be n / 2 + 1.
+    Return item mid of s.
+
+## Note
+Returns the most frequently occurring value in `xs`, favoring the earliest on ties.
+
+## To modeSeq (xs: Seq of Int) -> Int:
+    Let mutable best be item 1 of xs.
+    Let mutable bestCount be 0.
+    Repeat for v in xs:
+        Let c be countOf(v, xs).
+        If c is greater than bestCount:
+            Set bestCount to c.
+            Set best to v.
+    Return best.
+
+## Note
+Returns the spread of `xs`, its maximum minus its minimum.
+
+## To rangeStat (xs: Seq of Int) -> Int:
+    Return maxSeq(xs) - minSeq(xs).
+
+## Note
+Binary-searches sorted `xs` for the leftmost insertion index of `x`, so equal elements sort to its right.
+
+## To bisectLeft (xs: Seq of Int, x: Int) -> Int:
+    Let mutable lo be 1.
+    Let mutable hi be (length of xs) + 1.
+    While lo is less than hi:
+        Let mid be (lo + hi) / 2.
+        If item mid of xs is less than x:
+            Set lo to mid + 1.
+        Otherwise:
+            Set hi to mid.
+    Return lo.
+
+## Note
+Binary-searches sorted `xs` for the rightmost insertion index of `x`, so equal elements sort to its left.
+
+## To bisectRight (xs: Seq of Int, x: Int) -> Int:
+    Let mutable lo be 1.
+    Let mutable hi be (length of xs) + 1.
+    While lo is less than hi:
+        Let mid be (lo + hi) / 2.
+        If item mid of xs is at most x:
+            Set lo to mid + 1.
+        Otherwise:
+            Set hi to mid.
+    Return lo.
+
+## Note
+Returns sorted `xs` with `x` inserted at its `bisectLeft` position, keeping the sequence ordered.
+
+## To insort (xs: Seq of Int, x: Int) -> Seq of Int:
+    Let pos be bisectLeft(xs, x).
+    Let n be length of xs.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is less than pos:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Push x to out.
+    While i is at most n:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns the leading elements of `xs` for which `p` holds, stopping at the first that fails.
+
+## To takeWhileSeq (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable going be true.
+    Repeat for v in xs:
+        If going is equal to true:
+            If p(v):
+                Push v to out.
+            Otherwise:
+                Set going to false.
+    Return out.
+
+## Note
+Skips the leading elements of `xs` for which `p` holds, returning the rest from the first that fails.
+
+## To dropWhileSeq (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable dropping be true.
+    Repeat for v in xs:
+        If dropping is equal to true:
+            Let keep be p(v).
+            If keep is equal to false:
+                Set dropping to false.
+                Push v to out.
+        Otherwise:
+            Push v to out.
+    Return out.
+
+## Note
+Returns the 1-based index of the first element of `xs` for which `p` holds, or 0 if none do.
+
+## To findSeq (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Int:
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        If p(item i of xs):
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Returns `xs` with `x` inserted before index `pos`, appending it at the end when `pos` exceeds the length.
+
+## To insertAt (xs: Seq of Int) and (pos: Int) and (x: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        If i is equal to pos:
+            Push x to out.
+        Push item i of xs to out.
+        Set i to i + 1.
+    If pos is greater than n:
+        Push x to out.
+    Return out.
+
+## Note
+Returns `xs` with the element at index `pos` removed, preserving the order of the rest.
+
+## To removeAt (xs: Seq of Int) and (pos: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        If i is less than pos:
+            Push item i of xs to out.
+        Otherwise:
+            If i is greater than pos:
+                Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Rotates `xs` left by `n mod len` positions, wrapping shifted-off elements to the end; empty input returns empty.
+
+## To rotateLeftSeq (xs: Seq of Int) and (n: Int) -> Seq of Int:
+    Let len be length of xs.
+    Let out be a new Seq of Int.
+    If len is equal to 0:
+        Return out.
+    Let shift be n mod len.
+    Let mutable i be 1.
+    While i is at most len:
+        Let idx be ((i - 1 + shift) mod len) + 1.
+        Push item idx of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Rotates `xs` right by `n mod len` positions by delegating to `rotateLeftSeq`; empty input returns empty.
+
+## To rotateRightSeq (xs: Seq of Int) and (n: Int) -> Seq of Int:
+    Let len be length of xs.
+    If len is equal to 0:
+        Return a new Seq of Int.
+    Let shift be n mod len.
+    Return rotateLeftSeq(xs, len - shift).
+
+## Note
+Returns every `n`-th element of `xs`, starting from the first.
+
+## To stepBySeq (xs: Seq of Int) and (n: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let len be length of xs.
+    Let mutable i be 1.
+    While i is at most len:
+        Push item i of xs to out.
+        Set i to i + n.
+    Return out.
+
+## Note
+Returns a copy of `xs` with the elements at indices `i` and `j` exchanged.
+
+## To swapSeq (xs: Seq of Int) and (i: Int) and (j: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        Push v to out.
+    Let tmp be item i of out.
+    Set item i of out to item j of out.
+    Set item j of out to tmp.
+    Return out.
+
+## Note
+Returns `xs` shortened to its first `n` elements, or all of them if shorter than `n`.
+
+## To truncateSeq (xs: Seq of Int) and (n: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let total be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        If i is at most total:
+            Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns true when `xs` has length 0, else false.
+
+## To isEmptySeq (xs: Seq of Int) -> Bool:
+    Return length of xs is equal to 0.
+
+## Note
+Returns item `i` of `xs`, or `default` when `i` is out of bounds (below 1 or past the length).
+
+## To getOr (xs: Seq of Int) and (i: Int) and (default: Int) -> Int:
+    If i is less than 1:
+        Return default.
+    If i is greater than length of xs:
+        Return default.
+    Return item i of xs.
+
+## Note
+Binary-searches sorted `xs` for `x`, returning the 1-based index of a match or 0 if not found.
+
+## To binarySearchSeq (xs: Seq of Int) and (x: Int) -> Int:
+    Let mutable lo be 1.
+    Let mutable hi be length of xs.
+    While lo is at most hi:
+        Let mid be (lo + hi) / 2.
+        Let v be item mid of xs.
+        If v is equal to x:
+            Return mid.
+        Otherwise:
+            If v is less than x:
+                Set lo to mid + 1.
+            Otherwise:
+                Set hi to mid - 1.
+    Return 0.
+
+## Note
+Removes index `i` in O(1) by moving the last element into its place and dropping the last, not preserving order.
+
+## To swapRemove (xs: Seq of Int) and (i: Int) -> Seq of Int:
+    Let n be length of xs.
+    Let out be a new Seq of Int.
+    Let mutable k be 1.
+    While k is less than n:
+        If k is equal to i:
+            Push item n of xs to out.
+        Otherwise:
+            Push item k of xs to out.
+        Set k to k + 1.
+    Return out.
+
+## Note
+Collapses consecutive runs of equal elements in `xs`, keeping one from each run.
+
+## To dedupSeq (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable prev be 0.
+    Let mutable started be false.
+    Repeat for v in xs:
+        Let mutable emit be false.
+        If started is equal to false:
+            Set emit to true.
+        Otherwise:
+            If v is greater than prev:
+                Set emit to true.
+            If v is less than prev:
+                Set emit to true.
+        If emit is equal to true:
+            Push v to out.
+            Set prev to v.
+            Set started to true.
+    Return out.
+
+## Note
+Returns how many elements of `xs` satisfy predicate `p`.
+
+## To countWhere (p: fn(Int) -> Bool) and (xs: Seq of Int) -> Int:
+    Let mutable total be 0.
+    Repeat for v in xs:
+        If p(v):
+            Set total to total + 1.
+    Return total.
+
+## Note
+Returns item `n` of `xs`, or 0 when `n` is out of bounds (below 1 or past the length).
+
+## To nthSeq (xs: Seq of Int) and (n: Int) -> Int:
+    If n is less than 1:
+        Return 0.
+    If n is greater than length of xs:
+        Return 0.
+    Return item n of xs.
+
+## Note
+Returns the number of elements in `xs`.
+
+## To countSeq (xs: Seq of Int) -> Int:
+    Return length of xs.
+
+## Note
+Returns the set union of `xs` and `ys` as a duplicate-free sequence, preserving first-seen order.
+
+## To seqUnion (xs: Seq of Int) and (ys: Seq of Int) -> Seq of Int:
+    Return uniqueSeq(concatSeq(xs, ys)).
+
+## Note
+Returns the duplicate-free elements of `xs` that also appear in `ys`, in `xs` order.
+
+## To seqIntersection (xs: Seq of Int) and (ys: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let inYs be a new Map of Int to Int.
+    Repeat for v in ys:
+        Set item v of inYs to 1.
+    Let seen be a new Map of Int to Int.
+    Repeat for v in xs:
+        If inYs contains v:
+            Let mutable isNew be true.
+            If seen contains v:
+                Set isNew to false.
+            If isNew is equal to true:
+                Push v to out.
+                Set item v of seen to 1.
+    Return out.
+
+## Note
+Returns the duplicate-free elements of `xs` that do not appear in `ys`, in `xs` order.
+
+## To seqDifference (xs: Seq of Int) and (ys: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let inYs be a new Map of Int to Int.
+    Repeat for v in ys:
+        Set item v of inYs to 1.
+    Let seen be a new Map of Int to Int.
+    Repeat for v in xs:
+        Let mutable keep be true.
+        If inYs contains v:
+            Set keep to false.
+        If seen contains v:
+            Set keep to false.
+        If keep is equal to true:
+            Push v to out.
+            Set item v of seen to 1.
+    Return out.
+
+## Note
+Returns the duplicate-free elements present in exactly one of `xs` or `ys`.
+
+## To seqSymmetricDifference (xs: Seq of Int) and (ys: Seq of Int) -> Seq of Int:
+    Return concatSeq(seqDifference(xs, ys), seqDifference(ys, xs)).
+
+## Note
+Returns true when every element of `xs` also appears in `ys`, else false.
+
+## To isSubset (xs: Seq of Int) and (ys: Seq of Int) -> Bool:
+    Let inYs be a new Map of Int to Int.
+    Repeat for v in ys:
+        Set item v of inYs to 1.
+    Repeat for v in xs:
+        Let mutable ok be false.
+        If inYs contains v:
+            Set ok to true.
+        If ok is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Returns the running prefix sums of `xs`, each output being the sum of all elements up to that point.
+
+## To scanSeq (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable acc be 0.
+    Repeat for v in xs:
+        Set acc to acc + v.
+        Push acc to out.
+    Return out.
+
+## Note
+Binary-searches sorted `xs` for the first index whose element is at least `x`, the boundary between `< x` and `>= x`.
+
+## To partitionPoint (xs: Seq of Int) and (x: Int) -> Int:
+    Let mutable lo be 1.
+    Let mutable hi be (length of xs) + 1.
+    While lo is less than hi:
+        Let mid be (lo + hi) / 2.
+        If item mid of xs is less than x:
+            Set lo to mid + 1.
+        Otherwise:
+            Set hi to mid.
+    Return lo.

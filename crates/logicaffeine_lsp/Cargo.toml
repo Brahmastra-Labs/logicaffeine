@@ -8,24 +8,34 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Language Server Protocol implementation for LOGOS (the logicaffeine language)"
+license = "MIT"
+description = "The LOGOS language server (LSP): diagnostics, completion, hover, navigation and refactoring for .lg files, literate .md files and LGX pages"
 readme = "README.md"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [[bin]]
 name = "logicaffeine-lsp"
 path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["server"]
+# The Language Server Protocol transport: JSON-RPC over stdio, on tokio. Without it the crate is
+# the analysis alone (hover, diagnostics, completion, …), which the browser Studio links directly.
+server = ["dep:tower-lsp", "dep:tokio", "dep:env_logger"]
 
 [dependencies]
 logicaffeine-base = { workspace = true }
 logicaffeine-language = { workspace = true }
 logicaffeine-compile = { workspace = true, features = ["codegen"] }
-logicaffeine-proof = { workspace = true }
 
-tower-lsp = "0.20"
-tokio = { version = "1", features = ["full"] }
+lsp-types = "0.94.1"
+tower-lsp = { version = "0.20", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
 dashmap = "6"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
-env_logger = "0.11"
+env_logger = { version = "0.11", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

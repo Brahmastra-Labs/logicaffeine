@@ -1,0 +1,11 @@
+{
+  "capability": "iter.contains",
+  "workload": "containsSeq(x,xs), x present ~half the time (forces full scans)",
+  "arg": "60000",
+  "expected": "60000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "go"
+  ]
+}

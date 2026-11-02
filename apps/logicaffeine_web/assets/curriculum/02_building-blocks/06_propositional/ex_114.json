@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're bold, then you're candid and selfish",
   "options": [
-    "$ (B \\supset C) \\cdot S $",
-    "$ (B \\supset (C \\cdot S)) $",
-    "$ B \\supset C \\cdot S $",
-    "$ ((B \\supset C) \\cdot S) $"
+    "(B → C) ∧ S",
+    "B → (C ∧ S)",
+    "B ∧ C ∧ S",
+    "B ∨ (C ∧ S)"
   ],
   "correct": 1,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part B to the then part C ∧ S: B → (C ∧ S).",
+  "section": "6.2"
 }

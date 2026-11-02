@@ -1,0 +1,176 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "micro100",
+    "dut": "micro100",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "fair100",
+    "dut": "fair100",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "edge100",
+    "dut": "edge100",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "base_size",
+    "dut": "base_size",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "max_order",
+    "dut": "max_order",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "inventory",
+    "dut": "inventory",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "pos_cap",
+    "dut": "pos_cap",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "book_ok",
+    "dut": "book_ok",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K1",
+  "mems": [],
+  "name": "k1_bambu_fsm_c_a7p10",
+  "outputs": [
+   {
+    "contract": "order",
+    "dut": "return_port",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   }
+  ],
+  "ports": [
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "base_size"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "book_ok"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "edge100"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "fair100"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "inventory"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "max_order"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "micro100"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "pos_cap"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "return_port"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "decide"
+ },
+ "files": [
+  "decide.v"
+ ],
+ "golden_signature": "4037c5435df41446",
+ "harness": "qorbist_k1_bambu_fsm_c_a7p10.v",
+ "harness_top": "qorbist_k1_bambu_fsm_c_a7p10",
+ "kernel": "K1",
+ "kernel_name": "decide",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

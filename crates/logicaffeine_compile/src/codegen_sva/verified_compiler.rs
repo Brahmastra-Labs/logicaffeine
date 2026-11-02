@@ -7,8 +7,6 @@
 //! Compiler correctness is inherited from the projection framework.
 
 use super::fol_to_sva::{synthesize_sva_from_spec, SynthesizedSva};
-use super::sva_model::parse_sva;
-use super::{SvaProperty, SvaAssertionKind, emit_sva_property};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 

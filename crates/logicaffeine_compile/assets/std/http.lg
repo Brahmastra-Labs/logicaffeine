@@ -1,0 +1,414 @@
+# HTTP
+
+Value types and helpers for serving the web. A handler is an ordinary function
+from a `Request` to a `Response`; the `Serve` statement runs it once per request.
+Route by matching on the request's path; read headers with `headerOf` and query
+parameters with `queryOf`; build a reply with the constructors below and add
+headers with `withHeader`.
+
+## Definition
+
+## Note
+An HTTP request as a handler sees it: the method, the percent-decoded path, the
+body text, the headers (names lowercased by the wire parser), and the
+percent-decoded query parameters.
+
+A Request has:
+    a method, which is Text.
+    a path, which is Text.
+    a body, which is Text.
+    a headers, which is Map of Text to Text.
+    a query, which is Map of Text to Text.
+
+## Note
+What went wrong with a request the page sent: the `status` the server answered, and a `message`
+to show. A status of `0` means nothing answered at all.
+
+An HttpError has:
+    a status, which is Int.
+    a message, which is Text.
+
+## Note
+An HTTP response a handler returns: status, content type, body, and extra headers.
+
+An HTTP response a handler returns: a numeric status, a content type, a text
+body, an optional raw byte body sent instead of the text when non-empty, and
+extra headers (set them through `withHeader`, which enforces the hop-by-hop
+denylist and the response-splitting guard).
+
+A Response has:
+    a status, which is Int.
+    a contentType, which is Text.
+    a body, which is Text.
+    a bytes, which is Seq of Int.
+    a headers, which is Map of Text to Text.
+
+## Note
+A 200 OK response with a plain-text body.
+
+## To plain (body: Text) -> Response:
+    Return a new Response with status 200 and contentType "text/plain" and body body.
+
+## Note
+A 200 OK response with an HTML body.
+
+## To html (body: Text) -> Response:
+    Return a new Response with status 200 and contentType "text/html" and body body.
+
+## Note
+A 200 OK response with a JSON body.
+
+## To json (body: Text) -> Response:
+    Return a new Response with status 200 and contentType "application/json" and body body.
+
+## Note
+A 404 Not Found response.
+
+## To notFound () -> Response:
+    Return a new Response with status 404 and contentType "text/plain" and body "Not Found".
+
+## Note
+401 Unauthorized — "I do not know who you are", so the visitor should sign in.
+
+`forbidden` is the OTHER refusal, 403: "I know who you are, and no", which signing in again will
+not help. A guard that conflated the two would send an authenticated visitor to a login page they
+are already past, forever.
+
+## To unauthorized () -> Response:
+    Return a new Response with status 401 and contentType "text/plain" and body "Unauthorized".
+
+## Note
+403 Forbidden — the request is understood and refused. See `unauthorized` for the other one.
+
+## To forbidden () -> Response:
+    Return a new Response with status 403 and contentType "text/plain" and body "Forbidden".
+
+## Note
+A 302 redirect to `where`, carrying the `Location` header that says so.
+
+That header is the whole point: a redirect that does not name where it is going is a dead end —
+the browser is told to move and not where, so it stays put and the visitor sees nothing happen.
+
+Use `permanentRedirectTo` only when the move really is permanent: a 301 tells the browser AND every
+cache in between to remember it, which is close to irreversible.
+
+## To redirectTo (where: Text) -> Response:
+    Let r be a new Response with status 302 and contentType "text/plain" and body "".
+    Inspect withHeader(r, "location", where):
+        When Ok (out):
+            Return out.
+        Otherwise:
+            Return a new Response with status 500 and contentType "text/plain" and body "bad redirect target".
+
+## Note
+A 301 permanent redirect. See `redirectTo` — this one is remembered by caches.
+
+## To permanentRedirectTo (where: Text) -> Response:
+    Let r be redirectTo(where).
+    Return a new Response with status 301 and contentType r's contentType and body r's body and headers r's headers.
+
+## Note
+A `Set-Cookie` value with the safe attributes already on it.
+
+They are on by default because a cookie is how a session survives a request, and the caller who
+most needs them is the least likely to know to ask:
+
+- `HttpOnly` keeps a script from reading it, which is what makes an XSS a nuisance rather than a
+  full account takeover.
+- `SameSite=Lax` is what a CSRF defence rests on — a cookie the browser will not attach to a
+  cross-site request cannot be replayed by another site's form.
+- `Secure` keeps it off plaintext HTTP, where anyone on the path can read it.
+- `Path=/` makes it the whole site's cookie rather than one directory's.
+
+A name or value carrying `;`, a newline or a quote is REFUSED (answers `""`): those end the cookie
+— or the HEADER — and everything after becomes something the server never wrote. That is response
+splitting, and a session cookie is exactly where it would be aimed. Refusing beats sanitising: a
+silently-truncated session id is a bug nobody can see.
+
+## To cookie (name: Text) and (value: Text) -> Text:
+    Return cookieFor(name, value, cookiesAreSecure()).
+
+## Note
+The same cookie, saying for itself whether it is `Secure`.
+
+A `Secure` cookie is never sent back over plain HTTP, so a session cannot survive one hop on an
+address that is not HTTPS. `localhost` is not the case that bites — browsers treat it as a
+trustworthy origin and do send `Secure` cookies to it. The one that bites is the LAN address,
+`http://192.168.x.x`, which is how anybody tests a page on their phone: there the browser accepts
+the `Set-Cookie` and then declines to send it, which looks exactly like a login that silently does
+not log anybody in.
+
+Dropping `Secure` drops ONLY `Secure`. `HttpOnly` and `SameSite` defend against different attacks
+and have nothing to do with the transport.
+
+## To cookieFor (name: Text) and (value: Text) and (secure: Bool) -> Text:
+    If isCookieSafe(name) is equal to false:
+        Return "".
+    If isCookieSafe(value) is equal to false:
+        Return "".
+    If name is equal to "":
+        Return "".
+    Let base be name + "=" + value + "; Path=/; HttpOnly; SameSite=Lax".
+    If secure is equal to true:
+        Return base + "; Secure".
+    Return base.
+
+## Note
+Whether cookies this program sets are marked `Secure`. They are, unless `LOGOS_COOKIE_INSECURE` is
+set to something.
+
+The default does not move, because the two failure modes are not symmetrical: a missing `Secure` in
+production is a session token travelling in clear text on every request, and an unwanted one in
+development is a login that does not stick. Only the second is noticed immediately, and only the
+first is a breach — so opting OUT is a decision somebody makes on purpose, and opting IN is one
+they forget.
+
+## To cookiesAreSecure () -> Bool:
+    Let mutable asked be "".
+    Inspect get("LOGOS_COOKIE_INSECURE"):
+        When Some (v):
+            Set asked to v.
+        When None:
+            Set asked to "".
+    If asked is equal to "":
+        Return true.
+    Return false.
+
+## Note
+The cookie that DELETES one: the same name, an empty value, and a zero lifetime.
+
+Setting it is the only way to say "forget this" — a logout that could not would leave the session
+cookie sitting in the browser.
+
+## To expiredCookie (name: Text) -> Text:
+    If isCookieSafe(name) is equal to false:
+        Return "".
+    If name is equal to "":
+        Return "".
+    Let base be name + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax".
+    If cookiesAreSecure() is equal to true:
+        Return base + "; Secure".
+    Return base.
+
+## Note
+Whether `t` may appear in a cookie name or value: no `;` (it ends the cookie), no CR or LF (they
+end the HEADER), no `"`, no `,` and no space.
+
+## To isCookieSafe (t: Text) -> Bool:
+    Repeat for bt in text_bytes(t):
+        If bt is equal to 59:
+            Return false.
+        If bt is equal to 44:
+            Return false.
+        If bt is equal to 34:
+            Return false.
+        If bt is equal to 32:
+            Return false.
+        If bt is less than 32:
+            Return false.
+        If bt is equal to 127:
+            Return false.
+    Return true.
+
+## Note
+`response` with `name=value` set as a cookie, safe attributes and all.
+
+## To withCookie (response: Response) and (name: Text) and (value: Text) -> Response:
+    Let c be cookie(name, value).
+    If c is equal to "":
+        Return response.
+    Inspect withHeader(response, "set-cookie", c):
+        When Ok (out):
+            Return out.
+        Otherwise:
+            Return response.
+
+## Note
+The value of cookie `name` the request carries, or `""` when it sent none.
+
+A `Cookie` header is a `; `-separated LIST — a browser sends every cookie for the site at once — so
+a server that only understood one would break the moment anything else set one.
+
+## To cookieOf (request: Request) and (name: Text) -> Text:
+    Let raw be headerOf(request, "cookie").
+    If raw is equal to "":
+        Return "".
+    Repeat for part in split(raw, ";"):
+        Let piece be trim(part).
+        Let at be indexOf(piece, "=").
+        If at is greater than 0:
+            If textUpTo(piece, at - 1) is equal to name:
+                Return textFrom(piece, at).
+    Return "".
+
+## Note
+A 200 OK response carrying raw bytes (e.g. `bytesResponse("application/wasm", readBytes("app.wasm"))`).
+
+## To bytesResponse (contentType: Text) and (payload: Seq of Int) -> Response:
+    Return a new Response with status 200 and contentType contentType and body "" and bytes payload.
+
+## Note
+Reads request header `name` case-insensitively (HTTP header names are case-insensitive by RFC), returning `""` when absent.
+
+An empty header value also reads as `""` — `hasHeader` tells them apart. When
+two keys of a hand-built map differ only by case, the first in map order wins.
+## To headerOf (request: Request) and (name: Text) -> Text:
+    Return headerIn(request's headers, name).
+
+## Note
+The value of header `name` in a header MAP, case-insensitively, or `""` when it carries none.
+
+A request's headers and a response's headers are the same shape and are read the same way. The
+router asks this of a RESPONSE — to find the `Set-Cookie` a route set — and `headerOf` asks it of a
+REQUEST. One walk, so the two can never disagree about what counts as a match, which is exactly the
+kind of drift a second hand-written case-folding loop invites.
+
+## To headerIn (headers: Map of Text to Text) and (name: Text) -> Text:
+    Let want be lower(name).
+    Repeat for (k, v) in headers:
+        If lower(k) is equal to want:
+            Return v.
+    Return "".
+
+## Note
+Reports whether request header `name` is present, case-insensitively —
+distinguishing an absent header from one whose value is empty.
+
+## To hasHeader (request: Request) and (name: Text) -> Bool:
+    Let want be lower(name).
+    Let hs be request's headers.
+    Repeat for (k, v) in hs:
+        If lower(k) is equal to want:
+            Return true.
+    Return false.
+
+## Note
+Reads query parameter `name` (already percent-decoded by the wire parser), returning `""` when absent.
+
+Query keys are data, not protocol tokens, so the lookup is case-sensitive;
+`hasQuery` distinguishes absent from empty.
+## To queryOf (request: Request) and (name: Text) -> Text:
+    Let q be request's query.
+    If q contains name:
+        Return item name of q.
+    Return "".
+
+## Note
+Reports whether query parameter `name` is present (case-sensitively) —
+distinguishing an absent parameter from one whose value is empty.
+
+## To hasQuery (request: Request) and (name: Text) -> Bool:
+    Let q be request's query.
+    If q contains name:
+        Return true.
+    Return false.
+
+## Note
+Reports whether byte `bt` may appear in a header name: the RFC 7230 token set,
+ALPHA / DIGIT / ! # $ % & ' * + - . ^ _ ` | ~.
+
+## To isHeaderTokenByte (bt: Int) -> Bool:
+    If bt is at least 48:
+        If bt is at most 57:
+            Return true.
+    If bt is at least 65:
+        If bt is at most 90:
+            Return true.
+    If bt is at least 97:
+        If bt is at most 122:
+            Return true.
+    If bt is equal to 33:
+        Return true.
+    If bt is at least 35:
+        If bt is at most 39:
+            Return true.
+    If bt is equal to 42:
+        Return true.
+    If bt is equal to 43:
+        Return true.
+    If bt is equal to 45:
+        Return true.
+    If bt is equal to 46:
+        Return true.
+    If bt is at least 94:
+        If bt is at most 96:
+            Return true.
+    If bt is equal to 124:
+        Return true.
+    If bt is equal to 126:
+        Return true.
+    Return false.
+
+## Note
+Reports whether `name` is a valid header name: non-empty and made only of
+RFC 7230 token bytes (so a CR, LF, space, or colon can never reach the wire).
+
+## To isHeaderName (name: Text) -> Bool:
+    Let bs be text_bytes(name).
+    If length of bs is equal to 0:
+        Return false.
+    Repeat for bt in bs:
+        If isHeaderTokenByte(bt) is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Reports whether `value` is safe as a header value: no CR, LF, or NUL byte —
+the response-splitting guard.
+
+## To isHeaderValue (value: Text) -> Bool:
+    Let bs be text_bytes(value).
+    Repeat for bt in bs:
+        If bt is equal to 13:
+            Return false.
+        If bt is equal to 10:
+            Return false.
+        If bt is equal to 0:
+            Return false.
+    Return true.
+
+## Note
+Reports whether lowercased header name `key` is hop-by-hop framing the wire
+writer owns: connection, content-length, transfer-encoding, keep-alive, upgrade.
+
+## To isHopByHop (key: Text) -> Bool:
+    If key is equal to "connection":
+        Return true.
+    If key is equal to "content-length":
+        Return true.
+    If key is equal to "transfer-encoding":
+        Return true.
+    If key is equal to "keep-alive":
+        Return true.
+    If key is equal to "upgrade":
+        Return true.
+    Return false.
+
+## Note
+Returns a copy of `response` with header `name` set to `value`; the input is never mutated.
+
+Names are stored lowercased, so re-setting the same name in any casing overwrites — one logical header, one wire line.
+Rejects with an `Err`, never a silent drop: a non-token name, a hop-by-hop name
+(the wire owns those), content-type (set the `contentType` field instead), and
+any CR/LF/NUL in the value (response splitting).
+## To withHeader (response: Response) and (name: Text) and (value: Text) -> Result of Response and Text:
+    If isHeaderName(name) is equal to false:
+        Return a new Err with error "withHeader: header name is not a valid token".
+    Let key be lower(name).
+    If isHopByHop(key) is equal to true:
+        Return a new Err with error "withHeader: {key} is hop-by-hop; the wire owns it".
+    If key is equal to "content-type":
+        Return a new Err with error "withHeader: set contentType on the Response instead of a content-type header".
+    If isHeaderValue(value) is equal to false:
+        Return a new Err with error "withHeader: header value contains a forbidden control byte".
+    Let mutable fresh be a new Map of Text to Text.
+    Let hs be response's headers.
+    Repeat for (k, v) in hs:
+        Set item k of fresh to v.
+    Set item key of fresh to value.
+    Let s be response's status.
+    Let ct be response's contentType.
+    Let b be response's body.
+    Let bs be response's bytes.
+    Let out be a new Response with status s and contentType ct and body b and bytes bs and headers fresh.
+    Return a new Ok with value out.

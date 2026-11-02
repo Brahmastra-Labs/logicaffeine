@@ -1,0 +1,79 @@
+{
+  "case": "T00-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b1",
+      "name": "T00_010.constFn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n = 1",
+      "name": "T00_010.existsViaHole",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat) \u2192 Nat",
+      "name": "T00_010.hiddenPosition",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat",
+      "name": "T00_010.implicitTypeArg",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Fin 5",
+      "name": "T00_010.nestedMetas",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "3 < 5",
+      "name": "T00_010.nestedMetas.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_010.underscoreFromExpectedType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_010.underscoreFromLaterArg",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T00_010.viaTactic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -66,8 +66,8 @@ case "$(uname -s)" in
   Linux)  OS=linux ;;
   Darwin) OS=darwin ;;
   MINGW*|MSYS*|CYGWIN*)
-    die "this is the Unix installer — on Windows run:
-  powershell -ExecutionPolicy Bypass -c \"irm https://logicaffeine.com/install.ps1 | iex\"
+    die "this is the Unix installer — on Windows, in PowerShell, run:
+  irm https://logicaffeine.com/install.ps1 | iex
 (or use WSL)" ;;
   *) die "unsupported platform $(uname -s) — try: cargo install logicaffeine-cli" ;;
 esac

@@ -1,0 +1,109 @@
+{
+  "schema": "logos-lean-package/1",
+  "result_id": "sha256:682c200912d5d112cb85b568691d065f6e09bf3bc1fa5964b756d6cdd9dbfa1e",
+  "files": {
+    "T06_002.transport.lg": "06ddc66dac3d95bab7b622b59bfaca2f78e4ff94c867e661ddddd08bd3b2653d",
+    "certificate.json": "e48fcd976c18ef20272671fbcc89fa3a42c8da9d8c4206c824dce95b50ca5c9a",
+    "correspondence.json": "ed6154486679208f4860b6de4c9229c8393e4e366dd6f67274881a5828df8046",
+    "source/T06_002.lean": "57af1f3bab19363f4d4c82e19f2d50940c197da9559df418f7d40f95e4a8aeaf",
+    "source/export.ndjson": "76c08820aeb088934efb3143890300525426cefb757c52583f515c7e04820718"
+  },
+  "source": {
+    "export": "source/export.ndjson",
+    "export_sha256": "76c08820aeb088934efb3143890300525426cefb757c52583f515c7e04820718",
+    "format": "3.1.0",
+    "lean_version": "4.14.0",
+    "lean_githash": "410fab7284703f41660ca2454218dcca9b2ec896",
+    "exporter": "lean4export 3.1.0",
+    "lean_sources": [
+      "source/T06_002.lean"
+    ]
+  },
+  "target": {
+    "lean": "T06_002.transport",
+    "kernel": "/s:\"T06_002\"/s:\"transport\"",
+    "kind": "thm",
+    "level_params": [],
+    "statement": "Π(ref.0:Type0). Π(ref.1:Π(ref.1:ref.0). Prop). Π(ref.2:ref.0). Π(ref.3:ref.0). Π(ref.4:(((/s:\"Eq\".{Type0} ref.0) ref.2) ref.3)). Π(ref.5:(ref.1 ref.2)). (ref.1 ref.3)",
+    "logos": "T06_002.transport"
+  },
+  "document": "T06_002.transport.lg",
+  "emission": {
+    "status": "emitted",
+    "detail": "written by the emitter and reparsed",
+    "omissions": [
+      "Lean.Eq: the literate surface has no universe parameters",
+      "Lean.Eq.rec: the literate surface has no universe parameters",
+      "T06_002.transport: the literate `## Theorem:` surface proves by tactic, and this proof is a checked term"
+    ]
+  },
+  "toolchain": {
+    "logos": "0.10.1",
+    "prelude": "logos-coc-4",
+    "certificate_schema": "logos-environment-certificate/1",
+    "lean": "leanprover/lean4:v4.14.0: Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+    "exporter": "lean4export 20c4a64aa1b76f7c79a6db15d089084359f8c3dc"
+  },
+  "assumptions": {
+    "allowed": [
+      "propext",
+      "Quot.sound",
+      "Classical.choice"
+    ],
+    "transitive": [],
+    "lean_print_axioms": []
+  },
+  "information_losses": [
+    {
+      "category": "SOURCE_POSITIONS",
+      "detail": "a Lean export records no source positions, so the correspondence maps names, not spans, on the Lean side"
+    }
+  ],
+  "trusted_base": [
+    "The LOGOS kernel crate (logicaffeine-kernel): its Term, Universe and Context representations, reduction and definitional equality, and the primary type checker.",
+    "The independent re-checker (`recheck`) is a separately written de Bruijn type checker in the same crate. It shares the Term, Universe and Context representations and the environment the primary check built; it corroborates typing, it is not an independent theorem prover.",
+    "Exact (Lean) conversion is enforced by the Lean reader's exact typing traversal over the kernel's own reduction.",
+    "The statement binding reads the export with the reference translator, which shares no code with the importer's conversion, sharing or caching machinery; it shares the kernel's Term type and the serde_json parser.",
+    "Structure η, quotient primitives and the kernel's literal Nat are admitted only in their checked canonical forms.",
+    "The LOGOS document is checked by the LOGOS parser and `Repl::execute_document` over the same kernel.",
+    "SHA-256 digests identify bytes; they establish no semantic correspondence. The binding and the kernel do.",
+    "That the pinned Lean accepted the source is recorded by the producing run and is not re-established by replay."
+  ],
+  "receipt": {
+    "assumption_policy": {
+      "status": "passed",
+      "code": null,
+      "detail": "the statement and proof rest on no assumption"
+    },
+    "emission_reparsed": {
+      "status": "passed",
+      "code": null,
+      "detail": "the document reparsed in a fresh LOGOS session and states the reference translation"
+    },
+    "fresh_replay": {
+      "status": "not_run",
+      "code": null,
+      "detail": "established only by a replay of the package in a fresh process"
+    },
+    "independent_recheck": {
+      "status": "passed",
+      "code": null,
+      "detail": "4 checked terms re-inferred by the independent kernel to their declared types"
+    },
+    "lean_accepted": {
+      "status": "passed",
+      "code": null,
+      "detail": "leanprover/lean4:v4.14.0: Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release) with lean4export 20c4a64aa1b76f7c79a6db15d089084359f8c3dc: compiled in isolation; #print axioms: []"
+    },
+    "primary_check": {
+      "status": "passed",
+      "code": null,
+      "detail": "3 declarations rebuilt from the bare kernel, each kernel-validated under exact conversion; no obligation owed"
+    },
+    "translated": {
+      "status": "passed",
+      "code": null,
+      "detail": "T06_002.transport's statement is exactly convertible with the reference translation of its Lean type; 3 further declarations bound to their source"
+    }
+  }
+}

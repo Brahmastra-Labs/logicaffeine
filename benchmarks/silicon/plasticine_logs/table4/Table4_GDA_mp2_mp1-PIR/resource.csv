@@ -1,0 +1,5 @@
+Type,Used,Reserved,Total,Usage
+PCU,18,0,64,28.1
+PMU,15,0,64,23.4
+MC,5,0,32,15.6
+DAG,6,0,32,18.8

@@ -67,7 +67,9 @@ edition = "2021"
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
         .output()
         .expect("cargo run");
-    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+    let output = if !output.status.success()
+        && String::from_utf8_lossy(&output.stderr).contains("--offline")
+    {
         Command::new("cargo")
             .args(["run", "--quiet"])
             .current_dir(project_dir)

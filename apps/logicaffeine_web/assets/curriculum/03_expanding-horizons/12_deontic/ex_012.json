@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "I allowed someone to cheat",
   "options": [
-    "$ (\\exists x)(Ix\\cdot C\\underline{x} ) $",
-    "$ (\\exists x)(Ix\\cdot Cx) $",
-    "$ (\\exists x)(I\\underline{x} \\cdot C\\underline{x} ) $",
-    "$ (\\exists x)(I\\underline{x} \\cdot Cx) $"
+    "∃x(I(x) ∧ C(x̲))",
+    "∃x(I(x) ∧ C(x))",
+    "∃x(I(x̲) ∧ C(x̲))",
+    "∃x(I(x̲) ∧ C(x))"
   ],
   "correct": 0,
-  "hint": "Permission means something is ALLOWED, not required. Who has this permission?",
-  "explanation": "'I allowed someone to cheat' asserts that such a person exists. (∃x) introduces the indefinite 'someone', Ix says I allowed that person, and C͟x (x underlined as the agent) says that person cheats: (∃x)(Ix · C͟x)."
+  "hint": "Who allowed, and who would act?",
+  "explanation": "Someone exists whom I allowed, and that person is the one who would cheat, so x is underlined in C: ∃x(I(x) ∧ C(x̲)).",
+  "section": "12.2"
 }

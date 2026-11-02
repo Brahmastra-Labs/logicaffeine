@@ -1,0 +1,6 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 11999066377
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;lc_gc_collect;lc_gc_scan 2731118369
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__memset_avx2_unaligned_erms;[unknown] 2680694110
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__memset_avx2_unaligned_erms;[unknown] 1422531402
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__memset_avx2_unaligned_erms 325293461
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__memset_avx2_unaligned_erms 180610244

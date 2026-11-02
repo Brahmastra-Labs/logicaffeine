@@ -16,16 +16,17 @@
 //! family) on the small instances and report its conflict count — the search work our certified
 //! proof avoids entirely.
 
+use super::hardware_spec;
 use logicaffeine_proof::cdcl::{SolveResult, Solver};
 use logicaffeine_proof::families::php;
-use logicaffeine_proof::matching::{assign_or_hall, is_hall_witness, HallWitness, MatchOutcome};
+use logicaffeine_proof::matching::{assign_or_hall, HallWitness, MatchOutcome};
 use logicaffeine_proof::pr::check_pr_refutation;
 use logicaffeine_proof::sym_certify::heule_php_refutation;
 
 /// Smallest instance worth showing (one pigeon, zero holes is degenerate).
-const SPEC_MIN_N: usize = 2;
+const SPEC_MIN_N: usize = *hardware_spec::PIGEONS_RANGE.start();
 /// Largest instance the spec accepts — keeps the drawing legible and the CNF build bounded.
-const SPEC_MAX_N: usize = 20;
+const SPEC_MAX_N: usize = *hardware_spec::PIGEONS_RANGE.end();
 /// Run the live certified Heule proof up to here (PHP(12) ≈ 60ms); beyond it the matching witness
 /// and the polynomial-proof note carry the story without a heavy per-render construction.
 const HEULE_MAX_N: usize = 12;
@@ -57,15 +58,12 @@ impl PigeonSpec {
 pub fn parse_pigeonhole_spec(spec: &str) -> Option<PigeonSpec> {
     let mut pigeons: Option<usize> = None;
     for raw in spec.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let line = hardware_spec::content(raw);
+        if line.is_empty() {
             continue;
         }
-        if let Some(rest) = line
-            .strip_prefix("pigeons:")
-            .or_else(|| line.strip_prefix("Pigeons:"))
-        {
-            if let Ok(n) = rest.trim().parse::<usize>() {
+        if let Some(rest) = hardware_spec::field_value(line, hardware_spec::PIGEONS) {
+            if let Ok(n) = rest.parse::<usize>() {
                 if (SPEC_MIN_N..=SPEC_MAX_N).contains(&n) {
                     pigeons = Some(n);
                 }
@@ -113,7 +111,10 @@ pub fn solve(spec: &PigeonSpec) -> Verdict {
     let hall = match assign_or_hall(&adjacency(n, holes), holes) {
         MatchOutcome::Infeasible(w) => w,
         // PHP(n) with n ≥ 2 is always infeasible; keep a faithful (re-checkable) witness regardless.
-        MatchOutcome::Feasible(_) => HallWitness { items: (0..n).collect(), slots: (0..holes).collect() },
+        MatchOutcome::Feasible(_) => HallWitness {
+            items: (0..n).collect(),
+            slots: (0..holes).collect(),
+        },
     };
 
     // Certified symmetry-breaking proof (Heule PR), live, for the affordable range.
@@ -142,7 +143,12 @@ pub fn solve(spec: &PigeonSpec) -> Verdict {
         None
     };
 
-    Verdict { hall, pr_clauses, certified, baseline_conflicts }
+    Verdict {
+        hall,
+        pr_clauses,
+        certified,
+        baseline_conflicts,
+    }
 }
 
 /// A looping SMIL translate that holds at the start, glides by `(dx, dy)`, holds there, then returns —
@@ -188,12 +194,43 @@ fn pulse(bm: f64, be: f64, dur: f64) -> String {
 fn pigeon_glyph(body: &str, accent: &str) -> String {
     use std::fmt::Write as _;
     let mut s = String::new();
-    let _ = write!(s, r##"<ellipse cx="0" cy="0" rx="13" ry="9" fill="{body}"/>"##);
-    let _ = write!(s, r##"<path d="M -2,-3 q 12,-9 14,3 q -8,-3 -14,2 Z" fill="{accent}"/>"##);
+    let _ = write!(
+        s,
+        r##"<ellipse cx="0" cy="0" rx="13" ry="9" fill="{body}"/>"##
+    );
+    let _ = write!(
+        s,
+        r##"<path d="M -2,-3 q 12,-9 14,3 q -8,-3 -14,2 Z" fill="{accent}"/>"##
+    );
     let _ = write!(s, r##"<circle cx="9" cy="-5" r="6" fill="{body}"/>"##);
     let _ = write!(s, r##"<circle cx="11" cy="-6" r="1.4" fill="#0f1117"/>"##);
-    let _ = write!(s, r##"<path d="M 14,-5 l 6,-1.5 l -6,3 Z" fill="#f59e0b"/>"##);
+    let _ = write!(
+        s,
+        r##"<path d="M 14,-5 l 6,-1.5 l -6,3 Z" fill="#f59e0b"/>"##
+    );
     s
+}
+
+/// The type size of the picture's title and status lines: the picture fits its panel, so its
+/// text is set large enough to stay readable at the Studio's default column width.
+const CAPTION_PX: u32 = 15;
+
+/// `n` of `noun`, singular for one: "1 hole", "5 holes".
+fn counted(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
+/// The result in one line: the certified refutation.
+pub fn headline(spec: &PigeonSpec) -> String {
+    format!(
+        "\u{2713} Certified UNSAT \u{2014} {} cannot fit {}.",
+        counted(spec.pigeons, "pigeon"),
+        counted(spec.holes(), "hole")
+    )
 }
 
 /// Render PHP(`spec.pigeons`) as `(svg, verdict)`. The SVG is an animated flight: `n` pigeons glide
@@ -217,7 +254,7 @@ pub fn render(spec: &PigeonSpec) -> (String, String) {
     let hole_h = 30.0_f64;
     let shelf_y = hole_y + hole_h + 6.0;
     let status_top = shelf_y + 26.0;
-    let status_step = 20.0_f64;
+    let status_step = 24.0_f64;
     let last_status_y = status_top + 2.0 * status_step;
     let height = last_status_y + 14.0;
     let dur = (1.6 + n as f64 * 0.35).clamp(3.0, 9.0);
@@ -231,19 +268,35 @@ pub fn render(spec: &PigeonSpec) -> (String, String) {
         s,
         r#"<svg viewBox="0 0 {w:.0} {height:.0}" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui" font-size="12">"#
     );
-    let _ = write!(s, r##"<rect x="0" y="0" width="{w:.0}" height="{height:.0}" fill="#0f1117"/>"##);
     let _ = write!(
         s,
-        r##"<text x="14" y="26" fill="#e5e7eb" font-size="14" font-family="ui-monospace, monospace">Pigeonhole · {n} pigeons → {holes} holes</text>"##
+        r##"<rect x="0" y="0" width="{w:.0}" height="{height:.0}" fill="#0f1117"/>"##
+    );
+    let _ = write!(
+        s,
+        r##"<text x="14" y="26" fill="#e5e7eb" font-size="{CAPTION_PX}" font-family="ui-monospace, monospace">Pigeonhole · {} → {}</text>"##,
+        counted(n, "pigeon"),
+        counted(holes, "hole")
     );
 
     // The dovecote: n-1 hole openings along the bottom, on a shelf.
-    let _ = write!(s, r##"<rect x="{margin:.0}" y="{shelf_y:.1}" width="{plot_w:.0}" height="6" rx="3" fill="#3a2f25"/>"##);
+    let _ = write!(
+        s,
+        r##"<rect x="{margin:.0}" y="{shelf_y:.1}" width="{plot_w:.0}" height="6" rx="3" fill="#3a2f25"/>"##
+    );
     for j in 0..holes {
         let cx = hx(j);
         let x = cx - hole_w / 2.0;
-        let _ = write!(s, r##"<rect x="{x:.1}" y="{hole_y:.1}" width="{hole_w:.1}" height="{hole_h:.1}" rx="6" fill="#1b1f2a" stroke="#3a4150" stroke-width="1.5"/>"##);
-        let _ = write!(s, r##"<ellipse cx="{cx:.1}" cy="{:.1}" rx="{:.1}" ry="7" fill="#0a0c12"/>"##, hole_y + 11.0, hole_w / 2.0 - 5.0);
+        let _ = write!(
+            s,
+            r##"<rect x="{x:.1}" y="{hole_y:.1}" width="{hole_w:.1}" height="{hole_h:.1}" rx="6" fill="#1b1f2a" stroke="#3a4150" stroke-width="1.5"/>"##
+        );
+        let _ = write!(
+            s,
+            r##"<ellipse cx="{cx:.1}" cy="{:.1}" rx="{:.1}" ry="7" fill="#0a0c12"/>"##,
+            hole_y + 11.0,
+            hole_w / 2.0 - 5.0
+        );
     }
 
     // The placed pigeons: pigeon i → hole i for i in 0..holes; each dives in, staggered.
@@ -253,7 +306,12 @@ pub fn render(spec: &PigeonSpec) -> (String, String) {
         let frac = i as f64 / n as f64;
         let b0 = 0.06 + 0.55 * frac;
         let anim = fly(dx, descend, b0, b0 + 0.16, 0.9, dur);
-        let _ = write!(s, r##"<g transform="translate({:.1},{top_y:.1})">{anim}{}</g>"##, px(i), pigeon_glyph("#9fb3c8", "#7d93ab"));
+        let _ = write!(
+            s,
+            r##"<g transform="translate({:.1},{top_y:.1})">{anim}{}</g>"##,
+            px(i),
+            pigeon_glyph("#9fb3c8", "#7d93ab")
+        );
     }
 
     // The doomed pigeon (the last one): dives at the nearest hole, finds it taken, retreats — flashing.
@@ -262,7 +320,12 @@ pub fn render(spec: &PigeonSpec) -> (String, String) {
     let ddx = hx(target_hole) - px(doomed);
     let dmid = descend - 10.0;
     let danim = flutter(ddx, dmid, 0.62, 0.78, 0.9, dur);
-    let _ = write!(s, r##"<g transform="translate({:.1},{top_y:.1})">{danim}{}</g>"##, px(doomed), pigeon_glyph("#f87171", "#dc6363"));
+    let _ = write!(
+        s,
+        r##"<g transform="translate({:.1},{top_y:.1})">{danim}{}</g>"##,
+        px(doomed),
+        pigeon_glyph("#f87171", "#dc6363")
+    );
 
     // The flashing "NO ROOM" mark over the contested hole.
     let no_room = pulse(0.78, 0.9, dur);
@@ -277,36 +340,53 @@ pub fn render(spec: &PigeonSpec) -> (String, String) {
     // derived from `status_top` + two `status_step`s so the third line below always fits.
     let mut y = status_top;
     let hall_line = format!(
-        "\u{2713} Maximum matching: {} pigeons reach only {} holes \u{2014} Hall witness, decided in polynomial time",
-        v.hall.items.len(),
-        v.hall.slots.len()
+        "\u{2713} Hall witness: {} reach only {} (polynomial matching)",
+        counted(v.hall.items.len(), "pigeon"),
+        counted(v.hall.slots.len(), "hole")
     );
-    let _ = write!(s, r##"<text x="14" y="{y:.0}" fill="#86efac" font-size="12">{hall_line}</text>"##);
+    let _ = write!(
+        s,
+        r##"<text x="14" y="{y:.0}" fill="#86efac" font-size="{CAPTION_PX}">{hall_line}</text>"##
+    );
     y += status_step;
     let ours = match v.pr_clauses {
         Some(k) if v.certified => format!(
-            "\u{2713} OURS: 0 conflicts \u{2014} certified symmetry-breaking proof ({k} PR clauses), machine-checked in your browser, no Z3"
+            "\u{2713} Ours: 0 conflicts, a certified PR proof ({}), no Z3",
+            counted(k, "clause")
         ),
-        _ => "\u{2713} OURS: polynomial certified PR proof (Heule\u{2013}Kiesl\u{2013}Biere) \u{2014} no Z3".to_string(),
+        _ => "\u{2713} Ours: a polynomial certified PR proof (Heule\u{2013}Kiesl\u{2013}Biere), no Z3".to_string(),
     };
-    let _ = write!(s, r##"<text x="14" y="{y:.0}" fill="#86efac" font-size="12">{ours}</text>"##);
+    let _ = write!(
+        s,
+        r##"<text x="14" y="{y:.0}" fill="#86efac" font-size="{CAPTION_PX}">{ours}</text>"##
+    );
     y += status_step;
     let base = match v.baseline_conflicts {
-        Some(c) => format!("\u{2717} Resolution / CDCL (Kissat-class): {c} conflicts here \u{2014} and 2^\u{03a9}(n) as n grows"),
-        None => "\u{2717} Resolution / CDCL (Kissat, CaDiCaL, Z3): 2^\u{03a9}(n) \u{2014} exponential, provably (Haken 1985)".to_string(),
+        Some(c) => format!(
+            "\u{2717} Resolution / CDCL (Kissat-class): {c} conflicts, 2^\u{03a9}(n) as n grows"
+        ),
+        None => {
+            "\u{2717} Resolution / CDCL (Kissat, CaDiCaL, Z3): 2^\u{03a9}(n), provably".to_string()
+        }
     };
-    let _ = write!(s, r##"<text x="14" y="{y:.0}" fill="#fca5a5" font-size="12">{base}</text>"##);
+    let _ = write!(
+        s,
+        r##"<text x="14" y="{y:.0}" fill="#fca5a5" font-size="{CAPTION_PX}">{base}</text>"##
+    );
 
     let _ = write!(s, "</svg>");
 
     let proof = match v.pr_clauses {
         Some(k) if v.certified => format!(
-            " Our prover auto-refutes it with a certified symmetry-breaking proof ({k} PR clauses, machine-checked against the original formula) in the browser \u{2014} no Z3."
+            " Our prover auto-refutes it with a certified symmetry-breaking proof ({}, machine-checked against the original formula) in the browser, with no Z3.",
+            counted(k, "PR clause")
         ),
-        _ => " Our prover refutes it with a polynomial certified PR proof (Heule\u{2013}Kiesl\u{2013}Biere) \u{2014} no Z3.".to_string(),
+        _ => " Our prover refutes it with a polynomial certified PR proof (Heule\u{2013}Kiesl\u{2013}Biere), with no Z3.".to_string(),
     };
+    let (pigeons, room) = (counted(n, "pigeon"), counted(holes, "hole"));
     let verdict = format!(
-        "\u{2717} UNSAT \u{2014} {n} pigeons cannot fit {holes} holes. Maximum bipartite matching returns a re-verified Hall witness ({n} pigeons reach only {holes} holes), so no assignment exists.{proof} Every resolution-class solver (Kissat, CaDiCaL, Glucose, Z3) needs 2^\u{03a9}(n) time on this family (Haken 1985)."
+        "{} Maximum bipartite matching returns a re-verified Hall witness ({pigeons} reach only {room}), so no assignment exists.{proof} Every resolution-class solver (Kissat, CaDiCaL, Glucose, Z3) needs 2^\u{03a9}(n) time on this family (Haken 1985).",
+        headline(spec)
     );
     (s, verdict)
 }
@@ -319,309 +399,41 @@ pub fn report(spec: &PigeonSpec) -> String {
     let n = spec.pigeons;
     let holes = spec.holes();
     let mut out = String::new();
-    let _ = writeln!(out, "PHP({n}): {n} pigeons into {holes} holes \u{2014} UNSAT.");
     let _ = writeln!(
         out,
-        "Hall witness (re-verified): {} pigeons collectively reach only {} holes.",
-        v.hall.items.len(),
-        v.hall.slots.len()
+        "PHP({n}): {} into {}, UNSAT.",
+        counted(n, "pigeon"),
+        counted(holes, "hole")
+    );
+    let _ = writeln!(
+        out,
+        "Hall witness (re-verified): {} collectively reach only {}.",
+        counted(v.hall.items.len(), "pigeon"),
+        counted(v.hall.slots.len(), "hole")
     );
     match v.pr_clauses {
         Some(k) if v.certified => {
-            let _ = writeln!(out, "Certified symmetry-breaking proof: {k} PR clauses, 0 conflicts, machine-checked. No Z3.");
+            let _ = writeln!(
+                out,
+                "Certified symmetry-breaking proof: {}, 0 conflicts, machine-checked. No Z3.",
+                counted(k, "PR clause")
+            );
         }
         _ => {
-            let _ = writeln!(out, "Certified by a polynomial PR proof (Heule\u{2013}Kiesl\u{2013}Biere). No Z3.");
+            let _ = writeln!(
+                out,
+                "Certified by a polynomial PR proof (Heule\u{2013}Kiesl\u{2013}Biere). No Z3."
+            );
         }
     }
     if let Some(c) = v.baseline_conflicts {
-        let _ = write!(out, "Baseline CDCL (Kissat-class) on the same instance: {c} conflicts \u{2014} the search our proof avoids.");
+        let _ = write!(out, "Baseline CDCL (Kissat-class) on the same instance: {c} conflicts, the search our proof avoids.");
     } else {
-        let _ = write!(out, "Resolution-class solvers (Kissat, CaDiCaL, Z3) need 2^\u{03a9}(n) here \u{2014} provably exponential.");
+        let _ = write!(out, "Resolution-class solvers (Kissat, CaDiCaL, Z3) need 2^\u{03a9}(n) here, provably exponential.");
     }
     out
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_a_spec() {
-        let s = parse_pigeonhole_spec("pigeons: 6").expect("parses");
-        assert_eq!(s.pigeons, 6);
-        assert_eq!(s.holes(), 5);
-    }
-
-    #[test]
-    fn parser_is_robust_to_messy_input() {
-        let messy = "## Pigeonhole\n\n  Pigeons:  4  \n\n";
-        let s = parse_pigeonhole_spec(messy).expect("messy spec still parses");
-        assert_eq!(s.pigeons, 4);
-        assert_eq!(s.holes(), 3);
-    }
-
-    #[test]
-    fn rejects_out_of_range_and_malformed() {
-        assert!(parse_pigeonhole_spec("pigeons: 1").is_none(), "n=1 is degenerate");
-        assert!(parse_pigeonhole_spec("pigeons: 99").is_none(), "n=99 exceeds the spec cap");
-        assert!(parse_pigeonhole_spec("pigeons: lots").is_none(), "non-numeric count");
-        assert!(parse_pigeonhole_spec("holes: 3").is_none(), "no pigeons line");
-        assert!(parse_pigeonhole_spec("").is_none(), "empty input");
-    }
-
-    #[test]
-    fn recognizes_only_pigeonhole_specs() {
-        assert!(is_pigeonhole_spec("pigeons: 6"));
-        assert!(is_pigeonhole_spec("## Pigeonhole\npigeons: 8\n"));
-        // The OTHER Hardware-mode inputs must NOT be hijacked by the pigeonhole egg:
-        assert!(!is_pigeonhole_spec("Always, if request is high, then acknowledge is high."));
-        assert!(!is_pigeonhole_spec(
-            "module m(input clk); reg a; always @(posedge clk) a <= ~a; assert property (a); endmodule"
-        ));
-        assert!(!is_pigeonhole_spec("registers: 3\na: 0-5\nb: 1-6"));
-        assert!(!is_pigeonhole_spec("ns-through conflicts with ew-through and ew-left."));
-        assert!(!is_pigeonhole_spec(""));
-    }
-
-    #[test]
-    fn matching_returns_a_reverified_hall_witness() {
-        for n in SPEC_MIN_N..=8 {
-            let spec = PigeonSpec { pigeons: n };
-            let v = solve(&spec);
-            assert_eq!(v.hall.items.len(), n, "all n pigeons are deficient");
-            assert_eq!(v.hall.slots.len(), n - 1, "they reach only n-1 holes");
-            // The witness re-checks independently against the adjacency.
-            assert!(
-                is_hall_witness(&adjacency(n, n - 1), &v.hall),
-                "Hall witness must re-verify for PHP({n})"
-            );
-        }
-    }
-
-    #[test]
-    fn heule_proof_is_certified_for_the_live_range() {
-        for n in 3..=HEULE_MAX_N {
-            let v = solve(&PigeonSpec { pigeons: n });
-            assert!(v.certified, "PHP({n}) must carry a certified proof");
-            assert!(v.pr_clauses.unwrap_or(0) >= 1, "PHP({n}) needs PR clauses");
-        }
-    }
-
-    #[test]
-    fn baseline_cdcl_actually_blows_up_while_ours_does_not() {
-        // The contrast that makes the demo: plain CDCL accrues conflicts; our certified path has none.
-        for n in 4..=BASELINE_MAX_N {
-            let v = solve(&PigeonSpec { pigeons: n });
-            assert!(
-                v.baseline_conflicts.unwrap_or(0) >= 1,
-                "baseline CDCL must hit conflicts on PHP({n})"
-            );
-            assert!(v.certified, "ours stays certified with 0 conflicts on PHP({n})");
-        }
-    }
-
-    #[test]
-    fn renders_an_animated_unsat() {
-        let spec = parse_pigeonhole_spec("pigeons: 6").unwrap();
-        let (svg, verdict) = render(&spec);
-        assert!(svg.starts_with("<svg"), "valid SVG");
-        assert!(svg.contains("</svg>"));
-        assert!(svg.contains("<animateTransform"), "pigeons must fly");
-        assert!(svg.contains("NO ROOM"), "the doomed pigeon must be flagged");
-        assert!(svg.contains("Hall witness"), "the certificate must be shown");
-        assert!(verdict.starts_with('\u{2717}'), "UNSAT verdict: {verdict}");
-        assert!(verdict.contains("UNSAT") && verdict.contains("Hall witness"), "{verdict}");
-        assert!(verdict.contains("no Z3"), "{verdict}");
-        assert!(verdict.contains("6 pigeons") && verdict.contains("5 holes"), "{verdict}");
-    }
-
-    #[test]
-    fn renders_large_instances_without_running_the_heavy_paths() {
-        // Past the live caps the render must still be coherent (matching witness + theory), never panic.
-        let spec = PigeonSpec { pigeons: 18 };
-        let (svg, verdict) = render(&spec);
-        assert!(svg.starts_with("<svg") && svg.contains("</svg>"));
-        assert!(svg.contains("Hall witness"));
-        let v = solve(&spec);
-        assert!(v.pr_clauses.is_none(), "Heule not reconstructed past the cap");
-        assert!(v.baseline_conflicts.is_none(), "baseline not run past the cap");
-        assert!(verdict.starts_with('\u{2717}'));
-        assert!(verdict.contains("2^\u{03a9}(n)"), "theory framing present: {verdict}");
-    }
-
-    #[test]
-    fn report_agrees_with_the_rendered_verdict() {
-        for n in [3usize, 6, 14] {
-            let spec = PigeonSpec { pigeons: n };
-            let report = report(&spec);
-            let (_, verdict) = render(&spec);
-            assert!(report.contains("UNSAT"), "{report}");
-            assert!(verdict.starts_with('\u{2717}'));
-            assert!(report.contains("Hall witness"), "{report}");
-        }
-    }
-
-    #[test]
-    fn holes_are_always_pigeons_minus_one() {
-        for n in SPEC_MIN_N..=SPEC_MAX_N {
-            assert_eq!(PigeonSpec { pigeons: n }.holes(), n - 1);
-        }
-    }
-
-    /// The SMIL `keyTimes` MUST be strictly monotonic in [0,1] or the browser drops the animation.
-    /// Sweep the whole parameter space of every animation helper and parse the emitted keyTimes back.
-    fn assert_monotonic_keytimes(anim: &str) {
-        let kt = anim
-            .split("keyTimes=\"")
-            .nth(1)
-            .and_then(|s| s.split('"').next())
-            .expect("has keyTimes");
-        let times: Vec<f64> = kt.split(';').map(|x| x.parse().unwrap()).collect();
-        assert_eq!(times.len(), 5, "{anim}");
-        assert_eq!(times[0], 0.0);
-        assert_eq!(*times.last().unwrap(), 1.0);
-        for w in times.windows(2) {
-            assert!(w[0] < w[1], "keyTimes not increasing: {kt}");
-        }
-    }
-
-    #[test]
-    fn animation_helpers_emit_monotonic_keytimes_for_every_input() {
-        for a in 0..=24 {
-            for b in 0..=24 {
-                for c in 0..=24 {
-                    let (t0, t1, t2) = (a as f64 / 24.0, b as f64 / 24.0, c as f64 / 24.0);
-                    assert_monotonic_keytimes(&fly(40.0, 120.0, t0, t1, t2, 6.0));
-                    assert_monotonic_keytimes(&flutter(40.0, 100.0, t0, t1, t2, 6.0));
-                    // pulse only takes (bm, be) — sweep its two-parameter space.
-                    assert_monotonic_keytimes(&pulse(t0, t1, 6.0));
-                }
-            }
-        }
-    }
-
-    /// The flight helpers MUST be `additive="sum"`. Each pigeon's perch is a static
-    /// `transform="translate(px, top_y)"` on its group; the SMIL default (`additive="replace"`)
-    /// overrides that perch and snaps every pigeon to the SVG origin — the "pigeons don't fly to
-    /// the holes" bug. The `0 0` keyframes only mean "stay at the perch" when the animation sums.
-    #[test]
-    fn flight_animations_are_additive() {
-        assert!(fly(40.0, 120.0, 0.1, 0.3, 0.9, 6.0).contains(r#"additive="sum""#), "fly must sum onto the perch");
-        assert!(flutter(40.0, 100.0, 0.6, 0.8, 0.9, 6.0).contains(r#"additive="sum""#), "flutter must sum onto the perch");
-    }
-
-    /// Every `<animateTransform>` in a rendered scene animates the group's `transform`, so every one
-    /// must be additive or that pigeon leaves its perch and flies from the origin instead.
-    #[test]
-    fn every_rendered_transform_animation_is_additive() {
-        for n in [3usize, 6, 9, 12, 18, 20] {
-            let (svg, _) = render(&PigeonSpec { pigeons: n });
-            let transforms = svg.matches("<animateTransform").count();
-            // One flight per placed pigeon (`n-1`) plus the doomed pigeon's flutter = `n`.
-            assert_eq!(transforms, n, "expected one transform animation per pigeon for n={n}");
-            let additive = svg.matches(r#"additive="sum""#).count();
-            assert_eq!(additive, transforms, "every transform animation must be additive for n={n}");
-        }
-    }
-
-    /// Parse each flight group's static perch `translate(bx,by)` and its animation peak offset
-    /// `(dx,dy)` (the third of the five keyframe values). The rendered landing is `(bx+dx, by+dy)`
-    /// because the animation is additive.
-    fn flights(svg: &str) -> Vec<(f64, f64, f64, f64)> {
-        let mut out = Vec::new();
-        for seg in svg.split("<g transform=\"translate(").skip(1) {
-            let coords = &seg[..seg.find(')').expect("closing paren")];
-            let (bx, by) = coords.split_once(',').expect("two coords");
-            let vstart = seg.find("values=\"").expect("has values") + "values=\"".len();
-            let values = &seg[vstart..vstart + seg[vstart..].find('"').unwrap()];
-            let peak = values.split(';').nth(2).expect("five keyframe values");
-            let (dx, dy) = peak.split_once(' ').expect("peak is `dx dy`");
-            out.push((
-                bx.parse().unwrap(),
-                by.parse().unwrap(),
-                dx.parse().unwrap(),
-                dy.parse().unwrap(),
-            ));
-        }
-        out
-    }
-
-    /// The hole openings are the `ry="7"` ellipses (the pigeon body is `ry="9"`), in emission order.
-    fn hole_centers(svg: &str) -> Vec<f64> {
-        let mut out = Vec::new();
-        for seg in svg.split("<ellipse cx=\"").skip(1) {
-            let cx = &seg[..seg.find('"').unwrap()];
-            let tag = &seg[..seg.find('>').unwrap()];
-            if tag.contains(r#"ry="7""#) {
-                out.push(cx.parse().unwrap());
-            }
-        }
-        out
-    }
-
-    /// The whole point of the animation: pigeon `i` actually descends onto hole `i`. Reconstruct each
-    /// flight's landing from its perch + additive peak and assert the `n-1` placed pigeons land, one
-    /// each, exactly on the `n-1` distinct hole centers, all on a single row down inside the holes —
-    /// while the doomed `n`th pigeon only dives at the last hole and stops short (it never lands).
-    #[test]
-    fn each_placed_pigeon_lands_on_its_own_hole() {
-        for n in [3usize, 6, 9, 12, 20] {
-            let (svg, _) = render(&PigeonSpec { pigeons: n });
-            let flights = flights(&svg);
-            let holes = hole_centers(&svg);
-            assert_eq!(flights.len(), n, "one flight per pigeon (placed + doomed), n={n}");
-            assert_eq!(holes.len(), n - 1, "n-1 holes, n={n}");
-
-            // The perch and peak are each emitted at one decimal place, so `perch + peak`
-            // reconstructed from the strings sits within ~0.15px of the (also 1-dp) hole center —
-            // sub-pixel, i.e. visually dead on. (The buggy `additive="replace"` would instead land
-            // the pigeon at the raw peak, hundreds of px off — this tolerance never confuses the two.)
-            let landing_y = flights[0].1 + flights[0].3;
-            for i in 0..(n - 1) {
-                let (bx, by, dx, dy) = flights[i];
-                let land_x = bx + dx;
-                assert!(
-                    (land_x - holes[i]).abs() < 0.2,
-                    "placed pigeon {i} must land on hole {i} ({} vs {}) for n={n}",
-                    land_x,
-                    holes[i]
-                );
-                assert!(by + dy > by, "pigeon {i} must descend, not rise, for n={n}");
-                // `top_y` and the descent are both integer-valued and constant, so the landing row is exact.
-                assert!(
-                    (by + dy - landing_y).abs() < 1e-6,
-                    "all placed pigeons land on one row for n={n}"
-                );
-            }
-
-            let (dbx, _dby, ddx, _ddy) = flights[n - 1];
-            assert!(
-                (dbx + ddx - holes[n - 2]).abs() < 0.2,
-                "the doomed pigeon dives at the last, contested hole for n={n}"
-            );
-        }
-    }
-
-    /// A fixed canvas height silently clipped the third certified status line. The `viewBox` height
-    /// must cover the lowest `<text>` baseline for every instance size.
-    #[test]
-    fn no_status_line_is_clipped_below_the_canvas() {
-        for n in SPEC_MIN_N..=SPEC_MAX_N {
-            let (svg, _) = render(&PigeonSpec { pigeons: n });
-            let viewbox = svg.split("viewBox=\"").nth(1).unwrap();
-            let viewbox = &viewbox[..viewbox.find('"').unwrap()];
-            let height: f64 = viewbox.split_whitespace().nth(3).unwrap().parse().unwrap();
-
-            let mut lowest_text = 0.0_f64;
-            for seg in svg.split("<text ").skip(1) {
-                let y: f64 = seg.split("y=\"").nth(1).unwrap().split('"').next().unwrap().parse().unwrap();
-                lowest_text = lowest_text.max(y);
-            }
-            assert!(
-                height >= lowest_text,
-                "canvas height {height} clips a status line at y={lowest_text} for n={n}"
-            );
-        }
-    }
-}
+#[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/pigeonhole_viz/tests.rs"]
+mod tests;

@@ -1,0 +1,256 @@
+{
+  "case": "T02-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 32,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T02_020.Cross.kind",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T02_020.Cross_kind",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_020.Cross_kind \u2192 Sort u} \u2192 (t : T02_020.Cross_kind) \u2192 motive T02_020.Cross_kind.only \u2192 motive t",
+      "name": "T02_020.Cross_kind.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T02_020.Cross_kind} \u2192 x = y \u2192 T02_020.Cross_kind.noConfusionType P x y",
+      "name": "T02_020.Cross_kind.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.53"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T02_020.Cross_kind \u2192 T02_020.Cross_kind \u2192 Sort v\u271d",
+      "name": "T02_020.Cross_kind.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.52"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_020.Cross_kind",
+      "name": "T02_020.Cross_kind.only",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_020.Cross_kind.only = 1",
+      "name": "T02_020.Cross_kind.only.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_020.Cross_kind \u2192 Sort u} \u2192 motive T02_020.Cross_kind.only \u2192 (t : T02_020.Cross_kind) \u2192 motive t",
+      "name": "T02_020.Cross_kind.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_020.Cross_kind \u2192 Sort u} \u2192 (t : T02_020.Cross_kind) \u2192 motive T02_020.Cross_kind.only \u2192 motive t",
+      "name": "T02_020.Cross_kind.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_020.Cross_kind \u2192 Nat",
+      "name": "T02_020.Cross_kind.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_020.Foo.bar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_020.Foo_bar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T02_020.Point",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_020.Point \u2192 Sort u} \u2192 (t : T02_020.Point) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T02_020.Point.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T02_020.Point",
+      "name": "T02_020.Point.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {x y x_1 y_1 : Nat}, { x := x, y := y } = { x := x_1, y := y_1 } \u2192 x = x_1 \u2227 y = y_1",
+      "name": "T02_020.Point.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y x_1 y_1 : Nat), ({ x := x, y := y } = { x := x_1, y := y_1 }) = (x = x_1 \u2227 y = y_1)",
+      "name": "T02_020.Point.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Nat), sizeOf { x := x, y := y } = 1 + sizeOf x + sizeOf y",
+      "name": "T02_020.Point.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T02_020.Point} \u2192 v1 = v2 \u2192 T02_020.Point.noConfusionType P v1 v2",
+      "name": "T02_020.Point.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T02_020.Point \u2192 T02_020.Point \u2192 Sort u",
+      "name": "T02_020.Point.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_020.Point \u2192 Sort u} \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 (t : T02_020.Point) \u2192 motive t",
+      "name": "T02_020.Point.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_020.Point \u2192 Sort u} \u2192 (t : T02_020.Point) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T02_020.Point.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_020.Point \u2192 Nat",
+      "name": "T02_020.Point.x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_020.Point \u2192 Nat",
+      "name": "T02_020.Point.y",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_020.Point_mk",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_020.Point \u2192 Nat",
+      "name": "T02_020.Point_x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_020.RTree_to_TList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T02_020.Shadow.Nat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool",
+      "name": "T02_020.Shadow.Succ",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_020.withAux",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_020.withAux.go",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_020.withAux_go",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

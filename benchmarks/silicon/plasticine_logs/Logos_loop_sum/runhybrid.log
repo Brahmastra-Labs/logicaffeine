@@ -1,0 +1,27 @@
+Run simulation with with 15 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Add link flow: 4 source: 10 destination: 0 output: 1
+Output link from (4,10) to (4,0)
+../plastisim/final.place Elapsed seconds: 0.0145961
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 7003
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 2.05409
+Exiting... 😊
+Destruct DRAM.
+result 500501 gold 500501
+PASS: true (Logos_loop_sum)
+Complete Simulation
+Runtime:0:02.17

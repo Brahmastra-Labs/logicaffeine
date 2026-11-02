@@ -93,18 +93,16 @@ pub fn store(
     fnbc: &FnBytecode,
 ) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    std::fs::write(cache_path(dir, &cache_key(source, config_bits, tier)), encode(fnbc))
+    std::fs::write(
+        cache_path(dir, &cache_key(source, config_bits, tier)),
+        encode(fnbc),
+    )
 }
 
 /// Load the body cached for `(source, config, tier)` from `dir`; `None` on miss or
 /// corruption.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn load(
-    dir: &std::path::Path,
-    source: &str,
-    config_bits: u64,
-    tier: u8,
-) -> Option<FnBytecode> {
+pub fn load(dir: &std::path::Path, source: &str, config_bits: u64, tier: u8) -> Option<FnBytecode> {
     let s = std::fs::read_to_string(cache_path(dir, &cache_key(source, config_bits, tier))).ok()?;
     decode(&s)
 }

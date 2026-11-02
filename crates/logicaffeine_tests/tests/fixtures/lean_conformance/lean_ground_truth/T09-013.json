@@ -1,0 +1,115 @@
+{
+  "case": "T09-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 15,
+  "declarations": [
+    {
+      "type": "\u2200 (x y : Nat), (x \u22a1 y) = x \u22a1 y",
+      "name": "T09_013.Inner.insideNamespace",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_013.Inner.\u00abterm_\u22a0_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_013.alt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat), T09_013.op x y = T09_013.op x y",
+      "name": "T09_013.firstMeaning",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y z : Nat), T09_013.op x (T09_013.op y z) = T09_013.op x (T09_013.op y z)",
+      "name": "T09_013.insideSection",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat), ((x \u22a1 y) \u22a1 x \u22a1 y) = (x \u22a1 y) \u22a1 x \u22a1 y",
+      "name": "T09_013.interleaved",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "5 + 1000 = 1005",
+      "name": "T09_013.laterWins",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_013.op",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat), (x \u22a1 y) = x \u22a1 y",
+      "name": "T09_013.redefinedMeaning",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat), (x \u22a1 y) = x \u22a1 y",
+      "name": "T09_013.scopedUse",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_013.termBump_",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_013.termTwice_",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_013.usesVariable",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (k : Nat), T09_013.usesVariable k = k \u22a1 k",
+      "name": "T09_013.variableInserted",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_013.\u00abterm_\u22a1_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -10,7 +10,8 @@
     "Necessary, possible, or impossible"
   ],
   "correct": 1,
-  "hint": "Think about vague predicates like 'tall' - is someone exactly tall or not tall?",
+  "hint": "Think of a vague word like tall. Is a person exactly tall or not tall?",
   "explanation": "Fuzzy logic allows truth values anywhere in [0,1], modeling vagueness. 'John is tall' might be 0.7 true if John is fairly tall but not extremely so. This better captures natural language predicates that have no sharp boundary.",
-  "visual_concept": "Classical: the glass is full (1) or not full (0). Fuzzy: the glass is 0.6 full - partial truth!"
+  "visual_concept": "Classical: the glass is full (1) or not full (0). Fuzzy: the glass is 0.6 full - partial truth!",
+  "section": "17.1"
 }

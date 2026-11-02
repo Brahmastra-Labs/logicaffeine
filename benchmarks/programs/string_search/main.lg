@@ -5,29 +5,27 @@
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
 Let mutable text be "".
+Let mutable seed be 42.
 Let mutable pos be 0.
 While pos is less than n:
-    If pos is greater than 0:
-        If pos % 1000 equals 0:
-            If pos + 5 is at most n:
-                Set text to text + "XXXXX".
-                Set pos to pos + 5.
-    If pos is less than n:
-        Let mutable ch be "a".
-        If pos % 5 equals 1:
-            Set ch to "b".
-        If pos % 5 equals 2:
-            Set ch to "c".
-        If pos % 5 equals 3:
-            Set ch to "d".
-        If pos % 5 equals 4:
-            Set ch to "e".
-        Set text to text + ch.
-        Set pos to pos + 1.
-Let needle be "XXXXX".
+    Set seed to (seed * 1103515245 + 12345) % 2147483648.
+    Let r be (seed / 65536) % 5.
+    Let mutable ch be "a".
+    If r equals 1:
+        Set ch to "b".
+    If r equals 2:
+        Set ch to "c".
+    If r equals 3:
+        Set ch to "d".
+    If r equals 4:
+        Set ch to "e".
+    Set text to text + ch.
+    Set pos to pos + 1.
+Let needle be "cabed".
 Let needleLen be 5.
 Let textLen be length of text.
 Let mutable count be 0.
+Let mutable positions be a new Seq of Int.
 Let mutable i be 1.
 While i is at most textLen - needleLen + 1:
     Let mutable match be 1.
@@ -39,5 +37,9 @@ While i is at most textLen - needleLen + 1:
         Set j to j + 1.
     If match equals 1:
         Set count to count + 1.
+        Push i - 1 to positions.
     Set i to i + 1.
-Show count.
+Let mutable checksum be 0.
+Repeat for p in positions:
+    Set checksum to (checksum * 31 + p) & 268435455.
+Show "" + count + " " + checksum.

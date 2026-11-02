@@ -89,7 +89,10 @@ fn beta_reduction_is_capture_avoiding() {
                      instead of capture-avoiding `λx'. x x'`"
                 );
             }
-            other => panic!("unexpected lambda body, expected an application: {:?}", other),
+            other => panic!(
+                "unexpected lambda body, expected an application: {:?}",
+                other
+            ),
         },
         other => panic!("unexpected normal form, expected a lambda: {:?}", other),
     }

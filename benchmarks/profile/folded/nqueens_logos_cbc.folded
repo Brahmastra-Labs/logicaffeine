@@ -1,0 +1,3 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main;fn_3_w.part.0.constprop.0;fn_3_w.part.0.constprop.0 218065127
+_start;__libc_start_main_impl;__libc_start_call_main;main;fn_3_w.part.0.constprop.0 104246561
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__posix_memalign;__posix_memalign;_mid_memalign;_int_memalign;_int_malloc;sysmalloc;sysmalloc_mmap;__GI___mmap64;__GI___mmap64;[unknown] 249999

@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use logicaffeine_compile::concurrency::marshal::{
     best_compressed_len, describe_columns, message_from_wire, message_to_wire_with, view_message,
-    with_compression_codec, with_floats, with_numerics, with_structure, with_struct_view, WireCodec,
-    WireCompression, WireFloats, WireIntegrity, WireNumerics, WireStructure,
+    with_compression_codec, with_floats, with_numerics, with_struct_view, with_structure,
+    WireCodec, WireCompression, WireFloats, WireIntegrity, WireNumerics, WireStructure,
 };
 use logicaffeine_compile::interpreter::{ListRepr, MapStorage, RuntimeValue, StructValue};
 use serde::{Deserialize, Serialize};
@@ -124,7 +124,9 @@ impl Rng {
     }
     fn ascii_string(&mut self, min: usize, max: usize) -> String {
         let len = min + (self.next_u64() as usize % (max - min + 1));
-        (0..len).map(|_| (b'a' + (self.next_u64() % 26) as u8) as char).collect()
+        (0..len)
+            .map(|_| (b'a' + (self.next_u64() % 26) as u8) as char)
+            .collect()
     }
 }
 
@@ -148,14 +150,23 @@ fn point_struct(x: i64, y: i64) -> RuntimeValue {
     let mut f = HashMap::new();
     f.insert("x".to_string(), RuntimeValue::Int(x));
     f.insert("y".to_string(), RuntimeValue::Int(y));
-    RuntimeValue::Struct(Box::new(StructValue { type_name: "Point".to_string(), fields: f }))
+    RuntimeValue::Struct(Box::new(StructValue {
+        type_name: "Point".to_string(),
+        fields: f,
+    }))
 }
 fn record_struct(id: i64, name: &str, active: bool) -> RuntimeValue {
     let mut f = HashMap::new();
     f.insert("id".to_string(), RuntimeValue::Int(id));
-    f.insert("name".to_string(), RuntimeValue::Text(Rc::new(name.to_string())));
+    f.insert(
+        "name".to_string(),
+        RuntimeValue::Text(Rc::new(name.to_string())),
+    );
     f.insert("active".to_string(), RuntimeValue::Bool(active));
-    RuntimeValue::Struct(Box::new(StructValue { type_name: "Record".to_string(), fields: f }))
+    RuntimeValue::Struct(Box::new(StructValue {
+        type_name: "Record".to_string(),
+        fields: f,
+    }))
 }
 
 /// ns per call: the MIN over 8 batches (each ~`iters`/8 calls under one timer), after a warm-up.
@@ -249,14 +260,30 @@ where
     // Grant this competitor the same compression LOGOS bakes in, so the page can show a FAIR
     // (compressed-vs-compressed) size fight — not just LOGOS-compressed vs this codec raw.
     let fair_size = Some(best_compressed_len(&bytes));
-    Row { codec, size, enc_ns, dec_ns, chosen: None, fair_size }
+    Row {
+        codec,
+        size,
+        enc_ns,
+        dec_ns,
+        chosen: None,
+        fair_size,
+    }
 }
 
 /// Our codec on the equivalent `RuntimeValue`, under a chosen numeric strategy.
 /// Uses Raw integrity (no checksum) to match the competitors, which carry none —
 /// our optional FNV checksum is benched separately as `logos (checked)`.
-fn bench_ours_mode(label: &'static str, value: &RuntimeValue, iters: u32, num: WireNumerics) -> Row {
-    let enc = || with_numerics(num, || message_to_wire_with("", value, WireCodec::Native, WireIntegrity::Raw).unwrap());
+fn bench_ours_mode(
+    label: &'static str,
+    value: &RuntimeValue,
+    iters: u32,
+    num: WireNumerics,
+) -> Row {
+    let enc = || {
+        with_numerics(num, || {
+            message_to_wire_with("", value, WireCodec::Native, WireIntegrity::Raw).unwrap()
+        })
+    };
     let bytes = enc();
     let size = bytes.len();
     let enc_ns = time_ns(iters, || {
@@ -265,7 +292,14 @@ fn bench_ours_mode(label: &'static str, value: &RuntimeValue, iters: u32, num: W
     let dec_ns = time_ns(iters, || {
         black_box(message_from_wire(&bytes).unwrap());
     });
-    Row { codec: label, size, enc_ns, dec_ns, chosen: None, fair_size: None }
+    Row {
+        codec: label,
+        size,
+        enc_ns,
+        dec_ns,
+        chosen: None,
+        fair_size: None,
+    }
 }
 
 /// Our codec on the default (Varint) strategy — the smallest-wire default.
@@ -292,40 +326,60 @@ fn bench_ours_affine(value: &RuntimeValue, iters: u32) -> Row {
     let dec_ns = time_ns(iters, || {
         black_box(message_from_wire(&bytes).unwrap());
     });
-    Row { codec: "logos (affine)", size, enc_ns, dec_ns, chosen: None, fair_size: None }
+    Row {
+        codec: "logos (affine)",
+        size,
+        enc_ns,
+        dec_ns,
+        chosen: None,
+        fair_size: None,
+    }
 }
 
 /// "Turn EVERY knob": encode under every dial combination (numerics × structure × floats,
 /// each also Zstd-compressed), verify each round-trips, and report the SMALLEST. This is
 /// the honest answer to "if we use everything we've got, who still beats us, and where?"
 fn bench_ours_best(value: &RuntimeValue, iters: u32) -> Row {
-    let encode = |num: WireNumerics, st: WireStructure, fl: WireFloats, comp: WireCompression| -> Vec<u8> {
-        let body = || {
-            with_numerics(num, || {
-                with_structure(st, || {
-                    with_floats(fl, || {
-                        message_to_wire_with("", value, WireCodec::Native, WireIntegrity::Raw).unwrap()
+    let encode =
+        |num: WireNumerics, st: WireStructure, fl: WireFloats, comp: WireCompression| -> Vec<u8> {
+            let body = || {
+                with_numerics(num, || {
+                    with_structure(st, || {
+                        with_floats(fl, || {
+                            message_to_wire_with("", value, WireCodec::Native, WireIntegrity::Raw)
+                                .unwrap()
+                        })
                     })
                 })
-            })
+            };
+            if comp == WireCompression::None {
+                body()
+            } else {
+                with_compression_codec(comp, body)
+            }
         };
-        if comp == WireCompression::None {
-            body()
-        } else {
-            with_compression_codec(comp, body)
-        }
-    };
     // The FULL cross product `message_to_wire_best(Smallest)` searches — numerics × structure
     // (incl. the `Auto` per-column menu: delta/DoD/FOR-bitpack/RLE/dictionary/polynomial) ×
     // float coding × every compressor — so the displayed BEST is the codec's real minimum, not
     // a subset. Each single-dial config is a candidate, so BEST is provably ≤ any single knob.
     let mut cfgs = Vec::new();
-    for num in [WireNumerics::Varint, WireNumerics::Fixed, WireNumerics::GroupVarint] {
-        for st in [WireStructure::Off, WireStructure::Affine, WireStructure::Auto] {
+    for num in [
+        WireNumerics::Varint,
+        WireNumerics::Fixed,
+        WireNumerics::GroupVarint,
+    ] {
+        for st in [
+            WireStructure::Off,
+            WireStructure::Affine,
+            WireStructure::Auto,
+        ] {
             for fl in [WireFloats::Memcpy, WireFloats::XorDelta] {
-                for comp in
-                    [WireCompression::None, WireCompression::Deflate, WireCompression::Lz4, WireCompression::Zstd]
-                {
+                for comp in [
+                    WireCompression::None,
+                    WireCompression::Deflate,
+                    WireCompression::Lz4,
+                    WireCompression::Zstd,
+                ] {
                     cfgs.push((num, st, fl, comp));
                 }
             }
@@ -360,7 +414,11 @@ fn bench_ours_best(value: &RuntimeValue, iters: u32) -> Row {
     } else {
         format!("{}-compressed", compression_word(comp))
     };
-    let cols_phrase = if columns.is_empty() { "packed columns".to_string() } else { columns.join(", ") };
+    let cols_phrase = if columns.is_empty() {
+        "packed columns".to_string()
+    } else {
+        columns.join(", ")
+    };
     let summary = format!("{cols_phrase} \u{00b7} {comp_phrase}");
     let chosen = ChosenConfig {
         numerics: numerics_word(num).to_string(),
@@ -371,7 +429,14 @@ fn bench_ours_best(value: &RuntimeValue, iters: u32) -> Row {
     };
     // The BEST row already shops compression, so its `size` IS the fair LOGOS size — no separate
     // `fair_size` needed (the page reads BEST.size as the LOGOS side of the fair fight).
-    Row { codec: "logos (BEST: all knobs)", size: bytes.len(), enc_ns, dec_ns, chosen: Some(chosen), fair_size: None }
+    Row {
+        codec: "logos (BEST: all knobs)",
+        size: bytes.len(),
+        enc_ns,
+        dec_ns,
+        chosen: Some(chosen),
+        fair_size: None,
+    }
 }
 
 /// The plain-words name of each top-level dial, for the winner card's config summary.
@@ -403,7 +468,12 @@ fn compression_word(c: WireCompression) -> &'static str {
 /// `read` opens a [`view_message`] and sums every value through the zero-copy slice/field readers.
 /// This is the honest apples-to-apples decode: our CONTIGUOUS aligned columns (one SIMD-friendly
 /// scan) against their per-element or strided struct reads — beating them at their own game.
-fn bench_ours_zerocopy(label: &'static str, encode: impl Fn() -> Vec<u8>, read: impl Fn(&[u8]), iters: u32) -> Row {
+fn bench_ours_zerocopy(
+    label: &'static str,
+    encode: impl Fn() -> Vec<u8>,
+    read: impl Fn(&[u8]),
+    iters: u32,
+) -> Row {
     let bytes = encode();
     let size = bytes.len();
     let enc_ns = time_ns(iters, || {
@@ -412,7 +482,14 @@ fn bench_ours_zerocopy(label: &'static str, encode: impl Fn() -> Vec<u8>, read: 
     let dec_ns = time_ns(iters, || {
         read(black_box(&bytes));
     });
-    Row { codec: label, size, enc_ns, dec_ns, chosen: None, fair_size: None }
+    Row {
+        codec: label,
+        size,
+        enc_ns,
+        dec_ns,
+        chosen: None,
+        fair_size: None,
+    }
 }
 
 /// Encode a value in the zero-copy aligned/view layout (the `with_struct_view` + fixed dial): a
@@ -432,7 +509,9 @@ fn encode_zerocopy(rv: &RuntimeValue) -> Vec<u8> {
 /// field becomes a contiguous `T_INTS_FIXED` blob. This is LOGOS playing ITS game — columnar, like
 /// Arrow — so a bulk read scans each field contiguously instead of striding a row-major layout.
 fn encode_columnar(rv: &RuntimeValue) -> Vec<u8> {
-    with_numerics(WireNumerics::Fixed, || message_to_wire_with("", rv, WireCodec::Native, WireIntegrity::Raw).unwrap())
+    with_numerics(WireNumerics::Fixed, || {
+        message_to_wire_with("", rv, WireCodec::Native, WireIntegrity::Raw).unwrap()
+    })
 }
 
 /// Zero-copy sum of a columnar two-int-field struct list (points {x, y}): read each field's
@@ -440,7 +519,9 @@ fn encode_columnar(rv: &RuntimeValue) -> Vec<u8> {
 /// linear passes that the compiler vectorizes — beating Cap'n Proto's INTERLEAVED (x0,y0,x1,y1…)
 /// row-major read where summing one field strides the whole record every step.
 fn zerocopy_sum_points(bytes: &[u8]) -> i64 {
-    let Some(view) = view_message(bytes) else { return 0 };
+    let Some(view) = view_message(bytes) else {
+        return 0;
+    };
     let mut s = 0i64;
     // Fields are stored in canonical (sorted) order: {x, y} → column 0 = x, column 1 = y.
     for fi in 0..2 {
@@ -489,7 +570,12 @@ fn zerocopy_sum_f64(bytes: &[u8]) -> f64 {
 /// measure of "decode to something usable", so a format that decodes lazily is
 /// credited for exactly the work it actually does.
 #[allow(dead_code)]
-fn bench_blob(codec: &'static str, iters: u32, enc: impl Fn() -> Vec<u8>, dec: impl Fn(&[u8])) -> Row {
+fn bench_blob(
+    codec: &'static str,
+    iters: u32,
+    enc: impl Fn() -> Vec<u8>,
+    dec: impl Fn(&[u8]),
+) -> Row {
     let bytes = enc();
     let size = bytes.len();
     let enc_ns = time_ns(iters, || {
@@ -499,7 +585,14 @@ fn bench_blob(codec: &'static str, iters: u32, enc: impl Fn() -> Vec<u8>, dec: i
         dec(black_box(&bytes));
     });
     let fair_size = Some(best_compressed_len(&bytes));
-    Row { codec, size, enc_ns, dec_ns, chosen: None, fair_size }
+    Row {
+        codec,
+        size,
+        enc_ns,
+        dec_ns,
+        chosen: None,
+        fair_size,
+    }
 }
 
 /// Arrow rows are produced only under `--features arrow-bench`; otherwise these
@@ -536,18 +629,23 @@ mod arrow_bench {
             vec![Field::new("v", DataType::Int64, false)],
             vec![Arc::new(Int64Array::from(plain.to_vec()))],
         );
-        bench_blob("arrow (ipc)", iters, || ipc_encode(&b), |bytes| {
-            let reader = StreamReader::try_new(bytes, None).unwrap();
-            let mut sum = 0i64;
-            for rb in reader {
-                let rb = rb.unwrap();
-                let c = rb.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
-                for i in 0..c.len() {
-                    sum = sum.wrapping_add(c.value(i));
+        bench_blob(
+            "arrow (ipc)",
+            iters,
+            || ipc_encode(&b),
+            |bytes| {
+                let reader = StreamReader::try_new(bytes, None).unwrap();
+                let mut sum = 0i64;
+                for rb in reader {
+                    let rb = rb.unwrap();
+                    let c = rb.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
+                    for i in 0..c.len() {
+                        sum = sum.wrapping_add(c.value(i));
+                    }
                 }
-            }
-            black_box(sum);
-        })
+                black_box(sum);
+            },
+        )
     }
 
     pub fn floats(plain: &[f64], iters: u32) -> Row {
@@ -555,40 +653,60 @@ mod arrow_bench {
             vec![Field::new("v", DataType::Float64, false)],
             vec![Arc::new(Float64Array::from(plain.to_vec()))],
         );
-        bench_blob("arrow (ipc)", iters, || ipc_encode(&b), |bytes| {
-            let reader = StreamReader::try_new(bytes, None).unwrap();
-            let mut sum = 0f64;
-            for rb in reader {
-                let rb = rb.unwrap();
-                let c = rb.column(0).as_any().downcast_ref::<Float64Array>().unwrap();
-                for i in 0..c.len() {
-                    sum += c.value(i);
+        bench_blob(
+            "arrow (ipc)",
+            iters,
+            || ipc_encode(&b),
+            |bytes| {
+                let reader = StreamReader::try_new(bytes, None).unwrap();
+                let mut sum = 0f64;
+                for rb in reader {
+                    let rb = rb.unwrap();
+                    let c = rb
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Float64Array>()
+                        .unwrap();
+                    for i in 0..c.len() {
+                        sum += c.value(i);
+                    }
                 }
-            }
-            black_box(sum);
-        })
+                black_box(sum);
+            },
+        )
     }
 
     pub fn points(plain: &[Point], iters: u32) -> Row {
         let xs: Vec<i64> = plain.iter().map(|p| p.x).collect();
         let ys: Vec<i64> = plain.iter().map(|p| p.y).collect();
         let b = batch(
-            vec![Field::new("x", DataType::Int64, false), Field::new("y", DataType::Int64, false)],
-            vec![Arc::new(Int64Array::from(xs)), Arc::new(Int64Array::from(ys))],
+            vec![
+                Field::new("x", DataType::Int64, false),
+                Field::new("y", DataType::Int64, false),
+            ],
+            vec![
+                Arc::new(Int64Array::from(xs)),
+                Arc::new(Int64Array::from(ys)),
+            ],
         );
-        bench_blob("arrow (ipc)", iters, || ipc_encode(&b), |bytes| {
-            let reader = StreamReader::try_new(bytes, None).unwrap();
-            let mut sum = 0i64;
-            for rb in reader {
-                let rb = rb.unwrap();
-                let x = rb.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
-                let y = rb.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
-                for i in 0..x.len() {
-                    sum = sum.wrapping_add(x.value(i)).wrapping_add(y.value(i));
+        bench_blob(
+            "arrow (ipc)",
+            iters,
+            || ipc_encode(&b),
+            |bytes| {
+                let reader = StreamReader::try_new(bytes, None).unwrap();
+                let mut sum = 0i64;
+                for rb in reader {
+                    let rb = rb.unwrap();
+                    let x = rb.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
+                    let y = rb.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
+                    for i in 0..x.len() {
+                        sum = sum.wrapping_add(x.value(i)).wrapping_add(y.value(i));
+                    }
                 }
-            }
-            black_box(sum);
-        })
+                black_box(sum);
+            },
+        )
     }
 
     pub fn records(plain: &[Record], iters: u32) -> Row {
@@ -601,40 +719,63 @@ mod arrow_bench {
                 Field::new("name", DataType::Utf8, false),
                 Field::new("active", DataType::Boolean, false),
             ],
-            vec![Arc::new(Int64Array::from(ids)), Arc::new(names), Arc::new(BooleanArray::from(actives))],
+            vec![
+                Arc::new(Int64Array::from(ids)),
+                Arc::new(names),
+                Arc::new(BooleanArray::from(actives)),
+            ],
         );
-        bench_blob("arrow (ipc)", iters, || ipc_encode(&b), |bytes| {
-            let reader = StreamReader::try_new(bytes, None).unwrap();
-            let mut acc = 0i64;
-            for rb in reader {
-                let rb = rb.unwrap();
-                let id = rb.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
-                let name = rb.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-                let act = rb.column(2).as_any().downcast_ref::<BooleanArray>().unwrap();
-                for i in 0..id.len() {
-                    acc = acc.wrapping_add(id.value(i)).wrapping_add(name.value(i).len() as i64);
-                    acc = acc.wrapping_add(act.value(i) as i64);
+        bench_blob(
+            "arrow (ipc)",
+            iters,
+            || ipc_encode(&b),
+            |bytes| {
+                let reader = StreamReader::try_new(bytes, None).unwrap();
+                let mut acc = 0i64;
+                for rb in reader {
+                    let rb = rb.unwrap();
+                    let id = rb.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
+                    let name = rb.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+                    let act = rb
+                        .column(2)
+                        .as_any()
+                        .downcast_ref::<BooleanArray>()
+                        .unwrap();
+                    for i in 0..id.len() {
+                        acc = acc
+                            .wrapping_add(id.value(i))
+                            .wrapping_add(name.value(i).len() as i64);
+                        acc = acc.wrapping_add(act.value(i) as i64);
+                    }
                 }
-            }
-            black_box(acc);
-        })
+                black_box(acc);
+            },
+        )
     }
 
     pub fn strings(plain: &[String], iters: u32) -> Row {
         let arr = StringArray::from_iter_values(plain.iter().map(|s| s.as_str()));
-        let b = batch(vec![Field::new("v", DataType::Utf8, false)], vec![Arc::new(arr)]);
-        bench_blob("arrow (ipc)", iters, || ipc_encode(&b), |bytes| {
-            let reader = StreamReader::try_new(bytes, None).unwrap();
-            let mut acc = 0i64;
-            for rb in reader {
-                let rb = rb.unwrap();
-                let c = rb.column(0).as_any().downcast_ref::<StringArray>().unwrap();
-                for i in 0..c.len() {
-                    acc = acc.wrapping_add(c.value(i).len() as i64);
+        let b = batch(
+            vec![Field::new("v", DataType::Utf8, false)],
+            vec![Arc::new(arr)],
+        );
+        bench_blob(
+            "arrow (ipc)",
+            iters,
+            || ipc_encode(&b),
+            |bytes| {
+                let reader = StreamReader::try_new(bytes, None).unwrap();
+                let mut acc = 0i64;
+                for rb in reader {
+                    let rb = rb.unwrap();
+                    let c = rb.column(0).as_any().downcast_ref::<StringArray>().unwrap();
+                    for i in 0..c.len() {
+                        acc = acc.wrapping_add(c.value(i).len() as i64);
+                    }
                 }
-            }
-            black_box(acc);
-        })
+                black_box(acc);
+            },
+        )
     }
 
     /// Open the IPC stream and read ONE field of one row — Arrow must materialize the batch
@@ -663,7 +804,11 @@ mod arrow_bench {
                 Field::new("name", DataType::Utf8, false),
                 Field::new("active", DataType::Boolean, false),
             ],
-            vec![Arc::new(Int64Array::from(ids)), Arc::new(names), Arc::new(BooleanArray::from(actives))],
+            vec![
+                Arc::new(Int64Array::from(ids)),
+                Arc::new(names),
+                Arc::new(BooleanArray::from(actives)),
+            ],
         );
         ipc_encode(&b)
     }
@@ -755,14 +900,19 @@ mod proto {
 fn proto_int_rows(plain: &[i64], iters: u32) -> Vec<Row> {
     use prost::Message;
     let msg = proto::Ints { v: plain.to_vec() };
-    vec![bench_blob("protobuf/grpc", iters, || msg.encode_to_vec(), |bytes| {
-        let m = proto::Ints::decode(bytes).unwrap();
-        let mut s = 0i64;
-        for x in &m.v {
-            s = s.wrapping_add(*x);
-        }
-        std::hint::black_box(s);
-    })]
+    vec![bench_blob(
+        "protobuf/grpc",
+        iters,
+        || msg.encode_to_vec(),
+        |bytes| {
+            let m = proto::Ints::decode(bytes).unwrap();
+            let mut s = 0i64;
+            for x in &m.v {
+                s = s.wrapping_add(*x);
+            }
+            std::hint::black_box(s);
+        },
+    )]
 }
 #[cfg(not(feature = "protobuf"))]
 fn proto_int_rows(_: &[i64], _: u32) -> Vec<Row> {
@@ -772,15 +922,25 @@ fn proto_int_rows(_: &[i64], _: u32) -> Vec<Row> {
 #[cfg(feature = "protobuf")]
 fn proto_point_rows(plain: &[Point], iters: u32) -> Vec<Row> {
     use prost::Message;
-    let msg = proto::Points { items: plain.iter().map(|p| proto::Point { x: p.x, y: p.y }).collect() };
-    vec![bench_blob("protobuf/grpc", iters, || msg.encode_to_vec(), |bytes| {
-        let m = proto::Points::decode(bytes).unwrap();
-        let mut s = 0i64;
-        for p in &m.items {
-            s = s.wrapping_add(p.x).wrapping_add(p.y);
-        }
-        std::hint::black_box(s);
-    })]
+    let msg = proto::Points {
+        items: plain
+            .iter()
+            .map(|p| proto::Point { x: p.x, y: p.y })
+            .collect(),
+    };
+    vec![bench_blob(
+        "protobuf/grpc",
+        iters,
+        || msg.encode_to_vec(),
+        |bytes| {
+            let m = proto::Points::decode(bytes).unwrap();
+            let mut s = 0i64;
+            for p in &m.items {
+                s = s.wrapping_add(p.x).wrapping_add(p.y);
+            }
+            std::hint::black_box(s);
+        },
+    )]
 }
 #[cfg(not(feature = "protobuf"))]
 fn proto_point_rows(_: &[Point], _: u32) -> Vec<Row> {
@@ -791,16 +951,31 @@ fn proto_point_rows(_: &[Point], _: u32) -> Vec<Row> {
 fn proto_record_rows(plain: &[Record], iters: u32) -> Vec<Row> {
     use prost::Message;
     let msg = proto::Records {
-        items: plain.iter().map(|r| proto::Record { id: r.id, name: r.name.clone(), active: r.active }).collect(),
+        items: plain
+            .iter()
+            .map(|r| proto::Record {
+                id: r.id,
+                name: r.name.clone(),
+                active: r.active,
+            })
+            .collect(),
     };
-    vec![bench_blob("protobuf/grpc", iters, || msg.encode_to_vec(), |bytes| {
-        let m = proto::Records::decode(bytes).unwrap();
-        let mut acc = 0i64;
-        for r in &m.items {
-            acc = acc.wrapping_add(r.id).wrapping_add(r.name.len() as i64).wrapping_add(r.active as i64);
-        }
-        std::hint::black_box(acc);
-    })]
+    vec![bench_blob(
+        "protobuf/grpc",
+        iters,
+        || msg.encode_to_vec(),
+        |bytes| {
+            let m = proto::Records::decode(bytes).unwrap();
+            let mut acc = 0i64;
+            for r in &m.items {
+                acc = acc
+                    .wrapping_add(r.id)
+                    .wrapping_add(r.name.len() as i64)
+                    .wrapping_add(r.active as i64);
+            }
+            std::hint::black_box(acc);
+        },
+    )]
 }
 #[cfg(not(feature = "protobuf"))]
 fn proto_record_rows(_: &[Record], _: u32) -> Vec<Row> {
@@ -811,14 +986,19 @@ fn proto_record_rows(_: &[Record], _: u32) -> Vec<Row> {
 fn proto_string_rows(plain: &[String], iters: u32) -> Vec<Row> {
     use prost::Message;
     let msg = proto::Strings { v: plain.to_vec() };
-    vec![bench_blob("protobuf/grpc", iters, || msg.encode_to_vec(), |bytes| {
-        let m = proto::Strings::decode(bytes).unwrap();
-        let mut acc = 0i64;
-        for s in &m.v {
-            acc = acc.wrapping_add(s.len() as i64);
-        }
-        std::hint::black_box(acc);
-    })]
+    vec![bench_blob(
+        "protobuf/grpc",
+        iters,
+        || msg.encode_to_vec(),
+        |bytes| {
+            let m = proto::Strings::decode(bytes).unwrap();
+            let mut acc = 0i64;
+            for s in &m.v {
+                acc = acc.wrapping_add(s.len() as i64);
+            }
+            std::hint::black_box(acc);
+        },
+    )]
 }
 #[cfg(not(feature = "protobuf"))]
 fn proto_string_rows(_: &[String], _: u32) -> Vec<Row> {
@@ -829,7 +1009,14 @@ fn proto_string_rows(_: &[String], _: u32) -> Vec<Row> {
 fn proto_ra_rows(plain: &[Record], idxs: &[usize], iters: u32) -> Vec<RowOut> {
     use prost::Message;
     let msg = proto::Records {
-        items: plain.iter().map(|r| proto::Record { id: r.id, name: r.name.clone(), active: r.active }).collect(),
+        items: plain
+            .iter()
+            .map(|r| proto::Record {
+                id: r.id,
+                name: r.name.clone(),
+                active: r.active,
+            })
+            .collect(),
     };
     // protobuf is length-delimited, not random-access: reading one field means decoding the
     // whole message and indexing — the honest cost for this format.
@@ -855,8 +1042,10 @@ fn proto_ra_rows(_: &[Record], _: &[usize], _: u32) -> Vec<RowOut> {
 
 // ---- Cap'n Proto (zero-copy: decode reads straight from the flat buffer) ----
 
+/// The Cap'n Proto schema's generated readers/builders (the build script compiles
+/// `schemas/bench.capnp`), public so the head-to-head suites race the same code.
 #[cfg(feature = "capnproto")]
-mod bench_capnp {
+pub mod bench_capnp {
     include!(concat!(env!("OUT_DIR"), "/schemas/bench_capnp.rs"));
 }
 
@@ -868,7 +1057,11 @@ mod bench_capnp {
 macro_rules! capnp_reader {
     ($bytes:expr) => {{
         let mut slice: &[u8] = $bytes;
-        capnp::serialize::read_message_from_flat_slice(&mut slice, capnp::message::ReaderOptions::new()).unwrap()
+        capnp::serialize::read_message_from_flat_slice(
+            &mut slice,
+            capnp::message::ReaderOptions::new(),
+        )
+        .unwrap()
     }};
 }
 
@@ -977,7 +1170,10 @@ fn capnp_record_rows(plain: &[Record], iters: u32) -> Vec<Row> {
             for i in 0..items.len() {
                 let r = items.get(i);
                 let name = r.get_name().unwrap();
-                acc = acc.wrapping_add(r.get_id()).wrapping_add(name.len() as i64).wrapping_add(r.get_active() as i64);
+                acc = acc
+                    .wrapping_add(r.get_id())
+                    .wrapping_add(name.len() as i64)
+                    .wrapping_add(r.get_active() as i64);
             }
             std::hint::black_box(acc);
         },
@@ -1051,7 +1247,11 @@ fn capnp_ra_rows(plain: &[Record], idxs: &[usize], iters: u32) -> Vec<RowOut> {
         build,
         |bytes| {
             let reader = capnp_reader!(bytes);
-            let items = reader.get_root::<bench_capnp::records::Reader>().unwrap().get_items().unwrap();
+            let items = reader
+                .get_root::<bench_capnp::records::Reader>()
+                .unwrap()
+                .get_items()
+                .unwrap();
             let mut acc = 0i64;
             for i in 0..items.len() {
                 acc = acc.wrapping_add(items.get(i).get_id());
@@ -1060,7 +1260,11 @@ fn capnp_ra_rows(plain: &[Record], idxs: &[usize], iters: u32) -> Vec<RowOut> {
         },
         |bytes, i| {
             let reader = capnp_reader!(bytes);
-            let items = reader.get_root::<bench_capnp::records::Reader>().unwrap().get_items().unwrap();
+            let items = reader
+                .get_root::<bench_capnp::records::Reader>()
+                .unwrap()
+                .get_items()
+                .unwrap();
             std::hint::black_box(items.get(i as u32).get_id());
         },
     )]
@@ -1071,7 +1275,11 @@ fn capnp_ra_rows(_: &[Record], _: &[usize], _: u32) -> Vec<RowOut> {
 }
 
 fn print_table(s: &CodecScenario) {
-    let json = s.rows.iter().find(|r| r.codec == "json").map_or(1, |r| r.size.max(1));
+    let json = s
+        .rows
+        .iter()
+        .find(|r| r.codec == "json")
+        .map_or(1, |r| r.size.max(1));
     let has_read = s.rows.iter().any(|r| r.read_one_ns.is_some());
     println!("\n=== {} (n={}) ===", s.title, s.n);
     if has_read {
@@ -1080,11 +1288,17 @@ fn print_table(s: &CodecScenario) {
             "codec", "size B", "enc ns/op", "dec ns/op", "× json", "read1 ns/op"
         );
     } else {
-        println!("  {:<16} {:>10} {:>12} {:>12} {:>10}", "codec", "size B", "enc ns/op", "dec ns/op", "× json");
+        println!(
+            "  {:<16} {:>10} {:>12} {:>12} {:>10}",
+            "codec", "size B", "enc ns/op", "dec ns/op", "× json"
+        );
     }
     for r in &s.rows {
         if has_read {
-            let read = r.read_one_ns.map(|v| format!("{v:.0}")).unwrap_or_else(|| "—".to_string());
+            let read = r
+                .read_one_ns
+                .map(|v| format!("{v:.0}"))
+                .unwrap_or_else(|| "—".to_string());
             println!(
                 "  {:<16} {:>10} {:>12.0} {:>12.0} {:>9.1}× {:>13}",
                 r.codec,
@@ -1111,7 +1325,9 @@ fn bench_points(n: usize, iters: u32) -> CodecScenario {
     // Random SIGNED coordinates (the zig-zag path) — where protobuf `int64` pays 10 bytes
     // per negative, but our adaptive column spends ~3. Independent x and y (not y = 2x).
     let mut rng = Rng::new(0xB2_B2_B2);
-    let coords: Vec<(i64, i64)> = (0..n).map(|_| (rng.signed_coord(), rng.signed_coord())).collect();
+    let coords: Vec<(i64, i64)> = (0..n)
+        .map(|_| (rng.signed_coord(), rng.signed_coord()))
+        .collect();
     let plain: Vec<Point> = coords.iter().map(|&(x, y)| Point { x, y }).collect();
     let rv = rv_list(coords.iter().map(|&(x, y)| point_struct(x, y)).collect());
     let mut rows = vec![
@@ -1122,10 +1338,35 @@ fn bench_points(n: usize, iters: u32) -> CodecScenario {
         bench_ours_affine(&rv, iters),
         // Zero-copy read: columnar fixed layout — each field a contiguous blob, scanned in place.
         // Beats Cap'n Proto's interleaved row-major read on a bulk sum (columnar-analytics win).
-        bench_ours_zerocopy("logos (zero-copy)", || encode_columnar(&rv), |b| { black_box(zerocopy_sum_points(b)); }, iters),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
+        bench_ours_zerocopy(
+            "logos (zero-copy)",
+            || encode_columnar(&rv),
+            |b| {
+                black_box(zerocopy_sum_points(b));
+            },
+            iters,
+        ),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
         bench_serde(
             "cbor",
             &plain,
@@ -1137,7 +1378,13 @@ fn bench_points(n: usize, iters: u32) -> CodecScenario {
             },
             |b| ciborium::from_reader(b).unwrap(),
         ),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     rows.extend(arrow_point_rows(&plain, iters));
     rows.extend(proto_point_rows(&plain, iters));
@@ -1150,18 +1397,52 @@ fn bench_records(n: usize, iters: u32) -> CodecScenario {
     // mixed-type struct (the shape the standard rust_serialization_benchmark `log` set uses).
     let mut rng = Rng::new(0xC3_C3_C3);
     let data: Vec<(i64, String, bool)> = (0..n)
-        .map(|_| (rng.realistic_uint(), rng.ascii_string(4, 12), rng.next_u64() & 1 == 0))
+        .map(|_| {
+            (
+                rng.realistic_uint(),
+                rng.ascii_string(4, 12),
+                rng.next_u64() & 1 == 0,
+            )
+        })
         .collect();
-    let plain: Vec<Record> =
-        data.iter().map(|(id, name, active)| Record { id: *id, name: name.clone(), active: *active }).collect();
-    let rv = rv_list(data.iter().map(|(id, name, active)| record_struct(*id, name, *active)).collect());
+    let plain: Vec<Record> = data
+        .iter()
+        .map(|(id, name, active)| Record {
+            id: *id,
+            name: name.clone(),
+            active: *active,
+        })
+        .collect();
+    let rv = rv_list(
+        data.iter()
+            .map(|(id, name, active)| record_struct(*id, name, *active))
+            .collect(),
+    );
     let mut rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
         bench_ours_mode("logos (fixed)", &rv, iters, WireNumerics::Fixed),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
         bench_serde(
             "cbor",
             &plain,
@@ -1173,7 +1454,13 @@ fn bench_records(n: usize, iters: u32) -> CodecScenario {
             },
             |b| ciborium::from_reader(b).unwrap(),
         ),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     rows.extend(arrow_record_rows(&plain, iters));
     rows.extend(proto_record_rows(&plain, iters));
@@ -1184,7 +1471,13 @@ fn bench_records(n: usize, iters: u32) -> CodecScenario {
 /// Run one int-array scenario (the SAME logical data through every codec, all our knobs
 /// turned) under a descriptive title — reused for the fair random case and the
 /// adversarial "codecs choke here" cases.
-fn bench_int_scenario(id: &str, title: &str, kind: &str, plain: Vec<i64>, iters: u32) -> CodecScenario {
+fn bench_int_scenario(
+    id: &str,
+    title: &str,
+    kind: &str,
+    plain: Vec<i64>,
+    iters: u32,
+) -> CodecScenario {
     let n = plain.len();
     let rv = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(plain.clone()))));
     let mut rows = vec![
@@ -1194,11 +1487,42 @@ fn bench_int_scenario(id: &str, title: &str, kind: &str, plain: Vec<i64>, iters:
         bench_ours_mode("logos (gv/simd)", &rv, iters, WireNumerics::GroupVarint),
         bench_ours_affine(&rv, iters),
         // Zero-copy read: an 8-byte-aligned column summed in place — the fair mirror of capnp/arrow.
-        bench_ours_zerocopy("logos (zero-copy)", || encode_zerocopy(&rv), |b| { black_box(zerocopy_sum_i64(b)); }, iters),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_ours_zerocopy(
+            "logos (zero-copy)",
+            || encode_zerocopy(&rv),
+            |b| {
+                black_box(zerocopy_sum_i64(b));
+            },
+            iters,
+        ),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     rows.extend(arrow_int_rows(&plain, iters));
     rows.extend(proto_int_rows(&plain, iters));
@@ -1225,11 +1549,42 @@ fn bench_floats(n: usize, iters: u32) -> CodecScenario {
         bench_ours_best(&rv, iters),
         bench_ours_mode("logos (fixed)", &rv, iters, WireNumerics::Fixed),
         // Zero-copy read: an 8-byte-aligned f64 column summed in place — the fair mirror of arrow.
-        bench_ours_zerocopy("logos (zero-copy)", || encode_zerocopy(&rv), |b| { black_box(zerocopy_sum_f64(b)); }, iters),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_ours_zerocopy(
+            "logos (zero-copy)",
+            || encode_zerocopy(&rv),
+            |b| {
+                black_box(zerocopy_sum_f64(b));
+            },
+            iters,
+        ),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     rows.extend(arrow_float_rows(&plain, iters));
     scenario("floats", "Float array (random f64)", "fair", n, rows)
@@ -1276,14 +1631,43 @@ fn bench_strings(n: usize, iters: u32) -> CodecScenario {
     // template that dictionary/prefix tricks could exploit.
     let mut rng = Rng::new(0xD4_D4_D4);
     let plain: Vec<String> = (0..n).map(|_| rng.ascii_string(8, 24)).collect();
-    let rv = rv_list(plain.iter().map(|s| RuntimeValue::Text(Rc::new(s.clone()))).collect());
+    let rv = rv_list(
+        plain
+            .iter()
+            .map(|s| RuntimeValue::Text(Rc::new(s.clone())))
+            .collect(),
+    );
     let mut rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     rows.extend(arrow_string_rows(&plain, iters));
     rows.extend(proto_string_rows(&plain, iters));
@@ -1302,9 +1686,27 @@ fn bench_bools(n: usize, iters: u32) -> CodecScenario {
     let rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
         bench_serde(
             "cbor",
             &plain,
@@ -1316,11 +1718,23 @@ fn bench_bools(n: usize, iters: u32) -> CodecScenario {
             },
             |b| ciborium::from_reader(b).unwrap(),
         ),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     // A showcase (size axis): bit-packing is an 8× win on every bool column, but decode is
     // write-bound (both sides fill an n-element Vec<bool>), so it's a wash — shown size-only.
-    scenario("bools", "Boolean column (bit-packed — 1 bit/bool vs a byte each)", "structural", n, rows)
+    scenario(
+        "bools",
+        "Boolean column (bit-packed — 1 bit/bool vs a byte each)",
+        "structural",
+        n,
+        rows,
+    )
 }
 
 /// Float TIME-SERIES (a sensor random walk — slowly varying telemetry). The `BEST` row's Gorilla
@@ -1340,14 +1754,51 @@ fn bench_timeseries_floats(n: usize, iters: u32) -> CodecScenario {
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
         bench_ours_mode("logos (fixed)", &rv, iters, WireNumerics::Fixed),
-        bench_ours_zerocopy("logos (zero-copy)", || encode_zerocopy(&rv), |b| { black_box(zerocopy_sum_f64(b)); }, iters),
-        bench_serde("bincode", &plain, iters, |v| bincode::serialize(v).unwrap(), |b| bincode::deserialize(b).unwrap()),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_ours_zerocopy(
+            "logos (zero-copy)",
+            || encode_zerocopy(&rv),
+            |b| {
+                black_box(zerocopy_sum_f64(b));
+            },
+            iters,
+        ),
+        bench_serde(
+            "bincode",
+            &plain,
+            iters,
+            |v| bincode::serialize(v).unwrap(),
+            |b| bincode::deserialize(b).unwrap(),
+        ),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     rows.extend(arrow_float_rows(&plain, iters));
-    scenario("timeseries", "Float time-series (sensor random walk — Gorilla XOR)", "fair", n, rows)
+    scenario(
+        "timeseries",
+        "Float time-series (sensor random walk — Gorilla XOR)",
+        "fair",
+        n,
+        rows,
+    )
 }
 
 /// One random-access row: encode once, then measure encode, full "decode-to-usable", and the
@@ -1375,7 +1826,15 @@ fn ra_row(
         k += 1;
         read_one(black_box(&bytes), i);
     });
-    RowOut { codec: codec.to_string(), size, enc_ns, dec_ns, read_one_ns: Some(read_one_ns), chosen: None, fair_size: None }
+    RowOut {
+        codec: codec.to_string(),
+        size,
+        enc_ns,
+        dec_ns,
+        read_one_ns: Some(read_one_ns),
+        chosen: None,
+        fair_size: None,
+    }
 }
 
 /// Random access — Cap'n Proto's whole pitch: receive a message and read ONE field of one
@@ -1386,10 +1845,21 @@ fn bench_random_access(n: usize, iters: u32) -> CodecScenario {
     let mut rng = Rng::new(0x9A_9A_9A);
     let names = ["alice", "bob", "carol", "dave", "erin"];
     let plain: Vec<Record> = (0..n)
-        .map(|i| Record { id: rng.realistic_uint(), name: names[i % names.len()].to_string(), active: i % 2 == 0 })
+        .map(|i| Record {
+            id: rng.realistic_uint(),
+            name: names[i % names.len()].to_string(),
+            active: i % 2 == 0,
+        })
         .collect();
-    let rv = rv_list(plain.iter().map(|r| record_struct(r.id, &r.name, r.active)).collect());
-    let idxs: Vec<usize> = (0..256).map(|k: usize| k.wrapping_mul(2_654_435_761) % n).collect();
+    let rv = rv_list(
+        plain
+            .iter()
+            .map(|r| record_struct(r.id, &r.name, r.active))
+            .collect(),
+    );
+    let idxs: Vec<usize> = (0..256)
+        .map(|k: usize| k.wrapping_mul(2_654_435_761) % n)
+        .collect();
     // Cap the bulk encode/decode timing so the (heavy, full-decode) serde rows stay quick;
     // size is exact regardless and read_one is separately capped inside ra_row.
     let it = iters.min(4000);
@@ -1398,7 +1868,11 @@ fn bench_random_access(n: usize, iters: u32) -> CodecScenario {
         "logos (struct-view)",
         it,
         &idxs,
-        || with_struct_view(true, || message_to_wire_with("", &rv, WireCodec::Native, WireIntegrity::Raw).unwrap()),
+        || {
+            with_struct_view(true, || {
+                message_to_wire_with("", &rv, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            })
+        },
         |b| {
             black_box(message_from_wire(b).unwrap());
         },
@@ -1538,9 +2012,27 @@ fn bench_affine_showcase(n: usize, iters: u32) -> CodecScenario {
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
         bench_ours_affine(&rv, iters),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     scenario(
         "affine_showcase",
@@ -1560,9 +2052,27 @@ fn bench_poly_showcase(n: usize, iters: u32) -> CodecScenario {
     let rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
     scenario(
         "poly_showcase",
@@ -1579,16 +2089,47 @@ fn bench_poly_showcase(n: usize, iters: u32) -> CodecScenario {
 fn bench_categorical_strings(n: usize, iters: u32) -> CodecScenario {
     let mut rng = Rng::new(0xCA7E_60E1);
     let cats = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
-    let plain: Vec<String> = (0..n).map(|_| cats[(rng.next_u64() as usize) % cats.len()].to_string()).collect();
-    let rv = rv_list(plain.iter().map(|s| RuntimeValue::Text(Rc::new(s.clone()))).collect());
+    let plain: Vec<String> = (0..n)
+        .map(|_| cats[(rng.next_u64() as usize) % cats.len()].to_string())
+        .collect();
+    let rv = rv_list(
+        plain
+            .iter()
+            .map(|s| RuntimeValue::Text(Rc::new(s.clone())))
+            .collect(),
+    );
     let rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
-        bench_serde("postcard", &plain, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &plain, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &plain, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "postcard",
+            &plain,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &plain,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &plain,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
-    scenario("categorical", "Categorical strings (low-cardinality labels — dictionary)", "structural", n, rows)
+    scenario(
+        "categorical",
+        "Categorical strings (low-cardinality labels — dictionary)",
+        "structural",
+        n,
+        rows,
+    )
 }
 
 /// Showcase of the int-SET encoding: a Set is order-invariant, so the codec sorts to the
@@ -1596,16 +2137,42 @@ fn bench_categorical_strings(n: usize, iters: u32) -> CodecScenario {
 /// collapses to base+stride+count (~no data). serde stores every member. (Different data
 /// structure than the affine LIST showcase: this is a `Set`.)
 fn bench_int_set(n: usize, iters: u32) -> CodecScenario {
-    let rv = RuntimeValue::Set(Rc::new(RefCell::new((0..n as i64).map(RuntimeValue::Int).collect())));
+    let rv = RuntimeValue::Set(Rc::new(RefCell::new(
+        (0..n as i64).map(RuntimeValue::Int).collect(),
+    )));
     let set: std::collections::BTreeSet<i64> = (0..n as i64).collect();
     let rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
-        bench_serde("postcard", &set, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &set, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &set, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "postcard",
+            &set,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &set,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &set,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
-    scenario("int_set", "Integer SET {0..n} (consecutive — ships base+stride+count)", "showcase", n, rows)
+    scenario(
+        "int_set",
+        "Integer SET {0..n} (consecutive — ships base+stride+count)",
+        "showcase",
+        n,
+        rows,
+    )
 }
 
 /// Showcase of the int-keyed MAP encoding: an int→int map ships as TWO columns (keys + values),
@@ -1621,11 +2188,35 @@ fn bench_int_map(n: usize, iters: u32) -> CodecScenario {
     let rows = vec![
         bench_ours(&rv, iters),
         bench_ours_best(&rv, iters),
-        bench_serde("postcard", &map, iters, |v| postcard::to_allocvec(v).unwrap(), |b| postcard::from_bytes(b).unwrap()),
-        bench_serde("messagepack", &map, iters, |v| rmp_serde::to_vec(v).unwrap(), |b| rmp_serde::from_slice(b).unwrap()),
-        bench_serde("json", &map, iters, |v| serde_json::to_vec(v).unwrap(), |b| serde_json::from_slice(b).unwrap()),
+        bench_serde(
+            "postcard",
+            &map,
+            iters,
+            |v| postcard::to_allocvec(v).unwrap(),
+            |b| postcard::from_bytes(b).unwrap(),
+        ),
+        bench_serde(
+            "messagepack",
+            &map,
+            iters,
+            |v| rmp_serde::to_vec(v).unwrap(),
+            |b| rmp_serde::from_slice(b).unwrap(),
+        ),
+        bench_serde(
+            "json",
+            &map,
+            iters,
+            |v| serde_json::to_vec(v).unwrap(),
+            |b| serde_json::from_slice(b).unwrap(),
+        ),
     ];
-    scenario("int_map", "Integer MAP {i\u{21a6}2i} (affine — ships both columns as base+stride+count)", "showcase", n, rows)
+    scenario(
+        "int_map",
+        "Integer MAP {i\u{21a6}2i} (affine — ships both columns as base+stride+count)",
+        "showcase",
+        n,
+        rows,
+    )
 }
 
 /// Resolved competitor crate versions, captured from the workspace `Cargo.lock` by build.rs.
@@ -1672,7 +2263,10 @@ fn active_features() -> Vec<String> {
 /// override wins, so the date matches `latest.json` exactly.
 fn iso_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as i64;
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as i64;
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
@@ -1694,7 +2288,8 @@ fn collect_metadata() -> CodecMetadata {
     CodecMetadata {
         date: env("WIREBENCH_DATE").unwrap_or_else(iso_now),
         commit: env("WIREBENCH_COMMIT").unwrap_or_else(|| "unknown".to_string()),
-        logos_version: env("LOGOS_VERSION").unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+        logos_version: env("LOGOS_VERSION")
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
         cpu: env("WIREBENCH_CPU").unwrap_or_else(|| "unknown".to_string()),
         os: env("WIREBENCH_OS").unwrap_or_else(|| "unknown".to_string()),
         versions: competitor_versions(),
@@ -1722,7 +2317,12 @@ pub fn build_report(iters: u32) -> CodecReport {
     scenarios.push(bench_int_set(1000, iters));
     scenarios.push(bench_int_map(1000, iters));
     // v2 adds the `chosen` config on the all-knobs winner (which dials + per-column encodings won).
-    CodecReport { schema_version: 2, metadata: collect_metadata(), iters, scenarios }
+    CodecReport {
+        schema_version: 2,
+        metadata: collect_metadata(),
+        iters,
+        scenarios,
+    }
 }
 
 /// The binary entry point: print the human table, and (when `WIREBENCH_JSON` is set) write
@@ -1732,7 +2332,10 @@ pub fn run() {
     println!("# size = encoded bytes (no envelope); enc/dec = ns per whole-message op.");
     println!("# Payloads are SEEDED-RANDOM (a fair, reproducible comparison); the final");
     println!("# section showcases the affine hack on structured data, kept separate.");
-    let iters = std::env::var("WIREBENCH_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(20_000u32);
+    let iters = std::env::var("WIREBENCH_ITERS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20_000u32);
     let report = build_report(iters);
     for s in &report.scenarios {
         print_table(s);
@@ -1746,59 +2349,5 @@ pub fn run() {
 }
 
 #[cfg(test)]
-mod zerocopy_tests {
-    use super::*;
-
-    #[test]
-    fn zerocopy_reads_are_in_place_and_correct() {
-        // The zero-copy row is only honest if it actually reads IN PLACE (the aligned-slice fast
-        // path), not the decode fallback. Assert the fast path fires and the borrowed slice is
-        // bit-exact with the source — this is what makes the fair capnp/arrow comparison real.
-        let ints: Vec<i64> = (0..1000).map(|i| i * 7 - 3).collect();
-        let rv = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(ints.clone()))));
-        let bytes = encode_zerocopy(&rv);
-        let view = view_message(&bytes).expect("native view opens");
-        let slice = view.as_i64_slice().expect("int zero-copy MUST read the aligned column IN PLACE");
-        assert_eq!(slice, ints.as_slice(), "the borrowed i64 slice equals the source (no copy, no loss)");
-        let want = ints.iter().fold(0i64, |a, &x| a.wrapping_add(x));
-        assert_eq!(zerocopy_sum_i64(&bytes), want, "zero-copy int sum == materialized sum");
-
-        let floats: Vec<f64> = (0..1000).map(|i| i as f64 * 0.5 - 1.0).collect();
-        let rvf = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(floats.clone()))));
-        let fb = encode_zerocopy(&rvf);
-        let fview = view_message(&fb).expect("native view opens");
-        let fslice = fview.as_f64_slice().expect("float zero-copy MUST read the aligned column IN PLACE");
-        assert_eq!(fslice, floats.as_slice(), "the borrowed f64 slice equals the source");
-        let fwant: f64 = floats.iter().sum();
-        assert_eq!(zerocopy_sum_f64(&fb), fwant, "zero-copy float sum == materialized sum");
-    }
-
-    #[test]
-    fn zerocopy_points_read_matches_materialized() {
-        // The columnar points zero-copy path reads each field's CONTIGUOUS blob in place; it must
-        // (a) actually find both fixed columns (the fast path fires) and (b) sum EXACTLY what a full
-        // decode would. Fields are canonically sorted → column 0 = x, column 1 = y.
-        let pts: Vec<(i64, i64)> = (0..500).map(|i| (i * 3 - 7, -i * 5 + 2)).collect();
-        let rv = rv_list(pts.iter().map(|&(x, y)| point_struct(x, y)).collect());
-        let bytes = encode_columnar(&rv);
-        let view = view_message(&bytes).expect("native view opens");
-        let xcol = view.structs_fixed_i64_col(0).expect("x column MUST read as a contiguous blob");
-        let ycol = view.structs_fixed_i64_col(1).expect("y column MUST read as a contiguous blob");
-        assert_eq!(xcol.len(), pts.len() * 8, "x column is n contiguous i64s");
-        assert_eq!(ycol.len(), pts.len() * 8, "y column is n contiguous i64s");
-        let want = pts.iter().fold(0i64, |a, &(x, y)| a.wrapping_add(x).wrapping_add(y));
-        assert_eq!(zerocopy_sum_points(&bytes), want, "zero-copy columnar points sum == materialized sum");
-    }
-
-    #[test]
-    fn fair_scenarios_carry_a_zero_copy_row() {
-        let report = build_report(20);
-        for id in ["ints", "floats", "points"] {
-            let s = report.scenarios.iter().find(|s| s.id == id).unwrap_or_else(|| panic!("no '{id}' scenario"));
-            assert!(
-                s.rows.iter().any(|r| r.codec == "logos (zero-copy)"),
-                "'{id}' must carry a 'logos (zero-copy)' row (the fair zero-copy read path)"
-            );
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_wirebench/zerocopy_tests.rs"]
+mod zerocopy_tests;

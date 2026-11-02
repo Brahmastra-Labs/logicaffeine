@@ -1,6 +1,6 @@
 {
   "meta": {
-    "date": "2026-07-09T04:02:45Z",
+    "date": "2026-11-02T16:31:36Z",
     "cpu": "Intel(R) Core(TM) i9-14900K",
     "os": "Ubuntu 24.04.2 LTS x86_64",
     "calibrated_side": "interpreter (VM + copy-and-patch JIT)",
@@ -16,7 +16,7 @@
     "fib": {
       "250": {
         "n": 38,
-        "interp_ms": 207.418,
+        "interp_ms": 226.897,
         "target_ms": 250,
         "status": "under"
       }
@@ -24,7 +24,7 @@
     "ackermann": {
       "250": {
         "n": 8,
-        "interp_ms": 4.331,
+        "interp_ms": 6.658,
         "target_ms": 250,
         "status": "capped"
       }
@@ -32,183 +32,183 @@
     "nqueens": {
       "250": {
         "n": 14,
-        "interp_ms": 196.205,
+        "interp_ms": 195.122,
         "target_ms": 250,
         "status": "under"
       }
     },
     "bubble_sort": {
       "250": {
-        "n": 18178,
-        "interp_ms": 248.924,
-        "target_ms": 250,
-        "status": "ok"
-      }
-    },
-    "mergesort": {
-      "250": {
-        "n": 976884,
-        "interp_ms": 247.908,
-        "target_ms": 250,
-        "status": "ok"
-      }
-    },
-    "quicksort": {
-      "250": {
-        "n": 1794434,
-        "interp_ms": 246.795,
+        "n": 18012,
+        "interp_ms": 244.566,
         "target_ms": 250,
         "status": "under"
       }
     },
+    "mergesort": {
+      "250": {
+        "n": 1441387,
+        "interp_ms": 247.449,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "quicksort": {
+      "250": {
+        "n": 1956324,
+        "interp_ms": 249.257,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
     "counting_sort": {
       "250": {
-        "n": 7787060,
-        "interp_ms": 242.123,
+        "n": 21632265,
+        "interp_ms": 245.817,
         "target_ms": 250,
         "status": "under"
       }
     },
     "heap_sort": {
       "250": {
-        "n": 34789,
-        "interp_ms": 33.397,
+        "n": 1956323,
+        "interp_ms": 249.622,
         "target_ms": 250,
-        "status": "under"
+        "status": "ok"
       }
     },
     "nbody": {
       "250": {
-        "n": 5704001,
-        "interp_ms": 247.968,
+        "n": 5632794,
+        "interp_ms": 246.074,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "mandelbrot": {
       "250": {
-        "n": 2323,
-        "interp_ms": 246.509,
-        "target_ms": 250,
-        "status": "under"
-      }
-    },
-    "spectral_norm": {
-      "250": {
-        "n": 2030,
-        "interp_ms": 244.857,
-        "target_ms": 250,
-        "status": "under"
-      }
-    },
-    "pi_leibniz": {
-      "250": {
-        "n": 274367627,
-        "interp_ms": 248.298,
+        "n": 2368,
+        "interp_ms": 249.317,
         "target_ms": 250,
         "status": "ok"
       }
     },
+    "spectral_norm": {
+      "250": {
+        "n": 2161,
+        "interp_ms": 248.238,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "pi_leibniz": {
+      "250": {
+        "n": 267218912,
+        "interp_ms": 241.311,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
     "gcd": {
       "250": {
-        "n": 4658,
-        "interp_ms": 244.560,
+        "n": 4706,
+        "interp_ms": 246.289,
         "target_ms": 250,
         "status": "under"
       }
     },
     "collatz": {
       "250": {
-        "n": 367189,
-        "interp_ms": 249.561,
+        "n": 367392,
+        "interp_ms": 246.619,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "primes": {
       "250": {
-        "n": 2300941,
-        "interp_ms": 249.817,
+        "n": 2308819,
+        "interp_ms": 241.890,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "sieve": {
       "250": {
-        "n": 45409328,
-        "interp_ms": 248.567,
+        "n": 32906072,
+        "interp_ms": 249.466,
         "target_ms": 250,
         "status": "ok"
       }
     },
     "matrix_mult": {
       "250": {
-        "n": 511,
-        "interp_ms": 244.949,
-        "target_ms": 250,
-        "status": "under"
-      }
-    },
-    "prefix_sum": {
-      "250": {
-        "n": 26955898,
-        "interp_ms": 247.996,
+        "n": 530,
+        "interp_ms": 248.067,
         "target_ms": 250,
         "status": "ok"
       }
     },
+    "prefix_sum": {
+      "250": {
+        "n": 9968034,
+        "interp_ms": 240.579,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
     "array_reverse": {
       "250": {
-        "n": 33554432,
-        "interp_ms": 192.517,
+        "n": 9904066,
+        "interp_ms": 196.922,
         "target_ms": 250,
         "status": "under"
       }
     },
     "array_fill": {
       "250": {
-        "n": 26295083,
-        "interp_ms": 245.456,
-        "target_ms": 250,
-        "status": "under"
-      }
-    },
-    "collect": {
-      "250": {
-        "n": 2097152,
-        "interp_ms": 221.871,
-        "target_ms": 250,
-        "status": "under"
-      }
-    },
-    "two_sum": {
-      "250": {
-        "n": 5839588,
-        "interp_ms": 249.641,
+        "n": 34285835,
+        "interp_ms": 249.968,
         "target_ms": 250,
         "status": "ok"
       }
     },
+    "collect": {
+      "250": {
+        "n": 2205300,
+        "interp_ms": 249.250,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "two_sum": {
+      "250": {
+        "n": 4196802,
+        "interp_ms": 247.467,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
     "histogram": {
       "250": {
-        "n": 183318947,
-        "interp_ms": 248.252,
+        "n": 184133321,
+        "interp_ms": 248.333,
         "target_ms": 250,
         "status": "ok"
       }
     },
     "knapsack": {
       "250": {
-        "n": 6035,
-        "interp_ms": 249.348,
+        "n": 6277,
+        "interp_ms": 245.778,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "coins": {
       "250": {
-        "n": 14142367,
-        "interp_ms": 239.535,
+        "n": 10576144,
+        "interp_ms": 239.171,
         "target_ms": 250,
         "status": "under"
       }
@@ -216,57 +216,81 @@
     "fannkuch": {
       "250": {
         "n": 10,
-        "interp_ms": 213.089,
+        "interp_ms": 195.552,
         "target_ms": 250,
         "status": "under"
       }
     },
     "strings": {
       "250": {
-        "n": 1967211,
-        "interp_ms": 249.032,
+        "n": 1663839,
+        "interp_ms": 249.253,
         "target_ms": 250,
         "status": "ok"
       }
     },
     "binary_trees": {
       "250": {
-        "n": 19,
-        "interp_ms": 215.309,
+        "n": 17,
+        "interp_ms": 227.923,
         "target_ms": 250,
         "status": "under"
       }
     },
     "loop_sum": {
       "250": {
-        "n": 106402398,
-        "interp_ms": 249.885,
+        "n": 104188111,
+        "interp_ms": 247.414,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "fib_iterative": {
       "250": {
-        "n": 104194104,
-        "interp_ms": 248.369,
+        "n": 105499409,
+        "interp_ms": 247.154,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "graph_bfs": {
       "250": {
-        "n": 2605731,
-        "interp_ms": 247.511,
+        "n": 1294971,
+        "interp_ms": 246.459,
         "target_ms": 250,
-        "status": "ok"
+        "status": "under"
       }
     },
     "string_search": {
       "250": {
-        "n": 14856116,
-        "interp_ms": 212.416,
+        "n": 48362787,
+        "interp_ms": 249.593,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "analytics": {
+      "250": {
+        "n": 45064457,
+        "interp_ms": 247.030,
         "target_ms": 250,
         "status": "under"
+      }
+    },
+    "vm": {
+      "250": {
+        "n": 18973443,
+        "interp_ms": 245.631,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "sha256": {
+      "250": {
+        "n": 1304628,
+        "interp_ms": 248.231,
+        "target_ms": 250,
+        "status": "ok"
       }
     }
   }

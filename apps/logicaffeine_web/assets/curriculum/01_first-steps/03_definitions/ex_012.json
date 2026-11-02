@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 1,
-  "hint": "Can you think of a genuine Knowledge that this definition would wrongly EXCLUDE?",
-  "explanation": "Most of what we call knowledge falls short of absolute certainty — you know your own name without it being beyond all possible doubt. Demanding certainty excludes ordinary knowledge, making the definition TOO NARROW."
+  "hint": "Can you think of knowledge that this definition leaves out?",
+  "explanation": "You know your own name without absolute certainty. Demanding certainty leaves out ordinary knowledge.",
+  "section": "3.2"
 }

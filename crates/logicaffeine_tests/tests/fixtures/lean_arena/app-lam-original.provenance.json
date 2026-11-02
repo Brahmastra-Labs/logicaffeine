@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "case": "perf/app-lam",
+  "source": "https://arena.lean-lang.org/lean-arena-tests.tar.gz",
+  "leaderboard_revision": "510fbfead6f02bed1a0179d01729a6ddf5bfd06d",
+  "sha256": "3f7b7a595dc29b0e289c9031c4edaef42d0e12b8aee3cbb48cf15cb715adc09a",
+  "bytes": 1276513,
+  "expected": "accept",
+  "usage": "Original unchanged source for source-typing and eventual complete conversion regressions; fixture presence is not an acceptance claim."
+}

@@ -12,7 +12,7 @@ set -euo pipefail
 export Z3_SYS_Z3_HEADER="${Z3_SYS_Z3_HEADER:-/usr/include/z3.h}"
 
 # Same feature set CI archives with (kept in one place in the workflow env).
-SUITE_FEATURES="logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification"
+SUITE_FEATURES="logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification,logicaffeine-tests/web-tests"
 
 echo "Listing workspace tests (compiles test binaries; no tests run)..." >&2
 N=$(cargo nextest list --workspace --features "$SUITE_FEATURES" \

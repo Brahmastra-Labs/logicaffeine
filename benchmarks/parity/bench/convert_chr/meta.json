@@ -1,0 +1,10 @@
+{
+  "capability": "convert.chr",
+  "workload": "len chr(65+i%26)",
+  "arg": "3000000",
+  "expected": "3000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

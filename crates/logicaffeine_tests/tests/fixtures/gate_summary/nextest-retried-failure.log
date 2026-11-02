@@ -1,0 +1,33 @@
+════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────
+ PASS 1/2 — cargo nextest run (unit + integration, ignored included)
+        PASS [   0.012s] (    1/6) logicaffeine-base numeric::tests::rational_from_f64_exact
+        FAIL [   0.026s] (    2/6) logicaffeine-cli::check_deep_regression deep_finding_is_source_mapped_through_the_splice
+  TRY 1 FAIL [  94.901s] (───────────) logicaffeine-tests::aot_native_corpus every_benchmark_runs_correctly_on_aot_native
+  TRY 2 FAIL [ 157.931s] (───────────) logicaffeine-tests::aot_native_corpus every_benchmark_runs_correctly_on_aot_native
+  TRY 3 FAIL [ 170.851s] (    3/6) logicaffeine-tests::aot_native_corpus every_benchmark_runs_correctly_on_aot_native
+  TRY 1 FAIL [ 120.400s] (───────────) logicaffeine-tests::aot_native_tier aot_native_tier_executes_and_is_dispatched
+   FLAKY 2/3 [ 440.648s] (    4/6) logicaffeine-tests::aot_native_tier aot_native_tier_executes_and_is_dispatched
+     TIMEOUT [1800.024s] (    5/6) logicaffeine-compile::riscv_aot_lock riscv_matches_the_vm_on_the_benchmark_corpus
+        PASS [   0.030s] (    6/6) logicaffeine-base numeric::tests::rational_round_trip
+     Summary [2440.000s] 6 tests run: 3 passed (1 flaky), 2 failed, 1 timed out, 0 skipped
+  TRY 3 FAIL [ 170.851s] (    3/6) logicaffeine-tests::aot_native_corpus every_benchmark_runs_correctly_on_aot_native
+        FAIL [   0.026s] (    2/6) logicaffeine-cli::check_deep_regression deep_finding_is_source_mapped_through_the_splice
+     TIMEOUT [1800.024s] (    5/6) logicaffeine-compile::riscv_aot_lock riscv_matches_the_vm_on_the_benchmark_corpus
+
+
+──────────────────────────────────────────────────────────────────────
+ PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile, --features wasm-jit)
+──────────────────────────────────────────────────────────────────────
+     Summary [   0.500s] 1 tests run: 1 passed, 0 skipped
+
+
+──────────────────────────────────────────────────────────────────────
+ PASS 2/2 — cargo test --doc (doctests, overlapped with pass 1)
+──────────────────────────────────────────────────────────────────────
+   Doc-tests logicaffeine_base
+running 1 test
+test crates/logicaffeine_base/src/lib.rs - (line 12) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s

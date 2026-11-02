@@ -1,0 +1,11 @@
+{
+  "capability": "bytes.index_sub",
+  "workload": "bytesIndexSub(xs,sub) 1-based/0 \u2014 mostly absent (full scans)",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

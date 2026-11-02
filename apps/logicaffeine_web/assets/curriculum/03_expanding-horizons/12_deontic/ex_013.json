@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Sing and despair",
   "options": [
-    "$ (S\\underline{u}\\cdot Du ) $",
-    "$ (Su\\cdot D\\underline{u} ) $",
-    "$ (S\\underline{u}\\cdot D\\underline{u}  ) $",
-    "$ (Su\\cdot Du) $"
+    "S(u̲) ∧ D(u)",
+    "S(u) ∧ D(u̲)",
+    "S(u̲) ∧ D(u̲)",
+    "S(u) ∧ D(u)"
   ],
   "correct": 2,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "A conjoined command: 'sing AND despair'. Both actions are ordered of you (the underlined agent), joined by '·': (S͟u · D͟u)."
+  "hint": "Two commands joined by and. Who acts in each?",
+  "explanation": "Both acts are commanded of you, so u is underlined in each: S(u̲) ∧ D(u̲).",
+  "section": "12.2"
 }

@@ -10,6 +10,7 @@
     "Q → P"
   ],
   "correct": 1,
-  "hint": "A conditional fails only when the antecedent is true and the consequent false. Rewrite that with ∨.",
-  "explanation": "By Material Implication, P → Q ≡ ¬P ∨ Q: the conditional holds exactly when P is false OR Q is true. The two share an identical truth table. 'Q → P' is the converse (not equivalent), and the others differ in at least one row."
+  "hint": "A conditional fails only when its if part is true and its then part false. Say that with ∨.",
+  "explanation": "P → Q is equivalent to ¬P ∨ Q: both are false only when P is true and Q is false. Q → P is the converse, which is not equivalent.",
+  "section": "6.3"
 }

@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "Sometimes we seem obligated to do incompatible things.",
   "explanation": "Moral dilemmas suggest conflicting obligations: O(p) ∧ O(¬p). Sartre's student: obligated to stay with mother AND join resistance. Standard deontic logic often makes this inconsistent. Some argue for dilemma-tolerant deontic logics that accept genuine conflicts.",
-  "visual_concept": "You promised to meet a friend. An emergency requires you elsewhere. Two real obligations pointing opposite ways - logical conflict?"
+  "visual_concept": "You promised to meet a friend. An emergency requires you elsewhere. Two real obligations pointing opposite ways - logical conflict?",
+  "section": "14.5"
 }

@@ -1,7 +1,7 @@
 use std::env;
 fn main() {
     let n: i32 = env::args().nth(1).unwrap().parse().unwrap();
-    let mut count = 0;
+    let mut count: i64 = 0;
     for y in 0..n { for x in 0..n {
         let cr = 2.0 * x as f64 / n as f64 - 1.5;
         let ci = 2.0 * y as f64 / n as f64 - 1.0;

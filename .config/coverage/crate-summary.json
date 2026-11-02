@@ -1,0 +1,16 @@
+[
+  {"crate": "logicaffeine_base",      "region_pct": 94.92},
+  {"crate": "logicaffeine_compile",   "region_pct": 83.40},
+  {"crate": "logicaffeine_data",      "region_pct": 77.92},
+  {"crate": "logicaffeine_forge",     "region_pct": 82.99},
+  {"crate": "logicaffeine_jit",       "region_pct": 85.28},
+  {"crate": "logicaffeine_kernel",    "region_pct": 84.85},
+  {"crate": "logicaffeine_language",  "region_pct": 81.27},
+  {"crate": "logicaffeine_lsp",       "region_pct": 87.51},
+  {"crate": "logicaffeine_proof",     "region_pct": 91.37},
+  {"crate": "logicaffeine_runtime",   "region_pct": 84.79},
+  {"crate": "logicaffeine_system",    "region_pct": 80.30},
+  {"crate": "logicaffeine_tv",        "region_pct": 82.66},
+  {"crate": "logicaffeine_verify",    "region_pct": 70.25},
+  {"crate": "logicaffeine_wirebench", "region_pct": 93.35}
+]

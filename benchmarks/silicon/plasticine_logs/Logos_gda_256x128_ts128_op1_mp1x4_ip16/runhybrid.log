@@ -1,0 +1,40 @@
+    100000          36073 Hz
+    110000          35923 Hz
+    120000          36167 Hz
+    130000          36050 Hz
+    140000          35979 Hz
+    150000          36027 Hz
+    160000          36184 Hz
+    170000          35911 Hz
+    180000          36213 Hz
+    190000          36188 Hz
+    200000          35569 Hz
+    210000          36214 Hz
+    220000          36081 Hz
+    230000          35904 Hz
+    240000          36252 Hz
+    250000          36183 Hz
+    260000          35945 Hz
+    270000          36111 Hz
+    280000          36117 Hz
+    290000          35940 Hz
+    300000          36193 Hz
+    310000          36151 Hz
+    320000          35996 Hz
+    330000          36283 Hz
+    340000          36170 Hz
+    350000          36111 Hz
+    360000          36601 Hz
+    370000          36958 Hz
+    380000          37307 Hz
+Simulation complete at cycle 387525
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.343513 GB/s
+Average DRAM Write Bandwidth: 0.169114 GB/s
+script Elapsed seconds: 12.1482
+Exiting... 😊
+Destruct DRAM.
+PASS: true (Logos_gda_256x128_ts128_op1_mp1x4_ip16)
+Complete Simulation
+Runtime:0:12.28

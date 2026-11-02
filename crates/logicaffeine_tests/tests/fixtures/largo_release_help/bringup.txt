@@ -1,0 +1,64 @@
+Bring a model up on every chip from its one program.
+
+Reads the checkpoint's spec, writes the model's computation as one LOGOS program (`program.lg`) and lowers that program on each backend asked for: the CPU tiers (the VM's bytecode, the same with its JIT, C, Rust, RISC-V and WebAssembly), the CUDA lane (one fused `.cu` and the sidecar of constants it reads), the D5005 decode engine (the sequencer's program), the SN50 (a certified bundle) and the fabric. Every artifact names the cut of the program it was lowered from (`LOGOS program: <cut>, sha256 <hex>`); a backend that does not run the model refuses it by name. With `--run`, every chip that brought the model up and is on this machine then generates from a prompt (or every prompt of a golden, `--prompts`) through the one program, and reports its tokens, its tokens a second and how many lead the reference's.
+
+Usage: largo bringup [OPTIONS] --output <OUTPUT> <CHECKPOINT>
+
+Arguments:
+  <CHECKPOINT>
+          The model's GGUF checkpoint
+
+Options:
+      --target <CHIP>
+          The chips to bring the model up on, comma-separated: `vm`, `jit`, `c`, `rust`, `riscv-qemu`, `wasm`, `cuda`, `d5005`, `sn50`, `fabric`. Every one when absent
+
+      --ctx <N>
+          The positions the decode step's caches hold
+          
+          [default: 4096]
+
+  -o, --output <OUTPUT>
+          The directory the program and every backend's artifacts are written to
+
+      --run
+          Then run the model on every chip that brought it up and is on this machine, each judged by how many of its tokens lead the reference's
+
+      --tokens <N>
+          The tokens a run generates after the prompt (8, or the golden's continuation, unless given)
+
+      --prompt <IDS>
+          The prompt a run starts from: token ids from 0, comma-separated
+          
+          [default: 5,17,2,30]
+
+      --golden <FILE>
+          Judge the runs against a golden (`benchmarks/models/<model>/golden-f32.json`): its first prompt is the prompt and its continuation the tokens to agree with; without it, the model's f64 reference generates them
+
+      --prompts <N|all>
+          Run the golden's first N prompts (`all`: every one), each from an empty state and judged against its own continuation
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo bringup models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf -o qwen38/
+  largo bringup llama.gguf --target cuda --ctx 1024 -o llama/
+  largo bringup qwen3.5-0.8b.gguf --target vm,c,cuda --ctx 64 --run --tokens 8 -o qwen35/
+  largo bringup qwen3.5-0.8b.gguf --target cuda --run --golden benchmarks/models/qwen3.5-0.8b/golden-f32.json -o qwen35/
+  largo bringup qwen3.5-0.8b.gguf --target jit,c --run --golden benchmarks/models/qwen3.5-0.8b/golden-f32.json --prompts all -o qwen35/

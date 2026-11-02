@@ -15,10 +15,18 @@ fn drs_basic_donkey() {
     eprintln!("DEBUG drs_basic_donkey: {}", output);
 
     // Should have universal quantifiers
-    assert!(output.contains("∀"), "Basic donkey needs universal quantifier: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Basic donkey needs universal quantifier: {}",
+        output
+    );
 
     // Should have implication structure
-    assert!(output.contains("→"), "Basic donkey needs implication: {}", output);
+    assert!(
+        output.contains("→"),
+        "Basic donkey needs implication: {}",
+        output
+    );
 }
 
 /// Quantifier ordering: farmer (x) should be quantified BEFORE donkey (y)
@@ -36,7 +44,11 @@ fn drs_quantifier_ordering() {
 
     // The output should have nested universals
     let count = output.matches("∀").count();
-    assert!(count >= 2, "Should have at least 2 universal quantifiers for donkey sentence: {}", output);
+    assert!(
+        count >= 2,
+        "Should have at least 2 universal quantifiers for donkey sentence: {}",
+        output
+    );
 }
 
 /// Conditional donkey: "If a farmer owns a donkey, he beats it."
@@ -47,10 +59,18 @@ fn drs_conditional_donkey() {
     eprintln!("DEBUG drs_conditional_donkey: {}", output);
 
     // The indefinites "a farmer" and "a donkey" should become universals
-    assert!(output.contains("∀"), "Conditional donkey needs universal quantification: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Conditional donkey needs universal quantification: {}",
+        output
+    );
 
     // Should have implication
-    assert!(output.contains("→"), "Conditional donkey needs implication: {}", output);
+    assert!(
+        output.contains("→"),
+        "Conditional donkey needs implication: {}",
+        output
+    );
 }
 
 /// Negative donkey: "No farmer who owns a donkey beats it."
@@ -61,10 +81,18 @@ fn drs_negative_donkey() {
     eprintln!("DEBUG drs_negative_donkey: {}", output);
 
     // Should have universal quantifiers
-    assert!(output.contains("∀"), "Negative donkey needs universal: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Negative donkey needs universal: {}",
+        output
+    );
 
     // Should have negation
-    assert!(output.contains("¬"), "Negative donkey needs negation: {}", output);
+    assert!(
+        output.contains("¬"),
+        "Negative donkey needs negation: {}",
+        output
+    );
 }
 
 /// Pronoun binding: "it" should resolve to "donkey" via DRS accessibility
@@ -74,12 +102,19 @@ fn drs_pronoun_binding() {
     eprintln!("DEBUG drs_pronoun_binding: {}", output);
 
     // The output should NOT contain unresolved pronoun marker
-    assert!(!output.contains("?"), "Pronoun 'it' should resolve: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Pronoun 'it' should resolve: {}",
+        output
+    );
 
     // The Beat predicate should have the donkey variable as second argument
     // Looking for Beat(x, y) or similar pattern
-    assert!(output.contains("B(") || output.contains("Beat("),
-        "Should have Beat predicate: {}", output);
+    assert!(
+        output.contains("B(") || output.contains("Beat("),
+        "Should have Beat predicate: {}",
+        output
+    );
 }
 
 /// "Most farmers who own a donkey beat it." - proportional quantifier
@@ -90,8 +125,11 @@ fn drs_proportional_most() {
     eprintln!("DEBUG drs_proportional_most: {}", output);
 
     // Should have MOST quantifier (not converted to ∀)
-    assert!(output.contains("MOST") || output.contains("Most"),
-        "Proportional quantifier should preserve MOST: {}", output);
+    assert!(
+        output.contains("MOST") || output.contains("Most"),
+        "Proportional quantifier should preserve MOST: {}",
+        output
+    );
 }
 
 /// Antecedent accessible from consequent:
@@ -104,7 +142,11 @@ fn drs_antecedent_accessible() {
 
     // The definite "the donkey" should bind to the antecedent's donkey
     // Should not have unresolved reference
-    assert!(!output.contains("?"), "Consequent should access antecedent referent: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Consequent should access antecedent referent: {}",
+        output
+    );
 }
 
 /// Simple donkey with different pronouns:
@@ -118,9 +160,16 @@ fn drs_pronoun_gender_mismatch() {
 
     // "her" should NOT bind to "donkey" (gender mismatch: donkey is neuter)
     // Should have universal quantifier and Love predicate
-    assert!(output.contains("∀"), "Should have universal quantifier: {}", output);
-    assert!(output.contains("L(") || output.contains("Love("),
-        "Should have Love predicate: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Should have universal quantifier: {}",
+        output
+    );
+    assert!(
+        output.contains("L(") || output.contains("Love("),
+        "Should have Love predicate: {}",
+        output
+    );
 }
 
 /// Multiple donkey referents - simplified to avoid parse issues
@@ -131,10 +180,16 @@ fn drs_multiple_indefinites() {
     eprintln!("DEBUG drs_multiple_indefinites: {}", output);
 
     // Should have multiple variables for donkey and horse
-    assert!(output.contains("D(") || output.contains("Donkey("),
-        "Should have donkey predicate: {}", output);
-    assert!(output.contains("H(") || output.contains("Horse("),
-        "Should have horse predicate: {}", output);
+    assert!(
+        output.contains("D(") || output.contains("Donkey("),
+        "Should have donkey predicate: {}",
+        output
+    );
+    assert!(
+        output.contains("H(") || output.contains("Horse("),
+        "Should have horse predicate: {}",
+        output
+    );
 }
 
 /// Nested relative clauses:
@@ -146,8 +201,11 @@ fn drs_nested_relative() {
     eprintln!("DEBUG drs_nested_relative: {}", output);
 
     // Should have Grey/Gray predicate for the donkey
-    assert!(output.contains("G(") || output.contains("Grey(") || output.contains("Gray("),
-        "Should have Grey predicate for nested relative: {}", output);
+    assert!(
+        output.contains("G(") || output.contains("Grey(") || output.contains("Gray("),
+        "Should have Grey predicate for nested relative: {}",
+        output
+    );
 }
 
 /// Generic conditional with event: "If it rains, the ground is wet."
@@ -160,15 +218,26 @@ fn drs_generic_conditional_event_lifting() {
     eprintln!("DEBUG drs_generic_conditional_event_lifting: {}", output);
 
     // Should have universal quantifier for event variable
-    assert!(output.contains("∀"), "Generic conditional should have universal quantifier: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Generic conditional should have universal quantifier: {}",
+        output
+    );
 
     // Should have implication
-    assert!(output.contains("→"), "Generic conditional should have implication: {}", output);
+    assert!(
+        output.contains("→"),
+        "Generic conditional should have implication: {}",
+        output
+    );
 
     // Should NOT have existential inside the antecedent
     // The Rain event should not be existentially quantified
-    assert!(!output.contains("∃e(Rain") && !output.contains("∃e(R("),
-        "Event variable should NOT be existentially quantified in antecedent: {}", output);
+    assert!(
+        !output.contains("∃e(Rain") && !output.contains("∃e(R("),
+        "Event variable should NOT be existentially quantified in antecedent: {}",
+        output
+    );
 }
 
 /// Coordinated weather verbs: "If it rains and thunders, the ground shakes."
@@ -179,11 +248,23 @@ fn drs_coordinated_weather_verbs() {
     eprintln!("DEBUG drs_coordinated_weather_verbs: {}", output);
 
     // Should parse without error and contain both weather events
-    assert!(output.contains("Rain") || output.contains("R("), "Should have Rain: {}", output);
-    assert!(output.contains("Thunder") || output.contains("T("), "Should have Thunder: {}", output);
+    assert!(
+        output.contains("Rain") || output.contains("R("),
+        "Should have Rain: {}",
+        output
+    );
+    assert!(
+        output.contains("Thunder") || output.contains("T("),
+        "Should have Thunder: {}",
+        output
+    );
 
     // Should have conjunction
-    assert!(output.contains("∧"), "Should have conjunction for coordinated events: {}", output);
+    assert!(
+        output.contains("∧"),
+        "Should have conjunction for coordinated events: {}",
+        output
+    );
 }
 
 /// Weather adjective with expletive "it": "If it rains then it is wet."
@@ -196,15 +277,26 @@ fn drs_weather_adjective_consequent() {
     eprintln!("DEBUG drs_weather_adjective_consequent: {}", output);
 
     // Should not have unresolved pronoun (?)
-    assert!(!output.contains("?"), "Should not have unresolved pronoun: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Should not have unresolved pronoun: {}",
+        output
+    );
 
     // Single universal quantifier (not duplicate ∀e(∀e(...)))
-    assert_eq!(output.matches("∀").count(), 1,
-        "Should have exactly one universal quantifier: {}", output);
+    assert_eq!(
+        output.matches("∀").count(),
+        1,
+        "Should have exactly one universal quantifier: {}",
+        output
+    );
 
     // Wet should predicate over event variable with full lemma
-    assert!(output.contains("Wet(e)"),
-        "Should have Wet(e) with full lemma, not W(e): {}", output);
+    assert!(
+        output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}",
+        output
+    );
 }
 
 /// Weather adjective with contraction "it's": "If it rains then it's wet."
@@ -214,15 +306,26 @@ fn drs_weather_adjective_contraction() {
     eprintln!("DEBUG drs_weather_adjective_contraction: {}", output);
 
     // Should not have unresolved pronoun (?)
-    assert!(!output.contains("?"), "Should not have unresolved pronoun: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Should not have unresolved pronoun: {}",
+        output
+    );
 
     // Single universal quantifier
-    assert_eq!(output.matches("∀").count(), 1,
-        "Should have exactly one universal quantifier: {}", output);
+    assert_eq!(
+        output.matches("∀").count(),
+        1,
+        "Should have exactly one universal quantifier: {}",
+        output
+    );
 
     // Wet should predicate over event variable with full lemma
-    assert!(output.contains("Wet(e)"),
-        "Should have Wet(e) with full lemma, not W(e): {}", output);
+    assert!(
+        output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}",
+        output
+    );
 }
 
 /// Full weather event semantics: "If it rains and thunders then it's wet."
@@ -233,17 +336,32 @@ fn drs_weather_event_semantics() {
     eprintln!("DEBUG drs_weather_event_semantics: {}", output);
 
     // Single universal quantifier (not duplicate ∀e(∀e(...)))
-    assert_eq!(output.matches("∀").count(), 1,
-        "Should have exactly one universal quantifier: {}", output);
+    assert_eq!(
+        output.matches("∀").count(),
+        1,
+        "Should have exactly one universal quantifier: {}",
+        output
+    );
 
     // Should have conjunction of weather events
-    assert!(output.contains("Rain(e)"), "Should have Rain(e): {}", output);
-    assert!(output.contains("Thunder(e)"), "Should have Thunder(e): {}", output);
+    assert!(
+        output.contains("Rain(e)"),
+        "Should have Rain(e): {}",
+        output
+    );
+    assert!(
+        output.contains("Thunder(e)"),
+        "Should have Thunder(e): {}",
+        output
+    );
     assert!(output.contains("∧"), "Should have conjunction: {}", output);
 
     // Wet should predicate over event variable with full lemma
-    assert!(output.contains("Wet(e)"),
-        "Should have Wet(e) with full lemma, not W(e): {}", output);
+    assert!(
+        output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}",
+        output
+    );
 }
 
 /// Weather disjunction: "If it rains or thunders then it's wet."
@@ -254,17 +372,32 @@ fn drs_weather_disjunction() {
     eprintln!("DEBUG drs_weather_disjunction: {}", output);
 
     // Single universal quantifier
-    assert_eq!(output.matches("∀").count(), 1,
-        "Should have exactly one universal quantifier: {}", output);
+    assert_eq!(
+        output.matches("∀").count(),
+        1,
+        "Should have exactly one universal quantifier: {}",
+        output
+    );
 
     // Should have disjunction of weather events
     assert!(output.contains("∨"), "Should have disjunction: {}", output);
-    assert!(output.contains("Rain(e)"), "Should have Rain(e): {}", output);
-    assert!(output.contains("Thunder(e)"), "Should have Thunder(e): {}", output);
+    assert!(
+        output.contains("Rain(e)"),
+        "Should have Rain(e): {}",
+        output
+    );
+    assert!(
+        output.contains("Thunder(e)"),
+        "Should have Thunder(e): {}",
+        output
+    );
 
     // Wet should predicate over event variable with full lemma
-    assert!(output.contains("Wet(e)"),
-        "Should have Wet(e) with full lemma, not W(e): {}", output);
+    assert!(
+        output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}",
+        output
+    );
 }
 
 /// Coordinated weather adjectives: "If it rains then it's wet and cold."
@@ -275,17 +408,27 @@ fn drs_weather_compound_adjectives() {
     eprintln!("DEBUG drs_weather_compound_adjectives: {}", output);
 
     // Should have Wet(e) with full lemma, not W(e)
-    assert!(output.contains("Wet(e)"),
-        "Should have Wet(e) with full lemma, not W(e): {}", output);
+    assert!(
+        output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}",
+        output
+    );
 
     // Should have Cold(e) with full lemma, not C(e)
-    assert!(output.contains("Cold(e)"),
-        "Should have Cold(e) with full lemma, not C(e): {}", output);
+    assert!(
+        output.contains("Cold(e)"),
+        "Should have Cold(e) with full lemma, not C(e): {}",
+        output
+    );
 
     // Should have conjunction in consequent
     let arrow_pos = output.find("→").expect("Should have implication");
     let consequent = &output[arrow_pos..];
-    assert!(consequent.contains("∧"), "Consequent should have conjunction: {}", output);
+    assert!(
+        consequent.contains("∧"),
+        "Consequent should have conjunction: {}",
+        output
+    );
 }
 
 /// Grammar error: "its" (possessive) vs "it's" (contraction)
@@ -297,6 +440,9 @@ fn drs_its_possessive_grammar_error() {
 
     let err = result.unwrap_err();
     let err_msg = format!("{:?}", err);
-    assert!(err_msg.contains("it's") || err_msg.contains("possessive"),
-        "Error should mention the typo: {}", err_msg);
+    assert!(
+        err_msg.contains("it's") || err_msg.contains("possessive"),
+        "Error should mention the typo: {}",
+        err_msg
+    );
 }

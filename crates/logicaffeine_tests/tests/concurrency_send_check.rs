@@ -1,4 +1,4 @@
-//! Phase 4 (work/FINISH_INTERPRETER.md) — Send/escape analysis tests.
+//! Send/escape analysis tests.
 //!
 //! The concurrency memory model is message-passing + CRDT: tasks have isolated
 //! heaps; the only cross-task sharing is channels (move) and CRDT cells. This
@@ -19,7 +19,11 @@ fn send_check_accepts_message_passing() {
         \x20   Receive x from jobs.\n\
         \x20   Show x.\n";
     let diags = send_check_source(src).expect("parse");
-    assert!(diags.is_empty(), "a message-passing program is accepted, got {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "a message-passing program is accepted, got {:?}",
+        diags
+    );
 }
 
 #[test]
@@ -31,7 +35,11 @@ fn send_check_allows_parallel_independent() {
         \x20   Show a.\n\
         \x20   Show b.\n";
     let diags = send_check_source(src).expect("parse");
-    assert!(diags.is_empty(), "independent parallel branches are accepted, got {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "independent parallel branches are accepted, got {:?}",
+        diags
+    );
 }
 
 #[test]
@@ -45,7 +53,11 @@ fn send_check_allows_parallel_pipe_communication() {
         \x20       Receive x from ch.\n\
         \x20   Show x.\n";
     let diags = send_check_source(src).expect("parse");
-    assert!(diags.is_empty(), "pipe communication across branches is accepted, got {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "pipe communication across branches is accepted, got {:?}",
+        diags
+    );
 }
 
 #[test]
@@ -65,7 +77,11 @@ fn send_check_allows_crdt_shared_cell() {
         \x20   Increase c's points by 2.\n\
         Show c's points.\n";
     let diags = send_check_source(src).expect("parse");
-    assert!(diags.is_empty(), "CRDT shared cell across branches is accepted, got {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "CRDT shared cell across branches is accepted, got {:?}",
+        diags
+    );
 }
 
 #[test]
@@ -76,7 +92,10 @@ fn send_check_rejects_parallel_shared_mutable() {
         \x20       Set total to total + 1.\n\
         \x20       Set total to total + 2.\n";
     let diags = send_check_source(src).expect("parse");
-    assert!(!diags.is_empty(), "parallel branches mutating a shared variable must be rejected");
+    assert!(
+        !diags.is_empty(),
+        "parallel branches mutating a shared variable must be rejected"
+    );
     assert!(
         diags[0].message.contains("Pipe") || diags[0].message.contains("CRDT"),
         "diagnostic should suggest the fix, got: {}",
@@ -106,9 +125,18 @@ fn run_path_rejects_shared_mutable_parallel() {
         \x20       Set total to total + 2.\n\
         \x20   Show total.\n";
     let result = block_on(interpret_for_ui(src));
-    let err = result.error.expect("a racy parallel program must be rejected before running");
-    assert!(err.contains("share mutable state"), "send-check message: {err}");
-    assert!(result.lines.is_empty(), "nothing runs when rejected: {:?}", result.lines);
+    let err = result
+        .error
+        .expect("a racy parallel program must be rejected before running");
+    assert!(
+        err.contains("share mutable state"),
+        "send-check message: {err}"
+    );
+    assert!(
+        result.lines.is_empty(),
+        "nothing runs when rejected: {:?}",
+        result.lines
+    );
 }
 
 #[test]
@@ -120,8 +148,13 @@ fn run_path_rejects_shared_mutable_concurrent() {
         \x20       Set total to total + 2.\n\
         \x20   Show total.\n";
     let result = block_on(interpret_for_ui(src));
-    let err = result.error.expect("a racy concurrent program must be rejected before running");
-    assert!(err.contains("share mutable state"), "send-check message: {err}");
+    let err = result
+        .error
+        .expect("a racy concurrent program must be rejected before running");
+    assert!(
+        err.contains("share mutable state"),
+        "send-check message: {err}"
+    );
 }
 
 #[test]
@@ -136,7 +169,11 @@ fn run_path_accepts_independent_parallel() {
         \x20   Show a.\n\
         \x20   Show b.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "independent branches must run: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "independent branches must run: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["1".to_string(), "2".to_string()]);
 }
 
@@ -150,7 +187,11 @@ fn run_path_accepts_parallel_pipe_communication() {
         \x20       Receive x from ch.\n\
         \x20   Show x.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "pipe communication must be accepted: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "pipe communication must be accepted: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["1".to_string()]);
 }
 
@@ -166,6 +207,10 @@ fn run_path_accepts_message_passing() {
         \x20   Receive x from jobs.\n\
         \x20   Show x.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "message passing must be accepted: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "message passing must be accepted: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["1".to_string()]);
 }

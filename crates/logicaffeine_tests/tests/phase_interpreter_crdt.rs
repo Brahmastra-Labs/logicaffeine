@@ -23,7 +23,11 @@ Show c's points.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("10"), "Should output 10, got: {}", result.output);
+    assert!(
+        result.output.contains("10"),
+        "Should output 10, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -41,7 +45,11 @@ Show c's points.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("18"), "Should output 18, got: {}", result.output);
+    assert!(
+        result.output.contains("18"),
+        "Should output 18, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -58,7 +66,11 @@ Show c's score.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("25"), "Should output 25, got: {}", result.output);
+    assert!(
+        result.output.contains("25"),
+        "Should output 25, got: {}",
+        result.output
+    );
 }
 
 // =============================================================================
@@ -79,7 +91,11 @@ Show t's count.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("7"), "Should output 7, got: {}", result.output);
+    assert!(
+        result.output.contains("7"),
+        "Should output 7, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -95,7 +111,11 @@ Show t's count.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("-5"), "Should output -5, got: {}", result.output);
+    assert!(
+        result.output.contains("-5"),
+        "Should output -5, got: {}",
+        result.output
+    );
 }
 
 // =============================================================================
@@ -125,8 +145,16 @@ Show length of p's guests.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("found"), "Should find Alice, got: {}", result.output);
-    assert!(result.output.contains("1"), "Set has one element, got: {}", result.output);
+    assert!(
+        result.output.contains("found"),
+        "Should find Alice, got: {}",
+        result.output
+    );
+    assert!(
+        result.output.contains("1"),
+        "Set has one element, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -151,7 +179,11 @@ Otherwise:
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("present"), "Concurrent add must win, got: {}", result.output);
+    assert!(
+        result.output.contains("present"),
+        "Concurrent add must win, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -168,7 +200,11 @@ Show length of d's lines.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("2"), "Sequence has two elements, got: {}", result.output);
+    assert!(
+        result.output.contains("2"),
+        "Sequence has two elements, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -187,6 +223,14 @@ Show s's penalties.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("100"), "Should output points 100, got: {}", result.output);
-    assert!(result.output.contains("10"), "Should output penalties 10, got: {}", result.output);
+    assert!(
+        result.output.contains("100"),
+        "Should output points 100, got: {}",
+        result.output
+    );
+    assert!(
+        result.output.contains("10"),
+        "Should output penalties 10, got: {}",
+        result.output
+    );
 }

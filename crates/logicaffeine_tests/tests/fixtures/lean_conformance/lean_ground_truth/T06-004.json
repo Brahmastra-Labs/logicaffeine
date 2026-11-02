@@ -1,0 +1,148 @@
+{
+  "case": "T06-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 18,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T06_004.Bounded",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T06_004.Bounded \u2192 Sort u} \u2192\n  (t : T06_004.Bounded) \u2192 ((val : Nat) \u2192 (isSmall : val = val) \u2192 motive { val := val, isSmall := isSmall }) \u2192 motive t",
+      "name": "T06_004.Bounded.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T06_004.Bounded), self.val = self.val",
+      "name": "T06_004.Bounded.isSmall",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(val : Nat) \u2192 val = val \u2192 T06_004.Bounded",
+      "name": "T06_004.Bounded.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {val : Nat} {isSmall : val = val} {val_1 : Nat} {isSmall_1 : val_1 = val_1},\n  { val := val, isSmall := isSmall } = { val := val_1, isSmall := isSmall_1 } \u2192 val = val_1",
+      "name": "T06_004.Bounded.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (val : Nat) (isSmall : val = val) (val_1 : Nat) (isSmall_1 : val_1 = val_1),\n  ({ val := val, isSmall := isSmall } = { val := val_1, isSmall := isSmall_1 }) = (val = val_1)",
+      "name": "T06_004.Bounded.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (val : Nat) (isSmall : val = val), sizeOf { val := val, isSmall := isSmall } = 1 + sizeOf val + sizeOf isSmall",
+      "name": "T06_004.Bounded.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T06_004.Bounded} \u2192 v1 = v2 \u2192 T06_004.Bounded.noConfusionType P v1 v2",
+      "name": "T06_004.Bounded.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T06_004.Bounded \u2192 T06_004.Bounded \u2192 Sort u",
+      "name": "T06_004.Bounded.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T06_004.Bounded \u2192 Sort u} \u2192\n  ((val : Nat) \u2192 (isSmall : val = val) \u2192 motive { val := val, isSmall := isSmall }) \u2192 (t : T06_004.Bounded) \u2192 motive t",
+      "name": "T06_004.Bounded.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T06_004.Bounded \u2192 Sort u} \u2192\n  (t : T06_004.Bounded) \u2192 ((val : Nat) \u2192 (isSmall : val = val) \u2192 motive { val := val, isSmall := isSmall }) \u2192 motive t",
+      "name": "T06_004.Bounded.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_004.Bounded \u2192 Nat",
+      "name": "T06_004.Bounded.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T06_004.Small",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : T06_004.Bounded), a.val = b.val \u2192 a = b",
+      "name": "T06_004.boundedEta",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f g : (n : Nat) \u2192 n = n \u2192 Nat),\n  (\u2200 (n : Nat) (h : n = n), f n h = g n h) \u2192 \u2200 (n : Nat) (h\u2081 h\u2082 : n = n), f n h\u2081 = g n h\u2082",
+      "name": "T06_004.irrelevanceUnderBinder",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (h : True \u2228 True), h = \u22ef",
+      "name": "T06_004.orProofs",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : T06_004.Small 3) (q : 3 = 3), p = q",
+      "name": "T06_004.reducedProps",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : True), p = q",
+      "name": "T06_004.twoProofs",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

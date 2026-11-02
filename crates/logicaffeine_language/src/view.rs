@@ -11,11 +11,11 @@
 
 use crate::ast::{
     AspectOperator, BinaryTemporalOp, LogicExpr, ModalVector, NounPhrase, QuantifierKind,
-    TemporalOperator, VoiceOperator, Term, ThematicRole,
+    TemporalOperator, Term, ThematicRole, VoiceOperator,
 };
-use logicaffeine_base::Interner;
 use crate::lexicon::Definiteness;
 use crate::token::{FocusKind, TokenType};
+use logicaffeine_base::Interner;
 
 /// View of a term with resolved symbol names.
 #[derive(Debug, Clone, PartialEq)]
@@ -252,10 +252,12 @@ impl<'a, 'b> Resolve<'a> for Term<'b> {
             Term::Sigma(predicate) => TermView::Sigma(interner.resolve(*predicate)),
             Term::Intension(predicate) => TermView::Intension(interner.resolve(*predicate)),
             Term::Kind(kind) => TermView::Kind(interner.resolve(*kind)),
-            Term::Proposition(expr) => {
-                TermView::Proposition(Box::new(expr.resolve(interner)))
-            }
-            Term::Value { kind, unit, dimension } => {
+            Term::Proposition(expr) => TermView::Proposition(Box::new(expr.resolve(interner))),
+            Term::Value {
+                kind,
+                unit,
+                dimension,
+            } => {
                 use crate::ast::NumberKind;
                 let kind_view = match kind {
                     NumberKind::Real(r) => NumberKindView::Real(*r),
@@ -278,10 +280,18 @@ impl<'a, 'b> Resolve<'a> for NounPhrase<'b> {
     fn resolve(&self, interner: &'a Interner) -> NounPhraseView<'a> {
         NounPhraseView {
             definiteness: self.definiteness,
-            adjectives: self.adjectives.iter().map(|s| interner.resolve(*s)).collect(),
+            adjectives: self
+                .adjectives
+                .iter()
+                .map(|s| interner.resolve(*s))
+                .collect(),
             noun: interner.resolve(self.noun),
             possessor: self.possessor.map(|p| Box::new(p.resolve(interner))),
-            pps: self.pps.iter().map(|pp| Box::new(pp.resolve(interner))).collect(),
+            pps: self
+                .pps
+                .iter()
+                .map(|pp| Box::new(pp.resolve(interner)))
+                .collect(),
             superlative: self.superlative.map(|s| interner.resolve(s)),
         }
     }
@@ -304,7 +314,12 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
                 tenor: tenor.resolve(interner),
                 vehicle: vehicle.resolve(interner),
             },
-            LogicExpr::Quantifier { kind, variable, body, .. } => ExprView::Quantifier {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                ..
+            } => ExprView::Quantifier {
                 kind: *kind,
                 variable: interner.resolve(*variable),
                 body: Box::new(body.resolve(interner)),
@@ -328,7 +343,11 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
                 operator: *operator,
                 body: Box::new(body.resolve(interner)),
             },
-            LogicExpr::TemporalBinary { operator, left, right } => ExprView::TemporalBinary {
+            LogicExpr::TemporalBinary {
+                operator,
+                left,
+                right,
+            } => ExprView::TemporalBinary {
                 operator: *operator,
                 left: Box::new(left.resolve(interner)),
                 right: Box::new(right.resolve(interner)),
@@ -377,8 +396,16 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
             LogicExpr::NeoEvent(data) => ExprView::NeoEvent {
                 event_var: interner.resolve(data.event_var),
                 verb: interner.resolve(data.verb),
-                roles: data.roles.iter().map(|(role, term)| (*role, term.resolve(interner))).collect(),
-                modifiers: data.modifiers.iter().map(|s| interner.resolve(*s)).collect(),
+                roles: data
+                    .roles
+                    .iter()
+                    .map(|(role, term)| (*role, term.resolve(interner)))
+                    .collect(),
+                modifiers: data
+                    .modifiers
+                    .iter()
+                    .map(|s| interner.resolve(*s))
+                    .collect(),
             },
             LogicExpr::Imperative { action } => ExprView::Imperative {
                 action: Box::new(action.resolve(interner)),
@@ -390,7 +417,10 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
             LogicExpr::Optative { wish } => ExprView::Optative {
                 wish: Box::new(wish.resolve(interner)),
             },
-            LogicExpr::Implicature { assertion, implicature } => ExprView::Implicature {
+            LogicExpr::Implicature {
+                assertion,
+                implicature,
+            } => ExprView::Implicature {
                 assertion: Box::new(assertion.resolve(interner)),
                 implicature: Box::new(implicature.resolve(interner)),
             },
@@ -403,7 +433,10 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
                 act_type: interner.resolve(*act_type),
                 content: Box::new(content.resolve(interner)),
             },
-            LogicExpr::Counterfactual { antecedent, consequent } => ExprView::Counterfactual {
+            LogicExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => ExprView::Counterfactual {
                 antecedent: Box::new(antecedent.resolve(interner)),
                 consequent: Box::new(consequent.resolve(interner)),
             },
@@ -415,13 +448,23 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
                 main: Box::new(main.resolve(interner)),
                 concession: Box::new(concession.resolve(interner)),
             },
-            LogicExpr::Comparative { adjective, subject, object, difference, .. } => ExprView::Comparative {
+            LogicExpr::Comparative {
+                adjective,
+                subject,
+                object,
+                difference,
+                ..
+            } => ExprView::Comparative {
                 adjective: interner.resolve(*adjective),
                 subject: subject.resolve(interner),
                 object: object.resolve(interner),
                 difference: difference.map(|d| Box::new(d.resolve(interner))),
             },
-            LogicExpr::Superlative { adjective, subject, domain } => ExprView::Superlative {
+            LogicExpr::Superlative {
+                adjective,
+                subject,
+                domain,
+            } => ExprView::Superlative {
                 adjective: interner.resolve(*adjective),
                 subject: subject.resolve(interner),
                 domain: interner.resolve(*domain),
@@ -441,11 +484,18 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
                 object: object.map(|o| o.resolve(interner)),
                 infinitive: Box::new(infinitive.resolve(interner)),
             },
-            LogicExpr::Presupposition { assertion, presupposition } => ExprView::Presupposition {
+            LogicExpr::Presupposition {
+                assertion,
+                presupposition,
+            } => ExprView::Presupposition {
                 assertion: Box::new(assertion.resolve(interner)),
                 presupposition: Box::new(presupposition.resolve(interner)),
             },
-            LogicExpr::Focus { kind, focused, scope } => ExprView::Focus {
+            LogicExpr::Focus {
+                kind,
+                focused,
+                scope,
+            } => ExprView::Focus {
                 kind: *kind,
                 focused: focused.resolve(interner),
                 scope: Box::new(scope.resolve(interner)),
@@ -457,7 +507,13 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
             LogicExpr::Distributive { predicate } => ExprView::Distributive {
                 predicate: Box::new(predicate.resolve(interner)),
             },
-            LogicExpr::GroupQuantifier { group_var, count, member_var, restriction, body } => ExprView::GroupQuantifier {
+            LogicExpr::GroupQuantifier {
+                group_var,
+                count,
+                member_var,
+                restriction,
+                body,
+            } => ExprView::GroupQuantifier {
                 group_var: interner.resolve(*group_var),
                 count: *count,
                 member_var: interner.resolve(*member_var),
@@ -469,365 +525,9 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
 }
 
 #[cfg(test)]
-mod term_view_tests {
-    use super::*;
-    use logicaffeine_base::Arena;
-
-    #[test]
-    fn resolve_term_constant() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("Socrates");
-        let term = Term::Constant(sym);
-        assert_eq!(term.resolve(&interner), TermView::Constant("Socrates"));
-    }
-
-    #[test]
-    fn resolve_term_variable() {
-        let mut interner = Interner::new();
-        let x = interner.intern("x");
-        let term = Term::Variable(x);
-        assert_eq!(term.resolve(&interner), TermView::Variable("x"));
-    }
-
-    #[test]
-    fn resolve_term_function() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let father = interner.intern("father");
-        let john = interner.intern("John");
-        let term = Term::Function(father, term_arena.alloc_slice([Term::Constant(john)]));
-
-        assert_eq!(
-            term.resolve(&interner),
-            TermView::Function("father", vec![TermView::Constant("John")])
-        );
-    }
-
-    #[test]
-    fn resolve_term_group() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let j = interner.intern("John");
-        let m = interner.intern("Mary");
-        let term = Term::Group(term_arena.alloc_slice([Term::Constant(j), Term::Constant(m)]));
-
-        assert_eq!(
-            term.resolve(&interner),
-            TermView::Group(vec![
-                TermView::Constant("John"),
-                TermView::Constant("Mary")
-            ])
-        );
-    }
-
-    #[test]
-    fn resolve_term_possessed() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let john = interner.intern("John");
-        let dog = interner.intern("dog");
-        let term = Term::Possessed {
-            possessor: term_arena.alloc(Term::Constant(john)),
-            possessed: dog,
-        };
-
-        assert_eq!(
-            term.resolve(&interner),
-            TermView::Possessed {
-                possessor: Box::new(TermView::Constant("John")),
-                possessed: "dog",
-            }
-        );
-    }
-
-    #[test]
-    fn term_view_equality_is_bit_exact() {
-        let a = TermView::Constant("test");
-        let b = TermView::Constant("test");
-        let c = TermView::Constant("Test");
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-    }
-
-    #[test]
-    fn nested_function_resolve() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let f = interner.intern("f");
-        let g = interner.intern("g");
-        let x = interner.intern("x");
-
-        let inner = Term::Function(g, term_arena.alloc_slice([Term::Variable(x)]));
-        let outer = Term::Function(f, term_arena.alloc_slice([inner]));
-
-        assert_eq!(
-            outer.resolve(&interner),
-            TermView::Function(
-                "f",
-                vec![TermView::Function("g", vec![TermView::Variable("x")])]
-            )
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/view/term_view_tests.rs"]
+mod term_view_tests;
 
 #[cfg(test)]
-mod expr_view_tests {
-    use super::*;
-    use logicaffeine_base::Arena;
-    use crate::ast::ModalDomain;
-
-    #[test]
-    fn resolve_expr_predicate() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let mortal = interner.intern("Mortal");
-        let x = interner.intern("x");
-        let expr = LogicExpr::Predicate {
-            name: mortal,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::Predicate {
-                name: "Mortal",
-                args: vec![TermView::Variable("x")],
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_identity() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let clark = interner.intern("Clark");
-        let superman = interner.intern("Superman");
-        let expr = LogicExpr::Identity {
-            left: term_arena.alloc(Term::Constant(clark)),
-            right: term_arena.alloc(Term::Constant(superman)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::Identity {
-                left: TermView::Constant("Clark"),
-                right: TermView::Constant("Superman"),
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_quantifier() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let x = interner.intern("x");
-        let mortal = interner.intern("Mortal");
-
-        let body = expr_arena.alloc(LogicExpr::Predicate {
-            name: mortal,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let expr = LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body,
-            island_id: 0,
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::Quantifier {
-                kind: QuantifierKind::Universal,
-                variable: "x",
-                body: Box::new(ExprView::Predicate {
-                    name: "Mortal",
-                    args: vec![TermView::Variable("x")],
-                }),
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_atom() {
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let expr = LogicExpr::Atom(p);
-
-        assert_eq!(expr.resolve(&interner), ExprView::Atom("P"));
-    }
-
-    #[test]
-    fn resolve_expr_binary_op() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let p = interner.intern("P");
-        let q = interner.intern("Q");
-        let expr = LogicExpr::BinaryOp {
-            left: expr_arena.alloc(LogicExpr::Atom(p)),
-            op: TokenType::And,
-            right: expr_arena.alloc(LogicExpr::Atom(q)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::BinaryOp {
-                left: Box::new(ExprView::Atom("P")),
-                op: TokenType::And,
-                right: Box::new(ExprView::Atom("Q")),
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_lambda() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let x = interner.intern("x");
-        let p = interner.intern("P");
-        let expr = LogicExpr::Lambda {
-            variable: x,
-            body: expr_arena.alloc(LogicExpr::Atom(p)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::Lambda {
-                variable: "x",
-                body: Box::new(ExprView::Atom("P")),
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_temporal() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let run = interner.intern("Run");
-        let expr = LogicExpr::Temporal {
-            operator: TemporalOperator::Past,
-            body: expr_arena.alloc(LogicExpr::Atom(run)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::Temporal {
-                operator: TemporalOperator::Past,
-                body: Box::new(ExprView::Atom("Run")),
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_modal() {
-        use crate::ast::ModalFlavor;
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let rain = interner.intern("Rain");
-        let expr = LogicExpr::Modal {
-            vector: ModalVector {
-                domain: ModalDomain::Alethic,
-                force: 1.0,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
-            },
-            operand: expr_arena.alloc(LogicExpr::Atom(rain)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::Modal {
-                vector: ModalVector {
-                    domain: ModalDomain::Alethic,
-                    force: 1.0,
-                    flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
-                },
-                operand: Box::new(ExprView::Atom("Rain")),
-            }
-        );
-    }
-
-    #[test]
-    fn modal_vector_equality_is_bit_exact() {
-        use crate::ast::ModalFlavor;
-        let v1 = ModalVector {
-            domain: ModalDomain::Alethic,
-            force: 0.5,
-            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
-        };
-        let v2 = ModalVector {
-            domain: ModalDomain::Alethic,
-            force: 0.5,
-            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
-        };
-        let v3 = ModalVector {
-            domain: ModalDomain::Alethic,
-            force: 0.51,
-            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
-        };
-
-        assert_eq!(v1, v2);
-        assert_ne!(v1, v3);
-    }
-
-    #[test]
-    fn resolve_expr_unary_op() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let p = interner.intern("P");
-        let expr = LogicExpr::UnaryOp {
-            op: TokenType::Not,
-            operand: expr_arena.alloc(LogicExpr::Atom(p)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::UnaryOp {
-                op: TokenType::Not,
-                operand: Box::new(ExprView::Atom("P")),
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_expr_app() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let f = interner.intern("f");
-        let x = interner.intern("x");
-        let expr = LogicExpr::App {
-            function: expr_arena.alloc(LogicExpr::Atom(f)),
-            argument: expr_arena.alloc(LogicExpr::Atom(x)),
-        };
-
-        assert_eq!(
-            expr.resolve(&interner),
-            ExprView::App {
-                function: Box::new(ExprView::Atom("f")),
-                argument: Box::new(ExprView::Atom("x")),
-            }
-        );
-    }
-
-    #[test]
-    fn expr_view_equality_complex() {
-        let a = ExprView::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: "x",
-            body: Box::new(ExprView::Predicate {
-                name: "P",
-                args: vec![TermView::Variable("x")],
-            }),
-        };
-        let b = ExprView::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: "x",
-            body: Box::new(ExprView::Predicate {
-                name: "P",
-                args: vec![TermView::Variable("x")],
-            }),
-        };
-        assert_eq!(a, b);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/view/expr_view_tests.rs"]
+mod expr_view_tests;

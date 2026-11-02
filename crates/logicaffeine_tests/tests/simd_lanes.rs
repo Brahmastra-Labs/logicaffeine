@@ -1,4 +1,4 @@
-//! SIMD lane-vector types — the L3-via-types foundation (`work/SIMD_LANES.md`).
+//! SIMD lane-vector types — the L3-via-types foundation.
 //!
 //! Adds a fixed-width lane vector (`Lanes8Word32` = 8×u32 = one AVX2 `__m256i`) to Logos, the same
 //! way `Word8/16/32/64` were added — so the vectorized crypto is *written in Logos* and compiles to
@@ -18,8 +18,12 @@ use logicaffeine_compile::compile::{tw_outcome, vm_outcome};
 /// Build two 8-lane Word32 vectors (all 5s, all 3s), XOR them lane-wise, read lane 1 → `5 ^ 3 = 6`.
 fn program() -> String {
     let mut p = String::from("## Main\n");
-    p.push_str("Let s be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(5) to s.\n");
-    p.push_str("Let t be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(3) to t.\n");
+    p.push_str(
+        "Let s be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(5) to s.\n",
+    );
+    p.push_str(
+        "Let t be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(3) to t.\n",
+    );
     p.push_str("Let v be lanes8Word32(s).\n");
     p.push_str("Let w be lanes8Word32(t).\n");
     p.push_str("Let x be v xor w.\n");
@@ -35,8 +39,12 @@ fn typed_program() -> String {
     p.push_str("## To laneXor (a: Lanes8Word32) and (b: Lanes8Word32) -> Lanes8Word32:\n");
     p.push_str("    Return a xor b.\n\n");
     p.push_str("## Main\n");
-    p.push_str("Let s be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(i + 9) to s.\n");
-    p.push_str("Let t be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(i) to t.\n");
+    p.push_str(
+        "Let s be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(i + 9) to s.\n",
+    );
+    p.push_str(
+        "Let t be a new Seq of Word32.\nRepeat for i from 1 to 8:\n    Push word32(i) to t.\n",
+    );
     p.push_str("Let v be lanes8Word32(s).\n");
     p.push_str("Let w be lanes8Word32(t).\n");
     p.push_str("Let x be laneXor(v, w).\n");
@@ -49,10 +57,22 @@ fn typed_program() -> String {
 fn lanes8word32_typed_function_spec_tw_and_vm() {
     let src = typed_program();
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "typed-function tree-walker errored: {:?}", tw.error);
-    assert_eq!(tw.output.trim(), "15", "(12 xor 3) at lane 3 = 15 (tree-walker)");
+    assert!(
+        tw.error.is_none(),
+        "typed-function tree-walker errored: {:?}",
+        tw.error
+    );
+    assert_eq!(
+        tw.output.trim(),
+        "15",
+        "(12 xor 3) at lane 3 = 15 (tree-walker)"
+    );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "typed-function VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "typed-function VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(vm.output.trim(), "15", "(12 xor 3) at lane 3 = 15 (VM)");
 }
 
@@ -62,8 +82,16 @@ fn lanes8word32_typed_function_spec_tw_and_vm() {
 fn lanes8word32_xor_spec_tw_and_vm() {
     let src = program();
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "tree-walker (scalar-lane spec) errored: {:?}", tw.error);
-    assert_eq!(tw.output.trim(), "6", "lane-wise 5 xor 3 = 6 on the tree-walker");
+    assert!(
+        tw.error.is_none(),
+        "tree-walker (scalar-lane spec) errored: {:?}",
+        tw.error
+    );
+    assert_eq!(
+        tw.output.trim(),
+        "6",
+        "lane-wise 5 xor 3 = 6 on the tree-walker"
+    );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "bytecode VM errored: {:?}", vm.error);
     assert_eq!(vm.output.trim(), "6", "lane-wise 5 xor 3 = 6 on the VM");
@@ -92,7 +120,9 @@ fn quarter_round_program(a: u32, b: u32, c: u32, d: u32) -> String {
     p.push_str("Let result be laneQuarterRound(a, b, c, d).\n");
     // Read lane 0 (item 1) of each of the four updated vectors.
     for i in 1..=4 {
-        p.push_str(&format!("Show item 1 of seqOfLanes8(item {i} of result).\n"));
+        p.push_str(&format!(
+            "Show item 1 of seqOfLanes8(item {i} of result).\n"
+        ));
     }
     p
 }
@@ -123,16 +153,32 @@ fn lane_chacha_quarter_round_matches_rfc_spec_tw_and_vm() {
     let want: Vec<String> = expected.iter().map(|x| x.to_string()).collect();
     let src = quarter_round_program(a, b, c, d);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "lane quarter-round tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "lane quarter-round tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane quarter-round (tree-walker) == RFC 8439 §2.2.1"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "lane quarter-round VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "lane quarter-round VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane quarter-round (VM) == RFC 8439 §2.2.1"
     );
@@ -142,11 +188,18 @@ fn lane_chacha_quarter_round_matches_rfc_spec_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — lane ChaCha quarter-round AOT(AVX2) == RFC spec"]
 fn lane_chacha_quarter_round_aot_eq_rfc() {
     let (a, b, c, d) = (0x1111_1111u32, 0x0102_0304, 0x9b8d_6f43, 0x0123_4567);
-    let want: Vec<String> = qr_scalar(a, b, c, d).iter().map(|x| x.to_string()).collect();
+    let want: Vec<String> = qr_scalar(a, b, c, d)
+        .iter()
+        .map(|x| x.to_string())
+        .collect();
     let aot = run_logos_with_args(&quarter_round_program(a, b, c, d), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane quarter-round (AOT/AVX2) == RFC 8439 §2.2.1"
     );
@@ -165,8 +218,22 @@ fn chacha_block_scalar(key: &[u32; 8], counter: u32, nonce: &[u32; 3]) -> [u32; 
         s[b] = (s[b] ^ s[c]).rotate_left(7);
     }
     let mut s = [
-        0x6170_7865, 0x3320_646e, 0x7962_2d32, 0x6b20_6574, key[0], key[1], key[2], key[3], key[4],
-        key[5], key[6], key[7], counter, nonce[0], nonce[1], nonce[2],
+        0x6170_7865,
+        0x3320_646e,
+        0x7962_2d32,
+        0x6b20_6574,
+        key[0],
+        key[1],
+        key[2],
+        key[3],
+        key[4],
+        key[5],
+        key[6],
+        key[7],
+        counter,
+        nonce[0],
+        nonce[1],
+        nonce[2],
     ];
     let init = s;
     for _ in 0..10 {
@@ -216,10 +283,18 @@ fn lane_chacha_defs() -> String {
     p.push_str("    Repeat for s in state:\n        Push s to init.\n");
     p.push_str("    Repeat for r from 1 to 10:\n");
     for (ai, bi, ci, di) in [
-        (0, 4, 8, 12), (1, 5, 9, 13), (2, 6, 10, 14), (3, 7, 11, 15),
-        (0, 5, 10, 15), (1, 6, 11, 12), (2, 7, 8, 13), (3, 4, 9, 14),
+        (0, 4, 8, 12),
+        (1, 5, 9, 13),
+        (2, 6, 10, 14),
+        (3, 7, 11, 15),
+        (0, 5, 10, 15),
+        (1, 6, 11, 12),
+        (2, 7, 8, 13),
+        (3, 4, 9, 14),
     ] {
-        p.push_str(&format!("        Set state to laneQR(state, {ai}, {bi}, {ci}, {di}).\n"));
+        p.push_str(&format!(
+            "        Set state to laneQR(state, {ai}, {bi}, {ci}, {di}).\n"
+        ));
     }
     p.push_str("    Let mutable out be a new Seq of Lanes8Word32.\n");
     p.push_str("    Repeat for i from 1 to 16:\n        Push (item i of state) + (item i of init) to out.\n");
@@ -242,11 +317,15 @@ fn block_program(key: &[u32; 8], nonce: &[u32; 3], base: u32) -> String {
     for n in nonce {
         p.push_str(&format!("Push word32({n}) to nonce.\n"));
     }
-    p.push_str(&format!("Let result be laneChaCha20Block(key, {base}, nonce).\n"));
+    p.push_str(&format!(
+        "Let result be laneChaCha20Block(key, {base}, nonce).\n"
+    ));
     for lane in [1usize, 4] {
         // item `lane` of seqOfLanes8(...) = lane (lane-1); lane 1 → block base, lane 4 → block base+3.
         for j in 1..=16 {
-            p.push_str(&format!("Show item {lane} of seqOfLanes8(item {j} of result).\n"));
+            p.push_str(&format!(
+                "Show item {lane} of seqOfLanes8(item {j} of result).\n"
+            ));
         }
     }
     p
@@ -255,7 +334,12 @@ fn block_program(key: &[u32; 8], nonce: &[u32; 3], base: u32) -> String {
 /// RFC 8439 §2.3.2 fixtures: key = 0..31, nonce = 00..00 09 | 00..00 4a | 0, counter = 1.
 fn rfc_block_fixture() -> ([u32; 8], [u32; 3], u32) {
     let key: [u32; 8] = std::array::from_fn(|i| {
-        u32::from_le_bytes([(4 * i) as u8, (4 * i + 1) as u8, (4 * i + 2) as u8, (4 * i + 3) as u8])
+        u32::from_le_bytes([
+            (4 * i) as u8,
+            (4 * i + 1) as u8,
+            (4 * i + 2) as u8,
+            (4 * i + 3) as u8,
+        ])
     });
     let nonce = [0x0900_0000u32, 0x4a00_0000, 0x0000_0000];
     (key, nonce, 1)
@@ -279,25 +363,50 @@ fn lane_chacha_block_matches_rfc_2_3_2_spec_tw_and_vm() {
     assert_eq!(
         chacha_block_scalar(&key, base, &nonce),
         [
-            0xe4e7_f110, 0x1559_3bd1, 0x1fdd_0f50, 0xc471_20a3, 0xc7f4_d1c7, 0x0368_c033,
-            0x9aaa_2204, 0x4e6c_d4c3, 0x4664_82d2, 0x09aa_9f07, 0x05d7_c214, 0xa202_8bd9,
-            0xd19c_12b5, 0xb94e_16de, 0xe883_d0cb, 0x4e3c_50a2,
+            0xe4e7_f110,
+            0x1559_3bd1,
+            0x1fdd_0f50,
+            0xc471_20a3,
+            0xc7f4_d1c7,
+            0x0368_c033,
+            0x9aaa_2204,
+            0x4e6c_d4c3,
+            0x4664_82d2,
+            0x09aa_9f07,
+            0x05d7_c214,
+            0xa202_8bd9,
+            0xd19c_12b5,
+            0xb94e_16de,
+            0xe883_d0cb,
+            0x4e3c_50a2,
         ],
         "scalar oracle == RFC 8439 §2.3.2 block"
     );
     let want = block_expected(&key, &nonce, base);
     let src = block_program(&key, &nonce, base);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "lane block tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "lane block tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos 8-way ChaCha block (tree-walker) == scalar/RFC, lanes 0 & 3"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "lane block VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos 8-way ChaCha block (VM) == scalar/RFC, lanes 0 & 3"
     );
@@ -311,7 +420,11 @@ fn lane_chacha_block_aot_eq_spec() {
     let aot = run_logos_with_args(&block_program(&key, &nonce, base), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos 8-way ChaCha block (AOT/AVX2) == scalar/RFC, lanes 0 & 3"
     );
@@ -338,7 +451,9 @@ fn keystream_program(key: &[u32; 8], nonce: &[u32; 3], base: u32) -> String {
     for n in nonce {
         p.push_str(&format!("Push word32({n}) to nonce.\n"));
     }
-    p.push_str(&format!("Let ks be laneKeystreamWords(key, {base}, nonce).\n"));
+    p.push_str(&format!(
+        "Let ks be laneKeystreamWords(key, {base}, nonce).\n"
+    ));
     p.push_str("Repeat for i from 1 to 128:\n    Show item i of ks.\n");
     p
 }
@@ -361,16 +476,28 @@ fn lane_chacha_keystream_words_match_8_scalar_blocks_tw_and_vm() {
     assert_eq!(want.len(), 128, "8 blocks × 16 words");
     let src = keystream_program(&key, &nonce, base);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "keystream tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "keystream tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "8-way Logos keystream (tree-walker) == 8 scalar ChaCha blocks"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "keystream VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "8-way Logos keystream (VM) == 8 scalar ChaCha blocks"
     );
@@ -384,7 +511,11 @@ fn lane_chacha_keystream_words_aot_eq_spec() {
     let aot = run_logos_with_args(&keystream_program(&key, &nonce, base), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "8-way Logos keystream (AOT/AVX2) == 8 scalar ChaCha blocks"
     );
@@ -444,7 +575,9 @@ fn cipher_program(key: &[u32; 8], nonce: &[u32; 3], counter: u32, plaintext: &[u
     for &b in plaintext {
         p.push_str(&format!("Push {b} to data.\n"));
     }
-    p.push_str(&format!("Let ct be laneChaCha20Xor(key, {counter}, nonce, data).\n"));
+    p.push_str(&format!(
+        "Let ct be laneChaCha20Xor(key, {counter}, nonce, data).\n"
+    ));
     p.push_str("Repeat for i from 1 to length of ct:\n    Show item i of ct.\n");
     p
 }
@@ -455,26 +588,47 @@ const SUNSCREEN: &[u8] = b"Ladies and Gentlemen of the class of '99: If I could 
 fn lane_chacha_cipher_matches_rfc_2_4_2_spec_tw_and_vm() {
     // RFC 8439 §2.4.2: key = 0..31, nonce = 0 | 0x4a000000 | 0, counter = 1.
     let key: [u32; 8] = std::array::from_fn(|i| {
-        u32::from_le_bytes([(4 * i) as u8, (4 * i + 1) as u8, (4 * i + 2) as u8, (4 * i + 3) as u8])
+        u32::from_le_bytes([
+            (4 * i) as u8,
+            (4 * i + 1) as u8,
+            (4 * i + 2) as u8,
+            (4 * i + 3) as u8,
+        ])
     });
     let nonce = [0x0000_0000u32, 0x4a00_0000, 0x0000_0000];
     let counter = 1u32;
     let ct = chacha_xor_scalar(&key, counter, &nonce, SUNSCREEN);
     // Anchor to the published vector: the RFC §2.4.2 ciphertext begins 6e 2e 35 9a 25 68 f9 80.
-    assert_eq!(&ct[..8], &[0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80], "RFC 8439 §2.4.2 ciphertext prefix");
+    assert_eq!(
+        &ct[..8],
+        &[0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80],
+        "RFC 8439 §2.4.2 ciphertext prefix"
+    );
     let want: Vec<String> = ct.iter().map(|b| b.to_string()).collect();
     let src = cipher_program(&key, &nonce, counter, SUNSCREEN);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "lane cipher tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "lane cipher tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane ChaCha20 cipher (tree-walker) == scalar/RFC §2.4.2"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "lane cipher VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane ChaCha20 cipher (VM) == scalar/RFC §2.4.2"
     );
@@ -484,15 +638,26 @@ fn lane_chacha_cipher_matches_rfc_2_4_2_spec_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — the full Logos lane ChaCha20 cipher AOT(AVX2) == RFC §2.4.2"]
 fn lane_chacha_cipher_aot_eq_rfc() {
     let key: [u32; 8] = std::array::from_fn(|i| {
-        u32::from_le_bytes([(4 * i) as u8, (4 * i + 1) as u8, (4 * i + 2) as u8, (4 * i + 3) as u8])
+        u32::from_le_bytes([
+            (4 * i) as u8,
+            (4 * i + 1) as u8,
+            (4 * i + 2) as u8,
+            (4 * i + 3) as u8,
+        ])
     });
     let nonce = [0x0000_0000u32, 0x4a00_0000, 0x0000_0000];
-    let want: Vec<String> =
-        chacha_xor_scalar(&key, 1, &nonce, SUNSCREEN).iter().map(|b| b.to_string()).collect();
+    let want: Vec<String> = chacha_xor_scalar(&key, 1, &nonce, SUNSCREEN)
+        .iter()
+        .map(|b| b.to_string())
+        .collect();
     let aot = run_logos_with_args(&cipher_program(&key, &nonce, 1, SUNSCREEN), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane ChaCha20 cipher (AOT/AVX2) == scalar/RFC §2.4.2"
     );
@@ -527,7 +692,9 @@ fn mac_program(key: &[u8; 32], msg: &[u8]) -> String {
     p.push_str("    Push ((t2c / 16384) + (t3c % 256) * 262144) to r.\n");
     p.push_str("    Push (t3c / 256) to r.\n    Return r.\n\n");
     // A 16-byte block of `seq` at `off` → 5×26 limbs; `hibit`=1 sets the 2¹²⁸ marker (full block).
-    p.push_str("## To blockLimbs (seq: Seq of Int) and (off: Int) and (hibit: Int) -> Seq of Int:\n");
+    p.push_str(
+        "## To blockLimbs (seq: Seq of Int) and (off: Int) and (hibit: Int) -> Seq of Int:\n",
+    );
     p.push_str("    Let m0 be leWord(seq, off).\n    Let m1 be leWord(seq, off + 4).\n    Let m2 be leWord(seq, off + 8).\n    Let m3 be leWord(seq, off + 12).\n");
     p.push_str("    Let b be a new Seq of Int.\n");
     p.push_str("    Push (m0 % 67108864) to b.\n");
@@ -560,7 +727,9 @@ fn mac_program(key: &[u8; 32], msg: &[u8]) -> String {
     p.push_str("    Push (item (l + 1) of x) to s.\n    Push (item (l + 6) of x) to s.\n    Push (item (l + 11) of x) to s.\n    Push (item (l + 16) of x) to s.\n");
     p.push_str("    Return lanes4Word64(s).\n\n");
     p.push_str("## To poly1305Group (t: Seq of Int) and (r: Seq of Int) -> Seq of Int:\n");
-    p.push_str("    Let r5 be a new Seq of Int.\n    Repeat for x in r:\n        Push (x * 5) to r5.\n");
+    p.push_str(
+        "    Let r5 be a new Seq of Int.\n    Repeat for x in r:\n        Push (x * 5) to r5.\n",
+    );
     for l in 0..5 {
         p.push_str(&format!("    Let va{l} be laneOfLimbs(t, {l}).\n"));
     }
@@ -587,15 +756,29 @@ fn mac_program(key: &[u8; 32], msg: &[u8]) -> String {
     p.push_str("## To polyFinalize (h: Seq of Int) and (key: Seq of Int) -> Seq of Int:\n");
     p.push_str("    Let h0 be item 1 of h.\n    Let h2 be item 3 of h.\n    Let h3 be item 4 of h.\n    Let h4 be item 5 of h.\n");
     p.push_str("    Let c1 be (item 2 of h) / 67108864.\n    Let h1n be (item 2 of h) % 67108864.\n    Let h2a be h2 + c1.\n");
-    p.push_str("    Let c2 be h2a / 67108864.\n    Let h2n be h2a % 67108864.\n    Let h3a be h3 + c2.\n");
-    p.push_str("    Let c3 be h3a / 67108864.\n    Let h3n be h3a % 67108864.\n    Let h4a be h4 + c3.\n");
+    p.push_str(
+        "    Let c2 be h2a / 67108864.\n    Let h2n be h2a % 67108864.\n    Let h3a be h3 + c2.\n",
+    );
+    p.push_str(
+        "    Let c3 be h3a / 67108864.\n    Let h3n be h3a % 67108864.\n    Let h4a be h4 + c3.\n",
+    );
     p.push_str("    Let c4 be h4a / 67108864.\n    Let h4n be h4a % 67108864.\n    Let h0a be h0 + c4 * 5.\n");
-    p.push_str("    Let c0 be h0a / 67108864.\n    Let h0n be h0a % 67108864.\n    Let h1b be h1n + c0.\n");
+    p.push_str(
+        "    Let c0 be h0a / 67108864.\n    Let h0n be h0a % 67108864.\n    Let h1b be h1n + c0.\n",
+    );
     p.push_str("    Let c1c be h1b / 67108864.\n    Let h1m be h1b % 67108864.\n    Let h2m be h2n + c1c.\n");
-    p.push_str("    Let g0 be h0n + 5.\n    Let cg0 be g0 / 67108864.\n    Let g0n be g0 % 67108864.\n");
-    p.push_str("    Let g1 be h1m + cg0.\n    Let cg1 be g1 / 67108864.\n    Let g1n be g1 % 67108864.\n");
-    p.push_str("    Let g2 be h2m + cg1.\n    Let cg2 be g2 / 67108864.\n    Let g2n be g2 % 67108864.\n");
-    p.push_str("    Let g3 be h3n + cg2.\n    Let cg3 be g3 / 67108864.\n    Let g3n be g3 % 67108864.\n");
+    p.push_str(
+        "    Let g0 be h0n + 5.\n    Let cg0 be g0 / 67108864.\n    Let g0n be g0 % 67108864.\n",
+    );
+    p.push_str(
+        "    Let g1 be h1m + cg0.\n    Let cg1 be g1 / 67108864.\n    Let g1n be g1 % 67108864.\n",
+    );
+    p.push_str(
+        "    Let g2 be h2m + cg1.\n    Let cg2 be g2 / 67108864.\n    Let g2n be g2 % 67108864.\n",
+    );
+    p.push_str(
+        "    Let g3 be h3n + cg2.\n    Let cg3 be g3 / 67108864.\n    Let g3n be g3 % 67108864.\n",
+    );
     p.push_str("    Let g4 be h4n + cg3.\n");
     p.push_str("    Let mutable f0 be h0n.\n    Let mutable f1 be h1m.\n    Let mutable f2 be h2m.\n    Let mutable f3 be h3n.\n    Let mutable f4 be h4n.\n");
     p.push_str("    If g4 is at least 67108864:\n");
@@ -657,21 +840,37 @@ fn poly1305_full_mac_lanes_matches_scalar_tw_and_vm() {
     // partial-only, exact blocks, full+partial, single/multi group, group+tail+partial.
     let key: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
     for len in [1usize, 16, 17, 34, 63, 64, 65, 100, 128, 200] {
-        let msg: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(53).wrapping_add(7)).collect();
-        let want: Vec<String> =
-            logicaffeine_system::aead::poly1305(&key, &msg).iter().map(|b| b.to_string()).collect();
+        let msg: Vec<u8> = (0..len)
+            .map(|i| (i as u8).wrapping_mul(53).wrapping_add(7))
+            .collect();
+        let want: Vec<String> = logicaffeine_system::aead::poly1305(&key, &msg)
+            .iter()
+            .map(|b| b.to_string())
+            .collect();
         let src = mac_program(&key, &msg);
         let tw = tw_outcome(&src);
-        assert!(tw.error.is_none(), "{len}B MAC tree-walker errored: {:?}", tw.error);
+        assert!(
+            tw.error.is_none(),
+            "{len}B MAC tree-walker errored: {:?}",
+            tw.error
+        );
         assert_eq!(
-            tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            tw.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{len}B Poly1305 MAC in Logos lanes (tree-walker) == scalar poly1305"
         );
         let vm = vm_outcome(&src);
         assert!(vm.error.is_none(), "{len}B MAC VM errored: {:?}", vm.error);
         assert_eq!(
-            vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            vm.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{len}B Poly1305 MAC in Logos lanes (VM) == scalar poly1305"
         );
@@ -692,20 +891,36 @@ fn poly1305_mac_lanes_matches_rfc_2_5_2_tw_and_vm() {
         0xa9,
     ];
     // Cross-check the oracle reproduces the published vector, then hold the Logos MAC to it.
-    assert_eq!(logicaffeine_system::aead::poly1305(&key, msg), rfc_tag, "oracle == RFC §2.5.2");
+    assert_eq!(
+        logicaffeine_system::aead::poly1305(&key, msg),
+        rfc_tag,
+        "oracle == RFC §2.5.2"
+    );
     let want: Vec<String> = rfc_tag.iter().map(|b| b.to_string()).collect();
     let src = mac_program(&key, msg);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "RFC MAC tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "RFC MAC tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos Poly1305 MAC (tree-walker) == RFC 8439 §2.5.2"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "RFC MAC VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos Poly1305 MAC (VM) == RFC 8439 §2.5.2"
     );
@@ -716,13 +931,21 @@ fn poly1305_mac_lanes_matches_rfc_2_5_2_tw_and_vm() {
 fn poly1305_full_mac_lanes_aot_eq_scalar() {
     let key: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(29).wrapping_add(5));
     // 100 B = one 4-block group + two full tail blocks + a 4-byte partial.
-    let msg: Vec<u8> = (0..100).map(|i| (i as u8).wrapping_mul(41).wrapping_add(3)).collect();
-    let want: Vec<String> =
-        logicaffeine_system::aead::poly1305(&key, &msg).iter().map(|b| b.to_string()).collect();
+    let msg: Vec<u8> = (0..100)
+        .map(|i| (i as u8).wrapping_mul(41).wrapping_add(3))
+        .collect();
+    let want: Vec<String> = logicaffeine_system::aead::poly1305(&key, &msg)
+        .iter()
+        .map(|b| b.to_string())
+        .collect();
     let aot = run_logos_with_args(&mac_program(&key, &msg), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full Poly1305 MAC in Logos lanes (AOT/AVX2) == scalar poly1305"
     );
@@ -741,7 +964,9 @@ fn poly_group_program(t: &[i64; 20], r: &[i64; 20]) -> String {
     p.push_str("    Push (item (l + 11) of x) to s.\n    Push (item (l + 16) of x) to s.\n");
     p.push_str("    Return lanes4Word64(s).\n\n");
     p.push_str("## To poly1305Group (t: Seq of Int) and (r: Seq of Int) -> Seq of Int:\n");
-    p.push_str("    Let r5 be a new Seq of Int.\n    Repeat for x in r:\n        Push (x * 5) to r5.\n");
+    p.push_str(
+        "    Let r5 be a new Seq of Int.\n    Repeat for x in r:\n        Push (x * 5) to r5.\n",
+    );
     for l in 0..5 {
         p.push_str(&format!("    Let va{l} be laneOfLimbs(t, {l}).\n"));
     }
@@ -753,11 +978,21 @@ fn poly_group_program(t: &[i64; 20], r: &[i64; 20]) -> String {
     }
     // The 5×26 schoolbook (s_i = 5·b_i for the 2¹³⁰ wrap), summed across the 4 product lanes.
     let rows = [
-        ("d0", "va0, vb0", "va1, vs4", "va2, vs3", "va3, vs2", "va4, vs1"),
-        ("d1", "va0, vb1", "va1, vb0", "va2, vs4", "va3, vs3", "va4, vs2"),
-        ("d2", "va0, vb2", "va1, vb1", "va2, vb0", "va3, vs4", "va4, vs3"),
-        ("d3", "va0, vb3", "va1, vb2", "va2, vb1", "va3, vb0", "va4, vs4"),
-        ("d4", "va0, vb4", "va1, vb3", "va2, vb2", "va3, vb1", "va4, vb0"),
+        (
+            "d0", "va0, vb0", "va1, vs4", "va2, vs3", "va3, vs2", "va4, vs1",
+        ),
+        (
+            "d1", "va0, vb1", "va1, vb0", "va2, vs4", "va3, vs3", "va4, vs2",
+        ),
+        (
+            "d2", "va0, vb2", "va1, vb1", "va2, vb0", "va3, vs4", "va4, vs3",
+        ),
+        (
+            "d3", "va0, vb3", "va1, vb2", "va2, vb1", "va3, vb0", "va4, vs4",
+        ),
+        (
+            "d4", "va0, vb4", "va1, vb3", "va2, vb2", "va3, vb1", "va4, vb0",
+        ),
     ];
     for (d, a, b, c, e, f) in rows {
         p.push_str(&format!(
@@ -766,12 +1001,22 @@ fn poly_group_program(t: &[i64; 20], r: &[i64; 20]) -> String {
     }
     // Carry-reduce (mod 2¹³⁰−5): 2²⁶ = 67108864; the top carry folds in via ·5.
     p.push_str("    Let c be d0 / 67108864.\n    Let h0 be d0 % 67108864.\n");
-    p.push_str("    Let d1b be d1 + c.\n    Let c1 be d1b / 67108864.\n    Let h1 be d1b % 67108864.\n");
-    p.push_str("    Let d2b be d2 + c1.\n    Let c2 be d2b / 67108864.\n    Let h2 be d2b % 67108864.\n");
-    p.push_str("    Let d3b be d3 + c2.\n    Let c3 be d3b / 67108864.\n    Let h3 be d3b % 67108864.\n");
-    p.push_str("    Let d4b be d4 + c3.\n    Let c4 be d4b / 67108864.\n    Let h4 be d4b % 67108864.\n");
+    p.push_str(
+        "    Let d1b be d1 + c.\n    Let c1 be d1b / 67108864.\n    Let h1 be d1b % 67108864.\n",
+    );
+    p.push_str(
+        "    Let d2b be d2 + c1.\n    Let c2 be d2b / 67108864.\n    Let h2 be d2b % 67108864.\n",
+    );
+    p.push_str(
+        "    Let d3b be d3 + c2.\n    Let c3 be d3b / 67108864.\n    Let h3 be d3b % 67108864.\n",
+    );
+    p.push_str(
+        "    Let d4b be d4 + c3.\n    Let c4 be d4b / 67108864.\n    Let h4 be d4b % 67108864.\n",
+    );
     p.push_str("    Let h0w be h0 + c4 * 5.\n    Let h0f be h0w % 67108864.\n    Let cw be h0w / 67108864.\n");
-    p.push_str("    Let h1b be h1 + cw.\n    Let c1b be h1b / 67108864.\n    Let h1f be h1b % 67108864.\n");
+    p.push_str(
+        "    Let h1b be h1 + cw.\n    Let c1b be h1b / 67108864.\n    Let h1f be h1b % 67108864.\n",
+    );
     p.push_str("    Let h2f be h2 + c1b.\n");
     p.push_str("    Let result be a new Seq of Int.\n");
     p.push_str("    Push h0f to result.\n    Push h1f to result.\n    Push h2f to result.\n    Push h3 to result.\n    Push h4 to result.\n");
@@ -794,7 +1039,8 @@ fn poly_group_program(t: &[i64; 20], r: &[i64; 20]) -> String {
 /// then the same carry reduce. Computed in `i128` so the raw limbs never overflow.
 fn poly_group_scalar(t: &[i64; 20], r: &[i64; 20]) -> [i64; 5] {
     let r5: [i64; 20] = core::array::from_fn(|i| r[i] * 5);
-    let lane = |x: &[i64; 20], k: usize| -> [i128; 5] { core::array::from_fn(|l| x[k * 5 + l] as i128) };
+    let lane =
+        |x: &[i64; 20], k: usize| -> [i128; 5] { core::array::from_fn(|l| x[k * 5 + l] as i128) };
     let mut d = [0i128; 5];
     for k in 0..4 {
         let a = lane(t, k);
@@ -819,7 +1065,13 @@ fn poly_group_scalar(t: &[i64; 20], r: &[i64; 20]) -> [i64; 5] {
     let h4 = d4 % m;
     let h0w = h0 + (d4 / m) * 5;
     let h1b = h1 + h0w / m;
-    [(h0w % m) as i64, (h1b % m) as i64, (h2 + h1b / m) as i64, h3 as i64, h4 as i64]
+    [
+        (h0w % m) as i64,
+        (h1b % m) as i64,
+        (h2 + h1b / m) as i64,
+        h3 as i64,
+        h4 as i64,
+    ]
 }
 
 fn rand26_limbs(seed: u64) -> ([i64; 20], [i64; 20]) {
@@ -828,25 +1080,47 @@ fn rand26_limbs(seed: u64) -> ([i64; 20], [i64; 20]) {
         s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
         ((s >> 38) as i64) & 0x3ff_ffff
     };
-    (core::array::from_fn(|_| next()), core::array::from_fn(|_| next()))
+    (
+        core::array::from_fn(|_| next()),
+        core::array::from_fn(|_| next()),
+    )
 }
 
 #[test]
 fn poly1305_group_multiply_lanes_match_scalar_tw_and_vm() {
     let (t, r) = rand26_limbs(0x504f_4c59_3133_3035);
-    let want: Vec<String> = poly_group_scalar(&t, &r).iter().map(|x| x.to_string()).collect();
+    let want: Vec<String> = poly_group_scalar(&t, &r)
+        .iter()
+        .map(|x| x.to_string())
+        .collect();
     let src = poly_group_program(&t, &r);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "poly1305 group tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "poly1305 group tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "4-way Poly1305 group multiply (tree-walker) == scalar"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "poly1305 group VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "poly1305 group VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "4-way Poly1305 group multiply (VM) == scalar"
     );
@@ -856,11 +1130,18 @@ fn poly1305_group_multiply_lanes_match_scalar_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — the 4-way Poly1305 group multiply AOT(AVX2) == scalar"]
 fn poly1305_group_multiply_lanes_aot_eq_scalar() {
     let (t, r) = rand26_limbs(0x1305_2468_ace0_1357);
-    let want: Vec<String> = poly_group_scalar(&t, &r).iter().map(|x| x.to_string()).collect();
+    let want: Vec<String> = poly_group_scalar(&t, &r)
+        .iter()
+        .map(|x| x.to_string())
+        .collect();
     let aot = run_logos_with_args(&poly_group_program(&t, &r), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "4-way Poly1305 group multiply (AOT/AVX2 vpmuludq) == scalar"
     );
@@ -890,7 +1171,9 @@ fn lanes4_program(t: &[u64; 4], r: &[u64; 4]) -> String {
 }
 
 fn lanes4_expected(t: &[u64; 4], r: &[u64; 4]) -> Vec<String> {
-    let hsum: u64 = (0..4).map(|i| (t[i] & 0xffff_ffff) * (r[i] & 0xffff_ffff)).sum();
+    let hsum: u64 = (0..4)
+        .map(|i| (t[i] & 0xffff_ffff) * (r[i] & 0xffff_ffff))
+        .sum();
     let mut want = vec![hsum.to_string()];
     for i in 0..4 {
         want.push(t[i].wrapping_add(r[i]).to_string());
@@ -905,16 +1188,32 @@ fn lanes4word64_mul_add_hsum_spec_tw_and_vm() {
     let want = lanes4_expected(&t, &r); // hsum 13600, sums 107/211/313/417
     let src = lanes4_program(&t, &r);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "Lanes4Word64 tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "Lanes4Word64 tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Lanes4Word64 mul/add/hsum (tree-walker)"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "Lanes4Word64 VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "Lanes4Word64 VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Lanes4Word64 mul/add/hsum (VM)"
     );
@@ -929,7 +1228,11 @@ fn lanes4word64_mul_add_hsum_aot_eq_spec() {
     let aot = run_logos_with_args(&lanes4_program(&t, &r), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Lanes4Word64 mul/add/hsum (AOT/AVX2) == scalar"
     );
@@ -996,22 +1299,40 @@ fn ntt_within_level_shuffle_all_strides_match_scalar_tw_and_vm() {
     // Each within-vector level (len = 8 then 4 then 2) in pure SIMD == the scalar single level.
     for &h in &[8usize, 4, 2] {
         let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 211 + 41 + h) % 3329) as i16);
-        let zetas: Vec<i16> = (0..128 / h).map(|i| ((i as i16).wrapping_mul(421)).wrapping_add(919)).collect();
+        let zetas: Vec<i16> = (0..128 / h)
+            .map(|i| ((i as i16).wrapping_mul(421)).wrapping_add(919))
+            .collect();
         let mut sc = coeffs;
         ntt_within_level_scalar(&mut sc, &zetas, h);
         let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
         let src = ntt_within_level_program(&coeffs, &zetas, h);
         let tw = tw_outcome(&src);
-        assert!(tw.error.is_none(), "ntt within-level h={h} tree-walker errored: {:?}", tw.error);
+        assert!(
+            tw.error.is_none(),
+            "ntt within-level h={h} tree-walker errored: {:?}",
+            tw.error
+        );
         assert_eq!(
-            tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            tw.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "within-vector len={h} NTT butterfly via shuffles (tree-walker) == scalar"
         );
         let vm = vm_outcome(&src);
-        assert!(vm.error.is_none(), "ntt within-level h={h} VM errored: {:?}", vm.error);
+        assert!(
+            vm.error.is_none(),
+            "ntt within-level h={h} VM errored: {:?}",
+            vm.error
+        );
         assert_eq!(
-            vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            vm.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "within-vector len={h} NTT butterfly via shuffles (VM) == scalar"
         );
@@ -1023,14 +1344,20 @@ fn ntt_within_level_shuffle_all_strides_match_scalar_tw_and_vm() {
 fn ntt_within_level4_shuffle_aot_eq_scalar() {
     let h = 4usize;
     let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 211 + 41 + h) % 3329) as i16);
-    let zetas: Vec<i16> = (0..128 / h).map(|i| ((i as i16).wrapping_mul(421)).wrapping_add(919)).collect();
+    let zetas: Vec<i16> = (0..128 / h)
+        .map(|i| ((i as i16).wrapping_mul(421)).wrapping_add(919))
+        .collect();
     let mut sc = coeffs;
     ntt_within_level_scalar(&mut sc, &zetas, h);
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let aot = run_logos_with_args(&ntt_within_level_program(&coeffs, &zetas, h), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "within-vector len=4 NTT butterfly via shuffles (AOT/vpshufd+vpblendd) == scalar"
     );
@@ -1062,7 +1389,9 @@ fn ntt_forward_allsimd_program(coeffs: &[i16; 256], zetas: &[i16]) -> String {
     p.push_str("        Let rs be seqOfLanes16(nttBlend(lo + t, lo - t, h)).\n");
     p.push_str("        Repeat for i from 1 to 16:\n            Set item (16 * v + i) of r to (item i of rs).\n");
     p.push_str("    Return r.\n\n");
-    p.push_str("## To nttForwardAllSimd (coeffs: Seq of Int) and (zetas: Seq of Int) -> Seq of Int:\n");
+    p.push_str(
+        "## To nttForwardAllSimd (coeffs: Seq of Int) and (zetas: Seq of Int) -> Seq of Int:\n",
+    );
     p.push_str("    Let qv be splat16Word16(3329).\n    Let qinv be splat16Word16(62209).\n");
     p.push_str("    Let mutable r be a new Seq of Int.\n    Repeat for x in coeffs:\n        Push x to r.\n");
     p.push_str("    Let mutable k be 1.\n    Let mutable len be 128.\n");
@@ -1105,22 +1434,39 @@ fn ntt_forward_allsimd_program(coeffs: &[i16; 256], zetas: &[i16]) -> String {
 #[test]
 fn ntt_forward_allsimd_match_scalar_tw_and_vm() {
     let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as i16);
-    let zetas: [i16; 127] = core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
+    let zetas: [i16; 127] =
+        core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
     let mut sc = coeffs;
     ntt_forward_scalar(&mut sc, &zetas);
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let src = ntt_forward_allsimd_program(&coeffs, &zetas);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "ntt all-SIMD tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "ntt all-SIMD tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full forward NTT in PURE SIMD (tree-walker) == scalar"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "ntt all-SIMD VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "ntt all-SIMD VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full forward NTT in PURE SIMD (VM) == scalar"
     );
@@ -1130,14 +1476,19 @@ fn ntt_forward_allsimd_match_scalar_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — the full forward NTT all-SIMD AOT == scalar"]
 fn ntt_forward_allsimd_aot_eq_scalar() {
     let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as i16);
-    let zetas: [i16; 127] = core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
+    let zetas: [i16; 127] =
+        core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
     let mut sc = coeffs;
     ntt_forward_scalar(&mut sc, &zetas);
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let aot = run_logos_with_args(&ntt_forward_allsimd_program(&coeffs, &zetas), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full forward NTT in PURE SIMD (AOT) == scalar"
     );
@@ -1231,22 +1582,35 @@ fn ntt_forward_scalar(coeffs: &mut [i16; 256], zetas: &[i16]) {
 #[test]
 fn ntt_forward_full_lanes_match_scalar_tw_and_vm() {
     let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as i16);
-    let zetas: [i16; 127] = core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
+    let zetas: [i16; 127] =
+        core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
     let mut sc = coeffs;
     ntt_forward_scalar(&mut sc, &zetas);
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let src = ntt_forward_program(&coeffs, &zetas);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "ntt forward tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "ntt forward tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full forward NTT in Logos (tree-walker) == scalar"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "ntt forward VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full forward NTT in Logos (VM) == scalar"
     );
@@ -1321,22 +1685,39 @@ fn ntt_wholevec_scalar(coeffs: &mut [i16; 256], zetas: &[i16]) {
 fn ntt_wholevec_levels_lanes_match_scalar_tw_and_vm() {
     let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as i16);
     // 15 zetas for the 4 levels (1 + 2 + 4 + 8); arbitrary-but-consistent (the lane==scalar proof).
-    let zetas: [i16; 15] = core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
+    let zetas: [i16; 15] =
+        core::array::from_fn(|i| ((i as i16).wrapping_mul(593)).wrapping_sub(1664));
     let mut sc = coeffs;
     ntt_wholevec_scalar(&mut sc, &zetas);
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let src = ntt_wholevec_program(&coeffs, &zetas);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "ntt wholevec tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "ntt wholevec tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "NTT whole-vector levels in Logos lanes (tree-walker) == scalar"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "ntt wholevec VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "ntt wholevec VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "NTT whole-vector levels in Logos lanes (VM) == scalar"
     );
@@ -1358,8 +1739,12 @@ fn ntt_level1_program(coeffs: &[i16; 256], zeta: i16) -> String {
     p.push_str("        Let lowVec be lanes16Word16(sub16(coeffs, 16 * k)).\n");
     p.push_str("        Let highVec be lanes16Word16(sub16(coeffs, 128 + 16 * k)).\n");
     p.push_str("        Let t be montmul(zv, highVec, qv, qinv).\n");
-    p.push_str("        Repeat for x in seqOfLanes16(lowVec + t):\n            Push x to lowOut.\n");
-    p.push_str("        Repeat for x in seqOfLanes16(lowVec - t):\n            Push x to highOut.\n");
+    p.push_str(
+        "        Repeat for x in seqOfLanes16(lowVec + t):\n            Push x to lowOut.\n",
+    );
+    p.push_str(
+        "        Repeat for x in seqOfLanes16(lowVec - t):\n            Push x to highOut.\n",
+    );
     p.push_str("    Return lowOut followed by highOut.\n\n");
     p.push_str("## Main\n");
     p.push_str("Let mutable cs be a new Seq of Int.\n");
@@ -1375,7 +1760,7 @@ fn ntt_level1_program(coeffs: &[i16; 256], zeta: i16) -> String {
 fn ntt_level1_butterfly_lanes_match_scalar_tw_and_vm() {
     let coeffs: [i16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as i16);
     let zeta = 1729i16; // ML-KEM zetas[1]
-    // Scalar reference: the len=128 butterfly.
+                        // Scalar reference: the len=128 butterfly.
     let mut sc = coeffs;
     for j in 0..128 {
         let t = montmul_scalar(zeta, sc[j + 128]);
@@ -1385,16 +1770,28 @@ fn ntt_level1_butterfly_lanes_match_scalar_tw_and_vm() {
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let src = ntt_level1_program(&coeffs, zeta);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "ntt level1 tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "ntt level1 tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "NTT level-1 butterfly in Logos lanes (tree-walker) == scalar"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "ntt level1 VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "NTT level-1 butterfly in Logos lanes (VM) == scalar"
     );
@@ -1442,20 +1839,33 @@ fn ntt_montgomery_multiply_lanes_match_scalar_tw_and_vm() {
     // a in [0, q); b spanning i16 (zetas, some negative) — montmul reduces the product mod q.
     let a: [i16; 16] = core::array::from_fn(|i| ((i * 197 + 11) % 3329) as i16);
     let b: [i16; 16] = core::array::from_fn(|i| (i as i16).wrapping_mul(1337).wrapping_sub(1664));
-    let want: Vec<String> =
-        (0..16).map(|i| (montmul_scalar(a[i], b[i]) as u16 as i64).to_string()).collect();
+    let want: Vec<String> = (0..16)
+        .map(|i| (montmul_scalar(a[i], b[i]) as u16 as i64).to_string())
+        .collect();
     let src = montmul_program(&a, &b);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "montmul tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "montmul tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane Montgomery multiply (tree-walker) == Kyber scalar"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "montmul VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane Montgomery multiply (VM) == Kyber scalar"
     );
@@ -1466,12 +1876,17 @@ fn ntt_montgomery_multiply_lanes_match_scalar_tw_and_vm() {
 fn ntt_montgomery_multiply_lanes_aot_eq_scalar() {
     let a: [i16; 16] = core::array::from_fn(|i| ((i * 311 + 7) % 3329) as i16);
     let b: [i16; 16] = core::array::from_fn(|i| (i as i16).wrapping_mul(2731).wrapping_add(900));
-    let want: Vec<String> =
-        (0..16).map(|i| (montmul_scalar(a[i], b[i]) as u16 as i64).to_string()).collect();
+    let want: Vec<String> = (0..16)
+        .map(|i| (montmul_scalar(a[i], b[i]) as u16 as i64).to_string())
+        .collect();
     let aot = run_logos_with_args(&montmul_program(&a, &b), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Logos lane Montgomery multiply (AOT/AVX2) == Kyber scalar"
     );
@@ -1492,7 +1907,9 @@ fn lanes16_program(coeffs: &[u16; 16], zeta: u16) -> String {
     p.push_str("Let sm be seqOfLanes16(cv + zv).\n");
     p.push_str("Let df be seqOfLanes16(cv - zv).\n");
     for v in ["lo", "hi", "sm", "df"] {
-        p.push_str(&format!("Repeat for i from 1 to 16:\n    Show item i of {v}.\n"));
+        p.push_str(&format!(
+            "Repeat for i from 1 to 16:\n    Show item i of {v}.\n"
+        ));
     }
     p
 }
@@ -1517,21 +1934,38 @@ fn lanes16_expected(coeffs: &[u16; 16], zeta: u16) -> Vec<String> {
 #[test]
 fn lanes16word16_ntt_ops_spec_tw_and_vm() {
     // Coefficients spanning the i16 range (some ≥ 2¹⁵, i.e. negative) so signed `mulhi16` is tested.
-    let coeffs: [u16; 16] = core::array::from_fn(|i| (i as u16).wrapping_mul(4099).wrapping_add(31));
+    let coeffs: [u16; 16] =
+        core::array::from_fn(|i| (i as u16).wrapping_mul(4099).wrapping_add(31));
     let zeta = 12345u16;
     let want = lanes16_expected(&coeffs, zeta);
     let src = lanes16_program(&coeffs, zeta);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "Lanes16Word16 tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "Lanes16Word16 tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Lanes16Word16 add/sub/mullo/mulhi (tree-walker)"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "Lanes16Word16 VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "Lanes16Word16 VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Lanes16Word16 add/sub/mullo/mulhi (VM)"
     );
@@ -1540,13 +1974,18 @@ fn lanes16word16_ntt_ops_spec_tw_and_vm() {
 #[test]
 #[ignore = "compiles via rustc (slow) — Lanes16Word16 AOT(AVX2 vpaddw/vpsubw/vpmullw/vpmulhw) == scalar"]
 fn lanes16word16_ntt_ops_aot_eq_spec() {
-    let coeffs: [u16; 16] = core::array::from_fn(|i| (i as u16).wrapping_mul(5347).wrapping_add(9001));
+    let coeffs: [u16; 16] =
+        core::array::from_fn(|i| (i as u16).wrapping_mul(5347).wrapping_add(9001));
     let zeta = 58000u16; // ≥ 2¹⁵ ⇒ negative as i16
     let want = lanes16_expected(&coeffs, zeta);
     let aot = run_logos_with_args(&lanes16_program(&coeffs, zeta), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "Lanes16Word16 NTT ops (AOT/AVX2) == scalar"
     );
@@ -1559,11 +1998,23 @@ fn bool_xor_is_consistent_across_tiers() {
     let src = "## Main\nShow (true xor false).\nShow (true xor true).\nShow (false xor false).\nShow (false xor true).\n";
     let want = vec!["true", "false", "false", "true"];
     let tw = tw_outcome(src);
-    assert!(tw.error.is_none(), "bool xor tree-walker errored: {:?}", tw.error);
-    assert_eq!(tw.output.lines().map(str::trim).collect::<Vec<_>>(), want, "bool xor (tree-walker)");
+    assert!(
+        tw.error.is_none(),
+        "bool xor tree-walker errored: {:?}",
+        tw.error
+    );
+    assert_eq!(
+        tw.output.lines().map(str::trim).collect::<Vec<_>>(),
+        want,
+        "bool xor (tree-walker)"
+    );
     let vm = vm_outcome(src);
     assert!(vm.error.is_none(), "bool xor VM errored: {:?}", vm.error);
-    assert_eq!(vm.output.lines().map(str::trim).collect::<Vec<_>>(), want, "bool xor (VM)");
+    assert_eq!(
+        vm.output.lines().map(str::trim).collect::<Vec<_>>(),
+        want,
+        "bool xor (VM)"
+    );
 }
 
 #[test]
@@ -1573,7 +2024,11 @@ fn bool_xor_aot_eq_spec() {
     let aot = run_logos_with_args(src, &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         vec!["true", "false", "false", "true"],
         "bool xor (AOT) == tree-walker"
     );
@@ -1582,7 +2037,12 @@ fn bool_xor_aot_eq_spec() {
 /// A program that calls the STDLIB `chacha20Encrypt` (crypto.lg) on byte key/nonce — the public
 /// cipher the AEAD uses. The gate that the stdlib function (whether native or, after the lift, the
 /// Logos lane cipher) is RFC-correct.
-fn stdlib_cipher_program(key_bytes: &[u8], nonce_bytes: &[u8], counter: u32, plaintext: &[u8]) -> String {
+fn stdlib_cipher_program(
+    key_bytes: &[u8],
+    nonce_bytes: &[u8],
+    counter: u32,
+    plaintext: &[u8],
+) -> String {
     let mut p = String::from("## Main\n");
     p.push_str("Let mutable key be a new Seq of Int.\n");
     for &b in key_bytes {
@@ -1596,7 +2056,9 @@ fn stdlib_cipher_program(key_bytes: &[u8], nonce_bytes: &[u8], counter: u32, pla
     for &b in plaintext {
         p.push_str(&format!("Push {b} to data.\n"));
     }
-    p.push_str(&format!("Let ct be chacha20Encrypt(key, nonce, {counter}, data).\n"));
+    p.push_str(&format!(
+        "Let ct be chacha20Encrypt(key, nonce, {counter}, data).\n"
+    ));
     p.push_str("Repeat for i from 1 to length of ct:\n    Show item i of ct.\n");
     p
 }
@@ -1606,17 +2068,31 @@ fn stdlib_cipher_program(key_bytes: &[u8], nonce_bytes: &[u8], counter: u32, pla
 fn stdlib_chacha20_encrypt_matches_rfc_2_4_2() {
     // RFC 8439 §2.4.2 as byte inputs: key 0..31, nonce = 0,0,0,0, 0,0,0,0x4a, 0,0,0,0, counter 1.
     let key_words: [u32; 8] = std::array::from_fn(|i| {
-        u32::from_le_bytes([(4 * i) as u8, (4 * i + 1) as u8, (4 * i + 2) as u8, (4 * i + 3) as u8])
+        u32::from_le_bytes([
+            (4 * i) as u8,
+            (4 * i + 1) as u8,
+            (4 * i + 2) as u8,
+            (4 * i + 3) as u8,
+        ])
     });
     let nonce_words = [0x0000_0000u32, 0x4a00_0000, 0x0000_0000];
     let key_bytes: Vec<u8> = (0u8..32).collect();
     let nonce_bytes = [0u8, 0, 0, 0, 0, 0, 0, 0x4a, 0, 0, 0, 0];
-    let want: Vec<String> =
-        chacha_xor_scalar(&key_words, 1, &nonce_words, SUNSCREEN).iter().map(|b| b.to_string()).collect();
-    let aot = run_logos_with_args(&stdlib_cipher_program(&key_bytes, &nonce_bytes, 1, SUNSCREEN), &[]);
+    let want: Vec<String> = chacha_xor_scalar(&key_words, 1, &nonce_words, SUNSCREEN)
+        .iter()
+        .map(|b| b.to_string())
+        .collect();
+    let aot = run_logos_with_args(
+        &stdlib_cipher_program(&key_bytes, &nonce_bytes, 1, SUNSCREEN),
+        &[],
+    );
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "stdlib chacha20Encrypt == scalar/RFC §2.4.2"
     );
@@ -1629,11 +2105,23 @@ fn stdlib_chacha20_encrypt_matches_rfc_2_4_2() {
 fn lanes8word32_xor_aot_eq_spec() {
     for (label, src) in [("bare", program()), ("typed", typed_program())] {
         let spec = tw_outcome(&src);
-        assert!(spec.error.is_none(), "{label}: spec errored: {:?}", spec.error);
+        assert!(
+            spec.error.is_none(),
+            "{label}: spec errored: {:?}",
+            spec.error
+        );
         let aot = run_logos_with_args(&src, &[]);
-        assert!(aot.success, "{label}: AOT compile/run failed:\n{}", aot.stderr);
-        let aot_out: Vec<&str> =
-            aot.stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        assert!(
+            aot.success,
+            "{label}: AOT compile/run failed:\n{}",
+            aot.stderr
+        );
+        let aot_out: Vec<&str> = aot
+            .stdout
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
         assert_eq!(
             aot_out,
             vec![spec.output.trim()],
@@ -1673,20 +2161,36 @@ fn barrett_program(vals: &[i16; 16]) -> String {
 #[test]
 fn barrett_reduce_lanes_match_scalar_tw_and_vm() {
     // Span i16 including negatives, near ±q, and the large sums the inverse NTT produces.
-    let vals: [i16; 16] = core::array::from_fn(|i| (i as i16).wrapping_mul(4099).wrapping_sub(26000));
-    let want: Vec<String> = vals.iter().map(|&a| (barrett_reduce(a) as u16 as i64).to_string()).collect();
+    let vals: [i16; 16] =
+        core::array::from_fn(|i| (i as i16).wrapping_mul(4099).wrapping_sub(26000));
+    let want: Vec<String> = vals
+        .iter()
+        .map(|&a| (barrett_reduce(a) as u16 as i64).to_string())
+        .collect();
     let src = barrett_program(&vals);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "barrett tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "barrett tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "lane Barrett reduce (tree-walker) == kyber scalar barrett"
     );
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "barrett VM errored: {:?}", vm.error);
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "lane Barrett reduce (VM) == kyber scalar barrett"
     );
@@ -1825,16 +2329,32 @@ fn invntt_allsimd_match_scalar_tw_and_vm() {
     let want: Vec<String> = sc.iter().map(|&c| (c as u16 as i64).to_string()).collect();
     let src = invntt_allsimd_program(&y, &kz);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "invntt all-SIMD tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "invntt all-SIMD tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full inverse NTT in PURE SIMD (tree-walker) == scalar"
     );
     let vm = vm_outcome(&src);
-    assert!(vm.error.is_none(), "invntt all-SIMD VM errored: {:?}", vm.error);
+    assert!(
+        vm.error.is_none(),
+        "invntt all-SIMD VM errored: {:?}",
+        vm.error
+    );
     assert_eq!(
-        vm.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        vm.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full inverse NTT in PURE SIMD (VM) == scalar"
     );
@@ -1854,7 +2374,11 @@ fn invntt_allsimd_aot_eq_scalar() {
     let aot = run_logos_with_args(&invntt_allsimd_program(&y, &kz), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full inverse NTT in PURE SIMD (AOT) == scalar"
     );
@@ -1911,9 +2435,17 @@ fn ntt_invntt_roundtrip_lanes_match_scalar_tw_and_vm() {
     ntt_forward_scalar(&mut fwd_out, &fwd_zetas); // (the lane fwd is separately proven == this)
     let src = invntt_allsimd_program(&fwd_out, &kz);
     let tw = tw_outcome(&src);
-    assert!(tw.error.is_none(), "roundtrip tree-walker errored: {:?}", tw.error);
+    assert!(
+        tw.error.is_none(),
+        "roundtrip tree-walker errored: {:?}",
+        tw.error
+    );
     assert_eq!(
-        tw.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        tw.output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "lane forward∘inverse round trip (tree-walker) == scalar"
     );
@@ -1934,15 +2466,23 @@ fn ntt_logos_matches_native_mlkem_kernel() {
     ntt_forward_scalar(&mut fwd, &fwd_zetas);
     let fwd_red: Vec<i64> = fwd.iter().map(|&c| (c as i64).rem_euclid(3329)).collect();
     let xi: Vec<i64> = x.iter().map(|&v| v as i64).collect();
-    let native_fwd = mlkem_ntt(&xi).to_vec();
-    assert_eq!(fwd_red, native_fwd, "Logos forward NTT == native mlkem_ntt (bit-exact)");
+    let native_fwd = mlkem_ntt(&xi).expect("in-contract arguments").to_vec();
+    assert_eq!(
+        fwd_red, native_fwd,
+        "Logos forward NTT == native mlkem_ntt (bit-exact)"
+    );
 
     // Inverse: feed the native forward output (NTT-domain, in [0,q)) through both inverses.
     let mut inv: [i16; 256] = core::array::from_fn(|i| native_fwd[i] as i16);
     invntt_scalar(&mut inv, &kz);
     let inv_red: Vec<i64> = inv.iter().map(|&c| (c as i64).rem_euclid(3329)).collect();
-    let native_inv = mlkem_inv_ntt(&native_fwd).to_vec();
-    assert_eq!(inv_red, native_inv, "Logos inverse NTT == native mlkem_inv_ntt (bit-exact)");
+    let native_inv = mlkem_inv_ntt(&native_fwd)
+        .expect("in-contract arguments")
+        .to_vec();
+    assert_eq!(
+        inv_red, native_inv,
+        "Logos inverse NTT == native mlkem_inv_ntt (bit-exact)"
+    );
 }
 
 /// The Word16↔Int bridge for the ML-KEM NTT lift: `word16(n)` builds a `Seq of Word16`,
@@ -1961,9 +2501,17 @@ fn word16_int_bridge_roundtrip_tw_vm() {
         .chain((1..=16).map(|i: i64| (i * 211 + 41).to_string()))
         .collect();
     for (label, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
-        assert!(out.error.is_none(), "{label} word16 bridge errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} word16 bridge errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: word16/lanes/intOfWord16 round-trip"
         );
@@ -1995,7 +2543,9 @@ fn fwd_ntt_def_block() -> String {
     p.push_str("        Let rs be seqOfLanes16(nttBlend(lo + t, lo - t, h)).\n");
     p.push_str("        Repeat for i from 1 to 16:\n            Set item (16 * v + i) of r to (item i of rs).\n");
     p.push_str("    Return r.\n\n");
-    p.push_str("## To nttForwardAllSimd (coeffs: Seq of Int) and (zetas: Seq of Int) -> Seq of Int:\n");
+    p.push_str(
+        "## To nttForwardAllSimd (coeffs: Seq of Int) and (zetas: Seq of Int) -> Seq of Int:\n",
+    );
     p.push_str("    Let qv be splat16Word16(3329).\n    Let qinv be splat16Word16(62209).\n");
     p.push_str("    Let mutable r be a new Seq of Int.\n    Repeat for x in coeffs:\n        Push x to r.\n");
     p.push_str("    Let mutable k be 1.\n    Let mutable len be 128.\n");
@@ -2040,11 +2590,16 @@ fn mlkem_ntt_w16_logos_program(input: &[u16; 256]) -> String {
     let mut p = fwd_ntt_def_block();
     p.push_str("## To mlkemKemNtt (a: Seq of Word16) -> Seq of Word16:\n");
     p.push_str("    Let mutable cs be a new Seq of Int.\n    Repeat for w in a:\n        Push intOfWord16(w) to cs.\n");
-    p.push_str(&format!("    {}", bake_fwd_zetas("zs").replace('\n', "\n    ")));
+    p.push_str(&format!(
+        "    {}",
+        bake_fwd_zetas("zs").replace('\n', "\n    ")
+    ));
     p.push_str("\n    Let raw be nttForwardAllSimd(cs, zs).\n");
     p.push_str("    Let mutable out be a new Seq of Word16.\n");
     p.push_str("    Repeat for x in raw:\n");
-    p.push_str("        Let v be x.\n        If v is at least 32768:\n            Set v to v - 65536.\n");
+    p.push_str(
+        "        Let v be x.\n        If v is at least 32768:\n            Set v to v - 65536.\n",
+    );
     p.push_str("        Set v to ((v % 3329) + 3329) % 3329.\n");
     p.push_str("        Push word16(v) to out.\n    Return out.\n\n");
     p.push_str("## Main\n");
@@ -2059,8 +2614,8 @@ fn mlkem_ntt_w16_logos_program(input: &[u16; 256]) -> String {
 
 #[test]
 fn mlkem_ntt_w16_logos_matches_native_tw_vm() {
-    use logicaffeine_system::ntt::mlkem_ntt_w16;
     use logicaffeine_base::Word16;
+    use logicaffeine_system::ntt::mlkem_ntt_w16;
     let input: [u16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as u16);
     let native: Vec<String> = mlkem_ntt_w16(&input.map(Word16))
         .iter()
@@ -2068,9 +2623,17 @@ fn mlkem_ntt_w16_logos_matches_native_tw_vm() {
         .collect();
     let src = mlkem_ntt_w16_logos_program(&input);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mlkemKemNtt errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mlkemKemNtt errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             native,
             "{label}: Logos mlkemKemNtt == native mlkem_ntt_w16"
         );
@@ -2155,11 +2718,16 @@ fn mlkem_invntt_w16_logos_program(input: &[u16; 256]) -> String {
     let mut p = inv_ntt_def_block();
     p.push_str("## To mlkemKemInvNtt (a: Seq of Word16) -> Seq of Word16:\n");
     p.push_str("    Let mutable cs be a new Seq of Int.\n    Repeat for w in a:\n        Push intOfWord16(w) to cs.\n");
-    p.push_str(&format!("    {}", bake_inv_zetas("zs").replace('\n', "\n    ")));
+    p.push_str(&format!(
+        "    {}",
+        bake_inv_zetas("zs").replace('\n', "\n    ")
+    ));
     p.push_str("\n    Let raw be invNttAllSimd(cs, zs).\n");
     p.push_str("    Let mutable out be a new Seq of Word16.\n");
     p.push_str("    Repeat for x in raw:\n");
-    p.push_str("        Let v be x.\n        If v is at least 32768:\n            Set v to v - 65536.\n");
+    p.push_str(
+        "        Let v be x.\n        If v is at least 32768:\n            Set v to v - 65536.\n",
+    );
     p.push_str("        Set v to ((v % 3329) + 3329) % 3329.\n");
     p.push_str("        Push word16(v) to out.\n    Return out.\n\n");
     p.push_str("## Main\n");
@@ -2186,9 +2754,17 @@ fn mlkem_invntt_w16_logos_matches_native_tw_vm() {
         .collect();
     let src = mlkem_invntt_w16_logos_program(&inv_input);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mlkemKemInvNtt errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mlkemKemInvNtt errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             native,
             "{label}: Logos mlkemKemInvNtt == native mlkem_inv_ntt_w16"
         );
@@ -2202,16 +2778,38 @@ fn mlkem_ntt_w16_logos_aot_eq_native() {
     use logicaffeine_system::ntt::{mlkem_inv_ntt_w16, mlkem_ntt_w16};
     let x: [u16; 256] = core::array::from_fn(|i| ((i * 131 + 17) % 3329) as u16);
     // Forward.
-    let fwd_native: Vec<String> = mlkem_ntt_w16(&x.map(Word16)).iter().map(|w| (w.0 as i64).to_string()).collect();
+    let fwd_native: Vec<String> = mlkem_ntt_w16(&x.map(Word16))
+        .iter()
+        .map(|w| (w.0 as i64).to_string())
+        .collect();
     let fa = run_logos_with_args(&mlkem_ntt_w16_logos_program(&x), &[]);
     assert!(fa.success, "fwd AOT failed:\n{}", fa.stderr);
-    assert_eq!(fa.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), fwd_native, "AOT forward W16 == native");
+    assert_eq!(
+        fa.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
+        fwd_native,
+        "AOT forward W16 == native"
+    );
     // Inverse (feed the native forward output).
     let inv_input: [u16; 256] = core::array::from_fn(|i| mlkem_ntt_w16(&x.map(Word16))[i].0);
-    let inv_native: Vec<String> = mlkem_inv_ntt_w16(&inv_input.map(Word16)).iter().map(|w| (w.0 as i64).to_string()).collect();
+    let inv_native: Vec<String> = mlkem_inv_ntt_w16(&inv_input.map(Word16))
+        .iter()
+        .map(|w| (w.0 as i64).to_string())
+        .collect();
     let ia = run_logos_with_args(&mlkem_invntt_w16_logos_program(&inv_input), &[]);
     assert!(ia.success, "inv AOT failed:\n{}", ia.stderr);
-    assert_eq!(ia.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), inv_native, "AOT inverse W16 == native");
+    assert_eq!(
+        ia.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
+        inv_native,
+        "AOT inverse W16 == native"
+    );
 }
 
 // ───────────────────────────── ML-DSA i32 NTT (q = 8380417) ─────────────────────────────
@@ -2249,13 +2847,22 @@ fn mldsa_montmul32_lanes_match_scalar_tw_and_vm() {
     // a, b span [−q, q] (the NTT working range), including negatives.
     let a: [i32; 8] = core::array::from_fn(|i| ((i as i32) * 1_500_007 - 4_190_000));
     let b: [i32; 8] = core::array::from_fn(|i| (i as i32) * 2_100_011 - 8_000_000);
-    let want: Vec<String> =
-        (0..8).map(|i| (mldsa_montmul32_scalar(a[i], b[i]) as u32 as i64).to_string()).collect();
+    let want: Vec<String> = (0..8)
+        .map(|i| (mldsa_montmul32_scalar(a[i], b[i]) as u32 as i64).to_string())
+        .collect();
     let src = mldsa_montmul32_program(&a, &b);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} montmul32 errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} montmul32 errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: lane montmul32 == Dilithium montgomery_reduce(a·b)"
         );
@@ -2267,12 +2874,17 @@ fn mldsa_montmul32_lanes_match_scalar_tw_and_vm() {
 fn mldsa_montmul32_aot_eq_scalar() {
     let a: [i32; 8] = core::array::from_fn(|i| ((i as i32) * 1_500_007 - 4_190_000));
     let b: [i32; 8] = core::array::from_fn(|i| (i as i32) * 2_100_011 - 8_000_000);
-    let want: Vec<String> =
-        (0..8).map(|i| (mldsa_montmul32_scalar(a[i], b[i]) as u32 as i64).to_string()).collect();
+    let want: Vec<String> = (0..8)
+        .map(|i| (mldsa_montmul32_scalar(a[i], b[i]) as u32 as i64).to_string())
+        .collect();
     let aot = run_logos_with_args(&mldsa_montmul32_program(&a, &b), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "AOT lane montmul32 (vpmuldq) == Dilithium montgomery_reduce"
     );
@@ -2374,9 +2986,17 @@ fn mldsa_ntt_wholevec_levels_match_scalar_tw_and_vm() {
     let want: Vec<String> = sc.iter().map(|&c| (c as u32 as i64).to_string()).collect();
     let src = mldsa_ntt_wholevec_program(&coeffs);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mldsa wholevec errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mldsa wholevec errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: ML-DSA whole-vector NTT levels (i32 lanes) == scalar"
         );
@@ -2394,7 +3014,11 @@ fn mldsa_ntt_wholevec_aot_eq_scalar() {
     let aot = run_logos_with_args(&mldsa_ntt_wholevec_program(&coeffs), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "ML-DSA whole-vector forward NTT (AOT/vpmuldq) == scalar"
     );
@@ -2470,9 +3094,17 @@ fn mldsa_ntt_forward_full_match_scalar_tw_and_vm() {
     let want: Vec<String> = sc.iter().map(|&c| (c as u32 as i64).to_string()).collect();
     let src = mldsa_ntt_forward_program(&coeffs);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mldsa forward errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mldsa forward errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: full 8-level ML-DSA forward NTT (i32 lanes) == scalar"
         );
@@ -2490,7 +3122,11 @@ fn mldsa_ntt_forward_full_aot_eq_scalar() {
     let aot = run_logos_with_args(&mldsa_ntt_forward_program(&coeffs), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full 8-level ML-DSA forward NTT (AOT/vpmuldq+vpshufd) == scalar"
     );
@@ -2557,7 +3193,9 @@ fn mldsa_invntt_program(coeffs: &[i32; 256]) -> String {
     p.push_str("        Let rs be seqOfLanes8(nttBlend(sum, newHi, h)).\n");
     p.push_str("        Repeat for i from 1 to 8:\n            Set item (8 * v + i) of r to (item i of rs).\n");
     p.push_str("    Return r.\n\n");
-    p.push_str("## To mldsaInvNtt (coeffs: Seq of Word32) and (zetas: Seq of Word32) -> Seq of Word32:\n");
+    p.push_str(
+        "## To mldsaInvNtt (coeffs: Seq of Word32) and (zetas: Seq of Word32) -> Seq of Word32:\n",
+    );
     p.push_str("    Let qv be splat8Word32(word32(8380417)).\n    Let qiv be splat8Word32(word32(58728449)).\n");
     p.push_str("    Let mutable r be a new Seq of Word32.\n    Repeat for x in coeffs:\n        Push x to r.\n");
     p.push_str("    Set r to mldsaInvWithinLevel(r, zetas, 1, 255).\n");
@@ -2609,9 +3247,17 @@ fn mldsa_invntt_full_match_scalar_tw_and_vm() {
     let want: Vec<String> = sc.iter().map(|&c| (c as u32 as i64).to_string()).collect();
     let src = mldsa_invntt_program(&fwd);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mldsa invntt errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mldsa invntt errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: full 8-level ML-DSA inverse NTT (i32 lanes) == scalar"
         );
@@ -2662,7 +3308,11 @@ fn mldsa_invntt_full_aot_eq_scalar() {
     let aot = run_logos_with_args(&mldsa_invntt_program(&fwd), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full 8-level ML-DSA inverse NTT (AOT) == scalar"
     );
@@ -2703,7 +3353,9 @@ fn mldsa_ntt_defs() -> String {
 /// — the negacyclic ring product the verify's `A·z` / `c·t1` are built from.
 fn mldsa_polymul_program(a: &[i32; 256], b: &[i32; 256]) -> String {
     let mut p = mldsa_ntt_defs();
-    p.push_str("## To pointwiseMontgomery (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:\n");
+    p.push_str(
+        "## To pointwiseMontgomery (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:\n",
+    );
     p.push_str("    Let qv be splat8Word32(word32(8380417)).\n    Let qiv be splat8Word32(word32(58728449)).\n");
     p.push_str("    Let mutable out be a new Seq of Word32.\n");
     p.push_str("    Repeat for v from 0 to 31:\n");
@@ -2728,7 +3380,9 @@ fn mldsa_polymul_program(a: &[i32; 256], b: &[i32; 256]) -> String {
     p.push_str("Let c be mldsaInvNtt(chat, zsI).\n");
     p.push_str("Repeat for i from 1 to 256:\n");
     p.push_str("    Let raw be intOfWord32(item i of c).\n");
-    p.push_str("    Let v be raw.\n    If v is at least 2147483648:\n        Set v to v - 4294967296.\n");
+    p.push_str(
+        "    Let v be raw.\n    If v is at least 2147483648:\n        Set v to v - 4294967296.\n",
+    );
     p.push_str("    Show ((v % 8380417) + 8380417) % 8380417.\n");
     p
 }
@@ -2738,12 +3392,23 @@ fn mldsa_polymul_matches_schoolbook_tw_and_vm() {
     // The NTT-based product == the schoolbook negacyclic convolution (the convolution theorem).
     let a: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 7919 + 13) % 8_380_417) as i32);
     let b: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 104729 + 77) % 8_380_417) as i32);
-    let want: Vec<String> = mldsa_schoolbook(&a, &b).iter().map(|&c| (c as i64).to_string()).collect();
+    let want: Vec<String> = mldsa_schoolbook(&a, &b)
+        .iter()
+        .map(|&c| (c as i64).to_string())
+        .collect();
     let src = mldsa_polymul_program(&a, &b);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mldsa polymul errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mldsa polymul errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: ML-DSA NTT polynomial multiply == schoolbook convolution"
         );
@@ -2755,11 +3420,18 @@ fn mldsa_polymul_matches_schoolbook_tw_and_vm() {
 fn mldsa_polymul_matches_schoolbook_aot() {
     let a: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 7919 + 13) % 8_380_417) as i32);
     let b: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 104729 + 77) % 8_380_417) as i32);
-    let want: Vec<String> = mldsa_schoolbook(&a, &b).iter().map(|&c| (c as i64).to_string()).collect();
+    let want: Vec<String> = mldsa_schoolbook(&a, &b)
+        .iter()
+        .map(|&c| (c as i64).to_string())
+        .collect();
     let aot = run_logos_with_args(&mldsa_polymul_program(&a, &b), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "ML-DSA NTT polynomial multiply (AOT) == schoolbook convolution"
     );
@@ -2773,7 +3445,9 @@ fn mldsa_matvec_program(a_polys: &[[i32; 256]], z_polys: &[[i32; 256]]) -> Strin
     assert_eq!(l, z_polys.len());
     let mut p = mldsa_ntt_defs();
     // pointwiseMontgomery
-    p.push_str("## To pointwiseMontgomery (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:\n");
+    p.push_str(
+        "## To pointwiseMontgomery (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:\n",
+    );
     p.push_str("    Let qv be splat8Word32(word32(8380417)).\n    Let qiv be splat8Word32(word32(58728449)).\n");
     p.push_str("    Let mutable out be a new Seq of Word32.\n    Repeat for v from 0 to 31:\n");
     p.push_str("        Let av be lanes8Word32(sub8(a, 8 * v)).\n        Let bv be lanes8Word32(sub8(b, 8 * v)).\n");
@@ -2811,7 +3485,10 @@ fn mldsa_matvec_program(a_polys: &[[i32; 256]], z_polys: &[[i32; 256]]) -> Strin
     }
     p.push_str(&bake_mldsa_zetas("zsF"));
     p.push_str(&bake_mldsa_zetas_full("zsI"));
-    p.push_str(&format!("Let acc be mldsaMatvecRow(aFlat, zFlat, zsF, {}).\n", l));
+    p.push_str(&format!(
+        "Let acc be mldsaMatvecRow(aFlat, zFlat, zsF, {}).\n",
+        l
+    ));
     p.push_str("Let c be mldsaInvNtt(acc, zsI).\n");
     p.push_str("Repeat for i from 1 to 256:\n");
     p.push_str("    Let raw be intOfWord32(item i of c).\n    Let v be raw.\n    If v is at least 2147483648:\n        Set v to v - 4294967296.\n");
@@ -2823,10 +3500,14 @@ fn mldsa_matvec_program(a_polys: &[[i32; 256]], z_polys: &[[i32; 256]]) -> Strin
 fn mldsa_matvec_row_matches_sum_of_schoolbook_tw_and_vm() {
     let l = 3;
     let a_polys: Vec<[i32; 256]> = (0..l)
-        .map(|j| core::array::from_fn(|i| ((i as i64 * 7919 + j as i64 * 31 + 13) % 8_380_417) as i32))
+        .map(|j| {
+            core::array::from_fn(|i| ((i as i64 * 7919 + j as i64 * 31 + 13) % 8_380_417) as i32)
+        })
         .collect();
     let z_polys: Vec<[i32; 256]> = (0..l)
-        .map(|j| core::array::from_fn(|i| ((i as i64 * 104729 + j as i64 * 53 + 77) % 8_380_417) as i32))
+        .map(|j| {
+            core::array::from_fn(|i| ((i as i64 * 104729 + j as i64 * 53 + 77) % 8_380_417) as i32)
+        })
         .collect();
     // Σ_j schoolbook(A[j], z[j]) mod q.
     let q = 8_380_417i64;
@@ -2840,9 +3521,17 @@ fn mldsa_matvec_row_matches_sum_of_schoolbook_tw_and_vm() {
     let want: Vec<String> = acc.iter().map(|&c| c.to_string()).collect();
     let src = mldsa_matvec_program(&a_polys, &z_polys);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mldsa matvec errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mldsa matvec errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: ML-DSA matrix-vector row (A·z) == Σ schoolbook"
         );
@@ -2854,10 +3543,14 @@ fn mldsa_matvec_row_matches_sum_of_schoolbook_tw_and_vm() {
 fn mldsa_matvec_row_matches_sum_of_schoolbook_aot() {
     let l = 3;
     let a_polys: Vec<[i32; 256]> = (0..l)
-        .map(|j| core::array::from_fn(|i| ((i as i64 * 7919 + j as i64 * 31 + 13) % 8_380_417) as i32))
+        .map(|j| {
+            core::array::from_fn(|i| ((i as i64 * 7919 + j as i64 * 31 + 13) % 8_380_417) as i32)
+        })
         .collect();
     let z_polys: Vec<[i32; 256]> = (0..l)
-        .map(|j| core::array::from_fn(|i| ((i as i64 * 104729 + j as i64 * 53 + 77) % 8_380_417) as i32))
+        .map(|j| {
+            core::array::from_fn(|i| ((i as i64 * 104729 + j as i64 * 53 + 77) % 8_380_417) as i32)
+        })
         .collect();
     let q = 8_380_417i64;
     let mut acc = [0i64; 256];
@@ -2871,12 +3564,15 @@ fn mldsa_matvec_row_matches_sum_of_schoolbook_aot() {
     let aot = run_logos_with_args(&mldsa_matvec_program(&a_polys, &z_polys), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "ML-DSA matrix-vector row (AOT) == Σ schoolbook"
     );
 }
-
 
 /// `mldsaNttMul` resolved from the crypto.lg stdlib (auto-import) — the shipped Logos ML-DSA
 /// polynomial multiply, proven == the schoolbook negacyclic convolution.
@@ -2900,12 +3596,23 @@ fn mldsa_nttmul_via_cryptolg_program(a: &[i32; 256], b: &[i32; 256]) -> String {
 fn mldsa_nttmul_cryptolg_matches_schoolbook_tw_and_vm() {
     let a: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 7919 + 13) % 8_380_417) as i32);
     let b: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 104729 + 77) % 8_380_417) as i32);
-    let want: Vec<String> = mldsa_schoolbook(&a, &b).iter().map(|&c| (c as i64).to_string()).collect();
+    let want: Vec<String> = mldsa_schoolbook(&a, &b)
+        .iter()
+        .map(|&c| (c as i64).to_string())
+        .collect();
     let src = mldsa_nttmul_via_cryptolg_program(&a, &b);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} crypto.lg mldsaNttMul errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} crypto.lg mldsaNttMul errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: crypto.lg mldsaNttMul == schoolbook convolution"
         );
@@ -2917,11 +3624,18 @@ fn mldsa_nttmul_cryptolg_matches_schoolbook_tw_and_vm() {
 fn mldsa_nttmul_cryptolg_matches_schoolbook_aot() {
     let a: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 7919 + 13) % 8_380_417) as i32);
     let b: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 104729 + 77) % 8_380_417) as i32);
-    let want: Vec<String> = mldsa_schoolbook(&a, &b).iter().map(|&c| (c as i64).to_string()).collect();
+    let want: Vec<String> = mldsa_schoolbook(&a, &b)
+        .iter()
+        .map(|&c| (c as i64).to_string())
+        .collect();
     let aot = run_logos_with_args(&mldsa_nttmul_via_cryptolg_program(&a, &b), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "crypto.lg mldsaNttMul (AOT) == schoolbook convolution"
     );
@@ -2969,13 +3683,19 @@ fn mldsa_use_hint_inverts_make_hint_spec() {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
         let z = ((s >> 40) as i32 % (2 * MLDSA_GAMMA2 + 1)) - MLDSA_GAMMA2;
         let h = rmake_hint(z, r);
-        assert_eq!(ruse_hint(h, r), rhighbits(r + z), "UseHint∘MakeHint = HighBits(r+z)");
+        assert_eq!(
+            ruse_hint(h, r),
+            rhighbits(r + z),
+            "UseHint∘MakeHint = HighBits(r+z)"
+        );
     }
 }
 
 fn mldsa_rounding_glue_defs() -> String {
     let mut p = String::new();
-    p.push_str("## To mldsaFreezeI (r: Int) -> Int:\n    Return ((r % 8380417) + 8380417) % 8380417.\n\n");
+    p.push_str(
+        "## To mldsaFreezeI (r: Int) -> Int:\n    Return ((r % 8380417) + 8380417) % 8380417.\n\n",
+    );
     p.push_str("## To mldsaHighBits (r: Int) -> Int:\n");
     p.push_str("    Let rr be mldsaFreezeI(r).\n    Let a1 be (rr + 127) / 128.\n");
     p.push_str("    Set a1 to (a1 * 1025 + 2097152) / 4194304.\n    Return a1 % 16.\n\n");
@@ -3012,8 +3732,12 @@ fn mldsa_rounding_program(rs: &[i32], hs: &[i32]) -> String {
 #[test]
 fn mldsa_highbits_usehint_logos_match_spec_tw_and_vm() {
     // r spanning [0,q) including the boundary regions; h = MakeHint(z, r) for a spread of z.
-    let rs: Vec<i32> = (0..256).map(|i| ((i as i64 * 32749 + 17) % MLDSA_Q as i64) as i32).collect();
-    let zs: Vec<i32> = (0..256).map(|i| ((i as i32 * 4099) % (2 * MLDSA_GAMMA2 + 1)) - MLDSA_GAMMA2).collect();
+    let rs: Vec<i32> = (0..256)
+        .map(|i| ((i as i64 * 32749 + 17) % MLDSA_Q as i64) as i32)
+        .collect();
+    let zs: Vec<i32> = (0..256)
+        .map(|i| ((i as i32 * 4099) % (2 * MLDSA_GAMMA2 + 1)) - MLDSA_GAMMA2)
+        .collect();
     let hs: Vec<i32> = (0..256).map(|i| rmake_hint(zs[i], rs[i])).collect();
     let want: Vec<String> = rs
         .iter()
@@ -3022,46 +3746,81 @@ fn mldsa_highbits_usehint_logos_match_spec_tw_and_vm() {
         .collect();
     // Cross-check the property holds for these inputs (validates the test oracle).
     for i in 0..256 {
-        assert_eq!(ruse_hint(hs[i], rs[i]), rhighbits(rs[i] + zs[i]), "property holds for input {i}");
+        assert_eq!(
+            ruse_hint(hs[i], rs[i]),
+            rhighbits(rs[i] + zs[i]),
+            "property holds for input {i}"
+        );
     }
     let src = mldsa_rounding_program(&rs, &hs);
     for (label, out) in [("tw", tw_outcome(&src)), ("vm", vm_outcome(&src))] {
-        assert!(out.error.is_none(), "{label} mldsa rounding errored: {:?}", out.error);
+        assert!(
+            out.error.is_none(),
+            "{label} mldsa rounding errored: {:?}",
+            out.error
+        );
         assert_eq!(
-            out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
             want,
             "{label}: Logos HighBits/UseHint == FIPS-204 spec"
         );
     }
 }
 
-
 /// `mldsaHighBits`/`mldsaUseHint` resolved from crypto.lg (auto-import) — the shipped verify glue.
 #[test]
 fn mldsa_rounding_via_cryptolg_matches_spec_tw_and_vm() {
-    let rs: Vec<i32> = (0..256).map(|i| ((i as i64 * 32749 + 17) % MLDSA_Q as i64) as i32).collect();
-    let zs: Vec<i32> = (0..256).map(|i| ((i as i32 * 4099) % (2 * MLDSA_GAMMA2 + 1)) - MLDSA_GAMMA2).collect();
+    let rs: Vec<i32> = (0..256)
+        .map(|i| ((i as i64 * 32749 + 17) % MLDSA_Q as i64) as i32)
+        .collect();
+    let zs: Vec<i32> = (0..256)
+        .map(|i| ((i as i32 * 4099) % (2 * MLDSA_GAMMA2 + 1)) - MLDSA_GAMMA2)
+        .collect();
     let hs: Vec<i32> = (0..256).map(|i| rmake_hint(zs[i], rs[i])).collect();
-    let want: Vec<String> = rs.iter().map(|&r| rhighbits(r).to_string())
-        .chain((0..256).map(|i| ruse_hint(hs[i], rs[i]).to_string())).collect();
+    let want: Vec<String> = rs
+        .iter()
+        .map(|&r| rhighbits(r).to_string())
+        .chain((0..256).map(|i| ruse_hint(hs[i], rs[i]).to_string()))
+        .collect();
     // No inline defs — mldsaHighBits/mldsaUseHint come from crypto.lg.
     let mut p = String::from("## Main\nLet mutable rs be a new Seq of Int.\n");
-    for &r in &rs { p.push_str(&format!("Push {} to rs.\n", r)); }
+    for &r in &rs {
+        p.push_str(&format!("Push {} to rs.\n", r));
+    }
     p.push_str("Let mutable hs be a new Seq of Int.\n");
-    for &h in &hs { p.push_str(&format!("Push {} to hs.\n", h)); }
+    for &h in &hs {
+        p.push_str(&format!("Push {} to hs.\n", h));
+    }
     p.push_str("Repeat for i from 1 to 256:\n    Show mldsaHighBits(item i of rs).\n");
     p.push_str("Repeat for i from 1 to 256:\n    Show mldsaUseHint(item i of hs, item i of rs).\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} crypto.lg rounding errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: crypto.lg HighBits/UseHint == FIPS-204 spec");
+        assert!(
+            out.error.is_none(),
+            "{label} crypto.lg rounding errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: crypto.lg HighBits/UseHint == FIPS-204 spec"
+        );
     }
 }
 
 /// FIPS-204 `w1Encode` for ML-DSA-65 (γ2 = (q−1)/32 ⇒ w1 ∈ [0,16), 4 bits): SimpleBitPack, two
 /// coefficients per byte. `byte[j] = w1[2j] | (w1[2j+1] << 4)`.
 fn rw1_encode(w1: &[i32]) -> Vec<i32> {
-    (0..w1.len() / 2).map(|j| w1[2 * j] | (w1[2 * j + 1] << 4)).collect()
+    (0..w1.len() / 2)
+        .map(|j| w1[2 * j] | (w1[2 * j + 1] << 4))
+        .collect()
 }
 
 #[test]
@@ -3073,7 +3832,9 @@ fn mldsa_w1encode_logos_matches_spec_tw_and_vm() {
     p.push_str("## To mldsaW1Encode (w1: Seq of Int) -> Seq of Int:\n");
     p.push_str("    Let mutable out be a new Seq of Int.\n    Let n be (length of w1) / 2.\n");
     p.push_str("    Repeat for j from 0 to n - 1:\n");
-    p.push_str("        Let lo be item (2 * j + 1) of w1.\n        Let hi be item (2 * j + 2) of w1.\n");
+    p.push_str(
+        "        Let lo be item (2 * j + 1) of w1.\n        Let hi be item (2 * j + 2) of w1.\n",
+    );
     p.push_str("        Push (lo + hi * 16) to out.\n    Return out.\n\n");
     p.push_str("## Main\nLet mutable w be a new Seq of Int.\n");
     for &c in &w1 {
@@ -3081,9 +3842,20 @@ fn mldsa_w1encode_logos_matches_spec_tw_and_vm() {
     }
     p.push_str("Repeat for x in mldsaW1Encode(w):\n    Show x.\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} w1encode errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: Logos w1Encode == FIPS-204 spec");
+        assert!(
+            out.error.is_none(),
+            "{label} w1encode errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: Logos w1Encode == FIPS-204 spec"
+        );
     }
 }
 
@@ -3109,7 +3881,9 @@ fn mldsa_unpack_t1_logos_matches_spec_tw_and_vm() {
     let mut p = String::new();
     p.push_str("## To mldsaUnpackT1 (b: Seq of Int) -> Seq of Int:\n");
     p.push_str("    Let mutable r be a new Seq of Int.\n    Repeat for i from 0 to 63:\n");
-    p.push_str("        Let a0 be item (5 * i + 1) of b.\n        Let a1 be item (5 * i + 2) of b.\n");
+    p.push_str(
+        "        Let a0 be item (5 * i + 1) of b.\n        Let a1 be item (5 * i + 2) of b.\n",
+    );
     p.push_str("        Let a2 be item (5 * i + 3) of b.\n        Let a3 be item (5 * i + 4) of b.\n        Let a4 be item (5 * i + 5) of b.\n");
     p.push_str("        Push ((a0 + a1 * 256) % 1024) to r.\n");
     p.push_str("        Push ((a1 / 4 + a2 * 64) % 1024) to r.\n");
@@ -3121,9 +3895,20 @@ fn mldsa_unpack_t1_logos_matches_spec_tw_and_vm() {
     }
     p.push_str("Repeat for x in mldsaUnpackT1(b):\n    Show x.\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} unpackT1 errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: Logos unpack_t1 == FIPS-204 SimpleBitUnpack(10)");
+        assert!(
+            out.error.is_none(),
+            "{label} unpackT1 errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: Logos unpack_t1 == FIPS-204 SimpleBitUnpack(10)"
+        );
     }
 }
 
@@ -3162,7 +3947,10 @@ fn mldsa_sample_in_ball_placement_logos_matches_spec_tw_and_vm() {
         })
         .collect();
     // c ∈ {−1, 0, 1} as signed Int (the placement returns 1 − 2·bit).
-    let want: Vec<String> = r_sample_in_ball_buf(&buf).iter().map(|&c| c.to_string()).collect();
+    let want: Vec<String> = r_sample_in_ball_buf(&buf)
+        .iter()
+        .map(|&c| c.to_string())
+        .collect();
     let mut p = String::new();
     p.push_str("## To mldsaSampleInBallBuf (buf: Seq of Int) -> Seq of Int:\n");
     p.push_str("    Let mutable c be a new Seq of Int.\n    Repeat for k from 1 to 256:\n        Push 0 to c.\n");
@@ -3184,11 +3972,23 @@ fn mldsa_sample_in_ball_placement_logos_matches_spec_tw_and_vm() {
     }
     p.push_str("Repeat for x in mldsaSampleInBallBuf(buf):\n    Show x.\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} sampleInBall errored: {:?}", out.error);
-        let got: Vec<&str> = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        assert!(
+            out.error.is_none(),
+            "{label} sampleInBall errored: {:?}",
+            out.error
+        );
+        let got: Vec<&str> = out
+            .output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
         // c[j] = ±1 stored as i32; −1 prints as its u32 bits (4294967295).
         let got_norm: Vec<String> = got.iter().map(|l| l.to_string()).collect();
-        assert_eq!(got_norm, want, "{label}: Logos SampleInBall placement == FIPS-204 spec");
+        assert_eq!(
+            got_norm, want,
+            "{label}: Logos SampleInBall placement == FIPS-204 spec"
+        );
     }
 }
 
@@ -3233,20 +4033,35 @@ fn mldsa_unpack_z_logos_matches_spec_tw_and_vm() {
     let mut p = String::new();
     p.push_str("## To mldsaUnpackZ (b: Seq of Int) -> Seq of Int:\n");
     p.push_str("    Let mutable r be a new Seq of Int.\n    Repeat for i from 0 to 127:\n");
-    p.push_str("        Let a0 be item (5 * i + 1) of b.\n        Let a1 be item (5 * i + 2) of b.\n");
+    p.push_str(
+        "        Let a0 be item (5 * i + 1) of b.\n        Let a1 be item (5 * i + 2) of b.\n",
+    );
     p.push_str("        Let a2 be item (5 * i + 3) of b.\n        Let a3 be item (5 * i + 4) of b.\n        Let a4 be item (5 * i + 5) of b.\n");
     p.push_str("        Let z0 be a0 + a1 * 256 + (a2 % 16) * 65536.\n");
     p.push_str("        Let z1 be a2 / 16 + a3 * 16 + a4 * 4096.\n");
-    p.push_str("        Push (524288 - z0) to r.\n        Push (524288 - z1) to r.\n    Return r.\n\n");
+    p.push_str(
+        "        Push (524288 - z0) to r.\n        Push (524288 - z1) to r.\n    Return r.\n\n",
+    );
     p.push_str("## Main\nLet mutable b be a new Seq of Int.\n");
     for &x in &bytes {
         p.push_str(&format!("Push {} to b.\n", x));
     }
     p.push_str("Repeat for x in mldsaUnpackZ(b):\n    Show x.\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} unpackZ errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: Logos unpack_z == FIPS-204 BitUnpack(γ1)");
+        assert!(
+            out.error.is_none(),
+            "{label} unpackZ errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: Logos unpack_z == FIPS-204 BitUnpack(γ1)"
+        );
     }
 }
 
@@ -3260,13 +4075,18 @@ fn mldsa_rej_ntt_poly_placement_logos_matches_spec_tw_and_vm() {
             ((s >> 40) & 0xff) as i32
         })
         .collect();
-    let want: Vec<String> = r_rej_ntt_poly_buf(&buf).iter().map(|&c| c.to_string()).collect();
+    let want: Vec<String> = r_rej_ntt_poly_buf(&buf)
+        .iter()
+        .map(|&c| c.to_string())
+        .collect();
     let mut p = String::new();
     p.push_str("## To mldsaRejNttPolyBuf (buf: Seq of Int) -> Seq of Int:\n");
     p.push_str("    Let mutable a be a new Seq of Int.\n    Let mutable pos be 0.\n    Let mutable ctr be 0.\n");
     p.push_str("    While ctr is less than 256:\n");
     p.push_str("        Let b0 be item (pos + 1) of buf.\n        Let b1 be item (pos + 2) of buf.\n        Let b2 be item (pos + 3) of buf.\n");
-    p.push_str("        Let d be b0 + b1 * 256 + (b2 % 128) * 65536.\n        Set pos to pos + 3.\n");
+    p.push_str(
+        "        Let d be b0 + b1 * 256 + (b2 % 128) * 65536.\n        Set pos to pos + 3.\n",
+    );
     p.push_str("        If d is less than 8380417:\n            Push d to a.\n            Set ctr to ctr + 1.\n");
     p.push_str("    Return a.\n\n");
     p.push_str("## Main\nLet mutable buf be a new Seq of Int.\n");
@@ -3275,9 +4095,20 @@ fn mldsa_rej_ntt_poly_placement_logos_matches_spec_tw_and_vm() {
     }
     p.push_str("Repeat for x in mldsaRejNttPolyBuf(buf):\n    Show x.\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} rejNttPoly errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: Logos RejNTTPoly placement == FIPS-204 spec");
+        assert!(
+            out.error.is_none(),
+            "{label} rejNttPoly errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: Logos RejNTTPoly placement == FIPS-204 spec"
+        );
     }
 }
 
@@ -3318,7 +4149,9 @@ fn mldsa_unpack_hint_logos_matches_spec_tw_and_vm() {
     p.push_str("        Let cnt be item (55 + i + 1) of b.\n");
     p.push_str("        Let mutable j be k.\n        While j is less than cnt:\n");
     p.push_str("            Let idx be item (j + 1) of b.\n");
-    p.push_str("            Set item (i * 256 + idx + 1) of h to 1.\n            Set j to j + 1.\n");
+    p.push_str(
+        "            Set item (i * 256 + idx + 1) of h to 1.\n            Set j to j + 1.\n",
+    );
     p.push_str("        Set k to cnt.\n    Return h.\n\n");
     p.push_str("## Main\nLet mutable b be a new Seq of Int.\n");
     for &x in &b {
@@ -3326,18 +4159,33 @@ fn mldsa_unpack_hint_logos_matches_spec_tw_and_vm() {
     }
     p.push_str("Repeat for x in mldsaUnpackHint(b):\n    Show x.\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} unpackHint errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: Logos unpack_hint == FIPS-204 spec");
+        assert!(
+            out.error.is_none(),
+            "{label} unpackHint errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: Logos unpack_hint == FIPS-204 spec"
+        );
     }
 }
 
 #[test]
 fn mldsa_polysub_logos_matches_spec_tw_and_vm() {
     // Coefficient-wise i32 subtract over 32 Lanes8Word32 (the verify's acc −= c·t1).
-    let a: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 31337 - 4_000_000) % 8_380_417) as i32);
-    let b: [i32; 256] = core::array::from_fn(|i| ((i as i64 * 71993 + 1_234_567) % 8_380_417) as i32);
-    let want: Vec<String> = (0..256).map(|i| (a[i].wrapping_sub(b[i]) as u32 as i64).to_string()).collect();
+    let a: [i32; 256] =
+        core::array::from_fn(|i| ((i as i64 * 31337 - 4_000_000) % 8_380_417) as i32);
+    let b: [i32; 256] =
+        core::array::from_fn(|i| ((i as i64 * 71993 + 1_234_567) % 8_380_417) as i32);
+    let want: Vec<String> = (0..256)
+        .map(|i| (a[i].wrapping_sub(b[i]) as u32 as i64).to_string())
+        .collect();
     let mut p = String::from(
         "## To sub8 (s: Seq of Word32) and (off: Int) -> Seq of Word32:\n    Let r be a new Seq of Word32.\n    Repeat for i from 1 to 8:\n        Push (item (off + i) of s) to r.\n    Return r.\n\n");
     p.push_str("## To mldsaPolySub (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:\n");
@@ -3354,9 +4202,20 @@ fn mldsa_polysub_logos_matches_spec_tw_and_vm() {
     }
     p.push_str("Repeat for x in mldsaPolySub(ca, cb):\n    Show intOfWord32(x).\n");
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} polysub errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: Logos polySub == coefficient-wise i32 subtract");
+        assert!(
+            out.error.is_none(),
+            "{label} polysub errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: Logos polySub == coefficient-wise i32 subtract"
+        );
     }
 }
 
@@ -3367,8 +4226,14 @@ fn mldsa_polysub_logos_matches_spec_tw_and_vm() {
 fn mldsa_sample_in_ball_full_aot_eq_oracle() {
     use logicaffeine_system::keccak::shake256_bytes;
     let c_tilde: Vec<u8> = (0..48).map(|i| (i * 7 + 3) as u8).collect();
-    let buf: Vec<i32> = shake256_bytes(&c_tilde, 512).iter().map(|&b| b as i32).collect();
-    let want: Vec<String> = r_sample_in_ball_buf(&buf).iter().map(|&c| c.to_string()).collect();
+    let buf: Vec<i32> = shake256_bytes(&c_tilde, 512)
+        .iter()
+        .map(|&b| b as i32)
+        .collect();
+    let want: Vec<String> = r_sample_in_ball_buf(&buf)
+        .iter()
+        .map(|&c| c.to_string())
+        .collect();
     // Logos: shake256(c̃, 512) → mldsaSampleInBallBuf — both resolved from crypto.lg.
     let mut p = String::from("## Main\nLet mutable ct be a new Seq of Int.\n");
     for &b in &c_tilde {
@@ -3380,7 +4245,11 @@ fn mldsa_sample_in_ball_full_aot_eq_oracle() {
     let aot = run_logos_with_args(&p, &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "full SampleInBall (shake256 + placement) == oracle"
     );
@@ -3394,8 +4263,14 @@ fn mldsa_expand_a_elem_aot_eq_oracle() {
     let mut seed: Vec<u8> = (0..32).map(|i| (i * 5 + 1) as u8).collect();
     seed.push(2); // col
     seed.push(4); // row
-    let buf: Vec<i32> = shake128_bytes(&seed, 1024).iter().map(|&b| b as i32).collect();
-    let want: Vec<String> = r_rej_ntt_poly_buf(&buf).iter().map(|&c| c.to_string()).collect();
+    let buf: Vec<i32> = shake128_bytes(&seed, 1024)
+        .iter()
+        .map(|&b| b as i32)
+        .collect();
+    let want: Vec<String> = r_rej_ntt_poly_buf(&buf)
+        .iter()
+        .map(|&c| c.to_string())
+        .collect();
     let mut p = String::from("## Main\nLet mutable sd be a new Seq of Int.\n");
     for &b in &seed {
         p.push_str(&format!("Push {} to sd.\n", b));
@@ -3406,12 +4281,15 @@ fn mldsa_expand_a_elem_aot_eq_oracle() {
     let aot = run_logos_with_args(&p, &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
     assert_eq!(
-        aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(),
+        aot.stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>(),
         want,
         "ExpandA element (shake128 + rejection) == oracle"
     );
 }
-
 
 // ───────────────────────── ML-DSA verify ASSEMBLY (the full Logos mldsaVerify) ─────────────────────────
 
@@ -3420,9 +4298,13 @@ fn mldsa_expand_a_elem_aot_eq_oracle() {
 /// pre-checks a valid signature always passes, omitted here. Tests AOT == native `verify`.
 fn mldsa_verify_defs() -> String {
     let mut p = String::new();
-    p.push_str("## To mldsaSubRange (s: Seq of Int) and (off: Int) and (len: Int) -> Seq of Int:\n");
+    p.push_str(
+        "## To mldsaSubRange (s: Seq of Int) and (off: Int) and (len: Int) -> Seq of Int:\n",
+    );
     p.push_str("    Let r be a new Seq of Int.\n    Repeat for i from 1 to len:\n        Push (item (off + i) of s) to r.\n    Return r.\n\n");
-    p.push_str("## To mldsaSubRangeW (s: Seq of Word32) and (off: Int) and (len: Int) -> Seq of Word32:\n");
+    p.push_str(
+        "## To mldsaSubRangeW (s: Seq of Word32) and (off: Int) and (len: Int) -> Seq of Word32:\n",
+    );
     p.push_str("    Let r be a new Seq of Word32.\n    Repeat for i from 1 to len:\n        Push (item (off + i) of s) to r.\n    Return r.\n\n");
     p.push_str("## To mldsaToS32 (w: Word32) -> Int:\n    Let v be intOfWord32(w).\n    If v is at least 2147483648:\n        Return v - 4294967296.\n    Return v.\n\n");
     p.push_str("## To mldsaIntsToW32 (p: Seq of Int) -> Seq of Word32:\n    Let mutable out be a new Seq of Word32.\n    Repeat for x in p:\n        Push word32(x) to out.\n    Return out.\n\n");
@@ -3440,7 +4322,9 @@ fn mldsa_verify_defs() -> String {
     p.push_str("    Let cHat be mldsaNtt(mldsaIntsToW32(mldsaSampleInBall(cTilde))).\n");
     p.push_str("    Let mutable zHatFlat be a new Seq of Word32.\n    Repeat for j from 0 to 4:\n");
     p.push_str("        Let zj be mldsaUnpackZ(mldsaSubRange(sig, 48 + 640 * j, 640)).\n");
-    p.push_str("        Repeat for x in mldsaNtt(mldsaIntsToW32(zj)):\n            Push x to zHatFlat.\n");
+    p.push_str(
+        "        Repeat for x in mldsaNtt(mldsaIntsToW32(zj)):\n            Push x to zHatFlat.\n",
+    );
     p.push_str("    Let hAll be mldsaUnpackHint(mldsaSubRange(sig, 3248, 61)).\n");
     p.push_str("    Let mutable ctIn be a new Seq of Int.\n    Repeat for x in mu:\n        Push x to ctIn.\n");
     p.push_str("    Repeat for i from 0 to 5:\n");
@@ -3454,7 +4338,9 @@ fn mldsa_verify_defs() -> String {
     p.push_str("        Let t1dHat be mldsaNtt(mldsaScaleT1(t1i)).\n");
     p.push_str("        Set acc to mldsaPolySub(acc, pointwiseMontgomery(cHat, t1dHat)).\n");
     p.push_str("        Let wp be mldsaInvNttToMont(acc).\n");
-    p.push_str("        Let mutable w1 be a new Seq of Int.\n        Repeat for c from 0 to 255:\n");
+    p.push_str(
+        "        Let mutable w1 be a new Seq of Int.\n        Repeat for c from 0 to 255:\n",
+    );
     p.push_str("            Let hc be item (i * 256 + c + 1) of hAll.\n            Let wc be mldsaToS32(item (c + 1) of wp).\n");
     p.push_str("            Push mldsaUseHint(hc, wc) to w1.\n");
     p.push_str("        Repeat for x in mldsaW1Encode(w1):\n            Push x to ctIn.\n");
@@ -3469,7 +4355,12 @@ fn mldsa_verify_defs() -> String {
 /// The verify Main only — the def block lives in crypto.lg (resolved by auto-import).
 fn mldsa_verify_program(pk: &[i64], msg: &[i64], sig: &[i64]) -> String {
     let mut p = String::new();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     p.push_str("## Main\n");
     p.push_str(&format!("Let pk be [{}].\n", lit(pk)));
     p.push_str(&format!("Let msg be [{}].\n", lit(msg)));
@@ -3483,23 +4374,49 @@ fn mldsa_verify_program(pk: &[i64], msg: &[i64], sig: &[i64]) -> String {
 fn mldsa_verify_logos_aot_eq_native() {
     use logicaffeine_system::mldsa::{mldsa_keypair_seq, mldsa_sign_seq, mldsa_verify_seq};
     let seed: Vec<i64> = (0..32).map(|i| (i * 7 + 1) as i64).collect();
-    let kp = mldsa_keypair_seq(&seed).to_vec();
+    let kp = mldsa_keypair_seq(&seed)
+        .expect("in-contract arguments")
+        .to_vec();
     let pk = kp[0..1952].to_vec();
     let sk = kp[1952..].to_vec();
     let msg: Vec<i64> = (0..16).map(|i| (i * 13 + 3) as i64).collect();
-    let sig = mldsa_sign_seq(&sk, &msg, &[]).to_vec();
-    assert_eq!(mldsa_verify_seq(&pk, &msg, &[], &sig), 1, "native accepts valid");
+    let sig = mldsa_sign_seq(&sk, &msg, &[])
+        .expect("in-contract arguments")
+        .to_vec();
+    assert_eq!(
+        mldsa_verify_seq(&pk, &msg, &[], &sig).expect("in-contract arguments"),
+        1,
+        "native accepts valid"
+    );
 
     let aot = run_logos_with_args(&mldsa_verify_program(&pk, &msg, &sig), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(got, vec!["1"], "Logos verify accepts the valid signature (c̃ matches)");
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        vec!["1"],
+        "Logos verify accepts the valid signature (c̃ matches)"
+    );
 
     let reject = |bad: &[i64], why: &str| {
-        assert_eq!(mldsa_verify_seq(&pk, &msg, &[], bad), 0, "native rejects: {why}");
+        assert_eq!(
+            mldsa_verify_seq(&pk, &msg, &[], bad).expect("in-contract arguments"),
+            0,
+            "native rejects: {why}"
+        );
         let a = run_logos_with_args(&mldsa_verify_program(&pk, &msg, bad), &[]);
         assert!(a.success, "AOT({why}) failed:\n{}", a.stderr);
-        let g = a.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
+        let g = a
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
         assert_eq!(g, vec!["0"], "Logos verify rejects: {why}");
     };
     // c̃ mismatch.
@@ -3517,7 +4434,6 @@ fn mldsa_verify_logos_aot_eq_native() {
     bad_z[50] = 0; // z0 = 0 ⇒ z[0] = γ1 = 524288 ≥ γ1−β
     reject(&bad_z, "z out of bound");
 }
-
 
 /// FIPS-204 hint validity (native `unpack_hint` → Some/None): counts non-decreasing & ≤ ω, indices
 /// strictly increasing within a poly, padding zero.
@@ -3559,7 +4475,7 @@ fn mldsa_hint_valid_logos_matches_spec_tw_and_vm() {
         mk(&[10, 50, 20, 100, 30, 200, 40, 60], &[2, 2, 4, 4, 6, 8]), // valid
         mk(&[10, 50], &[60, 60, 60, 60, 60, 60]),                     // cnt > 55
         mk(&[10, 50, 20], &[4, 2, 4, 4, 6, 8]),                       // counts not non-decreasing
-        mk(&[50, 10], &[2, 2, 4, 4, 6, 8]),                           // indices not strictly increasing
+        mk(&[50, 10], &[2, 2, 4, 4, 6, 8]), // indices not strictly increasing
         {
             let mut b = mk(&[10, 50], &[2, 2, 2, 2, 2, 2]);
             b[40] = 7; // non-zero padding (index 40 ∈ [2,55))
@@ -3574,9 +4490,22 @@ fn mldsa_hint_valid_logos_matches_spec_tw_and_vm() {
         }
         p.push_str("Show mldsaHintValid(b, 0).\n");
         for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-            assert!(out.error.is_none(), "{label} hintValid[{n}] errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, vec![want.as_str()], "{label}: mldsaHintValid case {n} == spec");
+            assert!(
+                out.error.is_none(),
+                "{label} hintValid[{n}] errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                vec![want.as_str()],
+                "{label}: mldsaHintValid case {n} == spec"
+            );
         }
     }
 }
@@ -3625,15 +4554,28 @@ fn r_pack_t1(t1: &[i32]) -> Vec<i32> {
 fn mldsa_keygen_blocks_logos_match_spec_tw_and_vm() {
     // RejBounded placement.
     let mut s = 0xBEEF_1234u64;
-    let buf: Vec<i32> = (0..512).map(|_| { s = s.wrapping_mul(6364136223846793005).wrapping_add(1); ((s >> 40) & 0xff) as i32 }).collect();
-    let rb_want: Vec<String> = r_rej_bounded_buf(&buf).iter().map(|&c| c.to_string()).collect();
+    let buf: Vec<i32> = (0..512)
+        .map(|_| {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((s >> 40) & 0xff) as i32
+        })
+        .collect();
+    let rb_want: Vec<String> = r_rej_bounded_buf(&buf)
+        .iter()
+        .map(|&c| c.to_string())
+        .collect();
     let mut p = String::from("## To mldsaRejBoundedBuf (buf: Seq of Int) -> Seq of Int:\n    Let mutable a be a new Seq of Int.\n    Let mutable pos be 0.\n    Let mutable ctr be 0.\n");
     p.push_str("    While ctr is less than 256:\n        Let b be item (pos + 1) of buf.\n        Set pos to pos + 1.\n        Let lo be b % 16.\n        Let hi be b / 16.\n");
     p.push_str("        If lo is less than 9:\n            Push (4 - lo) to a.\n            Set ctr to ctr + 1.\n");
     p.push_str("        If hi is less than 9:\n            If ctr is less than 256:\n                Push (4 - hi) to a.\n                Set ctr to ctr + 1.\n    Return a.\n\n");
     // Power2Round→t1.
-    let ts: Vec<i32> = (0..256).map(|i| ((i as i64 * 51197) % 8_380_417) as i32).collect();
-    let p2r_want: Vec<String> = ts.iter().map(|&t| r_power2round_r1(t).to_string()).collect();
+    let ts: Vec<i32> = (0..256)
+        .map(|i| ((i as i64 * 51197) % 8_380_417) as i32)
+        .collect();
+    let p2r_want: Vec<String> = ts
+        .iter()
+        .map(|&t| r_power2round_r1(t).to_string())
+        .collect();
     p.push_str("## To mldsaPower2RoundT1 (t: Int) -> Int:\n    Let r be ((t % 8380417) + 8380417) % 8380417.\n    Return (r + 4095) / 8192.\n\n");
     // pack_t1.
     let t1: Vec<i32> = (0..256).map(|i| (i as i32 * 13 + 7) % 1024).collect();
@@ -3642,17 +4584,46 @@ fn mldsa_keygen_blocks_logos_match_spec_tw_and_vm() {
     p.push_str("        Let a0 be item (4 * i + 1) of t1.\n        Let a1 be item (4 * i + 2) of t1.\n        Let a2 be item (4 * i + 3) of t1.\n        Let a3 be item (4 * i + 4) of t1.\n");
     p.push_str("        Push (a0 % 256) to r.\n        Push ((a0 / 256 + a1 * 4) % 256) to r.\n        Push ((a1 / 64 + a2 * 16) % 256) to r.\n        Push ((a2 / 16 + a3 * 64) % 256) to r.\n        Push (a3 / 4) to r.\n    Return r.\n\n");
     p.push_str("## Main\n");
-    p.push_str(&format!("Let buf be [{}].\n", buf.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
+    p.push_str(&format!(
+        "Let buf be [{}].\n",
+        buf.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
     p.push_str("Repeat for x in mldsaRejBoundedBuf(buf):\n    Show x.\n");
-    p.push_str(&format!("Let ts be [{}].\n", ts.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
+    p.push_str(&format!(
+        "Let ts be [{}].\n",
+        ts.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
     p.push_str("Repeat for t in ts:\n    Show mldsaPower2RoundT1(t).\n");
-    p.push_str(&format!("Let t1 be [{}].\n", t1.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
+    p.push_str(&format!(
+        "Let t1 be [{}].\n",
+        t1.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
     p.push_str("Repeat for x in mldsaPackT1(t1):\n    Show x.\n");
     let want: Vec<String> = rb_want.into_iter().chain(p2r_want).chain(pk_want).collect();
     for (label, out) in [("tw", tw_outcome(&p)), ("vm", vm_outcome(&p))] {
-        assert!(out.error.is_none(), "{label} keygen blocks errored: {:?}", out.error);
-        assert_eq!(out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>(), want,
-            "{label}: RejBounded + Power2Round→t1 + pack_t1 == FIPS spec");
+        assert!(
+            out.error.is_none(),
+            "{label} keygen blocks errored: {:?}",
+            out.error
+        );
+        assert_eq!(
+            out.output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+            want,
+            "{label}: RejBounded + Power2Round→t1 + pack_t1 == FIPS spec"
+        );
     }
 }
 
@@ -3660,7 +4631,12 @@ fn mldsa_keygen_blocks_logos_match_spec_tw_and_vm() {
 /// (sk packing omitted — the pk is the externally-checkable half.) Tests AOT == native keygen pk.
 fn mldsa_keygen_program(seed: &[i64]) -> String {
     let mut p = String::new();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     p.push_str("## Main\n");
     p.push_str(&format!("Let seed be [{}].\n", lit(seed)));
     p.push_str("Repeat for x in mldsaKeygenLogos(seed):\n    Show x.\n");
@@ -3672,11 +4648,18 @@ fn mldsa_keygen_program(seed: &[i64]) -> String {
 fn mldsa_keygen_logos_aot_eq_native() {
     use logicaffeine_system::mldsa::mldsa_keypair_seq;
     let seed: Vec<i64> = (0..32).map(|i| (i * 7 + 1) as i64).collect();
-    let kp = mldsa_keypair_seq(&seed).to_vec();
+    let kp = mldsa_keypair_seq(&seed)
+        .expect("in-contract arguments")
+        .to_vec();
     let want: Vec<String> = kp[0..1952].iter().map(|b| b.to_string()).collect();
     let aot = run_logos_with_args(&mldsa_keygen_program(&seed), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
     assert_eq!(got.len(), 1952, "pk is 1952 bytes");
     assert_eq!(got, want, "Logos keygen pk == native keypair pk");
 }
@@ -3706,14 +4689,20 @@ fn r_lowbits_dsa(r: i64) -> i64 {
     a0
 }
 fn r_make_hint_dsa(z: i64, r: i64) -> i64 {
-    if r_highbits_dsa(r) == r_highbits_dsa(r + z) { 0 } else { 1 }
+    if r_highbits_dsa(r) == r_highbits_dsa(r + z) {
+        0
+    } else {
+        1
+    }
 }
 fn r_unpack_eta(b: &[i64]) -> Vec<i64> {
-    (0..256).map(|i| {
-        let byte = b[i / 2];
-        let nib = if i % 2 == 0 { byte % 16 } else { byte / 16 };
-        4 - nib
-    }).collect()
+    (0..256)
+        .map(|i| {
+            let byte = b[i / 2];
+            let nib = if i % 2 == 0 { byte % 16 } else { byte / 16 };
+            4 - nib
+        })
+        .collect()
 }
 fn r_unpack_t0(b: &[i64]) -> Vec<i64> {
     let mut r = Vec::with_capacity(256);
@@ -3770,50 +4759,112 @@ fn mldsa_sign_block_defs() -> String {
 #[test]
 fn mldsa_sign_blocks_logos_match_spec_tw_and_vm() {
     let mut s: u64 = 0x5151_a1b2_c3d4_e5f6;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let defs = mldsa_sign_block_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let check = |label: &str, prog: &str, want: &[String]| {
         for (tag, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
-            assert!(out.error.is_none(), "{label}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{label}/{tag} == spec");
+            assert!(
+                out.error.is_none(),
+                "{label}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{label}/{tag} == spec"
+            );
         }
     };
     // unpack_eta: 128 random bytes -> 256 coeffs
     let eta_b: Vec<i64> = (0..128).map(|_| (rng() % 256) as i64).collect();
-    let want = r_unpack_eta(&eta_b).iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let prog = format!("{defs}## Main\nLet b be [{}].\nRepeat for x in mldsaUnpackEta(b):\n    Show x.\n", lit(&eta_b));
+    let want = r_unpack_eta(&eta_b)
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let prog = format!(
+        "{defs}## Main\nLet b be [{}].\nRepeat for x in mldsaUnpackEta(b):\n    Show x.\n",
+        lit(&eta_b)
+    );
     check("unpack_eta", &prog, &want);
     // unpack_t0: 416 random bytes -> 256 coeffs
     let t0_b: Vec<i64> = (0..416).map(|_| (rng() % 256) as i64).collect();
-    let want = r_unpack_t0(&t0_b).iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let prog = format!("{defs}## Main\nLet b be [{}].\nRepeat for x in mldsaUnpackT0(b):\n    Show x.\n", lit(&t0_b));
+    let want = r_unpack_t0(&t0_b)
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let prog = format!(
+        "{defs}## Main\nLet b be [{}].\nRepeat for x in mldsaUnpackT0(b):\n    Show x.\n",
+        lit(&t0_b)
+    );
     check("unpack_t0", &prog, &want);
     // lowbits + make_hint over random r/z
     let rs: Vec<i64> = (0..40).map(|_| (rng() % SGN_Q as u64) as i64).collect();
     let want: Vec<String> = rs.iter().map(|&r| r_lowbits_dsa(r).to_string()).collect();
-    let prog = format!("{defs}## Main\nLet rs be [{}].\nRepeat for r in rs:\n    Show mldsaLowBits(r).\n", lit(&rs));
+    let prog = format!(
+        "{defs}## Main\nLet rs be [{}].\nRepeat for r in rs:\n    Show mldsaLowBits(r).\n",
+        lit(&rs)
+    );
     check("lowbits", &prog, &want);
-    let zs: Vec<i64> = (0..40).map(|_| ((rng() % 1048576) as i64) - 524288).collect();
-    let want: Vec<String> = rs.iter().zip(&zs).map(|(&r, &z)| r_make_hint_dsa(z, r).to_string()).collect();
+    let zs: Vec<i64> = (0..40)
+        .map(|_| ((rng() % 1048576) as i64) - 524288)
+        .collect();
+    let want: Vec<String> = rs
+        .iter()
+        .zip(&zs)
+        .map(|(&r, &z)| r_make_hint_dsa(z, r).to_string())
+        .collect();
     let prog = format!("{defs}## Main\nLet rs be [{}].\nLet zs be [{}].\nLet n be length of rs.\nRepeat for i from 1 to n:\n    Show mldsaMakeHint(item i of zs, item i of rs).\n", lit(&rs), lit(&zs));
     check("make_hint", &prog, &want);
     // pack_z: 256 signed coeffs in z-range -> 320 bytes
-    let zc: Vec<i64> = (0..256).map(|_| ((rng() % 1048392) as i64) - 524092).collect();
-    let want = r_pack_z(&zc).iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let prog = format!("{defs}## Main\nLet p be [{}].\nRepeat for x in mldsaPackZ(p):\n    Show x.\n", lit(&zc));
+    let zc: Vec<i64> = (0..256)
+        .map(|_| ((rng() % 1048392) as i64) - 524092)
+        .collect();
+    let want = r_pack_z(&zc)
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let prog = format!(
+        "{defs}## Main\nLet p be [{}].\nRepeat for x in mldsaPackZ(p):\n    Show x.\n",
+        lit(&zc)
+    );
     check("pack_z", &prog, &want);
     // pack_hint: flat 1536, sparse (a few ones per poly, ascending)
     let mut h = vec![0i64; 1536];
     for i in 0..6 {
         let cnt = (rng() % 8) as usize;
         let mut used = std::collections::BTreeSet::new();
-        while used.len() < cnt { used.insert((rng() % 256) as usize); }
-        for j in used { h[i * 256 + j] = 1; }
+        while used.len() < cnt {
+            used.insert((rng() % 256) as usize);
+        }
+        for j in used {
+            h[i * 256 + j] = 1;
+        }
     }
-    let want = r_pack_hint(&h).iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let prog = format!("{defs}## Main\nLet h be [{}].\nRepeat for x in mldsaPackHint(h):\n    Show x.\n", lit(&h));
+    let want = r_pack_hint(&h)
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let prog = format!(
+        "{defs}## Main\nLet h be [{}].\nRepeat for x in mldsaPackHint(h):\n    Show x.\n",
+        lit(&h)
+    );
     check("pack_hint", &prog, &want);
 }
 
@@ -3821,7 +4872,12 @@ fn mldsa_sign_blocks_logos_match_spec_tw_and_vm() {
 /// Mirrors logicaffeine_system::mldsa::sign exactly, reusing the crypto.lg NTT/round/pack blocks.
 fn mldsa_sign_program(sk: &[i64], msg: &[i64]) -> String {
     let mut p = String::new();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     p.push_str("## Main\n");
     p.push_str(&format!("Let sk be [{}].\n", lit(sk)));
     p.push_str(&format!("Let msg be [{}].\n", lit(msg)));
@@ -3834,13 +4890,25 @@ fn mldsa_sign_program(sk: &[i64], msg: &[i64]) -> String {
 fn mldsa_sign_logos_aot_eq_native() {
     use logicaffeine_system::mldsa::{mldsa_keypair_seq, mldsa_sign_seq};
     let seed: Vec<i64> = (0..32).map(|i| (i * 5 + 3) as i64).collect();
-    let kp = mldsa_keypair_seq(&seed).to_vec();
+    let kp = mldsa_keypair_seq(&seed)
+        .expect("in-contract arguments")
+        .to_vec();
     let sk: Vec<i64> = kp[1952..].to_vec(); // sk follows pk(1952) in the keypair blob
     let msg: Vec<i64> = (0..16).map(|i| (i * 11 + 1) as i64 % 256).collect();
-    let want: Vec<String> = mldsa_sign_seq(&sk, &msg, &[]).to_vec().iter().map(|b| b.to_string()).collect();
+    let want: Vec<String> = mldsa_sign_seq(&sk, &msg, &[])
+        .expect("in-contract arguments")
+        .to_vec()
+        .iter()
+        .map(|b| b.to_string())
+        .collect();
     let aot = run_logos_with_args(&mldsa_sign_program(&sk, &msg), &[]);
     assert!(aot.success, "AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
     assert_eq!(got.len(), 3309, "sig is 3309 bytes (got {})", got.len());
     assert_eq!(got, want, "Logos deterministic sign == native sign");
 }
@@ -3852,7 +4920,9 @@ fn r_p2r_t0(t: i64) -> i64 {
     r - r1 * 8192
 }
 fn r_pack_eta(p: &[i64]) -> Vec<i64> {
-    (0..128).map(|i| (4 - p[2 * i]) + (4 - p[2 * i + 1]) * 16).collect()
+    (0..128)
+        .map(|i| (4 - p[2 * i]) + (4 - p[2 * i + 1]) * 16)
+        .collect()
 }
 fn r_pack_t0(p: &[i64]) -> Vec<i64> {
     let mut r = Vec::with_capacity(416);
@@ -3882,30 +4952,68 @@ fn mldsa_keypair_block_defs() -> String {
 #[test]
 fn mldsa_keypair_blocks_logos_match_spec_tw_and_vm() {
     let mut s: u64 = 0x9e37_79b9_7f4a_7c15;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let defs = mldsa_keypair_block_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let check = |label: &str, prog: &str, want: &[String]| {
         for (tag, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
-            assert!(out.error.is_none(), "{label}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{label}/{tag} == spec");
+            assert!(
+                out.error.is_none(),
+                "{label}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{label}/{tag} == spec"
+            );
         }
     };
     // power2round_t0 over random r
     let ts: Vec<i64> = (0..40).map(|_| (rng() % SGN_Q as u64) as i64).collect();
     let want: Vec<String> = ts.iter().map(|&t| r_p2r_t0(t).to_string()).collect();
-    let prog = format!("{defs}## Main\nLet ts be [{}].\nRepeat for t in ts:\n    Show mldsaPower2RoundT0(t).\n", lit(&ts));
+    let prog = format!(
+        "{defs}## Main\nLet ts be [{}].\nRepeat for t in ts:\n    Show mldsaPower2RoundT0(t).\n",
+        lit(&ts)
+    );
     check("power2round_t0", &prog, &want);
     // pack_eta: 256 coeffs in [-4,4]
     let pe: Vec<i64> = (0..256).map(|_| (rng() % 9) as i64 - 4).collect();
-    let want = r_pack_eta(&pe).iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let prog = format!("{defs}## Main\nLet p be [{}].\nRepeat for x in mldsaPackEta(p):\n    Show x.\n", lit(&pe));
+    let want = r_pack_eta(&pe)
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let prog = format!(
+        "{defs}## Main\nLet p be [{}].\nRepeat for x in mldsaPackEta(p):\n    Show x.\n",
+        lit(&pe)
+    );
     check("pack_eta", &prog, &want);
     // pack_t0: 256 coeffs in [-4095,4096]
     let pt: Vec<i64> = (0..256).map(|_| (rng() % 8192) as i64 - 4095).collect();
-    let want = r_pack_t0(&pt).iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let prog = format!("{defs}## Main\nLet p be [{}].\nRepeat for x in mldsaPackT0(p):\n    Show x.\n", lit(&pt));
+    let want = r_pack_t0(&pt)
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>();
+    let prog = format!(
+        "{defs}## Main\nLet p be [{}].\nRepeat for x in mldsaPackT0(p):\n    Show x.\n",
+        lit(&pt)
+    );
     check("pack_t0", &prog, &want);
 }
 
@@ -3915,16 +5023,44 @@ fn mldsa_keypair_blocks_logos_match_spec_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — full Logos ML-DSA keypair == native + all-Logos round-trip"]
 fn mldsa_keypair_logos_aot_eq_native_and_roundtrips() {
     use logicaffeine_system::mldsa::mldsa_keypair_seq;
-    let seed: Vec<i64> = (0..32).map(|i| (i * 9 + 2) as i64).collect();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    // The seed that once crossed 255 (item 30 is 263) is refused, never folded into a byte.
+    let wide: Vec<i64> = (0..32).map(|i| (i * 9 + 2) as i64).collect();
+    assert_eq!(
+        mldsa_keypair_seq(&wide).expect_err("a seed item past 255 is not a byte"),
+        "the seed must be bytes (0 to 255); item 30 is 263"
+    );
+    let seed: Vec<i64> = wide.iter().map(|x| x % 256).collect();
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     // (1) full keypair bit-exact
-    let want: Vec<String> = mldsa_keypair_seq(&seed).to_vec().iter().map(|b| b.to_string()).collect();
+    let want: Vec<String> = mldsa_keypair_seq(&seed)
+        .expect("in-contract arguments")
+        .to_vec()
+        .iter()
+        .map(|b| b.to_string())
+        .collect();
     let kp_prog = format!(
-        "## Main\nLet seed be [{}].\nRepeat for x in mldsaKeypairLogos(seed):\n    Show x.\n", lit(&seed));
+        "## Main\nLet seed be [{}].\nRepeat for x in mldsaKeypairLogos(seed):\n    Show x.\n",
+        lit(&seed)
+    );
     let aot = run_logos_with_args(&kp_prog, &[]);
     assert!(aot.success, "keypair AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(got.len(), 5984, "keypair is pk(1952)+sk(4032)=5984 bytes (got {})", got.len());
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got.len(),
+        5984,
+        "keypair is pk(1952)+sk(4032)=5984 bytes (got {})",
+        got.len()
+    );
     assert_eq!(got, want, "Logos keypair == native keypair");
     // (2) all-Logos round-trip: keygen → sign → verify, verify must return 1
     let msg: Vec<i64> = (0..24).map(|i| (i * 13 + 5) % 256).collect();
@@ -3933,8 +5069,17 @@ fn mldsa_keypair_logos_aot_eq_native_and_roundtrips() {
         lit(&seed), lit(&msg));
     let rt = run_logos_with_args(&rt_prog, &[]);
     assert!(rt.success, "round-trip AOT failed:\n{}", rt.stderr);
-    let rout = rt.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(rout, vec!["1"], "all-Logos keygen→sign→verify round-trip accepts");
+    let rout = rt
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rout,
+        vec!["1"],
+        "all-Logos keygen→sign→verify round-trip accepts"
+    );
 }
 
 /// Robustness to the point of absurdity: the all-Logos ML-DSA-65 (keypair→sign→verify, no native
@@ -3949,7 +5094,9 @@ fn mldsa_robustness_program() -> String {
     p.push_str("Repeat for si from 0 to 2:\n");
     p.push_str("    Let mutable seedA be a new Seq of Int.\n    Repeat for k from 0 to 31:\n        Push ((si * 31 + k * 7 + 1) % 256) to seedA.\n");
     p.push_str("    Let mutable seedB be a new Seq of Int.\n    Repeat for k from 0 to 31:\n        Push ((si * 19 + k * 5 + 100) % 256) to seedB.\n");
-    p.push_str("    Let kpA be mldsaKeypairLogos(seedA).\n    Let kpB be mldsaKeypairLogos(seedB).\n");
+    p.push_str(
+        "    Let kpA be mldsaKeypairLogos(seedA).\n    Let kpB be mldsaKeypairLogos(seedB).\n",
+    );
     p.push_str("    Repeat for mi from 0 to 1:\n");
     p.push_str("        Let mutable msg1 be a new Seq of Int.\n        Repeat for k from 0 to (12 + mi * 4):\n            Push ((si * 13 + mi * 17 + k * 3 + 1) % 256) to msg1.\n");
     p.push_str("        Let mutable msg2 be a new Seq of Int.\n        Repeat for x in msg1:\n            Push x to msg2.\n        Push 99 to msg2.\n");
@@ -3968,29 +5115,63 @@ fn mldsa_robustness_program() -> String {
 fn mldsa_all_logos_robustness_many_vectors() {
     let aot = run_logos_with_args(&mldsa_robustness_program(), &[]);
     assert!(aot.success, "robustness AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(got, vec!["1", "1", "1"],
-        "accept / reject-wrong-msg / reject-wrong-key all hold across vectors (got {:?})", got);
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        vec!["1", "1", "1"],
+        "accept / reject-wrong-msg / reject-wrong-key all hold across vectors (got {:?})",
+        got
+    );
 }
 
 // ───────────────────────── ML-KEM encoding tools in Logos (compress/decompress/byteEncode/byteDecode) ─────────────────────────
 // FIPS-203 §4.2.1; bit-exact replicas of logicaffeine_system::ntt::mlkem_*_w16 (Q=3329).
 const MLKEM_Q: i64 = 3329;
-fn r_kem_compress(v: i64, d: u32) -> i64 { let pd = 1i64 << d; ((v * pd + MLKEM_Q / 2) / MLKEM_Q) % pd }
-fn r_kem_decompress(v: i64, d: u32) -> i64 { let pd = 1i64 << d; (v * MLKEM_Q + pd / 2) / pd }
+fn r_kem_compress(v: i64, d: u32) -> i64 {
+    let pd = 1i64 << d;
+    ((v * pd + MLKEM_Q / 2) / MLKEM_Q) % pd
+}
+fn r_kem_decompress(v: i64, d: u32) -> i64 {
+    let pd = 1i64 << d;
+    (v * MLKEM_Q + pd / 2) / pd
+}
 fn r_kem_byte_encode(coeffs: &[i64], d: u32) -> Vec<i64> {
-    let mask = (1u64 << d) - 1; let mut out = Vec::new(); let (mut acc, mut nbits) = (0u64, 0u32);
-    for &w in coeffs { acc |= (w as u64 & mask) << nbits; nbits += d;
-        while nbits >= 8 { out.push((acc & 0xff) as i64); acc >>= 8; nbits -= 8; } }
-    if nbits > 0 { out.push((acc & 0xff) as i64); }
+    let mask = (1u64 << d) - 1;
+    let mut out = Vec::new();
+    let (mut acc, mut nbits) = (0u64, 0u32);
+    for &w in coeffs {
+        acc |= (w as u64 & mask) << nbits;
+        nbits += d;
+        while nbits >= 8 {
+            out.push((acc & 0xff) as i64);
+            acc >>= 8;
+            nbits -= 8;
+        }
+    }
+    if nbits > 0 {
+        out.push((acc & 0xff) as i64);
+    }
     out
 }
 fn r_kem_byte_decode(bytes: &[i64], d: u32) -> Vec<i64> {
-    let n = (bytes.len() * 8) / d as usize; let mask = (1u64 << d) - 1;
-    let mut out = Vec::new(); let (mut acc, mut nbits, mut bi) = (0u64, 0u32, 0usize);
+    let n = (bytes.len() * 8) / d as usize;
+    let mask = (1u64 << d) - 1;
+    let mut out = Vec::new();
+    let (mut acc, mut nbits, mut bi) = (0u64, 0u32, 0usize);
     for _ in 0..n {
-        while nbits < d { acc |= (bytes[bi] as u64) << nbits; nbits += 8; bi += 1; }
-        let val = (acc & mask) as i64; acc >>= d; nbits -= d;
+        while nbits < d {
+            acc |= (bytes[bi] as u64) << nbits;
+            nbits += 8;
+            bi += 1;
+        }
+        let val = (acc & mask) as i64;
+        acc >>= d;
+        nbits -= d;
         out.push(val % MLKEM_Q);
     }
     out
@@ -4007,26 +5188,60 @@ fn mlkem_encode_defs() -> String {
 #[test]
 fn mlkem_encode_tools_logos_match_spec_tw_and_vm() {
     let mut s: u64 = 0xdead_beef_1234_5678;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let defs = mlkem_encode_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let w16lit = |v: &[i64]| v.iter().map(|x| format!("word16({})", x)).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let w16lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| format!("word16({})", x))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let check = |label: &str, prog: &str, want: &[String]| {
         for (tag, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
-            assert!(out.error.is_none(), "{label}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{label}/{tag} == spec");
+            assert!(
+                out.error.is_none(),
+                "{label}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{label}/{tag} == spec"
+            );
         }
     };
     for &d in &[1u32, 4, 5, 10, 11, 12] {
         let coeffs: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
         // compress (compressible inputs are full coeffs; result < 2^d)
-        let want: Vec<String> = coeffs.iter().map(|&v| r_kem_compress(v, d).to_string()).collect();
+        let want: Vec<String> = coeffs
+            .iter()
+            .map(|&v| r_kem_compress(v, d).to_string())
+            .collect();
         let prog = format!("{defs}## Main\nLet c be [{}].\nRepeat for x in compressW16Logos(c, {d}):\n    Show intOfWord16(x).\n", w16lit(&coeffs));
         check(&format!("compress d={d}"), &prog, &want);
         // decompress operates on d-bit values
         let small: Vec<i64> = coeffs.iter().map(|&v| r_kem_compress(v, d)).collect();
-        let want: Vec<String> = small.iter().map(|&v| r_kem_decompress(v, d).to_string()).collect();
+        let want: Vec<String> = small
+            .iter()
+            .map(|&v| r_kem_decompress(v, d).to_string())
+            .collect();
         let prog = format!("{defs}## Main\nLet c be [{}].\nRepeat for x in decompressW16Logos(c, {d}):\n    Show intOfWord16(x).\n", w16lit(&small));
         check(&format!("decompress d={d}"), &prog, &want);
         // byteEncode then byteDecode round-trips the d-bit values
@@ -4042,20 +5257,27 @@ fn mlkem_encode_tools_logos_match_spec_tw_and_vm() {
 }
 
 // ───────────────────────── ML-KEM field + sampling tools in Logos (addModQ/subModQ/cbd2/cbd3) ─────────────────────────
-fn r_kem_bit(buf: &[i64], k: usize) -> i64 { (buf[k / 8] >> (k % 8)) & 1 }
+fn r_kem_bit(buf: &[i64], k: usize) -> i64 {
+    (buf[k / 8] >> (k % 8)) & 1
+}
 fn r_kem_cbd2(buf: &[i64]) -> Vec<i64> {
-    (0..256).map(|c| {
-        let a = r_kem_bit(buf, 4 * c) + r_kem_bit(buf, 4 * c + 1);
-        let b = r_kem_bit(buf, 4 * c + 2) + r_kem_bit(buf, 4 * c + 3);
-        ((a - b) % MLKEM_Q + MLKEM_Q) % MLKEM_Q
-    }).collect()
+    (0..256)
+        .map(|c| {
+            let a = r_kem_bit(buf, 4 * c) + r_kem_bit(buf, 4 * c + 1);
+            let b = r_kem_bit(buf, 4 * c + 2) + r_kem_bit(buf, 4 * c + 3);
+            ((a - b) % MLKEM_Q + MLKEM_Q) % MLKEM_Q
+        })
+        .collect()
 }
 fn r_kem_cbd3(buf: &[i64]) -> Vec<i64> {
-    (0..256).map(|c| {
-        let a = r_kem_bit(buf, 6 * c) + r_kem_bit(buf, 6 * c + 1) + r_kem_bit(buf, 6 * c + 2);
-        let b = r_kem_bit(buf, 6 * c + 3) + r_kem_bit(buf, 6 * c + 4) + r_kem_bit(buf, 6 * c + 5);
-        ((a - b) % MLKEM_Q + MLKEM_Q) % MLKEM_Q
-    }).collect()
+    (0..256)
+        .map(|c| {
+            let a = r_kem_bit(buf, 6 * c) + r_kem_bit(buf, 6 * c + 1) + r_kem_bit(buf, 6 * c + 2);
+            let b =
+                r_kem_bit(buf, 6 * c + 3) + r_kem_bit(buf, 6 * c + 4) + r_kem_bit(buf, 6 * c + 5);
+            ((a - b) % MLKEM_Q + MLKEM_Q) % MLKEM_Q
+        })
+        .collect()
 }
 fn mlkem_field_defs() -> String {
     let mut p = String::new();
@@ -4070,23 +5292,59 @@ fn mlkem_field_defs() -> String {
 #[test]
 fn mlkem_field_tools_logos_match_spec_tw_and_vm() {
     let mut s: u64 = 0x1357_9bdf_2468_ace0;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let defs = mlkem_field_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let w16lit = |v: &[i64]| v.iter().map(|x| format!("word16({})", x)).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let w16lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| format!("word16({})", x))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let check = |label: &str, prog: &str, want: &[String]| {
         for (tag, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
-            assert!(out.error.is_none(), "{label}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{label}/{tag} == spec");
+            assert!(
+                out.error.is_none(),
+                "{label}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{label}/{tag} == spec"
+            );
         }
     };
     let a: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
     let b: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
-    let want: Vec<String> = a.iter().zip(&b).map(|(x, y)| ((x + y) % MLKEM_Q).to_string()).collect();
+    let want: Vec<String> = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| ((x + y) % MLKEM_Q).to_string())
+        .collect();
     let prog = format!("{defs}## Main\nLet a be [{}].\nLet b be [{}].\nRepeat for x in addModQW16Logos(a, b):\n    Show intOfWord16(x).\n", w16lit(&a), w16lit(&b));
     check("addModQ", &prog, &want);
-    let want: Vec<String> = a.iter().zip(&b).map(|(x, y)| (((x - y) % MLKEM_Q + MLKEM_Q) % MLKEM_Q).to_string()).collect();
+    let want: Vec<String> = a
+        .iter()
+        .zip(&b)
+        .map(|(x, y)| (((x - y) % MLKEM_Q + MLKEM_Q) % MLKEM_Q).to_string())
+        .collect();
     let prog = format!("{defs}## Main\nLet a be [{}].\nLet b be [{}].\nRepeat for x in subModQW16Logos(a, b):\n    Show intOfWord16(x).\n", w16lit(&a), w16lit(&b));
     check("subModQ", &prog, &want);
     let buf2: Vec<i64> = (0..128).map(|_| (rng() % 256) as i64).collect();
@@ -4105,10 +5363,25 @@ fn mlkem_field_tools_logos_match_spec_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — ML-KEM encoding+field tools AOT == FIPS spec"]
 fn mlkem_tools_logos_aot_eq_spec() {
     let defs = format!("{}{}", mlkem_encode_defs(), mlkem_field_defs());
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let w16lit = |v: &[i64]| v.iter().map(|x| format!("word16({})", x)).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let w16lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| format!("word16({})", x))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let mut s: u64 = 0xa1b2_c3d4_e5f6_0718;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let coeffs: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
     let a: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
     let b: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
@@ -4118,14 +5391,22 @@ fn mlkem_tools_logos_aot_eq_spec() {
     // build expected output in the SAME order the Main below emits
     let mut want: Vec<String> = Vec::new();
     let small10 = comp(10);
-    want.extend(small10.iter().map(|x| x.to_string()));                                   // compress d=10
-    want.extend(small10.iter().map(|&v| r_kem_decompress(v, 10).to_string()));            // decompress d=10
+    want.extend(small10.iter().map(|x| x.to_string())); // compress d=10
+    want.extend(small10.iter().map(|&v| r_kem_decompress(v, 10).to_string())); // decompress d=10
     let enc12 = r_kem_byte_encode(&coeffs, 12);
-    want.extend(r_kem_byte_decode(&enc12, 12).iter().map(|x| x.to_string()));             // byteDecode∘byteEncode d=12 == coeffs
-    want.extend(a.iter().zip(&b).map(|(x, y)| ((x + y) % MLKEM_Q).to_string()));          // addModQ
-    want.extend(a.iter().zip(&b).map(|(x, y)| (((x - y) % MLKEM_Q + MLKEM_Q) % MLKEM_Q).to_string())); // subModQ
-    want.extend(r_kem_cbd2(&buf2).iter().map(|x| x.to_string()));                         // cbd2
-    want.extend(r_kem_cbd3(&buf3).iter().map(|x| x.to_string()));                         // cbd3
+    want.extend(r_kem_byte_decode(&enc12, 12).iter().map(|x| x.to_string())); // byteDecode∘byteEncode d=12 == coeffs
+    want.extend(
+        a.iter()
+            .zip(&b)
+            .map(|(x, y)| ((x + y) % MLKEM_Q).to_string()),
+    ); // addModQ
+    want.extend(
+        a.iter()
+            .zip(&b)
+            .map(|(x, y)| (((x - y) % MLKEM_Q + MLKEM_Q) % MLKEM_Q).to_string()),
+    ); // subModQ
+    want.extend(r_kem_cbd2(&buf2).iter().map(|x| x.to_string())); // cbd2
+    want.extend(r_kem_cbd3(&buf3).iter().map(|x| x.to_string())); // cbd3
     let prog = format!(
         "{defs}## Main\n\
          Let coeffs be [{}].\nLet a be [{}].\nLet b be [{}].\nLet buf2 be [{}].\nLet buf3 be [{}].\n\
@@ -4139,8 +5420,17 @@ fn mlkem_tools_logos_aot_eq_spec() {
         w16lit(&coeffs), w16lit(&a), w16lit(&b), lit(&buf2), lit(&buf3));
     let aot = run_logos_with_args(&prog, &[]);
     assert!(aot.success, "ML-KEM tools AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "ML-KEM tools AOT == FIPS spec");
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "ML-KEM tools AOT == FIPS spec"
+    );
 }
 
 // ───────────────────────── ML-KEM Montgomery tools in Logos (montReduce/fqmul/baseMul/toMont) ─────────────────────────
@@ -4159,7 +5449,9 @@ fn r_mlkem_montred(a: i64) -> i64 {
     let t = (ai as i16).wrapping_mul((-3327i32) as i16);
     ((ai - (t as i32) * 3329) >> 16) as i64
 }
-fn r_mlkem_fqmul(x: i64, y: i64) -> i64 { r_mlkem_montred(x * y) }
+fn r_mlkem_fqmul(x: i64, y: i64) -> i64 {
+    r_mlkem_montred(x * y)
+}
 fn r_mlkem_basemul(a: &[i64], b: &[i64]) -> Vec<i64> {
     let mut r = vec![0i64; 256];
     let bm = |a0: i64, a1: i64, b0: i64, b1: i64, z: i64| -> (i64, i64) {
@@ -4170,19 +5462,26 @@ fn r_mlkem_basemul(a: &[i64], b: &[i64]) -> Vec<i64> {
     for i in 0..64 {
         let z = MLKEM_ZETAS[64 + i];
         let (c0, c1) = bm(a[4 * i], a[4 * i + 1], b[4 * i], b[4 * i + 1], z);
-        r[4 * i] = c0; r[4 * i + 1] = c1;
+        r[4 * i] = c0;
+        r[4 * i + 1] = c1;
         let (d0, d1) = bm(a[4 * i + 2], a[4 * i + 3], b[4 * i + 2], b[4 * i + 3], -z);
-        r[4 * i + 2] = d0; r[4 * i + 3] = d1;
+        r[4 * i + 2] = d0;
+        r[4 * i + 3] = d1;
     }
     r.iter().map(|&x| ((x % 3329) + 3329) % 3329).collect()
 }
 fn r_mlkem_tomont(coeffs: &[i64]) -> Vec<i64> {
-    coeffs.iter().map(|&w| ((r_mlkem_montred(w * 1353) % 3329) + 3329) % 3329).collect()
+    coeffs
+        .iter()
+        .map(|&w| ((r_mlkem_montred(w * 1353) % 3329) + 3329) % 3329)
+        .collect()
 }
 fn mlkem_mont_defs() -> String {
     let mut p = String::new();
     p.push_str("## To mlkemMontReduce (a: Int) -> Int:\n    Let alo be ((a % 65536) + 65536) % 65536.\n    Let mutable as16 be alo.\n    If as16 is at least 32768:\n        Set as16 to as16 - 65536.\n    Let prod be as16 * (0 - 3327).\n    Let mutable t be ((prod % 65536) + 65536) % 65536.\n    If t is at least 32768:\n        Set t to t - 65536.\n    Return (a - t * 3329) / 65536.\n\n");
-    p.push_str("## To mlkemFqMul (x: Int) and (y: Int) -> Int:\n    Return mlkemMontReduce(x * y).\n\n");
+    p.push_str(
+        "## To mlkemFqMul (x: Int) and (y: Int) -> Int:\n    Return mlkemMontReduce(x * y).\n\n",
+    );
     p.push_str("## To baseMulW16Logos (a: Seq of Word16) and (b: Seq of Word16) and (zetas: Seq of Int) -> Seq of Word16:\n    Let mutable out be a new Seq of Word16.\n    Repeat for i from 0 to 63:\n        Let zeta be item (64 + i + 1) of zetas.\n        Let a0 be intOfWord16(item (4 * i + 1) of a).\n        Let a1 be intOfWord16(item (4 * i + 2) of a).\n        Let b0 be intOfWord16(item (4 * i + 1) of b).\n        Let b1 be intOfWord16(item (4 * i + 2) of b).\n        Let r0 be mlkemFqMul(mlkemFqMul(a1, b1), zeta) + mlkemFqMul(a0, b0).\n        Let r1 be mlkemFqMul(a0, b1) + mlkemFqMul(a1, b0).\n        Push word16(((r0 % 3329) + 3329) % 3329) to out.\n        Push word16(((r1 % 3329) + 3329) % 3329) to out.\n        Let c0 be intOfWord16(item (4 * i + 3) of a).\n        Let c1 be intOfWord16(item (4 * i + 4) of a).\n        Let d0 be intOfWord16(item (4 * i + 3) of b).\n        Let d1 be intOfWord16(item (4 * i + 4) of b).\n        Let s0 be mlkemFqMul(mlkemFqMul(c1, d1), (0 - zeta)) + mlkemFqMul(c0, d0).\n        Let s1 be mlkemFqMul(c0, d1) + mlkemFqMul(c1, d0).\n        Push word16(((s0 % 3329) + 3329) % 3329) to out.\n        Push word16(((s1 % 3329) + 3329) % 3329) to out.\n    Return out.\n\n");
     p.push_str("## To toMontW16Logos (coeffs: Seq of Word16) -> Seq of Word16:\n    Let mutable out be a new Seq of Word16.\n    Repeat for x in coeffs:\n        Let w be intOfWord16(x).\n        Let r be mlkemMontReduce(w * 1353).\n        Push word16(((r % 3329) + 3329) % 3329) to out.\n    Return out.\n\n");
     p
@@ -4191,32 +5490,74 @@ fn mlkem_mont_defs() -> String {
 #[test]
 fn mlkem_mont_tools_logos_match_spec_tw_and_vm() {
     let mut s: u64 = 0xf0e1_d2c3_b4a5_9687;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let defs = mlkem_mont_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let w16lit = |v: &[i64]| v.iter().map(|x| format!("word16({})", x)).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let w16lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| format!("word16({})", x))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let zlit = lit(&MLKEM_ZETAS);
     let check = |label: &str, prog: &str, want: &[String]| {
         for (tag, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
-            assert!(out.error.is_none(), "{label}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{label}/{tag} == spec");
+            assert!(
+                out.error.is_none(),
+                "{label}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{label}/{tag} == spec"
+            );
         }
     };
     // montReduce over random i32-range products
-    let aps: Vec<i64> = (0..40).map(|_| ((rng() % 22000000) as i64) - 11000000).collect();
-    let want: Vec<String> = aps.iter().map(|&a| r_mlkem_montred(a).to_string()).collect();
-    let prog = format!("{defs}## Main\nLet aps be [{}].\nRepeat for a in aps:\n    Show mlkemMontReduce(a).\n", lit(&aps));
+    let aps: Vec<i64> = (0..40)
+        .map(|_| ((rng() % 22000000) as i64) - 11000000)
+        .collect();
+    let want: Vec<String> = aps
+        .iter()
+        .map(|&a| r_mlkem_montred(a).to_string())
+        .collect();
+    let prog = format!(
+        "{defs}## Main\nLet aps be [{}].\nRepeat for a in aps:\n    Show mlkemMontReduce(a).\n",
+        lit(&aps)
+    );
     check("montReduce", &prog, &want);
     // toMont over full poly
     let coeffs: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
-    let want: Vec<String> = r_mlkem_tomont(&coeffs).iter().map(|x| x.to_string()).collect();
+    let want: Vec<String> = r_mlkem_tomont(&coeffs)
+        .iter()
+        .map(|x| x.to_string())
+        .collect();
     let prog = format!("{defs}## Main\nLet c be [{}].\nRepeat for x in toMontW16Logos(c):\n    Show intOfWord16(x).\n", w16lit(&coeffs));
     check("toMont", &prog, &want);
     // baseMul over two full polys
     let a: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
     let b: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
-    let want: Vec<String> = r_mlkem_basemul(&a, &b).iter().map(|x| x.to_string()).collect();
+    let want: Vec<String> = r_mlkem_basemul(&a, &b)
+        .iter()
+        .map(|x| x.to_string())
+        .collect();
     let prog = format!("{defs}## Main\nLet a be [{}].\nLet b be [{}].\nLet zt be [{}].\nRepeat for x in baseMulW16Logos(a, b, zt):\n    Show intOfWord16(x).\n", w16lit(&a), w16lit(&b), zlit);
     check("baseMul", &prog, &want);
 }
@@ -4226,24 +5567,55 @@ fn mlkem_mont_tools_logos_match_spec_tw_and_vm() {
 #[ignore = "compiles via rustc (slow) — ML-KEM Montgomery tools AOT == exact-native spec"]
 fn mlkem_mont_tools_logos_aot_eq_spec() {
     let defs = mlkem_mont_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let w16lit = |v: &[i64]| v.iter().map(|x| format!("word16({})", x)).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let w16lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| format!("word16({})", x))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let mut s: u64 = 0x0011_2233_4455_6677;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let a: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
     let b: Vec<i64> = (0..256).map(|_| (rng() % MLKEM_Q as u64) as i64).collect();
     let mut want: Vec<String> = Vec::new();
-    want.extend(r_mlkem_tomont(&a).iter().map(|x| x.to_string()));   // toMont(a)
+    want.extend(r_mlkem_tomont(&a).iter().map(|x| x.to_string())); // toMont(a)
     want.extend(r_mlkem_basemul(&a, &b).iter().map(|x| x.to_string())); // baseMul(a,b)
     let prog = format!(
         "{defs}## Main\nLet a be [{}].\nLet b be [{}].\nLet zt be [{}].\n\
          Repeat for x in toMontW16Logos(a):\n    Show intOfWord16(x).\n\
          Repeat for x in baseMulW16Logos(a, b, zt):\n    Show intOfWord16(x).\n",
-        w16lit(&a), w16lit(&b), lit(&MLKEM_ZETAS));
+        w16lit(&a),
+        w16lit(&b),
+        lit(&MLKEM_ZETAS)
+    );
     let aot = run_logos_with_args(&prog, &[]);
-    assert!(aot.success, "ML-KEM Montgomery tools AOT failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "ML-KEM Montgomery tools AOT == spec");
+    assert!(
+        aot.success,
+        "ML-KEM Montgomery tools AOT failed:\n{}",
+        aot.stderr
+    );
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "ML-KEM Montgomery tools AOT == spec"
+    );
 }
 
 // ───────────────────────── ML-KEM sampleA rejection in Logos (the pure-logic half; SHAKE stays native) ─────────────────────────
@@ -4252,12 +5624,18 @@ fn r_mlkem_reject(buf: &[i64]) -> Vec<i64> {
     let n = buf.len();
     let mut pos = 0;
     while pos + 3 <= n {
-        if out.len() >= 256 { break; }
+        if out.len() >= 256 {
+            break;
+        }
         let (b0, b1, b2) = (buf[pos], buf[pos + 1], buf[pos + 2]);
         let d1 = b0 + 256 * (b1 % 16);
         let d2 = (b1 / 16) + 16 * b2;
-        if d1 < 3329 { out.push(d1); }
-        if d2 < 3329 && out.len() < 256 { out.push(d2); }
+        if d1 < 3329 {
+            out.push(d1);
+        }
+        if d2 < 3329 && out.len() < 256 {
+            out.push(d2);
+        }
         pos += 3;
     }
     out
@@ -4271,17 +5649,37 @@ fn mlkem_sample_defs() -> String {
 #[test]
 fn mlkem_reject_sample_logos_match_spec_tw_and_vm() {
     let mut s: u64 = 0x2468_ace0_1357_9bdf;
-    let mut rng = || { s ^= s << 13; s ^= s >> 7; s ^= s << 17; s };
+    let mut rng = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
     let defs = mlkem_sample_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     for &nbytes in &[840usize, 1008, 672] {
         let buf: Vec<i64> = (0..nbytes).map(|_| (rng() % 256) as i64).collect();
         let want: Vec<String> = r_mlkem_reject(&buf).iter().map(|x| x.to_string()).collect();
         let prog = format!("{defs}## Main\nLet buf be [{}].\nRepeat for x in mlkemRejSampleNttLogos(buf):\n    Show intOfWord16(x).\n", lit(&buf));
         for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
             assert!(out.error.is_none(), "reject/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "reject nbytes={nbytes}/{tag} == spec (got {} coeffs)", got.len());
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "reject nbytes={nbytes}/{tag} == spec (got {} coeffs)",
+                got.len()
+            );
         }
     }
 }
@@ -4301,21 +5699,48 @@ fn word64_builtins_logos_work_tw_and_vm() {
     let want = vec!["65280", "4080", "15", "3855", "16", "0"];
     for (tag, out) in [("tw", tw_outcome(prog)), ("vm", vm_outcome(prog))] {
         assert!(out.error.is_none(), "word64/{tag} errored: {:?}", out.error);
-        let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
+        let got = out
+            .output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
         assert_eq!(got, want, "word64 builtins/{tag}");
     }
 }
 
 // ───────────────────────── Keccak-f[1600] + SHA3-256 in Logos (the hash, all the way down) ─────────────────────────
-const KECCAK_RSRC: [i64; 25] = [0,6,12,18,24,3,9,10,16,22,1,7,13,19,20,4,5,11,17,23,2,8,14,15,21];
-const KECCAK_ROFF: [i64; 25] = [0,44,43,21,14,28,20,3,45,61,1,6,25,8,18,27,36,10,15,56,62,55,39,41,2];
+const KECCAK_RSRC: [i64; 25] = [
+    0, 6, 12, 18, 24, 3, 9, 10, 16, 22, 1, 7, 13, 19, 20, 4, 5, 11, 17, 23, 2, 8, 14, 15, 21,
+];
+const KECCAK_ROFF: [i64; 25] = [
+    0, 44, 43, 21, 14, 28, 20, 3, 45, 61, 1, 6, 25, 8, 18, 27, 36, 10, 15, 56, 62, 55, 39, 41, 2,
+];
 const KECCAK_RC: [u64; 24] = [
-    0x0000000000000001, 0x0000000000008082, 0x800000000000808a, 0x8000000080008000,
-    0x000000000000808b, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
-    0x000000000000008a, 0x0000000000000088, 0x0000000080008009, 0x000000008000000a,
-    0x000000008000808b, 0x800000000000008b, 0x8000000000008089, 0x8000000000008003,
-    0x8000000000008002, 0x8000000000000080, 0x000000000000800a, 0x800000008000000a,
-    0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+    0x0000000000000001,
+    0x0000000000008082,
+    0x800000000000808a,
+    0x8000000080008000,
+    0x000000000000808b,
+    0x0000000080000001,
+    0x8000000080008081,
+    0x8000000000008009,
+    0x000000000000008a,
+    0x0000000000000088,
+    0x0000000080008009,
+    0x000000008000000a,
+    0x000000008000808b,
+    0x800000000000008b,
+    0x8000000000008089,
+    0x8000000000008003,
+    0x8000000000008002,
+    0x8000000000000080,
+    0x000000000000800a,
+    0x800000008000000a,
+    0x8000000080008081,
+    0x8000000000008080,
+    0x0000000080000001,
+    0x8000000080008008,
 ];
 fn keccak_defs() -> String {
     let mut p = String::new();
@@ -4341,8 +5766,18 @@ fn keccak_defs() -> String {
 fn sha3_256_logos_matches_native_tw_and_vm() {
     use logicaffeine_system::keccak::sha3_256_bytes;
     let defs = keccak_defs();
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let w64lit = |v: &[i64]| v.iter().map(|x| format!("word64({})", x)).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let w64lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| format!("word64({})", x))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
     let rc_s = w64lit(&rc_i64);
     let rsrc_s = lit(&KECCAK_RSRC);
@@ -4351,14 +5786,30 @@ fn sha3_256_logos_matches_native_tw_and_vm() {
     for &mlen in &[0usize, 1, 3, 135, 136, 137, 200] {
         let msg: Vec<i64> = (0..mlen).map(|i| ((i * 37 + 11) % 256) as i64).collect();
         let mbytes: Vec<u8> = msg.iter().map(|&b| b as u8).collect();
-        let want: Vec<String> = sha3_256_bytes(&mbytes).iter().map(|b| b.to_string()).collect();
+        let want: Vec<String> = sha3_256_bytes(&mbytes)
+            .iter()
+            .map(|b| b.to_string())
+            .collect();
         let prog = format!(
             "{defs}## Main\nLet msg be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\nRepeat for x in sha3_256Logos(msg, rc, rsrc, roff):\n    Show x.\n",
             lit(&msg), rc_s, rsrc_s, roff_s);
         for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
-            assert!(out.error.is_none(), "sha3/{tag} mlen={mlen} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "sha3_256 mlen={mlen}/{tag} == native");
+            assert!(
+                out.error.is_none(),
+                "sha3/{tag} mlen={mlen} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "sha3_256 mlen={mlen}/{tag} == native"
+            );
         }
     }
 }
@@ -4367,7 +5818,7 @@ fn sha3_256_logos_matches_native_tw_and_vm() {
 fn keccak_sponge_def() -> String {
     let mut p = String::new();
     p.push_str("## To keccakSponge (msg: Seq of Int) and (rc: Seq of Word64) and (rsrc: Seq of Int) and (roff: Seq of Int) and (rate: Int) and (dsbyte: Int) and (outlen: Int) -> Seq of Int:\n");
-    p.push_str("    Let mutable padded be a new Seq of Int.\n    Repeat for x in msg:\n        Push x to padded.\n    Push dsbyte to padded.\n    While ((length of padded) % rate) is greater than 0:\n        Push 0 to padded.\n");
+    p.push_str("    Let mutable padded be a new Seq of Int.\n    Repeat for x in msg:\n        Push (x % 256) to padded.\n    Push dsbyte to padded.\n    While ((length of padded) % rate) is greater than 0:\n        Push 0 to padded.\n");
     p.push_str("    Let ln be length of padded.\n    Set item ln of padded to (item ln of padded) + 128.\n");
     p.push_str("    Let mutable state be a new Seq of Word64.\n    Repeat for k from 1 to 25:\n        Push word64(0) to state.\n");
     p.push_str("    Let lanes be rate / 8.\n    Let nblk be (length of padded) / rate.\n");
@@ -4376,12 +5827,23 @@ fn keccak_sponge_def() -> String {
     p
 }
 
-fn keccak_full_defs() -> String { format!("{}{}", keccak_defs(), keccak_sponge_def()) }
+fn keccak_full_defs() -> String {
+    format!("{}{}", keccak_defs(), keccak_sponge_def())
+}
 
 fn keccak_sponge_program(msg: &[i64], rate: i64, ds: i64, outlen: i64) -> String {
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
-    let rc_s = rc_i64.iter().map(|x| format!("word64({})", x)).collect::<Vec<_>>().join(", ");
+    let rc_s = rc_i64
+        .iter()
+        .map(|x| format!("word64({})", x))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "{}## Main\nLet msg be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\nRepeat for x in keccakSponge(msg, rc, rsrc, roff, {rate}, {ds}, {outlen}):\n    Show x.\n",
         keccak_full_defs(), lit(msg), rc_s, lit(&KECCAK_RSRC), lit(&KECCAK_ROFF))
@@ -4389,7 +5851,9 @@ fn keccak_sponge_program(msg: &[i64], rate: i64, ds: i64, outlen: i64) -> String
 
 #[test]
 fn keccak_sponge_logos_all_modes_tw_and_vm() {
-    use logicaffeine_system::keccak::{sha3_256_bytes, sha3_512_bytes, shake128_bytes, shake256_bytes};
+    use logicaffeine_system::keccak::{
+        sha3_256_bytes, sha3_512_bytes, shake128_bytes, shake256_bytes,
+    };
     for &mlen in &[0usize, 1, 5, 71, 72, 135, 136, 167, 168, 200] {
         let msg: Vec<i64> = (0..mlen).map(|i| ((i * 37 + 11) % 256) as i64).collect();
         let mb: Vec<u8> = msg.iter().map(|&b| b as u8).collect();
@@ -4397,42 +5861,108 @@ fn keccak_sponge_logos_all_modes_tw_and_vm() {
             (136, 6, 32, sha3_256_bytes(&mb).to_vec()),
             (72, 6, 64, sha3_512_bytes(&mb).to_vec()),
             (168, 31, 32, shake128_bytes(&mb, 32)),
-            (168, 31, 200, shake128_bytes(&mb, 200)),   // > rate → multi-block squeeze
+            (168, 31, 200, shake128_bytes(&mb, 200)), // > rate → multi-block squeeze
             (136, 31, 64, shake256_bytes(&mb, 64)),
-            (136, 31, 500, shake256_bytes(&mb, 500)),   // spans multiple squeeze permutations
+            (136, 31, 500, shake256_bytes(&mb, 500)), // spans multiple squeeze permutations
         ];
         for (rate, ds, outlen, want_bytes) in cases {
             let want: Vec<String> = want_bytes.iter().map(|b| b.to_string()).collect();
             let prog = keccak_sponge_program(&msg, rate, ds, outlen);
             for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
-                assert!(out.error.is_none(), "sponge rate={rate} ds={ds} out={outlen} mlen={mlen}/{tag}: {:?}", out.error);
-                let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-                assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-                    "keccakSponge rate={rate} ds={ds} out={outlen} mlen={mlen}/{tag} == native");
+                assert!(
+                    out.error.is_none(),
+                    "sponge rate={rate} ds={ds} out={outlen} mlen={mlen}/{tag}: {:?}",
+                    out.error
+                );
+                let got = out
+                    .output
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    got,
+                    want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    "keccakSponge rate={rate} ds={ds} out={outlen} mlen={mlen}/{tag} == native"
+                );
             }
         }
+    }
+}
+
+/// Pit-of-success lock: the pure-LOGOS keccakSponge (crypto.lg, reached through the auto-imported
+/// `shake256`) must treat an input item outside 0..255 exactly as native shake does — it refuses it,
+/// naming the item, so `[256]` is never hashed as `[0]`. Regression guard for the seed-dependent
+/// absorb-corruption bug where an input value >255 — e.g. an ML-DSA test seed `[i*9+2]`, which for
+/// i>=29 gives 263/272/281 — spilled its high bit into the next lane byte, corrupting ρ from byte 0. It
+/// was invisible to every NIST ACVP vector and the ≤255 sampler tests, and only the full keypair
+/// (`mldsa_keypair_logos_aot_eq_native`) caught it. This locks the invariant fast, on tw + VM.
+#[test]
+fn crypto_shake256_refuses_out_of_range_input_bytes_like_native() {
+    let msg: [i64; 7] = [300, 1, 511, 2, 256, 257, 999];
+    let native = logicaffeine_system::keccak::shake256(&msg, 96)
+        .expect_err("native shake refuses an item that is not a byte");
+    assert_eq!(
+        native,
+        "the message must be bytes (0 to 255); item 1 is 300"
+    );
+    let lit = msg
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prog = format!(
+        "## Main\nRepeat for x in shake256([{}], 96):\n    Show x.\n",
+        lit
+    );
+    for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
+        assert_eq!(
+            out.error.as_deref(),
+            Some(format!("shake256(): {native}").as_str()),
+            "crypto.lg shake256 must refuse an out-of-range input byte as native does ({tag})"
+        );
+        assert!(
+            out.output.trim().is_empty(),
+            "nothing is hashed before the refusal ({tag}): {:?}",
+            out.output
+        );
     }
 }
 
 #[test]
 #[ignore = "compiles via rustc (slow) — SHA3/SHAKE sponge in Logos AOT == native FIPS-202 (exercises Word64 builtins through codegen)"]
 fn keccak_sponge_logos_aot_eq_native() {
-    use logicaffeine_system::keccak::{sha3_256_bytes, sha3_512_bytes, shake128_bytes, shake256_bytes};
+    use logicaffeine_system::keccak::{
+        sha3_256_bytes, sha3_512_bytes, shake128_bytes, shake256_bytes,
+    };
     let msg: Vec<i64> = (0..137).map(|i| ((i * 37 + 11) % 256) as i64).collect();
     let mb: Vec<u8> = msg.iter().map(|&b| b as u8).collect();
     let cases: Vec<(i64, i64, i64, Vec<u8>)> = vec![
         (136, 6, 32, sha3_256_bytes(&mb).to_vec()),
         (72, 6, 64, sha3_512_bytes(&mb).to_vec()),
-        (168, 31, 200, shake128_bytes(&mb, 200)),   // multi-block squeeze
-        (136, 31, 500, shake256_bytes(&mb, 500)),   // multiple squeeze permutations
+        (168, 31, 200, shake128_bytes(&mb, 200)), // multi-block squeeze
+        (136, 31, 500, shake256_bytes(&mb, 500)), // multiple squeeze permutations
     ];
     for (rate, ds, outlen, want_bytes) in cases {
         let want: Vec<String> = want_bytes.iter().map(|b| b.to_string()).collect();
         let prog = keccak_sponge_program(&msg, rate, ds, outlen);
         let aot = run_logos_with_args(&prog, &[]);
-        assert!(aot.success, "AOT compile/run failed rate={rate}:\n{}", aot.stderr);
-        let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-        assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "AOT keccakSponge rate={rate} ds={ds} out={outlen} == native");
+        assert!(
+            aot.success,
+            "AOT compile/run failed rate={rate}:\n{}",
+            aot.stderr
+        );
+        let got = aot
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "AOT keccakSponge rate={rate} ds={ds} out={outlen} == native"
+        );
     }
 }
 
@@ -4452,9 +5982,18 @@ fn mlkem_sampleA_def() -> String {
 }
 
 fn mlkem_sampleA_program(seed: &[i64], i: i64, j: i64) -> String {
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
-    let rc_s = rc_i64.iter().map(|x| format!("word64({})", x)).collect::<Vec<_>>().join(", ");
+    let rc_s = rc_i64
+        .iter()
+        .map(|x| format!("word64({})", x))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "{}{}## Main\nLet seed be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\nRepeat for x in mlkemSampleAElement(seed, {i}, {j}, rc, rsrc, roff):\n    Show intOfWord16(x).\n",
         keccak_defs(), mlkem_sampleA_def(), lit(seed), rc_s, lit(&KECCAK_RSRC), lit(&KECCAK_ROFF))
@@ -4470,9 +6009,22 @@ fn mlkem_sampleA_element_logos_matches_native_tw_and_vm() {
         assert_eq!(want.len(), 256, "native sampleA must yield 256 coeffs");
         let prog = mlkem_sampleA_program(&seed, i, j);
         for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
-            assert!(out.error.is_none(), "sampleA ({i},{j})/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "mlkemSampleAElement ({i},{j})/{tag} == native");
+            assert!(
+                out.error.is_none(),
+                "sampleA ({i},{j})/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "mlkemSampleAElement ({i},{j})/{tag} == native"
+            );
         }
     }
 }
@@ -4487,9 +6039,22 @@ fn mlkem_sampleA_element_logos_aot_eq_native() {
         let want: Vec<String> = native.iter().map(|w| w.0.to_string()).collect();
         let prog = mlkem_sampleA_program(&seed, i, j);
         let aot = run_logos_with_args(&prog, &[]);
-        assert!(aot.success, "AOT compile/run failed ({i},{j}):\n{}", aot.stderr);
-        let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-        assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "AOT mlkemSampleAElement ({i},{j}) == native");
+        assert!(
+            aot.success,
+            "AOT compile/run failed ({i},{j}):\n{}",
+            aot.stderr
+        );
+        let got = aot
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "AOT mlkemSampleAElement ({i},{j}) == native"
+        );
     }
 }
 
@@ -4526,7 +6091,12 @@ fn mldsa_shake_sampler_defs() -> String {
 }
 
 fn mldsa_sampler_all_defs() -> String {
-    format!("{}{}{}", keccak_defs(), keccak_helper_defs(), mldsa_shake_sampler_defs())
+    format!(
+        "{}{}{}",
+        keccak_defs(),
+        keccak_helper_defs(),
+        mldsa_shake_sampler_defs()
+    )
 }
 
 // Independent FIPS-204 oracle over the pub SHAKE byte stream (no private native fn, no crypto.lg):
@@ -4536,9 +6106,13 @@ fn ref_rej_ntt_poly(seed: &[u8]) -> Vec<String> {
     let stream = logicaffeine_system::keccak::shake128_bytes(seed, 168 * 10);
     let (mut a, mut pos) = (Vec::<String>::with_capacity(256), 0usize);
     while a.len() < 256 {
-        let d = (stream[pos] as u32) | ((stream[pos + 1] as u32) << 8) | (((stream[pos + 2] as u32) & 0x7f) << 16);
+        let d = (stream[pos] as u32)
+            | ((stream[pos + 1] as u32) << 8)
+            | (((stream[pos + 2] as u32) & 0x7f) << 16);
         pos += 3;
-        if d < 8_380_417 { a.push(d.to_string()); }
+        if d < 8_380_417 {
+            a.push(d.to_string());
+        }
     }
     a
 }
@@ -4551,7 +6125,9 @@ fn ref_sample_in_ball(seed: &[u8]) -> Vec<String> {
         let j = loop {
             let candidate = stream[pos] as usize;
             pos += 1;
-            if candidate <= i { break candidate; }
+            if candidate <= i {
+                break candidate;
+            }
         };
         c[i] = c[j];
         c[j] = 1 - 2 * (((signs >> sign_idx) & 1) as i64);
@@ -4560,9 +6136,18 @@ fn ref_sample_in_ball(seed: &[u8]) -> Vec<String> {
     c.iter().map(|x| x.to_string()).collect()
 }
 fn mldsa_logos_program(callee: &str, seed: &[i64]) -> String {
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
-    let rc_s = rc_i64.iter().map(|x| format!("word64({})", x)).collect::<Vec<_>>().join(", ");
+    let rc_s = rc_i64
+        .iter()
+        .map(|x| format!("word64({})", x))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "{}## Main\nLet seed be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\nRepeat for x in {callee}(seed, rc, rsrc, roff):\n    Show x.\n",
         mldsa_sampler_all_defs(), lit(seed), rc_s, lit(&KECCAK_RSRC), lit(&KECCAK_ROFF))
@@ -4575,16 +6160,41 @@ fn mldsa_shake_samplers_logos_match_fips204_tw_and_vm() {
     let sib_seed: Vec<i64> = (0..48).map(|i| ((i * 13 + 7) % 256) as i64).collect();
     let to_u8 = |v: &[i64]| v.iter().map(|&b| b as u8).collect::<Vec<u8>>();
     let cases: [(&str, &[i64], Vec<String>); 2] = [
-        ("mldsaRejNttPolyLogos", &expand_seed, ref_rej_ntt_poly(&to_u8(&expand_seed))),
-        ("mldsaSampleInBallLogos", &sib_seed, ref_sample_in_ball(&to_u8(&sib_seed))),
+        (
+            "mldsaRejNttPolyLogos",
+            &expand_seed,
+            ref_rej_ntt_poly(&to_u8(&expand_seed)),
+        ),
+        (
+            "mldsaSampleInBallLogos",
+            &sib_seed,
+            ref_sample_in_ball(&to_u8(&sib_seed)),
+        ),
     ];
     for (my_fn, seed, want) in cases {
-        assert_eq!(want.len(), 256, "FIPS ref for {my_fn} must yield 256 values");
+        assert_eq!(
+            want.len(),
+            256,
+            "FIPS ref for {my_fn} must yield 256 values"
+        );
         let my_prog = mldsa_logos_program(my_fn, seed);
         for (tag, out) in [("tw", tw_outcome(&my_prog)), ("vm", vm_outcome(&my_prog))] {
-            assert!(out.error.is_none(), "{my_fn}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{my_fn}/{tag} == FIPS-204 spec");
+            assert!(
+                out.error.is_none(),
+                "{my_fn}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{my_fn}/{tag} == FIPS-204 spec"
+            );
         }
     }
 }
@@ -4596,15 +6206,36 @@ fn mldsa_shake_samplers_logos_aot_eq_fips204() {
     let sib_seed: Vec<i64> = (0..48).map(|i| ((i * 13 + 7) % 256) as i64).collect();
     let to_u8 = |v: &[i64]| v.iter().map(|&b| b as u8).collect::<Vec<u8>>();
     let cases: [(&str, &[i64], Vec<String>); 2] = [
-        ("mldsaRejNttPolyLogos", &expand_seed, ref_rej_ntt_poly(&to_u8(&expand_seed))),
-        ("mldsaSampleInBallLogos", &sib_seed, ref_sample_in_ball(&to_u8(&sib_seed))),
+        (
+            "mldsaRejNttPolyLogos",
+            &expand_seed,
+            ref_rej_ntt_poly(&to_u8(&expand_seed)),
+        ),
+        (
+            "mldsaSampleInBallLogos",
+            &sib_seed,
+            ref_sample_in_ball(&to_u8(&sib_seed)),
+        ),
     ];
     for (my_fn, seed, want) in cases {
         let prog = mldsa_logos_program(my_fn, seed);
         let aot = run_logos_with_args(&prog, &[]);
-        assert!(aot.success, "AOT {my_fn} compile/run failed:\n{}", aot.stderr);
-        let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-        assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "AOT {my_fn} == FIPS-204 spec");
+        assert!(
+            aot.success,
+            "AOT {my_fn} compile/run failed:\n{}",
+            aot.stderr
+        );
+        let got = aot
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "AOT {my_fn} == FIPS-204 spec"
+        );
     }
 }
 
@@ -4623,12 +6254,27 @@ fn mldsa_sampler2_defs() -> String {
     p
 }
 fn mldsa_all_sampler_defs() -> String {
-    format!("{}{}{}{}", keccak_defs(), keccak_sponge_def(), keccak_helper_defs(), mldsa_sampler2_defs())
+    format!(
+        "{}{}{}{}",
+        keccak_defs(),
+        keccak_sponge_def(),
+        keccak_helper_defs(),
+        mldsa_sampler2_defs()
+    )
 }
 fn mldsa2_logos_program(callee: &str, seed: &[i64]) -> String {
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
-    let rc_s = rc_i64.iter().map(|x| format!("word64({})", x)).collect::<Vec<_>>().join(", ");
+    let rc_s = rc_i64
+        .iter()
+        .map(|x| format!("word64({})", x))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "{}## Main\nLet seed be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\nRepeat for x in {callee}(seed, rc, rsrc, roff):\n    Show x.\n",
         mldsa_all_sampler_defs(), lit(seed), rc_s, lit(&KECCAK_RSRC), lit(&KECCAK_ROFF))
@@ -4638,10 +6284,15 @@ fn ref_rej_bounded(seed: &[u8]) -> Vec<String> {
     let stream = logicaffeine_system::keccak::shake256_bytes(seed, 136 * 10);
     let (mut a, mut pos) = (Vec::<String>::with_capacity(256), 0usize);
     while a.len() < 256 {
-        let b = stream[pos]; pos += 1;
+        let b = stream[pos];
+        pos += 1;
         let (t0, t1) = ((b & 15) as i32, (b >> 4) as i32);
-        if t0 < 9 { a.push((4 - t0).to_string()); }
-        if t1 < 9 && a.len() < 256 { a.push((4 - t1).to_string()); }
+        if t0 < 9 {
+            a.push((4 - t0).to_string());
+        }
+        if t1 < 9 && a.len() < 256 {
+            a.push((4 - t1).to_string());
+        }
     }
     a
 }
@@ -4651,7 +6302,8 @@ fn ref_expand_mask(seed: &[u8]) -> Vec<String> {
     for i in 0..128 {
         let o = 5 * i;
         let z0 = (buf[o] as u32) | ((buf[o + 1] as u32) << 8) | (((buf[o + 2] as u32) & 0xf) << 16);
-        let z1 = ((buf[o + 2] as u32) >> 4) | ((buf[o + 3] as u32) << 4) | ((buf[o + 4] as u32) << 12);
+        let z1 =
+            ((buf[o + 2] as u32) >> 4) | ((buf[o + 3] as u32) << 4) | ((buf[o + 4] as u32) << 12);
         a[2 * i] = 524288 - z0 as i64;
         a[2 * i + 1] = 524288 - z1 as i64;
     }
@@ -4664,16 +6316,41 @@ fn mldsa_secret_samplers_logos_match_fips204_tw_and_vm() {
     let msk_seed: Vec<i64> = (0..66).map(|i| ((i * 19 + 3) % 256) as i64).collect();
     let to_u8 = |v: &[i64]| v.iter().map(|&b| b as u8).collect::<Vec<u8>>();
     let cases: [(&str, &[i64], Vec<String>); 2] = [
-        ("mldsaRejBoundedLogos", &bnd_seed, ref_rej_bounded(&to_u8(&bnd_seed))),
-        ("mldsaExpandMaskLogos", &msk_seed, ref_expand_mask(&to_u8(&msk_seed))),
+        (
+            "mldsaRejBoundedLogos",
+            &bnd_seed,
+            ref_rej_bounded(&to_u8(&bnd_seed)),
+        ),
+        (
+            "mldsaExpandMaskLogos",
+            &msk_seed,
+            ref_expand_mask(&to_u8(&msk_seed)),
+        ),
     ];
     for (my_fn, seed, want) in cases {
-        assert_eq!(want.len(), 256, "FIPS ref for {my_fn} must yield 256 values");
+        assert_eq!(
+            want.len(),
+            256,
+            "FIPS ref for {my_fn} must yield 256 values"
+        );
         let prog = mldsa2_logos_program(my_fn, seed);
         for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
-            assert!(out.error.is_none(), "{my_fn}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "{my_fn}/{tag} == FIPS-204 spec");
+            assert!(
+                out.error.is_none(),
+                "{my_fn}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "{my_fn}/{tag} == FIPS-204 spec"
+            );
         }
     }
 }
@@ -4685,15 +6362,36 @@ fn mldsa_secret_samplers_logos_aot_eq_fips204() {
     let msk_seed: Vec<i64> = (0..66).map(|i| ((i * 19 + 3) % 256) as i64).collect();
     let to_u8 = |v: &[i64]| v.iter().map(|&b| b as u8).collect::<Vec<u8>>();
     let cases: [(&str, &[i64], Vec<String>); 2] = [
-        ("mldsaRejBoundedLogos", &bnd_seed, ref_rej_bounded(&to_u8(&bnd_seed))),
-        ("mldsaExpandMaskLogos", &msk_seed, ref_expand_mask(&to_u8(&msk_seed))),
+        (
+            "mldsaRejBoundedLogos",
+            &bnd_seed,
+            ref_rej_bounded(&to_u8(&bnd_seed)),
+        ),
+        (
+            "mldsaExpandMaskLogos",
+            &msk_seed,
+            ref_expand_mask(&to_u8(&msk_seed)),
+        ),
     ];
     for (my_fn, seed, want) in cases {
         let prog = mldsa2_logos_program(my_fn, seed);
         let aot = run_logos_with_args(&prog, &[]);
-        assert!(aot.success, "AOT {my_fn} compile/run failed:\n{}", aot.stderr);
-        let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-        assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "AOT {my_fn} == FIPS-204 spec");
+        assert!(
+            aot.success,
+            "AOT {my_fn} compile/run failed:\n{}",
+            aot.stderr
+        );
+        let got = aot
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "AOT {my_fn} == FIPS-204 spec"
+        );
     }
 }
 
@@ -4712,9 +6410,18 @@ fn mlkem_noise_defs() -> String {
     p
 }
 fn mlkem_noise_program(seed: &[i64], nonce: i64) -> String {
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
-    let rc_s = rc_i64.iter().map(|x| format!("word64({})", x)).collect::<Vec<_>>().join(", ");
+    let rc_s = rc_i64
+        .iter()
+        .map(|x| format!("word64({})", x))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "{}{}{}{}## Main\nLet seed be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\nRepeat for x in mlkemNoiseCbdLogos(seed, {nonce}, rc, rsrc, roff):\n    Show intOfWord16(x).\n",
         keccak_defs(), keccak_sponge_def(), mlkem_cbd_min_defs(), mlkem_noise_defs(),
@@ -4725,11 +6432,13 @@ fn ref_mlkem_noise(seed: &[u8], nonce: u8) -> Vec<String> {
     pin.push(nonce);
     let buf = logicaffeine_system::keccak::shake256_bytes(&pin, 128);
     let bit = |k: usize| ((buf[k / 8] >> (k % 8)) & 1) as i64;
-    (0..256).map(|c| {
-        let a = bit(4 * c) + bit(4 * c + 1);
-        let b = bit(4 * c + 2) + bit(4 * c + 3);
-        (((a - b) % 3329 + 3329) % 3329).to_string()
-    }).collect()
+    (0..256)
+        .map(|c| {
+            let a = bit(4 * c) + bit(4 * c + 1);
+            let b = bit(4 * c + 2) + bit(4 * c + 3);
+            (((a - b) % 3329 + 3329) % 3329).to_string()
+        })
+        .collect()
 }
 
 #[test]
@@ -4741,9 +6450,22 @@ fn mlkem_noise_cbd_logos_matches_native_tw_and_vm() {
         assert_eq!(want.len(), 256);
         let prog = mlkem_noise_program(&seed, nonce);
         for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
-            assert!(out.error.is_none(), "noise nonce={nonce}/{tag} errored: {:?}", out.error);
-            let got = out.output.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-            assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "mlkemNoiseCbdLogos nonce={nonce}/{tag} == native");
+            assert!(
+                out.error.is_none(),
+                "noise nonce={nonce}/{tag} errored: {:?}",
+                out.error
+            );
+            let got = out
+                .output
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                got,
+                want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                "mlkemNoiseCbdLogos nonce={nonce}/{tag} == native"
+            );
         }
     }
 }
@@ -4756,9 +6478,22 @@ fn mlkem_noise_cbd_logos_aot_eq_native() {
     for nonce in [0i64, 3] {
         let want = ref_mlkem_noise(&seed_u8, nonce as u8);
         let aot = run_logos_with_args(&mlkem_noise_program(&seed, nonce), &[]);
-        assert!(aot.success, "AOT noise nonce={nonce} failed:\n{}", aot.stderr);
-        let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-        assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "AOT mlkemNoiseCbdLogos nonce={nonce} == native");
+        assert!(
+            aot.success,
+            "AOT noise nonce={nonce} failed:\n{}",
+            aot.stderr
+        );
+        let got = aot
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "AOT mlkemNoiseCbdLogos nonce={nonce} == native"
+        );
     }
 }
 
@@ -4772,13 +6507,20 @@ fn keccak_x4_defs() -> String {
     p.push_str("        Repeat for x from 0 to 4:\n            Let d be (item ((x + 4) % 5 + 1) of c) xor rotl(item ((x + 1) % 5 + 1) of c, 1).\n            Repeat for y from 0 to 4:\n                Set item (5 * y + x + 1) of a to (item (5 * y + x + 1) of a) xor d.\n");
     p.push_str("        Let mutable b be a new Seq of Lanes4Word64.\n        Repeat for k from 0 to 24:\n            Push rotl(item ((item (k + 1) of rsrc) + 1) of a, item (k + 1) of roff) to b.\n");
     p.push_str("        Repeat for y from 0 to 4:\n            Repeat for x from 0 to 4:\n                Let bb0 be item (5 * y + x + 1) of b.\n                Let bb1 be item (5 * y + (x + 1) % 5 + 1) of b.\n                Let bb2 be item (5 * y + (x + 2) % 5 + 1) of b.\n                Set item (5 * y + x + 1) of a to bb0 xor andNot4(bb1, bb2).\n");
-    p.push_str("        Set item 1 of a to (item 1 of a) xor splat4Word64(word64(item rnd of rc)).\n");
+    p.push_str(
+        "        Set item 1 of a to (item 1 of a) xor splat4Word64(word64(item rnd of rc)).\n",
+    );
     p.push_str("    Return a.\n\n");
     p
 }
 
 fn keccak_x4_program(flat: &[i64]) -> String {
-    let lit = |v: &[i64]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let rc_i64: Vec<i64> = KECCAK_RC.iter().map(|&x| x as i64).collect();
     format!(
         "{}## Main\nLet flat be [{}].\nLet rc be [{}].\nLet rsrc be [{}].\nLet roff be [{}].\n\
@@ -4793,18 +6535,159 @@ fn keccak_x4_program(flat: &[i64]) -> String {
 fn keccak_f1600_x4_logos_aot_eq_native() {
     // Four independent states; the 4-way permutation's lane s must equal one scalar keccak_f1600(state s).
     let mut seed = 0x1234_5678_9abc_def0u64;
-    let mut rnd = || { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); seed };
+    let mut rnd = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        seed
+    };
     let states: [[u64; 25]; 4] = std::array::from_fn(|_| std::array::from_fn(|_| rnd()));
     // reference: permute each state, then interleave lane-major (lane i → [s0,s1,s2,s3][i]).
     let mut perm = states;
     for s in perm.iter_mut() {
         logicaffeine_system::keccak::keccak_f1600(s);
     }
-    let want: Vec<String> = (0..25).flat_map(|i| (0..4).map(move |s| (perm[s][i] as i64).to_string())).collect();
+    let want: Vec<String> = (0..25)
+        .flat_map(|i| (0..4).map(move |s| (perm[s][i] as i64).to_string()))
+        .collect();
     // Logos input: flat lane-major (lane i's four states), as i64 (u64 bits).
-    let flat: Vec<i64> = (0..25).flat_map(|i| (0..4).map(move |s| states[s][i] as i64)).collect();
+    let flat: Vec<i64> = (0..25)
+        .flat_map(|i| (0..4).map(move |s| states[s][i] as i64))
+        .collect();
     let aot = run_logos_with_args(&keccak_x4_program(&flat), &[]);
     assert!(aot.success, "AOT compile/run failed:\n{}", aot.stderr);
-    let got = aot.stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>();
-    assert_eq!(got, want.iter().map(|s| s.as_str()).collect::<Vec<_>>(), "4-way Keccak in Logos lanes (AOT) == 4× native keccak_f1600");
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        "4-way Keccak in Logos lanes (AOT) == 4× native keccak_f1600"
+    );
+}
+
+// ───────── M3 pit-of-success locks: batched 4-way Keccak wired into ML-DSA ─────────
+// These lock the invariants proven during the M3 wiring: the 4-way Lanes4Word64 sponge and
+// the ML-DSA ExpandA batching agree bit-for-bit with the scalar (native-FIPS-202-exact) path.
+
+/// keccakSponge4 (crypto.lg, auto-imported) runs four independent SHAKE128 sponges over one
+/// Lanes4Word64 state and must equal four scalar shake128 streams, lane-contiguous. tw + VM.
+#[test]
+fn keccak_sponge4_logos_eq_4x_scalar_shake128_tw_and_vm() {
+    use logicaffeine_system::keccak::shake128_bytes;
+    let msgs: [Vec<i64>; 4] = std::array::from_fn(|m| {
+        (0..34)
+            .map(|i| ((i * 7 + m * 40 + 1) % 256) as i64)
+            .collect()
+    });
+    let want: Vec<String> = (0..4)
+        .flat_map(|m| {
+            let mb: Vec<u8> = msgs[m].iter().map(|&b| b as u8).collect();
+            shake128_bytes(&mb, 64)
+                .into_iter()
+                .map(|b| b.to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let prog = format!(
+        "## Main\nLet m0 be [{}].\nLet m1 be [{}].\nLet m2 be [{}].\nLet m3 be [{}].\nRepeat for x in keccakSponge4(m0, m1, m2, m3, 168, 31, 64):\n    Show x.\n",
+        lit(&msgs[0]), lit(&msgs[1]), lit(&msgs[2]), lit(&msgs[3])
+    );
+    for (tag, out) in [("tw", tw_outcome(&prog)), ("vm", vm_outcome(&prog))] {
+        assert!(out.error.is_none(), "keccakSponge4/{tag}: {:?}", out.error);
+        let got = out
+            .output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            got,
+            want.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "keccakSponge4 == 4x scalar shake128 ({tag})"
+        );
+    }
+}
+
+/// mldsaExpandA4 (crypto.lg) expands four ML-DSA matrix entries with one 4-way SHAKE128(seed,1024)
+/// + per-lane rejection, and must equal four scalar mldsaExpandAElem calls concatenated. AOT.
+#[test]
+#[ignore = "compiles via rustc (slow) — 4-way ML-DSA ExpandA in Logos lanes == 4x scalar"]
+fn mldsa_expand_a4_logos_aot_eq_4x_scalar() {
+    let seeds: [Vec<i64>; 4] = std::array::from_fn(|m| {
+        (0..34)
+            .map(|i| ((i * 11 + m * 33 + 3) % 256) as i64)
+            .collect()
+    });
+    let lit = |v: &[i64]| {
+        v.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let prog = format!(
+        "## Main\nLet s0 be [{}].\nLet s1 be [{}].\nLet s2 be [{}].\nLet s3 be [{}].\n\
+         Let got be mldsaExpandA4(s0, s1, s2, s3).\n\
+         Let want be mldsaExpandAElem(s0) followed by mldsaExpandAElem(s1) followed by mldsaExpandAElem(s2) followed by mldsaExpandAElem(s3).\n\
+         Let mutable diff be 0.\nRepeat for i from 1 to (length of want):\n    If (item i of got) is greater than (item i of want):\n        Set diff to diff + 1.\n    If (item i of want) is greater than (item i of got):\n        Set diff to diff + 1.\nShow diff.\nShow length of got.\n",
+        lit(&seeds[0]), lit(&seeds[1]), lit(&seeds[2]), lit(&seeds[3])
+    );
+    let aot = run_logos_with_args(&prog, &[]);
+    assert!(aot.success, "AOT mldsaExpandA4 failed:\n{}", aot.stderr);
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        vec!["0", "1024"],
+        "mldsaExpandA4 == 4x scalar mldsaExpandAElem (diff 0, len 1024)"
+    );
+}
+
+/// mldsaExpandAMatrix (crypto.lg) expands the whole 6x5 ML-DSA matrix four entries per 4-way
+/// SHAKE128 (+ scalar remainder) and must equal the 30 per-element expansions row-major. AOT.
+#[test]
+#[ignore = "compiles via rustc (slow) — whole-matrix batched ML-DSA ExpandA == 30x scalar"]
+fn mldsa_expand_a_matrix_logos_aot_eq_per_element() {
+    let rho: Vec<i64> = (0..32).map(|i| ((i * 13 + 7) % 256) as i64).collect();
+    let lit = rho
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prog = format!(
+        "## Main\nLet rho be [{}].\nLet got be mldsaExpandAMatrix(rho, 6, 5).\n\
+         Let mutable want be a new Seq of Int.\nRepeat for e from 0 to 29:\n    Set want to want followed by mldsaExpandAElem(mldsaMatrixSeed(rho, e, 5)).\n\
+         Let mutable diff be 0.\nRepeat for i from 1 to (length of want):\n    If (item i of got) is greater than (item i of want):\n        Set diff to diff + 1.\n    If (item i of want) is greater than (item i of got):\n        Set diff to diff + 1.\nShow diff.\nShow length of got.\n",
+        lit
+    );
+    let aot = run_logos_with_args(&prog, &[]);
+    assert!(
+        aot.success,
+        "AOT mldsaExpandAMatrix failed:\n{}",
+        aot.stderr
+    );
+    let got = aot
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        vec!["0", "7680"],
+        "mldsaExpandAMatrix == 30x scalar per-element (diff 0, len 7680)"
+    );
 }

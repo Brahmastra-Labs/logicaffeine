@@ -35,7 +35,10 @@ fn declared_year_unfuses_cardinal_label_to_in() {
         "the label must NOT stay fused once the year is declared; got:\n{out}"
     );
     // The head noun survives as its own predicate.
-    assert!(out.contains("Holiday(x)"), "head noun Holiday(x) must survive; got:\n{out}");
+    assert!(
+        out.contains("Holiday(x)"),
+        "head noun Holiday(x) must survive; got:\n{out}"
+    );
 }
 
 // ── LOCATIVE: a declared STATE drives the proper-name label → In(x, <state>) ─
@@ -51,14 +54,18 @@ fn declared_state_unfuses_proper_name_label_to_in() {
         !out.contains("Florida(x)"),
         "the label must NOT stay a bare predicate once the state is declared; got:\n{out}"
     );
-    assert!(out.contains("Trip(x)"), "head noun Trip(x) must survive; got:\n{out}");
+    assert!(
+        out.contains("Trip(x)"),
+        "head noun Trip(x) must survive; got:\n{out}"
+    );
 }
 
 // ── PERSONAL: a declared FRIEND drives the proper-name label → With(x, <p>) ──
 
 #[test]
 fn declared_friend_unfuses_proper_name_label_to_with() {
-    let out = fol("Bill, Lillie, Neal, and Yvonne are four different friends. The Bill trip was fun.");
+    let out =
+        fol("Bill, Lillie, Neal, and Yvonne are four different friends. The Bill trip was fun.");
     assert!(
         out.contains("With(x, Bill)"),
         "expected the label clause to un-fuse to With(x, Bill); got:\n{out}"
@@ -67,7 +74,10 @@ fn declared_friend_unfuses_proper_name_label_to_with() {
         !out.contains("Bill(x)"),
         "the label must NOT stay a bare predicate once the friend is declared; got:\n{out}"
     );
-    assert!(out.contains("Trip(x)"), "head noun Trip(x) must survive; got:\n{out}");
+    assert!(
+        out.contains("Trip(x)"),
+        "head noun Trip(x) must survive; got:\n{out}"
+    );
 }
 
 // ── BOTH-FORMS CONVERGENCE: label clause and PP clause yield IDENTICAL In(·,·) ─
@@ -77,10 +87,8 @@ fn label_and_pp_forms_converge_on_identical_relation() {
     // In ONE input: declare the years, then state the fact in BOTH forms. The
     // label clause and the PP clause must BOTH carry In(·, 2003) with a
     // byte-identical object term, so the prover can unify them.
-    let out = fol(
-        "2001, 2002, 2003, and 2004 are four different years. \
-         The 2003 holiday was fun. The holiday was in 2003.",
-    );
+    let out = fol("2001, 2002, 2003, and 2004 are four different years. \
+         The 2003 holiday was fun. The holiday was in 2003.");
     let count = out.matches("In(").filter(|_| true).count();
     let in_2003 = out.matches("In(x, 2003)").count();
     assert!(
@@ -100,7 +108,10 @@ fn single_sentence_cardinal_label_stays_fused() {
         out.contains("2003_holiday"),
         "with no declaration, the cardinal label must stay fused; got:\n{out}"
     );
-    assert!(!out.contains("In(x, 2003)"), "no un-fuse without a declaration; got:\n{out}");
+    assert!(
+        !out.contains("In(x, 2003)"),
+        "no un-fuse without a declaration; got:\n{out}"
+    );
 }
 
 #[test]
@@ -110,7 +121,10 @@ fn single_sentence_proper_name_label_stays_predicate() {
         out.contains("Florida(x)"),
         "with no declaration, the proper-name label stays a bare predicate; got:\n{out}"
     );
-    assert!(!out.contains("In(x, Florida)"), "no un-fuse without a declaration; got:\n{out}");
+    assert!(
+        !out.contains("In(x, Florida)"),
+        "no un-fuse without a declaration; got:\n{out}"
+    );
 }
 
 #[test]
@@ -123,7 +137,10 @@ fn woodard_family_possessor_intact() {
         out.contains("Family") && out.contains("Woodard"),
         "the Woodard family possessor must stay intact; got:\n{out}"
     );
-    assert!(!out.contains("With("), "an undeclared label must not gain a With relation; got:\n{out}");
+    assert!(
+        !out.contains("With("),
+        "an undeclared label must not gain a With relation; got:\n{out}"
+    );
 }
 
 #[test]
@@ -136,5 +153,8 @@ fn undeclared_count_label_stays_fused() {
         out.contains("7_dwarve"),
         "a label whose category maps to no preposition stays fused; got:\n{out}"
     );
-    assert!(!out.contains("In(x, 7)") && !out.contains("With(x, 7)"), "no un-fuse for a non-mapping category; got:\n{out}");
+    assert!(
+        !out.contains("In(x, 7)") && !out.contains("With(x, 7)"),
+        "no un-fuse for a non-mapping category; got:\n{out}"
+    );
 }

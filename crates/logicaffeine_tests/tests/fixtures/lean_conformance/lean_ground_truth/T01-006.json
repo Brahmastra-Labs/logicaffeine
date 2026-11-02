@@ -1,0 +1,115 @@
+{
+  "case": "T01-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 13,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T01_006.mixedReference",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T01_006.monoId",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T01_006.polyArrow",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type (u + 1)",
+      "name": "T01_006.polyAtSucc",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_006.polyCompose",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} (a : \u03b1), a = a",
+      "name": "T01_006.polyEqRefl",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_006.polyId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "True \u2192 True",
+      "name": "T01_006.polyIdAtProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T01_006.polyIdAtType0",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T01_006.polyIdAtType1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type v",
+      "name": "T01_006.polySecond",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_006.secondAt01",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_006.secondAt10",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

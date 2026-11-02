@@ -1,0 +1,108 @@
+{
+  "case": "T00-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 14,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_002.appliedToProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_002.appliedToType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1 \u2192 Type 1",
+      "name": "T00_002.idTypeAtOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T00_002.idTypeAtZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 3",
+      "name": "T00_002.levelLadder",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_002.propAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_002.quantifiesOverProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_002.quantifiesOverTypes",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_002.sortOneAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 2",
+      "name": "T00_002.sortTwoAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_002.sortZeroAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_002.typeAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 2",
+      "name": "T00_002.typeOneAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_002.typeZeroAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

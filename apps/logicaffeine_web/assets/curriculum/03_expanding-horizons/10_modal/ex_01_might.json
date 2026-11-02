@@ -5,7 +5,10 @@
   "prompt": "Translate this possibility:",
   "template": "{ProperName} might {Verb}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Verb": [
+      "Intransitive"
+    ]
   },
-  "hint": "Possibility uses ◇ (diamond): ◇P means P is true in some possible world."
+  "hint": "Possibility uses ◇ (diamond): ◇P means P is true in some possible world.",
+  "section": "10.1"
 }

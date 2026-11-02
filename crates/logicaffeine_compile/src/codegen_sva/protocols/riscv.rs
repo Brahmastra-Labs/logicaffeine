@@ -107,7 +107,9 @@ pub fn riscv_alu_properties(config: &RiscvConfig) -> Vec<ProtocolProperty> {
         props.push(ProtocolProperty {
             name: "RISCV_MUL".into(),
             spec: format!("When opcode is MUL, rd = (rs1 * rs2)[{}:0].", w - 1),
-            sva_body: "(opcode == 7'h33 && funct3 == 3'h0 && funct7 == 7'h01) |-> (rd == rs1 * rs2)".into(),
+            sva_body:
+                "(opcode == 7'h33 && funct3 == 3'h0 && funct7 == 7'h01) |-> (rd == rs1 * rs2)"
+                    .into(),
             kind: SvaAssertionKind::Assert,
         });
         props.push(ProtocolProperty {
@@ -174,14 +176,13 @@ pub fn riscv_register_properties(config: &RiscvConfig) -> Vec<ProtocolProperty> 
 
 /// Generate branch instruction properties.
 pub fn riscv_branch_properties(config: &RiscvConfig) -> Vec<ProtocolProperty> {
-    vec![
-        ProtocolProperty {
-            name: "RISCV_BEQ".into(),
-            spec: "When BEQ and rs1 == rs2, PC = PC + immediate.".into(),
-            sva_body: "(opcode == 7'h63 && funct3 == 3'h0 && rs1 == rs2) |-> (pc_next == pc + imm_b)".into(),
-            kind: SvaAssertionKind::Assert,
-        },
-    ]
+    vec![ProtocolProperty {
+        name: "RISCV_BEQ".into(),
+        spec: "When BEQ and rs1 == rs2, PC = PC + immediate.".into(),
+        sva_body: "(opcode == 7'h63 && funct3 == 3'h0 && rs1 == rs2) |-> (pc_next == pc + imm_b)"
+            .into(),
+        kind: SvaAssertionKind::Assert,
+    }]
 }
 
 /// Generate memory access properties.

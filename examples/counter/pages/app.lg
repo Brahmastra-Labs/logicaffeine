@@ -1,0 +1,50 @@
+# Counter
+
+The smallest complete LGX page: one field, three actions, one view.
+
+## Page /
+
+State:
+    Let count be 0.
+
+Actions:
+    To increment:
+        Set count to count + 1.
+
+    To decrement:
+        Set count to count - 1.
+
+    To reset:
+        Set count to 0.
+
+View:
+    <main class="counter">
+      <h1>Counter</h1>
+      <p id="count">{count}</p>
+      <button id="dec" on-click={decrement}>-</button>
+      <button id="inc" on-click={increment}>+</button>
+      <button id="reset" on-click={reset}>reset</button>
+    </main>
+
+## Test: the count starts at zero
+
+Expect that the text of "#count" is equal to "0".
+
+## Test: increment and decrement each move the count by one
+
+Click "#inc".
+Click "#inc".
+Expect that the text of "#count" is equal to "2".
+Click "#dec".
+Expect that the text of "#count" is equal to "1".
+
+## Test: reset returns to zero from either direction
+
+Click "#inc".
+Click "#inc".
+Click "#reset".
+Expect that the text of "#count" is equal to "0".
+Click "#dec".
+Click "#dec".
+Click "#reset".
+Expect that the text of "#count" is equal to "0".

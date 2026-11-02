@@ -25,7 +25,7 @@
 //!
 //! For example, given `Possible(A) -> Possible(B)` and `Possible(A)`, Z3 deduces `Possible(B)`.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Type declarations for verification variables.
 ///
@@ -61,7 +61,6 @@ pub enum VerifyType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VerifyOp {
     // ---- Arithmetic (Int × Int → Int) ----
-
     /// Addition.
     Add,
     /// Subtraction.
@@ -77,7 +76,6 @@ pub enum VerifyOp {
     FloorDiv,
 
     // ---- Comparison (Int × Int → Bool) ----
-
     /// Equality.
     Eq,
     /// Inequality.
@@ -92,7 +90,6 @@ pub enum VerifyOp {
     Lte,
 
     // ---- Logic (Bool × Bool → Bool) ----
-
     /// Conjunction.
     And,
     /// Disjunction.
@@ -185,23 +182,16 @@ pub enum VerifyExpr {
     /// Examples:
     /// - `Mortal(socrates)` -> `Apply { name: "Mortal", args: [Var("socrates")] }`
     /// - `Possible(P)` -> `Apply { name: "Possible", args: [P] }`
-    Apply {
-        name: String,
-        args: Vec<VerifyExpr>,
-    },
+    Apply { name: String, args: Vec<VerifyExpr> },
 
     /// Uninterpreted INT-valued function application: `Int^n → Int`.
     ///
     /// For function symbols in TERM position — `sum(a, b)` (the Link-lattice
     /// join ⊕), `GovernmentOf(x)`, `has(x, y)` — where [`VerifyExpr::Apply`]
     /// (which encodes as `Int^n → Bool`) would be ill-sorted.
-    ApplyInt {
-        name: String,
-        args: Vec<VerifyExpr>,
-    },
+    ApplyInt { name: String, args: Vec<VerifyExpr> },
 
     // ---- Bitvector operations (hardware verification) ----
-
     /// Bitvector constant with explicit width.
     BitVecConst { width: u32, value: u64 },
 
@@ -223,7 +213,6 @@ pub enum VerifyExpr {
     BitVecConcat(Box<VerifyExpr>, Box<VerifyExpr>),
 
     // ---- Temporal (BMC encoding) ----
-
     /// Expression evaluated at a specific state (for BMC unrolling).
     AtState {
         state: Box<VerifyExpr>,
@@ -237,7 +226,6 @@ pub enum VerifyExpr {
     },
 
     // ---- Array theory ----
-
     /// Array select: array\[index\].
     Select {
         array: Box<VerifyExpr>,
@@ -252,7 +240,6 @@ pub enum VerifyExpr {
     },
 
     // ---- Biconditional (equivalence checking) ----
-
     /// Biconditional: left ↔ right. Used for Z3 equivalence queries.
     Iff(Box<VerifyExpr>, Box<VerifyExpr>),
 }
@@ -581,54 +568,5 @@ impl VerifyExpr {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_verify_expr_construction() {
-        // Test that we can construct expressions
-        let x = VerifyExpr::var("x");
-        let five = VerifyExpr::int(5);
-        let ten = VerifyExpr::int(10);
-
-        // x > 5
-        let gt = VerifyExpr::gt(x.clone(), five);
-        assert!(matches!(gt, VerifyExpr::Binary { op: VerifyOp::Gt, .. }));
-
-        // x == 10
-        let eq = VerifyExpr::eq(x.clone(), ten);
-        assert!(matches!(eq, VerifyExpr::Binary { op: VerifyOp::Eq, .. }));
-    }
-
-    #[test]
-    fn test_uninterpreted_function() {
-        // Mortal(x)
-        let mortal_x = VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]);
-        assert!(matches!(mortal_x, VerifyExpr::Apply { name, args } if name == "Mortal" && args.len() == 1));
-    }
-
-    #[test]
-    fn test_implication() {
-        // Mortal(x) -> Human(x)
-        let mortal = VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]);
-        let human = VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]);
-        let impl_expr = VerifyExpr::implies(mortal, human);
-
-        assert!(matches!(impl_expr, VerifyExpr::Binary { op: VerifyOp::Implies, .. }));
-    }
-
-    #[test]
-    fn test_quantifier() {
-        // forall x: Object. Mortal(x) -> Human(x)
-        let body = VerifyExpr::implies(
-            VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]),
-            VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]),
-        );
-        let forall = VerifyExpr::forall(
-            vec![("x".to_string(), VerifyType::Object)],
-            body,
-        );
-
-        assert!(matches!(forall, VerifyExpr::ForAll { vars, .. } if vars.len() == 1));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_verify/ir/tests.rs"]
+mod tests;

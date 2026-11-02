@@ -1,0 +1,5 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main;solve.constprop.0;solve.constprop.0 257053161
+_start;__libc_start_main_impl;__libc_start_call_main;main;solve.constprop.0 173346181
+_start;__libc_start_main_impl;__libc_start_call_main;main;solve.constprop.0;logos_lint_add 14540542
+_start;__libc_start_main_impl;__libc_start_call_main;main;solve.constprop.0;logos_lint_sub.constprop.0 11929851
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc 249999

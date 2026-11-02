@@ -39,18 +39,34 @@ fn falsum() -> ProofExpr {
 }
 
 /// ModusPonens: from `impl_tree : A → C` and `ante_tree : A`, conclude `C`.
-fn modus_ponens(c: ProofExpr, impl_tree: DerivationTree, ante_tree: DerivationTree) -> DerivationTree {
+fn modus_ponens(
+    c: ProofExpr,
+    impl_tree: DerivationTree,
+    ante_tree: DerivationTree,
+) -> DerivationTree {
     DerivationTree::new(c, InferenceRule::ModusPonens, vec![impl_tree, ante_tree])
 }
 
 /// Disjunctive syllogism: from `or_tree : A ∨ B` and `neg_tree : ¬A`, conclude `B`.
-fn disjunction_elim(survivor: ProofExpr, or_tree: DerivationTree, neg_tree: DerivationTree) -> DerivationTree {
-    DerivationTree::new(survivor, InferenceRule::DisjunctionElim, vec![or_tree, neg_tree])
+fn disjunction_elim(
+    survivor: ProofExpr,
+    or_tree: DerivationTree,
+    neg_tree: DerivationTree,
+) -> DerivationTree {
+    DerivationTree::new(
+        survivor,
+        InferenceRule::DisjunctionElim,
+        vec![or_tree, neg_tree],
+    )
 }
 
 /// Conjunction introduction: from `l : A` and `r : B`, conclude `A ∧ B`.
 fn conj_intro(a: ProofExpr, b: ProofExpr, l: DerivationTree, r: DerivationTree) -> DerivationTree {
-    DerivationTree::new(ProofExpr::And(Box::new(a), Box::new(b)), InferenceRule::ConjunctionIntro, vec![l, r])
+    DerivationTree::new(
+        ProofExpr::And(Box::new(a), Box::new(b)),
+        InferenceRule::ConjunctionIntro,
+        vec![l, r],
+    )
 }
 
 /// Contradiction: from `P` and `¬P`, conclude `⊥` (the certifier finds the polarity).
@@ -61,19 +77,36 @@ fn contradiction(p: DerivationTree, np: DerivationTree) -> DerivationTree {
 /// Reductio: assume `assumed`, derive `⊥` (`falsum_tree`), conclude `¬assumed`.
 fn reductio(assumed: ProofExpr, falsum_tree: DerivationTree) -> DerivationTree {
     let concl = ProofExpr::Not(Box::new(assumed.clone()));
-    DerivationTree::new(concl, InferenceRule::ReductioAdAbsurdum, vec![leaf(assumed), falsum_tree])
+    DerivationTree::new(
+        concl,
+        InferenceRule::ReductioAdAbsurdum,
+        vec![leaf(assumed), falsum_tree],
+    )
 }
 
 /// Equality symmetry: from `a = b`, conclude `b = a`.
 fn eq_sym(a: crate::ProofTerm, b: crate::ProofTerm, tree: DerivationTree) -> DerivationTree {
-    DerivationTree::new(ProofExpr::Identity(b, a), InferenceRule::EqualitySymmetry, vec![tree])
+    DerivationTree::new(
+        ProofExpr::Identity(b, a),
+        InferenceRule::EqualitySymmetry,
+        vec![tree],
+    )
 }
 
 /// Disjunction case analysis to a common conclusion: from `A ∨ B` and a proof of the
 /// conclusion in each branch (with the disjunct bound as a local hypothesis), conclude
 /// the common goal.
-fn disjunction_cases(goal: ProofExpr, or_tree: DerivationTree, left: DerivationTree, right: DerivationTree) -> DerivationTree {
-    DerivationTree::new(goal, InferenceRule::DisjunctionCases, vec![or_tree, left, right])
+fn disjunction_cases(
+    goal: ProofExpr,
+    or_tree: DerivationTree,
+    left: DerivationTree,
+    right: DerivationTree,
+) -> DerivationTree {
+    DerivationTree::new(
+        goal,
+        InferenceRule::DisjunctionCases,
+        vec![or_tree, left, right],
+    )
 }
 
 /// Conjunction elimination: from `A ∧ B`, project the named `conjunct`.
@@ -83,8 +116,8 @@ fn conj_elim(conjunct: ProofExpr, and_tree: DerivationTree) -> DerivationTree {
 
 // ── Atoms & literals ─────────────────────────────────────────────────────────────
 
-use std::collections::HashMap;
 use crate::ProofTerm;
+use std::collections::HashMap;
 
 type Var = usize;
 
@@ -96,7 +129,10 @@ struct Lit {
 
 impl Lit {
     fn negate(self) -> Lit {
-        Lit { var: self.var, pos: !self.pos }
+        Lit {
+            var: self.var,
+            pos: !self.pos,
+        }
     }
 }
 
@@ -141,7 +177,9 @@ fn is_literal(e: &ProofExpr) -> bool {
 /// quantifier (e.g. a grounded `∃`-existence clause) is rejected, so `compile` skips it.
 fn is_clause_disjunct(e: &ProofExpr) -> bool {
     match e {
-        ProofExpr::And(l, r) | ProofExpr::Or(l, r) => is_clause_disjunct(l) && is_clause_disjunct(r),
+        ProofExpr::And(l, r) | ProofExpr::Or(l, r) => {
+            is_clause_disjunct(l) && is_clause_disjunct(r)
+        }
         _ => is_literal(e),
     }
 }
@@ -170,7 +208,10 @@ fn flatten_or(e: &ProofExpr, out: &mut Vec<ProofExpr>) {
 /// variables even though they never appear as standalone literals).
 fn intern_all(table: &mut AtomTable, e: &ProofExpr) {
     match e {
-        ProofExpr::And(l, r) | ProofExpr::Or(l, r) | ProofExpr::Implies(l, r) | ProofExpr::Iff(l, r) => {
+        ProofExpr::And(l, r)
+        | ProofExpr::Or(l, r)
+        | ProofExpr::Implies(l, r)
+        | ProofExpr::Iff(l, r) => {
             intern_all(table, l);
             intern_all(table, r);
         }
@@ -202,8 +243,14 @@ impl AtomTable {
 
     fn lit(&mut self, e: &ProofExpr) -> Option<Lit> {
         match e {
-            ProofExpr::Not(inner) => Some(Lit { var: self.intern(inner)?, pos: false }),
-            _ => Some(Lit { var: self.intern(e)?, pos: true }),
+            ProofExpr::Not(inner) => Some(Lit {
+                var: self.intern(inner)?,
+                pos: false,
+            }),
+            _ => Some(Lit {
+                var: self.intern(e)?,
+                pos: true,
+            }),
         }
     }
 }
@@ -336,7 +383,9 @@ fn compile(premises: &[ProofExpr]) -> Option<Solver> {
                 }
                 intern_all(&mut table, p);
                 let lits = if ds.iter().all(is_literal) {
-                    ds.iter().map(|d| table.lit(d)).collect::<Option<Vec<Lit>>>()
+                    ds.iter()
+                        .map(|d| table.lit(d))
+                        .collect::<Option<Vec<Lit>>>()
                 } else {
                     None
                 };
@@ -368,7 +417,11 @@ fn compile(premises: &[ProofExpr]) -> Option<Solver> {
                     continue;
                 };
                 let ante_lits = as_.iter().map(|a| table.lit(a).unwrap()).collect();
-                rules.push(Rule { ante: ante_lits, cons: cons_form, src: p.clone() });
+                rules.push(Rule {
+                    ante: ante_lits,
+                    cons: cons_form,
+                    src: p.clone(),
+                });
             }
             _ if is_literal(p) => {
                 intern_all(&mut table, p);
@@ -410,14 +463,24 @@ impl Solver {
 
     fn lit_of(&self, e: &ProofExpr) -> Option<Lit> {
         match e {
-            ProofExpr::Not(inner) => Some(Lit { var: self.var_of_atom(inner)?, pos: false }),
-            _ => Some(Lit { var: self.var_of_atom(e)?, pos: true }),
+            ProofExpr::Not(inner) => Some(Lit {
+                var: self.var_of_atom(inner)?,
+                pos: false,
+            }),
+            _ => Some(Lit {
+                var: self.var_of_atom(e)?,
+                pos: true,
+            }),
         }
     }
 
     fn lit_expr(&self, l: Lit) -> ProofExpr {
         let atom = self.table.atoms[l.var].clone();
-        if l.pos { atom } else { ProofExpr::Not(Box::new(atom)) }
+        if l.pos {
+            atom
+        } else {
+            ProofExpr::Not(Box::new(atom))
+        }
     }
 
     fn set(&mut self, l: Lit, r: Reason) -> Result<(), ()> {
@@ -556,7 +619,13 @@ impl Solver {
                             Some(true) => {}
                             Some(false) => return Err(Conflict::Clause(ci)),
                             None => {
-                                let _ = self.set(l, Reason::CompoundClause { clause: ci, disjunct: di });
+                                let _ = self.set(
+                                    l,
+                                    Reason::CompoundClause {
+                                        clause: ci,
+                                        disjunct: di,
+                                    },
+                                );
                                 changed = true;
                             }
                         }
@@ -576,7 +645,10 @@ impl Solver {
     /// Prove the literal assigned to variable `v` (in its assigned polarity).
     fn prove_var(&self, v: Var) -> DerivationTree {
         let val = self.assign[v].expect("prove_var on unassigned variable");
-        match self.reason[v].as_ref().expect("assigned variable lacks a reason") {
+        match self.reason[v]
+            .as_ref()
+            .expect("assigned variable lacks a reason")
+        {
             Reason::Premise(expr) => leaf(expr.clone()),
             Reason::Assumption => leaf(self.lit_expr(Lit { var: v, pos: val })),
             Reason::Rule(ri) => self.emit_rule_forward(*ri),
@@ -604,7 +676,12 @@ impl Solver {
 
     /// From a proof of a (possibly nested) conjunction, ∧-eliminate down to the conjunct
     /// whose literal is `want`.
-    fn project_conjunct(&self, conj: &ProofExpr, conj_tree: DerivationTree, want: Lit) -> DerivationTree {
+    fn project_conjunct(
+        &self,
+        conj: &ProofExpr,
+        conj_tree: DerivationTree,
+        want: Lit,
+    ) -> DerivationTree {
         match conj {
             ProofExpr::And(l, r) => {
                 if self.conjunct_has(l, want) {
@@ -629,7 +706,9 @@ impl Solver {
 
     /// Prove a literal expression `want` exactly (aligning Identity orientation).
     fn prove_lit_expr(&self, want: &ProofExpr) -> DerivationTree {
-        let lit = self.lit_of(want).expect("prove_lit_expr on an un-interned atom");
+        let lit = self
+            .lit_of(want)
+            .expect("prove_lit_expr on an un-interned atom");
         let base = self.prove_var(lit.var);
         align_to(base, want)
     }
@@ -675,7 +754,9 @@ impl Solver {
         let assumed = self.table.atoms[forced_v].clone();
         let ante_proof = self.prove_ante(&ante_form, Some(forced_v));
         let cons_tree = modus_ponens(cons_form.clone(), leaf(src), ante_proof);
-        let cons_lit = self.lit_of(&cons_form).expect("exclusion consequent must be a literal");
+        let cons_lit = self
+            .lit_of(&cons_form)
+            .expect("exclusion consequent must be a literal");
         let neg_cons = self.prove_var(cons_lit.var);
         // The consequent may be negative (a functionality rule `Li → ¬Lj`), so the
         // contradiction's polarity order is not fixed — let `make_contradiction` sort it.
@@ -706,7 +787,13 @@ impl Solver {
     /// Extract the surviving disjunct `target` from a (left-nested) disjunction whose
     /// every other disjunct is violated, by iterated disjunctive syllogism. `before` caps
     /// the trail position of the facts used to refute the other disjuncts (acyclicity).
-    fn extract_survivor(&self, or_expr: &ProofExpr, or_tree: DerivationTree, target: &ProofExpr, before: usize) -> DerivationTree {
+    fn extract_survivor(
+        &self,
+        or_expr: &ProofExpr,
+        or_tree: DerivationTree,
+        target: &ProofExpr,
+        before: usize,
+    ) -> DerivationTree {
         match or_expr {
             ProofExpr::Or(l, r) => {
                 if r.as_ref() == target {
@@ -738,7 +825,12 @@ impl Solver {
 
     /// Given `e_tree : e` (a disjunction, conjunction, or literal, all violated), derive ⊥,
     /// refuting using only facts assigned strictly before `before` where possible.
-    fn falsum_from_disj(&self, e: &ProofExpr, e_tree: DerivationTree, before: usize) -> DerivationTree {
+    fn falsum_from_disj(
+        &self,
+        e: &ProofExpr,
+        e_tree: DerivationTree,
+        before: usize,
+    ) -> DerivationTree {
         match e {
             ProofExpr::Or(l, r) => {
                 let lb = self.falsum_from_disj(l, leaf((**l).clone()), before);
@@ -795,7 +887,9 @@ impl Solver {
                 _ => None,
             },
             _ => match self.lit_of(e) {
-                Some(l) if self.value(l) == Some(false) && self.pos[l.var] < before => Some(self.pos[l.var]),
+                Some(l) if self.value(l) == Some(false) && self.pos[l.var] < before => {
+                    Some(self.pos[l.var])
+                }
                 _ => None,
             },
         }
@@ -879,7 +973,12 @@ impl Solver {
         result
     }
 
-    fn split_to_falsum(&mut self, or_expr: &ProofExpr, or_tree: DerivationTree, depth: usize) -> Option<DerivationTree> {
+    fn split_to_falsum(
+        &mut self,
+        or_expr: &ProofExpr,
+        or_tree: DerivationTree,
+        depth: usize,
+    ) -> Option<DerivationTree> {
         match or_expr {
             ProofExpr::Or(l, r) => {
                 let lb = self.branch(l, depth)?;
@@ -913,7 +1012,9 @@ impl Solver {
                 let mut ds = Vec::new();
                 flatten_or(d, &mut ds);
                 let lits = if ds.iter().all(is_literal) {
-                    ds.iter().map(|x| self.lit_of(x)).collect::<Option<Vec<Lit>>>()
+                    ds.iter()
+                        .map(|x| self.lit_of(x))
+                        .collect::<Option<Vec<Lit>>>()
                 } else {
                     None
                 };
@@ -953,7 +1054,9 @@ impl Solver {
                 let (ante_form, cons_form) = Self::split_implies(&src);
                 let ante_proof = self.prove_ante(&ante_form, None);
                 let cons_tree = modus_ponens(cons_form.clone(), leaf(src), ante_proof);
-                let cons_lit = self.lit_of(&cons_form).expect("rule consequent is a literal");
+                let cons_lit = self
+                    .lit_of(&cons_form)
+                    .expect("rule consequent is a literal");
                 let opp = self.prove_var(cons_lit.var);
                 make_contradiction(cons_tree, opp)
             }
@@ -968,7 +1071,9 @@ impl Solver {
     fn emit_conflict_info(&self, info: ConflictInfo) -> DerivationTree {
         match info {
             ConflictInfo::Clash { assumed } => {
-                let lit = self.lit_of(&assumed).expect("clashing atom must be interned");
+                let lit = self
+                    .lit_of(&assumed)
+                    .expect("clashing atom must be interned");
                 let existing = self.prove_var(lit.var);
                 make_contradiction(leaf(assumed), existing)
             }
@@ -1012,8 +1117,18 @@ impl Solver {
 
     /// Like `extract_survivor`, but the non-surviving disjuncts are refuted by SEARCH
     /// (assume + derive ⊥ + reductio) rather than read from the trail.
-    fn extract_by_search(&mut self, or_expr: &ProofExpr, or_tree: DerivationTree, target: &ProofExpr) -> Option<DerivationTree> {
-        debug_assert!(&or_tree.conclusion == or_expr, "extract_by_search mismatch:\n tree={:?}\n expr={:?}", or_tree.conclusion, or_expr);
+    fn extract_by_search(
+        &mut self,
+        or_expr: &ProofExpr,
+        or_tree: DerivationTree,
+        target: &ProofExpr,
+    ) -> Option<DerivationTree> {
+        debug_assert!(
+            &or_tree.conclusion == or_expr,
+            "extract_by_search mismatch:\n tree={:?}\n expr={:?}",
+            or_tree.conclusion,
+            or_expr
+        );
         match or_expr {
             ProofExpr::Or(l, r) => {
                 if r.as_ref() == target {
@@ -1078,7 +1193,9 @@ const MAX_DEPTH: usize = 64;
 
 enum ConflictInfo {
     /// An assumed literal clashes with the existing assignment of its variable.
-    Clash { assumed: ProofExpr },
+    Clash {
+        assumed: ProofExpr,
+    },
     Rule(usize),
     Clause(usize),
 }
@@ -1181,328 +1298,5 @@ pub fn grid_prove(premises: &[ProofExpr], goal: &ProofExpr) -> Option<Derivation
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{ProofExpr, ProofTerm};
-
-    fn c(s: &str) -> ProofTerm {
-        ProofTerm::Constant(s.to_string())
-    }
-    fn v(s: &str) -> ProofTerm {
-        ProofTerm::Variable(s.to_string())
-    }
-    fn pred(name: &str, args: Vec<ProofTerm>) -> ProofExpr {
-        ProofExpr::Predicate { name: name.to_string(), args, world: None }
-    }
-    fn imp(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::Implies(Box::new(a), Box::new(b))
-    }
-    fn or(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::Or(Box::new(a), Box::new(b))
-    }
-    fn and(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::And(Box::new(a), Box::new(b))
-    }
-    fn not(e: ProofExpr) -> ProofExpr {
-        ProofExpr::Not(Box::new(e))
-    }
-    fn id(a: ProofTerm, b: ProofTerm) -> ProofExpr {
-        ProofExpr::Identity(a, b)
-    }
-    fn forall(var: &str, body: ProofExpr) -> ProofExpr {
-        ProofExpr::ForAll { variable: var.to_string(), body: Box::new(body) }
-    }
-    fn exists(var: &str, body: ProofExpr) -> ProofExpr {
-        ProofExpr::Exists { variable: var.to_string(), body: Box::new(body) }
-    }
-
-    fn verify(premises: &[ProofExpr], goal: &ProofExpr, tree: DerivationTree) -> crate::verify::VerifiedProof {
-        crate::verify::check_derivation(premises, goal, tree)
-    }
-
-    // ── PHASE A: prove the emitter's tree SHAPES certify, before any search ──────
-
-    /// A propagation step (ModusPonens from a rule's reason) certifies.
-    #[test]
-    fn modus_ponens_shape_certifies() {
-        let p = pred("P", vec![c("Obj")]);
-        let q = pred("Q", vec![c("Obj")]);
-        let premises = vec![p.clone(), imp(p.clone(), q.clone())];
-        let tree = modus_ponens(q.clone(), leaf(imp(p.clone(), q.clone())), leaf(p));
-        let r = verify(&premises, &q, tree);
-        assert!(r.verified, "ModusPonens shape must certify; err: {:?}", r.verification_error);
-    }
-
-    /// A unit-clause propagation (disjunctive syllogism from the clause's reason) certifies.
-    #[test]
-    fn disjunction_elim_shape_certifies() {
-        let p = pred("P", vec![c("Obj")]);
-        let q = pred("Q", vec![c("Obj")]);
-        let premises = vec![or(p.clone(), q.clone()), not(p.clone())];
-        let tree = disjunction_elim(q.clone(), leaf(or(p.clone(), q.clone())), leaf(not(p)));
-        let r = verify(&premises, &q, tree);
-        assert!(r.verified, "DisjunctionElim shape must certify; err: {:?}", r.verification_error);
-    }
-
-    /// THE real grid shape, hand-built end to end: the 2-value bijection cell
-    /// `In(Beta, Maine)`, proved by closure (ModusPonens) + a reductio that fires the
-    /// at-most-one rule and closes the equality contradiction. Every node is a rule
-    /// the solver's emitter will produce — if this certifies, the emitter is sound.
-    #[test]
-    fn two_value_grid_cell_handbuilt_certifies() {
-        let trip = |t: ProofTerm| pred("Trip", vec![t]);
-        let in_ = |t: ProofTerm, s: ProofTerm| pred("In", vec![t, s]);
-        let fl = || c("Florida");
-        let me_ = || c("Maine");
-
-        // Grounded premises (what `ground_problem` yields, split into the instances
-        // the certifier registers as hypotheses):
-        let closure_beta = imp(trip(c("Beta")), or(in_(c("Beta"), fl()), in_(c("Beta"), me_())));
-        // at-most-one instance for the pair (Beta, Alpha):
-        //   ((Trip(Beta)∧In(Beta,FL)) ∧ (Trip(Alpha)∧In(Alpha,FL))) → Beta = Alpha
-        let amo_beta_alpha = imp(
-            and(and(trip(c("Beta")), in_(c("Beta"), fl())), and(trip(c("Alpha")), in_(c("Alpha"), fl()))),
-            id(c("Beta"), c("Alpha")),
-        );
-        let premises = vec![
-            trip(c("Alpha")),
-            trip(c("Beta")),
-            not(id(c("Alpha"), c("Beta"))),
-            closure_beta.clone(),
-            amo_beta_alpha.clone(),
-            in_(c("Alpha"), fl()),
-        ];
-        let goal = in_(c("Beta"), me_());
-
-        // ¬In(Beta,FL): assume In(Beta,FL); fire the at-most-one rule to get
-        // Beta=Alpha; symmetrise to Alpha=Beta; contradict ¬(Alpha=Beta).
-        let ante = conj_intro(
-            and(trip(c("Beta")), in_(c("Beta"), fl())),
-            and(trip(c("Alpha")), in_(c("Alpha"), fl())),
-            conj_intro(trip(c("Beta")), in_(c("Beta"), fl()), leaf(trip(c("Beta"))), leaf(in_(c("Beta"), fl()))),
-            conj_intro(trip(c("Alpha")), in_(c("Alpha"), fl()), leaf(trip(c("Alpha"))), leaf(in_(c("Alpha"), fl()))),
-        );
-        let beta_eq_alpha = modus_ponens(id(c("Beta"), c("Alpha")), leaf(amo_beta_alpha), ante);
-        let alpha_eq_beta = eq_sym(c("Beta"), c("Alpha"), beta_eq_alpha);
-        let contra = contradiction(alpha_eq_beta, leaf(not(id(c("Alpha"), c("Beta")))));
-        let neg_in_beta_fl = reductio(in_(c("Beta"), fl()), contra);
-
-        // closure: Trip(Beta) → In(Beta,FL)∨In(Beta,ME); MP with Trip(Beta).
-        let beta_disj = modus_ponens(
-            or(in_(c("Beta"), fl()), in_(c("Beta"), me_())),
-            leaf(closure_beta),
-            leaf(trip(c("Beta"))),
-        );
-        // Disjunctive syllogism: (In(Beta,FL)∨In(Beta,ME)), ¬In(Beta,FL) ⊢ In(Beta,ME).
-        let tree = disjunction_elim(in_(c("Beta"), me_()), beta_disj, neg_in_beta_fl);
-
-        let r = verify(&premises, &goal, tree);
-        assert!(r.verified, "hand-built 2-value grid cell must certify; err: {:?}", r.verification_error);
-    }
-
-    // ── PHASE B: the solver PROPAGATES and EMITS the certified tree itself ───────
-
-    /// The 2-value bijection, solved end to end by the incremental solver: ground the
-    /// universal premises, `grid_prove` propagates `¬In(Beta,FL)` (exclusion) then the
-    /// closure forces `In(Beta,Maine)`, and the emitted derivation kernel-certifies.
-    #[test]
-    fn two_value_grid_propagates_and_certifies() {
-        let trip = |t: ProofTerm| pred("Trip", vec![t]);
-        let in_ = |t: ProofTerm, s: ProofTerm| pred("In", vec![t, s]);
-        let fl = || c("Florida");
-        let me_ = || c("Maine");
-        let closure = forall("x", imp(trip(v("x")), or(in_(v("x"), fl()), in_(v("x"), me_()))));
-        let exactly_one_fl = forall(
-            "x",
-            forall(
-                "y",
-                imp(
-                    and(and(trip(v("x")), in_(v("x"), fl())), and(trip(v("y")), in_(v("y"), fl()))),
-                    id(v("x"), v("y")),
-                ),
-            ),
-        );
-        let premises = vec![
-            trip(c("Alpha")),
-            trip(c("Beta")),
-            not(id(c("Alpha"), c("Beta"))),
-            closure,
-            exactly_one_fl,
-            in_(c("Alpha"), fl()),
-        ];
-        let goal = in_(c("Beta"), me_());
-        let (gp, gg) = crate::grounding::ground_problem(&premises, &goal);
-        let tree = grid_prove(&gp, &gg).expect("2-value cell must be forced by propagation");
-        let r = verify(&gp, &gg, tree);
-        assert!(r.verified, "solver-emitted 2-value proof must certify; err: {:?}", r.verification_error);
-    }
-
-    /// A full-size multi-category grid (4 trips × 3 four-value categories), solved by
-    /// pure propagation: three states pinned, the fourth (`Delta → Maine`) forced by
-    /// exclusion over the state closure + at-most-one, with the irrelevant year/friend
-    /// categories present as noise. The solver emits a certified derivation.
-    #[test]
-    fn multi_category_grid_propagates_and_certifies() {
-        let trips = ["Alpha", "Beta", "Gamma", "Delta"];
-        let neq = |a: &str, b: &str| not(id(c(a), c(b)));
-        let mut premises: Vec<ProofExpr> = Vec::new();
-        let category = |rel: &str, vals: &[&str], out: &mut Vec<ProofExpr>| {
-            for t in trips {
-                let mut it = vals.iter().map(|val| pred(rel, vec![c(t), c(val)]));
-                let first = it.next().unwrap();
-                out.push(it.fold(first, or));
-            }
-            for val in vals {
-                for (i, t) in trips.iter().enumerate() {
-                    for u in &trips[i + 1..] {
-                        out.push(imp(
-                            and(pred(rel, vec![c(t), c(val)]), pred(rel, vec![c(u), c(val)])),
-                            id(c(t), c(u)),
-                        ));
-                    }
-                }
-            }
-        };
-        for (i, t) in trips.iter().enumerate() {
-            for u in &trips[i + 1..] {
-                premises.push(neq(t, u));
-            }
-        }
-        category("In", &["2001", "2002", "2003", "2004"], &mut premises);
-        category("In", &["CT", "FL", "KY", "ME"], &mut premises);
-        category("With", &["Bill", "Lillie", "Neal", "Yvonne"], &mut premises);
-        premises.push(pred("In", vec![c("Alpha"), c("FL")]));
-        premises.push(pred("In", vec![c("Beta"), c("KY")]));
-        premises.push(pred("In", vec![c("Gamma"), c("CT")]));
-        let goal = pred("In", vec![c("Delta"), c("ME")]);
-        let tree = grid_prove(&premises, &goal).expect("Delta→ME must be forced by propagation");
-        let r = verify(&premises, &goal, tree);
-        assert!(r.verified, "solver-emitted multi-category proof must certify; err: {:?}", r.verification_error);
-    }
-
-    // ── PHASE C: DPLL decision search over compound (of-pair) clauses ────────────
-
-    /// An of-pair clue ((In(A,FL) ∧ With(B,Neal)) ∨ (In(B,FL) ∧ With(A,Neal))) forces a
-    /// third trip OUT of Florida: assuming In(C,FL), the at-most-one rules exclude both
-    /// In(A,FL) and In(B,FL), collapsing the of-pair clause to ⊥. The solver searches
-    /// and emits a certified case-analysis derivation.
-    #[test]
-    fn of_pair_forces_cell_certifies() {
-        let in_fl = |t: &str| pred("In", vec![c(t), c("FL")]);
-        let amo = |t: &str, u: &str| imp(and(in_fl(t), in_fl(u)), id(c(t), c(u)));
-        let of_pair = or(
-            and(in_fl("A"), pred("With", vec![c("B"), c("Neal")])),
-            and(in_fl("B"), pred("With", vec![c("A"), c("Neal")])),
-        );
-        let premises = vec![
-            of_pair,
-            amo("A", "C"),
-            amo("B", "C"),
-            not(id(c("A"), c("C"))),
-            not(id(c("B"), c("C"))),
-            not(id(c("A"), c("B"))),
-        ];
-        let goal = not(in_fl("C"));
-        let tree = grid_prove(&premises, &goal).expect("of-pair must force ¬In(C,FL)");
-        let r = verify(&premises, &goal, tree);
-        assert!(r.verified, "solver-emitted of-pair proof must certify; err: {:?}", r.verification_error);
-    }
-
-    /// The compound of-pair shape: `(A ∧ (P ∨ Q)) ∨ (Bad ∧ C)` with `¬Bad`, `P→¬R`,
-    /// `Q→¬R`. Assuming `R`, the `(Bad ∧ C)` arm collapses on `¬Bad` and the `A∧(P∨Q)`
-    /// arm case-splits the inner `P ∨ Q`, both arms contradicting `R`. The solver finds
-    /// the nested case analysis and emits a certified ⊥, discharged by reductio to `¬R`.
-    #[test]
-    fn compound_of_pair_resolves_certifies() {
-        let a = pred("A", vec![c("Obj")]);
-        let p = pred("P", vec![c("Obj")]);
-        let q = pred("Q", vec![c("Obj")]);
-        let bad = pred("Bad", vec![c("Obj")]);
-        let cc = pred("C", vec![c("Obj")]);
-        let rr = pred("R", vec![c("Obj")]);
-        let of_pair = or(and(a, or(p.clone(), q.clone())), and(bad.clone(), cc));
-        let premises = vec![
-            of_pair,
-            not(bad),
-            imp(p, not(rr.clone())),
-            imp(q, not(rr.clone())),
-        ];
-        let goal = not(rr);
-        let tree = grid_prove(&premises, &goal).expect("compound of-pair must force ¬R");
-        let r = verify(&premises, &goal, tree);
-        assert!(r.verified, "solver-emitted compound of-pair proof must certify; err: {:?}", r.verification_error);
-    }
-
-    fn count_rule(t: &DerivationTree, rule_dbg: &str) -> usize {
-        let here = usize::from(format!("{:?}", t.rule).starts_with(rule_dbg));
-        here + t.premises.iter().map(|c| count_rule(c, rule_dbg)).sum::<usize>()
-    }
-
-    /// WAVE 1: a compound (of-pair-shaped) clause `(P∧Q) ∨ (R∧S)` with `¬R` refuting the
-    /// second disjunct — disjunctive syllogism forces the first, so `P` and `Q` are forced
-    /// by PROPAGATION (no search). The emitted proof must be LINEAR: zero `DisjunctionCases`.
-    #[test]
-    fn compound_clause_unit_propagates_linearly() {
-        let o = || c("Obj");
-        let p = pred("P", vec![o()]);
-        let q = pred("Q", vec![o()]);
-        let r = pred("R", vec![o()]);
-        let s = pred("S", vec![o()]);
-        let clause = or(and(p.clone(), q.clone()), and(r.clone(), s.clone()));
-        let premises = vec![clause, not(r)];
-        let tree = grid_prove(&premises, &p).expect("P must be forced by compound-clause propagation");
-        assert_eq!(
-            count_rule(&tree, "DisjunctionCases"),
-            0,
-            "compound-clause propagation must emit a LINEAR proof (no DisjunctionCases)"
-        );
-        let res = verify(&premises, &p, tree);
-        assert!(res.verified, "linear compound-clause proof must certify; err: {:?}", res.verification_error);
-    }
-
-    // ── PHASE E (de-risk): the REAL studio Simon, through prepare_premises ───────
-
-    /// The studio `Simon` example (2 trips × 2 categories: year {2003,2004} + state
-    /// {Florida,Maine}), run through the SAME preparation `ui_bridge::prepare_premises`
-    /// uses — `at_most_one_lemmas` + sort-aware grounding + `discharge_unary_facts` —
-    /// then solved and certified by `grid_solver`. The grounded `∃`-existence clauses
-    /// are skipped by `compile`; closures + at-most-one + the pins force `Beta∈Maine`.
-    #[test]
-    fn studio_simon_two_category_certifies() {
-        use crate::grounding::{
-            at_most_one_lemmas, discharge_unary_facts, domain_constants, ground_sorted, sort_domains,
-        };
-        let trip = |t: ProofTerm| pred("Trip", vec![t]);
-        let in_ = |t: ProofTerm, s: ProofTerm| pred("In", vec![t, s]);
-        let exactly_one = |val: &str| {
-            let phi = |t: ProofTerm| and(trip(t.clone()), in_(t, c(val)));
-            exists(
-                "x",
-                and(phi(v("x")), forall("y", imp(phi(v("y")), id(v("y"), v("x"))))),
-            )
-        };
-        let mut premises = vec![
-            trip(c("Alpha")),
-            trip(c("Beta")),
-            not(id(c("Alpha"), c("Beta"))),
-            forall("x", imp(trip(v("x")), or(in_(v("x"), c("2003")), in_(v("x"), c("2004"))))),
-            forall("x", imp(trip(v("x")), or(in_(v("x"), c("Florida")), in_(v("x"), c("Maine"))))),
-            exactly_one("2003"),
-            exactly_one("Florida"),
-            in_(c("Alpha"), c("2003")),
-            in_(c("Alpha"), c("Florida")),
-        ];
-        let goal = in_(c("Beta"), c("Maine"));
-        // prepare_premises (tense erasure is a no-op for present-tense "is in").
-        premises.extend(at_most_one_lemmas(&premises));
-        let mut all = premises.clone();
-        all.push(goal.clone());
-        let fallback = domain_constants(&all);
-        let sorts = sort_domains(&premises);
-        let grounded: Vec<ProofExpr> = premises.iter().map(|p| ground_sorted(p, &sorts, &fallback)).collect();
-        let prepared = discharge_unary_facts(&grounded);
-        let tree = grid_prove(&prepared, &goal).expect("studio Simon must solve by propagation");
-        let r = verify(&prepared, &goal, tree);
-        assert!(r.verified, "studio Simon (2-category) must certify via grid_solver; err: {:?}", r.verification_error);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/grid_solver/tests.rs"]
+mod tests;

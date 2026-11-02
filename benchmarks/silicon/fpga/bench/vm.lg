@@ -1,0 +1,42 @@
+## Main
+Let n be 64.
+Let mutable regs be a new Seq of Int.
+Let mutable i be 0.
+While i is less than 8:
+    Push i + 1 to regs.
+    Set i to i + 1.
+Let mutable seed be 42.
+Let mutable k be 0.
+While k is less than n:
+    Set seed to (seed * 25173 + 13849) % 65536.
+    Let lo be (seed / 2) % 32768.
+    Set seed to (seed * 25173 + 13849) % 65536.
+    Let hi be (seed / 2) % 32768.
+    Let instr be lo + hi * 32768.
+    Let op be instr % 8.
+    Let dst be (instr / 8) % 8.
+    Let a be (instr / 64) % 8.
+    Let imm be (instr / 512) % 251.
+    If op equals 0:
+        Set item (dst + 1) of regs to imm.
+    If op equals 1:
+        Set item (dst + 1) of regs to (item (dst + 1) of regs + item (a + 1) of regs) % 1000000007.
+    If op equals 2:
+        Set item (dst + 1) of regs to (item (dst + 1) of regs + 1000000007 - item (a + 1) of regs) % 1000000007.
+    If op equals 3:
+        Set item (dst + 1) of regs to (item (dst + 1) of regs * item (a + 1) of regs + 1) % 1000000007.
+    If op equals 4:
+        Set item (dst + 1) of regs to (item (dst + 1) of regs + imm) % 1000000007.
+    If op equals 5:
+        Set item (dst + 1) of regs to (item (dst + 1) of regs * (imm + 1)) % 1000000007.
+    If op equals 6:
+        Set item (dst + 1) of regs to item (a + 1) of regs.
+    If op equals 7:
+        Set item (dst + 1) of regs to (item (dst + 1) of regs + item (a + 1) of regs + imm) % 1000000007.
+    Set k to k + 1.
+Let mutable checksum be 0.
+Set i to 0.
+While i is less than 8:
+    Set checksum to (checksum + (i + 1) * (item (i + 1) of regs)) % 1000000007.
+    Set i to i + 1.
+Show checksum.

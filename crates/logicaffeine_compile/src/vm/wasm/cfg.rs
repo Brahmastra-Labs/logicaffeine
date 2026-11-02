@@ -13,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use super::encode::{leb_u32, local_get, VOID_BLOCKTYPE};
+use super::encode::{i32_const, leb_u32, local_get, local_set, VOID_BLOCKTYPE};
 use crate::vm::instruction::Op;
 
 /// The basic-block partition of a region of `n` ops with region-local (0-based) jump targets:
@@ -60,7 +60,16 @@ impl Blocks {
                         leaders.insert(i + 1);
                     }
                 }
-                Op::Return { .. } | Op::ReturnNothing | Op::Halt | Op::FailWith { .. } => {
+                Op::Return { .. }
+                | Op::ReturnNothing
+                | Op::Halt
+                | Op::FailWith { .. }
+                | Op::CallBuiltin {
+                    builtin:
+                        crate::semantics::builtins::BuiltinId::Fail
+                        | crate::semantics::builtins::BuiltinId::FailReason,
+                    ..
+                } => {
                     if i + 1 < n {
                         leaders.insert(i + 1);
                     }
@@ -68,7 +77,10 @@ impl Blocks {
                 _ => {}
             }
         }
-        Some(Blocks { leaders: leaders.into_iter().collect(), n })
+        Some(Blocks {
+            leaders: leaders.into_iter().collect(),
+            n,
+        })
     }
 
     pub(crate) fn num_blocks(&self) -> usize {
@@ -84,7 +96,9 @@ impl Blocks {
     /// The dispatch-block index of pc `pc` (which is always a leader by construction — every
     /// jump target and fallthrough is one).
     pub(crate) fn block_of(&self, pc: usize) -> usize {
-        self.leaders.binary_search(&pc).expect("pc is a leader by construction")
+        self.leaders
+            .binary_search(&pc)
+            .expect("pc is a leader by construction")
     }
 
     /// The first pc of block `k`.
@@ -105,6 +119,34 @@ impl Blocks {
     pub(crate) fn br_loop(&self, k: usize) -> u32 {
         (self.num_blocks() - 1 - k) as u32
     }
+}
+
+/// Set the dispatch loop's "next block" local to block `k` — the ONE spelling of "the next block
+/// is k" both emitters use. The immediate is an `i32.const`, whose LEB128 is SIGNED: below 64 the
+/// signed and unsigned encodings coincide, but 64..=127 unsigned is a single byte with bit 6 set,
+/// which the engine reads as a negative index — `br_table` falls to its default, control leaves
+/// the loop, and the epilogue `unreachable` traps. Every function with more than 64 basic blocks
+/// hit that until block indices were routed through here (`wasm_large_function_lock`).
+pub(crate) fn set_next_block(code: &mut Vec<u8>, pc_local: u32, k: usize) {
+    i32_const(
+        code,
+        i32::try_from(k).expect("a dispatch block index fits an i32"),
+    );
+    local_set(code, pc_local);
+}
+
+/// Set the next block to `target` and re-dispatch from block `from`: `set_next_block` followed
+/// by the `br $loop` at the right depth — the unconditional-jump and fallthrough terminator.
+pub(crate) fn goto_block(
+    code: &mut Vec<u8>,
+    pc_local: u32,
+    blocks: &Blocks,
+    from: usize,
+    target: usize,
+) {
+    set_next_block(code, pc_local, target);
+    code.push(0x0C); // br $loop
+    leb_u32(code, blocks.br_loop(from));
 }
 
 /// Assemble the dispatch-loop body from each block's already-lowered code, returning the bytes
@@ -130,7 +172,7 @@ pub(crate) fn assemble_dispatch_loop(pc_local: u32, blocks_code: &[Vec<u8>]) -> 
         leb_u32(&mut body, k as u32);
     }
     leb_u32(&mut body, (num_blocks + 1) as u32); // default → $exit (one past $loop)
-    // Close each dispatch block, emitting its code after the corresponding `end`.
+                                                 // Close each dispatch block, emitting its code after the corresponding `end`.
     for code in blocks_code {
         body.push(0x0B); // end (closes the innermost remaining dispatch block)
         body.extend_from_slice(code);

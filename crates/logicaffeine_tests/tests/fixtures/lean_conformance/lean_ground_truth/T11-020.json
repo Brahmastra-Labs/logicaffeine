@@ -1,0 +1,150 @@
+{
+  "case": "T11-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 20,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T11_020.Sized",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T11_020.Sized a \u2192 Prop} {a : Nat} (t : T11_020.Sized a),\n  (\u2200 (payload bound : Nat), motive (payload + bound) \u22ef) \u2192 motive a t",
+      "name": "T11_020.Sized.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (payload bound : Nat), T11_020.Sized (payload + bound)",
+      "name": "T11_020.Sized.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T11_020.Sized a \u2192 Prop},\n  (\u2200 (payload bound : Nat), motive (payload + bound) \u22ef) \u2192 \u2200 {a : Nat} (t : T11_020.Sized a), motive a t",
+      "name": "T11_020.Sized.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T11_020.Sized a \u2192 Prop} {a : Nat} (t : T11_020.Sized a),\n  (\u2200 (payload bound : Nat), motive (payload + bound) \u22ef) \u2192 motive a t",
+      "name": "T11_020.Sized.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 Prop",
+      "name": "T11_020.Tag",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Bool) \u2192 T11_020.Tag a \u2192 Prop} {a : Bool} (t : T11_020.Tag a),\n  (\u2200 (n : Nat), motive (n == 0) \u22ef) \u2192 motive a t",
+      "name": "T11_020.Tag.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_020.Tag (n == 0)",
+      "name": "T11_020.Tag.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Bool) \u2192 T11_020.Tag a \u2192 Prop},\n  (\u2200 (n : Nat), motive (n == 0) \u22ef) \u2192 \u2200 {a : Bool} (t : T11_020.Tag a), motive a t",
+      "name": "T11_020.Tag.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Bool) \u2192 T11_020.Tag a \u2192 Prop} {a : Bool} (t : T11_020.Tag a),\n  (\u2200 (n : Nat), motive (n == 0) \u22ef) \u2192 motive a t",
+      "name": "T11_020.Tag.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Prop",
+      "name": "T11_020.Wrap",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T11_020.Wrap \u03b1 \u2192 Prop} (t : T11_020.Wrap \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T11_020.Wrap.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, \u03b1 \u2192 T11_020.Wrap \u03b1",
+      "name": "T11_020.Wrap.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T11_020.Wrap \u03b1 \u2192 Prop}, (\u2200 (a : \u03b1), motive \u22ef) \u2192 \u2200 (t : T11_020.Wrap \u03b1), motive t",
+      "name": "T11_020.Wrap.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T11_020.Wrap \u03b1 \u2192 Prop} (t : T11_020.Wrap \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T11_020.Wrap.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {r : \u03b1 \u2192 \u03b1 \u2192 Prop} \u2192 {a : \u03b1} \u2192 Acc r a \u2192 Nat",
+      "name": "T11_020.accToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {n : Nat}, T11_020.Sized n \u2192 True",
+      "name": "T11_020.sizedTrivial",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : T11_020.Tag false), p = q",
+      "name": "T11_020.tagIrrelevant",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {b : Bool}, T11_020.Tag b \u2192 True",
+      "name": "T11_020.tagTrivial",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, T11_020.Wrap \u03b1 \u2192 True",
+      "name": "T11_020.wrapTrivial",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

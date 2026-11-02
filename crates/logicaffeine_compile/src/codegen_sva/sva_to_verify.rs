@@ -39,49 +39,108 @@ pub enum BoundedExpr {
     Unsupported(String),
 
     // ---- Multi-sorted extensions (SUPERCRUSH S0C) ----
-
     /// Bitvector constant with explicit width
     BitVecConst { width: u32, value: u64 },
     /// Bitvector variable with known width
     BitVecVar(String, u32),
     /// Bitvector binary operation
-    BitVecBinary { op: BitVecBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
+    BitVecBinary {
+        op: BitVecBoundedOp,
+        left: Box<BoundedExpr>,
+        right: Box<BoundedExpr>,
+    },
     /// Bitvector extraction: operand\[high:low\]
-    BitVecExtract { high: u32, low: u32, operand: Box<BoundedExpr> },
+    BitVecExtract {
+        high: u32,
+        low: u32,
+        operand: Box<BoundedExpr>,
+    },
     /// Bitvector concatenation
     BitVecConcat(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Bitvector if-then-else — a predicated SELECT (the CGRA mux tile): `cond ? then : else_`,
+    /// where `cond` is boolean-valued and `then`/`else_` are same-width bitvectors. Lowered
+    /// bit-by-bit through the existing 1-bit mux, so branchy dataflow reduces to pure data.
+    BitVecIte {
+        cond: Box<BoundedExpr>,
+        then: Box<BoundedExpr>,
+        else_: Box<BoundedExpr>,
+    },
     /// Array select: array\[index\]
-    ArraySelect { array: Box<BoundedExpr>, index: Box<BoundedExpr> },
+    ArraySelect {
+        array: Box<BoundedExpr>,
+        index: Box<BoundedExpr>,
+    },
     /// Array store: array\[index\] := value
-    ArrayStore { array: Box<BoundedExpr>, index: Box<BoundedExpr>, value: Box<BoundedExpr> },
+    ArrayStore {
+        array: Box<BoundedExpr>,
+        index: Box<BoundedExpr>,
+        value: Box<BoundedExpr>,
+    },
     /// Integer arithmetic binary operation
-    IntBinary { op: ArithBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
+    IntBinary {
+        op: ArithBoundedOp,
+        left: Box<BoundedExpr>,
+        right: Box<BoundedExpr>,
+    },
     /// Comparison returning Bool from Int/BV operands
-    Comparison { op: CmpBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
+    Comparison {
+        op: CmpBoundedOp,
+        left: Box<BoundedExpr>,
+        right: Box<BoundedExpr>,
+    },
     /// Universal quantifier
-    ForAll { var: String, sort: BoundedSort, body: Box<BoundedExpr> },
+    ForAll {
+        var: String,
+        sort: BoundedSort,
+        body: Box<BoundedExpr>,
+    },
     /// Existential quantifier
-    Exists { var: String, sort: BoundedSort, body: Box<BoundedExpr> },
+    Exists {
+        var: String,
+        sort: BoundedSort,
+        body: Box<BoundedExpr>,
+    },
     /// Uninterpreted function application (system functions like $onehot0, $bits, $clog2)
-    Apply { name: String, args: Vec<BoundedExpr> },
+    Apply {
+        name: String,
+        args: Vec<BoundedExpr>,
+    },
 }
 
 /// Bitvector operations in bounded IR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BitVecBoundedOp {
-    And, Or, Xor, Not, Shl, Shr, AShr, Add, Sub, Mul, ULt, SLt, Eq,
+    And,
+    Or,
+    Xor,
+    Not,
+    Shl,
+    Shr,
+    AShr,
+    Add,
+    Sub,
+    Mul,
+    ULt,
+    SLt,
+    Eq,
 }
 
 /// Arithmetic operations in bounded IR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArithBoundedOp {
-    Add, Sub, Mul, Div,
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 /// Comparison operations in bounded IR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CmpBoundedOp {
-    Gt, Lt, Gte, Lte,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
 }
 
 /// Sort annotation for bounded quantifiers.
@@ -325,10 +384,7 @@ impl SvaTranslator {
                 // When disable condition is active, property is vacuously true
                 let cond = self.translate(condition, t);
                 let prop = self.translate(body, t);
-                BoundedExpr::Implies(
-                    Box::new(BoundedExpr::Not(Box::new(cond))),
-                    Box::new(prop),
-                )
+                BoundedExpr::Implies(Box::new(BoundedExpr::Not(Box::new(cond))), Box::new(prop))
             }
 
             SvaExpr::Repetition { body, min, max } => {
@@ -386,7 +442,11 @@ impl SvaTranslator {
                 result.unwrap_or(BoundedExpr::Bool(true))
             }
 
-            SvaExpr::IfElse { condition, then_expr, else_expr } => {
+            SvaExpr::IfElse {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
                 // if (C) P else Q → (C@t → P@t) ∧ (¬C@t → Q@t)
                 let c = self.translate(condition, t);
                 let p = self.translate(then_expr, t);
@@ -401,7 +461,6 @@ impl SvaTranslator {
             }
 
             // ── IEEE 1800 Extended (Sprint 1B) ──
-
             SvaExpr::NotEq(left, right) => {
                 // a != b → ¬(a == b) at timestep t
                 let l = self.translate(left, t);
@@ -433,7 +492,11 @@ impl SvaTranslator {
                 BoundedExpr::Gte(Box::new(l), Box::new(r))
             }
 
-            SvaExpr::Ternary { condition, then_expr, else_expr } => {
+            SvaExpr::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
                 // cond ? a : b → (cond@t ∧ a@t) ∨ (¬cond@t ∧ b@t)
                 let c = self.translate(condition, t);
                 let a = self.translate(then_expr, t);
@@ -466,10 +529,7 @@ impl SvaTranslator {
                     }
                     let sig_all = sig_conj.unwrap_or(BoundedExpr::Bool(true));
                     // Both signal-at-every-tick AND sequence condition must hold
-                    let case = BoundedExpr::And(
-                        Box::new(sig_all),
-                        Box::new(sm.condition.clone()),
-                    );
+                    let case = BoundedExpr::And(Box::new(sig_all), Box::new(sm.condition.clone()));
                     outer = Some(match outer {
                         None => case,
                         Some(acc) => BoundedExpr::Or(Box::new(acc), Box::new(case)),
@@ -522,7 +582,9 @@ impl SvaTranslator {
                     if m.length == min_length {
                         result = Some(match result {
                             None => m.condition.clone(),
-                            Some(acc) => BoundedExpr::Or(Box::new(acc), Box::new(m.condition.clone())),
+                            Some(acc) => {
+                                BoundedExpr::Or(Box::new(acc), Box::new(m.condition.clone()))
+                            }
                         });
                     }
                 }
@@ -556,7 +618,6 @@ impl SvaTranslator {
             }
 
             // ── IEEE 1800 System Functions (Audit) ──
-
             SvaExpr::OneHot0(inner) => {
                 let sig = self.translate(inner, t);
                 BoundedExpr::Apply {
@@ -625,7 +686,6 @@ impl SvaTranslator {
             }
 
             // ── Sprint 13 System Functions ──
-
             SvaExpr::CountBits(inner, control_chars) => {
                 let sig = self.translate(inner, t);
                 BoundedExpr::Apply {
@@ -641,7 +701,6 @@ impl SvaTranslator {
             }
 
             // ── Advanced Sequences (Audit) ──
-
             SvaExpr::GotoRepetition { body, count } => {
                 if *count == 0 {
                     BoundedExpr::Bool(true)
@@ -710,7 +769,6 @@ impl SvaTranslator {
             }
 
             // ── Property Abort Operators (Audit) ──
-
             SvaExpr::AcceptOn { condition, body } => {
                 // accept_on(C) P ≡ C ∨ P
                 let c = self.translate(condition, t);
@@ -722,14 +780,10 @@ impl SvaTranslator {
                 // reject_on(C) P ≡ ¬C ∧ P
                 let c = self.translate(condition, t);
                 let p = self.translate(body, t);
-                BoundedExpr::And(
-                    Box::new(BoundedExpr::Not(Box::new(c))),
-                    Box::new(p),
-                )
+                BoundedExpr::And(Box::new(BoundedExpr::Not(Box::new(c))), Box::new(p))
             }
 
             // ── Property Connectives (Sprint 1, IEEE 16.12.3-8) ──
-
             SvaExpr::PropertyNot(inner) => {
                 let i = self.translate(inner, t);
                 BoundedExpr::Not(Box::new(i))
@@ -746,13 +800,15 @@ impl SvaTranslator {
                 let l = self.translate(left, t);
                 let r = self.translate(right, t);
                 BoundedExpr::And(
-                    Box::new(BoundedExpr::Implies(Box::new(l.clone()), Box::new(r.clone()))),
+                    Box::new(BoundedExpr::Implies(
+                        Box::new(l.clone()),
+                        Box::new(r.clone()),
+                    )),
                     Box::new(BoundedExpr::Implies(Box::new(r), Box::new(l))),
                 )
             }
 
             // ── LTL Temporal Operators (Sprint 2, IEEE 16.12.11-13) ──
-
             SvaExpr::Always(inner) => {
                 // always p → ∀t ∈ [0, bound). p@t (weak: passes if trace ends)
                 let remaining = if self.bound > t { self.bound - t } else { 1 };
@@ -775,7 +831,9 @@ impl SvaTranslator {
                 };
                 let mut result: Option<BoundedExpr> = None;
                 for i in *min..=effective_max {
-                    if t + i >= self.bound + t { break; } // clamp
+                    if t + i >= self.bound + t {
+                        break;
+                    } // clamp
                     let b = self.translate(body, t + i);
                     result = Some(match result {
                         None => b,
@@ -828,7 +886,12 @@ impl SvaTranslator {
                 result.unwrap_or(BoundedExpr::Bool(false))
             }
 
-            SvaExpr::Until { lhs, rhs, strong, inclusive } => {
+            SvaExpr::Until {
+                lhs,
+                rhs,
+                strong,
+                inclusive,
+            } => {
                 // Bounded until encoding:
                 // ∃k ∈ [t, t+bound). rhs@k ∧ (∀j ∈ [t, k). lhs@j)
                 //   For inclusive (until_with): ∀j ∈ [t, k]. lhs@j (includes k)
@@ -875,7 +938,6 @@ impl SvaTranslator {
             }
 
             // ── Sprint 3: Strong/Weak, Advanced Temporal, Sync Abort ──
-
             SvaExpr::Strong(inner) => {
                 // strong(seq): existential — at least one match endpoint MUST exist
                 // within bound. Translate as disjunction over sequence match endpoints.
@@ -943,7 +1005,11 @@ impl SvaTranslator {
                 }
             }
 
-            SvaExpr::FollowedBy { antecedent, consequent, overlapping } => {
+            SvaExpr::FollowedBy {
+                antecedent,
+                consequent,
+                overlapping,
+            } => {
                 // seq #-# prop ≡ not (seq |-> not prop) (IEEE p.430)
                 // seq #=# prop ≡ not (seq |=> not prop)
                 let impl_expr = SvaExpr::Implication {
@@ -955,7 +1021,11 @@ impl SvaTranslator {
                 BoundedExpr::Not(Box::new(impl_result))
             }
 
-            SvaExpr::PropertyCase { expression, items, default } => {
+            SvaExpr::PropertyCase {
+                expression,
+                items,
+                default,
+            } => {
                 // case(expr) val: prop; ... → nested if-else
                 let expr_val = self.translate(expression, t);
                 let mut result = match default {
@@ -969,7 +1039,8 @@ impl SvaTranslator {
                     let mut cond: Option<BoundedExpr> = None;
                     for v in vals {
                         let v_translated = self.translate(v, t);
-                        let eq = BoundedExpr::Eq(Box::new(expr_val.clone()), Box::new(v_translated));
+                        let eq =
+                            BoundedExpr::Eq(Box::new(expr_val.clone()), Box::new(v_translated));
                         cond = Some(match cond {
                             None => eq,
                             Some(acc) => BoundedExpr::Or(Box::new(acc), Box::new(eq)),
@@ -978,7 +1049,10 @@ impl SvaTranslator {
                     let condition = cond.unwrap_or(BoundedExpr::Bool(false));
                     // if condition then prop else previous
                     result = BoundedExpr::And(
-                        Box::new(BoundedExpr::Implies(Box::new(condition.clone()), Box::new(prop_translated))),
+                        Box::new(BoundedExpr::Implies(
+                            Box::new(condition.clone()),
+                            Box::new(prop_translated),
+                        )),
                         Box::new(BoundedExpr::Implies(
                             Box::new(BoundedExpr::Not(Box::new(condition))),
                             Box::new(result),
@@ -1000,14 +1074,10 @@ impl SvaTranslator {
                 // sync_reject_on(C) P — like reject_on but C sampled at clock ticks only
                 let c = self.translate(condition, t);
                 let p = self.translate(body, t);
-                BoundedExpr::And(
-                    Box::new(BoundedExpr::Not(Box::new(c))),
-                    Box::new(p),
-                )
+                BoundedExpr::And(Box::new(BoundedExpr::Not(Box::new(c))), Box::new(p))
             }
 
             // ── Sprint 5: Sequence-level AND & OR ──
-
             SvaExpr::SequenceAnd(left, right) => {
                 // IEEE 16.9.5 Thread semantics: both start at t, both must match,
                 // composite ends at whichever finishes LAST (max endpoint).
@@ -1047,20 +1117,19 @@ impl SvaTranslator {
             }
 
             // ── Sprint 7: Assertion Directives ──
-
             SvaExpr::ImmediateAssert { expression, .. } => {
                 // Immediate assert → combinational check at each timestep
                 self.translate(expression, t)
             }
 
             // ── Sprint 13: Complex Data Types ──
-
             SvaExpr::FieldAccess { signal, field } => {
                 let sig = self.translate(signal, t);
                 // Field access → create a derived variable name
                 match &sig {
                     BoundedExpr::Var(name) => {
-                        let field_var = format!("{}.{}", name.split('@').next().unwrap_or(name), field);
+                        let field_var =
+                            format!("{}.{}", name.split('@').next().unwrap_or(name), field);
                         let var_name = format!("{}@{}", field_var, t);
                         self.declarations.insert(var_name.clone());
                         BoundedExpr::Var(var_name)
@@ -1075,7 +1144,6 @@ impl SvaTranslator {
             }
 
             // ── Sprint 14: Endpoint Methods ──
-
             SvaExpr::Triggered(name) => {
                 let var_name = format!("{}.triggered@{}", name, t);
                 self.declarations.insert(var_name.clone());
@@ -1089,59 +1157,93 @@ impl SvaTranslator {
             }
 
             // ── Sprint 15: Bitwise Operators ──
-
             SvaExpr::BitAnd(l, r) => {
                 let left = self.translate(l, t);
                 let right = self.translate(r, t);
-                BoundedExpr::BitVecBinary { op: BitVecBoundedOp::And, left: Box::new(left), right: Box::new(right) }
+                BoundedExpr::BitVecBinary {
+                    op: BitVecBoundedOp::And,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
             }
 
             SvaExpr::BitOr(l, r) => {
                 let left = self.translate(l, t);
                 let right = self.translate(r, t);
-                BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Or, left: Box::new(left), right: Box::new(right) }
+                BoundedExpr::BitVecBinary {
+                    op: BitVecBoundedOp::Or,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
             }
 
             SvaExpr::BitXor(l, r) => {
                 let left = self.translate(l, t);
                 let right = self.translate(r, t);
-                BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Xor, left: Box::new(left), right: Box::new(right) }
+                BoundedExpr::BitVecBinary {
+                    op: BitVecBoundedOp::Xor,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                }
             }
 
             SvaExpr::BitNot(inner) => {
                 let i = self.translate(inner, t);
-                BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Not, left: Box::new(i.clone()), right: Box::new(i) }
+                BoundedExpr::BitVecBinary {
+                    op: BitVecBoundedOp::Not,
+                    left: Box::new(i.clone()),
+                    right: Box::new(i),
+                }
             }
 
             SvaExpr::ReductionAnd(inner) => {
                 let sig = self.translate(inner, t);
-                BoundedExpr::Apply { name: "reduction_and".to_string(), args: vec![sig] }
+                BoundedExpr::Apply {
+                    name: "reduction_and".to_string(),
+                    args: vec![sig],
+                }
             }
 
             SvaExpr::ReductionOr(inner) => {
                 let sig = self.translate(inner, t);
-                BoundedExpr::Apply { name: "reduction_or".to_string(), args: vec![sig] }
+                BoundedExpr::Apply {
+                    name: "reduction_or".to_string(),
+                    args: vec![sig],
+                }
             }
 
             SvaExpr::ReductionXor(inner) => {
                 let sig = self.translate(inner, t);
-                BoundedExpr::Apply { name: "reduction_xor".to_string(), args: vec![sig] }
+                BoundedExpr::Apply {
+                    name: "reduction_xor".to_string(),
+                    args: vec![sig],
+                }
             }
 
             SvaExpr::BitSelect { signal, index } => {
                 let s = self.translate(signal, t);
                 let i = self.translate(index, t);
-                BoundedExpr::ArraySelect { array: Box::new(s), index: Box::new(i) }
+                BoundedExpr::ArraySelect {
+                    array: Box::new(s),
+                    index: Box::new(i),
+                }
             }
 
             SvaExpr::PartSelect { signal, high, low } => {
                 let s = self.translate(signal, t);
-                BoundedExpr::BitVecExtract { high: *high, low: *low, operand: Box::new(s) }
+                BoundedExpr::BitVecExtract {
+                    high: *high,
+                    low: *low,
+                    operand: Box::new(s),
+                }
             }
 
             SvaExpr::Concat(items) => {
                 if items.len() < 2 {
-                    return items.first().map(|i| self.translate(i, t)).unwrap_or(BoundedExpr::Bool(false));
+                    return items
+                        .first()
+                        .map(|i| self.translate(i, t))
+                        .unwrap_or(BoundedExpr::Bool(false));
                 }
                 let mut result = self.translate(&items[0], t);
                 for item in &items[1..] {
@@ -1152,8 +1254,10 @@ impl SvaTranslator {
             }
 
             // ── Sprint 10: Local Variables ──
-
-            SvaExpr::SequenceAction { expression, assignments } => {
+            SvaExpr::SequenceAction {
+                expression,
+                assignments,
+            } => {
                 // The expression must hold, and all assignments capture values at this tick.
                 // IEEE 16.10: assignments bind local variables to values at this timestep.
                 // v = data_in at tick t → v resolves to data_in@t in subsequent references.
@@ -1179,7 +1283,6 @@ impl SvaTranslator {
             }
 
             // ── Sprint 18: const' cast ──
-
             SvaExpr::ConstCast(inner) => {
                 // IEEE 16.14.6.1: const'(expr) freezes the value at assertion queue time.
                 // In an implication, the queue time is the antecedent's timestep.
@@ -1208,9 +1311,7 @@ impl SvaTranslator {
             SvaExpr::ArrayMap { .. } => {
                 BoundedExpr::Unsupported("array map with unknown size".to_string())
             }
-            SvaExpr::TypeThis => {
-                BoundedExpr::Unsupported("type(this) in class scope".to_string())
-            }
+            SvaExpr::TypeThis => BoundedExpr::Unsupported("type(this) in class scope".to_string()),
             SvaExpr::RealConst(_) => {
                 // Real constants are used in checker assume constraints (e.g., r > 1.5)
                 // They participate in Z3 Real arithmetic directly
@@ -1238,16 +1339,21 @@ impl SvaTranslator {
                     Some(max_val) if max_val == min => {
                         // Exact delay ##N: single offset at min
                         let body_matches = self.translate_sequence(body, t + min);
-                        body_matches.into_iter().map(|bm| SequenceMatch {
-                            condition: bm.condition,
-                            length: min + bm.length,
-                        }).collect()
+                        body_matches
+                            .into_iter()
+                            .map(|bm| SequenceMatch {
+                                condition: bm.condition,
+                                length: min + bm.length,
+                            })
+                            .collect()
                     }
                     Some(max_val) => {
                         // Range delay ##[min:max]: one possible match per offset
                         let mut matches = Vec::new();
                         for offset in *min..=*max_val {
-                            if t + offset > t + self.bound { break; }
+                            if t + offset > t + self.bound {
+                                break;
+                            }
                             let body_matches = self.translate_sequence(body, t + offset);
                             for bm in body_matches {
                                 matches.push(SequenceMatch {
@@ -1268,7 +1374,9 @@ impl SvaTranslator {
                         // Unbounded delay ##[min:$]: clamp to bound
                         let mut matches = Vec::new();
                         for offset in *min..=self.bound {
-                            if t + offset > t + self.bound { break; }
+                            if t + offset > t + self.bound {
+                                break;
+                            }
                             let body_matches = self.translate_sequence(body, t + offset);
                             for bm in body_matches {
                                 matches.push(SequenceMatch {
@@ -1296,7 +1404,9 @@ impl SvaTranslator {
                 };
                 let mut all_matches = Vec::new();
                 for count in *min..=effective_max {
-                    if count > self.bound + 1 { break; }
+                    if count > self.bound + 1 {
+                        break;
+                    }
                     if count == 0 {
                         // [*0] matches immediately (empty sequence)
                         all_matches.push(SequenceMatch {
@@ -1309,7 +1419,9 @@ impl SvaTranslator {
                     // The existing translate() evaluates body at offsets 0..N.
                     // Length = N - 1 (last match at offset N-1).
                     let total_length = count - 1;
-                    if t + total_length > t + self.bound { break; }
+                    if t + total_length > t + self.bound {
+                        break;
+                    }
                     let mut cond: Option<BoundedExpr> = None;
                     for offset in 0..count {
                         let b = self.translate(body, t + offset);
@@ -1335,17 +1447,25 @@ impl SvaTranslator {
             // --- Sequence concatenation via Implication (a ##N b) ---
             // In the parser, `a ##N b` → Implication { ante: a, cons: Delay{b,N,None}, overlapping: true }
             // In sequence context, this is conjunction, not material implication.
-            SvaExpr::Implication { antecedent, consequent, overlapping } => {
+            SvaExpr::Implication {
+                antecedent,
+                consequent,
+                overlapping,
+            } => {
                 let ante_matches = self.translate_sequence(antecedent, t);
                 let mut all_matches = Vec::new();
                 for am in &ante_matches {
                     let gap = if *overlapping { 0u32 } else { 1u32 };
                     let cons_start = t + am.length + gap;
-                    if cons_start > t + self.bound { continue; }
+                    if cons_start > t + self.bound {
+                        continue;
+                    }
                     let cons_matches = self.translate_sequence(consequent, cons_start);
                     for cm in &cons_matches {
                         let total_length = am.length + gap + cm.length;
-                        if total_length > self.bound { continue; }
+                        if total_length > self.bound {
+                            continue;
+                        }
                         all_matches.push(SequenceMatch {
                             condition: BoundedExpr::And(
                                 Box::new(am.condition.clone()),
@@ -1367,10 +1487,16 @@ impl SvaTranslator {
             // --- Goto repetition: [->N] ---
             SvaExpr::GotoRepetition { body, count } => {
                 if *count == 0 {
-                    return vec![SequenceMatch { condition: BoundedExpr::Bool(true), length: 0 }];
+                    return vec![SequenceMatch {
+                        condition: BoundedExpr::Bool(true),
+                        length: 0,
+                    }];
                 }
                 if *count > self.bound {
-                    return vec![SequenceMatch { condition: BoundedExpr::Bool(false), length: 0 }];
+                    return vec![SequenceMatch {
+                        condition: BoundedExpr::Bool(false),
+                        length: 0,
+                    }];
                 }
                 let combos = combinations(self.bound, *count);
                 let mut matches = Vec::new();
@@ -1399,7 +1525,10 @@ impl SvaTranslator {
                     None => self.bound,
                 };
                 if *min > self.bound {
-                    return vec![SequenceMatch { condition: BoundedExpr::Bool(false), length: 0 }];
+                    return vec![SequenceMatch {
+                        condition: BoundedExpr::Bool(false),
+                        length: 0,
+                    }];
                 }
                 let capped_max = effective_max.min(self.bound);
                 let all_positions: Vec<u32> = (1..=self.bound).collect();
@@ -1437,9 +1566,7 @@ impl SvaTranslator {
             }
 
             // --- Strong/Weak: forward to inner ---
-            SvaExpr::Strong(inner) | SvaExpr::Weak(inner) => {
-                self.translate_sequence(inner, t)
-            }
+            SvaExpr::Strong(inner) | SvaExpr::Weak(inner) => self.translate_sequence(inner, t),
 
             // --- FirstMatch: only the shortest-length match (IEEE 16.9.8) ---
             SvaExpr::FirstMatch(inner) => {
@@ -1451,7 +1578,10 @@ impl SvaTranslator {
                     }];
                 }
                 let min_length = matches.iter().map(|m| m.length).min().unwrap_or(0);
-                matches.into_iter().filter(|m| m.length == min_length).collect()
+                matches
+                    .into_iter()
+                    .filter(|m| m.length == min_length)
+                    .collect()
             }
 
             // --- Intersect: length-matching (IEEE 16.9.6) ---
@@ -1530,40 +1660,6 @@ impl SvaTranslator {
         }
     }
 
-    /// Estimate the timestep span of a sequence expression (how many cycles it covers).
-    fn sequence_span(&self, expr: &SvaExpr) -> u32 {
-        match expr {
-            SvaExpr::Delay { min, max, body } => {
-                // None = unbounded ($) → use bound as estimate
-                let delay_span = max.unwrap_or(self.bound);
-                delay_span + self.sequence_span(body)
-            }
-            SvaExpr::Repetition { min, max, body } => {
-                // None = unbounded ($) → use bound as estimate
-                let rep_count = max.unwrap_or((*min).max(1) + self.bound);
-                rep_count * self.sequence_span(body).max(1)
-            }
-            SvaExpr::And(l, r) | SvaExpr::Or(l, r) => {
-                self.sequence_span(l).max(self.sequence_span(r))
-            }
-            SvaExpr::Implication { antecedent, consequent, overlapping } => {
-                let ante_span = self.sequence_span(antecedent);
-                let cons_span = self.sequence_span(consequent);
-                ante_span + cons_span + if *overlapping { 0 } else { 1 }
-            }
-            SvaExpr::GotoRepetition { count, body } => {
-                *count * self.sequence_span(body).max(1)
-            }
-            SvaExpr::NonConsecRepetition { min, body, .. } => {
-                *min * self.sequence_span(body).max(1)
-            }
-            SvaExpr::AcceptOn { body, .. } | SvaExpr::RejectOn { body, .. } => {
-                self.sequence_span(body)
-            }
-            _ => 1, // atomic signal = 1 cycle
-        }
-    }
-
     /// Translate a top-level SVA property: conjoin over all timesteps [0, bound).
     /// This models G(property) — the property must hold at every reachable state.
     pub fn translate_property(&mut self, expr: &SvaExpr) -> TranslateResult {
@@ -1577,17 +1673,17 @@ impl SvaTranslator {
         }
         let expr = result.unwrap_or(BoundedExpr::Bool(true));
         let declarations: Vec<String> = self.declarations.iter().cloned().collect();
-        TranslateResult {
-            expr,
-            declarations,
-        }
+        TranslateResult { expr, declarations }
     }
 
     /// Translate a concurrent assertion directive (IEEE 16.14).
     ///
     /// Returns a `DirectiveResult` with the translated expression and the directive's
     /// semantic role (check, constraint, or reachability query).
-    pub fn translate_directive(&mut self, directive: &super::sva_model::SvaDirective) -> DirectiveResult {
+    pub fn translate_directive(
+        &mut self,
+        directive: &super::sva_model::SvaDirective,
+    ) -> DirectiveResult {
         use super::sva_model::SvaDirectiveKind;
 
         // First apply disable_iff if present
@@ -1684,17 +1780,25 @@ pub fn count_and_leaves(e: &BoundedExpr) -> usize {
 /// Collect all signal names from declarations in a BoundedExpr tree.
 fn collect_vars_from_bounded(expr: &BoundedExpr, vars: &mut std::collections::HashSet<String>) {
     match expr {
-        BoundedExpr::Var(name) => { vars.insert(name.clone()); }
-        BoundedExpr::And(l, r) | BoundedExpr::Or(l, r)
-        | BoundedExpr::Implies(l, r) | BoundedExpr::Eq(l, r)
-        | BoundedExpr::Lt(l, r) | BoundedExpr::Gt(l, r)
-        | BoundedExpr::Lte(l, r) | BoundedExpr::Gte(l, r)
+        BoundedExpr::Var(name) => {
+            vars.insert(name.clone());
+        }
+        BoundedExpr::And(l, r)
+        | BoundedExpr::Or(l, r)
+        | BoundedExpr::Implies(l, r)
+        | BoundedExpr::Eq(l, r)
+        | BoundedExpr::Lt(l, r)
+        | BoundedExpr::Gt(l, r)
+        | BoundedExpr::Lte(l, r)
+        | BoundedExpr::Gte(l, r)
         | BoundedExpr::BitVecConcat(l, r) => {
             collect_vars_from_bounded(l, vars);
             collect_vars_from_bounded(r, vars);
         }
         BoundedExpr::Not(inner) => collect_vars_from_bounded(inner, vars),
-        BoundedExpr::BitVecVar(name, _) => { vars.insert(name.clone()); }
+        BoundedExpr::BitVecVar(name, _) => {
+            vars.insert(name.clone());
+        }
         BoundedExpr::BitVecBinary { left, right, .. }
         | BoundedExpr::IntBinary { left, right, .. }
         | BoundedExpr::Comparison { left, right, .. } => {
@@ -1706,10 +1810,19 @@ fn collect_vars_from_bounded(expr: &BoundedExpr, vars: &mut std::collections::Ha
             collect_vars_from_bounded(array, vars);
             collect_vars_from_bounded(index, vars);
         }
-        BoundedExpr::ArrayStore { array, index, value } => {
+        BoundedExpr::ArrayStore {
+            array,
+            index,
+            value,
+        } => {
             collect_vars_from_bounded(array, vars);
             collect_vars_from_bounded(index, vars);
             collect_vars_from_bounded(value, vars);
+        }
+        BoundedExpr::BitVecIte { cond, then, else_ } => {
+            collect_vars_from_bounded(cond, vars);
+            collect_vars_from_bounded(then, vars);
+            collect_vars_from_bounded(else_, vars);
         }
         BoundedExpr::ForAll { body, .. } | BoundedExpr::Exists { body, .. } => {
             collect_vars_from_bounded(body, vars);
@@ -1719,13 +1832,18 @@ fn collect_vars_from_bounded(expr: &BoundedExpr, vars: &mut std::collections::Ha
                 collect_vars_from_bounded(arg, vars);
             }
         }
-        BoundedExpr::Bool(_) | BoundedExpr::Int(_)
-        | BoundedExpr::BitVecConst { .. } | BoundedExpr::Unsupported(_) => {}
+        BoundedExpr::Bool(_)
+        | BoundedExpr::Int(_)
+        | BoundedExpr::BitVecConst { .. }
+        | BoundedExpr::Unsupported(_) => {}
     }
 }
 
 /// Public wrapper for collect_vars_from_bounded (for testing).
-pub fn collect_vars_from_bounded_pub(expr: &BoundedExpr, vars: &mut std::collections::HashSet<String>) {
+pub fn collect_vars_from_bounded_pub(
+    expr: &BoundedExpr,
+    vars: &mut std::collections::HashSet<String>,
+) {
     collect_vars_from_bounded(expr, vars);
 }
 
@@ -1741,48 +1859,38 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
         BoundedExpr::Var(name) => VerifyExpr::Var(name.clone()),
         BoundedExpr::Bool(b) => VerifyExpr::Bool(*b),
         BoundedExpr::Int(i) => VerifyExpr::Int(*i),
-        BoundedExpr::And(l, r) => VerifyExpr::binary(
-            VerifyOp::And,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
-        BoundedExpr::Or(l, r) => VerifyExpr::binary(
-            VerifyOp::Or,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
+        BoundedExpr::And(l, r) => {
+            VerifyExpr::binary(VerifyOp::And, bounded_to_verify(l), bounded_to_verify(r))
+        }
+        BoundedExpr::Or(l, r) => {
+            VerifyExpr::binary(VerifyOp::Or, bounded_to_verify(l), bounded_to_verify(r))
+        }
         BoundedExpr::Not(e) => VerifyExpr::not(bounded_to_verify(e)),
         BoundedExpr::Implies(l, r) => VerifyExpr::binary(
             VerifyOp::Implies,
             bounded_to_verify(l),
             bounded_to_verify(r),
         ),
-        BoundedExpr::Eq(l, r) => VerifyExpr::binary(
-            VerifyOp::Eq,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
-        BoundedExpr::Lt(l, r) => VerifyExpr::binary(
-            VerifyOp::Lt,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
-        BoundedExpr::Gt(l, r) => VerifyExpr::binary(
-            VerifyOp::Gt,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
-        BoundedExpr::Lte(l, r) => VerifyExpr::binary(
-            VerifyOp::Lte,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
-        BoundedExpr::Gte(l, r) => VerifyExpr::binary(
-            VerifyOp::Gte,
-            bounded_to_verify(l),
-            bounded_to_verify(r),
-        ),
+        BoundedExpr::Eq(l, r) => {
+            VerifyExpr::binary(VerifyOp::Eq, bounded_to_verify(l), bounded_to_verify(r))
+        }
+        BoundedExpr::Lt(l, r) => {
+            VerifyExpr::binary(VerifyOp::Lt, bounded_to_verify(l), bounded_to_verify(r))
+        }
+        BoundedExpr::Gt(l, r) => {
+            VerifyExpr::binary(VerifyOp::Gt, bounded_to_verify(l), bounded_to_verify(r))
+        }
+        BoundedExpr::Lte(l, r) => {
+            VerifyExpr::binary(VerifyOp::Lte, bounded_to_verify(l), bounded_to_verify(r))
+        }
+        BoundedExpr::Gte(l, r) => {
+            VerifyExpr::binary(VerifyOp::Gte, bounded_to_verify(l), bounded_to_verify(r))
+        }
         BoundedExpr::Unsupported(_) => VerifyExpr::Bool(false),
+        // `BitVecIte` is an our-SAT-only primitive (the CGRA mux tile is lowered bit-by-bit in
+        // `bitblast`). The fabric proofs never route it through Z3, and VerifyExpr has no BV-ite;
+        // fail CLOSED here (a `false` can only make a Z3 check fail, never falsely pass).
+        BoundedExpr::BitVecIte { .. } => VerifyExpr::Bool(false),
 
         // ---- Multi-sorted extensions ----
         BoundedExpr::BitVecConst { width, value } => VerifyExpr::bv_const(*width, *value),
@@ -1823,7 +1931,11 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
             array: Box::new(bounded_to_verify(array)),
             index: Box::new(bounded_to_verify(index)),
         },
-        BoundedExpr::ArrayStore { array, index, value } => VerifyExpr::Store {
+        BoundedExpr::ArrayStore {
+            array,
+            index,
+            value,
+        } => VerifyExpr::Store {
             array: Box::new(bounded_to_verify(array)),
             index: Box::new(bounded_to_verify(index)),
             value: Box::new(bounded_to_verify(value)),
@@ -1866,12 +1978,10 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
             };
             VerifyExpr::exists(vec![(var.clone(), ty)], bounded_to_verify(body))
         }
-        BoundedExpr::Apply { name, args } => {
-            VerifyExpr::Apply {
-                name: name.clone(),
-                args: args.iter().map(bounded_to_verify).collect(),
-            }
-        }
+        BoundedExpr::Apply { name, args } => VerifyExpr::Apply {
+            name: name.clone(),
+            args: args.iter().map(bounded_to_verify).collect(),
+        },
     }
 }
 

@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "pdk": "sky130A (open_pdks via ciel)",
+    "flow": "OpenLane v1 (yosys + OpenROAD + Magic + Netgen + KLayout)"
+  },
+  "blocks": {
+    "systolic_tile_realbist": {
+      "flow_status": "flow completed",
+      "gds_bytes": 28819816,
+      "die_area_mm2": 0.36885744,
+      "core_area_um2": 348619.3536,
+      "std_cells": 42868,
+      "drc_violations": 0,
+      "lvs_errors": 0,
+      "antenna_violations": 0,
+      "routing_violations": 0,
+      "critical_path_ns": 9.72,
+      "wns_ns": 0.0,
+      "setup_worst_slack_ns": 2.62,
+      "hold_worst_slack_ns": 0.11,
+      "setup_violated_paths": 0,
+      "hold_violated_paths": 0,
+      "xor_differences": 0,
+      "antenna_violators": 0,
+      "lvs_clean": true,
+      "ir_drop_worst_mv": 4.69,
+      "ground_bounce_worst_mv": 4.4501,
+      "supply_droop_worst_mv": 9.1401,
+      "multi_corner": true,
+      "max_slew_violations": 0,
+      "max_fanout_violations": 0,
+      "max_cap_violations": 0,
+      "sta_netlist_missing_cells": 0,
+      "sta_netlist_extra_cells": 0,
+      "clock_period_ns": 21.0,
+      "max_transition_constraint": 0.75,
+      "max_fanout_constraint": 8.0,
+      "max_cap_constraint": 0.2,
+      "pdk": "sky130A",
+      "std_cell_library": "sky130_fd_sc_hd",
+      "signoff_clean": true
+    }
+  }
+}

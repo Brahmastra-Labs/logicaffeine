@@ -94,7 +94,10 @@ fn region_calling_int_helper_tiers() {
     let (_, err, fn_ok, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert!(fn_ok >= 1, "mix must JIT (got {fn_ok})");
-    assert!(region_ok >= 1, "the mixing loop must tier with its call (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the mixing loop must tier with its call (got {region_ok})"
+    );
 }
 
 /// A SELF-RECURSIVE callee inside a region call: the region's call enters

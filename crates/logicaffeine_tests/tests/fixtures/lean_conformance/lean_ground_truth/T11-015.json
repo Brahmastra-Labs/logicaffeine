@@ -1,0 +1,73 @@
+{
+  "case": "T11-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), n \u2264 1000",
+      "name": "T11_015.heightBound",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T11_015.heightBound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2194 q) \u2192 p = q \u2227 True",
+      "name": "T11_015.indirect",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T11_015.pureComputation",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "5 \u2264 1000",
+      "name": "T11_015.usesAssumption",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T11_015.heightBound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2228 \u00acp",
+      "name": "T11_015.usesClassical",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "100 * 100 = 10000",
+      "name": "T11_015.usesNative",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2194 q) \u2192 p = q",
+      "name": "T11_015.usesPropext",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": "'T11_015.pureComputation' does not depend on any axioms\n'T11_015.usesPropext' depends on axioms: [propext]\n'T11_015.usesAssumption' depends on axioms: [T11_015.heightBound]\n'T11_015.indirect' depends on axioms: [propext]\n'T11_015.usesClassical' depends on axioms: [propext, Classical.choice, Quot.sound]\n'T11_015.usesNative' depends on axioms: [Lean.ofReduceBool]"
+}

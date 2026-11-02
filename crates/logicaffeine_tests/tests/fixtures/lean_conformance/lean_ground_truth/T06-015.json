@@ -1,0 +1,148 @@
+{
+  "case": "T06-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 17,
+  "declarations": [
+    {
+      "type": "Type \u2192 Prop",
+      "name": "T06_015.MySubsingleton",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T06_015.MySubsingleton \u03b1 \u2192 Sort u} \u2192\n    (t : T06_015.MySubsingleton \u03b1) \u2192 ((elim : \u2200 (a b : \u03b1), a = b) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T06_015.MySubsingleton.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [self : T06_015.MySubsingleton \u03b1] (a b : \u03b1), a = b",
+      "name": "T06_015.MySubsingleton.elim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, (\u2200 (a b : \u03b1), a = b) \u2192 T06_015.MySubsingleton \u03b1",
+      "name": "T06_015.MySubsingleton.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {P : Sort u} \u2192 {v1 v2 : T06_015.MySubsingleton \u03b1} \u2192 v1 = v2 \u2192 T06_015.MySubsingleton.noConfusionType P v1 v2",
+      "name": "T06_015.MySubsingleton.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T06_015.MySubsingleton \u03b1 \u2192 T06_015.MySubsingleton \u03b1 \u2192 Sort u",
+      "name": "T06_015.MySubsingleton.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T06_015.MySubsingleton \u03b1 \u2192 Sort u} \u2192\n    ((elim : \u2200 (a b : \u03b1), a = b) \u2192 motive \u22ef) \u2192 (t : T06_015.MySubsingleton \u03b1) \u2192 motive t",
+      "name": "T06_015.MySubsingleton.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T06_015.MySubsingleton \u03b1 \u2192 Sort u} \u2192\n    (t : T06_015.MySubsingleton \u03b1) \u2192 ((elim : \u2200 (a b : \u03b1), a = b) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T06_015.MySubsingleton.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T06_015.bigSquash",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_015.MySubsingleton (Fin 1)",
+      "name": "T06_015.instMySubsingletonFinOfNatNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "T06_015.MySubsingleton Unit",
+      "name": "T06_015.instMySubsingletonUnit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop) (h\u2081 h\u2082 : p), h\u2081 = h\u2082",
+      "name": "T06_015.propSubsingleton",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Squash Nat), a = b",
+      "name": "T06_015.squashEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Squash Nat \u2192 Squash Bool",
+      "name": "T06_015.squashLift",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (x x_1 : Nat), True \u2192 (fun x => Squash.mk true) x = (fun x => Squash.mk true) x_1",
+      "name": "T06_015.squashLift.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Squash Nat",
+      "name": "T06_015.squashed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Unit), a = b",
+      "name": "T06_015.useElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

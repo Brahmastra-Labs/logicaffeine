@@ -1,0 +1,11 @@
+{
+  "name": "quicksort",
+  "lang": "logos_cbc",
+  "n": "52276512",
+  "samples_weight": 194823744174,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

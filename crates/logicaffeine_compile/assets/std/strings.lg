@@ -1,0 +1,2095 @@
+# Strings
+
+String helpers written in pure LOGOS and compiled through every execution tier. Operations
+work over the UTF-8 byte view (`text_bytes` / `text_from_bytes`); ASCII-correct today, with
+codepoint-aware refinements tracked in the parity catalog. Auto-imported on first reference.
+
+## Note
+Reports whether pattern bytes `pb` occur in `sb` starting at 1-based index `i`. An empty pattern or a start past the last possible position returns false.
+
+## To matchAt (sb: Seq of Int, pb: Seq of Int, i: Int) -> Bool:
+    Let ns be length of sb.
+    Let np be length of pb.
+    If np is equal to 0:
+        Return false.
+    Let hi be ns - np + 1.
+    If i is greater than hi:
+        Return false.
+    Let mutable j be 1.
+    While j is at most np:
+        Let sv be item (i + j - 1) of sb.
+        Let pv be item j of pb.
+        If sv is equal to pv:
+            Set j to j + 1.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+Reports whether byte `bt` is an ASCII whitespace character: space (32), tab (9), newline (10), or carriage return (13).
+
+## To isSpaceByte (bt: Int) -> Bool:
+    If bt is equal to 32:
+        Return true.
+    If bt is equal to 9:
+        Return true.
+    If bt is equal to 10:
+        Return true.
+    If bt is equal to 13:
+        Return true.
+    Return false.
+
+## Note
+Reports whether text `s` begins with prefix `p`, comparing byte by byte. Returns false when `p` is longer than `s`.
+
+## To startsWith (s: Text, p: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(p).
+    Let ns be length of sb.
+    Let np be length of pb.
+    If np is greater than ns:
+        Return false.
+    Let mutable i be 1.
+    While i is at most np:
+        If item i of sb is equal to item i of pb:
+            Set i to i + 1.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+Reports whether text `s` ends with suffix `p`, comparing the trailing bytes. Returns false when `p` is longer than `s`.
+
+## To endsWith (s: Text, p: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(p).
+    Let ns be length of sb.
+    Let np be length of pb.
+    If np is greater than ns:
+        Return false.
+    Let mutable i be 1.
+    While i is at most np:
+        Let sv be item (ns - np + i) of sb.
+        Let pv be item i of pb.
+        If sv is equal to pv:
+            Set i to i + 1.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+Returns text `s` concatenated with itself `n` times. An `n` of zero or less yields the empty string.
+
+## To repeatText (s: Text, n: Int) -> Text:
+    Let mutable out be "".
+    Let mutable i be 1.
+    While i is at most n:
+        Set out to out combined with s.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns `s` with each ASCII lowercase letter (a-z) shifted to uppercase; all other bytes are left unchanged.
+
+## To upper (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for bt in sb:
+        Let mutable cv be bt.
+        If bt is at least 97:
+            If bt is at most 122:
+                Set cv to bt - 32.
+        Push cv to out.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with each ASCII uppercase letter (A-Z) shifted to lowercase; all other bytes are left unchanged.
+
+## To lower (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for bt in sb:
+        Let mutable cv be bt.
+        If bt is at least 65:
+            If bt is at most 90:
+                Set cv to bt + 32.
+        Push cv to out.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with leading and trailing ASCII whitespace bytes removed.
+
+## To trim (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable lo be 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If lo is greater than n:
+            Set go to false.
+        Otherwise:
+            If isSpaceByte(item lo of sb):
+                Set lo to lo + 1.
+            Otherwise:
+                Set go to false.
+    Let mutable hi be n.
+    Set go to true.
+    While go is equal to true:
+        If hi is less than lo:
+            Set go to false.
+        Otherwise:
+            If isSpaceByte(item hi of sb):
+                Set hi to hi - 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with leading ASCII whitespace bytes removed; trailing whitespace is kept.
+
+## To trimStart (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable lo be 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If lo is greater than n:
+            Set go to false.
+        Otherwise:
+            If isSpaceByte(item lo of sb):
+                Set lo to lo + 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most n:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with trailing ASCII whitespace bytes removed; leading whitespace is kept.
+
+## To trimEnd (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable hi be n.
+    Let mutable go be true.
+    While go is equal to true:
+        If hi is less than 1:
+            Set go to false.
+        Otherwise:
+            If isSpaceByte(item hi of sb):
+                Set hi to hi - 1.
+            Otherwise:
+                Set go to false.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most hi:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Counts the non-overlapping occurrences of `sub` in `s`, advancing past each match. An empty `sub` returns 0.
+
+## To countSub (s: Text, sub: Text) -> Int:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(sub).
+    Let np be length of pb.
+    If np is equal to 0:
+        Return 0.
+    Let mutable total be 0.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        Let p be twoWayIndexBytesFrom(sb, pb, i).
+        If p is equal to 0:
+            Set more to false.
+        Otherwise:
+            Set total to total + 1.
+            Set i to p + np.
+    Return total.
+
+## Note
+Reports whether `s` is non-empty and every byte is an ASCII digit (0-9).
+
+## To allDigits (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is equal to 0:
+        Return false.
+    Repeat for bt in sb:
+        If bt is less than 48:
+            Return false.
+        If bt is greater than 57:
+            Return false.
+    Return true.
+
+## Note
+Returns `s` with its bytes in reverse order.
+
+## To reverseText (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be n.
+    While i is at least 1:
+        Push item i of sb to out.
+        Set i to i - 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with every non-overlapping occurrence of `oldPart` replaced by `newPart`. An empty `oldPart` returns `s` unchanged.
+
+## To replace (s: Text, oldPart: Text, newPart: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let fb be text_bytes(oldPart).
+    Let tob be text_bytes(newPart).
+    Let ns be length of sb.
+    Let nf be length of fb.
+    If nf is equal to 0:
+        Return s.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        Let p be twoWayIndexBytesFrom(sb, fb, i).
+        If p is equal to 0:
+            Set more to false.
+        Otherwise:
+            While i is less than p:
+                Push item i of sb to out.
+                Set i to i + 1.
+            Repeat for tv in tob:
+                Push tv to out.
+            Set i to p + nf.
+    While i is at most ns:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Splits `s` on each non-overlapping occurrence of `sep`, returning the pieces between separators including trailing empty segments.
+
+## To split (s: Text, sep: Text) -> Seq of Text:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(sep).
+    Let ns be length of sb.
+    Let np be length of pb.
+    Let result be a new Seq of Text.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        Let p be twoWayIndexBytesFrom(sb, pb, i).
+        If p is equal to 0:
+            Set more to false.
+        Otherwise:
+            While i is less than p:
+                Push item i of sb to cur.
+                Set i to i + 1.
+            Push text_from_bytes(cur) to result.
+            Set cur to a new Seq of Int.
+            Set i to p + np.
+    While i is at most ns:
+        Push item i of sb to cur.
+        Set i to i + 1.
+    Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+Splits `s` into words separated by runs of ASCII whitespace, discarding the whitespace and producing no empty entries.
+
+## To words (s: Text) -> Seq of Text:
+    Let sb be text_bytes(s).
+    Let ns be length of sb.
+    Let result be a new Seq of Text.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most ns:
+        Let bt be item i of sb.
+        If isSpaceByte(bt):
+            If (length of cur) is greater than 0:
+                Push text_from_bytes(cur) to result.
+                Set cur to a new Seq of Int.
+        Otherwise:
+            Push bt to cur.
+        Set i to i + 1.
+    If (length of cur) is greater than 0:
+        Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+True when the bytes `sb[a..b]` contain at least one non-whitespace byte.
+
+## To lineHasContent (sb: Seq of Int) and (a: Int) and (b: Int) -> Bool:
+    Let mutable j be a.
+    While j is at most b:
+        If isSpaceByte(item j of sb):
+            Set j to j + 1.
+        Otherwise:
+            Return true.
+    Return false.
+
+## Note
+Prefixes each line of `s` that is not entirely whitespace with `prefix`, keeping line endings (`textwrap.indent`).
+
+## To indentText (s: Text) and (prefix: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(prefix).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable lineStart be 1.
+    Let mutable i be 1.
+    While i is at most n:
+        If item i of sb is equal to 10:
+            If lineHasContent(sb, lineStart, i):
+                Repeat for pv in pb:
+                    Push pv to out.
+            Let mutable k be lineStart.
+            While k is at most i:
+                Push item k of sb to out.
+                Set k to k + 1.
+            Set lineStart to i + 1.
+        Set i to i + 1.
+    If lineStart is at most n:
+        If lineHasContent(sb, lineStart, n):
+            Repeat for pv in pb:
+                Push pv to out.
+        Let mutable k be lineStart.
+        While k is at most n:
+            Push item k of sb to out.
+            Set k to k + 1.
+    Return text_from_bytes(out).
+
+## Note
+Leading-whitespace length of `sb[a..b]` (count of leading whitespace bytes before the first non-whitespace).
+
+## To leadingWsLen (sb: Seq of Int) and (a: Int) and (b: Int) -> Int:
+    Let mutable j be a.
+    Let mutable more be true.
+    While more is equal to true:
+        If j is greater than b:
+            Set more to false.
+        Otherwise:
+            If isSpaceByte(item j of sb):
+                Set j to j + 1.
+            Otherwise:
+                Set more to false.
+    Return j - a.
+
+## Note
+Longest `k` (at most `cur`) for which `sb[ls..ls+k]` matches `sb[refPos..refPos+k]` byte for byte, bounded by `lineEnd`.
+
+## To commonRunLen (sb: Seq of Int, ls: Int, refPos: Int, cur: Int, lineEnd: Int) -> Int:
+    Let mutable k be 0.
+    Let mutable more be true.
+    While more is equal to true:
+        If k is greater than (cur - 1):
+            Set more to false.
+        Otherwise:
+            If (ls + k) is greater than lineEnd:
+                Set more to false.
+            Otherwise:
+                If item (ls + k) of sb is equal to item (refPos + k) of sb:
+                    Set k to k + 1.
+                Otherwise:
+                    Set more to false.
+    Return k.
+
+## Note
+Removes the longest common leading whitespace from every line of `s`; whitespace-only lines become empty (`textwrap.dedent`).
+
+## To dedentText (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable refPos be 0.
+    Let mutable mlen be 0.
+    Let mutable ls be 1.
+    Let mutable i be 1.
+    While i is at most n:
+        If item i of sb is equal to 10:
+            If lineHasContent(sb, ls, i - 1):
+                If refPos is equal to 0:
+                    Set refPos to ls.
+                    Set mlen to leadingWsLen(sb, ls, i - 1).
+                Otherwise:
+                    Set mlen to commonRunLen(sb, ls, refPos, mlen, i - 1).
+            Set ls to i + 1.
+        Set i to i + 1.
+    If ls is at most n:
+        If lineHasContent(sb, ls, n):
+            If refPos is equal to 0:
+                Set refPos to ls.
+                Set mlen to leadingWsLen(sb, ls, n).
+            Otherwise:
+                Set mlen to commonRunLen(sb, ls, refPos, mlen, n).
+    Let out be a new Seq of Int.
+    Set ls to 1.
+    Set i to 1.
+    While i is at most n:
+        If item i of sb is equal to 10:
+            If lineHasContent(sb, ls, i - 1):
+                Let mutable k be ls + mlen.
+                While k is at most i:
+                    Push item k of sb to out.
+                    Set k to k + 1.
+            Otherwise:
+                Push 10 to out.
+            Set ls to i + 1.
+        Set i to i + 1.
+    If ls is at most n:
+        If lineHasContent(sb, ls, n):
+            Let mutable k2 be ls + mlen.
+            While k2 is at most n:
+                Push item k2 of sb to out.
+                Set k2 to k2 + 1.
+    Return text_from_bytes(out).
+
+## Note
+Collapses whitespace in `s`, then keeps whole words that fit `width`, appending ` [...]` when text was dropped (`textwrap.shorten`).
+
+## To shortenText (s: Text) and (width: Int) -> Text:
+    Let collapsed be join(words(s), " ").
+    If (length of collapsed) is at most width:
+        Return collapsed.
+    Let wlist be words(s).
+    Let nw be length of wlist.
+    Let mutable line be "".
+    Let mutable stopped be false.
+    Let mutable wi be 1.
+    While wi is at most nw:
+        If stopped is equal to false:
+            Let w be item wi of wlist.
+            Let mutable sep be "".
+            If (length of line) is greater than 0:
+                Set sep to " ".
+            Let cand be line combined with sep combined with w.
+            If (length of cand) + 6 is at most width:
+                Set line to cand.
+            Otherwise:
+                Set stopped to true.
+        Set wi to wi + 1.
+    If (length of line) is equal to 0:
+        Return "[...]".
+    Return line combined with " [...]".
+
+## Note
+Splits `s` into lines on each newline byte (10), returning the text between newlines including a final segment.
+
+## To lines (s: Text) -> Seq of Text:
+    Let sb be text_bytes(s).
+    Let ns be length of sb.
+    Let result be a new Seq of Text.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most ns:
+        Let bt be item i of sb.
+        If bt is equal to 10:
+            Push text_from_bytes(cur) to result.
+            Set cur to a new Seq of Int.
+        Otherwise:
+            Push bt to cur.
+        Set i to i + 1.
+    Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+Concatenates the texts in `parts`, inserting `sep` between consecutive elements.
+
+## To join (parts: Seq of Text, sep: Text) -> Text:
+    Let n be length of parts.
+    Let mutable out be "".
+    Let mutable i be 1.
+    While i is at most n:
+        Set out to out combined with (item i of parts).
+        If i is less than n:
+            Set out to out combined with sep.
+        Set i to i + 1.
+    Return out.
+
+## Note
+The byte at 0-based position `i` of `xs` — a thin adapter so the two-way matcher below can use the
+0-based index arithmetic of the reference algorithm directly.
+
+## To byteAt (xs: Seq of Int, i: Int) -> Int:
+    Return item (i + 1) of xs.
+
+## Note
+The naive O(n·m) substring scan over byte-lists — the trusted reference the two-way matcher is
+fuzz-locked byte-identical against.
+
+## To indexOfNaiveBytes (sb: Seq of Int, pb: Seq of Int) -> Int:
+    Let ns be length of sb.
+    Let mutable i be 1.
+    While i is at most ns:
+        If matchAt(sb, pb, i):
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Maximal suffix of `x[0..m)` under an ordering (`ord` = 1 for `<`, 0 for `>`), returned as its start
+position and period — the halves of the critical factorization (Crochemore-Perrin).
+
+## To twMaxSuf (x: Seq of Int, m: Int, ord: Int) -> (Int, Int):
+    Let mutable ms be 0 - 1.
+    Let mutable j be 0.
+    Let mutable k be 1.
+    Let mutable p be 1.
+    While (j + k) is less than m:
+        Let a be byteAt(x, j + k).
+        Let b be byteAt(x, ms + k).
+        Let mutable smaller be false.
+        Let mutable larger be false.
+        If ord is equal to 1:
+            If a is less than b:
+                Set smaller to true.
+            If a is greater than b:
+                Set larger to true.
+        Otherwise:
+            If a is greater than b:
+                Set smaller to true.
+            If a is less than b:
+                Set larger to true.
+        If smaller is equal to true:
+            Set j to j + k.
+            Set k to 1.
+            Set p to j - ms.
+        Otherwise:
+            If larger is equal to true:
+                Set ms to j.
+                Set j to ms + 1.
+                Set k to 1.
+                Set p to 1.
+            Otherwise:
+                If k is equal to p:
+                    Set j to j + p.
+                    Set k to 1.
+                Otherwise:
+                    Set k to k + 1.
+    Return (ms, p).
+
+## Note
+The critical factorization of `x[0..m)`: the position `ell` and period `per` that split the pattern —
+the larger of the two maximal suffixes.
+
+## To twCritical (x: Seq of Int, m: Int) -> (Int, Int):
+    Let (ms1, p1) be twMaxSuf(x, m, 1).
+    Let (ms2, p2) be twMaxSuf(x, m, 0).
+    If ms1 is greater than ms2:
+        Return (ms1, p1).
+    Otherwise:
+        Return (ms2, p2).
+
+## Note
+Two-way (Crochemore-Perrin) substring search: the 1-based index of the first `x` in `y` at or after `from`, or 0.
+
+Works over byte-lists in O(n+m) time and O(1) extra space — no bad-character table. `twoWayIndexBytes` is
+the whole-string case; callers that walk successive occurrences
+(replace/split/count) pass the position just past the previous match, so the
+whole scan stays linear per occurrence. Fuzz-locked byte-identical to
+`indexOfNaiveBytes`.
+## To twoWayIndexBytesFrom (y: Seq of Int, x: Seq of Int, from: Int) -> Int:
+    Let n be length of y.
+    Let m be length of x.
+    If m is equal to 0:
+        Return 0.
+    If m is greater than n:
+        Return 0.
+    Let (ell, per0) be twCritical(x, m).
+    Let mutable periodic be true.
+    If (per0 + ell) is at least m:
+        Set periodic to false.
+    Otherwise:
+        Let mutable q be 0.
+        While q is at most ell:
+            Let mutable same be false.
+            If byteAt(x, q) is equal to byteAt(x, per0 + q):
+                Set same to true.
+            If same is equal to false:
+                Set periodic to false.
+            Set q to q + 1.
+    If periodic is equal to true:
+        Let per be per0.
+        Let mutable i be from - 1.
+        If i is less than 0:
+            Set i to 0.
+        Let mutable memory be 0 - 1.
+        While i is at most (n - m):
+            Let mutable j be ell + 1.
+            If memory is greater than ell:
+                Set j to memory + 1.
+            Let mutable go be true.
+            While go is equal to true:
+                If j is less than m:
+                    If byteAt(x, j) is equal to byteAt(y, i + j):
+                        Set j to j + 1.
+                    Otherwise:
+                        Set go to false.
+                Otherwise:
+                    Set go to false.
+            If j is at least m:
+                Let mutable j2 be ell.
+                Let mutable go2 be true.
+                While go2 is equal to true:
+                    If j2 is greater than memory:
+                        If byteAt(x, j2) is equal to byteAt(y, i + j2):
+                            Set j2 to j2 - 1.
+                        Otherwise:
+                            Set go2 to false.
+                    Otherwise:
+                        Set go2 to false.
+                If j2 is at most memory:
+                    Return i + 1.
+                Set i to i + per.
+                Set memory to m - per - 1.
+            Otherwise:
+                Set i to i + (j - ell).
+                Set memory to 0 - 1.
+        Return 0.
+    Otherwise:
+        Let mutable per be m - ell - 1.
+        If (ell + 1) is greater than per:
+            Set per to ell + 1.
+        Set per to per + 1.
+        Let mutable i be from - 1.
+        If i is less than 0:
+            Set i to 0.
+        While i is at most (n - m):
+            Let mutable j be ell + 1.
+            Let mutable go be true.
+            While go is equal to true:
+                If j is less than m:
+                    If byteAt(x, j) is equal to byteAt(y, i + j):
+                        Set j to j + 1.
+                    Otherwise:
+                        Set go to false.
+                Otherwise:
+                    Set go to false.
+            If j is at least m:
+                Let mutable j2 be ell.
+                Let mutable go2 be true.
+                While go2 is equal to true:
+                    If j2 is at least 0:
+                        If byteAt(x, j2) is equal to byteAt(y, i + j2):
+                            Set j2 to j2 - 1.
+                        Otherwise:
+                            Set go2 to false.
+                    Otherwise:
+                        Set go2 to false.
+                If j2 is less than 0:
+                    Return i + 1.
+                Set i to i + per.
+            Otherwise:
+                Set i to i + (j - ell).
+        Return 0.
+
+## Note
+Two-way substring search over byte-lists from the start — the 1-based index of the first occurrence
+of `x` in `y`, or 0.
+
+## To twoWayIndexBytes (y: Seq of Int, x: Seq of Int) -> Int:
+    Return twoWayIndexBytesFrom(y, x, 1).
+
+## Note
+Returns the 1-based index of the first occurrence of `sub` in `s`, or 0 if it is not found.
+
+## To indexOf (s: Text, sub: Text) -> Int:
+    Return twoWayIndexBytesFrom(text_bytes(s), text_bytes(sub), 1).
+
+## Note
+Reports whether `s` is non-empty and every byte is an ASCII letter (A-Z or a-z).
+
+## To isAlpha (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    If (length of sb) is equal to 0:
+        Return false.
+    Repeat for bt in sb:
+        Let mutable ok be false.
+        If bt is at least 65:
+            If bt is at most 90:
+                Set ok to true.
+        If bt is at least 97:
+            If bt is at most 122:
+                Set ok to true.
+        If ok is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Reports whether `s` is non-empty and every byte is an ASCII letter or digit (0-9, A-Z, or a-z).
+
+## To isAlnum (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    If (length of sb) is equal to 0:
+        Return false.
+    Repeat for bt in sb:
+        Let mutable ok be false.
+        If bt is at least 48:
+            If bt is at most 57:
+                Set ok to true.
+        If bt is at least 65:
+            If bt is at most 90:
+                Set ok to true.
+        If bt is at least 97:
+            If bt is at most 122:
+                Set ok to true.
+        If ok is equal to false:
+            Return false.
+    Return true.
+
+## Note
+Reports whether `s` is non-empty and every byte is ASCII whitespace.
+
+## To isSpaceText (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    If (length of sb) is equal to 0:
+        Return false.
+    Repeat for bt in sb:
+        If isSpaceByte(bt):
+            Set bt to bt.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+Reports whether `s` contains at least one letter and no ASCII lowercase letters (a-z).
+
+## To isUpper (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let mutable hasLetter be false.
+    Repeat for bt in sb:
+        If bt is at least 97:
+            If bt is at most 122:
+                Return false.
+        If bt is at least 65:
+            If bt is at most 90:
+                Set hasLetter to true.
+    Return hasLetter.
+
+## Note
+Reports whether `s` contains at least one letter and no ASCII uppercase letters (A-Z).
+
+## To isLower (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let mutable hasLetter be false.
+    Repeat for bt in sb:
+        If bt is at least 65:
+            If bt is at most 90:
+                Return false.
+        If bt is at least 97:
+            If bt is at most 122:
+                Set hasLetter to true.
+    Return hasLetter.
+
+## Note
+Returns `s` with its first byte upper-cased and every remaining ASCII letter lower-cased. An empty string is returned unchanged.
+
+## To capitalize (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is equal to 0:
+        Return s.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let bt be item i of sb.
+        Let mutable cv be bt.
+        If i is equal to 1:
+            If bt is at least 97:
+                If bt is at most 122:
+                    Set cv to bt - 32.
+        Otherwise:
+            If bt is at least 65:
+                If bt is at most 90:
+                    Set cv to bt + 32.
+        Push cv to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Left-pads `s` with copies of `fill` until its length reaches `width`; returns `s` unchanged when it is already at least `width` long.
+
+## To padStart (s: Text) and (width: Int) and (fill: Text) -> Text:
+    Let n be length of s.
+    If n is at least width:
+        Return s.
+    Let mutable out be "".
+    Let mutable i be n.
+    While i is less than width:
+        Set out to out combined with fill.
+        Set i to i + 1.
+    Return out combined with s.
+
+## Note
+Right-pads `s` with copies of `fill` until its length reaches `width`; returns `s` unchanged when it is already at least `width` long.
+
+## To padEnd (s: Text) and (width: Int) and (fill: Text) -> Text:
+    Let n be length of s.
+    If n is at least width:
+        Return s.
+    Let mutable out be s.
+    Let mutable i be n.
+    While i is less than width:
+        Set out to out combined with fill.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns `s` with each ASCII uppercase letter turned lowercase and each lowercase letter turned uppercase; other bytes are unchanged.
+
+## To swapCase (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for bt in sb:
+        Let mutable cv be bt.
+        If bt is at least 65:
+            If bt is at most 90:
+                Set cv to bt + 32.
+        If bt is at least 97:
+            If bt is at most 122:
+                Set cv to bt - 32.
+        Push cv to out.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` in titlecase: the first letter after any whitespace boundary is upper-cased and the other letters of each word are lower-cased.
+
+## To title (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable atStart be true.
+    Let mutable i be 1.
+    While i is at most n:
+        Let bt be item i of sb.
+        Let mutable cv be bt.
+        If isSpaceByte(bt):
+            Set atStart to true.
+        Otherwise:
+            If atStart is equal to true:
+                If bt is at least 97:
+                    If bt is at most 122:
+                        Set cv to bt - 32.
+            Otherwise:
+                If bt is at least 65:
+                    If bt is at most 90:
+                        Set cv to bt + 32.
+            Set atStart to false.
+        Push cv to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+If `s` starts with `p`, returns `s` with that prefix removed; otherwise returns `s` unchanged.
+
+## To removePrefix (s: Text, p: Text) -> Text:
+    If startsWith(s, p):
+        Let sb be text_bytes(s).
+        Let np be length of text_bytes(p).
+        Let ns be length of sb.
+        Let out be a new Seq of Int.
+        Let mutable i be np + 1.
+        While i is at most ns:
+            Push item i of sb to out.
+            Set i to i + 1.
+        Return text_from_bytes(out).
+    Return s.
+
+## Note
+If `s` ends with `p`, returns `s` with that suffix removed; otherwise returns `s` unchanged.
+
+## To removeSuffix (s: Text, p: Text) -> Text:
+    If endsWith(s, p):
+        Let sb be text_bytes(s).
+        Let np be length of text_bytes(p).
+        Let ns be length of sb.
+        Let out be a new Seq of Int.
+        Let hi be ns - np.
+        Let mutable i be 1.
+        While i is at most hi:
+            Push item i of sb to out.
+            Set i to i + 1.
+        Return text_from_bytes(out).
+    Return s.
+
+## Note
+Returns the 1-based index of the last occurrence of `sub` in `s`, or 0 if it is not found.
+
+## To lastIndexOf (s: Text, sub: Text) -> Int:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(sub).
+    Let mutable found be 0.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        Let p be twoWayIndexBytesFrom(sb, pb, i).
+        If p is equal to 0:
+            Set more to false.
+        Otherwise:
+            Set found to p.
+            Set i to p + 1.
+    Return found.
+
+## Note
+Returns the single byte at 1-based index `i` of `s` as a one-character text.
+
+## To charAt (s: Text, i: Int) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Push item i of sb to out.
+    Return text_from_bytes(out).
+
+## Note
+Centers `s` within `width` by padding with spaces, giving any odd extra space to the right; returns `s` unchanged when it is already at least `width` long.
+
+## To center (s: Text, width: Int) -> Text:
+    Let n be length of s.
+    If n is at least width:
+        Return s.
+    Let totalPad be width - n.
+    Let leftPad be totalPad / 2.
+    Let rightPad be totalPad - leftPad.
+    Let mutable out be "".
+    Let mutable i be 1.
+    While i is at most leftPad:
+        Set out to out combined with " ".
+        Set i to i + 1.
+    Set out to out combined with s.
+    Set i to 1.
+    While i is at most rightPad:
+        Set out to out combined with " ".
+        Set i to i + 1.
+    Return out.
+
+## Note
+Left-pads `s` with `0` characters until its length reaches `width`.
+
+## To zfill (s: Text, width: Int) -> Text:
+    Return padStart(s, width, "0").
+
+## Note
+Reports whether `x` and `y` are equal ignoring ASCII case, by comparing their lower-cased forms.
+
+## To equalFold (x: Text, y: Text) -> Bool:
+    Return lower(x) is equal to lower(y).
+
+## Note
+Lexicographically compares `x` and `y` byte by byte, returning -1 if `x` sorts first, 1 if `y` sorts first, and 0 if they are equal.
+
+## To compareText (x: Text, y: Text) -> Int:
+    Let xb be text_bytes(x).
+    Let yb be text_bytes(y).
+    Let nx be length of xb.
+    Let ny be length of yb.
+    Let mutable n be nx.
+    If ny is less than nx:
+        Set n to ny.
+    Let mutable i be 1.
+    While i is at most n:
+        Let cx be item i of xb.
+        Let cy be item i of yb.
+        If cx is less than cy:
+            Return 0 - 1.
+        If cx is greater than cy:
+            Return 1.
+        Set i to i + 1.
+    If nx is less than ny:
+        Return 0 - 1.
+    If nx is greater than ny:
+        Return 1.
+    Return 0.
+
+## Note
+Reports whether any byte of `chars` appears anywhere in `s`.
+
+## To containsAny (s: Text, chars: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let cb be text_bytes(chars).
+    Repeat for c in cb:
+        Repeat for bt in sb:
+            If bt is equal to c:
+                Return true.
+    Return false.
+
+## Note
+Returns the 1-based index of the first byte in `s` that also appears in `chars`, or 0 if none do.
+
+## To indexAny (s: Text, chars: Text) -> Int:
+    Let sb be text_bytes(s).
+    Let cb be text_bytes(chars).
+    Let ns be length of sb.
+    Let mutable i be 1.
+    While i is at most ns:
+        Let target be item i of sb.
+        Repeat for c in cb:
+            If target is equal to c:
+                Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Returns the part of `s` before the first occurrence of `sep`; returns `s` unchanged when `sep` is not found.
+
+## To cutBefore (s: Text, sep: Text) -> Text:
+    Let idx be indexOf(s, sep).
+    If idx is equal to 0:
+        Return s.
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is less than idx:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns the part of `s` following the first occurrence of `sep`; returns the empty string when `sep` is not found.
+
+## To cutAfter (s: Text, sep: Text) -> Text:
+    Let idx be indexOf(s, sep).
+    If idx is equal to 0:
+        Return "".
+    Let sb be text_bytes(s).
+    Let sepLen be length of text_bytes(sep).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be idx + sepLen.
+    While i is at most n:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns the 1-based index of the last byte in `s` that also appears in `chars`, or 0 if none do.
+
+## To lastIndexAny (s: Text, chars: Text) -> Int:
+    Let sb be text_bytes(s).
+    Let cb be text_bytes(chars).
+    Let ns be length of sb.
+    Let mutable found be 0.
+    Let mutable i be 1.
+    While i is at most ns:
+        Let target be item i of sb.
+        Repeat for c in cb:
+            If target is equal to c:
+                Set found to i.
+        Set i to i + 1.
+    Return found.
+
+## Note
+Splits `s` on `sep` into at most `n` pieces, leaving the remainder unsplit in the last piece; an `n` of zero or less splits on every separator.
+
+## To splitN (s: Text, sep: Text, n: Int) -> Seq of Text:
+    If n is at most 0:
+        Return split(s, sep).
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(sep).
+    Let ns be length of sb.
+    Let np be length of pb.
+    Let result be a new Seq of Text.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        If (length of result) is at least (n - 1):
+            Set more to false.
+        Otherwise:
+            Let p be twoWayIndexBytesFrom(sb, pb, i).
+            If p is equal to 0:
+                Set more to false.
+            Otherwise:
+                While i is less than p:
+                    Push item i of sb to cur.
+                    Set i to i + 1.
+                Push text_from_bytes(cur) to result.
+                Set cur to a new Seq of Int.
+                Set i to p + np.
+    While i is at most ns:
+        Push item i of sb to cur.
+        Set i to i + 1.
+    Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+Reports whether byte `c` is one of the bytes in the cutset `cb`.
+
+## To charInCutset (c: Int) and (cb: Seq of Int) -> Bool:
+    Repeat for x in cb:
+        If x is equal to c:
+            Return true.
+    Return false.
+
+## Note
+Returns `s` with leading and trailing bytes that appear in `cutset` removed.
+
+## To trimChars (s: Text, cutset: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let cb be text_bytes(cutset).
+    Let n be length of sb.
+    Let mutable lo be 1.
+    Let mutable hi be n.
+    Let mutable trimming be true.
+    While trimming is equal to true:
+        If lo is greater than hi:
+            Set trimming to false.
+        Otherwise:
+            If charInCutset(item lo of sb, cb):
+                Set lo to lo + 1.
+            Otherwise:
+                Set trimming to false.
+    Set trimming to true.
+    While trimming is equal to true:
+        If lo is greater than hi:
+            Set trimming to false.
+        Otherwise:
+            If charInCutset(item hi of sb, cb):
+                Set hi to hi - 1.
+            Otherwise:
+                Set trimming to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns a new text formed by applying byte-mapping function `f` to each byte of `s`.
+
+## To mapText (f: fn(Int) -> Int) and (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for c in sb:
+        Push f(c) to out.
+    Return text_from_bytes(out).
+
+## Note
+Reports whether predicate `p` holds for any byte of `s`.
+
+## To containsFuncText (p: fn(Int) -> Bool) and (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Repeat for c in sb:
+        If p(c):
+            Return true.
+    Return false.
+
+## Note
+Returns the 1-based index of the first byte of `s` for which predicate `p` holds, or 0 if none do.
+
+## To indexFuncText (p: fn(Int) -> Bool) and (s: Text) -> Int:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable i be 1.
+    While i is at most n:
+        If p(item i of sb):
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Returns the 1-based index of the LAST byte of `s` for which predicate `p` holds, or 0 if none do (`strings.LastIndexFunc`).
+
+## To lastIndexFuncText (p: fn(Int) -> Bool) and (s: Text) -> Int:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable i be n.
+    While i is greater than 0:
+        If p(item i of sb):
+            Return i.
+        Set i to i - 1.
+    Return 0.
+
+## Note
+Splits `s` around each run of bytes for which predicate `p` holds, producing the non-empty fields (`strings.FieldsFunc`).
+
+## To fieldsFuncText (p: fn(Int) -> Bool) and (s: Text) -> Seq of Text:
+    Let sb be text_bytes(s).
+    Let ns be length of sb.
+    Let result be a new Seq of Text.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most ns:
+        Let bt be item i of sb.
+        If p(bt):
+            If (length of cur) is greater than 0:
+                Push text_from_bytes(cur) to result.
+                Set cur to a new Seq of Int.
+        Otherwise:
+            Push bt to cur.
+        Set i to i + 1.
+    If (length of cur) is greater than 0:
+        Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+Returns `s` with leading and trailing bytes for which predicate `p` holds removed.
+
+## To trimFuncText (p: fn(Int) -> Bool) and (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable lo be 1.
+    Let mutable hi be n.
+    Let mutable trimming be true.
+    While trimming is equal to true:
+        If lo is greater than hi:
+            Set trimming to false.
+        Otherwise:
+            If p(item lo of sb):
+                Set lo to lo + 1.
+            Otherwise:
+                Set trimming to false.
+    Set trimming to true.
+    While trimming is equal to true:
+        If lo is greater than hi:
+            Set trimming to false.
+        Otherwise:
+            If p(item hi of sb):
+                Set hi to hi - 1.
+            Otherwise:
+                Set trimming to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with LEADING bytes for which predicate `p` holds removed (`strings.TrimLeftFunc`).
+
+## To trimLeftFuncText (p: fn(Int) -> Bool) and (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable lo be 1.
+    Let mutable trimming be true.
+    While trimming is equal to true:
+        If lo is greater than n:
+            Set trimming to false.
+        Otherwise:
+            If p(item lo of sb):
+                Set lo to lo + 1.
+            Otherwise:
+                Set trimming to false.
+    Let out be a new Seq of Int.
+    Let mutable i be lo.
+    While i is at most n:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with TRAILING bytes for which predicate `p` holds removed (`strings.TrimRightFunc`).
+
+## To trimRightFuncText (p: fn(Int) -> Bool) and (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable hi be n.
+    Let mutable trimming be true.
+    While trimming is equal to true:
+        If hi is less than 1:
+            Set trimming to false.
+        Otherwise:
+            If p(item hi of sb):
+                Set hi to hi - 1.
+            Otherwise:
+                Set trimming to false.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most hi:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns `s` with up to the first `n` non-overlapping occurrences of `oldPart` replaced by `newPart`. An empty `oldPart` returns `s` unchanged.
+
+## To replaceN (s: Text) and (oldPart: Text) and (newPart: Text) and (n: Int) -> Text:
+    Let sb be text_bytes(s).
+    Let fb be text_bytes(oldPart).
+    Let tob be text_bytes(newPart).
+    Let ns be length of sb.
+    Let nf be length of fb.
+    If nf is equal to 0:
+        Return s.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable done be 0.
+    Let mutable more be true.
+    While more is equal to true:
+        If done is at least n:
+            Set more to false.
+        Otherwise:
+            Let p be twoWayIndexBytesFrom(sb, fb, i).
+            If p is equal to 0:
+                Set more to false.
+            Otherwise:
+                While i is less than p:
+                    Push item i of sb to out.
+                    Set i to i + 1.
+                Repeat for tv in tob:
+                    Push tv to out.
+                Set i to p + nf.
+                Set done to done + 1.
+    While i is at most ns:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Splits `s` on each occurrence of `sep`, keeping `sep` attached to the end of the preceding piece, and drops a trailing empty segment.
+
+## To splitAfter (s: Text) and (sep: Text) -> Seq of Text:
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(sep).
+    Let ns be length of sb.
+    Let np be length of pb.
+    Let result be a new Seq of Text.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        Let p be twoWayIndexBytesFrom(sb, pb, i).
+        If p is equal to 0:
+            Set more to false.
+        Otherwise:
+            While i is less than p:
+                Push item i of sb to cur.
+                Set i to i + 1.
+            Let mutable k be 1.
+            While k is at most np:
+                Push item (p + k - 1) of sb to cur.
+                Set k to k + 1.
+            Push text_from_bytes(cur) to result.
+            Set cur to a new Seq of Int.
+            Set i to p + np.
+    While i is at most ns:
+        Push item i of sb to cur.
+        Set i to i + 1.
+    If (length of cur) is greater than 0:
+        Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+Like `splitAfter` but yielding at most `n` pieces (the last holds the unsplit remainder); an `n` of zero yields nothing, a negative `n` splits on every separator.
+
+Keeps the final piece even when empty (Go `SplitAfterN`).
+
+## To splitAfterN (s: Text) and (sep: Text) and (n: Int) -> Seq of Text:
+    Let result be a new Seq of Text.
+    If n is equal to 0:
+        Return result.
+    Let sb be text_bytes(s).
+    Let pb be text_bytes(sep).
+    Let ns be length of sb.
+    Let np be length of pb.
+    Let mutable cur be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        If n is greater than 0:
+            If (length of result) is at least (n - 1):
+                Set more to false.
+        If more is equal to true:
+            Let p be twoWayIndexBytesFrom(sb, pb, i).
+            If p is equal to 0:
+                Set more to false.
+            Otherwise:
+                While i is less than p:
+                    Push item i of sb to cur.
+                    Set i to i + 1.
+                Let mutable k be 1.
+                While k is at most np:
+                    Push item (p + k - 1) of sb to cur.
+                    Set k to k + 1.
+                Push text_from_bytes(cur) to result.
+                Set cur to a new Seq of Int.
+                Set i to p + np.
+    While i is at most ns:
+        Push item i of sb to cur.
+        Set i to i + 1.
+    Push text_from_bytes(cur) to result.
+    Return result.
+
+## Note
+Reports whether byte `c` appears anywhere in `s`.
+
+## To containsChar (s: Text) and (c: Int) -> Bool:
+    Let sb be text_bytes(s).
+    Repeat for b in sb:
+        If b is equal to c:
+            Return true.
+    Return false.
+
+## Note
+Returns the 1-based index of the first byte in `s` equal to `c`, or 0 if it is not present.
+
+## To indexChar (s: Text) and (c: Int) -> Int:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable i be 1.
+    While i is at most n:
+        If item i of sb is equal to c:
+            Return i.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Greedily word-wraps `s` into lines no longer than `width`, splitting only on whitespace between words. A single word longer than `width` still occupies its own line.
+
+## To wrapText (s: Text, width: Int) -> Seq of Text:
+    Let ws be words(s).
+    Let out be a new Seq of Text.
+    Let mutable cur be "".
+    Repeat for w in ws:
+        If length of cur is equal to 0:
+            Set cur to w.
+        Otherwise:
+            Let candidate be cur combined with " " combined with w.
+            If length of candidate is at most width:
+                Set cur to candidate.
+            Otherwise:
+                Push cur to out.
+                Set cur to w.
+    If length of cur is greater than 0:
+        Push cur to out.
+    Return out.
+
+## Note
+Word-wraps `s` to `width` via `wrapText` and joins the resulting lines with a single newline into one text.
+
+## To fillText (s: Text, width: Int) -> Text:
+    Let nl be text_from_bytes([10]).
+    Return join(wrapText(s, width), nl).
+
+## Note
+Decodes the UTF-8 text `s` into its Unicode code points (`[]rune` / `list(map(ord, s))`), reading 1-, 2-, 3-, and 4-byte sequences by arithmetic (no bit ops); a lone ASCII byte is its own code point.
+
+## To runesOf (s: Text) -> Seq of Int:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let mutable out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of sb.
+        If b0 is less than 128:
+            Push b0 to out.
+            Set i to i + 1.
+        Otherwise:
+            If b0 is less than 224:
+                Let b1 be item (i + 1) of sb.
+                Push (((b0 - 192) * 64) + (b1 - 128)) to out.
+                Set i to i + 2.
+            Otherwise:
+                If b0 is less than 240:
+                    Let b1 be item (i + 1) of sb.
+                    Let b2 be item (i + 2) of sb.
+                    Push ((((b0 - 224) * 4096) + ((b1 - 128) * 64)) + (b2 - 128)) to out.
+                    Set i to i + 3.
+                Otherwise:
+                    Let b1 be item (i + 1) of sb.
+                    Let b2 be item (i + 2) of sb.
+                    Let b3 be item (i + 3) of sb.
+                    Push (((((b0 - 240) * 262144) + ((b1 - 128) * 4096)) + ((b2 - 128) * 64)) + (b3 - 128)) to out.
+                    Set i to i + 4.
+    Return out.
+
+## Note
+Counts the Unicode code points in `s` (`utf8.RuneCountInString`) — the number of runes, not bytes.
+
+## To runeCount (s: Text) -> Int:
+    Return length of runesOf(s).
+
+## Note
+Byte length of the UTF-8 encoding of code point `r` (`utf8.RuneLen`): 1 below U+80, 2 below U+800, 3 below U+10000, else 4.
+
+## To runeLen (r: Int) -> Int:
+    If r is less than 128:
+        Return 1.
+    If r is less than 2048:
+        Return 2.
+    If r is less than 65536:
+        Return 3.
+    Return 4.
+
+## Note
+True when `r` is a valid Unicode code point (`utf8.ValidRune`): in `[0, 0x10FFFF]` and not a UTF-16 surrogate half.
+
+## To validRune (r: Int) -> Bool:
+    If r is less than 0:
+        Return false.
+    If r is greater than 1114111:
+        Return false.
+    If r is at least 55296:
+        If r is at most 57343:
+            Return false.
+    Return true.
+
+## Note
+True when byte `b` begins a UTF-8 encoding (`utf8.RuneStart`) — i.e. it is not a `10xxxxxx` continuation byte.
+
+## To runeStart (b: Int) -> Bool:
+    If b is less than 128:
+        Return true.
+    If b is at least 192:
+        Return true.
+    Return false.
+
+## Note
+True when `data` is well-formed UTF-8 (`utf8.Valid`/`utf8.ValidString`): valid lead bytes, in-range continuations, no overlong encodings, no surrogates, nothing past U+10FFFF.
+
+## To validUtf8 (data: Seq of Int) -> Bool:
+    Let n be length of data.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of data.
+        If b0 is less than 128:
+            Set i to i + 1.
+        Otherwise:
+            If b0 is less than 194:
+                Return false.
+            Let mutable size be 2.
+            Let mutable cp be b0 - 192.
+            Let mutable minv be 128.
+            If b0 is at least 224:
+                Set size to 3.
+                Set cp to b0 - 224.
+                Set minv to 2048.
+            If b0 is at least 240:
+                Set size to 4.
+                Set cp to b0 - 240.
+                Set minv to 65536.
+            If b0 is greater than 244:
+                Return false.
+            If (i + size) is greater than (n + 1):
+                Return false.
+            Let mutable j be 1.
+            Let mutable ok be true.
+            While j is less than size:
+                Let cb be item (i + j) of data.
+                If cb is less than 128:
+                    Set ok to false.
+                If cb is greater than 191:
+                    Set ok to false.
+                Set cp to (cp * 64) + (cb - 128).
+                Set j to j + 1.
+            If ok is equal to false:
+                Return false.
+            If cp is less than minv:
+                Return false.
+            If cp is greater than 1114111:
+                Return false.
+            If cp is at least 55296:
+                If cp is at most 57343:
+                    Return false.
+            Set i to i + size.
+    Return true.
+
+## Note
+Decodes the FIRST UTF-8 rune of `s`, returning `(code point, byte size)` (`utf8.DecodeRune`/`DecodeRuneInString`); an empty string yields the replacement rune U+FFFD with size 0.
+
+## To decodeRune (s: Text) -> (Int, Int):
+    Let sb be text_bytes(s).
+    If (length of sb) is equal to 0:
+        Return (65533, 0).
+    Let b0 be item 1 of sb.
+    If b0 is less than 128:
+        Return (b0, 1).
+    If b0 is less than 224:
+        Let b1 be item 2 of sb.
+        Return ((((b0 - 192) * 64) + (b1 - 128)), 2).
+    If b0 is less than 240:
+        Let b1 be item 2 of sb.
+        Let b2 be item 3 of sb.
+        Return (((((b0 - 224) * 4096) + ((b1 - 128) * 64)) + (b2 - 128)), 3).
+    Let b1 be item 2 of sb.
+    Let b2 be item 3 of sb.
+    Let b3 be item 4 of sb.
+    Return ((((((b0 - 240) * 262144) + ((b1 - 128) * 4096)) + ((b2 - 128) * 64)) + (b3 - 128)), 4).
+
+## Note
+Encodes the Unicode code point `r` to its UTF-8 bytes (`utf8.EncodeRune`).
+
+## To encodeRune (r: Int) -> Seq of Int:
+    Return text_bytes(chr(r)).
+
+## Note
+Decodes the LAST UTF-8 rune of `s` as `(code point, byte size)` (`utf8.DecodeLastRune`); scans back to the lead byte. Empty text yields `(65533, 0)`.
+
+## To decodeLastRune (s: Text) -> (Int, Int):
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is equal to 0:
+        Return (65533, 0).
+    Let mutable start be n.
+    Let mutable scanning be true.
+    While scanning is equal to true:
+        Let b be item start of sb.
+        If b is less than 128:
+            Set scanning to false.
+        Otherwise:
+            If b is at least 192:
+                Set scanning to false.
+            Otherwise:
+                If start is at most 1:
+                    Set scanning to false.
+                Otherwise:
+                    Set start to start - 1.
+    Let mutable tail be a new Seq of Int.
+    Let mutable k be start.
+    While k is at most n:
+        Push item k of sb to tail.
+        Set k to k + 1.
+    Return decodeRune(text_from_bytes(tail)).
+
+## Note
+True when `data` begins with a FULL UTF-8 rune encoding (`utf8.FullRune`/`FullRuneInString`): a complete or already-invalid sequence; false only for a strict prefix that could still complete.
+
+## To fullRune (data: Seq of Int) -> Bool:
+    Let n be length of data.
+    If n is equal to 0:
+        Return false.
+    Let b0 be item 1 of data.
+    If b0 is less than 128:
+        Return true.
+    If b0 is less than 194:
+        Return true.
+    If b0 is greater than 244:
+        Return true.
+    Let mutable size be 2.
+    If b0 is at least 224:
+        Set size to 3.
+    If b0 is at least 240:
+        Set size to 4.
+    Let mutable j be 2.
+    While j is at most size:
+        If j is greater than n:
+            Return false.
+        Let cb be item j of data.
+        If cb is less than 128:
+            Return true.
+        If cb is greater than 191:
+            Return true.
+        Set j to j + 1.
+    Return true.
+
+## Note
+Appends the UTF-8 encoding of code point `r` to the byte sequence `dst`, returning the extended sequence (`utf8.AppendRune`).
+
+## To appendRune (dst: Seq of Int, r: Int) -> Seq of Int:
+    Let rb be encodeRune(r).
+    Let mutable out be a new Seq of Int.
+    Repeat for b in dst:
+        Push b to out.
+    Repeat for eb in rb:
+        Push eb to out.
+    Return out.
+
+## Note
+The length in bytes of the valid UTF-8 sequence starting at 1-based index `i` in `data`, or 0 if none starts there.
+
+Overlong forms and surrogates are rejected, matching Go's `utf8.DecodeRune`.
+## To utf8DecodeSize (data: Seq of Int) and (i: Int) -> Int:
+    Let n be length of data.
+    Let c be item i of data.
+    If c is less than 128:
+        Return 1.
+    If c is less than 194:
+        Return 0.
+    If c is less than 224:
+        If (i + 1) is greater than n:
+            Return 0.
+        Let c1 be item (i + 1) of data.
+        If c1 is less than 128:
+            Return 0.
+        If c1 is greater than 191:
+            Return 0.
+        Return 2.
+    If c is less than 240:
+        If (i + 2) is greater than n:
+            Return 0.
+        Let c1 be item (i + 1) of data.
+        Let c2 be item (i + 2) of data.
+        If c1 is less than 128:
+            Return 0.
+        If c1 is greater than 191:
+            Return 0.
+        If c2 is less than 128:
+            Return 0.
+        If c2 is greater than 191:
+            Return 0.
+        If c is equal to 224:
+            If c1 is less than 160:
+                Return 0.
+        If c is equal to 237:
+            If c1 is greater than 159:
+                Return 0.
+        Return 3.
+    If c is less than 245:
+        If (i + 3) is greater than n:
+            Return 0.
+        Let c1 be item (i + 1) of data.
+        Let c2 be item (i + 2) of data.
+        Let c3 be item (i + 3) of data.
+        If c1 is less than 128:
+            Return 0.
+        If c1 is greater than 191:
+            Return 0.
+        If c2 is less than 128:
+            Return 0.
+        If c2 is greater than 191:
+            Return 0.
+        If c3 is less than 128:
+            Return 0.
+        If c3 is greater than 191:
+            Return 0.
+        If c is equal to 240:
+            If c1 is less than 144:
+                Return 0.
+        If c is equal to 244:
+            If c1 is greater than 143:
+                Return 0.
+        Return 4.
+    Return 0.
+
+## Note
+Replace each maximal run of invalid UTF-8 bytes in `data` with the bytes `repl`, copying valid sequences through unchanged (Go `bytes.ToValidUTF8` / `strings.ToValidUTF8`, over the byte view).
+
+## To toValidUTF8Bytes (data: Seq of Int) and (repl: Seq of Int) -> Seq of Int:
+    Let n be length of data.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable invalid be false.
+    While i is at most n:
+        Let sz be utf8DecodeSize(data, i).
+        If sz is equal to 0:
+            If invalid is equal to false:
+                Set invalid to true.
+                Repeat for rb in repl:
+                    Push rb to out.
+            Set i to i + 1.
+        Otherwise:
+            Set invalid to false.
+            Let mutable k be 0.
+            While k is less than sz:
+                Push item (i + k) of data to out.
+                Set k to k + 1.
+            Set i to i + sz.
+    Return out.
+
+## Note
+Maps a nibble value 0-15 to its lowercase hex character byte (`0`-`9`, `a`-`f`).
+
+## To nibbleToHex (v: Int) -> Int:
+    If v is less than 10:
+        Return 48 + v.
+    Return 87 + v.
+
+## Note
+The Unicode codepoint of the `sz`-byte UTF-8 sequence at 1-based index `i` in `data` (`sz` comes from `utf8DecodeSize`).
+
+## To utf8DecodeCodepoint (data: Seq of Int) and (i: Int) and (sz: Int) -> Int:
+    If sz is equal to 1:
+        Return item i of data.
+    If sz is equal to 2:
+        Let a be (item i of data) & 31.
+        Let b be (item (i + 1) of data) & 63.
+        Return (a shifted left by 6) | b.
+    If sz is equal to 3:
+        Let a be (item i of data) & 15.
+        Let b be (item (i + 1) of data) & 63.
+        Let c be (item (i + 2) of data) & 63.
+        Return ((a shifted left by 12) | (b shifted left by 6)) | c.
+    Let a be (item i of data) & 7.
+    Let b be (item (i + 1) of data) & 63.
+    Let c be (item (i + 2) of data) & 63.
+    Let d be (item (i + 3) of data) & 63.
+    Return (((a shifted left by 18) | (b shifted left by 12)) | (c shifted left by 6)) | d.
+
+## Note
+The bytes of Go's ASCII-only double-quoted escaping of a single rune `r`, used by `quoteToASCII`.
+
+Uses `\"`, `\\`, the `\a\b\f\n\r\t\v` shorthands, `\xNN` for other control bytes, and `\uNNNN`/`\UNNNNNNNN` for non-ASCII.
+## To escapeRuneASCII (r: Int) and (q: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    If r is equal to q:
+        Push 92 to out.
+        Push q to out.
+        Return out.
+    If r is equal to 92:
+        Push 92 to out.
+        Push 92 to out.
+        Return out.
+    If r is at least 32:
+        If r is at most 126:
+            Push r to out.
+            Return out.
+    If r is equal to 7:
+        Push 92 to out.
+        Push 97 to out.
+        Return out.
+    If r is equal to 8:
+        Push 92 to out.
+        Push 98 to out.
+        Return out.
+    If r is equal to 12:
+        Push 92 to out.
+        Push 102 to out.
+        Return out.
+    If r is equal to 10:
+        Push 92 to out.
+        Push 110 to out.
+        Return out.
+    If r is equal to 13:
+        Push 92 to out.
+        Push 114 to out.
+        Return out.
+    If r is equal to 9:
+        Push 92 to out.
+        Push 116 to out.
+        Return out.
+    If r is equal to 11:
+        Push 92 to out.
+        Push 118 to out.
+        Return out.
+    If r is less than 32:
+        Push 92 to out.
+        Push 120 to out.
+        Push nibbleToHex((r shifted right by 4) & 15) to out.
+        Push nibbleToHex(r & 15) to out.
+        Return out.
+    If r is less than 65536:
+        Push 92 to out.
+        Push 117 to out.
+        Push nibbleToHex((r shifted right by 12) & 15) to out.
+        Push nibbleToHex((r shifted right by 8) & 15) to out.
+        Push nibbleToHex((r shifted right by 4) & 15) to out.
+        Push nibbleToHex(r & 15) to out.
+        Return out.
+    Push 92 to out.
+    Push 85 to out.
+    Push nibbleToHex((r shifted right by 28) & 15) to out.
+    Push nibbleToHex((r shifted right by 24) & 15) to out.
+    Push nibbleToHex((r shifted right by 20) & 15) to out.
+    Push nibbleToHex((r shifted right by 16) & 15) to out.
+    Push nibbleToHex((r shifted right by 12) & 15) to out.
+    Push nibbleToHex((r shifted right by 8) & 15) to out.
+    Push nibbleToHex((r shifted right by 4) & 15) to out.
+    Push nibbleToHex(r & 15) to out.
+    Return out.
+
+## Note
+Returns `s` as a Go double-quoted, ASCII-only string literal: every non-ASCII rune and non-printable byte is backslash-escaped (`strconv.QuoteToASCII`). Invalid UTF-8 bytes become `\xNN`.
+
+## To quoteToASCII (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Push 34 to out.
+    Let mutable i be 1.
+    While i is at most n:
+        Let sz be utf8DecodeSize(sb, i).
+        If sz is equal to 0:
+            Let b be item i of sb.
+            Push 92 to out.
+            Push 120 to out.
+            Push nibbleToHex((b shifted right by 4) & 15) to out.
+            Push nibbleToHex(b & 15) to out.
+            Set i to i + 1.
+        Otherwise:
+            Let r be utf8DecodeCodepoint(sb, i, sz).
+            Let esc be escapeRuneASCII(r, 34).
+            Repeat for eb in esc:
+                Push eb to out.
+            Set i to i + sz.
+    Push 34 to out.
+    Return text_from_bytes(out).
+
+## Note
+Returns the rune with codepoint `r` as a Go single-quoted, ASCII-only character literal: non-ASCII and non-printable runes are backslash-escaped (`strconv.QuoteRuneToASCII`).
+
+## To quoteRuneToASCII (r: Int) -> Text:
+    Let out be a new Seq of Int.
+    Push 39 to out.
+    Let esc be escapeRuneASCII(r, 39).
+    Repeat for eb in esc:
+        Push eb to out.
+    Push 39 to out.
+    Return text_from_bytes(out).
+
+## Note
+Maps a hex character byte (`0`-`9`, `a`-`f`, `A`-`F`) to its value 0-15; returns 0 for anything else.
+
+## To hexCharVal (c: Int) -> Int:
+    If c is at least 48:
+        If c is at most 57:
+            Return c - 48.
+    If c is at least 97:
+        If c is at most 102:
+            Return c - 87.
+    If c is at least 65:
+        If c is at most 70:
+            Return c - 55.
+    Return 0.
+
+## Note
+Encodes the Unicode codepoint `r` as its 1-to-4 UTF-8 bytes (the inverse of `utf8DecodeCodepoint`).
+
+## To utf8Encode (r: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    If r is less than 128:
+        Push r to out.
+        Return out.
+    If r is less than 2048:
+        Push (192 | (r shifted right by 6)) to out.
+        Push (128 | (r & 63)) to out.
+        Return out.
+    If r is less than 65536:
+        Push (224 | (r shifted right by 12)) to out.
+        Push (128 | ((r shifted right by 6) & 63)) to out.
+        Push (128 | (r & 63)) to out.
+        Return out.
+    Push (240 | (r shifted right by 18)) to out.
+    Push (128 | ((r shifted right by 12) & 63)) to out.
+    Push (128 | ((r shifted right by 6) & 63)) to out.
+    Push (128 | (r & 63)) to out.
+    Return out.
+
+## Note
+The byte value of a simple single-character backslash escape (`\a\b\f\n\r\t\v\\\'\"`), or -1 if `e` is not one of them (the caller then handles `\x`/`\u`/`\U`/octal).
+
+## To simpleEscByte (e: Int) -> Int:
+    If e is equal to 97:
+        Return 7.
+    If e is equal to 98:
+        Return 8.
+    If e is equal to 102:
+        Return 12.
+    If e is equal to 110:
+        Return 10.
+    If e is equal to 114:
+        Return 13.
+    If e is equal to 116:
+        Return 9.
+    If e is equal to 118:
+        Return 11.
+    If e is equal to 92:
+        Return 92.
+    If e is equal to 39:
+        Return 39.
+    If e is equal to 34:
+        Return 34.
+    Return 0 - 1.
+
+## Note
+Parses a Go quoted string literal back to its raw text, like Go's `strconv.Unquote`.
+
+A double-quoted `"..."` (or single-quoted `'...'`) literal decodes `\a\b\f\n\r\t\v\\\'\"`, `\xNN`, `\uNNNN`, `\UNNNNNNNN`, and octal `\NNN`; a backtick `` `...` `` raw literal is returned verbatim (carriage returns dropped).
+## To unquote (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    If n is less than 2:
+        Return "".
+    Let q be item 1 of sb.
+    If q is equal to 96:
+        Let mutable j be 2.
+        While j is less than n:
+            Let rc be item j of sb.
+            If rc is equal to 13:
+                Set j to j + 1.
+            Otherwise:
+                Push rc to out.
+                Set j to j + 1.
+        Return text_from_bytes(out).
+    Let mutable i be 2.
+    While i is less than n:
+        Let c be item i of sb.
+        If c is equal to 92:
+            Let e be item (i + 1) of sb.
+            Let se be simpleEscByte(e).
+            If se is at least 0:
+                Push se to out.
+                Set i to i + 2.
+            Otherwise:
+                If e is equal to 120:
+                    Let hv be (hexCharVal(item (i + 2) of sb) shifted left by 4) | hexCharVal(item (i + 3) of sb).
+                    Push hv to out.
+                    Set i to i + 4.
+                Otherwise:
+                    If e is equal to 117:
+                        Let r be (((hexCharVal(item (i + 2) of sb) shifted left by 12) | (hexCharVal(item (i + 3) of sb) shifted left by 8)) | (hexCharVal(item (i + 4) of sb) shifted left by 4)) | hexCharVal(item (i + 5) of sb).
+                        Let enc be utf8Encode(r).
+                        Repeat for eb in enc:
+                            Push eb to out.
+                        Set i to i + 6.
+                    Otherwise:
+                        If e is equal to 85:
+                            Let mutable r be 0.
+                            Let mutable k be 0.
+                            While k is less than 8:
+                                Set r to (r shifted left by 4) | hexCharVal(item (i + 2 + k) of sb).
+                                Set k to k + 1.
+                            Let enc be utf8Encode(r).
+                            Repeat for eb in enc:
+                                Push eb to out.
+                            Set i to i + 10.
+                        Otherwise:
+                            If e is at least 48:
+                                If e is at most 55:
+                                    Let ov be (((e - 48) * 64) + (((item (i + 2) of sb) - 48) * 8)) + ((item (i + 3) of sb) - 48).
+                                    Push ov to out.
+                                    Set i to i + 4.
+                                Otherwise:
+                                    Push e to out.
+                                    Set i to i + 2.
+                            Otherwise:
+                                Push e to out.
+                                Set i to i + 2.
+        Otherwise:
+            Push c to out.
+            Set i to i + 1.
+    Return text_from_bytes(out).
+
+## Note
+Returns the quoted-string literal at the START of `s` — from the opening quote through its matching close (respecting `\` escapes inside `"`/`'`; a backtick literal runs to the next backtick).
+
+Empty if `s` does not begin with a terminated quoted literal (`strconv.QuotedPrefix`).
+
+## To quotedPrefix (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is less than 1:
+        Return "".
+    Let q be item 1 of sb.
+    Let out be a new Seq of Int.
+    Push q to out.
+    If q is equal to 96:
+        Let mutable j be 2.
+        While j is at most n:
+            Push item j of sb to out.
+            If (item j of sb) is equal to 96:
+                Return text_from_bytes(out).
+            Set j to j + 1.
+        Return "".
+    Let mutable i be 2.
+    While i is at most n:
+        Let c be item i of sb.
+        Push c to out.
+        If c is equal to 92:
+            Set i to i + 1.
+            If i is at most n:
+                Push item i of sb to out.
+            Set i to i + 1.
+        Otherwise:
+            If c is equal to q:
+                Return text_from_bytes(out).
+            Set i to i + 1.
+    Return "".

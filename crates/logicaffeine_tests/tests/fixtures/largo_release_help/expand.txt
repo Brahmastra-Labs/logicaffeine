@@ -1,0 +1,32 @@
+Show what an LGX page became: the ordinary LOGOS its constructs lower to.
+
+A `## Component` is not run as written: it becomes a render function that writes the view to a tape (`vdOpen`/`vdText`/`vdClose`) its commit turns into DOM calls, an action function per action, a mount entry and a dispatcher; a `## Route` becomes a function plus the synthesized `route(method, path)` walk. When a page behaves in a way its markup does not explain, the lowering is the answer — this prints it.
+
+Usage: largo expand [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>
+          The source file to expand
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo expand pages/app.lg

@@ -44,7 +44,10 @@ impl Status {
 pub enum Output {
     /// English → first-order logic, in both rendered formats (`compile_simple`
     /// and `compile`). The example tabs toggle between them.
-    Fol { simple: &'static str, unicode: &'static str },
+    Fol {
+        simple: &'static str,
+        unicode: &'static str,
+    },
     /// English → emitted Rust (`compile_to_rust`).
     Rust(&'static str),
     /// English hardware spec → synthesized SystemVerilog Assertion.
@@ -116,15 +119,17 @@ static MILESTONES: &[Milestone] = &[
         ],
     },
     Milestone {
-        title: "Web Platform",
+        title: "Web Platform & Studio",
         status: Status::Complete,
-        description: "A Dioxus/WASM front end: a structured Learn curriculum, a free-form Studio for English-to-FOL and compilation, and the published benchmark and release-notes pages. The browser runs the bytecode VM; native tiers fall back to it under WASM.",
+        description: "A Dioxus/WASM front end with prerendered pages. The Studio is a browser IDE: every mode edits in one code editor, with the language server running in the page — VS Code-style hovers, problems underlined as you type, keywords coloured the way the lexer reads them — and a debugger that steps a program forward and back through time. The Syntax Guide's examples are live editors too, and Learn is a structured curriculum of lessons, exercises and tests.",
         features: &[
             "Dioxus WASM",
+            "Prerendered pages",
+            "Studio IDE",
+            "In-browser language server",
+            "Time-travel debugger",
+            "Live Syntax Guide",
             "Learn curriculum",
-            "Studio",
-            "Benchmarks page",
-            "Release notes",
         ],
         examples: &[],
     },
@@ -266,13 +271,16 @@ static MILESTONES: &[Milestone] = &[
     Milestone {
         title: "Native Compilation Tier",
         status: Status::Complete,
-        description: "Three execution tiers below the front end: generated Rust source, a register-bytecode VM with optimizer (oracle facts, GVN, LICM, DCE, scalarization, loop-split), and a native AOT/JIT path. The VM profiles hot integer/float regions and recursive functions and tiers them down through a copy-and-patch JIT — stencils stamped out by memcpy and patched at relocations — to EXODIA, a contiguous register-allocating x86-64 backend. Anything outside the supported subset declines and stays on bytecode (the deopt contract). The benchmark suite measures the codegen path against ten languages with hyperfine; runtime parity with V8/Node, and head-to-head comparison against C.",
+        description: "Three execution tiers below the front end: generated Rust source, a register-bytecode VM with optimizer (oracle facts, GVN, LICM, DCE, scalarization, loop-split), and a native AOT/JIT path. The VM profiles hot integer/float regions and recursive functions and tiers them down through a copy-and-patch JIT — stencils stamped out by memcpy and patched at relocations — to EXODIA, a contiguous register-allocating x86-64 backend. Anything outside the supported subset declines and stays on bytecode (the deopt contract). The benchmark suite measures the codegen path against ten languages with hyperfine; runtime parity with V8/Node, and head-to-head comparison against C. Beyond Rust, the same bytecode lowers straight to WebAssembly, C, RISC-V and NVIDIA GPUs through CUDA, each backend held to the VM's behaviour by its own lock.",
         features: &[
             "Bytecode VM",
             "Optimizer (GVN / LICM / DCE)",
             "Copy-and-patch JIT",
             "EXODIA register-allocating x86-64",
             "Auto-memoization",
+            "WebAssembly / C / RISC-V / CUDA",
+            "SIMD reductions",
+            "IR peephole",
             "10-language benchmarks",
             "V8 / Node parity",
         ],
@@ -311,21 +319,59 @@ static MILESTONES: &[Milestone] = &[
         ],
     },
     Milestone {
+        title: "Full-Stack Web",
+        status: Status::Complete,
+        description: "Websites written in LOGOS, end to end. Typed routes answer on the server and components with reactive signals render in the browser; sessions, CSRF protection, static files, JSON and a PostgreSQL client written in LOGOS come in the standard library. largo build --static makes a folder for any static host, or the project builds into one server binary that shuts down gracefully, answers health checks, times out slow requests and sheds load, all set by environment variables.",
+        features: &[
+            "Typed routes",
+            "Components & signals",
+            "Sessions & CSRF",
+            "PostgreSQL client",
+            "Static export",
+            "Production lifecycle",
+            "Four example sites",
+        ],
+        examples: &[
+            Example {
+                label: "Typed route",
+                english: "## Route GET /posts/:id (id: Int) -> Text:\n    Return \"post {id}\".\n\n## Main\n\nShow route(\"GET\", \"/posts/7\").",
+                output: Output::Rust("#[inline]\nfn __route_GET__posts__id(id: i64) -> String {\n    return format!(\"post {}\", logicaffeine_system::io::show_string(&(id)));\n}\n\n// the router answers 400 unless the :id slot holds an Int,\n// 405 for another method on the path, 404 for any other path"),
+            },
+        ],
+    },
+    Milestone {
         title: "Translation Validation",
         status: Status::InProgress,
-        description: "Proving the compiler's output matches its input. The logicaffeine-tv crate symbolically executes the LOGOS source into the shared verification domain and discharges equivalence with Z3 (rung 3–4: the trust boundary is the encoder, Z3, and rustc). The source-side executor and its meta-soundness oracle — cross-validating the encoder against the tree-walking interpreter — are in place; the Rust-emitter-side executor that closes full source-to-Rust equivalence is the remaining work.",
+        description: "Proving the compiler's output matches its input. The logicaffeine-tv crate symbolically executes the LOGOS source into the shared verification domain and discharges equivalence with Z3 (rung 3–4: the trust boundary is the encoder, Z3, and rustc). The source-side executor and its meta-soundness oracle — cross-validating the encoder against the tree-walking interpreter — are in place, and cover deterministic concurrency too: channels and spawned tasks, and Select checked by seeded replay. The Rust-emitter-side executor that closes full source-to-Rust equivalence is the remaining work.",
         features: &[
             "Symbolic execution",
             "Z3 equivalence",
             "Encoder soundness oracle",
+            "Concurrency (seeded replay)",
             "Out-of-fragment exclusion",
+        ],
+        examples: &[],
+    },
+    Milestone {
+        title: "Silicon",
+        status: Status::InProgress,
+        description: "The LOGOS chip. The first pieces exist: the compiler prints any program in the Silicon ISA, a soft core executes the whole ISA on a Nexys A7 FPGA with every Show compared against the VM, and a whole-program dataflow engine runs the core algorithms of every benchmark identically to the VM on its model. Hardened sky130 blocks close signoff at every corner, and two Caravel user projects, the certified DRAM command player and the whole-program engine, pass all 19 of the foundry's MPW precheck checks. The goal is a full-custom SoC where the register-VM ops are the native ISA, the copy-and-patch stencils become hardwired functional units, and the Futamura specializer configures a spatial dataflow fabric, so the compiled program is the circuit. Memory is scheduled onto scratchpads instead of guessed by a speculative cache, the crypto and codec kernels already written in LOGOS (Keccak-f[1600], the ML-KEM and ML-DSA NTTs, group-varint) get dedicated accelerators, and energy goes only to the computation that runs, toward the Landauer limit and, with reversible logic, past it. The chip is designed and checked in LOGOS itself: the same substrate emits SVA, extracts Verilog and proves BitVec(n) properties across every bus width.",
+        features: &[
+            "Program → circuit",
+            "Three-way equivalence checking",
+            "Signoff-clean Sky130 layout",
+            "LOGOS-ISA cores",
+            "Stencils → functional units",
+            "Futamura dataflow fabric",
+            "No cache hierarchy",
+            "PQC accelerators",
         ],
         examples: &[],
     },
     Milestone {
         title: "Quantum Backend",
         status: Status::Planned,
-        description: "A Cirq v2 backend mirroring the SVA architecture: 17 sprints, 314 planned tests across 13 files, taking the same FOL-to-target synthesis path to quantum circuits.",
+        description: "A Cirq backend on the path that already takes an English specification to SystemVerilog Assertions, taking it to quantum circuits instead: the same FOL-to-target synthesis, a different target.",
         features: &[
             "Cirq v2",
             "Circuit synthesis",
@@ -333,57 +379,8 @@ static MILESTONES: &[Milestone] = &[
         ],
         examples: &[],
     },
-    Milestone {
-        title: "Silicon",
-        status: Status::Planned,
-        description: "The LOGOS chip. The AOT tier already runs at 2.6× the speed of C — faster than C, C++, Rust, and Zig, the fastest language in the suite — so the general-purpose CPU is tapped out, and the next order of magnitude leaves it for a full-custom HPC SoC. The register-VM ops become a native ISA, the copy-and-patch stencils become hardwired functional units, and the Jones-optimal Futamura specializer configures a spatial dataflow fabric: implementation is a partial evaluation of the specification, so the compiled program *is* the circuit, correct by construction. Because that residual is a statically-known dataflow, there is no speculative cache hierarchy to pay for — memory is scheduled onto scratchpads, not guessed. The crypto and codec kernels already written in Logos — Keccak-f[1600], the ML-KEM / ML-DSA NTT, SHA-3, group-varint — drop onto dedicated accelerators for line-rate post-quantum crypto and serialization. And the goal is not only speed but power: with no cache hierarchy and no speculation to feed, the fabric spends energy only on the computation that runs — driving toward the Landauer limit, and, through reversible logic, past it. Because the same substrate that verifies English specs emits SVA, extracts Verilog, and proves BitVec(n) properties across every bus width, the chip is designed and formally proven in Logos itself: self-hosting, zero-defect silicon.",
-        features: &[
-            "LOGOS-ISA cores",
-            "Stencils → functional units",
-            "Futamura dataflow fabric",
-            "No cache hierarchy",
-            "Low power → Landauer",
-            "PQC accelerators",
-            "Self-verified RTL",
-        ],
-        examples: &[],
-    },
 ];
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Every roadmap example must be REAL compiler output. This recompiles each
-    /// `english` and checks the displayed output still matches — so an example
-    /// can never silently become fabricated. FOL is exact-matched; Rust must
-    /// compile (the shown Rust is a faithful excerpt of the full emitted file);
-    /// SVA is exact-matched against the synthesizer.
-    #[test]
-    fn every_example_is_real_compiler_output() {
-        for m in get_milestones() {
-            for ex in m.examples {
-                match ex.output {
-                    Output::Fol { simple, unicode } => {
-                        let got_simple = logicaffeine_language::compile_simple(ex.english)
-                            .unwrap_or_else(|e| panic!("[{} / {}] FOL did not compile: {:?}", m.title, ex.label, e));
-                        let got_unicode = logicaffeine_language::compile(ex.english)
-                            .unwrap_or_else(|e| panic!("[{} / {}] FOL did not compile: {:?}", m.title, ex.label, e));
-                        assert_eq!(got_simple, simple, "[{} / {}] SimpleFOL drifted from the compiler", m.title, ex.label);
-                        assert_eq!(got_unicode, unicode, "[{} / {}] Unicode FOL drifted from the compiler", m.title, ex.label);
-                    }
-                    Output::Rust(_) => {
-                        logicaffeine_compile::compile::compile_to_rust(ex.english).unwrap_or_else(|e| {
-                            panic!("[{} / {}] Rust example did not compile: {:?}\n--- source ---\n{}\n--------------", m.title, ex.label, e, ex.english)
-                        });
-                    }
-                    Output::Sva(sva) => {
-                        let synth = logicaffeine_compile::codegen_sva::fol_to_sva::synthesize_sva_from_spec(ex.english, "clk")
-                            .unwrap_or_else(|e| panic!("[{} / {}] SVA did not synthesize: {}", m.title, ex.label, e));
-                        assert_eq!(synth.sva_text, sva, "[{} / {}] SVA drifted from the synthesizer", m.title, ex.label);
-                    }
-                }
-            }
-        }
-    }
-}
+#[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/roadmap_data/tests.rs"]
+mod tests;

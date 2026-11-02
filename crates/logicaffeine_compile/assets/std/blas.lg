@@ -1,0 +1,249 @@
+# BLAS
+
+Dense linear algebra in double precision, written in pure LOGOS and compiled through every
+execution tier. The numerical *algorithms* are ported faithfully from the netlib reference
+BLAS (Univ. of Tennessee, Univ. of California Berkeley, Univ. of Colorado Denver, NAG Ltd.);
+the reference's 1978-era hand-optimization is not. Where `DDOT` carries a manual 5-way loop
+unroll (`DTEMP + DX(I)*DY(I) + DX(I+1)*DY(I+1) + …`) and a `MOD(N,5)` clean-up loop, the LOGOS
+`dot` is the naive `sum += x[i]*y[i]` — the supercompiler unrolls and specializes it
+automatically and provably, so the source stays the mathematics and the optimization is
+earned, not transcribed.
+
+Vectors and matrices are flattened row-major `Seq of Float`; a matrix argument carries its
+dimensions as explicit `Int`s (the reference's `(M, N, A, LDA)` calling convention). Indexing
+is 1-based (`item i of x`). Auto-imported on first reference, like every stdlib module.
+
+(NOTE for editors: keep all prose ABOVE the first `## To` — literate Logos strips only the
+leading prose; a paragraph BETWEEN `## To` sections is parsed as code and breaks the module.)
+
+## Note
+The dot product of the first `n` elements of two vectors (reference BLAS `DDOT`, `INCX=INCY=1`).
+`n <= 0` yields 0, matching `IF (N.LE.0) RETURN` with `DDOT = 0.0d0`.
+
+## To dot (n: Int, x: Seq of Float, y: Seq of Float) -> Float:
+    Let mutable sum be 0.0.
+    Repeat for i from 1 to n:
+        Set sum to sum + (item i of x) * (item i of y).
+    Return sum.
+
+## Note
+`y := alpha·x + y` over the first `n` elements (reference BLAS `DAXPY`). Value-semantic: the
+result is a fresh vector; the caller's `y` is untouched. `alpha = 0` leaves `y` unchanged.
+
+## To axpy (n: Int, alpha: Float, x: Seq of Float, y: Seq of Float) -> Seq of Float:
+    Let mutable result be y.
+    Repeat for i from 1 to n:
+        Set item i of result to (item i of result) + alpha * (item i of x).
+    Return result.
+
+## Note
+`x := alpha·x` over the first `n` elements (reference BLAS `DSCAL`).
+
+## To scal (n: Int, alpha: Float, x: Seq of Float) -> Seq of Float:
+    Let mutable result be x.
+    Repeat for i from 1 to n:
+        Set item i of result to alpha * (item i of result).
+    Return result.
+
+## Note
+The Euclidean norm `‖x‖₂ = sqrt(Σ xᵢ²)` (reference BLAS `DNRM2`). The naive `sqrt(dot(x, x))` here is exact for well-scaled inputs; the overflow/underflow scaling refinement is a later variant.
+
+## To nrm2 (n: Int, x: Seq of Float) -> Float:
+    Let mutable sum be 0.0.
+    Repeat for i from 1 to n:
+        Set sum to sum + (item i of x) * (item i of x).
+    Return sqrt(sum).
+
+## Note
+General matrix-vector product `y := alpha·A·x + beta·y` (reference BLAS `DGEMV`, no transpose).
+`A` is `m × n`, flattened row-major, so element `(i, j)` lives at `(i-1)·n + j` (1-based).
+
+## To gemv (m: Int, n: Int, alpha: Float, a: Seq of Float, x: Seq of Float, beta: Float, y: Seq of Float) -> Seq of Float:
+    Let mutable result be y.
+    Repeat for i from 1 to m:
+        Let mutable sum be 0.0.
+        Repeat for j from 1 to n:
+            Set sum to sum + (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of result to beta * (item i of result) + alpha * sum.
+    Return result.
+
+## Note
+General matrix-matrix product `C := alpha·A·B + beta·C` (reference BLAS `DGEMM`, no transpose). `A` is `m × k`, `B` is `k × n`, `C` is `m × n`, all row-major; the direct triple sum.
+
+## To gemm (m: Int, n: Int, k: Int, alpha: Float, a: Seq of Float, b: Seq of Float, beta: Float, c: Seq of Float) -> Seq of Float:
+    Let mutable result be c.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Let mutable sum be 0.0.
+            Repeat for p from 1 to k:
+                Set sum to sum + (item ((i - 1) * k + p) of a) * (item ((p - 1) * n + j) of b).
+            Set item ((i - 1) * n + j) of result to beta * (item ((i - 1) * n + j) of result) + alpha * sum.
+    Return result.
+
+## Note
+Sum of absolute values `Σ|xᵢ|` (reference BLAS `DASUM`).
+
+## To asum (n: Int, x: Seq of Float) -> Float:
+    Let mutable sum be 0.0.
+    Repeat for i from 1 to n:
+        Set sum to sum + abs(item i of x).
+    Return sum.
+
+## Note
+The 1-based index of the first element of largest magnitude (reference BLAS `IDAMAX`).
+`n < 1` yields 0, matching the reference's empty-vector guard.
+
+## To iamax (n: Int, x: Seq of Float) -> Int:
+    If n is less than 1:
+        Return 0.
+    Let mutable best be 1.
+    Let mutable bestVal be abs(item 1 of x).
+    Repeat for i from 2 to n:
+        Let v be abs(item i of x).
+        If v is greater than bestVal:
+            Set best to i.
+            Set bestVal to v.
+    Return best.
+
+## Note
+Rank-1 update `A := alpha·x·yᵀ + A` (reference BLAS `DGER`). `A` is `m × n`, row-major.
+
+## To ger (m: Int, n: Int, alpha: Float, x: Seq of Float, y: Seq of Float, a: Seq of Float) -> Seq of Float:
+    Let mutable result be a.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Set item ((i - 1) * n + j) of result to (item ((i - 1) * n + j) of result) + alpha * (item i of x) * (item j of y).
+    Return result.
+
+## Note
+Forward substitution: solve `L·x = b` for a lower-triangular `L` (reference `DTRSV`, uplo='L', non-unit diagonal). `L` is `n × n`, row-major; the strict upper triangle is ignored.
+
+## To trsvLower (n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable x be b.
+    Repeat for i from 1 to n:
+        Let mutable sum be item i of x.
+        Repeat for j from 1 to (i - 1):
+            Set sum to sum - (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of x to sum / (item ((i - 1) * n + i) of a).
+    Return x.
+
+## Note
+Back substitution: solve `U·x = b` for an upper-triangular `U` (reference `DTRSV`, uplo='U').
+`U` is `n × n`, row-major; the strict lower triangle is ignored.
+
+## To trsvUpper (n: Int, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable x be b.
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable sum be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set sum to sum - (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of x to sum / (item ((i - 1) * n + i) of a).
+    Return x.
+
+## Note
+Symmetric rank-k update `C := alpha·A·Aᵀ + beta·C` (reference BLAS `DSYRK`). `A` is `n × k`,
+`C` is `n × n`; the full symmetric result is written (both triangles), row-major.
+
+## To syrk (n: Int, k: Int, alpha: Float, a: Seq of Float, beta: Float, c: Seq of Float) -> Seq of Float:
+    Let mutable result be c.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for p from 1 to k:
+                Set s to s + (item ((i - 1) * k + p) of a) * (item ((j - 1) * k + p) of a).
+            Set item ((i - 1) * n + j) of result to beta * (item ((i - 1) * n + j) of result) + alpha * s.
+    Return result.
+
+## Note
+Symmetric matrix-vector product `y := alpha·A·x + beta·y` for a full symmetric `A` (`n × n`,
+row-major) — reference BLAS `DSYMV`.
+
+## To symv (n: Int, alpha: Float, a: Seq of Float, x: Seq of Float, beta: Float, y: Seq of Float) -> Seq of Float:
+    Let mutable result be y.
+    Repeat for i from 1 to n:
+        Let mutable s be 0.0.
+        Repeat for j from 1 to n:
+            Set s to s + (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of result to beta * (item i of result) + alpha * s.
+    Return result.
+
+## Note
+Triangular matrix-vector product `x := A·x` for an upper-triangular `A` (`n × n`, row-major, the
+strict lower triangle ignored) — reference BLAS `DTRMV`, uplo='U', non-unit diagonal.
+
+## To trmv (n: Int, a: Seq of Float, x: Seq of Float) -> Seq of Float:
+    Let mutable result be x.
+    Repeat for i from 1 to n:
+        Let mutable s be 0.0.
+        Repeat for j from i to n:
+            Set s to s + (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of result to s.
+    Return result.
+
+## Note
+Symmetric rank-1 update `A := alpha·x·xᵀ + A` (reference BLAS `DSYR`); the full `n × n` result is
+written (both triangles), row-major.
+
+## To syr (n: Int, alpha: Float, x: Seq of Float, a: Seq of Float) -> Seq of Float:
+    Let mutable result be a.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Set item ((i - 1) * n + j) of result to (item ((i - 1) * n + j) of a) + alpha * (item i of x) * (item j of x).
+    Return result.
+
+## Note
+Triangular matrix-matrix product `B := alpha·A·B` for an upper-triangular `A` (`m × m`) and a general
+`B` (`m × n`), row-major — reference BLAS `DTRMM`, side='L', uplo='U', non-transposed, non-unit.
+
+## To trmm (m: Int, n: Int, alpha: Float, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable result be b.
+    Repeat for j from 1 to n:
+        Repeat for i from 1 to m:
+            Let mutable s be 0.0.
+            Repeat for kk from i to m:
+                Set s to s + (item ((i - 1) * m + kk) of a) * (item ((kk - 1) * n + j) of b).
+            Set item ((i - 1) * n + j) of result to alpha * s.
+    Return result.
+
+## Note
+Triangular solve with multiple RHS: solve `A·X = alpha·B` for upper-triangular `A` (`m × m`) and `B` (`m × n`), returning `X` (`m × n`), row-major (reference BLAS `DTRSM`, side='L', uplo='U').
+
+## To trsm (m: Int, n: Int, alpha: Float, a: Seq of Float, b: Seq of Float) -> Seq of Float:
+    Let mutable x be b.
+    Repeat for j from 1 to n:
+        Repeat for ii from 1 to m:
+            Let i be m + 1 - ii.
+            Let mutable s be alpha * (item ((i - 1) * n + j) of b).
+            Repeat for kk from (i + 1) to m:
+                Set s to s - (item ((i - 1) * m + kk) of a) * (item ((kk - 1) * n + j) of x).
+            Set item ((i - 1) * n + j) of x to s / (item ((i - 1) * m + i) of a).
+    Return x.
+
+## Note
+Symmetric matrix-matrix product `C := alpha·A·B + beta·C` for a full symmetric `A` (`m × m`) and a
+general `B` (`m × n`), row-major — reference BLAS `DSYMM`, side='L'.
+
+## To symm (m: Int, n: Int, alpha: Float, a: Seq of Float, b: Seq of Float, beta: Float, c: Seq of Float) -> Seq of Float:
+    Let mutable result be c.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for kk from 1 to m:
+                Set s to s + (item ((i - 1) * m + kk) of a) * (item ((kk - 1) * n + j) of b).
+            Set item ((i - 1) * n + j) of result to beta * (item ((i - 1) * n + j) of result) + alpha * s.
+    Return result.
+
+## Note
+Symmetric rank-2k update `C := alpha·(A·Bᵀ + B·Aᵀ) + beta·C` for `A`, `B` (`n × k`) and symmetric `C`
+(`n × n`), row-major — reference BLAS `DSYR2K`.
+
+## To syr2k (n: Int, k: Int, alpha: Float, a: Seq of Float, b: Seq of Float, beta: Float, c: Seq of Float) -> Seq of Float:
+    Let mutable result be c.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be 0.0.
+            Repeat for p from 1 to k:
+                Set s to s + (item ((i - 1) * k + p) of a) * (item ((j - 1) * k + p) of b) + (item ((i - 1) * k + p) of b) * (item ((j - 1) * k + p) of a).
+            Set item ((i - 1) * n + j) of result to beta * (item ((i - 1) * n + j) of result) + alpha * s.
+    Return result.

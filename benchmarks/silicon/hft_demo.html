@@ -1,0 +1,171 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>LOGOS · deterministic tick-to-trade on silicon</title>
+<style>
+  * { box-sizing:border-box; margin:0; }
+  body { background:#05070d; color:#e7eefb; font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1040px; margin:0 auto; padding:64px 28px 96px; }
+  .kicker { color:#22e39a; font-weight:700; letter-spacing:.14em; text-transform:uppercase; font-size:13px; }
+  h1 { font-size:52px; line-height:1.05; letter-spacing:-.02em; margin:14px 0 18px; font-weight:800; }
+  h1 .g { color:#22e39a; }
+  .sub { color:#9fb0cc; font-size:21px; max-width:760px; }
+  section { margin-top:64px; }
+  h2 { font-size:14px; letter-spacing:.14em; text-transform:uppercase; color:#6a7c9c; margin-bottom:18px; font-weight:700; }
+  pre { background:#0a0e16; border:1px solid #1a2334; border-radius:12px; padding:22px 24px; overflow:auto;
+        color:#cdd9f0; font:14px/1.7 'SF Mono',Menlo,Consolas,monospace; }
+  ol.essence { list-style:none; counter-reset:s; padding:0; max-width:760px; }
+  ol.essence li { counter-increment:s; position:relative; padding:9px 0 9px 44px; font-size:18px; color:#d7e2f5;
+                  border-bottom:1px solid #121a29; }
+  ol.essence li::before { content:counter(s); position:absolute; left:0; top:8px; width:28px; height:28px;
+                  background:#0f2e22; color:#22e39a; border-radius:50%; text-align:center; line-height:28px;
+                  font-size:13px; font-weight:700; }
+  ol.essence b.g { color:#22e39a; }
+  .reveal { color:#6a7c9c; font-size:14px; margin:22px 0 12px; }
+  .flow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .node { background:#0d1420; border:1px solid #1e2a40; border-radius:10px; padding:12px 16px; font-weight:600; font-size:14px; }
+  .node small { display:block; color:#6a7c9c; font-weight:400; font-size:12px; }
+  .arrow { color:#2f3d58; font-size:20px; }
+  .chartcard { background:#0a0e16; border:1px solid #1a2334; border-radius:16px; padding:24px 20px 8px; }
+  .punch { font-size:24px; font-weight:700; margin-top:22px; }
+  .punch .r { color:#ff6674; } .punch .g { color:#22e39a; }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:8px; }
+  .stat { background:#0a0e16; border:1px solid #1a2334; border-radius:14px; padding:22px; }
+  .stat b { display:block; font-size:40px; font-weight:800; letter-spacing:-.02em; }
+  .stat.g b { color:#22e39a; } .stat.r b { color:#ff6674; }
+  .stat span { color:#9fb0cc; font-size:14px; }
+  .zlead { color:#c3d1ec; font-size:18px; max-width:820px; margin-bottom:22px; }
+  .zlead b.g { color:#22e39a; }
+  .eq { font:600 30px/1 'SF Mono',Menlo,Consolas,monospace; color:#e7eefb; text-align:center;
+        background:#0a0e16; border:1px solid #1a2334; border-radius:12px; padding:22px; margin:6px 0 22px;
+        letter-spacing:.02em; }
+  .levers { display:flex; flex-direction:column; gap:12px; margin-bottom:20px; }
+  .lever { background:#0a0e16; border:1px solid #1a2334; border-radius:12px; padding:16px 20px; font-size:16px; color:#d7e2f5; }
+  .lever .g { color:#22e39a; font-weight:700; }
+  .scope { background:#12161f; border-left:3px solid #2f8f6b; border-radius:0 8px 8px 0; padding:14px 18px;
+           color:#c3d1ec; font-size:15px; max-width:900px; margin-bottom:18px; }
+  .scope b { color:#e7eefb; }
+  .tiers { display:flex; flex-direction:column; gap:8px; }
+  .tier { display:flex; align-items:center; gap:14px; background:#0a0e16; border:1px solid #1a2334;
+          border-radius:10px; padding:12px 18px; }
+  .tmhz { width:120px; color:#9fb0cc; font-weight:600; }
+  .tns { flex:1; font-size:19px; font-weight:700; }
+  .tst { font-size:12px; padding:3px 10px; border-radius:20px; }
+  .tst.measured { background:#0f2e22; color:#22e39a; }
+  .tst.projected { background:#22261a; color:#e3c93a; }
+  .tst.roadmap { background:#241a2e; color:#c489f5; }
+  .proof { display:flex; gap:12px; flex-wrap:wrap; }
+  .chip { background:#0d1420; border:1px solid #1e2a40; border-radius:20px; padding:8px 16px; font-size:14px; color:#bcccea; }
+  .chip b { color:#22e39a; }
+  .close { margin-top:72px; font-size:30px; font-weight:800; line-height:1.25; letter-spacing:-.01em; }
+  .close .g { color:#22e39a; }
+  .foot { margin-top:40px; color:#5b6b86; font-size:13px; }
+  .hbcard { background:#0a0e16; border:1px solid #1a2334; border-radius:16px; padding:20px 16px 8px; }
+  .cmp { background:#0a0e16; border:1px solid #1a2334; border-radius:16px; padding:22px 22px 12px; margin-top:16px; }
+  .kid { font-size:19px; line-height:1.5; color:#d7e2f5; max-width:900px; margin-top:20px; }
+  .kid b.g { color:#22e39a; } .kid b.r { color:#ff6674; }
+  .pwr { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:6px; }
+  .pcard { background:#0a0e16; border:1px solid #1a2334; border-radius:14px; padding:22px; }
+  .pcard b { display:block; font-size:38px; font-weight:800; letter-spacing:-.02em; margin-bottom:6px; }
+  .pcard.g b { color:#22e39a; } .pcard.r b { color:#ff6674; }
+  .pcard span { color:#9fb0cc; font-size:14px; } .pcard span b { color:#e7eefb; }
+</style></head><body><div class="wrap">
+
+  <div class="kicker">FPGA-class determinism — from English, without an RTL team</div>
+  <h1>When your chip stalls, you get <span class="r">picked off</span>.<br>Ours <span class="g">can’t</span>.</h1>
+  <p class="sub">Your quant writes the strategy in <b>plain English</b>. We compile it to silicon that’s
+  <b>deterministic by construction</b> — the same input gives the same latency <b>every run</b>, in a tight
+  band with <b>no tail</b> — and the chip does <b>exactly</b> what the English says. Today that determinism
+  takes an RTL team and months of verification. We give it to you from a spec you can <b>read</b>.</p>
+
+  <div class="stats">
+    <div class="stat g"><b>0</b><span>run-to-run jitter — the same input gives the same latency, every run.</span></div>
+    <div class="stat g"><b>~866</b><span>cycles per trade — a tight band (850–874), no tail. Scales with the clock.</span></div>
+    <div class="stat g"><b>bit-exact</b><span>VM ≡ RTL ≡ reference — measured, fuzz-tested, CI-locked. The English is the spec.</span></div>
+  </div>
+
+  <section>
+    <h2>1 · See it — jitter, worst-case speed, and power vs a 14th-gen i9</h2>
+    <div class="hbcard"><svg viewBox="0 0 920 256" width="100%" style="max-width:920px"><text x="158" y="20" fill="#9fb0cc" font-size="14">100 trades each · one bar = one trade · clocks normalized to compare the <b>shape</b> (jitter), not the speed.</text><text x="8" y="70" fill="#e7eefb" font-size="17" font-weight="800">Intel i9-14900K</text><text x="8" y="87" fill="#7c8aa5" font-size="11">5.7 GHz · watch the spikes</text><rect x="158.0" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="164.1" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="170.2" y="93.0" width="3.79" height="3.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="176.4" y="93.9" width="3.79" height="2.1" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="182.5" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="188.6" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="194.7" y="94.1" width="3.79" height="1.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="200.8" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="207.0" y="93.7" width="3.79" height="2.3" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="213.1" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="219.2" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="225.3" y="93.8" width="3.79" height="2.2" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="231.4" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="237.6" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="243.7" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="249.8" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="255.9" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="262.0" y="93.0" width="3.79" height="3.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="268.2" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="274.3" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="280.4" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="286.5" y="93.5" width="3.79" height="2.5" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="292.6" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="298.8" y="93.0" width="3.79" height="3.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="304.9" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="311.0" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="317.1" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="323.2" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="329.4" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="335.5" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="341.6" y="93.9" width="3.79" height="2.1" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="347.7" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="353.8" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="360.0" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="366.1" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="372.2" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="378.3" y="92.9" width="3.79" height="3.1" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="384.4" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="390.6" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="396.7" y="93.8" width="3.79" height="2.2" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="402.8" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="408.9" y="93.4" width="3.79" height="2.6" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="415.0" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="421.2" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="427.3" y="93.6" width="3.79" height="2.4" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="433.4" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="439.5" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="445.6" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="451.8" y="93.9" width="3.79" height="2.1" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="457.9" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="464.0" y="30.0" width="3.79" height="66.0" rx="1" fill="#ff4d5e" opacity="0.95"/><polygon points="461.9,32 469.9,32 465.9,25" fill="#ff4d5e"/><rect x="470.1" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="476.2" y="94.1" width="3.79" height="1.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="482.4" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="488.5" y="93.6" width="3.79" height="2.4" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="494.6" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="500.7" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="506.8" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="513.0" y="93.4" width="3.79" height="2.6" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="519.1" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="525.2" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="531.3" y="94.0" width="3.79" height="2.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="537.4" y="94.0" width="3.79" height="2.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="543.6" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="549.7" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="555.8" y="93.5" width="3.79" height="2.5" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="561.9" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="568.0" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="574.2" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="580.3" y="93.5" width="3.79" height="2.5" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="586.4" y="94.1" width="3.79" height="1.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="592.5" y="93.0" width="3.79" height="3.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="598.6" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="604.8" y="93.0" width="3.79" height="3.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="610.9" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="617.0" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="623.1" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="629.2" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="635.4" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="641.5" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="647.6" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="653.7" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="659.8" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="666.0" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="672.1" y="92.9" width="3.79" height="3.1" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="678.2" y="94.0" width="3.79" height="2.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="684.3" y="93.2" width="3.79" height="2.8" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="690.4" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="696.6" y="93.8" width="3.79" height="2.2" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="702.7" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="708.8" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="714.9" y="93.7" width="3.79" height="2.3" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="721.0" y="93.6" width="3.79" height="2.4" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="727.2" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="733.3" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="739.4" y="93.3" width="3.79" height="2.7" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="745.5" y="93.0" width="3.79" height="3.0" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="751.6" y="94.1" width="3.79" height="1.9" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="757.8" y="93.7" width="3.79" height="2.3" rx="1" fill="#ff4d5e" opacity="0.95"/><rect x="763.9" y="93.1" width="3.79" height="2.9" rx="1" fill="#ff4d5e" opacity="0.95"/><line x1="158" y1="96.0" x2="770.0" y2="96.0" stroke="#1c2637"/><text x="464" y="21" fill="#ff8a94" font-size="12" font-weight="700">4.1 µs — FROZEN</text><text x="780" y="72" fill="#ff8a94" font-size="12">usually quick,</text><text x="780" y="88" fill="#ff8a94" font-size="12">but it jumps</text><text x="8" y="200" fill="#e7eefb" font-size="17" font-weight="800">LOGOS (our chip)</text><text x="8" y="217" fill="#7c8aa5" font-size="11">5.7 GHz projected · a tight band, no tail</text><rect x="158.0" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="164.1" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="170.2" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="176.4" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="182.5" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="188.6" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="194.7" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="200.8" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="207.0" y="201.1" width="3.79" height="24.9" rx="1" fill="#22e39a"/><rect x="213.1" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="219.2" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="225.3" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="231.4" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="237.6" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="243.7" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="249.8" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="255.9" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="262.0" y="200.4" width="3.79" height="25.6" rx="1" fill="#22e39a"/><rect x="268.2" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="274.3" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="280.4" y="200.4" width="3.79" height="25.6" rx="1" fill="#22e39a"/><rect x="286.5" y="201.1" width="3.79" height="24.9" rx="1" fill="#22e39a"/><rect x="292.6" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="298.8" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="304.9" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="311.0" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="317.1" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="323.2" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="329.4" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="335.5" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="341.6" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="347.7" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="353.8" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="360.0" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="366.1" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="372.2" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="378.3" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="384.4" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="390.6" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="396.7" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="402.8" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="408.9" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="415.0" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="421.2" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="427.3" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="433.4" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="439.5" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="445.6" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="451.8" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="457.9" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="464.0" y="200.4" width="3.79" height="25.6" rx="1" fill="#22e39a"/><rect x="470.1" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="476.2" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="482.4" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="488.5" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="494.6" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="500.7" y="201.1" width="3.79" height="24.9" rx="1" fill="#22e39a"/><rect x="506.8" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="513.0" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="519.1" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="525.2" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="531.3" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="537.4" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="543.6" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="549.7" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="555.8" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="561.9" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="568.0" y="200.4" width="3.79" height="25.6" rx="1" fill="#22e39a"/><rect x="574.2" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="580.3" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="586.4" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="592.5" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="598.6" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="604.8" y="200.4" width="3.79" height="25.6" rx="1" fill="#22e39a"/><rect x="610.9" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="617.0" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="623.1" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="629.2" y="200.6" width="3.79" height="25.4" rx="1" fill="#22e39a"/><rect x="635.4" y="201.1" width="3.79" height="24.9" rx="1" fill="#22e39a"/><rect x="641.5" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="647.6" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="653.7" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="659.8" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="666.0" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="672.1" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="678.2" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="684.3" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="690.4" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="696.6" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><rect x="702.7" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="708.8" y="200.7" width="3.79" height="25.3" rx="1" fill="#22e39a"/><rect x="714.9" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="721.0" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="727.2" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="733.3" y="200.9" width="3.79" height="25.1" rx="1" fill="#22e39a"/><rect x="739.4" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="745.5" y="200.8" width="3.79" height="25.2" rx="1" fill="#22e39a"/><rect x="751.6" y="200.5" width="3.79" height="25.5" rx="1" fill="#22e39a"/><rect x="757.8" y="200.4" width="3.79" height="25.6" rx="1" fill="#22e39a"/><rect x="763.9" y="201.0" width="3.79" height="25.0" rx="1" fill="#22e39a"/><line x1="158" y1="226.0" x2="770.0" y2="226.0" stroke="#1c2637"/><text x="780" y="202" fill="#7effc9" font-size="13" font-weight="700">~152 ns</text><text x="780" y="218" fill="#7effc9" font-size="12">no tail</text></svg></div><p class="kid"><b>Read it like a heartbeat</b> — same <b>5.7 GHz</b> clock, 100 trades each. That red row is a <b>14th-gen Core i9</b>, the fastest desktop chip you can buy. It’s usually quick — but every so often it <b class="r">stalls</b> (the tall spikes: the OS, a cache miss, speculation). You can’t predict which trade, and a stall is when you get <b class="r">picked off</b>. Our row is a <b class="g">tight, flat band — no tail</b>, and for any one trade it’s <b class="g">identical every run</b>. Even a tuned CPU has a tail; deterministic silicon doesn’t. <i>(Clocks normalized to compare the shape, not the speed — our row is projected to the i9’s clock. This is v1 on a $265 student board; the clock catches up in the next section, and that’s the ask.)</i></p>
+    <div class="cmp"><svg viewBox="0 0 920 186" width="100%" style="max-width:920px"><text x="0" y="16" fill="#9fb0cc" font-size="14">The worst trade — same 5.7 GHz clock. You’re judged on this one, not your average.</text><text x="0" y="55" fill="#cdd9f0" font-size="13" font-weight="600">Intel i9 · worst</text><rect x="150" y="34" width="620" height="34" rx="6" fill="#0d1420"/><rect x="150" y="34" width="580.8" height="34" rx="6" fill="#ff4d5e"/><text x="742.8" y="56" fill="#e7eefb" font-size="17" font-weight="800">4.1 µs</text><text x="0" y="107" fill="#cdd9f0" font-size="13" font-weight="600">LOGOS · worst (projected)</text><rect x="150" y="86" width="620" height="34" rx="6" fill="#0d1420"/><rect x="150" y="86" width="89.2" height="34" rx="6" fill="#22e39a"/><text x="251.2" y="108" fill="#e7eefb" font-size="17" font-weight="800">153 ns</text><text x="0" y="158" fill="#22e39a" font-size="21" font-weight="800">→ 27× faster on the trade that gets you picked off</text><text x="0" y="177" fill="#6a7c9c" font-size="11.5">On a typical trade the i9 is quicker — a 24-core superscalar monster; you don’t lose money on the typical trade. LOGOS worst = 874 cyc ÷ 5.7 GHz, projected.</text></svg></div><div class="cmp"><svg viewBox="0 0 920 238" width="100%" style="max-width:920px"><text x="0" y="16" fill="#9fb0cc" font-size="14">Power draw while trading — MEASURED OpenLane Sky130 signoff (65,432 cells @ 66.7 MHz)</text><text x="0" y="55" fill="#cdd9f0" font-size="13" font-weight="600">Intel 14th-gen i9 · package</text><rect x="150" y="34" width="620" height="34" rx="6" fill="#0d1420"/><rect x="150" y="34" width="603.5" height="34" rx="6" fill="#ff4d5e"/><text x="765.5" y="56" fill="#e7eefb" font-size="17" font-weight="800">253 W</text><text x="0" y="107" fill="#cdd9f0" font-size="13" font-weight="600">Intel i9 · one core</text><rect x="150" y="86" width="620" height="34" rx="6" fill="#0d1420"/><rect x="150" y="86" width="426.1" height="34" rx="6" fill="#ff8a94"/><text x="588.1" y="108" fill="#e7eefb" font-size="17" font-weight="800">~15 W</text><text x="0" y="159" fill="#cdd9f0" font-size="13" font-weight="600">LOGOS chip</text><rect x="150" y="138" width="620" height="34" rx="6" fill="#0d1420"/><rect x="150" y="138" width="37.5" height="34" rx="6" fill="#22e39a"/><text x="199.5" y="160" fill="#e7eefb" font-size="17" font-weight="800">30.8 mW</text><text x="0" y="210" fill="#22e39a" font-size="21" font-weight="800">30.8 mW — the whole chip. One i9 core alone burns ~487× that.</text><text x="0" y="229" fill="#6a7c9c" font-size="11.5">OpenSTA report_power on the placed-and-routed netlist, typical corner (not a hand-estimate). That’s power <b>draw</b>. Per <i>trade</i> the i9 is so fast its <i>energy</i> stays close (~249 nJ/trade vs our ~400 nJ) — we don’t claim an energy-per-trade win here; the categorical one is the fetch/decode-free fabric your LOI funds.</text></svg></div>
+  </section>
+
+  <section>
+    <h2>2 · A strategy your quant can read — and this <i>is</i> the chip</h2>
+    <ol class="essence">
+      <li>Decode each market-data message — type, side, price, size.</li>
+      <li>Update the <b>order book</b> at that price level.</li>
+      <li>Read the <b>top of book</b> — best bid, best ask, and their sizes.</li>
+      <li><b>Microprice</b> — the size-weighted fair value.</li>
+      <li>Rich vs fair → <b class="g">sell</b> the bid.&nbsp;&nbsp;Cheap → <b class="g">buy</b> the offer.</li>
+      <li><b>Pre-trade risk</b> — cap the size, hold the position limit.</li>
+      <li>Emit the order.</li>
+    </ol>
+    <div class="reveal">↓ the actual LOGOS the silicon runs — no RTL, no C++, no Verilog</div>
+    <pre>Let micro100 be (best_bid_price * best_ask_qty + best_ask_price * best_bid_qty) * 100 / denom.
+Let mutable order_side be 0.
+Let mutable order_price be 0.
+Let mutable order_size be 0.
+If book_ok is equal to 1:
+    If micro100 is greater than fair100 + edge100:
+        Set order_side to 2.
+        Set order_price to best_bid_price.
+        Set order_size to base_size.
+    Otherwise:
+        If micro100 is less than fair100 - edge100:
+            Set order_side to 1.
+            Set order_price to best_ask_price.
+            Set order_size to base_size.
+If order_size is greater than max_order:
+    Set order_size to max_order.</pre>
+  </section>
+
+  <section>
+    <h2>3 · Slow today, on purpose — and it scales straight</h2>
+    <p class="zlead">Measured: <b class="g">0 jitter</b>, on a <b>$265 student board</b> at <b>6.25 MHz</b>,
+      zero timing optimization. Slow in absolute terms — we won’t pretend otherwise. But our slowness is a
+      <b>clock number, not an architecture number</b>:</p>
+    <div class="eq">latency&nbsp; =&nbsp; ~866 cycles&nbsp; ÷&nbsp; clock</div>
+    <p class="zlead">The cycles are small and bounded (850–874). Two levers close
+      the gap to nanoseconds — <b>both already in our stack</b>:</p>
+    <div class="levers">
+      <div class="lever"><span class="g">→ Faster clock.</span>&nbsp; Our Sky130 signoff (OpenLane,
+        DRC/LVS-clean) closes <b>90 MHz</b> today — <b>~103,926
+        trades/s</b>; a modern ASIC is <b>GHz</b>.</div>
+      <div class="lever"><span class="g">→ Spatial fabric.</span>&nbsp; The same English also lowers to a
+        <b>dataflow pipeline</b> — the strategy laid out in space, not fetched op-by-op — the real path to
+        <b>nanosecond latency at line rate</b>.</div>
+    </div>
+    <p class="scope"><b>Scope, honestly:</b> today this is the <b>strategy/decision</b> in silicon — the part
+      the quant’s logic normally gets re-written in RTL. The feed-handler + wire (SerDes/MAC, OUCH) are the
+      <b>co-development your LOI funds</b>.</p>
+    <p class="punch">The path: <span class="g">English → a pipelined, deterministic ASIC</span>.</p>
+  </section>
+
+  <section>
+    <h2>4 · The strategy IS the spec — nothing to drift</h2>
+    <p class="zlead">Every run is <b>cycle-accurate identical</b>: VM ≡ RTL ≡ reference, <b>bit-exact</b>,
+      fuzz-tested across <b>270 feeds</b>, <b>CI-locked</b>. There is no separate RTL that can diverge from
+      the English, because the English is the source. <i>(Today: exhaustive differential equivalence + fuzz.
+      Roadmap: formal equivalence checking — we already run a proof kernel + SMT across the stack.)</i></p>
+    <div class="proof">
+      <div class="chip"><b>bit-exact</b> · VM ≡ RTL ≡ reference</div>
+      <div class="chip"><b>270-feed</b> · differential fuzz, byte-identical</div>
+      <div class="chip"><b>CI-locked</b> · the spec can’t silently drift</div>
+      <div class="chip"><b>on real silicon</b> · streamed over the port</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 · The ask</h2>
+    <p class="sub"><b>An LOI to co-develop your strategy on this path.</b> You bring a real strategy and a
+      design partnership; you get a <b>co-designed deterministic chip</b>, a pilot, and priority. Why now:
+      open PDKs and our English→fabric lowering make the ASIC path real today — not a research bet.</p>
+  </section>
+
+  <div class="close">A strategy you can <span class="g">read</span>.<br>
+    Correctness you can <span class="g">check</span>.<br>
+    Silicon that <span class="g">can’t stall</span>.</div>
+  <div class="foot">Numbers are measured: chip cycles from the cycle-accurate core; the CPU latency from a
+    tight −O2 C build of the identical logic on an Intel Core i9-14900K (120,000 samples). Power and the ASIC
+    clock are labelled estimates / roadmap. Reproduce: <code>scripts/demo-hft.sh</code>.</div>
+
+</div></body></html>

@@ -1,0 +1,9 @@
+{
+  "capability": "builder.new",
+  "arg": "3000000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

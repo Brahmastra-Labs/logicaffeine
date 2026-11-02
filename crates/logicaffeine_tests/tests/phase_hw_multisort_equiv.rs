@@ -10,7 +10,7 @@
 #![cfg(feature = "verification")]
 
 use logicaffeine_verify::{
-    check_equivalence, EquivalenceResult, VerifyExpr, VerifyOp, VerifyType, BitVecOp,
+    check_equivalence, BitVecOp, EquivalenceResult, VerifyExpr, VerifyOp, VerifyType,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -26,8 +26,11 @@ fn z3_integer_addition_equivalence() {
     );
     let b = VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "x+5==10 should be equivalent to x==5, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "x+5==10 should be equivalent to x==5, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -39,8 +42,11 @@ fn z3_integer_subtraction_equivalence() {
     );
     let b = VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(10));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "x-3==7 should be equivalent to x==10, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "x-3==7 should be equivalent to x==10, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -49,8 +55,11 @@ fn z3_integer_inequality_detected() {
     let a = VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(5));
     let b = VerifyExpr::lt(VerifyExpr::var("x"), VerifyExpr::int(5));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "x>5 should NOT be equivalent to x<5, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "x>5 should NOT be equivalent to x<5, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -62,8 +71,11 @@ fn z3_integer_multiplication() {
     );
     let b = VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "x*2==10 should be equivalent to x==5, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "x*2==10 should be equivalent to x==5, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -78,8 +90,11 @@ fn z3_mixed_bool_int() {
         VerifyExpr::lt(VerifyExpr::var("count"), VerifyExpr::int(0)),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "count>0 should NOT be equivalent to count<0, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "count>0 should NOT be equivalent to count<0, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -93,8 +108,11 @@ fn z3_integer_division() {
     );
     let b = VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(6));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "x/2==3 should NOT be equivalent to x==6 (integer division), got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "x/2==3 should NOT be equivalent to x==6 (integer division), got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -109,8 +127,11 @@ fn z3_comparison_chain() {
         VerifyExpr::lt(VerifyExpr::var("x"), VerifyExpr::int(5)),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "Different ranges should not be equivalent, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "Different ranges should not be equivalent, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -123,8 +144,11 @@ fn z3_nested_arithmetic() {
     );
     let b = VerifyExpr::eq(xy, VerifyExpr::var("z"));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "(x+y)*2==z should NOT equal (x+y)==z, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "(x+y)*2==z should NOT equal (x+y)==z, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -156,8 +180,11 @@ fn z3_bitvector_and_mask() {
     );
     let b2 = VerifyExpr::bv_const(16, 0);
     let result = check_equivalence(&a2, &b2, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "bv_xor(x,x) should equal 0, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "bv_xor(x,x) should equal 0, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -174,8 +201,11 @@ fn z3_bitvector_add_not_sub() {
         VerifyExpr::var("y_bv8"),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "bv_add should NOT equal bv_sub, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "bv_add should NOT equal bv_sub, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -192,8 +222,11 @@ fn z3_bitvector_shift_left_equiv_mul() {
         VerifyExpr::bv_const(8, 2),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "bv_shl(x,1) should equal bv_mul(x,2), got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "bv_shl(x,1) should equal bv_mul(x,2), got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -207,8 +240,11 @@ fn z3_bitvector_overflow_detected() {
     );
     let overflow = VerifyExpr::bv_const(8, 0);
     let result = check_equivalence(&add_expr, &overflow, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "0xFF + 1 should wrap to 0 in BV(8), got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "0xFF + 1 should wrap to 0 in BV(8), got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -216,16 +252,27 @@ fn z3_bitvector_not_not() {
     // bv_not(bv_not(x)) equiv x
     let a = VerifyExpr::bv_binary(
         BitVecOp::Not,
-        VerifyExpr::bv_binary(BitVecOp::Not, VerifyExpr::var("x_bv8"), VerifyExpr::bv_const(8, 0)),
+        VerifyExpr::bv_binary(
+            BitVecOp::Not,
+            VerifyExpr::var("x_bv8"),
+            VerifyExpr::bv_const(8, 0),
+        ),
         VerifyExpr::bv_const(8, 0),
     );
     // Actually BitVecOp::Not is in the Binary enum but is conceptually unary.
     // Let's use XOR with all-ones for NOT: bv_xor(bv_xor(x, 0xFF), 0xFF) == x
-    let not_x = VerifyExpr::bv_binary(BitVecOp::Xor, VerifyExpr::var("x_bv8"), VerifyExpr::bv_const(8, 0xFF));
+    let not_x = VerifyExpr::bv_binary(
+        BitVecOp::Xor,
+        VerifyExpr::var("x_bv8"),
+        VerifyExpr::bv_const(8, 0xFF),
+    );
     let not_not_x = VerifyExpr::bv_binary(BitVecOp::Xor, not_x, VerifyExpr::bv_const(8, 0xFF));
     let result = check_equivalence(&not_not_x, &VerifyExpr::var("x_bv8"), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "double XOR with 0xFF should cancel out, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "double XOR with 0xFF should cancel out, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -238,8 +285,11 @@ fn z3_bitvector_xor_self() {
     );
     let b = VerifyExpr::bv_const(8, 0);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "bv_xor(x,x) should equal 0, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "bv_xor(x,x) should equal 0, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -261,8 +311,11 @@ fn z3_demorgan_bitvec() {
         VerifyExpr::bv_binary(BitVecOp::Xor, b_var, ones),
     );
     let result = check_equivalence(&not_and, &or_nots, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "DeMorgan's law should hold for bitvectors, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "DeMorgan's law should hold for bitvectors, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -275,8 +328,11 @@ fn z3_bitvector_concat_properties() {
     );
     let b = VerifyExpr::bv_const(16, 0x1234);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "concat(0x12, 0x34) should equal 0x1234, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "concat(0x12, 0x34) should equal 0x1234, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -296,8 +352,11 @@ fn z3_signed_vs_unsigned_comparison() {
         VerifyExpr::var("y_bv8"),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "signed lt should NOT equal unsigned lt, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "signed lt should NOT equal unsigned lt, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -310,8 +369,11 @@ fn z3_bitvector_extract() {
     };
     let b = VerifyExpr::bv_const(8, 0x12);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "extract(0x1234, 15, 8) should equal 0x12, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "extract(0x1234, 15, 8) should equal 0x12, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -324,8 +386,11 @@ fn z3_large_bitvector_32bit() {
     );
     let b = VerifyExpr::bv_const(32, 0x80000000);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "32-bit add should work: 0x7FFFFFFF + 1 = 0x80000000, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "32-bit add should work: 0x7FFFFFFF + 1 = 0x80000000, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -348,8 +413,11 @@ fn z3_array_select_store() {
     let equiv_check = VerifyExpr::eq(selected, VerifyExpr::var("v"));
     let tautology = VerifyExpr::bool(true);
     let result = check_equivalence(&equiv_check, &tautology, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "select(store(a, i, v), i) should equal v, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "select(store(a, i, v), i) should equal v, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -373,8 +441,11 @@ fn z3_array_non_aliasing() {
     let reads_eq = VerifyExpr::eq(sel_stored, sel_orig);
     let prop = VerifyExpr::implies(i_neq_j, reads_eq);
     let result = check_equivalence(&prop, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Non-aliasing array property should hold, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Non-aliasing array property should hold, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -410,8 +481,11 @@ fn z3_array_store_overwrite() {
         &[],
         1,
     );
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Double store at same index should simplify, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Double store at same index should simplify, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -424,8 +498,11 @@ fn z3_uninterp_func_distinct() {
     let a = VerifyExpr::apply("F", vec![VerifyExpr::var("x")]);
     let b = VerifyExpr::apply("G", vec![VerifyExpr::var("x")]);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "F(x) should NOT equal G(x), got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "F(x) should NOT equal G(x), got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -434,8 +511,11 @@ fn z3_uninterp_func_congruence() {
     let a = VerifyExpr::apply("F", vec![VerifyExpr::var("x")]);
     let b = VerifyExpr::apply("F", vec![VerifyExpr::var("x")]);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "F(x) should equal F(x), got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "F(x) should equal F(x), got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -450,8 +530,11 @@ fn z3_implication_with_arithmetic() {
         VerifyExpr::gte(VerifyExpr::var("x"), VerifyExpr::int(1)),
     );
     let result = check_equivalence(&prop, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "(x>0) -> (x>=1) should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "(x>0) -> (x>=1) should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -460,24 +543,24 @@ fn z3_iff_for_integers() {
     let e = VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5));
     let prop = VerifyExpr::iff(e.clone(), e);
     let result = check_equivalence(&prop, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "P <-> P should be tautology, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "P <-> P should be tautology, got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn z3_bool_equiv_unchanged() {
     // Existing boolean equivalence still works
-    let a = VerifyExpr::and(
-        VerifyExpr::var("p"),
-        VerifyExpr::var("q"),
-    );
-    let b = VerifyExpr::and(
-        VerifyExpr::var("q"),
-        VerifyExpr::var("p"),
-    );
+    let a = VerifyExpr::and(VerifyExpr::var("p"), VerifyExpr::var("q"));
+    let b = VerifyExpr::and(VerifyExpr::var("q"), VerifyExpr::var("p"));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "AND commutativity should still work, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "AND commutativity should still work, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -488,8 +571,11 @@ fn z3_empty_signals_still_works() {
         VerifyExpr::int(5),
     );
     let result = check_equivalence(&a, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "2+3==5 should be equivalent to true, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "2+3==5 should be equivalent to true, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -510,8 +596,11 @@ fn z3_multiple_sorts_single_formula() {
         ),
     );
     let result = check_equivalence(&prop, &prop2, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Equivalent range constraints should match, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Equivalent range constraints should match, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -523,7 +612,11 @@ fn z3_performance_boolean_not_regressed() {
     let result = check_equivalence(&a, &b, &["req".into(), "ack".into()], 1);
     let elapsed = start.elapsed();
     assert!(matches!(result, EquivalenceResult::Equivalent));
-    assert!(elapsed.as_millis() < 5000, "Boolean equiv should be fast, took {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() < 5000,
+        "Boolean equiv should be fast, took {}ms",
+        elapsed.as_millis()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -544,8 +637,11 @@ fn z3_bitvec_eq_in_bool_context() {
         VerifyExpr::bv_const(8, 0xFF),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Same BV equality should be equivalent, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Same BV equality should be equivalent, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -562,8 +658,11 @@ fn z3_bitvec_eq_different_values() {
         VerifyExpr::bv_const(8, 0x00),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "bv_eq(x,0xFF) should NOT equal bv_eq(x,0x00), got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "bv_eq(x,0xFF) should NOT equal bv_eq(x,0x00), got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -586,8 +685,11 @@ fn z3_mixed_bitvec_and_bool() {
         ),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Mixed Bool+BV formula should work, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Mixed Bool+BV formula should work, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -597,41 +699,77 @@ fn z3_mixed_bitvec_and_bool() {
 #[test]
 fn z3_bitvec_add_commutative() {
     // bv_add(x, y) equiv bv_add(y, x)
-    let a = VerifyExpr::bv_binary(BitVecOp::Add, VerifyExpr::var("x_bv8"), VerifyExpr::var("y_bv8"));
-    let b = VerifyExpr::bv_binary(BitVecOp::Add, VerifyExpr::var("y_bv8"), VerifyExpr::var("x_bv8"));
+    let a = VerifyExpr::bv_binary(
+        BitVecOp::Add,
+        VerifyExpr::var("x_bv8"),
+        VerifyExpr::var("y_bv8"),
+    );
+    let b = VerifyExpr::bv_binary(
+        BitVecOp::Add,
+        VerifyExpr::var("y_bv8"),
+        VerifyExpr::var("x_bv8"),
+    );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "BV add should be commutative, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "BV add should be commutative, got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn z3_bitvec_and_commutative() {
     // bv_and(x, y) equiv bv_and(y, x)
-    let a = VerifyExpr::bv_binary(BitVecOp::And, VerifyExpr::var("x_bv8"), VerifyExpr::var("y_bv8"));
-    let b = VerifyExpr::bv_binary(BitVecOp::And, VerifyExpr::var("y_bv8"), VerifyExpr::var("x_bv8"));
+    let a = VerifyExpr::bv_binary(
+        BitVecOp::And,
+        VerifyExpr::var("x_bv8"),
+        VerifyExpr::var("y_bv8"),
+    );
+    let b = VerifyExpr::bv_binary(
+        BitVecOp::And,
+        VerifyExpr::var("y_bv8"),
+        VerifyExpr::var("x_bv8"),
+    );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "BV and should be commutative, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "BV and should be commutative, got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn z3_bitvec_or_identity() {
     // bv_or(x, 0) equiv x
-    let a = VerifyExpr::bv_binary(BitVecOp::Or, VerifyExpr::var("x_bv8"), VerifyExpr::bv_const(8, 0));
+    let a = VerifyExpr::bv_binary(
+        BitVecOp::Or,
+        VerifyExpr::var("x_bv8"),
+        VerifyExpr::bv_const(8, 0),
+    );
     let b = VerifyExpr::var("x_bv8");
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "bv_or(x, 0) should equal x, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "bv_or(x, 0) should equal x, got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn z3_bitvec_and_annihilation() {
     // bv_and(x, 0) equiv 0
-    let a = VerifyExpr::bv_binary(BitVecOp::And, VerifyExpr::var("x_bv8"), VerifyExpr::bv_const(8, 0));
+    let a = VerifyExpr::bv_binary(
+        BitVecOp::And,
+        VerifyExpr::var("x_bv8"),
+        VerifyExpr::bv_const(8, 0),
+    );
     let b = VerifyExpr::bv_const(8, 0);
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "bv_and(x, 0) should equal 0, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "bv_and(x, 0) should equal 0, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -654,8 +792,11 @@ fn z3_bitvector_shr_ashr_differ() {
         VerifyExpr::bv_const(8, 1),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "Logical shift and arithmetic shift should differ, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "Logical shift and arithmetic shift should differ, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -681,8 +822,11 @@ fn z3_arithmetic_in_temporal_context() {
         ),
     );
     let result = check_equivalence(&conj, &conj2, &[], 3);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "count>0 should equal count>=1 at each timestep, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "count>0 should equal count>=1 at each timestep, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -692,29 +836,30 @@ fn z3_arithmetic_in_temporal_context() {
 #[test]
 fn z3_regression_demorgan_bool() {
     // !(a AND b) equiv (!a OR !b)
-    let a = VerifyExpr::not(
-        VerifyExpr::and(VerifyExpr::var("a"), VerifyExpr::var("b")),
-    );
+    let a = VerifyExpr::not(VerifyExpr::and(VerifyExpr::var("a"), VerifyExpr::var("b")));
     let b = VerifyExpr::or(
         VerifyExpr::not(VerifyExpr::var("a")),
         VerifyExpr::not(VerifyExpr::var("b")),
     );
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "DeMorgan's law should hold, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "DeMorgan's law should hold, got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn z3_regression_implication_equiv() {
     // (p -> q) equiv (!p OR q)
     let a = VerifyExpr::implies(VerifyExpr::var("p"), VerifyExpr::var("q"));
-    let b = VerifyExpr::or(
-        VerifyExpr::not(VerifyExpr::var("p")),
-        VerifyExpr::var("q"),
-    );
+    let b = VerifyExpr::or(VerifyExpr::not(VerifyExpr::var("p")), VerifyExpr::var("q"));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Implication should equal disjunction, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Implication should equal disjunction, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -723,6 +868,9 @@ fn z3_regression_not_equiv_detects_diff() {
     let a = VerifyExpr::and(VerifyExpr::var("p"), VerifyExpr::var("q"));
     let b = VerifyExpr::or(VerifyExpr::var("p"), VerifyExpr::var("q"));
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "AND should NOT equal OR, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "AND should NOT equal OR, got: {:?}",
+        result
+    );
 }

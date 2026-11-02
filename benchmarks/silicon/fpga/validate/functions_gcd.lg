@@ -1,0 +1,12 @@
+## To gcd (a: Int, b: Int) -> Int:
+    Let mutable x be a.
+    Let mutable y be b.
+    While y is greater than 0:
+        Let t be y.
+        Set y to x % y.
+        Set x to t.
+    Return x.
+## Main
+    Show gcd(1071, 462).
+    Show gcd(1000000, 48).
+    Show gcd(17, 5).

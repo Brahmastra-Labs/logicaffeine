@@ -1,0 +1,192 @@
+{
+  "case": "T01-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 26,
+  "declarations": [
+    {
+      "type": "Prop",
+      "name": "T01_014.Carries",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T01_014.Carries \u2192 Prop} (t : T01_014.Carries), (\u2200 (a : Nat), motive \u22ef) \u2192 motive t",
+      "name": "T01_014.Carries.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T01_014.Carries",
+      "name": "T01_014.Carries.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T01_014.Carries \u2192 Prop}, (\u2200 (a : Nat), motive \u22ef) \u2192 \u2200 (t : T01_014.Carries), motive t",
+      "name": "T01_014.Carries.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T01_014.Carries \u2192 Prop} (t : T01_014.Carries), (\u2200 (a : Nat), motive \u22ef) \u2192 motive t",
+      "name": "T01_014.Carries.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T01_014.NotSneaky",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : Nat} {motive : T01_014.NotSneaky a \u2192 Prop} (t : T01_014.NotSneaky a), (\u2200 (junk : Nat), motive \u22ef) \u2192 motive t",
+      "name": "T01_014.NotSneaky.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), Nat \u2192 T01_014.NotSneaky n",
+      "name": "T01_014.NotSneaky.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : Nat} {motive : T01_014.NotSneaky a \u2192 Prop}, (\u2200 (junk : Nat), motive \u22ef) \u2192 \u2200 (t : T01_014.NotSneaky a), motive t",
+      "name": "T01_014.NotSneaky.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : Nat} {motive : T01_014.NotSneaky a \u2192 Prop} (t : T01_014.NotSneaky a), (\u2200 (junk : Nat), motive \u22ef) \u2192 motive t",
+      "name": "T01_014.NotSneaky.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T01_014.Sneaky",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T01_014.Sneaky a \u2192 Prop} {a : Nat} (t : T01_014.Sneaky a),\n  (\u2200 (junk : Nat), motive 0 \u22ef) \u2192 motive a t",
+      "name": "T01_014.Sneaky.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T01_014.Sneaky 0",
+      "name": "T01_014.Sneaky.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T01_014.Sneaky a \u2192 Prop},\n  (\u2200 (junk : Nat), motive 0 \u22ef) \u2192 \u2200 {a : Nat} (t : T01_014.Sneaky a), motive a t",
+      "name": "T01_014.Sneaky.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T01_014.Sneaky a \u2192 Prop} {a : Nat} (t : T01_014.Sneaky a),\n  (\u2200 (junk : Nat), motive 0 \u22ef) \u2192 motive a t",
+      "name": "T01_014.Sneaky.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {r : \u03b1 \u2192 \u03b1 \u2192 Prop} \u2192 {x : \u03b1} \u2192 Acc r x \u2192 Nat",
+      "name": "T01_014.accToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(p q : Prop) \u2192 p \u2227 q \u2192 Nat",
+      "name": "T01_014.andToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : T01_014.Carries), a = b",
+      "name": "T01_014.carriesIrrelevant",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (a b : \u03b1) \u2192 a = b \u2192 (F : \u03b1 \u2192 Type) \u2192 F a \u2192 F b",
+      "name": "T01_014.eqRecToType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Type 1",
+      "name": "T01_014.exFalsoAtTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Nat",
+      "name": "T01_014.exFalsoAtTypeZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2228 q \u2192 q \u2228 p",
+      "name": "T01_014.orSmallElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop) (motive : p \u2228 q \u2192 Prop) (h : p \u2228 q), (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hq : q), motive \u22ef) \u2192 motive h",
+      "name": "T01_014.orSmallElim.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_014.Sneaky 0",
+      "name": "T01_014.sneak0",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_014.Sneaky 0",
+      "name": "T01_014.sneak1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_014.sneak0 = T01_014.sneak1",
+      "name": "T01_014.sneaksEqual",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

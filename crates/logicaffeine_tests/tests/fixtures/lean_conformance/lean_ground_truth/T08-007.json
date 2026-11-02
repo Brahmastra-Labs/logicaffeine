@@ -1,0 +1,171 @@
+{
+  "case": "T08-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 21,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T08_007.Choice",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_007.Choice \u2192 Sort u} \u2192\n  (t : T08_007.Choice) \u2192\n    ((a : Nat) \u2192 motive (T08_007.Choice.first a)) \u2192 ((a : Bool) \u2192 motive (T08_007.Choice.second a)) \u2192 motive t",
+      "name": "T08_007.Choice.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T08_007.Choice",
+      "name": "T08_007.Choice.first",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat}, T08_007.Choice.first a = T08_007.Choice.first a_1 \u2192 a = a_1",
+      "name": "T08_007.Choice.first.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat), (T08_007.Choice.first a = T08_007.Choice.first a_1) = (a = a_1)",
+      "name": "T08_007.Choice.first.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat), sizeOf (T08_007.Choice.first a) = 1 + sizeOf a",
+      "name": "T08_007.Choice.first.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T08_007.Choice} \u2192 v1 = v2 \u2192 T08_007.Choice.noConfusionType P v1 v2",
+      "name": "T08_007.Choice.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T08_007.Choice \u2192 T08_007.Choice \u2192 Sort u",
+      "name": "T08_007.Choice.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_007.Choice \u2192 Sort u} \u2192\n  ((a : Nat) \u2192 motive (T08_007.Choice.first a)) \u2192\n    ((a : Bool) \u2192 motive (T08_007.Choice.second a)) \u2192 (t : T08_007.Choice) \u2192 motive t",
+      "name": "T08_007.Choice.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_007.Choice \u2192 Sort u} \u2192\n  (t : T08_007.Choice) \u2192\n    ((a : Nat) \u2192 motive (T08_007.Choice.first a)) \u2192 ((a : Bool) \u2192 motive (T08_007.Choice.second a)) \u2192 motive t",
+      "name": "T08_007.Choice.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 T08_007.Choice",
+      "name": "T08_007.Choice.second",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Bool}, T08_007.Choice.second a = T08_007.Choice.second a_1 \u2192 a = a_1",
+      "name": "T08_007.Choice.second.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Bool), (T08_007.Choice.second a = T08_007.Choice.second a_1) = (a = a_1)",
+      "name": "T08_007.Choice.second.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Bool), sizeOf (T08_007.Choice.second a) = 1 + sizeOf a",
+      "name": "T08_007.Choice.second.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 p \u2228 q",
+      "name": "T08_007.asTerm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T08_007.Choice",
+      "name": "T08_007.choiceLeft",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 p \u2228 q",
+      "name": "T08_007.leftIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), q \u2192 p \u2228 q \u2228 r",
+      "name": "T08_007.nestedOr",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), q \u2192 p \u2228 q",
+      "name": "T08_007.rightIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2295 Bool",
+      "name": "T08_007.sumLeft",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2228 p",
+      "name": "T08_007.symmetricOr",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

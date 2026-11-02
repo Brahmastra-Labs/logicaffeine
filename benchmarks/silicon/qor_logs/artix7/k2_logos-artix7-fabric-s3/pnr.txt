@@ -1,0 +1,121 @@
+Info: Device utilisation:
+Info: 	          SLICE_LUTX: 10142/126800     7%
+Info: 	           SLICE_FFX:   320/126800     0%
+Info: 	              CARRY4:    48/15850     0%
+Info: 	          PSEUDO_GND:     1/30932     0%
+Info: 	          PSEUDO_VCC:     1/30932     0%
+Info: 	               HARD0:     0/ 2376     0%
+Info: 	   RAMB18E1_RAMB18E1:     0/  270     0%
+Info: 	   FIFO18E1_FIFO18E1:     0/  135     0%
+Info: 	RAMBFIFO36E1_RAMBFIFO36E1:     0/  135     0%
+Info: 	   RAMB36E1_RAMB36E1:     0/  135     0%
+Info: 	     DSP48E1_DSP48E1:     0/  240     0%
+Info: 	                 PAD:    18/  876     2%
+Info: 	       IOB33M_OUTBUF:     0/  144     0%
+Info: 	       IOB33S_OUTBUF:     0/  144     0%
+Info: 	        IOB33_OUTBUF:    16/  300     5%
+Info: 	     IOB33M_INBUF_EN:     0/  144     0%
+Info: 	     IOB33S_INBUF_EN:     0/  144     0%
+Info: 	      IOB33_INBUF_EN:     2/  300     0%
+Info: 	IOB33M_TERM_OVERRIDE:     0/  144     0%
+Info: 	IOB33S_TERM_OVERRIDE:     0/  144     0%
+Info: 	 IOB33_TERM_OVERRIDE:     0/  300     0%
+Info: 	       PULL_OR_KEEP1:     0/  588     0%
+Info: 	   IDELAYE2_IDELAYE2:     0/  300     0%
+Info: 	        OLOGICE3_TFF:     0/  300     0%
+Info: 	      OLOGICE3_OUTFF:     0/  300     0%
+Info: 	       OLOGICE3_MISR:     0/  300     0%
+Info: 	 OSERDESE2_OSERDESE2:     0/  300     0%
+Info: 	        ILOGICE3_IFF:     0/  300     0%
+Info: 	ILOGICE3_ZHOLD_DELAY:     0/  300     0%
+Info: 	 ISERDESE2_ISERDESE2:     0/  300     0%
+Info: 	         BUFIO_BUFIO:     0/   24     0%
+Info: 	IDELAYCTRL_IDELAYCTRL:     0/    6     0%
+Info: 	            BUFGCTRL:     1/   32     3%
+Info: 	           BUFG_BUFG:     0/   32     0%
+Info: 	            INVERTER:     0/  144     0%
+Info: 	        OLOGICE2_TFF:     0/  300     0%
+Info: 	      OLOGICE2_OUTFF:     0/  300     0%
+Info: 	 PLLE2_ADV_PLLE2_ADV:     0/    6     0%
+Info: 	           SELMUX2_1:  2745/48750     5%
+Info: 	       BUFHCE_BUFHCE:     0/   96     0%
+Info: 	              BUFFER:     0/  288     0%
+Info: 	        ILOGICE2_IFF:     0/  300     0%
+Info: 	       OLOGICE2_MISR:     0/  300     0%
+Info:     iter=26 wires=295630 overused=6 overuse=6 archfail=NA
+Info:     iter=27 wires=295633 overused=2 overuse=2 archfail=NA
+Info:     iter=28 wires=295633 overused=2 overuse=2 archfail=NA
+Info:     iter=29 wires=295633 overused=2 overuse=2 archfail=NA
+Info:     iter=30 wires=295638 overused=0 overuse=0 archfail=0
+Info: Max frequency for clock '$iopadmap$clk': 23.35 MHz (FAIL at 100.00 MHz)
+Info: Routing complete.
+ERROR: Max frequency for clock '$iopadmap$clk': 33.48 MHz (FAIL at 100.00 MHz)
+Info: Critical path report for clock '$iopadmap$clk' (posedge -> posedge):
+Info:  0.1  0.1  Source u_dut.$auto$ff.cc:266:slice$3199.Q
+Info:                Sink u_dut.in0_r[2]$LUT$42.A1
+Info:  0.1  2.0  Source u_dut.in0_r[2]$LUT$42.O6
+Info:                Sink u_dut.$auto$alumacc.cc:485:replace_alu$1641.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S1
+Info:  0.6  2.5  Source u_dut.$auto$alumacc.cc:485:replace_alu$1641.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O2
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57271.A2
+Info:  0.1  7.2  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57271.O6
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57303.A3
+Info:  0.1  8.0  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57303.O6
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57335.A1
+Info:  0.1  8.4  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57335.O6
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57333.A2
+Info:  0.2  9.1  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57333.O5
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57343.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.S0
+Info:  0.3 10.7  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57343.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57342.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.S0
+Info:  0.3 12.4  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57342.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57342.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.1
+Info:  0.1 12.5  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$57342.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$59839.A1
+Info:  0.1 14.1  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$59839.O6
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[4].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S3
+Info:  0.4 14.4  Source u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[4].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[5].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 14.7  Source u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[5].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[6].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 14.9  Source u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[6].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[7].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.3 15.3  Source u_dut.$auto$maccmap.cc:240:synth$3129.genblk1.slice[7].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O3
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54437.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.S0
+Info:  0.3 18.2  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54437.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54532.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.S0
+Info:  0.3 19.5  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54532.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54532.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.0
+Info:  0.1 19.6  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54532.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54530.A2
+Info:  0.2 20.5  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54530.O5
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54629.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.A3
+Info:  0.1 21.7  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54629.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.O6
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54629.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.1
+Info:  0.2 22.0  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54629.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54629.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.0
+Info:  0.1 22.1  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54629.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54770.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.A6
+Info:  0.1 24.2  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54770.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.O6
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54770.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.1
+Info:  0.2 24.4  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54770.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut0.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54770.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.0
+Info:  0.1 24.5  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54770.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux8.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54772.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.A1
+Info:  0.1 25.4  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54772.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.lut1.O6
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54772.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.1
+Info:  0.2 25.6  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$54772.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.genblk1.mux7.OUT
+Info:                Sink u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$56376.A6
+Info:  0.1 26.4  Source u_dut.$abc$52889$auto$blifparse.cc:525:parse_blif$56376.O6
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$2803.X[47]$LUT$538.A2
+Info:  0.1 27.5  Source u_dut.$auto$maccmap.cc:240:synth$2803.X[47]$LUT$538.O6
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[11].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S3
+Info:  0.4 27.9  Source u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[11].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[12].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 28.1  Source u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[12].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[13].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 28.3  Source u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[13].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[14].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.1 28.5  Source u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[14].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[15].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CIN
+Info:  0.3 29.0  Source u_dut.$auto$maccmap.cc:240:synth$2803.genblk1.slice[15].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.O3
+Info:                Sink u_dut.$auto$ff.cc:266:slice$3196.D

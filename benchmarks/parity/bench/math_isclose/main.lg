@@ -1,0 +1,13 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 1.
+While i is at most n:
+    If isClose(toReal(i) / 1000.0, toReal(i) / 1000.0):
+        Set sum to sum + 1.
+    Set i to i + 1.
+Show sum.

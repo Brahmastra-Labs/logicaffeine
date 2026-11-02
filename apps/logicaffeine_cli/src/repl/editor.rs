@@ -15,15 +15,43 @@ use super::{Action, ReplState};
 
 /// Statement-leading keywords every LOGOS program uses.
 const KEYWORDS: &[&str] = &[
-    "Let ", "Show ", "Set ", "If ", "While ", "Repeat ", "Push ", "Pop ",
-    "Add ", "Remove ", "Return ", "Increase ", "Decrease ", "Inspect ",
-    "Assert ", "Break", "## To ", "## Main", "## A ",
+    "Let ",
+    "Show ",
+    "Set ",
+    "If ",
+    "While ",
+    "Repeat ",
+    "Push ",
+    "Pop ",
+    "Add ",
+    "Remove ",
+    "Return ",
+    "Increase ",
+    "Decrease ",
+    "Inspect ",
+    "Assert ",
+    "Break",
+    "## To ",
+    "## Main",
+    "## A ",
 ];
 
 /// Meta-commands offered after a `:` prefix.
 const META: &[&str] = &[
-    ":help", ":quit", ":mode", ":logic", ":imperative", ":format", ":readings",
-    ":discourse", ":reset", ":vars", ":type", ":program", ":load", ":save",
+    ":help",
+    ":quit",
+    ":mode",
+    ":logic",
+    ":imperative",
+    ":format",
+    ":readings",
+    ":discourse",
+    ":reset",
+    ":vars",
+    ":type",
+    ":program",
+    ":load",
+    ":save",
 ];
 
 /// The rustyline helper: keyword + meta-command + live-binding completion.
@@ -71,7 +99,10 @@ impl Completer for LogosHelper {
         let mut candidates: Vec<Pair> = Vec::new();
         let mut offer = |s: &str| {
             if s.starts_with(word) && s != word {
-                candidates.push(Pair { display: s.trim_end().to_string(), replacement: s.to_string() });
+                candidates.push(Pair {
+                    display: s.trim_end().to_string(),
+                    replacement: s.to_string(),
+                });
             }
         };
         if word.starts_with(':') {
@@ -98,7 +129,9 @@ impl Completer for LogosHelper {
 /// buffer, Ctrl-D (or `:quit`) exits.
 pub(crate) fn run_editor(state: &mut ReplState) -> Result<(), Box<dyn std::error::Error>> {
     let mut rl: Editor<LogosHelper, DefaultHistory> = Editor::new()?;
-    rl.set_helper(Some(LogosHelper { bindings: Vec::new() }));
+    rl.set_helper(Some(LogosHelper {
+        bindings: Vec::new(),
+    }));
 
     let history_path = dirs::config_dir().map(|d| d.join("logos/history"));
     if let Some(path) = &history_path {

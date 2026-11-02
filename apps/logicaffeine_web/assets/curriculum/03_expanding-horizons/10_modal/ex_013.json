@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "F is self-contradictory",
   "options": [
-    "$ \\sim \\lozenge F $",
-    "$ \\lozenge \\sim F $",
-    "$ \\sim \\lozenge (F) $",
-    "$ \\sim (\\lozenge F) $"
+    "¬◇F",
+    "◇¬F",
+    "¬□F",
+    "□F"
   ],
   "correct": 0,
-  "hint": "If something 'contradicts itself', can it be true in ANY possible world?",
-  "explanation": "A self-contradictory statement is impossible \u2014 there's no world where it's true. We express this as ~\u25c7P (not possible). Equivalently, its negation is necessary: \u25a1~P."
+  "hint": "Can a self-contradictory statement be true in any world?",
+  "explanation": "A self-contradictory statement is true in no world: ¬◇F, the same as □¬F.",
+  "section": "10.2"
 }

@@ -1,5 +1,4 @@
-//! Contiguous register-allocated region codegen — the EXODIA 3.1 "closer"
-//! foundation (WS-G).
+//! Contiguous register-allocated region codegen for EXODIA, the copy-and-patch JIT.
 //!
 //! Where [`crate::jit::compile_straightline_coded`] lowers ONE stencil PIECE
 //! per [`MicroOp`] (each piece re-establishing operands from the frame, doing
@@ -108,7 +107,11 @@ fn vec_layout() -> &'static VecLayout {
         unsafe { v.set_len(3) };
         let cap = v.capacity(); // 8
         let len = v.len(); // 3
-        debug_assert_eq!(std::mem::size_of::<Vec<i64>>(), 24, "Vec is a 3-word triple");
+        debug_assert_eq!(
+            std::mem::size_of::<Vec<i64>>(),
+            24,
+            "Vec is a 3-word triple"
+        );
         let base = &v as *const Vec<i64> as *const usize;
         // SAFETY: a `Vec<i64>` is exactly three `usize`-sized words.
         let words = unsafe { std::slice::from_raw_parts(base, 3) };
@@ -133,8 +136,20 @@ fn vec_layout() -> &'static VecLayout {
 /// SysV (no prologue save/restore); `xmm14`/`xmm15` are reserved as scratch
 /// (`FS0`/`FS1`). Ordered low→high so the assignment is deterministic.
 const FLOAT_REGS: [Xmm; 14] = [
-    Xmm::Xmm0, Xmm::Xmm1, Xmm::Xmm2, Xmm::Xmm3, Xmm::Xmm4, Xmm::Xmm5, Xmm::Xmm6,
-    Xmm::Xmm7, Xmm::Xmm8, Xmm::Xmm9, Xmm::Xmm10, Xmm::Xmm11, Xmm::Xmm12, Xmm::Xmm13,
+    Xmm::Xmm0,
+    Xmm::Xmm1,
+    Xmm::Xmm2,
+    Xmm::Xmm3,
+    Xmm::Xmm4,
+    Xmm::Xmm5,
+    Xmm::Xmm6,
+    Xmm::Xmm7,
+    Xmm::Xmm8,
+    Xmm::Xmm9,
+    Xmm::Xmm10,
+    Xmm::Xmm11,
+    Xmm::Xmm12,
+    Xmm::Xmm13,
 ];
 
 /// Callee-saved registers we may assign (must be saved/restored).
@@ -240,10 +255,12 @@ fn ptr_hoist_enabled() -> bool {
 /// chain; pinning the invariant in a read-heavy XMM register serializes worse).
 /// See the `const_hoist_*` tests and the call site's exclusion comment.
 ///
-/// Default ON: bit-identical to the per-iteration `LoadConst` (the register holds
-/// exactly the same constant bits, the body simply stops re-loading them, and the
-/// exit flush of a written slot is unchanged), proven by the corpus differential
-/// and the dedicated `const_hoist_*` tests. `LOGOS_NO_CONST_HOIST=1` falls back to
+/// Default ON: bit-identical to the per-iteration `LoadConst` on every observed
+/// slot. The register holds exactly the same constant bits, the body simply
+/// stops re-loading them, and a hoist requires `dst` dead at the loop head (see
+/// [`loop_invariant_const_hoists`]), so no read and no caller-read exit flush can
+/// see the pre-header write in place of the entry value. Proven by the corpus
+/// differential and the dedicated `const_hoist_*` tests. `LOGOS_NO_CONST_HOIST=1` falls back to
 /// the per-iteration materialization — the kill-switch AND the A/B toggle for the
 /// relative on/off timing on a noisy box. Read LIVE (not cached) so a single
 /// process can A/B the two emissions for the structural gate.
@@ -307,6 +324,8 @@ fn supported(op: &MicroOp) -> bool {
             | MicroOp::BitXor { .. }
             | MicroOp::Shl { .. }
             | MicroOp::Shr { .. }
+            | MicroOp::Ushr { .. }
+            | MicroOp::Rotate { .. }
             | MicroOp::NotInt { .. }
             | MicroOp::NotBool { .. }
             | MicroOp::Div { .. }
@@ -381,7 +400,7 @@ fn supported_function(op: &MicroOp) -> bool {
     supported(op) || matches!(op, MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })
 }
 
-/// Is this op in the supported subset of the contiguous PRECISE (mode-B)
+/// Is this op in the supported subset of the contiguous PRECISE
 /// FUNCTION backend ([`compile_function_regalloc_precise`])? This spans two
 /// recursion shapes:
 ///
@@ -402,19 +421,23 @@ fn supported_function(op: &MicroOp) -> bool {
 /// changes. `NewList`/`ArrPush`/`ListTriple` each force their vec/ptr/len triple
 /// FRAME-resident (the helper's frame writes are the single source of truth, so a
 /// reallocating push's refreshed pointer/length is always read by the next
-/// access), every mode-B machinery slot (`>= rc`) stays frame-resident, and every
+/// access), every precise-path machinery slot (`>= rc`) stays frame-resident, and every
 /// precise side exit flushes the resident-written scalars to the frame. So a
 /// registry-owned fresh list materializes (detaches) on a precise resume exactly
 /// as in the stencil tier; the differential gate proves it bit-identical.
 ///
 /// It still does NOT admit the classic `CallSelf`/`CallSelfCopy` (those replay
 /// from head — sound only for the scalar mode-A path), nor maps/cross-function
-/// calls.
+/// calls. Frame-based Host helpers use the same precise exit channel and
+/// preserve their declared operand window across the SysV call.
 fn supported_function_precise(op: &MicroOp) -> bool {
     supported(op)
         || matches!(
             op,
-            MicroOp::Call { .. } | MicroOp::ListTriple { .. } | MicroOp::NewList { .. }
+            MicroOp::Call { .. }
+                | MicroOp::ListTriple { .. }
+                | MicroOp::NewList { .. }
+                | MicroOp::Host { .. }
         )
 }
 
@@ -443,6 +466,10 @@ fn needs_deopt(op: &MicroOp) -> bool {
             // The mode-B precise self-call writes the status cell (its depth/
             // arena/entry guards and the propagation of an in-callee deopt).
             | MicroOp::Call { .. }
+            // `chr` guard side-exits when the code is not a valid Unicode scalar
+            // (so the VM re-runs `chr` and traps, matching the tree-walker).
+            | MicroOp::ChrGuard { .. }
+            | MicroOp::Host { .. }
     )
 }
 
@@ -450,9 +477,14 @@ fn needs_deopt(op: &MicroOp) -> bool {
 /// max-slot frame bound).
 fn slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
     match *op {
-        MicroOp::Move { dst, src } | MicroOp::NotInt { dst, src } | MicroOp::NotBool { dst, src } => {
-            out.extend([dst, src])
-        }
+        MicroOp::Move { dst, src }
+        | MicroOp::NotInt { dst, src }
+        | MicroOp::NotBool { dst, src }
+        | MicroOp::Popcnt { dst, src }
+        | MicroOp::Lzcnt { dst, src }
+        | MicroOp::Tzcnt { dst, src }
+        | MicroOp::Utf8Len { dst, src }
+        | MicroOp::ChrGuard { dst, src } => out.extend([dst, src]),
         MicroOp::LoadConst { dst, .. } => out.push(dst),
         MicroOp::Add { dst, lhs, rhs }
         | MicroOp::Sub { dst, lhs, rhs }
@@ -468,6 +500,8 @@ fn slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         | MicroOp::BitXor { dst, lhs, rhs }
         | MicroOp::Shl { dst, lhs, rhs }
         | MicroOp::Shr { dst, lhs, rhs }
+        | MicroOp::Ushr { dst, lhs, rhs }
+        | MicroOp::Rotate { dst, lhs, rhs, .. }
         | MicroOp::Div { dst, lhs, rhs }
         | MicroOp::Mod { dst, lhs, rhs }
         | MicroOp::AddF { dst, lhs, rhs }
@@ -481,19 +515,45 @@ fn slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         | MicroOp::EqF { dst, lhs, rhs }
         | MicroOp::NeqF { dst, lhs, rhs } => out.extend([dst, lhs, rhs]),
         MicroOp::FmaF { dst, a, b, c } => out.extend([dst, a, b, c]),
-        MicroOp::IntToFloat { dst, src } | MicroOp::SqrtF { dst, src } => out.extend([dst, src]),
+        MicroOp::IntToFloat { dst, src }
+        | MicroOp::SqrtF { dst, src }
+        | MicroOp::FloorToInt { dst, src }
+        | MicroOp::CeilToInt { dst, src }
+        | MicroOp::RoundToInt { dst, src } => out.extend([dst, src]),
         MicroOp::DivPow2 { dst, lhs, .. } => out.extend([dst, lhs]),
         MicroOp::MagicDivU { dst, lhs, .. } => out.extend([dst, lhs]),
-        MicroOp::Branch { lhs, rhs, .. } | MicroOp::BranchF { lhs, rhs, .. } => out.extend([lhs, rhs]),
+        MicroOp::Branch { lhs, rhs, .. } | MicroOp::BranchF { lhs, rhs, .. } => {
+            out.extend([lhs, rhs])
+        }
         MicroOp::JumpIfFalse { cond, .. } | MicroOp::JumpIfTrue { cond, .. } => out.push(cond),
         MicroOp::Return { src } => out.push(src),
-        MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, checked, .. } => {
+        MicroOp::Host {
+            dst, src, count, ..
+        } => {
+            out.push(dst);
+            out.extend(src..src + count);
+        }
+        MicroOp::ArrLoad {
+            dst,
+            idx,
+            ptr_slot,
+            len_slot,
+            checked,
+            ..
+        } => {
             out.extend([dst, idx, ptr_slot]);
             if checked {
                 out.push(len_slot);
             }
         }
-        MicroOp::ArrStore { src, idx, ptr_slot, len_slot, checked, .. } => {
+        MicroOp::ArrStore {
+            src,
+            idx,
+            ptr_slot,
+            len_slot,
+            checked,
+            ..
+        } => {
             out.extend([src, idx, ptr_slot]);
             if checked {
                 out.push(len_slot);
@@ -503,25 +563,39 @@ fn slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         // resident) and the vec/ptr/len handle TRIPLE, which is forced
         // frame-resident below (the helper reads/writes those frame cells), so
         // we list the triple only to extend `max_slot`, never to rank it.
-        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([src, vec_slot, ptr_slot, len_slot])
-        }
-        MicroOp::ListClear { vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([vec_slot, ptr_slot, len_slot])
-        }
+        MicroOp::ArrPush {
+            src,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([src, vec_slot, ptr_slot, len_slot]),
+        MicroOp::ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([vec_slot, ptr_slot, len_slot]),
         // A fresh-list allocation writes the vec/ptr/len handle TRIPLE (forced
         // frame-resident below — the helper writes those frame cells); list it
         // only to extend `max_slot`, never to rank it (the triple stays in the
         // frame, so it competes for no register).
-        MicroOp::NewList { vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([vec_slot, ptr_slot, len_slot])
-        }
+        MicroOp::NewList {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([vec_slot, ptr_slot, len_slot]),
         // A str-append reads its handle slot (forced frame-resident below — the
-        // helper indexes it) and, for the byte form, the value slot (ranked: it
-        // may be register-resident). The const form has no extra slot.
-        MicroOp::StrAppend { text_handle_slot, src, .. } => {
+        // helper indexes it) and, for the byte and Int forms, the value slot (ranked:
+        // it may be register-resident). The const form has no extra slot.
+        MicroOp::StrAppend {
+            text_handle_slot,
+            src,
+            ..
+        } => {
             out.push(text_handle_slot);
-            if let crate::jit::StrSrc::Byte(s) = src {
+            if let Some(s) = src.slot() {
                 out.push(s);
             }
         }
@@ -530,21 +604,35 @@ fn slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         // resident below; the staging Moves into it account those slots already,
         // and `extend_self_call_slots` is not used (the disjoint window's extent
         // is covered by the Move ops the adapter emits into it).
-        MicroOp::Call { dst, limit_slot, .. } => out.extend([dst, limit_slot]),
+        MicroOp::Call {
+            dst, limit_slot, ..
+        } => out.extend([dst, limit_slot]),
         // A triple-plant reads `handle_slot` and writes the vec/ptr/len triple
         // (all forced frame-resident); `handle_slot` is ranked so a register-
         // resident handle is still read correctly (the codegen spills it to its
         // forced frame cell so the helper sees it).
-        MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([handle_slot, vec_slot, ptr_slot, len_slot])
-        }
+        MicroOp::ListTriple {
+            handle_slot,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([handle_slot, vec_slot, ptr_slot, len_slot]),
         // A self-call writes `dst` and reads `limit_slot` (the arena bound). The
         // callee window (args_start..) and a `CallSelfCopy`'s source block
         // (src_start..) are accounted by `extend_self_call_slots` so `max_slot`
         // covers them; the staging slots stay FRAME-resident (the callee reads
         // them from the frame) and so are NOT ranked for a register here.
-        MicroOp::CallSelf { dst, limit_slot, .. } => out.extend([dst, limit_slot]),
-        MicroOp::CallSelfCopy { dst, src_start, arg_count, limit_slot, .. } => {
+        MicroOp::CallSelf {
+            dst, limit_slot, ..
+        } => out.extend([dst, limit_slot]),
+        MicroOp::CallSelfCopy {
+            dst,
+            src_start,
+            arg_count,
+            limit_slot,
+            ..
+        } => {
             out.extend([dst, limit_slot]);
             // The source args are READ; rank them (they may be register-resident
             // — the codegen reads them from wherever they live, then stages).
@@ -642,7 +730,7 @@ fn has_shared_index_run(ops: &[MicroOp]) -> bool {
 /// Whether `op` is a REAL SysV `call` (it clobbers the caller-saved registers per
 /// the ABI). This is the universe of ops the call-weight ranking and the
 /// per-call-site spill machinery key off: the self-call families (`CallSelf`,
-/// `CallSelfCopy`, the mode-B precise `Call`) and the list/string-mutation
+/// `CallSelfCopy`, the precise `Call`) and the list/string-mutation
 /// helpers (`NewList`, `ArrPush`, `ListClear`, `ListTriple`, `StrAppend`), each
 /// of which enters JIT-runtime code through a SysV `call`. Mirrors the
 /// `has_self_call || has_list_call || has_precise_call` disjunction that defines
@@ -658,6 +746,7 @@ fn is_sysv_call(op: &MicroOp) -> bool {
             | MicroOp::ListClear { .. }
             | MicroOp::ListTriple { .. }
             | MicroOp::StrAppend { .. }
+            | MicroOp::Host { .. }
     )
 }
 
@@ -697,14 +786,31 @@ fn op_writes_slot(op: &MicroOp, s: Slot) -> bool {
         return true;
     }
     match *op {
-        MicroOp::NewList { vec_slot, ptr_slot, len_slot, .. }
-        | MicroOp::ArrPush { vec_slot, ptr_slot, len_slot, .. }
-        | MicroOp::ListClear { vec_slot, ptr_slot, len_slot, .. } => {
-            s == vec_slot || s == ptr_slot || s == len_slot
+        MicroOp::NewList {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
         }
-        MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
-            s == handle_slot || s == vec_slot || s == ptr_slot || s == len_slot
+        | MicroOp::ArrPush {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
         }
+        | MicroOp::ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => s == vec_slot || s == ptr_slot || s == len_slot,
+        MicroOp::ListTriple {
+            handle_slot,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => s == handle_slot || s == vec_slot || s == ptr_slot || s == len_slot,
         _ => false,
     }
 }
@@ -763,8 +869,18 @@ fn loop_invariant_array_hoists(ops: &[MicroOp]) -> Vec<HoistPlan> {
             std::collections::BTreeMap::new();
         for op in &ops[head..=back] {
             match *op {
-                MicroOp::ArrLoad { ptr_slot, len_slot, checked, .. }
-                | MicroOp::ArrStore { ptr_slot, len_slot, checked, .. } => {
+                MicroOp::ArrLoad {
+                    ptr_slot,
+                    len_slot,
+                    checked,
+                    ..
+                }
+                | MicroOp::ArrStore {
+                    ptr_slot,
+                    len_slot,
+                    checked,
+                    ..
+                } => {
                     let e = accessed.entry(ptr_slot).or_insert((len_slot, false, 0));
                     e.1 |= checked;
                     e.2 += 1;
@@ -796,9 +912,9 @@ fn loop_invariant_array_hoists(ops: &[MicroOp]) -> Vec<HoistPlan> {
     plans.sort_by_key(|p| (p.ptr_slot, p.back - p.head));
     let mut chosen: Vec<HoistPlan> = Vec::new();
     for p in plans {
-        let overlaps_kept = chosen.iter().any(|c| {
-            c.ptr_slot == p.ptr_slot && c.head <= p.back && p.head <= c.back
-        });
+        let overlaps_kept = chosen
+            .iter()
+            .any(|c| c.ptr_slot == p.ptr_slot && c.head <= p.back && p.head <= c.back);
         if !overlaps_kept {
             chosen.push(p);
         }
@@ -838,13 +954,21 @@ struct ConstHoist {
 ///     writer in the span is this `LoadConst`) — so the register holds the same
 ///     constant bits on every iteration. A slot reused for two different
 ///     constants (a scratch `LoadConst {dst,0}` then `LoadConst {dst,1}`) has two
-///     writers and is therefore NOT hoisted.
+///     writers and is therefore NOT hoisted;
+///  4. `dst` is DEAD at `head` under [`liveness`] with the region's `live_out`
+///     read at every exit — the value it enters the loop with is never observed.
+///     The pre-header write replaces that value on every path, including the
+///     ones that never reach this `LoadConst`: a read before the write in the
+///     body, an exit taken before the first write (a zero-trip loop), or an exit
+///     block that sits inside the span but never returns to the back-edge (a
+///     found-flag set on the way out). Each of those observes the entry value,
+///     so each makes `dst` live at `head`.
 ///
 /// Register-residency is NOT decided here (the analysis is purely structural over
 /// the op stream); the caller filters to `dst`s that are actually `Loc::Reg`/
 /// `Loc::Xmm` before materializing (a frame-resident const has no per-iteration
 /// register reload to amortize).
-fn loop_invariant_const_hoists(ops: &[MicroOp]) -> Vec<ConstHoist> {
+fn loop_invariant_const_hoists(ops: &[MicroOp], live_out: &[Slot]) -> Vec<ConstHoist> {
     // Every natural-loop span: a back-edge at `back` with `target == head <= back`.
     let mut loops: Vec<(usize, usize)> = Vec::new();
     for (back, op) in ops.iter().enumerate() {
@@ -854,9 +978,15 @@ fn loop_invariant_const_hoists(ops: &[MicroOp]) -> Vec<ConstHoist> {
             }
         }
     }
+    if !ops.iter().any(|op| matches!(op, MicroOp::LoadConst { .. })) || loops.is_empty() {
+        return Vec::new();
+    }
+    let (live_in, _) = liveness(ops, max_slot_of(ops), live_out);
     let mut chosen: Vec<ConstHoist> = Vec::new();
     for (i, op) in ops.iter().enumerate() {
-        let MicroOp::LoadConst { dst, value } = *op else { continue };
+        let MicroOp::LoadConst { dst, value } = *op else {
+            continue;
+        };
         // The INNERMOST loop span that contains this op (smallest span). A const is
         // invariant in every enclosing loop, but the innermost pre-header runs the
         // most often, and an enclosing loop might write `dst` between inner loops.
@@ -882,8 +1012,14 @@ fn loop_invariant_const_hoists(ops: &[MicroOp]) -> Vec<ConstHoist> {
             .iter()
             .enumerate()
             .all(|(off, o)| head + off == i || dest_of(o) != Some(dst));
-        if sole_writer {
-            chosen.push(ConstHoist { op: i, head, dst, value });
+        let dead_at_head = !live_in[head].get(dst as usize).copied().unwrap_or(true);
+        if sole_writer && dead_at_head {
+            chosen.push(ConstHoist {
+                op: i,
+                head,
+                dst,
+                value,
+            });
         }
     }
     chosen
@@ -902,8 +1038,16 @@ fn max_slot_of(ops: &[MicroOp]) -> usize {
         for &s in &buf {
             max_slot = max_slot.max(s as usize);
         }
-        if let MicroOp::CallSelf { args_start, frame_size, .. }
-        | MicroOp::CallSelfCopy { args_start, frame_size, .. } = *op
+        if let MicroOp::CallSelf {
+            args_start,
+            frame_size,
+            ..
+        }
+        | MicroOp::CallSelfCopy {
+            args_start,
+            frame_size,
+            ..
+        } = *op
         {
             let last = (args_start as i64) + frame_size - 1;
             if last >= 0 {
@@ -1030,6 +1174,8 @@ fn read_slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         | MicroOp::BitXor { lhs, rhs, .. }
         | MicroOp::Shl { lhs, rhs, .. }
         | MicroOp::Shr { lhs, rhs, .. }
+        | MicroOp::Ushr { lhs, rhs, .. }
+        | MicroOp::Rotate { lhs, rhs, .. }
         | MicroOp::Div { lhs, rhs, .. }
         | MicroOp::Mod { lhs, rhs, .. }
         | MicroOp::AddF { lhs, rhs, .. }
@@ -1043,42 +1189,82 @@ fn read_slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         | MicroOp::EqF { lhs, rhs, .. }
         | MicroOp::NeqF { lhs, rhs, .. } => out.extend([lhs, rhs]),
         MicroOp::FmaF { a, b, c, .. } => out.extend([a, b, c]),
-        MicroOp::IntToFloat { src, .. } | MicroOp::SqrtF { src, .. } => out.push(src),
+        MicroOp::IntToFloat { src, .. }
+        | MicroOp::SqrtF { src, .. }
+        | MicroOp::FloorToInt { src, .. }
+        | MicroOp::CeilToInt { src, .. }
+        | MicroOp::RoundToInt { src, .. } => out.push(src),
         MicroOp::DivPow2 { lhs, .. } => out.push(lhs),
         MicroOp::MagicDivU { lhs, .. } => out.push(lhs),
-        MicroOp::Branch { lhs, rhs, .. } | MicroOp::BranchF { lhs, rhs, .. } => out.extend([lhs, rhs]),
+        MicroOp::Branch { lhs, rhs, .. } | MicroOp::BranchF { lhs, rhs, .. } => {
+            out.extend([lhs, rhs])
+        }
         MicroOp::JumpIfFalse { cond, .. } | MicroOp::JumpIfTrue { cond, .. } => out.push(cond),
         MicroOp::Return { src } => out.push(src),
-        MicroOp::ArrLoad { idx, ptr_slot, len_slot, checked, .. } => {
+        MicroOp::Host { src, count, .. } => out.extend(src..src + count),
+        MicroOp::ArrLoad {
+            idx,
+            ptr_slot,
+            len_slot,
+            checked,
+            ..
+        } => {
             out.extend([idx, ptr_slot]);
             if checked {
                 out.push(len_slot);
             }
         }
-        MicroOp::ArrStore { src, idx, ptr_slot, len_slot, checked, .. } => {
+        MicroOp::ArrStore {
+            src,
+            idx,
+            ptr_slot,
+            len_slot,
+            checked,
+            ..
+        } => {
             out.extend([src, idx, ptr_slot]);
             if checked {
                 out.push(len_slot);
             }
         }
-        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([src, vec_slot, ptr_slot, len_slot])
-        }
-        MicroOp::ListClear { vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([vec_slot, ptr_slot, len_slot])
-        }
-        MicroOp::StrAppend { text_handle_slot, src, .. } => {
+        MicroOp::ArrPush {
+            src,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([src, vec_slot, ptr_slot, len_slot]),
+        MicroOp::ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([vec_slot, ptr_slot, len_slot]),
+        MicroOp::StrAppend {
+            text_handle_slot,
+            src,
+            ..
+        } => {
             out.push(text_handle_slot);
-            if let crate::jit::StrSrc::Byte(s) = src {
+            if let Some(s) = src.slot() {
                 out.push(s);
             }
         }
         MicroOp::Call { limit_slot, .. } => out.push(limit_slot),
-        MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
-            out.extend([handle_slot, vec_slot, ptr_slot, len_slot])
-        }
+        MicroOp::ListTriple {
+            handle_slot,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => out.extend([handle_slot, vec_slot, ptr_slot, len_slot]),
         MicroOp::CallSelf { limit_slot, .. } => out.push(limit_slot),
-        MicroOp::CallSelfCopy { src_start, arg_count, limit_slot, .. } => {
+        MicroOp::CallSelfCopy {
+            src_start,
+            arg_count,
+            limit_slot,
+            ..
+        } => {
             out.push(limit_slot);
             for j in 0..arg_count {
                 out.push(src_start + j);
@@ -1109,6 +1295,18 @@ fn read_slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
 /// spill is therefore bit-identical. Returns one bitset (`Vec<bool>` over
 /// `0..=max_slot`) per op.
 fn liveness_after(ops: &[MicroOp], max_slot: usize) -> Vec<Vec<bool>> {
+    liveness(ops, max_slot, &[]).1
+}
+
+/// The backward dataflow behind [`liveness_after`], returning both `live_in` and
+/// `live_after` per op. `exit_uses` are the frame slots the caller reads once the
+/// region has exited: every `Return` reads them, so such a slot is live at every
+/// point from which an exit is reachable without a write to it.
+fn liveness(
+    ops: &[MicroOp],
+    max_slot: usize,
+    exit_uses: &[Slot],
+) -> (Vec<Vec<bool>>, Vec<Vec<bool>>) {
     let n = ops.len();
     let width = max_slot + 1;
     let mut live_in: Vec<Vec<bool>> = vec![vec![false; width]; n];
@@ -1118,6 +1316,9 @@ fn liveness_after(ops: &[MicroOp], max_slot: usize) -> Vec<Vec<bool>> {
     for op in ops {
         let mut u = Vec::new();
         read_slots_of(op, &mut u);
+        if matches!(op, MicroOp::Return { .. }) {
+            u.extend_from_slice(exit_uses);
+        }
         uses.push(u);
         defs.push(dest_of(op));
     }
@@ -1131,7 +1332,8 @@ fn liveness_after(ops: &[MicroOp], max_slot: usize) -> Vec<Vec<bool>> {
             let mut out = vec![false; width];
             // Fall-through successor (i+1) unless this op is an unconditional
             // transfer (Jump has no fall-through; Return terminates).
-            let unconditional_transfer = matches!(ops[i], MicroOp::Jump { .. } | MicroOp::Return { .. });
+            let unconditional_transfer =
+                matches!(ops[i], MicroOp::Jump { .. } | MicroOp::Return { .. });
             if !unconditional_transfer {
                 if let Some(succ) = live_in.get(i + 1) {
                     for (o, &s) in out.iter_mut().zip(succ.iter()) {
@@ -1169,7 +1371,8 @@ fn liveness_after(ops: &[MicroOp], max_slot: usize) -> Vec<Vec<bool>> {
     // live_after[i] == live_out[i]: rebuild from the converged live_in.
     let mut live_after: Vec<Vec<bool>> = vec![vec![false; width]; n];
     for i in 0..n {
-        let unconditional_transfer = matches!(ops[i], MicroOp::Jump { .. } | MicroOp::Return { .. });
+        let unconditional_transfer =
+            matches!(ops[i], MicroOp::Jump { .. } | MicroOp::Return { .. });
         if !unconditional_transfer {
             if let Some(succ) = live_in.get(i + 1) {
                 for (o, &s) in live_after[i].iter_mut().zip(succ.iter()) {
@@ -1185,7 +1388,7 @@ fn liveness_after(ops: &[MicroOp], max_slot: usize) -> Vec<Vec<bool>> {
             }
         }
     }
-    live_after
+    (live_in, live_after)
 }
 
 /// The condition for a `Cmp`.
@@ -1248,7 +1451,13 @@ fn tally_roles(op: &MicroOp, roles: &mut [Roles]) {
         | MicroOp::BitOr { dst, lhs, rhs }
         | MicroOp::BitXor { dst, lhs, rhs }
         | MicroOp::Shl { dst, lhs, rhs }
-        | MicroOp::Shr { dst, lhs, rhs } => {
+        | MicroOp::Shr { dst, lhs, rhs }
+        | MicroOp::Ushr { dst, lhs, rhs } => {
+            mark_int!(dst);
+            mark_int!(lhs);
+            mark_int!(rhs);
+        }
+        MicroOp::Rotate { dst, lhs, rhs, .. } => {
             mark_int!(dst);
             mark_int!(lhs);
             mark_int!(rhs);
@@ -1257,7 +1466,13 @@ fn tally_roles(op: &MicroOp, roles: &mut [Roles]) {
             mark_int!(dst);
             mark_int!(lhs);
         }
-        MicroOp::NotInt { dst, src } | MicroOp::NotBool { dst, src } => {
+        MicroOp::NotInt { dst, src }
+        | MicroOp::NotBool { dst, src }
+        | MicroOp::Popcnt { dst, src }
+        | MicroOp::Lzcnt { dst, src }
+        | MicroOp::Tzcnt { dst, src }
+        | MicroOp::ChrGuard { dst, src }
+        | MicroOp::Utf8Len { dst, src } => {
             mark_int!(dst);
             mark_int!(src);
         }
@@ -1267,14 +1482,26 @@ fn tally_roles(op: &MicroOp, roles: &mut [Roles]) {
         }
         MicroOp::JumpIfFalse { cond, .. } | MicroOp::JumpIfTrue { cond, .. } => mark_int!(cond),
         // Array address machinery is INT; the loaded/stored value is NEUTRAL.
-        MicroOp::ArrLoad { idx, ptr_slot, len_slot, checked, .. } => {
+        MicroOp::ArrLoad {
+            idx,
+            ptr_slot,
+            len_slot,
+            checked,
+            ..
+        } => {
             mark_int!(idx);
             mark_int!(ptr_slot);
             if checked {
                 mark_int!(len_slot);
             }
         }
-        MicroOp::ArrStore { idx, ptr_slot, len_slot, checked, .. } => {
+        MicroOp::ArrStore {
+            idx,
+            ptr_slot,
+            len_slot,
+            checked,
+            ..
+        } => {
             mark_int!(idx);
             mark_int!(ptr_slot);
             if checked {
@@ -1286,12 +1513,22 @@ fn tally_roles(op: &MicroOp, roles: &mut [Roles]) {
         // of class — a float-list push bit-copies through a GP reg). The handle
         // slots are also forced frame-resident, so their class is moot, but
         // marking them INT keeps the role tally accurate.
-        MicroOp::ArrPush { vec_slot, ptr_slot, len_slot, .. } => {
+        MicroOp::ArrPush {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => {
             mark_int!(vec_slot);
             mark_int!(ptr_slot);
             mark_int!(len_slot);
         }
-        MicroOp::ListClear { vec_slot, ptr_slot, len_slot, .. } => {
+        MicroOp::ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => {
             mark_int!(vec_slot);
             mark_int!(ptr_slot);
             mark_int!(len_slot);
@@ -1335,40 +1572,63 @@ fn tally_roles(op: &MicroOp, roles: &mut [Roles]) {
             roles[dst as usize].float = true;
             mark_int!(src);
         }
+        // FloorToInt/CeilToInt/RoundToInt: src is FLOAT, dst is INT (the mirror of IntToFloat).
+        MicroOp::FloorToInt { dst, src }
+        | MicroOp::CeilToInt { dst, src }
+        | MicroOp::RoundToInt { dst, src } => {
+            roles[src as usize].float = true;
+            mark_int!(dst);
+        }
         // A self-call: `dst` (the result) and `limit_slot` (the arena bound) are
         // INT. The staged scalar args are 8-byte raw copies (NEUTRAL — the copy
         // preserves their bits regardless of class), so they impose no class
         // here; their class comes from the ops that produced them.
-        MicroOp::CallSelf { dst, limit_slot, .. } => {
+        MicroOp::CallSelf {
+            dst, limit_slot, ..
+        } => {
             mark_int!(dst);
             mark_int!(limit_slot);
         }
-        MicroOp::CallSelfCopy { dst, limit_slot, .. } => {
+        MicroOp::CallSelfCopy {
+            dst, limit_slot, ..
+        } => {
             mark_int!(dst);
             mark_int!(limit_slot);
         }
         // The mode-B precise self-call: `dst` (the result handle, an i64) and
         // `limit_slot` are INT. The staged args are NEUTRAL raw copies (their
         // class comes from the producing ops).
-        MicroOp::Call { dst, limit_slot, .. } => {
+        MicroOp::Call {
+            dst, limit_slot, ..
+        } => {
             mark_int!(dst);
             mark_int!(limit_slot);
         }
         // List-machinery handle/triple slots are INT (raw `*mut Vec` words);
         // they are also forced frame-resident, so the class is moot, but the
         // tally stays accurate.
-        MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
+        MicroOp::ListTriple {
+            handle_slot,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => {
             mark_int!(handle_slot);
             mark_int!(vec_slot);
             mark_int!(ptr_slot);
             mark_int!(len_slot);
         }
-        // The str-append handle (a raw `*mut Value` word) and a byte-form value
-        // (an ASCII byte) are INT. The handle is forced frame-resident, so its
-        // class is moot, but the tally stays accurate.
-        MicroOp::StrAppend { text_handle_slot, src, .. } => {
+        // The str-append handle (a raw `*mut Value` word) and a byte- or Int-form
+        // value are INT. The handle is forced frame-resident, so its class is moot,
+        // but the tally stays accurate.
+        MicroOp::StrAppend {
+            text_handle_slot,
+            src,
+            ..
+        } => {
             mark_int!(text_handle_slot);
-            if let crate::jit::StrSrc::Byte(s) = src {
+            if let Some(s) = src.slot() {
                 mark_int!(s);
             }
         }
@@ -1440,7 +1700,11 @@ fn live_intervals(ops: &[MicroOp], max_slot: usize) -> Vec<LiveInterval> {
     }
     (0..=max_slot)
         .filter(|&s| first[s] != usize::MAX)
-        .map(|s| LiveInterval { slot: s as u16, start: first[s], end: last[s] })
+        .map(|s| LiveInterval {
+            slot: s as u16,
+            start: first[s],
+            end: last[s],
+        })
         .collect()
 }
 
@@ -1454,8 +1718,10 @@ fn live_intervals(ops: &[MicroOp], max_slot: usize) -> Vec<LiveInterval> {
 /// whole-region per-slot model fails to achieve (it spills every slot beyond the
 /// top-`regs` ranked, even when their ranges never overlap).
 fn linscan_spills(intervals: &[LiveInterval], class: &[Class], want: Class, regs: usize) -> usize {
-    let mut iv: Vec<&LiveInterval> =
-        intervals.iter().filter(|i| class[i.slot as usize] == want).collect();
+    let mut iv: Vec<&LiveInterval> = intervals
+        .iter()
+        .filter(|i| class[i.slot as usize] == want)
+        .collect();
     iv.sort_by_key(|i| (i.start, i.end));
     // `active` ends, kept sorted ascending so the farthest end is last.
     let mut active: Vec<usize> = Vec::new();
@@ -1546,7 +1812,13 @@ fn live_ranges(ops: &[MicroOp], max_slot: usize) -> Vec<Option<(usize, usize)>> 
 /// whole loop (their range covers every body op), so their register is never
 /// reused mid-loop. The caller gates this to no-deopt / no-call regions so there
 /// is no mid-region side-exit whose flush would observe a transient binding.
-fn linscan_assign(ops: &[MicroOp], max_slot: usize, class: &[Class], gp: &[Reg], xmm: &[Xmm]) -> Vec<Loc> {
+fn linscan_assign(
+    ops: &[MicroOp],
+    max_slot: usize,
+    class: &[Class],
+    gp: &[Reg],
+    xmm: &[Xmm],
+) -> Vec<Loc> {
     let n = ops.len();
     let ranges = live_ranges(ops, max_slot);
     // Control-point prefix sum: ctrl[j] = 1 if op j transfers OR is a jump target.
@@ -1645,7 +1917,7 @@ struct SelfCall {
     propagate_label: LabelId,
 }
 
-/// PRECISE (mode-B) deopt support. Every checked op and the precise self-call's
+/// PRECISE deopt support. Every checked op and the precise self-call's
 /// guards side-exit with the op's ENCODED resume tag (`(pc << 2) | 3`) OR'd with
 /// the live call depth in the high 32 bits, mirroring `logos_stencil_deopt_at` /
 /// `logos_stencil_call_precise`. A checked op routes its bounds/divisor failure
@@ -1691,7 +1963,7 @@ struct Gen<'a> {
     /// PER-CALL-SITE XMM residents to spill/reload around the call at op `i` (all
     /// XMM are caller-saved). The live-after subset, parallel to `call_gp`.
     call_xmm: &'a [Vec<Slot>],
-    /// PRECISE (mode-B) deopt support; `None` for the classic region/function
+    /// PRECISE deopt support; `None` for the classic region/function
     /// paths (which replay from head). When `Some`, every checked op's side exit
     /// and the precise self-call's guards route through it.
     precise: Option<Precise<'a>>,
@@ -1936,13 +2208,20 @@ impl<'a> Gen<'a> {
 /// `None` (caller falls back to the stencil tier) when the region contains an
 /// unsupported op or has no terminating `Return`/`Jump`.
 ///
-/// A REGION never contains a call, so this gates on the call-free [`supported`]
+/// A REGION never contains a call, so this gates on the call-free `supported`
 /// subset and emits no self-call machinery.
+///
+/// `live_out` names the frame slots the caller reads after the chain returns
+/// (the VM's write-back registers, a region-return flag and value). Every exit
+/// flushes the resident-written slots to the frame, so a slot named here must
+/// hold its step-semantics value at every exit, and no rewrite may give it a
+/// value the program's path to that exit never assigned.
 pub fn compile_region_regalloc(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
+    live_out: &[Slot],
 ) -> Option<CompiledChain> {
-    compile_impl(ops, shared_status, false, 0, None)
+    compile_impl(ops, shared_status, false, 0, None, live_out)
 }
 
 /// Compile a PRECISE REGION — the in-place-array-mutation shape that ALSO does a
@@ -1979,12 +2258,14 @@ pub fn compile_region_regalloc(
 /// `deopt_codes` is the per-op resume table the region adapter built (parallel
 /// to `ops`): a plain `1` keeps the op on the ordinary deopt terminal; any other
 /// value is the precise tag emitted on that op's side exit. `depth_addr` is the
-/// live-depth cell whose value rides the resume tag's high 32 bits.
+/// live-depth cell whose value rides the resume tag's high 32 bits. `live_out`
+/// is as for [`compile_region_regalloc`].
 pub fn compile_region_regalloc_precise(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
     depth_addr: i64,
     deopt_codes: &[i64],
+    live_out: &[Slot],
 ) -> Option<CompiledChain> {
     if deopt_codes.len() != ops.len() {
         return None;
@@ -1994,7 +2275,7 @@ pub fn compile_region_regalloc_precise(
     if shared_status.is_none() {
         return None;
     }
-    compile_impl(ops, shared_status, false, depth_addr, Some(deopt_codes))
+    compile_impl(ops, shared_status, false, depth_addr, Some(deopt_codes), live_out)
 }
 
 /// Compile a recursive FUNCTION's micro-op stream into ONE contiguous
@@ -2013,7 +2294,7 @@ pub fn compile_region_regalloc_precise(
 ///
 /// `depth_addr` is the live-depth cell's address (the caller's `ctx.depth`),
 /// matching the function tier's wiring; the self-call increments/decrements it
-/// and side-exits (status = 5) at [`SELF_CALL_DEPTH_LIMIT`].
+/// and side-exits (status = 5) at `SELF_CALL_DEPTH_LIMIT`.
 pub fn compile_function_regalloc(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
@@ -2025,16 +2306,16 @@ pub fn compile_function_regalloc(
         .iter()
         .any(|op| matches!(op, MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }));
     if !has_self_call {
-        return compile_impl(ops, shared_status, true, depth_addr, None);
+        return compile_impl(ops, shared_status, true, depth_addr, None, &[]);
     }
     // A self-call always needs the status channel (its guards write it).
     if shared_status.is_none() {
         return None;
     }
-    compile_impl(ops, shared_status, true, depth_addr, None)
+    compile_impl(ops, shared_status, true, depth_addr, None, &[])
 }
 
-/// Compile a LIST-PARAMETER (mode-B) recursive FUNCTION — one that mutates a
+/// Compile a LIST-PARAMETER recursive FUNCTION — one that mutates a
 /// SHARED pinned array in place and may self-call — into ONE contiguous
 /// register-allocated x86-64 function with PRECISE deopt. Returns `None`
 /// (caller falls back to the per-piece stencil tier) on any unsupported op.
@@ -2056,12 +2337,12 @@ pub fn compile_function_regalloc(
 ///
 /// SOUNDNESS: the precise contract requires that on a side exit the native
 /// frame mirror the tree-walker's full register state. The backend therefore
-/// keeps every mode-B machinery slot (the plant window/resume/dst, the pin
+/// keeps every precise-path machinery slot (the plant window/resume/dst, the pin
 /// triples, the disjoint callee window) FRAME-RESIDENT, every `ListTriple`
 /// HANDLE slot frame-resident (the helper reads/writes the frame), and FLUSHES
 /// every resident-written VM register to its frame slot at every precise side
 /// exit (so `materialize` reads the correct value). All slots at or above the
-/// function's register count `rc` are mode-B machinery and stay frame-resident.
+/// function's register count `rc` are precise-path machinery and stay frame-resident.
 pub fn compile_function_regalloc_precise(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
@@ -2076,13 +2357,13 @@ pub fn compile_function_regalloc_precise(
     if shared_status.is_none() {
         return None;
     }
-    compile_impl(ops, shared_status, true, depth_addr, Some(deopt_codes))
+    compile_impl(ops, shared_status, true, depth_addr, Some(deopt_codes), &[])
 }
 
-/// The VM register count `rc` of a mode-B precise function, INFERRED from the
+/// The VM register count `rc` of a precise function, INFERRED from the
 /// op stream: the prologue's plant-window invalidation is `LoadConst { dst:
 /// rc + 2, value: -1 }` (the adapter's first micro). Every slot `>= rc` is
-/// mode-B machinery (plant slots, pin triples, the disjoint callee window) and
+/// precise-path machinery (plant slots, pin triples, the disjoint callee window) and
 /// must stay frame-resident. Returns `None` if the stream does not open with
 /// that recognizable prologue (then the precise path declines and the caller
 /// falls back).
@@ -2096,12 +2377,15 @@ fn infer_mode_b_rc(ops: &[MicroOp]) -> Option<u16> {
 /// The shared codegen core for both the region and the function backends.
 /// `is_function` selects the op-support gate ([`supported_function`] adds the
 /// self-call ops); `depth_addr` is the live-depth cell (function backend only).
+/// `live_out` is the region's caller-read frame slots; a function's frame dies
+/// with its return, so the function entries pass none.
 fn compile_impl(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
     is_function: bool,
     depth_addr: i64,
     precise: Option<&[i64]>,
+    live_out: &[Slot],
 ) -> Option<CompiledChain> {
     if ops.is_empty() {
         return None;
@@ -2141,16 +2425,26 @@ fn compile_impl(
     let gate: fn(&MicroOp) -> bool = match (is_function, precise.is_some()) {
         (true, true) => supported_function_precise,
         (true, false) => supported_function,
-        // A precise REGION uses the region op-support gate (`supported`, which
-        // already admits the reallocating `ArrPush` and `ListClear` — W13); the
-        // precise deopt codes ride the same per-op side-exit machinery as the
-        // function path.
-        _ => supported,
+        // Precise regions use the same Call/Host/list-machinery lowering as
+        // precise functions. The mode-B frame layout above remains
+        // function-only; sharing this capability gate merely prevents an
+        // already-supported precise region from silently falling back to the
+        // per-piece stencil tier.
+        (false, true) => supported_function_precise,
+        (false, false) => supported,
     };
-    if !ops.iter().all(gate) {
+    if !ops.iter().all(gate)
+        || ops.iter().any(|op| {
+            matches!(op,
+            MicroOp::Host { src, count, .. } if src.checked_add(*count).is_none())
+        })
+    {
         return None;
     }
-    if !matches!(ops.last(), Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })) {
+    if !matches!(
+        ops.last(),
+        Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })
+    ) {
         return None;
     }
 
@@ -2174,6 +2468,7 @@ fn compile_impl(
                 | MicroOp::ListClear { .. }
                 | MicroOp::ListTriple { .. }
                 | MicroOp::StrAppend { .. }
+                | MicroOp::Host { .. }
         )
     });
     let has_call = has_self_call || has_list_call || has_precise_call;
@@ -2194,9 +2489,24 @@ fn compile_impl(
             // the same realloc-coherence rule as `ArrPush` requires the triple be
             // frame-resident so the helper's writes are the single source of
             // truth and every later push/load reads the fresh pointer/length.
-            MicroOp::NewList { vec_slot, ptr_slot, len_slot, .. }
-            | MicroOp::ArrPush { vec_slot, ptr_slot, len_slot, .. }
-            | MicroOp::ListClear { vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::NewList {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            }
+            | MicroOp::ArrPush {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            }
+            | MicroOp::ListClear {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 force_frame_set.insert(vec_slot);
                 force_frame_set.insert(ptr_slot);
                 force_frame_set.insert(len_slot);
@@ -2204,7 +2514,13 @@ fn compile_impl(
             // A triple-plant's HANDLE slot is read by the helper FROM THE FRAME,
             // and its vec/ptr/len triple is WRITTEN to the frame — all four must
             // be frame-resident so the helper's view and the next access agree.
-            MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ListTriple {
+                handle_slot,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 force_frame_set.insert(handle_slot);
                 force_frame_set.insert(vec_slot);
                 force_frame_set.insert(ptr_slot);
@@ -2215,8 +2531,17 @@ fn compile_impl(
             // handle would not be seen by the SysV call). The accumulator itself
             // lives in the VM register file, off-frame — nothing else here needs
             // forcing.
-            MicroOp::StrAppend { text_handle_slot, .. } => {
+            MicroOp::StrAppend {
+                text_handle_slot, ..
+            } => {
                 force_frame_set.insert(text_handle_slot);
+            }
+            // Host helpers read their input window and write dst through the frame.
+            MicroOp::Host {
+                dst, src, count, ..
+            } => {
+                force_frame_set.insert(dst);
+                force_frame_set.extend(src..src + count);
             }
             _ => {}
         }
@@ -2321,7 +2646,11 @@ fn compile_impl(
     const CALL_WEIGHT: u64 = 4;
     // A zero call-weight zeroes the secondary key, reducing `rank_slots` to the
     // pure loop-weighted ranking — the kill-switch is exactly pre-Fix-1 behavior.
-    let call_weight = if call_weight_enabled() { CALL_WEIGHT } else { 0 };
+    let call_weight = if call_weight_enabled() {
+        CALL_WEIGHT
+    } else {
+        0
+    };
     let (order, _) = rank_slots(
         ops,
         LOOP_WEIGHT_BASE,
@@ -2391,14 +2720,21 @@ fn compile_impl(
         // The reservable caller-saved registers still in the pool, in pool order;
         // take from the END so residents keep the higher-priority (earlier)
         // registers and only the coldest int slots lose a register.
-        let mut reservable: Vec<Reg> =
-            pool.iter().copied().filter(|r| CALLER_SAVED.contains(r)).collect();
+        let mut reservable: Vec<Reg> = pool
+            .iter()
+            .copied()
+            .filter(|r| CALLER_SAVED.contains(r))
+            .collect();
         // Leave at least one register for residents when the pool can spare it;
         // reserve TWO only when ≥ 2 caller-saved remain beyond that margin (so
         // the loop's index/counter still gets a register). With a tiny pool a
         // single reservation (a pure array-copy loop with no other live int) is
         // still sound — the reserved register is the cache's alone.
-        let want = if reservable.len() >= 3 { 2 } else { usize::from(!reservable.is_empty()) };
+        let want = if reservable.len() >= 3 {
+            2
+        } else {
+            usize::from(!reservable.is_empty())
+        };
         let mut reserved = Vec::new();
         for _ in 0..want {
             if let Some(r) = reservable.pop() {
@@ -2435,8 +2771,11 @@ fn compile_impl(
         // scan's call-surviving residents — a loop-carried scalar live across the
         // push wants a callee-saved home too. With fewer than two callee-saved
         // available, no hoist is reserved (the trade would starve the loop).
-        let mut reservable_callee: Vec<Reg> =
-            pool.iter().copied().filter(|r| CALLEE_SAVED.contains(r)).collect();
+        let mut reservable_callee: Vec<Reg> = pool
+            .iter()
+            .copied()
+            .filter(|r| CALLEE_SAVED.contains(r))
+            .collect();
         let mut reserved_for_hoist: Vec<Reg> = Vec::new();
         let plans = loop_invariant_array_hoists(ops);
         for plan in plans {
@@ -2463,7 +2802,11 @@ fn compile_impl(
             } else {
                 None
             };
-            hoists.push(HoistEntry { plan, ptr_reg, len_reg });
+            hoists.push(HoistEntry {
+                plan,
+                ptr_reg,
+                len_reg,
+            });
         }
         // Remove the reserved registers from the resident pool and record them for
         // the prologue/epilogue callee-saved save (deterministic order).
@@ -2522,7 +2865,11 @@ fn compile_impl(
     // the frame spills the whole-region model leaves under XMM pressure (nbody's
     // 47 floats / 14 registers / 33 spilled — but only ~10 live at once).
     if linscan_active {
-        let gp_all: Vec<Reg> = CALLER_SAVED.iter().chain(CALLEE_SAVED.iter()).copied().collect();
+        let gp_all: Vec<Reg> = CALLER_SAVED
+            .iter()
+            .chain(CALLEE_SAVED.iter())
+            .copied()
+            .collect();
         let scan = linscan_assign(ops, max_slot, &class, &gp_all, &FLOAT_REGS);
         for s in 0..=max_slot {
             if class[s] == Class::Float {
@@ -2568,7 +2915,10 @@ fn compile_impl(
         }
         for s in 0..=max_slot {
             if let Some((a, b)) = ls_range[s] {
-                eprintln!("  slot{s:>3} [{a:>3},{b:>3}] {:?} shared={}", loc[s], ls_shared[s]);
+                eprintln!(
+                    "  slot{s:>3} [{a:>3},{b:>3}] {:?} shared={}",
+                    loc[s], ls_shared[s]
+                );
             }
         }
     }
@@ -2683,24 +3033,31 @@ fn compile_impl(
     // spill/reload of cold read-only operands (e.g. a constant or bound consulted
     // only before the call) from call-heavy loops. For a non-call op the lists
     // are empty. When `has_call` is false the liveness pass is skipped entirely.
-    let (call_gp, call_xmm): (Vec<Vec<Slot>>, Vec<Vec<Slot>>) = if let Some(live_after) =
-        live_after.as_deref()
-    {
-        let keep = |s: Slot, la: &[bool]| -> bool {
-            written.get(s as usize).copied().unwrap_or(true)
-                || la.get(s as usize).copied().unwrap_or(true)
+    let (call_gp, call_xmm): (Vec<Vec<Slot>>, Vec<Vec<Slot>>) =
+        if let Some(live_after) = live_after.as_deref() {
+            let keep = |s: Slot, la: &[bool]| -> bool {
+                written.get(s as usize).copied().unwrap_or(true)
+                    || la.get(s as usize).copied().unwrap_or(true)
+            };
+            let mut cgp: Vec<Vec<Slot>> = vec![Vec::new(); ops.len()];
+            let mut cxmm: Vec<Vec<Slot>> = vec![Vec::new(); ops.len()];
+            for idx in 0..ops.len() {
+                let la = &live_after[idx];
+                cgp[idx] = gp_volatile
+                    .iter()
+                    .copied()
+                    .filter(|&s| keep(s, la))
+                    .collect();
+                cxmm[idx] = xmm_volatile
+                    .iter()
+                    .copied()
+                    .filter(|&s| keep(s, la))
+                    .collect();
+            }
+            (cgp, cxmm)
+        } else {
+            (Vec::new(), Vec::new())
         };
-        let mut cgp: Vec<Vec<Slot>> = vec![Vec::new(); ops.len()];
-        let mut cxmm: Vec<Vec<Slot>> = vec![Vec::new(); ops.len()];
-        for idx in 0..ops.len() {
-            let la = &live_after[idx];
-            cgp[idx] = gp_volatile.iter().copied().filter(|&s| keep(s, la)).collect();
-            cxmm[idx] = xmm_volatile.iter().copied().filter(|&s| keep(s, la)).collect();
-        }
-        (cgp, cxmm)
-    } else {
-        (Vec::new(), Vec::new())
-    };
 
     // One label per op (jump targets) plus the deopt epilogue label and the
     // self-call deopt-PROPAGATION (bare flush+return, no status write) label.
@@ -2709,7 +3066,11 @@ fn compile_impl(
     // The plain (classic) deopt epilogue is still needed for any precise op whose
     // code is the plain marker `1` (a deoptable op the adapter chose not to make
     // precise) and for every classic checked op.
-    let deopt_label = if needs_status { Some(asm.new_label()) } else { None };
+    let deopt_label = if needs_status {
+        Some(asm.new_label())
+    } else {
+        None
+    };
     // A PROPAGATION epilogue (bare flush+return) is needed when ANY real SysV
     // self-call is present — the classic self-call OR the mode-B precise call —
     // because the inner exit code (already in the status cell) must not be
@@ -2723,7 +3084,11 @@ fn compile_impl(
     // the status cell, flushes every resident-written slot, and returns. This is
     // the contiguous-codegen analog of the stencil tier's `ST_DEOPT_AT` family.
     let mut code_blocks: std::collections::HashMap<i64, LabelId> = std::collections::HashMap::new();
-    let precise_epilogue = if precise.is_some() { Some(asm.new_label()) } else { None };
+    let precise_epilogue = if precise.is_some() {
+        Some(asm.new_label())
+    } else {
+        None
+    };
     if let Some(codes) = precise {
         for &c in codes {
             if c != 1 {
@@ -2765,7 +3130,8 @@ fn compile_impl(
             // earlier member sharing its one register.
             if linscan_active {
                 let shared = ls_shared.get(s as usize).copied().unwrap_or(false);
-                let entry_live = matches!(ls_range.get(s as usize).copied().flatten(), Some((0, _)));
+                let entry_live =
+                    matches!(ls_range.get(s as usize).copied().flatten(), Some((0, _)));
                 if shared && !entry_live {
                     continue;
                 }
@@ -2784,18 +3150,24 @@ fn compile_impl(
         .unwrap_or(0);
 
     // The self-call ENTRY CELL: an `Arc<AtomicI64>` whose address is baked into
-    // every call site and which is written with `chain.base()` after mapping.
-    // Needed for BOTH the classic direct self-call and the mode-B precise call
-    // (both are REAL SysV calls through this very chain's entry).
+    // every direct self-call site and which is written with `chain.base()` after
+    // mapping. A mode-B `MicroOp::Call` instead dispatches through its own
+    // per-callee function-table slot; using this self-entry cell there would
+    // recursively call the caller instead of the requested helper.
     let entry_cell: Option<std::sync::Arc<AtomicI64>> =
-        (has_self_call || has_precise_call).then(|| std::sync::Arc::new(AtomicI64::new(0)));
+        has_self_call.then(|| std::sync::Arc::new(AtomicI64::new(0)));
     let entry_addr = entry_cell
         .as_ref()
         .map(|c| c.as_ref() as *const AtomicI64 as i64)
         .unwrap_or(0);
 
-    let self_call = propagate_label.map(|pl| SelfCall { propagate_label: pl });
-    let precise_ctx = precise.map(|codes| Precise { codes, code_blocks: &code_blocks });
+    let self_call = propagate_label.map(|pl| SelfCall {
+        propagate_label: pl,
+    });
+    let precise_ctx = precise.map(|codes| Precise {
+        codes,
+        code_blocks: &code_blocks,
+    });
 
     let mut g = Gen {
         asm,
@@ -2851,7 +3223,7 @@ fn compile_impl(
     let mut const_hoist_by_op: Vec<Option<usize>> = vec![None; ops.len()];
     let mut const_hoist_at_head: Vec<Vec<usize>> = vec![Vec::new(); ops.len()];
     if const_hoist_enabled() {
-        for h in loop_invariant_const_hoists(ops) {
+        for h in loop_invariant_const_hoists(ops, live_out) {
             if matches!(loc[h.dst as usize], Loc::Reg(_)) {
                 const_hoist_by_op[h.op] = Some(h.head);
                 const_hoist_at_head[h.head].push(h.op);
@@ -2922,37 +3294,77 @@ fn compile_impl(
         let hoisted_const = const_hoist_by_op[idx].is_some();
         if !hoisted_const {
             match op {
-            MicroOp::CallSelf { dst, args_start, limit_slot, frame_size, .. } => {
-                emit_self_call(
-                    &mut g, idx, *dst, *args_start, None, *limit_slot, *frame_size, status_addr,
-                    depth_addr, entry_addr,
-                );
-            }
-            MicroOp::CallSelfCopy {
-                dst, args_start, src_start, arg_count, limit_slot, frame_size, ..
-            } => {
-                emit_self_call(
-                    &mut g, idx, *dst, *args_start, Some((*src_start, *arg_count)), *limit_slot,
-                    *frame_size, status_addr, depth_addr, entry_addr,
-                );
-            }
-            // The mode-B precise self-`Call`: the disjoint callee window is
-            // placed at `args_start == frame_size` (the adapter's invariant), so
-            // the callee's frame size — for the arena bound and the limit plant —
-            // is exactly `args_start`. The per-op code (precise) drives the
-            // guard exits.
-            MicroOp::Call { dst, args_start, limit_slot, .. } => {
-                let code = g
-                    .precise
-                    .as_ref()
-                    .map(|p| p.codes[idx])
-                    .expect("a precise Call requires precise codes");
-                emit_precise_call(
-                    &mut g, idx, *dst, *args_start, *limit_slot, *args_start as i64, status_addr,
-                    depth_addr, entry_addr, code,
-                );
-            }
-            _ => emit_op(&mut g, op, idx, &written, &used_callee)?,
+                MicroOp::CallSelf {
+                    dst,
+                    args_start,
+                    limit_slot,
+                    frame_size,
+                    ..
+                } => {
+                    emit_self_call(
+                        &mut g,
+                        idx,
+                        *dst,
+                        *args_start,
+                        None,
+                        *limit_slot,
+                        *frame_size,
+                        status_addr,
+                        depth_addr,
+                        entry_addr,
+                    );
+                }
+                MicroOp::CallSelfCopy {
+                    dst,
+                    args_start,
+                    src_start,
+                    arg_count,
+                    limit_slot,
+                    frame_size,
+                    ..
+                } => {
+                    emit_self_call(
+                        &mut g,
+                        idx,
+                        *dst,
+                        *args_start,
+                        Some((*src_start, *arg_count)),
+                        *limit_slot,
+                        *frame_size,
+                        status_addr,
+                        depth_addr,
+                        entry_addr,
+                    );
+                }
+                // A mode-B precise `Call`: arguments are staged in the disjoint
+                // window at `args_start`; the callee entry and published frame size
+                // come from this op's function-table slot. The per-op code drives
+                // precise guard exits.
+                MicroOp::Call {
+                    dst,
+                    args_start,
+                    table_addr,
+                    limit_slot,
+                    ..
+                } => {
+                    let code = g
+                        .precise
+                        .as_ref()
+                        .map(|p| p.codes[idx])
+                        .expect("a precise Call requires precise codes");
+                    emit_precise_call(
+                        &mut g,
+                        idx,
+                        *dst,
+                        *args_start,
+                        *limit_slot,
+                        status_addr,
+                        depth_addr,
+                        *table_addr,
+                        code,
+                    );
+                }
+                _ => emit_op(&mut g, op, idx, &written, &used_callee)?,
             }
         }
         // A SysV call (self-call, precise call, or a list/string-mutation helper)
@@ -3041,7 +3453,11 @@ fn compile_impl(
     // unpatched-entry guard), but we patch it here, before the chain ever runs.
     if let Some(cell) = entry_cell {
         cell.store(chain.base() as i64, std::sync::atomic::Ordering::SeqCst);
-        return Some(CompiledChain::from_chain_keepalive(chain, status, vec![cell]));
+        return Some(CompiledChain::from_chain_keepalive(
+            chain,
+            status,
+            vec![cell],
+        ));
     }
     Some(CompiledChain::from_chain(chain, status))
 }
@@ -3065,7 +3481,17 @@ fn dest_of(op: &MicroOp) -> Option<Slot> {
         | MicroOp::BitXor { dst, .. }
         | MicroOp::Shl { dst, .. }
         | MicroOp::Shr { dst, .. }
+        | MicroOp::Ushr { dst, .. }
+        | MicroOp::Rotate { dst, .. }
         | MicroOp::NotInt { dst, .. }
+        | MicroOp::Popcnt { dst, .. }
+        | MicroOp::Lzcnt { dst, .. }
+        | MicroOp::Tzcnt { dst, .. }
+        | MicroOp::Utf8Len { dst, .. }
+        | MicroOp::ChrGuard { dst, .. }
+        | MicroOp::FloorToInt { dst, .. }
+        | MicroOp::CeilToInt { dst, .. }
+        | MicroOp::RoundToInt { dst, .. }
         | MicroOp::NotBool { dst, .. }
         | MicroOp::Div { dst, .. }
         | MicroOp::Mod { dst, .. }
@@ -3089,7 +3515,8 @@ fn dest_of(op: &MicroOp) -> Option<Slot> {
         | MicroOp::CallSelf { dst, .. }
         | MicroOp::CallSelfCopy { dst, .. }
         // The mode-B precise self-call also stores its result handle into `dst`.
-        | MicroOp::Call { dst, .. } => Some(dst),
+        | MicroOp::Call { dst, .. }
+        | MicroOp::Host { dst, .. } => Some(dst),
         // `ArrStore` writes the BUFFER (through the pinned pointer), not a frame
         // slot, so it has no `dest_of` — its effect is outside the frame.
         _ => None,
@@ -3174,7 +3601,11 @@ fn emit_self_call(
     depth_addr: i64,
     entry_addr: i64,
 ) {
-    let propagate = g.self_call.as_ref().expect("self-call without SelfCall context").propagate_label;
+    let propagate = g
+        .self_call
+        .as_ref()
+        .expect("self-call without SelfCall context")
+        .propagate_label;
 
     // A small helper: on a failed guard, write `marker` to the status cell, then
     // jump to the propagation epilogue (which flushes + returns, no further
@@ -3296,16 +3727,16 @@ fn emit_marker_then_propagate(g: &mut Gen, status_addr: i64, marker: i64, propag
     g.asm.jmp(propagate);
 }
 
-/// Lower a mode-B PRECISE self-`Call` (a REAL SysV call through the program's
+/// Lower a PRECISE `Call` (a REAL SysV call through the program's
 /// entry table) — bit-identical to `logos_stencil_call_precise`:
 ///
-/// 1. entry-cell load + zero guard (precise-tag exit);
+/// 1. callee table-entry load + zero guard (precise-tag exit);
 /// 2. live-depth guard `depth >= MAX` (precise-tag exit);
 /// 3. arena-bound guard `callee_base + (regc+3)*8 > arena_end` (precise-tag exit),
 ///    where `arena_end = frame[limit_slot]`, `callee_base = BASE + args_start*8`,
-///    `regc = frame_size - 3` (the published table regcount);
+///    and `regc` is read from the callee's published table slot;
 /// 4. plant `arena_end` into the callee's own limit slot
-///    (`callee_base[regc+2] = callee_base[frame_size-1]`);
+///    (`callee_base[regc+2]`);
 /// 5. `*depth += 1`; spill caller-saved residents; `call [entry]`;
 /// 6. `*depth -= 1`; if `*status != 0` → PRECISE PROPAGATE (bare flush+return,
 ///    the inner exit code — already a precise tag — stays in the cell); else
@@ -3323,10 +3754,9 @@ fn emit_precise_call(
     dst: Slot,
     args_start: Slot,
     limit_slot: Slot,
-    frame_size: i64,
     status_addr: i64,
     depth_addr: i64,
-    entry_addr: i64,
+    table_addr: i64,
     code: i64,
 ) {
     let propagate = g
@@ -3340,12 +3770,8 @@ fn emit_precise_call(
         .map(|p| p.code_blocks[&code])
         .expect("precise call without a code block");
 
-    // The published table regcount is frame_size - 3; the callee frame spans
-    // (regc + 3) slots, exactly the stencil's `regc.wrapping_add(3)`.
-    let bound_slots = frame_size; // == (frame_size - 3) + 3.
-
-    // ---- 1. entry-cell load + zero guard ----
-    g.asm.mov_ri(S0, entry_addr);
+    // ---- 1. callee table-entry load + zero guard ----
+    g.asm.mov_ri(S0, table_addr);
     g.asm.mov_rm(S0, S0, 0);
     g.asm.test_rr(S0, S0);
     g.asm.jcc(Cond::Eq, fail);
@@ -3362,14 +3788,22 @@ fn emit_precise_call(
     g.asm.add_ri(SC, (args_start as i32) * 8);
     // S0 = arena_end = frame[limit_slot].
     g.asm.mov_rm(S0, BASE, (limit_slot as i32) * 8);
-    // S1 = callee_base + bound_slots*8.
-    g.asm.mov_rr(S1, SC);
-    g.asm.add_ri(S1, (bound_slots as i32) * 8);
+    // S1 = callee_base + (published regcount + 3) * 8.
+    g.asm.mov_ri(S1, table_addr);
+    g.asm.mov_rm(S1, S1, 8);
+    g.asm.shl_ri(S1, 3);
+    g.asm.add_rr(S1, SC);
+    g.asm.add_ri(S1, 3 * 8);
     g.asm.cmp_rr(S1, S0);
     g.asm.jcc(Cond::Gt, fail);
 
     // ---- 4. plant arena_end into the callee's own limit slot ----
-    g.asm.mov_mr(SC, ((frame_size - 1) as i32) * 8, S0); // callee_base[fs-1] = arena_end
+    // S1 = callee_base + published_regcount * 8, then +2 slots.
+    g.asm.mov_ri(S1, table_addr);
+    g.asm.mov_rm(S1, S1, 8);
+    g.asm.shl_ri(S1, 3);
+    g.asm.add_rr(S1, SC);
+    g.asm.mov_mr(S1, 2 * 8, S0);
 
     // ---- 5a. *depth += 1 ----
     g.asm.mov_ri(SC, depth_addr);
@@ -3392,7 +3826,7 @@ fn emit_precise_call(
     g.asm.mov_ri(Reg::Rcx, 0);
     g.asm.mov_ri(Reg::R8, 0);
     g.asm.mov_ri(Reg::R9, 0);
-    g.asm.mov_ri(S0, entry_addr);
+    g.asm.mov_ri(S0, table_addr);
     g.asm.mov_rm(S0, S0, 0);
     g.asm.call_r(S0); // result -> rax (S0)
 
@@ -3408,10 +3842,17 @@ fn emit_precise_call(
     g.asm.test_rr(S1, S1);
     g.asm.jcc(Cond::Ne, propagate);
 
+    // Preserve the callee result across resident reloads. `S0` is RAX, and a
+    // live caller slot may itself be allocated to RAX; reloading it first would
+    // silently replace the return value (the SHA region exposed this once
+    // precise Call support was enabled there).
+    g.asm.mov_mr(BASE, (dst as i32) * 8, S0);
+
     // ---- 6c. reload the LIVE-AFTER caller-saved residents ----
     g.reload_volatiles_at(idx);
 
     // ---- 6d. store the result handle into dst ----
+    g.asm.mov_rm(S0, BASE, (dst as i32) * 8);
     g.store(dst, S0);
 }
 
@@ -3466,6 +3907,36 @@ fn emit_op(
             g.asm.not_r(S0);
             g.store(dst, S0);
         }
+        MicroOp::Popcnt { dst, src } => {
+            g.load(S0, src);
+            g.asm.popcnt_rr(S0, S0);
+            g.store(dst, S0);
+        }
+        MicroOp::Lzcnt { dst, src } => {
+            g.load(S0, src);
+            g.asm.lzcnt_rr(S0, S0);
+            g.store(dst, S0);
+        }
+        MicroOp::Tzcnt { dst, src } => {
+            g.load(S0, src);
+            g.asm.tzcnt_rr(S0, S0);
+            g.store(dst, S0);
+        }
+        // Float→Int rounding: round the float src (in an XMM) to an integral f64, then `cvttsd2si` it to
+        // the GP dst. roundsd mode 1 = floor (−∞), 2 = ceil (+∞); the cvttsd2si truncation is exact on the
+        // already-integral result.
+        MicroOp::FloorToInt { dst, src } => {
+            let s = g.foperand(src, FS1);
+            g.asm.roundsd_rri(FS0, s, 1);
+            g.asm.cvttsd2si_rr(S0, FS0);
+            g.store(dst, S0);
+        }
+        MicroOp::CeilToInt { dst, src } => {
+            let s = g.foperand(src, FS1);
+            g.asm.roundsd_rri(FS0, s, 2);
+            g.asm.cvttsd2si_rr(S0, FS0);
+            g.store(dst, S0);
+        }
         MicroOp::NotBool { dst, src } => {
             // dst = src ^ 1
             g.load(S0, src);
@@ -3475,10 +3946,22 @@ fn emit_op(
         }
         MicroOp::Shl { dst, lhs, rhs } => emit_shift(g, dst, lhs, rhs, ShiftKind::Left),
         MicroOp::Shr { dst, lhs, rhs } => emit_shift(g, dst, lhs, rhs, ShiftKind::Right),
+        MicroOp::Ushr { dst, lhs, rhs } => emit_shift(g, dst, lhs, rhs, ShiftKind::LogicalRight),
+        MicroOp::Rotate {
+            dst,
+            lhs,
+            rhs,
+            width32,
+            left,
+        } => emit_rotate(g, dst, lhs, rhs, width32, left),
         MicroOp::DivPow2 { dst, lhs, k } => emit_div_pow2(g, dst, lhs, k),
-        MicroOp::MagicDivU { dst, lhs, magic, more, mul_back } => {
-            emit_magic_div(g, dst, lhs, magic, more, mul_back)
-        }
+        MicroOp::MagicDivU {
+            dst,
+            lhs,
+            magic,
+            more,
+            mul_back,
+        } => emit_magic_div(g, dst, lhs, magic, more, mul_back),
         MicroOp::Div { dst, lhs, rhs } => {
             let dl = g.checked_exit(idx).expect("Div without a deopt label");
             emit_div_mod(g, dst, lhs, rhs, true, dl);
@@ -3487,7 +3970,12 @@ fn emit_op(
             let dl = g.checked_exit(idx).expect("Mod without a deopt label");
             emit_div_mod(g, dst, lhs, rhs, false, dl);
         }
-        MicroOp::Branch { cmp, lhs, rhs, target } => {
+        MicroOp::Branch {
+            cmp,
+            lhs,
+            rhs,
+            target,
+        } => {
             // Transfer to `target` when cmp(lhs, rhs) is FALSE; fall through
             // when TRUE. So jump on the NEGATED condition.
             let a = g.operand(lhs, S0);
@@ -3511,52 +3999,168 @@ fn emit_op(
             g.asm.test_rr(r, r);
             g.asm.jcc(Cond::Ne, g.op_labels[target]); // ZF clear => value != 0
         }
-        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: true, checked } => {
+        MicroOp::ArrLoad {
+            dst,
+            idx: idx_slot,
+            ptr_slot,
+            len_slot,
+            byte: false,
+            narrow32: true,
+            checked,
+        } => {
             let dl = g.checked_exit(idx);
             emit_arr_load_i32(g, dst, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: true, checked } => {
+        MicroOp::ArrStore {
+            src,
+            idx: idx_slot,
+            ptr_slot,
+            len_slot,
+            byte: false,
+            narrow32: true,
+            checked,
+        } => {
             let dl = g.checked_exit(idx);
             emit_arr_store_i32(g, src, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: false, checked } => {
+        MicroOp::ArrLoad {
+            dst,
+            idx: idx_slot,
+            ptr_slot,
+            len_slot,
+            byte: false,
+            narrow32: false,
+            checked,
+        } => {
             // The exit label is only consulted for a CHECKED access; an unchecked
             // load needs none (and a region with no checked op has no label).
             let dl = g.checked_exit(idx);
             emit_arr_load(g, dst, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: false, checked } => {
+        MicroOp::ArrStore {
+            src,
+            idx: idx_slot,
+            ptr_slot,
+            len_slot,
+            byte: false,
+            narrow32: false,
+            checked,
+        } => {
             let dl = g.checked_exit(idx);
             emit_arr_store(g, src, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: true, narrow32: _, checked } => {
+        MicroOp::ArrLoad {
+            dst,
+            idx: idx_slot,
+            ptr_slot,
+            len_slot,
+            byte: true,
+            narrow32: _,
+            checked,
+        } => {
             let dl = g.checked_exit(idx);
             emit_arr_load_byte(g, dst, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: true, narrow32: _, checked } => {
+        MicroOp::ArrStore {
+            src,
+            idx: idx_slot,
+            ptr_slot,
+            len_slot,
+            byte: true,
+            narrow32: _,
+            checked,
+        } => {
             let dl = g.checked_exit(idx);
             emit_arr_store_byte(g, src, idx_slot, ptr_slot, len_slot, checked, dl);
         }
         // ---- LIST MUTATION (wave 13) — helper calls into the JIT runtime. ----
-        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte, narrow32 } => {
-            emit_list_push(g, idx, src, vec_slot, ptr_slot, len_slot, helper_addr, byte, narrow32);
+        MicroOp::ArrPush {
+            src,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+            byte,
+            narrow32,
+        } => {
+            emit_list_push(
+                g,
+                idx,
+                src,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                helper_addr,
+                byte,
+                narrow32,
+            );
         }
-        MicroOp::ListClear { vec_slot, ptr_slot, len_slot, helper_addr } => {
+        MicroOp::ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+        } => {
             emit_list_clear(g, idx, vec_slot, ptr_slot, len_slot, helper_addr);
         }
-        MicroOp::StrAppend { text_handle_slot, src, helper_addr } => {
+        MicroOp::StrAppend {
+            text_handle_slot,
+            src,
+            helper_addr,
+        } => {
             emit_str_append(g, idx, text_handle_slot, src, helper_addr);
+        }
+        MicroOp::Host {
+            dst,
+            src,
+            count,
+            imm,
+            helper_addr,
+        } => {
+            g.spill_volatiles_at(idx);
+            g.asm.mov_rr(Reg::Rdi, BASE);
+            g.asm.mov_ri(Reg::Rsi, dst as i64);
+            g.asm.mov_ri(Reg::Rdx, src as i64);
+            g.asm.mov_ri(Reg::Rcx, count as i64);
+            g.asm.mov_ri(Reg::R8, imm);
+            g.asm.mov_ri(S0, helper_addr);
+            g.asm.call_r(S0);
+            // Reload before the precise exit materializes resident values.
+            // These MOVs preserve the helper-result test's condition flags.
+            g.asm.test_rr(Reg::Rax, Reg::Rax);
+            g.reload_volatiles_at(idx);
+            let exit = g.checked_exit(idx).expect("Host without a deopt label");
+            g.asm.jcc(Cond::Eq, exit);
         }
         // ---- MODE-B list machinery (precise path). The fresh-list-RETURN
         // recursion shape (mergesort): `NewList` allocates a registry-owned fresh
         // buffer and plants its pin triple, `ArrPush` (above) appends with a
         // realloc refresh, and `ListTriple` refreshes a triple from a live handle
         // (a self-call's returned list). ----
-        MicroOp::NewList { vec_slot, ptr_slot, len_slot, helper_addr } => {
+        MicroOp::NewList {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+        } => {
             emit_new_list(g, idx, vec_slot, ptr_slot, len_slot, helper_addr);
         }
-        MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, helper_addr } => {
-            emit_list_triple(g, idx, handle_slot, vec_slot, ptr_slot, len_slot, helper_addr);
+        MicroOp::ListTriple {
+            handle_slot,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+        } => {
+            emit_list_triple(
+                g,
+                idx,
+                handle_slot,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                helper_addr,
+            );
         }
         // ---- FLOAT (f64 / XMM) ops. IEEE; no FMA; no reassociation. ----
         MicroOp::AddF { dst, lhs, rhs } => emit_fbinop(g, dst, lhs, rhs, FBinop::Add),
@@ -3593,7 +4197,12 @@ fn emit_op(
         MicroOp::GtEqF { dst, lhs, rhs } => emit_fcompare(g, dst, lhs, rhs, FCmp::Ge),
         MicroOp::EqF { dst, lhs, rhs } => emit_feq(g, dst, lhs, rhs, false),
         MicroOp::NeqF { dst, lhs, rhs } => emit_feq(g, dst, lhs, rhs, true),
-        MicroOp::BranchF { cmp, lhs, rhs, target } => {
+        MicroOp::BranchF {
+            cmp,
+            lhs,
+            rhs,
+            target,
+        } => {
             emit_branchf(g, cmp, lhs, rhs, g.op_labels[target]);
         }
         MicroOp::Return { src } => {
@@ -3613,7 +4222,15 @@ fn emit_op(
 /// 8-byte int/float elements (`byte == false`) and 1 for 1-byte `Seq of Bool`
 /// elements (`byte == true`). After this returns the address is in `S0` and the
 /// length/pointer scratch (`S1`) is dead.
-fn emit_arr_addr(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, byte: bool, dl: Option<LabelId>) {
+fn emit_arr_addr(
+    g: &mut Gen,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    byte: bool,
+    dl: Option<LabelId>,
+) {
     // SCALED-INDEX CSE FAST PATH. When the reserved register already holds the
     // 0-based index `im1 = frame[idx] - 1` for THIS index slot at THIS element
     // stride (a hit established by an earlier access in this straight-line run),
@@ -3628,7 +4245,9 @@ fn emit_arr_addr(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked
                 let dl = dl.expect("checked array op without a deopt label");
                 // The invariant length: a hoisted len register (loop pre-header
                 // load) when active, else the per-access frame reload.
-                let len = g.hoisted_len(ptr_slot).unwrap_or_else(|| g.operand(len_slot, S1));
+                let len = g
+                    .hoisted_len(ptr_slot)
+                    .unwrap_or_else(|| g.operand(len_slot, S1));
                 g.asm.cmp_rr(im1_reg, len); // im1 - len
                 g.asm.jcc(Cond::AeU, dl); // (im1 as u64) >= (len as u64) → OOB
             }
@@ -3645,7 +4264,9 @@ fn emit_arr_addr(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked
             }
             // The invariant base pointer: the hoisted ptr register when active,
             // else the per-access frame reload.
-            let ptr = g.hoisted_ptr(ptr_slot).unwrap_or_else(|| g.operand(ptr_slot, S1));
+            let ptr = g
+                .hoisted_ptr(ptr_slot)
+                .unwrap_or_else(|| g.operand(ptr_slot, S1));
             g.asm.add_rr(S0, ptr); // S0 = ptr + im1*stride
             return;
         }
@@ -3664,22 +4285,26 @@ fn emit_arr_addr(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked
     }
     if checked {
         let dl = dl.expect("checked array op without a deopt label");
-        let len = g.hoisted_len(ptr_slot).unwrap_or_else(|| g.operand(len_slot, S1));
+        let len = g
+            .hoisted_len(ptr_slot)
+            .unwrap_or_else(|| g.operand(len_slot, S1));
         g.asm.cmp_rr(S0, len); // im1 - len
         g.asm.jcc(Cond::AeU, dl); // (im1 as u64) >= (len as u64) → OOB
     }
     // addr = ptr + im1 * stride. Byte (Bool) elements are 1-byte: no scaling.
     if !byte {
         g.asm.shl_ri(S0, 3); // im1 * 8 (8-byte i64/f64 elements)
-        // Cache the scaled offset too (second register), so a reused 8-byte
-        // access skips the shift as well.
+                             // Cache the scaled offset too (second register), so a reused 8-byte
+                             // access skips the shift as well.
         if g.off_im1_reg.is_some() {
             if let Some(scaled_reg) = g.off_scaled_reg {
                 g.asm.mov_rr(scaled_reg, S0);
             }
         }
     }
-    let ptr = g.hoisted_ptr(ptr_slot).unwrap_or_else(|| g.operand(ptr_slot, S1));
+    let ptr = g
+        .hoisted_ptr(ptr_slot)
+        .unwrap_or_else(|| g.operand(ptr_slot, S1));
     g.asm.add_rr(S0, ptr); // S0 = ptr + im1*stride
 }
 
@@ -3687,7 +4312,15 @@ fn emit_arr_addr(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked
 /// goes through scratch `S1` so a resident `dst` is written with a register move.
 /// A CHECKED out-of-bounds index jumps to `dl` (the classic deopt epilogue or, in
 /// the precise path, this op's tag-staging block).
-fn emit_arr_load(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_load(
+    g: &mut Gen,
+    dst: Slot,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     emit_arr_addr(g, idx, ptr_slot, len_slot, checked, false, dl);
     g.asm.mov_rm(S1, S0, 0); // S1 = *addr
     g.store(dst, S1);
@@ -3699,7 +4332,15 @@ fn emit_arr_load(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slot: Sl
 /// NON-NEGATIVE i64. The loaded value goes through scratch `S1` so a resident
 /// `dst` is written with a register move; OOB side-exit is identical to the
 /// 8-byte path (same `im1`/length unsigned guard).
-fn emit_arr_load_byte(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_load_byte(
+    g: &mut Gen,
+    dst: Slot,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     emit_arr_addr(g, idx, ptr_slot, len_slot, checked, true, dl);
     g.asm.movzx_rm8(S1, S0, 0); // S1 = *(u8*)addr (zero-extended)
     g.store(dst, S1);
@@ -3710,7 +4351,15 @@ fn emit_arr_load_byte(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slo
 /// register via `movq` first — the buffer holds the same 8 bytes either way. A
 /// CHECKED store side-exits BEFORE the write (to `dl`), so an out-of-bounds store
 /// leaves the buffer untouched (the reference and stencil contract).
-fn emit_arr_store(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_store(
+    g: &mut Gen,
+    src: Slot,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     emit_arr_addr(g, idx, ptr_slot, len_slot, checked, false, dl);
     // The address is in S0 and the pointer scratch S1 is dead. Materialize the
     // source bits into a GP reg that cannot collide with the address: SC (rcx)
@@ -3736,7 +4385,15 @@ fn emit_arr_store(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_slot: S
 /// addressable. Only that low byte is then stored. An XMM-resident source is
 /// bit-copied to `SC` (rcx) first so its full 64 bits feed the zero test (a
 /// nonzero f64 bit pattern — incl. `-0.0` and NaN — stores 1, matching `!= 0`).
-fn emit_arr_store_byte(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_store_byte(
+    g: &mut Gen,
+    src: Slot,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     emit_arr_addr(g, idx, ptr_slot, len_slot, checked, true, dl);
     // Materialize the source value into a GP reg distinct from the address (S0).
     // SC (rcx) for a GP/frame source; for an XMM source, bit-copy to SC.
@@ -3758,17 +4415,28 @@ fn emit_arr_store_byte(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_sl
 /// per-access lowering (no scaled-index CSE — the half-width lane is rare and
 /// the index reuse is the dominant cost, already covered by the loop's other
 /// accesses); after this the address is in `S0` and the scratch `S1` is dead.
-fn emit_arr_addr_i32(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_addr_i32(
+    g: &mut Gen,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     g.load(S0, idx);
     g.asm.sub_ri(S0, 1); // im1 = idx - 1
     if checked {
         let dl = dl.expect("checked array op without a deopt label");
-        let len = g.hoisted_len(ptr_slot).unwrap_or_else(|| g.operand(len_slot, S1));
+        let len = g
+            .hoisted_len(ptr_slot)
+            .unwrap_or_else(|| g.operand(len_slot, S1));
         g.asm.cmp_rr(S0, len); // im1 - len
         g.asm.jcc(Cond::AeU, dl); // (im1 as u64) >= (len as u64) → OOB
     }
     g.asm.shl_ri(S0, 2); // im1 * 4 (4-byte i32 elements)
-    let ptr = g.hoisted_ptr(ptr_slot).unwrap_or_else(|| g.operand(ptr_slot, S1));
+    let ptr = g
+        .hoisted_ptr(ptr_slot)
+        .unwrap_or_else(|| g.operand(ptr_slot, S1));
     g.asm.add_rr(S0, ptr); // S0 = ptr + im1*4
 }
 
@@ -3778,7 +4446,15 @@ fn emit_arr_addr_i32(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, che
 /// resident `dst` is written with a register move; OOB side-exit identical to
 /// the 8-byte path. A half-width access drops the scaled-index CSE cache (its
 /// stride differs from any cached 8-byte run).
-fn emit_arr_load_i32(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_load_i32(
+    g: &mut Gen,
+    dst: Slot,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     g.invalidate_off_cache();
     emit_arr_addr_i32(g, idx, ptr_slot, len_slot, checked, dl);
     g.asm.movsxd_rm(S1, S0, 0); // S1 = *(i32*)addr (sign-extended)
@@ -3789,7 +4465,15 @@ fn emit_arr_load_i32(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slot
 /// elements — bit-identical to `logos_stencil_arrst_i32`: a truncating 4-byte
 /// store (lossless under the narrowing proof). A CHECKED store side-exits
 /// BEFORE the write. An XMM-resident source is bit-copied to a GP reg first.
-fn emit_arr_store_i32(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+fn emit_arr_store_i32(
+    g: &mut Gen,
+    src: Slot,
+    idx: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    checked: bool,
+    dl: Option<LabelId>,
+) {
     g.invalidate_off_cache();
     emit_arr_addr_i32(g, idx, ptr_slot, len_slot, checked, dl);
     let v = match g.loc[src as usize] {
@@ -3958,7 +4642,14 @@ fn emit_list_push(
 /// `ListClear`), so a `ListClear` reaching here is provably unaliased. Same
 /// frame-resident-triple + caller-saved spill discipline as the push, minus the
 /// value argument.
-fn emit_list_clear(g: &mut Gen, idx: usize, vec_slot: Slot, ptr_slot: Slot, len_slot: Slot, helper_addr: i64) {
+fn emit_list_clear(
+    g: &mut Gen,
+    idx: usize,
+    vec_slot: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    helper_addr: i64,
+) {
     g.spill_volatiles_at(idx);
     g.asm.mov_rr(Reg::Rdi, BASE);
     g.asm.mov_ri(Reg::Rsi, vec_slot as i64);
@@ -3969,7 +4660,7 @@ fn emit_list_clear(g: &mut Gen, idx: usize, vec_slot: Slot, ptr_slot: Slot, len_
     g.reload_volatiles_at(idx);
 }
 
-/// Lower a fresh-list ALLOCATION (`NewList`, mode B) as a SysV call to
+/// Lower a fresh-list ALLOCATION (`NewList`, precise path) as a SysV call to
 /// `logos_rt_alloc_list_i64(frame, vec_slot, ptr_slot, len_slot)`: the helper
 /// `Box`-allocates a fresh empty `Vec`, REGISTERS it in the thread-local
 /// allocation registry (so a deopt drains it and a `Return` detaches it), and
@@ -3979,7 +4670,14 @@ fn emit_list_clear(g: &mut Gen, idx: usize, vec_slot: Slot, ptr_slot: Slot, len_
 /// of truth and every later push/load reads the fresh pointer/length); the call
 /// takes no value argument. Same caller-saved spill discipline as the push/clear
 /// helpers — bit-identical to the per-piece tier's `ST_ALLOCLIST` stencil.
-fn emit_new_list(g: &mut Gen, idx: usize, vec_slot: Slot, ptr_slot: Slot, len_slot: Slot, helper_addr: i64) {
+fn emit_new_list(
+    g: &mut Gen,
+    idx: usize,
+    vec_slot: Slot,
+    ptr_slot: Slot,
+    len_slot: Slot,
+    helper_addr: i64,
+) {
     g.spill_volatiles_at(idx);
     g.asm.mov_rr(Reg::Rdi, BASE);
     g.asm.mov_ri(Reg::Rsi, vec_slot as i64);
@@ -3990,7 +4688,7 @@ fn emit_new_list(g: &mut Gen, idx: usize, vec_slot: Slot, ptr_slot: Slot, len_sl
     g.reload_volatiles_at(idx);
 }
 
-/// Lower a triple-plant (`ListTriple`, mode B) as a SysV call to
+/// Lower a triple-plant (`ListTriple`, precise path) as a SysV call to
 /// `logos_rt_list_triple(frame, handle_slot, vec_slot, ptr_slot, len_slot)`: read
 /// `frame[handle_slot]` (a live `*mut Vec`) and refresh the pin triple. The
 /// handle and triple slots are all forced FRAME-resident (so the helper's frame
@@ -4042,6 +4740,10 @@ fn emit_str_append(
         crate::jit::StrSrc::Byte(s) => {
             g.load(Reg::Rdx, s);
             g.asm.mov_ri(Reg::Rcx, -1);
+        }
+        crate::jit::StrSrc::Int(s) => {
+            g.load(Reg::Rdx, s);
+            g.asm.mov_ri(Reg::Rcx, -2);
         }
         crate::jit::StrSrc::Const { ptr, len } => {
             g.asm.mov_ri(Reg::Rdx, ptr);
@@ -4181,9 +4883,9 @@ fn emit_fdiv(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, dl: LabelId) {
     g.asm.mov_ri(S0, 0);
     g.asm.movq_xr(FS0, S0);
     g.asm.ucomisd_rr(b, FS0); // compare rhs, 0.0
-    // An ORDERED equality (rhs == 0.0, incl -0.0) sets ZF=1, PF=0. A NaN divisor
-    // is unordered: ZF=1, PF=1 — must NOT deopt (NaN/x is a valid IEEE result).
-    // So skip the deopt when PF=1 (unordered), then `je` on the ordered equal.
+                              // An ORDERED equality (rhs == 0.0, incl -0.0) sets ZF=1, PF=0. A NaN divisor
+                              // is unordered: ZF=1, PF=1 — must NOT deopt (NaN/x is a valid IEEE result).
+                              // So skip the deopt when PF=1 (unordered), then `je` on the ordered equal.
     let not_zero = g.asm.new_label();
     g.asm.jcc(Cond::ParityEven, not_zero); // unordered (NaN) -> not a zero divisor
     g.asm.jcc(Cond::Eq, dl); // ordered equal to 0.0 -> side-exit
@@ -4297,6 +4999,8 @@ fn emit_branchf(g: &mut Gen, cmp: Cmp, lhs: Slot, rhs: Slot, target: LabelId) {
 enum ShiftKind {
     Left,
     Right,
+    /// LOGICAL (unsigned) shift right — zero-fill, for `Ushr` (Word64 `word64Shr`/rotate substrate).
+    LogicalRight,
 }
 
 /// `dst = lhs <</>> rhs` with the kernel's shift spec: the count is the low
@@ -4309,6 +5013,22 @@ fn emit_shift(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, kind: ShiftKind) {
     match kind {
         ShiftKind::Left => g.asm.shl_cl(S0),
         ShiftKind::Right => g.asm.sar_cl(S0),
+        ShiftKind::LogicalRight => g.asm.shr_cl(S0),
+    }
+    g.store(dst, S0);
+}
+
+/// `dst = rotate(lhs, rhs)` in one x86 instruction. The count is read through
+/// CL; x86 masks it to 5 or 6 bits according to operand width, exactly matching
+/// Word32/Word64 LOGOS semantics. A 32-bit register write also zero-extends the
+/// Word32 result, so no trailing mask is needed.
+fn emit_rotate(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, width32: bool, left: bool) {
+    g.load(S0, lhs);
+    g.load(SC, rhs);
+    if left {
+        g.asm.rol_cl(S0, width32);
+    } else {
+        g.asm.ror_cl(S0, width32);
     }
     g.store(dst, S0);
 }
@@ -4318,7 +5038,7 @@ fn emit_shift(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, kind: ShiftKind) {
 /// `(x + ((x >> 63) & ((1<<k)-1))) >> k`.
 fn emit_div_pow2(g: &mut Gen, dst: Slot, lhs: Slot, k: u32) {
     g.load(S0, lhs); // x
-    // S1 = x >> 63 (sign mask, arithmetic).
+                     // S1 = x >> 63 (sign mask, arithmetic).
     g.asm.mov_rr(S1, S0);
     g.asm.mov_ri(SC, 63);
     g.asm.sar_cl(S1);
@@ -4414,7 +5134,7 @@ fn emit_div_mod(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, is_div: bool, dl: 
     // Load divisor into S1 (rdx is overwritten by cqo, so keep divisor in a
     // register that survives; use SC=rcx for the divisor instead).
     g.load(SC, rhs); // divisor in rcx
-    // Zero check: side-exit if rcx == 0.
+                     // Zero check: side-exit if rcx == 0.
     g.asm.test_rr(SC, SC);
     g.asm.jcc(Cond::Eq, dl);
     // Overflow guard: if divisor == -1, avoid #DE. quotient = -lhs, rem = 0.
@@ -4452,1095 +5172,5 @@ fn emit_div_mod(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, is_div: bool, dl: 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::jit::{reference_eval, ChainOutcome};
-    use std::sync::atomic::Ordering;
-    use std::sync::Arc;
-
-    fn run(ops: &[MicroOp], frame: &[i64]) -> (ChainOutcome, Vec<i64>) {
-        let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(ops, Some(status)).expect("supported region compiles");
-        let mut f = frame.to_vec();
-        let out = chain.run_with_frame(&mut f);
-        (out, f)
-    }
-
-    #[test]
-    fn live_intervals_span_first_to_last_touch() {
-        // LoadConst s0; Move s1<-s0; Return s1.
-        let ops = vec![
-            MicroOp::LoadConst { dst: 0, value: 7 },
-            MicroOp::Move { dst: 1, src: 0 },
-            MicroOp::Return { src: 1 },
-        ];
-        let iv = live_intervals(&ops, 1);
-        assert_eq!(iv, vec![
-            LiveInterval { slot: 0, start: 0, end: 1 }, // defined @0, last read @1
-            LiveInterval { slot: 1, start: 1, end: 2 }, // defined @1, returned @2
-        ]);
-    }
-
-    #[test]
-    fn linscan_reuses_a_register_across_disjoint_ranges() {
-        // Five float temporaries with strictly DISJOINT ranges. The whole-region
-        // per-slot model would give each its own home (spilling 4 of 5 with a
-        // single register); linear scan reuses the one register for all → 0 spill.
-        let class = vec![Class::Float; 5];
-        let iv: Vec<LiveInterval> = (0..5)
-            .map(|s| LiveInterval { slot: s, start: (s as usize) * 2, end: (s as usize) * 2 + 1 })
-            .collect();
-        assert_eq!(linscan_spills(&iv, &class, Class::Float, 1), 0, "disjoint ranges share 1 reg");
-        assert_eq!(linscan_spills(&iv, &class, Class::Float, 0), 5, "0 regs spills all");
-    }
-
-    #[test]
-    fn linscan_spills_only_the_overlap_excess() {
-        // Three fully-overlapping float intervals need 3 registers; with 2 exactly
-        // one spills, with 3 none. This is the pressure the per-slot model can't
-        // see — it would spill by rank, not by overlap.
-        let class = vec![Class::Float; 3];
-        let iv: Vec<LiveInterval> = (0..3).map(|s| LiveInterval { slot: s, start: 0, end: 9 }).collect();
-        assert_eq!(linscan_spills(&iv, &class, Class::Float, 3), 0);
-        assert_eq!(linscan_spills(&iv, &class, Class::Float, 2), 1);
-        assert_eq!(linscan_spills(&iv, &class, Class::Float, 1), 2);
-    }
-
-    /// A float accumulation loop: `acc` is loop-carried; `x` and `y` are disjoint
-    /// within-iteration float temps. Returns (ops, max_slot). slots: 0=i 1=N
-    /// 2=acc(f) 3=x(f) 4=y(f) 5=one.
-    fn float_loop_two_temps() -> (Vec<MicroOp>, usize) {
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 8 }, // loop guard (ctrl + target@8)
-            MicroOp::IntToFloat { dst: 3, src: 0 },                      // x = (f)i
-            MicroOp::AddF { dst: 2, lhs: 2, rhs: 3 },                    // acc += x   (x dead after)
-            MicroOp::IntToFloat { dst: 4, src: 0 },                      // y = (f)i
-            MicroOp::AddF { dst: 2, lhs: 2, rhs: 4 },                    // acc += y   (y dead after)
-            MicroOp::LoadConst { dst: 5, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 5 }, // i += 1
-            MicroOp::Jump { target: 0 },             // back-edge (ctrl + target@0)
-            MicroOp::Return { src: 2 },
-        ];
-        (ops, 5)
-    }
-
-    #[test]
-    fn live_ranges_are_loop_aware() {
-        let (ops, max_slot) = float_loop_two_temps();
-        let r = live_ranges(&ops, max_slot);
-        // acc (loop-carried) spans the whole loop, returned at op 8.
-        assert_eq!(r[2], Some((0, 8)), "carried acc must span the loop");
-        // x / y are within-iteration temps with disjoint ranges.
-        assert_eq!(r[3], Some((1, 2)));
-        assert_eq!(r[4], Some((3, 4)));
-    }
-
-    #[test]
-    fn linscan_prefers_fresh_then_reuses_under_pressure() {
-        let (ops, max_slot) = float_loop_two_temps();
-        let class = classify_slots(&ops, max_slot);
-        let ranges = live_ranges(&ops, max_slot);
-        // AMPLE XMM pool: disjoint temps x and y each get their OWN register — no
-        // reuse, hence no spill-at-end overhead when the region already fits.
-        let ample = linscan_assign(&ops, max_slot, &class, &CALLER_SAVED, &FLOAT_REGS);
-        assert_ne!(ample[3], Loc::Frame, "temp must get a register");
-        assert_ne!(ample[3], ample[4], "with registers to spare, disjoint temps do NOT share");
-        // PRESSURE: only acc + one scratch XMM. acc (loop-carried) overlaps both
-        // temps and keeps its register; x and y must then SHARE the single scratch.
-        let tight = linscan_assign(&ops, max_slot, &class, &CALLER_SAVED, &[Xmm::Xmm0, Xmm::Xmm1]);
-        assert_eq!(tight[3], tight[4], "under pressure, disjoint gap-clear temps reuse one register");
-        assert_ne!(tight[2], tight[3], "carried acc cannot share a live temp's register");
-        // INVARIANT (both regimes): no two slots with OVERLAPPING ranges share a register.
-        for assign in [&ample, &tight] {
-            for a in 0..=max_slot {
-                for b in (a + 1)..=max_slot {
-                    if let (Some((sa, ea)), Some((sb, eb))) = (ranges[a], ranges[b]) {
-                        let overlap = sa <= eb && sb <= ea;
-                        if overlap && assign[a] != Loc::Frame {
-                            assert_ne!(assign[a], assign[b], "overlapping slots {a},{b} share a register");
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn linscan_no_reuse_across_a_control_point() {
-        // Two disjoint int temps separated by a jump TARGET: reuse would cross a
-        // control join, so they must NOT share a register.
-        // 0:LoadConst t0  1:Add a=t0+t0 (t0 dead@1)  2:Jump 4  3:(unreached)  4:(target) LoadConst t1  5:Add b=t1+t1  6:Return b
-        let ops = vec![
-            MicroOp::LoadConst { dst: 0, value: 1 }, // t0 @0
-            MicroOp::Add { dst: 1, lhs: 0, rhs: 0 }, // a=t0+t0 ; t0 dead after @1
-            MicroOp::Jump { target: 4 },             // ctrl; target 4 is a jump target
-            MicroOp::LoadConst { dst: 9, value: 0 }, // filler (unreached) keeps idx 3 occupied
-            MicroOp::LoadConst { dst: 2, value: 2 }, // t1 @4 (a jump target — control join)
-            MicroOp::Add { dst: 3, lhs: 2, rhs: 2 }, // b=t1+t1
-            MicroOp::Return { src: 3 },
-        ];
-        let max_slot = 9;
-        let class = classify_slots(&ops, max_slot);
-        let assign = linscan_assign(&ops, max_slot, &class, &CALLER_SAVED, &FLOAT_REGS);
-        // t0 (range ~[0,1]) freed before t1 (range ~[4,5]) but op 4 is a jump
-        // target in the gap → t1 must take a FRESH register, not t0's.
-        assert_ne!(assign[0], assign[2], "reuse must not cross a control point");
-    }
-
-    #[test]
-    fn straightline_arith_matches_reference() {
-        let ops = vec![
-            MicroOp::Add { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::Mul { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::Sub { dst: 5, lhs: 4, rhs: 0 },
-            MicroOp::Return { src: 5 },
-        ];
-        let frame = vec![7i64, 11, 13, 0, 0, 0];
-        let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
-        let (out, _) = run(&ops, &frame);
-        assert_eq!(out, ChainOutcome::Return(expected));
-    }
-
-    #[test]
-    fn counting_loop_matches_reference() {
-        // sum 0..N via a branch-back loop.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 2, target: 5 }, // while i<N
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 0 },                     // acc += i
-            MicroOp::LoadConst { dst: 3, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 }, // i += 1
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 1 },
-        ];
-        let frame = vec![0i64, 0, 1000, 0];
-        let expected = reference_eval(&ops, &mut frame.clone(), 10_000_000).unwrap();
-        let (out, _) = run(&ops, &frame);
-        assert_eq!(out, ChainOutcome::Return(expected));
-        assert_eq!(out, ChainOutcome::Return(499_500));
-    }
-
-    #[test]
-    fn div_by_zero_side_exits() {
-        let status = Arc::new(AtomicI64::new(0));
-        let ops = vec![
-            MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
-            MicroOp::Return { src: 2 },
-        ];
-        let chain = compile_region_regalloc(&ops, Some(status)).unwrap();
-        let mut frame = vec![100i64, 0, 0];
-        let out = chain.run_with_frame(&mut frame);
-        assert!(out.is_deopt(), "div by zero must side-exit, got {out:?}");
-    }
-
-    #[test]
-    fn div_min_neg_one_side_exits() {
-        // Exact arithmetic: the overflowing quotient i64::MIN / -1 side-exits
-        // in BOTH the reference and the machine code (deopt → promotion),
-        // never wraps — and it must not trap the process.
-        let ops = vec![
-            MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
-            MicroOp::Return { src: 2 },
-        ];
-        let frame = vec![i64::MIN, -1, 0];
-        assert!(
-            reference_eval(&ops, &mut frame.clone(), 1000).is_none(),
-            "reference must side-exit MIN / -1"
-        );
-        let (out, _) = run(&ops, &frame);
-        assert!(out.is_deopt(), "machine code must side-exit MIN / -1, got {out:?}");
-    }
-
-    #[test]
-    fn mod_min_neg_one_zero() {
-        let ops = vec![
-            MicroOp::Mod { dst: 2, lhs: 0, rhs: 1 },
-            MicroOp::Return { src: 2 },
-        ];
-        let frame = vec![i64::MIN, -1, 0];
-        let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
-        let (out, _) = run(&ops, &frame);
-        assert_eq!(out, ChainOutcome::Return(expected)); // MIN % -1 == 0
-        assert_eq!(out, ChainOutcome::Return(0));
-    }
-
-    #[test]
-    fn unsupported_op_returns_none() {
-        // A `MapGet` (hash-map probe via a runtime helper) is outside the
-        // supported subset, so the region declines and the caller falls back to
-        // the per-piece stencil tier. (Byte / `Seq of Bool` array loads/stores
-        // ARE now supported — see `byte_array_*` — so they no longer decline.)
-        let ops = vec![
-            MicroOp::MapGet { dst: 1, key: 0, map_slot: 2, helper_addr: 0 },
-            MicroOp::Return { src: 1 },
-        ];
-        assert!(compile_region_regalloc(&ops, None).is_none());
-    }
-
-    // =================================================================
-    // WAVE 25: the INLINED `ArrPush` fast path. Each push lowers to an
-    // INLINE `len < cap ? buffer[len++] = v` test that calls the runtime
-    // helper ONLY on the (cold) realloc boundary. These forge-level tests
-    // drive a REAL `Vec` through the compiled region with an instrumented
-    // helper, proving (1) bit-identical contents to `Vec::push` across the
-    // fast path AND the realloc cold path, and (2) that the per-iteration
-    // call vanished on the fast path (the helper's call counter).
-    // =================================================================
-
-    /// Call counter for the instrumented test push helper: a fast-path push
-    /// (`len < cap`) must NOT touch the helper, so this counts only the realloc
-    /// cold-path entries.
-    static TEST_PUSH_CALLS: AtomicI64 = AtomicI64::new(0);
-
-    /// A drop-in stand-in for `logos_rt_push_i64` with the SAME SysV ABI and the
-    /// SAME `Vec::push` + ptr/len-refresh semantics, plus a call counter. The
-    /// inline fast path must reproduce its effect EXACTLY when `len < cap`.
-    ///
-    /// # Safety
-    /// `frame` slots must hold a live `*mut Vec<i64>` (vec_slot) and the mirrored
-    /// ptr/len cells, exactly as the region pin convention requires.
-    unsafe extern "C" fn test_push_i64(
-        frame: *mut i64,
-        vec_slot: i64,
-        ptr_slot: i64,
-        len_slot: i64,
-        value: i64,
-    ) {
-        TEST_PUSH_CALLS.fetch_add(1, Ordering::Relaxed);
-        let vec = *frame.add(vec_slot as usize) as *mut Vec<i64>;
-        (*vec).push(value);
-        *frame.add(ptr_slot as usize) = (*vec).as_mut_ptr() as i64;
-        *frame.add(len_slot as usize) = (*vec).len() as i64;
-    }
-
-    /// Build a region that pushes `i` for `i` in `[0, n)` into a pinned Int list,
-    /// then returns the final length. Frame layout:
-    ///   0 = i (induction), 1 = n (bound), 2 = const 1,
-    ///   8 = vec handle, 9 = buffer ptr, 10 = length.
-    fn push_loop_ops(helper_addr: i64) -> Vec<MicroOp> {
-        vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 5 }, // while i < n
-            MicroOp::ArrPush {
-                src: 0,
-                vec_slot: 8,
-                ptr_slot: 9,
-                len_slot: 10,
-                helper_addr,
-                byte: false,
-                narrow32: false,
-            },
-            MicroOp::LoadConst { dst: 2, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // i += 1
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 10 }, // final length
-        ]
-    }
-
-    /// RED: pushes that ALL fit the pre-allocated capacity touch the runtime
-    /// helper ZERO times — every push took the inline fast path — and the buffer
-    /// holds exactly `Vec::push`'s result (same contents, same final pointer,
-    /// since no realloc moved it).
-    #[test]
-    fn inline_push_fast_path_never_calls_helper_within_capacity() {
-        let n = 5000i64;
-        let mut vec: Vec<i64> = Vec::with_capacity(n as usize);
-        let vec_ptr = &mut vec as *mut Vec<i64>;
-        let buf_before = vec.as_ptr() as i64;
-
-        let ops = push_loop_ops(test_push_i64 as usize as i64);
-        let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("push region compiles");
-
-        // frame[8] = vec handle, [9] = buffer ptr, [10] = length (all 0 initially).
-        let mut frame = vec![0i64; 11];
-        frame[1] = n;
-        frame[8] = vec_ptr as i64;
-        frame[9] = buf_before;
-        frame[10] = 0;
-
-        TEST_PUSH_CALLS.store(0, Ordering::Relaxed);
-        let out = chain.run_with_frame(&mut frame);
-
-        assert_eq!(out, ChainOutcome::Return(n), "final length must be n");
-        assert_eq!(
-            TEST_PUSH_CALLS.load(Ordering::Relaxed),
-            0,
-            "every push fit within capacity — the inline fast path must call the helper ZERO times"
-        );
-        // Bit-identical to Vec::push: contents and (no-realloc) pointer.
-        assert_eq!(vec.len(), n as usize, "real Vec length");
-        assert_eq!(vec.as_ptr() as i64, buf_before, "no realloc moved the buffer");
-        for (i, &v) in vec.iter().enumerate() {
-            assert_eq!(v, i as i64, "buffer[{i}] must be the pushed value");
-        }
-        // The frame's mirrored len/ptr stay coherent with the real Vec.
-        assert_eq!(frame[10], n, "mirrored length");
-        assert_eq!(frame[9], buf_before, "mirrored pointer unchanged (no realloc)");
-    }
-
-    /// RED: pushes that GROW past the initial capacity stay bit-identical to
-    /// `Vec::push` — the cold helper path reallocates and refreshes ptr/len, and
-    /// the inline path bumps len in place between reallocs. The helper is called
-    /// only on the realloc boundaries (far fewer than `n` times), proving the
-    /// per-iteration call is gone.
-    #[test]
-    fn inline_push_realloc_cold_path_matches_vec_push() {
-        let n = 4000i64;
-        // Start with a TINY capacity so the cold realloc path fires repeatedly.
-        let mut vec: Vec<i64> = Vec::with_capacity(1);
-        let vec_ptr = &mut vec as *mut Vec<i64>;
-
-        // The reference: a plain Vec::push of the same sequence from cap 1.
-        let mut reference: Vec<i64> = Vec::with_capacity(1);
-        for i in 0..n {
-            reference.push(i);
-        }
-
-        let ops = push_loop_ops(test_push_i64 as usize as i64);
-        let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("push region compiles");
-
-        let mut frame = vec![0i64; 11];
-        frame[1] = n;
-        frame[8] = vec_ptr as i64;
-        frame[9] = vec.as_ptr() as i64;
-        frame[10] = 0;
-
-        TEST_PUSH_CALLS.store(0, Ordering::Relaxed);
-        let out = chain.run_with_frame(&mut frame);
-
-        assert_eq!(out, ChainOutcome::Return(n), "final length must be n");
-        assert_eq!(vec, reference, "compiled push must be bit-identical to Vec::push");
-        assert_eq!(frame[10], n, "mirrored length matches");
-        assert_eq!(
-            frame[9],
-            vec.as_ptr() as i64,
-            "mirrored pointer matches the (post-realloc) buffer"
-        );
-        let calls = TEST_PUSH_CALLS.load(Ordering::Relaxed);
-        // Geometric growth from cap 1: O(log n) reallocs, vastly fewer than n.
-        assert!(
-            calls < n / 2,
-            "the helper must fire only on realloc boundaries (got {calls} of {n} pushes)"
-        );
-        assert!(calls >= 1, "at least one realloc must have occurred");
-    }
-
-    /// RED: a `Seq of Bool` (1-byte element) push stores the BOOLEAN
-    /// NORMALIZATION `(v != 0) as u8` inline — bit-identical to
-    /// `logos_rt_push_bool`'s `(*vec).push(value != 0)`.
-    #[test]
-    fn inline_push_byte_normalizes_like_helper() {
-        unsafe extern "C" fn test_push_bool(
-            frame: *mut i64,
-            vec_slot: i64,
-            ptr_slot: i64,
-            len_slot: i64,
-            value: i64,
-        ) {
-            let vec = *frame.add(vec_slot as usize) as *mut Vec<bool>;
-            (*vec).push(value != 0);
-            *frame.add(ptr_slot as usize) = (*vec).as_mut_ptr() as i64;
-            *frame.add(len_slot as usize) = (*vec).len() as i64;
-        }
-
-        let n = 300i64;
-        let mut vec: Vec<bool> = Vec::with_capacity(n as usize);
-        let vec_ptr = &mut vec as *mut Vec<bool>;
-        let buf_before = vec.as_ptr() as i64;
-
-        // Push `i % 3` (0, 1, 2, 0, 1, 2, …): zero stores false, nonzero true.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 7 }, // while i < n
-            MicroOp::LoadConst { dst: 3, value: 3 },
-            MicroOp::Mod { dst: 4, lhs: 0, rhs: 3 }, // v = i % 3
-            MicroOp::ArrPush {
-                src: 4,
-                vec_slot: 8,
-                ptr_slot: 9,
-                len_slot: 10,
-                helper_addr: test_push_bool as usize as i64,
-                byte: true,
-                narrow32: false,
-            },
-            MicroOp::LoadConst { dst: 2, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // i += 1
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 10 },
-        ];
-        let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("byte push region compiles");
-
-        let mut frame = vec![0i64; 11];
-        frame[1] = n;
-        frame[8] = vec_ptr as i64;
-        frame[9] = buf_before;
-        frame[10] = 0;
-        let out = chain.run_with_frame(&mut frame);
-
-        assert_eq!(out, ChainOutcome::Return(n));
-        let reference: Vec<bool> = (0..n).map(|i| (i % 3) != 0).collect();
-        assert_eq!(vec, reference, "byte push must normalize (v != 0) like the helper");
-        assert_eq!(vec.as_ptr() as i64, buf_before, "no realloc within capacity");
-    }
-
-    /// RED: an XMM-resident (float-list) push bit-copies the value to the buffer
-    /// inline — the raw 8 bytes travel identically to the helper's
-    /// `f64::from_bits` round-trip.
-    #[test]
-    fn inline_push_float_value_bitcopies() {
-        unsafe extern "C" fn test_push_f64(
-            frame: *mut i64,
-            vec_slot: i64,
-            ptr_slot: i64,
-            len_slot: i64,
-            value: i64,
-        ) {
-            let vec = *frame.add(vec_slot as usize) as *mut Vec<f64>;
-            (*vec).push(f64::from_bits(value as u64));
-            *frame.add(ptr_slot as usize) = (*vec).as_mut_ptr() as i64;
-            *frame.add(len_slot as usize) = (*vec).len() as i64;
-        }
-
-        let n = 200i64;
-        let mut vec: Vec<f64> = Vec::with_capacity(n as usize);
-        let vec_ptr = &mut vec as *mut Vec<f64>;
-        let buf_before = vec.as_ptr() as i64;
-
-        // src is a FLOAT slot produced by IntToFloat (lands in XMM): push i as f64.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 6 }, // while i < n
-            MicroOp::IntToFloat { dst: 4, src: 0 }, // v = i as f64 (XMM-resident)
-            MicroOp::ArrPush {
-                src: 4,
-                vec_slot: 8,
-                ptr_slot: 9,
-                len_slot: 10,
-                helper_addr: test_push_f64 as usize as i64,
-                byte: false,
-                narrow32: false,
-            },
-            MicroOp::LoadConst { dst: 2, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // i += 1
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 10 },
-        ];
-        let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("float push region compiles");
-
-        let mut frame = vec![0i64; 11];
-        frame[1] = n;
-        frame[8] = vec_ptr as i64;
-        frame[9] = buf_before;
-        frame[10] = 0;
-        let out = chain.run_with_frame(&mut frame);
-
-        assert_eq!(out, ChainOutcome::Return(n));
-        let reference: Vec<f64> = (0..n).map(|i| i as f64).collect();
-        assert_eq!(vec, reference, "float push must bit-copy the value like the helper");
-        assert_eq!(vec.as_ptr() as i64, buf_before, "no realloc within capacity");
-    }
-
-    fn lcg(state: &mut u64) -> u64 {
-        *state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        *state >> 33
-    }
-
-    /// Exhaustive differential: every random straight-line program over the
-    /// supported families must equal the (location-independent) reference, at
-    /// EVERY slot count — small (all resident) and large (forces spills).
-    #[test]
-    fn random_straightline_matches_reference_all_pressures() {
-        for slots in [3u16, 6, 10, 20] {
-            for seed in 1..=80u64 {
-                let mut s = seed.wrapping_mul(2654435761);
-                let len = 8 + (lcg(&mut s) % 24) as usize;
-                let mut ops = Vec::with_capacity(len + 1);
-                for _ in 0..len {
-                    let dst = (lcg(&mut s) % slots as u64) as u16;
-                    let lhs = (lcg(&mut s) % slots as u64) as u16;
-                    let rhs = (lcg(&mut s) % slots as u64) as u16;
-                    let op = match lcg(&mut s) % 13 {
-                        0 => MicroOp::Add { dst, lhs, rhs },
-                        1 => MicroOp::Sub { dst, lhs, rhs },
-                        2 => MicroOp::Mul { dst, lhs, rhs },
-                        3 => MicroOp::BitAnd { dst, lhs, rhs },
-                        4 => MicroOp::BitOr { dst, lhs, rhs },
-                        5 => MicroOp::BitXor { dst, lhs, rhs },
-                        6 => MicroOp::Lt { dst, lhs, rhs },
-                        7 => MicroOp::Gt { dst, lhs, rhs },
-                        8 => MicroOp::LtEq { dst, lhs, rhs },
-                        9 => MicroOp::Eq { dst, lhs, rhs },
-                        10 => MicroOp::Neq { dst, lhs, rhs },
-                        11 => MicroOp::Move { dst, src: lhs },
-                        _ => MicroOp::LoadConst {
-                            dst,
-                            value: (lcg(&mut s) as i64).wrapping_sub(1 << 40),
-                        },
-                    };
-                    ops.push(op);
-                }
-                let ret = (lcg(&mut s) % slots as u64) as u16;
-                ops.push(MicroOp::Return { src: ret });
-
-                let mut frame = vec![0i64; slots as usize];
-                for (i, f) in frame.iter_mut().enumerate() {
-                    *f = (i as i64 + 1).wrapping_mul(1_000_003) - 7;
-                }
-                // Exact integer math: `reference_eval` returns None on i64 overflow,
-                // which the native chain matches with a side-exit (deopt).
-                let expected = reference_eval(&ops, &mut frame.clone(), 100_000);
-                let (out, post) = run(&ops, &frame);
-                match expected {
-                    Some(e) => {
-                        assert_eq!(
-                            out,
-                            ChainOutcome::Return(e),
-                            "slots={slots} seed={seed}: return diverged"
-                        );
-                        // The full frame must also match the reference's full frame.
-                        let mut ref_frame = frame.clone();
-                        reference_eval(&ops, &mut ref_frame, 100_000);
-                        assert_eq!(post, ref_frame, "slots={slots} seed={seed}: frame diverged");
-                    }
-                    None => assert!(
-                        out.is_deopt(),
-                        "slots={slots} seed={seed}: overflow must deopt, got {out:?}"
-                    ),
-                }
-            }
-        }
-    }
-
-    /// Shifts and unary ops bit-exact against the reference, at spill pressure.
-    #[test]
-    fn shifts_and_unary_match_reference() {
-        let ops = vec![
-            MicroOp::Shl { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::Shr { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::NotInt { dst: 5, src: 4 },
-            MicroOp::NotBool { dst: 6, src: 2 },
-            MicroOp::DivPow2 { dst: 7, lhs: 0, k: 3 },
-            MicroOp::Add { dst: 8, lhs: 5, rhs: 7 },
-            MicroOp::Return { src: 8 },
-        ];
-        for &a in &[1i64, -1, 1024, i64::MIN, -255] {
-            let frame = vec![a, 5, 2, 0, 0, 0, 0, 0, 0];
-            let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
-            let (out, _) = run(&ops, &frame);
-            assert_eq!(out, ChainOutcome::Return(expected), "a={a}");
-        }
-    }
-
-    /// The Granlund–Montgomery magic constants for an unsigned divisor `d`
-    /// (test-local; mirrors the canonical `LogosDivU64::new` the compiler ships).
-    fn magic_parts(d: u64) -> (u64, u8) {
-        if d & (d - 1) == 0 {
-            return (0, (d.trailing_zeros() as u8) | 0x80);
-        }
-        let l = 63 - d.leading_zeros();
-        let numer = (1u128 << l) << 64;
-        let m = (numer / d as u128) as u64;
-        let rem = (numer % d as u128) as u64;
-        if d - rem < (1u64 << l) {
-            (m + 1, l as u8)
-        } else {
-            let twice = rem.wrapping_mul(2);
-            let bump = (twice >= d || twice < rem) as u64;
-            (m.wrapping_mul(2).wrapping_add(bump) + 1, (l as u8) | 0x40)
-        }
-    }
-
-    /// `MagicDivU` (the W24 constant-divisor magic reciprocal) is bit-exact with
-    /// `reference_eval` — which itself is bit-exact with the kernel's
-    /// `wrapping_div`/`wrapping_rem` for the non-negative dividend it gates on —
-    /// for both the quotient and the remainder, across several divisors (the
-    /// 64-bit-magic and 65-bit add-marker paths) and a boundary value grid,
-    /// emitted into a frame with enough live slots to force spill pressure on
-    /// the dst/lhs.
-    #[test]
-    fn magic_div_matches_reference_div_and_mod() {
-        for &c in &[3i64, 7, 100, 1000, 1_000_000_007, 65521] {
-            let (magic, more) = magic_parts(c as u64);
-            // Two ops (div into 1, mod into 2) plus padding slots 3..16 so the
-            // allocator must spill — exercises both register- and frame-resident
-            // dst/lhs in emit_magic_div.
-            let ops = vec![
-                MicroOp::MagicDivU { dst: 1, lhs: 0, magic, more, mul_back: 0 },
-                MicroOp::MagicDivU { dst: 2, lhs: 0, magic, more, mul_back: c },
-                MicroOp::Add { dst: 3, lhs: 1, rhs: 2 },
-                MicroOp::Return { src: 3 },
-            ];
-            for n in [
-                0i64, 1, c - 1, c, c + 1, 2 * c + 3, 123_456_789, i64::MAX, i64::MAX - 1,
-                (i64::MAX / c) * c, (i64::MAX / c).saturating_sub(1) * c,
-            ] {
-                assert!(n >= 0);
-                let frame = vec![n, 0, 0, 0];
-                let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
-                let (out, _) = run(&ops, &frame);
-                assert_eq!(out, ChainOutcome::Return(expected), "c={c} n={n}");
-                // And the reference itself equals the kernel for these.
-                assert_eq!(
-                    expected,
-                    n.wrapping_div(c).wrapping_add(n.wrapping_rem(c)),
-                    "reference vs kernel c={c} n={n}"
-                );
-            }
-        }
-    }
-
-    /// A nested loop with many live slots (forces some spills) — the polynomial
-    /// accumulation the ceiling harness times — matches the reference exactly.
-    #[test]
-    fn poly_loop_matches_reference_under_spill() {
-        // s = s*A + i*B - C across i in 0..N, with A,B,C,N,i,s in distinct slots.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 11 }, // i<N
-            MicroOp::Mul { dst: 7, lhs: 2, rhs: 3 },                       // t = s*A
-            MicroOp::Mul { dst: 8, lhs: 0, rhs: 4 },                       // u = i*B
-            MicroOp::Add { dst: 7, lhs: 7, rhs: 8 },                       // t += u
-            MicroOp::Sub { dst: 2, lhs: 7, rhs: 5 },                       // s = t - C
-            MicroOp::BitXor { dst: 2, lhs: 2, rhs: 6 },                    // s ^= MASK
-            MicroOp::Add { dst: 9, lhs: 2, rhs: 0 },                       // (extra live)
-            MicroOp::Mul { dst: 2, lhs: 2, rhs: 3 },                       // s *= A again
-            MicroOp::LoadConst { dst: 10, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 10 }, // i += 1
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 2 },
-        ];
-        // slots: 0=i 1=N 2=s 3=A 4=B 5=C 6=MASK 7=t 8=u 9=extra 10=one
-        let frame = vec![0i64, 5000, 1, 6364136223846793005u64 as i64, 1442695040888963407u64 as i64, 12345, 0x5DEECE66D, 0, 0, 0, 0];
-        // These LCG-sized multipliers overflow i64 on the first `s*A`. Under exact
-        // integer math the reference returns None and the native chain side-exits
-        // (deopt) — the two must agree that this leaves the i64 fast path.
-        let expected = reference_eval(&ops, &mut frame.clone(), 100_000_000);
-        let (out, _) = run(&ops, &frame);
-        match expected {
-            Some(e) => assert_eq!(out, ChainOutcome::Return(e)),
-            None => assert!(out.is_deopt(), "overflow must deopt, got {out:?}"),
-        }
-    }
-
-    /// `loop_depths` (the spill-weight heuristic's loop detector): a back-edge
-    /// `[target, idx]` raises the depth of every op in its span by one, and
-    /// nesting accumulates. Straight-line code stays depth 0.
-    #[test]
-    fn loop_depths_counts_back_edge_nesting() {
-        // No back-edge: all depth 0.
-        let flat = vec![
-            MicroOp::Add { dst: 1, lhs: 0, rhs: 0 },
-            MicroOp::Return { src: 1 },
-        ];
-        assert_eq!(loop_depths(&flat), vec![0, 0]);
-
-        // One loop: a Jump at idx 3 back to 1 wraps ops 1..=3 (depth 1); the
-        // guard at 0 and the tail at 4 stay depth 0.
-        let single = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 4 }, // 0
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 0 },                     // 1
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },                     // 2
-            MicroOp::Jump { target: 1 },                                 // 3
-            MicroOp::Return { src: 2 },                                  // 4
-        ];
-        assert_eq!(loop_depths(&single), vec![0, 1, 1, 1, 0]);
-
-        // Nested: inner back-edge 3->2 (depth 2 over ops 2..=3) sits inside the
-        // outer back-edge 5->1 (depth 1 over ops 1..=5).
-        let nested = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 6 }, // 0
-            MicroOp::Move { dst: 4, src: 0 },                            // 1 outer
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 4 },                     // 2 inner
-            MicroOp::Jump { target: 2 },                                 // 3 inner back-edge
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },                     // 4 outer
-            MicroOp::Jump { target: 1 },                                 // 5 outer back-edge
-            MicroOp::Return { src: 2 },                                  // 6
-        ];
-        assert_eq!(loop_depths(&nested), vec![0, 1, 2, 2, 1, 1, 0]);
-    }
-
-    /// A loop-carried slot referenced ONCE per iteration but living inside a
-    /// loop must out-rank a colder slot referenced MANY times only in
-    /// straight-line setup, so it wins a register. We assert this through the
-    /// public `loc` assignment indirectly: build a region where slot `H` (hot,
-    /// loop-carried, few raw refs) and slot `C` (cold, setup-only, many raw refs)
-    /// compete for the SOLE remaining int register, and confirm the loop weight
-    /// flips the ranking so the result is still bit-identical to the reference
-    /// (the heuristic only moves residency, never correctness).
-    #[test]
-    fn loop_weight_keeps_carried_slot_resident_and_exact() {
-        // Setup touches `C` (slot 5) four times in straight-line code; the loop
-        // touches `H` (slot 2, the accumulator) once per iteration. Raw counts
-        // would rank C above H; the loop weight (10^1 per loop ref) flips it.
-        let ops = vec![
-            MicroOp::Add { dst: 5, lhs: 0, rhs: 1 },  // 0 C = a+b   (setup)
-            MicroOp::Add { dst: 5, lhs: 5, rhs: 0 },  // 1 C += a    (setup)
-            MicroOp::Add { dst: 5, lhs: 5, rhs: 1 },  // 2 C += b    (setup)
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 5 },  // 3 seed acc with C (setup)
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 3, rhs: 4, target: 8 }, // 4 while i<N
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 3 },  // 5 acc += i  (HOT, depth 1)
-            MicroOp::Add { dst: 3, lhs: 3, rhs: 6 },  // 6 i += 1    (HOT, depth 1)
-            MicroOp::Jump { target: 4 },              // 7 back-edge
-            MicroOp::Return { src: 2 },               // 8
-        ];
-        // slots: 0=a 1=b 2=acc(H) 3=i 4=N 5=C(cold) 6=one
-        let frame = vec![3i64, 4, 0, 0, 100_000, 0, 1];
-        let depths = loop_depths(&ops);
-        assert_eq!(depths[5], 1, "the accumulator update is inside the loop");
-        let expected = reference_eval(&ops, &mut frame.clone(), 10_000_000).unwrap();
-        let (out, post) = run(&ops, &frame);
-        assert_eq!(out, ChainOutcome::Return(expected), "loop-weighted ranking must stay bit-identical");
-        let mut ref_frame = frame.clone();
-        reference_eval(&ops, &mut ref_frame, 10_000_000).unwrap();
-        assert_eq!(post, ref_frame, "frame diverged under loop-weighted ranking");
-    }
-
-    /// Fix 1 (call-weight tie-break): two slots with the SAME primary loop-weight
-    /// must be ordered by call-survival — the slot LIVE ACROSS a SysV call ranks
-    /// first, so it wins a callee-saved register (paying no per-call spill/reload)
-    /// while the call-dead slot of equal weight takes a caller-saved one. The
-    /// call-weight is a SECONDARY key: it breaks the tie WITHOUT changing the
-    /// primary weights (so it can never evict a hotter loop slot).
-    #[test]
-    fn call_weight_breaks_tie_toward_live_across_call_slot() {
-        // `survivor` (slot 1) and `transient` (slot 2) are each defined once and
-        // read once — identical primary loop-weight. `survivor` is read AFTER the
-        // call (op 3) → live across it; `transient` is consumed BEFORE the call
-        // and never read after → dead across it. Only the secondary key differs.
-        // 0: survivor = a + one    (def slot 1)
-        // 1: transient = a + one   (def slot 2)
-        // 2: sink = transient + a  (last read of transient, def slot 8 — BEFORE call)
-        // 3: ListClear             (the SysV call, op 3)
-        // 4: r = survivor + one    (reads slot 1 AFTER the call, def slot 4)
-        // 5: Return r
-        let ops = vec![
-            MicroOp::Add { dst: 1, lhs: 0, rhs: 3 },
-            MicroOp::Add { dst: 2, lhs: 0, rhs: 3 },
-            MicroOp::Add { dst: 8, lhs: 2, rhs: 0 },
-            MicroOp::ListClear { vec_slot: 5, ptr_slot: 6, len_slot: 7, helper_addr: 0 },
-            MicroOp::Add { dst: 4, lhs: 1, rhs: 3 },
-            MicroOp::Return { src: 4 },
-        ];
-        let max_slot = max_slot_of(&ops);
-        let la = liveness_after(&ops, max_slot);
-        assert!(la[3][1], "survivor must be live across the call");
-        assert!(!la[3][2], "transient must be dead across the call");
-        // PRIMARY weights must be equal (both: 1 def-ref + 1 use-ref outside any
-        // loop). Slot 1: def@0 + use@4 = 2 refs. Slot 2: def@1 + use@2 = 2 refs.
-        let (order, _) = rank_slots(&ops, 16, 4, 4, Some(&la));
-        let pos = |slot: Slot| order.iter().position(|&(s, _)| s == slot).unwrap();
-        let key = |slot: Slot| order.iter().find(|&&(s, _)| s == slot).unwrap().1;
-        assert_eq!(
-            key(1),
-            key(2),
-            "survivor and transient must share the SAME primary weight (got {} vs {})",
-            key(1),
-            key(2)
-        );
-        assert!(
-            pos(1) < pos(2),
-            "on equal primary weight the call-survivor must rank ahead of the call-dead slot"
-        );
-    }
-
-    /// Fix 1 soundness: the call-survival key NEVER changes the primary
-    /// loop-weighted ordering of two slots with DIFFERENT primary weights, so it
-    /// cannot evict a hotter loop slot. A loop-hot, call-DEAD slot must still
-    /// out-rank a cold, call-SURVIVING slot.
-    #[test]
-    fn call_weight_never_outranks_a_hotter_loop_slot() {
-        // `hot` (slot 2) is referenced every iteration of a loop (high primary
-        // weight) but is consumed before the call → dead across it. `cold` (slot
-        // 1) is set once outside the loop and read once after the call → live
-        // across the call but cold. The loop-hot slot must still win.
-        let ops = vec![
-            MicroOp::Add { dst: 1, lhs: 0, rhs: 3 },                      // 0 cold = a+one (setup)
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 4, rhs: 5, target: 6 },  // 1 while i<N
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 4 },                      // 2 hot += i (HOT)
-            MicroOp::Add { dst: 4, lhs: 4, rhs: 3 },                      // 3 i += one (HOT)
-            MicroOp::ListClear { vec_slot: 7, ptr_slot: 8, len_slot: 9, helper_addr: 0 }, // 4 call
-            MicroOp::Jump { target: 1 },                                  // 5 back-edge
-            MicroOp::Add { dst: 10, lhs: 1, rhs: 2 },                     // 6 use cold (live across) + hot
-        ];
-        // Append a Return so the region is well-formed.
-        let mut ops = ops;
-        ops.push(MicroOp::Return { src: 10 });
-        let max_slot = max_slot_of(&ops);
-        let la = liveness_after(&ops, max_slot);
-        let (order, _) = rank_slots(&ops, 16, 4, 4, Some(&la));
-        let pos = |slot: Slot| order.iter().position(|&(s, _)| s == slot).unwrap();
-        assert!(
-            pos(2) < pos(1),
-            "the loop-hot slot must out-rank the cold call-survivor (primary key dominates)"
-        );
-    }
-
-    /// Fix 1 soundness: the call bonus is INERT for a call-free region. With
-    /// `live_after = None` the ranking is exactly the pre-Fix-1 loop-weighted
-    /// ranking — no bonus exists because there is no call to survive.
-    #[test]
-    fn call_weight_is_inert_without_a_call() {
-        let ops = vec![
-            MicroOp::Add { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::Mul { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::Sub { dst: 5, lhs: 4, rhs: 0 },
-            MicroOp::Return { src: 5 },
-        ];
-        // With no liveness (call-free) and with an EMPTY all-dead liveness, the
-        // bonus contributes nothing, so the two rankings are identical.
-        let (no_call, _) = rank_slots(&ops, 16, 4, 4, None);
-        let max_slot = max_slot_of(&ops);
-        let dead = vec![vec![false; max_slot + 1]; ops.len()];
-        let (dead_la, _) = rank_slots(&ops, 16, 4, 4, Some(&dead));
-        assert_eq!(no_call, dead_la, "the call bonus must vanish with no live-across-call slot");
-    }
-
-    /// Fix 1 (call-weight) must not perturb the SELF-CALL window forcing or the
-    /// `max_slot` extent: a region with a `CallSelf` still compiles, and the
-    /// ranking ranks the call-surviving non-window slot ahead of a transient. The
-    /// runnable end-to-end (bit-identical + tiers) lives in the integration suite
-    /// (`jit_regalloc::call_weight_*`) where a real recursive program is built.
-    #[test]
-    fn call_weight_self_call_region_compiles_and_ranks_survivor() {
-        // A function-shaped region: guard, a self-call, an accumulate that reads a
-        // value live across the call, return. (Window slots are forced frame-
-        // resident regardless; this only checks the ranking + that it compiles.)
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 5 }, // 0 if !(i<N) -> ret
-            MicroOp::CallSelf { dst: 3, args_start: 8, depth_addr: 0, status_addr: 0, limit_slot: 2, frame_size: 4 }, // 1 call
-            MicroOp::Add { dst: 4, lhs: 4, rhs: 3 }, // 2 acc += call result (acc live across? no — defined here)
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 4 }, // 3 i += acc (reads acc 4 → live after the call)
-            MicroOp::Jump { target: 0 },             // 4 back-edge
-            MicroOp::Return { src: 4 },              // 5
-        ];
-        let max_slot = max_slot_of(&ops);
-        assert!(max_slot >= 11, "self-call window extent (8+4-1=11) must be covered, got {max_slot}");
-        let la = liveness_after(&ops, max_slot);
-        // slot 4 (acc) is read by op 3 after the call at op 1 → live across it.
-        assert!(la[1][4], "acc must be live across the self-call");
-        let (order, _) = rank_slots(&ops, 16, 4, 4, Some(&la));
-        let key = |slot: Slot| order.iter().find(|&&(s, _)| s == slot).map(|&(_, k)| k).unwrap_or(0);
-        // slot 4 (call-survivor, loop-carried) must out-rank the bound slot 1
-        // (referenced only at the cold guard, not across the call).
-        assert!(key(4) > key(1), "call-surviving loop slot must out-rank a cold bound");
-    }
-
-    /// Wave 16 (call-site spill liveness): `liveness_after` is a sound backward
-    /// dataflow. A slot WRITTEN before an op and READ only before it (never on any
-    /// path AFTER) is DEAD after that op; a slot read by a LATER op (including a
-    /// loop back-edge) is LIVE after every op on the path to that read.
-    #[test]
-    fn liveness_after_is_a_sound_backward_dataflow() {
-        // 0: t = a + b      (defines t=2)
-        // 1: dead = a * a   (defines dead=3, never read again)
-        // 2: r = t - dead   (reads t and dead, defines r=4)
-        // 3: Return r
-        let ops = vec![
-            MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
-            MicroOp::Mul { dst: 3, lhs: 0, rhs: 0 },
-            MicroOp::Sub { dst: 4, lhs: 2, rhs: 3 },
-            MicroOp::Return { src: 4 },
-        ];
-        let la = liveness_after(&ops, 4);
-        // After op 1 (`dead = a*a`), `dead` (slot 3) is LIVE (read by op 2) and so
-        // is `t` (slot 2, read by op 2).
-        assert!(la[1][3], "dead must be live right after it is defined (read by op 2)");
-        assert!(la[1][2], "t must still be live after op 1 (read by op 2)");
-        // After op 2 (`r = t - dead`), NEITHER `t` nor `dead` is read again — both DEAD.
-        assert!(!la[2][2], "t is dead after its last read (op 2)");
-        assert!(!la[2][3], "dead is dead after its last read (op 2)");
-        // `r` (slot 4) is live after op 2 (the Return reads it).
-        assert!(la[2][4], "r is live after op 2 (Return reads it)");
-        // After the Return, nothing is live.
-        assert!(la[3].iter().all(|&b| !b), "no slot is live after Return");
-    }
-
-    /// A loop-carried slot read across a back-edge stays LIVE after every op in
-    /// the loop body (the backward dataflow must reach a fixpoint over the
-    /// back-edge, not just the forward pass).
-    #[test]
-    fn liveness_after_propagates_across_loop_back_edge() {
-        // counting loop: 0=i 1=acc 2=N 3=one
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 2, target: 5 }, // 0 while i<N
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 0 },                     // 1 acc += i
-            MicroOp::LoadConst { dst: 3, value: 1 },                     // 2 one = 1
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },                     // 3 i += 1
-            MicroOp::Jump { target: 0 },                                 // 4 back-edge
-            MicroOp::Return { src: 1 },                                  // 5
-        ];
-        let la = liveness_after(&ops, 3);
-        // `i` (slot 0) is read by the guard (op 0), `acc += i` (op 1), and `i += 1`
-        // (op 3); via the back-edge it must be live after op 3 (the increment),
-        // after op 1, and after the guard's true edge — i.e. live around the loop.
-        assert!(la[3][0], "i must be live after the increment (back-edge re-reads it)");
-        assert!(la[1][0], "i must be live after acc += i (used again at op 3)");
-        // `acc` (slot 1) is read by op 1 and the final Return → live around the loop.
-        assert!(la[3][1], "acc must be live after op 3 (read next iteration / return)");
-        assert!(la[1][1], "acc must be live after its own update");
-    }
-
-    /// The spill-elision keep-rule: a caller-saved resident is elided around a
-    /// call ONLY when it is READ-ONLY (never written → never flushed at exit) AND
-    /// dead after the call. A WRITTEN slot is kept even when dead-after-call
-    /// (its last value is flushed at every region exit), and a read-only slot
-    /// read after the call is kept (the reload feeds that read). This mirrors the
-    /// `keep` closure in `compile_impl` and is the soundness contract the
-    /// `*_matches_stencil` post-frame differentials enforce.
-    #[test]
-    fn spill_elision_keeps_written_and_live_drops_readonly_dead() {
-        // Slot 5 = `cold`: a frame input READ only at op 0 (never written, never
-        //   read after the call) → read-only + dead-after-call → ELIDED.
-        // Slot 8 = `hot`: WRITTEN at op 1, dead after the call (op 3 re-reads it,
-        //   so it is actually live-after too — but the WRITTEN rule alone keeps
-        //   it; flushed at every exit). Slot 1 = the literal-`1` operand: read
-        //   only (never written) but READ after the call (op 3) → kept via live.
-        // 0: t0 = cold + 1   (reads slot 5 `cold`, defines slot 7)
-        // 1: hot = hot + 1   (WRITTEN slot 8)
-        // 2: ListClear       (the call op, index 2)
-        // 3: keep = hot + 1  (reads slot 8 `hot` and slot 1 `1`, defines slot 9)
-        // 4: Return keep
-        let ops = vec![
-            MicroOp::Add { dst: 7, lhs: 5, rhs: 1 },          // 0 t0 = cold + 1
-            MicroOp::Add { dst: 8, lhs: 8, rhs: 1 },          // 1 hot += 1 (written)
-            MicroOp::ListClear { vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: 0 }, // 2 call
-            MicroOp::Add { dst: 9, lhs: 8, rhs: 1 },          // 3 keep = hot + 1
-            MicroOp::Return { src: 9 },                       // 4
-        ];
-        let max_slot = 9;
-        let la = liveness_after(&ops, max_slot);
-        let mut written = vec![false; max_slot + 1];
-        for op in &ops {
-            if let Some(d) = dest_of(op) {
-                written[d as usize] = true;
-            }
-        }
-        let keep = |s: Slot| {
-            written.get(s as usize).copied().unwrap_or(true)
-                || la[2].get(s as usize).copied().unwrap_or(true)
-        };
-        // `cold` (slot 5): read-only (only ever an operand) and NOT read after the
-        // call (op 3 reads `hot`/`1`, not `cold`) → ELIDED.
-        assert!(!written[5], "cold is read-only");
-        assert!(!la[2][5], "cold is dead after the call");
-        assert!(!keep(5), "a read-only, dead-after-call resident must be elided");
-        // `hot` (slot 8): WRITTEN → kept regardless (flushed at every exit). It is
-        // also live-after here, but the WRITTEN rule alone must keep it.
-        assert!(written[8], "hot is written");
-        assert!(keep(8), "a written resident must be kept (flushed at exit)");
-        // `frame[1]` (the literal `1` operand): read-only but read AFTER the call
-        // (op 3 reads it) → kept via the live-after rule.
-        assert!(!written[1], "the constant operand is read-only");
-        assert!(la[2][1], "the constant operand is read after the call");
-        assert!(keep(1), "a read-only resident read after the call must be kept");
-    }
-
-    // =================================================================
-    // WAVE 21: precise REGION backend (in-place SetIndex + reallocating
-    // ArrPush). The fannkuch / graph_bfs worklist shape — a precise region
-    // that does NOT have the mode-B function prologue, so `mode_b_rc` is
-    // inferred only for FUNCTIONS, never regions.
-    // =================================================================
-
-    /// The precise REGION path compiles a push+SetIndex stream (a reallocating
-    /// `ArrPush` beside an in-place checked `ArrStore`) into ONE contiguous
-    /// register-allocated chain — even though the stream has NO mode-B function
-    /// prologue (`LoadConst {-1}`). The per-piece precise stencil tier no longer
-    /// monopolizes this shape.
-    #[test]
-    fn precise_region_with_push_and_setindex_compiles() {
-        // 0: i < n?  -> exit (op 6)
-        // 1: ArrStore arr[i] = v  (in-place, CHECKED — the precise side exit)
-        // 2: ArrPush v -> q       (reallocates q; helper refreshes ptr/len)
-        // 3: i += 1
-        // 4: Jump head
-        // 5: (exit) Return i
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrPush { src: 2, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: 0, byte: false, narrow32: false },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 0 },
-        ];
-        // Per-op precise resume codes (parallel to `ops`): the checked store and
-        // the push carry a precise tag `(pc << 2) | 3`; the rest stay plain `1`.
-        let codes: Vec<i64> = ops
-            .iter()
-            .enumerate()
-            .map(|(i, op)| match op {
-                MicroOp::ArrStore { checked: true, .. } | MicroOp::ArrPush { .. } => {
-                    ((i as i64) << 2) | 3
-                }
-                _ => 1,
-            })
-            .collect();
-        let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc_precise(&ops, Some(status), 0, &codes);
-        assert!(
-            chain.is_some(),
-            "a precise push+SetIndex REGION (no mode-B prologue) must compile through \
-             the contiguous regalloc backend"
-        );
-    }
-
-    /// The precise REGION path DECLINES when the per-op `deopt_codes` length does
-    /// not match the op stream — a malformed call falls back to the per-piece tier
-    /// rather than mis-indexing the resume table.
-    #[test]
-    fn precise_region_declines_on_codes_length_mismatch() {
-        let ops = vec![
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        let codes = vec![1i64]; // one short
-        let status = Arc::new(AtomicI64::new(0));
-        assert!(
-            compile_region_regalloc_precise(&ops, Some(status), 0, &codes).is_none(),
-            "a deopt-codes length mismatch must decline"
-        );
-    }
-
-    /// The precise REGION path requires the shared status channel (every checked
-    /// op's side exit stores its tagged resume value through it); a `None` status
-    /// declines.
-    #[test]
-    fn precise_region_declines_without_status() {
-        let ops = vec![
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        let codes = vec![3i64, 1];
-        assert!(
-            compile_region_regalloc_precise(&ops, None, 0, &codes).is_none(),
-            "a precise region with no status channel must decline"
-        );
-    }
-
-    /// A precise region carrying a CROSS-FUNCTION `Call` is unsupported by the
-    /// region gate (`supported`) and must decline — the JIT adapter already
-    /// disqualifies push-beside-call regions, and the backend is the second line
-    /// of defense (a call frame would need the full function-precise walk).
-    #[test]
-    fn precise_region_declines_on_cross_call() {
-        let ops = vec![
-            MicroOp::Call {
-                dst: 1,
-                args_start: 4,
-                table_addr: 0,
-                depth_addr: 0,
-                status_addr: 0,
-                limit_slot: 3,
-                depth_limit: SELF_CALL_DEPTH_LIMIT,
-            },
-            MicroOp::Return { src: 1 },
-        ];
-        let codes = vec![3i64, 1];
-        let status = Arc::new(AtomicI64::new(0));
-        assert!(
-            compile_region_regalloc_precise(&ops, Some(status), 0, &codes).is_none(),
-            "a precise REGION with a cross-function Call must decline (region gate)"
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_forge/regalloc/tests.rs"]
+mod tests;

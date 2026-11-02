@@ -1,0 +1,49 @@
+{
+  "id": "18.2",
+  "title": "Metaphysical Structures",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Does logic mirror the structure of reality, or only of our language?"
+    },
+    {
+      "type": "definition",
+      "term": "Logical atomism",
+      "definition": "The view of Russell and the early Wittgenstein that the world is made of simple facts, and a perfect language would match its structure."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Form and reality",
+      "lines": [
+        "'The cat is on the mat' has the form On(Cat, Mat).",
+        "On names a real relation.",
+        "Cat and Mat name real things."
+      ],
+      "note": "On this view, a well analyzed sentence pictures a fact."
+    },
+    {
+      "type": "worked",
+      "title": "A change of mind",
+      "lines": [
+        "The later Wittgenstein gave up this picture."
+      ],
+      "note": "He came to see meaning in how we use words, not in a hidden logical form."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What did logical atomism claim?",
+    "options": [
+      "Logic is pure convention",
+      "Logic mirrors the structure of reality",
+      "Logic cannot be understood",
+      "Reality has no structure"
+    ],
+    "correct": 1,
+    "hint": "Atomism pictures the world as made of simple facts.",
+    "explanation": "Logical atomists held that a properly analyzed language mirrors the logical structure of the world."
+  }
+}

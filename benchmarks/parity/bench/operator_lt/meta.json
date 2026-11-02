@@ -1,0 +1,10 @@
+{
+  "capability": "operator.lt",
+  "workload": "count i where opLt(i,1500000) over 1..n",
+  "arg": "3000000",
+  "expected": "1499999",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

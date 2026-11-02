@@ -3,44 +3,129 @@
   "name": "LogicAffeine",
   "scopeName": "source.logicaffeine",
   "patterns": [
-    { "include": "#note-block" },
-    { "include": "#block-header" },
-    { "include": "#comment" },
-    { "include": "#string-multiline" },
-    { "include": "#string" },
-    { "include": "#char-literal" },
-    { "include": "#temporal-literals" },
-    { "include": "#money" },
-    { "include": "#numbers" },
-    { "include": "#let-binding" },
-    { "include": "#set-target" },
-    { "include": "#collection-types" },
-    { "include": "#constructor" },
-    { "include": "#variant-pattern" },
-    { "include": "#type-annotation" },
-    { "include": "#return-type" },
-    { "include": "#english-operators" },
-    { "include": "#keywords" },
-    { "include": "#method-call" },
-    { "include": "#function-call" },
-    { "include": "#storage-modifiers" },
-    { "include": "#types" },
-    { "include": "#constants" },
-    { "include": "#quantifiers" },
-    { "include": "#modals" },
-    { "include": "#connectives" },
-    { "include": "#operators" },
-    { "include": "#possessive" },
-    { "include": "#accessor-dot" },
-    { "include": "#index-brackets" }
+    {
+      "include": "#note-block"
+    },
+    {
+      "include": "#block-header"
+    },
+    {
+      "include": "#lgx-view"
+    },
+    {
+      "include": "#lgx-style"
+    },
+    {
+      "include": "#lgx-head"
+    },
+    {
+      "include": "#lgx-section"
+    },
+    {
+      "include": "#lgx-tag"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#string-multiline"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#char-literal"
+    },
+    {
+      "include": "#temporal-literals"
+    },
+    {
+      "include": "#money"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#reactive-control"
+    },
+    {
+      "include": "#lgx-statements"
+    },
+    {
+      "include": "#let-binding"
+    },
+    {
+      "include": "#set-target"
+    },
+    {
+      "include": "#collection-types"
+    },
+    {
+      "include": "#constructor"
+    },
+    {
+      "include": "#variant-pattern"
+    },
+    {
+      "include": "#type-annotation"
+    },
+    {
+      "include": "#return-type"
+    },
+    {
+      "include": "#english-operators"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#method-call"
+    },
+    {
+      "include": "#function-call"
+    },
+    {
+      "include": "#storage-modifiers"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#quantifiers"
+    },
+    {
+      "include": "#modals"
+    },
+    {
+      "include": "#connectives"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#possessive"
+    },
+    {
+      "include": "#accessor-dot"
+    },
+    {
+      "include": "#index-brackets"
+    }
   ],
   "repository": {
     "note-block": {
       "comment": "## Note / ## Example bodies are documentation — prose recedes into comment color (mirrors the LSP's semantic classification)",
       "begin": "^(##)\\s+(Note|Example)\\b.*$",
       "beginCaptures": {
-        "1": { "name": "punctuation.definition.heading.logicaffeine" },
-        "2": { "name": "keyword.control.section.logicaffeine" }
+        "1": {
+          "name": "punctuation.definition.heading.logicaffeine"
+        },
+        "2": {
+          "name": "keyword.control.section.logicaffeine"
+        }
       },
       "end": "(?=^##\\s)",
       "name": "comment.block.documentation.logicaffeine"
@@ -48,32 +133,84 @@
     "block-header": {
       "patterns": [
         {
+          "comment": "## Page /path / ## Component Name / ## Store / ## Directive — an LGX block",
+          "match": "^(##)\\s+(Page|Component|Store|Directive|Route|Redirect)\\b(\\s+[^\\n]*)?",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.heading.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.section.logicaffeine"
+            },
+            "3": {
+              "name": "entity.name.type.logicaffeine"
+            }
+          }
+        },
+        {
+          "comment": "## Before each request / ## Error page STATUS — the multi-word LGX headers",
+          "match": "^(##)\\s+(Before each request|Error page)\\b(\\s+[^\\n]*)?",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.heading.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.section.logicaffeine"
+            },
+            "3": {
+              "name": "entity.name.type.logicaffeine"
+            }
+          }
+        },
+        {
           "comment": "## To name (params) -> Ret:  — function definition",
           "match": "^(##)\\s+(To)\\s+(native\\s+)?([a-zA-Z_]\\w*)",
           "captures": {
-            "1": { "name": "punctuation.definition.heading.logicaffeine" },
-            "2": { "name": "keyword.control.section.logicaffeine" },
-            "3": { "name": "storage.modifier.native.logicaffeine" },
-            "4": { "name": "entity.name.function.logicaffeine" }
+            "1": {
+              "name": "punctuation.definition.heading.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.section.logicaffeine"
+            },
+            "3": {
+              "name": "storage.modifier.native.logicaffeine"
+            },
+            "4": {
+              "name": "entity.name.function.logicaffeine"
+            }
           }
         },
         {
           "comment": "## A Point has: / ## A Shape is one of:  — type definition",
           "match": "^(##)\\s+(An?)\\s+([A-Z]\\w*)",
           "captures": {
-            "1": { "name": "punctuation.definition.heading.logicaffeine" },
-            "2": { "name": "keyword.control.section.logicaffeine" },
-            "3": { "name": "entity.name.type.logicaffeine" }
+            "1": {
+              "name": "punctuation.definition.heading.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.section.logicaffeine"
+            },
+            "3": {
+              "name": "entity.name.type.logicaffeine"
+            }
           }
         },
         {
           "comment": "## Theorem: name and the other section headers",
           "match": "^(##)\\s+(Main|Theorem|Proof|Definition|Define|Axiom|Theory|Example|Logic|Note|Policy|Requires|Hardware|Property|No|Tier)\\b\\s*(:)?\\s*(.*)$",
           "captures": {
-            "1": { "name": "punctuation.definition.heading.logicaffeine" },
-            "2": { "name": "keyword.control.section.logicaffeine" },
-            "3": { "name": "punctuation.separator.logicaffeine" },
-            "4": { "name": "entity.name.section.logicaffeine" }
+            "1": {
+              "name": "punctuation.definition.heading.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.section.logicaffeine"
+            },
+            "3": {
+              "name": "punctuation.separator.logicaffeine"
+            },
+            "4": {
+              "name": "entity.name.section.logicaffeine"
+            }
           }
         },
         {
@@ -81,7 +218,9 @@
           "match": "^(##)\\s+.*$",
           "name": "entity.name.section.logicaffeine",
           "captures": {
-            "1": { "name": "punctuation.definition.heading.logicaffeine" }
+            "1": {
+              "name": "punctuation.definition.heading.logicaffeine"
+            }
           }
         }
       ]
@@ -95,13 +234,21 @@
       "begin": "\"\"\"",
       "end": "\"\"\"",
       "name": "string.quoted.triple.logicaffeine",
-      "patterns": [{ "include": "#string-interior" }]
+      "patterns": [
+        {
+          "include": "#string-interior"
+        }
+      ]
     },
     "string": {
       "begin": "\"",
       "end": "\"",
       "name": "string.quoted.double.logicaffeine",
-      "patterns": [{ "include": "#string-interior" }]
+      "patterns": [
+        {
+          "include": "#string-interior"
+        }
+      ]
     },
     "string-interior": {
       "patterns": [
@@ -113,11 +260,21 @@
           "comment": "Interpolation hole with optional format spec: {name}, {pi:.2}, {s:>10}, {v=}, {price:$}",
           "match": "(\\{)([a-zA-Z_]\\w*)(=)?((:)[^}]*)?(\\})",
           "captures": {
-            "1": { "name": "punctuation.section.interpolation.begin.logicaffeine" },
-            "2": { "name": "variable.other.interpolated.logicaffeine" },
-            "3": { "name": "constant.other.format.debug.logicaffeine" },
-            "4": { "name": "constant.other.format.logicaffeine" },
-            "6": { "name": "punctuation.section.interpolation.end.logicaffeine" }
+            "1": {
+              "name": "punctuation.section.interpolation.begin.logicaffeine"
+            },
+            "2": {
+              "name": "variable.other.interpolated.logicaffeine"
+            },
+            "3": {
+              "name": "constant.other.format.debug.logicaffeine"
+            },
+            "4": {
+              "name": "constant.other.format.logicaffeine"
+            },
+            "6": {
+              "name": "punctuation.section.interpolation.end.logicaffeine"
+            }
           }
         }
       ]
@@ -165,21 +322,72 @@
         }
       ]
     },
+    "reactive-control": {
+      "comment": "Reactive view control words are scoped only in their colon-terminated DSL forms",
+      "patterns": [
+        {
+          "comment": "Render: / Render into root:",
+          "match": "\\b(Render)(?:\\s+(into)\\s+([a-zA-Z_]\\w*))?(?=\\s*:)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.render.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.render.destination.logicaffeine"
+            },
+            "3": {
+              "name": "variable.other.render-target.logicaffeine"
+            }
+          }
+        },
+        {
+          "comment": "on click: / on input:",
+          "match": "\\b(on)\\s+([a-zA-Z_]\\w*)(?=\\s*:)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.event.logicaffeine"
+            },
+            "2": {
+              "name": "constant.other.event.logicaffeine"
+            }
+          }
+        },
+        {
+          "comment": "when <condition>:",
+          "match": "\\b(when)(?=\\s+[^:\\n]+\\s*:)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.conditional.render.logicaffeine"
+            }
+          }
+        }
+      ]
+    },
     "let-binding": {
       "comment": "Let [mutable] name … — the bound name is a declaration",
       "match": "\\b(Let)\\s+(mutable\\s+|mut\\s+)?([a-zA-Z_]\\w*)",
       "captures": {
-        "1": { "name": "keyword.control.logicaffeine" },
-        "2": { "name": "storage.modifier.logicaffeine" },
-        "3": { "name": "variable.other.readwrite.definition.logicaffeine" }
+        "1": {
+          "name": "keyword.control.logicaffeine"
+        },
+        "2": {
+          "name": "storage.modifier.logicaffeine"
+        },
+        "3": {
+          "name": "variable.other.readwrite.definition.logicaffeine"
+        }
       }
     },
     "set-target": {
       "comment": "Set name … — mutation target (`Set item i of xs` keeps `item` as the operator word)",
       "match": "^\\s*(Set)\\s+(?!item\\b|items\\b)([a-z_]\\w*)\\b",
       "captures": {
-        "1": { "name": "keyword.control.logicaffeine" },
-        "2": { "name": "variable.other.readwrite.logicaffeine" }
+        "1": {
+          "name": "keyword.control.logicaffeine"
+        },
+        "2": {
+          "name": "variable.other.readwrite.logicaffeine"
+        }
       }
     },
     "collection-types": {
@@ -191,32 +399,50 @@
       "comment": "a new TypeName — construction site",
       "match": "\\b(an?)\\s+(new)\\s+([A-Z]\\w*)",
       "captures": {
-        "1": { "name": "keyword.control.logicaffeine" },
-        "2": { "name": "keyword.control.logicaffeine" },
-        "3": { "name": "entity.name.type.logicaffeine" }
+        "1": {
+          "name": "keyword.control.logicaffeine"
+        },
+        "2": {
+          "name": "keyword.control.logicaffeine"
+        },
+        "3": {
+          "name": "entity.name.type.logicaffeine"
+        }
       }
     },
     "variant-pattern": {
       "comment": "When VariantName (bindings): — pattern-match arm",
       "match": "\\b(When)\\s+([A-Z]\\w*)",
       "captures": {
-        "1": { "name": "keyword.control.logicaffeine" },
-        "2": { "name": "variable.other.enummember.logicaffeine" }
+        "1": {
+          "name": "keyword.control.logicaffeine"
+        },
+        "2": {
+          "name": "variable.other.enummember.logicaffeine"
+        }
       }
     },
     "type-annotation": {
       "comment": "name: Type — parameter and field annotations",
       "match": "\\b([a-z_]\\w*)\\s*(:)\\s*(?=[A-Z]|fn\\b)",
       "captures": {
-        "1": { "name": "variable.parameter.logicaffeine" },
-        "2": { "name": "punctuation.separator.annotation.logicaffeine" }
+        "1": {
+          "name": "variable.parameter.logicaffeine"
+        },
+        "2": {
+          "name": "punctuation.separator.annotation.logicaffeine"
+        }
       }
     },
     "return-type": {
       "match": "(->)\\s*([A-Z]\\w*)",
       "captures": {
-        "1": { "name": "keyword.operator.arrow.logicaffeine" },
-        "2": { "name": "entity.name.type.logicaffeine" }
+        "1": {
+          "name": "keyword.operator.arrow.logicaffeine"
+        },
+        "2": {
+          "name": "entity.name.type.logicaffeine"
+        }
       }
     },
     "english-operators": {
@@ -237,7 +463,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(Let|Set|If|While|Repeat|Return|Break|Show|Give|Push|Pop|Call|Inspect|When|Otherwise|Else|Elif|elif|New|Check|Assert|Trust|Require|Requires|Ensures|Escape|Native|native|Read|Write|Sleep|Spawn|Send|Await|Merge|Increase|Decrease|Launch|Receive|Stop|Try|Mount|Sync|Listen|Connect|For|for|In|in|From|from|Be|be|To|to|Into|Inside|Zone|Called|called|Add|Remove|Append|Resolve|Attempt|Simultaneously|Following|Given|Prove|Auto|First|After|Console|File|Values|Size|Mapped|Manifest|Chunk|with|of|by|at|Task|task)\\b",
+      "match": "\\b(Let|Set|If|While|Repeat|Return|Break|Show|Give|Push|Pop|Call|Inspect|When|Otherwise|Else|Elif|elif|New|Check|Assert|Trust|Require|Requires|Ensures|Escape|Native|native|Read|Write|Sleep|Spawn|Send|Await|Merge|Converge|Increase|Decrease|Launch|Receive|Stop|Try|Mount|Sync|Listen|Connect|For|for|In|in|From|from|Be|be|To|to|Into|Inside|Zone|Called|called|Add|Remove|Append|Resolve|Attempt|Simultaneously|Following|Given|Prove|Auto|First|After|Console|File|Values|Size|Mapped|Manifest|Chunk|with|of|by|at|Task|task)\\b",
       "name": "keyword.control.logicaffeine"
     },
     "storage-modifiers": {
@@ -281,8 +507,12 @@
       "comment": "UFCS: xs.f(a) — accessor dot + callee",
       "match": "(\\.)([a-zA-Z_]\\w*)\\s*(?=\\()",
       "captures": {
-        "1": { "name": "punctuation.accessor.logicaffeine" },
-        "2": { "name": "entity.name.function.logicaffeine" }
+        "1": {
+          "name": "punctuation.accessor.logicaffeine"
+        },
+        "2": {
+          "name": "entity.name.function.logicaffeine"
+        }
       }
     },
     "function-call": {
@@ -298,6 +528,170 @@
     "index-brackets": {
       "match": "[\\[\\]]",
       "name": "punctuation.section.brackets.logicaffeine"
+    },
+    "lgx-section": {
+      "comment": "State: / Actions: — LOGOS sections of an LGX block, highlighted as LOGOS. It also covers View:/Style: as a FALLBACK: those two open an EMBEDDED grammar (HTML/CSS), and a rule whose embedded grammar an editor cannot resolve is dropped whole — taking the section keyword's own highlighting with it. The embedding rules are listed FIRST, so where the embedded grammar IS available they win and this never fires; where it is not, the keyword still reads as a keyword instead of as prose.",
+      "match": "^\\s*(State|Actions|View|Style|Head):\\s*$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.section.logicaffeine"
+        }
+      }
+    },
+    "lgx-view": {
+      "comment": "View: — the body is real HTML, so it is highlighted as HTML, with every `{…}` hole injected back as LOGOS. The end is a LOOKAHEAD at the next section or block header, because a TextMate grammar cannot see indentation.",
+      "begin": "^\\s*(View:)\\s*$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.section.logicaffeine"
+        }
+      },
+      "end": "^(?=\\s*(State|Actions|View|Style|Head):\\s*$|^##\\s|^#\\s)",
+      "contentName": "meta.embedded.block.html",
+      "patterns": [
+        {
+          "include": "#lgx-tag"
+        },
+        {
+          "include": "#lgx-hole"
+        },
+        {
+          "include": "text.html.basic"
+        }
+      ]
+    },
+    "lgx-head": {
+      "comment": "Head: — a page's document head. The body is real HTML (<title>, <meta>, <link>), so it is highlighted as HTML with every `{…}` hole injected back as LOGOS, exactly like View:. Four of the six example pages open with one, and the grammar had no rule for it at all — so the keyword read as prose and its angle brackets lexed as LOGOS operators.",
+      "begin": "^\\s*(Head:)\\s*$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.section.logicaffeine"
+        }
+      },
+      "end": "^(?=\\s*(State|Actions|View|Style|Head):\\s*$|^##\\s|^#\\s)",
+      "contentName": "meta.embedded.block.html",
+      "patterns": [
+        {
+          "include": "#lgx-tag"
+        },
+        {
+          "include": "#lgx-hole"
+        },
+        {
+          "include": "text.html.basic"
+        }
+      ]
+    },
+    "lgx-style": {
+      "comment": "Style: — the body is real CSS, scoped to the component by the compiler.",
+      "begin": "^\\s*(Style:)\\s*$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.section.logicaffeine"
+        }
+      },
+      "end": "^(?=\\s*(State|Actions|View|Style|Head):\\s*$|^##\\s|^#\\s)",
+      "contentName": "meta.embedded.block.css",
+      "patterns": [
+        {
+          "include": "source.css"
+        }
+      ]
+    },
+    "lgx-hole": {
+      "comment": "{expr} inside a template — an ordinary LOGOS expression, so it is highlighted as one. `{if …}`, `{for each …}` and friends are holes too: the whole point is that a template's control flow is the language, not a second one.",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.logicaffeine"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.logicaffeine"
+        }
+      },
+      "contentName": "meta.embedded.line.logicaffeine",
+      "patterns": [
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "lgx-tag": {
+      "comment": "A template tag: a hole whose first word is one of the template reader's tag words (TAG_WORDS in lgx/template.rs). The word is the tag's keyword, `{extends Name}` names a component and `{block name:}` a slot; everything after is LOGOS, as in any hole.",
+      "begin": "(\\{)\\s*(?:(extends)\\s+([A-Za-z_]\\w*)|(block)\\s+([A-Za-z_]\\w*)|(if|else|end|for|inspect|when|let|children|raw))(?=[\\s:}])",
+      "end": "\\}",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.begin.logicaffeine"
+        },
+        "2": {
+          "name": "keyword.control.template.logicaffeine"
+        },
+        "3": {
+          "name": "entity.name.type.logicaffeine"
+        },
+        "4": {
+          "name": "keyword.control.template.logicaffeine"
+        },
+        "5": {
+          "name": "entity.name.section.logicaffeine"
+        },
+        "6": {
+          "name": "keyword.control.template.logicaffeine"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.logicaffeine"
+        }
+      },
+      "contentName": "meta.embedded.line.logicaffeine",
+      "patterns": [
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "lgx-statements": {
+      "comment": "A component's store use and its navigation (parser/component.rs): `Use Cart.`, `Navigate to URL.`, `Go back.`",
+      "patterns": [
+        {
+          "match": "^\\s*(Use)\\s+([A-Za-z_]\\w*)(?=\\s*\\.)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.logicaffeine"
+            },
+            "2": {
+              "name": "entity.name.type.logicaffeine"
+            }
+          }
+        },
+        {
+          "match": "\\b(Navigate)\\s+(to)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.logicaffeine"
+            }
+          }
+        },
+        {
+          "match": "\\b(Go)\\s+(back)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.logicaffeine"
+            },
+            "2": {
+              "name": "keyword.control.logicaffeine"
+            }
+          }
+        }
+      ]
     }
   }
 }

@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 2,
-  "hint": "Can you think of a genuine male that this definition would wrongly EXCLUDE?",
-  "explanation": "The word 'male' appears inside its own definition — 'whatever has male reproductive organs' — so it explains the term using the term. That is CIRCULAR: anyone who didn't already know what 'male' meant is no better off."
+  "hint": "Does the definition use the word it is defining?",
+  "explanation": "'Male' appears inside its own definition, so it explains the word with the word.",
+  "section": "3.2"
 }

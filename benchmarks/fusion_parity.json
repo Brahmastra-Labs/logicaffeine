@@ -1,0 +1,953 @@
+{
+ "doc": "Fusion parity: every fusion the leading LLM inference stacks apply, by semantic class, with where each stack implements it (a file and an anchor string at the pinned commit; TensorRT-LLM by path in its pinned file listing) and what our compiler does. `compiled` = the compiled CUDA forward or the compiled generation lane (`codegen_cuda::lane`) applies it automatically from a program's tensor statements, proven by a census test (the fused kernel is emitted, the unfused launches are not) and a values test (the fused program computes what the VM or a reference computes). `partial` = applied in a weaker form. `hand_written_only` = only a hand-written model lane has it, which does not count. `gap` = nowhere. Held by crates/logicaffeine_tests/tests/fusion_parity_lock.rs.",
+ "pins": [
+  {
+   "stack": "llama.cpp",
+   "repo": "ggml-org/llama.cpp",
+   "tag": "b11635",
+   "commit": "685f70894b6618824156a876325f05919248e147"
+  },
+  {
+   "stack": "vllm",
+   "repo": "vllm-project/vllm",
+   "tag": "v0.31.0",
+   "commit": "db9527a46873454610df6dbedf79a36d6bf1a7f6"
+  },
+  {
+   "stack": "sglang",
+   "repo": "sgl-project/sglang",
+   "tag": "v0.5.21",
+   "commit": "e00930c5489053f26d86b179cee0d087f846acbb"
+  },
+  {
+   "stack": "tensorrt-llm",
+   "repo": "NVIDIA/TensorRT-LLM",
+   "tag": "v1.4.0rc0",
+   "commit": "cc63e66daf52644f1441e117bb7ba67d20566016"
+  },
+  {
+   "stack": "flashinfer",
+   "repo": "flashinfer-ai/flashinfer",
+   "tag": "v0.7.1",
+   "commit": "0b46115d238d29ea2e92c6b9b2cb077d40fbc352"
+  }
+ ],
+ "statuses": [
+  "compiled",
+  "partial",
+  "hand_written_only",
+  "gap"
+ ],
+ "classes": [
+  {
+   "id": "norm_weight",
+   "area": "norm",
+   "fuses": "RMSNorm and its per-column weight in one row kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_rms_norm_fused("
+    },
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/layernorm_kernels.cu",
+     "anchor": "rms_norm"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "flashinfer/norm/__init__.py",
+     "anchor": "rmsnorm"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/groupRmsNormKernels/groupRmsNormKernels.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::a_weighted_norm_is_one_row_kernel",
+    "values": "cuda_forward_orchestrator_lock::orchestrator_runs_a_float_transformer_subblock_equals_the_vm_on_the_gpu"
+   }
+  },
+  {
+   "id": "add_norm",
+   "area": "norm",
+   "fuses": "a residual add, the sum written back, and the RMSNorm of the sum in one kernel",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/layernorm_kernels.cu",
+     "anchor": "fused_add_rms_norm_kernel"
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/add_rms_fusion.py",
+     "anchor": "class AddRMSNormFusionPass"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "flashinfer/norm/kernels/fused_add_rmsnorm.py",
+     "anchor": "fused_add_rmsnorm"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "tensorrt_llm/_torch/compilation/patterns/residual_add_norm.py"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_forward_norm_lock::a_sum_feeding_a_plain_rmsnorm_still_fuses",
+    "values": "cuda_fusion_census_lock::an_add_then_norm_runs_as_one_kernel_and_matches_the_vm_on_the_gpu"
+   }
+  },
+  {
+   "id": "norm_then_add",
+   "area": "norm",
+   "fuses": "RMSNorm × weight followed by an add, in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_rms_norm_fused_add("
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_sandwiched_step_norms_each_sublayer_output_inside_the_sums_norm",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`sandwich_norm`: a sublayer's post-norm, whose output the residual add takes, runs inside the norm of that sum, by the reduction its own launch takes"
+   }
+  },
+  {
+   "id": "norm_scale",
+   "area": "norm",
+   "fuses": "RMSNorm followed by a scalar scale, in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_rms_norm_scale_fused("
+    }
+   ],
+   "ours": {
+    "status": "gap",
+    "note": "the language has no tensor-by-scalar scale sugar yet"
+   }
+  },
+  {
+   "id": "norm_quant",
+   "area": "norm",
+   "fuses": "RMSNorm writing the int8/fp8 quantized activation its consumer GEMM reads",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/rms_quant_fusion.py",
+     "anchor": "class RMSNormQuantFusionPass"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/rmsNormFp4QuantKernels.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::a_norm_feeding_an_int8_projection_quantizes_in_its_epilogue",
+    "values": "cuda_real_qwen8b_forward_lock::the_full_real_qwen3_8b_forward_authored_in_logos_produces_llama_cpps_token_on_the_gpu"
+   }
+  },
+  {
+   "id": "add_norm_quant",
+   "area": "norm",
+   "fuses": "residual add + RMSNorm + activation quantization in one kernel",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/rms_quant_fusion.py",
+     "anchor": "fused_add_rms_norm_static_fp8_quant"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/thop/fusedAddRMSNormQuant.cpp"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::an_add_then_norm_feeding_an_int8_projection_quantizes_in_its_epilogue",
+    "values": "cuda_real_qwen8b_forward_lock::the_full_real_qwen3_8b_forward_authored_in_logos_produces_llama_cpps_token_on_the_gpu"
+   }
+  },
+  {
+   "id": "qk_norm_rope",
+   "area": "norm",
+   "fuses": "per-head Q/K RMSNorm and RoPE in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_rms_norm_mul_rope_fused("
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/qk_norm_rope_fusion.py",
+     "anchor": "class QKNormRoPEFusionPass"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/fusedQKNormRopeKernel.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "the lane's `head_norm_rope`: each head's query and key normed and rotated in one launch"
+   }
+  },
+  {
+   "id": "qk_norm_rope_kv_append",
+   "area": "norm",
+   "fuses": "per-head Q/K RMSNorm, RoPE and the KV-cache write in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_rms_norm_mul_rope_fused(*cuda_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2], cgraph->nodes[i + 4])"
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/qk_norm_rope_kvcache_fusion.py",
+     "anchor": "class QkNormRopeKvCacheFusionPass"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`head_norm_rope` with `row_write`: the key normed, rotated and written straight into its cache row"
+   }
+  },
+  {
+   "id": "rope_kv_append",
+   "area": "attention",
+   "fuses": "RoPE of K and the KV-cache write in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_rope_fused("
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/rope_kvcache_fusion.py",
+     "anchor": "class RopeKVCacheFusionPass"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "flashinfer/rope.py",
+     "anchor": "append_paged_kv_cache"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`row_write`: the rotation writes the key straight into its cache row"
+   }
+  },
+  {
+   "id": "allreduce_norm",
+   "area": "norm",
+   "fuses": "tensor-parallel all-reduce fused with the residual add and RMSNorm",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/allreduce_rms_fusion.py",
+     "anchor": "class AllReduceFusionPass"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/communicationKernels/allReduceFusionKernels.cu"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "tensorrt_llm/_torch/compilation/patterns/ar_residual_norm.py"
+    }
+   ],
+   "ours": {
+    "status": "gap",
+    "note": "multi-GPU; the CUDA lane has no tensor parallelism (the spatial IR's AllReduce stage does)"
+   }
+  },
+  {
+   "id": "glu_act_mul",
+   "area": "activation",
+   "fuses": "the gate activation and its product with the up projection in one kernel (silu·u, gelu·u)",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_unary_mul("
+    },
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/activation_kernels.cu",
+     "anchor": "silu_and_mul"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "flashinfer/activation.py",
+     "anchor": "gelu_tanh_and_mul"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "tensorrt_llm/_torch/moe/fused_moe/activation.py"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`act_gate` (an activation gating a product) and `glu_pair` (the gate and up products with their SwiGLU)"
+   }
+  },
+  {
+   "id": "glu_act_mul_quant",
+   "area": "activation",
+   "fuses": "gate activation × up, then activation quantization, in one kernel",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/act_quant_fusion.py",
+     "anchor": "class ActivationQuantFusionPass"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::every_knob_point_generates_the_same_tokens",
+    "note": "`glu_pair` quantizing its hidden row for the down projection in its epilogue (`fused_quant`, the `fuse_quant` knob)"
+   }
+  },
+  {
+   "id": "elementwise_chains",
+   "area": "activation",
+   "fuses": "a chain of pointwise ops evaluated in registers in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_fused_add("
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/backends.py",
+     "anchor": "inductor"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_elementwise_fusion_lock::a_linear_elementwise_chain_fuses_into_one_kernel",
+    "values": "cuda_elementwise_fusion_lock::fused_chain_equals_the_vm_on_the_gpu",
+    "note": "linear chains only; DAG-shaped pointwise regions are P4"
+   }
+  },
+  {
+   "id": "softcap",
+   "area": "activation",
+   "fuses": "logit soft-capping (scale → tanh → scale) in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_softcap("
+    },
+    {
+     "stack": "flashinfer",
+     "file": "include/flashinfer/attention/variants.cuh",
+     "anchor": "logits_soft_cap"
+    }
+   ],
+   "ours": {
+    "status": "gap",
+    "note": "a final logit soft-cap is refused by name (`LaneError::NotYet`); no attention soft-cap"
+   }
+  },
+  {
+   "id": "relu_sqr",
+   "area": "activation",
+   "fuses": "ReLU² in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_relu_sqr("
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/model_executor/layers/fusion/fused_act_quant.py",
+     "anchor": "relu_squared"
+    }
+   ],
+   "ours": {
+    "status": "gap",
+    "note": "the language has no relu sugar yet"
+   }
+  },
+  {
+   "id": "gemv_gate_up_glu",
+   "area": "gemm",
+   "fuses": "gate and up projections and the GLU in one matrix-vector kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_should_fuse_mul_mat("
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/cutlass_kernels/fused_gated_gemm/gemm_swiglu_e4m3.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`glu_pair`: both projections and the gate in one GEMV (`lk_gemv_glu`), one paired GEMM over a wide chunk"
+   }
+  },
+  {
+   "id": "gemm_bias",
+   "area": "gemm",
+   "fuses": "a GEMM and its bias add in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "// mul_mat + add"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_biased_step_folds_its_biases_and_routes_by_an_f32_router",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`gemv_bias`: a projection's bias in its epilogue"
+   }
+  },
+  {
+   "id": "gemm_scale",
+   "area": "gemm",
+   "fuses": "a GEMM and a scale (+ bias) epilogue in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "// mul_mat + scale + optional bias"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "merged_qkv",
+   "area": "gemm",
+   "fuses": "the Q, K and V projections as one GEMM over the shared activation",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/model_executor/layers/linear.py",
+     "anchor": "class QKVParallelLinear"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::a_wide_chunk_in_a_block_format_runs_on_the_tensor_cores",
+    "values": "cuda_lane_lock::a_gemm_in_parts_computes_each_parts_gemm",
+    "note": "`merged_projections`: a wide chunk's query, key and value projections as one GEMM in parts (`lk_gemm_blk` G 4)"
+   }
+  },
+  {
+   "id": "merged_gate_up",
+   "area": "gemm",
+   "fuses": "the gate and up projections as one GEMM",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/model_executor/layers/linear.py",
+     "anchor": "class MergedColumnParallelLinear"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::a_paired_gemm_computes_what_its_gate_and_up_compute_apart",
+    "note": "`glu_pair`: the gate and up rows in one GEMV, one paired GEMM over a wide chunk"
+   }
+  },
+  {
+   "id": "gemm_dequant_inkernel",
+   "area": "gemm",
+   "fuses": "quantized weights dequantized inside the GEMM (no dequantized copy)",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/mmvq.cu",
+     "anchor": "mul_mat_vec_q"
+    },
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/torch_bindings.cpp",
+     "anchor": "marlin_gemm"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/cutlass_extensions/include/cutlass_extensions/gemm/warp/mma_tensorop_dequantizer.h"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::an_int8_weight_projection_dequantizes_inside_its_gemv",
+    "values": "cuda_forward_q8_lock::logos_matmul_against_a_real_int8_qwen_weight_dequants_in_kernel_on_the_gpu"
+   }
+  },
+  {
+   "id": "router_topk",
+   "area": "moe",
+   "fuses": "router softmax, top-k selection and renormalization in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_topk_moe_fusion("
+    },
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/moe/torch_bindings.cpp",
+     "anchor": "topk_softmax"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/moe/routing/customMoeRoutingKernels.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::a_sparse_moe_routes_with_one_topk_kernel_and_two_fused_expert_kernels",
+    "values": "moe_mechanism_lock::the_sparse_dp4a_moe_lg_matches_the_dense_reference_on_the_gpu"
+   }
+  },
+  {
+   "id": "moe_gate_up_act",
+   "area": "moe",
+   "fuses": "the selected experts' gate and up GEMVs and the GLU in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "// gate + glu + up, with optional scale/bias on both lanes."
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/model_executor/layers/fused_moe/fused_moe.py",
+     "anchor": "def fused_moe_kernel("
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::a_sparse_moe_routes_with_one_topk_kernel_and_two_fused_expert_kernels",
+    "values": "moe_mechanism_lock::the_sparse_dp4a_moe_lg_matches_the_dense_reference_on_the_gpu"
+   }
+  },
+  {
+   "id": "moe_down_combine",
+   "area": "moe",
+   "fuses": "the experts' down GEMVs and the routing-weighted sum in one kernel",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/model_executor/layers/fused_moe/fused_moe.py",
+     "anchor": "MUL_ROUTED_WEIGHT"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::a_sparse_moe_routes_with_one_topk_kernel_and_two_fused_expert_kernels",
+    "values": "moe_mechanism_lock::the_sparse_dp4a_moe_lg_matches_the_dense_reference_on_the_gpu"
+   }
+  },
+  {
+   "id": "shared_expert_fusion",
+   "area": "moe",
+   "fuses": "the routed experts and the shared expert in one launch",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "fusion.shared_gate"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_shared_expert_folds_into_its_mixture_where_nothing_else_reads_its_parts",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`shared_expert`: the shared expert folded into its mixture's launch set"
+   }
+  },
+  {
+   "id": "moe_token_sort",
+   "area": "moe",
+   "fuses": "batched MoE: tokens sorted by expert so each expert's weights are read once per batch",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/moe/torch_bindings.cpp",
+     "anchor": "moe_align_block_size"
+    },
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_mul_mat_id"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::a_wide_chunks_experts_run_on_the_tensor_cores",
+    "values": "cuda_lane_lock::the_grouped_expert_gemms_compute_what_the_slabs_compute",
+    "note": "a chunk's rows grouped by expert, each expert's matrices multiplied once over its rows (grouped `lk_gemm_blk`; `moe_rows` below the tensor cores)"
+   }
+  },
+  {
+   "id": "flash_decode",
+   "area": "attention",
+   "fuses": "single-query attention: scores, online softmax and the weighted sum in one split-K kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/fattn-vec.cuh",
+     "anchor": "flash_attn_ext_vec"
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/v1/attention/backends/flash_attn.py",
+     "anchor": "class FlashAttentionImpl"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "include/flashinfer/attention/scheduler.cuh",
+     "anchor": "BatchDecodeWithPagedKVCache"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/kernels/xqa/mha.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_decode_step_attends_a_long_cache_in_chunks_one_launch_a_layer",
+    "values": "cuda_lane_lock::a_long_prompt_attends_in_chunks_alike_in_every_form",
+    "note": "the decode step's attention cut over its span, a block a chunk, the last block folding them (`lk_attention`, `lk_attention_shared` + `lk_attention_fold`)"
+   }
+  },
+  {
+   "id": "flash_prefill",
+   "area": "attention",
+   "fuses": "multi-query causal attention tiled through shared memory with an online softmax",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/fattn-mma-f16.cuh",
+     "anchor": "flash_attn_ext_f16"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "include/flashinfer/attention/pod.cuh",
+     "anchor": "BatchPrefillWithPagedKVCache"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::a_wide_chunk_attends_in_tiles",
+    "values": "cuda_lane_lock::the_tensor_core_attention_computes_what_the_attention_computes",
+    "note": "a wide chunk attends in tiles with an online softmax: `lk_attention_mma` (f16), `lk_attention_i8` (two words), `lk_attention_flash` (f32)"
+   }
+  },
+  {
+   "id": "attention_variants_inline",
+   "area": "attention",
+   "fuses": "sliding window, attention sinks, soft-capping and masks applied inside the attention kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/fattn-common.cuh",
+     "anchor": "logit_softcap"
+    },
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/fattn-common.cuh",
+     "anchor": "sinks"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "include/flashinfer/attention/variants.cuh",
+     "anchor": "logits_soft_cap"
+    }
+   ],
+   "ours": {
+    "status": "partial",
+    "census": "lane_compile_lock::the_sandwiched_step_windows_its_local_layers_and_fuses_its_gates",
+    "note": "windows and sinks inside the attention kernel; soft-capping and arbitrary masks are not"
+   }
+  },
+  {
+   "id": "attn_output_quant",
+   "area": "attention",
+   "fuses": "attention writing the quantized activation the output projection reads",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/attn_quant_fusion.py",
+     "anchor": "class AttnQuantFusionPass"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::an_attention_feeding_an_int8_projection_quantizes_in_its_epilogue",
+    "values": "cuda_fusion_census_lock::an_attention_feeding_an_int8_projection_matches_its_reference_on_the_gpu"
+   }
+  },
+  {
+   "id": "mla",
+   "area": "attention",
+   "fuses": "multi-head latent attention: absorbed weights, decoupled RoPE and the latent KV cache",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/passes/fusion/mla_rope_kvcache_cat_fusion.py",
+     "anchor": "class MLARoPEKVCacheCatFusionPass"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "cpp/tensorrt_llm/kernels/mlaKernels.cu"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_latent_step_absorbs_each_heads_query_and_reads_its_values_in_the_cache",
+    "values": "cuda_lane_lock::the_expanded_latent_attention_computes_what_the_absorbed_one_computes",
+    "note": "absorbed latent attention: each head's query through the key half, decoupled rotation, the latent cache read in place (`strided_values`)"
+   }
+  },
+  {
+   "id": "gdn_step",
+   "area": "recurrent",
+   "fuses": "a gated-delta-net decode step over its state in one pass",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_try_gdn_cache_fusion("
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/_custom_ops.py",
+     "anchor": "fused_gdn_decode_post_conv_mtp"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
+    "values": "cuda_lane_lock::the_chunked_delta_rule_computes_what_the_delta_rule_a_row_at_a_time_computes",
+    "note": "the gated delta rule a decode step in one launch (`lk_delta_step`), a wide chunk 64 rows at a time (`lk_delta_state`)"
+   }
+  },
+  {
+   "id": "conv_bias_silu",
+   "area": "recurrent",
+   "fuses": "causal conv, its bias and SiLU in one kernel",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "ggml_cuda_op_ssm_conv(*cuda_ctx, node, cgraph->nodes[i + 1], cgraph->nodes[i + 2])"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`conv_silu` / `conv_silu_l2`: the causal convolution with its SiLU (and the head's L2 norm) in one launch"
+   }
+  },
+  {
+   "id": "fused_sampling",
+   "area": "output",
+   "fuses": "the next-token choice (argmax, or top-k/top-p sampling) on the device",
+   "stacks": [
+    {
+     "stack": "flashinfer",
+     "file": "flashinfer/sampling.py",
+     "anchor": "top_k_top_p_sampling"
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/v1/sample/ops/topk_topp_sampler.py",
+     "anchor": "class TopKTopPSampler"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
+    "values": "cuda_lane_lock::the_real_qwen3_8b_continues_llama_cpps_golden",
+    "note": "`argmax_advance`: the arg-max on the device moves the token, the position and the generated run on"
+   }
+  },
+  {
+   "id": "cuda_graphs",
+   "area": "graph",
+   "fuses": "the whole step captured once as a CUDA graph and replayed",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "ggml/src/ggml-cuda/ggml-cuda.cu",
+     "anchor": "cudaGraphLaunch"
+    },
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/cuda_graph.py",
+     "anchor": "class CUDAGraphWrapper"
+    },
+    {
+     "stack": "tensorrt-llm",
+     "path": "tensorrt_llm/_torch/pyexecutor/cuda_graph_runner.py"
+    }
+   ],
+   "ours": {
+    "status": "compiled",
+    "census": "cuda_fusion_census_lock::the_compiled_forward_is_captured_as_one_cuda_graph",
+    "values": "cuda_full_forward_lock::a_complete_transformer_forward_authored_in_logos_runs_on_the_gpu_and_matches_the_vm"
+   }
+  },
+  {
+   "id": "kv_cache_quant",
+   "area": "attention",
+   "fuses": "the KV cache stored quantized and read through the attention kernel",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "csrc/libtorch_stable/nvfp4_kv_cache_kernels.cu",
+     "anchor": "kv"
+    }
+   ],
+   "ours": {
+    "status": "gap",
+    "note": "the lane's caches are f32; a quantized cache is not yet compiled"
+   }
+  }
+ ],
+ "serving": [
+  {
+   "id": "continuous_batching",
+   "feature": "requests join and leave the running batch every step",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/v1/core/sched/scheduler.py",
+     "anchor": "class Scheduler"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "paged_kv",
+   "feature": "the KV cache allocated in fixed pages through a block table",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/v1/core/kv_cache_manager.py",
+     "anchor": "class KVCacheManager"
+    },
+    {
+     "stack": "flashinfer",
+     "file": "flashinfer/page.py",
+     "anchor": "append_paged_kv_cache"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "prefix_cache",
+   "feature": "shared prompt prefixes reuse their cached KV",
+   "stacks": [
+    {
+     "stack": "sglang",
+     "file": "python/sglang/srt/mem_cache/radix_cache.py",
+     "anchor": "class RadixCache"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "chunked_prefill",
+   "feature": "long prompts prefilled in chunks interleaved with decode",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/v1/core/sched/scheduler.py",
+     "anchor": "chunked"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "speculative_decoding",
+   "feature": "a draft (MTP/EAGLE/n-gram) proposes tokens the model verifies in one pass",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/v1/spec_decode/eagle.py",
+     "anchor": "class"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "expert_offload",
+   "feature": "MoE experts held in host memory and computed on the CPU beside a GPU-resident model",
+   "stacks": [
+    {
+     "stack": "llama.cpp",
+     "file": "common/arg.cpp",
+     "anchor": "n-cpu-moe"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  },
+  {
+   "id": "per_batch_graphs",
+   "feature": "one captured graph per batch size",
+   "stacks": [
+    {
+     "stack": "vllm",
+     "file": "vllm/compilation/cuda_graph.py",
+     "anchor": "class CUDAGraphWrapper"
+    }
+   ],
+   "ours": {
+    "status": "gap"
+   }
+  }
+ ]
+}

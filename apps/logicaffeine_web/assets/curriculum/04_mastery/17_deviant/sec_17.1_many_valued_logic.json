@@ -1,0 +1,48 @@
+{
+  "id": "17.1",
+  "title": "Many-Valued Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Classical logic has two truth values. **Many-valued logics** add more."
+    },
+    {
+      "type": "paragraph",
+      "text": "Jan Łukasiewicz gave a third value, indeterminate, to statements about the future, like 'there will be a sea battle tomorrow'. Fuzzy logic allows every degree from 0 to 1."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Three-valued negation",
+      "lines": [
+        "¬T is F",
+        "¬F is T",
+        "¬I is I"
+      ],
+      "note": "Denying something indeterminate leaves it indeterminate."
+    },
+    {
+      "type": "worked",
+      "title": "Fuzzy truth",
+      "lines": [
+        "A person 1.80 m tall might be tall to degree 0.7."
+      ],
+      "note": "Vague words like tall come in degrees."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Why did Łukasiewicz add a third truth value?",
+    "options": [
+      "To make logic harder",
+      "For statements about the future",
+      "To remove contradictions",
+      "To shorten proofs"
+    ],
+    "correct": 1,
+    "hint": "Think of the sea battle tomorrow.",
+    "explanation": "He wanted a value for statements about the future, which seem neither true nor false yet."
+  }
+}

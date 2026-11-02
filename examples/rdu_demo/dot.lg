@@ -1,0 +1,17 @@
+# Dot — a dot product of two affine streams, accumulated over a counted range.
+#
+# RDU lane: loop. The first function is a counted range loop (`Repeat for i from 1 to n`), so `largo emit rdu`
+# lowers it through the Plasticine lane onto the SN50 descriptor: one metapipeline stage under the
+# Tungsten-calibrated PCU model (a loop-carried register costs the pipeline depth + 1 per iteration), a
+# checkerboard placement and its routes, a SAT certificate of the routed body datapath (the body is
+# ALU-only: multiply, add, subtract), a VM anchor, and Spatial source for the public PIR chain.
+
+## To dot (n: Int) -> Int:
+    Let mutable s be 0.
+    Repeat for i from 1 to n:
+        Set s to s + (i * 3 + 1) * (i * 7 - 2).
+    Return s.
+
+## Main
+
+Show dot(1024).

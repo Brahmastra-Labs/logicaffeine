@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.title",
+  "workload": "bytesTitle(xs) \u2014 titlecase, positional fold",
+  "arg": "40000",
+  "expected": "5213664",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

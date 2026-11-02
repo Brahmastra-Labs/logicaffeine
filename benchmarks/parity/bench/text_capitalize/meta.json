@@ -1,0 +1,10 @@
+{
+  "capability": "text.capitalize",
+  "workload": "capitalize(s) \u2014 length fold",
+  "arg": "20000",
+  "expected": "80990000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

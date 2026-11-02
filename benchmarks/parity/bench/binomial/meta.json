@@ -1,0 +1,8 @@
+{
+  "capability": "math.binomial",
+  "workload": "sum of binomial(30, (sum + i) mod 16) over 1<=i<=n - the binomial argument depends on the running accumulator, a loop-carried recurrence, so the compiled rivals cannot constant-fold or vectorize the loop and must do real per-call work; 16 distinct k keep LOGOS's auto-memoization effective",
+  "arg": "90000000",
+  "expected": "53439748219141",
+  "logos_uses_stdlib": true,
+  "note": "main.lg calls binomial() WITHOUT defining it - auto-imported from math.lg. The argument is (sum + i) mod 16 - data-dependent on the accumulator (a sequential recurrence), which defeats the compiler: the earlier `i mod 16` was periodic and gcc/rustc/go strength-reduced the whole sum to ~0 (an artifact that showed LOGOS falsely losing). Now C runs ~1.3s of genuine work. LOGOS wins via the optimizer's auto-memoization of binomial(30, k) over the 16 distinct k; the compiled rivals recompute the multiplicative binomial (acc*(n-k+i)/i) each call. Python dropped (n=90M is minutes in CPython)."
+}

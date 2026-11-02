@@ -93,7 +93,10 @@ fn mandelbrot_kernel_loop_tiers_and_agrees() {
                Show count.\n";
     let (_, err, _, region_ok) = tiered(src);
     assert_eq!(err, None);
-    assert!(region_ok >= 1, "a mandelbrot loop must tier up (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "a mandelbrot loop must tier up (got {region_ok})"
+    );
 }
 
 /// Float equality is IEEE (`a == b`, `NaN != NaN`) — identical to the kernel
@@ -118,7 +121,10 @@ fn float_ieee_equality_through_hot_loop() {
                Show exact_hits.\n";
     let (out, err, _, _) = tiered(src);
     assert_eq!(err, None);
-    assert_eq!(out, "0\n500", "IEEE equality must hold natively exactly as in the kernel");
+    assert_eq!(
+        out, "0\n500",
+        "IEEE equality must hold natively exactly as in the kernel"
+    );
 }
 
 /// Float division by zero at a data-dependent iteration: side-exit, replay,
@@ -202,7 +208,10 @@ fn nqueens_inner_loop_bitwise_region_tiers() {
                 Show acc.\n";
     let (_, err2, _, region_ok2) = tiered(src2);
     assert_eq!(err2, None);
-    assert!(region_ok2 >= 1, "pure bitwise loop must tier (got {region_ok2})");
+    assert!(
+        region_ok2 >= 1,
+        "pure bitwise loop must tier (got {region_ok2})"
+    );
 }
 
 /// Shift semantics at the edges must match the kernel bit-for-bit through

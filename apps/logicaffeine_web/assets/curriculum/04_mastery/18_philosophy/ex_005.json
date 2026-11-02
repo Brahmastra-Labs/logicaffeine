@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "It's about whether there's ONE true logic or several legitimate alternatives.",
-  "explanation": "Logical pluralism holds that there's more than one correct logic - classical, intuitionistic, and relevance logic might all be valid for different purposes or domains. There's no single 'true' logic; different logics capture different aspects of valid reasoning.",
-  "visual_concept": "Not 'which logic is THE right one?' but 'which logic is right FOR THIS PURPOSE?' - like different tools for different jobs."
+  "explanation": "Logical pluralism holds that more than one logic can be correct, each for its own purpose.",
+  "visual_concept": "Not 'which logic is THE right one?' but 'which logic is right FOR THIS PURPOSE?' - like different tools for different jobs.",
+  "section": "18.5"
 }

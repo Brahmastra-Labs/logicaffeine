@@ -1,0 +1,53 @@
+{
+  "id": "15.1",
+  "title": "What Is Metalogic?",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Metalogic** is logic about logic. It studies logical systems themselves: what they can prove, and whether what they prove is true."
+    },
+    {
+      "type": "definition",
+      "term": "Object language",
+      "definition": "The formal language being studied: its symbols, formulas and rules."
+    },
+    {
+      "type": "definition",
+      "term": "Metalanguage",
+      "definition": "The language used to talk about the object language."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Two languages",
+      "lines": [
+        "In the object language: P ∨ ¬P",
+        "In the metalanguage: 'P ∨ ¬P' is provable."
+      ],
+      "note": "The second sentence is about the first."
+    },
+    {
+      "type": "worked",
+      "title": "A metalogical question",
+      "lines": [
+        "Can every true formula of this system be proved in it?"
+      ],
+      "note": "The question is about the system, not inside it."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does metalogic study?",
+    "options": [
+      "Everyday reasoning",
+      "Logical systems themselves",
+      "The psychology of reasoning",
+      "Arithmetic"
+    ],
+    "correct": 1,
+    "hint": "Meta means about. What is metalogic about?",
+    "explanation": "Metalogic studies logical systems: questions like whether a system is sound, complete or consistent."
+  }
+}

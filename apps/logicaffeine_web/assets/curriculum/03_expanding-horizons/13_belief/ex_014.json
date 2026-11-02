@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It's evident that L and E are both true",
   "options": [
-    "$ (O\\underline{u}L\\cdot O\\underline{u}:E ) $",
-    "$ (Ou:L\\cdot Ou:E) $",
-    "$ Ou:(L\\cdot E) $",
-    "$ O\\underline{u}:(L\\cdot E) $"
+    "O u̲:L ∧ O u̲:E",
+    "O u:L ∧ O u:E",
+    "O u:(L ∧ E)",
+    "O u̲:(L ∧ E)"
   ],
   "correct": 3,
-  "hint": "Evidentiality (O) is like belief but stronger. What is or isn't evident, and to whom?",
-  "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P \u2014 the evidence operator is negated, not the content."
+  "hint": "Evident means you ought to believe it. Is one thing evident, or two separately?",
+  "explanation": "It is evident that L and E are both true, so the conjunction is the content: O u̲:(L ∧ E).",
+  "section": "13.2"
 }

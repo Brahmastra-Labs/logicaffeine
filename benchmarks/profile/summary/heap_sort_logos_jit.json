@@ -1,0 +1,11 @@
+{
+  "name": "heap_sort",
+  "lang": "logos_jit",
+  "n": "48241020",
+  "samples_weight": 198518403358,
+  "alloc_pct": 2.726,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 97.274
+}

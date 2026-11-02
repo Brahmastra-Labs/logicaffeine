@@ -38,12 +38,20 @@ describe("commands", () => {
       "logicaffeine.verify",
       "logicaffeine.prove",
       "logicaffeine.checkProof",
-      "logicaffeine.setLicense",
       "logicaffeine.restartServer",
       "logicaffeine.showServerLog",
     ]) {
       assert.ok(all.includes(id), `command ${id} must be registered`);
     }
+  });
+
+  it("asks for no license: LOGOS is MIT and Verify takes no key", async () => {
+    const packageJson = vscode.extensions.getExtension("brahmastra-labs.logicaffeine")!
+      .packageJSON as { contributes: { commands: Array<{ command: string; title: string }> } };
+    const licensed = packageJson.contributes.commands.filter((c) => /licen[cs]e/i.test(`${c.command} ${c.title}`));
+    assert.deepStrictEqual(licensed, [], "the extension contributes a license command");
+    const all = await vscode.commands.getCommands(true);
+    assert.ok(!all.includes("logicaffeine.setLicense"), "logicaffeine.setLicense is still registered");
   });
 
   it("contributed commands match registered commands (package.json ↔ code)", async () => {
@@ -78,6 +86,32 @@ describe("commands", () => {
     assert.ok(task, "executing logicaffeine.run must start a task");
     assert.strictEqual(task!.definition.type, "largo");
     assert.deepStrictEqual(task!.definition.args, ["run", "--interpret"]);
+  });
+
+  it("Verify spawns largo verify from the project root, with no key asked or passed", async function () {
+    this.timeout(60_000);
+    const folders = vscode.workspace.workspaceFolders;
+    assert.ok(folders && folders.length > 0, "the fixture workspace must be open");
+
+    const mainLg = vscode.Uri.joinPath(folders![0].uri, "src", "main.lg");
+    const started = new Promise<vscode.Task>((resolve) => {
+      const listener = vscode.tasks.onDidStartTask((event) => {
+        listener.dispose();
+        resolve(event.execution.task);
+      });
+    });
+
+    void vscode.commands.executeCommand("logicaffeine.verify", mainLg.toString());
+
+    const task = await Promise.race([
+      started,
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), 30_000)),
+    ]);
+    assert.ok(task, "executing logicaffeine.verify must start a task without asking for anything");
+    assert.strictEqual(task!.definition.type, "largo");
+    assert.deepStrictEqual(task!.definition.args, ["verify"]);
+    const env = (task!.execution as vscode.ShellExecution).options?.env ?? {};
+    assert.deepStrictEqual(Object.keys(env), [], "largo verify must run with no extra environment");
   });
 });
 

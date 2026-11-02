@@ -1,0 +1,29 @@
+# name	hex	what
+relay/subscribe	000000000400000000000000726f6f6d	Subscribe { topic: "room" }
+relay/unsubscribe	010000000400000000000000726f6f6d	Unsubscribe { topic: "room" }
+relay/publish	020000000400000000000000726f6f6d0300000000000000010203	Publish { topic: "room", data: [1, 2, 3] }
+relay/suback	030000000400000000000000726f6f6d	SubAck { topic: "room" }
+relay/event	040000000400000000000000726f6f6d0300000000000000010203	Event { topic: "room", data: [1, 2, 3] }
+peer/handshake-full	4c43485305616c696365018080802040808080088080800801003f	the handshake a LOGOS node sends from inbox "alice" (its full profile)
+peer/handshake-conservative	4c43485305616c6963650180808020408080800880808008010000	a handshake from inbox "alice" advertising only the base form
+message/nothing	017800956f5c50ad5505616c69636500	from "alice", checksummed: nothing
+message/false	012b02956f5c51ad5505616c69636501	from "alice", checksummed: false
+message/true	01de03956f5c52ad5505616c69636502	from "alice", checksummed: true
+message/int-0	016375389a11378a2a05616c6963650300	from "alice", checksummed: 0
+message/int-7	012d8d389a11458a2a05616c696365030e	from "alice", checksummed: 7
+message/int-minus-1	01b073389a11368a2a05616c6963650301	from "alice", checksummed: -1
+message/int-max	01dc88513506ef489205616c69636503feffffffffffffffff01	from "alice", checksummed: 9223372036854775807
+message/int-min	01f9dffe494c77fcd205616c69636503ffffffffffffffffff01	from "alice", checksummed: -9223372036854775808
+message/real-2.5	01609ebfe6f9db9f5905616c696365040000000000000440	from "alice", checksummed: 2.5
+message/real-minus-0	014471cce6f933ae5905616c696365040000000000000080	from "alice", checksummed: -0
+message/char-e-acute	0181e84c15e976c28f05616c69636505e901	from "alice", checksummed: é
+message/text-empty	01de1e419a1169942a05616c6963650600	from "alice", checksummed: 
+message/text-hi	013bcb8ca51bdb447905616c69636506026869	from "alice", checksummed: hi
+message/text-multibyte-multiline	01d8950d2dfd1ba82f05616c696365060d68c3a96c6c6f0a77c3b6726c64	from "alice", checksummed: héllo wörld
+message/list-empty	01f3a7669a1197c02a05616c6963651300	from "alice", checksummed: []
+message/list-ints	01ab7ada5567662ebd05616c6963651306010203	from "alice", checksummed: [1, 2, 3]
+message/list-texts	01fd78ad5fecd40aa705616c696365160201016162	from "alice", checksummed: [a, b]
+message/list-nested	01adbe90e77c79d45b05616c6963650d0213020113040203	from "alice", checksummed: [[1], [2, 3]]
+message/tuple-int-text	0147e4bc611cb6ce1505616c6963650e020302060161	from "alice", checksummed: (1, a)
+message/int-7-unchecked	0005616c696365030e	from "alice", no checksum: 7
+stream/ints	fd05616c6963650c01a289066c18e242d90003020c01707f066c18dc42d90003040c01d682066c18de42d9000306	a stream from "alice" of 1, 2, 3

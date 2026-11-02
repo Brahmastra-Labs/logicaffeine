@@ -1,0 +1,11 @@
+{
+  "capability": "math.degrees",
+  "workload": "math.degrees",
+  "arg": "1000000",
+  "expected": "28647918403930916",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

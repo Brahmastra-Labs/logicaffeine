@@ -1,0 +1,11 @@
+{
+  "capability": "calendar.month_abbr",
+  "workload": "sum of the length of monthAbbr(m) over a rolling month sweep",
+  "arg": "3000000",
+  "expected": "9000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "Pure-LOGOS calendar switch-lookup (calendar.month_abbr). Python rival present; C/Rust/Go rivals not yet authored, so perf stays pending. Sized so the Python rival is tolerable."
+}

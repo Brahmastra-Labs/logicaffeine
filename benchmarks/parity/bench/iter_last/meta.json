@@ -1,0 +1,10 @@
+{
+  "capability": "iter.last",
+  "workload": "lastOf(xs)",
+  "arg": "400000",
+  "expected": "80145375024",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

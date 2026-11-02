@@ -6,9 +6,9 @@
 //!
 //! Pipeline: LTL → Büchi automaton → Strategy search → Circuit → SVA/Verilog
 
-use crate::ir::{VerifyExpr, VerifyOp};
 use crate::automata::{ltl_to_buchi, BuchiAutomaton};
 use crate::ic3::check_sat;
+use crate::ir::{VerifyExpr, VerifyOp};
 
 /// Signal declaration for synthesis.
 #[derive(Debug, Clone)]
@@ -93,7 +93,8 @@ fn synthesize_safety(
 
     // Try: all outputs = true
     let mut transitions = Vec::new();
-    let output_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+    let output_assignments: Vec<(String, VerifyExpr)> = outputs
+        .iter()
         .map(|o| (o.name.clone(), VerifyExpr::bool(true)))
         .collect();
 
@@ -120,7 +121,8 @@ fn synthesize_safety(
 
     // Try: outputs mirror inputs (for response patterns)
     if inputs.len() == outputs.len() {
-        let mirror_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+        let mirror_assignments: Vec<(String, VerifyExpr)> = outputs
+            .iter()
             .zip(inputs.iter())
             .map(|(o, i)| (o.name.clone(), VerifyExpr::var(&i.name)))
             .collect();
@@ -147,7 +149,8 @@ fn synthesize_safety(
     }
 
     // Try: all outputs = false
-    let false_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+    let false_assignments: Vec<(String, VerifyExpr)> = outputs
+        .iter()
         .map(|o| (o.name.clone(), VerifyExpr::bool(false)))
         .collect();
     let false_check = substitute_outputs(spec, &false_assignments);
@@ -171,7 +174,8 @@ fn synthesize_safety(
 
     // Try: each output follows corresponding input (for response patterns)
     if !inputs.is_empty() && !outputs.is_empty() {
-        let resp_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+        let resp_assignments: Vec<(String, VerifyExpr)> = outputs
+            .iter()
             .enumerate()
             .map(|(i, o)| {
                 let value = if i < inputs.len() {
@@ -205,7 +209,8 @@ fn synthesize_safety(
 
     // Try: each output is the negation of corresponding input
     if !inputs.is_empty() && !outputs.is_empty() {
-        let neg_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+        let neg_assignments: Vec<(String, VerifyExpr)> = outputs
+            .iter()
             .enumerate()
             .map(|(i, o)| {
                 let value = if i < inputs.len() {
@@ -247,17 +252,21 @@ fn synthesize_bounded(
     outputs: &[SignalDecl],
     buchi: &BuchiAutomaton,
 ) -> SynthesisResult {
-    let states: Vec<String> = buchi.states.iter()
-        .map(|s| format!("s{}", s.id))
-        .collect();
+    let states: Vec<String> = buchi.states.iter().map(|s| format!("s{}", s.id)).collect();
 
     let mut transitions = Vec::new();
     let mut all_valid = true;
 
     // Candidate strategies for each transition: try all-true first, then all-false
     let candidate_strategies: Vec<Vec<(String, VerifyExpr)>> = vec![
-        outputs.iter().map(|o| (o.name.clone(), VerifyExpr::bool(true))).collect(),
-        outputs.iter().map(|o| (o.name.clone(), VerifyExpr::bool(false))).collect(),
+        outputs
+            .iter()
+            .map(|o| (o.name.clone(), VerifyExpr::bool(true)))
+            .collect(),
+        outputs
+            .iter()
+            .map(|o| (o.name.clone(), VerifyExpr::bool(false)))
+            .collect(),
     ];
 
     for trans in &buchi.transitions {
@@ -318,12 +327,26 @@ pub fn circuit_to_verilog(circuit: &Circuit) -> String {
     let mut v = String::new();
 
     // Module header
-    let input_ports: Vec<String> = circuit.inputs.iter().map(|i| format!("input {}", i.name)).collect();
-    let output_ports: Vec<String> = circuit.outputs.iter().map(|o| format!("output reg {}", o.name)).collect();
+    let input_ports: Vec<String> = circuit
+        .inputs
+        .iter()
+        .map(|i| format!("input {}", i.name))
+        .collect();
+    let output_ports: Vec<String> = circuit
+        .outputs
+        .iter()
+        .map(|o| format!("output reg {}", o.name))
+        .collect();
     let all_ports: Vec<String> = vec!["input clk".into(), "input rst".into()]
-        .into_iter().chain(input_ports).chain(output_ports).collect();
+        .into_iter()
+        .chain(input_ports)
+        .chain(output_ports)
+        .collect();
 
-    v.push_str(&format!("module controller(\n  {}\n);\n\n", all_ports.join(",\n  ")));
+    v.push_str(&format!(
+        "module controller(\n  {}\n);\n\n",
+        all_ports.join(",\n  ")
+    ));
 
     // State encoding
     let state_bits = (circuit.states.len() as f64).log2().ceil() as u32;
@@ -345,13 +368,19 @@ pub fn circuit_to_verilog(circuit: &Circuit) -> String {
 
     for state in &circuit.states {
         v.push_str(&format!("        {}: begin\n", state));
-        let state_transitions: Vec<&CircuitTransition> = circuit.transitions.iter()
+        let state_transitions: Vec<&CircuitTransition> = circuit
+            .transitions
+            .iter()
             .filter(|t| t.from_state == *state)
             .collect();
         for trans in state_transitions {
             v.push_str(&format!("          state <= {};\n", trans.to_state));
             for (output, value) in &trans.outputs {
-                v.push_str(&format!("          {} <= {};\n", output, expr_to_verilog(value)));
+                v.push_str(&format!(
+                    "          {} <= {};\n",
+                    output,
+                    expr_to_verilog(value)
+                ));
             }
         }
         v.push_str("        end\n");
@@ -375,7 +404,10 @@ fn trivial_controller(inputs: &[SignalDecl], outputs: &[SignalDecl]) -> Circuit 
             from_state: "s0".into(),
             guard: VerifyExpr::bool(true),
             to_state: "s0".into(),
-            outputs: outputs.iter().map(|o| (o.name.clone(), VerifyExpr::bool(true))).collect(),
+            outputs: outputs
+                .iter()
+                .map(|o| (o.name.clone(), VerifyExpr::bool(true)))
+                .collect(),
         }],
     }
 }
@@ -414,13 +446,25 @@ fn expr_to_sva(expr: &VerifyExpr) -> String {
         VerifyExpr::Bool(false) => "0".into(),
         VerifyExpr::Var(name) => name.clone(),
         VerifyExpr::Not(inner) => format!("!({})", expr_to_sva(inner)),
-        VerifyExpr::Binary { op: VerifyOp::And, left, right } => {
+        VerifyExpr::Binary {
+            op: VerifyOp::And,
+            left,
+            right,
+        } => {
             format!("({} && {})", expr_to_sva(left), expr_to_sva(right))
         }
-        VerifyExpr::Binary { op: VerifyOp::Or, left, right } => {
+        VerifyExpr::Binary {
+            op: VerifyOp::Or,
+            left,
+            right,
+        } => {
             format!("({} || {})", expr_to_sva(left), expr_to_sva(right))
         }
-        VerifyExpr::Binary { op: VerifyOp::Implies, left, right } => {
+        VerifyExpr::Binary {
+            op: VerifyOp::Implies,
+            left,
+            right,
+        } => {
             format!("({} |-> {})", expr_to_sva(left), expr_to_sva(right))
         }
         _ => format!("{:?}", expr),

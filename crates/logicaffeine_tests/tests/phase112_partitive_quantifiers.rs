@@ -1,4 +1,4 @@
-//! Phase 112 — §5.3 Proportional / partitive quantifiers (work/MISSING_ENGLISH.md).
+//! Phase 112 — Proportional / partitive quantifiers.
 //!
 //! Quantifiers over a presupposed salient set:
 //!   "Two of the three students passed." → |{x:Student(x)∧Pass(x)}|=2  (within the 3-set)
@@ -13,10 +13,16 @@ use logicaffeine_language::compile;
 fn cardinal_partitive_with_superset() {
     let out = compile("Two of the three students passed.").unwrap();
     eprintln!("two-of-three: {out}");
-    assert!(out.contains("∃=2") || out.contains("=2"), "count is exactly two: {out}");
+    assert!(
+        out.contains("∃=2") || out.contains("=2"),
+        "count is exactly two: {out}"
+    );
     assert!(out.contains("Student"), "restricted to students: {out}");
     assert!(out.contains("Pass"), "the predicate: {out}");
-    assert!(!out.contains("(The)") && !out.contains("x(The"), "the definite article must not be the restriction: {out}");
+    assert!(
+        !out.contains("(The)") && !out.contains("x(The"),
+        "the definite article must not be the restriction: {out}"
+    );
 }
 
 #[test]
@@ -32,8 +38,14 @@ fn proportional_partitive_most() {
 fn cardinal_partitive_no_superset() {
     let out = compile("Two of the students passed.").unwrap();
     eprintln!("two-of: {out}");
-    assert!(out.contains("∃=2") || out.contains("=2"), "count is two: {out}");
-    assert!(out.contains("Student") && out.contains("Pass"), "restriction + predicate: {out}");
+    assert!(
+        out.contains("∃=2") || out.contains("=2"),
+        "count is two: {out}"
+    );
+    assert!(
+        out.contains("Student") && out.contains("Pass"),
+        "restriction + predicate: {out}"
+    );
 }
 
 #[test]
@@ -41,7 +53,10 @@ fn some_partitive() {
     let out = compile("Some of the dogs barked.").unwrap();
     eprintln!("some-of: {out}");
     assert!(out.contains('∃'), "existential: {out}");
-    assert!(out.contains("Dog") && out.contains("Bark"), "restriction + predicate: {out}");
+    assert!(
+        out.contains("Dog") && out.contains("Bark"),
+        "restriction + predicate: {out}"
+    );
 }
 
 #[test]
@@ -51,16 +66,31 @@ fn cardinal_partitive_superset_is_presupposed() {
     // cardinality (3) must survive as a presupposition — not be silently discarded.
     let out = compile("Two of the three students passed.").unwrap();
     eprintln!("two-of-three superset: {out}");
-    assert!(out.contains("∃=2") || out.contains("=2"), "count is exactly two: {out}");
-    assert!(out.contains("∃=3") || out.contains("=3"), "superset of exactly three is presupposed: {out}");
-    assert!(out.contains("Presup"), "the superset surfaces as a presupposition: {out}");
+    assert!(
+        out.contains("∃=2") || out.contains("=2"),
+        "count is exactly two: {out}"
+    );
+    assert!(
+        out.contains("∃=3") || out.contains("=3"),
+        "superset of exactly three is presupposed: {out}"
+    );
+    assert!(
+        out.contains("Presup"),
+        "the superset surfaces as a presupposition: {out}"
+    );
 }
 
 #[test]
 fn non_partitive_quantifiers_unchanged() {
     // Regression: plain (non-partitive) quantifiers are unaffected.
     let most = compile("Most students passed.").unwrap();
-    assert!(most.contains("MOST") && most.contains("Student"), "plain MOST: {most}");
+    assert!(
+        most.contains("MOST") && most.contains("Student"),
+        "plain MOST: {most}"
+    );
     let three = compile("Three students passed.").unwrap();
-    assert!((three.contains("∃=3") || three.contains("=3")) && three.contains("Student"), "plain cardinal: {three}");
+    assert!(
+        (three.contains("∃=3") || three.contains("=3")) && three.contains("Student"),
+        "plain cardinal: {three}"
+    );
 }

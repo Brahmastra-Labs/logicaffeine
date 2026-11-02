@@ -1,4 +1,4 @@
-//! Phase 3 (work/FINISH_INTERPRETER.md) — interpreted concurrency.
+//! Interpreted concurrency.
 //!
 //! These run Go-like concurrency programs on the *tree-walker* (via the
 //! deterministic scheduler), which previously rejected them as "compiled mode
@@ -16,10 +16,22 @@ fn interp_launch_fire_and_forget() {
         \x20   Launch a task to worker.\n\
         \x20   Show \"main ran\".\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     let joined = result.lines.join("\n");
-    assert!(joined.contains("worker ran"), "worker output missing: {:?}", result.lines);
-    assert!(joined.contains("main ran"), "main output missing: {:?}", result.lines);
+    assert!(
+        joined.contains("worker ran"),
+        "worker output missing: {:?}",
+        result.lines
+    );
+    assert!(
+        joined.contains("main ran"),
+        "main output missing: {:?}",
+        result.lines
+    );
 }
 
 #[test]
@@ -36,7 +48,11 @@ fn interp_pipe_producer_consumer() {
         \x20   Show first.\n\
         \x20   Show second.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(
         result.lines,
         vec!["1".to_string(), "2".to_string()],
@@ -51,8 +67,16 @@ fn interp_try_send_nonblocking() {
         \x20   Try to send 99 into ch.\n\
         \x20   Show \"sent\".\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["sent".to_string()], "try-send never blocks the sender");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["sent".to_string()],
+        "try-send never blocks the sender"
+    );
 }
 
 #[test]
@@ -63,8 +87,16 @@ fn interp_try_receive_empty_is_nothing() {
         \x20   Try to receive x from ch.\n\
         \x20   Show x.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["nothing".to_string()], "try-receive on empty yields Nothing");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["nothing".to_string()],
+        "try-receive on empty yields Nothing"
+    );
 }
 
 #[test]
@@ -76,8 +108,16 @@ fn interp_select_timeout_only() {
         \x20       After 1 seconds:\n\
         \x20           Show \"timeout\".\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["timeout".to_string()], "the timeout arm fires when no recv is ready");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["timeout".to_string()],
+        "the timeout arm fires when no recv is ready"
+    );
 }
 
 #[test]
@@ -96,8 +136,16 @@ fn interp_select_receive_wins_over_timeout() {
         \x20       After 1 seconds:\n\
         \x20           Show \"timeout\".\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["7".to_string()], "the ready recv arm wins over the timeout");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["7".to_string()],
+        "the ready recv arm wins over the timeout"
+    );
 }
 
 #[test]
@@ -111,7 +159,11 @@ fn interp_stop_task_aborts() {
         \x20   Stop handle.\n\
         \x20   Show \"stopped\".\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert!(
         result.lines.contains(&"stopped".to_string()),
         "main reaches its Stop + Show: {:?}",
@@ -134,8 +186,16 @@ fn interp_concurrent_block_runs_all() {
         \x20   Show a.\n\
         \x20   Show b.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["10".to_string(), "20".to_string()], "both concurrent branches ran");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["10".to_string(), "20".to_string()],
+        "both concurrent branches ran"
+    );
 }
 
 #[test]
@@ -152,8 +212,16 @@ fn interp_parallel_block_runs_all() {
         \x20   Show a.\n\
         \x20   Show b.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["30".to_string(), "40".to_string()], "both parallel branches ran");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["30".to_string(), "40".to_string()],
+        "both parallel branches ran"
+    );
 }
 
 #[test]
@@ -177,8 +245,16 @@ fn interp_bounded_pipe_backpressure() {
         \x20       Set k to k + 1.\n\
         \x20   Show total.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["820".to_string()], "sum(1..40) delivered under backpressure");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["820".to_string()],
+        "sum(1..40) delivered under backpressure"
+    );
 }
 
 #[test]
@@ -192,7 +268,11 @@ fn interp_deadlock_detected() {
     let result = block_on(interpret_for_ui(src));
     let err = result.error.expect("a no-sender receive must deadlock");
     assert!(err.contains("deadlock"), "deadlock is reported: {err}");
-    assert!(result.lines.is_empty(), "the unreachable Show never ran: {:?}", result.lines);
+    assert!(
+        result.lines.is_empty(),
+        "the unreachable Show never ran: {:?}",
+        result.lines
+    );
 }
 
 #[test]
@@ -215,6 +295,13 @@ fn interp_seed_determinism() {
     let first = block_on(interpret_for_ui(src));
     let second = block_on(interpret_for_ui(src));
     assert!(first.error.is_none(), "unexpected error: {:?}", first.error);
-    assert_eq!(first.lines, second.lines, "the same seed reproduces the same interleaving");
-    assert_eq!(first.lines, vec!["1".to_string(), "2".to_string(), "3".to_string()], "FIFO order");
+    assert_eq!(
+        first.lines, second.lines,
+        "the same seed reproduces the same interleaving"
+    );
+    assert_eq!(
+        first.lines,
+        vec!["1".to_string(), "2".to_string(), "3".to_string()],
+        "FIFO order"
+    );
 }

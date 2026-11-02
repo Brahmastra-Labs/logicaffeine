@@ -1,16 +1,21 @@
 //! Privacy policy page.
 //!
 //! Renders the privacy policy from an embedded HTML file with consistent
-//! legal page styling and navigation.
+//! legal page styling and navigation. `/privacy#<id>` opens at that section of the
+//! policy once its body has rendered.
 //!
 //! # Route
 //!
 //! Accessed via `Route::Privacy`.
 
-use dioxus::prelude::*;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, webpage_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::fragment::scroll_to_section;
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, webpage_schema, BreadcrumbItem,
+    JsonLdMultiple, PageHead,
+};
+use dioxus::prelude::*;
 
 // Compiled in natively (tests, SSG prerender); wasm fetches the staged /data copy
 // so the ~110 KB of legal prose never rides inside the shipped binary.
@@ -40,6 +45,10 @@ const LEGAL_STYLE: &str = r#"
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
+.legal-content-inner [id] {
+    scroll-margin-top: 104px;
+}
+
 .legal-footer {
     border-top: 1px solid rgba(255,255,255,0.06);
     padding: 24px 20px;
@@ -66,14 +75,30 @@ const LEGAL_STYLE: &str = r#"
 "#;
 
 #[component]
-pub fn Privacy() -> Element {
+pub fn Privacy(section: String) -> Element {
+    use_effect(use_reactive!(|section| {
+        if !section.is_empty() {
+            scroll_to_section(section);
+        }
+    }));
+
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Privacy Policy", path: "/privacy" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "Privacy Policy",
+            path: "/privacy",
+        },
     ];
     let schemas = vec![
         organization_schema(),
-        webpage_schema("Privacy Policy", "How LOGICAFFEINE collects, uses, and protects your personal information.", "/privacy"),
+        webpage_schema(
+            "Privacy Policy",
+            "How LOGICAFFEINE collects, uses, and protects your personal information.",
+            "/privacy",
+        ),
         breadcrumb_schema(&breadcrumbs),
     ];
 

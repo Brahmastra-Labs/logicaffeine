@@ -158,7 +158,11 @@ While i is at most 5:
 Show total.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("[i64; 5]"), "should scalarize. Got:\n{}", rust);
+    assert!(
+        rust.contains("[i64; 5]"),
+        "should scalarize. Got:\n{}",
+        rust
+    );
     assert!(
         !rust.contains("__xs_g"),
         "scalarized arrays must not be borrow-hoisted. Got:\n{}",

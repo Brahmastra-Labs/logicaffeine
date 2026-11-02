@@ -1,0 +1,45 @@
+{
+  "case": "T12-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), P 0 \u2192 (\u2200 (k : Nat), P k \u2192 P (k + 1)) \u2192 \u2200 (n : Nat), P n",
+      "name": "T12_012.byInduction",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), (P \u2192 Q) \u2192 P \u2192 Q",
+      "name": "T12_012.byModusPonens",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (P : \u03b1 \u2192 Prop), (\u2200 (x : \u03b1), P x) \u2192 \u2200 (a : \u03b1), P a",
+      "name": "T12_012.byUniversalInst",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Prop), P \u2192 P",
+      "name": "T12_012.liveAuto",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), P \u2228 Q \u2192 Q \u2228 P",
+      "name": "T12_012.liveScript",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

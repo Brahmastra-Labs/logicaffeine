@@ -10,7 +10,11 @@ use common::run_logos_with_args;
 
 fn run_bytes(prog: &str, n: usize) -> Vec<u8> {
     let aot = run_logos_with_args(prog, &[]);
-    assert!(aot.success, "AOT failed:\n{}\n{}", aot.stderr, aot.rust_code);
+    assert!(
+        aot.success,
+        "AOT failed:\n{}\n{}",
+        aot.stderr, aot.rust_code
+    );
     let got: Vec<u8> = aot
         .stdout
         .lines()
@@ -43,11 +47,16 @@ fn sha3_256_in_compiled_logos_matches_nist_kat() {
 fn shake256_in_compiled_logos_matches_runtime() {
     let input = vec![97i64, 98, 99]; // "abc"
     let want: Vec<u8> = logicaffeine_system::shake256(&input, 64)
+        .expect("in-contract arguments")
         .borrow()
         .iter()
         .map(|&x| x as u8)
         .collect();
     let prog = "## Main\nLet a be [97, 98, 99].\nLet h be shake256(a, 64).\nRepeat for i from 1 to 64:\n    Show item i of h.\n";
     let got = run_bytes(prog, 64);
-    assert_eq!(hex(&got), hex(&want), "compiled Logos SHAKE256(\"abc\", 64) must equal the KAT-verified kernel");
+    assert_eq!(
+        hex(&got),
+        hex(&want),
+        "compiled Logos SHAKE256(\"abc\", 64) must equal the KAT-verified kernel"
+    );
 }

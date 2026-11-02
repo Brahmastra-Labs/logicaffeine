@@ -1,0 +1,8 @@
+{
+  "capability": "math.gcd",
+  "workload": "sum of gcd(i,j) over 1<=i<=j<=n \u2014 an integer-math stress loop",
+  "arg": "5000",
+  "expected": "74069926",
+  "logos_uses_stdlib": true,
+  "note": "main.lg calls gcd() WITHOUT defining it \u2014 auto-imported from the pure-LOGOS math.lg stdlib module. Counterparts hand-implement Euclid (C stdlib has no gcd; Python's math.gcd is C-backed but the interpreted loop dominates)."
+}

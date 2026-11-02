@@ -1,0 +1,14 @@
+id	label	command
+c	gcc -O3 -march=native -flto -ffp-contract=off	@build c
+c_clang	clang -O3 -march=native -flto -ffp-contract=off	@build c_clang
+cpp	g++ -O3 -march=native -flto -ffp-contract=off -std=c++17	@build cpp
+cpp_clang	clang++ -O3 -march=native -flto -ffp-contract=off -std=c++17	@build cpp_clang
+rust	rustc --edition 2021 -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native -C panic=abort	@build rust
+zig	zig build-exe -O ReleaseFast -mcpu native	@build zig
+go	go build (GOAMD64 at the host level)	@build go
+java	javac	@build java
+nim	nim c -d:danger --passC:"-O3 -march=native -flto -ffp-contract=off" --passL:"-O3 -march=native -flto"	@build nim
+logos_debug	largo build	cd {dir} && {largo} -q build
+logos_release	largo build --release	cd {dir} && {largo} -q build --release
+logos_c	largo build --release --emit c	cd {dir} && {largo} -q build --release --emit c
+logos_cbc	largo build --release --emit c-bytecode	cd {dir} && {largo} -q build --release --emit c-bytecode

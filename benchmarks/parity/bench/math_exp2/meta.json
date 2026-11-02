@@ -1,0 +1,12 @@
+{
+  "capability": "math.exp2",
+  "workload": "math.exp2",
+  "arg": "1000000",
+  "expected": "147588213683812",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

@@ -1,0 +1,4555 @@
+{
+  "generated": "profile-benchmarks.sh",
+  "rows": [
+    {
+      "bench": "fib",
+      "lang": "c",
+      "n": "43",
+      "seconds": 0.41,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "fib",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000060,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fib",
+      "lang": "logos_release",
+      "n": "43",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "do_lookup_x",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 52,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000078,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fib",
+      "lang": "logos_c",
+      "n": "43",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "[unknown]",
+        "hot_pct": 51.564
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 4
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fib",
+      "lang": "logos_cbc",
+      "n": "43",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 35.857,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 64.143,
+        "hot_symbol": "free@plt",
+        "hot_pct": 35.857
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000127,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fib",
+      "lang": "logos_jit",
+      "n": "43",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "core::ptr::drop_in_place<logicaffeine_compile::interpreter::RuntimeValue>",
+        "hot_pct": 31.409
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "ackermann",
+      "lang": "c",
+      "n": "12",
+      "seconds": 0.14,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "ackermann",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000058,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "ackermann",
+      "lang": "logos_release",
+      "n": "12",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_dl_new_hash",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 81,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "ackermann",
+      "lang": "logos_c",
+      "n": "12",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 50.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 50.0,
+        "hot_symbol": "lc_gc_teardown",
+        "hot_pct": 50.0
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 4
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "ackermann",
+      "lang": "logos_cbc",
+      "n": "12",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "__GI___mmap64",
+        "hot_pct": 51.58
+      },
+      "B_static": {
+        "alloc_call_sites": 35,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "ackermann",
+      "lang": "logos_jit",
+      "n": "12",
+      "seconds": 0.00,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "[unknown]",
+        "hot_pct": 35.18
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "nqueens",
+      "lang": "c",
+      "n": "14",
+      "seconds": 0.10,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "solve",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "nqueens",
+      "lang": "logos_release",
+      "n": "14",
+      "seconds": 0.05,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "bench_75bce4488f3a5e1c::solve",
+        "hot_pct": 99.921
+      },
+      "B_static": {
+        "alloc_call_sites": 86,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "nqueens",
+      "lang": "logos_c",
+      "n": "14",
+      "seconds": 0.07,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "solve.constprop.0",
+        "hot_pct": 94.155
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 4
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000007,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "nqueens",
+      "lang": "logos_cbc",
+      "n": "14",
+      "seconds": 0.05,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "fn_3_w.part.0.constprop.0",
+        "hot_pct": 99.922
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "nqueens",
+      "lang": "logos_jit",
+      "n": "14",
+      "seconds": 0.22,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.076,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.924,
+        "hot_symbol": "logos::<anonymous> [jit]",
+        "hot_pct": 99.518
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "bubble_sort",
+      "lang": "c",
+      "n": "158048",
+      "seconds": 37.06,
+      "sample_hz": 215,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 4.43
+      }
+    },
+    {
+      "bench": "bubble_sort",
+      "lang": "logos_release",
+      "n": "158048",
+      "seconds": 15.72,
+      "sample_hz": 508,
+      "stat_repeats": 3,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 81,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000109,
+        "scaling_ratio_n_to_2n": 4.43
+      }
+    },
+    {
+      "bench": "bubble_sort",
+      "lang": "logos_c",
+      "n": "158048",
+      "seconds": 22.03,
+      "sample_hz": 363,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000002,
+        "scaling_ratio_n_to_2n": 5.22
+      }
+    },
+    {
+      "bench": "bubble_sort",
+      "lang": "logos_cbc",
+      "n": "158048",
+      "seconds": 37.63,
+      "sample_hz": 212,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000019,
+        "scaling_ratio_n_to_2n": 4.40
+      }
+    },
+    {
+      "bench": "bubble_sort",
+      "lang": "logos_jit",
+      "n": "158048",
+      "seconds": 33.64,
+      "sample_hz": 237,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@29 [jit]",
+        "hot_pct": 99.924
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 5.08
+      }
+    },
+    {
+      "bench": "mergesort",
+      "lang": "c",
+      "n": "55386315",
+      "seconds": 4.71,
+      "sample_hz": 1698,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 17.235,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 82.765,
+        "hot_symbol": "merge_sort.part.0",
+        "hot_pct": 63.703
+      },
+      "B_static": {
+        "alloc_call_sites": 5,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005416,
+        "scaling_ratio_n_to_2n": 2.04
+      }
+    },
+    {
+      "bench": "mergesort",
+      "lang": "logos_release",
+      "n": "55386315",
+      "seconds": 4.98,
+      "sample_hz": 1606,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 16.659,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 83.341,
+        "hot_symbol": "bench_df803c1ad316141a::mergeSort",
+        "hot_pct": 68.332
+      },
+      "B_static": {
+        "alloc_call_sites": 85,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.009564,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "mergesort",
+      "lang": "logos_c",
+      "n": "55386315",
+      "seconds": 9.25,
+      "sample_hz": 864,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 5.024,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 94.976,
+        "hot_symbol": "mergeSort",
+        "hot_pct": 77.01
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005439,
+        "scaling_ratio_n_to_2n": 2.04
+      }
+    },
+    {
+      "bench": "mergesort",
+      "lang": "logos_cbc",
+      "n": "55386315",
+      "seconds": 9.10,
+      "sample_hz": 879,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 7.6,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 92.4,
+        "hot_symbol": "fn_2",
+        "hot_pct": 62.766
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.013767,
+        "scaling_ratio_n_to_2n": 2.15
+      }
+    },
+    {
+      "bench": "mergesort",
+      "lang": "logos_jit",
+      "n": "55386315",
+      "seconds": 16.51,
+      "sample_hz": 484,
+      "stat_repeats": 3,
+      "A_perf": {
+        "alloc_pct": 9.696,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 90.304,
+        "hot_symbol": "logos::<anonymous> [jit]",
+        "hot_pct": 46.673
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.05
+      }
+    },
+    {
+      "bench": "quicksort",
+      "lang": "c",
+      "n": "52276512",
+      "seconds": 16.83,
+      "sample_hz": 475,
+      "stat_repeats": 3,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "qs",
+        "hot_pct": 99.179
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.001760,
+        "scaling_ratio_n_to_2n": 2.94
+      }
+    },
+    {
+      "bench": "quicksort",
+      "lang": "logos_release",
+      "n": "52276512",
+      "seconds": 11.56,
+      "sample_hz": 692,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "bench_4c821cba3ac8da71::qs__part",
+        "hot_pct": 98.187
+      },
+      "B_static": {
+        "alloc_call_sites": 80,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.002156,
+        "scaling_ratio_n_to_2n": 2.82
+      }
+    },
+    {
+      "bench": "quicksort",
+      "lang": "logos_c",
+      "n": "52276512",
+      "seconds": 59.49,
+      "sample_hz": 134,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "qs",
+        "hot_pct": 99.768
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.002064,
+        "scaling_ratio_n_to_2n": 3.31
+      }
+    },
+    {
+      "bench": "quicksort",
+      "lang": "logos_cbc",
+      "n": "52276512",
+      "seconds": 32.79,
+      "sample_hz": 243,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "fn_2",
+        "hot_pct": 99.389
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.002231,
+        "scaling_ratio_n_to_2n": 3.22
+      }
+    },
+    {
+      "bench": "quicksort",
+      "lang": "logos_jit",
+      "n": "52276512",
+      "seconds": 87.34,
+      "sample_hz": 97,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::<anonymous> [jit]",
+        "hot_pct": 90.514
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.61
+      }
+    },
+    {
+      "bench": "counting_sort",
+      "lang": "c",
+      "n": "565125712",
+      "seconds": 4.12,
+      "sample_hz": 1941,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 90.041
+      },
+      "B_static": {
+        "alloc_call_sites": 4,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.038842,
+        "scaling_ratio_n_to_2n": 2.04
+      }
+    },
+    {
+      "bench": "counting_sort",
+      "lang": "logos_release",
+      "n": "565125712",
+      "seconds": 3.19,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 89.241
+      },
+      "B_static": {
+        "alloc_call_sites": 87,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.028615,
+        "scaling_ratio_n_to_2n": 2.05
+      }
+    },
+    {
+      "bench": "counting_sort",
+      "lang": "logos_c",
+      "n": "565125712",
+      "seconds": 6.30,
+      "sample_hz": 1269,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 62.045
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.054747,
+        "scaling_ratio_n_to_2n": 2.15
+      }
+    },
+    {
+      "bench": "counting_sort",
+      "lang": "logos_cbc",
+      "n": "565125712",
+      "seconds": 7.39,
+      "sample_hz": 1082,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 57.811
+      },
+      "B_static": {
+        "alloc_call_sites": 35,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.080468,
+        "scaling_ratio_n_to_2n": 2.10
+      }
+    },
+    {
+      "bench": "counting_sort",
+      "lang": "logos_jit",
+      "n": "565125712",
+      "seconds": 4.54,
+      "sample_hz": 1762,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@11 [jit]",
+        "hot_pct": 34.874
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "heap_sort",
+      "lang": "c",
+      "n": "48241020",
+      "seconds": 9.71,
+      "sample_hz": 823,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.905
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.001004,
+        "scaling_ratio_n_to_2n": 2.59
+      }
+    },
+    {
+      "bench": "heap_sort",
+      "lang": "logos_release",
+      "n": "48241020",
+      "seconds": 8.38,
+      "sample_hz": 954,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.908
+      },
+      "B_static": {
+        "alloc_call_sites": 81,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.002139,
+        "scaling_ratio_n_to_2n": 2.45
+      }
+    },
+    {
+      "bench": "heap_sort",
+      "lang": "logos_c",
+      "n": "48241020",
+      "seconds": 22.07,
+      "sample_hz": 362,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "siftDown.constprop.0",
+        "hot_pct": 97.098
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.001853,
+        "scaling_ratio_n_to_2n": 2.89
+      }
+    },
+    {
+      "bench": "heap_sort",
+      "lang": "logos_cbc",
+      "n": "48241020",
+      "seconds": 21.24,
+      "sample_hz": 376,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "fn_2",
+        "hot_pct": 98.739
+      },
+      "B_static": {
+        "alloc_call_sites": 35,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.002226,
+        "scaling_ratio_n_to_2n": 2.95
+      }
+    },
+    {
+      "bench": "heap_sort",
+      "lang": "logos_jit",
+      "n": "48241020",
+      "seconds": 33.24,
+      "sample_hz": 240,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 2.726,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 97.274,
+        "hot_symbol": "logos::<anonymous> [jit]",
+        "hot_pct": 51.462
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.15
+      }
+    },
+    {
+      "bench": "nbody",
+      "lang": "c",
+      "n": "146926656",
+      "seconds": 3.89,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "nbody",
+      "lang": "logos_release",
+      "n": "146926656",
+      "seconds": 4.08,
+      "sample_hz": 1960,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 50,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "nbody",
+      "lang": "logos_c",
+      "n": "146926656",
+      "seconds": 4.45,
+      "sample_hz": 1797,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "nbody",
+      "lang": "logos_cbc",
+      "n": "146926656",
+      "seconds": 4.42,
+      "sample_hz": 1809,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.986
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "nbody",
+      "lang": "logos_jit",
+      "n": "146926656",
+      "seconds": 25.59,
+      "sample_hz": 312,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@382 [jit]",
+        "hot_pct": 99.981
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 1.99
+      }
+    },
+    {
+      "bench": "mandelbrot",
+      "lang": "c",
+      "n": "15024",
+      "seconds": 8.96,
+      "sample_hz": 892,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000056,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "mandelbrot",
+      "lang": "logos_release",
+      "n": "15024",
+      "seconds": 7.74,
+      "sample_hz": 1033,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.975
+      },
+      "B_static": {
+        "alloc_call_sites": 79,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000135,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "mandelbrot",
+      "lang": "logos_c",
+      "n": "15024",
+      "seconds": 9.18,
+      "sample_hz": 871,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.975
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "mandelbrot",
+      "lang": "logos_cbc",
+      "n": "15024",
+      "seconds": 12.18,
+      "sample_hz": 656,
+      "stat_repeats": 4,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 27,
+        "output_call_sites": 5
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000076,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "mandelbrot",
+      "lang": "logos_jit",
+      "n": "15024",
+      "seconds": 28.63,
+      "sample_hz": 279,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@10 [jit]",
+        "hot_pct": 99.858
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "spectral_norm",
+      "lang": "c",
+      "n": "17032",
+      "seconds": 7.77,
+      "sample_hz": 1029,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 6,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000076,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "spectral_norm",
+      "lang": "logos_release",
+      "n": "17032",
+      "seconds": 7.79,
+      "sample_hz": 1026,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "bench_84b114a649137937::mulAtav",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 119,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000118,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "spectral_norm",
+      "lang": "logos_c",
+      "n": "17032",
+      "seconds": 8.02,
+      "sample_hz": 997,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "mulAtv.isra.0",
+        "hot_pct": 50.181
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000015,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "spectral_norm",
+      "lang": "logos_cbc",
+      "n": "17032",
+      "seconds": 7.77,
+      "sample_hz": 1029,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "fn_3.constprop.0",
+        "hot_pct": 50.004
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000007,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "spectral_norm",
+      "lang": "logos_jit",
+      "n": "17032",
+      "seconds": 23.30,
+      "sample_hz": 343,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@127 [jit]",
+        "hot_pct": 49.986
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "pi_leibniz",
+      "lang": "c",
+      "n": "5833224944",
+      "seconds": 3.90,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.013,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.987,
+        "hot_symbol": "main",
+        "hot_pct": 99.987
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000061,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "pi_leibniz",
+      "lang": "logos_release",
+      "n": "5833224944",
+      "seconds": 2.89,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 49,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000093,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "pi_leibniz",
+      "lang": "logos_c",
+      "n": "5833224944",
+      "seconds": 3.90,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.001,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.999,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 1.98
+      }
+    },
+    {
+      "bench": "pi_leibniz",
+      "lang": "logos_cbc",
+      "n": "5833224944",
+      "seconds": 3.90,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.001,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.999,
+        "hot_symbol": "main",
+        "hot_pct": 99.986
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000098,
+        "scaling_ratio_n_to_2n": 1.98
+      }
+    },
+    {
+      "bench": "pi_leibniz",
+      "lang": "logos_jit",
+      "n": "5833224944",
+      "seconds": 9.34,
+      "sample_hz": 856,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@20 [jit]",
+        "hot_pct": 99.984
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "gcd",
+      "lang": "c",
+      "n": "53096",
+      "seconds": 42.21,
+      "sample_hz": 189,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 4.49
+      }
+    },
+    {
+      "bench": "gcd",
+      "lang": "logos_release",
+      "n": "53096",
+      "seconds": 33.45,
+      "sample_hz": 239,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 50,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 4.46
+      }
+    },
+    {
+      "bench": "gcd",
+      "lang": "logos_c",
+      "n": "53096",
+      "seconds": 44.80,
+      "sample_hz": 178,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 4
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 4.43
+      }
+    },
+    {
+      "bench": "gcd",
+      "lang": "logos_cbc",
+      "n": "53096",
+      "seconds": 43.43,
+      "sample_hz": 184,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 4.45
+      }
+    },
+    {
+      "bench": "gcd",
+      "lang": "logos_jit",
+      "n": "53096",
+      "seconds": 44.74,
+      "sample_hz": 178,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@10 [jit]",
+        "hot_pct": 99.898
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 4.38
+      }
+    },
+    {
+      "bench": "collatz",
+      "lang": "c",
+      "n": "29177848",
+      "seconds": 4.35,
+      "sample_hz": 1839,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000038,
+        "scaling_ratio_n_to_2n": 2.06
+      }
+    },
+    {
+      "bench": "collatz",
+      "lang": "logos_release",
+      "n": "29177848",
+      "seconds": 4.08,
+      "sample_hz": 1960,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 97,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000059,
+        "scaling_ratio_n_to_2n": 2.04
+      }
+    },
+    {
+      "bench": "collatz",
+      "lang": "logos_c",
+      "n": "29177848",
+      "seconds": 7.65,
+      "sample_hz": 1045,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.987
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000078,
+        "scaling_ratio_n_to_2n": 2.11
+      }
+    },
+    {
+      "bench": "collatz",
+      "lang": "logos_cbc",
+      "n": "29177848",
+      "seconds": 4.74,
+      "sample_hz": 1687,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000002,
+        "scaling_ratio_n_to_2n": 2.06
+      }
+    },
+    {
+      "bench": "collatz",
+      "lang": "logos_jit",
+      "n": "29177848",
+      "seconds": 6.05,
+      "sample_hz": 1322,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@10 [jit]",
+        "hot_pct": 99.992
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.09
+      }
+    },
+    {
+      "bench": "primes",
+      "lang": "c",
+      "n": "22704512",
+      "seconds": 9.38,
+      "sample_hz": 852,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000012,
+        "scaling_ratio_n_to_2n": 2.67
+      }
+    },
+    {
+      "bench": "primes",
+      "lang": "logos_release",
+      "n": "22704512",
+      "seconds": 5.66,
+      "sample_hz": 1413,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.986
+      },
+      "B_static": {
+        "alloc_call_sites": 79,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.63
+      }
+    },
+    {
+      "bench": "primes",
+      "lang": "logos_c",
+      "n": "22704512",
+      "seconds": 9.42,
+      "sample_hz": 849,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.963
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000063,
+        "scaling_ratio_n_to_2n": 2.64
+      }
+    },
+    {
+      "bench": "primes",
+      "lang": "logos_cbc",
+      "n": "22704512",
+      "seconds": 9.38,
+      "sample_hz": 852,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000004,
+        "scaling_ratio_n_to_2n": 2.67
+      }
+    },
+    {
+      "bench": "primes",
+      "lang": "logos_jit",
+      "n": "22704512",
+      "seconds": 9.42,
+      "sample_hz": 849,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.003,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.997,
+        "hot_symbol": "logos::main::loop@10 [jit]",
+        "hot_pct": 99.996
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.64
+      }
+    },
+    {
+      "bench": "sieve",
+      "lang": "c",
+      "n": "697912470",
+      "seconds": 6.34,
+      "sample_hz": 1261,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.717
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.004006,
+        "scaling_ratio_n_to_2n": 2.43
+      }
+    },
+    {
+      "bench": "sieve",
+      "lang": "logos_release",
+      "n": "697912470",
+      "seconds": 6.39,
+      "sample_hz": 1251,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.685
+      },
+      "B_static": {
+        "alloc_call_sites": 85,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.004177,
+        "scaling_ratio_n_to_2n": 2.60
+      }
+    },
+    {
+      "bench": "sieve",
+      "lang": "logos_c",
+      "n": "697912470",
+      "seconds": 6.91,
+      "sample_hz": 1157,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.029
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.003061,
+        "scaling_ratio_n_to_2n": 2.52
+      }
+    },
+    {
+      "bench": "sieve",
+      "lang": "logos_cbc",
+      "n": "697912470",
+      "seconds": 6.61,
+      "sample_hz": 1210,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.681
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.004241,
+        "scaling_ratio_n_to_2n": 2.46
+      }
+    },
+    {
+      "bench": "sieve",
+      "lang": "logos_jit",
+      "n": "697912470",
+      "seconds": 7.80,
+      "sample_hz": 1025,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.002,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.998,
+        "hot_symbol": "logos::main::loop@40 [jit]",
+        "hot_pct": 71.849
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.41
+      }
+    },
+    {
+      "bench": "matrix_mult",
+      "lang": "c",
+      "n": "1930",
+      "seconds": 4.54,
+      "sample_hz": 1762,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.98
+      },
+      "B_static": {
+        "alloc_call_sites": 6,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000878,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "matrix_mult",
+      "lang": "logos_release",
+      "n": "1930",
+      "seconds": 3.75,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.972
+      },
+      "B_static": {
+        "alloc_call_sites": 103,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000564,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "matrix_mult",
+      "lang": "logos_c",
+      "n": "1930",
+      "seconds": 3.78,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.001,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.999,
+        "hot_symbol": "main",
+        "hot_pct": 99.787
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000209,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "matrix_mult",
+      "lang": "logos_cbc",
+      "n": "1930",
+      "seconds": 8.85,
+      "sample_hz": 903,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.811
+      },
+      "B_static": {
+        "alloc_call_sites": 35,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.001058,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "matrix_mult",
+      "lang": "logos_jit",
+      "n": "1930",
+      "seconds": 13.41,
+      "sample_hz": 596,
+      "stat_repeats": 4,
+      "A_perf": {
+        "alloc_pct": 0.001,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.999,
+        "hot_symbol": "logos::main::loop@51 [jit]",
+        "hot_pct": 93.455
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "prefix_sum",
+      "lang": "c",
+      "n": "606011441",
+      "seconds": 3.98,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 96.566
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.024134,
+        "scaling_ratio_n_to_2n": 2.09
+      }
+    },
+    {
+      "bench": "prefix_sum",
+      "lang": "logos_release",
+      "n": "606011441",
+      "seconds": 3.44,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 95.43
+      },
+      "B_static": {
+        "alloc_call_sites": 85,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.022297,
+        "scaling_ratio_n_to_2n": 2.06
+      }
+    },
+    {
+      "bench": "prefix_sum",
+      "lang": "logos_c",
+      "n": "606011441",
+      "seconds": 4.37,
+      "sample_hz": 1830,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 91.109
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.023643,
+        "scaling_ratio_n_to_2n": 2.08
+      }
+    },
+    {
+      "bench": "prefix_sum",
+      "lang": "logos_cbc",
+      "n": "606011441",
+      "seconds": 5.88,
+      "sample_hz": 1360,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 75.194
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.041312,
+        "scaling_ratio_n_to_2n": 2.11
+      }
+    },
+    {
+      "bench": "prefix_sum",
+      "lang": "logos_jit",
+      "n": "606011441",
+      "seconds": 4.25,
+      "sample_hz": 1882,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@11 [jit]",
+        "hot_pct": 40.825
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 1.95
+      }
+    },
+    {
+      "bench": "array_reverse",
+      "lang": "c",
+      "n": "854578669",
+      "seconds": 4.26,
+      "sample_hz": 1877,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 94.483
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.036936,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "array_reverse",
+      "lang": "logos_release",
+      "n": "854578669",
+      "seconds": 3.52,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 91.848
+      },
+      "B_static": {
+        "alloc_call_sites": 81,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.036628,
+        "scaling_ratio_n_to_2n": 2.06
+      }
+    },
+    {
+      "bench": "array_reverse",
+      "lang": "logos_c",
+      "n": "854578669",
+      "seconds": 4.28,
+      "sample_hz": 1869,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 84.83
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.032217,
+        "scaling_ratio_n_to_2n": 2.15
+      }
+    },
+    {
+      "bench": "array_reverse",
+      "lang": "logos_cbc",
+      "n": "854578669",
+      "seconds": 5.08,
+      "sample_hz": 1574,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 68.652
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.041048,
+        "scaling_ratio_n_to_2n": 2.11
+      }
+    },
+    {
+      "bench": "array_reverse",
+      "lang": "logos_jit",
+      "n": "854578669",
+      "seconds": 4.48,
+      "sample_hz": 1785,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.002,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.998,
+        "hot_symbol": "logos::main::loop@11 [jit]",
+        "hot_pct": 45.529
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.03
+      }
+    },
+    {
+      "bench": "array_fill",
+      "lang": "c",
+      "n": "1227634320",
+      "seconds": 3.97,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 87.341
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.031215,
+        "scaling_ratio_n_to_2n": 1.94
+      }
+    },
+    {
+      "bench": "array_fill",
+      "lang": "logos_release",
+      "n": "1227634320",
+      "seconds": 2.47,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 91.906
+      },
+      "B_static": {
+        "alloc_call_sites": 82,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.012970,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "array_fill",
+      "lang": "logos_c",
+      "n": "1227634320",
+      "seconds": 4.75,
+      "sample_hz": 1684,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 76.186
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.031780,
+        "scaling_ratio_n_to_2n": 2.05
+      }
+    },
+    {
+      "bench": "array_fill",
+      "lang": "logos_cbc",
+      "n": "1227634320",
+      "seconds": 7.56,
+      "sample_hz": 1058,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 58.284
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.040006,
+        "scaling_ratio_n_to_2n": 2.16
+      }
+    },
+    {
+      "bench": "array_fill",
+      "lang": "logos_jit",
+      "n": "1227634320",
+      "seconds": 3.78,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@14 [jit]",
+        "hot_pct": 55.09
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.03
+      }
+    },
+    {
+      "bench": "collect",
+      "lang": "c",
+      "n": "59518550",
+      "seconds": 4.87,
+      "sample_hz": 1642,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 98.865
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.019142,
+        "scaling_ratio_n_to_2n": 2.05
+      }
+    },
+    {
+      "bench": "collect",
+      "lang": "logos_release",
+      "n": "59518550",
+      "seconds": 5.67,
+      "sample_hz": 1410,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.001,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.999,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 98.096
+      },
+      "B_static": {
+        "alloc_call_sites": 83,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.006083,
+        "scaling_ratio_n_to_2n": 2.17
+      }
+    },
+    {
+      "bench": "collect",
+      "lang": "logos_c",
+      "n": "59518550",
+      "seconds": 8.96,
+      "sample_hz": 892,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 88.671
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.024091,
+        "scaling_ratio_n_to_2n": 2.44
+      }
+    },
+    {
+      "bench": "collect",
+      "lang": "logos_cbc",
+      "n": "59518550",
+      "seconds": 16.99,
+      "sample_hz": 470,
+      "stat_repeats": 3,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 94.508
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.026411,
+        "scaling_ratio_n_to_2n": 2.46
+      }
+    },
+    {
+      "bench": "collect",
+      "lang": "logos_jit",
+      "n": "59518550",
+      "seconds": 24.37,
+      "sample_hz": 328,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "indexmap::map::IndexMap<K,V,S>::get_index_of",
+        "hot_pct": 55.119
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.47
+      }
+    },
+    {
+      "bench": "two_sum",
+      "lang": "c",
+      "n": "119475543",
+      "seconds": 4.94,
+      "sample_hz": 1619,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 96.687
+      },
+      "B_static": {
+        "alloc_call_sites": 6,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.054151,
+        "scaling_ratio_n_to_2n": 2.18
+      }
+    },
+    {
+      "bench": "two_sum",
+      "lang": "logos_release",
+      "n": "119475543",
+      "seconds": 5.50,
+      "sample_hz": 1454,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 98.549
+      },
+      "B_static": {
+        "alloc_call_sites": 83,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.016382,
+        "scaling_ratio_n_to_2n": 2.04
+      }
+    },
+    {
+      "bench": "two_sum",
+      "lang": "logos_c",
+      "n": "119475543",
+      "seconds": 13.58,
+      "sample_hz": 589,
+      "stat_repeats": 4,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 52.898
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.146162,
+        "scaling_ratio_n_to_2n": 2.14
+      }
+    },
+    {
+      "bench": "two_sum",
+      "lang": "logos_cbc",
+      "n": "119475543",
+      "seconds": 35.56,
+      "sample_hz": 224,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "map_i64_i64_set.constprop.0",
+        "hot_pct": 65.022
+      },
+      "B_static": {
+        "alloc_call_sites": 27,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.157485,
+        "scaling_ratio_n_to_2n": 2.27
+      }
+    },
+    {
+      "bench": "two_sum",
+      "lang": "logos_jit",
+      "n": "119475543",
+      "seconds": 28.02,
+      "sample_hz": 285,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "indexmap::map::IndexMap<K,V,S>::get_index_of",
+        "hot_pct": 33.377
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.32
+      }
+    },
+    {
+      "bench": "histogram",
+      "lang": "c",
+      "n": "2386643440",
+      "seconds": 3.92,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.987
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "histogram",
+      "lang": "logos_release",
+      "n": "2386643440",
+      "seconds": 1.84,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.998
+      },
+      "B_static": {
+        "alloc_call_sites": 81,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000136,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "histogram",
+      "lang": "logos_c",
+      "n": "2386643440",
+      "seconds": 2.25,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.998
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "histogram",
+      "lang": "logos_cbc",
+      "n": "2386643440",
+      "seconds": 2.40,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.998
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000046,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "histogram",
+      "lang": "logos_jit",
+      "n": "2386643440",
+      "seconds": 5.58,
+      "sample_hz": 1433,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.002,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.998,
+        "hot_symbol": "logos::main::loop@21 [jit]",
+        "hot_pct": 99.98
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 1.99
+      }
+    },
+    {
+      "bench": "knapsack",
+      "lang": "c",
+      "n": "73136",
+      "seconds": 7.85,
+      "sample_hz": 1019,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.982
+      },
+      "B_static": {
+        "alloc_call_sites": 10,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "knapsack",
+      "lang": "logos_release",
+      "n": "73136",
+      "seconds": 9.12,
+      "sample_hz": 877,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.98
+      },
+      "B_static": {
+        "alloc_call_sites": 105,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "knapsack",
+      "lang": "logos_c",
+      "n": "73136",
+      "seconds": 16.66,
+      "sample_hz": 480,
+      "stat_repeats": 3,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.983
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "knapsack",
+      "lang": "logos_cbc",
+      "n": "73136",
+      "seconds": 16.71,
+      "sample_hz": 478,
+      "stat_repeats": 3,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.978
+      },
+      "B_static": {
+        "alloc_call_sites": 35,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000118,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "knapsack",
+      "lang": "logos_jit",
+      "n": "73136",
+      "seconds": 49.40,
+      "sample_hz": 161,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@59 [jit]",
+        "hot_pct": 99.85
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "coins",
+      "lang": "c",
+      "n": "401718368",
+      "seconds": 4.17,
+      "sample_hz": 1918,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 95.626
+      },
+      "B_static": {
+        "alloc_call_sites": 2,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.011819,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "coins",
+      "lang": "logos_release",
+      "n": "401718368",
+      "seconds": 3.31,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 97.814
+      },
+      "B_static": {
+        "alloc_call_sites": 51,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005814,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "coins",
+      "lang": "logos_c",
+      "n": "401718368",
+      "seconds": 4.67,
+      "sample_hz": 1713,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 95.114
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.012087,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "coins",
+      "lang": "logos_cbc",
+      "n": "401718368",
+      "seconds": 5.49,
+      "sample_hz": 1457,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 91.771
+      },
+      "B_static": {
+        "alloc_call_sites": 35,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.016582,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "coins",
+      "lang": "logos_jit",
+      "n": "401718368",
+      "seconds": 8.60,
+      "sample_hz": 930,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@40 [jit]",
+        "hot_pct": 73.114
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fannkuch",
+      "lang": "c",
+      "n": "10",
+      "seconds": 0.14,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 87.941
+      },
+      "B_static": {
+        "alloc_call_sites": 6,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fannkuch",
+      "lang": "logos_release",
+      "n": "10",
+      "seconds": 0.12,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 92.767
+      },
+      "B_static": {
+        "alloc_call_sites": 87,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000030,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fannkuch",
+      "lang": "logos_c",
+      "n": "10",
+      "seconds": 0.33,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.603,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.397,
+        "hot_symbol": "main",
+        "hot_pct": 81.812
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 4
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.013849,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fannkuch",
+      "lang": "logos_cbc",
+      "n": "10",
+      "seconds": 0.38,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 2.226,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 97.774,
+        "hot_symbol": "main",
+        "hot_pct": 54.048
+      },
+      "B_static": {
+        "alloc_call_sites": 27,
+        "output_call_sites": 6
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.028368,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "fannkuch",
+      "lang": "logos_jit",
+      "n": "10",
+      "seconds": 0.28,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@28 [jit]",
+        "hot_pct": 86.896
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "strings",
+      "lang": "c",
+      "n": "125882141",
+      "seconds": 4.23,
+      "sample_hz": 1891,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 39.863,
+        "fmt_pct": 0.0,
+        "output_pct": 39.863,
+        "compute_pct": 60.137,
+        "hot_symbol": "main",
+        "hot_pct": 27.322
+      },
+      "B_static": {
+        "alloc_call_sites": 3,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005433,
+        "scaling_ratio_n_to_2n": 2.03
+      }
+    },
+    {
+      "bench": "strings",
+      "lang": "logos_release",
+      "n": "125882141",
+      "seconds": 2.05,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.028,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.972,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 79.801
+      },
+      "B_static": {
+        "alloc_call_sites": 95,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005171,
+        "scaling_ratio_n_to_2n": 2.04
+      }
+    },
+    {
+      "bench": "strings",
+      "lang": "logos_c",
+      "n": "125882141",
+      "seconds": 3.54,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 66.179
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.008148,
+        "scaling_ratio_n_to_2n": 2.08
+      }
+    },
+    {
+      "bench": "strings",
+      "lang": "logos_cbc",
+      "n": "125882141",
+      "seconds": 2.47,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.002,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.998,
+        "hot_symbol": "main",
+        "hot_pct": 98.466
+      },
+      "B_static": {
+        "alloc_call_sites": 27,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.004169,
+        "scaling_ratio_n_to_2n": 2.03
+      }
+    },
+    {
+      "bench": "strings",
+      "lang": "logos_jit",
+      "n": "125882141",
+      "seconds": 57.12,
+      "sample_hz": 140,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 1.094,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 98.906,
+        "hot_symbol": "logicaffeine_compile::vm::machine::Vm::binop",
+        "hot_pct": 37.914
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.08
+      }
+    },
+    {
+      "bench": "binary_trees",
+      "lang": "c",
+      "n": "23",
+      "seconds": 21.50,
+      "sample_hz": 372,
+      "stat_repeats": 2,
+      "A_perf": {
+        "alloc_pct": 63.696,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 36.304,
+        "hot_symbol": "_int_free",
+        "hot_pct": 20.478
+      },
+      "B_static": {
+        "alloc_call_sites": 146,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.004190,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "binary_trees",
+      "lang": "logos_release",
+      "n": "23",
+      "seconds": 49.58,
+      "sample_hz": 161,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 83.925,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 16.075,
+        "hot_symbol": "_int_malloc",
+        "hot_pct": 38.173
+      },
+      "B_static": {
+        "alloc_call_sites": 88,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.330196,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "binary_trees",
+      "lang": "logos_c",
+      "n": "23",
+      "seconds": 54.03,
+      "sample_hz": 148,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 1.22,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 98.78,
+        "hot_symbol": "lc_gc_scan",
+        "hot_pct": 31.25
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 4
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 5.993357,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "binary_trees",
+      "lang": "logos_cbc",
+      "n": "23",
+      "seconds": 62.27,
+      "sample_hz": 128,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 1.084,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 98.916,
+        "hot_symbol": "lc_gc_heap_alloc",
+        "hot_pct": 31.937
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 7
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 10.823298,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "binary_trees",
+      "lang": "logos_jit",
+      "n": "23",
+      "seconds": 253.96,
+      "sample_hz": 97,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 43.706,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 56.294,
+        "hot_symbol": "malloc_consolidate",
+        "hot_pct": 14.909
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": null
+      }
+    },
+    {
+      "bench": "loop_sum",
+      "lang": "c",
+      "n": "1918787688",
+      "seconds": 3.85,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.909
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000064,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "loop_sum",
+      "lang": "logos_release",
+      "n": "1918787688",
+      "seconds": 0.29,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.986
+      },
+      "B_static": {
+        "alloc_call_sites": 84,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 1.75
+      }
+    },
+    {
+      "bench": "loop_sum",
+      "lang": "logos_c",
+      "n": "1918787688",
+      "seconds": 0.38,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.01,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.99,
+        "hot_symbol": "main",
+        "hot_pct": 99.86
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000065,
+        "scaling_ratio_n_to_2n": 1.80
+      }
+    },
+    {
+      "bench": "loop_sum",
+      "lang": "logos_cbc",
+      "n": "1918787688",
+      "seconds": 0.55,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.993
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "loop_sum",
+      "lang": "logos_jit",
+      "n": "1918787688",
+      "seconds": 0.82,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@22 [jit]",
+        "hot_pct": 99.952
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 1.91
+      }
+    },
+    {
+      "bench": "fib_iterative",
+      "lang": "c",
+      "n": "1934869816",
+      "seconds": 3.88,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "fib_iterative",
+      "lang": "logos_release",
+      "n": "1934869816",
+      "seconds": 4.15,
+      "sample_hz": 1927,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.986
+      },
+      "B_static": {
+        "alloc_call_sites": 50,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000134,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "fib_iterative",
+      "lang": "logos_c",
+      "n": "1934869816",
+      "seconds": 3.88,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "fib_iterative",
+      "lang": "logos_cbc",
+      "n": "1934869816",
+      "seconds": 3.88,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000067,
+        "scaling_ratio_n_to_2n": 1.98
+      }
+    },
+    {
+      "bench": "fib_iterative",
+      "lang": "logos_jit",
+      "n": "1934869816",
+      "seconds": 3.24,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@12 [jit]",
+        "hot_pct": 99.991
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "graph_bfs",
+      "lang": "c",
+      "n": "37467577",
+      "seconds": 4.66,
+      "sample_hz": 1716,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 98.034
+      },
+      "B_static": {
+        "alloc_call_sites": 8,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.010351,
+        "scaling_ratio_n_to_2n": 2.07
+      }
+    },
+    {
+      "bench": "graph_bfs",
+      "lang": "logos_release",
+      "n": "37467577",
+      "seconds": 4.24,
+      "sample_hz": 1886,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 98.728
+      },
+      "B_static": {
+        "alloc_call_sites": 104,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005264,
+        "scaling_ratio_n_to_2n": 2.09
+      }
+    },
+    {
+      "bench": "graph_bfs",
+      "lang": "logos_c",
+      "n": "37467577",
+      "seconds": 7.28,
+      "sample_hz": 1098,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 95.582
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.012261,
+        "scaling_ratio_n_to_2n": 2.03
+      }
+    },
+    {
+      "bench": "graph_bfs",
+      "lang": "logos_cbc",
+      "n": "37467577",
+      "seconds": 8.12,
+      "sample_hz": 985,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 94.167
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.017481,
+        "scaling_ratio_n_to_2n": 2.07
+      }
+    },
+    {
+      "bench": "graph_bfs",
+      "lang": "logos_jit",
+      "n": "37467577",
+      "seconds": 8.93,
+      "sample_hz": 895,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@110 [jit]",
+        "hot_pct": 83.357
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.15
+      }
+    },
+    {
+      "bench": "string_search",
+      "lang": "c",
+      "n": "924964604",
+      "seconds": 3.38,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.488
+      },
+      "B_static": {
+        "alloc_call_sites": 6,
+        "output_call_sites": 1
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.023917,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "string_search",
+      "lang": "logos_release",
+      "n": "924964604",
+      "seconds": 2.81,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.433
+      },
+      "B_static": {
+        "alloc_call_sites": 83,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.013540,
+        "scaling_ratio_n_to_2n": 2.02
+      }
+    },
+    {
+      "bench": "string_search",
+      "lang": "logos_c",
+      "n": "924964604",
+      "seconds": 6.53,
+      "sample_hz": 1225,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 98.501
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.017444,
+        "scaling_ratio_n_to_2n": 2.01
+      }
+    },
+    {
+      "bench": "string_search",
+      "lang": "logos_cbc",
+      "n": "924964604",
+      "seconds": 7.87,
+      "sample_hz": 1016,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.656
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.016308,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "string_search",
+      "lang": "logos_jit",
+      "n": "924964604",
+      "seconds": 14.01,
+      "sample_hz": 571,
+      "stat_repeats": 4,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@12 [jit]",
+        "hot_pct": 51.753
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "analytics",
+      "lang": "c",
+      "n": "880000000",
+      "seconds": 4.18,
+      "sample_hz": 1913,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.986
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.11
+      }
+    },
+    {
+      "bench": "analytics",
+      "lang": "logos_release",
+      "n": "880000000",
+      "seconds": 2.60,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.998
+      },
+      "B_static": {
+        "alloc_call_sites": 81,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000039,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "analytics",
+      "lang": "logos_c",
+      "n": "880000000",
+      "seconds": 2.83,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 5
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000072,
+        "scaling_ratio_n_to_2n": 2.17
+      }
+    },
+    {
+      "bench": "analytics",
+      "lang": "logos_cbc",
+      "n": "880000000",
+      "seconds": 2.97,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.997
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 5
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000090,
+        "scaling_ratio_n_to_2n": 1.86
+      }
+    },
+    {
+      "bench": "analytics",
+      "lang": "logos_jit",
+      "n": "880000000",
+      "seconds": 5.45,
+      "sample_hz": 1467,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@23 [jit]",
+        "hot_pct": 99.955
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.08
+      }
+    },
+    {
+      "bench": "vm",
+      "lang": "c",
+      "n": "660000000",
+      "seconds": 3.42,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "vm",
+      "lang": "logos_release",
+      "n": "660000000",
+      "seconds": 2.34,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.998
+      },
+      "B_static": {
+        "alloc_call_sites": 82,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000133,
+        "scaling_ratio_n_to_2n": 1.88
+      }
+    },
+    {
+      "bench": "vm",
+      "lang": "logos_c",
+      "n": "660000000",
+      "seconds": 0.92,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.995
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000070,
+        "scaling_ratio_n_to_2n": 2.50
+      }
+    },
+    {
+      "bench": "vm",
+      "lang": "logos_cbc",
+      "n": "660000000",
+      "seconds": 0.97,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 99.996
+      },
+      "B_static": {
+        "alloc_call_sites": 23,
+        "output_call_sites": 3
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000000,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "vm",
+      "lang": "logos_jit",
+      "n": "660000000",
+      "seconds": 3.75,
+      "sample_hz": 2000,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "logos::main::loop@22 [jit]",
+        "hot_pct": 99.985
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 2.09
+      }
+    },
+    {
+      "bench": "sha256",
+      "lang": "c",
+      "n": "33000000",
+      "seconds": 4.16,
+      "sample_hz": 1923,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "main",
+        "hot_pct": 100.0
+      },
+      "B_static": {
+        "alloc_call_sites": 0,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000060,
+        "scaling_ratio_n_to_2n": 2.08
+      }
+    },
+    {
+      "bench": "sha256",
+      "lang": "logos_release",
+      "n": "33000000",
+      "seconds": 5.05,
+      "sample_hz": 1584,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.0,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 100.0,
+        "hot_symbol": "_logos_main [workload]",
+        "hot_pct": 99.999
+      },
+      "B_static": {
+        "alloc_call_sites": 49,
+        "output_call_sites": 0
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.000140,
+        "scaling_ratio_n_to_2n": 2.07
+      }
+    },
+    {
+      "bench": "sha256",
+      "lang": "logos_c",
+      "n": "33000000",
+      "seconds": 5.00,
+      "sample_hz": 1600,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.233,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.767,
+        "hot_symbol": "main",
+        "hot_pct": 91.719
+      },
+      "B_static": {
+        "alloc_call_sites": 24,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.003387,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "sha256",
+      "lang": "logos_cbc",
+      "n": "33000000",
+      "seconds": 8.20,
+      "sample_hz": 975,
+      "stat_repeats": 5,
+      "A_perf": {
+        "alloc_pct": 0.239,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 99.761,
+        "hot_symbol": "fn_7.constprop.0",
+        "hot_pct": 90.286
+      },
+      "B_static": {
+        "alloc_call_sites": 31,
+        "output_call_sites": 2
+      },
+      "C_strace": {
+        "write_calls": 1,
+        "mem_write_syscall_seconds": 0.005016,
+        "scaling_ratio_n_to_2n": 2.00
+      }
+    },
+    {
+      "bench": "sha256",
+      "lang": "logos_jit",
+      "n": "33000000",
+      "seconds": 39.39,
+      "sample_hz": 203,
+      "stat_repeats": 1,
+      "A_perf": {
+        "alloc_pct": 2.262,
+        "stdout_pct": 0.0,
+        "fmt_pct": 0.0,
+        "output_pct": 0.0,
+        "compute_pct": 97.738,
+        "hot_symbol": "logos::<anonymous> [jit]",
+        "hot_pct": 80.904
+      },
+      "B_static": {
+        "alloc_call_sites": null,
+        "output_call_sites": null
+      },
+      "C_strace": {
+        "write_calls": null,
+        "mem_write_syscall_seconds": null,
+        "scaling_ratio_n_to_2n": 1.99
+      }
+    }
+  ]
+}

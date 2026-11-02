@@ -62,7 +62,7 @@ const SIDEBAR_STYLE: &str = r#"
     display: block;
     padding: 9px 16px;
     margin: 2px 8px;
-    border-radius: 8px;
+    border-radius: 0 4px 4px 0;
     color: rgba(229,231,235,0.65);
     font-size: 13px;
     font-weight: 500;
@@ -140,6 +140,10 @@ pub struct SectionInfo {
     pub number: u8,
     pub title: String,
     pub part: String,
+    /// Graded exercises in the section (0 = no mastery ring).
+    pub exercise_total: usize,
+    /// How many the reader has passed at least once (SM-2 deck entries).
+    pub exercise_passed: usize,
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -147,6 +151,9 @@ pub struct GuideSidebarProps {
     pub sections: Vec<SectionInfo>,
     pub active_section: String,
     pub on_section_click: EventHandler<String>,
+    /// Section ids the reader has marked done (persisted per browser).
+    pub completed: Vec<String>,
+    pub on_toggle_complete: EventHandler<String>,
 }
 
 #[component]
@@ -166,6 +173,9 @@ pub fn GuideSidebar(props: GuideSidebarProps) -> Element {
                         {
                             let section_id = section.id.clone();
                             let is_active = props.active_section == section.id;
+                            let is_done = props.completed.iter().any(|c| *c == section.id);
+                            let check_id = section.id.clone();
+                            let on_toggle = props.on_toggle_complete.clone();
                             let class_name = if is_active {
                                 "sidebar-section active"
                             } else {
@@ -173,8 +183,28 @@ pub fn GuideSidebar(props: GuideSidebarProps) -> Element {
                             };
 
                             rsx! {
+                                div {
+                                    style: "display: flex; align-items: center; gap: 2px;",
+                                span {
+                                    class: if is_done { "guide-section-check done" } else { "guide-section-check" },
+                                    style: if is_done { "cursor: pointer; font-size: 11px; color: #22c55e; width: 14px; flex: none;" } else { "cursor: pointer; font-size: 11px; opacity: 0.35; width: 14px; flex: none;" },
+                                    title: "Mark section as read",
+                                    onclick: move |_| on_toggle.call(check_id.clone()),
+                                    if is_done { "✓" } else { "○" }
+                                }
+                                // Mastery is doing, not scrolling: the ring counts
+                                // exercises PASSED, separate from the read-mark.
+                                if section.exercise_total > 0 {
+                                    span {
+                                        class: if section.exercise_passed == section.exercise_total { "guide-mastery-ring done" } else { "guide-mastery-ring" },
+                                        style: if section.exercise_passed == section.exercise_total { "flex: none; font-size: 9px; font-weight: 700; color: #22c55e; border: 1px solid rgba(34,197,94,0.5); border-radius: 999px; padding: 1px 5px;" } else { "flex: none; font-size: 9px; font-weight: 700; color: rgba(229,231,235,0.5); border: 1px solid rgba(255,255,255,0.2); border-radius: 999px; padding: 1px 5px;" },
+                                        title: "{section.exercise_passed} of {section.exercise_total} exercises passed",
+                                        "{section.exercise_passed}/{section.exercise_total}"
+                                    }
+                                }
                                 a {
                                     class: "{class_name}",
+                                    style: "flex: 1;",
                                     href: "#{section_id}",
                                     onclick: {
                                         let id = section.id.clone();
@@ -202,6 +232,7 @@ pub fn GuideSidebar(props: GuideSidebarProps) -> Element {
                                     span { class: "sidebar-section-number", "{section.number}." }
                                     " {section.title}"
                                 }
+                                }
                             }
                         }
                     }
@@ -226,15 +257,3 @@ fn group_sections_by_part(sections: &[SectionInfo]) -> Vec<(String, Vec<SectionI
     result
 }
 
-/// Mobile sidebar toggle button component
-#[component]
-pub fn SidebarMobileToggle(on_toggle: EventHandler<()>) -> Element {
-    rsx! {
-        button {
-            class: "sidebar-mobile-toggle",
-            onclick: move |_| on_toggle.call(()),
-            title: "Toggle navigation",
-            "☰"
-        }
-    }
-}

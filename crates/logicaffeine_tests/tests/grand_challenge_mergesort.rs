@@ -21,7 +21,11 @@ Otherwise:
     assert!(result.is_ok(), "Should parse 'is less than': {:?}", result);
     let rust = result.unwrap();
     // After optimization: 5<10 folds to true, dead branch eliminated
-    assert!(rust.contains("\"yes\""), "Should keep true branch after folding: {}", rust);
+    assert!(
+        rust.contains("\"yes\""),
+        "Should keep true branch after folding: {}",
+        rust
+    );
 }
 
 #[test]
@@ -33,9 +37,17 @@ If x is greater than 3:
 Otherwise:
     Show "no"."#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse 'is greater than': {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse 'is greater than': {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("\"yes\""), "Should keep true branch after folding: {}", rust);
+    assert!(
+        rust.contains("\"yes\""),
+        "Should keep true branch after folding: {}",
+        rust
+    );
 }
 
 #[test]
@@ -49,7 +61,11 @@ Return i."#;
     assert!(result.is_ok(), "Should parse 'is at most': {:?}", result);
     let rust = result.unwrap();
     // For-range optimization: `Let i = 1. While i <= 5: Set i to i+1` → `for i in 1..6`
-    assert!(rust.contains("1..6") || rust.contains("(i <= 5)"), "Should generate <=  or for-range comparison: {}", rust);
+    assert!(
+        rust.contains("1..6") || rust.contains("(i <= 5)"),
+        "Should generate <=  or for-range comparison: {}",
+        rust
+    );
 }
 
 #[test]
@@ -62,7 +78,11 @@ Return i."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse 'is at least': {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("(i >= 1)"), "Should generate >= comparison: {}", rust);
+    assert!(
+        rust.contains("(i >= 1)"),
+        "Should generate >= comparison: {}",
+        rust
+    );
 }
 
 #[test]
@@ -76,7 +96,11 @@ Otherwise:
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse '<' symbol: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("\"yes\""), "Should keep true branch after folding: {}", rust);
+    assert!(
+        rust.contains("\"yes\""),
+        "Should keep true branch after folding: {}",
+        rust
+    );
 }
 
 #[test]
@@ -90,7 +114,11 @@ Return x."#;
     assert!(result.is_ok(), "Should parse '<=' symbol: {:?}", result);
     let rust = result.unwrap();
     // For-range optimization: `Let x = 5. While x <= 10: Set x to x+1` → `for x in 5..11`
-    assert!(rust.contains("5..11") || rust.contains("(x <= 10)"), "Should generate <= or for-range comparison: {}", rust);
+    assert!(
+        rust.contains("5..11") || rust.contains("(x <= 10)"),
+        "Should generate <= or for-range comparison: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -107,9 +135,17 @@ While i is at most 5 and j is at most 5:
     Set j to j + 1.
 Return i."#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse compound condition with 'and': {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse compound condition with 'and': {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("&&"), "Should generate && for 'and': {}", rust);
+    assert!(
+        rust.contains("&&"),
+        "Should generate && for 'and': {}",
+        rust
+    );
 }
 
 #[test]
@@ -123,10 +159,18 @@ If a is less than 5 and b is less than 5 and c is less than 5:
 Otherwise:
     Show "not all small"."#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse multiple 'and' conditions: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse multiple 'and' conditions: {:?}",
+        result
+    );
     let rust = result.unwrap();
     // After optimization: all conditions fold to true, dead branch eliminated
-    assert!(rust.contains("\"all small\""), "Should keep true branch after folding: {}", rust);
+    assert!(
+        rust.contains("\"all small\""),
+        "Should keep true branch after folding: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -146,7 +190,11 @@ While i is at most n:
     Set i to i + 1.
 Return result."#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should compile loop with index access: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should compile loop with index access: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -188,9 +236,17 @@ fn merge_function_compiles() {
 ## Main
     Let x be 1."#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Merge function should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Merge function should compile: {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("fn Merge"), "Should generate Merge function: {}", rust);
+    assert!(
+        rust.contains("fn Merge"),
+        "Should generate Merge function: {}",
+        rust
+    );
 }
 
 #[test]
@@ -216,10 +272,22 @@ fn mergesort_function_compiles() {
 ## Main
     Let x be 1."#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "MergeSort function should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "MergeSort function should compile: {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("fn MergeSort"), "Should generate MergeSort function: {}", rust);
-    assert!(rust.contains("LogosSeq::from_vec"), "Should generate LogosSeq::from_vec for copy of slice: {}", rust);
+    assert!(
+        rust.contains("fn MergeSort"),
+        "Should generate MergeSort function: {}",
+        rust
+    );
+    assert!(
+        rust.contains("LogosSeq::from_vec"),
+        "Should generate LogosSeq::from_vec for copy of slice: {}",
+        rust
+    );
 }
 
 #[test]
@@ -280,18 +348,34 @@ fn full_mergesort_compiles() {
     Show sorted."#;
 
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Full MergeSort should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Full MergeSort should compile: {:?}",
+        result
+    );
 
     let rust = result.unwrap();
 
     // Verify key parts of the generated Rust
     assert!(rust.contains("fn Merge"), "Should have Merge function");
-    assert!(rust.contains("fn MergeSort"), "Should have MergeSort function");
+    assert!(
+        rust.contains("fn MergeSort"),
+        "Should have MergeSort function"
+    );
     assert!(rust.contains("fn main()"), "Should have main function");
-    assert!(rust.contains("&&"), "Should have && for compound conditions");
-    assert!(rust.contains(".push("), "Should have .push() for Push statements");
+    assert!(
+        rust.contains("&&"),
+        "Should have && for compound conditions"
+    );
+    assert!(
+        rust.contains(".push("),
+        "Should have .push() for Push statements"
+    );
     assert!(rust.contains(".len()"), "Should have .len() for length of");
-    assert!(rust.contains("LogosSeq::from_vec"), "Should have LogosSeq::from_vec for copy of slice");
+    assert!(
+        rust.contains("LogosSeq::from_vec"),
+        "Should have LogosSeq::from_vec for copy of slice"
+    );
 }
 
 // =============================================================================
@@ -301,7 +385,6 @@ fn full_mergesort_compiles() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_mergesort_runs_correctly() {
-    use std::io::Write;
     use std::process::Command;
 
     let source = r#"## To Merge (left: Seq of Int) and (right: Seq of Int) -> Seq of Int:
@@ -413,7 +496,9 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
         .current_dir(project_dir)
         .output()
         .expect("Failed to run cargo");
-    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+    let output = if !output.status.success()
+        && String::from_utf8_lossy(&output.stderr).contains("--offline")
+    {
         Command::new("cargo")
             .args(["run", "--quiet"])
             .current_dir(project_dir)
@@ -435,7 +520,20 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 
     // 4. Verify output — exact match on both lines
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 2, "Should have exactly 2 lines of output, got: {:?}", lines);
-    assert_eq!(lines[0].trim(), "[3, 1, 4, 1, 5, 9, 2, 6]", "First line: unsorted input");
-    assert_eq!(lines[1].trim(), "[1, 1, 2, 3, 4, 5, 6, 9]", "Second line: sorted output");
+    assert_eq!(
+        lines.len(),
+        2,
+        "Should have exactly 2 lines of output, got: {:?}",
+        lines
+    );
+    assert_eq!(
+        lines[0].trim(),
+        "[3, 1, 4, 1, 5, 9, 2, 6]",
+        "First line: unsorted input"
+    );
+    assert_eq!(
+        lines[1].trim(),
+        "[1, 1, 2, 3, 4, 5, 6, 9]",
+        "Second line: sorted output"
+    );
 }

@@ -1,0 +1,117 @@
+{
+  "case": "T01-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 13,
+  "declarations": [
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), (\u2200 (n : Nat), P n) \u2192 P 0",
+      "name": "T01_005.dependentProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_005.forallOverTypeOneIsProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_005.forallOverTypesIsProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_005.forallOverTypesIsType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_005.piIntoProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_005.piIntoType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Sort v \u2192 Sort w \u2192 Sort (imax u v w)",
+      "name": "T01_005.piNested",
+      "levels": [
+        "u",
+        "v",
+        "w"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Type v \u2192 Type w \u2192 Sort (max u (v + 1) (w + 1))",
+      "name": "T01_005.piOverMax",
+      "levels": [
+        "u",
+        "v",
+        "w"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Sort u \u2192 Sort u",
+      "name": "T01_005.piSameLevel",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Sort v \u2192 Sort (imax u v)",
+      "name": "T01_005.piSort",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Sort v \u2192 Sort (imax u v)",
+      "name": "T01_005.piSymbolic",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_005.symbolicAtProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_005.symbolicAtType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

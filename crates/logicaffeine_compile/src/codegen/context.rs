@@ -45,9 +45,9 @@ pub struct RefinementContext<'a> {
     /// Maps variable name Symbol to Rust type name (for capability resolution and optimization).
     variable_types: HashMap<Symbol, String>,
 
-    /// Stack of scopes tracking which bindings came from boxed enum fields.
-    /// When these are used in expressions, they need to be dereferenced with `*`.
-    boxed_binding_scopes: Vec<HashSet<Symbol>>,
+    /// The program's top-level function bodies, for the SIMD-reduce lifter (`simd_reduce::try_plan`)
+    /// to inline liftable transcendentals into an AVX2 kernel. Populated per-function from `all_stmts`.
+    simd_fns: crate::codegen::simd_reduce::FnMap<'a>,
 
     /// Tracks variables that are known to be String type.
     /// Used for proper string concatenation codegen (format! vs +).
@@ -56,16 +56,6 @@ pub struct RefinementContext<'a> {
     /// Maps function Symbol to its return type string.
     /// Used to infer variable types from function call results.
     fn_returns: HashMap<Symbol, String>,
-
-    /// Variables live immediately after the current top-level statement.
-    ///
-    /// `None` = no liveness information available → OPT-1C must conservatively clone.
-    /// `Some(set)` = liveness computed; variables NOT in `set` are dead after this statement.
-    ///
-    /// Set by the caller of `codegen_stmt` before each top-level statement in a function body.
-    /// Consumed (cleared to `None`) at the start of `codegen_stmt` so that recursive calls for
-    /// nested blocks conservatively clone.
-    live_vars_after: Option<HashSet<Symbol>>,
 
     /// Collection variables that escape the function (passed to calls, returned).
     /// Variables NOT in this set can use Vec<T> instead of LogosSeq<T> for zero-overhead indexing.
@@ -81,7 +71,6 @@ pub struct RefinementContext<'a> {
     /// Incremented as the init pushes are emitted (`x[0] = …`, `x[1] = …`).
     array_fill_pos: HashMap<Symbol, usize>,
 
-
     /// O2 de-Rc: Seq variables proven to never need reference semantics, so
     /// they are emitted as a plain `Vec<T>` (no Rc/RefCell). The Let arm flips
     /// the declaration; access sites then dispatch on the `Vec<T>` type.
@@ -90,8 +79,19 @@ pub struct RefinementContext<'a> {
     /// `LogosSeq<T>`), so a `Return` of a borrowed-slice param emits `.to_vec()`
     /// without the `LogosSeq::from_vec(...)` wrapper.
     returns_vec: bool,
+    /// Opt::TextSliceReturn — `Some(param_index)` when the current function returns a borrowed
+    /// `&'a str` sub-slice of that Text param, so the terminal builder + `text_from_bytes(out)`
+    /// lowers to `return &s[lo-1..hi]` and the signature carries the `'a` lifetime.
+    str_slice_source: Option<usize>,
+    /// Opt::ByteSliceReturn — `Some(param_index)` when the current function returns a borrowed
+    /// `&'a [i64]` sub-slice of that `Seq of Int` param, so the terminal builder + `Return out`
+    /// lowers to `return &xs[lo-1..hi]` and the signature carries the `'a` lifetime.
+    byte_slice_source: Option<usize>,
     /// The current function is typed `-> LogosInt` (its `Int` return can exceed i64).
     returns_bigint: bool,
+    /// The Rust type the current function returns where it holds rationals: a `Return` of an integer returns the
+    /// rational it equals.
+    returns_rationals: Option<String>,
 
     /// Wave-2 A1 buffer-fill conversion: reused buffers (the inner partner of a
     /// `Set outer to inner` ping-pong swap) that are refilled by a COUNTED push
@@ -148,6 +148,8 @@ pub struct RefinementContext<'a> {
     /// runtime guard (`% m` divisor bound). See `codegen/narrow.rs`. Gated by
     /// `LOGOS_NARROW`, so empty unless that flag is set.
     narrowed: HashMap<Symbol, super::narrow::NarrowInfo>,
+    /// `Seq of Bool` locals held one bit per item (`LogosBits`). See `codegen/bits.rs`.
+    bitpacked: HashSet<Symbol>,
 
     /// Non-aliased local `Map of Int to Int` variables proven safe to lower to
     /// the specialized open-addressing `LogosI64Map` (no `Rc<RefCell>`, no
@@ -179,18 +181,14 @@ pub struct RefinementContext<'a> {
     /// `/ n` sites read this to emit `helper.rem(..)` / `helper.div(..)` instead
     /// of a hardware division (O9 libdivide).
     fast_div: HashMap<Symbol, String>,
-    /// `mutable` collection parameters (value semantics): passed by shared
-    /// `&LogosSeq`/`&LogosMap` so an in-place mutation reaches the caller's
-    /// allocation. These are the ONE case where a `LogosSeq`/`LogosMap` mutation
-    /// must NOT copy-on-write — the by-reference propagation is the whole point —
-    /// so the `cow()` emitter skips them (and a `&LogosSeq` cannot call the
-    /// `&mut self` `cow()` anyway).
-    mutable_collection_params: HashSet<Symbol>,
     /// Integer variables whose assignments can overflow `i64` (a bignum constant,
     /// a promotable-derived value, or a multiplicative/doubling accumulator) — the
     /// `Let`/`Set` emitter stores these as the overflow-promoting `LogosInt` rather
     /// than a bare `i64`. Computed once per body by `bigint_promote`.
     promotable_int_candidates: HashSet<Symbol>,
+    /// The bindings an exact join holds as rationals, with the Rust type each is declared ([`super::rational::joins`]):
+    /// the `Let`, `Set`, push and item-store emitters convert each integer they store into one.
+    rational_joins: HashMap<Symbol, String>,
 }
 
 impl<'a> RefinementContext<'a> {
@@ -198,16 +196,18 @@ impl<'a> RefinementContext<'a> {
         Self {
             scopes: vec![HashMap::new()],
             variable_types: HashMap::new(),
-            boxed_binding_scopes: vec![HashSet::new()],
+            simd_fns: crate::codegen::simd_reduce::FnMap::new(),
             string_vars: HashSet::new(),
-            live_vars_after: None,
             escaping_vars: HashSet::new(),
             fn_returns: HashMap::new(),
             oracle: None,
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
             returns_vec: false,
+            str_slice_source: None,
+            byte_slice_source: None,
             returns_bigint: false,
+            returns_rationals: None,
             buffer_reuse_fill: HashSet::new(),
             scratch_hoist: HashSet::new(),
             fill_loop: None,
@@ -219,6 +219,7 @@ impl<'a> RefinementContext<'a> {
             indexed_buffers: HashMap::new(),
             loop_fill_arrays: HashMap::new(),
             narrowed: HashMap::new(),
+            bitpacked: HashSet::new(),
             i64_maps: HashSet::new(),
             i64_sets: HashSet::new(),
             dense_i64: HashMap::new(),
@@ -226,8 +227,8 @@ impl<'a> RefinementContext<'a> {
             i32_sets: HashSet::new(),
             vec_presize: HashMap::new(),
             fast_div: HashMap::new(),
-            mutable_collection_params: HashSet::new(),
             promotable_int_candidates: HashSet::new(),
+            rational_joins: HashMap::new(),
         }
     }
 
@@ -236,16 +237,18 @@ impl<'a> RefinementContext<'a> {
         Self {
             scopes: vec![HashMap::new()],
             variable_types: type_env.to_legacy_variable_types(),
-            boxed_binding_scopes: vec![HashSet::new()],
+            simd_fns: crate::codegen::simd_reduce::FnMap::new(),
             string_vars: type_env.to_legacy_string_vars(),
-            live_vars_after: None,
             escaping_vars: HashSet::new(),
             fn_returns: HashMap::new(),
             oracle: None,
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
             returns_vec: false,
+            str_slice_source: None,
+            byte_slice_source: None,
             returns_bigint: false,
+            returns_rationals: None,
             buffer_reuse_fill: HashSet::new(),
             scratch_hoist: HashSet::new(),
             fill_loop: None,
@@ -257,6 +260,7 @@ impl<'a> RefinementContext<'a> {
             indexed_buffers: HashMap::new(),
             loop_fill_arrays: HashMap::new(),
             narrowed: HashMap::new(),
+            bitpacked: HashSet::new(),
             i64_maps: HashSet::new(),
             i64_sets: HashSet::new(),
             dense_i64: HashMap::new(),
@@ -264,8 +268,8 @@ impl<'a> RefinementContext<'a> {
             i32_sets: HashSet::new(),
             vec_presize: HashMap::new(),
             fast_div: HashMap::new(),
-            mutable_collection_params: HashSet::new(),
             promotable_int_candidates: HashSet::new(),
+            rational_joins: HashMap::new(),
         }
     }
 
@@ -355,10 +359,7 @@ impl<'a> RefinementContext<'a> {
     }
 
     /// Record the recognized append-only worklists for this function body.
-    pub(super) fn set_worklists(
-        &mut self,
-        w: HashMap<Symbol, super::worklist::WorklistInfo>,
-    ) {
+    pub(super) fn set_worklists(&mut self, w: HashMap<Symbol, super::worklist::WorklistInfo>) {
         self.worklists = w;
     }
 
@@ -378,7 +379,10 @@ impl<'a> RefinementContext<'a> {
 
     /// The affine-array scalarization for `sym` (deleted array + closed-form
     /// reads), if it was recognized.
-    pub(super) fn affine_array(&self, sym: Symbol) -> Option<&super::affine_array::AffineArrayInfo> {
+    pub(super) fn affine_array(
+        &self,
+        sym: Symbol,
+    ) -> Option<&super::affine_array::AffineArrayInfo> {
         self.affine_arrays.get(&sym)
     }
 
@@ -409,7 +413,10 @@ impl<'a> RefinementContext<'a> {
     }
 
     /// Record the zero-init indexed-write fixed-size buffers emitted as `[T; N]` stack arrays.
-    pub(super) fn set_indexed_buffers(&mut self, m: HashMap<Symbol, super::affine_array::IndexedBufInfo>) {
+    pub(super) fn set_indexed_buffers(
+        &mut self,
+        m: HashMap<Symbol, super::affine_array::IndexedBufInfo>,
+    ) {
         self.indexed_buffers = m;
     }
 
@@ -433,6 +440,16 @@ impl<'a> RefinementContext<'a> {
         self.narrowed = n;
     }
 
+    /// Record the `Seq of Bool` locals held one bit per item.
+    pub(super) fn set_bitpacked(&mut self, b: HashSet<Symbol>) {
+        self.bitpacked = b;
+    }
+
+    /// Whether `sym` is a `LogosBits`, one bit per item.
+    pub(super) fn is_bitpacked(&self, sym: Symbol) -> bool {
+        self.bitpacked.contains(&sym)
+    }
+
     /// Whether `sym` is stored as `Vec<i32>` (loads sign-extend, stores truncate).
     pub(super) fn is_narrowed(&self, sym: Symbol) -> bool {
         self.narrowed.contains_key(&sym)
@@ -440,7 +457,10 @@ impl<'a> RefinementContext<'a> {
 
     /// The runtime guards `sym`'s narrowing depends on (asserted at its decl).
     pub(super) fn narrow_guards(&self, sym: Symbol) -> &[String] {
-        self.narrowed.get(&sym).map(|i| i.guards.as_slice()).unwrap_or(&[])
+        self.narrowed
+            .get(&sym)
+            .map(|i| i.guards.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Record the `Map of Int to Int` locals lowered to `LogosI64Map`.
@@ -520,18 +540,6 @@ impl<'a> RefinementContext<'a> {
         &self.fast_div
     }
 
-    /// Mark `sym` as a `mutable` collection parameter (passed by `&LogosSeq`/
-    /// `&LogosMap`): its in-place mutations propagate to the caller by design, so
-    /// the `cow()` emitter skips it.
-    pub(super) fn register_mutable_collection_param(&mut self, sym: Symbol) {
-        self.mutable_collection_params.insert(sym);
-    }
-
-    /// Is `sym` a `mutable` collection parameter (mutate-in-place, no copy-on-write)?
-    pub(super) fn is_mutable_collection_param(&self, sym: Symbol) -> bool {
-        self.mutable_collection_params.contains(&sym)
-    }
-
     /// Set the de-Rc'd Seq variables (emitted as plain `Vec<T>`).
     pub fn set_de_rc_vars(&mut self, vars: HashSet<Symbol>) {
         self.de_rc_vars = vars;
@@ -547,10 +555,39 @@ impl<'a> RefinementContext<'a> {
         self.returns_vec
     }
 
+    /// Opt::TextSliceReturn — record the borrowed Text param index this fn returns a slice of.
+    pub fn set_str_slice_source(&mut self, src: Option<usize>) {
+        self.str_slice_source = src;
+    }
+
+    /// The param index this fn returns a `&'a str` sub-slice of, if any (Opt::TextSliceReturn).
+    pub(super) fn str_slice_source(&self) -> Option<usize> {
+        self.str_slice_source
+    }
+
+    pub fn set_byte_slice_source(&mut self, src: Option<usize>) {
+        self.byte_slice_source = src;
+    }
+
+    /// The param index this fn returns a `&'a [i64]` sub-slice of, if any (Opt::ByteSliceReturn).
+    pub(super) fn byte_slice_source(&self) -> Option<usize> {
+        self.byte_slice_source
+    }
+
     /// Mark that the current function returns an overflow-promoting `LogosInt`
     /// (its `Int` return can exceed i64), so `Return` emits an un-narrowed value.
     pub(super) fn set_returns_bigint(&mut self, v: bool) {
         self.returns_bigint = v;
+    }
+
+    /// Mark the current function as returning `ty`, a type that holds rationals.
+    pub(super) fn set_returns_rationals(&mut self, ty: Option<String>) {
+        self.returns_rationals = ty;
+    }
+
+    /// The Rust type the current function returns where it holds rationals.
+    pub(super) fn returns_rationals(&self) -> Option<&String> {
+        self.returns_rationals.as_ref()
     }
 
     /// Does the current function return a `LogosInt`?
@@ -575,15 +612,40 @@ impl<'a> RefinementContext<'a> {
         self.promotable_int_candidates.contains(&sym)
     }
 
+    /// Hold the scope's exactly joined bindings as rationals: each is declared its joined type, which holds every
+    /// integer it is given whole, so none is an overflow-promoting integer as well.
+    pub(super) fn set_rational_joins(&mut self, joins: HashMap<Symbol, String>) {
+        for (sym, ty) in &joins {
+            self.promotable_int_candidates.remove(sym);
+            self.variable_types.insert(*sym, ty.clone());
+        }
+        self.rational_joins = joins;
+    }
+
+    /// The Rust type an exact join holds `sym` as.
+    pub(super) fn rational_join(&self, sym: Symbol) -> Option<&String> {
+        self.rational_joins.get(&sym)
+    }
+
     /// Is this variable currently stored as the overflow-promoting `LogosInt`
     /// (registered with the `|__bigint` sentinel)?
     pub(super) fn is_bigint_var(&self, sym: Symbol) -> bool {
-        self.variable_types.get(&sym).map_or(false, |t| t.contains("__bigint"))
+        self.variable_types
+            .get(&sym)
+            .map_or(false, |t| t.contains("__bigint"))
     }
 
     /// Set the escaping vars for local Vec optimization.
     pub fn set_escaping_vars(&mut self, vars: HashSet<Symbol>) {
         self.escaping_vars = vars;
+    }
+
+    pub(super) fn set_simd_fns(&mut self, fns: crate::codegen::simd_reduce::FnMap<'a>) {
+        self.simd_fns = fns;
+    }
+
+    pub(super) fn simd_fns(&self) -> &crate::codegen::simd_reduce::FnMap<'a> {
+        &self.simd_fns
     }
 
     /// Check if a variable escapes (and thus must remain LogosSeq).
@@ -601,48 +663,12 @@ impl<'a> RefinementContext<'a> {
         self.fn_returns.get(fn_sym)
     }
 
-    /// Set the live-after set for the next statement about to be generated.
-    ///
-    /// Must be called before each top-level `codegen_stmt` call in a function body.
-    /// `codegen_stmt` will consume this (clearing it to `None`) so recursive nested calls
-    /// conservatively clone.
-    pub fn set_live_vars_after(&mut self, live: HashSet<Symbol>) {
-        self.live_vars_after = Some(live);
-    }
-
-    /// Take (and clear) the live-after set.  Called once at the start of `codegen_stmt`.
-    ///
-    /// Returns `None` when no liveness information was provided (conservative path).
-    pub fn take_live_vars_after(&mut self) -> Option<HashSet<Symbol>> {
-        self.live_vars_after.take()
-    }
-
     pub(super) fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
-        self.boxed_binding_scopes.push(HashSet::new());
     }
 
     pub(super) fn pop_scope(&mut self) {
         self.scopes.pop();
-        self.boxed_binding_scopes.pop();
-    }
-
-    /// Register a binding that came from a boxed enum field.
-    /// These need `*` dereferencing when used in expressions.
-    pub(super) fn register_boxed_binding(&mut self, var: Symbol) {
-        if let Some(scope) = self.boxed_binding_scopes.last_mut() {
-            scope.insert(var);
-        }
-    }
-
-    /// Check if a variable is a boxed binding (needs dereferencing).
-    pub(super) fn is_boxed_binding(&self, var: Symbol) -> bool {
-        for scope in self.boxed_binding_scopes.iter().rev() {
-            if scope.contains(&var) {
-                return true;
-            }
-        }
-        false
     }
 
     /// Register a variable as having String type.
@@ -660,7 +686,12 @@ impl<'a> RefinementContext<'a> {
         &self.string_vars
     }
 
-    pub(super) fn register(&mut self, var: Symbol, bound_var: Symbol, predicate: &'a LogicExpr<'a>) {
+    pub(super) fn register(
+        &mut self,
+        var: Symbol,
+        bound_var: Symbol,
+        predicate: &'a LogicExpr<'a>,
+    ) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(var, (bound_var, predicate));
         }
@@ -691,7 +722,11 @@ impl<'a> RefinementContext<'a> {
     }
 
     /// Find a variable name by its type (for resolving "the document" to "doc").
-    pub(super) fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
+    pub(super) fn find_variable_by_type(
+        &self,
+        type_name: &str,
+        interner: &Interner,
+    ) -> Option<String> {
         let type_lower = type_name.to_lowercase();
         for (var_sym, var_type) in &self.variable_types {
             if var_type.to_lowercase() == type_lower {
@@ -801,19 +836,35 @@ pub(super) fn analyze_variable_capabilities<'a>(
                 entry.sync_topic = Some(codegen_expr(topic, interner, &empty_synced));
             }
             // Recursively check nested blocks (Block<'a> is &[Stmt<'a>])
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 let nested = analyze_variable_capabilities(then_block, interner);
                 for (var, cap) in nested {
                     let entry = caps.entry(var).or_default();
-                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
-                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                    if cap.mounted {
+                        entry.mounted = true;
+                        entry.mount_path = cap.mount_path;
+                    }
+                    if cap.synced {
+                        entry.synced = true;
+                        entry.sync_topic = cap.sync_topic;
+                    }
                 }
                 if let Some(else_b) = else_block {
                     let nested = analyze_variable_capabilities(else_b, interner);
                     for (var, cap) in nested {
                         let entry = caps.entry(var).or_default();
-                        if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
-                        if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                        if cap.mounted {
+                            entry.mounted = true;
+                            entry.mount_path = cap.mount_path;
+                        }
+                        if cap.synced {
+                            entry.synced = true;
+                            entry.sync_topic = cap.sync_topic;
+                        }
                     }
                 }
             }
@@ -821,8 +872,14 @@ pub(super) fn analyze_variable_capabilities<'a>(
                 let nested = analyze_variable_capabilities(body, interner);
                 for (var, cap) in nested {
                     let entry = caps.entry(var).or_default();
-                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
-                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                    if cap.mounted {
+                        entry.mounted = true;
+                        entry.mount_path = cap.mount_path;
+                    }
+                    if cap.synced {
+                        entry.synced = true;
+                        entry.sync_topic = cap.sync_topic;
+                    }
                 }
             }
             _ => {}

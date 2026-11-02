@@ -2,5 +2,6 @@
   "id": "belief",
   "title": "Belief Logic",
   "pedagogy": "Learn to translate statements about beliefs, knowledge, willing, and rationality. Master propositional attitude logic.",
-  "order": 6
+  "order": 6,
+  "summary": "Belief and knowledge, and Gensler's notation for believing and willing."
 }

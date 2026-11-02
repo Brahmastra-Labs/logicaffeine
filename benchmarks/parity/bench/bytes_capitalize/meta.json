@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.capitalize",
+  "workload": "bytesCapitalize(xs) \u2014 first upper, rest lower, positional fold",
+  "arg": "40000",
+  "expected": "5223648",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

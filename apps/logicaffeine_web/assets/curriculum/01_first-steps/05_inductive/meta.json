@@ -2,5 +2,6 @@
   "id": "inductive",
   "title": "Inductive Reasoning",
   "pedagogy": "Master probability, statistical syllogisms, analogical reasoning, Mill's methods, and best-explanation reasoning.",
-  "order": 5
+  "order": 5,
+  "summary": "Reason to probable conclusions: statistics, probability, samples, analogies, causes and explanations."
 }

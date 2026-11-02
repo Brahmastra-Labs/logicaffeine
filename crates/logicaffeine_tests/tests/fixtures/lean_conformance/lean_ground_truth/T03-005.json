@@ -1,0 +1,537 @@
+{
+  "case": "T03-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 67,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T03_005.Even",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} \u2192 {a : Nat} \u2192 T03_005.Even a \u2192 Prop",
+      "name": "T03_005.Even.below",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} {motive_1 : {a : Nat} \u2192 (x : T03_005.Even a) \u2192 x.below \u2192 Prop} {a : Nat}\n  {x : T03_005.Even a} (t : x.below),\n  motive_1 T03_005.Even.zero \u22ef \u2192\n    (\u2200 {n : Nat} {a : T03_005.Even n} (a_1 : a.below) (a_2 : motive n a), motive_1 \u22ef \u22ef) \u2192 motive_1 x t",
+      "name": "T03_005.Even.below.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} {n : Nat} {a : T03_005.Even n}, a.below \u2192 motive n a \u2192 \u22ef.below",
+      "name": "T03_005.Even.below.plusTwo",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} {motive_1 : {a : Nat} \u2192 (x : T03_005.Even a) \u2192 x.below \u2192 Prop},\n  motive_1 T03_005.Even.zero \u22ef \u2192\n    (\u2200 {n : Nat} {a : T03_005.Even n} (a_1 : a.below) (a_2 : motive n a), motive_1 a a_1 \u2192 motive_1 \u22ef \u22ef) \u2192\n      \u2200 {a : Nat} {x : T03_005.Even a} (t : x.below), motive_1 x t",
+      "name": "T03_005.Even.below.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop}, T03_005.Even.zero.below",
+      "name": "T03_005.Even.below.zero",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} {a : Nat} (x : T03_005.Even a),\n  (\u2200 (a : Nat) (x : T03_005.Even a), x.below \u2192 motive a x) \u2192 motive a x",
+      "name": "T03_005.Even.brecOn",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} {a : Nat} (t : T03_005.Even a),\n  motive 0 T03_005.Even.zero \u2192 (\u2200 {n : Nat} (a : T03_005.Even n), motive (n + 2) \u22ef) \u2192 motive a t",
+      "name": "T03_005.Even.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {n : Nat}, T03_005.Even n \u2192 T03_005.Even (n + 2)",
+      "name": "T03_005.Even.plusTwo",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop},\n  motive 0 T03_005.Even.zero \u2192\n    (\u2200 {n : Nat} (a : T03_005.Even n), motive n a \u2192 motive (n + 2) \u22ef) \u2192 \u2200 {a : Nat} (t : T03_005.Even a), motive a t",
+      "name": "T03_005.Even.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_005.Even a \u2192 Prop} {a : Nat} (t : T03_005.Even a),\n  motive 0 T03_005.Even.zero \u2192 (\u2200 {n : Nat} (a : T03_005.Even n), motive n a \u2192 motive (n + 2) \u22ef) \u2192 motive a t",
+      "name": "T03_005.Even.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_005.Even 0",
+      "name": "T03_005.Even.zero",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 \u03b1 \u2192 \u03b1 \u2192 Type",
+      "name": "T03_005.Path",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort u} \u2192 {a a_1 : \u03b1} \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort (max 1 u)",
+      "name": "T03_005.Path.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Prop} {a a_1 : \u03b1} (t : T03_005.Path \u03b1 a a_1),\n  (\u2200 (a a_2 : \u03b1) (t : T03_005.Path \u03b1 a a_2), T03_005.Path.ibelow t \u2192 motive a a_2 t) \u2192 motive a a_1 t",
+      "name": "T03_005.Path.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort u} \u2192\n    {a a_1 : \u03b1} \u2192\n      (t : T03_005.Path \u03b1 a a_1) \u2192\n        ((a a_2 : \u03b1) \u2192 (t : T03_005.Path \u03b1 a a_2) \u2192 T03_005.Path.below t \u2192 motive a a_2 t) \u2192 motive a a_1 t",
+      "name": "T03_005.Path.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort u} \u2192\n    {a a_1 : \u03b1} \u2192\n      (t : T03_005.Path \u03b1 a a_1) \u2192\n        ((a : \u03b1) \u2192 motive a a (T03_005.Path.refl a)) \u2192\n          ({a b c : \u03b1} \u2192 (a_2 : T03_005.Path \u03b1 a b) \u2192 (a_3 : T03_005.Path \u03b1 b c) \u2192 motive a c (a_2.step a_3)) \u2192\n            motive a a_1 t",
+      "name": "T03_005.Path.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Prop} \u2192 {a a_1 : \u03b1} \u2192 T03_005.Path \u03b1 a a_1 \u2192 Prop",
+      "name": "T03_005.Path.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {a a_1 : \u03b1} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_005.Path \u03b1 a a_1} \u2192 v1 = v2 \u2192 T03_005.Path.noConfusionType P v1 v2",
+      "name": "T03_005.Path.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a a_1 : \u03b1} \u2192 Sort u \u2192 T03_005.Path \u03b1 a a_1 \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort u",
+      "name": "T03_005.Path.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort u} \u2192\n    ((a : \u03b1) \u2192 motive a a (T03_005.Path.refl a)) \u2192\n      ({a b c : \u03b1} \u2192\n          (a_1 : T03_005.Path \u03b1 a b) \u2192\n            (a_2 : T03_005.Path \u03b1 b c) \u2192 motive a b a_1 \u2192 motive b c a_2 \u2192 motive a c (a_1.step a_2)) \u2192\n        {a a_1 : \u03b1} \u2192 (t : T03_005.Path \u03b1 a a_1) \u2192 motive a a_1 t",
+      "name": "T03_005.Path.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a a_1 : \u03b1) \u2192 T03_005.Path \u03b1 a a_1 \u2192 Sort u} \u2192\n    {a a_1 : \u03b1} \u2192\n      (t : T03_005.Path \u03b1 a a_1) \u2192\n        ((a : \u03b1) \u2192 motive a a (T03_005.Path.refl a)) \u2192\n          ({a b c : \u03b1} \u2192\n              (a_2 : T03_005.Path \u03b1 a b) \u2192\n                (a_3 : T03_005.Path \u03b1 b c) \u2192 motive a b a_2 \u2192 motive b c a_3 \u2192 motive a c (a_2.step a_3)) \u2192\n            motive a a_1 t",
+      "name": "T03_005.Path.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (a : \u03b1) \u2192 T03_005.Path \u03b1 a a",
+      "name": "T03_005.Path.refl",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T03_005.Path.refl a) = 1 + sizeOf a",
+      "name": "T03_005.Path.refl.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a b c : \u03b1} \u2192 T03_005.Path \u03b1 a b \u2192 T03_005.Path \u03b1 b c \u2192 T03_005.Path \u03b1 a c",
+      "name": "T03_005.Path.step",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a b c : \u03b1} {a_1 : T03_005.Path \u03b1 a b} {a_2 : T03_005.Path \u03b1 b c} {b_1 : \u03b1} {a_3 : T03_005.Path \u03b1 a b_1}\n  {a_4 : T03_005.Path \u03b1 b_1 c}, a_1.step a_2 = a_3.step a_4 \u2192 b = b_1 \u2227 HEq a_1 a_3 \u2227 HEq a_2 a_4",
+      "name": "T03_005.Path.step.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a b c : \u03b1} (a_1 : T03_005.Path \u03b1 a b) (a_2 : T03_005.Path \u03b1 b c) (b_1 : \u03b1) (a_3 : T03_005.Path \u03b1 a b_1)\n  (a_4 : T03_005.Path \u03b1 b_1 c), (a_1.step a_2 = a_3.step a_4) = (b = b_1 \u2227 HEq a_1 a_3 \u2227 HEq a_2 a_4)",
+      "name": "T03_005.Path.step.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] {a b c : \u03b1} (a_1 : T03_005.Path \u03b1 a b) (a_2 : T03_005.Path \u03b1 b c),\n  sizeOf (a_1.step a_2) = 1 + sizeOf a + sizeOf b + sizeOf c + sizeOf a_1 + sizeOf a_2",
+      "name": "T03_005.Path.step.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type 1",
+      "name": "T03_005.Shape",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Type) \u2192 T03_005.Shape a \u2192 Sort u} \u2192\n  {a : Type} \u2192\n    (t : T03_005.Shape a) \u2192\n      ((a : Nat) \u2192 motive Nat (T03_005.Shape.ofNat a)) \u2192\n        ((a : Bool) \u2192 motive Bool (T03_005.Shape.ofBool a)) \u2192 motive a t",
+      "name": "T03_005.Shape.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_005.Shape a} \u2192 v1 = v2 \u2192 T03_005.Shape.noConfusionType P v1 v2",
+      "name": "T03_005.Shape.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Type} \u2192 Sort u \u2192 T03_005.Shape a \u2192 T03_005.Shape a \u2192 Sort u",
+      "name": "T03_005.Shape.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 T03_005.Shape Bool",
+      "name": "T03_005.Shape.ofBool",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Bool}, T03_005.Shape.ofBool a = T03_005.Shape.ofBool a_1 \u2192 a = a_1",
+      "name": "T03_005.Shape.ofBool.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Bool), (T03_005.Shape.ofBool a = T03_005.Shape.ofBool a_1) = (a = a_1)",
+      "name": "T03_005.Shape.ofBool.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Bool), sizeOf (T03_005.Shape.ofBool a) = 1 + sizeOf a",
+      "name": "T03_005.Shape.ofBool.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T03_005.Shape Nat",
+      "name": "T03_005.Shape.ofNat",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat}, T03_005.Shape.ofNat a = T03_005.Shape.ofNat a_1 \u2192 a = a_1",
+      "name": "T03_005.Shape.ofNat.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat), (T03_005.Shape.ofNat a = T03_005.Shape.ofNat a_1) = (a = a_1)",
+      "name": "T03_005.Shape.ofNat.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat), sizeOf (T03_005.Shape.ofNat a) = 1 + sizeOf a",
+      "name": "T03_005.Shape.ofNat.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Type) \u2192 T03_005.Shape a \u2192 Sort u} \u2192\n  ((a : Nat) \u2192 motive Nat (T03_005.Shape.ofNat a)) \u2192\n    ((a : Bool) \u2192 motive Bool (T03_005.Shape.ofBool a)) \u2192 {a : Type} \u2192 (t : T03_005.Shape a) \u2192 motive a t",
+      "name": "T03_005.Shape.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Type) \u2192 T03_005.Shape a \u2192 Sort u} \u2192\n  {a : Type} \u2192\n    (t : T03_005.Shape a) \u2192\n      ((a : Nat) \u2192 motive Nat (T03_005.Shape.ofNat a)) \u2192\n        ((a : Bool) \u2192 motive Bool (T03_005.Shape.ofBool a)) \u2192 motive a t",
+      "name": "T03_005.Shape.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Nat \u2192 Type",
+      "name": "T03_005.Vect",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Sort u} \u2192 {a : Nat} \u2192 T03_005.Vect \u03b1 a \u2192 Sort (max 1 u)",
+      "name": "T03_005.Vect.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Prop} {a : Nat} (t : T03_005.Vect \u03b1 a),\n  (\u2200 (a : Nat) (t : T03_005.Vect \u03b1 a), T03_005.Vect.ibelow t \u2192 motive a t) \u2192 motive a t",
+      "name": "T03_005.Vect.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T03_005.Vect \u03b1 a) \u2192 ((a : Nat) \u2192 (t : T03_005.Vect \u03b1 a) \u2192 T03_005.Vect.below t \u2192 motive a t) \u2192 motive a t",
+      "name": "T03_005.Vect.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T03_005.Vect \u03b1 a) \u2192\n        motive 0 T03_005.Vect.nil \u2192\n          ({n : Nat} \u2192 (a : \u03b1) \u2192 (a_1 : T03_005.Vect \u03b1 n) \u2192 motive (n + 1) (T03_005.Vect.cons a a_1)) \u2192 motive a t",
+      "name": "T03_005.Vect.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {n : Nat} \u2192 \u03b1 \u2192 T03_005.Vect \u03b1 n \u2192 T03_005.Vect \u03b1 (n + 1)",
+      "name": "T03_005.Vect.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {n : Nat} {a : \u03b1} {a_1 : T03_005.Vect \u03b1 n} {a_2 : \u03b1} {a_3 : T03_005.Vect \u03b1 n},\n  T03_005.Vect.cons a a_1 = T03_005.Vect.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_005.Vect.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {n : Nat} (a : \u03b1) (a_1 : T03_005.Vect \u03b1 n) (a_2 : \u03b1) (a_3 : T03_005.Vect \u03b1 n),\n  (T03_005.Vect.cons a a_1 = T03_005.Vect.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_005.Vect.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] {n : Nat} (a : \u03b1) (a_1 : T03_005.Vect \u03b1 n),\n  sizeOf (T03_005.Vect.cons a a_1) = 1 + sizeOf n + sizeOf a + sizeOf a_1",
+      "name": "T03_005.Vect.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Prop} \u2192 {a : Nat} \u2192 T03_005.Vect \u03b1 a \u2192 Prop",
+      "name": "T03_005.Vect.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_005.Vect \u03b1 0",
+      "name": "T03_005.Vect.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T03_005.Vect.nil = 1",
+      "name": "T03_005.Vect.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_005.Vect \u03b1 a} \u2192 v1 = v2 \u2192 T03_005.Vect.noConfusionType P v1 v2",
+      "name": "T03_005.Vect.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 Sort u \u2192 T03_005.Vect \u03b1 a \u2192 T03_005.Vect \u03b1 a \u2192 Sort u",
+      "name": "T03_005.Vect.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Sort u} \u2192\n    motive 0 T03_005.Vect.nil \u2192\n      ({n : Nat} \u2192 (a : \u03b1) \u2192 (a_1 : T03_005.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T03_005.Vect.cons a a_1)) \u2192\n        {a : Nat} \u2192 (t : T03_005.Vect \u03b1 a) \u2192 motive a t",
+      "name": "T03_005.Vect.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T03_005.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T03_005.Vect \u03b1 a) \u2192\n        motive 0 T03_005.Vect.nil \u2192\n          ({n : Nat} \u2192 (a : \u03b1) \u2192 (a_1 : T03_005.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T03_005.Vect.cons a a_1)) \u2192\n            motive a t",
+      "name": "T03_005.Vect.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_005.Vect Nat 0",
+      "name": "T03_005.emptyVect",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_005.Vect \u03b1 0 \u2192 Bool",
+      "name": "T03_005.isEmpty",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T03_005.Vect \u03b1 0 \u2192 Sort u_1) \u2192 (x : T03_005.Vect \u03b1 0) \u2192 (Unit \u2192 motive T03_005.Vect.nil) \u2192 motive x",
+      "name": "T03_005.isEmpty.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_005.Vect Nat 1",
+      "name": "T03_005.oneVect",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a b : \u03b1} \u2192 T03_005.Path \u03b1 a b \u2192 \u03b1 \u00d7 \u03b1",
+      "name": "T03_005.pathEnds",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_005.Shape \u03b1 \u2192 Bool",
+      "name": "T03_005.shapeIsNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : (\u03b1 : Type) \u2192 T03_005.Shape \u03b1 \u2192 Sort u_1) \u2192\n  (\u03b1 : Type) \u2192\n    (x : T03_005.Shape \u03b1) \u2192\n      ((a : Nat) \u2192 motive Nat (T03_005.Shape.ofNat a)) \u2192\n        ((a : Bool) \u2192 motive Bool (T03_005.Shape.ofBool a)) \u2192 motive \u03b1 x",
+      "name": "T03_005.shapeIsNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {n : Nat} \u2192 T03_005.Vect \u03b1 (n + 1) \u2192 \u03b1",
+      "name": "T03_005.vhead",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {n : Nat} \u2192\n    (motive : T03_005.Vect \u03b1 (n + 1) \u2192 Sort u_1) \u2192\n      (x : T03_005.Vect \u03b1 (n + 1)) \u2192 ((a : \u03b1) \u2192 (a_1 : T03_005.Vect \u03b1 n) \u2192 motive (T03_005.Vect.cons a a_1)) \u2192 motive x",
+      "name": "T03_005.vhead.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

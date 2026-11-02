@@ -1,0 +1,10 @@
+{
+  "capability": "iter.partition_point",
+  "workload": "partitionPoint(sorted xs, key) \u2014 1-based",
+  "arg": "200000",
+  "expected": "78129311",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

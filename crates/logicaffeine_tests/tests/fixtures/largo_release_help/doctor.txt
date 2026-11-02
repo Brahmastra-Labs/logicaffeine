@@ -1,0 +1,32 @@
+Diagnose the environment largo runs in.
+
+Checks the Rust toolchain (needed by `build`/`run`), the wasm32 target, node (for `--emit wasm`), the verification flavor, registry reachability and credentials, update freshness, and — inside a project — manifest health. Degradations are warnings; only a broken project fails. Works offline.
+
+Usage: largo doctor [OPTIONS]
+
+Options:
+      --registry <REGISTRY>
+          Registry URL to probe (defaults to the LOGOS registry)
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo doctor
+  largo doctor --registry https://registry.example.com

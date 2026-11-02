@@ -1,0 +1,80 @@
+{
+  "case": "T11-022",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), 2 * n = n + n",
+      "name": "T11_022.doubleIsAdd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 * 0 = 0",
+      "name": "T11_022.doubleZero",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 * 0 + 1 = 1",
+      "name": "T11_022.doubleZeroAgain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T11_022.firstOne",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 + n = n",
+      "name": "T11_022.secondOne",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat), n + m = m + n",
+      "name": "T11_022.thirdOne",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T11_022.triple",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_022.triple 1 = 3",
+      "name": "T11_022.tripleOne",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_022.triple 0 = 0",
+      "name": "T11_022.tripleZero",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 < n \u2192 0 < n + 1",
+      "name": "T11_022.withPremise",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

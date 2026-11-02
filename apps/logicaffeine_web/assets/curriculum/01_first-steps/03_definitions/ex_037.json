@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Murder?",
-  "explanation": "An accidental or self-defensive killing is the 'killing of a human being' but is not murder. Since the definiens covers killings that aren't murder, the definition is TOO BROAD."
+  "hint": "Can you think of something that fits this definition but is not murder?",
+  "explanation": "Killing in self-defense or by accident is not murder, yet fits the definition.",
+  "section": "3.2"
 }

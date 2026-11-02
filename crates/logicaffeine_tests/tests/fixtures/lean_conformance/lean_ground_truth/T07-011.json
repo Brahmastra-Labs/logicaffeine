@@ -1,0 +1,610 @@
+{
+  "case": "T07-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 64,
+  "declarations": [
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T07_011.Action",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192\n  {M : Type v} \u2192\n    {motive : T07_011.Action R M \u2192 Sort u_1} \u2192\n      (t : T07_011.Action R M) \u2192 ((smul : R \u2192 M \u2192 M) \u2192 motive { smul := smul }) \u2192 motive t",
+      "name": "T07_011.Action.casesOn",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192 {M : Type v} \u2192 (R \u2192 M \u2192 M) \u2192 T07_011.Action R M",
+      "name": "T07_011.Action.mk",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192\n  {M : Type v} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T07_011.Action R M} \u2192 v1 = v2 \u2192 T07_011.Action.noConfusionType P v1 v2",
+      "name": "T07_011.Action.noConfusion",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192 {M : Type v} \u2192 Sort u_1 \u2192 T07_011.Action R M \u2192 T07_011.Action R M \u2192 Sort u_1",
+      "name": "T07_011.Action.noConfusionType",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192\n  {M : Type v} \u2192\n    {motive : T07_011.Action R M \u2192 Sort u_1} \u2192\n      ((smul : R \u2192 M \u2192 M) \u2192 motive { smul := smul }) \u2192 (t : T07_011.Action R M) \u2192 motive t",
+      "name": "T07_011.Action.rec",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192\n  {M : Type v} \u2192\n    {motive : T07_011.Action R M \u2192 Sort u_1} \u2192\n      (t : T07_011.Action R M) \u2192 ((smul : R \u2192 M \u2192 M) \u2192 motive { smul := smul }) \u2192 motive t",
+      "name": "T07_011.Action.recOn",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type u} \u2192 {M : Type v} \u2192 [self : T07_011.Action R M] \u2192 R \u2192 M \u2192 M",
+      "name": "T07_011.Action.smul",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T07_011.Group",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Group \u03b1 \u2192 Sort u_1} \u2192\n    (t : T07_011.Group \u03b1) \u2192\n      ([toMonoid : T07_011.Monoid \u03b1] \u2192\n          (inv : \u03b1 \u2192 \u03b1) \u2192\n            (inv_mul : \u2200 (a : \u03b1), T07_011.Mul.mul (inv a) a = T07_011.One.one) \u2192\n              motive (T07_011.Group.mk inv inv_mul)) \u2192\n        motive t",
+      "name": "T07_011.Group.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.Group \u03b1] \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_011.Group.inv",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [self : T07_011.Group \u03b1] (a : \u03b1), T07_011.Mul.mul (T07_011.Group.inv a) a = T07_011.One.one",
+      "name": "T07_011.Group.inv_mul",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  [toMonoid : T07_011.Monoid \u03b1] \u2192\n    (inv : \u03b1 \u2192 \u03b1) \u2192 (\u2200 (a : \u03b1), T07_011.Mul.mul (inv a) a = T07_011.One.one) \u2192 T07_011.Group \u03b1",
+      "name": "T07_011.Group.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T07_011.Group \u03b1} \u2192 v1 = v2 \u2192 T07_011.Group.noConfusionType P v1 v2",
+      "name": "T07_011.Group.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T07_011.Group \u03b1 \u2192 T07_011.Group \u03b1 \u2192 Sort u_1",
+      "name": "T07_011.Group.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Group \u03b1 \u2192 Sort u_1} \u2192\n    ([toMonoid : T07_011.Monoid \u03b1] \u2192\n        (inv : \u03b1 \u2192 \u03b1) \u2192\n          (inv_mul : \u2200 (a : \u03b1), T07_011.Mul.mul (inv a) a = T07_011.One.one) \u2192 motive (T07_011.Group.mk inv inv_mul)) \u2192\n      (t : T07_011.Group \u03b1) \u2192 motive t",
+      "name": "T07_011.Group.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Group \u03b1 \u2192 Sort u_1} \u2192\n    (t : T07_011.Group \u03b1) \u2192\n      ([toMonoid : T07_011.Monoid \u03b1] \u2192\n          (inv : \u03b1 \u2192 \u03b1) \u2192\n            (inv_mul : \u2200 (a : \u03b1), T07_011.Mul.mul (inv a) a = T07_011.One.one) \u2192\n              motive (T07_011.Group.mk inv inv_mul)) \u2192\n        motive t",
+      "name": "T07_011.Group.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.Group \u03b1] \u2192 T07_011.Monoid \u03b1",
+      "name": "T07_011.Group.toMonoid",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T07_011.Monoid",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Monoid \u03b1 \u2192 Sort u_1} \u2192\n    (t : T07_011.Monoid \u03b1) \u2192\n      ([toSemigroup : T07_011.Semigroup \u03b1] \u2192\n          [toOne : T07_011.One \u03b1] \u2192\n            (one_mul : \u2200 (a : \u03b1), T07_011.Mul.mul T07_011.One.one a = a) \u2192\n              (mul_one : \u2200 (a : \u03b1), T07_011.Mul.mul a T07_011.One.one = a) \u2192\n                motive (T07_011.Monoid.mk one_mul mul_one)) \u2192\n        motive t",
+      "name": "T07_011.Monoid.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  [toSemigroup : T07_011.Semigroup \u03b1] \u2192\n    [toOne : T07_011.One \u03b1] \u2192\n      (\u2200 (a : \u03b1), T07_011.Mul.mul T07_011.One.one a = a) \u2192\n        (\u2200 (a : \u03b1), T07_011.Mul.mul a T07_011.One.one = a) \u2192 T07_011.Monoid \u03b1",
+      "name": "T07_011.Monoid.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [self : T07_011.Monoid \u03b1] (a : \u03b1), T07_011.Mul.mul a T07_011.One.one = a",
+      "name": "T07_011.Monoid.mul_one",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T07_011.Monoid \u03b1} \u2192 v1 = v2 \u2192 T07_011.Monoid.noConfusionType P v1 v2",
+      "name": "T07_011.Monoid.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T07_011.Monoid \u03b1 \u2192 T07_011.Monoid \u03b1 \u2192 Sort u_1",
+      "name": "T07_011.Monoid.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [self : T07_011.Monoid \u03b1] (a : \u03b1), T07_011.Mul.mul T07_011.One.one a = a",
+      "name": "T07_011.Monoid.one_mul",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Monoid \u03b1 \u2192 Sort u_1} \u2192\n    ([toSemigroup : T07_011.Semigroup \u03b1] \u2192\n        [toOne : T07_011.One \u03b1] \u2192\n          (one_mul : \u2200 (a : \u03b1), T07_011.Mul.mul T07_011.One.one a = a) \u2192\n            (mul_one : \u2200 (a : \u03b1), T07_011.Mul.mul a T07_011.One.one = a) \u2192 motive (T07_011.Monoid.mk one_mul mul_one)) \u2192\n      (t : T07_011.Monoid \u03b1) \u2192 motive t",
+      "name": "T07_011.Monoid.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Monoid \u03b1 \u2192 Sort u_1} \u2192\n    (t : T07_011.Monoid \u03b1) \u2192\n      ([toSemigroup : T07_011.Semigroup \u03b1] \u2192\n          [toOne : T07_011.One \u03b1] \u2192\n            (one_mul : \u2200 (a : \u03b1), T07_011.Mul.mul T07_011.One.one a = a) \u2192\n              (mul_one : \u2200 (a : \u03b1), T07_011.Mul.mul a T07_011.One.one = a) \u2192\n                motive (T07_011.Monoid.mk one_mul mul_one)) \u2192\n        motive t",
+      "name": "T07_011.Monoid.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.Monoid \u03b1] \u2192 T07_011.One \u03b1",
+      "name": "T07_011.Monoid.toOne",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.Monoid \u03b1] \u2192 T07_011.Semigroup \u03b1",
+      "name": "T07_011.Monoid.toSemigroup",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T07_011.Mul",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Mul \u03b1 \u2192 Sort u_1} \u2192 (t : T07_011.Mul \u03b1) \u2192 ((mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 motive { mul := mul }) \u2192 motive t",
+      "name": "T07_011.Mul.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 (\u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 T07_011.Mul \u03b1",
+      "name": "T07_011.Mul.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.Mul \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_011.Mul.mul",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T07_011.Mul \u03b1} \u2192 v1 = v2 \u2192 T07_011.Mul.noConfusionType P v1 v2",
+      "name": "T07_011.Mul.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T07_011.Mul \u03b1 \u2192 T07_011.Mul \u03b1 \u2192 Sort u_1",
+      "name": "T07_011.Mul.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Mul \u03b1 \u2192 Sort u_1} \u2192 ((mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 motive { mul := mul }) \u2192 (t : T07_011.Mul \u03b1) \u2192 motive t",
+      "name": "T07_011.Mul.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Mul \u03b1 \u2192 Sort u_1} \u2192 (t : T07_011.Mul \u03b1) \u2192 ((mul : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 motive { mul := mul }) \u2192 motive t",
+      "name": "T07_011.Mul.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T07_011.One",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.One \u03b1 \u2192 Sort u_1} \u2192 (t : T07_011.One \u03b1) \u2192 ((one : \u03b1) \u2192 motive { one := one }) \u2192 motive t",
+      "name": "T07_011.One.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 T07_011.One \u03b1",
+      "name": "T07_011.One.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T07_011.One \u03b1} \u2192 v1 = v2 \u2192 T07_011.One.noConfusionType P v1 v2",
+      "name": "T07_011.One.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T07_011.One \u03b1 \u2192 T07_011.One \u03b1 \u2192 Sort u_1",
+      "name": "T07_011.One.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.One \u03b1] \u2192 \u03b1",
+      "name": "T07_011.One.one",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.One \u03b1 \u2192 Sort u_1} \u2192 ((one : \u03b1) \u2192 motive { one := one }) \u2192 (t : T07_011.One \u03b1) \u2192 motive t",
+      "name": "T07_011.One.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.One \u03b1 \u2192 Sort u_1} \u2192 (t : T07_011.One \u03b1) \u2192 ((one : \u03b1) \u2192 motive { one := one }) \u2192 motive t",
+      "name": "T07_011.One.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T07_011.Semigroup",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Semigroup \u03b1 \u2192 Sort u_1} \u2192\n    (t : T07_011.Semigroup \u03b1) \u2192\n      ([toMul : T07_011.Mul \u03b1] \u2192\n          (mul_assoc :\n              \u2200 (a b c : \u03b1), T07_011.Mul.mul (T07_011.Mul.mul a b) c = T07_011.Mul.mul a (T07_011.Mul.mul b c)) \u2192\n            motive (T07_011.Semigroup.mk mul_assoc)) \u2192\n        motive t",
+      "name": "T07_011.Semigroup.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  [toMul : T07_011.Mul \u03b1] \u2192\n    (\u2200 (a b c : \u03b1), T07_011.Mul.mul (T07_011.Mul.mul a b) c = T07_011.Mul.mul a (T07_011.Mul.mul b c)) \u2192\n      T07_011.Semigroup \u03b1",
+      "name": "T07_011.Semigroup.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [self : T07_011.Semigroup \u03b1] (a b c : \u03b1),\n  T07_011.Mul.mul (T07_011.Mul.mul a b) c = T07_011.Mul.mul a (T07_011.Mul.mul b c)",
+      "name": "T07_011.Semigroup.mul_assoc",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T07_011.Semigroup \u03b1} \u2192 v1 = v2 \u2192 T07_011.Semigroup.noConfusionType P v1 v2",
+      "name": "T07_011.Semigroup.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T07_011.Semigroup \u03b1 \u2192 T07_011.Semigroup \u03b1 \u2192 Sort u_1",
+      "name": "T07_011.Semigroup.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Semigroup \u03b1 \u2192 Sort u_1} \u2192\n    ([toMul : T07_011.Mul \u03b1] \u2192\n        (mul_assoc : \u2200 (a b c : \u03b1), T07_011.Mul.mul (T07_011.Mul.mul a b) c = T07_011.Mul.mul a (T07_011.Mul.mul b c)) \u2192\n          motive (T07_011.Semigroup.mk mul_assoc)) \u2192\n      (t : T07_011.Semigroup \u03b1) \u2192 motive t",
+      "name": "T07_011.Semigroup.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T07_011.Semigroup \u03b1 \u2192 Sort u_1} \u2192\n    (t : T07_011.Semigroup \u03b1) \u2192\n      ([toMul : T07_011.Mul \u03b1] \u2192\n          (mul_assoc :\n              \u2200 (a b c : \u03b1), T07_011.Mul.mul (T07_011.Mul.mul a b) c = T07_011.Mul.mul a (T07_011.Mul.mul b c)) \u2192\n            motive (T07_011.Semigroup.mk mul_assoc)) \u2192\n        motive t",
+      "name": "T07_011.Semigroup.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 [self : T07_011.Semigroup \u03b1] \u2192 T07_011.Mul \u03b1",
+      "name": "T07_011.Semigroup.toMul",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [inst : T07_011.Semigroup \u03b1] (a b c d : \u03b1),\n  T07_011.Mul.mul (T07_011.Mul.mul (T07_011.Mul.mul a b) c) d =\n    T07_011.Mul.mul (T07_011.Mul.mul a (T07_011.Mul.mul b c)) d",
+      "name": "T07_011.assoc4",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 T07_011.Mul (\u03b1 \u2192 \u03b1)",
+      "name": "T07_011.endoMul",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_011.Action Nat Nat",
+      "name": "T07_011.instActionNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_011.Action Nat (Nat \u2192 Nat)",
+      "name": "T07_011.instActionNatForall",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_011.Monoid Nat",
+      "name": "T07_011.instMonoidNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "T07_011.Mul (Nat \u2192 Nat)",
+      "name": "T07_011.instMulForallNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_011.Mul Nat",
+      "name": "T07_011.instMulNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_011.One Nat",
+      "name": "T07_011.instOneNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_011.Semigroup Nat",
+      "name": "T07_011.instSemigroupNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "T07_011.Mul Type",
+      "name": "T07_011.mulType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

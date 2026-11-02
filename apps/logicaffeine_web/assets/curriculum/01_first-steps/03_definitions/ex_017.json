@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "'Warm' is relative and vague; an 85-degree day is still warm. Fixing an exact 86 degree threshold is sharper than the word itself, so the definition fails to MATCH THE VAGUENESS of 'warm'."
+  "hint": "Is the word vague while the definition draws a sharp line?",
+  "explanation": "'Warm' is vague, and an 85 degree day is still warm. A sharp cutoff is more precise than the word.",
+  "section": "3.2"
 }

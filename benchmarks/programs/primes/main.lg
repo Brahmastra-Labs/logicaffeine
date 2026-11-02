@@ -4,11 +4,11 @@
 ## Main
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
-Let mutable count be 0.
-Let mutable i be 2.
+Let count be 0.
+Let i be 2.
 While i is at most n:
-    Let mutable isPrime be 1.
-    Let mutable d be 2.
+    Let isPrime be 1.
+    Let d be 2.
     While d * d is at most i:
         If i % d equals 0:
             Set isPrime to 0.

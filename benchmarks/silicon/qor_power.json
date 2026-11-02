@@ -1,0 +1,1994 @@
+{
+ "_generated_by": "scripts/qor/record-qor-power.py (never hand-edited; verify re-derives every energy from the excerpts)",
+ "honesty": {
+  "attribution": "The candidate's energy is its own cells' power and that of the buffers the flow inserted inside it, plus the clock tree in the share of clock sinks that are its own. The harness, the buffers between harness and candidate, and physical cells are reported beside it.",
+  "tool": "OpenSTA as the pinned OpenLane image carries it, with the upstream fix that lets report_power use every annotated activity (scripts/opensta/).",
+  "what": "Energy per operation of each candidate, measured on its power block: the candidate inside its functional harness, hardened whole on Sky130, simulated at gate level over a window of whole operations, with power read by OpenSTA from that simulation's activity on the routed netlist with its extracted parasitics."
+ },
+ "provenance": "gds_vcd",
+ "rows": [
+  {
+   "block": "qorpwr_k1_bambu_pipe_c_a7p10_p24_5",
+   "candidate": "k1_bambu_pipe_c_a7p10",
+   "cells": {
+    "boundary": 84,
+    "clock": 139,
+    "dut": 6188,
+    "dut_buffers": 741,
+    "harness": 1399,
+    "harness_buffers": 598,
+    "physical": 15965
+   },
+   "clock_sinks": {
+    "dut": 642,
+    "harness": 274
+   },
+   "corners": {
+    "ff_n40C_1v95": {
+     "annotated_pins": 28526,
+     "classes": {
+      "boundary": {
+       "count": 84,
+       "internal": 4.136296444e-05,
+       "leakage": 1.59548359e-09,
+       "switching": 2.298533872e-05,
+       "total": 6.434989873e-05
+      },
+      "clock": {
+       "count": 139,
+       "internal": 0.001047023811,
+       "leakage": 8.357353816e-09,
+       "switching": 0.0005783194238,
+       "total": 0.001625351559
+      },
+      "dut": {
+       "count": 6188,
+       "internal": 0.001723128492,
+       "leakage": 4.859598824e-08,
+       "switching": 0.0003725755325,
+       "total": 0.002095752656
+      },
+      "dut_buffers": {
+       "count": 741,
+       "internal": 0.0001935602201,
+       "leakage": 1.352535943e-08,
+       "switching": 9.955187592e-05,
+       "total": 0.0002931256244
+      },
+      "harness": {
+       "count": 1399,
+       "internal": 0.0008647214488,
+       "leakage": 1.298656687e-08,
+       "switching": 0.0003102177993,
+       "total": 0.001174952247
+      },
+      "harness_buffers": {
+       "count": 598,
+       "internal": 0.0002388500061,
+       "leakage": 1.161468967e-08,
+       "switching": 0.0001632939952,
+       "total": 0.000402155622
+      },
+      "physical": {
+       "count": 15965,
+       "internal": 3.665603579e-08,
+       "leakage": 1.838227739e-08,
+       "switching": 0.0,
+       "total": 5.503831392e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 30359,
+     "energy": {
+      "block_pj": 138.565606,
+      "class_pj": {
+       "boundary": 1.576573,
+       "clock": 39.821113,
+       "dut": 51.34594,
+       "dut_buffers": 7.181578,
+       "harness": 28.78633,
+       "harness_buffers": 9.852813,
+       "physical": 0.001348
+      },
+      "clock_share": 0.700873,
+      "dut_pj": 86.437075
+     },
+     "partially_unannotated_drivers": 2377,
+     "proof": {
+      "annotated": 28527,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 28526,
+      "set": 17035
+     },
+     "total": {
+      "internal": 0.004108681,
+      "leakage": 1.150573e-07,
+      "switching": 0.001546943,
+      "total": 0.005655739
+     },
+     "unannotated_drivers": 6123
+    },
+    "ss_100C_1v60": {
+     "annotated_pins": 28526,
+     "classes": {
+      "boundary": {
+       "count": 84,
+       "internal": 2.832091234e-05,
+       "leakage": 4.977323993e-07,
+       "switching": 1.523000632e-05,
+       "total": 4.40486515e-05
+      },
+      "clock": {
+       "count": 139,
+       "internal": 0.0007375230439,
+       "leakage": 2.510908258e-06,
+       "switching": 0.0003841860006,
+       "total": 0.001124219942
+      },
+      "dut": {
+       "count": 6188,
+       "internal": 0.001193029367,
+       "leakage": 2.60133775e-05,
+       "switching": 0.0002454560647,
+       "total": 0.001464498821
+      },
+      "dut_buffers": {
+       "count": 741,
+       "internal": 0.0001329488045,
+       "leakage": 4.231403372e-06,
+       "switching": 6.609728935e-05,
+       "total": 0.000203277499
+      },
+      "harness": {
+       "count": 1399,
+       "internal": 0.0005990392297,
+       "leakage": 9.087205632e-06,
+       "switching": 0.0002179234167,
+       "total": 0.0008260498441
+      },
+      "harness_buffers": {
+       "count": 598,
+       "internal": 0.0001626773306,
+       "leakage": 3.667016045e-06,
+       "switching": 0.0001177045144,
+       "total": 0.0002840488657
+      },
+      "physical": {
+       "count": 15965,
+       "internal": -7.799556057e-09,
+       "leakage": 1.574165304e-08,
+       "switching": 0.0,
+       "total": 7.942097102e-09
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 30359,
+     "energy": {
+      "block_pj": 96.680577,
+      "class_pj": {
+       "boundary": 1.079192,
+       "clock": 27.543389,
+       "dut": 35.880221,
+       "dut_buffers": 4.980299,
+       "harness": 20.238221,
+       "harness_buffers": 6.959197,
+       "physical": 0.000195
+      },
+      "clock_share": 0.700873,
+      "dut_pj": 60.164947
+     },
+     "partially_unannotated_drivers": 2377,
+     "proof": {
+      "annotated": 28527,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 28526,
+      "set": 17035
+     },
+     "total": {
+      "internal": 0.002853527,
+      "leakage": 4.602575e-05,
+      "switching": 0.001046592,
+      "total": 0.003946146
+     },
+     "unannotated_drivers": 6123
+    },
+    "tt_025C_1v80": {
+     "annotated_pins": 28526,
+     "classes": {
+      "boundary": {
+       "count": 84,
+       "internal": 3.559101588e-05,
+       "leakage": 3.586847412e-10,
+       "switching": 1.939788215e-05,
+       "total": 5.498925526e-05
+      },
+      "clock": {
+       "count": 139,
+       "internal": 0.0009101322401,
+       "leakage": 1.630779696e-09,
+       "switching": 0.000495496465,
+       "total": 0.001405630385
+      },
+      "dut": {
+       "count": 6188,
+       "internal": 0.001511170045,
+       "leakage": 2.3320587e-08,
+       "switching": 0.0003133022471,
+       "total": 0.001824495594
+      },
+      "dut_buffers": {
+       "count": 741,
+       "internal": 0.0001666323603,
+       "leakage": 2.858687043e-09,
+       "switching": 8.402045773e-05,
+       "total": 0.000250655674
+      },
+      "harness": {
+       "count": 1399,
+       "internal": 0.0007582353841,
+       "leakage": 5.975937321e-09,
+       "switching": 0.0002701299461,
+       "total": 0.001028371304
+      },
+      "harness_buffers": {
+       "count": 598,
+       "internal": 0.0002049230953,
+       "leakage": 2.560410538e-09,
+       "switching": 0.0001446334547,
+       "total": 0.0003495591048
+      },
+      "physical": {
+       "count": 15965,
+       "internal": 1.024554983e-09,
+       "leakage": 1.566350785e-08,
+       "switching": 0.0,
+       "total": 1.668806285e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 30359,
+     "energy": {
+      "block_pj": 120.386238,
+      "class_pj": {
+       "boundary": 1.347237,
+       "clock": 34.437944,
+       "dut": 44.700142,
+       "dut_buffers": 6.141064,
+       "harness": 25.195097,
+       "harness_buffers": 8.564198,
+       "physical": 0.000409
+      },
+      "clock_share": 0.700873,
+      "dut_pj": 74.977844
+     },
+     "partially_unannotated_drivers": 2377,
+     "proof": {
+      "annotated": 28527,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 28526,
+      "set": 17035
+     },
+     "total": {
+      "internal": 0.003586686,
+      "leakage": 5.236745e-08,
+      "switching": 0.001326986,
+      "total": 0.004913724
+     },
+     "unannotated_drivers": 6123
+    }
+   },
+   "excerpt_sha3": {
+    "ff_n40C_1v95.txt": "03c0a277de04873cb445b1c70987b410489310e32154b7e989495e26eee88a19",
+    "ss_100C_1v60.txt": "a1bc9b5d9b008379d76dd03f4e16ab019aea0dfd003187bec53e2804f06be99b",
+    "tt_025C_1v80.txt": "7511fe6c07a7c44faeaaeb71ce1f50d0f56f211cd6e005c8806dc5f5176a3e32"
+   },
+   "excerpts": {
+    "ff_n40C_1v95.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k1_bambu_pipe_c_a7p10_p24_5/ff_n40C_1v95.txt",
+    "ss_100C_1v60.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k1_bambu_pipe_c_a7p10_p24_5/ss_100C_1v60.txt",
+    "tt_025C_1v80.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k1_bambu_pipe_c_a7p10_p24_5/tt_025C_1v80.txt"
+   },
+   "gds_bytes": 19615138,
+   "kernel": "K1",
+   "key": "qorpwr_k1_bambu_pipe_c_a7p10_p24_5",
+   "opensta": "logos-opensta:2609cc89-ff2cbe38dda0",
+   "period_ns": 24.5,
+   "recorded_at": "2026-10-19T18:43:44Z",
+   "reproduce": "python3 scripts/qor/record-qor-power.py run qorpwr_k1_bambu_pipe_c_a7p10_p24_5",
+   "run": "tools/qor/openlane-bench/designs/logos_qorpwr_k1_bambu_pipe_c_a7p10_p24_5/runs/RUN_2026.10.19_10.15.38",
+   "setup_worst_slack_ns": 11.54,
+   "signoff_clean": true,
+   "source_kind": "third-party",
+   "window": {
+    "cycles": 4000,
+    "cycles_per_op": 1.0,
+    "end_ns": 98447.125,
+    "ops": 4000,
+    "span_ns": 98000.0,
+    "start_ns": 447.125,
+    "warmup_ops": 10
+   },
+   "witness": {
+    "changes": 4000,
+    "signature": "c891",
+    "trajectory_sha256": "0b0447d696b8203fbcc6a0bb5bfd66d74d5e1078e9abb4e0d356dc837899d9eb"
+   }
+  },
+  {
+   "block": "qorpwr_k1_logos_cells_p24_5",
+   "candidate": "k1_logos_cells",
+   "cells": {
+    "boundary": 121,
+    "clock": 120,
+    "dut": 5802,
+    "dut_buffers": 641,
+    "harness": 1192,
+    "harness_buffers": 481,
+    "physical": 15393
+   },
+   "clock_sinks": {
+    "dut": 514,
+    "harness": 245
+   },
+   "corners": {
+    "ff_n40C_1v95": {
+     "annotated_pins": 26564,
+     "classes": {
+      "boundary": {
+       "count": 121,
+       "internal": 5.783789078e-05,
+       "leakage": 2.756698839e-09,
+       "switching": 1.677770008e-05,
+       "total": 7.461834909e-05
+      },
+      "clock": {
+       "count": 120,
+       "internal": 0.0008947285614,
+       "leakage": 7.144960013e-09,
+       "switching": 0.0004766351792,
+       "total": 0.001371370856
+      },
+      "dut": {
+       "count": 5802,
+       "internal": 0.001431399424,
+       "leakage": 4.310055814e-08,
+       "switching": 0.0003670413087,
+       "total": 0.001798483855
+      },
+      "dut_buffers": {
+       "count": 641,
+       "internal": 0.0001698480628,
+       "leakage": 1.181133583e-08,
+       "switching": 7.019935684e-05,
+       "total": 0.0002400592322
+      },
+      "harness": {
+       "count": 1192,
+       "internal": 0.0008057645984,
+       "leakage": 1.145418448e-08,
+       "switching": 0.0002768665755,
+       "total": 0.001082642641
+      },
+      "harness_buffers": {
+       "count": 481,
+       "internal": 0.0002300890928,
+       "leakage": 9.896793371e-09,
+       "switching": 0.0001908273333,
+       "total": 0.0004209263297
+      },
+      "physical": {
+       "count": 15393,
+       "internal": 3.676807702e-08,
+       "leakage": 1.744697077e-08,
+       "switching": 0.0,
+       "total": 5.421504878e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 28083,
+     "energy": {
+      "block_pj": 122.209577,
+      "class_pj": {
+       "boundary": 1.82815,
+       "clock": 33.598586,
+       "dut": 44.062854,
+       "dut_buffers": 5.881451,
+       "harness": 26.524745,
+       "harness_buffers": 10.312695,
+       "physical": 0.001328
+      },
+      "clock_share": 0.677207,
+      "dut_pj": 72.697498
+     },
+     "partially_unannotated_drivers": 1876,
+     "proof": {
+      "annotated": 26565,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 26564,
+      "set": 17307
+     },
+     "total": {
+      "internal": 0.003589688,
+      "leakage": 1.036109e-07,
+      "switching": 0.001398355,
+      "total": 0.004988146
+     },
+     "unannotated_drivers": 5738
+    },
+    "ss_100C_1v60": {
+     "annotated_pins": 26564,
+     "classes": {
+      "boundary": {
+       "count": 121,
+       "internal": 3.892164837e-05,
+       "leakage": 7.204821104e-07,
+       "switching": 1.134268977e-05,
+       "total": 5.098482136e-05
+      },
+      "clock": {
+       "count": 120,
+       "internal": 0.0006314078528,
+       "leakage": 2.149625161e-06,
+       "switching": 0.0003145627665,
+       "total": 0.0009481202374
+      },
+      "dut": {
+       "count": 5802,
+       "internal": 0.0009924005636,
+       "leakage": 2.513661933e-05,
+       "switching": 0.0002411526857,
+       "total": 0.001258689871
+      },
+      "dut_buffers": {
+       "count": 641,
+       "internal": 0.0001158834296,
+       "leakage": 3.661482646e-06,
+       "switching": 4.628624416e-05,
+       "total": 0.0001658311581
+      },
+      "harness": {
+       "count": 1192,
+       "internal": 0.0005521456728,
+       "leakage": 8.64276943e-06,
+       "switching": 0.0001933643719,
+       "total": 0.0007541528121
+      },
+      "harness_buffers": {
+       "count": 481,
+       "internal": 0.0001579883064,
+       "leakage": 2.977854503e-06,
+       "switching": 0.0001368074151,
+       "total": 0.0002977735805
+      },
+      "physical": {
+       "count": 15393,
+       "internal": -6.870490292e-09,
+       "leakage": 1.500505026e-08,
+       "switching": 0.0,
+       "total": 8.134560041e-09
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 28083,
+     "energy": {
+      "block_pj": 85.151514,
+      "class_pj": {
+       "boundary": 1.249128,
+       "clock": 23.228946,
+       "dut": 30.837902,
+       "dut_buffers": 4.062863,
+       "harness": 18.476744,
+       "harness_buffers": 7.295453,
+       "physical": 0.000199
+      },
+      "clock_share": 0.677207,
+      "dut_pj": 50.631566
+     },
+     "partially_unannotated_drivers": 1876,
+     "proof": {
+      "annotated": 26565,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 26564,
+      "set": 17307
+     },
+     "total": {
+      "internal": 0.002488748,
+      "leakage": 4.330551e-05,
+      "switching": 0.0009435183,
+      "total": 0.003475572
+     },
+     "unannotated_drivers": 5738
+    },
+    "tt_025C_1v80": {
+     "annotated_pins": 26564,
+     "classes": {
+      "boundary": {
+       "count": 121,
+       "internal": 4.933934784e-05,
+       "leakage": 5.207898392e-10,
+       "switching": 1.426064544e-05,
+       "total": 6.360051329e-05
+      },
+      "clock": {
+       "count": 120,
+       "internal": 0.0007794627688,
+       "leakage": 1.396640796e-09,
+       "switching": 0.0004070053297,
+       "total": 0.001186469533
+      },
+      "dut": {
+       "count": 5802,
+       "internal": 0.001253566723,
+       "leakage": 2.118763759e-08,
+       "switching": 0.0003082854987,
+       "total": 0.001561873392
+      },
+      "dut_buffers": {
+       "count": 641,
+       "internal": 0.0001456529791,
+       "leakage": 2.478923299e-09,
+       "switching": 5.908250298e-05,
+       "total": 0.0002047379568
+      },
+      "harness": {
+       "count": 1192,
+       "internal": 0.0007067068367,
+       "leakage": 5.954508219e-09,
+       "switching": 0.0002401311315,
+       "total": 0.0009468439193
+      },
+      "harness_buffers": {
+       "count": 481,
+       "internal": 0.000198281187,
+       "leakage": 2.097766708e-09,
+       "switching": 0.0001682337107,
+       "total": 0.0003665169901
+      },
+      "physical": {
+       "count": 15393,
+       "internal": 7.300433275e-10,
+       "leakage": 1.486657775e-08,
+       "switching": 0.0,
+       "total": 1.559662111e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 28083,
+     "energy": {
+      "block_pj": 106.086372,
+      "class_pj": {
+       "boundary": 1.558213,
+       "clock": 29.068504,
+       "dut": 38.265898,
+       "dut_buffers": 5.01608,
+       "harness": 23.197676,
+       "harness_buffers": 8.979666,
+       "physical": 0.000382
+      },
+      "clock_share": 0.677207,
+      "dut_pj": 62.967368
+     },
+     "partially_unannotated_drivers": 1876,
+     "proof": {
+      "annotated": 26565,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 26564,
+      "set": 17307
+     },
+     "total": {
+      "internal": 0.00313301,
+      "leakage": 4.850187e-08,
+      "switching": 0.001196997,
+      "total": 0.004330056
+     },
+     "unannotated_drivers": 5738
+    }
+   },
+   "excerpt_sha3": {
+    "ff_n40C_1v95.txt": "2b52ea6968467eb302069606a5540fda6bd91b53779a9f3edfb65ed50d314b99",
+    "ss_100C_1v60.txt": "73a3c6e95e1e5894bd47dc76bd5500b539d3dca7ca702e51b05aac59fc6b866e",
+    "tt_025C_1v80.txt": "e1f357280017254ea9aa57b4aa8850b4ff6f064113bd6f68f3b4137dff49c5b3"
+   },
+   "excerpts": {
+    "ff_n40C_1v95.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k1_logos_cells_p24_5/ff_n40C_1v95.txt",
+    "ss_100C_1v60.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k1_logos_cells_p24_5/ss_100C_1v60.txt",
+    "tt_025C_1v80.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k1_logos_cells_p24_5/tt_025C_1v80.txt"
+   },
+   "gds_bytes": 18225818,
+   "kernel": "K1",
+   "key": "qorpwr_k1_logos_cells_p24_5",
+   "opensta": "logos-opensta:2609cc89-ff2cbe38dda0",
+   "period_ns": 24.5,
+   "recorded_at": "2026-10-19T18:46:03Z",
+   "reproduce": "python3 scripts/qor/record-qor-power.py run qorpwr_k1_logos_cells_p24_5",
+   "run": "tools/qor/openlane-bench/designs/logos_qorpwr_k1_logos_cells_p24_5/runs/RUN_2026.10.19_10.15.32",
+   "setup_worst_slack_ns": 13.07,
+   "signoff_clean": true,
+   "source_kind": "compiled-from-lg",
+   "window": {
+    "cycles": 4000,
+    "cycles_per_op": 1.0,
+    "end_ns": 98520.625,
+    "ops": 4000,
+    "span_ns": 98000.0,
+    "start_ns": 520.625,
+    "warmup_ops": 12
+   },
+   "witness": {
+    "changes": 4000,
+    "signature": "2244",
+    "trajectory_sha256": "0be9c1c60bc47cccc65c5bea58e776868efd8c7bb84f40b6a5f0921cc2f6e2f3"
+   }
+  },
+  {
+   "block": "qorpwr_k5_bambu_pipe_c_a7p10_p12",
+   "candidate": "k5_bambu_pipe_c_a7p10",
+   "cells": {
+    "boundary": 68,
+    "clock": 71,
+    "dut": 3868,
+    "dut_buffers": 482,
+    "harness": 1201,
+    "harness_buffers": 493,
+    "physical": 12839
+   },
+   "clock_sinks": {
+    "dut": 167,
+    "harness": 237
+   },
+   "corners": {
+    "ff_n40C_1v95": {
+     "annotated_pins": 22411,
+     "classes": {
+      "boundary": {
+       "count": 68,
+       "internal": 8.690428498e-05,
+       "leakage": 1.508464987e-09,
+       "switching": 6.185469884e-05,
+       "total": 0.0001487604916
+      },
+      "clock": {
+       "count": 71,
+       "internal": 0.001162028386,
+       "leakage": 4.530524213e-09,
+       "switching": 0.0006187910817,
+       "total": 0.001780824003
+      },
+      "dut": {
+       "count": 3868,
+       "internal": 0.003252052164,
+       "leakage": 5.117557144e-08,
+       "switching": 0.002735190707,
+       "total": 0.005987294064
+      },
+      "dut_buffers": {
+       "count": 482,
+       "internal": 0.000503384837,
+       "leakage": 8.003695583e-09,
+       "switching": 0.0005397110099,
+       "total": 0.001043103865
+      },
+      "harness": {
+       "count": 1201,
+       "internal": 0.00162438493,
+       "leakage": 1.261274163e-08,
+       "switching": 0.0006367925822,
+       "total": 0.002261190127
+      },
+      "harness_buffers": {
+       "count": 493,
+       "internal": 0.0004118383657,
+       "leakage": 9.566069781e-09,
+       "switching": 0.0003287118301,
+       "total": 0.0007405597538
+      },
+      "physical": {
+       "count": 12839,
+       "internal": 1.914597149e-07,
+       "leakage": 1.502537149e-08,
+       "switching": 0.0,
+       "total": 2.064850829e-07
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 23220,
+     "energy": {
+      "block_pj": 143.5434,
+      "class_pj": {
+       "boundary": 1.785126,
+       "clock": 21.369888,
+       "dut": 71.847529,
+       "dut_buffers": 12.517246,
+       "harness": 27.134282,
+       "harness_buffers": 8.886717,
+       "physical": 0.002478
+      },
+      "clock_share": 0.413366,
+      "dut_pj": 93.198367
+     },
+     "partially_unannotated_drivers": 554,
+     "proof": {
+      "annotated": 22412,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 22411,
+      "set": 22004
+     },
+     "total": {
+      "internal": 0.007040796,
+      "leakage": 1.024217e-07,
+      "switching": 0.004921047,
+      "total": 0.01196195
+     },
+     "unannotated_drivers": 3835
+    },
+    "ss_100C_1v60": {
+     "annotated_pins": 22411,
+     "classes": {
+      "boundary": {
+       "count": 68,
+       "internal": 6.056551101e-05,
+       "leakage": 4.746437599e-07,
+       "switching": 4.267299311e-05,
+       "total": 0.000103713149
+      },
+      "clock": {
+       "count": 71,
+       "internal": 0.0008235193891,
+       "leakage": 1.350057891e-06,
+       "switching": 0.0004197340016,
+       "total": 0.001244603473
+      },
+      "dut": {
+       "count": 3868,
+       "internal": 0.002395802732,
+       "leakage": 1.986756129e-05,
+       "switching": 0.001820967209,
+       "total": 0.004236637473
+      },
+      "dut_buffers": {
+       "count": 482,
+       "internal": 0.0003620143082,
+       "leakage": 3.147318465e-06,
+       "switching": 0.0003614051593,
+       "total": 0.0007265667969
+      },
+      "harness": {
+       "count": 1201,
+       "internal": 0.001124094748,
+       "leakage": 8.591867352e-06,
+       "switching": 0.0004444905111,
+       "total": 0.00157717712
+      },
+      "harness_buffers": {
+       "count": 493,
+       "internal": 0.0002802461938,
+       "leakage": 2.97434711e-06,
+       "switching": 0.0002358036878,
+       "total": 0.0005190242312
+      },
+      "physical": {
+       "count": 12839,
+       "internal": -6.787524529e-08,
+       "leakage": 1.308470283e-08,
+       "switching": 0.0,
+       "total": -5.479054149e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 23220,
+     "energy": {
+      "block_pj": 100.89204,
+      "class_pj": {
+       "boundary": 1.244558,
+       "clock": 14.935242,
+       "dut": 50.83965,
+       "dut_buffers": 8.718802,
+       "harness": 18.926125,
+       "harness_buffers": 6.228291,
+       "physical": -0.000657
+      },
+      "clock_share": 0.413366,
+      "dut_pj": 65.732177
+     },
+     "partially_unannotated_drivers": 554,
+     "proof": {
+      "annotated": 22412,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 22411,
+      "set": 22004
+     },
+     "total": {
+      "internal": 0.005046173,
+      "leakage": 3.641898e-05,
+      "switching": 0.003325078,
+      "total": 0.00840767
+     },
+     "unannotated_drivers": 3835
+    },
+    "tt_025C_1v80": {
+     "annotated_pins": 22411,
+     "classes": {
+      "boundary": {
+       "count": 68,
+       "internal": 7.523094095e-05,
+       "leakage": 3.235479454e-10,
+       "switching": 5.354589248e-05,
+       "total": 0.0001287771582
+      },
+      "clock": {
+       "count": 71,
+       "internal": 0.001014401842,
+       "leakage": 8.749401004e-10,
+       "switching": 0.000534351165,
+       "total": 0.001548753907
+      },
+      "dut": {
+       "count": 3868,
+       "internal": 0.002979130459,
+       "leakage": 1.604664115e-08,
+       "switching": 0.002311980086,
+       "total": 0.005291126615
+      },
+      "dut_buffers": {
+       "count": 482,
+       "internal": 0.0004422797091,
+       "leakage": 2.14062978e-09,
+       "switching": 0.0004576803752,
+       "total": 0.0008999622266
+      },
+      "harness": {
+       "count": 1201,
+       "internal": 0.001430124453,
+       "leakage": 5.972403618e-09,
+       "switching": 0.000552121329,
+       "total": 0.001982251779
+      },
+      "harness_buffers": {
+       "count": 493,
+       "internal": 0.0003534020955,
+       "leakage": 2.094167805e-09,
+       "switching": 0.0002896381497,
+       "total": 0.0006430423442
+      },
+      "physical": {
+       "count": 12839,
+       "internal": 2.759881338e-09,
+       "leakage": 1.280332237e-08,
+       "switching": 0.0,
+       "total": 1.556320374e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 23220,
+     "energy": {
+      "block_pj": 125.92716,
+      "class_pj": {
+       "boundary": 1.545326,
+       "clock": 18.585047,
+       "dut": 63.493519,
+       "dut_buffers": 10.799547,
+       "harness": 23.787021,
+       "harness_buffers": 7.716508,
+       "physical": 0.000187
+      },
+      "clock_share": 0.413366,
+      "dut_pj": 81.975499
+     },
+     "partially_unannotated_drivers": 554,
+     "proof": {
+      "annotated": 22412,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 22411,
+      "set": 22004
+     },
+     "total": {
+      "internal": 0.006294575,
+      "leakage": 4.025536e-08,
+      "switching": 0.004199318,
+      "total": 0.01049393
+     },
+     "unannotated_drivers": 3835
+    }
+   },
+   "excerpt_sha3": {
+    "ff_n40C_1v95.txt": "0f81b65b39cbb1d7cea03ef9a2a22d69f2505b99903c75e7f3790a643b49117f",
+    "ss_100C_1v60.txt": "ee06fb7ffb4bd7e6663412e4a57130065569c6a619ec057a39ce88580cc9db8a",
+    "tt_025C_1v80.txt": "bae684fc6c11231e4e04a9d147d54c3dc51c114d7b0a62c7c1756dae6f513114"
+   },
+   "excerpts": {
+    "ff_n40C_1v95.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k5_bambu_pipe_c_a7p10_p12/ff_n40C_1v95.txt",
+    "ss_100C_1v60.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k5_bambu_pipe_c_a7p10_p12/ss_100C_1v60.txt",
+    "tt_025C_1v80.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k5_bambu_pipe_c_a7p10_p12/tt_025C_1v80.txt"
+   },
+   "gds_bytes": 17875832,
+   "kernel": "K5",
+   "key": "qorpwr_k5_bambu_pipe_c_a7p10_p12",
+   "opensta": "logos-opensta:2609cc89-ff2cbe38dda0",
+   "period_ns": 12.0,
+   "recorded_at": "2026-10-19T18:49:59Z",
+   "reproduce": "python3 scripts/qor/record-qor-power.py run qorpwr_k5_bambu_pipe_c_a7p10_p12",
+   "run": "tools/qor/openlane-bench/designs/logos_qorpwr_k5_bambu_pipe_c_a7p10_p12/runs/RUN_2026.10.19_09.04.34",
+   "setup_worst_slack_ns": 1.62,
+   "signoff_clean": true,
+   "source_kind": "third-party",
+   "window": {
+    "cycles": 4000,
+    "cycles_per_op": 1.0,
+    "end_ns": 48255.0,
+    "ops": 4000,
+    "span_ns": 48000.0,
+    "start_ns": 255.0,
+    "warmup_ops": 12
+   },
+   "witness": {
+    "changes": 4000,
+    "signature": "3a8a",
+    "trajectory_sha256": "694215546fc8c95eb3a6d80359e95656ab5579bb33fda6aa4e80045c966e53e5"
+   }
+  },
+  {
+   "block": "qorpwr_k5_logos_deep_p12",
+   "candidate": "k5_logos_deep",
+   "cells": {
+    "boundary": 115,
+    "clock": 138,
+    "dut": 3017,
+    "dut_buffers": 1420,
+    "harness": 1017,
+    "harness_buffers": 359,
+    "physical": 11482
+   },
+   "clock_sinks": {
+    "dut": 695,
+    "harness": 216
+   },
+   "corners": {
+    "ff_n40C_1v95": {
+     "annotated_pins": 18112,
+     "classes": {
+      "boundary": {
+       "count": 115,
+       "internal": 0.0001423357362,
+       "leakage": 2.680652295e-09,
+       "switching": 2.549047818e-05,
+       "total": 0.0001678288899
+      },
+      "clock": {
+       "count": 138,
+       "internal": 0.002118364818,
+       "leakage": 8.293543616e-09,
+       "switching": 0.001079314362,
+       "total": 0.003197687472
+      },
+      "dut": {
+       "count": 3017,
+       "internal": 0.004493898482,
+       "leakage": 2.690703565e-08,
+       "switching": 0.001132450747,
+       "total": 0.005626376188
+      },
+      "dut_buffers": {
+       "count": 1420,
+       "internal": 0.001559842666,
+       "leakage": 2.895176232e-08,
+       "switching": 0.0005505727994,
+       "total": 0.002110444389
+      },
+      "harness": {
+       "count": 1017,
+       "internal": 0.001483801755,
+       "leakage": 1.062476158e-08,
+       "switching": 0.000546117642,
+       "total": 0.002029930029
+      },
+      "harness_buffers": {
+       "count": 359,
+       "internal": 0.0003468924541,
+       "leakage": 6.825625894e-09,
+       "switching": 0.0003157370392,
+       "total": 0.0006626363135
+      },
+      "physical": {
+       "count": 11482,
+       "internal": 3.285567439e-08,
+       "leakage": 1.433979212e-08,
+       "switching": 0.0,
+       "total": 4.71954659e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 19935,
+     "energy": {
+      "block_pj": 165.53928,
+      "class_pj": {
+       "boundary": 2.013947,
+       "clock": 38.37225,
+       "dut": 67.516514,
+       "dut_buffers": 25.325333,
+       "harness": 24.35916,
+       "harness_buffers": 7.951636,
+       "physical": 0.000566
+      },
+      "clock_share": 0.762898,
+      "dut_pj": 122.115956
+     },
+     "partially_unannotated_drivers": 1330,
+     "proof": {
+      "annotated": 18113,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 18112,
+      "set": 17198
+     },
+     "total": {
+      "internal": 0.01014515,
+      "leakage": 9.86235e-08,
+      "switching": 0.003649686,
+      "total": 0.01379494
+     },
+     "unannotated_drivers": 2985
+    },
+    "ss_100C_1v60": {
+     "annotated_pins": 18112,
+     "classes": {
+      "boundary": {
+       "count": 115,
+       "internal": 9.429455548e-05,
+       "leakage": 6.62654541e-07,
+       "switching": 1.700097925e-05,
+       "total": 0.0001119581904
+      },
+      "clock": {
+       "count": 138,
+       "internal": 0.001493844957,
+       "leakage": 2.491893358e-06,
+       "switching": 0.0007027012476,
+       "total": 0.002199038092
+      },
+      "dut": {
+       "count": 3017,
+       "internal": 0.003132658296,
+       "leakage": 1.969605075e-05,
+       "switching": 0.0007394287618,
+       "total": 0.003891783054
+      },
+      "dut_buffers": {
+       "count": 1420,
+       "internal": 0.001052645107,
+       "leakage": 8.314262474e-06,
+       "switching": 0.0003607399061,
+       "total": 0.001421699288
+      },
+      "harness": {
+       "count": 1017,
+       "internal": 0.001018402658,
+       "leakage": 7.471792378e-06,
+       "switching": 0.0003824580671,
+       "total": 0.0014083325
+      },
+      "harness_buffers": {
+       "count": 359,
+       "internal": 0.0002373368293,
+       "leakage": 2.17534737e-06,
+       "switching": 0.0002240109092,
+       "total": 0.0004635230898
+      },
+      "physical": {
+       "count": 11482,
+       "internal": -1.094898226e-08,
+       "leakage": 1.219161043e-08,
+       "switching": 0.0,
+       "total": 1.242628332e-09
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 19935,
+     "energy": {
+      "block_pj": 113.956188,
+      "class_pj": {
+       "boundary": 1.343498,
+       "clock": 26.388457,
+       "dut": 46.701397,
+       "dut_buffers": 17.060391,
+       "harness": 16.89999,
+       "harness_buffers": 5.562277,
+       "physical": 1.5e-05
+      },
+      "clock_share": 0.762898,
+      "dut_pj": 83.893487
+     },
+     "partially_unannotated_drivers": 1330,
+     "proof": {
+      "annotated": 18113,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 18112,
+      "set": 17198
+     },
+     "total": {
+      "internal": 0.007029178,
+      "leakage": 4.082578e-05,
+      "switching": 0.002426346,
+      "total": 0.009496349
+     },
+     "unannotated_drivers": 2985
+    },
+    "tt_025C_1v80": {
+     "annotated_pins": 18112,
+     "classes": {
+      "boundary": {
+       "count": 115,
+       "internal": 0.0001205505528,
+       "leakage": 4.857681386e-10,
+       "switching": 2.157911913e-05,
+       "total": 0.0001421301609
+      },
+      "clock": {
+       "count": 138,
+       "internal": 0.001843820717,
+       "leakage": 1.618456596e-09,
+       "switching": 0.0009161094058,
+       "total": 0.002759931788
+      },
+      "dut": {
+       "count": 3017,
+       "internal": 0.003943427352,
+       "leakage": 1.334798081e-08,
+       "switching": 0.0009489873621,
+       "total": 0.004892428196
+      },
+      "dut_buffers": {
+       "count": 1420,
+       "internal": 0.001332090088,
+       "leakage": 5.866277619e-09,
+       "switching": 0.0004619238459,
+       "total": 0.001794019822
+      },
+      "harness": {
+       "count": 1017,
+       "internal": 0.001303653024,
+       "leakage": 5.08238184e-09,
+       "switching": 0.000474446754,
+       "total": 0.001778104897
+      },
+      "harness_buffers": {
+       "count": 359,
+       "internal": 0.0002984065373,
+       "leakage": 1.540563765e-09,
+       "switching": 0.0002764046762,
+       "total": 0.0005748127584
+      },
+      "physical": {
+       "count": 11482,
+       "internal": 2.097897702e-09,
+       "leakage": 1.221885582e-08,
+       "switching": 0.0,
+       "total": 1.431675355e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 19935,
+     "energy": {
+      "block_pj": 143.29752,
+      "class_pj": {
+       "boundary": 1.705562,
+       "clock": 33.119181,
+       "dut": 58.709138,
+       "dut_buffers": 21.528238,
+       "harness": 21.337259,
+       "harness_buffers": 6.897753,
+       "physical": 0.000172
+      },
+      "clock_share": 0.762898,
+      "dut_pj": 105.503931
+     },
+     "partially_unannotated_drivers": 1330,
+     "proof": {
+      "annotated": 18113,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 18112,
+      "set": 17198
+     },
+     "total": {
+      "internal": 0.00884195,
+      "leakage": 4.015884e-08,
+      "switching": 0.003099472,
+      "total": 0.01194146
+     },
+     "unannotated_drivers": 2985
+    }
+   },
+   "excerpt_sha3": {
+    "ff_n40C_1v95.txt": "0ced80651ae52439037ed5a45bd962a40ac53a4f0a7d60fe0024adb59eafb205",
+    "ss_100C_1v60.txt": "b6a39c53cc5559657006dd9306d83920a77708b208c829b96c5dc238507f0d9a",
+    "tt_025C_1v80.txt": "086d61b4a12caa4d0d53e6a22f3910113a95f4c96059b926b80095c56caa20a5"
+   },
+   "excerpts": {
+    "ff_n40C_1v95.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k5_logos_deep_p12/ff_n40C_1v95.txt",
+    "ss_100C_1v60.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k5_logos_deep_p12/ss_100C_1v60.txt",
+    "tt_025C_1v80.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k5_logos_deep_p12/tt_025C_1v80.txt"
+   },
+   "gds_bytes": 13296428,
+   "kernel": "K5",
+   "key": "qorpwr_k5_logos_deep_p12",
+   "opensta": "logos-opensta:2609cc89-ff2cbe38dda0",
+   "period_ns": 12.0,
+   "recorded_at": "2026-10-19T18:52:46Z",
+   "reproduce": "python3 scripts/qor/record-qor-power.py run qorpwr_k5_logos_deep_p12",
+   "run": "tools/qor/openlane-bench/designs/logos_qorpwr_k5_logos_deep_p12/runs/RUN_2026.10.19_09.03.28",
+   "setup_worst_slack_ns": 2.96,
+   "signoff_clean": true,
+   "source_kind": "rtl-generator",
+   "window": {
+    "cycles": 4000,
+    "cycles_per_op": 1.0,
+    "end_ns": 48543.0,
+    "ops": 4000,
+    "span_ns": 48000.0,
+    "start_ns": 543.0,
+    "warmup_ops": 28
+   },
+   "witness": {
+    "changes": 4000,
+    "signature": "63e1",
+    "trajectory_sha256": "47fd92c3746d24f412405bf0f560954436e99236da0ba4512a6920d0837e4169"
+   }
+  },
+  {
+   "block": "qorpwr_k7_litedram_ctrl_p10",
+   "candidate": "k7_litedram_ctrl",
+   "cells": {
+    "boundary": 415,
+    "clock": 404,
+    "dut": 9701,
+    "dut_buffers": 3998,
+    "harness_buffers": 6,
+    "physical": 41542
+   },
+   "clock_sinks": {
+    "dut": 2003,
+    "harness": 0
+   },
+   "corners": {
+    "ff_n40C_1v95": {
+     "annotated_pins": 49269,
+     "classes": {
+      "boundary": {
+       "count": 415,
+       "internal": 0.0002230423343,
+       "leakage": 7.836625491e-09,
+       "switching": 0.0002797518602,
+       "total": 0.000502802044
+      },
+      "clock": {
+       "count": 404,
+       "internal": 0.007159541177,
+       "leakage": 2.347413283e-08,
+       "switching": 0.003465532777,
+       "total": 0.01062509743
+      },
+      "dut": {
+       "count": 9701,
+       "internal": 0.009793341797,
+       "leakage": 1.02229878e-07,
+       "switching": 0.0002135859727,
+       "total": 0.01000703007
+      },
+      "dut_buffers": {
+       "count": 3998,
+       "internal": 0.0002097459314,
+       "leakage": 8.21280417e-08,
+       "switching": 0.0001623959757,
+       "total": 0.0003722240342
+      },
+      "harness": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      },
+      "harness_buffers": {
+       "count": 6,
+       "internal": 0.0,
+       "leakage": 2.281499989e-11,
+       "switching": 0.0,
+       "total": 2.281499989e-11
+      },
+      "physical": {
+       "count": 41542,
+       "internal": 8.402413491e-07,
+       "leakage": 3.822065419e-08,
+       "switching": 0.0,
+       "total": 8.784620081e-07
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 53276,
+     "energy": {
+      "block_pj": 227.683826,
+      "class_pj": {
+       "boundary": 5.322631,
+       "clock": 112.476617,
+       "dut": 105.933795,
+       "dut_buffers": 3.94034,
+       "harness": 0.0,
+       "harness_buffers": 0.0,
+       "physical": 0.009299
+      },
+      "clock_share": 1.0,
+      "dut_pj": 222.350753
+     },
+     "partially_unannotated_drivers": 4648,
+     "proof": {
+      "annotated": 49270,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 49269,
+      "set": 47065
+     },
+     "total": {
+      "internal": 0.01738647,
+      "leakage": 2.538982e-07,
+      "switching": 0.004121414,
+      "total": 0.02150814
+     },
+     "unannotated_drivers": 9536
+    },
+    "ss_100C_1v60": {
+     "annotated_pins": 49269,
+     "classes": {
+      "boundary": {
+       "count": 415,
+       "internal": 0.0001624495908,
+       "leakage": 3.251294435e-06,
+       "switching": 0.0001908109704,
+       "total": 0.000356511862
+      },
+      "clock": {
+       "count": 404,
+       "internal": 0.005045860865,
+       "leakage": 7.087286839e-06,
+       "switching": 0.002337806141,
+       "total": 0.007390754421
+      },
+      "dut": {
+       "count": 9701,
+       "internal": 0.006620318385,
+       "leakage": 7.275016908e-05,
+       "switching": 0.0001415924378,
+       "total": 0.00683466082
+      },
+      "dut_buffers": {
+       "count": 3998,
+       "internal": 0.0001524957087,
+       "leakage": 2.513827106e-05,
+       "switching": 0.0001091350036,
+       "total": 0.0002867689843
+      },
+      "harness": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      },
+      "harness_buffers": {
+       "count": 6,
+       "internal": 0.0,
+       "leakage": 1.819836599e-11,
+       "switching": 0.0,
+       "total": 1.819836599e-11
+      },
+      "physical": {
+       "count": 41542,
+       "internal": -3.158546083e-07,
+       "leakage": 3.7540729e-08,
+       "switching": 0.0,
+       "total": -2.783138753e-07
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 53276,
+     "energy": {
+      "block_pj": 157.396059,
+      "class_pj": {
+       "boundary": 3.774012,
+       "clock": 78.238064,
+       "dut": 72.351292,
+       "dut_buffers": 3.035719,
+       "harness": 0.0,
+       "harness_buffers": 0.0,
+       "physical": -0.002946
+      },
+      "clock_share": 1.0,
+      "dut_pj": 153.625075
+     },
+     "partially_unannotated_drivers": 4648,
+     "proof": {
+      "annotated": 49270,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 49269,
+      "set": 47065
+     },
+     "total": {
+      "internal": 0.01198083,
+      "leakage": 0.0001082666,
+      "switching": 0.002779315,
+      "total": 0.01486841
+     },
+     "unannotated_drivers": 9536
+    },
+    "tt_025C_1v80": {
+     "annotated_pins": 49269,
+     "classes": {
+      "boundary": {
+       "count": 415,
+       "internal": 0.0001971610594,
+       "leakage": 2.081681764e-09,
+       "switching": 0.000240077598,
+       "total": 0.0004372407319
+      },
+      "clock": {
+       "count": 404,
+       "internal": 0.006227441836,
+       "leakage": 4.608941982e-09,
+       "switching": 0.002989943267,
+       "total": 0.00921738987
+      },
+      "dut": {
+       "count": 9701,
+       "internal": 0.008441724233,
+       "leakage": 4.806430443e-08,
+       "switching": 0.0001800199298,
+       "total": 0.008621792606
+      },
+      "dut_buffers": {
+       "count": 3998,
+       "internal": 0.0001854100303,
+       "leakage": 1.76561072e-08,
+       "switching": 0.0001377844,
+       "total": 0.0003232120887
+      },
+      "harness": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      },
+      "harness_buffers": {
+       "count": 6,
+       "internal": 0.0,
+       "leakage": 1.944022157e-11,
+       "switching": 0.0,
+       "total": 1.944022157e-11
+      },
+      "physical": {
+       "count": 41542,
+       "internal": 3.588807266e-09,
+       "leakage": 3.25726035e-08,
+       "switching": 0.0,
+       "total": 3.616141073e-08
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 53276,
+     "energy": {
+      "block_pj": 196.896214,
+      "class_pj": {
+       "boundary": 4.628603,
+       "clock": 97.574713,
+       "dut": 91.269758,
+       "dut_buffers": 3.421503,
+       "harness": 0.0,
+       "harness_buffers": 0.0,
+       "physical": 0.000383
+      },
+      "clock_share": 1.0,
+      "dut_pj": 192.265974
+     },
+     "partially_unannotated_drivers": 4648,
+     "proof": {
+      "annotated": 49270,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 49269,
+      "set": 47065
+     },
+     "total": {
+      "internal": 0.01505177,
+      "leakage": 1.050102e-07,
+      "switching": 0.00354791,
+      "total": 0.01859979
+     },
+     "unannotated_drivers": 9536
+    }
+   },
+   "excerpt_sha3": {
+    "ff_n40C_1v95.txt": "76090837ff99a76392cc03ecc02fca0aefcb8d49a22ce1c6e0f7715a0ecbeae4",
+    "ss_100C_1v60.txt": "467738d585d648ba121fff2a2d6f75e339f81832e7b38d68ab71b3e20bbcb86c",
+    "tt_025C_1v80.txt": "3c540abe26526d3044b5c7cf200637a3bcdbc9d61a15d7e36512897944bfd5de"
+   },
+   "excerpts": {
+    "ff_n40C_1v95.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k7_litedram_ctrl_p10/ff_n40C_1v95.txt",
+    "ss_100C_1v60.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k7_litedram_ctrl_p10/ss_100C_1v60.txt",
+    "tt_025C_1v80.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k7_litedram_ctrl_p10/tt_025C_1v80.txt"
+   },
+   "gds_bytes": 40390562,
+   "kernel": "K7",
+   "key": "qorpwr_k7_litedram_ctrl_p10",
+   "opensta": "logos-opensta:2609cc89-ff2cbe38dda0",
+   "period_ns": 10.0,
+   "recorded_at": "2026-10-19T18:53:18Z",
+   "reproduce": "python3 scripts/qor/record-qor-power.py run qorpwr_k7_litedram_ctrl_p10",
+   "run": "tools/qor/openlane-bench/designs/logos_qorpwr_k7_litedram_ctrl_p10/runs/RUN_2026.10.19_09.39.26",
+   "setup_worst_slack_ns": 0.25,
+   "signoff_clean": true,
+   "source_kind": "third-party",
+   "traffic": {
+    "dram_clocks_per_clock": 2,
+    "log_sha3_256": "49a3cdb3b57ec6183d5e7e362ae2cfe0f09d0f981ec1e074d5cc8998271f75e7",
+    "rtl_sha3_256": "4de85657710454d62a959144f0789da29b6925a14e498e235741b5911f2fec09",
+    "stream": "sequential",
+    "words": 256
+   },
+   "window": {
+    "cycles": 542,
+    "cycles_per_op": 1.058594,
+    "end_ns": 5460.0,
+    "ops": 512,
+    "span_ns": 5420.0,
+    "start_ns": 40.0,
+    "warmup_ops": 0
+   }
+  },
+  {
+   "block": "qorpwr_k7_logos_ddr2_ctrl_p8_5",
+   "candidate": "k7_logos_ddr2_ctrl",
+   "cells": {
+    "boundary": 151,
+    "clock": 50,
+    "dut": 567,
+    "dut_buffers": 204,
+    "harness_buffers": 2,
+    "physical": 1474
+   },
+   "clock_sinks": {
+    "dut": 129,
+    "harness": 0
+   },
+   "corners": {
+    "ff_n40C_1v95": {
+     "annotated_pins": 2988,
+     "classes": {
+      "boundary": {
+       "count": 151,
+       "internal": 1.177118637e-05,
+       "leakage": 1.993119556e-09,
+       "switching": 1.939979052e-05,
+       "total": 3.117297028e-05
+      },
+      "clock": {
+       "count": 50,
+       "internal": 0.0009661017093,
+       "leakage": 2.678246e-09,
+       "switching": 0.0003118985983,
+       "total": 0.001278002954
+      },
+      "dut": {
+       "count": 567,
+       "internal": 0.000775490837,
+       "leakage": 5.152596129e-09,
+       "switching": 4.330056983e-05,
+       "total": 0.0008187965622
+      },
+      "dut_buffers": {
+       "count": 204,
+       "internal": 3.657094905e-05,
+       "leakage": 3.793477974e-09,
+       "switching": 2.306052982e-05,
+       "total": 5.963527204e-05
+      },
+      "harness": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      },
+      "harness_buffers": {
+       "count": 2,
+       "internal": 0.0,
+       "leakage": 7.604999963e-12,
+       "switching": 0.0,
+       "total": 7.604999963e-12
+      },
+      "physical": {
+       "count": 1474,
+       "internal": 1.826407421e-09,
+       "leakage": 2.148452417e-09,
+       "switching": 0.0,
+       "total": 3.974859865e-09
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 3247,
+     "energy": {
+      "block_pj": 1135.14793,
+      "class_pj": {
+       "boundary": 16.175606,
+       "clock": 663.153736,
+       "dut": 424.872257,
+       "dut_buffers": 30.944649,
+       "harness": 0.0,
+       "harness_buffers": 4e-06,
+       "physical": 0.002063
+      },
+      "clock_share": 1.0,
+      "dut_pj": 1118.970642
+     },
+     "partially_unannotated_drivers": 401,
+     "proof": {
+      "annotated": 2989,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 2988,
+      "set": 2726
+     },
+     "total": {
+      "internal": 0.001789937,
+      "leakage": 1.577346e-08,
+      "switching": 0.000397659,
+      "total": 0.002187611
+     },
+     "unannotated_drivers": 514
+    },
+    "ss_100C_1v60": {
+     "annotated_pins": 2988,
+     "classes": {
+      "boundary": {
+       "count": 151,
+       "internal": 8.416242774e-06,
+       "leakage": 9.048434784e-07,
+       "switching": 1.309830999e-05,
+       "total": 2.241939611e-05
+      },
+      "clock": {
+       "count": 50,
+       "internal": 0.0006833158823,
+       "leakage": 8.185821692e-07,
+       "switching": 0.0002083689819,
+       "total": 0.000892503469
+      },
+      "dut": {
+       "count": 567,
+       "internal": 0.0005280542933,
+       "leakage": 3.596280872e-06,
+       "switching": 2.831050501e-05,
+       "total": 0.0005599610688
+      },
+      "dut_buffers": {
+       "count": 204,
+       "internal": 2.547735247e-05,
+       "leakage": 1.195268058e-06,
+       "switching": 1.52532301e-05,
+       "total": 4.192585041e-05
+      },
+      "harness": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      },
+      "harness_buffers": {
+       "count": 2,
+       "internal": 0.0,
+       "leakage": 6.066121997e-12,
+       "switching": 0.0,
+       "total": 6.066121997e-12
+      },
+      "physical": {
+       "count": 1474,
+       "internal": -5.354750809e-10,
+       "leakage": 1.810081197e-09,
+       "switching": 0.0,
+       "total": 1.274606123e-09
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 3247,
+     "energy": {
+      "block_pj": 787.071896,
+      "class_pj": {
+       "boundary": 11.63339,
+       "clock": 463.118656,
+       "dut": 290.562924,
+       "dut_buffers": 21.755258,
+       "harness": 0.0,
+       "harness_buffers": 3e-06,
+       "physical": 0.000661
+      },
+      "clock_share": 1.0,
+      "dut_pj": 775.436837
+     },
+     "partially_unannotated_drivers": 401,
+     "proof": {
+      "annotated": 2989,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 2988,
+      "set": 2726
+     },
+     "total": {
+      "internal": 0.001245266,
+      "leakage": 6.516797e-06,
+      "switching": 0.0002650303,
+      "total": 0.001516813
+     },
+     "unannotated_drivers": 514
+    },
+    "tt_025C_1v80": {
+     "annotated_pins": 2988,
+     "classes": {
+      "boundary": {
+       "count": 151,
+       "internal": 1.033907683e-05,
+       "leakage": 6.026433779e-10,
+       "switching": 1.655701158e-05,
+       "total": 2.689669098e-05
+      },
+      "clock": {
+       "count": 50,
+       "internal": 0.0008411874778,
+       "leakage": 5.340237957e-10,
+       "switching": 0.0002667551889,
+       "total": 0.001107943201
+      },
+      "dut": {
+       "count": 567,
+       "internal": 0.0006707311802,
+       "leakage": 2.581238028e-09,
+       "switching": 3.625188987e-05,
+       "total": 0.0007069856738
+      },
+      "dut_buffers": {
+       "count": 204,
+       "internal": 3.171679893e-05,
+       "leakage": 8.283151333e-10,
+       "switching": 1.944548026e-05,
+       "total": 5.116310852e-05
+      },
+      "harness": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      },
+      "harness_buffers": {
+       "count": 2,
+       "internal": 0.0,
+       "leakage": 6.480073856e-12,
+       "switching": 0.0,
+       "total": 6.480073856e-12
+      },
+      "physical": {
+       "count": 1474,
+       "internal": 4.661102466e-11,
+       "leakage": 1.830672172e-09,
+       "switching": 0.0,
+       "total": 1.877283194e-09
+      },
+      "unclassified": {
+       "count": 0,
+       "internal": 0.0,
+       "leakage": 0.0,
+       "switching": 0.0,
+       "total": 0.0
+      }
+     },
+     "design_pins": 3247,
+     "energy": {
+      "block_pj": 982.270072,
+      "class_pj": {
+       "boundary": 13.956651,
+       "clock": 574.909996,
+       "dut": 366.853761,
+       "dut_buffers": 26.548457,
+       "harness": 0.0,
+       "harness_buffers": 3e-06,
+       "physical": 0.000974
+      },
+      "clock_share": 1.0,
+      "dut_pj": 968.312214
+     },
+     "partially_unannotated_drivers": 401,
+     "proof": {
+      "annotated": 2989,
+      "clock": 1,
+      "dropped": 0,
+      "hierarchical": 0,
+      "seeded": 2988,
+      "set": 2726
+     },
+     "total": {
+      "internal": 0.001553977,
+      "leakage": 6.383337e-09,
+      "switching": 0.0003390082,
+      "total": 0.001892991
+     },
+     "unannotated_drivers": 514
+    }
+   },
+   "excerpt_sha3": {
+    "ff_n40C_1v95.txt": "959f22f8788baca587bf10ef945f54511584666739ad0b9216a5d744bdcce7b6",
+    "ss_100C_1v60.txt": "a756622ac24bf1bcbafdea0864d904b5f7f4817d6778cb4ceac19ab0e192b742",
+    "tt_025C_1v80.txt": "54c82530749b6887fe6926ce137df85a8a1051db40e548b4afe38f039cb15d43"
+   },
+   "excerpts": {
+    "ff_n40C_1v95.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k7_logos_ddr2_ctrl_p8_5/ff_n40C_1v95.txt",
+    "ss_100C_1v60.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k7_logos_ddr2_ctrl_p8_5/ss_100C_1v60.txt",
+    "tt_025C_1v80.txt": "benchmarks/silicon/qor_logs/power/qorpwr_k7_logos_ddr2_ctrl_p8_5/tt_025C_1v80.txt"
+   },
+   "gds_bytes": 2818262,
+   "kernel": "K7",
+   "key": "qorpwr_k7_logos_ddr2_ctrl_p8_5",
+   "opensta": "logos-opensta:2609cc89-ff2cbe38dda0",
+   "period_ns": 8.5,
+   "recorded_at": "2026-10-19T18:55:18Z",
+   "reproduce": "python3 scripts/qor/record-qor-power.py run qorpwr_k7_logos_ddr2_ctrl_p8_5",
+   "run": "tools/qor/openlane-bench/designs/logos_qorpwr_k7_logos_ddr2_ctrl_p8_5/runs/RUN_2026.10.19_09.05.28",
+   "setup_worst_slack_ns": 1.09,
+   "signoff_clean": true,
+   "source_kind": "LOGOS RTL generator",
+   "traffic": {
+    "dram_clocks_per_clock": 1,
+    "log_sha3_256": "383ed38630355b6a6a8c1744d208f0d65e5590baf27f372c399b109a3084fc05",
+    "rtl_sha3_256": "f9a6e2d9e19d5629ff9fd324664f5812d362d5bbb3c98ef03cf09589d646a287",
+    "stream": "sequential",
+    "words": 256
+   },
+   "window": {
+    "cycles": 31256,
+    "cycles_per_op": 61.046875,
+    "end_ns": 265710.0,
+    "ops": 512,
+    "span_ns": 265676.0,
+    "start_ns": 34.0,
+    "warmup_ops": 0
+   }
+  }
+ ],
+ "schema": "logos.qor.power/1"
+}

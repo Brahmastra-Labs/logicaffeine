@@ -1,4 +1,4 @@
-//! Phase 9 (work/FINISH_INTERPRETER.md) — the browser cooperative drive loop.
+//! The browser cooperative drive loop.
 //!
 //! Concurrent programs in the Studio run on the deterministic scheduler driven in *slices*
 //! that yield a macrotask between them (so Dioxus repaints instead of freezing), emitting a
@@ -33,7 +33,11 @@ fn streaming_producer_consumer_output_correct() {
         \x20   Show first.\n\
         \x20   Show second.\n";
     let result = block_on(interpret_streaming(src, sink()));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["1".to_string(), "2".to_string()]);
 }
 
@@ -65,8 +69,17 @@ fn streaming_observer_fires_on_long_program() {
         *c.borrow_mut() += 1;
     }));
 
-    let result = block_on(interpret_streaming_with_vfs_observer(src, sink(), None, observer));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    let result = block_on(interpret_streaming_with_vfs_observer(
+        src,
+        sink(),
+        None,
+        observer,
+    ));
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["20100".to_string()], "sum of 1..=200");
     assert!(
         *count.borrow() >= 1,
@@ -90,6 +103,10 @@ fn streaming_concurrent_with_sleep_runs() {
         \x20   Receive x from ch.\n\
         \x20   Show x.\n";
     let result = block_on(interpret_streaming(src, sink()));
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["42".to_string()]);
 }

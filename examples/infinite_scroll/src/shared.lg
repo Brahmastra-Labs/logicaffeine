@@ -1,0 +1,10 @@
+# Shared
+
+The one shape the page and whatever serves `/api/todos` agree on. Declared once,
+imported by the page: `Get … as Seq of Todo` decodes through the codec derived
+from this block, so nobody writes a parser for the feed.
+
+## A Todo has:
+    an id, which is Int.
+    a text, which is Text.
+    a done, which is Bool.

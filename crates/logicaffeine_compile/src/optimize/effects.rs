@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::analysis::DiscoveryPass;
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
-use crate::ast::stmt::{ClosureBody, Expr, Literal, Pattern, Stmt};
+use crate::ast::stmt::{Expr, Stmt};
 use crate::drs::WorldState;
 use crate::error::ParseError;
 use crate::intern::{Interner, Symbol};
@@ -157,6 +157,7 @@ impl EffectEnv {
         let role_arena = Arena::new();
         let pp_arena = Arena::new();
         let stmt_arena = Arena::new();
+        let _compile_facts = super::facts::scope();
         let imperative_expr_arena = Arena::new();
         let type_expr_arena = Arena::new();
 
@@ -172,7 +173,13 @@ impl EffectEnv {
             &type_expr_arena,
         );
 
-        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::new(
+            tokens,
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry,
+        );
         let stmts = parser.parse_program()?;
 
         let env = analyze_program(&stmts, &interner);
@@ -215,7 +222,10 @@ impl EffectEnv {
 
     pub fn binding_allocates(&self, var_name: &str) -> bool {
         if let Some(sym) = self.resolve_name(var_name) {
-            self.bindings.get(&sym).map(|e| e.allocates).unwrap_or(false)
+            self.bindings
+                .get(&sym)
+                .map(|e| e.allocates)
+                .unwrap_or(false)
         } else {
             false
         }
@@ -247,7 +257,10 @@ impl EffectEnv {
 
     pub fn function_is_pure(&self, fn_name: &str) -> bool {
         if let Some(sym) = self.resolve_name(fn_name) {
-            self.functions.get(&sym).map(|e| e.is_pure()).unwrap_or(true)
+            self.functions
+                .get(&sym)
+                .map(|e| e.is_pure())
+                .unwrap_or(true)
         } else {
             true
         }
@@ -272,6 +285,18 @@ impl EffectEnv {
     /// verbatim and never references a foldable parameter, so specializing across it is
     /// sound (see `pe_effect_env_check_is_not_io`). Escape blocks (`unknown`) are handled by
     /// the caller's separate `body_has_escape` guard.
+    /// Whether a call to `fn_name` may be RE-RUN from the start after a failure partway through —
+    /// what the native tier does when compiled code stops (a broken contract, `Fail with`, a zero
+    /// divisor): it hands the call back to bytecode, which raises the exact error at the exact
+    /// point. Sound only when nothing the first attempt did is observable: no IO (a `Show` would
+    /// print twice), no nondeterminism, no concurrency, nothing unknown. Divergence is exactly what
+    /// the replay is for, and reads/writes/allocation are private to the call.
+    pub fn function_is_replayable(&self, fn_name: &str) -> bool {
+        self.resolve_name(fn_name)
+            .and_then(|sym| self.functions.get(&sym))
+            .is_some_and(|e| !e.io && !e.nondet && !e.concurrent && !e.unknown)
+    }
+
     pub fn function_is_specialization_safe(&self, fn_name: &str) -> bool {
         if let Some(sym) = self.resolve_name(fn_name) {
             match self.functions.get(&sym) {
@@ -300,17 +325,24 @@ fn analyze_program(stmts: &[Stmt<'_>], interner: &Interner) -> AnalysisResult {
     // Phase 1: Analyze function bodies
     let mut functions: HashMap<Symbol, EffectSet> = HashMap::new();
 
-    // Collect all known function names first
-    let mut known_fns: HashSet<Symbol> = HashSet::new();
+    // Collect all known function names first; builtins resolve through the interner.
+    let mut known_fns = KnownCallees::new(interner);
     for stmt in stmts {
         if let Stmt::FunctionDef { name, .. } = stmt {
-            known_fns.insert(*name);
+            known_fns.fns.insert(*name);
         }
     }
 
     // Initialize all functions with their direct effects
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, body, is_native, params, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            body,
+            is_native,
+            params,
+            ..
+        } = stmt
+        {
             if *is_native {
                 // Native functions: classify by name
                 let effects = classify_native_function(*name, interner);
@@ -363,7 +395,12 @@ fn analyze_program(stmts: &[Stmt<'_>], interner: &Interner) -> AnalysisResult {
                 }
             } else if scc.len() == 1 {
                 let fn_sym = scc[0];
-                if callgraph.edges.get(&fn_sym).map(|e| e.contains(&fn_sym)).unwrap_or(false) {
+                if callgraph
+                    .edges
+                    .get(&fn_sym)
+                    .map(|e| e.contains(&fn_sym))
+                    .unwrap_or(false)
+                {
                     if let Some(fn_effects) = functions.get_mut(&fn_sym) {
                         if !fn_effects.diverges {
                             fn_effects.diverges = true;
@@ -385,7 +422,7 @@ fn analyze_program(stmts: &[Stmt<'_>], interner: &Interner) -> AnalysisResult {
 
         // Track per-binding effects
         if let Stmt::Let { var, value, .. } = stmt {
-            let expr_effects = analyze_expr_effects(value);
+            let expr_effects = analyze_expr_effects_core(value, &known_fns);
             bindings.insert(*var, expr_effects);
         }
     }
@@ -397,11 +434,45 @@ fn analyze_program(stmts: &[Stmt<'_>], interner: &Interner) -> AnalysisResult {
     }
 }
 
-fn analyze_block_effects(stmts: &[Stmt<'_>]) -> EffectSet {
-    analyze_block_effects_with(stmts, &HashSet::new())
+/// The callees whose effects the analysis can name: the program's own functions (their effects
+/// flow through the call-graph fixpoint) and the builtins (their [`BuiltinEffect`] classification).
+/// A call to anything else is `unknown`.
+#[derive(Default)]
+struct KnownCallees<'i> {
+    fns: HashSet<Symbol>,
+    interner: Option<&'i Interner>,
 }
 
-fn analyze_block_effects_with(stmts: &[Stmt<'_>], known_fns: &HashSet<Symbol>) -> EffectSet {
+impl<'i> KnownCallees<'i> {
+    fn new(interner: &'i Interner) -> Self {
+        KnownCallees {
+            fns: HashSet::new(),
+            interner: Some(interner),
+        }
+    }
+
+    /// Join what calling `function` can do into `effects`.
+    fn apply_call(&self, function: Symbol, effects: &mut EffectSet) {
+        use crate::semantics::builtins::{builtin_from_name, BuiltinEffect};
+        if self.fns.contains(&function) {
+            return;
+        }
+        match self
+            .interner
+            .and_then(|i| builtin_from_name(i.resolve(function)))
+        {
+            Some(b) => match b.effect() {
+                BuiltinEffect::Pure => {}
+                BuiltinEffect::Fallible => effects.diverges = true,
+                BuiltinEffect::Nondeterministic => effects.nondet = true,
+                BuiltinEffect::Effectful => effects.io = true,
+            },
+            None => effects.unknown = true,
+        }
+    }
+}
+
+fn analyze_block_effects_with(stmts: &[Stmt<'_>], known_fns: &KnownCallees<'_>) -> EffectSet {
     let mut result = EffectSet::default();
     for stmt in stmts {
         let effects = analyze_stmt_effects_initial(stmt, known_fns);
@@ -413,18 +484,18 @@ fn analyze_block_effects_with(stmts: &[Stmt<'_>], known_fns: &HashSet<Symbol>) -
 /// Analyze statement effects during initial function body analysis.
 /// known_fns tracks which functions are defined in the program so calls to them
 /// don't get marked as unknown (the fixed-point iteration handles transitive effects).
-fn analyze_stmt_effects_initial(stmt: &Stmt<'_>, known_fns: &HashSet<Symbol>) -> EffectSet {
+fn analyze_stmt_effects_initial(stmt: &Stmt<'_>, known_fns: &KnownCallees<'_>) -> EffectSet {
     analyze_stmt_effects_core(stmt, None, known_fns)
 }
 
 fn analyze_stmt_effects(stmt: &Stmt<'_>, functions: &HashMap<Symbol, EffectSet>) -> EffectSet {
-    analyze_stmt_effects_core(stmt, Some(functions), &HashSet::new())
+    analyze_stmt_effects_core(stmt, Some(functions), &KnownCallees::default())
 }
 
 fn analyze_stmt_effects_core(
     stmt: &Stmt<'_>,
     functions: Option<&HashMap<Symbol, EffectSet>>,
-    known_fns: &HashSet<Symbol>,
+    known_fns: &KnownCallees<'_>,
 ) -> EffectSet {
     match stmt {
         Stmt::Let { var, value, .. } => {
@@ -445,15 +516,19 @@ fn analyze_stmt_effects_core(
             if let Some(fns) = functions {
                 if let Some(fn_effects) = fns.get(function) {
                     effects.join(fn_effects);
-                } else if !known_fns.contains(function) {
-                    effects.unknown = true;
+                } else {
+                    known_fns.apply_call(*function, &mut effects);
                 }
-            } else if !known_fns.contains(function) {
-                effects.unknown = true;
+            } else {
+                known_fns.apply_call(*function, &mut effects);
             }
             effects
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             let mut effects = analyze_expr_effects_core(cond, known_fns);
             let then_effects = analyze_block_effects_with(then_block, known_fns);
             effects.join(&then_effects);
@@ -514,7 +589,11 @@ fn analyze_stmt_effects_core(
             }
             effects
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             let mut effects = analyze_expr_effects_core(value, known_fns);
             effects.join(&analyze_expr_effects_core(index, known_fns));
             if let Expr::Identifier(sym) = collection {
@@ -540,7 +619,21 @@ fn analyze_stmt_effects_core(
             effects.security_check = true;
             effects
         }
-        Stmt::RuntimeAssert { condition, .. } => analyze_expr_effects_core(condition, known_fns),
+        Stmt::RuntimeAssert {
+            condition, reason, ..
+        } => {
+            let mut effects = analyze_expr_effects_core(condition, known_fns);
+            if let Some(r) = reason {
+                effects.join(&analyze_expr_effects_core(r, known_fns));
+            }
+            effects
+        }
+        // `Fail with …` never completes normally.
+        Stmt::Fail { reason } => {
+            let mut effects = analyze_expr_effects_core(reason, known_fns);
+            effects.diverges = true;
+            effects
+        }
         Stmt::FunctionDef { .. } | Stmt::StructDef { .. } => EffectSet::pure(),
         Stmt::Inspect { target, arms, .. } => {
             let mut effects = analyze_expr_effects_core(target, known_fns);
@@ -551,6 +644,9 @@ fn analyze_stmt_effects_core(
             effects
         }
         Stmt::Zone { body, .. } => analyze_block_effects_with(body, known_fns),
+        // A `Reversibly:` block is output-transparent: its effects are exactly its body's effects
+        // (the reversible lowering changes no observable behaviour), so they bubble up unchanged.
+        Stmt::Reversibly { body } => analyze_block_effects_with(body, known_fns),
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             let mut effects = analyze_block_effects_with(tasks, known_fns);
             effects.concurrent = true;
@@ -562,13 +658,20 @@ fn analyze_stmt_effects_core(
             effects.io = true;
             effects
         }
-        Stmt::SendMessage { message, destination, .. } => {
+        Stmt::SendMessage {
+            message,
+            destination,
+            ..
+        } => {
             let mut effects = analyze_expr_effects_core(message, known_fns);
             effects.join(&analyze_expr_effects_core(destination, known_fns));
             effects.io = true;
             effects
         }
-        Stmt::StreamMessage { values, destination } => {
+        Stmt::StreamMessage {
+            values,
+            destination,
+        } => {
             let mut effects = analyze_expr_effects_core(values, known_fns);
             effects.join(&analyze_expr_effects_core(destination, known_fns));
             effects.io = true;
@@ -582,7 +685,7 @@ fn analyze_stmt_effects_core(
             }
             effects
         }
-        Stmt::MergeCrdt { source, target } => {
+        Stmt::MergeCrdt { source, target } | Stmt::JoinCrdt { source, target } => {
             let mut effects = analyze_expr_effects_core(source, known_fns);
             effects.join(&analyze_expr_effects_core(target, known_fns));
             if let Expr::Identifier(sym) = target {
@@ -603,7 +706,11 @@ fn analyze_stmt_effects_core(
             effects.concurrent = true;
             effects
         }
-        Stmt::TrySendPipe { value, pipe, result } => {
+        Stmt::TrySendPipe {
+            value,
+            pipe,
+            result,
+        } => {
             let mut effects = analyze_expr_effects_core(value, known_fns);
             effects.join(&analyze_expr_effects_core(pipe, known_fns));
             effects.io = true;
@@ -688,13 +795,34 @@ fn analyze_stmt_effects_core(
             effects.concurrent = true;
             effects
         }
+        Stmt::CloseChannel { channel } => {
+            // Closing wakes parked receivers — a concurrency-visible effect. Deterministic on the
+            // scheduler (unlike `Stop`), so it is not marked nondet.
+            let mut effects = analyze_expr_effects_core(channel, known_fns);
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::AwaitTask { handle, result } => {
+            // Joining a task reads the handle, may bind the result, and is a scheduling point.
+            let mut effects = analyze_expr_effects_core(handle, known_fns);
+            if let Some(r) = result {
+                effects.writes.insert(*r);
+            }
+            effects.concurrent = true;
+            effects
+        }
         Stmt::Spawn { name, .. } => {
             let mut effects = EffectSet::concurrent();
             effects.writes.insert(*name);
             effects
         }
         // ----- Networking over the relay: I/O boundaries -----
-        Stmt::AwaitMessage { source, into, view: _, stream: _ } => {
+        Stmt::AwaitMessage {
+            source,
+            into,
+            view: _,
+            stream: _,
+        } => {
             let mut effects = analyze_expr_effects_core(source, known_fns);
             effects.writes.insert(*into);
             effects.io = true;
@@ -758,12 +886,24 @@ fn analyze_stmt_effects_core(
     }
 }
 
-fn analyze_expr_effects(expr: &Expr<'_>) -> EffectSet {
-    analyze_expr_effects_core(expr, &HashSet::new())
-}
-
-fn analyze_expr_effects_core(expr: &Expr<'_>, known_fns: &HashSet<Symbol>) -> EffectSet {
+fn analyze_expr_effects_core(expr: &Expr<'_>, known_fns: &KnownCallees<'_>) -> EffectSet {
     match expr {
+        // Evaluating a view evaluates its holes; its handler blocks run later, on events.
+        // Reading the page is an effect on the host, not a pure computation.
+        Expr::Dom(q) => {
+            let mut effects = EffectSet::io();
+            if let Some(sel) = q.selector() {
+                effects.join(&analyze_expr_effects_core(sel, known_fns));
+            }
+            effects
+        }
+        Expr::View(v) => {
+            let mut effects = EffectSet::default();
+            for e in v.exprs_and_blocks().0 {
+                effects.join(&analyze_expr_effects_core(e, known_fns));
+            }
+            effects
+        }
         Expr::Literal(_) | Expr::OptionNone => EffectSet::pure(),
         Expr::Identifier(sym) => EffectSet::read(*sym),
         Expr::BinaryOp { left, right, .. } => {
@@ -777,10 +917,9 @@ fn analyze_expr_effects_core(expr: &Expr<'_>, known_fns: &HashSet<Symbol>) -> Ef
             for arg in args {
                 effects.join(&analyze_expr_effects_core(arg, known_fns));
             }
-            // Only mark as unknown if the callee is not a known function
-            if !known_fns.contains(function) {
-                effects.unknown = true;
-            }
+            // A program function's effects propagate through the fixpoint; a builtin's are its
+            // classification; anything else is unknown.
+            known_fns.apply_call(*function, &mut effects);
             effects
         }
         Expr::CallExpr { callee, args } => {
@@ -796,7 +935,11 @@ fn analyze_expr_effects_core(expr: &Expr<'_>, known_fns: &HashSet<Symbol>) -> Ef
             effects.join(&analyze_expr_effects_core(index, known_fns));
             effects
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             let mut effects = analyze_expr_effects_core(collection, known_fns);
             effects.join(&analyze_expr_effects_core(start, known_fns));
             effects.join(&analyze_expr_effects_core(end, known_fns));
@@ -808,8 +951,12 @@ fn analyze_expr_effects_core(expr: &Expr<'_>, known_fns: &HashSet<Symbol>) -> Ef
             effects.join(&analyze_expr_effects_core(value, known_fns));
             effects
         }
-        Expr::Union { left, right } | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        Expr::Union { left, right }
+        | Expr::Intersection { left, right }
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             let mut effects = analyze_expr_effects_core(left, known_fns);
             effects.join(&analyze_expr_effects_core(right, known_fns));
             effects
@@ -875,25 +1022,21 @@ fn classify_native_function(sym: Symbol, interner: &Interner) -> EffectSet {
     let name = interner.resolve(sym);
     match name {
         // Pure functions
-        "parseInt" | "parseFloat" | "decimal" | "complex" | "modular" | "quantity" | "convert" | "money"
-        | "uuid" | "uuid_nil" | "uuid_max" | "uuid_v3" | "uuid_v5" | "uuid_version"
-        | "uuid_dns" | "uuid_url" | "uuid_oid" | "uuid_x500"
-        | "md5" | "sha1" | "text_bytes" | "uuid_bytes" | "uuid_from_bytes"
-        | "parse_timestamp" | "format_timestamp" | "year_of" | "month_of" | "day_of" | "weekday_of"
-        | "hour_of" | "minute_of" | "second_of" | "week_of" | "quarter_of" | "date_of" | "time_of"
-        | "seconds_between" | "months_between" | "years_between" | "add_seconds" | "in_zone"
-        | "local_instant" | "abs" | "min" | "max" | "sqrt" | "floor"
-        | "ceil" | "round" | "pow" | "log" | "sin" | "cos" | "tan"
-        | "toString" | "toInt" | "toFloat" | "trim" | "uppercase" | "lowercase"
-        | "split" | "join" | "replace" | "startsWith" | "endsWith"
-        | "substring" | "charAt" | "indexOf" | "lastIndexOf" | "repeat" => {
-            EffectSet::pure()
-        }
+        "parseInt" | "parseFloat" | "decimal" | "complex" | "conjugate" | "re" | "im"
+        | "modular" | "quantity" | "convert" | "money" | "uuid" | "uuid_nil" | "uuid_max"
+        | "uuid_v3" | "uuid_v5" | "uuid_version" | "uuid_dns" | "uuid_url" | "uuid_oid"
+        | "uuid_x500" | "md5" | "sha1" | "text_bytes" | "uuid_bytes" | "uuid_from_bytes"
+        | "parse_timestamp" | "format_timestamp" | "year_of" | "month_of" | "day_of"
+        | "weekday_of" | "hour_of" | "minute_of" | "second_of" | "week_of" | "quarter_of"
+        | "date_of" | "time_of" | "seconds_between" | "months_between" | "years_between"
+        | "add_seconds" | "in_zone" | "local_instant" | "makeDate" | "makeMoment" | "abs"
+        | "min" | "max" | "sqrt" | "floor" | "ceil" | "round" | "pow" | "log" | "sin" | "cos"
+        | "tan" | "toString" | "toInt" | "toFloat" | "trim" | "uppercase" | "lowercase"
+        | "split" | "join" | "replace" | "startsWith" | "endsWith" | "substring" | "charAt"
+        | "indexOf" | "lastIndexOf" | "repeat" => EffectSet::pure(),
         // IO functions
-        "args" | "show" | "readLine" | "sleep" | "readFile" | "writeFile"
-        | "print" | "println" | "eprintln" | "exit" => {
-            EffectSet::io()
-        }
+        "args" | "show" | "readLine" | "sleep" | "readFile" | "writeFile" | "print" | "println"
+        | "eprintln" | "exit" => EffectSet::io(),
         // Alloc functions
         "newSeq" | "newMap" | "newSet" | "copy" | "clone" | "mapOf" | "setOf" | "repeatSeq" => {
             EffectSet::alloc()
@@ -904,87 +1047,5 @@ fn classify_native_function(sym: Symbol, interner: &Interner) -> EffectSet {
 }
 
 #[cfg(test)]
-mod concurrency_effect_tests {
-    //! A concurrency / networking construct is an effectful, often nondeterministic
-    //! boundary. The partial evaluator's specialization gate (`partial_eval.rs`) keys
-    //! off these effects; if any of them are misclassified as Pure, a function holding
-    //! one can be specialized and a static parameter flowing into it dropped, leaving a
-    //! dangling free variable. These tests pin the classification at the source.
-
-    use super::EffectEnv;
-
-    #[test]
-    fn effects_select_is_not_pure() {
-        // A `Select` is a nondeterministic choice — never Pure. The classifier must also
-        // see *into* the branch bodies (the `Show` here is an effect of the function).
-        let src = "\
-## To sel (ch: Int):
-    Await the first of:
-        Receive x from ch:
-            Show x.
-        After 1 seconds:
-            Show 0.
-
-## Main
-    Let ch be a Pipe of Int.
-    Launch a task to sel with ch.
-";
-        let env = EffectEnv::analyze_source(src).expect("parse");
-        assert!(
-            !env.function_is_pure("sel"),
-            "a function whose body is a Select must not be classified Pure"
-        );
-    }
-
-    #[test]
-    fn effects_launch_task_not_pure() {
-        let src = "\
-## To helper (ch: Int):
-    Receive y from ch.
-    Show y.
-
-## To launcher (ch: Int):
-    Launch a task to helper with ch.
-
-## Main
-    Let ch be a Pipe of Int.
-    Launch a task to launcher with ch.
-";
-        let env = EffectEnv::analyze_source(src).expect("parse");
-        assert!(
-            !env.function_is_pure("launcher"),
-            "a function that launches a task is concurrent, not Pure"
-        );
-    }
-
-    #[test]
-    fn effects_try_receive_nondet() {
-        let src = "\
-## To tryer (ch: Int):
-    Try to receive v from ch.
-
-## Main
-    Let ch be a Pipe of Int.
-    Launch a task to tryer with ch.
-";
-        let env = EffectEnv::analyze_source(src).expect("parse");
-        assert!(
-            !env.function_is_pure("tryer"),
-            "a non-blocking receive depends on instantaneous buffer state — not Pure"
-        );
-    }
-
-    #[test]
-    fn effects_mount_writes_var() {
-        let src = "\
-## Main
-    Mount counter at \"data/counter.journal\".
-    Show counter.
-";
-        let env = EffectEnv::analyze_source(src).expect("parse");
-        assert!(
-            env.has_write_to("counter"),
-            "Mount binds its variable — the write must be recorded"
-        );
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/effects/concurrency_effect_tests.rs"]
+mod concurrency_effect_tests;

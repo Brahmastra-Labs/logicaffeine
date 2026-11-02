@@ -1,0 +1,40 @@
+	Output: 0 chan 1556
+Router 390
+	Output: 1 chan 1561
+	Output: 0 chan 1560
+Router 391
+	Output: 1 chan 1565
+	Output: 0 chan 1564
+Router 392
+	Output: 1 chan 1569
+	Output: 0 chan 1568
+Router 393
+	Output: 1 chan 1573
+	Output: 4 ej port 393
+Router 394
+	Output: 1 chan 1577
+Router 404
+	Output: 4 ej port 404
+../plastisim/final.place Elapsed seconds: 2.89525
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Caught exception on cycle 12: /DUT/Top/net/router321: no route for packet 847
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 4.97988
+Exiting... 😊
+Destruct DRAM.
+PASS: false (Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp3x3x3)
+Assertion fail:
+Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp3x3x3.scala:139:11: Assertion failure
+tungsten: plasticine/templates/cppgenutil.cc:35: void ASSERT(bool, const char*): Assertion `false' failed.
+Command terminated by signal 6
+Runtime:0:05.35

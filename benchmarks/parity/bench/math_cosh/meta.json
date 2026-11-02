@@ -1,0 +1,13 @@
+{
+  "capability": "math.cosh",
+  "workload": "math.cosh",
+  "arg": "1000000",
+  "expected": "1101328793096348",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "go",
+    "rust"
+  ]
+}

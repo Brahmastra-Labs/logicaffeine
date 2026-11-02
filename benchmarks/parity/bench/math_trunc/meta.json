@@ -1,0 +1,13 @@
+{
+  "capability": "math.trunc",
+  "workload": "math.trunc",
+  "arg": "1000000",
+  "expected": "71428214286",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "go",
+    "rust"
+  ]
+}

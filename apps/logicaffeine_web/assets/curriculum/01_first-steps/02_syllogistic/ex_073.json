@@ -10,6 +10,7 @@
     "some F is not S"
   ],
   "correct": 0,
-  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
-  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+  "hint": "Is this saying 'not all', or 'not any at all'?",
+  "explanation": "It says none of the farmers is short: no F is S.",
+  "section": "2.1"
 }

@@ -1,0 +1,10 @@
+{
+  "capability": "encoding.base16",
+  "workload": "base16Encode(s) length fold",
+  "arg": "30000",
+  "expected": "242970000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

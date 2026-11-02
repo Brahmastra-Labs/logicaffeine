@@ -1,0 +1,21 @@
+# Layout
+
+The shared shell every page extends: a header with a nav whose current link
+is marked `active`, and a footer with a default a page may override.
+
+## Component Site
+
+View:
+    <header>
+      <nav>
+        <a id="nav-home" href="/" class:active={routePath() is equal to "/"}>Home</a>
+        <a id="nav-about" href="/about" class:active={routePath() is equal to "/about"}>About</a>
+        <a id="nav-contact" href="/contact" class:active={routePath() is equal to "/contact"}>Contact</a>
+      </nav>
+    </header>
+    <main>{block content}</main>
+    <footer>{block footer:}<p>&copy; Acme</p>{end}</footer>
+
+Style:
+    nav { display: flex; gap: 1rem; }
+    nav a.active { font-weight: 700; text-decoration: underline; }

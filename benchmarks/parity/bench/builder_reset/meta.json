@@ -1,0 +1,9 @@
+{
+  "capability": "builder.reset",
+  "arg": "2000000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

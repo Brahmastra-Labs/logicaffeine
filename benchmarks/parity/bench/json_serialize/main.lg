@@ -1,0 +1,19 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let reps be parseInt(item 2 of arguments).
+Let mutable tail be "".
+Let mutable k be 1.
+While k is at most 500:
+    Set tail to tail + "," + numText(k).
+    Set k to k + 1.
+Set tail to tail + "]".
+Let mutable checksum be 0.
+Let mutable r be 0.
+While r is less than reps:
+    Let js be "[" + numText(r % 1000) + tail.
+    Set checksum to checksum + length of jsonSerialize(jsonParse(js)).
+    Set r to r + 1.
+Show checksum.

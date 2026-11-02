@@ -1,0 +1,2 @@
+clone3;start_thread;_RNvNvMs0_NtNtNtCs75vJTIYSa2J_3std3sys6thread4unixNtB7_6Thread3new12thread_start;_RNvXst_NtCsgW8esjfipvk_5alloc5boxedINtB5_3BoxDINtNtNtCs27Vx93FoQ6z_4core3ops8function6FnOnceuEp6OutputuNtNtBP_6marker4SendEL_EIBJ_uE9call_onceCs75vJTIYSa2J_3std;core::ops::function::FnOnce::call_once$u7b$$u7b$vtable.shim$u7d$$u7d$::h8ae7db85125cc47b;_logos_main [workload] 30242902255
+_start;__libc_start_main_impl;__libc_start_call_main;main;__GI___sysconf;linux_sysconf;posix_sysconf;[unknown] 315656

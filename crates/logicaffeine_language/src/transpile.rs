@@ -26,13 +26,15 @@
 
 use std::fmt::Write;
 
-use crate::ast::{LogicExpr, NounPhrase, Term, QuantifierKind};
 use crate::ast::logic::NumberKind;
-use crate::formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
-use logicaffeine_base::{Interner, Symbol};
+use crate::ast::{LogicExpr, NounPhrase, QuantifierKind, Term};
+use crate::formatter::{
+    KripkeFormatter, LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter,
+};
 use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
 use crate::{OutputFormat, TranspileContext};
+use logicaffeine_base::{Interner, Symbol};
 
 /// Collect event variables from NeoEvents with suppress_existential=true
 /// Returns unique event variables (coordinated weather verbs share the same var)
@@ -139,11 +141,7 @@ impl<'a> Term<'a> {
     }
 
     /// Writes the term preserving original case (for code generation).
-    pub fn write_to_raw<W: Write>(
-        &self,
-        w: &mut W,
-        interner: &Interner,
-    ) -> std::fmt::Result {
+    pub fn write_to_raw<W: Write>(&self, w: &mut W, interner: &Interner) -> std::fmt::Result {
         match self {
             Term::Constant(name) | Term::Variable(name) => {
                 write!(w, "{}", interner.resolve(*name))
@@ -168,7 +166,10 @@ impl<'a> Term<'a> {
                 }
                 write!(w, ")")
             }
-            Term::Possessed { possessor, possessed } => {
+            Term::Possessed {
+                possessor,
+                possessed,
+            } => {
                 possessor.write_to_raw(w, interner)?;
                 write!(w, ".{}", interner.resolve(*possessed))
             }
@@ -176,11 +177,11 @@ impl<'a> Term<'a> {
                 NumberKind::Integer(n) => write!(w, "{}", n),
                 NumberKind::Real(f) => write!(w, "{}", f),
                 NumberKind::Symbolic(s) => write!(w, "{}", interner.resolve(*s)),
-            }
+            },
             Term::Sigma(predicate) => write!(w, "σ({})", interner.resolve(*predicate)),
             Term::Intension(predicate) => write!(w, "^{}", interner.resolve(*predicate)),
             Term::Kind(kind) => write!(w, "^{}", interner.resolve(*kind)),
-            Term::Proposition(expr) => write!(w, "[proposition]"),
+            Term::Proposition(_expr) => write!(w, "[proposition]"),
         }
     }
 
@@ -224,7 +225,10 @@ impl<'a> Term<'a> {
                 }
                 Ok(())
             }
-            Term::Possessed { possessor, possessed } => {
+            Term::Possessed {
+                possessor,
+                possessed,
+            } => {
                 let poss_name = if use_full_names {
                     registry.get_symbol_full(*possessed, interner)
                 } else {
@@ -245,7 +249,9 @@ impl<'a> Term<'a> {
             Term::Intension(predicate) => {
                 // Use full word for intensional terms, not abbreviated symbol
                 let word = interner.resolve(*predicate);
-                let capitalized = word.chars().next()
+                let capitalized = word
+                    .chars()
+                    .next()
                     .map(|c| c.to_uppercase().collect::<String>() + &word[1..])
                     .unwrap_or_default();
                 write!(w, "^{}", capitalized)
@@ -253,7 +259,9 @@ impl<'a> Term<'a> {
             Term::Kind(kind) => {
                 // Kind terms render with the full word, like intensions: ^Tooth.
                 let word = interner.resolve(*kind);
-                let capitalized = word.chars().next()
+                let capitalized = word
+                    .chars()
+                    .next()
                     .map(|c| c.to_uppercase().collect::<String>() + &word[1..])
                     .unwrap_or_default();
                 write!(w, "^{}", capitalized)
@@ -263,7 +271,11 @@ impl<'a> Term<'a> {
                 expr.write_logic(w, registry, interner, &UnicodeFormatter)?;
                 write!(w, "]")
             }
-            Term::Value { kind, unit, dimension: _ } => {
+            Term::Value {
+                kind,
+                unit,
+                dimension: _,
+            } => {
                 use crate::ast::NumberKind;
                 match kind {
                     NumberKind::Real(r) => write!(w, "{}", r)?,
@@ -294,9 +306,16 @@ fn collect_discourse_conjuncts<'a>(expr: &'a LogicExpr<'a>) -> Vec<&'a LogicExpr
     conjuncts
 }
 
-fn collect_discourse_conjuncts_inner<'a>(expr: &'a LogicExpr<'a>, conjuncts: &mut Vec<&'a LogicExpr<'a>>) {
+fn collect_discourse_conjuncts_inner<'a>(
+    expr: &'a LogicExpr<'a>,
+    conjuncts: &mut Vec<&'a LogicExpr<'a>>,
+) {
     match expr {
-        LogicExpr::BinaryOp { left, op: TokenType::And, right } => {
+        LogicExpr::BinaryOp {
+            left,
+            op: TokenType::And,
+            right,
+        } => {
             // Recursively collect from both sides
             collect_discourse_conjuncts_inner(left, conjuncts);
             collect_discourse_conjuncts_inner(right, conjuncts);
@@ -402,11 +421,20 @@ impl<'a> LogicExpr<'a> {
                 write!(w, ")")
             }
 
-            LogicExpr::Quantifier { kind, variable, body, .. } => {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                ..
+            } => {
                 let var_str = interner.resolve(*variable);
 
                 // In SimpleFOL mode, skip event quantifiers (variables named "e" or starting with "e" followed by digits)
-                if fmt.use_simple_events() && (var_str == "e" || var_str.starts_with("e") && var_str[1..].chars().all(|c| c.is_ascii_digit())) {
+                if fmt.use_simple_events()
+                    && (var_str == "e"
+                        || var_str.starts_with("e")
+                            && var_str[1..].chars().all(|c| c.is_ascii_digit()))
+                {
                     return body.write_logic(w, registry, interner, fmt);
                 }
 
@@ -427,11 +455,29 @@ impl<'a> LogicExpr<'a> {
                     fmt.sanitize(&data.predicate.to_symbol(registry, interner))
                 };
                 match (&data.quantifier, data.copula_negative) {
-                    (TokenType::All, false) => write!(w, "{} {} is {}", fmt.categorical_all(), s, p),
+                    (TokenType::All, false) => {
+                        write!(w, "{} {} is {}", fmt.categorical_all(), s, p)
+                    }
                     (TokenType::No, false) => write!(w, "{} {} is {}", fmt.categorical_no(), s, p),
-                    (TokenType::Some, false) => write!(w, "{} {} is {}", fmt.categorical_some(), s, p),
-                    (TokenType::Some, true) => write!(w, "{} {} is {} {}", fmt.categorical_some(), s, fmt.categorical_not(), p),
-                    (TokenType::All, true) => write!(w, "{} {} is {} {}", fmt.categorical_some(), s, fmt.categorical_not(), p),
+                    (TokenType::Some, false) => {
+                        write!(w, "{} {} is {}", fmt.categorical_some(), s, p)
+                    }
+                    (TokenType::Some, true) => write!(
+                        w,
+                        "{} {} is {} {}",
+                        fmt.categorical_some(),
+                        s,
+                        fmt.categorical_not(),
+                        p
+                    ),
+                    (TokenType::All, true) => write!(
+                        w,
+                        "{} {} is {} {}",
+                        fmt.categorical_some(),
+                        s,
+                        fmt.categorical_not(),
+                        p
+                    ),
                     _ => write!(w, "Invalid Syllogism"),
                 }
             }
@@ -510,7 +556,11 @@ impl<'a> LogicExpr<'a> {
                 write!(w, "{}", fmt.temporal(operator, &inner))
             }
 
-            LogicExpr::TemporalBinary { operator, left, right } => {
+            LogicExpr::TemporalBinary {
+                operator,
+                left,
+                right,
+            } => {
                 let mut l = String::new();
                 let mut r = String::new();
                 left.write_logic(&mut l, registry, interner, fmt)?;
@@ -533,7 +583,11 @@ impl<'a> LogicExpr<'a> {
             LogicExpr::Question { wh_variable, body } => {
                 let mut body_str = String::new();
                 body.write_logic(&mut body_str, registry, interner, fmt)?;
-                write!(w, "{}", fmt.lambda(interner.resolve(*wh_variable), &body_str))
+                write!(
+                    w,
+                    "{}",
+                    fmt.lambda(interner.resolve(*wh_variable), &body_str)
+                )
             }
 
             LogicExpr::YesNoQuestion { body } => {
@@ -567,7 +621,11 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Intensional { operator, content } => {
-                write!(w, "{}[", fmt.sanitize(&registry.get_symbol(*operator, interner)))?;
+                write!(
+                    w,
+                    "{}[",
+                    fmt.sanitize(&registry.get_symbol(*operator, interner))
+                )?;
                 content.write_logic(w, registry, interner, fmt)?;
                 write!(w, "]")
             }
@@ -586,13 +644,35 @@ impl<'a> LogicExpr<'a> {
                 use crate::ast::{QuantifierKind, ThematicRole};
 
                 if fmt.use_simple_events() {
+                    // A tense locates the event, not a participant: it wraps the flattened
+                    // formula (`Past(Run(John) ∧ Quickly(John))`) instead of reattaching like an
+                    // adverb, which would say that John is past.
+                    let tenses: Vec<&'static str> = data
+                        .modifiers
+                        .iter()
+                        .filter_map(|m| match interner.resolve(*m) {
+                            "Past" => Some(fmt.past()),
+                            "Future" => Some(fmt.future()),
+                            _ => None,
+                        })
+                        .collect();
+                    for tense in &tenses {
+                        write!(w, "{tense}(")?;
+                    }
                     write!(w, "{}", registry.get_symbol_full(data.verb, interner))?;
                     write!(w, "(")?;
                     let mut first = true;
                     let mut subject_term = None;
                     for (role, term) in data.roles.iter() {
                         // Include core thematic roles in SimpleFOL output
-                        if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme | ThematicRole::Goal | ThematicRole::Location) {
+                        if matches!(
+                            role,
+                            ThematicRole::Agent
+                                | ThematicRole::Patient
+                                | ThematicRole::Theme
+                                | ThematicRole::Goal
+                                | ThematicRole::Location
+                        ) {
                             if !first {
                                 write!(w, ", ")?;
                             }
@@ -609,13 +689,20 @@ impl<'a> LogicExpr<'a> {
                     // Flattening the event drops the ∃e binder, so an adverbial
                     // modifier `Loudly(e)` must reattach to the participant, or it is
                     // silently lost: ∃e(Bark(e) ∧ Agent(e,y) ∧ Loudly(e)) ⇒ Bark(y) ∧ Loudly(y).
-                    for mod_sym in data.modifiers.iter() {
+                    for mod_sym in data
+                        .modifiers
+                        .iter()
+                        .filter(|m| !matches!(interner.resolve(**m), "Past" | "Future"))
+                    {
                         write!(w, " {} ", fmt.and())?;
                         write_capitalized(w, interner.resolve(*mod_sym))?;
                         write!(w, "(")?;
                         if let Some(term) = subject_term {
                             term.write_to_full(w, registry, interner)?;
                         }
+                        write!(w, ")")?;
+                    }
+                    for _ in &tenses {
                         write!(w, ")")?;
                     }
                     Ok(())
@@ -625,7 +712,9 @@ impl<'a> LogicExpr<'a> {
 
                     // Get world argument suffix if Kripke format
                     let world_suffix = if fmt.include_world_arguments() {
-                        data.world.map(|w| format!(", {}", interner.resolve(w))).unwrap_or_default()
+                        data.world
+                            .map(|w| format!(", {}", interner.resolve(w)))
+                            .unwrap_or_default()
                     } else {
                         String::new()
                     };
@@ -633,20 +722,7 @@ impl<'a> LogicExpr<'a> {
                     write_capitalized(&mut body, interner.resolve(data.verb))?;
                     write!(body, "({}{})", e, world_suffix)?;
                     for (role, term) in data.roles.iter() {
-                        let role_str = match role {
-                            ThematicRole::Agent => "Agent",
-                            ThematicRole::Patient => "Patient",
-                            ThematicRole::Theme => "Theme",
-                            ThematicRole::Recipient => "Recipient",
-                            ThematicRole::Goal => "Goal",
-                            ThematicRole::Source => "Source",
-                            ThematicRole::Instrument => "Instrument",
-                            ThematicRole::Location => "Location",
-                            ThematicRole::Time => "Time",
-                            ThematicRole::Manner => "Manner",
-                            ThematicRole::Result => "Result",
-                            ThematicRole::Depictive => "Depictive",
-                        };
+                        let role_str = role.name();
                         write!(body, " {} {}({}, ", fmt.and(), role_str, e)?;
                         if fmt.use_full_names() {
                             term.write_to_full(&mut body, registry, interner)?;
@@ -665,7 +741,11 @@ impl<'a> LogicExpr<'a> {
                         write!(w, "{}", body)
                     } else {
                         // Normal case: emit ∃e(...)
-                        write!(w, "{}", fmt.quantifier(&QuantifierKind::Existential, e, &body))
+                        write!(
+                            w,
+                            "{}",
+                            fmt.quantifier(&QuantifierKind::Existential, e, &body)
+                        )
                     }
                 }
             }
@@ -717,7 +797,10 @@ impl<'a> LogicExpr<'a> {
                 write!(w, "⟩)")
             }
 
-            LogicExpr::Implicature { assertion, implicature } => {
+            LogicExpr::Implicature {
+                assertion,
+                implicature,
+            } => {
                 // assertion +> Implicature(…): literal meaning, then the cancellable
                 // scalar implicature (the defeasible part).
                 assertion.write_logic(w, registry, interner, fmt)?;
@@ -726,15 +809,27 @@ impl<'a> LogicExpr<'a> {
                 write!(w, ")")
             }
 
-            LogicExpr::SpeechAct { performer, act_type, content } => {
+            LogicExpr::SpeechAct {
+                performer,
+                act_type,
+                content,
+            } => {
                 // Render the performer with its full name (e.g. Speaker), matching the
                 // role constants used inside the content, rather than an abbreviation.
-                write!(w, "SpeechAct({}, {}, ", interner.resolve(*act_type), fmt.sanitize(&registry.get_symbol_full(*performer, interner)))?;
+                write!(
+                    w,
+                    "SpeechAct({}, {}, ",
+                    interner.resolve(*act_type),
+                    fmt.sanitize(&registry.get_symbol_full(*performer, interner))
+                )?;
                 content.write_logic(w, registry, interner, fmt)?;
                 write!(w, ")")
             }
 
-            LogicExpr::Counterfactual { antecedent, consequent } => {
+            LogicExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => {
                 let mut a = String::new();
                 let mut c = String::new();
                 antecedent.write_logic(&mut a, registry, interner, fmt)?;
@@ -758,21 +853,37 @@ impl<'a> LogicExpr<'a> {
                 write!(w, ")")
             }
 
-            LogicExpr::Comparative { adjective, subject, object, difference, relation } => {
+            LogicExpr::Comparative {
+                adjective,
+                subject,
+                object,
+                difference,
+                relation,
+            } => {
                 use crate::ast::ComparisonRelation;
                 // Equatives render as a max-degree at-least/equality comparison:
                 // "John is as tall as Mary." → max{d:Tall(John,d)} ≥ max{d:Tall(Mary,d)}.
                 if !matches!(relation, ComparisonRelation::Greater) {
-                    let rel = if matches!(relation, ComparisonRelation::Equal) { "=" } else { "≥" };
+                    let rel = if matches!(relation, ComparisonRelation::Equal) {
+                        "="
+                    } else {
+                        "≥"
+                    };
                     let adj = interner.resolve(*adjective);
                     let mut s = String::new();
                     subject.write_to(&mut s, registry, interner)?;
                     let mut o = String::new();
                     object.write_to(&mut o, registry, interner)?;
-                    let cap = adj.chars().next()
+                    let cap = adj
+                        .chars()
+                        .next()
                         .map(|c| c.to_uppercase().collect::<String>() + &adj[1..])
                         .unwrap_or_default();
-                    return write!(w, "max{{d:{}({},d)}} {} max{{d:{}({},d)}}", cap, s, rel, cap, o);
+                    return write!(
+                        w,
+                        "max{{d:{}({},d)}} {} max{{d:{}({},d)}}",
+                        cap, s, rel, cap, o
+                    );
                 }
                 let adj = interner.resolve(*adjective);
                 let mut subj_buf = String::new();
@@ -807,7 +918,11 @@ impl<'a> LogicExpr<'a> {
                 fmt.write_comparative(w, adj, &subj_buf, &obj_buf, diff_str.as_deref())
             }
 
-            LogicExpr::Superlative { adjective, subject, domain } => {
+            LogicExpr::Superlative {
+                adjective,
+                subject,
+                domain,
+            } => {
                 let mut s = String::new();
                 subject.write_to(&mut s, registry, interner)?;
                 let mut d = String::new();
@@ -828,8 +943,17 @@ impl<'a> LogicExpr<'a> {
                 write!(w, ")")
             }
 
-            LogicExpr::Control { verb, subject, object, infinitive } => {
-                write!(w, "{}(", fmt.sanitize(&registry.get_symbol(*verb, interner)))?;
+            LogicExpr::Control {
+                verb,
+                subject,
+                object,
+                infinitive,
+            } => {
+                write!(
+                    w,
+                    "{}(",
+                    fmt.sanitize(&registry.get_symbol(*verb, interner))
+                )?;
                 subject.write_to(w, registry, interner)?;
                 if let Some(obj) = object {
                     write!(w, ", ")?;
@@ -840,14 +964,21 @@ impl<'a> LogicExpr<'a> {
                 write!(w, ")")
             }
 
-            LogicExpr::Presupposition { assertion, presupposition } => {
+            LogicExpr::Presupposition {
+                assertion,
+                presupposition,
+            } => {
                 assertion.write_logic(w, registry, interner, fmt)?;
                 write!(w, " [Presup: ")?;
                 presupposition.write_logic(w, registry, interner, fmt)?;
                 write!(w, "]")
             }
 
-            LogicExpr::Focus { kind, focused, scope } => {
+            LogicExpr::Focus {
+                kind,
+                focused,
+                scope,
+            } => {
                 use crate::token::FocusKind;
                 let prefix = match kind {
                     FocusKind::Only => "Only",
@@ -867,15 +998,33 @@ impl<'a> LogicExpr<'a> {
                 predicate.write_logic(w, registry, interner, fmt)
             }
 
-            LogicExpr::GroupQuantifier { group_var, count, member_var, restriction, body } => {
+            LogicExpr::GroupQuantifier {
+                group_var,
+                count,
+                member_var,
+                restriction,
+                body,
+            } => {
                 let g = interner.resolve(*group_var);
                 let x = interner.resolve(*member_var);
 
                 // ∃g(Group(g) ∧ Count(g,n) ∧ ∀x(Member(x,g) → restriction) ∧ body)
-                write!(w, "{}{}(Group({}) {} Count({}, {}) {} {}{}(Member({}, {}) {} ",
-                    fmt.existential(), g, g,
-                    fmt.and(), g, count,
-                    fmt.and(), fmt.universal(), x, x, g, fmt.implies())?;
+                write!(
+                    w,
+                    "{}{}(Group({}) {} Count({}, {}) {} {}{}(Member({}, {}) {} ",
+                    fmt.existential(),
+                    g,
+                    g,
+                    fmt.and(),
+                    g,
+                    count,
+                    fmt.and(),
+                    fmt.universal(),
+                    x,
+                    x,
+                    g,
+                    fmt.implies()
+                )?;
 
                 restriction.write_logic(w, registry, interner, fmt)?;
 

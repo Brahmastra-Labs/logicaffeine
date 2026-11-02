@@ -1,0 +1,25 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To sieve (limit: Int) -> Int:
+    Let mutable flags be a new Seq of Bool.
+    Let mutable i be 0.
+    While i is at most limit:
+        Push false to flags.
+        Set i to i + 1.
+    Let mutable count be 0.
+    Set i to 2.
+    While i is at most limit:
+        If item (i + 1) of flags equals false:
+            Set count to count + 1.
+            Let mutable j be i * i.
+            While j is at most limit:
+                Set item (j + 1) of flags to true.
+                Set j to j + i.
+        Set i to i + 1.
+    Return count.
+
+## Main
+Let arguments be args().
+Let limit be parseInt(item 2 of arguments).
+Show sieve(limit).

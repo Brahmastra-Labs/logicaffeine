@@ -28,7 +28,7 @@ struct Category {
 fn load_simon() -> Puzzle {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json"
+        "/tests/fixtures/puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json"
     );
     let raw = std::fs::read_to_string(path).expect("read Simon puzzle JSON");
     serde_json::from_str(&raw).expect("parse Simon puzzle JSON")
@@ -68,7 +68,11 @@ fn bijection(items: &[String], rel: &Relation) -> String {
         Relation::With => format!("with {item}"),
         Relation::Predicate => item.to_string(),
     };
-    let disjuncts = items.iter().map(|i| phrase(i)).collect::<Vec<_>>().join(" or ");
+    let disjuncts = items
+        .iter()
+        .map(|i| phrase(i))
+        .collect::<Vec<_>>()
+        .join(" or ");
     let mut s = format!("Given: Every trip is {disjuncts}.\n");
     for i in items {
         s.push_str(&format!("Given: Exactly one trip is {}.\n", phrase(i)));
@@ -121,7 +125,10 @@ fn build_theorem(p: &Puzzle) -> String {
         let rel = infer_relation(&cat.items, &p.clues);
         doc.push_str(&declaration(&cat.items, category_noun(&cat.items, &rel)));
         if matches!(rel, Relation::In)
-            && cat.items.iter().all(|i| i.chars().all(|c| c.is_ascii_digit()))
+            && cat
+                .items
+                .iter()
+                .all(|i| i.chars().all(|c| c.is_ascii_digit()))
         {
             year_items = Some(cat.items.clone());
         }
@@ -134,7 +141,10 @@ fn build_theorem(p: &Puzzle) -> String {
     if let Some(years) = year_items {
         let mut sorted = years.clone();
         sorted.sort();
-        for (name, y) in ["Alpha", "Beta", "Gamma", "Delta"].iter().zip(sorted.iter()) {
+        for (name, y) in ["Alpha", "Beta", "Gamma", "Delta"]
+            .iter()
+            .zip(sorted.iter())
+        {
             doc.push_str(&format!("Given: {name} is in {y}.\n"));
         }
     }
@@ -157,10 +167,32 @@ fn full_simon_solves_from_json_clues() {
     };
     // Unique solution: 2001/Kentucky, 2002/Florida, 2003/Maine, 2004/Connecticut,
     // with the year anchor → Alpha/Kentucky, Beta/Florida, Gamma/Maine, Delta/Connecticut.
-    assert_eq!(ask("Who is in Florida?"), vec!["Beta".to_string()], "2002 ↔ Florida");
-    assert_eq!(ask("Who is in Kentucky?"), vec!["Alpha".to_string()], "2001 ↔ Kentucky");
-    assert_eq!(ask("Who is in Maine?"), vec!["Gamma".to_string()], "2003 ↔ Maine");
-    assert_eq!(ask("Who is in Connecticut?"), vec!["Delta".to_string()], "2004 ↔ Connecticut");
-    assert!(ask("Who is with Neal?").contains(&"Beta".to_string()), "2002 ↔ Neal");
-    assert!(ask("Who is hunting?").contains(&"Beta".to_string()), "2002 ↔ hunting");
+    assert_eq!(
+        ask("Who is in Florida?"),
+        vec!["Beta".to_string()],
+        "2002 ↔ Florida"
+    );
+    assert_eq!(
+        ask("Who is in Kentucky?"),
+        vec!["Alpha".to_string()],
+        "2001 ↔ Kentucky"
+    );
+    assert_eq!(
+        ask("Who is in Maine?"),
+        vec!["Gamma".to_string()],
+        "2003 ↔ Maine"
+    );
+    assert_eq!(
+        ask("Who is in Connecticut?"),
+        vec!["Delta".to_string()],
+        "2004 ↔ Connecticut"
+    );
+    assert!(
+        ask("Who is with Neal?").contains(&"Beta".to_string()),
+        "2002 ↔ Neal"
+    );
+    assert!(
+        ask("Who is hunting?").contains(&"Beta".to_string()),
+        "2002 ↔ hunting"
+    );
 }

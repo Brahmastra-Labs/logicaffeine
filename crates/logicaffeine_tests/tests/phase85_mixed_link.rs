@@ -18,8 +18,14 @@ const PROVEN: &str = "pub fn double(x: i64) -> i64 { x + x }\n";
 #[test]
 fn proven_module_is_injected() {
     let rust = compile_to_rust_with_proven("## Main\nShow 1.", PROVEN).expect("compiles");
-    assert!(rust.contains("pub mod proven {"), "missing proven module:\n{rust}");
-    assert!(rust.contains("use proven::*;"), "missing glob re-export:\n{rust}");
+    assert!(
+        rust.contains("pub mod proven {"),
+        "missing proven module:\n{rust}"
+    );
+    assert!(
+        rust.contains("use proven::*;"),
+        "missing glob re-export:\n{rust}"
+    );
     assert!(
         rust.contains("pub fn double(x: i64) -> i64"),
         "proven fn not bundled:\n{rust}"
@@ -51,17 +57,28 @@ fn empty_proven_is_a_no_op() {
 fn math_module_has_pub_defs_but_no_main() {
     // `add` is the kernel's `Int -> Int -> Int` builtin (surface `+` is not kernel
     // vernacular); extraction maps it to the Rust `+` operator.
-    let m = extract_math_module_from_source("Definition double : Int -> Int := fun n : Int => add n n.");
-    assert!(m.contains("pub fn double"), "double extracted as pub fn:\n{m}");
+    let m = extract_math_module_from_source(
+        "Definition double : Int -> Int := fun n : Int => add n n.",
+    );
+    assert!(
+        m.contains("pub fn double"),
+        "double extracted as pub fn:\n{m}"
+    );
     assert!(m.contains(" + "), "add builtin → Rust `+` operator:\n{m}");
-    assert!(!m.contains("fn main"), "module must NOT carry a demo main:\n{m}");
+    assert!(
+        !m.contains("fn main"),
+        "module must NOT carry a demo main:\n{m}"
+    );
 }
 
 #[test]
 fn logic_module_has_pub_holds_but_no_main() {
     let m = extract_logic_module("Every dog runs.").expect("compiles");
     assert!(m.contains("pub fn holds"), "holds present and public:\n{m}");
-    assert!(!m.contains("fn main"), "module must NOT carry a demo main:\n{m}");
+    assert!(
+        !m.contains("fn main"),
+        "module must NOT carry a demo main:\n{m}"
+    );
 }
 
 // --- Phase 2: mixed-document router ------------------------------------------
@@ -78,17 +95,32 @@ Show double(21).
 fn mixed_source_partitions_math_and_imperative() {
     let (imp, math) = partition_mixed(MIXED_HERO);
     let math = math.expect("math stream present");
-    assert!(math.contains("Definition double"), "math stream has the definition:\n{math}");
-    assert!(!imp.contains("Definition double"), "imperative stream must not keep the math:\n{imp}");
-    assert!(imp.contains("Show double(21)"), "imperative stream keeps the call:\n{imp}");
+    assert!(
+        math.contains("Definition double"),
+        "math stream has the definition:\n{math}"
+    );
+    assert!(
+        !imp.contains("Definition double"),
+        "imperative stream must not keep the math:\n{imp}"
+    );
+    assert!(
+        imp.contains("Show double(21)"),
+        "imperative stream keeps the call:\n{imp}"
+    );
 }
 
 #[test]
 fn pure_imperative_partition_is_noop() {
     let src = "## Main\nLet x be 5.\nShow x.";
     let (imp, math) = partition_mixed(src);
-    assert_eq!(imp, src, "pure imperative source must be returned unchanged");
-    assert!(math.is_none(), "no math stream for a pure imperative program");
+    assert_eq!(
+        imp, src,
+        "pure imperative source must be returned unchanged"
+    );
+    assert!(
+        math.is_none(),
+        "no math stream for a pure imperative program"
+    );
 }
 
 #[test]
@@ -96,10 +128,22 @@ fn mixed_compile_bundles_proven_and_wires_the_call() {
     // The mechanism (no cargo): the proven module is bundled and the imperative call
     // is emitted to resolve into it. The compile-AND-run proof is the #[ignore] test.
     let rust = compile_to_rust(MIXED_HERO).expect("mixed source compiles");
-    assert!(rust.contains("pub mod proven {"), "proven module bundled:\n{rust}");
-    assert!(rust.contains("pub fn double"), "proven double bundled:\n{rust}");
-    assert!(rust.contains("use proven::*;"), "proven items in scope:\n{rust}");
-    assert!(rust.contains("double("), "imperative call to double emitted:\n{rust}");
+    assert!(
+        rust.contains("pub mod proven {"),
+        "proven module bundled:\n{rust}"
+    );
+    assert!(
+        rust.contains("pub fn double"),
+        "proven double bundled:\n{rust}"
+    );
+    assert!(
+        rust.contains("use proven::*;"),
+        "proven items in scope:\n{rust}"
+    );
+    assert!(
+        rust.contains("double("),
+        "imperative call to double emitted:\n{rust}"
+    );
 }
 
 // --- Phase 5: vacuous proofs → honest note, construction still extracts -------
@@ -111,8 +155,14 @@ fn vacuous_theorem_noted_but_construction_extracted() {
     let src = "Definition double : Int -> Int := fun n : Int => add n n.\n\
                Definition triv : True := I.";
     let m = extract_math_module_from_source(src);
-    assert!(m.contains("pub fn double"), "constructive def still extracts:\n{m}");
-    assert!(m.contains("// note:") && m.contains("triv"), "vacuous theorem gets a note:\n{m}");
+    assert!(
+        m.contains("pub fn double"),
+        "constructive def still extracts:\n{m}"
+    );
+    assert!(
+        m.contains("// note:") && m.contains("triv"),
+        "vacuous theorem gets a note:\n{m}"
+    );
     assert!(m.contains("proof-irrelevant"), "note explains why:\n{m}");
 }
 
@@ -137,7 +187,10 @@ fn proven_enum_has_constructor_api_and_display() {
         "Inductive MyNat := MZero : MyNat | MSucc : MyNat -> MyNat.",
     );
     assert!(m.contains("pub enum MyNat"), "enum emitted:\n{m}");
-    assert!(m.contains("pub const MZero: MyNat"), "nullary ctor → const:\n{m}");
+    assert!(
+        m.contains("pub const MZero: MyNat"),
+        "nullary ctor → const:\n{m}"
+    );
     assert!(
         m.contains("pub fn MSucc(") && m.contains("Box::new("),
         "recursive ctor → boxed wrapper fn:\n{m}"
@@ -151,11 +204,20 @@ fn proven_enum_has_constructor_api_and_display() {
 #[test]
 fn mixed_enum_construction_wires_through() {
     let rust = compile_to_rust(MIXED_ENUM).expect("mixed enum doc compiles");
-    assert!(rust.contains("pub fn MSucc("), "ctor wrapper bundled:\n{rust}");
+    assert!(
+        rust.contains("pub fn MSucc("),
+        "ctor wrapper bundled:\n{rust}"
+    );
     assert!(rust.contains("pub fn my_add"), "proven fn bundled:\n{rust}");
     // imperative code calls the bundled constructors + function by name
-    assert!(rust.contains("MSucc("), "imperative builds proven value:\n{rust}");
-    assert!(rust.contains("my_add("), "imperative calls proven fn:\n{rust}");
+    assert!(
+        rust.contains("MSucc("),
+        "imperative builds proven value:\n{rust}"
+    );
+    assert!(
+        rust.contains("my_add("),
+        "imperative calls proven fn:\n{rust}"
+    );
     assert!(
         rust.contains("impl Showable for MyNat"),
         "proven enum bridged to the Show verb:\n{rust}"
@@ -182,17 +244,32 @@ fn e2e_imperative_builds_and_uses_proven_enum() {
 
 #[test]
 fn require_statement_emits_hard_assert() {
-    // `Require that` is an ENFORCED invariant — a hard `assert!` that survives release
-    // (unlike `Assert that` → `debug_assert!`, stripped in release).
-    let rust = compile_to_rust("## Main\nLet x be 5.\nRequire that x is greater than 0.").expect("compiles");
-    assert!(rust.contains("assert!("), "Require → assert!:\n{rust}");
-    assert!(!rust.contains("debug_assert!("), "Require must NOT be debug_assert:\n{rust}");
+    // `Require that` is an ENFORCED invariant — checked in every build, as on every tier.
+    let rust = compile_to_rust("## Main\nLet x be 5.\nRequire that x is greater than 0.")
+        .expect("compiles");
+    assert!(
+        rust.contains("panic!(\"Assertion failed\")"),
+        "Require → hard assertion:\n{rust}"
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "Require must NOT be debug-only:\n{rust}"
+    );
 }
 
+/// `Assert that` is checked in every build, as every other tier checks it.
 #[test]
-fn assert_statement_stays_debug_assert() {
-    let rust = compile_to_rust("## Main\nLet x be 5.\nAssert that x is greater than 0.").expect("compiles");
-    assert!(rust.contains("debug_assert!("), "Assert stays debug_assert:\n{rust}");
+fn assert_statement_is_checked_in_every_build() {
+    let rust = compile_to_rust("## Main\nLet x be 5.\nAssert that x is greater than 0.")
+        .expect("compiles");
+    assert!(
+        rust.contains("panic!(\"Assertion failed\")"),
+        "Assert is a checked assertion:\n{rust}"
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "Assert is never debug-only:\n{rust}"
+    );
 }
 
 /// A proven theorem becomes a runtime contract: `Require that check_<thm>()` calls
@@ -213,7 +290,8 @@ fn run_tier_enforces_require() {
     // enforced there too, or a proven invariant would silently pass when run.
     use logicaffeine_compile::compile::interpret_program;
     assert!(
-        interpret_program("## Main\nLet x be 5.\nRequire that x is greater than 0.\nShow \"ok\".").is_ok(),
+        interpret_program("## Main\nLet x be 5.\nRequire that x is greater than 0.\nShow \"ok\".")
+            .is_ok(),
         "a satisfied Require runs fine"
     );
     assert!(
@@ -225,9 +303,22 @@ fn run_tier_enforces_require() {
 #[test]
 fn mixed_invariant_bundles_check_and_requires_it() {
     let rust = compile_to_rust(MIXED_INVARIANT).expect("mixed invariant compiles");
-    assert!(rust.contains("pub fn check_add_zero"), "closed check bundled:\n{rust}");
-    assert!(rust.contains("assert!("), "Require enforces it as a hard assert:\n{rust}");
-    assert!(rust.contains("check_add_zero("), "Require calls the proven check:\n{rust}");
+    assert!(
+        rust.contains("pub fn check_add_zero"),
+        "closed check bundled:\n{rust}"
+    );
+    assert!(
+        rust.contains("if !(check_add_zero()) { panic!(\"Assertion failed\"); }"),
+        "Require enforces it as a hard assert:\n{rust}"
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "a Require is never debug-only:\n{rust}"
+    );
+    assert!(
+        rust.contains("check_add_zero("),
+        "Require calls the proven check:\n{rust}"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -238,7 +329,11 @@ fn e2e_proven_invariant_holds_at_runtime() {
     let dir = std::env::temp_dir().join("logos_mixed_invariant_e2e");
     let _ = std::fs::remove_dir_all(&dir);
     let out = compile_and_run(MIXED_INVARIANT, &dir).expect("proven invariant compiles and runs");
-    assert_eq!(out.trim(), "invariant holds", "passing invariant runs; got: {out:?}");
+    assert_eq!(
+        out.trim(),
+        "invariant holds",
+        "passing invariant runs; got: {out:?}"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -262,7 +357,14 @@ fn requires_clause_checks_at_entry() {
     let src = "## To clamp (x: Int) -> Int:\n    Requires x is greater than 0.\n    Return x.\n## Main\nShow clamp(5).";
     let rust = compile_to_rust(src).expect("compiles");
     assert!(rust.contains("fn clamp"), "function emitted:\n{rust}");
-    assert!(rust.contains("assert!("), "precondition → hard assert!:\n{rust}");
+    assert!(
+        rust.contains("panic!(\"Assertion failed\")"),
+        "precondition → hard assertion:\n{rust}"
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "a precondition is never debug-only:\n{rust}"
+    );
 }
 
 #[test]
@@ -271,8 +373,15 @@ fn ensures_clause_checks_every_return_path() {
     // postcondition must guard BOTH (no silent corner on early returns).
     let src = "## To pick (x: Int) -> Int:\n    Ensures x is greater than 0.\n    If x is greater than 10:\n        Return x.\n    Return x.\n## Main\nShow pick(5).";
     let rust = compile_to_rust(src).expect("compiles");
-    let n = rust.matches("assert!(").count();
-    assert!(n >= 2, "postcondition must guard BOTH exits (>=2 assert!); found {n}:\n{rust}");
+    let n = rust.matches("panic!(\"Assertion failed\")").count();
+    assert!(
+        n >= 2,
+        "postcondition must guard BOTH exits (>=2 assertions); found {n}:\n{rust}"
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "a postcondition is never debug-only:\n{rust}"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -300,5 +409,9 @@ fn e2e_mixed_imperative_calls_proven_double_prints_42() {
     let dir = std::env::temp_dir().join("logos_mixed_hero_e2e");
     let _ = std::fs::remove_dir_all(&dir);
     let out = compile_and_run(MIXED_HERO, &dir).expect("mixed document compiles and runs");
-    assert_eq!(out.trim(), "42", "proven double(21) should print 42; got: {out:?}");
+    assert_eq!(
+        out.trim(),
+        "42",
+        "proven double(21) should print 42; got: {out:?}"
+    );
 }

@@ -95,9 +95,14 @@ impl<'a> Walk<'a> {
                 // `c < n` with the oracle proving `c >= 0` makes `n >= 1` hold
                 // whenever the body runs (`n > c >= 0`), and `c` itself `>= 0`.
                 // `<=` would only give `n >= 0`, so require strict `<`.
-                if let Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } = cond {
+                if let Expr::BinaryOp {
+                    op: BinaryOpKind::Lt,
+                    left,
+                    right,
+                } = cond
+                {
                     if let (Expr::Identifier(c), Expr::Identifier(n)) = (left, right) {
-                        if self.oracle.expr_int_range(left).is_some_and(|(lo, _)| lo >= 0) {
+                        if self.oracle.expr_proven_nonneg(left) {
                             inner.pos.insert(*n);
                             inner.nonneg.insert(*c);
                         }
@@ -109,7 +114,12 @@ impl<'a> Walk<'a> {
                 self.expr(iterable, sc);
                 self.block(body, sc);
             }
-            Stmt::If { cond, then_block, else_block, .. } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+                ..
+            } => {
                 self.expr(cond, sc);
                 self.block(then_block, sc);
                 if let Some(e) = else_block {
@@ -119,12 +129,18 @@ impl<'a> Walk<'a> {
             Stmt::Let { value, .. } | Stmt::Set { value, .. } => self.expr(value, sc),
             Stmt::Return { value: Some(e) } => self.expr(e, sc),
             Stmt::Show { object, .. } | Stmt::Give { object, .. } => self.expr(object, sc),
-            Stmt::Push { value, collection, .. } => {
+            Stmt::Push {
+                value, collection, ..
+            } => {
                 self.expr(value, sc);
                 self.expr(collection, sc);
             }
             Stmt::Add { value, .. } | Stmt::Remove { value, .. } => self.expr(value, sc),
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 self.expr(collection, sc);
                 self.expr(index, sc);
                 self.expr(value, sc);
@@ -142,7 +158,11 @@ impl<'a> Walk<'a> {
 
     fn expr(&mut self, e: &Expr, sc: &Scope) {
         match e {
-            Expr::BinaryOp { op: BinaryOpKind::Modulo | BinaryOpKind::Divide, left, right } => {
+            Expr::BinaryOp {
+                op: BinaryOpKind::Modulo | BinaryOpKind::Divide,
+                left,
+                right,
+            } => {
                 if let Expr::Identifier(n) = right {
                     self.consider(*n, left, sc);
                 }
@@ -196,14 +216,18 @@ impl<'a> Walk<'a> {
             Expr::Literal(crate::ast::stmt::Literal::Number(k)) => *k >= 0,
             Expr::Identifier(v) => sc.nonneg.contains(v),
             Expr::Length { .. } => true,
-            Expr::BinaryOp { op: BinaryOpKind::Add | BinaryOpKind::Multiply, left, right } => {
-                self.expr_nonneg(left, sc) && self.expr_nonneg(right, sc)
-            }
+            Expr::BinaryOp {
+                op: BinaryOpKind::Add | BinaryOpKind::Multiply,
+                left,
+                right,
+            } => self.expr_nonneg(left, sc) && self.expr_nonneg(right, sc),
             // `a % m` and `a / m` with a non-negative dividend stay non-negative.
-            Expr::BinaryOp { op: BinaryOpKind::Modulo | BinaryOpKind::Divide, left, .. } => {
-                self.expr_nonneg(left, sc)
-            }
-            _ => self.oracle.expr_int_range(e).is_some_and(|(lo, _)| lo >= 0),
+            Expr::BinaryOp {
+                op: BinaryOpKind::Modulo | BinaryOpKind::Divide,
+                left,
+                ..
+            } => self.expr_nonneg(left, sc),
+            _ => self.oracle.expr_proven_nonneg(e),
         }
     }
 }

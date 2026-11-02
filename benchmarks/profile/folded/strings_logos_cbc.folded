@@ -1,0 +1,3 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 12953631903
+_start;__libc_start_main_impl;__libc_start_call_main;main;[unknown] 201494543
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__libc_calloc;tcache_init;tcache_init;_int_malloc 249999

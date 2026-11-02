@@ -12,7 +12,11 @@ use logicaffeine_compile::compile::{tw_outcome, vm_outcome};
 fn assert_vm_matches_tw(src: &str) {
     let tw = tw_outcome(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim_end(), tw.output.trim_end(), "VM/tw output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}");
+    assert_eq!(
+        vm.output.trim_end(),
+        tw.output.trim_end(),
+        "VM/tw output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}"
+    );
     assert_eq!(vm.error, tw.error, "VM/tw error diverged for:\n{src}");
 }
 
@@ -21,14 +25,14 @@ fn vm_matches_tw_on_floordiv() {
     for src in [
         "## Main\nShow 7 // 2.\n",
         "## Main\nShow 8 // 3.\n",
-        "## Main\nShow -7 // 2.\n",       // floor toward -inf → -4
-        "## Main\nShow 7 // -2.\n",       // floor toward -inf → -4
-        "## Main\nShow -7 // -2.\n",      // floor toward -inf → 3
+        "## Main\nShow -7 // 2.\n",  // floor toward -inf → -4
+        "## Main\nShow 7 // -2.\n",  // floor toward -inf → -4
+        "## Main\nShow -7 // -2.\n", // floor toward -inf → 3
         "## Main\nShow 0 // 5.\n",
-        "## Main\nShow (10 ** 30) // 7.\n",  // exact BigInt floor
-        "## Main\nShow 10 // 3 // 2.\n",  // left-associative → (10//3)//2 = 1
-        "## Main\nShow 10 - 8 // 2.\n",   // binds tighter than `-` → 10 - 4 = 6
-        "## Main\nShow 5 // 0.\n",        // zero divisor — loud error, both tiers
+        "## Main\nShow (10 ** 30) // 7.\n", // exact BigInt floor
+        "## Main\nShow 10 // 3 // 2.\n",    // left-associative → (10//3)//2 = 1
+        "## Main\nShow 10 - 8 // 2.\n",     // binds tighter than `-` → 10 - 4 = 6
+        "## Main\nShow 5 // 0.\n",          // zero divisor — loud error, both tiers
     ] {
         assert_vm_matches_tw(src);
     }
@@ -109,5 +113,9 @@ fn floordiv_by_zero_is_loud() {
     let interp = run_interpreter(src);
     assert!(!interp.success, "interp must reject a zero divisor");
     let compiled = run_logos(src);
-    assert!(!compiled.success, "compiled must reject a zero divisor: {}", compiled.stdout);
+    assert!(
+        !compiled.success,
+        "compiled must reject a zero divisor: {}",
+        compiled.stdout
+    );
 }

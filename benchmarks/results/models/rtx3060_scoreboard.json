@@ -1,0 +1,2345 @@
+{
+ "_what": "The bring-up scoreboard: the compiled lane (codegen_cuda::lane, the model's one LOGOS program) against llama.cpp and the serving engines on the same GPU, one boot, every run kept. Written by scripts/accel/model_scoreboard.py; held by model_scoreboard_lock.",
+ "schema": 1,
+ "measured_at": "2026-11-01T18:49:41Z",
+ "machine": {
+  "gpu": "NVIDIA GeForce RTX 3060, 12288 MiB, 580.178.04",
+  "nvcc": "Build cuda_12.0.r12.0/compiler.32267302_0",
+  "boot_id": "e8806d1f-09df-4b7c-a330-a1eae14a0cef",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "read_ceiling_gb_s": [
+   343.35,
+   343.37,
+   343.35,
+   343.4,
+   343.37
+  ]
+ },
+ "llama_cpp": {
+  "repo": "ggml-org/llama.cpp",
+  "tag": "b11635",
+  "commit": "685f70894b6618824156a876325f05919248e147"
+ },
+ "protocol": {
+  "ours_decode": "model_lane --bench int8 128 <100000,549,6077,280,7239,317> 16 1024: the decode rate over 128 generated tokens after a 6-token prompt, one warm-up then the timed runs",
+  "ours_prefill": "model_lane --bench int8 16 <512 tokens> 512 1024: one 512-token chunk",
+  "llama_cpp": "llama-bench -p 512 -n 128 -r <repeats> -ngl 99: pp512 and tg128, every layer on the GPU",
+  "read_ceiling": "scripts/accel/read_ceiling.cu: a 4 GiB buffer read once with 16-byte loads, the fastest launch shape, <repeats> runs; decode_bytes_per_token is model_lane --plan's Gguf::decode_read_bytes",
+  "numerics": "the lane's one-word int8 activations, llama.cpp's own q8_1 precision",
+  "engines": "scripts/accel/engine_bench_<engine>.py in the engine's own environment, batch 1, greedy, the end of text ignored, prefix caching off: a 512-token prompt generating 1 token, and a 6-token prompt generating 129 and 1, every run timed by the wall (prefill 512 / its time, decode 128 / the difference) and by the engine's own clock (prefill 512 / scheduled or prefill start to first token, decode 128 / first to last token); each engine's 8-bit weight form of the model, its checkpoint's weight files hashed",
+  "batch": "model_lane --bench int8 129 <100000,549,6077,280,7239,317> 16 256 --batch=<B>: B sequences prefilled each into its own state, then decoded a token each a step together, sequence b's prompt the six tokens each moved 7919\u00b7b on modulo the vocabulary, the rate every sequence's 128 decoded tokens over the batch steps' time; vLLM at B concurrent requests of the same prompts (engine_bench_vllm.py --batch B): the wall's B\u00b7128 over (the B generating 129 \u2212 the B generating 1) and its own clock's over the last request's first to last token",
+  "batch_sequences": [
+   4,
+   8,
+   16,
+   32,
+   64
+  ],
+  "quality": "each side against benchmarks/models/<model>/golden-f32.json (llama.cpp's f32 run on the CPU), over its prompts as its tokens, each generated greedily for the golden's length: top1 the steps agreeing with the golden's continuation before the first that does not, of steps; top_logit_gap the mean over the prompts of |(the side's logit of the golden's top token - of its second) - (the golden's)| at the first generated position. Ours: model_lane's golden run, int8. llama.cpp: model-golden.sh device=cuda flash=auto kv=f16, as llama-bench runs it. Engines: engine_bench_<engine>.py --golden, their logprobs",
+  "repeats": 5
+ },
+ "engines": {
+  "vllm": {
+   "version": "0.32.0"
+  },
+  "exllamav3": {
+   "version": "1.6.4"
+  }
+ },
+ "rows": [
+  {
+   "model": "llama3.2-1b",
+   "file": "models/llama3.2-1b/Llama-3.2-1B-Instruct-Q8_0.gguf",
+   "file_bytes": 1321083008,
+   "file_sha256": "432f310a77f4650a88d0fd59ecdd7cebed8d684bafea53cbff0473542964f0c3",
+   "decode_bytes_per_token": 1313251456,
+   "decode_routed": false,
+   "ours": {
+    "short": {
+     "n_gen": 128,
+     "prompt_tokens": 6,
+     "prefill_chunk": 16,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 105e9fd0f877418606f789a77aec9d756f5096f5066e09ec237301d889261adb",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 112ba3f80f57c6699aa7424997a7e18e563ab58a60382ed30acdd8d15782b8e5",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 5941893e665dc6e8ddcb56d4703001bce4600b690d2a9351d81a1b54852ece31",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 fbce0057a0551b00695b953a456b73d198fc7d92d1b75a4cdf5feb2a8ab3896e",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 cefec42f3ded87f34a79828f6383026dbda1b9a2ae0c0bd0a962beae586f2307"
+     ],
+     "decode_tok_s": [
+      228.43,
+      228.25,
+      229.04,
+      229.05,
+      227.97
+     ],
+     "prefill_tok_s": [
+      620.8,
+      623.3,
+      632.6,
+      635.5,
+      616.2
+     ]
+    },
+    "long": {
+     "n_gen": 16,
+     "prompt_tokens": 512,
+     "prefill_chunk": 512,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 105e9fd0f877418606f789a77aec9d756f5096f5066e09ec237301d889261adb",
+      "LOGOS program: prefill chunk of 512 rows, ctx 1024, sha256 1d538f19f84937ab0d8592c1ad8fe1bce15ca854f907284e654502016fff7be3",
+      "LOGOS program: prefill chunk of 256 rows, ctx 1024, sha256 8a9e8678df115622db2e8803bc1e9289605dab40e2eab98e76d5523f49b3b22b",
+      "LOGOS program: prefill chunk of 128 rows, ctx 1024, sha256 7af8edcd5ed72ecba18b8d519b3e281c3a61d4e46cfacb10ed7c9c2f4f1bad54",
+      "LOGOS program: prefill chunk of 64 rows, ctx 1024, sha256 044d3f5d5133329d78f023cfb44759bece022ef63f29b6dfeb61c6c69eb5678a",
+      "LOGOS program: prefill chunk of 32 rows, ctx 1024, sha256 cab2189a385b3bcb0319064ba8ff20a3113e0a11022289133a7adaaf53703e34",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 112ba3f80f57c6699aa7424997a7e18e563ab58a60382ed30acdd8d15782b8e5",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 5941893e665dc6e8ddcb56d4703001bce4600b690d2a9351d81a1b54852ece31",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 fbce0057a0551b00695b953a456b73d198fc7d92d1b75a4cdf5feb2a8ab3896e",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 cefec42f3ded87f34a79828f6383026dbda1b9a2ae0c0bd0a962beae586f2307"
+     ],
+     "decode_tok_s": [
+      218.58,
+      219.94,
+      219.79,
+      219.84,
+      219.76
+     ],
+     "prefill_tok_s": [
+      14822.1,
+      15636.5,
+      15670.4,
+      15538.2,
+      15479.0
+     ]
+    },
+    "agreement": {
+     "golden": "benchmarks/models/llama3.2-1b/golden-f32.json",
+     "golden_sha256": "df0c309aff7fe31116f7a1579a0447ef2c94aefa1780c9690a367a71bf95ff48",
+     "steps": 509,
+     "top1": 464,
+     "per_prompt": [
+      16,
+      16,
+      16,
+      16,
+      16,
+      2,
+      16,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      1,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      13,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.04661295906250018
+    }
+   },
+   "llama_cpp": {
+    "pp512": {
+     "tokens": 512,
+     "ns": [
+      42622649,
+      44875796,
+      45518096,
+      41843508,
+      40842946
+     ],
+     "tok_s": [
+      12012.392753908844,
+      11409.268372643462,
+      11248.273653625582,
+      12236.067779020823,
+      12535.824423634867
+     ],
+     "reported_avg": 11888.365397,
+     "reported_stddev": 546.519515
+    },
+    "tg128": {
+     "tokens": 128,
+     "ns": [
+      596069557,
+      588379183,
+      586282377,
+      595725425,
+      585158237
+     ],
+     "tok_s": [
+      214.74003913942548,
+      217.54678564146278,
+      218.3248295044693,
+      214.864087763251,
+      218.74425054021756
+     ],
+     "reported_avg": 216.843999,
+     "reported_stddev": 1.913401
+    },
+    "agreement": {
+     "golden": "benchmarks/models/llama3.2-1b/golden-f32.json",
+     "golden_sha256": "df0c309aff7fe31116f7a1579a0447ef2c94aefa1780c9690a367a71bf95ff48",
+     "steps": 509,
+     "top1": 486,
+     "per_prompt": [
+      13,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      12,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      13,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.048642959999999624
+    }
+   },
+   "vllm": {
+    "checkpoint": "models/llama3.2-1b/engines/vllm-fp8",
+    "checkpoint_bytes": 2023929984,
+    "checkpoint_sha256": "2614912666786a8b5b5c170a8ec130a3750a225e18f94c8b040c45476c1d729a",
+    "flags": [],
+    "version": "0.32.0",
+    "decode_tok_s": [
+     182.5161891045711,
+     192.38760370334134,
+     193.55246940994104,
+     192.6845106104907,
+     191.68998597193522
+    ],
+    "prefill_tok_s": [
+     8956.384102953716,
+     8419.880082923799,
+     10069.177796368953,
+     9945.81746707059,
+     8870.17620163347
+    ],
+    "decode_engine_tok_s": [
+     183.26136168949458,
+     191.91144680420308,
+     193.42175690963035,
+     190.94856623522628,
+     191.77948078535618
+    ],
+    "prefill_engine_tok_s": [
+     9630.080952266988,
+     9529.34650414052,
+     10570.098230080524,
+     10434.173939038174,
+     9937.952022569678
+    ],
+    "agreement": {
+     "golden": "benchmarks/models/llama3.2-1b/golden-f32.json",
+     "golden_sha256": "df0c309aff7fe31116f7a1579a0447ef2c94aefa1780c9690a367a71bf95ff48",
+     "steps": 509,
+     "top1": 412,
+     "per_prompt": [
+      13,
+      16,
+      8,
+      16,
+      16,
+      6,
+      16,
+      16,
+      11,
+      16,
+      7,
+      16,
+      16,
+      2,
+      16,
+      1,
+      16,
+      7,
+      9,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      13,
+      16,
+      16,
+      13,
+      16,
+      16,
+      2
+     ],
+     "top_logit_gap": 0.14398404901449785
+    }
+   },
+   "exllamav3": {
+    "checkpoint": "models/llama3.2-1b/engines/exl3-8.0bpw",
+    "checkpoint_bytes": 1697261720,
+    "checkpoint_sha256": "186064cc2946105a9f2fe5a4f918c63efc20d8ff47aef708174688433a6be2de",
+    "flags": [],
+    "version": "1.6.4",
+    "decode_tok_s": [
+     207.59567299730256,
+     206.9264467422501,
+     206.67011821775284,
+     205.10505522905495,
+     205.715976234885
+    ],
+    "prefill_tok_s": [
+     8163.292664697216,
+     8125.549383043611,
+     8090.801421764316,
+     8145.072645786563,
+     8094.102280396997
+    ],
+    "decode_engine_tok_s": [
+     205.93271477291515,
+     205.23561208558814,
+     204.9958903141926,
+     203.5011030364965,
+     204.04079364729472
+    ],
+    "prefill_engine_tok_s": [
+     8993.942488587343,
+     8967.726994838558,
+     8945.164983838182,
+     8960.729582107613,
+     8966.304176095797
+    ],
+    "agreement": {
+     "golden": "benchmarks/models/llama3.2-1b/golden-f32.json",
+     "golden_sha256": "df0c309aff7fe31116f7a1579a0447ef2c94aefa1780c9690a367a71bf95ff48",
+     "steps": 509,
+     "top1": 426,
+     "per_prompt": [
+      16,
+      16,
+      14,
+      12,
+      16,
+      0,
+      16,
+      16,
+      0,
+      16,
+      7,
+      16,
+      16,
+      16,
+      9,
+      7,
+      16,
+      16,
+      16,
+      12,
+      16,
+      16,
+      3,
+      16,
+      16,
+      13,
+      16,
+      16,
+      13,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.06664422240280182
+    }
+   },
+   "batches": [
+    {
+     "sequences": 4,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 60766e766af9c4feffd1076f00b146cfa2423da0a56aafccd3cd4adb35643745",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 34536a0459521a2ab3e90f510c8f01de382d29262de37ba4b8502c91172bf331",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 f76747ccda9670823c95d4a03cd80fb3130dade1c3c3c862963be2e92733818b",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5ef525ad70fa9d3f12be282d96dae4166220825c619f66657286c303d3459c64",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 46acba657557ff5115022be21783166a0deea5ffe1c1190d0fd9845af30abb37",
+       "LOGOS program: batch of 4 sequences, ctx 256, sha256 bd9bba42670a1f4be05a5430c270d1ceecd831b9b524517297e02bc033acfa08"
+      ],
+      "decode_tok_s": [
+       858.56,
+       857.85,
+       857.97,
+       857.93,
+       858.09
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/llama3.2-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       739.1489472259269,
+       745.3839954058636,
+       736.991828955785,
+       748.1201736170628,
+       727.8235064998084
+      ],
+      "decode_engine_tok_s": [
+       738.9542174287253,
+       740.2569873594225,
+       729.9751179149965,
+       740.1793896802391,
+       735.8303970083138
+      ]
+     }
+    },
+    {
+     "sequences": 8,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 60766e766af9c4feffd1076f00b146cfa2423da0a56aafccd3cd4adb35643745",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 34536a0459521a2ab3e90f510c8f01de382d29262de37ba4b8502c91172bf331",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 f76747ccda9670823c95d4a03cd80fb3130dade1c3c3c862963be2e92733818b",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5ef525ad70fa9d3f12be282d96dae4166220825c619f66657286c303d3459c64",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 46acba657557ff5115022be21783166a0deea5ffe1c1190d0fd9845af30abb37",
+       "LOGOS program: batch of 8 sequences, ctx 256, sha256 5429de54aa7c837aa88a8930cc97958d31c43b20e6e3f73f038727d1fcbe5b29"
+      ],
+      "decode_tok_s": [
+       1665.0,
+       1666.85,
+       1664.97,
+       1667.34,
+       1667.11
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/llama3.2-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       1468.6454732393092,
+       1469.014966370954,
+       1479.3995266749282,
+       1456.6265328560933,
+       1503.2990283544184
+      ],
+      "decode_engine_tok_s": [
+       1430.2227012749145,
+       1474.43042759161,
+       1430.8148137075373,
+       1475.2466456758866,
+       1492.0237738060189
+      ]
+     }
+    },
+    {
+     "sequences": 16,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 60766e766af9c4feffd1076f00b146cfa2423da0a56aafccd3cd4adb35643745",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 34536a0459521a2ab3e90f510c8f01de382d29262de37ba4b8502c91172bf331",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 f76747ccda9670823c95d4a03cd80fb3130dade1c3c3c862963be2e92733818b",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5ef525ad70fa9d3f12be282d96dae4166220825c619f66657286c303d3459c64",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 46acba657557ff5115022be21783166a0deea5ffe1c1190d0fd9845af30abb37",
+       "LOGOS program: batch of 16 sequences, ctx 256, sha256 bdf4f17a4bf90c0e477c484fa457ad60441defdc037f44c7e99229d623dcfaf3"
+      ],
+      "decode_tok_s": [
+       3029.66,
+       3029.57,
+       3028.76,
+       3028.72,
+       3028.47
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/llama3.2-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       2636.475957871664,
+       2890.8634610344993,
+       2884.6666937862697,
+       2894.1892056960273,
+       2856.3686172080365
+      ],
+      "decode_engine_tok_s": [
+       2633.723836253882,
+       2890.277135165677,
+       2890.385083725758,
+       2890.324561410118,
+       2875.1415081759546
+      ]
+     }
+    },
+    {
+     "sequences": 32,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 60766e766af9c4feffd1076f00b146cfa2423da0a56aafccd3cd4adb35643745",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 34536a0459521a2ab3e90f510c8f01de382d29262de37ba4b8502c91172bf331",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 f76747ccda9670823c95d4a03cd80fb3130dade1c3c3c862963be2e92733818b",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5ef525ad70fa9d3f12be282d96dae4166220825c619f66657286c303d3459c64",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 46acba657557ff5115022be21783166a0deea5ffe1c1190d0fd9845af30abb37",
+       "LOGOS program: batch of 32 sequences, ctx 256, sha256 45f1ade30203632c16c91d2192c49fe7247ff518a68f4505e91a635351a4b9d3"
+      ],
+      "decode_tok_s": [
+       4849.75,
+       4847.27,
+       4845.92,
+       4839.45,
+       4839.53
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/llama3.2-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       5110.504643981089,
+       4749.033433083406,
+       5060.37562425144,
+       5057.488095070314,
+       4424.024619247532
+      ],
+      "decode_engine_tok_s": [
+       5071.891391426464,
+       4801.212591716386,
+       5063.535978385299,
+       5080.015471549058,
+       4428.06682483048
+      ]
+     }
+    },
+    {
+     "sequences": 64,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 60766e766af9c4feffd1076f00b146cfa2423da0a56aafccd3cd4adb35643745",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 34536a0459521a2ab3e90f510c8f01de382d29262de37ba4b8502c91172bf331",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 f76747ccda9670823c95d4a03cd80fb3130dade1c3c3c862963be2e92733818b",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5ef525ad70fa9d3f12be282d96dae4166220825c619f66657286c303d3459c64",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 46acba657557ff5115022be21783166a0deea5ffe1c1190d0fd9845af30abb37",
+       "LOGOS program: batch of 64 sequences, ctx 256, sha256 d320b07d1e6da50517bbceaf0d48a41dd55ff1561b39486c6241a7c2d9c0933a"
+      ],
+      "decode_tok_s": [
+       6848.24,
+       6846.03,
+       6837.97,
+       6833.9,
+       6831.27
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/llama3.2-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       7023.501664977482,
+       7036.622422244214,
+       7031.293612525719,
+       7040.070590102108,
+       7001.117208582655
+      ],
+      "decode_engine_tok_s": [
+       7028.756452881301,
+       7027.992718876795,
+       7021.400643793367,
+       7025.769389713401,
+       7004.744521832128
+      ]
+     }
+    }
+   ],
+   "load_average": [
+    32.07,
+    15.04
+   ]
+  },
+  {
+   "model": "gemma3-1b",
+   "file": "models/gemma3-1b/gemma-3-1b-it-Q8_0.gguf",
+   "file_bytes": 1069306368,
+   "file_sha256": "b205840c5dcef55078e37d344677869a714ffd42a4ae448c48dcfb52e4bb10d5",
+   "decode_bytes_per_token": 1062773248,
+   "decode_routed": false,
+   "ours": {
+    "short": {
+     "n_gen": 128,
+     "prompt_tokens": 6,
+     "prefill_chunk": 16,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 2983692d835ebb481feb863deb0696f5ae2f12c765a5f258806d49b70b392a18",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 97253fc9b2e5b8bf8d90a5fe27d1935ec47f6f238d9c955d80b36b7f209151fc",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 04443a33c7dd8658882c2f91179e6076c5e85bfba1ddbf332f1a950c42ac418d",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 7903a5bdf6e8af891f126c2d5271730857bfb42fc9328704df23aad2435790c8",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 d3883983e085b0e2a2eaaf83b29d79a26ff1d76239a388d0ecdf0e164b09d04e"
+     ],
+     "decode_tok_s": [
+      231.91,
+      231.92,
+      231.89,
+      232.06,
+      232.48
+     ],
+     "prefill_tok_s": [
+      641.2,
+      643.8,
+      644.4,
+      645.3,
+      643.8
+     ]
+    },
+    "long": {
+     "n_gen": 16,
+     "prompt_tokens": 512,
+     "prefill_chunk": 512,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 2983692d835ebb481feb863deb0696f5ae2f12c765a5f258806d49b70b392a18",
+      "LOGOS program: prefill chunk of 512 rows, ctx 1024, sha256 1d3a0571c26c54656ab6a666c14670c321afbaae0dc5c3584dfc7fb0ef363688",
+      "LOGOS program: prefill chunk of 256 rows, ctx 1024, sha256 6eb270e2febee9cb0f10f8fac0e46575c3d58d3429d321dbef4f5bd5a27df9d0",
+      "LOGOS program: prefill chunk of 128 rows, ctx 1024, sha256 f873d1d26b7a61ac37e64c84215163581455e2ed5de64aa63e04e757e3a4f403",
+      "LOGOS program: prefill chunk of 64 rows, ctx 1024, sha256 fe70a3eac9ad9652afa1b192e1f8691e17594ad74dfeba9b044a64f2cd814e56",
+      "LOGOS program: prefill chunk of 32 rows, ctx 1024, sha256 133cdc08320aa966c8159115990cbde9d4e6f5a32a653cbeead6972884da7dc4",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 97253fc9b2e5b8bf8d90a5fe27d1935ec47f6f238d9c955d80b36b7f209151fc",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 04443a33c7dd8658882c2f91179e6076c5e85bfba1ddbf332f1a950c42ac418d",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 7903a5bdf6e8af891f126c2d5271730857bfb42fc9328704df23aad2435790c8",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 d3883983e085b0e2a2eaaf83b29d79a26ff1d76239a388d0ecdf0e164b09d04e"
+     ],
+     "decode_tok_s": [
+      216.72,
+      217.17,
+      212.08,
+      217.2,
+      212.58
+     ],
+     "prefill_tok_s": [
+      16001.5,
+      15847.0,
+      14909.7,
+      15923.4,
+      14895.4
+     ]
+    },
+    "agreement": {
+     "golden": "benchmarks/models/gemma3-1b/golden-f32.json",
+     "golden_sha256": "91f5888e32c4064d0886664ea14745050941df7b08e10bff376a5522693e533f",
+     "steps": 495,
+     "top1": 465,
+     "per_prompt": [
+      16,
+      16,
+      5,
+      16,
+      16,
+      0,
+      16,
+      12,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      9,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      12,
+      13,
+      16,
+      16,
+      16,
+      14,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.21540248187499988
+    }
+   },
+   "llama_cpp": {
+    "pp512": {
+     "tokens": 512,
+     "ns": [
+      51734108,
+      41622235,
+      42008491,
+      43510842,
+      43570527
+     ],
+     "tok_s": [
+      9896.75902018065,
+      12301.117419571534,
+      12188.012180680329,
+      11767.182073838056,
+      11751.062822811393
+     ],
+     "reported_avg": 11580.826703,
+     "reported_stddev": 973.047473
+    },
+    "tg128": {
+     "tokens": 128,
+     "ns": [
+      721014198,
+      712815166,
+      715743063,
+      725590015,
+      725431767
+     ],
+     "tok_s": [
+      177.5277107649966,
+      179.56969226437587,
+      178.8351248051146,
+      176.40816074350195,
+      176.4466429824819
+     ],
+     "reported_avg": 177.757466,
+     "reported_stddev": 1.417496
+    },
+    "agreement": {
+     "golden": "benchmarks/models/gemma3-1b/golden-f32.json",
+     "golden_sha256": "91f5888e32c4064d0886664ea14745050941df7b08e10bff376a5522693e533f",
+     "steps": 495,
+     "top1": 443,
+     "per_prompt": [
+      16,
+      16,
+      5,
+      16,
+      16,
+      0,
+      16,
+      12,
+      13,
+      16,
+      16,
+      16,
+      16,
+      16,
+      9,
+      16,
+      16,
+      2,
+      16,
+      16,
+      16,
+      15,
+      3,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.18370994374999977
+    }
+   },
+   "vllm": {
+    "checkpoint": "models/gemma3-1b/engines/vllm-fp8",
+    "checkpoint_bytes": 1906970160,
+    "checkpoint_sha256": "7220808b8bec6ae24d219092de2f834060d0ec8fcad52648962e32ebaf1b4bed",
+    "flags": [],
+    "version": "0.32.0",
+    "decode_tok_s": [
+     168.17918951425116,
+     193.56008221152476,
+     200.27415002147066,
+     200.03540943632575,
+     200.32604313413734
+    ],
+    "prefill_tok_s": [
+     10578.213848910762,
+     11555.661543497194,
+     11777.446215596283,
+     11148.461357002525,
+     11335.026343719528
+    ],
+    "decode_engine_tok_s": [
+     171.41532676485207,
+     193.560347312888,
+     200.02860351054866,
+     200.3758230287929,
+     200.34719726961774
+    ],
+    "prefill_engine_tok_s": [
+     11722.483358178444,
+     12198.824826528333,
+     12628.045131593233,
+     12095.14511208371,
+     12142.225599878682
+    ],
+    "agreement": {
+     "golden": "benchmarks/models/gemma3-1b/golden-f32.json",
+     "golden_sha256": "91f5888e32c4064d0886664ea14745050941df7b08e10bff376a5522693e533f",
+     "steps": 495,
+     "top1": 391,
+     "per_prompt": [
+      7,
+      16,
+      5,
+      16,
+      10,
+      16,
+      16,
+      5,
+      16,
+      16,
+      11,
+      16,
+      16,
+      13,
+      1,
+      16,
+      0,
+      16,
+      16,
+      12,
+      16,
+      12,
+      11,
+      0,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.5110043935369848
+    }
+   },
+   "batches": [
+    {
+     "sequences": 4,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 bc801b3a4b22c7b6564784e4261d66a328da7335def7896be7d28f58451193aa",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 aef019ab9afe5b0b3a3988a1cc561463a34fe855aec6236bd6f5f62930bc6551",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 a4091bfeb5b41d3890cca3f961eeb50c5533c762c8ff6c391b6236d237ff1b61",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5abc45a79f8550ff80c5075aec2f4857e4aa6da662b17e02aee2750723257959",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4473257b0347a7e157219bb66c710e08ec0128a72ae1ac3a8dbd971668a9431d",
+       "LOGOS program: batch of 4 sequences, ctx 256, sha256 cb6f7b695604b78af654d601cca40ab8c753ba57c561b3293202a275e78ede58"
+      ],
+      "decode_tok_s": [
+       896.36,
+       896.92,
+       898.37,
+       898.5,
+       898.96
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/gemma3-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       783.2233317598974,
+       788.5825650521936,
+       661.5525099672767,
+       724.1103561555497,
+       775.3533335224296
+      ],
+      "decode_engine_tok_s": [
+       790.3414849745228,
+       790.7310968833318,
+       663.1570305592164,
+       713.3983384406907,
+       790.1138656915891
+      ]
+     }
+    },
+    {
+     "sequences": 8,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 bc801b3a4b22c7b6564784e4261d66a328da7335def7896be7d28f58451193aa",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 aef019ab9afe5b0b3a3988a1cc561463a34fe855aec6236bd6f5f62930bc6551",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 a4091bfeb5b41d3890cca3f961eeb50c5533c762c8ff6c391b6236d237ff1b61",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5abc45a79f8550ff80c5075aec2f4857e4aa6da662b17e02aee2750723257959",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4473257b0347a7e157219bb66c710e08ec0128a72ae1ac3a8dbd971668a9431d",
+       "LOGOS program: batch of 8 sequences, ctx 256, sha256 fdd0c2eb095ffe6780f0a0b37d6561674b58af890dbc27a4ab786b3329f241e9"
+      ],
+      "decode_tok_s": [
+       1728.81,
+       1728.87,
+       1728.58,
+       1701.41,
+       1725.97
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/gemma3-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       1391.4072308637342,
+       1412.648288766105,
+       1365.9664609055624,
+       1430.9583720264577,
+       1464.3343546329274
+      ],
+      "decode_engine_tok_s": [
+       1461.021075718038,
+       1411.6800736580808,
+       1350.7144747951138,
+       1436.004913293378,
+       1440.4395450477389
+      ]
+     }
+    },
+    {
+     "sequences": 16,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 bc801b3a4b22c7b6564784e4261d66a328da7335def7896be7d28f58451193aa",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 aef019ab9afe5b0b3a3988a1cc561463a34fe855aec6236bd6f5f62930bc6551",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 a4091bfeb5b41d3890cca3f961eeb50c5533c762c8ff6c391b6236d237ff1b61",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5abc45a79f8550ff80c5075aec2f4857e4aa6da662b17e02aee2750723257959",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4473257b0347a7e157219bb66c710e08ec0128a72ae1ac3a8dbd971668a9431d",
+       "LOGOS program: batch of 16 sequences, ctx 256, sha256 48d3d24fb3ff3cd8c385228e46099cdb0867d6f6711ed6bb87b6cd36bb45c4d9"
+      ],
+      "decode_tok_s": [
+       3199.76,
+       3196.51,
+       3193.4,
+       3193.1,
+       3192.49
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/gemma3-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       2799.8449399525603,
+       2893.911063279234,
+       2673.2599974680156,
+       2697.321092354438,
+       2604.270574987814
+      ],
+      "decode_engine_tok_s": [
+       2815.147033449144,
+       2682.19937089612,
+       2738.590720336468,
+       2712.8391901884515,
+       2615.148717018144
+      ]
+     }
+    },
+    {
+     "sequences": 32,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 bc801b3a4b22c7b6564784e4261d66a328da7335def7896be7d28f58451193aa",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 aef019ab9afe5b0b3a3988a1cc561463a34fe855aec6236bd6f5f62930bc6551",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 a4091bfeb5b41d3890cca3f961eeb50c5533c762c8ff6c391b6236d237ff1b61",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5abc45a79f8550ff80c5075aec2f4857e4aa6da662b17e02aee2750723257959",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4473257b0347a7e157219bb66c710e08ec0128a72ae1ac3a8dbd971668a9431d",
+       "LOGOS program: batch of 32 sequences, ctx 256, sha256 90f49a9ca1620b4bb69a6374a0cbffca4c18ea873b59ab74dce72f18ebd6b156"
+      ],
+      "decode_tok_s": [
+       5232.33,
+       5239.72,
+       5236.75,
+       5235.58,
+       5235.23
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/gemma3-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       4922.342292597434,
+       4220.205553036187,
+       4634.5714319603085,
+       4513.908275288673,
+       4879.606259907664
+      ],
+      "decode_engine_tok_s": [
+       4874.077737811419,
+       4236.6776971852905,
+       4556.019138398138,
+       4518.140312796314,
+       4874.334480154595
+      ]
+     }
+    },
+    {
+     "sequences": 64,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 bc801b3a4b22c7b6564784e4261d66a328da7335def7896be7d28f58451193aa",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 aef019ab9afe5b0b3a3988a1cc561463a34fe855aec6236bd6f5f62930bc6551",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 a4091bfeb5b41d3890cca3f961eeb50c5533c762c8ff6c391b6236d237ff1b61",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 5abc45a79f8550ff80c5075aec2f4857e4aa6da662b17e02aee2750723257959",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4473257b0347a7e157219bb66c710e08ec0128a72ae1ac3a8dbd971668a9431d",
+       "LOGOS program: batch of 64 sequences, ctx 256, sha256 acc2a9d8ac46a1ca35afa57ac558aadf5dbf7a811dcd4b80af04038b470131b3"
+      ],
+      "decode_tok_s": [
+       6962.13,
+       6956.64,
+       6952.05,
+       6947.65,
+       6942.57
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/gemma3-1b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       6311.449208727815,
+       6532.38389905761,
+       6494.570079773439,
+       6555.68614969416,
+       6018.235974330296
+      ],
+      "decode_engine_tok_s": [
+       6351.696671471851,
+       6488.845171111148,
+       6486.232864208211,
+       6486.682090249259,
+       6011.738505551352
+      ]
+     }
+    }
+   ],
+   "load_average": [
+    15.04,
+    20.37
+   ]
+  },
+  {
+   "model": "qwen3.5-0.8b",
+   "file": "models/qwen3.5-0.8b/Qwen3.5-0.8B-Q8_0.gguf",
+   "file_bytes": 833592096,
+   "file_sha256": "37ae482d336108d23516fa35e8e0c4126688d81018b87178a18d752a1357814f",
+   "decode_bytes_per_token": 800881920,
+   "decode_routed": false,
+   "ours": {
+    "short": {
+     "n_gen": 128,
+     "prompt_tokens": 6,
+     "prefill_chunk": 16,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 0062362db5e2e1fcd51379fb807a99dd4f42107736a12b36d5fbfafe3f3a8d49",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 6c142b9a9c7c2a4fc400e312b3589e2608a432de9d8df57bfba19acebb4f6170",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 ef9e4039f3eb71ca864f88b55a91285576ef427d8d7f11e10f0404d1e384d6a0",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 35baa55f82ca955375d643085ea1fbec57f93019e86ca4ec64d5106404193df9",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 7cd14dbb3e3177a6c3b4a4d0363013aec848b6894516029d94e4f8669b12316f"
+     ],
+     "decode_tok_s": [
+      318.99,
+      318.97,
+      318.96,
+      318.97,
+      319.01
+     ],
+     "prefill_tok_s": [
+      802.7,
+      839.6,
+      837.1,
+      836.9,
+      836.5
+     ]
+    },
+    "long": {
+     "n_gen": 16,
+     "prompt_tokens": 512,
+     "prefill_chunk": 512,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 0062362db5e2e1fcd51379fb807a99dd4f42107736a12b36d5fbfafe3f3a8d49",
+      "LOGOS program: prefill chunk of 512 rows, ctx 1024, sha256 7505ade920b06d6a8b8686a0295b04ad74f1ebfea76916984429d7b24556eb5c",
+      "LOGOS program: prefill chunk of 256 rows, ctx 1024, sha256 d0a2635fa88bfe9a1aee700b30a25d9cb02f2ceabe1c76a131f75f8d7499fce1",
+      "LOGOS program: prefill chunk of 128 rows, ctx 1024, sha256 abfc70c50ac3cb5c3150f6605beaf7539a7069baa76290e1a4acf7b1cd6a31d8",
+      "LOGOS program: prefill chunk of 64 rows, ctx 1024, sha256 d7c25c6799d3ebb31eef642082ad1b78dd5111644a72bd9f2972d73115a6adc4",
+      "LOGOS program: prefill chunk of 32 rows, ctx 1024, sha256 91927a110dbb94dd6843b2b3e0eedb6bd8d710a0d6e8498c1300b8c241243a8a",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 6c142b9a9c7c2a4fc400e312b3589e2608a432de9d8df57bfba19acebb4f6170",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 ef9e4039f3eb71ca864f88b55a91285576ef427d8d7f11e10f0404d1e384d6a0",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 35baa55f82ca955375d643085ea1fbec57f93019e86ca4ec64d5106404193df9",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 7cd14dbb3e3177a6c3b4a4d0363013aec848b6894516029d94e4f8669b12316f"
+     ],
+     "decode_tok_s": [
+      309.58,
+      309.62,
+      309.5,
+      309.99,
+      309.65
+     ],
+     "prefill_tok_s": [
+      14177.3,
+      14268.2,
+      14285.3,
+      14318.9,
+      14235.7
+     ]
+    },
+    "agreement": {
+     "golden": "benchmarks/models/qwen3.5-0.8b/golden-f32.json",
+     "golden_sha256": "0ebd94d1acb9c14f96a42636ab795b98f426f8e2b7d25f794d22d66d3f604889",
+     "steps": 499,
+     "top1": 444,
+     "per_prompt": [
+      16,
+      16,
+      5,
+      8,
+      16,
+      16,
+      16,
+      16,
+      4,
+      16,
+      16,
+      14,
+      16,
+      16,
+      16,
+      16,
+      16,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      15,
+      14
+     ],
+     "top_logit_gap": 0.05101932187500002
+    }
+   },
+   "llama_cpp": {
+    "pp512": {
+     "tokens": 512,
+     "ns": [
+      51685986,
+      42466840,
+      42694702,
+      42487208,
+      42384582
+     ],
+     "tok_s": [
+      9905.973352235169,
+      12056.465703593674,
+      11992.120240117849,
+      12050.685938224042,
+      12079.86432424885
+     ],
+     "reported_avg": 11617.021912,
+     "reported_stddev": 957.050725
+    },
+    "tg128": {
+     "tokens": 128,
+     "ns": [
+      539073841,
+      544385393,
+      527764495,
+      524099575,
+      523524306
+     ],
+     "tok_s": [
+      237.44427992008613,
+      235.1275431815269,
+      242.53241969223413,
+      244.22839877326746,
+      244.49676649779084
+     ],
+     "reported_avg": 240.765882,
+     "reported_stddev": 4.23831
+    },
+    "agreement": {
+     "golden": "benchmarks/models/qwen3.5-0.8b/golden-f32.json",
+     "golden_sha256": "0ebd94d1acb9c14f96a42636ab795b98f426f8e2b7d25f794d22d66d3f604889",
+     "steps": 499,
+     "top1": 430,
+     "per_prompt": [
+      16,
+      3,
+      5,
+      8,
+      16,
+      16,
+      16,
+      5,
+      16,
+      16,
+      16,
+      14,
+      16,
+      16,
+      16,
+      16,
+      12,
+      16,
+      13,
+      16,
+      16,
+      16,
+      16,
+      2,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      15,
+      1
+     ],
+     "top_logit_gap": 0.058539462500000305
+    }
+   },
+   "vllm": {
+    "checkpoint": "models/qwen3.5-0.8b/engines/bf16",
+    "checkpoint_bytes": 1746942600,
+    "checkpoint_sha256": "ae5c6f86a1ced3cad59eb1a772ea255545ce6192bf110bfb3063c6a07e69357e",
+    "flags": [
+     "--quantization",
+     "fp8"
+    ],
+    "version": "0.32.0",
+    "decode_tok_s": [
+     233.62857574209278,
+     234.66434589419507,
+     233.7821722080923,
+     233.64425125799747,
+     233.9610502094276
+    ],
+    "prefill_tok_s": [
+     13679.265860239653,
+     12250.368475387797,
+     13412.088083783397,
+     13380.568424095789,
+     13463.154909450679
+    ],
+    "decode_engine_tok_s": [
+     233.31925208557195,
+     233.3366989720354,
+     233.3154129700823,
+     233.0942283274855,
+     232.9681444211408
+    ],
+    "prefill_engine_tok_s": [
+     14438.601151584122,
+     13162.51204389737,
+     14310.240185385866,
+     14221.729181598974,
+     14407.650303778391
+    ],
+    "agreement": {
+     "golden": "benchmarks/models/qwen3.5-0.8b/golden-f32.json",
+     "golden_sha256": "0ebd94d1acb9c14f96a42636ab795b98f426f8e2b7d25f794d22d66d3f604889",
+     "steps": 499,
+     "top1": 354,
+     "per_prompt": [
+      16,
+      3,
+      5,
+      3,
+      5,
+      16,
+      8,
+      10,
+      4,
+      16,
+      16,
+      14,
+      16,
+      5,
+      1,
+      16,
+      15,
+      4,
+      16,
+      16,
+      16,
+      7,
+      16,
+      16,
+      16,
+      16,
+      2,
+      16,
+      16,
+      13,
+      1,
+      14
+     ],
+     "top_logit_gap": 0.17176378064970932
+    }
+   },
+   "batches": [
+    {
+     "sequences": 4,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 11cb7c83de1ad9c9b0df968b52e8769b9a156e1fe91c4bebcab790501b72332e",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 64bea86b72a8f7faa206b40e88b0105976df7c7bc61cc6d83cf651a3cdb8a775",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 b52351f73216937e4fbd8e7653b4acd821e633864608d7535474d62afadff99d",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 443593894e0b456f62ff446fb3dd044b55127146723a8eedb4c86fbaa691c65c",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4fb754980bde0cbb6cdf5b80a8bfdb0f579a22deb4377d178c108f8487beb65b",
+       "LOGOS program: batch of 4 sequences, ctx 256, sha256 5f6e0e95b8da850730c23436e819b1947bd2879565f7e9ad48b3118fd765f21c"
+      ],
+      "decode_tok_s": [
+       1065.35,
+       1065.07,
+       1064.96,
+       1064.79,
+       1065.06
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/qwen3.5-0.8b/engines/bf16",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       864.3936620345817,
+       880.9177243836879,
+       856.3445303368569,
+       890.2409034347999,
+       874.1123832132271
+      ],
+      "decode_engine_tok_s": [
+       864.5447469490998,
+       864.3350083607039,
+       865.0941351441392,
+       864.1414600910443,
+       864.4884938623869
+      ]
+     }
+    },
+    {
+     "sequences": 8,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 11cb7c83de1ad9c9b0df968b52e8769b9a156e1fe91c4bebcab790501b72332e",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 64bea86b72a8f7faa206b40e88b0105976df7c7bc61cc6d83cf651a3cdb8a775",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 b52351f73216937e4fbd8e7653b4acd821e633864608d7535474d62afadff99d",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 443593894e0b456f62ff446fb3dd044b55127146723a8eedb4c86fbaa691c65c",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4fb754980bde0cbb6cdf5b80a8bfdb0f579a22deb4377d178c108f8487beb65b",
+       "LOGOS program: batch of 8 sequences, ctx 256, sha256 a7baeb4a7fa5876c1ac91bf799531ca247fb50aa203bbf1de18674526a86ec37"
+      ],
+      "decode_tok_s": [
+       1814.68,
+       1814.59,
+       1814.07,
+       1813.67,
+       1813.23
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/qwen3.5-0.8b/engines/bf16",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       1544.0260823255426,
+       1539.8730529419745,
+       1573.6796160973963,
+       1560.8873741051573,
+       1598.392417401346
+      ],
+      "decode_engine_tok_s": [
+       1547.398029547229,
+       1545.3063353856412,
+       1543.7863397898477,
+       1544.599579043469,
+       1543.7190871364194
+      ]
+     }
+    },
+    {
+     "sequences": 16,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 11cb7c83de1ad9c9b0df968b52e8769b9a156e1fe91c4bebcab790501b72332e",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 64bea86b72a8f7faa206b40e88b0105976df7c7bc61cc6d83cf651a3cdb8a775",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 b52351f73216937e4fbd8e7653b4acd821e633864608d7535474d62afadff99d",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 443593894e0b456f62ff446fb3dd044b55127146723a8eedb4c86fbaa691c65c",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4fb754980bde0cbb6cdf5b80a8bfdb0f579a22deb4377d178c108f8487beb65b",
+       "LOGOS program: batch of 16 sequences, ctx 256, sha256 e2042a60fbff8c02808475a3cc32bdbd4434e2c016d8d32bf5e3f8188bca05d1"
+      ],
+      "decode_tok_s": [
+       2770.26,
+       2775.78,
+       2776.09,
+       2776.25,
+       2777.61
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/qwen3.5-0.8b/engines/bf16",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       2556.593365336543,
+       2677.2896967697657,
+       2554.281181669182,
+       2551.927589828537,
+       2554.8406910348317
+      ],
+      "decode_engine_tok_s": [
+       2555.7775487182985,
+       2536.464500996833,
+       2557.034293769337,
+       2556.2376432062033,
+       2551.7012139167186
+      ]
+     }
+    },
+    {
+     "sequences": 32,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 11cb7c83de1ad9c9b0df968b52e8769b9a156e1fe91c4bebcab790501b72332e",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 64bea86b72a8f7faa206b40e88b0105976df7c7bc61cc6d83cf651a3cdb8a775",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 b52351f73216937e4fbd8e7653b4acd821e633864608d7535474d62afadff99d",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 443593894e0b456f62ff446fb3dd044b55127146723a8eedb4c86fbaa691c65c",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4fb754980bde0cbb6cdf5b80a8bfdb0f579a22deb4377d178c108f8487beb65b",
+       "LOGOS program: batch of 32 sequences, ctx 256, sha256 460009b2bbfe5511b0311066c31db6071ed01f0ab48fcfbef2c714735fbde980"
+      ],
+      "decode_tok_s": [
+       3618.85,
+       3618.58,
+       3617.22,
+       3613.92,
+       3613.59
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/qwen3.5-0.8b/engines/bf16",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       3783.749311627576,
+       3782.849946564154,
+       3782.034637661061,
+       3777.7449318189083,
+       3802.093012003737
+      ],
+      "decode_engine_tok_s": [
+       3774.218786307874,
+       3773.6168100994873,
+       3773.714637584142,
+       3773.3209009364114,
+       3773.473168665489
+      ]
+     }
+    },
+    {
+     "sequences": 64,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 11cb7c83de1ad9c9b0df968b52e8769b9a156e1fe91c4bebcab790501b72332e",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 64bea86b72a8f7faa206b40e88b0105976df7c7bc61cc6d83cf651a3cdb8a775",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 b52351f73216937e4fbd8e7653b4acd821e633864608d7535474d62afadff99d",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 443593894e0b456f62ff446fb3dd044b55127146723a8eedb4c86fbaa691c65c",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 4fb754980bde0cbb6cdf5b80a8bfdb0f579a22deb4377d178c108f8487beb65b",
+       "LOGOS program: batch of 64 sequences, ctx 256, sha256 b0f2f5cb1be8e263f32d4004ecfa0d70bb4b66562c6011ba9f51e9d0195c39aa"
+      ],
+      "decode_tok_s": [
+       4260.55,
+       4259.54,
+       4257.24,
+       4254.94,
+       4246.19
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/qwen3.5-0.8b/engines/bf16",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       4529.604082961304,
+       4529.160859324122,
+       4529.631558216156,
+       4523.907278346967,
+       4528.546217873679
+      ],
+      "decode_engine_tok_s": [
+       4528.917207881814,
+       4529.256414728262,
+       4528.174255390763,
+       4529.032034145718,
+       4528.879020225363
+      ]
+     }
+    }
+   ],
+   "load_average": [
+    20.37,
+    6.92
+   ]
+  },
+  {
+   "model": "qwen3-8b",
+   "file": "models/qwen3-8b/Qwen_Qwen3-8B-Q8_0.gguf",
+   "file_bytes": 8709518880,
+   "file_sha256": "edbd7ae01df991a2d4061e61451ad3d6829d8ca19f7cc846f7177499ac280c33",
+   "decode_bytes_per_token": 8042336256,
+   "decode_routed": false,
+   "ours": {
+    "short": {
+     "n_gen": 128,
+     "prompt_tokens": 6,
+     "prefill_chunk": 16,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 6e34b6cf874ff4fda4096a11b82ff7feb1987c3a05d76ed59f4b7cf1550775d2",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 da21054dd69c7d7c6da1c68a15068baa9947c2b89186a7287e0317c63d3e354c",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 b5d271692fc281dd3e916da486073e6cff5afae91c67d5d67e93386a2c9186de",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 441dbacf3ad923e1c3e54aa59535c7c048faaada85f4059b2d053476c25c1bec",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 d3ad1e129124ac697c75572f06d60a623dcc2dbec81fce17eaf68163b6a30c42"
+     ],
+     "decode_tok_s": [
+      40.15,
+      40.15,
+      40.14,
+      40.14,
+      40.15
+     ],
+     "prefill_tok_s": [
+      108.3,
+      108.1,
+      106.6,
+      107.2,
+      106.7
+     ]
+    },
+    "long": {
+     "n_gen": 16,
+     "prompt_tokens": 512,
+     "prefill_chunk": 512,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 6e34b6cf874ff4fda4096a11b82ff7feb1987c3a05d76ed59f4b7cf1550775d2",
+      "LOGOS program: prefill chunk of 512 rows, ctx 1024, sha256 bdfbbf99fd9a9706f4e62680dd665bbba0590fbd4e9b88b25c28010d907f60a2",
+      "LOGOS program: prefill chunk of 256 rows, ctx 1024, sha256 39040f8cee3a3e2d9ca6c0c486f5a253de506e6d776f4523173481bd5c004ed9",
+      "LOGOS program: prefill chunk of 128 rows, ctx 1024, sha256 736a3cb10c37d364cbc7ccd7a6fc3ccfcc6a13d4432a69c105ac831d574fbbc6",
+      "LOGOS program: prefill chunk of 64 rows, ctx 1024, sha256 186f475b373926713a78286cea4cb76efdb8e5464b71fc7d1c9d5508d73b4407",
+      "LOGOS program: prefill chunk of 32 rows, ctx 1024, sha256 50e70b6bee54c406d08c07b5f7af2e1d91b56e573bf67541054bdcb726ddfa39",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 da21054dd69c7d7c6da1c68a15068baa9947c2b89186a7287e0317c63d3e354c",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 b5d271692fc281dd3e916da486073e6cff5afae91c67d5d67e93386a2c9186de",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 441dbacf3ad923e1c3e54aa59535c7c048faaada85f4059b2d053476c25c1bec",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 d3ad1e129124ac697c75572f06d60a623dcc2dbec81fce17eaf68163b6a30c42"
+     ],
+     "decode_tok_s": [
+      39.26,
+      39.28,
+      39.27,
+      39.26,
+      39.29
+     ],
+     "prefill_tok_s": [
+      2492.8,
+      2487.9,
+      2465.7,
+      2488.1,
+      2493.2
+     ]
+    },
+    "agreement": {
+     "golden": "benchmarks/models/qwen3-8b/golden-f32.json",
+     "golden_sha256": "74e4f5c1b10efb753388fc84674de2554d00415279045b16361409d4b221d3cf",
+     "steps": 512,
+     "top1": 450,
+     "per_prompt": [
+      12,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      4,
+      16,
+      16,
+      16,
+      16,
+      14,
+      13,
+      16,
+      16,
+      10,
+      4,
+      16,
+      16,
+      2,
+      7,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.07003126875000015
+    }
+   },
+   "llama_cpp": {
+    "pp512": {
+     "tokens": 512,
+     "ns": [
+      233738559,
+      225064690,
+      226490990,
+      225948500,
+      228558686
+     ],
+     "tok_s": [
+      2190.4815456657284,
+      2274.901496098744,
+      2260.5755752138307,
+      2266.0030936253174,
+      2240.124884162136
+     ],
+     "reported_avg": 2246.417319,
+     "reported_stddev": 33.777998
+    },
+    "tg128": {
+     "tokens": 128,
+     "ns": [
+      3266480079,
+      3281107015,
+      3226635948,
+      3231642544,
+      3231170088
+     ],
+     "tok_s": [
+      39.1859117166837,
+      39.01122377747256,
+      39.66979915392674,
+      39.60834103934238,
+      39.614132501216694
+     ],
+     "reported_avg": 39.417882,
+     "reported_stddev": 0.298928
+    },
+    "agreement": {
+     "golden": "benchmarks/models/qwen3-8b/golden-f32.json",
+     "golden_sha256": "74e4f5c1b10efb753388fc84674de2554d00415279045b16361409d4b221d3cf",
+     "steps": 512,
+     "top1": 432,
+     "per_prompt": [
+      12,
+      16,
+      16,
+      16,
+      2,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      13,
+      16,
+      16,
+      1,
+      16,
+      14,
+      13,
+      16,
+      16,
+      10,
+      6,
+      16,
+      16,
+      2,
+      7,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.07445424687499991
+    }
+   },
+   "vllm": {
+    "checkpoint": "models/qwen3-8b/engines/vllm-fp8",
+    "checkpoint_bytes": 9436628784,
+    "checkpoint_sha256": "c2cc7ea2889ea0df1f47ebd906cf08034b35e7e98f328447989db95a234a80ba",
+    "flags": [
+     "--max-batched-tokens",
+     "1024",
+     "--gpu-memory",
+     "0.92"
+    ],
+    "version": "0.32.0",
+    "decode_tok_s": [
+     36.22385882478066,
+     36.20217195285871,
+     36.19660739536194,
+     36.18971349360387,
+     36.102990424568915
+    ],
+    "prefill_tok_s": [
+     1695.311054928458,
+     1654.080258618573,
+     1722.2870007942047,
+     1724.1498273020727,
+     1713.198200175231
+    ],
+    "decode_engine_tok_s": [
+     36.195319214988835,
+     36.19714326296157,
+     36.199690823208414,
+     36.19044073820979,
+     36.16476976681829
+    ],
+    "prefill_engine_tok_s": [
+     1710.5216686363945,
+     1676.6827224116355,
+     1737.544819265087,
+     1737.7190343542607,
+     1727.5207260422428
+    ],
+    "agreement": {
+     "golden": "benchmarks/models/qwen3-8b/golden-f32.json",
+     "golden_sha256": "74e4f5c1b10efb753388fc84674de2554d00415279045b16361409d4b221d3cf",
+     "steps": 512,
+     "top1": 379,
+     "per_prompt": [
+      16,
+      16,
+      1,
+      16,
+      2,
+      13,
+      16,
+      16,
+      16,
+      16,
+      16,
+      14,
+      16,
+      4,
+      16,
+      16,
+      1,
+      5,
+      14,
+      16,
+      5,
+      10,
+      10,
+      6,
+      16,
+      16,
+      2,
+      16,
+      16,
+      16,
+      4,
+      16
+     ],
+     "top_logit_gap": 0.15986342851601115
+    }
+   },
+   "exllamav3": {
+    "checkpoint": "models/qwen3-8b/engines/exl3-8.0bpw",
+    "checkpoint_bytes": 8819241904,
+    "checkpoint_sha256": "8ec00bc8ffc4ab305a36afaec6545d8ebf1d1705b6705d08adc908e9c1d9ec89",
+    "flags": [],
+    "version": "1.6.4",
+    "decode_tok_s": [
+     37.02000789870872,
+     37.105035598671186,
+     37.55400898979092,
+     36.804546625802885,
+     37.60932572117366
+    ],
+    "prefill_tok_s": [
+     1378.6895182566384,
+     1374.690315242612,
+     1376.3846110957063,
+     1313.8778915211435,
+     1367.0496732884988
+    ],
+    "decode_engine_tok_s": [
+     36.740189943865694,
+     36.827713721553266,
+     37.270229636346,
+     36.52206677526147,
+     37.316943108979096
+    ],
+    "prefill_engine_tok_s": [
+     1492.7666462995442,
+     1487.2542881382344,
+     1490.012605706705,
+     1422.1746013245033,
+     1481.8244126479422
+    ],
+    "agreement": {
+     "golden": "benchmarks/models/qwen3-8b/golden-f32.json",
+     "golden_sha256": "74e4f5c1b10efb753388fc84674de2554d00415279045b16361409d4b221d3cf",
+     "steps": 512,
+     "top1": 477,
+     "per_prompt": [
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      3,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      10,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.07694098707622293
+    }
+   },
+   "batches": [
+    {
+     "sequences": 4,
+     "ours": {
+      "ctx": 256,
+      "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+      "programs": [
+       "LOGOS program: decode step, ctx 256, sha256 b3c2d64a42e1f997cc9c880d43c0dba497cabf51b8220c576cb609710bbab57a",
+       "LOGOS program: prefill chunk of 16 rows, ctx 256, sha256 3bf58d8819f5d6e9d8a6cdf603e33e4fe3c73adaeb32b4b632ab2cf5e2899544",
+       "LOGOS program: prefill chunk of 8 rows, ctx 256, sha256 8668d20cd640f0228b3b088a2ea0d384630983c163578017f36a0d2b6a3f464b",
+       "LOGOS program: prefill chunk of 4 rows, ctx 256, sha256 4bd39a40de43bd8db9615cc45a2d5a70bea045212f8f9e7a2ad671d2473cc18c",
+       "LOGOS program: prefill chunk of 2 rows, ctx 256, sha256 e0d884a79f9f1d487aad5548c853aa61f85352d890eff0b756f8972a814b0286",
+       "LOGOS program: batch of 4 sequences, ctx 256, sha256 d731097ea5764c2c5431da0a4cabe44ea671402c3e5aa96fe5c0eca947494746"
+      ],
+      "decode_tok_s": [
+       141.45,
+       141.39,
+       141.26,
+       141.23,
+       141.27
+      ]
+     },
+     "vllm": {
+      "checkpoint": "models/qwen3-8b/engines/vllm-fp8",
+      "version": "0.32.0",
+      "decode_tok_s": [
+       141.44274465585863,
+       141.48403777717556,
+       141.38192249517195,
+       141.42147680800963,
+       141.43455412673154
+      ],
+      "decode_engine_tok_s": [
+       141.49292340192238,
+       141.47218597607653,
+       141.45746090405288,
+       141.42561963932275,
+       141.41393322094356
+      ]
+     }
+    }
+   ],
+   "load_average": [
+    6.92,
+    12.85
+   ]
+  },
+  {
+   "model": "deepseek-v2-lite",
+   "file": "models/deepseek-v2-lite/DeepSeek-V2-Lite-Chat.Q4_K_M.gguf",
+   "file_bytes": 10364416768,
+   "file_sha256": "5d33e5f045c7a03351c319aafc8afdad94b69d07bb68f36dc9bb5af340b343a4",
+   "decode_bytes_per_token": 1608284160,
+   "decode_routed": true,
+   "ours": {
+    "short": {
+     "n_gen": 128,
+     "prompt_tokens": 6,
+     "prefill_chunk": 16,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 eb88e699cd6119836bb781176ecf84f206e0249dc8aa6bd33e555e9f04a57632",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 5608005d0faaf501bd0630e0133004af0e989e7ea91166ccd56ecdb57bc554ae",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 cb19307b3e3db9323c1dba224b317957ed38e5885687b090224406cbad3e5cf9",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 c375e5b266f1f8ff1fa8b53464ab1961389c2c2d770493686fcacec1f29394eb",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 545c20d0bfa43e96043cdc7ee0776d3e9889d1e32d93ec7a54e5dcc65ae20fd9"
+     ],
+     "decode_tok_s": [
+      141.58,
+      141.46,
+      141.41,
+      141.44,
+      141.5
+     ],
+     "prefill_tok_s": [
+      163.2,
+      163.6,
+      163.1,
+      163.9,
+      162.0
+     ]
+    },
+    "long": {
+     "n_gen": 16,
+     "prompt_tokens": 512,
+     "prefill_chunk": 512,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 eb88e699cd6119836bb781176ecf84f206e0249dc8aa6bd33e555e9f04a57632",
+      "LOGOS program: prefill chunk of 512 rows, ctx 1024, sha256 14118d3b9c3ea5a68e1f81edb919833d0fb183eef6af3fe3456775294ba7f532",
+      "LOGOS program: prefill chunk of 256 rows, ctx 1024, sha256 30b92e155394d94ea3f928827ff0783f56841c7f52d5c7de11262ef9b58c1f2c",
+      "LOGOS program: prefill chunk of 128 rows, ctx 1024, sha256 26898ab0c20b873c50aaffd64a9a86881fe871e9167ad5242ab712f29450ead5",
+      "LOGOS program: prefill chunk of 64 rows, ctx 1024, sha256 86f0615ed10733440a261db6c454529b1344ebf87f99956ff2b87bf50e8a237a",
+      "LOGOS program: prefill chunk of 32 rows, ctx 1024, sha256 8cc4283ad29b63081ea1a4020f4b1128ac594316ab90730df462494001dc43f5",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 5608005d0faaf501bd0630e0133004af0e989e7ea91166ccd56ecdb57bc554ae",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 cb19307b3e3db9323c1dba224b317957ed38e5885687b090224406cbad3e5cf9",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 c375e5b266f1f8ff1fa8b53464ab1961389c2c2d770493686fcacec1f29394eb",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 545c20d0bfa43e96043cdc7ee0776d3e9889d1e32d93ec7a54e5dcc65ae20fd9"
+     ],
+     "decode_tok_s": [
+      139.27,
+      139.35,
+      139.39,
+      139.28,
+      139.33
+     ],
+     "prefill_tok_s": [
+      2854.6,
+      2852.3,
+      2849.0,
+      2850.6,
+      2845.2
+     ]
+    },
+    "agreement": {
+     "golden": "benchmarks/models/deepseek-v2-lite/golden-f32.json",
+     "golden_sha256": "8d5e04291e0dab02bfbb7ffb4969e37d4df322371006a695aec80ec5274c51cd",
+     "steps": 504,
+     "top1": 452,
+     "per_prompt": [
+      16,
+      16,
+      16,
+      13,
+      0,
+      16,
+      16,
+      16,
+      16,
+      16,
+      11,
+      16,
+      16,
+      12,
+      16,
+      16,
+      16,
+      9,
+      0,
+      16,
+      16,
+      16,
+      7,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.15027584156250046
+    }
+   },
+   "llama_cpp": {
+    "pp512": {
+     "tokens": 512,
+     "ns": [
+      195344289,
+      188847354,
+      188240606,
+      187237040,
+      190544205
+     ],
+     "tok_s": [
+      2621.0134046969756,
+      2711.184399226478,
+      2719.923245465965,
+      2734.5016776595057,
+      2687.040521646932
+     ],
+     "reported_avg": 2694.73265,
+     "reported_stddev": 44.666816
+    },
+    "tg128": {
+     "tokens": 128,
+     "ns": [
+      1033545175,
+      1033041788,
+      1034142173,
+      1033800256,
+      1034576414
+     ],
+     "tok_s": [
+      123.8455783996089,
+      123.905926640017,
+      123.77408381739016,
+      123.81502060684342,
+      123.72213233154183
+     ],
+     "reported_avg": 123.812548,
+     "reported_stddev": 0.06977
+    },
+    "agreement": {
+     "golden": "benchmarks/models/deepseek-v2-lite/golden-f32.json",
+     "golden_sha256": "8d5e04291e0dab02bfbb7ffb4969e37d4df322371006a695aec80ec5274c51cd",
+     "steps": 504,
+     "top1": 418,
+     "per_prompt": [
+      16,
+      3,
+      3,
+      13,
+      14,
+      16,
+      16,
+      8,
+      5,
+      16,
+      11,
+      16,
+      16,
+      3,
+      16,
+      16,
+      16,
+      16,
+      4,
+      16,
+      16,
+      16,
+      15,
+      16,
+      16,
+      16,
+      3,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.16831507843750032
+    }
+   },
+   "load_average": [
+    12.85,
+    5.1
+   ]
+  },
+  {
+   "model": "gpt-oss-20b",
+   "file": "models/gpt-oss-20b/gpt-oss-20b-MXFP4.gguf",
+   "file_bytes": 12109566624,
+   "file_sha256": "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901",
+   "decode_bytes_per_token": 2574702336,
+   "decode_routed": true,
+   "ours": {
+    "short": {
+     "n_gen": 128,
+     "prompt_tokens": 6,
+     "prefill_chunk": 16,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 f29d63c2fa8c808b828de0979d7263845b273a2d056d47fb76a0d7b9e52ce5a7",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 3cec3d730336f4810e6627e5342e11a02da35e97fb2a9aec10febe8e950510c6",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 d04be63782825056665eafdeddc370ddcdd06dc464512149ec6cf8ac1e6677d1",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 3035d2a2b1df3f3aeb847fcf16062737a9c777d96c9791600ea7ed9d804f19b7",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 8919de1852c063ecf22108641206ea6ecf49da4df53ff122988ced6e9c12137e"
+     ],
+     "decode_tok_s": [
+      104.66,
+      104.68,
+      104.74,
+      104.86,
+      104.79
+     ],
+     "prefill_tok_s": [
+      162.3,
+      162.6,
+      162.7,
+      162.0,
+      164.0
+     ]
+    },
+    "long": {
+     "n_gen": 16,
+     "prompt_tokens": 512,
+     "prefill_chunk": 512,
+     "ctx": 1024,
+     "provenance": "// LOGOS: compiled from the program's tensor statements \u2014 every launch is a stage lifted from the source.",
+     "programs": [
+      "LOGOS program: decode step, ctx 1024, sha256 f29d63c2fa8c808b828de0979d7263845b273a2d056d47fb76a0d7b9e52ce5a7",
+      "LOGOS program: prefill chunk of 512 rows, ctx 1024, sha256 5aa5c440db63851fe71b9376168bebb5715805377bba45a1d7bf007376b016e1",
+      "LOGOS program: prefill chunk of 256 rows, ctx 1024, sha256 3784f06bae66a9fde57c9570924e9d70df16ec9acd9c3a789d3f843dc48f1180",
+      "LOGOS program: prefill chunk of 128 rows, ctx 1024, sha256 8750062fccad0e4a7b42726cb601b8aa0abff994cd8df4b3d5a184919a12af3d",
+      "LOGOS program: prefill chunk of 64 rows, ctx 1024, sha256 8879bc07d8fd243076dc7714ece3cdb8d08e2515624de6e2c0ea0d7e6d85e999",
+      "LOGOS program: prefill chunk of 32 rows, ctx 1024, sha256 2245a03beb7496d60da3719c31e5318c193e9793d6ad30936b03f27c528baa3a",
+      "LOGOS program: prefill chunk of 16 rows, ctx 1024, sha256 3cec3d730336f4810e6627e5342e11a02da35e97fb2a9aec10febe8e950510c6",
+      "LOGOS program: prefill chunk of 8 rows, ctx 1024, sha256 d04be63782825056665eafdeddc370ddcdd06dc464512149ec6cf8ac1e6677d1",
+      "LOGOS program: prefill chunk of 4 rows, ctx 1024, sha256 3035d2a2b1df3f3aeb847fcf16062737a9c777d96c9791600ea7ed9d804f19b7",
+      "LOGOS program: prefill chunk of 2 rows, ctx 1024, sha256 8919de1852c063ecf22108641206ea6ecf49da4df53ff122988ced6e9c12137e"
+     ],
+     "decode_tok_s": [
+      102.99,
+      102.94,
+      103.02,
+      102.96,
+      102.96
+     ],
+     "prefill_tok_s": [
+      2009.5,
+      2008.1,
+      2006.1,
+      2006.4,
+      2008.6
+     ]
+    },
+    "agreement": {
+     "golden": "benchmarks/models/gpt-oss-20b/golden-f32.json",
+     "golden_sha256": "fe9f727073248f7d89397e1be8a867a2892fb7ba6ec2ce409c0a2202192f90b2",
+     "steps": 512,
+     "top1": 487,
+     "per_prompt": [
+      16,
+      16,
+      16,
+      16,
+      16,
+      6,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      10,
+      16,
+      15,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      8
+     ],
+     "top_logit_gap": 0.057792209375000125
+    }
+   },
+   "llama_cpp": {
+    "pp512": {
+     "tokens": 512,
+     "ns": [
+      207271805,
+      204395619,
+      200755099,
+      210080576,
+      204273073
+     ],
+     "tok_s": [
+      2470.186429842689,
+      2504.946057576704,
+      2550.3710867139666,
+      2437.1601113660313,
+      2506.448806397503
+     ],
+     "reported_avg": 2493.822498,
+     "reported_stddev": 42.574023
+    },
+    "tg128": {
+     "tokens": 128,
+     "ns": [
+      1296837865,
+      1294519821,
+      1296201160,
+      1299748305,
+      1298177275
+     ],
+     "tok_s": [
+      98.70162142435592,
+      98.87836240400061,
+      98.75010449766917,
+      98.48060544306692,
+      98.59978484063357
+     ],
+     "reported_avg": 98.682096,
+     "reported_stddev": 0.150749
+    },
+    "agreement": {
+     "golden": "benchmarks/models/gpt-oss-20b/golden-f32.json",
+     "golden_sha256": "fe9f727073248f7d89397e1be8a867a2892fb7ba6ec2ce409c0a2202192f90b2",
+     "steps": 512,
+     "top1": 510,
+     "per_prompt": [
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      14,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16,
+      16
+     ],
+     "top_logit_gap": 0.05712661875000041
+    }
+   },
+   "load_average": [
+    5.1,
+    14.44
+   ]
+  }
+ ]
+}

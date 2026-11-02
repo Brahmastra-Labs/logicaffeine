@@ -1,0 +1,48 @@
+{
+  "id": "5.10",
+  "title": "The Problem of Induction",
+  "order": 10,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "David Hume asked why we trust induction at all. The past does not logically guarantee the future."
+    },
+    {
+      "type": "paragraph",
+      "text": "Saying 'induction has worked so far' does not help. That argument is itself inductive, so it goes in a circle."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Hume's challenge",
+      "lines": [
+        "The sun has risen every day so far."
+      ],
+      "conclusion": "So it will rise tomorrow.",
+      "note": "Not valid: it is logically possible that it will not."
+    },
+    {
+      "type": "worked",
+      "title": "A practical reply",
+      "lines": [
+        "If nature is regular, induction will work.",
+        "If nature is not regular, no method will work."
+      ],
+      "conclusion": "So induction is our best bet either way."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Why is it circular to defend induction by saying it has worked before?",
+    "options": [
+      "We do not know whether it worked",
+      "The defense is itself an inductive argument",
+      "Deduction is better",
+      "The past does not exist"
+    ],
+    "correct": 1,
+    "hint": "What kind of reasoning moves from 'it worked before' to 'it will work'?",
+    "explanation": "Going from past success to future success is induction. Using induction to justify induction assumes what it tries to show."
+  }
+}

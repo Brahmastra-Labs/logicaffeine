@@ -33,8 +33,7 @@ fn run_with_aot(source: &str, fn_name: &str, cache: &std::path::Path) -> (String
             .expect("parses")
             .expect("function is in the scalar AOT subset");
         let so = build_native_cdylib_cached(&module.rust, fn_name, cache).expect("cdylib builds");
-        let (nf, calls) =
-            load_aot_native(&so, &module.symbol, module.arity).expect("cdylib loads");
+        let (nf, calls) = load_aot_native(&so, &module.symbol, module.arity).expect("cdylib loads");
 
         let forge = ForgeTier::new();
         let mut vm = Vm::new(&program)
@@ -99,12 +98,18 @@ fn aot_native_tier_executes_and_is_dispatched() {
     let cache = std::env::temp_dir().join(format!("logos_aot_tier_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&cache);
 
-    for (src, fname, expected) in
-        [(FIB, "fib", "6765"), (GCD, "gcd", "21"), (SUMTO, "sumto", "5050")]
-    {
+    for (src, fname, expected) in [
+        (FIB, "fib", "6765"),
+        (GCD, "gcd", "21"),
+        (SUMTO, "sumto", "5050"),
+    ] {
         assert_eq!(baseline(src).trim(), expected, "{fname}: baseline sanity");
         let (out, calls) = run_with_aot(src, fname, &cache);
-        assert_eq!(out.trim(), expected, "{fname}: AOT-native output must match the VM");
+        assert_eq!(
+            out.trim(),
+            expected,
+            "{fname}: AOT-native output must match the VM"
+        );
         assert!(
             calls > 0,
             "{fname}: the compiled-native function must actually be CALLED \
@@ -113,4 +118,96 @@ fn aot_native_tier_executes_and_is_dispatched() {
     }
 
     let _ = std::fs::remove_dir_all(&cache);
+}
+
+// ─── Failures inside a native function ──────────────────────────────────────
+//
+// A native function that stops (a broken contract, `Fail with`, a zero divisor) must report the VM's
+// exact reason after the VM's exact output — never abort the process. The shim catches the panic and
+// the VM re-runs the call on bytecode, where the kernel raises the reason at the exact point; that
+// replay is sound because only effect-free functions are ever compiled native.
+
+/// Like [`run_with_aot`], but the run may fail: (output, error, native call count).
+fn run_with_aot_outcome(
+    source: &str,
+    fn_name: &str,
+    cache: &std::path::Path,
+) -> (String, Option<String>, u64) {
+    with_parsed_program(source, |parsed, interner| {
+        let (stmts, types, policies) = parsed.expect("parses");
+        let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compiles");
+        let sym = stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::FunctionDef { name, .. } if interner.resolve(*name) == fn_name => Some(*name),
+                _ => None,
+            })
+            .expect("function defined");
+        let fi = *program.fn_index.get(&sym).expect("in fn_index") as usize;
+        let module = compile_function_to_native_rust(source, fn_name)
+            .expect("parses")
+            .expect("function is in the scalar AOT subset");
+        let so = build_native_cdylib_cached(&module.rust, fn_name, cache).expect("cdylib builds");
+        let (nf, calls) = load_aot_native(&so, &module.symbol, module.arity).expect("cdylib loads");
+        let forge = ForgeTier::new();
+        let mut vm = Vm::new(&program)
+            .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        vm.install_aot_native(fi, nf);
+        let error = vm.run().err().map(|e| e.to_string());
+        (
+            vm.output().to_string(),
+            error,
+            calls.load(Ordering::Relaxed),
+        )
+    })
+}
+
+fn assert_native_failure_is_the_vms(source: &str, fn_name: &str, label: &str) {
+    let dir = std::env::temp_dir().join(format!("logos_aot_fail_{label}_{}", std::process::id()));
+    let (out, err, calls) = run_with_aot_outcome(source, fn_name, &dir);
+    let tw = logicaffeine_compile::compile::tw_outcome(source);
+    assert!(
+        calls > 0,
+        "{label}: the native code must actually run (0 calls)"
+    );
+    assert_eq!(
+        out.trim(),
+        tw.output.trim(),
+        "{label}: output before the failure"
+    );
+    assert_eq!(err, tw.error, "{label}: the failure reason");
+    assert!(tw.error.is_some(), "{label}: the reference run must fail");
+}
+
+#[test]
+#[ignore]
+fn a_broken_contract_inside_a_native_function_reports_the_vms_reason() {
+    assert_native_failure_is_the_vms(
+        "## To checked (n: Int) -> Int:\n    Require that n is less than 150, otherwise \"too big: \" + format(n).\n    Return n * 2.\n\n\
+         ## Main\nLet mutable i be 0.\nLet mutable total be 0.\nWhile i is less than 400:\n    Set total to total + checked(i).\n    Set i to i + 1.\nShow total.\n",
+        "checked",
+        "contract",
+    );
+}
+
+#[test]
+#[ignore]
+fn a_zero_divisor_inside_a_native_function_reports_the_vms_reason() {
+    assert_native_failure_is_the_vms(
+        "## To inv (n: Int) -> Int:\n    Return 1000 / (n - 120).\n\n\
+         ## Main\nLet mutable i be 0.\nLet mutable total be 0.\nWhile i is less than 400:\n    Set total to total + inv(i).\n    Set i to i + 1.\nShow total.\n",
+        "inv",
+        "divzero",
+    );
+}
+
+#[test]
+fn a_function_with_an_effect_is_never_compiled_native() {
+    let src =
+        "## To noisy (n: Int) -> Int:\n    Show n.\n    Return n + 1.\n\n## Main\nShow noisy(1).\n";
+    assert!(
+        compile_function_to_native_rust(src, "noisy").expect("parses").is_none(),
+        "a function that shows cannot be native: a failure replay would print twice, and native output bypasses the VM's"
+    );
 }

@@ -1,0 +1,56 @@
+# A Website in a Website
+
+This card is a whole website, and the program beside it is all of it. Change a
+line and the page rebuilds as you type: the words, the list, the button, the colours.
+
+## Page /
+
+State:
+    Let hellos be 0.
+    Let dark be false.
+    Let reasons be ["You can read every line.", "Logic and mathematics are built in.", "Your agent writes it with you."].
+
+Actions:
+    To wave:
+        Set hellos to hellos + 1.
+
+    To switchLights:
+        Set dark to not dark.
+
+View:
+    <section id="site" class="site" class:dark={dark}>
+      <p class="kicker">Made with LOGOS</p>
+      <h1 id="title">A website in a website</h1>
+      <p>Everything on this card is the English program beside it.</p>
+      <ul>
+        {for each reason in reasons:}
+          <li>{reason}</li>
+        {end}
+      </ul>
+      <div class="row">
+        <button id="wave" on-click={wave}>Say hello</button>
+        <button id="lights" class="secondary" on-click={switchLights}>Switch the lights</button>
+      </div>
+      <p id="hellos" class="count">{hellos | plural "hello" "hellos"} so far</p>
+    </section>
+
+Style:
+    .kicker { color: var(--accent); font-weight: 600; margin-bottom: 0.25rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.25rem 0 0.75rem; }
+    .count { color: var(--muted); margin: 0; }
+    .site.dark { background: #1f1e1d; color: #f5f4ef; border-color: #3a3936; }
+    .site.dark .count { color: #a3a29e; }
+    .site.dark .secondary { color: #f5f4ef; border-color: #3a3936; }
+
+## Test: every hello is counted
+
+Click "#wave".
+Click "#wave".
+Expect that the text of "#hellos" is equal to "2 hellos so far".
+
+## Test: the lights switch off and on
+
+Click "#lights".
+Expect that the count of ".dark" is equal to 1.
+Click "#lights".
+Expect that the count of ".dark" is equal to 0.

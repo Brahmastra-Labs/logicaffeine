@@ -1,0 +1,11 @@
+{
+  "name": "primes",
+  "lang": "logos_jit",
+  "n": "22704512",
+  "samples_weight": 56328595388,
+  "alloc_pct": 0.003,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.997
+}

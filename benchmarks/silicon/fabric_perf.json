@@ -1,0 +1,74 @@
+{
+  "description": "Phase G: the reconfigurable spatial fabric vs the soft-core interpreter, BOTH measured on the SAME Nexys A7-100T (Artix-7 xc7a100t) via the open FOSS flow (yosys + nextpnr-xilinx + prjxray, no Vivado). fabric_cycles is the on-chip settle of nexys_fabric_soc (config_fabric = the Phase-D reconfigurable CGRA of the affine/clamp/sign/min2 datapaths, config-selected, proven == VM by fabric_whole_program_lock + fabric_soc_lock + on-silicon by fabric-host.py): a spatial decision is combinational, so it settles in ONE clock. interp_cycles is the soft-core's on-chip run-cycle counter (nexys_soc_full, full_core_pf_proven.bit) executing the SAME kernel's bytecode (call + compute + Show) — fetch/decode/execute per op. speedup = interp_cycles / fabric_cycles is the honest per-decision cycle reduction the spatial fabric buys by ELIMINATING the interpreter's fetch-decode-execute loop (the Futamura projection made silicon). interp_cycles includes the interpreter's output framing (the Show record) that the combinational fabric does not do — a real interpreter cost, not overhead added for the comparison.",
+  "board": "Nexys A7-100T (Artix-7 xc7a100tcsg324-1), 100 MHz",
+  "flow": "yosys synth_xilinx -> nextpnr-xilinx -> prjxray fasm2frames -> xc7frames2bit (no Vivado)",
+  "fabric_area": {
+    "design": "nexys_fabric_soc (config_fabric of 4 datapaths + UART-TX readback)",
+    "slice_luts": 737,
+    "slice_ffs": 55,
+    "of_available_luts": 126800,
+    "utilization_pct": 0.58,
+    "note": "the reconfigurable array itself is a few hundred LUTs; the rest is the UART-TX byte sequencer."
+  },
+  "soft_core_area": {
+    "design": "full_core (the whole 115-op LOGOS CPU: integer + div/mod + collections + recursion + functions + IEEE-754 float + Text + Word32/crypto)",
+    "slice_luts_approx": 42424,
+    "note": "a GENERAL interpreter carries every op's logic at once; the fabric carries only the specialized datapath. Area ratio ~= 57x (whole CPU vs the 4-datapath array)."
+  },
+  "power_reference": {
+    "design": "decision_hft (a comparable combinational select-DAG fabric), OpenLane Sky130 post-synthesis OpenSTA",
+    "logic_cells_synth": 3310,
+    "power_mw_total": 2.64,
+    "power_mw_combinational_logic": 0.942,
+    "cycles_per_decision": 1,
+    "note": "the spatial fabric's energy/decision = power x cycles/op: a low-power combinational block settling in ONE clock. The interpreter burns its (larger, general-CPU) power across ~1560 clocks for the same decision, so energy/decision differs by roughly (P_interp/P_fabric) x speedup."
+  },
+  "asic_clock_ghz": 1.0,
+  "fpga_demo_clock_mhz": 100.0,
+  "decomposition": {
+    "baseline_overhead_cycles": 1550,
+    "baseline_program": "id(x)=x ; Show id(0) — a trivial function call + output, measured on the same soft-core",
+    "note": "interp_cycles is END-TO-END (loader + function-call frame + the decision + the Show output record). Subtracting the baseline (the fixed overhead a bare call+Show already pays) isolates decision_cycles = the marginal cost of the DECISION LOGIC ITSELF (the arithmetic/branch ops the interpreter fetch-decode-executes). TWO honest speedups follow: (a) end-to-end, interp/fabric ~1560x — the fabric is a pure datapath, so it pays NONE of the interpreter's framing; (b) decision-isolated, decision_cycles/fabric_cycles ~8-20x — how many more clocks the interpreter burns fetch-decode-executing just the arithmetic vs the fabric doing it all in parallel in one clock."
+  },
+  "kernels": [
+    { "name": "affine", "category": "arith",  "cfg": 0, "vm_result": 16, "fabric_cycles": 1, "interp_cycles": 1558, "decision_cycles": 8,  "speedup": 1558, "decision_speedup": 8,  "fabric_asic_ns": 1.0 },
+    { "name": "clamp",  "category": "branch", "cfg": 1, "vm_result": 5,  "fabric_cycles": 1, "interp_cycles": 1566, "decision_cycles": 16, "speedup": 1566, "decision_speedup": 16, "fabric_asic_ns": 1.0 },
+    { "name": "sign",   "category": "select", "cfg": 2, "vm_result": 1,  "fabric_cycles": 1, "interp_cycles": 1570, "decision_cycles": 20, "speedup": 1570, "decision_speedup": 20, "fabric_asic_ns": 1.0 },
+    { "name": "min2",   "category": "cmp",    "cfg": 3, "vm_result": 3,  "fabric_cycles": 1, "interp_cycles": 1564, "decision_cycles": 14, "speedup": 1564, "decision_speedup": 14, "fabric_asic_ns": 1.0 },
+    { "name": "ratio",  "category": "func-division", "cfg": 4, "vm_result": 3, "fabric_cycles": 1, "interp_cycles": 1589, "decision_cycles": 39, "speedup": 1589, "decision_speedup": 39, "fabric_asic_ns": 1.0,
+      "func_tile": true,
+      "honest_caveat": "Stage X1 (XPU): a DIVISION Func tile on the fabric — proven on the Artix-7 (cfg 4 ≡ VM). fabric_cycles=1 is the register latch, but a 64-bit COMBINATIONAL divider has a ~640 ns critical path (nextpnr Fmax ~1.5 MHz, fails the 12 MHz constraint) and is large (38,908 LUT / 30% of the xc7a100t). So the CYCLE ratio (1589x) overstates the WALL-CLOCK division speedup, which is ~15.9 us / ~640 ns ~= 25x. The area/timing-efficient form is the MULTI-CYCLE HANDSHAKE divider (shared_divider.v, proven q*b+r==a) with a controller — Tier 2a, the practical follow-on. Stage X1 proves the Func-tile MACHINERY (place/eval/emit/flash) works end-to-end on silicon; it does not claim the 64-bit combinational divider is practical." }
+  ],
+  "state_plane": {
+    "description": "Stage X2c (XPU): the STATE PLANE running a WHOLE MULTI-OP-CLASS program on the SAME Nexys A7-100T (Artix-7) as a SEQUENCED datapath (nexys_state_soc: a LUTRAM-heap micro-sequencer with a bump allocator, NOT the combinational config_fabric). The kernel `grade` exercises three op-classes at once — collections (heap), arithmetic (adds), and control flow (two if-converted clamps) — in one datapath: the fabric running a real program, not a single op. Proven ≡ the VM ON SILICON by fabric_soc_lock::state_plane_runs_on_the_artix7_matching_the_vm and under iverilog by state_soc_rtl_matches_vm_under_iverilog; the flashable RTL is drift-locked by fabric_soc_artifacts_are_current.",
+    "kernel": "grade",
+    "kernel_meaning": "grade(a,b,c) = clamp(a+b+c, 0, 100) over the list [a,b,c] — a HeapAlloc + a length-header write + three element HeapWrites + three HeapReads + Arith adds + two Select clamps (control flow): collections + arithmetic + control flow, a whole program end to end.",
+    "vm_result_first_vector": 60,
+    "fabric_cycles": 18,
+    "cycles_note": "18 clocks = one per cell of the sequenced program (alloc + writes + reads + adds + the two clamp Selects). A whole stateful program is HONESTLY multi-cycle — NOT the 1-clock combinational decision the arithmetic datapaths settle in — but still far below the interpreter's ~1560 fetch-decode-execute clocks for equivalent work: the fabric pays NO fetch/decode/dispatch, just the data dependencies.",
+    "slice_luts": 3200,
+    "slice_ffs": 1294,
+    "of_available_luts": 126800,
+    "utilization_pct": 2.52,
+    "fmax_mhz": 50.68,
+    "timing": "PASS at 12 MHz. Unlike the 64-bit combinational divider (1.5 MHz, 30% of the chip), the sequenced state plane — running a whole multi-op-class program (collections + arithmetic + the two clamp branches) — routes cleanly and meets timing at 50+ MHz on 2.5% of the LUTs: a small register-file heap + a micro-sequencer, not a giant combinational cone.",
+    "flow": "yosys synth_xilinx -> nextpnr-xilinx -> prjxray fasm2frames -> xc7frames2bit (no Vivado). ram_style=registers forces the heap + cell registers to real FFs so the open flow keeps the write ports (it silently drops write-ported LUT-RAM)."
+  },
+  "float_lane": {
+    "description": "Stage X3b (XPU): the FLOAT LANE — IEEE-754 f64 arithmetic — running on the SAME Nexys A7-100T (Artix-7) as a SEQUENCED datapath (nexys_float_soc: an fpu.v-bound micro-sequencer sharing one fp_mul/fp_addsub/fp_sqrt across the cells). Proven ≡ the reference ON SILICON by fabric_soc_lock::float_lane_runs_on_the_artix7_matching_the_reference, and bit-exact to the model (eval_grid over f64 bits) AND Rust f64 under iverilog by float_soc_rtl_matches_reference_under_iverilog. fpu.v is already bit-exact to the VM (float_heap_matches_vm).",
+    "kernel": "fhypf",
+    "kernel_meaning": "fhypf(a,b) = sqrt(a*a + b*b) — the Euclidean hypotenuse. The board streams the f64 result; the host floors it to the integer hypotenuse. Exercises fp_mul (twice), fp_addsub, and fp_sqrt over a battery of float inputs (mostly Pythagorean triples).",
+    "vm_result_first_vector_floor": 5,
+    "fabric_cycles": 81,
+    "cycles_note": "81 core-clock cycles = the FPU pipeline latency (fp_mul + fp_mul + fp_addsub + fp_sqrt in sequence, each a multi-cycle round-to-nearest-ties-even FSM). A real IEEE-754 computation, not a 1-clock decision; the sqrt(2)=1.4142... case confirms genuine FPU arithmetic, not a baked constant.",
+    "slice_luts": 15619,
+    "slice_ffs": 1723,
+    "of_available_luts": 126800,
+    "utilization_pct": 12.32,
+    "core_clock_mhz": 6.25,
+    "core_clock_divider": 16,
+    "fmax_mhz": 13.16,
+    "timing": "The multi-cycle FPU has deep combinational shifter stages (nextpnr Fmax 13.16 MHz on the core clock). Running it at the full 100 MHz board clock latched WRONG intermediates on silicon (diagnosed live: hypot(8,15) read 12.69 instead of 17). Dividing the board clock by 16 to a ~6.25 MHz core clock (well under the 13.16 MHz Fmax) makes every result correct on hardware — the honest fix for a deep-pipeline datapath, recorded so the demo clock can never silently outrun the FPU.",
+    "flow": "yosys synth_xilinx -> nextpnr-xilinx -> prjxray (no Vivado); SRC = nexys_float_soc.v float_fhypf.v fpu.v. Unused fpu.v units (fp_div) are pruned by yosys."
+  }
+}

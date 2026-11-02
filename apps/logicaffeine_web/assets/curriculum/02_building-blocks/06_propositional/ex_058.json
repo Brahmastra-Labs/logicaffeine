@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're either tough and cautious or else frivolous",
   "options": [
-    "$ (T \\cdot C) \\vee F $",
-    "$ (T \\cdot (C \\vee F)) $",
-    "$ T \\cdot C \\vee F $",
-    "$ ((T \\cdot C) \\vee F) $"
+    "T ∧ (C ∨ F)",
+    "T ∧ C ∧ F",
+    "(T ∧ C) → F",
+    "(T ∧ C) ∨ F"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining T ∧ C and F: (T ∧ C) ∨ F.",
+  "section": "6.2"
 }

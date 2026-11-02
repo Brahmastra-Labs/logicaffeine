@@ -1,0 +1,12 @@
+{
+  "capability": "convert.parse_float",
+  "workload": "trunc parseFloat(numText(i))",
+  "arg": "1500000",
+  "expected": "1125000750000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

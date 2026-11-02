@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 5491667234
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__GI___cxa_atexit 249999

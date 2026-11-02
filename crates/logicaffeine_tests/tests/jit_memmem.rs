@@ -130,7 +130,10 @@ fn benchmark_shape_small_matches_and_tiers() {
     let (out, err, attempts, successes) = tiered(&src);
     assert_eq!(err, None);
     assert_eq!(out, expected.to_string());
-    assert!(attempts >= 1, "the outer search loop must be attempted as a region");
+    assert!(
+        attempts >= 1,
+        "the outer search loop must be attempted as a region"
+    );
     assert!(
         successes >= 1,
         "the naive-search nest must tier (attempts={attempts} successes={successes})"
@@ -372,7 +375,10 @@ fn real_benchmark_program_matches_and_tiers() {
     );
     assert_eq!(vm.error, None);
     let (attempts, successes) = tier.region_counts();
-    assert!(attempts >= 1, "the search loop must be attempted as a region");
+    assert!(
+        attempts >= 1,
+        "the search loop must be attempted as a region"
+    );
     assert!(
         successes >= 1,
         "the real string_search search nest must tier via the memmem collapse \
@@ -389,7 +395,7 @@ fn helper_honors_start_offset() {
     let h_len = t.len() as i64;
     let needle_len = 2i64;
     let bound = h_len - needle_len + 1; // 5
-    // start at i=3 → positions 3,4,5 all match → 3
+                                        // start at i=3 → positions 3,4,5 all match → 3
     let got = unsafe {
         logicaffeine_jit::logos_rt_memmem(
             t.as_ptr() as i64,

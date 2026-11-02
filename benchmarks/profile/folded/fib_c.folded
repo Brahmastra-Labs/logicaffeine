@@ -1,0 +1,4 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main;fib;fib 1363482470
+_start;__libc_start_main_impl;__libc_start_call_main;main;fib;fib;fib 1012231526
+_start;__libc_start_main_impl;__libc_start_call_main;main;fib 41755113
+_start;__libc_start_main_impl;__libc_start_call_main;main;fib;fib;fib;fib 18647229

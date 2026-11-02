@@ -59,7 +59,10 @@ fn two_sum_kernel_region_tiers() {
                Show count.\n";
     let (_, err, region_ok) = tiered(src);
     assert_eq!(err, None);
-    assert!(region_ok >= 1, "the two_sum loop must tier with map traffic (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the two_sum loop must tier with map traffic (got {region_ok})"
+    );
 }
 
 /// The collect kernel: insert then read-back-and-compare, int keys and
@@ -82,7 +85,10 @@ fn collect_kernel_regions_tier() {
     let (out, err, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "20000");
-    assert!(region_ok >= 2, "both collect loops must tier (got {region_ok})");
+    assert!(
+        region_ok >= 2,
+        "both collect loops must tier (got {region_ok})"
+    );
 }
 
 /// A MISSING key at a data-dependent iteration: the helper miss side-exits
@@ -171,5 +177,8 @@ fn contains_mix_region_tiers() {
                Show hits.\n";
     let (_, err, region_ok) = tiered(src);
     assert_eq!(err, None);
-    assert!(region_ok >= 1, "the contains/insert loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the contains/insert loop must tier (got {region_ok})"
+    );
 }

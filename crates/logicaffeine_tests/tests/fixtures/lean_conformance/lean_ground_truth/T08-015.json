@@ -1,0 +1,143 @@
+{
+  "case": "T08-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 16,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T08_015.CommRingLike",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192 [self : T08_015.CommRingLike R] \u2192 R \u2192 R \u2192 R",
+      "name": "T08_015.CommRingLike.add",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {R : Type} [self : T08_015.CommRingLike R] (a b : R), T08_015.CommRingLike.add a b = T08_015.CommRingLike.add b a",
+      "name": "T08_015.CommRingLike.add_comm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192\n  {motive : T08_015.CommRingLike R \u2192 Sort u} \u2192\n    (t : T08_015.CommRingLike R) \u2192\n      ((add mul : R \u2192 R \u2192 R) \u2192\n          (add_comm : \u2200 (a b : R), add a b = add b a) \u2192 motive { add := add, mul := mul, add_comm := add_comm }) \u2192\n        motive t",
+      "name": "T08_015.CommRingLike.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192 (add : R \u2192 R \u2192 R) \u2192 (R \u2192 R \u2192 R) \u2192 (\u2200 (a b : R), add a b = add b a) \u2192 T08_015.CommRingLike R",
+      "name": "T08_015.CommRingLike.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192 [self : T08_015.CommRingLike R] \u2192 R \u2192 R \u2192 R",
+      "name": "T08_015.CommRingLike.mul",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T08_015.CommRingLike R} \u2192 v1 = v2 \u2192 T08_015.CommRingLike.noConfusionType P v1 v2",
+      "name": "T08_015.CommRingLike.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192 Sort u \u2192 T08_015.CommRingLike R \u2192 T08_015.CommRingLike R \u2192 Sort u",
+      "name": "T08_015.CommRingLike.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192\n  {motive : T08_015.CommRingLike R \u2192 Sort u} \u2192\n    ((add mul : R \u2192 R \u2192 R) \u2192\n        (add_comm : \u2200 (a b : R), add a b = add b a) \u2192 motive { add := add, mul := mul, add_comm := add_comm }) \u2192\n      (t : T08_015.CommRingLike R) \u2192 motive t",
+      "name": "T08_015.CommRingLike.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{R : Type} \u2192\n  {motive : T08_015.CommRingLike R \u2192 Sort u} \u2192\n    (t : T08_015.CommRingLike R) \u2192\n      ((add mul : R \u2192 R \u2192 R) \u2192\n          (add_comm : \u2200 (a b : R), add a b = add b a) \u2192 motive { add := add, mul := mul, add_comm := add_comm }) \u2192\n        motive t",
+      "name": "T08_015.CommRingLike.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (R : Type) [inst : T08_015.CommRingLike R] (a b : R), T08_015.CommRingLike.add a b = T08_015.CommRingLike.add b a",
+      "name": "T08_015.abstractCarrier",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), a + b = b + a",
+      "name": "T08_015.addComm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (a b c : Nat), a * (b + c) = a * b + a * c",
+      "name": "T08_015.distrib",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Int), (x + y) * (x + y) = x * x + (x * y + y * x) + y * y",
+      "name": "T08_015.intIdentity",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (a b : Nat), (a + b) * 1 = a + b",
+      "name": "T08_015.needsNormalOnly",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u00ac\u2200 (a b : Nat), a * b = a + b",
+      "name": "T08_015.notARingIdentity",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

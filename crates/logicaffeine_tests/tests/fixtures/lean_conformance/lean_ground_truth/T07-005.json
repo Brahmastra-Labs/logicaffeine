@@ -1,0 +1,386 @@
+{
+  "case": "T07-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 48,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_005.Bar",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Bar \u03b1 \u2192 Sort u} \u2192\n    (t : T07_005.Bar \u03b1) \u2192 ([toFoo : T07_005.Foo \u03b1] \u2192 (left : \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Bar.mk left)) \u2192 motive t",
+      "name": "T07_005.Bar.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Bar \u03b1] \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_005.Bar.left",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [toFoo : T07_005.Foo \u03b1] \u2192 (\u03b1 \u2192 \u03b1) \u2192 T07_005.Bar \u03b1",
+      "name": "T07_005.Bar.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_005.Bar \u03b1} \u2192 v1 = v2 \u2192 T07_005.Bar.noConfusionType P v1 v2",
+      "name": "T07_005.Bar.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_005.Bar \u03b1 \u2192 T07_005.Bar \u03b1 \u2192 Sort u",
+      "name": "T07_005.Bar.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Bar \u03b1 \u2192 Sort u} \u2192\n    ([toFoo : T07_005.Foo \u03b1] \u2192 (left : \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Bar.mk left)) \u2192 (t : T07_005.Bar \u03b1) \u2192 motive t",
+      "name": "T07_005.Bar.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Bar \u03b1 \u2192 Sort u} \u2192\n    (t : T07_005.Bar \u03b1) \u2192 ([toFoo : T07_005.Foo \u03b1] \u2192 (left : \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Bar.mk left)) \u2192 motive t",
+      "name": "T07_005.Bar.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Bar \u03b1] \u2192 T07_005.Foo \u03b1",
+      "name": "T07_005.Bar.toFoo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_005.Baz",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Baz \u03b1 \u2192 Sort u} \u2192\n    (t : T07_005.Baz \u03b1) \u2192 ([toFoo : T07_005.Foo \u03b1] \u2192 (right : \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Baz.mk right)) \u2192 motive t",
+      "name": "T07_005.Baz.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [toFoo : T07_005.Foo \u03b1] \u2192 (\u03b1 \u2192 \u03b1) \u2192 T07_005.Baz \u03b1",
+      "name": "T07_005.Baz.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_005.Baz \u03b1} \u2192 v1 = v2 \u2192 T07_005.Baz.noConfusionType P v1 v2",
+      "name": "T07_005.Baz.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_005.Baz \u03b1 \u2192 T07_005.Baz \u03b1 \u2192 Sort u",
+      "name": "T07_005.Baz.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Baz \u03b1 \u2192 Sort u} \u2192\n    ([toFoo : T07_005.Foo \u03b1] \u2192 (right : \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Baz.mk right)) \u2192 (t : T07_005.Baz \u03b1) \u2192 motive t",
+      "name": "T07_005.Baz.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Baz \u03b1 \u2192 Sort u} \u2192\n    (t : T07_005.Baz \u03b1) \u2192 ([toFoo : T07_005.Foo \u03b1] \u2192 (right : \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Baz.mk right)) \u2192 motive t",
+      "name": "T07_005.Baz.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Baz \u03b1] \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_005.Baz.right",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Baz \u03b1] \u2192 T07_005.Foo \u03b1",
+      "name": "T07_005.Baz.toFoo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_005.Foo",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Foo \u03b1] \u2192 \u03b1",
+      "name": "T07_005.Foo.base",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_005.Foo \u03b1 \u2192 Sort u} \u2192 (t : T07_005.Foo \u03b1) \u2192 ((base : \u03b1) \u2192 motive { base := base }) \u2192 motive t",
+      "name": "T07_005.Foo.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_005.Foo \u03b1",
+      "name": "T07_005.Foo.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_005.Foo \u03b1} \u2192 v1 = v2 \u2192 T07_005.Foo.noConfusionType P v1 v2",
+      "name": "T07_005.Foo.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_005.Foo \u03b1 \u2192 T07_005.Foo \u03b1 \u2192 Sort u",
+      "name": "T07_005.Foo.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_005.Foo \u03b1 \u2192 Sort u} \u2192 ((base : \u03b1) \u2192 motive { base := base }) \u2192 (t : T07_005.Foo \u03b1) \u2192 motive t",
+      "name": "T07_005.Foo.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_005.Foo \u03b1 \u2192 Sort u} \u2192 (t : T07_005.Foo \u03b1) \u2192 ((base : \u03b1) \u2192 motive { base := base }) \u2192 motive t",
+      "name": "T07_005.Foo.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_005.Qux",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Qux \u03b1 \u2192 Sort u} \u2192\n    (t : T07_005.Qux \u03b1) \u2192\n      ([toBar : T07_005.Bar \u03b1] \u2192 (right : \u03b1 \u2192 \u03b1) \u2192 (join : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Qux.mk right join)) \u2192 motive t",
+      "name": "T07_005.Qux.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Qux \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_005.Qux.join",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [toBar : T07_005.Bar \u03b1] \u2192 (\u03b1 \u2192 \u03b1) \u2192 (\u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 T07_005.Qux \u03b1",
+      "name": "T07_005.Qux.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_005.Qux \u03b1} \u2192 v1 = v2 \u2192 T07_005.Qux.noConfusionType P v1 v2",
+      "name": "T07_005.Qux.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_005.Qux \u03b1 \u2192 T07_005.Qux \u03b1 \u2192 Sort u",
+      "name": "T07_005.Qux.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Qux \u03b1 \u2192 Sort u} \u2192\n    ([toBar : T07_005.Bar \u03b1] \u2192 (right : \u03b1 \u2192 \u03b1) \u2192 (join : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Qux.mk right join)) \u2192\n      (t : T07_005.Qux \u03b1) \u2192 motive t",
+      "name": "T07_005.Qux.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_005.Qux \u03b1 \u2192 Sort u} \u2192\n    (t : T07_005.Qux \u03b1) \u2192\n      ([toBar : T07_005.Bar \u03b1] \u2192 (right : \u03b1 \u2192 \u03b1) \u2192 (join : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 motive (T07_005.Qux.mk right join)) \u2192 motive t",
+      "name": "T07_005.Qux.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Qux \u03b1] \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_005.Qux.right",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Qux \u03b1] \u2192 T07_005.Bar \u03b1",
+      "name": "T07_005.Qux.toBar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_005.Qux \u03b1] \u2192 T07_005.Baz \u03b1",
+      "name": "T07_005.Qux.toBaz",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Qux \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_005.allFour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Qux \u03b1] \u2192 \u03b1",
+      "name": "T07_005.baseViaQux",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_005.Bar Nat",
+      "name": "T07_005.instBarNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_005.Baz Nat",
+      "name": "T07_005.instBazNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_005.Foo Nat",
+      "name": "T07_005.instFooNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_005.Qux Nat",
+      "name": "T07_005.instQuxNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Bar \u03b1] \u2192 T07_005.Foo \u03b1",
+      "name": "T07_005.parentOfBar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Foo \u03b1] \u2192 \u03b1",
+      "name": "T07_005.useFoo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Qux \u03b1] \u2192 \u03b1",
+      "name": "T07_005.useQux",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Bar \u03b1] \u2192 \u03b1",
+      "name": "T07_005.viaBar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_005.Baz \u03b1] \u2192 \u03b1",
+      "name": "T07_005.viaBaz",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

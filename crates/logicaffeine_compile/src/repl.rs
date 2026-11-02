@@ -54,7 +54,12 @@ pub struct ReplSession {
 impl ReplSession {
     /// A fresh session.
     pub fn new() -> Self {
-        Self { defs: Vec::new(), stmts: Vec::new(), emitted: 0, argv: vec!["repl".to_string()] }
+        Self {
+            defs: Vec::new(),
+            stmts: Vec::new(),
+            emitted: 0,
+            argv: vec!["repl".to_string()],
+        }
     }
 
     /// Evaluate one input chunk (a statement, a multi-statement chunk, or a
@@ -73,8 +78,11 @@ impl ReplSession {
 
         let program = self.source();
         let result = crate::interpret_for_ui_with_args(&program, &self.argv).await;
-        let new_lines: Vec<String> =
-            result.lines.get(self.emitted..).map(|s| s.to_vec()).unwrap_or_default();
+        let new_lines: Vec<String> = result
+            .lines
+            .get(self.emitted..)
+            .map(|s| s.to_vec())
+            .unwrap_or_default();
         match result.error {
             Some(err) => {
                 // Roll back: the reverted program deterministically reproduces
@@ -84,11 +92,17 @@ impl ReplSession {
                 } else {
                     self.stmts.pop();
                 }
-                ReplOutcome { new_lines, error: Some(err) }
+                ReplOutcome {
+                    new_lines,
+                    error: Some(err),
+                }
             }
             None => {
                 self.emitted = result.lines.len();
-                ReplOutcome { new_lines, error: None }
+                ReplOutcome {
+                    new_lines,
+                    error: None,
+                }
             }
         }
     }
@@ -203,11 +217,17 @@ impl ReplSession {
         match result.error {
             Some(err) => {
                 self.reset();
-                ReplOutcome { new_lines: Vec::new(), error: Some(err) }
+                ReplOutcome {
+                    new_lines: Vec::new(),
+                    error: Some(err),
+                }
             }
             None => {
                 self.emitted = result.lines.len();
-                ReplOutcome { new_lines: result.lines, error: None }
+                ReplOutcome {
+                    new_lines: result.lines,
+                    error: None,
+                }
             }
         }
     }

@@ -38,15 +38,19 @@ fn test_simple_pattern_unification() {
     // x + 0 = x (in the body, x is a Variable in terms)
     let x = ProofTerm::Variable("x".to_string());
     let rhs = ProofExpr::Identity(
-        ProofTerm::Function("add".to_string(), vec![
-            x.clone(),
-            ProofTerm::Constant("0".to_string()),
-        ]),
+        ProofTerm::Function(
+            "add".to_string(),
+            vec![x.clone(), ProofTerm::Constant("0".to_string())],
+        ),
         x.clone(),
     );
 
     let result = unify_pattern(&lhs, &rhs);
-    assert!(result.is_ok(), "Pattern unification should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Pattern unification should succeed: {:?}",
+        result
+    );
 
     let solution = result.unwrap();
     let p_solution = solution.get("P").expect("P should be solved");
@@ -79,10 +83,10 @@ fn test_pattern_application_after_solve() {
     let p_lambda = ProofExpr::Lambda {
         variable: "x".to_string(),
         body: Box::new(ProofExpr::Identity(
-            ProofTerm::Function("add".to_string(), vec![
-                x.clone(),
-                ProofTerm::Constant("0".to_string()),
-            ]),
+            ProofTerm::Function(
+                "add".to_string(),
+                vec![x.clone(), ProofTerm::Constant("0".to_string())],
+            ),
             x.clone(),
         )),
     };
@@ -144,14 +148,21 @@ fn test_multi_arg_pattern() {
     );
 
     let result = unify_pattern(&lhs, &rhs);
-    assert!(result.is_ok(), "Multi-arg pattern unification should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Multi-arg pattern unification should succeed: {:?}",
+        result
+    );
 
     let solution = result.unwrap();
     let f_solution = solution.get("F").expect("F should be solved");
 
     // Verify it's a nested lambda: λx.λy.Body
     match f_solution {
-        ProofExpr::Lambda { variable: v1, body: inner } => {
+        ProofExpr::Lambda {
+            variable: v1,
+            body: inner,
+        } => {
             assert_eq!(v1, "x");
             match inner.as_ref() {
                 ProofExpr::Lambda { variable: v2, .. } => {
@@ -208,10 +219,10 @@ fn test_scope_violation_fails() {
     // y + 0 - uses y which is NOT in the pattern variables
     let y = ProofTerm::Variable("y".to_string());
     let rhs = ProofExpr::Identity(
-        ProofTerm::Function("add".to_string(), vec![
-            y.clone(),
-            ProofTerm::Constant("0".to_string()),
-        ]),
+        ProofTerm::Function(
+            "add".to_string(),
+            vec![y.clone(), ProofTerm::Constant("0".to_string())],
+        ),
         y.clone(),
     );
 

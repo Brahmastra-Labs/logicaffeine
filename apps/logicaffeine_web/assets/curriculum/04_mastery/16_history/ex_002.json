@@ -10,7 +10,8 @@
     "The Elements"
   ],
   "correct": 1,
-  "hint": "The Greek word means 'instrument' or 'tool' - logic as a tool for reasoning.",
+  "hint": "The Greek word means instrument, or tool.",
   "explanation": "The Organon ('instrument') is Aristotle's collection of six works on logic: Categories, On Interpretation, Prior Analytics, Posterior Analytics, Topics, and Sophistical Refutations. It dominated Western logic for over 2000 years.",
-  "visual_concept": "Logic as a tool - just as a hammer helps build things, the Organon was seen as the tool for building valid arguments."
+  "visual_concept": "Logic as a tool - just as a hammer helps build things, the Organon was seen as the tool for building valid arguments.",
+  "section": "16.1"
 }

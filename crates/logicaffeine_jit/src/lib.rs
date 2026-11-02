@@ -3,12 +3,19 @@
 #![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 #![doc = include_str!("../README.md")]
 
+/// Build and execute self-contained optimized bytecode images.
+pub mod image;
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
+static ALLOC_SCOPE_ENTERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ALLOC_SCOPE_LEAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static REGION_ALLOC_RESETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 use logicaffeine_compile::vm::{
-    install_native_tier, ArrayPin, CalleeSig, Constant, FnTable, HoistGuard, NativeCtx, NativeFn,
-    NativeFrame, NativeOutcome, NativeRet, NativeTier, ObservedKind, Op, ParamKind, PinElem,
-    RegBox, RegionFn, RegionOutcome, SlotKind,
+    install_native_tier, ArrayPin, CalleeSig, Constant, EnumTypeDef, FnTable, HoistGuard,
+    NativeCtx, NativeFn, NativeFrame, NativeOutcome, NativeRet, NativeTier, ObservedKind, Op,
+    ParamKind, PinElem, RegBox, RegionFn, RegionOutcome, SlotKind,
 };
 use logicaffeine_forge::jit::{
     compile_straightline_coded, compile_straightline_pinned_float, compile_straightline_with,
@@ -21,6 +28,8 @@ use logicaffeine_forge::jit::{
 // than the kernel raises its error, diverging from the tree-walker. Pinned at
 // compile time so any future change to either constant fails the BUILD here
 // rather than silently miscompiling deep recursion.
+mod inductive;
+
 const _: () = assert!(
     logicaffeine_compile::semantics::MAX_CALL_DEPTH as i64
         == logicaffeine_forge::jit::BAKED_CALL_DEPTH,
@@ -43,6 +52,11 @@ const _: () = assert!(
 std::thread_local! {
     static ALLOC_REGISTRY: std::cell::RefCell<Vec<*mut Vec<i64>>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// Registry watermarks for nested native function invocations. Each
+    /// function releases its scratch lists when it returns, while preserving
+    /// handles it hands to its caller through the return and mutable parameters.
+    static ALLOC_SCOPES: std::cell::RefCell<Vec<usize>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Registry depth — drained-to-zero is part of every boundary's contract
@@ -51,17 +65,128 @@ pub fn native_alloc_registry_len() -> usize {
     ALLOC_REGISTRY.with(|r| r.borrow().len())
 }
 
+/// Native allocation-scope depth. Success and deopt boundaries restore this
+/// to zero; exposed so parity tests can lock the lifetime invariant.
+pub fn native_alloc_scope_depth() -> usize {
+    ALLOC_SCOPES.with(|s| s.borrow().len())
+}
+
+/// Cumulative scope entries and successful leaves.
+pub fn native_alloc_scope_counts() -> (u64, u64) {
+    (
+        ALLOC_SCOPE_ENTERS.load(Ordering::Relaxed),
+        ALLOC_SCOPE_LEAVES.load(Ordering::Relaxed),
+    )
+}
+
+/// Number of hot-loop iteration boundaries that reclaimed dead native list
+/// temporaries. Exposed for the benchmark-shape lock test.
+pub fn native_region_alloc_reset_count() -> u64 {
+    REGION_ALLOC_RESETS.load(Ordering::Relaxed)
+}
+
 fn alloc_registry_drain() {
     ALLOC_REGISTRY.with(|r| {
         for ptr in r.borrow_mut().drain(..) {
             drop(unsafe { Box::from_raw(ptr) });
         }
     });
+    let aborted = ALLOC_SCOPES.with(|s| {
+        let mut scopes = s.borrow_mut();
+        let n = scopes.len() as u64;
+        scopes.clear();
+        n
+    });
+    ALLOC_SCOPE_LEAVES.fetch_add(aborted, Ordering::Relaxed);
+}
+
+/// Start one native function's allocation lifetime.
+///
+/// # Safety
+/// Called only by generated `Host` micro-ops; the frame operands are unused.
+pub unsafe extern "C" fn logos_rt_alloc_scope_enter(
+    _frame: *mut i64,
+    _dst: i64,
+    _src: i64,
+    _count: i64,
+    _imm: i64,
+) -> i64 {
+    let mark = native_alloc_registry_len();
+    ALLOC_SCOPES.with(|s| s.borrow_mut().push(mark));
+    ALLOC_SCOPE_ENTERS.fetch_add(1, Ordering::Relaxed);
+    // Host micro-ops interpret zero as a request to side-exit. Entering an
+    // allocation scope succeeded, so return the nonzero success sentinel.
+    1
+}
+
+/// Reclaim native lists whose allocation-site registers are dead at the hot
+/// loop backedge. The region adapter emits this only when every allocation
+/// destination is non-live-in and has no list-handle copy/rebind.
+///
+/// # Safety
+/// Called only at the generated region head after the static lifetime gate.
+pub unsafe extern "C" fn logos_rt_region_alloc_reset(
+    _frame: *mut i64,
+    _dst: i64,
+    _src: i64,
+    _count: i64,
+    _imm: i64,
+) -> i64 {
+    alloc_registry_drain();
+    REGION_ALLOC_RESETS.fetch_add(1, Ordering::Relaxed);
+    // Host micro-ops interpret zero as a request to side-exit. The reset is a
+    // completed native operation, so continue along the success edge.
+    1
+}
+
+/// Release one native function's scratch allocations, retaining its exported
+/// list handles for the caller. The first input is the return word; the rest
+/// are final mutable list parameters. A nonzero imm marks a scalar return.
+///
+/// # Safety
+/// The input window contains count readable slots, with at least one return
+/// slot. Every list export is a live handle; dst is writable.
+pub unsafe extern "C" fn logos_rt_alloc_scope_leave(
+    frame: *mut i64,
+    dst: i64,
+    src: i64,
+    count: i64,
+    imm: i64,
+) -> i64 {
+    let exports = std::slice::from_raw_parts(frame.add(src as usize), count as usize);
+    let returned = exports[0];
+    let handles = &exports[usize::from(imm != 0)..];
+    let mark = ALLOC_SCOPES.with(|s| s.borrow_mut().pop()).unwrap_or(0);
+    ALLOC_REGISTRY.with(|r| {
+        let mut registry = r.borrow_mut();
+        let mut position = 0;
+        registry.retain(|&ptr| {
+            let keep = position < mark || handles.contains(&(ptr as i64));
+            position += 1;
+            if !keep {
+                drop(Box::from_raw(ptr));
+            }
+            keep
+        });
+    });
+    *frame.add(dst as usize) = returned;
+    ALLOC_SCOPE_LEAVES.fetch_add(1, Ordering::Relaxed);
+    1
 }
 
 /// Detach one allocation by handle (the boundary's success path for a
 /// returned fresh list). `None` when the handle is not registry-owned
 /// (a param passthrough).
+/// A list native code built, handed to the VM in the VM's representation of its elements: packed words for a
+/// `Seq of Word32` (an empty one is the VM's empty list of Ints, as before its first push), a list of Ints otherwise.
+/// Native allocation sites hold only these two lanes.
+fn list_value(items: Vec<i64>, elem: PinElem) -> logicaffeine_compile::vm::Value {
+    match elem {
+        PinElem::Word32 => logicaffeine_compile::vm::Value::word32_list(items),
+        _ => logicaffeine_compile::vm::Value::int_list(items),
+    }
+}
+
 fn alloc_registry_detach(handle: i64) -> Option<Vec<i64>> {
     ALLOC_REGISTRY.with(|r| {
         let mut reg = r.borrow_mut();
@@ -69,6 +194,47 @@ fn alloc_registry_detach(handle: i64) -> Option<Vec<i64>> {
         let ptr = reg.swap_remove(pos);
         Some(*unsafe { Box::from_raw(ptr) })
     })
+}
+
+/// Adopt a list-returning callee's Vec into a region's pinned destination.
+/// The two input slots hold the returned and destination handles. An owned
+/// result moves; a borrowed result is copied. Pin refresh is a separate
+/// ListTriple micro-op, so every frame access is visible to code generation.
+///
+/// # Safety
+/// The input window contains two live Vec handles and dst is writable.
+pub unsafe extern "C" fn logos_rt_adopt_list_i64(
+    frame: *mut i64,
+    dst: i64,
+    src: i64,
+    _count: i64,
+    _imm: i64,
+) -> i64 {
+    let returned = *frame.add(src as usize);
+    let destination = *frame.add(src as usize + 1);
+    if returned != destination {
+        let replacement = match alloc_registry_detach(returned) {
+            Some(items) => items,
+            None => (&*(returned as *const Vec<i64>)).clone(),
+        };
+        *(destination as *mut Vec<i64>) = replacement;
+    }
+    *frame.add(dst as usize) = destination;
+    1
+}
+
+/// An unconditional side exit: answers 0, so a precise chain resumes on the VM at the op that holds it.
+///
+/// # Safety
+/// Reads nothing; the signature is the `Host` helper contract.
+pub unsafe extern "C" fn logos_rt_side_exit(
+    _frame: *mut i64,
+    _dst: i64,
+    _src: i64,
+    _count: i64,
+    _imm: i64,
+) -> i64 {
+    0
 }
 
 /// Allocate a fresh Int list and plant its pin triple.
@@ -82,6 +248,23 @@ pub unsafe extern "C" fn logos_rt_alloc_list_i64(
     len_slot: i64,
 ) {
     let boxed: Box<Vec<i64>> = Box::new(Vec::new());
+    let raw = Box::into_raw(boxed);
+    ALLOC_REGISTRY.with(|r| r.borrow_mut().push(raw));
+    *frame.add(vec_slot as usize) = raw as i64;
+    *frame.add(ptr_slot as usize) = (*raw).as_mut_ptr() as i64;
+    *frame.add(len_slot as usize) = 0;
+}
+
+/// Allocate a proof-sized Int list. The adapter places the capacity in
+/// `len_slot`; this helper consumes it and restores the observable length 0.
+pub unsafe extern "C" fn logos_rt_alloc_list_i64_fixed(
+    frame: *mut i64,
+    vec_slot: i64,
+    ptr_slot: i64,
+    len_slot: i64,
+) {
+    let capacity = (*frame.add(len_slot as usize)).max(0) as usize;
+    let boxed: Box<Vec<i64>> = Box::new(Vec::with_capacity(capacity));
     let raw = Box::into_raw(boxed);
     ALLOC_REGISTRY.with(|r| r.borrow_mut().push(raw));
     *frame.add(vec_slot as usize) = raw as i64;
@@ -103,6 +286,29 @@ pub unsafe extern "C" fn logos_rt_list_triple(
     len_slot: i64,
 ) {
     let raw = *frame.add(handle_slot as usize) as *mut Vec<i64>;
+    *frame.add(vec_slot as usize) = raw as i64;
+    *frame.add(ptr_slot as usize) = (*raw).as_mut_ptr() as i64;
+    *frame.add(len_slot as usize) = (*raw).len() as i64;
+}
+
+/// Copy-on-write: give the list in `frame[handle_slot]` its own registry-owned buffer — a copy of the
+/// shared one — and re-plant the register's handle and pin triple on it. The native twin of the VM's
+/// first write to a shared list; the original (a parameter's, or a caller's through a passthrough) is
+/// untouched from here on.
+///
+/// # Safety
+/// `frame[handle_slot]` must be a live `*mut Vec<i64>`.
+pub unsafe extern "C" fn logos_rt_list_own(
+    frame: *mut i64,
+    handle_slot: i64,
+    vec_slot: i64,
+    ptr_slot: i64,
+    len_slot: i64,
+) {
+    let shared = *frame.add(handle_slot as usize) as *const Vec<i64>;
+    let raw = Box::into_raw(Box::new((*shared).clone()));
+    ALLOC_REGISTRY.with(|r| r.borrow_mut().push(raw));
+    *frame.add(handle_slot as usize) = raw as i64;
     *frame.add(vec_slot as usize) = raw as i64;
     *frame.add(ptr_slot as usize) = (*raw).as_mut_ptr() as i64;
     *frame.add(len_slot as usize) = (*raw).len() as i64;
@@ -333,16 +539,25 @@ pub unsafe extern "C" fn logos_rt_str_append(
     let cell = *frame.add(handle_slot as usize) as *mut Value;
     let acc = &mut *cell;
 
-    // The appended bytes as a &str (ASCII — both the byte form and the baked
-    // const are guaranteed ASCII by the region's `TextBytes`/`TextByte` gate).
+    // The appended text: a byte (`src_len == -1`; ASCII, by the region's `TextByte` gate), an Int written as the VM
+    // writes `Text + Int` (`src_len == -2`, the very `to_display_string` the kernel's `add` calls), or a baked
+    // ASCII constant (`src_len` its length).
     let byte_buf: [u8; 1];
-    let bytes: &[u8] = if src_len < 0 {
-        byte_buf = [src as u8];
-        &byte_buf
-    } else {
-        std::slice::from_raw_parts(src as *const u8, src_len as usize)
+    let digits: String;
+    let appended: &str = match src_len {
+        -1 => {
+            byte_buf = [src as u8];
+            std::str::from_utf8_unchecked(&byte_buf)
+        }
+        -2 => {
+            digits = RuntimeValue::Int(src).to_display_string();
+            &digits
+        }
+        len => std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            src as *const u8,
+            len as usize,
+        )),
     };
-    let appended: &str = std::str::from_utf8_unchecked(bytes);
 
     // Mirror `add_assign`: sole-owned Text grows in place; everything else (a
     // shared Rc, or a non-Text) takes the kernel `add` (COW for Text+Text).
@@ -535,7 +750,11 @@ pub unsafe extern "C" fn logos_rt_memmem_frame(
 /// Register kinds for the adapter's sound dataflow.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Kind {
+    /// A list a function allocated at this pc that nothing has been pushed into yet. Seen only while
+    /// [`fresh_list_kinds`] discovers each allocation site's element kind; every flow a gate reads resolves it.
+    FreshList(u32),
     Unknown,
+    Nothing,
     Int,
     Bool,
     Float,
@@ -547,6 +766,10 @@ enum Kind {
     /// stores). Behaves exactly like [`Kind::IntList`] for register/pin gating;
     /// only the array op width differs.
     IntListI32,
+    /// A pinned packed `Word32` list (`ListRepr::Words32` = masked values in `Vec<i64>`). The pin/load is
+    /// IDENTICAL to [`Kind::IntList`] (8-byte elements); the ONLY difference is that an indexed read yields a
+    /// [`Kind::Word32`] (so the Word ops accept it), never an `Int`. Lets a `Seq of Word32` table pin + tier.
+    Word32List,
     /// A pinned unboxed Float list.
     FloatList,
     /// A pinned unboxed Bool list.
@@ -574,6 +797,27 @@ enum Kind {
     /// slice. Valid ONLY as the source of a `StrAppend`; every other use gate
     /// rejects it (so the region bails).
     TextConst,
+    /// A `Word32` — the ℤ/2³² wrapping ring (the MD5/SHA-1/SHA-256 crypto substrate) carried UNBOXED as
+    /// its zero-extended `u32` value in a plain i64 slot (so `0 ≤ slot < 2³²`; the invariant every Word32
+    /// op preserves or re-establishes). Produced by `word32`/`word16Make`, consumed to an `Int` by
+    /// `IntOfWord32`/`IntOfWord16`, or re-boxed to `RuntimeValue::Word` at a deopt/exit via `RegBox::Word32`.
+    Word32,
+    /// A `Word64` — the ℤ/2⁶⁴ wrapping ring carried UNBOXED as its full 64-bit pattern in an i64 slot (no
+    /// masking; the i64 bits ARE the u64 bits). Re-boxed via `RegBox::Word64`.
+    Word64,
+    /// A `Word16` — the ℤ/2¹⁶ ring, produced by `word16(n)` as its masked value (`0 ≤ slot < 2¹⁶`). Its
+    /// ONLY in-region consumer is `intOfWord16`: no op here wraps at 2¹⁶, so arithmetic, a write-back, a
+    /// live-in, and a deopt capture all reject it and the region stays on the VM.
+    Word16,
+    /// A `chr(code)` result carried UNBOXED as the Unicode-scalar CODE POINT in an i64 slot, re-boxed to a
+    /// 1-char `Text` (`Rc<String>`) at a deopt/exit via `RegBox::CharText`. The producing `chr` op is a
+    /// `ChrGuard` that DEOPTS to the VM on an invalid code (surrogate / `> 0x10FFFF`), so a slot of this
+    /// Kind ALWAYS holds a valid scalar — materialization can `char::from_u32(..).unwrap()` soundly.
+    CharText,
+    /// A node of one of the program's own enums: `Rc::as_ptr` of the VM's `Rc<InductiveValue>` in a
+    /// plain slot. Whether the register owns a count of it is the enum lane's business
+    /// ([`inductive::Hold`]).
+    Inductive,
     Mixed,
 }
 
@@ -583,6 +827,14 @@ impl Kind {
             Kind::Int => Some(SlotKind::Int),
             Kind::Bool => Some(SlotKind::Bool),
             Kind::Float => Some(SlotKind::Float),
+            // A `CharText` re-boxes to a 1-char Text at write-back. Valid as an OUTPUT only; the region
+            // gate rejects a `CharText` live-in guard input (see the entry-guard bail).
+            Kind::CharText => Some(SlotKind::CharText),
+            // A Word rides UNBOXED as a masked i64 — BIDIRECTIONAL: it marshals in as a live-in guard (the
+            // VM verifies the `RuntimeValue::Word` width) and re-boxes on write-back. This is what lets a
+            // loop-carried Word (a hash accumulator `h0..h7`) tier as region state.
+            Kind::Word32 => Some(SlotKind::Word32),
+            Kind::Word64 => Some(SlotKind::Word64),
             _ => None,
         }
     }
@@ -641,10 +893,14 @@ fn observed_kind(o: ObservedKind) -> Kind {
         ObservedKind::Float => Kind::Float,
         ObservedKind::IntList => Kind::IntList,
         ObservedKind::IntListI32 => Kind::IntListI32,
+        ObservedKind::Word32List => Kind::Word32List,
         ObservedKind::FloatList => Kind::FloatList,
         ObservedKind::BoolList => Kind::BoolList,
         ObservedKind::Map => Kind::IntMap,
         ObservedKind::TextBytes => Kind::TextBytes,
+        // A loop-carried Word entering the region as state — carried unboxed as a masked i64.
+        ObservedKind::Word32 => Kind::Word32,
+        ObservedKind::Word64 => Kind::Word64,
         ObservedKind::Other => Kind::Mixed,
     }
 }
@@ -669,6 +925,7 @@ struct CallCtx<'t> {
     /// The program's function table — non-self calls bake the CALLEE's
     /// slot address for table dispatch.
     table: &'t FnTable,
+    callees: &'t [CalleeSig],
 }
 
 /// The result kind of an arithmetic op over two operand kinds, mirroring the
@@ -680,6 +937,10 @@ fn arith_result(l: Kind, r: Kind) -> Option<Kind> {
         (Kind::Float, Kind::Float) | (Kind::Int, Kind::Float) | (Kind::Float, Kind::Int) => {
             Some(Kind::Float)
         }
+        // Same-width Word arithmetic is modular (2³²/2⁶⁴): `Word + Word`/`- `/`* ` stays that Word. Mixed
+        // widths (or a Word with an Int) is a type error the tree-walker rejects, so it never reaches here.
+        (Kind::Word32, Kind::Word32) => Some(Kind::Word32),
+        (Kind::Word64, Kind::Word64) => Some(Kind::Word64),
         _ => None,
     }
 }
@@ -687,6 +948,8 @@ fn arith_result(l: Kind, r: Kind) -> Option<Kind> {
 fn join(a: Kind, b: Kind) -> Kind {
     match (a, b) {
         (Kind::Unknown, x) | (x, Kind::Unknown) => x,
+        (Kind::FreshList(_), x @ (Kind::IntList | Kind::Word32List))
+        | (x @ (Kind::IntList | Kind::Word32List), Kind::FreshList(_)) => x,
         (x, y) if x == y => x,
         _ => Kind::Mixed,
     }
@@ -705,11 +968,57 @@ fn kind_flow(
     constants: &[Constant],
     entry: Vec<Kind>,
     calls: Option<&dyn Fn(u16) -> Option<(Kind, Vec<Kind>)>>,
+    binds: &[Kind],
+) -> Option<Vec<Option<Vec<Kind>>>> {
+    let fresh = fresh_list_kinds(ops, base_pc, constants, entry.clone(), calls, binds)?;
+    kind_flow_sited(ops, base_pc, constants, entry, calls, binds, &fresh)
+}
+
+/// What a function's own allocations (`NewEmptyList`) hold.
+enum FreshSites {
+    /// Every allocation is a list of Ints (the classic scalar-only mode).
+    Ints,
+    /// Discovering each site's element kind: a site is [`Kind::FreshList`] until the first push of an Int or a Word32
+    /// into it decides it, recorded here by allocation pc, and the gates wait. A decision is a guess the flow that
+    /// follows checks: every push into the site must then pass its gate, or the function stays on the VM.
+    Discover(std::cell::RefCell<std::collections::HashMap<usize, Kind>>),
+    /// Each site's element kind, as discovered (a site nothing is pushed into is a list of Ints, as on the VM).
+    Known(std::collections::HashMap<usize, Kind>),
+}
+
+/// The element kind of each list a function allocates, from the first Int or Word32 pushed into it: a `Seq of Word32`
+/// (the VM retags its empty list on the first word pushed) or a list of Ints; a site nothing decides is a list of Ints.
+/// The caller's flow checks every push against the decision.
+fn fresh_list_kinds(
+    ops: &[Op],
+    base_pc: usize,
+    constants: &[Constant],
+    entry: Vec<Kind>,
+    calls: Option<&dyn Fn(u16) -> Option<(Kind, Vec<Kind>)>>,
+    binds: &[Kind],
+) -> Option<FreshSites> {
+    let discover = FreshSites::Discover(std::cell::RefCell::new(std::collections::HashMap::new()));
+    kind_flow_sited(ops, base_pc, constants, entry, calls, binds, &discover)?;
+    let FreshSites::Discover(found) = discover else {
+        unreachable!()
+    };
+    Some(FreshSites::Known(found.into_inner()))
+}
+
+fn kind_flow_sited(
+    ops: &[Op],
+    base_pc: usize,
+    constants: &[Constant],
+    entry: Vec<Kind>,
+    calls: Option<&dyn Fn(u16) -> Option<(Kind, Vec<Kind>)>>,
+    binds: &[Kind],
+    fresh: &FreshSites,
 ) -> Option<Vec<Option<Vec<Kind>>>> {
     let n = ops.len();
     let in_slice = |t: usize| t >= base_pc && t < base_pc + n;
     let const_kind = |idx: u32| -> Kind {
         match constants.get(idx as usize) {
+            Some(Constant::Nothing) => Kind::Nothing,
             Some(Constant::Int(_)) => Kind::Int,
             Some(Constant::Float(_)) => Kind::Float,
             Some(Constant::Bool(_)) => Kind::Bool,
@@ -752,12 +1061,18 @@ fn kind_flow(
             Op::Mod { dst, .. }
             | Op::DivPow2 { dst, .. }
             | Op::MagicDivU { dst, .. }
-            | Op::BitXor { dst, .. }
             | Op::Shl { dst, .. }
             | Op::Shr { dst, .. } => out[dst as usize] = Kind::Int,
-            Op::BitAnd { dst, lhs, rhs } | Op::BitOr { dst, lhs, rhs } => {
+            // `xor` / `&` / `|` (generic operators): Int×Int → Int, Bool×Bool → Bool, and — since each
+            // PRESERVES the width mask — a same-width Word × Word → that Word (this is how `sha256` combines
+            // words with the generic operators; `word_and`/`word_or` are the builtin spellings of the same op).
+            Op::BitXor { dst, lhs, rhs }
+            | Op::BitAnd { dst, lhs, rhs }
+            | Op::BitOr { dst, lhs, rhs } => {
                 out[dst as usize] = match (out[lhs as usize], out[rhs as usize]) {
                     (Kind::Int, Kind::Int) => Kind::Int,
+                    (Kind::Word32, Kind::Word32) => Kind::Word32,
+                    (Kind::Word64, Kind::Word64) => Kind::Word64,
                     (Kind::Bool, Kind::Bool) => Kind::Bool,
                     _ => Kind::Mixed,
                 }
@@ -768,15 +1083,25 @@ fn kind_flow(
                     _ => Kind::Mixed,
                 }
             }
-            Op::Lt { dst, .. } | Op::Gt { dst, .. } | Op::LtEq { dst, .. }
-            | Op::GtEq { dst, .. } | Op::Eq { dst, .. } | Op::NotEq { dst, .. } => {
-                out[dst as usize] = Kind::Bool
-            }
+            Op::Lt { dst, .. }
+            | Op::Gt { dst, .. }
+            | Op::LtEq { dst, .. }
+            | Op::GtEq { dst, .. }
+            | Op::Eq { dst, .. }
+            | Op::NotEq { dst, .. } => out[dst as usize] = Kind::Bool,
             Op::Move { dst, src } => out[dst as usize] = out[src as usize],
-            Op::Index { dst, collection, .. }
-            | Op::IndexUnchecked { dst, collection, .. } => {
+            // `Swap a and b`: each register takes the other's value, so each takes the other's kind.
+            Op::RevSwap { a, b } => out.swap(a as usize, b as usize),
+            Op::Index {
+                dst, collection, ..
+            }
+            | Op::IndexUnchecked {
+                dst, collection, ..
+            } => {
                 out[dst as usize] = match out[collection as usize] {
                     Kind::IntList | Kind::IntListI32 => Kind::Int,
+                    // `item i of <Seq of Word32>` yields a `Word32` (so the Word ops downstream accept it).
+                    Kind::Word32List => Kind::Word32,
                     Kind::FloatList => Kind::Float,
                     Kind::BoolList => Kind::Bool,
                     // Map int fast lane: a non-Int value is a helper miss
@@ -789,10 +1114,55 @@ fn kind_flow(
             }
             Op::Length { dst, .. } => out[dst as usize] = Kind::Int,
             Op::Contains { dst, .. } => out[dst as usize] = Kind::Bool,
-            // Fresh allocations ride the Int lane (mode B sites).
-            Op::NewEmptyList { dst } => out[dst as usize] = Kind::IntList,
+            // A function's own allocation holds what its pushes put in it (see `FreshSites`).
+            Op::NewEmptyList { dst }
+            | Op::NewEmptyListWithCapacity { dst, .. }
+            | Op::NewEmptyListFixed { dst, .. } => {
+                out[dst as usize] = match fresh {
+                    FreshSites::Ints => Kind::IntList,
+                    FreshSites::Discover(_) => Kind::FreshList(i as u32),
+                    FreshSites::Known(sites) => sites.get(&i).copied().unwrap_or(Kind::IntList),
+                }
+            }
+            // While sites are discovered, the first push of an Int or a Word32 into one still undecided decides it.
+            // Any other value decides nothing: mid-fixpoint it may not have its final kind yet.
+            Op::ListPush { list, value } if matches!(out[list as usize], Kind::FreshList(_)) => {
+                let Kind::FreshList(site) = out[list as usize] else {
+                    unreachable!()
+                };
+                let decided = match out[value as usize] {
+                    Kind::Int => Some(Kind::IntList),
+                    Kind::Word32 => Some(Kind::Word32List),
+                    _ => None,
+                };
+                if let (Some(kind), FreshSites::Discover(found)) = (decided, fresh) {
+                    out[list as usize] = *found.borrow_mut().entry(site as usize).or_insert(kind);
+                }
+            }
+            Op::NewInductive { dst, .. } => out[dst as usize] = Kind::Inductive,
+            Op::TestArm { dst, .. } => out[dst as usize] = Kind::Bool,
+            // The payload kind the declared variant names (`inductive::bind_kinds`), checked at run time.
+            Op::BindArm { dst, .. } => {
+                out[dst as usize] = binds.get(i).copied().unwrap_or(Kind::Mixed)
+            }
+            Op::NewList { dst, start, count } => {
+                out[dst as usize] = if (start..start + count).all(|r| out[r as usize] == Kind::Int)
+                {
+                    Kind::IntList
+                } else {
+                    Kind::Mixed
+                };
+            }
             Op::Call { dst, func, .. } => {
-                let Some((ret, _)) = calls.and_then(|c| c(func)) else { return None };
+                let Some((ret, _)) = calls.and_then(|c| c(func)) else {
+                    if std::env::var_os("LOGOS_JIT_TRACE").is_some() {
+                        eprintln!(
+                            "jit-trace: kind flow cannot type the call to fn#{func} at pc {}",
+                            base_pc + i
+                        );
+                    }
+                    return None;
+                };
                 out[dst as usize] = ret;
             }
             Op::CallBuiltin {
@@ -800,6 +1170,159 @@ fn kind_flow(
                 builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Sqrt,
                 ..
             } => out[dst as usize] = Kind::Float,
+            // `abs(x)` preserves the argument's kind (Int→Int, Float→Float); the Int lane tiers via a
+            // branchless composition in `translate_op`, the Float lane declines there (no sign-mask stencil).
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Abs,
+                args_start,
+                arg_count,
+            } if arg_count == 1 => out[dst as usize] = out[args_start as usize],
+            // `min(a,b)` / `max(a,b)` preserve the operand kind; the Int lane tiers via a branchless
+            // select in `translate_op`, the Float lane declines there (no minsd/maxsd stencil yet).
+            Op::CallBuiltin {
+                dst,
+                builtin:
+                    logicaffeine_compile::semantics::builtins::BuiltinId::Min
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::Max,
+                args_start,
+                arg_count,
+            } if arg_count == 2 => out[dst as usize] = out[args_start as usize],
+            // `count_ones`/`leading_zeros`/`trailing_zeros` — Int bit-counts; each tiers to its native
+            // instruction stencil (`popcnt`/`lzcnt`/`tzcnt`, MicroOp::Popcnt/Lzcnt/Tzcnt).
+            Op::CallBuiltin {
+                dst,
+                builtin:
+                    logicaffeine_compile::semantics::builtins::BuiltinId::CountOnes
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::LeadingZeros
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::TrailingZeros,
+                arg_count,
+                ..
+            } if arg_count == 1 => out[dst as usize] = Kind::Int,
+            // `floor`/`ceil`/`round` of a Float → an Int (`roundsd`+`cvttsd2si`, MicroOp::Floor/Ceil/RoundToInt).
+            Op::CallBuiltin {
+                dst,
+                builtin:
+                    logicaffeine_compile::semantics::builtins::BuiltinId::Floor
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::Ceil
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::Round,
+                args_start,
+                arg_count,
+            } if arg_count == 1 && matches!(out[args_start as usize], Kind::Float) => {
+                out[dst as usize] = Kind::Int
+            }
+            // `pow(base: Int, const_exp)` → Int (unrolled Muls; the arg guard + const-exp check are in
+            // translate_op, which declines a Float base / variable or negative exponent).
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Pow,
+                args_start,
+                arg_count,
+            } if arg_count == 2 && matches!(out[args_start as usize], Kind::Int) => {
+                out[dst as usize] = Kind::Int
+            }
+            // Word producers (from an Int): `word32` → Word32; `word16` → Word16; `word64` → Word64.
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word32,
+                arg_count,
+                ..
+            } if arg_count == 1 => out[dst as usize] = Kind::Word32,
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word16Make,
+                arg_count,
+                ..
+            } if arg_count == 1 => out[dst as usize] = Kind::Word16,
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64,
+                arg_count,
+                ..
+            } if arg_count == 1 => out[dst as usize] = Kind::Word64,
+            // `IntOfWord32`/`IntOfWord16`/`IntOfWord64`: a Word → an Int.
+            Op::CallBuiltin {
+                dst,
+                builtin:
+                    logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord32
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord16
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord64,
+                arg_count,
+                ..
+            } if arg_count == 1 => out[dst as usize] = Kind::Int,
+            // `chr(code: Int)` → a `CharText` (a valid code carried unboxed, re-boxed to a 1-char Text).
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Chr,
+                args_start,
+                arg_count,
+            } if arg_count == 1 && matches!(out[args_start as usize], Kind::Int) => {
+                out[dst as usize] = Kind::CharText
+            }
+            // `Wand`/`Wor`: same-width Word in, same-width Word out (result kind = the first arg's).
+            Op::CallBuiltin {
+                dst,
+                builtin:
+                    logicaffeine_compile::semantics::builtins::BuiltinId::Wand
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::Wor,
+                args_start,
+                arg_count,
+            } if arg_count == 2
+                && matches!(out[args_start as usize], Kind::Word32 | Kind::Word64) =>
+            {
+                out[dst as usize] = out[args_start as usize]
+            }
+            // `word64And` → Word64 (the translate_op arm guards both args are Word64).
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64And,
+                arg_count,
+                ..
+            } if arg_count == 2 => out[dst as usize] = Kind::Word64,
+            // `word64Shl` → Word64; `word32Shr` → Word32 (2-arg: word, shift-count Int).
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64Shl,
+                arg_count,
+                ..
+            } if arg_count == 2 => out[dst as usize] = Kind::Word64,
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word32Shr,
+                arg_count,
+                ..
+            } if arg_count == 2 => out[dst as usize] = Kind::Word32,
+            // `word64Shr` → Word64 (translate_op tiers only a constant shift count via mask-off-sign).
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64Shr,
+                arg_count,
+                ..
+            } if arg_count == 2 => out[dst as usize] = Kind::Word64,
+            // `word_not` (1-arg) → same width as its arg.
+            Op::CallBuiltin {
+                dst,
+                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Wnot,
+                args_start,
+                arg_count,
+            } if arg_count == 1
+                && matches!(out[args_start as usize], Kind::Word32 | Kind::Word64) =>
+            {
+                out[dst as usize] = out[args_start as usize]
+            }
+            // `rotl`/`rotr` (2-arg: word, count Int) → same width as the word arg.
+            Op::CallBuiltin {
+                dst,
+                builtin:
+                    logicaffeine_compile::semantics::builtins::BuiltinId::Rotl
+                    | logicaffeine_compile::semantics::builtins::BuiltinId::Rotr,
+                args_start,
+                arg_count,
+            } if arg_count == 2
+                && matches!(out[args_start as usize], Kind::Word32 | Kind::Word64) =>
+            {
+                out[dst as usize] = out[args_start as usize]
+            }
             _ => {}
         }
         let mut succs: Vec<usize> = Vec::with_capacity(2);
@@ -846,187 +1369,310 @@ fn kind_flow(
             }
         }
     }
+    // Discovery wants only the decisions its pushes recorded; the gates judge the flow that uses them.
+    if matches!(fresh, FreshSites::Discover(_)) {
+        return Some(kin);
+    }
     // Gates on every reachable use, at that use's program point.
     for (i, op) in ops.iter().enumerate() {
         let Some(k) = &kin[i] else { continue };
         let int_at = |r: u16| k[r as usize] == Kind::Int;
         let num_at = |r: u16| matches!(k[r as usize], Kind::Int | Kind::Float);
-        match *op {
-            // Arithmetic and ordered comparisons: numeric operands (mixed
-            // Int/Float promotes via an inserted conversion).
-            Op::Add { lhs, rhs, .. } | Op::Sub { lhs, rhs, .. } | Op::Mul { lhs, rhs, .. }
-            | Op::Div { lhs, rhs, .. }
-            | Op::Lt { lhs, rhs, .. } | Op::Gt { lhs, rhs, .. } | Op::LtEq { lhs, rhs, .. }
-            | Op::GtEq { lhs, rhs, .. } => {
-                if !num_at(lhs) || !num_at(rhs) {
-                    return None;
-                }
-            }
-            Op::AddAssign { dst, src } => {
-                if k[dst as usize] == Kind::TextMut {
-                    // A pinned mutable-Text append: the source must be an
-                    // appendable ASCII text — a 1-char runtime byte (`TextByte`)
-                    // or a multi-char constant (`TextConst`). `StrAppend` lowers it.
-                    if !matches!(k[src as usize], Kind::TextByte | Kind::TextConst) {
-                        return None;
-                    }
-                } else if !num_at(dst) || !num_at(src) {
-                    return None;
-                }
-            }
-            // Equality: numeric pairs (promoting), Bool×Bool, or TextByte×
-            // TextByte (two extracted ASCII chars, or an extracted char vs a
-            // 1-char ASCII literal — both sides are integer bytes, the compare
-            // is exact, matching the tree-walker's single-char Text compare).
-            Op::Eq { lhs, rhs, .. } | Op::NotEq { lhs, rhs, .. } => {
-                let bools = k[lhs as usize] == Kind::Bool && k[rhs as usize] == Kind::Bool;
-                let bytes = k[lhs as usize] == Kind::TextByte && k[rhs as usize] == Kind::TextByte;
-                if !bools && !bytes && (!num_at(lhs) || !num_at(rhs)) {
-                    return None;
-                }
-            }
-            // Int-only ops.
-            Op::Mod { lhs, rhs, .. } | Op::BitXor { lhs, rhs, .. }
-            | Op::Shl { lhs, rhs, .. } | Op::Shr { lhs, rhs, .. } => {
-                if !int_at(lhs) || !int_at(rhs) {
-                    return None;
-                }
-            }
-            // `& |`: both-Int (bitwise) or both-Bool (logical 0/1).
-            Op::BitAnd { lhs, rhs, .. } | Op::BitOr { lhs, rhs, .. } => {
-                let ints = int_at(lhs) && int_at(rhs);
-                let bools = k[lhs as usize] == Kind::Bool && k[rhs as usize] == Kind::Bool;
-                if !ints && !bools {
-                    return None;
-                }
-            }
-            // `not` is LOGICAL (truthiness → Bool); only a Bool operand has a
-            // 0/1 register form the stencils can negate. `not <Int>` (rare —
-            // an emptiness idiom) stays on the VM.
-            Op::Not { src, .. } => {
-                if !matches!(k[src as usize], Kind::Bool) {
-                    return None;
-                }
-            }
-            Op::Move { src, .. } => {
-                // List buffers never ride frame slots (they are pinned
-                // separately) — but a list-kind Move is legal as STAGING:
-                // the slot value is a placeholder and pin identity travels
-                // statically. Any real USE of an unpinned destination still
-                // fails closed at translate (pins lookup).
-                if !matches!(
-                    k[src as usize],
-                    Kind::Int
-                        | Kind::Bool
-                        | Kind::Float
-                        | Kind::IntList
-                        | Kind::IntListI32
-                        | Kind::FloatList
-                        | Kind::BoolList
-                        // A 1-char ASCII byte (`text + ch`'s `ch`) rides a plain
-                        // frame slot as its integer byte value — a raw-copy Move.
-                        | Kind::TextByte
-                ) {
-                    return None;
-                }
-            }
-            Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => {
-                if k[cond as usize] != Kind::Bool {
-                    return None;
-                }
-            }
-            Op::Index { collection, index, .. }
-            | Op::IndexUnchecked { collection, index, .. } => {
-                if !matches!(
-                    k[collection as usize],
-                    Kind::IntList | Kind::IntListI32 | Kind::FloatList | Kind::BoolList | Kind::IntMap | Kind::TextBytes
-                ) || !int_at(index)
-                {
-                    return None;
-                }
-            }
-            Op::SetIndex { collection, index, value }
-            | Op::SetIndexUnchecked { collection, index, value } => {
-                let elem_ok = match k[collection as usize] {
-                    Kind::IntList | Kind::IntListI32 => k[value as usize] == Kind::Int,
-                    Kind::FloatList => k[value as usize] == Kind::Float,
-                    Kind::BoolList => k[value as usize] == Kind::Bool,
-                    Kind::IntMap => k[value as usize] == Kind::Int,
-                    _ => false,
-                };
-                if !elem_ok || !int_at(index) {
-                    return None;
-                }
-            }
-            Op::Contains { collection, value, .. } => {
-                if k[collection as usize] != Kind::IntMap || !int_at(value) {
-                    return None;
-                }
-            }
-            Op::Length { collection, .. } => {
-                if !matches!(
-                    k[collection as usize],
-                    Kind::IntList | Kind::IntListI32 | Kind::FloatList | Kind::BoolList | Kind::TextBytes
-                ) {
-                    return None;
-                }
-            }
-            // SELF-calls only (the callee's entry contract is its own: Int
-            // params, known return kind); every argument must be Int at the
-            // call point — exactly the per-call guard the bytecode boundary
-            // enforces.
-            Op::Call { func, args_start, arg_count, .. } => {
-                let Some((_, params)) = calls.and_then(|c| c(func)) else { return None };
-                if arg_count as usize != params.len() {
-                    return None;
-                }
-                for (j, a) in (args_start..args_start + arg_count).enumerate() {
-                    if k[a as usize] != params[j] {
+        // A same-width Word pair (`Word32×Word32` / `Word64×Word64`) — modular `+`/`-`/`*` lowers to the
+        // masked-i64 op, and the mask-preserving `xor`/`&`/`|` to the plain one. `Div` (signed i64 div ≠
+        // unsigned Word64 div) and ordered comparisons stay numeric-only, so a Word there declines to the VM.
+        let word_pair = |l: u16, r: u16| {
+            matches!(
+                (k[l as usize], k[r as usize]),
+                (Kind::Word32, Kind::Word32) | (Kind::Word64, Kind::Word64)
+            )
+        };
+        // Each gate refuses by returning from this closure, so the refusing op can be named.
+        let gate = || -> Option<()> {
+            match *op {
+                // Modular Word arithmetic OR numeric (mixed Int/Float promotes via an inserted conversion).
+                Op::Add { lhs, rhs, .. } | Op::Sub { lhs, rhs, .. } | Op::Mul { lhs, rhs, .. } => {
+                    if !(num_at(lhs) && num_at(rhs)) && !word_pair(lhs, rhs) {
                         return None;
                     }
                 }
-            }
-            Op::CallBuiltin {
-                builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Sqrt,
-                args_start,
-                arg_count,
-                ..
-            } => {
-                if arg_count != 1
-                    || !matches!(k[args_start as usize], Kind::Int | Kind::Float)
-                {
-                    return None;
+                // Division and ordered comparisons: numeric operands only.
+                Op::Div { lhs, rhs, .. }
+                | Op::Lt { lhs, rhs, .. }
+                | Op::Gt { lhs, rhs, .. }
+                | Op::LtEq { lhs, rhs, .. }
+                | Op::GtEq { lhs, rhs, .. } => {
+                    if !num_at(lhs) || !num_at(rhs) {
+                        return None;
+                    }
                 }
-            }
-            Op::ListPush { list, value } => {
-                let elem_ok = match k[list as usize] {
-                    Kind::IntList | Kind::IntListI32 => k[value as usize] == Kind::Int,
-                    Kind::FloatList => k[value as usize] == Kind::Float,
-                    Kind::BoolList => k[value as usize] == Kind::Bool,
-                    _ => false,
-                };
-                if !elem_ok {
-                    return None;
+                Op::AddAssign { dst, src } => {
+                    if k[dst as usize] == Kind::TextMut {
+                        // A pinned mutable-Text append: the source is a 1-char runtime
+                        // byte (`TextByte`), an `Int` (appended as its decimal text) or
+                        // a multi-char ASCII constant (`TextConst`). `StrAppend` lowers it.
+                        if !matches!(
+                            k[src as usize],
+                            Kind::TextByte | Kind::Int | Kind::TextConst
+                        ) {
+                            return None;
+                        }
+                    // A same-width Word `acc += x` is modular addition (the sha256 `h += a` / list-read
+                    // accumulator shape) — lowers like `Op::Add`'s Word branch (masked-i64 add).
+                    } else if !(num_at(dst) && num_at(src)) && !word_pair(dst, src) {
+                        return None;
+                    }
                 }
-            }
-            Op::Return { src } => {
-                // Regions return scalars (re-boxed by SlotKind) or pinned
-                // lists (by register); the function adapter's own ret-kind
-                // check still restricts FUNCTION returns to Int/Bool.
-                if !matches!(
-                    k[src as usize],
-                    Kind::Int
-                        | Kind::Bool
-                        | Kind::Float
-                        | Kind::IntList
-                        | Kind::IntListI32
-                        | Kind::FloatList
-                        | Kind::BoolList
-                ) {
-                    return None;
+                // Equality: numeric pairs (promoting), Bool×Bool, or TextByte×
+                // TextByte (two extracted ASCII chars, or an extracted char vs a
+                // 1-char ASCII literal — both sides are integer bytes, the compare
+                // is exact, matching the tree-walker's single-char Text compare).
+                Op::Eq { lhs, rhs, .. } | Op::NotEq { lhs, rhs, .. } => {
+                    let bools = k[lhs as usize] == Kind::Bool && k[rhs as usize] == Kind::Bool;
+                    let bytes =
+                        k[lhs as usize] == Kind::TextByte && k[rhs as usize] == Kind::TextByte;
+                    if !bools && !bytes && (!num_at(lhs) || !num_at(rhs)) {
+                        return None;
+                    }
                 }
+                // Int-only ops.
+                Op::Mod { lhs, rhs, .. } | Op::Shl { lhs, rhs, .. } | Op::Shr { lhs, rhs, .. } => {
+                    if !int_at(lhs) || !int_at(rhs) {
+                        return None;
+                    }
+                }
+                // `xor`: both-Int OR a same-width Word pair (mask-preserving, so no extra mask). NOT Bool — a
+                // `Bool xor Bool` keeps its prior VM path unchanged.
+                Op::BitXor { lhs, rhs, .. } => {
+                    if !(int_at(lhs) && int_at(rhs)) && !word_pair(lhs, rhs) {
+                        return None;
+                    }
+                }
+                // `& |`: both-Int (bitwise), both-Bool (logical 0/1), or a same-width Word pair — `&`/`|` of two
+                // masked Words stays masked, so the plain i64 op needs no extra mask (as with `xor`).
+                Op::BitAnd { lhs, rhs, .. } | Op::BitOr { lhs, rhs, .. } => {
+                    let ints = int_at(lhs) && int_at(rhs);
+                    let bools = k[lhs as usize] == Kind::Bool && k[rhs as usize] == Kind::Bool;
+                    if !ints && !bools && !word_pair(lhs, rhs) {
+                        return None;
+                    }
+                }
+                // `not` is LOGICAL (truthiness → Bool); only a Bool operand has a
+                // 0/1 register form the stencils can negate. `not <Int>` (rare —
+                // an emptiness idiom) stays on the VM.
+                Op::Not { src, .. } => {
+                    if !matches!(k[src as usize], Kind::Bool) {
+                        return None;
+                    }
+                }
+                // Scalars swap their frame slots, whatever their kinds. Equal-kind lists swap their
+                // complete pinned (Vec, ptr, len) triples in translate_op; a scalar/list or mixed-list
+                // exchange declines.
+                Op::RevSwap { a, b } => {
+                    let scalar = |r: u16| {
+                        matches!(
+                            k[r as usize],
+                            Kind::Int
+                                | Kind::Bool
+                                | Kind::Float
+                                | Kind::TextByte
+                                | Kind::Word32
+                                | Kind::Word64
+                        )
+                    };
+                    let same_list_kind = k[a as usize] == k[b as usize]
+                        && matches!(
+                            k[a as usize],
+                            Kind::IntList
+                                | Kind::IntListI32
+                                | Kind::Word32List
+                                | Kind::FloatList
+                                | Kind::BoolList
+                        );
+                    if !(scalar(a) && scalar(b)) && !same_list_kind {
+                        return None;
+                    }
+                }
+                Op::Move { src, .. } => {
+                    // List buffers never ride frame slots (they are pinned
+                    // separately) — but a list-kind Move is legal as STAGING:
+                    // the slot value is a placeholder and pin identity travels
+                    // statically. Any real USE of an unpinned destination still
+                    // fails closed at translate (pins lookup).
+                    if !matches!(
+                        k[src as usize],
+                        Kind::Int
+                            | Kind::Bool
+                            | Kind::Float
+                            | Kind::IntList
+                            | Kind::IntListI32
+                            | Kind::Word32List
+                            | Kind::FloatList
+                            | Kind::BoolList
+                            // A 1-char ASCII byte (`text + ch`'s `ch`) rides a plain
+                            // frame slot as its integer byte value — a raw-copy Move.
+                            | Kind::TextByte
+                            // A Word rides as a masked i64; `Set h to <word>` (a loop-carried
+                            // hash accumulator) is a raw-copy Move of that masked value.
+                            | Kind::Word32
+                            | Kind::Word64
+                            // A node pointer; the enum lane decides what the copy owns.
+                            | Kind::Inductive
+                    ) {
+                        return None;
+                    }
+                }
+                Op::TestArm { target, .. } | Op::BindArm { target, .. } => {
+                    if k[target as usize] != Kind::Inductive {
+                        return None;
+                    }
+                }
+                Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => {
+                    if k[cond as usize] != Kind::Bool {
+                        return None;
+                    }
+                }
+                Op::Index {
+                    collection, index, ..
+                }
+                | Op::IndexUnchecked {
+                    collection, index, ..
+                } => {
+                    if !matches!(
+                        k[collection as usize],
+                        Kind::IntList
+                            | Kind::IntListI32
+                            | Kind::Word32List
+                            | Kind::FloatList
+                            | Kind::BoolList
+                            | Kind::IntMap
+                            | Kind::TextBytes
+                    ) || !int_at(index)
+                    {
+                        return None;
+                    }
+                }
+                Op::SetIndex {
+                    collection,
+                    index,
+                    value,
+                }
+                | Op::SetIndexUnchecked {
+                    collection,
+                    index,
+                    value,
+                } => {
+                    let elem_ok = match k[collection as usize] {
+                        Kind::IntList | Kind::IntListI32 => k[value as usize] == Kind::Int,
+                        Kind::Word32List => k[value as usize] == Kind::Word32,
+                        Kind::FloatList => k[value as usize] == Kind::Float,
+                        Kind::BoolList => k[value as usize] == Kind::Bool,
+                        Kind::IntMap => k[value as usize] == Kind::Int,
+                        _ => false,
+                    };
+                    if !elem_ok || !int_at(index) {
+                        return None;
+                    }
+                }
+                Op::Contains {
+                    collection, value, ..
+                } => {
+                    if k[collection as usize] != Kind::IntMap || !int_at(value) {
+                        return None;
+                    }
+                }
+                Op::Length { collection, .. } => {
+                    if !matches!(
+                        k[collection as usize],
+                        Kind::IntList | Kind::IntListI32 | Kind::Word32List | Kind::FloatList | Kind::BoolList
+                            | Kind::TextBytes
+                            // `length of chr(code)` — a single Unicode scalar is exactly ONE character (the
+                            // translate_op lowers it to the constant 1), the shape that lets `chr` tier.
+                            | Kind::CharText
+                    ) {
+                        return None;
+                    }
+                }
+                // SELF-calls only (the callee's entry contract is its own: Int
+                // params, known return kind); every argument must be Int at the
+                // call point — exactly the per-call guard the bytecode boundary
+                // enforces.
+                Op::Call {
+                    func,
+                    args_start,
+                    arg_count,
+                    ..
+                } => {
+                    let Some((_, params)) = calls.and_then(|c| c(func)) else {
+                        return None;
+                    };
+                    if arg_count as usize != params.len() {
+                        return None;
+                    }
+                    for (j, a) in (args_start..args_start + arg_count).enumerate() {
+                        if k[a as usize] != params[j] {
+                            return None;
+                        }
+                    }
+                }
+                Op::CallBuiltin {
+                    builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Sqrt,
+                    args_start,
+                    arg_count,
+                    ..
+                } => {
+                    if arg_count != 1 || !matches!(k[args_start as usize], Kind::Int | Kind::Float)
+                    {
+                        return None;
+                    }
+                }
+                Op::ListPush { list, value } => {
+                    let elem_ok = match k[list as usize] {
+                        Kind::IntList | Kind::IntListI32 => k[value as usize] == Kind::Int,
+                        Kind::Word32List => k[value as usize] == Kind::Word32,
+                        Kind::FloatList => k[value as usize] == Kind::Float,
+                        Kind::BoolList => k[value as usize] == Kind::Bool,
+                        _ => false,
+                    };
+                    if !elem_ok {
+                        return None;
+                    }
+                }
+                Op::Return { src } => {
+                    // A return carries a scalar (re-boxed by its SlotKind, a Word as its masked value), a
+                    // pinned list (by register) or an enum node; the function adapter then checks that every
+                    // return agrees with the kind it assumed.
+                    if !matches!(
+                        k[src as usize],
+                        Kind::Int
+                            | Kind::Bool
+                            | Kind::Float
+                            | Kind::Word32
+                            | Kind::Word64
+                            | Kind::IntList
+                            | Kind::IntListI32
+                            | Kind::Word32List
+                            | Kind::FloatList
+                            | Kind::BoolList
+                            | Kind::Inductive
+                    ) {
+                        return None;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
+            Some(())
+        };
+        if gate().is_none() {
+            if std::env::var_os("LOGOS_JIT_TRACE").is_some() {
+                eprintln!(
+                    "jit-trace: kind gate refused pc {} {:?} with kinds {:?}",
+                    base_pc + i,
+                    op,
+                    k
+                );
+            }
+            return None;
         }
     }
     Some(kin)
@@ -1052,10 +1698,12 @@ pub fn adapt(
     let mut shows = 0usize;
     for op in ops {
         match *op {
-            Op::Lt { dst, .. } | Op::Gt { dst, .. } | Op::LtEq { dst, .. }
-            | Op::GtEq { dst, .. } | Op::Eq { dst, .. } | Op::NotEq { dst, .. } => {
-                tainted.push(dst)
-            }
+            Op::Lt { dst, .. }
+            | Op::Gt { dst, .. }
+            | Op::LtEq { dst, .. }
+            | Op::GtEq { dst, .. }
+            | Op::Eq { dst, .. }
+            | Op::NotEq { dst, .. } => tainted.push(dst),
             Op::Show { .. } => shows += 1,
             _ => {}
         }
@@ -1073,7 +1721,10 @@ pub fn adapt(
         return None;
     }
     for op in ops {
-        if let Op::Jump { target } | Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } = *op {
+        if let Op::Jump { target }
+        | Op::JumpIfFalse { target, .. }
+        | Op::JumpIfTrue { target, .. } = *op
+        {
             if target > show_pc {
                 return None;
             }
@@ -1100,15 +1751,35 @@ pub fn adapt(
             Op::Move { dst, src } => micro.push(MicroOp::Move { dst, src }),
             Op::EnsureOwned { .. } => {} // interpreter-only COW barrier — no-op in a native region
             Op::Add { dst, lhs, rhs } => micro.push(MicroOp::Add { dst, lhs, rhs }),
-            Op::AddAssign { dst, src } => micro.push(MicroOp::Add { dst, lhs: dst, rhs: src }),
+            Op::AddAssign { dst, src } => micro.push(MicroOp::Add {
+                dst,
+                lhs: dst,
+                rhs: src,
+            }),
             Op::Div { dst, lhs, rhs } => match const_pow2_div(ops, rhs, constants) {
                 Some(k) => micro.push(MicroOp::DivPow2 { dst, lhs, k }),
                 None => micro.push(MicroOp::Div { dst, lhs, rhs }),
             },
-            Op::DivPow2 { dst, lhs, k } => micro.push(MicroOp::DivPow2 { dst, lhs, k: k as u32 }),
-            Op::MagicDivU { dst, lhs, magic, more, mul_back } => {
-                micro.push(MicroOp::MagicDivU { dst, lhs, magic, more, mul_back })
-            }
+            Op::DivPow2 { dst, lhs, k } => micro.push(MicroOp::DivPow2 {
+                dst,
+                lhs,
+                k: k as u32,
+            }),
+            Op::MagicDivU {
+                dst,
+                lhs,
+                magic,
+                more,
+                mul_back,
+                divisor: _,
+                wrap: _,
+            } => micro.push(MicroOp::MagicDivU {
+                dst,
+                lhs,
+                magic,
+                more,
+                mul_back,
+            }),
             Op::Mod { dst, lhs, rhs } => micro.push(MicroOp::Mod { dst, lhs, rhs }),
             Op::Sub { dst, lhs, rhs } => micro.push(MicroOp::Sub { dst, lhs, rhs }),
             Op::Mul { dst, lhs, rhs } => micro.push(MicroOp::Mul { dst, lhs, rhs }),
@@ -1156,42 +1827,110 @@ pub fn adapt(
     Some((micro, frame_size))
 }
 
-/// Translate a FUNCTION body (terminal = Op::Return, absolute pcs rebased by
-/// `entry_pc`) into the J2 subset.
-///
-/// J4 kind dataflow (sound fixpoint): params are Int (the entry guard),
-/// comparisons produce Bool, arithmetic requires Int operands (a Bool
-/// flowing into `+` errors on the VM — native code must NOT compute it),
-/// Move propagates, conflicting writes go Mixed (bail on use). All reachable
-/// returns must agree on Int or Bool; the bool flag re-boxes the result.
 /// Everything the precise-deopt boundary needs at runtime, built once at
-/// adapt time (mode B — functions with list parameters).
+/// adapt time (functions with list parameters).
 struct PreciseInfo {
     register_count: usize,
-    pins_start: usize,
     /// Per-register re-box kinds at every potential pause point: each
     /// deoptable op's pc and each self-call's pc.
     kinds_by_pc: std::collections::HashMap<usize, Vec<RegBox>>,
     /// NATIVE-OWNED list registers per pause point: (register, the frame
-    /// slot of its pin's vec handle). At materialization the handle either
+    /// slot of its pin's vec handle, its elements). At materialization the handle either
     /// detaches from the allocation registry (fresh list — re-boxed here)
     /// or matches a boundary pin (param passthrough — rewritten to
     /// ListParam for the VM side).
-    owned_by_pc: std::collections::HashMap<usize, Vec<(u16, u16)>>,
+    owned_by_pc: std::collections::HashMap<usize, Vec<(u16, u16, PinElem)>>,
     /// Where each boundary pin triple (param order) lands in the frame:
     /// the vec slot of THAT PARAM REGISTER's pin (per-register pins are
     /// not in param order).
     param_pin_scatter: Vec<u16>,
+    /// The enum lane's nodes per pause point: (register, what it holds). A side exit hands each
+    /// back to the VM ([`inductive::rebox`]).
+    nodes_by_pc: std::collections::HashMap<usize, Vec<(u16, inductive::Hold)>>,
+}
+
+/// The shapes the enum lane's helpers read through their operand, owned by the compiled function.
+#[derive(Default)]
+struct NodeShapes {
+    constructs: Vec<Box<inductive::Construct>>,
+    variants: Vec<Box<String>>,
 }
 
 /// What adapt_function hands back: micro code, frame size, return shape,
-/// per-micro deopt codes (mode B) and the precise-walk tables (mode B).
+/// per-micro deopt codes and the precise-walk tables.
 struct AdaptedFn {
     micro: Vec<MicroOp>,
     frame_size: usize,
     ret: NativeRet,
+    /// The elements of a list the function returns ([`NativeRet::ListByHandle`]): Int or Word32.
+    ret_elem: PinElem,
     deopt_codes: Option<Vec<i64>>,
     precise: Option<PreciseInfo>,
+    shapes: NodeShapes,
+}
+
+/// Which mode-B lanes a function body needs: list pins (list parameters or allocation sites) and
+/// the enum lane (an enum parameter or an enum op).
+fn function_lanes(code: &[Op], param_kinds: &[Option<ParamKind>]) -> (bool, bool) {
+    let lists = param_kinds
+        .iter()
+        .any(|k| matches!(k, Some(ParamKind::List(_))))
+        || code.iter().any(|op| {
+            matches!(
+                op,
+                Op::NewEmptyList { .. }
+                    | Op::NewEmptyListWithCapacity { .. }
+                    | Op::NewEmptyListFixed { .. }
+            )
+        });
+    let nodes = inductive::uses_nodes(
+        code,
+        param_kinds
+            .iter()
+            .any(|k| matches!(k, Some(ParamKind::Inductive))),
+    );
+    (lists, nodes)
+}
+
+/// A function's frame size. Mode A keeps the classic [regs | conv ×2 | limit]; mode B inserts the
+/// plant slots, the pin triples and, for the enum lane, the hold slot an overwritten node waits in
+/// until the op that reads it is done: [regs | conv ×2 | window | resume | dst | pins ×3p | hold? |
+/// exports | limit]. The export window makes every helper input explicit to
+/// register allocation.
+fn function_scope_export_slots(ops: &[Op], param_count: u16, nodes: bool) -> usize {
+    if !nodes
+        && ops.iter().any(|op| {
+            matches!(
+                op,
+                Op::NewEmptyList { .. }
+                    | Op::NewEmptyListWithCapacity { .. }
+                    | Op::NewEmptyListFixed { .. }
+                    | Op::NewList { .. }
+                    // A first write through an alias may call list_own even
+                    // when the source contains no list constructor.
+                    | Op::SetIndex { .. }
+                    | Op::SetIndexUnchecked { .. }
+            )
+        })
+    {
+        usize::from(param_count) + 1
+    } else {
+        0
+    }
+}
+
+fn function_frame_size(
+    register_count: usize,
+    mode_b: bool,
+    npins: usize,
+    nodes: bool,
+    exports: usize,
+) -> usize {
+    if mode_b {
+        register_count + 6 + 3 * npins + nodes as usize + exports
+    } else {
+        register_count + 3
+    }
 }
 
 /// The precise-deopt tables for a REGION (push+SetIndex worklist). `deopt_codes`
@@ -1200,6 +1939,8 @@ struct AdaptedFn {
 /// frame's scalars back into the VM registers (`None` = keep the VM register's
 /// live value — a pinned array, or a read-only/unknown slot).
 struct RegionPrecise {
+    /// Completed exits return their bytecode PC for typed frame materialization.
+    resume_on_return: bool,
     deopt_codes: Vec<i64>,
     kinds_by_pc: std::collections::HashMap<usize, Vec<Option<SlotKind>>>,
 }
@@ -1222,7 +1963,10 @@ fn discover_list_regs(
         let mut changed = false;
         for op in ops {
             match *op {
-                Op::NewEmptyList { dst } => {
+                Op::NewEmptyList { dst }
+                | Op::NewEmptyListWithCapacity { dst, .. }
+                | Op::NewEmptyListFixed { dst, .. }
+                | Op::NewList { dst, .. } => {
                     if !is_list[dst as usize] {
                         is_list[dst as usize] = true;
                         changed = true;
@@ -1231,6 +1975,13 @@ fn discover_list_regs(
                 Op::Move { dst, src } => {
                     if is_list[src as usize] && !is_list[dst as usize] {
                         is_list[dst as usize] = true;
+                        changed = true;
+                    }
+                }
+                Op::RevSwap { a, b } => {
+                    if is_list[a as usize] != is_list[b as usize] {
+                        is_list[a as usize] = true;
+                        is_list[b as usize] = true;
                         changed = true;
                     }
                 }
@@ -1250,20 +2001,41 @@ fn discover_list_regs(
     is_list
 }
 
+/// Whether register `r` holds a list BEFORE op `i`, by the flow-sensitive kind dataflow — the question a
+/// translation decision about `r` at `i` must ask (see the Move arm of the precise adapter).
+fn holds_list_at(kin: &[Option<Vec<Kind>>], i: usize, r: u16) -> bool {
+    kin[i].as_ref().is_some_and(|k| {
+        matches!(
+            k[r as usize],
+            Kind::IntList | Kind::IntListI32 | Kind::Word32List | Kind::FloatList | Kind::BoolList
+        )
+    })
+}
+
 fn jt(which: &str) {
     if std::env::var_os("LOGOS_JIT_TRACE").is_some() {
         eprintln!("jit-trace: mode-B bail at {which}");
     }
 }
 
+/// Translate a FUNCTION body (terminal = Op::Return, absolute pcs rebased by
+/// `entry_pc`) into the J2 subset.
+///
+/// J4 kind dataflow (sound fixpoint): params are Int (the entry guard),
+/// comparisons produce Bool, arithmetic requires Int operands (a Bool
+/// flowing into `+` errors on the VM — native code must NOT compute it),
+/// Move propagates, conflicting writes go Mixed (bail on use). All reachable
+/// returns must agree on Int or Bool; the bool flag re-boxes the result.
 fn adapt_function(
     ops: &[Op],
     entry_pc: usize,
     constants: &[Constant],
+    enums: &[EnumTypeDef],
     param_count: u16,
     register_count: u16,
     self_fi: u16,
     param_kinds: &[Option<ParamKind>],
+    cow_exempt_regs: &[u16],
     declared_ret: Option<SlotKind>,
     call_ctx_in: &CallCtx,
     callees: &[CalleeSig],
@@ -1275,24 +2047,10 @@ fn adapt_function(
         | Op::JumpIfTrue { target, .. } = *op
         {
             if target < entry_pc || target >= entry_pc + ops.len() {
+                jt("jump-outside-body");
                 return None;
             }
         }
-    }
-
-    // SOUNDNESS STOPGAP (BUG-002, NOT the root-cause fix): a function that both
-    // (a) RETURNS/recurses on a list it MUTATES in place AND (b) loads an array
-    // element that survives a conditional branch into an in-place `SetIndex`
-    // miscompiles in the native tier (segfault) — the quicksort `Let vj … set
-    // item i to vj` shape. Until the codegen is fixed, refuse to tier such a
-    // function (it runs on the correct VM). Scoped to recursion + in-place store
-    // so non-recursive swap loops (bubble_sort/fannkuch) still tier.
-    // `LOGOS_BUG002_BAIL=0` disables the stopgap (to reproduce the raw crash).
-    if std::env::var("LOGOS_BUG002_BAIL").as_deref() != Ok("0")
-        && ops.iter().any(|op| matches!(op, Op::Call { .. }))
-        && has_crossbranch_array_value_store_hazard(ops)
-    {
-        return None;
     }
 
     // Flow-sensitive kinds: every parameter starts at its DECLARED kind
@@ -1308,14 +2066,22 @@ fn adapt_function(
     let mut param_entry: Vec<Kind> = Vec::with_capacity(param_count as usize);
     let mut list_params: Vec<(u16, PinElem)> = Vec::new();
     for (i, pk) in param_kinds.iter().enumerate() {
-        param_entry.push(match (*pk)? {
+        let Some(pk) = *pk else {
+            jt("param-kind");
+            return None;
+        };
+        param_entry.push(match pk {
             ParamKind::Scalar(SlotKind::Int) => Kind::Int,
             ParamKind::Scalar(SlotKind::Bool) => Kind::Bool,
             ParamKind::Scalar(SlotKind::Float) => Kind::Float,
+            ParamKind::Scalar(SlotKind::CharText) => Kind::CharText,
+            ParamKind::Scalar(SlotKind::Word32) => Kind::Word32,
+            ParamKind::Scalar(SlotKind::Word64) => Kind::Word64,
             ParamKind::List(elem) => {
                 list_params.push((i as u16, elem));
                 match elem {
                     PinElem::Int => Kind::IntList,
+                    PinElem::Word32 => Kind::Word32List,
                     PinElem::Float => Kind::FloatList,
                     PinElem::Bool => Kind::BoolList,
                     // A half-width buffer is a VM-local storage decision, never a
@@ -1325,11 +2091,15 @@ fn adapt_function(
                     PinElem::Map | PinElem::TextBytes | PinElem::TextMut => return None,
                 }
             }
+            // A node the VM writes back through the parameter is not one the callee may borrow.
+            ParamKind::Inductive if cow_exempt_regs.contains(&(i as u16)) => return None,
+            ParamKind::Inductive => Kind::Inductive,
         });
     }
-    // ALLOCATION SITES make a function mode B even without list params.
-    let has_sites = ops.iter().any(|op| matches!(op, Op::NewEmptyList { .. }));
-    let mode_b = !list_params.is_empty() || has_sites;
+    // ALLOCATION SITES make a function mode B even without list params, and so does the enum lane:
+    // its side exits hand nodes back precisely.
+    let (list_mode, nodes) = function_lanes(ops, param_kinds);
+    let mode_b = list_mode || nodes;
     // Mode B leans on the PRECISE call stencil, whose depth limit is baked
     // at the kernel's locked MAX_CALL_DEPTH.
     if mode_b && call_ctx_in.depth_limit != logicaffeine_compile::semantics::MAX_CALL_DEPTH as i64 {
@@ -1338,7 +2108,7 @@ fn adapt_function(
     // Does this function RETURN lists? Declared scalar returns say no;
     // otherwise list params or sites make it possible — the fixpoint
     // verifies every return site agrees.
-    let fn_returns_lists = declared_ret.is_none() && mode_b;
+    let fn_returns_lists = declared_ret.is_none() && list_mode;
 
     // LIST REGISTERS (mode B): one pin triple PER REGISTER that ever
     // holds a list — every list assignment (param entry, allocation,
@@ -1350,13 +2120,32 @@ fn adapt_function(
     let nregs_pin = register_count as usize + 2;
     let list_param_regs: Vec<u16> = list_params.iter().map(|(r, _)| *r).collect();
     let is_list = discover_list_regs(ops, &list_param_regs, fn_returns_lists, self_fi, nregs_pin);
+    let inout_params = callees
+        .get(self_fi as usize)
+        .map_or(&[][..], |sig| sig.inout_params.as_slice());
+    // An in-out parameter hands its final value back through the caller's register as a raw slot, and a node
+    // parameter is borrowed for the whole call: a function that can reassign one stays on the VM.
+    if inout_params.iter().any(|&r| {
+        matches!(
+            param_kinds.get(r as usize),
+            Some(Some(ParamKind::Inductive))
+        )
+    }) {
+        jt("inout-node");
+        return None;
+    }
+    let live = liveness_with_outputs(ops, entry_pc, nregs_pin, inout_params)?;
     // Provenance TAINT, FLOW-SENSITIVE: at each program point, which
     // registers may hold a list some OTHER holder pins (params; call
     // results, which may be param passthroughs). Moves propagate taint;
     // a NewEmptyList CLEANSES its destination (fresh, registry-owned).
     // Pushes are legal only into point-wise clean registers — mergesort's
     // `Set left to mergeSort(left)` taints `left` only AFTER the pushes.
-    let mut ret_any_list = false;
+    // NATIVE COPY-ON-WRITE. The element stores at these pcs target a list that may be shared (a param's,
+    // or a self-call result that may be a param passed through) through a register the VM does not
+    // exempt from copy-on-write — so, exactly as the VM does on a shared list's first write, the store is
+    // preceded by a copy into a fresh registry-owned buffer, and the register is clean from there on.
+    let mut own_before: std::collections::HashSet<usize> = std::collections::HashSet::new();
     if mode_b {
         let in_body = |t: usize| t >= entry_pc && t < entry_pc + ops.len();
         let mut taint_in: Vec<Option<Vec<bool>>> = vec![None; ops.len()];
@@ -1367,13 +2156,55 @@ fn adapt_function(
         taint_in[0] = Some(entry_taint);
         let mut work: Vec<usize> = vec![0];
         while let Some(i) = work.pop() {
-            let Some(cur) = taint_in[i].clone() else { continue };
+            let Some(cur) = taint_in[i].clone() else {
+                continue;
+            };
             let mut out = cur;
             match ops[i] {
-                Op::NewEmptyList { dst } => out[dst as usize] = false,
-                Op::Move { dst, src } => out[dst as usize] = out[src as usize],
-                Op::Call { dst, func, .. } if func == self_fi && fn_returns_lists => {
-                    out[dst as usize] = true;
+                Op::NewEmptyList { dst }
+                | Op::NewEmptyListWithCapacity { dst, .. }
+                | Op::NewEmptyListFixed { dst, .. }
+                | Op::NewList { dst, .. } => out[dst as usize] = false,
+                Op::RevSwap { a, b } => out.swap(a as usize, b as usize),
+                Op::Move { dst, src } => {
+                    out[dst as usize] = out[src as usize];
+                    // A still-live source and its copy now share even when the
+                    // buffer was allocated by this native invocation.
+                    if dst != src
+                        && is_list[src as usize]
+                        && live.get(i + 1).is_some_and(|row| row[src as usize])
+                    {
+                        out[src as usize] = true;
+                        out[dst as usize] = true;
+                    }
+                }
+                Op::RevSwap { a, b } => out.swap(a as usize, b as usize),
+                Op::Call {
+                    dst,
+                    func,
+                    args_start,
+                    ..
+                } => {
+                    if func == self_fi && fn_returns_lists {
+                        out[dst as usize] = true;
+                    }
+                    if let Some(sig) = callees.get(func as usize) {
+                        for &r in &sig.inout_params {
+                            if matches!(
+                                sig.param_kinds.get(r as usize),
+                                Some(Some(ParamKind::List(_)))
+                            ) {
+                                out[(args_start + r) as usize] = true;
+                            }
+                        }
+                    }
+                }
+                // A store into a shared, non-exempt list first copies it (NATIVE COPY-ON-WRITE, above):
+                // the register holds its own fresh buffer afterwards.
+                Op::SetIndex { collection, .. } | Op::SetIndexUnchecked { collection, .. }
+                    if out[collection as usize] && !cow_exempt_regs.contains(&collection) =>
+                {
+                    out[collection as usize] = false;
                 }
                 _ => {}
             }
@@ -1384,9 +2215,7 @@ fn adapt_function(
                         succs.push(target - entry_pc);
                     }
                 }
-                Op::JumpIfFalse { target, .. }
-                | Op::JumpIfTrue { target, .. }
-                => {
+                Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => {
                     if i + 1 < ops.len() {
                         succs.push(i + 1);
                     }
@@ -1424,11 +2253,6 @@ fn adapt_function(
         }
         for (i, op) in ops.iter().enumerate() {
             match *op {
-                Op::Return { src } => {
-                    if is_list[src as usize] {
-                        ret_any_list = true;
-                    }
-                }
                 Op::ListPush { list, .. } => {
                     let clean = taint_in[i]
                         .as_ref()
@@ -1440,13 +2264,29 @@ fn adapt_function(
                         return None;
                     }
                 }
+                // ★ AN ELEMENT STORE KEEPS THE VM'S VALUE SEMANTICS. Native code writes through the pinned
+                // buffer; the VM writes in place only into a register it has proven is a mutable borrow
+                // (`cow_exempt_regs`) and otherwise copies a shared list on its
+                // first write. A store into a register that may hold a parameter's list or a self-call's
+                // result (which may BE a parameter, passed through) — and is not exempt — would reach the
+                // caller's list, which the VM never does (`walk` returning its param, the caller writing
+                // item 1: the caller's `arr` changed under native code). So that store copies first.
+                Op::SetIndex { collection, .. } | Op::SetIndexUnchecked { collection, .. } => {
+                    let shared = taint_in[i].as_ref().is_some_and(|t| t[collection as usize]);
+                    if shared && !cow_exempt_regs.contains(&collection) {
+                        own_before.insert(i);
+                    }
+                }
                 _ => {}
             }
         }
     }
-    let list_regs: Vec<u16> = (0..nregs_pin as u16).filter(|&r| is_list[r as usize]).collect();
+    let list_regs: Vec<u16> = (0..nregs_pin as u16)
+        .filter(|&r| is_list[r as usize])
+        .collect();
     let total_pins = list_regs.len();
     if total_pins > 24 {
+        jt("pins");
         return None;
     }
     let n_params = list_params.len();
@@ -1456,22 +2296,35 @@ fn adapt_function(
     for (id, &r) in list_regs.iter().enumerate() {
         pin_of[r as usize] = Some(id as u8);
     }
-    // Any list-returning site makes the self-call result an Int list
-    // (sites are Int-lane; param pins must agree). Otherwise the declared
-    // scalar pins one pass and undeclared falls back to Int/Bool inference.
-    let assumed_set: Vec<Kind> = if ret_any_list {
-        // Sites are Int-lane; list params must agree.
-        if list_params.iter().any(|(_, e)| *e != PinElem::Int) {
-            return None;
+    // Register numbers are reused: a slot that held a list earlier may
+    // return a scalar. Verify each candidate against flow-sensitive returns.
+    let assumed_set: Vec<Kind> = match declared_ret {
+        Some(SlotKind::Int) => vec![Kind::Int],
+        Some(SlotKind::Bool) => vec![Kind::Bool],
+        Some(SlotKind::Float) => vec![Kind::Float],
+        Some(SlotKind::CharText) => vec![Kind::CharText],
+        Some(SlotKind::Word32) => vec![Kind::Word32],
+        Some(SlotKind::Word64) => vec![Kind::Word64],
+        None => {
+            // An undeclared scalar return in a body that handles nodes is most likely a node.
+            let mut kinds = if nodes {
+                vec![Kind::Inductive, Kind::Int, Kind::Bool]
+            } else {
+                vec![Kind::Int, Kind::Bool]
+            };
+            if list_mode && list_params.iter().all(|(_, elem)| *elem == PinElem::Int) {
+                kinds.push(Kind::IntList);
+            }
+            if list_mode && list_params.iter().all(|(_, elem)| *elem == PinElem::Word32) {
+                kinds.push(Kind::Word32List);
+            }
+            kinds
         }
-        vec![Kind::IntList]
+    };
+    let binds = if nodes {
+        inductive::bind_kinds(ops, constants, enums)
     } else {
-        match declared_ret {
-            Some(SlotKind::Int) => vec![Kind::Int],
-            Some(SlotKind::Bool) => vec![Kind::Bool],
-            Some(SlotKind::Float) => vec![Kind::Float],
-            None => vec![Kind::Int, Kind::Bool],
-        }
+        Vec::new()
     };
     let mut chosen: Option<(Vec<Option<Vec<Kind>>>, Kind)> = None;
     for assumed in assumed_set {
@@ -1480,20 +2333,21 @@ fn adapt_function(
         // Self-calls resolve against the assumed signature; calls to OTHER
         // functions against their DECLARED all-scalar signatures (the call
         // stencil dispatches through the published table; an uncompiled
-        // callee deopts at the call until it tiers up on its own). Mode B
-        // keeps self-calls only — its pin staging is self-shaped.
+        // callee deopts at the call until it tiers up on its own). This is
+        // valid in list-owning mode B too: scalar helpers need no pin staging
+        // and cannot move a caller list buffer.
         let resolver = |fi: u16| -> Option<(Kind, Vec<Kind>)> {
             if fi == self_fi {
                 return Some((assumed, param_entry.clone()));
-            }
-            if mode_b {
-                return None;
             }
             let sig = callees.get(fi as usize)?;
             let ret = match sig.ret? {
                 SlotKind::Int => Kind::Int,
                 SlotKind::Bool => Kind::Bool,
                 SlotKind::Float => Kind::Float,
+                SlotKind::CharText => Kind::CharText,
+                SlotKind::Word32 => Kind::Word32,
+                SlotKind::Word64 => Kind::Word64,
             };
             let params = sig
                 .param_kinds
@@ -1502,28 +2356,62 @@ fn adapt_function(
                     Some(ParamKind::Scalar(SlotKind::Int)) => Some(Kind::Int),
                     Some(ParamKind::Scalar(SlotKind::Bool)) => Some(Kind::Bool),
                     Some(ParamKind::Scalar(SlotKind::Float)) => Some(Kind::Float),
+                    Some(ParamKind::Scalar(SlotKind::CharText)) => Some(Kind::CharText),
+                    Some(ParamKind::Scalar(SlotKind::Word32)) => Some(Kind::Word32),
+                    Some(ParamKind::Scalar(SlotKind::Word64)) => Some(Kind::Word64),
                     _ => None,
                 })
                 .collect::<Option<Vec<Kind>>>()?;
             Some((ret, params))
         };
-        let Some(kin) = kind_flow(ops, entry_pc, constants, entry, Some(&resolver))
-        else {
+        let sites = if mode_b {
+            fresh_list_kinds(
+                ops,
+                entry_pc,
+                constants,
+                entry.clone(),
+                Some(&resolver),
+                &binds,
+            )
+        } else {
+            Some(FreshSites::Ints)
+        };
+        let Some(sites) = sites else {
             continue;
         };
-        // The trailing implicit ReturnNothing must be dead code — a
-        // reachable one would return Nothing, which native code cannot
-        // represent. All reachable returns must agree on Int or Bool.
+        let Some(kin) = kind_flow_sited(
+            ops,
+            entry_pc,
+            constants,
+            entry,
+            Some(&resolver),
+            &binds,
+            &sites,
+        ) else {
+            continue;
+        };
+        // A reachable ReturnNothing would return Nothing, which native code cannot represent. Mode B
+        // resumes the VM precisely at it (the fall-through after an `Inspect` whose arms cover every
+        // variant reaches it only on paper); mode A needs it to be dead code. All reachable returns
+        // must agree on one kind.
         let mut ret_kind: Option<Kind> = None;
         let mut ok = true;
         for (i, op) in ops.iter().enumerate() {
             let Some(k) = &kin[i] else { continue };
             match *op {
+                Op::ReturnNothing if mode_b => {}
                 Op::ReturnNothing => {
                     ok = false;
                     break;
                 }
                 Op::Return { src } => {
+                    if inout_params
+                        .iter()
+                        .any(|&r| k[r as usize] != param_entry[r as usize])
+                    {
+                        ok = false;
+                        break;
+                    }
                     let rk = k[src as usize];
                     match ret_kind {
                         None => ret_kind = Some(rk),
@@ -1550,26 +2438,61 @@ fn adapt_function(
         jt("chosen");
     }
     let (kin, ret_kind) = chosen?;
-    let ret = if ret_any_list {
+    let fn_returns_lists = matches!(ret_kind, Kind::IntList | Kind::Word32List);
+    let ret_elem = if ret_kind == Kind::Word32List {
+        PinElem::Word32
+    } else {
+        PinElem::Int
+    };
+    let ret = if fn_returns_lists {
         NativeRet::ListByHandle
+    } else if ret_kind == Kind::Inductive {
+        NativeRet::Inductive
     } else {
         NativeRet::Scalar(ret_kind.slot_kind()?)
     };
 
-    // Liveness for the cmp+branch fusion (functions have no write-back, so
-    // deadness inside the body is the whole story).
-    let live = liveness(ops, entry_pc, register_count as usize + 2);
-    if live.is_none() {
-        jt("liveness");
+    // The enum lane's ownership plan: where counts are taken, handed over and released.
+    let plan = if nodes {
+        let node_params: Vec<bool> = param_entry.iter().map(|k| *k == Kind::Inductive).collect();
+        let plan = inductive::ownership(
+            ops,
+            entry_pc,
+            &kin,
+            &live,
+            &binds,
+            &node_params,
+            register_count as usize + 2,
+            ret_kind == Kind::Inductive,
+        );
+        if plan.is_none() {
+            jt("ownership");
+        }
+        Some(plan?)
+    } else {
+        None
+    };
+    // A native list-building function can run inside another native frame for
+    // millions of calls. Without a per-call watermark, every scratch Vec stays
+    // registered until the outermost VM boundary. Scope every list-allocating
+    // function (not only recursion) so scratch lifetimes match Rust locals.
+    let scope_exports = function_scope_export_slots(ops, param_count, nodes);
+    let scoped_allocs = scope_exports != 0;
+    if scoped_allocs {
+        logicaffeine_compile::optimize::with_backend_lowering(|| {
+            logicaffeine_compile::optimize::mark_fired(
+                logicaffeine_compile::optimization::Opt::Unbox,
+            )
+        });
     }
-    let live = live?;
+    // Final mutable parameters are observable even when the return expression
+    // does not read them. Keep those writes alive through local fusion.
     let jump_targets: std::collections::HashSet<usize> = ops
         .iter()
         .filter_map(|op| match *op {
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
-            | Op::JumpIfTrue { target, .. }
-            => Some(target),
+            | Op::JumpIfTrue { target, .. } => Some(target),
             _ => None,
         })
         .collect();
@@ -1577,17 +2500,22 @@ fn adapt_function(
 
     let conv = (register_count, register_count + 1);
     let rc = register_count as usize;
-    // Frame layout: mode A keeps the classic [regs | conv ×2 | limit]
-    // (size rc+3). Mode B inserts the plant slots and pin triples BEFORE
-    // the limit: [regs | conv ×2 | window | resume | dst | pins ×3p |
-    // limit] — the published table value is frame_size − 3 either way, so
-    // the call stencil's bound math and limit planting hold unchanged.
+    // Frame layout (`function_frame_size`): the published table value is frame_size − 3 in every
+    // mode, so the call stencil's bound math and limit planting hold unchanged.
     let npins = total_pins;
-    let frame_size = if mode_b { rc + 6 + 3 * npins } else { rc + 3 };
+    let frame_size = function_frame_size(rc, mode_b, npins, nodes, scope_exports);
+    if frame_size > u16::MAX as usize {
+        return None;
+    }
+    let export_base = (frame_size - 1 - scope_exports) as u16;
     let plant_window = (rc + 2) as u16;
     let plant_resume = (rc + 3) as u16;
     let plant_dst = (rc + 4) as u16;
     let pins_start = rc + 5;
+    let hold_slot = (pins_start + 3 * npins) as u16;
+    let mut shapes = NodeShapes::default();
+    // Ops whose micro range opens with releases emitted ahead of the op's own translation.
+    let mut range_starts: Vec<(usize, usize)> = Vec::new();
     let mut micro: Vec<MicroOp> = Vec::with_capacity(ops.len());
     let mut pc_to_micro: Vec<usize> = Vec::with_capacity(ops.len());
     let mut fixups: Vec<usize> = Vec::new();
@@ -1619,7 +2547,48 @@ fn adapt_function(
         }
         // Prologue: my plant is invalid until I make a call (the precise
         // walk stops at the first invalid plant).
-        micro.push(MicroOp::LoadConst { dst: plant_window, value: -1 });
+        micro.push(MicroOp::LoadConst {
+            dst: plant_window,
+            value: -1,
+        });
+        if scoped_allocs {
+            micro.push(host_call(conv.0, conv.0, 0, 0, logos_rt_alloc_scope_enter));
+        }
+        // ENTRY PIN REFRESH — a list PARAMETER's frame register holds its vec
+        // HANDLE at entry (the VM boundary marshals it there; a region LEVER-B
+        // cross-function call `Move`s it into the callee window). Derive each
+        // param pin's vec/ptr/LEN triple FROM that handle so the body reads a
+        // LIVE length even when reached through a region call — which stages
+        // only the handle and never runs the `ChainFn::call` pin scatter. Absent
+        // this, `length of xs` read a stale slot and a `length of`-bounded loop
+        // never ran (firstGE/matchAt/indexOf returned 0/false once hot). This is
+        // idempotent for the paths that DO scatter (VM boundary / self-call
+        // staging re-derive the same values), and makes the callee self-
+        // sufficient across the region seam. A list-param callee never
+        // reallocates a param buffer under LEVER B, so the entry triple stays
+        // valid for the whole body.
+        for (preg, _) in list_params.iter() {
+            if let Some(j) = pin_of[*preg as usize] {
+                let slots = pin_slots_of(j as usize);
+                micro.push(MicroOp::ListTriple {
+                    handle_slot: *preg,
+                    vec_slot: slots.vec_slot,
+                    ptr_slot: slots.ptr_slot,
+                    len_slot: slots.len_slot,
+                    helper_addr: logos_rt_list_triple as usize as i64,
+                });
+            }
+        }
+        // Every register that ever holds a node starts empty, so a release on a path that never
+        // wrote it releases nothing.
+        if let Some(plan) = &plan {
+            for &r in &plan.zero_at_entry {
+                micro.push(MicroOp::LoadConst { dst: r, value: 0 });
+            }
+            for &r in &plan.retain_at_entry {
+                micro.push(host_call(r, r, 1, 0, inductive::logos_rt_node_retain));
+            }
+        }
     }
 
     // Per-pause-point register re-box kinds (deopt sites + call sites).
@@ -1628,115 +2597,353 @@ fn adapt_function(
     // deopt walk can detach-or-match them.
     let mut kinds_by_pc: std::collections::HashMap<usize, Vec<RegBox>> =
         std::collections::HashMap::new();
-    let mut owned_by_pc: std::collections::HashMap<usize, Vec<(u16, u16)>> =
+    let mut owned_by_pc: std::collections::HashMap<usize, Vec<(u16, u16, PinElem)>> =
         std::collections::HashMap::new();
-    let mut capture = |i: usize,
-                       kin: &Vec<Option<Vec<Kind>>>,
-                       pin_of: &Vec<Option<u8>>|
-     -> Option<()> {
-        let k = kin[i].as_ref()?;
-        let mut row = Vec::with_capacity(rc);
-        let mut owned: Vec<(u16, u16)> = Vec::new();
-        for r in 0..rc {
-            row.push(match k[r] {
-                Kind::Int => RegBox::Int,
-                Kind::Bool => RegBox::Bool,
-                Kind::Float => RegBox::Float,
-                Kind::IntList | Kind::IntListI32 | Kind::FloatList | Kind::BoolList => {
-                    let j = pin_of[r]?;
-                    if let Some(pidx) =
-                        list_params.iter().position(|(preg, _)| *preg as usize == r)
-                    {
-                        RegBox::ListParam(pidx as u8)
-                    } else {
-                        owned.push((r as u16, pin_slots_of(j as usize).vec_slot));
+    let mut capture =
+        |i: usize, kin: &Vec<Option<Vec<Kind>>>, pin_of: &Vec<Option<u8>>| -> Option<()> {
+            let k = kin[i].as_ref()?;
+            let mut row = Vec::with_capacity(rc);
+            let mut owned: Vec<(u16, u16, PinElem)> = Vec::new();
+            for r in 0..rc {
+                row.push(match k[r] {
+                    Kind::Nothing => RegBox::Nothing,
+                    Kind::Int => RegBox::Int,
+                    Kind::Bool => RegBox::Bool,
+                    Kind::Float => RegBox::Float,
+                    Kind::Word32 => RegBox::Word32,
+                    Kind::Word64 => RegBox::Word64,
+                    // No re-box for a narrow word: a deopt with one live would lose it.
+                    Kind::Word16 => return None,
+                    Kind::CharText => RegBox::CharText,
+                    Kind::IntList
+                    | Kind::IntListI32
+                    | Kind::Word32List
+                    | Kind::FloatList
+                    | Kind::BoolList => {
+                        let j = pin_of[r]?;
+                        let elem = if k[r] == Kind::Word32List {
+                            PinElem::Word32
+                        } else {
+                            PinElem::Int
+                        };
+                        owned.push((r as u16, pin_slots_of(j as usize).vec_slot, elem));
                         RegBox::Resolved
                     }
-                }
-                _ => RegBox::Dead,
-            });
-        }
-        kinds_by_pc.insert(entry_pc + i, row);
-        owned_by_pc.insert(entry_pc + i, owned);
-        Some(())
-    };
+                    _ => RegBox::Dead,
+                });
+            }
+            kinds_by_pc.insert(entry_pc + i, row);
+            owned_by_pc.insert(entry_pc + i, owned);
+            Some(())
+        };
 
+    // Ops whose releases the loop emitted, and the landing pads a branch's taken edge goes through
+    // to release the counts that die on it: (branch micro, target op, registers).
+    let mut placed = vec![false; ops.len()];
+    let mut pads: Vec<(usize, usize, Vec<u16>)> = Vec::new();
     let mut i = 0usize;
     while i < ops.len() {
         if mode_b {
-            let deoptable = matches!(
-                ops[i],
-                Op::Div { .. }
-                    | Op::Mod { .. }
-                    | Op::Index { .. }
-                    | Op::IndexUnchecked { .. }
-                    | Op::SetIndex { .. }
-                    | Op::SetIndexUnchecked { .. }
-                    | Op::Call { .. }
-            );
-            if deoptable && kin[i].is_some() {
+            // ★ EVERY REACHABLE PC IS A POSSIBLE RESUME POINT. A precise deopt resumes at the bytecode pc
+            // that owns the side-exiting micro, and that set is wider than any list of "deoptable" ops:
+            // Int `+`/`-`/`*` deopt on signed overflow (the VM re-runs them into a big integer), and a
+            // fused pair (`Move R9 = R7; Mul R10 = R9 * R9`) attributes its exit to the FIRST op — a Move.
+            // A missing row panicked the deopt walk (`missing kind capture for pc 53`) the first time an
+            // overflow hit a list-param function. So the row is captured wherever the op is reachable.
+            if kin[i].is_some() {
                 if capture(i, &kin, &pin_of).is_none() {
                     jt("capture");
                     return None;
                 }
             }
-            // Self-call, mode B: the callee windows at base + FRAME_SIZE —
+            // THE ENUM LANE. The releases the plan puts ahead of op i open its micro range; an op that
+            // reads the register it overwrites parks the old node in the hold slot. Once the op is done,
+            // the parked node and every count that died with the op are released (a side exit inside
+            // the op still finds them all in place).
+            let op_start = micro.len();
+            let mut after: Vec<MicroOp> = Vec::new();
+            if let Some(plan) = &plan {
+                // A branch's edges are placed once it is translated.
+                placed[i] = !matches!(ops[i], Op::JumpIfFalse { .. } | Op::JumpIfTrue { .. });
+                for &r in &plan.release_before[i] {
+                    micro.push(host_call(r, r, 1, 0, inductive::logos_rt_node_release));
+                }
+                if let Some(r) = plan.hold_old[i] {
+                    micro.push(MicroOp::Move {
+                        dst: hold_slot,
+                        src: r,
+                    });
+                    after.push(host_call(
+                        hold_slot,
+                        hold_slot,
+                        1,
+                        0,
+                        inductive::logos_rt_node_release,
+                    ));
+                }
+                // The counts dying on the way out: a branch releases them on each of its two edges
+                // (below, once the branch is translated), any other op after it. A jump has none: its
+                // holds arrive live, and it reads nothing.
+                if !matches!(ops[i], Op::JumpIfFalse { .. } | Op::JumpIfTrue { .. }) {
+                    for (_, regs) in &plan.edges[i] {
+                        for &r in regs {
+                            after.push(host_call(r, r, 1, 0, inductive::logos_rt_node_release));
+                        }
+                    }
+                }
+                if micro.len() > op_start {
+                    range_starts.push((i, op_start));
+                }
+                let emitted = match (ops[i], &plan.steps[i]) {
+                    (Op::NewInductive { .. } | Op::TestArm { .. } | Op::BindArm { .. }, _)
+                        if kin[i].is_none() =>
+                    {
+                        pc_to_micro.push(micro.len());
+                        true
+                    }
+                    (Op::Move { dst, src }, inductive::Step::Move { take, retain }) => {
+                        pc_to_micro.push(micro.len());
+                        micro.push(MicroOp::Move { dst, src });
+                        if *take {
+                            micro.push(MicroOp::LoadConst { dst: src, value: 0 });
+                        }
+                        if *retain {
+                            micro.push(host_call(dst, dst, 1, 0, inductive::logos_rt_node_retain));
+                        }
+                        true
+                    }
+                    (
+                        Op::NewInductive {
+                            dst,
+                            type_name,
+                            ctor,
+                            args_start,
+                            count,
+                        },
+                        inductive::Step::Construct(fields),
+                    ) => {
+                        let (Some(Constant::Text(type_name)), Some(Constant::Text(ctor))) = (
+                            constants.get(type_name as usize),
+                            constants.get(ctor as usize),
+                        ) else {
+                            jt("node-names");
+                            return None;
+                        };
+                        let shape = Box::new(inductive::Construct {
+                            type_name: type_name.clone(),
+                            ctor: ctor.clone(),
+                            fields: fields.clone(),
+                        });
+                        let imm = &*shape as *const inductive::Construct as i64;
+                        shapes.constructs.push(shape);
+                        pc_to_micro.push(micro.len());
+                        micro.push(host_call(
+                            dst,
+                            args_start,
+                            count,
+                            imm,
+                            inductive::logos_rt_node_new,
+                        ));
+                        // A field that took its register's count leaves the register empty.
+                        for (k, field) in fields.iter().enumerate() {
+                            let a = args_start + k as u16;
+                            if *field == inductive::FieldIn::Take && a != dst {
+                                micro.push(MicroOp::LoadConst { dst: a, value: 0 });
+                            }
+                        }
+                        true
+                    }
+                    (
+                        Op::TestArm {
+                            dst,
+                            target,
+                            variant,
+                        },
+                        _,
+                    ) => {
+                        let Some(Constant::Text(name)) = constants.get(variant as usize) else {
+                            jt("node-variant");
+                            return None;
+                        };
+                        let name = Box::new(name.clone());
+                        let imm = &*name as *const String as i64;
+                        shapes.variants.push(name);
+                        pc_to_micro.push(micro.len());
+                        micro.push(host_call(
+                            dst,
+                            target,
+                            1,
+                            imm,
+                            inductive::logos_rt_node_test,
+                        ));
+                        true
+                    }
+                    (
+                        Op::BindArm {
+                            dst, target, index, ..
+                        },
+                        inductive::Step::Field { kind, retain },
+                    ) => {
+                        let imm = inductive::field_operand(index, *kind, *retain)?;
+                        pc_to_micro.push(micro.len());
+                        micro.push(host_call(
+                            dst,
+                            target,
+                            1,
+                            imm,
+                            inductive::logos_rt_node_field,
+                        ));
+                        true
+                    }
+                    (Op::Return { src }, inductive::Step::Return { retain }) => {
+                        pc_to_micro.push(micro.len());
+                        if *retain {
+                            micro.push(host_call(src, src, 1, 0, inductive::logos_rt_node_retain));
+                        }
+                        micro.push(MicroOp::Return { src });
+                        true
+                    }
+                    _ => false,
+                };
+                if emitted {
+                    micro.append(&mut after);
+                    i += 1;
+                    continue;
+                }
+            }
+            // A reachable ReturnNothing side-exits, and the VM returns Nothing from the same pc.
+            if let (Op::ReturnNothing, Some(_)) = (ops[i], &kin[i]) {
+                pc_to_micro.push(micro.len());
+                micro.push(host_call(conv.0, conv.0, 0, 0, logos_rt_side_exit));
+                micro.push(MicroOp::Return { src: conv.0 });
+                i += 1;
+                continue;
+            }
+            // Mode-B call: the callee windows at base + FRAME_SIZE —
             // fully DISJOINT from this frame, because the interpreter's
             // compact windowing (base + args_start) would let the callee's
             // registers overlap this frame's plant and pin slots and
             // clobber them. Arguments are copied into the fresh window,
-            // pins pass through, the plant records the linkage for the
-            // precise walk, and the post-return store invalidates it.
-            if let Op::Call { dst, args_start, arg_count, func } = ops[i] {
-                // Mode B stages pins for OUR OWN parameter shape — a call
-                // to any other function cannot use this seam.
-                if func != self_fi {
-                    jt("non-self-call-mode-b");
+            // self-call pins pass through, while cross-function scalar helpers
+            // need no pins. The plant records the linkage for the precise walk,
+            // and the post-return store invalidates it.
+            if let Op::Call {
+                dst,
+                args_start,
+                arg_count,
+                func,
+            } = ops[i]
+            {
+                let cross_sig = (func != self_fi)
+                    .then(|| callees.get(func as usize))
+                    .flatten();
+                if func != self_fi
+                    && !cross_sig.is_some_and(|sig| {
+                        sig.ret.is_some()
+                            && sig.inout_params.is_empty()
+                            && sig
+                                .param_kinds
+                                .iter()
+                                .all(|k| matches!(k, Some(ParamKind::Scalar(_))))
+                    })
+                {
+                    jt("non-scalar-cross-call-mode-b");
                     return None;
                 }
                 pc_to_micro.push(micro.len());
                 let window = frame_size as u16;
-                micro.push(MicroOp::LoadConst { dst: plant_window, value: window as i64 });
+                micro.push(MicroOp::LoadConst {
+                    dst: plant_window,
+                    value: window as i64,
+                });
                 micro.push(MicroOp::LoadConst {
                     dst: plant_resume,
                     value: (entry_pc + i + 1) as i64,
                 });
-                micro.push(MicroOp::LoadConst { dst: plant_dst, value: dst as i64 });
+                micro.push(MicroOp::LoadConst {
+                    dst: plant_dst,
+                    value: dst as i64,
+                });
                 for j in 0..arg_count {
-                    micro.push(MicroOp::Move { dst: window + j, src: args_start + j });
+                    micro.push(MicroOp::Move {
+                        dst: window + j,
+                        src: args_start + j,
+                    });
                 }
                 // Each callee list-param pin receives the triple of WHATEVER
                 // pin the staged argument carries (a param passthrough, a
                 // fresh site, or a previous call's result).
-                for (slot, (preg, pelem)) in list_params.iter().enumerate() {
-                    if *pelem != PinElem::Int && *pelem != PinElem::Float && *pelem != PinElem::Bool
-                    {
-                        return None;
+                if func == self_fi {
+                    for (slot, (preg, pelem)) in list_params.iter().enumerate() {
+                        if *pelem != PinElem::Int
+                            && *pelem != PinElem::Word32
+                            && *pelem != PinElem::Float
+                            && *pelem != PinElem::Bool
+                        {
+                            return None;
+                        }
+                        let Some(arg_pin) = pin_of[(args_start + preg) as usize] else {
+                            jt("staged-arg-unpinned");
+                            return None;
+                        };
+                        let src_slots = pin_slots_of(arg_pin as usize);
+                        let dst_base = window + (pins_start + 3 * slot) as u16;
+                        micro.push(MicroOp::Move {
+                            dst: dst_base,
+                            src: src_slots.vec_slot,
+                        });
+                        micro.push(MicroOp::Move {
+                            dst: dst_base + 1,
+                            src: src_slots.ptr_slot,
+                        });
+                        micro.push(MicroOp::Move {
+                            dst: dst_base + 2,
+                            src: src_slots.len_slot,
+                        });
                     }
-                    let Some(arg_pin) = pin_of[(args_start + preg) as usize] else {
-                        jt("staged-arg-unpinned");
-                        return None;
-                    };
-                    let src_slots = pin_slots_of(arg_pin as usize);
-                    let dst_base = window + (pins_start + 3 * slot) as u16;
-                    micro.push(MicroOp::Move { dst: dst_base, src: src_slots.vec_slot });
-                    micro.push(MicroOp::Move { dst: dst_base + 1, src: src_slots.ptr_slot });
-                    micro.push(MicroOp::Move { dst: dst_base + 2, src: src_slots.len_slot });
                 }
                 let c = call_ctx_in;
                 micro.push(MicroOp::Call {
                     dst,
                     args_start: window,
-                    table_addr: c.table_addr,
+                    table_addr: if func == self_fi {
+                        c.table_addr
+                    } else {
+                        c.table.slot_addr(func as usize)
+                    },
                     depth_addr: c.depth_addr,
                     status_addr: c.status_addr,
                     limit_slot: c.limit_slot,
                     depth_limit: c.depth_limit,
                 });
-                micro.push(MicroOp::LoadConst { dst: plant_window, value: -1 });
+                let call_inouts = if func == self_fi {
+                    inout_params
+                } else {
+                    &callees[func as usize].inout_params
+                };
+                for &j in call_inouts {
+                    let arg = args_start + j;
+                    micro.push(MicroOp::Move {
+                        dst: arg,
+                        src: window + j,
+                    });
+                    if let Some(pin) = pins.get(&arg) {
+                        micro.push(MicroOp::ListTriple {
+                            handle_slot: arg,
+                            vec_slot: pin.vec_slot,
+                            ptr_slot: pin.ptr_slot,
+                            len_slot: pin.len_slot,
+                            helper_addr: logos_rt_list_triple as usize as i64,
+                        });
+                    }
+                }
+                micro.push(MicroOp::LoadConst {
+                    dst: plant_window,
+                    value: -1,
+                });
                 // A list-returning self-call: plant the result's triple
                 // from the returned handle.
-                if fn_returns_lists {
+                if func == self_fi && fn_returns_lists {
                     if let Some(j) = pin_of[dst as usize] {
                         let slots = pin_slots_of(j as usize);
                         micro.push(MicroOp::ListTriple {
@@ -1748,31 +2955,131 @@ fn adapt_function(
                         });
                     }
                 }
+                micro.append(&mut after);
                 i += 1;
                 continue;
             }
+            // Return through the allocation-scope helper so every invocation
+            // frees its own scratch lists. A list returns its Vec handle; a
+            // scalar returns its raw register word. Export final mutable lists
+            // as well, so the caller can take ownership of their buffers.
+            if scoped_allocs {
+                if let Op::Return { src } = ops[i] {
+                    pc_to_micro.push(micro.len());
+                    let returned = if let Some(j) =
+                        pin_of[src as usize].filter(|_| holds_list_at(&kin, i, src))
+                    {
+                        pin_slots_of(j as usize).vec_slot
+                    } else {
+                        src
+                    };
+                    micro.push(MicroOp::Move {
+                        dst: export_base,
+                        src: returned,
+                    });
+                    let mut exports = 1;
+                    for &param in inout_params {
+                        if holds_list_at(&kin, i, param) {
+                            let pin = pin_of[param as usize]?;
+                            micro.push(MicroOp::Move {
+                                dst: export_base + exports,
+                                src: pin_slots_of(pin as usize).vec_slot,
+                            });
+                            exports += 1;
+                        }
+                    }
+                    micro.push(host_call(
+                        conv.0,
+                        export_base,
+                        exports,
+                        i64::from(!fn_returns_lists),
+                        logos_rt_alloc_scope_leave,
+                    ));
+                    micro.push(MicroOp::Return { src: conv.0 });
+                    i += 1;
+                    continue;
+                }
+            }
+            // Only the enum ops and a call read or write a register that owns a node, so no other op
+            // has releases to place after it.
+            if !after.is_empty() {
+                jt("node-release-after");
+                return None;
+            }
             // Fresh-list allocation: registry-owned, triple planted.
-            if let Op::NewEmptyList { dst } = ops[i] {
+            if let Op::NewEmptyList { dst }
+            | Op::NewEmptyListWithCapacity { dst, .. }
+            | Op::NewEmptyListFixed { dst, .. }
+            | Op::NewList { dst, .. } = ops[i]
+            {
+                if let Op::NewList { start, count, .. } = ops[i] {
+                    if !kin[i]
+                        .as_ref()
+                        .is_some_and(|k| (start..start + count).all(|r| k[r as usize] == Kind::Int))
+                    {
+                        return None;
+                    }
+                }
                 pc_to_micro.push(micro.len());
                 let j = pin_of[dst as usize].expect("site pins were assigned");
                 let slots = pin_slots_of(j as usize);
+                let helper_addr = match ops[i] {
+                    Op::NewEmptyListFixed { capacity, .. } => {
+                        micro.push(MicroOp::LoadConst {
+                            dst: slots.len_slot,
+                            value: capacity as i64,
+                        });
+                        logos_rt_alloc_list_i64_fixed as usize as i64
+                    }
+                    Op::NewEmptyListWithCapacity { capacity, .. } => {
+                        micro.push(MicroOp::Move {
+                            dst: slots.len_slot,
+                            src: capacity,
+                        });
+                        logos_rt_alloc_list_i64_fixed as usize as i64
+                    }
+                    _ => logos_rt_alloc_list_i64 as usize as i64,
+                };
                 micro.push(MicroOp::NewList {
                     vec_slot: slots.vec_slot,
                     ptr_slot: slots.ptr_slot,
                     len_slot: slots.len_slot,
-                    helper_addr: logos_rt_alloc_list_i64 as usize as i64,
+                    helper_addr,
                 });
                 // INVARIANT: a list register's frame slot mirrors its vec
                 // handle (Moves, staging and returns all ride it).
-                micro.push(MicroOp::Move { dst, src: slots.vec_slot });
+                micro.push(MicroOp::Move {
+                    dst,
+                    src: slots.vec_slot,
+                });
+                if let Op::NewList { start, count, .. } = ops[i] {
+                    for src in start..start + count {
+                        micro.push(MicroOp::ArrPush {
+                            src,
+                            vec_slot: slots.vec_slot,
+                            ptr_slot: slots.ptr_slot,
+                            len_slot: slots.len_slot,
+                            helper_addr: logos_rt_push_i64 as usize as i64,
+                            byte: false,
+                            narrow32: false,
+                        });
+                    }
+                }
                 i += 1;
                 continue;
             }
             // A Move BETWEEN list registers transfers the handle and
             // refreshes the destination's own pin triple from the live
             // vector (per-register pins make reassignment conflict-free).
+            //
+            // ★ ASKED AT THIS PC, NOT OF THE REGISTER. A VM register is a slot the bytecode compiler
+            // recycles — a block's bindings when the block closes, a statement's scratch when the
+            // statement ends — so one register can hold a list here and an Int there. `is_list` says
+            // only that it holds a list SOMEWHERE (it sizes the pins); treating that as "a list now"
+            // planted a triple from an Int and dereferenced it as a `*mut Vec` (quicksort, SIGABRT).
+            // `kin` is the flow-sensitive kind before this op, definite at every reachable Move.
             if let Op::Move { dst, src } = ops[i] {
-                if is_list[src as usize] {
+                if holds_list_at(&kin, i, src) {
                     pc_to_micro.push(micro.len());
                     let j = pin_of[dst as usize].expect("list regs are pinned");
                     let slots = pin_slots_of(j as usize);
@@ -1791,10 +3098,13 @@ fn adapt_function(
             // List return: the vec HANDLE rides the return value (the
             // boundary detaches registry-owned lists or matches a param).
             if let Op::Return { src } = ops[i] {
-                if let Some(j) = pin_of[src as usize] {
+                if let Some(j) = pin_of[src as usize].filter(|_| holds_list_at(&kin, i, src)) {
                     pc_to_micro.push(micro.len());
                     let slots = pin_slots_of(j as usize);
-                    micro.push(MicroOp::Move { dst: conv.0, src: slots.vec_slot });
+                    micro.push(MicroOp::Move {
+                        dst: conv.0,
+                        src: slots.vec_slot,
+                    });
                     micro.push(MicroOp::Return { src: conv.0 });
                     i += 1;
                     continue;
@@ -1810,11 +3120,15 @@ fn adapt_function(
             // and a bounds failure side-exits to the FIRST Index's bytecode pc
             // (captured above, since Index is deoptable) — resuming there
             // re-runs all three pure ops, every effect still confined.
-            if let Some(fused) = fuse_index2_fbinop(
-                ops, i, entry_pc, &kin, &live, &jump_targets, &pins,
-            ) {
+            if let Some(fused) =
+                fuse_index2_fbinop(ops, i, entry_pc, &kin, &live, &jump_targets, &pins)
+            {
                 if std::env::var_os("LOGOS_JIT_TRACE").is_some() {
-                    eprintln!("jit-trace: FUSED arrld2 at pc {} -> {:?}", entry_pc + i, fused);
+                    eprintln!(
+                        "jit-trace: FUSED arrld2 at pc {} -> {:?}",
+                        entry_pc + i,
+                        fused
+                    );
                 }
                 pc_to_micro.push(micro.len());
                 micro.push(fused);
@@ -1826,6 +3140,36 @@ fn adapt_function(
                 continue;
             }
         }
+        // NATIVE COPY-ON-WRITE: the copy is the first micro of the store's own pc range, so a jump to
+        // the store runs it and a deopt inside the store resumes AT the store (which the VM re-runs,
+        // copying the still-unwritten original exactly as the copy did).
+        let copy_at = if own_before.contains(&i) {
+            let (Op::SetIndex { collection, .. } | Op::SetIndexUnchecked { collection, .. }) =
+                ops[i]
+            else {
+                unreachable!("own_before holds only element stores")
+            };
+            // Allocation sites are Int-lane; a copy of any other element width has no registry form.
+            if !kin[i]
+                .as_ref()
+                .is_some_and(|k| k[collection as usize] == Kind::IntList)
+            {
+                jt("copy-on-write-non-int-list");
+                return None;
+            }
+            let slots = pin_slots_of(pin_of[collection as usize]? as usize);
+            let at = micro.len();
+            micro.push(MicroOp::ListTriple {
+                handle_slot: collection,
+                vec_slot: slots.vec_slot,
+                ptr_slot: slots.ptr_slot,
+                len_slot: slots.len_slot,
+                helper_addr: logos_rt_list_own as usize as i64,
+            });
+            Some(at)
+        } else {
+            None
+        };
         let step = translate_op(
             ops,
             i,
@@ -1833,6 +3177,7 @@ fn adapt_function(
             constants,
             &kin,
             &live,
+            None,
             &jump_targets,
             &scratch_ok,
             conv,
@@ -1845,13 +3190,74 @@ fn adapt_function(
             &mut pc_to_micro,
             &mut fixups,
         );
+        if let (Some(at), Some(_)) = (copy_at, step) {
+            pc_to_micro[i] = at;
+        }
         if step.is_none() {
             jt("translate");
             if std::env::var_os("LOGOS_JIT_TRACE").is_some() {
                 eprintln!("jit-trace:   op {:?}", ops[i]);
             }
         }
-        i += step?;
+        let step = step?;
+        // A branch (alone or fused with its compare) releases what dies on its fall-through edge right
+        // after the branch micro, and what dies on its taken edge in a landing pad.
+        if let Some(plan) = &plan {
+            let b = i + step - 1;
+            if let Op::JumpIfFalse { .. } | Op::JumpIfTrue { .. } = ops[b] {
+                let branch = micro.len() - 1;
+                for (s, regs) in &plan.edges[b] {
+                    if *s == b + 1 {
+                        for &r in regs {
+                            micro.push(host_call(r, r, 1, 0, inductive::logos_rt_node_release));
+                        }
+                    } else {
+                        pads.push((branch, *s, regs.clone()));
+                    }
+                }
+                placed[b] = true;
+            }
+        }
+        i += step;
+    }
+    // A jump to an op lands on the releases that open its range.
+    for &(op, start) in &range_starts {
+        pc_to_micro[op] = start;
+    }
+    // An op folded into its predecessor's translation never emitted its own releases.
+    if let Some(plan) = &plan {
+        let unplaced = (0..ops.len()).any(|j| {
+            !placed[j]
+                && (!plan.release_before[j].is_empty()
+                    || plan.hold_old[j].is_some()
+                    || !plan.edges[j].is_empty())
+        });
+        if unplaced {
+            jt("node-release-fused");
+            return None;
+        }
+    }
+    // Landing pads: the branch jumps to its pad, the pad releases and jumps on to the target.
+    for (branch, target, regs) in pads {
+        let pad = micro.len();
+        for r in regs {
+            micro.push(host_call(r, r, 1, 0, inductive::logos_rt_node_release));
+        }
+        fixups.push(micro.len());
+        micro.push(MicroOp::Jump {
+            target: entry_pc + target,
+        });
+        fixups.retain(|&f| f != branch);
+        match &mut micro[branch] {
+            MicroOp::JumpIfFalse { target, .. }
+            | MicroOp::JumpIfTrue { target, .. }
+            | MicroOp::Branch { target, .. }
+            | MicroOp::BranchF { target, .. } => *target = pad,
+            _ => {
+                jt("node-pad-branch");
+                return None;
+            }
+        }
     }
     for &fi in &fixups {
         match &mut micro[fi] {
@@ -1868,7 +3274,10 @@ fn adapt_function(
     }
     // Function bodies may end on a Return-less path only if the VM never
     // reaches it; the chain compiler requires structural termination.
-    if !matches!(micro.last(), Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })) {
+    if !matches!(
+        micro.last(),
+        Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })
+    ) {
         return None;
     }
     // Mode B: every micro of bytecode op i carries that op's encoded pc
@@ -1891,18 +3300,57 @@ fn adapt_function(
         .iter()
         .map(|(preg, _)| pin_slots_of(pin_of[*preg as usize].unwrap() as usize).vec_slot)
         .collect();
+    let mut nodes_by_pc: std::collections::HashMap<usize, Vec<(u16, inductive::Hold)>> =
+        std::collections::HashMap::new();
+    if let Some(plan) = &plan {
+        for (i, pause) in plan.pause.iter().enumerate() {
+            let Some(pause) = pause else { continue };
+            let nodes: Vec<(u16, inductive::Hold)> = pause[..rc]
+                .iter()
+                .enumerate()
+                .filter(|(_, h)| h.is_node())
+                .map(|(r, h)| (r as u16, *h))
+                .collect();
+            nodes_by_pc.insert(entry_pc + i, nodes);
+        }
+    }
     let precise = if mode_b {
         Some(PreciseInfo {
             register_count: rc,
-            pins_start,
             kinds_by_pc,
             owned_by_pc,
             param_pin_scatter,
+            nodes_by_pc,
         })
     } else {
         None
     };
-    Some(AdaptedFn { micro, frame_size, ret, deopt_codes, precise })
+    Some(AdaptedFn {
+        micro,
+        frame_size,
+        ret,
+        ret_elem,
+        deopt_codes,
+        precise,
+        shapes,
+    })
+}
+
+/// A `Host` micro calling `helper` over the frame.
+fn host_call(
+    dst: u16,
+    src: u16,
+    count: u16,
+    imm: i64,
+    helper: unsafe extern "C" fn(*mut i64, i64, i64, i64, i64) -> i64,
+) -> MicroOp {
+    MicroOp::Host {
+        dst,
+        src,
+        count,
+        imm,
+        helper_addr: helper as usize as i64,
+    }
 }
 
 /// If slot `rhs` is a region-constant power of two — its ONLY writer in `ops`
@@ -1911,6 +3359,27 @@ fn adapt_function(
 /// of an `idiv`. Sound: a single constant writer means `rhs` holds exactly
 /// `2^k` at every `Div`, in every loop iteration. Any other writer (or an op
 /// whose defs we cannot determine) disqualifies it.
+/// The constant `Int` value of `slot` if it is defined EXACTLY ONCE across the region by a `LoadConst` of
+/// an `Int` — else `None`. SOUND: a variable, multiply-defined, or non-`Int`-defined slot declines (so a
+/// caller that only handles a compile-time constant, e.g. `pow`'s exponent, falls back to the VM).
+fn const_int_operand(ops: &[Op], slot: u16, constants: &[Constant]) -> Option<i64> {
+    let mut found: Option<i64> = None;
+    for op in ops {
+        let defs = region_use_def(op)?.1;
+        if !defs.contains(&slot) {
+            continue;
+        }
+        match op {
+            Op::LoadConst { dst, idx } if *dst == slot => match constants.get(*idx as usize) {
+                Some(Constant::Int(v)) if found.is_none() => found = Some(*v),
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    found
+}
+
 fn const_pow2_div(ops: &[Op], rhs: u16, constants: &[Constant]) -> Option<u32> {
     let mut k_found: Option<u32> = None;
     for op in ops {
@@ -1945,6 +3414,7 @@ fn region_use_def(op: &Op) -> Option<(Vec<u16>, Vec<u16>)> {
         Op::DivPow2 { dst, lhs, .. } => (vec![lhs], vec![dst]),
         Op::MagicDivU { dst, lhs, .. } => (vec![lhs], vec![dst]),
         Op::Move { dst, src } => (vec![src], vec![dst]),
+        Op::RevSwap { a, b } => (vec![a, b], vec![a, b]),
         // Interpreter-only call-site COW barrier: a no-op in a native region (the
         // pinned-buffer / list-param mechanism already governs value semantics here,
         // exactly as it did before the barrier existed). Reads `reg` to keep it live.
@@ -1955,31 +3425,111 @@ fn region_use_def(op: &Op) -> Option<(Vec<u16>, Vec<u16>)> {
         | Op::Shl { dst, lhs, rhs }
         | Op::Shr { dst, lhs, rhs } => (vec![lhs, rhs], vec![dst]),
         Op::Not { dst, src } => (vec![src], vec![dst]),
-        Op::Index { dst, collection, index }
-        | Op::IndexUnchecked { dst, collection, index } => (vec![collection, index], vec![dst]),
-        Op::Contains { dst, collection, value } => (vec![collection, value], vec![dst]),
-        Op::NewEmptyList { dst } => (vec![], vec![dst]),
-        Op::SetIndex { collection, index, value }
-        | Op::SetIndexUnchecked { collection, index, value } => {
-            (vec![collection, index, value], vec![])
+        Op::Index {
+            dst,
+            collection,
+            index,
         }
+        | Op::IndexUnchecked {
+            dst,
+            collection,
+            index,
+        } => (vec![collection, index], vec![dst]),
+        Op::Contains {
+            dst,
+            collection,
+            value,
+        } => (vec![collection, value], vec![dst]),
+        Op::NewEmptyList { dst } | Op::NewEmptyListFixed { dst, .. } => (vec![], vec![dst]),
+        Op::NewEmptyListWithCapacity { dst, capacity } => (vec![capacity], vec![dst]),
+        Op::NewList { dst, start, count } => ((start..start + count).collect(), vec![dst]),
+        Op::SetIndex {
+            collection,
+            index,
+            value,
+        }
+        | Op::SetIndexUnchecked {
+            collection,
+            index,
+            value,
+        } => (vec![collection, index, value], vec![]),
         Op::Length { dst, collection } => (vec![collection], vec![dst]),
         Op::ListPush { list, value } => (vec![list, value], vec![]),
-        Op::Call { dst, args_start, arg_count, .. } => {
-            ((args_start..args_start + arg_count).collect(), vec![dst])
+        Op::NewInductive {
+            dst,
+            args_start,
+            count,
+            ..
+        } => ((args_start..args_start + count).collect(), vec![dst]),
+        Op::TestArm { dst, target, .. } | Op::BindArm { dst, target, .. } => {
+            (vec![target], vec![dst])
         }
+        Op::Call {
+            dst,
+            args_start,
+            arg_count,
+            ..
+        } => ((args_start..args_start + arg_count).collect(), vec![dst]),
         Op::CallBuiltin {
             dst,
             builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Sqrt,
             args_start,
             arg_count,
         } if arg_count == 1 => (vec![args_start], vec![dst]),
-        Op::Add { dst, lhs, rhs } | Op::Sub { dst, lhs, rhs } | Op::Mul { dst, lhs, rhs }
-        | Op::Div { dst, lhs, rhs } | Op::Mod { dst, lhs, rhs }
-        | Op::Lt { dst, lhs, rhs } | Op::Gt { dst, lhs, rhs } | Op::LtEq { dst, lhs, rhs }
-        | Op::GtEq { dst, lhs, rhs } | Op::Eq { dst, lhs, rhs } | Op::NotEq { dst, lhs, rhs } => {
-            (vec![lhs, rhs], vec![dst])
-        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Abs,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => (vec![args_start], vec![dst]),
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                logicaffeine_compile::semantics::builtins::BuiltinId::Min
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Max
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Pow
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Wand
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Wor
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word64And
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word64Shl
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word32Shr
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word64Shr
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Rotl
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Rotr,
+            args_start,
+            arg_count,
+        } if arg_count == 2 => (vec![args_start, args_start + 1], vec![dst]),
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                logicaffeine_compile::semantics::builtins::BuiltinId::CountOnes
+                | logicaffeine_compile::semantics::builtins::BuiltinId::LeadingZeros
+                | logicaffeine_compile::semantics::builtins::BuiltinId::TrailingZeros
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Floor
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Ceil
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Round
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word32
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word64
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word16Make
+                | logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord32
+                | logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord64
+                | logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord16
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Wnot
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Chr,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => (vec![args_start], vec![dst]),
+        Op::Add { dst, lhs, rhs }
+        | Op::Sub { dst, lhs, rhs }
+        | Op::Mul { dst, lhs, rhs }
+        | Op::Div { dst, lhs, rhs }
+        | Op::Mod { dst, lhs, rhs }
+        | Op::Lt { dst, lhs, rhs }
+        | Op::Gt { dst, lhs, rhs }
+        | Op::LtEq { dst, lhs, rhs }
+        | Op::GtEq { dst, lhs, rhs }
+        | Op::Eq { dst, lhs, rhs }
+        | Op::NotEq { dst, lhs, rhs } => (vec![lhs, rhs], vec![dst]),
         Op::AddAssign { dst, src } => (vec![dst, src], vec![dst]),
         Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => (vec![cond], vec![]),
         Op::Jump { .. } => (vec![], vec![]),
@@ -1997,6 +3547,15 @@ fn region_use_def(op: &Op) -> Option<(Vec<u16>, Vec<u16>)> {
 /// `Return`/`ReturnNothing` are terminals. None when the slice contains an
 /// op outside the adaptable subset.
 fn liveness(ops: &[Op], base_pc: usize, nregs: usize) -> Option<Vec<Vec<bool>>> {
+    liveness_with_outputs(ops, base_pc, nregs, &[])
+}
+
+fn liveness_with_outputs(
+    ops: &[Op],
+    base_pc: usize,
+    nregs: usize,
+    outputs: &[u16],
+) -> Option<Vec<Vec<bool>>> {
     let in_slice = |t: usize| (base_pc..base_pc + ops.len()).contains(&t);
     fn merge_into(out: &mut [bool], row: &[bool]) {
         for (o, &l) in out.iter_mut().zip(row) {
@@ -2020,9 +3579,7 @@ fn liveness(ops: &[Op], base_pc: usize, nregs: usize) -> Option<Vec<Vec<bool>>> 
                         merge_into(&mut out, &live[target - base_pc]);
                     }
                 }
-                Op::JumpIfFalse { target, .. }
-                | Op::JumpIfTrue { target, .. }
-                => {
+                Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => {
                     if i + 1 < ops.len() {
                         merge_into(&mut out, &live[i + 1]);
                     }
@@ -2030,7 +3587,11 @@ fn liveness(ops: &[Op], base_pc: usize, nregs: usize) -> Option<Vec<Vec<bool>>> 
                         merge_into(&mut out, &live[target - base_pc]);
                     }
                 }
-                Op::Return { .. } | Op::ReturnNothing => {}
+                Op::Return { .. } | Op::ReturnNothing => {
+                    for &r in outputs {
+                        out[r as usize] = true;
+                    }
+                }
                 _ => {
                     if i + 1 < ops.len() {
                         merge_into(&mut out, &live[i + 1]);
@@ -2148,13 +3709,29 @@ fn fuse_index2_fbinop(
         return None;
     }
     let (t1, coll_a, ix) = match ops[i] {
-        Op::Index { dst, collection, index }
-        | Op::IndexUnchecked { dst, collection, index } => (dst, collection, index),
+        Op::Index {
+            dst,
+            collection,
+            index,
+        }
+        | Op::IndexUnchecked {
+            dst,
+            collection,
+            index,
+        } => (dst, collection, index),
         _ => return None,
     };
     let (t2, coll_b, jx) = match ops[i + 1] {
-        Op::Index { dst, collection, index }
-        | Op::IndexUnchecked { dst, collection, index } => (dst, collection, index),
+        Op::Index {
+            dst,
+            collection,
+            index,
+        }
+        | Op::IndexUnchecked {
+            dst,
+            collection,
+            index,
+        } => (dst, collection, index),
         _ => return None,
     };
     if coll_a != coll_b || t1 == t2 {
@@ -2220,6 +3797,7 @@ fn translate_op(
     constants: &[Constant],
     kin: &[Option<Vec<Kind>>],
     live: &[Vec<bool>],
+    safe_list_stages: Option<&std::collections::HashSet<(usize, u16)>>,
     jump_targets: &std::collections::HashSet<usize>,
     scratch_ok: &dyn Fn(u16) -> bool,
     conv: (u16, u16),
@@ -2239,14 +3817,18 @@ fn translate_op(
     let kind_of = |r: u16| k.map(|kk| kk[r as usize]).unwrap_or(Kind::Int);
     // Resolve a numeric operand to (slot, is_float), inserting a conversion
     // into `cslot` when the other side forces a Float promotion.
-    let promote = |micro: &mut Vec<MicroOp>, slot: u16, kind: Kind, want_float: bool, cslot: u16| -> u16 {
-        if want_float && kind == Kind::Int {
-            micro.push(MicroOp::IntToFloat { dst: cslot, src: slot });
-            cslot
-        } else {
-            slot
-        }
-    };
+    let promote =
+        |micro: &mut Vec<MicroOp>, slot: u16, kind: Kind, want_float: bool, cslot: u16| -> u16 {
+            if want_float && kind == Kind::Int {
+                micro.push(MicroOp::IntToFloat {
+                    dst: cslot,
+                    src: slot,
+                });
+                cslot
+            } else {
+                slot
+            }
+        };
 
     // Fused compare-and-branch first.
     if let Some((cmp, lhs, rhs, target)) =
@@ -2257,7 +3839,12 @@ fn translate_op(
         if bools && matches!(cmp, Cmp::Eq | Cmp::NotEq) {
             pc_to_micro.push(micro.len());
             fixups.push(micro.len());
-            micro.push(MicroOp::Branch { cmp, lhs, rhs, target });
+            micro.push(MicroOp::Branch {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            });
             return Some(2);
         }
         let want_float = lk == Kind::Float || rk == Kind::Float;
@@ -2266,31 +3853,50 @@ fn translate_op(
             let r = promote(micro, rhs, rk, true, conv.1);
             pc_to_micro.push(micro.len());
             fixups.push(micro.len());
-            micro.push(MicroOp::BranchF { cmp, lhs: l, rhs: r, target });
+            micro.push(MicroOp::BranchF {
+                cmp,
+                lhs: l,
+                rhs: r,
+                target,
+            });
         } else {
             pc_to_micro.push(micro.len());
             fixups.push(micro.len());
-            micro.push(MicroOp::Branch { cmp, lhs, rhs, target });
+            micro.push(MicroOp::Branch {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            });
         }
         return Some(2);
     }
 
     match ops[i] {
         Op::LoadConst { dst, idx } => match constants.get(idx as usize)? {
+            // A loan leaves Nothing until its final argument is copied back.
+            // Kind gates keep this placeholder out of numeric/list operations.
+            Constant::Nothing => micro.push(MicroOp::LoadConst { dst, value: 0 }),
             Constant::Int(v) => micro.push(MicroOp::LoadConst { dst, value: *v }),
-            Constant::Float(f) => {
-                micro.push(MicroOp::LoadConst { dst, value: f.to_bits() as i64 })
-            }
-            Constant::Bool(b) => micro.push(MicroOp::LoadConst { dst, value: *b as i64 }),
+            Constant::Float(f) => micro.push(MicroOp::LoadConst {
+                dst,
+                value: f.to_bits() as i64,
+            }),
+            Constant::Bool(b) => micro.push(MicroOp::LoadConst {
+                dst,
+                value: *b as i64,
+            }),
             // A 1-char ASCII text/char literal lowers to its single byte so a
             // `Kind::TextByte` comparison against it is an integer compare (the
             // strings benchmark's `item i of result equals " "`).
-            Constant::Char(c) if c.is_ascii() => {
-                micro.push(MicroOp::LoadConst { dst, value: *c as i64 })
-            }
-            Constant::Text(s) if text_const_byte(s).is_some() => {
-                micro.push(MicroOp::LoadConst { dst, value: text_const_byte(s).unwrap() as i64 })
-            }
+            Constant::Char(c) if c.is_ascii() => micro.push(MicroOp::LoadConst {
+                dst,
+                value: *c as i64,
+            }),
+            Constant::Text(s) if text_const_byte(s).is_some() => micro.push(MicroOp::LoadConst {
+                dst,
+                value: text_const_byte(s).unwrap() as i64,
+            }),
             // A MULTI-char ASCII text constant (`text + "XXXXX"`) is consumed ONLY
             // as a `StrAppend` source (`Kind::TextConst`, rejected by every other
             // gate), which bakes the literal's bytes directly — its frame slot is
@@ -2302,24 +3908,142 @@ fn translate_op(
             _ => return None,
         },
         Op::Move { dst, src } => micro.push(MicroOp::Move { dst, src }),
-        Op::EnsureOwned { .. } => {} // interpreter-only COW barrier — no-op in a native region
-        Op::DivPow2 { dst, lhs, k } => micro.push(MicroOp::DivPow2 { dst, lhs, k: k as u32 }),
-        Op::MagicDivU { dst, lhs, magic, more, mul_back } => {
-            micro.push(MicroOp::MagicDivU { dst, lhs, magic, more, mul_back })
+        Op::RevSwap { a, b } => {
+            if a != b {
+                let list = |kind: Kind| {
+                    matches!(
+                        kind,
+                        Kind::IntList
+                            | Kind::IntListI32
+                            | Kind::Word32List
+                            | Kind::FloatList
+                            | Kind::BoolList
+                    )
+                };
+                if list(kind_of(a)) {
+                    // List values ride three pinned slots rather than their
+                    // scalar register slot. Swap the dynamic vector identity,
+                    // data pointer and length together; also mirror the handle
+                    // in the register slots for a later list-parameter call.
+                    // The VM boundary uses `ArrayPin::rebound` to map the final
+                    // handles back to their original `Rc`s without copying a
+                    // buffer or adding work to the inner loop.
+                    let pa = pins.get(&a)?;
+                    let pb = pins.get(&b)?;
+                    if pa.elem != pb.elem {
+                        return None;
+                    }
+                    for (left, right) in [
+                        (pa.vec_slot, pb.vec_slot),
+                        (pa.ptr_slot, pb.ptr_slot),
+                        (pa.len_slot, pb.len_slot),
+                        (a, b),
+                    ] {
+                        micro.push(MicroOp::Move {
+                            dst: conv.0,
+                            src: left,
+                        });
+                        micro.push(MicroOp::Move {
+                            dst: left,
+                            src: right,
+                        });
+                        micro.push(MicroOp::Move {
+                            dst: right,
+                            src: conv.0,
+                        });
+                    }
+                } else {
+                    micro.push(MicroOp::Move {
+                        dst: conv.0,
+                        src: a,
+                    });
+                    micro.push(MicroOp::Move { dst: a, src: b });
+                    micro.push(MicroOp::Move {
+                        dst: b,
+                        src: conv.0,
+                    });
+                }
+            }
         }
+        Op::EnsureOwned { .. } => {} // interpreter-only COW barrier — no-op in a native region
+        Op::DivPow2 { dst, lhs, k } => micro.push(MicroOp::DivPow2 {
+            dst,
+            lhs,
+            k: k as u32,
+        }),
+        Op::MagicDivU {
+            dst,
+            lhs,
+            magic,
+            more,
+            mul_back,
+            divisor: _,
+            wrap: _,
+        } => micro.push(MicroOp::MagicDivU {
+            dst,
+            lhs,
+            magic,
+            more,
+            mul_back,
+        }),
         Op::Add { dst, lhs, rhs }
         | Op::Sub { dst, lhs, rhs }
         | Op::Mul { dst, lhs, rhs }
         | Op::Div { dst, lhs, rhs } => {
             let (lk, rk) = (kind_of(lhs), kind_of(rhs));
-            if lk == Kind::Float || rk == Kind::Float {
+            let word_w = match (lk, rk) {
+                (Kind::Word32, Kind::Word32) => Some(Kind::Word32),
+                (Kind::Word64, Kind::Word64) => Some(Kind::Word64),
+                _ => None,
+            };
+            if let Some(wk) = word_w {
+                // Modular Word `+`/`-`/`*`: the i64 op is WRAPPING, so it is the modular result outright;
+                // its checked form still deopts on a rare signed overflow, and the VM then re-runs the op on
+                // the boxed Words — which is ALSO the modular result — so correctness holds either way. A
+                // Word32 then masks to 2³² (`Word32` operands are `< 2³²`, so add/sub never overflow i64 and
+                // always mask; a `*` product ≥ 2⁶³ deopts→VM before the mask). A Word64 needs no mask (the
+                // i64 slot IS the 2⁶⁴ pattern). `Div` on a Word never reaches here (the gate rejects it).
+                micro.push(match ops[i] {
+                    Op::Add { .. } => MicroOp::Add { dst, lhs, rhs },
+                    Op::Sub { .. } => MicroOp::Sub { dst, lhs, rhs },
+                    Op::Mul { .. } => MicroOp::Mul { dst, lhs, rhs },
+                    _ => return None,
+                });
+                if wk == Kind::Word32 {
+                    micro.push(MicroOp::LoadConst {
+                        dst: conv.0,
+                        value: 0xFFFF_FFFF,
+                    });
+                    micro.push(MicroOp::BitAnd {
+                        dst,
+                        lhs: dst,
+                        rhs: conv.0,
+                    });
+                }
+            } else if lk == Kind::Float || rk == Kind::Float {
                 let l = promote(micro, lhs, lk, true, conv.0);
                 let r = promote(micro, rhs, rk, true, conv.1);
                 micro.push(match ops[i] {
-                    Op::Add { .. } => MicroOp::AddF { dst, lhs: l, rhs: r },
-                    Op::Sub { .. } => MicroOp::SubF { dst, lhs: l, rhs: r },
-                    Op::Mul { .. } => MicroOp::MulF { dst, lhs: l, rhs: r },
-                    _ => MicroOp::DivF { dst, lhs: l, rhs: r },
+                    Op::Add { .. } => MicroOp::AddF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    Op::Sub { .. } => MicroOp::SubF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    Op::Mul { .. } => MicroOp::MulF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    _ => MicroOp::DivF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
                 });
             } else {
                 micro.push(match ops[i] {
@@ -2342,13 +4066,15 @@ fn translate_op(
                 // A pinned mutable-Text accumulator grows through the `StrAppend`
                 // helper. The handle is the pin's vec slot (a `*mut Value`). The
                 // source is a 1-char runtime byte (`TextByte` — the byte VALUE
-                // rides its frame slot) or a multi-char ASCII constant
+                // rides its frame slot), an `Int` (its decimal text, as the VM's
+                // `Text + Int` writes it) or a multi-char ASCII constant
                 // (`TextConst` — recover the literal's bytes and bake a `'static`
                 // slice). The handle slot is force-frame-resident so a non-frame
                 // (register-resident) handle is impossible here.
                 let p = pins.get(&dst)?;
                 let strsrc = match sk {
                     Kind::TextByte => logicaffeine_forge::jit::StrSrc::Byte(src),
+                    Kind::Int => logicaffeine_forge::jit::StrSrc::Int(src),
                     Kind::TextConst => {
                         let (ptr, len) = const_text_slice(ops, i, base_pc, src, constants)?;
                         logicaffeine_forge::jit::StrSrc::Const { ptr, len }
@@ -2360,12 +4086,43 @@ fn translate_op(
                     src: strsrc,
                     helper_addr: crate::logos_rt_str_append as usize as i64,
                 });
+            } else if matches!(
+                (dk, sk),
+                (Kind::Word32, Kind::Word32) | (Kind::Word64, Kind::Word64)
+            ) {
+                // Modular Word `acc += x` — the checked-i64 add is the wrapping result (a rare overflow
+                // deopts→VM, also modular); a Word32 then re-masks to 2³², a Word64 needs none. Mirrors the
+                // `Op::Add` Word branch.
+                micro.push(MicroOp::Add {
+                    dst,
+                    lhs: dst,
+                    rhs: src,
+                });
+                if dk == Kind::Word32 {
+                    micro.push(MicroOp::LoadConst {
+                        dst: conv.0,
+                        value: 0xFFFF_FFFF,
+                    });
+                    micro.push(MicroOp::BitAnd {
+                        dst,
+                        lhs: dst,
+                        rhs: conv.0,
+                    });
+                }
             } else if dk == Kind::Float || sk == Kind::Float {
                 let l = promote(micro, dst, dk, true, conv.0);
                 let r = promote(micro, src, sk, true, conv.1);
-                micro.push(MicroOp::AddF { dst, lhs: l, rhs: r });
+                micro.push(MicroOp::AddF {
+                    dst,
+                    lhs: l,
+                    rhs: r,
+                });
             } else {
-                micro.push(MicroOp::Add { dst, lhs: dst, rhs: src });
+                micro.push(MicroOp::Add {
+                    dst,
+                    lhs: dst,
+                    rhs: src,
+                });
             }
         }
         Op::Mod { dst, lhs, rhs } => micro.push(MicroOp::Mod { dst, lhs, rhs }),
@@ -2391,12 +4148,36 @@ fn translate_op(
                 let l = promote(micro, lhs, lk, true, conv.0);
                 let r = promote(micro, rhs, rk, true, conv.1);
                 micro.push(match ops[i] {
-                    Op::Lt { .. } => MicroOp::LtF { dst, lhs: l, rhs: r },
-                    Op::Gt { .. } => MicroOp::GtF { dst, lhs: l, rhs: r },
-                    Op::LtEq { .. } => MicroOp::LtEqF { dst, lhs: l, rhs: r },
-                    Op::GtEq { .. } => MicroOp::GtEqF { dst, lhs: l, rhs: r },
-                    Op::Eq { .. } => MicroOp::EqF { dst, lhs: l, rhs: r },
-                    _ => MicroOp::NeqF { dst, lhs: l, rhs: r },
+                    Op::Lt { .. } => MicroOp::LtF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    Op::Gt { .. } => MicroOp::GtF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    Op::LtEq { .. } => MicroOp::LtEqF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    Op::GtEq { .. } => MicroOp::GtEqF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    Op::Eq { .. } => MicroOp::EqF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
+                    _ => MicroOp::NeqF {
+                        dst,
+                        lhs: l,
+                        rhs: r,
+                    },
                 });
             } else {
                 micro.push(match ops[i] {
@@ -2425,8 +4206,16 @@ fn translate_op(
         // analysis): its array load drops the bounds branch entirely
         // (V8/LLVM-style bounds-check elimination). Maps always check
         // through their helper, so the proof only affects the list lane.
-        Op::Index { dst, collection, index }
-        | Op::IndexUnchecked { dst, collection, index } => {
+        Op::Index {
+            dst,
+            collection,
+            index,
+        }
+        | Op::IndexUnchecked {
+            dst,
+            collection,
+            index,
+        } => {
             // Elision is region-only: the function tier has no per-loop entry
             // guard, so it keeps every access checked (a speculative
             // `IndexUnchecked` there would be unguarded). Static proofs lose
@@ -2449,8 +4238,7 @@ fn translate_op(
                 let text = p.elem == PinElem::TextBytes;
                 let byte = text || p.elem == PinElem::Bool;
                 let narrow32 = p.elem == PinElem::IntI32;
-                let checked =
-                    text || !region || matches!(ops[i], Op::Index { .. });
+                let checked = text || !region || matches!(ops[i], Op::Index { .. });
                 micro.push(MicroOp::ArrLoad {
                     dst,
                     idx: index,
@@ -2462,8 +4250,16 @@ fn translate_op(
                 });
             }
         }
-        Op::SetIndex { collection, index, value }
-        | Op::SetIndexUnchecked { collection, index, value } => {
+        Op::SetIndex {
+            collection,
+            index,
+            value,
+        }
+        | Op::SetIndexUnchecked {
+            collection,
+            index,
+            value,
+        } => {
             // Region-only elision (see `Index`); maps always check.
             let checked = !region || matches!(ops[i], Op::SetIndex { .. });
             let p = pins.get(&collection)?;
@@ -2493,7 +4289,11 @@ fn translate_op(
                 });
             }
         }
-        Op::Contains { dst, collection, value } => {
+        Op::Contains {
+            dst,
+            collection,
+            value,
+        } => {
             let p = pins.get(&collection)?;
             if p.elem != PinElem::Map {
                 return None;
@@ -2506,13 +4306,30 @@ fn translate_op(
             });
         }
         Op::Length { dst, collection } => {
-            let p = pins.get(&collection)?;
-            micro.push(MicroOp::Move { dst, src: p.len_slot });
+            // `length of chr(code)` — a `CharText` is carried unboxed as its code point, and its `Length`
+            // is the UTF-8 BYTE length of that scalar (1..4 bytes, never a constant 1), matching the
+            // tree-walker's byte-count `Length` over the boxed 1-char `Text`. `Utf8Len` computes it from
+            // the code register (this is how a CharText is consumed to a scalar so `chr` tiers without a
+            // boxed region output). Any other length rides the pinned collection's length slot.
+            if matches!(kind_of(collection), Kind::CharText) {
+                micro.push(MicroOp::Utf8Len {
+                    dst,
+                    src: collection,
+                });
+            } else {
+                let p = pins.get(&collection)?;
+                micro.push(MicroOp::Move {
+                    dst,
+                    src: p.len_slot,
+                });
+            }
         }
         Op::ListPush { list, value } => {
             let p = pins.get(&list)?;
             let helper_addr = match p.elem {
                 PinElem::Int => crate::logos_rt_push_i64 as usize as i64,
+                // A `Words32` buffer is `Vec<i64>`; the pushed Word32 rides its masked value → the i64 push.
+                PinElem::Word32 => crate::logos_rt_push_i64 as usize as i64,
                 PinElem::IntI32 => crate::logos_rt_push_i32 as usize as i64,
                 PinElem::Float => crate::logos_rt_push_f64 as usize as i64,
                 PinElem::Bool => crate::logos_rt_push_bool as usize as i64,
@@ -2532,13 +4349,18 @@ fn translate_op(
                 narrow32: p.elem == PinElem::IntI32,
             });
         }
-        Op::NewEmptyList { dst } => {
+        Op::NewEmptyList { dst } | Op::NewEmptyListFixed { dst, .. } => {
             // In-region `Let x be a new Seq` on a PINNED array: clear it in place
             // (truncate + reset the pinned length, keep the buffer) and reuse it,
             // rather than allocating fresh. An in-place mutation — the precise
             // region resumes over it soundly. Bails (`?`) for a non-pinned dst:
             // such a fresh list has no pin channel to clear here.
-            let p = pins.get(&dst)?;
+            let Some(p) = pins.get(&dst) else {
+                if std::env::var_os("LOGOS_RDIAG").is_some() {
+                    eprintln!("RDIAG-BAIL list-clear-unpinned dst={dst}");
+                }
+                return None;
+            };
             // SOUNDNESS: reusing the buffer is only valid if the old contents
             // are dead. A `Move { src: dst }` that copies THIS list's handle to
             // another register ALIASES the buffer past the clear — reusing it
@@ -2563,18 +4385,32 @@ fn translate_op(
                         Some(
                             Kind::IntList
                                 | Kind::IntListI32
+                                | Kind::Word32List
                                 | Kind::FloatList
                                 | Kind::BoolList
                                 | Kind::IntMap
                                 | Kind::Mixed
                         )
                     )
+                    && !safe_list_stages.is_some_and(|safe| safe.contains(&(j, dst)))
             });
             if list_handle_escapes {
+                if std::env::var_os("LOGOS_RDIAG").is_some() {
+                    let aliases: Vec<(usize, Op)> = ops
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(j, op)| {
+                            matches!(op, Op::Move { src, .. } if *src == dst)
+                                .then_some((base_pc + j, op.clone()))
+                        })
+                        .collect();
+                    eprintln!("RDIAG-BAIL list-clear-alias dst={dst} aliases={aliases:?}");
+                }
                 return None;
             }
             let helper_addr = match p.elem {
                 PinElem::Int => crate::logos_rt_clear_i64 as usize as i64,
+                PinElem::Word32 => crate::logos_rt_clear_i64 as usize as i64,
                 PinElem::IntI32 => crate::logos_rt_clear_i32 as usize as i64,
                 PinElem::Float => crate::logos_rt_clear_f64 as usize as i64,
                 PinElem::Bool => crate::logos_rt_clear_bool as usize as i64,
@@ -2586,6 +4422,549 @@ fn translate_op(
                 ptr_slot: p.ptr_slot,
                 len_slot: p.len_slot,
                 helper_addr,
+            });
+            // The pin triple is the region's authoritative list storage, but
+            // a compiled callee receives list arguments through ordinary
+            // frame registers. Rebinding `dst` to a fresh list therefore
+            // must also materialize the raw Vec handle into that register;
+            // otherwise a later compiler-generated argument-stage Move would
+            // copy the stale boxed/zero VM slot into the callee.
+            micro.push(MicroOp::Move {
+                dst,
+                src: p.vec_slot,
+            });
+        }
+        // A dynamic reserve cannot be represented by the region clear/reuse micro-op yet. Decline the
+        // region explicitly so the function adapter can still compile the same operation with the
+        // capacity-preserving allocator above.
+        Op::NewEmptyListWithCapacity { .. } => {
+            jt("region-list-capacity");
+            return None;
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Abs,
+            args_start,
+            arg_count,
+        } => {
+            // Int `abs`, branchless — NO new stencil, only existing integer MicroOps: with
+            //   mask = x >>ᵃ 63   (arithmetic shift: 0 when x≥0, all-ones when x<0)
+            //   dst  = (x ^ mask) − mask
+            // For x≥0: mask=0 ⇒ dst = x. For x<0: mask=−1 ⇒ dst = (~x) − (−1) = −x. Exactly `abs`.
+            // Float abs (an XMM sign-bit clear) has no stencil yet, so it declines and stays on the VM.
+            if arg_count != 1 || kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::LoadConst {
+                dst: conv.0,
+                value: 63,
+            });
+            micro.push(MicroOp::Shr {
+                dst: conv.1,
+                lhs: args_start,
+                rhs: conv.0,
+            });
+            micro.push(MicroOp::BitXor {
+                dst: conv.0,
+                lhs: args_start,
+                rhs: conv.1,
+            });
+            micro.push(MicroOp::Sub {
+                dst,
+                lhs: conv.0,
+                rhs: conv.1,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                bid @ (logicaffeine_compile::semantics::builtins::BuiltinId::Min
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Max),
+            args_start,
+            arg_count,
+        } => {
+            // Int min/max, branchless, NO new stencil — only existing integer MicroOps. With
+            //   mask = 0 − (a < b)          (0 when a≥b, all-ones when a<b)
+            //   min  = b ^ ((a ^ b) & mask)   max = a ^ ((a ^ b) & mask)
+            // For a<b (mask=−1): min = b^(a^b)=a, max = a^(a^b)=b. For a≥b (mask=0): min=b, max=a.
+            // Float min/max (minsd/maxsd) has no stencil yet, so it declines and stays on the VM.
+            let a = args_start;
+            let b2 = args_start + 1;
+            if arg_count != 2 || kind_of(a) != Kind::Int || kind_of(b2) != Kind::Int {
+                return None;
+            }
+            let is_min = matches!(
+                bid,
+                logicaffeine_compile::semantics::builtins::BuiltinId::Min
+            );
+            micro.push(MicroOp::Lt {
+                dst: conv.0,
+                lhs: a,
+                rhs: b2,
+            }); // lt = (a<b) as 0/1
+            micro.push(MicroOp::LoadConst {
+                dst: conv.1,
+                value: 0,
+            });
+            micro.push(MicroOp::Sub {
+                dst: conv.0,
+                lhs: conv.1,
+                rhs: conv.0,
+            }); // mask = 0 − lt
+            micro.push(MicroOp::BitXor {
+                dst: conv.1,
+                lhs: a,
+                rhs: b2,
+            }); // a ^ b
+            micro.push(MicroOp::BitAnd {
+                dst: conv.1,
+                lhs: conv.1,
+                rhs: conv.0,
+            }); // (a^b) & mask
+            let base = if is_min { b2 } else { a };
+            micro.push(MicroOp::BitXor {
+                dst,
+                lhs: base,
+                rhs: conv.1,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::CountOnes,
+            args_start,
+            arg_count,
+        } => {
+            // Int popcount → the native `popcnt` instruction. Its src is `gp_blocked` from register
+            // pinning (see the pin selector) so the frame-reading stencil never reads a stale slot.
+            if arg_count != 1 || kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            // `popcnt` #UDs on a pre-SSE4.2 CPU; decline to the VM there so the JIT never faults.
+            #[cfg(target_arch = "x86_64")]
+            if !std::arch::is_x86_feature_detected!("popcnt") {
+                return None;
+            }
+            micro.push(MicroOp::Popcnt {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::LeadingZeros,
+            args_start,
+            arg_count,
+        } => {
+            // Int leading-zero count → the native `lzcnt` instruction (64 for 0). Like popcnt its src is
+            // `gp_blocked` so a register-pinned source is read from the pin, never a stale frame slot.
+            if arg_count != 1 || kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            // `lzcnt` needs ABM; without it the encoding SILENTLY decodes as `bsr` (undefined for 0), so
+            // decline to the VM on any CPU lacking the feature — correctness holds everywhere.
+            #[cfg(target_arch = "x86_64")]
+            if !std::arch::is_x86_feature_detected!("lzcnt") {
+                return None;
+            }
+            micro.push(MicroOp::Lzcnt {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::TrailingZeros,
+            args_start,
+            arg_count,
+        } => {
+            // Int trailing-zero count → the native `tzcnt` instruction (64 for 0). Like popcnt its src is
+            // `gp_blocked` so a register-pinned source is read from the pin, never a stale frame slot.
+            if arg_count != 1 || kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            // `tzcnt` needs BMI1; without it the encoding SILENTLY decodes as `bsf` (undefined for 0), so
+            // decline to the VM on any CPU lacking the feature — correctness holds everywhere.
+            #[cfg(target_arch = "x86_64")]
+            if !std::arch::is_x86_feature_detected!("bmi1") {
+                return None;
+            }
+            micro.push(MicroOp::Tzcnt {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Floor,
+            args_start,
+            arg_count,
+        } => {
+            // `floor(f: Float) -> Int` → `roundsd …,1` + saturating `cvttsd2si`. Only the FLOAT arg tiers
+            // (an Int/Rational/Decimal `floor` is a different, boxed path the VM keeps).
+            if arg_count != 1 || kind_of(args_start) != Kind::Float {
+                return None;
+            }
+            // `roundsd` needs SSE4.1; without it the instruction #UDs, so decline to the VM there.
+            #[cfg(target_arch = "x86_64")]
+            if !std::arch::is_x86_feature_detected!("sse4.1") {
+                return None;
+            }
+            micro.push(MicroOp::FloorToInt {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Ceil,
+            args_start,
+            arg_count,
+        } => {
+            if arg_count != 1 || kind_of(args_start) != Kind::Float {
+                return None;
+            }
+            #[cfg(target_arch = "x86_64")]
+            if !std::arch::is_x86_feature_detected!("sse4.1") {
+                return None;
+            }
+            micro.push(MicroOp::CeilToInt {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Round,
+            args_start,
+            arg_count,
+        } => {
+            // `round(f: Float) -> Int`, ties AWAY from zero → `roundsd …,3` (trunc) + ties-away adjust +
+            // saturating `cvttsd2si` (roundsd's nearest mode ties to EVEN, which LOGOS `round` is not).
+            if arg_count != 1 || kind_of(args_start) != Kind::Float {
+                return None;
+            }
+            #[cfg(target_arch = "x86_64")]
+            if !std::arch::is_x86_feature_detected!("sse4.1") {
+                return None;
+            }
+            micro.push(MicroOp::RoundToInt {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Pow,
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // `pow(base: Int, e)` with a small non-negative CONSTANT `e` → UNROLLED checked Muls. Each Mul
+            // deopts to a BigInt recompute on overflow, so the result matches the VM's `checked_pow` →
+            // BigInt exactly. A Float base, or a variable / negative / too-large exponent, declines to VM.
+            // (A variable exponent would need a runtime loop, which one builtin lowering cannot emit.)
+            if kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            let e = const_int_operand(ops, args_start + 1, constants)?;
+            // Cap the unroll so a huge constant exponent doesn't explode the code; larger → VM.
+            if !(0..=32).contains(&e) {
+                return None;
+            }
+            if e == 0 {
+                micro.push(MicroOp::LoadConst { dst, value: 1 });
+            } else if e == 1 {
+                micro.push(MicroOp::Move {
+                    dst,
+                    src: args_start,
+                });
+            } else {
+                // acc = base²; acc *= base another (e−2) times; then dst = acc. Accumulating in the scratch
+                // `conv.0` leaves `dst` UNWRITTEN until success, so a mid-chain overflow deopt (which
+                // reconstructs at this pow PC and lets the VM recompute) never sees a partial `dst`.
+                micro.push(MicroOp::Mul {
+                    dst: conv.0,
+                    lhs: args_start,
+                    rhs: args_start,
+                });
+                for _ in 2..e {
+                    micro.push(MicroOp::Mul {
+                        dst: conv.0,
+                        lhs: conv.0,
+                        rhs: args_start,
+                    });
+                }
+                micro.push(MicroOp::Move { dst, src: conv.0 });
+            }
+        }
+        // WORD lane (crypto substrate) — a Word rides UNBOXED as a masked i64 (Word32/16 zero-extended,
+        // Word64 = full bits) and re-boxes to `RuntimeValue::Word` at a deopt/exit via `RegBox::Word{32,64}`.
+        // Every op preserves or re-establishes the width invariant. A boxed/Float arg → decline to VM.
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                bid @ (logicaffeine_compile::semantics::builtins::BuiltinId::Word32
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Word16Make),
+            args_start,
+            arg_count,
+        } if arg_count == 1 => {
+            if kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            let mask = if matches!(
+                bid,
+                logicaffeine_compile::semantics::builtins::BuiltinId::Word32
+            ) {
+                0xFFFF_FFFF
+            } else {
+                0xFFFF
+            };
+            micro.push(MicroOp::LoadConst {
+                dst: conv.0,
+                value: mask,
+            });
+            micro.push(MicroOp::BitAnd {
+                dst,
+                lhs: args_start,
+                rhs: conv.0,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => {
+            // Word64 = the full 64-bit pattern; the i64 bits ARE the u64 bits.
+            if kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::Move {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord32
+                | logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord64,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => {
+            // `to_u64() as i64`: a Word32 (0..2³²) and a Word64's bit pattern both ARE their i64 value.
+            if !matches!(kind_of(args_start), Kind::Word32 | Kind::Word64) {
+                return None;
+            }
+            micro.push(MicroOp::Move {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::IntOfWord16,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => {
+            // A Word16 slot already holds its value in [0, 2¹⁶); an Int argument takes its low 16 bits.
+            match kind_of(args_start) {
+                Kind::Word16 => micro.push(MicroOp::Move {
+                    dst,
+                    src: args_start,
+                }),
+                Kind::Int => {
+                    micro.push(MicroOp::LoadConst {
+                        dst: conv.0,
+                        value: 0xFFFF,
+                    });
+                    micro.push(MicroOp::BitAnd {
+                        dst,
+                        lhs: args_start,
+                        rhs: conv.0,
+                    });
+                }
+                _ => return None,
+            }
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Chr,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => {
+            // `chr(code)` → a `ChrGuard`: validates the code and DEOPTS to the VM (which re-runs chr and
+            // TRAPS) if it is not a valid Unicode scalar, else carries the code to a `Kind::CharText` dst
+            // that re-boxes to a 1-char Text at exit. The arg must be an Int (a Word/Float code declines).
+            if kind_of(args_start) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::ChrGuard {
+                dst,
+                src: args_start,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                bid @ (logicaffeine_compile::semantics::builtins::BuiltinId::Wand
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Wor),
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // Same-width Word AND/OR — preserves the mask (AND/OR of two masked values stays masked). Both
+            // operands must be the SAME Word width (the VM errors on a mismatch); an Int operand declines.
+            let ka = kind_of(args_start);
+            if !matches!(ka, Kind::Word32 | Kind::Word64) || kind_of(args_start + 1) != ka {
+                return None;
+            }
+            if matches!(
+                bid,
+                logicaffeine_compile::semantics::builtins::BuiltinId::Wand
+            ) {
+                micro.push(MicroOp::BitAnd {
+                    dst,
+                    lhs: args_start,
+                    rhs: args_start + 1,
+                });
+            } else {
+                micro.push(MicroOp::BitOr {
+                    dst,
+                    lhs: args_start,
+                    rhs: args_start + 1,
+                });
+            }
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64And,
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // Word64 AND (both operands the full 64-bit pattern). An Int operand declines for now.
+            if kind_of(args_start) != Kind::Word64 || kind_of(args_start + 1) != Kind::Word64 {
+                return None;
+            }
+            micro.push(MicroOp::BitAnd {
+                dst,
+                lhs: args_start,
+                rhs: args_start + 1,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64Shl,
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // `w << n` (u64 wrapping). i64 `Shl` already masks the count to `& 63` == u64's wrapping_shl.
+            if kind_of(args_start) != Kind::Word64 || kind_of(args_start + 1) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::Shl {
+                dst,
+                lhs: args_start,
+                rhs: args_start + 1,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word32Shr,
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // u32 LOGICAL `>>`: mask the count to `& 31` (u32's wrapping_shr) then arithmetic `Shr` — which
+            // IS logical for a masked (non-negative, < 2³²) Word32, and the result stays `< 2³²`.
+            if kind_of(args_start) != Kind::Word32 || kind_of(args_start + 1) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::LoadConst {
+                dst: conv.0,
+                value: 31,
+            });
+            micro.push(MicroOp::BitAnd {
+                dst: conv.1,
+                lhs: args_start + 1,
+                rhs: conv.0,
+            });
+            micro.push(MicroOp::Shr {
+                dst,
+                lhs: args_start,
+                rhs: conv.1,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Word64Shr,
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // u64 LOGICAL `>>` on a Word64 whose high bit may be set — a single `Ushr` (zero-fill), which
+            // masks the count `& 63` exactly like `WordVal::shr`'s `wrapping_shr`. Handles a CONSTANT and a
+            // VARIABLE count uniformly (the old arithmetic-`Shr`+top-bit-mask lane only did constants).
+            if kind_of(args_start) != Kind::Word64 || kind_of(args_start + 1) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::Ushr {
+                dst,
+                lhs: args_start,
+                rhs: args_start + 1,
+            });
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Wnot,
+            args_start,
+            arg_count,
+        } if arg_count == 1 => {
+            // Bitwise complement, width-preserving. Word32: `w ^ 0xFFFFFFFF` (flips only the low 32 bits,
+            // keeping the mask). Word64: flip all 64 bits (`NotInt`).
+            match kind_of(args_start) {
+                Kind::Word32 => {
+                    micro.push(MicroOp::LoadConst {
+                        dst: conv.0,
+                        value: 0xFFFF_FFFF,
+                    });
+                    micro.push(MicroOp::BitXor {
+                        dst,
+                        lhs: args_start,
+                        rhs: conv.0,
+                    });
+                }
+                Kind::Word64 => micro.push(MicroOp::NotInt {
+                    dst,
+                    src: args_start,
+                }),
+                _ => return None,
+            }
+        }
+        Op::CallBuiltin {
+            dst,
+            builtin:
+                bid @ (logicaffeine_compile::semantics::builtins::BuiltinId::Rotl
+                | logicaffeine_compile::semantics::builtins::BuiltinId::Rotr),
+            args_start,
+            arg_count,
+        } if arg_count == 2 => {
+            // Keep rotate as one semantic micro-op. Every native backend has a
+            // direct `rol`/`ror` lowering; the old shift/subtract/or expansion
+            // cost 7–9 micro-ops per SHA round and obscured this missing opt.
+            let width32 = match kind_of(args_start) {
+                Kind::Word32 => true,
+                Kind::Word64 => false,
+                _ => return None,
+            };
+            if kind_of(args_start + 1) != Kind::Int {
+                return None;
+            }
+            micro.push(MicroOp::Rotate {
+                dst,
+                lhs: args_start,
+                rhs: args_start + 1,
+                width32,
+                left: matches!(
+                    bid,
+                    logicaffeine_compile::semantics::builtins::BuiltinId::Rotl
+                ),
             });
         }
         Op::CallBuiltin {
@@ -2600,14 +4979,22 @@ fn translate_op(
             let src = match kind_of(args_start) {
                 Kind::Float => args_start,
                 Kind::Int => {
-                    micro.push(MicroOp::IntToFloat { dst: conv.0, src: args_start });
+                    micro.push(MicroOp::IntToFloat {
+                        dst: conv.0,
+                        src: args_start,
+                    });
                     conv.0
                 }
                 _ => return None,
             };
             micro.push(MicroOp::SqrtF { dst, src });
         }
-        Op::Call { dst, args_start, arg_count, func } => {
+        Op::Call {
+            dst,
+            args_start,
+            arg_count,
+            func,
+        } => {
             let c = call_ctx?;
             // The callee windows at a DISJOINT offset past the limit slot —
             // the interpreter's overlapping windowing (callee base = caller
@@ -2630,7 +5017,10 @@ fn translate_op(
             // list/map-kinded argument (which the all-scalar mode-A signature
             // never produces, but is guarded for soundness) keeps the Moves.
             let scalar_args = (0..arg_count).all(|j| {
-                matches!(kind_of(args_start + j), Kind::Int | Kind::Bool | Kind::Float)
+                matches!(
+                    kind_of(args_start + j),
+                    Kind::Int | Kind::Bool | Kind::Float
+                )
             });
             let fuse_self = func == c.self_fi
                 && arg_count >= 1
@@ -2652,10 +5042,21 @@ fn translate_op(
                     limit_slot: c.limit_slot,
                     frame_size: (c.limit_slot as i64) + 1,
                 });
+                if let Some(sig) = c.callees.get(func as usize) {
+                    for &j in &sig.inout_params {
+                        micro.push(MicroOp::Move {
+                            dst: args_start + j,
+                            src: window + j,
+                        });
+                    }
+                }
                 return Some(1);
             }
             for j in 0..arg_count {
-                micro.push(MicroOp::Move { dst: window + j, src: args_start + j });
+                micro.push(MicroOp::Move {
+                    dst: window + j,
+                    src: args_start + j,
+                });
             }
             if func == c.self_fi {
                 // DIRECT self-call: the entry pool word is patched with
@@ -2685,19 +5086,39 @@ fn translate_op(
                     depth_limit: c.depth_limit,
                 });
             }
+            if let Some(sig) = c.callees.get(func as usize) {
+                for &j in &sig.inout_params {
+                    micro.push(MicroOp::Move {
+                        dst: args_start + j,
+                        src: window + j,
+                    });
+                }
+            }
         }
         // In-region Return: set the flag, stash the value, leave via the
         // synthetic exit (usize::MAX is the out-of-region marker the remap
         // routes there).
         Op::Return { src } if region_return.is_some() => {
             let (flag_slot, value_slot) = region_return.unwrap();
-            micro.push(MicroOp::LoadConst { dst: flag_slot, value: 1 });
-            if matches!(kind_of(src), Kind::IntList | Kind::FloatList | Kind::BoolList) {
+            micro.push(MicroOp::LoadConst {
+                dst: flag_slot,
+                value: 1,
+            });
+            if matches!(
+                kind_of(src),
+                Kind::IntList | Kind::FloatList | Kind::BoolList
+            ) {
                 // Lists return BY REGISTER: stash the register number; the
                 // VM returns that register's current value.
-                micro.push(MicroOp::LoadConst { dst: value_slot, value: src as i64 });
+                micro.push(MicroOp::LoadConst {
+                    dst: value_slot,
+                    value: src as i64,
+                });
             } else {
-                micro.push(MicroOp::Move { dst: value_slot, src });
+                micro.push(MicroOp::Move {
+                    dst: value_slot,
+                    src,
+                });
             }
             fixups.push(micro.len());
             micro.push(MicroOp::Jump { target: usize::MAX });
@@ -2708,6 +5129,16 @@ fn translate_op(
         // Region-entry length hoist: pure metadata, no native code. The VM
         // verifies it once at region entry; `adapt_region` collects it.
         Op::RegionBoundsGuard { .. } => {}
+        // Map values do not yet have a native pin/allocator lane. Make the unsupported optimization
+        // visible in the trace instead of silently falling through the generic translator refusal.
+        Op::NewEmptyMapWithCapacity { .. } => {
+            jt(if region {
+                "region-map-capacity"
+            } else {
+                "function-map-capacity"
+            });
+            return None;
+        }
         _ => return None,
     }
     Some(1)
@@ -2783,22 +5214,45 @@ fn match_memmem_nest(
     let skip = head_pc + 30; // op [59]
 
     // [0] Sub(t1 = textLen - needleLen)
-    let Op::Sub { dst: t1, lhs: text_len, rhs: needle_len } = ops[0] else { return None };
+    let Op::Sub {
+        dst: t1,
+        lhs: text_len,
+        rhs: needle_len,
+    } = ops[0]
+    else {
+        return None;
+    };
     // [1] LoadConst(c1 = 1); [2] Add(bound = t1 + c1)
     if !is_const(1, 1) {
         return None;
     }
     let c1 = const_dst(1)?;
-    let Op::Add { dst: bound, lhs, rhs } = ops[2] else { return None };
+    let Op::Add {
+        dst: bound,
+        lhs,
+        rhs,
+    } = ops[2]
+    else {
+        return None;
+    };
     if lhs != t1 || rhs != c1 {
         return None;
     }
     // [3] LtEq(cmp = i <= bound); [4] JumpIfFalse(cmp -> EXIT)
-    let Op::LtEq { dst: cmp, lhs: i_reg, rhs } = ops[3] else { return None };
+    let Op::LtEq {
+        dst: cmp,
+        lhs: i_reg,
+        rhs,
+    } = ops[3]
+    else {
+        return None;
+    };
     if rhs != bound {
         return None;
     }
-    let Op::JumpIfFalse { cond, target } = ops[4] else { return None };
+    let Op::JumpIfFalse { cond, target } = ops[4] else {
+        return None;
+    };
     if cond != cmp || target != exit_pc {
         return None;
     }
@@ -2807,7 +5261,13 @@ fn match_memmem_nest(
         return None;
     }
     let c5 = const_dst(5)?;
-    let Op::Move { dst: match_reg, src } = ops[6] else { return None };
+    let Op::Move {
+        dst: match_reg,
+        src,
+    } = ops[6]
+    else {
+        return None;
+    };
     if src != c5 {
         return None;
     }
@@ -2816,25 +5276,38 @@ fn match_memmem_nest(
         return None;
     }
     let c7 = const_dst(7)?;
-    let Op::Move { dst: j_reg, src } = ops[8] else { return None };
+    let Op::Move { dst: j_reg, src } = ops[8] else {
+        return None;
+    };
     if src != c7 {
         return None;
     }
     // [9] Lt(cj = j < needleLen); [10] JumpIfFalse(cj -> after_inner)
-    let Op::Lt { dst: cj, lhs, rhs } = ops[9] else { return None };
+    let Op::Lt { dst: cj, lhs, rhs } = ops[9] else {
+        return None;
+    };
     if lhs != j_reg || rhs != needle_len {
         return None;
     }
-    let Op::JumpIfFalse { cond, target } = ops[10] else { return None };
+    let Op::JumpIfFalse { cond, target } = ops[10] else {
+        return None;
+    };
     if cond != cj || target != after_inner {
         return None;
     }
     // [11] Add(t3 = i + j); [12] IndexUnchecked(ch1 = text[t3])
-    let Op::Add { dst: t3, lhs, rhs } = ops[11] else { return None };
+    let Op::Add { dst: t3, lhs, rhs } = ops[11] else {
+        return None;
+    };
     if lhs != i_reg || rhs != j_reg {
         return None;
     }
-    let Op::IndexUnchecked { dst: ch1, collection: text_reg, index } = ops[12] else {
+    let Op::IndexUnchecked {
+        dst: ch1,
+        collection: text_reg,
+        index,
+    } = ops[12]
+    else {
         return None;
     };
     if index != t3 {
@@ -2845,20 +5318,33 @@ fn match_memmem_nest(
         return None;
     }
     let c13 = const_dst(13)?;
-    let Op::Add { dst: t4, lhs, rhs } = ops[14] else { return None };
+    let Op::Add { dst: t4, lhs, rhs } = ops[14] else {
+        return None;
+    };
     if lhs != j_reg || rhs != c13 {
         return None;
     }
-    let Op::Index { dst: ch2, collection: needle_reg, index } = ops[15] else { return None };
+    let Op::Index {
+        dst: ch2,
+        collection: needle_reg,
+        index,
+    } = ops[15]
+    else {
+        return None;
+    };
     if index != t4 {
         return None;
     }
     // [16] NotEq(ne = ch1 != ch2); [17] JumpIfFalse(ne -> cont)
-    let Op::NotEq { dst: ne, lhs, rhs } = ops[16] else { return None };
+    let Op::NotEq { dst: ne, lhs, rhs } = ops[16] else {
+        return None;
+    };
     if !((lhs == ch1 && rhs == ch2) || (lhs == ch2 && rhs == ch1)) {
         return None;
     }
-    let Op::JumpIfFalse { cond, target } = ops[17] else { return None };
+    let Op::JumpIfFalse { cond, target } = ops[17] else {
+        return None;
+    };
     if cond != ne || target != cont {
         return None;
     }
@@ -2867,16 +5353,22 @@ fn match_memmem_nest(
         return None;
     }
     let c18 = const_dst(18)?;
-    let Op::Move { dst, src } = ops[19] else { return None };
+    let Op::Move { dst, src } = ops[19] else {
+        return None;
+    };
     if dst != match_reg || src != c18 {
         return None;
     }
     // [20] Move(t5 = needleLen); [21] Move(j = t5)
-    let Op::Move { dst: t5, src } = ops[20] else { return None };
+    let Op::Move { dst: t5, src } = ops[20] else {
+        return None;
+    };
     if src != needle_len {
         return None;
     }
-    let Op::Move { dst, src } = ops[21] else { return None };
+    let Op::Move { dst, src } = ops[21] else {
+        return None;
+    };
     if dst != j_reg || src != t5 {
         return None;
     }
@@ -2885,11 +5377,15 @@ fn match_memmem_nest(
         return None;
     }
     let c22 = const_dst(22)?;
-    let Op::AddAssign { dst, src } = ops[23] else { return None };
+    let Op::AddAssign { dst, src } = ops[23] else {
+        return None;
+    };
     if dst != j_reg || src != c22 {
         return None;
     }
-    let Op::Jump { target } = ops[24] else { return None };
+    let Op::Jump { target } = ops[24] else {
+        return None;
+    };
     if target != inner_head {
         return None;
     }
@@ -2898,11 +5394,15 @@ fn match_memmem_nest(
         return None;
     }
     let c25 = const_dst(25)?;
-    let Op::Eq { dst: eq, lhs, rhs } = ops[26] else { return None };
+    let Op::Eq { dst: eq, lhs, rhs } = ops[26] else {
+        return None;
+    };
     if !((lhs == match_reg && rhs == c25) || (lhs == c25 && rhs == match_reg)) {
         return None;
     }
-    let Op::JumpIfFalse { cond, target } = ops[27] else { return None };
+    let Op::JumpIfFalse { cond, target } = ops[27] else {
+        return None;
+    };
     if cond != eq || target != skip {
         return None;
     }
@@ -2911,7 +5411,13 @@ fn match_memmem_nest(
         return None;
     }
     let c28 = const_dst(28)?;
-    let Op::AddAssign { dst: count_reg, src } = ops[29] else { return None };
+    let Op::AddAssign {
+        dst: count_reg,
+        src,
+    } = ops[29]
+    else {
+        return None;
+    };
     if src != c28 {
         return None;
     }
@@ -2920,11 +5426,15 @@ fn match_memmem_nest(
         return None;
     }
     let c30 = const_dst(30)?;
-    let Op::AddAssign { dst, src } = ops[31] else { return None };
+    let Op::AddAssign { dst, src } = ops[31] else {
+        return None;
+    };
     if dst != i_reg || src != c30 {
         return None;
     }
-    let Op::Jump { target } = ops[32] else { return None };
+    let Op::Jump { target } = ops[32] else {
+        return None;
+    };
     if target != head_pc {
         return None;
     }
@@ -2951,55 +5461,6 @@ fn match_memmem_nest(
 /// incoming-dead slots (loop scratches, comparison temporaries anywhere in
 /// the body) need no guard. Writes are re-boxed by inferred kind.
 #[allow(clippy::type_complexity)]
-/// BUG-002 detector: does an array-loaded value survive a conditional branch and
-/// reach an in-place `SetIndex`? A forward scan tracks, per register, whether it
-/// currently holds a value loaded from an array and whether a branch has occurred
-/// since that load (propagating through `Move`s). A `SetIndex`/`SetIndexUnchecked`
-/// whose stored value is such a branch-surviving array-loaded register is the
-/// miscompiling shape. Conservative (a branch marks ALL live array-loaded
-/// registers), but the safe in-branch-load shape never trips it because the load
-/// happens AFTER the guard branch.
-fn has_crossbranch_array_value_store_hazard(ops: &[Op]) -> bool {
-    use std::collections::HashMap;
-    // reg -> has a branch occurred since this reg was loaded from an array?
-    let mut loaded: HashMap<u16, bool> = HashMap::new();
-    for op in ops {
-        match op {
-            Op::Index { dst, .. } | Op::IndexUnchecked { dst, .. } => {
-                loaded.insert(*dst, false);
-            }
-            Op::Move { dst, src } => match loaded.get(src).copied() {
-                Some(b) => {
-                    loaded.insert(*dst, b);
-                }
-                None => {
-                    loaded.remove(dst);
-                }
-            },
-            Op::JumpIfFalse { .. } | Op::JumpIfTrue { .. } | Op::Jump { .. } => {
-                for v in loaded.values_mut() {
-                    *v = true;
-                }
-            }
-            Op::SetIndex { value, .. } | Op::SetIndexUnchecked { value, .. } => {
-                if loaded.get(value) == Some(&true) {
-                    return true;
-                }
-            }
-            other => {
-                // Any other op that DEFINES a register clears its array-loaded
-                // status (the value is no longer a raw array element).
-                if let Some((_, defs)) = region_use_def(other) {
-                    for d in defs {
-                        loaded.remove(&d);
-                    }
-                }
-            }
-        }
-    }
-    false
-}
-
 fn adapt_region(
     ops: &[Op],
     head_pc: usize,
@@ -3033,10 +5494,13 @@ fn adapt_region(
     // fast-lane miss — all read-only or arithmetic) replays cleanly. What stays
     // unsound is push coexisting with another NON-idempotent effect whose replay
     // the truncate cannot undo: an in-place `SetIndex`/`SetIndexUnchecked` write
-    // (a read-modify-write would double-apply) or a `Call` (arbitrary effects).
-    // Those still disqualify the region; it falls back to the always-correct
-    // bytecode interpreter.
-    if std::env::var("LOGOS_DUMP_REGION").ok().and_then(|v| v.parse::<usize>().ok()) == Some(head_pc) {
+    // (a read-modify-write would double-apply). Calls admitted below are native,
+    // typed and replay-safe; list results are adopted into snapshotted pins.
+    if std::env::var("LOGOS_DUMP_REGION")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        == Some(head_pc)
+    {
         eprintln!("=== REGION head_pc={head_pc} ops ({}) ===", ops.len());
         for (i, op) in ops.iter().enumerate() {
             eprintln!("  [{}] {op:?}", head_pc + i);
@@ -3052,12 +5516,9 @@ fn adapt_region(
     // rolls the pushes back but the in-place write persists, so a self-gated
     // re-push is skipped — the BFS lost-node bug). It can still tier up with
     // PRECISE region deopt (resume AT the faulting op, no replay): sound for any
-    // pattern. Precise materialization re-boxes the frame's scalars, so it is
-    // admitted only for an ALL-INT region with NO call (a call frame would need
-    // the full function-precise walk). A push beside a call is therefore always
-    // disqualified; a push beside a SetIndex is admitted here and re-checked for
+    // pattern. A push beside a SetIndex is admitted here and re-checked for
     // all-int after lowering (where the precise `deopt_codes` are built).
-    let needs_precise = has_list_push && (has_setindex || has_call_op);
+    let needs_precise = has_list_push && has_setindex;
     if needs_precise && has_call_op {
         return None;
     }
@@ -3066,12 +5527,133 @@ fn adapt_region(
     // exit-observable slots flow through the WRITE-BACK, never the frame.
     let nregs = register_count as usize + 2;
     let in_region = |t: usize| (head_pc..head_pc + ops.len()).contains(&t);
+    // SOUNDNESS BAIL — a list-element read (`Op::Index`) on a path that SIDE-EXITS the region (an
+    // early `Return`/`Break` OUT of the loop, i.e. a jump neither back into the region nor to the
+    // loop's normal `exit_pc`) is miscompiled: the read's speculated unboxed list handle goes stale
+    // across the discard-and-replay side exit, so the element comes back wrong (a hot substring/search
+    // scan then returns the wrong index — `matchAt`, `indexOf`). Decline such a region to the correct
+    // VM bytecode rather than emit a silently-wrong native loop. A list read in a loop with only
+    // in-region control flow (sum/map/dot-product) is unaffected. Locked by
+    // `jit_list_search_differential_lock`.
+    {
+        let has_index_read = ops.iter().any(|op| matches!(op, Op::Index { .. }));
+        if has_index_read {
+            // The miscompiled shape is an early `Return` OUT OF THE FUNCTION from inside the loop
+            // (matchAt's `Return false`): its frame materializes from stale slots. A checked-index
+            // BOUNDS BAIL (a jump to the deopt/trap handler) is NOT this — it replays correctly on the
+            // VM — so a jump-target heuristic wrongly declines every checked list-read loop (e.g. the
+            // `energy` float reader, which has no early return at all). Detect ONLY an `Op::Return`
+            // inside the region.
+            let _ = exit_pc;
+            let _ = &in_region;
+            let has_side_exit = ops
+                .iter()
+                .any(|op| matches!(op, Op::Return { .. } | Op::ReturnNothing));
+            if has_side_exit {
+                if std::env::var_os("LOGOS_RDIAG").is_some() {
+                    eprintln!("RDIAG-BAIL head_pc={head_pc} list-index read + side-exit");
+                }
+                return None;
+            }
+        }
+    }
     let Some(live) = liveness(ops, head_pc, nregs) else {
         if std::env::var_os("LOGOS_RDIAG").is_some() {
             eprintln!("RDIAG-BAIL head_pc={head_pc} liveness");
         }
         return None;
     };
+    // A compiler-generated `Move` that stages a list into a call argument is
+    // not an escaping alias when the callee keeps list-parameter handles stable,
+    // cannot return one of those parameters, and the staging register has no
+    // other list-valued use. Keep the proof as a set of `(op index, source)`
+    // pairs so both the allocation-lifetime gate and list-clear lowering apply
+    // exactly the same exception; every other list-handle copy stays an escape.
+    let mut safe_list_stages = std::collections::HashSet::<(usize, u16)>::new();
+    for (call_i, op) in ops.iter().enumerate() {
+        let Op::Call {
+            args_start,
+            arg_count,
+            func,
+            ..
+        } = *op
+        else {
+            continue;
+        };
+        let Some(sig) = callees.get(func as usize) else {
+            continue;
+        };
+        if !sig.list_params_stable || sig.returns_list_param {
+            continue;
+        }
+        for j in 0..arg_count {
+            if !matches!(
+                sig.param_kinds.get(j as usize),
+                Some(Some(ParamKind::List(_)))
+            ) {
+                continue;
+            }
+            let arg = args_start + j;
+            for move_i in (0..call_i).rev() {
+                let Some((_, defs)) = region_use_def(&ops[move_i]) else {
+                    break;
+                };
+                if !defs.contains(&arg) {
+                    continue;
+                }
+                if let Op::Move { dst, src } = ops[move_i] {
+                    // The argument register must die with THIS call. The
+                    // fixpoint liveness row after it includes every later use,
+                    // including uses reached around the region backedge, so a
+                    // false bit proves that no observable alias survives.
+                    let dies_with_call = live.get(call_i + 1).is_none_or(|row| !row[arg as usize]);
+                    let staged_only_for_this_call = dst == arg && dies_with_call;
+                    if staged_only_for_this_call {
+                        safe_list_stages.insert((move_i, src));
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Allocation sites whose registers are dead at the backedge are ordinary
+    // per-iteration locals (SHA's `m` and `h0`). Reclaim the previous
+    // iteration's registry entries at the next head instead of retaining O(n)
+    // Vec boxes until the region exits. A copied or swapped handle could remain
+    // live under another name, so those shapes stay on the conservative path.
+    let iteration_alloc_regs: std::collections::HashSet<u16> = ops
+        .iter()
+        .filter_map(|op| match *op {
+            Op::NewEmptyList { dst }
+            | Op::NewEmptyListWithCapacity { dst, .. }
+            | Op::NewEmptyListFixed { dst, .. }
+            | Op::NewList { dst, .. } => Some(dst),
+            _ => None,
+        })
+        .collect();
+    let iteration_alloc_reset = !iteration_alloc_regs.is_empty()
+        && iteration_alloc_regs
+            .iter()
+            .all(|&r| !live[0].get(r as usize).copied().unwrap_or(true))
+        && !ops.iter().enumerate().any(|(op_i, op)| match *op {
+            Op::Move { dst, src } => {
+                (iteration_alloc_regs.contains(&dst) || iteration_alloc_regs.contains(&src))
+                    && !safe_list_stages.contains(&(op_i, src))
+            }
+            Op::RevSwap { a, b } => {
+                iteration_alloc_regs.contains(&a) || iteration_alloc_regs.contains(&b)
+            }
+            Op::Return { src } => iteration_alloc_regs.contains(&src),
+            _ => false,
+        });
+    if iteration_alloc_reset {
+        logicaffeine_compile::optimize::with_backend_lowering(|| {
+            logicaffeine_compile::optimize::mark_fired(
+                logicaffeine_compile::optimization::Opt::Unbox,
+            )
+        });
+    }
 
     // Guard = live-in at the head; touched = every use or def; free =
     // touched − guard; writes = every def (re-boxed by kind on completion).
@@ -3117,9 +5699,20 @@ fn adapt_region(
             _ => None,
         };
         if let Some(c) = coll {
+            // A `chr(code)` result used as a "collection" (by `length of chr(k)`) is a CharText, NOT a real
+            // Text byte-buffer: its length is the constant 1 (handled in translate_op), so it needs no pin.
+            // Skip it so the TextBytes-pin machinery doesn't grab it and bail on its per-iteration rebind.
+            if ops.iter().any(|o| {
+                matches!(o,
+                    Op::CallBuiltin { dst, builtin: logicaffeine_compile::semantics::builtins::BuiltinId::Chr, .. }
+                    if *dst == c)
+            }) {
+                continue;
+            }
             let elem = match observed.get(c as usize)? {
                 ObservedKind::IntList => PinElem::Int,
                 ObservedKind::IntListI32 => PinElem::IntI32,
+                ObservedKind::Word32List => PinElem::Word32,
                 ObservedKind::FloatList => PinElem::Float,
                 ObservedKind::BoolList => PinElem::Bool,
                 ObservedKind::Map => PinElem::Map,
@@ -3133,7 +5726,9 @@ fn adapt_region(
                     // register is ever a def in this region.
                     if writes.contains(&c) {
                         if std::env::var_os("LOGOS_RDIAG").is_some() {
-                            eprintln!("RDIAG-BAIL head_pc={head_pc} textbytes-pin-reassigned reg={c}");
+                            eprintln!(
+                                "RDIAG-BAIL head_pc={head_pc} textbytes-pin-reassigned reg={c}"
+                            );
                         }
                         return None;
                     }
@@ -3172,7 +5767,7 @@ fn adapt_region(
             }
         }
     }
-    // LEVER B (ON by default; kill-switch `LOGOS_LEVERB=0`): a list that flows
+    // List-param calls (on by default; kill-switch `LOGOS_LEVERB=0`): a list that flows
     // into a list-parameter CALL but is never directly Indexed here (e.g.
     // `arr = siftDown(arr, …)`) is still a pinnable array — pin every touched
     // slot observed as a list, so it rides the array channel rather than the
@@ -3182,6 +5777,103 @@ fn adapt_region(
     // mergesort, any worklist-via-helper) with discard-replay soundness from
     // the array snapshot/rollback.
     let leverb_on = std::env::var("LOGOS_LEVERB").as_deref() != Ok("0");
+    // Fresh list-returning calls are lowered as an in-place adoption into the
+    // destination's pinned Vec. Keep the transformation deliberately narrow:
+    // the destination must already be a same-element list at region entry and
+    // may not be copied/rebound by any other op in the region. Entry COW in the
+    // VM then makes the stable-handle implementation observationally identical
+    // to the source-level fresh-value rebind.
+    let mut adopted_call_dsts = std::collections::HashMap::<u16, PinElem>::new();
+    if leverb_on {
+        for op in ops {
+            let Op::Call { dst, func, .. } = *op else {
+                continue;
+            };
+            let Some(sig) = callees.get(func as usize) else {
+                continue;
+            };
+            if std::env::var_os("LOGOS_RDIAG").is_some() {
+                eprintln!(
+                    "RDIAG-ADOPT candidate dst={dst} func={func} list_ret={:?} ret={:?} returns_param={} stable={} inout={:?}",
+                    sig.list_ret,
+                    sig.ret,
+                    sig.returns_list_param,
+                    sig.list_params_stable,
+                    sig.inout_params
+                );
+            }
+            let Some(elem) = sig.list_ret else { continue };
+            if sig.ret.is_some() || sig.returns_list_param || !sig.list_params_stable {
+                if std::env::var_os("LOGOS_RDIAG").is_some() {
+                    eprintln!(
+                        "RDIAG-ADOPT reject dst={dst} func={func} ret={:?} returns_param={} stable={}",
+                        sig.ret, sig.returns_list_param, sig.list_params_stable
+                    );
+                }
+                continue;
+            }
+            if sig.inout_params.iter().any(|&r| {
+                matches!(
+                    sig.param_kinds.get(r as usize),
+                    Some(Some(ParamKind::List(_)))
+                )
+            }) {
+                continue;
+            }
+            let observed_matches = matches!(
+                (elem, observed.get(dst as usize)),
+                (PinElem::Int, Some(ObservedKind::IntList))
+                    | (PinElem::Word32, Some(ObservedKind::Word32List))
+            );
+            if !observed_matches {
+                if std::env::var_os("LOGOS_RDIAG").is_some() {
+                    eprintln!(
+                        "RDIAG-ADOPT observed-mismatch dst={dst} elem={elem:?} observed={:?}",
+                        observed.get(dst as usize)
+                    );
+                }
+                continue;
+            }
+            match adopted_call_dsts.get(&dst) {
+                Some(previous) if *previous != elem => return None,
+                _ => {
+                    adopted_call_dsts.insert(dst, elem);
+                }
+            }
+        }
+        for (&dst, &elem) in &adopted_call_dsts {
+            let unsafe_flow = ops.iter().enumerate().any(|(op_i, op)| {
+                if let Op::Move { dst: d, src: s } = *op {
+                    if d == dst || s == dst {
+                        // A proven one-call staging copy dies at the call and
+                        // cannot observe the adopted in-place replacement.
+                        return !safe_list_stages.contains(&(op_i, s));
+                    }
+                }
+                if matches!(*op, Op::RevSwap { a, b } if a == dst || b == dst) {
+                    return true;
+                }
+                let Some((_, defs)) = region_use_def(op) else { return true };
+                if !defs.contains(&dst) {
+                    return false;
+                }
+                matches!(*op, Op::Call { dst: d, func, .. } if d == dst && callees.get(func as usize).is_some_and(|sig| sig.list_ret == Some(elem) && !sig.returns_list_param)) == false
+            });
+            if unsafe_flow {
+                if std::env::var_os("LOGOS_RDIAG").is_some() {
+                    eprintln!("RDIAG-ADOPT unsafe-flow dst={dst}");
+                }
+                return None;
+            }
+        }
+        if !adopted_call_dsts.is_empty() {
+            logicaffeine_compile::optimize::with_backend_lowering(|| {
+                logicaffeine_compile::optimize::mark_fired(
+                    logicaffeine_compile::optimization::Opt::Unbox,
+                )
+            });
+        }
+    }
     // Does this region CALL a list-parameter function? Only then must a list
     // that's merely passed through (not Indexed here) be pinned. Pinning EVERY
     // touched list would spuriously re-pin lists in SCALAR-call regions and
@@ -3190,7 +5882,9 @@ fn adapt_region(
     let has_list_param_call = leverb_on
         && ops.iter().any(|op| match *op {
             Op::Call { func, .. } => callees.get(func as usize).is_some_and(|s| {
-                s.param_kinds.iter().any(|p| matches!(p, Some(ParamKind::List(_))))
+                s.param_kinds
+                    .iter()
+                    .any(|p| matches!(p, Some(ParamKind::List(_))))
             }),
             _ => false,
         });
@@ -3202,6 +5896,7 @@ fn adapt_region(
             let elem = match observed.get(r as usize) {
                 Some(ObservedKind::IntList) => Some(PinElem::Int),
                 Some(ObservedKind::IntListI32) => Some(PinElem::IntI32),
+                Some(ObservedKind::Word32List) => Some(PinElem::Word32),
                 Some(ObservedKind::FloatList) => Some(PinElem::Float),
                 Some(ObservedKind::BoolList) => Some(PinElem::Bool),
                 _ => None,
@@ -3209,6 +5904,11 @@ fn adapt_region(
             if let Some(e) = elem {
                 pin_regs.push((r, e));
             }
+        }
+    }
+    for (&reg, &elem) in &adopted_call_dsts {
+        if !pin_regs.iter().any(|&(r, _)| r == reg) {
+            pin_regs.push((reg, elem));
         }
     }
     // In-region Returns: the value's kind must agree across every return
@@ -3232,7 +5932,9 @@ fn adapt_region(
     let is_map = |c: u16| matches!(observed.get(c as usize), Some(ObservedKind::Map));
     let region_has_deopt_source = ops.iter().any(|op| match *op {
         Op::Div { .. } | Op::Mod { .. } | Op::Call { .. } | Op::Index { .. } => true,
-        Op::IndexUnchecked { collection, .. } | Op::Contains { collection, .. } => is_map(collection),
+        Op::IndexUnchecked { collection, .. } | Op::Contains { collection, .. } => {
+            is_map(collection)
+        }
         _ => false,
     });
     let is_setindexed = |reg: u16| {
@@ -3246,7 +5948,11 @@ fn adapt_region(
     // by the `StrAppend` helper — like an in-place `SetIndex`, that growth is NOT
     // replay-idempotent (a classic replay-from-head would double-append), so its
     // entry `Value` must be snapshotted and restored on a classic deopt.
-    let is_text_mut = |reg: u16| pin_regs.iter().any(|&(r, e)| r == reg && e == PinElem::TextMut);
+    let is_text_mut = |reg: u16| {
+        pin_regs
+            .iter()
+            .any(|&(r, e)| r == reg && e == PinElem::TextMut)
+    };
     // LEVER B: a region that CALLS a list-parameter function (`has_list_param_call`,
     // computed above) lets the callee mutate the passed buffer IN PLACE. The
     // region can't see which pinned array flows into the call (it's staged through
@@ -3263,7 +5969,14 @@ fn adapt_region(
             ptr_slot: pin_base + 3 * k as u16 + 1,
             len_slot: pin_base + 3 * k as u16 + 2,
             elem,
-            mutated: needs_snapshot && (is_setindexed(reg) || has_list_param_call || is_text_mut(reg)),
+            rebound: ops
+                .iter()
+                .any(|op| matches!(*op, Op::RevSwap { a, b } if a == reg || b == reg)),
+            mutated: needs_snapshot
+                && (is_setindexed(reg)
+                    || has_list_param_call
+                    || is_text_mut(reg)
+                    || adopted_call_dsts.contains_key(&reg)),
         })
         .collect();
     // Collect the loop's region-entry bounds hoists, resolving each guarded
@@ -3273,7 +5986,14 @@ fn adapt_region(
     // checked, which is safe).
     let mut hoist_guards: Vec<HoistGuard> = Vec::new();
     for op in ops {
-        if let Op::RegionBoundsGuard { array, bound, iv, add_max, add_min } = *op {
+        if let Op::RegionBoundsGuard {
+            array,
+            bound,
+            iv,
+            add_max,
+            add_min,
+        } = *op
+        {
             // The guarded array must be pinned (so its length is available to
             // check). If not, bail the region entirely — never run the
             // speculative accesses without their guard.
@@ -3322,7 +6042,10 @@ fn adapt_region(
         let mut out = cur;
         let Some((_, defs)) = region_use_def(&ops[i]) else {
             if std::env::var_os("LOGOS_RDIAG").is_some() {
-                eprintln!("RDIAG-BAIL head_pc={head_pc} mw-use_def-unsupported op={:?}", ops[i]);
+                eprintln!(
+                    "RDIAG-BAIL head_pc={head_pc} mw-use_def-unsupported op={:?}",
+                    ops[i]
+                );
             }
             return None;
         };
@@ -3336,9 +6059,7 @@ fn adapt_region(
                     succs.push(target - head_pc);
                 }
             }
-            Op::JumpIfFalse { target, .. }
-            | Op::JumpIfTrue { target, .. }
-            => {
+            Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => {
                 if i + 1 < ops.len() {
                     succs.push(i + 1);
                 }
@@ -3381,8 +6102,7 @@ fn adapt_region(
         let exits_here = match *op {
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
-            | Op::JumpIfTrue { target, .. }
-            => !in_region(target),
+            | Op::JumpIfTrue { target, .. } => !in_region(target),
             Op::Return { .. } => true,
             _ => false,
         };
@@ -3407,8 +6127,7 @@ fn adapt_region(
         if pins.contains_key(&r) {
             continue; // pinned arrays ride their own channel
         }
-        let conditionally_written =
-            is_named(r) && writes.contains(&r) && !exit_must[r as usize];
+        let conditionally_written = is_named(r) && writes.contains(&r) && !exit_must[r as usize];
         if live[0][r as usize] || conditionally_written {
             guard.push(r);
         } else {
@@ -3424,6 +6143,14 @@ fn adapt_region(
     let mut guard_kinds: Vec<(u16, SlotKind)> = Vec::with_capacity(guard.len());
     for &g in &guard {
         let k = observed_kind(*observed.get(g as usize)?);
+        // `CharText` is a WRITE-BACK-only kind (it re-boxes to a Text on exit); it has no entry
+        // marshalling (a Text → code-point read), so a `chr` result flowing IN as a live-in guard declines.
+        if matches!(k, Kind::CharText) {
+            if std::env::var_os("LOGOS_RDIAG").is_some() {
+                eprintln!("RDIAG-BAIL head_pc={head_pc} chartext-live-in g={g}");
+            }
+            return None;
+        }
         let Some(sk) = k.slot_kind() else {
             if std::env::var_os("LOGOS_RDIAG").is_some() {
                 eprintln!("RDIAG-BAIL head_pc={head_pc} guard-slot-no-slotkind g={g} kind={k:?}");
@@ -3437,6 +6164,7 @@ fn adapt_region(
         entry[reg as usize] = match elem {
             PinElem::Int => Kind::IntList,
             PinElem::IntI32 => Kind::IntListI32,
+            PinElem::Word32 => Kind::Word32List,
             PinElem::Float => Kind::FloatList,
             PinElem::Bool => Kind::BoolList,
             PinElem::Map => Kind::IntMap,
@@ -3444,17 +6172,26 @@ fn adapt_region(
             PinElem::TextMut => Kind::TextMut,
         };
     }
-    // LEVER B: admit a region that CALLS a list-parameter function. Sound only
-    // for a region-safe callee (never reallocs a list param) whose list args are
+    // Admit a region that calls a list-parameter function. Sound only for a
+    // region-safe callee (never reallocs a list param) whose list args are
     // pinned arrays the region snapshots; the region also releases its array
-    // borrows around the call so the callee can borrow them. Gated ON by
-    // `LOGOS_LEVERB=1` while the call path is being hardened (default rejects,
-    // exactly as before). `leverb_on` is bound above (at the pin-regs stage).
+    // borrows around the call so the callee can borrow them. On by default;
+    // `LOGOS_LEVERB=0` rejects such regions. `leverb_on` is bound above (at the
+    // pin-regs stage).
     let resolve = |fi: u16| -> Option<(Kind, Vec<Kind>)> {
         let sig = callees.get(fi as usize)?;
+        if sig.inout_params.iter().any(|&r| {
+            matches!(
+                sig.param_kinds.get(r as usize),
+                Some(Some(ParamKind::List(_)))
+            )
+        }) {
+            return None;
+        }
         let list_kind = |e: PinElem| -> Option<Kind> {
             match e {
                 PinElem::Int => Some(Kind::IntList),
+                PinElem::Word32 => Some(Kind::Word32List),
                 PinElem::Float => Some(Kind::FloatList),
                 PinElem::Bool => Some(Kind::BoolList),
                 // A half-width buffer is never a declared list-param.
@@ -3466,19 +6203,27 @@ fn adapt_region(
             Some(SlotKind::Int) => Kind::Int,
             Some(SlotKind::Bool) => Kind::Bool,
             Some(SlotKind::Float) => Kind::Float,
-            // A LIST (or void) return: admitted only when it aliases a list
-            // parameter (no fresh buffer ⇒ no stale pin) of a stable callee.
+            Some(SlotKind::CharText) => Kind::CharText,
+            Some(SlotKind::Word32) => Kind::Word32,
+            Some(SlotKind::Word64) => Kind::Word64,
+            // A LIST (or void) return: a parameter-passthrough keeps the
+            // existing pin identity; a declared Int/Word32 list return is
+            // adopted into the destination pin immediately after the call.
             None => {
-                if !leverb_on || !sig.list_params_stable || !sig.returns_list_param {
+                if !leverb_on || !sig.list_params_stable {
                     if std::env::var_os("LOGOS_RDIAG").is_some() {
                         eprintln!("RDIAG-BAIL head_pc={head_pc} list-return-call");
                     }
                     return None;
                 }
-                let elem = sig.param_kinds.iter().find_map(|pk| match pk {
-                    Some(ParamKind::List(e)) => Some(*e),
-                    _ => None,
-                })?;
+                let elem = if sig.returns_list_param {
+                    sig.param_kinds.iter().find_map(|pk| match pk {
+                        Some(ParamKind::List(e)) => Some(*e),
+                        _ => None,
+                    })?
+                } else {
+                    sig.list_ret?
+                };
                 list_kind(elem)?
             }
         };
@@ -3488,6 +6233,9 @@ fn adapt_region(
                 ParamKind::Scalar(SlotKind::Int) => ps.push(Kind::Int),
                 ParamKind::Scalar(SlotKind::Bool) => ps.push(Kind::Bool),
                 ParamKind::Scalar(SlotKind::Float) => ps.push(Kind::Float),
+                ParamKind::Scalar(SlotKind::CharText) => ps.push(Kind::CharText),
+                ParamKind::Scalar(SlotKind::Word32) => ps.push(Kind::Word32),
+                ParamKind::Scalar(SlotKind::Word64) => ps.push(Kind::Word64),
                 // A list param: the callee mutates the shared buffer in place.
                 // Sound iff the callee is stable (no realloc) — the pinned arg's
                 // contents ride the deopt snapshot/rollback, and the region
@@ -3501,11 +6249,13 @@ fn adapt_region(
                     }
                     ps.push(list_kind(elem)?);
                 }
+                // A region carries no nodes.
+                ParamKind::Inductive => return None,
             }
         }
         Some((ret, ps))
     };
-    let Some(kin) = kind_flow(ops, head_pc, constants, entry, Some(&resolve)) else {
+    let Some(kin) = kind_flow(ops, head_pc, constants, entry, Some(&resolve), &[]) else {
         if std::env::var_os("LOGOS_RDIAG").is_some() {
             eprintln!("RDIAG-BAIL head_pc={head_pc} kind_flow");
         }
@@ -3521,9 +6271,7 @@ fn adapt_region(
         let Some(k) = &kin[i] else { continue };
         let exits_here = match *op {
             Op::Jump { target } => !in_region(target),
-            Op::JumpIfFalse { target, .. }
-            | Op::JumpIfTrue { target, .. }
-            => !in_region(target),
+            Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => !in_region(target),
             // An in-region Return leaves the loop too — its named writes
             // flow through the same write-back.
             Op::Return { .. } => true,
@@ -3535,6 +6283,36 @@ fn adapt_region(
             }
         }
     }
+    // Exit edges can carry different scalar types after an exchange.
+    // Materialize at the taken edge, then execute its jump or return once.
+    let typed_exits = writes
+        .iter()
+        .any(|&r| is_named(r) && live[0][r as usize] && exit_kind[r as usize] == Kind::Mixed);
+    if typed_exits {
+        // Calls and rebound collections need their own precise ownership
+        // protocol; scalar materialization cannot reconstruct those.
+        if has_call_op || array_pins.iter().any(|p| p.rebound) {
+            return None;
+        }
+        for &r in &writes {
+            if is_named(r) && exit_kind[r as usize] == Kind::Mixed {
+                for k in kin.iter().flatten() {
+                    if !matches!(k[r as usize], Kind::Unknown)
+                        && k[r as usize].slot_kind().is_none()
+                    {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+    // A fresh-list-return adoption is also a precise-resume shape. Before the
+    // call, pinned list effects already live in their VM buffers; if the native
+    // callee side-exits, resuming at the Call observes those exact buffers. On
+    // success the following Host adopts into the stable destination handle.
+    // Selecting precise mode lets the contiguous backend compile Call + Host
+    // instead of falling back to the per-piece stencil tier.
+    let needs_precise = needs_precise || typed_exits || !adopted_call_dsts.is_empty();
     let mut write_set: Vec<(u16, SlotKind)> = Vec::new();
     for &r in &writes {
         // Scratches are unobservable after the region — never written back,
@@ -3563,7 +6341,7 @@ fn adapt_region(
             // register value is unobservable — the scratch is recomputed every
             // iteration). A genuinely loop-carried Mixed slot still bails.
             Kind::Mixed => {
-                if live[0][r as usize] {
+                if live[0][r as usize] && !typed_exits {
                     if std::env::var_os("LOGOS_RDIAG").is_some() {
                         eprintln!("RDIAG-BAIL head_pc={head_pc} mixed-write-set slot={r}");
                     }
@@ -3588,7 +6366,9 @@ fn adapt_region(
             k => {
                 let Some(sk) = k.slot_kind() else {
                     if std::env::var_os("LOGOS_RDIAG").is_some() {
-                        eprintln!("RDIAG-BAIL head_pc={head_pc} write-set-no-slotkind r={r} kind={k:?}");
+                        eprintln!(
+                            "RDIAG-BAIL head_pc={head_pc} write-set-no-slotkind r={r} kind={k:?}"
+                        );
                     }
                     return None;
                 };
@@ -3608,9 +6388,7 @@ fn adapt_region(
             let Some(k) = &kin[i] else { continue };
             if let Op::Return { src } = *op {
                 let rk = match k[src as usize] {
-                    Kind::IntList | Kind::FloatList | Kind::BoolList => {
-                        RegionReturnKind::Register
-                    }
+                    Kind::IntList | Kind::FloatList | Kind::BoolList => RegionReturnKind::Register,
                     other => RegionReturnKind::Slot(other.slot_kind()?),
                 };
                 match ret_kind {
@@ -3626,9 +6404,11 @@ fn adapt_region(
         }
     }
     let region_return = match (region_return_slots, ret_kind) {
-        (Some((flag, val)), Some(kind)) => {
-            Some(logicaffeine_compile::vm::RegionReturn { flag_slot: flag, value_slot: val, kind })
-        }
+        (Some((flag, val)), Some(kind)) => Some(logicaffeine_compile::vm::RegionReturn {
+            flag_slot: flag,
+            value_slot: val,
+            kind,
+        }),
         _ => None,
     };
 
@@ -3642,20 +6422,24 @@ fn adapt_region(
         + 2
         + 3 * array_pins.len()
         + if has_return { 2 } else { 0 }
-        + if has_calls { 1 } else { 0 };
+        + if has_calls { 2 } else { 0 };
     // The arena-limit slot is LAST; callees window immediately past the
     // frame (region frames get real arena headroom when they call).
     let limit_slot = (frame_size - 1) as u16;
-    let jump_targets: std::collections::HashSet<usize> = ops
+    let mut jump_targets: std::collections::HashSet<usize> = ops
         .iter()
         .filter_map(|op| match *op {
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
-            | Op::JumpIfTrue { target, .. }
-            => Some(target),
+            | Op::JumpIfTrue { target, .. } => Some(target),
             _ => None,
         })
         .collect();
+    if typed_exits {
+        // A resumed conditional edge needs its condition register populated;
+        // prevent comparison/jump fusion from removing that assignment.
+        jump_targets.extend(head_pc..head_pc + ops.len());
+    }
     let scratch_ok = |r: u16| !is_named(r);
     let conv = (register_count, register_count + 1);
     let mut micro: Vec<MicroOp> = Vec::with_capacity(ops.len());
@@ -3729,8 +6513,22 @@ fn adapt_region(
     // The frame buffer is reused across entries — the return flag must be
     // explicitly cleared at the head of every run.
     if let Some((flag, _)) = region_return_slots {
-        micro.push(MicroOp::LoadConst { dst: flag, value: 0 });
+        micro.push(MicroOp::LoadConst {
+            dst: flag,
+            value: 0,
+        });
     }
+    // The pending call survives unwinding through native code. Clear it
+    // after a completed call so later region exits use the region's own PC.
+    let call_site_slot = has_calls.then(|| (frame_size - 2) as u16);
+    if let Some(dst) = call_site_slot {
+        micro.push(MicroOp::LoadConst { dst, value: -1 });
+    }
+    let iteration_reset_micro = iteration_alloc_reset.then(|| {
+        let at = micro.len();
+        micro.push(host_call(conv.0, conv.0, 0, 0, logos_rt_region_alloc_reset));
+        at
+    });
 
     let mut i = 0usize;
     while i < ops.len() {
@@ -3739,7 +6537,13 @@ fn adapt_region(
         // into the fresh window. Entry deopt (callee not yet compiled,
         // depth, arena) writes the PLAIN marker — region replay is sound
         // because the resolver admitted only scalar-pure callees.
-        if let Op::Call { dst, args_start, arg_count, func } = ops[i] {
+        if let Op::Call {
+            dst,
+            args_start,
+            arg_count,
+            func,
+        } = ops[i]
+        {
             if kin[i].is_some() {
                 if resolve(func).is_none() {
                     if std::env::var_os("LOGOS_RDIAG").is_some() {
@@ -3754,9 +6558,16 @@ fn adapt_region(
                     return None;
                 }
                 pc_to_micro.push(micro.len());
+                micro.push(MicroOp::LoadConst {
+                    dst: call_site_slot?,
+                    value: (head_pc + i) as i64,
+                });
                 let window = frame_size as u16;
                 for j in 0..arg_count {
-                    micro.push(MicroOp::Move { dst: window + j, src: args_start + j });
+                    micro.push(MicroOp::Move {
+                        dst: window + j,
+                        src: args_start + j,
+                    });
                 }
                 micro.push(MicroOp::Call {
                     dst,
@@ -3767,6 +6578,38 @@ fn adapt_region(
                     limit_slot,
                     depth_limit: logicaffeine_compile::semantics::MAX_CALL_DEPTH as i64,
                 });
+                micro.push(MicroOp::LoadConst {
+                    dst: call_site_slot?,
+                    value: -1,
+                });
+                if let Some(&elem) = adopted_call_dsts.get(&dst) {
+                    let pin = pins.get(&dst)?;
+                    if pin.elem != elem {
+                        return None;
+                    }
+                    micro.push(MicroOp::Move {
+                        dst: conv.0,
+                        src: dst,
+                    });
+                    micro.push(MicroOp::Move {
+                        dst: conv.1,
+                        src: pin.vec_slot,
+                    });
+                    micro.push(host_call(dst, conv.0, 2, 0, logos_rt_adopt_list_i64));
+                    micro.push(MicroOp::ListTriple {
+                        handle_slot: dst,
+                        vec_slot: pin.vec_slot,
+                        ptr_slot: pin.ptr_slot,
+                        len_slot: pin.len_slot,
+                        helper_addr: logos_rt_list_triple as usize as i64,
+                    });
+                }
+                for &j in &callees[func as usize].inout_params {
+                    micro.push(MicroOp::Move {
+                        dst: args_start + j,
+                        src: window + j,
+                    });
+                }
             } else {
                 pc_to_micro.push(micro.len());
             }
@@ -3780,6 +6623,7 @@ fn adapt_region(
             constants,
             &kin,
             &live,
+            Some(&safe_list_stages),
             &jump_targets,
             &scratch_ok,
             conv,
@@ -3793,29 +6637,55 @@ fn adapt_region(
             &mut fixups,
         ) else {
             if std::env::var_os("LOGOS_RDIAG").is_some() {
-                eprintln!("RDIAG-BAIL head_pc={head_pc} translate_op-failed op={:?}", ops[i]);
+                eprintln!(
+                    "RDIAG-BAIL head_pc={head_pc} translate_op-failed op={:?}",
+                    ops[i]
+                );
             }
             return None;
         };
         i += advance;
+    }
+    if let (Some(at), Some(first)) = (iteration_reset_micro, pc_to_micro.first_mut()) {
+        // Every backedge to the VM loop head must run the lifetime boundary;
+        // the one-time frame prologue remains before it and is intentionally
+        // skipped on internal iterations.
+        *first = at;
     }
     // Out-of-region jumps route to the synthetic exit terminal.
     let exit_micro = micro.len();
     micro.push(MicroOp::Return { src: 0 });
     let _ = exit_pc;
     for &fi in &fixups {
+        let vm_target = match micro[fi] {
+            MicroOp::Jump { target }
+            | MicroOp::JumpIfFalse { target, .. }
+            | MicroOp::JumpIfTrue { target, .. }
+            | MicroOp::Branch { target, .. }
+            | MicroOp::BranchF { target, .. } => target,
+            _ => unreachable!(),
+        };
+        let target_micro = if in_region(vm_target) {
+            *pc_to_micro.get(vm_target - head_pc)?
+        } else if typed_exits {
+            let opi = pc_to_micro.iter().rposition(|&start| start <= fi)?;
+            let resume_pc = head_pc + opi;
+            let terminal = micro.len();
+            micro.push(MicroOp::LoadConst {
+                dst: conv.0,
+                value: resume_pc as i64,
+            });
+            micro.push(MicroOp::Return { src: conv.0 });
+            terminal
+        } else {
+            exit_micro
+        };
         match &mut micro[fi] {
             MicroOp::Jump { target }
             | MicroOp::JumpIfFalse { target, .. }
             | MicroOp::JumpIfTrue { target, .. }
             | MicroOp::Branch { target, .. }
-            | MicroOp::BranchF { target, .. } => {
-                *target = if in_region(*target) {
-                    *pc_to_micro.get(*target - head_pc)?
-                } else {
-                    exit_micro
-                };
-            }
+            | MicroOp::BranchF { target, .. } => *target = target_micro,
             _ => unreachable!(),
         }
     }
@@ -3830,8 +6700,7 @@ fn adapt_region(
     // would leave the VM register holding the stale Rc. In-place array
     // mutations (`ListPush`/`SetIndex`) are USES of the handle, never defs, so
     // they never appear in `writes`; a genuine rebind does, and disqualifies.
-    let array_reg_set: std::collections::HashSet<u16> =
-        array_pins.iter().map(|a| a.reg).collect();
+    let array_reg_set: std::collections::HashSet<u16> = array_pins.iter().map(|a| a.reg).collect();
     let rebinds_collection = writes.iter().any(|&r| {
         !array_reg_set.contains(&r)
             && matches!(
@@ -3871,6 +6740,11 @@ fn adapt_region(
                             Some(Kind::Int) => Some(SlotKind::Int),
                             Some(Kind::Bool) => Some(SlotKind::Bool),
                             Some(Kind::Float) => Some(SlotKind::Float),
+                            // A `chr` result re-boxes to a Text on write-back (never "keep VM value").
+                            Some(Kind::CharText) => Some(SlotKind::CharText),
+                            // A loop-carried Word re-boxes to a `RuntimeValue::Word` on write-back.
+                            Some(Kind::Word32) => Some(SlotKind::Word32),
+                            Some(Kind::Word64) => Some(SlotKind::Word64),
                             // list/map/unknown/mixed read-only → keep VM value
                             _ => None,
                         }
@@ -3879,7 +6753,11 @@ fn adapt_region(
                 kinds_by_pc.insert(resume_pc, row);
             }
         }
-        Some(RegionPrecise { deopt_codes: codes, kinds_by_pc })
+        Some(RegionPrecise {
+            resume_on_return: typed_exits,
+            deopt_codes: codes,
+            kinds_by_pc,
+        })
     } else {
         None
     };
@@ -3896,36 +6774,63 @@ fn adapt_region(
     ))
 }
 
-/// Slots in the per-thread native call arena: deep self-recursion windows
-/// callee frames upward through this one buffer (16 MiB); the call stencil's
-/// arena-limit check deopts before any overflow.
+/// Maximum slots in a per-thread native call arena. Each compiled function
+/// allocates only its proven `frame_size * (MAX_CALL_DEPTH + 1)` requirement;
+/// this 16 MiB ceiling remains the compile-time capability limit for unusually
+/// large frames. The call stencil's arena-limit check deopts before overflow.
 const ARENA_SLOTS: usize = 1 << 21;
 
 struct ChainFn {
     chain: CompiledChain,
+    /// Bytecode function-table index, retained for runtime trace attribution.
+    function_index: u16,
     limit_slot: usize,
+    /// Exact recursive arena bound proved at compile time. Right-sizing avoids
+    /// zero-filling the 16 MiB capability ceiling on every fresh JIT process.
+    arena_slots: usize,
     depth: std::sync::Arc<std::sync::atomic::AtomicI64>,
     ret: NativeRet,
+    /// The elements of a fresh list it returns, which decide the VM representation it re-boxes into.
+    ret_elem: PinElem,
     /// frame_size − 3: what the call stencil's bound math expects in the
     /// table's regcount slot (mode A: the plain register count).
     published_regc: i64,
     precise: Option<PreciseInfo>,
     stats: std::sync::Arc<RuntimeStats>,
+    /// The constructor and variant shapes the chain's enum-lane helpers point at.
+    _shapes: NodeShapes,
+    param_kinds: Vec<Option<ParamKind>>,
 }
 
 impl NativeFn for ChainFn {
     fn call(&self, args: &[i64], pins: &[i64], depth: usize) -> NativeOutcome {
+        self.call_with_writeback(args, pins, depth, &[], &mut Vec::new())
+    }
+    fn call_with_writeback(
+        &self,
+        args: &[i64],
+        pins: &[i64],
+        depth: usize,
+        slots: &[u16],
+        writeback: &mut Vec<(u16, logicaffeine_compile::vm::NativeWriteback)>,
+    ) -> NativeOutcome {
         // One arena per thread: the outermost native call owns it for the
         // whole (possibly deeply recursive) run. Kind gates prove no slot is
         // read before it is written, so stale contents are unobservable.
         thread_local! {
             static ARENA: std::cell::RefCell<Vec<i64>> = const { std::cell::RefCell::new(Vec::new()) };
         }
-        self.stats.entries.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .entries
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ARENA.with(|f| {
             let mut frame = f.borrow_mut();
-            if frame.len() < ARENA_SLOTS {
-                frame.resize(ARENA_SLOTS, 0);
+            if frame.len() < self.arena_slots {
+                // A fresh zero-filled allocation lets the system allocator
+                // provide untouched pages lazily. `resize` would explicitly
+                // write the entire recursive safety ceiling up front even
+                // when execution reaches only a handful of frames.
+                *frame = vec![0; self.arena_slots];
             }
             frame[..args.len()].copy_from_slice(args);
             if let Some(p) = &self.precise {
@@ -3934,23 +6839,53 @@ impl NativeFn for ChainFn {
                     frame[base..base + 3].copy_from_slice(chunk);
                 }
             }
-            let arena_end = unsafe { frame.as_ptr().add(ARENA_SLOTS) } as i64;
+            let arena_end = unsafe { frame.as_ptr().add(self.arena_slots) } as i64;
             frame[self.limit_slot] = arena_end;
-            self.depth.store(depth as i64, std::sync::atomic::Ordering::Relaxed);
+            self.depth
+                .store(depth as i64, std::sync::atomic::Ordering::Relaxed);
             match self.chain.run_with_frame(&mut frame) {
                 ChainOutcome::Return(v) => {
                     self.stats
                         .completions
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    // Detach each owned buffer once, sharing that value between
+                    // output arguments and the return when their handles alias.
+                    let mut detached =
+                        std::collections::HashMap::<i64, logicaffeine_compile::vm::Value>::new();
+                    for &slot in slots {
+                        let raw = frame[slot as usize];
+                        let boxed = if let Some(Some(ParamKind::List(elem))) =
+                            self.param_kinds.get(slot as usize)
+                        {
+                            detached.get(&raw).cloned().or_else(|| {
+                                alloc_registry_detach(raw).map(|vec| {
+                                    let value = list_value(vec, *elem);
+                                    detached.insert(raw, value.clone());
+                                    value
+                                })
+                            })
+                        } else {
+                            None
+                        };
+                        let value = match boxed {
+                            Some(value) => logicaffeine_compile::vm::NativeWriteback::Value(value),
+                            None => logicaffeine_compile::vm::NativeWriteback::Raw(raw),
+                        };
+                        writeback.push((slot, value));
+                    }
                     let out = if matches!(self.ret, NativeRet::ListByHandle) {
-                        match alloc_registry_detach(v) {
-                            // A fresh, registry-owned list: re-box here.
-                            Some(vec) => NativeOutcome::ReturnValue(
-                                logicaffeine_compile::vm::Value::int_list(vec),
-                            ),
-                            // A param passthrough: the VM matches the
-                            // handle against its pin arguments.
-                            None => NativeOutcome::Return(v),
+                        if let Some(value) = detached.get(&v) {
+                            NativeOutcome::ReturnValue(value.clone())
+                        } else {
+                            match alloc_registry_detach(v) {
+                                // A fresh, registry-owned list: re-box here.
+                                Some(vec) => {
+                                    NativeOutcome::ReturnValue(list_value(vec, self.ret_elem))
+                                }
+                                // A param passthrough: the VM matches the
+                                // handle against its pin arguments.
+                                None => NativeOutcome::Return(v),
+                            }
                         }
                     } else {
                         NativeOutcome::Return(v)
@@ -3960,10 +6895,11 @@ impl NativeFn for ChainFn {
                 }
                 ChainOutcome::Deopt(raw) => {
                     if std::env::var_os("LOGOS_JIT_TRACE").is_some() {
-                        let arena_end = unsafe { frame.as_ptr().add(ARENA_SLOTS) } as i64;
+                        let arena_end = unsafe { frame.as_ptr().add(self.arena_slots) } as i64;
                         eprintln!(
-                            "jit-trace: fn deopt raw={raw:#x} depth={depth} limit_slot={} \
+                            "jit-trace: fn={} deopt raw={raw:#x} depth={depth} limit_slot={} \
                              frame[limit]={:#x} arena_end={:#x} delta={}",
+                            self.function_index,
                             self.limit_slot,
                             frame[self.limit_slot],
                             arena_end,
@@ -3989,6 +6925,24 @@ impl NativeFn for ChainFn {
             }
         })
     }
+    fn materialize_side_exit(
+        &self,
+        status: i64,
+        entry_depth: usize,
+        frame: &[i64],
+        pins: &[i64],
+    ) -> Option<NativeOutcome> {
+        self.precise.as_ref()?;
+        if status & 3 != 3 {
+            return None;
+        }
+        let exit_depth = (status >> 32) as usize;
+        let frame_count = exit_depth.checked_sub(entry_depth)? + 1;
+        let pc = ((status & 0xFFFF_FFFF) >> 2) as usize;
+        self.stats.deopt_ats.fetch_add(1, Ordering::Relaxed);
+        Some(self.materialize(pc, frame_count, frame, pins))
+    }
+
     fn ret(&self) -> NativeRet {
         self.ret
     }
@@ -3997,6 +6951,10 @@ impl NativeFn for ChainFn {
     }
     fn published_regc(&self) -> i64 {
         self.published_regc
+    }
+    fn code_extents(&self) -> Vec<(usize, usize)> {
+        let code = self.chain.bytes();
+        vec![(code.as_ptr() as usize, code.len())]
     }
 }
 
@@ -4041,6 +6999,13 @@ impl ChainFn {
         }
         let last = raw.len() - 1;
         let mut frames = Vec::with_capacity(raw.len());
+        // ★ ONE LIST, ONE VALUE. Registers alias a native-owned list freely (a Move, a call returning its
+        // argument) — within a frame and across frames. Detaching removes the buffer from the registry, so
+        // a second alias used to miss it and re-box as Dead (`Cannot index into Nothing` after an overflow
+        // deopt). Each handle detaches ONCE; every alias gets a clone of that one value — a shared list,
+        // exactly the aliasing the VM itself holds (and copy-on-writes) at this point.
+        let mut detached: std::collections::HashMap<i64, logicaffeine_compile::vm::Value> =
+            std::collections::HashMap::new();
         for (k, &(b, _, my_resume, _)) in raw.iter().enumerate() {
             let pause_pc = if k == last { pc } else { my_resume - 1 };
             let mut kinds = p
@@ -4052,11 +7017,19 @@ impl ChainFn {
             // real values; param passthroughs rewrite to their argument.
             let mut resolved: Vec<(u16, logicaffeine_compile::vm::Value)> = Vec::new();
             if let Some(owned) = p.owned_by_pc.get(&pause_pc) {
-                for &(reg, vslot) in owned {
+                for &(reg, vslot, elem) in owned {
                     let handle = frame[b + vslot as usize];
-                    if let Some(vec) = alloc_registry_detach(handle) {
+                    let owned_value = match detached.get(&handle) {
+                        Some(v) => Some(v.clone()),
+                        None => alloc_registry_detach(handle).map(|vec| {
+                            let v = list_value(vec, elem);
+                            detached.insert(handle, v.clone());
+                            v
+                        }),
+                    };
+                    if let Some(v) = owned_value {
                         kinds[reg as usize] = RegBox::Resolved;
-                        resolved.push((reg, logicaffeine_compile::vm::Value::int_list(vec)));
+                        resolved.push((reg, v));
                     } else {
                         // A param's vec: match the boundary pin handles.
                         let mut hit = false;
@@ -4070,6 +7043,20 @@ impl ChainFn {
                         if !hit {
                             kinds[reg as usize] = RegBox::Dead;
                         }
+                    }
+                }
+            }
+            // Nodes go back to the VM: an owned one transfers its count, a borrowed one is shared.
+            if let Some(nodes) = p.nodes_by_pc.get(&pause_pc) {
+                for &(reg, hold) in nodes {
+                    // SAFETY: the plan says what `reg` holds at this pause point, and this frame is
+                    // abandoned after the walk, so each owned count is handed over exactly once.
+                    match unsafe { inductive::rebox(frame[b + reg as usize], hold) } {
+                        Some(v) => {
+                            kinds[reg as usize] = RegBox::Resolved;
+                            resolved.push((reg, v));
+                        }
+                        None => kinds[reg as usize] = RegBox::Dead,
                     }
                 }
             }
@@ -4088,7 +7075,10 @@ impl ChainFn {
                 resolved,
             });
         }
-        NativeOutcome::DeoptAt { resume_pc: pc, frames }
+        NativeOutcome::DeoptAt {
+            resume_pc: pc,
+            frames,
+        }
     }
 }
 
@@ -4101,6 +7091,7 @@ struct RegionChain {
     /// Set when the region CALLS functions: arena headroom for callee
     /// windows, the limit slot to plant, and the live depth cell.
     call_support: Option<(usize, u16, std::sync::Arc<std::sync::atomic::AtomicI64>)>,
+    call_sites: std::collections::HashMap<usize, u16>,
     guard: Vec<(u16, SlotKind)>,
     free: Vec<u16>,
     writes: Vec<(u16, SlotKind)>,
@@ -4113,6 +7104,8 @@ struct RegionChain {
     /// per-register re-box kinds up here by resume pc. `None` ⇒ the classic
     /// plain-replay region.
     precise_kinds: Option<std::collections::HashMap<usize, Vec<Option<SlotKind>>>>,
+    stats: std::sync::Arc<RuntimeStats>,
+    resume_on_return: bool,
 }
 
 impl RegionFn for RegionChain {
@@ -4146,30 +7139,101 @@ impl RegionFn for RegionChain {
             .and_then(|m| m.get(&resume_pc))
             .map(|v| v.as_slice())
     }
+    fn code_extents(&self) -> Vec<(usize, usize)> {
+        let code = self.chain.bytes();
+        vec![(code.as_ptr() as usize, code.len())]
+    }
     fn run(&self, frame: &mut [i64], depth: usize) -> RegionOutcome {
+        self.run_with_callees(frame, depth, &|_| None)
+    }
+    fn run_with_callees<'a>(
+        &self,
+        frame: &mut [i64],
+        depth: usize,
+        callees: &dyn Fn(u16) -> Option<&'a dyn NativeFn>,
+    ) -> RegionOutcome {
+        self.stats
+            .region_entries
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some((_, limit_slot, depth_cell)) = &self.call_support {
             let arena_end = unsafe { frame.as_ptr().add(frame.len()) } as i64;
             frame[*limit_slot as usize] = arena_end;
             depth_cell.store(depth as i64, std::sync::atomic::Ordering::Relaxed);
         }
-        match self.chain.run_with_frame(frame) {
-            ChainOutcome::Return(_) => {
+        let outcome = match self.chain.run_with_frame(frame) {
+            ChainOutcome::Return(pc) => {
                 REGION_RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                RegionOutcome::Completed
+                self.stats
+                    .region_completions
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if self.resume_on_return {
+                    RegionOutcome::DeoptAt {
+                        resume_pc: pc as usize,
+                    }
+                } else {
+                    RegionOutcome::Completed
+                }
             }
             ChainOutcome::Deopt(raw) => {
                 REGION_DEOPTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.stats
+                    .region_deopts
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 // Precise chains tag every side exit with `(resume_pc << 2) | 3`
                 // in the low 32 bits; a plain chain's terminal stores a value
                 // whose low 2 bits are not 3. Resume precisely when tagged.
-                if self.precise_kinds.is_some() && (raw & 0b11) == 0b11 {
+                let pending_call = self
+                    .call_support
+                    .as_ref()
+                    .map(|_| frame[self.frame_size - 2])
+                    .filter(|pc| *pc >= 0);
+                if self.precise_kinds.is_some() && pending_call.is_some() {
+                    let call_pc = pending_call.unwrap() as usize;
+                    if raw & 3 == 3 && (raw >> 32) as usize > depth {
+                        let fi = self.call_sites[&call_pc];
+                        let callee =
+                            callees(fi).expect("published callee has no frame materializer");
+                        let pins: Vec<i64> = self
+                            .arrays
+                            .iter()
+                            .flat_map(|pin| {
+                                [
+                                    frame[pin.vec_slot as usize],
+                                    frame[pin.ptr_slot as usize],
+                                    frame[pin.len_slot as usize],
+                                ]
+                            })
+                            .collect();
+                        let materialized = callee
+                            .materialize_side_exit(raw, depth + 1, &frame[self.frame_size..], &pins)
+                            .expect("precise callee exit has no frame description");
+                        let NativeOutcome::DeoptAt { resume_pc, frames } = materialized else {
+                            panic!("callee materializer returned a non-precise outcome");
+                        };
+                        RegionOutcome::DeoptCall {
+                            call_pc,
+                            resume_pc,
+                            frames,
+                        }
+                    } else {
+                        // The callee did not enter, or a scalar-only callee
+                        // exited without effects. Preserve the region prefix
+                        // and interpret this call once.
+                        RegionOutcome::DeoptAt { resume_pc: call_pc }
+                    }
+                } else if self.precise_kinds.is_some() && (raw & 0b11) == 0b11 {
                     let resume_pc = ((raw & 0xFFFF_FFFF) >> 2) as usize;
                     RegionOutcome::DeoptAt { resume_pc }
                 } else {
                     RegionOutcome::Deopt
                 }
             }
-        }
+        };
+        // Region-owned allocation sites are never part of scalar write-back;
+        // successful list results have already been adopted into VM pins.
+        // Clear remaining scratch buffers on both completion and deopt.
+        alloc_registry_drain();
+        outcome
     }
 }
 
@@ -4182,6 +7246,124 @@ struct RuntimeStats {
     completions: std::sync::atomic::AtomicU64,
     deopts: std::sync::atomic::AtomicU64,
     deopt_ats: std::sync::atomic::AtomicU64,
+    region_entries: std::sync::atomic::AtomicU64,
+    region_completions: std::sync::atomic::AtomicU64,
+    region_deopts: std::sync::atomic::AtomicU64,
+}
+
+/// Native-only JIT optimizations which run after LOGOS bytecode has been
+/// produced. These cannot honestly share an [`Opt`](logicaffeine_compile::optimization::Opt)
+/// bit with the Rust emitter: they transform JIT micro-ops, so they have their
+/// own named trace and are reported alongside the shared compiler trace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum JitOptimization {
+    /// Micro-op copy propagation and constant CSE.
+    CopyPropagation,
+    /// Array load/ALU/store collapsed to one read-modify-write operation.
+    ArrayReadModifyWrite,
+    /// Two array loads plus an integer operation collapsed to one operation.
+    TwoBufferLoad,
+    /// Floating multiply plus add collapsed to FMA.
+    FusedMultiplyAdd,
+    /// A branchy compare-and-swap collapsed to one operation.
+    ConditionalSwap,
+    /// An unconditional array exchange collapsed to one operation.
+    Swap,
+    /// Affine index arithmetic folded into an array load.
+    AffineIndex,
+    /// Mutable `Text += Int` lowered to allocation-free decimal append.
+    StringAppendInt,
+    /// A function emitted by the contiguous register allocator.
+    RegisterAllocatedFunction,
+    /// A loop region emitted by the contiguous register allocator.
+    RegisterAllocatedRegion,
+    /// A precise-deopt region emitted by the contiguous register allocator.
+    RegisterAllocatedPreciseRegion,
+    /// A successful stencil compile with hot values pinned in registers.
+    PinnedRegisters,
+    /// Self-call argument moves fused into one contiguous copy.
+    FusedSelfCall,
+    /// Word rotate lowered to one native `rol`/`ror` instruction.
+    RotateInstruction,
+}
+
+impl JitOptimization {
+    /// Every native optimization, in stable report order.
+    pub const ALL: [Self; 14] = [
+        Self::CopyPropagation,
+        Self::ArrayReadModifyWrite,
+        Self::TwoBufferLoad,
+        Self::FusedMultiplyAdd,
+        Self::ConditionalSwap,
+        Self::Swap,
+        Self::AffineIndex,
+        Self::StringAppendInt,
+        Self::RegisterAllocatedFunction,
+        Self::RegisterAllocatedRegion,
+        Self::RegisterAllocatedPreciseRegion,
+        Self::PinnedRegisters,
+        Self::FusedSelfCall,
+        Self::RotateInstruction,
+    ];
+
+    /// Stable machine-readable report name.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            Self::CopyPropagation => "copyprop",
+            Self::ArrayReadModifyWrite => "array_rmw",
+            Self::TwoBufferLoad => "array_load2",
+            Self::FusedMultiplyAdd => "fma",
+            Self::ConditionalSwap => "conditional_swap",
+            Self::Swap => "swap",
+            Self::AffineIndex => "affine_index",
+            Self::StringAppendInt => "stringappendint",
+            Self::RegisterAllocatedFunction => "regalloc_function",
+            Self::RegisterAllocatedRegion => "regalloc_region",
+            Self::RegisterAllocatedPreciseRegion => "regalloc_precise_region",
+            Self::PinnedRegisters => "pinned_registers",
+            Self::FusedSelfCall => "fused_self_call",
+            Self::RotateInstruction => "rotate_instruction",
+        }
+    }
+}
+
+/// Monotonic firing counts. Snapshot before and after one benchmark run and
+/// subtract to obtain that program's exact native-JIT optimization trace.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct JitOptimizationTrace {
+    counts: [u32; 14],
+}
+
+impl JitOptimizationTrace {
+    /// Number of successful compilations in which `opt` fired.
+    pub fn count(self, opt: JitOptimization) -> u32 {
+        self.counts[opt as usize]
+    }
+
+    /// Native optimizations with nonzero firing counts.
+    pub fn fired(self) -> Vec<JitOptimization> {
+        JitOptimization::ALL
+            .into_iter()
+            .filter(|opt| self.count(*opt) != 0)
+            .collect()
+    }
+
+    /// Stable names of native optimizations with nonzero firing counts.
+    pub fn keywords(self) -> Vec<&'static str> {
+        self.fired()
+            .into_iter()
+            .map(JitOptimization::keyword)
+            .collect()
+    }
+
+    /// Saturating per-optimization delta from an earlier snapshot.
+    pub fn since(self, earlier: Self) -> Self {
+        let mut counts = [0; 14];
+        for (i, count) in counts.iter_mut().enumerate() {
+            *count = self.counts[i].saturating_sub(earlier.counts[i]);
+        }
+        Self { counts }
+    }
 }
 
 /// The forge-backed native tier, with compile observability.
@@ -4193,7 +7375,7 @@ pub struct ForgeTier {
     region_successes: AtomicU32,
     /// Region compiles whose chain came from the CONTIGUOUS register-allocating
     /// backend (`compile_region_regalloc`) rather than a per-piece stencil tier
-    /// — the observable that WS-G's backend actually fired on a region.
+    /// — the observable that this backend actually fired on a region.
     regalloc_regions: AtomicU32,
     /// PRECISE region compiles whose chain came from the contiguous register-
     /// allocating backend (`compile_region_regalloc_precise`) rather than the
@@ -4211,6 +7393,24 @@ pub struct ForgeTier {
     /// Fused pinned-argument self-calls (`CallSelfCopy`) emitted across all
     /// function compiles — the observable that Lever A fired.
     pinned_self_calls: AtomicU32,
+    copy_propagations: AtomicU32,
+    array_rmw_fusions: AtomicU32,
+    two_buffer_load_fusions: AtomicU32,
+    fma_fusions: AtomicU32,
+    conditional_swap_fusions: AtomicU32,
+    swap_fusions: AtomicU32,
+    affine_index_fusions: AtomicU32,
+    /// Regions that lowered a mutable `Text += Int` to the allocation-free
+    /// decimal append helper instead of leaving the loop on VM bytecode.
+    string_append_ints: AtomicU32,
+    pinned_register_compiles: AtomicU32,
+    /// Native rotate instruction sites emitted by successful compilations.
+    native_rotate_instructions: AtomicU32,
+    /// Stable, benchmark-visible explanations for every native compile that
+    /// returned `None`.  A failed-attempt total on its own permits optimization
+    /// drift to hide behind an undifferentiated fallback.
+    function_declines: std::sync::Mutex<std::collections::BTreeMap<&'static str, u32>>,
+    region_declines: std::sync::Mutex<std::collections::BTreeMap<&'static str, u32>>,
     runtime: std::sync::Arc<RuntimeStats>,
 }
 
@@ -4220,9 +7420,28 @@ impl ForgeTier {
         ForgeTier::default()
     }
 
+    fn note_function_decline(&self, reason: &'static str) {
+        let mut counts = self
+            .function_declines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *counts.entry(reason).or_insert(0) += 1;
+    }
+
+    fn note_region_decline(&self, reason: &'static str) {
+        let mut counts = self
+            .region_declines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *counts.entry(reason).or_insert(0) += 1;
+    }
+
     /// (attempts, successes) for FUNCTION compiles.
     pub fn function_counts(&self) -> (u32, u32) {
-        (self.compiles.load(Ordering::SeqCst), self.successes.load(Ordering::SeqCst))
+        (
+            self.compiles.load(Ordering::SeqCst),
+            self.successes.load(Ordering::SeqCst),
+        )
     }
 
     /// The number of fused pinned-argument self-calls (`CallSelfCopy`)
@@ -4231,6 +7450,41 @@ impl ForgeTier {
     /// than per-argument frame `Move` staging.
     pub fn pinned_self_call_count(&self) -> u32 {
         self.pinned_self_calls.load(Ordering::SeqCst)
+    }
+
+    /// Snapshot every native-JIT optimization that actually changed/lowered a
+    /// compiled region. Counters are monotonic so callers can take a cheap
+    /// before/after delta around one benchmark invocation.
+    pub fn optimization_trace(&self) -> JitOptimizationTrace {
+        let mut counts = [0; 14];
+        counts[JitOptimization::CopyPropagation as usize] =
+            self.copy_propagations.load(Ordering::Relaxed);
+        counts[JitOptimization::ArrayReadModifyWrite as usize] =
+            self.array_rmw_fusions.load(Ordering::Relaxed);
+        counts[JitOptimization::TwoBufferLoad as usize] =
+            self.two_buffer_load_fusions.load(Ordering::Relaxed);
+        counts[JitOptimization::FusedMultiplyAdd as usize] =
+            self.fma_fusions.load(Ordering::Relaxed);
+        counts[JitOptimization::ConditionalSwap as usize] =
+            self.conditional_swap_fusions.load(Ordering::Relaxed);
+        counts[JitOptimization::Swap as usize] = self.swap_fusions.load(Ordering::Relaxed);
+        counts[JitOptimization::AffineIndex as usize] =
+            self.affine_index_fusions.load(Ordering::Relaxed);
+        counts[JitOptimization::StringAppendInt as usize] =
+            self.string_append_ints.load(Ordering::Relaxed);
+        counts[JitOptimization::RegisterAllocatedFunction as usize] =
+            self.regalloc_functions.load(Ordering::Relaxed);
+        counts[JitOptimization::RegisterAllocatedRegion as usize] =
+            self.regalloc_regions.load(Ordering::Relaxed);
+        counts[JitOptimization::RegisterAllocatedPreciseRegion as usize] =
+            self.regalloc_precise_regions.load(Ordering::Relaxed);
+        counts[JitOptimization::PinnedRegisters as usize] =
+            self.pinned_register_compiles.load(Ordering::Relaxed);
+        counts[JitOptimization::FusedSelfCall as usize] =
+            self.pinned_self_calls.load(Ordering::Relaxed);
+        counts[JitOptimization::RotateInstruction as usize] =
+            self.native_rotate_instructions.load(Ordering::Relaxed);
+        JitOptimizationTrace { counts }
     }
 
     /// (attempts, successes) for Main-loop REGION compiles.
@@ -4242,7 +7496,7 @@ impl ForgeTier {
     }
 
     /// How many region compiles used the CONTIGUOUS register-allocating backend
-    /// (WS-G `compile_region_regalloc`) rather than a per-piece stencil tier.
+    /// (`compile_region_regalloc`) rather than a per-piece stencil tier.
     /// Nonzero proves the regalloc backend fired on a real program's hot loop.
     pub fn regalloc_region_count(&self) -> u32 {
         self.regalloc_regions.load(Ordering::SeqCst)
@@ -4265,10 +7519,16 @@ impl ForgeTier {
         self.regalloc_functions.load(Ordering::SeqCst)
     }
 
-    /// Runtime FUNCTION-boundary truth: (entries, completions, plain
-    /// deopts, precise deopts). Entries count VM→native crossings — native
-    /// self-recursion inside one entry is invisible here, which is exactly
-    /// the point: a hot recursive function shows FEW entries.
+    /// Executed region entries, completions, and side exits for this tier.
+    pub fn region_runtime_stats(&self) -> (u64, u64, u64) {
+        (
+            self.runtime.region_entries.load(Ordering::SeqCst),
+            self.runtime.region_completions.load(Ordering::SeqCst),
+            self.runtime.region_deopts.load(Ordering::SeqCst),
+        )
+    }
+
+    /// Function entries, completions, plain deopts, and precise deopts.
     pub fn runtime_stats(&self) -> (u64, u64, u64, u64) {
         (
             self.runtime.entries.load(Ordering::SeqCst),
@@ -4328,40 +7588,146 @@ fn micro_read_slots(op: &MicroOp) -> Vec<u16> {
     use MicroOp::*;
     match *op {
         LoadConst { .. } | Jump { .. } | NewList { .. } => vec![],
-        Move { src, .. } | DivPow2 { lhs: src, .. } | MagicDivU { lhs: src, .. } | NotInt { src, .. } | NotBool { src, .. }
-        | IntToFloat { src, .. } | SqrtF { src, .. } | Return { src } | ListTriple { handle_slot: src, .. } => vec![src],
+        Move { src, .. }
+        | DivPow2 { lhs: src, .. }
+        | MagicDivU { lhs: src, .. }
+        | NotInt { src, .. }
+        | NotBool { src, .. }
+        | Popcnt { src, .. }
+        | Lzcnt { src, .. }
+        | Tzcnt { src, .. }
+        | ChrGuard { src, .. }
+        | Utf8Len { src, .. }
+        | FloorToInt { src, .. }
+        | CeilToInt { src, .. }
+        | RoundToInt { src, .. }
+        | IntToFloat { src, .. }
+        | SqrtF { src, .. }
+        | Return { src }
+        | ListTriple {
+            handle_slot: src, ..
+        } => vec![src],
         JumpIfFalse { cond, .. } | JumpIfTrue { cond, .. } => vec![cond],
-        Add { lhs, rhs, .. } | Sub { lhs, rhs, .. } | Mul { lhs, rhs, .. } | Div { lhs, rhs, .. }
-        | Mod { lhs, rhs, .. } | Lt { lhs, rhs, .. } | Gt { lhs, rhs, .. } | Eq { lhs, rhs, .. }
-        | LtEq { lhs, rhs, .. } | GtEq { lhs, rhs, .. } | Neq { lhs, rhs, .. } | BitAnd { lhs, rhs, .. }
-        | BitOr { lhs, rhs, .. } | BitXor { lhs, rhs, .. } | Shl { lhs, rhs, .. } | Shr { lhs, rhs, .. }
-        | Branch { lhs, rhs, .. } | AddF { lhs, rhs, .. } | SubF { lhs, rhs, .. } | MulF { lhs, rhs, .. }
-        | DivF { lhs, rhs, .. } | LtF { lhs, rhs, .. } | GtF { lhs, rhs, .. } | LtEqF { lhs, rhs, .. }
-        | GtEqF { lhs, rhs, .. } | EqF { lhs, rhs, .. } | NeqF { lhs, rhs, .. }
+        Add { lhs, rhs, .. }
+        | Sub { lhs, rhs, .. }
+        | Mul { lhs, rhs, .. }
+        | Div { lhs, rhs, .. }
+        | Mod { lhs, rhs, .. }
+        | Lt { lhs, rhs, .. }
+        | Gt { lhs, rhs, .. }
+        | Eq { lhs, rhs, .. }
+        | LtEq { lhs, rhs, .. }
+        | GtEq { lhs, rhs, .. }
+        | Neq { lhs, rhs, .. }
+        | BitAnd { lhs, rhs, .. }
+        | BitOr { lhs, rhs, .. }
+        | BitXor { lhs, rhs, .. }
+        | Shl { lhs, rhs, .. }
+        | Shr { lhs, rhs, .. }
+        | Ushr { lhs, rhs, .. }
+        | Rotate { lhs, rhs, .. }
+        | Branch { lhs, rhs, .. }
+        | AddF { lhs, rhs, .. }
+        | SubF { lhs, rhs, .. }
+        | MulF { lhs, rhs, .. }
+        | DivF { lhs, rhs, .. }
+        | LtF { lhs, rhs, .. }
+        | GtF { lhs, rhs, .. }
+        | LtEqF { lhs, rhs, .. }
+        | GtEqF { lhs, rhs, .. }
+        | EqF { lhs, rhs, .. }
+        | NeqF { lhs, rhs, .. }
         | BranchF { lhs, rhs, .. } => vec![lhs, rhs],
+        Host { src, count, .. } => (src..src + count).collect(),
         MapGet { key, map_slot, .. } | MapHas { key, map_slot, .. } => vec![key, map_slot],
-        MapSet { src, key, map_slot, .. } => vec![src, key, map_slot],
-        ArrLoad { idx, ptr_slot, len_slot, .. } => vec![idx, ptr_slot, len_slot],
-        ArrLoadAffine { a, op, b, ptr_slot, len_slot, .. } => {
+        MapSet {
+            src, key, map_slot, ..
+        } => vec![src, key, map_slot],
+        ArrLoad {
+            idx,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx, ptr_slot, len_slot],
+        ArrLoadAffine {
+            a,
+            op,
+            b,
+            ptr_slot,
+            len_slot,
+            ..
+        } => {
             if op == logicaffeine_forge::jit::AffOp::None {
                 vec![a, ptr_slot, len_slot]
             } else {
                 vec![a, b, ptr_slot, len_slot]
             }
         }
-        ArrLoad2F { i, j, ptr_slot, len_slot, .. } => vec![i, j, ptr_slot, len_slot],
-        ArrLoad2 { i, j, ptr_a, len_a, ptr_b, len_b, .. } => vec![i, j, ptr_a, len_a, ptr_b, len_b],
-        ArrStore { src, idx, ptr_slot, len_slot, .. } => vec![src, idx, ptr_slot, len_slot],
-        ArrRMW { idx, operand, ptr_slot, len_slot, .. } => vec![idx, operand, ptr_slot, len_slot],
-        ArrCondSwap { idx1, idx2, ptr_slot, len_slot, .. } => vec![idx1, idx2, ptr_slot, len_slot],
-        ArrSwap { idx1, idx2, ptr_slot, len_slot, .. } => vec![idx1, idx2, ptr_slot, len_slot],
+        ArrLoad2F {
+            i,
+            j,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![i, j, ptr_slot, len_slot],
+        ArrLoad2 {
+            i,
+            j,
+            ptr_a,
+            len_a,
+            ptr_b,
+            len_b,
+            ..
+        } => vec![i, j, ptr_a, len_a, ptr_b, len_b],
+        ArrStore {
+            src,
+            idx,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![src, idx, ptr_slot, len_slot],
+        ArrRMW {
+            idx,
+            operand,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx, operand, ptr_slot, len_slot],
+        ArrCondSwap {
+            idx1,
+            idx2,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx1, idx2, ptr_slot, len_slot],
+        ArrSwap {
+            idx1,
+            idx2,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx1, idx2, ptr_slot, len_slot],
         FmaF { a, b, c, .. } => vec![a, b, c],
-        ArrPush { src, vec_slot, ptr_slot, len_slot, .. } => vec![src, vec_slot, ptr_slot, len_slot],
-        ListClear { vec_slot, ptr_slot, len_slot, .. } => vec![vec_slot, ptr_slot, len_slot],
-        StrAppend { text_handle_slot, src, .. } => match src {
-            logicaffeine_forge::jit::StrSrc::Byte(s) => vec![text_handle_slot, s],
-            logicaffeine_forge::jit::StrSrc::Const { .. } => vec![text_handle_slot],
-        },
+        ArrPush {
+            src,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![src, vec_slot, ptr_slot, len_slot],
+        ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![vec_slot, ptr_slot, len_slot],
+        StrAppend {
+            text_handle_slot,
+            src,
+            ..
+        } => std::iter::once(text_handle_slot)
+            .chain(src.slot())
+            .collect(),
         MemMem {
             h_ptr_slot,
             h_len_slot,
@@ -4389,36 +7755,146 @@ fn micro_read_slots(op: &MicroOp) -> Vec<u16> {
 fn micro_reads_mut(op: &mut MicroOp) -> Vec<&mut u16> {
     use MicroOp::*;
     match op {
-        LoadConst { .. } | Jump { .. } | NewList { .. } | Call { .. } | CallSelf { .. }
-        | CallSelfCopy { .. } => vec![],
-        Move { src, .. } | DivPow2 { lhs: src, .. } | MagicDivU { lhs: src, .. } | NotInt { src, .. } | NotBool { src, .. }
-        | IntToFloat { src, .. } | SqrtF { src, .. } | Return { src } | ListTriple { handle_slot: src, .. } => vec![src],
+        // A host call reads a contiguous window: its slots are not renamed one by one.
+        LoadConst { .. }
+        | Jump { .. }
+        | NewList { .. }
+        | Call { .. }
+        | CallSelf { .. }
+        | CallSelfCopy { .. }
+        | Host { .. } => vec![],
+        Move { src, .. }
+        | DivPow2 { lhs: src, .. }
+        | MagicDivU { lhs: src, .. }
+        | NotInt { src, .. }
+        | NotBool { src, .. }
+        | Popcnt { src, .. }
+        | Lzcnt { src, .. }
+        | Tzcnt { src, .. }
+        | ChrGuard { src, .. }
+        | Utf8Len { src, .. }
+        | FloorToInt { src, .. }
+        | CeilToInt { src, .. }
+        | RoundToInt { src, .. }
+        | IntToFloat { src, .. }
+        | SqrtF { src, .. }
+        | Return { src }
+        | ListTriple {
+            handle_slot: src, ..
+        } => vec![src],
         JumpIfFalse { cond, .. } | JumpIfTrue { cond, .. } => vec![cond],
-        Add { lhs, rhs, .. } | Sub { lhs, rhs, .. } | Mul { lhs, rhs, .. } | Div { lhs, rhs, .. }
-        | Mod { lhs, rhs, .. } | Lt { lhs, rhs, .. } | Gt { lhs, rhs, .. } | Eq { lhs, rhs, .. }
-        | LtEq { lhs, rhs, .. } | GtEq { lhs, rhs, .. } | Neq { lhs, rhs, .. } | BitAnd { lhs, rhs, .. }
-        | BitOr { lhs, rhs, .. } | BitXor { lhs, rhs, .. } | Shl { lhs, rhs, .. } | Shr { lhs, rhs, .. }
-        | Branch { lhs, rhs, .. } | AddF { lhs, rhs, .. } | SubF { lhs, rhs, .. } | MulF { lhs, rhs, .. }
-        | DivF { lhs, rhs, .. } | LtF { lhs, rhs, .. } | GtF { lhs, rhs, .. } | LtEqF { lhs, rhs, .. }
-        | GtEqF { lhs, rhs, .. } | EqF { lhs, rhs, .. } | NeqF { lhs, rhs, .. }
+        Add { lhs, rhs, .. }
+        | Sub { lhs, rhs, .. }
+        | Mul { lhs, rhs, .. }
+        | Div { lhs, rhs, .. }
+        | Mod { lhs, rhs, .. }
+        | Lt { lhs, rhs, .. }
+        | Gt { lhs, rhs, .. }
+        | Eq { lhs, rhs, .. }
+        | LtEq { lhs, rhs, .. }
+        | GtEq { lhs, rhs, .. }
+        | Neq { lhs, rhs, .. }
+        | BitAnd { lhs, rhs, .. }
+        | BitOr { lhs, rhs, .. }
+        | BitXor { lhs, rhs, .. }
+        | Shl { lhs, rhs, .. }
+        | Shr { lhs, rhs, .. }
+        | Ushr { lhs, rhs, .. }
+        | Rotate { lhs, rhs, .. }
+        | Branch { lhs, rhs, .. }
+        | AddF { lhs, rhs, .. }
+        | SubF { lhs, rhs, .. }
+        | MulF { lhs, rhs, .. }
+        | DivF { lhs, rhs, .. }
+        | LtF { lhs, rhs, .. }
+        | GtF { lhs, rhs, .. }
+        | LtEqF { lhs, rhs, .. }
+        | GtEqF { lhs, rhs, .. }
+        | EqF { lhs, rhs, .. }
+        | NeqF { lhs, rhs, .. }
         | BranchF { lhs, rhs, .. } => vec![lhs, rhs],
         MapGet { key, map_slot, .. } | MapHas { key, map_slot, .. } => vec![key, map_slot],
-        MapSet { src, key, map_slot, .. } => vec![src, key, map_slot],
-        ArrLoad { idx, ptr_slot, len_slot, .. } => vec![idx, ptr_slot, len_slot],
-        ArrLoadAffine { a, b, ptr_slot, len_slot, .. } => vec![a, b, ptr_slot, len_slot],
-        ArrLoad2F { i, j, ptr_slot, len_slot, .. } => vec![i, j, ptr_slot, len_slot],
-        ArrLoad2 { i, j, ptr_a, len_a, ptr_b, len_b, .. } => vec![i, j, ptr_a, len_a, ptr_b, len_b],
-        ArrStore { src, idx, ptr_slot, len_slot, .. } => vec![src, idx, ptr_slot, len_slot],
-        ArrRMW { idx, operand, ptr_slot, len_slot, .. } => vec![idx, operand, ptr_slot, len_slot],
-        ArrCondSwap { idx1, idx2, ptr_slot, len_slot, .. } => vec![idx1, idx2, ptr_slot, len_slot],
-        ArrSwap { idx1, idx2, ptr_slot, len_slot, .. } => vec![idx1, idx2, ptr_slot, len_slot],
+        MapSet {
+            src, key, map_slot, ..
+        } => vec![src, key, map_slot],
+        ArrLoad {
+            idx,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx, ptr_slot, len_slot],
+        ArrLoadAffine {
+            a,
+            b,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![a, b, ptr_slot, len_slot],
+        ArrLoad2F {
+            i,
+            j,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![i, j, ptr_slot, len_slot],
+        ArrLoad2 {
+            i,
+            j,
+            ptr_a,
+            len_a,
+            ptr_b,
+            len_b,
+            ..
+        } => vec![i, j, ptr_a, len_a, ptr_b, len_b],
+        ArrStore {
+            src,
+            idx,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![src, idx, ptr_slot, len_slot],
+        ArrRMW {
+            idx,
+            operand,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx, operand, ptr_slot, len_slot],
+        ArrCondSwap {
+            idx1,
+            idx2,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx1, idx2, ptr_slot, len_slot],
+        ArrSwap {
+            idx1,
+            idx2,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![idx1, idx2, ptr_slot, len_slot],
         FmaF { a, b, c, .. } => vec![a, b, c],
-        ArrPush { src, vec_slot, ptr_slot, len_slot, .. } => vec![src, vec_slot, ptr_slot, len_slot],
-        ListClear { vec_slot, ptr_slot, len_slot, .. } => vec![vec_slot, ptr_slot, len_slot],
-        StrAppend { text_handle_slot, src, .. } => match src {
-            logicaffeine_forge::jit::StrSrc::Byte(s) => vec![text_handle_slot, s],
-            logicaffeine_forge::jit::StrSrc::Const { .. } => vec![text_handle_slot],
-        },
+        ArrPush {
+            src,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![src, vec_slot, ptr_slot, len_slot],
+        ListClear {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            ..
+        } => vec![vec_slot, ptr_slot, len_slot],
+        StrAppend {
+            text_handle_slot,
+            src,
+            ..
+        } => std::iter::once(text_handle_slot)
+            .chain(src.slot_mut())
+            .collect(),
         MemMem {
             h_ptr_slot,
             h_len_slot,
@@ -4447,13 +7923,15 @@ fn micro_defs(op: &MicroOp) -> Vec<u16> {
         LoadConst { dst, .. } | Move { dst, .. } | Add { dst, .. } | Sub { dst, .. } | Mul { dst, .. }
         | Div { dst, .. } | DivPow2 { dst, .. } | MagicDivU { dst, .. } | Mod { dst, .. } | Lt { dst, .. } | Gt { dst, .. }
         | Eq { dst, .. } | LtEq { dst, .. } | GtEq { dst, .. } | Neq { dst, .. } | BitAnd { dst, .. }
-        | BitOr { dst, .. } | BitXor { dst, .. } | Shl { dst, .. } | Shr { dst, .. } | NotInt { dst, .. }
+        | BitOr { dst, .. } | BitXor { dst, .. } | Shl { dst, .. } | Shr { dst, .. } | Ushr { dst, .. } | Rotate { dst, .. } | NotInt { dst, .. }
+        | Popcnt { dst, .. } | Lzcnt { dst, .. } | Tzcnt { dst, .. } | ChrGuard { dst, .. } | Utf8Len { dst, .. }
+        | FloorToInt { dst, .. } | CeilToInt { dst, .. } | RoundToInt { dst, .. }
         | NotBool { dst, .. } | AddF { dst, .. } | SubF { dst, .. } | MulF { dst, .. } | DivF { dst, .. }
         | LtF { dst, .. } | GtF { dst, .. } | LtEqF { dst, .. } | GtEqF { dst, .. } | EqF { dst, .. }
         | NeqF { dst, .. } | IntToFloat { dst, .. } | SqrtF { dst, .. } | ArrLoad { dst, .. }
         | ArrLoadAffine { dst, .. }
         | ArrLoad2F { dst, .. } | ArrLoad2 { dst, .. } | FmaF { dst, .. } | MapGet { dst, .. } | MapHas { dst, .. }
-        | Call { dst, .. } | CallSelf { dst, .. } | CallSelfCopy { dst, .. } => vec![dst],
+        | Call { dst, .. } | CallSelf { dst, .. } | CallSelfCopy { dst, .. } | Host { dst, .. } => vec![dst],
         ArrPush { ptr_slot, len_slot, .. } => vec![ptr_slot, len_slot],
         ListClear { ptr_slot, len_slot, .. } => vec![ptr_slot, len_slot],
         NewList { vec_slot, ptr_slot, len_slot, .. } => vec![vec_slot, ptr_slot, len_slot],
@@ -4471,8 +7949,11 @@ fn micro_defs(op: &MicroOp) -> Vec<u16> {
 fn micro_target_mut(op: &mut MicroOp) -> Option<&mut usize> {
     use MicroOp::*;
     match op {
-        Jump { target } | Branch { target, .. } | BranchF { target, .. }
-        | JumpIfFalse { target, .. } | JumpIfTrue { target, .. } => Some(target),
+        Jump { target }
+        | Branch { target, .. }
+        | BranchF { target, .. }
+        | JumpIfFalse { target, .. }
+        | JumpIfTrue { target, .. } => Some(target),
         _ => None,
     }
 }
@@ -4495,7 +7976,12 @@ fn copy_propagate(
     register_count: u16,
     pinned: &std::collections::HashSet<u16>,
 ) {
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     // A slot is REMOVABLE only if it is an un-named, un-PINNED scratch temp: its
@@ -4694,7 +8180,12 @@ fn fuse_array_rmw(
     register_count: u16,
     pinned: &std::collections::HashSet<u16>,
 ) {
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     let removable = |slot: u16, reads: &std::collections::HashMap<u16, usize>| -> bool {
@@ -4727,8 +8218,15 @@ fn fuse_array_rmw(
             if is_target[k + 1] || is_target[k + 2] {
                 continue;
             }
-            let MicroOp::ArrLoad { dst: t, idx: i, ptr_slot: p, len_slot: l, byte: false, narrow32: false, checked: c1 } =
-                micro[k]
+            let MicroOp::ArrLoad {
+                dst: t,
+                idx: i,
+                ptr_slot: p,
+                len_slot: l,
+                byte: false,
+                narrow32: false,
+                checked: c1,
+            } = micro[k]
             else {
                 continue;
             };
@@ -4756,8 +8254,15 @@ fn fuse_array_rmw(
                 MicroOp::MulF { dst, lhs, rhs } if rhs == t => (dst, RmwOp::MulF, lhs),
                 _ => continue,
             };
-            let MicroOp::ArrStore { src, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, narrow32: false, checked: c2 } =
-                micro[k + 2]
+            let MicroOp::ArrStore {
+                src,
+                idx: i2,
+                ptr_slot: p2,
+                len_slot: l2,
+                byte: false,
+                narrow32: false,
+                checked: c2,
+            } = micro[k + 2]
             else {
                 continue;
             };
@@ -4773,7 +8278,14 @@ fn fuse_array_rmw(
             }
             hit = Some((
                 k,
-                MicroOp::ArrRMW { idx: i, operand, ptr_slot: p, len_slot: l, op, checked: c1 || c2 },
+                MicroOp::ArrRMW {
+                    idx: i,
+                    operand,
+                    ptr_slot: p,
+                    len_slot: l,
+                    op,
+                    checked: c1 || c2,
+                },
             ));
             break;
         }
@@ -4838,7 +8350,12 @@ fn fuse_array_ld2(
     register_count: u16,
     pinned: &std::collections::HashSet<u16>,
 ) {
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     let removable = |slot: u16, reads: &std::collections::HashMap<u16, usize>| -> bool {
@@ -4897,19 +8414,37 @@ fn fuse_array_ld2(
             // is not itself re-defined in between — guaranteed by single-use of
             // its dst plus the no-rebind interval check below).
             let find_load = |slot: u16| -> Option<usize> {
-                (0..m).rev().find(|&k| micro_defs(&micro[k]).contains(&slot))
+                (0..m)
+                    .rev()
+                    .find(|&k| micro_defs(&micro[k]).contains(&slot))
             };
-            let (Some(ka), Some(kb)) = (find_load(lhs), find_load(rhs)) else { continue };
+            let (Some(ka), Some(kb)) = (find_load(lhs), find_load(rhs)) else {
+                continue;
+            };
             if ka == kb {
                 continue;
             }
-            let MicroOp::ArrLoad { dst: _, idx: ia, ptr_slot: pa, len_slot: lena, byte: false, narrow32: false, checked: ca } =
-                micro[ka]
+            let MicroOp::ArrLoad {
+                dst: _,
+                idx: ia,
+                ptr_slot: pa,
+                len_slot: lena,
+                byte: false,
+                narrow32: false,
+                checked: ca,
+            } = micro[ka]
             else {
                 continue;
             };
-            let MicroOp::ArrLoad { dst: _, idx: ib, ptr_slot: pb, len_slot: lenb, byte: false, narrow32: false, checked: cb } =
-                micro[kb]
+            let MicroOp::ArrLoad {
+                dst: _,
+                idx: ib,
+                ptr_slot: pb,
+                len_slot: lenb,
+                byte: false,
+                narrow32: false,
+                checked: cb,
+            } = micro[kb]
             else {
                 continue;
             };
@@ -5038,7 +8573,12 @@ fn fuse_index_affine(
     pinned: &std::collections::HashSet<u16>,
 ) {
     use logicaffeine_forge::jit::AffOp;
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     // A scratch temp removable iff it is in-range, un-named, un-pinned, and
@@ -5082,7 +8622,9 @@ fn fuse_index_affine(
         // The reaching constant value of a slot at position `m`, if it is a
         // LoadConst not redefined in `(def, m)`. Returns (value, def_index).
         let reaching_const = |slot: u16, m: usize| -> Option<(i64, usize)> {
-            let k = (0..m).rev().find(|&p| micro_defs(&micro[p]).contains(&slot))?;
+            let k = (0..m)
+                .rev()
+                .find(|&p| micro_defs(&micro[p]).contains(&slot))?;
             if let MicroOp::LoadConst { value, .. } = micro[k] {
                 Some((value, k))
             } else {
@@ -5091,13 +8633,23 @@ fn fuse_index_affine(
         };
         // The reaching def index of a slot strictly before `m`.
         let reaching_def = |slot: u16, m: usize| -> Option<usize> {
-            (0..m).rev().find(|&p| micro_defs(&micro[p]).contains(&slot))
+            (0..m)
+                .rev()
+                .find(|&p| micro_defs(&micro[p]).contains(&slot))
         };
         // No jump target lands in [lo, m]; no surviving operand redefined in the
         // open spans after each removed op up to the load.
         let mut hit: Option<(Vec<usize>, usize, MicroOp)> = None;
         'anchor: for m in 0..n {
-            let MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte: false, narrow32: false, checked } = micro[m]
+            let MicroOp::ArrLoad {
+                dst,
+                idx,
+                ptr_slot,
+                len_slot,
+                byte: false,
+                narrow32: false,
+                checked,
+            } = micro[m]
             else {
                 continue;
             };
@@ -5105,8 +8657,12 @@ fn fuse_index_affine(
             if !single_use_scratch(idx, &reads) {
                 continue;
             }
-            let Some(kidx) = reaching_def(idx, m) else { continue };
-            let Some((idx_op, _idst, ilhs, irhs)) = as_iop(&micro[kidx]) else { continue };
+            let Some(kidx) = reaching_def(idx, m) else {
+                continue;
+            };
+            let Some((idx_op, _idst, ilhs, irhs)) = as_iop(&micro[kidx]) else {
+                continue;
+            };
 
             // Decompose into (a, op, b, const_offset) + the chain ops to remove.
             // Three shapes, tried in order of specificity.
@@ -5134,32 +8690,50 @@ fn fuse_index_affine(
                 if let (Some((kc, _)), Some((kin, iop, l, r))) = (rconst, linner) {
                     // `(l OP r) + Kc` — Kc on the right.
                     let _ = kc;
-                    a = l; b = r; aff_op = iop_to_aff(iop); coff = rconst.unwrap().0;
+                    a = l;
+                    b = r;
+                    aff_op = iop_to_aff(iop);
+                    coff = rconst.unwrap().0;
                     removed.push(kin);
                     removed.push(kidx);
                 } else if let (Some((kc, _)), Some((kin, iop, l, r))) = (lconst, rinner) {
                     // `Kc + (l OP r)` — Kc on the left.
                     let _ = kc;
-                    a = l; b = r; aff_op = iop_to_aff(iop); coff = lconst.unwrap().0;
+                    a = l;
+                    b = r;
+                    aff_op = iop_to_aff(iop);
+                    coff = lconst.unwrap().0;
                     removed.push(kin);
                     removed.push(kidx);
                 } else if let Some((_, _)) = rconst {
                     // `a + Kc` (the `w + 1` shape): single slot + const.
-                    a = ilhs; b = ilhs; aff_op = AffOp::None; coff = rconst.unwrap().0;
+                    a = ilhs;
+                    b = ilhs;
+                    aff_op = AffOp::None;
+                    coff = rconst.unwrap().0;
                     removed.push(kidx);
                 } else if let Some((_, _)) = lconst {
-                    a = irhs; b = irhs; aff_op = AffOp::None; coff = lconst.unwrap().0;
+                    a = irhs;
+                    b = irhs;
+                    aff_op = AffOp::None;
+                    coff = lconst.unwrap().0;
                     removed.push(kidx);
                 } else {
                     // `a + b` (no const): a bare two-slot add.
-                    a = ilhs; b = irhs; aff_op = AffOp::Add; coff = 0;
+                    a = ilhs;
+                    b = irhs;
+                    aff_op = AffOp::Add;
+                    coff = 0;
                     removed.push(kidx);
                 }
             } else {
                 // `Sub`/`Mul(idx = a OP b)` with no trailing const (the const,
                 // when present, is always the OUTER `+ Kc` Add handled above; a
                 // bare Sub/Mul index folds with const_offset = 0).
-                a = ilhs; b = irhs; aff_op = iop_to_aff(idx_op); coff = 0;
+                a = ilhs;
+                b = irhs;
+                aff_op = iop_to_aff(idx_op);
+                coff = 0;
                 removed.push(kidx);
             }
 
@@ -5200,7 +8774,9 @@ fn fuse_index_affine(
             ));
             break;
         }
-        let Some((removed, m, affine)) = hit else { break };
+        let Some((removed, m, affine)) = hit else {
+            break;
+        };
         if std::env::var_os("LOGOS_FUSE_TRACE").is_some() {
             eprintln!("fuse-trace: AFFINE {affine:?}");
         }
@@ -5246,7 +8822,12 @@ fn fuse_fma(
     register_count: u16,
     pinned: &std::collections::HashSet<u16>,
 ) {
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     let frame_resident = |slot: u16| -> bool { !pinned.contains(&slot) };
@@ -5271,7 +8852,14 @@ fn fuse_fma(
             if is_target[k + 1] {
                 continue;
             }
-            let MicroOp::MulF { dst: t, lhs: a, rhs: b } = micro[k] else { continue };
+            let MicroOp::MulF {
+                dst: t,
+                lhs: a,
+                rhs: b,
+            } = micro[k]
+            else {
+                continue;
+            };
             // The AddF consumes the product `t` (either operand) plus the addend.
             let (d, c) = match micro[k + 1] {
                 MicroOp::AddF { dst, lhs, rhs } if lhs == t => (dst, rhs),
@@ -5339,7 +8927,12 @@ fn fuse_cond_swap(
     register_count: u16,
     pinned: &std::collections::HashSet<u16>,
 ) {
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     let dead_scratch = |slot: u16, reads: &std::collections::HashMap<u16, usize>| -> bool {
@@ -5365,17 +8958,24 @@ fn fuse_cond_swap(
             }
         }
         let mut hit: Option<(usize, usize, MicroOp)> = None; // (k, gap, condswap)
-        // The compare's SECOND index can be a multi-op affine computation
-        // (`2*root+2` = LoadConst + Mul + Add, or `i*n + j + 1`) sitting between
-        // the two loads. The `between_ok` purity guard below — not this window —
-        // is what proves the gap ops cannot perturb the swap (pure, and they
-        // redefine none of the first loaded value / first index / pointer /
-        // length); the window only bounds the linear search, so it must be wide
-        // enough to span a realistic index expression.
+                                                             // The compare's SECOND index can be a multi-op affine computation
+                                                             // (`2*root+2` = LoadConst + Mul + Add, or `i*n + j + 1`) sitting between
+                                                             // the two loads. The `between_ok` purity guard below — not this window —
+                                                             // is what proves the gap ops cannot perturb the swap (pure, and they
+                                                             // redefine none of the first loaded value / first index / pointer /
+                                                             // length); the window only bounds the linear search, so it must be wide
+                                                             // enough to span a realistic index expression.
         const MAXGAP: usize = 5;
         'outer: for k in 0..n {
-            let MicroOp::ArrLoad { dst: a, idx: i1, ptr_slot: p, len_slot: l, byte: false, narrow32: false, checked: c1 } =
-                micro[k]
+            let MicroOp::ArrLoad {
+                dst: a,
+                idx: i1,
+                ptr_slot: p,
+                len_slot: l,
+                byte: false,
+                narrow32: false,
+                checked: c1,
+            } = micro[k]
             else {
                 continue;
             };
@@ -5388,35 +8988,75 @@ fn fuse_cond_swap(
                     let pure = micro_pure_value_key(&micro[x]).is_some()
                         || matches!(micro[x], MicroOp::LoadConst { .. });
                     let defs = micro_defs(&micro[x]);
-                    pure && !defs.contains(&a) && !defs.contains(&i1) && !defs.contains(&p)
+                    pure && !defs.contains(&a)
+                        && !defs.contains(&i1)
+                        && !defs.contains(&p)
                         && !defs.contains(&l)
                 });
                 if !between_ok {
                     continue;
                 }
-                let MicroOp::ArrLoad { dst: b, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, narrow32: false, checked: c2 } =
-                    micro[lb]
+                let MicroOp::ArrLoad {
+                    dst: b,
+                    idx: i2,
+                    ptr_slot: p2,
+                    len_slot: l2,
+                    byte: false,
+                    narrow32: false,
+                    checked: c2,
+                } = micro[lb]
                 else {
                     continue;
                 };
                 if p2 != p || l2 != l {
                     continue;
                 }
-                let MicroOp::Branch { cmp, lhs, rhs, target } = micro[lb + 1] else { continue };
-                if !matches!(cmp, Cmp::Lt | Cmp::Gt | Cmp::LtEq | Cmp::GtEq) || lhs != a || rhs != b {
+                let MicroOp::Branch {
+                    cmp,
+                    lhs,
+                    rhs,
+                    target,
+                } = micro[lb + 1]
+                else {
+                    continue;
+                };
+                if !matches!(cmp, Cmp::Lt | Cmp::Gt | Cmp::LtEq | Cmp::GtEq) || lhs != a || rhs != b
+                {
                     continue;
                 }
-                let MicroOp::ArrStore { src: s1, idx: si1, ptr_slot: sp1, len_slot: sl1, byte: false, narrow32: false, checked: c3 } =
-                    micro[lb + 2]
+                let MicroOp::ArrStore {
+                    src: s1,
+                    idx: si1,
+                    ptr_slot: sp1,
+                    len_slot: sl1,
+                    byte: false,
+                    narrow32: false,
+                    checked: c3,
+                } = micro[lb + 2]
                 else {
                     continue;
                 };
-                let MicroOp::ArrStore { src: s2, idx: si2, ptr_slot: sp2, len_slot: sl2, byte: false, narrow32: false, checked: c4 } =
-                    micro[lb + 3]
+                let MicroOp::ArrStore {
+                    src: s2,
+                    idx: si2,
+                    ptr_slot: sp2,
+                    len_slot: sl2,
+                    byte: false,
+                    narrow32: false,
+                    checked: c4,
+                } = micro[lb + 3]
                 else {
                     continue;
                 };
-                if si1 != i1 || si2 != i2 || s1 != b || s2 != a || sp1 != p || sp2 != p || sl1 != l || sl2 != l {
+                if si1 != i1
+                    || si2 != i2
+                    || s1 != b
+                    || s2 != a
+                    || sp1 != p
+                    || sp2 != p
+                    || sl1 != l
+                    || sl2 != l
+                {
                     continue;
                 }
                 if target != lb + 4 {
@@ -5481,7 +9121,12 @@ fn fuse_swap(
     register_count: u16,
     pinned: &std::collections::HashSet<u16>,
 ) {
-    if micro.iter().any(|op| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. })) {
+    if micro.iter().any(|op| {
+        matches!(
+            op,
+            MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+        )
+    }) {
         return;
     }
     let erasable = |slot: u16| -> bool {
@@ -5517,38 +9162,78 @@ fn fuse_swap(
         };
         let mut hit: Option<(usize, MicroOp)> = None;
         for k in 0..n.saturating_sub(3) {
-            let MicroOp::ArrLoad { dst: a, idx: i1, ptr_slot: p, len_slot: l, byte: false, narrow32: false, checked: c1 } =
-                micro[k]
+            let MicroOp::ArrLoad {
+                dst: a,
+                idx: i1,
+                ptr_slot: p,
+                len_slot: l,
+                byte: false,
+                narrow32: false,
+                checked: c1,
+            } = micro[k]
             else {
                 continue;
             };
-            let MicroOp::ArrLoad { dst: b, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, narrow32: false, checked: c2 } =
-                micro[k + 1]
+            let MicroOp::ArrLoad {
+                dst: b,
+                idx: i2,
+                ptr_slot: p2,
+                len_slot: l2,
+                byte: false,
+                narrow32: false,
+                checked: c2,
+            } = micro[k + 1]
             else {
                 continue;
             };
             if p2 != p || l2 != l || a == b {
                 continue;
             }
-            let MicroOp::ArrStore { src: s1, idx: si1, ptr_slot: sp1, len_slot: sl1, byte: false, narrow32: false, checked: c3 } =
-                micro[k + 2]
+            let MicroOp::ArrStore {
+                src: s1,
+                idx: si1,
+                ptr_slot: sp1,
+                len_slot: sl1,
+                byte: false,
+                narrow32: false,
+                checked: c3,
+            } = micro[k + 2]
             else {
                 continue;
             };
-            let MicroOp::ArrStore { src: s2, idx: si2, ptr_slot: sp2, len_slot: sl2, byte: false, narrow32: false, checked: c4 } =
-                micro[k + 3]
+            let MicroOp::ArrStore {
+                src: s2,
+                idx: si2,
+                ptr_slot: sp2,
+                len_slot: sl2,
+                byte: false,
+                narrow32: false,
+                checked: c4,
+            } = micro[k + 3]
             else {
                 continue;
             };
             // Cross-store swap to the SAME array+indices: buf[i1]=b, buf[i2]=a.
-            if si1 != i1 || si2 != i2 || s1 != b || s2 != a || sp1 != p || sp2 != p || sl1 != l || sl2 != l {
+            if si1 != i1
+                || si2 != i2
+                || s1 != b
+                || s2 != a
+                || sp1 != p
+                || sp2 != p
+                || sl1 != l
+                || sl2 != l
+            {
                 continue;
             }
             if is_target[k + 1] || is_target[k + 2] || is_target[k + 3] {
                 continue;
             }
             // `a` consumed only by the store at k+3, `b` only by the store at k+2.
-            if !erasable(a) || !erasable(b) || !local_single_use(a, k, k + 3) || !local_single_use(b, k + 1, k + 2) {
+            if !erasable(a)
+                || !erasable(b)
+                || !local_single_use(a, k, k + 3)
+                || !local_single_use(b, k + 1, k + 2)
+            {
                 continue;
             }
             hit = Some((
@@ -5579,7 +9264,6 @@ fn fuse_swap(
     }
 }
 
-
 /// A canonical value key for a PURE, side-effect-free, deterministic micro-op —
 /// the basis for local value numbering (CSE) in [`copy_propagate`]. Returns
 /// `((tag, a, b), dst)`: a unique op tag, the two operand slots (commutative ops
@@ -5604,6 +9288,13 @@ fn micro_pure_value_key(op: &MicroOp) -> Option<((u8, u16, u16), u16)> {
         Sub { dst, lhs, rhs } => ord(8, lhs, rhs, dst),
         Shl { dst, lhs, rhs } => ord(9, lhs, rhs, dst),
         Shr { dst, lhs, rhs } => ord(10, lhs, rhs, dst),
+        Rotate {
+            dst,
+            lhs,
+            rhs,
+            width32,
+            left,
+        } => ord(17 + (width32 as u8) * 2 + left as u8, lhs, rhs, dst),
         Lt { dst, lhs, rhs } => ord(11, lhs, rhs, dst),
         Gt { dst, lhs, rhs } => ord(12, lhs, rhs, dst),
         LtEq { dst, lhs, rhs } => ord(13, lhs, rhs, dst),
@@ -5618,8 +9309,11 @@ fn micro_pure_value_key(op: &MicroOp) -> Option<((u8, u16, u16), u16)> {
 fn micro_target_const(op: &MicroOp) -> Option<usize> {
     use MicroOp::*;
     match *op {
-        Jump { target } | Branch { target, .. } | BranchF { target, .. }
-        | JumpIfFalse { target, .. } | JumpIfTrue { target, .. } => Some(target),
+        Jump { target }
+        | Branch { target, .. }
+        | BranchF { target, .. }
+        | JumpIfFalse { target, .. }
+        | JumpIfTrue { target, .. } => Some(target),
         _ => None,
     }
 }
@@ -5649,7 +9343,12 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
     let call_penalty: i64 = ops
         .iter()
         .enumerate()
-        .filter(|(_, op)| matches!(op, MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }))
+        .filter(|(_, op)| {
+            matches!(
+                op,
+                MicroOp::Call { .. } | MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }
+            )
+        })
         .map(|(i, _)| 3 * weight(i))
         .sum();
     // FLOAT-slot set: every slot that ever holds an f64 VALUE. The float
@@ -5673,7 +9372,7 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
     // dst AND an AddF operand — float-valued but pin-blocked.)
     let mut float_slots: std::collections::HashSet<u16> = std::collections::HashSet::new();
     let mut float_blocked: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut mark_float = |slot: u16, set: &mut std::collections::HashSet<u16>| {
+    let mark_float = |slot: u16, set: &mut std::collections::HashSet<u16>| {
         if slot < register_count {
             set.insert(slot);
         }
@@ -5705,6 +9404,10 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                     mark_float(s, &mut float_slots);
                 }
             }
+            // FloorToInt/CeilToInt/RoundToInt: the SRC is a float (dst is an Int) — only the src wants an XMM pin.
+            MicroOp::FloorToInt { src, .. }
+            | MicroOp::CeilToInt { src, .. }
+            | MicroOp::RoundToInt { src, .. } => mark_float(src, &mut float_slots),
             MicroOp::ArrLoad2F { dst, .. } => mark_float(dst, &mut float_slots),
             // A float value loaded from / stored to an array stays FRAME-RESIDENT
             // (block it from the XMM pin budget): the array access itself is
@@ -5746,6 +9449,8 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
             | MicroOp::BitXor { dst, lhs, rhs }
             | MicroOp::Shl { dst, lhs, rhs }
             | MicroOp::Shr { dst, lhs, rhs }
+            | MicroOp::Ushr { dst, lhs, rhs }
+            | MicroOp::Rotate { dst, lhs, rhs, .. }
             | MicroOp::Lt { dst, lhs, rhs }
             | MicroOp::Gt { dst, lhs, rhs }
             | MicroOp::LtEq { dst, lhs, rhs }
@@ -5777,32 +9482,71 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                 mark_float(cond, &mut float_blocked);
             }
             MicroOp::IntToFloat { src, .. } => mark_float(src, &mut float_blocked),
-            MicroOp::ArrLoad { idx, ptr_slot, len_slot, .. } => {
+            // FloorToInt/CeilToInt/RoundToInt: the DST is an Int (mirror of IntToFloat's Int src) — block it
+            // from float-pinning. The Float src is left free to live in an XMM pin (read there via `floc`).
+            MicroOp::FloorToInt { dst, .. }
+            | MicroOp::CeilToInt { dst, .. }
+            | MicroOp::RoundToInt { dst, .. } => mark_float(dst, &mut float_blocked),
+            MicroOp::ArrLoad {
+                idx,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ArrStore { idx, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrStore {
+                idx,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ArrRMW { idx, operand, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrRMW {
+                idx,
+                operand,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx, operand, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ArrCondSwap { idx1, idx2, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrCondSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx1, idx2, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ArrSwap { idx1, idx2, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx1, idx2, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ArrLoad2F { i: ix, j: jx, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrLoad2F {
+                i: ix,
+                j: jx,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [ix, jx, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
@@ -5810,22 +9554,47 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
             // The fused int two-load result is an i64; every operand and slot
             // is integer-role (block them from the float-pin budget, exactly
             // like the mem-form array ops).
-            MicroOp::ArrLoad2 { dst, i: ix, j: jx, ptr_a, len_a, ptr_b, len_b, .. } => {
+            MicroOp::ArrLoad2 {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_a,
+                len_a,
+                ptr_b,
+                len_b,
+                ..
+            } => {
                 for s in [dst, ix, jx, ptr_a, len_a, ptr_b, len_b] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ArrPush { vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrPush {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [vec_slot, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::NewList { vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::NewList {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [vec_slot, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ListTriple {
+                handle_slot,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [handle_slot, vec_slot, ptr_slot, len_slot] {
                     mark_float(s, &mut float_blocked);
                 }
@@ -5840,8 +9609,18 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::MapHas { dst, key, map_slot, .. } => {
+            MicroOp::MapHas {
+                dst, key, map_slot, ..
+            } => {
                 for s in [dst, key, map_slot] {
+                    mark_float(s, &mut float_blocked);
+                }
+            }
+            // A host call's helper reads and writes integer frame slots.
+            MicroOp::Host {
+                dst, src, count, ..
+            } => {
+                for s in std::iter::once(dst).chain(src..src + count) {
                     mark_float(s, &mut float_blocked);
                 }
             }
@@ -5869,6 +9648,8 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
             | MicroOp::BitXor { dst, lhs, rhs }
             | MicroOp::Shl { dst, lhs, rhs }
             | MicroOp::Shr { dst, lhs, rhs }
+            | MicroOp::Ushr { dst, lhs, rhs }
+            | MicroOp::Rotate { dst, lhs, rhs, .. }
             | MicroOp::Lt { dst, lhs, rhs }
             | MicroOp::Gt { dst, lhs, rhs }
             | MicroOp::LtEq { dst, lhs, rhs }
@@ -5950,47 +9731,114 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                     bump(s, v, &mut profit);
                 }
             }
-            MicroOp::NotInt { dst, src } | MicroOp::NotBool { dst, src } => {
+            // FloorToInt/CeilToInt/RoundToInt are register-threaded (V_FLOORF/V_CEILF/V_ROUNDF): float src, int dst.
+            MicroOp::FloorToInt { dst, src }
+            | MicroOp::CeilToInt { dst, src }
+            | MicroOp::RoundToInt { dst, src } => {
+                for s in [dst, src] {
+                    bump(s, v, &mut profit);
+                }
+            }
+            MicroOp::NotInt { dst, src }
+            | MicroOp::NotBool { dst, src }
+            | MicroOp::Popcnt { dst, src }
+            | MicroOp::Lzcnt { dst, src }
+            | MicroOp::Tzcnt { dst, src }
+            | MicroOp::ChrGuard { dst, src }
+            | MicroOp::Utf8Len { dst, src } => {
                 for s in [dst, src] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrLoad {
+                dst,
+                idx,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [dst, idx, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrLoadAffine { dst, a, b, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrLoadAffine {
+                dst,
+                a,
+                b,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [dst, a, b, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrLoad2F { dst, i: ix, j: jx, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrLoad2F {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [dst, ix, jx, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrLoad2 { dst, i: ix, j: jx, ptr_a, len_a, ptr_b, len_b, .. } => {
+            MicroOp::ArrLoad2 {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_a,
+                len_a,
+                ptr_b,
+                len_b,
+                ..
+            } => {
                 for s in [dst, ix, jx, ptr_a, len_a, ptr_b, len_b] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrStore {
+                src,
+                idx,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [src, idx, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrRMW { idx, operand, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrRMW {
+                idx,
+                operand,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx, operand, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrCondSwap { idx1, idx2, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrCondSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx1, idx2, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrSwap { idx1, idx2, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [idx1, idx2, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
@@ -6003,54 +9851,96 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrPush {
+                src,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [src, vec_slot, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ListClear { vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ListClear {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [vec_slot, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            // The str-append's byte source is read across a SysV call (mem-form);
+            // The str-append's byte or Int source is read across a SysV call (mem-form);
             // the handle slot is forced frame-resident, so count both as mem-form.
-            MicroOp::StrAppend { text_handle_slot, src, .. } => {
+            MicroOp::StrAppend {
+                text_handle_slot,
+                src,
+                ..
+            } => {
                 bump(text_handle_slot, m, &mut profit);
-                if let logicaffeine_forge::jit::StrSrc::Byte(s) = src {
+                if let Some(s) = src.slot() {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::Call { dst, .. } | MicroOp::CallSelf { dst, .. } => {
-                bump(dst, m, &mut profit)
-            }
-            MicroOp::CallSelfCopy { dst, src_start, arg_count, .. } => {
+            MicroOp::Call { dst, .. } | MicroOp::CallSelf { dst, .. } => bump(dst, m, &mut profit),
+            MicroOp::CallSelfCopy {
+                dst,
+                src_start,
+                arg_count,
+                ..
+            } => {
                 bump(dst, m, &mut profit);
                 for s in src_start..src_start + arg_count {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::MapGet { dst, key, map_slot, .. } => {
+            MicroOp::MapGet {
+                dst, key, map_slot, ..
+            } => {
                 for s in [dst, key, map_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::MapSet { src, key, map_slot, .. } => {
+            MicroOp::MapSet {
+                src, key, map_slot, ..
+            } => {
                 for s in [src, key, map_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::MapHas { dst, key, map_slot, .. } => {
+            MicroOp::MapHas {
+                dst, key, map_slot, ..
+            } => {
                 for s in [dst, key, map_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::NewList { vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::Host {
+                dst, src, count, ..
+            } => {
+                for s in std::iter::once(dst).chain(src..src + count) {
+                    bump(s, m, &mut profit);
+                }
+            }
+            MicroOp::NewList {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [vec_slot, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
             }
-            MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ListTriple {
+                handle_slot,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 for s in [handle_slot, vec_slot, ptr_slot, len_slot] {
                     bump(s, m, &mut profit);
                 }
@@ -6148,6 +10038,8 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                 | MicroOp::BitXor { .. }
                 | MicroOp::Shl { .. }
                 | MicroOp::Shr { .. }
+                | MicroOp::Ushr { .. }
+                | MicroOp::Rotate { .. }
                 | MicroOp::NotInt { .. }
                 | MicroOp::NotBool { .. }
                 | MicroOp::AddF { .. }
@@ -6156,6 +10048,9 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                 | MicroOp::DivF { .. }
                 | MicroOp::SqrtF { .. }
                 | MicroOp::IntToFloat { .. }
+                | MicroOp::FloorToInt { .. }
+                | MicroOp::CeilToInt { .. }
+                | MicroOp::RoundToInt { .. }
                 | MicroOp::BranchF { .. }
                 | MicroOp::LtF { .. }
                 | MicroOp::LtEqF { .. }
@@ -6191,14 +10086,17 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
     // fusion would not fire, so it is left to its own pin eligibility.
     let mut fma_result_temps: std::collections::HashSet<u16> = std::collections::HashSet::new();
     {
-        let mut read_counts: std::collections::HashMap<u16, usize> = std::collections::HashMap::new();
+        let mut read_counts: std::collections::HashMap<u16, usize> =
+            std::collections::HashMap::new();
         for op in ops {
             for s in micro_read_slots(op) {
                 *read_counts.entry(s).or_insert(0) += 1;
             }
         }
         for k in 0..ops.len().saturating_sub(1) {
-            let MicroOp::MulF { dst: t, .. } = ops[k] else { continue };
+            let MicroOp::MulF { dst: t, .. } = ops[k] else {
+                continue;
+            };
             // The addend `c` is the AddF operand that is NOT the product `t`.
             let (d, c) = match ops[k + 1] {
                 MicroOp::AddF { dst, lhs, rhs } if lhs == t => (dst, rhs),
@@ -6232,6 +10130,25 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
     // f64 over an integer index. FUNCTIONS still keep their floats frame-
     // resident (the mode-B call boundary round-trips them anyway).
     let block_float_pins = !region || !ops.iter().all(xmm_pin_safe);
+    // GP analog of `float_blocked`: a frame-reading INT stencil (NotInt/Popcnt/Lzcnt/Tzcnt) reads its
+    // SOURCE from the frame slot, so a GP-pinned source (e.g. a hot induction variable in a
+    // `count_ones(k)` loop) would leave that slot stale and the frame stencil would read the wrong value.
+    // Force such a source to stay frame-resident by keeping it out of the GP-pin budget — always sound
+    // (the frame is the source of truth), and it fixes a latent NotInt hazard too. (When a source IS
+    // pinned anyway, the register-form `V_POPCNT`/`V_LZCNT`/`V_TZCNT` reads the pin directly, so
+    // correctness never depends on this — it just keeps the fast frame stencil applicable.)
+    let mut gp_blocked: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    for op in ops {
+        if let MicroOp::NotInt { src, .. }
+        | MicroOp::Popcnt { src, .. }
+        | MicroOp::Lzcnt { src, .. }
+        | MicroOp::Tzcnt { src, .. }
+        | MicroOp::ChrGuard { src, .. }
+        | MicroOp::Utf8Len { src, .. } = *op
+        {
+            gp_blocked.insert(src);
+        }
+    }
     for (slot, _) in ranked {
         if float_slots.contains(&slot) {
             if !block_float_pins
@@ -6241,7 +10158,7 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
             {
                 float_pins.push(slot);
             }
-        } else if gp_pins.len() < 4 {
+        } else if gp_pins.len() < 4 && !gp_blocked.contains(&slot) {
             gp_pins.push(slot);
         }
     }
@@ -6254,10 +10171,12 @@ impl NativeTier for ForgeTier {
         code: &[Op],
         entry_pc: usize,
         constants: &[Constant],
+        enums: &[EnumTypeDef],
         param_count: u16,
         register_count: u16,
         self_fi: u16,
         param_kinds: &[Option<ParamKind>],
+        cow_exempt_regs: &[u16],
         ret_kind: Option<SlotKind>,
         ctx: &NativeCtx,
         callees: &[CalleeSig],
@@ -6268,19 +10187,18 @@ impl NativeTier for ForgeTier {
         // EXACTLY the adapter's pin accounting (params + allocation sites
         // + list-returning self-call results); the adapter asserts the
         // agreement.
-        let n_list_params = param_kinds
-            .iter()
-            .filter(|k| matches!(k, Some(ParamKind::List(_))))
-            .count();
-        let has_sites = code.iter().any(|op| matches!(op, Op::NewEmptyList { .. }));
-        let mode_b = n_list_params > 0 || has_sites;
-        let fn_returns_lists = ret_kind.is_none() && mode_b;
+        let (list_mode, nodes) = function_lanes(code, param_kinds);
+        // `LOGOS_JIT_NODES=0` keeps every function that handles enum values on the VM.
+        if nodes && std::env::var("LOGOS_JIT_NODES").as_deref() == Ok("0") {
+            self.note_function_decline("enum-tier-disabled");
+            return None;
+        }
+        let mode_b = list_mode || nodes;
+        let fn_returns_lists = ret_kind.is_none() && list_mode;
         let list_param_regs: Vec<u16> = param_kinds
             .iter()
             .enumerate()
-            .filter_map(|(i, k)| {
-                matches!(k, Some(ParamKind::List(_))).then_some(i as u16)
-            })
+            .filter_map(|(i, k)| matches!(k, Some(ParamKind::List(_))).then_some(i as u16))
             .collect();
         let npins = discover_list_regs(
             code,
@@ -6292,16 +10210,21 @@ impl NativeTier for ForgeTier {
         .iter()
         .filter(|&&b| b)
         .count();
-        let frame_size = if mode_b {
-            register_count as usize + 6 + 3 * npins
-        } else {
-            register_count as usize + 3
-        };
+        let scope_exports = function_scope_export_slots(code, param_count, nodes);
+        let frame_size =
+            function_frame_size(register_count as usize, mode_b, npins, nodes, scope_exports);
+        if frame_size > u16::MAX as usize {
+            self.note_function_decline("frame-slots-overflow");
+            return None;
+        }
         // Self-recursion advances one full frame per level and stages the
         // callee window BEFORE the depth check runs — the arena must hold
         // MAX_CALL_DEPTH + 1 frames so staging writes can never cross the
         // buffer even on the deopt path.
-        if frame_size * (logicaffeine_compile::semantics::MAX_CALL_DEPTH + 1) > ARENA_SLOTS {
+        let arena_slots = frame_size * (logicaffeine_compile::semantics::MAX_CALL_DEPTH + 1);
+        if arena_slots > ARENA_SLOTS {
+            jt("arena");
+            self.note_function_decline("arena-frame-too-large");
             return None;
         }
         let call_ctx = CallCtx {
@@ -6312,19 +10235,31 @@ impl NativeTier for ForgeTier {
             depth_limit: logicaffeine_compile::semantics::MAX_CALL_DEPTH as i64,
             self_fi,
             table: ctx.table.as_ref(),
+            callees,
         };
-        let adapted = adapt_function(
+        let Some(adapted) = adapt_function(
             code,
             entry_pc,
             constants,
+            enums,
             param_count,
             register_count,
             self_fi,
             param_kinds,
+            cow_exempt_regs,
             ret_kind,
             &call_ctx,
             callees,
-        )?;
+        ) else {
+            self.note_function_decline("unsupported-bytecode-shape");
+            return None;
+        };
+        if std::env::var_os("LOGOS_JIT_TRACE_OPS").is_some() {
+            eprintln!(
+                "jit-trace: compile fn={self_fi} entry={entry_pc} mode_b={mode_b} ops={:?}",
+                adapted.micro,
+            );
+        }
         debug_assert_eq!(adapted.frame_size, frame_size);
         // LINEAR SCAN (EXODIA 3.1), mode A only: mode B's precise deopt
         // reads the frame mid-run, which the pinning contract forbids.
@@ -6337,9 +10272,10 @@ impl NativeTier for ForgeTier {
         // `ListClear` is still excluded: the mem-form emitter cannot lower it
         // without leaving a pinned ptr/len register stale (it would miscompile —
         // observed on knapsack).
-        let pinnable = !adapted.micro.iter().any(|op| {
-            matches!(op, MicroOp::ListClear { .. })
-        });
+        let pinnable = !adapted
+            .micro
+            .iter()
+            .any(|op| matches!(op, MicroOp::ListClear { .. }));
         // WS-G WAVE 12: the CONTIGUOUS regalloc FUNCTION backend. For a
         // non-precise mode-A function whose every op (the self-calls included)
         // is in the backend's supported subset, emit ONE register-allocated
@@ -6412,14 +10348,13 @@ impl NativeTier for ForgeTier {
             } else {
                 (Vec::new(), Vec::new())
             };
-            let chain = if gp_pins.is_empty() && float_pins.is_empty() {
+            let built = if gp_pins.is_empty() && float_pins.is_empty() {
                 compile_straightline_coded(
                     &adapted.micro,
                     Some(ctx.status.clone()),
                     adapted.deopt_codes.as_deref(),
                     call_ctx.depth_addr,
                 )
-                .ok()?
             } else {
                 compile_straightline_pinned_float(
                     &adapted.micro,
@@ -6427,12 +10362,23 @@ impl NativeTier for ForgeTier {
                     &float_pins,
                     Some(ctx.status.clone()),
                 )
-                .ok()?
             };
+            let chain = match built {
+                Ok(chain) => chain,
+                Err(_) => {
+                    self.note_function_decline("machine-code-lowering-failed");
+                    return None;
+                }
+            };
+            if !gp_pins.is_empty() || !float_pins.is_empty() {
+                self.pinned_register_compiles
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             // Self-entry patch: write this chain's base into every direct
             // self-call site. Targets without post-seal patching (MAP_JIT)
             // fail here — fall back to bytecode rather than run unpatched.
             if chain.has_patch_marks() && chain.patch_marked(chain.base()).is_err() {
+                self.note_function_decline("self-call-patch-failed");
                 return None;
             }
             let fused = adapted
@@ -6445,15 +10391,36 @@ impl NativeTier for ForgeTier {
             }
             chain
         };
+        if std::env::var_os("LOGOS_JIT_TRACE_OPS").is_some() {
+            eprintln!(
+                "jit-trace: compiled fn={self_fi} entry={:#x} slot={:#x}",
+                chain.base(),
+                call_ctx.table_addr,
+            );
+        }
         self.successes.fetch_add(1, Ordering::SeqCst);
+        let rotates = adapted
+            .micro
+            .iter()
+            .filter(|op| matches!(op, MicroOp::Rotate { .. }))
+            .count() as u32;
+        if rotates != 0 {
+            self.native_rotate_instructions
+                .fetch_add(rotates, Ordering::Relaxed);
+        }
         Some(Box::new(ChainFn {
             chain,
+            function_index: self_fi,
             limit_slot: call_ctx.limit_slot as usize,
+            arena_slots,
             depth: ctx.depth.clone(),
             ret: adapted.ret,
+            ret_elem: adapted.ret_elem,
             published_regc: (frame_size - 3) as i64,
             precise: adapted.precise,
             stats: self.runtime.clone(),
+            _shapes: adapted.shapes,
+            param_kinds: param_kinds.to_vec(),
         }))
     }
 
@@ -6471,8 +10438,17 @@ impl NativeTier for ForgeTier {
     ) -> Option<Box<dyn RegionFn>> {
         self.region_compiles.fetch_add(1, Ordering::SeqCst);
         let dbg = std::env::var_os("LOGOS_RDIAG").is_some();
-        let Some((mut micro, frame_size, guard, free, writes, arrays, region_return, hoist_guards, precise)) =
-            adapt_region(
+        let Some((
+            mut micro,
+            frame_size,
+            guard,
+            free,
+            writes,
+            arrays,
+            region_return,
+            hoist_guards,
+            precise,
+        )) = adapt_region(
             code,
             head_pc,
             exit_pc,
@@ -6482,16 +10458,57 @@ impl NativeTier for ForgeTier {
             observed,
             ctx,
             callees,
-        ) else {
-            if dbg { eprintln!("RDIAG head_pc={head_pc}: adapt_region -> None"); }
+        )
+        else {
+            let has_push = code.iter().any(|op| matches!(op, Op::ListPush { .. }));
+            let has_call = code.iter().any(|op| matches!(op, Op::Call { .. }));
+            let has_fresh_list_return_call = code.iter().any(|op| match op {
+                Op::Call { func, .. } => callees
+                    .get(*func as usize)
+                    .is_some_and(|sig| sig.ret.is_none() && !sig.returns_list_param),
+                _ => false,
+            });
+            let has_index_side_exit = code.iter().any(|op| matches!(op, Op::Index { .. }))
+                && code
+                    .iter()
+                    .any(|op| matches!(op, Op::Return { .. } | Op::ReturnNothing));
+            let reason = if has_push && has_call {
+                "list-push-with-call"
+            } else if has_fresh_list_return_call {
+                "fresh-list-return-call"
+            } else if has_index_side_exit {
+                "list-index-side-exit"
+            } else {
+                "unsupported-bytecode-shape"
+            };
+            self.note_region_decline(reason);
+            if dbg {
+                eprintln!("RDIAG head_pc={head_pc}: adapt_region -> None ({reason})");
+            }
             return None;
         };
+        if std::env::var_os("LOGOS_JIT_TRACE_OPS").is_some() {
+            eprintln!(
+                "jit-trace: region head={head_pc} exit={exit_pc} code={code:?} micro={micro:?}",
+            );
+        }
+        // Record the lowering on the successful compiled-region path below.
+        // Looking at the micro-op (rather than the source AddAssign) makes the
+        // trace prove that the Int-specific allocation-free lane was selected.
+        let string_append_int = micro.iter().any(|op| {
+            matches!(
+                op,
+                MicroOp::StrAppend {
+                    src: logicaffeine_forge::jit::StrSrc::Int(_),
+                    ..
+                }
+            )
+        });
         let has_calls = code.iter().any(|op| matches!(op, Op::Call { .. }));
         // A calling region's chain must check the SHARED status cell — the
         // call stencil writes its deopt marker there. A PRECISE region needs it
         // too: every side exit stores its encoded resume pc through it.
-        let status =
-            (has_calls || precise.is_some()).then(|| ctx.status.clone());
+        let status = (has_calls || precise.is_some()).then(|| ctx.status.clone());
         // REGION REGISTER ALLOCATION (EXODIA 3.1, sprint 13's deferred half).
         // Pin the hottest INTEGER slots that are not in the write-set or the
         // array-handle set: the write-set must stay frame-resident for the
@@ -6533,11 +10550,9 @@ impl NativeTier for ForgeTier {
             // loop-carried values. Only ARRAY handle registers stay excluded
             // (they are pinned through the dedicated ptr/len triple, not GP
             // register threading).
-            let array_regs: std::collections::HashSet<u16> =
-                arrays.iter().map(|a| a.reg).collect();
+            let array_regs: std::collections::HashSet<u16> = arrays.iter().map(|a| a.reg).collect();
             let (gp, fp) = select_pins(&micro, register_count, true);
-            let mut gp: Vec<u16> =
-                gp.into_iter().filter(|r| !array_regs.contains(r)).collect();
+            let mut gp: Vec<u16> = gp.into_iter().filter(|r| !array_regs.contains(r)).collect();
             let fp: Vec<u16> = fp.into_iter().filter(|r| !array_regs.contains(r)).collect();
             // REGISTER-FORM array access: hand the hottest INT array whose base
             // pointer is STABLE (never pushed-to in this region → no realloc) a
@@ -6563,10 +10578,16 @@ impl NativeTier for ForgeTier {
                     let cnt = micro
                         .iter()
                         .filter(|op| match op {
-                            MicroOp::ArrLoad { ptr_slot, byte: false, .. }
-                            | MicroOp::ArrStore { ptr_slot, byte: false, .. } => {
-                                *ptr_slot == a.ptr_slot
+                            MicroOp::ArrLoad {
+                                ptr_slot,
+                                byte: false,
+                                ..
                             }
+                            | MicroOp::ArrStore {
+                                ptr_slot,
+                                byte: false,
+                                ..
+                            } => *ptr_slot == a.ptr_slot,
                             _ => false,
                         })
                         .count();
@@ -6580,6 +10601,14 @@ impl NativeTier for ForgeTier {
             }
             (gp, fp)
         };
+        let mut copyprop_fired = false;
+        let mut array_rmw_fired = false;
+        let mut two_buffer_load_fired = false;
+        let mut fma_fired = false;
+        let mut regalloc_fma_fired = false;
+        let mut conditional_swap_fired = false;
+        let mut swap_fired = false;
+        let mut affine_index_fired = false;
         // COPY-PROPAGATION + CONSTANT CSE — kills the redundant scratch-Move
         // chains and re-loaded constants the bytecode lowering leaves in hot
         // loops (the per-op DISPATCH is the floor, so fewer ops = faster). Run
@@ -6592,7 +10621,9 @@ impl NativeTier for ForgeTier {
         if precise.is_none() && std::env::var("LOGOS_COPYPROP").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             copy_propagate(&mut micro, named, register_count, &pinset);
+            copyprop_fired = micro.len() < before;
         }
         // WS-G PRE-FUSION SNAPSHOT (approach a). The array-fusion passes below
         // (`ArrRMW`/`ArrLoad2`/`ArrLoadAffine`/`ArrCondSwap`/`ArrSwap`) exist to
@@ -6605,9 +10636,9 @@ impl NativeTier for ForgeTier {
         // snapshot is taken only for a non-precise region (the only kind
         // regalloc compiles); precise regions never reach it.
         #[cfg(target_arch = "x86_64")]
-        let prefusion_micro: Option<Vec<MicroOp>> =
-            (precise.is_none() && logicaffeine_forge::regalloc::regalloc_enabled())
-                .then(|| micro.clone());
+        let mut prefusion_micro: Option<Vec<MicroOp>> = (precise.is_none()
+            && logicaffeine_forge::regalloc::regalloc_enabled())
+        .then(|| micro.clone());
         // ARRAY READ-MODIFY-WRITE FUSION: after copy-prop/CSE has cleaned the
         // stream and deduped the operand constant, collapse `arr[i] = arr[i] OP
         // operand` (ArrLoad + int ALU + ArrStore) into one ArrRMW stencil — the
@@ -6617,7 +10648,9 @@ impl NativeTier for ForgeTier {
         if precise.is_none() && std::env::var("LOGOS_RMW").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             fuse_array_rmw(&mut micro, named, register_count, &pinset);
+            array_rmw_fired = micro.len() < before;
         }
         // TWO-BUFFER INTEGER LOAD+BINOP FUSION: collapse `a[i] OP b[j]`
         // (ArrLoad + ArrLoad + int Add/Sub/Mul) into one ArrLoad2 stencil — the
@@ -6629,7 +10662,9 @@ impl NativeTier for ForgeTier {
         if precise.is_none() && std::env::var("LOGOS_LD2").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             fuse_array_ld2(&mut micro, named, register_count, &pinset);
+            two_buffer_load_fired = micro.len() < before;
         }
         // FLOAT MULTIPLY-ADD FUSION: merge `a*b; +c` (MulF feeding a single-use
         // AddF) into one FmaF stencil — the dispatch-reduction lever for the
@@ -6638,13 +10673,36 @@ impl NativeTier for ForgeTier {
         if precise.is_none() && std::env::var("LOGOS_FMA").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             fuse_fma(&mut micro, named, register_count, &pinset);
+            fma_fired = micro.len() < before;
+            // The contiguous backend deliberately receives the raw array-op
+            // stream, but FmaF is part of its supported ISA and removes a real
+            // arithmetic spill/store/reload pair there too. Fuse its private
+            // snapshot with no stencil pins: the contiguous allocator assigns
+            // locations after fusion and lowers resident or spilled operands
+            // directly.
+            #[cfg(target_arch = "x86_64")]
+            if let Some(regalloc_micro) = prefusion_micro.as_mut() {
+                let before = regalloc_micro.len();
+                fuse_fma(
+                    regalloc_micro,
+                    named,
+                    register_count,
+                    &std::collections::HashSet::new(),
+                );
+                regalloc_fma_fired = regalloc_micro.len() < before;
+            }
         }
         // CONDITIONAL-SWAP FUSION: collapse the sort inner-loop compare-and-swap
         // (ArrLoad×2 + Branch + ArrStore×2 → 1) — now fires thanks to the
         // precise-region-live-out keystone freeing the loop-local a/b.
         // `LOGOS_CONDSWAP=0` kills it.
-        if std::env::var("LOGOS_DUMP_MICRO").ok().and_then(|v| v.parse::<usize>().ok()) == Some(head_pc) {
+        if std::env::var("LOGOS_DUMP_MICRO")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            == Some(head_pc)
+        {
             eprintln!("=== MICRO head_pc={head_pc} ({} ops) ===", micro.len());
             for (i, m) in micro.iter().enumerate() {
                 eprintln!("  [{i}] {m:?}");
@@ -6653,14 +10711,18 @@ impl NativeTier for ForgeTier {
         if precise.is_none() && std::env::var("LOGOS_CONDSWAP").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             fuse_cond_swap(&mut micro, named, register_count, &pinset);
+            conditional_swap_fired = micro.len() < before;
         }
         // UNCONDITIONAL-SWAP FUSION: collapse the `tmp` exchange (quick/heap/merge
         // sort: load,load,store,store → 1). `LOGOS_SWAP=0` kills it.
         if precise.is_none() && std::env::var("LOGOS_SWAP").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             fuse_swap(&mut micro, named, register_count, &pinset);
+            swap_fired = micro.len() < before;
         }
         // AFFINE-INDEX LOAD FUSION: fold the index arithmetic of a read-only
         // array load (`prev[w - wi + 1]`, the heap-sift reads, graph adjacency
@@ -6671,7 +10733,9 @@ impl NativeTier for ForgeTier {
         if precise.is_none() && std::env::var("LOGOS_AFFINE").as_deref() != Ok("0") {
             let pinset: std::collections::HashSet<u16> =
                 gp_pins.iter().chain(float_pins.iter()).copied().collect();
+            let before = micro.len();
             fuse_index_affine(&mut micro, named, register_count, &pinset);
+            affine_index_fired = micro.len() < before;
         }
         if dbg {
             eprintln!(
@@ -6692,17 +10756,34 @@ impl NativeTier for ForgeTier {
         // stencil tier. If regalloc declines (an unsupported op — float arrays,
         // byte loads, calls, globals, list ops, …) we fall through to the
         // already-fused `micro` and the per-piece tier, byte-identical to today.
+        //
+        // The frame slots the VM reads once the region exits: the write-back
+        // registers and the region-return flag and value.
         #[cfg(target_arch = "x86_64")]
-        let regalloc_chain: Option<CompiledChain> = prefusion_micro
-            .as_ref()
-            .and_then(|m| logicaffeine_forge::regalloc::compile_region_regalloc(m, status.clone()));
+        let live_out: Vec<u16> = writes
+            .iter()
+            .map(|&(r, _)| r)
+            .chain(
+                region_return
+                    .iter()
+                    .flat_map(|rr| [rr.flag_slot, rr.value_slot]),
+            )
+            .collect();
+        #[cfg(target_arch = "x86_64")]
+        let regalloc_chain: Option<CompiledChain> = prefusion_micro.as_ref().and_then(|m| {
+            logicaffeine_forge::regalloc::compile_region_regalloc(m, status.clone(), &live_out)
+        });
         #[cfg(not(target_arch = "x86_64"))]
         let regalloc_chain: Option<CompiledChain> = None;
 
+        let used_regalloc = regalloc_chain.is_some();
         let chain = if let Some(c) = regalloc_chain {
             self.regalloc_regions.fetch_add(1, Ordering::SeqCst);
             if dbg {
-                eprintln!("RDIAG head_pc={head_pc}: CONTIGUOUS REGALLOC backend (arrays={})", arrays.len());
+                eprintln!(
+                    "RDIAG head_pc={head_pc}: CONTIGUOUS REGALLOC backend (arrays={})",
+                    arrays.len()
+                );
             }
             c
         } else if let Some(p) = precise.as_ref() {
@@ -6721,32 +10802,64 @@ impl NativeTier for ForgeTier {
             // is the raw lowered stream `p.deopt_codes` is parallel to. On any
             // unsupported op the backend declines and the per-piece precise tier
             // takes over — byte-identical to before this wave.
+            //
+            // Cross-function calls mixed with list mutation retain the coded-stencil
+            // path. Host helpers are safe here: the allocator forces their input/output
+            // windows and list triples into the frame, spills volatile registers,
+            // and invalidates array hoists across each helper call.
+            // ListTriple only refreshes declared frame slots after adoption.
+            // All four slots are forced frame-resident and invalidate array
+            // hoists; it does not allocate or mutate the list itself.
+            let mixes_frame_calls_and_list_mutation =
+                micro.iter().any(|op| matches!(op, MicroOp::Call { .. }))
+                    && micro.iter().any(|op| {
+                        matches!(
+                            op,
+                            MicroOp::NewList { .. }
+                                | MicroOp::ArrPush { .. }
+                                | MicroOp::ListClear { .. }
+                        ) || matches!(
+                            op,
+                            MicroOp::ListTriple { helper_addr, .. }
+                                if *helper_addr != logos_rt_list_triple as usize as i64
+                        )
+                    });
             #[cfg(target_arch = "x86_64")]
-            let precise_regalloc: Option<CompiledChain> = (logicaffeine_forge::regalloc::regalloc_enabled()
-                && std::env::var("LOGOS_REGALLOC_PRECISE").as_deref() != Ok("0"))
-            .then(|| {
-                logicaffeine_forge::regalloc::compile_region_regalloc_precise(
-                    &micro,
-                    status.clone(),
-                    depth_addr,
-                    &p.deopt_codes,
-                )
-            })
-            .flatten();
+            let precise_regalloc: Option<CompiledChain> =
+                (logicaffeine_forge::regalloc::regalloc_enabled()
+                    && std::env::var("LOGOS_REGALLOC_PRECISE").as_deref() != Ok("0")
+                    && std::env::var("LOGOS_REGALLOC_PRECISE_REGION").as_deref() != Ok("0")
+                    && !mixes_frame_calls_and_list_mutation)
+                    .then(|| {
+                        logicaffeine_forge::regalloc::compile_region_regalloc_precise(
+                            &micro,
+                            status.clone(),
+                            depth_addr,
+                            &p.deopt_codes,
+                            &live_out,
+                        )
+                    })
+                    .flatten();
             #[cfg(not(target_arch = "x86_64"))]
             let precise_regalloc: Option<CompiledChain> = None;
             if let Some(c) = precise_regalloc {
                 self.regalloc_regions.fetch_add(1, Ordering::SeqCst);
                 self.regalloc_precise_regions.fetch_add(1, Ordering::SeqCst);
                 if dbg {
-                    eprintln!("RDIAG head_pc={head_pc}: CONTIGUOUS REGALLOC backend (PRECISE, arrays={})", arrays.len());
+                    eprintln!(
+                        "RDIAG head_pc={head_pc}: CONTIGUOUS REGALLOC backend (PRECISE, arrays={})",
+                        arrays.len()
+                    );
                 }
                 c
             } else {
                 match compile_straightline_coded(&micro, status, Some(&p.deopt_codes), depth_addr) {
                     Ok(c) => c,
                     Err(e) => {
-                        if dbg { eprintln!("RDIAG head_pc={head_pc}: compile_straightline_coded(precise) -> Err({e:?})"); }
+                        if dbg {
+                            eprintln!("RDIAG head_pc={head_pc}: compile_straightline_coded(precise) -> Err({e:?})");
+                        }
+                        self.note_region_decline("machine-code-lowering-failed");
                         return None;
                     }
                 }
@@ -6755,35 +10868,234 @@ impl NativeTier for ForgeTier {
             match compile_straightline_with(&micro, status) {
                 Ok(c) => c,
                 Err(e) => {
-                    if dbg { eprintln!("RDIAG head_pc={head_pc}: compile_straightline_with -> Err({e:?})"); }
+                    if dbg {
+                        eprintln!(
+                            "RDIAG head_pc={head_pc}: compile_straightline_with -> Err({e:?})"
+                        );
+                    }
+                    self.note_region_decline("machine-code-lowering-failed");
                     return None;
                 }
             }
         } else {
             match compile_straightline_pinned_float(&micro, &gp_pins, &float_pins, status) {
-                Ok(c) => c,
+                Ok(c) => {
+                    self.pinned_register_compiles
+                        .fetch_add(1, Ordering::Relaxed);
+                    c
+                }
                 Err(e) => {
-                    if dbg { eprintln!("RDIAG head_pc={head_pc}: compile_straightline_pinned_float -> Err({e:?})"); }
+                    if dbg {
+                        eprintln!("RDIAG head_pc={head_pc}: compile_straightline_pinned_float -> Err({e:?})");
+                    }
+                    self.note_region_decline("machine-code-lowering-failed");
                     return None;
                 }
             }
         };
+        if copyprop_fired {
+            self.copy_propagations.fetch_add(1, Ordering::Relaxed);
+        }
+        if !used_regalloc {
+            if array_rmw_fired {
+                self.array_rmw_fusions.fetch_add(1, Ordering::Relaxed);
+            }
+            if two_buffer_load_fired {
+                self.two_buffer_load_fusions.fetch_add(1, Ordering::Relaxed);
+            }
+            if conditional_swap_fired {
+                self.conditional_swap_fusions
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            if swap_fired {
+                self.swap_fusions.fetch_add(1, Ordering::Relaxed);
+            }
+            if affine_index_fired {
+                self.affine_index_fusions.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if (used_regalloc && regalloc_fma_fired) || (!used_regalloc && fma_fired) {
+            self.fma_fusions.fetch_add(1, Ordering::Relaxed);
+        }
+        if string_append_int {
+            self.string_append_ints.fetch_add(1, Ordering::Relaxed);
+        }
+        let rotates = micro
+            .iter()
+            .filter(|op| matches!(op, MicroOp::Rotate { .. }))
+            .count() as u32;
+        if rotates != 0 {
+            self.native_rotate_instructions
+                .fetch_add(rotates, Ordering::Relaxed);
+        }
         self.region_successes.fetch_add(1, Ordering::SeqCst);
-        let call_support = has_calls.then(|| {
-            (ARENA_SLOTS, (frame_size - 1) as u16, ctx.depth.clone())
-        });
+        let call_support =
+            has_calls.then(|| (ARENA_SLOTS, (frame_size - 1) as u16, ctx.depth.clone()));
         Some(Box::new(RegionChain {
             chain,
             frame_size,
             call_support,
+            call_sites: code
+                .iter()
+                .enumerate()
+                .filter_map(|(i, op)| {
+                    if let Op::Call { func, .. } = *op {
+                        Some((head_pc + i, func))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             guard,
             free,
             writes,
             arrays,
             region_return,
             hoist_guards,
+            resume_on_return: precise.as_ref().is_some_and(|p| p.resume_on_return),
             precise_kinds: precise.map(|p| p.kinds_by_pc),
+            stats: self.runtime.clone(),
         }))
+    }
+
+    fn engine_name(&self) -> &'static str {
+        "exodia"
+    }
+
+    fn compile_summary(&self) -> String {
+        let (fn_tries, fn_ok) = self.function_counts();
+        let (loop_tries, loop_ok) = self.region_counts();
+        format!("{fn_ok}/{fn_tries} functions, {loop_ok}/{loop_tries} loops compiled")
+    }
+
+    fn decline_summary(&self) -> String {
+        let functions = self
+            .function_declines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let regions = self
+            .region_declines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let render = |counts: &std::collections::BTreeMap<&'static str, u32>, missing: u32| {
+            let mut rendered = counts
+                .iter()
+                .map(|(reason, count)| format!("{reason}={count}"))
+                .collect::<Vec<_>>();
+            if missing != 0 {
+                rendered.push(format!("unclassified={missing}"));
+            }
+            rendered.join(",")
+        };
+        let (function_attempts, function_successes) = self.function_counts();
+        let (region_attempts, region_successes) = self.region_counts();
+        let classified_functions: u32 = functions.values().copied().sum();
+        let classified_regions: u32 = regions.values().copied().sum();
+        let missing_functions = function_attempts
+            .saturating_sub(function_successes)
+            .saturating_sub(classified_functions);
+        let missing_regions = region_attempts
+            .saturating_sub(region_successes)
+            .saturating_sub(classified_regions);
+        let mut parts = Vec::new();
+        if !functions.is_empty() || missing_functions != 0 {
+            parts.push(format!(
+                "functions[{}]",
+                render(&functions, missing_functions)
+            ));
+        }
+        if !regions.is_empty() || missing_regions != 0 {
+            parts.push(format!("loops[{}]", render(&regions, missing_regions)));
+        }
+        parts.join("; ")
+    }
+
+    fn optimization_summary(&self) -> String {
+        self.optimization_trace().keywords().join(",")
+    }
+
+    fn execution_summary(&self) -> String {
+        let function_entries = self.runtime.entries.load(Ordering::Relaxed);
+        let function_completions = self.runtime.completions.load(Ordering::Relaxed);
+        let function_deopts = self.runtime.deopts.load(Ordering::Relaxed);
+        let function_deopt_ats = self.runtime.deopt_ats.load(Ordering::Relaxed);
+        // Regions already maintain process-local relaxed counters on their hot
+        // boundary. Reuse them here instead of adding more atomics to every
+        // loop entry just for diagnostics; each benchmark probe is a fresh
+        // `largo` process, so these are per-artifact execution totals.
+        let region_completions = REGION_RUNS.load(Ordering::Relaxed);
+        let region_deopts = REGION_DEOPTS.load(Ordering::Relaxed);
+        let region_entries = region_completions.saturating_add(region_deopts);
+        format!(
+            "functions entries={function_entries} completions={function_completions} \
+             deopts={function_deopts} precise_deopts={function_deopt_ats}; \
+             loops entries={region_entries} completions={region_completions} deopts={region_deopts}"
+        )
+    }
+}
+
+/// Stage-separated evidence for one execution through the production
+/// run-optimizer -> VM -> forge-JIT pipeline.
+///
+/// [`shared`](Self::shared) uses the same optimization registry as Rust, C and VM traces.
+/// [`native`](Self::native) keeps forge's detailed lowering vocabulary instead of pretending
+/// register allocation or a stencil fusion is a source optimizer pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JitBackendOptimizationTrace {
+    pub shared: logicaffeine_compile::optimization::BackendOptimizationTrace,
+    pub native: JitOptimizationTrace,
+    pub function_attempts: u32,
+    pub function_successes: u32,
+    pub region_attempts: u32,
+    pub region_successes: u32,
+    pub declines: String,
+    pub execution: String,
+    pub outcome: logicaffeine_compile::compile::RunOutcome,
+}
+
+/// Execute through the production eager optimizer and a fresh private forge
+/// tier, returning both shared-pass and native-lowering evidence. Native
+/// refusals enter the common fallback channel as `Jit -> Vm`, so a missed tier
+/// can no longer hide behind a successful bytecode completion.
+pub fn optimization_trace_jit(
+    source: &str,
+    program_args: &[String],
+) -> JitBackendOptimizationTrace {
+    use logicaffeine_compile::optimization::{OptimizationBackend, OptimizationFallback, Tier};
+
+    logicaffeine_compile::optimize::begin_backend_trace(OptimizationBackend::Jit);
+    let tier = ForgeTier::new();
+    let outcome = logicaffeine_compile::compile::vm_outcome_tiered(
+        source,
+        program_args,
+        Tier::T3,
+        Some(&tier as &dyn NativeTier),
+    );
+    let native = tier.optimization_trace();
+    let (function_attempts, function_successes) = tier.function_counts();
+    let (region_attempts, region_successes) = tier.region_counts();
+    let declines = tier.decline_summary();
+    let execution = tier.execution_summary();
+    let mut shared = logicaffeine_compile::optimize::end_backend_trace()
+        .expect("the JIT backend trace was just started");
+    if !declines.is_empty() {
+        shared.fallbacks.push(OptimizationFallback {
+            from: OptimizationBackend::Jit,
+            to: OptimizationBackend::Vm,
+            reason: declines.clone(),
+        });
+    }
+
+    JitBackendOptimizationTrace {
+        shared,
+        native,
+        function_attempts,
+        function_successes,
+        region_attempts,
+        region_successes,
+        declines,
+        execution,
+        outcome,
     }
 }
 
@@ -6811,880 +11123,29 @@ pub fn install() -> &'static ForgeTier {
 }
 
 #[cfg(test)]
-mod memmem_safety_tests {
-    use super::*;
-
-    /// SECURITY/UB regression (CRITIQUE #6). `logos_rt_memmem` cast its `i64` lengths
-    /// straight to `usize` for `from_raw_parts`, so a negative `needle_len` or
-    /// `haystack_len` became a ~2^64 slice length — immediate undefined behavior
-    /// (`from_raw_parts` requires `len <= isize::MAX`), reachable on program-controlled
-    /// input. The guard must bail to the recoverable deopt sentinel before constructing
-    /// any slice. (The pre-fix failure is UB, so it is established by inspection of the
-    /// `from_raw_parts` calls rather than executed as a crashing test.)
-    #[test]
-    fn out_of_range_lengths_bail_safely_without_constructing_an_invalid_slice() {
-        let haystack = b"abcabc";
-        let needle = b"bc";
-        let hp = haystack.as_ptr() as i64;
-        let np = needle.as_ptr() as i64;
-        unsafe {
-            // negative needle_len → ~2^64 slice length pre-fix; must bail.
-            assert_eq!(
-                logos_rt_memmem(hp, 6, np, 2, -1, 1, 0),
-                LOGOS_MEMMEM_DEOPT,
-                "negative needle_len must bail to deopt, never reach from_raw_parts"
-            );
-            assert_eq!(logos_rt_memmem(hp, -1, np, 2, 2, 1, 0), LOGOS_MEMMEM_DEOPT, "negative haystack_len must bail");
-            assert_eq!(logos_rt_memmem(hp, 6, np, -1, 2, 1, 0), LOGOS_MEMMEM_DEOPT, "negative needle_buf_len must bail");
-        }
-    }
-
-    /// Regression: valid inputs still search correctly after the guard is added.
-    /// `"bc"` occurs twice in `"abcabc"` (0-based offsets 1 and 4).
-    #[test]
-    fn valid_search_still_counts_matches() {
-        let haystack = b"abcabc";
-        let needle = b"bc";
-        let count =
-            unsafe { logos_rt_memmem(haystack.as_ptr() as i64, 6, needle.as_ptr() as i64, 2, 2, 1, 0) };
-        assert_eq!(count, 2, "the guard must not change correct search results");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/memmem_safety_tests.rs"]
+mod memmem_safety_tests;
 
 #[cfg(test)]
-mod select_pins_tests {
-    use super::*;
-
-    /// A slot used as BOTH an f64 (a `MulF` result, float-valued) AND an i64
-    /// (an `ArrStore` index, integer-valued) is type-reused scratch. It must
-    /// NEVER be float-pinned: the mem-form `ArrStore` spills the float pin to
-    /// the frame cell, overwriting the integer index the `Add` wrote, so the
-    /// store indexes through an f64 bit-pattern → a wild write. This was the
-    /// spectral_norm SIGSEGV. The integer-role classification in `select_pins`
-    /// must keep the mixed slot out of the float-pin budget (frame-resident).
-    #[test]
-    fn float_result_reused_as_array_index_is_not_float_pinned() {
-        // register_count = 8 → slots 0..7 are registers; 8/9 stand in for the
-        // pinned array's ptr/len cells. Slot 5 is the type-reused cell.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 6 },
-            MicroOp::MulF { dst: 5, lhs: 2, rhs: 3 }, // slot 5 holds an f64 …
-            MicroOp::AddF { dst: 4, lhs: 4, rhs: 5 }, // … consumed as a float
-            MicroOp::Add { dst: 5, lhs: 0, rhs: 1 },  // slot 5 reused as an i64 index
-            MicroOp::ArrStore {
-                src: 4,
-                idx: 5,
-                ptr_slot: 8,
-                len_slot: 9,
-                byte: false,
-                narrow32: false,
-                checked: false,
-            },
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 0 },
-        ];
-        let (_gp, fpins) = select_pins(&ops, 8, true);
-        assert!(
-            !fpins.contains(&5),
-            "slot 5 (an f64 result reused as an integer array index) must NOT be \
-             float-pinned — pinning it spills f64 bits over the integer index; got fpins={fpins:?}"
-        );
-    }
-
-    /// LEVER 3 — a single-use float partial-sum that is the DESTINATION of an
-    /// `AddF` consuming an immediately-preceding single-use `MulF` product (the
-    /// nbody distance-sum's `partial = a*a + (b*b)` shape, `d` distinct from its
-    /// addend) is the result an FmaF will absorb. It must be KEPT OUT of the
-    /// float-pin budget so the (later) `fuse_fma` writes the frame directly with
-    /// NO reload — a 2-pieces-to-1 win — instead of pinning it and paying a reload
-    /// after the mem-form FmaF.
-    #[test]
-    fn fma_result_temp_is_not_float_pinned() {
-        // partial = aa + b*b, where aa is a frame temp and b*b is single-use.
-        // slot 4 = partial (the FmaF dst); slot 6 = b*b product (single-use);
-        // slot 5 = aa (the addend, distinct from 4); slot 7 reads partial after.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 6 },
-            MicroOp::MulF { dst: 6, lhs: 2, rhs: 2 }, // b*b → single-use product
-            MicroOp::AddF { dst: 4, lhs: 5, rhs: 6 }, // partial = aa + (b*b), 4 != 5
-            MicroOp::SqrtF { dst: 7, src: 4 },        // partial's only reader
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 0 },
-        ];
-        let (_gp, fpins) = select_pins(&ops, 8, true);
-        assert!(
-            !fpins.contains(&4),
-            "slot 4 (a single-use FmaF-candidate partial-sum, distinct from its \
-             addend) must NOT be float-pinned (Lever 3); got fpins={fpins:?}"
-        );
-    }
-
-    /// LEVER 3 boundary — a LOOP-CARRIED accumulator `s = s + a*b` (`c == d == s`)
-    /// is NOT an FmaF candidate (Lever 1a refuses to fuse a pinned addend), so
-    /// Lever 3 must NOT exclude it from the float-pin budget. (The accumulator is
-    /// read+written by the AddF as a float; the region returns an unrelated int so
-    /// the `Return`-blocks-float rule does not interfere with the assertion.)
-    #[test]
-    fn loop_carried_float_accumulator_not_excluded_by_lever3() {
-        // s = s + a*b: slot 4 = s (read + written by the AddF), 6 = a*b product.
-        let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 4 },
-            MicroOp::MulF { dst: 6, lhs: 2, rhs: 3 }, // a*b → product
-            MicroOp::AddF { dst: 4, lhs: 4, rhs: 6 }, // s = s + product (c == d == 4)
-            MicroOp::Jump { target: 0 },
-            MicroOp::Return { src: 0 }, // returns an int, not the accumulator
-        ];
-        let (_gp, fpins) = select_pins(&ops, 8, true);
-        assert!(
-            fpins.contains(&4),
-            "slot 4 (a loop-carried float accumulator, c == d) must STILL be \
-             float-pin-eligible — it is not an FmaF candidate, so Lever 3 must not \
-             exclude it; got fpins={fpins:?}"
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/select_pins_tests.rs"]
+mod select_pins_tests;
 
 #[cfg(test)]
-mod fuse_rmw_tests {
-    use super::*;
-    use std::collections::HashSet;
-
-    // register_count = 8 (slots 0..7 are VM registers); slots 6/7 stand in for
-    // the pinned array's ptr/len cells. `named` marks slot 5 (the index) live;
-    // the scratch temps 3 (loaded value) and 4 (sum) are un-named.
-    fn named8(live: &[u16]) -> Vec<bool> {
-        let mut n = vec![false; 8];
-        for &s in live {
-            n[s as usize] = true;
-        }
-        n
-    }
-
-    /// The canonical histogram idiom `arr[i] = arr[i] + operand` — ArrLoad into
-    /// a single-use scratch, Add with the operand, ArrStore the result back to
-    /// the SAME array+index — collapses to one ArrRMW.
-    #[test]
-    fn load_add_store_to_same_cell_fuses_to_rmw() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
-        assert_eq!(micro.len(), 2, "the 3-op idiom must collapse to 1 op + Return");
-        match micro[0] {
-            MicroOp::ArrRMW { idx, operand, ptr_slot, len_slot, op, checked } => {
-                assert_eq!((idx, operand, ptr_slot, len_slot), (5, 2, 6, 7));
-                assert_eq!(op, RmwOp::Add);
-                assert!(checked);
-            }
-            ref other => panic!("expected ArrRMW, got {other:?}"),
-        }
-    }
-
-    /// Subtraction is non-commutative: it fuses ONLY when the loaded element is
-    /// the left operand (`buf[i] - operand`), and the operand is the right.
-    #[test]
-    fn sub_fuses_only_with_loaded_value_on_the_left() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
-            MicroOp::Sub { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
-        match micro[0] {
-            MicroOp::ArrRMW { op: RmwOp::Sub, operand: 2, checked: false, .. } => {}
-            ref other => panic!("expected unchecked ArrRMW Sub operand=2, got {other:?}"),
-        }
-
-        // operand - buf[i] is NOT an RMW (the loaded value is on the right).
-        let mut rev = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
-            MicroOp::Sub { dst: 4, lhs: 2, rhs: 3 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut rev, &named8(&[2, 5]), 8, &HashSet::new());
-        assert!(
-            matches!(rev[0], MicroOp::ArrLoad { .. }),
-            "operand - buf[i] must NOT fuse: {rev:?}"
-        );
-    }
-
-    /// A bounds-checked load with an unchecked store (or vice versa) fuses to a
-    /// CHECKED rmw — a single pre-write check covers both (same index).
-    #[test]
-    fn mixed_checked_load_unchecked_store_fuses_checked() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::BitOr { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
-        match micro[0] {
-            MicroOp::ArrRMW { op: RmwOp::Or, checked: true, .. } => {}
-            ref other => panic!("expected checked ArrRMW Or, got {other:?}"),
-        }
-    }
-
-    /// The loaded value must be single-use: if `t` is read again (here also
-    /// stored elsewhere), folding it away would lose that read — no fusion.
-    #[test]
-    fn multi_use_loaded_value_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Move { dst: 1, src: 3 }, // second use of the loaded value
-            MicroOp::Return { src: 1 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[1, 2, 5]), 8, &HashSet::new());
-        assert!(matches!(micro[0], MicroOp::ArrLoad { .. }), "multi-use t must block fusion");
-    }
-
-    /// Load and store to DIFFERENT arrays (or different indices) is not an
-    /// in-place RMW and must never fuse.
-    #[test]
-    fn different_array_or_index_blocks_fusion() {
-        // different ptr_slot
-        let mut a = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 1, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut a, &named8(&[1, 2, 5]), 8, &HashSet::new());
-        assert!(matches!(a[0], MicroOp::ArrLoad { .. }), "different array must block fusion");
-        // different index
-        let mut b = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 1, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut b, &named8(&[1, 2, 5]), 8, &HashSet::new());
-        assert!(matches!(b[0], MicroOp::ArrLoad { .. }), "different index must block fusion");
-    }
-
-    /// A jump landing ON the store (or the ALU) means another path enters
-    /// mid-idiom — fusing would skip the load on that entry. No fusion.
-    #[test]
-    fn jump_target_inside_idiom_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::JumpIfTrue { cond: 2, target: 2 }, // jumps onto the store
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
-        assert!(
-            matches!(micro[0], MicroOp::ArrLoad { .. }),
-            "a jump target inside the idiom must block fusion"
-        );
-    }
-
-    /// THE HISTOGRAM SHAPE: the index `v + 1` is computed TWICE (separate
-    /// slots, as the bytecode lowers `Set item (v+1) of A to (item (v+1) of A)
-    /// + 1`). `copy_propagate`'s value-numbering must merge the two `v + 1` into
-    /// one slot so the load and store share an index, and only then does
-    /// `fuse_array_rmw` collapse the idiom. This pins the CSE→fusion handoff.
-    #[test]
-    fn duplicated_index_expr_is_cse_d_then_fused() {
-        // v=1 (named loop var); c=2 the `1`; 3/5/6 scratch; 8/9 ptr/len.
-        let mut micro = vec![
-            MicroOp::LoadConst { dst: 2, value: 1 },
-            MicroOp::Add { dst: 3, lhs: 1, rhs: 2 }, // idx_a = v + 1
-            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 2 }, // t2 = arr[idx_a] + 1
-            MicroOp::Add { dst: 6, lhs: 1, rhs: 2 }, // idx_b = v + 1  (recomputed)
-            MicroOp::ArrStore { src: 5, idx: 6, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 1 },
-        ];
-        let named = named8_n(&[1], 10);
-        copy_propagate(&mut micro, &named, 10, &HashSet::new());
-        fuse_array_rmw(&mut micro, &named, 10, &HashSet::new());
-        // The dead recomputed index is gone; the idiom is one ArrRMW.
-        let rmw = micro.iter().find(|op| matches!(op, MicroOp::ArrRMW { .. }));
-        match rmw {
-            Some(&MicroOp::ArrRMW { idx, operand, op, .. }) => {
-                assert_eq!(op, RmwOp::Add);
-                assert_eq!(operand, 2, "operand is the deduped `1`");
-                // idx is whichever surviving slot holds v+1 (the load's index).
-                assert!(idx == 3, "load+store must share the CSE'd index slot; got {idx}");
-            }
-            _ => panic!("CSE+fusion failed to collapse the duplicated-index idiom: {micro:?}"),
-        }
-        assert!(
-            !micro.iter().any(|op| matches!(op, MicroOp::ArrStore { .. })),
-            "the store must be folded into the ArrRMW"
-        );
-    }
-
-    fn named8_n(live: &[u16], n: usize) -> Vec<bool> {
-        let mut v = vec![false; n];
-        for &s in live {
-            v[s as usize] = true;
-        }
-        v
-    }
-
-    /// FLOAT RMW (nbody `v[i] = v[i] + dx*mag`): an ArrLoad feeding an AddF whose
-    /// result stores back to the same cell collapses to a float ArrRMW. The
-    /// operand (the product) stays live; commutative AddF takes `t` on either
-    /// side, SubF only on the left.
-    #[test]
-    fn float_load_addf_store_fuses_to_float_rmw() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: false },
-            MicroOp::AddF { dst: 4, lhs: 3, rhs: 2 }, // v[i] + product
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: false },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[2, 5]), 10, &HashSet::new());
-        match micro[0] {
-            MicroOp::ArrRMW { op: RmwOp::AddF, operand: 2, idx: 5, .. } => {}
-            ref other => panic!("expected float ArrRMW AddF operand=2, got {other:?}"),
-        }
-
-        // operand - v[i] must NOT fuse (loaded value on the right of SubF).
-        let mut rev = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
-            MicroOp::SubF { dst: 4, lhs: 2, rhs: 3 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        fuse_array_rmw(&mut rev, &named8(&[2, 5]), 10, &HashSet::new());
-        assert!(matches!(rev[0], MicroOp::ArrLoad { .. }), "operand - v[i] must not fuse: {rev:?}");
-    }
-
-    /// FLOAT MULTIPLY-ADD: `MulF(t = a*b); AddF(d = t + c)` with `t` single-use
-    /// collapses to one FmaF. Commutative — the product may be either AddF
-    /// operand; the addend `c` stays live.
-    #[test]
-    fn mulf_addf_fuses_to_fma() {
-        for swap in [false, true] {
-            let add = if swap {
-                MicroOp::AddF { dst: 4, lhs: 2, rhs: 3 } // c + t
-            } else {
-                MicroOp::AddF { dst: 4, lhs: 3, rhs: 2 } // t + c
-            };
-            let mut micro = vec![
-                MicroOp::MulF { dst: 3, lhs: 0, rhs: 1 }, // t = a*b
-                add,
-                MicroOp::Return { src: 4 },
-            ];
-            fuse_fma(&mut micro, &named8(&[0, 1, 2, 4]), 8, &HashSet::new());
-            match micro[0] {
-                MicroOp::FmaF { dst: 4, a: 0, b: 1, c: 2 } => {}
-                ref other => panic!("expected FmaF(dst4,a0,b1,c2), got {other:?} (swap={swap})"),
-            }
-            assert!(!micro.iter().any(|op| matches!(op, MicroOp::AddF { .. })), "AddF folded away");
-        }
-    }
-
-    /// A multi-use product must NOT fuse (the second reader would lose it), and a
-    /// pinned operand blocks fusion (mem-form FmaF would need a spill).
-    #[test]
-    fn fma_blocks_multiuse_product_and_pinned_operands() {
-        // product read twice
-        let mut multi = vec![
-            MicroOp::MulF { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::AddF { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::AddF { dst: 5, lhs: 3, rhs: 2 }, // second use of the product
-            MicroOp::Return { src: 4 },
-        ];
-        fuse_fma(&mut multi, &named8(&[0, 1, 2, 4, 5]), 8, &HashSet::new());
-        assert!(matches!(multi[0], MicroOp::MulF { .. }), "multi-use product must block FMA");
-
-        // a pinned operand (slot 0) blocks the spill-free fusion
-        let mut pinned_in = vec![
-            MicroOp::MulF { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::AddF { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::Return { src: 4 },
-        ];
-        let pins: HashSet<u16> = [0u16].into_iter().collect();
-        fuse_fma(&mut pinned_in, &named8(&[0, 1, 2, 4]), 8, &pins);
-        assert!(matches!(pinned_in[0], MicroOp::MulF { .. }), "pinned operand must block FMA");
-    }
-
-    /// LEVER 1a — a pinned DESTINATION `d` (the accumulator/result XMM pin) must
-    /// NOT block fusion: `FmaF` is mem-form, so a pinned `d` is spilled/reloaded
-    /// by `compile_straightline_pinned_float`'s mem-form path exactly as it would
-    /// be by the unfused `AddF`'s register-form result — fusing adds no extra
-    /// spill on the INPUTS (which stay frame-resident). The nbody distance-sum's
-    /// `MulF(t = dz*dz); AddF(d = sum + t)` with `d` float-pinned is the case the
-    /// guard previously refused. Inputs `a`, `b`, the addend `c` stay frame-resident.
-    #[test]
-    fn fma_fuses_with_pinned_destination() {
-        for swap in [false, true] {
-            let add = if swap {
-                MicroOp::AddF { dst: 4, lhs: 2, rhs: 3 } // c + t
-            } else {
-                MicroOp::AddF { dst: 4, lhs: 3, rhs: 2 } // t + c
-            };
-            let mut micro = vec![
-                MicroOp::MulF { dst: 3, lhs: 0, rhs: 1 }, // t = a*b (a,b,t frame-resident)
-                add,                                      // d = t + c, d pinned
-                MicroOp::Return { src: 4 },
-            ];
-            let pins: HashSet<u16> = [4u16].into_iter().collect(); // ONLY the dst is pinned
-            fuse_fma(&mut micro, &named8(&[0, 1, 2, 4]), 8, &pins);
-            match micro[0] {
-                MicroOp::FmaF { dst: 4, a: 0, b: 1, c: 2 } => {}
-                ref other => panic!(
-                    "expected FmaF(dst4,a0,b1,c2) with pinned dst, got {other:?} (swap={swap})"
-                ),
-            }
-            assert!(
-                !micro.iter().any(|op| matches!(op, MicroOp::AddF { .. })),
-                "AddF must fold into the FmaF even when the dst is pinned"
-            );
-        }
-    }
-
-    /// LEVER 1a soundness boundary — a pinned ADDEND `c` (the loop-carried
-    /// accumulator read on the FmaF's frame-input side, the `s = s + a*b` shape
-    /// where `c == d == s`) must STILL block: spilling the pinned accumulator
-    /// around the mem-form FmaF would cost more pieces than the register-form
-    /// `AddF` it replaces. Only a pinned `d` that is NOT also an input is relaxed.
-    #[test]
-    fn fma_pinned_addend_still_blocks() {
-        // accumulator shape: t = a*b ; s = s + t  (c == d == slot 4, pinned)
-        let mut micro = vec![
-            MicroOp::MulF { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::AddF { dst: 4, lhs: 4, rhs: 3 }, // s = s + t, s is both c and d
-            MicroOp::Return { src: 4 },
-        ];
-        let pins: HashSet<u16> = [4u16].into_iter().collect();
-        fuse_fma(&mut micro, &named8(&[0, 1, 4]), 8, &pins);
-        assert!(
-            matches!(micro[0], MicroOp::MulF { .. }),
-            "a pinned addend (loop-carried accumulator) must block FMA"
-        );
-    }
-
-    /// Jump targets AFTER the idiom are remapped down by the two removed ops.
-    #[test]
-    fn fusion_remaps_later_jump_targets() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::JumpIfTrue { cond: 2, target: 5 }, // -> the Return
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 2 },
-            MicroOp::Return { src: 1 },
-        ];
-        fuse_array_rmw(&mut micro, &named8(&[1, 2, 5]), 8, &HashSet::new());
-        // [ArrRMW, JumpIfTrue->3, Add, Return] — the target slid 5 -> 3.
-        assert!(matches!(micro[0], MicroOp::ArrRMW { .. }));
-        match micro[1] {
-            MicroOp::JumpIfTrue { target, .. } => assert_eq!(target, 3, "target must remap 5->3"),
-            ref other => panic!("expected JumpIfTrue, got {other:?}"),
-        }
-        assert!(matches!(micro[3], MicroOp::Return { .. }));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/fuse_rmw_tests.rs"]
+mod fuse_rmw_tests;
 
 #[cfg(test)]
-mod fuse_ld2_tests {
-    use super::*;
-    use logicaffeine_forge::jit::IOp;
-    use std::collections::HashSet;
-
-    fn named_n(live: &[u16], n: usize) -> Vec<bool> {
-        let mut v = vec![false; n];
-        for &s in live {
-            v[s as usize] = true;
-        }
-        v
-    }
-
-    /// THE MATMUL DOT-PRODUCT SHAPE: `ArrLoad(t1 = a[ix]); ArrLoad(t2 = b[jx]);
-    /// Mul(d = t1 * t2)` — the two elements come from TWO DISTINCT pinned int
-    /// buffers (a at ptr 10/len 11, b at ptr 12/len 13). The two single-use
-    /// scratch loads collapse into ONE fused ArrLoad2 (two loads + multiply,
-    /// three dispatches → one), so the loaded i64s never round-trip the frame.
-    #[test]
-    fn two_buffer_load_mul_fuses_to_arrld2() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
-            MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
-            MicroOp::Return { src: 5 },
-        ];
-        fuse_array_ld2(&mut micro, &named_n(&[1, 2, 5], 14), 14, &HashSet::new());
-        assert_eq!(micro.len(), 2, "the 3-op dot-product idiom must collapse to 1 op + Return");
-        match micro[0] {
-            MicroOp::ArrLoad2 { dst, i, j, ptr_a, len_a, ptr_b, len_b, op, checked } => {
-                assert_eq!((dst, i, j), (5, 1, 2));
-                assert_eq!((ptr_a, len_a, ptr_b, len_b), (10, 11, 12, 13));
-                assert_eq!(op, IOp::Mul);
-                assert!(checked);
-            }
-            ref other => panic!("expected ArrLoad2, got {other:?}"),
-        }
-    }
-
-    /// Add commutes — the loads may feed the binop in either order, and the
-    /// fused op records the index order that reproduces `a[i] OP b[j]`.
-    #[test]
-    fn add_fuses_in_either_operand_order() {
-        for swap in [false, true] {
-            let add = if swap {
-                MicroOp::Add { dst: 5, lhs: 4, rhs: 3 } // b[j] + a[i]
-            } else {
-                MicroOp::Add { dst: 5, lhs: 3, rhs: 4 } // a[i] + b[j]
-            };
-            let mut micro = vec![
-                MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: false },
-                MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: false },
-                add,
-                MicroOp::Return { src: 5 },
-            ];
-            fuse_array_ld2(&mut micro, &named_n(&[1, 2, 5], 14), 14, &HashSet::new());
-            match micro[0] {
-                MicroOp::ArrLoad2 { op: IOp::Add, checked: false, .. } => {}
-                ref other => panic!("expected unchecked ArrLoad2 Add (swap={swap}), got {other:?}"),
-            }
-        }
-    }
-
-    /// Subtraction is non-commutative, but the fusion is anchored on the binop
-    /// and tracks WHICH load feeds the left vs. right operand, so it fuses BOTH
-    /// orderings correctly by recording the left load as `a`/`i` and the right
-    /// load as `b`/`j` (the stencil computes `a[i] - b[j]`).
-    #[test]
-    fn sub_fuses_in_binop_order() {
-        // `X[1] - Y[2]`: left load = X (ptr 10), right load = Y (ptr 12).
-        let mut fwd = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
-            MicroOp::Sub { dst: 5, lhs: 3, rhs: 4 }, // X[1] - Y[2]
-            MicroOp::Return { src: 5 },
-        ];
-        fuse_array_ld2(&mut fwd, &named_n(&[1, 2, 5], 14), 14, &HashSet::new());
-        match fwd[0] {
-            MicroOp::ArrLoad2 { op: IOp::Sub, i: 1, j: 2, ptr_a: 10, ptr_b: 12, .. } => {}
-            ref other => panic!("expected ArrLoad2 Sub (X-Y): i=1 j=2 ptr_a=10 ptr_b=12, got {other:?}"),
-        }
-
-        // `Y[2] - X[1]`: left load = Y (ptr 12), right load = X (ptr 10). The
-        // fused op must SWAP which buffer is `a`/`b` so it still computes Y - X.
-        let mut rev = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
-            MicroOp::Sub { dst: 5, lhs: 4, rhs: 3 }, // Y[2] - X[1]
-            MicroOp::Return { src: 5 },
-        ];
-        fuse_array_ld2(&mut rev, &named_n(&[1, 2, 5], 14), 14, &HashSet::new());
-        match rev[0] {
-            MicroOp::ArrLoad2 { op: IOp::Sub, i: 2, j: 1, ptr_a: 12, ptr_b: 10, .. } => {}
-            ref other => panic!("expected ArrLoad2 Sub (Y-X): i=2 j=1 ptr_a=12 ptr_b=10, got {other:?}"),
-        }
-    }
-
-    /// A byte (Bool) buffer is not an 8-byte int load — the fused int stencil
-    /// reads raw i64s, so a byte load must never fuse.
-    #[test]
-    fn byte_buffer_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: true, narrow32: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
-            MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
-            MicroOp::Return { src: 5 },
-        ];
-        fuse_array_ld2(&mut micro, &named_n(&[1, 2, 5], 14), 14, &HashSet::new());
-        assert!(matches!(micro[0], MicroOp::ArrLoad { byte: true, .. }), "byte load must block fusion");
-    }
-
-    /// A multi-use loaded value must NOT be folded away (a later reader would
-    /// lose it), and a jump landing on the second load or the binop blocks it.
-    #[test]
-    fn multiuse_load_and_inner_jump_target_block_fusion() {
-        let mut multi = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
-            MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
-            MicroOp::Move { dst: 6, src: 3 }, // second use of a[i]
-            MicroOp::Return { src: 5 },
-        ];
-        fuse_array_ld2(&mut multi, &named_n(&[1, 2, 5, 6], 14), 14, &HashSet::new());
-        assert!(matches!(multi[0], MicroOp::ArrLoad { .. }), "multi-use load must block fusion");
-
-        let mut jt = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
-            MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
-            MicroOp::JumpIfTrue { cond: 0, target: 1 }, // lands on the 2nd load
-            MicroOp::Return { src: 5 },
-        ];
-        fuse_array_ld2(&mut jt, &named_n(&[0, 1, 2, 5], 14), 14, &HashSet::new());
-        assert!(matches!(jt[0], MicroOp::ArrLoad { .. }), "inner jump target must block fusion");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/fuse_ld2_tests.rs"]
+mod fuse_ld2_tests;
 
 #[cfg(test)]
-mod fuse_affine_tests {
-    use super::*;
-    use logicaffeine_forge::jit::AffOp;
-    use std::collections::HashSet;
-
-    // slots 0..n are registers; named marks the live ones. The const-holding
-    // slot is left live (it is reused), the index temps are scratch (un-named).
-    fn named_n(live: &[u16], n: usize) -> Vec<bool> {
-        let mut v = vec![false; n];
-        for &s in live {
-            v[s as usize] = true;
-        }
-        v
-    }
-
-    /// THE `w + 1` SHAPE — `LoadConst(kc = 1); Add(idx = w + kc); ArrLoad(arr[idx])`.
-    /// The index `idx` is single-use scratch, the const slot is reused; folds to
-    /// one `ArrLoadAffine{op: None, a: w, const_offset: 1}` and the `Add` vanishes
-    /// while the `LoadConst` survives.
-    #[test]
-    fn slot_plus_const_folds_to_affine_none() {
-        // slot 4 = w (live index var), 8 = kc (live const), 5 = idx (scratch),
-        // 6 = loaded value, 10/11 = ptr/len.
-        let mut micro = vec![
-            MicroOp::LoadConst { dst: 8, value: 1 },
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 6 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[4, 8, 6], 12), 12, &HashSet::new());
-        assert_eq!(micro.len(), 3, "Add folds into the load; LoadConst kept");
-        match micro[1] {
-            MicroOp::ArrLoadAffine { dst, a, op, const_offset, ptr_slot, len_slot, checked, .. } => {
-                assert_eq!((dst, a, op, const_offset), (6, 4, AffOp::None, 1));
-                assert_eq!((ptr_slot, len_slot, checked), (10, 11, true));
-            }
-            ref other => panic!("expected ArrLoadAffine None, got {other:?}"),
-        }
-        assert!(matches!(micro[0], MicroOp::LoadConst { dst: 8, value: 1 }), "shared const kept");
-    }
-
-    /// THE `w - wi + 1` SHAPE — `Sub(t = w - wi); LoadConst(kc = 1); Add(idx = t + kc);
-    /// ArrLoad(arr[idx])`. Both `t` and `idx` are single-use scratch; folds to one
-    /// `ArrLoadAffine{op: Sub, a: w, b: wi, const_offset: 1}` (the inner Sub AND the
-    /// trailing Add vanish, the LoadConst survives).
-    #[test]
-    fn sub_plus_const_folds_to_affine_sub() {
-        // 4 = w, 3 = wi, 8 = kc (live), 7 = t (scratch), 5 = idx (scratch).
-        let mut micro = vec![
-            MicroOp::Sub { dst: 7, lhs: 4, rhs: 3 },
-            MicroOp::LoadConst { dst: 8, value: 1 },
-            MicroOp::Add { dst: 5, lhs: 7, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: false },
-            MicroOp::Return { src: 6 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[4, 3, 8, 6], 12), 12, &HashSet::new());
-        assert_eq!(micro.len(), 3, "Sub + Add fold into the load; LoadConst kept");
-        match micro[1] {
-            MicroOp::ArrLoadAffine { dst, a, op, b, const_offset, checked, .. } => {
-                assert_eq!((dst, a, op, b, const_offset, checked), (6, 4, AffOp::Sub, 3, 1, false));
-            }
-            ref other => panic!("expected ArrLoadAffine Sub, got {other:?}"),
-        }
-    }
-
-    /// THE `i*n + j + 1` MATMUL READ SHAPE — `Mul(t1 = i*n)` is MULTI-USE (the
-    /// matmul reuses `i*n`), so it must NOT be removed, but the trailing
-    /// `Add(t2 = t1 + j); Add(idx = t2 + kc); ArrLoad` still folds: the inner
-    /// add `t2` is single-use scratch over the slot `t1`, giving
-    /// `ArrLoadAffine{op: Add, a: t1, b: j, const_offset: 1}`.
-    #[test]
-    fn matmul_read_folds_keeping_shared_mul() {
-        // 6 = i, 1 = n, 14 = j, 8 = kc (live), 18 = t1 = i*n (MULTI-USE: read by
-        // the inner add AND a later op), 17 = t2 (scratch), 16 = idx (scratch).
-        let mut micro = vec![
-            MicroOp::Mul { dst: 18, lhs: 6, rhs: 1 },        // i*n, reused
-            MicroOp::Add { dst: 17, lhs: 18, rhs: 14 },      // i*n + j  (scratch)
-            MicroOp::LoadConst { dst: 8, value: 1 },
-            MicroOp::Add { dst: 16, lhs: 17, rhs: 8 },       // + 1      (scratch)
-            MicroOp::ArrLoad { dst: 23, idx: 16, ptr_slot: 40, len_slot: 41, byte: false, narrow32: false, checked: true },
-            MicroOp::Move { dst: 99, src: 18 },              // second use of i*n
-            MicroOp::Return { src: 23 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[6, 1, 14, 8, 23, 99], 100), 100, &HashSet::new());
-        // The two inner Adds collapse into the load; the Mul and LoadConst stay.
-        match micro.iter().find(|o| matches!(o, MicroOp::ArrLoadAffine { .. })) {
-            Some(MicroOp::ArrLoadAffine { dst, a, op, b, const_offset, .. }) => {
-                assert_eq!((*dst, *a, *op, *b, *const_offset), (23, 18, AffOp::Add, 14, 1));
-            }
-            other => panic!("expected ArrLoadAffine, got {other:?}"),
-        }
-        assert!(micro.iter().any(|o| matches!(o, MicroOp::Mul { dst: 18, .. })), "shared i*n Mul kept");
-    }
-
-    /// THE BARE `a + b` SHAPE (no const) — `Add(idx = a + b); ArrLoad` folds to
-    /// `ArrLoadAffine{op: Add, const_offset: 0}`.
-    #[test]
-    fn bare_two_slot_add_folds_with_zero_offset() {
-        let mut micro = vec![
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 3 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 6 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[4, 3, 6], 12), 12, &HashSet::new());
-        assert_eq!(micro.len(), 2, "the Add folds into the load");
-        match micro[0] {
-            MicroOp::ArrLoadAffine { a, op, b, const_offset, .. } => {
-                assert_eq!((a, op, b, const_offset), (4, AffOp::Add, 3, 0));
-            }
-            ref other => panic!("expected ArrLoadAffine Add, got {other:?}"),
-        }
-    }
-
-    /// A MULTI-USE INDEX (the slot is read by a store too, as matmul's `c[idx]`)
-    /// must NOT fold — folding would drop the index the store still needs.
-    #[test]
-    fn multiuse_index_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::LoadConst { dst: 8, value: 1 },
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrStore { src: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 6 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[4, 8, 6], 12), 12, &HashSet::new());
-        assert!(
-            matches!(micro[2], MicroOp::ArrLoad { .. }),
-            "an index reused by a store must block the fold: {micro:?}"
-        );
-    }
-
-    /// A BYTE (Bool) load never folds — the affine stencils read raw i64s.
-    #[test]
-    fn byte_load_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::LoadConst { dst: 8, value: 1 },
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: true, narrow32: false, checked: true },
-            MicroOp::Return { src: 6 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[4, 8, 6], 12), 12, &HashSet::new());
-        assert!(matches!(micro[2], MicroOp::ArrLoad { byte: true, .. }), "byte load must not fold");
-    }
-
-    /// A PINNED index temp must not fold (the fused op reads it from the frame;
-    /// folding past a pin would lose the pinned value's settling).
-    #[test]
-    fn pinned_index_temp_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 3 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 6 },
-        ];
-        let mut pins = HashSet::new();
-        pins.insert(5u16);
-        fuse_index_affine(&mut micro, &named_n(&[4, 3, 6], 12), 12, &pins);
-        assert!(matches!(micro[0], MicroOp::Add { .. }), "a pinned index must block the fold");
-    }
-
-    /// A jump landing on the load (or between the index op and the load) must
-    /// block the fold — an entry there would skip the index computation.
-    #[test]
-    fn jump_target_on_load_blocks_fusion() {
-        let mut micro = vec![
-            MicroOp::Add { dst: 5, lhs: 4, rhs: 3 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
-            MicroOp::JumpIfTrue { cond: 4, target: 1 }, // lands on the load
-            MicroOp::Return { src: 6 },
-        ];
-        fuse_index_affine(&mut micro, &named_n(&[4, 3, 6], 12), 12, &HashSet::new());
-        assert!(matches!(micro[0], MicroOp::Add { .. }), "jump onto the load blocks the fold");
-    }
-
-    /// COND-SWAP WITH A COMPUTED SECOND INDEX (Priority 2) — the sort inner-loop
-    /// compare-and-swap idiom `ArrLoad(a, i1); <index arith for i2>; ArrLoad(b, i2);
-    /// Branch(cmp, a, b); ArrStore(i1, b); ArrStore(i2, a)` must still fuse into one
-    /// `ArrCondSwap` when `Mul`/`Add`/`LoadConst` (the `2*root+2`-style index
-    /// computation of the SECOND access) sit BETWEEN the two loads. The
-    /// between-ops are pure and redefine neither the first loaded value, the
-    /// first index, nor the pointer/length, so they do not block the fusion.
-    #[test]
-    fn cond_swap_tolerates_computed_index_between_loads() {
-        // i1 = slot 5 (live), root = slot 4 (live). i2 = 2*root + 2 computed
-        // between the loads (slots 8 = kc2, 7 = 2*root, 6 = i2; all scratch).
-        // a = slot 9, b = slot 10 (the two loaded values, dead after the swap).
-        let mut micro = vec![
-            MicroOp::ArrLoad { dst: 9, idx: 5, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
-            MicroOp::LoadConst { dst: 8, value: 2 },
-            MicroOp::Mul { dst: 7, lhs: 4, rhs: 8 },     // 2*root
-            MicroOp::Add { dst: 6, lhs: 7, rhs: 8 },     // 2*root + 2  (the i2 index)
-            MicroOp::ArrLoad { dst: 10, idx: 6, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 9, rhs: 10, target: 8 },
-            MicroOp::ArrStore { src: 10, idx: 5, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
-            MicroOp::ArrStore { src: 9, idx: 6, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
-            MicroOp::Return { src: 0 },
-        ];
-        // gap from load1 to load2 is 3 (LoadConst, Mul, Add) — raise the search
-        // window by running with the same named/pin config the pipeline uses.
-        fuse_cond_swap(&mut micro, &named_n(&[4, 5], 22), 22, &HashSet::new());
-        assert!(
-            micro.iter().any(|o| matches!(o, MicroOp::ArrCondSwap { idx1: 5, idx2: 6, .. })),
-            "the compare-and-swap must fuse despite the 2*root+2 index arith between \
-             the loads: {micro:?}"
-        );
-    }
-
-    /// EVAL PARITY — `AffOp::eval` reproduces the kernel's wrapping i64 index
-    /// arithmetic exactly (the differential gate's bit-for-bit contract).
-    #[test]
-    fn affop_eval_matches_wrapping_kernel_semantics() {
-        assert_eq!(AffOp::None.eval(7, 999, 1), 8);
-        assert_eq!(AffOp::Add.eval(40, 3, 1), 44);
-        assert_eq!(AffOp::Sub.eval(10, 4, 1), 7);
-        assert_eq!(AffOp::Mul.eval(6, 7, 1), 43);
-        // Wrapping at the i64 edges, identical to the kernel.
-        assert_eq!(AffOp::Add.eval(i64::MAX, 1, 0), i64::MAX.wrapping_add(1));
-        assert_eq!(AffOp::Mul.eval(i64::MIN, -1, 0), i64::MIN.wrapping_mul(-1));
-        assert_eq!(AffOp::Sub.eval(i64::MIN, 1, 0), i64::MIN.wrapping_sub(1));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/fuse_affine_tests.rs"]
+mod fuse_affine_tests;
 
 #[cfg(test)]
-mod bug002_hazard_tests {
-    use super::*;
-    use logicaffeine_compile::vm::Op;
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/scalar_swap_tests.rs"]
+mod scalar_swap_tests;
 
-    fn load(dst: u16, idx: u16) -> Op {
-        Op::IndexUnchecked { dst, collection: 7, index: idx }
-    }
-    fn store(idx: u16, value: u16) -> Op {
-        Op::SetIndex { collection: 7, index: idx, value }
-    }
-
-    #[test]
-    fn detects_crossbranch_array_value_store() {
-        // load a[j]->v ; branch ; store a[i] = v  (v survives the branch) -> HAZARD
-        let ops = vec![
-            load(13, 11),
-            Op::Move { dst: 14, src: 13 },
-            Op::JumpIfFalse { cond: 15, target: 0 },
-            Op::Index { dst: 16, collection: 7, index: 9 },
-            store(9, 14),
-            store(11, 16),
-        ];
-        assert!(has_crossbranch_array_value_store_hazard(&ops));
-    }
-
-    #[test]
-    fn safe_when_load_is_inside_branch() {
-        // branch ; load a[j]->v ; store a[i] = v  (no branch between load and store) -> SAFE
-        let ops = vec![
-            Op::JumpIfFalse { cond: 15, target: 0 },
-            Op::Index { dst: 16, collection: 7, index: 9 },
-            load(17, 11),
-            store(9, 17),
-            store(11, 16),
-        ];
-        assert!(!has_crossbranch_array_value_store_hazard(&ops));
-    }
-}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/capacity_hint_tests.rs"]
+mod capacity_hint_tests;

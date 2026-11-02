@@ -1,0 +1,30 @@
+{
+  "capability": "math.fmod",
+  "arg": "1000000",
+  "timing_n": "63428879",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 50.332,
+    "c": 343.961,
+    "rust": 453.233,
+    "go": 4404.909,
+    "python": 13997.044
+  },
+  "wall_ms": {
+    "logos": 52.002,
+    "c": 344.448,
+    "rust": 453.764,
+    "go": 4408.698,
+    "python": 14034.988
+  },
+  "logos_ms": 50.332,
+  "speedups_vs_logos": {
+    "c": 6.834,
+    "rust": 9.005,
+    "go": 87.518,
+    "python": 278.096
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 6.834
+}

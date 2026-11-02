@@ -5,10 +5,12 @@
 //! - Individual article pages
 //! - Article data model and content
 
-pub mod index;
 pub mod article;
 pub mod data;
+pub mod index;
 
-pub use index::News;
 pub use article::NewsArticle;
-pub use data::{get_articles, get_article_by_slug, get_all_tags, get_articles_by_tag, format_tag, Article};
+pub use data::{
+    format_tag, get_all_tags, get_article_by_slug, get_articles, get_articles_by_tag, Article,
+};
+pub use index::News;

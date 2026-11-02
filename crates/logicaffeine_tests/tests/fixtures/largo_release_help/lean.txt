@@ -1,0 +1,11 @@
+Lean 4 → LOGOS: import, check independently, publish, replay
+
+Usage: largo lean <COMMAND>
+
+Commands:
+  import  Import a Lean declaration as a checked, published LOGOS package
+  replay  Replay a published package in this (fresh) process and print its receipt
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help

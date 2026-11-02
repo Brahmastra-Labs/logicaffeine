@@ -1,0 +1,270 @@
+# The shape of a clean checkout. `crates/logicaffeine_tests/tests/repo_shape_lock.rs` enforces it over
+# every file a checkout holds: tracked files present on disk plus untracked files no ignore rule covers.
+# `work/` is the private workspace and is not checked.
+#
+# Each rule's [pending] list names today's known offenders. A rule is clean when its list is empty.
+# The lock fails on an offender missing from the list and on a row that no longer offends, so the
+# lists only shrink: fix the file, then delete its row.
+
+[root]
+# The only entries the repository root may hold.
+allowed = [
+  ".config",
+  ".github",
+  ".githooks",
+  ".gitignore",
+  "apps",
+  "benchmarks",
+  "crates",
+  "docs",
+  "editors",
+  "examples",
+  "scripts",
+  "services",
+  "AGENTS.md",
+  "CHANGELOG.md",
+  "CLAUDE.md",
+  "Cargo.lock",
+  "Cargo.toml",
+  "LICENSE.md",
+  "LOGOS_QUICKGUIDE.md",
+  "README.md",
+]
+
+[never_tracked]
+# A path component equal to one of these, a file ending in one of the suffixes, or a file with one of
+# the names never belongs in a checkout.
+components = [
+  "__pycache__",
+  "node_modules",
+  "target",
+  ".DS_Store",
+]
+suffixes = [
+  ".pyc",
+  ".pyo",
+  ".pid",
+  ".probe",
+  ".bak",
+  ".orig",
+  ".rej",
+  ".swp",
+]
+names = [
+  ".z3-trace",
+  ".env",
+]
+
+[empty]
+allowed_names = [
+  ".gitkeep",
+  # The conformance contract's recorded stderr of a verified Lean import: a verified run writes no
+  # diagnostics, and its FIXTURES.json pins that empty recording's digest.
+  "verified.diagnostics.ndjson",
+]
+
+[size]
+max_bytes = 5242880
+# Deliberately checked-in files above the budget, each with its reason.
+allowed = []
+
+[names]
+example_forbidden_prefixes = [
+  "zz_",
+  "scratch_",
+  "_tmp",
+]
+example_header = ["//!"]
+test_forbidden_prefixes = [
+  "zz_",
+  "scratch_",
+  "_tmp",
+  "debug_",
+]
+
+[scripts]
+# Entry points: what people run. Everything else in scripts/ lives in a category folder.
+top_level = [
+  "run-all-tests-fast.sh",
+  "run-all-tests.sh",
+  "run-research-tests.sh",
+  "run-silicon-tests.sh",
+  "run-kernel-pending-tests.sh",
+  "run-opt-audit-tests.sh",
+  "run-qemu-corpus-tests.sh",
+  "run-arena-mathlib-tests.sh",
+  "run-model-bars-tests.sh",
+  "run-opt-in-feature-tests.sh",
+  "run-handed-reds-tests.sh",
+  "compare-test-runs.sh",
+  "test-count.sh",
+  "bump-version.sh",
+  "generate-docs.sh",
+  "generate-roadmap.sh",
+  "check-packaging.sh",
+  "check-binary-sizes.sh",
+  # the tt ledger's reproducers: tenstorrent_gemm.json records them at this path
+  "tt-sim.sh",
+  "tt-matmul-measure.sh",
+  "tt-gemm-ledger.py",
+  # runs the decode images of benchmarks/silicon/decode_images.json on the boards and records what each measured
+  "decode-host.py",
+  # runs the decode step split over both boards (benchmarks/silicon/decode_split_images.json) and records each chip
+  "split-host.py",
+  # the Fabric Terminal: the REPL on Board B's screen and keyboard, its program library and the fabric engine's view
+  "logos-terminal.py",
+]
+# The folders of scripts/: the categories, the shared shell library, a workspace member, trees whose paths are
+# recorded (plasticine, qor, xc7) or mirror a vendored layout (openlane-overlay), the pinned tools' patched builds
+# (opensta, openroad), and the patches to a vendored tool (openxc7-patches).
+folders = ["test", "bench", "accel", "hw", "lean", "wasm", "web", "release", "dev", "lib", "wiki_trace", "plasticine", "qor", "xc7", "d5005", "openlane-overlay", "opensta", "openroad", "openxc7-patches"]
+
+[stdlib]
+# Every standard-library module is LOGOS source.
+dir = ["crates/logicaffeine_compile/assets/std"]
+extension = ["lg"]
+
+[local_only]
+# Trees that live beside the product on one machine and never in a checkout. Each may be a real
+# directory or a symlink into shared storage, so each must be ignored as a plain path.
+names = [
+  "external",
+  "logs",
+  "models",
+  "reference-kernels",
+  "tools",
+  "work",
+]
+
+[home_paths]
+# Account names that belong to no one: a CI runner's home, a documentation placeholder.
+generic_users = [
+  "runner",
+  "user",
+]
+
+[pending]
+root = []
+never_tracked = []
+empty = [
+]
+oversize = [
+]
+examples = [
+]
+tests = [
+]
+scripts = [
+  "scripts/anchor-ir-drop.sh",
+  "scripts/apply-pending-runner-edit.sh",
+  "scripts/audit-op-coverage.sh",
+  "scripts/caravel-harden.sh",
+  "scripts/caravel-macro-harden.sh",
+  "scripts/caravel-submission.sh",
+  "scripts/characterize-vdd-sweep.sh",
+  "scripts/check-wpe-psram-timing.sh",
+  "scripts/computedram-characterize.py",
+  "scripts/computedram-soc-read.py",
+  "scripts/conv-host.py",
+  "scripts/coproc-host.py",
+  "scripts/ddr2-compute-pipeline-read.py",
+  "scripts/ddr2-compute-pipeline64-read.py",
+  "scripts/ddr2-computedram-read.py",
+  "scripts/ddr2-dbquery-read.py",
+  "scripts/ddr2-memtest-read.py",
+  "scripts/ddr2-stage2c-read.py",
+  "scripts/demo-dram-determinism.sh",
+  "scripts/demo-hft.py",
+  "scripts/demo-hft.sh",
+  "scripts/demo-storage-determinism.sh",
+  "scripts/demo-wire-to-silicon.sh",
+  "scripts/derive-tapeout-projections.py",
+  "scripts/extract-netlist-topology.py",
+  "scripts/fabric-host.py",
+  "scripts/flash-and-run-ulx3s.sh",
+  "scripts/float-host.py",
+  "scripts/ftdi-serial-reset.py",
+  "scripts/gen-benchmark-timing.py",
+  "scripts/gen-caravel-macro-pinorder.py",
+  "scripts/gen-computedram-energy.py",
+  "scripts/gen-vsrc-loc.py",
+  "scripts/gen_tiny_transformer_lg.py",
+  "scripts/hft_baseline.c",
+  "scripts/hft_fuzz.py",
+  "scripts/hft_gen.py",
+  "scripts/hft_model.py",
+  "scripts/hft_report.py",
+  "scripts/impl-nexys-soc-openxc7.sh",
+  "scripts/impl-scalar-core-ecp5.sh",
+  "scripts/impl-soft-core-ecp5.sh",
+  "scripts/logos-chip.py",
+  "scripts/matmul-host.py",
+  "scripts/measure-power-vcd.sh",
+  "scripts/measure-silicon-power.py",
+  "scripts/nexys-host.py",
+  "scripts/nexys-video-echo.py",
+  "scripts/nexys-video-wpe-host.py",
+  "scripts/nexys-wpe-host.py",
+  "scripts/openlane-run.sh",
+  "scripts/openxc7-build.sh",
+  "scripts/read-dbg-200t.py",
+  "scripts/record-caravel-signoff.py",
+  "scripts/record-golden-precheck.py",
+  "scripts/record-mpw-precheck.py",
+  "scripts/record-silicon-power.py",
+  "scripts/record-silicon-reports.sh",
+  "scripts/record-sky130-signoff.py",
+  "scripts/remeasure-power.sh",
+  "scripts/resign-block.sh",
+  "scripts/run-benchmarks-on-engine.sh",
+  "scripts/run-golden-precheck-drc.sh",
+  "scripts/run-mpw-precheck.sh",
+  "scripts/run-on-nexys-full.sh",
+  "scripts/run-on-nexys-hft.sh",
+  "scripts/run-on-nexys-scalar.sh",
+  "scripts/run-tformer-200t.py",
+  "scripts/run-wpe-on-nexys.sh",
+  "scripts/seqprog-host.py",
+  "scripts/ser-build-200t.sh",
+  "scripts/setup-openxc7.sh",
+  "scripts/signoff-processor-edges.sh",
+  "scripts/sobel-host.py",
+  "scripts/state-host.py",
+  "scripts/stream-battery.py",
+  "scripts/stream-host.py",
+  "scripts/synth-fabric-matmul.sh",
+  "scripts/synth-soft-core-nexys.sh",
+  "scripts/synth-soft-core.sh",
+  "scripts/train_tiny_transformer.py",
+  "scripts/transformer-on-fabric.py",
+  "scripts/validate-fabric-engine.sh",
+  "scripts/validate-on-nexys-fabric.sh",
+  "scripts/validate-on-nexys-float.sh",
+  "scripts/validate-on-nexys-full.sh",
+  "scripts/validate-on-nexys-seqstate.sh",
+  "scripts/validate-on-nexys-state.sh",
+  "scripts/verify-chip-variant.sh",
+  "scripts/verify-fpu-soft-core.sh",
+  "scripts/verify-fpu.sh",
+  "scripts/verify-nexys-soc.sh",
+  "scripts/verify-soft-core-rtl.sh",
+  "scripts/verify-text-soft-core.sh",
+  "scripts/verify-word32-soft-core.sh",
+  "scripts/wpe-echo-test.py",
+  "scripts/wpe-fib-build-verify.sh",
+  "scripts/wpe-seed-sweep.sh",
+]
+home_paths = [
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/cold_jit.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/error.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/example_pass.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/fail.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/knob_hifi2.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/legacy_pass.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/no_pass.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/pass.log",
+  "crates/logicaffeine_tests/tests/fixtures/tt_ledger/pass_other_sim.log",
+  "crates/logicaffeine_tests/tests/repo_shape_lock.rs",
+]
+stdlib = [
+]

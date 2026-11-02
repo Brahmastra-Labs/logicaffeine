@@ -85,3 +85,94 @@ fn varying_divisor_is_not_rewritten() {
         rust
     );
 }
+
+/// The dividend's proof needs its LOWER bound alone. `i - 1`, over a counter from 1 that the loop bounds only by a
+/// runtime `n`, is `[0, +inf)` to the oracle: finite below, unbounded above, and `>= 0` is all the `i64`→`u64`
+/// reinterpretation asks.
+const SHIFTED_DIVIDEND: &str = r#"## To native parseInt (s: Text) -> Int
+## Main
+Let n be parseInt("10").
+Let mutable total be 0.
+Let mutable i be 1.
+While i is less than n:
+    Let r be (i - 1) % n.
+    Set total to total + r.
+    Set i to i + 1.
+Show total.
+"#;
+
+#[test]
+fn a_dividend_proven_nonnegative_by_its_lower_bound_alone_lowers_to_libdivide() {
+    let rust = compile_to_rust(SHIFTED_DIVIDEND).unwrap();
+    assert!(
+        rust.contains("LogosDivU64::new(") && rust.contains(".rem("),
+        "`i - 1` is `>= 0` with no upper bound, which is enough for the magic multiply. Got:\n{}",
+        rust
+    );
+}
+
+/// `(i - 1) % 10` over `i` in `1..10` is `0 + 1 + … + 8 = 36`.
+#[test]
+fn a_dividend_proven_nonnegative_by_its_lower_bound_alone_is_value_preserving() {
+    assert_exact_output(SHIFTED_DIVIDEND, "36");
+}
+
+/// A dividend that can be negative keeps the hardware `%`: `i - 7` from `i = 1` is `-6`, which the unsigned
+/// reinterpretation would read as `2^64 - 6`.
+const SIGNED_DIVIDEND: &str = r#"## To native parseInt (s: Text) -> Int
+## Main
+Let n be parseInt("10").
+Let mutable total be 0.
+Let mutable i be 1.
+While i is less than n:
+    Let r be (i - 7) % n.
+    Set total to total + r.
+    Set i to i + 1.
+Show total.
+"#;
+
+#[test]
+fn a_dividend_that_can_be_negative_keeps_the_hardware_modulo() {
+    let rust = compile_to_rust(SIGNED_DIVIDEND).unwrap();
+    assert!(
+        !rust.contains("LogosDivU64"),
+        "`i - 7` is `-6` on the first pass, so the divisor keeps the hardware `%`. Got:\n{}",
+        rust
+    );
+}
+
+/// Truncated remainders: `(i - 7) % 10` over `i` in `1..10` is `-6 - 5 - 4 - 3 - 2 - 1 + 0 + 1 + 2 = -18`.
+#[test]
+fn a_dividend_that_can_be_negative_keeps_truncated_remainder_semantics() {
+    assert_exact_output(SIGNED_DIVIDEND, "-18");
+}
+
+/// `while c < n` proves `n >= 1` only for a counter proven `>= 0`: from `c = -3`, `n` may be `-2` when the body runs.
+/// The dividend `i * i` is never negative, but the divisor is not proven positive, so it keeps the hardware `%`.
+const NEGATIVE_COUNTER: &str = r#"## To native parseInt (s: Text) -> Int
+## Main
+Let n be parseInt("10").
+Let mutable total be 0.
+Let mutable i be -3.
+While i is less than n:
+    Let r be (i * i) % n.
+    Set total to total + r.
+    Set i to i + 1.
+Show total.
+"#;
+
+#[test]
+fn a_counter_that_starts_negative_proves_no_divisor_positive() {
+    let rust = compile_to_rust(NEGATIVE_COUNTER).unwrap();
+    assert!(
+        !rust.contains("LogosDivU64"),
+        "a counter from -3 bounds `n` below by -2, not 1, so the divisor keeps the hardware `%`. Got:\n{}",
+        rust
+    );
+}
+
+/// `(i * i) % 10` over `i` in `-3..10` is `9 + 4 + 1 + 0 + 1 + 4 + 9 + 6 + 5 + 6 + 9 + 4 + 1 = 59`.
+#[test]
+fn a_counter_that_starts_negative_keeps_its_remainders() {
+    assert_exact_output(NEGATIVE_COUNTER, "59");
+}

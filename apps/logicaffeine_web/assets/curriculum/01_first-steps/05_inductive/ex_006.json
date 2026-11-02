@@ -12,5 +12,6 @@
   "correct": 2,
   "hint": "We're using both the presence AND absence of the suspected cause.",
   "explanation": "This is the Joint Method of Agreement and Difference. The Method of Agreement notes peanuts are always present when hives occur. The Method of Difference notes when peanuts are absent, hives are absent. Together, they provide stronger evidence for causation.",
-  "visual_concept": "On/Off switch: When the switch (peanuts) is ON, the light (hives) is on. When OFF, the light is off. The switch probably controls the light."
+  "visual_concept": "On/Off switch: When the switch (peanuts) is ON, the light (hives) is on. When OFF, the light is off. The switch probably controls the light.",
+  "section": "5.7"
 }

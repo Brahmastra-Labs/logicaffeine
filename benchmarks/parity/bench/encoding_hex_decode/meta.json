@@ -1,0 +1,11 @@
+{
+  "capability": "encoding.hex_decode",
+  "workload": "fromHex(toHex(s)) round-trip length",
+  "arg": "30000",
+  "expected": "121485000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

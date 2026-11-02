@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 5811000511
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc 249999

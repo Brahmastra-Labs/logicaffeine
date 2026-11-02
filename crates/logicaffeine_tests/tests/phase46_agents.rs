@@ -38,10 +38,7 @@ fn test_agent_spawn_with_article_a() {
 fn test_send_message_basic() {
     let source = "## Main\nSend Ping to \"echo\".";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(
-        rust.contains(".send("),
-        "Should generate channel send"
-    );
+    assert!(rust.contains(".send("), "Should generate channel send");
 }
 
 #[test]
@@ -70,10 +67,7 @@ fn test_await_response_basic() {
 fn test_await_binds_to_variable() {
     let source = "## Main\nAwait response from \"worker\" into data.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(
-        rust.contains("let data"),
-        "Should bind result to variable"
-    );
+    assert!(rust.contains("let data"), "Should bind result to variable");
 }
 
 // =============================================================================

@@ -1,0 +1,62 @@
+{
+  "_generated_by": "spatial_credit_loop_lock::every_input_fifo_covers_its_whole_credit_loop",
+  "cycle_model": "SpatialTarget::wormhole() calibrated constants",
+  "rows": [
+    {
+      "buffer": "in0@0,0",
+      "credit_return_cycles": 8.0,
+      "depth_credit_loop_requires": 2,
+      "depth_emitted": 2,
+      "forward_fetch_cycles": 64.0,
+      "memory_capped": false,
+      "round_trips_per_service": 0.36,
+      "service_cycles_per_block": 200.0,
+      "shape": "256x256x256"
+    },
+    {
+      "buffer": "in0@0,0",
+      "credit_return_cycles": 8.0,
+      "depth_credit_loop_requires": 2,
+      "depth_emitted": 2,
+      "forward_fetch_cycles": 256.0,
+      "memory_capped": false,
+      "round_trips_per_service": 1.32,
+      "service_cycles_per_block": 200.0,
+      "shape": "512x512x512"
+    },
+    {
+      "buffer": "in0@0,0",
+      "credit_return_cycles": 8.0,
+      "depth_credit_loop_requires": 4,
+      "depth_emitted": 4,
+      "forward_fetch_cycles": 640.0,
+      "memory_capped": false,
+      "round_trips_per_service": 3.24,
+      "service_cycles_per_block": 200.0,
+      "shape": "640x640x640"
+    },
+    {
+      "buffer": "in0@0,0",
+      "credit_return_cycles": 8.0,
+      "depth_credit_loop_requires": 3,
+      "depth_emitted": 3,
+      "forward_fetch_cycles": 512.0,
+      "memory_capped": false,
+      "round_trips_per_service": 2.6,
+      "service_cycles_per_block": 200.0,
+      "shape": "1024x1024x512"
+    },
+    {
+      "buffer": "in0@0,1",
+      "credit_return_cycles": 8.0,
+      "depth_credit_loop_requires": 6,
+      "depth_emitted": 2,
+      "forward_fetch_cycles": 1024.0,
+      "memory_capped": true,
+      "round_trips_per_service": 5.16,
+      "service_cycles_per_block": 200.0,
+      "shape": "2048x1024x512"
+    }
+  ],
+  "what": "Per shape: the service one K block of compute buys, the credit return trip the producer                  must wait out, the depth the compiler emits, and the depth the credit loop requires. A                  shape whose round trip exceeds one service time is one where sizing on the forward fetch                  alone under-provisions."
+}

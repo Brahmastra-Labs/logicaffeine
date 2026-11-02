@@ -1,0 +1,40 @@
+Solve a DIMACS CNF with the certified SAT engine.
+
+The SAT Competition interface as a largo verb: prints `s SATISFIABLE` with a `v` model or `s UNSATISFIABLE`, optionally exporting a DRAT/DPR/SR refutation for external checkers (drat-trim). Exit codes follow the competition convention: 10 = SAT, 20 = UNSAT, 1 = error.
+
+Usage: largo sat [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>
+          The DIMACS CNF file to solve
+
+Options:
+      --proof <PROOF>
+          Write the UNSAT certificate here (DRAT; DPR/SR for symmetry routes)
+
+      --stats
+          Print solver statistics to stderr
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo sat instance.cnf
+  largo sat instance.cnf --proof refutation.drat
+  largo sat instance.cnf --stats

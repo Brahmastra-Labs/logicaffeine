@@ -20,30 +20,24 @@ const CONTEXT_VIEW_STYLE: &str = r#"
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #12161c;
+    background: var(--studio-surface, #12161c);
     font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
-.context-view-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.context-view-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
-}
 
 .context-sections {
     flex: 1;
     overflow: auto;
-    padding: 12px;
+    padding: var(--studio-inset, 12px);
 }
 
 .context-section {
     margin-bottom: 20px;
+}
+
+/* The list ends at its last section; the panel's own inset is the only space after it. */
+.context-section:last-child {
+    margin-bottom: 0;
 }
 
 .context-section-header {
@@ -58,10 +52,7 @@ const CONTEXT_VIEW_STYLE: &str = r#"
 }
 
 .context-item {
-    padding: 8px 10px;
-    margin-bottom: 4px;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 4px;
+    padding: 4px 0;
     font-size: 12px;
     line-height: 1.5;
 }
@@ -132,19 +123,11 @@ pub enum EntryKind {
 }
 
 #[component]
-pub fn ContextView(
-    definitions: Vec<ContextEntry>,
-    inductives: Vec<ContextEntry>,
-) -> Element {
+pub fn ContextView(definitions: Vec<ContextEntry>, inductives: Vec<ContextEntry>) -> Element {
     rsx! {
         style { "{CONTEXT_VIEW_STYLE}" }
 
         div { class: "context-view",
-            // Header
-            div { class: "context-view-header",
-                span { class: "context-view-title", "Context" }
-            }
-
             // Sections
             div { class: "context-sections",
                 if definitions.is_empty() && inductives.is_empty() {

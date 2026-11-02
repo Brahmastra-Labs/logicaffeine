@@ -9,8 +9,10 @@ const hasOPFS = typeof navigator !== 'undefined'
     && typeof navigator.storage !== 'undefined'
     && typeof navigator.storage.getDirectory === 'function';
 
+// Not an error: without OPFS (plain http off localhost, private windows, iOS Safari workers)
+// the Studio falls back to IndexedDB by design, and says so beside its Files header.
 if (!hasOPFS) {
-    console.error('[OPFS Worker] OPFS not available:', {
+    console.warn('[OPFS Worker] OPFS not available; the Studio falls back to IndexedDB:', {
         hasNavigator: typeof navigator !== 'undefined',
         hasStorage: typeof navigator !== 'undefined' && typeof navigator.storage !== 'undefined',
         hasGetDirectory: typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.getDirectory === 'function',

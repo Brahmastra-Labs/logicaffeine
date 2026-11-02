@@ -20,12 +20,18 @@ pub struct LinExpr {
 
 impl LinExpr {
     fn constant(c: i64) -> Self {
-        LinExpr { coeffs: BTreeMap::new(), constant: c }
+        LinExpr {
+            coeffs: BTreeMap::new(),
+            constant: c,
+        }
     }
     fn var(name: &str) -> Self {
         let mut coeffs = BTreeMap::new();
         coeffs.insert(name.to_string(), 1);
-        LinExpr { coeffs, constant: 0 }
+        LinExpr {
+            coeffs,
+            constant: 0,
+        }
     }
     fn prune(mut self) -> Self {
         self.coeffs.retain(|_, c| *c != 0);
@@ -36,7 +42,11 @@ impl LinExpr {
         for (k, v) in &o.coeffs {
             *coeffs.entry(k.clone()).or_insert(0) += v;
         }
-        LinExpr { coeffs, constant: self.constant + o.constant }.prune()
+        LinExpr {
+            coeffs,
+            constant: self.constant + o.constant,
+        }
+        .prune()
     }
     fn neg(&self) -> Self {
         LinExpr {
@@ -53,7 +63,11 @@ impl LinExpr {
     }
     fn scale(&self, k: i64) -> Self {
         LinExpr {
-            coeffs: self.coeffs.iter().map(|(x, v)| (x.clone(), v * k)).collect(),
+            coeffs: self
+                .coeffs
+                .iter()
+                .map(|(x, v)| (x.clone(), v * k))
+                .collect(),
             constant: self.constant * k,
         }
         .prune()
@@ -103,7 +117,12 @@ struct Row {
     prov: BTreeMap<usize, i64>,
 }
 
-fn combine_prov(a: &BTreeMap<usize, i64>, ka: i64, b: &BTreeMap<usize, i64>, kb: i64) -> BTreeMap<usize, i64> {
+fn combine_prov(
+    a: &BTreeMap<usize, i64>,
+    ka: i64,
+    b: &BTreeMap<usize, i64>,
+    kb: i64,
+) -> BTreeMap<usize, i64> {
     let mut out = BTreeMap::new();
     for (i, v) in a {
         *out.entry(*i).or_insert(0) += v * ka;
@@ -123,7 +142,10 @@ pub fn find_farkas(constraints: &[LinExpr]) -> Option<BTreeMap<usize, i64>> {
     let mut rows: Vec<Row> = constraints
         .iter()
         .enumerate()
-        .map(|(i, e)| Row { e: e.clone(), prov: BTreeMap::from([(i, 1)]) })
+        .map(|(i, e)| Row {
+            e: e.clone(),
+            prov: BTreeMap::from([(i, 1)]),
+        })
         .collect();
 
     let contradiction = |rows: &[Row]| -> Option<BTreeMap<usize, i64>> {
@@ -156,7 +178,7 @@ pub fn find_farkas(constraints: &[LinExpr]) -> Option<BTreeMap<usize, i64>> {
         for p in &pos {
             for n in &neg {
                 let (pc, nc) = (p.e.coeff(&v), -n.e.coeff(&v)); // both > 0
-                // nc·p + pc·n  cancels v (coeff: nc·pc + pc·(-nc) = 0).
+                                                                // nc·p + pc·n  cancels v (coeff: nc·pc + pc·(-nc) = 0).
                 next.push(Row {
                     e: p.e.scale(nc).add(&n.e.scale(pc)),
                     prov: combine_prov(&p.prov, nc, &n.prov, pc),
@@ -183,76 +205,5 @@ pub fn combine(constraints: &[LinExpr], multipliers: &BTreeMap<usize, i64>) -> L
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn cst(c: i64) -> ProofTerm {
-        ProofTerm::Constant(c.to_string())
-    }
-    fn var(s: &str) -> ProofTerm {
-        ProofTerm::Constant(s.to_string())
-    }
-    fn f(n: &str, a: Vec<ProofTerm>) -> ProofTerm {
-        ProofTerm::Function(n.to_string(), a)
-    }
-    /// The constraint from `l ≤ r`: `l - r ≤ 0`.
-    fn le_constraint(l: ProofTerm, r: ProofTerm) -> LinExpr {
-        parse_lin(&l).unwrap().sub(&parse_lin(&r).unwrap())
-    }
-
-    #[test]
-    fn parses_linear_forms() {
-        // 2*x + 3  -  (x + 1)  =  x + 2
-        let e = le_constraint(f("add", vec![f("mul", vec![cst(2), var("x")]), cst(3)]), f("add", vec![var("x"), cst(1)]));
-        assert_eq!(e.coeff("x"), 1);
-        assert_eq!(e.constant, 2);
-    }
-
-    #[test]
-    fn rejects_nonlinear() {
-        assert!(parse_lin(&f("mul", vec![var("x"), var("y")])).is_none());
-    }
-
-    #[test]
-    fn chain_contradiction_5_le_x_le_3() {
-        // 5 ≤ x  →  5 - x ≤ 0 ;  x ≤ 3  →  x - 3 ≤ 0.  Sum = 2 ≤ 0 (contradiction).
-        let cs = vec![le_constraint(cst(5), var("x")), le_constraint(var("x"), cst(3))];
-        let cert = find_farkas(&cs).expect("5≤x≤3 is unsatisfiable");
-        assert_eq!(cert.get(&0), Some(&1));
-        assert_eq!(cert.get(&1), Some(&1));
-    }
-
-    #[test]
-    fn scaling_contradiction_needs_a_multiplier() {
-        // 2 ≤ x  →  2 - x ≤ 0 ;  2*x ≤ 3  →  2x - 3 ≤ 0.
-        // 2·(2 - x) + 1·(2x - 3) = 1 ≤ 0  — contradiction, multiplier 2 on the first.
-        let cs = vec![
-            le_constraint(cst(2), var("x")),
-            le_constraint(f("mul", vec![cst(2), var("x")]), cst(3)),
-        ];
-        let cert = find_farkas(&cs).expect("2≤x and 2x≤3 is unsatisfiable");
-        assert_eq!(cert.get(&0), Some(&2), "needs to scale `2 ≤ x` by 2");
-        assert_eq!(cert.get(&1), Some(&1));
-    }
-
-    #[test]
-    fn two_variable_contradiction() {
-        // x ≤ y, y ≤ z, z ≤ x - 1  →  x ≤ y ≤ z ≤ x-1  →  x ≤ x-1  →  1 ≤ 0.
-        let cs = vec![
-            le_constraint(var("x"), var("y")),
-            le_constraint(var("y"), var("z")),
-            le_constraint(var("z"), f("sub", vec![var("x"), cst(1)])),
-        ];
-        let cert = find_farkas(&cs).expect("the cycle is unsatisfiable");
-        assert_eq!(cert.get(&0), Some(&1));
-        assert_eq!(cert.get(&1), Some(&1));
-        assert_eq!(cert.get(&2), Some(&1));
-    }
-
-    #[test]
-    fn satisfiable_system_has_no_certificate() {
-        // 1 ≤ x, x ≤ 5  — consistent.
-        let cs = vec![le_constraint(cst(1), var("x")), le_constraint(var("x"), cst(5))];
-        assert!(find_farkas(&cs).is_none(), "1≤x≤5 is satisfiable");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/linarith_solve/tests.rs"]
+mod tests;

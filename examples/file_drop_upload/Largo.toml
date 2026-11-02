@@ -1,0 +1,6 @@
+[dependencies]
+
+[package]
+authors = []
+name = "file_drop_upload"
+version = "0.1.0"

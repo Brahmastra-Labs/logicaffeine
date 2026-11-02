@@ -1,0 +1,10 @@
+{
+  "capability": "operator.ge",
+  "workload": "count i where opGe(i,1500000) over 1..n",
+  "arg": "3000000",
+  "expected": "1500001",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

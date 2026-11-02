@@ -1,0 +1,109 @@
+{
+  "case": "T04-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 13,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Type",
+      "name": "T04_020.Carrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_020.byCasesEx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 { b // (b = true \u2192 n = 0) \u2227 (b = false \u2192 n \u2260 0) }",
+      "name": "T04_020.describe",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n = 0 \u2192 (true = true \u2192 n = 0) \u2227 (true = false \u2192 n \u2260 0)",
+      "name": "T04_020.describe.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), \u00acn = 0 \u2192 (false = true \u2192 n = 0) \u2227 (false = false \u2192 n \u2260 0)",
+      "name": "T04_020.describe.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "(p : Prop) \u2192 [inst : Decidable p] \u2192 (p \u2192 Nat) \u2192 (\u00acp \u2192 Nat) \u2192 Nat",
+      "name": "T04_020.diteExplicit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 List Nat",
+      "name": "T04_020.dropZeros",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Option { z // 10 < z }",
+      "name": "T04_020.firstBig",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((x : Nat) \u2192 (t : List Nat) \u2192 motive (x :: t)) \u2192 motive x",
+      "name": "T04_020.firstBig.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 n \u2260 0 \u2192 Nat",
+      "name": "T04_020.predOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 (m : Nat) \u2192 { q // m = 0 \u2192 q = 0 }",
+      "name": "T04_020.safeDiv",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (m : Nat), m = 0 \u2192 0 = 0",
+      "name": "T04_020.safeDiv.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat), \u00acm = 0 \u2192 m = 0 \u2192 n / m = 0",
+      "name": "T04_020.safeDiv.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

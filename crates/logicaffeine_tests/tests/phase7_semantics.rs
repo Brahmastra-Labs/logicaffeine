@@ -31,8 +31,8 @@ fn intersective_unchanged() {
     // Red->R, Ball->B - should remain as conjunction R(x) ∧ B(x)
     // NOT R(x, ^B) since red is intersective
     assert!(
-        (output.contains("R(x)") || output.contains("Red(x)")) &&
-        (output.contains("B(x)") || output.contains("Ball(x)")),
+        (output.contains("R(x)") || output.contains("Red(x)"))
+            && (output.contains("B(x)") || output.contains("Ball(x)")),
         "Intersective adjective should stay as conjunction: got '{}'",
         output
     );

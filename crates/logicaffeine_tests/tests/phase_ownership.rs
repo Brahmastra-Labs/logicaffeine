@@ -17,8 +17,12 @@ Show x to console.
     assert!(result.is_err(), "Use after potential move should fail");
     let err = format!("{:?}", result.unwrap_err());
     assert!(
-        err.contains("move") || err.contains("Move") || err.contains("give") || err.contains("Give"),
-        "Error should mention move/ownership: {}", err
+        err.contains("move")
+            || err.contains("Move")
+            || err.contains("give")
+            || err.contains("Give"),
+        "Error should mention move/ownership: {}",
+        err
     );
 }
 
@@ -41,7 +45,11 @@ Show x to console.
 Give x to processor.
 "#;
     let result = compile_to_rust_checked(source);
-    assert!(result.is_ok(), "Show then Give is valid: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Show then Give is valid: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -66,7 +74,11 @@ If x > 0:
     Give x to processor.
 "#;
     let result = compile_to_rust_checked(source);
-    assert!(result.is_ok(), "Move in branch without later use is valid: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Move in branch without later use is valid: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -105,5 +117,9 @@ Show x to console2.
 Show x to console3.
 "#;
     let result = compile_to_rust_checked(source);
-    assert!(result.is_ok(), "Multiple Shows should be valid: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Multiple Shows should be valid: {:?}",
+        result.err()
+    );
 }

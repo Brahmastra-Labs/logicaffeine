@@ -1,0 +1,42 @@
+{
+  "id": "6.1",
+  "title": "Connectives",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Propositional logic joins whole sentences with **connectives**: ¬ (not), ∧ (and), ∨ (or), → (if then) and ↔ (if and only if)."
+    },
+    {
+      "type": "paragraph",
+      "text": "A formula A → B is false only when A is true and B is false. A ∨ B is true when either part is, or both."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "If John is happy, then Mary is sad.",
+      "formula": "(Happy(John) → Sad(Mary))",
+      "note": "→ joins the if part to the then part."
+    },
+    {
+      "type": "formula",
+      "sentence": "John is not happy or Mary is sad.",
+      "formula": "(¬Happy(John) ∨ Sad(Mary))",
+      "note": "¬ covers only the first part. ∨ joins the two parts."
+    },
+    {
+      "type": "formula",
+      "sentence": "John is happy if and only if Mary is sad.",
+      "formula": "(Happy(John) ↔ Sad(Mary))",
+      "note": "↔ says the two parts are both true or both false."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "If Mary is happy, then John is not sad.",
+    "answer": "(Happy(Mary) → ¬Sad(John))",
+    "hint": "The if part goes before →. The then part is a denial.",
+    "explanation": "Happy(Mary) is the if part and ¬Sad(John) is the then part, joined by →."
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "capability": "heap.len",
+  "workload": "heapLen(heapifySeq(xs)) = M",
+  "arg": "100000",
+  "expected": "409600000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

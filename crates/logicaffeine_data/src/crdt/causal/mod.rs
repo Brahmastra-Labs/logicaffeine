@@ -2,10 +2,10 @@
 //!
 //! Foundation for tracking causality in distributed systems.
 
+mod context;
 mod dot;
 mod vclock;
-mod context;
 
+pub use context::DotContext;
 pub use dot::Dot;
 pub use vclock::VClock;
-pub use context::DotContext;

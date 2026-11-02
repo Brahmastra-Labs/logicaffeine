@@ -26,7 +26,11 @@ Show "passed".
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("passed"), "Should output 'passed', got: {}", result.output);
+    assert!(
+        result.output.contains("passed"),
+        "Should output 'passed', got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -45,8 +49,11 @@ Show "should not reach".
 "#;
     let result = run_interpreter(source);
     assert!(!result.success, "Should fail security check");
-    assert!(result.error.contains("Security") || result.error.contains("Check"),
-        "Should have security error, got: {}", result.error);
+    assert!(
+        result.error.contains("Security") || result.error.contains("Check"),
+        "Should have security error, got: {}",
+        result.error
+    );
 }
 
 #[test]
@@ -65,7 +72,11 @@ Show "editor verified".
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("editor verified"), "Should output 'editor verified', got: {}", result.output);
+    assert!(
+        result.output.contains("editor verified"),
+        "Should output 'editor verified', got: {}",
+        result.output
+    );
 }
 
 // =============================================================================
@@ -88,7 +99,11 @@ Show "trusted".
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("trusted"), "Should output 'trusted', got: {}", result.output);
+    assert!(
+        result.output.contains("trusted"),
+        "Should output 'trusted', got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -132,5 +147,9 @@ Show "both passed".
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("both passed"), "Should output 'both passed', got: {}", result.output);
+    assert!(
+        result.output.contains("both passed"),
+        "Should output 'both passed', got: {}",
+        result.output
+    );
 }

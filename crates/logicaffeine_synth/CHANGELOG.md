@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-04
+
+### Added
+- **`reversible`: Z3 bijectivity proofs for the reversible opcodes.** `all_rev_specs` pairs `RevAdd`, `RevSub`, `RevXor` and `RevNeg` with the inverses the ISA declares for them. `prove_bijective` discharges both `∀x,d. G(F(x,d),d) = x` and `∀x,d. F(G(x,d),d) = x` over BV64 by refutation, and `prove_swap_involution` proves `RevSwap` is its own inverse; a deliberately wrong inverse is rejected, so the harness can fail. It is the semantic complement of the structural pairing in `reverse_op_lock`. `RevSpec`, `all_rev_specs`, `prove_bijective` and `prove_swap_involution` are re-exported at the crate root. `crates/logicaffeine_tests/unit/logicaffeine_synth/reversible/tests.rs`.
+
 ## [0.10.0] - 2026-07-08
 
 ### Added

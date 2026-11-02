@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     long primes[] = {31, 37, 41, 43, 47};
     long offsets[] = {7, 13, 17, 23, 29};
     long *adj = new long[n * MAX_EDGES];
-    int *adj_count = new int[n]();
+    long *adj_count = new long[n]();
     for (int p = 0; p < MAX_EDGES; p++) {
         for (long i = 0; i < n; i++) {
             long neighbor = (i * primes[p] + offsets[p]) % n;
@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
     dist[0] = 0;
     while (front < back) {
         long v = queue[front++];
-        for (int e = 0; e < adj_count[v]; e++) {
+        for (long e = 0; e < adj_count[v]; e++) {
             long u = adj[v * MAX_EDGES + e];
             if (dist[u] == -1) { dist[u] = dist[v] + 1; queue[back++] = u; }
         }
@@ -37,7 +37,9 @@ int main(int argc, char *argv[]) {
     for (long i = 0; i < n; i++) {
         if (dist[i] >= 0) { reachable++; total_dist += dist[i]; }
     }
-    printf("%ld %ld\n", reachable, total_dist);
+    long h = 0;
+    for (long i = 0; i < n; i++) h = (h * 31 + dist[i] + 1) & 268435455;
+    printf("%ld %ld %ld\n", reachable, total_dist, h);
     delete[] adj; delete[] adj_count; delete[] queue; delete[] dist;
     return 0;
 }

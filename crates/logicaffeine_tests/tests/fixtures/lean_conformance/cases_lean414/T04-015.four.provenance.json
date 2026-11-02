@@ -1,0 +1,45 @@
+{
+  "case": "T04-015",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t04_recursion/T04-015_well_founded_fix.lean",
+  "source_sha256": "21c0b33bcd73fd5a901f4c76b5fd0c2d5ebd079b5f9dde6ea2aeaa117497d877",
+  "ledger_sha256": "f62eb6178590c5e76f21b64cbbc696d074f957364aeb299f82ddb615e4907fde",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T04_015.accCount",
+    "T04_015.accIsAType",
+    "T04_015.ltWf",
+    "T04_015.wfSum"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "a8d5e679d0fb82e43a954f5f3edcaa96d58538fafb0344ef8c86a433c833787f",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 4907
+}

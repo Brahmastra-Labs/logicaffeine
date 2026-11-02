@@ -1,0 +1,374 @@
+{
+  "case": "T12-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 44,
+  "declarations": [
+    {
+      "type": "T12_011.Point \u2192 T12_011.Point \u2192 T12_011.Point \u2192 T12_011.Point \u2192 Prop",
+      "name": "T12_011.Cong",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.Cong"
+      ]
+    },
+    {
+      "type": "T12_011.Entity \u2192 Prop",
+      "name": "T12_011.Doomed",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.Doomed"
+      ]
+    },
+    {
+      "type": "Type",
+      "name": "T12_011.Entity",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.Entity"
+      ]
+    },
+    {
+      "type": "T12_011.Entity \u2192 Prop",
+      "name": "T12_011.Man",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.Man"
+      ]
+    },
+    {
+      "type": "T12_011.Entity \u2192 Prop",
+      "name": "T12_011.Mortal",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.Mortal"
+      ]
+    },
+    {
+      "type": "Type",
+      "name": "T12_011.Point",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.Point"
+      ]
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T12_011.Pointed",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T12_011.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T12_011.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T12_011.Pointed.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T12_011.Pointed \u03b1",
+      "name": "T12_011.Pointed.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T12_011.Pointed \u03b1} \u2192 v1 = v2 \u2192 T12_011.Pointed.noConfusionType P v1 v2",
+      "name": "T12_011.Pointed.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T12_011.Pointed \u03b1 \u2192 T12_011.Pointed \u03b1 \u2192 Sort u",
+      "name": "T12_011.Pointed.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T12_011.Pointed \u03b1] \u2192 \u03b1",
+      "name": "T12_011.Pointed.point",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T12_011.Pointed \u03b1 \u2192 Sort u} \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 (t : T12_011.Pointed \u03b1) \u2192 motive t",
+      "name": "T12_011.Pointed.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T12_011.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T12_011.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T12_011.Pointed.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Nat \u2192 Type",
+      "name": "T12_011.Vect",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Sort u} \u2192 {a : Nat} \u2192 T12_011.Vect \u03b1 a \u2192 Sort (max 1 u)",
+      "name": "T12_011.Vect.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Prop} {a : Nat} (t : T12_011.Vect \u03b1 a),\n  (\u2200 (a : Nat) (t : T12_011.Vect \u03b1 a), T12_011.Vect.ibelow t \u2192 motive a t) \u2192 motive a t",
+      "name": "T12_011.Vect.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T12_011.Vect \u03b1 a) \u2192 ((a : Nat) \u2192 (t : T12_011.Vect \u03b1 a) \u2192 T12_011.Vect.below t \u2192 motive a t) \u2192 motive a t",
+      "name": "T12_011.Vect.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T12_011.Vect \u03b1 a) \u2192\n        motive 0 T12_011.Vect.nil \u2192\n          ({n : Nat} \u2192 (a : \u03b1) \u2192 (a_1 : T12_011.Vect \u03b1 n) \u2192 motive (n + 1) (T12_011.Vect.cons a a_1)) \u2192 motive a t",
+      "name": "T12_011.Vect.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {n : Nat} \u2192 \u03b1 \u2192 T12_011.Vect \u03b1 n \u2192 T12_011.Vect \u03b1 (n + 1)",
+      "name": "T12_011.Vect.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {n : Nat} {a : \u03b1} {a_1 : T12_011.Vect \u03b1 n} {a_2 : \u03b1} {a_3 : T12_011.Vect \u03b1 n},\n  T12_011.Vect.cons a a_1 = T12_011.Vect.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T12_011.Vect.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {n : Nat} (a : \u03b1) (a_1 : T12_011.Vect \u03b1 n) (a_2 : \u03b1) (a_3 : T12_011.Vect \u03b1 n),\n  (T12_011.Vect.cons a a_1 = T12_011.Vect.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T12_011.Vect.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] {n : Nat} (a : \u03b1) (a_1 : T12_011.Vect \u03b1 n),\n  sizeOf (T12_011.Vect.cons a a_1) = 1 + sizeOf n + sizeOf a + sizeOf a_1",
+      "name": "T12_011.Vect.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Prop} \u2192 {a : Nat} \u2192 T12_011.Vect \u03b1 a \u2192 Prop",
+      "name": "T12_011.Vect.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {n : Nat} \u2192 T12_011.Vect \u03b1 n \u2192 Nat",
+      "name": "T12_011.Vect.length",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T12_011.Vect \u03b1 0",
+      "name": "T12_011.Vect.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T12_011.Vect.nil = 1",
+      "name": "T12_011.Vect.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T12_011.Vect \u03b1 a} \u2192 v1 = v2 \u2192 T12_011.Vect.noConfusionType P v1 v2",
+      "name": "T12_011.Vect.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 Sort u \u2192 T12_011.Vect \u03b1 a \u2192 T12_011.Vect \u03b1 a \u2192 Sort u",
+      "name": "T12_011.Vect.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    motive 0 T12_011.Vect.nil \u2192\n      ({n : Nat} \u2192 (a : \u03b1) \u2192 (a_1 : T12_011.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T12_011.Vect.cons a a_1)) \u2192\n        {a : Nat} \u2192 (t : T12_011.Vect \u03b1 a) \u2192 motive a t",
+      "name": "T12_011.Vect.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T12_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T12_011.Vect \u03b1 a) \u2192\n        motive 0 T12_011.Vect.nil \u2192\n          ({n : Nat} \u2192 (a : \u03b1) \u2192 (a_1 : T12_011.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T12_011.Vect.cons a a_1)) \u2192\n            motive a t",
+      "name": "T12_011.Vect.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T12_011.double",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T12_011.double n = n + n",
+      "name": "T12_011.double.eq_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(\u2200 (x : T12_011.Entity), T12_011.Man x \u2192 T12_011.Mortal x) \u2192\n  T12_011.Man T12_011.socrates \u2192 T12_011.Mortal T12_011.socrates",
+      "name": "T12_011.routeA",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_011.Entity",
+        "T12_011.Man",
+        "T12_011.Mortal",
+        "T12_011.socrates"
+      ]
+    },
+    {
+      "type": "(\u2200 (a b : T12_011.Point), T12_011.Cong a b b a) \u2192\n  (\u2200 (a b c d e f : T12_011.Point), T12_011.Cong a b c d \u2192 T12_011.Cong a b e f \u2192 T12_011.Cong c d e f) \u2192\n    \u2200 (a b : T12_011.Point), T12_011.Cong a b a b",
+      "name": "T12_011.routeB",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_011.Point",
+        "T12_011.Cong"
+      ]
+    },
+    {
+      "type": "\u2200 (x : Nat), 2 * x \u2264 2 * x + 1",
+      "name": "T12_011.routeC",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), \u2203 y, x + 1 \u2264 y",
+      "name": "T12_011.routeK_alternating",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) [inst : T12_011.Pointed \u03b1], T12_011.Pointed.point = T12_011.Pointed.point",
+      "name": "T12_011.routeK_class",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T12_011.double n = 2 * n",
+      "name": "T12_011.routeK_default",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop) (Q : (n : Nat) \u2192 P n \u2192 Prop) (n : Nat) (h : P n), Q n h \u2192 Q n h",
+      "name": "T12_011.routeK_dependent",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (n : Nat) (v : T12_011.Vect \u03b1 n), v.length = n",
+      "name": "T12_011.routeK_indexed",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (P : \u03b1 \u2192 Prop), (\u2200 (x : \u03b1), P x) \u2192 \u2200 (a : \u03b1), P a",
+      "name": "T12_011.routeK_universe",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T12_011.Entity",
+      "name": "T12_011.socrates",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_011.socrates"
+      ]
+    },
+    {
+      "type": "(\u2200 (x : T12_011.Entity), T12_011.Man x \u2192 T12_011.Mortal x) \u2192\n  T12_011.Man T12_011.socrates \u2192\n    (\u2200 (x : T12_011.Entity), T12_011.Mortal x \u2192 T12_011.Doomed x) \u2192 T12_011.Doomed T12_011.socrates",
+      "name": "T12_011.usesRouteA",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_011.Entity",
+        "T12_011.Man",
+        "T12_011.Mortal",
+        "T12_011.socrates",
+        "T12_011.Doomed"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

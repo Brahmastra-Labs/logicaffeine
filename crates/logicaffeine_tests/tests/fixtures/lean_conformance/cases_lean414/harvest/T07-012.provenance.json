@@ -1,0 +1,92 @@
+{
+  "case": "T07-012",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t07_typeclasses/T07-012_bundled_vs_unbundled.lean",
+  "source_sha256": "54e7f318eb77cc168d54640f6e4f07ce7c1b4fc4f593fc4a0e5a8ebe9635bb2d",
+  "ledger_sha256": "fcc62dba1399392493e3412c674f3dfe23ad42fcb3ecf78e1a3ab6f5cb2318ec",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T07_012.BHom",
+    "T07_012.BHom.map_one",
+    "T07_012.BHom.mk",
+    "T07_012.BHom.toFun",
+    "T07_012.BMonoid",
+    "T07_012.BMonoid.carrier",
+    "T07_012.BMonoid.mk",
+    "T07_012.BMonoid.mul",
+    "T07_012.BMonoid.one",
+    "T07_012.BMonoid.one_mul",
+    "T07_012.UMonoid",
+    "T07_012.UMonoid.mk",
+    "T07_012.UMonoid.mul",
+    "T07_012.UMonoid.one",
+    "T07_012.UMonoid.one_mul",
+    "T07_012.bcombine",
+    "T07_012.idHom",
+    "T07_012.instUMonoidNat",
+    "T07_012.natBMonoid",
+    "T07_012.toBundled",
+    "T07_012.toUnbundled",
+    "T07_012.ucombine"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "13bff12683684923119f91610c56ccb64bfdedbe00104523d351334293957a76",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 2298,
+  "harvest": {
+    "roots": [
+      "T07_012.BHom",
+      "T07_012.BHom.map_one",
+      "T07_012.BHom.mk",
+      "T07_012.BHom.toFun",
+      "T07_012.BMonoid",
+      "T07_012.BMonoid.carrier",
+      "T07_012.BMonoid.mk",
+      "T07_012.BMonoid.mul",
+      "T07_012.BMonoid.one",
+      "T07_012.BMonoid.one_mul",
+      "T07_012.UMonoid",
+      "T07_012.UMonoid.mk",
+      "T07_012.UMonoid.mul",
+      "T07_012.UMonoid.one",
+      "T07_012.UMonoid.one_mul",
+      "T07_012.bcombine",
+      "T07_012.idHom",
+      "T07_012.instUMonoidNat",
+      "T07_012.natBMonoid",
+      "T07_012.toBundled",
+      "T07_012.toUnbundled",
+      "T07_012.ucombine"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

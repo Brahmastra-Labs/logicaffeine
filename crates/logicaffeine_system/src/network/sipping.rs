@@ -4,8 +4,8 @@
 //! enabling resumable, verifiable file transfers over unreliable networks.
 
 use crate::memory::Zone;
-use sha2::{Sha256, Digest};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Default chunk size: 1 MB
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024;
@@ -125,9 +125,7 @@ impl<'a> FileSipper<'a> {
     pub fn manifest(&self) -> FileManifest {
         let slice = self.zone.as_slice();
         let chunk_count = self.chunk_count();
-        let hashes: Vec<[u8; 32]> = (0..chunk_count)
-            .map(|i| self.hash_chunk(i))
-            .collect();
+        let hashes: Vec<[u8; 32]> = (0..chunk_count).map(|i| self.hash_chunk(i)).collect();
 
         FileManifest {
             file_id: self.file_id.clone(),
@@ -155,69 +153,5 @@ impl<'a> FileSipper<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
-
-    fn create_test_file(size: usize) -> NamedTempFile {
-        let mut file = NamedTempFile::new().unwrap();
-        let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
-        file.write_all(&data).unwrap();
-        file.flush().unwrap();
-        file
-    }
-
-    #[test]
-    fn test_chunk_count_empty() {
-        // Create empty file
-        let file = NamedTempFile::new().unwrap();
-        let zone = Zone::new_mapped(file.path()).unwrap();
-        let sipper = FileSipper::from_zone(&zone);
-        assert_eq!(sipper.chunk_count(), 0);
-    }
-
-    #[test]
-    fn test_chunk_count_small_file() {
-        let file = create_test_file(100);
-        let zone = Zone::new_mapped(file.path()).unwrap();
-        let sipper = FileSipper::from_zone(&zone);
-        assert_eq!(sipper.chunk_count(), 1); // 100 bytes < 1 MB
-    }
-
-    #[test]
-    fn test_manifest_has_correct_size() {
-        let file = create_test_file(1000);
-        let zone = Zone::new_mapped(file.path()).unwrap();
-        let sipper = FileSipper::from_zone(&zone);
-        let manifest = sipper.manifest();
-
-        assert_eq!(manifest.total_size, 1000);
-        assert_eq!(manifest.chunk_count, 1);
-        assert_eq!(manifest.chunk_hashes.len(), 1);
-    }
-
-    #[test]
-    fn test_chunk_hash_is_consistent() {
-        let file = create_test_file(500);
-        let zone = Zone::new_mapped(file.path()).unwrap();
-        let sipper = FileSipper::from_zone(&zone);
-
-        let hash1 = sipper.hash_chunk(0);
-        let hash2 = sipper.hash_chunk(0);
-        assert_eq!(hash1, hash2, "Same chunk should have same hash");
-    }
-
-    #[test]
-    fn test_custom_chunk_size() {
-        let file = create_test_file(1000);
-        let zone = Zone::new_mapped(file.path()).unwrap();
-        let sipper = FileSipper::with_chunk_size(&zone, 100);
-
-        assert_eq!(sipper.chunk_count(), 10); // 1000 / 100 = 10 chunks
-
-        let manifest = sipper.manifest();
-        assert_eq!(manifest.chunk_count, 10);
-        assert_eq!(manifest.chunk_hashes.len(), 10);
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/sipping/tests.rs"]
+mod tests;

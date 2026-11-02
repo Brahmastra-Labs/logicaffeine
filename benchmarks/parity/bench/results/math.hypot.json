@@ -1,0 +1,12 @@
+{
+  "capability": "math.hypot",
+  "timing_n": "51652003",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "go": 1.744,
+    "c": 2.011,
+    "rust": 2.191
+  },
+  "min_speedup": 1.744
+}

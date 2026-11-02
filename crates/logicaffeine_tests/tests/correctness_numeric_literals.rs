@@ -73,7 +73,10 @@ fn overlong_literal_is_a_loud_error_never_zero() {
 Show 99999999999999999999999999.
 "#,
     );
-    assert!(!r.success, "an unrepresentable literal must not silently run");
+    assert!(
+        !r.success,
+        "an unrepresentable literal must not silently run"
+    );
     assert!(
         !r.error.is_empty(),
         "the failure must carry a real error message"

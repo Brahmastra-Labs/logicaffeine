@@ -11,6 +11,7 @@
   ],
   "correct": 2,
   "hint": "The argument assumes something is true just because many people believe it.",
-  "explanation": "This is an Appeal to Common Belief (also called Bandwagon or Ad Populum) - assuming that because many or most people believe something, it must be true. Popular belief doesn't determine truth; at various points in history, 'everyone knew' the Earth was flat.",
-  "visual_concept": "Bandwagon: A crowd all walking in one direction, with the implication you should follow just because they are."
+  "explanation": "This appeals to common belief. Many people believing something does not make it true.",
+  "visual_concept": "Bandwagon: A crowd all walking in one direction, with the implication you should follow just because they are.",
+  "section": "4.2"
 }

@@ -1,0 +1,298 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K5",
+  "mems": [
+   {
+    "contract": [
+     "a"
+    ],
+    "kind": "SeqMem",
+    "prefix": "a",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "b"
+    ],
+    "kind": "SeqMem",
+    "prefix": "b",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "zeta"
+    ],
+    "kind": "SeqMem",
+    "prefix": "zeta",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "hi"
+    ],
+    "kind": "SeqMem",
+    "prefix": "hi",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "lo"
+    ],
+    "kind": "SeqMem",
+    "prefix": "lo",
+    "words_per_port": 1
+   }
+  ],
+  "name": "k5_calyx_dahlia",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "a_done"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "a_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_reset"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "a_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "b_done"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "b_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_reset"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "b_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "go"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "hi_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "hi_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "hi_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "hi_done"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "hi_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "hi_reset"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "hi_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "hi_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "lo_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "lo_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "lo_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "lo_done"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "lo_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "lo_reset"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "lo_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "lo_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "zeta_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "zeta_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "zeta_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "zeta_done"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "zeta_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "zeta_reset"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "zeta_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "zeta_write_en"
+   }
+  ],
+  "protocol": {
+   "GoDone": {
+    "done": "done",
+    "go": "go"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "main"
+ },
+ "files": [
+  "k5_calyx_dahlia.sv"
+ ],
+ "golden_signature": "c2acac7a72db07ce",
+ "harness": "qorbist_k5_calyx_dahlia.v",
+ "harness_top": "qorbist_k5_calyx_dahlia",
+ "kernel": "K5",
+ "kernel_name": "ntt_bfly",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "go/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

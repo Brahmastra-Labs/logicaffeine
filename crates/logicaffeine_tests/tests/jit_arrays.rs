@@ -174,7 +174,10 @@ fn length_in_hot_loop() {
     let (out, err, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "79800");
-    assert!(region_ok >= 1, "length-bounded array loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "length-bounded array loop must tier (got {region_ok})"
+    );
 }
 
 /// A Boxed (heterogeneous) list must NOT take the native array path — the
@@ -240,7 +243,10 @@ fn narrowed_int_array_mod_pattern_tiers_and_matches() {
                Show total.\n";
     let (out, err, region_ok) = tiered_narrow(src);
     assert_eq!(err, None);
-    assert!(region_ok >= 1, "narrowed-array loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "narrowed-array loop must tier (got {region_ok})"
+    );
     // Independently recompute the reference sum of (i*7) % 4000 for i in 0..4000.
     let want: i64 = (0..4000i64).map(|i| (i * 7) % 4000).sum();
     assert_eq!(out, want.to_string());

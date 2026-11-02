@@ -22,10 +22,10 @@
 //! - [`build_mwe_trie`]: Construct the MWE lookup trie
 //! - [`apply_mwe_pipeline`]: Transform token stream by collapsing MWEs
 
-use std::collections::HashMap;
+use crate::lexicon::{Aspect, Time, VerbClass};
 use crate::token::{Token, TokenType};
-use crate::lexicon::{VerbClass, Time, Aspect};
 use logicaffeine_base::Interner;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct MweTarget {

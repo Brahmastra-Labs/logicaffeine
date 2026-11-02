@@ -1,0 +1,120 @@
+{
+  "case": "T03-009",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-009_nested_outside_fragment.lean",
+  "source_sha256": "020ffb301e551cf55c8e5c9394a598fe8bc48d78b9d37c04396e70d45f6de5ef",
+  "ledger_sha256": "1a1709f73a7554c8bc1cd917f553a668ab4d7e1bbb02db7dc4f7c53bcc80a27f",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_009.BigTree",
+    "T03_009.BigTree.bnode",
+    "T03_009.BigTree.bty",
+    "T03_009.FnTree",
+    "T03_009.FnTree.fnode",
+    "T03_009.FnTree.fstop",
+    "T03_009.LTree",
+    "T03_009.LTree.below_1",
+    "T03_009.LTree.ibelow_1",
+    "T03_009.LTree.lnode",
+    "T03_009.LTree.rec_1",
+    "T03_009.PTree",
+    "T03_009.PTree.below_1",
+    "T03_009.PTree.ibelow_1",
+    "T03_009.PTree.pnode",
+    "T03_009.PTree.pstop",
+    "T03_009.PTree.rec_1",
+    "T03_009.QTree",
+    "T03_009.QTree.below_1",
+    "T03_009.QTree.ibelow_1",
+    "T03_009.QTree.qnode",
+    "T03_009.QTree.qstop",
+    "T03_009.QTree.rec_1",
+    "T03_009.TList",
+    "T03_009.TList.tcons",
+    "T03_009.TList.tnil",
+    "T03_009.TPair",
+    "T03_009.TPair.tpair",
+    "T03_009.Tagged",
+    "T03_009.Tagged.tcons",
+    "T03_009.Tagged.tnil",
+    "T03_009.fdepth",
+    "T03_009.lleaf",
+    "T03_009.pOne",
+    "T03_009.pTwo",
+    "T03_009.qOne"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "df893d2e2f96c9f18e3d8de6af3fe672f278b11e18b4585bcacfa65ca84fb4d8",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1125,
+  "harvest": {
+    "roots": [
+      "T03_009.BigTree",
+      "T03_009.BigTree.bnode",
+      "T03_009.BigTree.bty",
+      "T03_009.FnTree",
+      "T03_009.FnTree.fnode",
+      "T03_009.FnTree.fstop",
+      "T03_009.LTree",
+      "T03_009.LTree.below_1",
+      "T03_009.LTree.ibelow_1",
+      "T03_009.LTree.lnode",
+      "T03_009.LTree.rec_1",
+      "T03_009.PTree",
+      "T03_009.PTree.below_1",
+      "T03_009.PTree.ibelow_1",
+      "T03_009.PTree.pnode",
+      "T03_009.PTree.pstop",
+      "T03_009.PTree.rec_1",
+      "T03_009.QTree",
+      "T03_009.QTree.below_1",
+      "T03_009.QTree.ibelow_1",
+      "T03_009.QTree.qnode",
+      "T03_009.QTree.qstop",
+      "T03_009.QTree.rec_1",
+      "T03_009.TList",
+      "T03_009.TList.tcons",
+      "T03_009.TList.tnil",
+      "T03_009.TPair",
+      "T03_009.TPair.tpair",
+      "T03_009.Tagged",
+      "T03_009.Tagged.tcons",
+      "T03_009.Tagged.tnil",
+      "T03_009.fdepth",
+      "T03_009.lleaf",
+      "T03_009.pOne",
+      "T03_009.pTwo",
+      "T03_009.qOne"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

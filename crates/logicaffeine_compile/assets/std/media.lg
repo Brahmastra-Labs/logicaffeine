@@ -1,0 +1,72 @@
+# Media
+
+Real-time media helpers in pure LOGOS, identical on every tier. Today: an AIMD bitrate controller
+for adapting a stream to the link it is sent over. Auto-imported on first reference.
+
+## Note
+An AIMD bitrate controller: under loss it backs off multiplicatively (scaled by loss), on a clean link it climbs additively toward capacity, capped at 90% of the link with an 8 kbps floor.
+
+## To adaptRate (currentKbps: Int) and (linkKbps: Int) and (lossPct: Int) -> Int:
+    Let mutable target be currentKbps.
+    If lossPct is at least 2:
+        Let mutable cut be lossPct * 4.
+        If cut is greater than 80:
+            Set cut to 80.
+        Set target to (currentKbps * (100 - cut)) / 100.
+    If lossPct is less than 2:
+        Let headroom be linkKbps - currentKbps.
+        If headroom is greater than 0:
+            Let mutable step be headroom / 20.
+            If step is less than 8:
+                Set step to 8.
+            Set target to currentKbps + step.
+    Let cap be (linkKbps * 9) / 10.
+    If target is greater than cap:
+        Set target to cap.
+    If target is less than 8:
+        Set target to 8.
+    Return target.
+
+## Note
+Adjusts the jitter-buffer depth (ms): grows under high jitter or loss, shrinks on a clean low-jitter link, clamped to `[20, 500]`.
+
+## To elasticBuffer (currentMs: Int) and (jitterMs: Int) and (lossPct: Int) -> Int:
+    Let mutable target be currentMs.
+    If jitterMs is greater than currentMs / 2:
+        Set target to currentMs + jitterMs.
+    If lossPct is at least 5:
+        Set target to target + 40.
+    If jitterMs is less than currentMs / 8:
+        If lossPct is less than 1:
+            Set target to currentMs - 20.
+    If target is less than 20:
+        Set target to 20.
+    If target is greater than 500:
+        Set target to 500.
+    Return target.
+
+## Note
+Maps a continuous bitrate in kbps to a display label ("video-hd" down to "transcript") by threshold; a presentation hint only.
+
+## To tierName (kbps: Int) -> Text:
+    If kbps is at least 2000:
+        Return "video-hd".
+    If kbps is at least 800:
+        Return "video-sd".
+    If kbps is at least 300:
+        Return "video-low".
+    If kbps is at least 100:
+        Return "avatar".
+    If kbps is at least 30:
+        Return "audio".
+    Return "transcript".
+
+## Note
+Scalable (simulcast/SVC) layer selection: `cumulative` is the running bitrate at each quality layer; returns how many layers a receiver's `rateKbps` can sustain (no ceiling — a fat link clears all).
+
+## To layersFor (rateKbps: Int) and (cumulative: Seq of Int) -> Int:
+    Let mutable n be 0.
+    Repeat for i from 1 to length of cumulative:
+        If rateKbps is at least (item i of cumulative):
+            Set n to i.
+    Return n.

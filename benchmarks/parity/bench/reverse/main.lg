@@ -1,0 +1,13 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable total be 0.
+Let mutable i be 1.
+While i is at most n:
+    Let r be reverseText("hello world").
+    Set total to total + length of r.
+    Set i to i + 1.
+Show total.

@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.is_space",
+  "workload": "bytesIsSpace(xs) all-bytes predicate",
+  "arg": "80000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

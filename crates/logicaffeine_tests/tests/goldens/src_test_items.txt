@@ -1,0 +1,35 @@
+# Test-only attributes left in a crate's src/ outside every test module, per file (unit_home_lock).
+# Instrumentation production code calls stays; a helper only tests use belongs in the unit file
+# beside them. A count may only fall and a file may not appear: lower a count when code leaves.
+apps/logicaffeine_cli/src/commands/doctor.rs	1
+crates/logicaffeine_base/src/numeric.rs	2
+crates/logicaffeine_base/src/word.rs	7
+crates/logicaffeine_compile/src/codegen_sva/signal_design.rs	3
+crates/logicaffeine_compile/src/vm/session.rs	1
+crates/logicaffeine_compile/src/vm/wasm/link.rs	4
+crates/logicaffeine_kernel/src/context.rs	8
+crates/logicaffeine_kernel/src/conversion_session.rs	2
+crates/logicaffeine_kernel/src/elaborate.rs	2
+crates/logicaffeine_kernel/src/interface/lean/beta.rs	2
+crates/logicaffeine_kernel/src/interface/lean/dag.rs	2
+crates/logicaffeine_kernel/src/interface/lean/mod.rs	2
+crates/logicaffeine_kernel/src/interface/lean/reference_projection_shared.rs	3
+crates/logicaffeine_kernel/src/interface/lean/source_recursor.rs	6
+crates/logicaffeine_kernel/src/recheck.rs	43
+crates/logicaffeine_kernel/src/recheck_arithmetic.rs	2
+crates/logicaffeine_kernel/src/recheck_conversion_memo.rs	2
+crates/logicaffeine_kernel/src/recheck_delta.rs	1
+crates/logicaffeine_kernel/src/recheck_division.rs	2
+crates/logicaffeine_kernel/src/recheck_equality.rs	2
+crates/logicaffeine_kernel/src/recheck_lazy_delta.rs	5
+crates/logicaffeine_kernel/src/recheck_storage.rs	3
+crates/logicaffeine_kernel/src/reduction.rs	19
+crates/logicaffeine_kernel/src/reduction/shared_head.rs	9
+crates/logicaffeine_kernel/src/simp.rs	1
+crates/logicaffeine_kernel/src/term.rs	4
+crates/logicaffeine_kernel/src/term_store.rs	17
+crates/logicaffeine_kernel/src/type_checker.rs	21
+crates/logicaffeine_proof/src/xor_engine.rs	1
+crates/logicaffeine_system/src/aead.rs	1
+crates/logicaffeine_system/src/crdt/sync.rs	1
+crates/logicaffeine_system/src/network/gossip.rs	1

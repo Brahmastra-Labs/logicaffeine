@@ -1,0 +1,80 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\poly": {
+         "num_wires":         7301,
+         "num_wire_bits":     24056,
+         "num_pub_wires":     167,
+         "num_pub_wire_bits": 6335,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         13041,
+         "num_cells_by_type": {
+            "CARRY4": 80,
+            "FDRE": 645,
+            "INV": 67,
+            "LUT2": 551,
+            "LUT3": 590,
+            "LUT4": 554,
+            "LUT5": 728,
+            "LUT6": 7181,
+            "MUXF7": 1960,
+            "MUXF8": 685
+         }
+      },
+      "\\qorsyn_k2_bambu_pipe_c_a7p10": {
+         "num_wires":         258,
+         "num_wire_bits":     903,
+         "num_pub_wires":     14,
+         "num_pub_wire_bits": 596,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         555,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 160,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 38,
+            "LUT2": 69,
+            "LUT3": 8,
+            "LUT4": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "poly": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         7559,
+         "num_wire_bits":     24959,
+         "num_pub_wires":     181,
+         "num_pub_wire_bits": 6931,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         13595,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 80,
+            "FDRE": 805,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 105,
+            "LUT2": 620,
+            "LUT3": 598,
+            "LUT4": 558,
+            "LUT5": 728,
+            "LUT6": 7316,
+            "MUXF7": 2021,
+            "MUXF8": 712,
+            "OBUF": 16
+         }
+      }
+}
+

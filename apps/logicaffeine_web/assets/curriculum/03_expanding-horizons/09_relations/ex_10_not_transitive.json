@@ -11,5 +11,6 @@
   ],
   "correct": 2,
   "hint": "Find the relation where chaining two steps does NOT give a single valid step.",
-  "explanation": "'Is the mother of' is not transitive: if A is the mother of B and B is the mother of C, A is C's grandmother, not mother. The others all chain: 'taller than', 'ancestor of', and 'same age as' are each transitive."
+  "explanation": "'Is the mother of' is not transitive: if A is the mother of B and B is the mother of C, A is C's grandmother, not mother. The others all chain: 'taller than', 'ancestor of', and 'same age as' are each transitive.",
+  "section": "9.3"
 }

@@ -1,4 +1,4 @@
-//! Phase 130 — §8.7 Conversational (scalar) implicature (work/MISSING_ENGLISH.md).
+//! Phase 130 — Conversational (scalar) implicature.
 //!
 //! A weak scalar item ("some") implicates the negation of its stronger Horn
 //! alternative ("all") — defeasibly, via an `exh` operator:
@@ -16,7 +16,10 @@ fn literal_meaning_is_unchanged() {
     let out = compile("Some students passed.").unwrap();
     eprintln!("literal: {out}");
     assert!(out.contains('∃'), "literal existential: {out}");
-    assert!(!out.contains("+>") && !out.contains("Implicature"), "no implicature in literal output: {out}");
+    assert!(
+        !out.contains("+>") && !out.contains("Implicature"),
+        "no implicature in literal output: {out}"
+    );
 }
 
 #[test]
@@ -25,7 +28,10 @@ fn pragmatic_some_implicates_not_all() {
     eprintln!("pragmatic: {out}");
     assert!(out.contains('∃'), "literal existential preserved: {out}");
     assert!(out.contains("Pass"), "the predicate: {out}");
-    assert!(out.contains("+>") || out.contains("Implicature"), "carries a scalar implicature: {out}");
+    assert!(
+        out.contains("+>") || out.contains("Implicature"),
+        "carries a scalar implicature: {out}"
+    );
     assert!(out.contains('∀'), "the negated 'all' alternative: {out}");
     assert!(out.contains('¬'), "the alternative is negated: {out}");
 }
@@ -36,9 +42,18 @@ fn pragmatic_most_implicates_not_all() {
     // "some": "most" implicates "not all" just as "some" does.
     let out = compile_pragmatic("Most students passed.").unwrap();
     eprintln!("pragmatic most: {out}");
-    assert!(out.contains("MOST"), "literal proportional preserved: {out}");
-    assert!(out.contains("+>") || out.contains("Implicature"), "carries a scalar implicature: {out}");
-    assert!(out.contains('∀') && out.contains('¬'), "the negated 'all' alternative: {out}");
+    assert!(
+        out.contains("MOST"),
+        "literal proportional preserved: {out}"
+    );
+    assert!(
+        out.contains("+>") || out.contains("Implicature"),
+        "carries a scalar implicature: {out}"
+    );
+    assert!(
+        out.contains('∀') && out.contains('¬'),
+        "the negated 'all' alternative: {out}"
+    );
 }
 
 #[test]
@@ -47,7 +62,10 @@ fn pragmatic_all_has_no_scalar_implicature() {
     let out = compile_pragmatic("All students passed.").unwrap();
     eprintln!("all: {out}");
     assert!(out.contains('∀'), "universal: {out}");
-    assert!(!out.contains("+>") && !out.contains("Implicature"), "no implicature on the strong term: {out}");
+    assert!(
+        !out.contains("+>") && !out.contains("Implicature"),
+        "no implicature on the strong term: {out}"
+    );
 }
 
 // ============================================================================

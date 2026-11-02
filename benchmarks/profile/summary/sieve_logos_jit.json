@@ -1,0 +1,11 @@
+{
+  "name": "sieve",
+  "lang": "logos_jit",
+  "n": "697912470",
+  "samples_weight": 45777358437,
+  "alloc_pct": 0.002,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.998
+}

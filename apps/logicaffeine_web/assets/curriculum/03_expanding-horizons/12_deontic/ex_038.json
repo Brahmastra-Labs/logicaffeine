@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It's permissible for you to sell",
   "options": [
-    "$ OS\\underline{u} $",
-    "$ RSu $",
-    "$ OSu $",
-    "$ RS\\underline{u} $"
+    "O S(u̲)",
+    "R S(u)",
+    "O S(u)",
+    "R S(u̲)"
   ],
   "correct": 3,
-  "hint": "Permission means something is ALLOWED, not required. Who has this permission?",
-  "explanation": "Permission uses R (sometimes P for 'permitted'). 'It's permissible for you to sell' means you're ALLOWED to sell \u2014 not that you must. The agent (you, underlined) has the permission."
+  "hint": "Which operator means permissible, and who has the permission?",
+  "explanation": "Permissible is R, for all right, with you underlined as the one who may act: R S(u̲).",
+  "section": "12.2"
 }

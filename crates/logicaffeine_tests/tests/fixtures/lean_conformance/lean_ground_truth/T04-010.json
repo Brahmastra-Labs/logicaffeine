@@ -1,0 +1,226 @@
+{
+  "case": "T04-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 28,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T04_010.Color",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color",
+      "name": "T04_010.Color.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T04_010.Color.blue = 1",
+      "name": "T04_010.Color.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T04_010.Color \u2192 Sort u} \u2192\n  (t : T04_010.Color) \u2192\n    motive T04_010.Color.red \u2192\n      motive T04_010.Color.green \u2192\n        motive T04_010.Color.blue \u2192 motive T04_010.Color.cyan \u2192 motive T04_010.Color.magenta \u2192 motive t",
+      "name": "T04_010.Color.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color",
+      "name": "T04_010.Color.cyan",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T04_010.Color.cyan = 1",
+      "name": "T04_010.Color.cyan.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color",
+      "name": "T04_010.Color.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T04_010.Color.green = 1",
+      "name": "T04_010.Color.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color",
+      "name": "T04_010.Color.magenta",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T04_010.Color.magenta = 1",
+      "name": "T04_010.Color.magenta.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T04_010.Color} \u2192 x = y \u2192 T04_010.Color.noConfusionType P x y",
+      "name": "T04_010.Color.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.8"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T04_010.Color \u2192 T04_010.Color \u2192 Sort v\u271d",
+      "name": "T04_010.Color.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.7"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T04_010.Color \u2192 Sort u} \u2192\n  motive T04_010.Color.red \u2192\n    motive T04_010.Color.green \u2192\n      motive T04_010.Color.blue \u2192\n        motive T04_010.Color.cyan \u2192 motive T04_010.Color.magenta \u2192 (t : T04_010.Color) \u2192 motive t",
+      "name": "T04_010.Color.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T04_010.Color \u2192 Sort u} \u2192\n  (t : T04_010.Color) \u2192\n    motive T04_010.Color.red \u2192\n      motive T04_010.Color.green \u2192\n        motive T04_010.Color.blue \u2192 motive T04_010.Color.cyan \u2192 motive T04_010.Color.magenta \u2192 motive t",
+      "name": "T04_010.Color.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color",
+      "name": "T04_010.Color.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T04_010.Color.red = 1",
+      "name": "T04_010.Color.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color \u2192 Nat",
+      "name": "T04_010.Color.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List T04_010.Color \u2192 Nat",
+      "name": "T04_010.countReds",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List T04_010.Color \u2192 Sort u_1) \u2192\n  (x : List T04_010.Color) \u2192\n    (Unit \u2192 motive []) \u2192\n      ((t : List T04_010.Color) \u2192 motive (T04_010.Color.red :: t)) \u2192\n        ((head : T04_010.Color) \u2192 (t : List T04_010.Color) \u2192 motive (head :: t)) \u2192 motive x",
+      "name": "T04_010.countReds.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Bool",
+      "name": "T04_010.isNil",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192 (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((x : List Nat) \u2192 motive x) \u2192 motive x",
+      "name": "T04_010.isNil.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color \u2192 Bool",
+      "name": "T04_010.isRed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T04_010.Color \u2192 Sort u_1) \u2192\n  (x : T04_010.Color) \u2192 (Unit \u2192 motive T04_010.Color.red) \u2192 ((x : T04_010.Color) \u2192 motive x) \u2192 motive x",
+      "name": "T04_010.isRed.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color \u2192 Bool",
+      "name": "T04_010.notRed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color \u2192 Bool \u2192 Nat",
+      "name": "T04_010.pickCol",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T04_010.Color \u2192 Bool \u2192 Sort u_1) \u2192\n  (x : T04_010.Color) \u2192\n    (x_1 : Bool) \u2192\n      ((x : Bool) \u2192 motive T04_010.Color.red x) \u2192\n        ((x : T04_010.Color) \u2192 motive x true) \u2192 ((x : T04_010.Color) \u2192 motive x false) \u2192 motive x x_1",
+      "name": "T04_010.pickCol.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_010.Color \u2192 Nat",
+      "name": "T04_010.rank",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T04_010.Color \u2192 Sort u_1) \u2192\n  (x : T04_010.Color) \u2192 (Unit \u2192 motive T04_010.Color.magenta) \u2192 ((x : T04_010.Color) \u2192 motive x) \u2192 motive x",
+      "name": "T04_010.rank.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,100 @@
+{
+  "case": "T01-010",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t01_universes/T01-010_prop_sort_off_by_one.lean",
+  "source_sha256": "518f1dd141931db0ad6729551c78f6de6892032e7fd9096832513383d6e77bac",
+  "ledger_sha256": "eb521f5c9c1ecb8bb64d0d9e5ae698f9c575b1ec7097207e04cae7ba04127ec1",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T01_010.Box",
+    "T01_010.Box.mk",
+    "T01_010.Holder",
+    "T01_010.Holder.mk",
+    "T01_010.Holder.p",
+    "T01_010.Mixed",
+    "T01_010.Mixed.mk",
+    "T01_010.Mixed.n",
+    "T01_010.Mixed.q",
+    "T01_010.aHolder",
+    "T01_010.boxOfProp",
+    "T01_010.familyOverProps",
+    "T01_010.forallOverProps",
+    "T01_010.holderIsAType",
+    "T01_010.listOfProps",
+    "T01_010.mixedIsAType",
+    "T01_010.polyId",
+    "T01_010.polyIdAtProp",
+    "T01_010.polyIdOnProp",
+    "T01_010.predicateOnProps",
+    "T01_010.propIsAType",
+    "T01_010.propToNat",
+    "T01_010.propToNatType",
+    "T01_010.propToPropType",
+    "T01_010.propToTypeType",
+    "T01_010.usesForallOverProps"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "2ed6fe78b2b949438d838673c36ed0ea48d1ca54e2c438334caa0983f4d6e83a",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 384,
+  "harvest": {
+    "roots": [
+      "T01_010.Box",
+      "T01_010.Box.mk",
+      "T01_010.Holder",
+      "T01_010.Holder.mk",
+      "T01_010.Holder.p",
+      "T01_010.Mixed",
+      "T01_010.Mixed.mk",
+      "T01_010.Mixed.n",
+      "T01_010.Mixed.q",
+      "T01_010.aHolder",
+      "T01_010.boxOfProp",
+      "T01_010.familyOverProps",
+      "T01_010.forallOverProps",
+      "T01_010.holderIsAType",
+      "T01_010.listOfProps",
+      "T01_010.mixedIsAType",
+      "T01_010.polyId",
+      "T01_010.polyIdAtProp",
+      "T01_010.polyIdOnProp",
+      "T01_010.predicateOnProps",
+      "T01_010.propIsAType",
+      "T01_010.propToNat",
+      "T01_010.propToNatType",
+      "T01_010.propToPropType",
+      "T01_010.propToTypeType",
+      "T01_010.usesForallOverProps"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

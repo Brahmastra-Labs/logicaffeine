@@ -1,0 +1,12 @@
+{
+  "capability": "bits.popcount",
+  "timing_n": "461086025",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "c": 1.8,
+    "go": 1.943,
+    "rust": 5.12
+  },
+  "min_speedup": 1.8
+}

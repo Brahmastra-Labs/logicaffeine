@@ -1,0 +1,30 @@
+; Fmax Summary                                                                                                          
++-------------+-----------------+---------------------------------------------------------------------------------------
+; Fmax        ; Restricted Fmax ; Clock Name                                                                            
++-------------+-----------------+---------------------------------------------------------------------------------------
+; 103.14 MHz  ; 103.14 MHz      ; afu_top|port_gasket|user_clock|qph_user_clk|qph_user_clk_iopll|iopll_0_outclk0        
+; 127.1 MHz   ; 127.1 MHz       ; sys_pll|iopll_0_clk_100M                                                              
+; 174.83 MHz  ; 174.83 MHz      ; ALTERA_INSERTED_INTOSC_FOR_TRS|divided_osc_clk                                        
+; 178.57 MHz  ; 178.57 MHz      ; sys_pll|iopll_0_clk_125M                                                              
+; 187.86 MHz  ; 187.86 MHz      ; eth_ac_wrapper|eth_top|fpll_inst|clkdiv_output_div2                                   
+; 265.46 MHz  ; 265.46 MHz      ; sys_pll|iopll_0_clk_250M                                                              
+; 276.24 MHz  ; 276.24 MHz      ; pcie_wrapper|pcie_top|dut|pcie_s10_hip_ast_0|altera_avst512_iopll|altera_ep_g3x16_avst
+; 298.33 MHz  ; 250.0 MHz       ; altera_int_osc_clk                                                                    
+; 300.66 MHz  ; 300.66 MHz      ; emif_top_inst|mem_bank[0].emif_ddr4_inst|emif_s10_0_core_usr_clk                      
+; 309.6 MHz   ; 309.6 MHz       ; emif_top_inst|mem_bank[1].emif_ddr4_inst|emif_s10_0_core_usr_clk                      
+; 311.33 MHz  ; 311.33 MHz      ; emif_top_inst|mem_bank[3].emif_ddr4_inst|emif_s10_0_core_usr_clk                      
+; 315.16 MHz  ; 315.16 MHz      ; emif_top_inst|mem_bank[2].emif_ddr4_inst|emif_s10_0_core_usr_clk                      
+; 411.52 MHz  ; 169.55 MHz      ; altera_reserved_tck                                                                   
+; 422.83 MHz  ; 422.83 MHz      ; eth_ac_wrapper|eth_top|fpll_inst|clkdiv_output_div1                                   
+; 558.04 MHz  ; 500.0 MHz       ; pcie_wrapper|pcie_top|dut|pcie_s10_hip_ast_0|altera_pcie_s10_hip_ast_pipen1b_inst|alte
+; 1438.85 MHz ; 900.09 MHz      ; afu_top|port_gasket|user_clock|qph_user_clk|qph_user_clk_iopll|iopll_0_outclk1        
++-------------+-----------------+---------------------------------------------------------------------------------------
+This panel reports FMAX for every clock in the design, regardless of the user-specified clock periods.  FMAX is only com
+Delay Models:
+2 Slow vid2 100C Model
+2 Slow vid2 0C Model
+Slow 900mV 100C Model
+Slow 900mV 0C Model
+Fast 900mV 100C Model
+Fast 900mV 0C Model
+

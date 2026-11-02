@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-02
+
+### Added
+
+- A `server` feature, on by default, holding the Language Server Protocol transport (tower-lsp, tokio, env_logger). Without it the crate is the analysis alone — hover, diagnostics, completion and the rest — and builds for wasm32, which the browser Studio links directly. `workspace::url_path` / `workspace::path_url` convert between `file://` URLs and paths, and answer `None` where there is no filesystem.
+
+- **The editor understands an LGX page.**
+  - **Symbol index:** components, pages, their state fields, props and actions enter it (`DefinitionKind::{Component, StateField, Action}`, `OwnedStmt::ComponentDef`) with the spans the parser recorded, and the names a `View:` mentions resolve as references once every definition exists.
+  - **Navigation:** go-to-definition, hover, rename and find-references work inside a template through one cursor rule, `document::name_at`. Workspace symbols list components as classes, actions as methods and state fields as properties.
+  - **Outline:** a route is named by method and path (`GET /api/todos`), a page by its path, a redirect as `from -> to`, an error page by its status, and components, stores and directives by name, each with its own symbol kind.
+  - **Completion:** inside `View:` and `Head:` it offers the page's own state, props, actions, components and the template tags (`template::TAGS`) instead of the whole prelude; inside `Style:` it offers the classes, ids and elements the same block's view renders, plus `:global(…)`.
+  - **Painting:** templates paint as HTML with LOGOS in the braces. The semantic-token legend gains `tag` and `attribute` (13 → 15 types, append-only); component elements paint as types and their attributes as parameters, `on-…` directives as keywords with `.modifier`s as modifiers, and holes and filters resolve through the index. A `Style:` body is left to the CSS grammar.
+  - **Diagnostics:** template lints are published at their element as `lgx-<kind>` (`lgx-image-without-alt`, `lgx-form-without-csrf`); a construct the browser build refuses is an ERROR coded `browser-tier-refusal` at that construct; escape and ownership findings on names the LGX lowering mints are dropped.
+  - Locks: `lgx_editor_lock`, `lgx_lint_span_lock`, `compiler_written_names_lock`, `diagnostic_location_editor_lock`.
+- **Cross-module editing.** For programs that `Import` their own modules:
+  - **Quickfixes:** an unresolved name a project module exports gets an `Import <Module>.` quickfix, one per exporting module, and an unreferenced import gets "Remove unused import".
+  - **Completion:** after `Import `, completion offers module names; in code it offers exactly the names the file's imports bring into scope, labelled `from <Module>`, so a selective `Import double from Util.` offers only `double`.
+  - **Hover:** names the module that defines a cross-file symbol.
+  - **`private` definitions:** the marker is blanked before analysis, so `## To private f` is indexed as `f`, and a private definition stays out of workspace exports, completion and auto-import.
+  - Tests: `crates/logicaffeine_tests/unit/logicaffeine_lsp/code_actions/tests.rs`, `crates/logicaffeine_tests/unit/logicaffeine_lsp/completion/tests.rs`, `crates/logicaffeine_tests/unit/logicaffeine_lsp/hover/tests.rs`.
+- **The value-semantics copy lint is a diagnostic.** `logicaffeine_language::lint`'s finding is published as a WARNING coded `copy-orphaned-copy`.
+
+### Breaking changes
+- **The library API changed.** `index::DefinitionKind` gained `Component`, `StateField` and `Action`, and `pipeline::OwnedStmt` gained `ComponentDef`; neither enum is `#[non_exhaustive]`. `pipeline::AnalysisResult` gained `lgx_findings`, `copy_findings` and `refusals`, `stdlib_docs::StdlibDoc` gained `details`, and `Flycheck::clear` returns `bool`. Migration: add the match arms and struct fields; `Flycheck::clear`'s result says whether anything was dropped.
+
+### Changed
+
+- Licensed under the MIT License, which replaces the Business Source License 1.1, and the package ships it as `LICENSE.md`.
+- A hover no longer repeats the diagnostics at its position: the editor shows the problem first in its own hover, above the word's lesson (`a_hover_leaves_problems_to_the_editor`).
+
+- **The server's diagnostic codes are the CLI's.** Every code, severity, quickguide anchor and quickfix note is locked equal to `logicaffeine_language::diagnostic`, the table `largo check --json` and `largo mcp` report from. `locks::lsp_codes_agree_with_canonical_table` in `crates/logicaffeine_tests/tests/locks.rs`.
+- **Stdlib hover carries the whole note.** `StdlibDoc::details` renders the rest of a `## Note` under its summary, and an enum variant (`Ok`, `Err`) hovers with its own line and its enum's note. `stdlib_teach_lock`.
+- **The published crate carries only its source.** An anchored `include` allowlist ships `src/`, the README and the CHANGELOG; the end-to-end, golden and ratchet suites moved to `crates/logicaffeine_tests/tests/` and the unit-test bodies to `crates/logicaffeine_tests/unit/logicaffeine_lsp/`, so no test code ships. The released `logicaffeine-lsp` binary is built with the new `[profile.dist]` (whole-program LTO, one codegen unit, stripped symbols, panics still unwind): 16.3 MB, down from 25.5 MB on x86_64 Linux, so a backtrace from it is unsymbolized. The declared `rust-version` is 1.88 (0.10.1 declared 1.75).
+
+### Removed
+- **The unused `logicaffeine-proof` dependency.** A proof block's code lens issues `logicaffeine.checkProof`, which the editor extension runs through `largo`.
+
+### Fixed
+
+- The editor and the compiler reach the same ownership and escape verdict (`the_editor_and_the_compiler_agree_on_ownership.rs`).
+  - A value given in one branch and shown in the other is no longer underlined.
+  - A zone escape or a possible move inside a `During` span is.
+  - A value a loop may have given away is described as given away "in a pass through the loop" in the maybe-move finding, the hover and the inlay hint.
+- A name read inside interpolated text (`"{total}"`) counts as a use (`index::index_interpolation_reads`), so it is no longer reported as never used.
+- A problem underlines the statement at fault: findings resolve their statement trail through the parser's nested spans (`pipeline::statement_span`), instead of anchoring to line 1 or a lone full stop.
+
+- **Semantic tokens stay protocol-legal.** A multi-line `"""…"""` string is emitted one token per line, spans are sorted, and deltas saturate; a token crossing a newline desynchronized every later token. `crates/logicaffeine_tests/tests/semantic_tokens_e2e.rs`.
+- **Position math is total.** An offset inside a multi-byte character snaps to its boundary instead of panicking, and a column past a line's end clamps to that line.
+- **Stale rustc findings retract on edit.** An edit that clears flycheck findings republishes the interactive diagnostics at once; they used to linger at pre-edit positions until the debounced analysis.
+- **An empty document gets keyword completions.** A cursor before the first token got none.
+
 ## [0.10.0] - 2026-07-08
 
 This per-crate changelog begins here; the crate has shipped since 0.8.0 (see the root CHANGELOG and news for earlier history).

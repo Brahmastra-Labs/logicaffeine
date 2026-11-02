@@ -1,0 +1,702 @@
+{
+  "transfers": [
+    {
+      "from": 0,
+      "tensor": "xi",
+      "to": 1
+    },
+    {
+      "from": 1,
+      "tensor": "o_a_c1",
+      "to": 0
+    },
+    {
+      "from": 0,
+      "tensor": "hi",
+      "to": 1
+    },
+    {
+      "from": 1,
+      "tensor": "f_a_c1",
+      "to": 0
+    }
+  ],
+  "relay": [
+    {
+      "run": 0,
+      "to": 0
+    },
+    {
+      "run": 1,
+      "to": 0
+    },
+    {
+      "run": 0,
+      "to": 1
+    },
+    {
+      "copy": "xi",
+      "from": 0,
+      "to": 1
+    },
+    {
+      "run": 1,
+      "to": 1
+    },
+    {
+      "copy": "o_a_c1",
+      "from": 1,
+      "to": 0
+    },
+    {
+      "run": 0,
+      "to": 2
+    },
+    {
+      "copy": "hi",
+      "from": 0,
+      "to": 1
+    },
+    {
+      "run": 1,
+      "to": 2
+    },
+    {
+      "run": 0,
+      "to": 3
+    },
+    {
+      "run": 1,
+      "to": 3
+    },
+    {
+      "copy": "f_a_c1",
+      "from": 1,
+      "to": 0
+    },
+    {
+      "run": 0,
+      "to": 4
+    }
+  ],
+  "chips": [
+    {
+      "chip": 0,
+      "board": "A",
+      "top": "logos_chip0_video",
+      "part": "xc7a200tsbg484-1",
+      "target": "xc7a200t-fabric",
+      "mem_banks": 16,
+      "vector_lanes": 8,
+      "read_latency": 1,
+      "segments": [
+        82,
+        582,
+        650,
+        715,
+        857
+      ],
+      "links": [
+        {
+          "after": 2,
+          "halts": true,
+          "receives": [],
+          "sends": [
+            {
+              "name": "xi",
+              "tensor": 6,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ]
+        },
+        {
+          "after": 11,
+          "halts": true,
+          "receives": [
+            {
+              "name": "o_a_c1",
+              "tensor": 21,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ],
+          "sends": []
+        },
+        {
+          "after": 13,
+          "halts": true,
+          "receives": [],
+          "sends": [
+            {
+              "name": "hi",
+              "tensor": 23,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ]
+        },
+        {
+          "after": 14,
+          "halts": true,
+          "receives": [
+            {
+              "name": "f_a_c1",
+              "tensor": 27,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ],
+          "sends": []
+        }
+      ],
+      "inputs": [
+        {
+          "name": "tok",
+          "tensor": 1,
+          "words": [
+            0
+          ]
+        },
+        {
+          "name": "pos",
+          "tensor": 4,
+          "words": [
+            0
+          ]
+        }
+      ],
+      "next": {
+        "name": "next",
+        "tensor": 31,
+        "words": [
+          0
+        ]
+      },
+      "prompt_next_tokens": [
+        6,
+        4,
+        0,
+        2,
+        1,
+        13,
+        0,
+        11,
+        1,
+        13,
+        0,
+        10,
+        9,
+        0,
+        13,
+        6,
+        4,
+        0,
+        8
+      ],
+      "sources_sha256": "79270aa6f7d435a909a9031e87c5496d937ad5b52154eea47354c85f4a6af775",
+      "pll": {
+        "div": 1,
+        "mult": 14,
+        "out": 32
+      },
+      "core_mhz": 43.75,
+      "fmax_mhz": 47.92,
+      "timing": {
+        "complete": true,
+        "tool": "nextpnr-xilinx (openXC7) with hard-cell timing from prjxray-db's SDF, speed grade -1",
+        "untimed_cells": {},
+        "residual_ns": 1.19,
+        "clock_uncertainty_ns": 0.5,
+        "note": "fmax_mhz times every path but a LUT-RAM's write-through and a driven-address shift register's clock-to-out; a path through one is at most residual_ns longer than a path it times, and the core clock's period covers both."
+      },
+      "pnr": {
+        "placer": "heap",
+        "placer_heap_timingweight": 4,
+        "place_with_hard_timing": true,
+        "router": "router2",
+        "seed": 5,
+        "freq_mhz": 48
+      },
+      "lutram_contents": {
+        "luts": 8576,
+        "bits_checked": 548864,
+        "check": "scripts/xc7/fasm_dram_check.py: every LUT-RAM INIT bit in the FASM equals the netlist's RAM32M/RAM64M INIT through its routed pins"
+      },
+      "utilization": {
+        "SLICE_LUTX": {
+          "used": 68462,
+          "of": 269200
+        },
+        "SLICE_FFX": {
+          "used": 39428,
+          "of": 269200
+        },
+        "CARRY4": {
+          "used": 1891,
+          "of": 33650
+        },
+        "PSEUDO_GND": {
+          "used": 1,
+          "of": 69165
+        },
+        "PSEUDO_VCC": {
+          "used": 1,
+          "of": 69165
+        },
+        "HARD0": {
+          "used": 0,
+          "of": 3960
+        },
+        "RAMB18E1_RAMB18E1": {
+          "used": 0,
+          "of": 730
+        },
+        "FIFO18E1_FIFO18E1": {
+          "used": 0,
+          "of": 365
+        },
+        "RAMB36E1_RAMB36E1": {
+          "used": 0,
+          "of": 365
+        },
+        "DSP48E1_DSP48E1": {
+          "used": 264,
+          "of": 740
+        },
+        "PAD": {
+          "used": 24,
+          "of": 1460
+        },
+        "IOB33M_OUTBUF": {
+          "used": 0,
+          "of": 240
+        }
+      },
+      "bitstream": "split_logos_chip0_video.bit",
+      "bytes": 9730754,
+      "sha256": "d182aebb089d5121b71aeabdde61d1cb068f8a4c8e946838b9fbd2d77e529b48"
+    },
+    {
+      "chip": 1,
+      "board": "B",
+      "top": "logos_chip1_a7",
+      "part": "xc7a100tcsg324-1",
+      "target": "xc7a100t-fabric",
+      "mem_banks": 8,
+      "vector_lanes": 8,
+      "read_latency": 1,
+      "segments": [
+        604,
+        809
+      ],
+      "links": [
+        {
+          "after": null,
+          "halts": false,
+          "receives": [
+            {
+              "name": "xi",
+              "tensor": 0,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ],
+          "sends": []
+        },
+        {
+          "after": 9,
+          "halts": true,
+          "receives": [
+            {
+              "name": "hi",
+              "tensor": 17,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ],
+          "sends": [
+            {
+              "name": "o_a_c1",
+              "tensor": 16,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ]
+        },
+        {
+          "after": 12,
+          "halts": false,
+          "receives": [],
+          "sends": [
+            {
+              "name": "f_a_c1",
+              "tensor": 22,
+              "words": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            }
+          ]
+        }
+      ],
+      "inputs": [
+        {
+          "name": "pos",
+          "tensor": 7,
+          "words": [
+            0
+          ]
+        }
+      ],
+      "next": null,
+      "prompt_next_tokens": null,
+      "sources_sha256": "796856a61a5c512781567de72af465663c58a6921384f0b8763e326c2ee62eaf",
+      "pll": {
+        "div": 1,
+        "mult": 13,
+        "out": 30
+      },
+      "core_mhz": 43.333333333333336,
+      "fmax_mhz": 54.8,
+      "timing": {
+        "complete": true,
+        "tool": "nextpnr-xilinx (openXC7) with hard-cell timing from prjxray-db's SDF, speed grade -1",
+        "untimed_cells": {},
+        "residual_ns": 1.19,
+        "clock_uncertainty_ns": 0.5,
+        "note": "fmax_mhz times every path but a LUT-RAM's write-through and a driven-address shift register's clock-to-out; a path through one is at most residual_ns longer than a path it times, and the core clock's period covers both."
+      },
+      "pnr": {
+        "placer": "heap",
+        "placer_heap_timingweight": 4,
+        "place_with_hard_timing": true,
+        "router": "router2",
+        "seed": 2,
+        "freq_mhz": 50
+      },
+      "lutram_contents": {
+        "luts": 4736,
+        "bits_checked": 303104,
+        "check": "scripts/xc7/fasm_dram_check.py: every LUT-RAM INIT bit in the FASM equals the netlist's RAM32M/RAM64M INIT through its routed pins"
+      },
+      "utilization": {
+        "SLICE_LUTX": {
+          "used": 39838,
+          "of": 126800
+        },
+        "SLICE_FFX": {
+          "used": 17728,
+          "of": 126800
+        },
+        "CARRY4": {
+          "used": 1464,
+          "of": 15850
+        },
+        "PSEUDO_GND": {
+          "used": 1,
+          "of": 30932
+        },
+        "PSEUDO_VCC": {
+          "used": 1,
+          "of": 30932
+        },
+        "HARD0": {
+          "used": 0,
+          "of": 2376
+        },
+        "RAMB18E1_RAMB18E1": {
+          "used": 0,
+          "of": 270
+        },
+        "FIFO18E1_FIFO18E1": {
+          "used": 0,
+          "of": 135
+        },
+        "RAMB36E1_RAMB36E1": {
+          "used": 0,
+          "of": 135
+        },
+        "DSP48E1_DSP48E1": {
+          "used": 152,
+          "of": 240
+        },
+        "PAD": {
+          "used": 11,
+          "of": 876
+        },
+        "IOB33M_OUTBUF": {
+          "used": 0,
+          "of": 144
+        }
+      },
+      "bitstream": "split_logos_chip1_a7.bit",
+      "bytes": 3825890,
+      "sha256": "cdec8a2cc2dabb0c1bba8dc451d23bcc39c94dd3112a2ba7ae7d98daa3528e1b"
+    }
+  ],
+  "measured": {
+    "tokens": [
+      8,
+      1,
+      13
+    ],
+    "prompt_next_tokens": [
+      6,
+      4,
+      0,
+      2,
+      1,
+      13,
+      0,
+      11,
+      1,
+      13,
+      0,
+      10,
+      9,
+      0,
+      13,
+      6,
+      4,
+      0,
+      8
+    ],
+    "steps": 21,
+    "step_cycles": [
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ],
+      [
+        857,
+        809
+      ]
+    ],
+    "chip_us_per_step": [
+      19.589,
+      18.669
+    ],
+    "wall_s_per_step": 0.205512,
+    "host_wall_s": 4.316,
+    "link": "host relay: each copy read from one board and written to the other, over Board A's FT245 FIFO and Board B's 115200-baud UART",
+    "boards": {
+      "A": {
+        "chip": 0,
+        "part": "xc7a200tsbg484-1",
+        "bitstream_sha256": "d182aebb089d5121b71aeabdde61d1cb068f8a4c8e946838b9fbd2d77e529b48",
+        "core_mhz": 43.75
+      },
+      "B": {
+        "chip": 1,
+        "part": "xc7a100tcsg324-1",
+        "bitstream_sha256": "cdec8a2cc2dabb0c1bba8dc451d23bcc39c94dd3112a2ba7ae7d98daa3528e1b",
+        "core_mhz": 43.333333333333336
+      }
+    },
+    "date": "2026-10-21 04:28 UTC",
+    "replayed": false
+  }
+}

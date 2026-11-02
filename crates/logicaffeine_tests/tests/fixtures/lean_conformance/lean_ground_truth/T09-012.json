@@ -1,0 +1,59 @@
+{
+  "case": "T09-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T09_012.generatedByRunCmd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_012.generatedByRunCmd = 5",
+      "name": "T09_012.generatedTranslates",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "IO Unit",
+      "name": "T09_012.ioValue",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat \u2192 Option Nat \u2192 Option Nat",
+      "name": "T09_012.optionDo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_012.optionDo (some 1) (some 2) = some 3",
+      "name": "T09_012.optionDoWorks",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_012.pureDecl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_012.pureDecl 1 = 6",
+      "name": "T09_012.pureDeclTranslates",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "elaborating T09_012\nside effect during elaboration"
+}

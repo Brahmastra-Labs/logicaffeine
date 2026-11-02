@@ -48,7 +48,10 @@ fn test_line_lexer_explicit_dedent() {
     let tokens: Vec<_> = lexer.collect();
 
     // Should have Dedent before "Show y." (explicit return to base indent)
-    let dedent_count = tokens.iter().filter(|t| matches!(t, LineToken::Dedent)).count();
+    let dedent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Dedent))
+        .count();
     assert_eq!(dedent_count, 1, "Should have exactly one Dedent");
 }
 
@@ -63,7 +66,10 @@ fn test_line_lexer_nested_indent() {
     let tokens: Vec<_> = lexer.collect();
 
     // Should have 2 Indents (one for each level)
-    let indent_count = tokens.iter().filter(|t| matches!(t, LineToken::Indent)).count();
+    let indent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Indent))
+        .count();
     assert_eq!(indent_count, 2, "Should have two Indents for nested blocks");
 }
 
@@ -74,7 +80,10 @@ fn test_line_lexer_multiple_dedents() {
     let tokens: Vec<_> = lexer.collect();
 
     // Should have 2 Dedents when dropping from level 2 to level 0
-    let dedent_count = tokens.iter().filter(|t| matches!(t, LineToken::Dedent)).count();
+    let dedent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Dedent))
+        .count();
     assert_eq!(dedent_count, 2, "Should have two Dedents for double dedent");
 }
 
@@ -85,7 +94,10 @@ fn test_line_lexer_partial_dedent() {
     let tokens: Vec<_> = lexer.collect();
 
     // Should have 1 Dedent (from level 2 to level 1), then 1 more at EOF
-    let dedent_count = tokens.iter().filter(|t| matches!(t, LineToken::Dedent)).count();
+    let dedent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Dedent))
+        .count();
     assert_eq!(dedent_count, 2, "Should have two Dedents total");
 }
 
@@ -105,7 +117,7 @@ fn test_line_lexer_tab_indent() {
 
 #[test]
 fn test_line_lexer_mixed_tabs_spaces() {
-    let source = "If x:\n  \tShow x.";  // 2 spaces + tab = 6 "spaces"
+    let source = "If x:\n  \tShow x."; // 2 spaces + tab = 6 "spaces"
     let lexer = LineLexer::new(source);
     let tokens: Vec<_> = lexer.collect();
 
@@ -124,7 +136,10 @@ fn test_line_lexer_blank_line_preserves_indent() {
     let tokens: Vec<_> = lexer.collect();
 
     // Blank line should not emit Dedent; both Shows are in same block
-    let dedent_count = tokens.iter().filter(|t| matches!(t, LineToken::Dedent)).count();
+    let dedent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Dedent))
+        .count();
     assert_eq!(dedent_count, 1, "Only one Dedent at EOF");
 }
 
@@ -135,7 +150,10 @@ fn test_line_lexer_multiple_blank_lines() {
     let tokens: Vec<_> = lexer.collect();
 
     // Multiple blank lines should not affect indentation
-    let dedent_count = tokens.iter().filter(|t| matches!(t, LineToken::Dedent)).count();
+    let dedent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Dedent))
+        .count();
     assert_eq!(dedent_count, 1, "Only one Dedent at EOF");
 }
 
@@ -164,7 +182,10 @@ fn test_line_lexer_content_spans() {
     let tokens: Vec<_> = lexer.collect();
 
     // Should have two Content tokens
-    let content_count = tokens.iter().filter(|t| matches!(t, LineToken::Content { .. })).count();
+    let content_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Content { .. }))
+        .count();
     assert_eq!(content_count, 2, "Should have two Content tokens");
 }
 
@@ -175,7 +196,10 @@ fn test_line_lexer_content_start_end() {
     let tokens: Vec<_> = lexer.collect();
 
     // Content should have correct byte offsets (after leading whitespace)
-    if let Some(LineToken::Content { text, start, end }) = tokens.iter().find(|t| matches!(t, LineToken::Content { .. })) {
+    if let Some(LineToken::Content { text, start, end }) = tokens
+        .iter()
+        .find(|t| matches!(t, LineToken::Content { .. }))
+    {
         assert_eq!(text, "Let x be 5.");
         assert_eq!(*start, 4, "Start should be after 4 spaces");
         assert_eq!(*end, source.len(), "End should be at end of source");
@@ -205,14 +229,20 @@ fn test_line_lexer_only_whitespace() {
     let tokens: Vec<_> = lexer.collect();
 
     // Only whitespace lines should not produce Content tokens
-    let content_count = tokens.iter().filter(|t| matches!(t, LineToken::Content { .. })).count();
-    assert_eq!(content_count, 0, "No Content tokens from whitespace-only lines");
+    let content_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Content { .. }))
+        .count();
+    assert_eq!(
+        content_count, 0,
+        "No Content tokens from whitespace-only lines"
+    );
 }
 
 #[test]
 fn test_line_lexer_inconsistent_indent_error() {
     // Dedent to a level that was never on the stack
-    let source = "If x:\n        Show x.\n    Show y.";  // 8 spaces then 4 spaces
+    let source = "If x:\n        Show x.\n    Show y."; // 8 spaces then 4 spaces
     let lexer = LineLexer::new(source);
     let tokens: Vec<_> = lexer.collect();
 
@@ -232,7 +262,10 @@ fn test_line_lexer_block_header() {
     let tokens: Vec<_> = lexer.collect();
 
     // Block header should be Content, no indent change
-    let content_count = tokens.iter().filter(|t| matches!(t, LineToken::Content { .. })).count();
+    let content_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Content { .. }))
+        .count();
     assert_eq!(content_count, 2);
 }
 
@@ -243,6 +276,9 @@ fn test_line_lexer_colon_line() {
     let tokens: Vec<_> = lexer.collect();
 
     // Single line with colon - no indent yet (would need next line)
-    let indent_count = tokens.iter().filter(|t| matches!(t, LineToken::Indent)).count();
+    let indent_count = tokens
+        .iter()
+        .filter(|t| matches!(t, LineToken::Indent))
+        .count();
     assert_eq!(indent_count, 0, "No Indent without following indented line");
 }

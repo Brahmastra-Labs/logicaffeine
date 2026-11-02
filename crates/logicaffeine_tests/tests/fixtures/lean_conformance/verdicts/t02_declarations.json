@@ -1,0 +1,146 @@
+{
+  "tier": "t02_declarations",
+  "test_binary": "lean_conformance_t02_declarations",
+  "cases": [
+    {
+      "id": "T02-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_def_is_a_transparent_global_that_unfolds_through_a_chain",
+      "why": ""
+    },
+    {
+      "id": "T02-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_theorem_is_exactly_a_prop_typed_definition_and_keeps_its_body",
+      "why": ""
+    },
+    {
+      "id": "T02-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_axiom_is_opaque_and_the_declaration_map_is_the_whole_trust_report",
+      "why": ""
+    },
+    {
+      "id": "T02-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_irreducible_definition_still_unfolds_because_there_is_no_reducibility_hint",
+      "why": ""
+    },
+    {
+      "id": "T02-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "every_anonymous_example_needs_its_own_generated_collision_free_key",
+      "why": ""
+    },
+    {
+      "id": "T02-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_opaque_constant_hides_its_witness_from_conversion",
+      "why": ""
+    },
+    {
+      "id": "T02-007",
+      "verdict": "MUST",
+      "status": "Refused",
+      "test": "a_partial_def_is_refused_by_the_structural_guard_and_has_no_safe_fallback",
+      "why": ""
+    },
+    {
+      "id": "T02-008",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "an_unsafe_declaration_has_no_untrusted_compartment_to_live_in",
+      "why": "Lean itself refuses `unsafe` code admission to its own logic: it is not termination-checked, not type-checked across `unsafeCast`, and may not be referenced by safe declarations. There is therefore no logical property for LOGOS to preserve, and no partial credit to earn. LOGOS also has nowhere to put such a constant: all four registration doors (inductive, constructor, definition, declaration) feed `get_global`, which the type checker consults with no notion of trust level, so the moment an unsafe name is emitted it is a trusted axiom \u2014 and for the archetype `unsafeCast : \u03b1 \u2192 \u03b2` that axiom inhabits `False` outright, as the test shows. The only correct handling is to emit nothing at all, including no axiom; the safe half of an `@[implemented_by]` pair is the sole translatable content and does translate normally."
+    },
+    {
+      "id": "T02-009",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "a_noncomputable_definition_keeps_its_logic_and_its_computability_is_read_off_the_body",
+      "why": "Lean's `noncomputable` is a declaration flag with zero logical content whose only job is to gate code generation \u2014 and Lean makes the author declare a fact Lean itself already inferred from the body. LOGOS stores no such flag and does not need one: computability is a property of the term, and our extraction path derives it (`logicaffeine_compile::extraction::is_extractable` walks the body and rejects anything reaching a bodyless non-primitive global), so it can never be stale, forgotten or contradicted by the body the way a declared marker can. The kernel-visible form of the same fact is what the test pins: a definition through an axiom is registered identically to a pure one, keeps its full logical content and is provably usable in proofs, yet is STUCK under normalization while its pure sibling computes to a numeral \u2014 the distinction is recoverable from the context alone with nothing stored. The one real hazard the corpus names is not the marker but the body: Lean's noncomputable definitions usually route through `Classical.choice`, which LOGOS does not have, and that is a T06-009 rejection rather than anything owed here."
+    },
+    {
+      "id": "T02-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_instance_resolves_from_a_flat_first_match_wins_database",
+      "why": ""
+    },
+    {
+      "id": "T02-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_short_name_does_not_resolve_against_its_enclosing_namespace",
+      "why": ""
+    },
+    {
+      "id": "T02-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_local_instance_can_never_leave_the_instance_database",
+      "why": ""
+    },
+    {
+      "id": "T02-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_simp_lemma_has_no_registry_to_be_registered_in",
+      "why": ""
+    },
+    {
+      "id": "T02-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_mutual_block_is_one_term_and_splitting_it_escapes_the_descent_check",
+      "why": ""
+    },
+    {
+      "id": "T02-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_where_auxiliary_lifts_to_its_own_definition_with_the_parents_binder_captured",
+      "why": ""
+    },
+    {
+      "id": "T02-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_let_rec_is_a_fix_bound_by_a_let_and_a_plain_let_cannot_carry_it",
+      "why": ""
+    },
+    {
+      "id": "T02-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_derived_decidable_equality_has_no_handler_to_generate_it",
+      "why": ""
+    },
+    {
+      "id": "T02-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_section_variable_telescope_survives_as_interleaved_binder_kinds",
+      "why": ""
+    },
+    {
+      "id": "T02-019",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_same_short_name_under_two_opens_cannot_denote_two_constants",
+      "why": ""
+    },
+    {
+      "id": "T02-020",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::a_name_cannot_be_both_an_inductive_and_a_definition",
+      "why": ""
+    }
+  ]
+}

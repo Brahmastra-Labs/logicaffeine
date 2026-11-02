@@ -64,7 +64,10 @@ fn test_auto_ring_comm() {
         .unwrap();
     let concluded = repl.execute("Eval result.").unwrap();
     let original = repl.execute("Eval goal.").unwrap();
-    assert_eq!(concluded, original, "auto should prove xx+yy=yy+xx via ring");
+    assert_eq!(
+        concluded, original,
+        "auto should prove xx+yy=yy+xx via ring"
+    );
 }
 
 // =============================================================================

@@ -1,0 +1,11 @@
+{
+  "name": "strings",
+  "lang": "logos_release",
+  "n": "125882141",
+  "samples_weight": 10698996760,
+  "alloc_pct": 0.028,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.972
+}

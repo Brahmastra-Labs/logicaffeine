@@ -26,7 +26,11 @@ fn requires_crate_emits_no_rust() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(!rust.contains("itoa"), "Require should not emit Rust code. Generated:\n{}", rust);
+    assert!(
+        !rust.contains("itoa"),
+        "Require should not emit Rust code. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -114,7 +118,10 @@ fn requires_missing_crate_name_is_error() {
 Show 42.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "Should fail: missing crate name string literal");
+    assert!(
+        result.is_err(),
+        "Should fail: missing crate name string literal"
+    );
 }
 
 #[test]
@@ -126,7 +133,10 @@ fn requires_missing_version_string_is_error() {
 Show 42.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "Should fail: missing version string literal");
+    assert!(
+        result.is_err(),
+        "Should fail: missing version string literal"
+    );
 }
 
 #[test]
@@ -238,7 +248,11 @@ Let x be 42.
 Show x.
 "#;
     let result = run_interpreter(source);
-    assert!(result.success, "Interpreter should succeed. Error: {}", result.error);
+    assert!(
+        result.success,
+        "Interpreter should succeed. Error: {}",
+        result.error
+    );
     assert_eq!(result.output.trim(), "42");
 }
 
@@ -286,7 +300,11 @@ Show 42.
     The "ryu" crate version "1".
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert_eq!(output.dependencies.len(), 2, "Both blocks should contribute deps");
+    assert_eq!(
+        output.dependencies.len(),
+        2,
+        "Both blocks should contribute deps"
+    );
     assert_eq!(output.dependencies[0].name, "itoa");
     assert_eq!(output.dependencies[1].name, "ryu");
 }
@@ -318,7 +336,11 @@ fn requires_duplicate_same_version_deduplicates() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert_eq!(output.dependencies.len(), 1, "Duplicate same-version dep should be deduplicated");
+    assert_eq!(
+        output.dependencies.len(),
+        1,
+        "Duplicate same-version dep should be deduplicated"
+    );
     assert_eq!(output.dependencies[0].name, "itoa");
 }
 
@@ -332,7 +354,10 @@ fn requires_duplicate_different_version_is_error() {
 Show 42.
 "#;
     let result = compile_program_full(source);
-    assert!(result.is_err(), "Duplicate dep with different version should fail");
+    assert!(
+        result.is_err(),
+        "Duplicate dep with different version should fail"
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -343,16 +368,24 @@ Show 42.
 fn compile_project_returns_dependencies() {
     let temp_dir = tempfile::tempdir().unwrap();
     let main_lg = temp_dir.path().join("main.lg");
-    std::fs::write(&main_lg, r#"## Requires
+    std::fs::write(
+        &main_lg,
+        r#"## Requires
     The "itoa" crate version "1".
 
 ## Main
 Show 42.
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     use logicaffeine_compile::compile::compile_project;
     let output = compile_project(&main_lg).expect("Should compile");
-    assert_eq!(output.dependencies.len(), 1, "compile_project should return dependencies");
+    assert_eq!(
+        output.dependencies.len(),
+        1,
+        "compile_project should return dependencies"
+    );
     assert_eq!(output.dependencies[0].name, "itoa");
     assert_eq!(output.dependencies[0].version, "1");
 }
@@ -369,7 +402,11 @@ fn native_with_user_path_parses() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should parse");
-    assert!(output.rust_code.contains("fn cube"), "Generated:\n{}", output.rust_code);
+    assert!(
+        output.rust_code.contains("fn cube"),
+        "Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -380,7 +417,11 @@ fn native_with_user_path_codegen() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.rust_code.contains("my_crate::cube(n)"), "Should call user path. Generated:\n{}", output.rust_code);
+    assert!(
+        output.rust_code.contains("my_crate::cube(n)"),
+        "Should call user path. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -391,7 +432,11 @@ fn old_native_syntax_still_works() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Old syntax should still work");
-    assert!(rust.contains("logicaffeine_system::file::read"), "Generated:\n{}", rust);
+    assert!(
+        rust.contains("logicaffeine_system::file::read"),
+        "Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -402,7 +447,10 @@ fn native_is_native_without_path_requires_string() {
 Show 42.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "is native without path string should be an error");
+    assert!(
+        result.is_err(),
+        "is native without path string should be an error"
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -417,10 +465,13 @@ fn unknown_system_native_function_is_error() {
 Show 42.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_err() || {
-        let rust = result.unwrap();
-        rust.contains("compile_error!")
-    }, "Unknown system native should produce an error, not panic");
+    assert!(
+        result.is_err() || {
+            let rust = result.unwrap();
+            rust.contains("compile_error!")
+        },
+        "Unknown system native should produce an error, not panic"
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -436,7 +487,11 @@ fn wasm_export_preamble_has_use_wasm_bindgen() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("use wasm_bindgen::prelude::*;"), "WASM export should emit wasm_bindgen preamble. Generated:\n{}", rust);
+    assert!(
+        rust.contains("use wasm_bindgen::prelude::*;"),
+        "WASM export should emit wasm_bindgen preamble. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -449,7 +504,11 @@ Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
     let has_wasm_bindgen = output.dependencies.iter().any(|d| d.name == "wasm-bindgen");
-    assert!(has_wasm_bindgen, "WASM export should auto-inject wasm-bindgen dependency. Deps: {:?}", output.dependencies);
+    assert!(
+        has_wasm_bindgen,
+        "WASM export should auto-inject wasm-bindgen dependency. Deps: {:?}",
+        output.dependencies
+    );
 }
 
 #[test]
@@ -461,7 +520,11 @@ fn no_wasm_export_no_wasm_preamble() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(!rust.contains("wasm_bindgen"), "Non-WASM export should NOT have wasm_bindgen preamble. Generated:\n{}", rust);
+    assert!(
+        !rust.contains("wasm_bindgen"),
+        "Non-WASM export should NOT have wasm_bindgen preamble. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -477,9 +540,16 @@ fn exported_function_parses() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should parse exported function");
-    assert!(rust.contains("fn add"), "Should contain fn add. Generated:\n{}", rust);
-    assert!(rust.contains("export_name") && rust.contains("logos_add"),
-        "Should have export_name with logos_ prefix. Generated:\n{}", rust);
+    assert!(
+        rust.contains("fn add"),
+        "Should contain fn add. Generated:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("export_name") && rust.contains("logos_add"),
+        "Should have export_name with logos_ prefix. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -505,9 +575,19 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
     // Verify #[export_name = "logos_add"] appears on the line before pub extern fn add
     let lines: Vec<&str> = rust.lines().collect();
-    let add_fn_idx = lines.iter().position(|l| l.contains("pub extern \"C\" fn add("));
-    assert!(add_fn_idx.is_some(), "C export should have pub extern fn add. Generated:\n{}", rust);
-    assert!(add_fn_idx.unwrap() > 0, "pub extern fn add should not be first line. Generated:\n{}", rust);
+    let add_fn_idx = lines
+        .iter()
+        .position(|l| l.contains("pub extern \"C\" fn add("));
+    assert!(
+        add_fn_idx.is_some(),
+        "C export should have pub extern fn add. Generated:\n{}",
+        rust
+    );
+    assert!(
+        add_fn_idx.unwrap() > 0,
+        "pub extern fn add should not be first line. Generated:\n{}",
+        rust
+    );
     let prev_line = lines[add_fn_idx.unwrap() - 1];
     assert!(prev_line.trim() == "#[export_name = \"logos_add\"]",
         "#[export_name = \"logos_add\"] should be on line before pub extern fn add. Prev line: '{}'\nGenerated:\n{}", prev_line, rust);
@@ -522,8 +602,11 @@ fn exported_function_codegen_extern_c() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("pub extern \"C\" fn add(a: i64, b: i64) -> i64"),
-        "C export should have full extern C signature. Generated:\n{}", rust);
+    assert!(
+        rust.contains("pub extern \"C\" fn add(a: i64, b: i64) -> i64"),
+        "C export should have full extern C signature. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -538,10 +621,18 @@ Show 42.
     // Verify #[wasm_bindgen] appears on the line before the pub fn
     let lines: Vec<&str> = rust.lines().collect();
     let wasm_idx = lines.iter().position(|l| l.trim() == "#[wasm_bindgen]");
-    assert!(wasm_idx.is_some(), "WASM export should have #[wasm_bindgen]. Generated:\n{}", rust);
+    assert!(
+        wasm_idx.is_some(),
+        "WASM export should have #[wasm_bindgen]. Generated:\n{}",
+        rust
+    );
     let next_line = lines[wasm_idx.unwrap() + 1];
-    assert!(next_line.contains("pub fn greet"),
-        "#[wasm_bindgen] should be on line before pub fn. Next line: '{}'\nGenerated:\n{}", next_line, rust);
+    assert!(
+        next_line.contains("pub fn greet"),
+        "#[wasm_bindgen] should be on line before pub fn. Next line: '{}'\nGenerated:\n{}",
+        next_line,
+        rust
+    );
 }
 
 #[test]
@@ -558,7 +649,8 @@ Show 42.
     assert!(
         rust.contains("return logos_add_i64(a, b);")
             || rust.contains("return logos_add_exact(a, b).expect_i64(\"Int\");"),
-        "Exported function should have body. Generated:\n{}", rust
+        "Exported function should have body. Generated:\n{}",
+        rust
     );
 }
 
@@ -584,7 +676,11 @@ fn exported_function_codegen_pub() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("pub extern \"C\" fn add("), "Should be pub extern. Generated:\n{}", rust);
+    assert!(
+        rust.contains("pub extern \"C\" fn add("),
+        "Should be pub extern. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -600,15 +696,28 @@ fn simple_path_export_uses_export_name_attribute() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("#[export_name = \"logos_add\"]"),
-        "Simple-path export should use #[export_name]. Generated:\n{}", rust);
+    assert!(
+        rust.contains("#[export_name = \"logos_add\"]"),
+        "Simple-path export should use #[export_name]. Generated:\n{}",
+        rust
+    );
     // Verify #[export_name] is on the line directly before fn add
     let lines: Vec<&str> = rust.lines().collect();
-    let fn_idx = lines.iter().position(|l| l.contains("pub extern \"C\" fn add("));
-    assert!(fn_idx.is_some() && fn_idx.unwrap() > 0, "Should have pub extern fn add. Generated:\n{}", rust);
+    let fn_idx = lines
+        .iter()
+        .position(|l| l.contains("pub extern \"C\" fn add("));
+    assert!(
+        fn_idx.is_some() && fn_idx.unwrap() > 0,
+        "Should have pub extern fn add. Generated:\n{}",
+        rust
+    );
     let prev = lines[fn_idx.unwrap() - 1].trim();
-    assert!(prev.starts_with("#[export_name"),
-        "Line before fn add should be #[export_name], not #[no_mangle]. Prev: '{}'\nGenerated:\n{}", prev, rust);
+    assert!(
+        prev.starts_with("#[export_name"),
+        "Line before fn add should be #[export_name], not #[no_mangle]. Prev: '{}'\nGenerated:\n{}",
+        prev,
+        rust
+    );
 }
 
 #[test]
@@ -620,12 +729,21 @@ fn complex_path_inner_function_uses_raw_name() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(!rust.contains("greet_inner"),
-        "Complex-path inner function should NOT have _inner suffix. Generated:\n{}", rust);
-    assert!(rust.contains("fn greet(name: String)"),
-        "Inner function should use raw name. Generated:\n{}", rust);
-    assert!(rust.contains("pub extern \"C\" fn logos_greet("),
-        "Wrapper should have logos_ prefix. Generated:\n{}", rust);
+    assert!(
+        !rust.contains("greet_inner"),
+        "Complex-path inner function should NOT have _inner suffix. Generated:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("fn greet(name: String)"),
+        "Inner function should use raw name. Generated:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("pub extern \"C\" fn logos_greet("),
+        "Wrapper should have logos_ prefix. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -637,8 +755,11 @@ fn complex_path_wrapper_calls_inner_by_raw_name() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("greet(name)") || rust.contains("greet(name,"),
-        "Wrapper should call inner by raw name. Generated:\n{}", rust);
+    assert!(
+        rust.contains("greet(name)") || rust.contains("greet(name,"),
+        "Wrapper should call inner by raw name. Generated:\n{}",
+        rust
+    );
 }
 
 #[cfg(feature = "ffi-link-tests")]
@@ -667,8 +788,11 @@ fn c_export_int_type_is_i64() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("pub extern \"C\" fn add(a: i64, b: i64) -> i64"),
-        "C export Int should use i64. Generated:\n{}", rust);
+    assert!(
+        rust.contains("pub extern \"C\" fn add(a: i64, b: i64) -> i64"),
+        "C export Int should use i64. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -680,7 +804,11 @@ fn c_export_bool_type_is_bool() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("-> bool"), "C export Bool should use bool. Generated:\n{}", rust);
+    assert!(
+        rust.contains("-> bool"),
+        "C export Bool should use bool. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -692,8 +820,11 @@ fn c_export_real_type_is_f64() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("n: f64") && rust.contains("-> f64"),
-        "C export Real should use f64. Generated:\n{}", rust);
+    assert!(
+        rust.contains("n: f64") && rust.contains("-> f64"),
+        "C export Real should use f64. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -705,8 +836,11 @@ fn c_export_text_param_uses_c_char_ptr() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("*const std::os::raw::c_char"),
-        "C export Text param should use *const c_char. Generated:\n{}", rust);
+    assert!(
+        rust.contains("*const std::os::raw::c_char"),
+        "C export Text param should use *const c_char. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -718,8 +852,11 @@ fn c_export_text_return_uses_c_char_ptr() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("*mut std::os::raw::c_char"),
-        "C export Text return should use *mut c_char. Generated:\n{}", rust);
+    assert!(
+        rust.contains("*mut std::os::raw::c_char"),
+        "C export Text return should use *mut c_char. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -731,8 +868,11 @@ fn c_export_text_function_generates_wrapper() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("CStr::from_ptr") || rust.contains("c_char"),
-        "C export with Text should generate conversion code. Generated:\n{}", rust);
+    assert!(
+        rust.contains("CStr::from_ptr") || rust.contains("c_char"),
+        "C export with Text should generate conversion code. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -744,8 +884,11 @@ fn c_export_text_function_has_ffi_imports() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("use std::ffi::{CStr, CString};"),
-        "C export with Text should import CStr/CString. Generated:\n{}", rust);
+    assert!(
+        rust.contains("use std::ffi::{CStr, CString};"),
+        "C export with Text should import CStr/CString. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -761,9 +904,16 @@ fn wasm_export_with_text_compiles() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("#[wasm_bindgen]"), "WASM export should have wasm_bindgen. Generated:\n{}", rust);
-    assert!(rust.contains("pub fn greet(name: String) -> String"),
-        "WASM export should use normal Rust String types. Generated:\n{}", rust);
+    assert!(
+        rust.contains("#[wasm_bindgen]"),
+        "WASM export should have wasm_bindgen. Generated:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("pub fn greet(name: String) -> String"),
+        "WASM export should use normal Rust String types. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -775,7 +925,11 @@ fn wasm_export_with_seq_compiles() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("#[wasm_bindgen]"), "WASM export should have wasm_bindgen. Generated:\n{}", rust);
+    assert!(
+        rust.contains("#[wasm_bindgen]"),
+        "WASM export should have wasm_bindgen. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -948,7 +1102,10 @@ fn exported_for_unsupported_target_is_error() {
 Show 42.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "Unsupported export target 'java' should be an error");
+    assert!(
+        result.is_err(),
+        "Unsupported export target 'java' should be an error"
+    );
 }
 
 #[test]
@@ -961,8 +1118,11 @@ Show 42.
     let result = compile_to_rust(source);
     match result {
         Ok(rust) => {
-            assert!(rust.contains("compile_error!"),
-                "Native with invalid path should produce compile_error. Generated:\n{}", rust);
+            assert!(
+                rust.contains("compile_error!"),
+                "Native with invalid path should produce compile_error. Generated:\n{}",
+                rust
+            );
         }
         Err(_) => {} // Parse error is also acceptable
     }
@@ -979,8 +1139,11 @@ Show 42.
     let result = compile_to_rust(source);
     match result {
         Ok(rust) => {
-            assert!(rust.contains("compile_error!") || rust.contains("LogosSeq<i64>"),
-                "C export with Seq param should either error or pass through. Generated:\n{}", rust);
+            assert!(
+                rust.contains("compile_error!") || rust.contains("LogosSeq<i64>"),
+                "C export with Seq param should either error or pass through. Generated:\n{}",
+                rust
+            );
         }
         Err(_) => {} // Error is acceptable too
     }
@@ -1008,8 +1171,13 @@ Show 42.
 #[test]
 fn struct_accessor_value_field() {
     let output = compile_program_full(PERSON_STRUCT_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_person_age(handle: LogosHandle) -> i64"),
-        "Should generate accessor for Int field 'age'. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_person_age(handle: LogosHandle) -> i64"),
+        "Should generate accessor for Int field 'age'. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -1022,17 +1190,34 @@ fn struct_accessor_text_field() {
 #[test]
 fn struct_accessor_free() {
     let output = compile_program_full(PERSON_STRUCT_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_person_free(handle: LogosHandle)"),
-        "Should generate free function for struct. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_person_free(handle: LogosHandle)"),
+        "Should generate free function for struct. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn struct_accessor_c_header() {
     let output = compile_program_full(PERSON_STRUCT_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_person_age"), "C header should declare age accessor. Header:\n{}", header);
-    assert!(header.contains("logos_person_name"), "C header should declare name accessor. Header:\n{}", header);
-    assert!(header.contains("logos_person_free"), "C header should declare free function. Header:\n{}", header);
+    assert!(
+        header.contains("logos_person_age"),
+        "C header should declare age accessor. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_person_name"),
+        "C header should declare name accessor. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_person_free"),
+        "C header should declare free function. Header:\n{}",
+        header
+    );
 }
 
 #[test]
@@ -1070,8 +1255,13 @@ Show 42.
 #[test]
 fn option_accessor_is_some() {
     let output = compile_program_full(OPTION_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_option_i64_is_some(handle: LogosHandle) -> bool"),
-        "Should generate is_some accessor for Option of Int. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_option_i64_is_some(handle: LogosHandle) -> bool"),
+        "Should generate is_some accessor for Option of Int. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -1100,17 +1290,34 @@ Show 42.
 #[test]
 fn option_accessor_free() {
     let output = compile_program_full(OPTION_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_option_i64_free(handle: LogosHandle)"),
-        "Should generate free function for Option. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_option_i64_free(handle: LogosHandle)"),
+        "Should generate free function for Option. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn option_accessor_c_header() {
     let output = compile_program_full(OPTION_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_option_i64_is_some"), "C header should declare is_some. Header:\n{}", header);
-    assert!(header.contains("logos_option_i64_unwrap"), "C header should declare unwrap. Header:\n{}", header);
-    assert!(header.contains("logos_option_i64_free"), "C header should declare free. Header:\n{}", header);
+    assert!(
+        header.contains("logos_option_i64_is_some"),
+        "C header should declare is_some. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_option_i64_unwrap"),
+        "C header should declare unwrap. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_option_i64_free"),
+        "C header should declare free. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1128,23 +1335,41 @@ Show 42.
 #[test]
 fn map_keys_accessor() {
     let output = compile_program_full(MAP_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_map_string_i64_keys(handle: LogosHandle) -> LogosHandle"),
-        "Should generate keys accessor for Map. Generated:\n{}", output.rust_code);
+    assert!(
+        output.rust_code.contains(
+            "pub extern \"C\" fn logos_map_string_i64_keys(handle: LogosHandle) -> LogosHandle"
+        ),
+        "Should generate keys accessor for Map. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn map_values_accessor() {
     let output = compile_program_full(MAP_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_map_string_i64_values(handle: LogosHandle) -> LogosHandle"),
-        "Should generate values accessor for Map. Generated:\n{}", output.rust_code);
+    assert!(
+        output.rust_code.contains(
+            "pub extern \"C\" fn logos_map_string_i64_values(handle: LogosHandle) -> LogosHandle"
+        ),
+        "Should generate values accessor for Map. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn map_iteration_c_header() {
     let output = compile_program_full(MAP_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_map_string_i64_keys"), "C header should declare keys. Header:\n{}", header);
-    assert!(header.contains("logos_map_string_i64_values"), "C header should declare values. Header:\n{}", header);
+    assert!(
+        header.contains("logos_map_string_i64_keys"),
+        "C header should declare keys. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_map_string_i64_values"),
+        "C header should declare values. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1162,22 +1387,37 @@ Show 42.
 #[test]
 fn seq_create_accessor() {
     let output = compile_program_full(SEQ_INT_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_seq_i64_create() -> LogosHandle"),
-        "Should generate create for Seq of Int. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_seq_i64_create() -> LogosHandle"),
+        "Should generate create for Seq of Int. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn seq_push_accessor() {
     let output = compile_program_full(SEQ_INT_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_seq_i64_push(handle: LogosHandle, value: i64)"),
-        "Should generate push for Seq of Int. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_seq_i64_push(handle: LogosHandle, value: i64)"),
+        "Should generate push for Seq of Int. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn map_create_accessor() {
     let output = compile_program_full(MAP_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_map_string_i64_create() -> LogosHandle"),
-        "Should generate create for Map of Text to Int. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_map_string_i64_create() -> LogosHandle"),
+        "Should generate create for Map of Text to Int. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -1198,8 +1438,13 @@ Show 42.
 #[test]
 fn set_create_accessor() {
     let output = compile_program_full(SET_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_set_string_create() -> LogosHandle"),
-        "Should generate create for Set of Text. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_set_string_create() -> LogosHandle"),
+        "Should generate create for Set of Text. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -1213,8 +1458,16 @@ fn set_insert_accessor() {
 fn collection_create_c_header() {
     let output = compile_program_full(SEQ_INT_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_seq_i64_create"), "C header should declare seq create. Header:\n{}", header);
-    assert!(header.contains("logos_seq_i64_push"), "C header should declare seq push. Header:\n{}", header);
+    assert!(
+        header.contains("logos_seq_i64_create"),
+        "C header should declare seq create. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_seq_i64_push"),
+        "C header should declare seq push. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1230,8 +1483,13 @@ fn version_function_generated() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_version() -> *const std::os::raw::c_char"),
-        "Should generate logos_version function. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_version() -> *const std::os::raw::c_char"),
+        "Should generate logos_version function. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -1243,8 +1501,13 @@ fn abi_version_constant_generated() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.rust_code.contains("pub const LOGOS_ABI_VERSION: u32 = 1"),
-        "Should generate LOGOS_ABI_VERSION constant. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub const LOGOS_ABI_VERSION: u32 = 1"),
+        "Should generate LOGOS_ABI_VERSION constant. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
@@ -1257,8 +1520,16 @@ Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_version"), "C header should declare logos_version. Header:\n{}", header);
-    assert!(header.contains("LOGOS_ABI_VERSION"), "C header should declare LOGOS_ABI_VERSION. Header:\n{}", header);
+    assert!(
+        header.contains("logos_version"),
+        "C header should declare logos_version. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("LOGOS_ABI_VERSION"),
+        "C header should declare LOGOS_ABI_VERSION. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1280,37 +1551,82 @@ Show 42.
 #[test]
 fn enum_tag_accessor() {
     let output = compile_program_full(ENUM_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_shape_tag(handle: LogosHandle) -> i32"),
-        "Should generate tag accessor for enum. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_shape_tag(handle: LogosHandle) -> i32"),
+        "Should generate tag accessor for enum. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn enum_variant_field_accessor() {
     let output = compile_program_full(ENUM_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_shape_circle_radius(handle: LogosHandle) -> f64"),
-        "Should generate variant field accessor. Generated:\n{}", output.rust_code);
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_shape_rectangle_width(handle: LogosHandle) -> f64"),
-        "Should generate rectangle width accessor. Generated:\n{}", output.rust_code);
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_shape_rectangle_height(handle: LogosHandle) -> f64"),
-        "Should generate rectangle height accessor. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_shape_circle_radius(handle: LogosHandle) -> f64"),
+        "Should generate variant field accessor. Generated:\n{}",
+        output.rust_code
+    );
+    assert!(
+        output.rust_code.contains(
+            "pub extern \"C\" fn logos_shape_rectangle_width(handle: LogosHandle) -> f64"
+        ),
+        "Should generate rectangle width accessor. Generated:\n{}",
+        output.rust_code
+    );
+    assert!(
+        output.rust_code.contains(
+            "pub extern \"C\" fn logos_shape_rectangle_height(handle: LogosHandle) -> f64"
+        ),
+        "Should generate rectangle height accessor. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn enum_free_accessor() {
     let output = compile_program_full(ENUM_SOURCE).expect("Should compile");
-    assert!(output.rust_code.contains("pub extern \"C\" fn logos_shape_free(handle: LogosHandle)"),
-        "Should generate free function for enum. Generated:\n{}", output.rust_code);
+    assert!(
+        output
+            .rust_code
+            .contains("pub extern \"C\" fn logos_shape_free(handle: LogosHandle)"),
+        "Should generate free function for enum. Generated:\n{}",
+        output.rust_code
+    );
 }
 
 #[test]
 fn enum_tag_c_header() {
     let output = compile_program_full(ENUM_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("LOGOS_SHAPE_CIRCLE"), "C header should declare tag constants. Header:\n{}", header);
-    assert!(header.contains("LOGOS_SHAPE_RECTANGLE"), "C header should declare tag constants. Header:\n{}", header);
-    assert!(header.contains("logos_shape_tag"), "C header should declare tag function. Header:\n{}", header);
-    assert!(header.contains("logos_shape_circle_radius"), "C header should declare variant accessors. Header:\n{}", header);
-    assert!(header.contains("logos_shape_free"), "C header should declare free. Header:\n{}", header);
+    assert!(
+        header.contains("LOGOS_SHAPE_CIRCLE"),
+        "C header should declare tag constants. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("LOGOS_SHAPE_RECTANGLE"),
+        "C header should declare tag constants. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_shape_tag"),
+        "C header should declare tag function. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_shape_circle_radius"),
+        "C header should declare variant accessors. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_shape_free"),
+        "C header should declare free. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1350,7 +1666,11 @@ fn json_from_json_accessor() {
 fn json_serde_json_dep_injected() {
     let output = compile_program_full(JSON_SOURCE).expect("Should compile");
     let has_serde_json = output.dependencies.iter().any(|d| d.name == "serde_json");
-    assert!(has_serde_json, "Should auto-inject serde_json dependency for portable types with C exports. Deps: {:?}", output.dependencies);
+    assert!(
+        has_serde_json,
+        "Should auto-inject serde_json dependency for portable types with C exports. Deps: {:?}",
+        output.dependencies
+    );
 }
 
 #[test]
@@ -1371,8 +1691,16 @@ Show 42.
 fn json_c_header() {
     let output = compile_program_full(JSON_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_config_to_json"), "C header should declare to_json. Header:\n{}", header);
-    assert!(header.contains("logos_config_from_json"), "C header should declare from_json. Header:\n{}", header);
+    assert!(
+        header.contains("logos_config_to_json"),
+        "C header should declare to_json. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("logos_config_from_json"),
+        "C header should declare from_json. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1388,8 +1716,10 @@ fn python_bindings_generated() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.python_bindings.is_some(),
-        "compile_program_full should return Some python_bindings when C exports exist");
+    assert!(
+        output.python_bindings.is_some(),
+        "compile_program_full should return Some python_bindings when C exports exist"
+    );
 }
 
 #[test]
@@ -1401,8 +1731,15 @@ fn python_bindings_has_import_ctypes() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have python bindings");
-    assert!(py.contains("import ctypes"), "Python bindings should import ctypes. Generated:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have python bindings");
+    assert!(
+        py.contains("import ctypes"),
+        "Python bindings should import ctypes. Generated:\n{}",
+        py
+    );
 }
 
 #[test]
@@ -1414,8 +1751,15 @@ fn python_bindings_has_function_wrapper() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have python bindings");
-    assert!(py.contains("def add(self"), "Python bindings should have function wrapper. Generated:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have python bindings");
+    assert!(
+        py.contains("def add(self"),
+        "Python bindings should have function wrapper. Generated:\n{}",
+        py
+    );
 }
 
 #[test]
@@ -1427,8 +1771,15 @@ fn python_bindings_has_type_setup() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have python bindings");
-    assert!(py.contains("c_int64"), "Python bindings should setup ctypes. Generated:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have python bindings");
+    assert!(
+        py.contains("c_int64"),
+        "Python bindings should setup ctypes. Generated:\n{}",
+        py
+    );
 }
 
 #[test]
@@ -1440,8 +1791,15 @@ fn python_bindings_has_error_class() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have python bindings");
-    assert!(py.contains("class LogosError"), "Python bindings should have error class. Generated:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have python bindings");
+    assert!(
+        py.contains("class LogosError"),
+        "Python bindings should have error class. Generated:\n{}",
+        py
+    );
 }
 
 #[test]
@@ -1453,8 +1811,10 @@ fn python_bindings_not_generated_no_exports() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.python_bindings.is_none(),
-        "Should not generate python bindings when no C exports exist");
+    assert!(
+        output.python_bindings.is_none(),
+        "Should not generate python bindings when no C exports exist"
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1470,8 +1830,10 @@ fn typescript_types_generated() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.typescript_types.is_some(),
-        "compile_program_full should return Some typescript_types when C exports exist");
+    assert!(
+        output.typescript_types.is_some(),
+        "compile_program_full should return Some typescript_types when C exports exist"
+    );
 }
 
 #[test]
@@ -1483,9 +1845,15 @@ fn typescript_types_has_function_decl() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let dts = output.typescript_types.as_ref().expect("Should have typescript types");
-    assert!(dts.contains("export declare function add(a: number, b: number): number"),
-        "TypeScript types should declare add function. Generated:\n{}", dts);
+    let dts = output
+        .typescript_types
+        .as_ref()
+        .expect("Should have typescript types");
+    assert!(
+        dts.contains("export declare function add(a: number, b: number): number"),
+        "TypeScript types should declare add function. Generated:\n{}",
+        dts
+    );
 }
 
 #[test]
@@ -1497,8 +1865,15 @@ fn typescript_bindings_has_ffi_library() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let js = output.typescript_bindings.as_ref().expect("Should have typescript bindings");
-    assert!(js.contains("koffi.load"), "TypeScript bindings should use koffi.load. Generated:\n{}", js);
+    let js = output
+        .typescript_bindings
+        .as_ref()
+        .expect("Should have typescript bindings");
+    assert!(
+        js.contains("koffi.load"),
+        "TypeScript bindings should use koffi.load. Generated:\n{}",
+        js
+    );
 }
 
 #[test]
@@ -1510,8 +1885,10 @@ fn typescript_not_generated_no_exports() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    assert!(output.typescript_types.is_none(),
-        "Should not generate typescript types when no C exports exist");
+    assert!(
+        output.typescript_types.is_none(),
+        "Should not generate typescript types when no C exports exist"
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1540,8 +1917,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // The generated C export should have error handling for null bytes
-    assert!(rust.contains("ContainsNullByte") || rust.contains("map_err"),
-        "C export with Text should handle null bytes gracefully. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ContainsNullByte") || rust.contains("map_err"),
+        "C export with Text should handle null bytes gracefully. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1559,8 +1939,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Field accessor should handle null bytes
-    assert!(rust.contains("ContainsNullByte") || rust.contains("map_err"),
-        "Struct field accessor should handle null bytes. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ContainsNullByte") || rust.contains("map_err"),
+        "Struct field accessor should handle null bytes. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1579,8 +1962,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // JSON serialization should handle null bytes
-    assert!(rust.contains("ContainsNullByte") || rust.contains("map_err"),
-        "JSON to_json should handle null bytes. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ContainsNullByte") || rust.contains("map_err"),
+        "JSON to_json should handle null bytes. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1602,8 +1988,11 @@ Show 42.
 
     // Error storage uses Mutex<HashMap<ThreadId, String>> (thread-safe)
     // thread_local is allowed for the CString return cache only
-    assert!(rust.contains("Mutex<std::collections::HashMap<std::thread::ThreadId, String>>"),
-        "Error storage should use Mutex<HashMap<ThreadId, String>>. Generated:\n{}", rust);
+    assert!(
+        rust.contains("Mutex<std::collections::HashMap<std::thread::ThreadId, String>>"),
+        "Error storage should use Mutex<HashMap<ThreadId, String>>. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1617,8 +2006,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Should have logos_last_error function
-    assert!(rust.contains("pub extern \"C\" fn logos_last_error()"),
-        "Should generate logos_last_error function. Generated:\n{}", rust);
+    assert!(
+        rust.contains("pub extern \"C\" fn logos_last_error()"),
+        "Should generate logos_last_error function. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1632,8 +2024,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Error storage should be keyed by ThreadId
-    assert!(rust.contains("ThreadId") || rust.contains("thread_local"),
-        "Error storage should track per-thread errors. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ThreadId") || rust.contains("thread_local"),
+        "Error storage should track per-thread errors. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1653,8 +2048,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Should wrap FFI exports in catch_unwind
-    assert!(rust.contains("catch_unwind") || rust.contains("panic"),
-        "FFI exports should have panic boundaries. Generated:\n{}", rust);
+    assert!(
+        rust.contains("catch_unwind") || rust.contains("panic"),
+        "FFI exports should have panic boundaries. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1673,8 +2071,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Accessors should have panic boundaries
-    assert!(rust.contains("catch_unwind") || rust.contains("panic"),
-        "Struct accessors should have panic boundaries. Generated:\n{}", rust);
+    assert!(
+        rust.contains("catch_unwind") || rust.contains("panic"),
+        "Struct accessors should have panic boundaries. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1688,8 +2089,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Panics should return ThreadPanic status
-    assert!(rust.contains("ThreadPanic") || rust.contains("catch_unwind"),
-        "Panics should return error status. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ThreadPanic") || rust.contains("catch_unwind"),
+        "Panics should return error status. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1715,8 +2119,13 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Should have handle registry/validation
-    assert!(rust.contains("HandleRegistry") || rust.contains("generation") || rust.contains("validate_handle"),
-        "Should have handle registry for validation. Generated:\n{}", rust);
+    assert!(
+        rust.contains("HandleRegistry")
+            || rust.contains("generation")
+            || rust.contains("validate_handle"),
+        "Should have handle registry for validation. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1735,8 +2144,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Free should detect already-freed handles
-    assert!(rust.contains("InvalidHandle") || rust.contains("is_valid"),
-        "Should detect double-free attempts. Generated:\n{}", rust);
+    assert!(
+        rust.contains("InvalidHandle") || rust.contains("is_valid"),
+        "Should detect double-free attempts. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1755,8 +2167,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Handles should have generation counters
-    assert!(rust.contains("generation") || rust.contains("counter"),
-        "Handles should use generation counters. Generated:\n{}", rust);
+    assert!(
+        rust.contains("generation") || rust.contains("counter"),
+        "Handles should use generation counters. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1781,8 +2196,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Accessors should check for null handles
-    assert!(rust.contains("is_null") || rust.contains("NullPointer"),
-        "Accessors should validate null handles. Generated:\n{}", rust);
+    assert!(
+        rust.contains("is_null") || rust.contains("NullPointer"),
+        "Accessors should validate null handles. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1801,8 +2219,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Should return NullPointer status
-    assert!(rust.contains("NullPointer") || rust.contains("null"),
-        "Should have NullPointer status code. Generated:\n{}", rust);
+    assert!(
+        rust.contains("NullPointer") || rust.contains("null"),
+        "Should have NullPointer status code. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1817,8 +2238,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Seq accessors should check null
-    assert!(rust.contains("is_null") || rust.contains("NullPointer"),
-        "Seq accessors should validate null handles. Generated:\n{}", rust);
+    assert!(
+        rust.contains("is_null") || rust.contains("NullPointer"),
+        "Seq accessors should validate null handles. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1833,8 +2257,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Map accessors should check null
-    assert!(rust.contains("is_null") || rust.contains("NullPointer"),
-        "Map accessors should validate null handles. Generated:\n{}", rust);
+    assert!(
+        rust.contains("is_null") || rust.contains("NullPointer"),
+        "Map accessors should validate null handles. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1848,8 +2275,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Option accessors should check null
-    assert!(rust.contains("is_null") || rust.contains("NullPointer"),
-        "Option accessors should validate null handles. Generated:\n{}", rust);
+    assert!(
+        rust.contains("is_null") || rust.contains("NullPointer"),
+        "Option accessors should validate null handles. Generated:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1869,8 +2299,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // LogosStatus should have NullPointer variant
-    assert!(rust.contains("NullPointer"),
-        "LogosStatus should have NullPointer. Generated:\n{}", rust);
+    assert!(
+        rust.contains("NullPointer"),
+        "LogosStatus should have NullPointer. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1884,8 +2317,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // LogosStatus should have InvalidHandle variant
-    assert!(rust.contains("InvalidHandle"),
-        "LogosStatus should have InvalidHandle. Generated:\n{}", rust);
+    assert!(
+        rust.contains("InvalidHandle"),
+        "LogosStatus should have InvalidHandle. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1899,8 +2335,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // LogosStatus should have ContainsNullByte variant
-    assert!(rust.contains("ContainsNullByte"),
-        "LogosStatus should have ContainsNullByte. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ContainsNullByte"),
+        "LogosStatus should have ContainsNullByte. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1914,8 +2353,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // LogosStatus should have ThreadPanic variant
-    assert!(rust.contains("ThreadPanic"),
-        "LogosStatus should have ThreadPanic. Generated:\n{}", rust);
+    assert!(
+        rust.contains("ThreadPanic"),
+        "LogosStatus should have ThreadPanic. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1929,8 +2371,11 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // LogosStatus should have MemoryExhausted variant
-    assert!(rust.contains("MemoryExhausted"),
-        "LogosStatus should have MemoryExhausted. Generated:\n{}", rust);
+    assert!(
+        rust.contains("MemoryExhausted"),
+        "LogosStatus should have MemoryExhausted. Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1945,14 +2390,26 @@ Show 42.
     let header = output.c_header.as_ref().expect("Should have C header");
 
     // C header should declare all status codes
-    assert!(header.contains("LOGOS_STATUS_NULL_POINTER"),
-        "C header should have NullPointer status. Header:\n{}", header);
-    assert!(header.contains("LOGOS_STATUS_INVALID_HANDLE"),
-        "C header should have InvalidHandle status. Header:\n{}", header);
-    assert!(header.contains("LOGOS_STATUS_CONTAINS_NULL_BYTE"),
-        "C header should have ContainsNullByte status. Header:\n{}", header);
-    assert!(header.contains("LOGOS_STATUS_THREAD_PANIC"),
-        "C header should have ThreadPanic status. Header:\n{}", header);
+    assert!(
+        header.contains("LOGOS_STATUS_NULL_POINTER"),
+        "C header should have NullPointer status. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("LOGOS_STATUS_INVALID_HANDLE"),
+        "C header should have InvalidHandle status. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("LOGOS_STATUS_CONTAINS_NULL_BYTE"),
+        "C header should have ContainsNullByte status. Header:\n{}",
+        header
+    );
+    assert!(
+        header.contains("LOGOS_STATUS_THREAD_PANIC"),
+        "C header should have ThreadPanic status. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -1981,12 +2438,16 @@ Show 42.
         "InvalidHandle",
         "NullPointer",
         "ContainsNullByte",
-        "logos_last_error"
+        "logos_last_error",
     ];
 
     for feature in &safety_features {
-        assert!(rust.contains(feature),
-            "Should have safety feature '{}'. Generated:\n{}", feature, rust);
+        assert!(
+            rust.contains(feature),
+            "Should have safety feature '{}'. Generated:\n{}",
+            feature,
+            rust
+        );
     }
 }
 
@@ -2009,12 +2470,16 @@ Show 42.
         "LOGOS_STATUS_INVALID_HANDLE",
         "LOGOS_STATUS_CONTAINS_NULL_BYTE",
         "LOGOS_STATUS_THREAD_PANIC",
-        "LOGOS_STATUS_MEMORY_EXHAUSTED"
+        "LOGOS_STATUS_MEMORY_EXHAUSTED",
     ];
 
     for code in &status_codes {
-        assert!(header.contains(code),
-            "C header should have status code '{}'. Header:\n{}", code, header);
+        assert!(
+            header.contains(code),
+            "C header should have status code '{}'. Header:\n{}",
+            code,
+            header
+        );
     }
 }
 
@@ -2028,7 +2493,8 @@ fn extract_function_body(code: &str, fn_name: &str) -> Option<String> {
     let lines: Vec<&str> = code.lines().collect();
     let mut start = None;
     for (i, line) in lines.iter().enumerate() {
-        if line.contains(&format!("fn {}(", fn_name)) || line.contains(&format!("fn {} (", fn_name)) {
+        if line.contains(&format!("fn {}(", fn_name)) || line.contains(&format!("fn {} (", fn_name))
+        {
             start = Some(i);
             break;
         }
@@ -2038,8 +2504,12 @@ fn extract_function_body(code: &str, fn_name: &str) -> Option<String> {
     let mut end = start;
     for (i, line) in lines[start..].iter().enumerate() {
         for ch in line.chars() {
-            if ch == '{' { depth += 1; }
-            if ch == '}' { depth -= 1; }
+            if ch == '{' {
+                depth += 1;
+            }
+            if ch == '}' {
+                depth -= 1;
+            }
         }
         if depth == 0 && i > 0 {
             end = start + i;
@@ -2050,7 +2520,9 @@ fn extract_function_body(code: &str, fn_name: &str) -> Option<String> {
             break;
         }
     }
-    if end < start { end = lines.len() - 1; }
+    if end < start {
+        end = lines.len() - 1;
+    }
     Some(lines[start..=end].join("\n"))
 }
 
@@ -2070,11 +2542,17 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
     let body = extract_function_body(&rust, "logos_last_error")
         .expect("logos_last_error function should exist");
-    assert!(!body.contains("msg.as_ptr() as"),
+    assert!(
+        !body.contains("msg.as_ptr() as"),
         "logos_last_error must NOT return a pointer into the Mutex-guarded HashMap. \
-         It must clone into a CString cache. Body:\n{}", body);
-    assert!(body.contains("CString") || body.contains("thread_local"),
-        "logos_last_error must use CString or thread_local cache. Body:\n{}", body);
+         It must clone into a CString cache. Body:\n{}",
+        body
+    );
+    assert!(
+        body.contains("CString") || body.contains("thread_local"),
+        "logos_last_error must use CString or thread_local cache. Body:\n{}",
+        body
+    );
 }
 
 // 1B. LogosHandle must be *mut c_void, not *const
@@ -2087,10 +2565,16 @@ fn bug_logos_handle_must_be_mut_void_pointer() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("pub type LogosHandle = *mut std::ffi::c_void"),
-        "LogosHandle must be *mut c_void for safe mutation. Generated:\n{}", rust);
-    assert!(!rust.contains("pub type LogosHandle = *const std::ffi::c_void"),
-        "LogosHandle must NOT be *const c_void. Generated:\n{}", rust);
+    assert!(
+        rust.contains("pub type LogosHandle = *mut std::ffi::c_void"),
+        "LogosHandle must be *mut c_void for safe mutation. Generated:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("pub type LogosHandle = *const std::ffi::c_void"),
+        "LogosHandle must NOT be *const c_void. Generated:\n{}",
+        rust
+    );
 }
 
 // 1C. Value-type structs passed by value must have #[repr(C)]
@@ -2111,14 +2595,22 @@ Show 42.
     // Find "struct Point" and check that #[repr(C)] is on the line immediately preceding it
     let lines: Vec<&str> = rust.lines().collect();
     let struct_idx = lines.iter().position(|l| l.contains("struct Point"));
-    assert!(struct_idx.is_some(), "Should have struct Point. Generated:\n{}", rust);
+    assert!(
+        struct_idx.is_some(),
+        "Should have struct Point. Generated:\n{}",
+        rust
+    );
     let idx = struct_idx.unwrap();
     assert!(idx > 0, "struct Point should not be first line");
     // The #[repr(C)] must be within 2 lines before struct Point (allowing for #[derive(...)])
     let window = lines[idx.saturating_sub(3)..idx].join("\n");
-    assert!(window.contains("#[repr(C)]"),
+    assert!(
+        window.contains("#[repr(C)]"),
         "Value-type struct Point used in C export must have #[repr(C)] immediately before it. \
-         Lines before struct Point:\n{}\n\nFull generated:\n{}", window, rust);
+         Lines before struct Point:\n{}\n\nFull generated:\n{}",
+        window,
+        rust
+    );
 }
 
 // 1D. All accessor functions must have catch_unwind panic boundaries
@@ -2127,13 +2619,23 @@ fn bug_all_accessor_functions_must_have_panic_boundary() {
     let output = compile_program_full(PERSON_STRUCT_SOURCE).expect("Should compile");
     let rust = &output.rust_code;
 
-    let accessor_fns = ["logos_person_name", "logos_person_age", "logos_person_email",
-                         "logos_person_address", "logos_person_phone", "logos_person_free"];
+    let accessor_fns = [
+        "logos_person_name",
+        "logos_person_age",
+        "logos_person_email",
+        "logos_person_address",
+        "logos_person_phone",
+        "logos_person_free",
+    ];
     for fn_name in &accessor_fns {
         let body = extract_function_body(rust, fn_name)
             .unwrap_or_else(|| panic!("Function {} should exist in output", fn_name));
-        assert!(body.contains("catch_unwind"),
-            "Accessor function {} must have catch_unwind panic boundary. Body:\n{}", fn_name, body);
+        assert!(
+            body.contains("catch_unwind"),
+            "Accessor function {} must have catch_unwind panic boundary. Body:\n{}",
+            fn_name,
+            body
+        );
     }
 }
 
@@ -2147,11 +2649,20 @@ fn bug_python_nat_must_be_c_uint64() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have python bindings");
-    assert!(py.contains("c_uint64"),
-        "Python Nat type should be c_uint64 (not c_uint32). Generated:\n{}", py);
-    assert!(!py.contains("c_uint32"),
-        "Python Nat type must NOT be c_uint32. Generated:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have python bindings");
+    assert!(
+        py.contains("c_uint64"),
+        "Python Nat type should be c_uint64 (not c_uint32). Generated:\n{}",
+        py
+    );
+    assert!(
+        !py.contains("c_uint32"),
+        "Python Nat type must NOT be c_uint32. Generated:\n{}",
+        py
+    );
 }
 
 // 1F. Char field accessor must return u32, not Rust char (4 bytes != C char)
@@ -2174,10 +2685,16 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_letter_value")
         .expect("logos_letter_value should exist");
-    assert!(body.contains("-> u32"),
-        "Char field accessor must return u32, not char. Body:\n{}", body);
-    assert!(body.contains("as u32"),
-        "Char field accessor must cast to u32. Body:\n{}", body);
+    assert!(
+        body.contains("-> u32"),
+        "Char field accessor must return u32, not char. Body:\n{}",
+        body
+    );
+    assert!(
+        body.contains("as u32"),
+        "Char field accessor must cast to u32. Body:\n{}",
+        body
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2194,8 +2711,11 @@ fn bug_logos_version_must_not_be_hardcoded() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(!rust.contains(r#"b"0.8.0\0""#),
-        "logos_version must NOT be hardcoded to 0.8.0. Generated:\n{}", rust);
+    assert!(
+        !rust.contains(r#"b"0.8.0\0""#),
+        "logos_version must NOT be hardcoded to 0.8.0. Generated:\n{}",
+        rust
+    );
 }
 
 // 5B. Python bindings must not hardcode .dylib
@@ -2208,9 +2728,15 @@ fn bug_python_bindings_must_not_hardcode_dylib() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have python bindings");
-    assert!(py.contains("sys.platform") || py.contains("platform.system"),
-        "Python bindings must detect platform for library extension. Generated:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have python bindings");
+    assert!(
+        py.contains("sys.platform") || py.contains("platform.system"),
+        "Python bindings must detect platform for library extension. Generated:\n{}",
+        py
+    );
 }
 
 // 5C. TypeScript bindings should not use deprecated ffi-napi
@@ -2223,11 +2749,20 @@ fn bug_typescript_should_not_use_deprecated_ffi_napi() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let js = output.typescript_bindings.as_ref().expect("Should have JS bindings");
-    assert!(!js.contains("ffi-napi"),
-        "TypeScript bindings should NOT use deprecated ffi-napi. Generated:\n{}", js);
-    assert!(!js.contains("ref-napi"),
-        "TypeScript bindings should NOT use deprecated ref-napi. Generated:\n{}", js);
+    let js = output
+        .typescript_bindings
+        .as_ref()
+        .expect("Should have JS bindings");
+    assert!(
+        !js.contains("ffi-napi"),
+        "TypeScript bindings should NOT use deprecated ffi-napi. Generated:\n{}",
+        js
+    );
+    assert!(
+        !js.contains("ref-napi"),
+        "TypeScript bindings should NOT use deprecated ref-napi. Generated:\n{}",
+        js
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2247,10 +2782,16 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_seq_i64_create")
         .expect("logos_seq_i64_create function should exist");
-    assert!(body.contains("logos_handle_registry()") || body.contains("register("),
-        "Create function must register handle in registry. Body:\n{}", body);
-    assert!(!body.contains("Box::into_raw(Box::new(seq)) as LogosHandle"),
-        "Create function must NOT return raw Box pointer directly. Body:\n{}", body);
+    assert!(
+        body.contains("logos_handle_registry()") || body.contains("register("),
+        "Create function must register handle in registry. Body:\n{}",
+        body
+    );
+    assert!(
+        !body.contains("Box::into_raw(Box::new(seq)) as LogosHandle"),
+        "Create function must NOT return raw Box pointer directly. Body:\n{}",
+        body
+    );
 }
 
 // 2B. _free functions must deregister handles from the registry
@@ -2266,10 +2807,16 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_seq_i64_free")
         .expect("logos_seq_i64_free function should exist");
-    assert!(body.contains("logos_handle_registry()") || body.contains(".free("),
-        "Free function must deregister handle from registry. Body:\n{}", body);
-    assert!(!body.contains("Box::from_raw(handle as"),
-        "Free function must NOT directly Box::from_raw the handle. Body:\n{}", body);
+    assert!(
+        body.contains("logos_handle_registry()") || body.contains(".free("),
+        "Free function must deregister handle from registry. Body:\n{}",
+        body
+    );
+    assert!(
+        !body.contains("Box::from_raw(handle as"),
+        "Free function must NOT directly Box::from_raw the handle. Body:\n{}",
+        body
+    );
 }
 
 // 2C. Accessors must validate handle via registry before dereference
@@ -2285,10 +2832,16 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_seq_i64_len")
         .expect("logos_seq_i64_len function should exist");
-    assert!(body.contains("logos_handle_registry()") || body.contains("deref("),
-        "Accessor must validate handle via registry before dereference. Body:\n{}", body);
-    assert!(!body.contains("&*(handle as *const"),
-        "Accessor must NOT cast handle directly to pointer. Body:\n{}", body);
+    assert!(
+        body.contains("logos_handle_registry()") || body.contains("deref("),
+        "Accessor must validate handle via registry before dereference. Body:\n{}",
+        body
+    );
+    assert!(
+        !body.contains("&*(handle as *const"),
+        "Accessor must NOT cast handle directly to pointer. Body:\n{}",
+        body
+    );
 }
 
 // 2D. Double-free must return InvalidHandle error in free body
@@ -2318,8 +2871,11 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_seq_i64_len")
         .expect("logos_seq_i64_len function should exist");
-    assert!(body.contains("is_null()") || body.contains("NullPointer"),
-        "Seq accessor body must check for null handle. Body:\n{}", body);
+    assert!(
+        body.contains("is_null()") || body.contains("NullPointer"),
+        "Seq accessor body must check for null handle. Body:\n{}",
+        body
+    );
 }
 
 // 4A-2. Struct accessor body must null-check the handle
@@ -2328,8 +2884,11 @@ fn bug_struct_accessor_body_must_check_null_handle() {
     let output = compile_program_full(PERSON_STRUCT_SOURCE).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_person_age")
         .expect("logos_person_age function should exist");
-    assert!(body.contains("is_null()") || body.contains("NullPointer"),
-        "Struct accessor body must check for null handle. Body:\n{}", body);
+    assert!(
+        body.contains("is_null()") || body.contains("NullPointer"),
+        "Struct accessor body must check for null handle. Body:\n{}",
+        body
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2358,7 +2917,8 @@ Show 42.
     // Find the else clause that contains the variant mismatch
     let has_silent_else = body.lines().any(|line| {
         let trimmed = line.trim();
-        trimmed.contains("else") && trimmed.contains("Default::default()")
+        trimmed.contains("else")
+            && trimmed.contains("Default::default()")
             && !trimmed.contains("logos_set_last_error")
     });
     assert!(!has_silent_else,
@@ -2386,7 +2946,8 @@ Show 42.
     // The text accessor's else branch should also not silently return null
     let has_silent_else = body.lines().any(|line| {
         let trimmed = line.trim();
-        trimmed.contains("else") && trimmed.contains("null_mut()")
+        trimmed.contains("else")
+            && trimmed.contains("null_mut()")
             && !trimmed.contains("logos_set_last_error")
     });
     assert!(!has_silent_else,
@@ -2413,9 +2974,11 @@ fn e2e_struct_export_compiles_with_registry() {
 Show "ok".
 "#;
     let result = compile_logos(source);
-    assert!(result.success,
+    assert!(
+        result.success,
         "Struct export with handle registry must compile. stderr:\n{}\n\nGenerated Rust:\n{}",
-        result.stderr, result.rust_code);
+        result.stderr, result.rust_code
+    );
 }
 
 // E2E: Seq export compiles
@@ -2433,9 +2996,11 @@ fn e2e_seq_export_compiles_with_registry() {
 Show "ok".
 "#;
     let result = compile_logos(source);
-    assert!(result.success,
+    assert!(
+        result.success,
         "Seq export with handle registry must compile. stderr:\n{}\n\nGenerated Rust:\n{}",
-        result.stderr, result.rust_code);
+        result.stderr, result.rust_code
+    );
 }
 
 // E2E: Map export compiles with registry
@@ -2450,9 +3015,11 @@ fn e2e_map_export_compiles_with_registry() {
 Show "ok".
 "#;
     let result = compile_logos(source);
-    assert!(result.success,
+    assert!(
+        result.success,
         "Map export with handle registry must compile. stderr:\n{}\n\nGenerated Rust:\n{}",
-        result.stderr, result.rust_code);
+        result.stderr, result.rust_code
+    );
 }
 
 // E2E: Enum export compiles with registry
@@ -2471,9 +3038,11 @@ fn e2e_enum_export_compiles_with_registry() {
 Show "ok".
 "#;
     let result = compile_logos(source);
-    assert!(result.success,
+    assert!(
+        result.success,
         "Enum export with handle registry must compile. stderr:\n{}\n\nGenerated Rust:\n{}",
-        result.stderr, result.rust_code);
+        result.stderr, result.rust_code
+    );
 }
 
 // E2E: Multiple exports with mixed types compile
@@ -2499,9 +3068,11 @@ Let r be add(1, 2).
 Show r.
 "#;
     let result = compile_logos(source);
-    assert!(result.success,
+    assert!(
+        result.success,
         "Multiple exports with mixed types must compile. stderr:\n{}\n\nGenerated Rust:\n{}",
-        result.stderr, result.rust_code);
+        result.stderr, result.rust_code
+    );
 }
 
 // E2E: Exported value-type functions run correctly
@@ -2529,23 +3100,53 @@ fn e2e_registry_infrastructure_complete() {
     let rust = &output.rust_code;
 
     // Verify complete registry infrastructure
-    assert!(rust.contains("struct HandleEntry"), "Must have HandleEntry struct");
-    assert!(rust.contains("struct HandleRegistry"), "Must have HandleRegistry struct");
-    assert!(rust.contains("fn register(&mut self"), "Registry must have register method");
-    assert!(rust.contains("fn deref(&self"), "Registry must have deref method");
-    assert!(rust.contains("fn free(&mut self"), "Registry must have free method");
-    assert!(rust.contains("fn logos_handle_registry()"), "Must have global registry accessor");
-    assert!(rust.contains("OnceLock<std::sync::Mutex<HandleRegistry>>"), "Registry must be Mutex-protected OnceLock");
+    assert!(
+        rust.contains("struct HandleEntry"),
+        "Must have HandleEntry struct"
+    );
+    assert!(
+        rust.contains("struct HandleRegistry"),
+        "Must have HandleRegistry struct"
+    );
+    assert!(
+        rust.contains("fn register(&mut self"),
+        "Registry must have register method"
+    );
+    assert!(
+        rust.contains("fn deref(&self"),
+        "Registry must have deref method"
+    );
+    assert!(
+        rust.contains("fn free(&mut self"),
+        "Registry must have free method"
+    );
+    assert!(
+        rust.contains("fn logos_handle_registry()"),
+        "Must have global registry accessor"
+    );
+    assert!(
+        rust.contains("OnceLock<std::sync::Mutex<HandleRegistry>>"),
+        "Registry must be Mutex-protected OnceLock"
+    );
 
     // Verify person accessor uses registry (Person has 5 fields → reference type)
-    let body = extract_function_body(rust, "logos_person_age")
-        .expect("logos_person_age should exist");
-    assert!(body.contains("logos_handle_registry()"),
-        "Struct accessor must use registry. Body:\n{}", body);
-    assert!(body.contains("is_null()"),
-        "Struct accessor must null-check. Body:\n{}", body);
-    assert!(body.contains("deref("),
-        "Struct accessor must deref via registry. Body:\n{}", body);
+    let body =
+        extract_function_body(rust, "logos_person_age").expect("logos_person_age should exist");
+    assert!(
+        body.contains("logos_handle_registry()"),
+        "Struct accessor must use registry. Body:\n{}",
+        body
+    );
+    assert!(
+        body.contains("is_null()"),
+        "Struct accessor must null-check. Body:\n{}",
+        body
+    );
+    assert!(
+        body.contains("deref("),
+        "Struct accessor must deref via registry. Body:\n{}",
+        body
+    );
 }
 
 // E2E: Free function has double-free protection
@@ -2561,12 +3162,21 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let body = extract_function_body(&output.rust_code, "logos_seq_i64_free")
         .expect("logos_seq_i64_free should exist");
-    assert!(body.contains("InvalidHandle"),
-        "Free must have InvalidHandle error for double-free. Body:\n{}", body);
-    assert!(body.contains("logos_handle_registry()"),
-        "Free must use registry. Body:\n{}", body);
-    assert!(!body.contains("Box::from_raw(handle as"),
-        "Free must NOT directly cast handle to pointer. Body:\n{}", body);
+    assert!(
+        body.contains("InvalidHandle"),
+        "Free must have InvalidHandle error for double-free. Body:\n{}",
+        body
+    );
+    assert!(
+        body.contains("logos_handle_registry()"),
+        "Free must use registry. Body:\n{}",
+        body
+    );
+    assert!(
+        !body.contains("Box::from_raw(handle as"),
+        "Free must NOT directly cast handle to pointer. Body:\n{}",
+        body
+    );
 }
 
 // E2E: All accessor types have catch_unwind + null check + registry deref
@@ -2580,9 +3190,17 @@ fn e2e_accessor_safety_trifecta() {
     for fn_name in &["logos_person_name", "logos_person_age"] {
         let body = extract_function_body(rust, fn_name)
             .unwrap_or_else(|| panic!("{} should exist", fn_name));
-        assert!(body.contains("catch_unwind"), "{} must have catch_unwind", fn_name);
+        assert!(
+            body.contains("catch_unwind"),
+            "{} must have catch_unwind",
+            fn_name
+        );
         assert!(body.contains("is_null()"), "{} must check null", fn_name);
-        assert!(body.contains("logos_handle_registry()"), "{} must use registry", fn_name);
+        assert!(
+            body.contains("logos_handle_registry()"),
+            "{} must use registry",
+            fn_name
+        );
     }
 
     // Also check seq accessors
@@ -2599,9 +3217,17 @@ Show 42.
     for fn_name in &["logos_seq_i64_len", "logos_seq_i64_at"] {
         let body = extract_function_body(seq_rust, fn_name)
             .unwrap_or_else(|| panic!("{} should exist", fn_name));
-        assert!(body.contains("catch_unwind"), "{} must have catch_unwind", fn_name);
+        assert!(
+            body.contains("catch_unwind"),
+            "{} must have catch_unwind",
+            fn_name
+        );
         assert!(body.contains("is_null()"), "{} must check null", fn_name);
-        assert!(body.contains("logos_handle_registry()"), "{} must use registry", fn_name);
+        assert!(
+            body.contains("logos_handle_registry()"),
+            "{} must use registry",
+            fn_name
+        );
     }
 }
 
@@ -2626,13 +3252,25 @@ Show 42.
     let output = compile_program_full(source).expect("Should compile");
     let rust = &output.rust_code;
 
-    for fn_name in &["logos_seq_i64_create", "logos_map_string_string_create", "logos_set_string_create"] {
+    for fn_name in &[
+        "logos_seq_i64_create",
+        "logos_map_string_string_create",
+        "logos_set_string_create",
+    ] {
         let body = extract_function_body(rust, fn_name)
             .unwrap_or_else(|| panic!("{} should exist", fn_name));
-        assert!(body.contains("logos_handle_registry()"),
-            "{} must register in handle registry. Body:\n{}", fn_name, body);
-        assert!(body.contains("register("),
-            "{} must call register(). Body:\n{}", fn_name, body);
+        assert!(
+            body.contains("logos_handle_registry()"),
+            "{} must register in handle registry. Body:\n{}",
+            fn_name,
+            body
+        );
+        assert!(
+            body.contains("register("),
+            "{} must call register(). Body:\n{}",
+            fn_name,
+            body
+        );
     }
 }
 
@@ -2647,10 +3285,16 @@ Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("typedef void* logos_handle_t"),
-        "C header handle must be void* (not const void*). Header:\n{}", header);
-    assert!(!header.contains("typedef const void* logos_handle_t"),
-        "C header handle must NOT be const void*. Header:\n{}", header);
+    assert!(
+        header.contains("typedef void* logos_handle_t"),
+        "C header handle must be void* (not const void*). Header:\n{}",
+        header
+    );
+    assert!(
+        !header.contains("typedef const void* logos_handle_t"),
+        "C header handle must NOT be const void*. Header:\n{}",
+        header
+    );
 }
 
 // E2E: Python bindings have platform detection and correct Nat type
@@ -2666,10 +3310,25 @@ fn e2e_python_bindings_quality() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let py = output.python_bindings.as_ref().expect("Should have Python bindings");
-    assert!(py.contains("c_uint64"), "Nat must map to c_uint64. Python:\n{}", py);
-    assert!(!py.contains("c_uint32"), "Must NOT use c_uint32 for Nat. Python:\n{}", py);
-    assert!(py.contains("sys.platform"), "Must have platform detection. Python:\n{}", py);
+    let py = output
+        .python_bindings
+        .as_ref()
+        .expect("Should have Python bindings");
+    assert!(
+        py.contains("c_uint64"),
+        "Nat must map to c_uint64. Python:\n{}",
+        py
+    );
+    assert!(
+        !py.contains("c_uint32"),
+        "Must NOT use c_uint32 for Nat. Python:\n{}",
+        py
+    );
+    assert!(
+        py.contains("sys.platform"),
+        "Must have platform detection. Python:\n{}",
+        py
+    );
 }
 
 // E2E: TypeScript bindings use koffi, not ffi-napi
@@ -2682,9 +3341,20 @@ fn e2e_typescript_bindings_quality() {
 Show 42.
 "#;
     let output = compile_program_full(source).expect("Should compile");
-    let js = output.typescript_bindings.as_ref().expect("Should have TS bindings");
-    assert!(js.contains("koffi"), "TS bindings must use koffi. JS:\n{}", js);
-    assert!(!js.contains("ffi-napi"), "TS bindings must NOT use ffi-napi. JS:\n{}", js);
+    let js = output
+        .typescript_bindings
+        .as_ref()
+        .expect("Should have TS bindings");
+    assert!(
+        js.contains("koffi"),
+        "TS bindings must use koffi. JS:\n{}",
+        js
+    );
+    assert!(
+        !js.contains("ffi-napi"),
+        "TS bindings must NOT use ffi-napi. JS:\n{}",
+        js
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -2714,11 +3384,17 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
+    assert!(
+        result.success,
         "C linkage test must succeed. stderr:\n{}\n\nGenerated Rust:\n{}\n\nC code:\n{}",
-        result.stderr, result.rust_code, result.c_code);
-    assert_eq!(result.stdout.trim(), "30",
-        "C program should call Rust logos_add(10, 20) = 30. Got: {}", result.stdout.trim());
+        result.stderr, result.rust_code, result.c_code
+    );
+    assert_eq!(
+        result.stdout.trim(),
+        "30",
+        "C program should call Rust logos_add(10, 20) = 30. Got: {}",
+        result.stdout.trim()
+    );
 }
 
 // C-Link: Call multiple exported functions from C
@@ -2749,11 +3425,18 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C linkage test must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C linkage test must succeed. stderr:\n{}",
+        result.stderr
+    );
     let lines: Vec<&str> = result.stdout.trim().lines().collect();
-    assert_eq!(lines, vec!["7", "25", "25"],
-        "C program should produce correct output. Got: {:?}", lines);
+    assert_eq!(
+        lines,
+        vec!["7", "25", "25"],
+        "C program should produce correct output. Got: {:?}",
+        lines
+    );
 }
 
 // C-Link: Call ABI runtime functions from C (version, error API)
@@ -2791,13 +3474,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C linkage test must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C linkage test must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("version_not_null=1"), "Version should not be null. Got: {}", output);
-    assert!(output.contains("abi=1"), "ABI version should be 1. Got: {}", output);
-    assert!(output.contains("err_is_null=1"), "Initial error should be null. Got: {}", output);
-    assert!(output.contains("ok"), "Should complete successfully. Got: {}", output);
+    assert!(
+        output.contains("version_not_null=1"),
+        "Version should not be null. Got: {}",
+        output
+    );
+    assert!(
+        output.contains("abi=1"),
+        "ABI version should be 1. Got: {}",
+        output
+    );
+    assert!(
+        output.contains("err_is_null=1"),
+        "Initial error should be null. Got: {}",
+        output
+    );
+    assert!(
+        output.contains("ok"),
+        "Should complete successfully. Got: {}",
+        output
+    );
 }
 
 // C-Link: Call exported Real function from C
@@ -2822,10 +3524,17 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C linkage test must succeed. stderr:\n{}", result.stderr);
-    assert_eq!(result.stdout.trim(), "5.0",
-        "C program should call Rust logos_halve(10.0) = 5.0. Got: {}", result.stdout.trim());
+    assert!(
+        result.success,
+        "C linkage test must succeed. stderr:\n{}",
+        result.stderr
+    );
+    assert_eq!(
+        result.stdout.trim(),
+        "5.0",
+        "C program should call Rust logos_halve(10.0) = 5.0. Got: {}",
+        result.stdout.trim()
+    );
 }
 
 // C-Link: Call exported Bool function from C
@@ -2853,11 +3562,18 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C linkage test must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C linkage test must succeed. stderr:\n{}",
+        result.stderr
+    );
     let lines: Vec<&str> = result.stdout.trim().lines().collect();
-    assert_eq!(lines, vec!["1", "0", "0"],
-        "C program should produce correct bool results. Got: {:?}", lines);
+    assert_eq!(
+        lines,
+        vec!["1", "0", "0"],
+        "C program should produce correct bool results. Got: {:?}",
+        lines
+    );
 }
 
 // C-Link: Struct handle accessors from C — create, access fields, free
@@ -2915,15 +3631,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C struct handle lifecycle must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C struct handle lifecycle must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Status should be OK. Got:\n{}", output);
-    assert!(output.contains("handle_not_null=1"), "Handle should not be null. Got:\n{}", output);
-    assert!(output.contains("name=Alice"), "Name should be Alice. Got:\n{}", output);
-    assert!(output.contains("age=30"), "Age should be 30. Got:\n{}", output);
-    assert!(output.contains("email=alice@test.com"), "Email should match. Got:\n{}", output);
-    assert!(output.contains("done"), "Should complete without crash. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Status should be OK. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("handle_not_null=1"),
+        "Handle should not be null. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("name=Alice"),
+        "Name should be Alice. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("age=30"),
+        "Age should be 30. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("email=alice@test.com"),
+        "Email should match. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("done"),
+        "Should complete without crash. Got:\n{}",
+        output
+    );
 }
 
 // C-Link: Seq create, push, len, at from C
@@ -2972,14 +3715,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq operations must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq operations must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Status should be OK. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Length should be 3. Got:\n{}", output);
-    assert!(output.contains("seq[0]=10"), "First element should be 10. Got:\n{}", output);
-    assert!(output.contains("seq[1]=20"), "Second element should be 20. Got:\n{}", output);
-    assert!(output.contains("seq[2]=30"), "Third element should be 30. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Status should be OK. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Length should be 3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[0]=10"),
+        "First element should be 10. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[1]=20"),
+        "Second element should be 20. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[2]=30"),
+        "Third element should be 30. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3025,11 +3791,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq create/push/len must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq create/push/len must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Seq should be created. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Length should be 3. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Seq should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Length should be 3. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3093,14 +3870,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C enum tag accessor must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C enum tag accessor must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("circle_tag=0"), "Circle tag should be 0. Got:\n{}", output);
-    assert!(output.contains("rect_tag=1"), "Rectangle tag should be 1. Got:\n{}", output);
-    assert!(output.contains("radius=5.0"), "Radius should be 5.0. Got:\n{}", output);
-    assert!(output.contains("width=3.0"), "Width should be 3.0. Got:\n{}", output);
-    assert!(output.contains("height=4.0"), "Height should be 4.0. Got:\n{}", output);
+    assert!(
+        output.contains("circle_tag=0"),
+        "Circle tag should be 0. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("rect_tag=1"),
+        "Rectangle tag should be 1. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("radius=5.0"),
+        "Radius should be 5.0. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("width=3.0"),
+        "Width should be 3.0. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("height=4.0"),
+        "Height should be 4.0. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3137,11 +3937,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C text marshaling must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C text marshaling must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Status should be OK. Got:\n{}", output);
-    assert!(output.contains("result=Hello World"), "Should greet correctly. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Status should be OK. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("result=Hello World"),
+        "Should greet correctly. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3157,22 +3968,32 @@ Show 42.
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Thread-local CString cache for safe error string return
-    assert!(rust.contains("LOGOS_ERROR_CACHE"),
-        "Must have thread-local error cache for safe pointer return");
-    assert!(rust.contains("RefCell<Option<std::ffi::CString>>"),
-        "Error cache must be RefCell<Option<CString>>");
+    assert!(
+        rust.contains("LOGOS_ERROR_CACHE"),
+        "Must have thread-local error cache for safe pointer return"
+    );
+    assert!(
+        rust.contains("RefCell<Option<std::ffi::CString>>"),
+        "Error cache must be RefCell<Option<CString>>"
+    );
 
     // Error store with poisoned mutex recovery
     let set_body = extract_function_body(&rust, "logos_set_last_error")
         .expect("logos_set_last_error should exist");
-    assert!(set_body.contains("unwrap_or_else(|e| e.into_inner())"),
-        "Error store must handle poisoned mutex. Body:\n{}", set_body);
+    assert!(
+        set_body.contains("unwrap_or_else(|e| e.into_inner())"),
+        "Error store must handle poisoned mutex. Body:\n{}",
+        set_body
+    );
 
     // Version uses env! macro
-    let ver_body = extract_function_body(&rust, "logos_version")
-        .expect("logos_version should exist");
-    assert!(ver_body.contains("env!(\"CARGO_PKG_VERSION\")"),
-        "Version must use env! macro. Body:\n{}", ver_body);
+    let ver_body =
+        extract_function_body(&rust, "logos_version").expect("logos_version should exist");
+    assert!(
+        ver_body.contains("env!(\"CARGO_PKG_VERSION\")"),
+        "Version must use env! macro. Body:\n{}",
+        ver_body
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -3232,15 +4053,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map operations must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map operations must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Map should be created. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Map length should be 3. Got:\n{}", output);
-    assert!(output.contains("get_alice_status=0"), "Get alice should succeed. Got:\n{}", output);
-    assert!(output.contains("alice_score=95"), "Alice score should be 95. Got:\n{}", output);
-    assert!(output.contains("bob_score=87"), "Bob score should be 87. Got:\n{}", output);
-    assert!(output.contains("missing_status=1"), "Missing key should return error status. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Map should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Map length should be 3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("get_alice_status=0"),
+        "Get alice should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("alice_score=95"),
+        "Alice score should be 95. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("bob_score=87"),
+        "Bob score should be 87. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("missing_status=1"),
+        "Missing key should return error status. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3300,11 +4148,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map keys/values must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map keys/values must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("keys_len=2"), "Keys should have 2 entries. Got:\n{}", output);
-    assert!(output.contains("values_len=2"), "Values should have 2 entries. Got:\n{}", output);
+    assert!(
+        output.contains("keys_len=2"),
+        "Keys should have 2 entries. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("values_len=2"),
+        "Values should have 2 entries. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3357,13 +4216,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map text-to-text must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map text-to-text must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len=2"), "Map should have 2 entries. Got:\n{}", output);
-    assert!(output.contains("greeting=hello"), "Greeting should be hello. Got:\n{}", output);
-    assert!(output.contains("farewell=goodbye"), "Farewell should be goodbye. Got:\n{}", output);
-    assert!(output.contains("missing_is_null=1"), "Missing key should return NULL. Got:\n{}", output);
+    assert!(
+        output.contains("len=2"),
+        "Map should have 2 entries. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("greeting=hello"),
+        "Greeting should be hello. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("farewell=goodbye"),
+        "Farewell should be goodbye. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("missing_is_null=1"),
+        "Missing key should return NULL. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3415,14 +4293,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C set operations must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C set operations must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Set should be created. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Set should deduplicate 'rust', len=3. Got:\n{}", output);
-    assert!(output.contains("has_rust=1"), "Should contain 'rust'. Got:\n{}", output);
-    assert!(output.contains("has_python=1"), "Should contain 'python'. Got:\n{}", output);
-    assert!(output.contains("has_java=0"), "Should not contain 'java'. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Set should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Set should deduplicate 'rust', len=3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_rust=1"),
+        "Should contain 'rust'. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_python=1"),
+        "Should contain 'python'. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_java=0"),
+        "Should not contain 'java'. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3482,16 +4383,47 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C option operations must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C option operations must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("alice_status=0"), "findAge(Alice) should succeed. Got:\n{}", output);
-    assert!(output.contains("alice_is_some=1"), "Alice option should be Some. Got:\n{}", output);
-    assert!(output.contains("alice_unwrap_status=0"), "Unwrap Alice should succeed. Got:\n{}", output);
-    assert!(output.contains("alice_age=30"), "Alice age should be 30. Got:\n{}", output);
-    assert!(output.contains("bob_is_some=0"), "Bob option should be None. Got:\n{}", output);
-    assert!(output.contains("bob_unwrap_status=1"), "Unwrap None should return error. Got:\n{}", output);
-    assert!(output.contains("bob_age_unchanged=1"), "Bob age should remain unchanged. Got:\n{}", output);
+    assert!(
+        output.contains("alice_status=0"),
+        "findAge(Alice) should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("alice_is_some=1"),
+        "Alice option should be Some. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("alice_unwrap_status=0"),
+        "Unwrap Alice should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("alice_age=30"),
+        "Alice age should be 30. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("bob_is_some=0"),
+        "Bob option should be None. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("bob_unwrap_status=1"),
+        "Unwrap None should return error. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("bob_age_unchanged=1"),
+        "Bob age should remain unchanged. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3536,14 +4468,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C null handle test must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C null handle test must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("null_len=0"), "Null handle len should return 0. Got:\n{}", output);
-    assert!(output.contains("null_at_status=3"), "Null handle at should return NullPointer(3). Got:\n{}", output);
-    assert!(output.contains("val_unchanged=1"), "Value should remain unchanged. Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set. Got:\n{}", output);
-    assert!(output.contains("done"), "Should complete without crash. Got:\n{}", output);
+    assert!(
+        output.contains("null_len=0"),
+        "Null handle len should return 0. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("null_at_status=3"),
+        "Null handle at should return NullPointer(3). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("val_unchanged=1"),
+        "Value should remain unchanged. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("done"),
+        "Should complete without crash. Got:\n{}",
+        output
+    );
 }
 
 // C-Link: Double-free protection — freeing same handle twice must not crash
@@ -3593,13 +4548,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "Double-free must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "Double-free must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len=1"), "Seq should have 1 element. Got:\n{}", output);
-    assert!(output.contains("first_free=ok"), "First free should work. Got:\n{}", output);
-    assert!(output.contains("second_free=ok"), "Second free should not crash. Got:\n{}", output);
-    assert!(output.contains("has_error_after_double_free=1"), "Should set error on double-free. Got:\n{}", output);
+    assert!(
+        output.contains("len=1"),
+        "Seq should have 1 element. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("first_free=ok"),
+        "First free should work. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("second_free=ok"),
+        "Second free should not crash. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error_after_double_free=1"),
+        "Should set error on double-free. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3654,13 +4628,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq OOB test must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq OOB test must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("at_0_status=0 val=10"), "Index 0 should return 10. Got:\n{}", output);
-    assert!(output.contains("at_1_status=0 val=20"), "Index 1 should return 20. Got:\n{}", output);
-    assert!(output.contains("at_2_status=4"), "Index 2 should return OutOfBounds(4). Got:\n{}", output);
-    assert!(output.contains("at_99_status=4"), "Index 99 should return OutOfBounds(4). Got:\n{}", output);
+    assert!(
+        output.contains("at_0_status=0 val=10"),
+        "Index 0 should return 10. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at_1_status=0 val=20"),
+        "Index 1 should return 20. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at_2_status=4"),
+        "Index 2 should return OutOfBounds(4). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at_99_status=4"),
+        "Index 99 should return OutOfBounds(4). Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3716,13 +4709,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C wrong variant test must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C wrong variant test must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("radius=5.0"), "Correct variant field should work. Got:\n{}", output);
-    assert!(output.contains("wrong_variant_width=0.0"), "Wrong variant should return default. Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set for wrong variant. Got:\n{}", output);
-    assert!(output.contains("error_contains_wrong=1"), "Error message should mention wrong variant. Got:\n{}", output);
+    assert!(
+        output.contains("radius=5.0"),
+        "Correct variant field should work. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("wrong_variant_width=0.0"),
+        "Wrong variant should return default. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set for wrong variant. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("error_contains_wrong=1"),
+        "Error message should mention wrong variant. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3788,15 +4800,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C struct with mixed field types must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C struct with mixed field types must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Status should be OK. Got:\n{}", output);
-    assert!(output.contains("name=thermometer"), "Name should be thermometer. Got:\n{}", output);
-    assert!(output.contains("temp=98.6"), "Temperature should be 98.6. Got:\n{}", output);
-    assert!(output.contains("active=1"), "Active should be true. Got:\n{}", output);
-    assert!(output.contains("readings=42"), "Readings should be 42. Got:\n{}", output);
-    assert!(output.contains("precision=0.01"), "Precision should be 0.01. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Status should be OK. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("name=thermometer"),
+        "Name should be thermometer. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("temp=98.6"),
+        "Temperature should be 98.6. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("active=1"),
+        "Active should be true. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("readings=42"),
+        "Readings should be 42. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("precision=0.01"),
+        "Precision should be 0.01. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3844,13 +4883,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq of real must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq of real must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len=3"), "Length should be 3. Got:\n{}", output);
-    assert!(output.contains("seq[0]=1.50"), "First should be 1.50. Got:\n{}", output);
-    assert!(output.contains("seq[1]=2.70"), "Second should be 2.70. Got:\n{}", output);
-    assert!(output.contains("seq[2]=3.14"), "Third should be 3.14. Got:\n{}", output);
+    assert!(
+        output.contains("len=3"),
+        "Length should be 3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[0]=1.50"),
+        "First should be 1.50. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[1]=2.70"),
+        "Second should be 2.70. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[2]=3.14"),
+        "Third should be 3.14. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3898,13 +4956,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq of text must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq of text must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len=3"), "Length should be 3. Got:\n{}", output);
-    assert!(output.contains("seq[0]=alice"), "First should be alice. Got:\n{}", output);
-    assert!(output.contains("seq[1]=bob"), "Second should be bob. Got:\n{}", output);
-    assert!(output.contains("seq[2]=carol"), "Third should be carol. Got:\n{}", output);
+    assert!(
+        output.contains("len=3"),
+        "Length should be 3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[0]=alice"),
+        "First should be alice. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[1]=bob"),
+        "Second should be bob. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("seq[2]=carol"),
+        "Third should be carol. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -3950,11 +5027,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq to_json must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq to_json must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("json=[1,2,3]"), "JSON should be [1,2,3]. Got:\n{}", output);
-    assert!(output.contains("valid=1"), "JSON should be non-empty. Got:\n{}", output);
+    assert!(
+        output.contains("json=[1,2,3]"),
+        "JSON should be [1,2,3]. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("valid=1"),
+        "JSON should be non-empty. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4007,15 +5095,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C error API cycle must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C error API cycle must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("initial_error_null=1"), "No error initially. Got:\n{}", output);
-    assert!(output.contains("after_null_access_has_error=1"), "Error after null access. Got:\n{}", output);
-    assert!(output.contains("error_msg_nonempty=1"), "Error message should be nonempty. Got:\n{}", output);
-    assert!(output.contains("after_clear_error_null=1"), "Error cleared. Got:\n{}", output);
-    assert!(output.contains("null_at_status=3"), "Null at should return NullPointer. Got:\n{}", output);
-    assert!(output.contains("at_error_not_null=1"), "Error set again. Got:\n{}", output);
+    assert!(
+        output.contains("initial_error_null=1"),
+        "No error initially. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("after_null_access_has_error=1"),
+        "Error after null access. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("error_msg_nonempty=1"),
+        "Error message should be nonempty. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("after_clear_error_null=1"),
+        "Error cleared. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("null_at_status=3"),
+        "Null at should return NullPointer. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at_error_not_null=1"),
+        "Error set again. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4052,14 +5167,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C multiple text calls must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C multiple text calls must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("call_0_status=0 result=Hello Alice"), "First call. Got:\n{}", output);
-    assert!(output.contains("call_1_status=0 result=Hello Bob"), "Second call. Got:\n{}", output);
-    assert!(output.contains("call_2_status=0 result=Hello Carol"), "Third call. Got:\n{}", output);
-    assert!(output.contains("call_3_status=0 result=Hello Dave"), "Fourth call. Got:\n{}", output);
-    assert!(output.contains("call_4_status=0 result=Hello Eve"), "Fifth call. Got:\n{}", output);
+    assert!(
+        output.contains("call_0_status=0 result=Hello Alice"),
+        "First call. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("call_1_status=0 result=Hello Bob"),
+        "Second call. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("call_2_status=0 result=Hello Carol"),
+        "Third call. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("call_3_status=0 result=Hello Dave"),
+        "Fourth call. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("call_4_status=0 result=Hello Eve"),
+        "Fifth call. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4109,14 +5247,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map from exported function must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map from exported function must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Status should be OK. Got:\n{}", output);
-    assert!(output.contains("not_null=1"), "Map handle should not be null. Got:\n{}", output);
-    assert!(output.contains("len=2"), "Map should have 2 entries. Got:\n{}", output);
-    assert!(output.contains("math=95"), "Math score should be 95. Got:\n{}", output);
-    assert!(output.contains("science=88"), "Science score should be 88. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Status should be OK. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("not_null=1"),
+        "Map handle should not be null. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=2"),
+        "Map should have 2 entries. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("math=95"),
+        "Math score should be 95. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("science=88"),
+        "Science score should be 88. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4171,14 +5332,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "Use-after-free must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "Use-after-free must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("before_free_len=1"), "Before free, len should be 1. Got:\n{}", output);
-    assert!(output.contains("after_free_len=0"), "After free, len should be 0 (invalid handle). Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set after use-after-free. Got:\n{}", output);
-    assert!(output.contains("after_free_at_status=6"), "Use-after-free should return InvalidHandle(6). Got:\n{}", output);
-    assert!(output.contains("done"), "Should complete without crash. Got:\n{}", output);
+    assert!(
+        output.contains("before_free_len=1"),
+        "Before free, len should be 1. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("after_free_len=0"),
+        "After free, len should be 0 (invalid handle). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set after use-after-free. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("after_free_at_status=6"),
+        "Use-after-free should return InvalidHandle(6). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("done"),
+        "Should complete without crash. Got:\n{}",
+        output
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -4230,10 +5414,18 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C function taking Seq param must succeed. stderr:\n{}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C function taking Seq param must succeed. stderr:\n{}\n\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("total=60"), "Sum of [10,20,30] should be 60. Got:\n{}\n\nGenerated Rust:\n{}", output, result.rust_code);
+    assert!(
+        output.contains("total=60"),
+        "Sum of [10,20,30] should be 60. Got:\n{}\n\nGenerated Rust:\n{}",
+        output,
+        result.rust_code
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4282,10 +5474,17 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C function taking struct param must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C function taking struct param must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("age=30"), "Age should be 30. Got:\n{}", output);
+    assert!(
+        output.contains("age=30"),
+        "Age should be 30. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4356,14 +5555,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C enum with text fields must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C enum with text fields must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("greet_tag=0"), "Greeting tag should be 0. Got:\n{}", output);
-    assert!(output.contains("greet_text=Hello World"), "Greeting text. Got:\n{}", output);
-    assert!(output.contains("err_tag=1"), "Error tag should be 1. Got:\n{}", output);
-    assert!(output.contains("err_code=404"), "Error code should be 404. Got:\n{}", output);
-    assert!(output.contains("err_desc=Not Found"), "Error description. Got:\n{}", output);
+    assert!(
+        output.contains("greet_tag=0"),
+        "Greeting tag should be 0. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("greet_text=Hello World"),
+        "Greeting text. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("err_tag=1"),
+        "Error tag should be 1. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("err_code=404"),
+        "Error code should be 404. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("err_desc=Not Found"),
+        "Error description. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4428,13 +5650,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C 3-variant enum must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C 3-variant enum must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("red_tag=0 red_val=255"), "Red. Got:\n{}", output);
-    assert!(output.contains("green_tag=1 green_val=128"), "Green. Got:\n{}", output);
-    assert!(output.contains("blue_tag=2 blue_val=64"), "Blue. Got:\n{}", output);
-    assert!(output.contains("wrong_variant_default=0"), "Wrong variant should return 0. Got:\n{}", output);
+    assert!(
+        output.contains("red_tag=0 red_val=255"),
+        "Red. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("green_tag=1 green_val=128"),
+        "Green. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("blue_tag=2 blue_val=64"),
+        "Blue. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("wrong_variant_default=0"),
+        "Wrong variant should return 0. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4499,15 +5740,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C struct JSON serialization must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C struct JSON serialization must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("json_not_null=1"), "JSON should not be null. Got:\n{}", output);
-    assert!(output.contains("json_has_host=1"), "JSON should contain host. Got:\n{}", output);
-    assert!(output.contains("json_has_port=1"), "JSON should contain port. Got:\n{}", output);
-    assert!(output.contains("from_json_status=0"), "from_json should succeed. Got:\n{}", output);
-    assert!(output.contains("roundtrip_host=localhost"), "Roundtrip host should match. Got:\n{}", output);
-    assert!(output.contains("roundtrip_port=8080"), "Roundtrip port should match. Got:\n{}", output);
+    assert!(
+        output.contains("json_not_null=1"),
+        "JSON should not be null. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("json_has_host=1"),
+        "JSON should contain host. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("json_has_port=1"),
+        "JSON should contain port. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("from_json_status=0"),
+        "from_json should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("roundtrip_host=localhost"),
+        "Roundtrip host should match. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("roundtrip_port=8080"),
+        "Roundtrip port should match. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4551,11 +5819,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C multi-type function must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C multi-type function must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("s1=0 r1=Alice is active"), "Active result. Got:\n{}", output);
-    assert!(output.contains("s2=0 r2=Bob is inactive"), "Inactive result. Got:\n{}", output);
+    assert!(
+        output.contains("s1=0 r1=Alice is active"),
+        "Active result. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("s2=0 r2=Bob is inactive"),
+        "Inactive result. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4630,11 +5909,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C multiple struct types must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C multiple struct types must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("person=Alice age=30"), "Person data. Got:\n{}", output);
-    assert!(output.contains("sensor=temp1 temp=72.5 active=1"), "Sensor data. Got:\n{}", output);
+    assert!(
+        output.contains("person=Alice age=30"),
+        "Person data. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("sensor=temp1 temp=72.5 active=1"),
+        "Sensor data. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4686,14 +5976,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C string edge cases must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C string edge cases must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("empty_len=0"), "Empty string should have length 0. Got:\n{}", output);
-    assert!(output.contains("spaces=hello world"), "Spaces should be preserved. Got:\n{}", output);
-    assert!(output.contains("has_newline=1"), "Newline strings should work. Got:\n{}", output);
-    assert!(output.contains("has_tab=1"), "Tab strings should work. Got:\n{}", output);
-    assert!(output.contains("unicode_ok=1"), "Unicode should work. Got:\n{}", output);
+    assert!(
+        output.contains("empty_len=0"),
+        "Empty string should have length 0. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("spaces=hello world"),
+        "Spaces should be preserved. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_newline=1"),
+        "Newline strings should work. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_tab=1"),
+        "Tab strings should work. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("unicode_ok=1"),
+        "Unicode should work. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4735,11 +6048,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C chained function calls must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C chained function calls must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("add=7 double=14 negate=-14"), "Chain step by step. Got:\n{}", output);
-    assert!(output.contains("chain=-30"), "Nested chain: negate(double(add(10,5)))=-30. Got:\n{}", output);
+    assert!(
+        output.contains("add=7 double=14 negate=-14"),
+        "Chain step by step. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("chain=-30"),
+        "Nested chain: negate(double(add(10,5)))=-30. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4793,12 +6117,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C null out seq_at test must not crash. stderr:\n{}\n\nRust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C null out seq_at test must not crash. stderr:\n{}\n\nRust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("null_out_status=3"), "NULL out to seq_at should return NullPointer(3). Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set. Got:\n{}", output);
-    assert!(output.contains("valid_out_status=0 val=10"), "Valid out should work after recovery. Got:\n{}", output);
+    assert!(
+        output.contains("null_out_status=3"),
+        "NULL out to seq_at should return NullPointer(3). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("valid_out_status=0 val=10"),
+        "Valid out should work after recovery. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4848,12 +6187,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C null out map_get test must not crash. stderr:\n{}\n\nRust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C null out map_get test must not crash. stderr:\n{}\n\nRust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("null_out_status=3"), "NULL out to map_get should return NullPointer(3). Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set. Got:\n{}", output);
-    assert!(output.contains("valid_out_status=0 val=100"), "Valid out should work after recovery. Got:\n{}", output);
+    assert!(
+        output.contains("null_out_status=3"),
+        "NULL out to map_get should return NullPointer(3). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("valid_out_status=0 val=100"),
+        "Valid out should work after recovery. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4902,12 +6256,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C null out option_unwrap test must not crash. stderr:\n{}\n\nRust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C null out option_unwrap test must not crash. stderr:\n{}\n\nRust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("null_out_status=3"), "NULL out to option_unwrap should return NullPointer(3). Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set. Got:\n{}", output);
-    assert!(output.contains("valid_out_status=0 val=42"), "Valid out should work after recovery. Got:\n{}", output);
+    assert!(
+        output.contains("null_out_status=3"),
+        "NULL out to option_unwrap should return NullPointer(3). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("valid_out_status=0 val=42"),
+        "Valid out should work after recovery. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -4962,13 +6331,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C null out from_json test must not crash. stderr:\n{}\n\nRust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C null out from_json test must not crash. stderr:\n{}\n\nRust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("null_out_status=3"), "NULL out to from_json should return NullPointer(3). Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Error should be set. Got:\n{}", output);
-    assert!(output.contains("valid_out_status=0"), "Valid out should work. Got:\n{}", output);
-    assert!(output.contains("name=hello"), "Should recover and get name. Got:\n{}", output);
+    assert!(
+        output.contains("null_out_status=3"),
+        "NULL out to from_json should return NullPointer(3). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Error should be set. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("valid_out_status=0"),
+        "Valid out should work. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("name=hello"),
+        "Should recover and get name. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5024,32 +6412,46 @@ fn map_int_key_int_val_insert_accessor() {
 fn map_int_key_c_header_get() {
     let output = compile_program_full(MAP_INT_TO_TEXT_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_map_i64_string_get(logos_handle_t handle, int64_t key)"),
-        "C header should declare get for Map of Int to Text. Header:\n{}", header);
+    assert!(
+        header.contains("logos_map_i64_string_get(logos_handle_t handle, int64_t key)"),
+        "C header should declare get for Map of Int to Text. Header:\n{}",
+        header
+    );
 }
 
 #[test]
 fn map_int_key_c_header_insert() {
     let output = compile_program_full(MAP_INT_TO_TEXT_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_map_i64_string_insert(logos_handle_t handle, int64_t key,"),
-        "C header should declare insert for Map of Int to Text. Header:\n{}", header);
+    assert!(
+        header.contains("logos_map_i64_string_insert(logos_handle_t handle, int64_t key,"),
+        "C header should declare insert for Map of Int to Text. Header:\n{}",
+        header
+    );
 }
 
 #[test]
 fn map_int_key_int_val_c_header_get() {
     let output = compile_program_full(MAP_INT_TO_INT_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_map_i64_i64_get(logos_handle_t handle, int64_t key, int64_t* out)"),
-        "C header should declare get with out-param for Map of Int to Int. Header:\n{}", header);
+    assert!(
+        header.contains("logos_map_i64_i64_get(logos_handle_t handle, int64_t key, int64_t* out)"),
+        "C header should declare get with out-param for Map of Int to Int. Header:\n{}",
+        header
+    );
 }
 
 #[test]
 fn map_int_key_int_val_c_header_insert() {
     let output = compile_program_full(MAP_INT_TO_INT_SOURCE).expect("Should compile");
     let header = output.c_header.as_ref().expect("Should have C header");
-    assert!(header.contains("logos_map_i64_i64_insert(logos_handle_t handle, int64_t key, int64_t value)"),
-        "C header should declare insert for Map of Int to Int. Header:\n{}", header);
+    assert!(
+        header.contains(
+            "logos_map_i64_i64_insert(logos_handle_t handle, int64_t key, int64_t value)"
+        ),
+        "C header should declare insert for Map of Int to Int. Header:\n{}",
+        header
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -5121,15 +6523,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C Map<Int,Text> operations must succeed. stderr:\n{}\n\nRust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C Map<Int,Text> operations must succeed. stderr:\n{}\n\nRust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Map should be created. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Map length should be 3. Got:\n{}", output);
-    assert!(output.contains("get_1=alice"), "Key 1 should map to alice. Got:\n{}", output);
-    assert!(output.contains("get_2=bob"), "Key 2 should map to bob. Got:\n{}", output);
-    assert!(output.contains("missing=NULL"), "Missing key should return NULL. Got:\n{}", output);
-    assert!(output.contains("keys_len=3"), "Keys should have 3 entries. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Map should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Map length should be 3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("get_1=alice"),
+        "Key 1 should map to alice. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("get_2=bob"),
+        "Key 2 should map to bob. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("missing=NULL"),
+        "Missing key should return NULL. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("keys_len=3"),
+        "Keys should have 3 entries. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5186,16 +6615,47 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C Map<Int,Int> operations must succeed. stderr:\n{}\n\nRust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "C Map<Int,Int> operations must succeed. stderr:\n{}\n\nRust:\n{}",
+        result.stderr, result.rust_code
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Map should be created. Got:\n{}", output);
-    assert!(output.contains("len=2"), "Map length should be 2. Got:\n{}", output);
-    assert!(output.contains("get_10_status=0"), "Get 10 should succeed. Got:\n{}", output);
-    assert!(output.contains("get_10_val=100"), "Key 10 should map to 100. Got:\n{}", output);
-    assert!(output.contains("get_20_val=200"), "Key 20 should map to 200. Got:\n{}", output);
-    assert!(output.contains("missing_status=1"), "Missing key should return error. Got:\n{}", output);
-    assert!(output.contains("null_out_status=3"), "NULL out should return NullPointer. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Map should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=2"),
+        "Map length should be 2. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("get_10_status=0"),
+        "Get 10 should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("get_10_val=100"),
+        "Key 10 should map to 100. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("get_20_val=200"),
+        "Key 20 should map to 200. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("missing_status=1"),
+        "Missing key should return error. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("null_out_status=3"),
+        "NULL out should return NullPointer. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5240,12 +6700,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C Option None must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C Option None must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Return should succeed. Got:\n{}", output);
-    assert!(output.contains("is_some=0"), "None should not be some. Got:\n{}", output);
-    assert!(output.contains("unwrap_status=1"), "Unwrap on None should return error. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Return should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("is_some=0"),
+        "None should not be some. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("unwrap_status=1"),
+        "Unwrap on None should return error. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5296,13 +6771,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C Seq<Bool> must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C Seq<Bool> must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Seq should be created. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Length should be 3. Got:\n{}", output);
-    assert!(output.contains("at0=1"), "First element should be true. Got:\n{}", output);
-    assert!(output.contains("at1=0"), "Second element should be false. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Seq should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Length should be 3. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at0=1"),
+        "First element should be true. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at1=0"),
+        "Second element should be false. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5350,13 +6844,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C Set<Text> must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C Set<Text> must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Set should be created. Got:\n{}", output);
-    assert!(output.contains("len=2"), "Duplicate insert should not increase len. Got:\n{}", output);
-    assert!(output.contains("has_alice=1"), "Should contain alice. Got:\n{}", output);
-    assert!(output.contains("has_carol=0"), "Should not contain carol. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Set should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=2"),
+        "Duplicate insert should not increase len. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_alice=1"),
+        "Should contain alice. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_carol=0"),
+        "Should not contain carol. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5399,11 +6912,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "Garbage handle must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "Garbage handle must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len=0"), "Garbage handle should return 0 for len. Got:\n{}", output);
-    assert!(output.contains("has_error=1"), "Should have set error. Got:\n{}", output);
+    assert!(
+        output.contains("len=0"),
+        "Garbage handle should return 0 for len. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("has_error=1"),
+        "Should have set error. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5441,12 +6965,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "NULL string parameter must not crash. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "NULL string parameter must not crash. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=3"), "Should return NullPointer(3). Got:\n{}", output);
-    assert!(output.contains("is_null=1"), "Should detect NullPointer. Got:\n{}", output);
-    assert!(output.contains("survived=1"), "Should survive NULL string. Got:\n{}", output);
+    assert!(
+        output.contains("status=3"),
+        "Should return NullPointer(3). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("is_null=1"),
+        "Should detect NullPointer. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("survived=1"),
+        "Should survive NULL string. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5490,12 +7029,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "Long string must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "Long string must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "Status should be OK. Got:\n{}", output);
-    assert!(output.contains("result_len=100000"), "String length should be preserved. Got:\n{}", output);
-    assert!(output.contains("match=1"), "String content should match. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "Status should be OK. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("result_len=100000"),
+        "String length should be preserved. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("match=1"),
+        "String content should match. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5552,14 +7106,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq pop must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq pop must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len_before=3"), "Length should be 3 before pop. Got:\n{}", output);
-    assert!(output.contains("pop_status=0"), "Pop should succeed. Got:\n{}", output);
-    assert!(output.contains("popped=30"), "Should pop last element (30). Got:\n{}", output);
-    assert!(output.contains("len_after=2"), "Length should be 2 after pop. Got:\n{}", output);
-    assert!(output.contains("empty_pop=1"), "Pop from empty should return error. Got:\n{}", output);
+    assert!(
+        output.contains("len_before=3"),
+        "Length should be 3 before pop. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("pop_status=0"),
+        "Pop should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("popped=30"),
+        "Should pop last element (30). Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len_after=2"),
+        "Length should be 2 after pop. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("empty_pop=1"),
+        "Pop from empty should return error. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5617,15 +7194,42 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C seq from_json must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C seq from_json must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("status=0"), "from_json should succeed. Got:\n{}", output);
-    assert!(output.contains("len=3"), "Deserialized seq should have 3 elements. Got:\n{}", output);
-    assert!(output.contains("at0=10"), "First element should be 10. Got:\n{}", output);
-    assert!(output.contains("at2=30"), "Third element should be 30. Got:\n{}", output);
-    assert!(output.contains("json=[10,20,30]"), "to_json round-trip should match. Got:\n{}", output);
-    assert!(output.contains("bad_status=5"), "Invalid JSON should return DeserializationFailed. Got:\n{}", output);
+    assert!(
+        output.contains("status=0"),
+        "from_json should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=3"),
+        "Deserialized seq should have 3 elements. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at0=10"),
+        "First element should be 10. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("at2=30"),
+        "Third element should be 30. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("json=[10,20,30]"),
+        "to_json round-trip should match. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("bad_status=5"),
+        "Invalid JSON should return DeserializationFailed. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5672,13 +7276,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map remove must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map remove must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len_before=3"), "Should have 3 entries. Got:\n{}", output);
-    assert!(output.contains("removed_b=1"), "Should remove existing key. Got:\n{}", output);
-    assert!(output.contains("len_after=2"), "Length should decrease. Got:\n{}", output);
-    assert!(output.contains("removed_z=0"), "Removing missing key should return false. Got:\n{}", output);
+    assert!(
+        output.contains("len_before=3"),
+        "Should have 3 entries. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("removed_b=1"),
+        "Should remove existing key. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len_after=2"),
+        "Length should decrease. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("removed_z=0"),
+        "Removing missing key should return false. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5723,12 +7346,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map to_json must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map to_json must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("has_json=1"), "Should produce JSON. Got:\n{}", output);
-    assert!(output.contains("contains_x=1"), "JSON should contain key. Got:\n{}", output);
-    assert!(output.contains("contains_42=1"), "JSON should contain value. Got:\n{}", output);
+    assert!(
+        output.contains("has_json=1"),
+        "Should produce JSON. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("contains_x=1"),
+        "JSON should contain key. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("contains_42=1"),
+        "JSON should contain value. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5788,13 +7426,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C map JSON round-trip must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C map JSON round-trip must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("json_ok=1"), "Serialization should succeed. Got:\n{}", output);
-    assert!(output.contains("from_json_status=0"), "Deserialization should succeed. Got:\n{}", output);
-    assert!(output.contains("len=1"), "Deserialized map should have 1 entry. Got:\n{}", output);
-    assert!(output.contains("score=95"), "Value should survive round-trip. Got:\n{}", output);
+    assert!(
+        output.contains("json_ok=1"),
+        "Serialization should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("from_json_status=0"),
+        "Deserialization should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len=1"),
+        "Deserialized map should have 1 entry. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("score=95"),
+        "Value should survive round-trip. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5843,14 +7500,37 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C set remove must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C set remove must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("len_before=3"), "Should have 3 elements. Got:\n{}", output);
-    assert!(output.contains("removed_20=1"), "Should remove existing element. Got:\n{}", output);
-    assert!(output.contains("contains_20=0"), "Removed element should not be present. Got:\n{}", output);
-    assert!(output.contains("len_after=2"), "Length should decrease. Got:\n{}", output);
-    assert!(output.contains("removed_99=0"), "Removing missing element should return false. Got:\n{}", output);
+    assert!(
+        output.contains("len_before=3"),
+        "Should have 3 elements. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("removed_20=1"),
+        "Should remove existing element. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("contains_20=0"),
+        "Removed element should not be present. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("len_after=2"),
+        "Length should decrease. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("removed_99=0"),
+        "Removing missing element should return false. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5894,11 +7574,22 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C set to_json must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C set to_json must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("has_json=1"), "Should produce JSON. Got:\n{}", output);
-    assert!(output.contains("contains_42=1"), "JSON should contain value. Got:\n{}", output);
+    assert!(
+        output.contains("has_json=1"),
+        "Should produce JSON. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("contains_42=1"),
+        "JSON should contain value. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5939,13 +7630,32 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C option create_some must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C option create_some must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "Some should be created. Got:\n{}", output);
-    assert!(output.contains("is_some=1"), "Should be Some. Got:\n{}", output);
-    assert!(output.contains("unwrap_status=0"), "Unwrap should succeed. Got:\n{}", output);
-    assert!(output.contains("value=99"), "Value should be 99. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "Some should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("is_some=1"),
+        "Should be Some. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("unwrap_status=0"),
+        "Unwrap should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("value=99"),
+        "Value should be 99. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -5985,12 +7695,27 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C option create_none must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C option create_none must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("created=1"), "None handle should be created. Got:\n{}", output);
-    assert!(output.contains("is_some=0"), "Should not be Some. Got:\n{}", output);
-    assert!(output.contains("unwrap_status=1"), "Unwrap on None should return error. Got:\n{}", output);
+    assert!(
+        output.contains("created=1"),
+        "None handle should be created. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("is_some=0"),
+        "Should not be Some. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("unwrap_status=1"),
+        "Unwrap on None should return error. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
@@ -6053,13 +7778,36 @@ int main() {
 }
 "#;
     let result = compile_and_link_c(logos_source, c_code);
-    assert!(result.success,
-        "C struct JSON round-trip must succeed. stderr:\n{}", result.stderr);
+    assert!(
+        result.success,
+        "C struct JSON round-trip must succeed. stderr:\n{}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("has_json=1"), "Serialization should succeed. Got:\n{}", output);
-    assert!(output.contains("from_json_status=0"), "Deserialization should succeed. Got:\n{}", output);
-    assert!(output.contains("x=10"), "x should survive round-trip. Got:\n{}", output);
-    assert!(output.contains("y=20"), "y should survive round-trip. Got:\n{}", output);
-    assert!(output.contains("z=30"), "z should survive round-trip. Got:\n{}", output);
+    assert!(
+        output.contains("has_json=1"),
+        "Serialization should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("from_json_status=0"),
+        "Deserialization should succeed. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("x=10"),
+        "x should survive round-trip. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("y=20"),
+        "y should survive round-trip. Got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("z=30"),
+        "z should survive round-trip. Got:\n{}",
+        output
+    );
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }

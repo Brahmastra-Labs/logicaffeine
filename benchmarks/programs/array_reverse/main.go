@@ -19,5 +19,7 @@ func main() {
 		arr[lo], arr[hi] = arr[hi], arr[lo]
 		lo++; hi--
 	}
-	fmt.Printf("%d %d %d\n", arr[0], arr[n-1], arr[n/2])
+	checksum := int64(0)
+	for _, v := range arr { checksum = (checksum*31 + v) & 268435455 }
+	fmt.Printf("%d %d %d\n", arr[0], arr[n-1], checksum)
 }

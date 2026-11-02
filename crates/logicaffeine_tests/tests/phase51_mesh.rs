@@ -49,7 +49,10 @@ fn test_listen_with_concatenation() {
 Let port be "8000".
 Listen on "/ip4/127.0.0.1/tcp/" + port."#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("listen"), "Should generate listen with concatenated address");
+    assert!(
+        rust.contains("listen"),
+        "Should generate listen with concatenated address"
+    );
 }
 
 // =============================================================================

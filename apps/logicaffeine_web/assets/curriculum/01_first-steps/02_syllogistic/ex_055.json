@@ -10,6 +10,7 @@
     "D is not S"
   ],
   "correct": 2,
-  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
-  "explanation": "\"It isn't true that some detectives are slow\" denies that even one detective is slow — so NO detective is slow. That is the universal-negative (E) form: no D is S. Both the subject (detectives) and predicate (slow) are classes, so both are uppercase. (¬∃x(Dx ∧ Sx) is equivalent to ∀x(Dx → ¬Sx).)"
+  "hint": "If not even one of them has the property, which form says so?",
+  "explanation": "Denying that even one of the detectives is slow says that none is: no D is S.",
+  "section": "2.1"
 }

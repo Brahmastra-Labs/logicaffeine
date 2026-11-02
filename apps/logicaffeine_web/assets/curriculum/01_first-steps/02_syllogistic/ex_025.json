@@ -10,6 +10,7 @@
     "i is D"
   ],
   "correct": 2,
-  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
-  "explanation": "\"The slowest diabetic\" stands for a single person, and so translates into a small letter."
+  "hint": "Does 'the slowest diabetic' pick out a kind of person, or one person?",
+  "explanation": "'I' and 'the slowest diabetic' each pick out one person, so both get small letters: i is d.",
+  "section": "2.1"
 }

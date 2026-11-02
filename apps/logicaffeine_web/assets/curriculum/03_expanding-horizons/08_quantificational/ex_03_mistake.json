@@ -10,6 +10,7 @@
     "Barks should come before Dog"
   ],
   "correct": 0,
-  "hint": "If this logic were true, would a Cat exist in this world? Would a Table? Or would everything — cats, tables, numbers — ALL have to be barking dogs?",
-  "explanation": "The bug is using ∧ (AND) instead of → (IMPLIES). ∀x(Dog(x) ∧ Barks(x)) says 'For ALL things x: x is a Dog AND x Barks.' This forces EVERYTHING to be a barking dog — cats, tables, even you! The fix: ∀x(Dog(x) → Barks(x)) says 'For all x: IF x is a Dog, THEN x Barks.' Now cats can exist peacefully."
+  "hint": "If this formula were true, could a cat exist? Or would everything have to be a barking dog?",
+  "explanation": "∀x(Dog(x) ∧ Barks(x)) says that everything is a dog that barks. The right form uses →: ∀x(Dog(x) → Barks(x)) says that if something is a dog, it barks.",
+  "section": "8.2"
 }

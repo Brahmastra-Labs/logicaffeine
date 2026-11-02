@@ -98,18 +98,15 @@ fn event_variables_unique_across_discourse() {
     assert!(
         e1_count >= 2 && e2_count >= 2,
         "Each event var should appear multiple times (quantifier + roles): e1={}, e2={} in '{}'",
-        e1_count, e2_count, result
+        e1_count,
+        e2_count,
+        result
     );
 }
 
 #[test]
 fn four_sentence_chain() {
-    let result = compile_discourse(&[
-        "John arrived.",
-        "He sat.",
-        "He ate.",
-        "He left."
-    ]).unwrap();
+    let result = compile_discourse(&["John arrived.", "He sat.", "He ate.", "He left."]).unwrap();
 
     eprintln!("DEBUG: Four sentences output: {}", result);
 

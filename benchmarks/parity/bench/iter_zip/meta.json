@@ -1,0 +1,12 @@
+{
+  "capability": "iter.zip",
+  "workload": "zipSeq(xs,ys) then fold (first+second) over the pairs, mod 1e9+7",
+  "arg": "100000",
+  "expected": "899998607",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ],
+  "note": "main.lg calls zipSeq() WITHOUT defining it \u2014 auto-imported from iter.lg. Consuming both pair fields forces Rust's lazy zip to materialize."
+}

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Peter could be forgetful",
   "options": [
-    "$ (\\lozenge (F)) $",
-    "$ \\lozenge F $",
-    "$ \\lozenge (F) $",
-    "$ (\\lozenge F) $"
+    "□F",
+    "◇F",
+    "¬◇F",
+    "◇¬F"
   ],
   "correct": 1,
-  "hint": "Does 'could' or 'might' suggest certainty, or just an open possibility?",
-  "explanation": "Possibility is expressed with \u25c7 (the diamond). '\u25c7P' means: there exists at least one possible world where P is true. It doesn't claim P IS true \u2014 just that the door to P being true is unlocked."
+  "hint": "Does 'could' claim certainty, or an open possibility?",
+  "explanation": "'Could' is possibility: ◇F. It does not claim that Peter is forgetful.",
+  "section": "10.2"
 }

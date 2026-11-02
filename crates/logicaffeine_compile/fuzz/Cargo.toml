@@ -1,0 +1,30 @@
+# Detached fuzz crate (Wave 5). Own [workspace] + the parent's explicit members list keep
+# it out of `cargo build`/`--workspace`/publish. Built only via `cargo +nightly fuzz run`.
+[package]
+name = "logicaffeine-compile-fuzz"
+version = "0.0.0"
+publish = false
+license = "MIT"
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+logicaffeine-compile = { path = ".." }
+
+[profile.release]
+debug = 1
+
+# The peer wire decoder — consumes UNTRUSTED bytes. This is where the 476 GB OOM-DoS lived
+# (a lying length prefix → giant alloc); libFuzzer directly catches that abort class, which
+# the in-suite catch_unwind cannot.
+[[bin]]
+name = "fuzz_wire_decode"
+path = "fuzz_targets/fuzz_wire_decode.rs"
+test = false
+doc = false
+bench = false

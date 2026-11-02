@@ -1,0 +1,12 @@
+## Main
+    Let mutable xs be [].
+    Let mutable i be 1.
+    While i is at most 8:
+        Push i * i to xs.
+        Set i to i + 1.
+    Show item 5 of xs.
+    Show the length of xs.
+    Let a be [10, 20, 30].
+    Let b be [40, 50].
+    Let c be a followed by b.
+    Show item 4 of c.

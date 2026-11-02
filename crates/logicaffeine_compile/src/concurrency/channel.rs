@@ -1,7 +1,7 @@
 //! `SecureChannel` envelope — the end-to-end crypto seam that wraps the opaque
 //! wire blob `marshal` produces, between the codec and the transport.
 //!
-//! Layering (work/QUANTUM_MAP.md §1, §L): the channel owns its *own* versioned envelope
+//! Layering: the channel owns its *own* versioned envelope
 //! and never inspects or mutates the payload, exactly as the FEC layer in [`super::fec`]
 //! does. `seal` frames an opaque blob under a suite id; `open` reverses it, returning
 //! `None` on any malformed input — the same `None`-on-malformed contract
@@ -45,7 +45,7 @@ pub const SUITE_PNP: u16 = 2;
 /// A pluggable crypto suite. Each posture level — `null`, `Classic`, `Hybrid`, `PQ`,
 /// `PQ-Max` — is one `Suite` registered in [`suite_for`], so adding a primitive is a
 /// registration, not a change to [`seal`] / [`open`]. The seam stays suite-agnostic; all
-/// cryptography lives behind this trait (work/QUANTUM_MAP.md §3 — crypto-agility).
+/// cryptography lives behind this trait (crypto-agility).
 pub trait Suite: Sync {
     /// The wire suite id bound into the envelope header.
     fn id(&self) -> u16;
@@ -83,20 +83,102 @@ pub fn suite_for(id: u16) -> Option<&'static dyn Suite> {
     }
 }
 
+/// How many sequence numbers behind the newest it has opened a [`PqSuite`] still opens a frame at: a
+/// frame further back can no longer be told from a replay, and is refused.
+pub const PQ_REPLAY_WINDOW: u64 = 1024;
+
+/// The sequence numbers a receiver has opened, over a window of `span` numbers ending at the newest
+/// (the anti-replay window of RFC 4303 §3.4.3): each number opens once, and a number `span` or more
+/// behind the newest is refused, since the window no longer remembers whether it opened.
+pub(crate) struct ReplayWindow {
+    span: u64,
+    newest: Option<u64>,
+    seen: Vec<u64>,
+}
+
+impl ReplayWindow {
+    pub(crate) fn new(span: u64) -> Self {
+        assert!(span >= 1, "a replay window spans at least one number");
+        Self {
+            span,
+            newest: None,
+            seen: vec![0; span.div_ceil(64) as usize],
+        }
+    }
+
+    /// A window that has opened every number below `opened_through` and none from it on: where a
+    /// receiver that remembers only its high-water mark resumes, refusing all it may have opened.
+    pub(crate) fn resumed_at(span: u64, opened_through: u64) -> Self {
+        let mut window = Self::new(span);
+        if let Some(newest) = opened_through.checked_sub(1) {
+            window.newest = Some(newest);
+            window.seen.fill(u64::MAX);
+        }
+        window
+    }
+
+    fn slot(&self, seq: u64) -> (usize, u64) {
+        let at = seq % self.span;
+        ((at / 64) as usize, 1u64 << (at % 64))
+    }
+
+    /// Whether `seq` would open: not opened before, and not too far behind the newest to tell.
+    pub(crate) fn admits(&self, seq: u64) -> bool {
+        match self.newest {
+            Some(newest) if seq <= newest => {
+                let (word, bit) = self.slot(seq);
+                newest - seq < self.span && self.seen[word] & bit == 0
+            }
+            _ => true,
+        }
+    }
+
+    /// Record `seq` as opened: `false`, recording nothing, when the window does not admit it.
+    pub(crate) fn accept(&mut self, seq: u64) -> bool {
+        if !self.admits(seq) {
+            return false;
+        }
+        match self.newest {
+            Some(newest) if seq <= newest => {}
+            Some(newest) if seq - newest < self.span => {
+                for skipped in newest + 1..seq {
+                    let (word, bit) = self.slot(skipped);
+                    self.seen[word] &= !bit;
+                }
+                self.newest = Some(seq);
+            }
+            _ => {
+                self.seen.fill(0);
+                self.newest = Some(seq);
+            }
+        }
+        let (word, bit) = self.slot(seq);
+        self.seen[word] |= bit;
+        true
+    }
+}
+
 /// The post-quantum suite: a per-session ChaCha20-Poly1305 key (from an ML-KEM-768 handshake,
-/// see [`pq_handshake_initiator`] / [`pq_handshake_responder`]). Each `seal_body` draws a fresh
-/// counter nonce, so every frame is unique; the nonce is carried in the body, so the peer opens
-/// statelessly. The suite id is bound as the AEAD associated data, so a frame can't be replayed
-/// under a different suite. (Bidirectional use derives a key per direction — see the handshake.)
+/// see [`pq_handshake_initiator`] / [`pq_handshake_responder`]). Each `seal_body` draws the next
+/// sequence number as its nonce, so no two frames share one, and the nonce rides in the body. The
+/// opening side opens each sequence number once, in any order within [`PQ_REPLAY_WINDOW`] of the
+/// newest, so a captured frame cannot be delivered twice. The suite id is bound as the AEAD
+/// associated data, so a frame can't be replayed under a different suite. (Bidirectional use derives a
+/// key per direction — see the handshake.)
 pub struct PqSuite {
     key: [u8; 32],
     seq: std::sync::atomic::AtomicU64,
+    opened: std::sync::Mutex<ReplayWindow>,
 }
 
 impl PqSuite {
     /// A PQ suite over an already-derived 32-byte AEAD key.
     pub fn new(key: [u8; 32]) -> Self {
-        Self { key, seq: std::sync::atomic::AtomicU64::new(0) }
+        Self {
+            key,
+            seq: std::sync::atomic::AtomicU64::new(0),
+            opened: std::sync::Mutex::new(ReplayWindow::new(PQ_REPLAY_WINDOW)),
+        }
     }
 }
 
@@ -105,11 +187,22 @@ impl Suite for PqSuite {
         SUITE_PQ
     }
     fn seal_body(&self, blob: &[u8]) -> Vec<u8> {
-        let seq = self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let seq = self
+            .seq
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |seq| seq.checked_add(1),
+            )
+            .expect("a PQ session seals at most 2^64 - 1 frames: another would reuse a nonce");
         let mut nonce = [0u8; 12];
         nonce[..8].copy_from_slice(&seq.to_le_bytes());
-        let sealed =
-            logicaffeine_system::aead::chacha20poly1305_seal(&self.key, &nonce, &SUITE_PQ.to_le_bytes(), blob);
+        let sealed = logicaffeine_system::aead::chacha20poly1305_seal(
+            &self.key,
+            &nonce,
+            &SUITE_PQ.to_le_bytes(),
+            blob,
+        );
         let mut body = Vec::with_capacity(12 + sealed.len());
         body.extend_from_slice(&nonce);
         body.extend_from_slice(&sealed);
@@ -120,7 +213,19 @@ impl Suite for PqSuite {
             return None;
         }
         let nonce: [u8; 12] = body[..12].try_into().ok()?;
-        logicaffeine_system::aead::chacha20poly1305_open(&self.key, &nonce, &SUITE_PQ.to_le_bytes(), &body[12..])
+        let blob = logicaffeine_system::aead::chacha20poly1305_open(
+            &self.key,
+            &nonce,
+            &SUITE_PQ.to_le_bytes(),
+            &body[12..],
+        )?;
+        let seq = u64::from_le_bytes(nonce[..8].try_into().ok()?);
+        let first = self
+            .opened
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .accept(seq);
+        first.then_some(blob)
     }
 }
 
@@ -152,17 +257,32 @@ pub fn pq_handshake_initiator(seed_d: &[u8; 32], seed_z: &[u8; 32]) -> PqHandsha
 }
 
 /// Responder: encapsulate to the initiator's `ek`, returning the ciphertext to send back and the
-/// two directional suites (`initiator→responder`, `responder→initiator`).
-pub fn pq_handshake_responder(ek: &[u8], msg: &[u8; 32]) -> (Vec<u8>, PqSuite, PqSuite) {
-    let (ct, ss) = logicaffeine_system::mlkem::encaps(ek, msg);
-    (ct, PqSuite::new(derive_aead_key(&ss, b"i2r")), PqSuite::new(derive_aead_key(&ss, b"r2i")))
+/// two directional suites (`initiator→responder`, `responder→initiator`). An `ek` that fails the
+/// FIPS 203 encapsulation-key checks is refused, never encapsulated to.
+pub fn pq_handshake_responder(
+    ek: &[u8],
+    msg: &[u8; 32],
+) -> Result<(Vec<u8>, PqSuite, PqSuite), logicaffeine_system::mlkem::KemError> {
+    let (ct, ss) = logicaffeine_system::mlkem::encaps(ek, msg)?;
+    Ok((
+        ct,
+        PqSuite::new(derive_aead_key(&ss, b"i2r")),
+        PqSuite::new(derive_aead_key(&ss, b"r2i")),
+    ))
 }
 
 /// Initiator step 2: decapsulate the responder's ciphertext, yielding the matching directional
-/// suites (`initiator→responder`, `responder→initiator`).
-pub fn pq_handshake_finish(hs: &PqHandshake, ct: &[u8]) -> (PqSuite, PqSuite) {
-    let ss = logicaffeine_system::mlkem::decaps(&hs.dk, ct);
-    (PqSuite::new(derive_aead_key(&ss, b"i2r")), PqSuite::new(derive_aead_key(&ss, b"r2i")))
+/// suites (`initiator→responder`, `responder→initiator`). A ciphertext of the wrong length is
+/// refused; a well-formed but forged one implicit-rejects into suites that open nothing.
+pub fn pq_handshake_finish(
+    hs: &PqHandshake,
+    ct: &[u8],
+) -> Result<(PqSuite, PqSuite), logicaffeine_system::mlkem::KemError> {
+    let ss = logicaffeine_system::mlkem::decaps(&hs.dk, ct)?;
+    Ok((
+        PqSuite::new(derive_aead_key(&ss, b"i2r")),
+        PqSuite::new(derive_aead_key(&ss, b"r2i")),
+    ))
 }
 
 /// Frame a blob under a keyed [`Suite`] instance (the [`PqSuite`] path), binding the suite id in the
@@ -271,7 +391,10 @@ pub fn install_session(
 
 /// Run `f` with `session` active for seal/open on this thread, restoring the prior session after
 /// (mirrors [`with_suite`]).
-pub fn with_session<T>(session: Option<std::rc::Rc<dyn ActiveSession>>, f: impl FnOnce() -> T) -> T {
+pub fn with_session<T>(
+    session: Option<std::rc::Rc<dyn ActiveSession>>,
+    f: impl FnOnce() -> T,
+) -> T {
     let prev = install_session(session);
     let out = f();
     install_session(prev);
@@ -313,173 +436,5 @@ pub fn open_active(bytes: Vec<u8>) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use super::super::marshal::{message_to_wire_with, WireCodec, WireIntegrity};
-    use crate::interpreter::RuntimeValue;
-
-    #[test]
-    fn null_envelope_round_trips_and_rejects_malformed() {
-        let blob = message_to_wire_with("alice", &RuntimeValue::Int(7), WireCodec::Native, WireIntegrity::Checked)
-            .expect("encode");
-
-        let sealed = seal(SUITE_NULL, &blob);
-
-        // Round-trip: the null envelope returns the exact blob.
-        assert_eq!(open(&sealed).as_deref(), Some(blob.as_slice()), "null suite round-trip");
-
-        // Truncated header → None.
-        assert!(open(&sealed[..2]).is_none(), "truncated envelope rejected");
-
-        // Unknown suite id (0xFFFF) → None.
-        let mut bad = sealed.clone();
-        bad[2] = 0xFF;
-        bad[3] = 0xFF;
-        assert!(open(&bad).is_none(), "unknown suite rejected");
-    }
-
-    /// A small deterministic PRNG so the fuzz lock is reproducible (house style).
-    fn splitmix64(state: &mut u64) -> u64 {
-        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = *state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    #[test]
-    fn null_round_trips_arbitrary_blobs() {
-        let mut s = 0x1234_5678_9ABC_DEF0u64;
-        for _ in 0..2000 {
-            let len = (splitmix64(&mut s) % 257) as usize; // 0..=256, incl. empty
-            let blob: Vec<u8> = (0..len).map(|_| splitmix64(&mut s) as u8).collect();
-            let sealed = seal(SUITE_NULL, &blob);
-            assert_eq!(open(&sealed), Some(blob), "null suite round-trip, len {len}");
-        }
-    }
-
-    #[test]
-    fn rejects_bad_magic_version_and_empty() {
-        let sealed = seal(SUITE_NULL, b"payload");
-        assert!(open(&[]).is_none(), "empty input rejected");
-        assert!(open(&sealed[..CHAN_HEADER_LEN - 1]).is_none(), "header-short rejected");
-
-        let mut bad_magic = sealed.clone();
-        bad_magic[0] ^= 0xFF;
-        assert!(open(&bad_magic).is_none(), "bad magic rejected");
-
-        let mut bad_ver = sealed.clone();
-        bad_ver[1] = bad_ver[1].wrapping_add(1);
-        assert!(open(&bad_ver).is_none(), "bad version rejected");
-    }
-
-    #[test]
-    fn seal_is_framed_not_raw() {
-        let blob = b"the relay sees only the envelope";
-        let sealed = seal(SUITE_NULL, blob);
-        assert_eq!(&sealed[..2], &[CHAN_MAGIC, CHAN_VER], "header magic+version present");
-        assert_eq!(&sealed[2..4], &SUITE_NULL.to_le_bytes(), "suite id bound little-endian");
-        assert_eq!(sealed.len(), CHAN_HEADER_LEN + blob.len(), "null body length-exact");
-        assert_ne!(sealed.as_slice(), blob.as_slice(), "sealed bytes differ from the raw blob");
-    }
-
-    #[test]
-    fn null_suite_trait_dispatch() {
-        let suite = suite_for(SUITE_NULL).expect("null suite registered");
-        assert_eq!(suite.id(), SUITE_NULL);
-        let body = suite.seal_body(b"abc");
-        assert_eq!(suite.open_body(&body).as_deref(), Some(&b"abc"[..]), "identity body");
-        assert!(suite_for(0xFFFF).is_none(), "unknown suite id is not registered");
-    }
-
-    #[test]
-    fn no_active_suite_is_passthrough() {
-        assert_eq!(active_suite(), None, "default: channel disengaged");
-        let blob = b"plain".to_vec();
-        assert_eq!(seal_active(blob.clone()), blob, "seal is identity when off");
-        assert_eq!(open_active(blob.clone()), Some(blob), "open is identity when off");
-    }
-
-    #[test]
-    fn with_suite_scopes_and_restores() {
-        assert_eq!(active_suite(), None);
-        with_suite(Some(SUITE_NULL), || {
-            assert_eq!(active_suite(), Some(SUITE_NULL), "suite active inside scope");
-            let blob = b"secret payload".to_vec();
-            let sealed = seal_active(blob.clone());
-            assert_ne!(sealed, blob, "sealed under an active suite is framed");
-            assert_eq!(open_active(sealed), Some(blob), "round-trip under the active suite");
-        });
-        assert_eq!(active_suite(), None, "prior suite restored after scope");
-    }
-
-    #[test]
-    fn open_active_drops_foreign_frame_under_active_suite() {
-        with_suite(Some(SUITE_NULL), || {
-            assert!(open_active(b"not an envelope".to_vec()).is_none(), "foreign frame dropped");
-        });
-    }
-
-    #[test]
-    fn pq_channel_seals_a_real_wire_message_end_to_end() {
-        // Full post-quantum handshake + AEAD seal over an actual marshalled wire blob.
-        // Initiator generates an ML-KEM-768 keypair and publishes ek; responder encapsulates to it
-        // and returns the ciphertext; both derive the same directional ChaCha20-Poly1305 suites.
-        let hs = pq_handshake_initiator(&[0xA1; 32], &[0xA2; 32]);
-        let (ct, resp_i2r, resp_r2i) = pq_handshake_responder(&hs.ek, &[0xB0; 32]);
-        let (init_i2r, init_r2i) = pq_handshake_finish(&hs, &ct);
-
-        // The actual payload is a real codec-encoded wire blob, exactly what the transport carries.
-        let blob = message_to_wire_with(
-            "responder",
-            &RuntimeValue::Int(42),
-            WireCodec::Native,
-            WireIntegrity::Checked,
-        )
-        .expect("encode");
-
-        // Responder→initiator: responder seals, initiator opens. End-to-end post-quantum secrecy.
-        let sealed = seal_with(&resp_r2i, &blob);
-        assert_eq!(&sealed[..2], &[CHAN_MAGIC, CHAN_VER], "channel header present");
-        assert_eq!(&sealed[2..4], &SUITE_PQ.to_le_bytes(), "PQ suite id bound in the envelope");
-        assert_ne!(sealed[CHAN_HEADER_LEN..].to_vec(), blob, "body is ciphertext, not the raw blob");
-        assert_eq!(
-            open_with(&init_r2i, &sealed).as_deref(),
-            Some(blob.as_slice()),
-            "initiator opens the responder's PQ-sealed wire message"
-        );
-
-        // Initiator→responder direction works independently (distinct key).
-        let s2 = seal_with(&init_i2r, b"ack");
-        assert_eq!(open_with(&resp_i2r, &s2).as_deref(), Some(&b"ack"[..]), "i2r direction opens");
-
-        // The counter nonce makes every seal unique, and each still opens.
-        let sealed_again = seal_with(&resp_r2i, &blob);
-        assert_ne!(sealed, sealed_again, "fresh counter nonce ⇒ a distinct frame each time");
-        assert_eq!(open_with(&init_r2i, &sealed_again).as_deref(), Some(blob.as_slice()));
-
-        // A tampered tag is rejected; a foreign session key (failed handshake) cannot open.
-        let mut tampered = sealed.clone();
-        let last = tampered.len() - 1;
-        tampered[last] ^= 1;
-        assert!(open_with(&init_r2i, &tampered).is_none(), "tampered PQ frame rejected");
-        let eve = PqSuite::new(derive_aead_key(&[0u8; 32], b"r2i"));
-        assert!(open_with(&eve, &sealed).is_none(), "wrong session key cannot open");
-    }
-
-    #[test]
-    fn pq_handshake_disagrees_on_a_corrupted_ciphertext() {
-        // If the KEM ciphertext is corrupted in flight, ML-KEM's implicit reject makes the two
-        // sides derive DIFFERENT secrets, so the initiator cannot open the responder's frames.
-        let hs = pq_handshake_initiator(&[1; 32], &[2; 32]);
-        let (ct, _resp_i2r, resp_r2i) = pq_handshake_responder(&hs.ek, &[3; 32]);
-        let mut bad_ct = ct.clone();
-        bad_ct[0] ^= 1;
-        let (_init_i2r, init_r2i) = pq_handshake_finish(&hs, &bad_ct);
-        let sealed = seal_with(&resp_r2i, b"top secret");
-        assert!(
-            open_with(&init_r2i, &sealed).is_none(),
-            "a corrupted handshake yields divergent keys ⇒ frames don't open"
-        );
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/concurrency/channel/tests.rs"]
+mod tests;

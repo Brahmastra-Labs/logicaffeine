@@ -1,10 +1,10 @@
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    Lexer, Token, TokenType, Parser,
-    ast::{Stmt, Expr},
-    drs::WorldState,
-    arena_ctx::AstContext,
     analysis::TypeRegistry,
+    arena_ctx::AstContext,
+    ast::{Expr, Stmt},
+    drs::WorldState,
+    Lexer, Parser, Token, TokenType,
 };
 
 fn make_parser(source: &str) -> (Interner, Vec<Token>) {
@@ -88,7 +88,13 @@ fn if_block_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -96,8 +102,14 @@ fn if_block_parses() {
 
     let stmts = result.unwrap();
     assert_eq!(stmts.len(), 2, "Should have 2 statements (If + Return)");
-    assert!(matches!(stmts[0], Stmt::If { .. }), "First statement should be If");
-    assert!(matches!(stmts[1], Stmt::Return { .. }), "Second statement should be Return");
+    assert!(
+        matches!(stmts[0], Stmt::If { .. }),
+        "First statement should be If"
+    );
+    assert!(
+        matches!(stmts[1], Stmt::Return { .. }),
+        "Second statement should be Return"
+    );
 }
 
 #[test]
@@ -126,11 +138,21 @@ fn nested_if_blocks_parse() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "Nested if blocks should parse: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Nested if blocks should parse: {:?}",
+        result
+    );
 
     let stmts = result.unwrap();
     assert_eq!(stmts.len(), 2, "Should have 2 top-level statements");
@@ -174,17 +196,36 @@ fn while_block_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
     assert!(result.is_ok(), "While block should parse: {:?}", result);
 
     let stmts = result.unwrap();
-    assert_eq!(stmts.len(), 3, "Should have 3 statements (Let + While + Return)");
-    assert!(matches!(stmts[0], Stmt::Let { .. }), "First statement should be Let");
-    assert!(matches!(stmts[1], Stmt::While { .. }), "Second statement should be While");
-    assert!(matches!(stmts[2], Stmt::Return { .. }), "Third statement should be Return");
+    assert_eq!(
+        stmts.len(),
+        3,
+        "Should have 3 statements (Let + While + Return)"
+    );
+    assert!(
+        matches!(stmts[0], Stmt::Let { .. }),
+        "First statement should be Let"
+    );
+    assert!(
+        matches!(stmts[1], Stmt::While { .. }),
+        "Second statement should be While"
+    );
+    assert!(
+        matches!(stmts[2], Stmt::Return { .. }),
+        "Third statement should be Return"
+    );
 }
 
 #[test]
@@ -193,7 +234,9 @@ fn otherwise_token_recognized() {
     let mut lexer = Lexer::new("If x:\n    y.\nOtherwise:\n    z.", &mut interner);
     let tokens = lexer.tokenize();
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::Otherwise)),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::Otherwise)),
         "Otherwise token should be recognized: {:?}",
         tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
     );
@@ -225,7 +268,13 @@ fn if_else_block_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -279,7 +328,13 @@ fn call_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -287,5 +342,8 @@ fn call_statement_parses() {
 
     let stmts = result.unwrap();
     assert_eq!(stmts.len(), 1, "Should have 1 statement");
-    assert!(matches!(stmts[0], Stmt::Call { .. }), "Statement should be Call");
+    assert!(
+        matches!(stmts[0], Stmt::Call { .. }),
+        "Statement should be Call"
+    );
 }

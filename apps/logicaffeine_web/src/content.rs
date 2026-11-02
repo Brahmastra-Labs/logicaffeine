@@ -1,10 +1,15 @@
 use include_dir::{include_dir, Dir};
 use serde::Deserialize;
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 // Curriculum content lives under assets/curriculum/ (01_first-steps/, 02_building-blocks/, etc.)
 // — scoped so images and other assets never ride into the wasm binary.
 static CURRICULUM_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets/curriculum");
+
+// Parsed once per process; every render path borrows it through `ContentEngine::shared()`.
+static SHARED: LazyLock<ContentEngine> = LazyLock::new(ContentEngine::new);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EraMeta {
@@ -20,6 +25,8 @@ pub struct ModuleMeta {
     pub title: String,
     pub pedagogy: String,
     pub order: u32,
+    /// The module's line on the Learn roadmap.
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -41,6 +48,9 @@ pub struct ExerciseConfig {
     pub options: Option<Vec<String>>,
     #[serde(default)]
     pub correct: Option<usize>,
+    /// The lesson this exercise practises: the id of a section of its own module.
+    #[serde(default)]
+    pub section: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -61,7 +71,8 @@ pub struct SymbolDef {
     pub example: Option<String>,
 }
 
-/// A content block within a section (paragraph, definition, example, etc.)
+/// A block of a lesson's teaching. Its examples and its question have fields of their own
+/// ([`Section::examples`], [`Section::question`]).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
@@ -72,40 +83,71 @@ pub enum ContentBlock {
         term: String,
         definition: String,
     },
-    Example {
-        title: String,
-        #[serde(default)]
-        premises: Vec<String>,
-        #[serde(default)]
-        conclusion: Option<String>,
-        #[serde(default)]
-        note: Option<String>,
-    },
-    /// Symbol glossary block - shows relevant symbols for this section
+    /// A table of symbols or words, each with its name and meaning.
     Symbols {
         title: String,
         symbols: Vec<SymbolDef>,
     },
-    /// Quiz question embedded in the lesson
-    Quiz {
-        question: String,
-        options: Vec<String>,
-        correct: usize,
-        #[serde(default)]
-        explanation: Option<String>,
-    },
 }
 
-/// A lesson section with structured content
+/// A section of a module: one lesson on the Learn roadmap.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Section {
     pub id: String,
     pub title: String,
     pub order: u32,
+    /// The lesson's short teaching.
     #[serde(default)]
     pub content: Vec<ContentBlock>,
+    /// The lesson's examples: the first two on the main path, the rest behind "More examples".
     #[serde(default)]
-    pub key_symbols: Vec<String>,
+    pub examples: Vec<LessonExample>,
+    /// The one question that closes the lesson.
+    #[serde(default)]
+    pub question: Option<LessonQuestion>,
+}
+
+/// One example of a lesson.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LessonExample {
+    /// An English sentence and exactly the formula LOGOS prints for it.
+    Formula {
+        sentence: String,
+        formula: String,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    /// A worked case in prose: its lines, then what follows from them.
+    Worked {
+        title: String,
+        lines: Vec<String>,
+        #[serde(default)]
+        conclusion: Option<String>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+}
+
+/// The question that closes a lesson.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LessonQuestion {
+    /// Write the sentence as a formula; graded against exactly what LOGOS prints for it.
+    Translate {
+        sentence: String,
+        answer: String,
+        hint: String,
+        explanation: String,
+    },
+    /// Pick the one right option.
+    Choice {
+        prompt: String,
+        options: Vec<String>,
+        correct: usize,
+        hint: String,
+        explanation: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -130,36 +172,72 @@ pub struct ContentEngine {
     pub curriculum: Curriculum,
 }
 
+/// One lesson on the Learn roadmap: a section, with the module and era it belongs to.
+#[derive(Debug, Clone, Copy)]
+pub struct Lesson<'a> {
+    pub era: &'a Era,
+    pub module: &'a Module,
+    pub section: &'a Section,
+}
+
 impl ContentEngine {
     pub fn new() -> Self {
-        let curriculum = Self::load_curriculum();
+        let (curriculum, _) = Self::load_curriculum();
         Self { curriculum }
     }
 
-    fn load_curriculum() -> Curriculum {
-        let mut eras = Vec::new();
+    /// The process-wide curriculum, parsed on first use. Render paths borrow this instead of
+    /// re-parsing every curriculum file.
+    pub fn shared() -> &'static ContentEngine {
+        &SHARED
+    }
 
-        for era_entry in CURRICULUM_DIR.dirs() {
-            if let Some(era) = Self::load_era(era_entry) {
+    /// Every curriculum file the loader skipped, with the reason. A file that is skipped
+    /// disappears from the page and from every content audit, so this must stay empty.
+    pub fn load_issues() -> Vec<String> {
+        Self::load_curriculum().1
+    }
+
+    fn load_curriculum() -> (Curriculum, Vec<String>) {
+        Self::load_from(&CURRICULUM_DIR)
+    }
+
+    fn load_from(root: &Dir) -> (Curriculum, Vec<String>) {
+        let mut eras = Vec::new();
+        let mut issues = Vec::new();
+
+        for file in root.files() {
+            issues.push(format!(
+                "{}: stray file at the curriculum root",
+                file.path().display()
+            ));
+        }
+        for era_entry in root.dirs() {
+            if let Some(era) = Self::load_era(era_entry, &mut issues) {
                 eras.push(era);
             }
         }
 
         eras.sort_by_key(|e| e.meta.order);
-        Curriculum { eras }
+        (Curriculum { eras }, issues)
     }
 
-    fn load_era(era_dir: &Dir) -> Option<Era> {
-        // era_dir.path() returns "01_trivium", file paths are "01_trivium/meta.json"
-        let era_path = era_dir.path().to_string_lossy();
-        let meta_path = format!("{}/meta.json", era_path);
-        let meta_file = era_dir.get_file(&meta_path)?;
-        let meta_content = meta_file.contents_utf8()?;
-        let meta: EraMeta = serde_json::from_str(meta_content).ok()?;
+    fn load_era(era_dir: &Dir, issues: &mut Vec<String>) -> Option<Era> {
+        let meta_path = era_dir.path().join("meta.json");
+        let meta: EraMeta = parse_file(era_dir, &meta_path, issues)?;
+
+        for file in era_dir.files() {
+            if file.path() != meta_path {
+                issues.push(format!(
+                    "{}: stray file in an era directory",
+                    file.path().display()
+                ));
+            }
+        }
 
         let mut modules = Vec::new();
         for module_entry in era_dir.dirs() {
-            if let Some(module) = Self::load_module(module_entry) {
+            if let Some(module) = Self::load_module(module_entry, issues) {
                 modules.push(module);
             }
         }
@@ -168,41 +246,52 @@ impl ContentEngine {
         Some(Era { meta, modules })
     }
 
-    fn load_module(module_dir: &Dir) -> Option<Module> {
-        // module_dir.path() returns "01_trivium/01_atomic"
-        let module_path = module_dir.path().to_string_lossy();
-        let meta_path = format!("{}/meta.json", module_path);
-        let meta_file = module_dir.get_file(&meta_path)?;
-        let meta_content = meta_file.contents_utf8()?;
-        let meta: ModuleMeta = serde_json::from_str(meta_content).ok()?;
+    fn load_module(module_dir: &Dir, issues: &mut Vec<String>) -> Option<Module> {
+        let meta_path = module_dir.path().join("meta.json");
+        let meta: ModuleMeta = parse_file(module_dir, &meta_path, issues)?;
 
         let mut exercises = Vec::new();
         let mut sections = Vec::new();
 
         for file in module_dir.files() {
-            if let Some(name) = file.path().file_name() {
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("ex_") && name_str.ends_with(".json") {
-                    // Load exercise
-                    if let Some(content) = file.contents_utf8() {
-                        if let Ok(exercise) = serde_json::from_str::<ExerciseConfig>(content) {
-                            exercises.push(exercise);
-                        }
-                    }
-                } else if name_str.starts_with("sec_") && name_str.ends_with(".json") {
-                    // Load section
-                    if let Some(content) = file.contents_utf8() {
-                        if let Ok(section) = serde_json::from_str::<Section>(content) {
-                            sections.push(section);
-                        }
-                    }
-                }
+            let path = file.path();
+            if path == meta_path {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
+            if !name.ends_with(".json") {
+                issues.push(format!(
+                    "{}: stray file in a module directory",
+                    path.display()
+                ));
+            } else if name.starts_with("ex_") {
+                exercises.extend(parse_file::<ExerciseConfig>(module_dir, path, issues));
+            } else if name.starts_with("sec_") {
+                sections.extend(parse_file::<Section>(module_dir, path, issues));
+            } else {
+                issues.push(format!(
+                    "{}: not loaded — module files are meta.json, ex_*.json or sec_*.json",
+                    path.display()
+                ));
             }
         }
+        for dir in module_dir.dirs() {
+            issues.push(format!(
+                "{}: stray directory in a module directory",
+                dir.path().display()
+            ));
+        }
 
-        exercises.sort_by(|a, b| a.id.cmp(&b.id));
+        exercises.sort_by(|a, b| natural_cmp(&a.id, &b.id));
         sections.sort_by_key(|s| s.order);
-        Some(Module { meta, exercises, sections })
+        Some(Module {
+            meta,
+            exercises,
+            sections,
+        })
     }
 
     pub fn get_era(&self, era_id: &str) -> Option<&Era> {
@@ -216,7 +305,12 @@ impl ContentEngine {
             .find(|m| m.meta.id == module_id)
     }
 
-    pub fn get_exercise(&self, era_id: &str, module_id: &str, exercise_id: &str) -> Option<&ExerciseConfig> {
+    pub fn get_exercise(
+        &self,
+        era_id: &str,
+        module_id: &str,
+        exercise_id: &str,
+    ) -> Option<&ExerciseConfig> {
         self.get_module(era_id, module_id)?
             .exercises
             .iter()
@@ -231,8 +325,27 @@ impl ContentEngine {
         self.curriculum.eras.len()
     }
 
-    pub fn module_count(&self, era_id: &str) -> usize {
-        self.get_era(era_id).map(|e| e.modules.len()).unwrap_or(0)
+    /// Every lesson, in roadmap order: era by era, module by module.
+    pub fn lessons(&self) -> Vec<Lesson<'_>> {
+        self.curriculum
+            .eras
+            .iter()
+            .flat_map(|era| era.modules.iter().map(move |module| (era, module)))
+            .flat_map(|(era, module)| {
+                module.sections.iter().map(move |section| Lesson {
+                    era,
+                    module,
+                    section,
+                })
+            })
+            .collect()
+    }
+
+    /// The lesson with this id.
+    pub fn lesson(&self, id: &str) -> Option<Lesson<'_>> {
+        self.lessons()
+            .into_iter()
+            .find(|lesson| lesson.section.id == id)
     }
 
     pub fn exercise_count(&self, era_id: &str, module_id: &str) -> usize {
@@ -248,143 +361,68 @@ impl Default for ContentEngine {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn parse_file<T: serde::de::DeserializeOwned>(
+    dir: &Dir,
+    path: &std::path::Path,
+    issues: &mut Vec<String>,
+) -> Option<T> {
+    let Some(file) = dir.get_file(path) else {
+        issues.push(format!("{}: missing", path.display()));
+        return None;
+    };
+    let Some(text) = file.contents_utf8() else {
+        issues.push(format!("{}: not UTF-8", path.display()));
+        return None;
+    };
+    serde_json::from_str(text)
+        .map_err(|e| issues.push(format!("{}: {e}", path.display())))
+        .ok()
+}
 
-    #[test]
-    fn test_dir_contents() {
-        // Debug: print what's in the embedded directory
-        println!("Files in CURRICULUM_DIR:");
-        for f in CURRICULUM_DIR.files() {
-            println!("  file: {:?}", f.path());
-        }
-        println!("Dirs in CURRICULUM_DIR:");
-        for d in CURRICULUM_DIR.dirs() {
-            println!("  era dir: {:?}", d.path());
-            for f in d.files() {
-                println!("    era file: {:?}", f.path());
-            }
-            for module_d in d.dirs() {
-                println!("    module dir: {:?}", module_d.path());
-                for f in module_d.files() {
-                    println!("      module file: {:?}", f.path());
+/// Orders ids the way they count: runs of digits compare as numbers, so `A_1.2` precedes
+/// `A_1.10` and `C_6.99` precedes `C_6.100`, and everything else compares as text, ignoring
+/// case. Ids that still tie (`01` vs `1`, `a` vs `A`) fall back to plain text order so the
+/// ordering stays total.
+pub fn natural_cmp(a: &str, b: &str) -> Ordering {
+    let (mut x, mut y) = (a.as_bytes(), b.as_bytes());
+    loop {
+        match (x.first(), y.first()) {
+            (None, None) => return a.cmp(b),
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(p), Some(q)) if p.is_ascii_digit() && q.is_ascii_digit() => {
+                let (dx, rx) = split_digits(x);
+                let (dy, ry) = split_digits(y);
+                let (tx, ty) = (trim_zeros(dx), trim_zeros(dy));
+                let by_value = tx.len().cmp(&ty.len()).then_with(|| tx.cmp(ty));
+                if by_value != Ordering::Equal {
+                    return by_value;
                 }
+                x = rx;
+                y = ry;
             }
-        }
-        assert!(!CURRICULUM_DIR.dirs().collect::<Vec<_>>().is_empty(), "Should have embedded directories");
-    }
-
-    #[test]
-    fn test_curriculum_loads() {
-        let engine = ContentEngine::new();
-        assert!(engine.era_count() >= 4, "Should have at least 4 eras (got {})", engine.era_count());
-    }
-
-    #[test]
-    fn test_first_steps_era_exists() {
-        let engine = ContentEngine::new();
-        let era = engine.get_era("first-steps");
-        assert!(era.is_some(), "First Steps era should exist");
-        assert_eq!(era.unwrap().meta.title, "First Steps");
-    }
-
-    #[test]
-    fn test_building_blocks_era_exists() {
-        let engine = ContentEngine::new();
-        let era = engine.get_era("building-blocks");
-        assert!(era.is_some(), "Building Blocks era should exist");
-        assert_eq!(era.unwrap().meta.title, "Building Blocks");
-    }
-
-    #[test]
-    fn test_expanding_horizons_era_exists() {
-        let engine = ContentEngine::new();
-        let era = engine.get_era("expanding-horizons");
-        assert!(era.is_some(), "Expanding Horizons era should exist");
-        assert_eq!(era.unwrap().meta.title, "Expanding Horizons");
-    }
-
-    #[test]
-    fn test_mastery_era_exists() {
-        let engine = ContentEngine::new();
-        let era = engine.get_era("mastery");
-        assert!(era.is_some(), "Mastery era should exist");
-        assert_eq!(era.unwrap().meta.title, "Mastery");
-    }
-
-    #[test]
-    fn test_introduction_module_exists() {
-        let engine = ContentEngine::new();
-        let module = engine.get_module("first-steps", "introduction");
-        assert!(module.is_some(), "Introduction module should exist");
-        assert_eq!(module.unwrap().meta.title, "Introduction");
-    }
-
-    #[test]
-    fn test_syllogistic_module_exists() {
-        let engine = ContentEngine::new();
-        let module = engine.get_module("first-steps", "syllogistic");
-        assert!(module.is_some(), "Syllogistic module should exist");
-        let m = module.unwrap();
-        assert_eq!(m.meta.title, "Syllogistic Logic");
-        assert!(m.exercises.len() >= 90, "Should have at least 90 exercises (got {})", m.exercises.len());
-    }
-
-    #[test]
-    fn test_propositional_module_exists() {
-        let engine = ContentEngine::new();
-        let module = engine.get_module("building-blocks", "propositional");
-        assert!(module.is_some(), "Propositional module should exist");
-        let m = module.unwrap();
-        assert_eq!(m.meta.title, "Basic Propositional Logic");
-        assert!(m.exercises.len() >= 100, "Should have at least 100 exercises (got {})", m.exercises.len());
-    }
-
-    #[test]
-    fn test_exercises_load() {
-        let engine = ContentEngine::new();
-        let count = engine.exercise_count("first-steps", "syllogistic");
-        assert!(count >= 90, "Syllogistic module should have at least 90 exercises");
-    }
-
-    #[test]
-    fn test_exercise_has_explanation() {
-        let engine = ContentEngine::new();
-        let ex = engine.get_exercise("first-steps", "syllogistic", "A_1.1");
-        assert!(ex.is_some(), "Exercise A_1.1 should exist");
-        let exercise = ex.unwrap();
-        assert!(exercise.explanation.is_some(), "Exercise should have explanation");
-        assert!(exercise.options.is_some(), "Exercise should have options");
-        assert_eq!(exercise.exercise_type, ExerciseType::MultipleChoice);
-    }
-
-    #[test]
-    fn test_all_eras_have_modules() {
-        let engine = ContentEngine::new();
-
-        // First Steps: 5 modules
-        let first_steps_modules = ["introduction", "syllogistic", "definitions", "fallacies", "inductive"];
-        for module in first_steps_modules {
-            assert!(engine.get_module("first-steps", module).is_some(), "first-steps/{} should exist", module);
-        }
-
-        // Building Blocks: 2 modules
-        let building_blocks_modules = ["propositional", "proofs"];
-        for module in building_blocks_modules {
-            assert!(engine.get_module("building-blocks", module).is_some(), "building-blocks/{} should exist", module);
-        }
-
-        // Expanding Horizons: 6 modules
-        let expanding_modules = ["quantificational", "relations", "modal", "further_modal", "deontic", "belief"];
-        for module in expanding_modules {
-            assert!(engine.get_module("expanding-horizons", module).is_some(), "expanding-horizons/{} should exist", module);
-        }
-
-        // Mastery: 5 modules
-        let mastery_modules = ["ethics", "metalogic", "history", "deviant", "philosophy"];
-        for module in mastery_modules {
-            assert!(engine.get_module("mastery", module).is_some(), "mastery/{} should exist", module);
+            (Some(p), Some(q)) => {
+                let by_text = p.to_ascii_lowercase().cmp(&q.to_ascii_lowercase());
+                if by_text != Ordering::Equal {
+                    return by_text;
+                }
+                x = &x[1..];
+                y = &y[1..];
+            }
         }
     }
 }
+
+fn split_digits(s: &[u8]) -> (&[u8], &[u8]) {
+    let n = s.iter().take_while(|c| c.is_ascii_digit()).count();
+    s.split_at(n)
+}
+
+fn trim_zeros(digits: &[u8]) -> &[u8] {
+    let n = digits.iter().take_while(|&&c| c == b'0').count();
+    &digits[n..]
+}
+
+#[cfg(test)]
+#[path = "../../../crates/logicaffeine_tests/unit/logicaffeine_web/content/tests.rs"]
+mod tests;

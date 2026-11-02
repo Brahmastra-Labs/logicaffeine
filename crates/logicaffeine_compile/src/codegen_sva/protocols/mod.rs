@@ -5,7 +5,6 @@
 
 pub mod riscv;
 
-use super::sva_model::SvaExpr;
 use super::SvaAssertionKind;
 
 /// A protocol template — produces parameterized SVA properties.
@@ -28,13 +27,16 @@ pub fn axi4_write_handshake(clock: &str) -> Vec<ProtocolProperty> {
         },
         ProtocolProperty {
             name: "AXI_W_Follows_AW".into(),
-            spec: "Always, if the address handshake completes, then eventually WVALID is asserted.".into(),
+            spec: "Always, if the address handshake completes, then eventually WVALID is asserted."
+                .into(),
             sva_body: "(AWVALID && AWREADY) |-> s_eventually(WVALID)".into(),
             kind: SvaAssertionKind::Assert,
         },
         ProtocolProperty {
             name: "AXI_B_Follows_W".into(),
-            spec: "Always, if the write data handshake completes, then eventually BVALID is asserted.".into(),
+            spec:
+                "Always, if the write data handshake completes, then eventually BVALID is asserted."
+                    .into(),
             sva_body: "(WVALID && WREADY) |-> s_eventually(BVALID)".into(),
             kind: SvaAssertionKind::Assert,
         },
@@ -46,13 +48,15 @@ pub fn apb_protocol(clock: &str) -> Vec<ProtocolProperty> {
     vec![
         ProtocolProperty {
             name: "APB_Setup_Phase".into(),
-            spec: "Always, if PSEL is asserted without PENABLE, then PENABLE follows next cycle.".into(),
+            spec: "Always, if PSEL is asserted without PENABLE, then PENABLE follows next cycle."
+                .into(),
             sva_body: "(PSEL && !PENABLE) |=> PENABLE".into(),
             kind: SvaAssertionKind::Assert,
         },
         ProtocolProperty {
             name: "APB_Ready_In_Access".into(),
-            spec: "Always, if PSEL and PENABLE are both asserted, eventually PREADY responds.".into(),
+            spec: "Always, if PSEL and PENABLE are both asserted, eventually PREADY responds."
+                .into(),
             sva_body: "(PSEL && PENABLE) |-> s_eventually(PREADY)".into(),
             kind: SvaAssertionKind::Assert,
         },
@@ -61,26 +65,23 @@ pub fn apb_protocol(clock: &str) -> Vec<ProtocolProperty> {
 
 /// UART transmit properties.
 pub fn uart_tx(clock: &str) -> Vec<ProtocolProperty> {
-    vec![
-        ProtocolProperty {
-            name: "UART_TX_Busy".into(),
-            spec: "Always, if tx_start is asserted, then tx_busy holds until transmission completes.".into(),
-            sva_body: "tx_start |-> s_eventually(tx_busy)".into(),
-            kind: SvaAssertionKind::Assert,
-        },
-    ]
+    vec![ProtocolProperty {
+        name: "UART_TX_Busy".into(),
+        spec: "Always, if tx_start is asserted, then tx_busy holds until transmission completes."
+            .into(),
+        sva_body: "tx_start |-> s_eventually(tx_busy)".into(),
+        kind: SvaAssertionKind::Assert,
+    }]
 }
 
 /// SPI properties.
 pub fn spi_protocol(clock: &str) -> Vec<ProtocolProperty> {
-    vec![
-        ProtocolProperty {
-            name: "SPI_MOSI_Stable".into(),
-            spec: "Always, when chip select is active, MOSI is stable on the clock edge.".into(),
-            sva_body: "!ss |-> $stable(mosi)".into(),
-            kind: SvaAssertionKind::Assert,
-        },
-    ]
+    vec![ProtocolProperty {
+        name: "SPI_MOSI_Stable".into(),
+        spec: "Always, when chip select is active, MOSI is stable on the clock edge.".into(),
+        sva_body: "!ss |-> $stable(mosi)".into(),
+        kind: SvaAssertionKind::Assert,
+    }]
 }
 
 /// I2C properties.

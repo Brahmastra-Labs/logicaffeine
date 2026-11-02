@@ -52,7 +52,9 @@ fn read_uleb(bytes: &[u8], i: &mut usize) -> R<u64> {
     let mut r = 0u64;
     let mut s = 0;
     loop {
-        let b = *bytes.get(*i).ok_or(WasmLowerError::Unsupported("truncated LEB"))?;
+        let b = *bytes
+            .get(*i)
+            .ok_or(WasmLowerError::Unsupported("truncated LEB"))?;
         *i += 1;
         r |= u64::from(b & 0x7f) << s;
         if b & 0x80 == 0 {
@@ -69,7 +71,9 @@ fn read_uleb(bytes: &[u8], i: &mut usize) -> R<u64> {
 /// Skip a signed LEB128 at `*i`.
 fn skip_sleb(bytes: &[u8], i: &mut usize) -> R<()> {
     loop {
-        let b = *bytes.get(*i).ok_or(WasmLowerError::Unsupported("truncated SLEB"))?;
+        let b = *bytes
+            .get(*i)
+            .ok_or(WasmLowerError::Unsupported("truncated SLEB"))?;
         *i += 1;
         if b & 0x80 == 0 {
             break;
@@ -80,7 +84,9 @@ fn skip_sleb(bytes: &[u8], i: &mut usize) -> R<()> {
 
 /// Skip a block type (`0x40` empty, a single valtype byte, or a signed-LEB type index).
 fn skip_blocktype(bytes: &[u8], i: &mut usize) -> R<()> {
-    let b = *bytes.get(*i).ok_or(WasmLowerError::Unsupported("truncated blocktype"))?;
+    let b = *bytes
+        .get(*i)
+        .ok_or(WasmLowerError::Unsupported("truncated blocktype"))?;
     // 0x40 = empty; 0x7f/7e/7d/7c i32/i64/f32/f64; 0x7b v128; 0x70/6f funcref/externref.
     if matches!(b, 0x40 | 0x7f | 0x7e | 0x7d | 0x7c | 0x7b | 0x70 | 0x6f) {
         *i += 1;
@@ -118,7 +124,9 @@ fn rewrite_body(body: &[u8]) -> R<(Vec<u8>, Vec<(u32, u32)>, Vec<(u32, u32)>)> {
     let mut depth = 0i32;
     loop {
         let op_start = i;
-        let op = *body.get(i).ok_or(WasmLowerError::Unsupported("truncated body"))?;
+        let op = *body
+            .get(i)
+            .ok_or(WasmLowerError::Unsupported("truncated body"))?;
         i += 1;
         match op {
             // Control with a block type.
@@ -154,7 +162,11 @@ fn rewrite_body(body: &[u8]) -> R<(Vec<u8>, Vec<(u32, u32)>, Vec<(u32, u32)>)> {
                 calls.push((out.len() as u32, func));
                 leb_u32_padded(func, &mut out);
             }
-            0x11 => return Err(WasmLowerError::Unsupported("call_indirect needs a type relocation")),
+            0x11 => {
+                return Err(WasmLowerError::Unsupported(
+                    "call_indirect needs a type relocation",
+                ))
+            }
             // local.get/set/tee — a local index, not relocated.
             0x20 | 0x21 | 0x22 => {
                 read_uleb(body, &mut i)?;
@@ -200,7 +212,11 @@ fn rewrite_body(body: &[u8]) -> R<(Vec<u8>, Vec<(u32, u32)>, Vec<(u32, u32)>)> {
                 }
                 out.extend_from_slice(&body[op_start..i]);
             }
-            _ => return Err(WasmLowerError::Unsupported("unknown opcode in relocatable rewrite")),
+            _ => {
+                return Err(WasmLowerError::Unsupported(
+                    "unknown opcode in relocatable rewrite",
+                ))
+            }
         }
         if i > body.len() {
             return Err(WasmLowerError::Unsupported("body overran"));
@@ -281,6 +297,31 @@ fn parse_imports(body: &[u8]) -> R<Vec<String>> {
     Ok(names)
 }
 
+/// The functions the export section names other than `main`, by function index: a function the
+/// module defines for an object it links with to call by name.
+fn parse_exported_functions(body: &[u8]) -> R<std::collections::HashMap<u32, String>> {
+    let mut named = std::collections::HashMap::new();
+    let mut i = 0;
+    let count = read_uleb(body, &mut i)?;
+    for _ in 0..count {
+        let len = read_uleb(body, &mut i)? as usize;
+        let name = body
+            .get(i..i + len)
+            .ok_or(WasmLowerError::Unsupported("truncated export name"))?;
+        let name = String::from_utf8_lossy(name).to_string();
+        i += len;
+        let kind = *body
+            .get(i)
+            .ok_or(WasmLowerError::Unsupported("truncated export"))?;
+        i += 1;
+        let index = read_uleb(body, &mut i)? as u32;
+        if kind == 0x00 && name != "main" {
+            named.insert(index, name);
+        }
+    }
+    Ok(named)
+}
+
 /// Append a section (id, length, body) to `out`.
 fn put_section(out: &mut Vec<u8>, id: u8, body: &[u8]) {
     out.push(id);
@@ -299,7 +340,8 @@ fn put_custom(out: &mut Vec<u8>, name: &str, body: &[u8]) {
 
 /// Convert a self-contained module into a relocatable object. The function-index space is
 /// `[imports 0..K][main = K][functions = K+1..]`; the symbol table lists one function symbol per
-/// index in order (imports UNDEFINED with their host name; defined functions with `main`/`fnN`), so a
+/// index in order (imports UNDEFINED with their host name; defined functions with `main`, the name
+/// the module exports them by, or `fnN`), so a
 /// call's relocation references symbol index = function index. Refuses (Err) any module whose code
 /// uses an opcode the rewriter doesn't understand, so the caller can fall back to the standalone form.
 pub(crate) fn module_to_relocatable(module: &[u8]) -> R<Vec<u8>> {
@@ -311,14 +353,21 @@ pub(crate) fn module_to_relocatable(module: &[u8]) -> R<Vec<u8>> {
     // back to the standalone module) rather than emit an object lld would mangle.
     for id in [5u8, 9, 11] {
         if secs.iter().any(|s| s.id == id) {
-            return Err(WasmLowerError::Unsupported("relocatable transform: program needs memory/data/element relocations (not yet)"));
+            return Err(WasmLowerError::Unsupported(
+                "relocatable transform: program needs memory/data/element relocations (not yet)",
+            ));
         }
     }
 
-    let sec = |id: u8| secs.iter().find(|s| s.id == id).map(|s| &module[s.start..s.end]);
+    let sec = |id: u8| {
+        secs.iter()
+            .find(|s| s.id == id)
+            .map(|s| &module[s.start..s.end])
+    };
 
     let imports = sec(2).map(parse_imports).transpose()?.unwrap_or_default();
     let k = imports.len() as u32;
+    let exported = sec(7).map(parse_exported_functions).transpose()?.unwrap_or_default();
 
     let func_body = sec(3).ok_or(WasmLowerError::Unsupported("no function section"))?;
     let mut fi = 0;
@@ -379,7 +428,13 @@ pub(crate) fn module_to_relocatable(module: &[u8]) -> R<Vec<u8>> {
     }
     for d in 0..num_defined {
         let fidx = k + d;
-        let (name, flags) = if d == 0 { ("main".to_string(), WASM_SYM_EXPORTED) } else { (format!("fn{d}"), 0) };
+        let (name, flags) = if d == 0 {
+            ("main".to_string(), WASM_SYM_EXPORTED)
+        } else if let Some(name) = exported.get(&fidx) {
+            (name.clone(), 0)
+        } else {
+            (format!("fn{d}"), 0)
+        };
         symtab.push(0x00);
         leb_u(u64::from(flags), &mut symtab);
         leb_u(u64::from(fidx), &mut symtab);
@@ -407,15 +462,25 @@ pub(crate) fn module_to_relocatable(module: &[u8]) -> R<Vec<u8>> {
     // that emitted order.
     let reemit = |id: u8| id != 0 && id != 7;
     let emitted: Vec<u8> = secs.iter().filter(|s| reemit(s.id)).map(|s| s.id).collect();
-    let code_index =
-        emitted.iter().position(|&id| id == 10).ok_or(WasmLowerError::Unsupported("no code section"))? as u32;
+    let code_index = emitted
+        .iter()
+        .position(|&id| id == 10)
+        .ok_or(WasmLowerError::Unsupported("no code section"))? as u32;
 
     const R_WASM_FUNCTION_INDEX_LEB: u8 = 0x00;
     const R_WASM_GLOBAL_INDEX_LEB: u8 = 0x07;
     // Merge function + global relocations and sort by offset (the reloc section is offset-ordered).
     let mut all: Vec<(u32, u8, u32)> = Vec::new();
-    all.extend(func_relocs.iter().map(|&(o, s)| (o, R_WASM_FUNCTION_INDEX_LEB, s)));
-    all.extend(global_relocs.iter().map(|&(o, s)| (o, R_WASM_GLOBAL_INDEX_LEB, s)));
+    all.extend(
+        func_relocs
+            .iter()
+            .map(|&(o, s)| (o, R_WASM_FUNCTION_INDEX_LEB, s)),
+    );
+    all.extend(
+        global_relocs
+            .iter()
+            .map(|&(o, s)| (o, R_WASM_GLOBAL_INDEX_LEB, s)),
+    );
     all.sort_by_key(|&(o, _, _)| o);
     let mut reloc = Vec::new();
     leb_u(u64::from(code_index), &mut reloc);
@@ -446,133 +511,5 @@ pub(crate) fn module_to_relocatable(module: &[u8]) -> R<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::vm::wasm::link;
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
-    /// Instantiate a module and run `main`, capturing the `i64`s it `Show`s through the `print_i64`
-    /// host — the whole output of a scalar program.
-    fn run(bytes: &[u8]) -> Vec<i64> {
-        let engine = wasmi::Engine::default();
-        let module = wasmi::Module::new(&engine, bytes).expect("valid wasm module");
-        let out: Rc<RefCell<Vec<i64>>> = Rc::new(RefCell::new(Vec::new()));
-        let mut store = wasmi::Store::new(&engine, out.clone());
-        let mut linker = wasmi::Linker::new(&engine);
-        linker
-            .func_wrap("env", "print_i64", |c: wasmi::Caller<'_, Rc<RefCell<Vec<i64>>>>, v: i64| {
-                c.data().borrow_mut().push(v);
-            })
-            .unwrap();
-        let instance = linker
-            .instantiate(&mut store, &module)
-            .unwrap()
-            .start(&mut store)
-            .unwrap();
-        instance.get_typed_func::<(), ()>(&store, "main").unwrap().call(&mut store, ()).unwrap();
-        let r = out.borrow().clone();
-        r
-    }
-
-    /// S4 foundation: a real Logos program's self-contained module, converted to a relocatable object
-    /// and LINKED by `rust-lld`, runs BYTE-IDENTICALLY to the standalone module — the `call`
-    /// relocations resolve correctly even though the linker renumbers function indices. Exercised over
-    /// a corpus stressing the decoder (cross-function + recursive calls, `If`/`While` control flow,
-    /// nested loops, `%`/`*`/`-`): each must convert, link, and match. Skips if the toolchain is absent.
-    #[test]
-    fn relocatable_links_and_matches_standalone_over_a_corpus() {
-        if !link::toolchain_available() {
-            eprintln!("SKIP relocatable_links_and_matches_standalone_over_a_corpus: toolchain unavailable");
-            return;
-        }
-        let corpus: &[(&str, &str)] = &[
-            (
-                "calls",
-                "## To dbl (n: Int) -> Int:\n    Return n + n.\n## Main\n    Show 5.\n    Show 2 + 3.\n    Show dbl(21).\n",
-            ),
-            (
-                "recursion",
-                "## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n## Main\n    Show fib(10).\n",
-            ),
-            (
-                "recursion_control_flow",
-                "## To collatz (n: Int) -> Int:\n    If n is equal to 1:\n        Return 0.\n    If n % 2 is equal to 0:\n        Return 1 + collatz(n / 2).\n    Return 1 + collatz(3 * n + 1).\n## Main\n    Show collatz(27).\n",
-            ),
-            (
-                "mutual_arith",
-                "## To f (n: Int) -> Int:\n    Return n * n - n.\n## To g (n: Int) -> Int:\n    Return f(n) + f(n - 1).\n## Main\n    Show g(10).\n    Show f(7) + g(3).\n",
-            ),
-            (
-                // A mutable Main binding is promoted to a mutable GLOBAL (no loop → no iterator/memory),
-                // so this exercises the global.get/set relocations in isolation.
-                "mutable_global",
-                "## Main\n    Let mutable x be 0.\n    Set x to 10.\n    Set x to x + 32.\n    Show x.\n    Let mutable y be 100.\n    Set y to y - x.\n    Show y.\n",
-            ),
-        ];
-        let dir = std::env::temp_dir().join("logos_reloc_corpus");
-        for (name, src) in corpus {
-            let standalone = crate::compile::compile_to_wasm(src).unwrap_or_else(|e| panic!("compile {name}: {e:?}"));
-            let obj = module_to_relocatable(&standalone).unwrap_or_else(|e| panic!("relocatable {name}: {e:?}"));
-            let linked = link::link_objects(&[&obj], &dir).unwrap_or_else(|e| panic!("link {name}: {e:?}"));
-            let standalone_out = run(&standalone);
-            let linked_out = run(&linked);
-            assert_eq!(linked_out, standalone_out, "relocatable-linked output must equal standalone for {name}");
-            assert!(!standalone_out.is_empty(), "{name} should Show something");
-        }
-    }
-
-    /// A random arithmetic expression over small non-negative ints (`+`/`-`/`*`, parenthesized, kept
-    /// bounded so it never overflows i64 or goes negative under `-`) — stresses the decoder's constant
-    /// / arithmetic / call-free instruction handling with shapes the curated corpus can't enumerate.
-    fn fuzz_expr(state: &mut u64, depth: u32) -> (String, i64) {
-        let next = |s: &mut u64| {
-            *s ^= *s << 13;
-            *s ^= *s >> 7;
-            *s ^= *s << 17;
-            *s
-        };
-        if depth == 0 || next(state) % 3 == 0 {
-            let v = (next(state) % 20) as i64; // a small leaf constant
-            return (v.to_string(), v);
-        }
-        let (ls, lv) = fuzz_expr(state, depth - 1);
-        let (rs, rv) = fuzz_expr(state, depth - 1);
-        match next(state) % 3 {
-            0 => (format!("({ls} + {rs})"), lv + rv),
-            1 => (format!("({ls} * {rs})"), lv * rv),
-            // subtraction guarded to stay non-negative so the (unsigned-displayed) Show matches simply.
-            _ if lv >= rv => (format!("({ls} - {rs})"), lv - rv),
-            _ => (format!("({rs} - {ls})"), rv - lv),
-        }
-    }
-
-    /// Robust-to-absurdity net for the transform: 60 RANDOM scalar arithmetic programs, each
-    /// `compile_to_wasm → module_to_relocatable → link → run` asserted BYTE-IDENTICAL to the standalone
-    /// module. A decoder that mis-skips ANY instruction's immediate would compute a wrong `call`/global
-    /// offset and diverge — this catches it. (Values are bounded so no i64 overflow, keeping standalone
-    /// and linked on the fragment where they must agree.)
-    #[test]
-    fn fuzz_relocatable_matches_standalone() {
-        if !link::toolchain_available() {
-            eprintln!("SKIP fuzz_relocatable_matches_standalone: toolchain unavailable");
-            return;
-        }
-        let dir = std::env::temp_dir().join("logos_reloc_fuzz");
-        for seed in 0..60u64 {
-            let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x2545_F491_4F6C_DD1D;
-            let (expr, expected) = fuzz_expr(&mut state, 4);
-            let src = format!("## Main\n    Show {expr}.\n");
-            let standalone = crate::compile::compile_to_wasm(&src).unwrap_or_else(|e| panic!("compile seed {seed}: {e:?}\n{src}"));
-            let obj = match module_to_relocatable(&standalone) {
-                Ok(o) => o,
-                Err(_) => continue, // the transform soundly declined this shape (memory/data/etc.) — fine
-            };
-            let linked = link::link_objects(&[&obj], &dir).unwrap_or_else(|e| panic!("link seed {seed}: {e:?}"));
-            let standalone_out = run(&standalone);
-            let linked_out = run(&linked);
-            assert_eq!(linked_out, standalone_out, "seed {seed}: linked != standalone for {src}");
-            assert_eq!(standalone_out, vec![expected], "seed {seed}: wrong value for {src}");
-        }
-    }
-}
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_compile/vm/wasm/reloc/tests.rs"]
+mod tests;

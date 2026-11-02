@@ -1,0 +1,37 @@
+{
+  "case": "T10-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 3,
+  "declarations": [
+    {
+      "type": "{m n : Nat} \u2192 BitVec m \u2192 BitVec n \u2192 BitVec (m + n)",
+      "name": "T10_010.appendBits",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "BitVec 8",
+      "name": "T10_010.w8",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "BitVec 8",
+      "name": "T10_010.zero8",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

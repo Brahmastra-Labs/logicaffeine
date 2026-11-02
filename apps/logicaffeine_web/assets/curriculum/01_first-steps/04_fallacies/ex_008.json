@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Notice how the conclusion and the premise are saying the same thing in different words.",
-  "explanation": "This is Circular Reasoning (also called Begging the Question) - the conclusion is simply restating the premise. 'Murder is wrong' and 'killing people is immoral' mean essentially the same thing, so the argument provides no actual justification.",
-  "visual_concept": "Circular Reasoning: A snake eating its own tail - the argument goes in a circle, ending where it started."
+  "explanation": "This is circular. 'Murder is wrong' and 'killing people is immoral' say nearly the same thing, so the premise gives no new reason.",
+  "visual_concept": "Circular Reasoning: A snake eating its own tail - the argument goes in a circle, ending where it started.",
+  "section": "4.1"
 }

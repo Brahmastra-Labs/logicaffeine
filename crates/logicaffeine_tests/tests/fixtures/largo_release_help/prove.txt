@@ -1,0 +1,49 @@
+Prove the theorems in a LOGOS source file (kernel-certified).
+
+Runs `## Theory` developments (formal Axiom/Theorem declarations, proved in citation order) and English `## Theorem` blocks (Given/Prove/Proof) through the proof engine. Every ✓ is certified by the type-theory kernel — a mere derivation never counts.
+
+Usage: largo prove [OPTIONS] [FILE]
+
+Arguments:
+  [FILE]
+          The source file (defaults to the project entry)
+
+Options:
+      --kernel
+          Check FILE as a LOGOS kernel-vernacular literate document through the kernel's own document door (`Repl::execute_document`) — the form `largo lean import` emits
+
+      --trace
+          Show the rendered derivation tree under each proved theorem
+
+      --json
+          Emit machine-readable JSON results
+
+      --certificate
+          Emit the independently re-checkable proof certificate for every kernel-proved theorem as JSON (the proof term + the goal + the theorem's disclosed premises), each re-verified against the kernel. A third party can re-check these with only the kernel — no prover
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo prove                 # prove the project entry
+  largo prove geometry.lg
+  largo prove socrates.lg --trace
+  largo prove tarski.lg --json
+  largo prove socrates.lg --certificate   # emit re-checkable proof certificates
+  largo prove --kernel Demo.andSwap.lg    # a kernel-vernacular document

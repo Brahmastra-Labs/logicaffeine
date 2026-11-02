@@ -1,0 +1,71 @@
+{
+  "id": "5.2",
+  "title": "Probability Calculations",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **probability** is a number from 0, impossible, to 1, certain."
+    },
+    {
+      "type": "symbols",
+      "title": "Rules",
+      "symbols": [
+        {
+          "symbol": "P(not A) = 1 − P(A)",
+          "name": "Complement",
+          "meaning": "A and not A share a total of 1."
+        },
+        {
+          "symbol": "P(A and B) = P(A) × P(B)",
+          "name": "Both",
+          "meaning": "For independent events, multiply."
+        },
+        {
+          "symbol": "P(A or B) = P(A) + P(B) − P(A and B)",
+          "name": "Either",
+          "meaning": "Add, then take away the overlap."
+        }
+      ]
+    },
+    {
+      "type": "definition",
+      "term": "Independent events",
+      "definition": "Events where one does not change the chance of the other, like two coin flips."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Two heads in a row",
+      "lines": [
+        "P(heads) is 1/2 on each flip.",
+        "The flips are independent."
+      ],
+      "conclusion": "P(two heads) = 1/2 × 1/2 = 1/4"
+    },
+    {
+      "type": "worked",
+      "title": "Drawing without putting back",
+      "lines": [
+        "A bag holds 3 red and 2 blue marbles.",
+        "You draw a red one and keep it."
+      ],
+      "conclusion": "P(the next is red) = 2/4 = 1/2",
+      "note": "The first draw changes the chances for the second."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "If P(rain) = 0.3, what is P(no rain)?",
+    "options": [
+      "0.3",
+      "0.7",
+      "0.6",
+      "It cannot be known"
+    ],
+    "correct": 1,
+    "hint": "An event and its negation together have probability 1.",
+    "explanation": "P(not A) = 1 − P(A), so P(no rain) = 1 − 0.3 = 0.7."
+  }
+}

@@ -1,0 +1,15 @@
+logos::main::loop@110 [jit] 37897675080
+logos::main::loop@62 [jit] 3227147851
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter;<core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::fold;__memcpy_avx_unaligned_erms 1443507313
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter;<core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::fold;__memcpy_avx_unaligned_erms;[unknown] 1182783897
+logos::main::loop@10 [jit] 807834134
+logos::main::loop@179 [jit] 265869114
+logos::main::loop@158 [jit] 245947738
+logos::main::loop@96 [jit] 179957743
+logos::main::loop@10 [jit];[unknown] 105939963
+logos::main::loop@110 [jit];[unknown] 65127068
+logos::main::loop@96 [jit];[unknown] 33576580
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_jit::adapt_region 6662398
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region 845520
+_dl_start_user;_dl_init;call_init;call_init;__init_misc;[unknown] 609834
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_receive_error;version_check_doit;_dl_check_all_versions;_dl_check_map_versions 558659

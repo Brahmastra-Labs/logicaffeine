@@ -1,0 +1,3 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 38710233174
+_start;__libc_start_main_impl;__libc_start_call_main;main;[unknown] 123490062
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize;lc_gc_heap_alloc;[unknown] 413223

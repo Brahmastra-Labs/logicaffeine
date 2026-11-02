@@ -15,7 +15,11 @@ fn reject_item_zero() {
     // Spec §11.2.1: LOGOS uses 1-based indexing
     let source = "## Main\nLet x be item 0 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "Should reject 'item 0 of list': {:?}", result);
+    assert!(
+        result.is_err(),
+        "Should reject 'item 0 of list': {:?}",
+        result
+    );
 }
 
 #[test]
@@ -31,5 +35,9 @@ fn accept_item_one() {
     // `item 1 of list` should work (first element)
     let source = "## Main\nLet x be item 1 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should accept 'item 1 of list': {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should accept 'item 1 of list': {:?}",
+        result
+    );
 }

@@ -57,7 +57,10 @@ fn baseline_ui_path_matches_treewalker() {
                     (norm(&tw.output), &tw.error),
                     "baseline UI path diverged from the tree-walker oracle on '{name}'"
                 );
-                assert!(base.error.is_none(), "'{name}' errored on the baseline UI path");
+                assert!(
+                    base.error.is_none(),
+                    "'{name}' errored on the baseline UI path"
+                );
             }
         })
         .expect("spawn baseline thread")

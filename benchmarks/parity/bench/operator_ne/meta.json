@@ -1,0 +1,10 @@
+{
+  "capability": "operator.ne",
+  "workload": "count i where opNe(i,1500000) over 1..n",
+  "arg": "3000000",
+  "expected": "2999999",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

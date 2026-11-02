@@ -1,5 +1,5 @@
-## To countSpaces (n: Int) -> Int:
-    Let mutable result be "".
+## To checkStrings (n: Int) -> Text:
+    Let mutable result be "" with capacity n * 6.
     Let mutable i be 0.
     While i is less than n:
         Set result to result + i + " ".
@@ -10,7 +10,11 @@
         If item (j + 1) of result equals " ":
             Set spaces to spaces + 1.
         Set j to j + 1.
-    Return spaces.
+    Let bytes be text_bytes(result).
+    Let mutable h be 0.
+    Repeat for b in bytes:
+        Set h to (h * 31 + b) & 268435455.
+    Return "" + spaces + " " + h.
 
 ## Main
-Show countSpaces(1000).
+Show checkStrings(1000).

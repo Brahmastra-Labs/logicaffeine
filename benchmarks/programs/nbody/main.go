@@ -7,9 +7,9 @@ import (
 	"strconv"
 )
 
-const PI = 3.141592653589793
-const SOLAR_MASS = 4.0 * PI * PI
-const DAYS_PER_YEAR = 365.24
+var PI = 3.141592653589793
+var SOLAR_MASS = 4.0 * PI * PI
+var DAYS_PER_YEAR = 365.24
 
 type Body struct {
 	x, y, z, vx, vy, vz, mass float64

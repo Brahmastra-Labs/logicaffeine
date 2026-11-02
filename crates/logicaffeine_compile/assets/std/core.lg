@@ -1,0 +1,29 @@
+# Core
+
+Core types and algebraic structures for LOGOS programs.
+
+## Definition
+
+## Note
+The success-or-failure type: an `Ok` carries the value, an `Err` carries the error. Construct with `a new Ok with value x`, match with `When Ok (v):`.
+
+A Result of [T] and [E] is either:
+    An Ok (value: T).
+    An Err (error: E).
+
+## Note
+A maybe-value: `some x` when present, `none` when absent. Inspect with `When Some (v):` and `When None:`.
+
+An Option of [T] is either:
+    A Some (value: T).
+    A None.
+
+## Note
+The generic growable sequence behind `Seq of T` — built in; this line only names it.
+
+A List of [T] is a generic collection.
+
+## Note
+The generic key-value table behind `Map of K to V` — built in; this line only names it.
+
+A Map of [K] and [V] is a generic collection.

@@ -1,0 +1,66 @@
+{
+  "case": "T01-007",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t01_universes/T01-007_universe_polymorphic_inductive.lean",
+  "source_sha256": "f1e464c1ec4549bce43520c9ba9a6a89d09a6a98811253bfccf1b288a204c0b7",
+  "ledger_sha256": "640c51d1f4f8dc4775803cbf6f6b638282c2feb05bd3d5fe95e69fd633a50d14",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T01_007.Box",
+    "T01_007.Box.mk",
+    "T01_007.Either",
+    "T01_007.Either.left",
+    "T01_007.Either.right",
+    "T01_007.Squash",
+    "T01_007.Squash.mk",
+    "T01_007.atLevel0",
+    "T01_007.atLevel1"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "b4ea99e93860ccf58afe2fafa4e136166adc26af7183c532956b20c864ec8acb",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 262,
+  "harvest": {
+    "roots": [
+      "T01_007.Box",
+      "T01_007.Box.mk",
+      "T01_007.Either",
+      "T01_007.Either.left",
+      "T01_007.Either.right",
+      "T01_007.Squash",
+      "T01_007.Squash.mk",
+      "T01_007.atLevel0",
+      "T01_007.atLevel1"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

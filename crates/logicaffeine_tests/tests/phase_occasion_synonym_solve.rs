@@ -22,9 +22,14 @@ const GRID: &str = "## Theorem: Trips\n\
 /// CONTROL: head noun is the declared "trip" — must solve (sanity for the harness).
 #[test]
 fn control_trip_in_florida_links() {
-    let q = format!("{GRID}Given: The trip in Florida is in 2003.\nProve: Who is in 2004?\nProof: Auto.\n");
+    let q = format!(
+        "{GRID}Given: The trip in Florida is in 2003.\nProve: Who is in 2004?\nProof: Auto.\n"
+    );
     let ans = answer_question(&q).expect("answerable");
-    assert!(ans.contains(&"Beta".to_string()), "control: Beta in 2004; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "control: Beta in 2004; got: {ans:?}"
+    );
 }
 
 /// ISOLATION (occasion-domain only): PP-form modifier ("the vacation IN Florida"),
@@ -32,9 +37,14 @@ fn control_trip_in_florida_links() {
 /// must range over the declared trip domain.
 #[test]
 fn pp_form_vacation_links_to_florida_trip() {
-    let q = format!("{GRID}Given: The vacation in Florida is in 2003.\nProve: Who is in 2004?\nProof: Auto.\n");
+    let q = format!(
+        "{GRID}Given: The vacation in Florida is in 2003.\nProve: Who is in 2004?\nProof: Auto.\n"
+    );
     let ans = answer_question(&q).expect("answerable");
-    assert!(ans.contains(&"Beta".to_string()), "vacation(PP): Beta in 2004; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "vacation(PP): Beta in 2004; got: {ans:?}"
+    );
 }
 
 /// The grid plus category DECLARATIONS, so a state LABEL ("the Florida X") converges
@@ -57,7 +67,10 @@ const GRID_DECL: &str = "## Theorem: Trips\n\
 fn label_form_vacation_converges_and_links() {
     let q = format!("{GRID_DECL}Given: The Florida vacation is in 2003.\nProve: Who is in 2004?\nProof: Auto.\n");
     let ans = answer_question(&q).expect("answerable");
-    assert!(ans.contains(&"Beta".to_string()), "Florida vacation(label): Beta in 2004; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "Florida vacation(label): Beta in 2004; got: {ans:?}"
+    );
 }
 
 /// FUSED year label under a synonym head: "the 2003 HOLIDAY" must un-fuse to
@@ -66,5 +79,8 @@ fn label_form_vacation_converges_and_links() {
 fn fused_year_holiday_converges_and_links() {
     let q = format!("{GRID_DECL}Given: The 2003 holiday is in Florida.\nProve: Who is in Maine?\nProof: Auto.\n");
     let ans = answer_question(&q).expect("answerable");
-    assert!(ans.contains(&"Beta".to_string()), "2003 holiday(fused): Beta in Maine; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "2003 holiday(fused): Beta in Maine; got: {ans:?}"
+    );
 }

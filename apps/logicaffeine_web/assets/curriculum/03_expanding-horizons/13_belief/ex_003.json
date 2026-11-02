@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Believe that C is true",
   "options": [
-    "$ u:C $",
-    "$ u:\\underline{C} $",
-    "$ \\underline{u} :C $",
-    "$ \\underline{u} :\\underline{C} $"
+    "u:C",
+    "u:C̲",
+    "u̲:C",
+    "u̲:C̲"
   ],
   "correct": 2,
-  "hint": "Who is the believer (underlined)? What do they believe?",
-  "explanation": "In belief logic, 'believe that P is true' becomes u:P \u2014 the agent (underlined u) believes P. The underline marks the believer, the colon connects them to what they believe."
+  "hint": "Is this a command? What marks a command?",
+  "explanation": "'Believe' is a command, so u is underlined: u̲:C.",
+  "section": "13.2"
 }

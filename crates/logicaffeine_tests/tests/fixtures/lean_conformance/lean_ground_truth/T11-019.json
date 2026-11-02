@@ -1,0 +1,565 @@
+{
+  "case": "T11-019",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 63,
+  "declarations": [
+    {
+      "type": "Type 1",
+      "name": "T11_019.AtLevelOne",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.AtLevelOne \u2192 Sort u} \u2192\n  (t : T11_019.AtLevelOne) \u2192 ((a : Type) \u2192 motive (T11_019.AtLevelOne.mk a)) \u2192 motive t",
+      "name": "T11_019.AtLevelOne.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T11_019.AtLevelOne",
+      "name": "T11_019.AtLevelOne.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Type}, T11_019.AtLevelOne.mk a = T11_019.AtLevelOne.mk a_1 \u2192 a = a_1",
+      "name": "T11_019.AtLevelOne.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Type), (T11_019.AtLevelOne.mk a = T11_019.AtLevelOne.mk a_1) = (a = a_1)",
+      "name": "T11_019.AtLevelOne.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Type), sizeOf (T11_019.AtLevelOne.mk a) = 1 + sizeOf a",
+      "name": "T11_019.AtLevelOne.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_019.AtLevelOne} \u2192 v1 = v2 \u2192 T11_019.AtLevelOne.noConfusionType P v1 v2",
+      "name": "T11_019.AtLevelOne.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_019.AtLevelOne \u2192 T11_019.AtLevelOne \u2192 Sort u",
+      "name": "T11_019.AtLevelOne.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.AtLevelOne \u2192 Sort u} \u2192\n  ((a : Type) \u2192 motive (T11_019.AtLevelOne.mk a)) \u2192 (t : T11_019.AtLevelOne) \u2192 motive t",
+      "name": "T11_019.AtLevelOne.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.AtLevelOne \u2192 Sort u} \u2192\n  (t : T11_019.AtLevelOne) \u2192 ((a : Type) \u2192 motive (T11_019.AtLevelOne.mk a)) \u2192 motive t",
+      "name": "T11_019.AtLevelOne.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T11_019.BigEnough",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.BigEnough \u2192 Sort u} \u2192\n  (t : T11_019.BigEnough) \u2192 ((a : Type) \u2192 motive (T11_019.BigEnough.mk a)) \u2192 motive t",
+      "name": "T11_019.BigEnough.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T11_019.BigEnough",
+      "name": "T11_019.BigEnough.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Type}, T11_019.BigEnough.mk a = T11_019.BigEnough.mk a_1 \u2192 a = a_1",
+      "name": "T11_019.BigEnough.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Type), (T11_019.BigEnough.mk a = T11_019.BigEnough.mk a_1) = (a = a_1)",
+      "name": "T11_019.BigEnough.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Type), sizeOf (T11_019.BigEnough.mk a) = 1 + sizeOf a",
+      "name": "T11_019.BigEnough.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_019.BigEnough} \u2192 v1 = v2 \u2192 T11_019.BigEnough.noConfusionType P v1 v2",
+      "name": "T11_019.BigEnough.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_019.BigEnough \u2192 T11_019.BigEnough \u2192 Sort u",
+      "name": "T11_019.BigEnough.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.BigEnough \u2192 Sort u} \u2192\n  ((a : Type) \u2192 motive (T11_019.BigEnough.mk a)) \u2192 (t : T11_019.BigEnough) \u2192 motive t",
+      "name": "T11_019.BigEnough.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.BigEnough \u2192 Sort u} \u2192\n  (t : T11_019.BigEnough) \u2192 ((a : Type) \u2192 motive (T11_019.BigEnough.mk a)) \u2192 motive t",
+      "name": "T11_019.BigEnough.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T11_019.HoldsAProp",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.HoldsAProp \u2192 Sort u} \u2192\n  (t : T11_019.HoldsAProp) \u2192 ((a : Prop) \u2192 motive (T11_019.HoldsAProp.mk a)) \u2192 motive t",
+      "name": "T11_019.HoldsAProp.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 T11_019.HoldsAProp",
+      "name": "T11_019.HoldsAProp.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Prop}, T11_019.HoldsAProp.mk a = T11_019.HoldsAProp.mk a_1 \u2192 a = a_1",
+      "name": "T11_019.HoldsAProp.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Prop), (T11_019.HoldsAProp.mk a = T11_019.HoldsAProp.mk a_1) = (a = a_1)",
+      "name": "T11_019.HoldsAProp.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Prop), sizeOf (T11_019.HoldsAProp.mk a) = 1 + sizeOf a",
+      "name": "T11_019.HoldsAProp.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_019.HoldsAProp} \u2192 v1 = v2 \u2192 T11_019.HoldsAProp.noConfusionType P v1 v2",
+      "name": "T11_019.HoldsAProp.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_019.HoldsAProp \u2192 T11_019.HoldsAProp \u2192 Sort u",
+      "name": "T11_019.HoldsAProp.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.HoldsAProp \u2192 Sort u} \u2192\n  ((a : Prop) \u2192 motive (T11_019.HoldsAProp.mk a)) \u2192 (t : T11_019.HoldsAProp) \u2192 motive t",
+      "name": "T11_019.HoldsAProp.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_019.HoldsAProp \u2192 Sort u} \u2192\n  (t : T11_019.HoldsAProp) \u2192 ((a : Prop) \u2192 motive (T11_019.HoldsAProp.mk a)) \u2192 motive t",
+      "name": "T11_019.HoldsAProp.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T11_019.PropHoldingAType",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T11_019.PropHoldingAType \u2192 Prop} (t : T11_019.PropHoldingAType), (\u2200 (a : Type), motive \u22ef) \u2192 motive t",
+      "name": "T11_019.PropHoldingAType.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T11_019.PropHoldingAType",
+      "name": "T11_019.PropHoldingAType.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T11_019.PropHoldingAType \u2192 Prop}, (\u2200 (a : Type), motive \u22ef) \u2192 \u2200 (t : T11_019.PropHoldingAType), motive t",
+      "name": "T11_019.PropHoldingAType.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T11_019.PropHoldingAType \u2192 Prop} (t : T11_019.PropHoldingAType), (\u2200 (a : Type), motive \u22ef) \u2192 motive t",
+      "name": "T11_019.PropHoldingAType.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T11_019.Sum'",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192\n    {motive : T11_019.Sum' \u03b1 \u03b2 \u2192 Sort u_1} \u2192\n      (t : T11_019.Sum' \u03b1 \u03b2) \u2192\n        ((a : \u03b1) \u2192 motive (T11_019.Sum'.inl a)) \u2192 ((a : \u03b2) \u2192 motive (T11_019.Sum'.inr a)) \u2192 motive t",
+      "name": "T11_019.Sum'.casesOn",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {\u03b2 : Type v} \u2192 \u03b1 \u2192 T11_019.Sum' \u03b1 \u03b2",
+      "name": "T11_019.Sum'.inl",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} {a a_1 : \u03b1}, T11_019.Sum'.inl a = T11_019.Sum'.inl a_1 \u2192 a = a_1",
+      "name": "T11_019.Sum'.inl.inj",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} (a a_1 : \u03b1), (T11_019.Sum'.inl a = T11_019.Sum'.inl a_1) = (a = a_1)",
+      "name": "T11_019.Sum'.inl.injEq",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (a : \u03b1), sizeOf (T11_019.Sum'.inl a) = 1 + sizeOf a",
+      "name": "T11_019.Sum'.inl.sizeOf_spec",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {\u03b2 : Type v} \u2192 \u03b2 \u2192 T11_019.Sum' \u03b1 \u03b2",
+      "name": "T11_019.Sum'.inr",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} {a a_1 : \u03b2}, T11_019.Sum'.inr a = T11_019.Sum'.inr a_1 \u2192 a = a_1",
+      "name": "T11_019.Sum'.inr.inj",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} (a a_1 : \u03b2), (T11_019.Sum'.inr a = T11_019.Sum'.inr a_1) = (a = a_1)",
+      "name": "T11_019.Sum'.inr.injEq",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (a : \u03b2), sizeOf (T11_019.Sum'.inr a) = 1 + sizeOf a",
+      "name": "T11_019.Sum'.inr.sizeOf_spec",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T11_019.Sum' \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T11_019.Sum'.noConfusionType P v1 v2",
+      "name": "T11_019.Sum'.noConfusion",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {\u03b2 : Type v} \u2192 Sort u_1 \u2192 T11_019.Sum' \u03b1 \u03b2 \u2192 T11_019.Sum' \u03b1 \u03b2 \u2192 Sort u_1",
+      "name": "T11_019.Sum'.noConfusionType",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192\n    {motive : T11_019.Sum' \u03b1 \u03b2 \u2192 Sort u_1} \u2192\n      ((a : \u03b1) \u2192 motive (T11_019.Sum'.inl a)) \u2192\n        ((a : \u03b2) \u2192 motive (T11_019.Sum'.inr a)) \u2192 (t : T11_019.Sum' \u03b1 \u03b2) \u2192 motive t",
+      "name": "T11_019.Sum'.rec",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192\n    {motive : T11_019.Sum' \u03b1 \u03b2 \u2192 Sort u_1} \u2192\n      (t : T11_019.Sum' \u03b1 \u03b2) \u2192\n        ((a : \u03b1) \u2192 motive (T11_019.Sum'.inl a)) \u2192 ((a : \u03b2) \u2192 motive (T11_019.Sum'.inr a)) \u2192 motive t",
+      "name": "T11_019.Sum'.recOn",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T11_019.Wrapper",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T11_019.Wrapper \u03b1 \u2192 Sort u_1} \u2192\n    (t : T11_019.Wrapper \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T11_019.Wrapper.mk a)) \u2192 motive t",
+      "name": "T11_019.Wrapper.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 T11_019.Wrapper \u03b1",
+      "name": "T11_019.Wrapper.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {a a_1 : \u03b1}, T11_019.Wrapper.mk a = T11_019.Wrapper.mk a_1 \u2192 a = a_1",
+      "name": "T11_019.Wrapper.mk.inj",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} (a a_1 : \u03b1), (T11_019.Wrapper.mk a = T11_019.Wrapper.mk a_1) = (a = a_1)",
+      "name": "T11_019.Wrapper.mk.injEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T11_019.Wrapper.mk a) = 1 + sizeOf a",
+      "name": "T11_019.Wrapper.mk.sizeOf_spec",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T11_019.Wrapper \u03b1} \u2192 v1 = v2 \u2192 T11_019.Wrapper.noConfusionType P v1 v2",
+      "name": "T11_019.Wrapper.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T11_019.Wrapper \u03b1 \u2192 T11_019.Wrapper \u03b1 \u2192 Sort u_1",
+      "name": "T11_019.Wrapper.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T11_019.Wrapper \u03b1 \u2192 Sort u_1} \u2192\n    ((a : \u03b1) \u2192 motive (T11_019.Wrapper.mk a)) \u2192 (t : T11_019.Wrapper \u03b1) \u2192 motive t",
+      "name": "T11_019.Wrapper.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T11_019.Wrapper \u03b1 \u2192 Sort u_1} \u2192\n    (t : T11_019.Wrapper \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T11_019.Wrapper.mk a)) \u2192 motive t",
+      "name": "T11_019.Wrapper.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_019.AtLevelOne \u2192 Type",
+      "name": "T11_019.eliminateIntoTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_019.PropHoldingAType \u2192 True",
+      "name": "T11_019.tryEliminate",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_019.Wrapper Nat",
+      "name": "T11_019.wrapNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_019.Wrapper Type",
+      "name": "T11_019.wrapType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're humorous provided that you're miserable",
   "options": [
-    "$ (H \\equiv M) $",
-    "$ (H \\supset M) $",
-    "$ (M \\supset H) $",
-    "$ H \\supset M $"
+    "H ↔ M",
+    "H → M",
+    "M → H",
+    "M ∧ H"
   ],
   "correct": 2,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What follows 'provided that' is the if part.",
+  "explanation": "'Provided that' marks the if part, so the formula is M → H.",
+  "section": "6.2"
 }

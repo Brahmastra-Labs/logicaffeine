@@ -9,13 +9,13 @@
 
 use logicaffeine_compile::codegen_sva::signal_design::{design_phase_plan, Intersection};
 use logicaffeine_proof::cardinality::at_most;
-use logicaffeine_proof::optimize::minimize_certified;
-use logicaffeine_proof::matching::{assign_or_hall, is_hall_witness, MatchOutcome};
-use logicaffeine_proof::sat::{find_model, prove_unsat, ModelOutcome, UnsatOutcome};
 use logicaffeine_proof::hornsat::{self, HornClause, HornOutcome};
+use logicaffeine_proof::interval_sched::{self, Interval, ScheduleOutcome};
+use logicaffeine_proof::matching::{assign_or_hall, is_hall_witness, MatchOutcome};
+use logicaffeine_proof::optimize::minimize_certified;
+use logicaffeine_proof::sat::{find_model, prove_unsat, ModelOutcome, UnsatOutcome};
 use logicaffeine_proof::twosat::{self, Lit as TsLit, TwoSatOutcome};
 use logicaffeine_proof::xorsat::{self, XorEquation, XorOutcome};
-use logicaffeine_proof::interval_sched::{self, Interval, ScheduleOutcome};
 use logicaffeine_proof::ProofExpr;
 use logicaffeine_verify::ic3::check_sat;
 use logicaffeine_verify::VerifyExpr;
@@ -37,12 +37,26 @@ const CASES: &[(usize, &[(usize, usize)])] = &[
     (
         11,
         &[
-            (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
-            (5, 4), (5, 1), (10, 5),
-            (6, 0), (6, 2), (10, 6),
-            (7, 1), (7, 3), (10, 7),
-            (8, 2), (8, 4), (10, 8),
-            (9, 3), (9, 0), (10, 9),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 0),
+            (5, 4),
+            (5, 1),
+            (10, 5),
+            (6, 0),
+            (6, 2),
+            (10, 6),
+            (7, 1),
+            (7, 3),
+            (10, 7),
+            (8, 2),
+            (8, 4),
+            (10, 8),
+            (9, 3),
+            (9, 0),
+            (10, 9),
         ],
     ),
 ];
@@ -102,7 +116,9 @@ fn z3_min_phases(n: usize, conflicts: &[(usize, usize)]) -> usize {
 #[test]
 fn designer_min_phases_matches_z3() {
     for &(n, conflicts) in CASES {
-        let ours = design_phase_plan(&intersection(n, conflicts)).unwrap().num_phases;
+        let ours = design_phase_plan(&intersection(n, conflicts))
+            .unwrap()
+            .num_phases;
         let z3 = z3_min_phases(n, conflicts);
         assert_eq!(
             ours, z3,
@@ -152,10 +168,20 @@ const HARD_CASES: &[(usize, &[(usize, usize)])] = &[
     (
         6,
         &[
-            (0, 1), (0, 2), (0, 3), (0, 4), (0, 5),
-            (1, 2), (1, 3), (1, 4), (1, 5),
-            (2, 3), (2, 4), (2, 5),
-            (3, 4), (3, 5),
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (0, 5),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (1, 5),
+            (2, 3),
+            (2, 4),
+            (2, 5),
+            (3, 4),
+            (3, 5),
             (4, 5),
         ],
     ),
@@ -163,17 +189,37 @@ const HARD_CASES: &[(usize, &[(usize, usize)])] = &[
     (
         6,
         &[
-            (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
-            (5, 0), (5, 1), (5, 2), (5, 3), (5, 4),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 0),
+            (5, 0),
+            (5, 1),
+            (5, 2),
+            (5, 3),
+            (5, 4),
         ],
     ),
     // Petersen graph → χ=3, triangle-free (clique number 2): the clique bound is far below χ.
     (
         10,
         &[
-            (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
-            (0, 5), (1, 6), (2, 7), (3, 8), (4, 9),
-            (5, 7), (7, 9), (9, 6), (6, 8), (8, 5),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 0),
+            (0, 5),
+            (1, 6),
+            (2, 7),
+            (3, 8),
+            (4, 9),
+            (5, 7),
+            (7, 9),
+            (9, 6),
+            (6, 8),
+            (8, 5),
         ],
     ),
 ];
@@ -181,7 +227,9 @@ const HARD_CASES: &[(usize, &[(usize, usize)])] = &[
 #[test]
 fn designer_matches_z3_on_hard_graphs() {
     for &(n, conflicts) in HARD_CASES {
-        let ours = design_phase_plan(&intersection(n, conflicts)).unwrap().num_phases;
+        let ours = design_phase_plan(&intersection(n, conflicts))
+            .unwrap()
+            .num_phases;
         let z3 = z3_min_phases(n, conflicts);
         assert_eq!(
             ours, z3,
@@ -278,7 +326,10 @@ fn hitting_problems() -> Vec<(Vec<ProofExpr>, ProofExpr, i64)> {
         // Triangle of pairwise clauses → need 2 of 3.
         (
             vec![a.clone(), b.clone(), c.clone()],
-            and(and(or(a.clone(), b.clone()), or(b.clone(), c.clone())), or(a.clone(), c.clone())),
+            and(
+                and(or(a.clone(), b.clone()), or(b.clone(), c.clone())),
+                or(a.clone(), c.clone()),
+            ),
             2,
         ),
         // a forced, plus a 2-of-{b,c,d} cover → 3 total.
@@ -298,13 +349,23 @@ fn optimizer_optimum_matches_z3() {
     for (vars, clauses, expected) in hitting_problems() {
         let n = vars.len() as i64;
         let feasible_at = move |bound: i64| {
-            and(clauses.clone(), at_most(&vars, bound.max(0) as usize, "cost"))
+            and(
+                clauses.clone(),
+                at_most(&vars, bound.max(0) as usize, "cost"),
+            )
         };
         let ours = minimize_certified(&feasible_at, 0, n).expect("feasible within range");
         let z3 = z3_min_feasible(&feasible_at, 0, n).expect("Z3 must also find it feasible");
         assert_eq!(ours.optimum, expected, "our certified optimum is wrong");
-        assert_eq!(ours.optimum, z3, "our optimum must match Z3's: ours={} z3={z3}", ours.optimum);
-        assert!(ours.minimal_certified, "the optimum must be RUP-certified minimal");
+        assert_eq!(
+            ours.optimum, z3,
+            "our optimum must match Z3's: ours={} z3={z3}",
+            ours.optimum
+        );
+        assert!(
+            ours.minimal_certified,
+            "the optimum must be RUP-certified minimal"
+        );
     }
 }
 
@@ -318,8 +379,12 @@ fn optimizer_beats_z3() {
         for (vars, clauses, _) in &problems {
             let n = vars.len() as i64;
             let (vars, clauses) = (vars.clone(), clauses.clone());
-            let feasible_at =
-                move |bound: i64| and(clauses.clone(), at_most(&vars, bound.max(0) as usize, "cost"));
+            let feasible_at = move |bound: i64| {
+                and(
+                    clauses.clone(),
+                    at_most(&vars, bound.max(0) as usize, "cost"),
+                )
+            };
             let _ = minimize_certified(&feasible_at, 0, n).unwrap().optimum;
         }
     }
@@ -330,8 +395,12 @@ fn optimizer_beats_z3() {
         for (vars, clauses, _) in &problems {
             let n = vars.len() as i64;
             let (vars, clauses) = (vars.clone(), clauses.clone());
-            let feasible_at =
-                move |bound: i64| and(clauses.clone(), at_most(&vars, bound.max(0) as usize, "cost"));
+            let feasible_at = move |bound: i64| {
+                and(
+                    clauses.clone(),
+                    at_most(&vars, bound.max(0) as usize, "cost"),
+                )
+            };
             let _ = z3_min_feasible(&feasible_at, 0, n).unwrap();
         }
     }
@@ -459,7 +528,10 @@ fn nqueens_solution_is_valid_and_matches_z3() {
         let ours_sat = matches!(ours, ModelOutcome::Sat(_));
         assert_eq!(ours_sat, z3, "n-queens n={n}: ours_sat={ours_sat} z3={z3}");
         if let ModelOutcome::Sat(model) = ours {
-            assert!(nqueens_model_is_valid(n, &model), "invalid {n}-queens placement: {model:?}");
+            assert!(
+                nqueens_model_is_valid(n, &model),
+                "invalid {n}-queens placement: {model:?}"
+            );
         }
     }
 }
@@ -481,7 +553,10 @@ fn nqueens_beats_z3() {
     let z3 = t.elapsed();
     let speedup = z3.as_secs_f64() / ours.as_secs_f64().max(f64::MIN_POSITIVE);
     eprintln!("8-queens native-vs-z3: ours={ours:?}  z3={z3:?}  speedup={speedup:.1}x");
-    assert!(ours < z3, "our solver must beat Z3 on 8-queens: ours={ours:?} z3={z3:?}");
+    assert!(
+        ours < z3,
+        "our solver must beat Z3 on 8-queens: ours={ours:?} z3={z3:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -518,11 +593,23 @@ fn controller_bmc_formula(k: usize, buggy: bool) -> ProofExpr {
 fn controller_safety_matches_z3() {
     for k in [8usize, 16, 24] {
         let safe = controller_bmc_formula(k, false);
-        assert!(!matches!(find_model(&safe), ModelOutcome::Sat(_)), "safe ours k={k} must be UNSAT");
-        assert!(!check_sat(&proof_to_verify(&safe)), "safe z3 k={k} must be UNSAT");
+        assert!(
+            !matches!(find_model(&safe), ModelOutcome::Sat(_)),
+            "safe ours k={k} must be UNSAT"
+        );
+        assert!(
+            !check_sat(&proof_to_verify(&safe)),
+            "safe z3 k={k} must be UNSAT"
+        );
         let buggy = controller_bmc_formula(k, true);
-        assert!(matches!(find_model(&buggy), ModelOutcome::Sat(_)), "buggy ours k={k} must be SAT");
-        assert!(check_sat(&proof_to_verify(&buggy)), "buggy z3 k={k} must be SAT");
+        assert!(
+            matches!(find_model(&buggy), ModelOutcome::Sat(_)),
+            "buggy ours k={k} must be SAT"
+        );
+        assert!(
+            check_sat(&proof_to_verify(&buggy)),
+            "buggy z3 k={k} must be SAT"
+        );
     }
 }
 
@@ -543,7 +630,10 @@ fn controller_safety_beats_z3() {
     let z3 = t.elapsed();
     let speedup = z3.as_secs_f64() / ours.as_secs_f64().max(f64::MIN_POSITIVE);
     eprintln!("controller-safety BMC native-vs-z3: ours={ours:?} z3={z3:?} speedup={speedup:.1}x");
-    assert!(ours < z3, "controller-safety BMC must beat Z3: ours={ours:?} z3={z3:?}");
+    assert!(
+        ours < z3,
+        "controller-safety BMC must beat Z3: ours={ours:?} z3={z3:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -594,11 +684,23 @@ fn flow_jam_matches_z3() {
     // Congested overflows within 20 cycles (SAT); drained never jams (UNSAT). Both verdicts must
     // match Z3 on the identical formula, and be non-vacuous.
     let congested = flow_jam_formula(20, false);
-    assert!(matches!(find_model(&congested), ModelOutcome::Sat(_)), "congested must jam (SAT)");
-    assert!(check_sat(&proof_to_verify(&congested)), "congested z3 must jam (SAT)");
+    assert!(
+        matches!(find_model(&congested), ModelOutcome::Sat(_)),
+        "congested must jam (SAT)"
+    );
+    assert!(
+        check_sat(&proof_to_verify(&congested)),
+        "congested z3 must jam (SAT)"
+    );
     let drained = flow_jam_formula(20, true);
-    assert!(!matches!(find_model(&drained), ModelOutcome::Sat(_)), "drained must not jam (UNSAT)");
-    assert!(!check_sat(&proof_to_verify(&drained)), "drained z3 must not jam (UNSAT)");
+    assert!(
+        !matches!(find_model(&drained), ModelOutcome::Sat(_)),
+        "drained must not jam (UNSAT)"
+    );
+    assert!(
+        !check_sat(&proof_to_verify(&drained)),
+        "drained z3 must not jam (UNSAT)"
+    );
 }
 
 #[test]
@@ -618,7 +720,10 @@ fn flow_jam_beats_z3() {
     let z3 = t.elapsed();
     let speedup = z3.as_secs_f64() / ours.as_secs_f64().max(f64::MIN_POSITIVE);
     eprintln!("flow-jam BMC native-vs-z3: ours={ours:?} z3={z3:?} speedup={speedup:.1}x");
-    assert!(ours < z3, "flow-jam BMC must beat Z3: ours={ours:?} z3={z3:?}");
+    assert!(
+        ours < z3,
+        "flow-jam BMC must beat Z3: ours={ours:?} z3={z3:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -674,8 +779,14 @@ fn pigeonhole_experiment() {
             matches!(r_pw, UnsatOutcome::Refuted),
             matches!(r_sz, UnsatOutcome::Refuted),
         );
-        assert!(matches!(r_pw, UnsatOutcome::Refuted), "PHP({n}) pairwise must be UNSAT");
-        assert!(matches!(r_sz, UnsatOutcome::Refuted), "PHP({n}) sinz must be UNSAT");
+        assert!(
+            matches!(r_pw, UnsatOutcome::Refuted),
+            "PHP({n}) pairwise must be UNSAT"
+        );
+        assert!(
+            matches!(r_sz, UnsatOutcome::Refuted),
+            "PHP({n}) sinz must be UNSAT"
+        );
         assert!(!z, "PHP({n}) z3 must be UNSAT");
     }
 }
@@ -701,7 +812,10 @@ fn pigeonhole_matching_matches_z3() {
         let (adj, slots) = php_adj(n);
         match assign_or_hall(&adj, slots) {
             MatchOutcome::Infeasible(w) => {
-                assert!(is_hall_witness(&adj, &w), "PHP({n}) Hall witness invalid: {w:?}")
+                assert!(
+                    is_hall_witness(&adj, &w),
+                    "PHP({n}) Hall witness invalid: {w:?}"
+                )
             }
             o => panic!("PHP({n}) must be infeasible: {o:?}"),
         }
@@ -711,7 +825,10 @@ fn pigeonhole_matching_matches_z3() {
         );
         // Feasible square (n pigeons, n holes): our matching → Feasible.
         let sq: Vec<Vec<usize>> = (0..n).map(|_| (0..n).collect()).collect();
-        assert!(matches!(assign_or_hall(&sq, n), MatchOutcome::Feasible(_)), "n={n} square feasible");
+        assert!(
+            matches!(assign_or_hall(&sq, n), MatchOutcome::Feasible(_)),
+            "n={n} square feasible"
+        );
     }
 }
 
@@ -738,7 +855,10 @@ fn pigeonhole_scaling_proof() {
     // exponentially and hits a wall; our certified matching/Hall reasoner stays microsecond-flat
     // and certifies sizes Z3 cannot finish at all.
     eprintln!("\n===== PIGEONHOLE: our matching vs Z3  (n pigeons, n-1 holes → UNSAT) =====");
-    eprintln!("{:<6} | {:>12} | {:>16} | {:>10}", "n", "ours", "z3", "speedup");
+    eprintln!(
+        "{:<6} | {:>12} | {:>16} | {:>10}",
+        "n", "ours", "z3", "speedup"
+    );
     eprintln!("{:-<7}+{:-<14}+{:-<18}+{:-<11}", "", "", "", "");
     // Head-to-head where Z3 is still tractable — note Z3's time exploding.
     for n in [6usize, 8, 9, 10] {
@@ -750,7 +870,10 @@ fn pigeonhole_scaling_proof() {
         let t = Instant::now();
         let z = check_sat(&vf);
         let z3 = t.elapsed();
-        assert!(matches!(r, MatchOutcome::Infeasible(_)), "PHP({n}) ours must be infeasible");
+        assert!(
+            matches!(r, MatchOutcome::Infeasible(_)),
+            "PHP({n}) ours must be infeasible"
+        );
         assert!(!z, "PHP({n}) Z3 must be UNSAT");
         assert!(ours < z3, "ours must beat Z3 at n={n}");
         eprintln!(
@@ -768,11 +891,19 @@ fn pigeonhole_scaling_proof() {
         let ours = t.elapsed();
         match r {
             MatchOutcome::Infeasible(w) => {
-                assert!(is_hall_witness(&adj, &w), "PHP({n}) witness must be genuine");
+                assert!(
+                    is_hall_witness(&adj, &w),
+                    "PHP({n}) witness must be genuine"
+                );
             }
             o => panic!("PHP({n}) must be infeasible: {o:?}"),
         }
-        eprintln!("{n:<6} | {:>10.1}us | {:>16} | {:>10}", ours.as_secs_f64() * 1e6, "(intractable)", "inf");
+        eprintln!(
+            "{n:<6} | {:>10.1}us | {:>16} | {:>10}",
+            ours.as_secs_f64() * 1e6,
+            "(intractable)",
+            "inf"
+        );
     }
     eprintln!("==========================================================================\n");
 }
@@ -796,7 +927,10 @@ fn pigeonhole_matching_supercrushes_z3() {
     let z3 = t.elapsed();
     let speedup = z3.as_secs_f64() / ours.as_secs_f64().max(f64::MIN_POSITIVE);
     eprintln!("PHP(8) matching native-vs-z3: ours={ours:?} z3={z3:?} speedup={speedup:.1}x");
-    assert!(ours < z3, "certified matching must crush Z3 on pigeonhole: ours={ours:?} z3={z3:?}");
+    assert!(
+        ours < z3,
+        "certified matching must crush Z3 on pigeonhole: ours={ours:?} z3={z3:?}"
+    );
 }
 
 #[test]
@@ -807,6 +941,7 @@ fn general_solver_wins_on_pigeonhole_via_cardinality() {
     // witness. Before this, `prove_unsat` Tseitin-encoded PHP and ground it through CDCL with an
     // *exponential* resolution refutation (precisely why `pigeonhole_experiment` is #[ignore]'d).
     // Now the general solver scales far past Z3's wall (~PHP(12)) — sub-second at n=80.
+    let mut times: Vec<(usize, Duration)> = Vec::new();
     for n in [10usize, 20, 40, 80] {
         let f = php_formula(n, false);
         let t = Instant::now();
@@ -816,12 +951,24 @@ fn general_solver_wins_on_pigeonhole_via_cardinality() {
             matches!(r, UnsatOutcome::Refuted),
             "PHP({n}) must be Refuted by the GENERAL solver, got {r:?}"
         );
-        assert!(
-            dt < Duration::from_secs(1),
-            "PHP({n}) decided in {dt:?} — must be polynomial via cardinality reasoning, not exponential CDCL"
-        );
+        times.push((n, dt));
         eprintln!("general prove_unsat PHP({n}): {dt:?} → Refuted");
     }
+    // POLYNOMIAL, not exponential — asserted as a load-robust GROWTH RATIO, not an absolute wall
+    // clock (which flakes when the parallel runner steals CPU). Observed ratio PHP(40)→PHP(80) is
+    // ~9× solo; under heavy parallel load it inflates (the longer PHP(80) absorbs disproportionate
+    // preemption — a real run saw ~25×). The polynomial cardinality path lives comfortably below
+    // 100×; a regression to exponential CDCL cannot finish at all (it hits the nextest terminate-
+    // after and fails as a timeout, ratio → ~40000×). 100× cleanly separates the two with margin no
+    // load spike can cross. A small-n floor guards a near-zero PHP(40) measurement.
+    let at = |k: usize| times.iter().find(|(n, _)| *n == k).unwrap().1;
+    let (t40, t80) = (at(40), at(80));
+    let base = t40.max(Duration::from_millis(20));
+    assert!(
+        t80 < base * 100,
+        "PHP(40)→PHP(80) blew up {:.1}× ({t40:?} → {t80:?}) — looks exponential (CDCL), not polynomial cardinality",
+        t80.as_secs_f64() / t40.as_secs_f64().max(1e-9)
+    );
 }
 
 #[test]
@@ -829,7 +976,9 @@ fn general_solver_beats_z3_on_pigeonhole() {
     // Head-to-head where Z3 is still tractable: the GENERAL prover (`prove_unsat`, not a direct
     // matching call) agrees with Z3 (both UNSAT) AND is faster — then keeps scaling where Z3's
     // boolean solve cannot. This is the proof we kick Z3's ass *through the general solver*.
-    eprintln!("\n===== GENERAL SOLVER vs Z3 on pigeonhole (prove_unsat, no direct matching call) =====");
+    eprintln!(
+        "\n===== GENERAL SOLVER vs Z3 on pigeonhole (prove_unsat, no direct matching call) ====="
+    );
     for n in [6usize, 8, 10] {
         let f = php_formula(n, false);
         let vf = proof_to_verify(&f);
@@ -839,7 +988,10 @@ fn general_solver_beats_z3_on_pigeonhole() {
         let t = Instant::now();
         let z = check_sat(&vf);
         let z3 = t.elapsed();
-        assert!(matches!(r, UnsatOutcome::Refuted), "PHP({n}) ours must be Refuted, got {r:?}");
+        assert!(
+            matches!(r, UnsatOutcome::Refuted),
+            "PHP({n}) ours must be Refuted, got {r:?}"
+        );
         assert!(!z, "PHP({n}) Z3 must be UNSAT");
         assert!(
             ours < z3,
@@ -852,7 +1004,9 @@ fn general_solver_beats_z3_on_pigeonhole() {
             z3.as_secs_f64() / ours.as_secs_f64().max(f64::MIN_POSITIVE),
         );
     }
-    eprintln!("=======================================================================================\n");
+    eprintln!(
+        "=======================================================================================\n"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -891,7 +1045,10 @@ fn clique_coloring_formula(n: usize, k: usize) -> ProofExpr {
 #[ignore = "symmetry-breaking clique-colouring proof — run with --ignored --nocapture"]
 fn symmetry_breaking_clique_coloring_vs_z3() {
     eprintln!("\n=== CLIQUE-COLOURING UNSAT (K_n @ n-1 colours): prove_unsat (symmetry breaking) vs Z3 ===");
-    eprintln!("{:<8} | {:>12} | {:>14} | {:>10}", "instance", "ours", "z3", "speedup");
+    eprintln!(
+        "{:<8} | {:>12} | {:>14} | {:>10}",
+        "instance", "ours", "z3", "speedup"
+    );
     for n in [6usize, 7, 8] {
         let f = clique_coloring_formula(n, n - 1);
         let vf = proof_to_verify(&f);
@@ -901,7 +1058,11 @@ fn symmetry_breaking_clique_coloring_vs_z3() {
         let t = Instant::now();
         let z = check_sat(&vf);
         let z3 = t.elapsed();
-        assert!(matches!(r, UnsatOutcome::Refuted), "K{n} @ {} must be Refuted UNSAT", n - 1);
+        assert!(
+            matches!(r, UnsatOutcome::Refuted),
+            "K{n} @ {} must be Refuted UNSAT",
+            n - 1
+        );
         assert!(!z, "Z3 must agree K{n} @ {} is UNSAT", n - 1);
         eprintln!(
             "K{n}@{:<5} | {:>10.1}us | {:>12.2}ms | {:>9.0}x",
@@ -970,7 +1131,10 @@ fn tseitin_unsat(n: usize, seed: u64) -> (Vec<XorEquation>, usize) {
 #[ignore = "Tseitin parity (honest: Z3 has XOR preprocessing) — run with --ignored --nocapture"]
 fn xor_tseitin_parity_vs_z3() {
     eprintln!("\n===== TSEITIN PARITY: xorsat vs Z3 (Z3 has XOR preproc — overhead win, not exponential) =====");
-    eprintln!("{:<6} | {:>12} | {:>16} | {:>10}", "n", "ours", "z3", "speedup");
+    eprintln!(
+        "{:<6} | {:>12} | {:>16} | {:>10}",
+        "n", "ours", "z3", "speedup"
+    );
     const SEED: u64 = 0x5DEECE66D;
     for n in [10usize, 20, 30, 40, 50] {
         let (eqs, ne) = tseitin_unsat(n, SEED);
@@ -981,7 +1145,10 @@ fn xor_tseitin_parity_vs_z3() {
         let t = Instant::now();
         let z = check_sat(&vf);
         let z3 = t.elapsed();
-        assert!(matches!(r, XorOutcome::Unsat(_)), "Tseitin n={n} must be UNSAT (ours)");
+        assert!(
+            matches!(r, XorOutcome::Unsat(_)),
+            "Tseitin n={n} must be UNSAT (ours)"
+        );
         assert!(!z, "Tseitin n={n} must be UNSAT (Z3)");
         eprintln!(
             "{n:<6} | {:>10.1}us | {:>14.2}ms | {:>9.0}x",
@@ -995,8 +1162,16 @@ fn xor_tseitin_parity_vs_z3() {
         let t = Instant::now();
         let r = xorsat::solve(&eqs, ne);
         let ours = t.elapsed();
-        assert!(matches!(r, XorOutcome::Unsat(_)), "Tseitin n={n} must be UNSAT");
-        eprintln!("{n:<6} | {:>10.1}us | {:>16} | {:>10}", ours.as_secs_f64() * 1e6, "ours-only", "-");
+        assert!(
+            matches!(r, XorOutcome::Unsat(_)),
+            "Tseitin n={n} must be UNSAT"
+        );
+        eprintln!(
+            "{n:<6} | {:>10.1}us | {:>16} | {:>10}",
+            ours.as_secs_f64() * 1e6,
+            "ours-only",
+            "-"
+        );
     }
     eprintln!("====================================================================\n");
 }
@@ -1010,14 +1185,19 @@ fn xor_tseitin_parity_vs_z3() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn complete_graph_conflicts(m: usize) -> Vec<(usize, usize)> {
-    (0..m).flat_map(|i| ((i + 1)..m).map(move |j| (i, j))).collect()
+    (0..m)
+        .flat_map(|i| ((i + 1)..m).map(move |j| (i, j)))
+        .collect()
 }
 
 #[test]
 #[ignore = "clique-colouring Hall crush — run with --ignored --nocapture"]
 fn coloring_clique_hall_crushes_z3() {
     eprintln!("\n===== CLIQUE-COLOURING UNSAT (K_m @ m-1 colours): clique/Hall vs Z3 =====");
-    eprintln!("{:<8} | {:>12} | {:>16} | {:>10}", "instance", "ours", "z3", "speedup");
+    eprintln!(
+        "{:<8} | {:>12} | {:>16} | {:>10}",
+        "instance", "ours", "z3", "speedup"
+    );
     // Head-to-head while Z3 is tractable (it blows up exponentially — K9 already ~116ms — and
     // walls around K11-12, just like pigeonhole).
     for m in [6usize, 8, 10] {
@@ -1030,7 +1210,12 @@ fn coloring_clique_hall_crushes_z3() {
         let t = Instant::now();
         let z = check_sat(&vf);
         let z3 = t.elapsed();
-        assert!(infeasible, "K{m} needs {} > {} colours", plan.num_phases, m - 1);
+        assert!(
+            infeasible,
+            "K{m} needs {} > {} colours",
+            plan.num_phases,
+            m - 1
+        );
         assert!(!z, "Z3 must agree K{m} @ {} is UNSAT", m - 1);
         eprintln!(
             "K{m}@{:<5} | {:>10.1}us | {:>14.2}ms | {:>9.0}x",
@@ -1047,7 +1232,13 @@ fn coloring_clique_hall_crushes_z3() {
         let plan = design_phase_plan(&intersection(m, &conflicts)).unwrap();
         let ours = t.elapsed();
         assert!(plan.num_phases > m - 1);
-        eprintln!("K{m}@{:<5} | {:>10.1}us | {:>16} | {:>10}", m - 1, ours.as_secs_f64() * 1e6, "(intractable)", "inf");
+        eprintln!(
+            "K{m}@{:<5} | {:>10.1}us | {:>16} | {:>10}",
+            m - 1,
+            ours.as_secs_f64() * 1e6,
+            "(intractable)",
+            "inf"
+        );
     }
     eprintln!("========================================================================\n");
 }
@@ -1063,7 +1254,10 @@ fn coloring_clique_hall_crushes_z3() {
 #[ignore = "interval-scheduling crush — run with --ignored --nocapture"]
 fn interval_sched_crushes_z3() {
     eprintln!("\n===== INTERVAL SCHEDULING (n tasks, 1 window, m=n-1): sweep vs Z3 =====");
-    eprintln!("{:<10} | {:>12} | {:>16} | {:>10}", "n tasks", "ours", "z3", "speedup");
+    eprintln!(
+        "{:<10} | {:>12} | {:>16} | {:>10}",
+        "n tasks", "ours", "z3", "speedup"
+    );
     for n in [6usize, 8, 10] {
         let tasks: Vec<Interval> = (0..n).map(|i| Interval::new(0, 100 + i as i64)).collect();
         let m = n - 1;
@@ -1074,7 +1268,10 @@ fn interval_sched_crushes_z3() {
         let t = Instant::now();
         let z = check_sat(&vf);
         let z3 = t.elapsed();
-        assert!(matches!(r, ScheduleOutcome::Infeasible(_)), "n={n} m={m} must overflow");
+        assert!(
+            matches!(r, ScheduleOutcome::Infeasible(_)),
+            "n={n} m={m} must overflow"
+        );
         assert!(!z, "Z3 must agree n={n} m={m} is infeasible");
         eprintln!(
             "{n:<10} | {:>10.1}us | {:>14.2}ms | {:>9.0}x",
@@ -1088,8 +1285,16 @@ fn interval_sched_crushes_z3() {
         let t = Instant::now();
         let r = interval_sched::schedule_or_overflow(&tasks, n - 1);
         let ours = t.elapsed();
-        assert!(matches!(r, ScheduleOutcome::Infeasible(_)), "n={n} must overflow");
-        eprintln!("{n:<10} | {:>10.1}us | {:>16} | {:>10}", ours.as_secs_f64() * 1e6, "(intractable)", "inf");
+        assert!(
+            matches!(r, ScheduleOutcome::Infeasible(_)),
+            "n={n} must overflow"
+        );
+        eprintln!(
+            "{n:<10} | {:>10.1}us | {:>16} | {:>10}",
+            ours.as_secs_f64() * 1e6,
+            "(intractable)",
+            "inf"
+        );
     }
     eprintln!("=================================================================\n");
 }
@@ -1134,8 +1339,11 @@ fn horn_cnf(clauses: &[HornClause]) -> ProofExpr {
     let cnf: Vec<ProofExpr> = clauses
         .iter()
         .map(|c| {
-            let mut lits: Vec<ProofExpr> =
-                c.body.iter().map(|&b| ProofExpr::Not(Box::new(vv(b)))).collect();
+            let mut lits: Vec<ProofExpr> = c
+                .body
+                .iter()
+                .map(|&b| ProofExpr::Not(Box::new(vv(b))))
+                .collect();
             if let Some(h) = c.head {
                 lits.push(vv(h));
             }
@@ -1304,9 +1512,21 @@ fn g_petersen() -> (usize, Vec<(usize, usize)>) {
     (
         10,
         vec![
-            (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
-            (0, 5), (1, 6), (2, 7), (3, 8), (4, 9),
-            (5, 7), (7, 9), (9, 6), (6, 8), (8, 5),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 0),
+            (0, 5),
+            (1, 6),
+            (2, 7),
+            (3, 8),
+            (4, 9),
+            (5, 7),
+            (7, 9),
+            (9, 6),
+            (6, 8),
+            (8, 5),
         ],
     )
 }
@@ -1314,12 +1534,26 @@ fn g_grotzsch() -> (usize, Vec<(usize, usize)>) {
     (
         11,
         vec![
-            (0, 1), (1, 2), (2, 3), (3, 4), (4, 0),
-            (5, 4), (5, 1), (10, 5),
-            (6, 0), (6, 2), (10, 6),
-            (7, 1), (7, 3), (10, 7),
-            (8, 2), (8, 4), (10, 8),
-            (9, 3), (9, 0), (10, 9),
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 4),
+            (4, 0),
+            (5, 4),
+            (5, 1),
+            (10, 5),
+            (6, 0),
+            (6, 2),
+            (10, 6),
+            (7, 1),
+            (7, 3),
+            (10, 7),
+            (8, 2),
+            (8, 4),
+            (10, 8),
+            (9, 3),
+            (9, 0),
+            (10, 9),
         ],
     )
 }
@@ -1327,10 +1561,20 @@ fn g_intersection8() -> (usize, Vec<(usize, usize)>) {
     (
         8,
         vec![
-            (0, 1), (0, 4), (0, 5), (0, 6), (0, 7),
-            (1, 4), (1, 5), (1, 6), (1, 7),
-            (2, 3), (2, 6), (2, 7),
-            (3, 6), (3, 7),
+            (0, 1),
+            (0, 4),
+            (0, 5),
+            (0, 6),
+            (0, 7),
+            (1, 4),
+            (1, 5),
+            (1, 6),
+            (1, 7),
+            (2, 3),
+            (2, 6),
+            (2, 7),
+            (3, 6),
+            (3, 7),
             (6, 7),
         ],
     )
@@ -1379,7 +1623,10 @@ fn benchmark_table_vs_z3() {
         ("design: star S30", g_star(30)),
         ("design: complete K10", g_complete(10)),
         ("design: wheel W12", g_wheel(12)),
-        ("design: complete-bipartite K8,8", g_complete_bipartite(8, 8)),
+        (
+            "design: complete-bipartite K8,8",
+            g_complete_bipartite(8, 8),
+        ),
         ("design: Petersen", g_petersen()),
         ("design: Grotzsch", g_grotzsch()),
         ("design: 8-movement intersection", g_intersection8()),

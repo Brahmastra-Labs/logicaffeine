@@ -171,9 +171,7 @@ impl<T: Clone + PartialEq> RGA<T> {
 
     /// Get sorted visible nodes in document order.
     fn visible_nodes(&self) -> impl Iterator<Item = &RgaNode<T>> {
-        self.sorted_nodes()
-            .into_iter()
-            .filter(|n| !n.deleted)
+        self.sorted_nodes().into_iter().filter(|n| !n.deleted)
     }
 
     /// Get all nodes sorted in document order.
@@ -270,7 +268,10 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Send + 'static> Delta
             .filter(|n| n.id.timestamp > since.get(n.id.replica))
             .cloned()
             .collect();
-        Some(RGADelta { nodes, timestamp: self.timestamp })
+        Some(RGADelta {
+            nodes,
+            timestamp: self.timestamp,
+        })
     }
 
     fn apply_delta(&mut self, delta: &Self::Delta) {
@@ -310,46 +311,16 @@ impl<T: Clone + PartialEq> Default for RGA<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Owned iteration visits the elements in their convergent order.
+impl<T: Clone + PartialEq> IntoIterator for RGA<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
 
-    #[test]
-    fn test_rga_append() {
-        let mut seq: RGA<String> = RGA::new(1);
-        seq.append("a".to_string());
-        seq.append("b".to_string());
-        assert_eq!(seq.to_vec(), vec!["a", "b"]);
-    }
-
-    #[test]
-    fn test_rga_insert_before() {
-        let mut seq: RGA<String> = RGA::new(1);
-        seq.append("b".to_string());
-        seq.insert_before(0, "a".to_string());
-        assert_eq!(seq.to_vec(), vec!["a", "b"]);
-    }
-
-    #[test]
-    fn test_rga_remove() {
-        let mut seq: RGA<String> = RGA::new(1);
-        seq.append("a".to_string());
-        seq.append("b".to_string());
-        seq.remove(0);
-        assert_eq!(seq.to_vec(), vec!["b"]);
-    }
-
-    #[test]
-    fn test_rga_concurrent_append() {
-        let mut a: RGA<String> = RGA::new(1);
-        let mut b: RGA<String> = RGA::new(2);
-
-        a.append("from-a".to_string());
-        b.append("from-b".to_string());
-
-        a.merge(&b);
-        b.merge(&a);
-
-        assert_eq!(a.to_vec(), b.to_vec());
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_data/crdt/sequence/rga/tests.rs"]
+mod tests;

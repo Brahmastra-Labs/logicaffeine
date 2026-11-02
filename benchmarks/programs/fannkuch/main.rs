@@ -1,19 +1,20 @@
 use std::env;
 fn main() {
     let n: usize = env::args().nth(1).unwrap().parse().unwrap();
-    let mut perm1: Vec<i32> = (0..n as i32).collect();
-    let mut count = vec![0i32; n];
-    let mut max_flips = 0i32;
-    let mut checksum = 0i32;
-    let mut perm_count = 0i32;
+    let mut perm1: Vec<i64> = (0..n as i64).collect();
+    let mut perm = vec![0i64; n];
+    let mut count = vec![0i64; n];
+    let mut max_flips = 0i64;
+    let mut checksum = 0i64;
+    let mut perm_count = 0i64;
     let mut r = n;
     loop {
-        while r > 1 { count[r - 1] = r as i32; r -= 1; }
-        let mut perm = perm1.clone();
-        let mut flips = 0;
+        while r > 1 { count[r - 1] = r as i64; r -= 1; }
+        perm.copy_from_slice(&perm1);
+        let mut flips = 0i64;
         while perm[0] != 0 {
             let k = perm[0] as usize + 1;
-            perm[..k].reverse();
+            for i in 0..k / 2 { perm.swap(i, k - 1 - i); }
             flips += 1;
         }
         if flips > max_flips { max_flips = flips; }

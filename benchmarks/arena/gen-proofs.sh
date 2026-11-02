@@ -13,7 +13,7 @@
 # would blow up FAIL CLOSED — logos-sat prints a budget warning and writes no proof file, and this
 # script records them as `over-budget` (the verdict still stands on the native algebraic certificate).
 #
-# Artifacts land in proofs/algebraic/. Usage: bash benchmarks/arena/gen-proofs.sh
+# Artifacts land in target/proofs/algebraic/. Usage: bash benchmarks/arena/gen-proofs.sh
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -21,7 +21,7 @@ SAT="target/release/examples/satbench"
 BIN="target/release/logos-sat"
 DT="${DRAT_TRIM:-/tmp/drat-trim/drat-trim}"
 LC="${LRAT_CHECK:-/tmp/drat-trim/lrat-check}"
-OUT="proofs/algebraic"
+OUT="target/proofs/algebraic"
 
 cargo build --release -p logicaffeine-proof --bin logos-sat --example satbench >/dev/null 2>&1
 mkdir -p "$OUT"

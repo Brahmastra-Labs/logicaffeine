@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "'You're selling but don't sell' is consistent",
   "options": [
-    "$ (Su\\cdot 1,S\\underline{u} ) $",
-    "$ \\lozenge (Su\\cdot \\sim S\\underline{u} ) $",
-    "$ \\lozenge (Su\\cdot \\sim Su) $",
-    "$ (\\lozenge Su\\cdot \\sim S\\underline{u} ) $"
+    "S(u) ∧ ¬S(u̲)",
+    "◇(S(u) ∧ ¬S(u̲))",
+    "◇(S(u) ∧ ¬S(u))",
+    "◇S(u) ∧ ¬S(u̲)"
   ],
   "correct": 1,
-  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
-  "explanation": "'X is consistent' means ◇X. The descriptive Su ('you're selling') and the command ∼S͟u ('don't sell') are jointly possible: ◇(Su · ∼S͟u)."
+  "hint": "Is this a command not to sell, and what does 'is consistent' add?",
+  "explanation": "'X is consistent' is ◇X. The description S(u) and the command ¬S(u̲) can hold together: ◇(S(u) ∧ ¬S(u̲)).",
+  "section": "12.2"
 }

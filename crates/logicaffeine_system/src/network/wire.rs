@@ -52,31 +52,5 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, WireError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Serialize, Deserialize, PartialEq, Debug)]
-    struct TestMessage {
-        id: u32,
-        content: String,
-    }
-
-    #[test]
-    fn test_roundtrip() {
-        let msg = TestMessage {
-            id: 42,
-            content: "hello mesh".to_string(),
-        };
-        let bytes = encode(&msg).unwrap();
-        let decoded: TestMessage = decode(&bytes).unwrap();
-        assert_eq!(msg, decoded);
-    }
-
-    #[test]
-    fn test_decode_invalid_bytes() {
-        let bytes = vec![0xFF, 0xFF, 0xFF];
-        let result: Result<TestMessage, _> = decode(&bytes);
-        assert!(result.is_err());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/wire/tests.rs"]
+mod tests;

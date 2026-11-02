@@ -1,0 +1,241 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "a",
+    "dut": "a",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "b",
+    "dut": "b",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "mask",
+    "dut": "mask",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "x0",
+    "dut": "x0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "x1",
+    "dut": "x1",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "x2",
+    "dut": "x2",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "x3",
+    "dut": "x3",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K6",
+  "mems": [],
+  "name": "k6_bambu_pipe_ports_nangate4p3",
+  "outputs": [
+   {
+    "contract": "y0",
+    "dut": "y0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "y0_vld",
+    "width": 64
+   },
+   {
+    "contract": "y1",
+    "dut": "y1",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "y1_vld",
+    "width": 64
+   },
+   {
+    "contract": "y2",
+    "dut": "y2",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "y2_vld",
+    "width": 64
+   },
+   {
+    "contract": "y3",
+    "dut": "y3",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "y3_vld",
+    "width": 64
+   },
+   {
+    "contract": "sum",
+    "dut": "sum",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "sum_vld",
+    "width": 64
+   }
+  ],
+  "ports": [
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "b"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "mask"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "sum"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "sum_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x2"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x3"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y0_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y1_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y2"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y2_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y3"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y3_vld"
+   }
+  ],
+  "protocol": {
+   "Pipelined": {
+    "done": "done_port",
+    "ii": 1,
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "simt_ports"
+ },
+ "files": [
+  "simt_ports.v"
+ ],
+ "golden_signature": "2a10516e856d0d8d",
+ "harness": "qorbist_k6_bambu_pipe_ports_nangate4p3.v",
+ "harness_top": "qorbist_k6_bambu_pipe_ports_nangate4p3",
+ "kernel": "K6",
+ "kernel_name": "simt_axpb_sum",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "pipelined start/done, II 1",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "We're choosing the explanation that best accounts for all the observed facts.",
   "explanation": "This is abduction or Inference to the Best Explanation (IBE). We observe multiple facts and infer the hypothesis that would best explain them all. 'Vacation' explains the dark house, mail, and unmoved car better than alternatives like 'they're just sleeping'.",
-  "visual_concept": "Detective work: Multiple clues point to one suspect. The best explanation is the one that ties all the clues together coherently."
+  "visual_concept": "Detective work: Multiple clues point to one suspect. The best explanation is the one that ties all the clues together coherently.",
+  "section": "5.9"
 }

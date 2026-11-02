@@ -51,7 +51,11 @@ fn warm_bytecode_dispatch_matches_baseline() {
         vm.run().expect("runs");
         vm.output().to_string()
     });
-    assert_eq!(warm.trim(), baseline.trim(), "warm dispatch must match baseline");
+    assert_eq!(
+        warm.trim(),
+        baseline.trim(),
+        "warm dispatch must match baseline"
+    );
 }
 
 #[test]
@@ -65,11 +69,16 @@ fn warm_side_table_is_actually_consulted() {
             let sym = stmts
                 .iter()
                 .find_map(|s| match s {
-                    Stmt::FunctionDef { name: nm, .. } if interner.resolve(*nm) == name => Some(*nm),
+                    Stmt::FunctionDef { name: nm, .. } if interner.resolve(*nm) == name => {
+                        Some(*nm)
+                    }
                     _ => None,
                 })
                 .unwrap_or_else(|| panic!("{name} defined"));
-            *program.fn_index.get(&sym).unwrap_or_else(|| panic!("{name} in fn_index")) as usize
+            *program
+                .fn_index
+                .get(&sym)
+                .unwrap_or_else(|| panic!("{name} in fn_index")) as usize
         };
         let f_idx = find("f");
         let g_idx = find("g");
@@ -79,7 +88,11 @@ fn warm_side_table_is_actually_consulted() {
         vm.run().expect("runs");
         vm.output().to_string()
     });
-    assert_eq!(routed.trim(), "20", "warm body for f must execute g's logic (n + n)");
+    assert_eq!(
+        routed.trim(),
+        "20",
+        "warm body for f must execute g's logic (n + n)"
+    );
 }
 
 #[test]

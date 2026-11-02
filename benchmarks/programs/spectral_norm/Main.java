@@ -1,7 +1,7 @@
 public class Main {
     static double A(int i, int j) { return 1.0/((i+j)*(i+j+1)/2+i+1); }
-    static void mulAv(int n, double[] v, double[] r) { for(int i=0;i<n;i++){r[i]=0;for(int j=0;j<n;j++)r[i]+=A(i,j)*v[j];} }
-    static void mulAtv(int n, double[] v, double[] r) { for(int i=0;i<n;i++){r[i]=0;for(int j=0;j<n;j++)r[i]+=A(j,i)*v[j];} }
+    static void mulAv(int n, double[] v, double[] r) { for(int i=0;i<n;i++){double s=0;for(int j=0;j<n;j++)s+=A(i,j)*v[j];r[i]=s;} }
+    static void mulAtv(int n, double[] v, double[] r) { for(int i=0;i<n;i++){double s=0;for(int j=0;j<n;j++)s+=A(j,i)*v[j];r[i]=s;} }
     static void mulAtAv(int n, double[] v, double[] r, double[] t) { mulAv(n,v,t); mulAtv(n,t,r); }
     public static void main(String[] args) {
         int n = Integer.parseInt(args[0]);

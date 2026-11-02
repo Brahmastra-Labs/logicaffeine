@@ -26,9 +26,11 @@
 //!     is a static constant and the bound fits `i32`.
 //!
 //! Any write the analysis cannot place — an unknown value, an out-of-range
-//! constant, a non-affine accumulator index, a non-constant enclosing trip —
-//! leaves the sequence `Vec<i64>`. Aliasing/escape is already excluded by the
-//! de-Rc precondition (a narrowed buffer is uniquely owned).
+//! constant, a non-affine accumulator index, a non-constant enclosing trip, a
+//! use inside a statement kind it does not classify — leaves the sequence
+//! `Vec<i64>`. Aliasing/escape is already excluded by the de-Rc precondition (a
+//! narrowed buffer is uniquely owned). Sequences a `Swap` exchanges narrow
+//! together or not at all.
 //!
 //! A sequence whose bound is a *semantic* invariant rather than a static/`% m`
 //! fact (e.g. a BFS distance array bounded by the graph diameter) is NOT
@@ -39,7 +41,7 @@ use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
 use logicaffeine_base::intern::{Interner, Symbol};
 use std::collections::{HashMap, HashSet};
 
-use super::worklist::{const_eval, for_each_stmt_expr, is_new_empty_int_seq, ok_read_only, visit_idents};
+use super::worklist::{const_eval, is_new_empty_int_seq, ok_read_only, visit_idents};
 
 const I32_MAX: i64 = i32::MAX as i64;
 const I32_MIN: i64 = i32::MIN as i64;
@@ -61,9 +63,11 @@ pub(crate) fn detect_narrowable<'a>(
     de_rc: &HashSet<Symbol>,
     interner: &Interner,
 ) -> HashMap<Symbol, NarrowInfo> {
-    let mut out = HashMap::new();
+    let mut proofs: HashMap<Symbol, Proof> = HashMap::new();
     for stmt in body {
-        let Stmt::Let { var, value, .. } = stmt else { continue };
+        let Stmt::Let { var, value, .. } = stmt else {
+            continue;
+        };
         if !is_new_empty_int_seq(value) {
             continue;
         }
@@ -73,8 +77,66 @@ pub(crate) fn detect_narrowable<'a>(
         if !de_rc.contains(&c) {
             continue;
         }
-        if let Some(info) = analyze(c, body, interner) {
-            out.insert(c, info);
+        if let Some(proof) = analyze(c, body, interner) {
+            proofs.insert(c, proof);
+        }
+    }
+    // Sequences a `Swap` exchanges hold each other's elements from then on, so a class of them narrows
+    // together or not at all: every member proven, each asserting every member's guards. A per-slot
+    // accumulator bound counts only the increments made through one name, so it proves nothing for a slot
+    // that other names also increment.
+    let classes = swap_classes(body);
+    let mut out = HashMap::new();
+    for &c in proofs.keys() {
+        let class = classes.get(&c).map_or_else(|| vec![c], |m| m.clone());
+        let proven = class.iter().all(|m| proofs.contains_key(m));
+        if !proven || (class.len() > 1 && class.iter().any(|m| proofs[m].accumulates)) {
+            continue;
+        }
+        let mut seen = HashSet::new();
+        let guards = class
+            .iter()
+            .flat_map(|m| proofs[m].info.guards.iter().cloned())
+            .filter(|g| seen.insert(g.clone()))
+            .collect();
+        out.insert(c, NarrowInfo { guards });
+    }
+    out
+}
+
+/// Each sequence a `Swap` anywhere in `body` exchanges, with every sequence it is linked to by a chain of
+/// swaps (itself included). A sequence no `Swap` names is absent.
+fn swap_classes(body: &[Stmt]) -> HashMap<Symbol, Vec<Symbol>> {
+    use logicaffeine_language::ast_depth::{walk_nodes, Visited, Walk};
+    let mut parent: HashMap<Symbol, Symbol> = HashMap::new();
+    fn root(parent: &mut HashMap<Symbol, Symbol>, s: Symbol) -> Symbol {
+        let p = *parent.entry(s).or_insert(s);
+        if p == s {
+            return s;
+        }
+        let r = root(parent, p);
+        parent.insert(s, r);
+        r
+    }
+    walk_nodes(body, |node| {
+        if let Visited::Stmt(Stmt::Swap { a, b }) = node {
+            let (ra, rb) = (root(&mut parent, *a), root(&mut parent, *b));
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+        Walk::Into
+    });
+    let members: Vec<Symbol> = parent.keys().copied().collect();
+    let mut by_root: HashMap<Symbol, Vec<Symbol>> = HashMap::new();
+    for m in members {
+        let r = root(&mut parent, m);
+        by_root.entry(r).or_default().push(m);
+    }
+    let mut out = HashMap::new();
+    for class in by_root.into_values() {
+        for &m in &class {
+            out.insert(m, class.clone());
         }
     }
     out
@@ -93,21 +155,15 @@ pub(crate) fn detect_narrowable<'a>(
 /// runtime — a stored value outside `i32` range widens the buffer back to full
 /// width (`ListRepr::IntsI32::set`) — so an observable value can never differ
 /// from the un-narrowed run.
-pub(crate) fn narrowable_seqs_for_body(
-    body: &[Stmt],
-    interner: &Interner,
-) -> HashSet<Symbol> {
+pub(crate) fn narrowable_seqs_for_body(body: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
     let no_params: HashMap<Symbol, HashSet<usize>> = HashMap::new();
     let no_fns: HashSet<Symbol> = HashSet::new();
     let de_rc = super::detection::collect_de_rc_seqs(
-        body,
-        interner,
-        &no_params,
-        &no_params,
-        &no_fns,
-        false,
+        body, interner, &no_params, &no_params, &no_fns, false,
     );
-    detect_narrowable(body, &de_rc, interner).into_keys().collect()
+    detect_narrowable(body, &de_rc, interner)
+        .into_keys()
+        .collect()
 }
 
 /// A loop enclosing a write: its induction variable and (when both the start and
@@ -130,9 +186,18 @@ struct Writes {
     /// sized purely by constant loops is tiny; narrowing it churns codegen for no
     /// speedup, so we leave it as `Vec<i64>`.
     large: bool,
+    /// Some write was bounded as a per-slot accumulator, a bound that counts only
+    /// the increments made through this sequence's own name.
+    accumulates: bool,
 }
 
-fn analyze<'a>(c: Symbol, body: &'a [Stmt<'a>], interner: &Interner) -> Option<NarrowInfo> {
+/// A narrowing proof for one sequence, and whether it counted accumulator increments.
+struct Proof {
+    info: NarrowInfo,
+    accumulates: bool,
+}
+
+fn analyze<'a>(c: Symbol, body: &'a [Stmt<'a>], interner: &Interner) -> Option<Proof> {
     // A narrowed buffer is reinterpreted element-by-element; if it is referenced
     // bare anywhere — passed to a function (which expects `Seq of Int` = i64),
     // aliased, returned — reinterpreting it as `Vec<i32>` is unsound. (de-Rc does
@@ -140,16 +205,39 @@ fn analyze<'a>(c: Symbol, body: &'a [Stmt<'a>], interner: &Interner) -> Option<N
     if escapes(body, c) {
         return None;
     }
-    let mut w = Writes { bail: false, lo: 0, hi: 0, guards: Vec::new(), any: false, large: false };
+    let mut w = Writes {
+        bail: false,
+        lo: 0,
+        hi: 0,
+        guards: Vec::new(),
+        any: false,
+        large: false,
+        accumulates: false,
+    };
     let mut rmw: HashMap<Symbol, &'a Expr<'a>> = HashMap::new();
     let mut defs: HashMap<Symbol, &'a Expr<'a>> = HashMap::new();
-    walk(body, c, &mut Vec::new(), &mut rmw, &mut defs, &mut w, interner);
+    walk(
+        body,
+        c,
+        &mut Vec::new(),
+        &mut rmw,
+        &mut defs,
+        &mut w,
+        interner,
+    );
     if w.bail || !w.any || !w.large || w.lo < I32_MIN || w.hi > I32_MAX {
         return None;
     }
     let mut seen = HashSet::new();
-    let guards = w.guards.into_iter().filter(|g| seen.insert(g.clone())).collect();
-    Some(NarrowInfo { guards })
+    let guards = w
+        .guards
+        .into_iter()
+        .filter(|g| seen.insert(g.clone()))
+        .collect();
+    Some(Proof {
+        info: NarrowInfo { guards },
+        accumulates: w.accumulates,
+    })
 }
 
 fn walk<'a>(
@@ -182,7 +270,11 @@ fn walk<'a>(
                     classify(value, c, None, loops, rmw, defs, 0, &mut *w, interner);
                 }
             }
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 if names(collection, c) {
                     classify(value, c, Some(index), loops, rmw, defs, 0, w, interner);
                 }
@@ -197,14 +289,18 @@ fn walk<'a>(
                 rmw.remove(target);
                 defs.remove(target);
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 walk(then_block, c, loops, rmw, defs, w, interner);
                 if let Some(eb) = else_block {
                     walk(eb, c, loops, rmw, defs, w, interner);
                 }
             }
             Stmt::While { cond, body, .. } => {
-                loops.push(loop_ctx(cond, &stmts[..pos]));
+                loops.push(loop_ctx(cond, &stmts[..pos], defs));
                 // A variable REASSIGNED inside the loop (`Set i to i+1`, the IV) is
                 // loop-carried; its pre-loop def is stale within the body, so drop
                 // it. Variables freshly `Let`-bound inside the body re-establish
@@ -219,7 +315,10 @@ fn walk<'a>(
                 loops.pop();
             }
             Stmt::Repeat { body, .. } => {
-                loops.push(LoopCtx { iv: None, trip: None });
+                loops.push(LoopCtx {
+                    iv: None,
+                    trip: None,
+                });
                 let mut inner_rmw = rmw.clone();
                 let mut inner_defs = defs.clone();
                 for v in set_targets(body) {
@@ -247,17 +346,27 @@ fn use_is_local(s: &Stmt, c: Symbol) -> bool {
         Stmt::Push { collection, value } => {
             (names(collection, c) || ok_read_only(collection, c)) && ok_read_only(value, c)
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             (names(collection, c) || ok_read_only(collection, c))
                 && ok_read_only(index, c)
                 && ok_read_only(value, c)
         }
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => ok_read_only(value, c),
         Stmt::SetField { object, value, .. } => ok_read_only(object, c) && ok_read_only(value, c),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             ok_read_only(cond, c)
                 && then_block.iter().all(|x| use_is_local(x, c))
-                && else_block.as_ref().map_or(true, |eb| eb.iter().all(|x| use_is_local(x, c)))
+                && else_block
+                    .as_ref()
+                    .map_or(true, |eb| eb.iter().all(|x| use_is_local(x, c)))
         }
         Stmt::While { cond, body, .. } => {
             ok_read_only(cond, c) && body.iter().all(|x| use_is_local(x, c))
@@ -270,27 +379,31 @@ fn use_is_local(s: &Stmt, c: Symbol) -> bool {
         }
         Stmt::Call { args, .. } => args.iter().all(|a| ok_read_only(a, c)),
         Stmt::RuntimeAssert { condition, .. } => ok_read_only(condition, c),
-        Stmt::Inspect { target, .. } => ok_read_only(target, c),
         // Pop/Remove/Add on `c` change its contents/length outside this analysis.
         Stmt::Pop { collection, .. }
         | Stmt::Remove { collection, .. }
         | Stmt::Add { collection, .. } => !names(collection, c),
-        _ => !mentions_top(s, c),
+        // An exchange of whole sequences: `detect_narrowable` narrows the swapped sequences together.
+        Stmt::Swap { .. } => true,
+        // Any other statement, its nested blocks included, leaves `c` alone or is a use this analysis
+        // does not classify.
+        _ => !names_anywhere(s, c),
     }
 }
 
-/// `c` appears in a top-level expression of `s` (no block recursion; the `_` arm
-/// of `use_is_local` covers only leaf statements).
-fn mentions_top(s: &Stmt, c: Symbol) -> bool {
+/// `c` is named anywhere inside `s`, its nested blocks included: in an expression, or as a name the
+/// statement binds, assigns or mutates (or foreign code, which may touch any name). Both walks are
+/// exhaustive over the AST, so no statement kind holds a use of `c` this does not see.
+fn names_anywhere(s: &Stmt, c: Symbol) -> bool {
+    use logicaffeine_language::ast_depth::{walk_nodes, Visited, Walk};
     let mut found = false;
-    for_each_stmt_expr(s, &mut |e| {
-        visit_idents(e, &mut |sym| {
-            if sym == c {
-                found = true;
-            }
-        })
+    walk_nodes(std::slice::from_ref(s), |node| {
+        if matches!(node, Visited::Expr(Expr::Identifier(sym)) if *sym == c) {
+            found = true;
+        }
+        Walk::Into
     });
-    found
+    found || crate::optimize::WriteSet::of_stmt(s).may_write(c)
 }
 
 /// Variables reassigned by a `Set` anywhere in `stmts` (including nested blocks).
@@ -302,7 +415,11 @@ fn set_targets(stmts: &[Stmt]) -> HashSet<Symbol> {
                 Stmt::Set { target, .. } => {
                     out.insert(*target);
                 }
-                Stmt::If { then_block, else_block, .. } => {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     rec(then_block, out);
                     if let Some(eb) = else_block {
                         rec(eb, out);
@@ -361,7 +478,12 @@ fn classify<'a>(
         return;
     }
     // 2. `e % m`.
-    if let Expr::BinaryOp { op: BinaryOpKind::Modulo, right, .. } = value {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Modulo,
+        right,
+        ..
+    } = value
+    {
         match right {
             Expr::Literal(Literal::Number(m)) if *m > 0 && *m <= I32_MAX => {
                 w.lo = w.lo.min(-(*m - 1));
@@ -388,6 +510,7 @@ fn classify<'a>(
                     w.hi = w.hi.saturating_add(d.saturating_mul(mult));
                     w.lo = w.lo.min(0);
                     w.any = true;
+                    w.accumulates = true;
                     return;
                 }
             }
@@ -404,7 +527,14 @@ fn accumulator_delta<'a>(
     idx: &Expr<'a>,
     rmw: &HashMap<Symbol, &'a Expr<'a>>,
 ) -> Option<i64> {
-    let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value else { return None };
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = value
+    else {
+        return None;
+    };
     let reads_slot = |e: &Expr<'a>| -> bool {
         if let Some(read_idx) = index_of(e, c) {
             return expr_eq(read_idx, idx);
@@ -445,24 +575,45 @@ fn slot_multiplier(idx: &Expr, loops: &[LoopCtx]) -> Option<i64> {
 
 /// Trip count of `while iv (< | <=) bound`, using `iv`'s nearest preceding
 /// literal initialization in `prior`. Non-literal start or bound ⟹ no constant
-/// trip.
-fn loop_ctx(cond: &Expr, prior: &[Stmt]) -> LoopCtx {
-    let Expr::BinaryOp { op, left, right } = cond else { return LoopCtx { iv: None, trip: None } };
+/// trip. `defs` resolves an init defined in an ENCLOSING scope: a bounds-version
+/// or borrow-scope wrapper can nest this loop inside an `If`, so its literal
+/// `Let iv be K` lands outside the local `prior` — `defs` (threaded across those
+/// blocks) still carries it, so a multiplier loop's constant trip is not lost.
+fn loop_ctx(cond: &Expr, prior: &[Stmt], defs: &HashMap<Symbol, &Expr>) -> LoopCtx {
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return LoopCtx {
+            iv: None,
+            trip: None,
+        };
+    };
     let inclusive = match op {
         BinaryOpKind::Lt => false,
         BinaryOpKind::LtEq => true,
-        _ => return LoopCtx { iv: None, trip: None },
+        _ => {
+            return LoopCtx {
+                iv: None,
+                trip: None,
+            }
+        }
     };
-    let Expr::Identifier(iv) = left else { return LoopCtx { iv: None, trip: None } };
+    let Expr::Identifier(iv) = left else {
+        return LoopCtx {
+            iv: None,
+            trip: None,
+        };
+    };
     let iv = *iv;
+    let resolve = |sym: Symbol| -> Option<i64> {
+        iv_start(prior, sym).or_else(|| defs.get(&sym).and_then(|e| const_eval(e)))
+    };
     // The bound may be a literal or a variable defined as a literal before the
     // loop (`Let n be 50`). Resolving it keeps a small `while i<n` from looking
     // "large" — only a genuinely runtime bound (`n = parseInt(...)`) is large.
     let bound = const_eval(right).or_else(|| match right {
-        Expr::Identifier(b) => iv_start(prior, *b),
+        Expr::Identifier(b) => resolve(*b),
         _ => None,
     });
-    let trip = match (iv_start(prior, iv), bound) {
+    let trip = match (resolve(iv), bound) {
         (Some(s), Some(b)) => {
             let t = if inclusive { b - s + 1 } else { b - s };
             Some(t.max(0))
@@ -507,7 +658,15 @@ fn ident_set(e: &Expr) -> HashSet<Symbol> {
 }
 
 fn sanitize(name: &str) -> String {
-    name.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect()
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Structural equality of two index expressions (slot identity). Conservative:
@@ -517,12 +676,27 @@ fn expr_eq(a: &Expr, b: &Expr) -> bool {
         (Expr::Identifier(x), Expr::Identifier(y)) => x == y,
         (Expr::Literal(Literal::Number(x)), Expr::Literal(Literal::Number(y))) => x == y,
         (
-            Expr::BinaryOp { op: o1, left: l1, right: r1 },
-            Expr::BinaryOp { op: o2, left: l2, right: r2 },
+            Expr::BinaryOp {
+                op: o1,
+                left: l1,
+                right: r1,
+            },
+            Expr::BinaryOp {
+                op: o2,
+                left: l2,
+                right: r2,
+            },
         ) => o1 == o2 && expr_eq(l1, l2) && expr_eq(r1, r2),
-        (Expr::Index { collection: c1, index: i1 }, Expr::Index { collection: c2, index: i2 }) => {
-            expr_eq(c1, c2) && expr_eq(i1, i2)
-        }
+        (
+            Expr::Index {
+                collection: c1,
+                index: i1,
+            },
+            Expr::Index {
+                collection: c2,
+                index: i2,
+            },
+        ) => expr_eq(c1, c2) && expr_eq(i1, i2),
         _ => false,
     }
 }

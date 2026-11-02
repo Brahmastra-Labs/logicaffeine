@@ -1,0 +1,60 @@
+{
+  "id": "14.5",
+  "title": "Ought, May and Must Not",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Deontic logic links its operators. O means obligatory, R means permissible, and an act is forbidden when its denial is obligatory."
+    },
+    {
+      "type": "definition",
+      "term": "Forbidden",
+      "definition": "A is forbidden when O¬A: you ought not do A."
+    },
+    {
+      "type": "definition",
+      "term": "Permissible",
+      "definition": "A is permissible when ¬O¬A: it is not the case that you ought not do A."
+    },
+    {
+      "type": "definition",
+      "term": "Ought implies can",
+      "definition": "O(A) → ◇A. No one is obliged to do the impossible."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "How they relate",
+      "lines": [
+        "Obligatory: OA",
+        "Permissible: ¬O¬A",
+        "Forbidden: O¬A"
+      ],
+      "note": "Each is defined from O and ¬."
+    },
+    {
+      "type": "worked",
+      "title": "A duty after a failed duty",
+      "lines": [
+        "You ought not steal.",
+        "If you steal, you ought to return what you took."
+      ],
+      "note": "Rules about what to do after breaking a rule are hard to write in simple deontic logic."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which formula says that A is forbidden?",
+    "options": [
+      "O¬A",
+      "¬OA",
+      "OA",
+      "◇¬A"
+    ],
+    "correct": 0,
+    "hint": "Forbidden means you ought not do it.",
+    "explanation": "Forbidden means obligatory not to do: O¬A. ¬OA only says A is not required."
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "case": "T10-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "Float",
+      "name": "T10_007.half",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Float \u2192 Float",
+      "name": "T10_007.identity",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Float \u2192 Bool",
+      "name": "T10_007.isSmall",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Float",
+      "name": "T10_007.negThousandth",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Float",
+      "name": "T10_007.sum",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Float",
+      "name": "T10_007.tenth",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

@@ -24,7 +24,9 @@ fn crdt_delta_ships_only_the_change_not_the_whole_state() {
     let v_after_100 = a.version();
 
     // B catches up by applying A's FULL delta (everything since nothing).
-    let full = a.delta_since_bytes(&VClock::default()).expect("a full delta exists");
+    let full = a
+        .delta_since_bytes(&VClock::default())
+        .expect("a full delta exists");
     let mut b = CrdtValue::new_set(r2);
     assert!(b.apply_delta_bytes(&full), "B applies the full delta");
     assert_eq!(b.len(), 100, "B caught up to all 100 elements");
@@ -32,7 +34,9 @@ fn crdt_delta_ships_only_the_change_not_the_whole_state() {
     // A adds ONE more element. The delta since B's known version is JUST that one element —
     // orders of magnitude smaller than re-shipping the whole 100-element state.
     a.insert(&RuntimeValue::Int(1000)).unwrap();
-    let delta = a.delta_since_bytes(&v_after_100).expect("an incremental delta exists");
+    let delta = a
+        .delta_since_bytes(&v_after_100)
+        .expect("an incremental delta exists");
     assert!(
         delta.len() * 10 < full.len(),
         "the incremental delta ({} B) must be far smaller than the full state ({} B)",
@@ -41,16 +45,28 @@ fn crdt_delta_ships_only_the_change_not_the_whole_state() {
     );
 
     // B applies the small delta and converges to 101 — without re-receiving the original 100.
-    assert!(b.apply_delta_bytes(&delta), "B applies the incremental delta");
+    assert!(
+        b.apply_delta_bytes(&delta),
+        "B applies the incremental delta"
+    );
     assert_eq!(b.len(), 101, "B converged to 101 from the small delta");
-    assert!(b.contains(&RuntimeValue::Int(1000)).unwrap(), "the new element arrived");
+    assert!(
+        b.contains(&RuntimeValue::Int(1000)).unwrap(),
+        "the new element arrived"
+    );
 
     // Idempotent + commutative: redelivering the same delta changes nothing.
-    assert!(b.apply_delta_bytes(&delta), "re-applying the delta is accepted");
+    assert!(
+        b.apply_delta_bytes(&delta),
+        "re-applying the delta is accepted"
+    );
     assert_eq!(b.len(), 101, "re-applying the delta is idempotent");
 
     // A foreign / garbage / empty delta is refused, leaving B untouched (edge safety).
-    assert!(!b.apply_delta_bytes(&[0xFF, 1, 2, 3]), "a garbage delta is refused");
+    assert!(
+        !b.apply_delta_bytes(&[0xFF, 1, 2, 3]),
+        "a garbage delta is refused"
+    );
     assert!(!b.apply_delta_bytes(&[]), "an empty delta is refused");
     assert_eq!(b.len(), 101, "B is unchanged by a refused delta");
 }
@@ -106,19 +122,26 @@ fn crdt_sequence_delta_ships_only_the_appended_node() {
     }
     let v0 = a.version();
 
-    let full = a.delta_since_bytes(&VClock::default()).expect("a full delta exists");
+    let full = a
+        .delta_since_bytes(&VClock::default())
+        .expect("a full delta exists");
     let mut b = CrdtValue::new_seq(r2);
     assert!(b.apply_delta_bytes(&full), "B applies the full sequence");
     assert_eq!(b.len(), 100, "B caught up to all 100 nodes");
 
     a.append(&RuntimeValue::Int(1000)).unwrap();
-    let delta = a.delta_since_bytes(&v0).expect("an incremental delta exists");
+    let delta = a
+        .delta_since_bytes(&v0)
+        .expect("an incremental delta exists");
     assert!(
         delta.len() * 10 < full.len(),
         "the appended-node delta ({} B) must be far smaller than the whole sequence ({} B)",
         delta.len(),
         full.len()
     );
-    assert!(b.apply_delta_bytes(&delta), "B applies the appended-node delta");
+    assert!(
+        b.apply_delta_bytes(&delta),
+        "B applies the appended-node delta"
+    );
     assert_eq!(b.len(), 101, "B converged to 101 from the small delta");
 }

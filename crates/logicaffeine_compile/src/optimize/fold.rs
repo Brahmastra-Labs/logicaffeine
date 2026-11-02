@@ -7,20 +7,95 @@ use crate::intern::{Interner, Symbol};
 /// unwrapped. Conservative: a symbol qualifies via a `Bool` param/`Let`
 /// annotation, or when EVERY write to it (Let and Set alike) is a
 /// Bool-producing expression. Anything aliased or uncertain stays out.
-pub type BoolSyms = std::collections::HashSet<Symbol>;
+///
+/// Also carries the symbols known to hold a `Text` — the license to REFUSE the
+/// arithmetic identity `x + 0 → x`, which is a value-changing bug for string
+/// concatenation (`"x" + 0` must append "0", not fold to `"x"`). The `contains`/
+/// `insert`/`retain` methods delegate to the Bool set so every existing call site
+/// is unchanged; `is_string_operand` reads the Text set.
+#[derive(Clone, Default)]
+pub struct BoolSyms {
+    bools: std::collections::HashSet<Symbol>,
+    strings: std::collections::HashSet<Symbol>,
+    /// The values the exact extension reaches (`analysis::tower`) and the function being folded:
+    /// the license to REFUSE an integer-only rewrite of a value that may be a hyperreal or an infinite
+    /// integer, whose `x % 2` depends on the residue of `1/dt` where `x & 1` has no meaning.
+    tower: Option<std::rc::Rc<crate::analysis::tower::TowerTypes>>,
+    scope: Option<Symbol>,
+}
+
+impl BoolSyms {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    fn contains(&self, s: &Symbol) -> bool {
+        self.bools.contains(s)
+    }
+    fn insert(&mut self, s: Symbol) -> bool {
+        self.bools.insert(s)
+    }
+    fn retain(&mut self, f: impl FnMut(&Symbol) -> bool) {
+        self.bools.retain(f)
+    }
+    /// `e` may be a value of the exact extension.
+    fn may_be_tower(&self, e: &Expr) -> bool {
+        self.tower.as_ref().is_some_and(|t| t.expr(self.scope, e))
+    }
+    /// `e` is (or is a concatenation involving) a `Text` value — a Text literal, a
+    /// Text-typed symbol, or an `Add` either side of which is Text. Such an `x + 0`
+    /// is string append, NOT the arithmetic additive identity, so it must NOT fold.
+    fn is_string_operand(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Literal(Literal::Text(_)) => true,
+            Expr::Identifier(s) => self.strings.contains(s),
+            Expr::BinaryOp {
+                op: BinaryOpKind::Add,
+                left,
+                right,
+            } => self.is_string_operand(left) || self.is_string_operand(right),
+            _ => false,
+        }
+    }
+}
 
 fn type_is_bool(ty: &TypeExpr, interner: &Interner) -> bool {
     matches!(ty, TypeExpr::Primitive(s) | TypeExpr::Named(s) if interner.resolve(*s) == "Bool")
 }
 
+fn type_is_text(ty: &TypeExpr, interner: &Interner) -> bool {
+    matches!(ty, TypeExpr::Primitive(s) | TypeExpr::Named(s) if interner.resolve(*s) == "Text")
+}
+
+/// `e` produces a `Text` under the current known-string set: a Text literal, a
+/// known-string symbol, or an `Add` involving a string operand (concatenation).
+fn expr_is_stringish(e: &Expr, strings: &std::collections::HashSet<Symbol>) -> bool {
+    match e {
+        Expr::Literal(Literal::Text(_)) => true,
+        Expr::Identifier(s) => strings.contains(s),
+        Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left,
+            right,
+        } => expr_is_stringish(left, strings) || expr_is_stringish(right, strings),
+        _ => false,
+    }
+}
+
 /// Every `Let`/`Set` write in `stmts` (nested blocks included; nested
 /// `FunctionDef`s excluded — they are their own scope).
-fn collect_writes<'a, 'e>(stmts: &'a [Stmt<'e>], out: &mut Vec<(Symbol, Option<&'a TypeExpr<'e>>, &'a Expr<'e>)>) {
+fn collect_writes<'a, 'e>(
+    stmts: &'a [Stmt<'e>],
+    out: &mut Vec<(Symbol, Option<&'a TypeExpr<'e>>, &'a Expr<'e>)>,
+) {
     for st in stmts {
         match st {
             Stmt::Let { var, ty, value, .. } => out.push((*var, *ty, value)),
             Stmt::Set { target, value } => out.push((*target, None, value)),
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_writes(then_block, out);
                 if let Some(b) = else_block {
                     collect_writes(b, out);
@@ -40,12 +115,38 @@ fn collect_writes<'a, 'e>(stmts: &'a [Stmt<'e>], out: &mut Vec<(Symbol, Option<&
     }
 }
 
-fn collect_bool_syms(params: &[(Symbol, &TypeExpr)], body: &[Stmt], interner: &Interner) -> BoolSyms {
-    let mut bools: BoolSyms = params
-        .iter()
-        .filter(|(_, ty)| type_is_bool(ty, interner))
-        .map(|(s, _)| *s)
-        .collect();
+/// The Bool/Text facts of a program's root, with what the exact extension reaches anywhere in it.
+pub fn program_bool_syms(stmts: &[Stmt], interner: &Interner) -> BoolSyms {
+    let mut bools = collect_bool_syms(&[], stmts, interner);
+    bools.tower = crate::analysis::tower::TowerTypes::of_program(stmts, interner).map(std::rc::Rc::new);
+    bools
+}
+
+/// The Bool/Text facts of the function `name`, which shares its program's reach of the extension.
+pub fn function_bool_syms(
+    program: &BoolSyms,
+    name: Symbol,
+    params: &[(Symbol, &TypeExpr)],
+    body: &[Stmt],
+    interner: &Interner,
+) -> BoolSyms {
+    let mut bools = collect_bool_syms(params, body, interner);
+    bools.tower = program.tower.clone();
+    bools.scope = Some(name);
+    bools
+}
+
+fn collect_bool_syms(
+    params: &[(Symbol, &TypeExpr)],
+    body: &[Stmt],
+    interner: &Interner,
+) -> BoolSyms {
+    let mut bools = BoolSyms::new();
+    for (s, ty) in params {
+        if type_is_bool(ty, interner) {
+            bools.insert(*s);
+        }
+    }
     let mut writes = Vec::new();
     collect_writes(body, &mut writes);
     // Two rounds admit `Let y be x.` chains off a Bool param; each round only
@@ -59,9 +160,13 @@ fn collect_bool_syms(params: &[(Symbol, &TypeExpr)], body: &[Stmt], interner: &I
             if bools.contains(&sym) {
                 continue;
             }
-            let all_bool = writes.iter().filter(|(s, _, _)| *s == sym).all(|(_, ty, v)| {
-                ty.map(|t| type_is_bool(t, interner)).unwrap_or(false) || expr_is_boolish(v, &bools)
-            });
+            let all_bool = writes
+                .iter()
+                .filter(|(s, _, _)| *s == sym)
+                .all(|(_, ty, v)| {
+                    ty.map(|t| type_is_bool(t, interner)).unwrap_or(false)
+                        || expr_is_boolish(v, &bools)
+                });
             if all_bool {
                 bools.insert(sym);
                 changed = true;
@@ -77,10 +182,45 @@ fn collect_bool_syms(params: &[(Symbol, &TypeExpr)], body: &[Stmt], interner: &I
     // for order effects between rounds).
     let snapshot = bools.clone();
     bools.retain(|sym| {
-        writes.iter().filter(|(s, _, _)| s == sym).all(|(_, ty, v)| {
-            ty.map(|t| type_is_bool(t, interner)).unwrap_or(false) || expr_is_boolish(v, &snapshot)
-        }) || params.iter().any(|(p, ty)| p == sym && type_is_bool(ty, interner))
+        writes
+            .iter()
+            .filter(|(s, _, _)| s == sym)
+            .all(|(_, ty, v)| {
+                ty.map(|t| type_is_bool(t, interner)).unwrap_or(false)
+                    || expr_is_boolish(v, &snapshot)
+            })
+            || params
+                .iter()
+                .any(|(p, ty)| p == sym && type_is_bool(ty, interner))
     });
+    // Text symbols — OVER-approximated: a symbol counts as string as soon as ANY of
+    // its writes is stringish (Text-typed or a Text/concat value). This is sound for
+    // the `+0` guard's purpose: a maybe-string only ever REFUSES the identity fold
+    // (never mis-folds), so admitting a numeric-then-string var costs at most a missed
+    // fold, never correctness. Two rounds thread `Let b be a.` string chains.
+    let mut strings: std::collections::HashSet<Symbol> = params
+        .iter()
+        .filter(|(_, ty)| type_is_text(ty, interner))
+        .map(|(s, _)| *s)
+        .collect();
+    for _ in 0..2 {
+        let mut changed = false;
+        for (sym, ty, v) in &writes {
+            if strings.contains(sym) {
+                continue;
+            }
+            if ty.map(|t| type_is_text(t, interner)).unwrap_or(false)
+                || expr_is_stringish(v, &strings)
+            {
+                strings.insert(*sym);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    bools.strings = strings;
     bools
 }
 
@@ -90,7 +230,7 @@ pub fn fold_stmts<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
-    let bools = collect_bool_syms(&[], &stmts, interner);
+    let bools = program_bool_syms(&stmts, interner);
     stmts
         .into_iter()
         .map(|stmt| fold_stmt(stmt, expr_arena, stmt_arena, interner, &bools))
@@ -120,7 +260,12 @@ fn fold_stmt<'a>(
     bools: &BoolSyms,
 ) -> Stmt<'a> {
     match stmt {
-        Stmt::Let { var, ty, value, mutable } => Stmt::Let {
+        Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        } => Stmt::Let {
             var,
             ty,
             value: fold_expr(value, expr_arena, stmt_arena, interner, bools),
@@ -130,37 +275,61 @@ fn fold_stmt<'a>(
             target,
             value: fold_expr(value, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::If { cond, then_block, else_block } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => Stmt::If {
             cond: fold_expr(cond, expr_arena, stmt_arena, interner, bools),
             then_block: fold_block(then_block, expr_arena, stmt_arena, interner, bools),
             else_block: else_block.map(|b| fold_block(b, expr_arena, stmt_arena, interner, bools)),
         },
-        Stmt::While { cond, body, decreasing } => Stmt::While {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => Stmt::While {
             cond: fold_expr(cond, expr_arena, stmt_arena, interner, bools),
             body: fold_block(body, expr_arena, stmt_arena, interner, bools),
             decreasing,
         },
-        Stmt::Repeat { pattern, iterable, body } => Stmt::Repeat {
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => Stmt::Repeat {
             pattern,
             iterable: fold_expr(iterable, expr_arena, stmt_arena, interner, bools),
             body: fold_block(body, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
-            // A function body is its own scope: derive its Bool symbols from
-            // the typed params plus its own writes.
-            let fn_bools = collect_bool_syms(&params, body, interner);
-            Stmt::FunctionDef {
+        Stmt::FunctionDef {
             name,
             params,
             generics,
-            body: fold_block(body, expr_arena, stmt_arena, interner, &fn_bools),
+            body,
             return_type,
             is_native,
             native_path,
             is_exported,
             export_target,
             opt_flags,
-        }},
+        } => {
+            // A function body is its own scope: derive its Bool symbols from
+            // the typed params plus its own writes.
+            let fn_bools = function_bool_syms(bools, name, &params, body, interner);
+            Stmt::FunctionDef {
+                name,
+                params,
+                generics,
+                body: fold_block(body, expr_arena, stmt_arena, interner, &fn_bools),
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
+            }
+        }
         Stmt::Show { object, recipient } => Stmt::Show {
             object: fold_expr(object, expr_arena, stmt_arena, interner, bools),
             recipient,
@@ -168,42 +337,65 @@ fn fold_stmt<'a>(
         Stmt::Return { value } => Stmt::Return {
             value: value.map(|v| fold_expr(v, expr_arena, stmt_arena, interner, bools)),
         },
-        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert {
+            condition,
+            hard,
+            dim,
+            reason,
+        } => Stmt::RuntimeAssert {
             condition: fold_expr(condition, expr_arena, stmt_arena, interner, bools),
             hard,
+            dim,
+            reason: reason.map(|r| fold_expr(r, expr_arena, stmt_arena, interner, bools)),
         },
         Stmt::Push { value, collection } => Stmt::Push {
             value: fold_expr(value, expr_arena, stmt_arena, interner, bools),
             collection,
         },
-        Stmt::SetField { object, field, value } => Stmt::SetField {
+        Stmt::SetField {
+            object,
+            field,
+            value,
+        } => Stmt::SetField {
             object,
             field,
             value: fold_expr(value, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::SetIndex { collection, index, value } => Stmt::SetIndex {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => Stmt::SetIndex {
             collection,
             index: fold_expr(index, expr_arena, stmt_arena, interner, bools),
             value: fold_expr(value, expr_arena, stmt_arena, interner, bools),
         },
         Stmt::Call { function, args } => Stmt::Call {
             function,
-            args: args.into_iter().map(|a| fold_expr(a, expr_arena, stmt_arena, interner, bools)).collect(),
+            args: args
+                .into_iter()
+                .map(|a| fold_expr(a, expr_arena, stmt_arena, interner, bools))
+                .collect(),
         },
         Stmt::Give { object, recipient } => Stmt::Give {
             object: fold_expr(object, expr_arena, stmt_arena, interner, bools),
             recipient: fold_expr(recipient, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::Inspect { target, arms, has_otherwise } => Stmt::Inspect {
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        } => Stmt::Inspect {
             target: fold_expr(target, expr_arena, stmt_arena, interner, bools),
-            arms: arms.into_iter().map(|arm| {
-                crate::ast::stmt::MatchArm {
+            arms: arms
+                .into_iter()
+                .map(|arm| crate::ast::stmt::MatchArm {
                     enum_name: arm.enum_name,
                     variant: arm.variant,
                     bindings: arm.bindings,
                     body: fold_block(arm.body, expr_arena, stmt_arena, interner, bools),
-                }
-            }).collect(),
+                })
+                .collect(),
             has_otherwise,
         },
         Stmt::Pop { collection, into } => Stmt::Pop {
@@ -218,7 +410,12 @@ fn fold_stmt<'a>(
             value: fold_expr(value, expr_arena, stmt_arena, interner, bools),
             collection: fold_expr(collection, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::Zone { name, capacity, source_file, body } => Stmt::Zone {
+        Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body,
+        } => Stmt::Zone {
             name,
             capacity,
             source_file,
@@ -234,7 +431,19 @@ fn fold_stmt<'a>(
             content: fold_expr(content, expr_arena, stmt_arena, interner, bools),
             path: fold_expr(path, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed, indexed, deduped } => Stmt::SendMessage {
+        Stmt::SendMessage {
+            message,
+            destination,
+            compression,
+            cached,
+            unchecked,
+            layout,
+            shared,
+            computed,
+            indexed,
+            deduped,
+            unreliable,
+        } => Stmt::SendMessage {
             message: fold_expr(message, expr_arena, stmt_arena, interner, bools),
             destination: fold_expr(destination, expr_arena, stmt_arena, interner, bools),
             compression,
@@ -245,17 +454,29 @@ fn fold_stmt<'a>(
             computed,
             indexed,
             deduped,
+            unreliable,
         },
-        Stmt::StreamMessage { values, destination } => Stmt::StreamMessage {
+        Stmt::StreamMessage {
+            values,
+            destination,
+        } => Stmt::StreamMessage {
             values: fold_expr(values, expr_arena, stmt_arena, interner, bools),
             destination: fold_expr(destination, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::IncreaseCrdt { object, field, amount } => Stmt::IncreaseCrdt {
+        Stmt::IncreaseCrdt {
+            object,
+            field,
+            amount,
+        } => Stmt::IncreaseCrdt {
             object: fold_expr(object, expr_arena, stmt_arena, interner, bools),
             field,
             amount: fold_expr(amount, expr_arena, stmt_arena, interner, bools),
         },
-        Stmt::DecreaseCrdt { object, field, amount } => Stmt::DecreaseCrdt {
+        Stmt::DecreaseCrdt {
+            object,
+            field,
+            amount,
+        } => Stmt::DecreaseCrdt {
             object: fold_expr(object, expr_arena, stmt_arena, interner, bools),
             field,
             amount: fold_expr(amount, expr_arena, stmt_arena, interner, bools),
@@ -264,6 +485,10 @@ fn fold_stmt<'a>(
             milliseconds: fold_expr(milliseconds, expr_arena, stmt_arena, interner, bools),
         },
         Stmt::MergeCrdt { source, target } => Stmt::MergeCrdt {
+            source: fold_expr(source, expr_arena, stmt_arena, interner, bools),
+            target: fold_expr(target, expr_arena, stmt_arena, interner, bools),
+        },
+        Stmt::JoinCrdt { source, target } => Stmt::JoinCrdt {
             source: fold_expr(source, expr_arena, stmt_arena, interner, bools),
             target: fold_expr(target, expr_arena, stmt_arena, interner, bools),
         },
@@ -279,8 +504,10 @@ fn expr_is_total(expr: &Expr) -> bool {
     match expr {
         Expr::Literal(_) | Expr::Identifier(_) => true,
         Expr::BinaryOp { op, left, right } => {
-            !matches!(op, BinaryOpKind::Divide | BinaryOpKind::ExactDivide | BinaryOpKind::Modulo)
-                && expr_is_total(left)
+            !matches!(
+                op,
+                BinaryOpKind::Divide | BinaryOpKind::ExactDivide | BinaryOpKind::Modulo
+            ) && expr_is_total(left)
                 && expr_is_total(right)
         }
         Expr::Not { operand } => expr_is_total(operand),
@@ -328,12 +555,18 @@ pub fn fold_expr<'a>(
 
             if let Some(result) = try_fold_binary(*op, folded_left, folded_right, interner) {
                 arena.alloc(result)
-            } else if let Some(simplified) = try_simplify_algebraic(*op, folded_left, folded_right, arena, bools) {
+            } else if let Some(simplified) =
+                try_simplify_algebraic(*op, folded_left, folded_right, arena, bools)
+            {
                 simplified
             } else if std::ptr::eq(folded_left, *left) && std::ptr::eq(folded_right, *right) {
                 expr
             } else {
-                arena.alloc(Expr::BinaryOp { op: *op, left: folded_left, right: folded_right })
+                arena.alloc(Expr::BinaryOp {
+                    op: *op,
+                    left: folded_left,
+                    right: folded_right,
+                })
             }
         }
         Expr::WithCapacity { value, capacity } => {
@@ -342,7 +575,10 @@ pub fn fold_expr<'a>(
             if std::ptr::eq(fv, *value) && std::ptr::eq(fc, *capacity) {
                 expr
             } else {
-                arena.alloc(Expr::WithCapacity { value: fv, capacity: fc })
+                arena.alloc(Expr::WithCapacity {
+                    value: fv,
+                    capacity: fc,
+                })
             }
         }
 
@@ -353,17 +589,28 @@ pub fn fold_expr<'a>(
             if std::ptr::eq(fc, *collection) && std::ptr::eq(fi, *index) {
                 expr
             } else {
-                arena.alloc(Expr::Index { collection: fc, index: fi })
+                arena.alloc(Expr::Index {
+                    collection: fc,
+                    index: fi,
+                })
             }
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             let fc = fold_expr(collection, arena, stmt_arena, interner, bools);
             let fs = fold_expr(start, arena, stmt_arena, interner, bools);
             let fe = fold_expr(end, arena, stmt_arena, interner, bools);
             if std::ptr::eq(fc, *collection) && std::ptr::eq(fs, *start) && std::ptr::eq(fe, *end) {
                 expr
             } else {
-                arena.alloc(Expr::Slice { collection: fc, start: fs, end: fe })
+                arena.alloc(Expr::Slice {
+                    collection: fc,
+                    start: fs,
+                    end: fe,
+                })
             }
         }
         Expr::Contains { collection, value } => {
@@ -372,7 +619,10 @@ pub fn fold_expr<'a>(
             if std::ptr::eq(fc, *collection) && std::ptr::eq(fv, *value) {
                 expr
             } else {
-                arena.alloc(Expr::Contains { collection: fc, value: fv })
+                arena.alloc(Expr::Contains {
+                    collection: fc,
+                    value: fv,
+                })
             }
         }
         Expr::Union { left, right } => {
@@ -381,7 +631,10 @@ pub fn fold_expr<'a>(
             if std::ptr::eq(fl, *left) && std::ptr::eq(fr, *right) {
                 expr
             } else {
-                arena.alloc(Expr::Union { left: fl, right: fr })
+                arena.alloc(Expr::Union {
+                    left: fl,
+                    right: fr,
+                })
             }
         }
         Expr::Intersection { left, right } => {
@@ -390,7 +643,10 @@ pub fn fold_expr<'a>(
             if std::ptr::eq(fl, *left) && std::ptr::eq(fr, *right) {
                 expr
             } else {
-                arena.alloc(Expr::Intersection { left: fl, right: fr })
+                arena.alloc(Expr::Intersection {
+                    left: fl,
+                    right: fr,
+                })
             }
         }
         Expr::Range { start, end } => {
@@ -408,34 +664,64 @@ pub fn fold_expr<'a>(
             if std::ptr::eq(fi, *index) && std::ptr::eq(fz, *zone) {
                 expr
             } else {
-                arena.alloc(Expr::ChunkAt { index: fi, zone: fz })
+                arena.alloc(Expr::ChunkAt {
+                    index: fi,
+                    zone: fz,
+                })
             }
         }
 
         // One sub-expression
         Expr::Copy { expr: inner } => {
             let fi = fold_expr(inner, arena, stmt_arena, interner, bools);
-            if std::ptr::eq(fi, *inner) { expr } else { arena.alloc(Expr::Copy { expr: fi }) }
+            if std::ptr::eq(fi, *inner) {
+                expr
+            } else {
+                arena.alloc(Expr::Copy { expr: fi })
+            }
         }
         Expr::Give { value } => {
             let fv = fold_expr(value, arena, stmt_arena, interner, bools);
-            if std::ptr::eq(fv, *value) { expr } else { arena.alloc(Expr::Give { value: fv }) }
+            if std::ptr::eq(fv, *value) {
+                expr
+            } else {
+                arena.alloc(Expr::Give { value: fv })
+            }
         }
         Expr::Length { collection } => {
             let fc = fold_expr(collection, arena, stmt_arena, interner, bools);
-            if std::ptr::eq(fc, *collection) { expr } else { arena.alloc(Expr::Length { collection: fc }) }
+            if std::ptr::eq(fc, *collection) {
+                expr
+            } else {
+                arena.alloc(Expr::Length { collection: fc })
+            }
         }
         Expr::ManifestOf { zone } => {
             let fz = fold_expr(zone, arena, stmt_arena, interner, bools);
-            if std::ptr::eq(fz, *zone) { expr } else { arena.alloc(Expr::ManifestOf { zone: fz }) }
+            if std::ptr::eq(fz, *zone) {
+                expr
+            } else {
+                arena.alloc(Expr::ManifestOf { zone: fz })
+            }
         }
         Expr::FieldAccess { object, field } => {
             let fo = fold_expr(object, arena, stmt_arena, interner, bools);
-            if std::ptr::eq(fo, *object) { expr } else { arena.alloc(Expr::FieldAccess { object: fo, field: *field }) }
+            if std::ptr::eq(fo, *object) {
+                expr
+            } else {
+                arena.alloc(Expr::FieldAccess {
+                    object: fo,
+                    field: *field,
+                })
+            }
         }
         Expr::OptionSome { value } => {
             let fv = fold_expr(value, arena, stmt_arena, interner, bools);
-            if std::ptr::eq(fv, *value) { expr } else { arena.alloc(Expr::OptionSome { value: fv }) }
+            if std::ptr::eq(fv, *value) {
+                expr
+            } else {
+                arena.alloc(Expr::OptionSome { value: fv })
+            }
         }
         Expr::Not { operand } => {
             let fo = fold_expr(operand, arena, stmt_arena, interner, bools);
@@ -461,95 +747,155 @@ pub fn fold_expr<'a>(
 
         // Vec of sub-expressions
         Expr::Call { function, args } => {
-            let folded_args: Vec<&'a Expr<'a>> = args.iter().map(|a| fold_expr(a, arena, stmt_arena, interner, bools)).collect();
-            let changed = folded_args.iter().zip(args.iter()).any(|(f, o)| !std::ptr::eq(*f, *o));
+            let folded_args: Vec<&'a Expr<'a>> = args
+                .iter()
+                .map(|a| fold_expr(a, arena, stmt_arena, interner, bools))
+                .collect();
+            let changed = folded_args
+                .iter()
+                .zip(args.iter())
+                .any(|(f, o)| !std::ptr::eq(*f, *o));
             if changed {
-                arena.alloc(Expr::Call { function: *function, args: folded_args })
+                arena.alloc(Expr::Call {
+                    function: *function,
+                    args: folded_args,
+                })
             } else {
                 expr
             }
         }
         Expr::CallExpr { callee, args } => {
             let fc = fold_expr(callee, arena, stmt_arena, interner, bools);
-            let folded_args: Vec<&'a Expr<'a>> = args.iter().map(|a| fold_expr(a, arena, stmt_arena, interner, bools)).collect();
-            let args_changed = folded_args.iter().zip(args.iter()).any(|(f, o)| !std::ptr::eq(*f, *o));
+            let folded_args: Vec<&'a Expr<'a>> = args
+                .iter()
+                .map(|a| fold_expr(a, arena, stmt_arena, interner, bools))
+                .collect();
+            let args_changed = folded_args
+                .iter()
+                .zip(args.iter())
+                .any(|(f, o)| !std::ptr::eq(*f, *o));
             if std::ptr::eq(fc, *callee) && !args_changed {
                 expr
             } else {
-                arena.alloc(Expr::CallExpr { callee: fc, args: folded_args })
+                arena.alloc(Expr::CallExpr {
+                    callee: fc,
+                    args: folded_args,
+                })
             }
         }
         Expr::List(elems) => {
-            let folded: Vec<&'a Expr<'a>> = elems.iter().map(|e| fold_expr(e, arena, stmt_arena, interner, bools)).collect();
-            let changed = folded.iter().zip(elems.iter()).any(|(f, o)| !std::ptr::eq(*f, *o));
-            if changed { arena.alloc(Expr::List(folded)) } else { expr }
+            let folded: Vec<&'a Expr<'a>> = elems
+                .iter()
+                .map(|e| fold_expr(e, arena, stmt_arena, interner, bools))
+                .collect();
+            let changed = folded
+                .iter()
+                .zip(elems.iter())
+                .any(|(f, o)| !std::ptr::eq(*f, *o));
+            if changed {
+                arena.alloc(Expr::List(folded))
+            } else {
+                expr
+            }
         }
         Expr::Tuple(elems) => {
-            let folded: Vec<&'a Expr<'a>> = elems.iter().map(|e| fold_expr(e, arena, stmt_arena, interner, bools)).collect();
-            let changed = folded.iter().zip(elems.iter()).any(|(f, o)| !std::ptr::eq(*f, *o));
-            if changed { arena.alloc(Expr::Tuple(folded)) } else { expr }
+            let folded: Vec<&'a Expr<'a>> = elems
+                .iter()
+                .map(|e| fold_expr(e, arena, stmt_arena, interner, bools))
+                .collect();
+            let changed = folded
+                .iter()
+                .zip(elems.iter())
+                .any(|(f, o)| !std::ptr::eq(*f, *o));
+            if changed {
+                arena.alloc(Expr::Tuple(folded))
+            } else {
+                expr
+            }
         }
 
         // Named field sub-expressions
-        Expr::New { type_name, type_args, init_fields } => {
+        Expr::New {
+            type_name,
+            type_args,
+            init_fields,
+        } => {
             let folded_fields: Vec<(Symbol, &'a Expr<'a>)> = init_fields
                 .iter()
                 .map(|(name, val)| (*name, fold_expr(val, arena, stmt_arena, interner, bools)))
                 .collect();
-            let changed = folded_fields.iter().zip(init_fields.iter())
+            let changed = folded_fields
+                .iter()
+                .zip(init_fields.iter())
                 .any(|((_, fv), (_, ov))| !std::ptr::eq(*fv, *ov));
             if changed {
-                arena.alloc(Expr::New { type_name: *type_name, type_args: type_args.clone(), init_fields: folded_fields })
+                arena.alloc(Expr::New {
+                    type_name: *type_name,
+                    type_args: type_args.clone(),
+                    init_fields: folded_fields,
+                })
             } else {
                 expr
             }
         }
-        Expr::NewVariant { enum_name, variant, fields } => {
+        Expr::NewVariant {
+            enum_name,
+            variant,
+            fields,
+        } => {
             let folded_fields: Vec<(Symbol, &'a Expr<'a>)> = fields
                 .iter()
                 .map(|(name, val)| (*name, fold_expr(val, arena, stmt_arena, interner, bools)))
                 .collect();
-            let changed = folded_fields.iter().zip(fields.iter())
+            let changed = folded_fields
+                .iter()
+                .zip(fields.iter())
                 .any(|((_, fv), (_, ov))| !std::ptr::eq(*fv, *ov));
             if changed {
-                arena.alloc(Expr::NewVariant { enum_name: *enum_name, variant: *variant, fields: folded_fields })
+                arena.alloc(Expr::NewVariant {
+                    enum_name: *enum_name,
+                    variant: *variant,
+                    fields: folded_fields,
+                })
             } else {
                 expr
             }
         }
 
         // Closure — fold into body
-        Expr::Closure { params, body, return_type } => {
-            match body {
-                ClosureBody::Expression(body_expr) => {
-                    let fb = fold_expr(body_expr, arena, stmt_arena, interner, bools);
-                    if std::ptr::eq(fb, *body_expr) {
-                        expr
-                    } else {
-                        arena.alloc(Expr::Closure {
-                            params: params.clone(),
-                            body: ClosureBody::Expression(fb),
-                            return_type: *return_type,
-                        })
-                    }
-                }
-                ClosureBody::Block(block) => {
-                    let fb = fold_block(block, arena, stmt_arena, interner, bools);
-                    if std::ptr::eq(fb.as_ptr(), block.as_ptr()) {
-                        expr
-                    } else {
-                        arena.alloc(Expr::Closure {
-                            params: params.clone(),
-                            body: ClosureBody::Block(fb),
-                            return_type: *return_type,
-                        })
-                    }
+        Expr::Closure {
+            params,
+            body,
+            return_type,
+        } => match body {
+            ClosureBody::Expression(body_expr) => {
+                let fb = fold_expr(body_expr, arena, stmt_arena, interner, bools);
+                if std::ptr::eq(fb, *body_expr) {
+                    expr
+                } else {
+                    arena.alloc(Expr::Closure {
+                        params: params.clone(),
+                        body: ClosureBody::Expression(fb),
+                        return_type: *return_type,
+                    })
                 }
             }
-        }
+            ClosureBody::Block(block) => {
+                let fb = fold_block(block, arena, stmt_arena, interner, bools);
+                if std::ptr::eq(fb.as_ptr(), block.as_ptr()) {
+                    expr
+                } else {
+                    arena.alloc(Expr::Closure {
+                        params: params.clone(),
+                        body: ClosureBody::Block(fb),
+                        return_type: *return_type,
+                    })
+                }
+            }
+        },
 
         // Interpolated strings — fold sub-expressions in holes
-        Expr::InterpolatedString(_) => expr,
+        Expr::InterpolatedString(_) | Expr::View(_) | Expr::Dom(_) => expr,
 
         // Leaves — no sub-expressions to fold
         Expr::Literal(_) | Expr::Identifier(_) | Expr::OptionNone | Expr::Escape { .. } => expr,
@@ -615,13 +961,29 @@ fn try_simplify_algebraic<'a>(
         // the sign bit, so the e-graph forbids it ("Float operands never rewrite", egraph/rules.rs).
         // (Subtraction below keeps `x - 0.0 → x`: that one preserves the sign, `-0.0 - 0.0 == -0.0`.)
         BinaryOpKind::Add => {
-            if is_int_zero(right) { return Some(left); }
-            if is_int_zero(left) { return Some(right); }
+            // `x + 0 → x` is the arithmetic additive identity — INVALID for string
+            // concatenation, where `s + 0` appends "0" (`"x" + 0 == "x0"`, not `"x"`).
+            // Refuse when either operand is a Text value (literal, Text-typed symbol,
+            // or a concatenation thereof).
+            if bools.is_string_operand(left) || bools.is_string_operand(right) {
+                return None;
+            }
+            if is_int_zero(right) {
+                return Some(left);
+            }
+            if is_int_zero(left) {
+                return Some(right);
+            }
             None
         }
         // x - 0 = x
         BinaryOpKind::Subtract => {
-            if is_int_zero(right) || is_float_zero(right) { return Some(left); }
+            if bools.is_string_operand(left) {
+                return None;
+            }
+            if is_int_zero(right) || is_float_zero(right) {
+                return Some(left);
+            }
             None
         }
         // x * 1 = x, 1 * x = x (multiplying by one is the IEEE identity, any type); x * 0 = 0, 0 * x = 0
@@ -634,15 +996,25 @@ fn try_simplify_algebraic<'a>(
         // to 2^64-2, but i64::MAX << 1 wraps to -2). Like `x / 2^k → shift`, it
         // belongs in the BACKEND, gated on the Oracle proving the product fits i64.
         BinaryOpKind::Multiply => {
-            if is_int_one(right) || is_float_one(right) { return Some(left); }
-            if is_int_one(left) || is_float_one(left) { return Some(right); }
-            if is_int_zero(right) && expr_is_total(left) { return Some(right); }
-            if is_int_zero(left) && expr_is_total(right) { return Some(left); }
+            if is_int_one(right) || is_float_one(right) {
+                return Some(left);
+            }
+            if is_int_one(left) || is_float_one(left) {
+                return Some(right);
+            }
+            if is_int_zero(right) && expr_is_total(left) {
+                return Some(right);
+            }
+            if is_int_zero(left) && expr_is_total(right) {
+                return Some(left);
+            }
             None
         }
         // x / 1 = x (int and float)
         BinaryOpKind::Divide => {
-            if is_int_one(right) || is_float_one(right) { return Some(left); }
+            if is_int_one(right) || is_float_one(right) {
+                return Some(left);
+            }
             // NOTE: `x / 2^k → shift` strength reduction belongs in the BACKEND
             // (post-Oracle JIT/codegen lowering), NOT here. At the fold stage it
             // runs before the Oracle's bounds analysis (A1 modulo + A2 element
@@ -711,11 +1083,20 @@ fn try_simplify_algebraic<'a>(
         // takes the dividend's sign, the mask never does) — the comparison
         // against zero needs NO proof. This is the gap a sign-unknown `k % 2 ==
         // 0` (collatz) falls into: it would otherwise emit a hardware `idiv`
-        // every iteration. A `Number` divisor implies an integer dividend (the
-        // same assumption `x * 2^k → x << k` above relies on).
+        // every iteration. A `Number` divisor implies an integer dividend, except
+        // where the exact extension reaches it: an infinite integer's residue
+        // modulo 2 depends on `1/dt`, which no mask can read.
         BinaryOpKind::Eq | BinaryOpKind::NotEq => {
             let mask_of = |m: &'a Expr<'a>| -> Option<&'a Expr<'a>> {
-                if let Expr::BinaryOp { op: BinaryOpKind::Modulo, left: dividend, right: divisor } = m {
+                if let Expr::BinaryOp {
+                    op: BinaryOpKind::Modulo,
+                    left: dividend,
+                    right: divisor,
+                } = m
+                {
+                    if bools.may_be_tower(dividend) {
+                        return None;
+                    }
                     if let Expr::Literal(Literal::Number(d)) = divisor {
                         if is_power_of_two(*d).is_some() {
                             return Some(arena.alloc(Expr::BinaryOp {
@@ -730,12 +1111,20 @@ fn try_simplify_algebraic<'a>(
             };
             if is_int_zero(right) {
                 if let Some(masked) = mask_of(left) {
-                    return Some(arena.alloc(Expr::BinaryOp { op, left: masked, right }));
+                    return Some(arena.alloc(Expr::BinaryOp {
+                        op,
+                        left: masked,
+                        right,
+                    }));
                 }
             }
             if is_int_zero(left) {
                 if let Some(masked) = mask_of(right) {
-                    return Some(arena.alloc(Expr::BinaryOp { op, left, right: masked }));
+                    return Some(arena.alloc(Expr::BinaryOp {
+                        op,
+                        left,
+                        right: masked,
+                    }));
                 }
             }
             None
@@ -753,8 +1142,12 @@ fn fold_int_op(op: BinaryOpKind, l: i64, r: i64) -> Option<Expr<'static>> {
         BinaryOpKind::Add => l.checked_add(r).map(|n| Expr::Literal(Literal::Number(n))),
         BinaryOpKind::Subtract => l.checked_sub(r).map(|n| Expr::Literal(Literal::Number(n))),
         BinaryOpKind::Multiply => l.checked_mul(r).map(|n| Expr::Literal(Literal::Number(n))),
-        BinaryOpKind::Divide if r != 0 => l.checked_div(r).map(|n| Expr::Literal(Literal::Number(n))),
-        BinaryOpKind::Modulo if r != 0 => l.checked_rem(r).map(|n| Expr::Literal(Literal::Number(n))),
+        BinaryOpKind::Divide if r != 0 => {
+            l.checked_div(r).map(|n| Expr::Literal(Literal::Number(n)))
+        }
+        BinaryOpKind::Modulo if r != 0 => {
+            l.checked_rem(r).map(|n| Expr::Literal(Literal::Number(n)))
+        }
         BinaryOpKind::Eq => Some(Expr::Literal(Literal::Boolean(l == r))),
         BinaryOpKind::NotEq => Some(Expr::Literal(Literal::Boolean(l != r))),
         BinaryOpKind::Lt => Some(Expr::Literal(Literal::Boolean(l < r))),
@@ -762,8 +1155,12 @@ fn fold_int_op(op: BinaryOpKind, l: i64, r: i64) -> Option<Expr<'static>> {
         BinaryOpKind::LtEq => Some(Expr::Literal(Literal::Boolean(l <= r))),
         BinaryOpKind::GtEq => Some(Expr::Literal(Literal::Boolean(l >= r))),
         BinaryOpKind::BitXor => Some(Expr::Literal(Literal::Number(l ^ r))),
-        BinaryOpKind::Shl if r >= 0 && r < 64 => Some(Expr::Literal(Literal::Number(l.wrapping_shl(r as u32)))),
-        BinaryOpKind::Shr if r >= 0 && r < 64 => Some(Expr::Literal(Literal::Number(l.wrapping_shr(r as u32)))),
+        BinaryOpKind::Shl if r >= 0 && r < 64 => {
+            Some(Expr::Literal(Literal::Number(l.wrapping_shl(r as u32))))
+        }
+        BinaryOpKind::Shr if r >= 0 && r < 64 => {
+            Some(Expr::Literal(Literal::Number(l.wrapping_shr(r as u32))))
+        }
         // `and`/`or` are logical: truthiness in, Bool out (`&`/`|` are bitwise).
         BinaryOpKind::And => Some(Expr::Literal(Literal::Boolean(l != 0 && r != 0))),
         BinaryOpKind::Or => Some(Expr::Literal(Literal::Boolean(l != 0 || r != 0))),
@@ -800,7 +1197,12 @@ fn fold_bool_op(op: BinaryOpKind, l: bool, r: bool) -> Option<Expr<'static>> {
     }
 }
 
-fn fold_text_op(op: BinaryOpKind, l: Symbol, r: Symbol, interner: &mut Interner) -> Option<Expr<'static>> {
+fn fold_text_op(
+    op: BinaryOpKind,
+    l: Symbol,
+    r: Symbol,
+    interner: &mut Interner,
+) -> Option<Expr<'static>> {
     match op {
         BinaryOpKind::Concat | BinaryOpKind::Add => {
             let l_str = interner.resolve(l);
@@ -816,52 +1218,9 @@ fn fold_text_op(op: BinaryOpKind, l: Symbol, r: Symbol, interner: &mut Interner)
 }
 
 #[cfg(test)]
-mod float_safety_tests {
-    use super::*;
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/fold/float_safety_tests.rs"]
+mod float_safety_tests;
 
-    /// CRITIQUE #8 — IEEE float safety. `x * 0.0 → 0.0` is wrong for `Inf`/`NaN` (both give `NaN`, not
-    /// `0.0`), and `x + 0.0 → x` / `0.0 + x → x` is wrong for `-0.0` (`-0.0 + 0.0 == +0.0`, flipping the
-    /// sign bit). The project's own e-graph already refuses float rewrites for exactly this reason
-    /// (`egraph/rules.rs`: "Float operands never rewrite"); the scalar fold pass must not apply them
-    /// either. A non-literal float operand `x` must leave these expressions untouched.
-    #[test]
-    fn float_zero_algebraic_identities_are_not_applied() {
-        let ea: Arena<Expr> = Arena::new();
-        let mut it = Interner::new();
-        let x = ea.alloc(Expr::Identifier(it.intern("x")));
-        let zero_f = ea.alloc(Expr::Literal(Literal::Float(0.0)));
-
-        assert!(
-            try_simplify_algebraic(BinaryOpKind::Multiply, x, zero_f, &ea, &BoolSyms::new()).is_none(),
-            "x * 0.0 must NOT fold to 0.0 — inf*0.0 = NaN"
-        );
-        assert!(
-            try_simplify_algebraic(BinaryOpKind::Multiply, zero_f, x, &ea, &BoolSyms::new()).is_none(),
-            "0.0 * x must NOT fold to 0.0"
-        );
-        assert!(
-            try_simplify_algebraic(BinaryOpKind::Add, x, zero_f, &ea, &BoolSyms::new()).is_none(),
-            "x + 0.0 must NOT fold to x — -0.0 + 0.0 = +0.0 (sign flip)"
-        );
-        assert!(
-            try_simplify_algebraic(BinaryOpKind::Add, zero_f, x, &ea, &BoolSyms::new()).is_none(),
-            "0.0 + x must NOT fold to x"
-        );
-    }
-
-    /// Regression: the INTEGER identities are exact (`+` promotes to BigInt; `*` likewise) and must keep
-    /// folding. Removing the float rewrites must not touch these.
-    #[test]
-    fn integer_zero_algebraic_identities_still_apply() {
-        let ea: Arena<Expr> = Arena::new();
-        let mut it = Interner::new();
-        let x = ea.alloc(Expr::Identifier(it.intern("x")));
-        let zero_i = ea.alloc(Expr::Literal(Literal::Number(0)));
-
-        assert!(try_simplify_algebraic(BinaryOpKind::Add, x, zero_i, &ea, &BoolSyms::new()).is_some(), "x + 0 → x still folds (int)");
-        assert!(
-            try_simplify_algebraic(BinaryOpKind::Multiply, x, zero_i, &ea, &BoolSyms::new()).is_some(),
-            "x * 0 → 0 still folds (int, x total)"
-        );
-    }
-}
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/fold/tower_guard_tests.rs"]
+mod tower_guard_tests;

@@ -1,0 +1,21 @@
+{
+  "capability": "math.pow_mod",
+  "arg": "5000000",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "means_ms": {
+    "logos": 198.677,
+    "c": 207.52,
+    "rust": 191.177,
+    "go": 275.342,
+    "python": 6030.23
+  },
+  "logos_ms": 198.677,
+  "speedups_vs_logos": {
+    "c": 1.045,
+    "rust": 0.962,
+    "go": 1.386,
+    "python": 30.352
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.962
+}

@@ -54,19 +54,31 @@ fn e2e_codegen_bare_division_still_floors() {
 fn e2e_codegen_int_widens_when_mixed_with_a_rational() {
     // Compiled path: the Int operand widens to LogosRational in mixed arithmetic.
     // A runtime Rational variable + an Int:
-    assert_exact_output("## Main\nLet r: Rational be 1 / 2.\nLet s be r + 3.\nShow s.", "7/2");
+    assert_exact_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet s be r + 3.\nShow s.",
+        "7/2",
+    );
     // An Int literal + a Rational sub-expression in a Rational binding:
     assert_exact_output("## Main\nLet x: Rational be 3 + 1 / 2.\nShow x.", "7/2");
     // Times/minus mix, one reducing to a whole:
-    assert_exact_output("## Main\nLet r: Rational be 1 / 2.\nLet a be r * 4.\nShow a.", "2");
+    assert_exact_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet a be r * 4.\nShow a.",
+        "2",
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_codegen_every_rational_division_combination_is_exact() {
     // Rational / Int, Int / Rational, Rational / Rational — all exact in compiled Rust.
-    assert_exact_output("## Main\nLet r: Rational be 1 / 2.\nLet q be r / 2.\nShow q.", "1/4");
-    assert_exact_output("## Main\nLet r: Rational be 1 / 2.\nLet q be 3 / r.\nShow q.", "6");
+    assert_exact_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet q be r / 2.\nShow q.",
+        "1/4",
+    );
+    assert_exact_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet q be 3 / r.\nShow q.",
+        "6",
+    );
     assert_exact_output(
         "## Main\nLet a: Rational be 1 / 2.\nLet b: Rational be 1 / 3.\nLet q be a / b.\nShow q.",
         "3/2",
@@ -103,9 +115,8 @@ fn e2e_codegen_rational_fold_obeys_the_comptime_toggle() {
 
     // `## No comptime`: the fold is OFF — the chain stays a runtime add — yet the value is
     // identical. An output-neutral optimization, properly toggleable like every other.
-    let off = common::run_logos(
-        "## No comptime\n\n## Main\nLet x: Rational be 1 / 3 + 1 / 6.\nShow x.",
-    );
+    let off =
+        common::run_logos("## No comptime\n\n## Main\nLet x: Rational be 1 / 3 + 1 / 6.\nShow x.");
     assert!(off.success, "should compile+run:\n{}", off.stderr);
     assert_eq!(off.stdout.trim(), "1/2");
     assert!(

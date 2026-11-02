@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you believe F, then you believe C",
   "options": [
-    "$ (u:F\\supset u:C) $",
-    "$ (\\underline{u}:F\\supset \\underline{u}:C) $",
-    "$ (u:F\\supset \\underline{u}:C) $",
-    "$ (\\underline{u}:F\\supset u:C) $"
+    "u:F → u:C",
+    "u̲:F → u̲:C",
+    "u:F → u̲:C",
+    "u̲:F → u:C"
   ],
   "correct": 0,
-  "hint": "Is this about the RELATIONSHIP between two beliefs, or a single complex belief?",
-  "explanation": "This is a CONDITIONAL connecting two belief statements: (u:X \u2283 u:Y). The 'if...then' is outside the beliefs \u2014 it says: IF the agent believes X, THEN they also believe Y."
+  "hint": "Is the if then between two beliefs, or inside one?",
+  "explanation": "Two descriptions of belief joined by if then: u:F → u:C.",
+  "section": "13.2"
 }

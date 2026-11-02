@@ -2,5 +2,6 @@
   "id": "syllogistic",
   "title": "Syllogistic Logic",
   "pedagogy": "Translate English sentences into syllogistic notation. Lowercase letters denote individuals; capitals denote classes. Master the forms: all/some/no X is Y.",
-  "order": 2
+  "order": 2,
+  "summary": "Write arguments in Aristotle's notation with all, no and some, and test them with the star test."
 }

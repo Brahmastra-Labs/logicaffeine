@@ -1,0 +1,32 @@
+Allocate dates of size 1024 at 0x6045e3a2f500 (105853288117504)
+Allocate quants of size 1024 at 0x6045e3a31540 (105853288125760)
+Allocate discts of size 1024 at 0x6045e3a32580 (105853288129920)
+Allocate prices of size 1024 at 0x6045e3a33600 (105853288134144)
+Run simulation with with 646 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 646 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.110668
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 217
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 75.5023 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 2.2043
+Exiting... 😊
+Destruct DRAM.
+expected 17296
+result 17296
+PASS: true (TPCHQ6)
+Complete Simulation
+Runtime:0:02.38

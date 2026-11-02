@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.harmonic_mean",
+  "workload": "statistics.harmonic_mean",
+  "arg": "20000",
+  "expected": "2628674407",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

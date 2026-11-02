@@ -11,5 +11,6 @@
   ],
   "correct": 1,
   "hint": "Push ¬ through the quantifier (¬∀ becomes ∃) and then negate the conditional (¬(A → B) = A ∧ ¬B).",
-  "explanation": "¬∀x(P(x) → Q(x)) becomes ∃x¬(P(x) → Q(x)). Since ¬(A → B) ≡ A ∧ ¬B, this is ∃x(P(x) ∧ ¬Q(x)) — 'some P is not Q', the counterexample. 'Not all P are Q' means exactly 'there is a P that is not Q'."
+  "explanation": "¬∀x(P(x) → Q(x)) becomes ∃x ¬(P(x) → Q(x)), and ¬(A → B) is A ∧ ¬B. So the result is ∃x(P(x) ∧ ¬Q(x)): some P is not Q.",
+  "section": "8.3"
 }

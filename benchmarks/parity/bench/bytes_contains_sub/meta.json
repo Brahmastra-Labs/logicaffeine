@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.contains_sub",
+  "workload": "bytesContainsSub(xs,sub)",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

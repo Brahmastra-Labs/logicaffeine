@@ -1,0 +1,667 @@
+# Regex
+
+A minimal regular-expression matcher in pure LOGOS: literal characters, `.` (any character),
+and `*` (zero-or-more of the preceding item) — the classic recursive matcher, over the UTF-8
+byte view. `regexFind` returns the 1-based position of the first match, or 0; every other
+position this module takes or returns, including `regexFindIndex`/`regexFindSubmatchIndex`/
+`regexFindAllSubmatchIndex`'s `[start, end)` pairs, is 1-based the same way. Byte 42 = `*`,
+byte 46 = `.`. Deterministic across every execution tier. Auto-imported on first reference.
+
+## Note
+Recursive matcher: does the pattern from position `pi` match the text at `ti`? Handles `.` (byte 46, any char) and defers a following `*` (byte 42) to `reMatchStar`.
+
+## To reMatchHere (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) -> Bool:
+    Let np be length of pb.
+    Let nt be length of tb.
+    If pi is greater than np:
+        Return true.
+    If (pi + 1) is at most np:
+        If item (pi + 1) of pb is equal to 42:
+            Return reMatchStar(item pi of pb, pb, pi + 2, tb, ti).
+    If ti is at most nt:
+        Let pc be item pi of pb.
+        Let tc be item ti of tb.
+        If pc is equal to 46:
+            Return reMatchHere(pb, pi + 1, tb, ti + 1).
+        If pc is equal to tc:
+            Return reMatchHere(pb, pi + 1, tb, ti + 1).
+    Return false.
+
+## Note
+The `*` case: tries to match zero-or-more repetitions of character `cc` (or `.`) before the rest of the pattern via `reMatchHere`.
+
+## To reMatchStar (cc: Int) and (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) -> Bool:
+    Let nt be length of tb.
+    Let mutable t be ti.
+    Let mutable go be true.
+    While go is equal to true:
+        If reMatchHere(pb, pi, tb, t):
+            Return true.
+        If t is greater than nt:
+            Set go to false.
+        Otherwise:
+            Let tc be item t of tb.
+            If cc is equal to 46:
+                Set t to t + 1.
+            Otherwise:
+                If tc is equal to cc:
+                    Set t to t + 1.
+                Otherwise:
+                    Set go to false.
+    Return false.
+
+## Note
+Scans `text` left to right for the first position where `pattern` matches, returning that 1-based byte index or 0 if none.
+
+## To regexFind (pattern: Text) and (text: Text) -> Int:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let mutable i be 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If reMatchHere(pb, 1, tb, i):
+            Return i.
+        If i is greater than nt:
+            Set go to false.
+        Set i to i + 1.
+    Return 0.
+
+## Note
+Like `reMatchHere` but returns the text position just past the match (the match end), or 0 on failure — the basis for extracting matched spans.
+
+## To reMatchEnd (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) -> Int:
+    Let np be length of pb.
+    Let nt be length of tb.
+    If pi is greater than np:
+        Return ti.
+    If (pi + 1) is at most np:
+        If item (pi + 1) of pb is equal to 42:
+            Return reMatchStarEnd(item pi of pb, pb, pi + 2, tb, ti).
+    If ti is at most nt:
+        Let pc be item pi of pb.
+        Let tc be item ti of tb.
+        If pc is equal to 46:
+            Return reMatchEnd(pb, pi + 1, tb, ti + 1).
+        If pc is equal to tc:
+            Return reMatchEnd(pb, pi + 1, tb, ti + 1).
+    Return 0.
+
+## Note
+The `*` case for `reMatchEnd`: matches zero-or-more of `cc` (or `.`) and returns the end position of the overall match, or 0.
+
+## To reMatchStarEnd (cc: Int) and (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) -> Int:
+    Let nt be length of tb.
+    Let mutable t be ti.
+    Let mutable go be true.
+    While go is equal to true:
+        Let e be reMatchEnd(pb, pi, tb, t).
+        If e is greater than 0:
+            Return e.
+        If t is greater than nt:
+            Set go to false.
+        Otherwise:
+            Let tc be item t of tb.
+            If cc is equal to 46:
+                Set t to t + 1.
+            Otherwise:
+                If tc is equal to cc:
+                    Set t to t + 1.
+                Otherwise:
+                    Set go to false.
+    Return 0.
+
+## Note
+Extracts the byte slice `[lo, hi)` of a byte sequence back into `Text`.
+
+## To reSlice (tb: Seq of Int) and (lo: Int) and (hi: Int) -> Text:
+    Let out be a new Seq of Int.
+    Let mutable j be lo.
+    While j is less than hi:
+        Push item j of tb to out.
+        Set j to j + 1.
+    Return text_from_bytes(out).
+
+## Note
+True when `pattern` matches anywhere in `text` (i.e. `regexFind` found a position greater than 0).
+
+## To regexMatch (pattern: Text) and (text: Text) -> Bool:
+    Return regexFind(pattern, text) is greater than 0.
+
+## Note
+Returns the 1-based start positions of all non-overlapping matches of `pattern` in `text`.
+
+## To regexFindAll (pattern: Text) and (text: Text) -> Seq of Int:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most nt:
+        Let e be reMatchEnd(pb, 1, tb, i).
+        If e is greater than i:
+            Push i to out.
+            Set i to e.
+        Otherwise:
+            Set i to i + 1.
+    Return out.
+
+## Note
+Returns the matched substrings of all non-overlapping matches of `pattern` in `text`, as a `Seq of Text`.
+
+## To regexFindAllText (pattern: Text) and (text: Text) -> Seq of Text:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let out be a new Seq of Text.
+    Let mutable i be 1.
+    While i is at most nt:
+        Let e be reMatchEnd(pb, 1, tb, i).
+        If e is greater than i:
+            Push reSlice(tb, i, e) to out.
+            Set i to e.
+        Otherwise:
+            Set i to i + 1.
+    Return out.
+
+## Note
+Replaces every non-overlapping match of `pattern` in `text` with `repl`, copying unmatched bytes through unchanged.
+
+## To regexReplaceAll (pattern: Text) and (text: Text) and (repl: Text) -> Text:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let mutable out be "".
+    Let mutable i be 1.
+    While i is at most nt:
+        Let e be reMatchEnd(pb, 1, tb, i).
+        If e is greater than i:
+            Set out to out combined with repl.
+            Set i to e.
+        Otherwise:
+            Set out to out combined with reSlice(tb, i, i + 1).
+            Set i to i + 1.
+    Return out.
+
+## Note
+Splits `text` on every match of `pattern`, returning the pieces between matches (including a trailing piece) as a `Seq of Text`.
+
+## To regexSplit (pattern: Text) and (text: Text) -> Seq of Text:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let out be a new Seq of Text.
+    Let mutable start be 1.
+    Let mutable i be 1.
+    While i is at most nt:
+        Let e be reMatchEnd(pb, 1, tb, i).
+        If e is greater than i:
+            Push reSlice(tb, start, i) to out.
+            Set start to e.
+            Set i to e.
+        Otherwise:
+            Set i to i + 1.
+    Push reSlice(tb, start, nt + 1) to out.
+    Return out.
+
+## Note
+True when byte `b` is a regex metacharacter that `re.escape` backslash-escapes (whitespace and the ASCII specials).
+
+## To reEscapeByte (b: Int) -> Bool:
+    If b is at least 9:
+        If b is at most 13:
+            Return true.
+    If b is equal to 32:
+        Return true.
+    If b is equal to 35:
+        Return true.
+    If b is equal to 36:
+        Return true.
+    If b is equal to 38:
+        Return true.
+    If b is at least 40:
+        If b is at most 43:
+            Return true.
+    If b is equal to 45:
+        Return true.
+    If b is equal to 46:
+        Return true.
+    If b is equal to 63:
+        Return true.
+    If b is at least 91:
+        If b is at most 94:
+            Return true.
+    If b is at least 123:
+        If b is at most 126:
+            Return true.
+    Return false.
+
+## Note
+Backslash-escapes every regex metacharacter in `s` so it matches literally (`re.escape`).
+
+## To regexEscape (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for b in sb:
+        If reEscapeByte(b):
+            Push 92 to out.
+        Push b to out.
+    Return text_from_bytes(out).
+
+## Note
+True when `pattern` matches `text` starting at the very beginning (anchored at the start, like `re.match`; the rest of the text may follow the match).
+
+## To regexMatchStart (pattern: Text) and (text: Text) -> Bool:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Return reMatchEnd(pb, 1, tb, 1) is greater than 0.
+
+## Note
+Backtracking anchored-both-ends matcher: whether the pattern from `pi` consumes the text from `ti` exactly to its end.
+
+Unlike `reMatchEnd` (which returns the first/shortest match end), this explores every `*` repetition length so `a*` can consume a whole run — the basis of `fullmatch`.
+## To reMatchFull (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) -> Bool:
+    Let np be length of pb.
+    Let nt be length of tb.
+    If pi is greater than np:
+        Return ti is greater than nt.
+    If (pi + 1) is at most np:
+        If item (pi + 1) of pb is equal to 42:
+            If reMatchFull(pb, pi + 2, tb, ti):
+                Return true.
+            If ti is at most nt:
+                Let pc be item pi of pb.
+                Let tc be item ti of tb.
+                If pc is equal to 46:
+                    Return reMatchFull(pb, pi, tb, ti + 1).
+                If pc is equal to tc:
+                    Return reMatchFull(pb, pi, tb, ti + 1).
+            Return false.
+    If ti is at most nt:
+        Let pc be item pi of pb.
+        Let tc be item ti of tb.
+        If pc is equal to 46:
+            Return reMatchFull(pb, pi + 1, tb, ti + 1).
+        If pc is equal to tc:
+            Return reMatchFull(pb, pi + 1, tb, ti + 1).
+    Return false.
+
+## Note
+True when `pattern` matches the ENTIRE `text` (anchored at both ends, like `re.fullmatch`): the match must start at the beginning and consume every byte.
+
+## To regexFullMatch (pattern: Text) and (text: Text) -> Bool:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Return reMatchFull(pb, 1, tb, 1).
+
+## Note
+True when byte `b` is a Go regexp metacharacter that `QuoteMeta` backslash-escapes: one of `\.+*?()|[]{}^$` (a tighter set than `re.escape` — Go does not escape whitespace or `#`).
+
+## To reQuoteMetaByte (b: Int) -> Bool:
+    If b is equal to 92:
+        Return true.
+    If b is equal to 46:
+        Return true.
+    If b is equal to 43:
+        Return true.
+    If b is equal to 42:
+        Return true.
+    If b is equal to 63:
+        Return true.
+    If b is equal to 40:
+        Return true.
+    If b is equal to 41:
+        Return true.
+    If b is equal to 124:
+        Return true.
+    If b is equal to 91:
+        Return true.
+    If b is equal to 93:
+        Return true.
+    If b is equal to 123:
+        Return true.
+    If b is equal to 125:
+        Return true.
+    If b is equal to 94:
+        Return true.
+    If b is equal to 36:
+        Return true.
+    Return false.
+
+## Note
+Backslash-escapes every Go regexp metacharacter in `s` so it matches literally (`regexp.QuoteMeta`).
+
+## To regexQuoteMeta (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for b in sb:
+        If reQuoteMetaByte(b):
+            Push 92 to out.
+        Push b to out.
+    Return text_from_bytes(out).
+
+## Note
+The 1-based half-open `[start, end)` byte range of the leftmost match of `pattern` in `text`, or an empty sequence.
+
+Modeled on Go's `regexp.FindStringIndex` / `FindIndex`, 1-based like every other stdlib position.
+## To regexFindIndex (pattern: Text) and (text: Text) -> Seq of Int:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most (nt + 1):
+        Let e be reMatchEnd(pb, 1, tb, i).
+        If e is greater than 0:
+            Push i to out.
+            Push e to out.
+            Return out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Returns the leftmost substring of `text` matched by `pattern`, or the empty string if there is no match (`regexp.FindString` / `Find`).
+
+## To regexFindString (pattern: Text) and (text: Text) -> Text:
+    Let idx be regexFindIndex(pattern, text).
+    If (length of idx) is equal to 0:
+        Return "".
+    Let tb be text_bytes(text).
+    Return reSlice(tb, item 1 of idx, item 2 of idx).
+
+## Note
+Replaces every non-overlapping match of `pattern` in `text` with `f` applied to the matched substring.
+
+Unmatched bytes are copied through unchanged (Go's `regexp.ReplaceAllStringFunc` / `ReplaceAllFunc`).
+## To regexReplaceAllFunc (pattern: Text) and (text: Text) and (f: fn(Text) -> Text) -> Text:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let mutable out be "".
+    Let mutable i be 1.
+    While i is at most nt:
+        Let e be reMatchEnd(pb, 1, tb, i).
+        If e is greater than i:
+            Set out to out combined with f(reSlice(tb, i, e)).
+            Set i to e.
+        Otherwise:
+            Set out to out combined with reSlice(tb, i, i + 1).
+            Set i to i + 1.
+    Return out.
+
+## Note
+Counts the capture groups in pattern bytes `pb` (the number of `(` metacharacters).
+
+## To reCountGroups (pb: Seq of Int) -> Int:
+    Let mutable n be 0.
+    Repeat for b in pb:
+        If b is equal to 40:
+            Set n to n + 1.
+    Return n.
+
+## Note
+The 1-based group number opened by the `(` at position `pi` — the count of `(` at positions 1..pi (flat, non-nested groups).
+
+## To reOpenGroupNum (pb: Seq of Int) and (pi: Int) -> Int:
+    Let mutable n be 0.
+    Let mutable i be 1.
+    While i is at most pi:
+        If (item i of pb) is equal to 40:
+            Set n to n + 1.
+        Set i to i + 1.
+    Return n.
+
+## Note
+The 1-based group number closed by the `)` at position `pi` — the count of `)` at positions 1..pi (flat, non-nested groups).
+
+## To reCloseGroupNum (pb: Seq of Int) and (pi: Int) -> Int:
+    Let mutable n be 0.
+    Let mutable i be 1.
+    While i is at most pi:
+        If (item i of pb) is equal to 41:
+            Set n to n + 1.
+        Set i to i + 1.
+    Return n.
+
+## Note
+Capture-tracking matcher over the minimal dialect plus flat `(...)` groups.
+
+Matches `pb` from `pi` against `tb` at `ti`, recording each group's 1-based start/end into the shared `caps` slots (group g at indices 2g+1, 2g+2). Returns the 1-based end position, or 0 on failure.
+## To reMatchCap (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) and (caps: Seq of Int) -> Seq of Int:
+    Let np be length of pb.
+    Let nt be length of tb.
+    If pi is greater than np:
+        Set item 1 of caps to ti.
+        Return caps.
+    Let pc be item pi of pb.
+    If pc is equal to 40:
+        Let g be reOpenGroupNum(pb, pi).
+        Set item (2 * g) of caps to ti.
+        Return reMatchCap(pb, pi + 1, tb, ti, caps).
+    If pc is equal to 41:
+        Let g be reCloseGroupNum(pb, pi).
+        Set item ((2 * g) + 1) of caps to ti.
+        Return reMatchCap(pb, pi + 1, tb, ti, caps).
+    If (pi + 1) is at most np:
+        If item (pi + 1) of pb is equal to 42:
+            Return reMatchCapStar(pc, pb, pi + 2, tb, ti, caps).
+    If ti is at most nt:
+        Let tc be item ti of tb.
+        If pc is equal to 46:
+            Return reMatchCap(pb, pi + 1, tb, ti + 1, caps).
+        If pc is equal to tc:
+            Return reMatchCap(pb, pi + 1, tb, ti + 1, caps).
+    Set item 1 of caps to 0.
+    Return caps.
+
+## Note
+The `*` case for `reMatchCap`: matches zero-or-more of `cc` (or `.`) then the rest of the pattern, returning the overall end position (shortest match), or 0.
+
+## To reMatchCapStar (cc: Int) and (pb: Seq of Int) and (pi: Int) and (tb: Seq of Int) and (ti: Int) and (caps: Seq of Int) -> Seq of Int:
+    Let nt be length of tb.
+    Let mutable t be ti.
+    Let mutable go be true.
+    While go is equal to true:
+        Let res be reMatchCap(pb, pi, tb, t, caps).
+        If (item 1 of res) is greater than 0:
+            Return res.
+        If t is greater than nt:
+            Set go to false.
+        Otherwise:
+            Let tc be item t of tb.
+            If cc is equal to 46:
+                Set t to t + 1.
+            Otherwise:
+                If tc is equal to cc:
+                    Set t to t + 1.
+                Otherwise:
+                    Set go to false.
+    Set item 1 of caps to 0.
+    Return caps.
+
+## Note
+The submatch index list of the leftmost match, or an empty sequence when nothing matches.
+
+1-based `[start, end)` pairs for the whole match (group 0) followed by each capture group, with -1 for a group that did not participate. Modeled on Go's `regexp.FindStringSubmatchIndex`.
+## To regexFindSubmatchIndex (pattern: Text) and (text: Text) -> Seq of Int:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let g be reCountGroups(pb).
+    Let slots be (2 * g) + 1.
+    Let mutable start be 1.
+    While start is at most (nt + 1):
+        Let caps be a new Seq of Int.
+        Let mutable c be 0.
+        While c is less than slots:
+            Push 0 to caps.
+            Set c to c + 1.
+        Let res be reMatchCap(pb, 1, tb, start, caps).
+        Let e be item 1 of res.
+        If e is greater than 0:
+            Let out be a new Seq of Int.
+            Push start to out.
+            Push e to out.
+            Let mutable k be 1.
+            While k is at most g:
+                Let gs be item (2 * k) of res.
+                If gs is equal to 0:
+                    Push (0 - 1) to out.
+                    Push (0 - 1) to out.
+                Otherwise:
+                    Push gs to out.
+                    Push (item ((2 * k) + 1) of res) to out.
+                Set k to k + 1.
+            Return out.
+        Set start to start + 1.
+    Return a new Seq of Int.
+
+## Note
+Returns the leftmost match and its capture groups as substrings (`regexp.FindStringSubmatch`): index 1 is the whole match, then one entry per group (empty for a group that did not participate).
+
+Empty sequence if there is no match.
+
+## To regexFindStringSubmatch (pattern: Text) and (text: Text) -> Seq of Text:
+    Let idx be regexFindSubmatchIndex(pattern, text).
+    Let tb be text_bytes(text).
+    Let out be a new Seq of Text.
+    Let n be length of idx.
+    Let mutable k be 1.
+    While k is at most n:
+        Let s be item k of idx.
+        Let e be item (k + 1) of idx.
+        If s is less than 0:
+            Push "" to out.
+        Otherwise:
+            Push reSlice(tb, s, e) to out.
+        Set k to k + 2.
+    Return out.
+
+## Note
+Every non-overlapping match with its capture groups, as 1-based index pairs.
+
+One inner sequence per match: 1-based `[start, end)` pairs for the whole match, then each group, with -1 for a group that did not participate. Modeled on Go's `regexp.FindAllStringSubmatchIndex`.
+
+## To regexFindAllSubmatchIndex (pattern: Text) and (text: Text) -> Seq of Seq of Int:
+    Let pb be text_bytes(pattern).
+    Let tb be text_bytes(text).
+    Let nt be length of tb.
+    Let g be reCountGroups(pb).
+    Let slots be (2 * g) + 1.
+    Let out be a new Seq of Seq of Int.
+    Let mutable start be 1.
+    While start is at most (nt + 1):
+        Let caps be a new Seq of Int.
+        Let mutable c be 0.
+        While c is less than slots:
+            Push 0 to caps.
+            Set c to c + 1.
+        Let res be reMatchCap(pb, 1, tb, start, caps).
+        Let e be item 1 of res.
+        If e is greater than 0:
+            Let one be a new Seq of Int.
+            Push start to one.
+            Push e to one.
+            Let mutable k be 1.
+            While k is at most g:
+                Let gs be item (2 * k) of res.
+                If gs is equal to 0:
+                    Push (0 - 1) to one.
+                    Push (0 - 1) to one.
+                Otherwise:
+                    Push gs to one.
+                    Push (item ((2 * k) + 1) of res) to one.
+                Set k to k + 1.
+            Push one to out.
+            If e is greater than start:
+                Set start to e.
+            Otherwise:
+                Set start to start + 1.
+        Otherwise:
+            Set start to start + 1.
+    Return out.
+
+## Note
+All non-overlapping matches with their capture groups as substrings, like Go's `regexp.FindAllStringSubmatch`.
+
+One inner sequence per match: the whole match, then each group (empty for a group that did not participate).
+## To regexFindAllSubmatch (pattern: Text) and (text: Text) -> Seq of Seq of Text:
+    Let all be regexFindAllSubmatchIndex(pattern, text).
+    Let tb be text_bytes(text).
+    Let out be a new Seq of Seq of Text.
+    Repeat for idx in all:
+        Let row be a new Seq of Text.
+        Let n be length of idx.
+        Let mutable k be 1.
+        While k is at most n:
+            Let s be item k of idx.
+            Let e be item (k + 1) of idx.
+            If s is less than 0:
+                Push "" to row.
+            Otherwise:
+                Push reSlice(tb, s, e) to row.
+            Set k to k + 2.
+        Push row to out.
+    Return out.
+
+## Note
+Expands `template` against the leftmost match of `pattern` in `text`, like Go's `regexp.ExpandString`.
+
+`$0` is the whole match, `$N` and `${N}` the N-th group, and `$$` a literal `$`; an unknown group expands to empty.
+## To regexExpandString (pattern: Text) and (text: Text) and (template: Text) -> Text:
+    Let groups be regexFindStringSubmatch(pattern, text)
+    Let ng be length of groups
+    Let tp be text_bytes(template)
+    Let n be length of tp
+    Let mutable out be ""
+    Let mutable i be 1
+    While i is at most n:
+        Let c be item i of tp
+        If c is equal to 36:
+            If (i + 1) is greater than n:
+                Set out to out combined with text_from_bytes([36])
+                Set i to i + 1
+            Otherwise:
+                Let nx be item (i + 1) of tp
+                If nx is equal to 36:
+                    Set out to out combined with text_from_bytes([36])
+                    Set i to i + 2
+                Otherwise:
+                    Let mutable j be i + 1
+                    Let mutable braced be false
+                    If (item j of tp) is equal to 123:
+                        Set braced to true
+                        Set j to j + 1
+                    Let mutable num be 0
+                    Let mutable have be false
+                    Let mutable rd be true
+                    While rd is equal to true:
+                        If j is greater than n:
+                            Set rd to false
+                        Otherwise:
+                            Let d be item j of tp
+                            If d is at least 48:
+                                If d is at most 57:
+                                    Set num to (num * 10) + (d - 48)
+                                    Set have to true
+                                    Set j to j + 1
+                                Otherwise:
+                                    Set rd to false
+                            Otherwise:
+                                Set rd to false
+                    If braced is equal to true:
+                        If j is at most n:
+                            If (item j of tp) is equal to 125:
+                                Set j to j + 1
+                    If have is equal to true:
+                        Let slot be num + 1
+                        If slot is at most ng:
+                            Set out to out combined with item slot of groups
+                        Set i to j
+                    Otherwise:
+                        Set out to out combined with text_from_bytes([36])
+                        Set i to i + 1
+        Otherwise:
+            Set out to out combined with text_from_bytes([c])
+            Set i to i + 1
+    Return out

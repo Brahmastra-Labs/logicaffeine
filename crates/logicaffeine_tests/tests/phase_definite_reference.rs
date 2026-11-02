@@ -31,10 +31,7 @@ fn leading_existential_var(fol: &str) -> String {
         .split_once('∃')
         .unwrap_or_else(|| panic!("no existential in {fol:?}"))
         .1;
-    after
-        .chars()
-        .take_while(|c| c.is_alphanumeric())
-        .collect()
+    after.chars().take_while(|c| c.is_alphanumeric()).collect()
 }
 
 /// Split the numbered multi-clause discourse output into its clauses.

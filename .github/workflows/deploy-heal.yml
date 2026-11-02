@@ -1,0 +1,78 @@
+name: Deploy Heal
+
+# The Studio's Heal button's worker (services/heal): the one place the model's key lives. Its tests
+# stub the upstream and hold the worker to its door, its prompt and its answers.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/heal/**'
+      - '.github/workflows/deploy-heal.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/heal/**'
+      - '.github/workflows/deploy-heal.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-heal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test Heal Worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+          cache-dependency-path: services/heal/package-lock.json
+
+      - name: Install dependencies
+        working-directory: services/heal
+        run: npm ci
+
+      - name: Run the worker's tests
+        working-directory: services/heal
+        run: npx vitest run
+
+      - name: Bundle without deploying
+        working-directory: services/heal
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Deploy Heal Worker
+    # Deploys only from main: a push there, or a manual run on main. The secret NVIDIA_API_KEY is
+    # set once by hand with `npx wrangler secret put NVIDIA_API_KEY`; a deploy keeps it.
+    if: >
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+          cache-dependency-path: services/heal/package-lock.json
+
+      - name: Install dependencies
+        working-directory: services/heal
+        run: npm ci
+
+      - name: Deploy to Cloudflare
+        working-directory: services/heal
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy

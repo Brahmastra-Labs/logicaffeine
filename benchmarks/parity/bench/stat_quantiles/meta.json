@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.quantiles",
+  "workload": "statistics.quantiles",
+  "arg": "20000",
+  "expected": "989886225",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

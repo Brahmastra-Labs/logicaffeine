@@ -1,0 +1,154 @@
+{
+  "case": "T00-003",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_003.Flag",
+      "lean_kind": "inductive",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"Flag\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.Flag.off",
+      "lean_kind": "ctor",
+      "lean_levels": [],
+      "lean_type": "T00_003.Flag",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"Flag\"/s:\"off\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.Flag.on",
+      "lean_kind": "ctor",
+      "lean_levels": [],
+      "lean_type": "T00_003.Flag",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"Flag\"/s:\"on\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.FlagCount",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_monomorphic_definitions_preserve_constant_identity_and_values",
+      "logos": "/s:\"T00_003\"/s:\"FlagCount\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson, imported with declaration auditing; the dedicated test asserts the declared type, the exact exported body (the numeral is kept, never compacted), the value it normalizes to, and the empty assumption set."
+    },
+    {
+      "lean": "T00_003.base",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_monomorphic_definitions_preserve_constant_identity_and_values",
+      "logos": "/s:\"T00_003\"/s:\"base\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson, imported with declaration auditing; the dedicated test asserts the declared type, the exact exported body (the numeral is kept, never compacted), the value it normalizes to, and the empty assumption set."
+    },
+    {
+      "lean": "T00_003.monoInstanceOfPolyConst",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_polymorphic_constant_instance_keeps_its_explicit_level_argument",
+      "logos": "/s:\"T00_003\"/s:\"monoInstanceOfPolyConst\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.opaqueNat",
+      "lean_kind": "axiom",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [
+        "T00_003.opaqueNat"
+      ],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_explicit_axiom_reference_preserves_its_exact_assumption",
+      "logos": "/s:\"T00_003\"/s:\"opaqueNat\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.refersToAxiom",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [
+        "T00_003.opaqueNat"
+      ],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_explicit_axiom_reference_preserves_its_exact_assumption",
+      "logos": "/s:\"T00_003\"/s:\"refersToAxiom\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.refersToBase",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_monomorphic_definitions_preserve_constant_identity_and_values",
+      "logos": "/s:\"T00_003\"/s:\"refersToBase\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson, imported with declaration auditing; the dedicated test asserts the declared type, the exact exported body (the numeral is kept, never compacted), the value it normalizes to, and the empty assumption set."
+    },
+    {
+      "lean": "T00_003.refersToConstructor",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"refersToConstructor\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.refersToFlagCtor",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "T00_003.Flag",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"refersToFlagCtor\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.refersToFlagType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"refersToFlagType\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    },
+    {
+      "lean": "T00_003.refersToInductive",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_constant_bridge::original_inductive_and_constructor_references_keep_distinct_checked_names",
+      "logos": "/s:\"T00_003\"/s:\"refersToInductive\"",
+      "why": "Exact original Lean 4.14 structural export retained in T00-003.structural.ndjson (SHA256 40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09), imported with declaration auditing. Both kernels check the declared type; the inductive/constructor/definition/axiom identity, the exact definition body and the exact transitive assumption set are asserted, with ill-typed neighbours rejected in both kernels. T00_003.base, refersToBase and FlagCount stay open: their test expects a compacted literal body the export does not contain (reported for review, 2026-09-22)."
+    }
+  ]
+}

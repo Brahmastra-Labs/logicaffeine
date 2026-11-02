@@ -28,17 +28,29 @@
 /// Every lock/gate file whose green verdict is a claim of Jones optimality.
 const GATE_FILES: &[(&str, &str)] = &[
     ("phase_pe_jones.rs", include_str!("phase_pe_jones.rs")),
-    ("phase_pe_jones_adversarial.rs", include_str!("phase_pe_jones_adversarial.rs")),
-    ("jones_whole_language_lock.rs", include_str!("jones_whole_language_lock.rs")),
-    ("futamura_tier_lock.rs", include_str!("futamura_tier_lock.rs")),
+    (
+        "phase_pe_jones_adversarial.rs",
+        include_str!("phase_pe_jones_adversarial.rs"),
+    ),
+    (
+        "jones_whole_language_lock.rs",
+        include_str!("jones_whole_language_lock.rs"),
+    ),
+    (
+        "futamura_tier_lock.rs",
+        include_str!("futamura_tier_lock.rs"),
+    ),
     ("futamura_ratchet.rs", include_str!("futamura_ratchet.rs")),
 ];
 
 /// The three shortcut surfaces, matched as a call/`use` token. `projection1_source(` deliberately
 /// does NOT match `projection1_source_real_fast(` (the genuine in-process path), because the
 /// `_real` suffix sits before the `(`.
-const SHORTCUT_CALL_TOKENS: &[&str] =
-    &["projection1_source(", "projection2_source", "projection3_source"];
+const SHORTCUT_CALL_TOKENS: &[&str] = &[
+    "projection1_source(",
+    "projection2_source",
+    "projection3_source",
+];
 
 #[test]
 fn no_jones_gate_certifies_through_a_shortcut() {
@@ -69,7 +81,9 @@ fn no_jones_gate_certifies_through_a_shortcut() {
 fn quarantine_detector_is_not_vacuous() {
     let shortcut_gate = "let r = projection2_source().unwrap();";
     assert!(
-        SHORTCUT_CALL_TOKENS.iter().any(|t| shortcut_gate.contains(t)),
+        SHORTCUT_CALL_TOKENS
+            .iter()
+            .any(|t| shortcut_gate.contains(t)),
         "the shortcut detector would not catch a gate calling projection2_source"
     );
     let genuine_gate = "let r = projection1_source_real_fast(\"\", \"\", p).unwrap();";

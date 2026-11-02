@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Realists think we discover logical truths, not invent them.",
-  "explanation": "Logical realism holds that logical truths are objective, mind-independent facts. We discover that 'P ∨ ¬P' is true; we don't make it true by convention. Plato's theory of Forms is an early version - logical truths exist in an abstract realm we access through reason.",
-  "visual_concept": "Mathematical/logical truths as eternal: 2+2=4 was true before humans, and would be true if we never existed."
+  "explanation": "Logical realism holds that logical truths are objective facts we discover. P ∨ ¬P was true before anyone noticed it.",
+  "visual_concept": "Mathematical/logical truths as eternal: 2+2=4 was true before humans, and would be true if we never existed.",
+  "section": "18.1"
 }

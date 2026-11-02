@@ -1,4 +1,4 @@
-//! The single source of truth for compiler optimization toggles.
+//! The registry of compiler optimization toggles.
 //!
 //! Every optimization the compiler can perform has exactly one row in
 //! [`REGISTRY`], naming it, giving it a human label and a `## No <Keyword>`
@@ -7,7 +7,7 @@
 //! and conflicts with other optimizations.
 //!
 //! A live choice of which optimizations are on is an [`OptimizationConfig`] —
-//! a single `u64` bitset, one bit per [`Opt`]. The default is "everything on"
+//! an [`OptBits`] set, one bit per [`Opt`]. The default is "everything on"
 //! (tuned for speed); disabling everything yields plain, boring Rust.
 //!
 //! This lives in `logicaffeine_language` (not the compiler) because the parser
@@ -107,7 +107,90 @@ pub fn admits(cfg: &OptimizationConfig, tier: Tier, opt: Opt) -> bool {
 /// The number of [`Opt`] variants — the width of a [`PinSet`]. Derived from the
 /// last variant so it tracks the enum automatically (guarded by a test against
 /// `REGISTRY.len()`).
-pub const OPT_COUNT: usize = Opt::Supercompile as usize + 1;
+pub const OPT_COUNT: usize = Opt::HintVersion as usize + 1;
+
+/// The 64-bit words an [`OptBits`] set holds: one bit per registered optimization.
+pub const OPT_WORDS: usize = OPT_COUNT.div_ceil(64);
+
+/// A set of optimizations, one bit per [`Opt`] (its discriminant), in as many 64-bit words as the registry
+/// needs. [`OptimizationConfig`] keeps the enabled set in one and [`FiredOptimizations`] the fired set, in the
+/// same layout, so the two relate bit for bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+pub struct OptBits([u64; OPT_WORDS]);
+
+impl OptBits {
+    /// The empty set.
+    pub const EMPTY: OptBits = OptBits([0; OPT_WORDS]);
+
+    const fn place(opt: Opt) -> (usize, u64) {
+        (opt as usize / 64, 1u64 << (opt as usize % 64))
+    }
+
+    /// Whether `opt` is in the set.
+    #[inline]
+    pub const fn contains(&self, opt: Opt) -> bool {
+        let (word, bit) = Self::place(opt);
+        self.0[word] & bit != 0
+    }
+
+    /// The set with `opt` added.
+    #[inline]
+    pub const fn with(mut self, opt: Opt) -> Self {
+        let (word, bit) = Self::place(opt);
+        self.0[word] |= bit;
+        self
+    }
+
+    /// The set with `opt` removed.
+    #[inline]
+    pub const fn without(mut self, opt: Opt) -> Self {
+        let (word, bit) = Self::place(opt);
+        self.0[word] &= !bit;
+        self
+    }
+
+    /// The optimizations in either set.
+    pub const fn union(mut self, other: OptBits) -> Self {
+        let mut i = 0;
+        while i < OPT_WORDS {
+            self.0[i] |= other.0[i];
+            i += 1;
+        }
+        self
+    }
+
+    /// The optimizations in both sets.
+    pub const fn intersection(mut self, other: OptBits) -> Self {
+        let mut i = 0;
+        while i < OPT_WORDS {
+            self.0[i] &= other.0[i];
+            i += 1;
+        }
+        self
+    }
+
+    /// The optimizations in this set and not in `other`.
+    pub const fn difference(mut self, other: OptBits) -> Self {
+        let mut i = 0;
+        while i < OPT_WORDS {
+            self.0[i] &= !other.0[i];
+            i += 1;
+        }
+        self
+    }
+
+    /// Whether the set is empty.
+    pub const fn is_empty(&self) -> bool {
+        let mut i = 0;
+        while i < OPT_WORDS {
+            if self.0[i] != 0 {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
+}
 
 /// WHEN each allowed optimization runs, as opposed to WHICH are allowed
 /// ([`OptimizationConfig`]). The sibling policy of HOTSWAP §8: the bitset says what
@@ -137,7 +220,11 @@ pub struct TierThresholds {
 
 impl Default for TierThresholds {
     fn default() -> Self {
-        Self { t1: 8, t2: 32, t3: 100 }
+        Self {
+            t1: 8,
+            t2: 32,
+            t3: 100,
+        }
     }
 }
 
@@ -178,7 +265,11 @@ impl TierThresholds {
         if let Some(c) = combined {
             let parts: Vec<u32> = c.split(',').filter_map(|s| s.trim().parse().ok()).collect();
             if parts.len() == 3 {
-                th = Self { t1: parts[0], t2: parts[1], t3: parts[2] };
+                th = Self {
+                    t1: parts[0],
+                    t2: parts[1],
+                    t3: parts[2],
+                };
             }
         }
         if let Some(v) = t1.and_then(|s| s.trim().parse().ok()) {
@@ -222,7 +313,9 @@ impl Default for PinSet {
 impl PinSet {
     /// No pins — every opt uses its cost-derived tier.
     pub const fn none() -> Self {
-        Self { pins: [None; OPT_COUNT] }
+        Self {
+            pins: [None; OPT_COUNT],
+        }
     }
 
     #[inline]
@@ -353,7 +446,12 @@ impl HotswapConfig {
         if let Some(spec) = pin_spec {
             apply_pin_spec(&mut pins, spec);
         }
-        HotswapConfig { mode, thresholds, force_tier, pins }
+        HotswapConfig {
+            mode,
+            thresholds,
+            force_tier,
+            pins,
+        }
     }
 }
 
@@ -369,7 +467,7 @@ fn parse_tier(s: &str) -> Option<Tier> {
     }
 }
 
-/// Parse one pin value: `eager`, `never`, or a tier token (see [`parse_tier`]). The
+/// Parse one pin value: `eager`, `never`, or a tier token (see `parse_tier`). The
 /// surface the `## Tier <opt> <value>` parser and `LOGOS_TIER_PIN` both resolve.
 pub fn pin_from_str(s: &str) -> Option<Pin> {
     match s.trim().to_ascii_lowercase().as_str() {
@@ -424,7 +522,9 @@ pub enum Scope {
 /// index used by [`OptimizationConfig`], so the order here is stable and must
 /// not be reordered casually (it also defines conflict-resolution precedence:
 /// an earlier variant wins a conflict against a later one).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum Opt {
     /// Automatic memoization of pure functions.
@@ -433,7 +533,8 @@ pub enum Opt {
     Tco = 1,
     /// Peephole rewrites (swap, vec-fill, for-range, …).
     Peephole = 2,
-    /// Read-only / mutable borrow inference (`&[T]` / `&mut [T]` params).
+    /// Read-only / mutable borrow inference: `&[T]` / `&mut [T]` / `&str` / `&Enum` params, and a loop that reads a
+    /// sequence it never writes through a shared borrow instead of a copy.
     Borrow = 3,
     /// Partial evaluation / polyvariant specialization.
     Specialize = 4,
@@ -507,15 +608,211 @@ pub enum Opt {
     Saturate = 38,
     /// Supercompilation (heavy residual specialization, AOT only).
     Supercompile = 39,
+    /// Sparse conditional constant propagation (Wegman–Zadeh): folds constants
+    /// AND prunes unreachable branches in one lattice sweep, catching constants
+    /// the iterated fold→propagate→deadcode pipeline structurally misses.
+    Sccp = 40,
+    /// Integer induction-variable strength reduction: a counted loop's affine
+    /// `coeff*j + base` index (base loop-invariant) becomes a seeded accumulator
+    /// advanced by `coeff*step`, removing the per-iteration multiply. Exact
+    /// (no runtime guard).
+    IntStrength = 41,
+    /// Aggregate-element register promotion: an invariant-indexed read-modify-
+    /// write array element is loaded into a scalar once, updated in a register
+    /// across the loop, and written back once — store-to-load forwarding LICM
+    /// cannot do (the element is written).
+    RegPromote = 42,
+    /// Loop interchange: reorder two adjacent nested counted loops to put the
+    /// unit-stride access innermost (the `ijk`→`ikj` matmul recipe). Fires only
+    /// on integer commutative-reduction nests, where any permutation is
+    /// bit-identical, and only toward better locality.
+    Interchange = 43,
+    /// Bounded-accumulator overflow-guard elision: version a hot integer loop that
+    /// provably stays `i64`-safe under a compile-time input bound (interval
+    /// inductive-invariant check), so its fast branch lowers to bare `i64` instead of
+    /// a per-iteration overflow-promotion guard; a huge input takes the unchanged
+    /// promoting branch (never an abort).
+    AccumBound = 44,
+    /// Div-mod fusion: rustc/LLVM does not CSE `a/b` against `a%b` (distinct `sdiv`/`srem`,
+    /// each its own magic-multiply for a constant divisor), so a loop computing both pays
+    /// two multiplies where gcc keeps the quotient and derives `r = a - q*b`. When one
+    /// statement holds both with the same side-effect-free operands, bind `q = a/b` once
+    /// and rewrite `a%b -> a - q*b` — the single-division shape, propagating proven-raw.
+    DivModFuse = 45,
+    /// Range-aware helper specialization: a counted-accumulator loop calls pure integer
+    /// helpers (`divModQ`/`divModM`/…) whose bodies branch on argument SIGN, but the loop
+    /// counter is provably `>= 0` and the divisor a positive constant, so those branches
+    /// are dead. This symbolically inlines the helper chain under the counter's range and
+    /// folds the dead branches, leaving bare arithmetic the div-mod fuser + accumulator
+    /// versioner then lower to a hand-C-quality loop. A call that isn't fully provable is
+    /// left untouched.
+    SpecializeLoop = 46,
+    /// Bignum by-reference arithmetic (clone elision): a reused promoted (`LogosInt`) operand in
+    /// a `+`/`-`/`*` is passed by VALUE to `logos_*_exact`, so a variable read twice (or read then
+    /// reassigned) `.clone()`s its heap magnitude every iteration. `LogosInt::{add,sub,mul}` are
+    /// already `(&self, &LogosInt)`, and `logos_mul_exact(a,b)` IS `a.into().mul(&b.into())`, so
+    /// the by-ref method is byte-identical minus the clone. Reused bignum vars are borrowed.
+    BignumByRef = 47,
+    /// In-place bignum scalar multiply: `Set acc to acc * <i64>` on a promoted accumulator (dead
+    /// last-use, native-int scalar) mutates `acc`'s heap `Vec` in place (`acc.mul_assign_i64(k)`)
+    /// instead of allocating a fresh product each iteration (the factorial hot loop).
+    BignumInPlace = 48,
+    /// Native-width bit intrinsics: the stdlib `rotateLeft`/`rotateRight`/`reverseBits`/
+    /// `reverseBytes` with a compile-time native word width (8/16/32) lower to a single Rust
+    /// intrinsic (`(x as uW).rotate_left(n)` / `.reverse_bits()` / `.swap_bytes()`) — one CPU
+    /// instruction (ROL/ROR, bit-reverse, BSWAP) — instead of a masked loop LLVM cannot recognize.
+    /// Fires at the call site AND on the const-specialized masked-rotate form the optimizer folds to.
+    BitIntrinsics = 49,
+    /// Text-bytes zero-copy view: a `Let sb be text_bytes(s)` binding used ONLY for reads
+    /// (`item i of sb`, `length of sb`, `for b in sb`) lowers to a borrowed `s.as_bytes()`
+    /// (`&[u8]`) instead of materializing a `Vec<i64>` byte-list (8x blow-up + `Rc<RefCell>`
+    /// box + a `.borrow()` and bounds check per byte). Reads cast the `u8` back to `i64`.
+    /// The whole text stdlib funnels every operation through `text_bytes`, so this removes
+    /// the dominant text-cluster read cost. Read-side half of the byte-list elimination.
+    TextBytesView = 50,
+    /// String accumulator reuse: `Set X to X combined with Y` (X a mutable owned `String`,
+    /// Y not mentioning X) mutates X's buffer in place via `X.push_str(&Y)` — amortized O(1)
+    /// growth — instead of `X = format!("{}{}", X, Y)`, which reallocates and copies the whole
+    /// accumulator every iteration (turning `repeatText` and any concat-accumulator loop into
+    /// O(N^2)). Fires on the SHAPE (self-append concat, target leftmost) so a user's own
+    /// accumulator loop benefits identically. General FBIP write-side string reuse.
+    StringAccumReuse = 51,
+    /// SIMD reduction: an integer accumulator loop summing `trunc(<liftable float in the counter>)`
+    /// over a counted range is lowered to an AVX2 four-lane `f64` reduction — the transcendental is
+    /// translated to `_mm256` intrinsics (branches → `blendv`), byte-identical to the scalar path
+    /// per lane, and the `i64` sum is associative so the reduce equals the sequential sum. Beats
+    /// scalar libm across the loop where LLVM refuses to auto-vectorize the `f64`→`i64` cast.
+    SimdReduce = 52,
+    /// Text write-side byte builder: a `Let out be a new Seq of Int` used ONLY as a byte builder
+    /// (`Push <i64> to out`) and consumed by `text_from_bytes(out)` lowers to a bare `Vec<u8>`
+    /// (`out.push((e) as u8)`) plus a direct `String::from_utf8(out)` — eliminating the
+    /// `Rc<RefCell<Vec<i64>>>` output (8x memory + per-push `borrow_mut` + no presize) AND the
+    /// separate `i64`->`u8` rebuild pass that `text_from_bytes` performed. Write-side half of the
+    /// byte-list elimination (twin of `TextBytesView`); fires on the SHAPE so any user byte-builder
+    /// benefits identically.
+    TextFromBytesBuilder = 53,
+    /// Text zero-copy sub-slice return: a fn that returns a CONTIGUOUS sub-slice of a borrowed Text
+    /// param (compute lo/hi by scans, then copy `item lo..hi of text_bytes(s)` into a builder and
+    /// `text_from_bytes(out)`) lowers to a borrowed `&'a str` return (`fn f<'a>(s: &'a str) -> &'a str
+    /// { &s[lo-1..hi] }`) when EVERY caller uses the result read-only (never binds/returns/pushes it).
+    /// Matches Rust `str::trim`/`strip_prefix` — an O(1) fat-pointer slice instead of an O(n) copy.
+    /// Requires the Text param already borrowed (Opt::Borrow); PREEMPTS the write-side builder on the
+    /// terminal Return (the slice supersedes building a Vec<u8>). The only ASYMPTOTIC text win.
+    TextSliceReturn = 54,
+    /// String concat reuse (Let-form): `Let X be A + B...` where A is a fresh OWNED `String` (a call
+    /// returning `String`) reuses A's buffer — `let mut X = A; X.push_str(&B)...` — instead of
+    /// `format!("{}{}", A, B)`, which allocates a NEW String and copies every operand. The `Let`-form
+    /// twin of `StringAccumReuse` (which handles `Set X to X + Y`). Construction-shared across the whole
+    /// text benchmark cluster (`repeatText(..) + base`), so it lifts trim/upper/lower/… toward Rust's
+    /// buffer-reuse (`"a".repeat(k) + &base`). Fires on the SHAPE; a user's `A + B` benefits identically.
+    StringConcatReuse = 55,
+    /// String repeat-idiom: `Let out be ""` + a counted loop whose sole body is `Set out to out + chunk`
+    /// (chunk loop-invariant) lowers to `let out = chunk.repeat(count)` — one presized alloc + memset,
+    /// matching Rust's `chunk.repeat(n)`, instead of `count` un-presized `push_str`es. Fires on the
+    /// SHAPE (a counted append of a fixed chunk), so `repeatText` and any user repeat-loop benefit.
+    StringRepeatLoop = 56,
+    /// ASCII-class bitmask: a pure `Int -> Bool` predicate whose true-set lies entirely in the byte
+    /// domain `[0,256)` (the `charIs*` family — range/equality checks over `c`) lowers to a branchless
+    /// 256-bit mask test `(0<=c<256) && (MASK[(c>>6)&3] >> (c&63)) & 1`, built by CTFE-evaluating the
+    /// predicate over `0..256`. Beats C's `ctype` table (the mask is an immediate/static — no memory
+    /// load). Fires on ANY such predicate, so a user's classifier collapses the same way.
+    AsciiClassMask = 57,
+    /// Power-of-two modulo/division strength reduction: `x % 2^k` → `x & (2^k-1)` and `x / 2^k` →
+    /// `x >> k` when `x` is proven non-negative (a loop counter from a `>= 0` start with a positive
+    /// step). rustc keeps sign-corrected `%`/`/` for a runtime i64 (several instructions that also
+    /// block auto-vectorization); the mask/shift is one op. Sound (for `x >= 0` they agree), general
+    /// (every ring-buffer/hash/index loop), and the measured lever that lets loops beat C.
+    StrengthReducePow2 = 58,
+    /// Branchless accumulate (predicate-guarded increment if-conversion): `if <cond> { X = X + k }`
+    /// (no else, X a plain integer accumulator, k a literal) → `X = X + (<cond> as i64) * k`. Removes
+    /// the data-dependent branch that blocks the loop vectorizer. Byte-identical (`cond ∈ {0,1}`, and
+    /// `cond` is evaluated exactly once either way). Pairs with a wide accumulator to beat C's count.
+    BranchlessAccumulate = 59,
+    /// Wide (i128) accumulator: a `Let X be 0` counting accumulator incremented ONLY by `+1` (guarded
+    /// or not) in a SINGLE counted loop with an i64 bound, read ONLY by `Show X`, widens to `i128` for
+    /// the loop — the plain i128 add has no overflow branch (unlike `logos_add_i64`), so the count
+    /// vectorizes. SOUND: X ≤ trip-count ≤ i64::MAX, so it fits i64 (narrow `as i64` at the sink is
+    /// exact) and i128 can't overflow. The lever that beats C's ctype-count loop (43ms vs 49ms).
+    WideAccumulator = 60,
+    /// Radix digit buffer (itoa): the base-N integer→text idiom (generate digits LSB-first into a
+    /// boxed `Seq`, reverse into a second boxed `Seq`, `text_from_bytes`) lowers to ONE fixed-size
+    /// stack `[u8; 64]` written BACK-TO-FRONT (the back-to-front write is the reversal), then one
+    /// `String` from the buffer tail — no heap Seq, no reversal copy. SOUND only when the loop
+    /// counter is a native i64 (never bignum-promotable) so the digit count is bounded ≤64. Beats
+    /// Go's strconv (measured 1.30x). Preempts `TextFromBytesBuilder` (it eliminates the `out`
+    /// byte-builder that pass would otherwise lower).
+    RadixDigitBuffer = 61,
+    /// Byte-slice return (the bytes-trim family): a fn taking a `Seq of Int` param that returns a
+    /// CONTIGUOUS `lo..=hi` sub-slice (scan, then copy `item lo..hi of xs` into `out`, `Return out`)
+    /// lowers to a borrowed `&'a [i64]` (`fn f<'a>(xs: &'a [i64], …) -> &'a [i64] { … &xs[lo-1..hi] }`)
+    /// — Go's O(1) `bytes.Trim` reslice instead of the O(n) build-copy. The bytes twin of
+    /// TextSliceReturn (a readonly Seq param is already `&[i64]`, so the sub-slice shares its
+    /// lifetime). Caller-gate drops any fn whose result escapes. Preempts OracleHints + Unchecked
+    /// (eliminates the indexed-copy loop those bounds-check opts would optimize). Requires Borrow.
+    ByteSliceReturn = 62,
+    /// Loop tiling: a band of counted loops runs in square tiles for cache locality, only where the dependence
+    /// test proves no run can tell the order apart (`optimize::dependence`), the nest versioned on the
+    /// preconditions that make it so (`optimize::version`). The order of every item's own updates is kept, so a
+    /// Real accumulation stays bit for bit.
+    Tile = 63,
+    /// Masked-chain narrowing: an integer chain of `+`, `-`, `*`, `&`, `|`, `^` and constant `<<` under a low-bit
+    /// mask `& (2^k - 1)`, `k <= 32`, whose every node the range oracle proves stays an i64, computes in 32-bit
+    /// wrapping arithmetic. That is exact: those operations' low `k` bits depend only on their operands' low `k`
+    /// bits. Narrowed, a masked LCG's unrolled steps become independent multiplies (by a, a², a³, a⁴) instead of one
+    /// serial 64-bit multiply chain.
+    MaskNarrow = 64,
+    /// A remainder by a constant `m > 0` of a value the range oracle bounds to `[0, 2m)`: `x - m` when `x >= m`, and
+    /// `x` otherwise, one compare and one subtract in place of a multiply-shift remainder (a value bounded below `m`
+    /// is its own remainder). A loop that carries a residue (`b = (a + b) % M`) has its remainder on the critical
+    /// path, so the subtraction bounds the loop instead of the division. On the bytecode path the VM compiler decides
+    /// it from the same oracle: a value below `m` compiles as itself, and one below `2m` keeps its magic remainder
+    /// marked `wrap`, which the VM and the C walker compute as the compare and subtract.
+    ModWrap = 65,
+    /// Branchless select: `If c: Set x to a. Otherwise: Set x to b.`, where both arms are integer arithmetic that
+    /// cannot trap and at least one keeps its exactness behind a guarded dual, computes both arms and lets `c` choose
+    /// (a conditional move, not a branch on `c`). The arms' guards are tested on their own before either arm; when one
+    /// fails, the original branch runs with its exact arithmetic. A data-dependent `c` (collatz's parity) no longer
+    /// mispredicts.
+    BranchlessSelect = 66,
+    /// Variant boxing: a variant of a recursive enum that holds the enum itself keeps all its fields in one box (the
+    /// variant's payload, a struct of them), where each recursive field had a box of its own; a variant with no
+    /// fields is a value with no allocation. A tree of `n` leaves allocates once per node rather than once per child,
+    /// a leaf included: OCaml's representation of a datatype.
+    VariantBox = 67,
+    /// Bit packing: a local `Seq of Bool` used only through item reads, item stores, pushes and its length is held one
+    /// bit per item (`LogosBits`), an eighth of the bytes of a `Vec<bool>`; a sieve's table of 10^8 flags fits the
+    /// cache its passes streamed through.
+    BitPack = 68,
+    /// Fold/build fusion: a function that only takes a datatype apart, applied to what a function builds of it, is
+    /// one function that never builds it (the builder's recursion, each construction replaced by the consumer's arm for
+    /// that variant). `check(bottomUpTree(d))` builds no tree, and the fused recursion is a shape the compiler
+    /// collapses.
+    FoldFusion = 69,
+    /// Sorting-nest collapse: a nest of passes of adjacent compare-exchanges over a sequence of Ints (bubble sort)
+    /// that has enough passes to sort its window is one in-place heap sort of the window, behind a hoisted check
+    /// that the passes suffice and the window lies inside the sequence; `n(n-1)/2` comparisons become `O(n log n)`.
+    SortNest = 70,
+    /// Divisor sieve: a search, for each number of a counted range, for a divisor no greater than its square root
+    /// (trial division) reads one sieve of the range, marked before the loop, behind a guard on the sieve's size;
+    /// `O(n sqrt n)` divisions become `O(n log log n)` marks.
+    DivisorSieve = 71,
+    /// Trace memoization: a pure iteration run from every start of a counted range, whose only effect adds a constant
+    /// to an accumulator, keeps what each finished start added in a table, and a trace that reaches a finished start
+    /// adds that start's sum and stops.
+    TraceMemo = 72,
+    /// Probe fusion: `If m contains k:` over a branch that reads `item k of m` reads the value once at the top of
+    /// the branch, and the test and the read are one lookup.
+    ProbeFuse = 73,
+    /// Strided fill: a loop that stores one value into a bit-packed `Seq of Bool` at a fixed stride, every store
+    /// proven to name an item and the stride at least 1, is one fill that writes each word once (a sieve crossing
+    /// off a small prime's multiples sets dozens of bits per word).
+    StrideFill = 74,
+    /// Hint versioning: the innermost loop whose bounds hints the Oracle could not discharge runs as two copies, one
+    /// that assumes every hint, chosen where every hint holds, and one that assumes none.
+    HintVersion = 75,
 }
 
 impl Opt {
-    /// The bit index this optimization occupies in an [`OptimizationConfig`].
-    #[inline]
-    pub const fn bit(self) -> u64 {
-        1u64 << (self as u8)
-    }
-
     /// This optimization's registry row.
     pub fn meta(self) -> &'static OptMeta {
         // Discriminants are 0..REGISTRY.len() in order, so index directly.
@@ -570,6 +867,25 @@ pub struct OptMeta {
     pub preempts: &'static [Opt],
     /// Where its decorator may appear.
     pub scope: Scope,
+    /// Whether it changes the program's algorithm — see [`OptWork`].
+    pub work: OptWork,
+}
+
+/// What an optimization does to the WORK a program performs, as opposed to how fast it performs it.
+///
+/// Benchmarks compare languages running the same algorithm. An optimization that replaces the algorithm makes the
+/// comparison a different one — a fair demonstration of the compiler, and one a reader must be told about: every
+/// benchmark a [`OptWork::Less`] optimization fires on carries a note saying what the compiler did
+/// (`benchmarks/lib/benchmarks.tsv`, locked by `benchmark_collapse_lock`), and is left out of the same-algorithm
+/// geometric mean. Every registry row must say which it is, so a new pass cannot change a result unannounced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptWork {
+    /// The same algorithm in cheaper machine code: the program's loops, recursion and data structures all still run.
+    Same,
+    /// A different, cheaper algorithm when it fires: memoized recursion, a loop or recursion replaced by its closed
+    /// form, a symmetric search cut in half, a map replaced by an array its keys index, a loop replaced by one
+    /// instruction, work moved to compile time.
+    Less,
 }
 
 use path::{AOT, CODEGEN, JIT, RUN, VM};
@@ -580,53 +896,101 @@ use Scope::{Both, ProgramOnly};
 /// The complete optimization registry: exactly one row per [`Opt`], in
 /// discriminant order. Earlier rows win conflicts against later rows.
 pub static REGISTRY: &[OptMeta] = &[
-    OptMeta { opt: Opt::Memo, keyword: "memo", label: "Memoization", group: "Inlining & calls", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Tco, keyword: "tco", label: "Tail-call optimization", group: "Inlining & calls", default_on: true, paths: AOT | RUN | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Memo], scope: Both },
-    OptMeta { opt: Opt::Peephole, keyword: "peephole", label: "Peephole rewrites", group: "Peephole", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
+    OptMeta { opt: Opt::Memo, keyword: "memo", label: "Memoization", group: "Inlining & calls", default_on: true, paths: AOT | RUN | CODEGEN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::Tco, keyword: "tco", label: "Tail-call optimization", group: "Inlining & calls", default_on: true, paths: AOT | RUN | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Memo], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Peephole, keyword: "peephole", label: "Peephole rewrites", group: "Peephole", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
     // Borrow preempts Tco: a `&mut [T]` in-place recursion (quicksort's
     // consume-alias shape) keeps its plain recursive calls — the pair-TCE
     // rewrite would reassign the borrowed param.
-    OptMeta { opt: Opt::Borrow, keyword: "borrow", label: "Borrow inference", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Tco], scope: Both },
-    OptMeta { opt: Opt::Specialize, keyword: "specialize", label: "Partial evaluation", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Comptime, keyword: "comptime", label: "Compile-time evaluation (CTFE)", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[Opt::Supercompile], scope: Both },
-    OptMeta { opt: Opt::Inline, keyword: "inline", label: "Function inlining", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Unfold, keyword: "unfold", label: "Recursion unrolling", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Defunctionalize, keyword: "defunctionalize", label: "Defunctionalization", group: "Inlining & calls", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::LoopHoist, keyword: "loophoist", label: "Loop-invariant code motion", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Unroll, keyword: "unroll", label: "Loop unrolling", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[], conflicts: &[], preempts: &[Opt::Interleave], scope: Both },
-    OptMeta { opt: Opt::LoopSplit, keyword: "loopsplit", label: "Loop index-set splitting", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::ClosedForm, keyword: "closedform", label: "Closed-form loop recognition", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[Opt::Peephole], scope: Both },
-    OptMeta { opt: Opt::Fuse, keyword: "fuse", label: "Deforestation (stream fusion)", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::LoopCse, keyword: "loopcse", label: "Loop-carried CSE", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Cse, keyword: "cse", label: "Common-subexpression elimination (GVN)", group: "Redundancy", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::DeadCode, keyword: "deadcode", label: "Dead-code elimination", group: "Redundancy", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Scalarize, keyword: "scalarize", label: "Array scalarization (SROA)", group: "Arrays & memory", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[Opt::Cse], conflicts: &[], preempts: &[Opt::HoistBorrows, Opt::Interleave, Opt::Unbox], scope: Both },
-    OptMeta { opt: Opt::Affine, keyword: "affine", label: "Affine array → closed form", group: "Arrays & memory", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Medium, requires: &[Opt::Unbox], conflicts: &[], preempts: &[], scope: Both },
+    OptMeta { opt: Opt::Borrow, keyword: "borrow", label: "Borrow inference", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Tco], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Specialize, keyword: "specialize", label: "Partial evaluation", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Comptime, keyword: "comptime", label: "Compile-time evaluation (CTFE)", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[Opt::Supercompile], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::Inline, keyword: "inline", label: "Function inlining", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Unfold, keyword: "unfold", label: "Recursion unrolling", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Defunctionalize, keyword: "defunctionalize", label: "Defunctionalization", group: "Inlining & calls", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::LoopHoist, keyword: "loophoist", label: "Loop-invariant code motion", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Unroll, keyword: "unroll", label: "Loop unrolling", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[], conflicts: &[], preempts: &[Opt::Interleave], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::LoopSplit, keyword: "loopsplit", label: "Loop index-set splitting", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    // NOTE: ClosedForm naturally preempts Memo (a recursion it solves has no
+    // self-calls left when the run-path memoizer runs right after it, so Memo
+    // declines), but NO witness program exhibits both on the same function, so
+    // the edge is left UNDECLARED — the corpus-observed-edges lock forbids
+    // declaring a precedence nothing exercises (it would be a phantom).
+    OptMeta { opt: Opt::ClosedForm, keyword: "closedform", label: "Closed-form loop recognition", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[Opt::Peephole], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::Fuse, keyword: "fuse", label: "Deforestation (stream fusion)", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::LoopCse, keyword: "loopcse", label: "Loop-carried CSE", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Cse, keyword: "cse", label: "Common-subexpression elimination (GVN)", group: "Redundancy", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::DeadCode, keyword: "deadcode", label: "Dead-code elimination", group: "Redundancy", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Scalarize, keyword: "scalarize", label: "Array scalarization (SROA)", group: "Arrays & memory", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[Opt::Cse], conflicts: &[], preempts: &[Opt::HoistBorrows, Opt::Interleave, Opt::Unbox], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Affine, keyword: "affine", label: "Affine array → closed form", group: "Arrays & memory", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Medium, requires: &[Opt::Unbox], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
     // AoS interleaving is mutually exclusive with Unroll/Scalarize only at RUNTIME
     // (the codegen regime gate skips it when a co-indexed array has any constant
     // index access — i.e. once it has been unrolled/scalarized), NOT at config
     // level. All three stay enabled by default; the gate arbitrates per program.
-    OptMeta { opt: Opt::Interleave, keyword: "interleave", label: "Array-of-structs interleaving", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[Opt::Scalarize], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::Unbox, keyword: "unbox", label: "De-Rc (Vec instead of Rc<RefCell>)", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::HoistBorrows, keyword: "hoistborrows", label: "Borrow hoisting", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::Narrow, keyword: "narrow", label: "i32 sequence narrowing (codegen)", group: "Number representation", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[Opt::Unbox], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::NarrowVm, keyword: "narrowvm", label: "i32 sequence narrowing (VM)", group: "Number representation", default_on: true, paths: VM | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::NarrowMap, keyword: "narrowmap", label: "i32 map-key narrowing", group: "Number representation", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::DenseMap, keyword: "densemap", label: "Dense direct-addressed map", group: "Number representation", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::NarrowMap], scope: ProgramOnly },
-    OptMeta { opt: Opt::ElemType, keyword: "elemtype", label: "Element-type narrowing", group: "Number representation", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Medium, requires: &[Opt::Oracle], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::FastDiv, keyword: "fastdiv", label: "Magic-reciprocal division", group: "Number representation", default_on: true, paths: AOT | VM | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::FloatStrength, keyword: "floatstrength", label: "Float induction strength reduction", group: "Number representation", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Oracle, keyword: "oracle", label: "Abstract interpretation (oracle facts)", group: "Bounds & checks", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::OracleHints, keyword: "oraclehints", label: "Oracle bounds-check guards", group: "Bounds & checks", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[Opt::Oracle], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Unchecked, keyword: "unchecked", label: "Oracle-proven unchecked indexing", group: "Bounds & checks", default_on: true, paths: AOT | JIT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Medium, requires: &[Opt::Oracle], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Simd, keyword: "simd", label: "SIMD search kernels", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::Cascade, keyword: "cascade", label: "Cascade folding", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::IndexString, keyword: "indexstring", label: "Indexed string search", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::CapScale, keyword: "capscale", label: "Capacity-scaling buffer fill", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly },
-    OptMeta { opt: Opt::Symmetry, keyword: "symmetry", label: "Symmetry breaking", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[Opt::Specialize], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Popcount, keyword: "popcount", label: "Popcount leaf collapse", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Saturate, keyword: "saturate", label: "Equality saturation (e-graph)", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[], conflicts: &[], preempts: &[], scope: Both },
-    OptMeta { opt: Opt::Supercompile, keyword: "supercompile", label: "Supercompilation", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[], conflicts: &[], preempts: &[], scope: Both },
+    OptMeta { opt: Opt::Interleave, keyword: "interleave", label: "Array-of-structs interleaving", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[Opt::Scalarize], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::Unbox, keyword: "unbox", label: "De-Rc (Vec instead of Rc<RefCell>)", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::HoistBorrows, keyword: "hoistborrows", label: "Borrow hoisting", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::HintVersion], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::Narrow, keyword: "narrow", label: "i32 sequence narrowing (codegen)", group: "Number representation", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[Opt::Unbox], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::NarrowVm, keyword: "narrowvm", label: "i32 sequence narrowing (VM)", group: "Number representation", default_on: true, paths: VM | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::NarrowMap, keyword: "narrowmap", label: "i32 map-key narrowing", group: "Number representation", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::DenseMap, keyword: "densemap", label: "Dense direct-addressed map", group: "Number representation", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::NarrowMap], scope: ProgramOnly, work: OptWork::Less },
+    OptMeta { opt: Opt::ElemType, keyword: "elemtype", label: "Element-type narrowing", group: "Number representation", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: SavesMem, cost: Medium, requires: &[Opt::Oracle], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::FastDiv, keyword: "fastdiv", label: "Magic-reciprocal division", group: "Number representation", default_on: true, paths: AOT | VM | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::FloatStrength, keyword: "floatstrength", label: "Float induction strength reduction", group: "Number representation", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Oracle, keyword: "oracle", label: "Abstract interpretation (oracle facts)", group: "Bounds & checks", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::OracleHints, keyword: "oraclehints", label: "Oracle bounds-check guards", group: "Bounds & checks", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[Opt::Oracle], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Unchecked, keyword: "unchecked", label: "Oracle-proven unchecked indexing", group: "Bounds & checks", default_on: true, paths: AOT | JIT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Medium, requires: &[Opt::Oracle], conflicts: &[], preempts: &[Opt::HintVersion], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Simd, keyword: "simd", label: "SIMD search kernels", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::BranchlessAccumulate], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::Cascade, keyword: "cascade", label: "Cascade folding", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::IndexString, keyword: "indexstring", label: "Indexed string search", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::StringAccumReuse], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::CapScale, keyword: "capscale", label: "Capacity-scaling buffer fill", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::Symmetry, keyword: "symmetry", label: "Symmetry breaking", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[Opt::Specialize], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::Popcount, keyword: "popcount", label: "Popcount leaf collapse", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::Saturate, keyword: "saturate", label: "Equality saturation (e-graph)", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[], conflicts: &[], preempts: &[Opt::BignumInPlace], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Supercompile, keyword: "supercompile", label: "Supercompilation", group: "Search-space", default_on: true, paths: AOT, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Heavy, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Sccp, keyword: "sccp", label: "Sparse conditional constant propagation", group: "Redundancy", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[Opt::Supercompile], scope: Both, work: OptWork::Same },
+    // IntStrength and LoopSplit COMPOSE, not preempt: on the AOT path IntStrength
+    // DEFERS the square matmul nest to the codegen tiler (LoopSplit family), whose
+    // L1 cache tiling beats removing the index multiply and needs the nest's raw
+    // shape (`int_induction_sr::is_square_triple_nest`). No precedence edge — both
+    // fire, on the loops each is best for.
+    OptMeta { opt: Opt::IntStrength, keyword: "intstrength", label: "Integer induction strength reduction", group: "Number representation", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::RegPromote, keyword: "regpromote", label: "Aggregate-element register promotion", group: "Arrays & memory", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::Interchange, keyword: "interchange", label: "Loop interchange", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Heavy, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::AccumBound, keyword: "accumbound", label: "Bounded-accumulator overflow-guard elision", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::DivModFuse, keyword: "divmodfuse", label: "Div-mod fusion (shared quotient for a/b + a%b)", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::SpecializeLoop, keyword: "specializeloop", label: "Range-aware helper specialization in counted loops", group: "Loops", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::BignumByRef, keyword: "bignumbyref", label: "Bignum by-ref arithmetic (clone elision)", group: "Bignum", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::BignumInPlace, keyword: "bignuminplace", label: "In-place bignum scalar multiply (mul_assign_i64)", group: "Bignum", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::BignumByRef], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::BitIntrinsics, keyword: "bitintrinsics", label: "Native-width bit intrinsics (rotate/reverse/byteswap)", group: "Bits", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::TextBytesView, keyword: "textbytesview", label: "Text-bytes zero-copy &[u8] view (no Vec<i64> byte-list)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::StringAccumReuse, keyword: "stringaccumreuse", label: "String accumulator in-place push_str (no per-concat realloc)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::SimdReduce, keyword: "simdreduce", label: "AVX2 SIMD reduction of a transcendental accumulator loop", group: "Math", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::TextFromBytesBuilder, keyword: "textfrombytesbuilder", label: "Text write-side byte builder (Vec<u8>, no Vec<i64> + no rebuild)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::TextSliceReturn, keyword: "textslicereturn", label: "Text zero-copy sub-slice return (&str, no build-copy)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[Opt::Borrow], conflicts: &[], preempts: &[Opt::TextFromBytesBuilder], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::StringConcatReuse, keyword: "stringconcatreuse", label: "String concat buffer reuse (Let X be A+B -> move+push_str, no format! realloc)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::StringRepeatLoop, keyword: "stringrepeatloop", label: "String repeat idiom (counted push_str loop -> chunk.repeat(n), presized)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::StringAccumReuse], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::AsciiClassMask, keyword: "asciiclassmask", label: "ASCII-class predicate to branchless 256-bit mask (beats ctype LUT)", group: "Strings & SIMD", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::StrengthReducePow2, keyword: "strengthreducepow2", label: "Power-of-two %/÷ to mask/shift on non-negative operands (unblocks vectorization)", group: "Arithmetic", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::ModWrap], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::BranchlessAccumulate, keyword: "branchlessaccumulate", label: "Predicate-guarded increment if-conversion (branchless, vectorizable count)", group: "Arithmetic", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::WideAccumulator, keyword: "wideaccumulator", label: "i128 widening of a bounded counting accumulator (plain add vectorizes, beats C)", group: "Arithmetic", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::RadixDigitBuffer, keyword: "radixdigitbuffer", label: "itoa stack digit buffer (one [u8;64] back-to-front, no boxed Seq + no reversal, beats Go strconv)", group: "Text", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::TextFromBytesBuilder, Opt::HoistBorrows], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::ByteSliceReturn, keyword: "byteslicereturn", label: "Bytes zero-copy sub-slice return (&[i64], no build-copy)", group: "Bytes", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[Opt::Borrow], conflicts: &[], preempts: &[Opt::OracleHints, Opt::Unchecked], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::Tile, keyword: "tile", label: "Loop tiling", group: "Loops", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::MaskNarrow, keyword: "masknarrow", label: "Masked integer chain at the mask's width (32-bit wrapping under & (2^k-1), k <= 32)", group: "Arithmetic", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::StrengthReducePow2], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::ModWrap, keyword: "modwrap", label: "Remainder of a value below twice its constant divisor as one conditional subtraction", group: "Arithmetic", default_on: true, paths: AOT | VM | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::BranchlessSelect, keyword: "branchlessselect", label: "Two-armed integer assignment as a select of both guarded arms (no branch on the condition)", group: "Arithmetic", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::VariantBox, keyword: "variantbox", label: "Recursive enum variant boxed whole (one box per node; a fieldless variant allocates nothing)", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::BitPack, keyword: "bitpack", label: "Local Seq of Bool held one bit per item (an eighth of the memory; a sieve fits the cache)", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[Opt::Unbox], conflicts: &[], preempts: &[Opt::HoistBorrows], scope: ProgramOnly, work: OptWork::Same },
+    OptMeta { opt: Opt::FoldFusion, keyword: "foldfuse", label: "A consumer of a datatype applied to what a builder builds of it, as one function that never builds it", group: "Inlining & calls", default_on: true, paths: AOT, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::SortNest, keyword: "sortnest", label: "A nest of adjacent compare-exchanges that sorts a window, as one in-place heap sort", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::DivisorSieve, keyword: "divisorsieve", label: "A per-number search for a divisor up to its square root, as one sieve of the range", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Less },
+    // TraceMemo preempts Peephole: the counted loop over starts it rewrites into a guarded walk of the table is
+    // no longer the `While i <= n` shape the peephole lowers to a range.
+    OptMeta { opt: Opt::TraceMemo, keyword: "tracememo", label: "A pure iteration run from every start of a range, stopped where it reaches a start already finished", group: "Loops", default_on: true, paths: AOT, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Peephole], scope: Both, work: OptWork::Less },
+    OptMeta { opt: Opt::ProbeFuse, keyword: "probefuse", label: "A map's membership test and the reads of the same key under it, as one lookup", group: "Redundancy", default_on: true, paths: AOT, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::StrideFill, keyword: "stridefill", label: "A loop storing one value into a bit-packed Seq of Bool at a fixed stride, as a fill that writes each word once", group: "Arrays & memory", default_on: true, paths: AOT, emits_unsafe: true, mem_class: Neutral, cost: Medium, requires: &[Opt::BitPack, Opt::Unchecked], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
+    OptMeta { opt: Opt::HintVersion, keyword: "hintversion", label: "The innermost loop with bounds hints as a copy that assumes them where they all hold and a copy that assumes none", group: "Bounds & checks", default_on: true, paths: AOT, emits_unsafe: true, mem_class: Neutral, cost: Medium, requires: &[Opt::OracleHints], conflicts: &[], preempts: &[], scope: Both, work: OptWork::Same },
 ];
 
 /// Look up an optimization by its decorator keyword (case-insensitive).
@@ -702,7 +1066,7 @@ impl NormalizeReport {
 /// all bits yields plain, boring Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct OptimizationConfig {
-    enabled: u64,
+    enabled: OptBits,
 }
 
 impl Default for OptimizationConfig {
@@ -714,10 +1078,10 @@ impl Default for OptimizationConfig {
 impl OptimizationConfig {
     /// Every default-on optimization enabled (the speed baseline).
     pub fn all_on() -> Self {
-        let mut enabled = 0u64;
+        let mut enabled = OptBits::EMPTY;
         for m in REGISTRY {
             if m.default_on {
-                enabled |= m.opt.bit();
+                enabled = enabled.with(m.opt);
             }
         }
         Self { enabled }
@@ -725,23 +1089,25 @@ impl OptimizationConfig {
 
     /// No optimizations enabled — the "boring Rust" config.
     pub const fn all_off() -> Self {
-        Self { enabled: 0 }
+        Self {
+            enabled: OptBits::EMPTY,
+        }
     }
 
     /// Whether a given optimization is on.
     #[inline]
     pub const fn is_on(&self, opt: Opt) -> bool {
-        self.enabled & opt.bit() != 0
+        self.enabled.contains(opt)
     }
 
     /// Turn an optimization on or off.
     #[inline]
     pub fn set(&mut self, opt: Opt, on: bool) {
-        if on {
-            self.enabled |= opt.bit();
+        self.enabled = if on {
+            self.enabled.with(opt)
         } else {
-            self.enabled &= !opt.bit();
-        }
+            self.enabled.without(opt)
+        };
     }
 
     /// Turn an optimization off (builder style).
@@ -763,13 +1129,13 @@ impl OptimizationConfig {
     /// leaf must pull its whole requires-chain on, or `normalize` would just turn
     /// the leaf back off. This is the on-direction of the UI's toggle-linking.
     pub fn enable_with_requires(&mut self, opt: Opt) {
-        let mut visited = 0u64;
+        let mut visited = OptBits::EMPTY;
         let mut stack = vec![opt];
         while let Some(o) = stack.pop() {
-            if visited & o.bit() != 0 {
+            if visited.contains(o) {
                 continue;
             }
-            visited |= o.bit();
+            visited = visited.with(o);
             self.set(o, true);
             for &req in o.meta().requires {
                 stack.push(req);
@@ -779,19 +1145,20 @@ impl OptimizationConfig {
 
     /// Whether every optimization is off.
     pub const fn is_all_off(&self) -> bool {
-        self.enabled == 0
+        self.enabled.is_empty()
     }
 
-    /// The raw enabled bitmask (bit layout = [`Opt::bit`]). Lets callers relate
-    /// an [`OptimizationConfig`] to a [`FiredOptimizations`] set bit-for-bit.
-    pub const fn bits(&self) -> u64 {
+    /// The enabled set. Relates an [`OptimizationConfig`] to a [`FiredOptimizations`] set bit for bit.
+    pub const fn bits(&self) -> OptBits {
         self.enabled
     }
 
     /// Combine a program-level config with a function's per-function overrides:
     /// an optimization is on for the function only if it is on in both.
     pub const fn merged(&self, func: &OptimizationConfig) -> OptimizationConfig {
-        OptimizationConfig { enabled: self.enabled & func.enabled }
+        OptimizationConfig {
+            enabled: self.enabled.intersection(func.enabled),
+        }
     }
 
     /// The keywords of every optimization currently off (registry order).
@@ -822,7 +1189,9 @@ impl OptimizationConfig {
             for &other in m.conflicts {
                 if (other as u8) < (m.opt as u8) && self.is_on(other) {
                     self.set(m.opt, false);
-                    report.auto_disabled.push((m.opt, Reason::ConflictWith(other)));
+                    report
+                        .auto_disabled
+                        .push((m.opt, Reason::ConflictWith(other)));
                     break;
                 }
             }
@@ -838,7 +1207,9 @@ impl OptimizationConfig {
                 for &req in m.requires {
                     if !self.is_on(req) {
                         self.set(m.opt, false);
-                        report.auto_disabled.push((m.opt, Reason::DependencyOff(req)));
+                        report
+                            .auto_disabled
+                            .push((m.opt, Reason::DependencyOff(req)));
                         changed = true;
                         break;
                     }
@@ -916,6 +1287,69 @@ impl OptimizationConfig {
     }
 }
 
+/// The benchmark-visible execution backend whose optimization decisions are
+/// being traced. This is deliberately independent of [`path`]: `path` says
+/// where an optimization is allowed statically, while this identifies the
+/// concrete lowering that was asked to consume the optimized program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptimizationBackend {
+    RustAot,
+    CAst,
+    CBytecode,
+    TreeWalker,
+    Vm,
+    Jit,
+}
+
+/// An explicit backend escape hatch taken while lowering. A fallback is data,
+/// never a silent control-flow edge: benchmark tooling can ratchet this list to
+/// zero without pretending the fallback backend performed the requested work.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptimizationFallback {
+    pub from: OptimizationBackend,
+    pub to: OptimizationBackend,
+    pub reason: String,
+}
+
+/// A supported optimization that a backend deliberately chose not to apply.
+///
+/// This is distinct from [`OptimizationFallback`]: a decline stays on the
+/// requested backend and records a cost-model, proof, or capability decision;
+/// a fallback changes the backend that executes the program. Keeping the two
+/// channels separate lets benchmark ratchets reject silent backend changes
+/// without also rejecting an explicitly justified profitability decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OptimizationDecline {
+    pub backend: OptimizationBackend,
+    pub opt: Opt,
+    pub reason: String,
+}
+
+/// Stage-separated optimization evidence for one backend compile/run.
+///
+/// `optimizer` contains shared IR/AST transformations. `lowering` contains
+/// choices that fired only while the selected backend emitted or compiled its
+/// target. Keeping these sets separate is the ratchet: a shared pass reaching C
+/// can no longer be mistaken for the C emitter actually preserving/consuming
+/// its optimized form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendOptimizationTrace {
+    pub backend: OptimizationBackend,
+    pub optimizer: FiredOptimizations,
+    pub lowering: FiredOptimizations,
+    pub declines: Vec<OptimizationDecline>,
+    pub fallbacks: Vec<OptimizationFallback>,
+}
+
+impl BackendOptimizationTrace {
+    /// Compatibility union used by the original single-bitset trace API.
+    pub fn all_fired(&self) -> FiredOptimizations {
+        let mut all = self.optimizer;
+        all.merge(&self.lowering);
+        all
+    }
+}
+
 /// Which optimizations actually FIRED during a single compile — one bit per
 /// [`Opt`], the same bit layout as [`OptimizationConfig`]. An optimization is
 /// "fired" when it actually changed the program or emitted its optimized form
@@ -924,45 +1358,47 @@ impl OptimizationConfig {
 /// entry points); the normal compile path never records into it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FiredOptimizations {
-    fired: u64,
+    fired: OptBits,
 }
 
 impl FiredOptimizations {
     /// An empty set — nothing fired.
     pub const fn new() -> Self {
-        Self { fired: 0 }
+        Self {
+            fired: OptBits::EMPTY,
+        }
     }
 
-    /// Build from a raw bitmask (bit layout = [`Opt::bit`]).
-    pub const fn from_bits(fired: u64) -> Self {
+    /// Build from a set of fired optimizations.
+    pub const fn from_bits(fired: OptBits) -> Self {
         Self { fired }
     }
 
     /// Record that `opt` fired.
     #[inline]
     pub fn mark(&mut self, opt: Opt) {
-        self.fired |= opt.bit();
+        self.fired = self.fired.with(opt);
     }
 
     /// Whether `opt` fired.
     #[inline]
     pub const fn fired(&self, opt: Opt) -> bool {
-        self.fired & opt.bit() != 0
+        self.fired.contains(opt)
     }
 
     /// Whether nothing fired.
     pub const fn is_empty(&self) -> bool {
-        self.fired == 0
+        self.fired.is_empty()
     }
 
-    /// The raw fired bitmask.
-    pub const fn bits(&self) -> u64 {
+    /// The fired set.
+    pub const fn bits(&self) -> OptBits {
         self.fired
     }
 
     /// Fold another set's fired bits into this one.
     pub fn merge(&mut self, other: &FiredOptimizations) {
-        self.fired |= other.fired;
+        self.fired = self.fired.union(other.fired);
     }
 
     /// The optimizations that fired, in registry order.
@@ -1216,526 +1652,5 @@ impl Profile {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashSet;
-
-    #[test]
-    fn registry_has_one_row_per_opt_in_order() {
-        // Every row's opt must equal its index (discriminant == bit == index).
-        for (i, m) in REGISTRY.iter().enumerate() {
-            assert_eq!(m.opt as usize, i, "registry row {i} out of order: {:?}", m.opt);
-        }
-    }
-
-    #[test]
-    fn keywords_are_unique_lowercase_single_tokens() {
-        let mut seen = HashSet::new();
-        for m in REGISTRY {
-            assert!(seen.insert(m.keyword), "duplicate keyword {}", m.keyword);
-            assert_eq!(m.keyword, m.keyword.to_ascii_lowercase(), "keyword not lowercase: {}", m.keyword);
-            assert!(!m.keyword.is_empty(), "empty keyword");
-            assert!(!m.keyword.contains(char::is_whitespace), "keyword has whitespace: {}", m.keyword);
-        }
-    }
-
-    #[test]
-    fn requires_and_conflicts_reference_real_variants_no_cycle() {
-        // All references resolve (they are typed `Opt`, so this is structural):
-        // assert no opt requires itself and there is no trivial requires-cycle.
-        for m in REGISTRY {
-            assert!(!m.requires.contains(&m.opt), "{:?} requires itself", m.opt);
-            assert!(!m.conflicts.contains(&m.opt), "{:?} conflicts with itself", m.opt);
-            for &r in m.requires {
-                // No 2-cycle: the required opt must not require this one back.
-                assert!(!r.meta().requires.contains(&m.opt), "requires cycle: {:?} <-> {:?}", m.opt, r);
-            }
-        }
-    }
-
-    #[test]
-    fn run_path_opt_costs_match_fixture() {
-        // The RUN-path opts `optimize_for_run` actually gates, with the cost that
-        // decides which hotness tier pays for them (HOTSWAP §3). Pinned as a fixture
-        // so a misclassification is a hard failure, never silently absorbed.
-        use OptCost::{Cheap, Heavy, Medium};
-        let expect = |opt: Opt, c: OptCost| assert_eq!(opt.cost(), c, "{opt:?} cost");
-        for (opt, c) in [
-            (Opt::Inline, Cheap),
-            (Opt::Tco, Cheap),
-            (Opt::DeadCode, Cheap),
-            (Opt::Specialize, Medium), // PE-light at T2 / PE-full at T3 via the iteration cap
-            (Opt::Comptime, Medium),
-            (Opt::LoopCse, Medium),
-            (Opt::FloatStrength, Medium),
-            (Opt::Cse, Medium),
-            (Opt::Affine, Medium),
-            (Opt::LoopHoist, Medium),
-            (Opt::ClosedForm, Medium),
-            (Opt::Fuse, Medium),
-            (Opt::Oracle, Medium),
-            (Opt::ElemType, Medium),
-            (Opt::Unroll, Heavy),
-            (Opt::Scalarize, Heavy),
-            (Opt::Unfold, Heavy),
-        ] {
-            expect(opt, c);
-        }
-    }
-
-    #[test]
-    fn requires_cost_monotone() {
-        // Well-formedness for the tiered optimizer: every opt's `requires` must cost
-        // no more than the opt itself, so a tier that admits the dependent always
-        // admits its dependencies (HOTSWAP §4.2). A failure is a HARD STOP — never
-        // resolve it by lowering a dependency's cost.
-        for m in REGISTRY {
-            for &r in m.requires {
-                assert!(
-                    r.cost() <= m.opt.cost(),
-                    "{:?} (cost {:?}) requires {:?} (cost {:?}) — violates cost monotonicity",
-                    m.opt,
-                    m.opt.cost(),
-                    r,
-                    r.cost()
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn tier_budget_and_admits_truth_table() {
-        use OptCost::{Cheap, Heavy, Medium};
-        assert_eq!(Tier::T0.budget(), None);
-        assert_eq!(Tier::T1.budget(), Some(Cheap));
-        assert_eq!(Tier::T2.budget(), Some(Medium));
-        assert_eq!(Tier::T3.budget(), Some(Heavy));
-
-        let on = OptimizationConfig::all_on();
-        // T0 optimizes nothing.
-        assert!(!admits(&on, Tier::T0, Opt::Inline));
-        // T1: Cheap only.
-        assert!(admits(&on, Tier::T1, Opt::Inline)); // Cheap
-        assert!(!admits(&on, Tier::T1, Opt::Cse)); // Medium
-        assert!(!admits(&on, Tier::T1, Opt::Unroll)); // Heavy
-        // T2: Cheap + Medium.
-        assert!(admits(&on, Tier::T2, Opt::Inline));
-        assert!(admits(&on, Tier::T2, Opt::Cse));
-        assert!(!admits(&on, Tier::T2, Opt::Unroll));
-        // T3: everything.
-        assert!(admits(&on, Tier::T3, Opt::Inline));
-        assert!(admits(&on, Tier::T3, Opt::Cse));
-        assert!(admits(&on, Tier::T3, Opt::Unroll));
-        // admits still respects cfg.is_on — a disabled opt never runs at any tier.
-        let off = OptimizationConfig::all_on().disable(Opt::Inline);
-        assert!(!admits(&off, Tier::T3, Opt::Inline));
-        // Tiers order like their budgets.
-        assert!(Tier::T0 < Tier::T1 && Tier::T1 < Tier::T2 && Tier::T2 < Tier::T3);
-    }
-
-    #[test]
-    fn opt_count_matches_registry() {
-        assert_eq!(OPT_COUNT, REGISTRY.len());
-    }
-
-    #[test]
-    fn tier_thresholds_default_and_tier_for() {
-        let t = TierThresholds::default();
-        assert_eq!((t.t1, t.t2, t.t3), (8, 32, 100));
-        assert_eq!(t.tier_for(0), Tier::T0);
-        assert_eq!(t.tier_for(7), Tier::T0);
-        assert_eq!(t.tier_for(8), Tier::T1);
-        assert_eq!(t.tier_for(31), Tier::T1);
-        assert_eq!(t.tier_for(32), Tier::T2);
-        assert_eq!(t.tier_for(99), Tier::T2);
-        assert_eq!(t.tier_for(100), Tier::T3);
-        assert_eq!(t.tier_for(10_000), Tier::T3);
-    }
-
-    #[test]
-    fn hotswap_mode_effective_tier() {
-        let th = TierThresholds::default();
-        let mk = |mode, force_tier| HotswapConfig {
-            mode,
-            thresholds: th,
-            force_tier,
-            pins: PinSet::none(),
-        };
-        // Eager: always T3 regardless of count.
-        assert_eq!(mk(TierMode::Eager, None).effective_tier(0), Tier::T3);
-        // Baseline: always T0.
-        assert_eq!(mk(TierMode::Baseline, None).effective_tier(10_000), Tier::T0);
-        // Tiered: climbs by hotness.
-        let tiered = mk(TierMode::Tiered, None);
-        assert_eq!(tiered.effective_tier(0), Tier::T0);
-        assert_eq!(tiered.effective_tier(8), Tier::T1);
-        assert_eq!(tiered.effective_tier(32), Tier::T2);
-        assert_eq!(tiered.effective_tier(100), Tier::T3);
-        // force_tier overrides everything (the determinism lever for tests).
-        let forced = mk(TierMode::Tiered, Some(Tier::T2));
-        assert_eq!(forced.effective_tier(0), Tier::T2);
-        assert_eq!(forced.effective_tier(10_000), Tier::T2);
-    }
-
-    #[test]
-    fn hotswap_from_spec_modes_and_force() {
-        let th = TierThresholds::default();
-        // LOGOS_HOTSWAP=off forces Eager.
-        assert_eq!(
-            HotswapConfig::from_spec(Some("off"), Some("baseline"), None, th, None).mode,
-            TierMode::Eager
-        );
-        // Profiles.
-        assert_eq!(HotswapConfig::from_spec(None, Some("eager"), None, th, None).mode, TierMode::Eager);
-        assert_eq!(HotswapConfig::from_spec(None, Some("baseline"), None, th, None).mode, TierMode::Baseline);
-        assert_eq!(HotswapConfig::from_spec(None, Some("tiered"), None, th, None).mode, TierMode::Tiered);
-        // Default mode is Eager (the §12.2 ratchet — Tiered is opt-in until proven).
-        assert_eq!(HotswapConfig::from_spec(None, None, None, th, None).mode, TierMode::Eager);
-        assert_eq!(HotswapConfig::default().mode, TierMode::Eager);
-        // force_tier parses number and word forms.
-        assert_eq!(HotswapConfig::from_spec(None, None, Some("2"), th, None).force_tier, Some(Tier::T2));
-        assert_eq!(HotswapConfig::from_spec(None, None, Some("veryhot"), th, None).force_tier, Some(Tier::T3));
-        assert_eq!(HotswapConfig::from_spec(None, None, Some("nonsense"), th, None).force_tier, None);
-    }
-
-    #[test]
-    fn run_tier_maps_mode_to_upfront_tier() {
-        let th = TierThresholds::default();
-        let mk = |mode, force_tier| HotswapConfig { mode, thresholds: th, force_tier, pins: PinSet::none() };
-        // Eager pays the full optimizer upfront; Tiered/Baseline start at the baseline.
-        assert_eq!(mk(TierMode::Eager, None).run_tier(), Tier::T3);
-        assert_eq!(mk(TierMode::Tiered, None).run_tier(), Tier::T0);
-        assert_eq!(mk(TierMode::Baseline, None).run_tier(), Tier::T0);
-        // force_tier overrides the mode (test determinism).
-        assert_eq!(mk(TierMode::Tiered, Some(Tier::T2)).run_tier(), Tier::T2);
-        assert_eq!(mk(TierMode::Eager, Some(Tier::T1)).run_tier(), Tier::T1);
-    }
-
-    #[test]
-    fn admits_pinned_overrides_cost_tier() {
-        let on = OptimizationConfig::all_on();
-        let mut pins = PinSet::none();
-        pins.set(Opt::Unfold, Pin::Never);
-        pins.set(Opt::Fuse, Pin::Eager);
-        pins.set(Opt::Specialize, Pin::At(Tier::T2));
-        let hs = HotswapConfig {
-            mode: TierMode::Tiered,
-            thresholds: TierThresholds::default(),
-            force_tier: None,
-            pins,
-        };
-        // Never: off at every tier.
-        assert!(!admits_pinned(&on, &hs, Tier::T3, Opt::Unfold));
-        // Eager: on as soon as warm (T1), despite Medium cost.
-        assert!(admits_pinned(&on, &hs, Tier::T1, Opt::Fuse));
-        // At(T2): off at T1, on at T2.
-        assert!(!admits_pinned(&on, &hs, Tier::T1, Opt::Specialize));
-        assert!(admits_pinned(&on, &hs, Tier::T2, Opt::Specialize));
-        // Unpinned: cost-derived (matches `admits`).
-        assert!(admits_pinned(&on, &hs, Tier::T1, Opt::Inline));
-        assert!(!admits_pinned(&on, &hs, Tier::T1, Opt::Cse));
-        // A disabled opt never runs regardless of pin.
-        let off = OptimizationConfig::all_on().disable(Opt::Fuse);
-        assert!(!admits_pinned(&off, &hs, Tier::T3, Opt::Fuse));
-    }
-
-    #[test]
-    fn pin_spec_parses_keyword_value_pairs() {
-        let mut pins = PinSet::none();
-        apply_pin_spec(&mut pins, "specialize:eager, fuse:t1 ; unfold:never, bogus:t2, cse:nonsense");
-        assert_eq!(pins.get(Opt::Specialize), Some(Pin::Eager));
-        assert_eq!(pins.get(Opt::Fuse), Some(Pin::At(Tier::T1)));
-        assert_eq!(pins.get(Opt::Unfold), Some(Pin::Never));
-        assert_eq!(pins.get(Opt::Cse), None, "unparseable value is ignored");
-    }
-
-    #[test]
-    fn decorate_source_inserts_file_level_decorators() {
-        let src = "## To f (x: Int) -> Int:\n    Return x.\n\n## Main\nShow 1.\n";
-        let d = decorate_source(src, &["scalarize", "unroll"]);
-        assert!(d.contains("## No scalarize\n## No unroll\n## Main"), "got:\n{d}");
-        assert!(d.starts_with("## To f"), "functions stay before the decorators");
-        // Empty list is a no-op.
-        assert_eq!(decorate_source(src, &[]), src);
-        // A library with no `## Main` appends the decorators (EOF = file-level).
-        let lib = "## To f (x: Int) -> Int:\n    Return x.\n";
-        assert!(decorate_source(lib, &["cse"]).ends_with("## No cse\n"));
-    }
-
-    #[test]
-    fn decorate_tiers_inserts_file_level_pins() {
-        let src = "## To f (x: Int) -> Int:\n    Return x.\n\n## Main\nShow 1.\n";
-        let d = decorate_tiers(src, &[("specialize", "eager"), ("unfold", "never")]);
-        assert!(
-            d.contains("## Tier specialize eager\n## Tier unfold never\n## Main"),
-            "got:\n{d}"
-        );
-        assert!(d.starts_with("## To f"), "functions stay before the decorators");
-        assert_eq!(decorate_tiers(src, &[]), src, "empty list is a no-op");
-        let lib = "## To f (x: Int) -> Int:\n    Return x.\n";
-        assert!(decorate_tiers(lib, &[("fuse", "t1")]).ends_with("## Tier fuse t1\n"));
-    }
-
-    #[test]
-    fn by_keyword_round_trips() {
-        for m in REGISTRY {
-            assert_eq!(by_keyword(m.keyword), Some(m.opt));
-            assert_eq!(by_keyword(&m.keyword.to_uppercase()), Some(m.opt));
-        }
-        assert_eq!(by_keyword("nonsense"), None);
-    }
-
-    #[test]
-    fn all_on_enables_everything_all_off_nothing() {
-        let on = OptimizationConfig::all_on();
-        let off = OptimizationConfig::all_off();
-        for m in REGISTRY {
-            assert!(on.is_on(m.opt), "{:?} should be on", m.opt);
-            assert!(!off.is_on(m.opt), "{:?} should be off", m.opt);
-        }
-        assert!(off.is_all_off());
-        assert_eq!(OptimizationConfig::default(), on);
-    }
-
-    #[test]
-    fn serde_round_trips() {
-        let cfg = OptimizationConfig::all_on().disable(Opt::Scalarize).disable(Opt::Unroll);
-        let json = serde_json::to_string(&cfg).unwrap();
-        let back: OptimizationConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(cfg, back);
-    }
-
-    #[test]
-    fn normalize_disables_dependents_and_reports() {
-        // Scalarize requires Cse; turning Cse off must disable Scalarize.
-        let mut cfg = OptimizationConfig::all_on().disable(Opt::Cse);
-        let report = cfg.normalize();
-        assert!(!cfg.is_on(Opt::Scalarize), "Scalarize must follow Cse off");
-        assert!(report
-            .auto_disabled
-            .contains(&(Opt::Scalarize, Reason::DependencyOff(Opt::Cse))));
-    }
-
-    #[test]
-    fn normalize_oracle_closure() {
-        // Oracle off must disable ElemType, OracleHints, Unchecked.
-        let mut cfg = OptimizationConfig::all_on().disable(Opt::Oracle);
-        cfg.normalize();
-        assert!(!cfg.is_on(Opt::ElemType));
-        assert!(!cfg.is_on(Opt::OracleHints));
-        assert!(!cfg.is_on(Opt::Unchecked));
-    }
-
-    #[test]
-    fn default_config_is_stable_under_normalize() {
-        // The default (all-on) config has NO config-level conflicts: AoS/Interleave
-        // is mutually exclusive with Unroll/Scalarize only at RUNTIME (the codegen
-        // regime gate), never in the config, so all three stay enabled by default
-        // and normalization is a no-op. Guards the regression where a config-level
-        // Interleave⇄Unroll/Scalarize conflict silently disabled AoS by default.
-        let mut cfg = OptimizationConfig::all_on();
-        let report = cfg.normalize();
-        assert!(report.is_empty(), "default config must normalize to a no-op, got {:?}", report);
-        assert!(cfg.is_on(Opt::Interleave));
-        assert!(cfg.is_on(Opt::Unroll));
-        assert!(cfg.is_on(Opt::Scalarize));
-        assert_eq!(cfg, OptimizationConfig::all_on());
-    }
-
-    #[test]
-    fn safety_profile_drops_all_unsafe() {
-        let cfg = Profile::Safety.config();
-        for m in REGISTRY {
-            if m.emits_unsafe {
-                assert!(!cfg.is_on(m.opt), "Safety must disable unsafe-emitting {:?}", m.opt);
-            }
-        }
-    }
-
-    #[test]
-    fn memory_profile_drops_mem_hogs_keeps_savers() {
-        let cfg = Profile::Memory.config();
-        assert!(!cfg.is_on(Opt::Unroll));
-        assert!(!cfg.is_on(Opt::Scalarize));
-        assert!(cfg.is_on(Opt::Narrow) || !OptimizationConfig::all_on().is_on(Opt::Unbox));
-        assert!(cfg.is_on(Opt::Unbox), "Memory keeps memory-saving Unbox");
-    }
-
-    #[test]
-    fn from_toggles_reports_forced_off() {
-        let mut t = BTreeMap::new();
-        t.insert("cse".to_string(), false);
-        let (cfg, forced) = OptimizationConfig::from_toggles(&t);
-        assert!(!cfg.is_on(Opt::Cse));
-        assert!(!cfg.is_on(Opt::Scalarize));
-        assert!(forced.contains(&Opt::Scalarize));
-    }
-
-    #[test]
-    fn from_spec_master_off_is_all_off() {
-        assert!(OptimizationConfig::from_spec(true, None, None).is_all_off());
-        assert!(OptimizationConfig::from_spec(true, Some("safety"), Some("cse")).is_all_off());
-    }
-
-    #[test]
-    fn from_spec_default_is_all_on() {
-        assert_eq!(OptimizationConfig::from_spec(false, None, None), OptimizationConfig::all_on());
-    }
-
-    #[test]
-    fn from_spec_off_list_disables_listed_keywords() {
-        let cfg = OptimizationConfig::from_spec(false, None, Some("scalarize, unroll;nonsense"));
-        assert!(!cfg.is_on(Opt::Scalarize));
-        assert!(!cfg.is_on(Opt::Unroll));
-        assert!(cfg.is_on(Opt::Memo), "unlisted opts stay on; unknown tokens ignored");
-    }
-
-    #[test]
-    fn from_spec_off_list_normalizes_dependents() {
-        // Disabling Oracle cascades to its dependents.
-        let cfg = OptimizationConfig::from_spec(false, None, Some("oracle"));
-        assert!(!cfg.is_on(Opt::Oracle));
-        assert!(!cfg.is_on(Opt::Unchecked));
-        assert!(!cfg.is_on(Opt::OracleHints));
-        assert!(!cfg.is_on(Opt::ElemType));
-    }
-
-    #[test]
-    fn from_spec_profiles_drop_the_right_opts() {
-        let safety = OptimizationConfig::from_spec(false, Some("safety"), None);
-        for m in REGISTRY {
-            if m.emits_unsafe {
-                assert!(!safety.is_on(m.opt), "Safety must drop unsafe-emitting {:?}", m.opt);
-            }
-        }
-        let memory = OptimizationConfig::from_spec(false, Some("memory"), None);
-        assert!(!memory.is_on(Opt::Unroll));
-        assert!(memory.is_on(Opt::Unbox), "Memory keeps memory-saving opts");
-    }
-
-    // --- Toggle-linking: the requires graph drives both cascade directions ---
-
-    #[test]
-    fn disabling_any_requirement_cascades_to_dependents() {
-        // The toggle-link contract, generic over the registry: for EVERY `requires`
-        // edge, turning the requirement off (from all-on) must, after normalize,
-        // also turn the dependent off. This is what makes "turn a parent off and
-        // its children turn off" hold for every edge, not just the hand-picked ones.
-        for m in REGISTRY {
-            for &req in m.requires {
-                let mut cfg = OptimizationConfig::all_on();
-                cfg.set(req, false);
-                cfg.normalize();
-                assert!(
-                    !cfg.is_on(m.opt),
-                    "{:?} requires {:?}; disabling {:?} must cascade {:?} off",
-                    m.opt, req, req, m.opt
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn enable_with_requires_pulls_ancestors() {
-        // Enabling a leaf from all-off must pull its whole requires-chain on, so the
-        // act of turning a child on is not instantly undone by normalize.
-        let mut cfg = OptimizationConfig::all_off();
-        cfg.enable_with_requires(Opt::Interleave);
-        assert!(cfg.is_on(Opt::Interleave));
-        assert!(cfg.is_on(Opt::Scalarize), "Interleave needs Scalarize");
-        assert!(cfg.is_on(Opt::Cse), "…which needs Cse");
-        assert!(!cfg.is_on(Opt::Unroll), "unrelated opts stay off");
-        assert!(!cfg.is_on(Opt::Oracle), "unrelated opts stay off");
-        let report = cfg.normalize();
-        assert!(report.is_empty(), "an enabled chain must be normalize-stable: {report:?}");
-    }
-
-    // --- relationship_tree: the deterministic per-program chain from one trace ---
-
-    fn role_of(tree: &[OptNode], opt: Opt) -> Option<OptRole> {
-        tree.iter().find(|n| n.opt == opt).map(|n| n.role)
-    }
-    fn depth_of(tree: &[OptNode], opt: Opt) -> usize {
-        tree.iter().find(|n| n.opt == opt).unwrap().depth
-    }
-    fn pos_of(tree: &[OptNode], opt: Opt) -> usize {
-        tree.iter().position(|n| n.opt == opt).unwrap()
-    }
-
-    #[test]
-    fn relationship_tree_pulls_enabler_parents_for_orphan_children() {
-        // coins-like: unchecked/oraclehints/elemtype fire, but their `requires`
-        // parent oracle does not — it must still appear, as an Enabler, parent of
-        // the children, so the tree is never orphaned.
-        let fired = [Opt::Unchecked, Opt::OracleHints, Opt::ElemType];
-        let tree = relationship_tree(&fired, &[], &[]);
-        assert_eq!(role_of(&tree, Opt::Unchecked), Some(OptRole::Fired));
-        assert_eq!(role_of(&tree, Opt::Oracle), Some(OptRole::Enabler));
-        assert!(depth_of(&tree, Opt::Oracle) < depth_of(&tree, Opt::Unchecked));
-        assert!(tree.iter().find(|n| n.opt == Opt::Oracle).unwrap().has_children);
-    }
-
-    #[test]
-    fn relationship_tree_surfaces_preempted_losers() {
-        // densemap fired and beat narrowmap: narrowmap must appear as a Preempted
-        // node (the "skipped because they don't play nice" opt), annotated with the
-        // winner that beat it, even though it never fired.
-        let fired = [Opt::DenseMap];
-        let preempted = [(Opt::DenseMap, Opt::NarrowMap)];
-        let tree = relationship_tree(&fired, &preempted, &[]);
-        let node = tree.iter().find(|n| n.opt == Opt::NarrowMap).expect("narrowmap present");
-        assert_eq!(node.role, OptRole::Preempted);
-        assert!(node.preempted_by.contains(&Opt::DenseMap));
-        assert_eq!(role_of(&tree, Opt::DenseMap), Some(OptRole::Fired));
-    }
-
-    #[test]
-    fn relationship_tree_nests_requires_chain_by_depth() {
-        // cse → scalarize → interleave all fired: depths 0,1,2, parents first.
-        let fired = [Opt::Cse, Opt::Scalarize, Opt::Interleave];
-        let tree = relationship_tree(&fired, &[], &[]);
-        assert_eq!(depth_of(&tree, Opt::Cse), 0);
-        assert_eq!(depth_of(&tree, Opt::Scalarize), 1);
-        assert_eq!(depth_of(&tree, Opt::Interleave), 2);
-        assert!(pos_of(&tree, Opt::Cse) < pos_of(&tree, Opt::Scalarize));
-        assert!(pos_of(&tree, Opt::Scalarize) < pos_of(&tree, Opt::Interleave));
-    }
-
-    #[test]
-    fn relationship_tree_is_deterministic_and_only_in_play() {
-        // The in-play set is exactly fired ∪ losers ∪ requires-closure — nothing
-        // else — and the derivation is deterministic (same input → same output).
-        let fired = [Opt::DenseMap, Opt::Unchecked];
-        let preempted = [(Opt::DenseMap, Opt::NarrowMap)];
-        let a = relationship_tree(&fired, &preempted, &[]);
-        let b = relationship_tree(&fired, &preempted, &[]);
-        let keys = |t: &[OptNode]| {
-            t.iter().map(|n| (n.opt, n.depth, n.role)).collect::<Vec<_>>()
-        };
-        assert_eq!(keys(&a), keys(&b), "derivation must be deterministic");
-        let in_play: std::collections::BTreeSet<Opt> = a.iter().map(|n| n.opt).collect();
-        let expected: std::collections::BTreeSet<Opt> =
-            [Opt::DenseMap, Opt::NarrowMap, Opt::Unchecked, Opt::Oracle].into_iter().collect();
-        assert_eq!(in_play, expected, "only in-play opts appear");
-    }
-
-    #[test]
-    fn relationship_tree_nests_by_per_program_dependencies() {
-        // A per-program dependency (dependent, dep) nests the dependent under the
-        // dep even with no static `requires` edge — e.g. dead-code elimination only
-        // fired because scalarization produced the dead code. Both fired.
-        let fired = [Opt::Scalarize, Opt::DeadCode, Opt::Cse];
-        let deps = [(Opt::DeadCode, Opt::Scalarize)];
-        let tree = relationship_tree(&fired, &[], &deps);
-        // deadcode hangs under scalarize (deeper), and records the dependency.
-        assert!(depth_of(&tree, Opt::DeadCode) > depth_of(&tree, Opt::Scalarize));
-        assert!(pos_of(&tree, Opt::Scalarize) < pos_of(&tree, Opt::DeadCode));
-        let dc = tree.iter().find(|n| n.opt == Opt::DeadCode).unwrap();
-        assert!(dc.depends_on.contains(&Opt::Scalarize));
-        assert_eq!(dc.role, OptRole::Fired);
-        // scalarize has children now (deadcode depends on it).
-        assert!(tree.iter().find(|n| n.opt == Opt::Scalarize).unwrap().has_children);
-        // static requires still compose: scalarize under cse.
-        assert!(depth_of(&tree, Opt::Scalarize) > depth_of(&tree, Opt::Cse));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/optimization/tests.rs"]
+mod tests;

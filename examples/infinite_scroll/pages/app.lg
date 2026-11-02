@@ -1,0 +1,93 @@
+# Infinite scroll
+
+Loads the first page of todos, then the next page whenever the visitor
+scrolls to the bottom, until the server answers an empty page.
+
+Import Shared.
+
+## Page /
+
+State:
+    Let todos be a new Seq of Todo.
+    Let error be "".
+    Let pageNum be 1.
+    Let exhausted be false.
+    Let loadedCount always be length of todos.
+
+Actions:
+    When the page loads:
+        Get "/api/todos?page=1" as Seq of Todo, then loaded.
+
+    To loaded (answer: Result of Seq of Todo and HttpError):
+        Inspect answer:
+            When Ok (list):
+                Let mutable merged be todos.
+                Repeat for t in list:
+                    Push t to merged.
+                Set todos to merged.
+                Set error to "".
+                If length of list is equal to 0:
+                    Set exhausted to true.
+            When Err (e):
+                Set error to e's message.
+                Set exhausted to true.
+
+    When the user scrolls to the bottom:
+        If exhausted is equal to false:
+            Set pageNum to pageNum + 1.
+            Get "/api/todos?page={pageNum}" as Seq of Todo, then loaded.
+
+View:
+    <main class="card">
+      <h1>Todos <small id="count">({loadedCount})</small></h1>
+      {if error is not "":}<p class="error" role="alert">{error}</p>{end}
+      <ul class="todos">
+        {for each t in todos, keyed by t's id:}
+          <li id="todo-{t's id}">{t's text}</li>
+        {else:}
+          <li class="empty">Nothing to do.</li>
+        {end}
+      </ul>
+      <p id="status">{if exhausted:}no more todos{end}</p>
+    </main>
+
+Style:
+    h1 { display: flex; align-items: baseline; gap: .6rem; }
+    h1 small { font-size: .85rem; font-weight: 400; color: var(--muted); }
+    .error { color: var(--danger); font-weight: 600; }
+    .todos { list-style: none; padding: 0; margin: 0; }
+    .empty { color: var(--muted); padding: .45rem 0; }
+
+## Test: the first page loads on mount
+
+Given that GET "/api/todos?page=1" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Expect that the count of ".todos li" is equal to 1.
+Expect that the text of "#todo-1" is equal to "milk".
+Expect that the text of "#count" is equal to "(1)".
+
+## Test: scrolling to the bottom loads the next page and appends it
+
+Given that GET "/api/todos?page=1" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Given that GET "/api/todos?page=2" answers 200 with "[{{\"id\": 2, \"text\": \"bread\", \"done\": false}}]".
+Raise "scrolledtobottom".
+Expect that the count of ".todos li" is equal to 2.
+Expect that the text of "#todo-2" is equal to "bread".
+Expect that the text of "#count" is equal to "(2)".
+
+## Test: an empty page marks the feed exhausted and stops further loads
+
+Given that GET "/api/todos?page=1" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Given that GET "/api/todos?page=2" answers 200 with "[]".
+Given that GET "/api/todos?page=3" answers 200 with "[{{\"id\": 3, \"text\": \"eggs\", \"done\": false}}]".
+Raise "scrolledtobottom".
+Expect that the text of "#status" is equal to "no more todos".
+Raise "scrolledtobottom".
+Expect that the count of ".todos li" is equal to 1.
+Expect that the text of "#count" is equal to "(1)".
+
+## Test: a failed page shows what went wrong and stops loading
+
+Given that GET "/api/todos?page=1" answers 503 with "feed offline".
+Expect that the text of ".error" is equal to "503: feed offline".
+Expect that the text of "#status" is equal to "no more todos".
+Expect that the text of ".empty" is equal to "Nothing to do.".

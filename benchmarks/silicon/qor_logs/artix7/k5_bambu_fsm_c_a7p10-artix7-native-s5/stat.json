@@ -1,0 +1,79 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\ntt_bfly": {
+         "num_wires":         375,
+         "num_wire_bits":     5901,
+         "num_pub_wires":     343,
+         "num_pub_wire_bits": 5347,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         313,
+         "num_cells_by_type": {
+            "CARRY4": 48,
+            "DSP48E1": 1,
+            "FDRE": 98,
+            "FDSE": 1,
+            "INV": 24,
+            "LUT2": 138,
+            "LUT4": 2,
+            "LUT5": 1
+         }
+      },
+      "\\qorsyn_k5_bambu_fsm_c_a7p10": {
+         "num_wires":         230,
+         "num_wire_bits":     792,
+         "num_pub_wires":     16,
+         "num_pub_wire_bits": 548,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         486,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 142,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 18,
+            "LUT2": 39,
+            "LUT3": 7,
+            "LUT4": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "ntt_bfly": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         605,
+         "num_wire_bits":     6693,
+         "num_pub_wires":     359,
+         "num_pub_wire_bits": 5895,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         798,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 48,
+            "DSP48E1": 1,
+            "FDRE": 240,
+            "FDSE": 34,
+            "IBUF": 2,
+            "INV": 42,
+            "LUT2": 177,
+            "LUT3": 7,
+            "LUT4": 6,
+            "LUT5": 1,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16
+         }
+      }
+}
+

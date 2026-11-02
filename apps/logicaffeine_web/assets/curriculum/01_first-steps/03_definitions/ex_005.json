@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "'Old' is vague and gradual — there is no precise instant at which someone becomes old. Drawing a hard line at seventy is far more exact than the word itself, so it fails to MATCH THE VAGUENESS of the term."
+  "hint": "Is the word vague while the definition draws a sharp line?",
+  "explanation": "'Old' has no sharp cutoff. Drawing the line at seventy is more precise than the word itself.",
+  "section": "3.2"
 }

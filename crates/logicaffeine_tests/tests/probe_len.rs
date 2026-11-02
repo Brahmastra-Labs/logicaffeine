@@ -15,5 +15,8 @@ Show x.
 "#;
     let rust = compile_to_rust(src).unwrap();
     eprintln!("HAS_ORACLE_HINT={}", rust.contains("oracle bounds hint"));
-    eprintln!("decl: {}", rust.lines().find(|l| l.contains("arr:")).unwrap_or("?"));
+    eprintln!(
+        "decl: {}",
+        rust.lines().find(|l| l.contains("arr:")).unwrap_or("?")
+    );
 }

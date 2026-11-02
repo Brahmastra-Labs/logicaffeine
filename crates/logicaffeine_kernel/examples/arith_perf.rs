@@ -31,10 +31,16 @@ fn main() {
     // The optimizer's knapsack-shaped bounds proof: facts {w <= cap, wi >= 0},
     // goal (cap - w + wi) >= 0, discharged as facts ∧ (goal+1 <= 0) UNSAT.
     let (w, wi, cap) = (0i64, 1i64, 2i64);
-    let le = |a: &LinearExpr, b: &LinearExpr| Constraint { expr: a.sub(b), strict: false };
+    let le = |a: &LinearExpr, b: &LinearExpr| Constraint {
+        expr: a.sub(b),
+        strict: false,
+    };
     let facts = vec![
         le(&LinearExpr::var(w), &LinearExpr::var(cap)),
-        Constraint { expr: LinearExpr::var(wi).neg(), strict: false },
+        Constraint {
+            expr: LinearExpr::var(wi).neg(),
+            strict: false,
+        },
     ];
     let goal = LinearExpr::var(cap)
         .sub(&LinearExpr::var(w))
@@ -42,7 +48,10 @@ fn main() {
     time("lia: 3-var bounds proof (optimizer shape)", 100_000, || {
         let neg = goal.add(&LinearExpr::constant(Rational::from_i64(1)));
         let mut system = facts.clone();
-        system.push(Constraint { expr: neg, strict: false });
+        system.push(Constraint {
+            expr: neg,
+            strict: false,
+        });
         assert!(logicaffeine_kernel::lia::fourier_motzkin_unsat(&system));
     });
 
@@ -50,16 +59,25 @@ fn main() {
     let k = Polynomial::var(0);
     time("ring: collatz-size normalize + compare", 100_000, || {
         let lhs = Polynomial::constant(3)
-            .mul(&Polynomial::constant(2).mul(&k).add(&Polynomial::constant(1)))
+            .mul(
+                &Polynomial::constant(2)
+                    .mul(&k)
+                    .add(&Polynomial::constant(1)),
+            )
             .add(&Polynomial::constant(1));
-        let rhs = Polynomial::constant(6).mul(&k).add(&Polynomial::constant(4));
+        let rhs = Polynomial::constant(6)
+            .mul(&k)
+            .add(&Polynomial::constant(4));
         assert!(lhs.canonical_eq(&rhs));
     });
 
     // Omega with hypothesis + conclusion (2 constraints after negation).
     let x = IntExpr::var(0);
     time("omega: 1-var hyp+goal solve", 100_000, || {
-        let c1 = IntConstraint { expr: x.sub(&IntExpr::constant(10)), strict: false };
+        let c1 = IntConstraint {
+            expr: x.sub(&IntExpr::constant(10)),
+            strict: false,
+        };
         let c2 = IntConstraint {
             expr: IntExpr::constant(12).sub(&x),
             strict: false,

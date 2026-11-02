@@ -1,0 +1,10 @@
+{
+  "capability": "math.clamp",
+  "workload": "sum of clamp(i, 5000000, 15000000) over 1..n",
+  "arg": "20000000",
+  "expected": "200000005000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

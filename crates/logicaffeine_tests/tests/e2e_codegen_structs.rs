@@ -183,3 +183,27 @@ Show p's x + p's y.
         "10",
     );
 }
+
+// === REGRESSION: a Seq PARAMETER used to construct an owned Seq struct field ===
+// A `Seq of Int` parameter lowers to a borrowed slice (`&[i64]`), but a struct OWNS its fields
+// (`LogosSeq<i64>`), so the codegen must materialize the slice into the field. Before the fix
+// the generated Rust failed E0308 (expected `LogosSeq<i64>`, found `&[i64]`) — the same bug the
+// http.lg `bytesResponse` constructor hit (caught end-to-end by http_differential, locked fast
+// here at the AOT tier).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_struct_field_from_seq_param() {
+    assert_exact_output(
+        r#"## A Bag has:
+    A items: Seq of Int.
+
+## To wrap (data: Seq of Int) -> Bag:
+    Return a new Bag with items data.
+
+## Main
+Let b be wrap([7, 8, 9]).
+Show b's items.
+"#,
+        "[7, 8, 9]",
+    );
+}

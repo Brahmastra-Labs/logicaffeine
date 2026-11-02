@@ -1,0 +1,40 @@
+# Vision
+
+Fixed-point computer-vision kernels, written in pure LOGOS. Fixed-point is plain integer
+arithmetic with a single post-shift — a Q(m.n) value is stored as the integer `round(v · 2ⁿ)` —
+which is exactly how vision runs on an FPGA: integer multiply-accumulate, then one arithmetic
+right shift to rescale. That keeps the kernels total and division-free, and it maps directly onto
+the certified integer spatial fabric (the supercompiler unrolls a fixed stencil to straight-line
+`Mul`/`Add`/`Shr`, which lowers to a dataflow circuit).
+
+`conv3x3Window` is the 9-tap stencil primitive the supercompiler specializes onto silicon;
+`conv3x3` streams it over an image. Auto-imported on first reference, like every stdlib module.
+
+(NOTE for editors: keep all prose ABOVE the first `## To` — literate Logos strips only the
+leading prose; a paragraph BETWEEN `## To` sections is parsed as code and breaks the module.)
+
+## Note
+One output pixel of a 3×3 convolution: the dot product of a 9-pixel `window` (row-major) with a 9-weight `kernel`, rescaled by an arithmetic right shift of `shift` bits (divide-by-8 blur = `shift 3`).
+
+## To conv3x3Window (window: Seq of Int, kernel: Seq of Int, shift: Int) -> Int:
+    Let mutable acc be 0.
+    Repeat for i from 1 to 9:
+        Set acc to acc + (item i of window) * (item i of kernel).
+    Let result be acc shifted right by shift.
+    Return result.
+
+## Note
+Valid 2D convolution of a `w × h` image with a 3×3 `kernel`, producing a `(w-2) × (h-2)` output (no border padding), all row-major; each output pixel applies the stencil above.
+
+## To conv3x3 (w: Int, h: Int, img: Seq of Int, kernel: Seq of Int, shift: Int) -> Seq of Int:
+    Let mutable out be a new Seq of Int.
+    Let ow be w - 2.
+    Let oh be h - 2.
+    Repeat for oy from 1 to oh:
+        Repeat for ox from 1 to ow:
+            Let mutable win be a new Seq of Int.
+            Repeat for ky from 1 to 3:
+                Repeat for kx from 1 to 3:
+                    Push item (((oy + ky - 2) * w) + (ox + kx - 1)) of img to win.
+            Push conv3x3Window(win, kernel, shift) to out.
+    Return out.

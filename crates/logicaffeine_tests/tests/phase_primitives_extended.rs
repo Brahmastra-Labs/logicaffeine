@@ -16,7 +16,9 @@ fn char_literal_tokenizes() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize backtick char literal: {:?}",
         tokens
     );
@@ -28,7 +30,9 @@ fn char_literal_preserves_value() {
     let mut lexer = Lexer::new("`x`", &mut interner);
     let tokens = lexer.tokenize();
 
-    let char_token = tokens.iter().find(|t| matches!(t.kind, TokenType::CharLiteral(_)));
+    let char_token = tokens
+        .iter()
+        .find(|t| matches!(t.kind, TokenType::CharLiteral(_)));
     assert!(char_token.is_some(), "Should have CharLiteral token");
 
     if let Some(token) = char_token {
@@ -46,7 +50,9 @@ fn char_literal_with_escape_newline() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize escaped newline char: {:?}",
         tokens
     );
@@ -59,7 +65,9 @@ fn char_literal_with_escape_tab() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize escaped tab char: {:?}",
         tokens
     );
@@ -72,7 +80,9 @@ fn char_literal_with_escape_backslash() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize escaped backslash: {:?}",
         tokens
     );
@@ -85,7 +95,9 @@ fn char_literal_with_escape_backtick() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize escaped backtick: {:?}",
         tokens
     );
@@ -98,7 +110,9 @@ fn char_literal_digit() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize digit char: {:?}",
         tokens
     );
@@ -111,7 +125,9 @@ fn char_literal_space() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::CharLiteral(_))),
         "Should tokenize space char: {:?}",
         tokens
     );
@@ -127,7 +143,9 @@ fn char_in_let_statement() {
     let tokens = lexer.tokenize();
 
     let has_let = tokens.iter().any(|t| matches!(t.kind, TokenType::Let));
-    let has_char = tokens.iter().any(|t| matches!(t.kind, TokenType::CharLiteral(_)));
+    let has_char = tokens
+        .iter()
+        .any(|t| matches!(t.kind, TokenType::CharLiteral(_)));
 
     assert!(has_let, "Should have Let token");
     assert!(has_char, "Should have CharLiteral token");
@@ -145,6 +163,8 @@ fn byte_type_name_recognized() {
     let tokens = lexer.tokenize();
 
     // "Byte" will be tokenized as a Noun initially, but should be registered as a type
-    let has_number = tokens.iter().any(|t| matches!(t.kind, TokenType::Number(_)));
+    let has_number = tokens
+        .iter()
+        .any(|t| matches!(t.kind, TokenType::Number(_)));
     assert!(has_number, "Should have Number token for 255");
 }

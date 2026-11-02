@@ -1,0 +1,11 @@
+{
+  "name": "quicksort",
+  "lang": "c",
+  "n": "52276512",
+  "samples_weight": 99936654760,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

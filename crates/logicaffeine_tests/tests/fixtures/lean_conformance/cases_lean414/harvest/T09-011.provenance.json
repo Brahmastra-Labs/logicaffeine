@@ -1,0 +1,77 @@
+{
+  "case": "T09-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t09_metaprogramming/T09-011_unicode_identifiers.lean",
+  "source_sha256": "6e13341ac21518d304fbb3251d291cd8588aeef90b71bc5b1e85a694890ce69f",
+  "ledger_sha256": "f332dc686bb1d91978d150db9d10115dd7b2c2be3db3624c6a4c375ad07c766f",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T09_011.Inner.value",
+    "T09_011.collisionHazard",
+    "T09_011.dotted",
+    "T09_011.idAlpha",
+    "T09_011.idGamma",
+    "T09_011.pairAlphaGamma",
+    "T09_011.primed",
+    "T09_011.subscripted",
+    "T09_011.usesGuillemet",
+    "T09_011.weird?!name",
+    "T09_011.x\u2081",
+    "T09_011.x\u2082",
+    "T09_011.\u00aba name with spaces\u00bb",
+    "T09_011.\u2115plus"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "0df8ee4c5b338987ff89898e9d5da9b54ee3e61686cbfa5f191f09b359c3c159",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 857,
+  "harvest": {
+    "roots": [
+      "T09_011.Inner.value",
+      "T09_011.collisionHazard",
+      "T09_011.dotted",
+      "T09_011.idAlpha",
+      "T09_011.idGamma",
+      "T09_011.pairAlphaGamma",
+      "T09_011.primed",
+      "T09_011.subscripted",
+      "T09_011.usesGuillemet",
+      "T09_011.weird?!name",
+      "T09_011.x\u2081",
+      "T09_011.x\u2082",
+      "T09_011.\u00aba name with spaces\u00bb",
+      "T09_011.\u2115plus"
+    ],
+    "probe_binary_sha256": "6ca1af61853dd5d735b85ac57713db5f3b27cc9216e559ed56decd8d5a9626c4",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:db465174cea3801ca8328fc866024df9097756e82faa1548ae87b36eb9468321",
+    "joint_export": true,
+    "restored": "re-exported byte-identically (same sha256) after an overwrite; the quoted-name root is included now that audit names are compared component-wise"
+  }
+}

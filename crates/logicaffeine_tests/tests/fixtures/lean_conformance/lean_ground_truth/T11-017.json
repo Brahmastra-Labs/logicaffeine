@@ -1,0 +1,65 @@
+{
+  "case": "T11-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T11_017.allBelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_017.allBelow 2000 = true",
+      "name": "T11_017.allBelowHolds",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "T11_017.allBelow 20 = true",
+      "name": "T11_017.allBelowSmall",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "123456 * 654321 = 80779853376",
+      "name": "T11_017.bigArithmetic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "2 ^ 16 = 65536",
+      "name": "T11_017.propNatively",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T11_017.pure",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "12 * 12 = 144",
+      "name": "T11_017.smallArithmetic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "'T11_017.bigArithmetic' depends on axioms: [Lean.ofReduceBool]\n'T11_017.smallArithmetic' does not depend on any axioms\n'T11_017.allBelowHolds' depends on axioms: [Lean.ofReduceBool]\n'T11_017.allBelowSmall' does not depend on any axioms\n'T11_017.propNatively' depends on axioms: [Lean.ofReduceBool]\n'T11_017.pure' does not depend on any axioms"
+}

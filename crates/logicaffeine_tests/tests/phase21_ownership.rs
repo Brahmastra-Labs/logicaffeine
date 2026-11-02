@@ -1,11 +1,11 @@
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    Lexer, Token, TokenType, Parser,
-    ast::{Stmt, Expr},
-    drs::{WorldState, OwnershipState, Gender, Number},
-    arena_ctx::AstContext,
     analysis::TypeRegistry,
+    arena_ctx::AstContext,
+    ast::{Expr, Stmt},
+    drs::{Gender, Number, OwnershipState, WorldState},
     error::ParseErrorKind,
+    Lexer, Parser, Token, TokenType,
 };
 
 #[test]
@@ -14,7 +14,9 @@ fn entity_starts_owned() {
     let mut interner = Interner::new();
     let var = interner.intern("x");
     let noun = interner.intern("thing");
-    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
     assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Owned));
 }
@@ -25,7 +27,9 @@ fn ownership_state_can_be_moved() {
     let mut interner = Interner::new();
     let var = interner.intern("x");
     let noun = interner.intern("book");
-    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
     world_state.set_ownership(noun, OwnershipState::Moved);
 
@@ -38,11 +42,16 @@ fn ownership_state_can_be_borrowed() {
     let mut interner = Interner::new();
     let var = interner.intern("x");
     let noun = interner.intern("item");
-    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
     world_state.set_ownership(noun, OwnershipState::Borrowed);
 
-    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Borrowed));
+    assert_eq!(
+        world_state.get_ownership(noun),
+        Some(OwnershipState::Borrowed)
+    );
 }
 
 #[test]
@@ -52,7 +61,9 @@ fn get_ownership_returns_current_state() {
     let var = interner.intern("y");
     let noun = interner.intern("value");
     let unknown = interner.intern("unknown");
-    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
     assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Owned));
     assert_eq!(world_state.get_ownership(unknown), None);
@@ -66,7 +77,9 @@ fn moved_variable_detected() {
     let mut interner = Interner::new();
     let var = interner.intern("x");
     let noun = interner.intern("book");
-    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
     world_state.set_ownership(noun, OwnershipState::Moved);
 
@@ -80,12 +93,17 @@ fn borrowed_variable_still_accessible() {
     let mut interner = Interner::new();
     let var = interner.intern("x");
     let noun = interner.intern("item");
-    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
     world_state.set_ownership(noun, OwnershipState::Borrowed);
 
     // After borrow, get_ownership should return Borrowed (not Moved)
-    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Borrowed));
+    assert_eq!(
+        world_state.get_ownership(noun),
+        Some(OwnershipState::Borrowed)
+    );
 }
 
 // =============================================================================
@@ -137,7 +155,12 @@ fn give_statement_parses() {
     // Register recipient so strict verification passes
     let processor_var = interner.intern("processor");
     let processor_noun = interner.intern("processor");
-    world_state.drs.introduce_referent(processor_var, processor_noun, Gender::Neuter, Number::Singular);
+    world_state.drs.introduce_referent(
+        processor_var,
+        processor_noun,
+        Gender::Neuter,
+        Number::Singular,
+    );
 
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -159,7 +182,13 @@ fn give_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -182,7 +211,12 @@ fn give_statement_marks_variable_as_moved() {
     let mut world_state = WorldState::new();
     let processor_var = interner.intern("processor");
     let processor_noun = interner.intern("processor");
-    world_state.drs.introduce_referent(processor_var, processor_noun, Gender::Neuter, Number::Singular);
+    world_state.drs.introduce_referent(
+        processor_var,
+        processor_noun,
+        Gender::Neuter,
+        Number::Singular,
+    );
 
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -204,7 +238,13 @@ fn give_statement_marks_variable_as_moved() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -227,7 +267,12 @@ fn use_after_give_produces_error() {
     let mut world_state = WorldState::new();
     let processor_var = interner.intern("processor");
     let processor_noun = interner.intern("processor");
-    world_state.drs.introduce_referent(processor_var, processor_noun, Gender::Neuter, Number::Singular);
+    world_state.drs.introduce_referent(
+        processor_var,
+        processor_noun,
+        Gender::Neuter,
+        Number::Singular,
+    );
 
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -249,13 +294,22 @@ fn use_after_give_produces_error() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
 
     // Should fail with UseAfterMove error
-    assert!(result.is_err(), "Should error when using variable after Give");
+    assert!(
+        result.is_err(),
+        "Should error when using variable after Give"
+    );
     let err = result.unwrap_err();
     assert!(
         matches!(err.kind, ParseErrorKind::UseAfterMove { .. }),
@@ -272,7 +326,9 @@ fn show_statement_parses() {
     let mut world_state = WorldState::new();
     let console_var = interner.intern("console");
     let console_noun = interner.intern("console");
-    world_state.drs.introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
 
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -294,7 +350,13 @@ fn show_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -317,7 +379,9 @@ fn show_statement_marks_variable_as_borrowed() {
     let mut world_state = WorldState::new();
     let console_var = interner.intern("console");
     let console_noun = interner.intern("console");
-    world_state.drs.introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
 
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -339,7 +403,13 @@ fn show_statement_marks_variable_as_borrowed() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -362,7 +432,9 @@ fn variable_accessible_after_show() {
     let mut world_state = WorldState::new();
     let console_var = interner.intern("console");
     let console_noun = interner.intern("console");
-    world_state.drs.introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
+    world_state
+        .drs
+        .introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
 
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -384,7 +456,13 @@ fn variable_accessible_after_show() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();

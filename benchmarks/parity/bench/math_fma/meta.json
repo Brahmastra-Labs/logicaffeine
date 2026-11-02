@@ -1,0 +1,10 @@
+{
+  "capability": "math.fma",
+  "workload": "math.fma",
+  "arg": "1000000",
+  "expected": "476196190018873",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

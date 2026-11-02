@@ -5,7 +5,7 @@
 //! Also tests delay operator parsing (##N, ##[min:max]).
 
 use logicaffeine_compile::codegen_sva::sva_model::{
-    SvaExpr, parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent,
+    parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent, SvaExpr,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -73,7 +73,9 @@ fn sva_to_string_eq() {
 fn sva_to_string_implication_overlapping() {
     let expr = SvaExpr::Implication {
         antecedent: Box::new(SvaExpr::Signal("req".into())),
-        consequent: Box::new(SvaExpr::SEventually(Box::new(SvaExpr::Signal("ack".into())))),
+        consequent: Box::new(SvaExpr::SEventually(Box::new(SvaExpr::Signal(
+            "ack".into(),
+        )))),
         overlapping: true,
     };
     assert_eq!(sva_expr_to_string(&expr), "req |-> s_eventually(ack)");
@@ -181,7 +183,14 @@ fn sva_parse_delay_in_implication() {
     match expr {
         SvaExpr::Implication { consequent, .. } => {
             assert!(
-                matches!(*consequent, SvaExpr::Delay { min: 1, max: Some(3), .. }),
+                matches!(
+                    *consequent,
+                    SvaExpr::Delay {
+                        min: 1,
+                        max: Some(3),
+                        ..
+                    }
+                ),
                 "Expected Delay consequent, got {:?}",
                 consequent
             );
@@ -433,6 +442,9 @@ fn sva_roundtrip_accept_on_with_disable_iff() {
     let parsed = parse_sva(input).unwrap();
     let rendered = sva_expr_to_string(&parsed);
     let reparsed = parse_sva(&rendered).unwrap();
-    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed),
-        "Complex nested roundtrip failed. Rendered: '{}'", rendered);
+    assert!(
+        sva_exprs_structurally_equivalent(&parsed, &reparsed),
+        "Complex nested roundtrip failed. Rendered: '{}'",
+        rendered
+    );
 }

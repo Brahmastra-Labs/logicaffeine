@@ -8,7 +8,7 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::ir::{VerifyExpr, VerifyOp, VerifyType, BitVecOp};
+use logicaffeine_verify::ir::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
 use logicaffeine_verify::type_infer::{infer_types, TypeError};
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -79,7 +79,11 @@ fn infer_conflict_detected() {
     let int_use = VerifyExpr::binary(VerifyOp::Add, VerifyExpr::var("x"), VerifyExpr::int(1));
     let expr = VerifyExpr::and(bool_use, VerifyExpr::gt(int_use, VerifyExpr::int(0)));
     let result = infer_types(&expr);
-    assert!(result.is_err(), "Should detect type conflict for 'x', got: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Should detect type conflict for 'x', got: {:?}",
+        result
+    );
 }
 
 #[test]

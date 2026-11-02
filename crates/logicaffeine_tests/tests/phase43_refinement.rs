@@ -3,8 +3,8 @@
 // Tests for parsing `Type where predicate` syntax and automatic enforcement
 // of refinement constraints via debug_assert!().
 
-use logicaffeine_language::ast::stmt::TypeExpr;
 use logicaffeine_compile::compile::compile_to_rust;
+use logicaffeine_language::ast::stmt::TypeExpr;
 
 #[test]
 fn refinement_type_variant_exists() {
@@ -15,9 +15,15 @@ fn refinement_type_variant_exists() {
             TypeExpr::Named(_) => {}
             TypeExpr::Generic { .. } => {}
             TypeExpr::Function { .. } => {}
-            TypeExpr::Refinement { base: _, var: _, predicate: _ } => {}
-            TypeExpr::Persistent { .. } => {}  // Phase 53
+            TypeExpr::Refinement {
+                base: _,
+                var: _,
+                predicate: _,
+            } => {}
+            TypeExpr::Persistent { .. } => {} // Phase 53
             TypeExpr::Mutable { .. } => {}
+            TypeExpr::Tuple(_) => {} // Phase 0: first-class anonymous tuples
+            TypeExpr::Record { .. } => {} // Phase 1: first-class named records
         }
     }
 }
@@ -33,7 +39,11 @@ fn test_parse_int_where_positive() {
 Let x: Int where x > 0 be 5.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse refinement type: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should parse refinement type: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -43,7 +53,11 @@ fn test_parse_refinement_with_variable_name() {
 Let count: Int where count > 0 be 10.
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse refinement with custom var name: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should parse refinement with custom var name: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -57,8 +71,16 @@ fn test_refinement_generates_debug_assert_at_let() {
 Let x: Int where x > 0 be 5.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("let x: i64 = 5;"), "Should have let binding: {}", rust);
-    assert!(rust.contains("debug_assert!((x > 0));"), "Should have refinement check: {}", rust);
+    assert!(
+        rust.contains("let x: i64 = 5;"),
+        "Should have let binding: {}",
+        rust
+    );
+    assert!(
+        rust.contains("debug_assert!((x > 0));"),
+        "Should have refinement check: {}",
+        rust
+    );
 }
 
 #[test]
@@ -70,7 +92,11 @@ Set x to 10.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     let count = rust.matches("debug_assert!((x > 0));").count();
-    assert_eq!(count, 2, "Should have 2 refinement checks (Let + Set): {}", rust);
+    assert_eq!(
+        count, 2,
+        "Should have 2 refinement checks (Let + Set): {}",
+        rust
+    );
 }
 
 #[test]
@@ -80,7 +106,11 @@ fn test_refinement_variable_substitution() {
 Let count: Int where count > 0 be 10.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((count > 0));"), "Should use actual variable name: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((count > 0));"),
+        "Should use actual variable name: {}",
+        rust
+    );
 }
 
 #[test]
@@ -94,8 +124,16 @@ If true:
 Set x to 3.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((x > 0));"), "x should have its constraint: {}", rust);
-    assert!(rust.contains("debug_assert!((y < 100));"), "y should have its constraint: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((x > 0));"),
+        "x should have its constraint: {}",
+        rust
+    );
+    assert!(
+        rust.contains("debug_assert!((y < 100));"),
+        "y should have its constraint: {}",
+        rust
+    );
 }
 
 // ============================================================================
@@ -111,8 +149,11 @@ fn test_refinement_and_predicate() {
 Let x: Int where x > 0 and x < 100 be 50.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!(((x > 0) && (x < 100)));"),
-        "Should have compound AND check: {}", rust);
+    assert!(
+        rust.contains("debug_assert!(((x > 0) && (x < 100)));"),
+        "Should have compound AND check: {}",
+        rust
+    );
 }
 
 #[test]
@@ -122,8 +163,11 @@ fn test_refinement_or_predicate() {
 Let flag: Int where flag == 0 or flag == 1 be 1.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!(((flag == 0) || (flag == 1)));"),
-        "Should have compound OR check: {}", rust);
+    assert!(
+        rust.contains("debug_assert!(((flag == 0) || (flag == 1)));"),
+        "Should have compound OR check: {}",
+        rust
+    );
 }
 
 // === ALL COMPARISON OPERATORS ===
@@ -135,7 +179,11 @@ fn test_refinement_less_than() {
 Let x: Int where x < 10 be 5.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((x < 10));"), "Less than: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((x < 10));"),
+        "Less than: {}",
+        rust
+    );
 }
 
 #[test]
@@ -145,7 +193,11 @@ fn test_refinement_less_equal() {
 Let x: Int where x <= 10 be 10.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((x <= 10));"), "Less equal: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((x <= 10));"),
+        "Less equal: {}",
+        rust
+    );
 }
 
 #[test]
@@ -155,7 +207,11 @@ fn test_refinement_greater_equal() {
 Let x: Int where x >= 0 be 0.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((x >= 0));"), "Greater equal: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((x >= 0));"),
+        "Greater equal: {}",
+        rust
+    );
 }
 
 #[test]
@@ -165,7 +221,11 @@ fn test_refinement_not_equal() {
 Let x: Int where x != 0 be 1.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((x != 0));"), "Not equal: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((x != 0));"),
+        "Not equal: {}",
+        rust
+    );
 }
 
 // === LOOP SCOPES ===
@@ -181,8 +241,16 @@ While x > 0:
     Set x to 0.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((x > 0));"), "x constraint: {}", rust);
-    assert!(rust.contains("debug_assert!((y < 50));"), "y constraint: {}", rust);
+    assert!(
+        rust.contains("debug_assert!((x > 0));"),
+        "x constraint: {}",
+        rust
+    );
+    assert!(
+        rust.contains("debug_assert!((y < 50));"),
+        "y constraint: {}",
+        rust
+    );
 }
 
 // === MULTIPLE REFINED VARS ===

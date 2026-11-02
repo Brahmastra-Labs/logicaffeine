@@ -62,65 +62,140 @@
 //! program from a list of statements.
 
 // Module declarations
-pub(crate) mod bigint_promote;
-pub(crate) mod context;
-pub(crate) mod detection;
-pub(crate) mod types;
-mod policy;
-pub(crate) mod ffi;
-pub(crate) mod bindings;
-pub(crate) mod tce;
-pub(crate) mod marshal;
-pub(crate) mod peephole;
-pub(crate) mod hoist;
-pub(crate) mod stmt;
-pub(crate) mod expr;
-pub(crate) mod program;
-pub(crate) mod worklist;
+mod absent;
 pub(crate) mod affine_array;
-pub(crate) mod narrow;
-pub(crate) mod i64_map;
-pub(crate) mod fast_div;
+pub(crate) mod bigint_promote;
+pub(crate) mod bindings;
+pub(crate) mod context;
+mod control;
+pub(crate) mod detection;
 pub(crate) mod entry_guard;
+pub(crate) mod expr;
+pub(crate) mod fast_div;
+pub(crate) mod ffi;
+pub(crate) mod flow;
+pub(crate) mod hoist;
+pub(crate) mod i64_map;
+pub(crate) mod instantiation;
+pub(crate) mod lent;
+pub(crate) mod lowbits;
+pub(crate) mod marshal;
+pub(crate) mod bits;
+pub(crate) mod narrow;
+pub(crate) mod outline;
+pub(crate) mod peephole;
+pub(crate) mod probe;
+mod policy;
+pub(crate) mod program;
+pub(crate) mod rational;
+mod replay;
+pub(crate) mod stmt;
 pub(crate) mod strsearch;
+pub(crate) mod tce;
+pub(crate) mod tower;
+pub(crate) mod types;
+pub(crate) mod worklist;
 // Per-function codegen slicing for the AOT-native tier (HOTSWAP Axis-3 / P14a).
 pub(crate) mod slice;
+pub(crate) mod slice_escape;
+// AVX2 SIMD reduction of transcendental accumulator loops (math.<transcendental> caps).
+pub(crate) mod simd_reduce;
 
 // ─── External API re-exports ────────────────────────────────────────────────
 // These preserve the public API used by compile.rs, ui_bridge.rs, and test files.
 
-pub use context::{RefinementContext, VariableCapabilities, empty_var_caps};
+pub use bindings::{generate_python_bindings, generate_typescript_bindings};
+pub use context::{empty_var_caps, RefinementContext, VariableCapabilities};
 pub use detection::{collect_async_functions, collect_pipe_sender_params, collect_pipe_vars};
+pub use expr::{codegen_assertion, codegen_expr, codegen_term};
+pub use ffi::generate_c_header;
+pub use hoist::force_disable_for_test as force_disable_borrow_hoist_for_test;
+pub use marshal::codegen_native_tier_export;
 pub use program::{codegen_program, codegen_program_mapped, codegen_program_with_proven};
 pub use slice::function_slice;
-pub use marshal::codegen_native_tier_export;
-pub use hoist::force_disable_for_test as force_disable_borrow_hoist_for_test;
-pub use ffi::generate_c_header;
-pub use bindings::{generate_python_bindings, generate_typescript_bindings};
-pub use expr::{codegen_expr, codegen_assertion, codegen_term};
 pub use stmt::codegen_stmt;
 
 // ─── Mode-B (deterministic-replay) codegen gate ─────────────────────────────
 //
-// A compile-global flag: when set, a `Select` emits the *seeded* winner-pick
-// (sharing the interpreter's choice function) instead of a raw `tokio::select!`.
-// The DEFAULT (Mode A) is off, so default emission stays byte-identical to today
-// — the one bit Phase 8 adds. Codegen is single-threaded per compile, so a
-// thread-local is the natural home; `compile::compile_to_rust_deterministic`
-// sets it for the extent of one compile and restores it after.
+// A compile-global flag: when set, a program that runs on the scheduler lowers every task, pipe,
+// timer and select onto `logicaffeine_system::replay` — the interpreter's scheduler, ported — so the
+// binary replays the interpreter's schedule at the seed `LOGOS_SEED` names. The DEFAULT (Mode A) is
+// off, so default emission is untouched. Codegen is single-threaded per compile, so a thread-local is
+// the natural home; `compile::compile_to_rust_deterministic` sets it for the extent of one compile,
+// and `codegen_program` narrows it to the programs that use the scheduler.
 
 thread_local! {
     static SEEDED_SELECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static OBSERVED_CODEGEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static EMBED_ASSETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Is the deterministic-replay (Mode-B) `Select` lowering active for this compile?
-pub(crate) fn seeded_select_enabled() -> bool {
+/// Is the deterministic-replay lowering active for this compile?
+pub(crate) fn deterministic_replay_enabled() -> bool {
     SEEDED_SELECT.with(|c| c.get())
 }
 
-/// Run `f` with Mode-B `Select` lowering enabled, restoring the previous mode
+/// Is the OBSERVED codegen profile active (Wave 13)? When set, observation is NOT
+/// elided at lowering and the AOT backend EMITS `logicaffeine_system::obs` calls
+/// for `Note`/`Warn`/`Record`/`During`. Default OFF — the release/elided profile,
+/// where observation is erased before codegen (byte-identical artifact, §0.7).
+pub fn observed_codegen_enabled() -> bool {
+    OBSERVED_CODEGEN.with(|c| c.get())
+}
+
+/// Run `f` with the OBSERVED codegen profile enabled, restoring the previous mode
 /// afterwards (panic-safe). Returns `f`'s result.
-pub fn with_seeded_select<R>(f: impl FnOnce() -> R) -> R {
+pub fn with_observed_codegen<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OBSERVED_CODEGEN.with(|c| c.set(self.0));
+        }
+    }
+    let _guard = OBSERVED_CODEGEN.with(|c| {
+        let prev = c.get();
+        c.set(true);
+        Restore(prev)
+    });
+    f()
+}
+
+/// Is the EMBEDDED-ASSETS `Serve` lowering active for this compile (B4)? When
+/// set, the emitted `Serve` closure consults `logos_assets::lookup(&path)`
+/// BEFORE calling the handler — an embedded page/static asset shadows a backend
+/// route, exactly the dev router's precedence, so a `largo build` web binary
+/// serves the bundled site. Default OFF: a plain `Serve` program lowers
+/// byte-identically (the asset hook is inert), which the HTTP differential pins.
+pub fn embed_assets_enabled() -> bool {
+    EMBED_ASSETS.with(|c| c.get())
+}
+
+/// Run `f` with the embedded-assets `Serve` lowering enabled (B4), restoring the
+/// previous mode afterwards (panic-safe). `largo build` wraps the web-project
+/// compile in this so the generated `Serve` consults `logos_assets`.
+pub fn with_embed_assets<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            EMBED_ASSETS.with(|c| c.set(self.0));
+        }
+    }
+    let _guard = EMBED_ASSETS.with(|c| {
+        let prev = c.get();
+        c.set(true);
+        Restore(prev)
+    });
+    f()
+}
+
+/// Run `f` with the deterministic-replay lowering enabled, restoring the previous mode
+/// afterwards (panic-safe). Returns `f`'s result.
+pub fn with_deterministic_replay<R>(f: impl FnOnce() -> R) -> R {
+    with_replay_mode(true, f)
+}
+
+/// Run `f` with the deterministic-replay lowering set to `on`, restoring the previous mode afterwards (panic-safe).
+pub(crate) fn with_replay_mode<R>(on: bool, f: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -129,7 +204,7 @@ pub fn with_seeded_select<R>(f: impl FnOnce() -> R) -> R {
     }
     let _guard = SEEDED_SELECT.with(|c| {
         let prev = c.get();
-        c.set(true);
+        c.set(on);
         Restore(prev)
     });
     f()
@@ -139,52 +214,85 @@ pub fn with_seeded_select<R>(f: impl FnOnce() -> R) -> R {
 // These allow sibling submodules to use `use super::item` for items
 // that moved out of mod.rs into submodule files.
 
+pub(crate) use expr::codegen_expr_with_async;
 pub(crate) use ffi::{
-    CAbiClass, classify_type_for_c_abi, has_wasm_exports, has_c_exports, has_c_exports_with_text,
-    codegen_c_accessors, collect_c_export_ref_structs, collect_c_export_reference_types,
-    collect_c_export_value_type_structs, codegen_logos_runtime_preamble, mangle_type_for_c,
-    map_type_to_c_header, map_field_type_to_c,
+    classify_type_for_c_abi, codegen_c_accessors, collect_c_export_ref_structs, CAbiClass,
 };
-pub(crate) use expr::{
-    codegen_expr_with_async, codegen_expr_boxed, codegen_expr_boxed_with_strings,
-    codegen_expr_boxed_with_types, codegen_interpolated_string, codegen_literal,
-    codegen_expr_with_async_and_strings, is_definitely_string_expr_with_vars,
-    is_definitely_string_expr, is_definitely_numeric_expr, collect_string_concat_operands,
-};
-pub(crate) use stmt::{get_root_identifier, is_copy_type, has_copy_element_type, has_copy_value_type};
 pub(crate) use peephole::{
-    try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
-    try_emit_prefix_reverse,
-    try_emit_seq_copy_pattern, try_emit_seq_from_slice_pattern,
-    try_emit_bare_slice_push_pattern,
-    try_emit_vec_with_capacity_pattern, try_emit_merge_capacity_pattern,
-    try_emit_string_with_capacity_pattern,
-    try_emit_rotate_left_pattern,
-    try_emit_buffer_reuse_while,
-    body_mutates_collection, body_modifies_var, exprs_equal,
+    try_emit_for_range_pattern, try_emit_prefix_reverse, try_emit_swap_pattern,
+    try_emit_vec_fill_pattern,
 };
-pub(crate) use types::is_recursive_field;
+pub(crate) use stmt::{
+    get_root_identifier, has_copy_element_type, has_copy_value_type, is_copy_type,
+};
+pub(crate) use types::field_is_boxed;
 
 /// Check if a name is a Rust keyword (needs `r#` escaping in generated code).
 pub(crate) fn is_rust_keyword(name: &str) -> bool {
-    matches!(name,
-        "as" | "async" | "await" | "break" | "const" | "continue" | "crate" |
-        "dyn" | "else" | "enum" | "extern" | "false" | "fn" | "for" | "if" |
-        "impl" | "in" | "let" | "loop" | "match" | "mod" | "move" | "mut" |
-        "pub" | "ref" | "return" | "self" | "Self" | "static" | "struct" |
-        "super" | "trait" | "true" | "type" | "unsafe" | "use" | "where" |
-        "while" | "abstract" | "become" | "box" | "do" | "final" | "macro" |
-        "override" | "priv" | "try" | "typeof" | "unsized" | "virtual" | "yield"
+    matches!(
+        name,
+        "as" | "async"
+            | "await"
+            | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "dyn"
+            | "else"
+            | "enum"
+            | "extern"
+            | "false"
+            | "fn"
+            | "for"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "type"
+            | "unsafe"
+            | "use"
+            | "where"
+            | "while"
+            | "abstract"
+            | "become"
+            | "box"
+            | "do"
+            | "final"
+            | "macro"
+            | "override"
+            | "priv"
+            | "try"
+            | "typeof"
+            | "unsized"
+            | "virtual"
+            | "yield"
     )
 }
 
-/// Escape a name as a Rust raw identifier if it's a keyword.
-/// e.g., "move" → "r#move", "add" → "add"
+/// A LOGOS name as a Rust identifier: a keyword becomes a raw identifier (`move` → `r#move`), and the
+/// four keywords a raw identifier cannot spell (`self`, `Self`, `crate`, `super`) take a reserved
+/// compiler prefix (`__logos_self`). Every position a name reaches Rust in — a variable, a function, a
+/// record or variant field — goes through this one spelling, so a declaration and every use agree.
 pub(crate) fn escape_rust_ident(name: &str) -> String {
-    if is_rust_keyword(name) {
-        format!("r#{}", name)
-    } else {
-        name.to_string()
+    match name {
+        "self" | "Self" | "crate" | "super" => format!("__logos_{name}"),
+        _ if is_rust_keyword(name) => format!("r#{name}"),
+        _ => name.to_string(),
     }
 }
 
@@ -216,7 +324,10 @@ pub(crate) fn encode_fn_roles(
     fn csv(s: &std::collections::HashSet<usize>) -> String {
         let mut v: Vec<usize> = s.iter().copied().collect();
         v.sort_unstable();
-        v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+        v.iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     }
     format!(
         "fn_roles|b={}|m={}|v={}",
@@ -254,4 +365,20 @@ pub(crate) fn fn_role_indices(
 /// symbol's ABI role) rather than an ordinary variable type.
 pub(crate) fn is_fn_role_slot(ty: &str) -> bool {
     ty.starts_with("fn_roles|")
+}
+
+/// Generated-project metadata is a file prologue, so program text cannot select runtime requirements. A program
+/// whose failures a runtime boundary catches — a replay scheduler's task, a served request — opens with this line,
+/// and its release build unwinds so the boundary can catch them.
+pub(crate) const UNWIND_PROFILE_HEADER: &str = "// LOGOS Rust runtime: unwind-v1\n";
+
+/// The panic strategy of a generated program's release build: `unwind` for one that opens with
+/// [`UNWIND_PROFILE_HEADER`], `abort` for every other, whose failure hook reports and ends it. Every project writer
+/// takes it from here.
+pub fn release_panic_strategy(rust_code: &str) -> &'static str {
+    if rust_code.starts_with(UNWIND_PROFILE_HEADER) {
+        "unwind"
+    } else {
+        "abort"
+    }
 }

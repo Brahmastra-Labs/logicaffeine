@@ -1,0 +1,68 @@
+{
+  "case": "T11-022",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t11_adversarial/T11-022_first_theorem_block_only.lean",
+  "source_sha256": "76eea31624300f4daaa11d7cef7dd47d7c546d43e736d748aa9c8378c10c7863",
+  "ledger_sha256": "2e948fc03c72a20bfd507e2c1f6c173dacc84e0bde20a3a9c61dbd96174cf1d6",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T11_022.doubleIsAdd",
+    "T11_022.doubleZero",
+    "T11_022.doubleZeroAgain",
+    "T11_022.firstOne",
+    "T11_022.secondOne",
+    "T11_022.thirdOne",
+    "T11_022.triple",
+    "T11_022.tripleOne",
+    "T11_022.tripleZero",
+    "T11_022.withPremise"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "87973a5391b2723010843656401878c8b5a9231d7852bae78021fa11d8870483",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 3512,
+  "harvest": {
+    "roots": [
+      "T11_022.doubleIsAdd",
+      "T11_022.doubleZero",
+      "T11_022.doubleZeroAgain",
+      "T11_022.firstOne",
+      "T11_022.secondOne",
+      "T11_022.thirdOne",
+      "T11_022.triple",
+      "T11_022.tripleOne",
+      "T11_022.tripleZero",
+      "T11_022.withPremise"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

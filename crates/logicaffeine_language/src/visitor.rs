@@ -144,7 +144,10 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
         LogicExpr::Optative { wish } => {
             v.visit_expr(wish);
         }
-        LogicExpr::Implicature { assertion, implicature } => {
+        LogicExpr::Implicature {
+            assertion,
+            implicature,
+        } => {
             v.visit_expr(assertion);
             v.visit_expr(implicature);
         }
@@ -156,7 +159,10 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             v.visit_expr(content);
         }
 
-        LogicExpr::Counterfactual { antecedent, consequent } => {
+        LogicExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
             v.visit_expr(antecedent);
             v.visit_expr(consequent);
         }
@@ -170,7 +176,9 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             v.visit_expr(concession);
         }
 
-        LogicExpr::Comparative { subject, object, .. } => {
+        LogicExpr::Comparative {
+            subject, object, ..
+        } => {
             v.visit_term(subject);
             v.visit_term(object);
         }
@@ -183,7 +191,12 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             v.visit_expr(body);
         }
 
-        LogicExpr::Control { subject, object, infinitive, .. } => {
+        LogicExpr::Control {
+            subject,
+            object,
+            infinitive,
+            ..
+        } => {
             v.visit_term(subject);
             if let Some(obj) = object {
                 v.visit_term(obj);
@@ -191,7 +204,10 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             v.visit_expr(infinitive);
         }
 
-        LogicExpr::Presupposition { assertion, presupposition } => {
+        LogicExpr::Presupposition {
+            assertion,
+            presupposition,
+        } => {
             v.visit_expr(assertion);
             v.visit_expr(presupposition);
         }
@@ -209,7 +225,9 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             v.visit_expr(predicate);
         }
 
-        LogicExpr::GroupQuantifier { restriction, body, .. } => {
+        LogicExpr::GroupQuantifier {
+            restriction, body, ..
+        } => {
             v.visit_expr(restriction);
             v.visit_expr(body);
         }
@@ -218,7 +236,12 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
 
 pub fn walk_term<'a, V: Visitor<'a>>(v: &mut V, term: &'a Term<'a>) {
     match term {
-        Term::Constant(_) | Term::Variable(_) | Term::Sigma(_) | Term::Intension(_) | Term::Kind(_) | Term::Value { .. } => {}
+        Term::Constant(_)
+        | Term::Variable(_)
+        | Term::Sigma(_)
+        | Term::Intension(_)
+        | Term::Kind(_)
+        | Term::Value { .. } => {}
 
         Term::Function(_, args) => {
             for arg in *args {
@@ -252,81 +275,5 @@ pub fn walk_np<'a, V: Visitor<'a>>(v: &mut V, np: &'a NounPhrase<'a>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_base::Symbol;
-
-    struct VariableCollector {
-        variables: Vec<Symbol>,
-    }
-
-    impl<'a> Visitor<'a> for VariableCollector {
-        fn visit_term(&mut self, term: &'a Term<'a>) {
-            if let Term::Variable(sym) = term {
-                self.variables.push(*sym);
-            }
-            walk_term(self, term);
-        }
-    }
-
-    struct ExprCounter {
-        count: usize,
-    }
-
-    impl<'a> Visitor<'a> for ExprCounter {
-        fn visit_expr(&mut self, expr: &'a LogicExpr<'a>) {
-            self.count += 1;
-            walk_expr(self, expr);
-        }
-    }
-
-    #[test]
-    fn variable_collector_finds_variables() {
-        use logicaffeine_base::Arena;
-        use logicaffeine_base::Interner;
-
-        let mut interner = Interner::new();
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-
-        let term_arena: Arena<Term> = Arena::new();
-        let terms = term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]);
-
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let pred = interner.intern("P");
-        let expr = expr_arena.alloc(LogicExpr::Predicate { name: pred, args: terms, world: None });
-
-        let mut collector = VariableCollector { variables: vec![] };
-        collector.visit_expr(expr);
-
-        assert_eq!(collector.variables.len(), 2);
-        assert!(collector.variables.contains(&x));
-        assert!(collector.variables.contains(&y));
-    }
-
-    #[test]
-    fn expr_counter_counts_nested() {
-        use logicaffeine_base::Arena;
-        use logicaffeine_base::Interner;
-        use crate::token::TokenType;
-
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let q = interner.intern("Q");
-
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-
-        let left = expr_arena.alloc(LogicExpr::Atom(p));
-        let right = expr_arena.alloc(LogicExpr::Atom(q));
-        let binary = expr_arena.alloc(LogicExpr::BinaryOp {
-            left,
-            op: TokenType::And,
-            right,
-        });
-
-        let mut counter = ExprCounter { count: 0 };
-        counter.visit_expr(binary);
-
-        assert_eq!(counter.count, 3);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/visitor/tests.rs"]
+mod tests;

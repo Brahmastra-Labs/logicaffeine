@@ -1,0 +1,3 @@
+# ★ RUST-TIER KNOWN EXECUTION DIVERGENCES — shrink-only ledger for the ultimate gauntlet's Invariant-B Rust
+# leg. Populated from the first heavy Rust run. A NEW divergence outside this list fails the lock; a listed
+# program that starts matching must be DELETED (shrink-only). Comments (#) and blanks ignored.

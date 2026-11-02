@@ -14,9 +14,7 @@ use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 use std::process::exit;
-use wiki_trace::{
-    classify, cluster, render::render_trace, Category, Gate, Outcome, TriageRecord,
-};
+use wiki_trace::{classify, cluster, render::render_trace, Category, Gate, Outcome, TriageRecord};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -102,7 +100,10 @@ fn main() {
 
     // ── verdict.json: the loop's exit condition ───────────────────────────────
     let total = records.len();
-    let clean = records.iter().filter(|r| r.category == Category::Clean).count();
+    let clean = records
+        .iter()
+        .filter(|r| r.category == Category::Clean)
+        .count();
     let all_clean = clean == total && total > 0;
     let count_cat = |c: Category| records.iter().filter(|r| r.category == c).count();
     let count_out = |o: Outcome| records.iter().filter(|r| r.outcome == o).count();
@@ -136,8 +137,14 @@ fn main() {
         out_dir.join("clusters.json"),
         serde_json::to_string_pretty(&clusters).unwrap_or_default(),
     );
-    let _ = fs::write(out_dir.join("worklist.md"), worklist_md(&input, &records, &clusters));
-    let _ = fs::write(out_dir.join("needs_human.md"), needs_human_md(&input, &records));
+    let _ = fs::write(
+        out_dir.join("worklist.md"),
+        worklist_md(&input, &records, &clusters),
+    );
+    let _ = fs::write(
+        out_dir.join("needs_human.md"),
+        needs_human_md(&input, &records),
+    );
 
     println!(
         "{} sentences → {} clean, {} lexicon, {} parser, {} semantic, {} human, {} isolate",
@@ -173,10 +180,7 @@ fn worklist_md(
     );
 
     s.push_str("## Clusters (fix the class)\n\n");
-    let actionable: Vec<_> = clusters
-        .iter()
-        .filter(|c| c.gate != Gate::Human)
-        .collect();
+    let actionable: Vec<_> = clusters.iter().filter(|c| c.gate != Gate::Human).collect();
     if actionable.is_empty() {
         s.push_str("_None._\n\n");
     } else {
@@ -189,8 +193,10 @@ fn worklist_md(
         s.push('\n');
     }
 
-    for (title, gate) in [("## Auto-eligible (lexicon, low risk)", Gate::Auto),
-                          ("## Investigate (agent + human judgment)", Gate::Investigate)] {
+    for (title, gate) in [
+        ("## Auto-eligible (lexicon, low risk)", Gate::Auto),
+        ("## Investigate (agent + human judgment)", Gate::Investigate),
+    ] {
         s.push_str(title);
         s.push_str("\n\n");
         let mut items: Vec<&TriageRecord> = records.iter().filter(|r| r.gate == gate).collect();
@@ -217,7 +223,10 @@ fn worklist_md(
                 ));
             }
             if !r.localization.suspect_words.is_empty() {
-                s.push_str(&format!("- suspect words: {:?}\n", r.localization.suspect_words));
+                s.push_str(&format!(
+                    "- suspect words: {:?}\n",
+                    r.localization.suspect_words
+                ));
             }
             if let Some(o) = &r.oracle {
                 s.push_str(&format!(

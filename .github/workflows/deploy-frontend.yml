@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
 
       - name: Setup Rust
@@ -52,7 +52,7 @@ jobs:
       # lexicon) from /data/* at runtime instead of compiling it in. Stage + validate
       # that bundle from the repo's sources of truth; a missing/empty file fails here.
       - name: Stage runtime data
-        run: ./scripts/stage-web-data.sh
+        run: ./scripts/web/stage-web-data.sh
 
       # --ssg --fullstack: dx builds the wasm client (features=web) AND the native
       # prerender server (features=server), spawns the server, and writes per-route
@@ -66,8 +66,8 @@ jobs:
       # for most routes (the interpreter boots into `reading 'listening'` on an
       # undefined node), so `/`, `/pricing`, `/news`, `/roadmap`, `/guide` all
       # render blank in production — only `/studio` survived. Without splitting,
-      # every route renders correctly; the tradeoff is a ~12 MB eager bundle
-      # (~3-4 MB brotli) instead of the ~1.1 MB split entry. The per-route render
+      # every route renders correctly; the tradeoff is a ~22 MB eager bundle
+      # (~6.7 MB brotli) instead of the ~1.1 MB split entry. The per-route render
       # lock (test-ssg-render) gates this so a blank route can never ship again.
       # Re-add `--wasm-split --features split` once the fork's wasm-split-cli is
       # fixed and the render lock stays green with it on.
@@ -79,23 +79,23 @@ jobs:
       # The prerender writes into web/prerendered (the client build rewrites
       # public/index.html after the prerender pass — see merge-ssg.sh).
       - name: Merge prerendered pages
-        run: ./scripts/merge-ssg.sh
+        run: ./scripts/web/merge-ssg.sh
 
       # Emit public/chunks.json = the content-hashed lazy-chunk URLs the shell's
       # background-prefetch loop warms once the first page is idle, so later
       # navigation is instant instead of blocking on each page's wasm download.
       - name: Generate prefetch manifest
-        run: ./scripts/gen-prefetch-manifest.sh
+        run: ./scripts/web/gen-prefetch-manifest.sh
 
-      # Fail the deploy if the bundle outgrows the budget — locks in libp2p staying out of
-      # the default build (and any future bloat).
+      # Fail the deploy if the bundle outgrows its budget (.config/size-budgets.toml [web]) —
+      # locks in libp2p staying out of the default build (and any future bloat).
       - name: WASM size gate
-        run: ./scripts/wasm-size-gate.sh
+        run: ./scripts/web/wasm-size-gate.sh
 
       # dx silently skips routes whose prerender fails — prove every sitemap route
       # produced its HTML with per-page canonical/OG/JSON-LD head intact.
       - name: Verify prerendered routes
-        run: ./scripts/verify-ssg.sh
+        run: ./scripts/web/verify-ssg.sh
 
       # Render lock: prove EVERY route renders the LIVE app after wasm boot,
       # WITHOUT pumping the event loop — the gate the blank-homepage regression
@@ -105,12 +105,12 @@ jobs:
       - name: Render lock (no blank/crashed routes)
         run: |
           npm install --no-save puppeteer-core@23
-          CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/test-ssg-render.sh
+          CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/web/test-ssg-render.sh
 
       # Headless-browser boot: prerendered page CSR takeover (no duplicated DOM)
       # and an SPA-fallback route still boots the app.
       - name: SSG smoke test
-        run: ./scripts/test-ssg-smoke.sh
+        run: ./scripts/web/test-ssg-smoke.sh
 
       # Screenshot tests: EVERY sitemap route rendered in headless Chrome after
       # wasm boot — content markers, completed takeover, zero page errors, and a
@@ -118,7 +118,7 @@ jobs:
       - name: Screenshot tests
         run: |
           npm install --no-save puppeteer-core@23
-          CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/test-ssg-screenshots.sh
+          CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/web/test-ssg-screenshots.sh
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

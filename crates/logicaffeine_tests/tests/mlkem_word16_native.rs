@@ -14,12 +14,18 @@ use common::run_logos_with_args;
 fn word16_ntt_native_matches_kernel() {
     use logicaffeine_base::Word16;
     let input: Vec<Word16> = (0..256).map(|i| Word16(i as u16)).collect();
-    let want: Vec<i64> =
-        logicaffeine_system::ntt::mlkem_ntt_w16(&input).iter().map(|w| w.0 as i64).collect();
+    let want: Vec<i64> = logicaffeine_system::ntt::mlkem_ntt_w16(&input)
+        .iter()
+        .map(|w| w.0 as i64)
+        .collect();
 
     let prog = "## Main\nLet a be a new Seq of Word16.\nRepeat for i from 0 to 255:\n    Push word16(i) to a.\nLet b be mlkemNttW16(a).\nRepeat for i from 1 to 256:\n    Show item i of b.\n";
     let aot = run_logos_with_args(prog, &[]);
-    assert!(aot.success, "AOT failed:\n--- stderr ---\n{}\n--- rust ---\n{}", aot.stderr, aot.rust_code);
+    assert!(
+        aot.success,
+        "AOT failed:\n--- stderr ---\n{}\n--- rust ---\n{}",
+        aot.stderr, aot.rust_code
+    );
     let got: Vec<i64> = aot
         .stdout
         .lines()
@@ -27,5 +33,8 @@ fn word16_ntt_native_matches_kernel() {
         .map(|l| l.trim().parse().expect("integer output line"))
         .collect();
     assert_eq!(got.len(), 256, "256 NTT coefficients");
-    assert_eq!(got, want, "Word16-native NTT in compiled Logos must match the runtime kernel");
+    assert_eq!(
+        got, want,
+        "Word16-native NTT in compiled Logos must match the runtime kernel"
+    );
 }

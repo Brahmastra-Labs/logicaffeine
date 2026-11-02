@@ -6,8 +6,8 @@
 #![cfg(feature = "verification")]
 
 use logicaffeine_verify::consistency::{
-    check_spec_consistency, ConsistencyConfig, ConsistencyReport,
-    LabeledFormula, SatisfiabilityResult,
+    check_spec_consistency, ConsistencyConfig, ConsistencyReport, LabeledFormula,
+    SatisfiabilityResult,
 };
 use logicaffeine_verify::ir::{VerifyExpr, VerifyOp};
 
@@ -49,8 +49,16 @@ fn mus_simple_contradiction() {
 fn mus_three_with_irrelevant() {
     // x>10 and x<5 conflict; y is irrelevant
     let formulas = vec![
-        lf(0, "x>10", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10))),
-        lf(1, "x<5", VerifyExpr::lt(VerifyExpr::var("x@0"), VerifyExpr::int(5))),
+        lf(
+            0,
+            "x>10",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10)),
+        ),
+        lf(
+            1,
+            "x<5",
+            VerifyExpr::lt(VerifyExpr::var("x@0"), VerifyExpr::int(5)),
+        ),
         lf(2, "y", VerifyExpr::var("y@0")),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
@@ -58,7 +66,11 @@ fn mus_three_with_irrelevant() {
         SatisfiabilityResult::Unsatisfiable { mus } => {
             assert!(mus.contains(&0), "MUS should contain 0. Got: {:?}", mus);
             assert!(mus.contains(&1), "MUS should contain 1. Got: {:?}", mus);
-            assert!(!mus.contains(&2), "MUS should NOT contain 2 (irrelevant). Got: {:?}", mus);
+            assert!(
+                !mus.contains(&2),
+                "MUS should NOT contain 2 (irrelevant). Got: {:?}",
+                mus
+            );
         }
         other => panic!("Expected Unsatisfiable, got {:?}", other),
     }
@@ -75,15 +87,24 @@ fn mus_three_all_necessary() {
     let formulas = vec![
         lf(0, "x", VerifyExpr::var("x@0")),
         lf(1, "y", VerifyExpr::var("y@0")),
-        lf(2, "x implies not y", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::not(VerifyExpr::var("y@0")),
-        )),
+        lf(
+            2,
+            "x implies not y",
+            VerifyExpr::implies(
+                VerifyExpr::var("x@0"),
+                VerifyExpr::not(VerifyExpr::var("y@0")),
+            ),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     match &report.satisfiability {
         SatisfiabilityResult::Unsatisfiable { mus } => {
-            assert_eq!(mus.len(), 3, "All three formulas needed. Got MUS: {:?}", mus);
+            assert_eq!(
+                mus.len(),
+                3,
+                "All three formulas needed. Got MUS: {:?}",
+                mus
+            );
             assert!(mus.contains(&0));
             assert!(mus.contains(&1));
             assert!(mus.contains(&2));
@@ -99,23 +120,32 @@ fn mus_satisfiable_returns_satisfiable() {
         lf(1, "y", VerifyExpr::var("y@0")),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
-    assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable,
-        "Independent vars should be satisfiable");
+    assert_eq!(
+        report.satisfiability,
+        SatisfiabilityResult::Satisfiable,
+        "Independent vars should be satisfiable"
+    );
 }
 
 #[test]
 fn mus_single_self_contradictory() {
     // Single formula that contradicts itself: x AND NOT x
-    let formulas = vec![
-        lf(0, "x and not x", VerifyExpr::and(
+    let formulas = vec![lf(
+        0,
+        "x and not x",
+        VerifyExpr::and(
             VerifyExpr::var("x@0"),
             VerifyExpr::not(VerifyExpr::var("x@0")),
-        )),
-    ];
+        ),
+    )];
     let report = check_spec_consistency(&formulas, &default_config());
     match &report.satisfiability {
         SatisfiabilityResult::Unsatisfiable { mus } => {
-            assert_eq!(mus, &vec![0], "Single self-contradictory formula is the MUS");
+            assert_eq!(
+                mus,
+                &vec![0],
+                "Single self-contradictory formula is the MUS"
+            );
         }
         other => panic!("Expected Unsatisfiable, got {:?}", other),
     }
@@ -124,8 +154,11 @@ fn mus_single_self_contradictory() {
 #[test]
 fn mus_empty_set() {
     let report = check_spec_consistency(&[], &default_config());
-    assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable,
-        "Empty set is trivially satisfiable");
+    assert_eq!(
+        report.satisfiability,
+        SatisfiabilityResult::Satisfiable,
+        "Empty set is trivially satisfiable"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -137,32 +170,45 @@ fn vacuity_impossible_antecedent() {
     // Not(x) makes "if x then y" vacuously true
     let formulas = vec![
         lf(0, "not x", VerifyExpr::not(VerifyExpr::var("x@0"))),
-        lf(1, "x implies y", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
+        lf(
+            1,
+            "x implies y",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert_eq!(report.vacuity.len(), 1, "Should find 1 vacuous formula. Got: {:?}", report.vacuity);
-    assert_eq!(report.vacuity[0].formula_index, 1,
-        "Formula 1 should be vacuous. Got index: {}", report.vacuity[0].formula_index);
+    assert_eq!(
+        report.vacuity.len(),
+        1,
+        "Should find 1 vacuous formula. Got: {:?}",
+        report.vacuity
+    );
+    assert_eq!(
+        report.vacuity[0].formula_index, 1,
+        "Formula 1 should be vacuous. Got index: {}",
+        report.vacuity[0].formula_index
+    );
 }
 
 #[test]
 fn vacuity_no_vacuous_formulas() {
     // x is true, so "if x then y" is NOT vacuous
     let formulas = vec![
-        lf(0, "x implies y", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
+        lf(
+            0,
+            "x implies y",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
         lf(1, "x", VerifyExpr::var("x@0")),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(report.vacuity.is_empty(),
-        "No vacuous formulas expected. Got: {:?}", report.vacuity);
+    assert!(
+        report.vacuity.is_empty(),
+        "No vacuous formulas expected. Got: {:?}",
+        report.vacuity
+    );
 }
 
 #[test]
@@ -170,16 +216,22 @@ fn vacuity_non_implication_ignored() {
     // And(x, y) is not an implication — vacuity check should skip it
     let formulas = vec![
         lf(0, "not x", VerifyExpr::not(VerifyExpr::var("x@0"))),
-        lf(1, "x and y", VerifyExpr::and(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
+        lf(
+            1,
+            "x and y",
+            VerifyExpr::and(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     // Note: this is UNSAT (not x AND (x AND y) is contradictory)
     // So vacuity won't run (only runs when SAT)
-    assert!(matches!(report.satisfiability, SatisfiabilityResult::Unsatisfiable { .. }),
-        "Should be unsatisfiable");
+    assert!(
+        matches!(
+            report.satisfiability,
+            SatisfiabilityResult::Unsatisfiable { .. }
+        ),
+        "Should be unsatisfiable"
+    );
     assert!(report.vacuity.is_empty(), "Vacuity not checked when UNSAT");
 }
 
@@ -188,17 +240,22 @@ fn vacuity_forall_wrapping() {
     // ForAll wrapper around implication — should still detect vacuity
     let formulas = vec![
         lf(0, "not x", VerifyExpr::not(VerifyExpr::var("x@0"))),
-        lf(1, "forall: x implies y", VerifyExpr::forall(
-            vec![],
-            VerifyExpr::implies(
-                VerifyExpr::var("x@0"),
-                VerifyExpr::var("y@0"),
+        lf(
+            1,
+            "forall: x implies y",
+            VerifyExpr::forall(
+                vec![],
+                VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
             ),
-        )),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert_eq!(report.vacuity.len(), 1, "Should find vacuous ForAll-wrapped implication");
+    assert_eq!(
+        report.vacuity.len(),
+        1,
+        "Should find vacuous ForAll-wrapped implication"
+    );
     assert_eq!(report.vacuity[0].formula_index, 1);
 }
 
@@ -208,21 +265,35 @@ fn vacuity_multiple_findings() {
     let formulas = vec![
         lf(0, "not x", VerifyExpr::not(VerifyExpr::var("x@0"))),
         lf(1, "not y", VerifyExpr::not(VerifyExpr::var("y@0"))),
-        lf(2, "x implies z", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("z@0"),
-        )),
-        lf(3, "y implies z", VerifyExpr::implies(
-            VerifyExpr::var("y@0"),
-            VerifyExpr::var("z@0"),
-        )),
+        lf(
+            2,
+            "x implies z",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("z@0")),
+        ),
+        lf(
+            3,
+            "y implies z",
+            VerifyExpr::implies(VerifyExpr::var("y@0"), VerifyExpr::var("z@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
     let indices: Vec<usize> = report.vacuity.iter().map(|v| v.formula_index).collect();
-    assert!(indices.contains(&2), "Formula 2 should be vacuous. Got: {:?}", indices);
-    assert!(indices.contains(&3), "Formula 3 should be vacuous. Got: {:?}", indices);
-    assert_eq!(report.vacuity.len(), 2, "Exactly 2 vacuous formulas expected");
+    assert!(
+        indices.contains(&2),
+        "Formula 2 should be vacuous. Got: {:?}",
+        indices
+    );
+    assert!(
+        indices.contains(&3),
+        "Formula 3 should be vacuous. Got: {:?}",
+        indices
+    );
+    assert_eq!(
+        report.vacuity.len(),
+        2,
+        "Exactly 2 vacuous formulas expected"
+    );
 }
 
 #[test]
@@ -231,12 +302,18 @@ fn vacuity_only_checks_implications() {
     let formulas = vec![
         lf(0, "x", VerifyExpr::var("x@0")),
         lf(1, "y", VerifyExpr::var("y@0")),
-        lf(2, "x or y", VerifyExpr::or(VerifyExpr::var("x@0"), VerifyExpr::var("y@0"))),
+        lf(
+            2,
+            "x or y",
+            VerifyExpr::or(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(report.vacuity.is_empty(),
-        "No implications means no vacuity findings");
+    assert!(
+        report.vacuity.is_empty(),
+        "No implications means no vacuity findings"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -247,14 +324,25 @@ fn vacuity_only_checks_implications() {
 fn redundancy_strict_entailment() {
     // x>10 entails x>5
     let formulas = vec![
-        lf(0, "x > 10", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10))),
-        lf(1, "x > 5", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5))),
+        lf(
+            0,
+            "x > 10",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10)),
+        ),
+        lf(
+            1,
+            "x > 5",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5)),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
     assert!(!report.redundancies.is_empty(), "Should find redundancy");
-    assert!(report.redundancies.iter().any(|r| r.redundant_index == 1),
-        "Formula 1 (x>5) should be redundant. Got: {:?}", report.redundancies);
+    assert!(
+        report.redundancies.iter().any(|r| r.redundant_index == 1),
+        "Formula 1 (x>5) should be redundant. Got: {:?}",
+        report.redundancies
+    );
 }
 
 #[test]
@@ -265,27 +353,38 @@ fn redundancy_no_redundancy() {
         lf(1, "y", VerifyExpr::var("y@0")),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
-    assert!(report.redundancies.is_empty(),
-        "No redundancy expected. Got: {:?}", report.redundancies);
+    assert!(
+        report.redundancies.is_empty(),
+        "No redundancy expected. Got: {:?}",
+        report.redundancies
+    );
 }
 
 #[test]
 fn redundancy_mutual_entailment() {
     // Contrapositive: (x→y) and (¬y→¬x) are logically equivalent
     let formulas = vec![
-        lf(0, "x implies y", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
-        lf(1, "not y implies not x", VerifyExpr::implies(
-            VerifyExpr::not(VerifyExpr::var("y@0")),
-            VerifyExpr::not(VerifyExpr::var("x@0")),
-        )),
+        lf(
+            0,
+            "x implies y",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
+        lf(
+            1,
+            "not y implies not x",
+            VerifyExpr::implies(
+                VerifyExpr::not(VerifyExpr::var("y@0")),
+                VerifyExpr::not(VerifyExpr::var("x@0")),
+            ),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(!report.redundancies.is_empty(),
-        "At least one should be redundant (mutual entailment). Got: {:?}", report.redundancies);
+    assert!(
+        !report.redundancies.is_empty(),
+        "At least one should be redundant (mutual entailment). Got: {:?}",
+        report.redundancies
+    );
 }
 
 #[test]
@@ -293,39 +392,49 @@ fn redundancy_three_formulas_one_redundant() {
     // x AND (x→y) together entail y
     let formulas = vec![
         lf(0, "x", VerifyExpr::var("x@0")),
-        lf(1, "x implies y", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
+        lf(
+            1,
+            "x implies y",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
         lf(2, "y", VerifyExpr::var("y@0")),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(report.redundancies.iter().any(|r| r.redundant_index == 2),
-        "Formula 2 (y) should be redundant. Got: {:?}", report.redundancies);
+    assert!(
+        report.redundancies.iter().any(|r| r.redundant_index == 2),
+        "Formula 2 (y) should be redundant. Got: {:?}",
+        report.redundancies
+    );
 }
 
 #[test]
 fn redundancy_with_implication_chain() {
     // (a→b) AND (b→c) entails (a→c)
     let formulas = vec![
-        lf(0, "a implies b", VerifyExpr::implies(
-            VerifyExpr::var("a@0"),
-            VerifyExpr::var("b@0"),
-        )),
-        lf(1, "b implies c", VerifyExpr::implies(
-            VerifyExpr::var("b@0"),
-            VerifyExpr::var("c@0"),
-        )),
-        lf(2, "a implies c", VerifyExpr::implies(
-            VerifyExpr::var("a@0"),
-            VerifyExpr::var("c@0"),
-        )),
+        lf(
+            0,
+            "a implies b",
+            VerifyExpr::implies(VerifyExpr::var("a@0"), VerifyExpr::var("b@0")),
+        ),
+        lf(
+            1,
+            "b implies c",
+            VerifyExpr::implies(VerifyExpr::var("b@0"), VerifyExpr::var("c@0")),
+        ),
+        lf(
+            2,
+            "a implies c",
+            VerifyExpr::implies(VerifyExpr::var("a@0"), VerifyExpr::var("c@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(report.redundancies.iter().any(|r| r.redundant_index == 2),
-        "Formula 2 (a→c) should be redundant via transitivity. Got: {:?}", report.redundancies);
+    assert!(
+        report.redundancies.iter().any(|r| r.redundant_index == 2),
+        "Formula 2 (a→c) should be redundant via transitivity. Got: {:?}",
+        report.redundancies
+    );
 }
 
 #[test]
@@ -337,8 +446,11 @@ fn redundancy_identical_formulas() {
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(!report.redundancies.is_empty(),
-        "Identical formulas should produce redundancy. Got: {:?}", report.redundancies);
+    assert!(
+        !report.redundancies.is_empty(),
+        "Identical formulas should produce redundancy. Got: {:?}",
+        report.redundancies
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -353,11 +465,17 @@ fn pairwise_short_circuit_when_sat() {
         lf(1, "y", VerifyExpr::var("y@0")),
         lf(2, "z", VerifyExpr::var("z@0")),
     ];
-    let config = ConsistencyConfig { check_pairwise: true, ..default_config() };
+    let config = ConsistencyConfig {
+        check_pairwise: true,
+        ..default_config()
+    };
     let report = check_spec_consistency(&formulas, &config);
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(report.pairwise_conflicts.is_empty(),
-        "SAT conjunction means no pairwise conflicts. Got: {:?}", report.pairwise_conflicts);
+    assert!(
+        report.pairwise_conflicts.is_empty(),
+        "SAT conjunction means no pairwise conflicts. Got: {:?}",
+        report.pairwise_conflicts
+    );
 }
 
 #[test]
@@ -369,15 +487,35 @@ fn pairwise_finds_all_conflicts() {
         lf(2, "y", VerifyExpr::var("y@0")),
         lf(3, "not y", VerifyExpr::not(VerifyExpr::var("y@0"))),
     ];
-    let config = ConsistencyConfig { check_pairwise: true, ..default_config() };
+    let config = ConsistencyConfig {
+        check_pairwise: true,
+        ..default_config()
+    };
     let report = check_spec_consistency(&formulas, &config);
-    assert!(matches!(report.satisfiability, SatisfiabilityResult::Unsatisfiable { .. }));
-    let pairs: Vec<(usize, usize)> = report.pairwise_conflicts.iter()
+    assert!(matches!(
+        report.satisfiability,
+        SatisfiabilityResult::Unsatisfiable { .. }
+    ));
+    let pairs: Vec<(usize, usize)> = report
+        .pairwise_conflicts
+        .iter()
         .map(|p| (p.i, p.j))
         .collect();
-    assert!(pairs.contains(&(0, 1)), "Should find conflict (0,1). Got: {:?}", pairs);
-    assert!(pairs.contains(&(2, 3)), "Should find conflict (2,3). Got: {:?}", pairs);
-    assert!(!pairs.contains(&(0, 2)), "Should NOT find conflict (0,2). Got: {:?}", pairs);
+    assert!(
+        pairs.contains(&(0, 1)),
+        "Should find conflict (0,1). Got: {:?}",
+        pairs
+    );
+    assert!(
+        pairs.contains(&(2, 3)),
+        "Should find conflict (2,3). Got: {:?}",
+        pairs
+    );
+    assert!(
+        !pairs.contains(&(0, 2)),
+        "Should NOT find conflict (0,2). Got: {:?}",
+        pairs
+    );
 }
 
 #[test]
@@ -386,11 +524,20 @@ fn pairwise_disabled_by_config() {
         lf(0, "x", VerifyExpr::var("x@0")),
         lf(1, "not x", VerifyExpr::not(VerifyExpr::var("x@0"))),
     ];
-    let config = ConsistencyConfig { check_pairwise: false, ..default_config() };
+    let config = ConsistencyConfig {
+        check_pairwise: false,
+        ..default_config()
+    };
     let report = check_spec_consistency(&formulas, &config);
-    assert!(matches!(report.satisfiability, SatisfiabilityResult::Unsatisfiable { .. }));
-    assert!(report.pairwise_conflicts.is_empty(),
-        "Pairwise disabled → empty. Got: {:?}", report.pairwise_conflicts);
+    assert!(matches!(
+        report.satisfiability,
+        SatisfiabilityResult::Unsatisfiable { .. }
+    ));
+    assert!(
+        report.pairwise_conflicts.is_empty(),
+        "Pairwise disabled → empty. Got: {:?}",
+        report.pairwise_conflicts
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -413,8 +560,16 @@ fn report_satisfiable_clean() {
 #[test]
 fn report_unsatisfiable_with_mus() {
     let formulas = vec![
-        lf(0, "P1", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10))),
-        lf(1, "P2", VerifyExpr::lt(VerifyExpr::var("x@0"), VerifyExpr::int(5))),
+        lf(
+            0,
+            "P1",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10)),
+        ),
+        lf(
+            1,
+            "P2",
+            VerifyExpr::lt(VerifyExpr::var("x@0"), VerifyExpr::int(5)),
+        ),
         lf(2, "P3", VerifyExpr::var("y@0")),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
@@ -435,10 +590,11 @@ fn report_unsatisfiable_with_mus() {
 fn report_vacuous_only() {
     let formulas = vec![
         lf(0, "P1", VerifyExpr::not(VerifyExpr::var("x@0"))),
-        lf(1, "P2", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
+        lf(
+            1,
+            "P2",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
@@ -449,8 +605,16 @@ fn report_vacuous_only() {
 #[test]
 fn report_redundant_only() {
     let formulas = vec![
-        lf(0, "P1", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10))),
-        lf(1, "P2", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5))),
+        lf(
+            0,
+            "P1",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10)),
+        ),
+        lf(
+            1,
+            "P2",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5)),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
@@ -461,12 +625,16 @@ fn report_redundant_only() {
 fn report_vacuity_disabled() {
     let formulas = vec![
         lf(0, "P1", VerifyExpr::not(VerifyExpr::var("x@0"))),
-        lf(1, "P2", VerifyExpr::implies(
-            VerifyExpr::var("x@0"),
-            VerifyExpr::var("y@0"),
-        )),
+        lf(
+            1,
+            "P2",
+            VerifyExpr::implies(VerifyExpr::var("x@0"), VerifyExpr::var("y@0")),
+        ),
     ];
-    let config = ConsistencyConfig { check_vacuity: false, ..default_config() };
+    let config = ConsistencyConfig {
+        check_vacuity: false,
+        ..default_config()
+    };
     let report = check_spec_consistency(&formulas, &config);
     assert!(report.vacuity.is_empty(), "Vacuity check disabled");
 }
@@ -474,10 +642,21 @@ fn report_vacuity_disabled() {
 #[test]
 fn report_redundancy_disabled() {
     let formulas = vec![
-        lf(0, "P1", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10))),
-        lf(1, "P2", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5))),
+        lf(
+            0,
+            "P1",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10)),
+        ),
+        lf(
+            1,
+            "P2",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5)),
+        ),
     ];
-    let config = ConsistencyConfig { check_redundancy: false, ..default_config() };
+    let config = ConsistencyConfig {
+        check_redundancy: false,
+        ..default_config()
+    };
     let report = check_spec_consistency(&formulas, &config);
     assert!(report.redundancies.is_empty(), "Redundancy check disabled");
 }
@@ -489,20 +668,35 @@ fn report_combined_findings() {
     // P3: not y
     // P4: y implies z (vacuous — y impossible due to P3)
     let formulas = vec![
-        lf(0, "x > 10", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10))),
-        lf(1, "x > 5", VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5))),
+        lf(
+            0,
+            "x > 10",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(10)),
+        ),
+        lf(
+            1,
+            "x > 5",
+            VerifyExpr::gt(VerifyExpr::var("x@0"), VerifyExpr::int(5)),
+        ),
         lf(2, "not y", VerifyExpr::not(VerifyExpr::var("y@0"))),
-        lf(3, "y implies z", VerifyExpr::implies(
-            VerifyExpr::var("y@0"),
-            VerifyExpr::var("z@0"),
-        )),
+        lf(
+            3,
+            "y implies z",
+            VerifyExpr::implies(VerifyExpr::var("y@0"), VerifyExpr::var("z@0")),
+        ),
     ];
     let report = check_spec_consistency(&formulas, &default_config());
     assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-    assert!(report.redundancies.iter().any(|r| r.redundant_index == 1),
-        "Formula 1 should be redundant. Got: {:?}", report.redundancies);
-    assert!(report.vacuity.iter().any(|v| v.formula_index == 3),
-        "Formula 3 should be vacuous. Got: {:?}", report.vacuity);
+    assert!(
+        report.redundancies.iter().any(|r| r.redundant_index == 1),
+        "Formula 1 should be redundant. Got: {:?}",
+        report.redundancies
+    );
+    assert!(
+        report.vacuity.iter().any(|v| v.formula_index == 3),
+        "Formula 3 should be vacuous. Got: {:?}",
+        report.vacuity
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -521,16 +715,16 @@ mod english_integration {
     #[test]
     fn english_consistent_spec() {
         let report = check_english_spec("Req is valid.", default_config()).unwrap();
-        assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable,
-            "Single valid sentence should be satisfiable");
+        assert_eq!(
+            report.satisfiability,
+            SatisfiabilityResult::Satisfiable,
+            "Single valid sentence should be satisfiable"
+        );
     }
 
     #[test]
     fn english_two_independent_properties() {
-        let report = check_english_spec(
-            "Req is valid. Ack is valid.",
-            default_config(),
-        ).unwrap();
+        let report = check_english_spec("Req is valid. Ack is valid.", default_config()).unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
         assert!(report.vacuity.is_empty());
         assert!(report.redundancies.is_empty());
@@ -541,7 +735,8 @@ mod english_integration {
         let report = check_english_spec(
             "If Req is valid, then Ack is valid. If Ack is valid, then Data is valid.",
             default_config(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
     }
 
@@ -562,10 +757,7 @@ mod english_integration {
 
     #[test]
     fn english_single_sentence_always_consistent() {
-        let report = check_english_spec(
-            "Every signal is valid.",
-            default_config(),
-        ).unwrap();
+        let report = check_english_spec("Every signal is valid.", default_config()).unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
     }
 
@@ -587,29 +779,27 @@ mod english_integration {
         let report = check_english_spec(
             "Req is valid. Ack is valid. Data is valid.",
             default_config(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
     }
 
     #[test]
     fn english_implication_satisfiable() {
-        let report = check_english_spec(
-            "If Req is valid, then Ack is valid.",
-            default_config(),
-        ).unwrap();
+        let report =
+            check_english_spec("If Req is valid, then Ack is valid.", default_config()).unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
-        assert!(report.vacuity.is_empty(),
-            "Single implication with no conflicting context is not vacuous");
+        assert!(
+            report.vacuity.is_empty(),
+            "Single implication with no conflicting context is not vacuous"
+        );
     }
 
     #[test]
     fn english_report_preserves_labels() {
         // This is tested indirectly — the labels are set from sentence text
         // and appear in vacuity/redundancy findings
-        let report = check_english_spec(
-            "Req is valid. Ack is valid.",
-            default_config(),
-        ).unwrap();
+        let report = check_english_spec("Req is valid. Ack is valid.", default_config()).unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
     }
 }

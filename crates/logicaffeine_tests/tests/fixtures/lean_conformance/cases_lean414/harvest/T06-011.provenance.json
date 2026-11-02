@@ -1,0 +1,62 @@
+{
+  "case": "T06-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t06_propositions/T06-011_funext.lean",
+  "source_sha256": "0a41bd4759b2e3b0f5002108f2433526944f1094dd8e5f85951a2e50a58fc1ba",
+  "ledger_sha256": "6ccacf683b8254f0106a80eb20e3d30178c9b44a2fc8082b689c2d5e3b0b2af9",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T06_011.dependentFunext",
+    "T06_011.ext",
+    "T06_011.extSimple",
+    "T06_011.higherOrderExt",
+    "T06_011.innocuous",
+    "T06_011.pointwiseNotDefEq",
+    "T06_011.predExt"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "411f0434062cb5fb3eb8a39dd2f199a242e5b88b10bc27159b32789f7faf0a9f",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1400,
+  "harvest": {
+    "roots": [
+      "T06_011.dependentFunext",
+      "T06_011.ext",
+      "T06_011.extSimple",
+      "T06_011.higherOrderExt",
+      "T06_011.innocuous",
+      "T06_011.pointwiseNotDefEq",
+      "T06_011.predExt"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

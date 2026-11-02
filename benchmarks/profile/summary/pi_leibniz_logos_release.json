@@ -1,0 +1,11 @@
+{
+  "name": "pi_leibniz",
+  "lang": "logos_release",
+  "n": "5833224944",
+  "samples_weight": 17296333782,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

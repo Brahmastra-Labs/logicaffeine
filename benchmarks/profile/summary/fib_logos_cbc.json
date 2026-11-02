@@ -1,0 +1,11 @@
+{
+  "name": "fib",
+  "lang": "logos_cbc",
+  "n": "43",
+  "samples_weight": 779505,
+  "alloc_pct": 35.857,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 64.143
+}

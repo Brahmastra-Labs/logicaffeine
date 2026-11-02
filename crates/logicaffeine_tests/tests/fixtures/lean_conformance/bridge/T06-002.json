@@ -1,0 +1,73 @@
+{
+  "case": "T06-002",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T06_002.bigMotive",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{a b : Nat} \u2192 a = b \u2192 (F : Nat \u2192 Type) \u2192 F a \u2192 F b",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_equality_bridge.rs::original_big_motive_checks_its_actual_goal_and_reflexive_computation",
+      "logos": "Exact unchanged Lean 4.14.0 structural export T06-002.ndjson: retained original body checked against its explicit translated goal by both kernels, incompatible-goal rejection by both kernels, empty transitive axiom and unresolved-dependency sets, preserved opaque theorem publication. bigMotive additionally has independently checked reflexive transport computation.",
+      "why": ""
+    },
+    {
+      "lean": "T06_002.jDependent",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 {\u03b1 : Type} {a : \u03b1} (motive : (b : \u03b1) \u2192 a = b \u2192 Prop), motive a \u22ef \u2192 \u2200 (b : \u03b1) (h : a = b), motive b h",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_equality_bridge.rs::original_dependent_j_checks_its_actual_proof_dependent_goal",
+      "logos": "Exact unchanged Lean 4.14.0 structural export T06-002.ndjson: retained original body checked against its explicit translated goal by both kernels, incompatible-goal rejection by both kernels, empty transitive axiom and unresolved-dependency sets, preserved opaque theorem publication. bigMotive additionally has independently checked reflexive transport computation.",
+      "why": ""
+    },
+    {
+      "lean": "T06_002.symmViaRec",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 {\u03b1 : Type} {a b : \u03b1}, a = b \u2192 b = a",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_equality_bridge.rs::original_symmetry_via_rec_checks_its_actual_goal",
+      "logos": "Exact unchanged Lean 4.14.0 structural export T06-002.ndjson: retained original body checked against its explicit translated goal by both kernels, incompatible-goal rejection by both kernels, empty transitive axiom and unresolved-dependency sets, preserved opaque theorem publication. bigMotive additionally has independently checked reflexive transport computation.",
+      "why": ""
+    },
+    {
+      "lean": "T06_002.transport",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 {\u03b1 : Type} (P : \u03b1 \u2192 Prop) {a b : \u03b1}, a = b \u2192 P a \u2192 P b",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_equality_bridge.rs::original_transport_checks_its_actual_goal",
+      "logos": "Exact unchanged Lean 4.14.0 structural export T06-002.ndjson: retained original body checked against its explicit translated goal by both kernels, incompatible-goal rejection by both kernels, empty transitive axiom and unresolved-dependency sets, preserved opaque theorem publication. bigMotive additionally has independently checked reflexive transport computation.",
+      "why": ""
+    },
+    {
+      "lean": "T06_002.transportRaw",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 {\u03b1 : Type} (P : \u03b1 \u2192 Prop) {a b : \u03b1}, a = b \u2192 P a \u2192 P b",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_equality_bridge.rs::original_raw_transport_checks_its_actual_goal",
+      "logos": "Exact unchanged Lean 4.14.0 structural export T06-002.ndjson: retained original body checked against its explicit translated goal by both kernels, incompatible-goal rejection by both kernels, empty transitive axiom and unresolved-dependency sets, preserved opaque theorem publication. bigMotive additionally has independently checked reflexive transport computation.",
+      "why": ""
+    },
+    {
+      "lean": "T06_002.viaMpr",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 (a b : Nat), a = b \u2192 b = b \u2192 a = a",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_equality_bridge.rs::original_mpr_checks_its_actual_goal",
+      "logos": "Exact unchanged Lean 4.14.0 structural export T06-002.ndjson: retained original body checked against its explicit translated goal by both kernels, incompatible-goal rejection by both kernels, empty transitive axiom and unresolved-dependency sets, preserved opaque theorem publication. bigMotive additionally has independently checked reflexive transport computation.",
+      "why": ""
+    }
+  ]
+}

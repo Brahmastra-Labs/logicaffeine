@@ -2,8 +2,10 @@ const MAX_EDGES = 5;
 const n = parseInt(process.argv[2]);
 const primes = [31, 37, 41, 43, 47];
 const offsets = [7, 13, 17, 23, 29];
-const adj = new Int32Array(n * MAX_EDGES);
-const adjCount = new Int32Array(n);
+const adj = [];
+for (let k = 0; k < n * MAX_EDGES; k++) adj.push(0);
+const adjCount = [];
+for (let i = 0; i < n; i++) adjCount.push(0);
 for (let p = 0; p < MAX_EDGES; p++) {
     for (let i = 0; i < n; i++) {
         const neighbor = (i * primes[p] + offsets[p]) % n;
@@ -13,8 +15,10 @@ for (let p = 0; p < MAX_EDGES; p++) {
         }
     }
 }
-const queue = new Int32Array(n);
-const dist = new Int32Array(n).fill(-1);
+const queue = [];
+for (let i = 0; i < n; i++) queue.push(0);
+const dist = [];
+for (let i = 0; i < n; i++) dist.push(-1);
 let front = 0, back = 0;
 queue[back++] = 0;
 dist[0] = 0;
@@ -29,4 +33,6 @@ let reachable = 0, totalDist = 0;
 for (let i = 0; i < n; i++) {
     if (dist[i] >= 0) { reachable++; totalDist += dist[i]; }
 }
-console.log(reachable + " " + totalDist);
+let h = 0;
+for (let i = 0; i < n; i++) h = (h * 31 + dist[i] + 1) & 268435455;
+console.log(reachable + " " + totalDist + " " + h);

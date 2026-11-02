@@ -61,9 +61,7 @@ fn pe_engine_residual_identical_on_vm() {
             (Ok(a), Ok(b)) => failures.push(format!(
                 "[{name}] PE residual differs by tier:\n  tree-walker:\n{a}\n  VM:\n{b}"
             )),
-            (a, b) => failures.push(format!(
-                "[{name}] PE engine tier error: tw={a:?} vm={b:?}"
-            )),
+            (a, b) => failures.push(format!("[{name}] PE engine tier error: tw={a:?} vm={b:?}")),
         }
     }
     assert!(

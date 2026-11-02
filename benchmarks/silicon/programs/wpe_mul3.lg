@@ -1,0 +1,2 @@
+## To f (x: Int) -> Int:
+    Return x * 3.

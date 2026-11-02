@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Harm Donna",
   "options": [
-    "$ H\\underline{u} d $",
-    "$ OH\\underline{u} d $",
-    "$ Hud $",
-    "$ H\\underline{d} $"
+    "H(u̲, d)",
+    "O H(u̲, d)",
+    "H(u, d)",
+    "H(d̲)"
   ],
   "correct": 0,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "An imperative to you: harm Donna. You are the underlined agent, Donna the object — H͟u d."
+  "hint": "Who is told to act? Underline that person's letter.",
+  "explanation": "A command to you to harm Donna: H(u̲, d).",
+  "section": "12.2"
 }

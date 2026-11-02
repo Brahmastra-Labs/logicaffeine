@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.from_hex",
+  "workload": "bytesFromHex(toHex(xs)) round-trip, positional fold",
+  "arg": "40000",
+  "expected": "5093856",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

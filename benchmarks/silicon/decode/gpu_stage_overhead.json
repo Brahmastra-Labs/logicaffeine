@@ -1,0 +1,238 @@
+{
+ "_what": "What one dependent stage costs the RTX 3060 beyond its own work: the slope of a CUDA graph's replay time over the number of empty kernel nodes it chains (N = 1..4096, median of 51 replays each), from scripts/accel/graph_node_overhead.cu. spatial::decode's rtx3060 stage_overhead reads graph_node_us_median.",
+ "method": "nvcc -O2 scripts/accel/graph_node_overhead.cu; three runs on an otherwise idle GPU (nvidia-smi: no compute processes), the median of the three slopes recorded",
+ "date": "2026-10-15",
+ "device": "NVIDIA GeForce RTX 3060",
+ "sm": "8.6",
+ "runs": [
+  {
+   "device": "NVIDIA GeForce RTX 3060",
+   "sm": "8.6",
+   "reps": 51,
+   "rows": [
+    {
+     "nodes": 1,
+     "graph_median_us": 4.096,
+     "stream_median_us": 4.096
+    },
+    {
+     "nodes": 2,
+     "graph_median_us": 4.096,
+     "stream_median_us": 5.12
+    },
+    {
+     "nodes": 4,
+     "graph_median_us": 6.144,
+     "stream_median_us": 8.192
+    },
+    {
+     "nodes": 8,
+     "graph_median_us": 8.192,
+     "stream_median_us": 12.288
+    },
+    {
+     "nodes": 16,
+     "graph_median_us": 23.552,
+     "stream_median_us": 24.576
+    },
+    {
+     "nodes": 32,
+     "graph_median_us": 27.648,
+     "stream_median_us": 47.104
+    },
+    {
+     "nodes": 64,
+     "graph_median_us": 47.104,
+     "stream_median_us": 82.944
+    },
+    {
+     "nodes": 128,
+     "graph_median_us": 86.016,
+     "stream_median_us": 163.84
+    },
+    {
+     "nodes": 256,
+     "graph_median_us": 163.84,
+     "stream_median_us": 325.632
+    },
+    {
+     "nodes": 512,
+     "graph_median_us": 319.488,
+     "stream_median_us": 651.264
+    },
+    {
+     "nodes": 1024,
+     "graph_median_us": 575.488,
+     "stream_median_us": 1428.48
+    },
+    {
+     "nodes": 2048,
+     "graph_median_us": 1143.808,
+     "stream_median_us": 2865.152
+    },
+    {
+     "nodes": 4096,
+     "graph_median_us": 2304.0,
+     "stream_median_us": 8008.704
+    }
+   ],
+   "graph_node_us": 0.559,
+   "graph_launch_us": 10.346,
+   "stream_launch_us": 1.8591,
+   "stream_fixed_us": -123.132
+  },
+  {
+   "device": "NVIDIA GeForce RTX 3060",
+   "sm": "8.6",
+   "reps": 51,
+   "rows": [
+    {
+     "nodes": 1,
+     "graph_median_us": 3.072,
+     "stream_median_us": 4.096
+    },
+    {
+     "nodes": 2,
+     "graph_median_us": 4.096,
+     "stream_median_us": 5.12
+    },
+    {
+     "nodes": 4,
+     "graph_median_us": 6.144,
+     "stream_median_us": 7.168
+    },
+    {
+     "nodes": 8,
+     "graph_median_us": 8.192,
+     "stream_median_us": 12.288
+    },
+    {
+     "nodes": 16,
+     "graph_median_us": 23.552,
+     "stream_median_us": 27.648
+    },
+    {
+     "nodes": 32,
+     "graph_median_us": 27.648,
+     "stream_median_us": 41.984
+    },
+    {
+     "nodes": 64,
+     "graph_median_us": 44.032,
+     "stream_median_us": 87.04
+    },
+    {
+     "nodes": 128,
+     "graph_median_us": 78.848,
+     "stream_median_us": 150.528
+    },
+    {
+     "nodes": 256,
+     "graph_median_us": 149.504,
+     "stream_median_us": 296.96
+    },
+    {
+     "nodes": 512,
+     "graph_median_us": 296.96,
+     "stream_median_us": 594.944
+    },
+    {
+     "nodes": 1024,
+     "graph_median_us": 579.584,
+     "stream_median_us": 1185.792
+    },
+    {
+     "nodes": 2048,
+     "graph_median_us": 1163.264,
+     "stream_median_us": 2370.56
+    },
+    {
+     "nodes": 4096,
+     "graph_median_us": 2288.64,
+     "stream_median_us": 4621.312
+    }
+   ],
+   "graph_node_us": 0.5584,
+   "graph_launch_us": 7.642,
+   "stream_launch_us": 1.1319,
+   "stream_fixed_us": 10.281
+  },
+  {
+   "device": "NVIDIA GeForce RTX 3060",
+   "sm": "8.6",
+   "reps": 51,
+   "rows": [
+    {
+     "nodes": 1,
+     "graph_median_us": 3.072,
+     "stream_median_us": 4.096
+    },
+    {
+     "nodes": 2,
+     "graph_median_us": 4.096,
+     "stream_median_us": 5.12
+    },
+    {
+     "nodes": 4,
+     "graph_median_us": 5.12,
+     "stream_median_us": 8.192
+    },
+    {
+     "nodes": 8,
+     "graph_median_us": 7.168,
+     "stream_median_us": 15.36
+    },
+    {
+     "nodes": 16,
+     "graph_median_us": 23.552,
+     "stream_median_us": 30.72
+    },
+    {
+     "nodes": 32,
+     "graph_median_us": 26.624,
+     "stream_median_us": 60.416
+    },
+    {
+     "nodes": 64,
+     "graph_median_us": 44.032,
+     "stream_median_us": 117.76
+    },
+    {
+     "nodes": 128,
+     "graph_median_us": 79.872,
+     "stream_median_us": 237.568
+    },
+    {
+     "nodes": 256,
+     "graph_median_us": 150.528,
+     "stream_median_us": 483.328
+    },
+    {
+     "nodes": 512,
+     "graph_median_us": 299.008,
+     "stream_median_us": 986.112
+    },
+    {
+     "nodes": 1024,
+     "graph_median_us": 583.68,
+     "stream_median_us": 1975.296
+    },
+    {
+     "nodes": 2048,
+     "graph_median_us": 1177.6,
+     "stream_median_us": 4094.976
+    },
+    {
+     "nodes": 4096,
+     "graph_median_us": 2362.368,
+     "stream_median_us": 7748.608
+    }
+   ],
+   "graph_node_us": 0.5746,
+   "graph_launch_us": 4.623,
+   "stream_launch_us": 1.9108,
+   "stream_fixed_us": 8.952
+  }
+ ],
+ "graph_node_us_median": 0.559
+}

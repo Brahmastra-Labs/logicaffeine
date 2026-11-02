@@ -1,0 +1,12 @@
+{
+  "capability": "iter.reverse",
+  "workload": "reverseSeq(xs), positional fold",
+  "arg": "40000",
+  "expected": "1795549664",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -1,0 +1,9 @@
+logos::main::loop@11 [jit] 7885575305
+logos::main::loop@48 [jit] 4969243721
+logos::main::loop@31 [jit] 3570956445
+logos::main::loop@11 [jit];[unknown] 892030992
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region 657511
+_start;__libc_start_main_impl;__libc_start_call_main;main;_RNvNtCs75vJTIYSa2J_3std2rt19lang_start_internal;__pthread_getattr_np;__GI___isoc23_sscanf;__vfscanf_internal 528793
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela;elf_machine_rela 353636
+[unknown];__libc_start_main_impl;__libc_start_call_main;[unknown];[unknown];[unknown] 280112
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_receive_error;version_check_doit;_dl_check_all_versions;__minimal_calloc 280112

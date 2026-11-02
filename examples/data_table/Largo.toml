@@ -1,0 +1,6 @@
+[dependencies]
+
+[package]
+authors = []
+name = "data_table"
+version = "0.1.0"

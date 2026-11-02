@@ -1,0 +1,204 @@
+# Forms
+
+Validating what a visitor typed, and saying what was wrong with it.
+
+A form is the place a web application meets a stranger, so every value here arrives
+untrusted and most of them arrive wrong. The job of this module is not to reject bad
+input — the type system and the route signature already do that — but to collect
+EVERY complaint about a submission and hand them back in a shape a page can render
+beside the fields that caused them.
+
+★ ERRORS ARE A SEQUENCE, NOT A MAP, AND THAT IS A SAFETY CHOICE. A LOGOS map TRAPS on
+a missing key: `item "email" of errors` on a form that validated cleanly does not
+answer `""`, it ends the program. A form template asks about a field precisely when
+it does not know whether that field failed, so a map would make the ordinary case —
+"render the error under this input, if any" — the crashing one. `errorFor` answers
+`""` for a field with no complaint, which is the answer a template wants and can
+concatenate without asking a second question first.
+
+The sequence also keeps ORDER, so a summary at the top of a form lists complaints in
+the order they were checked rather than in whatever order a hash chose.
+
+`examples/signup_form` is the whole pattern in one page. A `## To validate` threads
+one list through `checkRequired`, `checkEmail`, `checkMinLength` and `checkSame`,
+starting from `noErrors()`; the submit action stores the answer in state; `errorFor`
+writes each message under its input, a `{for each}` over the list is the summary,
+and `isValid` of the same checks keeps the submit button disabled. The Forms section
+of `docs/lgx-stdlib.md` builds it step by step.
+
+## Note
+One complaint about a submission: the `field` it concerns and the `message` to show beside it.
+
+## A FieldError has:
+    a field, which is Text.
+    a message, which is Text.
+
+## Note
+An empty complaint list — the start of every validation.
+
+## To noErrors () -> Seq of FieldError:
+    Return a new Seq of FieldError.
+
+## Note
+Whether `errors` records no complaint at all.
+
+## To isValid (errors: Seq of FieldError) -> Bool:
+    Return length of errors is equal to 0.
+
+## Note
+Whether `field` has a complaint recorded against it.
+
+## To hasError (errors: Seq of FieldError) and (field: Text) -> Bool:
+    For each e in errors:
+        If e's field is equal to field:
+            Return true.
+    Return false.
+
+## Note
+The complaint against `field`, or `""` when there is none.
+
+★ THE EMPTY ANSWER IS THE POINT. A template writes `{errorFor(errors, "email")}` under
+the input and gets either the message or nothing, with no branch and no risk of asking
+a collection for a key it does not hold. Returning the FIRST match matters too: one
+field shows one message, because a visitor who is told three things about one box fixes
+none of them.
+
+## To errorFor (errors: Seq of FieldError) and (field: Text) -> Text:
+    For each e in errors:
+        If e's field is equal to field:
+            Return e's message.
+    Return "".
+
+## Note
+`errors` with `message` recorded against `field`.
+
+A field that already has a complaint is left alone, so the FIRST check to fail is the
+one the visitor is shown. Order the checks from most fundamental to most particular —
+`checkRequired` before `checkMinLength` — and the message will be the useful one rather
+than "must be at least 8 characters" on an empty box.
+
+## To addError (errors: Seq of FieldError) and (field: Text) and (message: Text) -> Seq of FieldError:
+    If hasError(errors, field) is equal to true:
+        Return errors.
+    Let mutable next be a new Seq of FieldError.
+    For each e in errors:
+        Push e to next.
+    Push (a new FieldError with field field and message message) to next.
+    Return next.
+
+## Note
+Whether `t` is empty or nothing but whitespace.
+
+★ IT DELEGATES TO `strings.lg`'s `trim`. This module first grew its OWN trimmer and its own
+`isSpaceChar` beside it — a second answer to a question the stdlib had already answered, which is
+the exact shape this campaign keeps finding. It was also WRONG: the hand-written character
+comparison never matched, so `trimmed("  hi  ")` answered `"  hi  "` and every check built on it
+silently accepted whitespace as content. One trimmer, and it is the proven one.
+
+## To isBlank (t: Text) -> Bool:
+    Return length of trim(t) is equal to 0.
+
+## Note
+Complain when `value` is empty or all whitespace.
+
+## To checkRequired (errors: Seq of FieldError) and (field: Text) and (value: Text) -> Seq of FieldError:
+    If isBlank(value) is equal to true:
+        Return addError(errors, field, "This is required.")
+    Return errors.
+
+## Note
+Complain when `value` is shorter than `n` characters, counting after trimming.
+
+## To checkMinLength (errors: Seq of FieldError) and (field: Text) and (value: Text) and (n: Int) -> Seq of FieldError:
+    If length of trim(value) is less than n:
+        Return addError(errors, field, "Use at least {n} characters.")
+    Return errors.
+
+## Note
+Complain when `value` is longer than `n` characters, counting after trimming.
+
+## To checkMaxLength (errors: Seq of FieldError) and (field: Text) and (value: Text) and (n: Int) -> Seq of FieldError:
+    If length of trim(value) is greater than n:
+        Return addError(errors, field, "Use at most {n} characters.")
+    Return errors.
+
+## Note
+Complain when `value` is outside `low` to `high`, both included.
+
+## To checkRange (errors: Seq of FieldError) and (field: Text) and (value: Int) and (low: Int) and (high: Int) -> Seq of FieldError:
+    If value is less than low:
+        Return addError(errors, field, "Choose a number from {low} to {high}.")
+    If value is greater than high:
+        Return addError(errors, field, "Choose a number from {low} to {high}.")
+    Return errors.
+
+## Note
+Complain when `a` and `b` differ — the password-confirmation check.
+
+## To checkSame (errors: Seq of FieldError) and (field: Text) and (a: Text) and (b: Text) and (message: Text) -> Seq of FieldError:
+    If a is not b:
+        Return addError(errors, field, message)
+    Return errors.
+
+## Note
+Whether `value`, trimmed, has the shape of an email address: one `@`, something before it, and a dot with text on both sides after it.
+
+★ IT CHECKS THE SHAPE AND NOT THE ADDRESS, and says so rather than implying more. The
+grammar of a real address is large enough that a validator matching it rejects valid
+addresses far more often than it catches invalid ones, and the only proof that an
+address works is a message arriving at it. So this asks the three questions worth
+asking — one `@`, something before it, and a dotted something after it — and leaves the
+rest to a confirmation email.
+
+★ THE LOOP VARIABLE IS TEXT, NOT CHAR. `For each c in <Text>` yields a one-character TEXT,
+and a Text compared with a Char is false for every character, with no error anywhere. So both
+scans compare `c` with the Text `"@"` and `"."`.
+
+## To looksLikeEmail (value: Text) -> Bool:
+    Let t be trim(value).
+    Let mutable pos be 0.
+    Let mutable i be 0.
+    Let mutable ats be 0.
+    For each c in t:
+        Set i to i + 1.
+        If c is equal to "@":
+            Set pos to i.
+            Set ats to ats + 1.
+    If ats is not 1:
+        Return false.
+    If pos is at most 1:
+        Return false.
+    If pos is equal to length of t:
+        Return false.
+    Let mutable dot be false.
+    Let mutable j be 0.
+    For each c in t:
+        Set j to j + 1.
+        If j is greater than pos:
+            If c is equal to ".":
+                If j is greater than pos + 1:
+                    If j is less than length of t:
+                        Set dot to true.
+    Return dot.
+
+## Note
+Complain when `value` does not look like an email address. An empty value is left to
+`checkRequired`, so an optional field may be blank without complaint.
+
+## To checkEmail (errors: Seq of FieldError) and (field: Text) and (value: Text) -> Seq of FieldError:
+    If isBlank(value) is equal to true:
+        Return errors.
+    If looksLikeEmail(value) is equal to false:
+        Return addError(errors, field, "This does not look like an email address.")
+    Return errors.
+
+## Note
+Every complaint, one per line — the summary a form puts above its fields.
+
+## To errorSummary (errors: Seq of FieldError) -> Text:
+    Let mutable out be "".
+    For each e in errors:
+        If length of out is greater than 0:
+            Set out to out + "\n".
+        Set out to out + e's message.
+    Return out.

@@ -1,0 +1,86 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\keccak_arrays": {
+         "num_wires":         13017,
+         "num_wire_bits":     129586,
+         "num_pub_wires":     4376,
+         "num_pub_wire_bits": 105787,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         18784,
+         "num_cells_by_type": {
+            "CARRY4": 20,
+            "FDRE": 6070,
+            "FDSE": 1,
+            "INV": 72,
+            "LUT1": 936,
+            "LUT2": 1627,
+            "LUT3": 1427,
+            "LUT4": 1501,
+            "LUT5": 4095,
+            "LUT6": 1505,
+            "MUXF7": 1197,
+            "MUXF8": 331,
+            "RAMB36E1": 2
+         }
+      },
+      "\\qorsyn_k4_bambu_fsm_array_a7p10": {
+         "num_wires":         281,
+         "num_wire_bits":     1761,
+         "num_pub_wires":     37,
+         "num_pub_wire_bits": 1454,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         592,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 197,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 38,
+            "LUT2": 6,
+            "LUT3": 58,
+            "LUT4": 9,
+            "LUT5": 2,
+            "LUT6": 141,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "keccak_arrays": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         13298,
+         "num_wire_bits":     131347,
+         "num_pub_wires":     4413,
+         "num_pub_wire_bits": 107241,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         19375,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 20,
+            "FDRE": 6267,
+            "FDSE": 34,
+            "IBUF": 2,
+            "INV": 110,
+            "LUT1": 936,
+            "LUT2": 1633,
+            "LUT3": 1485,
+            "LUT4": 1510,
+            "LUT5": 4097,
+            "LUT6": 1646,
+            "MUXF7": 1258,
+            "MUXF8": 358,
+            "OBUF": 16,
+            "RAMB36E1": 2
+         }
+      }
+}
+

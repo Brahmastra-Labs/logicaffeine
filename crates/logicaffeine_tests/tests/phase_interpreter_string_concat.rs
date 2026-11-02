@@ -11,7 +11,11 @@ Show "Value: " + a.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("Value: 10"), "Should output 'Value: 10', got: {}", result.output);
+    assert!(
+        result.output.contains("Value: 10"),
+        "Should output 'Value: 10', got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -27,9 +31,17 @@ Show x or y.
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
     // Boolean "and" should produce false (true and false = false)
-    assert!(result.output.contains("false"), "Should output 'false' for x and y, got: {}", result.output);
+    assert!(
+        result.output.contains("false"),
+        "Should output 'false' for x and y, got: {}",
+        result.output
+    );
     // Boolean "or" should produce true (true or false = true)
-    assert!(result.output.contains("true"), "Should output 'true' for x or y, got: {}", result.output);
+    assert!(
+        result.output.contains("true"),
+        "Should output 'true' for x or y, got: {}",
+        result.output
+    );
 }
 
 #[test]
@@ -41,5 +53,9 @@ Show "Sum: " + (a + b).
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("Sum: 13"), "Should output 'Sum: 13', got: {}", result.output);
+    assert!(
+        result.output.contains("Sum: 13"),
+        "Should output 'Sum: 13', got: {}",
+        result.output
+    );
 }

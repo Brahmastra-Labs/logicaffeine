@@ -1,0 +1,21 @@
+{
+  "capability": "bignum.div",
+  "arg": "3000000",
+  "timing_n": "3000000",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 5169.017,
+    "go": 319.987
+  },
+  "wall_ms": {
+    "logos": 5169.364,
+    "go": 320.457
+  },
+  "logos_ms": 5169.017,
+  "speedups_vs_logos": {
+    "go": 0.062
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.062
+}

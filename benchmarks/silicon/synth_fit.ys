@@ -1,0 +1,3 @@
+read_verilog soft_core.v alu.v
+chparam -set HEAP 32 -set FRAMES 2 -set MAXELT 4 -set MAXPAIR 2 -set MAXKEY 2 soft_core
+synth_ecp5 -top soft_core -json soft_core_fit.json

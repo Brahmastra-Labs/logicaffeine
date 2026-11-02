@@ -1,4 +1,4 @@
-//! Phase 138 — §4.2 Biscuit / relevance conditionals (work/MISSING_ENGLISH.md).
+//! Phase 138 — Biscuit / relevance conditionals.
 //!
 //! In a biscuit conditional the consequent is asserted UNCONDITIONALLY; the
 //! if-clause restricts the relevance/speech act, not the truth of the consequent:
@@ -13,10 +13,19 @@ use logicaffeine_language::compile;
 fn biscuit_asserts_consequent_with_relevance() {
     let out = compile("If you want tea, the kettle is hot.").unwrap();
     eprintln!("biscuit: {out}");
-    assert!(out.contains("Hot") && out.contains("Kettle"), "the consequent is present: {out}");
-    assert!(out.contains("Relevance"), "the if-clause is a relevance condition: {out}");
+    assert!(
+        out.contains("Hot") && out.contains("Kettle"),
+        "the consequent is present: {out}"
+    );
+    assert!(
+        out.contains("Relevance"),
+        "the if-clause is a relevance condition: {out}"
+    );
     // The consequent is asserted, not placed under a material/∀ conditional arrow.
-    assert!(!out.contains('→'), "consequent is asserted unconditionally, not implied: {out}");
+    assert!(
+        !out.contains('→'),
+        "consequent is asserted unconditionally, not implied: {out}"
+    );
 }
 
 #[test]
@@ -24,8 +33,14 @@ fn hypothetical_conditional_unchanged() {
     // Regression: an ordinary hypothetical conditional keeps its implication form.
     let out = compile("If it rains, the ground gets wet.").unwrap();
     eprintln!("hypothetical: {out}");
-    assert!(out.contains('→'), "a hypothetical conditional is an implication: {out}");
-    assert!(!out.contains("Relevance"), "no relevance marker on a hypothetical: {out}");
+    assert!(
+        out.contains('→'),
+        "a hypothetical conditional is an implication: {out}"
+    );
+    assert!(
+        !out.contains("Relevance"),
+        "no relevance marker on a hypothetical: {out}"
+    );
 }
 
 // ============================================================================

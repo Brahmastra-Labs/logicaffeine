@@ -1,0 +1,1947 @@
+{
+  "_generated_by": "scripts/plasticine/table4-ledger.py (never hand-edited; verify re-parses the committed excerpts)",
+  "honesty": "Rows are the public Plasticine toolchain's own outputs on Spatial's own apps at Table 2's data sizes, a simulation of the paper's architecture by its authors' toolchain, not silicon. Table 4 does not publish the unrolling it used; the search over it is pre-registered in scripts/plasticine/table4/Table4.scala. Time is cycles at Table 4's 1 GHz clock. Table 4's AG is read as PIR's DAG (its DRAM address generators).",
+  "machine": "PIR's 16 x 8 array (64 PCUs, 64 PMUs), the size Table 4 states; PIR's unit shapes",
+  "provenance": "simulated_tungsten",
+  "rows": [
+    {
+      "app": "Table4_BS_op1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_BS_op1-PIR/resource.csv"
+      },
+      "family": "BS",
+      "key": "Table4_BS_op1/PIR",
+      "point": "op1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_BS_op1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 25.0,
+          "used": 8
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 51.6,
+          "used": 33
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 10.9,
+          "used": 7
+        }
+      },
+      "table4": {
+        "ag_points": 4.4,
+        "pcu_points": -21.8,
+        "pmu_points": 0.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_BS_op1",
+      "backend": "Tst",
+      "excerpts": {
+        "runhybrid.log": "benchmarks/silicon/plasticine_logs/table4/Table4_BS_op1-Tst/runhybrid.log",
+        "runhybrid_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_BS_op1-Tst/runhybrid_ddr3.log",
+        "runp2p.log": "benchmarks/silicon/plasticine_logs/table4/Table4_BS_op1-Tst/runp2p.log",
+        "runp2p_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_BS_op1-Tst/runp2p_ddr3.log"
+      },
+      "family": "BS",
+      "key": "Table4_BS_op1/Tst",
+      "point": "op1",
+      "recorded_at": "2026-10-16T12:15:17Z",
+      "refusal_tail": "memTicks: 4 simTicks: 5 gcd: 200\nCaught exception on cycle 309: /DUT/Top/net/router43: no route for packet 403\nscript> dumpstate logs/state.json\nscript> stat\nAverage DRAM Read Bandwidth: 10.7702 GB/s\nAverage DRAM Write Bandwidth: 0 GB/s\nscript> Elapsed seconds: 2.44839\nExiting... \ud83d\ude0a\nDestruct DRAM.\nPASS: true (BlackSholes)\nComplete Simulation\nRuntime:0:02.59\n",
+      "refused": "runhybrid.log: the routed network stopped on cycle 410: /DUT/Top/net/router43: no route for packet 403",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh Tst Table4_BS_op1",
+      "sim_ddr3": {
+        "cycles": null,
+        "dram_read_gbps": 10.7702,
+        "dram_write_gbps": 0.0,
+        "pass": true,
+        "wall_s": 2.59
+      },
+      "sim_ddr3_ideal": {
+        "cycles": 2217076,
+        "dram_read_gbps": 10.3921,
+        "dram_write_gbps": 1.73201,
+        "pass": true,
+        "wall_s": 101.24000000000001
+      },
+      "sim_ddr4": {
+        "cycles": null,
+        "dram_read_gbps": 97.4049,
+        "dram_write_gbps": 0.0,
+        "pass": true,
+        "wall_s": 2.74
+      },
+      "sim_ddr4_ideal": {
+        "cycles": 269468,
+        "dram_read_gbps": 85.5018,
+        "dram_write_gbps": 14.2503,
+        "pass": true,
+        "wall_s": 23.63
+      },
+      "table4": {
+        "time_ratio_ddr3_ideal": 0.9515,
+        "time_ratio_ddr4_ideal": 0.1157,
+        "time_within_ddr3_ideal": true,
+        "time_within_ddr4_ideal": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_BS_op2",
+      "backend": "PIR",
+      "family": "BS",
+      "key": "Table4_BS_op2/PIR",
+      "point": "op2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "refusal_tail": "[error] \tat sbt.internal.BackgroundThreadPool.$anonfun$run$1(DefaultBackgroundJobService.scala:366)\n[error] \tat scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:12)\n[error] \tat scala.util.Try$.apply(Try.scala:209)\n[error] \tat sbt.internal.BackgroundThreadPool$BackgroundRunnable.run(DefaultBackgroundJobService.scala:289)\n[error] \tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\n[error] \tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\n[error] \tat java.lang.Thread.run(Thread.java:750)\n[error] (Compile / runMain) Nonzero exit code: -1\n[error] Total time: 54 s, completed Oct 16, 2026 10:26:53 AM\nException: sbt.TrapExitSecurityException thrown from the UncaughtExceptionHandler in thread \"run-main-0\"\npython3: can't open file 'bin/simstat.py': [Errno 2] No such file or directory\npython3: can't open file 'bin/annotate.py': [Errno 2] No such file or directory\n",
+      "refused": "gentst.log produced no resource.csv: Not enough resource of type PCUParam. Required 66. Possesed 64; Failed passes: 53-MatchPruner",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_BS_op2",
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_BS_op4",
+      "backend": "PIR",
+      "family": "BS",
+      "key": "Table4_BS_op4/PIR",
+      "point": "op4",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "refusal_tail": "[error] \tat sbt.internal.BackgroundThreadPool.$anonfun$run$1(DefaultBackgroundJobService.scala:366)\n[error] \tat scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:12)\n[error] \tat scala.util.Try$.apply(Try.scala:209)\n[error] \tat sbt.internal.BackgroundThreadPool$BackgroundRunnable.run(DefaultBackgroundJobService.scala:289)\n[error] \tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\n[error] \tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\n[error] \tat java.lang.Thread.run(Thread.java:750)\n[error] (Compile / runMain) Nonzero exit code: -1\n[error] Total time: 60 s, completed Oct 16, 2026 10:28:27 AM\nException: sbt.TrapExitSecurityException thrown from the UncaughtExceptionHandler in thread \"run-main-0\"\npython3: can't open file 'bin/simstat.py': [Errno 2] No such file or directory\npython3: can't open file 'bin/annotate.py': [Errno 2] No such file or directory\n",
+      "refused": "gentst.log produced no resource.csv: Not enough resource of type PCUParam. Required 131. Possesed 64; Failed passes: 53-MatchPruner",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_BS_op4",
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_BS_op8",
+      "backend": "PIR",
+      "family": "BS",
+      "key": "Table4_BS_op8/PIR",
+      "point": "op8",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "refusal_tail": "[error] \tat sbt.internal.BackgroundThreadPool.$anonfun$run$1(DefaultBackgroundJobService.scala:366)\n[error] \tat scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:12)\n[error] \tat scala.util.Try$.apply(Try.scala:209)\n[error] \tat sbt.internal.BackgroundThreadPool$BackgroundRunnable.run(DefaultBackgroundJobService.scala:289)\n[error] \tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\n[error] \tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\n[error] \tat java.lang.Thread.run(Thread.java:750)\n[error] (Compile / runMain) Nonzero exit code: -1\n[error] Total time: 101 s, completed Oct 16, 2026 10:30:43 AM\nException: sbt.TrapExitSecurityException thrown from the UncaughtExceptionHandler in thread \"run-main-0\"\npython3: can't open file 'bin/simstat.py': [Errno 2] No such file or directory\npython3: can't open file 'bin/annotate.py': [Errno 2] No such file or directory\n",
+      "refused": "gentst.log produced no resource.csv: Not enough resource of type PCUParam. Required 262. Possesed 64; Failed passes: 53-MatchPruner",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_BS_op8",
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp1_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp1_mp1-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp1_mp1/PIR",
+      "point": "mp1_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp1_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 17.2,
+          "used": 11
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 17.2,
+          "used": 11
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -78.1,
+        "pmu_points": -56.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp1_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp1_mp2-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp1_mp2/PIR",
+      "point": "mp1_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp1_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 25.0,
+          "used": 16
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 18.8,
+          "used": 12
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -70.3,
+        "pmu_points": -54.6,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp1_mp4",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp1_mp4-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp1_mp4/PIR",
+      "point": "mp1_mp4",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp1_mp4",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 40.6,
+          "used": 26
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 21.9,
+          "used": 14
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -54.7,
+        "pmu_points": -51.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp2_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp2_mp1-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp2_mp1/PIR",
+      "point": "mp2_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp2_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 28.1,
+          "used": 18
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 23.4,
+          "used": 15
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -67.2,
+        "pmu_points": -50.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp2_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp2_mp2-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp2_mp2/PIR",
+      "point": "mp2_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp2_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 45.3,
+          "used": 29
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 26.6,
+          "used": 17
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -50.0,
+        "pmu_points": -46.8,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp2_mp4",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp2_mp4-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp2_mp4/PIR",
+      "point": "mp2_mp4",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp2_mp4",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 76.6,
+          "used": 49
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 32.8,
+          "used": 21
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -18.7,
+        "pmu_points": -40.6,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp4_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp1-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp4_mp1/PIR",
+      "point": "mp4_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp4_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 48.4,
+          "used": 31
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 35.9,
+          "used": 23
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -46.9,
+        "pmu_points": -37.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp4_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp2-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp4_mp2/PIR",
+      "point": "mp4_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp4_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 84.4,
+          "used": 54
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 42.2,
+          "used": 27
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": -10.9,
+        "pmu_points": -31.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp4_mp4",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp4-PIR/resource.csv"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp4_mp4/PIR",
+      "point": "mp4_mp4",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GDA_mp4_mp4",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 100.0,
+          "used": 64
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 98.4,
+          "used": 63
+        }
+      },
+      "table4": {
+        "ag_points": -19.4,
+        "pcu_points": 4.7,
+        "pmu_points": 25.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GDA_mp4_mp4",
+      "backend": "Tst",
+      "excerpts": {
+        "runhybrid.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp4-Tst/runhybrid.log",
+        "runhybrid_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp4-Tst/runhybrid_ddr3.log",
+        "runp2p.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp4-Tst/runp2p.log",
+        "runp2p_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GDA_mp4_mp4-Tst/runp2p_ddr3.log"
+      },
+      "family": "GDA",
+      "key": "Table4_GDA_mp4_mp4/Tst",
+      "point": "mp4_mp4",
+      "recorded_at": "2026-10-16T12:15:17Z",
+      "refusal_tail": "Average DRAM Write Bandwidth: 0 GB/s\nscript> Elapsed seconds: 2.96898\nExiting... \ud83d\ude0a\nDestruct DRAM.\ngold: \nresult: \nPASS: false (GDA)\nAssertion fail:\nGDA.scala:109:11: Assertion failure\ntungsten: plasticine/templates/cppgenutil.cc:35: void ASSERT(bool, const char*): Assertion `false' failed.\nCommand terminated by signal 6\nRuntime:0:03.35\n",
+      "refused": "runhybrid.log: the routed network stopped on cycle 12: /DUT/Top/net/router34: no route for packet 529",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh Tst Table4_GDA_mp4_mp4",
+      "sim_ddr3": {
+        "cycles": null,
+        "dram_read_gbps": 0.0,
+        "dram_write_gbps": 0.0,
+        "pass": false,
+        "wall_s": 3.35
+      },
+      "sim_ddr3_ideal": {
+        "cycles": 159156,
+        "dram_read_gbps": 2.50119,
+        "dram_write_gbps": 0.231622,
+        "pass": true,
+        "wall_s": 37.1
+      },
+      "sim_ddr4": {
+        "cycles": null,
+        "dram_read_gbps": 0.0,
+        "dram_write_gbps": 0.0,
+        "pass": false,
+        "wall_s": 3.62
+      },
+      "sim_ddr4_ideal": {
+        "cycles": 153257,
+        "dram_read_gbps": 2.59747,
+        "dram_write_gbps": 0.240537,
+        "pass": true,
+        "wall_s": 43.18
+      },
+      "table4": {
+        "time_ratio_ddr3_ideal": 1.2243,
+        "time_ratio_ddr4_ideal": 1.1789,
+        "time_within_ddr3_ideal": false,
+        "time_within_ddr4_ideal": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i1_j1_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i1_j1_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i1_j1_kk1/PIR",
+      "point": "i1_j1_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i1_j1_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 10.9,
+          "used": 7
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 7.8,
+          "used": 5
+        }
+      },
+      "table4": {
+        "ag_points": 10.2,
+        "pcu_points": -85.9,
+        "pmu_points": -56.3,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i1_j1_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i1_j1_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i1_j1_kk2/PIR",
+      "point": "i1_j1_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i1_j1_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 37.5,
+          "used": 12
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 15.6,
+          "used": 10
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 12.5,
+          "used": 8
+        }
+      },
+      "table4": {
+        "ag_points": 25.8,
+        "pcu_points": -81.2,
+        "pmu_points": -51.6,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i1_j2_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i1_j2_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i1_j2_kk1/PIR",
+      "point": "i1_j2_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i1_j2_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 28.1,
+          "used": 9
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 15.6,
+          "used": 10
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 9.4,
+          "used": 6
+        }
+      },
+      "table4": {
+        "ag_points": 16.4,
+        "pcu_points": -81.2,
+        "pmu_points": -54.7,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i1_j2_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i1_j2_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i1_j2_kk2/PIR",
+      "point": "i1_j2_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i1_j2_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 50.0,
+          "used": 16
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 25.0,
+          "used": 16
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 15.6,
+          "used": 10
+        }
+      },
+      "table4": {
+        "ag_points": 38.3,
+        "pcu_points": -71.8,
+        "pmu_points": -48.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i1_j4_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i1_j4_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i1_j4_kk1/PIR",
+      "point": "i1_j4_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i1_j4_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 43.8,
+          "used": 14
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 43.8,
+          "used": 28
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 12.5,
+          "used": 8
+        }
+      },
+      "table4": {
+        "ag_points": 32.1,
+        "pcu_points": -53.0,
+        "pmu_points": -51.6,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i1_j4_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i1_j4_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i1_j4_kk2/PIR",
+      "point": "i1_j4_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i1_j4_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 81.3,
+          "used": 26
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 81.3,
+          "used": 52
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 21.9,
+          "used": 14
+        }
+      },
+      "table4": {
+        "ag_points": 69.6,
+        "pcu_points": -15.5,
+        "pmu_points": -42.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j1_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j1_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j1_kk1/PIR",
+      "point": "i2_j1_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i2_j1_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 34.4,
+          "used": 11
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 12.5,
+          "used": 4
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 15.6,
+          "used": 10
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 9.4,
+          "used": 6
+        }
+      },
+      "table4": {
+        "ag_points": 22.7,
+        "pcu_points": -81.2,
+        "pmu_points": -54.7,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j1_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j1_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j1_kk2/PIR",
+      "point": "i2_j1_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i2_j1_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 62.5,
+          "used": 20
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 26.6,
+          "used": 17
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 15.6,
+          "used": 10
+        }
+      },
+      "table4": {
+        "ag_points": 50.8,
+        "pcu_points": -70.2,
+        "pmu_points": -48.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j2_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j2_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j2_kk1/PIR",
+      "point": "i2_j2_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i2_j2_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 50.0,
+          "used": 16
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 12.5,
+          "used": 4
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 25.0,
+          "used": 16
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 10.9,
+          "used": 7
+        }
+      },
+      "table4": {
+        "ag_points": 38.3,
+        "pcu_points": -71.8,
+        "pmu_points": -53.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j2_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j2_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j2_kk2/PIR",
+      "point": "i2_j2_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i2_j2_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 93.8,
+          "used": 30
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 45.3,
+          "used": 29
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 18.8,
+          "used": 12
+        }
+      },
+      "table4": {
+        "ag_points": 82.1,
+        "pcu_points": -51.5,
+        "pmu_points": -45.3,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j4_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j4_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j4_kk1/PIR",
+      "point": "i2_j4_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i2_j4_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 78.1,
+          "used": 25
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 12.5,
+          "used": 4
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 59.4,
+          "used": 38
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 14.1,
+          "used": 9
+        }
+      },
+      "table4": {
+        "ag_points": 66.4,
+        "pcu_points": -37.4,
+        "pmu_points": -50.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j4_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j4_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j4_kk2/PIR",
+      "point": "i2_j4_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i2_j4_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 100.0,
+          "used": 64
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 64.1,
+          "used": 41
+        }
+      },
+      "table4": {
+        "ag_points": 88.3,
+        "pcu_points": 3.2,
+        "pmu_points": 0.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i2_j4_kk2",
+      "backend": "Tst",
+      "excerpts": {
+        "runhybrid.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j4_kk2-Tst/runhybrid.log",
+        "runhybrid_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j4_kk2-Tst/runhybrid_ddr3.log",
+        "runp2p.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j4_kk2-Tst/runp2p.log",
+        "runp2p_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i2_j4_kk2-Tst/runp2p_ddr3.log"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i2_j4_kk2/Tst",
+      "point": "i2_j4_kk2",
+      "recorded_at": "2026-10-16T23:44:18Z",
+      "refusal_tail": "Average DRAM Write Bandwidth: 0 GB/s\nscript> Elapsed seconds: 3.04991\nExiting... \ud83d\ude0a\nDestruct DRAM.\nC Gold: \nC Result: \nPASS: false (GEMM)\nAssertion fail:\nGEMM.scala:104:11: Assertion failure\ntungsten: plasticine/templates/cppgenutil.cc:35: void ASSERT(bool, const char*): Assertion `false' failed.\nCommand terminated by signal 6\nRuntime:0:07.75\n",
+      "refused": "runhybrid.log: the routed network stopped on cycle 12: /DUT/Top/net/router49: no route for packet 655",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh Tst Table4_GEMM_i2_j4_kk2",
+      "sim_ddr3": {
+        "cycles": null,
+        "dram_read_gbps": 0.0,
+        "dram_write_gbps": 0.0,
+        "pass": false,
+        "wall_s": 7.75
+      },
+      "sim_ddr3_ideal": {
+        "cycles": 11312412,
+        "dram_read_gbps": 11.8646,
+        "dram_write_gbps": 0.37077,
+        "pass": true,
+        "wall_s": 2391.71
+      },
+      "sim_ddr4": {
+        "cycles": null,
+        "dram_read_gbps": 0.0,
+        "dram_write_gbps": 0.0,
+        "pass": false,
+        "wall_s": 8.72
+      },
+      "sim_ddr4_ideal": {
+        "cycles": 4195979,
+        "dram_read_gbps": 31.9872,
+        "dram_write_gbps": 0.999601,
+        "pass": true,
+        "wall_s": 1689.26
+      },
+      "table4": {
+        "time_ratio_ddr3_ideal": 0.7079,
+        "time_ratio_ddr4_ideal": 0.2626,
+        "time_within_ddr3_ideal": false,
+        "time_within_ddr4_ideal": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i4_j1_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i4_j1_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i4_j1_kk1/PIR",
+      "point": "i4_j1_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i4_j1_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 62.5,
+          "used": 20
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 20.3,
+          "used": 13
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 12.5,
+          "used": 8
+        }
+      },
+      "table4": {
+        "ag_points": 50.8,
+        "pcu_points": -76.5,
+        "pmu_points": -51.6,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i4_j1_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i4_j1_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i4_j1_kk2/PIR",
+      "point": "i4_j1_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i4_j1_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 34.4,
+          "used": 11
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 45.3,
+          "used": 29
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 21.9,
+          "used": 14
+        }
+      },
+      "table4": {
+        "ag_points": 88.3,
+        "pcu_points": -51.5,
+        "pmu_points": -42.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i4_j2_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i4_j2_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i4_j2_kk1/PIR",
+      "point": "i4_j2_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i4_j2_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 90.6,
+          "used": 29
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 34.4,
+          "used": 22
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 14.1,
+          "used": 9
+        }
+      },
+      "table4": {
+        "ag_points": 78.9,
+        "pcu_points": -62.4,
+        "pmu_points": -50.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i4_j2_kk2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i4_j2_kk2-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i4_j2_kk2/PIR",
+      "point": "i4_j2_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i4_j2_kk2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 34.4,
+          "used": 11
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 100.0,
+          "used": 64
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 26.6,
+          "used": 17
+        }
+      },
+      "table4": {
+        "ag_points": 88.3,
+        "pcu_points": 3.2,
+        "pmu_points": -37.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i4_j4_kk1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_GEMM_i4_j4_kk1-PIR/resource.csv"
+      },
+      "family": "GEMM",
+      "key": "Table4_GEMM_i4_j4_kk1/PIR",
+      "point": "i4_j4_kk1",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i4_j4_kk1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 18.8,
+          "used": 6
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 100.0,
+          "used": 64
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 18.8,
+          "used": 12
+        }
+      },
+      "table4": {
+        "ag_points": 88.3,
+        "pcu_points": 3.2,
+        "pmu_points": -45.3,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_GEMM_i4_j4_kk2",
+      "backend": "PIR",
+      "family": "GEMM",
+      "key": "Table4_GEMM_i4_j4_kk2/PIR",
+      "point": "i4_j4_kk2",
+      "recorded_at": "2026-10-16T07:01:26Z",
+      "refusal_tail": "[error] \tat sbt.internal.BackgroundThreadPool.$anonfun$run$1(DefaultBackgroundJobService.scala:366)\n[error] \tat scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:12)\n[error] \tat scala.util.Try$.apply(Try.scala:209)\n[error] \tat sbt.internal.BackgroundThreadPool$BackgroundRunnable.run(DefaultBackgroundJobService.scala:289)\n[error] \tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\n[error] \tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\n[error] \tat java.lang.Thread.run(Thread.java:750)\n[error] (Compile / runMain) Nonzero exit code: -1\n[error] Total time: 86 s, completed Oct 16, 2026 6:48:39 AM\nException: sbt.TrapExitSecurityException thrown from the UncaughtExceptionHandler in thread \"run-main-0\"\npython3: can't open file 'bin/simstat.py': [Errno 2] No such file or directory\npython3: can't open file 'bin/annotate.py': [Errno 2] No such file or directory\n",
+      "refused": "gentst.log produced no resource.csv: Not enough resource of type PCUParam,PMUParam,DramAGParam. Required 209. Possesed 160; Failed passes: 53-MatchPruner",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_GEMM_i4_j4_kk2",
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp1_mp1_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp1_mp1_mp1-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp1_mp1_mp1/PIR",
+      "point": "mp1_mp1_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp1_mp1_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 42.2,
+          "used": 27
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 18.8,
+          "used": 12
+        }
+      },
+      "table4": {
+        "ag_points": 4.3,
+        "pcu_points": -46.9,
+        "pmu_points": -39.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp1_mp1_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp1_mp1_mp2-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp1_mp1_mp2/PIR",
+      "point": "mp1_mp1_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp1_mp1_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 21.9,
+          "used": 7
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 59.4,
+          "used": 38
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 23.4,
+          "used": 15
+        }
+      },
+      "table4": {
+        "ag_points": 4.3,
+        "pcu_points": -29.7,
+        "pmu_points": -34.4,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp1_mp2_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp1_mp2_mp1-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp1_mp2_mp1/PIR",
+      "point": "mp1_mp2_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp1_mp2_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 31.3,
+          "used": 10
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 50.0,
+          "used": 32
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 20.3,
+          "used": 13
+        }
+      },
+      "table4": {
+        "ag_points": 13.7,
+        "pcu_points": -39.1,
+        "pmu_points": -37.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp1_mp2_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp1_mp2_mp2-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp1_mp2_mp2/PIR",
+      "point": "mp1_mp2_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp1_mp2_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 31.3,
+          "used": 10
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 62.5,
+          "used": 40
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 23.4,
+          "used": 15
+        }
+      },
+      "table4": {
+        "ag_points": 13.7,
+        "pcu_points": -26.6,
+        "pmu_points": -34.4,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp2_mp1_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp1_mp1-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp2_mp1_mp1/PIR",
+      "point": "mp2_mp1_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp2_mp1_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 31.3,
+          "used": 10
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 59.4,
+          "used": 38
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 26.6,
+          "used": 17
+        }
+      },
+      "table4": {
+        "ag_points": 13.7,
+        "pcu_points": -29.7,
+        "pmu_points": -31.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp2_mp1_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp1_mp2-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp2_mp1_mp2/PIR",
+      "point": "mp2_mp1_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp2_mp1_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 31.3,
+          "used": 10
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 76.6,
+          "used": 49
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 31.3,
+          "used": 20
+        }
+      },
+      "table4": {
+        "ag_points": 13.7,
+        "pcu_points": -12.5,
+        "pmu_points": -26.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp2_mp1_mp2",
+      "backend": "Tst",
+      "excerpts": {
+        "runhybrid.log": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp1_mp2-Tst/runhybrid.log",
+        "runhybrid_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp1_mp2-Tst/runhybrid_ddr3.log",
+        "runp2p.log": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp1_mp2-Tst/runp2p.log",
+        "runp2p_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp1_mp2-Tst/runp2p_ddr3.log"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp2_mp1_mp2/Tst",
+      "point": "mp2_mp1_mp2",
+      "recorded_at": "2026-10-16T12:15:17Z",
+      "refusal_tail": "Help for app: Table4_KMeans_mp2_mp1_mp2\n  -- Args:    <0: I> <1: N>\n    -- Example: ./tungsten 200 320\nCommand exited with non-zero status 1\nRuntime:0:00.00\n",
+      "refused": "runhybrid.log: the simulation finished on cycle 3914 and the app's own check failed (PASS: false)",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh Tst Table4_KMeans_mp2_mp1_mp2",
+      "sim_ddr3": {
+        "cycles": null,
+        "dram_read_gbps": null,
+        "dram_write_gbps": null,
+        "pass": null,
+        "wall_s": 0.0
+      },
+      "sim_ddr3_ideal": {
+        "cycles": null,
+        "dram_read_gbps": null,
+        "dram_write_gbps": null,
+        "pass": null,
+        "wall_s": 0.0
+      },
+      "sim_ddr4": {
+        "cycles": 3914,
+        "dram_read_gbps": 14.3403,
+        "dram_write_gbps": 0.0,
+        "pass": false,
+        "wall_s": 3.13
+      },
+      "sim_ddr4_ideal": {
+        "cycles": 2563253,
+        "dram_read_gbps": 3.19594,
+        "dram_write_gbps": 0.00159797,
+        "pass": true,
+        "wall_s": 243.28
+      },
+      "table4": {
+        "time_ratio_ddr4_ideal": 0.3055,
+        "time_within_ddr4_ideal": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp2_mp2_mp1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp2_mp1-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp2_mp2_mp1/PIR",
+      "point": "mp2_mp2_mp1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp2_mp2_mp1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 62.5,
+          "used": 20
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 71.9,
+          "used": 46
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 28.1,
+          "used": 18
+        }
+      },
+      "table4": {
+        "ag_points": 44.9,
+        "pcu_points": -17.2,
+        "pmu_points": -29.7,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_KMeans_mp2_mp2_mp2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_KMeans_mp2_mp2_mp2-PIR/resource.csv"
+      },
+      "family": "KMeans",
+      "key": "Table4_KMeans_mp2_mp2_mp2/PIR",
+      "point": "mp2_mp2_mp2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_KMeans_mp2_mp2_mp2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 62.5,
+          "used": 20
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 9.4,
+          "used": 3
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 84.4,
+          "used": 54
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 31.3,
+          "used": 20
+        }
+      },
+      "table4": {
+        "ag_points": 44.9,
+        "pcu_points": -4.7,
+        "pmu_points": -26.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_TQ6_op1",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op1-PIR/resource.csv"
+      },
+      "family": "TQ6",
+      "key": "Table4_TQ6_op1/PIR",
+      "point": "op1",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_TQ6_op1",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 15.6,
+          "used": 5
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 12.5,
+          "used": 4
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 3.1,
+          "used": 2
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 6.3,
+          "used": 4
+        }
+      },
+      "table4": {
+        "ag_points": -55.0,
+        "pcu_points": -26.6,
+        "pmu_points": -31.2,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_TQ6_op2",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op2-PIR/resource.csv"
+      },
+      "family": "TQ6",
+      "key": "Table4_TQ6_op2/PIR",
+      "point": "op2",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_TQ6_op2",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 28.1,
+          "used": 9
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 25.0,
+          "used": 8
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 6.3,
+          "used": 4
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 12.5,
+          "used": 8
+        }
+      },
+      "table4": {
+        "ag_points": -42.5,
+        "pcu_points": -23.4,
+        "pmu_points": -25.0,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_TQ6_op4",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op4-PIR/resource.csv"
+      },
+      "family": "TQ6",
+      "key": "Table4_TQ6_op4/PIR",
+      "point": "op4",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_TQ6_op4",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 56.3,
+          "used": 18
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 50.0,
+          "used": 16
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 12.5,
+          "used": 8
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 25.0,
+          "used": 16
+        }
+      },
+      "table4": {
+        "ag_points": -14.3,
+        "pcu_points": -17.2,
+        "pmu_points": -12.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_TQ6_op8",
+      "backend": "PIR",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op8-PIR/resource.csv"
+      },
+      "family": "TQ6",
+      "key": "Table4_TQ6_op8/PIR",
+      "point": "op8",
+      "recorded_at": "2026-10-16T11:00:55Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh PIR Table4_TQ6_op8",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 31.3,
+          "used": 20
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 50.0,
+          "used": 32
+        }
+      },
+      "table4": {
+        "ag_points": 29.4,
+        "pcu_points": 1.6,
+        "pmu_points": 12.5,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    },
+    {
+      "app": "Table4_TQ6_op8",
+      "backend": "Tst",
+      "excerpts": {
+        "resource.csv": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op8-Tst/resource.csv",
+        "runhybrid.log": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op8-Tst/runhybrid.log",
+        "runhybrid_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op8-Tst/runhybrid_ddr3.log",
+        "runp2p.log": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op8-Tst/runp2p.log",
+        "runp2p_ddr3.log": "benchmarks/silicon/plasticine_logs/table4/Table4_TQ6_op8-Tst/runp2p_ddr3.log"
+      },
+      "family": "TQ6",
+      "key": "Table4_TQ6_op8/Tst",
+      "point": "op8",
+      "recorded_at": "2026-10-16T12:15:17Z",
+      "reproduce": "scripts/plasticine/run-in-container.sh bash /table4.sh Tst Table4_TQ6_op8",
+      "resources": {
+        "DAG": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "MC": {
+          "total": 32,
+          "usage_pct": 100.0,
+          "used": 32
+        },
+        "PCU": {
+          "total": 64,
+          "usage_pct": 29.7,
+          "used": 19
+        },
+        "PMU": {
+          "total": 64,
+          "usage_pct": 50.0,
+          "used": 32
+        }
+      },
+      "sim_ddr3": {
+        "cycles": 8357698,
+        "dram_read_gbps": 12.2522,
+        "dram_write_gbps": 0.0,
+        "pass": true,
+        "wall_s": 1290.07
+      },
+      "sim_ddr3_ideal": {
+        "cycles": 8339005,
+        "dram_read_gbps": 12.2796,
+        "dram_write_gbps": 0.0,
+        "pass": true,
+        "wall_s": 1058.07
+      },
+      "sim_ddr4": {
+        "cycles": 1095825,
+        "dram_read_gbps": 93.4456,
+        "dram_write_gbps": 0.0,
+        "pass": true,
+        "wall_s": 211.27
+      },
+      "sim_ddr4_ideal": {
+        "cycles": 1107841,
+        "dram_read_gbps": 92.432,
+        "dram_write_gbps": 0.0,
+        "pass": true,
+        "wall_s": 154.84
+      },
+      "table4": {
+        "ag_points": 29.4,
+        "pcu_points": 0.0,
+        "pmu_points": 12.5,
+        "time_ratio_ddr3": 0.9718,
+        "time_ratio_ddr3_ideal": 0.9697,
+        "time_ratio_ddr4": 0.1274,
+        "time_ratio_ddr4_ideal": 0.1288,
+        "time_within_ddr3": true,
+        "time_within_ddr3_ideal": true,
+        "time_within_ddr4": false,
+        "time_within_ddr4_ideal": false,
+        "utilization_within": false
+      },
+      "toolchain": "spatial@pir (2023-01-31) + pir@master (2021-05-04) + plastiroute@spdram_place (2021-01-21) + tungsten@master (2020-11-21) + fmt 7.1.3 + parallelstl 20190522; GitLab dataplane-ai archive tarballs; ubuntu:18.04 container"
+    }
+  ],
+  "tolerance": {
+    "stated": "before any run, the runbook's gate: within 5 points of each utilization and 15% of the time",
+    "time_ratio": 0.15,
+    "utilization_points": 5.0
+  }
+}

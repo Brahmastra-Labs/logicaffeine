@@ -4,7 +4,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use ml_kem::kem::Decapsulate;
-use ml_kem::{B32, EncapsulateDeterministic, EncodedSizeUser, KemCore, MlKem768};
+use ml_kem::{EncapsulateDeterministic, EncodedSizeUser, KemCore, MlKem768, B32};
 
 #[test]
 fn oracle_deterministic_round_trip_and_sizes() {
@@ -13,7 +13,11 @@ fn oracle_deterministic_round_trip_and_sizes() {
     let (dk, ek) = MlKem768::generate_deterministic(&d, &z);
 
     let ek_bytes = ek.as_bytes();
-    assert_eq!(ek_bytes.len(), 1184, "ML-KEM-768 encapsulation key is 1184 bytes");
+    assert_eq!(
+        ek_bytes.len(),
+        1184,
+        "ML-KEM-768 encapsulation key is 1184 bytes"
+    );
 
     let m = B32::from([0x33u8; 32]);
     let (ct, k_send) = ek.encapsulate_deterministic(&m).expect("encaps");

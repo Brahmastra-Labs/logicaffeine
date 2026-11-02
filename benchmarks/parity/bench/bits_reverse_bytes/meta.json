@@ -1,0 +1,11 @@
+{
+  "capability": "bits.reverse_bytes",
+  "workload": "sum of reverseBytes(i,32) over 1..n",
+  "arg": "3000000",
+  "expected": "6442174542900480",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "rust"
+  ]
+}

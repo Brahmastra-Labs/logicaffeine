@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It's necessary that H is false",
   "options": [
-    "$ (\\square \\sim H) $",
-    "$ \\square \\sim H $",
-    "$ \\sim \\square (H) $",
-    "$ \\sim \\square H $"
+    "◇¬H",
+    "□¬H",
+    "¬□H",
+    "¬◇¬H"
   ],
   "correct": 1,
-  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "Necessity scopes over a negation: □∼H — in every possible world, H is false. Equivalent to saying H is impossible (∼◇H)."
+  "hint": "Is the claim about every world, some world, or just the actual one?",
+  "explanation": "Necessity over a denial: □¬H. H is false in every world, so H is impossible.",
+  "section": "10.2"
 }

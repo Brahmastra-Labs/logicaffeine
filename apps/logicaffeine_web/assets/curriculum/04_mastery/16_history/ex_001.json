@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "This ancient Greek philosopher wrote the first systematic treatise on logic.",
-  "explanation": "Aristotle (384-322 BCE) is considered the founder of formal logic. His Organon, especially the Prior Analytics, developed syllogistic logic - the dominant logical system for over 2000 years. He systematically studied valid argument forms.",
-  "visual_concept": "Aristotle created the first 'logical machine' - plug in premises of certain forms, get valid conclusions. This was revolutionary."
+  "explanation": "Aristotle (384 to 322 BCE) founded formal logic. His Prior Analytics developed the syllogism, which ruled logic for two thousand years.",
+  "visual_concept": "Aristotle created the first 'logical machine' - plug in premises of certain forms, get valid conclusions. This was revolutionary.",
+  "section": "16.1"
 }

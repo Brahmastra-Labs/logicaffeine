@@ -1,0 +1,12 @@
+{
+  "capability": "text.trim_start",
+  "workload": "trimStart(s), length fold",
+  "arg": "20000",
+  "expected": "80990000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

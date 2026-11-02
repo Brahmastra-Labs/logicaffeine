@@ -49,7 +49,9 @@ impl RelayBrowserClient {
         let suback: Rc<RefCell<Option<Box<dyn Fn(String)>>>> = Rc::new(RefCell::new(None));
         let suback_for_msg = suback.clone();
         let on_message = Closure::wrap(Box::new(move |e: web_sys::MessageEvent| {
-            let Ok(buf) = e.data().dyn_into::<js_sys::ArrayBuffer>() else { return };
+            let Ok(buf) = e.data().dyn_into::<js_sys::ArrayBuffer>() else {
+                return;
+            };
             let bytes = js_sys::Uint8Array::new(&buf).to_vec();
             match RelayFrame::from_bytes(&bytes) {
                 Some(RelayFrame::Event { topic, data }) => on_event(topic, data),
@@ -92,18 +94,25 @@ impl RelayBrowserClient {
     /// Subscribe to `topic` — the relay starts pushing its `Event`s to this
     /// connection's `on_event` and replies with a `SubAck` (see [`Self::on_suback`]).
     pub fn subscribe(&self, topic: &str) -> Result<(), JsValue> {
-        self.send(&RelayFrame::Subscribe { topic: topic.to_string() })
+        self.send(&RelayFrame::Subscribe {
+            topic: topic.to_string(),
+        })
     }
 
     /// Stop receiving `topic`.
     pub fn unsubscribe(&self, topic: &str) -> Result<(), JsValue> {
-        self.send(&RelayFrame::Unsubscribe { topic: topic.to_string() })
+        self.send(&RelayFrame::Unsubscribe {
+            topic: topic.to_string(),
+        })
     }
 
     /// Publish `data` to `topic` — delivered to every subscriber (browser or, via
     /// the relay's mesh bridge, native) except the publisher itself.
     pub fn publish(&self, topic: &str, data: Vec<u8>) -> Result<(), JsValue> {
-        self.send(&RelayFrame::Publish { topic: topic.to_string(), data })
+        self.send(&RelayFrame::Publish {
+            topic: topic.to_string(),
+            data,
+        })
     }
 
     fn send(&self, frame: &RelayFrame) -> Result<(), JsValue> {

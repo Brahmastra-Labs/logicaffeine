@@ -131,8 +131,8 @@ fn specificity_order(defaults: &[DefaultRule], premises: &[ProofExpr]) -> Vec<us
     };
 
     let mut order: Vec<usize> = (0..defaults.len()).collect();
-    order.sort_by(|&i, &j| {
-        match (&defaults[i].restriction_pred, &defaults[j].restriction_pred) {
+    order.sort_by(
+        |&i, &j| match (&defaults[i].restriction_pred, &defaults[j].restriction_pred) {
             (Some(ri), Some(rj)) => {
                 let i_specific = reaches(ri, rj);
                 let j_specific = reaches(rj, ri);
@@ -143,8 +143,8 @@ fn specificity_order(defaults: &[DefaultRule], premises: &[ProofExpr]) -> Vec<us
                 }
             }
             _ => defaults[i].ab_name.cmp(&defaults[j].ab_name),
-        }
-    });
+        },
+    );
     order
 }
 

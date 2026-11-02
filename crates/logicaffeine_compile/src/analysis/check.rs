@@ -18,11 +18,13 @@
 //!                    └── zonk → TypeEnv (LogosType) → codegen
 //! ```
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::analysis::unify::{InferType, TyVar, TypeScheme, TypeError, UnificationTable, infer_to_logos, unify_numeric};
-use crate::analysis::{FnSig, LogosType, TypeDef, TypeEnv, TypeRegistry};
-use crate::ast::stmt::{BinaryOpKind, Expr, Pattern, Stmt};
+use crate::analysis::unify::{
+    unify_numeric, InferType, TyVar, TypeError, TypeScheme, TypeScope, UnificationTable,
+};
+use crate::analysis::{FieldType, FnSig, LogosType, TypeDef, TypeEnv, TypeRegistry};
+use crate::ast::stmt::{BinaryOpKind, Expr, Pattern, Stmt, StmtId};
 use crate::intern::{Interner, Symbol};
 
 // ============================================================================
@@ -38,9 +40,61 @@ use crate::intern::{Interner, Symbol};
 struct FunctionRecord {
     /// Parameter names (for binding in the function scope).
     param_names: Vec<Symbol>,
+    is_native: bool,
     /// The quantified type scheme: `forall vars. Function(param_types, return_type)`.
     /// For monomorphic functions, `vars` is empty and body is used directly.
     scheme: TypeScheme,
+    /// The DECLARED type parameters in declaration order, each as the type its variable resolves
+    /// to — instantiated with the scheme, they are the type arguments one call is solved for.
+    declared: Vec<InferType>,
+}
+
+/// A node of the checked program, by address. The checker and a later pass over the SAME
+/// statements agree on it without the AST carrying ids.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Site {
+    Expr(usize),
+    Stmt(usize),
+}
+
+impl Site {
+    pub fn of_expr(e: &Expr) -> Self {
+        Site::Expr(e as *const Expr as *const () as usize)
+    }
+
+    pub fn of_stmt(s: &Stmt) -> Self {
+        Site::Stmt(s as *const Stmt as *const () as usize)
+    }
+}
+
+/// One call of a generic function, as the checker solved it.
+#[derive(Debug, Clone)]
+pub struct CallInstance {
+    /// The declared type arguments, in declaration order.
+    pub type_args: Vec<InferType>,
+    /// Every argument's type was fully known. When one was not, a type argument the call leaves
+    /// open may be one the checker failed to see, not one that nothing constrains.
+    pub precise: bool,
+}
+
+/// What the checker solved at every generic site of a program — the input to monomorphization.
+///
+/// Types are RESOLVED, not zonked: a site inside a generic function's body still names that
+/// function's own type variables (listed in `type_params`), to be substituted once per instance.
+/// A variable nothing constrained stays a variable.
+#[derive(Debug, Default)]
+pub struct Instantiations {
+    /// Each call of a generic function.
+    pub calls: HashMap<Site, CallInstance>,
+    /// Each `New` / `NewVariant` and `some` / `none`: the type it builds.
+    pub constructed: HashMap<Site, InferType>,
+    /// Each empty sequence literal (`[]`): the sequence type its context gives it.
+    pub empty_lists: HashMap<Site, InferType>,
+    /// Each `Inspect`: the type of the value it inspects.
+    pub scrutinees: HashMap<Site, InferType>,
+    /// Each generic function's type parameters in declaration order, each as the type its
+    /// variable resolved to (its own unbound variable, unless the body pinned it).
+    pub type_params: HashMap<Symbol, Vec<(Symbol, InferType)>>,
 }
 
 /// Bidirectional type checking environment.
@@ -60,6 +114,15 @@ struct CheckEnv<'r> {
     table: UnificationTable,
     registry: &'r TypeRegistry,
     interner: &'r Interner,
+    /// The type parameters of the generic function whose body is being checked, each standing
+    /// for its variable — so a `T` written in the body (`a new Seq of T`) means that variable.
+    type_params_in_scope: HashMap<Symbol, InferType>,
+    /// Every generic site solved so far, unresolved until the program is checked.
+    sites: Instantiations,
+    /// Each generic call's argument types, to judge its precision once the program is checked.
+    call_arg_types: HashMap<Site, Vec<InferType>>,
+    /// Each bare type name that IS a namespaced type, so both spellings are one type.
+    twins: HashMap<Symbol, Symbol>,
 }
 
 impl<'r> CheckEnv<'r> {
@@ -72,6 +135,132 @@ impl<'r> CheckEnv<'r> {
             table: UnificationTable::new(),
             registry,
             interner,
+            type_params_in_scope: HashMap::new(),
+            sites: Instantiations::default(),
+            call_arg_types: HashMap::new(),
+            twins: registry.namespaced_twins(interner),
+        }
+    }
+
+    /// The one identity a user type named `name` has (see `TypeScope::canonical`).
+    fn canonical(&self, name: Symbol) -> Symbol {
+        self.twins.get(&name).copied().unwrap_or(name)
+    }
+
+    /// A written type, read with the registry and the type parameters in scope.
+    fn written_type(&self, ty: &crate::ast::stmt::TypeExpr) -> InferType {
+        self.written_type_with(ty, &self.type_params_in_scope)
+    }
+
+    fn written_type_with(
+        &self,
+        ty: &crate::ast::stmt::TypeExpr,
+        params: &HashMap<Symbol, InferType>,
+    ) -> InferType {
+        InferType::from_type_expr_in(
+            ty,
+            &TypeScope {
+                interner: self.interner,
+                registry: Some(self.registry),
+                params,
+                twins: Some(&self.twins),
+            },
+        )
+    }
+
+    /// A field's declared type at one application of its record or enum, `args` bound to the
+    /// type's own parameters in order.
+    fn field_type_at(&self, ty: &FieldType, generics: &[Symbol], args: &[InferType]) -> InferType {
+        let params: HashMap<Symbol, InferType> =
+            generics.iter().copied().zip(args.iter().cloned()).collect();
+        InferType::from_field_type_in(
+            ty,
+            &TypeScope {
+                interner: self.interner,
+                registry: Some(self.registry),
+                params: &params,
+                twins: Some(&self.twins),
+            },
+        )
+    }
+
+    /// The type arguments one construction of `type_sym` is solved for: the written ones, or a
+    /// fresh variable per type parameter when none were written.
+    fn applied_args(
+        &mut self,
+        type_sym: Symbol,
+        written: &[crate::ast::stmt::TypeExpr],
+    ) -> (Vec<Symbol>, Vec<InferType>) {
+        let generics = match self.registry.get(type_sym) {
+            Some(TypeDef::Struct { generics, .. } | TypeDef::Enum { generics, .. }) => {
+                generics.clone()
+            }
+            _ => Vec::new(),
+        };
+        let args = if written.len() == generics.len() && !written.is_empty() {
+            written.iter().map(|t| self.written_type(t)).collect()
+        } else {
+            generics.iter().map(|_| self.table.fresh()).collect()
+        };
+        (generics, args)
+    }
+
+    /// Every generic site with its types resolved as far as the whole program determines them.
+    fn into_instantiations(self) -> Instantiations {
+        fn mentions_unknown(t: &InferType) -> bool {
+            match t {
+                InferType::Unknown => true,
+                InferType::Seq(i) | InferType::Set(i) | InferType::Option(i) => mentions_unknown(i),
+                InferType::Map(k, v) => mentions_unknown(k) || mentions_unknown(v),
+                InferType::UserDefined(_, args) => args.iter().any(mentions_unknown),
+                InferType::Function(ps, r) => {
+                    ps.iter().any(mentions_unknown) || mentions_unknown(r)
+                }
+                _ => false,
+            }
+        }
+        let table = &self.table;
+        let sites = self.sites;
+        let arg_types = self.call_arg_types;
+        Instantiations {
+            calls: sites
+                .calls
+                .into_iter()
+                .map(|(k, v)| {
+                    let precise = arg_types.get(&k).map_or(true, |ts| {
+                        ts.iter().all(|t| !mentions_unknown(&table.resolve(t)))
+                    });
+                    let type_args = v.type_args.iter().map(|t| table.resolve(t)).collect();
+                    (k, CallInstance { type_args, precise })
+                })
+                .collect(),
+            constructed: sites
+                .constructed
+                .into_iter()
+                .map(|(k, v)| (k, table.resolve(&v)))
+                .collect(),
+            empty_lists: sites
+                .empty_lists
+                .into_iter()
+                .map(|(k, v)| (k, table.resolve(&v)))
+                .collect(),
+            scrutinees: sites
+                .scrutinees
+                .into_iter()
+                .map(|(k, v)| (k, table.resolve(&v)))
+                .collect(),
+            type_params: sites
+                .type_params
+                .into_iter()
+                .map(|(f, ps)| {
+                    (
+                        f,
+                        ps.into_iter()
+                            .map(|(p, t)| (p, table.resolve(&t)))
+                            .collect(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -122,11 +311,20 @@ impl<'r> CheckEnv<'r> {
             // since codegen uses TypeExpr (not TypeEnv) for generic param types.
             if let InferType::Function(param_types, ret_box) = &rec.scheme.body {
                 let ret_logos = self.table.to_logos_type(ret_box);
-                let params: Vec<(Symbol, LogosType)> = rec.param_names.iter()
+                let params: Vec<(Symbol, LogosType)> = rec
+                    .param_names
+                    .iter()
                     .zip(param_types.iter())
                     .map(|(sym, ty)| (*sym, self.table.to_logos_type(ty)))
                     .collect();
-                type_env.register_fn(name, FnSig { params, return_type: ret_logos });
+                type_env.register_fn(
+                    name,
+                    FnSig {
+                        params,
+                        return_type: ret_logos,
+                    },
+                );
+                type_env.set_native_fn(name, rec.is_native);
             }
         }
 
@@ -148,23 +346,33 @@ impl<'r> CheckEnv<'r> {
     /// type parameter and builds a `TypeScheme` so call sites can instantiate them.
     fn preregister_functions(&mut self, stmts: &[Stmt]) {
         for stmt in stmts {
-            if let Stmt::FunctionDef { name, generics, params, return_type, .. } = stmt {
+            if let Stmt::FunctionDef {
+                name,
+                generics,
+                params,
+                return_type,
+                is_native,
+                ..
+            } = stmt
+            {
                 // Allocate one TyVar per generic type parameter
                 let type_param_map: HashMap<Symbol, TyVar> = generics
                     .iter()
                     .map(|&sym| (sym, self.table.fresh_var()))
                     .collect();
+                let in_scope: HashMap<Symbol, InferType> = type_param_map
+                    .iter()
+                    .map(|(s, tv)| (*s, InferType::Var(*tv)))
+                    .collect();
 
                 let param_types: Vec<InferType> = params
                     .iter()
-                    .map(|(_, ty_expr)| {
-                        InferType::from_type_expr_with_params(ty_expr, self.interner, &type_param_map)
-                    })
+                    .map(|(_, ty_expr)| self.written_type_with(ty_expr, &in_scope))
                     .collect();
                 let param_names: Vec<Symbol> = params.iter().map(|(sym, _)| *sym).collect();
 
                 let ret_type = if let Some(rt) = return_type {
-                    InferType::from_type_expr_with_params(rt, self.interner, &type_param_map)
+                    self.written_type_with(rt, &in_scope)
                 } else {
                     self.table.fresh()
                 };
@@ -173,13 +381,22 @@ impl<'r> CheckEnv<'r> {
                     .iter()
                     .filter_map(|sym| type_param_map.get(sym).copied())
                     .collect();
+                let declared = generic_vars.iter().map(|tv| InferType::Var(*tv)).collect();
 
                 let scheme = TypeScheme {
                     vars: generic_vars,
                     body: InferType::Function(param_types, Box::new(ret_type)),
                 };
 
-                self.functions.insert(*name, FunctionRecord { param_names, scheme });
+                self.functions.insert(
+                    *name,
+                    FunctionRecord {
+                        param_names,
+                        scheme,
+                        declared,
+                        is_native: *is_native,
+                    },
+                );
             }
         }
     }
@@ -194,11 +411,7 @@ impl<'r> CheckEnv<'r> {
     ///
     /// Handles numeric literal coercion (`5` against `Real` → `Float`) and
     /// structural checking before falling through to synthesis + unification.
-    fn check_expr(
-        &mut self,
-        expr: &Expr,
-        expected: &InferType,
-    ) -> Result<InferType, TypeError> {
+    fn check_expr(&mut self, expr: &Expr, expected: &InferType) -> Result<InferType, TypeError> {
         use crate::ast::stmt::Literal;
 
         // Number literals are polymorphic: 5 checks against Int, Float, Nat, or Byte
@@ -225,7 +438,7 @@ impl<'r> CheckEnv<'r> {
         // under a `Seq of Real` annotation), instead of synthesizing the element
         // type from items[0] alone and failing to unify with the annotation.
         if let Expr::List(items) = expr {
-            if let InferType::Seq(elem) = self.table.zonk(expected) {
+            if let InferType::Seq(elem) = self.table.resolve(expected) {
                 for item in items {
                     self.check_expr(item, &elem)?;
                 }
@@ -236,7 +449,7 @@ impl<'r> CheckEnv<'r> {
         // Default: synthesize then unify
         let inferred = self.infer_expr(expr)?;
         self.table.unify(&inferred, expected)?;
-        Ok(self.table.zonk(expected))
+        Ok(self.table.resolve(expected))
     }
 
     /// Infer the type of an expression (synthesis mode).
@@ -244,23 +457,21 @@ impl<'r> CheckEnv<'r> {
         match expr {
             Expr::Literal(lit) => Ok(InferType::from_literal(lit)),
 
-            Expr::Identifier(sym) => {
-                Ok(self.lookup_var(*sym).unwrap_or(InferType::Unknown))
+            Expr::Identifier(sym) => Ok(self.lookup_var(*sym).unwrap_or(InferType::Unknown)),
+
+            Expr::BinaryOp { op, left, right } => self.infer_binary_op(*op, left, right),
+
+            Expr::Length { collection } => {
+                self.infer_expr(collection)?;
+                Ok(InferType::Int)
             }
 
-            Expr::BinaryOp { op, left, right } => {
-                self.infer_binary_op(*op, left, right)
-            }
+            Expr::Call { function, args } => self.infer_call(*function, args, Site::of_expr(expr)),
 
-            Expr::Length { .. } => Ok(InferType::Int),
-
-            Expr::Call { function, args } => {
-                self.infer_call(*function, args)
-            }
-
-            Expr::Index { collection, .. } => {
+            Expr::Index { collection, index } => {
                 let coll_ty = self.infer_expr(collection)?;
-                let walked = self.table.zonk(&coll_ty);
+                self.infer_expr(index)?;
+                let walked = self.table.resolve(&coll_ty);
                 match walked {
                     InferType::Seq(inner) => Ok(*inner),
                     InferType::Map(_, v) => Ok(*v),
@@ -269,94 +480,224 @@ impl<'r> CheckEnv<'r> {
             }
 
             Expr::List(items) => {
+                // Every element is inferred, not just the first: a later element may hold a
+                // generic call or construction whose instantiation must be solved too. The first
+                // element names the element type; the rest join it where they can.
+                let elem_type = match items.split_first() {
+                    None => self.table.fresh(),
+                    Some((first, rest)) => {
+                        let first_ty = self.infer_expr(first)?;
+                        for item in rest {
+                            let item_ty = self.infer_expr(item)?;
+                            self.table.unify(&first_ty, &item_ty).ok();
+                        }
+                        first_ty
+                    }
+                };
+                let ty = InferType::Seq(Box::new(elem_type));
                 if items.is_empty() {
-                    let elem_var = self.table.fresh();
-                    Ok(InferType::Seq(Box::new(elem_var)))
-                } else {
-                    let elem_type = self.infer_expr(items[0])?;
-                    Ok(InferType::Seq(Box::new(elem_type)))
+                    self.sites
+                        .empty_lists
+                        .insert(Site::of_expr(expr), ty.clone());
                 }
+                Ok(ty)
             }
 
             Expr::OptionSome { value } => {
                 let inner = self.infer_expr(value)?;
-                Ok(InferType::Option(Box::new(inner)))
+                let ty = InferType::Option(Box::new(inner));
+                self.sites
+                    .constructed
+                    .insert(Site::of_expr(expr), ty.clone());
+                Ok(ty)
             }
 
             Expr::OptionNone => {
                 let elem_var = self.table.fresh();
-                Ok(InferType::Option(Box::new(elem_var)))
+                let ty = InferType::Option(Box::new(elem_var));
+                self.sites
+                    .constructed
+                    .insert(Site::of_expr(expr), ty.clone());
+                Ok(ty)
             }
 
-            Expr::Range { .. } => Ok(InferType::Seq(Box::new(InferType::Int))),
-
-            Expr::Contains { .. } => Ok(InferType::Bool),
-
-            Expr::Copy { expr: inner } | Expr::Give { value: inner } => {
-                self.infer_expr(inner)
+            Expr::Range { start, end } => {
+                self.infer_expr(start)?;
+                self.infer_expr(end)?;
+                Ok(InferType::Seq(Box::new(InferType::Int)))
             }
 
-            Expr::WithCapacity { value, .. } => self.infer_expr(value),
+            Expr::Contains { collection, value } => {
+                self.infer_expr(collection)?;
+                self.infer_expr(value)?;
+                Ok(InferType::Bool)
+            }
+
+            Expr::Copy { expr: inner } | Expr::Give { value: inner } => self.infer_expr(inner),
+
+            Expr::WithCapacity { value, capacity } => {
+                self.infer_expr(capacity)?;
+                self.infer_expr(value)
+            }
 
             Expr::FieldAccess { object, field } => {
                 let obj_ty = self.infer_expr(object)?;
                 self.infer_field_access(obj_ty, *field)
             }
 
-            Expr::New { type_name, type_args, .. } => {
+            Expr::New {
+                type_name,
+                type_args,
+                init_fields,
+            } => {
                 let name = self.interner.resolve(*type_name);
-                match name {
+                let ty = match name {
                     "Seq" | "List" | "Vec" => {
                         let elem = type_args
                             .first()
-                            .map(|t| InferType::from_type_expr(t, self.interner))
+                            .map(|t| self.written_type(t))
                             .unwrap_or_else(|| self.table.fresh());
-                        Ok(InferType::Seq(Box::new(elem)))
+                        InferType::Seq(Box::new(elem))
                     }
                     "Map" | "HashMap" => {
                         let key = type_args
                             .first()
-                            .map(|t| InferType::from_type_expr(t, self.interner))
+                            .map(|t| self.written_type(t))
                             .unwrap_or(InferType::String);
                         let val = type_args
                             .get(1)
-                            .map(|t| InferType::from_type_expr(t, self.interner))
+                            .map(|t| self.written_type(t))
                             .unwrap_or(InferType::String);
-                        Ok(InferType::Map(Box::new(key), Box::new(val)))
+                        InferType::Map(Box::new(key), Box::new(val))
                     }
                     "Set" | "HashSet" => {
                         let elem = type_args
                             .first()
-                            .map(|t| InferType::from_type_expr(t, self.interner))
+                            .map(|t| self.written_type(t))
                             .unwrap_or_else(|| self.table.fresh());
-                        Ok(InferType::Set(Box::new(elem)))
+                        InferType::Set(Box::new(elem))
                     }
-                    _ => Ok(InferType::UserDefined(*type_name)),
+                    _ => {
+                        // A struct constructor's field initialisers were never checked: the arm
+                        // matched `..` and returned the nominal type, so `a new P with x "text"`
+                        // stored a Text in an Int field and `a new P with z 5` invented a field,
+                        // both silently. Each initialiser is checked against the declared field,
+                        // read at this construction's type arguments.
+                        let (_, args) = self.applied_args(*type_name, type_args);
+                        let struct_ty = InferType::UserDefined(self.canonical(*type_name), args);
+                        for (field, value) in init_fields {
+                            let value_ty = self.infer_expr(value)?;
+                            // `infer_field_access` raises `FieldNotFound` for a name the struct
+                            // does not declare, so an invented field is caught here too.
+                            let field_ty = self.infer_field_access(struct_ty.clone(), *field)?;
+                            self.table.unify(&value_ty, &field_ty)?;
+                        }
+                        struct_ty
+                    }
+                };
+                self.sites
+                    .constructed
+                    .insert(Site::of_expr(expr), ty.clone());
+                Ok(ty)
+            }
+
+            // A variant's payload is checked against its declared fields, read at this
+            // construction's type arguments — which the payload itself solves: `a new Just with
+            // value 42` is a `Maybe of Int`. A payload-free variant (`a new Nothing`) leaves them
+            // open for the context to settle.
+            Expr::NewVariant {
+                enum_name,
+                variant,
+                fields,
+            } => {
+                let (generics, args) = self.applied_args(*enum_name, &[]);
+                let declared: Vec<(Symbol, FieldType)> = match self.registry.get(*enum_name) {
+                    Some(TypeDef::Enum { variants, .. }) => variants
+                        .iter()
+                        .find(|v| v.name == *variant)
+                        .map(|v| v.fields.iter().map(|f| (f.name, f.ty.clone())).collect())
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+                for (field, value) in fields {
+                    match declared.iter().find(|(name, _)| name == field) {
+                        Some((_, fty)) => {
+                            let expected = self.field_type_at(fty, &generics, &args);
+                            self.check_widening(value, &expected)?;
+                        }
+                        None => {
+                            self.infer_expr(value)?;
+                        }
+                    }
                 }
+                let ty = InferType::UserDefined(self.canonical(*enum_name), args);
+                self.sites
+                    .constructed
+                    .insert(Site::of_expr(expr), ty.clone());
+                Ok(ty)
             }
 
-            Expr::NewVariant { enum_name, .. } => {
-                Ok(InferType::UserDefined(*enum_name))
+            Expr::CallExpr { callee, args } => self.infer_call_expr(callee, args),
+
+            Expr::Closure {
+                params,
+                body: closure_body,
+                return_type,
+            } => self.infer_closure(params, closure_body, return_type),
+
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                        self.infer_expr(value)?;
+                    }
+                }
+                Ok(InferType::String)
             }
 
-            Expr::CallExpr { callee, args } => {
-                self.infer_call_expr(callee, args)
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
+                self.infer_expr(start)?;
+                self.infer_expr(end)?;
+                self.infer_expr(collection)
             }
 
-            Expr::Closure { params, body: closure_body, return_type } => {
-                self.infer_closure(params, closure_body, return_type)
-            }
-
-            Expr::InterpolatedString(_) => Ok(InferType::String),
-
-            Expr::Slice { collection, .. } => self.infer_expr(collection),
-
-            Expr::Union { left, .. } | Expr::Intersection { left, .. } => {
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.infer_expr(right)?;
                 self.infer_expr(left)
             }
 
-            // Tuple, ManifestOf, ChunkAt, Escape → Unknown (not typed)
-            _ => Ok(InferType::Unknown),
+            // EVERY REMAINING EXPRESSION KIND, NAMED: none has a type this checker models, but
+            // each one's operands are still inferred — a generic call inside a tuple or a negation
+            // must be solved like any other.
+            Expr::Not { operand } => {
+                self.infer_expr(operand)?;
+                Ok(InferType::Unknown)
+            }
+            Expr::Tuple(items) => {
+                for item in items {
+                    self.infer_expr(item)?;
+                }
+                Ok(InferType::Unknown)
+            }
+            Expr::ManifestOf { zone } => {
+                self.infer_expr(zone)?;
+                Ok(InferType::Unknown)
+            }
+            Expr::ChunkAt { index, zone } => {
+                self.infer_expr(index)?;
+                self.infer_expr(zone)?;
+                Ok(InferType::Unknown)
+            }
+            Expr::Dom(query) => {
+                if let Some(selector) = query.selector() {
+                    self.infer_expr(selector)?;
+                }
+                Ok(InferType::Unknown)
+            }
+            Expr::Escape { .. } | Expr::View(_) => Ok(InferType::Unknown),
         }
     }
 
@@ -374,11 +715,16 @@ impl<'r> CheckEnv<'r> {
             | BinaryOpKind::Gt
             | BinaryOpKind::LtEq
             | BinaryOpKind::GtEq
-            | BinaryOpKind::ApproxEq => Ok(InferType::Bool),
+            | BinaryOpKind::ApproxEq => {
+                self.infer_expr(left)?;
+                self.infer_expr(right)?;
+                Ok(InferType::Bool)
+            }
 
             // And/Or: type-aware — integer operands → Int (bitwise), else → Bool (logical)
             BinaryOpKind::And | BinaryOpKind::Or => {
                 let lt = self.infer_expr(left)?;
+                self.infer_expr(right)?;
                 if lt == InferType::Int {
                     Ok(InferType::Int)
                 } else {
@@ -386,13 +732,27 @@ impl<'r> CheckEnv<'r> {
                 }
             }
 
-            BinaryOpKind::Concat => Ok(InferType::String),
+            BinaryOpKind::Concat => {
+                self.infer_expr(left)?;
+                self.infer_expr(right)?;
+                Ok(InferType::String)
+            }
 
             // `a followed by b` — result is a sequence of the same type as the operands.
-            BinaryOpKind::SeqConcat => self.infer_expr(left),
+            BinaryOpKind::SeqConcat => {
+                self.infer_expr(right)?;
+                self.infer_expr(left)
+            }
 
-            BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
-            | BinaryOpKind::Shl | BinaryOpKind::Shr => Ok(InferType::Int),
+            BinaryOpKind::BitXor
+            | BinaryOpKind::BitAnd
+            | BinaryOpKind::BitOr
+            | BinaryOpKind::Shl
+            | BinaryOpKind::Shr => {
+                self.infer_expr(left)?;
+                self.infer_expr(right)?;
+                Ok(InferType::Int)
+            }
 
             BinaryOpKind::Add => {
                 let lt = self.infer_expr(left)?;
@@ -435,32 +795,119 @@ impl<'r> CheckEnv<'r> {
     ///
     /// For generic functions, instantiates the `TypeScheme` with fresh type variables,
     /// then unifies the instantiated parameter types with the argument types. The
-    /// instantiated return type is then zonked and returned as the call result type.
-    fn infer_call(&mut self, function: Symbol, args: &[&Expr]) -> Result<InferType, TypeError> {
+    /// instantiated return type is then resolved and returned as the call result type.
+    fn infer_call(
+        &mut self,
+        function: Symbol,
+        args: &[&Expr],
+        site: Site,
+    ) -> Result<InferType, TypeError> {
         let name = self.interner.resolve(function);
         match name {
-            "sqrt" | "parseFloat" | "pow" => Ok(InferType::Float),
-            "parseInt" | "floor" | "ceil" | "round" => Ok(InferType::Int),
-            "abs" | "min" | "max" => {
-                if let Some(first) = args.first() {
-                    self.infer_expr(first)
-                } else {
-                    Ok(InferType::Unknown)
+            "pow"
+                if self
+                    .functions
+                    .get(&function)
+                    .map_or(true, |rec| rec.is_native) =>
+            {
+                let arg_types = args
+                    .iter()
+                    .map(|arg| self.infer_expr(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(match arg_types.as_slice() {
+                    [base, exponent] => {
+                        let base = self.table.resolve(base);
+                        let exponent = self.table.resolve(exponent);
+                        if base == InferType::Unknown || exponent == InferType::Unknown {
+                            InferType::Unknown
+                        } else {
+                            unify_numeric(&base, &exponent).unwrap_or(InferType::Unknown)
+                        }
+                    }
+                    _ => InferType::Unknown,
+                })
+            }
+            // `readReals(path)`: the file's numbers, a `Seq of Real`.
+            "readReals" => {
+                for arg in args {
+                    self.infer_expr(arg)?;
                 }
+                Ok(InferType::Seq(Box::new(InferType::Float)))
+            }
+            "sqrt" | "parseFloat" | "parseInt" | "floor" | "ceil" | "round" | "abs" | "min"
+            | "max" => {
+                // A built-in's arguments are expressions like any other: a generic call among them
+                // is solved here too.
+                let mut arg_types = Vec::with_capacity(args.len());
+                for arg in args {
+                    arg_types.push(self.infer_expr(arg)?);
+                }
+                Ok(match name {
+                    "sqrt" | "parseFloat" => InferType::Float,
+                    "parseInt" | "floor" | "ceil" | "round" => InferType::Int,
+                    _ => arg_types.into_iter().next().unwrap_or(InferType::Unknown),
+                })
+            }
+            // `{k: v, …}` is `mapOf(k, v, …)` in flat pairs and `{a, …}` is `setOf(a, …)`: a Map
+            // of the first pair's key and value types, a Set of the first element's type, each
+            // later pair or element joined to the first as a list literal's elements are.
+            "mapOf" | "setOf" if !args.is_empty() && !self.functions.contains_key(&function) => {
+                let mut arg_types = Vec::with_capacity(args.len());
+                for arg in args {
+                    arg_types.push(self.infer_expr(arg)?);
+                }
+                let stride = if name == "mapOf" { 2 } else { 1 };
+                for (at, ty) in arg_types.iter().enumerate().skip(stride) {
+                    self.table.unify(&arg_types[at % stride], ty).ok();
+                }
+                Ok(match name {
+                    "mapOf" if arg_types.len() >= 2 => InferType::Map(
+                        Box::new(arg_types[0].clone()),
+                        Box::new(arg_types[1].clone()),
+                    ),
+                    "mapOf" => InferType::Unknown,
+                    _ => InferType::Set(Box::new(arg_types[0].clone())),
+                })
             }
             _ => {
                 if let Some(rec) = self.functions.get(&function).cloned() {
                     // Instantiate the scheme: each call site gets fresh type variables
                     // for generic params so calls don't interfere with each other.
-                    let instantiated = self.table.instantiate(&rec.scheme);
+                    let (instantiated, type_args) =
+                        self.table.instantiate_with(&rec.scheme, &rec.declared);
+                    let generic = !type_args.is_empty();
+                    if generic {
+                        self.sites.calls.insert(
+                            site,
+                            CallInstance {
+                                type_args,
+                                precise: true,
+                            },
+                        );
+                    }
 
                     if let InferType::Function(param_types, ret_box) = instantiated {
-                        // Unify each argument type with the instantiated parameter type
-                        for (arg, param_ty) in args.iter().zip(param_types.iter()) {
-                            let arg_ty = self.infer_expr(arg)?;
-                            self.table.unify(&arg_ty, param_ty)?;
+                        // Arity is checked BEFORE unification, because `zip` stops at the shorter
+                        // side: a call with too few or too many arguments used to type-check
+                        // cleanly against the arguments it did have, so `ArityMismatch` was
+                        // unreachable from source and `add(1)` reached the runtime.
+                        if args.len() != param_types.len() {
+                            return Err(TypeError::ArityMismatch {
+                                expected: param_types.len(),
+                                found: args.len(),
+                            });
                         }
-                        Ok(self.table.zonk(&ret_box))
+                        // Unify each argument type with the instantiated parameter type
+                        let mut arg_types = Vec::with_capacity(args.len());
+                        for (arg, param_ty) in args.iter().zip(param_types.iter()) {
+                            arg_types.push(self.check_widening(arg, param_ty)?);
+                        }
+                        if generic {
+                            self.call_arg_types.insert(site, arg_types);
+                        }
+                        // RESOLVED, not zonked: a result still open (a generic call inside a
+                        // generic body) keeps its variable, so the enclosing call can solve it.
+                        Ok(self.table.resolve(&ret_box))
                     } else {
                         // Should not happen, but fall back gracefully
                         Ok(InferType::Unknown)
@@ -472,12 +919,37 @@ impl<'r> CheckEnv<'r> {
         }
     }
 
-    /// Infer a call-expression (calling a closure/function-value).
-    fn infer_call_expr(
+    /// Check `value` flowing into a slot of type `expected` — a call's parameter, a variant's
+    /// field.
+    ///
+    /// ★ AN INT VALUE WIDENS TO A `Real` SLOT — `scaleHalf(5)` into `(x: Real)`, the coercion
+    /// LOGOS performs everywhere and the one
+    /// `parity_stdlib_aot_rust::int_literal_to_real_param_coerces_on_aot_rust` specifies. The
+    /// unifier has no `(Int, Float)` arm, and deliberately should not: making them unify
+    /// SYMMETRICALLY would also accept a Real where an Int is wanted, which is a real mistake the
+    /// checker has to keep catching.
+    ///
+    /// So it is handled HERE, directionally, and keyed on EACH SLOT'S OWN TYPE rather than on the
+    /// call — `mix(1, 2)` into `(a: Int) and (b: Real)` must widen the second argument and leave
+    /// the first an i64, because coercing it would emit `(2) as f64` where an i64 is wanted.
+    fn check_widening(
         &mut self,
-        callee: &Expr,
-        args: &[&Expr],
+        value: &Expr,
+        expected: &InferType,
     ) -> Result<InferType, TypeError> {
+        let value_ty = self.infer_expr(value)?;
+        let widens = matches!(
+            self.table.resolve(&value_ty),
+            InferType::Int | InferType::Nat
+        ) && matches!(self.table.resolve(expected), InferType::Float);
+        if !widens {
+            self.table.unify(&value_ty, expected)?;
+        }
+        Ok(value_ty)
+    }
+
+    /// Infer a call-expression (calling a closure/function-value).
+    fn infer_call_expr(&mut self, callee: &Expr, args: &[&Expr]) -> Result<InferType, TypeError> {
         let callee_ty = self.infer_expr(callee)?;
         let ret_var = self.table.fresh();
         let arg_types: Vec<InferType> = args
@@ -486,7 +958,7 @@ impl<'r> CheckEnv<'r> {
             .collect::<Result<_, _>>()?;
         let fn_ty = InferType::Function(arg_types, Box::new(ret_var.clone()));
 
-        let walked = self.table.zonk(&callee_ty);
+        let walked = self.table.resolve(&callee_ty);
         match walked {
             InferType::Unknown => Ok(ret_var),
             InferType::Function(_, _) => {
@@ -510,11 +982,11 @@ impl<'r> CheckEnv<'r> {
     ) -> Result<InferType, TypeError> {
         let param_types: Vec<InferType> = params
             .iter()
-            .map(|(_, ty_expr)| InferType::from_type_expr(ty_expr, self.interner))
+            .map(|(_, ty_expr)| self.written_type(ty_expr))
             .collect();
 
         let ret_type = if let Some(rt) = return_type {
-            InferType::from_type_expr(rt, self.interner)
+            self.written_type(rt)
         } else {
             self.table.fresh()
         };
@@ -534,8 +1006,10 @@ impl<'r> CheckEnv<'r> {
                 self.table.unify(&body_ty, &ret_type).ok();
             }
             crate::ast::stmt::ClosureBody::Block(stmts) => {
+                // Expression inference speaks plain `TypeError`, so a finding inside a closure's
+                // block is named from the statement that holds the closure outward.
                 for stmt in *stmts {
-                    self.infer_stmt(stmt)?;
+                    self.infer_stmt(stmt).map_err(|traced| traced.error)?;
                 }
             }
         }
@@ -547,21 +1021,22 @@ impl<'r> CheckEnv<'r> {
     }
 
     /// Infer the type of a field access on a struct.
-    fn infer_field_access(
-        &self,
-        obj_ty: InferType,
-        field: Symbol,
-    ) -> Result<InferType, TypeError> {
-        let resolved = self.table.zonk(&obj_ty);
+    fn infer_field_access(&self, obj_ty: InferType, field: Symbol) -> Result<InferType, TypeError> {
+        let resolved = self.table.resolve(&obj_ty);
         match &resolved {
-            InferType::UserDefined(type_sym) => {
-                if let Some(TypeDef::Struct { fields, .. }) = self.registry.get(*type_sym) {
+            InferType::UserDefined(type_sym, args) => {
+                if let Some(TypeDef::Struct {
+                    fields, generics, ..
+                }) = self.registry.get(*type_sym)
+                {
                     if let Some(field_def) = fields.iter().find(|f| f.name == field) {
-                        Ok(InferType::from_field_type(
-                            &field_def.ty,
-                            self.interner,
-                            &HashMap::new(),
-                        ))
+                        // A bare reference to a generic record reads its parameters as unknown.
+                        let args: Vec<InferType> = if args.len() == generics.len() {
+                            args.clone()
+                        } else {
+                            generics.iter().map(|_| InferType::Unknown).collect()
+                        };
+                        Ok(self.field_type_at(&field_def.ty, generics, &args))
                     } else {
                         Err(TypeError::FieldNotFound {
                             type_name: *type_sym,
@@ -583,12 +1058,37 @@ impl<'r> CheckEnv<'r> {
 // Statement inference
 // ============================================================================
 
+/// A type error on its way out of the statements it was found in, naming each
+/// one as it passes, innermost first. The trail lives in the error itself, so
+/// an error some caller recovers from takes its trail with it.
+#[derive(Debug)]
+struct Traced {
+    error: TypeError,
+    trail: Vec<StmtId>,
+}
+
+impl From<TypeError> for Traced {
+    fn from(error: TypeError) -> Self {
+        Traced {
+            error,
+            trail: Vec::new(),
+        }
+    }
+}
+
 impl<'r> CheckEnv<'r> {
-    fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(), TypeError> {
+    fn infer_stmt(&mut self, stmt: &Stmt) -> Result<(), Traced> {
+        self.infer_stmt_kind(stmt).map_err(|mut traced| {
+            traced.trail.push(StmtId::of(stmt));
+            traced
+        })
+    }
+
+    fn infer_stmt_kind(&mut self, stmt: &Stmt) -> Result<(), Traced> {
         match stmt {
             Stmt::Let { var, ty, value, .. } => {
                 let final_ty = if let Some(type_expr) = ty {
-                    let annotated = InferType::from_type_expr(type_expr, self.interner);
+                    let annotated = self.written_type(type_expr);
                     if annotated != InferType::Unknown {
                         // Checking mode: value must be compatible with annotation
                         self.check_expr(value, &annotated)?
@@ -602,6 +1102,13 @@ impl<'r> CheckEnv<'r> {
                 Ok(())
             }
 
+            // What a lent place holds while the call holds its value keeps the place's type.
+            Stmt::Set { value, .. } | Stmt::SetIndex { value, .. } | Stmt::SetField { value, .. }
+                if crate::optimize::facts::holds_expr(crate::optimize::facts::Fact::Vacated, value) =>
+            {
+                Ok(())
+            }
+
             Stmt::Set { target, value } => {
                 let inferred = self.infer_expr(value)?;
                 // If target already has a type, unify. Otherwise just bind.
@@ -611,7 +1118,7 @@ impl<'r> CheckEnv<'r> {
                     }
                 }
                 // Update binding
-                let resolved = self.table.zonk(&inferred);
+                let resolved = self.table.resolve(&inferred);
                 if resolved != InferType::Unknown {
                     self.bind_var(*target, resolved);
                 }
@@ -643,16 +1150,16 @@ impl<'r> CheckEnv<'r> {
                     }
                 };
 
+                let in_scope: HashMap<Symbol, InferType> =
+                    type_param_map.iter().map(|(s, tv)| (*s, InferType::Var(*tv))).collect();
                 let param_types: Vec<InferType> = params
                     .iter()
-                    .map(|(_, ty_expr)| {
-                        InferType::from_type_expr_with_params(ty_expr, self.interner, &type_param_map)
-                    })
+                    .map(|(_, ty_expr)| self.written_type_with(ty_expr, &in_scope))
                     .collect();
                 let param_names: Vec<Symbol> = params.iter().map(|(sym, _)| *sym).collect();
 
                 let ret_type = if let Some(rt) = return_type {
-                    InferType::from_type_expr_with_params(rt, self.interner, &type_param_map)
+                    self.written_type_with(rt, &in_scope)
                 } else if let Some(rec) = self.functions.get(name) {
                     // Recover pre-registered return type from the scheme body
                     if let InferType::Function(_, ret_box) = &rec.scheme.body {
@@ -668,32 +1175,40 @@ impl<'r> CheckEnv<'r> {
                     .iter()
                     .filter_map(|sym| type_param_map.get(sym).copied())
                     .collect();
+                if !generic_vars.is_empty() {
+                    self.sites.type_params.insert(
+                        *name,
+                        generics.iter().map(|g| (*g, InferType::Var(type_param_map[g]))).collect(),
+                    );
+                }
 
                 // Native functions: register scheme, no body to check
                 if *is_native {
+                    let declared = generic_vars.iter().map(|tv| InferType::Var(*tv)).collect();
                     let scheme = TypeScheme {
                         vars: generic_vars,
                         body: InferType::Function(param_types, Box::new(ret_type)),
                     };
-                    self.functions.insert(*name, FunctionRecord { param_names, scheme });
+                    self.functions.insert(*name, FunctionRecord { param_names, scheme, declared, is_native: *is_native });
                     return Ok(());
                 }
 
                 // Save previous return context
                 let prev_return_type = self.current_return_type.take();
                 self.current_return_type = Some(ret_type.clone());
+                let prev_type_params = std::mem::replace(&mut self.type_params_in_scope, in_scope);
 
                 // Check body in a new scope with params bound
                 self.push_scope();
                 for (sym, ty) in param_names.iter().zip(param_types.iter()) {
                     self.bind_var(*sym, ty.clone());
                 }
-                for s in *body {
-                    self.infer_stmt(s)?;
-                }
+                let checked = body.iter().try_for_each(|s| self.infer_stmt(s));
                 self.pop_scope();
 
+                self.type_params_in_scope = prev_type_params;
                 self.current_return_type = prev_return_type;
+                checked?;
 
                 // After checking the body, update the registered scheme with resolved types.
                 // Use `resolve` (not `zonk`) so generic TyVars remain as `Var(tv)` in
@@ -725,6 +1240,11 @@ impl<'r> CheckEnv<'r> {
                             collect_type_vars(k, acc);
                             collect_type_vars(v, acc);
                         }
+                        InferType::UserDefined(_, args) => {
+                            for a in args {
+                                collect_type_vars(a, acc);
+                            }
+                        }
                         InferType::Function(ps, r) => {
                             for p in ps {
                                 collect_type_vars(p, acc);
@@ -734,7 +1254,16 @@ impl<'r> CheckEnv<'r> {
                         _ => {}
                     }
                 }
-                let mut scheme_vars = generic_vars;
+                // Generalize over the ROOTS the declared parameters resolved to: checking the body
+                // may have bound a parameter's own variable to another (a recursive call unifies
+                // it with that call's fresh variable), and a scheme quantifying the stale variable
+                // would leave its body un-freshened at every later call.
+                let declared: Vec<InferType> =
+                    generic_vars.iter().map(|tv| self.table.resolve(&InferType::Var(*tv))).collect();
+                let mut scheme_vars = Vec::new();
+                for d in &declared {
+                    collect_type_vars(d, &mut scheme_vars);
+                }
                 for p in &resolved_params {
                     collect_type_vars(p, &mut scheme_vars);
                 }
@@ -743,7 +1272,7 @@ impl<'r> CheckEnv<'r> {
                     vars: scheme_vars,
                     body: InferType::Function(resolved_params, Box::new(resolved_ret)),
                 };
-                self.functions.insert(*name, FunctionRecord { param_names, scheme });
+                self.functions.insert(*name, FunctionRecord { param_names, scheme, declared, is_native: *is_native });
                 Ok(())
             }
 
@@ -763,7 +1292,7 @@ impl<'r> CheckEnv<'r> {
 
             Stmt::Repeat { pattern, iterable, body } => {
                 let iterable_ty = self.infer_expr(iterable)?;
-                let elem_ty = match self.table.zonk(&iterable_ty) {
+                let elem_ty = match self.table.resolve(&iterable_ty) {
                     InferType::Seq(inner) | InferType::Set(inner) => *inner,
                     // A Map yields (key, value) tuples per entry at runtime
                     // (semantics/collections.rs `iteration_snapshot`), NOT bare
@@ -807,10 +1336,11 @@ impl<'r> CheckEnv<'r> {
             }
 
             Stmt::Inspect { target, arms, .. } => {
-                let _target_ty = self.infer_expr(target)?;
+                let target_ty = self.infer_expr(target)?;
+                self.sites.scrutinees.insert(Site::of_stmt(stmt), target_ty.clone());
                 for arm in arms {
                     self.push_scope();
-                    self.infer_inspect_arm(arm)?;
+                    self.infer_inspect_arm(arm, &target_ty)?;
                     self.pop_scope();
                 }
                 Ok(())
@@ -850,7 +1380,7 @@ impl<'r> CheckEnv<'r> {
 
             Stmt::Pop { into: Some(var), collection } => {
                 let coll_ty = self.infer_expr(collection)?;
-                let elem_ty = match self.table.zonk(&coll_ty) {
+                let elem_ty = match self.table.resolve(&coll_ty) {
                     InferType::Seq(inner) | InferType::Set(inner) => *inner,
                     _ => InferType::Unknown,
                 };
@@ -897,44 +1427,205 @@ impl<'r> CheckEnv<'r> {
                 Ok(())
             }
 
-            _ => Ok(()),
+            // `Show x.` — the printed expression was never inferred, so ANY type error inside a
+            // `Show` was invisible to the checker. That single gap accounted for most of the
+            // ill-typed programs `largo check` used to accept: `Show totl.` (undefined),
+            // `Show add(1).` (wrong arity), `Show double("abc").` (wrong argument type) all sat
+            // inside a statement the checker skipped entirely.
+            Stmt::Show { object, recipient } => {
+                self.infer_expr(object)?;
+                self.infer_expr(recipient)?;
+                Ok(())
+            }
+
+            // A call used as a statement rather than a value: `add(1).` must still check its
+            // arguments and arity.
+            Stmt::Call { function, args } => {
+                let arg_refs: Vec<&Expr> = args.iter().copied().collect();
+                self.infer_call(*function, &arg_refs, Site::of_stmt(stmt))?;
+                Ok(())
+            }
+
+            // `Push v to xs.` — the element type must match what the collection holds.
+            Stmt::Push { value, collection } => {
+                let value_ty = self.infer_expr(value)?;
+                let coll_ty = self.infer_expr(collection)?;
+                if let InferType::Seq(elem) = self.table.resolve(&coll_ty) {
+                    self.table.unify(&value_ty, &elem)?;
+                }
+                Ok(())
+            }
+
+
+            // `Set p's x to v.` — the value must match the declared field type. Without this arm a
+            // Text could be stored in an `Int` field and no tier ever complained.
+            Stmt::SetField { object, field, value } => {
+                let obj_ty = self.infer_expr(object)?;
+                let value_ty = self.infer_expr(value)?;
+                // `infer_field_access` also raises `FieldNotFound`, so assigning to a field the
+                // struct does not have is caught here too, not just a type mismatch on one it has.
+                let field_ty = self.infer_field_access(obj_ty, *field)?;
+                self.table.unify(&value_ty, &field_ty)?;
+                Ok(())
+            }
+
+            // `Set item k of m to v.` — both the key and the value must match the collection.
+            Stmt::SetIndex { collection, index, value } => {
+                let coll_ty = self.infer_expr(collection)?;
+                let index_ty = self.infer_expr(index)?;
+                let value_ty = self.infer_expr(value)?;
+                match self.table.resolve(&coll_ty) {
+                    InferType::Map(key_ty, val_ty) => {
+                        self.table.unify(&index_ty, &key_ty)?;
+                        self.table.unify(&value_ty, &val_ty)?;
+                    }
+                    InferType::Seq(elem) => {
+                        self.table.unify(&value_ty, &elem)?;
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
+
+            // `Swap a and b.` — swapping two names requires them to hold the same type.
+            Stmt::Swap { a, b } => {
+                if let (Some(ta), Some(tb)) = (self.lookup_var(*a), self.lookup_var(*b)) {
+                    self.table.unify(&ta, &tb)?;
+                }
+                Ok(())
+            }
+
+            // `Pop from xs.` with no destination. The existing `Pop` arm only matched the form
+            // that binds a name, so this one fell through the old wildcard — a gap the
+            // exhaustiveness check surfaced the moment it was removed. Nothing is bound, but the
+            // collection is still an expression worth inferring.
+            Stmt::Pop { collection, into: None, .. } => {
+                self.infer_expr(collection)?;
+                Ok(())
+            }
+
+            // EVERY REMAINING STATEMENT KIND, NAMED EXPLICITLY AND DELIBERATELY UNCHECKED.
+            //
+            // This match has NO WILDCARD, and that is the point. It used to end in `_ => Ok(())`,
+            // which meant `Show`, `Push` and a statement-level call were silently skipped by the
+            // type checker — the single biggest reason `largo check` accepted broken programs. A
+            // wildcard cannot tell "this statement needs no checking" apart from "nobody has got
+            // to this one yet", so it hid 62 statement kinds behind an answer that looked settled.
+            //
+            // Listing them by name costs one line per new variant and buys the property that
+            // matters: a statement kind added to the language CANNOT silently skip type checking,
+            // because this file stops compiling until someone classifies it. That is the same
+            // discipline the op catalogs use, applied to the checker.
+            //
+            // These are not claimed to be type-safe — they are claimed to be UNCHECKED, on the
+            // record. Most carry expressions that should eventually be inferred (the `Assert`
+            // family, the CRDT operations, the IO and channel statements); the logic-mode
+            // declarations (`Axiom`, `Theorem`, `Theory`, `ForAll`, `Definition`) genuinely have
+            // nothing for this checker to constrain. Moving one out of this group is a Wave 2
+            // task, and the ill-typed corpus in `type_checker_rejects_lock` says which ones pay.
+
+            Stmt::Add { .. } | Stmt::AdvanceTime { .. } | Stmt::AppendToSequence { .. } |
+            Stmt::Assert { .. } | Stmt::AwaitTask { .. } | Stmt::Axiom(..) | Stmt::Break |
+            Stmt::Check { .. } | Stmt::CloseChannel { .. } | Stmt::ComponentDef(..) |
+            Stmt::ConnectTo { .. } | Stmt::DecreaseCrdt { .. } | Stmt::Definition(..) |
+            Stmt::DirectiveDef { .. } | Stmt::During { .. } | Stmt::Escape { .. } | Stmt::Expect { .. } |
+            Stmt::ExpectFail { .. } | Stmt::ExpectOutput { .. } | Stmt::Fetch { .. } | Stmt::ForAll { .. } |
+            Stmt::Give { .. } | Stmt::GivenFetch { .. } | Stmt::GivenFile { .. } |
+            Stmt::IncreaseCrdt { .. } | Stmt::JoinCrdt { .. } | Stmt::LaunchTask { .. } |
+            Stmt::LetPeerAgent { .. } | Stmt::Listen { .. } | Stmt::MergeCrdt { .. } |
+            Stmt::MiddlewareDef { .. } | Stmt::Mount { .. } | Stmt::Observe { .. } |
+            Stmt::RedirectDef { .. } | Stmt::Remove { .. } | Stmt::Replay { .. } | Stmt::Require { .. } |
+            Stmt::ResolveConflict { .. } | Stmt::Reversibly { .. } | Stmt::RouteDef { .. } |
+            Stmt::RuntimeAssert { .. } | Stmt::Fail { .. } | Stmt::SendMessage { .. } | Stmt::SendPipe { .. } |
+            Stmt::Serve { .. } | Stmt::ServeFetches | Stmt::Sleep { .. } | Stmt::Spawn { .. } |
+            Stmt::Splice { .. } | Stmt::StopTask { .. } | Stmt::StreamMessage { .. } |
+            Stmt::StructDef { .. } | Stmt::Sync { .. } | Stmt::TestDef { .. } | Stmt::Theorem(..) |
+            Stmt::Theory(..) | Stmt::Trust { .. } | Stmt::TrySendPipe { .. } | Stmt::Ui(..) |
+            Stmt::WriteFile { .. } |
+            // An opaque failure-site marker: an id, no type to check or infer.
+            Stmt::Site(_) => Ok(()),
         }
     }
 
-    /// Process a single Inspect match arm, binding variant field types.
+    /// Process a single Inspect match arm, binding variant field types — read at the inspected
+    /// value's own type arguments when it has them (`When Just (v)` on a `Maybe of Int` binds an
+    /// `Int`, and `When Some (v)` on an `Option of Text` a `Text`). A type parameter the value
+    /// does not pin stays unknown.
     fn infer_inspect_arm(
         &mut self,
         arm: &crate::ast::stmt::MatchArm,
-    ) -> Result<(), TypeError> {
-        if let Some(variant_sym) = arm.variant {
-            if let Some((_, variant_def)) = self.registry.find_variant(variant_sym) {
-                // Clone what we need to avoid borrow issues
-                let fields: Vec<_> = variant_def
-                    .fields
+        target_ty: &InferType,
+    ) -> Result<(), Traced> {
+        let target = self.table.resolve(target_ty);
+        let bound: Option<Vec<(Symbol, InferType)>> = arm.variant.map(|variant_sym| {
+            if let InferType::Option(inner) = &target {
+                // `Some (v)`: the one payload is the Option's element.
+                return arm
+                    .bindings
                     .iter()
-                    .map(|f| (f.name, f.ty.clone()))
+                    .map(|(_, b)| (*b, (**inner).clone()))
                     .collect();
-
-                for (field_sym, binding_sym) in &arm.bindings {
-                    let ty = fields
+            }
+            let applied = match &target {
+                InferType::UserDefined(enum_sym, args) => match self.registry.get(*enum_sym) {
+                    Some(TypeDef::Enum {
+                        variants, generics, ..
+                    }) => variants
                         .iter()
-                        .find(|(name, _)| *name == *field_sym)
-                        .map(|(_, ty)| {
-                            InferType::from_field_type(ty, self.interner, &HashMap::new())
-                        })
-                        .unwrap_or(InferType::Unknown);
-                    self.bind_var(*binding_sym, ty);
-                }
+                        .find(|v| v.name == variant_sym)
+                        .map(|v| (v.clone(), generics.clone(), args.clone())),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let (variant_def, generics, args) = match applied {
+                Some(found) => found,
+                None => match self.registry.find_variant(variant_sym) {
+                    Some((enum_sym, v)) => {
+                        let generics = match self.registry.get(enum_sym) {
+                            Some(TypeDef::Enum { generics, .. }) => generics.clone(),
+                            _ => Vec::new(),
+                        };
+                        (v.clone(), generics, Vec::new())
+                    }
+                    None => {
+                        return arm
+                            .bindings
+                            .iter()
+                            .map(|(_, b)| (*b, InferType::Unknown))
+                            .collect();
+                    }
+                },
+            };
+            let args: Vec<InferType> = if args.len() == generics.len() {
+                args
             } else {
-                // Unknown variant → bind all as Unknown
+                generics.iter().map(|_| InferType::Unknown).collect()
+            };
+            arm.bindings
+                .iter()
+                .map(|(field_sym, binding_sym)| {
+                    let ty = variant_def
+                        .fields
+                        .iter()
+                        .find(|f| f.name == *field_sym)
+                        .map(|f| self.field_type_at(&f.ty, &generics, &args))
+                        .unwrap_or(InferType::Unknown);
+                    (*binding_sym, ty)
+                })
+                .collect()
+        });
+        match bound {
+            Some(bindings) => {
+                for (binding_sym, ty) in bindings {
+                    self.bind_var(binding_sym, ty);
+                }
+            }
+            // Otherwise arm: wildcard bindings
+            None => {
                 for (_, binding_sym) in &arm.bindings {
                     self.bind_var(*binding_sym, InferType::Unknown);
                 }
-            }
-        } else {
-            // Otherwise arm: wildcard bindings
-            for (_, binding_sym) in &arm.bindings {
-                self.bind_var(*binding_sym, InferType::Unknown);
             }
         }
 
@@ -949,17 +1640,16 @@ impl<'r> CheckEnv<'r> {
 // Entry point
 // ============================================================================
 
-/// Check a LOGOS program and return a typed `TypeEnv` for codegen.
-///
-/// Replaces `TypeEnv::infer_program`. Returns `Err(TypeError)` only on
 /// One typechecker finding with the top-level statement it belongs to.
 ///
 /// `stmt_index` maps 1:1 onto `Parser::stmt_spans()`, giving IDE diagnostics
-/// a real source span. `None` marks whole-program findings (dimension
-/// coherence) that no single statement owns.
+/// a real source span; `trail` names the statements the finding propagated
+/// out through, innermost first, so a finding inside a function body or a loop
+/// resolves through `Parser::nested_stmt_spans()` to the statement at fault.
 #[derive(Debug)]
 pub struct IndexedTypeError {
     pub stmt_index: Option<usize>,
+    pub trail: Vec<StmtId>,
     pub error: TypeError,
 }
 
@@ -968,7 +1658,7 @@ pub struct IndexedTypeError {
 /// The environment after a failed statement is best-effort: inference simply
 /// continues with whatever bindings succeeded, so one bad `Let` does not
 /// cascade into errors on unrelated later statements. The strict fail-fast
-/// contract lives in [`check_program`]; compile paths keep using that.
+/// contract lives in [`check_program_located`], which every compile path uses.
 pub fn check_program_collect(
     stmts: &[Stmt],
     interner: &Interner,
@@ -979,8 +1669,10 @@ pub fn check_program_collect(
     if let Err(e) =
         crate::analysis::dimension_check::DimensionChecker::new(interner).check_program(stmts)
     {
+        let owner = e.trail.last().copied();
         errors.push(IndexedTypeError {
-            stmt_index: None,
+            stmt_index: stmts.iter().position(|s| Some(StmtId::of(s)) == owner),
+            trail: e.trail,
             error: TypeError::DimensionMismatch { message: e.message },
         });
     }
@@ -989,9 +1681,10 @@ pub fn check_program_collect(
     env.preregister_functions(stmts);
 
     for (index, stmt) in stmts.iter().enumerate() {
-        if let Err(error) = env.infer_stmt(stmt) {
+        if let Err(Traced { error, trail }) = env.infer_stmt(stmt) {
             errors.push(IndexedTypeError {
                 stmt_index: Some(index),
+                trail,
                 error,
             });
         }
@@ -1000,6 +1693,25 @@ pub fn check_program_collect(
     (env.into_type_env(), errors)
 }
 
+/// Check `stmts` as far as each statement goes — a failing statement does not stop the rest — and
+/// answer what every generic site was solved at. The input to monomorphization; a backend with
+/// no generics of its own reads which instance each call and construction needs from here.
+pub fn infer_instantiations(
+    stmts: &[Stmt],
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> Instantiations {
+    let mut env = CheckEnv::new(registry, interner);
+    env.preregister_functions(stmts);
+    for stmt in stmts {
+        let _ = env.infer_stmt(stmt);
+    }
+    env.into_instantiations()
+}
+
+/// Check a LOGOS program and return a typed `TypeEnv` for codegen.
+///
+/// Replaces `TypeEnv::infer_program`. Returns `Err(TypeError)` only on
 /// genuine type contradictions (e.g., `Let x: Int be "hello"`).
 /// Ambiguous types fall back to `LogosType::Unknown` silently.
 pub fn check_program(
@@ -1007,23 +1719,221 @@ pub fn check_program(
     interner: &Interner,
     registry: &TypeRegistry,
 ) -> Result<TypeEnv, TypeError> {
+    check_program_located(stmts, interner, registry).map_err(|e| e.error)
+}
+
+/// A type error and the top-level function it was found in — `None` for a `## Main` statement. A
+/// checked program has no source spans left (lowering writes functions of its own), so the function
+/// is the location a report can give.
+#[derive(Debug, Clone)]
+pub struct LocatedTypeError {
+    pub error: TypeError,
+    pub within: Option<Symbol>,
+}
+
+impl LocatedTypeError {
+    /// The user-facing error, naming where a mismatch was found: the function its author wrote, or
+    /// the construct (`## Route GET /agent`, a component's action) a compiler-written function was
+    /// lowered from, found among the declarations in `program`. A synthesized name is never shown.
+    pub fn to_parse_error_kind(
+        &self,
+        interner: &Interner,
+        program: &[Stmt],
+    ) -> crate::error::ParseErrorKind {
+        let mut kind = self.error.to_parse_error_kind(interner);
+        if let (crate::error::ParseErrorKind::TypeMismatchDetailed { context, .. }, Some(f)) =
+            (&mut kind, self.within)
+        {
+            if context.is_empty() {
+                let name = interner.resolve(f);
+                let place = if logicaffeine_language::parser::lgx_lower::is_compiler_written(name) {
+                    logicaffeine_language::parser::lgx_lower::authored_construct(
+                        name, program, interner,
+                    )
+                } else {
+                    Some(format!("`{name}`"))
+                };
+                if let Some(place) = place {
+                    *context = format!("in {place}");
+                }
+            }
+        }
+        kind
+    }
+}
+
+/// The first type the program names that nothing supplies, with where it is named: the index of the
+/// top-level statement that names it, or `None` for a field of a declared record or variant (a
+/// declaration is not a statement). A name is supplied by the registry (a record, enum or alias the
+/// program declares or imports, a builtin, an intrinsic generic), by the language itself
+/// (`codegen::types::is_language_type_name`, and the dimension words `Quantity of <Dimension>`
+/// takes, `Dimension::by_name`), or as a type parameter the declaration itself introduces. Run on
+/// the program the parser returned, whose top-level statements align with its statement spans, so a
+/// statement's refusal is located. A written type counts wherever it stands: a construction, a
+/// collection's element type, an annotation, a typed fetch, a function's parameters and return
+/// type, a record's or variant's field types.
+pub fn first_undeclared_type(
+    stmts: &[Stmt],
+    registry: &TypeRegistry,
+    interner: &Interner,
+) -> Option<(Option<usize>, Symbol)> {
+    use crate::analysis::callgraph::{collect_type_refs_from_stmts, type_names_in_type_expr};
+    use std::collections::HashSet;
+    let supplied = |sym: Symbol, own_params: &HashSet<Symbol>| {
+        let name = interner.resolve(sym);
+        own_params.contains(&sym)
+            || registry.get(sym).is_some()
+            || crate::codegen::types::is_language_type_name(name)
+            || logicaffeine_base::dimension::Dimension::by_name(name).is_some()
+    };
+    let first_of = |named: HashSet<Symbol>, own_params: &HashSet<Symbol>| {
+        let mut undeclared: Vec<Symbol> = named
+            .into_iter()
+            .filter(|sym| !supplied(*sym, own_params))
+            .collect();
+        undeclared.sort_by(|a, b| interner.resolve(*a).cmp(interner.resolve(*b)));
+        undeclared.first().copied()
+    };
+    for (index, stmt) in stmts.iter().enumerate() {
+        let mut named: HashSet<Symbol> = HashSet::new();
+        let mut own_params: HashSet<Symbol> = HashSet::new();
+        match stmt {
+            Stmt::FunctionDef {
+                generics,
+                params,
+                return_type,
+                body,
+                ..
+            } => {
+                own_params.extend(generics.iter().copied());
+                for (_, ty) in params {
+                    type_names_in_type_expr(ty, &mut named);
+                }
+                if let Some(ty) = return_type {
+                    type_names_in_type_expr(ty, &mut named);
+                }
+                collect_type_refs_from_stmts(body, &mut named);
+            }
+            other => collect_type_refs_from_stmts(std::slice::from_ref(other), &mut named),
+        }
+        if let Some(first) = first_of(named, &own_params) {
+            return Some((Some(index), first));
+        }
+    }
+    let mut declared: Vec<(Symbol, &TypeDef)> = registry
+        .iter_types()
+        .map(|(sym, def)| (*sym, def))
+        .collect();
+    declared.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
+    for (_, def) in declared {
+        let (fields, generics): (Vec<&FieldType>, &Vec<Symbol>) = match def {
+            TypeDef::Struct {
+                fields, generics, ..
+            } => (fields.iter().map(|f| &f.ty).collect(), generics),
+            TypeDef::Enum {
+                variants, generics, ..
+            } => (
+                variants
+                    .iter()
+                    .flat_map(|v| v.fields.iter().map(|f| &f.ty))
+                    .collect(),
+                generics,
+            ),
+            _ => continue,
+        };
+        let mut named: HashSet<Symbol> = HashSet::new();
+        for ty in fields {
+            written_type_names(ty, &mut named);
+        }
+        let own_params: HashSet<Symbol> = generics.iter().copied().collect();
+        if let Some(first) = first_of(named, &own_params) {
+            return Some((None, first));
+        }
+    }
+    None
+}
+
+/// The type names a declared field's type WRITES: every named type and generic head, never a
+/// `Primitive` — those are the language's own scalars, or discovery's marker for a field whose type it
+/// could not read, which names nothing the program wrote.
+fn written_type_names(ty: &FieldType, names: &mut std::collections::HashSet<Symbol>) {
+    match ty {
+        FieldType::Named(sym) => {
+            names.insert(*sym);
+        }
+        FieldType::Generic { base, params } => {
+            names.insert(*base);
+            for p in params {
+                written_type_names(p, names);
+            }
+        }
+        FieldType::Tuple(items) => {
+            for t in items {
+                written_type_names(t, names);
+            }
+        }
+        FieldType::Record(fields) => {
+            for (_, t) in fields {
+                written_type_names(t, names);
+            }
+        }
+        FieldType::Primitive(_) | FieldType::TypeParam(_) => {}
+    }
+}
+
+/// [`check_program`], reporting which top-level function a failure is in.
+pub fn check_program_located(
+    stmts: &[Stmt],
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> Result<TypeEnv, LocatedTypeError> {
     // Dimension coherence is a type property: reject `2 meters + 1 gram` here, statically, before
     // any code is generated (a length and a mass have no common dimension).
     crate::analysis::dimension_check::DimensionChecker::new(interner)
         .check_program(stmts)
-        .map_err(|e| TypeError::DimensionMismatch { message: e.message })?;
+        .map_err(|e| LocatedTypeError {
+            error: TypeError::DimensionMismatch { message: e.message },
+            within: None,
+        })?;
 
+    Ok(checked(stmts, interner, registry)?.into_type_env())
+}
+
+/// The type of every binding the program's ROOT declares, as the checker settled it once the whole
+/// program was read. Exact where [`TypeEnv`] is not: its variables are one flat map, so a function's
+/// own `x` and the program's `x` share an entry there.
+pub fn root_binding_types(
+    stmts: &[Stmt],
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> Result<HashMap<Symbol, InferType>, LocatedTypeError> {
+    let env = checked(stmts, interner, registry)?;
+    let root = env.scopes.first().cloned().unwrap_or_default();
+    Ok(root
+        .into_iter()
+        .map(|(name, ty)| (name, env.table.zonk(&ty)))
+        .collect())
+}
+
+/// The environment after checking every top-level statement: function signatures registered first,
+/// for forward references, then each statement in order.
+fn checked<'r>(
+    stmts: &[Stmt],
+    interner: &'r Interner,
+    registry: &'r TypeRegistry,
+) -> Result<CheckEnv<'r>, LocatedTypeError> {
     let mut env = CheckEnv::new(registry, interner);
-
-    // Pre-pass: register top-level function signatures for forward references
     env.preregister_functions(stmts);
-
-    // Main pass: check all top-level statements
     for stmt in stmts {
-        env.infer_stmt(stmt)?;
+        if let Err(Traced { error, .. }) = env.infer_stmt(stmt) {
+            let within = match stmt {
+                Stmt::FunctionDef { name, .. } => Some(*name),
+                _ => None,
+            };
+            return Err(LocatedTypeError { error, within });
+        }
     }
-
-    Ok(env.into_type_env())
+    Ok(env)
 }
 
 // ============================================================================
@@ -1031,734 +1941,5 @@ pub fn check_program(
 // ============================================================================
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::stmt::{Expr, Literal, Stmt, TypeExpr};
-    use crate::intern::Interner;
-
-    // =========================================================================
-    // Helpers
-    // =========================================================================
-
-    fn mk_interner() -> Interner {
-        Interner::new()
-    }
-
-    fn run(stmts: &[Stmt], interner: &Interner) -> TypeEnv {
-        check_program(stmts, interner, &TypeRegistry::new()).expect("check_program failed")
-    }
-
-    // =========================================================================
-    // Let literal inference
-    // =========================================================================
-
-    #[test]
-    fn let_literal_int() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let val = Expr::Literal(Literal::Number(42));
-        let stmts = [Stmt::Let { var: x, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(x), &LogosType::Int);
-    }
-
-    #[test]
-    fn let_literal_float() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let val = Expr::Literal(Literal::Float(3.14));
-        let stmts = [Stmt::Let { var: x, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(x), &LogosType::Float);
-    }
-
-    #[test]
-    fn let_literal_string() {
-        let mut interner = mk_interner();
-        let s = interner.intern("s");
-        let hello = interner.intern("hello");
-        let val = Expr::Literal(Literal::Text(hello));
-        let stmts = [Stmt::Let { var: s, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(s), &LogosType::String);
-    }
-
-    // =========================================================================
-    // Let with type annotation
-    // =========================================================================
-
-    #[test]
-    fn let_with_annotation_uses_annotation() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let float_sym = interner.intern("Real");
-        let val = Expr::Literal(Literal::Number(5)); // Int value
-        let ty_ann = TypeExpr::Primitive(float_sym);
-        let stmts = [Stmt::Let { var: x, ty: Some(&ty_ann), value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        // Annotation wins: Int unifies with Float (numeric)
-        assert_eq!(env.lookup(x), &LogosType::Float);
-    }
-
-    #[test]
-    fn let_type_mismatch_fails() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let int_sym = interner.intern("Int");
-        let val = Expr::Literal(Literal::Text(Symbol::EMPTY));
-        let ty_ann = TypeExpr::Primitive(int_sym);
-        let stmts = [Stmt::Let { var: x, ty: Some(&ty_ann), value: &val, mutable: false }];
-        let result = check_program(&stmts, &interner, &TypeRegistry::new());
-        assert!(result.is_err(), "Int and Text should not unify");
-    }
-
-    // =========================================================================
-    // Empty list → Seq(Unknown)
-    // =========================================================================
-
-    #[test]
-    fn empty_list_is_seq_unknown() {
-        let mut interner = mk_interner();
-        let xs = interner.intern("xs");
-        let val = Expr::List(vec![]);
-        let stmts = [Stmt::Let { var: xs, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        // Should be Seq of something (Unknown because element type is unsolved)
-        assert!(matches!(env.lookup(xs), LogosType::Seq(_)));
-    }
-
-    #[test]
-    fn non_empty_list_infers_element_type() {
-        let mut interner = mk_interner();
-        let xs = interner.intern("xs");
-        let one = Expr::Literal(Literal::Number(1));
-        let two = Expr::Literal(Literal::Number(2));
-        let val = Expr::List(vec![&one, &two]);
-        let stmts = [Stmt::Let { var: xs, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(xs), &LogosType::Seq(Box::new(LogosType::Int)));
-    }
-
-    // =========================================================================
-    // OptionNone → Option(Unknown)
-    // =========================================================================
-
-    #[test]
-    fn option_none_is_option_unknown() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let val = Expr::OptionNone;
-        let stmts = [Stmt::Let { var: x, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert!(matches!(env.lookup(x), LogosType::Option(_)));
-    }
-
-    #[test]
-    fn option_some_infers_inner_type() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let inner = Expr::Literal(Literal::Number(42));
-        let val = Expr::OptionSome { value: &inner };
-        let stmts = [Stmt::Let { var: x, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(x), &LogosType::Option(Box::new(LogosType::Int)));
-    }
-
-    // =========================================================================
-    // Function def and call
-    // =========================================================================
-
-    #[test]
-    fn function_def_registers_signature() {
-        let mut interner = mk_interner();
-        let f = interner.intern("double");
-        let x_param = interner.intern("x");
-        let int_sym = interner.intern("Int");
-        let int_ty = TypeExpr::Primitive(int_sym);
-        let ret_ty = TypeExpr::Primitive(int_sym);
-        let lit = Expr::Literal(Literal::Number(0));
-        let ret_stmt = Stmt::Return { value: Some(&lit) };
-        let body = [ret_stmt];
-        let stmts = [Stmt::FunctionDef {
-            name: f,
-            generics: vec![],
-            params: vec![(x_param, &int_ty)],
-            body: &body,
-            return_type: Some(&ret_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        }];
-        let env = run(&stmts, &interner);
-        let sig = env.lookup_fn(f).expect("function should be registered");
-        assert_eq!(sig.return_type, LogosType::Int);
-        assert_eq!(sig.params.len(), 1);
-        assert_eq!(sig.params[0].1, LogosType::Int);
-    }
-
-    #[test]
-    fn function_call_returns_registered_type() {
-        let mut interner = mk_interner();
-        let f = interner.intern("compute");
-        let float_sym = interner.intern("Real");
-        let float_ty = TypeExpr::Primitive(float_sym);
-        let lit = Expr::Literal(Literal::Float(1.0));
-        let ret_stmt = Stmt::Return { value: Some(&lit) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![],
-            params: vec![],
-            body: &body,
-            return_type: Some(&float_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let result_var = interner.intern("result");
-        let call = Expr::Call { function: f, args: vec![] };
-        let let_stmt = Stmt::Let { var: result_var, ty: None, value: &call, mutable: false };
-        let stmts = [fn_def, let_stmt];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(result_var), &LogosType::Float);
-    }
-
-    // =========================================================================
-    // ReadFrom is String
-    // =========================================================================
-
-    #[test]
-    fn readfrom_is_string() {
-        let mut interner = mk_interner();
-        let v = interner.intern("input");
-        let stmts = [Stmt::ReadFrom {
-            var: v,
-            source: crate::ast::stmt::ReadSource::Console,
-        }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(v), &LogosType::String);
-    }
-
-    // =========================================================================
-    // Repeat loop variable gets element type
-    // =========================================================================
-
-    #[test]
-    fn repeat_loop_var_gets_element_type() {
-        let mut interner = mk_interner();
-        let items = interner.intern("items");
-        let elem = interner.intern("elem");
-        let one = Expr::Literal(Literal::Number(1));
-        let list = Expr::List(vec![&one]);
-        let let_items = Stmt::Let { var: items, ty: None, value: &list, mutable: false };
-        let items_ref = Expr::Identifier(items);
-        let repeat = Stmt::Repeat {
-            pattern: Pattern::Identifier(elem),
-            iterable: &items_ref,
-            body: &[],
-        };
-        let stmts = [let_items, repeat];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(elem), &LogosType::Int);
-    }
-
-    // =========================================================================
-    // Field access resolves to struct field type (uses registry)
-    // =========================================================================
-
-    #[test]
-    fn field_access_resolves_with_registry() {
-        use crate::analysis::{FieldDef, FieldType, TypeDef};
-
-        let mut interner = mk_interner();
-        let point_sym = interner.intern("Point");
-        let x_field_sym = interner.intern("x");
-        let int_sym = interner.intern("Int");
-        let p_var = interner.intern("p");
-        let result_var = interner.intern("px");
-
-        // Build a registry with a struct Point { x: Int }
-        let mut registry = TypeRegistry::new();
-        registry.register(
-            point_sym,
-            TypeDef::Struct {
-                fields: vec![FieldDef {
-                    name: x_field_sym,
-                    ty: FieldType::Primitive(int_sym),
-                    is_public: true,
-                }],
-                generics: vec![],
-                is_portable: false,
-                is_shared: false,
-            },
-        );
-
-        // Let p be a new Point.
-        let new_point = Expr::New { type_name: point_sym, type_args: vec![], init_fields: vec![] };
-        let let_p = Stmt::Let { var: p_var, ty: None, value: &new_point, mutable: false };
-
-        // Let px be p's x.
-        let p_ref = Expr::Identifier(p_var);
-        let field_access = Expr::FieldAccess { object: &p_ref, field: x_field_sym };
-        let let_px = Stmt::Let { var: result_var, ty: None, value: &field_access, mutable: false };
-
-        let stmts = [let_p, let_px];
-        let env = check_program(&stmts, &interner, &registry).expect("check_program failed");
-        assert_eq!(env.lookup(result_var), &LogosType::Int);
-    }
-
-    // =========================================================================
-    // Forward reference: calling a function defined later
-    // =========================================================================
-
-    #[test]
-    fn forward_reference_function_call() {
-        let mut interner = mk_interner();
-        let f = interner.intern("later_fn");
-        let result_var = interner.intern("r");
-        let bool_sym = interner.intern("Bool");
-        let bool_ty = TypeExpr::Primitive(bool_sym);
-
-        // Let r be later_fn().  (before the function def)
-        let call = Expr::Call { function: f, args: vec![] };
-        let let_r = Stmt::Let { var: result_var, ty: None, value: &call, mutable: false };
-
-        // ## Function later_fn -> Bool:
-        let lit = Expr::Literal(Literal::Boolean(true));
-        let ret_stmt = Stmt::Return { value: Some(&lit) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![],
-            params: vec![],
-            body: &body,
-            return_type: Some(&bool_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-
-        // Note: let_r comes BEFORE fn_def in the slice
-        let stmts = [let_r, fn_def];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(result_var), &LogosType::Bool);
-    }
-
-    // =========================================================================
-    // Type mismatch on return
-    // =========================================================================
-
-    #[test]
-    fn return_type_mismatch_fails() {
-        let mut interner = mk_interner();
-        let f = interner.intern("f");
-        let int_sym = interner.intern("Int");
-        let int_ty = TypeExpr::Primitive(int_sym);
-        // Function annotated as -> Int but returns Text
-        let lit = Expr::Literal(Literal::Text(Symbol::EMPTY));
-        let ret_stmt = Stmt::Return { value: Some(&lit) };
-        let body = [ret_stmt];
-        let stmts = [Stmt::FunctionDef {
-            name: f,
-            generics: vec![],
-            params: vec![],
-            body: &body,
-            return_type: Some(&int_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        }];
-        let result = check_program(&stmts, &interner, &TypeRegistry::new());
-        assert!(result.is_err(), "returning Text from Int function should fail");
-    }
-
-    // =========================================================================
-    // New user-defined type → UserDefined
-    // =========================================================================
-
-    #[test]
-    fn new_user_defined_is_user_defined_type() {
-        let mut interner = mk_interner();
-        let point = interner.intern("Point");
-        let p = interner.intern("p");
-        let new_point = Expr::New { type_name: point, type_args: vec![], init_fields: vec![] };
-        let stmts = [Stmt::Let { var: p, ty: None, value: &new_point, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(p), &LogosType::UserDefined(point));
-    }
-
-    // =========================================================================
-    // Legacy API preserved: to_legacy_variable_types / to_legacy_string_vars
-    // =========================================================================
-
-    #[test]
-    fn string_vars_in_legacy_api() {
-        let mut interner = mk_interner();
-        let s = interner.intern("name");
-        let hello = interner.intern("hello");
-        let val = Expr::Literal(Literal::Text(hello));
-        let stmts = [Stmt::Let { var: s, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        assert!(env.to_legacy_string_vars().contains(&s));
-    }
-
-    #[test]
-    fn unknown_vars_filtered_in_legacy_api() {
-        let mut interner = mk_interner();
-        let x = interner.intern("x");
-        let val = Expr::OptionNone; // Unknown inner type
-        let stmts = [Stmt::Let { var: x, ty: None, value: &val, mutable: false }];
-        let env = run(&stmts, &interner);
-        // Option(Unknown) → not in string_vars, not filtered as error
-        let legacy = env.to_legacy_variable_types();
-        // Option(Unknown) maps to "Option<_>", which is concrete enough
-        assert!(!legacy.is_empty() || legacy.is_empty()); // just don't panic
-    }
-
-    // =========================================================================
-    // Generic (polymorphic) functions — Phase 3
-    // =========================================================================
-
-    #[test]
-    fn generic_identity_infers_int_return() {
-        // ## To identity of [T] (x: T) -> T:
-        //     Return x.
-        // Let r be identity(42).  → r is Int
-        let mut interner = mk_interner();
-        let f = interner.intern("identity");
-        let x_param = interner.intern("x");
-        let t_sym = interner.intern("T");
-        let t_ty = TypeExpr::Primitive(t_sym);
-        let x_ref = Expr::Identifier(x_param);
-        let ret_stmt = Stmt::Return { value: Some(&x_ref) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![t_sym],
-            params: vec![(x_param, &t_ty)],
-            body: &body,
-            return_type: Some(&t_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r = interner.intern("r");
-        let lit = Expr::Literal(Literal::Number(42));
-        let call = Expr::Call { function: f, args: vec![&lit] };
-        let let_r = Stmt::Let { var: r, ty: None, value: &call, mutable: false };
-        let stmts = [fn_def, let_r];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r), &LogosType::Int,
-            "identity(42) should return Int, got {:?}", env.lookup(r));
-    }
-
-    #[test]
-    fn generic_identity_infers_bool_return() {
-        // Same identity function, called with Bool → returns Bool.
-        let mut interner = mk_interner();
-        let f = interner.intern("identity");
-        let x_param = interner.intern("x");
-        let t_sym = interner.intern("T");
-        let t_ty = TypeExpr::Primitive(t_sym);
-        let x_ref = Expr::Identifier(x_param);
-        let ret_stmt = Stmt::Return { value: Some(&x_ref) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![t_sym],
-            params: vec![(x_param, &t_ty)],
-            body: &body,
-            return_type: Some(&t_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r = interner.intern("r");
-        let lit = Expr::Literal(Literal::Boolean(true));
-        let call = Expr::Call { function: f, args: vec![&lit] };
-        let let_r = Stmt::Let { var: r, ty: None, value: &call, mutable: false };
-        let stmts = [fn_def, let_r];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r), &LogosType::Bool,
-            "identity(true) should return Bool, got {:?}", env.lookup(r));
-    }
-
-    #[test]
-    fn generic_two_type_params_first() {
-        // ## To first of [A] and [B] (a: A, b: B) -> A:
-        //     Return a.
-        // Let r be first(42, true).  → r is Int (first type param)
-        let mut interner = mk_interner();
-        let f = interner.intern("first");
-        let a_param = interner.intern("a");
-        let b_param = interner.intern("b");
-        let a_sym = interner.intern("A");
-        let b_sym = interner.intern("B");
-        let a_ty = TypeExpr::Primitive(a_sym);
-        let b_ty = TypeExpr::Primitive(b_sym);
-        let a_ref = Expr::Identifier(a_param);
-        let ret_stmt = Stmt::Return { value: Some(&a_ref) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![a_sym, b_sym],
-            params: vec![(a_param, &a_ty), (b_param, &b_ty)],
-            body: &body,
-            return_type: Some(&a_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r = interner.intern("r");
-        let lit_int = Expr::Literal(Literal::Number(42));
-        let lit_bool = Expr::Literal(Literal::Boolean(true));
-        let call = Expr::Call { function: f, args: vec![&lit_int, &lit_bool] };
-        let let_r = Stmt::Let { var: r, ty: None, value: &call, mutable: false };
-        let stmts = [fn_def, let_r];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r), &LogosType::Int,
-            "first(42, true) should return Int (first param type), got {:?}", env.lookup(r));
-    }
-
-    #[test]
-    fn generic_calls_are_independent() {
-        // Each call to a generic function gets its own fresh type variables.
-        // identity(42) → Int, identity(true) → Bool, independent results.
-        let mut interner = mk_interner();
-        let f = interner.intern("identity");
-        let x_param = interner.intern("x");
-        let t_sym = interner.intern("T");
-        let t_ty = TypeExpr::Primitive(t_sym);
-        let x_ref = Expr::Identifier(x_param);
-        let ret_stmt = Stmt::Return { value: Some(&x_ref) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![t_sym],
-            params: vec![(x_param, &t_ty)],
-            body: &body,
-            return_type: Some(&t_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r1 = interner.intern("r1");
-        let r2 = interner.intern("r2");
-        let lit_int = Expr::Literal(Literal::Number(42));
-        let lit_bool = Expr::Literal(Literal::Boolean(true));
-        let call1 = Expr::Call { function: f, args: vec![&lit_int] };
-        let call2 = Expr::Call { function: f, args: vec![&lit_bool] };
-        let let_r1 = Stmt::Let { var: r1, ty: None, value: &call1, mutable: false };
-        let let_r2 = Stmt::Let { var: r2, ty: None, value: &call2, mutable: false };
-        let stmts = [fn_def, let_r1, let_r2];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r1), &LogosType::Int,
-            "identity(42) should be Int, got {:?}", env.lookup(r1));
-        assert_eq!(env.lookup(r2), &LogosType::Bool,
-            "identity(true) should be Bool, got {:?}", env.lookup(r2));
-    }
-
-    #[test]
-    fn monomorphic_functions_unaffected_by_generics() {
-        // Non-generic functions still work correctly with the updated machinery.
-        let mut interner = mk_interner();
-        let f = interner.intern("double");
-        let x_param = interner.intern("x");
-        let int_sym = interner.intern("Int");
-        let int_ty = TypeExpr::Primitive(int_sym);
-        let x_ref = Expr::Identifier(x_param);
-        let lit2 = Expr::Literal(Literal::Number(2));
-        let mul = Expr::BinaryOp {
-            op: BinaryOpKind::Multiply,
-            left: &x_ref,
-            right: &lit2,
-        };
-        let ret_stmt = Stmt::Return { value: Some(&mul) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![],
-            params: vec![(x_param, &int_ty)],
-            body: &body,
-            return_type: Some(&int_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r = interner.intern("r");
-        let lit5 = Expr::Literal(Literal::Number(5));
-        let call = Expr::Call { function: f, args: vec![&lit5] };
-        let let_r = Stmt::Let { var: r, ty: None, value: &call, mutable: false };
-        let stmts = [fn_def, let_r];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r), &LogosType::Int,
-            "double(5) should return Int, got {:?}", env.lookup(r));
-    }
-
-    #[test]
-    fn generic_forward_reference_resolves() {
-        // Let r be identity(42).
-        // ## To identity of [T] (x: T) -> T:  ← defined AFTER the call
-        //     Return x.
-        // The pre-pass must register generics before the main pass sees the call.
-        let mut interner = mk_interner();
-        let f = interner.intern("identity");
-        let x_param = interner.intern("x");
-        let t_sym = interner.intern("T");
-        let t_ty = TypeExpr::Primitive(t_sym);
-        let x_ref = Expr::Identifier(x_param);
-        let ret_stmt = Stmt::Return { value: Some(&x_ref) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![t_sym],
-            params: vec![(x_param, &t_ty)],
-            body: &body,
-            return_type: Some(&t_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r = interner.intern("r");
-        let lit = Expr::Literal(Literal::Number(99));
-        let call = Expr::Call { function: f, args: vec![&lit] };
-        let let_r = Stmt::Let { var: r, ty: None, value: &call, mutable: false };
-        // Call appears BEFORE the function definition
-        let stmts = [let_r, fn_def];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r), &LogosType::Int,
-            "forward-ref identity(99) should be Int, got {:?}", env.lookup(r));
-    }
-
-    // ---- Bug Report #1 regression pins ----
-
-    /// BUG-025: a `Seq of Real` annotation must accept integer literals
-    /// `[1, 2, 3]` (the numeric-literal coercion scalar literals already get),
-    /// rather than synthesizing `Seq(Int)` from `items[0]` and failing to unify
-    /// with `Seq(Float)`.
-    #[test]
-    fn seq_of_real_accepts_int_literals() {
-        let mut interner = Interner::new();
-        let xs = interner.intern("xs");
-        let real_sym = interner.intern("Real");
-        let seq_sym = interner.intern("Seq");
-
-        let one = Expr::Literal(Literal::Number(1));
-        let two = Expr::Literal(Literal::Number(2));
-        let three = Expr::Literal(Literal::Number(3));
-        let val = Expr::List(vec![&one, &two, &three]);
-
-        let real_ty = TypeExpr::Primitive(real_sym);
-        let params = [real_ty];
-        let seq_real = TypeExpr::Generic { base: seq_sym, params: &params };
-
-        let stmts = [Stmt::Let { var: xs, ty: Some(&seq_real), value: &val, mutable: false }];
-
-        let env = check_program(&stmts, &interner, &TypeRegistry::new())
-            .expect("Seq of Real should accept integer literals [1, 2, 3]");
-
-        assert_eq!(
-            env.lookup(xs),
-            &LogosType::Seq(Box::new(LogosType::Float)),
-            "xs should be inferred as Seq<Float> under the `Seq of Real` annotation"
-        );
-    }
-
-    /// BUG-026: a generic function with an INFERRED (unannotated) return type
-    /// must generalize its return variable, so two calls at different types are
-    /// independent. Mirrors `generic_calls_are_independent` but `return_type: None`.
-    #[test]
-    fn generic_inferred_return_calls_are_independent() {
-        let mut interner = mk_interner();
-        let f = interner.intern("wrap");
-        let x_param = interner.intern("x");
-        let t_sym = interner.intern("T");
-        let t_ty = TypeExpr::Primitive(t_sym);
-        let x_ref = Expr::Identifier(x_param);
-        let ret_stmt = Stmt::Return { value: Some(&x_ref) };
-        let body = [ret_stmt];
-        let fn_def = Stmt::FunctionDef {
-            name: f,
-            generics: vec![t_sym],
-            params: vec![(x_param, &t_ty)],
-            body: &body,
-            return_type: None, // inferred return -> fresh var not in scheme.vars: the bug
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let r1 = interner.intern("r1");
-        let r2 = interner.intern("r2");
-        let lit_int = Expr::Literal(Literal::Number(42));
-        let lit_bool = Expr::Literal(Literal::Boolean(true));
-        let call1 = Expr::Call { function: f, args: vec![&lit_int] };
-        let call2 = Expr::Call { function: f, args: vec![&lit_bool] };
-        let let_r1 = Stmt::Let { var: r1, ty: None, value: &call1, mutable: false };
-        let let_r2 = Stmt::Let { var: r2, ty: None, value: &call2, mutable: false };
-        let stmts = [fn_def, let_r1, let_r2];
-        let env = run(&stmts, &interner);
-        assert_eq!(env.lookup(r1), &LogosType::Int,
-            "wrap(42) should be Int, got {:?}", env.lookup(r1));
-        assert_eq!(env.lookup(r2), &LogosType::Bool,
-            "wrap(true) should be Bool, got {:?}", env.lookup(r2));
-    }
-
-    /// BUG-007: iterating a `Map` with a single identifier loop variable yields
-    /// `(key, value)` tuples at runtime, so the loop var must NOT be typed as
-    /// the bare key type `K`.
-    #[test]
-    fn repeat_over_map_single_ident_loop_var_is_not_bare_key() {
-        let mut interner = mk_interner();
-        let m = interner.intern("m");
-        let entry = interner.intern("entry");
-        let map_sym = interner.intern("Map");
-        let text_sym = interner.intern("Text");
-        let int_sym = interner.intern("Int");
-
-        let new_map = Expr::New {
-            type_name: map_sym,
-            type_args: vec![TypeExpr::Primitive(text_sym), TypeExpr::Primitive(int_sym)],
-            init_fields: vec![],
-        };
-        let let_m = Stmt::Let { var: m, ty: None, value: &new_map, mutable: false };
-
-        let m_ref = Expr::Identifier(m);
-        let repeat = Stmt::Repeat {
-            pattern: Pattern::Identifier(entry),
-            iterable: &m_ref,
-            body: &[],
-        };
-
-        let stmts = [let_m, repeat];
-        let env = run(&stmts, &interner);
-
-        assert_ne!(
-            env.lookup(entry),
-            &LogosType::String,
-            "iterating a Map with a single identifier yields (key,value) tuples at runtime; \
-             the loop var must not be typed as the bare key K"
-        );
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/analysis/check/tests.rs"]
+mod tests;

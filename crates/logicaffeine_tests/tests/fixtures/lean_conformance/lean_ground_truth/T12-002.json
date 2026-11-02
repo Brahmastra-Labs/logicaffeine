@@ -1,0 +1,38 @@
+{
+  "case": "T12-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 4,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), 0 + n = n",
+      "name": "T12_002.addZeroLeft",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T12_002.addZeroRight",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n \u2264 n + 1",
+      "name": "T12_002.leSucc",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n * 1 = n",
+      "name": "T12_002.mulOneRight",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

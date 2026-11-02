@@ -16,7 +16,7 @@
 //! sign+index) so it can be exercised against a brute-force oracle in isolation before
 //! it is wired to the grid encoder — a SAT core is only as good as its cross-checks.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 /// A propositional variable: an index `0..num_vars`.
 pub type Var = u32;
@@ -124,10 +124,14 @@ pub enum BudgetedResult {
 }
 
 /// A learned clause logged for proof reconstruction. Each is a resolvent derivable from
-/// the formula by reverse unit propagation — the unit of a DRAT/LRAT proof.
+/// the formula by reverse unit propagation — the unit of a DRAT/LRAT proof. With proof tracing
+/// on ([`Solver::set_lrat`]) it carries its LRAT step: its id and the ids of the clauses that,
+/// in order, each become unit under its negation until the last conflicts.
 #[derive(Clone, Debug)]
 pub struct LearnedClause {
     pub lits: Vec<Lit>,
+    pub id: u64,
+    pub hints: Vec<u64>,
 }
 
 /// A theory propagator (the DPLL(T) seam). The SAT core calls [`Theory::propagate`] at
@@ -240,6 +244,24 @@ pub struct Solver {
     propagations: u64,
     /// Total restarts performed — observability for the restart policy.
     restarts: u64,
+    /// Per clause, whether the solver learned it (else it was added): what an incremental solve, whose added clauses
+    /// come between its learned ones, deletes from.
+    learned_flag: Vec<bool>,
+    /// How many clauses of the database are learned ones.
+    learned_live: usize,
+    /// Each clause's id: the caller's for a clause added with one, else the next free one.
+    clause_ids: Vec<u64>,
+    next_id: u64,
+    /// Whether each learned clause, and each refutation, records its LRAT hints.
+    lrat: bool,
+    /// The hints [`Solver::analyze`] found for the clause about to be learned.
+    pending_hints: Vec<u64>,
+    /// The hints of the last unsatisfiable solve's conclusion: the negation of its assumptions, or the empty clause.
+    unsat_hints: Vec<u64>,
+    /// The hints that derive the empty clause, once the formula has been found unsatisfiable at level 0.
+    empty_hints: Vec<u64>,
+    /// Per variable, its place on the trail while assigned.
+    trail_pos: Vec<u32>,
     /// Per-clause LBD (literal-block distance, Audemard & Simon 2009): the number of distinct
     /// decision levels among a learned clause's literals. Low LBD ("glue") clauses are the most
     /// reusable; high-LBD clauses are the deletion candidates. Originals carry `u32::MAX`.
@@ -349,6 +371,15 @@ impl Solver {
             propagations: 0,
             restarts: 0,
             lbd: Vec::new(),
+            learned_flag: Vec::new(),
+            learned_live: 0,
+            clause_ids: Vec::new(),
+            next_id: 1,
+            lrat: false,
+            pending_hints: Vec::new(),
+            unsat_hints: Vec::new(),
+            empty_hints: Vec::new(),
+            trail_pos: vec![0; num_vars],
             reduce_enabled: true,
             reduce_limit: 2000,
             decision_mask: None,
@@ -393,7 +424,7 @@ impl Solver {
         self.inprocess_enabled = on;
     }
 
-    /// Set the conflict interval between inprocessing rounds (default [`INPROCESS_INTERVAL`]).
+    /// Set the conflict interval between inprocessing rounds (default `INPROCESS_INTERVAL`).
     /// Tuning / test knob; verdict-invariant.
     pub fn set_inprocess_interval(&mut self, conflicts: u64) {
         self.inprocess_interval = conflicts.max(1);
@@ -543,6 +574,55 @@ impl Solver {
     /// Restrict branching to `vars` (DPLL(XOR): the engine's non-pivot variables; the theory forces
     /// the rest). A model is still complete because theory propagation assigns every excluded
     /// variable before all decision variables are exhausted.
+    /// Grow the solver by `k` fresh variables, numbered after those it has, and return the first one's number: each
+    /// unassigned and unconstrained, a decision variable unless a decision set restricts them (one then joins it by
+    /// [`Solver::add_decision_vars`]). A user that encodes a formula a part at a time numbers its variables densely
+    /// as it goes, so a solver is as large as what it was asked.
+    pub fn add_vars(&mut self, k: usize) -> usize {
+        let first = self.num_vars;
+        let n = first + k;
+        self.num_vars = n;
+        self.watches.resize(n * 2, Vec::new());
+        self.value.resize(n, Val::Unset);
+        self.level.resize(n, 0);
+        self.reason.resize(n, Reason::Decision);
+        self.activity.resize(n, 0.0);
+        self.saved_phase.resize(n, false);
+        self.seen.resize(n, false);
+        self.min_cache.resize(n, 0);
+        self.lbd_stamp.resize(n + 1, 0);
+        self.trail_pos.resize(n, 0);
+        self.heap_pos.resize(n, -1);
+        match self.decision_mask.as_mut() {
+            Some(mask) => mask.resize(n, false),
+            None => {
+                for v in first..n {
+                    self.heap_insert(v as Var);
+                }
+            }
+        }
+        first
+    }
+
+    /// Add `vars` to the variables decisions fall on, beside those already there: an incremental user grows the set as
+    /// it adds the clauses that constrain them. Without a set yet, every variable is one already. Out-of-range and
+    /// repeated variables are ignored.
+    pub fn add_decision_vars(&mut self, vars: &[usize]) {
+        let Some(mask) = self.decision_mask.as_mut() else { return };
+        let mut joined: Vec<usize> = Vec::new();
+        for &v in vars {
+            if v < self.num_vars && !mask[v] {
+                mask[v] = true;
+                joined.push(v);
+            }
+        }
+        for v in joined {
+            if self.value[v] == Val::Unset {
+                self.heap_insert(v as Var);
+            }
+        }
+    }
+
     pub fn set_decision_vars(&mut self, vars: &[usize]) {
         let mut mask = vec![false; self.num_vars];
         for &v in vars {
@@ -590,10 +670,12 @@ impl Solver {
         loop {
             let (l, r) = (2 * i + 1, 2 * i + 2);
             let mut m = i;
-            if l < n && self.activity[self.heap[l] as usize] > self.activity[self.heap[m] as usize] {
+            if l < n && self.activity[self.heap[l] as usize] > self.activity[self.heap[m] as usize]
+            {
                 m = l;
             }
-            if r < n && self.activity[self.heap[r] as usize] > self.activity[self.heap[m] as usize] {
+            if r < n && self.activity[self.heap[r] as usize] > self.activity[self.heap[m] as usize]
+            {
                 m = r;
             }
             if m == i {
@@ -689,6 +771,18 @@ impl Solver {
         &self.learned_log
     }
 
+    /// The learned clauses since the last take, moved out: a caller that keeps its own proof log takes each once, so
+    /// the solver does not hold every one for its whole life.
+    pub fn take_learned(&mut self) -> Vec<LearnedClause> {
+        std::mem::take(&mut self.learned_log)
+    }
+
+    /// The ids of the clauses the database holds. A hint a later solve gives names one of these or a clause it learned
+    /// since, so a proof log may forget whatever none of them rests on.
+    pub fn live_ids(&self) -> &[u64] {
+        &self.clause_ids
+    }
+
     /// The ORIGINAL clauses (those present before solving), borrowed in place — so a RUP
     /// checker can replay over them without copying the clause set.
     pub fn original_clauses(&self) -> &[Vec<Lit>] {
@@ -696,8 +790,19 @@ impl Solver {
     }
 
     /// Add a clause. An empty clause makes the formula trivially unsatisfiable; a unit
-    /// clause is enqueued as a top-level fact.
-    pub fn add_clause(&mut self, mut lits: Vec<Lit>) {
+    /// clause is enqueued as a top-level fact. Between incremental solves the search is
+    /// dropped first and the clause read against the level-0 facts: its literals not yet
+    /// false lead, so the two it watches are ones that can still become false; one left is a
+    /// fact enqueued now, none left makes the formula unsatisfiable.
+    pub fn add_clause(&mut self, lits: Vec<Lit>) {
+        let id = self.next_id;
+        self.add_clause_with_id(lits, id);
+    }
+
+    /// [`Solver::add_clause`] with the id the clause's hints name it by chosen by the caller, above every id before it.
+    /// A tautology is dropped and its id left unused.
+    pub fn add_clause_with_id(&mut self, mut lits: Vec<Lit>, id: u64) {
+        self.next_id = self.next_id.max(id + 1);
         // Dedup and drop a clause that is already a tautology (`v ∨ ¬v`).
         lits.sort_by_key(|l| l.0);
         lits.dedup();
@@ -707,23 +812,194 @@ impl Solver {
                 return;
             }
         }
-        self.add_clause_raw(lits, false);
+        self.backtrack_to(0);
+        if lits.len() >= 2 {
+            lits.sort_by_key(|&l| self.lit_false(l));
+            let open = lits.iter().filter(|&&l| !self.lit_false(l)).count();
+            if open <= 1 {
+                let ci = self.store(lits.clone(), false, id, Vec::new());
+                match lits.first() {
+                    Some(&l) if open == 1 && self.val_of(l) == Val::Unset => self.enqueue(l, Reason::Clause(ci)),
+                    Some(&l) if open == 1 && self.lit_true(l) => {}
+                    _ => self.found_empty(ci),
+                }
+                return;
+            }
+        }
+        self.store(lits, false, id, Vec::new());
     }
 
-    /// Internal: register a clause and set up its two watches. `learned` clauses are also
-    /// logged. Returns the clause index.
+    /// Number the clauses the solver makes from `id` on (when that is above every id it has used): a caller that gives
+    /// its own clauses ids from another range keeps the two apart.
+    pub fn set_next_clause_id(&mut self, id: u64) {
+        self.next_id = self.next_id.max(id);
+    }
+
+    /// The next clause id, taken: one a caller gives a clause it derives itself.
+    pub fn next_clause_id(&mut self) -> u64 {
+        self.next_id += 1;
+        self.next_id - 1
+    }
+
+    /// Record LRAT hints: each learned clause's, and each refutation's (see [`Solver::unsat_hints`]). For pure CNF
+    /// solving: inprocessing, which strengthens clauses without a chain, is turned off, and a theory's clauses carry
+    /// none.
+    pub fn set_lrat(&mut self, on: bool) {
+        self.lrat = on;
+        if on {
+            self.inprocess_enabled = false;
+        }
+    }
+
+    /// After an unsatisfiable solve under assumptions, with tracing on: the hints of the clause of the assumptions'
+    /// negations (the empty clause's when the formula itself is unsatisfiable), each id in order a clause that is unit
+    /// under that clause's negation, the last conflicting.
+    pub fn unsat_hints(&self) -> &[u64] {
+        &self.unsat_hints
+    }
+
+    /// The trail-ordered reasons (by clause index) of every variable that `vars` lean on: each of them and, through its
+    /// reason, every variable that reason's other literals hold, stopping at decisions and at level-0 facts, each of
+    /// which its unit clause stands for ([`Solver::unit_of`]).
+    fn cone(&mut self, vars: impl IntoIterator<Item = Var>) -> Vec<usize> {
+        let mut stack: Vec<Var> = vars.into_iter().collect();
+        let mut visited: HashSet<Var> = HashSet::new();
+        let mut found: Vec<(u32, usize)> = Vec::new();
+        while let Some(v) = stack.pop() {
+            if !visited.insert(v) || self.value[v as usize] == Val::Unset {
+                continue;
+            }
+            if self.level[v as usize] == 0 {
+                if let Some(ci) = self.unit_of(v) {
+                    found.push((self.trail_pos[v as usize], ci));
+                }
+                continue;
+            }
+            if let Reason::Clause(ci) = self.reason[v as usize] {
+                found.push((self.trail_pos[v as usize], ci));
+                stack.extend(self.clauses[ci].iter().map(|l| l.var()).filter(|&w| w != v));
+            }
+        }
+        found.sort_unstable();
+        found.into_iter().map(|(_, ci)| ci).collect()
+    }
+
+    /// The database index of the unit clause of the level-0 fact on `v`, derived the first time a chain needs it: the
+    /// units of its reason's other literals (each false at level 0), then the reason. It is logged as a learned clause
+    /// and kept as a permanent one, `v`'s reason from then on, so a later chain names the fact by one hint and not by
+    /// everything level 0 derived it from. `None` for a fact with no reason.
+    fn unit_of(&mut self, v: Var) -> Option<usize> {
+        let long = |s: &Solver, w: Var| matches!(s.reason[w as usize], Reason::Clause(ci) if s.clauses[ci].len() > 1);
+        let mut stack: Vec<(Var, bool)> = vec![(v, false)];
+        while let Some((u, ready)) = stack.pop() {
+            let Reason::Clause(ci) = self.reason[u as usize] else { continue };
+            if self.clauses[ci].len() == 1 {
+                continue;
+            }
+            if !ready {
+                stack.push((u, true));
+                for k in 0..self.clauses[ci].len() {
+                    let w = self.clauses[ci][k].var();
+                    if w != u && long(self, w) {
+                        stack.push((w, false));
+                    }
+                }
+                continue;
+            }
+            let mut hints: Vec<u64> = Vec::with_capacity(self.clauses[ci].len());
+            for l in &self.clauses[ci] {
+                if let (true, Reason::Clause(cj)) = (l.var() != u, self.reason[l.var() as usize]) {
+                    hints.push(self.clause_ids[cj]);
+                }
+            }
+            hints.push(self.clause_ids[ci]);
+            let fact = Lit::new(u, self.value[u as usize] == Val::True);
+            let id = self.next_clause_id();
+            self.learned_log.push(LearnedClause { lits: vec![fact], id, hints });
+            let unit = self.store(vec![fact], false, id, Vec::new());
+            self.reason[u as usize] = Reason::Clause(unit);
+        }
+        match self.reason[v as usize] {
+            Reason::Clause(ci) => Some(ci),
+            Reason::Decision => None,
+        }
+    }
+
+    /// [`Solver::cone`]'s clause ids.
+    fn cone_hints(&mut self, vars: impl IntoIterator<Item = Var>) -> Vec<u64> {
+        self.cone(vars).into_iter().map(|ci| self.clause_ids[ci]).collect()
+    }
+
+    /// The hints of `clause` from `reasons` (clause indices in trail order): replayed under its negation, each reason
+    /// a unit is kept, one already satisfied is dropped, and the first that conflicts ends the chain. The negation of
+    /// a set of assumptions can contradict a level-0 fact before the reason the solver found it by.
+    fn replayed(&self, clause: &[Lit], reasons: &[usize]) -> Vec<u64> {
+        let mut assign: std::collections::HashMap<Var, bool> = clause.iter().map(|l| (l.var(), !l.is_positive())).collect();
+        let truth = |assign: &std::collections::HashMap<Var, bool>, l: Lit| assign.get(&l.var()).map(|&v| v == l.is_positive());
+        let mut hints = Vec::new();
+        for &ci in reasons {
+            let mut open: Option<Lit> = None;
+            let mut satisfied = false;
+            let mut several = false;
+            for &l in &self.clauses[ci] {
+                match truth(&assign, l) {
+                    Some(true) => satisfied = true,
+                    Some(false) => {}
+                    None if open.is_none() || open == Some(l) => open = Some(l),
+                    None => several = true,
+                }
+            }
+            if satisfied {
+                continue;
+            }
+            hints.push(self.clause_ids[ci]);
+            match open {
+                None => return hints,
+                Some(_) if several => return reasons.iter().map(|&ci| self.clause_ids[ci]).collect(),
+                Some(u) => {
+                    assign.insert(u.var(), u.is_positive());
+                }
+            }
+        }
+        hints
+    }
+
+    /// The formula is unsatisfiable at level 0, clause `ci` false there: the empty clause's hints are the units of its
+    /// literals' level-0 facts, then it.
+    fn found_empty(&mut self, ci: usize) {
+        self.empty_clause = true;
+        if self.lrat && self.empty_hints.is_empty() {
+            let vars: Vec<Var> = self.clauses[ci].iter().map(|l| l.var()).collect();
+            let mut hints = self.cone_hints(vars);
+            hints.push(self.clause_ids[ci]);
+            self.empty_hints = hints;
+        }
+    }
+
+    /// Internal: register a clause under the next free id and set up its two watches. `learned`
+    /// clauses are also logged, with the hints [`Solver::analyze`] left. Returns the clause index.
     fn add_clause_raw(&mut self, lits: Vec<Lit>, learned: bool) -> usize {
+        let id = self.next_clause_id();
+        let hints = if learned { std::mem::take(&mut self.pending_hints) } else { Vec::new() };
+        self.store(lits, learned, id, hints)
+    }
+
+    /// Register a clause with its id and hints and set up its two watches.
+    fn store(&mut self, lits: Vec<Lit>, learned: bool, id: u64, hints: Vec<u64>) -> usize {
         let ci = self.clauses.len();
+        self.clause_ids.push(id);
         // Keep the per-clause LBD vector aligned with `clauses` (grows by exactly one here).
         // Originals/units default to `u32::MAX` (never deleted); the caller overwrites a learned
         // clause's slot with its real LBD.
         self.lbd.push(u32::MAX);
+        self.learned_flag.push(learned);
+        self.learned_live += learned as usize;
         if learned {
-            self.learned_log.push(LearnedClause { lits: lits.clone() });
+            self.learned_log.push(LearnedClause { lits: lits.clone(), id, hints });
         }
         if lits.is_empty() {
-            self.empty_clause = true;
             self.clauses.push(lits);
+            self.found_empty(ci);
             return ci;
         }
         if lits.len() == 1 {
@@ -734,7 +1010,7 @@ impl Solver {
             // do; else enqueue it.
             match self.val_of(l) {
                 Val::True => {}
-                Val::False => self.empty_clause = true,
+                Val::False => self.found_empty(ci),
                 Val::Unset => self.enqueue(l, Reason::Clause(ci)),
             }
             return ci;
@@ -742,8 +1018,16 @@ impl Solver {
         // Watch the first two literals, each blocked by the other.
         let (w0, w1) = (lits[0], lits[1]);
         let bin = lits.len() == 2;
-        self.watches[w0.index()].push(Watcher { clause: ci, blocker: w1, binary: bin });
-        self.watches[w1.index()].push(Watcher { clause: ci, blocker: w0, binary: bin });
+        self.watches[w0.index()].push(Watcher {
+            clause: ci,
+            blocker: w1,
+            binary: bin,
+        });
+        self.watches[w1.index()].push(Watcher {
+            clause: ci,
+            blocker: w0,
+            binary: bin,
+        });
         self.clauses.push(lits);
         ci
     }
@@ -779,9 +1063,14 @@ impl Solver {
     /// unset (callers check).
     fn enqueue(&mut self, l: Lit, r: Reason) {
         let v = l.var() as usize;
-        self.value[v] = if l.is_positive() { Val::True } else { Val::False };
+        self.value[v] = if l.is_positive() {
+            Val::True
+        } else {
+            Val::False
+        };
         self.level[v] = self.trail_lim.len() as u32;
         self.reason[v] = r;
+        self.trail_pos[v] = self.trail.len() as u32;
         self.trail.push(l);
     }
 
@@ -841,7 +1130,11 @@ impl Solver {
                         self.clauses[ci].swap(1, k);
                         // This path only fires for clauses with a third literal to move to, so the
                         // clause is never binary here (`clause_len >= 3`).
-                        self.watches[lk.index()].push(Watcher { clause: ci, blocker: other, binary: clause_len == 2 });
+                        self.watches[lk.index()].push(Watcher {
+                            clause: ci,
+                            blocker: other,
+                            binary: clause_len == 2,
+                        });
                         watchers.swap_remove(wi);
                         continue 'next_clause;
                     }
@@ -871,6 +1164,8 @@ impl Solver {
         let mut p: Option<Lit> = None;
         let mut trail_idx = self.trail.len();
         let mut clause = conflict;
+        // With tracing: the variables whose reasons the resolution used.
+        let mut resolved: Vec<Var> = Vec::new();
 
         loop {
             // Resolve with `clause` (its literals are all false; for the conflict clause, and for
@@ -912,6 +1207,9 @@ impl Solver {
                 Reason::Clause(ci) => ci,
                 Reason::Decision => unreachable!("UIP reached a decision before counter hit 0"),
             };
+            if self.lrat {
+                resolved.push(pv as Var);
+            }
         }
         // The asserting literal is ¬p (p is the UIP, currently true).
         learned[0] = p.unwrap().negated();
@@ -922,7 +1220,33 @@ impl Solver {
         // Recursive minimization: drop any learned literal whose reason is already covered by the
         // rest of the clause. Strictly strengthens the (still-implied) clause, shrinking its size
         // and LBD — verdict-invariant.
-        self.minimize(&mut learned);
+        let redundant = self.minimize(&mut learned);
+        if self.lrat {
+            // The chain: under the clause's negation, the reasons of the resolved and the minimized-away variables and
+            // of every level-0 fact a clause among them leans on, in trail order, then the conflict.
+            let mut used: Vec<Var> = resolved;
+            used.extend(redundant);
+            let mut zero: Vec<Var> = self.clauses[conflict].iter().map(|l| l.var()).filter(|&v| self.level[v as usize] == 0).collect();
+            for &v in &used {
+                if let Reason::Clause(ci) = self.reason[v as usize] {
+                    zero.extend(self.clauses[ci].iter().map(|l| l.var()).filter(|&w| self.level[w as usize] == 0));
+                }
+            }
+            let mut ordered: Vec<(u32, u64)> = used
+                .iter()
+                .filter_map(|&v| match self.reason[v as usize] {
+                    Reason::Clause(ci) => Some((self.trail_pos[v as usize], self.clause_ids[ci])),
+                    Reason::Decision => None,
+                })
+                .collect();
+            let level0 = self.cone_hints(zero);
+            ordered.sort_unstable();
+            ordered.dedup();
+            let mut hints = level0;
+            hints.extend(ordered.into_iter().map(|(_, id)| id));
+            hints.push(self.clause_ids[conflict]);
+            self.pending_hints = hints;
+        }
         // Move the highest-decision-level literal into slot 1. The two-watched-literal invariant
         // requires the second watch to be the most recently falsified literal (the backjump
         // level); otherwise the learned clause can be falsified later without the watch firing.
@@ -964,7 +1288,9 @@ impl Solver {
     /// level-0 facts, or are themselves removable — meaning the literal is redundant. The result is
     /// a sub-clause still implied by the formula, so it is verdict-invariant; it just yields
     /// shorter, lower-LBD clauses that propagate and delete better.
-    fn minimize(&mut self, learned: &mut Vec<Lit>) {
+    /// Drop the learned literals implied by the rest; the variables found redundant, whose reasons the shortened clause
+    /// leans on.
+    fn minimize(&mut self, learned: &mut Vec<Lit>) -> Vec<Var> {
         // Mark every learned literal in the shared `seen` array — the in-clause test, no per-conflict
         // HashSet — and borrow the reusable memo/touch buffers out of `self` so `lit_redundant` can
         // read `self` immutably while writing them (no per-conflict HashMap).
@@ -991,6 +1317,7 @@ impl Solver {
             }
         }
         learned.truncate(j);
+        let redundant: Vec<Var> = if self.lrat { touched.iter().copied().filter(|&v| cache[v as usize] == 1).collect() } else { Vec::new() };
         // Sparse-reset the memo and hand the buffers back to `self` for the next conflict.
         for &v in &touched {
             cache[v as usize] = 0;
@@ -998,9 +1325,16 @@ impl Solver {
         touched.clear();
         self.min_cache = cache;
         self.min_touched = touched;
+        redundant
     }
 
-    fn lit_redundant(&self, lit: Lit, cache: &mut [u8], touched: &mut Vec<Var>, depth: u32) -> bool {
+    fn lit_redundant(
+        &self,
+        lit: Lit,
+        cache: &mut [u8],
+        touched: &mut Vec<Var>,
+        depth: u32,
+    ) -> bool {
         let v = lit.var();
         match cache[v as usize] {
             1 => return true,
@@ -1077,6 +1411,26 @@ impl Solver {
     /// the two-watched-literal invariant is preserved — we only renumber and rebuild the watch
     /// lists. The full proof trace (`learned_log`) is untouched, so a downstream RUP/PR check still
     /// replays every learned clause.
+    /// [`Solver::reduce_db`] for an incremental solve: the learned clauses wherever they lie, every added clause kept.
+    fn reduce_learned(&mut self) {
+        let n = self.clauses.len();
+        let mut locked = vec![false; n];
+        for &l in &self.trail {
+            if let Reason::Clause(ci) = self.reason[l.var() as usize] {
+                locked[ci] = true;
+            }
+        }
+        let mut cand: Vec<usize> =
+            (0..n).filter(|&ci| self.learned_flag[ci] && !locked[ci] && self.lbd[ci] > 2 && self.clauses[ci].len() > 2).collect();
+        if cand.is_empty() {
+            return;
+        }
+        cand.sort_by(|&a, &b| self.lbd[b].cmp(&self.lbd[a]));
+        let drop_n = cand.len() / 2;
+        let delete: std::collections::HashSet<usize> = cand.into_iter().take(drop_n).collect();
+        self.compact(&delete);
+    }
+
     fn reduce_db(&mut self) {
         let n = self.clauses.len();
         // A clause currently justifying a trail literal must not be deleted.
@@ -1114,8 +1468,13 @@ impl Solver {
         for (new, &old) in survivors.iter().enumerate() {
             remap[old] = new;
         }
-        let new_clauses: Vec<Vec<Lit>> = survivors.iter().map(|&ci| self.clauses[ci].clone()).collect();
+        let new_clauses: Vec<Vec<Lit>> = survivors
+            .iter()
+            .map(|&ci| self.clauses[ci].clone())
+            .collect();
         let new_lbd: Vec<u32> = survivors.iter().map(|&ci| self.lbd[ci]).collect();
+        let new_flag: Vec<bool> = survivors.iter().map(|&ci| self.learned_flag[ci]).collect();
+        let new_ids: Vec<u64> = survivors.iter().map(|&ci| self.clause_ids[ci]).collect();
         for v in 0..self.num_vars {
             if let Reason::Clause(ci) = self.reason[v] {
                 if remap[ci] != usize::MAX {
@@ -1125,6 +1484,9 @@ impl Solver {
         }
         self.clauses = new_clauses;
         self.lbd = new_lbd;
+        self.learned_live = new_flag.iter().filter(|&&f| f).count();
+        self.learned_flag = new_flag;
+        self.clause_ids = new_ids;
         for w in self.watches.iter_mut() {
             w.clear();
         }
@@ -1132,8 +1494,16 @@ impl Solver {
             if c.len() >= 2 {
                 let (l0, l1) = (c[0], c[1]);
                 let bin = c.len() == 2;
-                self.watches[l0.index()].push(Watcher { clause: ci, blocker: l1, binary: bin });
-                self.watches[l1.index()].push(Watcher { clause: ci, blocker: l0, binary: bin });
+                self.watches[l0.index()].push(Watcher {
+                    clause: ci,
+                    blocker: l1,
+                    binary: bin,
+                });
+                self.watches[l1.index()].push(Watcher {
+                    clause: ci,
+                    blocker: l0,
+                    binary: bin,
+                });
             }
         }
     }
@@ -1162,8 +1532,16 @@ impl Solver {
         }
         let (l0, l1) = (self.clauses[ci][0], self.clauses[ci][1]);
         let bin = self.clauses[ci].len() == 2;
-        self.watches[l0.index()].push(Watcher { clause: ci, blocker: l1, binary: bin });
-        self.watches[l1.index()].push(Watcher { clause: ci, blocker: l0, binary: bin });
+        self.watches[l0.index()].push(Watcher {
+            clause: ci,
+            blocker: l1,
+            binary: bin,
+        });
+        self.watches[l1.index()].push(Watcher {
+            clause: ci,
+            blocker: l0,
+            binary: bin,
+        });
     }
 
     /// Vivify the clause at `ci` (asymmetric branching; Piette, Hamadi & Saïs 2008). Must be called
@@ -1236,7 +1614,7 @@ impl Solver {
                 None => self.rewatch(ci),
                 Some(kept) => {
                     self.vivifications += 1;
-                    self.learned_log.push(LearnedClause { lits: kept.clone() });
+                    self.learned_log.push(LearnedClause { lits: kept.clone(), id: 0, hints: Vec::new() });
                     if kept.is_empty() {
                         self.empty_clause = true;
                         self.clauses[ci] = kept;
@@ -1406,7 +1784,7 @@ impl Solver {
                 .filter(|&l| code(l) != drop_code)
                 .collect();
             self.subsumptions += 1;
-            self.learned_log.push(LearnedClause { lits: new.clone() });
+            self.learned_log.push(LearnedClause { lits: new.clone(), id: 0, hints: Vec::new() });
             if new.is_empty() {
                 self.empty_clause = true;
                 self.clauses[di] = new;
@@ -1600,7 +1978,9 @@ impl Solver {
             }
             match self.pick_branch() {
                 None => {
-                    let model = (0..self.num_vars).map(|v| self.value[v] == Val::True).collect();
+                    let model = (0..self.num_vars)
+                        .map(|v| self.value[v] == Val::True)
+                        .collect();
                     return BudgetedResult::Sat(model);
                 }
                 Some(v) => {
@@ -1670,7 +2050,10 @@ impl Solver {
                     continue;
                 }
                 // A theory conflict takes priority: carry it and run conflict analysis.
-                if let Some(conf) = implied.iter().find(|c| c.iter().all(|&l| self.lit_false(l))) {
+                if let Some(conf) = implied
+                    .iter()
+                    .find(|c| c.iter().all(|&l| self.lit_false(l)))
+                {
                     if conf.is_empty() {
                         return SolveResult::Unsat; // an unconditional contradiction (0 = 1)
                     }
@@ -1688,7 +2071,9 @@ impl Solver {
                     if c.iter().any(|&l| self.lit_true(l)) {
                         continue; // already satisfied — stale
                     }
-                    let free: Vec<usize> = (0..c.len()).filter(|&i| self.val_of(c[i]) == Val::Unset).collect();
+                    let free: Vec<usize> = (0..c.len())
+                        .filter(|&i| self.val_of(c[i]) == Val::Unset)
+                        .collect();
                     if free.len() != 1 {
                         continue; // not a clean unit propagation — skip defensively
                     }
@@ -1755,30 +2140,47 @@ impl Solver {
     /// decisions) and drops level-0 facts, so each learned clause is a consequence of the
     /// PERMANENT clauses alone — valid no matter which assumptions a future query makes.
     ///
-    /// Restarts are disabled in this path: the assumptions occupy the bottom decision levels,
-    /// and skipping restarts keeps them pinned without a restart-floor dance. The small,
-    /// bounded queries this serves do not need restarts; correctness beats the heuristic.
+    /// Restarts follow the Luby sequence (100 conflicts a unit) and drop the search to level 0:
+    /// the next decisions place the assumptions again, so they stay the bottom levels.
     /// (Does not touch `n_original`; do not mix with [`Solver::original_clauses`]/RUP on the
     /// same solver.)
     pub fn solve_under_assumptions(&mut self, assumptions: &[Lit]) -> SolveResult {
+        match self.solve_under_assumptions_budgeted(assumptions, 0) {
+            BudgetedResult::Sat(model) => SolveResult::Sat(model),
+            BudgetedResult::Unsat => SolveResult::Unsat,
+            BudgetedResult::Budget => unreachable!("a solve without a budget runs to a verdict"),
+        }
+    }
+
+    /// [`Solver::solve_under_assumptions`] within `max_conflicts` conflicts (0: no limit), `Budget` when they run out
+    /// with the search dropped and every learned clause kept. On `Unsat`, the clause of the assumptions' negations is
+    /// RUP from the clauses added and [`Solver::learned`] so far. Learned clauses are deleted, the added ones never,
+    /// whatever their order: a long run of queries keeps its database in bounds.
+    pub fn solve_under_assumptions_budgeted(&mut self, assumptions: &[Lit], max_conflicts: u64) -> BudgetedResult {
         // Drop any prior search state, keeping level-0 facts and all learned clauses.
         self.backtrack_to(0);
         if self.empty_clause {
-            return SolveResult::Unsat;
+            self.unsat_hints = self.empty_hints.clone();
+            return BudgetedResult::Unsat;
         }
         // Level-0 propagation: if the permanent formula is already unsatisfiable, no
         // assumption can rescue it — and it stays unsat for every future query, so latch the
         // permanent-unsat flag (this also guarantees a clean state on the next call, which a
         // no-op `backtrack_to(0)` over an empty `trail_lim` would otherwise inherit dirty).
-        if self.propagate().is_some() {
-            self.empty_clause = true;
-            return SolveResult::Unsat;
+        if let Some(ci) = self.propagate() {
+            self.found_empty(ci);
+            self.unsat_hints = self.empty_hints.clone();
+            return BudgetedResult::Unsat;
         }
+        let mut spent = 0u64;
+        let (mut since_restart, mut restart_no) = (0u64, 1u64);
         loop {
             if let Some(ci) = self.propagate() {
                 if self.trail_lim.is_empty() {
-                    self.empty_clause = true; // conflict with no decisions ⇒ unconditionally unsat
-                    return SolveResult::Unsat;
+                    // A conflict with no decisions: the formula is unsatisfiable.
+                    self.found_empty(ci);
+                    self.unsat_hints = self.empty_hints.clone();
+                    return BudgetedResult::Unsat;
                 }
                 let (learned, backjump, lbd) = self.analyze(ci);
                 self.backtrack_to(backjump);
@@ -1790,6 +2192,23 @@ impl Solver {
                     self.enqueue(asserting, Reason::Clause(new_ci));
                 }
                 self.decay();
+                self.conflicts += 1;
+                spent += 1;
+                if self.reduce_enabled && self.learned_live >= self.reduce_limit {
+                    self.reduce_learned();
+                    self.reduce_limit += 500;
+                }
+                if max_conflicts > 0 && spent >= max_conflicts {
+                    self.backtrack_to(0);
+                    return BudgetedResult::Budget;
+                }
+                since_restart += 1;
+                if since_restart >= luby(restart_no) * 100 {
+                    self.backtrack_to(0);
+                    self.restarts += 1;
+                    since_restart = 0;
+                    restart_no += 1;
+                }
                 continue;
             }
             // Decide: place the first not-yet-satisfied assumption (so the search always
@@ -1797,8 +2216,16 @@ impl Solver {
             let mut decided = false;
             for &a in assumptions {
                 match self.val_of(a) {
-                    // The assumption is forced false ⇒ no model under the assumptions.
-                    Val::False => return SolveResult::Unsat,
+                    // The assumption is forced false ⇒ no model under the assumptions: the chain is the cone
+                    // of its negation back to the assumptions before it.
+                    Val::False => {
+                        if self.lrat {
+                            let negated: Vec<Lit> = assumptions.iter().map(|x| x.negated()).collect();
+                            let reasons = self.cone([a.var()]);
+                            self.unsat_hints = self.replayed(&negated, &reasons);
+                        }
+                        return BudgetedResult::Unsat;
+                    }
                     Val::True => {}
                     Val::Unset => {
                         self.trail_lim.push(self.trail.len());
@@ -1817,7 +2244,7 @@ impl Solver {
                     let model = (0..self.num_vars)
                         .map(|v| self.value[v] == Val::True)
                         .collect();
-                    return SolveResult::Sat(model);
+                    return BudgetedResult::Sat(model);
                 }
                 Some(v) => {
                     self.trail_lim.push(self.trail.len());
@@ -1884,634 +2311,5 @@ fn luby(mut i: u64) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "bench: random-3SAT solve throughput — before/after engine tuning"]
-    fn bench_random_3sat_throughput() {
-        use std::time::Instant;
-        let mut total_ms = 0.0;
-        let mut conflicts = 0u64;
-        let mut props = 0u64;
-        for seed in 0..24u64 {
-            let n = 150;
-            let m = (n as f64 * 4.26) as usize;
-            let cnf = crate::families::random_3sat(n, m, 0xBEEFu64 ^ seed);
-            let mut s = Solver::new(cnf.num_vars);
-            for c in &cnf.clauses {
-                s.add_clause(c.clone());
-            }
-            let t = Instant::now();
-            let _ = s.solve();
-            total_ms += t.elapsed().as_secs_f64() * 1e3;
-            conflicts += s.conflicts();
-            props += s.propagations();
-        }
-        eprintln!(
-            "[bench] random-3SAT ×24 @ n=150: {total_ms:.1}ms total ({:.3}ms/inst), {conflicts} conflicts, {props} propagations",
-            total_ms / 24.0
-        );
-    }
-
-    #[test]
-    fn counters_track_search_work() {
-        // All 8 clauses over 3 vars (every assignment blocked) → UNSAT, forcing real search:
-        // decisions, propagations, and conflicts must all register, and propagations (one per
-        // trail literal processed) must dominate conflicts.
-        let mut s = Solver::new(3);
-        for mask in 0..8u32 {
-            let c: Vec<Lit> = (0..3).map(|v| Lit::new(v, (mask >> v) & 1 == 0)).collect();
-            s.add_clause(c);
-        }
-        assert_eq!(s.solve(), SolveResult::Unsat);
-        assert!(s.conflicts() > 0, "expected conflicts, got 0");
-        assert!(s.decisions() > 0, "expected decisions, got 0");
-        assert!(s.propagations() >= s.conflicts(), "propagations should dominate conflicts");
-    }
-
-    #[test]
-    fn order_heap_pops_in_descending_activity() {
-        let mut s = Solver::new(5);
-        for _ in 0..5 {
-            s.bump(4); // activity[4] = 5
-        }
-        for _ in 0..3 {
-            s.bump(2); // activity[2] = 3
-        }
-        s.bump(0); // activity[0] = 1; vars 1,3 stay at 0
-        let mut order = Vec::new();
-        while let Some(v) = s.heap_pop() {
-            order.push(v);
-        }
-        assert_eq!(&order[..3], &[4, 2, 0], "highest activity first");
-        let mut rest = order[3..].to_vec();
-        rest.sort();
-        assert_eq!(rest, vec![1, 3], "zero-activity vars come last");
-    }
-
-    fn sat_brute(num_vars: usize, clauses: &[Vec<Lit>]) -> bool {
-        // Enumerate all 2^n assignments; true iff some assignment satisfies every clause.
-        for mask in 0u64..(1u64 << num_vars) {
-            let val = |v: Var| (mask >> v) & 1 == 1;
-            let ok = clauses.iter().all(|c| {
-                c.iter().any(|l| {
-                    let b = val(l.var());
-                    if l.is_positive() {
-                        b
-                    } else {
-                        !b
-                    }
-                })
-            });
-            if ok {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn check_model(clauses: &[Vec<Lit>], model: &[bool]) -> bool {
-        clauses.iter().all(|c| {
-            c.iter().any(|l| {
-                let b = model[l.var() as usize];
-                if l.is_positive() {
-                    b
-                } else {
-                    !b
-                }
-            })
-        })
-    }
-
-    #[test]
-    fn unit_and_empty() {
-        // Empty clause ⇒ Unsat.
-        let mut s = Solver::new(1);
-        s.add_clause(vec![]);
-        assert_eq!(s.solve(), SolveResult::Unsat);
-
-        // x ∧ ¬x ⇒ Unsat.
-        let mut s = Solver::new(1);
-        s.add_clause(vec![Lit::pos(0)]);
-        s.add_clause(vec![Lit::neg(0)]);
-        assert_eq!(s.solve(), SolveResult::Unsat);
-    }
-
-    #[test]
-    fn tiny_sat() {
-        // (x ∨ y) ∧ (¬x ∨ y) ∧ (¬y ∨ z): forces y, then z; x free.
-        let mut s = Solver::new(3);
-        s.add_clause(vec![Lit::pos(0), Lit::pos(1)]);
-        s.add_clause(vec![Lit::neg(0), Lit::pos(1)]);
-        s.add_clause(vec![Lit::neg(1), Lit::pos(2)]);
-        match s.solve() {
-            SolveResult::Sat(m) => {
-                assert!(m[1] && m[2], "y and z forced true");
-            }
-            SolveResult::Unsat => panic!("should be SAT"),
-        }
-    }
-
-    #[test]
-    fn pigeonhole_3_into_2_unsat() {
-        // 3 pigeons, 2 holes: p_{i,h} = pigeon i in hole h. Each pigeon in some hole; no
-        // two pigeons share a hole. Classic UNSAT (PHP) — exercises conflict learning.
-        let var = |i: usize, h: usize| (i * 2 + h) as Var;
-        let mut s = Solver::new(6);
-        for i in 0..3 {
-            s.add_clause(vec![Lit::pos(var(i, 0)), Lit::pos(var(i, 1))]);
-        }
-        for h in 0..2 {
-            for i in 0..3 {
-                for j in (i + 1)..3 {
-                    s.add_clause(vec![Lit::neg(var(i, h)), Lit::neg(var(j, h))]);
-                }
-            }
-        }
-        assert_eq!(s.solve(), SolveResult::Unsat);
-    }
-
-    #[test]
-    fn random_against_brute_force() {
-        // Deterministic pseudo-random 3-CNFs over up to 6 vars; cross-check SAT/UNSAT and
-        // validate every returned model. The only honest way to trust a SAT core.
-        let mut state = 0x9e3779b97f4a7c15u64;
-        let mut next = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        for _trial in 0..400 {
-            let num_vars = 3 + (next() % 4) as usize; // 3..6
-            let num_clauses = 3 + (next() % 12) as usize;
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let mut c = Vec::new();
-                for _ in 0..3 {
-                    let v = (next() % num_vars as u64) as Var;
-                    let positive = next() & 1 == 0;
-                    c.push(Lit::new(v, positive));
-                }
-                clauses.push(c);
-            }
-            let expected = sat_brute(num_vars, &clauses);
-            let mut s = Solver::new(num_vars);
-            for c in &clauses {
-                s.add_clause(c.clone());
-            }
-            match s.solve() {
-                SolveResult::Sat(m) => {
-                    assert!(expected, "solver said SAT but brute force says UNSAT");
-                    assert!(check_model(&clauses, &m), "returned model does not satisfy the formula");
-                }
-                SolveResult::Unsat => {
-                    assert!(!expected, "solver said UNSAT but brute force found a model");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn reduction_preserves_verdicts_and_models() {
-        // LBD clause deletion must be verdict-invariant. With reduction forced after every few
-        // learned clauses — so the delete + reason-remap + watch-rebuild path runs constantly —
-        // every verdict must still match brute force and every model must satisfy the formula.
-        // The strongest guard against a reduceDB bug.
-        let mut state = 0x1234_5678_9abc_def0u64;
-        let mut next = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        for _trial in 0..500 {
-            let num_vars = 3 + (next() % 5) as usize; // 3..7
-            let num_clauses = 10 + (next() % 25) as usize; // over-constrained → conflicts → reductions
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let mut c = Vec::new();
-                for _ in 0..3 {
-                    c.push(Lit::new((next() % num_vars as u64) as Var, next() & 1 == 0));
-                }
-                clauses.push(c);
-            }
-            let expected = sat_brute(num_vars, &clauses);
-            let mut s = Solver::new(num_vars);
-            for c in &clauses {
-                s.add_clause(c.clone());
-            }
-            s.set_reduce_limit(4); // hammer the reduction path
-            match s.solve() {
-                SolveResult::Sat(m) => {
-                    assert!(expected, "reduce-on solver said SAT but brute force says UNSAT");
-                    assert!(check_model(&clauses, &m), "model invalid under reduction");
-                }
-                SolveResult::Unsat => {
-                    assert!(!expected, "reduce-on solver said UNSAT but a model exists");
-                }
-            }
-        }
-    }
-
-    fn rng(seed: u64) -> impl FnMut() -> u64 {
-        let mut state = seed;
-        move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        }
-    }
-
-    #[test]
-    fn restart_modes_are_all_verdict_invariant_default_adaptive() {
-        // The adaptive (alternating Glucose/Luby phase) policy is the default, and switching restart
-        // heuristics changes only search ORDER — every verdict and model must still agree with brute
-        // force under ALL three policies.
-        assert_eq!(
-            Solver::new(1).restart_mode(),
-            RestartMode::Adaptive,
-            "adaptive restarts are the default"
-        );
-        let mut next = rng(0x51ed_2701_a1b2_c3d4);
-        for _ in 0..400 {
-            let num_vars = 3 + (next() % 5) as usize; // 3..7
-            let num_clauses = 8 + (next() % 22) as usize;
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let mut c = Vec::new();
-                for _ in 0..3 {
-                    c.push(Lit::new((next() % num_vars as u64) as Var, next() & 1 == 0));
-                }
-                clauses.push(c);
-            }
-            let expected = sat_brute(num_vars, &clauses);
-            for mode in [RestartMode::Adaptive, RestartMode::Glucose, RestartMode::Luby] {
-                let mut s = Solver::new(num_vars);
-                s.set_restart_mode(mode);
-                for c in &clauses {
-                    s.add_clause(c.clone());
-                }
-                match s.solve() {
-                    SolveResult::Sat(m) => {
-                        assert!(expected, "{mode:?}: SAT but brute force UNSAT");
-                        assert!(check_model(&clauses, &m), "{mode:?}: invalid model");
-                    }
-                    SolveResult::Unsat => assert!(!expected, "{mode:?}: UNSAT but SAT"),
-                }
-            }
-        }
-    }
-
-    fn php_solver(n: usize, holes: usize, mode: RestartMode) -> Solver {
-        let var = |p: usize, h: usize| (p * holes + h) as Var;
-        let mut s = Solver::new(n * holes);
-        s.set_restart_mode(mode);
-        for p in 0..n {
-            s.add_clause((0..holes).map(|h| Lit::pos(var(p, h))).collect());
-        }
-        for h in 0..holes {
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    s.add_clause(vec![Lit::neg(var(i, h)), Lit::neg(var(j, h))]);
-                }
-            }
-        }
-        s
-    }
-
-    #[test]
-    fn glucose_restarts_fire_and_beat_luby_on_pigeonhole() {
-        // PHP(8→7) does real exponential-resolution work, and on it the dynamic LBD policy must
-        // (a) actually restart — proving the mechanism is wired, not dormant — and (b) need no
-        // more conflicts than the Luby baseline (here it roughly halves them). The blocking
-        // counter is read to exercise its accounting. Verdicts are checked in the differential
-        // test above; this one is about the restart *heuristic* paying off.
-        let mut g = php_solver(8, 7, RestartMode::Glucose);
-        assert_eq!(g.solve(), SolveResult::Unsat);
-        assert!(g.restarts() > 0, "Glucose must restart on PHP(8); got {}", g.restarts());
-        let _ = g.blocked_restarts();
-
-        let mut l = php_solver(8, 7, RestartMode::Luby);
-        assert_eq!(l.solve(), SolveResult::Unsat);
-        assert!(
-            g.conflicts() <= l.conflicts(),
-            "Glucose ({} conflicts) should not exceed Luby ({} conflicts) on PHP(8)",
-            g.conflicts(),
-            l.conflicts(),
-        );
-    }
-
-    #[test]
-    fn vivify_preserves_verdicts() {
-        // Interleave a vivification round into solving: learn a few clauses with a tiny budget,
-        // strengthen them, then solve to completion — the verdict and any model must still match
-        // brute force on the ORIGINAL formula. Vivify replaces a learned clause with an implied
-        // sub-clause, so it can never change satisfiability. (That it *fires* is proven on
-        // pigeonhole below, where instances are big enough to learn strengthenable clauses.)
-        let mut next = rng(0x7654_3210_fedc_ba98);
-        for _ in 0..600 {
-            let num_vars = 3 + (next() % 5) as usize; // 3..7
-            let num_clauses = 10 + (next() % 22) as usize; // over-constrained → conflicts
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let width = 2 + (next() % 2) as usize;
-                let mut c = Vec::new();
-                for _ in 0..width {
-                    c.push(Lit::new((next() % num_vars as u64) as Var, next() & 1 == 0));
-                }
-                clauses.push(c);
-            }
-            let expected = sat_brute(num_vars, &clauses);
-            let mut s = Solver::new(num_vars);
-            for c in &clauses {
-                s.add_clause(c.clone());
-            }
-            // Vivify only from a clean budget-exhausted state (the supported inprocessing point,
-            // mirroring the scheduler). A terminal verdict from the budgeted call is just checked.
-            match s.solve_budgeted(12) {
-                BudgetedResult::Sat(m) => {
-                    assert!(expected, "budgeted SAT but brute force UNSAT");
-                    assert!(check_model(&clauses, &m), "budgeted model invalid");
-                }
-                BudgetedResult::Unsat => assert!(!expected, "budgeted UNSAT but a model exists"),
-                BudgetedResult::Budget => {
-                    if !s.vivify() {
-                        assert!(!expected, "vivify reported UNSAT but a model exists");
-                        continue;
-                    }
-                    match s.solve() {
-                        SolveResult::Sat(m) => {
-                            assert!(expected, "post-vivify SAT but brute force UNSAT");
-                            assert!(check_model(&clauses, &m), "post-vivify model invalid");
-                        }
-                        SolveResult::Unsat => {
-                            assert!(!expected, "post-vivify UNSAT but a model exists")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn vivify_fires_and_preserves_verdict_on_pigeonhole() {
-        // PHP is big enough to learn strengthenable clauses, so vivification must actually fire
-        // (not be a dormant no-op) AND keep the UNSAT verdict. PHP(6→5) yields ~16 strengthenings.
-        let mut s = php_solver(6, 5, RestartMode::Glucose);
-        assert_eq!(s.solve_budgeted(30), BudgetedResult::Budget, "budget should exhaust mid-search");
-        assert!(s.vivify(), "vivify should not yet prove UNSAT");
-        assert!(s.vivifications() > 0, "vivification must fire on PHP — the pass is dormant");
-        assert_eq!(s.solve(), SolveResult::Unsat, "UNSAT preserved through vivification");
-    }
-
-    #[test]
-    fn vivify_on_a_budgeted_prefix_preserves_pigeonhole_unsat() {
-        // PHP(5→4) needs real search, so a small conflict budget exhausts cleanly — the supported
-        // inprocessing state. Vivifying the learned clauses and finishing the solve must still
-        // prove UNSAT (and the budgeted prefix must not regress to a bogus SAT).
-        let mut s = php_solver(5, 4, RestartMode::Glucose);
-        match s.solve_budgeted(5) {
-            BudgetedResult::Unsat => {} // already proven within budget — still correct
-            BudgetedResult::Sat(_) => panic!("PHP(5) is UNSAT"),
-            BudgetedResult::Budget => {
-                assert!(s.vivify(), "vivify should not yet prove UNSAT");
-                assert_eq!(s.solve(), SolveResult::Unsat, "UNSAT preserved through vivification");
-            }
-        }
-    }
-
-    #[test]
-    fn probe_preserves_verdicts() {
-        // Failed-literal probing derives only units that the formula entails, so running a probing
-        // round before the solve must never change satisfiability or invalidate a model. Checked
-        // against brute force on many random formulas.
-        let mut next = rng(0x1c1c_2d2d_3e3e_4f4f);
-        for _ in 0..600 {
-            let num_vars = 3 + (next() % 5) as usize; // 3..7
-            let num_clauses = 6 + (next() % 18) as usize;
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let width = 2 + (next() % 2) as usize;
-                let mut c = Vec::new();
-                for _ in 0..width {
-                    c.push(Lit::new((next() % num_vars as u64) as Var, next() & 1 == 0));
-                }
-                clauses.push(c);
-            }
-            let expected = sat_brute(num_vars, &clauses);
-            let mut s = Solver::new(num_vars);
-            for c in &clauses {
-                s.add_clause(c.clone());
-            }
-            if !s.probe() {
-                assert!(!expected, "probe reported UNSAT but a model exists");
-                continue;
-            }
-            match s.solve() {
-                SolveResult::Sat(m) => {
-                    assert!(expected, "post-probe SAT but brute force UNSAT");
-                    assert!(check_model(&clauses, &m), "post-probe model invalid");
-                }
-                SolveResult::Unsat => assert!(!expected, "post-probe UNSAT but a model exists"),
-            }
-        }
-    }
-
-    #[test]
-    fn probe_derives_a_failed_literal_unit() {
-        // (¬v ∨ a) ∧ (¬v ∨ ¬a): assuming v=true forces a AND ¬a — a conflict — so probing must
-        // derive the unit ¬v. The formula is SAT (v=false), and the post-probe model must reflect
-        // the forced ¬v.
-        let (v, a) = (0u32, 1u32);
-        let clauses = vec![
-            vec![Lit::neg(v), Lit::pos(a)],
-            vec![Lit::neg(v), Lit::neg(a)],
-        ];
-        let mut s = Solver::new(2);
-        for c in &clauses {
-            s.add_clause(c.clone());
-        }
-        assert!(s.probe(), "probing should not prove this SAT formula UNSAT");
-        assert!(s.probes() > 0, "probing must derive the failed-literal unit ¬v");
-        match s.solve() {
-            SolveResult::Sat(m) => {
-                assert!(!m[v as usize], "¬v was forced by probing");
-                assert!(check_model(&clauses, &m));
-            }
-            SolveResult::Unsat => panic!("formula is satisfiable (v = false)"),
-        }
-    }
-
-    #[test]
-    fn inprocessing_engages_inside_solve_and_improves_search() {
-        // PHP(9→8) crosses the inprocessing interval many times (at the tuned-down test interval),
-        // so the scheduler must (a) actually fire inside solve() — observable via the counters —
-        // and (b) cut the conflict count versus the same solve with inprocessing disabled. The
-        // verdict is preserved both ways. (On much larger PHP instances the win grows to ~2×.)
-        let mut on = php_solver(9, 8, RestartMode::Glucose);
-        on.set_inprocess_interval(400);
-        assert_eq!(on.solve(), SolveResult::Unsat);
-        assert!(
-            on.vivifications() > 0,
-            "inprocessing must engage on a long solve; vivifications={}",
-            on.vivifications(),
-        );
-
-        let mut off = php_solver(9, 8, RestartMode::Glucose);
-        off.set_inprocess(false);
-        assert_eq!(off.solve(), SolveResult::Unsat);
-        assert_eq!(off.vivifications() + off.probes(), 0, "toggle must suppress inprocessing");
-        assert!(
-            on.conflicts() < off.conflicts(),
-            "inprocessing should cut conflicts: on={} off={}",
-            on.conflicts(),
-            off.conflicts(),
-        );
-    }
-
-    #[test]
-    fn self_subsumes_classifies_subsumption_and_ssr() {
-        // Direct test of the subsumption classifier on (var,sign) codes: 2v = +v, 2v+1 = ¬v.
-        let pos = |v: u32| 2 * v;
-        let neg = |v: u32| 2 * v + 1;
-        let sorted = |mut x: Vec<u32>| {
-            x.sort_unstable();
-            x
-        };
-        let c = sorted(vec![pos(0), pos(1)]); // {a, b}
-        // {a,b} ⊆ {a,b,c} → subsumes.
-        assert!(matches!(
-            self_subsumes(&c, &sorted(vec![pos(0), pos(1), pos(2)])),
-            Sub::Subsumes
-        ));
-        // {a,b} vs {¬a,b,c}: a flips → strengthen, dropping ¬a from D.
-        assert!(matches!(
-            self_subsumes(&c, &sorted(vec![neg(0), pos(1), pos(2)])),
-            Sub::Strengthen(p) if p == neg(0)
-        ));
-        // {a,d} vs {¬a,b,c}: d absent in either polarity → no relation.
-        assert!(matches!(
-            self_subsumes(&sorted(vec![pos(0), pos(3)]), &sorted(vec![neg(0), pos(1), pos(2)])),
-            Sub::No
-        ));
-        // {a,b} vs {¬a,¬b,c}: two flips → no relation (resolution would not subsume).
-        assert!(matches!(
-            self_subsumes(&c, &sorted(vec![neg(0), neg(1), pos(2)])),
-            Sub::No
-        ));
-    }
-
-    #[test]
-    fn subsume_preserves_verdicts() {
-        // Subsumption deletes only entailed learned clauses and SSR strengthens to sound resolvents,
-        // so a subsumption round before finishing the solve must never change the verdict or
-        // invalidate a model. Checked against brute force. (Firing at scale is covered by the
-        // arena measurement; here soundness is the point.)
-        let mut next = rng(0xa5a5_5a5a_c3c3_3c3c);
-        for _ in 0..600 {
-            let num_vars = 3 + (next() % 5) as usize;
-            let num_clauses = 10 + (next() % 22) as usize;
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let width = 2 + (next() % 2) as usize;
-                let mut c = Vec::new();
-                for _ in 0..width {
-                    c.push(Lit::new((next() % num_vars as u64) as Var, next() & 1 == 0));
-                }
-                clauses.push(c);
-            }
-            let expected = sat_brute(num_vars, &clauses);
-            let mut s = Solver::new(num_vars);
-            for c in &clauses {
-                s.add_clause(c.clone());
-            }
-            match s.solve_budgeted(12) {
-                BudgetedResult::Sat(m) => {
-                    assert!(expected);
-                    assert!(check_model(&clauses, &m));
-                }
-                BudgetedResult::Unsat => assert!(!expected),
-                BudgetedResult::Budget => {
-                    if !s.subsume() {
-                        assert!(!expected, "subsume reported UNSAT but a model exists");
-                        continue;
-                    }
-                    match s.solve() {
-                        SolveResult::Sat(m) => {
-                            assert!(expected, "post-subsume SAT but brute force UNSAT");
-                            assert!(check_model(&clauses, &m), "post-subsume model invalid");
-                        }
-                        SolveResult::Unsat => {
-                            assert!(!expected, "post-subsume UNSAT but a model exists")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn solve_under_assumptions_matches_brute_force() {
-        // Incremental SAT, validated against the oracle: for each random formula, fire MANY
-        // assumption queries at the SAME solver (so it accumulates learned clauses), and
-        // demand every verdict + model agree with brute force on `clauses ∧ assumptions`.
-        // Reusing the solver is the whole point — it proves learned-clause reuse across
-        // different assumption sets stays sound.
-        let mut state = 0x243f_6a88_85a3_08d3u64;
-        let mut next = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        for _trial in 0..300 {
-            let num_vars = 3 + (next() % 4) as usize; // 3..6
-            let num_clauses = 3 + (next() % 10) as usize;
-            let mut clauses = Vec::new();
-            for _ in 0..num_clauses {
-                let width = 2 + (next() % 2) as usize; // 2- or 3-literal
-                let mut c = Vec::new();
-                for _ in 0..width {
-                    let v = (next() % num_vars as u64) as Var;
-                    let positive = next() & 1 == 0;
-                    c.push(Lit::new(v, positive));
-                }
-                clauses.push(c);
-            }
-            let mut s = Solver::new(num_vars);
-            for c in &clauses {
-                s.add_clause(c.clone());
-            }
-            // Several assumption queries on this one (clause-accumulating) solver.
-            for _ in 0..8 {
-                let a_count = (next() % 3) as usize; // 0..2 assumptions (may contradict)
-                let mut asm = Vec::new();
-                for _ in 0..a_count {
-                    let v = (next() % num_vars as u64) as Var;
-                    let positive = next() & 1 == 0;
-                    asm.push(Lit::new(v, positive));
-                }
-                let mut full = clauses.clone();
-                for &a in &asm {
-                    full.push(vec![a]);
-                }
-                let expected = sat_brute(num_vars, &full);
-                match s.solve_under_assumptions(&asm) {
-                    SolveResult::Sat(m) => {
-                        assert!(expected, "under {asm:?}: solver SAT but brute force UNSAT");
-                        assert!(
-                            check_model(&full, &m),
-                            "under {asm:?}: model violates clauses or assumptions"
-                        );
-                    }
-                    SolveResult::Unsat => {
-                        assert!(!expected, "under {asm:?}: solver UNSAT but brute force SAT");
-                    }
-                }
-            }
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/cdcl/tests.rs"]
+mod tests;

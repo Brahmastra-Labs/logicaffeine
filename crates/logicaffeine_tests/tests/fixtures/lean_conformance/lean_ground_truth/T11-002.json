@@ -1,0 +1,50 @@
+{
+  "case": "T11-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "(\u03b1 : Sort u) \u2192 \u03b1 \u2192 Sort v \u2192 Sort v",
+      "name": "T11_002.constSort",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Sort u) \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T11_002.idSort",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T11_002.propAsLowerBound",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T11_002.propFamily",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T11_002.propInTypeZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,13 @@
+{
+  "capability": "math.round_even",
+  "workload": "math.round_even",
+  "arg": "1000000",
+  "expected": "250000250000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

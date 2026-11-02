@@ -2,5 +2,6 @@
   "id": "modal",
   "title": "Basic Modal Logic",
   "pedagogy": "Learn to translate statements about possibility and necessity using modal operators. Master modal translations, proofs, and refutations.",
-  "order": 3
+  "order": 3,
+  "summary": "Possibility and necessity with ◇ and □, and where a modal sits."
 }

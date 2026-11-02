@@ -1,7 +1,7 @@
 //! Selection ranges: expand-selection follows English structure —
 //! word → sentence → block → document.
 
-use tower_lsp::lsp_types::{Position, Range, SelectionRange};
+use lsp_types::{Position, Range, SelectionRange};
 
 use logicaffeine_language::token::Span;
 

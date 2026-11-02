@@ -1,0 +1,10 @@
+{
+  "capability": "text.index_any",
+  "workload": "indexAny(s,'XYZ') 1-based/0 \u2014 mostly absent",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

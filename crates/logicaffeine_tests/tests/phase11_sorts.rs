@@ -3,27 +3,54 @@ use logicaffeine_language::lexicon::Sort;
 
 #[test]
 fn sort_lookup_human() {
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Juliet"), Some(Sort::Human));
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("John"), Some(Sort::Human));
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Mary"), Some(Sort::Human));
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Juliet"),
+        Some(Sort::Human)
+    );
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("John"),
+        Some(Sort::Human)
+    );
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Mary"),
+        Some(Sort::Human)
+    );
 }
 
 #[test]
 fn sort_lookup_celestial() {
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Sun"), Some(Sort::Celestial));
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Moon"), Some(Sort::Celestial));
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Sun"),
+        Some(Sort::Celestial)
+    );
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Moon"),
+        Some(Sort::Celestial)
+    );
 }
 
 #[test]
 fn sort_lookup_abstract() {
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Time"), Some(Sort::Abstract));
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Justice"), Some(Sort::Abstract));
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Time"),
+        Some(Sort::Abstract)
+    );
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Justice"),
+        Some(Sort::Abstract)
+    );
 }
 
 #[test]
 fn sort_lookup_physical() {
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Rock"), Some(Sort::Physical));
-    assert_eq!(logicaffeine_language::lexicon::lookup_sort("Money"), Some(Sort::Value));
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Rock"),
+        Some(Sort::Physical)
+    );
+    assert_eq!(
+        logicaffeine_language::lexicon::lookup_sort("Money"),
+        Some(Sort::Value)
+    );
 }
 
 #[test]
@@ -37,10 +64,19 @@ fn sort_compatibility() {
 #[test]
 fn literal_copula_preserved() {
     let output = compile("The king is bald.").unwrap();
-    assert!(output.contains("B(") || output.contains("Bald"),
-        "Literal copula should produce predication. Output: {}", output);
-    assert!(output.contains("K(") || output.contains("King"),
-        "Subject should be present. Output: {}", output);
-    assert!(!output.contains("Metaphor"),
-        "Literal should NOT be a metaphor. Output: {}", output);
+    assert!(
+        output.contains("B(") || output.contains("Bald"),
+        "Literal copula should produce predication. Output: {}",
+        output
+    );
+    assert!(
+        output.contains("K(") || output.contains("King"),
+        "Subject should be present. Output: {}",
+        output
+    );
+    assert!(
+        !output.contains("Metaphor"),
+        "Literal should NOT be a metaphor. Output: {}",
+        output
+    );
 }

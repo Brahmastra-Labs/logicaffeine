@@ -22,7 +22,11 @@ pub fn disassemble(prog: &CompiledProgram) -> Vec<DisasmLine> {
     prog.code
         .iter()
         .enumerate()
-        .map(|(pc, op)| DisasmLine { pc, text: format_op(op, prog), targets: op_targets(op) })
+        .map(|(pc, op)| DisasmLine {
+            pc,
+            text: format_op(op, prog),
+            targets: op_targets(op),
+        })
         .collect()
 }
 
@@ -59,25 +63,72 @@ pub fn format_op(op: &Op, prog: &CompiledProgram) -> String {
         Op::Jump { target } => format!("Jump -> {target}"),
         Op::JumpIfFalse { cond, target } => format!("JumpIfFalse {} -> {target}", r(cond)),
         Op::JumpIfTrue { cond, target } => format!("JumpIfTrue {} -> {target}", r(cond)),
-        Op::Call { dst, func, args_start, arg_count } => {
-            format!("Call {} = fn#{func}({}..+{arg_count})", r(dst), r(args_start))
+        Op::Call {
+            dst,
+            func,
+            args_start,
+            arg_count,
+        } => {
+            format!(
+                "Call {} = fn#{func}({}..+{arg_count})",
+                r(dst),
+                r(args_start)
+            )
         }
         Op::Return { src } => format!("Return {}", r(src)),
         Op::ReturnNothing => "ReturnNothing".to_string(),
         Op::GlobalGet { dst, idx } => format!("GlobalGet {} = {}", r(dst), g(idx)),
         Op::GlobalSet { idx, src } => format!("GlobalSet {} = {}", g(idx), r(src)),
         Op::NewEmptyList { dst } => format!("NewEmptyList {}", r(dst)),
-        Op::NewList { dst, start, count } => format!("NewList {} = [{}..+{count}]", r(dst), r(start)),
-        Op::NewRange { dst, start, end } => format!("NewRange {} = {}..={}", r(dst), r(start), r(end)),
+        Op::NewEmptyListWithCapacity { dst, capacity } => {
+            format!(
+                "NewEmptyListWithCapacity {} capacity={}",
+                r(dst),
+                r(capacity)
+            )
+        }
+        Op::NewEmptyListFixed { dst, capacity } => {
+            format!("NewEmptyListFixed {} capacity={capacity}", r(dst))
+        }
+        Op::NewList { dst, start, count } => {
+            format!("NewList {} = [{}..+{count}]", r(dst), r(start))
+        }
+        Op::NewEmptyMapWithCapacity { dst, capacity } => {
+            format!(
+                "NewEmptyMapWithCapacity {} capacity={}",
+                r(dst),
+                r(capacity)
+            )
+        }
+        Op::NewRange { dst, start, end } => {
+            format!("NewRange {} = {}..={}", r(dst), r(start), r(end))
+        }
         Op::ListPush { list, value } => format!("ListPush {} <- {}", r(list), r(value)),
         Op::ListPop { list, dst } => format!("ListPop {} = {}.pop()", r(dst), r(list)),
-        Op::Index { dst, collection, index } => format!("Index {} = {}[{}]", r(dst), r(collection), r(index)),
-        Op::SetIndex { collection, index, value } => {
+        Op::Index {
+            dst,
+            collection,
+            index,
+        } => format!("Index {} = {}[{}]", r(dst), r(collection), r(index)),
+        Op::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             format!("SetIndex {}[{}] = {}", r(collection), r(index), r(value))
         }
         Op::Length { dst, collection } => format!("Length {} = len {}", r(dst), r(collection)),
-        Op::Contains { dst, collection, value } => {
-            format!("Contains {} = {} contains {}", r(dst), r(collection), r(value))
+        Op::Contains {
+            dst,
+            collection,
+            value,
+        } => {
+            format!(
+                "Contains {} = {} contains {}",
+                r(dst),
+                r(collection),
+                r(value)
+            )
         }
         Op::IterPrepare { iterable } => format!("IterPrepare {}", r(iterable)),
         Op::IterNext { dst, exit } => format!("IterNext {} (exhausted -> {exit})", r(dst)),
@@ -95,8 +146,7 @@ pub fn format_op(op: &Op, prog: &CompiledProgram) -> String {
 pub fn op_targets(op: &Op) -> Vec<usize> {
     match *op {
         Op::Jump { target } => vec![target],
-        Op::JumpIfFalse { target, .. }
-        | Op::JumpIfTrue { target, .. } => vec![target],
+        Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => vec![target],
         Op::IterNext { exit, .. } => vec![exit],
         _ => Vec::new(),
     }
@@ -114,8 +164,14 @@ pub struct OpIo {
 
 /// Compute the [`OpIo`] of a bytecode op.
 pub fn op_io(op: &Op) -> OpIo {
-    let rw = |dst: Reg, reads: Vec<Reg>| OpIo { writes: Some(dst), reads };
-    let ro = |reads: Vec<Reg>| OpIo { writes: None, reads };
+    let rw = |dst: Reg, reads: Vec<Reg>| OpIo {
+        writes: Some(dst),
+        reads,
+    };
+    let ro = |reads: Vec<Reg>| OpIo {
+        writes: None,
+        reads,
+    };
     match *op {
         Op::LoadConst { dst, .. } => rw(dst, vec![]),
         Op::Move { dst, src } => rw(dst, vec![src]),
@@ -144,17 +200,33 @@ pub fn op_io(op: &Op) -> OpIo {
         Op::Not { dst, src } => rw(dst, vec![src]),
         Op::Show { src } => ro(vec![src]),
         Op::Return { src } => ro(vec![src]),
-        Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => {
-            ro(vec![cond])
+        Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => ro(vec![cond]),
+        Op::Index {
+            dst,
+            collection,
+            index,
         }
-        Op::Index { dst, collection, index } | Op::IndexUnchecked { dst, collection, index } => {
-            rw(dst, vec![collection, index])
+        | Op::IndexUnchecked {
+            dst,
+            collection,
+            index,
+        } => rw(dst, vec![collection, index]),
+        Op::SetIndex {
+            collection,
+            index,
+            value,
         }
-        Op::SetIndex { collection, index, value } | Op::SetIndexUnchecked { collection, index, value } => {
-            rw(collection, vec![index, value])
-        }
+        | Op::SetIndexUnchecked {
+            collection,
+            index,
+            value,
+        } => rw(collection, vec![index, value]),
         Op::Length { dst, collection } => rw(dst, vec![collection]),
-        Op::Contains { dst, collection, value } => rw(dst, vec![collection, value]),
+        Op::Contains {
+            dst,
+            collection,
+            value,
+        } => rw(dst, vec![collection, value]),
         Op::ListPush { list, value } => rw(list, vec![value]),
         _ => OpIo::default(),
     }
@@ -179,60 +251,5 @@ fn format_const(c: Option<&Constant>) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn prog() -> CompiledProgram {
-        CompiledProgram {
-            constants: vec![Constant::Int(6), Constant::Int(7), Constant::Text("hi".into())],
-            code: vec![
-                Op::LoadConst { dst: 0, idx: 0 },
-                Op::LoadConst { dst: 1, idx: 1 },
-                Op::Mul { dst: 2, lhs: 0, rhs: 1 },
-                Op::JumpIfFalse { cond: 2, target: 7 },
-                Op::Show { src: 2 },
-                Op::Jump { target: 7 },
-                Op::LoadConst { dst: 3, idx: 2 },
-                Op::Halt,
-            ],
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn renders_common_ops_with_resolved_operands() {
-        let d = disassemble(&prog());
-        assert_eq!(d[0].text, "LoadConst R0 = 6");
-        assert_eq!(d[1].text, "LoadConst R1 = 7");
-        assert_eq!(d[2].text, "Mul R2 = R0 * R1");
-        assert_eq!(d[3].text, "JumpIfFalse R2 -> 7");
-        assert_eq!(d[4].text, "Show R2");
-        assert_eq!(d[5].text, "Jump -> 7");
-        assert_eq!(d[6].text, "LoadConst R3 = \"hi\"");
-        assert_eq!(d[7].text, "Halt");
-    }
-
-    #[test]
-    fn extracts_jump_targets() {
-        let d = disassemble(&prog());
-        assert_eq!(d[3].targets, vec![7]); // JumpIfFalse
-        assert_eq!(d[5].targets, vec![7]); // Jump
-        assert!(d[2].targets.is_empty()); // straight-line Mul
-    }
-
-    #[test]
-    fn op_io_identifies_reads_and_writes() {
-        assert_eq!(op_io(&Op::Add { dst: 2, lhs: 0, rhs: 1 }), OpIo { writes: Some(2), reads: vec![0, 1] });
-        assert_eq!(op_io(&Op::LoadConst { dst: 0, idx: 0 }), OpIo { writes: Some(0), reads: vec![] });
-        assert_eq!(op_io(&Op::Show { src: 3 }), OpIo { writes: None, reads: vec![3] });
-        assert_eq!(op_io(&Op::Move { dst: 1, src: 0 }), OpIo { writes: Some(1), reads: vec![0] });
-    }
-
-    #[test]
-    fn pc_indices_are_sequential() {
-        let d = disassemble(&prog());
-        for (i, line) in d.iter().enumerate() {
-            assert_eq!(line.pc, i);
-        }
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/vm/disasm/tests.rs"]
+mod tests;

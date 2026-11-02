@@ -122,7 +122,11 @@ impl<T: FillClone> FillClone for LogosSeq<T> {
 impl<K: Clone + Eq + Hash, V: FillClone> FillClone for LogosMap<K, V> {
     fn fill_clone(&self) -> Self {
         Self(Rc::new(RefCell::new(
-            self.0.borrow().iter().map(|(k, v)| (k.clone(), v.fill_clone())).collect(),
+            self.0
+                .borrow()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.fill_clone()))
+                .collect(),
         )))
     }
 }
@@ -222,17 +226,35 @@ impl<T: Clone> LogosSeq<T> {
     }
 }
 
-impl<T: Clone> LogosSeq<LogosSeq<T>> {
-    /// Value-semantic nested write `grid[k][i] = v` (the through-write fast path): copy-on-write the
-    /// ROW at `k` (deep-copy only if its buffer is shared with a value-semantics sibling), then set
-    /// element `i` of that row in place. The compiled mirror of the parser's clone-modify-writeback
-    /// place desugar, but O(1) when the row is uniquely owned — no full-row clone. The caller `cow()`s
-    /// the OUTER handle first (as the codegen emits), so a shared `grid` is never mutated in place.
+/// A no-op `cow()` for an OWNED `Vec` — a scalarized (non-shared) sequence never aliases, so the
+/// copy-on-write barrier the codegen emits before an in-place mutation is unnecessary. This keeps the
+/// codegen's `cow()` emission TOTAL: whether a `Seq` lowered to a shared `LogosSeq` (real copy-on-write)
+/// or a scalarized owned `Vec<T>` (a proven-non-aliased buffer — e.g. a `Seq of Real` → `Vec<f64>`),
+/// `<seq>.cow()` always type-checks. Without this, a scalarized float/int vector whose `variable_types`
+/// entry still read `LogosSeq` made the emitter write `vec.cow()` on a `Vec`, which has no such method
+/// (`error[E0599]: no method named `cow``), breaking every float-sequence program on the compiled tiers.
+/// `LogosSeq`'s inherent `cow()` shadows this trait method, so shared handles keep the real barrier.
+pub trait VecCowNoop {
     #[inline]
-    pub fn set_nested(&self, k: usize, i: usize, v: T) {
+    fn cow(&mut self) {}
+}
+impl<T> VecCowNoop for Vec<T> {}
+
+impl<T: Clone> LogosSeq<LogosSeq<T>> {
+    /// Value-semantic nested write `Set item i of item k of grid to v` (the through-write fast path):
+    /// copy-on-write the ROW `k` names (deep-copy only if its buffer is shared with a value-semantics
+    /// sibling), then set the item `i` names in that row in place. Both are 1-based LOGOS indices under
+    /// [`crate::resolve_logos_index`], the row's first. The compiled mirror of the parser's
+    /// clone-modify-writeback place desugar, but O(1) when the row is uniquely owned — no full-row clone.
+    /// The caller `cow()`s the OUTER handle first (as the codegen emits), so a shared `grid` is never
+    /// mutated in place.
+    #[inline]
+    pub fn set_nested(&self, k: i64, i: i64, v: T) {
+        use crate::LogosItems;
         let mut outer = self.borrow_mut();
-        outer[k].cow();
-        outer[k].borrow_mut()[i] = v;
+        let row = outer.logos_item_mut(k);
+        row.cow();
+        *row.borrow_mut().logos_item_mut(i) = v;
     }
 }
 
@@ -253,7 +275,9 @@ impl<T: std::fmt::Display> std::fmt::Display for LogosSeq<T> {
         let inner = self.0.borrow();
         write!(f, "[")?;
         for (i, item) in inner.iter().enumerate() {
-            if i > 0 { write!(f, ", ")?; }
+            if i > 0 {
+                write!(f, ", ")?;
+            }
             write!(f, "{}", item)?;
         }
         write!(f, "]")
@@ -316,9 +340,10 @@ impl<K: Eq + Hash, V> LogosMap<K, V> {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self(Rc::new(RefCell::new(
-            FxIndexMap::with_capacity_and_hasher(cap, Default::default()),
-        )))
+        Self(Rc::new(RefCell::new(FxIndexMap::with_capacity_and_hasher(
+            cap,
+            Default::default(),
+        ))))
     }
 
     pub fn from_map(m: FxIndexMap<K, V>) -> Self {
@@ -414,7 +439,9 @@ impl<K: std::fmt::Display + Eq + Hash, V: std::fmt::Display> std::fmt::Display f
         let inner = self.0.borrow();
         write!(f, "{{")?;
         for (i, (k, v)) in inner.iter().enumerate() {
-            if i > 0 { write!(f, ", ")?; }
+            if i > 0 {
+                write!(f, ", ")?;
+            }
             write!(f, "{}: {}", k, v)?;
         }
         write!(f, "}}")
@@ -427,7 +454,9 @@ impl<K: serde::Serialize + Eq + Hash, V: serde::Serialize> serde::Serialize for 
     }
 }
 
-impl<'de, K: serde::Deserialize<'de> + Eq + Hash, V: serde::Deserialize<'de>> serde::Deserialize<'de> for LogosMap<K, V> {
+impl<'de, K: serde::Deserialize<'de> + Eq + Hash, V: serde::Deserialize<'de>>
+    serde::Deserialize<'de> for LogosMap<K, V>
+{
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let map = FxIndexMap::<K, V>::deserialize(deserializer)?;
         Ok(Self::from_map(map))
@@ -443,8 +472,12 @@ impl<K: Clone, V: Clone> IntoIterator for LogosMap<K, V> {
     type IntoIter = std::vec::IntoIter<(K, V)>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let entries: Vec<(K, V)> =
-            self.0.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let entries: Vec<(K, V)> = self
+            .0
+            .borrow()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         entries.into_iter()
     }
 }
@@ -454,6 +487,32 @@ impl<K: Eq + Hash, V> LogosContains<K> for LogosMap<K, V> {
     fn logos_contains(&self, key: &K) -> bool {
         self.0.borrow().contains_key(key)
     }
+}
+
+/// The most an open-addressed Int table ([`LogosI64Map`], [`LogosI64Set`], [`LogosI32Map`], [`LogosI32Set`]) is filled:
+/// half. A linear-probing miss walks (1 + 1/(1 - α)²) / 2 slots on average, 1.6 at a load of 0.3 and 3.6 at 0.6, and
+/// in a table larger than the cache every slot walked is a cache miss: two_sum's set spent a fifth fewer cycles at half
+/// full than at three-quarters.
+const INT_TABLE_MAX_LOAD: (usize, usize) = (1, 2);
+
+/// The power-of-two slot count (at least 8) that holds `cap` entries within [`INT_TABLE_MAX_LOAD`].
+fn int_table_slots(cap: usize) -> usize {
+    let (num, den) = INT_TABLE_MAX_LOAD;
+    (cap.saturating_mul(den) / num + 1).next_power_of_two().max(8)
+}
+
+/// The slot of an Int key in an open-addressed table of `2^(64 - shift)` slots: Fibonacci hashing, the TOP bits of the
+/// key times `2^64/φ` (Knuth). The top bits are the ones the multiply mixes from every bit of the key, so keys that
+/// differ only high (multiples of `2^32`) spread as sequential ones do, in two instructions, the table C hand-rolls.
+#[inline(always)]
+fn fib_slot(key: u64, shift: u32) -> usize {
+    (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> shift) as usize
+}
+
+/// Whether a table of `slots` holding `len` probed entries must grow before it takes another.
+fn int_table_full(len: usize, slots: usize) -> bool {
+    let (num, den) = INT_TABLE_MAX_LOAD;
+    (len + 1) * den > slots * num
 }
 
 /// A specialized open-addressing `i64 → i64` map with VALUE semantics and no
@@ -480,6 +539,8 @@ pub struct LogosI64Map {
     /// `[i64; 2]` (not a tuple) so the zero fill hits `alloc_zeroed`.
     entries: Vec<[i64; 2]>,
     mask: usize,
+    /// `64 - log2(slots)`: a key's slot is the top bits of its Fibonacci product ([`fib_slot`]).
+    shift: u32,
     len: usize,
     has_zero_key: bool,
     zero_key_val: i64,
@@ -492,6 +553,7 @@ impl LogosI64Map {
         Self {
             entries: Vec::new(),
             mask: 0,
+            shift: 64,
             len: 0,
             has_zero_key: false,
             zero_key_val: 0,
@@ -501,13 +563,14 @@ impl LogosI64Map {
     pub fn with_capacity(cap: usize) -> Self {
         let mut m = Self::new();
         if cap > 0 {
-            // Headroom for a ≤0.75 load factor, rounded up to a power of two
+            // Within the most a table is filled, rounded up to a power of two
             // (so the probe mask is `slots - 1`), with a floor of 8 slots.
-            let slots = ((cap * 4) / 3 + 1).next_power_of_two().max(8);
+            let slots = int_table_slots(cap);
             // `[Self::EMPTY, 0] == [0, 0]` → `alloc_zeroed` (calloc): lazily
             // zeroed, no eager memset of the whole table.
             m.entries = vec![[Self::EMPTY, 0]; slots];
             m.mask = slots - 1;
+            m.shift = 64 - slots.trailing_zeros();
         }
         m
     }
@@ -523,19 +586,17 @@ impl LogosI64Map {
     /// once `mask != 0`, so masked probe indices need no bounds check.
     #[inline(always)]
     fn assume_table_invariant(&self) {
-        unsafe { std::hint::assert_unchecked(self.mask + 1 == self.entries.len()); }
+        unsafe {
+            std::hint::assert_unchecked(self.mask + 1 == self.entries.len());
+        }
     }
 
     #[inline]
     fn slot(&self, key: i64) -> usize {
-        // Fibonacci hashing with an avalanche xor-shift: mixes the high bits of
-        // the multiply down so sequential keys (0, 1, 2, …) spread across slots.
-        let mut h = key as u64;
-        h = h.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        h ^= h >> 32;
-        (h as usize) & self.mask
+        fib_slot(key as u64, self.shift)
     }
 
+    #[inline]
     pub fn insert(&mut self, key: i64, value: i64) {
         if key == Self::EMPTY {
             if !self.has_zero_key {
@@ -545,7 +606,7 @@ impl LogosI64Map {
             self.zero_key_val = value;
             return;
         }
-        if self.mask == 0 || (self.table_len() + 1) * 4 > (self.mask + 1) * 3 {
+        if self.mask == 0 || int_table_full(self.table_len(), self.mask + 1) {
             self.grow();
         }
         self.assume_table_invariant();
@@ -565,10 +626,17 @@ impl LogosI64Map {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn grow(&mut self) {
-        let new_slots = if self.mask == 0 { 8 } else { (self.mask + 1) * 2 };
+        let new_slots = if self.mask == 0 {
+            8
+        } else {
+            (self.mask + 1) * 2
+        };
         let old = std::mem::replace(&mut self.entries, vec![[Self::EMPTY, 0]; new_slots]);
         self.mask = new_slots - 1;
+        self.shift = 64 - new_slots.trailing_zeros();
         self.assume_table_invariant();
         for &[k, v] in old.iter() {
             if k != Self::EMPTY {
@@ -581,6 +649,7 @@ impl LogosI64Map {
         }
     }
 
+    #[inline]
     pub fn get(&self, key: &i64) -> Option<i64> {
         let key = *key;
         if key == Self::EMPTY {
@@ -607,6 +676,7 @@ impl LogosI64Map {
         }
     }
 
+    #[inline]
     pub fn contains_key(&self, key: &i64) -> bool {
         self.get(key).is_some()
     }
@@ -633,6 +703,212 @@ impl LogosContains<i64> for LogosI64Map {
     }
 }
 
+/// A `Seq of Bool` held one bit per item: the representation a local sequence of truth values takes when every use
+/// of it is an item read, an item store, a push or its length. A table of `n` flags takes `n / 8` bytes where a
+/// `Vec<bool>` takes `n`, so a sieve over 10^8 numbers fits in the cache it used to stream past.
+///
+/// Items are counted from 1 as in every sequence, through [`crate::resolve_logos_index`]: an index counted from the
+/// back reaches the same item, and one that names no item fails with the sentence every tier reports. The unchecked
+/// accessors take a 0-based offset the caller has proven below [`LogosBits::len`].
+#[derive(Debug, Clone, Default)]
+pub struct LogosBits {
+    /// Item `k` (0-based) is bit `k % 64` of word `k / 64`; bits past `len` are zero.
+    words: Vec<u64>,
+    len: usize,
+}
+
+impl LogosBits {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// An empty sequence with room for `items` items before it grows.
+    pub fn with_capacity(items: usize) -> Self {
+        LogosBits {
+            words: Vec::with_capacity(items.div_ceil(64)),
+            len: 0,
+        }
+    }
+
+    /// `len` items, each `value`.
+    pub fn filled(len: usize, value: bool) -> Self {
+        let mut words = vec![if value { u64::MAX } else { 0 }; len.div_ceil(64)];
+        if value && len % 64 != 0 {
+            if let Some(last) = words.last_mut() {
+                *last = (1u64 << (len % 64)) - 1;
+            }
+        }
+        LogosBits { words, len }
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub fn push(&mut self, value: bool) {
+        if self.len % 64 == 0 {
+            self.words.push(0);
+        }
+        let at = self.len;
+        self.len += 1;
+        // SAFETY: `at` is below the new `len`, and its word exists.
+        unsafe { self.set_unchecked(at, value) }
+    }
+
+    /// The item `index` names (counted from 1, or from the back when negative).
+    #[inline]
+    pub fn item(&self, index: i64) -> bool {
+        let at = crate::resolve_logos_index(index, self.len);
+        // SAFETY: `resolve_logos_index` returns an offset below `len` or does not return.
+        unsafe { self.get_unchecked(at) }
+    }
+
+    /// Store `value` as the item `index` names.
+    #[inline]
+    pub fn set_item(&mut self, index: i64, value: bool) {
+        let at = crate::resolve_logos_index(index, self.len);
+        // SAFETY: as in `item`.
+        unsafe { self.set_unchecked(at, value) }
+    }
+
+    /// The item at 0-based `offset`.
+    ///
+    /// # Safety
+    /// `offset` is below [`LogosBits::len`].
+    #[inline(always)]
+    pub unsafe fn get_unchecked(&self, offset: usize) -> bool {
+        debug_assert!(offset < self.len);
+        (*self.words.get_unchecked(offset / 64) >> (offset % 64)) & 1 == 1
+    }
+
+    /// Store `value` at 0-based `offset`.
+    ///
+    /// # Safety
+    /// `offset` is below [`LogosBits::len`].
+    #[inline(always)]
+    pub unsafe fn set_unchecked(&mut self, offset: usize, value: bool) {
+        debug_assert!(offset < self.len);
+        let word = self.words.get_unchecked_mut(offset / 64);
+        let bit = 1u64 << (offset % 64);
+        *word = (*word & !bit) | ((value as u64) << (offset % 64));
+    }
+
+    /// Store `true` at 0-based `offset`: one `or` into its word.
+    ///
+    /// # Safety
+    /// `offset` is below [`LogosBits::len`].
+    #[inline(always)]
+    pub unsafe fn set_true_unchecked(&mut self, offset: usize) {
+        debug_assert!(offset < self.len);
+        *self.words.get_unchecked_mut(offset / 64) |= 1u64 << (offset % 64);
+    }
+
+    /// Store `value` at the `count` offsets `first`, `first + step`, `first + 2 * step`, ….
+    ///
+    /// A step of a word or more puts each offset in a word of its own, and a handful of offsets cost no more one at a
+    /// time; both store in place. Otherwise [`Self::fill_stride_words`] writes each word the progression crosses once,
+    /// out of line, so a loop that fills now and then keeps none of the walk's state in its own registers.
+    ///
+    /// # Safety
+    /// `step` is at least 1 and, when `count` is not 0, `first + (count - 1) * step` is below [`LogosBits::len`].
+    #[inline]
+    pub unsafe fn fill_stride_unchecked(&mut self, first: usize, count: usize, step: usize, value: bool) {
+        debug_assert!(step >= 1);
+        debug_assert!(count == 0 || first + (count - 1) * step < self.len);
+        if step >= 64 || count < 8 {
+            let mut at = first;
+            for _ in 0..count {
+                let word = self.words.get_unchecked_mut(at / 64);
+                let bit = 1u64 << (at % 64);
+                *word = if value { *word | bit } else { *word & !bit };
+                at += step;
+            }
+        } else {
+            self.fill_stride_words(first, count, step, value);
+        }
+    }
+
+    /// Store `value` at `first`, `first + step`, … up to `through`, and return how many steps past `first` that took:
+    /// a loop's stores from its counter's value on entry to its bound, the bound given as the offset it would store at.
+    /// Out of line, so the loop that calls it keeps no arithmetic of the progression in its own registers: what it
+    /// computes from its counter is the counter.
+    ///
+    /// # Safety
+    /// `step` is at least 1, `first <= through`, and `first + (through - first) / step * step` is below
+    /// [`LogosBits::len`].
+    #[inline(never)]
+    pub unsafe fn fill_stride_through_unchecked(
+        &mut self,
+        first: usize,
+        through: usize,
+        step: usize,
+        value: bool,
+    ) -> usize {
+        debug_assert!(step >= 1 && first <= through);
+        let more = (through - first) / step;
+        self.fill_stride_unchecked(first, more + 1, step, value);
+        more
+    }
+
+    /// [`Self::fill_stride_unchecked`] for a step shorter than a word: the offsets in one word are a fixed pattern,
+    /// the multiples of `step` below 64, shifted to where the progression enters the word, so each word is written
+    /// once. The progression enters the next word `64 % step` bits earlier in the pattern, wrapping by `step`.
+    ///
+    /// # Safety
+    /// As [`Self::fill_stride_unchecked`], with `1 <= step < 64` and `count >= 1`.
+    #[inline(never)]
+    unsafe fn fill_stride_words(&mut self, first: usize, count: usize, step: usize, value: bool) {
+        let last = first + (count - 1) * step;
+        let words = self.words.as_mut_ptr();
+        let store = |w: usize, mask: u64| {
+            let word = words.add(w);
+            *word = if value { *word | mask } else { *word & !mask };
+        };
+        let mut pattern = 0u64;
+        let mut k = 0;
+        while k < 64 {
+            pattern |= 1u64 << k;
+            k += step;
+        }
+        let back = 64 % step;
+        let (first_word, last_word) = (first / 64, last / 64);
+        let through_last = u64::MAX >> (63 - last % 64);
+        let mut phase = first % 64;
+        if first_word == last_word {
+            store(first_word, (pattern << phase) & through_last);
+            return;
+        }
+        store(first_word, pattern << phase);
+        phase = (phase + step - back) % step;
+        for w in first_word + 1..last_word {
+            store(w, pattern << phase);
+            phase = if phase >= back { phase - back } else { phase + step - back };
+        }
+        store(last_word, (pattern << phase) & through_last);
+    }
+
+    /// The items, first to last.
+    pub fn iter(&self) -> impl Iterator<Item = bool> + '_ {
+        // SAFETY: every offset below `len`.
+        (0..self.len).map(move |k| unsafe { self.get_unchecked(k) })
+    }
+}
+
+impl PartialEq for LogosBits {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.words == other.words
+    }
+}
+
+impl Eq for LogosBits {}
+
 /// Open-addressing `i64` SET — the keys-only sibling of [`LogosI64Map`], emitted
 /// for a `Map of Int to Int` the alias analysis proves is used ONLY as a set
 /// (insert + contains; the value is never read — two_sum's `seen`). ONE flat
@@ -649,6 +925,8 @@ impl LogosContains<i64> for LogosI64Map {
 pub struct LogosI64Set {
     keys: Vec<i64>,
     mask: usize,
+    /// `64 - log2(slots)`: a key's slot is the top bits of its Fibonacci product ([`fib_slot`]).
+    shift: u32,
     len: usize,
     has_zero_key: bool,
 }
@@ -657,17 +935,24 @@ impl LogosI64Set {
     const EMPTY: i64 = 0;
 
     pub fn new() -> Self {
-        Self { keys: Vec::new(), mask: 0, len: 0, has_zero_key: false }
+        Self {
+            keys: Vec::new(),
+            mask: 0,
+            shift: 64,
+            len: 0,
+            has_zero_key: false,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
         let mut s = Self::new();
         if cap > 0 {
-            let slots = ((cap * 4) / 3 + 1).next_power_of_two().max(8);
+            let slots = int_table_slots(cap);
             // `Self::EMPTY == 0` → `alloc_zeroed` (calloc): lazily-zeroed pages,
             // no eager memset/fault of the whole table.
             s.keys = vec![Self::EMPTY; slots];
             s.mask = slots - 1;
+            s.shift = 64 - slots.trailing_zeros();
         }
         s
     }
@@ -684,15 +969,14 @@ impl LogosI64Set {
     /// raw indexed loads). Caller must have established `mask != 0`.
     #[inline(always)]
     fn assume_table_invariant(&self) {
-        unsafe { std::hint::assert_unchecked(self.mask + 1 == self.keys.len()); }
+        unsafe {
+            std::hint::assert_unchecked(self.mask + 1 == self.keys.len());
+        }
     }
 
     #[inline]
     fn slot(&self, key: i64) -> usize {
-        let mut h = key as u64;
-        h = h.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        h ^= h >> 32;
-        (h as usize) & self.mask
+        fib_slot(key as u64, self.shift)
     }
 
     /// Insert a key. The `_value` parameter mirrors [`LogosI64Map::insert`]'s
@@ -707,7 +991,7 @@ impl LogosI64Set {
             }
             return;
         }
-        if self.mask == 0 || (self.table_len() + 1) * 4 > (self.mask + 1) * 3 {
+        if self.mask == 0 || int_table_full(self.table_len(), self.mask + 1) {
             self.grow();
         }
         self.assume_table_invariant();
@@ -726,10 +1010,17 @@ impl LogosI64Set {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn grow(&mut self) {
-        let new_slots = if self.mask == 0 { 8 } else { (self.mask + 1) * 2 };
+        let new_slots = if self.mask == 0 {
+            8
+        } else {
+            (self.mask + 1) * 2
+        };
         let old_keys = std::mem::replace(&mut self.keys, vec![Self::EMPTY; new_slots]);
         self.mask = new_slots - 1;
+        self.shift = 64 - new_slots.trailing_zeros();
         self.assume_table_invariant();
         for &k in old_keys.iter() {
             if k != Self::EMPTY {
@@ -798,6 +1089,8 @@ impl LogosContains<i64> for LogosI64Set {
 pub struct LogosI32Map {
     entries: Vec<[i32; 2]>,
     mask: usize,
+    /// `64 - log2(slots)`: a key's slot is the top bits of its Fibonacci product ([`fib_slot`]).
+    shift: u32,
     len: usize,
     has_zero_key: bool,
     zero_key_val: i32,
@@ -807,16 +1100,24 @@ impl LogosI32Map {
     const EMPTY: i32 = 0;
 
     pub fn new() -> Self {
-        Self { entries: Vec::new(), mask: 0, len: 0, has_zero_key: false, zero_key_val: 0 }
+        Self {
+            entries: Vec::new(),
+            mask: 0,
+            shift: 64,
+            len: 0,
+            has_zero_key: false,
+            zero_key_val: 0,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
         let mut m = Self::new();
         if cap > 0 {
-            let slots = ((cap * 4) / 3 + 1).next_power_of_two().max(8);
+            let slots = int_table_slots(cap);
             // `[0, 0]` → `alloc_zeroed` (calloc): lazily zeroed, no eager memset.
             m.entries = vec![[Self::EMPTY, 0]; slots];
             m.mask = slots - 1;
+            m.shift = 64 - slots.trailing_zeros();
         }
         m
     }
@@ -830,17 +1131,17 @@ impl LogosI32Map {
     /// once `mask != 0`, so masked probe indices need no bounds check.
     #[inline(always)]
     fn assume_table_invariant(&self) {
-        unsafe { std::hint::assert_unchecked(self.mask + 1 == self.entries.len()); }
+        unsafe {
+            std::hint::assert_unchecked(self.mask + 1 == self.entries.len());
+        }
     }
 
     #[inline]
     fn slot(&self, key: i32) -> usize {
-        let mut h = key as u32 as u64;
-        h = h.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        h ^= h >> 32;
-        (h as usize) & self.mask
+        fib_slot(key as u32 as u64, self.shift)
     }
 
+    #[inline]
     pub fn insert(&mut self, key: i64, value: i64) {
         let key = key as i32;
         let value = value as i32;
@@ -852,7 +1153,7 @@ impl LogosI32Map {
             self.zero_key_val = value;
             return;
         }
-        if self.mask == 0 || (self.table_len() + 1) * 4 > (self.mask + 1) * 3 {
+        if self.mask == 0 || int_table_full(self.table_len(), self.mask + 1) {
             self.grow();
         }
         self.assume_table_invariant();
@@ -872,10 +1173,17 @@ impl LogosI32Map {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn grow(&mut self) {
-        let new_slots = if self.mask == 0 { 8 } else { (self.mask + 1) * 2 };
+        let new_slots = if self.mask == 0 {
+            8
+        } else {
+            (self.mask + 1) * 2
+        };
         let old = std::mem::replace(&mut self.entries, vec![[Self::EMPTY, 0]; new_slots]);
         self.mask = new_slots - 1;
+        self.shift = 64 - new_slots.trailing_zeros();
         self.assume_table_invariant();
         for &[k, v] in old.iter() {
             if k != Self::EMPTY {
@@ -888,10 +1196,15 @@ impl LogosI32Map {
         }
     }
 
+    #[inline]
     pub fn get(&self, key: &i64) -> Option<i64> {
         let key = *key as i32;
         if key == Self::EMPTY {
-            return if self.has_zero_key { Some(self.zero_key_val as i64) } else { None };
+            return if self.has_zero_key {
+                Some(self.zero_key_val as i64)
+            } else {
+                None
+            };
         }
         if self.mask == 0 {
             return None;
@@ -910,6 +1223,7 @@ impl LogosI32Map {
         }
     }
 
+    #[inline]
     pub fn contains_key(&self, key: &i64) -> bool {
         self.get(key).is_some()
     }
@@ -946,6 +1260,8 @@ impl LogosContains<i64> for LogosI32Map {
 pub struct LogosI32Set {
     keys: Vec<i32>,
     mask: usize,
+    /// `64 - log2(slots)`: a key's slot is the top bits of its Fibonacci product ([`fib_slot`]).
+    shift: u32,
     len: usize,
     has_zero_key: bool,
 }
@@ -954,15 +1270,22 @@ impl LogosI32Set {
     const EMPTY: i32 = 0;
 
     pub fn new() -> Self {
-        Self { keys: Vec::new(), mask: 0, len: 0, has_zero_key: false }
+        Self {
+            keys: Vec::new(),
+            mask: 0,
+            shift: 64,
+            len: 0,
+            has_zero_key: false,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
         let mut s = Self::new();
         if cap > 0 {
-            let slots = ((cap * 4) / 3 + 1).next_power_of_two().max(8);
+            let slots = int_table_slots(cap);
             s.keys = vec![Self::EMPTY; slots];
             s.mask = slots - 1;
+            s.shift = 64 - slots.trailing_zeros();
         }
         s
     }
@@ -976,17 +1299,17 @@ impl LogosI32Set {
     /// `mask != 0`, so masked probe indices need no bounds check.
     #[inline(always)]
     fn assume_table_invariant(&self) {
-        unsafe { std::hint::assert_unchecked(self.mask + 1 == self.keys.len()); }
+        unsafe {
+            std::hint::assert_unchecked(self.mask + 1 == self.keys.len());
+        }
     }
 
     #[inline]
     fn slot(&self, key: i32) -> usize {
-        let mut h = key as u32 as u64;
-        h = h.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        h ^= h >> 32;
-        (h as usize) & self.mask
+        fib_slot(key as u32 as u64, self.shift)
     }
 
+    #[inline]
     pub fn insert(&mut self, key: i64, _value: i64) {
         let key = key as i32;
         if key == Self::EMPTY {
@@ -996,7 +1319,7 @@ impl LogosI32Set {
             }
             return;
         }
-        if self.mask == 0 || (self.table_len() + 1) * 4 > (self.mask + 1) * 3 {
+        if self.mask == 0 || int_table_full(self.table_len(), self.mask + 1) {
             self.grow();
         }
         self.assume_table_invariant();
@@ -1015,10 +1338,17 @@ impl LogosI32Set {
         }
     }
 
+    #[cold]
+    #[inline(never)]
     fn grow(&mut self) {
-        let new_slots = if self.mask == 0 { 8 } else { (self.mask + 1) * 2 };
+        let new_slots = if self.mask == 0 {
+            8
+        } else {
+            (self.mask + 1) * 2
+        };
         let old_keys = std::mem::replace(&mut self.keys, vec![Self::EMPTY; new_slots]);
         self.mask = new_slots - 1;
+        self.shift = 64 - new_slots.trailing_zeros();
         self.assume_table_invariant();
         for &k in old_keys.iter() {
             if k != Self::EMPTY {
@@ -1031,6 +1361,7 @@ impl LogosI32Set {
         }
     }
 
+    #[inline]
     pub fn contains_key(&self, key: &i64) -> bool {
         let key = *key as i32;
         if key == Self::EMPTY {
@@ -1100,7 +1431,12 @@ pub struct LogosDenseI64Map {
 
 impl LogosDenseI64Map {
     pub fn new() -> Self {
-        Self { data: Vec::new(), present: Vec::new(), lo: 0, len: 0 }
+        Self {
+            data: Vec::new(),
+            present: Vec::new(),
+            lo: 0,
+            len: 0,
+        }
     }
 
     /// A window `[0, cap)` — the offset-free form. Mirrors the `LogosI64Map`
@@ -1205,7 +1541,11 @@ pub struct LogosDenseI64MapNoPresence {
 
 impl LogosDenseI64MapNoPresence {
     pub fn new() -> Self {
-        Self { data: Vec::new(), lo: 0, len: 0 }
+        Self {
+            data: Vec::new(),
+            lo: 0,
+            len: 0,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
@@ -1213,7 +1553,11 @@ impl LogosDenseI64MapNoPresence {
     }
 
     pub fn with_bounds(lo: i64, slots: usize) -> Self {
-        Self { data: vec![0; slots], lo, len: 0 }
+        Self {
+            data: vec![0; slots],
+            lo,
+            len: 0,
+        }
     }
 
     #[inline]
@@ -1270,7 +1614,11 @@ pub struct LogosDenseI64Set {
 
 impl LogosDenseI64Set {
     pub fn new() -> Self {
-        Self { present: Vec::new(), lo: 0, len: 0 }
+        Self {
+            present: Vec::new(),
+            lo: 0,
+            len: 0,
+        }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
@@ -1278,7 +1626,11 @@ impl LogosDenseI64Set {
     }
 
     pub fn with_bounds(lo: i64, slots: usize) -> Self {
-        Self { present: vec![0; slots.div_ceil(64)], lo, len: 0 }
+        Self {
+            present: vec![0; slots.div_ceil(64)],
+            lo,
+            len: 0,
+        }
     }
 
     /// Insert a key. The `_value` mirrors [`LogosDenseI64Map::insert`]'s call
@@ -1364,7 +1716,11 @@ impl LogosDivU64 {
         debug_assert!(d != 0, "LogosDivU64: divisor must be non-zero");
         if d & (d - 1) == 0 {
             // Power of two (including d == 1, shift 0): the division is a shift.
-            return Self { magic: 0, more: (d.trailing_zeros() as u8) | Self::SHIFT_PATH, d };
+            return Self {
+                magic: 0,
+                more: (d.trailing_zeros() as u8) | Self::SHIFT_PATH,
+                d,
+            };
         }
         let floor_log_2_d = 63 - d.leading_zeros();
         // proposed_m = floor(2^(64 + floor_log_2_d) / d); rem the remainder.
@@ -1379,8 +1735,10 @@ impl LogosDivU64 {
             // Need the 65th bit — fold it into an extra add at division time.
             let twice_rem = rem.wrapping_mul(2);
             let bump = (twice_rem >= d || twice_rem < rem) as u64;
-            (proposed_m.wrapping_mul(2).wrapping_add(bump) + 1,
-             (floor_log_2_d as u8) | Self::ADD_MARKER)
+            (
+                proposed_m.wrapping_mul(2).wrapping_add(bump) + 1,
+                (floor_log_2_d as u8) | Self::ADD_MARKER,
+            )
         };
         Self { magic, more, d }
     }
@@ -1426,8 +1784,7 @@ pub type Map<K, V> = LogosMap<K, V>;
 /// follow first-insertion order, identical to the tree-walker's Vec-backed
 /// sets and the direct-WASM linear sets. Fx hashing for speed. NOTE: removal
 /// must go through `shift_remove` (order-preserving), never `swap_remove`.
-pub type FxIndexSet<T> =
-    indexmap::IndexSet<T, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+pub type FxIndexSet<T> = indexmap::IndexSet<T, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 pub type Set<T> = FxIndexSet<T>;
 
 /// Unified containment testing for all collection types.
@@ -1523,9 +1880,7 @@ impl LogosContains<char> for String {
     }
 }
 
-impl<T: Eq + Hash + Clone, B: crate::crdt::SetBias> LogosContains<T>
-    for crate::crdt::ORSet<T, B>
-{
+impl<T: Eq + Hash + Clone, B: crate::crdt::SetBias> LogosContains<T> for crate::crdt::ORSet<T, B> {
     #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
         self.contains(value)
@@ -1584,6 +1939,15 @@ pub enum Value {
     Text(String),
     /// Single character values.
     Char(char),
+    /// A boxed homogeneous sequence — the carrier that lets a `LogosTuple` hold a COLLECTION element
+    /// (`(Seq of Text, Seq of Int)`), not just a scalar. The elements are themselves boxed `Value`s, so
+    /// a `Seq of Seq of _` nests naturally. Constructed by the `From<LogosSeq<T>>` impls and read back by
+    /// the `logos_seq_*` unboxers, exactly as the scalar variants pair with `From`/`logos_*`.
+    Seq(LogosSeq<Value>),
+    /// A value of a type the program declares (a record, a variant), boxed so it rides a tuple element
+    /// beside scalars and lists. Built by the `From<T: Boxable>` impl, read back by
+    /// [`Value::logos_boxed`], rendered by the type's own `Show`.
+    Boxed(LogosBoxed),
     /// Unit/null value.
     Nothing,
 }
@@ -1596,38 +1960,290 @@ impl std::fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Text(s) => write!(f, "{}", s),
             Value::Char(c) => write!(f, "{}", c),
+            Value::Seq(xs) => write!(f, "{}", xs),
+            Value::Boxed(b) => write!(f, "{}", b),
             Value::Nothing => write!(f, "nothing"),
         }
     }
 }
 
+/// A type a compiled program declares that can ride a tuple element as a [`Value::Boxed`]. The
+/// program implements it for each record and variant it declares; `render` is the type's own `Show`
+/// (this crate has no IO, so the rendering is supplied by the implementor).
+pub trait Boxable: std::any::Any + Clone + PartialEq + std::fmt::Debug {
+    fn render(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+}
+
+/// The object-safe face of a [`Boxable`]: what a [`LogosBoxed`] needs from the value it holds.
+trait BoxedValue: std::any::Any {
+    fn render(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+    fn equals(&self, other: &dyn BoxedValue) -> bool;
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+impl<T: Boxable> BoxedValue for T {
+    fn render(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Boxable::render(self, f)
+    }
+    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+    fn equals(&self, other: &dyn BoxedValue) -> bool {
+        other
+            .as_any()
+            .downcast_ref::<T>()
+            .is_some_and(|other| self == other)
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// A [`Boxable`] value behind a shared, immutable pointer. Reading it back clones the value out, so
+/// sharing the allocation between clones of a tuple never lets one copy observe another's writes.
+/// Two boxes are equal when they hold the same type and equal values.
+#[derive(Clone)]
+pub struct LogosBoxed(Rc<dyn BoxedValue>);
+
+impl LogosBoxed {
+    #[inline]
+    pub fn new<T: Boxable>(value: T) -> Self {
+        LogosBoxed(Rc::new(value))
+    }
+
+    /// The held value as a `T`. Holding any other type is a program-type error, and panics like the
+    /// scalar unboxers.
+    #[inline]
+    pub fn get<T: Boxable>(&self) -> T {
+        match self.0.as_any().downcast_ref::<T>() {
+            Some(value) => value.clone(),
+            None => panic!(
+                "expected a {} tuple/record element, found {}",
+                std::any::type_name::<T>(),
+                self
+            ),
+        }
+    }
+}
+
+impl PartialEq for LogosBoxed {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.equals(&*other.0)
+    }
+}
+
+impl std::fmt::Debug for LogosBoxed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.debug(f)
+    }
+}
+
+impl std::fmt::Display for LogosBoxed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.render(f)
+    }
+}
+
+impl<T: Boxable> From<T> for Value {
+    #[inline]
+    fn from(value: T) -> Self {
+        Value::Boxed(LogosBoxed::new(value))
+    }
+}
+
+/// A LOGOS tuple `(a, b, …)` — a positional, heterogeneous value. A newtype over `Vec<Value>` that
+/// `Deref`s to it, so every existing indexing / destructuring / iteration / return path keeps working
+/// unchanged; it exists ONLY to carry a distinct display: a tuple renders with PARENS `(a, b)` and — the
+/// whole point — stays distinguishable from a `Seq` even when nested (`[(1, 2), (3, 4)]`), which a bare
+/// `Vec<Value>` (shown as `[…]`, identical to a Seq) could not.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct LogosTuple(pub Vec<Value>);
+
+impl std::ops::Deref for LogosTuple {
+    type Target = Vec<Value>;
+    fn deref(&self) -> &Vec<Value> {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for LogosTuple {
+    fn deref_mut(&mut self) -> &mut Vec<Value> {
+        &mut self.0
+    }
+}
+
+impl From<Vec<Value>> for LogosTuple {
+    fn from(v: Vec<Value>) -> Self {
+        LogosTuple(v)
+    }
+}
+
+impl std::fmt::Display for LogosTuple {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(")?;
+        for (i, v) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", v)?;
+        }
+        write!(f, ")")
+    }
+}
+
 // Conversion traits for Value
 impl From<i64> for Value {
-    fn from(n: i64) -> Self { Value::Int(n) }
+    fn from(n: i64) -> Self {
+        Value::Int(n)
+    }
 }
 
 impl From<f64> for Value {
-    fn from(n: f64) -> Self { Value::Float(n) }
+    fn from(n: f64) -> Self {
+        Value::Float(n)
+    }
 }
 
 impl From<bool> for Value {
-    fn from(b: bool) -> Self { Value::Bool(b) }
+    fn from(b: bool) -> Self {
+        Value::Bool(b)
+    }
 }
 
 impl From<String> for Value {
-    fn from(s: String) -> Self { Value::Text(s) }
+    fn from(s: String) -> Self {
+        Value::Text(s)
+    }
 }
 
 impl From<&str> for Value {
-    fn from(s: &str) -> Self { Value::Text(s.to_string()) }
+    fn from(s: &str) -> Self {
+        Value::Text(s.to_string())
+    }
 }
 
 impl From<char> for Value {
-    fn from(c: char) -> Self { Value::Char(c) }
+    fn from(c: char) -> Self {
+        Value::Char(c)
+    }
+}
+
+/// BOX a homogeneous sequence into a `Value` so it can ride as a tuple element. Each element is boxed
+/// via its own `Into<Value>` (so `LogosSeq<i64>` → `Value::Seq` of `Value::Int`, and a `LogosSeq<LogosSeq<_>>`
+/// nests by boxing each inner seq the same way; a `LogosSeq<Value>` uses the reflexive `Value: Into<Value>`).
+/// Pairs with the `logos_seq_*` unboxers.
+impl<T: Into<Value> + Clone> From<LogosSeq<T>> for Value {
+    fn from(xs: LogosSeq<T>) -> Self {
+        Value::Seq(LogosSeq::from_vec(
+            xs.0.borrow().iter().cloned().map(Into::into).collect(),
+        ))
+    }
 }
 
 /// Tuple type: Vec of heterogeneous Values (uses LogosIndex from indexing module)
 pub type Tuple = Vec<Value>;
+
+impl Value {
+    /// UNBOX a heterogeneous-tuple / named-record element (a boxed `Value` read out of the positional
+    /// `Vec<Value>`) back to its concrete scalar so it can be USED in a typed position — `upper(item 2 of
+    /// t)` where element 2 is a `Text`, or `r's ratio * 2.0` where `ratio` is a `Real`. Extraction alone
+    /// yields a `Value` (fine for `Show`, which takes any `Display`); these turn it back into the exact
+    /// scalar the AOT-Rust code's type context demands. A wrong-variant unbox is a genuine program-type
+    /// error, so it panics loudly (mirrors the interpreter/VM, which would surface the same mismatch).
+    #[inline]
+    pub fn logos_i64(self) -> i64 {
+        match self {
+            Value::Int(n) => n,
+            other => panic!("expected an Int tuple/record element, found {other}"),
+        }
+    }
+    #[inline]
+    pub fn logos_f64(self) -> f64 {
+        match self {
+            Value::Float(x) => x,
+            Value::Int(n) => n as f64,
+            other => panic!("expected a Real tuple/record element, found {other}"),
+        }
+    }
+    #[inline]
+    pub fn logos_bool(self) -> bool {
+        match self {
+            Value::Bool(b) => b,
+            other => panic!("expected a Bool tuple/record element, found {other}"),
+        }
+    }
+    #[inline]
+    pub fn logos_string(self) -> String {
+        match self {
+            Value::Text(s) => s,
+            Value::Char(c) => c.to_string(),
+            other => panic!("expected a Text tuple/record element, found {other}"),
+        }
+    }
+    #[inline]
+    pub fn logos_char(self) -> char {
+        match self {
+            Value::Char(c) => c,
+            other => panic!("expected a Char tuple/record element, found {other}"),
+        }
+    }
+    /// UNBOX a [`Value::Boxed`] element back to the record or variant it holds.
+    #[inline]
+    pub fn logos_boxed<T: Boxable>(self) -> T {
+        match self {
+            Value::Boxed(b) => b.get(),
+            other => panic!(
+                "expected a {} tuple/record element, found {other}",
+                std::any::type_name::<T>()
+            ),
+        }
+    }
+
+    /// UNBOX the [`Value::Seq`] carrier back to a typed `LogosSeq<T>`, unboxing each element with `f`
+    /// (`Value::logos_i64` for a `Seq of Int`, `Value::logos_seq_string` for a `Seq of Seq of Text`, …).
+    /// The scalar-per-type wrappers below name the common element unboxers; nesting composes them. A
+    /// non-`Seq` value is a genuine program-type error, so it panics loudly like the scalar unboxers.
+    #[inline]
+    pub fn logos_seq<T>(self, f: impl Fn(Value) -> T) -> LogosSeq<T> {
+        match self {
+            Value::Seq(xs) => LogosSeq::from_vec(xs.0.borrow().iter().cloned().map(f).collect()),
+            other => panic!("expected a Seq tuple/record element, found {other}"),
+        }
+    }
+    #[inline]
+    pub fn logos_seq_i64(self) -> LogosSeq<i64> {
+        self.logos_seq(Value::logos_i64)
+    }
+    #[inline]
+    pub fn logos_seq_f64(self) -> LogosSeq<f64> {
+        self.logos_seq(Value::logos_f64)
+    }
+    #[inline]
+    pub fn logos_seq_bool(self) -> LogosSeq<bool> {
+        self.logos_seq(Value::logos_bool)
+    }
+    #[inline]
+    pub fn logos_seq_string(self) -> LogosSeq<String> {
+        self.logos_seq(Value::logos_string)
+    }
+    #[inline]
+    pub fn logos_seq_seq_i64(self) -> LogosSeq<LogosSeq<i64>> {
+        self.logos_seq(Value::logos_seq_i64)
+    }
+    #[inline]
+    pub fn logos_seq_seq_f64(self) -> LogosSeq<LogosSeq<f64>> {
+        self.logos_seq(Value::logos_seq_f64)
+    }
+    #[inline]
+    pub fn logos_seq_seq_bool(self) -> LogosSeq<LogosSeq<bool>> {
+        self.logos_seq(Value::logos_seq_bool)
+    }
+    #[inline]
+    pub fn logos_seq_seq_string(self) -> LogosSeq<LogosSeq<String>> {
+        self.logos_seq(Value::logos_seq_string)
+    }
+}
 
 // NOTE: Showable impl for Value is in logicaffeine_system (io module)
 // This crate (logicaffeine_data) has NO IO dependencies.
@@ -1717,7 +2333,7 @@ impl LogosRational {
     pub fn from_ratio(n: i64, d: i64) -> Self {
         LogosRational(
             logicaffeine_base::Rational::from_ratio_i64(n, d)
-                .expect("LOGOS runtime error: division by zero"),
+                .expect(crate::failure::DIVISION_BY_ZERO),
         )
     }
 
@@ -1742,7 +2358,7 @@ impl LogosRational {
         LogosRational(
             self.0
                 .div(&other.0)
-                .expect("LOGOS runtime error: division by zero"),
+                .expect(crate::failure::DIVISION_BY_ZERO),
         )
     }
 
@@ -1756,19 +2372,132 @@ impl LogosRational {
     /// BigInt numerator/denominator — never through a lossy `f64`.
     #[inline]
     pub fn floor(&self) -> i64 {
-        self.0.floor().to_i64().expect("LOGOS runtime error: floor exceeds i64")
+        self.0
+            .floor()
+            .to_i64()
+            .expect("LOGOS runtime error: floor exceeds i64")
     }
 
     /// The least integer ≥ this rational (toward +∞), computed exactly.
     #[inline]
     pub fn ceil(&self) -> i64 {
-        self.0.ceil().to_i64().expect("LOGOS runtime error: ceiling exceeds i64")
+        self.0
+            .ceil()
+            .to_i64()
+            .expect("LOGOS runtime error: ceiling exceeds i64")
     }
 
     /// The nearest integer, ties away from zero (matching `f64::round`), computed exactly.
     #[inline]
     pub fn round(&self) -> i64 {
-        self.0.round().to_i64().expect("LOGOS runtime error: round exceeds i64")
+        self.0
+            .round()
+            .to_i64()
+            .expect("LOGOS runtime error: round exceeds i64")
+    }
+
+    /// The exact number the language holds this as: the integer it equals when it is whole, so every
+    /// operator below takes the rule the interpreter takes for the value (a whole value the integer's).
+    fn exact(&self) -> crate::LogosValue {
+        crate::LogosValue::from_rational(self.0.clone())
+    }
+
+    /// The rational an operator over two exact numbers answers.
+    fn of_exact(v: crate::LogosValue) -> LogosRational {
+        match v {
+            crate::LogosValue::Int(n) => LogosRational::from_i64(n),
+            crate::LogosValue::BigInt(b) => LogosRational(logicaffeine_base::Rational::from_bigint((*b).clone())),
+            crate::LogosValue::Rational(r) => LogosRational((*r).clone()),
+            other => unreachable!("an operator over exact numbers answered a {}", other.type_name()),
+        }
+    }
+
+    fn exact_op(
+        &self,
+        other: &LogosRational,
+        op: fn(&crate::LogosValue, &crate::LogosValue) -> Result<crate::LogosValue, String>,
+    ) -> LogosRational {
+        LogosRational::of_exact(crate::failure::answered(op(&self.exact(), &other.exact())))
+    }
+
+    fn integer_op(
+        &self,
+        other: &LogosRational,
+        op: fn(&crate::LogosValue, &crate::LogosValue) -> Result<crate::LogosValue, String>,
+    ) -> i64 {
+        match crate::failure::answered(op(&self.exact(), &other.exact())) {
+            crate::LogosValue::Int(n) => n,
+            other => unreachable!("an integer operator answered a {}", other.type_name()),
+        }
+    }
+
+    /// `self / other`: two whole values truncate as integers do, and otherwise the quotient is exact.
+    pub fn quotient(&self, other: &LogosRational) -> LogosRational {
+        self.exact_op(other, crate::LogosValue::div)
+    }
+
+    /// `self % other`: the remainder of two whole values, its sign the dividend's; a fraction has none.
+    pub fn remainder(&self, other: &LogosRational) -> LogosRational {
+        self.exact_op(other, crate::LogosValue::rem)
+    }
+
+    /// `self // other`: the floor of the exact quotient.
+    pub fn floor_quotient(&self, other: &LogosRational) -> LogosRational {
+        self.exact_op(other, crate::LogosValue::floor_div)
+    }
+
+    /// `self ** other`: a whole base takes an integer's power, a fraction a rational's.
+    pub fn power(&self, other: &LogosRational) -> LogosRational {
+        self.exact_op(other, crate::LogosValue::pow)
+    }
+
+    /// `self & other` of two whole values.
+    pub fn bit_and(&self, other: &LogosRational) -> i64 {
+        self.integer_op(other, crate::LogosValue::bit_and)
+    }
+
+    /// `self | other` of two whole values.
+    pub fn bit_or(&self, other: &LogosRational) -> i64 {
+        self.integer_op(other, crate::LogosValue::bit_or)
+    }
+
+    /// `self ^ other` of two whole values.
+    pub fn bit_xor(&self, other: &LogosRational) -> i64 {
+        self.integer_op(other, crate::LogosValue::bit_xor)
+    }
+
+    /// `self << other` of two whole values.
+    pub fn shl(&self, other: &LogosRational) -> i64 {
+        self.integer_op(other, crate::LogosValue::shl)
+    }
+
+    /// `self >> other` of two whole values.
+    pub fn shr(&self, other: &LogosRational) -> i64 {
+        self.integer_op(other, crate::LogosValue::shr)
+    }
+
+    /// The real the language computes with where this meets one.
+    #[inline]
+    pub fn to_f64(&self) -> f64 {
+        self.0.to_f64()
+    }
+
+    /// How this compares with the real `other`, by that real's exact value; `None` against NaN.
+    #[inline]
+    pub fn order_real(&self, other: f64) -> Option<std::cmp::Ordering> {
+        logicaffeine_base::numeric::cmp_rational_f64_exact(&self.0, other)
+    }
+
+    /// The machine integer this is where the language takes one (an index, a bound): stopped with
+    /// `past_word` when it is whole but outside `i64`, and with `fraction` when it is not whole.
+    pub fn integer(&self, past_word: &str, fraction: &str) -> i64 {
+        if !self.0.is_integer() {
+            return crate::failure::answered(Err(fraction.to_string()));
+        }
+        match self.0.to_bigint().and_then(|b| b.to_i64()) {
+            Some(n) => n,
+            None => crate::failure::answered(Err(past_word.to_string())),
+        }
     }
 }
 
@@ -1785,6 +2514,107 @@ impl From<i64> for LogosRational {
     }
 }
 
+/// The placeholder `#[derive(Default)]` on a record needs. The language holds nothing in a rational field a record is
+/// built without, which a `LogosRational` cannot hold, so a compiled construction that leaves one unset is refused
+/// and this value is never observed.
+impl Default for LogosRational {
+    fn default() -> Self {
+        LogosRational::from_i64(0)
+    }
+}
+
+impl From<LogosInt> for LogosRational {
+    #[inline]
+    fn from(n: LogosInt) -> Self {
+        match n {
+            LogosInt::Small(n) => LogosRational::from_i64(n),
+            LogosInt::Big(b) => LogosRational(logicaffeine_base::Rational::from_bigint(*b)),
+        }
+    }
+}
+
+/// A value of integers held where the language holds rationals: an integer as the rational it equals, a list item
+/// by item, at any depth.
+pub trait ToRationals {
+    /// The same value with each integer a rational.
+    type Rationals;
+    fn to_rationals(&self) -> Self::Rationals;
+}
+
+impl ToRationals for i64 {
+    type Rationals = LogosRational;
+    #[inline]
+    fn to_rationals(&self) -> LogosRational {
+        LogosRational::from_i64(*self)
+    }
+}
+
+impl ToRationals for LogosRational {
+    type Rationals = LogosRational;
+    #[inline]
+    fn to_rationals(&self) -> LogosRational {
+        self.clone()
+    }
+}
+
+impl<T: ToRationals> ToRationals for [T] {
+    type Rationals = LogosSeq<T::Rationals>;
+    fn to_rationals(&self) -> LogosSeq<T::Rationals> {
+        LogosSeq::from_vec(self.iter().map(ToRationals::to_rationals).collect())
+    }
+}
+
+impl<T: ToRationals> ToRationals for Vec<T> {
+    type Rationals = LogosSeq<T::Rationals>;
+    fn to_rationals(&self) -> LogosSeq<T::Rationals> {
+        self.as_slice().to_rationals()
+    }
+}
+
+impl<T: ToRationals> ToRationals for LogosSeq<T> {
+    type Rationals = LogosSeq<T::Rationals>;
+    fn to_rationals(&self) -> LogosSeq<T::Rationals> {
+        self.0.borrow().as_slice().to_rationals()
+    }
+}
+
+// Arithmetic OPERATORS so codegen can emit `a + b` for rationals (a `decimal ÷` widens to
+// `LogosRational`, and a following `+`/`−`/`×` composed raw would otherwise be E0369). They delegate
+// to the wrapped exact `Rational`, so they stay byte-identical to `.add()`/`.sub()`/`.mul()`. `/`
+// panics on a zero divisor, mirroring integer `/ 0`.
+impl std::ops::Add for LogosRational {
+    type Output = LogosRational;
+    #[inline]
+    fn add(self, other: LogosRational) -> LogosRational {
+        LogosRational(self.0.add(&other.0))
+    }
+}
+impl std::ops::Sub for LogosRational {
+    type Output = LogosRational;
+    #[inline]
+    fn sub(self, other: LogosRational) -> LogosRational {
+        LogosRational(self.0.sub(&other.0))
+    }
+}
+impl std::ops::Mul for LogosRational {
+    type Output = LogosRational;
+    #[inline]
+    fn mul(self, other: LogosRational) -> LogosRational {
+        LogosRational(self.0.mul(&other.0))
+    }
+}
+impl std::ops::Div for LogosRational {
+    type Output = LogosRational;
+    #[inline]
+    fn div(self, other: LogosRational) -> LogosRational {
+        LogosRational(
+            self.0
+                .div(&other.0)
+                .expect(crate::failure::DIVISION_BY_ZERO),
+        )
+    }
+}
+
 /// An exact base-10 fixed-point number — money's runtime type on the compiled-to-Rust
 /// path, the AOT mirror of the interpreter's `Decimal`. `decimal("19.99")` compiles to
 /// `LogosDecimal::parse("19.99")`; `+ − ×` stay exact `Decimal` (scale preserved), and `÷`
@@ -1793,6 +2623,81 @@ impl From<i64> for LogosRational {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LogosDecimal(pub logicaffeine_base::Decimal);
 
+/// A value `decimal(…)` takes: Text is read as a base-10 number, an Int widens exactly, a Decimal is
+/// itself, and any other kind stops the program with [`crate::failure::decimal_needs_text_or_int`],
+/// naming it as the engines do.
+pub trait DecimalArg {
+    fn into_decimal(self) -> LogosDecimal;
+}
+
+impl DecimalArg for &str {
+    fn into_decimal(self) -> LogosDecimal {
+        LogosDecimal::parse(self)
+    }
+}
+
+impl DecimalArg for String {
+    fn into_decimal(self) -> LogosDecimal {
+        LogosDecimal::parse(&self)
+    }
+}
+
+impl DecimalArg for &String {
+    fn into_decimal(self) -> LogosDecimal {
+        LogosDecimal::parse(self)
+    }
+}
+
+impl DecimalArg for i64 {
+    fn into_decimal(self) -> LogosDecimal {
+        LogosDecimal::from_i64(self)
+    }
+}
+
+impl DecimalArg for LogosInt {
+    fn into_decimal(self) -> LogosDecimal {
+        match self {
+            LogosInt::Small(n) => LogosDecimal::from_i64(n),
+            LogosInt::Big(b) => LogosDecimal::parse(&b.to_string()),
+        }
+    }
+}
+
+impl DecimalArg for LogosDecimal {
+    fn into_decimal(self) -> LogosDecimal {
+        self
+    }
+}
+
+impl DecimalArg for &LogosDecimal {
+    fn into_decimal(self) -> LogosDecimal {
+        self.clone()
+    }
+}
+
+impl DecimalArg for f64 {
+    fn into_decimal(self) -> LogosDecimal {
+        panic!("{}", crate::failure::decimal_needs_text_or_int("Float"))
+    }
+}
+
+impl DecimalArg for bool {
+    fn into_decimal(self) -> LogosDecimal {
+        panic!("{}", crate::failure::decimal_needs_text_or_int("Bool"))
+    }
+}
+
+impl DecimalArg for char {
+    fn into_decimal(self) -> LogosDecimal {
+        panic!("{}", crate::failure::decimal_needs_text_or_int("Char"))
+    }
+}
+
+/// `decimal(v)`: see [`DecimalArg`].
+pub fn decimal_of(v: impl DecimalArg) -> LogosDecimal {
+    v.into_decimal()
+}
+
 impl LogosDecimal {
     /// A whole integer as a scale-0 decimal (`5 → "5"`).
     #[inline]
@@ -1800,14 +2705,15 @@ impl LogosDecimal {
         LogosDecimal(logicaffeine_base::Decimal::from_i64(n))
     }
 
-    /// Parse the exact value from its literal text (`"19.99"`). Panics on malformed input,
-    /// which the LOGOS front-end has already rejected before codegen.
+    /// The exact value `decimal(text)` names: the text, surrounding whitespace aside, read as a
+    /// base-10 number (`"19.99"`; [`logicaffeine_base::Decimal::parse`] owns the rule). Any other text
+    /// stops the program with [`crate::failure::not_a_decimal`], as on every tier.
     #[inline]
     pub fn parse(s: &str) -> Self {
-        LogosDecimal(
-            logicaffeine_base::Decimal::parse(s)
-                .expect("LOGOS runtime error: malformed decimal literal"),
-        )
+        match logicaffeine_base::Decimal::parse(s) {
+            Some(d) => LogosDecimal(d),
+            None => panic!("{}", crate::failure::not_a_decimal(s)),
+        }
     }
 
     #[inline]
@@ -1895,7 +2801,33 @@ impl LogosComplex {
     /// Exact division (the complex field is closed). Panics on a zero divisor, mirroring `/ 0`.
     #[inline]
     pub fn div_exact(&self, other: &LogosComplex) -> LogosComplex {
-        LogosComplex(self.0.div(&other.0).expect("LOGOS runtime error: division by zero"))
+        LogosComplex(
+            self.0
+                .div(&other.0)
+                .expect(crate::failure::DIVISION_BY_ZERO),
+        )
+    }
+
+    /// The complex conjugate `re − im·i` — stays exact. The Hermitian-transpose primitive.
+    #[inline]
+    pub fn conjugate(&self) -> LogosComplex {
+        LogosComplex(self.0.conjugate())
+    }
+    /// The real part as an `f64` (`re(z)`).
+    #[inline]
+    pub fn re(&self) -> f64 {
+        self.0.re().to_f64()
+    }
+    /// The imaginary part as an `f64` (`im(z)`).
+    #[inline]
+    pub fn im(&self) -> f64 {
+        self.0.im().to_f64()
+    }
+    /// The modulus `|z| = √(re² + im²)` as an `f64` — delegates to the wrapped `Complex`, so it is
+    /// byte-identical to the interpreter's `abs(Complex)` (`RuntimeValue::Float(c.abs_f64())`).
+    #[inline]
+    pub fn abs_f64(&self) -> f64 {
+        self.0.abs_f64()
     }
 }
 
@@ -1912,6 +2844,95 @@ impl From<i64> for LogosComplex {
     }
 }
 
+/// A floating-point complex `re + im·i` (each part `f64`) — the AOT mirror of the interpreter's
+/// `ComplexF` (LAPACK `Z`). `complex(3.0, 4.0)` compiles to `LogosComplexF::new(..)`; `+ − × ÷` and
+/// `sqrt` are inexact `f64` (the reason it exists over the exact `LogosComplex`). NOT ordered.
+/// `Display` matches the interpreter (`2+i`, `4+6i`) via `fmt_f64`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LogosComplexF(pub logicaffeine_base::ComplexF);
+
+impl LogosComplexF {
+    /// A real `f64` as `re + 0i`.
+    #[inline]
+    pub fn from_f64(re: f64) -> Self {
+        LogosComplexF(logicaffeine_base::ComplexF::from_f64(re))
+    }
+    /// `re + im·i` from two `f64`s.
+    #[inline]
+    pub fn new(re: f64, im: f64) -> Self {
+        LogosComplexF(logicaffeine_base::ComplexF::new(re, im))
+    }
+    #[inline]
+    pub fn add(&self, other: &LogosComplexF) -> LogosComplexF {
+        LogosComplexF(self.0.add(&other.0))
+    }
+    #[inline]
+    pub fn sub(&self, other: &LogosComplexF) -> LogosComplexF {
+        LogosComplexF(self.0.sub(&other.0))
+    }
+    #[inline]
+    pub fn mul(&self, other: &LogosComplexF) -> LogosComplexF {
+        LogosComplexF(self.0.mul(&other.0))
+    }
+    /// Division; panics on a zero divisor, mirroring `/ 0`.
+    #[inline]
+    pub fn div_exact(&self, other: &LogosComplexF) -> LogosComplexF {
+        LogosComplexF(
+            self.0
+                .div(&other.0)
+                .expect(crate::failure::DIVISION_BY_ZERO),
+        )
+    }
+    /// The principal square root (via the real `sqrt`) — the operation the exact `LogosComplex` lacks.
+    #[inline]
+    pub fn sqrt(&self) -> LogosComplexF {
+        LogosComplexF(self.0.sqrt())
+    }
+    #[inline]
+    pub fn conjugate(&self) -> LogosComplexF {
+        LogosComplexF(self.0.conjugate())
+    }
+    #[inline]
+    pub fn abs(&self) -> f64 {
+        self.0.abs()
+    }
+    /// The real part as an `f64` (`re(z)`).
+    #[inline]
+    pub fn re(&self) -> f64 {
+        self.0.re()
+    }
+    /// The imaginary part as an `f64` (`im(z)`).
+    #[inline]
+    pub fn im(&self) -> f64 {
+        self.0.im()
+    }
+}
+
+impl std::fmt::Display for LogosComplexF {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Match the interpreter's `ComplexF` display: `fmt_f64` parts with the unit coefficient omitted.
+        let (re, im) = (self.0.re(), self.0.im());
+        let g = crate::fmt::fmt_f64;
+        if im == 0.0 {
+            return write!(f, "{}", g(re));
+        }
+        let mag = im.abs();
+        let icoef = if mag == 1.0 { String::new() } else { g(mag) };
+        if re == 0.0 {
+            write!(f, "{}{}i", if im < 0.0 { "-" } else { "" }, icoef)
+        } else {
+            write!(f, "{}{}{}i", g(re), if im < 0.0 { "-" } else { "+" }, icoef)
+        }
+    }
+}
+
+impl From<f64> for LogosComplexF {
+    #[inline]
+    fn from(re: f64) -> Self {
+        LogosComplexF::from_f64(re)
+    }
+}
+
 /// An element of the ring ℤ/nℤ — the AOT mirror of the interpreter's `Modular`.
 /// `modular(value, modulus)` compiles to `LogosModular::new(..)`; `+ − ×` wrap in the ring,
 /// `pow` is fast modular exponentiation, and `÷` multiplies by the modular inverse. NOT ordered.
@@ -1924,29 +2945,49 @@ impl LogosModular {
     pub fn new(value: i64, modulus: i64) -> Self {
         LogosModular(
             logicaffeine_base::Modular::from_i64(value, modulus)
-                .expect("LOGOS runtime error: modulus must be positive"),
+                .unwrap_or_else(|| panic!("{}", crate::failure::MODULUS_NOT_POSITIVE)),
         )
     }
 
     #[inline]
     pub fn add(&self, other: &LogosModular) -> LogosModular {
-        LogosModular(self.0.add(&other.0).expect("LOGOS runtime error: modular ring mismatch"))
+        LogosModular(
+            self.0
+                .add(&other.0)
+                .unwrap_or_else(|| panic!("{}", crate::failure::modular_rings_differ("add"))),
+        )
     }
 
     #[inline]
     pub fn sub(&self, other: &LogosModular) -> LogosModular {
-        LogosModular(self.0.sub(&other.0).expect("LOGOS runtime error: modular ring mismatch"))
+        LogosModular(
+            self.0
+                .sub(&other.0)
+                .unwrap_or_else(|| panic!("{}", crate::failure::modular_rings_differ("subtract"))),
+        )
     }
 
     #[inline]
     pub fn mul(&self, other: &LogosModular) -> LogosModular {
-        LogosModular(self.0.mul(&other.0).expect("LOGOS runtime error: modular ring mismatch"))
+        LogosModular(
+            self.0
+                .mul(&other.0)
+                .unwrap_or_else(|| panic!("{}", crate::failure::modular_rings_differ("multiply"))),
+        )
     }
 
-    /// Division by the modular inverse. Panics if the divisor is not coprime to the modulus.
+    /// Division by the modular inverse. Stops the program when the moduli differ or the divisor is not
+    /// coprime to the modulus.
     #[inline]
     pub fn div_exact(&self, other: &LogosModular) -> LogosModular {
-        LogosModular(self.0.div(&other.0).expect("LOGOS runtime error: modular divisor has no inverse"))
+        if self.0.modulus() != other.0.modulus() {
+            panic!("{}", crate::failure::modular_rings_differ("divide"));
+        }
+        LogosModular(
+            self.0
+                .div(&other.0)
+                .unwrap_or_else(|| panic!("{}", crate::failure::NO_MODULAR_INVERSE)),
+        )
     }
 
     /// Fast modular exponentiation `self^exp`.
@@ -1985,26 +3026,43 @@ impl LogosQuantity {
     /// front-end has already rejected before codegen.
     pub fn from_rational(value: LogosRational, unit_name: &str) -> Self {
         let unit = logicaffeine_base::quantity::units::by_name(unit_name)
-            .unwrap_or_else(|| panic!("LOGOS runtime error: unknown unit '{unit_name}'"));
-        LogosQuantity { q: logicaffeine_base::Quantity::of(value.0, &unit), unit }
+            .unwrap_or_else(|| panic!("{}", crate::failure::unknown_unit(unit_name)));
+        LogosQuantity {
+            q: logicaffeine_base::Quantity::of(value.0, &unit),
+            unit,
+        }
     }
 
     #[inline]
     pub fn add(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self
-            .q
-            .add(&other.q)
-            .expect("LOGOS runtime error: cannot add quantities of different dimensions");
-        LogosQuantity { q, unit: self.unit.clone() }
+        let q = self.q.add(&other.q).unwrap_or_else(|| {
+            panic!(
+                "{}",
+                crate::failure::quantities_differ("add", self.q.dimension(), other.q.dimension())
+            )
+        });
+        LogosQuantity {
+            q,
+            unit: self.unit.clone(),
+        }
     }
 
     #[inline]
     pub fn sub(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self
-            .q
-            .sub(&other.q)
-            .expect("LOGOS runtime error: cannot subtract quantities of different dimensions");
-        LogosQuantity { q, unit: self.unit.clone() }
+        let q = self.q.sub(&other.q).unwrap_or_else(|| {
+            panic!(
+                "{}",
+                crate::failure::quantities_differ(
+                    "subtract",
+                    self.q.dimension(),
+                    other.q.dimension()
+                )
+            )
+        });
+        LogosQuantity {
+            q,
+            unit: self.unit.clone(),
+        }
     }
 
     /// `× ÷` combine dimensions; the result is shown in SI/dimension form (empty display unit).
@@ -2017,7 +3075,10 @@ impl LogosQuantity {
 
     #[inline]
     pub fn div_exact(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self.q.div(&other.q).expect("LOGOS runtime error: cannot divide by a zero quantity");
+        let q = self
+            .q
+            .div(&other.q)
+            .unwrap_or_else(|| panic!("{}", crate::failure::DIVIDE_BY_ZERO_QUANTITY));
         let unit = Self::si_unit(&q);
         LogosQuantity { q, unit }
     }
@@ -2026,7 +3087,10 @@ impl LogosQuantity {
     #[inline]
     pub fn scale(&self, k: &LogosRational) -> LogosQuantity {
         let mag = self.q.magnitude_si().mul(&k.0);
-        LogosQuantity { q: logicaffeine_base::Quantity::si(mag, self.q.dimension()), unit: self.unit.clone() }
+        LogosQuantity {
+            q: logicaffeine_base::Quantity::si(mag, self.q.dimension()),
+            unit: self.unit.clone(),
+        }
     }
 
     /// Scale by a dimensionless integer (unit preserved) — the common `q * 3` case from codegen.
@@ -2048,19 +3112,28 @@ impl LogosQuantity {
             .q
             .magnitude_si()
             .div(&k.0)
-            .expect("LOGOS runtime error: cannot divide a quantity by zero");
-        LogosQuantity { q: logicaffeine_base::Quantity::si(mag, self.q.dimension()), unit: self.unit.clone() }
+            .unwrap_or_else(|| panic!("{}", crate::failure::DIVIDE_QUANTITY_BY_ZERO));
+        LogosQuantity {
+            q: logicaffeine_base::Quantity::si(mag, self.q.dimension()),
+            unit: self.unit.clone(),
+        }
     }
 
     /// Re-express in another unit of the SAME dimension. A different dimension is the forbidden
     /// cast — the type checker rejects it, so this panic is a defensive backstop.
     pub fn convert(&self, unit_name: &str) -> LogosQuantity {
         let unit = logicaffeine_base::quantity::units::by_name(unit_name)
-            .unwrap_or_else(|| panic!("LOGOS runtime error: unknown unit '{unit_name}'"));
+            .unwrap_or_else(|| panic!("{}", crate::failure::unknown_unit(unit_name)));
         if self.q.dimension() != unit.dimension {
-            panic!("LOGOS runtime error: cannot convert across dimensions");
+            panic!(
+                "{}",
+                crate::failure::cannot_convert(&self.unit.symbol, &unit.symbol)
+            );
         }
-        LogosQuantity { q: self.q.clone(), unit }
+        LogosQuantity {
+            q: self.q.clone(),
+            unit,
+        }
     }
 
     /// A synthetic SI-base unit (empty symbol) for a combined dimension.
@@ -2108,36 +3181,94 @@ impl std::fmt::Display for LogosQuantity {
 #[derive(Clone, Debug)]
 pub struct LogosMoney(pub logicaffeine_base::Money);
 
+// `Default` for the exact value types — required so a user struct with a value-type field can
+// `#[derive(Default)]` (the AOT-Rust struct codegen always derives Default and constructs via
+// `Struct { field: v, ..Default::default() }`, which needs Default even when every field is given).
+// These are zero/nil/dimensionless placeholders, only ever materialized for an UNINITIALIZED field
+// (which the construction immediately overwrites), so the degenerate currency/modulus/unit is never observed.
+impl Default for LogosDecimal {
+    fn default() -> Self {
+        LogosDecimal(logicaffeine_base::Decimal::zero())
+    }
+}
+impl Default for LogosComplex {
+    fn default() -> Self {
+        LogosComplex(logicaffeine_base::Complex::zero())
+    }
+}
+impl Default for LogosModular {
+    fn default() -> Self {
+        LogosModular(
+            logicaffeine_base::Modular::from_i64(0, 1).expect("0 mod 1 is a valid modular value"),
+        )
+    }
+}
+impl Default for LogosUuid {
+    fn default() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::NIL)
+    }
+}
+impl Default for LogosMoney {
+    fn default() -> Self {
+        LogosMoney::from_i64(0, "USD")
+    }
+}
+impl Default for LogosQuantity {
+    fn default() -> Self {
+        LogosQuantity {
+            q: logicaffeine_base::Quantity::scalar(logicaffeine_base::Rational::zero()),
+            unit: logicaffeine_base::Unit::linear(
+                "",
+                logicaffeine_base::Dimension::DIMENSIONLESS,
+                logicaffeine_base::Rational::one(),
+            ),
+        }
+    }
+}
+
 impl LogosMoney {
     /// Money of a `Decimal` amount in the named currency. Panics on an unknown currency, which the
     /// front-end has already rejected before codegen.
     pub fn of(amount: LogosDecimal, code: &str) -> Self {
         let currency = logicaffeine_base::money::currency::by_code(code)
-            .unwrap_or_else(|| panic!("LOGOS runtime error: unknown currency '{code}'"));
+            .unwrap_or_else(|| panic!("{}", crate::failure::unknown_currency(code)));
         LogosMoney(logicaffeine_base::Money::of(amount.0, currency))
     }
 
     /// Money of an integer amount — the `5 USD` case (codegen passes the literal directly).
     pub fn from_i64(amount: i64, code: &str) -> Self {
-        Self::of(LogosDecimal(logicaffeine_base::Decimal::from_i64(amount)), code)
+        Self::of(
+            LogosDecimal(logicaffeine_base::Decimal::from_i64(amount)),
+            code,
+        )
     }
 
     #[inline]
     pub fn add(&self, other: &LogosMoney) -> LogosMoney {
-        LogosMoney(
-            self.0
-                .add(&other.0)
-                .expect("LOGOS runtime error: cannot add money of different currencies"),
-        )
+        LogosMoney(self.0.add(&other.0).unwrap_or_else(|| {
+            panic!(
+                "{}",
+                crate::failure::currencies_differ(
+                    "add",
+                    self.0.currency.code,
+                    other.0.currency.code
+                )
+            )
+        }))
     }
 
     #[inline]
     pub fn sub(&self, other: &LogosMoney) -> LogosMoney {
-        LogosMoney(
-            self.0
-                .sub(&other.0)
-                .expect("LOGOS runtime error: cannot subtract money of different currencies"),
-        )
+        LogosMoney(self.0.sub(&other.0).unwrap_or_else(|| {
+            panic!(
+                "{}",
+                crate::failure::currencies_differ(
+                    "subtract",
+                    self.0.currency.code,
+                    other.0.currency.code
+                )
+            )
+        }))
     }
 
     /// Scale by an integer (`19.99 USD × 3`), re-quantised to the currency.
@@ -2149,7 +3280,10 @@ impl LogosMoney {
     /// Scale by an exact decimal (`price × 1.5`), re-quantised to the currency.
     #[inline]
     pub fn scale_decimal(&self, k: &LogosDecimal) -> LogosMoney {
-        LogosMoney(logicaffeine_base::Money::of(self.0.amount.mul(&k.0), self.0.currency))
+        LogosMoney(logicaffeine_base::Money::of(
+            self.0.amount.mul(&k.0),
+            self.0.currency,
+        ))
     }
 
     /// Divide by an integer (split a bill), re-quantised to the currency.
@@ -2163,18 +3297,25 @@ impl LogosMoney {
                 self.0.currency.scale,
                 logicaffeine_base::RoundingMode::HalfEven,
             )
-            .expect("LOGOS runtime error: cannot divide money by zero");
+            .unwrap_or_else(|| panic!("{}", crate::failure::DIVIDE_MONEY_BY_ZERO));
         LogosMoney(logicaffeine_base::Money::of(d, self.0.currency))
     }
 
     /// The exact dimensionless ratio of two same-currency amounts.
     #[inline]
     pub fn ratio(&self, other: &LogosMoney) -> LogosRational {
-        LogosRational(
-            self.0
-                .ratio(&other.0)
-                .expect("LOGOS runtime error: cannot take a money ratio (currency mismatch or zero)"),
-        )
+        match self.0.ratio(&other.0) {
+            Some(r) => LogosRational(r),
+            None if self.0.currency != other.0.currency => panic!(
+                "{}",
+                crate::failure::currencies_differ(
+                    "compare",
+                    self.0.currency.code,
+                    other.0.currency.code
+                )
+            ),
+            None => panic!("{}", crate::failure::DIVIDE_MONEY_BY_ZERO_AMOUNT),
+        }
     }
 }
 
@@ -2191,7 +3332,10 @@ impl PartialOrd for LogosMoney {
         if self.0.currency != other.0.currency {
             return None;
         }
-        self.0.amount.to_rational().partial_cmp(&other.0.amount.to_rational())
+        self.0
+            .amount
+            .to_rational()
+            .partial_cmp(&other.0.amount.to_rational())
     }
 }
 
@@ -2212,7 +3356,7 @@ impl LogosUuid {
     pub fn parse(s: &str) -> Self {
         LogosUuid(
             logicaffeine_base::Uuid::parse(s)
-                .unwrap_or_else(|| panic!("LOGOS runtime error: invalid UUID '{s}'")),
+                .unwrap_or_else(|| panic!("{}", crate::failure::invalid_uuid(s))),
         )
     }
     /// The nil (all-zero) UUID.
@@ -2252,7 +3396,9 @@ impl LogosUuid {
     /// `uuid_from_bytes` builtin). Panics on fewer than 16 bytes — the front-end feeds a digest.
     pub fn from_byte_seq(seq: &LogosSeq<i64>) -> LogosUuid {
         let v = seq.0.borrow();
-        assert!(v.len() >= 16, "LOGOS runtime error: uuid_from_bytes needs 16 bytes");
+        if v.len() < 16 {
+            panic!("{}", crate::failure::uuid_needs_16_bytes(v.len()));
+        }
         let mut b = [0u8; 16];
         for (i, slot) in b.iter_mut().enumerate() {
             *slot = (v[i] & 0xff) as u8;
@@ -2267,13 +3413,26 @@ pub fn text_bytes(s: &str) -> LogosSeq<i64> {
 }
 
 /// Rebuild a Text from a `Seq of Int` of UTF-8 bytes (the `text_from_bytes` builtin, AOT —
-/// the exact inverse of [`text_bytes`]). Inputs originate from `text_bytes`, so the bytes are
-/// always valid UTF-8; the lossy fallback only guards against a hand-built malformed Seq.
+/// the exact inverse of [`text_bytes`]).
+///
+/// ★ INVALID BYTES ARE A FAILURE, NOT A SUBSTITUTION. This used to fall back to
+/// `from_utf8_lossy`, justified by a premise written in this very comment: *"inputs originate
+/// from `text_bytes`, so the bytes are always valid UTF-8"*. **Our own stdlib falsifies it** —
+/// `fromHex` (encoding.lg) decodes arbitrary hex and hands the result straight in, so
+/// `fromHex("ff")` arrives here with byte 255.
+///
+/// The consequence was three answers to one question: the tree-walker and the VM raised
+/// `text_from_bytes(): invalid UTF-8`, this returned `U+FFFD`, and the wasm lowering checked
+/// nothing at all. A panic is what the AOT tier means by "the reference tier errored" —
+/// `readBytes` already answers that way — so the tiers now agree.
+///
+/// A premise asserted in a doc comment is enforced by nothing, and the caller that violates it
+/// is usually in a different file from the one that states it.
 pub fn text_from_bytes(bytes: &LogosSeq<i64>) -> String {
     let b: Vec<u8> = bytes.iter().map(|v| v as u8).collect();
     match String::from_utf8(b) {
         Ok(s) => s,
-        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        Err(e) => panic!("{}", crate::failure::invalid_utf8(e)),
     }
 }
 
@@ -2326,785 +3485,39 @@ pub fn set_rates<V: IntoRate + Clone>(map: LogosMap<String, V>) {
 /// scope or the currency lacks a rate; the front-end / interpreter surface these as clean errors.
 pub fn to_currency(money: LogosMoney, code: String) -> LogosMoney {
     let to = logicaffeine_base::money::currency::by_code(&code)
-        .unwrap_or_else(|| panic!("LOGOS runtime error: unknown currency '{code}'"));
+        .unwrap_or_else(|| panic!("{}", crate::failure::unknown_currency(&code)));
     let converted = logicaffeine_base::money::ambient_convert(&money.0, to).unwrap_or_else(|| {
         if logicaffeine_base::money::has_ambient_rates() {
             panic!(
-                "LOGOS runtime error: no exchange rate for {} or {}",
-                money.0.currency.code, to.code
+                "{}",
+                crate::failure::no_exchange_rate(money.0.currency.code, to.code)
             )
         } else {
-            panic!("LOGOS runtime error: no exchange rates in scope (set a rate first)")
+            panic!("{}", crate::failure::NO_EXCHANGE_RATES)
         }
     });
     LogosMoney(converted)
 }
 
 #[cfg(test)]
-mod logos_money_tests {
-    use super::{LogosDecimal, LogosMoney};
-
-    fn money(s: &str, code: &str) -> LogosMoney {
-        LogosMoney::of(LogosDecimal(logicaffeine_base::Decimal::parse(s).unwrap()), code)
-    }
-
-    #[test]
-    fn money_aot_arithmetic_is_exact_and_currency_safe() {
-        assert_eq!(money("19.99", "USD").to_string(), "19.99 USD");
-        assert_eq!(LogosMoney::from_i64(5, "USD").to_string(), "5.00 USD");
-        assert_eq!(money("0.10", "USD").add(&money("0.20", "USD")).to_string(), "0.30 USD");
-        assert_eq!(money("24.99", "USD").sub(&money("5.00", "USD")).to_string(), "19.99 USD");
-        assert_eq!(money("19.99", "USD").scale_int(3).to_string(), "59.97 USD");
-        assert_eq!(money("10.00", "USD").div_int(4).to_string(), "2.50 USD");
-        assert_eq!(money("100", "JPY").to_string(), "100 JPY"); // zero-decimal
-        // Same currency orders; different currencies are incomparable.
-        assert!(money("5.00", "USD") > money("1.00", "USD"));
-        assert_eq!(money("5.00", "USD").partial_cmp(&money("1.00", "EUR")), None);
-        assert_ne!(money("5.00", "USD"), money("5.00", "EUR"));
-    }
-
-    #[test]
-    #[should_panic(expected = "different currencies")]
-    fn money_aot_cross_currency_add_panics_as_a_backstop() {
-        let _ = money("5.00", "USD").add(&money("1.00", "EUR"));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/types/logos_money_tests.rs"]
+mod logos_money_tests;
 
 #[cfg(test)]
-mod logos_quantity_tests {
-    use super::{LogosQuantity, LogosRational};
-
-    #[test]
-    fn golden_two_inches_plus_five_cm_in_feet_is_exactly_42_over_127() {
-        let a = LogosQuantity::of(2, "inch");
-        let b = LogosQuantity::of(5, "centimeter");
-        assert_eq!(a.to_string(), "2 in");
-        assert_eq!(a.add(&b).convert("foot").to_string(), "42/127 ft");
-    }
-
-    #[test]
-    fn arithmetic_scaling_equality_and_ordering_are_exact() {
-        let m = |v: i64, u: &str| LogosQuantity::of(v, u);
-        // Same-dimension subtraction keeps the left operand's unit, exactly.
-        assert_eq!(m(1, "meter").sub(&m(50, "centimeter")).to_string(), "1/2 m");
-        // Scalar scaling preserves the unit.
-        assert_eq!(m(2, "inch").scale(&LogosRational::from_i64(3)).to_string(), "6 in");
-        assert_eq!(m(6, "inch").div_scalar(&LogosRational::from_i64(2)).to_string(), "3 in");
-        // Dimension-combining product shows in dimension form.
-        assert_eq!(m(3, "meter").mul(&m(4, "meter")).to_string(), "12 L^2");
-        assert_eq!(m(100, "meter").div_exact(&m(10, "second")).to_string(), "10 L·T^-1");
-        // Physical equality (display unit ignored): 100 cm == 1 m.
-        assert_eq!(m(100, "centimeter"), m(1, "meter"));
-        // Ordering by magnitude within a shared dimension.
-        assert!(m(2, "meter") > m(1, "meter"));
-        assert!(m(100, "centimeter") <= m(1, "meter"));
-        // Cross-dimension ordering is undefined (no shared magnitude).
-        assert_eq!(m(1, "meter").partial_cmp(&m(1, "kilogram")), None);
-    }
-
-    #[test]
-    #[should_panic(expected = "different dimensions")]
-    fn adding_different_dimensions_panics_as_a_backstop() {
-        let _ = LogosQuantity::of(1, "meter").add(&LogosQuantity::of(1, "kilogram"));
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot convert across dimensions")]
-    fn converting_across_dimensions_panics_as_a_backstop() {
-        let _ = LogosQuantity::of(1, "meter").convert("kilogram");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/types/logos_quantity_tests.rs"]
+mod logos_quantity_tests;
 
 #[cfg(test)]
-mod logos_rational_tests {
-    use super::LogosRational;
-
-    #[test]
-    fn exact_fraction_displays_unreduced_pair() {
-        assert_eq!(LogosRational::from_ratio(7, 2).to_string(), "7/2");
-        assert_eq!(LogosRational::from_ratio(1, 3).to_string(), "1/3");
-    }
-
-    #[test]
-    fn whole_value_displays_as_a_bare_integer() {
-        assert_eq!(LogosRational::from_ratio(6, 2).to_string(), "3");
-        assert_eq!(LogosRational::from_i64(5).to_string(), "5");
-    }
-
-    #[test]
-    fn arithmetic_is_exact() {
-        // 1/3 + 1/6 = 1/2
-        let a = LogosRational::from_ratio(1, 3);
-        let b = LogosRational::from_ratio(1, 6);
-        assert_eq!(a.add(&b).to_string(), "1/2");
-        // 1/3 + 1/3 + 1/3 = 1 (where 0.1+0.2 ≠ 0.3 in f64)
-        let third = LogosRational::from_ratio(1, 3);
-        assert_eq!(third.add(&third).add(&third).to_string(), "1");
-        // (2/3) * (3/4) = 1/2 ; (7/2) / (7/2) = 1
-        assert_eq!(
-            LogosRational::from_ratio(2, 3).mul(&LogosRational::from_ratio(3, 4)).to_string(),
-            "1/2"
-        );
-        let r = LogosRational::from_ratio(7, 2);
-        assert_eq!(r.div_exact(&r).to_string(), "1");
-    }
-
-    #[test]
-    #[should_panic(expected = "division by zero")]
-    fn zero_denominator_panics_like_integer_division() {
-        let _ = LogosRational::from_ratio(1, 0);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/types/logos_rational_tests.rs"]
+mod logos_rational_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/types/tests.rs"]
+mod tests;
 
-    /// `div_floor` rounds toward negative infinity across every sign combination,
-    /// stays exact past `i64` (BigInt promotion), and raises on a zero divisor —
-    /// differentially checked against an `i128` floor oracle over an exhaustive
-    /// small grid so no sign case escapes.
-    #[test]
-    fn div_floor_rounds_toward_negative_infinity_exhaustively() {
-        let small = |x: i64| LogosInt::Small(x);
-        // Exhaustive small grid including both signs and zero dividend.
-        for a in -20i64..=20 {
-            for b in -20i64..=20 {
-                if b == 0 {
-                    assert!(small(a).div_floor(&small(b)).is_err(), "{a} // 0 must error");
-                    continue;
-                }
-                let oracle = (a as i128).div_euclid(b as i128); // euclid == floor for these
-                // div_euclid is NOT floor for a>=0,b<0 — recompute a true floor oracle.
-                let q = (a as i128) / (b as i128);
-                let r = (a as i128) % (b as i128);
-                let floor = if r != 0 && (r < 0) != (b < 0) { q - 1 } else { q };
-                let _ = oracle;
-                let got = small(a).div_floor(&small(b)).unwrap();
-                assert_eq!(got, LogosInt::Small(floor as i64), "{a} // {b}");
-            }
-        }
-        // The canonical distinguishing case: truncation gives -3, floor gives -4.
-        assert_eq!(small(-7).div_floor(&small(2)).unwrap(), LogosInt::Small(-4));
-        assert_eq!(small(-7).div(&small(2)).unwrap(), LogosInt::Small(-3));
-        // Exact past i64: (10^30) // 7 stays exact and floored.
-        let ten30 = LogosInt::Small(10).pow(&LogosInt::Small(30)).unwrap();
-        let q = ten30.div_floor(&small(7)).unwrap();
-        assert_eq!(q.to_string(), "142857142857142857142857142857");
-        // Negative BigInt numerator floors down, not toward zero.
-        let neg = LogosInt::Small(-1).pow(&LogosInt::Small(1)).unwrap(); // -1
-        let big_neg = ten30.mul(&neg);
-        // -(10^30) // 7 = floor(-1.428...e29) = -(10^30)/7 rounded down.
-        let qn = big_neg.div_floor(&small(7)).unwrap();
-        assert_eq!(qn.to_string(), "-142857142857142857142857142858");
-    }
-
-    /// A deterministic LCG so the `LogosI64Map` fuzz is reproducible without a
-    /// `rand` dependency (same seed → same op stream every run).
-    struct Lcg(u64);
-    impl Lcg {
-        fn next_u64(&mut self) -> u64 {
-            self.0 = self
-                .0
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            self.0
-        }
-    }
-
-    /// Differential fuzz: a long random stream of inserts/gets/contains on a
-    /// `LogosI64Map` must agree with `std::collections::HashMap` (the oracle) on
-    /// every read, across many resizes and over a key space that forces both
-    /// overwrites (small range → collisions) and the `0` sentinel path (the real
-    /// key `0`, tracked outside the table) as well as `i64::MIN` as an ordinary
-    /// in-table key.
-    #[test]
-    fn i64map_matches_hashmap_oracle() {
-        use std::collections::HashMap;
-        // The key pool deliberately includes `0` (the sentinel value) and both
-        // `i64` extremes so the empty-slot encoding and the side-tracked zero key
-        // are exercised under fuzz, not just in isolation.
-        let pool: Vec<i64> = {
-            let mut v: Vec<i64> = (-40..40).collect();
-            v.extend_from_slice(&[i64::MIN, i64::MAX, i64::MIN + 1, i64::MAX - 1, 0]);
-            v
-        };
-        for seed in [1u64, 7, 1234567, 0x9E3779B9, u64::MAX / 3] {
-            let mut rng = Lcg(seed);
-            let mut map = LogosI64Map::new();
-            let mut oracle: HashMap<i64, i64> = HashMap::new();
-            for _ in 0..50_000 {
-                let key = pool[(rng.next_u64() as usize) % pool.len()];
-                match rng.next_u64() % 3 {
-                    0 => {
-                        let val = rng.next_u64() as i64;
-                        map.insert(key, val);
-                        oracle.insert(key, val);
-                    }
-                    1 => {
-                        assert_eq!(
-                            map.get(&key),
-                            oracle.get(&key).copied(),
-                            "get disagreed for key {key} (seed {seed})"
-                        );
-                    }
-                    _ => {
-                        assert_eq!(
-                            map.contains_key(&key),
-                            oracle.contains_key(&key),
-                            "contains disagreed for key {key} (seed {seed})"
-                        );
-                    }
-                }
-                assert_eq!(map.len(), oracle.len(), "len diverged (seed {seed})");
-            }
-            // Final sweep: every pooled key must read identically.
-            for &k in &pool {
-                assert_eq!(map.get(&k), oracle.get(&k).copied(), "final get key {k}");
-            }
-        }
-    }
-
-    /// `LogosI64Set` agrees with `std::HashSet` under a 50k-op fuzz across seeds,
-    /// with `0` (the sentinel value) and both `i64` extremes in the key pool. The
-    /// set's `insert(key, _value)` mirrors the map call shape; the value is ignored.
-    #[test]
-    fn i64set_matches_hashset_oracle() {
-        use std::collections::HashSet;
-        let pool: Vec<i64> = {
-            let mut v: Vec<i64> = (-40..40).collect();
-            v.extend_from_slice(&[i64::MIN, i64::MAX, i64::MIN + 1, i64::MAX - 1, 0]);
-            v
-        };
-        for seed in [1u64, 7, 1234567, 0x9E3779B9, u64::MAX / 3] {
-            let mut rng = Lcg(seed);
-            let mut set = LogosI64Set::new();
-            let mut oracle: HashSet<i64> = HashSet::new();
-            for _ in 0..50_000 {
-                let key = pool[(rng.next_u64() as usize) % pool.len()];
-                if rng.next_u64() % 2 == 0 {
-                    set.insert(key, 1);
-                    oracle.insert(key);
-                } else {
-                    assert_eq!(
-                        set.contains_key(&key),
-                        oracle.contains(&key),
-                        "contains disagreed for key {key} (seed {seed})"
-                    );
-                }
-                assert_eq!(set.len(), oracle.len(), "len diverged (seed {seed})");
-            }
-            for &k in &pool {
-                assert_eq!(set.contains_key(&k), oracle.contains(&k), "final contains key {k}");
-            }
-        }
-    }
-
-    /// `LogosDivU64` (loop-invariant libdivide) must agree with the hardware
-    /// `/` and `%` for EVERY (numerator, divisor) pair — exhaustively over small
-    /// values (every divisor 1..=512 against numerators 0..=4096, which forces
-    /// the power-of-two fast path, the 64-bit-magic path, AND the ADD_MARKER
-    /// 65-bit-magic path), and under a wide fuzz that hammers the full `u64`
-    /// range including `u64::MAX`, `2^63`, and the exact benchmark divisors. Any
-    /// disagreement here is a miscompiled division — the test is the spec.
-    #[test]
-    fn divu64_matches_hardware_div_and_rem() {
-        // Exhaustive small grid — divisor 1..=512, numerator 0..=4096.
-        for d in 1u64..=512 {
-            let m = LogosDivU64::new(d);
-            for x in 0u64..=4096 {
-                assert_eq!(m.div(x), x / d, "div({x}, {d})");
-                assert_eq!(m.rem(x), x % d, "rem({x}, {d})");
-            }
-        }
-
-        // Boundary divisors (powers of two, primes, near-2^k, benchmark sizes)
-        // crossed with boundary + fuzzed numerators across the full u64 range.
-        let divisors: Vec<u64> = vec![
-            1, 2, 3, 4, 5, 7, 8, 9, 10, 16, 31, 37, 41, 43, 47, 64, 100, 127, 128,
-            1000, 1024, 65535, 65536, 65537, 1_000_000, 2_147_483_648, 3_000_000,
-            5_000_000, 1_000_000_007, (1u64 << 62) - 1, 1u64 << 62, (1u64 << 63) - 1,
-            1u64 << 63, u64::MAX - 1, u64::MAX,
-        ];
-        let mut rng = Lcg(0xDEAD_BEEF_CAFE_F00D);
-        for &d in &divisors {
-            let m = LogosDivU64::new(d);
-            let mut numerators: Vec<u64> = vec![
-                0, 1, 2, d.wrapping_sub(1), d, d.wrapping_add(1), d.wrapping_mul(2),
-                i64::MAX as u64, 1u64 << 63, u64::MAX - 1, u64::MAX,
-            ];
-            for _ in 0..2000 {
-                numerators.push(rng.next_u64());
-            }
-            for &x in &numerators {
-                assert_eq!(m.div(x), x / d, "div({x}, {d}) [fuzz]");
-                assert_eq!(m.rem(x), x % d, "rem({x}, {d}) [fuzz]");
-            }
-        }
-    }
-
-    /// `i64::MIN` is a genuine, distinguishable key — present after insert,
-    /// absent before, and independent of the rest of the table. (It is now an
-    /// ordinary in-table key; the empty-slot sentinel is `0`.)
-    #[test]
-    fn i64map_sentinel_key_is_a_real_key() {
-        let mut m = LogosI64Map::new();
-        assert_eq!(m.get(&i64::MIN), None);
-        assert!(!m.contains_key(&i64::MIN));
-
-        // Fill enough ordinary keys to force several resizes around it.
-        for k in 0..1000i64 {
-            m.insert(k, k * 3);
-        }
-        assert_eq!(m.get(&i64::MIN), None, "sentinel must stay absent");
-
-        m.insert(i64::MIN, 999);
-        assert_eq!(m.get(&i64::MIN), Some(999));
-        assert!(m.contains_key(&i64::MIN));
-        // It does not perturb ordinary keys, nor they it.
-        for k in 0..1000i64 {
-            assert_eq!(m.get(&k), Some(k * 3));
-        }
-        m.insert(i64::MIN, -1);
-        assert_eq!(m.get(&i64::MIN), Some(-1), "sentinel value overwrites");
-        assert_eq!(m.len(), 1001, "sentinel counts once toward len");
-    }
-
-    /// Overwriting an existing key replaces its value and never grows `len`.
-    #[test]
-    fn i64map_overwrite_preserves_len() {
-        let mut m = LogosI64Map::new();
-        for k in 0..100i64 {
-            m.insert(k, 1);
-        }
-        assert_eq!(m.len(), 100);
-        for k in 0..100i64 {
-            m.insert(k, k * 10);
-        }
-        assert_eq!(m.len(), 100, "overwrites must not change len");
-        for k in 0..100i64 {
-            assert_eq!(m.get(&k), Some(k * 10));
-        }
-    }
-
-    /// `with_capacity` pre-sized then filled exactly to capacity reads back
-    /// every entry (the headroom math must not under-allocate).
-    #[test]
-    fn i64map_with_capacity_fills_correctly() {
-        for cap in [0usize, 1, 7, 8, 100, 1000] {
-            let mut m = LogosI64Map::with_capacity(cap);
-            let n = cap.max(1) as i64;
-            for k in 0..n {
-                m.insert(k, k + 7);
-            }
-            assert_eq!(m.len(), n as usize, "cap {cap}");
-            for k in 0..n {
-                assert_eq!(m.get(&k), Some(k + 7), "cap {cap} key {k}");
-            }
-            assert_eq!(m.get(&(n + 1)), None);
-        }
-    }
-
-    /// `Clone` has value semantics — mutating the original leaves the clone
-    /// untouched (the whole point of selecting this map only when non-aliased).
-    #[test]
-    fn i64map_clone_is_independent() {
-        let mut a = LogosI64Map::new();
-        for k in 0..50i64 {
-            a.insert(k, k);
-        }
-        let b = a.clone();
-        for k in 0..50i64 {
-            a.insert(k, k + 1000);
-        }
-        a.insert(100, 100);
-        for k in 0..50i64 {
-            assert_eq!(b.get(&k), Some(k), "clone must not see later mutations");
-        }
-        assert_eq!(b.get(&100), None, "clone must not gain new keys");
-        assert_eq!(b.len(), 50);
-    }
-
-    /// The key `0` is a genuine, distinguishable key — never confused with an
-    /// empty slot — present after insert, absent before, and independent of the
-    /// rest of the table across many resizes. With the `0` empty-slot sentinel
-    /// the real key `0` lives outside the probe table; this pins that side path.
-    #[test]
-    fn i64map_zero_key_is_a_real_key() {
-        let mut m = LogosI64Map::new();
-        assert_eq!(m.get(&0), None);
-        assert!(!m.contains_key(&0));
-
-        // Ordinary non-zero keys force several resizes around the zero key.
-        for k in 1..=1000i64 {
-            m.insert(k, k * 3);
-        }
-        assert_eq!(m.get(&0), None, "zero key must stay absent");
-
-        m.insert(0, 999);
-        assert_eq!(m.get(&0), Some(999));
-        assert!(m.contains_key(&0));
-        for k in 1..=1000i64 {
-            assert_eq!(m.get(&k), Some(k * 3), "ordinary keys undisturbed by zero key");
-        }
-        m.insert(0, -1);
-        assert_eq!(m.get(&0), Some(-1), "zero key value overwrites");
-        assert_eq!(m.len(), 1001, "zero key counts once toward len");
-    }
-
-    /// The set analogue: `0` is a real member, distinct from empty slots, stable
-    /// across resizes driven by non-zero members.
-    #[test]
-    fn i64set_zero_key_is_a_real_key() {
-        let mut s = LogosI64Set::new();
-        assert!(!s.contains_key(&0));
-        for k in 1..=1000i64 {
-            s.insert(k, 1);
-        }
-        assert!(!s.contains_key(&0), "zero key must stay absent");
-        s.insert(0, 1);
-        assert!(s.contains_key(&0));
-        for k in 1..=1000i64 {
-            assert!(s.contains_key(&k), "members undisturbed by zero key");
-        }
-        s.insert(0, 1);
-        assert_eq!(s.len(), 1001, "zero key counts once toward len");
-    }
-
-    /// A present key whose VALUE is `0` must read back as `Some(0)`, never `None`
-    /// — emptiness is decided by the key lane, never the value lane (the classic
-    /// open-addressing trap once the value array is zero-initialized via calloc).
-    #[test]
-    fn i64map_value_zero_distinct_from_absent() {
-        let mut m = LogosI64Map::new();
-        m.insert(5, 0);
-        m.insert(7, 0);
-        assert_eq!(m.get(&5), Some(0), "present key with value 0 is not absent");
-        assert_eq!(m.get(&7), Some(0));
-        assert_eq!(m.get(&6), None, "truly absent key is None");
-
-        // Same, with a pre-sized (calloc-zeroed) table and the zero key itself.
-        let mut m2 = LogosI64Map::with_capacity(64);
-        m2.insert(0, 0);
-        m2.insert(3, 0);
-        assert_eq!(m2.get(&0), Some(0), "zero key with zero value is present");
-        assert_eq!(m2.get(&3), Some(0));
-        assert_eq!(m2.get(&1), None);
-    }
-
-    /// `i64::MIN` is an ORDINARY in-table key (no longer a sentinel): it coexists
-    /// with `i64::MAX` and ordinary keys, each with a distinct value, across
-    /// resizes, and overwrites like any other key.
-    #[test]
-    fn i64map_min_key_is_ordinary() {
-        let mut m = LogosI64Map::new();
-        m.insert(i64::MIN, 11);
-        m.insert(i64::MAX, 22);
-        for k in 1..=1000i64 {
-            m.insert(k, k);
-        }
-        assert_eq!(m.get(&i64::MIN), Some(11));
-        assert_eq!(m.get(&i64::MAX), Some(22));
-        m.insert(i64::MIN, 33);
-        assert_eq!(m.get(&i64::MIN), Some(33), "i64::MIN overwrites like any key");
-        assert_eq!(m.get(&i64::MAX), Some(22), "and does not perturb i64::MAX");
-        assert_eq!(m.len(), 1002, "i64::MIN + i64::MAX + 1000 ordinary keys");
-    }
-
-    #[test]
-    fn value_int_arithmetic() {
-        assert_eq!(Value::Int(10) + Value::Int(3), Value::Int(13));
-        assert_eq!(Value::Int(10) - Value::Int(3), Value::Int(7));
-        assert_eq!(Value::Int(10) * Value::Int(3), Value::Int(30));
-        assert_eq!(Value::Int(10) / Value::Int(3), Value::Int(3));
-    }
-
-    #[test]
-    fn value_float_arithmetic() {
-        assert_eq!(Value::Float(2.5) + Value::Float(1.5), Value::Float(4.0));
-        assert_eq!(Value::Float(5.0) - Value::Float(1.5), Value::Float(3.5));
-        assert_eq!(Value::Float(2.0) * Value::Float(3.0), Value::Float(6.0));
-        assert_eq!(Value::Float(7.0) / Value::Float(2.0), Value::Float(3.5));
-    }
-
-    #[test]
-    fn value_cross_type_promotion() {
-        assert_eq!(Value::Int(2) + Value::Float(1.5), Value::Float(3.5));
-        assert_eq!(Value::Float(2.5) + Value::Int(2), Value::Float(4.5));
-        assert_eq!(Value::Int(3) * Value::Float(2.0), Value::Float(6.0));
-        assert_eq!(Value::Float(6.0) / Value::Int(2), Value::Float(3.0));
-    }
-
-    #[test]
-    fn value_text_concat() {
-        assert_eq!(
-            Value::Text("hello".to_string()) + Value::Text(" world".to_string()),
-            Value::Text("hello world".to_string())
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "divide by zero")]
-    fn value_div_by_zero_panics() {
-        let _ = Value::Int(1) / Value::Int(0);
-    }
-
-    #[test]
-    #[should_panic(expected = "Cannot add")]
-    fn value_incompatible_types_panic() {
-        let _ = Value::Bool(true) + Value::Int(1);
-    }
-
-    #[test]
-    fn value_display() {
-        assert_eq!(format!("{}", Value::Int(42)), "42");
-        assert_eq!(format!("{}", Value::Float(3.14)), "3.14");
-        assert_eq!(format!("{}", Value::Bool(true)), "true");
-        assert_eq!(format!("{}", Value::Text("hi".to_string())), "hi");
-        assert_eq!(format!("{}", Value::Char('a')), "a");
-        assert_eq!(format!("{}", Value::Nothing), "nothing");
-    }
-
-    #[test]
-    fn value_from_conversions() {
-        assert_eq!(Value::from(42i64), Value::Int(42));
-        assert_eq!(Value::from(3.14f64), Value::Float(3.14));
-        assert_eq!(Value::from(true), Value::Bool(true));
-        assert_eq!(Value::from("hello"), Value::Text("hello".to_string()));
-        assert_eq!(Value::from("hello".to_string()), Value::Text("hello".to_string()));
-        assert_eq!(Value::from('x'), Value::Char('x'));
-    }
-
-    /// Differential fuzz: a `LogosDenseI64Map` built over a proven window
-    /// `[lo, lo+cap)` must agree with `std::collections::HashMap` on every
-    /// `get`/`contains`/`len` — for keys IN the window (the only keys the
-    /// soundness gate ever lets reach this representation), including in-window
-    /// keys that are never inserted (which must read `None`), overwrites, and a
-    /// negative offset `lo`. The window is the contract; we never index outside it.
-    #[test]
-    fn dense_i64map_matches_hashmap_oracle() {
-        use std::collections::HashMap;
-        // (lo, cap) windows: 0-based, 1-based (the collect shape), and negative.
-        for &(lo, cap) in &[(0i64, 64usize), (1, 100), (-40, 80), (-1, 9), (1000, 50)] {
-            for seed in [1u64, 7, 1234567, 0x9E3779B9, u64::MAX / 3] {
-                let mut rng = Lcg(seed);
-                let mut map = LogosDenseI64Map::with_bounds(lo, cap);
-                let mut oracle: HashMap<i64, i64> = HashMap::new();
-                for _ in 0..40_000 {
-                    // Draw a key strictly inside the window [lo, lo+cap).
-                    let key = lo + (rng.next_u64() % cap as u64) as i64;
-                    match rng.next_u64() % 3 {
-                        0 => {
-                            let val = rng.next_u64() as i64;
-                            map.insert(key, val);
-                            oracle.insert(key, val);
-                        }
-                        1 => assert_eq!(
-                            map.get(&key),
-                            oracle.get(&key).copied(),
-                            "get disagreed for key {key} (lo {lo} cap {cap} seed {seed})"
-                        ),
-                        _ => assert_eq!(
-                            map.contains_key(&key),
-                            oracle.contains_key(&key),
-                            "contains disagreed for key {key} (lo {lo} cap {cap} seed {seed})"
-                        ),
-                    }
-                    assert_eq!(map.len(), oracle.len(), "len diverged (lo {lo} cap {cap} seed {seed})");
-                }
-                // Final sweep: every in-window key reads identically, present or absent.
-                for k in lo..lo + cap as i64 {
-                    assert_eq!(
-                        map.get(&k),
-                        oracle.get(&k).copied(),
-                        "final get key {k} (lo {lo} cap {cap})"
-                    );
-                }
-            }
-        }
-    }
-
-    /// A never-inserted but in-range key reads `None` (the presence bitset is
-    /// what distinguishes "stored 0" from "absent"), and an offset `lo` rebases
-    /// correctly with no aliasing between neighbouring keys.
-    #[test]
-    fn dense_i64map_absent_in_range_key_is_none() {
-        let mut m = LogosDenseI64Map::with_bounds(-5, 20); // window [-5, 15)
-        assert_eq!(m.get(&3), None);
-        m.insert(-5, 100);
-        m.insert(14, 200);
-        m.insert(0, 0); // value 0 is a real stored value, NOT "absent"
-        assert_eq!(m.get(&-5), Some(100));
-        assert_eq!(m.get(&14), Some(200));
-        assert_eq!(m.get(&0), Some(0), "stored 0 must read as present");
-        assert_eq!(m.get(&3), None, "never-inserted in-range key stays absent");
-        assert_eq!(m.get(&-1), None);
-        assert_eq!(m.len(), 3);
-        // Overwrite preserves len; neighbours untouched.
-        m.insert(0, 42);
-        assert_eq!(m.get(&0), Some(42));
-        assert_eq!(m.get(&-5), Some(100));
-        assert_eq!(m.len(), 3, "overwrite must not change len");
-    }
-
-    /// The presence-elided `LogosDenseI64MapNoPresence` is selected ONLY when the
-    /// compiler proves every queried key was inserted (contiguous full coverage),
-    /// so its `get` is a pure `Some(data[k-lo])` load. Under that regime it must
-    /// agree with a `HashMap` for every covered key — including a negative `lo`.
-    #[test]
-    fn dense_i64map_nopresence_full_coverage() {
-        for &(lo, cap) in &[(0i64, 64usize), (1, 1000), (-40, 80)] {
-            let mut m = LogosDenseI64MapNoPresence::with_bounds(lo, cap);
-            // Fully cover the window (the proven precondition for this type).
-            for k in lo..lo + cap as i64 {
-                m.insert(k, k.wrapping_mul(3).wrapping_add(7));
-            }
-            for k in lo..lo + cap as i64 {
-                assert_eq!(
-                    m.get(&k),
-                    Some(k.wrapping_mul(3).wrapping_add(7)),
-                    "nopresence get key {k} (lo {lo} cap {cap})"
-                );
-            }
-            assert_eq!(m.len(), cap, "nopresence len (lo {lo} cap {cap})");
-        }
-    }
-
-    /// Differential fuzz for the dense SET sibling against `std::HashSet`.
-    #[test]
-    fn dense_i64set_matches_hashset_oracle() {
-        use std::collections::HashSet;
-        for &(lo, cap) in &[(0i64, 64usize), (1, 100), (-40, 80), (5, 5)] {
-            for seed in [1u64, 7, 1234567, 0x9E3779B9, u64::MAX / 3] {
-                let mut rng = Lcg(seed);
-                let mut set = LogosDenseI64Set::with_bounds(lo, cap);
-                let mut oracle: HashSet<i64> = HashSet::new();
-                for _ in 0..40_000 {
-                    let key = lo + (rng.next_u64() % cap as u64) as i64;
-                    if rng.next_u64() % 2 == 0 {
-                        set.insert(key, 1);
-                        oracle.insert(key);
-                    } else {
-                        assert_eq!(
-                            set.contains_key(&key),
-                            oracle.contains(&key),
-                            "contains disagreed for key {key} (lo {lo} cap {cap} seed {seed})"
-                        );
-                    }
-                    assert_eq!(set.len(), oracle.len(), "len diverged (lo {lo} cap {cap} seed {seed})");
-                }
-                for k in lo..lo + cap as i64 {
-                    assert_eq!(set.contains_key(&k), oracle.contains(&k), "final contains key {k}");
-                }
-            }
-        }
-    }
-
-    /// The exact `collect` benchmark shape: a 1-based window `[1, n]` allocated to
-    /// capacity `n`, insert `i -> i*2`, then look every key up. The bound is
-    /// `lo = 1`, so key `n` maps to index `n-1 < n` — the off-by-one that a naive
-    /// `lo = 0` would blow. Both dense flavours must report all `n` found.
-    #[test]
-    fn dense_i64map_collect_benchmark_shape() {
-        let n: i64 = 5000;
-        // Presence-tracking flavour.
-        let mut m = LogosDenseI64Map::with_bounds(1, n as usize);
-        for i in 1..=n {
-            m.insert(i, i << 1);
-        }
-        let found = (1..=n).filter(|&i| m.get(&i) == Some(i << 1)).count();
-        assert_eq!(found as i64, n, "presence flavour must find every key");
-        // Presence-elided flavour (proven full coverage).
-        let mut mp = LogosDenseI64MapNoPresence::with_bounds(1, n as usize);
-        for i in 1..=n {
-            mp.insert(i, i << 1);
-        }
-        let found_np = (1..=n).filter(|&i| mp.get(&i) == Some(i << 1)).count();
-        assert_eq!(found_np as i64, n, "nopresence flavour must find every key");
-    }
-
-    /// Differential fuzz: a `LogosI32Map` driven by keys AND values inside `i32`
-    /// range (the only inputs the narrowing gate ever sends it) must agree with a
-    /// `HashMap` on every `get`/`contains`/`len` — across resizes, overwrites, the
-    /// `0` sentinel path (the real key `0`), and `i32::MIN`/`i32::MAX` as ordinary
-    /// in-table keys.
-    #[test]
-    fn i32map_matches_hashmap_oracle() {
-        use std::collections::HashMap;
-        let pool: Vec<i64> = {
-            let mut v: Vec<i64> = (-40..40).collect();
-            v.extend_from_slice(&[
-                i32::MIN as i64, i32::MAX as i64, (i32::MIN + 1) as i64, (i32::MAX - 1) as i64, 0,
-            ]);
-            v
-        };
-        for seed in [1u64, 7, 1234567, 0x9E3779B9, u64::MAX / 3] {
-            let mut rng = Lcg(seed);
-            let mut map = LogosI32Map::new();
-            let mut oracle: HashMap<i64, i64> = HashMap::new();
-            for _ in 0..50_000 {
-                let key = pool[(rng.next_u64() as usize) % pool.len()];
-                match rng.next_u64() % 3 {
-                    0 => {
-                        // A value inside i32 range (what the narrowing proof guarantees).
-                        let val = (rng.next_u64() as i32) as i64;
-                        map.insert(key, val);
-                        oracle.insert(key, val);
-                    }
-                    1 => assert_eq!(
-                        map.get(&key),
-                        oracle.get(&key).copied(),
-                        "get disagreed for key {key} (seed {seed})"
-                    ),
-                    _ => assert_eq!(
-                        map.contains_key(&key),
-                        oracle.contains_key(&key),
-                        "contains disagreed for key {key} (seed {seed})"
-                    ),
-                }
-                assert_eq!(map.len(), oracle.len(), "len diverged (seed {seed})");
-            }
-            for &k in &pool {
-                assert_eq!(map.get(&k), oracle.get(&k).copied(), "final get key {k}");
-            }
-        }
-    }
-
-    /// `LogosI32Set` agrees with `std::HashSet` under fuzz over `i32`-range keys.
-    #[test]
-    fn i32set_matches_hashset_oracle() {
-        use std::collections::HashSet;
-        let pool: Vec<i64> = {
-            let mut v: Vec<i64> = (-40..40).collect();
-            v.extend_from_slice(&[
-                i32::MIN as i64, i32::MAX as i64, (i32::MIN + 1) as i64, (i32::MAX - 1) as i64, 0,
-            ]);
-            v
-        };
-        for seed in [1u64, 7, 1234567, 0x9E3779B9, u64::MAX / 3] {
-            let mut rng = Lcg(seed);
-            let mut set = LogosI32Set::new();
-            let mut oracle: HashSet<i64> = HashSet::new();
-            for _ in 0..50_000 {
-                let key = pool[(rng.next_u64() as usize) % pool.len()];
-                if rng.next_u64() % 2 == 0 {
-                    set.insert(key, 1);
-                    oracle.insert(key);
-                } else {
-                    assert_eq!(
-                        set.contains_key(&key),
-                        oracle.contains(&key),
-                        "contains disagreed for key {key} (seed {seed})"
-                    );
-                }
-                assert_eq!(set.len(), oracle.len(), "len diverged (seed {seed})");
-            }
-            for &k in &pool {
-                assert_eq!(set.contains_key(&k), oracle.contains(&k), "final contains key {k}");
-            }
-        }
-    }
-}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/types/logos_bits_tests.rs"]
+mod logos_bits_tests;
 
 // ===========================================================================
 // LogosInt — the EXACT compiled integer (overflow ruling v2, stage 2)
@@ -3119,6 +3532,14 @@ mod tests {
 pub enum LogosInt {
     Small(i64),
     Big(Box<logicaffeine_base::BigInt>),
+}
+
+/// Zero, so a struct holding a promoted `Int` can still `#[derive(Default)]` — the AOT-Rust
+/// struct codegen always derives it and constructs with `..Default::default()`.
+impl Default for LogosInt {
+    fn default() -> Self {
+        LogosInt::Small(0)
+    }
 }
 
 impl LogosInt {
@@ -3147,7 +3568,9 @@ impl LogosInt {
         let mut acc = logicaffeine_base::BigInt::from_i64(0);
         for ch in digits.bytes() {
             debug_assert!(ch.is_ascii_digit(), "LogosInt literal digit");
-            acc = acc.mul(&ten).add(&logicaffeine_base::BigInt::from_i64((ch - b'0') as i64));
+            acc = acc
+                .mul(&ten)
+                .add(&logicaffeine_base::BigInt::from_i64((ch - b'0') as i64));
         }
         if neg {
             acc = acc.negated();
@@ -3162,11 +3585,33 @@ impl LogosInt {
         }
     }
 
+    /// Borrow the value as a `&BigInt` WITHOUT cloning a heap `Big`. A `Small`
+    /// materializes a cheap single-limb `BigInt` (no heap); a `Big` borrows its box.
+    /// This is the allocation-avoiding counterpart to [`to_bigint`] for the by-ref
+    /// `BigInt` arithmetic below — a growing accumulator (`factorial`, `pow_exact`)
+    /// was being cloned once per operation purely to pass it by reference.
+    #[inline]
+    fn as_bigint(&self) -> std::borrow::Cow<'_, logicaffeine_base::BigInt> {
+        match self {
+            LogosInt::Small(x) => std::borrow::Cow::Owned(logicaffeine_base::BigInt::from_i64(*x)),
+            LogosInt::Big(b) => std::borrow::Cow::Borrowed(&**b),
+        }
+    }
+
     /// The value as `i64` when it fits.
     pub fn to_i64(&self) -> Option<i64> {
         match self {
             LogosInt::Small(x) => Some(*x),
             LogosInt::Big(b) => b.to_i64(),
+        }
+    }
+
+    /// The low 64 bits of this integer, reduced modulo 2^64.
+    #[inline]
+    pub fn wrapping_u64(&self) -> u64 {
+        match self {
+            Self::Small(value) => *value as u64,
+            Self::Big(value) => value.wrapping_u64(),
         }
     }
 
@@ -3187,7 +3632,8 @@ impl LogosInt {
                 return LogosInt::Small(s);
             }
         }
-        LogosInt::from_big(self.to_bigint().add(&rhs.to_bigint()))
+        let (a, b) = (self.as_bigint(), rhs.as_bigint());
+        LogosInt::from_big(a.add(&b))
     }
 
     #[inline]
@@ -3197,7 +3643,8 @@ impl LogosInt {
                 return LogosInt::Small(s);
             }
         }
-        LogosInt::from_big(self.to_bigint().sub(&rhs.to_bigint()))
+        let (a, b) = (self.as_bigint(), rhs.as_bigint());
+        LogosInt::from_big(a.sub(&b))
     }
 
     #[inline]
@@ -3207,7 +3654,35 @@ impl LogosInt {
                 return LogosInt::Small(p);
             }
         }
-        LogosInt::from_big(self.to_bigint().mul(&rhs.to_bigint()))
+        let (a, b) = (self.as_bigint(), rhs.as_bigint());
+        LogosInt::from_big(a.mul(&b))
+    }
+
+    /// In-place multiply by a machine-integer scalar — the exact-value equivalent of
+    /// `*self = self.mul(&LogosInt::from(rhs))`, but a `Big` accumulator mutates its heap
+    /// buffer in place instead of allocating a fresh product each call (the `Set p to p * i`
+    /// factorial hot loop). A `Small` stays on the checked fast path, promoting to `Big` only
+    /// on overflow. A `Big` never shrinks below the i64 range under a nonzero scalar, so it
+    /// stays a canonical `Big`; a zero scalar collapses to `Small(0)`.
+    #[inline]
+    pub fn mul_assign_i64(&mut self, rhs: i64) {
+        match self {
+            LogosInt::Small(a) => match a.checked_mul(rhs) {
+                Some(p) => *a = p,
+                None => {
+                    let big = logicaffeine_base::BigInt::from_i64(*a)
+                        .mul(&logicaffeine_base::BigInt::from_i64(rhs));
+                    *self = LogosInt::from_big(big);
+                }
+            },
+            LogosInt::Big(b) => {
+                if rhs == 0 {
+                    *self = LogosInt::Small(0);
+                } else {
+                    b.mul_assign_i64(rhs);
+                }
+            }
+        }
     }
 
     /// Truncating division; `Err` on a zero divisor (the interp's catchable
@@ -3216,7 +3691,7 @@ impl LogosInt {
     pub fn div(&self, rhs: &LogosInt) -> Result<LogosInt, String> {
         if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
             if *b == 0 {
-                return Err("Division by zero".to_string());
+                return Err(crate::failure::DIVISION_BY_ZERO.to_string());
             }
             if let Some(q) = a.checked_div(*b) {
                 return Ok(LogosInt::Small(q));
@@ -3224,7 +3699,7 @@ impl LogosInt {
         }
         match self.to_bigint().div_rem(&rhs.to_bigint()) {
             Some((q, _)) => Ok(LogosInt::from_big(q)),
-            None => Err("Division by zero".to_string()),
+            None => Err(crate::failure::DIVISION_BY_ZERO.to_string()),
         }
     }
 
@@ -3235,13 +3710,17 @@ impl LogosInt {
     pub fn div_floor(&self, rhs: &LogosInt) -> Result<LogosInt, String> {
         if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
             if *b == 0 {
-                return Err("Division by zero".to_string());
+                return Err(crate::failure::DIVISION_BY_ZERO.to_string());
             }
             // `i64::MIN / -1` overflows the Small path → fall through to the exact BigInt
             // branch. Otherwise floor = truncate, minus one when a nonzero remainder means
             // the true quotient sits below the truncated one (operands of opposite sign).
             if let (Some(q), Some(r)) = (a.checked_div(*b), a.checked_rem(*b)) {
-                let floored = if r != 0 && (r < 0) != (*b < 0) { q - 1 } else { q };
+                let floored = if r != 0 && (r < 0) != (*b < 0) {
+                    q - 1
+                } else {
+                    q
+                };
                 return Ok(LogosInt::Small(floored));
             }
         }
@@ -3254,7 +3733,7 @@ impl LogosInt {
                 };
                 Ok(LogosInt::from_big(floored))
             }
-            None => Err("Division by zero".to_string()),
+            None => Err(crate::failure::DIVISION_BY_ZERO.to_string()),
         }
     }
 
@@ -3263,7 +3742,7 @@ impl LogosInt {
     pub fn rem(&self, rhs: &LogosInt) -> Result<LogosInt, String> {
         if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
             if *b == 0 {
-                return Err("Modulo by zero".to_string());
+                return Err(crate::failure::MODULO_BY_ZERO.to_string());
             }
             if let Some(r) = a.checked_rem(*b) {
                 return Ok(LogosInt::Small(r));
@@ -3272,7 +3751,7 @@ impl LogosInt {
         }
         match self.to_bigint().div_rem(&rhs.to_bigint()) {
             Some((_, r)) => Ok(LogosInt::from_big(r)),
-            None => Err("Modulo by zero".to_string()),
+            None => Err(crate::failure::MODULO_BY_ZERO.to_string()),
         }
     }
 
@@ -3382,61 +3861,5 @@ impl core::fmt::Display for LogosInt {
 }
 
 #[cfg(test)]
-mod logos_int_spec {
-    use super::LogosInt;
-
-    #[test]
-    fn overflow_promotes_and_downsizes_exactly() {
-        let max = LogosInt::from_i64(i64::MAX);
-        let one = LogosInt::from_i64(1);
-        let big = max.add(&one);
-        assert_eq!(big.to_string(), "9223372036854775808");
-        assert!(matches!(big, LogosInt::Big(_)));
-        // Coming back into range NORMALIZES to Small.
-        let back = big.sub(&one);
-        assert!(matches!(back, LogosInt::Small(_)));
-        assert_eq!(back, i64::MAX);
-    }
-
-    #[test]
-    fn min_div_neg_one_is_exact() {
-        let min = LogosInt::from_i64(i64::MIN);
-        let neg1 = LogosInt::from_i64(-1);
-        let q = min.div(&neg1).unwrap();
-        assert_eq!(q.to_string(), "9223372036854775808");
-        assert_eq!(min.rem(&neg1).unwrap(), 0i64);
-        assert_eq!(min.neg().to_string(), "9223372036854775808");
-    }
-
-    #[test]
-    fn mul_overflow_matches_exact_value() {
-        let max = LogosInt::from_i64(i64::MAX);
-        let two = LogosInt::from_i64(2);
-        assert_eq!(max.mul(&two).to_string(), "18446744073709551614");
-    }
-
-    #[test]
-    fn division_errors_are_canonical() {
-        let one = LogosInt::from_i64(1);
-        let zero = LogosInt::from_i64(0);
-        assert_eq!(one.div(&zero).unwrap_err(), "Division by zero");
-        assert_eq!(one.rem(&zero).unwrap_err(), "Modulo by zero");
-    }
-
-    #[test]
-    fn literal_roundtrip_beyond_64_bits() {
-        let v = LogosInt::from_literal("18446744073709551614");
-        assert_eq!(v.to_string(), "18446744073709551614");
-        assert_eq!(LogosInt::from_literal("-42"), LogosInt::from_i64(-42));
-    }
-
-    #[test]
-    fn ordering_and_eq_cross_representation() {
-        let max = LogosInt::from_i64(i64::MAX);
-        let big = max.add(&LogosInt::from_i64(1));
-        assert!(max < big);
-        assert!(big > LogosInt::from_i64(0));
-        assert!(LogosInt::from_i64(5) == 5i64);
-        assert_ne!(big, LogosInt::from_i64(0));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/types/logos_int_spec.rs"]
+mod logos_int_spec;

@@ -23,12 +23,15 @@ use super::noun::NounParsing;
 use super::pragmatics::PragmaticsParsing;
 use super::quantifier::QuantifierParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, QuantifierKind, ThematicRole, VoiceOperator, Term};
+use crate::ast::{
+    AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, QuantifierKind,
+    Term, ThematicRole, VoiceOperator,
+};
 use crate::drs::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
-use logicaffeine_base::Symbol;
-use crate::lexicon::{Time, Aspect};
+use crate::lexicon::{Aspect, Time};
 use crate::token::TokenType;
+use logicaffeine_base::Symbol;
 
 /// Trait for parsing modal verbs and aspect chains.
 ///
@@ -40,7 +43,10 @@ pub trait ModalParsing<'a, 'ctx, 'int> {
     /// Parses perfect/progressive aspect chain with a symbol subject.
     fn parse_aspect_chain(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses perfect/progressive aspect chain with a term subject.
-    fn parse_aspect_chain_with_term(&mut self, subject_term: Term<'a>) -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_aspect_chain_with_term(
+        &mut self,
+        subject_term: Term<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>>;
     /// Converts a modal token to its semantic vector (domain, force, flavor).
     fn token_to_vector(&self, token: &TokenType) -> ModalVector;
 }
@@ -73,7 +79,10 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         self.parse_aspect_chain_with_term(Term::Constant(subject_symbol))
     }
 
-    fn parse_aspect_chain_with_term(&mut self, subject_term: Term<'a>) -> ParseResult<&'a LogicExpr<'a>> {
+    fn parse_aspect_chain_with_term(
+        &mut self,
+        subject_term: Term<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
         let mut has_modal = false;
         let mut modal_vector = None;
         let mut has_negation = false;
@@ -81,11 +90,16 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let mut has_passive = false;
         let mut has_progressive = false;
 
-        if self.check(&TokenType::Would) || self.check(&TokenType::Could)
-            || self.check(&TokenType::Must) || self.check(&TokenType::Can)
-            || self.check(&TokenType::Should) || self.check(&TokenType::May)
-            || self.check(&TokenType::Cannot) || self.check(&TokenType::Might)
-            || self.check(&TokenType::Shall) {
+        if self.check(&TokenType::Would)
+            || self.check(&TokenType::Could)
+            || self.check(&TokenType::Must)
+            || self.check(&TokenType::Can)
+            || self.check(&TokenType::Should)
+            || self.check(&TokenType::May)
+            || self.check(&TokenType::Cannot)
+            || self.check(&TokenType::Might)
+            || self.check(&TokenType::Shall)
+        {
             let modal_token = self.peek().kind.clone();
             self.advance();
             has_modal = true;
@@ -97,7 +111,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // Also set modal context on WorldState for cross-sentence tracking
             // This is used by end_sentence() to mark telescope candidates as modal-sourced
             let is_epistemic = matches!(vector.flavor, crate::ast::ModalFlavor::Epistemic);
-            self.world_state.enter_modal_context(is_epistemic, vector.force);
+            self.world_state
+                .enter_modal_context(is_epistemic, vector.force);
         }
 
         if self.check(&TokenType::Not) {
@@ -129,7 +144,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                 self.advance(); // consume "to"
                                 nested_modal_vector = Some(ModalVector {
                                     domain: ModalDomain::Alethic,
-                                    force: 0.5, // ability = possibility
+                                    force: 0.5,                // ability = possibility
                                     flavor: ModalFlavor::Root, // "be able to" = Root modal (ability)
                                     modal_base: None,
                                     ordering_source: None,
@@ -154,7 +169,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             has_perfect = true;
             // "had" = past perfect: R < S (past reference time)
             let r_var = self.world_state.next_reference_time();
-            self.world_state.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
+            self.world_state
+                .add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
         }
 
         if self.check_content_word() {
@@ -164,7 +180,10 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
                 if self.check_verb() {
                     match &self.peek().kind {
-                        TokenType::Verb { aspect: Aspect::Progressive, .. } => {
+                        TokenType::Verb {
+                            aspect: Aspect::Progressive,
+                            ..
+                        } => {
                             has_progressive = true;
                         }
                         TokenType::Verb { .. } => {
@@ -204,15 +223,13 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     TokenType::PresupTrigger(kind) => kind,
                     TokenType::Verb { lemma, .. } => {
                         let s = self.interner.resolve(lemma).to_lowercase();
-                        crate::lexicon::lookup_presup_trigger(&s).expect(
-                            "Lexicon mismatch: Verb flagged as trigger but lookup failed",
-                        )
+                        crate::lexicon::lookup_presup_trigger(&s)
+                            .expect("Lexicon mismatch: Verb flagged as trigger but lookup failed")
                     }
                     _ => unreachable!("guarded by check_presup_trigger"),
                 };
                 let subject_np = crate::ast::NounPhrase::simple(subj_sym);
-                let parsed =
-                    self.parse_presupposition(&subject_np, presup_kind, has_negation)?;
+                let parsed = self.parse_presupposition(&subject_np, presup_kind, has_negation)?;
                 if has_modal {
                     self.drs.exit_box();
                 }
@@ -248,7 +265,9 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.consume_content_word()?
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedContentWord { found: self.peek().kind.clone() },
+                kind: ParseErrorKind::ExpectedContentWord {
+                    found: self.peek().kind.clone(),
+                },
                 span: self.peek().span.clone(),
             });
         };
@@ -259,7 +278,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             ThematicRole::Agent
         };
         let mut roles: Vec<(ThematicRole, Term<'a>)> = vec![(subject_role, subject_term)];
-        let mut object_quant: Option<(QuantifierKind, Symbol, &'a LogicExpr<'a>)> = None;
+        let mut object_quant: Option<(TokenType, Symbol, &'a LogicExpr<'a>)> = None;
         // A DESCRIPTIVE perfect-passive by-agent ("…has been caught by the local
         // police") becomes its own restrictor-carrying entity scoping the whole
         // event; captured here, the wrap is applied to the finished `result` below
@@ -309,22 +328,13 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 });
             }
             roles.push((ThematicRole::Theme, Term::Variable(var)));
-            object_quant = Some((QuantifierKind::Cardinal(n), var, restriction));
-        } else if !has_passive
-            && matches!(
-                self.peek().kind,
-                TokenType::All | TokenType::Some | TokenType::Cardinal(_)
-            )
-        {
+            object_quant = Some((TokenType::Cardinal(n), var, restriction));
+        } else if !has_passive && QuantifierKind::of_determiner(&self.peek().kind).is_some() {
             // Quantified object under a modal ("shall acknowledge every
             // request", "shall never drop two consecutive bytes"): the
             // object raises past the root modal —
             // ∀x(Request(x) → MODAL(event with Theme x)).
-            let kind = match self.advance().kind {
-                TokenType::All => QuantifierKind::Universal,
-                TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                _ => QuantifierKind::Existential,
-            };
+            let determiner = self.advance().kind.clone();
             let obj_np = self.parse_noun_phrase(false)?;
             let var = self.next_var_name();
             roles.push((ThematicRole::Theme, Term::Variable(var)));
@@ -333,7 +343,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
                 world: None,
             });
-            object_quant = Some((kind, var, restriction));
+            object_quant = Some((determiner, var, restriction));
         } else if !has_passive && (self.check_content_word() || self.check_article()) {
             let obj_np = self.parse_noun_phrase(false)?;
             let obj_term = self.noun_phrase_to_term(&obj_np);
@@ -372,14 +382,17 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
         let suppress_existential = self.drs.in_conditional_antecedent();
-        let base_pred = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-            event_var,
-            verb,
-            roles: self.ctx.roles.alloc_slice(roles.clone()),
-            modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
-            suppress_existential,
-            world: None,
-        })));
+        let base_pred = self
+            .ctx
+            .exprs
+            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                event_var,
+                verb,
+                roles: self.ctx.roles.alloc_slice(roles.clone()),
+                modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
+                suppress_existential,
+                world: None,
+            })));
 
         // PPs and clause-final particles under the modal ("might walk in",
         // "would go to the store") modify the same event.
@@ -403,22 +416,31 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 self.tokens.get(self.current + 1).map(|t| &t.kind),
                 Some(TokenType::Number(_) | TokenType::Cardinal(_))
             ) && !head_after_unit;
-            let np_follows = head_after_unit || match self.tokens.get(self.current + 1).map(|t| &t.kind) {
-                Some(TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Article(_)) => true,
-                // A noun READING suffices ("during transfer" — "transfer"
-                // lexes Ambiguous{Verb|Noun}); the NP parse commits it.
-                Some(TokenType::Ambiguous { primary, alternatives }) => {
-                    matches!(**primary, TokenType::Noun(_))
-                        || alternatives.iter().any(|t| matches!(t, TokenType::Noun(_)))
-                }
-                _ => false,
-            };
+            let np_follows = head_after_unit
+                || match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                    Some(TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Article(_)) => {
+                        true
+                    }
+                    // A noun READING suffices ("during transfer" — "transfer"
+                    // lexes Ambiguous{Verb|Noun}); the NP parse commits it.
+                    Some(TokenType::Ambiguous {
+                        primary,
+                        alternatives,
+                    }) => {
+                        matches!(**primary, TokenType::Noun(_))
+                            || alternatives.iter().any(|t| matches!(t, TokenType::Noun(_)))
+                    }
+                    _ => false,
+                };
             let pp_pred = if measure_follows {
                 self.advance(); // preposition
                 let measure = self.parse_measure_phrase()?;
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: prep_name,
-                    args: self.ctx.terms.alloc_slice([Term::Variable(event_var), *measure]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(event_var), *measure]),
                     world: None,
                 })
             } else if np_follows {
@@ -430,10 +452,10 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let pp_np = pp_np_result?;
                 let pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: prep_name,
-                    args: self.ctx.terms.alloc_slice([
-                        Term::Variable(event_var),
-                        Term::Constant(pp_np.noun),
-                    ]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(event_var), Term::Constant(pp_np.noun)]),
                     world: None,
                 });
                 // "be caught by the LOCAL police" → By(e, Police) ∧ Local(Police):
@@ -486,13 +508,21 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     Time::Future => {
                         // Future perfect: S < R
                         let r_var = self.world_state.next_reference_time();
-                        self.world_state.add_time_constraint("S".to_string(), TimeRelation::Precedes, r_var);
+                        self.world_state.add_time_constraint(
+                            "S".to_string(),
+                            TimeRelation::Precedes,
+                            r_var,
+                        );
                     }
                     Time::Past => {
                         // Past perfect fallback (if not already set by "had")
                         if self.world_state.current_reference_time() == "S" {
                             let r_var = self.world_state.next_reference_time();
-                            self.world_state.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
+                            self.world_state.add_time_constraint(
+                                r_var,
+                                TimeRelation::Precedes,
+                                "S".to_string(),
+                            );
                         }
                     }
                     _ => {}
@@ -502,7 +532,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // Perfect: E < R (event before reference)
             let e_var = format!("e{}", self.world_state.event_history().len().max(1));
             let r_var = self.world_state.current_reference_time();
-            self.world_state.add_time_constraint(e_var, TimeRelation::Precedes, r_var);
+            self.world_state
+                .add_time_constraint(e_var, TimeRelation::Precedes, r_var);
         }
 
         if has_negation {
@@ -529,23 +560,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
-        if let Some((kind, var, restriction)) = object_quant {
-            let connective = if matches!(kind, QuantifierKind::Universal) {
-                TokenType::Implies
-            } else {
-                TokenType::And
-            };
-            let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                left: restriction,
-                op: connective,
-                right: result,
-            });
-            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                kind,
-                variable: var,
-                body,
-                island_id: self.current_island,
-            });
+        if let Some((determiner, var, restriction)) = object_quant {
+            result = self.quantify_argument(&determiner, var, restriction, result);
         }
 
         let result = self.wrap_in_possessor_entity(agent_restr, result);
@@ -553,8 +569,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn token_to_vector(&self, token: &TokenType) -> ModalVector {
-        use crate::ast::ModalFlavor;
         use super::ModalPreference;
+        use crate::ast::ModalFlavor;
 
         match token {
             // Root modals → Narrow Scope (De Re)
@@ -562,12 +578,16 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Cannot => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.0,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
 
             // Polysemous modal: CAN
@@ -580,7 +600,9 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Deontic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                            flavor: ModalFlavor::Root,
+                            modal_base: None,
+                            ordering_source: None,
                         }
                     }
                     _ => {
@@ -588,11 +610,13 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                            flavor: ModalFlavor::Root,
+                            modal_base: None,
+                            ordering_source: None,
                         }
                     }
                 }
-            },
+            }
 
             // Polysemous modal: COULD
             // Default: Past Ability (Alethic, Root/Narrow)
@@ -604,7 +628,9 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
+                            flavor: ModalFlavor::Epistemic,
+                            modal_base: None,
+                            ordering_source: None,
                         }
                     }
                     _ => {
@@ -612,26 +638,34 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                            flavor: ModalFlavor::Root,
+                            modal_base: None,
+                            ordering_source: None,
                         }
                     }
                 }
-            },
+            }
 
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Shall => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.9,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
 
             // Epistemic modals → Wide Scope (De Dicto)
@@ -639,7 +673,9 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             TokenType::Might => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.3,
-                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Epistemic,
+                modal_base: None,
+                ordering_source: None,
             },
 
             // Polysemous modal: MAY
@@ -652,7 +688,9 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
+                            flavor: ModalFlavor::Epistemic,
+                            modal_base: None,
+                            ordering_source: None,
                         }
                     }
                     _ => {
@@ -660,11 +698,13 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Deontic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                            flavor: ModalFlavor::Root,
+                            modal_base: None,
+                            ordering_source: None,
                         }
                     }
                 }
-            },
+            }
 
             _ => panic!("Unknown modal token: {:?}", token),
         }

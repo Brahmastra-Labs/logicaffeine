@@ -3,8 +3,8 @@
 //! Verify properties for any bus width N, any FIFO depth D, etc.
 //! Uses Z3 quantifiers: forall N:Int. N > 0 -> property(N).
 
-use crate::ir::{VerifyExpr, VerifyType};
 use crate::equivalence::Trace;
+use crate::ir::{VerifyExpr, VerifyType};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -25,7 +25,6 @@ pub fn verify_parameterized(
     param_type: VerifyType,
     constraint: Option<&VerifyExpr>,
 ) -> ParameterizedResult {
-
     // Build: forall param. constraint(param) -> property(param)
     let body = if let Some(c) = constraint {
         VerifyExpr::implies(c.clone(), property.clone())
@@ -33,10 +32,7 @@ pub fn verify_parameterized(
         property.clone()
     };
 
-    let quantified = VerifyExpr::forall(
-        vec![(parameter.to_string(), param_type.clone())],
-        body,
-    );
+    let quantified = VerifyExpr::forall(vec![(parameter.to_string(), param_type.clone())], body);
 
     // Check: NOT(quantified) is UNSAT means universally valid
     let negated = VerifyExpr::not(quantified);
@@ -96,14 +92,12 @@ fn substitute_param(expr: &VerifyExpr, param: &str, value: i64) -> VerifyExpr {
             substitute_param(l, param, value),
             substitute_param(r, param, value),
         ),
-        VerifyExpr::ForAll { vars, body } => VerifyExpr::forall(
-            vars.clone(),
-            substitute_param(body, param, value),
-        ),
-        VerifyExpr::Exists { vars, body } => VerifyExpr::exists(
-            vars.clone(),
-            substitute_param(body, param, value),
-        ),
+        VerifyExpr::ForAll { vars, body } => {
+            VerifyExpr::forall(vars.clone(), substitute_param(body, param, value))
+        }
+        VerifyExpr::Exists { vars, body } => {
+            VerifyExpr::exists(vars.clone(), substitute_param(body, param, value))
+        }
         _ => expr.clone(),
     }
 }
@@ -119,6 +113,11 @@ fn encode_bool(expr: &VerifyExpr) -> z3::ast::Bool {
     crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
     let mut bv_vars = HashMap::new();
     let mut array_vars = HashMap::new();
-    crate::equivalence::collect_quantifier_bound_vars_pub(expr, &mut int_vars, &mut bv_vars, &mut array_vars);
+    crate::equivalence::collect_quantifier_bound_vars_pub(
+        expr,
+        &mut int_vars,
+        &mut bv_vars,
+        &mut array_vars,
+    );
     crate::kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

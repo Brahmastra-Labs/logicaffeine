@@ -1,4 +1,4 @@
-//! Phase 110 — §4.5 Counterfactual conditionals (work/MISSING_ENGLISH.md).
+//! Phase 110 — Counterfactual conditionals.
 //!
 //! Subjunctive conditionals over the closest worlds:
 //!   "If John had studied, he would have passed." → Study(John) □→ Pass(John)
@@ -16,7 +16,10 @@ use logicaffeine_language::{compile, compile_kripke, compile_simple};
 fn counterfactual_uses_box_arrow_not_material() {
     let out = compile("If John had studied, he would have passed.").unwrap();
     eprintln!("cf: {out}");
-    assert!(out.contains("□→"), "counterfactual uses the □→ operator: {out}");
+    assert!(
+        out.contains("□→"),
+        "counterfactual uses the □→ operator: {out}"
+    );
     assert!(out.contains("Study"), "antecedent predicate: {out}");
     assert!(out.contains("Pass"), "consequent predicate: {out}");
 }
@@ -41,14 +44,20 @@ fn counterfactual_distinct_from_indicative_material() {
     eprintln!("cf-distinct: {cf}");
     // The counterfactual connective is □→, which is strictly richer than → ;
     // assert the modal arrow is present (the marker of non-material semantics).
-    assert!(cf.contains("□→"), "counterfactual is modal (□→), not bare material →: {cf}");
+    assert!(
+        cf.contains("□→"),
+        "counterfactual is modal (□→), not bare material →: {cf}"
+    );
 }
 
 #[test]
 fn counterfactual_renders_in_simple_and_kripke() {
     let simple = compile_simple("If John had studied, he would have passed.").unwrap();
     eprintln!("cf(simple): {simple}");
-    assert!(simple.contains("Study") && simple.contains("Pass"), "SimpleFOL keeps both clauses: {simple}");
+    assert!(
+        simple.contains("Study") && simple.contains("Pass"),
+        "SimpleFOL keeps both clauses: {simple}"
+    );
 
     let kripke = compile_kripke("If John had studied, he would have passed.").unwrap();
     eprintln!("cf(kripke): {kripke}");
@@ -57,7 +66,10 @@ fn counterfactual_renders_in_simple_and_kripke() {
         kripke.contains("Counterfactual") || kripke.contains("□→") || kripke.contains("Closest"),
         "Kripke marks the counterfactual: {kripke}"
     );
-    assert!(!kripke.contains("∀John") && !kripke.contains("ForAll John"), "no spurious ∀John: {kripke}");
+    assert!(
+        !kripke.contains("∀John") && !kripke.contains("ForAll John"),
+        "no spurious ∀John: {kripke}"
+    );
 }
 
 #[test]
@@ -136,5 +148,8 @@ fn negated_antecedent_and_consequent_parse() {
     assert!(out.contains("□→"), "still a counterfactual: {out}");
     assert!(out.contains('¬'), "the antecedent negation survives: {out}");
     let out2 = compile("If John had studied, he would not have failed.").unwrap();
-    assert!(out2.contains('¬'), "the consequent negation survives: {out2}");
+    assert!(
+        out2.contains('¬'),
+        "the consequent negation survives: {out2}"
+    );
 }

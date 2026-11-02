@@ -1,0 +1,150 @@
+{
+  "case": "T05-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 15,
+  "declarations": [
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 \u03b1 \u2192 Type",
+      "name": "T05_008.BoxOf",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192\n  {a : \u03b1} \u2192 {motive : T05_008.BoxOf a \u2192 Sort u} \u2192 (t : T05_008.BoxOf a) \u2192 motive T05_008.BoxOf.mk \u2192 motive t",
+      "name": "T05_008.BoxOf.casesOn",
+      "levels": [
+        "u",
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 {a : \u03b1} \u2192 T05_008.BoxOf a",
+      "name": "T05_008.BoxOf.mk",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u_1} {a : \u03b1} [inst : SizeOf \u03b1], sizeOf T05_008.BoxOf.mk = 1",
+      "name": "T05_008.BoxOf.mk.sizeOf_spec",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 {a : \u03b1} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_008.BoxOf a} \u2192 v1 = v2 \u2192 T05_008.BoxOf.noConfusionType P v1 v2",
+      "name": "T05_008.BoxOf.noConfusion",
+      "levels": [
+        "u",
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 {a : \u03b1} \u2192 Sort u \u2192 T05_008.BoxOf a \u2192 T05_008.BoxOf a \u2192 Sort u",
+      "name": "T05_008.BoxOf.noConfusionType",
+      "levels": [
+        "u",
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192\n  {a : \u03b1} \u2192 {motive : T05_008.BoxOf a \u2192 Sort u} \u2192 motive T05_008.BoxOf.mk \u2192 (t : T05_008.BoxOf a) \u2192 motive t",
+      "name": "T05_008.BoxOf.rec",
+      "levels": [
+        "u",
+        "u_1"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192\n  {a : \u03b1} \u2192 {motive : T05_008.BoxOf a \u2192 Sort u} \u2192 (t : T05_008.BoxOf a) \u2192 motive T05_008.BoxOf.mk \u2192 motive t",
+      "name": "T05_008.BoxOf.recOn",
+      "levels": [
+        "u",
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 {\u03b2 : Sort u_2} \u2192 (\u03b1 \u2192 \u03b2) \u2192 \u03b1 \u2192 \u03b2",
+      "name": "T05_008.applyF",
+      "levels": [
+        "u_1",
+        "u_2"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_008.collide",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 {\u03b2 : Sort u_2} \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b1",
+      "name": "T05_008.constf",
+      "levels": [
+        "u_1",
+        "u_2"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_008.idf",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u_1} (a : \u03b1), T05_008.idf a = a",
+      "name": "T05_008.idfEq",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u_1} \u2192 Nat \u2192 \u03b1 \u2192 List \u03b1",
+      "name": "T05_008.replicateN",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_008.sortId",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

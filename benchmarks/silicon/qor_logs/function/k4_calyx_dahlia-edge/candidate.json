@@ -1,0 +1,154 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K4",
+  "mems": [
+   {
+    "contract": [
+     "s_in"
+    ],
+    "kind": "SeqMem",
+    "prefix": "s_in",
+    "words_per_port": 25
+   },
+   {
+    "contract": [
+     "s_out"
+    ],
+    "kind": "SeqMem",
+    "prefix": "s_out",
+    "words_per_port": 25
+   }
+  ],
+  "name": "k4_calyx_dahlia",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "go"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 5,
+    "dir": "Out",
+    "name": "s_in_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_in_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_in_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "s_in_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "s_in_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_in_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "s_in_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_in_write_en"
+   },
+   {
+    "bits": 5,
+    "dir": "Out",
+    "name": "s_out_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_out_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_out_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "s_out_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "s_out_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_out_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "s_out_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "s_out_write_en"
+   }
+  ],
+  "protocol": {
+   "GoDone": {
+    "done": "done",
+    "go": "go"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "main"
+ },
+ "files": [
+  "k4_calyx_dahlia.sv"
+ ],
+ "golden_signature": "b8a85bd7a0bc6330",
+ "harness": "qorbist_k4_calyx_dahlia.v",
+ "harness_top": "qorbist_k4_calyx_dahlia",
+ "kernel": "K4",
+ "kernel_name": "keccak_f1600",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "go/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

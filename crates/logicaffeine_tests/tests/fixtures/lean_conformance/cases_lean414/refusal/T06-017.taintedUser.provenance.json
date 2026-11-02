@@ -1,0 +1,61 @@
+{
+  "case": "T06-017",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t06_propositions/T06-017_sorry_ax.lean",
+  "source_sha256": "2a8383922ed3e8fb78927ab6d83b48e5d5d9c42728a4fc929af38dea8137727d",
+  "ledger_sha256": "3d2bc1a788e28b1b4947ce8f18767bb2c74bfbbdd6d504be4f1c5ebaf1eaa705",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T06_017.taintedUser"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "a5d1e22fd31ce5cf74d1c156ab6b86ef9131a13bf4b47bacc0a3e5f10f1fbb2b",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 644,
+  "refusal": {
+    "root": "T06_017.taintedUser",
+    "kind": "theorem",
+    "ground_truth": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/lean_ground_truth/T06-017.json",
+    "lean_print_axioms": [
+      "sorryAx"
+    ],
+    "escapes": [
+      "sorryAx"
+    ],
+    "lean_taint": {
+      "sorryAx": [
+        "T06_017.taintedUser",
+        "T06_017.taintedLemma",
+        "sorryAx"
+      ]
+    },
+    "taint_rule": "breadth first from the root along Lean's CollectAxioms edges (definition, theorem, opaque: type and value; inductive: type and constructors; constructor, recursor: type; axiom, quotient: none), each declaration's constants in ascending Lean-name order; the first path found to each escape"
+  }
+}

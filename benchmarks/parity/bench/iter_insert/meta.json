@@ -1,0 +1,11 @@
+{
+  "capability": "iter.insert",
+  "workload": "insertAt(xs, pos, r) 1-based",
+  "arg": "40000",
+  "expected": "799980000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "go"
+  ]
+}

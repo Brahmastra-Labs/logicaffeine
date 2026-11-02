@@ -21,8 +21,18 @@ use std::collections::BTreeSet;
 /// Thematic-role priority — fixes the argument order of an event relation so the
 /// emitted Rust is deterministic and reads naturally (`read(Agent, Theme)`).
 const ROLE_ORDER: &[&str] = &[
-    "Agent", "Patient", "Theme", "Recipient", "Goal", "Source", "Instrument",
-    "Location", "Time", "Manner", "Result", "Depictive",
+    "Agent",
+    "Patient",
+    "Theme",
+    "Recipient",
+    "Goal",
+    "Source",
+    "Instrument",
+    "Location",
+    "Time",
+    "Manner",
+    "Result",
+    "Depictive",
 ];
 
 /// Emit a self-contained Rust rule module for `premises ⊨ goal` (empty `premises`
@@ -120,7 +130,11 @@ fn emit_temporal_module(
     let mut body = entailment(premises, goal, &|e| emit_expr_trace(e, "0", 0));
     // Close free variables over the first state's domain.
     for f in free_vars_of(premises, goal) {
-        body = format!("trace.first().map_or(true, |w| w.domain.iter().all(|&{}| {}))", sanitize_var(&f), body);
+        body = format!(
+            "trace.first().map_or(true, |w| w.domain.iter().all(|&{}| {}))",
+            sanitize_var(&f),
+            body
+        );
     }
     let demo = demo_world(consts, facts);
     let main = if emit_main {
@@ -153,7 +167,11 @@ fn emit_temporal_module(
 }
 
 /// `premises ⊨ goal` as a Rust bool expression, given a per-formula emitter.
-fn entailment(premises: &[ProofExpr], goal: &ProofExpr, emit: &dyn Fn(&ProofExpr) -> String) -> String {
+fn entailment(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    emit: &dyn Fn(&ProofExpr) -> String,
+) -> String {
     let g = emit(goal);
     if premises.is_empty() {
         g
@@ -236,7 +254,9 @@ fn emit_expr(e: &ProofExpr, world: &str) -> String {
         ProofExpr::Identity(a, b) => format!("({} == {})", emit_term(a), emit_term(b)),
         ProofExpr::And(l, r) => format!("({} && {})", emit_expr(l, world), emit_expr(r, world)),
         ProofExpr::Or(l, r) => format!("({} || {})", emit_expr(l, world), emit_expr(r, world)),
-        ProofExpr::Implies(l, r) => format!("(!{} || {})", emit_expr(l, world), emit_expr(r, world)),
+        ProofExpr::Implies(l, r) => {
+            format!("(!{} || {})", emit_expr(l, world), emit_expr(r, world))
+        }
         ProofExpr::Iff(l, r) => format!("({} == {})", emit_expr(l, world), emit_expr(r, world)),
         ProofExpr::Not(x) => format!("(!{})", emit_expr(x, world)),
         ProofExpr::ForAll { variable, body } => format!(
@@ -253,11 +273,18 @@ fn emit_expr(e: &ProofExpr, world: &str) -> String {
         ),
         // Neo-Davidsonian event: ∃e. verb(e) ∧ Role(e, arg) ∧ … — events are
         // domain entities, so this is an existential over the world.
-        ProofExpr::NeoEvent { event_var, verb, roles } => {
+        ProofExpr::NeoEvent {
+            event_var,
+            verb,
+            roles,
+        } => {
             let e = sanitize_var(event_var);
             let mut sorted = roles.clone();
             sorted.sort_by_key(|(r, _)| {
-                ROLE_ORDER.iter().position(|x| x == r).unwrap_or(ROLE_ORDER.len())
+                ROLE_ORDER
+                    .iter()
+                    .position(|x| x == r)
+                    .unwrap_or(ROLE_ORDER.len())
             });
             let mut parts = vec![format!("{}.pred({:?}, &[{}])", world, verb, e)];
             for (role, term) in &sorted {
@@ -269,7 +296,12 @@ fn emit_expr(e: &ProofExpr, world: &str) -> String {
                     emit_term(term)
                 ));
             }
-            format!("{}.domain.iter().any(|&{}| {})", world, e, parts.join(" && "))
+            format!(
+                "{}.domain.iter().any(|&{}| {})",
+                world,
+                e,
+                parts.join(" && ")
+            )
         }
         other => format!("true /* unsupported: {} */", variant_name(other)),
     }
@@ -287,21 +319,45 @@ fn emit_expr_trace(e: &ProofExpr, idx: &str, depth: usize) -> String {
             let v = format!("i{}", depth);
             let inner = emit_expr_trace(body, &v, depth + 1);
             match operator.as_str() {
-                "Always" => format!("({idx}..trace.len()).all(|{v}| {inner})", idx = idx, v = v, inner = inner),
+                "Always" => format!(
+                    "({idx}..trace.len()).all(|{v}| {inner})",
+                    idx = idx,
+                    v = v,
+                    inner = inner
+                ),
                 "Eventually" | "Future" => {
-                    format!("({idx}..trace.len()).any(|{v}| {inner})", idx = idx, v = v, inner = inner)
+                    format!(
+                        "({idx}..trace.len()).any(|{v}| {inner})",
+                        idx = idx,
+                        v = v,
+                        inner = inner
+                    )
                 }
-                "Past" => format!("(0..={idx}).any(|{v}| {inner})", idx = idx, v = v, inner = inner),
+                "Past" => format!(
+                    "(0..={idx}).any(|{v}| {inner})",
+                    idx = idx,
+                    v = v,
+                    inner = inner
+                ),
                 "Next" => format!(
                     "{{ let {v} = {idx} + 1; {v} < trace.len() && {inner} }}",
                     v = v,
                     idx = idx,
                     inner = inner
                 ),
-                _ => format!("({idx}..trace.len()).all(|{v}| {inner})", idx = idx, v = v, inner = inner),
+                _ => format!(
+                    "({idx}..trace.len()).all(|{v}| {inner})",
+                    idx = idx,
+                    v = v,
+                    inner = inner
+                ),
             }
         }
-        ProofExpr::TemporalBinary { operator, left, right } => {
+        ProofExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => {
             let k = format!("k{}", depth);
             let j = format!("j{}", depth);
             let r_at_k = emit_expr_trace(right, &k, depth + 1);
@@ -309,7 +365,11 @@ fn emit_expr_trace(e: &ProofExpr, idx: &str, depth: usize) -> String {
             match operator.as_str() {
                 "Release" => format!(
                     "({idx}..trace.len()).all(|{k}| {r} || ({idx}..{k}).any(|{j}| {l}))",
-                    idx = idx, k = k, j = j, r = r_at_k, l = l_at_j
+                    idx = idx,
+                    k = k,
+                    j = j,
+                    r = r_at_k,
+                    l = l_at_j
                 ),
                 "WeakUntil" => {
                     let l_all = emit_expr_trace(left, &j, depth + 1);
@@ -321,21 +381,41 @@ fn emit_expr_trace(e: &ProofExpr, idx: &str, depth: usize) -> String {
                 // Until (and default): ∃k≥idx. right@k ∧ ∀idx≤j<k. left@j
                 _ => format!(
                     "({idx}..trace.len()).any(|{k}| {r} && ({idx}..{k}).all(|{j}| {l}))",
-                    idx = idx, k = k, j = j, r = r_at_k, l = l_at_j
+                    idx = idx,
+                    k = k,
+                    j = j,
+                    r = r_at_k,
+                    l = l_at_j
                 ),
             }
         }
         ProofExpr::And(l, r) => {
-            format!("({} && {})", emit_expr_trace(l, idx, depth), emit_expr_trace(r, idx, depth))
+            format!(
+                "({} && {})",
+                emit_expr_trace(l, idx, depth),
+                emit_expr_trace(r, idx, depth)
+            )
         }
         ProofExpr::Or(l, r) => {
-            format!("({} || {})", emit_expr_trace(l, idx, depth), emit_expr_trace(r, idx, depth))
+            format!(
+                "({} || {})",
+                emit_expr_trace(l, idx, depth),
+                emit_expr_trace(r, idx, depth)
+            )
         }
         ProofExpr::Implies(l, r) => {
-            format!("(!{} || {})", emit_expr_trace(l, idx, depth), emit_expr_trace(r, idx, depth))
+            format!(
+                "(!{} || {})",
+                emit_expr_trace(l, idx, depth),
+                emit_expr_trace(r, idx, depth)
+            )
         }
         ProofExpr::Iff(l, r) => {
-            format!("({} == {})", emit_expr_trace(l, idx, depth), emit_expr_trace(r, idx, depth))
+            format!(
+                "({} == {})",
+                emit_expr_trace(l, idx, depth),
+                emit_expr_trace(r, idx, depth)
+            )
         }
         ProofExpr::Not(x) => format!("(!{})", emit_expr_trace(x, idx, depth)),
         // Temporal nested deeper than the skeleton handles (e.g. under a
@@ -385,7 +465,9 @@ fn free_vars(e: &ProofExpr, bound: &mut Vec<String>, out: &mut BTreeSet<String>)
             free_vars(left, bound, out);
             free_vars(right, bound, out);
         }
-        ProofExpr::NeoEvent { event_var, roles, .. } => {
+        ProofExpr::NeoEvent {
+            event_var, roles, ..
+        } => {
             bound.push(event_var.clone());
             for (_, t) in roles {
                 free_term(t, bound, out);
@@ -415,9 +497,10 @@ fn free_term(t: &ProofTerm, bound: &[String], out: &mut BTreeSet<String>) {
 fn contains_temporal(e: &ProofExpr) -> bool {
     match e {
         ProofExpr::Temporal { .. } | ProofExpr::TemporalBinary { .. } => true,
-        ProofExpr::And(l, r) | ProofExpr::Or(l, r) | ProofExpr::Implies(l, r) | ProofExpr::Iff(l, r) => {
-            contains_temporal(l) || contains_temporal(r)
-        }
+        ProofExpr::And(l, r)
+        | ProofExpr::Or(l, r)
+        | ProofExpr::Implies(l, r)
+        | ProofExpr::Iff(l, r) => contains_temporal(l) || contains_temporal(r),
         ProofExpr::Not(x) => contains_temporal(x),
         ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => contains_temporal(body),
         _ => false,
@@ -441,7 +524,11 @@ fn sanitize_var(v: &str) -> String {
     format!("v_{}", cleaned)
 }
 
-fn collect(e: &ProofExpr, consts: &mut BTreeSet<String>, facts: &mut BTreeSet<(String, Vec<String>)>) {
+fn collect(
+    e: &ProofExpr,
+    consts: &mut BTreeSet<String>,
+    facts: &mut BTreeSet<(String, Vec<String>)>,
+) {
     match e {
         ProofExpr::Predicate { name, args, .. } => {
             for a in args {
@@ -477,7 +564,9 @@ fn collect(e: &ProofExpr, consts: &mut BTreeSet<String>, facts: &mut BTreeSet<(S
             collect(r, consts, facts);
         }
         ProofExpr::Not(x) => collect(x, consts, facts),
-        ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => collect(body, consts, facts),
+        ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
+            collect(body, consts, facts)
+        }
         ProofExpr::Temporal { body, .. } => collect(body, consts, facts),
         ProofExpr::TemporalBinary { left, right, .. } => {
             collect(left, consts, facts);

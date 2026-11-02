@@ -1,0 +1,82 @@
+{
+  "case": "T02-020",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t02_declarations/T02-020_flat_name_collision.lean",
+  "source_sha256": "03e73d89106470473f24b24ac2b856696ea39f8bc77e738e262338f49423e7d0",
+  "ledger_sha256": "59b67501cb4d8e12e407525afded97e2a81365bef8a31b6232eddac35dfefbfd",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T02_020.Cross.kind",
+    "T02_020.Cross_kind",
+    "T02_020.Cross_kind.only",
+    "T02_020.Foo.bar",
+    "T02_020.Foo_bar",
+    "T02_020.Point",
+    "T02_020.Point.mk",
+    "T02_020.Point.x",
+    "T02_020.Point.y",
+    "T02_020.Point_mk",
+    "T02_020.Point_x",
+    "T02_020.RTree_to_TList",
+    "T02_020.Shadow.Nat",
+    "T02_020.Shadow.Succ",
+    "T02_020.withAux",
+    "T02_020.withAux.go",
+    "T02_020.withAux_go"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "a39e203e925529628b89ef384f06c90bba9e77add27ecd68af4adc76ec124398",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 880,
+  "harvest": {
+    "roots": [
+      "T02_020.Cross.kind",
+      "T02_020.Cross_kind",
+      "T02_020.Cross_kind.only",
+      "T02_020.Foo.bar",
+      "T02_020.Foo_bar",
+      "T02_020.Point",
+      "T02_020.Point.mk",
+      "T02_020.Point.x",
+      "T02_020.Point.y",
+      "T02_020.Point_mk",
+      "T02_020.Point_x",
+      "T02_020.RTree_to_TList",
+      "T02_020.Shadow.Nat",
+      "T02_020.Shadow.Succ",
+      "T02_020.withAux",
+      "T02_020.withAux.go",
+      "T02_020.withAux_go"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

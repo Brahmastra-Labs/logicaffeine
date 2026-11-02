@@ -1,0 +1,356 @@
+{
+  "images": [
+    {
+      "top": "logos_decode_video",
+      "part": "xc7a200tsbg484-1",
+      "target": "xc7a200t-fabric",
+      "mem_banks": 16,
+      "vector_lanes": 8,
+      "read_latency": 1,
+      "cycles_per_step": 1064,
+      "loop_cycles_per_step": 1078,
+      "prompt_next_tokens": [
+        6,
+        4,
+        0,
+        2,
+        1,
+        13,
+        0,
+        11,
+        1,
+        13,
+        0,
+        10,
+        9,
+        0,
+        13,
+        6,
+        4,
+        0,
+        8
+      ],
+      "sources_sha256": "d28f306a1d1e67567d96a9b5b4a4d09bce47927dc1b5009e798c78d5bef11449",
+      "pll": {
+        "div": 1,
+        "mult": 14,
+        "out": 36
+      },
+      "core_mhz": 38.888888888888886,
+      "fmax_mhz": 41.68,
+      "timing": {
+        "complete": true,
+        "tool": "nextpnr-xilinx (openXC7) with hard-cell timing from prjxray-db's SDF, speed grade -1",
+        "untimed_cells": {},
+        "residual_ns": 1.19,
+        "clock_uncertainty_ns": 0.5,
+        "note": "fmax_mhz times every path but a LUT-RAM's write-through and a driven-address shift register's clock-to-out; a path through one is at most residual_ns longer than a path it times, and the core clock's period covers both."
+      },
+      "step_us": 27.36,
+      "pnr": {
+        "placer": "heap",
+        "placer_heap_timingweight": 10,
+        "place_with_hard_timing": false,
+        "router": "router2",
+        "seed": 2,
+        "freq_mhz": 42
+      },
+      "lutram_contents": {
+        "luts": 9152,
+        "bits_checked": 585728,
+        "check": "scripts/xc7/fasm_dram_check.py: every LUT-RAM INIT bit in the FASM equals the netlist's RAM32M/RAM64M INIT through its routed pins"
+      },
+      "utilization": {
+        "SLICE_LUTX": {
+          "used": 80080,
+          "of": 269200
+        },
+        "SLICE_FFX": {
+          "used": 41698,
+          "of": 269200
+        },
+        "CARRY4": {
+          "used": 2482,
+          "of": 33650
+        },
+        "PSEUDO_GND": {
+          "used": 1,
+          "of": 69165
+        },
+        "PSEUDO_VCC": {
+          "used": 1,
+          "of": 69165
+        },
+        "HARD0": {
+          "used": 0,
+          "of": 3960
+        },
+        "RAMB18E1_RAMB18E1": {
+          "used": 0,
+          "of": 730
+        },
+        "FIFO18E1_FIFO18E1": {
+          "used": 0,
+          "of": 365
+        },
+        "RAMB36E1_RAMB36E1": {
+          "used": 0,
+          "of": 365
+        },
+        "DSP48E1_DSP48E1": {
+          "used": 408,
+          "of": 740
+        },
+        "PAD": {
+          "used": 24,
+          "of": 1460
+        },
+        "IOB33M_OUTBUF": {
+          "used": 0,
+          "of": 240
+        }
+      },
+      "bitstream": "decode_logos_decode_video.bit",
+      "bytes": 9730754,
+      "sha256": "550bad93680a19492e25648c22b051eb6f0bf044dfd3f51e418cc140351c1f34",
+      "measured": {
+        "tokens": [
+          8,
+          1,
+          13
+        ],
+        "prompt_next_tokens": [
+          6,
+          4,
+          0,
+          2,
+          1,
+          13,
+          0,
+          11,
+          1,
+          13,
+          0,
+          10,
+          9,
+          0,
+          13,
+          6,
+          4,
+          0,
+          8
+        ],
+        "step_cycles": [
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064,
+          1064
+        ],
+        "generate_steps": 2,
+        "generate_cycles": 2156,
+        "core_mhz": 38.888888888888886,
+        "us_per_token": 27.72,
+        "tokens_per_s": 36075.0,
+        "board": "A",
+        "part": "xc7a200tsbg484-1",
+        "bitstream_sha256": "550bad93680a19492e25648c22b051eb6f0bf044dfd3f51e418cc140351c1f34",
+        "date": "2026-10-21 09:19 UTC",
+        "host_wall_s": 0.022,
+        "power_w": null,
+        "energy_uj_per_token": null,
+        "replayed": false
+      }
+    },
+    {
+      "top": "logos_decode_a7",
+      "part": "xc7a100tcsg324-1",
+      "target": "xc7a100t-fabric",
+      "mem_banks": 8,
+      "vector_lanes": 4,
+      "read_latency": 1,
+      "cycles_per_step": 1953,
+      "loop_cycles_per_step": 1967,
+      "prompt_next_tokens": [
+        6,
+        4,
+        0,
+        2,
+        1,
+        13,
+        0,
+        11,
+        1,
+        13,
+        0,
+        10,
+        9,
+        0,
+        13,
+        6,
+        4,
+        0,
+        8
+      ],
+      "sources_sha256": "63b628e727f060c42ba9e4da26f6ada09fe9722588ce42e8226a89729f8758b2",
+      "pll": {
+        "div": 5,
+        "mult": 59,
+        "out": 26
+      },
+      "core_mhz": 45.38461538461539,
+      "fmax_mhz": 49.93,
+      "timing": {
+        "complete": true,
+        "tool": "nextpnr-xilinx (openXC7) with hard-cell timing from prjxray-db's SDF, speed grade -1",
+        "untimed_cells": {},
+        "residual_ns": 1.19,
+        "clock_uncertainty_ns": 0.5,
+        "note": "fmax_mhz times every path but a LUT-RAM's write-through and a driven-address shift register's clock-to-out; a path through one is at most residual_ns longer than a path it times, and the core clock's period covers both."
+      },
+      "step_us": 43.032203,
+      "pnr": {
+        "placer": "heap",
+        "placer_heap_timingweight": 4,
+        "place_with_hard_timing": true,
+        "router": "router2",
+        "seed": 2,
+        "freq_mhz": 45
+      },
+      "lutram_contents": {
+        "luts": 6656,
+        "bits_checked": 425984,
+        "check": "scripts/xc7/fasm_dram_check.py: every LUT-RAM INIT bit in the FASM equals the netlist's RAM32M/RAM64M INIT through its routed pins"
+      },
+      "utilization": {
+        "SLICE_LUTX": {
+          "used": 56999,
+          "of": 126800
+        },
+        "SLICE_FFX": {
+          "used": 22086,
+          "of": 126800
+        },
+        "CARRY4": {
+          "used": 2110,
+          "of": 15850
+        },
+        "PSEUDO_GND": {
+          "used": 1,
+          "of": 30932
+        },
+        "PSEUDO_VCC": {
+          "used": 1,
+          "of": 30932
+        },
+        "HARD0": {
+          "used": 0,
+          "of": 2376
+        },
+        "RAMB18E1_RAMB18E1": {
+          "used": 8,
+          "of": 270
+        },
+        "FIFO18E1_FIFO18E1": {
+          "used": 0,
+          "of": 135
+        },
+        "RAMB36E1_RAMB36E1": {
+          "used": 0,
+          "of": 135
+        },
+        "DSP48E1_DSP48E1": {
+          "used": 140,
+          "of": 240
+        },
+        "PAD": {
+          "used": 11,
+          "of": 876
+        },
+        "IOB33M_OUTBUF": {
+          "used": 0,
+          "of": 144
+        }
+      },
+      "bitstream": "decode_logos_decode_a7.bit",
+      "bytes": 3825890,
+      "sha256": "faa155e9030282b081694db71a1791e1bee9dfae19f0e6b9f061376f920da855",
+      "measured": {
+        "tokens": [
+          8,
+          1,
+          13
+        ],
+        "prompt_next_tokens": [
+          6,
+          4,
+          0,
+          2,
+          1,
+          13,
+          0,
+          11,
+          1,
+          13,
+          0,
+          10,
+          9,
+          0,
+          13,
+          6,
+          4,
+          0,
+          8
+        ],
+        "step_cycles": [
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953,
+          1953
+        ],
+        "generate_steps": 2,
+        "generate_cycles": 3934,
+        "core_mhz": 45.38461538461539,
+        "us_per_token": 43.341,
+        "tokens_per_s": 23073.0,
+        "board": "B",
+        "part": "xc7a100tcsg324-1",
+        "bitstream_sha256": "faa155e9030282b081694db71a1791e1bee9dfae19f0e6b9f061376f920da855",
+        "date": "2026-10-21 08:57 UTC",
+        "host_wall_s": 0.041,
+        "power_w": null,
+        "energy_uj_per_token": null,
+        "replayed": false
+      }
+    }
+  ]
+}

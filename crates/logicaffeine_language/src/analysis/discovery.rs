@@ -16,11 +16,10 @@
 //!
 //! [`DiscoveryPass::run`] - Execute the discovery pass and return registries.
 
-use crate::token::{Token, TokenType, BlockType};
+use super::policy::{CapabilityDef, PolicyCondition, PolicyRegistry, PredicateDef};
+use super::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+use crate::token::{BlockType, Span, Token, TokenType};
 use logicaffeine_base::{Interner, Symbol};
-use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
-use super::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
-use super::dependencies::scan_dependencies;
 
 /// Result of running the discovery pass
 pub struct DiscoveryResult {
@@ -44,7 +43,11 @@ pub struct DiscoveryPass<'a> {
 
 impl<'a> DiscoveryPass<'a> {
     pub fn new(tokens: &'a [Token], interner: &'a mut Interner) -> Self {
-        Self { tokens, pos: 0, interner }
+        Self {
+            tokens,
+            pos: 0,
+            interner,
+        }
     }
 
     /// Run discovery pass, returning populated TypeRegistry
@@ -57,6 +60,7 @@ impl<'a> DiscoveryPass<'a> {
     pub fn run_full(&mut self) -> DiscoveryResult {
         let mut type_registry = TypeRegistry::with_primitives(self.interner);
         let mut policy_registry = PolicyRegistry::new();
+        let mut view_variants: Vec<VariantDef> = Vec::new();
 
         while self.pos < self.tokens.len() {
             // Look for Definition blocks
@@ -72,12 +76,34 @@ impl<'a> DiscoveryPass<'a> {
                 // Phase 50: Security policy definitions
                 self.advance(); // consume ## Policy
                 self.scan_policy_block(&mut policy_registry);
+            } else if self.check_block_header(BlockType::Session) {
+                // `## Session` declares a RECORD, in the same words a record is declared in, and
+                // it is registered HERE, from the tokens, so the parse that follows knows it. A
+                // `## Store`'s record is not: the lowering types it by the rule that builds it and
+                // registers it into the parser's own registry (`lgx_lower::stores`), which is the
+                // registry the engines read once the parse is done (`Parser::into_type_registry`).
+                self.advance(); // consume ## Session
+                self.scan_session_block(&mut type_registry);
+            } else if self.check_block_header(BlockType::Function) {
+                // A `-> View` template declares a variant of the program's `__View`: a page's
+                // lowered code holds a View as that DATA (`parser::lgx_lower::views`), and the
+                // enum is registered HERE for the reason `## Session`'s record is — see that comment.
+                self.advance(); // consume ## To
+                if let Some(variant) = self.scan_view_template() {
+                    view_variants.push(variant);
+                }
             } else if self.check_block_header(BlockType::Requires) {
                 // Requires blocks contain dependency metadata, not type definitions.
                 // Skip to next block header.
                 self.advance(); // consume ## Requires
                 while self.pos < self.tokens.len() {
-                    if matches!(self.tokens.get(self.pos), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                    if matches!(
+                        self.tokens.get(self.pos),
+                        Some(Token {
+                            kind: TokenType::BlockHeader { .. },
+                            ..
+                        })
+                    ) {
                         break;
                     }
                     self.advance();
@@ -87,9 +113,191 @@ impl<'a> DiscoveryPass<'a> {
             }
         }
 
+        if !view_variants.is_empty() {
+            let none = self
+                .interner
+                .intern(crate::parser::lgx_lower::empty_view_variant_name());
+            view_variants.insert(
+                0,
+                VariantDef {
+                    name: none,
+                    fields: Vec::new(),
+                },
+            );
+            type_registry.register(
+                self.interner
+                    .intern(crate::parser::lgx_lower::view_type_name()),
+                TypeDef::Enum {
+                    variants: view_variants,
+                    generics: Vec::new(),
+                    is_portable: false,
+                    is_shared: false,
+                },
+            );
+        }
+
         DiscoveryResult {
             types: type_registry,
             policies: policy_registry,
+        }
+    }
+
+    /// `## To f (p: T) and (q: U) -> View:` with a markup body — the variant `__View_f` carrying
+    /// one field per parameter, a `View` parameter as the enum itself. Read the way the parser
+    /// reads a function header (name, `(name: Type)` groups joined by `and` or a preposition or
+    /// separated by commas, `-> View`, `:`); anything else is not a template and declares nothing.
+    /// The lowering refuses, by the template's name, any template this reading disagrees with.
+    fn scan_view_template(&mut self) -> Option<VariantDef> {
+        let name = self.header_word()?;
+        let mut fields = Vec::new();
+        while self.check_lparen() {
+            self.advance();
+            if self.check_rparen() {
+                self.advance();
+                break;
+            }
+            loop {
+                let param = self.header_word()?;
+                if !self.check_colon() {
+                    return None;
+                }
+                self.advance();
+                let ty = match self.consume_field_type() {
+                    FieldType::Primitive(t) | FieldType::Named(t)
+                        if self.interner.resolve(t) == "View" =>
+                    {
+                        FieldType::Named(
+                            self.interner
+                                .intern(crate::parser::lgx_lower::view_type_name()),
+                        )
+                    }
+                    other => other,
+                };
+                fields.push(FieldDef {
+                    name: param,
+                    ty,
+                    is_public: true,
+                });
+                if self.check_comma() {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            if !self.check_rparen() {
+                return None;
+            }
+            self.advance();
+            if self.check_and()
+                || matches!(
+                    self.peek(),
+                    Some(Token {
+                        kind: TokenType::Preposition(_) | TokenType::From,
+                        ..
+                    })
+                )
+            {
+                self.advance();
+            }
+        }
+        if !matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Arrow,
+                ..
+            })
+        ) {
+            return None;
+        }
+        self.advance();
+        if !self.check_word("View") {
+            return None;
+        }
+        self.advance();
+        if !self.check_colon() {
+            return None;
+        }
+        self.advance();
+        let markup = matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Indent,
+                ..
+            })
+        ) && matches!(
+            self.tokens.get(self.pos + 1),
+            Some(Token {
+                kind: TokenType::RawBlock {
+                    kind: crate::token::RawKind::View,
+                    ..
+                },
+                ..
+            })
+        );
+        if !markup {
+            return None;
+        }
+        let variant = crate::parser::lgx_lower::view_variant_name(self.interner.resolve(name));
+        Some(VariantDef {
+            name: self.interner.intern(&variant),
+            fields,
+        })
+    }
+
+    /// A name in a function header, as the parser's `expect_identifier` reads it: a word's own
+    /// symbol, or its lexeme.
+    fn header_word(&mut self) -> Option<Symbol> {
+        let token = self.peek()?;
+        let sym = match &token.kind {
+            TokenType::Noun(s) | TokenType::ProperName(s) | TokenType::Adjective(s) => *s,
+            TokenType::Colon
+            | TokenType::LParen
+            | TokenType::RParen
+            | TokenType::Arrow
+            | TokenType::Newline
+            | TokenType::Indent
+            | TokenType::Dedent
+            | TokenType::EOF
+            | TokenType::BlockHeader { .. } => return None,
+            _ => token.lexeme,
+        };
+        self.advance();
+        Some(sym)
+    }
+
+    /// `## Session` — the fields a visitor carries between requests, registered as `Session`.
+    ///
+    /// The field syntax is a record's, so it is read by a record's own field scanner rather than
+    /// a second one written beside it: two scanners for one syntax is how the two drift.
+    fn scan_session_block(&mut self, registry: &mut TypeRegistry) {
+        let name = self.interner.intern("Session");
+        let mut spans = Vec::new();
+        let mut fields = self.parse_struct_fields_with_params(&[], Some(&mut spans));
+        if !fields.is_empty() {
+            // ★ EVERY SESSION CARRIES A CSRF NONCE, declared or not. It is added HERE, with the
+            // author's own fields, so it rides in the same cookie and through the same payload
+            // encoder — there is no second place for it to be forgotten. See
+            // `SESSION_NONCE_FIELD` for why the token is bound to a nonce rather than to the
+            // session's contents.
+            fields.push(crate::analysis::registry::FieldDef {
+                name: self
+                    .interner
+                    .intern(crate::parser::lgx_lower::SESSION_NONCE_FIELD),
+                ty: crate::analysis::registry::FieldType::Primitive(self.interner.intern("Text")),
+                is_public: true,
+            });
+            for (field, span) in spans {
+                registry.set_field_span(name, field, span);
+            }
+            registry.register(
+                name,
+                TypeDef::Struct {
+                    fields,
+                    generics: Vec::new(),
+                    is_portable: false,
+                    is_shared: false,
+                },
+            );
         }
     }
 
@@ -104,7 +312,13 @@ impl<'a> DiscoveryPass<'a> {
     fn scan_definition_block(&mut self, registry: &mut TypeRegistry) {
         // Scan until next block header or EOF
         while self.pos < self.tokens.len() {
-            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+            if matches!(
+                self.peek(),
+                Some(Token {
+                    kind: TokenType::BlockHeader { .. },
+                    ..
+                })
+            ) {
                 break;
             }
 
@@ -123,7 +337,13 @@ impl<'a> DiscoveryPass<'a> {
     /// - "A User can publish the Document if the user is admin OR the user equals the document's owner."
     fn scan_policy_block(&mut self, registry: &mut PolicyRegistry) {
         while self.pos < self.tokens.len() {
-            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+            if matches!(
+                self.peek(),
+                Some(Token {
+                    kind: TokenType::BlockHeader { .. },
+                    ..
+                })
+            ) {
                 break;
             }
 
@@ -182,7 +402,7 @@ impl<'a> DiscoveryPass<'a> {
             }
 
             // Parse condition
-            let condition = self.parse_policy_condition(subject_type, None);
+            let condition = self.parse_policy_condition();
 
             registry.register_predicate(PredicateDef {
                 subject_type,
@@ -201,7 +421,10 @@ impl<'a> DiscoveryPass<'a> {
             // `consume_noun_or_proper` first would capture the verb LEXEME instead and
             // every capability check would miss ("No capability 'Edit' defined").
             let action = match self.peek() {
-                Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) => {
+                Some(Token {
+                    kind: TokenType::Verb { lemma, .. },
+                    ..
+                }) => {
                     let sym = *lemma;
                     self.advance();
                     sym
@@ -241,7 +464,7 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
             }
 
-            let condition = self.parse_policy_condition(subject_type, Some(object_type));
+            let condition = self.parse_policy_condition();
 
             registry.register_capability(CapabilityDef {
                 subject_type,
@@ -259,11 +482,11 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Phase 50: Parse a policy condition
     /// Handles: field comparisons, predicate references, and OR/AND combinators
-    fn parse_policy_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+    fn parse_policy_condition(&mut self) -> PolicyCondition {
         // Left-fold the FULL n-ary chain. Returning after the first connective
         // silently dropped every conjunct/disjunct past the second atom, making
         // an AND-policy over-permissive and an OR-policy over-restrictive.
-        let mut acc = self.parse_atomic_condition(subject_type, object_type);
+        let mut acc = self.parse_atomic_condition();
 
         // Check for OR/AND combinators
         loop {
@@ -275,7 +498,7 @@ impl<'a> DiscoveryPass<'a> {
             // Handle ", AND" or ", OR" patterns
             if self.check_comma() {
                 self.advance(); // consume comma
-                // Skip whitespace after comma
+                                // Skip whitespace after comma
                 while self.check_newline() {
                     self.advance();
                 }
@@ -287,7 +510,7 @@ impl<'a> DiscoveryPass<'a> {
                 while self.check_newline() {
                     self.advance();
                 }
-                let right = self.parse_atomic_condition(subject_type, object_type);
+                let right = self.parse_atomic_condition();
                 acc = PolicyCondition::And(Box::new(acc), Box::new(right));
             } else if self.check_word("OR") {
                 self.advance();
@@ -295,7 +518,7 @@ impl<'a> DiscoveryPass<'a> {
                 while self.check_newline() {
                     self.advance();
                 }
-                let right = self.parse_atomic_condition(subject_type, object_type);
+                let right = self.parse_atomic_condition();
                 acc = PolicyCondition::Or(Box::new(acc), Box::new(right));
             } else {
                 break;
@@ -306,7 +529,7 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     /// Phase 50: Parse an atomic condition
-    fn parse_atomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+    fn parse_atomic_condition(&mut self) -> PolicyCondition {
         // Skip "The" article if present
         if self.check_article() {
             self.advance();
@@ -315,11 +538,13 @@ impl<'a> DiscoveryPass<'a> {
         // Get the subject reference (e.g., "user" or "user's role")
         let subject_ref = match self.consume_noun_or_proper() {
             Some(sym) => sym,
-            None => return PolicyCondition::FieldEquals {
-                field: self.interner.intern("unknown"),
-                value: self.interner.intern("unknown"),
-                is_string_literal: false,
-            },
+            None => {
+                return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                }
+            }
         };
 
         // Check if it's a field access ("'s role") or a predicate ("is admin")
@@ -329,11 +554,13 @@ impl<'a> DiscoveryPass<'a> {
             // Get field name
             let field = match self.consume_noun_or_proper() {
                 Some(sym) => sym,
-                None => return PolicyCondition::FieldEquals {
-                    field: self.interner.intern("unknown"),
-                    value: self.interner.intern("unknown"),
-                    is_string_literal: false,
-                },
+                None => {
+                    return PolicyCondition::FieldEquals {
+                        field: self.interner.intern("unknown"),
+                        value: self.interner.intern("unknown"),
+                        is_string_literal: false,
+                    }
+                }
             };
 
             // Expect "equals"
@@ -363,7 +590,11 @@ impl<'a> DiscoveryPass<'a> {
                 self.pos = checkpoint;
                 let (value, is_string_literal) = self.consume_value();
 
-                return PolicyCondition::FieldEquals { field, value, is_string_literal };
+                return PolicyCondition::FieldEquals {
+                    field,
+                    value,
+                    is_string_literal,
+                };
             }
         } else if self.check_copula() {
             // "user is admin"
@@ -372,11 +603,13 @@ impl<'a> DiscoveryPass<'a> {
             // Get predicate name
             let predicate = match self.consume_noun_or_proper() {
                 Some(sym) => sym,
-                None => return PolicyCondition::FieldEquals {
-                    field: self.interner.intern("unknown"),
-                    value: self.interner.intern("unknown"),
-                    is_string_literal: false,
-                },
+                None => {
+                    return PolicyCondition::FieldEquals {
+                        field: self.interner.intern("unknown"),
+                        value: self.interner.intern("unknown"),
+                        is_string_literal: false,
+                    }
+                }
             };
 
             return PolicyCondition::Predicate {
@@ -417,7 +650,11 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Consume a value (string literal or identifier), returning the symbol and whether it was a string literal
     fn consume_value(&mut self) -> (Symbol, bool) {
-        if let Some(Token { kind: TokenType::StringLiteral(sym), .. }) = self.peek() {
+        if let Some(Token {
+            kind: TokenType::StringLiteral(sym),
+            ..
+        }) = self.peek()
+        {
             let s = *sym;
             self.advance();
             (s, true)
@@ -430,7 +667,13 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Check for possessive marker ('s)
     fn check_possessive(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Possessive, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Possessive,
+                ..
+            })
+        )
     }
 
     /// Skip to end of a multi-line policy definition
@@ -449,7 +692,13 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 break;
             }
-            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+            if matches!(
+                self.peek(),
+                Some(Token {
+                    kind: TokenType::BlockHeader { .. },
+                    ..
+                })
+            ) {
                 break;
             }
             self.advance();
@@ -526,14 +775,22 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance(); // consume "has"
                 if self.check_colon() {
                     self.advance(); // consume ":"
-                    // Skip newline if present
+                                    // Skip newline if present
                     if self.check_newline() {
                         self.advance();
                     }
                     if self.check_indent() {
                         self.advance(); // consume INDENT
-                        let fields = self.parse_struct_fields_with_params(&type_params);
-                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params, is_portable, is_shared });
+                        let fields = self.parse_struct_fields_with_params(&type_params, None);
+                        registry.register(
+                            name_sym,
+                            TypeDef::Struct {
+                                fields,
+                                generics: type_params,
+                                is_portable,
+                                is_shared,
+                            },
+                        );
                         return;
                     }
                 }
@@ -562,14 +819,22 @@ impl<'a> DiscoveryPass<'a> {
                 if is_enum_pattern {
                     if self.check_colon() {
                         self.advance(); // consume ":"
-                        // Skip newline if present
+                                        // Skip newline if present
                         if self.check_newline() {
                             self.advance();
                         }
                         if self.check_indent() {
                             self.advance(); // consume INDENT
                             let variants = self.parse_enum_variants_with_params(&type_params);
-                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params, is_portable, is_shared });
+                            registry.register(
+                                name_sym,
+                                TypeDef::Enum {
+                                    variants,
+                                    generics: type_params,
+                                    is_portable,
+                                    is_shared,
+                                },
+                            );
                             return;
                         }
                     }
@@ -580,19 +845,55 @@ impl<'a> DiscoveryPass<'a> {
 
                     // Look for type indicators
                     if self.check_word("generic") {
-                        registry.register(name_sym, TypeDef::Generic { param_count: 1 });
+                        // `A Map of [K] and [V] is a generic collection.` declares its
+                        // arity in the `of [..]` list — honor it (2 here) so the parser
+                        // reads `Map of Int to Int` as two params. A bare `A Stack is a
+                        // generic collection.` names no params and stays single-arity.
+                        let param_count = if type_params.is_empty() {
+                            1
+                        } else {
+                            type_params.len()
+                        };
+                        registry.register(name_sym, TypeDef::Generic { param_count });
                         self.skip_to_period();
-                    } else if self.check_word("record") || self.check_word("struct") || self.check_word("structure") {
-                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false, is_shared: false });
+                    } else if self.check_word("record")
+                        || self.check_word("struct")
+                        || self.check_word("structure")
+                    {
+                        registry.register(
+                            name_sym,
+                            TypeDef::Struct {
+                                fields: vec![],
+                                generics: vec![],
+                                is_portable: false,
+                                is_shared: false,
+                            },
+                        );
                         self.skip_to_period();
-                    } else if self.check_word("sum") || self.check_word("enum") || self.check_word("choice") {
-                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![], is_portable: false, is_shared: false });
+                    } else if self.check_word("sum")
+                        || self.check_word("enum")
+                        || self.check_word("choice")
+                    {
+                        registry.register(
+                            name_sym,
+                            TypeDef::Enum {
+                                variants: vec![],
+                                generics: vec![],
+                                is_portable: false,
+                                is_shared: false,
+                            },
+                        );
                         self.skip_to_period();
                     }
                 }
             } else if !type_params.is_empty() {
                 // "A Stack of [Things] is..." - old generic syntax, still supported
-                registry.register(name_sym, TypeDef::Generic { param_count: type_params.len() });
+                registry.register(
+                    name_sym,
+                    TypeDef::Generic {
+                        param_count: type_params.len(),
+                    },
+                );
                 self.skip_to_period();
             }
         }
@@ -610,7 +911,13 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 break;
             }
-            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+            if matches!(
+                self.peek(),
+                Some(Token {
+                    kind: TokenType::BlockHeader { .. },
+                    ..
+                })
+            ) {
                 break;
             }
 
@@ -626,8 +933,14 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance(); // consume "A"/"An"
             }
 
-            // Try to parse variant name (noun or proper name)
-            if let Some(variant_name) = self.consume_noun_or_proper() {
+            // Try to parse variant name (noun or proper name) — registered by
+            // RAW spelling: under the dynamic lexicon a capitalized variant
+            // like `Ok` classifies as a common word whose canonical symbol is
+            // the lowercased lemma, and a lemma-keyed registry would never
+            // match the `When Ok (v):` arm's raw-lexeme lookup.
+            let raw_lexeme = self.peek().map(|t| t.lexeme);
+            if self.consume_noun_or_proper().is_some() {
+                let variant_name = raw_lexeme.expect("peeked before consuming");
                 // Check for payload fields
                 let fields = if self.check_word("with") {
                     // Natural syntax: "A Circle with a radius, which is Int."
@@ -657,35 +970,31 @@ impl<'a> DiscoveryPass<'a> {
         variants
     }
 
-    /// Phase 33: Parse enum variants (backward compat wrapper)
-    fn parse_enum_variants(&mut self) -> Vec<VariantDef> {
-        self.parse_enum_variants_with_params(&[])
-    }
-
     /// Parse variant fields in natural syntax.
     /// Supports multiple syntaxes:
     /// - "with a radius, which is Int." (verbose natural)
     /// - "with radius Int" (concise natural - no article/comma)
-    fn parse_variant_fields_natural_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
+    fn parse_variant_fields_natural_with_params(
+        &mut self,
+        type_params: &[Symbol],
+    ) -> Vec<FieldDef> {
         let mut fields = Vec::new();
 
         // "with" has already been detected, consume it
         self.advance();
 
         loop {
-            // Skip article (optional)
-            if self.check_article() {
+            if self.check_article() && !self.article_is_variant_field_name(type_params) {
                 self.advance();
             }
 
-            // Get field name
-            if let Some(field_name) = self.consume_noun_or_proper() {
+            if let Some(field_name) = self.consume_field_name() {
                 // Support multiple type annotation patterns:
                 // 1. ", which is Type" (verbose)
                 // 2. " Type" (concise - just a type name after field name)
                 let ty = if self.check_comma() {
                     self.advance(); // consume ","
-                    // Consume "which"
+                                    // Consume "which"
                     if self.check_word("which") {
                         self.advance();
                     }
@@ -724,21 +1033,24 @@ impl<'a> DiscoveryPass<'a> {
         fields
     }
 
-    /// Backward compat wrapper
-    fn parse_variant_fields_natural(&mut self) -> Vec<FieldDef> {
-        self.parse_variant_fields_natural_with_params(&[])
-    }
-
     /// Parse variant fields in concise syntax: "(radius: Int)" or "(width: Int, height: Int)"
-    fn parse_variant_fields_concise_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
+    fn parse_variant_fields_concise_with_params(
+        &mut self,
+        type_params: &[Symbol],
+    ) -> Vec<FieldDef> {
         let mut fields = Vec::new();
 
         // Consume "("
         self.advance();
 
         loop {
-            // Get field name
-            if let Some(field_name) = self.consume_noun_or_proper() {
+            // The word before `:` is the field's name.
+            let field_name = if self.is_name_separator_at(self.pos + 1) {
+                self.consume_field_name()
+            } else {
+                self.consume_noun_or_proper()
+            };
+            if let Some(field_name) = field_name {
                 // Expect ": Type" pattern
                 let ty = if self.check_colon() {
                     self.advance(); // consume ":"
@@ -770,14 +1082,17 @@ impl<'a> DiscoveryPass<'a> {
         fields
     }
 
-    /// Backward compat wrapper
-    fn parse_variant_fields_concise(&mut self) -> Vec<FieldDef> {
-        self.parse_variant_fields_concise_with_params(&[])
-    }
-
     /// Parse struct fields in "has:" block
     /// Each field: "a [public] name, which is Type."
-    fn parse_struct_fields_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
+    ///
+    /// `spans`, when given, collects each field's own name token — a check that must report AT a
+    /// particular field (`## Session`'s field-kind refusal) reads it back from
+    /// `TypeRegistry::field_span`; an ordinary struct has no such check and passes `None`.
+    fn parse_struct_fields_with_params(
+        &mut self,
+        type_params: &[Symbol],
+        mut spans: Option<&mut Vec<(Symbol, Span)>>,
+    ) -> Vec<FieldDef> {
         let mut fields = Vec::new();
 
         while self.pos < self.tokens.len() {
@@ -786,7 +1101,13 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 break;
             }
-            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+            if matches!(
+                self.peek(),
+                Some(Token {
+                    kind: TokenType::BlockHeader { .. },
+                    ..
+                })
+            ) {
                 break;
             }
 
@@ -796,28 +1117,38 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse field: "a [public] name, which is Type." or "name: Type." (no article)
-            // Check for article (optional for concise syntax)
-            let has_article = self.check_article();
+            // Parse field: "a [public] name, which is Type." or "name: Type." (no article). An
+            // article directly before the separator is the field's name (`a: Int.`).
+            let has_article = self.check_article() && !self.is_name_separator_at(self.pos + 1);
             if has_article {
                 self.advance(); // consume "a"/"an"
             }
 
-            // Check for "public" modifier
-            let has_public_keyword = if self.check_word("public") {
-                self.advance();
-                true
-            } else {
-                false
-            };
+            // Check for "public" modifier — unless `public` is the field's own name (`public: Bool.`)
+            let has_public_keyword =
+                if self.check_word("public") && !self.is_name_separator_at(self.pos + 1) {
+                    self.advance();
+                    true
+                } else {
+                    false
+                };
             // Visibility determined later based on syntax used
             let mut is_public = has_public_keyword;
 
-            // Get field name - try to parse if we had article OR if next token looks like identifier
-            if let Some(field_name) = self.consume_noun_or_proper() {
-                // Support both syntaxes:
-                // 1. "name: Type." (concise) - public by default
-                // 2. "name, which is Type." (natural) - public by default
+            // A field's name is known by its position (`consume_field_name`): after an article, or
+            // directly before the `:` of `name: Type` / the `,` of `name, which is Type`.
+            let name_span = self.peek().map(|t| t.span).unwrap_or_default();
+            let names_by_position = has_article || self.is_name_separator_at(self.pos + 1);
+            let field_name = if names_by_position {
+                self.consume_field_name()
+            } else {
+                self.consume_noun_or_proper()
+            };
+            if let Some(field_name) = field_name {
+                // Three syntaxes, each public by default:
+                // 1. "name: Type." (concise)
+                // 2. "name, which is Type." (natural)
+                // 3. "a name (Type)." (parenthesized)
                 let ty = if self.check_colon() {
                     // Concise syntax: "x: Int" - public by default
                     is_public = true;
@@ -827,7 +1158,7 @@ impl<'a> DiscoveryPass<'a> {
                     // Natural syntax: "name, which is Type" - also public by default
                     is_public = true;
                     self.advance(); // consume ","
-                    // Consume "which"
+                                    // Consume "which"
                     if self.check_word("which") {
                         self.advance();
                     }
@@ -835,6 +1166,9 @@ impl<'a> DiscoveryPass<'a> {
                     if self.check_copula() {
                         self.advance();
                     }
+                    self.consume_field_type_with_params(type_params)
+                } else if has_article && self.check_lparen() {
+                    is_public = true;
                     self.consume_field_type_with_params(type_params)
                 } else if !has_article {
                     // No colon and no article - this wasn't a field, skip
@@ -844,6 +1178,9 @@ impl<'a> DiscoveryPass<'a> {
                     FieldType::Primitive(self.interner.intern("Unknown"))
                 };
 
+                if let Some(spans) = spans.as_deref_mut() {
+                    spans.push((field_name, name_span));
+                }
                 fields.push(FieldDef {
                     name: field_name,
                     ty,
@@ -863,21 +1200,10 @@ impl<'a> DiscoveryPass<'a> {
         fields
     }
 
-    /// Backward compat wrapper
-    fn parse_struct_fields(&mut self) -> Vec<FieldDef> {
-        self.parse_struct_fields_with_params(&[])
-    }
-
     /// Parse a field type reference
     fn consume_field_type(&mut self) -> FieldType {
-        // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
         if self.check_lparen() {
-            self.advance(); // consume "("
-            let inner_type = self.consume_field_type();
-            if self.check_rparen() {
-                self.advance(); // consume ")"
-            }
-            return inner_type;
+            return self.consume_parenthesized_field_type(&[]);
         }
 
         // Skip article if present (e.g., "a Tally" -> "Tally")
@@ -942,40 +1268,56 @@ impl<'a> DiscoveryPass<'a> {
                     self.advance(); // consume "to"
                 }
                 let value_type = self.consume_field_type();
-                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+                return FieldType::Generic {
+                    base: final_name,
+                    params: vec![key_type, value_type],
+                };
             }
 
             // Check for generic: "List of Int", "Seq of Text", "Map of K to V"
             if self.check_preposition("of") {
-                // Check if this is a Map type that needs two params (before we start mutating)
-                let is_map_type = final_name_str == "Map" || final_name_str == "HashMap";
+                // How many parameters this generic takes, from the ONE table the type-expression
+                // parser reads — so `Result of Int and E` binds BOTH here, as it does everywhere
+                // else. A field whose declared type silently loses a parameter takes its whole
+                // record out of the layout tables, and nothing says so.
+                let arity = crate::analysis::registry::builtin_generic_param_count(final_name_str)
+                    .unwrap_or(1);
 
                 self.advance();
-                let first_param = self.consume_field_type();
-
-                // For Map/HashMap, check for "to" separator to parse second type parameter
-                if is_map_type && self.check_to() {
-                    self.advance(); // consume "to"
-                    let second_param = self.consume_field_type();
-                    return FieldType::Generic { base: final_name, params: vec![first_param, second_param] };
+                let mut params = Vec::with_capacity(arity);
+                params.push(self.consume_field_type());
+                // Later parameters follow a separator — `and` (`Result of T and E`), `to`
+                // (`Map of K to V`) or a comma. A generic written with fewer than its arity keeps
+                // what was actually given rather than consuming the sentence past its end.
+                while params.len() < arity {
+                    if self.check_and() || self.check_to() || self.check_comma() {
+                        self.advance();
+                        params.push(self.consume_field_type());
+                    } else {
+                        break;
+                    }
                 }
-
-                return FieldType::Generic { base: final_name, params: vec![first_param] };
+                return FieldType::Generic {
+                    base: final_name,
+                    params,
+                };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
             if final_name_str == "Divergent" {
                 // Next token should be the inner type
                 let param = self.consume_field_type();
-                return FieldType::Generic { base: final_name, params: vec![param] };
+                return FieldType::Generic {
+                    base: final_name,
+                    params: vec![param],
+                };
             }
 
             // Check if primitive
             match final_name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16" | "Word32"
-                | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16" => {
-                    FieldType::Primitive(final_name)
-                }
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16"
+                | "Word32" | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8"
+                | "Lanes4Word64" | "Lanes16Word16" => FieldType::Primitive(final_name),
                 _ => FieldType::Named(final_name),
             }
         } else {
@@ -996,9 +1338,15 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_article(&self) -> bool {
         match self.peek() {
-            Some(Token { kind: TokenType::Article(_), .. }) => true,
+            Some(Token {
+                kind: TokenType::Article(_),
+                ..
+            }) => true,
             // Also accept ProperName("A") / ProperName("An") which can occur at line starts
-            Some(Token { kind: TokenType::ProperName(sym), .. }) => {
+            Some(Token {
+                kind: TokenType::ProperName(sym),
+                ..
+            }) => {
                 let text = self.interner.resolve(*sym);
                 text.eq_ignore_ascii_case("a") || text.eq_ignore_ascii_case("an")
             }
@@ -1008,9 +1356,15 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_copula(&self) -> bool {
         match self.peek() {
-            Some(Token { kind: TokenType::Is | TokenType::Are, .. }) => true,
+            Some(Token {
+                kind: TokenType::Is | TokenType::Are,
+                ..
+            }) => true,
             // Also match "is" when tokenized as a verb (common in declarative mode)
-            Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) => {
+            Some(Token {
+                kind: TokenType::Verb { lemma, .. },
+                ..
+            }) => {
                 let word = self.interner.resolve(*lemma).to_lowercase();
                 word == "is" || word == "are"
             }
@@ -1019,11 +1373,94 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     fn check_preposition(&self, word: &str) -> bool {
-        if let Some(Token { kind: TokenType::Preposition(sym), .. }) = self.peek() {
+        if let Some(Token {
+            kind: TokenType::Preposition(sym),
+            ..
+        }) = self.peek()
+        {
             self.interner.resolve(*sym) == word
         } else {
             false
         }
+    }
+
+    /// Take the word here as a field's name. A field's name is known by its POSITION, never by the
+    /// part of speech the lexer gave the word: `first`/`second` are ordinals to it, `who` an
+    /// interrogative, `a` an article, and each is an ordinary field name where a name stands. Any
+    /// identifier-shaped word is accepted (the symbol [`Self::consume_noun_or_proper`] would give,
+    /// where it accepts the word).
+    fn consume_field_name(&mut self) -> Option<Symbol> {
+        if let Some(sym) = self.consume_noun_or_proper() {
+            return Some(sym);
+        }
+        let t = self.peek()?;
+        let lexeme = self.interner.resolve(t.lexeme);
+        let identifier = lexeme.chars().next().is_some_and(|c| c.is_alphabetic())
+            && lexeme.chars().all(|c| c.is_alphanumeric() || c == '_');
+        if !identifier {
+            return None;
+        }
+        let sym = t.lexeme;
+        self.advance();
+        Some(sym)
+    }
+
+    /// Whether token `i` separates a field's name from its type: the `:` of `name: Type`, or the
+    /// `,` of `name, which is Type` — never the `,` before `and` in a variant's field list.
+    fn is_name_separator_at(&self, i: usize) -> bool {
+        match self.tokens.get(i).map(|t| &t.kind) {
+            Some(TokenType::Colon) => true,
+            Some(TokenType::Comma) => !self
+                .tokens
+                .get(i + 1)
+                .is_some_and(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("and")),
+            _ => false,
+        }
+    }
+
+    /// In a variant's `with` list, whether the article here is the field's own NAME (`with a Int
+    /// and b Int`, `with a Seq of Int`) rather than the article before one (`with a radius Int`,
+    /// `with a radius, which is Int`). A separator right after it makes it the name; one after the
+    /// next word makes it an article. Otherwise both readings are tried against the type grammar:
+    /// the article is the name only when skipping it leaves no field (a name, then a type ending at
+    /// the list's boundary) and taking it as the name does.
+    fn article_is_variant_field_name(&mut self, type_params: &[Symbol]) -> bool {
+        let at = self.pos;
+        if self.is_name_separator_at(at + 1) {
+            return true;
+        }
+        if self.is_name_separator_at(at + 2) {
+            return false;
+        }
+        !self.juxtaposed_field_parses_from(at + 1, type_params)
+            && self.juxtaposed_field_parses_from(at, type_params)
+    }
+
+    /// Whether a field written `name Type` parses from token `start` and ends at the boundary of a
+    /// variant's field list (`and`, `,`, `.`, `)`, or the line's end). The position is restored.
+    fn juxtaposed_field_parses_from(&mut self, start: usize, type_params: &[Symbol]) -> bool {
+        let saved = self.pos;
+        self.pos = start;
+        let parses = self.consume_field_name().is_some() && {
+            let type_start = self.pos;
+            let _ = self.consume_field_type_with_params(type_params);
+            self.pos > type_start
+                && (self.check_word("and")
+                    || self.check_comma()
+                    || self.check_period()
+                    || self.check_rparen()
+                    || self.check_newline()
+                    || self.check_dedent()
+                    || matches!(
+                        self.peek(),
+                        None | Some(Token {
+                            kind: TokenType::EOF,
+                            ..
+                        })
+                    ))
+        };
+        self.pos = saved;
+        parses
     }
 
     fn consume_noun_or_proper(&mut self) -> Option<Symbol> {
@@ -1040,8 +1477,22 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
-            // Accept Adverb as identifier (for field names like "next")
-            TokenType::Adverb(_) => {
+            // ★ Accept a PRONOUN as a field name, by its lexeme. `an i, which is Int.` and
+            // `an it, which is Option of Inner.` are ordinary declarations — `i` for an index and
+            // `it` for an item are among the most natural short field names there are — and both
+            // used to VANISH. With the article consumed and the name unaccepted, neither branch
+            // of the field loop ran: the token was skipped on the next pass, the rest of the line
+            // parsed as nothing, and the record simply did not have that field. No error, at
+            // declaration OR at construction (`a new Row with it 4` set nothing), so the first
+            // sign was a value missing from the far end of a wire.
+            TokenType::Pronoun { .. } => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            // Temporal adverbs are names in a declaration too ("First", "next"), just as after
+            // "a new"; dropping one silently hides its record layout from the static backends.
+            TokenType::Adverb(_) | TokenType::TemporalAdverb(_) => {
                 let sym = t.lexeme;
                 self.advance();
                 Some(sym)
@@ -1147,14 +1598,16 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
-            _ => None
+            _ => None,
         }
     }
 
     fn check_word(&self, word: &str) -> bool {
         if let Some(token) = self.peek() {
             // Check against the lexeme of the token
-            self.interner.resolve(token.lexeme).eq_ignore_ascii_case(word)
+            self.interner
+                .resolve(token.lexeme)
+                .eq_ignore_ascii_case(word)
         } else {
             false
         }
@@ -1162,7 +1615,13 @@ impl<'a> DiscoveryPass<'a> {
 
     fn skip_to_period(&mut self) {
         while self.pos < self.tokens.len() {
-            if matches!(self.peek(), Some(Token { kind: TokenType::Period, .. })) {
+            if matches!(
+                self.peek(),
+                Some(Token {
+                    kind: TokenType::Period,
+                    ..
+                })
+            ) {
                 self.advance();
                 break;
             }
@@ -1171,63 +1630,151 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     fn check_colon(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Colon, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Colon,
+                ..
+            })
+        )
     }
 
     fn check_newline(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Newline, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Newline,
+                ..
+            })
+        )
     }
 
     fn check_indent(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Indent, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Indent,
+                ..
+            })
+        )
     }
 
     fn check_dedent(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Dedent, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Dedent,
+                ..
+            })
+        )
     }
 
     fn check_comma(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Comma, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Comma,
+                ..
+            })
+        )
+    }
+
+    /// "and" — the separator between a multi-parameter generic's type arguments
+    /// (`Result of T and E`, `Pair of A and B`, `Triple of A and B and C`).
+    fn check_and(&self) -> bool {
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::And,
+                ..
+            })
+        )
     }
 
     fn check_period(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Period, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Period,
+                ..
+            })
+        )
     }
 
     fn check_either(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Either, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Either,
+                ..
+            })
+        )
     }
 
     fn check_lparen(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::LParen, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::LParen,
+                ..
+            })
+        )
     }
 
     fn check_rparen(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::RParen,
+                ..
+            })
+        )
     }
 
     /// Phase 49c: Check for AddWins token
     fn check_addwins(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::AddWins, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::AddWins,
+                ..
+            })
+        )
     }
 
     /// Phase 49c: Check for RemoveWins token
     fn check_removewins(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::RemoveWins, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::RemoveWins,
+                ..
+            })
+        )
     }
 
     /// Phase 49c: Check for YATA token
     fn check_yata(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::YATA, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::YATA,
+                ..
+            })
+        )
     }
 
     /// Phase 49c: Check for "to" (either TokenType::To or preposition "to")
     fn check_to(&self) -> bool {
         match self.peek() {
-            Some(Token { kind: TokenType::To, .. }) => true,
-            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
-                self.interner.resolve(*sym) == "to"
-            }
+            Some(Token {
+                kind: TokenType::To,
+                ..
+            }) => true,
+            Some(Token {
+                kind: TokenType::Preposition(sym),
+                ..
+            }) => self.interner.resolve(*sym) == "to",
             _ => false,
         }
     }
@@ -1235,31 +1782,59 @@ impl<'a> DiscoveryPass<'a> {
     /// Phase 49c: Check for "from" (either TokenType::From or preposition "from")
     fn check_from(&self) -> bool {
         match self.peek() {
-            Some(Token { kind: TokenType::From, .. }) => true,
-            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
-                self.interner.resolve(*sym) == "from"
-            }
+            Some(Token {
+                kind: TokenType::From,
+                ..
+            }) => true,
+            Some(Token {
+                kind: TokenType::Preposition(sym),
+                ..
+            }) => self.interner.resolve(*sym) == "from",
             _ => false,
         }
     }
 
     /// Phase 47: Check for Portable token
     fn check_portable(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Portable, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Portable,
+                ..
+            })
+        )
     }
 
     /// Phase 49: Check for Shared token
     fn check_shared(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Shared, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::Shared,
+                ..
+            })
+        )
     }
 
     // Phase 34: Bracket checks for type parameters
     fn check_lbracket(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::LBracket, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::LBracket,
+                ..
+            })
+        )
     }
 
     fn check_rbracket(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::RBracket, .. }))
+        matches!(
+            self.peek(),
+            Some(Token {
+                kind: TokenType::RBracket,
+                ..
+            })
+        )
     }
 
     /// Phase 34: Parse type parameters in brackets: "[T]" or "[A] and [B]"
@@ -1287,21 +1862,70 @@ impl<'a> DiscoveryPass<'a> {
         params
     }
 
+    /// A parenthesized field type, the `(` next: one type in parentheses is that type (`Seq of (Seq
+    /// of Int)`), a comma list a tuple (`(Int, Text)`), and `name: Type` entries a named tuple
+    /// (`(quotient: Int, remainder: Int)`). An entry's name is known by its position, before `:`.
+    fn consume_parenthesized_field_type(&mut self, type_params: &[Symbol]) -> FieldType {
+        self.advance(); // consume "("
+        let mut entries: Vec<(Option<Symbol>, FieldType)> = Vec::new();
+        loop {
+            let named = matches!(
+                self.tokens.get(self.pos + 1),
+                Some(Token {
+                    kind: TokenType::Colon,
+                    ..
+                })
+            ) && !self.check_lparen();
+            let name = if named {
+                let name = self.peek().map(|t| t.lexeme);
+                self.advance(); // the entry's name
+                self.advance(); // consume ":"
+                name
+            } else {
+                None
+            };
+            let ty = self.consume_field_type_with_params(type_params);
+            entries.push((name, ty));
+            if self.check_comma() {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        if self.check_rparen() {
+            self.advance(); // consume ")"
+        }
+        if entries.iter().all(|(name, _)| name.is_some()) {
+            return FieldType::Record(
+                entries
+                    .into_iter()
+                    .map(|(n, t)| (n.unwrap_or_default(), t))
+                    .collect(),
+            );
+        }
+        let mut types: Vec<FieldType> = entries.into_iter().map(|(_, t)| t).collect();
+        if types.len() == 1 {
+            return types
+                .pop()
+                .unwrap_or(FieldType::Primitive(self.interner.intern("Unknown")));
+        }
+        FieldType::Tuple(types)
+    }
+
     /// Phase 34: Parse a field type reference, recognizing type parameters
     fn consume_field_type_with_params(&mut self, type_params: &[Symbol]) -> FieldType {
-        // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
         if self.check_lparen() {
-            self.advance(); // consume "("
-            let inner_type = self.consume_field_type_with_params(type_params);
-            if self.check_rparen() {
-                self.advance(); // consume ")"
-            }
-            return inner_type;
+            return self.consume_parenthesized_field_type(type_params);
         }
 
         // Phase 34: Single-letter type params like "A" may be tokenized as Article
         // Check for Article that matches a type param first
-        if let Some(Token { kind: TokenType::Article(_), lexeme, .. }) = self.peek() {
+        if let Some(Token {
+            kind: TokenType::Article(_),
+            lexeme,
+            ..
+        }) = self.peek()
+        {
             let text = self.interner.resolve(*lexeme);
             // Find matching type param by name (case-insensitive for single letters)
             for &param_sym in type_params {
@@ -1377,40 +2001,56 @@ impl<'a> DiscoveryPass<'a> {
                     self.advance(); // consume "to"
                 }
                 let value_type = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+                return FieldType::Generic {
+                    base: final_name,
+                    params: vec![key_type, value_type],
+                };
             }
 
             // Check for generic: "List of Int", "Seq of Text", "List of T", "Map of K to V"
             if self.check_preposition("of") {
-                // Check if this is a Map type that needs two params (before we start mutating)
-                let is_map_type = final_name_str == "Map" || final_name_str == "HashMap";
+                // How many parameters this generic takes, from the ONE table the type-expression
+                // parser reads — so `Result of Int and E` binds BOTH here, as it does everywhere
+                // else. A field whose declared type silently loses a parameter takes its whole
+                // record out of the layout tables, and nothing says so.
+                let arity = crate::analysis::registry::builtin_generic_param_count(final_name_str)
+                    .unwrap_or(1);
 
                 self.advance();
-                let first_param = self.consume_field_type_with_params(type_params);
-
-                // For Map/HashMap, check for "to" separator to parse second type parameter
-                if is_map_type && self.check_to() {
-                    self.advance(); // consume "to"
-                    let second_param = self.consume_field_type_with_params(type_params);
-                    return FieldType::Generic { base: final_name, params: vec![first_param, second_param] };
+                let mut params = Vec::with_capacity(arity);
+                params.push(self.consume_field_type_with_params(type_params));
+                // Later parameters follow a separator — `and` (`Result of T and E`), `to`
+                // (`Map of K to V`) or a comma. A generic written with fewer than its arity keeps
+                // what was actually given rather than consuming the sentence past its end.
+                while params.len() < arity {
+                    if self.check_and() || self.check_to() || self.check_comma() {
+                        self.advance();
+                        params.push(self.consume_field_type_with_params(type_params));
+                    } else {
+                        break;
+                    }
                 }
-
-                return FieldType::Generic { base: final_name, params: vec![first_param] };
+                return FieldType::Generic {
+                    base: final_name,
+                    params,
+                };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
             if final_name_str == "Divergent" {
                 // Next token should be the inner type
                 let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: final_name, params: vec![param] };
+                return FieldType::Generic {
+                    base: final_name,
+                    params: vec![param],
+                };
             }
 
             // Check if primitive
             match final_name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16" | "Word32"
-                | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16" => {
-                    FieldType::Primitive(final_name)
-                }
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16"
+                | "Word32" | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8"
+                | "Lanes4Word64" | "Lanes16Word16" => FieldType::Primitive(final_name),
                 _ => FieldType::Named(final_name),
             }
         } else {
@@ -1423,144 +2063,5 @@ impl<'a> DiscoveryPass<'a> {
 // access to the project::Loader which is part of the compile system.
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Lexer;
-    use crate::mwe;
-
-    fn make_tokens(source: &str, interner: &mut Interner) -> Vec<Token> {
-        let mut lexer = Lexer::new(source, interner);
-        let tokens = lexer.tokenize();
-        let mwe_trie = mwe::build_mwe_trie();
-        mwe::apply_mwe_pipeline(tokens, &mwe_trie, interner)
-    }
-
-    #[test]
-    fn discovery_finds_generic_in_definition_block() {
-        let source = "## Definition\nA Stack is a generic collection.";
-        let mut interner = Interner::new();
-        let tokens = make_tokens(source, &mut interner);
-
-        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        let registry = discovery.run();
-
-        let stack = interner.intern("Stack");
-        assert!(registry.is_generic(stack), "Stack should be discovered as generic");
-    }
-
-    #[test]
-    fn discovery_parses_struct_with_fields() {
-        let source = r#"## Definition
-A Point has:
-    an x, which is Int.
-    a y, which is Int.
-"#;
-        let mut interner = Interner::new();
-        let tokens = make_tokens(source, &mut interner);
-
-        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        let registry = discovery.run();
-
-        let point = interner.intern("Point");
-        assert!(registry.is_type(point), "Point should be registered");
-
-        if let Some(TypeDef::Struct { fields, generics, .. }) = registry.get(point) {
-            assert_eq!(fields.len(), 2, "Point should have 2 fields, got {:?}", fields);
-            assert_eq!(interner.resolve(fields[0].name), "x");
-            assert_eq!(interner.resolve(fields[1].name), "y");
-            assert!(generics.is_empty(), "Point should have no generics");
-        } else {
-            panic!("Point should be a struct with fields");
-        }
-    }
-
-    #[test]
-    fn discovery_works_with_markdown_header() {
-        // Phase 36: LOGOS files have `# Header` before `## Definition`
-        let source = r#"# Geometry
-
-## Definition
-A Point has:
-    an x, which is Int.
-"#;
-        let mut interner = Interner::new();
-        let tokens = make_tokens(source, &mut interner);
-
-        // Debug: print tokens to see what we're getting
-        for (i, tok) in tokens.iter().enumerate() {
-            eprintln!("Token {}: {:?}", i, tok.kind);
-        }
-
-        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        let registry = discovery.run();
-        let point = interner.intern("Point");
-        assert!(registry.is_type(point), "Point should be discovered even with # header");
-    }
-
-    #[test]
-    fn discovery_parses_portable_enum() {
-        let source = r#"## Definition
-A Command is Portable and is either:
-    a Start.
-    a Stop.
-    a Pause.
-"#;
-        let mut interner = Interner::new();
-        let tokens = make_tokens(source, &mut interner);
-
-        // Debug: print tokens to see what we're getting
-        eprintln!("Tokens for portable enum:");
-        for (i, tok) in tokens.iter().enumerate() {
-            eprintln!("Token {}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
-        }
-
-        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        let registry = discovery.run();
-
-        let command = interner.intern("Command");
-        assert!(registry.is_type(command), "Command should be registered as type");
-
-        if let Some(TypeDef::Enum { variants, is_portable, .. }) = registry.get(command) {
-            eprintln!("Command is_portable: {}", is_portable);
-            eprintln!("Variants: {:?}", variants.iter().map(|v| interner.resolve(v.name)).collect::<Vec<_>>());
-            assert!(*is_portable, "Command should be portable");
-            assert_eq!(variants.len(), 3, "Command should have 3 variants");
-        } else {
-            panic!("Command should be an enum, got: {:?}", registry.get(command));
-        }
-    }
-
-    #[test]
-    fn discovery_parses_lww_int_field() {
-        let source = r#"## Definition
-A Setting is Shared and has:
-    a volume, which is LastWriteWins of Int.
-"#;
-        let mut interner = Interner::new();
-        let tokens = make_tokens(source, &mut interner);
-
-        // Debug: print tokens
-        eprintln!("Tokens for LWW of Int:");
-        for (i, tok) in tokens.iter().enumerate() {
-            eprintln!("{:3}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
-        }
-
-        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        let registry = discovery.run();
-
-        let setting = interner.intern("Setting");
-        assert!(registry.is_type(setting), "Setting should be registered");
-
-        if let Some(TypeDef::Struct { fields, is_shared, .. }) = registry.get(setting) {
-            eprintln!("is_shared: {}", is_shared);
-            eprintln!("Fields: {:?}", fields.len());
-            for f in fields {
-                eprintln!("  field: {} = {:?}", interner.resolve(f.name), f.ty);
-            }
-            assert!(*is_shared, "Setting should be shared");
-            assert_eq!(fields.len(), 1, "Setting should have 1 field");
-        } else {
-            panic!("Setting should be a struct, got: {:?}", registry.get(setting));
-        }
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_language/analysis/discovery/tests.rs"]
+mod tests;

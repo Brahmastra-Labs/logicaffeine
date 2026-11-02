@@ -12,8 +12,16 @@ Let x be 10.
 Trust that x is greater than 0 because "I set it to 10".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("// TRUST: I set it to 10"), "Should have trust comment: {}", rust);
-    assert!(rust.contains("debug_assert!((x > 0));"), "Should have assertion: {}", rust);
+    assert!(
+        rust.contains("// TRUST: I set it to 10"),
+        "Should have trust comment: {}",
+        rust
+    );
+    assert!(
+        !rust.contains("(x > 0)"),
+        "a trusted proposition is not evaluated at run time: {}",
+        rust
+    );
 }
 
 #[test]
@@ -25,8 +33,16 @@ Let b be 3.
 Trust that a is greater than b because "a is always larger".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("// TRUST: a is always larger"), "Should have trust comment: {}", rust);
-    assert!(rust.contains("debug_assert!((a > b));"), "Should have assertion: {}", rust);
+    assert!(
+        rust.contains("// TRUST: a is always larger"),
+        "Should have trust comment: {}",
+        rust
+    );
+    assert!(
+        !rust.contains("(a > b)"),
+        "a trusted proposition is not evaluated at run time: {}",
+        rust
+    );
 }
 
 #[test]
@@ -37,8 +53,16 @@ Let x be 5.
 Trust that x is greater than 0 and x is less than 100 because "x is in valid range".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("// TRUST: x is in valid range"), "Should have trust comment: {}", rust);
-    assert!(rust.contains("debug_assert!(((x > 0) && (x < 100)));"), "Should have compound assertion: {}", rust);
+    assert!(
+        rust.contains("// TRUST: x is in valid range"),
+        "Should have trust comment: {}",
+        rust
+    );
+    assert!(
+        !rust.contains("(x < 100)"),
+        "a trusted proposition is not evaluated at run time: {}",
+        rust
+    );
 }
 
 #[test]
@@ -49,10 +73,22 @@ Let y be 42.
 Assert that y is equal to 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    // After propagation: y=42 substituted into assertion, 42==42 folds to true
-    assert!(rust.contains("debug_assert!(true)") || rust.contains("debug_assert!((y == 42));"),
-            "Should have assertion (possibly folded): {}", rust);
-    assert!(!rust.contains("// TRUST:"), "Should NOT have trust comment for Assert: {}", rust);
+    // After propagation: y=42 substituted into assertion, 42==42 folds to true. Checked in every build.
+    assert!(
+        rust.contains("if !(true)") || rust.contains("if !((y == 42))"),
+        "Should have assertion (possibly folded): {}",
+        rust
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "an assertion is checked in every build: {}",
+        rust
+    );
+    assert!(
+        !rust.contains("// TRUST:"),
+        "Should NOT have trust comment for Assert: {}",
+        rust
+    );
 }
 
 #[test]
@@ -63,7 +99,11 @@ Let n be 1.
 Trust n is greater than 0 because "positive".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("// TRUST: positive"), "Should have trust comment: {}", rust);
+    assert!(
+        rust.contains("// TRUST: positive"),
+        "Should have trust comment: {}",
+        rust
+    );
 }
 
 #[test]
@@ -76,7 +116,11 @@ Trust that x is positive because x is greater than 0 because "reasoning".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     // Prop=(x is positive because x > 0), Reason="reasoning"
-    assert!(rust.contains("// TRUST: reasoning"), "Should have trust comment: {}", rust);
+    assert!(
+        rust.contains("// TRUST: reasoning"),
+        "Should have trust comment: {}",
+        rust
+    );
 }
 
 #[test]
@@ -91,7 +135,16 @@ Let result be withdraw(50, 100).
 Show result.
 "#;
     let rust = compile_to_rust(source).expect("Should compile Assert in function");
-    assert!(rust.contains("debug_assert!"), "Should have debug_assert: {}", rust);
+    assert!(
+        rust.contains("if !((amount > 0))"),
+        "Should have the assertion: {}",
+        rust
+    );
+    assert!(
+        !rust.contains("debug_assertions"),
+        "an assertion is checked in every build: {}",
+        rust
+    );
 }
 
 #[test]
@@ -106,6 +159,14 @@ Let doubled be process(5).
 Show doubled.
 "#;
     let rust = compile_to_rust(source).expect("Should compile Trust in function");
-    assert!(rust.contains("// TRUST: caller guarantees positive input"), "Should have trust comment: {}", rust);
-    assert!(rust.contains("debug_assert!"), "Should have debug_assert: {}", rust);
+    assert!(
+        rust.contains("// TRUST: caller guarantees positive input"),
+        "Should have trust comment: {}",
+        rust
+    );
+    assert!(
+        !rust.contains("debug_assert!"),
+        "a trusted proposition is not evaluated at run time: {}",
+        rust
+    );
 }

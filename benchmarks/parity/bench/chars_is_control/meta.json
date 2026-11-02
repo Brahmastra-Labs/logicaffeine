@@ -1,0 +1,10 @@
+{
+  "capability": "chars.is_control",
+  "workload": "count codepoints (i%128) where is_control",
+  "arg": "20000000",
+  "expected": "5156250",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c"
+  ]
+}

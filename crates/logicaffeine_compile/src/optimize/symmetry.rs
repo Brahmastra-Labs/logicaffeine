@@ -55,7 +55,7 @@ fn reflection_preserves_attacks() -> bool {
     // reflected column-difference == negation of the original column-difference
     let refl_col = m.sub(&c1).sub(&m.sub(&c2)); // (m-c1)-(m-c2)
     let orig_col_neg = c2.sub(&c1); // -(c1-c2)
-    // reflected "/" difference == original "\" difference
+                                    // reflected "/" difference == original "\" difference
     let refl_fwd = r1.sub(&m.sub(&c1)).sub(&r2.sub(&m.sub(&c2)));
     let orig_bwd = r1.add(&c1).sub(&r2.add(&c2));
     // reflected "\" difference == original "/" difference
@@ -71,7 +71,8 @@ fn reflection_closure_proven() -> bool {
     use std::sync::OnceLock;
     static PROVEN: OnceLock<bool> = OnceLock::new();
     *PROVEN.get_or_init(|| {
-        logicaffeine_kernel::bitvector::reflection_symmetry_proven() && reflection_preserves_attacks()
+        logicaffeine_kernel::bitvector::reflection_symmetry_proven()
+            && reflection_preserves_attacks()
     })
 }
 
@@ -161,8 +162,10 @@ fn match_bit_loop<'a>(
     let bit = match &body[0] {
         Stmt::Let { var, value, .. } => {
             let (a, b) = is_binop(value, BinaryOpKind::BitAnd)?;
-            let neg = |e: &Expr| is_binop(e, BinaryOpKind::Subtract)
-                .is_some_and(|(z, y)| as_int(z) == Some(0) && as_ident(y) == Some(x));
+            let neg = |e: &Expr| {
+                is_binop(e, BinaryOpKind::Subtract)
+                    .is_some_and(|(z, y)| as_int(z) == Some(0) && as_ident(y) == Some(x))
+            };
             if !((as_ident(a) == Some(x) && neg(b)) || (as_ident(b) == Some(x) && neg(a))) {
                 return None;
             }
@@ -208,7 +211,11 @@ enum ChoiceKind<'a> {
     BitTrick { x: Symbol },
     /// `while col cmp limit { bit = 1 << col; …; col = col + 1 }` — the choice is
     /// `col` over `[0, limit)`; halving restricts the bound to `limit >> 1`.
-    Range { col: Symbol, limit: &'a Expr<'a>, cmp: BinaryOpKind },
+    Range {
+        col: Symbol,
+        limit: &'a Expr<'a>,
+        cmp: BinaryOpKind,
+    },
 }
 
 /// A recognized per-level choice loop: the enumeration form, the per-choice bit
@@ -238,9 +245,11 @@ fn shr1<'a>(sym: Symbol, ea: &'a Arena<Expr<'a>>) -> &'a Expr<'a> {
 /// identifies the accumulator, the call, and the predicate.
 fn match_range_loop<'a>(cond: &'a Expr<'a>, body: Block<'a>) -> Option<ChoiceLoop<'a>> {
     let (cmp, cl, cr) = match cond {
-        Expr::BinaryOp { op: op @ (BinaryOpKind::Lt | BinaryOpKind::LtEq), left, right } => {
-            (*op, *left, *right)
-        }
+        Expr::BinaryOp {
+            op: op @ (BinaryOpKind::Lt | BinaryOpKind::LtEq),
+            left,
+            right,
+        } => (*op, *left, *right),
         _ => return None,
     };
     let col = as_ident(cl)?;
@@ -259,34 +268,37 @@ fn match_range_loop<'a>(cond: &'a Expr<'a>, body: Block<'a>) -> Option<ChoiceLoo
         matches!(call, Expr::Call { .. }).then_some(call)
     };
 
+    // Every statement plays exactly one of the four roles, once: the rewrite replays the loop as exactly this shape,
+    // so anything else in the body (an output, a second step, another write) would be halved or dropped with it.
     let mut bit: Option<Symbol> = None;
     let mut found: Option<(Symbol, &'a Expr<'a>, Option<&'a Expr<'a>>)> = None;
     let mut saw_incr = false;
     for s in body {
         match s {
-            Stmt::Let { var, value, .. } => {
-                if let Some((l, r)) = is_binop(value, BinaryOpKind::Shl) {
-                    if as_int(l) == Some(1) && as_ident(r) == Some(col) {
-                        bit = Some(*var);
-                    }
+            Stmt::Let { var, value, .. } if bit.is_none() => {
+                let (l, r) = is_binop(value, BinaryOpKind::Shl)?;
+                if as_int(l) != Some(1) || as_ident(r) != Some(col) {
+                    return None;
                 }
+                bit = Some(*var);
             }
-            Stmt::Set { target, value } if *target == col && is_step(value, col) => {
+            Stmt::Set { target, value } if *target == col && is_step(value, col) && !saw_incr => {
                 saw_incr = true;
             }
-            Stmt::Set { target, value } => {
-                if let Some(call) = accum_from(*target, value) {
-                    found = Some((*target, call, None));
-                }
+            Stmt::Set { target, value } if found.is_none() => {
+                found = Some((*target, accum_from(*target, value)?, None));
             }
-            Stmt::If { cond: guard, then_block, else_block: None } if then_block.len() == 1 => {
-                if let Stmt::Set { target, value } = &then_block[0] {
-                    if let Some(call) = accum_from(*target, value) {
-                        found = Some((*target, call, Some(*guard)));
-                    }
-                }
+            Stmt::If {
+                cond: guard,
+                then_block,
+                else_block: None,
+            } if then_block.len() == 1 && found.is_none() => {
+                let Stmt::Set { target, value } = &then_block[0] else {
+                    return None;
+                };
+                found = Some((*target, accum_from(*target, value)?, Some(*guard)));
             }
-            _ => {}
+            _ => return None,
         }
     }
     let bit = bit?;
@@ -294,15 +306,50 @@ fn match_range_loop<'a>(cond: &'a Expr<'a>, body: Block<'a>) -> Option<ChoiceLoo
     if !saw_incr {
         return None;
     }
-    Some(ChoiceLoop { kind: ChoiceKind::Range { col, limit, cmp }, bit, acc, call, guard })
+    Some(ChoiceLoop {
+        kind: ChoiceKind::Range { col, limit, cmp },
+        bit,
+        acc,
+        call,
+        guard,
+    })
 }
 
 /// Recognize either choice-loop form, normalized to a [`ChoiceLoop`].
 fn match_choice_loop<'a>(cond: &'a Expr<'a>, body: Block<'a>) -> Option<ChoiceLoop<'a>> {
     if let Some((x, bit, acc, call)) = match_bit_loop(cond, body) {
-        return Some(ChoiceLoop { kind: ChoiceKind::BitTrick { x }, bit, acc, call, guard: None });
+        return Some(ChoiceLoop {
+            kind: ChoiceKind::BitTrick { x },
+            bit,
+            acc,
+            call,
+            guard: None,
+        });
     }
     match_range_loop(cond, body)
+}
+
+/// Whether running search `g` has no effect but its result: no output or I/O (the program's purity analysis), no
+/// foreign code, and no write to anything but its own parameters and locals, the globals its callees may write
+/// included. A symmetry rewrite runs half the calls and doubles their count, so any other effect would be halved with
+/// them.
+fn effect_free(
+    g: Symbol,
+    params: &[Symbol],
+    body: Block,
+    pure: &std::collections::HashSet<Symbol>,
+    globals: &super::writes::CalleeGlobals,
+) -> bool {
+    if !pure.contains(&g) {
+        return false;
+    }
+    let writes = crate::optimize::WriteSet::of_block(body).with_callee_globals(globals);
+    !writes.is_opaque()
+        && writes
+            .assigned()
+            .iter()
+            .chain(writes.mutated())
+            .all(|s| params.contains(s) || writes.declared().contains(s))
 }
 
 /// Confirm `g` is a reflection-symmetric recursive search: base case
@@ -316,10 +363,19 @@ fn is_reflection_search(g: Symbol, params: &[Symbol], body: Block) -> bool {
     }
     // base case: If row == n { Return CONST }
     let (row, n) = match &body[0] {
-        Stmt::If { cond, then_block, else_block: None } => {
-            let Some((l, r)) = is_binop(cond, BinaryOpKind::Eq) else { return false };
-            let (Some(row), Some(n)) = (as_ident(l), as_ident(r)) else { return false };
-            if then_block.len() != 1 || !matches!(&then_block[0], Stmt::Return { value: Some(v) } if as_int(v).is_some())
+        Stmt::If {
+            cond,
+            then_block,
+            else_block: None,
+        } => {
+            let Some((l, r)) = is_binop(cond, BinaryOpKind::Eq) else {
+                return false;
+            };
+            let (Some(row), Some(n)) = (as_ident(l), as_ident(r)) else {
+                return false;
+            };
+            if then_block.len() != 1
+                || !matches!(&then_block[0], Stmt::Return { value: Some(v) } if as_int(v).is_some())
             {
                 return false;
             }
@@ -402,10 +458,9 @@ fn recognize_entry<'a>(
     let (while_idx, loop_info) = found?;
     let acc = loop_info.acc;
     // `acc` initialised to 0 before the loop, `Return acc` last.
-    if !body[..while_idx]
-        .iter()
-        .any(|s| matches!(s, Stmt::Let { var, value, .. } if *var == acc && as_int(value) == Some(0)))
-    {
+    if !body[..while_idx].iter().any(
+        |s| matches!(s, Stmt::Let { var, value, .. } if *var == acc && as_int(value) == Some(0)),
+    ) {
         return None;
     }
     if !matches!(body.last(), Some(Stmt::Return { value: Some(v) }) if as_ident(v) == Some(acc)) {
@@ -440,12 +495,23 @@ fn recognize_entry<'a>(
             (None, None)
         }
     };
-    Some(Entry { n, while_idx, loop_info, avail_let_idx, avail_init })
+    Some(Entry {
+        n,
+        while_idx,
+        loop_info,
+        avail_let_idx,
+        avail_init,
+    })
 }
 
 /// Substitute identifier `from` → identifier `to` throughout an expression
 /// (used to turn the loop's `g(1, …bit…)` into the middle-column `g(1, …mid…)`).
-fn subst_ident<'a>(e: &'a Expr<'a>, from: Symbol, to: Symbol, ea: &'a Arena<Expr<'a>>) -> &'a Expr<'a> {
+fn subst_ident<'a>(
+    e: &'a Expr<'a>,
+    from: Symbol,
+    to: Symbol,
+    ea: &'a Arena<Expr<'a>>,
+) -> &'a Expr<'a> {
     match e {
         Expr::Identifier(s) if *s == from => ea.alloc(Expr::Identifier(to)),
         Expr::Identifier(_) | Expr::Literal(_) => e,
@@ -454,7 +520,9 @@ fn subst_ident<'a>(e: &'a Expr<'a>, from: Symbol, to: Symbol, ea: &'a Arena<Expr
             left: subst_ident(left, from, to, ea),
             right: subst_ident(right, from, to, ea),
         }),
-        Expr::Not { operand } => ea.alloc(Expr::Not { operand: subst_ident(operand, from, to, ea) }),
+        Expr::Not { operand } => ea.alloc(Expr::Not {
+            operand: subst_ident(operand, from, to, ea),
+        }),
         Expr::Call { function, args } => ea.alloc(Expr::Call {
             function: *function,
             args: args.iter().map(|a| subst_ident(a, from, to, ea)).collect(),
@@ -486,7 +554,9 @@ fn rewrite_entry<'a>(
         if Some(i) == e.avail_let_idx {
             // BitTrick: restrict the iterated set to the low-half columns:
             //   init &= (1 << (n >> 1)) - 1
-            let init = e.avail_init.expect("avail_init is present whenever avail_let_idx is");
+            let init = e
+                .avail_init
+                .expect("avail_init is present whenever avail_let_idx is");
             let low_mask = ea.alloc(Expr::BinaryOp {
                 op: BinaryOpKind::Subtract,
                 left: ea.alloc(Expr::BinaryOp {
@@ -496,9 +566,21 @@ fn rewrite_entry<'a>(
                 }),
                 right: int_lit(1, ea),
             });
-            let new_init = ea.alloc(Expr::BinaryOp { op: BinaryOpKind::BitAnd, left: init, right: low_mask });
-            if let Stmt::Let { var, ty, mutable, .. } = s {
-                out.push(Stmt::Let { var: *var, ty: *ty, value: new_init, mutable: *mutable });
+            let new_init = ea.alloc(Expr::BinaryOp {
+                op: BinaryOpKind::BitAnd,
+                left: init,
+                right: low_mask,
+            });
+            if let Stmt::Let {
+                var, ty, mutable, ..
+            } = s
+            {
+                out.push(Stmt::Let {
+                    var: *var,
+                    ty: *ty,
+                    value: new_init,
+                    mutable: *mutable,
+                });
             } else {
                 out.push(s.clone());
             }
@@ -508,13 +590,22 @@ fn rewrite_entry<'a>(
             match e.loop_info.kind {
                 // Range: restrict the bound to [0, n >> 1).
                 ChoiceKind::Range { col, cmp, .. } => {
-                    if let Stmt::While { body: lb, decreasing, .. } = s {
+                    if let Stmt::While {
+                        body: lb,
+                        decreasing,
+                        ..
+                    } = s
+                    {
                         let new_cond = ea.alloc(Expr::BinaryOp {
                             op: cmp,
                             left: ea.alloc(Expr::Identifier(col)),
                             right: shr1(e.n, ea),
                         });
-                        out.push(Stmt::While { cond: new_cond, body: *lb, decreasing: *decreasing });
+                        out.push(Stmt::While {
+                            cond: new_cond,
+                            body: *lb,
+                            decreasing: *decreasing,
+                        });
                     } else {
                         out.push(s.clone());
                     }
@@ -577,7 +668,11 @@ fn rewrite_entry<'a>(
                 }),
                 right: int_lit(0, ea),
             });
-            out.push(Stmt::If { cond: odd, then_block: sa.alloc_slice(middle_body), else_block: None });
+            out.push(Stmt::If {
+                cond: odd,
+                then_block: sa.alloc_slice(middle_body),
+                else_block: None,
+            });
         } else {
             out.push(s.clone());
         }
@@ -631,7 +726,9 @@ fn value_bijection_preserves_equality() -> bool {
             return false;
         }
         // every group element preserves equality/inequality on all value pairs.
-        let Some(elems) = bsgs.elements(fact as usize) else { return false };
+        let Some(elems) = bsgs.elements(fact as usize) else {
+            return false;
+        };
         for sigma in &elems {
             for a in 0..k {
                 for b in 0..k {
@@ -676,9 +773,11 @@ fn expr_sym_only_in_equality(e: &Expr, sym: Symbol) -> bool {
     match e {
         Expr::Identifier(s) => *s != sym,
         Expr::Literal(_) => true,
-        Expr::BinaryOp { op: BinaryOpKind::Eq | BinaryOpKind::NotEq, left, right } => {
-            eq_side_ok(left, sym) && eq_side_ok(right, sym)
-        }
+        Expr::BinaryOp {
+            op: BinaryOpKind::Eq | BinaryOpKind::NotEq,
+            left,
+            right,
+        } => eq_side_ok(left, sym) && eq_side_ok(right, sym),
         Expr::BinaryOp { left, right, .. } => {
             expr_sym_only_in_equality(left, sym) && expr_sym_only_in_equality(right, sym)
         }
@@ -703,7 +802,11 @@ fn param_used_only_in_equality(sym: Symbol, body: Block) -> bool {
         Stmt::Let { value, .. } => expr_sym_only_in_equality(value, sym),
         Stmt::Set { value, .. } => expr_sym_only_in_equality(value, sym),
         Stmt::Return { value } => value.map_or(true, |v| expr_sym_only_in_equality(v, sym)),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_sym_only_in_equality(cond, sym)
                 && param_used_only_in_equality(sym, then_block)
                 && else_block.map_or(true, |b| param_used_only_in_equality(sym, b))
@@ -731,7 +834,11 @@ fn match_value_search_loop(
     body: Block,
 ) -> Option<(usize, Symbol)> {
     let c = match cond {
-        Expr::BinaryOp { op: BinaryOpKind::Lt | BinaryOpKind::LtEq, left, .. } => as_ident(left)?,
+        Expr::BinaryOp {
+            op: BinaryOpKind::Lt | BinaryOpKind::LtEq,
+            left,
+            ..
+        } => as_ident(left)?,
         _ => return None,
     };
     if body.len() != 2 {
@@ -742,9 +849,17 @@ fn match_value_search_loop(
     for s in body {
         match s {
             Stmt::Set { target, value } if *target == c && is_step(value, c) => saw_incr = true,
-            Stmt::If { cond: guard, then_block, else_block: None } if then_block.len() == 1 => {
+            Stmt::If {
+                cond: guard,
+                then_block,
+                else_block: None,
+            } if then_block.len() == 1 => {
                 let prev = match guard {
-                    Expr::BinaryOp { op: BinaryOpKind::Eq | BinaryOpKind::NotEq, left, right } => {
+                    Expr::BinaryOp {
+                        op: BinaryOpKind::Eq | BinaryOpKind::NotEq,
+                        left,
+                        right,
+                    } => {
                         if as_ident(left) == Some(c) {
                             as_ident(right)
                         } else if as_ident(right) == Some(c) {
@@ -758,7 +873,9 @@ fn match_value_search_loop(
                 if prev == c || !params.contains(&prev) {
                     return None;
                 }
-                let Stmt::Set { target: acc, value } = &then_block[0] else { return None };
+                let Stmt::Set { target: acc, value } = &then_block[0] else {
+                    return None;
+                };
                 let (a, b) = is_binop(value, BinaryOpKind::Add)?;
                 let call = if as_ident(a) == Some(*acc) {
                     b
@@ -767,7 +884,9 @@ fn match_value_search_loop(
                 } else {
                     return None;
                 };
-                let Expr::Call { function, args } = call else { return None };
+                let Expr::Call { function, args } = call else {
+                    return None;
+                };
                 if *function != f || args.len() != params.len() || !is_step(args[0], level) {
                     return None;
                 }
@@ -801,7 +920,11 @@ fn value_search_val_pos(f: Symbol, params: &[Symbol], body: Block) -> Option<usi
         return None;
     }
     let level = match &body[0] {
-        Stmt::If { cond, then_block, else_block: None } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block: None,
+        } => {
             let level = match cond {
                 Expr::BinaryOp {
                     op: BinaryOpKind::Gt | BinaryOpKind::GtEq | BinaryOpKind::Eq,
@@ -852,9 +975,15 @@ fn recognize_value_entry<'a>(
     val_searches: &HashMap<Symbol, usize>,
 ) -> Option<ValueEntry<'a>> {
     for (i, s) in body.iter().enumerate() {
-        let Stmt::While { cond, body: lb, .. } = s else { continue };
+        let Stmt::While { cond, body: lb, .. } = s else {
+            continue;
+        };
         let (c, bound) = match cond {
-            Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => match as_ident(left) {
+            Expr::BinaryOp {
+                op: BinaryOpKind::LtEq,
+                left,
+                right,
+            } => match as_ident(left) {
                 Some(c) => (c, *right),
                 None => continue,
             },
@@ -888,8 +1017,12 @@ fn recognize_value_entry<'a>(
         if !clean || !saw_incr {
             continue;
         }
-        let Some((total, call)) = acc_call else { continue };
-        let Expr::Call { function, args } = call else { continue };
+        let Some((total, call)) = acc_call else {
+            continue;
+        };
+        let Expr::Call { function, args } = call else {
+            continue;
+        };
         let valpos = match val_searches.get(function) {
             Some(p) => *p,
             None => continue,
@@ -897,7 +1030,11 @@ fn recognize_value_entry<'a>(
         if valpos >= args.len() || as_ident(args[valpos]) != Some(c) {
             continue;
         }
-        if args.iter().enumerate().any(|(j, a)| j != valpos && as_ident(a) == Some(c)) {
+        if args
+            .iter()
+            .enumerate()
+            .any(|(j, a)| j != valpos && as_ident(a) == Some(c))
+        {
             continue;
         }
         let starts_at_one = body[..i].iter().any(
@@ -906,12 +1043,17 @@ fn recognize_value_entry<'a>(
         let total_zero = body[..i].iter().any(
             |s| matches!(s, Stmt::Let { var, value, .. } if *var == total && as_int(value) == Some(0)),
         );
-        let returns_total =
-            matches!(body.last(), Some(Stmt::Return { value: Some(v) }) if as_ident(v) == Some(total));
+        let returns_total = matches!(body.last(), Some(Stmt::Return { value: Some(v) }) if as_ident(v) == Some(total));
         if !starts_at_one || !total_zero || !returns_total {
             continue;
         }
-        return Some(ValueEntry { while_idx: i, total, call, valpos, bound });
+        return Some(ValueEntry {
+            while_idx: i,
+            total,
+            call,
+            valpos,
+            bound,
+        });
     }
     None
 }
@@ -928,18 +1070,28 @@ fn rewrite_value_entry<'a>(
     interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
     let vsym = interner.intern("__valuesym");
-    let Expr::Call { function, args } = e.call else { return body.to_vec() };
+    let Expr::Call { function, args } = e.call else {
+        return body.to_vec();
+    };
     let new_args: Vec<&'a Expr<'a>> = args
         .iter()
         .enumerate()
         .map(|(j, a)| if j == e.valpos { int_lit(1, ea) } else { *a })
         .collect();
-    let fixed_call = ea.alloc(Expr::Call { function: *function, args: new_args });
+    let fixed_call = ea.alloc(Expr::Call {
+        function: *function,
+        args: new_args,
+    });
 
     let mut out: Vec<Stmt<'a>> = Vec::with_capacity(body.len() + 1);
     for (i, s) in body.iter().enumerate() {
         if i == e.while_idx {
-            out.push(Stmt::Let { var: vsym, ty: None, value: e.bound, mutable: false });
+            out.push(Stmt::Let {
+                var: vsym,
+                ty: None,
+                value: e.bound,
+                mutable: false,
+            });
             out.push(Stmt::Set {
                 target: e.total,
                 value: ea.alloc(Expr::BinaryOp {
@@ -968,13 +1120,23 @@ pub fn break_symmetry_stmts<'a>(
     // function is at most one: reflection is tried first).
     let mut searches: HashMap<Symbol, ()> = HashMap::new();
     let mut val_searches: HashMap<Symbol, usize> = HashMap::new();
+    let pure = crate::codegen::detection::collect_pure_functions(&stmts, interner);
+    let globals = super::writes::CalleeGlobals::of_program(&stmts);
     for s in &stmts {
         if let Stmt::FunctionDef {
-            name, params, body, is_native: false, generics, ..
+            name,
+            params,
+            body,
+            is_native: false,
+            generics,
+            ..
         } = s
         {
             if generics.is_empty() {
                 let psyms: Vec<Symbol> = params.iter().map(|(p, _)| *p).collect();
+                if !effect_free(*name, &psyms, body, &pure, &globals) {
+                    continue;
+                }
                 if is_reflection_search(*name, &psyms, body) {
                     searches.insert(*name, ());
                 } else if let Some(valpos) = value_search_val_pos(*name, &psyms, body) {
@@ -1017,8 +1179,9 @@ pub fn break_symmetry_stmts<'a>(
                 let mut new_body: Option<Vec<Stmt<'a>>> = None;
                 if refl_ok {
                     if let Some(entry) = recognize_entry(&psyms, body, &searches) {
-                        new_body =
-                            Some(rewrite_entry(&entry, body, expr_arena, stmt_arena, interner));
+                        new_body = Some(rewrite_entry(
+                            &entry, body, expr_arena, stmt_arena, interner,
+                        ));
                     }
                 }
                 if new_body.is_none() && value_ok {
@@ -1048,31 +1211,5 @@ pub fn break_symmetry_stmts<'a>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reflection_attack_preservation_is_kernel_proved() {
-        assert!(
-            reflection_preserves_attacks(),
-            "kernel LIA failed to prove the reflection preserves the attack relation"
-        );
-    }
-
-    #[test]
-    fn full_closure_is_kernel_proven() {
-        // bit-level commutation (B1) AND geometric attack-preservation (LIA).
-        assert!(reflection_closure_proven());
-    }
-
-    #[test]
-    fn value_symmetry_group_is_transitive_symmetric() {
-        // permgroup-checked: the equality-only value system's symmetry group is
-        // the full, transitive Sₖ (order k!, one orbit, equality-preserving).
-        assert!(
-            value_bijection_preserves_equality(),
-            "permgroup failed to certify the value symmetry as the transitive Sₖ"
-        );
-        assert!(value_symmetry_closure_proven());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/symmetry/tests.rs"]
+mod tests;

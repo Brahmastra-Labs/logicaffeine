@@ -3,12 +3,15 @@
 //! Displays a grid of crate cards with descriptions, linking to rustdoc HTML.
 //! Each card links directly to `/crates/{crate_name}/index.html`.
 
+use crate::ui::components::footer::Footer;
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, tech_article_schema,
+    BreadcrumbItem, JsonLdMultiple, PageHead,
+};
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, tech_article_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 const CRATES_STYLE: &str = r#"
 .crates-page {
@@ -45,6 +48,12 @@ const CRATES_STYLE: &str = r#"
     max-width: 600px;
     line-height: 1.6;
     margin: 0;
+}
+
+.crates-hero .crates-hero-version {
+    margin-top: var(--spacing-md);
+    font-size: 0.95rem;
+    opacity: 0.75;
 }
 
 .crates-hero-badge {
@@ -246,100 +255,99 @@ const CRATES_STYLE: &str = r#"
 }
 "#;
 
+/// The workspace version every crate on the page is published at.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Clone, Copy, PartialEq)]
 struct CrateInfo {
     name: &'static str,
     description: &'static str,
-    is_core: bool,
+    badge: &'static str,
     crates_io: Option<&'static str>,
 }
 
+/// The language, the compiler and its execution tiers, the proof kernel and the platform, in the order the
+/// docs site's landing page groups them.
 const CORE_CRATES: &[CrateInfo] = &[
     CrateInfo {
         name: "logicaffeine_language",
-        description: "Core LOGOS language implementation including AST, parser, and first-order logic transpiler.",
-        is_core: true,
+        description: "The LOGOS front end: English sentences to first-order logic, and the parser for LOGOS programs and LGX pages",
+        badge: "Core",
         crates_io: Some("https://crates.io/crates/logicaffeine-language"),
     },
     CrateInfo {
-        name: "logicaffeine_compile",
-        description: "Code generation and compilation from LOGOS to executable formats.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-compile"),
-    },
-    CrateInfo {
-        name: "logicaffeine_lsp",
-        description: "Language Server Protocol implementation for IDE integration with diagnostics, completion, and refactoring.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-lsp"),
-    },
-    CrateInfo {
-        name: "logicaffeine_kernel",
-        description: "Runtime kernel for executing LOGOS programs with built-in inference.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-kernel"),
-    },
-    CrateInfo {
-        name: "logicaffeine_proof",
-        description: "Proof assistant and formal verification engine for logical reasoning.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-proof"),
-    },
-    CrateInfo {
         name: "logicaffeine_lexicon",
-        description: "Vocabulary database and lexical analysis for natural language parsing.",
-        is_core: true,
+        description: "The English vocabulary behind LOGOS: verb, noun and adjective metadata for build-time lookup tables, plus an optional runtime JSON index",
+        badge: "Core",
         crates_io: Some("https://crates.io/crates/logicaffeine-lexicon"),
     },
     CrateInfo {
-        name: "logicaffeine_base",
-        description: "Shared base types, traits, and utilities used across all crates.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-base"),
-    },
-    CrateInfo {
-        name: "logicaffeine_data",
-        description: "Data structures and persistent storage for programs and proofs.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-data"),
-    },
-    CrateInfo {
-        name: "logicaffeine_system",
-        description: "System integration layer for platform-specific functionality.",
-        is_core: true,
-        crates_io: Some("https://crates.io/crates/logicaffeine-system"),
+        name: "logicaffeine_compile",
+        description: "The LOGOS compiler: type checking, the optimizer, the interpreter and bytecode VM, and the Rust, C, WASM, RISC-V, CUDA and hardware backends",
+        badge: "Core",
+        crates_io: Some("https://crates.io/crates/logicaffeine-compile"),
     },
     CrateInfo {
         name: "logicaffeine_runtime",
-        description: "Deterministic concurrency runtime — task scheduler, FIFO channels, Select, and seed/trace replay for the interpreter and VM.",
-        is_core: true,
+        description: "Deterministic, replayable concurrency runtime for the LOGOS interpreter and VM: task scheduler, channels, Select, timers, seed and trace",
+        badge: "Core",
         crates_io: Some("https://crates.io/crates/logicaffeine-runtime"),
     },
     CrateInfo {
         name: "logicaffeine_forge",
-        description: "Copy-and-patch JIT for LOGOS — executable-memory layer, stencil runtime, and register-allocating x86-64 backend (EXODIA).",
-        is_core: true,
+        description: "The machine-code layer of the LOGOS copy-and-patch JIT: W^X executable memory, build-time stencils, a register-allocating x86-64 backend",
+        badge: "Core",
         crates_io: Some("https://crates.io/crates/logicaffeine-forge"),
     },
     CrateInfo {
         name: "logicaffeine_jit",
-        description: "Native execution tier — wires the copy-and-patch forge JIT to VM bytecode for hot functions and loop regions.",
-        is_core: true,
+        description: "Native execution tier for the LOGOS bytecode VM: hot functions and loops tier up to x86-64 machine code",
+        badge: "Core",
         crates_io: Some("https://crates.io/crates/logicaffeine-jit"),
+    },
+    CrateInfo {
+        name: "logicaffeine_kernel",
+        description: "Calculus of Constructions proof kernel with inductive types, universes, quotients, a second checker and Lean 4 import",
+        badge: "Core",
+        crates_io: Some("https://crates.io/crates/logicaffeine-kernel"),
+    },
+    CrateInfo {
+        name: "logicaffeine_proof",
+        description: "Kernel-checked proof search and tactics, certified SAT/CDCL with DRAT/LRAT output, and a number-theory and cryptanalysis library",
+        badge: "Core",
+        crates_io: Some("https://crates.io/crates/logicaffeine-proof"),
+    },
+    CrateInfo {
+        name: "logicaffeine_base",
+        description: "Foundation types for Logicaffeine: arenas, string interning, spans, and exact integers, decimals, quantities, money, dates and UUIDs",
+        badge: "Core",
+        crates_io: Some("https://crates.io/crates/logicaffeine-base"),
+    },
+    CrateInfo {
+        name: "logicaffeine_data",
+        description: "LOGOS runtime values, collections, wire format and CRDTs, shared by native and WASM builds",
+        badge: "Core",
+        crates_io: Some("https://crates.io/crates/logicaffeine-data"),
+    },
+    CrateInfo {
+        name: "logicaffeine_system",
+        description: "Platform IO, networking, HTTP serving, persistence, and post-quantum crypto (Keccak/SHA-3, ChaCha20-Poly1305, ML-KEM, ML-DSA) for LOGOS",
+        badge: "Core",
+        crates_io: Some("https://crates.io/crates/logicaffeine-system"),
     },
 ];
 
 const VERIFY_CRATES: &[CrateInfo] = &[
     CrateInfo {
         name: "logicaffeine_verify",
-        description: "Z3-based static verification — BMC, k-induction, IC3, interpolation, equivalence, and SVA.",
-        is_core: true,
+        description: "Z3-based static verification and model checking for Logicaffeine",
+        badge: "Z3",
         crates_io: Some("https://crates.io/crates/logicaffeine-verify"),
     },
     CrateInfo {
         name: "logicaffeine_tv",
-        description: "SMT translation validation — proves the emitted Rust is observationally equivalent to the LOGOS source on every compile.",
-        is_core: true,
+        description: "Translation validation for LOGOS: a symbolic encoder of the source, checked with Z3 against the tree-walking interpreter per program",
+        badge: "Z3",
         crates_io: Some("https://crates.io/crates/logicaffeine-tv"),
     },
 ];
@@ -347,14 +355,20 @@ const VERIFY_CRATES: &[CrateInfo] = &[
 const APP_CRATES: &[CrateInfo] = &[
     CrateInfo {
         name: "logicaffeine_cli",
-        description: "Command-line interface for the LOGOS toolchain (largo).",
-        is_core: false,
+        description: "largo — the LOGOS build tool: projects, builds, tests, serving, proofs, and the package registry",
+        badge: "Tool",
         crates_io: Some("https://crates.io/crates/logicaffeine-cli"),
     },
     CrateInfo {
+        name: "logicaffeine_lsp",
+        description: "The LOGOS language server (LSP): diagnostics, completion, hover, navigation and refactoring for .lg files, literate .md files and LGX pages",
+        badge: "Tool",
+        crates_io: Some("https://crates.io/crates/logicaffeine-lsp"),
+    },
+    CrateInfo {
         name: "logicaffeine_web",
-        description: "Web frontend components built with Dioxus for the learning platform.",
-        is_core: false,
+        description: "The logicaffeine.com site (Dioxus/WASM): LOGOS Studio with live LGX previews, Learn, Syntax Guide, benchmarks, news and the registry browser",
+        badge: "Tool",
         crates_io: None,
     },
 ];
@@ -362,12 +376,18 @@ const APP_CRATES: &[CrateInfo] = &[
 #[component(lazy)]
 pub fn Crates() -> Element {
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Crates", path: "/crates" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "Crates",
+            path: "/crates",
+        },
     ];
     let schemas = vec![
         organization_schema(),
-        tech_article_schema("LOGICAFFEINE Crate Documentation", "Technical API documentation for all LOGICAFFEINE Rust crates. Integrate First-Order Logic parsing into your applications.", "/crates"),
+        tech_article_schema("LOGICAFFEINE Crate Documentation", "The Rust crates behind LOGOS: the English-to-logic front end, the compiler and its execution tiers, the proof kernel, and the tools, with API docs and crates.io links.", "/crates"),
         breadcrumb_schema(&breadcrumbs),
     ];
 
@@ -391,15 +411,16 @@ pub fn Crates() -> Element {
                     div { class: "dot" }
                     span { "Rustdoc" }
                 }
-                h1 { "Crate Documentation" }
+                h1 { "LOGOS Crates" }
                 p {
-                    "Explore the API documentation for all LOGICAFFEINE crates. Each crate is documented with examples and detailed type information."
+                    "LOGOS is a workspace of Rust crates you can use on their own: parse English into logic, compile and run LOGOS programs, or check a proof with the kernel. Each card links to the crate's API documentation and its crates.io page."
                 }
+                p { class: "crates-hero-version", "Version {VERSION}" }
             }
 
             main { class: "crates-content",
                 section { class: "crates-section",
-                    h2 { class: "crates-section-title", "Core Crates" }
+                    h2 { class: "crates-section-title", "Language, compiler and kernel" }
                     div { class: "crates-grid",
                         for crate_info in CORE_CRATES.iter() {
                             CrateCard { info: crate_info }
@@ -408,7 +429,7 @@ pub fn Crates() -> Element {
                 }
 
                 section { class: "crates-section",
-                    h2 { class: "crates-section-title", "Verification" }
+                    h2 { class: "crates-section-title", "Z3 verification" }
                     div { class: "crates-grid",
                         for crate_info in VERIFY_CRATES.iter() {
                             CrateCard { info: crate_info }
@@ -417,7 +438,7 @@ pub fn Crates() -> Element {
                 }
 
                 section { class: "crates-section",
-                    h2 { class: "crates-section-title", "Application Crates" }
+                    h2 { class: "crates-section-title", "Tools" }
                     div { class: "crates-grid",
                         for crate_info in APP_CRATES.iter() {
                             CrateCard { info: crate_info }
@@ -442,8 +463,8 @@ fn CrateCard(info: &'static CrateInfo) -> Element {
                     "{info.name}"
                 }
                 span {
-                    class: if info.is_core { "crate-badge core" } else { "crate-badge app" },
-                    if info.is_core { "Core" } else { "App" }
+                    class: if info.badge == "Core" { "crate-badge core" } else { "crate-badge app" },
+                    "{info.badge}"
                 }
             }
             p { class: "crate-description", "{info.description}" }

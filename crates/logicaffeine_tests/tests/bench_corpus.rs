@@ -28,6 +28,7 @@ use logicaffeine_jit::ForgeTier;
 /// tree-walker finishes instantly.
 const CORPUS: &[(&str, &str, u32, u32)] = &[
     ("ackermann", "3", 1, 0),
+    ("analytics", "300", 0, 1),
     ("array_fill", "2000", 0, 2),
     ("array_reverse", "2000", 0, 2),
     ("binary_trees", "6", 1, 0),
@@ -54,11 +55,13 @@ const CORPUS: &[(&str, &str, u32, u32)] = &[
     ("prefix_sum", "2000", 0, 2),
     ("primes", "500", 0, 2),
     ("quicksort", "300", 0, 1),
+    ("sha256", "16", 0, 0),
     ("sieve", "2000", 0, 3),
     ("spectral_norm", "20", 0, 0),
     ("string_search", "200", 0, 0),
     ("strings", "200", 0, 0),
     ("two_sum", "300", 0, 1),
+    ("vm", "300", 0, 1),
 ];
 
 /// The differential suites' shared output normalization (see
@@ -322,4 +325,40 @@ fn corpus_vm_matches_treewalker_and_tier_floors_hold() {
         .expect("spawn corpus thread")
         .join()
         .expect("corpus thread panicked");
+}
+
+/// COMPLETENESS CENSUS — EVERY `benchmarks/programs/*/main.lg` must appear in `CORPUS`, so the forge
+/// differential covers every benchmark, not a subset. Without this the module header's "every benchmark
+/// runs on both engines" claim is unenforced — exactly how `analytics`/`sha256`/`vm` silently skipped the
+/// forge for a while. A benchmark directory with a `main.lg` but no `CORPUS` entry fails RED here: add it
+/// to `CORPUS` (it must run forge≡tw at a small size). This is the ratchet that keeps "EVERY benchmark"
+/// honest as new benchmarks land.
+#[test]
+fn every_benchmark_program_is_in_the_forge_corpus() {
+    let dir = format!("{}/../../benchmarks/programs", env!("CARGO_MANIFEST_DIR"));
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("cannot read {dir}: {e}"))
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().join("main.lg").is_file())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    on_disk.sort();
+    let covered: std::collections::BTreeSet<&str> = CORPUS.iter().map(|&(n, ..)| n).collect();
+    let missing: Vec<&String> = on_disk
+        .iter()
+        .filter(|n| !covered.contains(n.as_str()))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these benchmark programs have a main.lg but are NOT in the forge CORPUS (they would silently \
+         skip the forge differential): {missing:?}. Add each to CORPUS so it runs forge≡tw.",
+    );
+    // Sanity: the corpus should cover the full on-disk set (guards a stale hand-count).
+    assert_eq!(
+        covered.len(),
+        on_disk.len(),
+        "CORPUS covers {} programs but {} benchmark dirs have a main.lg",
+        covered.len(),
+        on_disk.len()
+    );
 }

@@ -1,0 +1,11 @@
+{
+  "name": "graph_bfs",
+  "lang": "c",
+  "n": "37467577",
+  "samples_weight": 24154510515,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

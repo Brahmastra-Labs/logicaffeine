@@ -1,0 +1,146 @@
+{
+  "tier": "t04_recursion",
+  "test_binary": "lean_conformance_t04_recursion",
+  "cases": [
+    {
+      "id": "T04-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "structural_recursion_on_nat_computes_in_constructor_registration_order",
+      "why": ""
+    },
+    {
+      "id": "T04-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_list_case_binds_only_the_constructor_fields_the_guard_may_mark_smaller",
+      "why": "Recursion over a parameterised inductive works, but the termination guard peels count_pi_params(ctor) lambdas from each case while the case legitimately binds only the constructor's VALUE fields (the parameters are fixed by the discriminant). With a function-typed motive the over-peeled binder is marked structurally smaller, a non-terminating fixpoint is admitted by BOTH kernels, and `False` becomes inhabitable out of the standard library alone."
+    },
+    {
+      "id": "T04-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_mutual_block_guards_each_member_at_its_own_structural_position",
+      "why": ""
+    },
+    {
+      "id": "T04-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_lexicographic_measure_admits_a_recursion_no_single_argument_decreases",
+      "why": ""
+    },
+    {
+      "id": "T04-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_termination_proof_obligation_has_somewhere_to_be_discharged",
+      "why": ""
+    },
+    {
+      "id": "T04-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_derived_nat_recursor_iota_computes_and_its_polymorphic_form_reaches_type_one",
+      "why": ""
+    },
+    {
+      "id": "T04-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_multi_column_match_nests_into_unary_matches_in_either_scrutinee_order",
+      "why": ""
+    },
+    {
+      "id": "T04-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "nested_constructor_patterns_compile_to_a_tree_of_positional_matches",
+      "why": ""
+    },
+    {
+      "id": "T04-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "overlapping_equations_must_be_split_into_disjoint_constructor_cases",
+      "why": ""
+    },
+    {
+      "id": "T04-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_catch_all_expands_over_the_remaining_constructors_and_case_order_is_not_source_order",
+      "why": ""
+    },
+    {
+      "id": "T04-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_dependent_match_eliminates_at_a_type_valued_family",
+      "why": ""
+    },
+    {
+      "id": "T04-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_match_equation_hypothesis_is_available_through_the_convoy_motive",
+      "why": "The corpus rules this unrepresentable; it is not. Generalising the motive over the scrutinee and applying the match to `refl` gives every case the equation at ITS OWN constructor \u2014 the convoy pattern \u2014 and the kernel accepts it in both kernels with the hypothesis load-bearing."
+    },
+    {
+      "id": "T04-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_index_refined_match_needs_no_branch_that_cannot_be_inhabited",
+      "why": ""
+    },
+    {
+      "id": "T04-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_constructor_the_indices_rule_out_needs_no_synthesised_filler",
+      "why": ""
+    },
+    {
+      "id": "T04-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_well_founded_recursion_over_acc_computes_end_to_end",
+      "why": "Half of the corpus's rejection is stale. `Acc` is a registered indexed inductive, `Acc_rec` is a derived dependent eliminator carrying the functional induction hypothesis, `WellFounded` is the abbreviation, and the guard's applied-smaller rule admits recursion through an accessibility proof \u2014 the test builds one that \u03b9-COMPUTES. The Gap is the combinator and its inputs: no `WellFounded_fix`, no proof that any ordinary relation is well-founded, and `Acc_rec`'s motive pinned to `Sort(Type 0)`."
+    },
+    {
+      "id": "T04-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "declaring_an_inductive_must_also_give_a_course_of_values_recursor",
+      "why": ""
+    },
+    {
+      "id": "T04-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_definitions_equations_must_be_citable_and_not_only_definitional",
+      "why": ""
+    },
+    {
+      "id": "T04-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "recursion_two_constructors_deep_must_be_admitted_without_becoming_a_hole",
+      "why": ""
+    },
+    {
+      "id": "T04-019",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "boolean_and_decidable_branching_compute_but_ordering_needs_a_decision_procedure",
+      "why": ""
+    },
+    {
+      "id": "T04-020",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_dependent_if_binds_the_decisions_proof_in_both_branches",
+      "why": ""
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "16.4",
+  "title": "Frege and Russell",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Gottlob Frege**'s Begriffsschrift (1879) created modern predicate logic, with quantifiers for all and some."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Bertrand Russell** found a paradox in Frege's system in 1901. He and Alfred North Whitehead then wrote Principia Mathematica (1910 to 1913) to derive mathematics from logic."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Russell's paradox",
+      "lines": [
+        "Let R be the set of all sets that do not contain themselves.",
+        "If R contains itself, then it does not.",
+        "If R does not contain itself, then it does."
+      ],
+      "conclusion": "Either way, a contradiction."
+    },
+    {
+      "type": "worked",
+      "title": "Logicism",
+      "lines": [
+        "Frege and Russell aimed to show that arithmetic is pure logic."
+      ],
+      "note": "Principia carried the aim further, with a theory of types to block the paradox."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What did Frege add that went beyond Aristotle's logic?",
+    "options": [
+      "The syllogism",
+      "Predicate logic with quantifiers",
+      "Proof by contradiction",
+      "Modal operators"
+    ],
+    "correct": 1,
+    "hint": "Think of the symbols ∀ and ∃.",
+    "explanation": "Frege invented modern predicate logic, with quantifiers, variables and predicates, far beyond the syllogism."
+  }
+}

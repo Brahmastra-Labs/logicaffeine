@@ -10,6 +10,7 @@
     "P is m"
   ],
   "correct": 2,
-  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
-  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+  "hint": "Is this about all of them, or at least one? Which letters do kinds get?",
+  "explanation": "At least one disgusting prisoner is miserable, and both terms are kinds: some P is M.",
+  "section": "2.1"
 }

@@ -1,0 +1,21 @@
+{
+  "capability": "calendar.isleap",
+  "arg": "4000000",
+  "timing_n": "236565727",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 223.299,
+    "python": 13139.548
+  },
+  "wall_ms": {
+    "logos": 223.636,
+    "python": 13148.861
+  },
+  "logos_ms": 223.299,
+  "speedups_vs_logos": {
+    "python": 58.843
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 58.843
+}

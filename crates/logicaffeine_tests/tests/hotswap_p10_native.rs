@@ -32,7 +32,9 @@ fn run(install_warm: bool) -> String {
             let sym = stmts
                 .iter()
                 .find_map(|s| match s {
-                    Stmt::FunctionDef { name, .. } if interner.resolve(*name) == "fib" => Some(*name),
+                    Stmt::FunctionDef { name, .. } if interner.resolve(*name) == "fib" => {
+                        Some(*name)
+                    }
                     _ => None,
                 })
                 .expect("fib defined");
@@ -52,5 +54,9 @@ fn warm_dispatch_is_correct_through_deep_recursion() {
     assert_eq!(baseline.trim(), "6765", "fib(20) = 6765");
     // Every one of the thousands of recursive `fib` activations re-dispatches into the
     // warm body and returns on the right frame — byte-identical to the baseline.
-    assert_eq!(warm.trim(), baseline.trim(), "warm recursive dispatch matches baseline");
+    assert_eq!(
+        warm.trim(),
+        baseline.trim(),
+        "warm recursive dispatch matches baseline"
+    );
 }

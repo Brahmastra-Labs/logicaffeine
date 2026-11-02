@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You ought not to help Madonna",
   "options": [
-    "$ O\\sim Hum $",
-    "$ \\sim H\\underline{u} m $",
-    "$ O\\sim H\\underline{u} m $",
-    "$ O\\sim Hu\\underline{m} $"
+    "O¬H(u, m)",
+    "¬H(u̲, m)",
+    "O¬H(u̲, m)",
+    "O¬H(u, m̲)"
   ],
   "correct": 2,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'Ought' is the obligation operator O. 'Ought NOT to help' puts the negation INSIDE the obligation: O∼H͟u m — it is obligatory that you not help Madonna. (Contrast ∼OH͟u m, 'it isn't obligatory that you help'.)"
+  "hint": "Who is told to act, and does 'not' go inside the ought or outside it?",
+  "explanation": "'Ought not' puts the denial inside the obligation, with you underlined as the one to act: O¬H(u̲, m). ¬O H(u̲, m) would say only that you need not help.",
+  "section": "12.2"
 }

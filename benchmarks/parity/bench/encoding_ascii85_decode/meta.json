@@ -1,0 +1,11 @@
+{
+  "capability": "encoding.ascii85_decode",
+  "workload": "ascii85Decode round-trip",
+  "arg": "30000",
+  "expected": "121485000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

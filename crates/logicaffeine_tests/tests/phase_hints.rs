@@ -105,7 +105,11 @@ fn test_auto_tries_hints() {
     );
 
     // This should succeed - registering a simple hint
-    assert!(result.is_ok(), "Should be able to register hint: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should be able to register hint: {:?}",
+        result
+    );
 }
 
 // =============================================================================

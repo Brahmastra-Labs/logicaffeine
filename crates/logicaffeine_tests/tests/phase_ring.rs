@@ -554,10 +554,7 @@ fn test_try_ring_fails_on_division() {
         .expect("Define result");
 
     let result = repl.execute("Eval result.").expect("Eval");
-    assert_eq!(
-        result, "(SName \"Error\")",
-        "Ring should fail on division"
-    );
+    assert_eq!(result, "(SName \"Error\")", "Ring should fail on division");
 }
 
 #[test]
@@ -580,10 +577,7 @@ fn test_try_ring_fails_on_wrong_constant() {
         .expect("Define result");
 
     let result = repl.execute("Eval result.").expect("Eval");
-    assert_eq!(
-        result, "(SName \"Error\")",
-        "Ring should fail on 1+2 = 4"
-    );
+    assert_eq!(result, "(SName \"Error\")", "Ring should fail on 1+2 = 4");
 }
 
 // =============================================================================
@@ -663,7 +657,10 @@ fn test_try_ring_expand_square() {
 
     let concluded = repl.execute("Eval result.").expect("Eval result");
     let original = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(concluded, original, "Ring should prove (x+y)^2 = x^2 + 2xy + y^2");
+    assert_eq!(
+        concluded, original,
+        "Ring should prove (x+y)^2 = x^2 + 2xy + y^2"
+    );
 }
 
 // =============================================================================

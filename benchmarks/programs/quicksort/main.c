@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#define MOD 1000000007L
 
 void swap(long *a, long *b) { long t = *a; *a = *b; *b = t; }
 
@@ -33,7 +32,7 @@ int main(int argc, char *argv[]) {
     }
     qs(arr, 0, n - 1);
     long checksum = 0;
-    for (long i = 0; i < n; i++) checksum = (checksum + arr[i]) % MOD;
+    for (long i = 0; i < n; i++) checksum = (checksum * 31 + arr[i]) & 268435455;
     printf("%ld %ld %ld\n", arr[0], arr[n-1], checksum);
     free(arr);
     return 0;

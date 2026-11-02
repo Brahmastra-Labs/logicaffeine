@@ -8,7 +8,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_interpreter_output, assert_exact_output};
+use common::{assert_exact_output, assert_interpreter_output};
 
 // =============================================================================
 // A: Basic Closure Creation & Call (interpreter)

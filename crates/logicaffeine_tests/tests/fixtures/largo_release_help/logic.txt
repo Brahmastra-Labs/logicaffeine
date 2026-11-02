@@ -1,0 +1,59 @@
+Translate English to First-Order Logic.
+
+Compiles a natural-language sentence to formal logic — the LOGOS logic mode from the terminal. Reads the sentence inline, from `--file`, or from piped stdin. Prints bare FOL on stdout, so output pipes cleanly into other tools.
+
+Usage: largo logic [OPTIONS] [SENTENCE]
+
+Arguments:
+  [SENTENCE]
+          The English sentence to translate
+
+Options:
+  -f, --file <FILE>
+          Read the sentence (or discourse) from a file
+
+      --format <FORMAT>
+          Output format for the logical form
+
+          Possible values:
+          - unicode: Unicode logic symbols: ∀, ∃, ∧, ∨, ¬, →
+          - latex:   LaTeX markup: \forall, \exists, \land, ...
+          - ascii:   Plain ASCII FOL
+          - kripke:  Kripke semantics: modals lowered to explicit world quantification
+          
+          [default: unicode]
+
+      --all-readings
+          Show every reading (quantifier scopes + parse forest), numbered
+
+      --pragmatic
+          Enrich with scalar implicature (pragmatic strengthening)
+
+      --discourse
+          Treat each input line as one sentence of a discourse with shared anaphora context
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo logic "Every woman loves a man."
+  largo logic "Every woman loves a man." --all-readings
+  largo logic "It might rain." --format kripke
+  echo "Socrates is mortal." | largo logic
+  printf 'A farmer owns a donkey.\nHe feeds it.' | largo logic --discourse

@@ -7,7 +7,7 @@ pub fn main() !void {
     const n_str = args.next() orelse return;
     const n = try std.fmt.parseInt(i32, n_str, 10);
     const nf: f64 = @floatFromInt(n);
-    var count: i32 = 0;
+    var count: i64 = 0;
     var y: i32 = 0;
     while (y < n) : (y += 1) {
         var x: i32 = 0;

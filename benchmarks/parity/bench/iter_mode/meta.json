@@ -1,0 +1,11 @@
+{
+  "capability": "iter.mode",
+  "workload": "modeSeq(xs) over a seq with a unique nonzero mode, fold mod 1e9+7",
+  "arg": "2000",
+  "expected": "10000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls modeSeq() WITHOUT defining it \u2014 auto-imported from iter.lg. xs = [1..300]+[5,5,5] so 5 is the unique mode. NOTE: modeSeq counts via nested countOf (O(m^2)); Python statistics.mode is O(m) \u2014 a Phase-B Map-count rewrite is the lever."
+}

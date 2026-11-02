@@ -1,0 +1,372 @@
+{
+  "case": "T07-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 46,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_013.Base",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Base \u03b1 \u2192 Sort u} \u2192 (t : T07_013.Base \u03b1) \u2192 ((stamp : Nat) \u2192 motive { stamp := stamp }) \u2192 motive t",
+      "name": "T07_013.Base.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Nat \u2192 T07_013.Base \u03b1",
+      "name": "T07_013.Base.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_013.Base \u03b1} \u2192 v1 = v2 \u2192 T07_013.Base.noConfusionType P v1 v2",
+      "name": "T07_013.Base.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_013.Base \u03b1 \u2192 T07_013.Base \u03b1 \u2192 Sort u",
+      "name": "T07_013.Base.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Base \u03b1 \u2192 Sort u} \u2192 ((stamp : Nat) \u2192 motive { stamp := stamp }) \u2192 (t : T07_013.Base \u03b1) \u2192 motive t",
+      "name": "T07_013.Base.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Base \u03b1 \u2192 Sort u} \u2192 (t : T07_013.Base \u03b1) \u2192 ((stamp : Nat) \u2192 motive { stamp := stamp }) \u2192 motive t",
+      "name": "T07_013.Base.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T07_013.Base \u03b1] \u2192 Nat",
+      "name": "T07_013.Base.stamp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_013.Both",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Both \u03b1 \u2192 Sort u} \u2192\n    (t : T07_013.Both \u03b1) \u2192\n      ([toLeft : T07_013.Left \u03b1] \u2192 (rightMark joinMark : Nat) \u2192 motive (T07_013.Both.mk rightMark joinMark)) \u2192 motive t",
+      "name": "T07_013.Both.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T07_013.Both \u03b1] \u2192 Nat",
+      "name": "T07_013.Both.joinMark",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [toLeft : T07_013.Left \u03b1] \u2192 Nat \u2192 Nat \u2192 T07_013.Both \u03b1",
+      "name": "T07_013.Both.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_013.Both \u03b1} \u2192 v1 = v2 \u2192 T07_013.Both.noConfusionType P v1 v2",
+      "name": "T07_013.Both.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_013.Both \u03b1 \u2192 T07_013.Both \u03b1 \u2192 Sort u",
+      "name": "T07_013.Both.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Both \u03b1 \u2192 Sort u} \u2192\n    ([toLeft : T07_013.Left \u03b1] \u2192 (rightMark joinMark : Nat) \u2192 motive (T07_013.Both.mk rightMark joinMark)) \u2192\n      (t : T07_013.Both \u03b1) \u2192 motive t",
+      "name": "T07_013.Both.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Both \u03b1 \u2192 Sort u} \u2192\n    (t : T07_013.Both \u03b1) \u2192\n      ([toLeft : T07_013.Left \u03b1] \u2192 (rightMark joinMark : Nat) \u2192 motive (T07_013.Both.mk rightMark joinMark)) \u2192 motive t",
+      "name": "T07_013.Both.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T07_013.Both \u03b1] \u2192 Nat",
+      "name": "T07_013.Both.rightMark",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_013.Both \u03b1] \u2192 T07_013.Left \u03b1",
+      "name": "T07_013.Both.toLeft",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_013.Both \u03b1] \u2192 T07_013.Right \u03b1",
+      "name": "T07_013.Both.toRight",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_013.Left",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Left \u03b1 \u2192 Sort u} \u2192\n    (t : T07_013.Left \u03b1) \u2192 ([toBase : T07_013.Base \u03b1] \u2192 (leftMark : Nat) \u2192 motive (T07_013.Left.mk leftMark)) \u2192 motive t",
+      "name": "T07_013.Left.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T07_013.Left \u03b1] \u2192 Nat",
+      "name": "T07_013.Left.leftMark",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [toBase : T07_013.Base \u03b1] \u2192 Nat \u2192 T07_013.Left \u03b1",
+      "name": "T07_013.Left.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_013.Left \u03b1} \u2192 v1 = v2 \u2192 T07_013.Left.noConfusionType P v1 v2",
+      "name": "T07_013.Left.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_013.Left \u03b1 \u2192 T07_013.Left \u03b1 \u2192 Sort u",
+      "name": "T07_013.Left.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Left \u03b1 \u2192 Sort u} \u2192\n    ([toBase : T07_013.Base \u03b1] \u2192 (leftMark : Nat) \u2192 motive (T07_013.Left.mk leftMark)) \u2192 (t : T07_013.Left \u03b1) \u2192 motive t",
+      "name": "T07_013.Left.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Left \u03b1 \u2192 Sort u} \u2192\n    (t : T07_013.Left \u03b1) \u2192 ([toBase : T07_013.Base \u03b1] \u2192 (leftMark : Nat) \u2192 motive (T07_013.Left.mk leftMark)) \u2192 motive t",
+      "name": "T07_013.Left.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_013.Left \u03b1] \u2192 T07_013.Base \u03b1",
+      "name": "T07_013.Left.toBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_013.Right",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Right \u03b1 \u2192 Sort u} \u2192\n    (t : T07_013.Right \u03b1) \u2192\n      ([toBase : T07_013.Base \u03b1] \u2192 (rightMark : Nat) \u2192 motive (T07_013.Right.mk rightMark)) \u2192 motive t",
+      "name": "T07_013.Right.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [toBase : T07_013.Base \u03b1] \u2192 Nat \u2192 T07_013.Right \u03b1",
+      "name": "T07_013.Right.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_013.Right \u03b1} \u2192 v1 = v2 \u2192 T07_013.Right.noConfusionType P v1 v2",
+      "name": "T07_013.Right.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_013.Right \u03b1 \u2192 T07_013.Right \u03b1 \u2192 Sort u",
+      "name": "T07_013.Right.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Right \u03b1 \u2192 Sort u} \u2192\n    ([toBase : T07_013.Base \u03b1] \u2192 (rightMark : Nat) \u2192 motive (T07_013.Right.mk rightMark)) \u2192\n      (t : T07_013.Right \u03b1) \u2192 motive t",
+      "name": "T07_013.Right.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_013.Right \u03b1 \u2192 Sort u} \u2192\n    (t : T07_013.Right \u03b1) \u2192\n      ([toBase : T07_013.Base \u03b1] \u2192 (rightMark : Nat) \u2192 motive (T07_013.Right.mk rightMark)) \u2192 motive t",
+      "name": "T07_013.Right.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T07_013.Right \u03b1] \u2192 Nat",
+      "name": "T07_013.Right.rightMark",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_013.Right \u03b1] \u2192 T07_013.Base \u03b1",
+      "name": "T07_013.Right.toBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_013.Both Nat",
+      "name": "T07_013.bothNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_013.viaLeft \u2260 T07_013.viaRight",
+      "name": "T07_013.bothPaths",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_013.Both \u03b1] \u2192 Nat",
+      "name": "T07_013.implicitPath",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_013.Left Nat",
+      "name": "T07_013.leftNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_013.Base \u03b1] \u2192 Nat",
+      "name": "T07_013.readStamp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_013.Right Nat",
+      "name": "T07_013.rightNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_013.viaBoth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_013.viaLeft",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_013.viaRight",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -20,8 +20,14 @@ Show f(10).
 
 #[test]
 fn trace_format_is_stable_across_tiers() {
-    assert_eq!(format_transition(3, "fib", ExecTier::Bytecode), "[tier] fn#3 'fib' -> bytecode");
-    assert_eq!(format_transition(3, "fib", ExecTier::Warm), "[tier] fn#3 'fib' -> warm");
+    assert_eq!(
+        format_transition(3, "fib", ExecTier::Bytecode),
+        "[tier] fn#3 'fib' -> bytecode"
+    );
+    assert_eq!(
+        format_transition(3, "fib", ExecTier::Warm),
+        "[tier] fn#3 'fib' -> warm"
+    );
     assert_eq!(
         format_transition(7, "qsort", ExecTier::NativeForge),
         "[tier] fn#7 'qsort' -> native(forge)"
@@ -31,7 +37,10 @@ fn trace_format_is_stable_across_tiers() {
         "[tier] fn#2 'add' -> native(aot)"
     );
     // No interner / anonymous: index only.
-    assert_eq!(format_transition(5, "", ExecTier::Warm), "[tier] fn#5 -> warm");
+    assert_eq!(
+        format_transition(5, "", ExecTier::Warm),
+        "[tier] fn#5 -> warm"
+    );
 }
 
 #[test]

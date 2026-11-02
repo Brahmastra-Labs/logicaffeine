@@ -1,0 +1,11 @@
+{
+  "capability": "bits.unpack_uint_be",
+  "workload": "unpackUintBE over a 6-byte buffer whose MSB varies per rep, fold mod 1e9+7",
+  "arg": "2000000",
+  "expected": "279100148",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls unpackUintBE() WITHOUT defining it \u2014 auto-imported from bits.lg. Python counterpart uses int.from_bytes(...,'big'), recomputed each rep."
+}

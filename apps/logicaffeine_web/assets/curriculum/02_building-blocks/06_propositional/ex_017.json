@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Either not B or L",
   "options": [
-    "$ (\\sim B \\vee \\sim L) $",
-    "$ \\sim B \\vee L $",
-    "$ \\sim(B \\vee L) $",
-    "$ (\\sim B \\vee L) $"
+    "¬B ∨ ¬L",
+    "¬(B ∨ L)",
+    "¬B ∧ L",
+    "¬B ∨ L"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining ¬B and L: ¬B ∨ L.",
+  "section": "6.2"
 }

@@ -1,0 +1,23 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable a be a new Seq of Float.
+Let mutable b be a new Seq of Float.
+Let mutable c be a new Seq of Float.
+Repeat for i from 1 to n:
+    Repeat for j from 1 to n:
+        Push ((i * 3 + j) % 8) / 8.0 to a.
+        Push ((i + j * 5) % 8) / 8.0 - 0.5 to b.
+        Push 0.0 to c.
+Repeat for i from 1 to n:
+    Repeat for j from 1 to n:
+        Let mutable sum be 0.0.
+        Repeat for p from 1 to n:
+            Set sum to sum + (item ((i - 1) * n + p) of a) * (item ((p - 1) * n + j) of b).
+        Set item ((i - 1) * n + j) of c to sum.
+Let mutable checksum be 0.0.
+Repeat for v in c:
+    Set checksum to checksum + v.
+Show checksum.

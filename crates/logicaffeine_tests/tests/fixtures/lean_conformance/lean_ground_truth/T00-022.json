@@ -1,0 +1,94 @@
+{
+  "case": "T00-022",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 12,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_022.bigType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_022.dup",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.dup10",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.dup4",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192\n  Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_022.f20",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_022.bigType \u2192 T00_022.bigType \u2192 T00_022.bigType \u2192 T00_022.bigType \u2192 Nat",
+      "name": "T00_022.fourBigTypes",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.letDoesNotShare",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.nestedLetBlowup",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.shared20",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat) \u2192 Nat \u2192 Nat",
+      "name": "T00_022.twice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.twiceOfTwice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_022.usesGlobalSharing",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

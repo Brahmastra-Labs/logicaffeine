@@ -1,0 +1,177 @@
+# Calendar
+
+Gregorian-calendar helpers, written in pure LOGOS and byte-identical on every tier. Mirrors
+Python's `calendar` (isleap / leapdays / monthrange / month_name / day_name). Auto-imported on
+reference.
+
+## Note
+True if `year` is a Gregorian leap year: divisible by 4, except centuries, unless divisible by 400.
+
+## To isLeapYear (year: Int) -> Bool:
+    If year mod 400 is equal to 0:
+        Return true.
+    If year mod 100 is equal to 0:
+        Return false.
+    If year mod 4 is equal to 0:
+        Return true.
+    Return false.
+
+## Note
+Number of days in `month` of `year` (28 or 29 for February per `isLeapYear`, 30 or 31 otherwise).
+
+## To daysInMonth (year: Int) and (month: Int) -> Int:
+    If month is equal to 2:
+        If isLeapYear(year):
+            Return 29.
+        Return 28.
+    If month is equal to 4:
+        Return 30.
+    If month is equal to 6:
+        Return 30.
+    If month is equal to 9:
+        Return 30.
+    If month is equal to 11:
+        Return 30.
+    Return 31.
+
+## Note
+Counts the leap years in the half-open range `[y1, y2)`: the excess of the elapsed days over 365 per year, from `makeMoment` (O(1), no per-year loop).
+
+## To leapDaysBetween (y1: Int) and (y2: Int) -> Int:
+    If y2 is at most y1:
+        Return 0.
+    Let a be makeMoment(y1, 1, 1, 0, 0, 0).
+    Let b be makeMoment(y2, 1, 1, 0, 0, 0).
+    Let seconds be the seconds between a and b.
+    Let days be seconds / 86400.
+    Return days - (365 * (y2 - y1)).
+
+## Note
+The full English month name for `month` 1-12 (e.g. 1 -> "January", 12 -> "December").
+
+## To monthName (month: Int) -> Text:
+    If month is equal to 1:
+        Return "January".
+    If month is equal to 2:
+        Return "February".
+    If month is equal to 3:
+        Return "March".
+    If month is equal to 4:
+        Return "April".
+    If month is equal to 5:
+        Return "May".
+    If month is equal to 6:
+        Return "June".
+    If month is equal to 7:
+        Return "July".
+    If month is equal to 8:
+        Return "August".
+    If month is equal to 9:
+        Return "September".
+    If month is equal to 10:
+        Return "October".
+    If month is equal to 11:
+        Return "November".
+    Return "December".
+
+## Note
+The full English weekday name for `weekday` 1-7, ISO 8601: 1 is Monday and 7 is Sunday — the same convention as the `the weekday of <date>` built-in. Out of range (not 1-7) answers "".
+
+## To dayName (weekday: Int) -> Text:
+    If weekday is equal to 1:
+        Return "Monday".
+    If weekday is equal to 2:
+        Return "Tuesday".
+    If weekday is equal to 3:
+        Return "Wednesday".
+    If weekday is equal to 4:
+        Return "Thursday".
+    If weekday is equal to 5:
+        Return "Friday".
+    If weekday is equal to 6:
+        Return "Saturday".
+    If weekday is equal to 7:
+        Return "Sunday".
+    Return "".
+
+## Note
+The three-letter English month abbreviation for `month` 1-12 (e.g. "Jan"), or "" if out of range.
+
+## To monthAbbr (month: Int) -> Text:
+    If month is equal to 1:
+        Return "Jan".
+    If month is equal to 2:
+        Return "Feb".
+    If month is equal to 3:
+        Return "Mar".
+    If month is equal to 4:
+        Return "Apr".
+    If month is equal to 5:
+        Return "May".
+    If month is equal to 6:
+        Return "Jun".
+    If month is equal to 7:
+        Return "Jul".
+    If month is equal to 8:
+        Return "Aug".
+    If month is equal to 9:
+        Return "Sep".
+    If month is equal to 10:
+        Return "Oct".
+    If month is equal to 11:
+        Return "Nov".
+    If month is equal to 12:
+        Return "Dec".
+    Return "".
+
+## Note
+The three-letter English weekday abbreviation for `weekday` 1-7, ISO 8601: 1 is "Mon" and 7 is "Sun" — the same convention as the `the weekday of <date>` built-in. Out of range (not 1-7) answers "".
+
+## To dayAbbr (weekday: Int) -> Text:
+    If weekday is equal to 1:
+        Return "Mon".
+    If weekday is equal to 2:
+        Return "Tue".
+    If weekday is equal to 3:
+        Return "Wed".
+    If weekday is equal to 4:
+        Return "Thu".
+    If weekday is equal to 5:
+        Return "Fri".
+    If weekday is equal to 6:
+        Return "Sat".
+    If weekday is equal to 7:
+        Return "Sun".
+    Return "".
+
+## Note
+Signed day count from 1970-01-01 to `year`-01-01 (negative before 1970): the elapsed days between the two `makeMoment` instants (O(1), no per-year loop).
+
+## To daysBeforeYear (year: Int) -> Int:
+    Let epoch be makeMoment(1970, 1, 1, 0, 0, 0).
+    Let startOfYear be makeMoment(year, 1, 1, 0, 0, 0).
+    Let seconds be the seconds between epoch and startOfYear.
+    Return seconds / 86400.
+
+## Note
+Days elapsed from the start of `year` to the first of `month`: the elapsed days between the two `makeMoment` instants (O(1), no per-month loop).
+
+## To daysBeforeMonth (year: Int) and (month: Int) -> Int:
+    Let startOfYear be makeMoment(year, 1, 1, 0, 0, 0).
+    Let startOfMonth be makeMoment(year, month, 1, 0, 0, 0).
+    Let seconds be the seconds between startOfYear and startOfMonth.
+    Return seconds / 86400.
+
+## Note
+Converts a UTC civil date-time to Unix seconds since 1970-01-01: the elapsed seconds between the epoch and the instant, both built with the `makeMoment` built-in (O(1), no per-year loop).
+
+## To timegm (year: Int) and (month: Int) and (day: Int) and (hour: Int) and (minute: Int) and (second: Int) -> Int:
+    Let epoch be makeMoment(1970, 1, 1, 0, 0, 0).
+    Let instant be makeMoment(year, month, day, hour, minute, second).
+    Return the seconds between epoch and instant.
+
+## Note
+The 1-based day of the year (1 for January 1; 365 or 366 for December 31), as `daysBeforeMonth` plus the day.
+
+## To dayOfYear (year: Int) and (month: Int) and (day: Int) -> Int:
+    Return daysBeforeMonth(year, month) + day.

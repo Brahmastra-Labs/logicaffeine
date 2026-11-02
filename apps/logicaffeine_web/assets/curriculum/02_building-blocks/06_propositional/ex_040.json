@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're tall, and mediocre or colorful",
   "options": [
-    "$ (T \\cdot M) \\vee C $",
-    "$ (T \\cdot (M \\vee C)) $",
-    "$ ((T \\cdot M) \\vee C) $",
-    "$ T \\cdot M \\vee C $"
+    "(T ∧ M) ∨ C",
+    "T ∧ (M ∨ C)",
+    "T ∨ M ∨ C",
+    "T → (M ∨ C)"
   ],
   "correct": 1,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'and' joins the two largest parts?",
+  "explanation": "The main connective is ∧, joining T and M ∨ C: T ∧ (M ∨ C).",
+  "section": "6.2"
 }

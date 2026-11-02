@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It's possible that someone is D",
   "options": [
-    "$ (\\exists x)(\\lozenge Dx) $",
-    "$ \\lozenge (\\exists x)Dx $",
-    "$ (\\exists x)\\lozenge Dx $",
-    "$ \\lozenge ((\\exists x)Dx) $"
+    "∃x ◇D(x)",
+    "◇∃x D(x)",
+    "□∃x D(x)",
+    "∃x □D(x)"
   ],
   "correct": 1,
-  "hint": "Is the possibility about a SPECIFIC person, or about the existence of such a person?",
-  "explanation": "When possibility mixes with quantifiers, scope matters! '\u25c7\u2203x(Px)' means 'possibly, someone is P' \u2014 there's a world where at least one P-person exists. '\u2203x(\u25c7Px)' would mean 'there's an actual person who could be P' \u2014 subtly different!"
+  "hint": "Is the possibility about one person, or about there being such a person?",
+  "explanation": "Possibility covers the whole claim that someone is D: ◇∃x D(x). ∃x ◇D(x) says that some actual person could be D.",
+  "section": "10.2"
 }

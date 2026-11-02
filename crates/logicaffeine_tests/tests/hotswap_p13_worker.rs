@@ -64,5 +64,9 @@ fn warm_tier_via_worker_datapath_equals_baseline() {
     });
 
     assert_eq!(warm.trim(), "300", "sum 0..25 = 300");
-    assert_eq!(warm.trim(), baseline.trim(), "warm tier via the worker data path == baseline");
+    assert_eq!(
+        warm.trim(),
+        baseline.trim(),
+        "warm tier via the worker data path == baseline"
+    );
 }

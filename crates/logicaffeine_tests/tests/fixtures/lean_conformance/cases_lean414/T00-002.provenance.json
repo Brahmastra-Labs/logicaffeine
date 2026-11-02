@@ -1,0 +1,55 @@
+{
+  "case": "T00-002",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-002_expr_sort_shallow.lean",
+  "source_sha256": "fc610c98dccf380ec916e6a8610ac802de308fd852c85e6c901a21dfccbaec5c",
+  "ledger_sha256": "b76a3a479961742181bb519b771e186a3ac2f348b6e9df5e6c3400db67f92ce0",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b"
+  },
+  "exporter_olean_sha256": "49d73051495cae9b48b65442e84d7b1a76a78d66ad694720a80cf2d463c24add",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T00_002.appliedToProp",
+    "T00_002.appliedToType",
+    "T00_002.idTypeAtOne",
+    "T00_002.idTypeAtZero",
+    "T00_002.levelLadder",
+    "T00_002.propAlias",
+    "T00_002.quantifiesOverProps",
+    "T00_002.quantifiesOverTypes",
+    "T00_002.sortOneAlias",
+    "T00_002.sortTwoAlias",
+    "T00_002.sortZeroAlias",
+    "T00_002.typeAlias",
+    "T00_002.typeOneAlias",
+    "T00_002.typeZeroAlias"
+  ],
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "8aa42351b7ef8f7ca17f886ec9b91bfce90b4cf9f4701d62bfdcb2d489cec3d0",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 100,
+  "exporter_repository": "https://github.com/leanprover/lean4export.git",
+  "scope": "Byte-identical original source export; case-specific bridge oracle tracked separately."
+}

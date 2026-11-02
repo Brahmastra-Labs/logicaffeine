@@ -20,10 +20,7 @@
 use logicaffeine_compile::verify_theorem;
 
 fn theorem(premises: &[&str], goal: &str) -> String {
-    let givens: String = premises
-        .iter()
-        .map(|p| format!("Given: {p}\n"))
-        .collect();
+    let givens: String = premises.iter().map(|p| format!("Given: {p}\n")).collect();
     format!("## Theorem: Phase142\n{givens}Prove: {goal}\nProof: Auto.\n")
 }
 

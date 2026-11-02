@@ -24,7 +24,9 @@ pub fn apply_format_spec(val: &RuntimeValue, spec: &str) -> String {
             match val {
                 RuntimeValue::Float(f) => return format!("{:.prec$}", f, prec = precision),
                 RuntimeValue::Int(n) => return format!("{:.prec$}", *n as f64, prec = precision),
-                RuntimeValue::BigInt(b) => return format!("{:.prec$}", b.to_f64(), prec = precision),
+                RuntimeValue::BigInt(b) => {
+                    return format!("{:.prec$}", b.to_f64(), prec = precision)
+                }
                 _ => return val.to_display_string(),
             }
         }

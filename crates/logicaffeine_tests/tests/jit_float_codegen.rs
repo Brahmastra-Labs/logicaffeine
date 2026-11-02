@@ -356,5 +356,8 @@ fn nbody_distance_sum_still_tiers() {
                \x20   Set r to r + 1.\n\
                Show \"{e:.9}\".\n";
     let (_out, _fn_ok, region_ok) = tiered(src);
-    assert!(region_ok >= 1, "the nbody distance-sum loop must tier as a region (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the nbody distance-sum loop must tier as a region (got {region_ok})"
+    );
 }

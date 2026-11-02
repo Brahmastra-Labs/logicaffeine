@@ -1,0 +1,11 @@
+{
+  "name": "fannkuch",
+  "lang": "logos_cbc",
+  "n": "10",
+  "samples_weight": 1549639608,
+  "alloc_pct": 2.226,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 97.774
+}

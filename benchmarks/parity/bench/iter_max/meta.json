@@ -1,0 +1,12 @@
+{
+  "capability": "iter.max",
+  "workload": "maxSeq over a perturbed Seq",
+  "arg": "100000",
+  "expected": "9275971183",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

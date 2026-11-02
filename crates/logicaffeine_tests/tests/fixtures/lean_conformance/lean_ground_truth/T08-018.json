@@ -1,0 +1,61 @@
+{
+  "case": "T08-018",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (p q r : Prop), p \u2228 q \u2192 (p \u2192 r) \u2192 (q \u2192 r) \u2192 r",
+      "name": "T08_018.afterCases",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_018.bothByAssumption",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r s : Prop), p \u2192 q \u2192 r \u2192 s \u2192 (p \u2227 q) \u2227 r \u2227 s",
+      "name": "T08_018.chained",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2227 p",
+      "name": "T08_018.cleanChain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 (p \u2228 q) \u2227 q",
+      "name": "T08_018.leakAfterSplit",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_018.partialFailureShape",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2227 p",
+      "name": "T08_018.precedence",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

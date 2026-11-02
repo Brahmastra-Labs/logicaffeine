@@ -10,10 +10,12 @@ fn main() {
     }
     let mut max_freq: i64 = 0;
     let mut max_idx: i64 = 0;
-    let mut distinct: i64 = 0;
     for i in 0..1000 {
-        if counts[i] > 0 { distinct += 1; }
         if counts[i] > max_freq { max_freq = counts[i]; max_idx = i as i64; }
     }
-    println!("{} {} {}", max_freq, max_idx, distinct);
+    let mut h: i64 = 0;
+    for &c in &counts {
+        h = (h * 31 + c) & 268435455;
+    }
+    println!("{} {} {}", max_freq, max_idx, h);
 }

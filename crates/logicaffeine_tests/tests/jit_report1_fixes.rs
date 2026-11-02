@@ -49,7 +49,11 @@ fn region_listpush_is_not_double_applied_on_deopt() {
         (norm(&tw.output), &tw.error),
         "tiered VM diverged from tree-walker: a region ListPush was double-applied on deopt"
     );
-    assert_eq!(norm(&vm.output), "500", "exactly 500 elements must be pushed (no replay duplicates)");
+    assert_eq!(
+        norm(&vm.output),
+        "500",
+        "exactly 500 elements must be pushed (no replay duplicates)"
+    );
 }
 
 /// BUG-001 follow-up — the deopt path now ROLLS BACK every pinned buffer to its
@@ -241,7 +245,11 @@ fn function_with_float_branch_tiers_up_without_panicking() {
         (norm(&tw.output), &tw.error),
         "tiered VM diverged from / panicked vs the tree-walker on a float-branch function"
     );
-    assert_eq!(norm(&vm.output), "12000", "countgt(3.5,2.5)=20, called 600 times => 12000");
+    assert_eq!(
+        norm(&vm.output),
+        "12000",
+        "countgt(3.5,2.5)=20, called 600 times => 12000"
+    );
 }
 
 /// ARRAY READ-MODIFY-WRITE FUSION (dispatch-reduction lever): the histogram
@@ -278,9 +286,16 @@ fn array_rmw_named_index_matches_tree_walker() {
         (norm(&tw.output), &tw.error),
         "tiered VM diverged from tree-walker on an array read-modify-write region (ArrRMW bug)"
     );
-    assert_eq!(norm(&vm.output), "4000", "every iteration increments one bucket → total 4000");
+    assert_eq!(
+        norm(&vm.output),
+        "4000",
+        "every iteration increments one bucket → total 4000"
+    );
     let (_, region_successes) = tier.region_counts();
-    assert!(region_successes >= 1, "the RMW loop must TIER; got {region_successes}");
+    assert!(
+        region_successes >= 1,
+        "the RMW loop must TIER; got {region_successes}"
+    );
 }
 
 /// THE REAL HISTOGRAM SHAPE: the index `(v + 1)` is recomputed for both the load
@@ -390,4 +405,17 @@ fn float_multiply_add_chain_matches_tree_walker() {
         (norm(&tw.output), &tw.error),
         "tiered VM diverged from tree-walker on a float multiply-add chain (FmaF rounding bug)"
     );
+    #[cfg(target_arch = "x86_64")]
+    {
+        assert!(
+            tier.regalloc_region_count() > 0,
+            "the float loop must exercise contiguous region codegen"
+        );
+        assert!(
+            tier.optimization_trace()
+                .count(logicaffeine_jit::JitOptimization::FusedMultiplyAdd)
+                > 0,
+            "FmaF must reach contiguous region codegen instead of being stranded on the stencil-only stream"
+        );
+    }
 }

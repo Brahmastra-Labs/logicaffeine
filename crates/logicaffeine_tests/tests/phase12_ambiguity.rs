@@ -35,29 +35,46 @@ fn pp_attachment_both_readings_include_pp() {
     let results = compile_forest("I saw the man with the telescope.");
 
     // Filter to only complete readings (containing logical structure, not just constants like "Speaker")
-    let complete_readings: Vec<_> = results.iter()
+    let complete_readings: Vec<_> = results
+        .iter()
         .filter(|r| r.contains("See") || r.contains("With"))
         .collect();
 
-    assert_eq!(complete_readings.len(), 2, "Expected 2 complete readings, got {}: {:?}", complete_readings.len(), complete_readings);
+    assert_eq!(
+        complete_readings.len(),
+        2,
+        "Expected 2 complete readings, got {}: {:?}",
+        complete_readings.len(),
+        complete_readings
+    );
 
     // Both complete readings should include the telescope
     for (i, reading) in complete_readings.iter().enumerate() {
         assert!(
             reading.contains("Telescope") || reading.contains("telescope"),
-            "Reading {} missing PP (no Telescope): {}", i + 1, reading
+            "Reading {} missing PP (no Telescope): {}",
+            i + 1,
+            reading
         );
     }
 
     // One should be VP-attachment: With(e, ...)
     let has_vp = complete_readings.iter().any(|r| r.contains("With(e"));
     // One should be NP-attachment: With(Man, ...) or With(x, ...)
-    let has_np = complete_readings.iter().any(|r|
-        r.contains("With(Man") || r.contains("With(x") || r.contains("With(y")
-    );
+    let has_np = complete_readings
+        .iter()
+        .any(|r| r.contains("With(Man") || r.contains("With(x") || r.contains("With(y"));
 
-    assert!(has_vp, "Missing VP-attachment reading (With(e, ...)).\nReadings: {:?}", complete_readings);
-    assert!(has_np, "Missing NP-attachment reading (With(Man/x, ...)).\nReadings: {:?}", complete_readings);
+    assert!(
+        has_vp,
+        "Missing VP-attachment reading (With(e, ...)).\nReadings: {:?}",
+        complete_readings
+    );
+    assert!(
+        has_np,
+        "Missing NP-attachment reading (With(Man/x, ...)).\nReadings: {:?}",
+        complete_readings
+    );
 }
 
 #[test]
@@ -97,10 +114,7 @@ fn ambiguous_love_preserved() {
         !noun_results.is_empty(),
         "Love as noun subject should parse"
     );
-    assert!(
-        !verb_results.is_empty(),
-        "Love as verb should parse"
-    );
+    assert!(!verb_results.is_empty(), "Love as verb should parse");
 }
 
 #[test]

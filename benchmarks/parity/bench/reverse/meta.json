@@ -1,0 +1,1 @@
+{"capability":"text.reverse","workload":"reverseText('hello world') length summed over 1..n","arg":"3000000","expected":"33000000","note":"LOGOS strings.lg reverseText vs Python slice-reverse."}

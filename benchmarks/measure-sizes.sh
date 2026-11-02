@@ -24,10 +24,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-BIN_DIR="$SCRIPT_DIR/bin"
-PROGRAMS_DIR="$SCRIPT_DIR/programs"
+. "$SCRIPT_DIR/lib/suite.sh"
+
+BIN_DIR="$SUITE_BIN"
+PROGRAMS_DIR="$SUITE_PROGRAMS"
 RESULTS_DIR="$SCRIPT_DIR/results"
-RAW_DIR="$RESULTS_DIR/raw"
+RAW_DIR="${RAW_DIR:-$RESULTS_DIR/raw}"
 LATEST="$RESULTS_DIR/latest.json"
 INTERP="$RESULTS_DIR/latest-interp.json"
 WEB_BUILD_DIR="$ROOT/target/dx/logicaffeine-web/release/web/public"
@@ -40,12 +42,6 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
 
-# language id -> binary filename suffix, mirroring Phase 3.5 in run.sh. Java is a class
-# directory (bin/java/{bench}) and is handled separately below.
-declare -A LANG_SUFFIX=(
-    [c]=_c [cpp]=_cpp [rust]=_rs [zig]=_zig [go]=_go [nim]=_nim [logos_release]=_logos_release
-)
-LANG_ORDER=(c cpp rust zig go nim logos_release)
 
 # Bytes of a single file (portable: GNU vs BSD stat).
 size_bytes() {
@@ -94,15 +90,17 @@ artifact_sizes_json() {
     printf '{"as_built":%s,"stripped":%s}' "$as_built" "$stripped"
 }
 
-# {"method":...,"by_language":{lang:{as_built,stripped},...}} for one benchmark.
+# {"method":...,"by_language":{lang:{as_built,stripped},...}} for one benchmark: every registered language whose
+# artifact is a program (languages.tsv `size` = 1) — a file, or Java's class directory.
 measure_bench_sizes() {
-    local bench="$1" by_lang="{}" lang js
-    for lang in "${LANG_ORDER[@]}"; do
-        js="$(artifact_sizes_json "$BIN_DIR/${bench}${LANG_SUFFIX[$lang]}")"
+    local bench="$1" by_lang="{}" lang js artifact
+    for lang in "${LANG_IDS[@]}"; do
+        [ "${LANG_SIZE[$lang]}" = 1 ] || continue
+        artifact="$(suite_bin "$bench" "$lang")"
+        [ -e "$artifact" ] || artifact="$(suite_dir "$bench" "$lang")"
+        js="$(artifact_sizes_json "$artifact")"
         [ -n "$js" ] && by_lang="$(echo "$by_lang" | jq --arg l "$lang" --argjson v "$js" '.[$l]=$v')"
     done
-    js="$(artifact_sizes_json "$BIN_DIR/java/$bench")"
-    [ -n "$js" ] && by_lang="$(echo "$by_lang" | jq --arg l java --argjson v "$js" '.[$l]=$v')"
     printf '{"method":"file_size_bytes","by_language":%s}' "$by_lang"
 }
 
@@ -114,7 +112,7 @@ measure_engines() {
         js="$(artifact_sizes_json "$2")"
         [ -n "$js" ] && engines="$(echo "$engines" | jq --arg l "$1" --argjson v "$js" '.[$l]=$v')"
     }
-    add_engine logos "$ROOT/target/release/largo"
+    add_engine logos "$CARGO_TARGET_DIR/release/largo"
     bin="$(command -v node || true)"; [ -n "$bin" ] && add_engine node "$bin"
     bin="$(command -v deno || true)"; [ -n "$bin" ] && add_engine deno "$bin"
     bin="$(command -v bun  || true)"; [ -n "$bin" ] && add_engine bun  "$bin"
@@ -154,14 +152,11 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# Benchmark set: explicit args win; else the ids already in latest.json (so the page's
-# benchmark set is matched exactly); else the programs/ directory.
+# Benchmark set: explicit args win; else the suite's registry.
 if [ ${#BENCH_ARGS[@]} -gt 0 ]; then
     BENCHES=("${BENCH_ARGS[@]}")
-elif [ -f "$LATEST" ]; then
-    mapfile -t BENCHES < <(jq -r '.benchmarks[].id' "$LATEST")
 else
-    mapfile -t BENCHES < <(find "$PROGRAMS_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+    BENCHES=("${BENCHMARKS[@]}")
 fi
 
 SIZE_MAP="{}"

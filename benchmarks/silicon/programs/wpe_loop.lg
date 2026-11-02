@@ -1,0 +1,7 @@
+## To f (n: Int) -> Int:
+    Let mutable acc be 0.
+    Let mutable i be 1.
+    While i is less than or equal to n:
+        Set acc to acc + i.
+        Set i to i + 1.
+    Return acc.

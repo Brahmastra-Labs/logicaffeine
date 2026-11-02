@@ -1,0 +1,32 @@
+Generate documentation from the project's `##` blocks.
+
+Renders a markdown reference from the literate structure of the entry file: `## To` signatures, type definitions, notes, examples, and formal blocks — in source order. `## Main` is omitted.
+
+Usage: largo doc [OPTIONS]
+
+Options:
+      --out <OUT>
+          Output directory (defaults to `target/doc`)
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo doc
+  largo doc --out book

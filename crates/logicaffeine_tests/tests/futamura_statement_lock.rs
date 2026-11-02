@@ -30,7 +30,13 @@ const NETWORKING_AND_STREAMING_PROGRAM: &str = "## Main\n\
 
 /// Constructors that MUST appear in the encoding. ADD here when the language gains a statement;
 /// never remove.
-const LOCKED: &[&str] = &["CListen", "CConnectTo", "CSendMessage", "CStreamMessage", "CAwaitMessage"];
+const LOCKED: &[&str] = &[
+    "CListen",
+    "CConnectTo",
+    "CSendMessage",
+    "CStreamMessage",
+    "CAwaitMessage",
+];
 
 #[test]
 fn every_networking_and_streaming_statement_survives_futamura_projection() {

@@ -1,0 +1,104 @@
+{
+  "tier": "t12_vernacular",
+  "test_binary": "lean_conformance_t12_vernacular",
+  "cases": [
+    {
+      "id": "T12-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_socratic_syllogism_kernel_verifies_on_the_english_theorem_surface",
+      "why": ""
+    },
+    {
+      "id": "T12-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "surface_a_states_and_proves_that_adding_zero_leaves_a_number_unchanged",
+      "why": ""
+    },
+    {
+      "id": "T12-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_english_proof_script_discharges_implication_disjunction_and_conjunction",
+      "why": ""
+    },
+    {
+      "id": "T12-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_parenthesised_given_name_is_the_hypothesis_name_the_script_cites",
+      "why": ""
+    },
+    {
+      "id": "T12-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_induction_spelling_our_own_doc_comment_teaches_proves_a_theorem",
+      "why": ""
+    },
+    {
+      "id": "T12-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_tarski_theory_block_discharges_its_whole_citation_graph",
+      "why": ""
+    },
+    {
+      "id": "T12-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_function_symbol_in_term_position_survives_surface_b",
+      "why": ""
+    },
+    {
+      "id": "T12-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_literate_statement_proves_arithmetic_in_both_sexpr_and_infix_spellings",
+      "why": ""
+    },
+    {
+      "id": "T12-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_literate_statement_binds_a_universally_quantified_variable",
+      "why": "CLOSED 2026-09-15, vernacular-surface wave: the literate `Statement:` grammar grew `forall x : T, body` (and ∀). The sort is mandatory. A named `Pi` reifies as the `Forall` shape the elimination rules speak, and an ordinary tactic is handed the body with the prenex binders discharged as eigenvariables — ∀-introduction, which is the reading this surface already gives every free variable."
+    },
+    {
+      "id": "T12-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "literate_induction_over_nat_closes_its_two_bullet_cases",
+      "why": ""
+    },
+    {
+      "id": "T12-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_quantifier_and_function_term_intersection_is_not_empty",
+      "why": ""
+    },
+    {
+      "id": "T12-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_proof_line_may_name_the_inference_rule_that_discharges_it",
+      "why": ""
+    },
+    {
+      "id": "T12-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_trust_door_separates_a_kernel_certificate_from_a_bare_derivation",
+      "why": ""
+    },
+    {
+      "id": "T12-014",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "the_grid_fast_path_changes_the_proof_object_not_the_verdict",
+      "why": "Lean has one elaborator and one proof object per theorem; LOGOS ships a second certified engine (the incremental grid solver) that the general backward chainer cannot match on finite-domain premises, and selects it structurally from the premise shape rather than from a flag or a keyword. We defend that: BOTH routes pass the identical kernel door, so the trust level is unchanged and no theorem becomes provable that was not entailed — the fast path is the only reason a logic-grid puzzle certifies in a browser with no Z3 at all, in milliseconds instead of a depth-100 saturation that never returns. Lean's analogue would be a hand-written `decide`-style tactic the author must name explicitly, which is strictly worse for the mathematician who did not know to ask. What the divergence genuinely costs is proof-SHAPE stability: adding one `every X is A or B` or one `exactly one X is A` premise flips the whole theorem from `UniversalInst`/`ModusPonens` over the quantified originals to `DisjunctionElim`/`Contradiction` over grounded ones, and the grid route proves a premise set augmented with at-most-one, definite-description and functionality lemmas rather than the premises as written (all entailed, so still sound). The test pins exactly that — same text, same verdict, two structurally different certificates through the two public entry points — so a harness that snapshots rendered trees knows it is measuring premise structure it did not choose."
+    }
+  ]
+}

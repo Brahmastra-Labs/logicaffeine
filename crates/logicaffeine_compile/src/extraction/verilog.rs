@@ -111,7 +111,12 @@ pub fn term_to_verilog(term: &Term) -> String {
     }
 
     // Match on Bit — ternary operator
-    if let Term::Match { discriminant, cases, .. } = term {
+    if let Term::Match {
+        discriminant,
+        cases,
+        ..
+    } = term
+    {
         if cases.len() == 2 {
             let disc = term_to_verilog(discriminant);
             let case_b0 = term_to_verilog(&cases[0]);

@@ -142,11 +142,24 @@ fn mag_sub(a: &[u64], b: &[u64]) -> Vec<u64> {
     normalize(out)
 }
 
-/// Schoolbook `a * b` on magnitudes (Karatsuba is the FAST follow-up).
+/// The magnitude length (in 64-bit limbs) at/above which Karatsuba beats schoolbook:
+/// its three half-size products plus the add/sub glue only pay off once the smaller
+/// operand is large enough. Below it, schoolbook's tight inner loop wins.
+const KARATSUBA_THRESHOLD: usize = 32;
+
+/// `a * b` on magnitudes: schoolbook for small operands, Karatsuba for large.
 fn mag_mul(a: &[u64], b: &[u64]) -> Vec<u64> {
     if a.is_empty() || b.is_empty() {
         return Vec::new();
     }
+    if a.len().min(b.len()) < KARATSUBA_THRESHOLD {
+        return mag_mul_schoolbook(a, b);
+    }
+    mag_mul_karatsuba(a, b)
+}
+
+/// Schoolbook `a * b` — O(n·m). The exact correctness oracle Karatsuba is fuzzed against.
+fn mag_mul_schoolbook(a: &[u64], b: &[u64]) -> Vec<u64> {
     let mut out = vec![0u64; a.len() + b.len()];
     for (i, &av) in a.iter().enumerate() {
         let mut carry = 0u128;
@@ -160,7 +173,42 @@ fn mag_mul(a: &[u64], b: &[u64]) -> Vec<u64> {
     normalize(out)
 }
 
+/// Prepend `n` zero limbs — multiply by `2^(64·n)`, i.e. shift the magnitude up by `n` limbs.
+fn mag_shl_limbs(a: &[u64], n: usize) -> Vec<u64> {
+    if a.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(a.len() + n);
+    out.resize(n, 0);
+    out.extend_from_slice(a);
+    out
+}
+
+/// Karatsuba `a * b`: split each operand at `m` limbs (`x = x_hi·B^m + x_lo`, `B = 2^64`)
+/// and combine three half-size products —
+///   `z0 = a_lo·b_lo`, `z2 = a_hi·b_hi`, `z1 = (a_lo+a_hi)·(b_lo+b_hi) − z0 − z2` —
+/// into `a·b = z2·B^{2m} + z1·B^m + z0`. `z1` is the (non-negative) sum of the cross
+/// products, so the subtractions never underflow. Recurses through `mag_mul`, so every
+/// sub-product below `KARATSUBA_THRESHOLD` falls back to schoolbook.
+fn mag_mul_karatsuba(a: &[u64], b: &[u64]) -> Vec<u64> {
+    let m = a.len().min(b.len()) / 2; // ≥ KARATSUBA_THRESHOLD/2 ≥ 1, and ≤ both lengths
+    let (a_lo, a_hi) = a.split_at(m);
+    let (b_lo, b_hi) = b.split_at(m);
+
+    let z0 = mag_mul(a_lo, b_lo);
+    let z2 = mag_mul(a_hi, b_hi);
+    let a_sum = mag_add(a_lo, a_hi);
+    let b_sum = mag_add(b_lo, b_hi);
+    let z1 = mag_sub(&mag_sub(&mag_mul(&a_sum, &b_sum), &z0), &z2);
+
+    let mut out = z0;
+    out = mag_add(&out, &mag_shl_limbs(&z1, m));
+    out = mag_add(&out, &mag_shl_limbs(&z2, 2 * m));
+    normalize(out)
+}
+
 /// `r << 1 | bit` on a magnitude (shift the whole number up by one bit).
+#[cfg(test)]
 fn mag_shl1(a: &[u64], bit: u64) -> Vec<u64> {
     let mut out = Vec::with_capacity(a.len() + 1);
     let mut carry = bit & 1;
@@ -174,11 +222,9 @@ fn mag_shl1(a: &[u64], bit: u64) -> Vec<u64> {
     normalize(out)
 }
 
-/// Long division on magnitudes: returns `(quotient, remainder)` with
-/// `a = q*b + r` and `0 <= r < b`. Bit-at-a-time — correct and simple (the
-/// exact-determinism oracle); Knuth Algorithm D is the FAST replacement.
-fn mag_divrem(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
-    debug_assert!(!b.is_empty(), "division by zero magnitude");
+/// Bit-at-a-time long division — the exact oracle Algorithm D is fuzzed against.
+#[cfg(test)]
+fn mag_divrem_bitwise(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
     if mag_cmp(a, b) == Ordering::Less {
         return (Vec::new(), a.to_vec());
     }
@@ -196,10 +242,139 @@ fn mag_divrem(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
     (normalize(q), normalize(r))
 }
 
+/// `a << bits` on a magnitude.
+fn mag_shl_bits(a: &[u64], bits: u64) -> Vec<u64> {
+    if a.is_empty() {
+        return Vec::new();
+    }
+    let (words, sh) = ((bits / 64) as usize, (bits % 64) as u32);
+    let mut out = Vec::with_capacity(a.len() + words + 1);
+    out.resize(words, 0);
+    if sh == 0 {
+        out.extend_from_slice(a);
+    } else {
+        let mut carry = 0u64;
+        for &limb in a {
+            out.push((limb << sh) | carry);
+            carry = limb >> (64 - sh);
+        }
+        if carry != 0 {
+            out.push(carry);
+        }
+    }
+    out
+}
+
+/// `x · 2^k` for a finite `x`: exact while the result is finite, infinite once it is not. Multiplying
+/// by a power of two changes only the exponent, so there is nothing to round until the exponent
+/// overflows; the scale is applied in steps of 2^1000 because a single `f64` holds at most 2^1023.
+fn scale_by_power_of_two(mut x: f64, mut k: u64) -> f64 {
+    const STEP: u64 = 1000;
+    let power = |e: u64| f64::from_bits((1023 + e) << 52);
+    while k > STEP && x.is_finite() {
+        x *= power(STEP);
+        k -= STEP;
+    }
+    if x.is_finite() {
+        x * power(k)
+    } else {
+        x
+    }
+}
+
+/// `a >> bits` on a magnitude (floor).
+fn mag_shr_bits(a: &[u64], bits: u64) -> Vec<u64> {
+    let words = bits / 64;
+    if words >= a.len() as u64 {
+        return Vec::new();
+    }
+    let a = &a[words as usize..];
+    let sh = (bits % 64) as u32;
+    if sh == 0 {
+        return a.to_vec();
+    }
+    let mut out = Vec::with_capacity(a.len());
+    for i in 0..a.len() {
+        let hi = a.get(i + 1).map_or(0, |h| h << (64 - sh));
+        out.push((a[i] >> sh) | hi);
+    }
+    normalize(out)
+}
+
+/// Long division on magnitudes: returns `(quotient, remainder)` with `a = q*b + r` and
+/// `0 <= r < b`, by Knuth's Algorithm D (TAOCP vol. 2, §4.3.1): normalise so the divisor's top
+/// limb has its high bit set, estimate each quotient limb from the top two limbs of the running
+/// remainder, correct the estimate at most twice, and add back on the rare overshoot.
+fn mag_divrem(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
+    debug_assert!(!b.is_empty(), "division by zero magnitude");
+    if mag_cmp(a, b) == Ordering::Less {
+        return (Vec::new(), a.to_vec());
+    }
+    if b.len() == 1 {
+        let d = b[0] as u128;
+        let mut q = vec![0u64; a.len()];
+        let mut rem: u128 = 0;
+        for i in (0..a.len()).rev() {
+            let cur = (rem << 64) | a[i] as u128;
+            q[i] = (cur / d) as u64;
+            rem = cur % d;
+        }
+        return (normalize(q), normalize(vec![rem as u64]));
+    }
+    let shift = b[b.len() - 1].leading_zeros() as u64;
+    let v = mag_shl_bits(b, shift);
+    let mut u = mag_shl_bits(a, shift);
+    u.resize(a.len() + 1, 0);
+    let n = v.len();
+    let m = u.len() - n - 1;
+    let mut q = vec![0u64; m + 1];
+    let (vtop, vnext) = (v[n - 1] as u128, v[n - 2] as u128);
+    const B: u128 = 1 << 64;
+    for j in (0..=m).rev() {
+        let num = ((u[j + n] as u128) << 64) | u[j + n - 1] as u128;
+        let mut qhat = num / vtop;
+        let mut rhat = num % vtop;
+        while qhat >= B || qhat * vnext > ((rhat << 64) | u[j + n - 2] as u128) {
+            qhat -= 1;
+            rhat += vtop;
+            if rhat >= B {
+                break;
+            }
+        }
+        let mut borrow: i128 = 0;
+        let mut carry: u128 = 0;
+        for i in 0..n {
+            let p = qhat * v[i] as u128 + carry;
+            carry = p >> 64;
+            let t = u[i + j] as i128 - (p as u64) as i128 + borrow;
+            u[i + j] = t as u64;
+            borrow = t >> 64;
+        }
+        let t = u[j + n] as i128 - carry as i128 + borrow;
+        u[j + n] = t as u64;
+        if t < 0 {
+            qhat -= 1;
+            let mut c: u128 = 0;
+            for i in 0..n {
+                let s = u[i + j] as u128 + v[i] as u128 + c;
+                u[i + j] = s as u64;
+                c = s >> 64;
+            }
+            u[j + n] = u[j + n].wrapping_add(c as u64);
+        }
+        q[j] = qhat as u64;
+    }
+    u.truncate(n);
+    (normalize(q), mag_shr_bits(&normalize(u), shift))
+}
+
 impl BigInt {
     /// The additive identity.
     pub fn zero() -> Self {
-        BigInt { sign: Sign::Zero, mag: Mag::Inline(0) }
+        BigInt {
+            sign: Sign::Zero,
+            mag: Mag::Inline(0),
+        }
     }
 
     /// Build from a sign flag and a (not-necessarily-normalized) magnitude,
@@ -224,8 +399,15 @@ impl BigInt {
         }
         let lo = m as u64;
         let hi = (m >> 64) as u64;
-        let mag = if hi == 0 { Mag::Inline(lo) } else { Mag::Heap(vec![lo, hi]) };
-        BigInt { sign: if neg { Sign::Neg } else { Sign::Pos }, mag }
+        let mag = if hi == 0 {
+            Mag::Inline(lo)
+        } else {
+            Mag::Heap(vec![lo, hi])
+        };
+        BigInt {
+            sign: if neg { Sign::Neg } else { Sign::Pos },
+            mag,
+        }
     }
 
     /// Exact widening from a machine integer.
@@ -236,6 +418,17 @@ impl BigInt {
     /// Exact widening from an unsigned machine integer.
     pub fn from_u64(x: u64) -> Self {
         Self::from_sign_mag_u128(false, x as u128)
+    }
+
+    /// Heap payload bytes duplicated when this integer is cloned.
+    ///
+    /// Inline fields and the vector header belong to the containing value.
+    /// This borrowed query neither copies limbs nor formats the integer.
+    pub fn clone_payload_bytes(&self) -> usize {
+        match &self.mag {
+            Mag::Inline(_) => 0,
+            Mag::Heap(limbs) => limbs.len() * std::mem::size_of::<u64>(),
+        }
     }
 
     /// Narrow back to an `i64` iff the value fits — the basis of the "downsize when
@@ -250,6 +443,89 @@ impl BigInt {
         }
     }
 
+    /// The value as a `u64` when it is non-negative and fits.
+    pub fn to_u64(&self) -> Option<u64> {
+        match self.sign {
+            Sign::Neg => None,
+            _ => self.mag.as_single(),
+        }
+    }
+
+    /// The low 64 bits, defined for every integer.
+    pub fn wrapping_u64(&self) -> u64 {
+        let low = self.mag.limbs().first().copied().unwrap_or(0);
+        if self.sign == Sign::Neg {
+            low.wrapping_neg()
+        } else {
+            low
+        }
+    }
+
+    /// Number of significant bits of the magnitude (`0` for zero).
+    pub fn bit_len(&self) -> u64 {
+        let l = self.mag.limbs();
+        match l.last() {
+            None => 0,
+            Some(top) => (l.len() as u64 - 1) * 64 + (64 - top.leading_zeros() as u64),
+        }
+    }
+
+    /// `gcd(|self|, |other|)`, with `gcd(a, 0) = |a|`.
+    pub fn gcd(&self, other: &Self) -> Self {
+        if let (Some(a), Some(b)) = (self.mag.as_single(), other.mag.as_single()) {
+            let (mut a, mut b) = (a, b);
+            while b != 0 {
+                let t = a % b;
+                a = b;
+                b = t;
+            }
+            return BigInt::from_u64(a);
+        }
+        bigint_gcd(self, other)
+    }
+
+    /// `self · 2^bits` (exact for either sign).
+    pub fn shl_bits(&self, bits: u64) -> Self {
+        Self::from_sign_mag(self.sign == Sign::Neg, mag_shl_bits(self.mag.limbs(), bits))
+    }
+
+    /// `⌊self / 2^bits⌋` for a non-negative value; `None` for a negative one.
+    pub fn shr_bits(&self, bits: u64) -> Option<Self> {
+        if self.sign == Sign::Neg {
+            return None;
+        }
+        Some(Self::from_sign_mag(
+            false,
+            mag_shr_bits(self.mag.limbs(), bits),
+        ))
+    }
+
+    fn natural_bitwise(&self, other: &Self, op: impl Fn(u64, u64) -> u64) -> Option<Self> {
+        if self.sign == Sign::Neg || other.sign == Sign::Neg {
+            return None;
+        }
+        let (a, b) = (self.mag.limbs(), other.mag.limbs());
+        let out = (0..a.len().max(b.len()))
+            .map(|i| op(*a.get(i).unwrap_or(&0), *b.get(i).unwrap_or(&0)))
+            .collect();
+        Some(Self::from_sign_mag(false, out))
+    }
+
+    /// Bitwise AND of two non-negative values; `None` if either is negative.
+    pub fn bitand_natural(&self, other: &Self) -> Option<Self> {
+        self.natural_bitwise(other, |x, y| x & y)
+    }
+
+    /// Bitwise OR of two non-negative values; `None` if either is negative.
+    pub fn bitor_natural(&self, other: &Self) -> Option<Self> {
+        self.natural_bitwise(other, |x, y| x | y)
+    }
+
+    /// Bitwise XOR of two non-negative values; `None` if either is negative.
+    pub fn bitxor_natural(&self, other: &Self) -> Option<Self> {
+        self.natural_bitwise(other, |x, y| x ^ y)
+    }
+
     pub fn is_zero(&self) -> bool {
         self.sign == Sign::Zero
     }
@@ -259,17 +535,35 @@ impl BigInt {
         self.mag.limbs().first().is_some_and(|limb| limb & 1 == 1)
     }
 
-    /// Nearest `f64` (lossy by nature — float semantics) for mixed int/float math.
+    /// The binary64 nearest to this integer, ties to even, ±∞ once the rounding reaches 2^1024: the
+    /// one conversion every tier uses for an Int flowing into a Real (a widened argument, `n + 0.5`).
+    ///
+    /// One rounding, never one per limb: the top 64 significant bits are taken exactly, every bit
+    /// below them is folded into bit 0 as a sticky bit (eleven places under the 53-bit rounding
+    /// position, so it can break a tie but never create one), and that `u64` is converted with the
+    /// hardware's round-to-nearest-even. Scaling back by a power of two is exact until it overflows,
+    /// which is exactly where the exact value rounds to infinity too.
     pub fn to_f64(&self) -> f64 {
-        const TWO64: f64 = 18_446_744_073_709_551_616.0; // 2^64
-        let mut acc = 0.0f64;
-        for &limb in self.mag.limbs().iter().rev() {
-            acc = acc * TWO64 + limb as f64;
-        }
-        if self.sign == Sign::Neg {
-            -acc
+        let limbs = self.mag.limbs();
+        let bits = self.bit_len();
+        let magnitude = if bits <= 64 {
+            limbs.first().copied().unwrap_or(0) as f64
         } else {
-            acc
+            let dropped = bits - 64;
+            let (word, shift) = ((dropped / 64) as usize, (dropped % 64) as u32);
+            let top = if shift == 0 {
+                limbs[word]
+            } else {
+                (limbs[word] >> shift) | (limbs[word + 1] << (64 - shift))
+            };
+            let sticky = limbs[..word].iter().any(|&l| l != 0)
+                || (shift != 0 && limbs[word] << (64 - shift) != 0);
+            scale_by_power_of_two((top | sticky as u64) as f64, dropped)
+        };
+        if self.sign == Sign::Neg {
+            -magnitude
+        } else {
+            magnitude
         }
     }
 
@@ -283,7 +577,14 @@ impl BigInt {
 
     /// The absolute value.
     pub fn abs(&self) -> Self {
-        BigInt { sign: if self.sign == Sign::Zero { Sign::Zero } else { Sign::Pos }, mag: self.mag.clone() }
+        BigInt {
+            sign: if self.sign == Sign::Zero {
+                Sign::Zero
+            } else {
+                Sign::Pos
+            },
+            mag: self.mag.clone(),
+        }
     }
 
     /// Additive inverse.
@@ -293,7 +594,10 @@ impl BigInt {
             Sign::Zero => Sign::Zero,
             Sign::Pos => Sign::Neg,
         };
-        BigInt { sign, mag: self.mag.clone() }
+        BigInt {
+            sign,
+            mag: self.mag.clone(),
+        }
     }
 
     /// `self + other`.
@@ -301,8 +605,16 @@ impl BigInt {
         // Single-limb fast path: both magnitudes fit a limb, so the signed sum
         // fits an i128 — no limb vectors, no allocation.
         if let (Some(a), Some(b)) = (self.mag.as_single(), other.mag.as_single()) {
-            let av = if self.sign == Sign::Neg { -(a as i128) } else { a as i128 };
-            let bv = if other.sign == Sign::Neg { -(b as i128) } else { b as i128 };
+            let av = if self.sign == Sign::Neg {
+                -(a as i128)
+            } else {
+                a as i128
+            };
+            let bv = if other.sign == Sign::Neg {
+                -(b as i128)
+            } else {
+                b as i128
+            };
             let sum = av + bv;
             return Self::from_sign_mag_u128(sum < 0, sum.unsigned_abs());
         }
@@ -345,6 +657,49 @@ impl BigInt {
             return Self::zero();
         }
         Self::from_sign_mag(neg, mag_mul(self.mag.limbs(), other.mag.limbs()))
+    }
+
+    /// In-place multiply by a machine-integer scalar, REUSING the heap magnitude buffer
+    /// (it grows by at most one limb, never reallocates from scratch). The exact-value
+    /// counterpart of `self.mul(&BigInt::from_i64(rhs))` — same result, but the growing
+    /// accumulator's `Vec` is mutated rather than reallocated each call, which is the hot
+    /// loop `Set p to p * i` (factorial). Canonical form is preserved: multiplying a
+    /// normalized magnitude by a nonzero scalar never introduces a trailing zero limb (a
+    /// zeroed low half always carries out), and a `Heap` value stays ≥ 2 limbs.
+    pub fn mul_assign_i64(&mut self, rhs: i64) {
+        if rhs == 0 || self.is_zero() {
+            *self = Self::zero();
+            return;
+        }
+        if rhs < 0 {
+            self.sign = match self.sign {
+                Sign::Neg => Sign::Pos,
+                Sign::Pos => Sign::Neg,
+                Sign::Zero => Sign::Zero,
+            };
+        }
+        let m = (rhs as i128).unsigned_abs() as u64;
+        match &mut self.mag {
+            Mag::Inline(x) => {
+                let prod = (*x as u128) * (m as u128);
+                self.mag = if (prod >> 64) == 0 {
+                    Mag::Inline(prod as u64)
+                } else {
+                    Mag::Heap(vec![prod as u64, (prod >> 64) as u64])
+                };
+            }
+            Mag::Heap(v) => {
+                let mut carry: u64 = 0;
+                for limb in v.iter_mut() {
+                    let prod = (*limb as u128) * (m as u128) + (carry as u128);
+                    *limb = prod as u64;
+                    carry = (prod >> 64) as u64;
+                }
+                if carry != 0 {
+                    v.push(carry);
+                }
+            }
+        }
     }
 
     /// Truncated division toward zero: returns `(quotient, remainder)` with
@@ -554,17 +909,25 @@ impl Rational {
             den = den.negated();
         }
         if num.is_zero() {
-            return Some(Rational { num: BigInt::zero(), den: BigInt::from_i64(1) });
+            return Some(Rational {
+                num: BigInt::zero(),
+                den: BigInt::from_i64(1),
+            });
         }
         let g = bigint_gcd(&num, &den);
         let (num, _) = num.div_rem(&g).expect("gcd divides the numerator exactly");
-        let (den, _) = den.div_rem(&g).expect("gcd divides the denominator exactly");
+        let (den, _) = den
+            .div_rem(&g)
+            .expect("gcd divides the denominator exactly");
         Some(Rational { num, den })
     }
 
     /// The integer `n` as the fraction `n/1`.
     pub fn from_bigint(n: BigInt) -> Rational {
-        Rational { num: n, den: BigInt::from_i64(1) }
+        Rational {
+            num: n,
+            den: BigInt::from_i64(1),
+        }
     }
 
     pub fn from_i64(x: i64) -> Rational {
@@ -577,7 +940,10 @@ impl Rational {
     }
 
     pub fn zero() -> Rational {
-        Rational { num: BigInt::zero(), den: BigInt::from_i64(1) }
+        Rational {
+            num: BigInt::zero(),
+            den: BigInt::from_i64(1),
+        }
     }
 
     pub fn one() -> Rational {
@@ -662,7 +1028,9 @@ impl Rational {
         let two = BigInt::from_i64(2);
         let numerator = self.num.abs().mul(&two).add(&self.den);
         let denominator = self.den.mul(&two);
-        let (mag, _) = numerator.div_rem(&denominator).expect("denominator is nonzero");
+        let (mag, _) = numerator
+            .div_rem(&denominator)
+            .expect("denominator is nonzero");
         if self.num.is_negative() {
             mag.negated()
         } else {
@@ -671,11 +1039,17 @@ impl Rational {
     }
 
     pub fn negated(&self) -> Rational {
-        Rational { num: self.num.negated(), den: self.den.clone() }
+        Rational {
+            num: self.num.negated(),
+            den: self.den.clone(),
+        }
     }
 
     pub fn abs(&self) -> Rational {
-        Rational { num: self.num.abs(), den: self.den.clone() }
+        Rational {
+            num: self.num.abs(),
+            den: self.den.clone(),
+        }
     }
 
     /// `1/self` — `None` when `self == 0`.
@@ -835,11 +1209,17 @@ fn round_rational_to_bigint(x: &Rational, mode: RoundingMode) -> BigInt {
         RoundingMode::Ceiling => !neg,
         RoundingMode::HalfUp => half != Ordering::Less,
         RoundingMode::HalfDown => half == Ordering::Greater,
-        RoundingMode::HalfEven => half == Ordering::Greater || (half == Ordering::Equal && q.is_odd()),
+        RoundingMode::HalfEven => {
+            half == Ordering::Greater || (half == Ordering::Equal && q.is_odd())
+        }
     };
     if away {
         // `q` is truncated toward zero, so rounding away adds the value's sign.
-        if neg { q.sub(&BigInt::from_i64(1)) } else { q.add(&BigInt::from_i64(1)) }
+        if neg {
+            q.sub(&BigInt::from_i64(1))
+        } else {
+            q.add(&BigInt::from_i64(1))
+        }
     } else {
         q
     }
@@ -902,11 +1282,17 @@ impl Decimal {
     }
 
     pub fn negated(&self) -> Decimal {
-        Decimal { coeff: self.coeff.negated(), scale: self.scale }
+        Decimal {
+            coeff: self.coeff.negated(),
+            scale: self.scale,
+        }
     }
 
     pub fn abs(&self) -> Decimal {
-        Decimal { coeff: self.coeff.abs(), scale: self.scale }
+        Decimal {
+            coeff: self.coeff.abs(),
+            scale: self.scale,
+        }
     }
 
     /// Exact view as a [`Rational`] (`coeff / 10^scale`) — lossless, the bridge that
@@ -918,14 +1304,20 @@ impl Decimal {
     /// The fixed-point value nearest `value` at the given `scale`, rounded under `mode`.
     pub fn from_rational(value: &Rational, scale: u32, mode: RoundingMode) -> Decimal {
         let scaled = value.mul(&Rational::from_bigint(ten_pow(scale)));
-        Decimal { coeff: round_rational_to_bigint(&scaled, mode), scale }
+        Decimal {
+            coeff: round_rational_to_bigint(&scaled, mode),
+            scale,
+        }
     }
 
     /// Restate at a different scale. Widening appends zeros (exact); narrowing drops
     /// digits and rounds under `mode`.
     pub fn rescale(&self, scale: u32, mode: RoundingMode) -> Decimal {
         if scale >= self.scale {
-            Decimal { coeff: self.coeff.mul(&ten_pow(scale - self.scale)), scale }
+            Decimal {
+                coeff: self.coeff.mul(&ten_pow(scale - self.scale)),
+                scale,
+            }
         } else {
             Decimal::from_rational(&self.to_rational(), scale, mode)
         }
@@ -941,17 +1333,26 @@ impl Decimal {
 
     pub fn add(&self, other: &Decimal) -> Decimal {
         let (a, b, s) = self.aligned(other);
-        Decimal { coeff: a.add(&b), scale: s }
+        Decimal {
+            coeff: a.add(&b),
+            scale: s,
+        }
     }
 
     pub fn sub(&self, other: &Decimal) -> Decimal {
         let (a, b, s) = self.aligned(other);
-        Decimal { coeff: a.sub(&b), scale: s }
+        Decimal {
+            coeff: a.sub(&b),
+            scale: s,
+        }
     }
 
     /// Exact product: coefficients multiply, scales add.
     pub fn mul(&self, other: &Decimal) -> Decimal {
-        Decimal { coeff: self.coeff.mul(&other.coeff), scale: self.scale + other.scale }
+        Decimal {
+            coeff: self.coeff.mul(&other.coeff),
+            scale: self.scale + other.scale,
+        }
     }
 
     /// Quotient rounded to `scale` under `mode`. `None` when `other == 0` — base-10
@@ -989,7 +1390,10 @@ impl Decimal {
     }
 
     pub fn from_le_bytes(negative: bool, bytes: &[u8], scale: u32) -> Decimal {
-        Decimal { coeff: BigInt::from_le_bytes(negative, bytes), scale }
+        Decimal {
+            coeff: BigInt::from_le_bytes(negative, bytes),
+            scale,
+        }
     }
 
     /// Parse plain decimal notation: optional sign, optional integer part, optional
@@ -1012,13 +1416,22 @@ impl Decimal {
         if int_part.is_empty() && frac_part.is_empty() {
             return None; // a lone "." is not a number.
         }
-        if !int_part.bytes().all(|c| c.is_ascii_digit()) || !frac_part.bytes().all(|c| c.is_ascii_digit()) {
+        if !int_part.bytes().all(|c| c.is_ascii_digit())
+            || !frac_part.bytes().all(|c| c.is_ascii_digit())
+        {
             return None;
         }
         let digits = format!("{int_part}{frac_part}");
-        let mag = if digits.is_empty() { BigInt::zero() } else { BigInt::parse_decimal(&digits)? };
+        let mag = if digits.is_empty() {
+            BigInt::zero()
+        } else {
+            BigInt::parse_decimal(&digits)?
+        };
         let coeff = if neg { mag.negated() } else { mag };
-        Some(Decimal { coeff, scale: frac_part.len() as u32 })
+        Some(Decimal {
+            coeff,
+            scale: frac_part.len() as u32,
+        })
     }
 }
 
@@ -1111,7 +1524,10 @@ impl Complex {
 
     /// A real number as `re + 0i`.
     pub fn from_rational(re: Rational) -> Complex {
-        Complex { re, im: Rational::zero() }
+        Complex {
+            re,
+            im: Rational::zero(),
+        }
     }
 
     pub fn from_i64(x: i64) -> Complex {
@@ -1119,7 +1535,10 @@ impl Complex {
     }
 
     pub fn zero() -> Complex {
-        Complex { re: Rational::zero(), im: Rational::zero() }
+        Complex {
+            re: Rational::zero(),
+            im: Rational::zero(),
+        }
     }
 
     pub fn one() -> Complex {
@@ -1128,7 +1547,10 @@ impl Complex {
 
     /// The imaginary unit `i` (`0 + 1i`).
     pub fn i() -> Complex {
-        Complex { re: Rational::zero(), im: Rational::one() }
+        Complex {
+            re: Rational::zero(),
+            im: Rational::one(),
+        }
     }
 
     pub fn re(&self) -> &Rational {
@@ -1150,7 +1572,10 @@ impl Complex {
 
     /// `re − im·i`.
     pub fn conjugate(&self) -> Complex {
-        Complex { re: self.re.clone(), im: self.im.negated() }
+        Complex {
+            re: self.re.clone(),
+            im: self.im.negated(),
+        }
     }
 
     /// `re² + im²` — the squared magnitude, exact (a nonnegative [`Rational`]).
@@ -1165,21 +1590,33 @@ impl Complex {
     }
 
     pub fn negated(&self) -> Complex {
-        Complex { re: self.re.negated(), im: self.im.negated() }
+        Complex {
+            re: self.re.negated(),
+            im: self.im.negated(),
+        }
     }
 
     pub fn add(&self, other: &Complex) -> Complex {
-        Complex { re: self.re.add(&other.re), im: self.im.add(&other.im) }
+        Complex {
+            re: self.re.add(&other.re),
+            im: self.im.add(&other.im),
+        }
     }
 
     pub fn sub(&self, other: &Complex) -> Complex {
-        Complex { re: self.re.sub(&other.re), im: self.im.sub(&other.im) }
+        Complex {
+            re: self.re.sub(&other.re),
+            im: self.im.sub(&other.im),
+        }
     }
 
     /// `(a+bi)(c+di) = (ac − bd) + (ad + bc)i`.
     pub fn mul(&self, other: &Complex) -> Complex {
         let (a, b, c, d) = (&self.re, &self.im, &other.re, &other.im);
-        Complex { re: a.mul(c).sub(&b.mul(d)), im: a.mul(d).add(&b.mul(c)) }
+        Complex {
+            re: a.mul(c).sub(&b.mul(d)),
+            im: a.mul(d).add(&b.mul(c)),
+        }
     }
 
     /// `1/self` via the conjugate over the squared magnitude — `None` only for zero.
@@ -1189,7 +1626,10 @@ impl Complex {
             return None;
         }
         let inv = n.recip().expect("norm is nonzero here");
-        Some(Complex { re: self.re.mul(&inv), im: self.im.negated().mul(&inv) })
+        Some(Complex {
+            re: self.re.mul(&inv),
+            im: self.im.negated().mul(&inv),
+        })
     }
 
     /// `self / other` — `None` when `other == 0`.
@@ -1231,7 +1671,7 @@ impl Complex {
             return Some(Complex::from_rational(Rational::parse(s)?));
         }
         let body = &s[..s.len() - 1]; // strip trailing 'i'
-        // Split into real and imaginary at the last sign that is not the leading one.
+                                      // Split into real and imaginary at the last sign that is not the leading one.
         let split = body
             .bytes()
             .enumerate()
@@ -1242,7 +1682,11 @@ impl Complex {
             Some(i) => (&body[..i], &body[i..]),
             None => ("", body),
         };
-        let re = if real_str.is_empty() { Rational::zero() } else { Rational::parse(real_str)? };
+        let re = if real_str.is_empty() {
+            Rational::zero()
+        } else {
+            Rational::parse(real_str)?
+        };
         let im = match imag_str {
             "" | "+" => Rational::one(),
             "-" => Rational::from_i64(-1),
@@ -1262,7 +1706,11 @@ impl fmt::Display for Complex {
         if self.re.is_zero() {
             // Pure imaginary.
             return if self.im.is_negative() {
-                if unit { write!(f, "-i") } else { write!(f, "-{mag}i") }
+                if unit {
+                    write!(f, "-i")
+                } else {
+                    write!(f, "-{mag}i")
+                }
             } else if unit {
                 write!(f, "i")
             } else {
@@ -1275,6 +1723,150 @@ impl fmt::Display for Complex {
         } else {
             write!(f, "{}{}{}i", self.re, sign, mag)
         }
+    }
+}
+
+// =====================================================================
+// ComplexF — floating-point complex (LAPACK's `Z`), the NUMERICAL dual
+// of the exact `Complex`. Its parts are `f64`, so — unlike the exact
+// Gaussian rationals — it has a `sqrt` (`√(a+bi)` from the real `sqrt`),
+// which is what the sqrt-based complex decompositions (Cholesky, QR, eig,
+// SVD) need. Inexact by nature (it rounds); use the exact `Complex` when
+// you want zero error. Boxed as `Rc<ComplexF>` in `RuntimeValue` so the
+// enum stays 16 bytes (the nanbox budget), exactly like `Complex`.
+// =====================================================================
+
+/// A floating-point complex number `re + im·i`, each part an `f64`. NOT ordered
+/// and NOT `Eq`/`Hash` (it carries `f64`s); equality is exact bit-for-value.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ComplexF {
+    re: f64,
+    im: f64,
+}
+
+impl ComplexF {
+    pub fn new(re: f64, im: f64) -> ComplexF {
+        ComplexF { re, im }
+    }
+    /// A real number as `re + 0i`.
+    pub fn from_f64(re: f64) -> ComplexF {
+        ComplexF { re, im: 0.0 }
+    }
+    pub fn re(&self) -> f64 {
+        self.re
+    }
+    pub fn im(&self) -> f64 {
+        self.im
+    }
+    pub fn is_zero(&self) -> bool {
+        self.re == 0.0 && self.im == 0.0
+    }
+    /// True when the imaginary part is zero (a plain real).
+    pub fn is_real(&self) -> bool {
+        self.im == 0.0
+    }
+    /// `re − im·i`.
+    pub fn conjugate(&self) -> ComplexF {
+        ComplexF {
+            re: self.re,
+            im: -self.im,
+        }
+    }
+    /// `re² + im²` — the squared magnitude.
+    pub fn norm_sqr(&self) -> f64 {
+        self.re * self.re + self.im * self.im
+    }
+    /// The magnitude `√(re²+im²)`.
+    pub fn abs(&self) -> f64 {
+        self.norm_sqr().sqrt()
+    }
+    pub fn negated(&self) -> ComplexF {
+        ComplexF {
+            re: -self.re,
+            im: -self.im,
+        }
+    }
+    pub fn add(&self, other: &ComplexF) -> ComplexF {
+        ComplexF {
+            re: self.re + other.re,
+            im: self.im + other.im,
+        }
+    }
+    pub fn sub(&self, other: &ComplexF) -> ComplexF {
+        ComplexF {
+            re: self.re - other.re,
+            im: self.im - other.im,
+        }
+    }
+    /// `(a+bi)(c+di) = (ac − bd) + (ad + bc)i`.
+    pub fn mul(&self, other: &ComplexF) -> ComplexF {
+        let (a, b, c, d) = (self.re, self.im, other.re, other.im);
+        ComplexF {
+            re: a * c - b * d,
+            im: a * d + b * c,
+        }
+    }
+    /// `1/self` via the conjugate over the squared magnitude — `None` only for zero.
+    pub fn recip(&self) -> Option<ComplexF> {
+        let n = self.norm_sqr();
+        if n == 0.0 {
+            return None;
+        }
+        Some(ComplexF {
+            re: self.re / n,
+            im: -self.im / n,
+        })
+    }
+    /// `self / other` — `None` when `other == 0`.
+    pub fn div(&self, other: &ComplexF) -> Option<ComplexF> {
+        Some(self.mul(&other.recip()?))
+    }
+    /// The PRINCIPAL square root `√(a+bi)`, from the real `sqrt` only (no transcendentals):
+    /// `√z = √((|z|+a)/2) + sign(b)·√((|z|−a)/2)·i`. This is the operation the exact `Complex`
+    /// cannot do (its magnitude is irrational) — the reason a floating-point complex exists.
+    pub fn sqrt(&self) -> ComplexF {
+        let m = self.abs();
+        if m == 0.0 {
+            return ComplexF { re: 0.0, im: 0.0 };
+        }
+        let re = ((m + self.re) * 0.5).max(0.0).sqrt();
+        let im0 = ((m - self.re) * 0.5).max(0.0).sqrt();
+        ComplexF {
+            re,
+            im: if self.im < 0.0 { -im0 } else { im0 },
+        }
+    }
+    /// `self` raised to an integer power (binary exponentiation); `None` only for zero to a
+    /// negative power. `0^0 == 1`.
+    pub fn pow(&self, exp: i32) -> Option<ComplexF> {
+        if exp < 0 {
+            return self.recip()?.pow(-exp);
+        }
+        let mut result = ComplexF::from_f64(1.0);
+        let mut base = *self;
+        let mut e = exp as u32;
+        while e > 0 {
+            if e & 1 == 1 {
+                result = result.mul(&base);
+            }
+            e >>= 1;
+            if e > 0 {
+                base = base.mul(&base);
+            }
+        }
+        Some(result)
+    }
+}
+
+impl fmt::Display for ComplexF {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Basic view; the interpreter renders the user-facing form through `fmt_f64` (shortest
+        // round-trip) so `2.0 + 1.0i` shows as `2+i`, matching the exact `Complex`.
+        if self.im == 0.0 {
+            return write!(f, "{}", self.re);
+        }
+        let sign = if self.im < 0.0 { "-" } else { "+" };
+        write!(f, "{}{}{}i", self.re, sign, self.im.abs())
     }
 }
 
@@ -1492,6 +2084,69 @@ pub fn rational_from_f64_exact(f: f64) -> Option<Rational> {
     Rational::new(num, den)
 }
 
+/// The f64 nearest to `r` (ties to even), rounded once from the exact value: the binary exponent
+/// comes from the bit lengths, the quotient is scaled to 53 significant bits (or onto the `2^-1074`
+/// grid below the normal range), and the remainder decides the rounding. Past the largest finite
+/// float it is the signed infinity. Unlike [`Rational::to_f64`], which divides two rounded doubles,
+/// this never rounds twice.
+pub fn rational_to_f64_nearest(r: &Rational) -> f64 {
+    if r.is_zero() {
+        return 0.0;
+    }
+    let neg = r.is_negative();
+    let n = r.numerator().abs();
+    let d = r.denominator().clone();
+    let e0 = n.bit_len() as i64 - d.bit_len() as i64;
+    let at_least = if e0 >= 0 {
+        n >= d.shl_bits(e0 as u64)
+    } else {
+        n.shl_bits((-e0) as u64) >= d
+    };
+    let e = if at_least { e0 } else { e0 - 1 };
+    if e > 1023 {
+        return if neg { f64::NEG_INFINITY } else { f64::INFINITY };
+    }
+    let shift = if e >= -1022 { 52 - e } else { 1074 };
+    let (num, den) = if shift >= 0 {
+        (n.shl_bits(shift as u64), d)
+    } else {
+        (n, d.shl_bits((-shift) as u64))
+    };
+    let (mut q, rem) = num.div_rem(&den).expect("the denominator is nonzero");
+    let round_up = match rem.add(&rem).cmp(&den) {
+        Ordering::Greater => true,
+        Ordering::Less => false,
+        Ordering::Equal => q.is_odd(),
+    };
+    if round_up {
+        q = q.add(&BigInt::from_i64(1));
+    }
+    let significand = q.to_u64().expect("at most 2^53 after rounding") as f64;
+    let magnitude = scale_by_pow2(significand, -shift);
+    if neg {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+/// `2^j` for a normal exponent `j ∈ [-1022, 1023]`.
+fn pow2_normal(j: i64) -> f64 {
+    f64::from_bits(((j + 1023) as u64) << 52)
+}
+
+/// `x · 2^k`, exact whenever the product is representable: the scale is split into factors that
+/// are each a normal power of two, so no intermediate overflows or underflows.
+fn scale_by_pow2(x: f64, k: i64) -> f64 {
+    if k < -1022 {
+        x * pow2_normal(-1022) * pow2_normal(k + 1022)
+    } else if k > 1023 {
+        x * pow2_normal(1023) * pow2_normal(k - 1023)
+    } else {
+        x * pow2_normal(k)
+    }
+}
+
 /// Exact comparison of an i64 against an f64. `None` iff `f` is NaN.
 pub fn cmp_i64_f64_exact(i: i64, f: f64) -> Option<Ordering> {
     if f.is_nan() {
@@ -1545,7 +2200,11 @@ pub fn cmp_rational_f64_exact(r: &Rational, f: f64) -> Option<Ordering> {
 /// Reduce a u64 mod P (one Mersenne fold suffices: `x >> 61 ≤ 7`).
 fn mod_p(x: u64) -> u64 {
     let r = (x & NUMERIC_HASH_P) + (x >> 61);
-    if r >= NUMERIC_HASH_P { r - NUMERIC_HASH_P } else { r }
+    if r >= NUMERIC_HASH_P {
+        r - NUMERIC_HASH_P
+    } else {
+        r
+    }
 }
 
 fn mul_mod_p(a: u64, b: u64) -> u64 {
@@ -1568,7 +2227,11 @@ fn pow_mod_p(mut base: u64, mut exp: u64) -> u64 {
 /// Apply the sign to a magnitude hash: negatives map to `P − h` (0 fixed),
 /// shared by every numeric hasher so equal values agree.
 fn signed_hash(neg: bool, h: u64) -> u64 {
-    if neg && h != 0 { NUMERIC_HASH_P - h } else { h }
+    if neg && h != 0 {
+        NUMERIC_HASH_P - h
+    } else {
+        h
+    }
 }
 
 /// The unified numeric hash of an i64 (its value mod P, sign-adjusted).
@@ -1615,1044 +2278,31 @@ pub fn numeric_hash_rational(r: &Rational) -> u64 {
     signed_hash(r.is_negative(), mul_mod_p(num, inv))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn b(x: i64) -> BigInt {
-        BigInt::from_i64(x)
-    }
-
-    #[test]
-    fn from_to_i64_round_trips_the_extremes() {
-        for x in [0i64, 1, -1, 42, -42, i64::MAX, i64::MIN, i64::MAX - 1, i64::MIN + 1] {
-            assert_eq!(BigInt::from_i64(x).to_i64(), Some(x), "round trip {x}");
-        }
-    }
-
-    #[test]
-    fn to_i64_is_none_just_past_the_boundary() {
-        // i64::MAX + 1 and i64::MIN - 1 must NOT fit i64 (this is the whole point —
-        // the value survives instead of wrapping, unlike a JSON double).
-        let over = b(i64::MAX).add(&b(1));
-        let under = b(i64::MIN).sub(&b(1));
-        assert_eq!(over.to_i64(), None);
-        assert_eq!(under.to_i64(), None);
-        // …but the values are still exact and printable.
-        assert_eq!(over.to_string(), "9223372036854775808");
-        assert_eq!(under.to_string(), "-9223372036854775809");
-    }
-
-    #[test]
-    fn add_sub_mul_match_i128_on_a_dense_grid() {
-        // Differential oracle: for every pair that fits i128, our wide arithmetic must
-        // equal the machine's. Includes carry/borrow/sign corners.
-        let xs: [i64; 11] =
-            [0, 1, -1, 2, -2, 1000, -1000, i32::MAX as i64, i32::MIN as i64, i64::MAX, i64::MIN];
-        for &x in &xs {
-            for &y in &xs {
-                let (bx, by) = (b(x), b(y));
-                assert_eq!(bx.add(&by).to_string(), (x as i128 + y as i128).to_string(), "{x}+{y}");
-                assert_eq!(bx.sub(&by).to_string(), (x as i128 - y as i128).to_string(), "{x}-{y}");
-                assert_eq!(bx.mul(&by).to_string(), (x as i128 * y as i128).to_string(), "{x}*{y}");
-            }
-        }
-    }
-
-    #[test]
-    fn div_rem_matches_i64_truncation_including_signs() {
-        let xs = [0i64, 1, -1, 7, -7, 100, -100, 9_999_999, -9_999_999, i64::MAX, i64::MIN];
-        let ys = [1i64, -1, 2, -2, 3, -3, 7, -7, 1000, -1000];
-        for &x in &xs {
-            for &y in &ys {
-                let (q, r) = b(x).div_rem(&b(y)).expect("nonzero divisor");
-                // i64::MIN / -1 overflows i64; compare in i128 there.
-                let (eq, er) = ((x as i128) / (y as i128), (x as i128) % (y as i128));
-                assert_eq!(q.to_string(), eq.to_string(), "{x}/{y} quotient");
-                assert_eq!(r.to_string(), er.to_string(), "{x}%{y} remainder");
-                // The defining identity must hold exactly.
-                assert_eq!(b(x), q.mul(&b(y)).add(&r), "x = q*y + r for {x},{y}");
-            }
-        }
-    }
-
-    #[test]
-    fn division_by_zero_is_none_not_a_panic() {
-        assert!(b(5).div_rem(&BigInt::zero()).is_none());
-        assert!(BigInt::zero().div_rem(&BigInt::zero()).is_none());
-    }
-
-    #[test]
-    fn huge_factorial_is_exact() {
-        // 50! has 65 digits — far beyond any fixed-width integer or f64.
-        let mut acc = BigInt::from_u64(1);
-        for k in 1..=50u64 {
-            acc = acc.mul(&BigInt::from_u64(k));
-        }
-        assert_eq!(acc.to_string(), "30414093201713378043612608166064768844377641568960512000000000000");
-        // Dividing back down the chain returns exactly 1 (exercises big/big division).
-        for k in 1..=50u64 {
-            let (q, r) = acc.div_rem(&BigInt::from_u64(k)).unwrap();
-            assert!(r.is_zero(), "{k}! divides cleanly");
-            acc = q;
-        }
-        assert_eq!(acc, BigInt::from_u64(1));
-    }
-
-    #[test]
-    fn parse_and_display_round_trip_big_decimals() {
-        for s in [
-            "0",
-            "-0",
-            "7",
-            "-7",
-            "9223372036854775808",
-            "-9223372036854775809",
-            "123456789012345678901234567890",
-            "-100000000000000000000000000000000000000000",
-        ] {
-            let parsed = BigInt::parse_decimal(s).expect("parse");
-            // "-0" canonicalizes to "0".
-            let expected = if s == "-0" { "0" } else { s };
-            assert_eq!(parsed.to_string(), expected, "round trip {s}");
-        }
-        assert!(BigInt::parse_decimal("12x3").is_none());
-        assert!(BigInt::parse_decimal("").is_none());
-        assert!(BigInt::parse_decimal("-").is_none());
-    }
-
-    /// A tiny deterministic RNG (SplitMix64) so the fuzz is reproducible with no
-    /// external dependency.
-    struct Rng(u64);
-    impl Rng {
-        fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-        /// A random BigInt of 0..=3 limbs and random sign — spans single- and
-        /// multi-limb magnitudes (and zero).
-        fn big(&mut self) -> BigInt {
-            let limbs = (self.next() % 4) as usize;
-            let mut bytes = Vec::new();
-            for _ in 0..limbs {
-                bytes.extend_from_slice(&self.next().to_le_bytes());
-            }
-            BigInt::from_le_bytes(self.next() & 1 == 1, &bytes)
-        }
-    }
-
-    #[test]
-    fn fuzz_algebraic_laws_hold_for_random_bigints() {
-        let mut r = Rng(0x0BAD_F00D_DEAD_BEEF);
-        for _ in 0..3000 {
-            let (a, b, c) = (r.big(), r.big(), r.big());
-            // Commutativity.
-            assert_eq!(a.add(&b), b.add(&a), "add commutes");
-            assert_eq!(a.mul(&b), b.mul(&a), "mul commutes");
-            // Associativity.
-            assert_eq!(a.add(&b).add(&c), a.add(&b.add(&c)), "add associates");
-            assert_eq!(a.mul(&b).mul(&c), a.mul(&b.mul(&c)), "mul associates");
-            // Distributivity.
-            assert_eq!(a.mul(&b.add(&c)), a.mul(&b).add(&a.mul(&c)), "mul distributes over add");
-            // Identities and inverses.
-            assert_eq!(a.add(&BigInt::zero()), a, "0 is the additive identity");
-            assert_eq!(a.mul(&BigInt::from_u64(1)), a, "1 is the multiplicative identity");
-            assert!(a.mul(&BigInt::zero()).is_zero(), "x*0 = 0");
-            assert_eq!(a.sub(&a), BigInt::zero(), "x - x = 0");
-            assert_eq!(a.add(&a.negated()), BigInt::zero(), "x + (-x) = 0");
-            assert_eq!(a.negated().negated(), a, "double negation");
-            // abs is non-negative; sign of a product.
-            assert!(!a.abs().is_negative(), "|x| >= 0");
-            assert_eq!(a.negated().mul(&b), a.mul(&b).negated(), "(-a)*b = -(a*b)");
-            // Division identity and remainder bound.
-            if !b.is_zero() {
-                let (q, rem) = a.div_rem(&b).unwrap();
-                assert_eq!(q.mul(&b).add(&rem), a, "a = q*b + r exactly");
-                assert!(rem.is_zero() || rem.abs() < b.abs(), "|r| < |b|");
-            }
-            // Serialization and decimal round-trips.
-            let (neg, bytes) = a.to_le_bytes();
-            assert_eq!(BigInt::from_le_bytes(neg, &bytes), a, "byte round-trip");
-            assert_eq!(BigInt::parse_decimal(&a.to_string()).unwrap(), a, "decimal round-trip");
-            // Ordering is a total, antisymmetric, transitive relation.
-            assert_eq!(a < b, b > a, "antisymmetry");
-            if a < b && b < c {
-                assert!(a < c, "transitivity");
-            }
-        }
-    }
-
-    #[test]
-    fn fuzz_differential_against_i128() {
-        // For random i64 operands, our (promoting) arithmetic must equal i128 exactly.
-        let mut r = Rng(0xC0FF_EE00_1234_5678);
-        for _ in 0..5000 {
-            let x = r.next() as i64;
-            let y = r.next() as i64;
-            assert_eq!(b(x).add(&b(y)).to_string(), (x as i128 + y as i128).to_string(), "{x}+{y}");
-            assert_eq!(b(x).sub(&b(y)).to_string(), (x as i128 - y as i128).to_string(), "{x}-{y}");
-            assert_eq!(b(x).mul(&b(y)).to_string(), (x as i128 * y as i128).to_string(), "{x}*{y}");
-            if y != 0 {
-                let (q, rem) = b(x).div_rem(&b(y)).unwrap();
-                assert_eq!(q.to_string(), (x as i128 / y as i128).to_string(), "{x}/{y}");
-                assert_eq!(rem.to_string(), (x as i128 % y as i128).to_string(), "{x}%{y}");
-            }
-        }
-    }
-
-    #[test]
-    fn limb_boundary_edge_cases_are_exact() {
-        let two64 = BigInt::parse_decimal("18446744073709551616").unwrap(); // 2^64
-        // 2^64 - 1 = u64::MAX (a borrow that empties the high limb).
-        assert_eq!(two64.sub(&BigInt::from_u64(1)).to_string(), "18446744073709551615");
-        // 2^64 * 2^64 = 2^128 (exact two-limb product).
-        let two128 = two64.mul(&two64);
-        assert_eq!(two128.to_string(), "340282366920938463463374607431768211456");
-        // 2^128 - 1 (a borrow chain across every limb).
-        assert_eq!(two128.sub(&BigInt::from_u64(1)).to_string(), "340282366920938463463374607431768211455");
-        // u64::MAX + 1 = 2^64 (a carry that grows a limb).
-        assert_eq!(BigInt::from_u64(u64::MAX).add(&BigInt::from_u64(1)), two64);
-        // Division with a multi-limb divisor: 2^128 / 2^64 = 2^64, remainder 0.
-        let (q, rem) = two128.div_rem(&two64).unwrap();
-        assert_eq!(q, two64);
-        assert!(rem.is_zero());
-    }
-
-    #[test]
-    fn pow_is_exact_and_unbounded() {
-        assert_eq!(b(2).pow(63).to_string(), "9223372036854775808"); // the value i64 can't hold
-        assert_eq!(b(2).pow(100).to_string(), "1267650600228229401496703205376");
-        assert_eq!(b(10).pow(0).to_string(), "1");
-        assert_eq!(b(0).pow(0).to_string(), "1");
-        assert_eq!(b(-3).pow(3).to_string(), "-27");
-        assert_eq!(b(-2).pow(10).to_string(), "1024");
-        // 3^50 cross-checked against repeated multiplication.
-        let mut acc = BigInt::from_u64(1);
-        for _ in 0..50 {
-            acc = acc.mul(&b(3));
-        }
-        assert_eq!(b(3).pow(50), acc);
-    }
-
-    #[test]
-    fn ordering_is_total_and_sign_aware() {
-        let mut v = vec![b(3), b(-5), BigInt::zero(), b(i64::MAX), b(i64::MIN), b(-5).mul(&b(i64::MAX))];
-        v.sort();
-        let as_str: Vec<String> = v.iter().map(|x| x.to_string()).collect();
-        assert_eq!(
-            as_str,
-            vec![
-                "-46116860184273879035", // -5 * i64::MAX
-                "-9223372036854775808",  // i64::MIN
-                "-5",
-                "0",
-                "3",
-                "9223372036854775807", // i64::MAX
-            ]
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Rational
-    // -----------------------------------------------------------------
-
-    fn r(n: i64, d: i64) -> Rational {
-        Rational::from_ratio_i64(n, d).expect("nonzero denominator in test")
-    }
-
-    #[test]
-    fn rational_reduces_to_lowest_terms_on_construction() {
-        assert_eq!(r(6, 8).to_string(), "3/4");
-        assert_eq!(r(10, 5).to_string(), "2");
-        assert_eq!(r(0, 7).to_string(), "0");
-        assert_eq!(r(100, 1000).to_string(), "1/10");
-        // The reduced form is canonical, so equal values are structurally equal.
-        assert_eq!(r(6, 8), r(3, 4));
-        assert_eq!(r(0, 7), r(0, 1));
-    }
-
-    #[test]
-    fn rational_normalizes_sign_onto_a_positive_denominator() {
-        assert_eq!(r(1, -2).to_string(), "-1/2");
-        assert_eq!(r(-1, -2).to_string(), "1/2");
-        assert_eq!(r(-3, 4), r(3, -4));
-        assert!(r(1, -2).is_negative());
-        assert!(!r(-1, -2).is_negative());
-        // The denominator accessor is always positive.
-        assert!(!r(1, -2).denominator().is_negative());
-    }
-
-    #[test]
-    fn rational_zero_denominator_is_none() {
-        assert!(Rational::from_ratio_i64(5, 0).is_none());
-        assert!(Rational::new(BigInt::from_i64(1), BigInt::zero()).is_none());
-        assert!(r(3, 4).div(&Rational::zero()).is_none());
-        assert!(Rational::zero().recip().is_none());
-        assert!(Rational::parse("7/0").is_none());
-    }
-
-    #[test]
-    fn rational_arithmetic_is_exact() {
-        assert_eq!(r(1, 3).add(&r(1, 6)).to_string(), "1/2");
-        assert_eq!(r(1, 2).sub(&r(1, 3)).to_string(), "1/6");
-        assert_eq!(r(2, 3).mul(&r(3, 4)).to_string(), "1/2");
-        assert_eq!(r(1, 2).div(&r(3, 4)).unwrap().to_string(), "2/3");
-        // a + (-a) == 0, a * (1/a) == 1.
-        assert!(r(5, 7).add(&r(5, 7).negated()).is_zero());
-        assert_eq!(r(5, 7).mul(&r(5, 7).recip().unwrap()), Rational::one());
-    }
-
-    #[test]
-    fn one_third_stays_exact_where_a_json_double_would_round() {
-        // The whole point: 1/3 is EXACT, not 0.3333…; three of them are exactly 1.
-        let third = r(1, 3);
-        let sum = third.add(&third).add(&third);
-        assert_eq!(sum, Rational::one());
-        assert_eq!(third.to_string(), "1/3");
-        // The classic f64 trap 0.1 + 0.2 != 0.3 — Rationals don't have it.
-        assert_ne!(0.1_f64 + 0.2, 0.3);
-        assert_eq!(r(1, 10).add(&r(2, 10)), r(3, 10));
-    }
-
-    #[test]
-    fn rational_ordering_cross_multiplies_without_rounding() {
-        assert!(r(1, 3) < r(1, 2));
-        assert!(r(-1, 2) < r(1, 3));
-        assert!(r(2, 4) == r(1, 2));
-        let mut v = vec![r(1, 2), r(1, 3), r(-1, 4), r(2, 3), Rational::zero(), r(1, 2)];
-        v.sort();
-        let s: Vec<String> = v.iter().map(|x| x.to_string()).collect();
-        assert_eq!(s, ["-1/4", "0", "1/3", "1/2", "1/2", "2/3"]);
-    }
-
-    #[test]
-    fn rational_terms_overflow_i64_into_bigint() {
-        // (1/i64::MAX) + (1/i64::MAX) = 2/i64::MAX — denominator past i64 stays exact.
-        let big = Rational::new(BigInt::from_i64(1), BigInt::from_i64(i64::MAX)).unwrap();
-        let twice = big.add(&big);
-        assert_eq!(twice.numerator().to_string(), "2");
-        assert_eq!(twice.denominator().to_string(), i64::MAX.to_string());
-        // A product whose numerator escapes i64 is still exact.
-        let p = r(i64::MAX, 1).mul(&r(3, 1));
-        assert_eq!(p.numerator().to_i64(), None);
-        assert_eq!(p.numerator().to_string(), (i64::MAX as i128 * 3).to_string());
-    }
-
-    #[test]
-    fn rational_pow_handles_negative_and_zero_exponents() {
-        assert_eq!(r(2, 3).pow(3).unwrap().to_string(), "8/27");
-        assert_eq!(r(2, 3).pow(0).unwrap(), Rational::one());
-        assert_eq!(r(2, 3).pow(-2).unwrap().to_string(), "9/4");
-        assert_eq!(r(-2, 3).pow(-3).unwrap().to_string(), "-27/8");
-        assert!(Rational::zero().pow(-1).is_none());
-        assert_eq!(Rational::zero().pow(3).unwrap(), Rational::zero());
-    }
-
-    #[test]
-    fn rational_parse_round_trips_and_rejects_garbage() {
-        assert_eq!(Rational::parse("3/4").unwrap().to_string(), "3/4");
-        assert_eq!(Rational::parse("-3/4").unwrap().to_string(), "-3/4");
-        assert_eq!(Rational::parse("6/8").unwrap().to_string(), "3/4");
-        assert_eq!(Rational::parse("5").unwrap().to_string(), "5");
-        assert_eq!(Rational::parse("  7 / 14 ").unwrap().to_string(), "1/2");
-        assert!(Rational::parse("abc").is_none());
-        assert!(Rational::parse("1/2/3").is_none());
-    }
-
-    #[test]
-    fn rational_integer_predicate_and_narrowing() {
-        assert!(r(10, 2).is_integer());
-        assert_eq!(r(10, 2).to_i64(), Some(5));
-        assert_eq!(r(10, 2).to_bigint().unwrap().to_string(), "5");
-        assert!(!r(3, 4).is_integer());
-        assert_eq!(r(3, 4).to_i64(), None);
-        assert!(r(3, 4).to_bigint().is_none());
-    }
-
-    #[test]
-    fn rational_floor_and_ceil_round_toward_neg_and_pos_infinity() {
-        assert_eq!(r(7, 2).floor().to_string(), "3");
-        assert_eq!(r(7, 2).ceil().to_string(), "4");
-        assert_eq!(r(-7, 2).floor().to_string(), "-4");
-        assert_eq!(r(-7, 2).ceil().to_string(), "-3");
-        // Whole values floor/ceil to themselves.
-        assert_eq!(r(6, 2).floor().to_string(), "3");
-        assert_eq!(r(6, 2).ceil().to_string(), "3");
-        // round ties away from zero, matching f64::round.
-        assert_eq!(r(7, 2).round().to_string(), "4");
-        assert_eq!(r(-7, 2).round().to_string(), "-4");
-        assert_eq!(r(1, 3).round().to_string(), "0");
-        assert_eq!(r(2, 3).round().to_string(), "1");
-        // Differential vs f64 on a dense grid (small terms are exact in f64).
-        for n in -9i64..=9 {
-            for d in 1i64..=9 {
-                let q = r(n, d);
-                assert_eq!(q.floor().to_i64(), Some((n as f64 / d as f64).floor() as i64), "{n}/{d} floor");
-                assert_eq!(q.ceil().to_i64(), Some((n as f64 / d as f64).ceil() as i64), "{n}/{d} ceil");
-                assert_eq!(q.round().to_i64(), Some((n as f64 / d as f64).round() as i64), "{n}/{d} round");
-            }
-        }
-    }
-
-    #[test]
-    fn rational_to_f64_matches_the_division_on_small_terms() {
-        for n in -8i64..=8 {
-            for d in 1i64..=8 {
-                let approx = r(n, d).to_f64();
-                assert!((approx - (n as f64 / d as f64)).abs() < 1e-12, "{n}/{d}");
-            }
-        }
-    }
-
-    #[test]
-    fn rational_obeys_the_field_laws_over_random_fractions() {
-        // Differential/property fuzz: build fractions from random i64 terms and
-        // check the field axioms exactly (no rounding, unlike f64).
-        let mut rng = Rng(0x5A7F_104E_2C19_8B63);
-        for _ in 0..2000 {
-            let pick = |rng: &mut Rng| -> i64 { (rng.next() % 4001) as i64 - 2000 };
-            let (a, b, c, d, e, g) = (pick(&mut rng), pick(&mut rng), pick(&mut rng), pick(&mut rng), pick(&mut rng), pick(&mut rng));
-            let (Some(x), Some(y), Some(z)) =
-                (Rational::from_ratio_i64(a, b.max(1)), Rational::from_ratio_i64(c, d.max(1)), Rational::from_ratio_i64(e, g.max(1)))
-            else { continue };
-            // commutativity
-            assert_eq!(x.add(&y), y.add(&x));
-            assert_eq!(x.mul(&y), y.mul(&x));
-            // associativity
-            assert_eq!(x.add(&y).add(&z), x.add(&y.add(&z)));
-            assert_eq!(x.mul(&y).mul(&z), x.mul(&y.mul(&z)));
-            // distributivity
-            assert_eq!(x.mul(&y.add(&z)), x.mul(&y).add(&x.mul(&z)));
-            // additive inverse + subtraction agreement
-            assert!(x.add(&x.negated()).is_zero());
-            assert_eq!(x.sub(&y), x.add(&y.negated()));
-            // multiplicative inverse (when nonzero)
-            if !x.is_zero() {
-                assert_eq!(x.mul(&x.recip().unwrap()), Rational::one());
-                assert_eq!(y.div(&x).unwrap(), y.mul(&x.recip().unwrap()));
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------
-    // Decimal — exact base-10 fixed-point
-    // -----------------------------------------------------------------
-
-    fn dec(s: &str) -> Decimal {
-        Decimal::parse(s).unwrap_or_else(|| panic!("parse decimal {s:?}"))
-    }
-
-    #[test]
-    fn decimal_parse_and_display_round_trip() {
-        for s in ["0", "19.99", "0.05", "-0.005", "1999", "100.00", "-7", "0.10", "3.14159"] {
-            assert_eq!(dec(s).to_string(), s, "round trip {s}");
-        }
-        // "-0" and "+5" normalize on display.
-        assert_eq!(dec("-0").to_string(), "0");
-        assert_eq!(dec("+5").to_string(), "5");
-        // leading/trailing forms.
-        assert_eq!(dec(".5").to_string(), "0.5");
-        assert_eq!(dec("5.").to_string(), "5");
-        // garbage rejected.
-        assert!(Decimal::parse("1.2.3").is_none());
-        assert!(Decimal::parse("abc").is_none());
-        assert!(Decimal::parse("").is_none());
-        assert!(Decimal::parse("-").is_none());
-        assert!(Decimal::parse(".").is_none());
-    }
-
-    #[test]
-    fn decimal_has_no_binary_float_drift() {
-        // The headline: 0.1 + 0.2 == 0.3 EXACTLY (the classic f64 trap), and is shown so.
-        assert_ne!(0.1_f64 + 0.2, 0.3);
-        assert_eq!(dec("0.1").add(&dec("0.2")), dec("0.3"));
-        assert_eq!(dec("0.1").add(&dec("0.2")).to_string(), "0.3");
-    }
-
-    #[test]
-    fn decimal_add_sub_align_scales() {
-        assert_eq!(dec("19.99").add(&dec("0.01")).to_string(), "20.00");
-        assert_eq!(dec("1.1").add(&dec("2.22")).to_string(), "3.32");
-        assert_eq!(dec("5").add(&dec("0.5")).to_string(), "5.5");
-        assert_eq!(dec("20.00").sub(&dec("0.01")).to_string(), "19.99");
-        assert_eq!(dec("0").sub(&dec("0.005")).to_string(), "-0.005");
-    }
-
-    #[test]
-    fn decimal_mul_adds_scales_and_is_exact() {
-        assert_eq!(dec("1.1").mul(&dec("1.1")).to_string(), "1.21");
-        assert_eq!(dec("0.05").mul(&dec("0.05")).to_string(), "0.0025");
-        assert_eq!(dec("19.99").mul(&Decimal::from_i64(3)).to_string(), "59.97");
-        assert_eq!(dec("-2.5").mul(&dec("4")).to_string(), "-10.0");
-    }
-
-    #[test]
-    fn decimal_div_rounds_to_scale() {
-        // 10/3 = 3.333… → 3.33 at scale 2.
-        assert_eq!(dec("10").div(&dec("3"), 2, RoundingMode::HalfEven).unwrap().to_string(), "3.33");
-        // 1/8 = 0.125 exact at scale 3.
-        assert_eq!(dec("1").div(&dec("8"), 3, RoundingMode::HalfEven).unwrap().to_string(), "0.125");
-        // At scale 2 the tie 0.125 splits by mode: HalfEven → 0.12, HalfUp → 0.13.
-        assert_eq!(dec("1").div(&dec("8"), 2, RoundingMode::HalfEven).unwrap().to_string(), "0.12");
-        assert_eq!(dec("1").div(&dec("8"), 2, RoundingMode::HalfUp).unwrap().to_string(), "0.13");
-        // Divide by zero is None, never a panic.
-        assert!(dec("1").div(&dec("0"), 2, RoundingMode::HalfEven).is_none());
-    }
-
-    #[test]
-    fn decimal_rescale_quantizes_with_rounding() {
-        assert_eq!(dec("19.999").rescale(2, RoundingMode::HalfEven).to_string(), "20.00");
-        // Banker's rounding: 2.5 → 2, 3.5 → 4, -2.5 → -2 (ties to even).
-        assert_eq!(dec("2.5").rescale(0, RoundingMode::HalfEven).to_string(), "2");
-        assert_eq!(dec("3.5").rescale(0, RoundingMode::HalfEven).to_string(), "4");
-        assert_eq!(dec("-2.5").rescale(0, RoundingMode::HalfEven).to_string(), "-2");
-        // Widening just appends zeros (exact).
-        assert_eq!(dec("1.5").rescale(4, RoundingMode::HalfEven).to_string(), "1.5000");
-    }
-
-    #[test]
-    fn decimal_rounding_modes_on_a_tie_and_a_non_tie() {
-        // 2.5 (an exact tie) under every mode.
-        let tie = dec("2.5");
-        for (mode, want) in [
-            (RoundingMode::Down, "2"),
-            (RoundingMode::Up, "3"),
-            (RoundingMode::Floor, "2"),
-            (RoundingMode::Ceiling, "3"),
-            (RoundingMode::HalfUp, "3"),
-            (RoundingMode::HalfDown, "2"),
-            (RoundingMode::HalfEven, "2"),
-        ] {
-            assert_eq!(tie.rescale(0, mode).to_string(), want, "2.5 under {mode:?}");
-        }
-        // -2.5 (negative tie): Floor → -3, Ceiling → -2, HalfUp → -3.
-        let ntie = dec("-2.5");
-        assert_eq!(ntie.rescale(0, RoundingMode::Floor).to_string(), "-3");
-        assert_eq!(ntie.rescale(0, RoundingMode::Ceiling).to_string(), "-2");
-        assert_eq!(ntie.rescale(0, RoundingMode::HalfUp).to_string(), "-3");
-        assert_eq!(ntie.rescale(0, RoundingMode::Down).to_string(), "-2");
-    }
-
-    #[test]
-    fn decimal_equality_is_value_based_and_hash_agrees() {
-        use std::collections::HashSet;
-        // 1.0 == 1.00 == 1 by VALUE; scale is only a display hint.
-        assert_eq!(dec("1.0"), dec("1.00"));
-        assert_eq!(dec("1.0"), dec("1"));
-        assert_eq!(dec("0.0"), dec("0"));
-        // Equal values must hash equal (the Eq/Hash contract).
-        let mut set = HashSet::new();
-        set.insert(dec("1.00"));
-        assert!(set.contains(&dec("1")));
-        assert!(set.contains(&dec("1.0")));
-        // Different values are not equal.
-        assert_ne!(dec("1.0"), dec("1.01"));
-    }
-
-    #[test]
-    fn decimal_ordering_compares_across_scales_without_rounding() {
-        assert!(dec("0.1") < dec("0.11"));
-        assert!(dec("1.5") < dec("2"));
-        assert!(dec("-0.005") < dec("0"));
-        assert!(dec("1.00") == dec("1.0"));
-        let mut v = vec![dec("0.5"), dec("0.05"), dec("-0.1"), dec("2"), dec("0.50")];
-        v.sort();
-        let s: Vec<String> = v.iter().map(|x| x.to_string()).collect();
-        // 0.5 and 0.50 are equal; sort is stable so input order among equals is kept.
-        assert_eq!(s, ["-0.1", "0.05", "0.5", "0.50", "2"]);
-    }
-
-    #[test]
-    fn decimal_to_and_from_rational_is_exact() {
-        assert_eq!(dec("19.99").to_rational(), Rational::from_ratio_i64(1999, 100).unwrap());
-        assert_eq!(dec("0.125").to_rational(), Rational::from_ratio_i64(1, 8).unwrap());
-        assert_eq!(dec("-0.005").to_rational(), Rational::from_ratio_i64(-1, 200).unwrap());
-        // from_rational rounds to the requested scale.
-        let third = Rational::from_ratio_i64(1, 3).unwrap();
-        assert_eq!(Decimal::from_rational(&third, 4, RoundingMode::HalfEven).to_string(), "0.3333");
-    }
-
-    #[test]
-    fn decimal_wire_components_round_trip() {
-        for s in ["0", "19.99", "-0.005", "100.00", "123456789.000001", "-7"] {
-            let d = dec(s);
-            let (neg, bytes, scale) = d.to_le_bytes();
-            let back = Decimal::from_le_bytes(neg, &bytes, scale);
-            assert_eq!(back, d, "value round-trip {s}");
-            assert_eq!(back.to_string(), d.to_string(), "display round-trip {s}");
-        }
-    }
-
-    #[test]
-    fn decimal_money_scenario_is_exact() {
-        // 3 items at $19.99, plus 8% tax rounded to cents (banker's).
-        let subtotal = dec("19.99").mul(&Decimal::from_i64(3)); // 59.97
-        assert_eq!(subtotal.to_string(), "59.97");
-        let tax = subtotal.mul(&dec("0.08")).rescale(2, RoundingMode::HalfEven); // 4.7976 → 4.80
-        assert_eq!(tax.to_string(), "4.80");
-        assert_eq!(subtotal.add(&tax).to_string(), "64.77");
-    }
-
-    #[test]
-    fn decimal_add_sub_mul_match_the_rational_oracle_under_fuzz() {
-        // Differential: build decimals from random coeff/scale and check that +,-,*
-        // agree EXACTLY with the Rational tower (the exactness oracle).
-        let mut rng = Rng(0xDEC1_2A1B_0000_FACE);
-        for _ in 0..3000 {
-            let ca = (rng.next() % 2_000_001) as i64 - 1_000_000;
-            let cb = (rng.next() % 2_000_001) as i64 - 1_000_000;
-            let sa = (rng.next() % 6) as u32;
-            let sb = (rng.next() % 6) as u32;
-            let a = Decimal::from_coeff_scale(BigInt::from_i64(ca), sa);
-            let b = Decimal::from_coeff_scale(BigInt::from_i64(cb), sb);
-            let (ra, rb) = (a.to_rational(), b.to_rational());
-            assert_eq!(a.add(&b).to_rational(), ra.add(&rb), "add {a} {b}");
-            assert_eq!(a.sub(&b).to_rational(), ra.sub(&rb), "sub {a} {b}");
-            assert_eq!(a.mul(&b).to_rational(), ra.mul(&rb), "mul {a} {b}");
-            // div is rounded: its result must be within one ULP of the requested scale.
-            if !b.is_zero() {
-                let scale = 8u32;
-                let q = a.div(&b, scale, RoundingMode::HalfEven).unwrap();
-                let exact = ra.div(&rb).unwrap();
-                let ulp = Rational::new(BigInt::from_i64(1), BigInt::from_u64(10).pow(scale)).unwrap();
-                let err = q.to_rational().sub(&exact).abs();
-                // |rounded - exact| <= ulp/2 for nearest-rounding.
-                assert!(err.mul(&Rational::from_i64(2)) <= ulp, "div within half-ulp {a}/{b}");
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------
-    // Complex — exact Gaussian rationals
-    // -----------------------------------------------------------------
-
-    fn c(re: i64, im: i64) -> Complex {
-        Complex::new(Rational::from_i64(re), Rational::from_i64(im))
-    }
-
-    fn cq(rn: i64, rd: i64, in_: i64, id: i64) -> Complex {
-        Complex::new(Rational::from_ratio_i64(rn, rd).unwrap(), Rational::from_ratio_i64(in_, id).unwrap())
-    }
-
-    #[test]
-    fn complex_i_squared_is_minus_one() {
-        // The headline: i·i == −1, EXACTLY.
-        assert_eq!(Complex::i().mul(&Complex::i()), c(-1, 0));
-        assert_eq!(Complex::i().mul(&Complex::i()), Complex::from_i64(-1));
-    }
-
-    #[test]
-    fn complex_construction_and_accessors() {
-        let z = c(3, 4);
-        assert_eq!(z.re(), &Rational::from_i64(3));
-        assert_eq!(z.im(), &Rational::from_i64(4));
-        assert!(!z.is_real());
-        assert!(c(5, 0).is_real());
-        assert!(Complex::zero().is_zero());
-        assert!(!Complex::i().is_zero());
-        assert_eq!(Complex::from_i64(7), c(7, 0));
-    }
-
-    #[test]
-    fn complex_add_sub_mul_are_exact() {
-        assert_eq!(c(2, 3).add(&c(1, -1)), c(3, 2));
-        assert_eq!(c(2, 3).sub(&c(1, -1)), c(1, 4));
-        // (1+i)(1−i) = 1 − i² = 2 — the classic exact identity.
-        assert_eq!(c(1, 1).mul(&c(1, -1)), c(2, 0));
-        // (2+3i)(4+5i) = 8 + 10i + 12i + 15i² = (8−15) + 22i = −7 + 22i.
-        assert_eq!(c(2, 3).mul(&c(4, 5)), c(-7, 22));
-    }
-
-    #[test]
-    fn complex_div_recip_and_zero_guard() {
-        // z/z == 1 for any nonzero z.
-        assert_eq!(c(2, 3).div(&c(2, 3)).unwrap(), Complex::one());
-        // 1/i == −i.
-        assert_eq!(Complex::i().recip().unwrap(), c(0, -1));
-        // (3+4i)/(1+2i) = (3+4i)(1−2i)/5 = (11−2i)/5.
-        assert_eq!(c(3, 4).div(&c(1, 2)).unwrap(), cq(11, 5, -2, 5));
-        // Division/reciprocal of zero is None, never a panic.
-        assert!(c(1, 1).div(&Complex::zero()).is_none());
-        assert!(Complex::zero().recip().is_none());
-    }
-
-    #[test]
-    fn complex_conjugate_and_norm_are_exact() {
-        assert_eq!(c(3, 4).conjugate(), c(3, -4));
-        assert_eq!(c(3, 4).norm_sqr(), Rational::from_i64(25));
-        // |3+4i| = 5 exactly (a Pythagorean magnitude).
-        assert!((c(3, 4).abs_f64() - 5.0).abs() < 1e-12);
-        // z · conj(z) == |z|² (a real number).
-        let z = c(2, -5);
-        assert_eq!(z.mul(&z.conjugate()), Complex::from_rational(z.norm_sqr()));
-    }
-
-    #[test]
-    fn complex_pow_handles_the_cycle_and_negatives() {
-        assert_eq!(Complex::i().pow(2).unwrap(), c(-1, 0));
-        assert_eq!(Complex::i().pow(3).unwrap(), c(0, -1));
-        assert_eq!(Complex::i().pow(4).unwrap(), c(1, 0));
-        assert_eq!(Complex::i().pow(0).unwrap(), Complex::one());
-        assert_eq!(Complex::i().pow(-1).unwrap(), c(0, -1)); // 1/i = −i
-        // (1+i)^2 = 2i.
-        assert_eq!(c(1, 1).pow(2).unwrap(), c(0, 2));
-        // 0^0 == 1; 0 to a negative power is undefined.
-        assert_eq!(Complex::zero().pow(0).unwrap(), Complex::one());
-        assert!(Complex::zero().pow(-1).is_none());
-    }
-
-    #[test]
-    fn complex_display_round_trips_every_form() {
-        for (z, want) in [
-            (c(0, 0), "0"),
-            (c(3, 0), "3"),
-            (c(0, 1), "i"),
-            (c(0, -1), "-i"),
-            (c(0, 4), "4i"),
-            (c(0, -4), "-4i"),
-            (c(3, 4), "3+4i"),
-            (c(3, -4), "3-4i"),
-            (c(3, 1), "3+i"),
-            (c(3, -1), "3-i"),
-            (c(-2, 5), "-2+5i"),
-        ] {
-            assert_eq!(z.to_string(), want, "display");
-            assert_eq!(Complex::parse(want).unwrap(), z, "parse round-trip of {want}");
-        }
-        // Fractional parts round-trip too.
-        let z = cq(1, 2, -3, 4);
-        assert_eq!(z.to_string(), "1/2-3/4i");
-        assert_eq!(Complex::parse("1/2-3/4i").unwrap(), z);
-        // Garbage is rejected.
-        assert!(Complex::parse("").is_none());
-        assert!(Complex::parse("3+xi").is_none());
-    }
-
-    #[test]
-    fn complex_equality_and_hash_are_structural() {
-        use std::collections::HashSet;
-        assert_eq!(c(3, 4), c(3, 4));
-        assert_ne!(c(3, 4), c(3, -4));
-        assert_eq!(cq(2, 4, 6, 8), cq(1, 2, 3, 4)); // reduced parts compare equal
-        let mut set = HashSet::new();
-        set.insert(cq(2, 4, 6, 8));
-        assert!(set.contains(&cq(1, 2, 3, 4)));
-    }
-
-    #[test]
-    fn complex_obeys_the_field_laws_under_fuzz() {
-        // Property fuzz: random Gaussian rationals satisfy the field axioms EXACTLY,
-        // plus the conjugate/norm homomorphisms.
-        let mut rng = Rng(0xC011_9EE5_A11C_E5ED);
-        let pick = |rng: &mut Rng| -> Rational {
-            let n = (rng.next() % 41) as i64 - 20;
-            let d = ((rng.next() % 9) as i64) + 1;
-            Rational::from_ratio_i64(n, d).unwrap()
-        };
-        let pick_c = |rng: &mut Rng| -> Complex { Complex::new(pick(rng), pick(rng)) };
-        for _ in 0..2000 {
-            let (x, y, z) = (pick_c(&mut rng), pick_c(&mut rng), pick_c(&mut rng));
-            // commutativity
-            assert_eq!(x.add(&y), y.add(&x));
-            assert_eq!(x.mul(&y), y.mul(&x));
-            // associativity
-            assert_eq!(x.add(&y).add(&z), x.add(&y.add(&z)));
-            assert_eq!(x.mul(&y).mul(&z), x.mul(&y.mul(&z)));
-            // distributivity
-            assert_eq!(x.mul(&y.add(&z)), x.mul(&y).add(&x.mul(&z)));
-            // additive inverse + subtraction agreement
-            assert!(x.add(&x.negated()).is_zero());
-            assert_eq!(x.sub(&y), x.add(&y.negated()));
-            // conjugate is an involution and a ring homomorphism
-            assert_eq!(x.conjugate().conjugate(), x);
-            assert_eq!(x.mul(&y).conjugate(), x.conjugate().mul(&y.conjugate()));
-            // the norm is multiplicative: |xy|² = |x|²·|y|²
-            assert_eq!(x.mul(&y).norm_sqr(), x.norm_sqr().mul(&y.norm_sqr()));
-            // multiplicative inverse (when nonzero)
-            if !x.is_zero() {
-                assert_eq!(x.mul(&x.recip().unwrap()), Complex::one());
-                assert_eq!(y.div(&x).unwrap(), y.mul(&x.recip().unwrap()));
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------
-    // Modular — the ring ℤ/nℤ
-    // -----------------------------------------------------------------
-
-    fn m(v: i64, n: i64) -> Modular {
-        Modular::from_i64(v, n).unwrap_or_else(|| panic!("bad modulus {n}"))
-    }
-
-    #[test]
-    fn modular_reduces_into_range_on_construction() {
-        assert_eq!(m(10, 7).value().to_i64(), Some(3));
-        assert_eq!(m(7, 7).value().to_i64(), Some(0));
-        // Negatives become non-negative residues (Euclidean): −1 mod 7 = 6.
-        assert_eq!(m(-1, 7).value().to_i64(), Some(6));
-        assert_eq!(m(-10, 7).value().to_i64(), Some(4));
-        // Modulus 1 collapses everything to 0 (the trivial ring).
-        assert_eq!(m(5, 1).value().to_i64(), Some(0));
-        // A non-positive modulus is rejected.
-        assert!(Modular::from_i64(3, 0).is_none());
-        assert!(Modular::from_i64(3, -7).is_none());
-    }
-
-    #[test]
-    fn modular_arithmetic_wraps_in_the_ring() {
-        // Add/sub/mul stay in [0, n) — overflow IS the point (cyclic group).
-        assert_eq!(m(5, 7).add(&m(4, 7)).unwrap(), m(2, 7)); // 9 ≡ 2
-        assert_eq!(m(3, 7).sub(&m(5, 7)).unwrap(), m(5, 7)); // −2 ≡ 5
-        assert_eq!(m(4, 7).mul(&m(5, 7)).unwrap(), m(6, 7)); // 20 ≡ 6
-        // −x is the additive inverse.
-        assert_eq!(m(3, 7).negated(), m(4, 7));
-        assert!(m(3, 7).add(&m(3, 7).negated()).unwrap().is_zero());
-        // A modulus mismatch is refused (a ring mismatch, like a Word width mismatch).
-        assert!(m(3, 7).add(&m(3, 5)).is_none());
-        assert!(m(3, 7).mul(&m(3, 5)).is_none());
-    }
-
-    #[test]
-    fn modular_exponentiation_is_fast_and_exact() {
-        assert_eq!(m(3, 5).pow(4), m(1, 5)); // 81 ≡ 1 (mod 5)
-        assert_eq!(m(2, 7).pow(3), m(1, 7)); // 8 ≡ 1 (mod 7)
-        assert_eq!(m(5, 13).pow(0), m(1, 13)); // x^0 = 1
-        // A large exponent that fast-exp makes tractable: 7^100 (mod 13).
-        let mut acc = m(1, 13);
-        for _ in 0..100 {
-            acc = acc.mul(&m(7, 13)).unwrap();
-        }
-        assert_eq!(m(7, 13).pow(100), acc);
-    }
-
-    #[test]
-    fn modular_inverse_and_division() {
-        // 3⁻¹ ≡ 5 (mod 7) since 3·5 = 15 ≡ 1.
-        assert_eq!(m(3, 7).inverse().unwrap(), m(5, 7));
-        assert_eq!(m(3, 7).mul(&m(3, 7).inverse().unwrap()).unwrap(), m(1, 7));
-        // Division is multiplication by the inverse: 1/3 ≡ 5 (mod 7).
-        assert_eq!(m(1, 7).div(&m(3, 7)).unwrap(), m(5, 7));
-        assert_eq!(m(4, 7).div(&m(2, 7)).unwrap(), m(2, 7));
-        // A non-unit (gcd ≠ 1) has NO inverse: 2 is not invertible mod 4.
-        assert!(m(2, 4).inverse().is_none());
-        assert!(m(1, 4).div(&m(2, 4)).is_none());
-        // Division across different moduli is refused.
-        assert!(m(1, 7).div(&m(3, 5)).is_none());
-    }
-
-    #[test]
-    fn modular_generalizes_the_word_wrapping_ring() {
-        // ℤ/2³²ℤ IS the Word32 ring: add/mul agree with the fixed-width wrapping ops.
-        let modulus = 1i64 << 32; // 2^32 = 4_294_967_296
-        let (a, b) = (4_000_000_000u32, 1_000_000_000u32); // a + b overflows u32
-        let word_add = (crate::Word32(a) + crate::Word32(b)).0 as i64;
-        let mod_add = m(a as i64, modulus).add(&m(b as i64, modulus)).unwrap();
-        assert_eq!(mod_add.value().to_i64(), Some(word_add), "ℤ/2³² add == Word32 add");
-        let word_mul = (crate::Word32(a) * crate::Word32(b)).0 as i64;
-        let mod_mul = m(a as i64, modulus).mul(&m(b as i64, modulus)).unwrap();
-        assert_eq!(mod_mul.value().to_i64(), Some(word_mul), "ℤ/2³² mul == Word32 mul");
-    }
-
-    #[test]
-    fn modular_equality_is_per_ring_and_displays_the_modulus() {
-        // Same residue in DIFFERENT rings is not equal (the modulus is part of the value).
-        assert_ne!(m(3, 7), m(3, 5));
-        assert_eq!(m(10, 7), m(3, 7));
-        assert_eq!(m(3, 7).to_string(), "3 (mod 7)");
-        assert_eq!(m(-1, 7).to_string(), "6 (mod 7)");
-    }
-
-    #[test]
-    fn modular_obeys_fermats_little_theorem() {
-        // For a prime p and a not divisible by p: a^(p−1) ≡ 1 (mod p).
-        for &p in &[2i64, 3, 5, 7, 13, 97, 101] {
-            for a in 1..p.min(40) {
-                assert_eq!(m(a, p).pow((p - 1) as u64), m(1, p), "{a}^({p}-1) ≡ 1 (mod {p})");
-            }
-        }
-    }
-
-    #[test]
-    fn modular_obeys_the_ring_laws_and_inverse_under_fuzz() {
-        // Property fuzz: random residues over random moduli satisfy the commutative-ring
-        // axioms exactly, and every unit times its inverse is 1.
-        let mut rng = Rng(0x_0DDF_ACE5_ABCD_1234);
-        for _ in 0..3000 {
-            let n = ((rng.next() % 50) as i64) + 2; // modulus in [2, 51]
-            let pick = |rng: &mut Rng| (rng.next() % 1_000_000) as i64 - 500_000;
-            let (a, b, c) = (m(pick(&mut rng), n), m(pick(&mut rng), n), m(pick(&mut rng), n));
-            // Commutativity.
-            assert_eq!(a.add(&b).unwrap(), b.add(&a).unwrap());
-            assert_eq!(a.mul(&b).unwrap(), b.mul(&a).unwrap());
-            // Associativity.
-            assert_eq!(a.add(&b).unwrap().add(&c).unwrap(), a.add(&b.add(&c).unwrap()).unwrap());
-            assert_eq!(a.mul(&b).unwrap().mul(&c).unwrap(), a.mul(&b.mul(&c).unwrap()).unwrap());
-            // Distributivity.
-            assert_eq!(
-                a.mul(&b.add(&c).unwrap()).unwrap(),
-                a.mul(&b).unwrap().add(&a.mul(&c).unwrap()).unwrap()
-            );
-            // Additive inverse.
-            assert!(a.add(&a.negated()).unwrap().is_zero());
-            // Multiplicative inverse for units (gcd(a, n) == 1).
-            if let Some(inv) = a.inverse() {
-                assert_eq!(a.mul(&inv).unwrap(), m(1, n), "a·a⁻¹ = 1 in ℤ/{n}ℤ");
-            }
-        }
-    }
-
-    // ─── Exact float interop ────────────────────────────────────────────
-
-    #[test]
-    fn exact_rational_from_f64_values() {
-        assert_eq!(rational_from_f64_exact(0.5).unwrap(), Rational::from_ratio_i64(1, 2).unwrap());
-        assert_eq!(rational_from_f64_exact(3.0).unwrap(), Rational::from_i64(3));
-        assert_eq!(rational_from_f64_exact(-2.25).unwrap(), Rational::from_ratio_i64(-9, 4).unwrap());
-        assert_eq!(rational_from_f64_exact(0.0).unwrap(), Rational::zero());
-        assert_eq!(rational_from_f64_exact(-0.0).unwrap(), Rational::zero());
-        assert!(rational_from_f64_exact(f64::NAN).is_none());
-        assert!(rational_from_f64_exact(f64::INFINITY).is_none());
-        // 0.1 is NOT 1/10 — it is the nearest double, an exact dyadic rational.
-        assert_ne!(rational_from_f64_exact(0.1).unwrap(), Rational::from_ratio_i64(1, 10).unwrap());
-    }
-
-    #[test]
-    fn exact_i64_f64_cmp_at_the_representability_boundary() {
-        let big = 9_007_199_254_740_993_i64; // 2^53 + 1 — not representable
-        let f = 9_007_199_254_740_992.0_f64; // 2^53 — what the literal rounds to
-        // A lossy `as f64` compare would say Equal; the exact one says Greater.
-        assert_eq!(cmp_i64_f64_exact(big, f), Some(Ordering::Greater));
-        assert_eq!(cmp_i64_f64_exact(big - 1, f), Some(Ordering::Equal));
-        assert_eq!(cmp_i64_f64_exact(3, 3.5), Some(Ordering::Less));
-        assert_eq!(cmp_i64_f64_exact(4, 3.5), Some(Ordering::Greater));
-        assert_eq!(cmp_i64_f64_exact(1, 1.0), Some(Ordering::Equal));
-        assert_eq!(cmp_i64_f64_exact(0, f64::NAN), None);
-        assert_eq!(cmp_i64_f64_exact(i64::MAX, f64::INFINITY), Some(Ordering::Less));
-        assert_eq!(cmp_i64_f64_exact(i64::MIN, f64::NEG_INFINITY), Some(Ordering::Greater));
-    }
-
-    #[test]
-    fn unified_numeric_hash_coherence() {
-        // hash(Int k) == hash(Float k) for every exactly-representable k.
-        for k in [0i64, 1, -1, 2, 42, -42, 1_000_000_007, -(1i64 << 53), 1i64 << 53] {
-            assert_eq!(
-                numeric_hash_i64(k),
-                numeric_hash_f64(k as f64),
-                "int/float hash mismatch at {k}"
-            );
-            assert_eq!(
-                numeric_hash_i64(k),
-                numeric_hash_bigint(&BigInt::from_i64(k)),
-                "int/bigint hash mismatch at {k}"
-            );
-            assert_eq!(
-                numeric_hash_i64(k),
-                numeric_hash_rational(&Rational::from_i64(k)),
-                "int/rational hash mismatch at {k}"
-            );
-        }
-        // Non-integral coherence: 0.5 == 1/2 exactly, so hashes agree.
-        assert_eq!(
-            numeric_hash_f64(0.5),
-            numeric_hash_rational(&Rational::from_ratio_i64(1, 2).unwrap())
-        );
-        assert_eq!(
-            numeric_hash_f64(-2.25),
-            numeric_hash_rational(&Rational::from_ratio_i64(-9, 4).unwrap())
-        );
-        // -0.0 and 0.0 are equal, so they hash equal.
-        assert_eq!(numeric_hash_f64(-0.0), numeric_hash_f64(0.0));
-        // And a float hashes as its EXACT value: 0.1's hash equals the hash
-        // of its exact dyadic rational, not of 1/10.
-        assert_eq!(
-            numeric_hash_f64(0.1),
-            numeric_hash_rational(&rational_from_f64_exact(0.1).unwrap())
-        );
-    }
-
-    // ---- the one-limb boundary (2^64): every op must cross it exactly ----
-
-    #[test]
-    fn arithmetic_is_exact_across_the_one_limb_boundary() {
-        let u64max = BigInt::from_u64(u64::MAX);
-        let two64 = u64max.add(&b(1)); // 2^64
-        assert_eq!(two64.to_string(), "18446744073709551616");
-        // Back below the boundary.
-        assert_eq!(two64.sub(&b(1)), u64max);
-        // Multiplication crossing: (2^32)² = 2^64; 2^62·4 = 2^64.
-        let two32 = b(1i64 << 32);
-        assert_eq!(two32.mul(&two32), two64);
-        assert_eq!(b(1i64 << 62).mul(&b(4)), two64);
-        // Division re-crossing: 2^64 / 2 = 2^63 (one limb again).
-        let (q, r) = two64.div_rem(&b(2)).expect("nonzero divisor");
-        assert!(r.is_zero());
-        assert_eq!(q.to_string(), "9223372036854775808");
-        // Negative mirror.
-        let neg = two64.negated();
-        assert_eq!(neg.add(&two64), BigInt::zero());
-        assert_eq!(neg.to_string(), "-18446744073709551616");
-    }
-
-    #[test]
-    fn ordering_and_hash_are_canonical_across_the_limb_boundary() {
-        let two64 = BigInt::from_u64(u64::MAX).add(&b(1));
-        let big = two64.mul(&two64); // 2^128
-        assert!(b(1) < two64);
-        assert!(two64 < big);
-        assert!(big.negated() < b(-1));
-        assert!(two64.negated() < two64);
-        // Equal values reached by different construction routes must be equal
-        // AND hash equal — the representation is canonical, not path-dependent.
-        let via_mul = b(1i64 << 32).mul(&b(1i64 << 32));
-        let via_add = BigInt::from_u64(u64::MAX).add(&b(1));
-        assert_eq!(via_mul, via_add);
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let h = |v: &BigInt| {
-            let mut s = DefaultHasher::new();
-            v.hash(&mut s);
-            s.finish()
-        };
-        assert_eq!(h(&via_mul), h(&via_add));
-        // A value shrunk back under the boundary equals its native construction.
-        let shrunk = two64.sub(&b(1));
-        assert_eq!(shrunk, BigInt::from_u64(u64::MAX));
-        assert_eq!(h(&shrunk), h(&BigInt::from_u64(u64::MAX)));
-    }
-
-    #[test]
-    fn le_bytes_round_trip_across_the_limb_boundary() {
-        for s in [
-            "0",
-            "1",
-            "-1",
-            "18446744073709551615",
-            "18446744073709551616",
-            "-18446744073709551616",
-            "340282366920938463463374607431768211456",
-        ] {
-            let v = BigInt::parse_decimal(s).expect("valid decimal");
-            let (neg, bytes) = v.to_le_bytes();
-            assert_eq!(BigInt::from_le_bytes(neg, &bytes), v, "round trip {s}");
-            assert_eq!(v.to_string(), s, "display {s}");
-        }
-    }
-
-    #[test]
-    fn div_rem_identity_holds_for_multi_limb_values() {
-        // a = q·b + r with |r| < |b| and r carrying the dividend's sign, at
-        // sizes where single-limb arithmetic cannot apply.
-        let a = b(1_000_003).pow(7); // ~2^140
-        for dividend in [a.clone(), a.negated()] {
-            for divisor in [b(97), b(-97), b(1i64 << 40), a.sub(&b(1))] {
-                let (q, r) = dividend.div_rem(&divisor).expect("nonzero divisor");
-                assert_eq!(dividend, q.mul(&divisor).add(&r));
-                assert!(r.abs() < divisor.abs());
-                assert!(r.is_zero() || r.is_negative() == dividend.is_negative());
-            }
-        }
+/// The language's `min` of two reals: a NaN gives way to the other operand, and of two equal values the
+/// one with the negative sign, so `min(0, -0.0)` is `-0.0` (IEEE 754-2019 `minimumNumber`). One answer on
+/// every tier and under every optimizer, where `f64::min` leaves the sign of two equal zeros open.
+pub fn float_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() {
+        b
+    } else if b.is_nan() || a < b || (a == b && a.is_sign_negative()) {
+        a
+    } else {
+        b
     }
 }
+
+/// The language's `max` of two reals: a NaN gives way to the other operand, and of two equal values the
+/// one with the positive sign, so `max(0, -0.0)` is `0.0` (IEEE 754-2019 `maximumNumber`).
+pub fn float_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() {
+        b
+    } else if b.is_nan() || a > b || (a == b && a.is_sign_positive()) {
+        a
+    } else {
+        b
+    }
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/numeric/tests.rs"]
+mod tests;

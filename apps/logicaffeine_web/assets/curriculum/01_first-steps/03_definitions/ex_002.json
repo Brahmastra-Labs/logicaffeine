@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 1,
-  "hint": "Can you think of a genuine tent that this definition would wrongly EXCLUDE?",
-  "explanation": "Tents can be made of nylon, hide, or animal skins — a nylon tent is still a tent. Restricting the material to canvas leaves out genuine tents, so the definition is TOO NARROW."
+  "hint": "Can you think of a tent that this definition leaves out?",
+  "explanation": "Tents are also made of nylon or hide, so limiting them to canvas leaves real tents out.",
+  "section": "3.2"
 }

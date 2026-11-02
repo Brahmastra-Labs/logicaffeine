@@ -1,0 +1,8 @@
+{"meta":{"exporter":{"name":"lean4export","version":"3.1.0"},"format":{"version":"3.1.0"},"lean":{"githash":"5045d0056413266e57c625dcd7c365b10e377c52","version":"4.34.1"}}}
+{"in":1,"str":{"pre":0,"str":"selfProof"}}
+{"in":2,"str":{"pre":0,"str":"p"}}
+{"ie":0,"sort":0}
+{"bvar":0,"ie":1}
+{"forallE":{"binderInfo":"default","body":1,"name":2,"type":0},"ie":2}
+{"const":{"name":1,"us":[]},"ie":3}
+{"thm":{"all":[1],"levelParams":[],"name":1,"type":2,"value":3}}

@@ -1,0 +1,52 @@
+{
+  "case": "T08-021",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "\u2200 (a b c : Nat), a = b \u2192 b = c \u2192 a = c",
+      "name": "T08_021.chainAsTerm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c d : Nat), a = b \u2192 b = c \u2192 c = d \u2192 a = d",
+      "name": "T08_021.chainEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c d : Nat), a = b \u2192 b < c \u2192 c \u2264 d \u2192 a < d",
+      "name": "T08_021.chainMixed",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat) (p : Nat \u2192 Nat \u2192 Prop), a = b \u2192 p b b \u2192 p a a",
+      "name": "T08_021.chainRepeatedWaypoint",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f g : Nat \u2192 Nat) (a b : Nat), a = b \u2192 (\u2200 (x : Nat), f x = g x) \u2192 f a = g b",
+      "name": "T08_021.chainWithQuantifiedStep",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), a = b \u2192 a = b",
+      "name": "T08_021.oneStep",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

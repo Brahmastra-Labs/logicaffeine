@@ -22,8 +22,12 @@ fn test_literate_auto_true() {
 #[test]
 fn test_literate_auto_ring() {
     let mut repl = Repl::new();
-    let result = repl
-        .execute("## Theorem: AddComm\n    Statement: (Eq (add a b) (add b a)).\n    Proof: auto.");
+    // `equals` produces a WELL-FORMED `Eq Int a b`; auto dispatches to ring and concludes it.
+    // (The old `(Eq a b)` prefix form is a 2-arg, under-applied `Eq` — a malformed goal that the
+    // hardened surface now correctly rejects, since no tactic can conclude it.)
+    let result = repl.execute(
+        "## Theorem: AddComm\n    Statement: (add a b) equals (add b a).\n    Proof: auto.",
+    );
     assert!(
         result.is_ok(),
         "auto should prove a+b=b+a via ring: {:?}",
@@ -35,7 +39,7 @@ fn test_literate_auto_ring() {
 fn test_literate_auto_ring_assoc() {
     let mut repl = Repl::new();
     let result = repl.execute(
-        "## Theorem: AddAssoc\n    Statement: (Eq (add (add a b) c) (add a (add b c))).\n    Proof: auto.",
+        "## Theorem: AddAssoc\n    Statement: (add (add a b) c) equals (add a (add b c)).\n    Proof: auto.",
     );
     assert!(
         result.is_ok(),
@@ -67,8 +71,7 @@ fn test_literate_auto_cc_refl() {
 #[test]
 fn test_literate_auto_omega_lt() {
     let mut repl = Repl::new();
-    let result =
-        repl.execute("## Theorem: TwoLtFive\n    Statement: (Lt 2 5).\n    Proof: auto.");
+    let result = repl.execute("## Theorem: TwoLtFive\n    Statement: (Lt 2 5).\n    Proof: auto.");
     assert!(result.is_ok(), "auto should prove 2 < 5: {:?}", result);
 }
 
@@ -88,13 +91,9 @@ fn test_literate_auto_omega_integer() {
 #[test]
 fn test_literate_auto_omega_variable() {
     let mut repl = Repl::new();
-    let result = repl
-        .execute("## Theorem: XLtXPlusOne\n    Statement: (Lt x (add x 1)).\n    Proof: auto.");
-    assert!(
-        result.is_ok(),
-        "auto should prove x < x+1: {:?}",
-        result
-    );
+    let result =
+        repl.execute("## Theorem: XLtXPlusOne\n    Statement: (Lt x (add x 1)).\n    Proof: auto.");
+    assert!(result.is_ok(), "auto should prove x < x+1: {:?}", result);
 }
 
 // =============================================================================
@@ -128,14 +127,11 @@ fn test_literate_auto_lia_transitivity() {
 #[test]
 fn test_literate_auto_fails_false() {
     let mut repl = Repl::new();
-    repl.execute("## Theorem: Wrong\n    Statement: (Lt 5 2).\n    Proof: auto.")
-        .unwrap();
-    repl.execute("Definition result : Syntax := concludes Wrong.")
-        .unwrap();
-    let result = repl.execute("Eval result.").unwrap();
+    // A false goal (5 < 2) yields an error derivation that concludes nothing — the hardened
+    // surface REJECTS it at theorem-definition time rather than silently storing it.
+    let result = repl.execute("## Theorem: Wrong\n    Statement: (Lt 5 2).\n    Proof: auto.");
     assert!(
-        result.contains("Error"),
-        "auto should fail on 5 < 2: {:?}",
-        result
+        result.is_err(),
+        "auto must reject the false 5 < 2: {result:?}"
     );
 }

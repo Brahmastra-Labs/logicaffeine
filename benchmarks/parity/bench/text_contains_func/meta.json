@@ -1,0 +1,10 @@
+{
+  "capability": "text.contains_func",
+  "workload": "containsFuncText((c)->c>200, s) \u2014 absent (full scan)",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

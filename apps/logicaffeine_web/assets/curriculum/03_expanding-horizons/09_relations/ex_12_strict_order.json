@@ -11,5 +11,6 @@
   ],
   "correct": 1,
   "hint": "Is anything greater than itself? If x > y, is y > x?",
-  "explanation": "'>' is irreflexive (no number is greater than itself, so ¬(x > x)) and transitive (if x > y and y > z then x > z). It is also asymmetric. Together these make it a STRICT order — the opposite profile from an equivalence relation."
+  "explanation": "Nothing is greater than itself, so > is irreflexive. If x > y and y > z, then x > z, so it is transitive. That makes it a strict order.",
+  "section": "9.3"
 }

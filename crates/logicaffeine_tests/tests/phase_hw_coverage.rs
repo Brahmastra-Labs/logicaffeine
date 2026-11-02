@@ -1,9 +1,7 @@
 //! Sprint 4A: Specification Coverage Metrics
 
 use logicaffeine_compile::codegen_sva::coverage::compute_coverage;
-use logicaffeine_language::semantics::knowledge_graph::{
-    HwKnowledgeGraph, SignalRole, KgRelation,
-};
+use logicaffeine_language::semantics::knowledge_graph::{HwKnowledgeGraph, KgRelation, SignalRole};
 
 fn build_kg(
     signals: Vec<(&str, SignalRole)>,
@@ -28,12 +26,19 @@ fn property_coverage_nonzero_when_property_signals_covered() {
     let kg = build_kg(
         vec![("req", SignalRole::Input), ("ack", SignalRole::Output)],
         vec![("handshake", "safety", "G(req -> ack)")],
-        vec![("req", "ack", KgRelation::Triggers, Some("handshake".to_string()))],
+        vec![(
+            "req",
+            "ack",
+            KgRelation::Triggers,
+            Some("handshake".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string()]);
-    assert!(cov.property_coverage > 0.0,
+    assert!(
+        cov.property_coverage > 0.0,
         "property_coverage MUST be >0 when property signal endpoints are covered, got: {}",
-        cov.property_coverage);
+        cov.property_coverage
+    );
 }
 
 #[test]
@@ -44,8 +49,11 @@ fn edge_coverage_nonzero_when_both_endpoints_covered() {
         vec![("req", "ack", KgRelation::Triggers, None)],
     );
     let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string()]);
-    assert!(cov.edge_coverage > 0.0,
-        "edge_coverage MUST be >0 when both endpoints covered, got: {}", cov.edge_coverage);
+    assert!(
+        cov.edge_coverage > 0.0,
+        "edge_coverage MUST be >0 when both endpoints covered, got: {}",
+        cov.edge_coverage
+    );
 }
 
 #[test]
@@ -56,8 +64,11 @@ fn edge_coverage_less_than_1_when_only_one_endpoint_covered() {
         vec![("req", "ack", KgRelation::Triggers, None)],
     );
     let cov = compute_coverage(&kg, &["req".to_string()]);
-    assert!(cov.edge_coverage < 1.0,
-        "edge_coverage must be <1.0 when only one endpoint covered, got: {}", cov.edge_coverage);
+    assert!(
+        cov.edge_coverage < 1.0,
+        "edge_coverage must be <1.0 when only one endpoint covered, got: {}",
+        cov.edge_coverage
+    );
 }
 
 #[test]
@@ -65,14 +76,23 @@ fn all_hardcoded_zeros_impossible_with_full_coverage() {
     let kg = build_kg(
         vec![("req", SignalRole::Input), ("ack", SignalRole::Output)],
         vec![("handshake", "safety", "G(req -> ack)")],
-        vec![("req", "ack", KgRelation::Triggers, Some("handshake".to_string()))],
+        vec![(
+            "req",
+            "ack",
+            KgRelation::Triggers,
+            Some("handshake".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string()]);
     let non_signal_total = cov.property_coverage + cov.edge_coverage + cov.temporal_coverage;
-    assert!(non_signal_total > 0.0,
+    assert!(
+        non_signal_total > 0.0,
         "IMPOSSIBLE: property={}, edge={}, temporal={} are ALL zero with full coverage. \
          At least one must be >0.",
-        cov.property_coverage, cov.edge_coverage, cov.temporal_coverage);
+        cov.property_coverage,
+        cov.edge_coverage,
+        cov.temporal_coverage
+    );
 }
 
 #[test]
@@ -80,12 +100,20 @@ fn uncovered_properties_excludes_covered_ones() {
     let kg = build_kg(
         vec![("req", SignalRole::Input), ("ack", SignalRole::Output)],
         vec![("handshake", "safety", "G(req -> ack)")],
-        vec![("req", "ack", KgRelation::Triggers, Some("handshake".to_string()))],
+        vec![(
+            "req",
+            "ack",
+            KgRelation::Triggers,
+            Some("handshake".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string()]);
-    assert!(!cov.uncovered_properties.contains(&"handshake".to_string()),
+    assert!(
+        !cov.uncovered_properties.contains(&"handshake".to_string()),
         "Property 'handshake' with covered edge endpoints MUST NOT be in uncovered list.\n\
-         Got: {:?}", cov.uncovered_properties);
+         Got: {:?}",
+        cov.uncovered_properties
+    );
 }
 
 #[test]
@@ -93,13 +121,22 @@ fn full_coverage_produces_ratio_1() {
     let kg = build_kg(
         vec![("req", SignalRole::Input), ("ack", SignalRole::Output)],
         vec![("handshake", "safety", "G(req -> ack)")],
-        vec![("req", "ack", KgRelation::Triggers, Some("handshake".to_string()))],
+        vec![(
+            "req",
+            "ack",
+            KgRelation::Triggers,
+            Some("handshake".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string()]);
-    assert_eq!(cov.signal_coverage, 1.0,
-        "All signals covered -> signal_coverage must be 1.0");
-    assert_eq!(cov.edge_coverage, 1.0,
-        "All edge endpoints covered -> edge_coverage must be 1.0");
+    assert_eq!(
+        cov.signal_coverage, 1.0,
+        "All signals covered -> signal_coverage must be 1.0"
+    );
+    assert_eq!(
+        cov.edge_coverage, 1.0,
+        "All edge endpoints covered -> edge_coverage must be 1.0"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -109,18 +146,33 @@ fn full_coverage_produces_ratio_1() {
 #[test]
 fn zero_coverage_no_signals_covered() {
     let kg = build_kg(
-        vec![("req", SignalRole::Input), ("ack", SignalRole::Output), ("data", SignalRole::Internal)],
+        vec![
+            ("req", SignalRole::Input),
+            ("ack", SignalRole::Output),
+            ("data", SignalRole::Internal),
+        ],
         vec![("handshake", "safety", "G(req -> ack)")],
         vec![
-            ("req", "ack", KgRelation::Triggers, Some("handshake".to_string())),
+            (
+                "req",
+                "ack",
+                KgRelation::Triggers,
+                Some("handshake".to_string()),
+            ),
             ("data", "ack", KgRelation::Temporal, None),
         ],
     );
     let cov = compute_coverage(&kg, &[]);
     assert_eq!(cov.signal_coverage, 0.0, "No covered signals -> 0.0");
     assert_eq!(cov.edge_coverage, 0.0, "No covered signals -> 0.0 edge");
-    assert_eq!(cov.property_coverage, 0.0, "No covered signals -> 0.0 property");
-    assert_eq!(cov.temporal_coverage, 0.0, "No covered signals -> 0.0 temporal");
+    assert_eq!(
+        cov.property_coverage, 0.0,
+        "No covered signals -> 0.0 property"
+    );
+    assert_eq!(
+        cov.temporal_coverage, 0.0,
+        "No covered signals -> 0.0 temporal"
+    );
 }
 
 #[test]
@@ -131,8 +183,14 @@ fn empty_kg_zero_coverage() {
     assert_eq!(cov.edge_coverage, 0.0);
     assert_eq!(cov.property_coverage, 0.0);
     assert_eq!(cov.temporal_coverage, 0.0);
-    assert!(cov.uncovered_signals.is_empty(), "Empty KG has no signals to be uncovered");
-    assert!(cov.uncovered_properties.is_empty(), "Empty KG has no properties to be uncovered");
+    assert!(
+        cov.uncovered_signals.is_empty(),
+        "Empty KG has no signals to be uncovered"
+    );
+    assert!(
+        cov.uncovered_properties.is_empty(),
+        "Empty KG has no properties to be uncovered"
+    );
 }
 
 #[test]
@@ -171,20 +229,45 @@ fn multiple_properties_mixed_coverage() {
             ("reset_check", "safety", "G(rst -> ready)"),
         ],
         vec![
-            ("req", "ack", KgRelation::Triggers, Some("handshake".to_string())),
-            ("data_in", "data_out", KgRelation::Temporal, Some("data_integrity".to_string())),
-            ("rst", "ready", KgRelation::Triggers, Some("reset_check".to_string())),
+            (
+                "req",
+                "ack",
+                KgRelation::Triggers,
+                Some("handshake".to_string()),
+            ),
+            (
+                "data_in",
+                "data_out",
+                KgRelation::Temporal,
+                Some("data_integrity".to_string()),
+            ),
+            (
+                "rst",
+                "ready",
+                KgRelation::Triggers,
+                Some("reset_check".to_string()),
+            ),
         ],
     );
     let cov = compute_coverage(
         &kg,
-        &["req".to_string(), "ack".to_string(), "data_in".to_string(), "data_out".to_string()],
+        &[
+            "req".to_string(),
+            "ack".to_string(),
+            "data_in".to_string(),
+            "data_out".to_string(),
+        ],
     );
     let expected = 2.0 / 3.0;
-    assert!((cov.property_coverage - expected).abs() < 0.01,
-        "2/3 properties covered -> ~0.667, got {}", cov.property_coverage);
+    assert!(
+        (cov.property_coverage - expected).abs() < 0.01,
+        "2/3 properties covered -> ~0.667, got {}",
+        cov.property_coverage
+    );
     assert_eq!(cov.uncovered_properties.len(), 1);
-    assert!(cov.uncovered_properties.contains(&"reset_check".to_string()));
+    assert!(cov
+        .uncovered_properties
+        .contains(&"reset_check".to_string()));
 }
 
 #[test]
@@ -204,18 +287,41 @@ fn temporal_coverage_safety_and_liveness() {
             ("liveness", "liveness", "F(start -> finish)"),
         ],
         vec![
-            ("req", "ack", KgRelation::Triggers, Some("handshake".to_string())),
-            ("grant", "done", KgRelation::Triggers, Some("grant_rule".to_string())),
-            ("start", "finish", KgRelation::Triggers, Some("liveness".to_string())),
+            (
+                "req",
+                "ack",
+                KgRelation::Triggers,
+                Some("handshake".to_string()),
+            ),
+            (
+                "grant",
+                "done",
+                KgRelation::Triggers,
+                Some("grant_rule".to_string()),
+            ),
+            (
+                "start",
+                "finish",
+                KgRelation::Triggers,
+                Some("liveness".to_string()),
+            ),
         ],
     );
     let cov = compute_coverage(
         &kg,
-        &["req".to_string(), "ack".to_string(), "start".to_string(), "finish".to_string()],
+        &[
+            "req".to_string(),
+            "ack".to_string(),
+            "start".to_string(),
+            "finish".to_string(),
+        ],
     );
     let expected = 2.0 / 3.0;
-    assert!((cov.temporal_coverage - expected).abs() < 0.01,
-        "2/3 temporal properties covered -> ~0.667, got {}", cov.temporal_coverage);
+    assert!(
+        (cov.temporal_coverage - expected).abs() < 0.01,
+        "2/3 temporal properties covered -> ~0.667, got {}",
+        cov.temporal_coverage
+    );
 }
 
 #[test]
@@ -223,11 +329,18 @@ fn temporal_coverage_zero_when_no_temporal_properties() {
     let kg = build_kg(
         vec![("a", SignalRole::Internal), ("b", SignalRole::Internal)],
         vec![("structural", "structural", "some_op")],
-        vec![("a", "b", KgRelation::Temporal, Some("structural".to_string()))],
+        vec![(
+            "a",
+            "b",
+            KgRelation::Temporal,
+            Some("structural".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["a".to_string(), "b".to_string()]);
-    assert_eq!(cov.temporal_coverage, 0.0,
-        "Non-safety/liveness properties should not count as temporal");
+    assert_eq!(
+        cov.temporal_coverage, 0.0,
+        "Non-safety/liveness properties should not count as temporal"
+    );
 }
 
 #[test]
@@ -248,10 +361,16 @@ fn edge_coverage_partial_multiple_edges() {
             ("valid", "ready", KgRelation::Triggers, None),
         ],
     );
-    let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string(), "valid".to_string()]);
+    let cov = compute_coverage(
+        &kg,
+        &["req".to_string(), "ack".to_string(), "valid".to_string()],
+    );
     let expected = 1.0 / 3.0;
-    assert!((cov.edge_coverage - expected).abs() < 0.01,
-        "1/3 edges fully covered -> ~0.333, got {}", cov.edge_coverage);
+    assert!(
+        (cov.edge_coverage - expected).abs() < 0.01,
+        "1/3 edges fully covered -> ~0.333, got {}",
+        cov.edge_coverage
+    );
 }
 
 #[test]
@@ -278,11 +397,18 @@ fn uncovered_properties_when_edge_partially_covered() {
     let kg = build_kg(
         vec![("req", SignalRole::Input), ("ack", SignalRole::Output)],
         vec![("handshake", "safety", "G(req -> ack)")],
-        vec![("req", "ack", KgRelation::Triggers, Some("handshake".to_string()))],
+        vec![(
+            "req",
+            "ack",
+            KgRelation::Triggers,
+            Some("handshake".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["req".to_string()]);
-    assert!(cov.uncovered_properties.contains(&"handshake".to_string()),
-        "Property with only one endpoint covered should be uncovered");
+    assert!(
+        cov.uncovered_properties.contains(&"handshake".to_string()),
+        "Property with only one endpoint covered should be uncovered"
+    );
 }
 
 #[test]
@@ -302,7 +428,12 @@ fn json_serialization_round_trip() {
     let kg = build_kg(
         vec![("req", SignalRole::Input), ("ack", SignalRole::Output)],
         vec![("handshake", "safety", "G(req -> ack)")],
-        vec![("req", "ack", KgRelation::Triggers, Some("handshake".to_string()))],
+        vec![(
+            "req",
+            "ack",
+            KgRelation::Triggers,
+            Some("handshake".to_string()),
+        )],
     );
     let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string()]);
     let json = serde_json::to_string(&cov).expect("Should serialize");
@@ -323,8 +454,14 @@ fn coverage_with_duplicate_covered_signals() {
         vec![],
         vec![("req", "ack", KgRelation::Triggers, None)],
     );
-    let cov = compute_coverage(&kg, &["req".to_string(), "req".to_string(), "ack".to_string()]);
-    assert_eq!(cov.signal_coverage, 1.0, "Duplicates should not cause double-counting");
+    let cov = compute_coverage(
+        &kg,
+        &["req".to_string(), "req".to_string(), "ack".to_string()],
+    );
+    assert_eq!(
+        cov.signal_coverage, 1.0,
+        "Duplicates should not cause double-counting"
+    );
     assert_eq!(cov.edge_coverage, 1.0);
 }
 
@@ -335,19 +472,30 @@ fn signal_not_in_kg_ignored() {
         vec![],
         vec![],
     );
-    let cov = compute_coverage(&kg, &["req".to_string(), "ack".to_string(), "phantom".to_string()]);
-    assert_eq!(cov.signal_coverage, 1.0, "Extra covered name not in KG should be ignored");
+    let cov = compute_coverage(
+        &kg,
+        &["req".to_string(), "ack".to_string(), "phantom".to_string()],
+    );
+    assert_eq!(
+        cov.signal_coverage, 1.0,
+        "Extra covered name not in KG should be ignored"
+    );
 }
 
 #[test]
 fn large_kg_coverage_correct() {
     let kg = build_kg(
         vec![
-            ("s0", SignalRole::Input), ("s1", SignalRole::Output),
-            ("s2", SignalRole::Internal), ("s3", SignalRole::Input),
-            ("s4", SignalRole::Output), ("s5", SignalRole::Internal),
-            ("s6", SignalRole::Input), ("s7", SignalRole::Output),
-            ("s8", SignalRole::Internal), ("s9", SignalRole::Clock),
+            ("s0", SignalRole::Input),
+            ("s1", SignalRole::Output),
+            ("s2", SignalRole::Internal),
+            ("s3", SignalRole::Input),
+            ("s4", SignalRole::Output),
+            ("s5", SignalRole::Internal),
+            ("s6", SignalRole::Input),
+            ("s7", SignalRole::Output),
+            ("s8", SignalRole::Internal),
+            ("s9", SignalRole::Clock),
         ],
         vec![
             ("p0", "safety", "G(s0 -> s1)"),

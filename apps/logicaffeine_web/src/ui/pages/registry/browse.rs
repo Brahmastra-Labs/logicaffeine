@@ -16,14 +16,17 @@
 //!
 //! Accessed via [`Route::Registry`].
 
+use crate::ui::components::footer::Footer;
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::router::Route;
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, webpage_schema, BreadcrumbItem,
+    JsonLdMultiple, PageHead,
+};
+use crate::ui::state::{GitHubUser, RegistryAuthState, RegistryPackage};
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::router::Route;
-use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, webpage_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -386,8 +389,14 @@ pub fn Registry(
     };
 
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Registry", path: "/registry" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "Registry",
+            path: "/registry",
+        },
     ];
     let schemas = vec![
         organization_schema(),
@@ -549,10 +558,7 @@ async fn fetch_packages(search: Option<&str>) -> Result<Vec<RegistryPackage>, St
             _ => format!("{}/packages", REGISTRY_API_URL),
         };
 
-        let response = Request::get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let response = Request::get(&url).send().await.map_err(|e| e.to_string())?;
 
         if !response.ok() {
             return Err("Failed to fetch packages".to_string());

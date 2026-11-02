@@ -1,4 +1,4 @@
-//! Phase 132 — §2.1 Non-constituent coordination / gapping (work/MISSING_ENGLISH.md).
+//! Phase 132 — Non-constituent coordination / gapping.
 //!
 //! A second conjunct that is not a constituent shares the verb AND the subject of
 //! the first via a gap:
@@ -13,15 +13,30 @@ fn gapped_ditransitive_reconstructs_verb_and_agent() {
     let out = compile("John gave Mary a book and Sue a pen.").unwrap();
     eprintln!("gapping: {out}");
     // Two giving events.
-    assert!(out.matches("Give").count() >= 2, "two Give events (gap reconstructed): {out}");
+    assert!(
+        out.matches("Give").count() >= 2,
+        "two Give events (gap reconstructed): {out}"
+    );
     // First conjunct: Mary + book.
-    assert!(out.contains("Mary") && out.contains("Book"), "first conjunct roles: {out}");
+    assert!(
+        out.contains("Mary") && out.contains("Book"),
+        "first conjunct roles: {out}"
+    );
     // Second conjunct: Sue is the Recipient and pen the Theme.
-    assert!(out.contains("Recipient(e, Sue)"), "Sue is the recipient in the gapped conjunct: {out}");
+    assert!(
+        out.contains("Recipient(e, Sue)"),
+        "Sue is the recipient in the gapped conjunct: {out}"
+    );
     assert!(out.contains("Pen"), "pen is the theme: {out}");
     // The agent John is shared into BOTH conjuncts (not Sue).
-    assert!(out.matches("Agent(e, John)").count() >= 2, "agent John reconstructed in both: {out}");
-    assert!(!out.contains("Agent(e, Sue)"), "Sue is not the agent: {out}");
+    assert!(
+        out.matches("Agent(e, John)").count() >= 2,
+        "agent John reconstructed in both: {out}"
+    );
+    assert!(
+        !out.contains("Agent(e, Sue)"),
+        "Sue is not the agent: {out}"
+    );
 }
 
 #[test]
@@ -36,7 +51,10 @@ fn lone_remnant_is_object_coordination_not_new_agent() {
         "Mary must not become the agent: {out}"
     );
     assert!(out.contains("Theme(e, Mary)"), "Mary is a theme: {out}");
-    assert!(out.contains("Theme(e, John)"), "the reflexive theme stays: {out}");
+    assert!(
+        out.contains("Theme(e, John)"),
+        "the reflexive theme stays: {out}"
+    );
 }
 
 #[test]
@@ -45,7 +63,10 @@ fn quantified_subject_keeps_possessive_object() {
     // "Each student saw his dog." — the possessive object must survive.
     let out = compile("Each student saw his dog.").unwrap();
     eprintln!("quant-poss-obj: {out}");
-    assert!(out.contains("Theme"), "the object must not be dropped: {out}");
+    assert!(
+        out.contains("Theme"),
+        "the object must not be dropped: {out}"
+    );
     assert!(out.contains("Dog"), "the dog: {out}");
 }
 

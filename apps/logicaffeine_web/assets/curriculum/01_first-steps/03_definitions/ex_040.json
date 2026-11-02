@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Chair?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+  "hint": "Can you think of something that fits this definition but is not a chair?",
+  "explanation": "You sit on benches, sofas and floors, which are not chairs.",
+  "section": "3.2"
 }

@@ -1,0 +1,27 @@
+{
+  "capability": "math.mod_inverse",
+  "arg": "2000000",
+  "timing_n": "6426227",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 282.187,
+    "c": 329.157,
+    "rust": 264.724,
+    "go": 372.294
+  },
+  "wall_ms": {
+    "logos": 285.656,
+    "c": 331.72,
+    "rust": 268.1,
+    "go": 376.174
+  },
+  "logos_ms": 282.187,
+  "speedups_vs_logos": {
+    "c": 1.166,
+    "rust": 0.938,
+    "go": 1.319
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.938
+}

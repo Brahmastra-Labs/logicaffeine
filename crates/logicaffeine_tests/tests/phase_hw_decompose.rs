@@ -50,7 +50,10 @@ fn deep_nesting_flattens() {
 fn preserves_signal_refs() {
     let expr = VerifyExpr::and(
         VerifyExpr::implies(VerifyExpr::var("req"), VerifyExpr::var("ack")),
-        VerifyExpr::not(VerifyExpr::and(VerifyExpr::var("ga"), VerifyExpr::var("gb"))),
+        VerifyExpr::not(VerifyExpr::and(
+            VerifyExpr::var("ga"),
+            VerifyExpr::var("gb"),
+        )),
     );
     let parts = decompose_conjunctive(&expr);
     assert_eq!(parts.len(), 2);
@@ -75,8 +78,10 @@ fn z3_conjunction_sound() {
     let q = VerifyExpr::var("Q@0");
     let original = VerifyExpr::and(p, q);
     let parts = decompose_conjunctive(&original);
-    assert!(verify_decomposition_sound(&original, &parts, 1),
-        "Decomposing And(P, Q) into [P, Q] must be provably sound");
+    assert!(
+        verify_decomposition_sound(&original, &parts, 1),
+        "Decomposing And(P, Q) into [P, Q] must be provably sound"
+    );
 }
 
 #[test]
@@ -85,8 +90,10 @@ fn z3_disjunction_unsound() {
     let q = VerifyExpr::var("Q@0");
     let original = VerifyExpr::or(p.clone(), q.clone());
     let bogus_parts = vec![p, q];
-    assert!(!verify_decomposition_sound(&original, &bogus_parts, 1),
-        "Splitting Or(P, Q) into And(P, Q) must NOT be sound");
+    assert!(
+        !verify_decomposition_sound(&original, &bogus_parts, 1),
+        "Splitting Or(P, Q) into And(P, Q) must NOT be sound"
+    );
 }
 
 #[test]
@@ -97,6 +104,8 @@ fn z3_deep_conjunction_sound() {
     }
     let parts = decompose_conjunctive(&expr);
     assert_eq!(parts.len(), 4);
-    assert!(verify_decomposition_sound(&expr, &parts, 1),
-        "4-level deep conjunction decomposition must be provably sound");
+    assert!(
+        verify_decomposition_sound(&expr, &parts, 1),
+        "4-level deep conjunction decomposition must be provably sound"
+    );
 }

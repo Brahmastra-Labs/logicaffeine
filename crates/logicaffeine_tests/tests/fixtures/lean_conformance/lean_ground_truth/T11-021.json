@@ -1,0 +1,160 @@
+{
+  "case": "T11-021",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 20,
+  "declarations": [
+    {
+      "type": "(Nat \u2192 Prop) \u2192 Prop",
+      "name": "T11_021.always",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat \u2192 Prop) \u2192 (Nat \u2192 Prop) \u2192 Nat \u2192 Prop",
+      "name": "T11_021.box",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Prop) \u2192 Prop",
+      "name": "T11_021.eventually",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (acc : Nat \u2192 Nat \u2192 Prop) (P : Nat \u2192 Prop) (w0 w1 : Nat), T11_021.box acc P w0 \u2192 acc w0 w1 \u2192 P w1",
+      "name": "T11_021.modalElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (acc : Nat \u2192 Nat \u2192 Prop) (P : Nat \u2192 Prop) (w0 : Nat), (\u2200 (v : Nat), acc w0 v \u2192 P v) \u2192 T11_021.box acc P w0",
+      "name": "T11_021.modalIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), P \u2192 Q \u2192 P \u2227 Q",
+      "name": "T11_021.plainAndIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), (P \u2192 Q) \u2192 P \u2192 Q",
+      "name": "T11_021.plainModusPonens",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_021.eventually fun n => T11_021.state n = 4",
+      "name": "T11_021.progress",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T11_021.safe",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_021.safe n = (T11_021.state n % 2 = 0)",
+      "name": "T11_021.safe.eq_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_021.safe n",
+      "name": "T11_021.safeAlways",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T11_021.state",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_021.state 0 = 0",
+      "name": "T11_021.state.eq_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_021.state n.succ = T11_021.state n + 2",
+      "name": "T11_021.state.eq_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((n : Nat) \u2192 motive n.succ) \u2192 motive x",
+      "name": "T11_021.state.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (t1 t2 t3 : Nat), t1 < t2 \u2192 t2 < t3 \u2192 t1 < t3",
+      "name": "T11_021.timeTrans",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), T11_021.always P \u2192 P 0 \u2227 T11_021.always fun n => P (n + 1)",
+      "name": "T11_021.unfoldAlways",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Prop) \u2192 (Nat \u2192 Prop) \u2192 Prop",
+      "name": "T11_021.until'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_021.until' (fun n => T11_021.state n < 4) fun n => T11_021.state n = 4",
+      "name": "T11_021.untilHolds",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (motive : (j : Nat) \u2192 j < 2 \u2192 Prop) (j : Nat) (hj : j < 2),\n  (\u2200 (x : 0 < 2), motive 0 x) \u2192 (\u2200 (x : 1 < 2), motive 1 x) \u2192 motive j hj",
+      "name": "T11_021.untilHolds.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

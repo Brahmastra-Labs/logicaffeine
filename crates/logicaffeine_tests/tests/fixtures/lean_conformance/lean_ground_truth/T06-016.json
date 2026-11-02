@@ -1,0 +1,198 @@
+{
+  "case": "T06-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 23,
+  "declarations": [
+    {
+      "type": "Type \u2192 Nat \u2192 Type",
+      "name": "T06_016.Vect",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Sort u} \u2192 {a : Nat} \u2192 T06_016.Vect \u03b1 a \u2192 Sort (max 1 u)",
+      "name": "T06_016.Vect.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Prop} {a : Nat} (t : T06_016.Vect \u03b1 a),\n  (\u2200 (a : Nat) (t : T06_016.Vect \u03b1 a), T06_016.Vect.ibelow t \u2192 motive a t) \u2192 motive a t",
+      "name": "T06_016.Vect.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T06_016.Vect \u03b1 a) \u2192 ((a : Nat) \u2192 (t : T06_016.Vect \u03b1 a) \u2192 T06_016.Vect.below t \u2192 motive a t) \u2192 motive a t",
+      "name": "T06_016.Vect.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T06_016.Vect \u03b1 a) \u2192\n        motive 0 T06_016.Vect.nil \u2192\n          ((a : \u03b1) \u2192 {n : Nat} \u2192 (a_1 : T06_016.Vect \u03b1 n) \u2192 motive (n + 1) (T06_016.Vect.cons a a_1)) \u2192 motive a t",
+      "name": "T06_016.Vect.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 {n : Nat} \u2192 T06_016.Vect \u03b1 n \u2192 T06_016.Vect \u03b1 (n + 1)",
+      "name": "T06_016.Vect.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {n : Nat} {a_1 : T06_016.Vect \u03b1 n} {a_2 : \u03b1} {a_3 : T06_016.Vect \u03b1 n},\n  T06_016.Vect.cons a a_1 = T06_016.Vect.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T06_016.Vect.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1) {n : Nat} (a_1 : T06_016.Vect \u03b1 n) (a_2 : \u03b1) (a_3 : T06_016.Vect \u03b1 n),\n  (T06_016.Vect.cons a a_1 = T06_016.Vect.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T06_016.Vect.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1) {n : Nat} (a_1 : T06_016.Vect \u03b1 n),\n  sizeOf (T06_016.Vect.cons a a_1) = 1 + sizeOf a + sizeOf n + sizeOf a_1",
+      "name": "T06_016.Vect.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Prop} \u2192 {a : Nat} \u2192 T06_016.Vect \u03b1 a \u2192 Prop",
+      "name": "T06_016.Vect.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T06_016.Vect \u03b1 0",
+      "name": "T06_016.Vect.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T06_016.Vect.nil = 1",
+      "name": "T06_016.Vect.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T06_016.Vect \u03b1 a} \u2192 v1 = v2 \u2192 T06_016.Vect.noConfusionType P v1 v2",
+      "name": "T06_016.Vect.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 Sort u \u2192 T06_016.Vect \u03b1 a \u2192 T06_016.Vect \u03b1 a \u2192 Sort u",
+      "name": "T06_016.Vect.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Sort u} \u2192\n    motive 0 T06_016.Vect.nil \u2192\n      ((a : \u03b1) \u2192 {n : Nat} \u2192 (a_1 : T06_016.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T06_016.Vect.cons a a_1)) \u2192\n        {a : Nat} \u2192 (t : T06_016.Vect \u03b1 a) \u2192 motive a t",
+      "name": "T06_016.Vect.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T06_016.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T06_016.Vect \u03b1 a) \u2192\n        motive 0 T06_016.Vect.nil \u2192\n          ((a : \u03b1) \u2192 {n : Nat} \u2192 (a_1 : T06_016.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T06_016.Vect.cons a a_1)) \u2192\n            motive a t",
+      "name": "T06_016.Vect.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat) (h : n = m) (v : Fin n), HEq v (h \u25b8 v)",
+      "name": "T06_016.acrossTypes",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} {a b : \u03b1}, HEq a b \u2192 a = b",
+      "name": "T06_016.fromHEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} (a : \u03b1), HEq a a",
+      "name": "T06_016.heqRefl",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 \u03b3 : Sort u} {a : \u03b1} {b : \u03b2} {c : \u03b3}, HEq a b \u2192 HEq b c \u2192 HEq a c",
+      "name": "T06_016.heqTrans",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (n : Nat) (v : T06_016.Vect \u03b1 (n + 1)), \u2203 a w, v = T06_016.Vect.cons a w",
+      "name": "T06_016.implicitHEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} {a b : \u03b1}, a = b \u2192 HEq a b",
+      "name": "T06_016.toHEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (n m : Nat) (h : n = m) (v : T06_016.Vect \u03b1 n), HEq v (h \u25b8 v)",
+      "name": "T06_016.vectHEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

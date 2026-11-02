@@ -1,0 +1,12 @@
+{
+  "capability": "math.ldexp",
+  "workload": "math.ldexp",
+  "arg": "1000000",
+  "expected": "51150308888451",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

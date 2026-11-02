@@ -1,20 +1,22 @@
 use std::collections::HashMap;
 
 use logicaffeine_base::{Arena, Interner};
-use logicaffeine_compile::analysis::{
-    EscapeChecker, OwnershipChecker, VarState,
-};
+use logicaffeine_compile::analysis::{EscapeChecker, OwnershipChecker, VarState};
 use logicaffeine_language::{
-    analysis::{DiscoveryPass, TypeRegistry, PolicyRegistry},
+    analysis::{DiscoveryPass, PolicyRegistry, TypeRegistry},
     arena_ctx::AstContext,
-    ast::stmt::{Stmt, Expr, TypeExpr},
+    ast::stmt::{Expr, Stmt, StmtId, TypeExpr},
     drs::WorldState,
     error::ParseError,
     lexer::Lexer,
     mwe,
-    parser::Parser,
-    token::{Token, BlockType, Span, TokenType},
+    parser::{NestedStmtSpans, Parser},
+    token::{BlockType, Span, Token, TokenType},
 };
+
+use logicaffeine_compile::vm::compiler::Refusal;
+use logicaffeine_language::lgx::check::Finding;
+use logicaffeine_language::lint::Finding as CopyFinding;
 
 use crate::index::SymbolIndex;
 
@@ -29,7 +31,8 @@ pub struct AnalysisError {
     pub code: &'static str,
     /// Optional cause context for related information
     pub cause_context: Option<String>,
-    /// The erring statement's span (from `Parser::stmt_spans`), when known.
+    /// The erring statement's span — the innermost statement at fault, nested
+    /// ones included — when known.
     pub use_span: Option<Span>,
     /// The causing statement's span (the Give that moved it), when known.
     pub cause_span: Option<Span>,
@@ -46,13 +49,74 @@ pub struct AnalysisResult {
     pub ownership_errors: Vec<AnalysisError>,
     pub ownership_states: HashMap<String, VarState>,
     pub symbol_index: SymbolIndex,
+    /// The LGX template checker's findings — accessibility and structure warnings on a `View:` —
+    /// at their spans in the file.
+    pub lgx_findings: Vec<Finding>,
+    /// The value-semantics copy lint's findings, at their spans in the file — see
+    /// `logicaffeine_language::lint`.
+    pub copy_findings: Vec<CopyFinding>,
+    /// Every refusal the browser build of this program meets, each at the construct it refuses.
+    /// Whole-program: computed from a full parse only, since whether a `## Route` or a mounted
+    /// component lowers depends on the declarations beside it.
+    pub refusals: Vec<Refusal>,
 }
 
 /// Run the full analysis pipeline: lex → MWE → discover → parse → index.
 ///
 /// Uses block-level error recovery: if the full parse fails, splits source
 /// at `## BlockHeader` boundaries and parses each block independently.
+/// Blank the `private` header modifier — replace `private ` with spaces in a
+/// `## To … private …` / `## A[n] private …` header so the parser (which has no
+/// notion of privacy) names the definition by its REAL name instead of naming it
+/// `private`, and so a private definition raises no spurious diagnostic. Byte
+/// length is preserved, so every span the analysis reports still lines up with
+/// the original document.
+fn blank_privacy_markers(source: &str) -> String {
+    const BLANK: &str = "        "; // "private " is 8 bytes
+    let mut out = String::with_capacity(source.len());
+    for line in source.split_inclusive('\n') {
+        match privacy_marker_offset(line) {
+            Some(at) => {
+                out.push_str(&line[..at]);
+                out.push_str(BLANK);
+                out.push_str(&line[at + BLANK.len()..]);
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// Byte offset of a `private ` modifier within a header line, when it sits in a
+/// real modifier position (`## To [native] private …`, `## A[n] private …`).
+/// `None` for prose, a `private` inside a name, or a string.
+fn privacy_marker_offset(line: &str) -> Option<usize> {
+    let indent = line.len() - line.trim_start().len();
+    let t = &line[indent..];
+    if let Some(rest) = t.strip_prefix("## To ") {
+        let mut pos = indent + "## To ".len();
+        let rest = match rest.strip_prefix("native ") {
+            Some(r) => {
+                pos += "native ".len();
+                r
+            }
+            None => rest,
+        };
+        return rest.starts_with("private ").then_some(pos);
+    }
+    for prefix in ["## A ", "## An "] {
+        if let Some(rest) = t.strip_prefix(prefix) {
+            if rest.starts_with("private ") {
+                return Some(indent + prefix.len());
+            }
+        }
+    }
+    None
+}
+
 pub fn analyze(source: &str) -> AnalysisResult {
+    let blanked = blank_privacy_markers(source);
+    let source = blanked.as_str();
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
@@ -69,23 +133,38 @@ pub fn analyze(source: &str) -> AnalysisResult {
     let parse_tokens = tokens.clone();
 
     // Try full parse first (optimistic fast path)
-    let (errors, symbol_index, escape_errors, ownership_errors, ownership_states) = match try_full_parse(
-        parse_tokens.clone(),
-        &type_registry,
-        &mut interner,
-    ) {
+    let (
+        errors,
+        symbol_index,
+        escape_errors,
+        ownership_errors,
+        ownership_states,
+        lgx_findings,
+        copy_findings,
+        refusals,
+    ) = match try_full_parse(parse_tokens.clone(), &type_registry, &mut interner) {
         Ok(result) => {
-            let idx = SymbolIndex::build(&result.owned_stmts, &tokens, &type_registry, result.interner, source);
-            (result.type_errors, idx, result.escape_errors, result.ownership_errors, result.ownership_states)
+            let idx = SymbolIndex::build(
+                &result.owned_stmts,
+                &tokens,
+                &type_registry,
+                result.interner,
+                source,
+            );
+            (
+                result.type_errors,
+                idx,
+                result.escape_errors,
+                result.ownership_errors,
+                result.ownership_states,
+                result.lgx_findings,
+                result.copy_findings,
+                result.refusals,
+            )
         }
         Err(first_error) => {
             // Fall through to block-level recovery
-            let mut recovery = parse_with_recovery(
-                source,
-                &tokens,
-                &type_registry,
-                &mut interner,
-            );
+            let mut recovery = parse_with_recovery(source, &tokens, &type_registry, &mut interner);
 
             // Extract function definitions from block header tokens (the standard
             // parser cannot handle `## To funcName with param: Type` blocks)
@@ -100,7 +179,10 @@ pub fn analyze(source: &str) -> AnalysisResult {
             // anchor differently within the sentence, so lines, not spans,
             // are the join).
             let line_of = |offset: usize| {
-                source[..offset.min(source.len())].bytes().filter(|&b| b == b'\n').count()
+                source[..offset.min(source.len())]
+                    .bytes()
+                    .filter(|&b| b == b'\n')
+                    .count()
             };
             let first_error_line = line_of(first_error.span.start);
             let same_line = recovery
@@ -109,18 +191,27 @@ pub fn analyze(source: &str) -> AnalysisResult {
                 .find(|e| line_of(e.span.start) == first_error_line);
             if let Some(slot) = same_line {
                 *slot = first_error;
-            } else if recovery.parse_errors.is_empty() {
-                // Only report the first_error if it didn't originate from a
-                // function definition block that the parser can't handle
-                let has_function_blocks = tokens.iter().any(|t| {
-                    matches!(t.kind, TokenType::BlockHeader { block_type: BlockType::Function })
-                });
-                if !has_function_blocks {
-                    recovery.parse_errors.push(first_error);
-                }
+            } else {
+                // The full parse read the whole program — function bodies
+                // included, which the per-block recovery does not reparse — so
+                // its error stands whatever the recovery found elsewhere.
+                let at = recovery
+                    .parse_errors
+                    .partition_point(|e| e.span.start <= first_error.span.start);
+                recovery.parse_errors.insert(at, first_error);
             }
-            let idx = SymbolIndex::build(&recovery.stmts, &tokens, &type_registry, &interner, source);
-            (recovery.parse_errors, idx, recovery.escape_errors, recovery.ownership_errors, recovery.ownership_states)
+            let idx =
+                SymbolIndex::build(&recovery.stmts, &tokens, &type_registry, &interner, source);
+            (
+                recovery.parse_errors,
+                idx,
+                recovery.escape_errors,
+                recovery.ownership_errors,
+                recovery.ownership_states,
+                recovery.lgx_findings,
+                recovery.copy_findings,
+                Vec::new(),
+            )
         }
     };
 
@@ -134,6 +225,9 @@ pub fn analyze(source: &str) -> AnalysisResult {
         ownership_errors,
         ownership_states,
         symbol_index,
+        lgx_findings,
+        copy_findings,
+        refusals,
     }
 }
 
@@ -146,6 +240,9 @@ struct FullParseResult<'a> {
     escape_errors: Vec<AnalysisError>,
     ownership_errors: Vec<AnalysisError>,
     ownership_states: HashMap<String, VarState>,
+    lgx_findings: Vec<Finding>,
+    copy_findings: Vec<CopyFinding>,
+    refusals: Vec<Refusal>,
 }
 
 /// Attempt a full parse of the token stream.
@@ -177,18 +274,32 @@ fn try_full_parse<'a>(
     );
 
     let mut world_state = WorldState::new();
-    let mut parser = Parser::new(tokens, &mut world_state, interner, ctx, type_registry.clone());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        interner,
+        ctx,
+        type_registry.clone(),
+    );
     let stmts = parser.parse_program()?;
     let stmt_spans = parser.stmt_spans().to_vec();
+    let nested_spans = parser.nested_stmt_spans().clone();
+    let lgx_findings = parser.lgx_findings().to_vec();
+    let copy_findings = parser.value_copy_findings().to_vec();
+    let type_registry = parser.into_type_registry();
+
+    // The browser build's own refusals — the same list the bytecode compiler stops at the first
+    // of — located in THIS file: the editor parses without the stdlib prelude, so a span here is
+    // already a file offset.
+    let refusals =
+        logicaffeine_compile::vm::compiler::lgx_refusals(&stmts, interner, Some(&type_registry));
 
     // Typecheck while the arena AST is alive; every failing top-level
-    // statement reports, anchored on its span from the parser's side-table.
+    // statement reports, anchored on the innermost statement at fault — a
+    // nested one through its trail, else the top-level statement itself.
     let type_errors = {
-        let (_env, indexed) = logicaffeine_compile::analysis::check_program_collect(
-            &stmts,
-            interner,
-            type_registry,
-        );
+        let (_env, indexed) =
+            logicaffeine_compile::analysis::check_program_collect(&stmts, interner, &type_registry);
         indexed
             .into_iter()
             .map(|found| {
@@ -201,93 +312,26 @@ fn try_full_parse<'a>(
                     ..
                 } = &mut kind
                 {
-                    *available = fields_of_type(type_registry, type_name, interner);
+                    *available = fields_of_type(&type_registry, type_name, interner);
                 }
                 ParseError {
                     kind,
-                    span: found
-                        .stmt_index
-                        .and_then(|i| stmt_spans.get(i))
-                        .copied()
-                        .unwrap_or_default(),
+                    span: statement_span(
+                        &found.trail,
+                        found.stmt_index,
+                        &stmt_spans,
+                        &nested_spans,
+                    )
+                    .unwrap_or_default(),
                 }
             })
             .collect()
     };
 
-    // Run escape analysis while arena-allocated AST is still alive
-    let escape_errors = {
-        let mut checker = EscapeChecker::new(interner);
-        checker
-            .check_program_collect(&stmts)
-            .into_iter()
-            .map(|(stmt_index, e)| {
-                let (code, cause_context) = match &e.kind {
-                    logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { zone_name, .. } => {
-                        ("escape-return", Some(format!("zone '{}'", zone_name)))
-                    }
-                    logicaffeine_compile::analysis::EscapeErrorKind::AssignmentEscape { target, zone_name, .. } => {
-                        ("escape-assignment", Some(format!("zone '{}', target '{}'", zone_name, target)))
-                    }
-                };
-                let variable = match &e.kind {
-                    logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { variable, .. } => variable.clone(),
-                    logicaffeine_compile::analysis::EscapeErrorKind::AssignmentEscape { variable, .. } => variable.clone(),
-                };
-                AnalysisError {
-                    message: e.to_string(),
-                    variable,
-                    code,
-                    cause_context,
-                    use_span: stmt_spans.get(stmt_index).copied(),
-                    cause_span: None,
-                }
-            })
-            .collect()
-    };
-
-    // Run ownership analysis while arena-allocated AST is still alive
-    let (ownership_errors, ownership_states) = {
-        let mut checker = OwnershipChecker::new(interner);
-        let errors = checker
-            .check_program_collect(&stmts)
-            .into_iter()
-            .map(|finding| {
-                let e = &finding.error;
-                let (code, variable, cause_context) = match &e.kind {
-                    logicaffeine_compile::analysis::OwnershipErrorKind::UseAfterMove { variable } => {
-                        ("use-after-move", variable.clone(), Some(format!("'{}' was given away here", variable)))
-                    }
-                    logicaffeine_compile::analysis::OwnershipErrorKind::UseAfterMaybeMove { variable, branch } => {
-                        ("maybe-moved", variable.clone(), Some(format!("'{}' might be given away in {}", variable, branch)))
-                    }
-                    logicaffeine_compile::analysis::OwnershipErrorKind::DoubleMoved { variable } => {
-                        ("double-move", variable.clone(), Some(format!("'{}' was first given away here", variable)))
-                    }
-                };
-                AnalysisError {
-                    message: e.to_string(),
-                    variable,
-                    code,
-                    cause_context,
-                    use_span: stmt_spans.get(finding.stmt_index).copied(),
-                    cause_span: finding
-                        .cause_stmt_index
-                        .and_then(|i| stmt_spans.get(i))
-                        .copied(),
-                }
-            })
-            .collect();
-
-        // Extract ownership states, resolving symbols to strings
-        let states: HashMap<String, VarState> = checker
-            .var_states()
-            .iter()
-            .map(|(sym, state)| (interner.resolve(*sym).to_string(), *state))
-            .collect();
-
-        (errors, states)
-    };
+    // Escape and ownership analysis while the arena AST is still alive.
+    let escape_errors = escape_findings(&stmts, interner, &stmt_spans, &nested_spans);
+    let (ownership_errors, ownership_states) =
+        ownership_findings(&stmts, interner, &stmt_spans, &nested_spans);
 
     // Convert arena-allocated stmts to owned summaries for the symbol index
     let owned = stmts.iter().map(|s| summarize_stmt(s, interner)).collect();
@@ -298,7 +342,137 @@ fn try_full_parse<'a>(
         escape_errors,
         ownership_errors,
         ownership_states,
+        lgx_findings,
+        copy_findings,
+        refusals,
     })
+}
+
+/// Where a finding lands: the innermost statement of its trail that the parser
+/// read (a nested one, through `Parser::nested_stmt_spans`), else its
+/// top-level statement (through `Parser::stmt_spans`).
+fn statement_span(
+    trail: &[StmtId],
+    stmt_index: Option<usize>,
+    stmt_spans: &[Span],
+    nested_spans: &NestedStmtSpans,
+) -> Option<Span> {
+    trail
+        .iter()
+        .find_map(|id| nested_spans.get(*id))
+        .or_else(|| stmt_index.and_then(|i| stmt_spans.get(i)).copied())
+}
+
+/// Every escape finding in `stmts`, anchored on the statement at fault.
+fn escape_findings(
+    stmts: &[Stmt<'_>],
+    interner: &Interner,
+    stmt_spans: &[Span],
+    nested_spans: &NestedStmtSpans,
+) -> Vec<AnalysisError> {
+    use logicaffeine_compile::analysis::EscapeErrorKind;
+    EscapeChecker::new(interner)
+        .check_program_collect(stmts)
+        .into_iter()
+        .map(|finding| {
+            let (code, variable, cause_context) = match &finding.error.kind {
+                EscapeErrorKind::ReturnEscape {
+                    variable,
+                    zone_name,
+                } => (
+                    "escape-return",
+                    variable.clone(),
+                    Some(format!("zone '{}'", zone_name)),
+                ),
+                EscapeErrorKind::AssignmentEscape {
+                    variable,
+                    target,
+                    zone_name,
+                } => (
+                    "escape-assignment",
+                    variable.clone(),
+                    Some(format!("zone '{}', target '{}'", zone_name, target)),
+                ),
+            };
+            AnalysisError {
+                message: finding.error.to_string(),
+                variable,
+                code,
+                cause_context,
+                use_span: statement_span(
+                    &finding.trail,
+                    Some(finding.stmt_index),
+                    stmt_spans,
+                    nested_spans,
+                ),
+                cause_span: None,
+            }
+        })
+        .collect()
+}
+
+/// Every ownership finding in `stmts`, anchored on the use at fault and linked
+/// to the statement that gave the value away, plus the variable states the
+/// checker ended with.
+fn ownership_findings(
+    stmts: &[Stmt<'_>],
+    interner: &Interner,
+    stmt_spans: &[Span],
+    nested_spans: &NestedStmtSpans,
+) -> (Vec<AnalysisError>, HashMap<String, VarState>) {
+    use logicaffeine_compile::analysis::OwnershipErrorKind;
+    let mut checker = OwnershipChecker::new(interner);
+    let errors = checker
+        .check_program_collect(stmts)
+        .into_iter()
+        .map(|finding| {
+            let (code, variable, cause_context) = match &finding.error.kind {
+                OwnershipErrorKind::UseAfterMove { variable } => (
+                    "use-after-move",
+                    variable.clone(),
+                    Some(format!("'{}' was given away here", variable)),
+                ),
+                OwnershipErrorKind::UseAfterMaybeMove { variable, given_in } => (
+                    "maybe-moved",
+                    variable.clone(),
+                    Some(format!(
+                        "'{}' might be given away in {}",
+                        variable, given_in
+                    )),
+                ),
+                OwnershipErrorKind::DoubleMoved { variable } => (
+                    "double-move",
+                    variable.clone(),
+                    Some(format!("'{}' was first given away here", variable)),
+                ),
+            };
+            let cause_trail: Vec<StmtId> = finding.cause.into_iter().collect();
+            AnalysisError {
+                message: finding.error.to_string(),
+                variable,
+                code,
+                cause_context,
+                use_span: statement_span(
+                    &finding.trail,
+                    Some(finding.stmt_index),
+                    stmt_spans,
+                    nested_spans,
+                ),
+                cause_span: statement_span(
+                    &cause_trail,
+                    finding.cause_stmt_index,
+                    stmt_spans,
+                    nested_spans,
+                ),
+            }
+        })
+        .collect();
+    let states = checker
+        .var_states()
+        .iter()
+        .map(|(sym, state)| (interner.resolve(*sym).to_string(), *state))
+        .collect();
+    (errors, states)
 }
 
 /// The field names a struct type declares, for did-you-mean and message text.
@@ -342,17 +516,113 @@ pub enum OwnedStmt {
         name: String,
         kind: String,
     },
+    /// `## Component App` — its heading, its state, its props and its actions.
+    ///
+    /// ★ IT CARRIES ITS OWN SPANS, unlike every variant above, which hands the indexer a NAME and
+    /// lets it hunt the token stream for a match. That works for a `To …` heading and stops working
+    /// here: a `View:` body is ONE `RawBlock` token, so a name used only in a template is not in
+    /// the token stream at all — and a name that appears both in `State:` and in the view would be
+    /// matched by position rather than by meaning. The parser already resolved all of this (a
+    /// `StateField`, an `ActionDef` and the `ComponentDef` each carry a `Span`, and template spans
+    /// are mapped back to FILE offsets by `RawMap`), so the answer is carried rather than re-guessed.
+    ComponentDef {
+        name: String,
+        /// What the heading says it is — "component", "page", "store", "error page".
+        kind: String,
+        name_span: Span,
+        /// `(name, type-or-inferred, derived?, span)`.
+        state: Vec<(String, Option<String>, bool, Span)>,
+        props: Vec<(String, String, Span)>,
+        actions: Vec<(String, Vec<(String, String)>, Span)>,
+        /// Every identifier the `View:` mentions, at its span in the FILE — the references a
+        /// token walk cannot see, because the whole template is one `RawBlock` token.
+        mentions: Vec<(String, Span)>,
+    },
     Other,
 }
 
 fn summarize_stmt(stmt: &Stmt, interner: &Interner) -> OwnedStmt {
     match stmt {
-        Stmt::FunctionDef { name, params, return_type, .. } => OwnedStmt::FunctionDef {
+        Stmt::ComponentDef(def) => {
+            use logicaffeine_language::ast::component::ComponentKind;
+            OwnedStmt::ComponentDef {
+                name: interner.resolve(def.name).to_string(),
+                kind: match &def.kind {
+                    ComponentKind::Component => "component",
+                    ComponentKind::Page { .. } => "page",
+                    _ => "component",
+                }
+                .to_string(),
+                name_span: def.span,
+                state: def
+                    .state
+                    .iter()
+                    .map(|f| {
+                        (
+                            interner.resolve(f.name).to_string(),
+                            f.ty.map(|t| format_type_expr(t, interner))
+                                .or_else(|| infer_type_from_expr(f.init, interner)),
+                            f.derived,
+                            f.span,
+                        )
+                    })
+                    .collect(),
+                props: def
+                    .props
+                    .iter()
+                    .map(|(n, t)| {
+                        (
+                            interner.resolve(*n).to_string(),
+                            format_type_expr(t, interner),
+                            def.span,
+                        )
+                    })
+                    .collect(),
+                mentions: def
+                    .view
+                    .as_ref()
+                    .map(|v| {
+                        v.mentions
+                            .iter()
+                            .map(|(n, sp)| (interner.resolve(*n).to_string(), *sp))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                actions: def
+                    .actions
+                    .iter()
+                    .map(|a| {
+                        (
+                            interner.resolve(a.name).to_string(),
+                            a.params
+                                .iter()
+                                .map(|(n, t)| {
+                                    (
+                                        interner.resolve(*n).to_string(),
+                                        format_type_expr(t, interner),
+                                    )
+                                })
+                                .collect(),
+                            a.span,
+                        )
+                    })
+                    .collect(),
+            }
+        }
+        Stmt::FunctionDef {
+            name,
+            params,
+            return_type,
+            ..
+        } => OwnedStmt::FunctionDef {
             name: interner.resolve(*name).to_string(),
             params: params
                 .iter()
                 .map(|(n, ty)| {
-                    (interner.resolve(*n).to_string(), format_type_expr(ty, interner))
+                    (
+                        interner.resolve(*n).to_string(),
+                        format_type_expr(ty, interner),
+                    )
                 })
                 .collect(),
             return_type: return_type.map(|ty| format_type_expr(ty, interner)),
@@ -362,11 +632,20 @@ fn summarize_stmt(stmt: &Stmt, interner: &Interner) -> OwnedStmt {
             fields: fields
                 .iter()
                 .map(|(n, ty, _is_public)| {
-                    (interner.resolve(*n).to_string(), interner.resolve(*ty).to_string())
+                    (
+                        interner.resolve(*n).to_string(),
+                        interner.resolve(*ty).to_string(),
+                    )
                 })
                 .collect(),
         },
-        Stmt::Let { var, ty, mutable, value, .. } => {
+        Stmt::Let {
+            var,
+            ty,
+            mutable,
+            value,
+            ..
+        } => {
             let explicit_ty = ty.map(|t| format_type_expr(t, interner));
             let inferred_type = if explicit_ty.is_none() {
                 infer_type_from_expr(value, interner)
@@ -418,11 +697,17 @@ fn format_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
         TypeExpr::Named(sym) => interner.resolve(*sym).to_string(),
         TypeExpr::Generic { base, params } => {
             let base_name = interner.resolve(*base);
-            let param_strs: Vec<String> = params.iter().map(|p| format_type_expr(p, interner)).collect();
+            let param_strs: Vec<String> = params
+                .iter()
+                .map(|p| format_type_expr(p, interner))
+                .collect();
             format!("{} of {}", base_name, param_strs.join(", "))
         }
         TypeExpr::Function { inputs, output } => {
-            let input_strs: Vec<String> = inputs.iter().map(|i| format_type_expr(i, interner)).collect();
+            let input_strs: Vec<String> = inputs
+                .iter()
+                .map(|i| format_type_expr(i, interner))
+                .collect();
             let out = format_type_expr(output, interner);
             format!("({}) -> {}", input_strs.join(", "), out)
         }
@@ -435,6 +720,30 @@ fn format_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
         TypeExpr::Mutable { inner } => {
             format!("mutable {}", format_type_expr(inner, interner))
         }
+        TypeExpr::Tuple(elems) => {
+            let parts: Vec<String> = elems
+                .iter()
+                .map(|t| format_type_expr(t, interner))
+                .collect();
+            format!("({})", parts.join(", "))
+        }
+        TypeExpr::Record {
+            field_names,
+            field_types,
+        } => {
+            let parts: Vec<String> = field_names
+                .iter()
+                .zip(field_types.iter())
+                .map(|(n, t)| {
+                    format!(
+                        "{}: {}",
+                        interner.resolve(*n),
+                        format_type_expr(t, interner)
+                    )
+                })
+                .collect();
+            format!("({})", parts.join(", "))
+        }
     }
 }
 
@@ -445,6 +754,8 @@ struct RecoveryResult {
     escape_errors: Vec<AnalysisError>,
     ownership_errors: Vec<AnalysisError>,
     ownership_states: HashMap<String, VarState>,
+    lgx_findings: Vec<Finding>,
+    copy_findings: Vec<CopyFinding>,
 }
 
 /// Parse with block-level recovery.
@@ -465,6 +776,8 @@ fn parse_with_recovery(
         escape_errors: vec![],
         ownership_errors: vec![],
         ownership_states: HashMap::new(),
+        lgx_findings: vec![],
+        copy_findings: vec![],
     };
 
     // Find block header positions in the token stream
@@ -478,7 +791,12 @@ fn parse_with_recovery(
     if block_boundaries.len() <= 1 {
         // Single block — check if it's a function block (handled elsewhere)
         let is_function_block = tokens.first().map_or(false, |t| {
-            matches!(t.kind, TokenType::BlockHeader { block_type: BlockType::Function })
+            matches!(
+                t.kind,
+                TokenType::BlockHeader {
+                    block_type: BlockType::Function
+                }
+            )
         });
         if is_function_block {
             return result;
@@ -493,13 +811,20 @@ fn parse_with_recovery(
             result.escape_errors = block.escape_errors;
             result.ownership_errors = block.ownership_errors;
             result.ownership_states = block.ownership_states;
+            result.lgx_findings = block.lgx_findings;
+            result.copy_findings = block.copy_findings;
         }
         return result;
     }
 
     let mut try_block_fn = |start: usize, end_excl: usize, result: &mut RecoveryResult| {
         // Skip function blocks — they can't be parsed by the standard parser
-        if matches!(tokens[start].kind, TokenType::BlockHeader { block_type: BlockType::Function }) {
+        if matches!(
+            tokens[start].kind,
+            TokenType::BlockHeader {
+                block_type: BlockType::Function
+            }
+        ) {
             return;
         }
         let block_tokens: Vec<Token> = tokens[start..end_excl].to_vec();
@@ -511,6 +836,8 @@ fn parse_with_recovery(
             result.escape_errors.extend(block.escape_errors);
             result.ownership_errors.extend(block.ownership_errors);
             result.ownership_states.extend(block.ownership_states);
+            result.lgx_findings.extend(block.lgx_findings);
+            result.copy_findings.extend(block.copy_findings);
         }
     };
 
@@ -531,15 +858,15 @@ fn parse_with_recovery(
 ///
 /// The standard parser cannot handle function definition blocks, so we extract
 /// function name and parameters directly from the token stream.
-fn extract_function_defs_from_tokens(
-    tokens: &[Token],
-    interner: &Interner,
-) -> Vec<OwnedStmt> {
+fn extract_function_defs_from_tokens(tokens: &[Token], interner: &Interner) -> Vec<OwnedStmt> {
     let mut results = Vec::new();
     let mut i = 0;
 
     while i < tokens.len() {
-        if let TokenType::BlockHeader { block_type: BlockType::Function } = &tokens[i].kind {
+        if let TokenType::BlockHeader {
+            block_type: BlockType::Function,
+        } = &tokens[i].kind
+        {
             let mut j = i + 1;
             let mut func_name: Option<String> = None;
             let mut params: Vec<(String, String)> = Vec::new();
@@ -561,8 +888,7 @@ fn extract_function_defs_from_tokens(
                                         | TokenType::Indent
                                         | TokenType::BlockHeader { .. }
                                         | TokenType::Colon
-                                )
-                            {
+                                ) {
                                 interner.resolve(tokens[j].lexeme).to_string()
                             } else {
                                 "auto".to_string()
@@ -624,225 +950,8 @@ fn extract_function_defs_from_tokens(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn recovery_keeps_the_full_parses_specific_error() {
-        // The full parse diagnosed IsValueEquality for `x is 5.`; the
-        // per-sentence reparse only sees the excised sentence and degrades
-        // it to a generic ExpectedStatement. The specific teaching must win.
-        let result = analyze("## Main\nLet x be 5.\nx is 5.\n");
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| matches!(e.kind, logicaffeine_language::error::ParseErrorKind::IsValueEquality { .. })),
-            "the specific IsValueEquality must survive recovery: {:?}",
-            result.errors
-        );
-    }
-
-    #[test]
-    fn recovered_function_defs_keep_parenthesized_params() {
-        // A theorem block sends the document down the recovery path, where
-        // function definitions come from token extraction — which must read
-        // the parenthesized `(n: Int)` form, not just the `with n: Int` prose.
-        let result = analyze(
-            "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nLet x be double(3).\n\n## Theorem: Socrates\nGiven: All men are mortal. Socrates is a man.\nProve: Socrates is mortal.\nProof: Auto.\n",
-        );
-        let defs = result.symbol_index.definitions_of("double");
-        assert!(
-            defs.iter()
-                .any(|d| d.detail.as_deref() == Some("To double(n: Int) -> Int")),
-            "the recovered signature must keep its parameter: {:?}",
-            defs.iter().map(|d| d.detail.clone()).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn analyze_simple_let() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(result.errors.is_empty(), "Expected no errors, got: {:?}", result.errors);
-        assert!(!result.tokens.is_empty());
-        let defs: Vec<_> = result.symbol_index.definitions.iter()
-            .filter(|d| d.name == "x")
-            .collect();
-        assert!(!defs.is_empty(), "Expected definition for 'x'");
-        assert_eq!(defs[0].kind, crate::index::DefinitionKind::Variable);
-    }
-
-    #[test]
-    fn analyze_multiple_lets() {
-        let result = analyze("## Main\n    Let x be 5.\n    Let y be 10.\n");
-        assert!(result.errors.is_empty(), "Expected no errors, got: {:?}", result.errors);
-        let x_defs = result.symbol_index.definitions_of("x");
-        let y_defs = result.symbol_index.definitions_of("y");
-        assert_eq!(x_defs.len(), 1);
-        assert_eq!(y_defs.len(), 1);
-    }
-
-    #[test]
-    fn analyze_empty_source() {
-        let result = analyze("");
-        assert!(result.tokens.is_empty() || result.errors.is_empty(),
-            "Empty source should not crash");
-    }
-
-    #[test]
-    fn analyze_produces_tokens() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(result.tokens.len() >= 3, "Expected at least block header + Let + x tokens");
-    }
-
-    #[test]
-    fn analyze_syntax_error_produces_diagnostics() {
-        let result = analyze("## Main\n    Let be.\n");
-        assert!(!result.errors.is_empty(), "Expected parse errors for invalid syntax");
-    }
-
-    #[test]
-    fn analyze_function_def() {
-        let source = "## Main\n    Let x be 5.\n    Let y be x + 1.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Expected no errors, got: {:?}", result.errors);
-        let x_defs = result.symbol_index.definitions_of("x");
-        let y_defs = result.symbol_index.definitions_of("y");
-        assert_eq!(x_defs.len(), 1, "Expected 1 def for 'x'");
-        assert_eq!(y_defs.len(), 1, "Expected 1 def for 'y'");
-        assert!(y_defs[0].detail.as_ref().unwrap().contains("Let"),
-            "y detail should mention Let: {:?}", y_defs[0].detail);
-    }
-
-    #[test]
-    fn analyze_indexes_references() {
-        let result = analyze("## Main\n    Let x be 5.\n    Show x.\n");
-        assert!(result.errors.is_empty(), "Expected no errors, got: {:?}", result.errors);
-        let refs = result.symbol_index.references_to("x");
-        assert!(refs.len() >= 1, "Expected at least one reference to 'x', got {}", refs.len());
-    }
-
-    #[test]
-    fn analyze_block_headers_indexed() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(!result.symbol_index.block_spans.is_empty(),
-            "Expected block spans to be indexed");
-    }
-
-    #[test]
-    fn analyze_statement_spans_indexed() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(result.errors.is_empty(), "Expected no errors, got: {:?}", result.errors);
-        assert!(!result.symbol_index.statement_spans.is_empty(),
-            "Expected statement spans to be indexed");
-    }
-
-    #[test]
-    fn analyze_single_block_with_error_still_reports() {
-        // Single block with a parse error should still produce diagnostics,
-        // not silently return empty
-        let result = analyze("## Main\n    Let be.\n");
-        assert!(
-            !result.errors.is_empty(),
-            "Single block with error should still report errors"
-        );
-    }
-
-    #[test]
-    fn analyze_function_def_summarized() {
-        let source = "## To greet (name: Text) -> Text:\n    Return name.\n";
-        let result = analyze(source);
-        let defs = result.symbol_index.definitions_of("greet");
-        let func_defs: Vec<_> = defs.iter()
-            .filter(|d| d.kind == crate::index::DefinitionKind::Function)
-            .collect();
-        if !func_defs.is_empty() {
-            let detail = func_defs[0].detail.as_ref().unwrap();
-            assert!(detail.contains("greet"), "Detail should contain function name: {}", detail);
-            assert!(detail.contains("name"), "Detail should contain param name: {}", detail);
-        }
-    }
-
-    #[test]
-    fn analyze_generic_type_in_detail() {
-        let source = "## Main\n    Let items: Seq of Int be an empty list.\n";
-        let result = analyze(source);
-        let defs = result.symbol_index.definitions_of("items");
-        if !defs.is_empty() {
-            if let Some(detail) = &defs[0].detail {
-                assert!(detail.contains("Seq") || detail.contains("Int"),
-                    "Detail should mention Seq or Int: {}", detail);
-            }
-        }
-    }
-
-    #[test]
-    fn analyze_block_recovery_preserves_good_block() {
-        let source = "## Main\n    Let be.\n## Note: readme\n    Just a note.\n";
-        let result = analyze(source);
-        assert!(result.symbol_index.block_spans.len() >= 1,
-            "Block spans should have at least 1 entry even with errors");
-    }
-
-    #[test]
-    fn analyze_single_block_error_does_not_swallow() {
-        // Even with only one block header, error recovery should attempt to parse it
-        let result = analyze("## Main\n    Let x be 5.\n    Let be.\n");
-        // The good statement should still be indexed even if an error occurs
-        assert!(
-            !result.errors.is_empty() || !result.symbol_index.definitions_of("x").is_empty(),
-            "Should either report errors or still index the valid statement"
-        );
-    }
-
-    #[test]
-    fn analyze_use_after_move_produces_ownership_error() {
-        // Give x to y moves x. Using x afterward should produce an ownership error
-        // (from the OwnershipChecker) or a UseAfterMove parse error (from the parser).
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n";
-        let result = analyze(source);
-        let has_parse_move_error = result.errors.iter()
-            .any(|e| matches!(e.kind, logicaffeine_language::error::ParseErrorKind::UseAfterMove { .. }));
-        let has_ownership_error = !result.ownership_errors.is_empty();
-        assert!(
-            has_parse_move_error || has_ownership_error,
-            "Expected ownership error for use-after-move, got none. Parse errors: {:?}, Ownership errors: {:?}",
-            result.errors, result.ownership_errors
-        );
-    }
-
-    #[test]
-    fn analyze_clean_code_no_analysis_errors() {
-        let source = "## Main\n    Let x be 5.\n    Show x.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Expected no parse errors: {:?}", result.errors);
-        assert!(result.escape_errors.is_empty(), "Expected no escape errors: {:?}", result.escape_errors);
-        assert!(result.ownership_errors.is_empty(), "Expected no ownership errors: {:?}", result.ownership_errors);
-    }
-
-    #[test]
-    fn analyze_ownership_states_populated() {
-        let source = "## Main\n    Let x be 5.\n    Show x.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Expected no parse errors: {:?}", result.errors);
-        assert!(
-            !result.ownership_states.is_empty(),
-            "Expected ownership states for variables"
-        );
-        let x_state = result.ownership_states.get("x");
-        assert!(x_state.is_some(), "Expected state for 'x', got keys: {:?}", result.ownership_states.keys().collect::<Vec<_>>());
-    }
-
-    #[test]
-    fn analyze_moved_variable_has_moved_state() {
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n";
-        let result = analyze(source);
-        // After Give, x should be Moved (even though there's a use-after-move error)
-        if let Some(state) = result.ownership_states.get("x") {
-            assert_eq!(*state, VarState::Moved, "x should be Moved after Give");
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/pipeline/tests.rs"]
+mod tests;
 
 /// Result of parsing a single recovered block, including analysis errors.
 /// Parse a block, excising broken SENTENCES one at a time so every
@@ -882,9 +991,9 @@ fn parse_block_excising_bad_sentences(
                 errors.push(e);
                 match sentence {
                     Some((start, end)) => {
-                        let cuts_structure = block_tokens[start..=end].iter().any(|t| {
-                            matches!(t.kind, TokenType::Indent | TokenType::Dedent)
-                        });
+                        let cuts_structure = block_tokens[start..=end]
+                            .iter()
+                            .any(|t| matches!(t.kind, TokenType::Indent | TokenType::Dedent));
                         if cuts_structure {
                             return (None, errors);
                         }
@@ -935,6 +1044,8 @@ struct BlockParseResult {
     escape_errors: Vec<AnalysisError>,
     ownership_errors: Vec<AnalysisError>,
     ownership_states: HashMap<String, VarState>,
+    lgx_findings: Vec<Finding>,
+    copy_findings: Vec<CopyFinding>,
 }
 
 fn try_parse_block(
@@ -965,58 +1076,37 @@ fn try_parse_block(
     );
 
     let mut world_state = WorldState::new();
-    let mut parser = Parser::new(tokens, &mut world_state, interner, ctx, type_registry.clone());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        interner,
+        ctx,
+        type_registry.clone(),
+    );
+    // A per-block recovery reparse sees only this block's own statements — the whole-file checks
+    // `parse_program` otherwise runs at its end (`Mount` names something real, a page mounts
+    // itself, LGX resolution) would report false refusals for names the REST of the file declares.
+    // `fragment_mode` skips exactly those four; see its own doc comment for what a fragment still
+    // does NOT get (cross-block LGX checks stay absent, not wrong, until the next whole-file parse).
+    parser.fragment_mode = true;
     let stmts = parser.parse_program()?;
+    let stmt_spans = parser.stmt_spans().to_vec();
+    let nested_spans = parser.nested_stmt_spans().clone();
+    let lgx_findings = parser.lgx_findings().to_vec();
+    let copy_findings = parser.value_copy_findings().to_vec();
+    drop(parser);
 
-    let escape_errors = {
-        let mut checker = EscapeChecker::new(interner);
-        match checker.check_program(&stmts) {
-            Ok(()) => vec![],
-            Err(e) => {
-                let (code, cause_context) = match &e.kind {
-                    logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { zone_name, .. } => {
-                        ("escape-return", Some(format!("zone '{}'", zone_name)))
-                    }
-                    logicaffeine_compile::analysis::EscapeErrorKind::AssignmentEscape { target, zone_name, .. } => {
-                        ("escape-assignment", Some(format!("zone '{}', target '{}'", zone_name, target)))
-                    }
-                };
-                let variable = match &e.kind {
-                    logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { variable, .. } => variable.clone(),
-                    logicaffeine_compile::analysis::EscapeErrorKind::AssignmentEscape { variable, .. } => variable.clone(),
-                };
-                vec![AnalysisError { message: e.to_string(), variable, code, cause_context, use_span: None, cause_span: None }]
-            }
-        }
-    };
-
-    let (ownership_errors, ownership_states) = {
-        let mut checker = OwnershipChecker::new(interner);
-        let errors = match checker.check_program(&stmts) {
-            Ok(()) => vec![],
-            Err(e) => {
-                let (code, variable, cause_context) = match &e.kind {
-                    logicaffeine_compile::analysis::OwnershipErrorKind::UseAfterMove { variable } => {
-                        ("use-after-move", variable.clone(), Some(format!("'{}' was given away here", variable)))
-                    }
-                    logicaffeine_compile::analysis::OwnershipErrorKind::UseAfterMaybeMove { variable, branch } => {
-                        ("maybe-moved", variable.clone(), Some(format!("'{}' might be given away in {}", variable, branch)))
-                    }
-                    logicaffeine_compile::analysis::OwnershipErrorKind::DoubleMoved { variable } => {
-                        ("double-move", variable.clone(), Some(format!("'{}' was first given away here", variable)))
-                    }
-                };
-                vec![AnalysisError { message: e.to_string(), variable, code, cause_context, use_span: None, cause_span: None }]
-            }
-        };
-        let states: HashMap<String, VarState> = checker
-            .var_states()
-            .iter()
-            .map(|(sym, state)| (interner.resolve(*sym).to_string(), *state))
-            .collect();
-        (errors, states)
-    };
+    let escape_errors = escape_findings(&stmts, interner, &stmt_spans, &nested_spans);
+    let (ownership_errors, ownership_states) =
+        ownership_findings(&stmts, interner, &stmt_spans, &nested_spans);
 
     let owned: Vec<OwnedStmt> = stmts.iter().map(|s| summarize_stmt(s, interner)).collect();
-    Ok(BlockParseResult { owned_stmts: owned, escape_errors, ownership_errors, ownership_states })
+    Ok(BlockParseResult {
+        owned_stmts: owned,
+        escape_errors,
+        ownership_errors,
+        ownership_states,
+        lgx_findings,
+        copy_findings,
+    })
 }

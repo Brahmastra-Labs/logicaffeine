@@ -1,0 +1,10 @@
+{
+  "capability": "json.parse",
+  "arg": "8000",
+  "expected": "15175120",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

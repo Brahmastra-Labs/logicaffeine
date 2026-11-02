@@ -1,0 +1,10 @@
+{
+  "capability": "math.cmp",
+  "workload": "cmpInt(i, n-i)",
+  "arg": "3000000",
+  "expected": "1",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

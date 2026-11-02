@@ -1,0 +1,30 @@
+{
+  "capability": "math.sin",
+  "arg": "1000000",
+  "timing_n": "37826347",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 83.513,
+    "c": 218.177,
+    "rust": 256.112,
+    "go": 167.923,
+    "python": 3709.575
+  },
+  "wall_ms": {
+    "logos": 83.974,
+    "c": 218.539,
+    "rust": 256.581,
+    "go": 192.744,
+    "python": 3850.573
+  },
+  "logos_ms": 83.513,
+  "speedups_vs_logos": {
+    "c": 2.612,
+    "rust": 3.067,
+    "go": 2.011,
+    "python": 44.419
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 2.011
+}

@@ -3,9 +3,11 @@
 //! Tests that Kripke-lowered FOL is correctly translated to bounded timestep
 //! model using compile_kripke_with() and FolTranslator.
 
-use logicaffeine_language::compile_kripke_with;
 use logicaffeine_compile::codegen_sva::fol_to_verify::FolTranslator;
-use logicaffeine_compile::codegen_sva::sva_to_verify::{BoundedExpr, count_and_leaves, count_or_leaves};
+use logicaffeine_compile::codegen_sva::sva_to_verify::{
+    count_and_leaves, count_or_leaves, BoundedExpr,
+};
+use logicaffeine_language::compile_kripke_with;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BASIC: compile_kripke_with gives us the AST
@@ -16,7 +18,11 @@ fn compile_kripke_with_returns_ast() {
     let result = compile_kripke_with("Every dog runs.", |_ast, _interner| {
         true // just verify callback fires
     });
-    assert!(result.is_ok(), "compile_kripke_with should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "compile_kripke_with should succeed: {:?}",
+        result.err()
+    );
     assert!(result.unwrap());
 }
 
@@ -33,7 +39,8 @@ fn fol_always_translates_to_conjunction() {
         let mut translator = FolTranslator::new(interner, 3);
         let bounded = translator.translate(ast);
         bounded
-    }).unwrap();
+    })
+    .unwrap();
 
     // Should produce a conjunction (And chain) with multiple timestep entries
     let leaf_count = count_and_leaves(&result);
@@ -53,7 +60,8 @@ fn fol_eventually_translates_to_disjunction() {
         let mut translator = FolTranslator::new(interner, 3);
         let bounded = translator.translate(ast);
         bounded
-    }).unwrap();
+    })
+    .unwrap();
 
     let leaf_count = count_or_leaves(&result);
     assert!(
@@ -71,10 +79,15 @@ fn fol_next_translates_to_bounded() {
         let mut translator = FolTranslator::new(interner, 5);
         let bounded = translator.translate(ast);
         bounded
-    }).unwrap();
+    })
+    .unwrap();
 
     // Should not be trivially True
-    assert_ne!(result, BoundedExpr::Bool(true), "X(P) should produce non-trivial bounded expr");
+    assert_ne!(
+        result,
+        BoundedExpr::Bool(true),
+        "X(P) should produce non-trivial bounded expr"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -88,7 +101,8 @@ fn fol_translation_produces_bounded_expr() {
         let mut translator = FolTranslator::new(interner, 3);
         let result = translator.translate_property(ast);
         (format!("{:?}", result.expr), result.declarations)
-    }).unwrap();
+    })
+    .unwrap();
 
     // The bounded expr should contain And (from G unrolling) or Var references
     assert!(
@@ -109,7 +123,8 @@ fn fol_non_temporal_is_preserved() {
         let mut translator = FolTranslator::new(interner, 3);
         let bounded = translator.translate(ast);
         bounded
-    }).unwrap();
+    })
+    .unwrap();
 
     // Non-temporal should produce something (not just Bool(true) for everything)
     // At minimum the quantifier and predicate should survive

@@ -1,0 +1,36 @@
+{
+  "case": "T12-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 3,
+  "declarations": [
+    {
+      "type": "\u2200 (n m : Nat), n + m = m + n",
+      "name": "T12_005.addComm'",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), P 0 \u2192 (\u2200 (k : Nat), P k \u2192 P (k + 1)) \u2192 \u2200 (n : Nat), P n",
+      "name": "T12_005.allP",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (xs : List \u03b1), (xs ++ []).length = xs.length",
+      "name": "T12_005.lengthAppendNil",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

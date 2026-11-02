@@ -1,0 +1,10 @@
+{
+  "capability": "math.cmp_abs",
+  "workload": "cmpAbsInt(i-n/2, 1e6)",
+  "arg": "3000000",
+  "expected": "-1000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

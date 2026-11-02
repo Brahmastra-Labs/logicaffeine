@@ -14,7 +14,10 @@ use logicaffeine_kernel::interface::Repl;
 fn test_dinduction_type() {
     let mut repl = Repl::new();
     let result = repl.execute("Check DInduction.").expect("Check DInduction");
-    assert_eq!(result, "DInduction : Syntax -> Derivation -> Derivation -> Derivation");
+    assert_eq!(
+        result,
+        "DInduction : Syntax -> Derivation -> Derivation -> Derivation"
+    );
 }
 
 #[test]
@@ -82,19 +85,25 @@ fn test_concludes_dinduction_returns_forall() {
     // Step proof: ∀k. Eq Nat k k → Eq Nat (Succ k) (Succ k)
     // For this simple reflexivity case, we need a proper step proof
     // Step formula: Forall Nat (λk. Implies (Eq Nat k k) (Eq Nat (Succ k) (Succ k)))
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition step_body : Syntax :=
             SApp (SApp (SName "Implies")
                 (SApp (SApp (SApp (SName "Eq") (SName "Nat")) (SVar 0)) (SVar 0)))
                 (SApp (SApp (SApp (SName "Eq") (SName "Nat"))
                     (SApp (SName "Succ") (SVar 0)))
                     (SApp (SName "Succ") (SVar 0))).
-    "#).expect("Define step_body");
+    "#,
+    )
+    .expect("Define step_body");
 
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition step_formula : Syntax :=
             SApp (SApp (SName "Forall") (SName "Nat")) (SLam (SName "Nat") step_body).
-    "#).expect("Define step_formula");
+    "#,
+    )
+    .expect("Define step_formula");
 
     // Use axiom for step (in real use, would construct proper proof)
     repl.execute("Definition step : Derivation := DAxiom step_formula.")
@@ -111,7 +120,11 @@ fn test_concludes_dinduction_returns_forall() {
     let result = repl.execute("Eval result.").expect("Eval result");
 
     // Should contain Forall and Nat
-    assert!(result.contains("Forall"), "Should contain Forall: {}", result);
+    assert!(
+        result.contains("Forall"),
+        "Should contain Forall: {}",
+        result
+    );
     assert!(result.contains("Nat"), "Should contain Nat: {}", result);
 }
 
@@ -139,7 +152,10 @@ fn test_dinduction_wrong_base_returns_error() {
         .expect("Define ind_proof");
 
     let result = repl.execute("Eval (concludes ind_proof).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "Should return error for wrong base case");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "Should return error for wrong base case"
+    );
 }
 
 #[test]
@@ -162,7 +178,10 @@ fn test_dinduction_wrong_step_returns_error() {
         .expect("Define ind_proof");
 
     let result = repl.execute("Eval (concludes ind_proof).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "Should return error for wrong step case");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "Should return error for wrong step case"
+    );
 }
 
 // =============================================================================
@@ -173,7 +192,8 @@ fn test_dinduction_wrong_step_returns_error() {
 fn test_dinduction_type_error_motive() {
     let mut repl = Repl::new();
     // DInduction expects Syntax for motive, not Int
-    let result = repl.execute("Check (DInduction 42 (DAxiom (SName \"x\")) (DAxiom (SName \"y\"))).");
+    let result =
+        repl.execute("Check (DInduction 42 (DAxiom (SName \"x\")) (DAxiom (SName \"y\"))).");
     assert!(result.is_err(), "Should reject Int where Syntax expected");
 }
 
@@ -181,8 +201,13 @@ fn test_dinduction_type_error_motive() {
 fn test_dinduction_type_error_base() {
     let mut repl = Repl::new();
     // DInduction expects Derivation for base, not Syntax
-    let result = repl.execute("Check (DInduction (SName \"motive\") (SName \"not_derivation\") (DAxiom (SName \"y\"))).");
-    assert!(result.is_err(), "Should reject Syntax where Derivation expected");
+    let result = repl.execute(
+        "Check (DInduction (SName \"motive\") (SName \"not_derivation\") (DAxiom (SName \"y\"))).",
+    );
+    assert!(
+        result.is_err(),
+        "Should reject Syntax where Derivation expected"
+    );
 }
 
 #[test]
@@ -190,7 +215,10 @@ fn test_dinduction_type_error_step() {
     let mut repl = Repl::new();
     // DInduction expects Derivation for step, not Int
     let result = repl.execute("Check (DInduction (SName \"motive\") (DAxiom (SName \"x\")) 42).");
-    assert!(result.is_err(), "Should reject Int where Derivation expected");
+    assert!(
+        result.is_err(),
+        "Should reject Int where Derivation expected"
+    );
 }
 
 // =============================================================================
@@ -247,7 +275,8 @@ fn test_manual_induction_proof_n_equals_n() {
 
     // Step case: ∀k:Nat. Eq Nat k k → Eq Nat (Succ k) (Succ k)
     // Build the step formula explicitly
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition step_formula : Syntax :=
             SApp (SApp (SName "Forall") (SName "Nat"))
                 (SLam (SName "Nat")
@@ -256,7 +285,9 @@ fn test_manual_induction_proof_n_equals_n() {
                         (SApp (SApp (SApp (SName "Eq") (SName "Nat"))
                             (SApp (SName "Succ") (SVar 0)))
                             (SApp (SName "Succ") (SVar 0))))).
-    "#).expect("Define step_formula");
+    "#,
+    )
+    .expect("Define step_formula");
 
     // Step proof (use DAxiom with correct formula for now)
     repl.execute("Definition step_proof : Derivation := DAxiom step_formula.")
@@ -273,7 +304,19 @@ fn test_manual_induction_proof_n_equals_n() {
     let result = repl.execute("Eval conclusion.").expect("Eval");
 
     // The conclusion should be: Forall Nat motive
-    assert!(result.contains("Forall"), "Conclusion should be a Forall: {}", result);
-    assert!(result.contains("Nat"), "Conclusion should mention Nat: {}", result);
-    assert!(result.contains("Eq"), "Conclusion should contain Eq: {}", result);
+    assert!(
+        result.contains("Forall"),
+        "Conclusion should be a Forall: {}",
+        result
+    );
+    assert!(
+        result.contains("Nat"),
+        "Conclusion should mention Nat: {}",
+        result
+    );
+    assert!(
+        result.contains("Eq"),
+        "Conclusion should contain Eq: {}",
+        result
+    );
 }

@@ -5,7 +5,10 @@
   "prompt": "Translate this indefinite:",
   "template": "A {Noun} is {Adjective}.",
   "constraints": {
-    "Adjective": ["Intersective"]
+    "Adjective": [
+      "Intersective"
+    ]
   },
-  "hint": "Indefinite 'a' introduces existential quantification."
+  "hint": "Indefinite 'a' introduces existential quantification.",
+  "section": "8.1"
 }

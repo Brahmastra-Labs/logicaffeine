@@ -6,4 +6,6 @@ n.times do
   arr << ((seed >> 16) & 0x7fff) % 1000
 end
 (1...n).each { |i| arr[i] = (arr[i] + arr[i-1]) % 1000000007 }
-puts arr[-1]
+h = 0
+arr.each { |v| h = (h * 31 + v) & 268435455 }
+puts "#{arr[-1]} #{h}"

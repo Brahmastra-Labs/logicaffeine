@@ -1,0 +1,946 @@
+{
+ "_generated_by": "scripts/qor/run-qor-dram.py (never hand-edited)",
+ "honesty": "Each row is an RTL simulation (Icarus Verilog) of one DDR2 controller carrying the K7 word stream to a behavioural model of the part through an ideal PHY: its bus held to the JEDEC DDR2 rules, every word read back checked, latencies and spans counted in DRAM clocks. Not silicon, not a board.",
+ "provenance": "simulated_iverilog",
+ "rows": [
+  {
+   "bl": 4,
+   "bus_span": 151392,
+   "candidate": "k7_litedram_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 2050,
+    "precharge": 1377,
+    "read": 1024,
+    "refresh": 96,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 128,
+   "excerpt_sha3": {
+    "dram.json": "fedcc9dc5300209f57f91b2436d9c8e769d0b2d6ebb0f6d059b79a6446c75027",
+    "judgement.json": "d544b389c55445aa8f6f40ea96f19dcce4412e9d069c139a4033f9602639c4e4",
+    "sim.txt": "e29e6edbcafc7784ee3595e225c7448d51e3c42f79f1c48b12a6f89f326da03a"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-probe-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-probe-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-probe-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_litedram_ctrl+upstream/probe/1024",
+   "log_lines": 10692,
+   "log_sha3_256": "e92ca17e03a9810ab746a3ff73dd03a14de042ece8089c18aa33c34bc7057e07",
+   "module": "upstream",
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "probe",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 72,
+    "mean": 24.212890625,
+    "min": 12,
+    "n": 1024,
+    "p50": 22,
+    "p99": 56
+   },
+   "read_latency": {
+    "max": 67,
+    "mean": 19.212890625,
+    "min": 7,
+    "n": 1024,
+    "p50": 17,
+    "p99": 51
+   },
+   "read_service": {
+    "max": 82,
+    "mean": 34.212890625,
+    "min": 22,
+    "n": 1024,
+    "p50": 32,
+    "p99": 66
+   },
+   "recorded_at": "2026-10-18T08:23:07Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_litedram_ctrl probe --words 1024 --upstream-module",
+   "requests": 2048,
+   "row_hits": 16,
+   "rtl_sha3_256": "d3ce9d0853f00fdbf2bb4bd63251735b82de29a3b386cca4775c28fdd38024ec",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 151412,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 110,
+    "mean": 22.33984375,
+    "min": 8,
+    "n": 1024,
+    "p50": 20,
+    "p99": 82
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": null,
+   "candidate": "k7_litedram_ctrl",
+   "cl": 3,
+   "commands": null,
+   "data_cycles": null,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "237daff5f46b73be4a7b05945d8c9b45471e51273c55932df8154f330ec5f54d",
+    "judgement.json": "65e0d598211726e2f89640cfb240fe98ad7359200955d4466f96d763a9167837",
+    "sim.txt": "b8ace21a5124c0af893953a64f20d1a36c93369977054844e841a76a398b4d35"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-scattered-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-scattered-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-scattered-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_litedram_ctrl+upstream/scattered/1024",
+   "log_lines": 10841,
+   "log_sha3_256": "86e80c7f2fcf867a0c40aa391ba6fe25e89f08e18343e2d0a027683b9469ee39",
+   "module": "upstream",
+   "part": "MT47H64M16-25",
+   "pass": false,
+   "pattern": "scattered",
+   "payload_cycles": null,
+   "provenance": "simulated_iverilog",
+   "read_bus": null,
+   "read_latency": null,
+   "read_service": null,
+   "recorded_at": "2026-10-18T08:22:53Z",
+   "refusal": "the bus breaks JEDEC DDR2: command 2974 at cycle 20990 breaks tRP: bank 2 is ready at cycle 20991",
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_litedram_ctrl scattered --words 1024 --upstream-module",
+   "requests": null,
+   "row_hits": null,
+   "rtl_sha3_256": "d3ce9d0853f00fdbf2bb4bd63251735b82de29a3b386cca4775c28fdd38024ec",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": null,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": null
+  },
+  {
+   "bl": 4,
+   "bus_span": 4334,
+   "candidate": "k7_litedram_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 10,
+    "precharge": 2,
+    "read": 1024,
+    "refresh": 2,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "64c16a5ed07d0ee1f88a571cbff33d539bb1021b1bddaecfc0604569dbdff1cf",
+    "judgement.json": "8960bdf339726bcab46a45c0790e899411abb14a4478def21b1a0f6cf9569029",
+    "sim.txt": "19611a9c9fb06616153b900f69ddf7c0f61af95a4f5e7cd4ff84d16d770164cf"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-sequential-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-sequential-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl+upstream-sequential-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_litedram_ctrl+upstream/sequential/1024",
+   "log_lines": 7183,
+   "log_sha3_256": "b82c42961de9797f5115bbff5f2f1b6eee62ebe1f6ae9457cd7877856762f07f",
+   "module": "upstream",
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "sequential",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 68,
+    "mean": 23.11328125,
+    "min": 22,
+    "n": 1024,
+    "p50": 22,
+    "p99": 40
+   },
+   "read_latency": {
+    "max": 63,
+    "mean": 18.009765625,
+    "min": 17,
+    "n": 1024,
+    "p50": 17,
+    "p99": 21
+   },
+   "read_service": {
+    "max": 78,
+    "mean": 33.11328125,
+    "min": 32,
+    "n": 1024,
+    "p50": 32,
+    "p99": 50
+   },
+   "recorded_at": "2026-10-18T08:22:47Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_litedram_ctrl sequential --words 1024 --upstream-module",
+   "requests": 2048,
+   "row_hits": 2038,
+   "rtl_sha3_256": "d3ce9d0853f00fdbf2bb4bd63251735b82de29a3b386cca4775c28fdd38024ec",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 4352,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 82,
+    "mean": 17.173828125,
+    "min": 16,
+    "n": 1024,
+    "p50": 16,
+    "p99": 28
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": 151364,
+   "candidate": "k7_litedram_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 2048,
+    "precharge": 1377,
+    "read": 1024,
+    "refresh": 97,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 128,
+   "excerpt_sha3": {
+    "dram.json": "fedcc9dc5300209f57f91b2436d9c8e769d0b2d6ebb0f6d059b79a6446c75027",
+    "judgement.json": "d3bd7fc5b6ee6f7e367701d6834ef5a8fec7bb05b1f5cedb2a03c28f382ef50a",
+    "sim.txt": "2d5ee513d54b546e05f12c8d67eede43697bc385d7f521ebd57faa2d6d665eca"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-probe-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-probe-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-probe-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_litedram_ctrl/probe/1024",
+   "log_lines": 10691,
+   "log_sha3_256": "d831a6db975f8e85e5c12d6715aed3087e39e271b4f7f52dd3d1ba7ed84e983f",
+   "module": "datasheet",
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "probe",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 72,
+    "mean": 24.169921875,
+    "min": 12,
+    "n": 1024,
+    "p50": 22,
+    "p99": 58
+   },
+   "read_latency": {
+    "max": 67,
+    "mean": 19.169921875,
+    "min": 7,
+    "n": 1024,
+    "p50": 17,
+    "p99": 53
+   },
+   "read_service": {
+    "max": 82,
+    "mean": 34.169921875,
+    "min": 22,
+    "n": 1024,
+    "p50": 32,
+    "p99": 68
+   },
+   "recorded_at": "2026-10-18T08:22:46Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_litedram_ctrl probe --words 1024",
+   "requests": 2048,
+   "row_hits": 17,
+   "rtl_sha3_256": "4de85657710454d62a959144f0789da29b6925a14e498e235741b5911f2fec09",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 151394,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 110,
+    "mean": 22.38671875,
+    "min": 8,
+    "n": 1024,
+    "p50": 20,
+    "p99": 82
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": 39660,
+   "candidate": "k7_litedram_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 2043,
+    "precharge": 1597,
+    "read": 1024,
+    "refresh": 25,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "237daff5f46b73be4a7b05945d8c9b45471e51273c55932df8154f330ec5f54d",
+    "judgement.json": "7568b7866d53f5f18410f81c9604df5d46b4f873ddc47a0e67ef0c74120c4a39",
+    "sim.txt": "38917d88c977b520e9698d8f39acf9b25d9b9317346b1ba280ce2449e7222ab5"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-scattered-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-scattered-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-scattered-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_litedram_ctrl/scattered/1024",
+   "log_lines": 10834,
+   "log_sha3_256": "72f0887c136b7d5ea4b8628389e91883cd849d2ca456dfb05e62e193c0ba871a",
+   "module": "datasheet",
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "scattered",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 100,
+    "mean": 44.705078125,
+    "min": 26,
+    "n": 1024,
+    "p50": 44,
+    "p99": 86
+   },
+   "read_latency": {
+    "max": 77,
+    "mean": 22.669921875,
+    "min": 9,
+    "n": 1024,
+    "p50": 21,
+    "p99": 67
+   },
+   "read_service": {
+    "max": 110,
+    "mean": 54.705078125,
+    "min": 36,
+    "n": 1024,
+    "p50": 54,
+    "p99": 96
+   },
+   "recorded_at": "2026-10-18T08:22:32Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_litedram_ctrl scattered --words 1024",
+   "requests": 2048,
+   "row_hits": 23,
+   "rtl_sha3_256": "4de85657710454d62a959144f0789da29b6925a14e498e235741b5911f2fec09",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 39690,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 110,
+    "mean": 22.38671875,
+    "min": 8,
+    "n": 1024,
+    "p50": 20,
+    "p99": 82
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": 4334,
+   "candidate": "k7_litedram_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 10,
+    "precharge": 2,
+    "read": 1024,
+    "refresh": 2,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "64c16a5ed07d0ee1f88a571cbff33d539bb1021b1bddaecfc0604569dbdff1cf",
+    "judgement.json": "fe7c4cfc705c650a8380734d3052991e5f885aa78b4815433ed17d1715757e03",
+    "sim.txt": "510efeeb77d62cea124456159dba681ec8ce2153f643bb363c39e9c2a6d69ce7"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-sequential-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-sequential-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_litedram_ctrl-sequential-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_litedram_ctrl/sequential/1024",
+   "log_lines": 7183,
+   "log_sha3_256": "f0d00741c253b3449a62c6b737f4026e912f2d242d44538c982a6be9941a7061",
+   "module": "datasheet",
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "sequential",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 68,
+    "mean": 23.130859375,
+    "min": 22,
+    "n": 1024,
+    "p50": 22,
+    "p99": 40
+   },
+   "read_latency": {
+    "max": 63,
+    "mean": 18.02734375,
+    "min": 17,
+    "n": 1024,
+    "p50": 17,
+    "p99": 21
+   },
+   "read_service": {
+    "max": 78,
+    "mean": 33.130859375,
+    "min": 32,
+    "n": 1024,
+    "p50": 32,
+    "p99": 50
+   },
+   "recorded_at": "2026-10-18T08:22:26Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_litedram_ctrl sequential --words 1024",
+   "requests": 2048,
+   "row_hits": 2038,
+   "rtl_sha3_256": "4de85657710454d62a959144f0789da29b6925a14e498e235741b5911f2fec09",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 4362,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 82,
+    "mean": 17.275390625,
+    "min": 16,
+    "n": 1024,
+    "p50": 16,
+    "p99": 38
+   }
+  },
+  {
+   "bl": 8,
+   "bus_span": 202079,
+   "candidate": "k7_logos_ddr2_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 8192,
+    "precharge": 8192,
+    "read": 4096,
+    "refresh": 129,
+    "write": 4096
+   },
+   "data_cycles": 32768,
+   "every": 128,
+   "excerpt_sha3": {
+    "dram.json": "6f2b15546229810f6c7694ad3367d0f998fafa1603ab5cb15529d26975c34b2f",
+    "judgement.json": "49bbeaa2664278e10dcf0077923ad20a2794b578fed4c299a080778b48ff80fc",
+    "sim.txt": "aeec6979fc6d72daa57bb08796afa2075b316a8eb2f56a5abbb302a7de2c6b8a"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-probe-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-probe-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-probe-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 1,
+    "parts": 4
+   },
+   "kernel": "K7",
+   "key": "k7_logos_ddr2_ctrl/probe/1024",
+   "log_lines": 42114,
+   "log_sha3_256": "341c4214f754e78157b21f59713d808fe9f1b9bd1b576302977f9a8dd44e635f",
+   "module": null,
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "probe",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 77,
+    "mean": 50.880859375,
+    "min": 50,
+    "n": 1024,
+    "p50": 50,
+    "p99": 77
+   },
+   "read_latency": {
+    "max": 4,
+    "mean": 4.0,
+    "min": 4,
+    "n": 4096,
+    "p50": 4,
+    "p99": 4
+   },
+   "read_service": {
+    "max": 75,
+    "mean": 48.880859375,
+    "min": 48,
+    "n": 1024,
+    "p50": 48,
+    "p99": 75
+   },
+   "recorded_at": "2026-10-18T08:22:11Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_logos_ddr2_ctrl probe --words 1024",
+   "requests": 8192,
+   "row_hits": 0,
+   "rtl_sha3_256": "f9a6e2d9e19d5629ff9fd324664f5812d362d5bbb3c98ef03cf09589d646a287",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 202078,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 4,
+    "mean": 4.0,
+    "min": 4,
+    "n": 4096,
+    "p50": 4,
+    "p99": 4
+   }
+  },
+  {
+   "bl": 8,
+   "bus_span": 125037,
+   "candidate": "k7_logos_ddr2_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 8192,
+    "precharge": 8192,
+    "read": 4096,
+    "refresh": 80,
+    "write": 4096
+   },
+   "data_cycles": 32768,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "def404136439152bc5ecb03078283e7650d774b42b8da79c0e78593b4d16e05b",
+    "judgement.json": "0c348f41b9a780af22e8a790a1f3ac33aa6e54b78a4505af58dd605e484c38ea",
+    "sim.txt": "7f92c6b74ff1cddb1674ba1d23f725f12173595821d403358db65d39ba26cf60"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-scattered-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-scattered-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-scattered-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 1,
+    "parts": 4
+   },
+   "kernel": "K7",
+   "key": "k7_logos_ddr2_ctrl/scattered/1024",
+   "log_lines": 42065,
+   "log_sha3_256": "cfd9870db9f1926d7f2a21d24e5bffbf08dea9530f7ec46037d957a675b94d3e",
+   "module": null,
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "scattered",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 89,
+    "mean": 62.9267578125,
+    "min": 62,
+    "n": 1024,
+    "p50": 62,
+    "p99": 89
+   },
+   "read_latency": {
+    "max": 4,
+    "mean": 4.0,
+    "min": 4,
+    "n": 4096,
+    "p50": 4,
+    "p99": 4
+   },
+   "read_service": {
+    "max": 87,
+    "mean": 60.9267578125,
+    "min": 60,
+    "n": 1024,
+    "p50": 60,
+    "p99": 87
+   },
+   "recorded_at": "2026-10-18T08:22:11Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_logos_ddr2_ctrl scattered --words 1024",
+   "requests": 8192,
+   "row_hits": 0,
+   "rtl_sha3_256": "f9a6e2d9e19d5629ff9fd324664f5812d362d5bbb3c98ef03cf09589d646a287",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 125036,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 4,
+    "mean": 4.0,
+    "min": 4,
+    "n": 4096,
+    "p50": 4,
+    "p99": 4
+   }
+  },
+  {
+   "bl": 8,
+   "bus_span": 125037,
+   "candidate": "k7_logos_ddr2_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 8192,
+    "precharge": 8192,
+    "read": 4096,
+    "refresh": 80,
+    "write": 4096
+   },
+   "data_cycles": 32768,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "0d08c544574af2a15597d9692815d1ebcbfafcbe5a1f2d29ab6d96349c179678",
+    "judgement.json": "caa11bf56189249e23d08a05dbb62c046f37c181cd9dd6f127ad6f58377dce0a",
+    "sim.txt": "7f92c6b74ff1cddb1674ba1d23f725f12173595821d403358db65d39ba26cf60"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-sequential-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-sequential-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_logos_ddr2_ctrl-sequential-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 1,
+    "parts": 4
+   },
+   "kernel": "K7",
+   "key": "k7_logos_ddr2_ctrl/sequential/1024",
+   "log_lines": 42065,
+   "log_sha3_256": "53649cdb4607c8a874639011ecf22044f2beb8010d9e6e2b34467114e26abc86",
+   "module": null,
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "sequential",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 89,
+    "mean": 62.9267578125,
+    "min": 62,
+    "n": 1024,
+    "p50": 62,
+    "p99": 89
+   },
+   "read_latency": {
+    "max": 4,
+    "mean": 4.0,
+    "min": 4,
+    "n": 4096,
+    "p50": 4,
+    "p99": 4
+   },
+   "read_service": {
+    "max": 87,
+    "mean": 60.9267578125,
+    "min": 60,
+    "n": 1024,
+    "p50": 60,
+    "p99": 87
+   },
+   "recorded_at": "2026-10-18T08:22:10Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_logos_ddr2_ctrl sequential --words 1024",
+   "requests": 8192,
+   "row_hits": 0,
+   "rtl_sha3_256": "f9a6e2d9e19d5629ff9fd324664f5812d362d5bbb3c98ef03cf09589d646a287",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 125036,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 4,
+    "mean": 4.0,
+    "min": 4,
+    "n": 4096,
+    "p50": 4,
+    "p99": 4
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": 136388,
+   "candidate": "k7_logos_dfi_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 2045,
+    "precharge": 0,
+    "read": 1024,
+    "refresh": 87,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 128,
+   "excerpt_sha3": {
+    "dram.json": "6c2e02a82b577f9e59b92756b23534599526f1397ebe253e1c4ed43087773270",
+    "judgement.json": "08471594b47797b3d694af1778263c013bcffb0bab05c8e773d539468d80388e",
+    "sim.txt": "d9f129a039f2f91af3c5e23597725b145aede9f9a7f7b8c25eff2fe22a08f944"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-probe-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-probe-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-probe-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_logos_dfi_ctrl/probe/1024",
+   "log_lines": 9301,
+   "log_sha3_256": "d9b457aadd22c144c4f01842eabe52b1a8e894e12585ed1fe71810c462c883fd",
+   "module": null,
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "probe",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 35,
+    "mean": 13.2109375,
+    "min": 13,
+    "n": 1024,
+    "p50": 13,
+    "p99": 19
+   },
+   "read_latency": {
+    "max": 30,
+    "mean": 8.2109375,
+    "min": 8,
+    "n": 1024,
+    "p50": 8,
+    "p99": 14
+   },
+   "read_service": {
+    "max": 48,
+    "mean": 26.2109375,
+    "min": 26,
+    "n": 1024,
+    "p50": 26,
+    "p99": 32
+   },
+   "recorded_at": "2026-10-18T08:22:25Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_logos_dfi_ctrl probe --words 1024",
+   "requests": 2048,
+   "row_hits": 3,
+   "rtl_sha3_256": "4f91e2bdf157e27989190e6b31d6455b7e58e3aedc40d1e455083c03570d6dce",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 136406,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 50,
+    "mean": 20.25,
+    "min": 8,
+    "n": 1024,
+    "p50": 20,
+    "p99": 42
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": 9839,
+   "candidate": "k7_logos_dfi_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 2042,
+    "precharge": 0,
+    "read": 1024,
+    "refresh": 3,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "3ee1f567f6411cb5498da3eb5b5350d9d0ff74a5ec0fd8eef994dde6e6af625a",
+    "judgement.json": "b2f9121ec65fc806666c2335e6dc854f902c61bc6720c24a269c7d07713dfcf3",
+    "sim.txt": "9ff25cb9f60a177496b0dc687c3dcee762421229bfeadef21c3e36f817d556fe"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-scattered-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-scattered-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-scattered-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_logos_dfi_ctrl/scattered/1024",
+   "log_lines": 9214,
+   "log_sha3_256": "727de988d8c3266bc49e2ed4ffe55ad9b741cfd5861ee8e849d4ee47c56bd65b",
+   "module": null,
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "scattered",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 51,
+    "mean": 25.41015625,
+    "min": 15,
+    "n": 1024,
+    "p50": 25,
+    "p99": 43
+   },
+   "read_latency": {
+    "max": 42,
+    "mean": 17.927734375,
+    "min": 8,
+    "n": 1024,
+    "p50": 18,
+    "p99": 36
+   },
+   "read_service": {
+    "max": 64,
+    "mean": 38.41015625,
+    "min": 28,
+    "n": 1024,
+    "p50": 38,
+    "p99": 56
+   },
+   "recorded_at": "2026-10-18T08:22:14Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_logos_dfi_ctrl scattered --words 1024",
+   "requests": 2048,
+   "row_hits": 6,
+   "rtl_sha3_256": "4f91e2bdf157e27989190e6b31d6455b7e58e3aedc40d1e455083c03570d6dce",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 9800,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 50,
+    "mean": 20.25,
+    "min": 8,
+    "n": 1024,
+    "p50": 20,
+    "p99": 42
+   }
+  },
+  {
+   "bl": 4,
+   "bus_span": 4133,
+   "candidate": "k7_logos_dfi_ctrl",
+   "cl": 3,
+   "commands": {
+    "activate": 8,
+    "precharge": 0,
+    "read": 1024,
+    "refresh": 2,
+    "write": 1024
+   },
+   "data_cycles": 4096,
+   "every": 0,
+   "excerpt_sha3": {
+    "dram.json": "77fdd772ec76550eb840208d359806d254733a410925b80e47981a4a89dd41e0",
+    "judgement.json": "a1fe31c743ee72bb7e24444abb3dd8db129a06b49704681a023a51e716c614af",
+    "sim.txt": "60426c606251104347c5a1e781c9a972ecdceae54adf5f19409eb644ea5bb76d"
+   },
+   "excerpts": {
+    "dram.json": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-sequential-1024/dram.json",
+    "judgement.json": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-sequential-1024/judgement.json",
+    "sim.txt": "benchmarks/silicon/qor_logs/dram/k7_logos_dfi_ctrl-sequential-1024/sim.txt"
+   },
+   "interface": {
+    "cols_per_part": 4,
+    "parts": 1
+   },
+   "kernel": "K7",
+   "key": "k7_logos_dfi_ctrl/sequential/1024",
+   "log_lines": 7179,
+   "log_sha3_256": "01e3ef2e8d429bd9240a0212c2ba012f679ff9fbeb6a7e8e7bdd6c9c684f9c86",
+   "module": null,
+   "part": "MT47H64M16-25",
+   "pass": true,
+   "pattern": "sequential",
+   "payload_cycles": 4096,
+   "provenance": "simulated_iverilog",
+   "read_bus": {
+    "max": 17,
+    "mean": 13.01953125,
+    "min": 13,
+    "n": 1024,
+    "p50": 13,
+    "p99": 13
+   },
+   "read_latency": {
+    "max": 12,
+    "mean": 8.015625,
+    "min": 8,
+    "n": 1024,
+    "p50": 8,
+    "p99": 8
+   },
+   "read_service": {
+    "max": 30,
+    "mean": 26.01953125,
+    "min": 26,
+    "n": 1024,
+    "p50": 26,
+    "p99": 26
+   },
+   "recorded_at": "2026-10-18T08:22:12Z",
+   "refusal": null,
+   "reproduce": "cargo build -p logicaffeine-compile --example emit_qor_dram && python3 scripts/qor/run-qor-dram.py k7_logos_dfi_ctrl sequential --words 1024",
+   "requests": 2048,
+   "row_hits": 2040,
+   "rtl_sha3_256": "4f91e2bdf157e27989190e6b31d6455b7e58e3aedc40d1e455083c03570d6dce",
+   "simulator": "Icarus Verilog version 12.0 (stable) ()",
+   "stream_cycles": 4124,
+   "tck_ps": 5000,
+   "words": 1024,
+   "write_latency": {
+    "max": 8,
+    "mean": 8.0,
+    "min": 8,
+    "n": 1024,
+    "p50": 8,
+    "p99": 8
+   }
+  }
+ ],
+ "schema": "logos.qor.dram/1"
+}

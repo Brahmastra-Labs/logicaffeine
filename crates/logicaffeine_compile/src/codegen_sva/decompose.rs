@@ -35,13 +35,16 @@ pub fn decompose_conjunctive(expr: &VerifyExpr) -> Vec<VerifyExpr> {
     }
 
     // For each unique pattern, reconstruct the conjunction of all its temporal copies
-    groups.into_iter().map(|(_, members)| {
-        let mut result = members[0].clone();
-        for member in &members[1..] {
-            result = VerifyExpr::and(result, member.clone());
-        }
-        result
-    }).collect()
+    groups
+        .into_iter()
+        .map(|(_, members)| {
+            let mut result = members[0].clone();
+            for member in &members[1..] {
+                result = VerifyExpr::and(result, member.clone());
+            }
+            result
+        })
+        .collect()
 }
 
 /// Verify that decomposition is sound: conjunction of parts is equivalent to original.
@@ -49,11 +52,7 @@ pub fn decompose_conjunctive(expr: &VerifyExpr) -> Vec<VerifyExpr> {
 ///
 /// Returns true if Z3 proves equivalence at the given bound.
 /// Returns false if Z3 finds a counterexample or returns unknown.
-pub fn verify_decomposition_sound(
-    original: &VerifyExpr,
-    parts: &[VerifyExpr],
-    bound: u32,
-) -> bool {
+pub fn verify_decomposition_sound(original: &VerifyExpr, parts: &[VerifyExpr], bound: u32) -> bool {
     use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
     use std::collections::HashSet;
 
@@ -84,7 +83,11 @@ pub fn verify_decomposition_sound(
 
 fn flatten_and(expr: &VerifyExpr, parts: &mut Vec<VerifyExpr>) {
     match expr {
-        VerifyExpr::Binary { op: logicaffeine_verify::ir::VerifyOp::And, left, right } => {
+        VerifyExpr::Binary {
+            op: logicaffeine_verify::ir::VerifyOp::And,
+            left,
+            right,
+        } => {
             flatten_and(left, parts);
             flatten_and(right, parts);
         }

@@ -1,0 +1,54 @@
+{
+  "case": "T00-003",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-003_expr_const_no_levels.lean",
+  "source_sha256": "8c7264d4e52ea7ecec88abe1b6f201d2527e42ed50fde39d77f4585159315faf",
+  "ledger_sha256": "2257622d1752704582ec8c9fa47109824adeddf13a1290d23b475163633ce9a8",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T00_003.Flag",
+    "T00_003.Flag.off",
+    "T00_003.Flag.on",
+    "T00_003.FlagCount",
+    "T00_003.base",
+    "T00_003.monoInstanceOfPolyConst",
+    "T00_003.opaqueNat",
+    "T00_003.refersToAxiom",
+    "T00_003.refersToBase",
+    "T00_003.refersToConstructor",
+    "T00_003.refersToFlagCtor",
+    "T00_003.refersToFlagType",
+    "T00_003.refersToInductive"
+  ],
+  "declaration_selection": "all_authored",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "40b7f2bb49d015aa7d649e1b2c79897c5ef0c5454a1c395cc7122c6c466b5f09",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 243
+}

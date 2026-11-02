@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.is_upper",
+  "workload": "bytesIsUpper(xs) \u2014 all cased upper + >=1 cased",
+  "arg": "80000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -55,13 +55,15 @@
 //! Rust-emitting path, so it is wired into `optimize_program` and NOT into the
 //! interpreter/Futamura pipelines. `LOGOS_LOOP_SPLIT=0` disables it.
 
+use super::abstract_interp::self_increment;
+use super::licm::{collect_loop_writes, is_loop_invariant};
+use super::writes::count_writes_of;
+use super::writes::CalleeGlobals;
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, Stmt};
+use crate::codegen::peephole::is_simple_expr;
 use crate::intern::{Interner, Symbol};
 use crate::optimization::{Opt, OptimizationConfig};
-use crate::codegen::peephole::is_simple_expr;
-use super::abstract_interp::{count_writes_of, self_increment};
-use super::licm::{collect_loop_writes, is_loop_invariant};
 
 /// A recognized IV guard: the iteration space splits at `split_point`, with the
 /// guard's then-block belonging to the high (suffix) range when `then_is_suffix`.
@@ -85,7 +87,8 @@ pub fn loop_split_stmts<'a>(
     if !cfg.is_on(Opt::LoopSplit) {
         return stmts;
     }
-    split_block(stmts, expr_arena, stmt_arena, interner)
+    let globals = CalleeGlobals::of_program(&stmts);
+    split_block(stmts, expr_arena, stmt_arena, interner, &globals)
 }
 
 fn split_block<'a>(
@@ -93,6 +96,7 @@ fn split_block<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
+    globals: &CalleeGlobals,
 ) -> Vec<Stmt<'a>> {
     let mut result: Vec<Stmt<'a>> = Vec::with_capacity(stmts.len());
     let mut i = 0;
@@ -104,7 +108,7 @@ fn split_block<'a>(
                 (&stmts[i], &stmts[i + 1])
             {
                 if let Some(split) =
-                    try_split_pair(init, w, expr_arena, stmt_arena, interner)
+                    try_split_pair(init, w, expr_arena, stmt_arena, interner, globals)
                 {
                     result.extend(split);
                     i += 2;
@@ -112,7 +116,13 @@ fn split_block<'a>(
                 }
             }
         }
-        result.push(recurse_into(stmts[i].clone(), expr_arena, stmt_arena, interner));
+        result.push(recurse_into(
+            stmts[i].clone(),
+            expr_arena,
+            stmt_arena,
+            interner,
+            globals,
+        ));
         i += 1;
     }
     result
@@ -125,38 +135,99 @@ fn recurse_into<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
+    globals: &CalleeGlobals,
 ) -> Stmt<'a> {
     match stmt {
-        Stmt::While { cond, body, decreasing } => {
-            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner);
-            Stmt::While { cond, body: stmt_arena.alloc_slice(nb), decreasing }
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
+            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
+            Stmt::While {
+                cond,
+                body: stmt_arena.alloc_slice(nb),
+                decreasing,
+            }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
-            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner);
-            Stmt::Repeat { pattern, iterable, body: stmt_arena.alloc_slice(nb) }
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
+            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body: stmt_arena.alloc_slice(nb),
+            }
         }
-        Stmt::If { cond, then_block, else_block } => {
-            let nt = split_block(then_block.to_vec(), expr_arena, stmt_arena, interner);
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let nt = split_block(
+                then_block.to_vec(),
+                expr_arena,
+                stmt_arena,
+                interner,
+                globals,
+            );
             let ne = else_block.map(|eb| {
                 let b: Block = stmt_arena.alloc_slice(split_block(
-                    eb.to_vec(), expr_arena, stmt_arena, interner,
+                    eb.to_vec(),
+                    expr_arena,
+                    stmt_arena,
+                    interner,
+                    globals,
                 ));
                 b
             });
-            Stmt::If { cond, then_block: stmt_arena.alloc_slice(nt), else_block: ne }
+            Stmt::If {
+                cond,
+                then_block: stmt_arena.alloc_slice(nt),
+                else_block: ne,
+            }
         }
-        Stmt::Zone { name, capacity, source_file, body } => {
-            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner);
-            Stmt::Zone { name, capacity, source_file, body: stmt_arena.alloc_slice(nb) }
+        Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body,
+        } => {
+            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
+            Stmt::Zone {
+                name,
+                capacity,
+                source_file,
+                body: stmt_arena.alloc_slice(nb),
+            }
         }
         Stmt::FunctionDef {
-            name, generics, params, body, return_type, is_native, native_path,
-            is_exported, export_target, opt_flags,
+            name,
+            generics,
+            params,
+            body,
+            return_type,
+            is_native,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
         } => {
-            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner);
+            let nb = split_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
             Stmt::FunctionDef {
-                name, generics, params, body: stmt_arena.alloc_slice(nb), return_type,
-                is_native, native_path, is_exported, export_target, opt_flags,
+                name,
+                generics,
+                params,
+                body: stmt_arena.alloc_slice(nb),
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
             }
         }
         other => other,
@@ -169,10 +240,15 @@ fn try_split_pair<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
+    globals: &CalleeGlobals,
 ) -> Option<Vec<Stmt<'a>>> {
     // --- the loop ---
     let (while_cond, body, decreasing) = match while_stmt {
-        Stmt::While { cond, body, decreasing } => (*cond, *body, *decreasing),
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => (*cond, *body, *decreasing),
         _ => return None,
     };
     // MVP: a termination variant would have to be re-derived per sub-loop.
@@ -192,11 +268,19 @@ fn try_split_pair<'a>(
 
     // --- the while condition: `iv <op> U`, op in {<=, <} ---
     let (cond_iv, upper, inclusive) = match while_cond {
-        Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => match left {
+        Expr::BinaryOp {
+            op: BinaryOpKind::LtEq,
+            left,
+            right,
+        } => match left {
             Expr::Identifier(s) => (*s, *right, true),
             _ => return None,
         },
-        Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => match left {
+        Expr::BinaryOp {
+            op: BinaryOpKind::Lt,
+            left,
+            right,
+        } => match left {
             Expr::Identifier(s) => (*s, *right, false),
             _ => return None,
         },
@@ -215,7 +299,7 @@ fn try_split_pair<'a>(
         }
         _ => return None,
     }
-    if count_writes_of(body, iv) != 1 {
+    if count_writes_of(body, iv, globals) != 1 {
         return None;
     }
 
@@ -234,13 +318,17 @@ fn try_split_pair<'a>(
         return None;
     }
     let (guard_cond, then_block, else_block) = match &body[if_idx] {
-        Stmt::If { cond, then_block, else_block } => (*cond, *then_block, *else_block),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => (*cond, *then_block, *else_block),
         _ => return None,
     };
     let g = normalize_guard(guard_cond, iv, expr_arena)?;
 
     // --- the threshold must be loop-invariant ---
-    let writes = collect_loop_writes(body);
+    let writes = collect_loop_writes(body, globals);
     if !is_loop_invariant(g.threshold, &writes) {
         return None;
     }
@@ -268,27 +356,49 @@ fn try_split_pair<'a>(
         v
     };
     // Recurse so a deeper guard inside either branch splits too.
-    let prefix_body = split_block(compose(prefix_src), expr_arena, stmt_arena, interner);
-    let suffix_body = split_block(compose(suffix_src), expr_arena, stmt_arena, interner);
+    let prefix_body = split_block(
+        compose(prefix_src),
+        expr_arena,
+        stmt_arena,
+        interner,
+        globals,
+    );
+    let suffix_body = split_block(
+        compose(suffix_src),
+        expr_arena,
+        stmt_arena,
+        interner,
+        globals,
+    );
     let prefix_body: Block = stmt_arena.alloc_slice(prefix_body);
     let suffix_body: Block = stmt_arena.alloc_slice(suffix_body);
 
     // --- expressions: excl_end (the loop's exclusive end) and the version guard ---
     let one = expr_arena.alloc(Expr::Literal(Literal::Number(1)));
     let excl_end: &Expr = if inclusive {
-        expr_arena.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: upper, right: one })
+        expr_arena.alloc(Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left: upper,
+            right: one,
+        })
     } else {
         upper
     };
     // version: start <= split  &&  split <= excl_end  (the threshold is interior)
     let lo_ok = expr_arena.alloc(Expr::BinaryOp {
-        op: BinaryOpKind::LtEq, left: start, right: g.split_point,
+        op: BinaryOpKind::LtEq,
+        left: start,
+        right: g.split_point,
     });
     let hi_ok = expr_arena.alloc(Expr::BinaryOp {
-        op: BinaryOpKind::LtEq, left: g.split_point, right: excl_end,
+        op: BinaryOpKind::LtEq,
+        left: g.split_point,
+        right: excl_end,
     });
     let version_cond = expr_arena.alloc(Expr::BinaryOp {
-        op: BinaryOpKind::And, left: lo_ok, right: hi_ok,
+        op: BinaryOpKind::And,
+        left: lo_ok,
+        right: hi_ok,
     });
 
     // prefix condition: `iv < split_point` (exclusive; sound because the version
@@ -299,19 +409,34 @@ fn try_split_pair<'a>(
         right: g.split_point,
     });
 
-    let set_iv = |val: &'a Expr<'a>| Stmt::Set { target: iv, value: val };
+    let set_iv = |val: &'a Expr<'a>| Stmt::Set {
+        target: iv,
+        value: val,
+    };
 
     // version-true branch: re-init iv, run prefix then suffix
     let mut then_branch: Vec<Stmt<'a>> = Vec::with_capacity(4);
     then_branch.push(set_iv(start));
-    then_branch.push(Stmt::While { cond: prefix_cond, body: prefix_body, decreasing: None });
+    then_branch.push(Stmt::While {
+        cond: prefix_cond,
+        body: prefix_body,
+        decreasing: None,
+    });
     then_branch.push(set_iv(g.split_point));
-    then_branch.push(Stmt::While { cond: while_cond, body: suffix_body, decreasing: None });
+    then_branch.push(Stmt::While {
+        cond: while_cond,
+        body: suffix_body,
+        decreasing: None,
+    });
 
     // version-false branch: the original loop, unchanged
     let else_branch: Vec<Stmt<'a>> = vec![
         set_iv(start),
-        Stmt::While { cond: while_cond, body, decreasing: None },
+        Stmt::While {
+            cond: while_cond,
+            body,
+            decreasing: None,
+        },
     ];
 
     let version_if = Stmt::If {
@@ -346,16 +471,32 @@ fn normalize_guard<'a>(
             // iv on the left
             if is_iv(left) && !mentions(right, iv) {
                 return match op {
-                    BinaryOpKind::GtEq => Some(Guard { threshold: right, split_point: right, then_is_suffix: true }),
-                    BinaryOpKind::Gt => Some(Guard { threshold: right, split_point: plus_one(right), then_is_suffix: true }),
+                    BinaryOpKind::GtEq => Some(Guard {
+                        threshold: right,
+                        split_point: right,
+                        then_is_suffix: true,
+                    }),
+                    BinaryOpKind::Gt => Some(Guard {
+                        threshold: right,
+                        split_point: plus_one(right),
+                        then_is_suffix: true,
+                    }),
                     _ => None,
                 };
             }
             // iv on the right (`T <= iv`, `T < iv`)
             if is_iv(right) && !mentions(left, iv) {
                 return match op {
-                    BinaryOpKind::LtEq => Some(Guard { threshold: left, split_point: left, then_is_suffix: true }),
-                    BinaryOpKind::Lt => Some(Guard { threshold: left, split_point: plus_one(left), then_is_suffix: true }),
+                    BinaryOpKind::LtEq => Some(Guard {
+                        threshold: left,
+                        split_point: left,
+                        then_is_suffix: true,
+                    }),
+                    BinaryOpKind::Lt => Some(Guard {
+                        threshold: left,
+                        split_point: plus_one(left),
+                        then_is_suffix: true,
+                    }),
                     _ => None,
                 };
             }
@@ -371,15 +512,27 @@ fn mentions(expr: &Expr, sym: Symbol) -> bool {
         Expr::Identifier(s) => *s == sym,
         Expr::Literal(_) => false,
         Expr::BinaryOp { left, right, .. }
-        | Expr::Contains { collection: left, value: right }
-        | Expr::Index { collection: left, index: right }
+        | Expr::Contains {
+            collection: left,
+            value: right,
+        }
+        | Expr::Index {
+            collection: left,
+            index: right,
+        }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right } => mentions(left, sym) || mentions(right, sym),
-        Expr::Not { operand } | Expr::Length { collection: operand }
-        | Expr::Copy { expr: operand } | Expr::Give { value: operand } => mentions(operand, sym),
-        Expr::Slice { collection, start, end } => {
-            mentions(collection, sym) || mentions(start, sym) || mentions(end, sym)
+        Expr::Not { operand }
+        | Expr::Length {
+            collection: operand,
         }
+        | Expr::Copy { expr: operand }
+        | Expr::Give { value: operand } => mentions(operand, sym),
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => mentions(collection, sym) || mentions(start, sym) || mentions(end, sym),
         Expr::Call { args, .. } => args.iter().any(|a| mentions(a, sym)),
         Expr::List(items) | Expr::Tuple(items) => items.iter().any(|a| mentions(a, sym)),
         _ => true, // unknown shape → conservatively assume it might mention sym
@@ -394,7 +547,11 @@ fn mentions(expr: &Expr, sym: Symbol) -> bool {
 /// already safe, so its guard isn't load-protecting and the split would not pay.
 fn index_has_iv_backref(e: &Expr, iv: Symbol) -> bool {
     match e {
-        Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } => {
+        Expr::BinaryOp {
+            op: BinaryOpKind::Subtract,
+            left,
+            right,
+        } => {
             mentions(left, iv) || index_has_iv_backref(left, iv) || index_has_iv_backref(right, iv)
         }
         Expr::BinaryOp { left, right, .. } => {
@@ -413,14 +570,23 @@ fn block_has_guarded_backref_read(stmts: &[Stmt], iv: Symbol) -> bool {
                 index_has_iv_backref(index, iv) || in_expr(collection, iv) || in_expr(index, iv)
             }
             Expr::BinaryOp { left, right, .. }
-            | Expr::Contains { collection: left, value: right }
+            | Expr::Contains {
+                collection: left,
+                value: right,
+            }
             | Expr::Union { left, right }
             | Expr::Intersection { left, right } => in_expr(left, iv) || in_expr(right, iv),
-            Expr::Not { operand } | Expr::Length { collection: operand }
-            | Expr::Copy { expr: operand } | Expr::Give { value: operand } => in_expr(operand, iv),
-            Expr::Slice { collection, start, end } => {
-                in_expr(collection, iv) || in_expr(start, iv) || in_expr(end, iv)
+            Expr::Not { operand }
+            | Expr::Length {
+                collection: operand,
             }
+            | Expr::Copy { expr: operand }
+            | Expr::Give { value: operand } => in_expr(operand, iv),
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => in_expr(collection, iv) || in_expr(start, iv) || in_expr(end, iv),
             Expr::Call { args, .. } => args.iter().any(|a| in_expr(a, iv)),
             Expr::List(items) | Expr::Tuple(items) => items.iter().any(|a| in_expr(a, iv)),
             _ => false,
@@ -431,13 +597,21 @@ fn block_has_guarded_backref_read(stmts: &[Stmt], iv: Symbol) -> bool {
         match s {
             Stmt::Let { value, .. } => found |= in_expr(value, iv),
             Stmt::Set { value, .. } => found |= in_expr(value, iv),
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 found |= in_expr(collection, iv) || in_expr(index, iv) || in_expr(value, iv);
             }
             Stmt::Push { value, collection } => {
                 found |= in_expr(value, iv) || in_expr(collection, iv);
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 found |= in_expr(cond, iv) || block_has_guarded_backref_read(then_block, iv);
                 if let Some(eb) = else_block {
                     found |= block_has_guarded_backref_read(eb, iv);
@@ -458,7 +632,11 @@ fn block_has_guarded_backref_read(stmts: &[Stmt], iv: Symbol) -> bool {
 fn contains_break_or_return(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
         Stmt::Break | Stmt::Return { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             contains_break_or_return(then_block)
                 || else_block.is_some_and(|eb| contains_break_or_return(eb))
         }
@@ -470,319 +648,5 @@ fn contains_break_or_return(stmts: &[Stmt]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct B<'a> {
-        ea: &'a Arena<Expr<'a>>,
-        sa: &'a Arena<Stmt<'a>>,
-    }
-    impl<'a> B<'a> {
-        fn id(&self, s: Symbol) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Identifier(s))
-        }
-        fn num(&self, n: i64) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Literal(Literal::Number(n)))
-        }
-        fn bin(&self, op: BinaryOpKind, l: &'a Expr<'a>, r: &'a Expr<'a>) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::BinaryOp { op, left: l, right: r })
-        }
-        fn index(&self, coll: &'a Expr<'a>, idx: &'a Expr<'a>) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Index { collection: coll, index: idx })
-        }
-        fn block(&self, v: Vec<Stmt<'a>>) -> Block<'a> {
-            self.sa.alloc_slice(v)
-        }
-    }
-
-    /// Names used across the knapsack-shaped fixtures.
-    struct Names {
-        w: Symbol,
-        cap: Symbol,
-        wi: Symbol,
-        vi: Symbol,
-        prev: Symbol,
-        curr: Symbol,
-        best: Symbol,
-        take: Symbol,
-    }
-    fn names(it: &mut Interner) -> Names {
-        Names {
-            w: it.intern("w"),
-            cap: it.intern("capacity"),
-            wi: it.intern("wi"),
-            vi: it.intern("vi"),
-            prev: it.intern("prev"),
-            curr: it.intern("curr"),
-            best: it.intern("best"),
-            take: it.intern("take"),
-        }
-    }
-
-    /// `[ Let w be 0 ; While w <= capacity: <body> ]` with the knapsack inner
-    /// body, parameterized so the negative tests can perturb one piece.
-    fn knapsack_loop<'a>(
-        b: &B<'a>,
-        n: &Names,
-        guard: &'a Expr<'a>,
-        step: i64,
-        with_break: bool,
-        guarded_read: bool,
-    ) -> Vec<Stmt<'a>> {
-        use BinaryOpKind::*;
-        let let_best = Stmt::Let {
-            var: n.best,
-            ty: None,
-            value: b.index(b.id(n.prev), b.bin(Add, b.id(n.w), b.num(1))),
-            mutable: true,
-        };
-        // then-block of the guard: `Let take be item(w-wi+1) of prev + vi; If take > best: Set best to take`
-        let take_index = b.index(
-            b.id(n.prev),
-            b.bin(Add, b.bin(Subtract, b.id(n.w), b.id(n.wi)), b.num(1)),
-        );
-        let take_val = if guarded_read {
-            b.bin(Add, take_index, b.id(n.vi))
-        } else {
-            // no IV-indexed read in the guarded branch (heuristic should decline)
-            b.bin(Add, b.id(n.wi), b.id(n.vi))
-        };
-        let let_take = Stmt::Let { var: n.take, ty: None, value: take_val, mutable: false };
-        let inner_if = Stmt::If {
-            cond: b.bin(Gt, b.id(n.take), b.id(n.best)),
-            then_block: b.block(vec![Stmt::Set { target: n.best, value: b.id(n.take) }]),
-            else_block: None,
-        };
-        let guard_if = Stmt::If {
-            cond: guard,
-            then_block: b.block(vec![let_take, inner_if]),
-            else_block: None,
-        };
-        let push = Stmt::Push { value: b.id(n.best), collection: b.id(n.curr) };
-        let inc = Stmt::Set { target: n.w, value: b.bin(Add, b.id(n.w), b.num(step)) };
-        let mut body = vec![let_best, guard_if, push];
-        if with_break {
-            body.push(Stmt::Break);
-        }
-        body.push(inc);
-        let while_stmt = Stmt::While {
-            cond: b.bin(LtEq, b.id(n.w), b.id(n.cap)),
-            body: b.block(body),
-            decreasing: None,
-        };
-        vec![Stmt::Let { var: n.w, ty: None, value: b.num(0), mutable: true }, while_stmt]
-    }
-
-    fn run<'a>(
-        input: Vec<Stmt<'a>>,
-        ea: &'a Arena<Expr<'a>>,
-        sa: &'a Arena<Stmt<'a>>,
-        it: &mut Interner,
-    ) -> Vec<Stmt<'a>> {
-        loop_split_stmts(input, ea, sa, it, &OptimizationConfig::all_on())
-    }
-
-    /// A `Stmt::If` whose condition is `iv >= sym` (the outer guard), at any depth.
-    fn has_iv_ge_guard(stmts: &[Stmt], iv: Symbol) -> bool {
-        stmts.iter().any(|s| match s {
-            Stmt::If { cond, then_block, else_block } => {
-                let here = matches!(cond, Expr::BinaryOp { op: BinaryOpKind::GtEq, left, .. }
-                    if matches!(&**left, Expr::Identifier(x) if *x == iv));
-                here || has_iv_ge_guard(then_block, iv)
-                    || else_block.is_some_and(|eb| has_iv_ge_guard(eb, iv))
-            }
-            Stmt::While { body, .. } => has_iv_ge_guard(body, iv),
-            _ => false,
-        })
-    }
-
-    fn mentions_sym(stmts: &[Stmt], sym: Symbol) -> bool {
-        fn e(x: &Expr, s: Symbol) -> bool { mentions(x, s) }
-        stmts.iter().any(|st| match st {
-            Stmt::Let { var, value, .. } => *var == sym || e(value, sym),
-            Stmt::Set { value, .. } => e(value, sym),
-            Stmt::Push { value, collection } => e(value, sym) || e(collection, sym),
-            Stmt::If { cond, then_block, else_block } => {
-                e(cond, sym) || mentions_sym(then_block, sym)
-                    || else_block.is_some_and(|eb| mentions_sym(eb, sym))
-            }
-            Stmt::While { body, .. } => mentions_sym(body, sym),
-            _ => false,
-        })
-    }
-
-    #[test]
-    fn splits_ge_guard_into_two_loops() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
-        let input = knapsack_loop(&b, &n, guard, 1, false, true);
-        let out = run(input, &ea, &sa, &mut it);
-
-        // Output: [ Let w be 0 , If version { ... } else { ... } ]
-        assert_eq!(out.len(), 2, "init kept, loop replaced by one version-If");
-        assert!(matches!(out[0], Stmt::Let { var, .. } if var == n.w));
-        let (then_block, else_block) = match &out[1] {
-            Stmt::If { then_block, else_block: Some(eb), .. } => (*then_block, *eb),
-            other => panic!("expected version-If with else, got {other:?}"),
-        };
-        // then = [Set w, While(prefix), Set w, While(suffix)]
-        assert_eq!(then_block.len(), 4, "re-init, prefix, re-init, suffix");
-        let prefix = match &then_block[1] {
-            Stmt::While { body, .. } => *body,
-            other => panic!("expected prefix While, got {other:?}"),
-        };
-        let suffix = match &then_block[3] {
-            Stmt::While { body, .. } => *body,
-            other => panic!("expected suffix While, got {other:?}"),
-        };
-        // The outer `w >= wi` guard is GONE from both sub-loops (dropped / inlined).
-        assert!(!has_iv_ge_guard(prefix, n.w), "prefix has no outer guard");
-        assert!(!has_iv_ge_guard(suffix, n.w), "suffix has no outer guard");
-        // The prefix dropped the then-block: no `take`.
-        assert!(!mentions_sym(prefix, n.take), "prefix has no `take`");
-        // The suffix inlined the then-block: it has `take` and the inner if.
-        assert!(mentions_sym(suffix, n.take), "suffix inlines `take`");
-        // The fallback (else) preserves the original guarded loop.
-        assert!(has_iv_ge_guard(&else_block, n.w), "fallback keeps the guard");
-        // Push order preserved: both sub-loops still push curr.
-        assert!(mentions_sym(prefix, n.curr) && mentions_sym(suffix, n.curr));
-    }
-
-    #[test]
-    fn gt_guard_splits_at_threshold_plus_one() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::Gt, b.id(n.w), b.id(n.wi));
-        let input = knapsack_loop(&b, &n, guard, 1, false, true);
-        let out = run(input, &ea, &sa, &mut it);
-        // suffix re-init `Set w to (wi + 1)` for a strict `>` guard.
-        let then_block = match &out[1] {
-            Stmt::If { then_block, .. } => *then_block,
-            other => panic!("expected version-If, got {other:?}"),
-        };
-        match &then_block[2] {
-            Stmt::Set { target, value } if *target == n.w => assert!(
-                matches!(value, Expr::BinaryOp { op: BinaryOpKind::Add, right, .. }
-                    if matches!(&**right, Expr::Literal(Literal::Number(1)))),
-                "suffix starts at wi + 1, got {value:?}"
-            ),
-            other => panic!("expected `Set w to wi + 1`, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn no_fire_on_break() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
-        let input = knapsack_loop(&b, &n, guard, 1, true, true);
-        let out = run(input, &ea, &sa, &mut it);
-        assert!(matches!(out[1], Stmt::While { .. }), "loop left intact (Break present)");
-    }
-
-    #[test]
-    fn no_fire_without_affine_indexed_read() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
-        let input = knapsack_loop(&b, &n, guard, 1, false, false);
-        let out = run(input, &ea, &sa, &mut it);
-        assert!(matches!(out[1], Stmt::While { .. }), "no IV-indexed read → no split");
-    }
-
-    #[test]
-    fn no_fire_on_forward_indexed_read() {
-        // A guarded FORWARD read `prev[w + 1]` is already speculatable, so the
-        // guard isn't load-protecting and the split would not unblock the
-        // vectorizer — the pass declines.
-        use BinaryOpKind::*;
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let let_best = Stmt::Let {
-            var: n.best,
-            ty: None,
-            value: b.index(b.id(n.prev), b.bin(Add, b.id(n.w), b.num(1))),
-            mutable: true,
-        };
-        // guarded branch reads prev[w + 1] (forward, no backref).
-        let fwd = b.index(b.id(n.prev), b.bin(Add, b.id(n.w), b.num(1)));
-        let let_take = Stmt::Let { var: n.take, ty: None, value: b.bin(Add, fwd, b.id(n.vi)), mutable: false };
-        let guard_if = Stmt::If {
-            cond: b.bin(GtEq, b.id(n.w), b.id(n.wi)),
-            then_block: b.block(vec![let_take]),
-            else_block: None,
-        };
-        let push = Stmt::Push { value: b.id(n.best), collection: b.id(n.curr) };
-        let inc = Stmt::Set { target: n.w, value: b.bin(Add, b.id(n.w), b.num(1)) };
-        let while_stmt = Stmt::While {
-            cond: b.bin(LtEq, b.id(n.w), b.id(n.cap)),
-            body: b.block(vec![let_best, guard_if, push, inc]),
-            decreasing: None,
-        };
-        let input = vec![Stmt::Let { var: n.w, ty: None, value: b.num(0), mutable: true }, while_stmt];
-        let out = run(input, &ea, &sa, &mut it);
-        assert!(matches!(out[1], Stmt::While { .. }), "forward read → no split");
-    }
-
-    #[test]
-    fn no_fire_non_unit_step() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
-        let input = knapsack_loop(&b, &n, guard, 2, false, true);
-        let out = run(input, &ea, &sa, &mut it);
-        assert!(matches!(out[1], Stmt::While { .. }), "step != 1 → no split");
-    }
-
-    #[test]
-    fn no_fire_when_threshold_written() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
-        let mut input = knapsack_loop(&b, &n, guard, 1, false, true);
-        // Inject `Set wi to wi + 1` into the loop body → threshold not invariant.
-        if let Stmt::While { body, cond, decreasing } = input.pop().unwrap() {
-            let mut v: Vec<Stmt> = body.to_vec();
-            v.insert(0, Stmt::Set { target: n.wi, value: b.bin(BinaryOpKind::Add, b.id(n.wi), b.num(1)) });
-            input.push(Stmt::While { cond, body: b.block(v), decreasing });
-        }
-        let out = run(input, &ea, &sa, &mut it);
-        assert!(matches!(out[1], Stmt::While { .. }), "threshold mutated → no split");
-    }
-
-    #[test]
-    fn disabling_loop_split_leaves_loop_intact() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let n = names(&mut it);
-        let b = B { ea: &ea, sa: &sa };
-        let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
-        let input = knapsack_loop(&b, &n, guard, 1, false, true);
-        let cfg = OptimizationConfig::all_on().disable(Opt::LoopSplit);
-        let out = loop_split_stmts(input, &ea, &sa, &mut it, &cfg);
-        assert!(matches!(out[1], Stmt::While { .. }), "disabling LoopSplit leaves loop intact");
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/loop_split/tests.rs"]
+mod tests;

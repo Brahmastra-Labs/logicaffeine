@@ -2,11 +2,13 @@
 //!
 //! RED: These tests define the spec for Map support.
 
-use logicaffeine_compile::codegen::{codegen_expr, codegen_stmt, RefinementContext, empty_var_caps};
-use logicaffeine_language::ast::{Expr, Stmt, Literal};
-use logicaffeine_base::Interner;
 use logicaffeine_base::Arena;
+use logicaffeine_base::Interner;
+use logicaffeine_compile::codegen::{
+    codegen_expr, codegen_stmt, empty_var_caps, RefinementContext,
+};
 use logicaffeine_language::analysis::TypeRegistry;
+use logicaffeine_language::ast::{Expr, Literal, Stmt};
 use std::collections::HashSet;
 
 fn empty_lww_fields() -> HashSet<(String, String)> {
@@ -41,7 +43,10 @@ fn codegen_map_get_string_key() {
     let result = codegen_expr(&expr, &interner, &synced_vars);
 
     // Should use trait method, NOT logos_index
-    assert_eq!(result, "LogosIndex::logos_get(&registry, String::from(\"iron\"))");
+    assert_eq!(
+        result,
+        "LogosIndex::logos_get(&registry, ::std::string::String::from(\"iron\"))"
+    );
 }
 
 // ============================================================
@@ -62,18 +67,47 @@ fn codegen_map_set_string_key() {
     let index = arena.alloc(Expr::Literal(Literal::Text(key)));
     let value = arena.alloc(Expr::Identifier(plate));
 
-    let stmt = Stmt::SetIndex { collection, index, value };
+    let stmt = Stmt::SetIndex {
+        collection,
+        index,
+        value,
+    };
     let mut ctx = RefinementContext::new();
     let async_fns = HashSet::new();
     let pipe_vars = HashSet::new();
     let type_registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::new(), &mut ctx,
-                               &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(),
-                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_fns,
+        &pipe_vars,
+        &HashSet::new(),
+        &type_registry,
+        &type_env,
+    );
 
-    // Should use trait method, NOT hardcoded index math
-    assert_eq!(result, "LogosIndexMut::logos_set(&mut registry, String::from(\"iron\"), plate);\n");
+    // Should use trait method, NOT hardcoded index math.
+    //
+    // `::std::string::String` in full, because `use user_types::*;` sits above the generated code
+    // and a LOGOS record may legitimately be named `String` — an unqualified one is captured by
+    // the author's own type and the program fails to COMPILE. Same reason `Box` is spelled out;
+    // see `aot_prelude_name_collision_lock`.
+    //
+    // `.clone()` is not incidental drift: a value-semantics store into a collection COPIES, and
+    // this test builds its AST directly with an EMPTY variable-type map, so the value's type is
+    // UNTRACKED — `is_value_struct_identifier` then clones rather than move, because a move of a
+    // non-Copy value whose source is reused is an E0382 that would not compile. The claim this
+    // test makes is the one in the line above (trait method, not hand-rolled index math), and it
+    // is unchanged.
+    assert_eq!(result, "LogosIndexMut::logos_set(&mut registry, ::std::string::String::from(\"iron\"), plate.clone());\n");
 }
 
 // ============================================================
@@ -115,16 +149,43 @@ fn codegen_vec_set_integer_key() {
     let index = arena.alloc(Expr::Literal(Literal::Number(2)));
     let value = arena.alloc(Expr::Identifier(val));
 
-    let stmt = Stmt::SetIndex { collection, index, value };
+    let stmt = Stmt::SetIndex {
+        collection,
+        index,
+        value,
+    };
     let mut ctx = RefinementContext::new();
     let async_fns = HashSet::new();
     let pipe_vars = HashSet::new();
     let type_registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::new(), &mut ctx,
-                               &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(),
-                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_fns,
+        &pipe_vars,
+        &HashSet::new(),
+        &type_registry,
+        &type_env,
+    );
 
     // Should use trait method (trait impl handles 1-based conversion)
-    assert_eq!(result, "LogosIndexMut::logos_set(&mut items, 2, val);\n");
+    //
+    // `.clone()` is not incidental drift: a value-semantics store into a collection COPIES, and
+    // this test builds its AST directly with an EMPTY variable-type map, so the value's type is
+    // UNTRACKED — `is_value_struct_identifier` then clones rather than move, because a move of a
+    // non-Copy value whose source is reused is an E0382 that would not compile. The claim this
+    // test makes is the one in the line above (trait method, not hand-rolled index math), and it
+    // is unchanged.
+    assert_eq!(
+        result,
+        "LogosIndexMut::logos_set(&mut items, 2, val.clone());\n"
+    );
 }

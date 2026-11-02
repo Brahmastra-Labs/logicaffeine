@@ -1,0 +1,15 @@
+# Error
+
+Result/Option helpers, written in pure LOGOS and compiled through every execution tier.
+`Ok`/`Err`/`Some`/`None` are engine-resolved; these functions add the common combinators.
+Auto-imported on first reference.
+
+## Note
+Returns the value inside an `Ok`, or `fallback` when the result is an `Err`.
+
+## To unwrapOr (r: Result of Int and Text) and (fallback: Int) -> Int:
+    Inspect r:
+        When Ok (v):
+            Return v.
+        When Err (e):
+            Return fallback.

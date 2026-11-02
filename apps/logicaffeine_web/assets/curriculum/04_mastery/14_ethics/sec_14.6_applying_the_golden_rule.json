@@ -1,0 +1,48 @@
+{
+  "id": "14.6",
+  "title": "Applying the Golden Rule",
+  "order": 6,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "To test an act, picture yourself in the other person's exact place, with their desires and needs, and ask whether you consent to the act being done to you there."
+    },
+    {
+      "type": "paragraph",
+      "text": "The rule is a test of consistency. It does not tell you every duty, but it catches acting against what you yourself would accept."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A stranded driver",
+      "lines": [
+        "A driver is stuck at night. I could stop and call for help.",
+        "In their place, would I consent to being passed by?"
+      ],
+      "conclusion": "If not, I should stop and help."
+    },
+    {
+      "type": "worked",
+      "title": "Different tastes",
+      "lines": [
+        "I love spicy food. My guest cannot eat it.",
+        "In my guest's place, I would want a mild meal."
+      ],
+      "note": "The test follows the guest's needs, not mine."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Your neighbor works nights and needs quiet in the day. You love loud music. How does the golden rule test playing it loudly?",
+    "options": [
+      "Ask whether you like loud music",
+      "Picture yourself in your neighbor's place, needing sleep, and ask if you consent",
+      "Ask what most people like",
+      "It cannot apply, since your tastes differ"
+    ],
+    "correct": 1,
+    "hint": "Whose needs does the test look at?",
+    "explanation": "The test puts you in the neighbor's exact place, needing sleep. If you would not consent to the noise there, don't play it."
+  }
+}

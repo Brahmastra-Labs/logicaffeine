@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you aren't tough then you aren't lonely",
   "options": [
-    "$ (\\sim T \\supset \\, \\sim L) $",
-    "$ (\\sim T \\supset L) $",
-    "$ \\sim T \\supset L $",
-    "$ \\sim (T \\supset L) $"
+    "¬T → ¬L",
+    "¬T → L",
+    "¬(T → L)",
+    "¬T ∧ ¬L"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part ¬T to the then part ¬L: ¬T → ¬L.",
+  "section": "6.2"
 }

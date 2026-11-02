@@ -237,7 +237,10 @@ fn list_return_recursion_deopt_drains_and_replays() {
             (norm(&tw.output), &tw.error),
             "list-return recursive deopt replay diverged"
         );
-        assert!(vm.error.is_some(), "build(_, 0) divides by zero at the base");
+        assert!(
+            vm.error.is_some(),
+            "build(_, 0) divides by zero at the base"
+        );
         assert_eq!(
             logicaffeine_jit::native_alloc_registry_len(),
             0,

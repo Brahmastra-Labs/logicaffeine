@@ -27,12 +27,19 @@ fn e2e_test_crdt_gossip_convergence() {
     use std::time::Duration;
 
     // Generate unique topic ID to prevent cross-talk between parallel test runs
-    let topic_id = format!("game_sync_{}_{}", std::process::id(), std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let topic_id = format!(
+        "game_sync_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
 
     // Node A: Publishes after discovering peers and mesh formation
     // Listen on 0.0.0.0 with random port to avoid conflicts
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -44,10 +51,13 @@ Sleep 10000.
 Increase state's clicks by 5.
 Show "NODE_A: published 5".
 Sleep 5000.
-"#, topic_id);
+"#,
+        topic_id
+    );
 
     // Node B: Waits and reads the synced value
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -59,17 +69,27 @@ Sleep 17000.
 Show state's clicks.
 If state's clicks equals 5:
     Show "SYNC_SUCCESS".
-"#, topic_id);
+"#,
+        topic_id
+    );
 
     // Compile both programs
     let result_a = common::compile_logos(&source_a);
-    assert!(result_a.success, "Node A should compile: {}", result_a.stderr);
+    assert!(
+        result_a.success,
+        "Node A should compile: {}",
+        result_a.stderr
+    );
 
     let result_b = common::compile_logos(&source_b);
-    assert!(result_b.success, "Node B should compile: {}", result_b.stderr);
+    assert!(
+        result_b.success,
+        "Node B should compile: {}",
+        result_b.stderr
+    );
 
     // Run both as separate processes
-    let mut child_a = Command::new(&result_a.binary_path)
+    let child_a = Command::new(&result_a.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -78,15 +98,19 @@ If state's clicks equals 5:
     // Small delay to let A start listening
     thread::sleep(Duration::from_millis(500));
 
-    let mut child_b = Command::new(&result_b.binary_path)
+    let child_b = Command::new(&result_b.binary_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start Node B");
 
     // Wait for both with timeout
-    let output_a = child_a.wait_with_output().expect("Failed to wait for Node A");
-    let output_b = child_b.wait_with_output().expect("Failed to wait for Node B");
+    let output_a = child_a
+        .wait_with_output()
+        .expect("Failed to wait for Node A");
+    let output_b = child_b
+        .wait_with_output()
+        .expect("Failed to wait for Node B");
 
     let stdout_a = String::from_utf8_lossy(&output_a.stdout);
     let stderr_a = String::from_utf8_lossy(&output_a.stderr);
@@ -103,7 +127,10 @@ If state's clicks equals 5:
     if stdout_b.contains("SYNC_SUCCESS") {
         eprintln!("✓ GOSSIP TEST PASSED: Nodes synchronized successfully");
     } else {
-        eprintln!("⚠ GOSSIP TEST FLAKY: Sync did not complete (expected in CI). stdout: {}", stdout_b);
+        eprintln!(
+            "⚠ GOSSIP TEST FLAKY: Sync did not complete (expected in CI). stdout: {}",
+            stdout_b
+        );
         // Don't assert - allow CI to continue
     }
 }
@@ -124,9 +151,14 @@ Show "Subscribed to topic".
 "#;
 
     let result = run_logos(source);
-    assert!(result.success, "Sync should compile and run: {}", result.stderr);
+    assert!(
+        result.success,
+        "Sync should compile and run: {}",
+        result.stderr
+    );
     assert!(
         result.stdout.contains("Subscribed to topic"),
-        "Should reach subscription. stdout: {}", result.stdout
+        "Should reach subscription. stdout: {}",
+        result.stdout
     );
 }

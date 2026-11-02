@@ -34,7 +34,10 @@ Definition not_b : MyBool -> MyBool :=
 #[test]
 fn math_extraction_is_deterministic() {
     let first = extract_math_rust_from_source(MATH);
-    assert!(first.contains("enum"), "sanity: should extract real content:\n{first}");
+    assert!(
+        first.contains("enum"),
+        "sanity: should extract real content:\n{first}"
+    );
     for k in 1..RUNS {
         let again = extract_math_rust_from_source(MATH);
         assert_eq!(
@@ -75,7 +78,10 @@ Show z's stripes.
 #[test]
 fn imperative_codegen_is_deterministic() {
     let first = generate_rust_code(IMP).expect("imperative program should compile");
-    assert!(first.contains("enum") || first.contains("struct"), "sanity: emitted types:\n{first}");
+    assert!(
+        first.contains("enum") || first.contains("struct"),
+        "sanity: emitted types:\n{first}"
+    );
     for k in 1..RUNS {
         let again = generate_rust_code(IMP).expect("imperative program should compile");
         assert_eq!(
@@ -97,10 +103,16 @@ const PROVEN_MODULE: &str = "pub fn double(x: i64) -> i64 { x + x }\n\
 #[test]
 fn bundled_proven_codegen_is_deterministic() {
     let first = compile_to_rust_with_proven(IMP, PROVEN_MODULE).expect("compiles");
-    assert!(first.contains("pub mod proven"), "sanity: module bundled:\n{first}");
+    assert!(
+        first.contains("pub mod proven"),
+        "sanity: module bundled:\n{first}"
+    );
     for k in 1..RUNS {
         let again = compile_to_rust_with_proven(IMP, PROVEN_MODULE).expect("compiles");
-        assert_eq!(first, again, "bundled codegen not deterministic (run {k} differed)");
+        assert_eq!(
+            first, again,
+            "bundled codegen not deterministic (run {k} differed)"
+        );
     }
 }
 
@@ -115,7 +127,10 @@ fn logic_extraction_is_deterministic() {
     let first = extract_logic_rust(LOGIC).expect("ok");
     for k in 1..RUNS {
         let again = extract_logic_rust(LOGIC).expect("ok");
-        assert_eq!(first, again, "logic extraction not deterministic (run {k} differed)");
+        assert_eq!(
+            first, again,
+            "logic extraction not deterministic (run {k} differed)"
+        );
     }
 }
 
@@ -127,6 +142,9 @@ fn logic_temporal_extraction_is_deterministic() {
     let first = extract_logic_rust(LOGIC_TEMPORAL).expect("ok");
     for k in 1..RUNS {
         let again = extract_logic_rust(LOGIC_TEMPORAL).expect("ok");
-        assert_eq!(first, again, "temporal extraction not deterministic (run {k} differed)");
+        assert_eq!(
+            first, again,
+            "temporal extraction not deterministic (run {k} differed)"
+        );
     }
 }

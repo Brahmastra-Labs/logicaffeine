@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "'Let everyone cheer' is consistent",
   "options": [
-    "$ \\lozenge (x)C\\underline{x} $",
-    "$ (x)C\\underline{x} $",
-    "$ (\\lozenge (x)C\\underline{x} ) $",
-    "$ \\lozenge (x)Cx $"
+    "◇∀x C(x̲)",
+    "∀x C(x̲)",
+    "∀x ◇C(x̲)",
+    "◇∀x C(x)"
   ],
   "correct": 0,
-  "hint": "Can a command and a description both be true without contradiction?",
-  "explanation": "'X is consistent' means ◇X. The optative 'let everyone cheer' is (x)C͟x (the universal (x) = everyone, agent underlined); asserting its consistency wraps it in ◇: ◇(x)C͟x."
+  "hint": "What does 'is consistent' add, and who would act?",
+  "explanation": "'X is consistent' is ◇X, and 'let everyone cheer' is ∀x C(x̲): ◇∀x C(x̲).",
+  "section": "12.2"
 }

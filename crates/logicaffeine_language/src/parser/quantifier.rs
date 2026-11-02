@@ -25,18 +25,18 @@ use super::clause::ClauseParsing;
 use super::modal::ModalParsing;
 use super::noun::NounParsing;
 use super::pragmatics::PragmaticsParsing;
-use super::{NegativeScopeMode, ParseResult, Parser};
+use super::{IndefiniteScope, NegativeScopeMode, ParseResult, Parser};
 use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
-use crate::drs::{Gender, Number};
 use crate::drs::ReferentSource;
+use crate::drs::{Gender, Number};
 use crate::error::{ParseError, ParseErrorKind};
-use logicaffeine_base::Symbol;
 use crate::lexer::Lexer;
 use crate::lexicon::{
     get_canonical_verb, is_subsective, lookup_relational_adjective, lookup_verb_db, Definiteness,
     Feature, Time,
 };
 use crate::token::{PresupKind, TokenType};
+use logicaffeine_base::Symbol;
 
 /// Trait for parsing quantified expressions and managing scope.
 ///
@@ -54,9 +54,17 @@ pub trait QuantifierParsing<'a, 'ctx, 'int> {
     /// Builds the restriction conjunct for one pre-nominal adjective, dispatching
     /// on its lexical class (relational/subsective/intersective). Shared by every
     /// NP-restriction path so all paths model adjective classes identically.
-    fn adjective_restriction(&mut self, adj: Symbol, var: Symbol, noun: Symbol) -> &'a LogicExpr<'a>;
+    fn adjective_restriction(
+        &mut self,
+        adj: Symbol,
+        var: Symbol,
+        noun: Symbol,
+    ) -> &'a LogicExpr<'a>;
     /// Parses a verb phrase as the nuclear scope of a quantifier.
-    fn parse_verb_phrase_for_restriction(&mut self, var_name: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_verb_phrase_for_restriction(
+        &mut self,
+        var_name: Symbol,
+    ) -> ParseResult<&'a LogicExpr<'a>>;
     /// Combines multiple expressions with conjunction.
     fn combine_with_and(&self, exprs: Vec<&'a LogicExpr<'a>>) -> ParseResult<&'a LogicExpr<'a>>;
     fn wrap_with_definiteness_full(
@@ -91,7 +99,11 @@ pub trait QuantifierParsing<'a, 'ctx, 'int> {
         noun: Symbol,
         predicate: &'a LogicExpr<'a>,
     ) -> ParseResult<&'a LogicExpr<'a>>;
-    fn substitute_pp_placeholder(&mut self, pp: &'a LogicExpr<'a>, var: Symbol) -> &'a LogicExpr<'a>;
+    fn substitute_pp_placeholder(
+        &mut self,
+        pp: &'a LogicExpr<'a>,
+        var: Symbol,
+    ) -> &'a LogicExpr<'a>;
     fn substitute_constant_with_var(
         &self,
         expr: &'a LogicExpr<'a>,
@@ -121,7 +133,10 @@ pub trait QuantifierParsing<'a, 'ctx, 'int> {
         to_const: Symbol,
     ) -> ParseResult<&'a LogicExpr<'a>>;
     fn find_main_verb_name(&self, expr: &LogicExpr<'a>) -> Option<Symbol>;
-    fn transform_cardinal_to_group(&mut self, expr: &'a LogicExpr<'a>) -> ParseResult<&'a LogicExpr<'a>>;
+    fn transform_cardinal_to_group(
+        &mut self,
+        expr: &'a LogicExpr<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>>;
     fn build_verb_neo_event(
         &mut self,
         verb: Symbol,
@@ -133,17 +148,11 @@ pub trait QuantifierParsing<'a, 'ctx, 'int> {
     /// Maine" → In(subj,Florida) ∨ In(subj,Maine), `subj_var` being the bound
     /// variable. Captures the or-coordination ("or in B" repeats the preposition,
     /// "or B" reuses it) that the backtracking fallback path otherwise drops.
-    fn parse_copula_pp_complement(
-        &mut self,
-        subj_var: Symbol,
-    ) -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_copula_pp_complement(&mut self, subj_var: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
 }
 
 impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
-    fn parse_copula_pp_complement(
-        &mut self,
-        subj_var: Symbol,
-    ) -> ParseResult<&'a LogicExpr<'a>> {
+    fn parse_copula_pp_complement(&mut self, subj_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
         let prep_sym = match self.advance().kind {
             TokenType::Preposition(s) => s,
             _ => unreachable!("guarded by check_preposition"),
@@ -265,16 +274,15 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         // the head noun normally; the leading cardinal/proportion is the count, the
         // optional inner cardinal is the presupposed superset size.
         let mut partitive_superset: Option<u32> = None;
-        if matches!(
-            quantifier_token,
-            TokenType::Cardinal(_)
-                | TokenType::Most
-                | TokenType::Few
-                | TokenType::Many
-                | TokenType::Some
-                | TokenType::AtLeast(_)
-                | TokenType::AtMost(_)
-        ) && self.check_preposition_is("of")
+        if (quantifier_token.is_generalized_quantifier()
+            || matches!(
+                quantifier_token,
+                TokenType::Cardinal(_)
+                    | TokenType::Some
+                    | TokenType::AtLeast(_)
+                    | TokenType::AtMost(_)
+            ))
+            && self.check_preposition_is("of")
             && self.current + 1 < self.tokens.len()
             && matches!(self.tokens[self.current + 1].kind, TokenType::Article(_))
         {
@@ -286,8 +294,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
         }
         // "At most one of X, Y, and Z is P" — counting quantifier with explicit list
-        if matches!(quantifier_token, TokenType::AtMost(_) | TokenType::AtLeast(_) | TokenType::Cardinal(_))
-            && self.check_preposition_is("of")
+        if matches!(
+            quantifier_token,
+            TokenType::AtMost(_) | TokenType::AtLeast(_) | TokenType::Cardinal(_)
+        ) && self.check_preposition_is("of")
         {
             self.advance(); // consume "of"
 
@@ -299,7 +309,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 if self.check(&TokenType::Comma) {
                     self.advance(); // consume ","
-                    // Skip optional "and" after comma: "X, Y, and Z"
+                                    // Skip optional "and" after comma: "X, Y, and Z"
                     if self.check(&TokenType::And) {
                         self.advance();
                     }
@@ -409,31 +419,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, modifiers);
 
             // Determine quantifier kind first (shared by both branches)
-            let kind = match quantifier_token {
-                TokenType::All | TokenType::No => QuantifierKind::Universal,
-                TokenType::Any => {
-                    if self.is_negative_context() {
-                        QuantifierKind::Existential
-                    } else {
-                        QuantifierKind::Universal
-                    }
-                }
-                TokenType::Some => QuantifierKind::Existential,
-                TokenType::Most => QuantifierKind::Most,
-                TokenType::Few => QuantifierKind::Few,
-                TokenType::Many => QuantifierKind::Many,
-                TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                _ => {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnknownQuantifier {
-                            found: quantifier_token.clone(),
-                        },
-                        span: self.current_span(),
-                    })
-                }
-            };
+            let kind = self.determiner_quantifier(&quantifier_token)?;
 
             // Branch on modal flavor for scope handling
             if vector.flavor == ModalFlavor::Root {
@@ -447,58 +433,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     operand: verb_pred,
                 });
 
-                let body = match quantifier_token {
-                    TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::Implies,
-                        right: modal_verb,
-                    }),
-                    TokenType::Any => {
-                        if self.is_negative_context() {
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: subject_pred,
-                                op: TokenType::And,
-                                right: modal_verb,
-                            })
-                        } else {
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: subject_pred,
-                                op: TokenType::Implies,
-                                right: modal_verb,
-                            })
-                        }
-                    }
-                    TokenType::Some
-                    | TokenType::Most
-                    | TokenType::Few
-                    | TokenType::Many
-                    | TokenType::Cardinal(_)
-                    | TokenType::AtLeast(_)
-                    | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::And,
-                        right: modal_verb,
-                    }),
-                    TokenType::No => {
-                        let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                            op: TokenType::Not,
-                            operand: modal_verb,
-                        });
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::Implies,
-                            right: neg,
-                        })
-                    }
-                    _ => {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UnknownQuantifier {
-                                found: quantifier_token.clone(),
-                            },
-                            span: self.current_span(),
-                        })
-                    }
-                };
+                let body = self.determiner_body(&quantifier_token, subject_pred, modal_verb)?;
 
                 // Build quantifier (modal is inside)
                 let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -527,64 +462,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(result);
-
             } else {
                 // === WIDE SCOPE (De Dicto) ===
                 // Epistemic modals (might, may) wrap the entire quantifier
                 // "Some unicorns might exist" → ◇∃x(Unicorn(x) ∧ Exist(x))
 
-                let body = match quantifier_token {
-                    TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::Implies,
-                        right: verb_pred,
-                    }),
-                    TokenType::Any => {
-                        if self.is_negative_context() {
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: subject_pred,
-                                op: TokenType::And,
-                                right: verb_pred,
-                            })
-                        } else {
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: subject_pred,
-                                op: TokenType::Implies,
-                                right: verb_pred,
-                            })
-                        }
-                    }
-                    TokenType::Some
-                    | TokenType::Most
-                    | TokenType::Few
-                    | TokenType::Many
-                    | TokenType::Cardinal(_)
-                    | TokenType::AtLeast(_)
-                    | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::And,
-                        right: verb_pred,
-                    }),
-                    TokenType::No => {
-                        let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                            op: TokenType::Not,
-                            operand: verb_pred,
-                        });
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::Implies,
-                            right: neg,
-                        })
-                    }
-                    _ => {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UnknownQuantifier {
-                                found: quantifier_token.clone(),
-                            },
-                            span: self.current_span(),
-                        })
-                    }
-                };
+                let body = self.determiner_body(&quantifier_token, subject_pred, verb_pred)?;
 
                 let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
@@ -648,8 +531,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 // lemma fills the Theme ("will be USED" → Be(e) ∧ Theme(e, Use)),
                 // mirroring the non-quantified passive path.
                 let verb_lower = self.interner.resolve(verb).to_lowercase();
-                let obj_term = if matches!(verb_lower.as_str(), "be" | "been")
-                    && self.check_verb()
+                let obj_term = if matches!(verb_lower.as_str(), "be" | "been") && self.check_verb()
                 {
                     Some(Term::Constant(self.consume_verb()))
                 } else {
@@ -691,40 +573,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     verb_pred
                 };
 
-                let body = match quantifier_token {
-                    TokenType::All | TokenType::Any => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::Implies,
-                        right: maybe_negated,
-                    }),
-                    // "No N will/did V" = ∀x(N(x) → ¬V(x)). The aux branch was the
-                    // sole VP path that dropped the negation for `No`, emitting the
-                    // (much stronger, false) ∀x(N(x) ∧ V(x)).
-                    TokenType::No => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::Implies,
-                        right: self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                            op: TokenType::Not,
-                            operand: maybe_negated,
-                        }),
-                    }),
-                    _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::And,
-                        right: maybe_negated,
-                    }),
-                };
+                let body = self.determiner_body(&quantifier_token, subject_pred, maybe_negated)?;
 
-                let kind = match quantifier_token {
-                    TokenType::All | TokenType::No => QuantifierKind::Universal,
-                    TokenType::Some => QuantifierKind::Existential,
-                    TokenType::Most => QuantifierKind::Most,
-                    TokenType::Few => QuantifierKind::Few,
-                    TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                    TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                    TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                    _ => QuantifierKind::Universal,
-                };
+                let kind = self.determiner_quantifier(&quantifier_token)?;
 
                 self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -766,30 +617,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 PresupKind::Regret | PresupKind::Realize | PresupKind::Know => complement,
             };
 
-            let body = match quantifier_token {
-                TokenType::All | TokenType::Any => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::Implies,
-                    right: verb_pred,
-                }),
-                _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::And,
-                    right: verb_pred,
-                }),
-            };
+            let body = self.determiner_body(&quantifier_token, subject_pred, verb_pred)?;
 
-            let kind = match quantifier_token {
-                TokenType::All | TokenType::No => QuantifierKind::Universal,
-                TokenType::Some => QuantifierKind::Existential,
-                TokenType::Most => QuantifierKind::Most,
-                TokenType::Few => QuantifierKind::Few,
-                TokenType::Many => QuantifierKind::Many,
-                TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                _ => QuantifierKind::Universal,
-            };
+            let kind = self.determiner_quantifier(&quantifier_token)?;
 
             self.in_negative_quantifier = was_in_negative_quantifier;
             return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -862,30 +692,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     operand: npi_quantified,
                 });
 
-                let body = match quantifier_token {
-                    TokenType::All | TokenType::No => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                // `no` licenses the NPI, whose negation is the determiner's own.
+                let body: &'a LogicExpr<'a> = if matches!(quantifier_token, TokenType::No) {
+                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: subject_pred,
                         op: TokenType::Implies,
                         right: negated_npi,
-                    }),
-                    _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::And,
-                        right: negated_npi,
-                    }),
+                    })
+                } else {
+                    self.determiner_body(&quantifier_token, subject_pred, negated_npi)?
                 };
 
-                let kind = match quantifier_token {
-                    TokenType::All | TokenType::No => QuantifierKind::Universal,
-                    TokenType::Some => QuantifierKind::Existential,
-                    TokenType::Most => QuantifierKind::Most,
-                    TokenType::Few => QuantifierKind::Few,
-                    TokenType::Many => QuantifierKind::Many,
-                    TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                    TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                    TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                    _ => QuantifierKind::Universal,
-                };
+                let kind = self.determiner_quantifier(&quantifier_token)?;
 
                 self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -894,7 +712,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     body,
                     island_id: self.current_island,
                 }));
-            } else if self.check_quantifier() || self.check_article() || self.check_possessive_pronoun() {
+            } else if self.check_quantifier()
+                || self.check_article()
+                || self.check_possessive_pronoun()
+            {
                 let obj_quantifier = if self.check_possessive_pronoun() {
                     // Possessive NP object ("his dog"): parse_noun_phrase
                     // consumes the possessor; no quantifier wrapper.
@@ -928,16 +749,24 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Number::Singular
                     };
                     if self.in_negative_quantifier {
-                        self.drs.introduce_referent_with_source(obj_var, object.noun, obj_gender, obj_number, ReferentSource::NegationScope);
+                        self.drs.introduce_referent_with_source(
+                            obj_var,
+                            object.noun,
+                            obj_gender,
+                            obj_number,
+                            ReferentSource::NegationScope,
+                        );
                     } else {
-                        self.drs.introduce_referent(obj_var, object.noun, obj_gender, obj_number);
+                        self.drs
+                            .introduce_referent(obj_var, object.noun, obj_gender, obj_number);
                     }
 
-                    let mut obj_restriction: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: object.noun,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
-                        world: None,
-                    });
+                    let mut obj_restriction: &'a LogicExpr<'a> =
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: object.noun,
+                            args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
+                        });
                     // The object's adjectives ("a RED book") and PP restrictors
                     // ("a maximum range OF 475 ft") are part of its description —
                     // dropping them is a meaning-loss parse.
@@ -966,92 +795,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         obj_modifiers,
                     );
 
-                    let obj_kind = match obj_q {
-                        TokenType::All => QuantifierKind::Universal,
-                        TokenType::Some => QuantifierKind::Existential,
-                        TokenType::No => QuantifierKind::Universal,
-                        TokenType::Most => QuantifierKind::Most,
-                        TokenType::Few => QuantifierKind::Few,
-                        TokenType::Many => QuantifierKind::Many,
-                        TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                        TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                        TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                        _ => QuantifierKind::Existential,
-                    };
+                    let obj_quantified =
+                        self.quantify_argument(&obj_q, obj_var, obj_restriction, verb_with_obj);
 
-                    let obj_body = match obj_q {
-                        TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: obj_restriction,
-                            op: TokenType::Implies,
-                            right: verb_with_obj,
-                        }),
-                        TokenType::No => {
-                            let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                                op: TokenType::Not,
-                                operand: verb_with_obj,
-                            });
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: obj_restriction,
-                                op: TokenType::Implies,
-                                right: neg,
-                            })
-                        }
-                        _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: obj_restriction,
-                            op: TokenType::And,
-                            right: verb_with_obj,
-                        }),
-                    };
+                    let subj_kind = self.determiner_quantifier(&quantifier_token)?;
 
-                    let obj_quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                        kind: obj_kind,
-                        variable: obj_var,
-                        body: obj_body,
-                        island_id: self.current_island,
-                    });
-
-                    let subj_kind = match quantifier_token {
-                        TokenType::All | TokenType::No => QuantifierKind::Universal,
-                        TokenType::Any => {
-                            if self.is_negative_context() {
-                                QuantifierKind::Existential
-                            } else {
-                                QuantifierKind::Universal
-                            }
-                        }
-                        TokenType::Some => QuantifierKind::Existential,
-                        TokenType::Most => QuantifierKind::Most,
-                        TokenType::Few => QuantifierKind::Few,
-                        TokenType::Many => QuantifierKind::Many,
-                        TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                        TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                        TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                        _ => QuantifierKind::Universal,
-                    };
-
-                    let subj_body = match quantifier_token {
-                        TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::Implies,
-                            right: obj_quantified,
-                        }),
-                        TokenType::No => {
-                            let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                                op: TokenType::Not,
-                                operand: obj_quantified,
-                            });
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: subject_pred,
-                                op: TokenType::Implies,
-                                right: neg,
-                            })
-                        }
-                        _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::And,
-                            right: obj_quantified,
-                        }),
-                    };
+                    let subj_body =
+                        self.determiner_body(&quantifier_token, subject_pred, obj_quantified)?;
 
                     self.in_negative_quantifier = was_in_negative_quantifier;
                     let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -1074,7 +824,8 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                 island_id: self.current_island,
                             });
                         } else {
-                            result = self.wrap_donkey_in_restriction(result, *donkey_var, *wide_neg);
+                            result =
+                                self.wrap_donkey_in_restriction(result, *donkey_var, *wide_neg);
                         }
                     }
                     self.donkey_bindings.clear();
@@ -1097,84 +848,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let modifiers = self.collect_adverbs();
             let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, modifiers);
 
-            let body = match quantifier_token {
-                TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::Implies,
-                    right: verb_pred,
-                }),
-                TokenType::Any => {
-                    if self.is_negative_context() {
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::And,
-                            right: verb_pred,
-                        })
-                    } else {
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::Implies,
-                            right: verb_pred,
-                        })
-                    }
-                }
-                TokenType::Some
-                | TokenType::Most
-                | TokenType::Few
-                | TokenType::Many
-                | TokenType::Cardinal(_)
-                | TokenType::AtLeast(_)
-                | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::And,
-                    right: verb_pred,
-                }),
-                TokenType::No => {
-                    let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                        op: TokenType::Not,
-                        operand: verb_pred,
-                    });
-                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::Implies,
-                        right: neg,
-                    })
-                }
-                _ => {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnknownQuantifier {
-                            found: quantifier_token.clone(),
-                        },
-                        span: self.current_span(),
-                    })
-                }
-            };
+            let body = self.determiner_body(&quantifier_token, subject_pred, verb_pred)?;
 
-            let kind = match quantifier_token {
-                TokenType::All | TokenType::No => QuantifierKind::Universal,
-                TokenType::Any => {
-                    if self.is_negative_context() {
-                        QuantifierKind::Existential
-                    } else {
-                        QuantifierKind::Universal
-                    }
-                }
-                TokenType::Some => QuantifierKind::Existential,
-                TokenType::Most => QuantifierKind::Most,
-                TokenType::Few => QuantifierKind::Few,
-                TokenType::Many => QuantifierKind::Many,
-                TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                _ => {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnknownQuantifier {
-                            found: quantifier_token.clone(),
-                        },
-                        span: self.current_span(),
-                    })
-                }
-            };
+            let kind = self.determiner_quantifier(&quantifier_token)?;
 
             let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                 kind,
@@ -1223,24 +899,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 predicate_expr
             };
 
-            let body = match quantifier_token {
-                TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::Implies,
-                    right: final_predicate,
-                }),
-                _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::And,
-                    right: final_predicate,
-                }),
-            };
+            let body = self.determiner_body(&quantifier_token, subject_pred, final_predicate)?;
 
             let result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                kind: match quantifier_token {
-                    TokenType::All => QuantifierKind::Universal,
-                    _ => QuantifierKind::Existential,
-                },
+                kind: self.determiner_quantifier(&quantifier_token)?,
                 variable: var_name,
                 body: body,
                 island_id: self.current_island,
@@ -1263,7 +925,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let mut final_predicate = if is_pp_complement {
             let pp = self.parse_copula_pp_complement(var_name)?;
             if negative {
-                self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pp })
+                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: pp,
+                })
             } else {
                 pp
             }
@@ -1307,7 +972,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
             if is_comma_list {
                 self.advance(); // consume ","
-                // "A, B, or C": drop the coordinating "or"/"and" after the comma.
+                                // "A, B, or C": drop the coordinating "or"/"and" after the comma.
                 if self.check(&TokenType::Or) || self.check(&TokenType::And) {
                     self.advance();
                 }
@@ -1337,84 +1002,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             });
         }
 
-        let body = match quantifier_token {
-            TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                left: subject_pred,
-                op: TokenType::Implies,
-                right: final_predicate,
-            }),
-            TokenType::Any => {
-                if self.is_negative_context() {
-                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::And,
-                        right: final_predicate,
-                    })
-                } else {
-                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::Implies,
-                        right: final_predicate,
-                    })
-                }
-            }
-            TokenType::Some
-            | TokenType::Most
-            | TokenType::Few
-            | TokenType::Many
-            | TokenType::Cardinal(_)
-            | TokenType::AtLeast(_)
-            | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                left: subject_pred,
-                op: TokenType::And,
-                right: final_predicate,
-            }),
-            TokenType::No => {
-                let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                    op: TokenType::Not,
-                    operand: final_predicate,
-                });
-                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::Implies,
-                    right: neg,
-                })
-            }
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::UnknownQuantifier {
-                        found: quantifier_token.clone(),
-                    },
-                    span: self.current_span(),
-                })
-            }
-        };
+        let body = self.determiner_body(&quantifier_token, subject_pred, final_predicate)?;
 
-        let kind = match quantifier_token {
-            TokenType::All | TokenType::No => QuantifierKind::Universal,
-            TokenType::Any => {
-                if self.is_negative_context() {
-                    QuantifierKind::Existential
-                } else {
-                    QuantifierKind::Universal
-                }
-            }
-            TokenType::Some => QuantifierKind::Existential,
-            TokenType::Most => QuantifierKind::Most,
-            TokenType::Few => QuantifierKind::Few,
-            TokenType::Many => QuantifierKind::Many,
-            TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-            TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-            TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::UnknownQuantifier {
-                        found: quantifier_token.clone(),
-                    },
-                    span: self.current_span(),
-                })
-            }
-        };
+        let kind = self.determiner_quantifier(&quantifier_token)?;
 
         let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
             kind,
@@ -1612,25 +1202,29 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             // Skip a leading quantifier determiner in the PP object ("in ANY
             // category", "in EACH group") — the restrictor PP names the sort, and
             // `parse_noun_phrase` does not consume a bare quantifier determiner.
-            if matches!(
-                self.peek().kind,
-                TokenType::Any | TokenType::All | TokenType::Some | TokenType::No
-                    | TokenType::Most | TokenType::Few | TokenType::Many
-            ) && matches!(
-                self.tokens.get(self.current + 1).map(|t| &t.kind),
-                Some(TokenType::Noun(_)) | Some(TokenType::Adjective(_))
-            ) {
+            if (self.peek().kind.is_generalized_quantifier()
+                || matches!(
+                    self.peek().kind,
+                    TokenType::Any | TokenType::All | TokenType::Some | TokenType::No
+                ))
+                && matches!(
+                    self.tokens.get(self.current + 1).map(|t| &t.kind),
+                    Some(TokenType::Noun(_)) | Some(TokenType::Adjective(_))
+                )
+            {
                 self.advance();
             }
             let pp_np = self.parse_noun_phrase(false)?;
-            conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: prep_name,
-                args: self
-                    .ctx
-                    .terms
-                    .alloc_slice([Term::Variable(var_name), Term::Constant(pp_np.noun)]),
-                world: None,
-            }));
+            conditions.push(
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep_name,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(var_name), Term::Constant(pp_np.noun)]),
+                    world: None,
+                }),
+            );
         }
 
         while self.check(&TokenType::That) || self.check(&TokenType::Who) {
@@ -1642,7 +1236,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         self.combine_with_and(conditions)
     }
 
-    fn parse_verb_phrase_for_restriction(&mut self, var_name: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+    fn parse_verb_phrase_for_restriction(
+        &mut self,
+        var_name: Symbol,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
         let var_term = Term::Variable(var_name);
         let verb = self.consume_verb();
         let verb_str_owned = self.interner.resolve(verb).to_string();
@@ -1779,7 +1376,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 // following noun, so the whole thing is the noun object.
                 matches!(
                     self.peek().kind,
-                    TokenType::Verb { aspect: crate::lexicon::Aspect::Progressive, .. }
+                    TokenType::Verb {
+                        aspect: crate::lexicon::Aspect::Progressive,
+                        ..
+                    }
                 ) && matches!(
                     self.tokens.get(self.current + 1).map(|t| &t.kind),
                     Some(TokenType::Noun(_))
@@ -1900,8 +1500,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     // the object; lower them over the object constant so they are not
                     // dropped — the main-clause VP keeps them, this relative VP must too.
                     for pp in object.pps {
-                        let pp_sub =
-                            self.substitute_pp_self_term(pp, Term::Constant(object.noun));
+                        let pp_sub = self.substitute_pp_self_term(pp, Term::Constant(object.noun));
                         extra_conditions.push(pp_sub);
                     }
                 }
@@ -1956,14 +1555,16 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     args.push(Term::Variable(nested_var));
                 } else if attach_to_event {
                     let ev = self.get_event_var();
-                    extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: prep_sym.unwrap(),
-                        args: self
-                            .ctx
-                            .terms
-                            .alloc_slice([Term::Variable(ev), Term::Constant(object.noun)]),
-                        world: None,
-                    }));
+                    extra_conditions.push(
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep_sym.unwrap(),
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([Term::Variable(ev), Term::Constant(object.noun)]),
+                            world: None,
+                        }),
+                    );
                 } else {
                     args.push(Term::Constant(object.noun));
                 }
@@ -1978,7 +1579,8 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             None
         };
         let final_modifiers = self.collect_adverbs();
-        let base_pred = self.build_verb_neo_event(canonical_verb, var_name, obj_term, final_modifiers);
+        let base_pred =
+            self.build_verb_neo_event(canonical_verb, var_name, obj_term, final_modifiers);
 
         // Wrap in negation only for NARROW scope mode (de re reading)
         // Wide scope mode: negation handled via donkey binding flag in wrap_donkey_in_restriction
@@ -2029,7 +1631,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         Ok(restriction)
     }
 
-    fn combine_with_and(&self, mut exprs: Vec<&'a LogicExpr<'a>>) -> ParseResult<&'a LogicExpr<'a>> {
+    fn combine_with_and(
+        &self,
+        mut exprs: Vec<&'a LogicExpr<'a>>,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
         if exprs.is_empty() {
             return Err(ParseError {
                 kind: ParseErrorKind::EmptyRestriction,
@@ -2095,17 +1700,20 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             //   ∃p(Restrictor(p) ∧ ∃e(Have(e) ∧ Agent(e,p) ∧ Theme(e,possessed))).
             // A bare possessor ("Agnes", "His") keeps the constant-Agent form.
             let (agent_term, agent_restr) = self.possessor_entity(possessor);
-            let have = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var: self.interner.intern("e"),
-                verb: self.interner.intern("Have"),
-                roles: self.ctx.roles.alloc_slice(vec![
-                    (ThematicRole::Agent, agent_term),
-                    (ThematicRole::Theme, possessed),
-                ]),
-                modifiers: self.ctx.syms.alloc_slice(vec![]),
-                suppress_existential: false,
-                world: None,
-            })));
+            let have = self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var: self.interner.intern("e"),
+                    verb: self.interner.intern("Have"),
+                    roles: self.ctx.roles.alloc_slice(vec![
+                        (ThematicRole::Agent, agent_term),
+                        (ThematicRole::Theme, possessed),
+                    ]),
+                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential: false,
+                    world: None,
+                })));
             let presupposition = self.wrap_in_possessor_entity(agent_restr, have);
             return Ok(self.ctx.exprs.alloc(LogicExpr::Presupposition {
                 assertion: result,
@@ -2177,7 +1785,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     Number::Singular
                 };
                 if self.in_negative_quantifier {
-                    self.drs.introduce_referent_with_source(var, noun, gender, number, ReferentSource::NegationScope);
+                    self.drs.introduce_referent_with_source(
+                        var,
+                        noun,
+                        gender,
+                        number,
+                        ReferentSource::NegationScope,
+                    );
                 } else {
                     self.drs.introduce_referent(var, noun, gender, number);
                 }
@@ -2235,8 +1849,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     // Australia) instead of dropping the origin constraint.
                     for adj in adjectives {
                         let adj_pred = self.adjective_restriction(*adj, singular_sym, noun);
-                        let adj_on_sigma =
-                            self.substitute_constant_with_sigma(adj_pred, singular_sym, sigma_term)?;
+                        let adj_on_sigma = self.substitute_constant_with_sigma(
+                            adj_pred,
+                            singular_sym,
+                            sigma_term,
+                        )?;
                         substituted = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                             left: adj_on_sigma,
                             op: TokenType::And,
@@ -2285,8 +1902,14 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     // Introduce definite plural referent to DRS for cross-sentence pronoun resolution
                     // E.g., "The dogs ran. They barked." - "they" refers to "dogs"
                     // Definite descriptions presuppose existence, so they should be globally accessible.
-                    let gender = Gender::Unknown;  // Plural entities have unknown gender
-                    self.drs.introduce_referent_with_source(singular_sym, singular_sym, gender, Number::Plural, ReferentSource::MainClause);
+                    let gender = Gender::Unknown; // Plural entities have unknown gender
+                    self.drs.introduce_referent_with_source(
+                        singular_sym,
+                        singular_sym,
+                        gender,
+                        Number::Plural,
+                        ReferentSource::MainClause,
+                    );
 
                     if is_collective {
                         Ok(substituted)
@@ -2301,15 +1924,14 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     // kettle" reuses the referent instead of asserting a
                     // second Russell expansion (existence + uniqueness).
                     if adjectives.is_empty() && pps.is_empty() {
-                        if let Some(prior) =
-                            self.drs.resolve_definite(self.drs.current_box_index(), noun)
+                        if let Some(prior) = self
+                            .drs
+                            .resolve_definite(self.drs.current_box_index(), noun)
                         {
                             if prior == noun {
                                 return Ok(predicate);
                             }
-                            return self.substitute_constant_with_var_sym(
-                                predicate, noun, prior,
-                            );
+                            return self.substitute_constant_with_var_sym(predicate, noun, prior);
                         }
                     }
 
@@ -2328,9 +1950,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             noun,
                             adjectives,
                         ) {
-                            return self.substitute_constant_with_var_sym(
-                                predicate, noun, prior,
-                            );
+                            return self.substitute_constant_with_var_sym(predicate, noun, prior);
                         }
                     }
 
@@ -2427,20 +2047,22 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                     // Bridging anaphora: check if this noun is a part of a previously mentioned whole
                     // E.g., "I bought a car. The engine smoked." - engine is part of car
-                    let has_prior_antecedent = self.drs.resolve_definite(
-                        self.drs.current_box_index(),
-                        noun
-                    ).is_some();
+                    let has_prior_antecedent = self
+                        .drs
+                        .resolve_definite(self.drs.current_box_index(), noun)
+                        .is_some();
 
                     if !has_prior_antecedent {
-                        if let Some((whole_var, _whole_name)) = self.drs.resolve_bridging(self.interner, noun) {
+                        if let Some((whole_var, _whole_name)) =
+                            self.drs.resolve_bridging(self.interner, noun)
+                        {
                             let part_of_sym = self.interner.intern("PartOf");
                             let part_of_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: part_of_sym,
-                                args: self.ctx.terms.alloc_slice([
-                                    Term::Variable(x),
-                                    Term::Constant(whole_var),
-                                ]),
+                                args: self
+                                    .ctx
+                                    .terms
+                                    .alloc_slice([Term::Variable(x), Term::Constant(whole_var)]),
                                 world: None,
                             });
                             restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -2604,19 +2226,15 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             Some(Definiteness::Indefinite) => {
                 let var = self.next_var_name();
 
-                // Introduce referent into DRS for cross-sentence anaphora
-                // If inside a "No" quantifier, mark as NegationScope (inaccessible)
+                // Introduce referent into DRS for cross-sentence anaphora, where its scope
+                // puts it (see `IndefiniteScope`).
                 let gender = Self::infer_noun_gender(self.interner.resolve(noun));
                 let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
                     Number::Plural
                 } else {
                     Number::Singular
                 };
-                if self.in_negative_quantifier {
-                    self.drs.introduce_referent_with_source(var, noun, gender, number, ReferentSource::NegationScope);
-                } else {
-                    self.drs.introduce_referent(var, noun, gender, number);
-                }
+                let scope = self.introduce_indefinite(var, noun, gender, number);
 
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
@@ -2629,6 +2247,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     op: TokenType::And,
                     right: substituted,
                 });
+                if scope == IndefiniteScope::Antecedent {
+                    return Ok(body);
+                }
                 Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind: QuantifierKind::Existential,
                     variable: var,
@@ -2729,7 +2350,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
     }
 
-    fn substitute_pp_placeholder(&mut self, pp: &'a LogicExpr<'a>, var: Symbol) -> &'a LogicExpr<'a> {
+    fn substitute_pp_placeholder(
+        &mut self,
+        pp: &'a LogicExpr<'a>,
+        var: Symbol,
+    ) -> &'a LogicExpr<'a> {
         let placeholder = self.interner.intern("_PP_SELF_");
         match pp {
             LogicExpr::Predicate { name, args, .. } => {
@@ -2753,13 +2378,25 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             LogicExpr::BinaryOp { left, op, right } => {
                 let l = self.substitute_pp_placeholder(left, var);
                 let r = self.substitute_pp_placeholder(right, var);
-                self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: l, op: op.clone(), right: r })
+                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: l,
+                    op: op.clone(),
+                    right: r,
+                })
             }
             LogicExpr::UnaryOp { op, operand } => {
                 let o = self.substitute_pp_placeholder(operand, var);
-                self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: op.clone(), operand: o })
+                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: op.clone(),
+                    operand: o,
+                })
             }
-            LogicExpr::Quantifier { kind, variable, body, island_id } => {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                island_id,
+            } => {
                 let b = self.substitute_pp_placeholder(body, var);
                 self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind: *kind,
@@ -2770,7 +2407,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
             LogicExpr::Temporal { operator, body } => {
                 let b = self.substitute_pp_placeholder(body, var);
-                self.ctx.exprs.alloc(LogicExpr::Temporal { operator: *operator, body: b })
+                self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: *operator,
+                    body: b,
+                })
             }
             LogicExpr::NeoEvent(data) => {
                 let new_roles: Vec<(ThematicRole, Term<'a>)> = data
@@ -2784,14 +2424,16 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         (*role, new_term)
                     })
                     .collect();
-                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var: data.event_var,
-                    verb: data.verb,
-                    roles: self.ctx.roles.alloc_slice(new_roles),
-                    modifiers: data.modifiers,
-                    suppress_existential: data.suppress_existential,
-                    world: data.world,
-                })))
+                self.ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var: data.event_var,
+                        verb: data.verb,
+                        roles: self.ctx.roles.alloc_slice(new_roles),
+                        modifiers: data.modifiers,
+                        suppress_existential: data.suppress_existential,
+                        world: data.world,
+                    })))
             }
             _ => pp,
         }
@@ -2813,7 +2455,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Term::Variable(v) => Term::Variable(*v),
                         Term::Function(n, a) => Term::Function(*n, *a),
                         Term::Group(m) => Term::Group(*m),
-                        Term::Possessed { possessor, possessed } => Term::Possessed {
+                        Term::Possessed {
+                            possessor,
+                            possessed,
+                        } => Term::Possessed {
                             possessor: *possessor,
                             possessed: *possessed,
                         },
@@ -2821,7 +2466,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Term::Intension(p) => Term::Intension(*p),
                         Term::Kind(k) => Term::Kind(*k),
                         Term::Proposition(e) => Term::Proposition(*e),
-                        Term::Value { kind, unit, dimension } => Term::Value {
+                        Term::Value {
+                            kind,
+                            unit,
+                            dimension,
+                        } => Term::Value {
                             kind: *kind,
                             unit: *unit,
                             dimension: *dimension,
@@ -2834,23 +2483,29 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     world: None,
                 }))
             }
-            LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
-                operator: *operator,
-                body: self.substitute_constant_with_var(body, constant_name, var_name)?,
-            })),
-            LogicExpr::Aspectual { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Aspectual {
-                operator: *operator,
-                body: self.substitute_constant_with_var(body, constant_name, var_name)?,
-            })),
+            LogicExpr::Temporal { operator, body } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: *operator,
+                    body: self.substitute_constant_with_var(body, constant_name, var_name)?,
+                }))
+            }
+            LogicExpr::Aspectual { operator, body } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::Aspectual {
+                    operator: *operator,
+                    body: self.substitute_constant_with_var(body, constant_name, var_name)?,
+                }))
+            }
             LogicExpr::UnaryOp { op, operand } => Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                 op: op.clone(),
                 operand: self.substitute_constant_with_var(operand, constant_name, var_name)?,
             })),
-            LogicExpr::BinaryOp { left, op, right } => Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                left: self.substitute_constant_with_var(left, constant_name, var_name)?,
-                op: op.clone(),
-                right: self.substitute_constant_with_var(right, constant_name, var_name)?,
-            })),
+            LogicExpr::BinaryOp { left, op, right } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: self.substitute_constant_with_var(left, constant_name, var_name)?,
+                    op: op.clone(),
+                    right: self.substitute_constant_with_var(right, constant_name, var_name)?,
+                }))
+            }
             LogicExpr::Event { predicate, adverbs } => Ok(self.ctx.exprs.alloc(LogicExpr::Event {
                 predicate: self.substitute_constant_with_var(predicate, constant_name, var_name)?,
                 adverbs: *adverbs,
@@ -2873,7 +2528,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             Term::Variable(v) => Term::Variable(*v),
                             Term::Function(n, a) => Term::Function(*n, *a),
                             Term::Group(m) => Term::Group(*m),
-                            Term::Possessed { possessor, possessed } => Term::Possessed {
+                            Term::Possessed {
+                                possessor,
+                                possessed,
+                            } => Term::Possessed {
                                 possessor: *possessor,
                                 possessed: *possessed,
                             },
@@ -2881,7 +2539,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             Term::Intension(p) => Term::Intension(*p),
                             Term::Kind(k) => Term::Kind(*k),
                             Term::Proposition(e) => Term::Proposition(*e),
-                            Term::Value { kind, unit, dimension } => Term::Value {
+                            Term::Value {
+                                kind,
+                                unit,
+                                dimension,
+                            } => Term::Value {
                                 kind: *kind,
                                 unit: *unit,
                                 dimension: *dimension,
@@ -2890,17 +2552,25 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         (*role, new_term)
                     })
                     .collect();
-                Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
-                    event_var: data.event_var,
-                    verb: data.verb,
-                    roles: self.ctx.roles.alloc_slice(new_roles),
-                    modifiers: data.modifiers,
-                    suppress_existential: data.suppress_existential,
-                    world: None,
-                }))))
+                Ok(self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
+                        event_var: data.event_var,
+                        verb: data.verb,
+                        roles: self.ctx.roles.alloc_slice(new_roles),
+                        modifiers: data.modifiers,
+                        suppress_existential: data.suppress_existential,
+                        world: None,
+                    }))))
             }
             // Recurse into nested quantifiers to substitute constants in their bodies
-            LogicExpr::Quantifier { kind, variable, body, island_id } => {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                island_id,
+            } => {
                 let new_body = self.substitute_constant_with_var(body, constant_name, var_name)?;
                 Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind: *kind,
@@ -2909,7 +2579,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     island_id: *island_id,
                 }))
             }
-            LogicExpr::Control { verb, subject, object, infinitive } => {
+            LogicExpr::Control {
+                verb,
+                subject,
+                object,
+                infinitive,
+            } => {
                 let sub_term = |t: &Term<'a>| -> Term<'a> {
                     match t {
                         Term::Constant(c) if *c == constant_name => Term::Variable(var_name),
@@ -2923,7 +2598,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Some(o) => Some(&*self.ctx.terms.alloc(sub_term(o))),
                         None => None,
                     },
-                    infinitive: self.substitute_constant_with_var(infinitive, constant_name, var_name)?,
+                    infinitive: self.substitute_constant_with_var(
+                        infinitive,
+                        constant_name,
+                        var_name,
+                    )?,
                 }))
             }
             _ => Ok(expr),
@@ -2964,10 +2643,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 left: self.ctx.terms.alloc(map_term(left)),
                 right: self.ctx.terms.alloc(map_term(right)),
             })),
-            LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
-                operator: *operator,
-                body: self.substitute_variable_with_constant(body, from_var, to_const)?,
-            })),
+            LogicExpr::Temporal { operator, body } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: *operator,
+                    body: self.substitute_variable_with_constant(body, from_var, to_const)?,
+                }))
+            }
             LogicExpr::Aspectual { operator, body } => {
                 Ok(self.ctx.exprs.alloc(LogicExpr::Aspectual {
                     operator: *operator,
@@ -2978,11 +2659,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 op: op.clone(),
                 operand: self.substitute_variable_with_constant(operand, from_var, to_const)?,
             })),
-            LogicExpr::BinaryOp { left, op, right } => Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                left: self.substitute_variable_with_constant(left, from_var, to_const)?,
-                op: op.clone(),
-                right: self.substitute_variable_with_constant(right, from_var, to_const)?,
-            })),
+            LogicExpr::BinaryOp { left, op, right } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: self.substitute_variable_with_constant(left, from_var, to_const)?,
+                    op: op.clone(),
+                    right: self.substitute_variable_with_constant(right, from_var, to_const)?,
+                }))
+            }
             LogicExpr::Event { predicate, adverbs } => Ok(self.ctx.exprs.alloc(LogicExpr::Event {
                 predicate: self.substitute_variable_with_constant(predicate, from_var, to_const)?,
                 adverbs: *adverbs,
@@ -2994,18 +2677,29 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 }))
             }
             LogicExpr::NeoEvent(data) => {
-                let new_roles: Vec<(crate::ast::ThematicRole, Term<'a>)> =
-                    data.roles.iter().map(|(role, term)| (*role, map_term(term))).collect();
-                Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
-                    event_var: data.event_var,
-                    verb: data.verb,
-                    roles: self.ctx.roles.alloc_slice(new_roles),
-                    modifiers: data.modifiers,
-                    suppress_existential: data.suppress_existential,
-                    world: None,
-                }))))
+                let new_roles: Vec<(crate::ast::ThematicRole, Term<'a>)> = data
+                    .roles
+                    .iter()
+                    .map(|(role, term)| (*role, map_term(term)))
+                    .collect();
+                Ok(self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
+                        event_var: data.event_var,
+                        verb: data.verb,
+                        roles: self.ctx.roles.alloc_slice(new_roles),
+                        modifiers: data.modifiers,
+                        suppress_existential: data.suppress_existential,
+                        world: None,
+                    }))))
             }
-            LogicExpr::Quantifier { kind, variable, body, island_id } => {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                island_id,
+            } => {
                 // A nested quantifier that re-binds `from_var` shadows the gap;
                 // leave its body untouched in that case.
                 if *variable == from_var {
@@ -3018,14 +2712,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     island_id: *island_id,
                 }))
             }
-            LogicExpr::Control { verb, subject, object, infinitive } => {
-                Ok(self.ctx.exprs.alloc(LogicExpr::Control {
-                    verb: *verb,
-                    subject: self.ctx.terms.alloc(map_term(subject)),
-                    object: object.map(|o| &*self.ctx.terms.alloc(map_term(o))),
-                    infinitive: self.substitute_variable_with_constant(infinitive, from_var, to_const)?,
-                }))
-            }
+            LogicExpr::Control {
+                verb,
+                subject,
+                object,
+                infinitive,
+            } => Ok(self.ctx.exprs.alloc(LogicExpr::Control {
+                verb: *verb,
+                subject: self.ctx.terms.alloc(map_term(subject)),
+                object: object.map(|o| &*self.ctx.terms.alloc(map_term(o))),
+                infinitive: self
+                    .substitute_variable_with_constant(infinitive, from_var, to_const)?,
+            })),
             _ => Ok(expr),
         }
     }
@@ -3046,7 +2744,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Term::Variable(v) => Term::Variable(*v),
                         Term::Function(n, a) => Term::Function(*n, *a),
                         Term::Group(m) => Term::Group(*m),
-                        Term::Possessed { possessor, possessed } => Term::Possessed {
+                        Term::Possessed {
+                            possessor,
+                            possessed,
+                        } => Term::Possessed {
                             possessor: *possessor,
                             possessed: *possessed,
                         },
@@ -3054,7 +2755,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Term::Intension(p) => Term::Intension(*p),
                         Term::Kind(k) => Term::Kind(*k),
                         Term::Proposition(e) => Term::Proposition(*e),
-                        Term::Value { kind, unit, dimension } => Term::Value {
+                        Term::Value {
+                            kind,
+                            unit,
+                            dimension,
+                        } => Term::Value {
                             kind: *kind,
                             unit: *unit,
                             dimension: *dimension,
@@ -3067,27 +2772,33 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     world: None,
                 }))
             }
-            LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
-                operator: *operator,
-                body: self.substitute_constant_with_sigma(body, constant_name, sigma_term)?,
-            })),
-            LogicExpr::Aspectual { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Aspectual {
-                operator: *operator,
-                body: self.substitute_constant_with_sigma(body, constant_name, sigma_term)?,
-            })),
+            LogicExpr::Temporal { operator, body } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: *operator,
+                    body: self.substitute_constant_with_sigma(body, constant_name, sigma_term)?,
+                }))
+            }
+            LogicExpr::Aspectual { operator, body } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::Aspectual {
+                    operator: *operator,
+                    body: self.substitute_constant_with_sigma(body, constant_name, sigma_term)?,
+                }))
+            }
             LogicExpr::UnaryOp { op, operand } => Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                 op: op.clone(),
                 operand: self.substitute_constant_with_sigma(operand, constant_name, sigma_term)?,
             })),
-            LogicExpr::BinaryOp { left, op, right } => Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                left: self.substitute_constant_with_sigma(
-                    left,
-                    constant_name,
-                    sigma_term.clone(),
-                )?,
-                op: op.clone(),
-                right: self.substitute_constant_with_sigma(right, constant_name, sigma_term)?,
-            })),
+            LogicExpr::BinaryOp { left, op, right } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: self.substitute_constant_with_sigma(
+                        left,
+                        constant_name,
+                        sigma_term.clone(),
+                    )?,
+                    op: op.clone(),
+                    right: self.substitute_constant_with_sigma(right, constant_name, sigma_term)?,
+                }))
+            }
             LogicExpr::Event { predicate, adverbs } => Ok(self.ctx.exprs.alloc(LogicExpr::Event {
                 predicate: self.substitute_constant_with_sigma(
                     predicate,
@@ -3113,7 +2824,10 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             Term::Variable(v) => Term::Variable(*v),
                             Term::Function(n, a) => Term::Function(*n, *a),
                             Term::Group(m) => Term::Group(*m),
-                            Term::Possessed { possessor, possessed } => Term::Possessed {
+                            Term::Possessed {
+                                possessor,
+                                possessed,
+                            } => Term::Possessed {
                                 possessor: *possessor,
                                 possessed: *possessed,
                             },
@@ -3121,7 +2835,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             Term::Intension(p) => Term::Intension(*p),
                             Term::Kind(k) => Term::Kind(*k),
                             Term::Proposition(e) => Term::Proposition(*e),
-                            Term::Value { kind, unit, dimension } => Term::Value {
+                            Term::Value {
+                                kind,
+                                unit,
+                                dimension,
+                            } => Term::Value {
                                 kind: *kind,
                                 unit: *unit,
                                 dimension: *dimension,
@@ -3130,18 +2848,27 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         (*role, new_term)
                     })
                     .collect();
-                Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
-                    event_var: data.event_var,
-                    verb: data.verb,
-                    roles: self.ctx.roles.alloc_slice(new_roles),
-                    modifiers: data.modifiers,
-                    suppress_existential: data.suppress_existential,
-                    world: None,
-                }))))
+                Ok(self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
+                        event_var: data.event_var,
+                        verb: data.verb,
+                        roles: self.ctx.roles.alloc_slice(new_roles),
+                        modifiers: data.modifiers,
+                        suppress_existential: data.suppress_existential,
+                        world: None,
+                    }))))
             }
-            LogicExpr::Distributive { predicate } => Ok(self.ctx.exprs.alloc(LogicExpr::Distributive {
-                predicate: self.substitute_constant_with_sigma(predicate, constant_name, sigma_term)?,
-            })),
+            LogicExpr::Distributive { predicate } => {
+                Ok(self.ctx.exprs.alloc(LogicExpr::Distributive {
+                    predicate: self.substitute_constant_with_sigma(
+                        predicate,
+                        constant_name,
+                        sigma_term,
+                    )?,
+                }))
+            }
             _ => Ok(expr),
         }
     }
@@ -3160,21 +2887,34 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
     }
 
-    fn transform_cardinal_to_group(&mut self, expr: &'a LogicExpr<'a>) -> ParseResult<&'a LogicExpr<'a>> {
+    fn transform_cardinal_to_group(
+        &mut self,
+        expr: &'a LogicExpr<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
         match expr {
-            LogicExpr::Quantifier { kind: QuantifierKind::Cardinal(n), variable, body, .. } => {
+            LogicExpr::Quantifier {
+                kind: QuantifierKind::Cardinal(n),
+                variable,
+                body,
+                ..
+            } => {
                 let group_var = self.interner.intern("g");
                 let member_var = *variable;
 
                 // Extract the restriction (first conjunct) and the body (rest)
                 // The structure is: restriction ∧ body_rest
                 let (restriction, body_rest) = match body {
-                    LogicExpr::BinaryOp { left, op: TokenType::And, right } => (*left, *right),
+                    LogicExpr::BinaryOp {
+                        left,
+                        op: TokenType::And,
+                        right,
+                    } => (*left, *right),
                     _ => return Ok(expr),
                 };
 
                 // Substitute the member variable with the group variable in the body
-                let transformed_body = self.substitute_constant_with_var_sym(body_rest, member_var, group_var)?;
+                let transformed_body =
+                    self.substitute_constant_with_var_sym(body_rest, member_var, group_var)?;
 
                 Ok(self.ctx.exprs.alloc(LogicExpr::GroupQuantifier {
                     group_var,
@@ -3221,7 +2961,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     predicate: transformed,
                 }))
             }
-            LogicExpr::Quantifier { kind, variable, body, island_id } => {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                island_id,
+            } => {
                 let transformed = self.transform_cardinal_to_group(body)?;
                 Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind: kind.clone(),
@@ -3265,19 +3010,105 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
         // Create NeoEventData with suppress_existential: false
         // Each quantified individual gets their own event (distributive reading)
-        self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-            event_var,
-            verb,
-            roles: self.ctx.roles.alloc_slice(roles),
-            modifiers: self.ctx.syms.alloc_slice(modifiers),
-            suppress_existential: false,
-            world: None,
-        })))
+        self.ctx
+            .exprs
+            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                event_var,
+                verb,
+                roles: self.ctx.roles.alloc_slice(roles),
+                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                suppress_existential: false,
+                world: None,
+            })))
     }
 }
 
 // Helper methods for donkey binding scope handling
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// The quantifier `determiner` binds: `any` reads existentially under negation and universally
+    /// elsewhere, and every other determiner binds its own ([`QuantifierKind::of_determiner`]).
+    pub(super) fn determiner_quantifier(
+        &self,
+        determiner: &TokenType,
+    ) -> ParseResult<QuantifierKind> {
+        if matches!(determiner, TokenType::Any) {
+            return Ok(if self.is_negative_context() {
+                QuantifierKind::Existential
+            } else {
+                QuantifierKind::Universal
+            });
+        }
+        QuantifierKind::of_determiner(determiner).ok_or_else(|| ParseError {
+            kind: ParseErrorKind::UnknownQuantifier {
+                found: determiner.clone(),
+            },
+            span: self.current_span(),
+        })
+    }
+
+    /// The body of `determiner`'s quantifier over `restrictor` and `scope`: `R → ¬S` under `no`,
+    /// `R → S` under a quantifier that restricts by implication, `R ∧ S` under the rest.
+    pub(super) fn determiner_body(
+        &self,
+        determiner: &TokenType,
+        restrictor: &'a LogicExpr<'a>,
+        scope: &'a LogicExpr<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
+        let (op, right): (TokenType, &'a LogicExpr<'a>) = if matches!(determiner, TokenType::No) {
+            let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: scope,
+            });
+            (TokenType::Implies, negated)
+        } else if self
+            .determiner_quantifier(determiner)?
+            .restricts_by_implication()
+        {
+            (TokenType::Implies, scope)
+        } else {
+            (TokenType::And, scope)
+        };
+        Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: restrictor,
+            op,
+            right,
+        }))
+    }
+
+    /// The quantifier a determiner heading an argument other than the subject — an object, a
+    /// recipient, a comparison's standard, a passive agent — binds over `variable`: `any` and a
+    /// token that is no determiner read as an indefinite, `∃v(R ∧ S)`, and every other determiner
+    /// reads as it does at the head of a subject.
+    pub(super) fn quantify_argument(
+        &self,
+        determiner: &TokenType,
+        variable: Symbol,
+        restrictor: &'a LogicExpr<'a>,
+        scope: &'a LogicExpr<'a>,
+    ) -> &'a LogicExpr<'a> {
+        let indefinite = || -> &'a LogicExpr<'a> {
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: restrictor,
+                op: TokenType::And,
+                right: scope,
+            })
+        };
+        let (kind, body) = QuantifierKind::of_determiner(determiner)
+            .and_then(|kind| {
+                Some((
+                    kind,
+                    self.determiner_body(determiner, restrictor, scope).ok()?,
+                ))
+            })
+            .unwrap_or_else(|| (QuantifierKind::Existential, indefinite()));
+        self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id: self.current_island,
+        })
+    }
+
     /// Is the parser at a position where a finished clause may legitimately
     /// end? Used to detect under-consumption by specialized sub-grammars.
     pub(super) fn at_clause_boundary(&self) -> bool {
@@ -3287,6 +3118,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Exclamation
                 | TokenType::EOF
                 | TokenType::Comma
+                | TokenType::InfinitelyOften
                 | TokenType::RParen
                 | TokenType::And
                 | TokenType::Or
@@ -3341,17 +3173,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             };
             let event_var = self.get_event_var();
             let suppress_existential = self.drs.in_conditional_antecedent();
-            let event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb,
-                roles: self.ctx.roles.alloc_slice(vec![
-                    (ThematicRole::Agent, Term::Variable(var_name)),
-                    (ThematicRole::Theme, Term::Variable(other_var)),
-                ]),
-                modifiers: self.ctx.syms.alloc_slice(modifiers),
-                suppress_existential,
-                world: None,
-            })));
+            let event = self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self.ctx.roles.alloc_slice(vec![
+                        (ThematicRole::Agent, Term::Variable(var_name)),
+                        (ThematicRole::Theme, Term::Variable(other_var)),
+                    ]),
+                    modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
+                    world: None,
+                })));
             let antecedent = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left: other_restriction,
                 op: TokenType::And,
@@ -3384,8 +3219,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             {
                 if aspect == crate::lexicon::Aspect::Progressive {
                     self.advance(); // copula carries tense only
-                    self.pending_time =
-                        Some(if copula_past { Time::Past } else { Time::None });
+                    self.pending_time = Some(if copula_past { Time::Past } else { Time::None });
                 } else {
                     self.advance(); // copula
                     let (verb, _, _, _) = self.consume_verb_with_metadata();
@@ -3414,40 +3248,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                     let event_var = self.get_event_var();
                     let suppress_existential = self.drs.in_conditional_antecedent();
-                    let passive = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(
-                        NeoEventData {
-                            event_var,
-                            verb,
-                            roles: self.ctx.roles.alloc_slice(roles),
-                            modifiers: self.ctx.syms.alloc_slice(modifiers),
-                            suppress_existential,
-                            world: None,
-                        },
-                    )));
+                    let passive =
+                        self.ctx
+                            .exprs
+                            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                event_var,
+                                verb,
+                                roles: self.ctx.roles.alloc_slice(roles),
+                                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                suppress_existential,
+                                world: None,
+                            })));
                     copula_vp = Some(if let Some((q, a_var, a_noun)) = agent_quant {
                         let a_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: a_noun,
                             args: self.ctx.terms.alloc_slice([Term::Variable(a_var)]),
                             world: None,
                         });
-                        let (a_kind, a_op) = match q {
-                            TokenType::All => (QuantifierKind::Universal, TokenType::Implies),
-                            TokenType::Most => (QuantifierKind::Most, TokenType::And),
-                            TokenType::Few => (QuantifierKind::Few, TokenType::And),
-                            TokenType::Many => (QuantifierKind::Many, TokenType::And),
-                            _ => (QuantifierKind::Existential, TokenType::And),
-                        };
-                        let a_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: a_restriction,
-                            op: a_op,
-                            right: passive,
-                        });
-                        self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                            kind: a_kind,
-                            variable: a_var,
-                            body: a_body,
-                            island_id: self.current_island,
-                        })
+                        self.quantify_argument(&q, a_var, a_restriction, passive)
                     } else {
                         passive
                     });
@@ -3463,7 +3281,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // wrapping the simple-subject clause path applies.
         let vp = if self.check_temporal_adverb() {
             if let TokenType::TemporalAdverb(anchor) = self.advance().kind.clone() {
-                &*self.ctx.exprs.alloc(LogicExpr::TemporalAnchor { anchor, body: vp })
+                &*self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::TemporalAnchor { anchor, body: vp })
             } else {
                 vp
             }
@@ -3472,37 +3293,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
         self.in_negative_quantifier = was_in_negative_quantifier;
 
-        // "No N VP" denies the VP of every N.
-        let consequent = if matches!(quantifier_token, TokenType::No) {
-            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                op: TokenType::Not,
-                operand: vp,
-            })
-        } else {
-            vp
-        };
-
-        let universal_frame = matches!(
-            quantifier_token,
-            TokenType::All | TokenType::Any | TokenType::No
-        );
-        let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-            left: restriction,
-            op: if universal_frame { TokenType::Implies } else { TokenType::And },
-            right: consequent,
-        });
+        let kind = self.determiner_quantifier(&quantifier_token)?;
+        let mut body = self.determiner_body(&quantifier_token, restriction, vp)?;
 
         // Donkey closure: an indefinite introduced inside the restriction and
         // picked up by the VP ("Every man who owns a book gives it …") is a
         // free variable in both — close it at the quantifier (universal force
-        // under a universal frame, existential otherwise).
+        // under a quantifier that restricts by implication, existential otherwise).
         let mut restriction_vars = Vec::new();
         self.collect_unbound_vars(restriction, &mut vec![var_name], &mut restriction_vars);
-        let mut body = body;
         for donkey_var in restriction_vars {
-            if self.expr_mentions_var(consequent, donkey_var) {
+            if self.expr_mentions_var(vp, donkey_var) {
                 body = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                    kind: if universal_frame {
+                    kind: if kind.restricts_by_implication() {
                         QuantifierKind::Universal
                     } else {
                         QuantifierKind::Existential
@@ -3513,18 +3316,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 });
             }
         }
-
-        let kind = match quantifier_token {
-            TokenType::All | TokenType::Any | TokenType::No => QuantifierKind::Universal,
-            TokenType::Some => QuantifierKind::Existential,
-            TokenType::Most => QuantifierKind::Most,
-            TokenType::Few => QuantifierKind::Few,
-            TokenType::Many => QuantifierKind::Many,
-            TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-            TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-            TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-            _ => QuantifierKind::Universal,
-        };
 
         Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
             kind,
@@ -3567,14 +3358,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     .iter()
                     .map(|(role, term)| (*role, rename_term(term)))
                     .collect();
-                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var: data.event_var,
-                    verb: data.verb,
-                    roles: self.ctx.roles.alloc_slice(new_roles),
-                    modifiers: data.modifiers,
-                    suppress_existential: data.suppress_existential,
-                    world: data.world.clone(),
-                })))
+                self.ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var: data.event_var,
+                        verb: data.verb,
+                        roles: self.ctx.roles.alloc_slice(new_roles),
+                        modifiers: data.modifiers,
+                        suppress_existential: data.suppress_existential,
+                        world: data.world.clone(),
+                    })))
             }
             LogicExpr::BinaryOp { left, op, right } => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left: self.rename_var_in_expr(left, from, to),
@@ -3585,24 +3378,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 op: op.clone(),
                 operand: self.rename_var_in_expr(operand, from, to),
             }),
-            LogicExpr::Quantifier { kind, variable, body, island_id } if *variable != from => {
-                self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                    kind: *kind,
-                    variable: *variable,
-                    body: self.rename_var_in_expr(body, from, to),
-                    island_id: *island_id,
-                })
-            }
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                island_id,
+            } if *variable != from => self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: *kind,
+                variable: *variable,
+                body: self.rename_var_in_expr(body, from, to),
+                island_id: *island_id,
+            }),
             LogicExpr::Temporal { operator, body } => self.ctx.exprs.alloc(LogicExpr::Temporal {
                 operator: *operator,
                 body: self.rename_var_in_expr(body, from, to),
             }),
-            LogicExpr::Aspectual { operator, body } => {
-                self.ctx.exprs.alloc(LogicExpr::Aspectual {
-                    operator: *operator,
-                    body: self.rename_var_in_expr(body, from, to),
-                })
-            }
+            LogicExpr::Aspectual { operator, body } => self.ctx.exprs.alloc(LogicExpr::Aspectual {
+                operator: *operator,
+                body: self.rename_var_in_expr(body, from, to),
+            }),
             LogicExpr::Event { predicate, adverbs } => self.ctx.exprs.alloc(LogicExpr::Event {
                 predicate: self.rename_var_in_expr(predicate, from, to),
                 adverbs: *adverbs,
@@ -3676,9 +3470,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             LogicExpr::UnaryOp { operand, .. } => self.expr_mentions_var(operand, var),
             LogicExpr::Quantifier { body, .. } => self.expr_mentions_var(body, var),
-            LogicExpr::NeoEvent(data) => {
-                data.roles.iter().any(|(_, term)| self.term_mentions_var(term, var))
-            }
+            LogicExpr::NeoEvent(data) => data
+                .roles
+                .iter()
+                .any(|(_, term)| self.term_mentions_var(term, var)),
             LogicExpr::Temporal { body, .. } => self.expr_mentions_var(body, var),
             LogicExpr::Aspectual { body, .. } => self.expr_mentions_var(body, var),
             LogicExpr::Event { predicate, .. } => self.expr_mentions_var(predicate, var),
@@ -3699,7 +3494,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Collect all conjuncts from a conjunction tree
     fn collect_conjuncts(&self, expr: &'a LogicExpr<'a>) -> Vec<&'a LogicExpr<'a>> {
         match expr {
-            LogicExpr::BinaryOp { left, op: TokenType::And, right } => {
+            LogicExpr::BinaryOp {
+                left,
+                op: TokenType::And,
+                right,
+            } => {
                 let mut result = self.collect_conjuncts(left);
                 result.extend(self.collect_conjuncts(right));
                 result
@@ -3727,8 +3526,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         wide_scope_negation: bool,
     ) -> &'a LogicExpr<'a> {
         // Handle Quantifier wrapping first
-        if let LogicExpr::Quantifier { kind, variable, body: inner_body, island_id } = body {
-            let transformed = self.wrap_donkey_in_restriction(inner_body, donkey_var, wide_scope_negation);
+        if let LogicExpr::Quantifier {
+            kind,
+            variable,
+            body: inner_body,
+            island_id,
+        } = body
+        {
+            let transformed =
+                self.wrap_donkey_in_restriction(inner_body, donkey_var, wide_scope_negation);
             return self.ctx.exprs.alloc(LogicExpr::Quantifier {
                 kind: kind.clone(),
                 variable: *variable,
@@ -3738,12 +3544,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         // Handle implication (universal quantifiers)
-        if let LogicExpr::BinaryOp { left, op: TokenType::Implies, right } = body {
+        if let LogicExpr::BinaryOp {
+            left,
+            op: TokenType::Implies,
+            right,
+        } = body
+        {
             return self.wrap_in_implication(*left, *right, donkey_var, wide_scope_negation);
         }
 
         // Handle conjunction (existential quantifiers)
-        if let LogicExpr::BinaryOp { left: _, op: TokenType::And, right: _ } = body {
+        if let LogicExpr::BinaryOp {
+            left: _,
+            op: TokenType::And,
+            right: _,
+        } = body
+        {
             return self.wrap_in_conjunction(body, donkey_var, wide_scope_negation);
         }
 

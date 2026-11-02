@@ -1,0 +1,62 @@
+{
+  "case": "T00-009",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-009_mdata_erasure.lean",
+  "source_sha256": "5ba793ba5647d20418d6a166526a9724f4ef526084e0b6e78bab02ff1147aaa5",
+  "ledger_sha256": "190fcf708e3bbf78172fb9990df103f41d8dd0507311127d94e53feb22c58d7e",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T00_009.annotatedHave",
+    "T00_009.annotatedHead",
+    "T00_009.annotatedUnderBinder",
+    "T00_009.anonPair",
+    "T00_009.ascribed",
+    "T00_009.documented",
+    "T00_009.explicitPair"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "3c65904cf5bb4cd6a0e6190e6ab19002b53db582c0730fc7b7ee8eac84e3c020",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 648,
+  "harvest": {
+    "roots": [
+      "T00_009.annotatedHave",
+      "T00_009.annotatedHead",
+      "T00_009.annotatedUnderBinder",
+      "T00_009.anonPair",
+      "T00_009.ascribed",
+      "T00_009.documented",
+      "T00_009.explicitPair"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

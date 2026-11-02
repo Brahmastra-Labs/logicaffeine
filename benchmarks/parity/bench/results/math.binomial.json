@@ -1,0 +1,27 @@
+{
+  "capability": "math.binomial",
+  "arg": "90000000",
+  "timing_n": "112770903",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 207.111,
+    "c": 799.638,
+    "rust": 2071.422,
+    "go": 2665.926
+  },
+  "wall_ms": {
+    "logos": 207.418,
+    "c": 799.715,
+    "rust": 2071.684,
+    "go": 2666.38
+  },
+  "logos_ms": 207.111,
+  "speedups_vs_logos": {
+    "c": 3.861,
+    "rust": 10.001,
+    "go": 12.872
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 3.861
+}

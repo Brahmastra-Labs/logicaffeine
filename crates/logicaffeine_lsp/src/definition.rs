@@ -1,4 +1,4 @@
-use tower_lsp::lsp_types::{GotoDefinitionResponse, Location, Position, Range, Url};
+use lsp_types::{GotoDefinitionResponse, Location, Position, Range, Url};
 
 use crate::document::DocumentState;
 
@@ -13,10 +13,41 @@ pub fn goto_definition(
 ) -> Option<GotoDefinitionResponse> {
     let offset = doc.line_index.offset(position);
 
+    // ★ A RESOLVED REFERENCE WINS OVER THE TOKEN UNDER THE CURSOR, and inside a template it is
+    // the only thing there is: a `View:` body arrives as ONE `RawBlock` token, so the lookup
+    // below would read the WHOLE template as the name and match nothing. Jumping from `{count}`
+    // to the `Let count be 0.` it names — the most common movement in an LGX file — was
+    // impossible for that reason alone.
+    //
+    // It is the better answer everywhere else too: a reference was resolved against the nearest
+    // scope when the index was built, while the token path only knows a name.
+    if let Some(reference) = doc
+        .symbol_index
+        .references
+        .iter()
+        .find(|r| offset >= r.span.start && offset < r.span.end)
+    {
+        if let Some(def) = reference
+            .definition_idx
+            .and_then(|i| doc.symbol_index.definitions.get(i))
+        {
+            if def.span != logicaffeine_language::token::Span::default() {
+                return Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: doc.line_index.position(def.span.start),
+                        end: doc.line_index.position(def.span.end),
+                    },
+                }));
+            }
+        }
+    }
+
     // Find the token at the cursor position
-    let token = doc.tokens.iter().find(|t| {
-        offset >= t.span.start && offset < t.span.end
-    })?;
+    let token = doc
+        .tokens
+        .iter()
+        .find(|t| offset >= t.span.start && offset < t.span.end)?;
 
     let name = doc.source.get(token.span.start..token.span.end)?;
 
@@ -41,103 +72,14 @@ pub fn goto_definition(
     if locations.is_empty() {
         None
     } else if locations.len() == 1 {
-        Some(GotoDefinitionResponse::Scalar(locations.into_iter().next().unwrap()))
+        Some(GotoDefinitionResponse::Scalar(
+            locations.into_iter().next().unwrap(),
+        ))
     } else {
         Some(GotoDefinitionResponse::Array(locations))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::document::DocumentState;
-
-    fn make_doc(source: &str) -> DocumentState {
-        DocumentState::new(source.to_string(), 1)
-    }
-
-    fn test_uri() -> Url {
-        Url::parse("file:///test.logos").unwrap()
-    }
-
-    #[test]
-    fn goto_definition_of_variable() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        // Position on "x" in "Show x." (line 2, character 9)
-        let pos = Position { line: 2, character: 9 };
-        let result = goto_definition(&doc, pos, &test_uri());
-        assert!(result.is_some(), "Expected definition for 'x'");
-        match result.unwrap() {
-            GotoDefinitionResponse::Scalar(loc) => {
-                assert_eq!(loc.range.start.line, 1, "Definition should be on line 1");
-            }
-            GotoDefinitionResponse::Array(locs) => {
-                assert!(!locs.is_empty(), "Expected at least one location");
-                assert_eq!(locs[0].range.start.line, 1, "Definition should be on line 1");
-            }
-            _ => panic!("Unexpected response type"),
-        }
-    }
-
-    #[test]
-    fn goto_definition_whitespace_returns_none() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position past end of source → no token
-        let pos = Position { line: 0, character: 50 };
-        let result = goto_definition(&doc, pos, &test_uri());
-        assert!(result.is_none(), "Position past end of source should return None");
-    }
-
-    #[test]
-    fn goto_def_returns_none_for_keyword() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position on "Let" keyword — 'Let' is a keyword, not a definition name
-        let pos = Position { line: 1, character: 4 };
-        let result = goto_definition(&doc, pos, &test_uri());
-        // "Let" is a keyword; it might or might not have a definition.
-        // The important thing is it doesn't panic and returns a sensible result.
-        if let Some(resp) = &result {
-            match resp {
-                GotoDefinitionResponse::Scalar(loc) => {
-                    assert_ne!(loc.range.start, loc.range.end, "Should have a non-empty range");
-                }
-                GotoDefinitionResponse::Array(locs) => {
-                    assert!(!locs.is_empty());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    #[test]
-    fn goto_def_correct_span_range() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = goto_definition(&doc, pos, &test_uri());
-        assert!(result.is_some(), "Expected definition for 'x'");
-        match result.unwrap() {
-            GotoDefinitionResponse::Scalar(loc) => {
-                // 'x' is a single character, so the range should span exactly 1 char
-                assert_eq!(loc.range.start.line, loc.range.end.line, "Single-char name should be on same line");
-                let char_diff = loc.range.end.character - loc.range.start.character;
-                assert_eq!(char_diff, 1, "Range should span exactly 1 character for 'x', got {}", char_diff);
-            }
-            GotoDefinitionResponse::Array(locs) => {
-                let loc = &locs[0];
-                let char_diff = loc.range.end.character - loc.range.start.character;
-                assert_eq!(char_diff, 1, "Range should span exactly 1 character for 'x', got {}", char_diff);
-            }
-            _ => panic!("Unexpected response type"),
-        }
-    }
-
-    #[test]
-    fn goto_definition_returns_correct_uri() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let uri = test_uri();
-        let pos = Position { line: 2, character: 9 };
-        if let Some(GotoDefinitionResponse::Scalar(loc)) = goto_definition(&doc, pos, &uri) {
-            assert_eq!(loc.uri, uri);
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/definition/tests.rs"]
+mod tests;

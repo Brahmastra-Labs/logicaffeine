@@ -1,0 +1,168 @@
+# Bit manipulation
+
+Population count, leading/trailing zero counts, bit length, bit/byte reversal, and rotation —
+written in pure LOGOS over the native bitwise operators (`&`, `|`, `xor`, `shifted left/right by`),
+so every execution tier runs the identical algorithm. The width-parametric forms subsume Go's
+sized variants (`OnesCount8/16/32/64`, `LeadingZeros8/…`, `RotateLeft8/…`): one behavior, one
+function, the width passed in. Auto-imported on reference.
+
+## Note
+Counts the set bits of a non-negative integer.
+
+A word-sized value uses the native `count_ones` built-in, which the forge tiers to a hardware
+popcount; a bignum falls back to the shift-and-count loop.
+
+## To popcount (x: Int) -> Int:
+    If x is at least 0:
+        If x is at most 9223372036854775807:
+            Return count_ones(x).
+    Let mutable v be x.
+    Let mutable total be 0.
+    While v is greater than 0:
+        Set total to total + (v & 1).
+        Set v to v shifted right by 1.
+    Return total.
+
+## Note
+The number of bits needed to represent `x` — one plus the position of its highest set bit, and 0 for `x = 0`.
+
+A word-sized value uses the native `leading_zeros` built-in (64 minus the high zero bits); a
+bignum falls back to the shift loop.
+
+## To bitLength (x: Int) -> Int:
+    If x is at least 0:
+        If x is at most 9223372036854775807:
+            Return 64 - leading_zeros(x).
+    Let mutable v be x.
+    Let mutable total be 0.
+    While v is greater than 0:
+        Set total to total + 1.
+        Set v to v shifted right by 1.
+    Return total.
+
+## Note
+Leading zero bits of `x` in a `width`-bit word: `width - bitLength(x)`.
+
+## To leadingZeros (x: Int) and (width: Int) -> Int:
+    Return width - bitLength(x).
+
+## Note
+Trailing zero bits of `x` (counting up from the low bit); returns `width` when `x` is 0.
+
+## To trailingZeros (x: Int) and (width: Int) -> Int:
+    If x is equal to 0:
+        Return width.
+    If x is at least 0:
+        If x is at most 9223372036854775807:
+            Return trailing_zeros(x).
+    Let mutable v be x.
+    Let mutable total be 0.
+    While (v & 1) is equal to 0:
+        Set total to total + 1.
+        Set v to v shifted right by 1.
+    Return total.
+
+## Note
+Reverses the low `width` bits of `x`, so bit `i` moves to bit `width-1-i`.
+
+## To reverseBits (x: Int) and (width: Int) -> Int:
+    Let mutable v be x.
+    Let mutable out be 0.
+    Let mutable i be 0.
+    While i is less than width:
+        Set out to (out shifted left by 1) | (v & 1).
+        Set v to v shifted right by 1.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Reverses the byte order of `x` across `width/8` bytes (endianness swap).
+
+## To reverseBytes (x: Int) and (width: Int) -> Int:
+    Let bytes be width / 8.
+    Let mutable v be x.
+    Let mutable out be 0.
+    Let mutable i be 0.
+    While i is less than bytes:
+        Set out to (out shifted left by 8) | (v & 255).
+        Set v to v shifted right by 8.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Rotates `x` left by `n` bits within a `width`-bit word (bits shifted off the top wrap to the bottom), masked to `width` bits.
+
+## To rotateLeft (x: Int) and (n: Int) and (width: Int) -> Int:
+    Let mask be (1 shifted left by width) - 1.
+    Let s be n mod width.
+    If s is equal to 0:
+        Return x & mask.
+    Let lowPart be (x shifted left by s) & mask.
+    Let highPart be (x & mask) shifted right by (width - s).
+    Return lowPart | highPart.
+
+## Note
+Rotates `x` right by `n` bits within a `width`-bit word, expressed as a left rotation by `width - (n mod width)`.
+
+## To rotateRight (x: Int) and (n: Int) and (width: Int) -> Int:
+    Let s be n mod width.
+    Return rotateLeft(x, width - s, width).
+
+## Note
+Sums `popcount` over every integer in the inclusive range `[lo, hi]`.
+
+## To onesCountRange (lo: Int) and (hi: Int) -> Int:
+    Let mutable total be 0.
+    Let mutable i be lo.
+    While i is at most hi:
+        Set total to total + popcount(i).
+        Set i to i + 1.
+    Return total.
+
+## Note
+Serialize the non-negative integer `value` into `nbytes` bytes, most-significant byte first (big-endian / network order) — the integer case of `struct.pack(">…", value)`.
+
+## To packUintBE (value: Int) and (nbytes: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be nbytes.
+    While i is at least 1:
+        Let shift be (i - 1) * 8.
+        Push (value shifted right by shift) & 255 to out.
+        Set i to i - 1.
+    Return out.
+
+## Note
+Serialize the non-negative integer `value` into `nbytes` bytes, least-significant byte first (little-endian) — the integer case of `struct.pack("<…", value)`.
+
+## To packUintLE (value: Int) and (nbytes: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most nbytes:
+        Let shift be (i - 1) * 8.
+        Push (value shifted right by shift) & 255 to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Reassemble a non-negative integer from `bytes` read most-significant byte first (big-endian) — the integer case of `struct.unpack(">…", bytes)`.
+
+## To unpackUintBE (bytes: Seq of Int) -> Int:
+    Let n be length of bytes.
+    Let mutable result be 0.
+    Let mutable i be 1.
+    While i is at most n:
+        Set result to (result * 256) + item i of bytes.
+        Set i to i + 1.
+    Return result.
+
+## Note
+Reassemble a non-negative integer from `bytes` read least-significant byte first (little-endian) — the integer case of `struct.unpack("<…", bytes)`.
+
+## To unpackUintLE (bytes: Seq of Int) -> Int:
+    Let n be length of bytes.
+    Let mutable result be 0.
+    Let mutable i be n.
+    While i is at least 1:
+        Set result to (result * 256) + item i of bytes.
+        Set i to i - 1.
+    Return result.

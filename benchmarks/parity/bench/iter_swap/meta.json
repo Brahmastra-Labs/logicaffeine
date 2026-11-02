@@ -1,0 +1,10 @@
+{
+  "capability": "iter.swap",
+  "workload": "swapSeq(xs,1,i) then fold item 1",
+  "arg": "100000",
+  "expected": "4999950000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

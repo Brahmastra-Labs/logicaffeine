@@ -40,16 +40,25 @@ fn moment_literal_exists_in_kernel() {
 /// Test 1.4: Temporal types registered in prelude
 #[test]
 fn temporal_types_registered_in_prelude() {
-    use logicaffeine_kernel::Context;
     use logicaffeine_kernel::prelude::StandardLibrary;
+    use logicaffeine_kernel::Context;
 
     let mut ctx = Context::new();
     StandardLibrary::register(&mut ctx);
 
     // Physical time types (kernel primitives)
-    assert!(ctx.get_global("Duration").is_some(), "Duration type should be in prelude");
-    assert!(ctx.get_global("Date").is_some(), "Date type should be in prelude");
-    assert!(ctx.get_global("Moment").is_some(), "Moment type should be in prelude");
+    assert!(
+        ctx.get_global("Duration").is_some(),
+        "Duration type should be in prelude"
+    );
+    assert!(
+        ctx.get_global("Date").is_some(),
+        "Date type should be in prelude"
+    );
+    assert!(
+        ctx.get_global("Moment").is_some(),
+        "Moment type should be in prelude"
+    );
 }
 
 /// Test 1.5: Duration literal displays correctly
@@ -60,7 +69,11 @@ fn duration_literal_displays_correctly() {
     let d = Literal::Duration(500_000_000); // 500ms
     let display = format!("{}", d);
     // The display should be human-readable (e.g. "500ms") or at least contain the value
-    assert!(display.contains("500") || display.contains("ms"), "Duration display should be readable: {}", display);
+    assert!(
+        display.contains("500") || display.contains("ms"),
+        "Duration display should be readable: {}",
+        display
+    );
 }
 
 /// Test 1.6: Date literal displays correctly
@@ -71,7 +84,11 @@ fn date_literal_displays_correctly() {
     // 2026-05-20 = 20593 days since epoch
     let d = Literal::Date(20593);
     let display = format!("{}", d);
-    assert!(display.contains("2026-05-20"), "Date display should show ISO format: {}", display);
+    assert!(
+        display.contains("2026-05-20"),
+        "Date display should show ISO format: {}",
+        display
+    );
 }
 
 /// Test 1.7: Moment literal displays correctly
@@ -83,5 +100,9 @@ fn moment_literal_displays_correctly() {
     // 20593 days * 24 * 60 * 60 * 1_000_000_000 = 1779235200000000000
     let m = Literal::Moment(1779235200_000_000_000);
     let display = format!("{}", m);
-    assert!(display.contains("2026-05-20"), "Moment display should show date portion: {}", display);
+    assert!(
+        display.contains("2026-05-20"),
+        "Moment display should show date portion: {}",
+        display
+    );
 }

@@ -48,7 +48,10 @@ fn both_tiers(src: &str) -> (String, Option<String>, String, Option<String>) {
 fn assert_constant_stack(src: &str, expected: &str) {
     let (vm_out, vm_err, tw_out, tw_err) = both_tiers(src);
     assert_eq!(vm_err, None, "VM must not hit the call-depth limit (TCO)");
-    assert_eq!(tw_err, None, "tree-walker must not hit the call-depth limit (TCO)");
+    assert_eq!(
+        tw_err, None,
+        "tree-walker must not hit the call-depth limit (TCO)"
+    );
     assert_eq!(vm_out, tw_out, "the two tiers must agree under TCO");
     assert_eq!(vm_out, expected);
 }

@@ -170,13 +170,15 @@ fn modpow2_histogram_lcg_rewrite_fires() {
         t.ands >= 2,
         "histogram: the two power-of-two `%` should each become a BitAnd \
          (found {} BitAnd, {} Mod)",
-        t.ands, t.mods
+        t.ands,
+        t.mods
     );
     assert!(
         t.magics >= 1,
         "histogram: the non-pow2 `% 1000` should become a MagicDivU \
          (found {} MagicDivU, {} Mod)",
-        t.magics, t.mods
+        t.magics,
+        t.mods
     );
 }
 
@@ -210,8 +212,14 @@ fn modpow2_simple_nonneg_matches_oracle() {
 #[test]
 fn modpow2_simple_nonneg_rewrite_fires() {
     let t = tally_ops(SIMPLE_NONNEG);
-    assert_eq!(t.mods, 0, "the proven-non-negative `% 8` must NOT stay a Mod");
-    assert!(t.ands >= 1, "the proven-non-negative `% 8` must become a BitAnd");
+    assert_eq!(
+        t.mods, 0,
+        "the proven-non-negative `% 8` must NOT stay a Mod"
+    );
+    assert!(
+        t.ands >= 1,
+        "the proven-non-negative `% 8` must become a BitAnd"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -277,9 +285,18 @@ Show acc.
 #[test]
 fn modpow2_nonneg_non_pow2_uses_magic_not_and() {
     let t = tally_ops(NONNEG_NON_POW2);
-    assert_eq!(t.ands, 0, "`% 10` is not a power of two — the AND rewrite must not fire");
-    assert_eq!(t.mods, 0, "the proven-non-negative `% 10` must NOT stay a Mod (W24 magic fires)");
-    assert_eq!(t.magics, 1, "the proven-non-negative non-pow2 `% 10` lowers to MagicDivU");
+    assert_eq!(
+        t.ands, 0,
+        "`% 10` is not a power of two — the AND rewrite must not fire"
+    );
+    assert_eq!(
+        t.mods, 0,
+        "the proven-non-negative `% 10` must NOT stay a Mod (W24 magic fires)"
+    );
+    assert_eq!(
+        t.magics, 1,
+        "the proven-non-negative non-pow2 `% 10` lowers to MagicDivU"
+    );
     assert_runpath_matches_raw(NONNEG_NON_POW2, &[], &{
         let mut acc = 0i64;
         let mut i = 0i64;

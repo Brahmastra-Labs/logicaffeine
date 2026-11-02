@@ -1,0 +1,10 @@
+{
+  "capability": "iter.repeat_val",
+  "workload": "repeatVal(r, r%4096) \u2014 length",
+  "arg": "60000",
+  "expected": "120937680",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

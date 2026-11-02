@@ -1,0 +1,51 @@
+{
+  "case": "T02-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "Prop \u2192 Bool",
+      "name": "T02_009.decideProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T02_009.plainlyFine",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_009.plainlyFineComputable",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_009.someNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "Nonempty Nat",
+      "name": "T02_009.someNat.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

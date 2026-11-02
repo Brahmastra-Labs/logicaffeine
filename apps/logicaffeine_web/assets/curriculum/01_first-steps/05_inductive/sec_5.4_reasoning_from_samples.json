@@ -1,0 +1,71 @@
+{
+  "id": "5.4",
+  "title": "Reasoning from Samples",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "An **inductive generalization** reasons from a sample to a whole population. It is only as good as its sample."
+    },
+    {
+      "type": "symbols",
+      "title": "A good sample is",
+      "symbols": [
+        {
+          "symbol": "Large",
+          "name": "Big enough",
+          "meaning": "More cases leave less room for chance."
+        },
+        {
+          "symbol": "Random",
+          "name": "Fairly chosen",
+          "meaning": "Each member is equally likely to be picked."
+        },
+        {
+          "symbol": "Representative",
+          "name": "Like the whole",
+          "meaning": "Its groups match the population's groups."
+        }
+      ]
+    },
+    {
+      "type": "definition",
+      "term": "Selection bias",
+      "definition": "Choosing a sample in a way that makes some answers more likely."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A good sample",
+      "lines": [
+        "1,000 voters chosen at random were asked.",
+        "62% support the policy."
+      ],
+      "conclusion": "So about 62% of all voters support it."
+    },
+    {
+      "type": "worked",
+      "title": "Selection bias",
+      "lines": [
+        "A magazine asks its readers.",
+        "75% of those who answer oppose the policy."
+      ],
+      "conclusion": "We cannot conclude that 75% of the public oppose it.",
+      "note": "Readers who answer chose themselves and may differ from everyone else."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "A website poll shows 80% support for a candidate. Why might it mislead?",
+    "options": [
+      "80% is too high to be true",
+      "Websites cannot run polls",
+      "Its visitors chose to answer and may not represent all voters",
+      "Its sample is always too small"
+    ],
+    "correct": 2,
+    "hint": "Who answers a website poll?",
+    "explanation": "People who visit and choose to answer can differ from voters as a whole. That is selection bias."
+  }
+}

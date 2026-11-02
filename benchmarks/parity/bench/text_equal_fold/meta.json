@@ -1,0 +1,10 @@
+{
+  "capability": "text.equal_fold",
+  "workload": "equalFold(s, base) \u2014 case-insensitive equal",
+  "arg": "60000",
+  "expected": "600",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're clean then you're demented, or you're terrified",
   "options": [
-    "$ ((C \\supset D) \\vee T) $",
-    "$ (C \\supset (D \\vee T)) $",
-    "$ C \\supset D \\vee T $",
-    "$ (C \\supset D) \\vee T $"
+    "(C → D) ∨ T",
+    "(C → D) ∧ T",
+    "(C → D) → T",
+    "(C → D) ∨ ¬T"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining C → D and T: (C → D) ∨ T.",
+  "section": "6.2"
 }

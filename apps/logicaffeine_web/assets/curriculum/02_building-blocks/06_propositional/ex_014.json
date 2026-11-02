@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Not if C then F",
   "options": [
-    "$ (\\sim C \\supset F) $",
-    "$ (\\sim C \\supset \\sim F) $",
-    "$ \\sim(C \\supset F) $",
-    "$ \\sim C \\supset F $"
+    "¬C → F",
+    "¬C → ¬F",
+    "¬(C → F)",
+    "C → F"
   ],
   "correct": 2,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Does the 'not' deny a single letter, or the whole compound after it?",
+  "explanation": "The denial covers the whole compound, so ¬ goes outside the parentheses: ¬(C → F).",
+  "section": "6.2"
 }

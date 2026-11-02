@@ -1,0 +1,12 @@
+{
+  "capability": "iter.min",
+  "workload": "minSeq over a perturbed Seq",
+  "arg": "100000",
+  "expected": "4598836560",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

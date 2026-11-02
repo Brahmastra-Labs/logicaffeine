@@ -53,7 +53,13 @@ pub fn with_program<R>(
         &type_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        type_registry,
+    );
     let stmts = parser.parse_program()?;
     drop(parser);
 

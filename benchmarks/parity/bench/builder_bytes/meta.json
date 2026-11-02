@@ -1,0 +1,9 @@
+{
+  "capability": "builder.bytes",
+  "arg": "2000000",
+  "expected": "16000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

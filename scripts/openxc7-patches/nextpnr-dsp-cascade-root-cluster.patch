@@ -1,0 +1,14 @@
+--- a/xilinx/pack_dsp_xc7.cc	2026-10-15 21:02:47.341130843 +0000
++++ b/xilinx/pack_dsp_xc7.cc	2026-10-15 21:02:47.341130843 +0000
+@@ -160,6 +160,11 @@
+         root->constr_abs_z = true;
+         root->constr_z = BEL_LOWER_DSP;
+         walk_dsp(root, root, BEL_UPPER_DSP);
++        // A cascade's root heads its own cluster, as every other packer's root does: walk_dsp names only the cells it
++        // cascades into, and a root left outside its cluster is placed as a lone cell while the cells chained to it are
++        // never placed at all — the analytic placer then reads a location they never got (std::out_of_range).
++        if (!root->constr_children.empty())
++            root->cluster = root->name;
+     }
+ }
+ 

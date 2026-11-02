@@ -43,11 +43,19 @@ fn connect_with_pad_installs_pnp_session() {
         path.display()
     );
     let result = block_on(interpret_for_ui(&src));
-    assert!(result.error.is_none(), "program should run: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "program should run: {:?}",
+        result.error
+    );
 
     // The session is installed: the exact fn the interpreter Send path calls now seals a PNP cover.
-    assert!(channel::active_session().is_some(), "`Connect … with pad` must install a PNP session");
-    let frame = channel::seal_active_checked(b"probe".to_vec()).expect("seal succeeds while pad remains");
+    assert!(
+        channel::active_session().is_some(),
+        "`Connect … with pad` must install a PNP session"
+    );
+    let frame =
+        channel::seal_active_checked(b"probe".to_vec()).expect("seal succeeds while pad remains");
     assert!(
         pnp::frame_offset(&frame).is_some(),
         "outbound bytes are a PNP frame, got prefix {:?}",
@@ -68,8 +76,15 @@ fn listen_with_pad_installs_pnp_session_responder() {
         path.display()
     );
     let result = block_on(interpret_for_ui(&src));
-    assert!(result.error.is_none(), "program should run: {:?}", result.error);
-    assert!(channel::active_session().is_some(), "`Listen … with pad` must install a PNP session");
+    assert!(
+        result.error.is_none(),
+        "program should run: {:?}",
+        result.error
+    );
+    assert!(
+        channel::active_session().is_some(),
+        "`Listen … with pad` must install a PNP session"
+    );
 
     channel::install_session(None);
     let _ = std::fs::remove_file(&path);
@@ -80,8 +95,15 @@ fn bare_connect_installs_no_session() {
     offline_slate();
     let src = "## Main\nConnect to \"/ip4/127.0.0.1/tcp/9992\".\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_none(), "program should run: {:?}", result.error);
-    assert!(channel::active_session().is_none(), "a bare Connect installs no session (passthrough)");
+    assert!(
+        result.error.is_none(),
+        "program should run: {:?}",
+        result.error
+    );
+    assert!(
+        channel::active_session().is_none(),
+        "a bare Connect installs no session (passthrough)"
+    );
 }
 
 #[test]
@@ -91,6 +113,45 @@ fn a_missing_pad_file_fails_the_send_path_closed() {
     offline_slate();
     let src = "## Main\nConnect to \"/ip4/127.0.0.1/tcp/9993\" with pad \"/no/such/pnp/pad/file.pad\" as initiator.\n";
     let result = block_on(interpret_for_ui(src));
-    assert!(result.error.is_some(), "an unreadable pad must fail the program, not proceed insecurely");
-    assert!(channel::active_session().is_none(), "no session installed on failure");
+    assert!(
+        result.error.is_some(),
+        "an unreadable pad must fail the program, not proceed insecurely"
+    );
+    assert!(
+        channel::active_session().is_none(),
+        "no session installed on failure"
+    );
+}
+
+/// One `with pad` run: activate the session the program asks for, then seal `bytes` through the send
+/// path, returning the frame.
+fn seal_in_a_run(pad: &std::path::Path, port: u16, bytes: &[u8]) -> Vec<u8> {
+    offline_slate();
+    let src = format!(
+        "## Main\nConnect to \"/ip4/127.0.0.1/tcp/{port}\" with pad \"{}\" as initiator.\n",
+        pad.display()
+    );
+    let result = block_on(interpret_for_ui(&src));
+    assert!(result.error.is_none(), "program should run: {:?}", result.error);
+    let frame = channel::seal_active_checked(bytes.to_vec()).expect("seal succeeds while pad remains");
+    channel::install_session(None);
+    frame
+}
+
+#[test]
+fn a_pad_never_reissues_a_byte_across_runs() {
+    // Every run of the program activates the pad afresh. A cursor that lives only in the process
+    // starts at the bottom each time, and the second run encrypts with the first run's pad.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let pad = dir.path().join("crown.pad");
+    std::fs::write(&pad, random_pad(4096, 0xC0DE_0001_C0DE_0002)).expect("write pad file");
+    let first = seal_in_a_run(&pad, 9994, b"first run");
+    let second = seal_in_a_run(&pad, 9994, b"second run");
+    let first_end = pnp::frame_offset(&first).unwrap() + b"first run".len() as u64;
+    assert!(
+        pnp::frame_offset(&second).unwrap() >= first_end,
+        "the second run drew pad the first run had used (offsets {:?} and {:?})",
+        pnp::frame_offset(&first),
+        pnp::frame_offset(&second)
+    );
 }

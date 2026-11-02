@@ -118,7 +118,10 @@ fn interleaved(a: &[bool]) -> bool {
 /// A structureless function: a fixed pseudo-random bit per assignment (SplitMix-hash of the index).
 /// No exploitable structure ⇒ near-maximal arrangement in EVERY order.
 fn structureless(a: &[bool]) -> bool {
-    let mut z = a.iter().enumerate().fold(0u64, |acc, (i, &b)| acc ^ ((b as u64) << (i % 64)));
+    let mut z = a
+        .iter()
+        .enumerate()
+        .fold(0u64, |acc, (i, &b)| acc ^ ((b as u64) << (i % 64)));
     z = z.wrapping_add(0x9E3779B97F4A7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
@@ -159,9 +162,17 @@ fn random_3sat(n: usize, seed: u64) -> impl Fn(&[bool]) -> bool {
                 k += 1;
             }
         }
-        clauses.push([(vs[0], next() & 1 == 0), (vs[1], next() & 1 == 0), (vs[2], next() & 1 == 0)]);
+        clauses.push([
+            (vs[0], next() & 1 == 0),
+            (vs[1], next() & 1 == 0),
+            (vs[2], next() & 1 == 0),
+        ]);
     }
-    move |a: &[bool]| clauses.iter().all(|c| c.iter().any(|&(v, pos)| a[v] == pos))
+    move |a: &[bool]| {
+        clauses
+            .iter()
+            .all(|c| c.iter().any(|&(v, pos)| a[v] == pos))
+    }
 }
 
 /// The SECOND quotient — break the variable symmetry. If `f` depends only on Hamming weight (it is
@@ -189,9 +200,8 @@ fn symmetry_reduced_size(n: usize, f: &dyn Fn(&[bool]) -> bool) -> Option<usize>
 }
 
 fn main() {
-    let evens_then_odds = |n: usize| -> Vec<usize> {
-        (0..n).step_by(2).chain((1..n).step_by(2)).collect()
-    };
+    let evens_then_odds =
+        |n: usize| -> Vec<usize> { (0..n).step_by(2).chain((1..n).step_by(2)).collect() };
     let natural = |n: usize| -> Vec<usize> { (0..n).collect() };
 
     println!("Arrangement size (OBDD nodes) — the cost of the sorted hypercube walk:\n");
@@ -245,7 +255,10 @@ fn main() {
             ("majority (cardinality)", Box::new(majority)),
             ("at-most-one (PHP col) ", Box::new(at_most_one)),
             ("parity (GF(2) linear) ", Box::new(parity)),
-            ("random 3-SAT (sat)    ", Box::new(random_3sat(n, 0xBEEF ^ n as u64))),
+            (
+                "random 3-SAT (sat)    ",
+                Box::new(random_3sat(n, 0xBEEF ^ n as u64)),
+            ),
         ];
         for (name, f) in families.iter() {
             let obdd = robdd_size(&truth_table(n, &nat, f.as_ref()), n);
@@ -253,7 +266,10 @@ fn main() {
                 Some(r) => ("yes", r.to_string()),
                 None => ("NO", "—".to_string()),
             };
-            println!("  {name}│ {n:>3} │ {obdd:>4} │ {sym:>10} │ {red:>7} │ {:>7}", 1usize << n);
+            println!(
+                "  {name}│ {n:>3} │ {obdd:>4} │ {sym:>10} │ {red:>7} │ {:>7}",
+                1usize << n
+            );
         }
         println!("  ───────────────────────┼─────┼──────┼────────────┼─────────┼────────");
     }

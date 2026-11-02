@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use logicaffeine_base::Symbol;
-use logicaffeine_language::ast::{Expr, Stmt};
 use logicaffeine_language::ast::stmt::ClosureBody;
+use logicaffeine_language::ast::{Expr, Stmt};
 
 use super::callgraph::CallGraph;
 use super::types::{LogosType, TypeEnv};
@@ -68,7 +68,14 @@ impl ReadonlyParams {
 
         // Remove directly mutated params from non-native functions
         for stmt in stmts {
-            if let Stmt::FunctionDef { name, params, body, is_native, .. } = stmt {
+            if let Stmt::FunctionDef {
+                name,
+                params,
+                body,
+                is_native,
+                ..
+            } = stmt
+            {
                 if *is_native {
                     continue;
                 }
@@ -87,7 +94,13 @@ impl ReadonlyParams {
             let mut changed = false;
 
             for stmt in stmts {
-                if let Stmt::FunctionDef { name: caller, body, is_native, .. } = stmt {
+                if let Stmt::FunctionDef {
+                    name: caller,
+                    body,
+                    is_native,
+                    ..
+                } = stmt
+                {
                     if *is_native {
                         continue;
                     }
@@ -158,8 +171,8 @@ fn is_seq_type(ty: &LogosType) -> bool {
 
 /// Collects param symbols that are directly mutated in the body.
 ///
-/// Looks for Push, Pop, Add, Remove, SetIndex, SetField, and Set reassignment
-/// on identifiers that appear in `param_set`. Also detects "consumed"
+/// Every parameter the body reassigns or changes in place counts (see
+/// [`collect_mutations_from_stmt`]). Also detects "consumed"
 /// parameters: those assigned into a mutable local via `Let mutable X be param`.
 /// A consumed Seq parameter should be taken by value (not borrowed) so the
 /// copy becomes a move instead of a `.to_vec()` clone.
@@ -179,100 +192,50 @@ fn collect_direct_mutations(stmts: &[Stmt<'_>], param_set: &HashSet<Symbol>) -> 
     mutated
 }
 
-fn collect_mutations_from_stmt(stmt: &Stmt<'_>, param_set: &HashSet<Symbol>, mutated: &mut HashSet<Symbol>) {
-    match stmt {
-        Stmt::Push { collection, .. } => {
-            if let Expr::Identifier(sym) = **collection {
-                if param_set.contains(&sym) {
-                    mutated.insert(sym);
-                }
-            }
-        }
-        Stmt::Pop { collection, .. } => {
-            if let Expr::Identifier(sym) = **collection {
-                if param_set.contains(&sym) {
-                    mutated.insert(sym);
-                }
-            }
-        }
-        Stmt::Add { collection, .. } => {
-            if let Expr::Identifier(sym) = **collection {
-                if param_set.contains(&sym) {
-                    mutated.insert(sym);
-                }
-            }
-        }
-        Stmt::Remove { collection, .. } => {
-            if let Expr::Identifier(sym) = **collection {
-                if param_set.contains(&sym) {
-                    mutated.insert(sym);
-                }
-            }
-        }
-        Stmt::SetIndex { collection, .. } => {
-            if let Expr::Identifier(sym) = **collection {
-                if param_set.contains(&sym) {
-                    mutated.insert(sym);
-                }
-            }
-        }
-        Stmt::SetField { object, .. } => {
-            if let Expr::Identifier(sym) = **object {
-                if param_set.contains(&sym) {
-                    mutated.insert(sym);
-                }
-            }
-        }
-        Stmt::Set { target, .. } => {
-            if param_set.contains(target) {
-                mutated.insert(*target);
-            }
-        }
-        // Recurse into control-flow blocks (not closures)
-        Stmt::If { then_block, else_block, .. } => {
-            for s in *then_block {
-                collect_mutations_from_stmt(s, param_set, mutated);
-            }
-            if let Some(else_b) = else_block {
-                for s in *else_b {
-                    collect_mutations_from_stmt(s, param_set, mutated);
-                }
-            }
-        }
-        Stmt::While { body, .. } => {
-            for s in *body {
-                collect_mutations_from_stmt(s, param_set, mutated);
-            }
-        }
-        Stmt::Repeat { body, .. } => {
-            for s in *body {
-                collect_mutations_from_stmt(s, param_set, mutated);
-            }
-        }
-        Stmt::Inspect { arms, .. } => {
-            for arm in arms {
-                for s in arm.body {
-                    collect_mutations_from_stmt(s, param_set, mutated);
-                }
-            }
-        }
-        _ => {}
-    }
+/// The parameters `stmt` reassigns (`Set`, `Swap`, a lend to a `mutable` parameter) or changes in place, nested
+/// blocks included, from the optimizer's one exhaustive write walk. Closure bodies are not entered: a closure
+/// captures its own copy.
+fn collect_mutations_from_stmt(
+    stmt: &Stmt<'_>,
+    param_set: &HashSet<Symbol>,
+    mutated: &mut HashSet<Symbol>,
+) {
+    let writes = crate::optimize::WriteSet::of_stmt(stmt);
+    mutated.extend(
+        writes
+            .assigned()
+            .iter()
+            .chain(writes.mutated())
+            .copied()
+            .filter(|s| param_set.contains(s)),
+    );
 }
 
 /// Detects consumed parameters: those copied into a mutable local via
 /// `Let mutable X be param`. Recurses into control-flow blocks.
-fn collect_consumed_params(stmts: &[Stmt<'_>], param_set: &HashSet<Symbol>, consumed: &mut HashSet<Symbol>) {
+fn collect_consumed_params(
+    stmts: &[Stmt<'_>],
+    param_set: &HashSet<Symbol>,
+    consumed: &mut HashSet<Symbol>,
+) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { mutable: true, value, .. } => {
+            Stmt::Let {
+                mutable: true,
+                value,
+                ..
+            } => {
                 if let Expr::Identifier(sym) = value {
                     if param_set.contains(sym) {
                         consumed.insert(*sym);
                     }
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_consumed_params(then_block, param_set, consumed);
                 if let Some(else_b) = else_block {
                     collect_consumed_params(else_b, param_set, consumed);
@@ -305,7 +268,10 @@ fn collect_call_sites(stmts: &[Stmt<'_>]) -> Vec<(Symbol, Vec<Option<Symbol>>)> 
     sites
 }
 
-fn collect_call_sites_from_stmts(stmts: &[Stmt<'_>], sites: &mut Vec<(Symbol, Vec<Option<Symbol>>)>) {
+fn collect_call_sites_from_stmts(
+    stmts: &[Stmt<'_>],
+    sites: &mut Vec<(Symbol, Vec<Option<Symbol>>)>,
+) {
     for stmt in stmts {
         collect_call_sites_from_stmt(stmt, sites);
     }
@@ -314,9 +280,16 @@ fn collect_call_sites_from_stmts(stmts: &[Stmt<'_>], sites: &mut Vec<(Symbol, Ve
 fn collect_call_sites_from_stmt(stmt: &Stmt<'_>, sites: &mut Vec<(Symbol, Vec<Option<Symbol>>)>) {
     match stmt {
         Stmt::Call { function, args } => {
-            let arg_syms = args.iter().map(|arg| {
-                if let Expr::Identifier(sym) = *arg { Some(*sym) } else { None }
-            }).collect();
+            let arg_syms = args
+                .iter()
+                .map(|arg| {
+                    if let Expr::Identifier(sym) = *arg {
+                        Some(*sym)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             sites.push((*function, arg_syms));
             for arg in args {
                 collect_call_sites_from_expr(arg, sites);
@@ -325,7 +298,11 @@ fn collect_call_sites_from_stmt(stmt: &Stmt<'_>, sites: &mut Vec<(Symbol, Vec<Op
         Stmt::Let { value, .. } => collect_call_sites_from_expr(value, sites),
         Stmt::Set { value, .. } => collect_call_sites_from_expr(value, sites),
         Stmt::Return { value: Some(v) } => collect_call_sites_from_expr(v, sites),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             collect_call_sites_from_expr(cond, sites);
             collect_call_sites_from_stmts(then_block, sites);
             if let Some(else_b) = else_block {
@@ -359,9 +336,16 @@ fn collect_call_sites_from_stmt(stmt: &Stmt<'_>, sites: &mut Vec<(Symbol, Vec<Op
 fn collect_call_sites_from_expr(expr: &Expr<'_>, sites: &mut Vec<(Symbol, Vec<Option<Symbol>>)>) {
     match expr {
         Expr::Call { function, args } => {
-            let arg_syms = args.iter().map(|arg| {
-                if let Expr::Identifier(sym) = *arg { Some(*sym) } else { None }
-            }).collect();
+            let arg_syms = args
+                .iter()
+                .map(|arg| {
+                    if let Expr::Identifier(sym) = *arg {
+                        Some(*sym)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             sites.push((*function, arg_syms));
             for arg in args {
                 collect_call_sites_from_expr(arg, sites);
@@ -435,7 +419,15 @@ impl MutableBorrowParams {
         let mut mutable_borrow: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
 
         for stmt in stmts {
-            if let Stmt::FunctionDef { name, params, body, is_native, is_exported, .. } = stmt {
+            if let Stmt::FunctionDef {
+                name,
+                params,
+                body,
+                is_native,
+                is_exported,
+                ..
+            } = stmt
+            {
                 if *is_native || *is_exported {
                     continue;
                 }
@@ -459,15 +451,24 @@ impl MutableBorrowParams {
                         // Consume-alias detection: `Let mutable result be arr`
                         // where `arr` is never used after the consume and `result`
                         // satisfies all &mut [T] criteria.
-                        let param_idx = params.iter().position(|(s, _)| *s == *sym).unwrap_or(usize::MAX);
+                        let param_idx = params
+                            .iter()
+                            .position(|(s, _)| *s == *sym)
+                            .unwrap_or(usize::MAX);
                         if let Some(alias) = detect_consume_alias(body, *sym) {
                             let alias_has_set_index = has_set_index_on(body, alias);
                             let alias_has_structural = has_structural_mutation_on(body, alias);
                             let alias_returned = is_sole_return_param_or_alias(body, *sym, alias);
-                            let alias_reassign_ok = reassignment_only_self_calls(body, alias, *name, param_idx);
+                            let alias_reassign_ok =
+                                reassignment_only_self_calls(body, alias, *name, param_idx);
                             let param_dead = is_param_dead_after_consume(body, *sym, alias);
 
-                            if alias_has_set_index && !alias_has_structural && alias_returned && alias_reassign_ok && param_dead {
+                            if alias_has_set_index
+                                && !alias_has_structural
+                                && alias_returned
+                                && alias_reassign_ok
+                                && param_dead
+                            {
                                 candidates.insert(*sym);
                             }
                         }
@@ -484,7 +485,13 @@ impl MutableBorrowParams {
         loop {
             let mut changed = false;
             for stmt in stmts {
-                if let Stmt::FunctionDef { name: caller, body, is_native, .. } = stmt {
+                if let Stmt::FunctionDef {
+                    name: caller,
+                    body,
+                    is_native,
+                    ..
+                } = stmt
+                {
                     if *is_native {
                         continue;
                     }
@@ -528,9 +535,8 @@ impl MutableBorrowParams {
         // `Set x to f(x, ...)` where x is at a mut_borrow position.
         // Remove functions from mutable_borrow if any call site uses the return
         // value in a way that requires it (Let, Show, Return, expression context).
-        let incompatible = collect_incompatible_mut_borrow_callsites(
-            stmts, &mutable_borrow, &fn_params,
-        );
+        let incompatible =
+            collect_incompatible_mut_borrow_callsites(stmts, &mutable_borrow, &fn_params);
         for fn_sym in incompatible {
             mutable_borrow.remove(&fn_sym);
         }
@@ -555,16 +561,18 @@ fn check_set_index_stmt(stmt: &Stmt<'_>, sym: Symbol) -> bool {
         Stmt::SetIndex { collection, .. } => {
             matches!(**collection, Expr::Identifier(s) if s == sym)
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             has_set_index_on(then_block, sym)
-                || else_block.as_ref().map_or(false, |eb| has_set_index_on(eb, sym))
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| has_set_index_on(eb, sym))
         }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            has_set_index_on(body, sym)
-        }
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| has_set_index_on(arm.body, sym))
-        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => has_set_index_on(body, sym),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| has_set_index_on(arm.body, sym)),
         _ => false,
     }
 }
@@ -575,20 +583,28 @@ fn has_structural_mutation_on(stmts: &[Stmt<'_>], sym: Symbol) -> bool {
 
 fn check_structural_stmt(stmt: &Stmt<'_>, sym: Symbol) -> bool {
     match stmt {
-        Stmt::Push { collection, .. } | Stmt::Pop { collection, .. }
-        | Stmt::Add { collection, .. } | Stmt::Remove { collection, .. } => {
+        Stmt::Push { collection, .. }
+        | Stmt::Pop { collection, .. }
+        | Stmt::Add { collection, .. }
+        | Stmt::Remove { collection, .. } => {
             matches!(**collection, Expr::Identifier(s) if s == sym)
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             has_structural_mutation_on(then_block, sym)
-                || else_block.as_ref().map_or(false, |eb| has_structural_mutation_on(eb, sym))
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| has_structural_mutation_on(eb, sym))
         }
         Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
             has_structural_mutation_on(body, sym)
         }
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| has_structural_mutation_on(arm.body, sym))
-        }
+        Stmt::Inspect { arms, .. } => arms
+            .iter()
+            .any(|arm| has_structural_mutation_on(arm.body, sym)),
         _ => false,
     }
 }
@@ -600,16 +616,18 @@ fn has_reassignment_on(stmts: &[Stmt<'_>], sym: Symbol) -> bool {
 fn check_reassignment_stmt(stmt: &Stmt<'_>, sym: Symbol) -> bool {
     match stmt {
         Stmt::Set { target, .. } => *target == sym,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             has_reassignment_on(then_block, sym)
-                || else_block.as_ref().map_or(false, |eb| has_reassignment_on(eb, sym))
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| has_reassignment_on(eb, sym))
         }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            has_reassignment_on(body, sym)
-        }
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| has_reassignment_on(arm.body, sym))
-        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => has_reassignment_on(body, sym),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| has_reassignment_on(arm.body, sym)),
         _ => false,
     }
 }
@@ -617,19 +635,33 @@ fn check_reassignment_stmt(stmt: &Stmt<'_>, sym: Symbol) -> bool {
 fn is_consumed_param(stmts: &[Stmt<'_>], sym: Symbol) -> bool {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { mutable: true, value, .. } => {
+            Stmt::Let {
+                mutable: true,
+                value,
+                ..
+            } => {
                 if matches!(value, Expr::Identifier(s) if *s == sym) {
                     return true;
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
-                if is_consumed_param(then_block, sym) { return true; }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                if is_consumed_param(then_block, sym) {
+                    return true;
+                }
                 if let Some(else_b) = else_block {
-                    if is_consumed_param(else_b, sym) { return true; }
+                    if is_consumed_param(else_b, sym) {
+                        return true;
+                    }
                 }
             }
             Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-                if is_consumed_param(body, sym) { return true; }
+                if is_consumed_param(body, sym) {
+                    return true;
+                }
             }
             _ => {}
         }
@@ -654,7 +686,11 @@ fn collect_returns(stmts: &[Stmt<'_>], returns: &mut Vec<Symbol>) {
                     returns.push(Symbol::EMPTY);
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_returns(then_block, returns);
                 if let Some(else_b) = else_block {
                     collect_returns(else_b, returns);
@@ -726,11 +762,15 @@ fn check_callsite_compat_stmt(
             if let Expr::Call { function, args } = value {
                 if mutable_borrow.contains_key(function) {
                     // Check that target is at a mut_borrow position
-                    let mut_positions: HashSet<usize> = fn_params.get(function)
+                    let mut_positions: HashSet<usize> = fn_params
+                        .get(function)
                         .map(|params| {
-                            params.iter().enumerate()
+                            params
+                                .iter()
+                                .enumerate()
                                 .filter(|(_, sym)| {
-                                    mutable_borrow.get(function)
+                                    mutable_borrow
+                                        .get(function)
                                         .map(|s| s.contains(sym))
                                         .unwrap_or(false)
                                 })
@@ -739,11 +779,10 @@ fn check_callsite_compat_stmt(
                         })
                         .unwrap_or_default();
 
-                    let target_at_mut_pos = args.iter().enumerate()
-                        .any(|(i, a)| {
-                            mut_positions.contains(&i)
-                                && matches!(a, Expr::Identifier(sym) if *sym == *target)
-                        });
+                    let target_at_mut_pos = args.iter().enumerate().any(|(i, a)| {
+                        mut_positions.contains(&i)
+                            && matches!(a, Expr::Identifier(sym) if *sym == *target)
+                    });
 
                     if !target_at_mut_pos {
                         incompatible.insert(*function);
@@ -771,12 +810,20 @@ fn check_callsite_compat_stmt(
             check_callsite_compat_expr(value, mutable_borrow, incompatible);
             check_callsite_compat_expr(collection, mutable_borrow, incompatible);
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             check_callsite_compat_expr(collection, mutable_borrow, incompatible);
             check_callsite_compat_expr(index, mutable_borrow, incompatible);
             check_callsite_compat_expr(value, mutable_borrow, incompatible);
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             check_callsite_compat_expr(cond, mutable_borrow, incompatible);
             check_callsite_compat_stmts(then_block, mutable_borrow, fn_params, incompatible);
             if let Some(else_b) = else_block {
@@ -834,7 +881,9 @@ fn check_callsite_compat_expr(
         Expr::FieldAccess { object, .. } => {
             check_callsite_compat_expr(object, mutable_borrow, incompatible);
         }
-        Expr::Copy { expr: inner } | Expr::Give { value: inner } | Expr::OptionSome { value: inner } => {
+        Expr::Copy { expr: inner }
+        | Expr::Give { value: inner }
+        | Expr::OptionSome { value: inner } => {
             check_callsite_compat_expr(inner, mutable_borrow, incompatible);
         }
         _ => {}
@@ -850,7 +899,13 @@ fn check_callsite_compat_expr(
 pub(crate) fn detect_consume_alias(body: &[Stmt<'_>], param_sym: Symbol) -> Option<Symbol> {
     let mut alias = None;
     for stmt in body {
-        if let Stmt::Let { var, mutable: true, value, .. } = stmt {
+        if let Stmt::Let {
+            var,
+            mutable: true,
+            value,
+            ..
+        } = stmt
+        {
             if matches!(value, Expr::Identifier(s) if *s == param_sym) {
                 if alias.is_some() {
                     return None; // Multiple consumes — reject
@@ -903,7 +958,11 @@ fn check_reassignment_self_calls(
                     _ => return false, // Non-self-call reassignment
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 if !check_reassignment_self_calls(then_block, alias, func_name, param_position) {
                     return false;
                 }
@@ -940,7 +999,13 @@ fn is_param_dead_after_consume(body: &[Stmt<'_>], param_sym: Symbol, alias: Symb
     for stmt in body {
         if !found_consume {
             // Check if this is the consume statement
-            if let Stmt::Let { var, mutable: true, value, .. } = stmt {
+            if let Stmt::Let {
+                var,
+                mutable: true,
+                value,
+                ..
+            } = stmt
+            {
                 if *var == alias && matches!(value, Expr::Identifier(s) if *s == param_sym) {
                     found_consume = true;
                     continue;
@@ -968,13 +1033,16 @@ pub(crate) fn stmt_references_symbol(stmt: &Stmt<'_>, sym: Symbol) -> bool {
             expr_references_symbol(value, sym) || expr_references_symbol(collection, sym)
         }
         Stmt::Pop { collection, into } => {
-            expr_references_symbol(collection, sym)
-                || into.map_or(false, |s| s == sym)
+            expr_references_symbol(collection, sym) || into.map_or(false, |s| s == sym)
         }
         Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
             expr_references_symbol(value, sym) || expr_references_symbol(collection, sym)
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             expr_references_symbol(collection, sym)
                 || expr_references_symbol(index, sym)
                 || expr_references_symbol(value, sym)
@@ -984,22 +1052,27 @@ pub(crate) fn stmt_references_symbol(stmt: &Stmt<'_>, sym: Symbol) -> bool {
         }
         Stmt::Return { value: Some(v) } => expr_references_symbol(v, sym),
         Stmt::Return { value: None } => false,
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_references_symbol(cond, sym)
                 || then_block.iter().any(|s| stmt_references_symbol(s, sym))
-                || else_block.as_ref().map_or(false, |eb| eb.iter().any(|s| stmt_references_symbol(s, sym)))
+                || else_block.as_ref().map_or(false, |eb| {
+                    eb.iter().any(|s| stmt_references_symbol(s, sym))
+                })
         }
         Stmt::While { cond, body, .. } => {
-            expr_references_symbol(cond, sym)
-                || body.iter().any(|s| stmt_references_symbol(s, sym))
+            expr_references_symbol(cond, sym) || body.iter().any(|s| stmt_references_symbol(s, sym))
         }
         Stmt::Repeat { iterable, body, .. } => {
             expr_references_symbol(iterable, sym)
                 || body.iter().any(|s| stmt_references_symbol(s, sym))
         }
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| arm.body.iter().any(|s| stmt_references_symbol(s, sym)))
-        }
+        Stmt::Inspect { arms, .. } => arms
+            .iter()
+            .any(|arm| arm.body.iter().any(|s| stmt_references_symbol(s, sym))),
         Stmt::Show { object, .. } => expr_references_symbol(object, sym),
         _ => false,
     }
@@ -1023,14 +1096,18 @@ fn expr_references_symbol(expr: &Expr<'_>, sym: Symbol) -> bool {
             expr_references_symbol(collection, sym) || expr_references_symbol(value, sym)
         }
         Expr::FieldAccess { object, .. } => expr_references_symbol(object, sym),
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             expr_references_symbol(collection, sym)
                 || expr_references_symbol(start, sym)
                 || expr_references_symbol(end, sym)
         }
-        Expr::Copy { expr: inner } | Expr::Give { value: inner } | Expr::OptionSome { value: inner } => {
-            expr_references_symbol(inner, sym)
-        }
+        Expr::Copy { expr: inner }
+        | Expr::Give { value: inner }
+        | Expr::OptionSome { value: inner } => expr_references_symbol(inner, sym),
         Expr::CallExpr { callee, args } => {
             expr_references_symbol(callee, sym)
                 || args.iter().any(|a| expr_references_symbol(a, sym))

@@ -1,15 +1,15 @@
-//! REPL output panel for Code mode.
+//! REPL output for Math mode.
 //!
 //! Displays command history and execution results in a terminal-like interface.
-//! Shows success output in green and errors in red.
+//! Shows success output in green and errors in red. The panel around it carries the
+//! title and the Clear control.
 //!
 //! # Props
 //!
 //! - `lines` - List of executed commands and their results
-//! - `on_clear` - Callback to clear history
 
-use dioxus::prelude::*;
 use crate::ui::state::ReplLine;
+use dioxus::prelude::*;
 
 const REPL_OUTPUT_STYLE: &str = r#"
 .repl-output {
@@ -17,50 +17,25 @@ const REPL_OUTPUT_STYLE: &str = r#"
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    background: #0f1419;
+    background: var(--studio-surface, #0f1419);
     font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
-.repl-output-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.repl-output-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
-}
-
-.repl-clear-btn {
-    padding: 4px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: transparent;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.repl-clear-btn:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 0.8);
-}
 
 .repl-history {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    padding: 12px;
+    padding: var(--studio-inset, 12px);
 }
 
 .repl-line {
     margin-bottom: 16px;
+}
+
+/* The history ends at its last line; the panel's own inset is the only space after it. */
+.repl-line:last-child {
+    margin-bottom: 0;
 }
 
 .repl-input-line {
@@ -131,26 +106,11 @@ const REPL_OUTPUT_STYLE: &str = r#"
 "#;
 
 #[component]
-pub fn ReplOutput(
-    lines: Vec<ReplLine>,
-    on_clear: EventHandler<()>,
-) -> Element {
+pub fn ReplOutput(lines: Vec<ReplLine>) -> Element {
     rsx! {
         style { "{REPL_OUTPUT_STYLE}" }
 
         div { class: "repl-output",
-            // Header
-            div { class: "repl-output-header",
-                span { class: "repl-output-title", "Output" }
-                if !lines.is_empty() {
-                    button {
-                        class: "repl-clear-btn",
-                        onclick: move |_| on_clear.call(()),
-                        "Clear"
-                    }
-                }
-            }
-
             // History
             div { class: "repl-history",
                 if lines.is_empty() {

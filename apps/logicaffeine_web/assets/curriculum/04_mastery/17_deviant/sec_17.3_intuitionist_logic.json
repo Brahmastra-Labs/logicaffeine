@@ -1,0 +1,46 @@
+{
+  "id": "17.3",
+  "title": "Intuitionist Logic",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "L. E. J. Brouwer's **intuitionist logic** counts a statement as true only when we have a construction that proves it."
+    },
+    {
+      "type": "paragraph",
+      "text": "So it does not assert A ∨ ¬A for every A. To assert it, you must know which side holds."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Proving that something exists",
+      "lines": [
+        "Classical: show that its not existing leads to a contradiction.",
+        "Intuitionist: exhibit an example and prove that it works."
+      ]
+    },
+    {
+      "type": "worked",
+      "title": "Excluded middle",
+      "lines": [
+        "Is every even number above 2 the sum of two primes?"
+      ],
+      "note": "No one knows. Until someone proves it or finds an exception, the intuitionist does not assert that it is either true or false."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which classical law does intuitionist logic reject?",
+    "options": [
+      "Modus ponens",
+      "The law of excluded middle",
+      "The use of quantifiers",
+      "Proof by construction"
+    ],
+    "correct": 1,
+    "hint": "Think of A ∨ ¬A.",
+    "explanation": "Intuitionists reject the law of excluded middle as a general law. They assert A ∨ ¬A only when they can prove one side."
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "case": "T12-001",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t12_vernacular/T12-001_surface_a_syllogism.lean",
+  "source_sha256": "aec8295d3dd643dab7fbbaea27f7bbc63276fa47166860d4a272481a514a7996",
+  "ledger_sha256": "d5a6149ad7be6e960647a2c418c498c1385eb2c28dbccdc27e35a5ce562547ea",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T12_001.Doomed",
+    "T12_001.Man",
+    "T12_001.Mortal",
+    "T12_001.socrates",
+    "T12_001.trivialRestatement"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "1d7d66e67f92b2a9e683848d8330b158257dbb5d19b3f8f18a2378fc1785ff60",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 35,
+  "harvest": {
+    "roots": [
+      "T12_001.Doomed",
+      "T12_001.Man",
+      "T12_001.Mortal",
+      "T12_001.socrates",
+      "T12_001.trivialRestatement"
+    ],
+    "probe_binary_sha256": "501903e02f00f242f22ac0b6dafe7ca52e212ec2226949507171502b3d62b361",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:3eb74ebd38bce97ad2ebe7f035748ca7919c34f5b68541101750d0bfd8aa62ef",
+    "joint_export": true
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "case": "T10-007",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T10_007.half",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Float",
+      "lean_axioms": [
+        "propext"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T10_007.identity",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Float → Float",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t10_007_1",
+      "logos": "Checked LOGOS Context artifact for T10_007.identity imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T10-007.ndjson (export sha256 74bebd4490ee9f0d1aee6deb6de360c695013216d87b0337f57eb56c40da2404); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 d8ae68a03450e2bc7c35fb76a12d6381c2c916fd8b6dbd330418866c9124dc30), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T10_007.isSmall",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Float → Bool",
+      "lean_axioms": [
+        "propext"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T10_007.negThousandth",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Float",
+      "lean_axioms": [
+        "propext"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T10_007.sum",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Float",
+      "lean_axioms": [
+        "propext"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T10_007.tenth",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Float",
+      "lean_axioms": [
+        "propext"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    }
+  ]
+}

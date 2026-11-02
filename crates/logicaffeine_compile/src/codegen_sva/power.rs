@@ -3,7 +3,7 @@
 //! Power domains introduce isolation, retention, and level shifting requirements.
 //! Missing isolation cells cause functional bugs in power-managed designs.
 
-use super::{SvaProperty, SvaAssertionKind};
+use super::{SvaAssertionKind, SvaProperty};
 
 /// Power domain state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +58,7 @@ pub struct PowerReport {
 }
 
 /// Analyze power domains and crossings for violations.
-pub fn analyze_power(
-    domains: &[PowerDomain],
-    crossings: &[PowerCrossing],
-) -> PowerReport {
+pub fn analyze_power(domains: &[PowerDomain], crossings: &[PowerCrossing]) -> PowerReport {
     let mut violations = Vec::new();
 
     for crossing in crossings {
@@ -127,10 +124,7 @@ pub fn verify_isolation(domain: &PowerDomain) -> Vec<SvaProperty> {
             props.push(SvaProperty {
                 name: format!("power_isolation_{}", sig),
                 clock: "clk".into(),
-                body: format!(
-                    "({}_power_off) |-> ({}_iso == 1'b0)",
-                    domain.name, sig
-                ),
+                body: format!("({}_power_off) |-> ({}_iso == 1'b0)", domain.name, sig),
                 kind: SvaAssertionKind::Assert,
             });
         }

@@ -1,260 +1,24 @@
 //! Global application state types.
 //!
 //! Defines state structures used across the application via Dioxus context.
-//! Includes license management, registry authentication, chat state, and
+//! Includes registry authentication, chat state, and
 //! Studio mode types.
 //!
 //! # Key Types
 //!
 //! | Type | Purpose |
 //! |------|---------|
-//! | [`LicenseState`] | Subscription validation and plan tiers |
 //! | [`RegistryAuthState`] | GitHub OAuth for package registry |
 //! | [`AppState`] | Chat history for the REPL interface |
 //! | [`StudioMode`] | Active mode in the Studio playground |
 //! | [`FileNode`] | Virtual file system tree for Studio |
 //! | [`MathDocument`] | Math mode formula collection |
 //!
-//! # License Tiers
-//!
-//! | Plan | Commercial Features | Z3 Verification |
-//! |------|---------------------|-----------------|
-//! | Free | No | No |
-//! | Supporter | No | No |
-//! | Pro | Yes | Yes |
-//! | Premium | Yes | Yes |
-//! | Lifetime | Yes | Yes |
-//! | Enterprise | Yes | Yes |
 
 use dioxus::prelude::*;
-use logicaffeine_language::{compile_with_options, CompileOptions, OutputFormat, Interner, socratic_explanation};
-
-/// API endpoint for license validation.
-const LICENSE_VALIDATOR_URL: &str = "https://api.logicaffeine.com/validate";
-
-/// Revalidation interval (24 hours in milliseconds).
-const VALIDATION_INTERVAL_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
-
-/// Subscription plan tiers.
-///
-/// Determines feature access and commercial usage rights.
-#[derive(Clone, PartialEq, Debug)]
-pub enum LicensePlan {
-    /// No active subscription.
-    None,
-    /// Free tier with basic features.
-    Free,
-    /// Supporter tier (paid, non-commercial).
-    Supporter,
-    /// Pro tier with commercial rights and Z3 verification.
-    Pro,
-    /// Premium tier with all features.
-    Premium,
-    /// One-time purchase with perpetual access.
-    Lifetime,
-    /// Organization license with team features.
-    Enterprise,
-}
-
-impl LicensePlan {
-    /// Parses a plan name from a string (case-insensitive).
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "free" => Self::Free,
-            "supporter" => Self::Supporter,
-            "pro" => Self::Pro,
-            "premium" => Self::Premium,
-            "lifetime" => Self::Lifetime,
-            "enterprise" => Self::Enterprise,
-            _ => Self::None,
-        }
-    }
-
-    /// Returns true if this plan includes commercial usage rights.
-    pub fn is_commercial(&self) -> bool {
-        matches!(self, Self::Pro | Self::Premium | Self::Lifetime | Self::Enterprise)
-    }
-
-    /// Returns true if this is a paid plan (not Free or None).
-    pub fn is_paid(&self) -> bool {
-        !matches!(self, Self::None | Self::Free)
-    }
-}
-
-/// License state management with async validation.
-///
-/// Stored in Dioxus context for app-wide access. Handles license key storage,
-/// periodic revalidation, and plan tier checks.
-#[derive(Clone, PartialEq)]
-pub struct LicenseState {
-    /// The license key (Stripe subscription ID).
-    pub key: Signal<Option<String>>,
-    /// Current subscription plan tier.
-    pub plan: Signal<LicensePlan>,
-    /// Whether the license has been validated.
-    pub is_valid: Signal<bool>,
-    /// Timestamp of last successful validation.
-    pub validated_at: Signal<Option<f64>>,
-    /// True while validation request is in flight.
-    pub is_validating: Signal<bool>,
-}
-
-impl LicenseState {
-    /// Creates a new license state, loading any existing data from LocalStorage.
-    pub fn new() -> Self {
-        let (key, plan, validated_at) = load_license_from_storage();
-
-        Self {
-            key: Signal::new(key),
-            plan: Signal::new(plan),
-            is_valid: Signal::new(false),
-            validated_at: Signal::new(validated_at),
-            is_validating: Signal::new(false),
-        }
-    }
-
-    pub fn has_license(&self) -> bool {
-        self.key.read().is_some()
-    }
-
-    pub fn is_commercial(&self) -> bool {
-        self.plan.read().is_commercial() && *self.is_valid.read()
-    }
-
-    pub fn needs_revalidation(&self) -> bool {
-        match *self.validated_at.read() {
-            Some(timestamp) => {
-                let now = js_sys::Date::now();
-                now - timestamp > VALIDATION_INTERVAL_MS
-            }
-            None => true,
-        }
-    }
-
-    pub fn set_license(&mut self, license_key: String, plan: LicensePlan) {
-        self.key.set(Some(license_key.clone()));
-        self.plan.set(plan.clone());
-        self.is_valid.set(true);
-        let now = js_sys::Date::now();
-        self.validated_at.set(Some(now));
-
-        save_license_to_storage(&license_key, &plan, now);
-    }
-
-    pub fn clear_license(&mut self) {
-        self.key.set(None);
-        self.plan.set(LicensePlan::None);
-        self.is_valid.set(false);
-        self.validated_at.set(None);
-
-        clear_license_from_storage();
-    }
-
-    pub async fn validate(&mut self) {
-        let license_key = match self.key.read().clone() {
-            Some(key) => key,
-            None => return,
-        };
-
-        self.is_validating.set(true);
-
-        match validate_license_async(&license_key).await {
-            Ok((is_valid, plan)) => {
-                self.is_valid.set(is_valid);
-                if is_valid {
-                    self.plan.set(plan);
-                    let now = js_sys::Date::now();
-                    self.validated_at.set(Some(now));
-                    save_license_to_storage(&license_key, &self.plan.read(), now);
-                }
-            }
-            Err(_) => {
-                self.is_valid.set(false);
-            }
-        }
-
-        self.is_validating.set(false);
-    }
-}
-
-async fn validate_license_async(license_key: &str) -> Result<(bool, LicensePlan), String> {
-    use gloo_net::http::Request;
-
-    let body = serde_json::json!({ "licenseKey": license_key });
-
-    let response = Request::post(LICENSE_VALIDATOR_URL)
-        .header("Content-Type", "application/json")
-        .body(body.to_string())
-        .map_err(|e| e.to_string())?
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.ok() {
-        return Ok((false, LicensePlan::None));
-    }
-
-    let data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let is_valid = data["valid"].as_bool().unwrap_or(false);
-    let plan_str = data["plan"].as_str().unwrap_or("none");
-    let plan = LicensePlan::from_str(plan_str);
-
-    Ok((is_valid, plan))
-}
-
-fn load_license_from_storage() -> (Option<String>, LicensePlan, Option<f64>) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                let key = storage.get_item("logos_license_key").ok().flatten();
-                let plan_str = storage.get_item("logos_license_plan").ok().flatten().unwrap_or_default();
-                let validated_at = storage
-                    .get_item("logos_license_validated_at")
-                    .ok()
-                    .flatten()
-                    .and_then(|s| s.parse::<f64>().ok());
-
-                let plan = LicensePlan::from_str(&plan_str);
-                return (key, plan, validated_at);
-            }
-        }
-    }
-    (None, LicensePlan::None, None)
-}
-
-fn save_license_to_storage(key: &str, plan: &LicensePlan, validated_at: f64) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                let _ = storage.set_item("logos_license_key", key);
-                let plan_str = format!("{:?}", plan).to_lowercase();
-                let _ = storage.set_item("logos_license_plan", &plan_str);
-                let _ = storage.set_item("logos_license_validated_at", &validated_at.to_string());
-            }
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (key, plan, validated_at);
-}
-
-fn clear_license_from_storage() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                let _ = storage.remove_item("logos_license_key");
-                let _ = storage.remove_item("logos_license_plan");
-                let _ = storage.remove_item("logos_license_validated_at");
-            }
-        }
-    }
-}
+use logicaffeine_language::{
+    compile_with_options, socratic_explanation, CompileOptions, Interner, OutputFormat,
+};
 
 /// A message in the REPL chat history.
 #[derive(Clone, PartialEq)]
@@ -303,7 +67,10 @@ impl AppState {
     }
 
     fn process_logic(&mut self, input: String) {
-        let options = CompileOptions { format: OutputFormat::Unicode, pragmatic: false };
+        let options = CompileOptions {
+            format: OutputFormat::Unicode,
+            pragmatic: false,
+        };
 
         let response = match compile_with_options(&input, options) {
             Ok(logic) => ChatMessage {
@@ -516,9 +283,44 @@ pub enum StudioMode {
     /// English hardware specs to SystemVerilog Assertions with in-browser,
     /// kernel-certified proving (no Z3 in the bundle).
     Hardware,
+    /// A LOGOS page (`## Page`) compiled to wasm in-browser and rendered LIVE in a
+    /// sandboxed iframe — edit the page's source and see it run.
+    Web,
 }
 
 impl StudioMode {
+    /// Every mode, in display order.
+    pub const ALL: [StudioMode; 5] = [
+        StudioMode::Logic,
+        StudioMode::Code,
+        StudioMode::Math,
+        StudioMode::Hardware,
+        StudioMode::Web,
+    ];
+
+    /// The mode a Studio file opens in. The Studio has no mode switch — opening a file is
+    /// choosing its mode — so this is the one place a path becomes a mode.
+    ///
+    /// The extension names the mode, except for `.logos`: it is the source language of
+    /// Code, Math and Web alike, so a `math/` or `web/` folder decides which. `None` is a
+    /// file with no LOGOS extension; the Studio keeps its current mode for it.
+    pub fn for_path(path: &str) -> Option<Self> {
+        let (folders, file) = path.rsplit_once('/').unwrap_or(("", path));
+        let (stem, ext) = file.rsplit_once('.')?;
+        if stem.is_empty() {
+            return None;
+        }
+        let ext = ext.to_ascii_lowercase();
+        let in_folder = |name: &str| folders.split('/').any(|f| f == name);
+        match ext.as_str() {
+            "logos" if in_folder("math") => Some(StudioMode::Math),
+            "logos" if in_folder("web") => Some(StudioMode::Web),
+            "vernac" => Some(StudioMode::Math),
+            "v" => Some(StudioMode::Hardware),
+            other => Self::from_extension(other),
+        }
+    }
+
     /// Returns the file extension for this mode.
     pub fn extension(&self) -> &'static str {
         match self {
@@ -526,6 +328,7 @@ impl StudioMode {
             StudioMode::Code => "logos",
             StudioMode::Math => "math",
             StudioMode::Hardware => "hw",
+            StudioMode::Web => "web",
         }
     }
 
@@ -536,6 +339,42 @@ impl StudioMode {
             StudioMode::Code => "Code",
             StudioMode::Math => "Math",
             StudioMode::Hardware => "Hardware",
+            StudioMode::Web => "Web",
+        }
+    }
+
+    /// The mode a `.logos` source opens in: a file that declares a `## Page` is a web page and
+    /// opens in the Web tab, where it runs live; any other program opens in Code. The header is read
+    /// by the real lexer, so a page is recognised exactly when the compiler would mount one.
+    pub fn for_logos_source(source: &str) -> Self {
+        use logicaffeine_language::{BlockType, TokenType};
+        let mut interner = Interner::new();
+        let declares_page = logicaffeine_language::Lexer::new(source, &mut interner)
+            .tokenize()
+            .iter()
+            .any(|t| {
+                matches!(
+                    t.kind,
+                    TokenType::BlockHeader {
+                        block_type: BlockType::Page { .. }
+                    }
+                )
+            });
+        if declares_page {
+            StudioMode::Web
+        } else {
+            StudioMode::Code
+        }
+    }
+
+    /// The mode a file opens in once its text is known — the one rule the file browser and the
+    /// Studio's opening share. The path decides ([`Self::for_path`]); a `.logos` file the path
+    /// leaves to Code opens in Web when it declares a page ([`Self::for_logos_source`]). `None` is
+    /// a file with no LOGOS extension.
+    pub fn for_file(path: &str, text: &str) -> Option<Self> {
+        match Self::for_path(path)? {
+            StudioMode::Code => Some(Self::for_logos_source(text)),
+            mode => Some(mode),
         }
     }
 
@@ -546,6 +385,7 @@ impl StudioMode {
             "logos" => Some(StudioMode::Code),
             "math" => Some(StudioMode::Math),
             "hw" => Some(StudioMode::Hardware),
+            "web" => Some(StudioMode::Web),
             _ => None,
         }
     }
@@ -598,6 +438,122 @@ impl FileNode {
             children: Vec::new(),
             expanded: true,
         }
+    }
+
+    /// The tree of the files at `paths` (VFS paths), each under its folders and every level in the
+    /// file browser's order: the tree the Studio loads from a file system that holds exactly these
+    /// files.
+    pub fn from_paths<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut root = Self::root();
+        for path in paths {
+            let mut node = &mut root;
+            let mut at = String::new();
+            let mut names = path.trim_start_matches('/').split('/').peekable();
+            while let Some(name) = names.next() {
+                at = format!("{at}/{name}");
+                let is_directory = names.peek().is_some();
+                let i = match node
+                    .children
+                    .iter()
+                    .position(|c| c.name == name && c.is_directory == is_directory)
+                {
+                    Some(i) => i,
+                    None => {
+                        let child = if is_directory {
+                            Self::directory(name.to_string(), at.clone())
+                        } else {
+                            Self::file(name.to_string(), at.clone())
+                        };
+                        node.children.push(child);
+                        node.children.len() - 1
+                    }
+                };
+                node = &mut node.children[i];
+            }
+        }
+        fn sort_all(node: &mut FileNode) {
+            node.sort_children();
+            node.children.iter_mut().for_each(sort_all);
+        }
+        sort_all(&mut root);
+        root
+    }
+
+    /// Put this directory's entries in the order the file browser shows them: directories first;
+    /// the Studio's code categories in learning order (basics first, projects last), everything
+    /// else alphabetically. Unknown directory names rank after the curated set, so a future
+    /// category still appears without touching this list.
+    pub fn sort_children(&mut self) {
+        fn category_rank(name: &str) -> usize {
+            const LEARNING_ORDER: [&str; 15] = [
+                "basics",
+                "strings",
+                "collections",
+                "functions",
+                "types",
+                "algorithms",
+                "memory",
+                "time-and-money",
+                "concurrency",
+                "distributed",
+                "networking",
+                "security",
+                "crypto",
+                "verification",
+                "projects",
+            ];
+            LEARNING_ORDER
+                .iter()
+                .position(|c| *c == name)
+                .unwrap_or(LEARNING_ORDER.len())
+        }
+        self.children
+            .sort_by(|a, b| match (a.is_directory, b.is_directory) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => category_rank(&a.name)
+                    .cmp(&category_rank(&b.name))
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            });
+    }
+
+    /// This tree with each folder open or closed as `shown` has it, wherever `shown` has the same
+    /// folder: a tree loaded again keeps the reader's choices, and a folder new to it starts open.
+    pub fn with_expansion_of(mut self, shown: &FileNode) -> Self {
+        fn collect(node: &FileNode, open: &mut std::collections::HashMap<String, bool>) {
+            if node.is_directory {
+                open.insert(node.path.clone(), node.expanded);
+                node.children.iter().for_each(|child| collect(child, open));
+            }
+        }
+        fn apply(node: &mut FileNode, open: &std::collections::HashMap<String, bool>) {
+            if node.is_directory {
+                if let Some(&expanded) = open.get(&node.path) {
+                    node.expanded = expanded;
+                }
+                node.children
+                    .iter_mut()
+                    .for_each(|child| apply(child, open));
+            }
+        }
+        let mut open = std::collections::HashMap::new();
+        collect(shown, &mut open);
+        apply(&mut self, &open);
+        self
+    }
+
+    /// The first file under the directory at `dir`, in the order the tree shows it.
+    pub fn first_file_under(&self, dir: &str) -> Option<&str> {
+        let inside = |path: &str| {
+            path.strip_prefix(dir)
+                .is_some_and(|rest| rest.starts_with('/'))
+        };
+        if !self.is_directory {
+            return inside(&self.path).then_some(self.path.as_str());
+        }
+        self.children
+            .iter()
+            .find_map(|child| child.first_file_under(dir))
     }
 
     /// Toggle the expanded state of a directory.
@@ -685,56 +641,17 @@ impl Default for MathDocument {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/state/first_file_tests.rs"]
+mod first_file_tests;
 
-    #[test]
-    fn test_license_plan_from_str() {
-        assert_eq!(LicensePlan::from_str("free"), LicensePlan::Free);
-        assert_eq!(LicensePlan::from_str("FREE"), LicensePlan::Free);
-        assert_eq!(LicensePlan::from_str("Free"), LicensePlan::Free);
-        assert_eq!(LicensePlan::from_str("supporter"), LicensePlan::Supporter);
-        assert_eq!(LicensePlan::from_str("pro"), LicensePlan::Pro);
-        assert_eq!(LicensePlan::from_str("premium"), LicensePlan::Premium);
-        assert_eq!(LicensePlan::from_str("lifetime"), LicensePlan::Lifetime);
-        assert_eq!(LicensePlan::from_str("enterprise"), LicensePlan::Enterprise);
-        assert_eq!(LicensePlan::from_str("unknown"), LicensePlan::None);
-        assert_eq!(LicensePlan::from_str(""), LicensePlan::None);
-    }
+#[cfg(test)]
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/state/tree_order_tests.rs"]
+mod tree_order_tests;
 
-    #[test]
-    fn test_license_plan_is_commercial() {
-        assert!(!LicensePlan::None.is_commercial());
-        assert!(!LicensePlan::Free.is_commercial());
-        assert!(!LicensePlan::Supporter.is_commercial());
-        assert!(LicensePlan::Pro.is_commercial());
-        assert!(LicensePlan::Premium.is_commercial());
-        assert!(LicensePlan::Lifetime.is_commercial());
-        assert!(LicensePlan::Enterprise.is_commercial());
-    }
+#[cfg(test)]
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/state/file_mode_tests.rs"]
+mod file_mode_tests;
 
-    #[test]
-    fn test_license_plan_is_paid() {
-        assert!(!LicensePlan::None.is_paid());
-        assert!(!LicensePlan::Free.is_paid());
-        assert!(LicensePlan::Supporter.is_paid());
-        assert!(LicensePlan::Pro.is_paid());
-        assert!(LicensePlan::Premium.is_paid());
-        assert!(LicensePlan::Lifetime.is_paid());
-        assert!(LicensePlan::Enterprise.is_paid());
-    }
-
-    #[test]
-    fn test_studio_mode_hardware() {
-        // Hardware is a first-class Studio mode alongside Logic/Code/Math.
-        assert_eq!(StudioMode::Hardware.extension(), "hw");
-        assert_eq!(StudioMode::Hardware.display_name(), "Hardware");
-        assert_eq!(StudioMode::from_extension("hw"), Some(StudioMode::Hardware));
-        assert_eq!(StudioMode::from_extension("HW"), Some(StudioMode::Hardware));
-        // The existing modes keep resolving unchanged.
-        assert_eq!(StudioMode::from_extension("logic"), Some(StudioMode::Logic));
-        assert_eq!(StudioMode::from_extension("logos"), Some(StudioMode::Code));
-        assert_eq!(StudioMode::from_extension("math"), Some(StudioMode::Math));
-        assert_eq!(StudioMode::from_extension("txt"), None);
-    }
-}
+#[cfg(test)]
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/state/tests.rs"]
+mod tests;

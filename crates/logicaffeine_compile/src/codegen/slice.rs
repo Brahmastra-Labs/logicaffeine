@@ -17,7 +17,11 @@ use crate::analysis::callgraph::CallGraph;
 /// every function reachable from it through the call graph (transitively). `Main` and
 /// top-level functions unreachable from `target` are dropped; definition order is
 /// preserved.
-pub fn function_slice<'a>(stmts: &[Stmt<'a>], target: Symbol, interner: &Interner) -> Vec<Stmt<'a>> {
+pub fn function_slice<'a>(
+    stmts: &[Stmt<'a>],
+    target: Symbol,
+    interner: &Interner,
+) -> Vec<Stmt<'a>> {
     let cg = CallGraph::build(stmts, interner);
     let mut keep = cg.reachable_from(target);
     keep.insert(target);

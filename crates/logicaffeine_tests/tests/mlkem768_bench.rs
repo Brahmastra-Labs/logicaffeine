@@ -22,7 +22,7 @@ use logicaffeine_system::mlkem;
 
 use libcrux_ml_kem::mlkem768 as lc;
 use ml_kem::kem::Decapsulate;
-use ml_kem::{B32, EncapsulateDeterministic, EncodedSizeUser, KemCore, MlKem768};
+use ml_kem::{EncapsulateDeterministic, EncodedSizeUser, KemCore, MlKem768, B32};
 
 /// Time `f` over `iters` iterations (with a warmup tenth) and return ns/op.
 fn bench<F: FnMut()>(iters: usize, mut f: F) -> f64 {
@@ -50,26 +50,59 @@ fn bench_mlkem768_ours_vs_rustcrypto_and_libcrux() {
     let (oracle_dk, oracle_ek) = MlKem768::generate_deterministic(&B32::from(d), &B32::from(z));
     let (our_ek, our_dk) = mlkem::keygen(&d, &z);
     let lc_kp = lc::generate_key_pair(seed64);
-    assert_eq!(our_ek, oracle_ek.as_bytes().to_vec(), "keygen ek: ours == ml-kem");
+    assert_eq!(
+        our_ek,
+        oracle_ek.as_bytes().to_vec(),
+        "keygen ek: ours == ml-kem"
+    );
     assert_eq!(&our_ek[..], &lc_kp.pk()[..], "keygen ek: ours == libcrux");
-    assert_eq!(our_dk, oracle_dk.as_bytes().to_vec(), "keygen dk: ours == ml-kem");
+    assert_eq!(
+        our_dk,
+        oracle_dk.as_bytes().to_vec(),
+        "keygen dk: ours == ml-kem"
+    );
     assert_eq!(&our_dk[..], &lc_kp.sk()[..], "keygen dk: ours == libcrux");
 
-    let (oracle_ct, oracle_k) =
-        oracle_ek.encapsulate_deterministic(&B32::from(m)).expect("oracle encaps");
-    let (our_ct, our_ss) = mlkem::encaps(&our_ek, &m);
+    let (oracle_ct, oracle_k) = oracle_ek
+        .encapsulate_deterministic(&B32::from(m))
+        .expect("oracle encaps");
+    let (our_ct, our_ss) = mlkem::encaps(&our_ek, &m).expect("in-contract arguments");
     let (lc_ct, lc_ss) = lc::encapsulate(lc_kp.public_key(), m);
-    assert_eq!(our_ct.as_slice(), oracle_ct.as_slice(), "encaps ct: ours == ml-kem");
-    assert_eq!(our_ct.as_slice(), &lc_ct.as_slice()[..], "encaps ct: ours == libcrux");
-    assert_eq!(&our_ss[..], oracle_k.as_slice(), "encaps ss: ours == ml-kem");
+    assert_eq!(
+        our_ct.as_slice(),
+        oracle_ct.as_slice(),
+        "encaps ct: ours == ml-kem"
+    );
+    assert_eq!(
+        our_ct.as_slice(),
+        &lc_ct.as_slice()[..],
+        "encaps ct: ours == libcrux"
+    );
+    assert_eq!(
+        &our_ss[..],
+        oracle_k.as_slice(),
+        "encaps ss: ours == ml-kem"
+    );
     assert_eq!(&our_ss[..], &lc_ss[..], "encaps ss: ours == libcrux");
 
-    let our_recovered = mlkem::decaps(&our_dk, &our_ct);
+    let our_recovered = mlkem::decaps(&our_dk, &our_ct).expect("in-contract arguments");
     let oracle_recovered = oracle_dk.decapsulate(&oracle_ct).expect("oracle decaps");
     let lc_recovered = lc::decapsulate(lc_kp.private_key(), &lc_ct);
-    assert_eq!(&our_recovered[..], &our_ss[..], "decaps: ours recovers the secret");
-    assert_eq!(&our_recovered[..], oracle_recovered.as_slice(), "decaps: ours == ml-kem");
-    assert_eq!(&our_recovered[..], &lc_recovered[..], "decaps: ours == libcrux");
+    assert_eq!(
+        &our_recovered[..],
+        &our_ss[..],
+        "decaps: ours recovers the secret"
+    );
+    assert_eq!(
+        &our_recovered[..],
+        oracle_recovered.as_slice(),
+        "decaps: ours == ml-kem"
+    );
+    assert_eq!(
+        &our_recovered[..],
+        &lc_recovered[..],
+        "decaps: ours == libcrux"
+    );
 
     // ── Timing: same-run, N iterations each ──
     const N: usize = 3000;
@@ -81,7 +114,10 @@ fn bench_mlkem768_ours_vs_rustcrypto_and_libcrux() {
         black_box(mlkem::keygen(black_box(&d), black_box(&z)));
     });
     let rc_kg = bench(N, || {
-        black_box(MlKem768::generate_deterministic(black_box(&od), black_box(&oz)));
+        black_box(MlKem768::generate_deterministic(
+            black_box(&od),
+            black_box(&oz),
+        ));
     });
     let lc_kg = bench(N, || {
         black_box(lc::generate_key_pair(black_box(seed64)));
@@ -91,7 +127,11 @@ fn bench_mlkem768_ours_vs_rustcrypto_and_libcrux() {
         black_box(mlkem::encaps(black_box(&our_ek), black_box(&m)));
     });
     let rc_en = bench(N, || {
-        black_box(oracle_ek.encapsulate_deterministic(black_box(&om)).expect("encaps"));
+        black_box(
+            oracle_ek
+                .encapsulate_deterministic(black_box(&om))
+                .expect("encaps"),
+        );
     });
     let lc_en = bench(N, || {
         black_box(lc::encapsulate(black_box(lc_kp.public_key()), black_box(m)));
@@ -101,10 +141,17 @@ fn bench_mlkem768_ours_vs_rustcrypto_and_libcrux() {
         black_box(mlkem::decaps(black_box(&our_dk), black_box(&our_ct)));
     });
     let rc_de = bench(N, || {
-        black_box(oracle_dk.decapsulate(black_box(&oracle_ct)).expect("decaps"));
+        black_box(
+            oracle_dk
+                .decapsulate(black_box(&oracle_ct))
+                .expect("decaps"),
+        );
     });
     let lc_de = bench(N, || {
-        black_box(lc::decapsulate(black_box(lc_kp.private_key()), black_box(&lc_ct)));
+        black_box(lc::decapsulate(
+            black_box(lc_kp.private_key()),
+            black_box(&lc_ct),
+        ));
     });
 
     let row = |name: &str, ours: f64, rc: f64, lc: f64| {
@@ -115,7 +162,9 @@ fn bench_mlkem768_ours_vs_rustcrypto_and_libcrux() {
             if ours <= lc { "ours faster" } else { "libcrux faster" },
         );
     };
-    println!("\n=== ML-KEM-768 whole-primitive (ns/op, same process, N={N}) — 3-way bit-exact ✓ ===");
+    println!(
+        "\n=== ML-KEM-768 whole-primitive (ns/op, same process, N={N}) — 3-way bit-exact ✓ ==="
+    );
     println!("    ours = native cfg-inline SIMD (what crypto.lg lowers to);  ml-kem = portable ref;  libcrux = VERIFIED AVX2 (the bar)");
     row("keygen", ours_kg, rc_kg, lc_kg);
     row("encaps", ours_en, rc_en, lc_en);

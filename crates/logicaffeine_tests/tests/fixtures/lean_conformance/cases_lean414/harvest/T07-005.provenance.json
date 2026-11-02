@@ -1,0 +1,104 @@
+{
+  "case": "T07-005",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t07_typeclasses/T07-005_class_extends_diamond.lean",
+  "source_sha256": "e770cf297af39afe8d32355ea8e2abcb813e6f0027e6a7c30f495455ea31161e",
+  "ledger_sha256": "4fd541c16a480cb3db3e1a477e0d7119b44985fab1ec6b035080c5523bbd0dd5",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T07_005.Bar",
+    "T07_005.Bar.left",
+    "T07_005.Bar.mk",
+    "T07_005.Bar.toFoo",
+    "T07_005.Baz",
+    "T07_005.Baz.mk",
+    "T07_005.Baz.right",
+    "T07_005.Baz.toFoo",
+    "T07_005.Foo",
+    "T07_005.Foo.base",
+    "T07_005.Foo.mk",
+    "T07_005.Qux",
+    "T07_005.Qux.join",
+    "T07_005.Qux.mk",
+    "T07_005.Qux.right",
+    "T07_005.Qux.toBar",
+    "T07_005.Qux.toBaz",
+    "T07_005.allFour",
+    "T07_005.baseViaQux",
+    "T07_005.instBarNat",
+    "T07_005.instBazNat",
+    "T07_005.instFooNat",
+    "T07_005.instQuxNat",
+    "T07_005.parentOfBar",
+    "T07_005.useFoo",
+    "T07_005.useQux",
+    "T07_005.viaBar",
+    "T07_005.viaBaz"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "1f48c78aac928b6e439c87b495ceb457174f559980a2d1eb6eae4526c3f07f14",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1091,
+  "harvest": {
+    "roots": [
+      "T07_005.Bar",
+      "T07_005.Bar.left",
+      "T07_005.Bar.mk",
+      "T07_005.Bar.toFoo",
+      "T07_005.Baz",
+      "T07_005.Baz.mk",
+      "T07_005.Baz.right",
+      "T07_005.Baz.toFoo",
+      "T07_005.Foo",
+      "T07_005.Foo.base",
+      "T07_005.Foo.mk",
+      "T07_005.Qux",
+      "T07_005.Qux.join",
+      "T07_005.Qux.mk",
+      "T07_005.Qux.right",
+      "T07_005.Qux.toBar",
+      "T07_005.Qux.toBaz",
+      "T07_005.allFour",
+      "T07_005.baseViaQux",
+      "T07_005.instBarNat",
+      "T07_005.instBazNat",
+      "T07_005.instFooNat",
+      "T07_005.instQuxNat",
+      "T07_005.parentOfBar",
+      "T07_005.useFoo",
+      "T07_005.useQux",
+      "T07_005.viaBar",
+      "T07_005.viaBaz"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

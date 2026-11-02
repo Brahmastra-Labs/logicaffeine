@@ -14,7 +14,8 @@ fn debug_had_finished() {
     // Symbol registry abbreviates "Finish" to "F"
     assert!(
         output.contains("Finish") || output.contains("F("),
-        "Should contain Finish predicate: got '{}'", output
+        "Should contain Finish predicate: got '{}'",
+        output
     );
 }
 
@@ -26,13 +27,15 @@ fn past_perfect_explicit_constraints() {
     // Perfect: Event before Reference
     assert!(
         output.contains("Precedes(e") || output.contains("< r") || output.contains("E < R"),
-        "Perfect must place E < R: got '{}'", output
+        "Perfect must place E < R: got '{}'",
+        output
     );
 
     // Past: Reference before Speech
     assert!(
         output.contains("Precedes(r") || output.contains("< S") || output.contains("R < S"),
-        "Past must place R < S: got '{}'", output
+        "Past must place R < S: got '{}'",
+        output
     );
 }
 
@@ -44,13 +47,15 @@ fn future_perfect_constraints() {
     // Future: Speech before Reference
     assert!(
         output.contains("S <") || output.contains("Precedes(S"),
-        "Future must place S < R: got '{}'", output
+        "Future must place S < R: got '{}'",
+        output
     );
 
     // Perfect: Event before Reference
     assert!(
         output.contains("E <") || output.contains("Precedes(e"),
-        "Perfect must place E < R: got '{}'", output
+        "Perfect must place E < R: got '{}'",
+        output
     );
 }
 
@@ -63,7 +68,8 @@ fn present_perfect_constraints() {
     // Perfect: E < R
     assert!(
         output.contains("Precedes(e") || output.contains("E <"),
-        "Present Perfect: E < R: got '{}'", output
+        "Present Perfect: E < R: got '{}'",
+        output
     );
 }
 
@@ -74,6 +80,7 @@ fn simple_future_constraints() {
 
     assert!(
         output.contains("S <") || output.contains("Precedes(S") || output.contains("Future"),
-        "Future: S < R: got '{}'", output
+        "Future: S < R: got '{}'",
+        output
     );
 }

@@ -44,7 +44,12 @@ pub struct Rule {
 
 impl Rule {
     pub fn new(name: &str, kind: RuleKind, safety: Safety, tactic: Tactic) -> Self {
-        Rule { name: name.to_string(), kind, safety, tactic }
+        Rule {
+            name: name.to_string(),
+            kind,
+            safety,
+            tactic,
+        }
     }
 }
 

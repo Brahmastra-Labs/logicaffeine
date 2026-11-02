@@ -1,0 +1,43 @@
+Authenticate with the package registry.
+
+Stores an API token for the specified registry. The token is saved in `~/.config/logos/credentials.toml` with restricted permissions.
+
+# Token Acquisition
+
+Tokens can be obtained from the registry's web interface: 1. Visit `{registry}/auth/github` to authenticate 2. Generate an API token from your profile 3. Provide it via `--token` or interactive prompt
+
+# Example
+
+```bash largo login                       # Interactive prompt largo login --token tok_xxxxx     # Non-interactive ```
+
+Usage: largo login [OPTIONS]
+
+Options:
+      --registry <REGISTRY>
+          Registry URL. Defaults to `registry.logicaffeine.com`
+
+      --token <TOKEN>
+          API token. If omitted, prompts for input on stdin
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo login
+  largo login --token lgr_xxxxx

@@ -1,0 +1,85 @@
+{
+  "case": "T00-019",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T00_019.haveInDependentPosition",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 < n + 1",
+      "name": "T00_019.haveInDependentPosition.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "let_fun n := 3;\nFin (n + 1)",
+      "name": "T00_019.haveInType",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "2 < 3 + 1",
+      "name": "T00_019.haveInType.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_019.letValueVisible",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 + 0 = n",
+      "name": "T00_019.nestedHaves",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n \u2227 n + 0 = n \u2227 n + 0 = n",
+      "name": "T00_019.sharedProof",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_019.viaHave",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_019.viaLet",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

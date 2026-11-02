@@ -1,0 +1,253 @@
+{
+  "card": "d5005",
+  "header": "qwen3.8-27b-q4_k_m",
+  "rows": [
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F32, cache: F16, attention: Vector, flush: EveryPass, fp_unit: Soft }",
+      "batch": 1,
+      "position": 2047,
+      "window_bytes": 29940224.0,
+      "step_s": 0.2315969538851969,
+      "tokens_per_s": 4.317846082274908,
+      "roofline_tokens_per_s": 4.31787871817611,
+      "bound_share": {
+        "Memory": 0.9996134248394604,
+        "Vector": 0.00038657516054799493
+      },
+      "memory_s": 0.23159520340173,
+      "array_s": 0.003382699195213429,
+      "lanes_s": 0.01813942857142861,
+      "vector_s": 0.0017027415046296194
+    },
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F32, cache: F16, attention: Vector, flush: EveryPass, fp_unit: Soft }",
+      "batch": 16,
+      "position": 2047,
+      "window_bytes": 28957184.0,
+      "step_s": 0.3942161491723957,
+      "tokens_per_s": 40.58687101883032,
+      "roofline_tokens_per_s": 49.479250911366535,
+      "bound_share": {
+        "Lanes": 0.7030492770695801,
+        "Memory": 0.2904487353180381,
+        "Vector": 0.006501987612380197
+      },
+      "memory_s": 0.3233678704768826,
+      "array_s": 0.054123187123414865,
+      "lanes_s": 0.29023085714285773,
+      "vector_s": 0.02724386407407391
+    },
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F32, cache: F16, attention: Vector, flush: EveryPass, fp_unit: Soft }",
+      "batch": 56,
+      "position": 2047,
+      "window_bytes": 26335744.0,
+      "step_s": 1.3674767613398253,
+      "tokens_per_s": 40.951335761737084,
+      "roofline_tokens_per_s": 55.12852822580645,
+      "bound_share": {
+        "Lanes": 0.7428338299546133,
+        "Memory": 0.25054755354298164,
+        "Vector": 0.006618616502402648
+      },
+      "memory_s": 0.5680949826772888,
+      "array_s": 0.18943115493195153,
+      "lanes_s": 1.015808,
+      "vector_s": 0.09535352425925937
+    },
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F16, cache: Int8, attention: Array, flush: EveryPass, fp_unit: Soft }",
+      "batch": 1,
+      "position": 2047,
+      "window_bytes": 29940224.0,
+      "step_s": 0.22854506694568846,
+      "tokens_per_s": 4.37550463619344,
+      "roofline_tokens_per_s": 4.37553814952755,
+      "bound_share": {
+        "Memory": 0.9996082626904759,
+        "Vector": 0.00039173730952520307
+      },
+      "memory_s": 0.2285433164622216,
+      "array_s": 0.0034251141010407573,
+      "lanes_s": 0.018219676734693904,
+      "vector_s": 0.0005379415046296293
+    },
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F16, cache: Int8, attention: Array, flush: EveryPass, fp_unit: Soft }",
+      "batch": 16,
+      "position": 2047,
+      "window_bytes": 28957184.0,
+      "step_s": 0.34538595814025785,
+      "tokens_per_s": 46.32498693969069,
+      "roofline_tokens_per_s": 54.88571584235639,
+      "bound_share": {
+        "Lanes": 0.8024454154915515,
+        "Memory": 0.19013335484317526,
+        "Vector": 0.007421229665271596
+      },
+      "memory_s": 0.2745376794447437,
+      "array_s": 0.05480182561665212,
+      "lanes_s": 0.29151482775510246,
+      "vector_s": 0.00860706407407407
+    },
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F16, cache: Int8, attention: Array, flush: EveryPass, fp_unit: Soft }",
+      "batch": 64,
+      "position": 2047,
+      "window_bytes": 25811456.0,
+      "step_s": 1.3675098202598268,
+      "tokens_per_s": 46.80039517949495,
+      "roofline_tokens_per_s": 54.88571584235639,
+      "bound_share": {
+        "Lanes": 0.8489324254730768,
+        "Memory": 0.14350362424074925,
+        "Vector": 0.007563950286171934
+      },
+      "memory_s": 0.42171964098881903,
+      "array_s": 0.21920730246660847,
+      "lanes_s": 1.1660593110204098,
+      "vector_s": 0.03442825629629628
+    },
+    {
+      "numerics": "EngineNumerics { activations: Two, scaling: Sub32, state: F16, cache: Int8, attention: Array, flush: EveryPass, fp_unit: Soft }",
+      "batch": 113,
+      "position": 2047,
+      "window_bytes": 22600192.0,
+      "step_s": 2.4145095263962526,
+      "tokens_per_s": 46.80039517949503,
+      "roofline_tokens_per_s": 54.88571584235639,
+      "bound_share": {
+        "Lanes": 0.8489324254730838,
+        "Memory": 0.14350362424075133,
+        "Vector": 0.007563950286169529
+      },
+      "memory_s": 0.5719678933983985,
+      "array_s": 0.38703789341760375,
+      "lanes_s": 2.0588234710204083,
+      "vector_s": 0.06078739002314794
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: Sub32, state: F32, cache: F16, attention: Vector, flush: EveryPass, fp_unit: Soft }",
+      "batch": 1,
+      "position": 2047,
+      "window_bytes": 29962752.0,
+      "step_s": 0.2315969538851969,
+      "tokens_per_s": 4.317846082274908,
+      "roofline_tokens_per_s": 4.31787871817611,
+      "bound_share": {
+        "Memory": 0.9996134248394604,
+        "Vector": 0.00038657516054799493
+      },
+      "memory_s": 0.23159520340173,
+      "array_s": 0.0016913495976067145,
+      "lanes_s": 0.009069714285714304,
+      "vector_s": 0.0017027415046296194
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: Sub32, state: F32, cache: F16, attention: Vector, flush: EveryPass, fp_unit: Soft }",
+      "batch": 16,
+      "position": 2047,
+      "window_bytes": 29317632.0,
+      "step_s": 0.3234063876270158,
+      "tokens_per_s": 49.473358016826744,
+      "roofline_tokens_per_s": 49.479250911366535,
+      "bound_share": {
+        "Memory": 0.9953814226788505,
+        "Vector": 0.004618577321146616
+      },
+      "memory_s": 0.3233678704768824,
+      "array_s": 0.027061593561707432,
+      "lanes_s": 0.14511542857142887,
+      "vector_s": 0.02724386407407391
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: Sub32, state: F32, cache: F16, attention: Vector, flush: EveryPass, fp_unit: Soft }",
+      "batch": 56,
+      "position": 2047,
+      "window_bytes": 27597312.0,
+      "step_s": 0.8595727613398282,
+      "tokens_per_s": 65.14864420867875,
+      "roofline_tokens_per_s": 98.57506527532736,
+      "bound_share": {
+        "Lanes": 0.5908795890743685,
+        "Memory": 0.39859098902404505,
+        "Vector": 0.01052942190158782
+      },
+      "memory_s": 0.5680949826772888,
+      "array_s": 0.09471557746597577,
+      "lanes_s": 0.507904,
+      "vector_s": 0.09535352425925937
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: PerBlock, state: F16, cache: Int8Hadamard, attention: Array, flush: Every { tokens: 16 }, fp_unit: Soft }",
+      "batch": 1,
+      "position": 2047,
+      "window_bytes": 29962752.0,
+      "step_s": 0.22765430349499916,
+      "tokens_per_s": 4.392625066373792,
+      "roofline_tokens_per_s": 4.392717387093295,
+      "bound_share": {
+        "Memory": 0.998592586659838,
+        "Vector": 0.001407413340251468
+      },
+      "memory_s": 0.22764951893745836,
+      "array_s": 0.0017337645034340432,
+      "lanes_s": 0.0016203116553287975,
+      "vector_s": 0.0005650111342592598
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: PerBlock, state: F16, cache: Int8Hadamard, attention: Array, flush: Every { tokens: 16 }, fp_unit: Soft }",
+      "batch": 16,
+      "position": 2047,
+      "window_bytes": 29317632.0,
+      "step_s": 0.26032398138385193,
+      "tokens_per_s": 61.46187498725959,
+      "roofline_tokens_per_s": 61.48243707502506,
+      "bound_share": {
+        "Memory": 0.9940757567382105,
+        "Vector": 0.005924243261777009
+      },
+      "memory_s": 0.260236919048534,
+      "array_s": 0.02774023205494469,
+      "lanes_s": 0.02592498648526076,
+      "vector_s": 0.009040178148148153
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: PerBlock, state: F16, cache: Int8Hadamard, attention: Array, flush: Every { tokens: 16 }, fp_unit: Soft }",
+      "batch": 64,
+      "position": 2047,
+      "window_bytes": 27253248.0,
+      "step_s": 0.3791931645120562,
+      "tokens_per_s": 168.7794137385226,
+      "roofline_tokens_per_s": 175.5749946769112,
+      "bound_share": {
+        "Lanes": 0.07838100665226719,
+        "Memory": 0.8938285213053313,
+        "Vector": 0.02779047204238768
+      },
+      "memory_s": 0.3645165994039808,
+      "array_s": 0.11096092821977876,
+      "lanes_s": 0.10369994594104304,
+      "vector_s": 0.03616071259259261
+    },
+    {
+      "numerics": "EngineNumerics { activations: One, scaling: PerBlock, state: F16, cache: Int8Hadamard, attention: Array, flush: Every { tokens: 16 }, fp_unit: Soft }",
+      "batch": 104,
+      "position": 2047,
+      "window_bytes": 25532928.0,
+      "step_s": 0.48976422631567806,
+      "tokens_per_s": 212.34707316692968,
+      "roofline_tokens_per_s": 230.3859926846669,
+      "bound_share": {
+        "Array": 0.03131228980025407,
+        "Lanes": 0.0986137881736671,
+        "Memory": 0.8351097918077818,
+        "Vector": 0.034964130218331925
+      },
+      "memory_s": 0.4514163330335194,
+      "array_s": 0.18031150835713963,
+      "lanes_s": 0.1685124121541946,
+      "vector_s": 0.05876115796296286
+    }
+  ]
+}

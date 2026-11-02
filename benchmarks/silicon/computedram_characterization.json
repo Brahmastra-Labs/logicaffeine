@@ -1,0 +1,59 @@
+{
+  "part": "Micron MT47H64M16HR-25:H (Nexys A7-100T on-board DDR2-800)",
+  "sweep": {
+    "t1_act_to_pre": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "t2_pre_to_act": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "ops": [
+      "rowclone",
+      "and",
+      "or"
+    ],
+    "rows": [
+      0,
+      1,
+      2,
+      7,
+      15,
+      100,
+      1000
+    ]
+  },
+  "predicted": [
+    {
+      "op": "rowclone",
+      "operand_a": "deadbeefcafef00d",
+      "operand_b": null,
+      "predicted_result": "deadbeefcafef00d",
+      "predicted_by": "rowstore_oracle (codegen_sva::dram::RowStore)"
+    },
+    {
+      "op": "and",
+      "operand_a": "deadbeefcafef00d",
+      "operand_b": "0123456789abcdef",
+      "predicted_result": "0021046788aac00d",
+      "predicted_by": "rowstore_oracle (codegen_sva::dram::RowStore)"
+    },
+    {
+      "op": "or",
+      "operand_a": "deadbeefcafef00d",
+      "operand_b": "0123456789abcdef",
+      "predicted_result": "dfafffefcbfffdef",
+      "predicted_by": "rowstore_oracle (codegen_sva::dram::RowStore)"
+    }
+  ],
+  "measured": null,
+  "provenance": "pending_hardware",
+  "honesty": "ComputeDRAM is chip/timing/temperature dependent and was demonstrated on DDR3, not DDR2. Whether this Micron DDR2 exhibits the effect is an open experiment; `measured` is null until it runs on the flashed Nexys A7. `predicted` is the logical oracle result, not a claim about which physical (T1,T2) windows work."
+}

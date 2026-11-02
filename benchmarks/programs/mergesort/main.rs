@@ -28,6 +28,6 @@ fn main() {
     }
     merge_sort(&mut arr);
     let mut checksum: i64 = 0;
-    for &v in &arr { checksum = (checksum + v) % 1000000007; }
+    for &v in &arr { checksum = (checksum * 31 + v) & 268435455; }
     println!("{} {} {}", arr[0], arr[n - 1], checksum);
 }

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Forfeit and speak",
   "options": [
-    "$ (F\\underline{u}\\cdot S\\underline{u}  ) $",
-    "$ (Fu\\cdot S\\underline{u} ) $",
-    "$ (Fu\\cdot Su) $",
-    "$ (F\\underline{u}\\cdot Su ) $"
+    "F(u̲) ∧ S(u̲)",
+    "F(u) ∧ S(u̲)",
+    "F(u) ∧ S(u)",
+    "F(u̲) ∧ S(u)"
   ],
   "correct": 0,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'Forfeit and speak' conjoins two commands. F is simply the predicate for 'forfeit' (not a prohibition): both actions are ordered of you, the underlined agent — (F͟u · S͟u)."
+  "hint": "Two commands joined by and. Who acts in each?",
+  "explanation": "Both acts are commanded of you: F(u̲) ∧ S(u̲).",
+  "section": "12.2"
 }

@@ -13,13 +13,12 @@
 //! Accessed via [`Route::PackageDetail`]
 //! with `name` and `version` parameters.
 
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::seo::PageHead;
+use crate::ui::state::PackageDetails;
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::router::Route;
-use crate::ui::state::PackageDetails;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::seo::PageHead;
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -464,10 +463,7 @@ async fn fetch_package_details(name: &str) -> Result<PackageDetails, String> {
 
         let url = format!("{}/packages/{}", REGISTRY_API_URL, name);
 
-        let response = Request::get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let response = Request::get(&url).send().await.map_err(|e| e.to_string())?;
 
         if !response.ok() {
             return Err("Package not found".to_string());

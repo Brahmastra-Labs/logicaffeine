@@ -1,0 +1,10 @@
+{
+  "capability": "math.pow10",
+  "workload": "math.pow10",
+  "arg": "1000000",
+  "expected": "111111111100000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

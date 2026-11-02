@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use tower_lsp::lsp_types::{Diagnostic, Range, Url};
+use lsp_types::{Diagnostic, Range, Url};
 
 use logicaffeine_base::Interner;
 use logicaffeine_compile::analysis::VarState;
 use logicaffeine_language::{
-    analysis::{TypeRegistry, PolicyRegistry},
+    analysis::{PolicyRegistry, TypeRegistry},
     token::Token,
 };
 
@@ -14,6 +14,39 @@ use crate::line_index::LineIndex;
 use crate::pipeline;
 
 /// Per-document state: source text, analysis results, and cached diagnostics.
+/// The NAME under the cursor, and where it is written.
+///
+/// ★ ONE RULE, FOUR ASKERS. Go-to-definition, hover, rename and find-references each asked this
+/// question for themselves, and each answered it the same wrong way: find the token at the offset,
+/// read its text. Inside a `View:` that token is the whole `RawBlock`, so all four read the ENTIRE
+/// TEMPLATE as the name and matched nothing — the same bug four times, discoverable four separate
+/// times. An author hovering `{count}` got nothing; renaming it was not even offered.
+///
+/// A recorded REFERENCE wins over the token, and inside a template it is the only thing there is:
+/// the parser noted every name a template mentions with its file span, precisely because that
+/// information exists nowhere else by the time the tokens are all that is left. It is the better
+/// answer outside a template too — a reference is a name the index has already placed, where a
+/// token is only a string that happens to sit under the cursor.
+pub fn name_at(
+    doc: &DocumentState,
+    offset: usize,
+) -> Option<(String, logicaffeine_language::token::Span)> {
+    if let Some(reference) = doc
+        .symbol_index
+        .references
+        .iter()
+        .find(|r| offset >= r.span.start && offset < r.span.end)
+    {
+        return Some((reference.name.clone(), reference.span));
+    }
+    let token = doc
+        .tokens
+        .iter()
+        .find(|t| offset >= t.span.start && offset < t.span.end)?;
+    let text = doc.source.get(token.span.start..token.span.end)?;
+    Some((text.to_string(), token.span))
+}
+
 pub struct DocumentState {
     pub source: String,
     pub version: i32,
@@ -57,7 +90,6 @@ impl DocumentState {
             ownership_states: analysis.ownership_states,
         }
     }
-
 }
 
 /// Apply one LSP content change to a document's text.
@@ -120,91 +152,21 @@ fn build_diagnostics(
         &analysis.symbol_index,
         line_index,
     ));
+    diagnostics.extend(crate::diagnostics::lgx_finding_diagnostics(
+        &analysis.lgx_findings,
+        line_index,
+    ));
+    diagnostics.extend(crate::diagnostics::copy_finding_diagnostics(
+        &analysis.copy_findings,
+        line_index,
+    ));
+    diagnostics.extend(crate::diagnostics::refusal_diagnostics(
+        &analysis.refusals,
+        line_index,
+    ));
     diagnostics
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_document_parses_source() {
-        let doc = DocumentState::new("## Main\n    Let x be 5.\n    Show x.\n".to_string(), 1);
-        assert_eq!(doc.version, 1);
-        assert!(doc.diagnostics.is_empty(), "Valid source should have no diagnostics: {:?}", doc.diagnostics);
-        assert!(!doc.tokens.is_empty());
-        assert!(!doc.symbol_index.definitions.is_empty());
-    }
-
-    #[test]
-    fn fresh_snapshot_replaces_analysis() {
-        let doc = DocumentState::new("## Main\n    Let x be 5.\n".to_string(), 1);
-        assert_eq!(doc.symbol_index.definitions_of("x").len(), 1);
-        assert_eq!(doc.symbol_index.definitions_of("y").len(), 0);
-
-        // Documents are immutable snapshots: an edit produces a new one.
-        let doc = DocumentState::new("## Main\n    Let y be 10.\n".to_string(), 2);
-        assert_eq!(doc.version, 2);
-        assert_eq!(doc.symbol_index.definitions_of("y").len(), 1);
-    }
-
-    #[test]
-    fn empty_document() {
-        let doc = DocumentState::new("".to_string(), 0);
-        assert_eq!(doc.version, 0);
-        assert_eq!(doc.source, "");
-    }
-
-    #[test]
-    fn document_source_stored() {
-        let source = "## Main\n    Let x be 5.\n";
-        let doc = DocumentState::new(source.to_string(), 1);
-        assert_eq!(doc.source, source);
-    }
-
-    #[test]
-    fn snapshot_of_broken_source_carries_diagnostics() {
-        let doc = DocumentState::new("## Main\n    Let x be 5.\n    Show x.\n".to_string(), 1);
-        assert!(doc.diagnostics.is_empty(), "Valid source should have no diagnostics");
-        let doc = DocumentState::new("## Main\n    Let be.\n".to_string(), 2);
-        assert!(!doc.diagnostics.is_empty(), "Invalid source should produce diagnostics");
-    }
-
-    #[test]
-    fn line_index_matches_snapshot_source() {
-        let doc = DocumentState::new("line0\nline1\nline2\nline3\nline4\n".to_string(), 2);
-        let pos = doc.line_index.position(doc.source.len().saturating_sub(2));
-        assert_eq!(pos.line, 4, "In a 5-line doc, near-end should be line 4");
-    }
-
-    #[test]
-    fn document_with_move_error_has_diagnostics() {
-        // Give x to y moves x; Show x afterward is use-after-move
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n";
-        let doc = DocumentState::new(source.to_string(), 1);
-        let move_diags: Vec<_> = doc.diagnostics.iter()
-            .filter(|d| {
-                let is_move_code = d.code.as_ref().map_or(false, |c| {
-                    matches!(c, tower_lsp::lsp_types::NumberOrString::String(s) if s == "use-after-move")
-                });
-                let is_move_msg = d.message.contains("after") && d.message.contains("move");
-                is_move_code || is_move_msg
-            })
-            .collect();
-        assert!(
-            !move_diags.is_empty(),
-            "Document with use-after-move should have ownership diagnostics. All diags: {:?}",
-            doc.diagnostics
-        );
-    }
-
-    #[test]
-    fn document_ownership_states_available() {
-        let source = "## Main\n    Let x be 5.\n    Show x.\n";
-        let doc = DocumentState::new(source.to_string(), 1);
-        assert!(
-            !doc.ownership_states.is_empty(),
-            "Document should have ownership states for variables"
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/document/tests.rs"]
+mod tests;

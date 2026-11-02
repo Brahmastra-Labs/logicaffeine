@@ -1,6 +1,6 @@
 //! Escape analysis for zone safety.
 //!
-//! Implements the "Hotel California" containment rule: values can enter
+//! Implements the zone containment rule: values can enter
 //! zones but cannot escape. This pass checks for obvious violations before
 //! code generation, providing Socratic error messages.
 //!
@@ -24,10 +24,10 @@
 //! are caught by Rust's borrow checker at compile time. This pass catches the
 //! common cases with better LOGOS-specific error messages.
 
-use std::collections::HashMap;
-use crate::ast::stmt::{Stmt, Expr, Block};
+use crate::ast::stmt::{Expr, Stmt, StmtId};
 use crate::intern::{Interner, Symbol};
 use crate::token::Span;
+use std::collections::HashMap;
 
 /// Error type for escape violations
 #[derive(Debug, Clone)]
@@ -39,10 +39,7 @@ pub struct EscapeError {
 #[derive(Debug, Clone)]
 pub enum EscapeErrorKind {
     /// Variable cannot escape zone via return
-    ReturnEscape {
-        variable: String,
-        zone_name: String,
-    },
+    ReturnEscape { variable: String, zone_name: String },
     /// Variable cannot escape zone via assignment to outer variable
     AssignmentEscape {
         variable: String,
@@ -54,7 +51,10 @@ pub enum EscapeErrorKind {
 impl std::fmt::Display for EscapeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.kind {
-            EscapeErrorKind::ReturnEscape { variable, zone_name } => {
+            EscapeErrorKind::ReturnEscape {
+                variable,
+                zone_name,
+            } => {
                 write!(
                     f,
                     "Reference '{}' cannot escape zone '{}'.\n\n\
@@ -64,7 +64,11 @@ impl std::fmt::Display for EscapeError {
                     variable, zone_name
                 )
             }
-            EscapeErrorKind::AssignmentEscape { variable, target, zone_name } => {
+            EscapeErrorKind::AssignmentEscape {
+                variable,
+                target,
+                zone_name,
+            } => {
                 write!(
                     f,
                     "Reference '{}' cannot escape zone '{}' via assignment to '{}'.\n\n\
@@ -81,6 +85,32 @@ impl std::fmt::Display for EscapeError {
 impl std::error::Error for EscapeError {}
 
 /// Tracks the "zone depth" of variables for escape analysis
+/// One escape finding: the top-level statement it belongs to (mapping onto
+/// `Parser::stmt_spans()`), and the erring statement with each one around it,
+/// innermost first (for `Parser::nested_stmt_spans()`).
+#[derive(Debug)]
+pub struct EscapeFinding {
+    pub stmt_index: usize,
+    pub trail: Vec<StmtId>,
+    pub error: EscapeError,
+}
+
+/// An escape error on its way out of the statements it was found in, naming
+/// each one as it passes, innermost first.
+struct Traced {
+    error: EscapeError,
+    trail: Vec<StmtId>,
+}
+
+impl From<EscapeError> for Traced {
+    fn from(error: EscapeError) -> Self {
+        Traced {
+            error,
+            trail: Vec::new(),
+        }
+    }
+}
+
 pub struct EscapeChecker<'a> {
     /// Maps variable symbols to their zone depth (0 = global/outside all zones)
     zone_depth: HashMap<Symbol, usize>,
@@ -105,21 +135,28 @@ impl<'a> EscapeChecker<'a> {
 
     /// Check a program (list of statements) for escape violations
     pub fn check_program(&mut self, stmts: &[Stmt<'_>]) -> Result<(), EscapeError> {
-        self.check_block(stmts)
+        self.check_block(stmts).map_err(|traced| traced.error)
     }
 
-    /// Collect every escape finding with its top-level statement index
-    /// (mapping onto `Parser::stmt_spans()`), continuing past failures.
-    pub fn check_program_collect(&mut self, stmts: &[Stmt<'_>]) -> Vec<(usize, EscapeError)> {
+    /// Collect every escape finding with its statements, continuing past failures.
+    pub fn check_program_collect(&mut self, stmts: &[Stmt<'_>]) -> Vec<EscapeFinding> {
         stmts
             .iter()
             .enumerate()
-            .filter_map(|(index, stmt)| self.check_stmt(stmt).err().map(|e| (index, e)))
+            .filter_map(|(index, stmt)| {
+                self.check_stmt(stmt)
+                    .err()
+                    .map(|Traced { error, trail }| EscapeFinding {
+                        stmt_index: index,
+                        trail,
+                        error,
+                    })
+            })
             .collect()
     }
 
     /// Check a block of statements
-    fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), EscapeError> {
+    fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), Traced> {
         for stmt in stmts {
             self.check_stmt(stmt)?;
         }
@@ -127,7 +164,14 @@ impl<'a> EscapeChecker<'a> {
     }
 
     /// Check a single statement for escape violations
-    fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), EscapeError> {
+    fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), Traced> {
+        self.check_stmt_kind(stmt).map_err(|mut traced| {
+            traced.trail.push(StmtId::of(stmt));
+            traced
+        })
+    }
+
+    fn check_stmt_kind(&mut self, stmt: &Stmt<'_>) -> Result<(), Traced> {
         match stmt {
             Stmt::Zone { name, body, .. } => {
                 // Enter zone: increase depth
@@ -135,11 +179,22 @@ impl<'a> EscapeChecker<'a> {
                 self.zone_stack.push(*name);
 
                 // Check body statements
-                self.check_block(body)?;
+                let body_result = self.check_block(body);
 
-                // Exit zone: decrease depth
+                // Exit zone: decrease depth — on a finding too, so the
+                // statements after it are checked at their own depth.
                 self.zone_stack.pop();
                 self.current_depth -= 1;
+                body_result?;
+            }
+
+            // A function body is its own scope: its zones and their values
+            // are checked where they are written, and its names end with it.
+            Stmt::FunctionDef { body, .. } => {
+                let outer = self.zone_depth.clone();
+                let body_result = self.check_block(body);
+                self.zone_depth = outer;
+                body_result?;
             }
 
             Stmt::Let { var, .. } => {
@@ -159,7 +214,11 @@ impl<'a> EscapeChecker<'a> {
             }
 
             // Recurse into nested blocks
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 self.check_block(then_block)?;
                 if let Some(else_b) = else_block {
                     self.check_block(else_b)?;
@@ -180,6 +239,11 @@ impl<'a> EscapeChecker<'a> {
                 }
             }
 
+            // A `During` span is scope-transparent: its body runs in place, where it is written.
+            Stmt::During { body, .. } => {
+                self.check_block(body)?;
+            }
+
             // Escape blocks are opaque — the Rust compiler handles zone safety for raw code
             Stmt::Escape { .. } => {}
 
@@ -192,11 +256,26 @@ impl<'a> EscapeChecker<'a> {
     /// Check that an expression doesn't escape to a shallower depth
     fn check_no_escape(&self, expr: &Expr<'_>, max_depth: usize) -> Result<(), EscapeError> {
         match expr {
+            // A view's holes are evaluated where the view renders; its handler blocks are
+            // closures (checked when called, like a block closure).
+            // A page query reads the DOM; only its selector expression can escape a zone.
+            Expr::Dom(q) => {
+                if let Some(sel) = q.selector() {
+                    self.check_no_escape(sel, max_depth)?;
+                }
+            }
+            Expr::View(v) => {
+                for e in v.exprs_and_blocks().0 {
+                    self.check_no_escape(e, max_depth)?;
+                }
+            }
             Expr::Identifier(sym) => {
                 if let Some(&depth) = self.zone_depth.get(sym) {
                     if depth > max_depth && depth > 0 {
                         // This variable was defined in a deeper zone
-                        let zone_name = self.zone_stack.get(depth - 1)
+                        let zone_name = self
+                            .zone_stack
+                            .get(depth - 1)
                             .map(|s| self.interner.resolve(*s).to_string())
                             .unwrap_or_else(|| "unknown".to_string());
                         let var_name = self.interner.resolve(*sym).to_string();
@@ -232,13 +311,19 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(index, max_depth)?;
             }
 
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.check_no_escape(collection, max_depth)?;
                 self.check_no_escape(start, max_depth)?;
                 self.check_no_escape(end, max_depth)?;
             }
 
-            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr }
+            Expr::Copy { expr }
+            | Expr::Give { value: expr }
+            | Expr::Length { collection: expr }
             | Expr::Not { operand: expr } => {
                 self.check_no_escape(expr, max_depth)?;
             }
@@ -343,7 +428,9 @@ impl<'a> EscapeChecker<'a> {
             Expr::Identifier(sym) => {
                 if let Some(&depth) = self.zone_depth.get(sym) {
                     if depth > max_depth && depth > 0 {
-                        let zone_name = self.zone_stack.get(depth - 1)
+                        let zone_name = self
+                            .zone_stack
+                            .get(depth - 1)
                             .map(|s| self.interner.resolve(*s).to_string())
                             .unwrap_or_else(|| "unknown".to_string());
                         let var_name = self.interner.resolve(*sym).to_string();
@@ -367,21 +454,5 @@ impl<'a> EscapeChecker<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Note: Full integration tests are in tests/phase85_zones.rs
-    // These unit tests verify the basic mechanics of the escape checker
-
-    #[test]
-    fn test_escape_checker_basic() {
-        use crate::intern::Interner;
-
-        let mut interner = Interner::new();
-        let checker = EscapeChecker::new(&interner);
-
-        // Just verify creation works
-        assert_eq!(checker.current_depth, 0);
-        assert!(checker.zone_depth.is_empty());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/analysis/escape/tests.rs"]
+mod tests;

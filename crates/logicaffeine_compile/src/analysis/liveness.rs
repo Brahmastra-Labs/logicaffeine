@@ -1,20 +1,27 @@
 use std::collections::{HashMap, HashSet};
 
 use logicaffeine_base::Symbol;
+use logicaffeine_language::ast::stmt::Pattern;
 use logicaffeine_language::ast::{Expr, Stmt};
-use logicaffeine_language::ast::stmt::{ClosureBody, Pattern};
+
+use crate::optimize::Mentions;
 
 /// Liveness analysis result for a whole program.
 ///
-/// For each user-defined function, stores a per-statement `live_after` set:
-/// `live_after[i]` is the set of variables live immediately *after* top-level
-/// statement `i` in that function's body.
+/// For every statement of every user-defined function and of the top-level (`## Main`) statement list — nested
+/// statements included — the set of variables live immediately *after* it. Each function also keeps the table of its
+/// top-level statements by position (`live_after[i]`).
 ///
-/// Used by codegen to decide when an argument can be *moved* into a call
-/// instead of cloned: if a variable is not live after the call statement,
-/// the old value is never read again and ownership can be transferred.
+/// Used by codegen to decide when a value can be *moved* (into a call, into a constructed record) instead of cloned:
+/// if a variable is not live after the statement, the old value is never read again and ownership can be
+/// transferred. A move on a variable wrongly thought dead breaks the program, so the analysis errs toward "live": a
+/// statement kind it has no case for uses every name it touches (the optimizer's one exhaustive walk,
+/// [`crate::optimize::Mentions`]), foreign code uses every name, and a loop body's end sees what the next iteration
+/// needs.
 pub struct LivenessResult {
     functions: HashMap<Symbol, FunctionLiveness>,
+    /// Every analysed statement's live-after set, keyed by the statement's address in the arena it was analysed in.
+    by_stmt: HashMap<usize, HashSet<Symbol>>,
 }
 
 /// Per-function liveness table.
@@ -24,20 +31,44 @@ pub struct FunctionLiveness {
 }
 
 impl LivenessResult {
-    /// Compute liveness for every `FunctionDef` in `stmts`.
+    /// Compute liveness for every `FunctionDef` in `stmts`, and for `stmts` themselves as the `## Main` body.
     ///
-    /// Algorithm: backward dataflow over the top-level statement list of each
-    /// function body.  `Return` is treated as a terminator — variables used in
-    /// subsequent (dead-code) statements do not affect liveness before the
-    /// `Return`.
+    /// Algorithm: backward dataflow over each body. `Return` is treated as a terminator — variables used in
+    /// subsequent (dead-code) statements do not affect liveness before the `Return`.
     pub fn analyze(stmts: &[Stmt<'_>]) -> Self {
         let mut functions = HashMap::new();
+        let mut by_stmt = HashMap::new();
+        let none_pinned = HashSet::new();
         for stmt in stmts {
             if let Stmt::FunctionDef { name, body, .. } = stmt {
-                functions.insert(*name, analyze_function(body));
+                functions.insert(*name, analyze_body(body, &none_pinned, &mut by_stmt));
             }
         }
-        Self { functions }
+        // A function reaches Main's variables by name (they are its globals), so a call can read one no Main
+        // statement names: every name a function body speaks of stays live throughout Main.
+        let reached: HashSet<Symbol> = stmts
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::FunctionDef { body, .. } => {
+                    Some(Mentions::of_block(body).symbols().collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        analyze_body(stmts, &reached, &mut by_stmt);
+        Self { functions, by_stmt }
+    }
+
+    /// The variables live after `stmt`, when the analysis saw it (a statement the compiler synthesized later has
+    /// no entry).
+    pub fn after(&self, stmt: &Stmt<'_>) -> Option<&HashSet<Symbol>> {
+        self.by_stmt.get(&stmt_key(stmt))
+    }
+
+    /// Every analysed statement's live-after set, by [`stmt_key`].
+    pub fn into_statement_table(self) -> HashMap<usize, HashSet<Symbol>> {
+        self.by_stmt
     }
 
     /// Returns `true` if `var` is live immediately after top-level statement
@@ -66,24 +97,55 @@ impl LivenessResult {
     }
 }
 
+/// The key a statement's liveness is recorded under: its address in the arena the analysis walked.
+pub fn stmt_key(stmt: &Stmt<'_>) -> usize {
+    stmt as *const Stmt<'_> as *const () as usize
+}
+
 // =============================================================================
-// Per-function analysis
+// Per-body analysis
 // =============================================================================
 
-fn analyze_function(body: &[Stmt<'_>]) -> FunctionLiveness {
+/// The backward walk over one body: what foreign code may read, the names live throughout it, and where each
+/// statement's live-after set is written.
+struct Walk<'r> {
+    /// Every name the body speaks of — what foreign code may read.
+    every: HashSet<Symbol>,
+    /// Names live at every point of the body (Main's variables that a function reads by name).
+    pinned: &'r HashSet<Symbol>,
+    /// What is live where a `Break` goes: after the nearest loop or zone.
+    break_exit: Option<HashSet<Symbol>>,
+    /// What is live where a `Return` goes when a zone encloses it: after the nearest zone, which the `Return` leaves.
+    return_exit: Option<HashSet<Symbol>>,
+    by_stmt: &'r mut HashMap<usize, HashSet<Symbol>>,
+}
+
+fn analyze_body(
+    body: &[Stmt<'_>],
+    pinned: &HashSet<Symbol>,
+    by_stmt: &mut HashMap<usize, HashSet<Symbol>>,
+) -> FunctionLiveness {
+    let mut walk = Walk {
+        every: Mentions::of_block(body).symbols().collect(),
+        pinned,
+        break_exit: None,
+        return_exit: None,
+        by_stmt,
+    };
     let n = body.len();
     let mut live_after = vec![HashSet::<Symbol>::new(); n];
-    let mut current: HashSet<Symbol> = HashSet::new();
+    let mut current: HashSet<Symbol> = pinned.clone();
 
     for i in (0..n).rev() {
         if is_terminator(&body[i]) {
             // Return (or similar terminator): nothing is live after it,
             // and dead code that follows does not influence pre-Return liveness.
-            live_after[i] = HashSet::new();
-            current = gen_stmt(&body[i]);
+            live_after[i] = pinned.clone();
+            walk.record(&body[i], &live_after[i]);
+            current = walk.gen_stmt(&body[i]);
         } else {
             live_after[i] = current.clone();
-            current = live_before_stmt(&body[i], &current);
+            current = walk.live_before_stmt(&body[i], &current);
         }
     }
 
@@ -94,286 +156,256 @@ fn is_terminator(stmt: &Stmt<'_>) -> bool {
     matches!(stmt, Stmt::Return { .. })
 }
 
-// =============================================================================
-// Live-before computation
-// =============================================================================
-
-/// Variables generated (used) by a statement, ignoring control flow.
-/// Used only for terminators (Return).
-fn gen_stmt(stmt: &Stmt<'_>) -> HashSet<Symbol> {
-    let mut out = HashSet::new();
-    match stmt {
-        Stmt::Return { value: Some(v) } => gen_expr(v, &mut out),
-        _ => {}
+impl Walk<'_> {
+    /// Record `live_out` as what is live after `stmt`. A loop body is walked once per fixpoint round; the last
+    /// round, at the fixpoint, writes last.
+    fn record(&mut self, stmt: &Stmt<'_>, live_out: &HashSet<Symbol>) {
+        let mut live = live_out.clone();
+        live.extend(self.pinned.iter().copied());
+        self.by_stmt.insert(stmt_key(stmt), live);
     }
-    out
-}
 
-/// Compute the live-before set for a single statement given what is live after it.
-fn live_before_stmt(stmt: &Stmt<'_>, live_out: &HashSet<Symbol>) -> HashSet<Symbol> {
-    match stmt {
-        Stmt::Return { .. } => gen_stmt(stmt),
-
-        Stmt::Let { var, value, .. } => {
-            let mut result = live_out.clone();
-            result.remove(var);
-            gen_expr(value, &mut result);
-            result
+    /// Variables generated (used) by a terminator.
+    fn gen_stmt(&self, stmt: &Stmt<'_>) -> HashSet<Symbol> {
+        let mut out = self.pinned.clone();
+        if let Stmt::Return { value: Some(v) } = stmt {
+            self.gen_expr(v, &mut out);
         }
+        out
+    }
 
-        Stmt::Set { target, value } => {
-            let mut result = live_out.clone();
-            result.remove(target);
-            gen_expr(value, &mut result);
-            result
+    /// Compute the live-before set for a single statement given what is live after it, recording what is live
+    /// after it and after every statement nested in it.
+    fn live_before_stmt(&mut self, stmt: &Stmt<'_>, live_out: &HashSet<Symbol>) -> HashSet<Symbol> {
+        // A `Break` goes to the nearest loop's or zone's exit, whatever follows it; one with no exit known keeps every
+        // name live.
+        if matches!(stmt, Stmt::Break) {
+            let exit = self.break_exit.clone().unwrap_or_else(|| self.every.clone());
+            self.record(stmt, &exit);
+            return exit;
         }
-
-        Stmt::Call { args, .. } => {
-            let mut result = live_out.clone();
-            for a in args.iter() {
-                gen_expr(a, &mut result);
+        // A `Return` inside a zone leaves the zone and goes on after it.
+        if let (Stmt::Return { value }, Some(exit)) = (stmt, self.return_exit.clone()) {
+            self.record(stmt, &exit);
+            let mut before = exit;
+            if let Some(value) = value {
+                self.gen_expr(value, &mut before);
             }
-            result
+            return before;
         }
+        self.record(stmt, live_out);
+        match stmt {
+            Stmt::Return { .. } => self.gen_stmt(stmt),
 
-        Stmt::Push { value, collection } => {
-            let mut result = live_out.clone();
-            gen_expr(value, &mut result);
-            gen_expr(collection, &mut result);
-            result
-        }
-
-        Stmt::Pop { collection, into } => {
-            let mut result = live_out.clone();
-            if let Some(v) = into {
-                result.remove(v);
+            Stmt::Let { var, value, .. } => {
+                let mut result = live_out.clone();
+                result.remove(var);
+                self.gen_expr(value, &mut result);
+                result
             }
-            gen_expr(collection, &mut result);
-            result
-        }
 
-        Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
-            let mut result = live_out.clone();
-            gen_expr(value, &mut result);
-            gen_expr(collection, &mut result);
-            result
-        }
+            Stmt::Set { target, value } => {
+                let mut result = live_out.clone();
+                result.remove(target);
+                self.gen_expr(value, &mut result);
+                result
+            }
 
-        Stmt::SetIndex { collection, index, value } => {
-            let mut result = live_out.clone();
-            gen_expr(collection, &mut result);
-            gen_expr(index, &mut result);
-            gen_expr(value, &mut result);
-            result
-        }
-
-        Stmt::SetField { object, value, .. } => {
-            let mut result = live_out.clone();
-            gen_expr(object, &mut result);
-            gen_expr(value, &mut result);
-            result
-        }
-
-        Stmt::If { cond, then_block, else_block } => {
-            let then_lb = live_before_block(then_block, live_out);
-            let else_lb = match else_block {
-                Some(b) => live_before_block(b, live_out),
-                None => live_out.clone(),
-            };
-            let mut result = HashSet::new();
-            gen_expr(cond, &mut result);
-            result.extend(then_lb);
-            result.extend(else_lb);
-            result
-        }
-
-        Stmt::While { cond, body, .. } => {
-            // Fixed-point: loop_live = live_out ∪ gen(cond) ∪ body_live_before(loop_live)
-            let mut loop_live: HashSet<Symbol> = live_out.clone();
-            gen_expr(cond, &mut loop_live);
-            loop {
-                let body_before = live_before_block(body, &loop_live);
-                let mut new_live = live_out.clone();
-                gen_expr(cond, &mut new_live);
-                new_live.extend(body_before);
-                if new_live == loop_live {
-                    break;
+            Stmt::Call { function, args } => {
+                let mut result = live_out.clone();
+                // A callee named by a binding (a closure held in a variable) is a use of it.
+                result.insert(*function);
+                for a in args.iter() {
+                    self.gen_expr(a, &mut result);
                 }
-                loop_live = new_live;
+                result
             }
-            loop_live
-        }
 
-        Stmt::Repeat { pattern, iterable, body } => {
-            let body_before = live_before_block(body, live_out);
-            let pattern_syms: HashSet<Symbol> = match pattern {
-                Pattern::Identifier(s) => [*s].into_iter().collect(),
-                Pattern::Tuple(syms) => syms.iter().copied().collect(),
-            };
-            let mut result = live_out.clone();
-            gen_expr(iterable, &mut result);
-            for sym in body_before {
-                if !pattern_syms.contains(&sym) {
-                    result.insert(sym);
+            Stmt::Push { value, collection } => {
+                let mut result = live_out.clone();
+                self.gen_expr(value, &mut result);
+                self.gen_expr(collection, &mut result);
+                result
+            }
+
+            Stmt::Pop { collection, into } => {
+                let mut result = live_out.clone();
+                if let Some(v) = into {
+                    result.remove(v);
                 }
+                self.gen_expr(collection, &mut result);
+                result
             }
-            result
-        }
 
-        Stmt::Inspect { target, arms, .. } => {
-            let mut result = HashSet::new();
-            for arm in arms.iter() {
-                let arm_lb = live_before_block(arm.body, live_out);
-                result.extend(arm_lb);
+            Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
+                let mut result = live_out.clone();
+                self.gen_expr(value, &mut result);
+                self.gen_expr(collection, &mut result);
+                result
             }
-            gen_expr(target, &mut result);
-            result
-        }
 
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-            live_before_block(tasks, live_out)
-        }
-
-        Stmt::Zone { body, .. } => live_before_block(body, live_out),
-
-        _ => live_out.clone(),
-    }
-}
-
-/// Compute live-before for a block of statements.
-fn live_before_block(stmts: &[Stmt<'_>], live_out: &HashSet<Symbol>) -> HashSet<Symbol> {
-    let mut current = live_out.clone();
-    for stmt in stmts.iter().rev() {
-        if is_terminator(stmt) {
-            current = gen_stmt(stmt);
-        } else {
-            current = live_before_stmt(stmt, &current);
-        }
-    }
-    current
-}
-
-// =============================================================================
-// Gen set for expressions
-// =============================================================================
-
-/// Collects all variable identifiers referenced (used) in an expression.
-///
-/// Function names in `Expr::Call { function, .. }` are NOT collected since
-/// they are global names, not local variables.
-fn gen_expr(expr: &Expr<'_>, out: &mut HashSet<Symbol>) {
-    match expr {
-        Expr::Identifier(sym) => {
-            out.insert(*sym);
-        }
-        Expr::BinaryOp { left, right, .. } => {
-            gen_expr(left, out);
-            gen_expr(right, out);
-        }
-        Expr::Call { args, .. } => {
-            for a in args.iter() {
-                gen_expr(a, out);
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
+                let mut result = live_out.clone();
+                self.gen_expr(collection, &mut result);
+                self.gen_expr(index, &mut result);
+                self.gen_expr(value, &mut result);
+                result
             }
-        }
-        Expr::CallExpr { callee, args } => {
-            gen_expr(callee, out);
-            for a in args.iter() {
-                gen_expr(a, out);
+
+            Stmt::SetField { object, value, .. } => {
+                let mut result = live_out.clone();
+                self.gen_expr(object, &mut result);
+                self.gen_expr(value, &mut result);
+                result
             }
-        }
-        Expr::Length { collection } => gen_expr(collection, out),
-        Expr::Index { collection, index } => {
-            gen_expr(collection, out);
-            gen_expr(index, out);
-        }
-        Expr::Slice { collection, start, end } => {
-            gen_expr(collection, out);
-            gen_expr(start, out);
-            gen_expr(end, out);
-        }
-        Expr::Contains { collection, value } => {
-            gen_expr(collection, out);
-            gen_expr(value, out);
-        }
-        Expr::Union { left, right } | Expr::Intersection { left, right } => {
-            gen_expr(left, out);
-            gen_expr(right, out);
-        }
-        Expr::ManifestOf { zone } => gen_expr(zone, out),
-        Expr::ChunkAt { index, zone } => {
-            gen_expr(index, out);
-            gen_expr(zone, out);
-        }
-        Expr::FieldAccess { object, .. } => gen_expr(object, out),
-        Expr::List(items) | Expr::Tuple(items) => {
-            for i in items.iter() {
-                gen_expr(i, out);
+
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let then_lb = self.live_before_block(then_block, live_out);
+                let else_lb = match else_block {
+                    Some(b) => self.live_before_block(b, live_out),
+                    None => live_out.clone(),
+                };
+                let mut result = HashSet::new();
+                self.gen_expr(cond, &mut result);
+                result.extend(then_lb);
+                result.extend(else_lb);
+                result
             }
-        }
-        Expr::Range { start, end } => {
-            gen_expr(start, out);
-            gen_expr(end, out);
-        }
-        Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Not { operand: expr } => gen_expr(expr, out),
-        Expr::OptionSome { value } => gen_expr(value, out),
-        Expr::WithCapacity { value, capacity } => {
-            gen_expr(value, out);
-            gen_expr(capacity, out);
-        }
-        Expr::New { init_fields, .. } => {
-            for (_, v) in init_fields.iter() {
-                gen_expr(v, out);
-            }
-        }
-        Expr::NewVariant { fields, .. } => {
-            for (_, v) in fields.iter() {
-                gen_expr(v, out);
-            }
-        }
-        Expr::Closure { body, .. } => match body {
-            ClosureBody::Expression(e) => gen_expr(e, out),
-            ClosureBody::Block(stmts) => {
-                for s in stmts.iter() {
-                    gen_stmt_exprs(s, out);
+
+            Stmt::While {
+                cond,
+                body,
+                decreasing,
+            } => {
+                // Fixed-point: loop_live = live_out ∪ gen(cond, decreasing) ∪ body_live_before(loop_live)
+                let mut loop_live: HashSet<Symbol> = live_out.clone();
+                self.gen_expr(cond, &mut loop_live);
+                if let Some(d) = decreasing {
+                    self.gen_expr(d, &mut loop_live);
                 }
-            }
-        },
-        Expr::InterpolatedString(parts) => {
-            for part in parts.iter() {
-                if let logicaffeine_language::ast::stmt::StringPart::Expr { value, .. } = part {
-                    gen_expr(value, out);
+                let enclosing = self.break_exit.replace(live_out.clone());
+                loop {
+                    let body_before = self.live_before_block(body, &loop_live);
+                    let mut new_live = live_out.clone();
+                    self.gen_expr(cond, &mut new_live);
+                    if let Some(d) = decreasing {
+                        self.gen_expr(d, &mut new_live);
+                    }
+                    new_live.extend(body_before);
+                    if new_live == loop_live {
+                        break;
+                    }
+                    loop_live = new_live;
                 }
+                self.break_exit = enclosing;
+                loop_live
+            }
+
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
+                // Fixed-point: what the top of an iteration needs is live at the end of the one before it; the
+                // pattern's names are bound afresh at each top.
+                let pattern_syms: HashSet<Symbol> = match pattern {
+                    Pattern::Identifier(s) => [*s].into_iter().collect(),
+                    Pattern::Tuple(syms) => syms.iter().copied().collect(),
+                };
+                let mut loop_live: HashSet<Symbol> = live_out.clone();
+                let enclosing = self.break_exit.replace(live_out.clone());
+                loop {
+                    let body_before = self.live_before_block(body, &loop_live);
+                    let mut new_live = live_out.clone();
+                    new_live.extend(
+                        body_before
+                            .into_iter()
+                            .filter(|s| !pattern_syms.contains(s)),
+                    );
+                    if new_live == loop_live {
+                        break;
+                    }
+                    loop_live = new_live;
+                }
+                self.break_exit = enclosing;
+                let mut result = loop_live;
+                self.gen_expr(iterable, &mut result);
+                result
+            }
+
+            Stmt::Inspect { target, arms, .. } => {
+                let mut result = HashSet::new();
+                for arm in arms.iter() {
+                    let arm_lb = self.live_before_block(arm.body, live_out);
+                    result.extend(arm_lb);
+                }
+                self.gen_expr(target, &mut result);
+                result
+            }
+
+            Stmt::Zone { body, .. } => {
+                let enclosing_break = self.break_exit.replace(live_out.clone());
+                let enclosing_return = self.return_exit.replace(live_out.clone());
+                let before = self.live_before_block(body, live_out);
+                self.break_exit = enclosing_break;
+                self.return_exit = enclosing_return;
+                before
+            }
+
+            // Any other statement uses every name it touches (a `Swap` reads both names; a `Show`, a `Give`, a
+            // splice, a select arm, a concurrent task reads what it names), and foreign code uses every name.
+            // Nothing nested in it is recorded, so nothing inside it moves.
+            _ => {
+                let touched = Mentions::of_stmt(stmt);
+                let mut result = live_out.clone();
+                result.extend(touched.symbols());
+                if touched.is_opaque() {
+                    result.extend(self.every.iter().copied());
+                }
+                result
             }
         }
-        Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => {}
+    }
+
+    /// Compute live-before for a block of statements.
+    fn live_before_block(
+        &mut self,
+        stmts: &[Stmt<'_>],
+        live_out: &HashSet<Symbol>,
+    ) -> HashSet<Symbol> {
+        let mut current = live_out.clone();
+        for stmt in stmts.iter().rev() {
+            if is_terminator(stmt) && self.return_exit.is_none() {
+                let after = self.pinned.clone();
+                self.record(stmt, &after);
+                current = self.gen_stmt(stmt);
+            } else {
+                current = self.live_before_stmt(stmt, &current);
+            }
+        }
+        current
+    }
+
+    /// Every variable an expression uses: each identifier it reads, what a closure in it captures, and — for foreign
+    /// code — every name the body speaks of. From the optimizer's one exhaustive walk, so no expression form is
+    /// overlooked.
+    fn gen_expr(&self, expr: &Expr<'_>, out: &mut HashSet<Symbol>) {
+        let touched = Mentions::of_expr(expr);
+        out.extend(touched.symbols());
+        if touched.is_opaque() {
+            out.extend(self.every.iter().copied());
+        }
     }
 }
 
-/// Collects all variable identifiers referenced in a statement's expressions.
-/// Used for closure bodies to conservatively compute the gen set.
-fn gen_stmt_exprs(stmt: &Stmt<'_>, out: &mut HashSet<Symbol>) {
-    match stmt {
-        Stmt::Let { value, .. } => gen_expr(value, out),
-        Stmt::Set { value, .. } => gen_expr(value, out),
-        Stmt::Return { value: Some(v) } => gen_expr(v, out),
-        Stmt::Call { args, .. } => {
-            for a in args.iter() { gen_expr(a, out); }
-        }
-        Stmt::Push { value, collection } => {
-            gen_expr(value, out);
-            gen_expr(collection, out);
-        }
-        Stmt::If { cond, then_block, else_block } => {
-            gen_expr(cond, out);
-            for s in then_block.iter() { gen_stmt_exprs(s, out); }
-            if let Some(b) = else_block {
-                for s in b.iter() { gen_stmt_exprs(s, out); }
-            }
-        }
-        Stmt::While { cond, body, .. } => {
-            gen_expr(cond, out);
-            for s in body.iter() { gen_stmt_exprs(s, out); }
-        }
-        _ => {}
-    }
-}
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/analysis/liveness/tests.rs"]
+mod tests;

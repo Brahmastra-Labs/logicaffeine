@@ -1,0 +1,11 @@
+{
+  "name": "spectral_norm",
+  "lang": "c",
+  "n": "17032",
+  "samples_weight": 46434006075,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

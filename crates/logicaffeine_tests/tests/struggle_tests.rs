@@ -4,8 +4,7 @@
 /// Struggle detection triggers Socratic hints when:
 /// 1. User is inactive for threshold time (trigger_inactivity called)
 /// 2. User submits a wrong answer
-
-use logicaffeine_web::struggle::{StruggleDetector, StruggleReason, StruggleConfig};
+use logicaffeine_web::struggle::{StruggleConfig, StruggleDetector, StruggleReason};
 
 // ═══════════════════════════════════════════════════════════════════
 // Basic State Tests

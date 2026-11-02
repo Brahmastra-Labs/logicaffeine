@@ -1,0 +1,10 @@
+{
+  "capability": "iter.take",
+  "workload": "takeSeq(1000,xs), positional fold",
+  "arg": "40000",
+  "expected": "720396000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

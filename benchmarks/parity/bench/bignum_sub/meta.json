@@ -1,0 +1,8 @@
+{
+  "capability": "bignum.sub",
+  "workload": "modular accumulator acc=(acc+(BIGSHIFT-(BASE+i))) mod MOD - a big-subtract stress loop; the inner BIGSHIFT-(BASE+i) is the subtraction under test, always positive",
+  "arg": "3000000",
+  "expected": "9996999999999999999999999992799977500009",
+  "logos_uses_stdlib": false,
+  "note": "bignum.sub is a CORE LOGOS Int operator (Int transparently promotes to BigInt), so main.lg uses it directly - no stdlib import. The >i64 constants are BUILT via arithmetic from i64-safe pieces (LOGOS Int literals cap at i64; bignums come from overflow promotion). Go hand-implements the identical loop with math/big using PREALLOCATED big.Ints and in-place operations (the fast idiomatic form) so any LOGOS win is honest."
+}

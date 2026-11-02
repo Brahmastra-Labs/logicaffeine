@@ -63,39 +63,41 @@ impl IndexedDbVfs {
             .ok_or_else(|| VfsError::PermissionDenied("IndexedDB not available".into()))?;
 
         // Open database with version upgrade handler
-        let open_request = indexed_db
-            .open_with_u32(DB_NAME, DB_VERSION)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        let open_request = indexed_db.open_with_u32(DB_NAME, DB_VERSION).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Failed to open IndexedDB: {:?}", e),
-            )))?;
+            ))
+        })?;
 
         // Handle upgrade needed (create object stores)
-        let upgrade_closure = Closure::once(Box::new(move |event: web_sys::IdbVersionChangeEvent| {
-            log("[IndexedDbVfs] Upgrade needed, creating object stores...");
-            let target = event.target().unwrap();
-            let request: IdbRequest = target.unchecked_into();
-            let db: IdbDatabase = request.result().unwrap().unchecked_into();
+        let upgrade_closure =
+            Closure::once(Box::new(move |event: web_sys::IdbVersionChangeEvent| {
+                log("[IndexedDbVfs] Upgrade needed, creating object stores...");
+                let target = event.target().unwrap();
+                let request: IdbRequest = target.unchecked_into();
+                let db: IdbDatabase = request.result().unwrap().unchecked_into();
 
-            // Create files store if it doesn't exist
-            let store_names = db.object_store_names();
-            if !store_names.contains(FILES_STORE) {
-                let params = web_sys::IdbObjectStoreParameters::new();
-                params.set_key_path(&JsValue::from_str("path"));
-                db.create_object_store_with_optional_parameters(FILES_STORE, &params)
-                    .expect("Failed to create files store");
-                log("[IndexedDbVfs] Created 'files' object store");
-            }
+                // Create files store if it doesn't exist
+                let store_names = db.object_store_names();
+                if !store_names.contains(FILES_STORE) {
+                    let params = web_sys::IdbObjectStoreParameters::new();
+                    params.set_key_path(&JsValue::from_str("path"));
+                    db.create_object_store_with_optional_parameters(FILES_STORE, &params)
+                        .expect("Failed to create files store");
+                    log("[IndexedDbVfs] Created 'files' object store");
+                }
 
-            // Create dirs store if it doesn't exist
-            if !store_names.contains(DIRS_STORE) {
-                let params = web_sys::IdbObjectStoreParameters::new();
-                params.set_key_path(&JsValue::from_str("path"));
-                db.create_object_store_with_optional_parameters(DIRS_STORE, &params)
-                    .expect("Failed to create dirs store");
-                log("[IndexedDbVfs] Created 'dirs' object store");
-            }
-        }) as Box<dyn FnOnce(web_sys::IdbVersionChangeEvent)>);
+                // Create dirs store if it doesn't exist
+                if !store_names.contains(DIRS_STORE) {
+                    let params = web_sys::IdbObjectStoreParameters::new();
+                    params.set_key_path(&JsValue::from_str("path"));
+                    db.create_object_store_with_optional_parameters(DIRS_STORE, &params)
+                        .expect("Failed to create dirs store");
+                    log("[IndexedDbVfs] Created 'dirs' object store");
+                }
+            })
+                as Box<dyn FnOnce(web_sys::IdbVersionChangeEvent)>);
 
         open_request.set_onupgradeneeded(Some(upgrade_closure.as_ref().unchecked_ref()));
         upgrade_closure.forget();
@@ -122,7 +124,10 @@ impl IndexedDbVfs {
             }) as Box<dyn FnOnce(web_sys::Event)>);
 
             let error_closure = Closure::once(Box::new(move |_event: web_sys::Event| {
-                let _ = reject.call1(&JsValue::NULL, &JsValue::from_str("IndexedDB request failed"));
+                let _ = reject.call1(
+                    &JsValue::NULL,
+                    &JsValue::from_str("IndexedDB request failed"),
+                );
             }) as Box<dyn FnOnce(web_sys::Event)>);
 
             request_clone.set_onsuccess(Some(success_closure.as_ref().unchecked_ref()));
@@ -179,13 +184,12 @@ impl IndexedDbVfs {
 
     /// Get the database reference.
     fn get_db(&self) -> VfsResult<IdbDatabase> {
-        self.db
-            .borrow()
-            .clone()
-            .ok_or_else(|| VfsError::IoError(std::io::Error::new(
+        self.db.borrow().clone().ok_or_else(|| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Database not initialized",
-            )))
+            ))
+        })
     }
 
     /// Normalize a path (remove leading/trailing slashes, handle empty).
@@ -203,7 +207,10 @@ impl IndexedDbVfs {
         let normalized = Self::normalize_path(path);
         match normalized.rfind('/') {
             Some(0) => ("/".to_string(), normalized[1..].to_string()),
-            Some(idx) => (normalized[..idx].to_string(), normalized[idx + 1..].to_string()),
+            Some(idx) => (
+                normalized[..idx].to_string(),
+                normalized[idx + 1..].to_string(),
+            ),
             None => ("/".to_string(), normalized),
         }
     }
@@ -217,10 +224,12 @@ impl Vfs for IndexedDbVfs {
 
         let transaction = db
             .transaction_with_str_and_mode(FILES_STORE, IdbTransactionMode::Readonly)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(FILES_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -270,10 +279,12 @@ impl Vfs for IndexedDbVfs {
 
         let transaction = db
             .transaction_with_str_sequence_and_mode(&stores, IdbTransactionMode::Readwrite)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(FILES_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -284,19 +295,23 @@ impl Vfs for IndexedDbVfs {
 
         // Create { path, data } object
         let obj = Object::new();
-        js_sys::Reflect::set(&obj, &JsValue::from_str("path"), &JsValue::from_str(&path))
-            .map_err(|_| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to set path",
-            )))?;
+        js_sys::Reflect::set(&obj, &JsValue::from_str("path"), &JsValue::from_str(&path)).map_err(
+            |_| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Failed to set path",
+                ))
+            },
+        )?;
 
         let data = Uint8Array::new_with_length(contents.len() as u32);
         data.copy_from(contents);
-        js_sys::Reflect::set(&obj, &JsValue::from_str("data"), &data)
-            .map_err(|_| VfsError::IoError(std::io::Error::new(
+        js_sys::Reflect::set(&obj, &JsValue::from_str("data"), &data).map_err(|_| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Failed to set data",
-            )))?;
+            ))
+        })?;
 
         let request = store.put(&obj).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -331,10 +346,12 @@ impl Vfs for IndexedDbVfs {
         // Check files store first
         let transaction = db
             .transaction_with_str_and_mode(FILES_STORE, IdbTransactionMode::Readonly)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(FILES_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -358,10 +375,12 @@ impl Vfs for IndexedDbVfs {
         // Check dirs store
         let transaction = db
             .transaction_with_str_and_mode(DIRS_STORE, IdbTransactionMode::Readonly)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(DIRS_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -388,10 +407,12 @@ impl Vfs for IndexedDbVfs {
         // Try to remove from files store
         let transaction = db
             .transaction_with_str_and_mode(FILES_STORE, IdbTransactionMode::Readwrite)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(FILES_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -427,10 +448,12 @@ impl Vfs for IndexedDbVfs {
 
         let transaction = db
             .transaction_with_str_and_mode(DIRS_STORE, IdbTransactionMode::Readwrite)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(DIRS_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -446,11 +469,17 @@ impl Vfs for IndexedDbVfs {
             current = format!("{}/{}", current, part);
 
             let obj = Object::new();
-            js_sys::Reflect::set(&obj, &JsValue::from_str("path"), &JsValue::from_str(&current))
-                .map_err(|_| VfsError::IoError(std::io::Error::new(
+            js_sys::Reflect::set(
+                &obj,
+                &JsValue::from_str("path"),
+                &JsValue::from_str(&current),
+            )
+            .map_err(|_| {
+                VfsError::IoError(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Failed to set path",
-                )))?;
+                ))
+            })?;
 
             let request = store.put(&obj).map_err(|e| {
                 VfsError::IoError(std::io::Error::new(
@@ -490,10 +519,12 @@ impl Vfs for IndexedDbVfs {
         // Get all files with this prefix
         let transaction = db
             .transaction_with_str_and_mode(FILES_STORE, IdbTransactionMode::Readonly)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(FILES_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -545,10 +576,12 @@ impl Vfs for IndexedDbVfs {
         // Get all directories with this prefix
         let transaction = db
             .transaction_with_str_and_mode(DIRS_STORE, IdbTransactionMode::Readonly)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create transaction: {:?}", e),
-            )))?;
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create transaction: {:?}", e),
+                ))
+            })?;
 
         let store = transaction.object_store(DIRS_STORE).map_err(|e| {
             VfsError::IoError(std::io::Error::new(
@@ -577,7 +610,8 @@ impl Vfs for IndexedDbVfs {
             // Check if this directory is a direct child
             if dir_path.starts_with(&prefix) {
                 let relative = &dir_path[prefix.len()..];
-                if !relative.contains('/') && !relative.is_empty() && !seen_dirs.contains(relative) {
+                if !relative.contains('/') && !relative.is_empty() && !seen_dirs.contains(relative)
+                {
                     seen_dirs.insert(relative.to_string());
                     entries.push(DirEntry {
                         name: relative.to_string(),
@@ -588,12 +622,10 @@ impl Vfs for IndexedDbVfs {
         }
 
         // Sort: directories first, then alphabetically
-        entries.sort_by(|a, b| {
-            match (a.is_directory, b.is_directory) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            }
+        entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         });
 
         Ok(entries)

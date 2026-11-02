@@ -1,0 +1,11 @@
+{
+  "capability": "math.isfinite",
+  "workload": "math.isfinite",
+  "arg": "1000000",
+  "expected": "1000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

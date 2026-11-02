@@ -116,9 +116,7 @@ fn dot_field_assignment() {
 #[test]
 fn dot_and_possessive_are_interchangeable_in_one_program() {
     assert_compiled_equals_interpreted_eq(
-        &format!(
-            "{POINT}## Main\nLet p be a new Point with x 3 and y 4.\nShow p's x.\nShow p.y."
-        ),
+        &format!("{POINT}## Main\nLet p be a new Point with x 3 and y 4.\nShow p's x.\nShow p.y."),
         "3\n4",
     );
 }

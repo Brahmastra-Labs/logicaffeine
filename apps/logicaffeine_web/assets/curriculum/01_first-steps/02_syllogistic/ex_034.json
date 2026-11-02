@@ -10,6 +10,7 @@
     "I is D"
   ],
   "correct": 0,
-  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
-  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+  "hint": "Does 'the shortest diabetic' pick out a kind of person, or one person?",
+  "explanation": "'I' and 'the shortest diabetic' each pick out one person, so both get small letters: i is d.",
+  "section": "2.1"
 }

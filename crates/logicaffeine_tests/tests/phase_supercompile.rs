@@ -1,8 +1,8 @@
 mod common;
 
-use common::{compile_to_rust, assert_exact_output, run_logos};
+use common::{assert_exact_output, compile_to_rust, run_logos};
+use logicaffeine_compile::ast::stmt::{BinaryOpKind, Expr, Literal};
 use logicaffeine_compile::optimize::supercompile::{embeds, msg};
-use logicaffeine_compile::ast::stmt::{Expr, Literal, BinaryOpKind};
 use logicaffeine_compile::{Arena, Interner};
 
 // =============================================================================
@@ -328,7 +328,8 @@ Show x.
         result.stdout.trim(),
         "test\ntest",
         "Should output 'test' twice.\nGot: '{}'\n\nGenerated Rust:\n{}",
-        result.stdout.trim(), result.rust_code
+        result.stdout.trim(),
+        result.rust_code
     );
 }
 
@@ -1000,7 +1001,10 @@ fn embedding_coupling_check() {
         right: d_plus_one,
     });
     // (1 + 2) ◁ ((1+1) + (2+1)) via coupling (same +, children embed via diving)
-    assert!(embeds(a_plus_b, bigger), "a+b should embed in (a+1)+(b+1) via coupling+diving");
+    assert!(
+        embeds(a_plus_b, bigger),
+        "a+b should embed in (a+1)+(b+1) via coupling+diving"
+    );
 }
 
 #[test]
@@ -1015,7 +1019,10 @@ fn embedding_rejects_non_embedded() {
     });
     let c = arena.alloc(Expr::Literal(Literal::Number(7)));
     // (3 * 5) should NOT embed in 7 — different constructors, no diving match
-    assert!(!embeds(a_times_b, c), "BinaryOp should not embed in a simple literal");
+    assert!(
+        !embeds(a_times_b, c),
+        "BinaryOp should not embed in a simple literal"
+    );
 
     // Different literals should not embed in each other
     let x = arena.alloc(Expr::Literal(Literal::Number(10)));
@@ -1056,24 +1063,47 @@ fn msg_computation() {
     // e1 = a + b
     let a1 = arena.alloc(Expr::Identifier(a_sym));
     let b1 = arena.alloc(Expr::Identifier(b_sym));
-    let e1 = arena.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: a1, right: b1 });
+    let e1 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: a1,
+        right: b1,
+    });
 
     // e2 = a + c
     let a2 = arena.alloc(Expr::Identifier(a_sym));
     let c1 = arena.alloc(Expr::Identifier(c_sym));
-    let e2 = arena.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: a2, right: c1 });
+    let e2 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: a2,
+        right: c1,
+    });
 
     let result = msg(e1, e2, &arena, &mut interner);
     // MSG should be a + ?1 — preserves common 'a' and '+', fresh var for b/c
-    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = result.expr {
-        assert!(matches!(left, Expr::Identifier(s) if *s == a_sym),
-            "Common part 'a' should be preserved on the left");
-        assert!(matches!(right, Expr::Identifier(s) if *s != b_sym && *s != c_sym),
-            "Differing part should be a fresh variable, not b or c");
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = result.expr
+    {
+        assert!(
+            matches!(left, Expr::Identifier(s) if *s == a_sym),
+            "Common part 'a' should be preserved on the left"
+        );
+        assert!(
+            matches!(right, Expr::Identifier(s) if *s != b_sym && *s != c_sym),
+            "Differing part should be a fresh variable, not b or c"
+        );
     } else {
-        panic!("MSG of (a+b) and (a+c) should be BinaryOp(Add). Got: {:?}", result.expr);
+        panic!(
+            "MSG of (a+b) and (a+c) should be BinaryOp(Add). Got: {:?}",
+            result.expr
+        );
     }
-    assert_eq!(result.num_substitutions, 1, "One substitution for the differing right operand");
+    assert_eq!(
+        result.num_substitutions, 1,
+        "One substitution for the differing right operand"
+    );
 }
 
 #[test]
@@ -1087,26 +1117,42 @@ fn msg_precision() {
     // e1 = f(3, x)
     let three1 = arena.alloc(Expr::Literal(Literal::Number(3)));
     let x1 = arena.alloc(Expr::Identifier(x_sym));
-    let e1 = arena.alloc(Expr::Call { function: f_sym, args: vec![three1, x1] });
+    let e1 = arena.alloc(Expr::Call {
+        function: f_sym,
+        args: vec![three1, x1],
+    });
 
     // e2 = f(3, y)
     let three2 = arena.alloc(Expr::Literal(Literal::Number(3)));
     let y1 = arena.alloc(Expr::Identifier(y_sym));
-    let e2 = arena.alloc(Expr::Call { function: f_sym, args: vec![three2, y1] });
+    let e2 = arena.alloc(Expr::Call {
+        function: f_sym,
+        args: vec![three2, y1],
+    });
 
     let result = msg(e1, e2, &arena, &mut interner);
     // MSG should be f(3, ?1) — preserves f and 3, fresh var for x/y
     if let Expr::Call { function, args } = result.expr {
         assert_eq!(*function, f_sym, "Function name should be preserved");
         assert_eq!(args.len(), 2, "Should have 2 args");
-        assert!(matches!(args[0], Expr::Literal(Literal::Number(3))),
-            "Common arg 3 should be preserved");
-        assert!(matches!(args[1], Expr::Identifier(s) if *s != x_sym && *s != y_sym),
-            "Differing arg should be fresh variable");
+        assert!(
+            matches!(args[0], Expr::Literal(Literal::Number(3))),
+            "Common arg 3 should be preserved"
+        );
+        assert!(
+            matches!(args[1], Expr::Identifier(s) if *s != x_sym && *s != y_sym),
+            "Differing arg should be fresh variable"
+        );
     } else {
-        panic!("MSG of f(3,x) and f(3,y) should be Call. Got: {:?}", result.expr);
+        panic!(
+            "MSG of f(3,x) and f(3,y) should be Call. Got: {:?}",
+            result.expr
+        );
     }
-    assert_eq!(result.num_substitutions, 1, "Only one substitution for the differing arg");
+    assert_eq!(
+        result.num_substitutions, 1,
+        "Only one substitution for the differing arg"
+    );
 }
 
 #[test]
@@ -1118,25 +1164,46 @@ fn msg_replacement() {
     // e1 = a + 5
     let a1 = arena.alloc(Expr::Identifier(a_sym));
     let five = arena.alloc(Expr::Literal(Literal::Number(5)));
-    let e1 = arena.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: a1, right: five });
+    let e1 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: a1,
+        right: five,
+    });
 
     // e2 = a + 10
     let a2 = arena.alloc(Expr::Identifier(a_sym));
     let ten = arena.alloc(Expr::Literal(Literal::Number(10)));
-    let e2 = arena.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: a2, right: ten });
+    let e2 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: a2,
+        right: ten,
+    });
 
     let result = msg(e1, e2, &arena, &mut interner);
     // After MSG, the concrete values 5 and 10 are replaced with a fresh variable
-    assert_eq!(result.num_substitutions, 1,
-        "5 and 10 should be generalized into one fresh variable");
+    assert_eq!(
+        result.num_substitutions, 1,
+        "5 and 10 should be generalized into one fresh variable"
+    );
     // The generalized expression should be a + ?1
-    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = result.expr {
-        assert!(matches!(left, Expr::Identifier(s) if *s == a_sym),
-            "Common 'a' should be preserved");
-        assert!(!matches!(right, Expr::Literal(Literal::Number(5))),
-            "Concrete value 5 should be replaced by fresh variable");
-        assert!(!matches!(right, Expr::Literal(Literal::Number(10))),
-            "Concrete value 10 should be replaced by fresh variable");
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = result.expr
+    {
+        assert!(
+            matches!(left, Expr::Identifier(s) if *s == a_sym),
+            "Common 'a' should be preserved"
+        );
+        assert!(
+            !matches!(right, Expr::Literal(Literal::Number(5))),
+            "Concrete value 5 should be replaced by fresh variable"
+        );
+        assert!(
+            !matches!(right, Expr::Literal(Literal::Number(10))),
+            "Concrete value 10 should be replaced by fresh variable"
+        );
     } else {
         panic!("MSG should produce BinaryOp(Add). Got: {:?}", result.expr);
     }
@@ -1304,7 +1371,10 @@ fn msg_identical_no_substitutions() {
     });
 
     let result = msg(e1, e2, &arena, &mut interner);
-    assert_eq!(result.num_substitutions, 0, "MSG of identical exprs should have 0 substitutions");
+    assert_eq!(
+        result.num_substitutions, 0,
+        "MSG of identical exprs should have 0 substitutions"
+    );
 }
 
 /// MSG should preserve common structure and introduce vars for differences.
@@ -1329,7 +1399,10 @@ fn msg_preserves_common_structure() {
 
     let result = msg(e1, e2, &arena, &mut interner);
     // Common: a + ___, different: 1 vs 2 → 1 substitution
-    assert_eq!(result.num_substitutions, 1, "MSG(a+1, a+2) should have 1 substitution");
+    assert_eq!(
+        result.num_substitutions, 1,
+        "MSG(a+1, a+2) should have 1 substitution"
+    );
     // Result should be BinaryOp with Add
     match result.expr {
         Expr::BinaryOp { op, left, .. } => {

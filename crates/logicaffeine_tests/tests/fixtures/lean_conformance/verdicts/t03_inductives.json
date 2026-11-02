@@ -1,0 +1,174 @@
+{
+  "tier": "t03_inductives",
+  "test_binary": "lean_conformance_t03_inductives",
+  "cases": [
+    {
+      "id": "T03-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_enum_matches_positionally_in_its_registration_order",
+      "why": ""
+    },
+    {
+      "id": "T03-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_peano_inductive_recurses_while_only_the_prelude_nat_bridges_literals",
+      "why": ""
+    },
+    {
+      "id": "T03-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_parameterised_list_is_all_parameters_and_no_indices",
+      "why": ""
+    },
+    {
+      "id": "T03-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_indexed_family_keeps_each_constructors_own_index",
+      "why": ""
+    },
+    {
+      "id": "T03-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::bvec_s_nat_is_an_index_not_a_parameter",
+      "why": ""
+    },
+    {
+      "id": "T03-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_mutual_block_registers_transactionally_with_a_shared_recursor",
+      "why": ""
+    },
+    {
+      "id": "T03-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_mutual_block_whose_members_disagree_on_parameters_is_refused_at_registration",
+      "why": ""
+    },
+    {
+      "id": "T03-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_nested_inductive_through_a_unary_container_compiles_to_a_checked_block",
+      "why": ""
+    },
+    {
+      "id": "T03-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "nesting_through_a_binary_container_is_registrable",
+      "why": ""
+    },
+    {
+      "id": "T03-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_structure_yields_a_constructor_ordered_projections_and_eta",
+      "why": ""
+    },
+    {
+      "id": "T03-011",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "a_projection_is_a_parameters_first_global_and_eta_lives_in_conversion",
+      "why": "Lean's `Expr.proj` is a kernel primitive with its own iota rule. LOGOS has no `Term::Proj` at all: a projection is an ordinary global DEFINITION whose body is a `Term::Match`, applied to the structure's parameters before the receiver. That is a strictly smaller trusted base \u2014 every projection is a certified term the independent second kernel re-checks, rather than a primitive reduction rule the TCB has to be trusted on \u2014 at a cost of one delta step. The corpus's other complaint, that structure eta fires in `def_eq` and never in `normalize`, is not a divergence at all: Lean puts eta in `isDefEq` and not in `whnf` for the same reason (a normalizer that eta-expanded a neutral receiver would never reach a normal form), and every conversion the LOGOS kernel performs goes through `def_eq`. The test pins both halves precisely, the negative one included: `normalize` leaves `Pair_mk (p.fst) (p.snd)` and `p` distinct, `def_eq` identifies them, and a term whose TYPING requires that identification is certified by both kernels."
+    },
+    {
+      "id": "T03-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_structure_can_live_in_prop_or_above_type_zero",
+      "why": ""
+    },
+    {
+      "id": "T03-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_child_structure_inherits_its_parents_fields_and_gets_a_parent_coercion",
+      "why": ""
+    },
+    {
+      "id": "T03-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_class_is_a_structure_whose_methods_are_projections_found_by_instance_search",
+      "why": ""
+    },
+    {
+      "id": "T03-015",
+      "verdict": "MUST",
+      "status": "Refused",
+      "test": "a_negative_occurrence_is_refused_and_its_positive_neighbours_are_not",
+      "why": ""
+    },
+    {
+      "id": "T03-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_prelude_propositions_keep_their_order_and_their_elimination_gate",
+      "why": ""
+    },
+    {
+      "id": "T03-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "eq_and_acc_cross_the_prop_type_line_and_a_data_carrying_prop_does_not",
+      "why": ""
+    },
+    {
+      "id": "T03-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "constructor_disjointness_and_injectivity_come_with_the_declaration",
+      "why": ""
+    },
+    {
+      "id": "T03-019",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_index_contradictory_constructor_needs_no_branch",
+      "why": ""
+    },
+    {
+      "id": "T03-020",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_empty_inductive_eliminates_with_no_cases_at_all",
+      "why": ""
+    },
+    {
+      "id": "T03-021",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "the_recursor_is_derived_from_the_primitive_match_and_carries_the_hypotheses",
+      "why": "Lean makes `Foo.rec` a kernel primitive with its own iota rule and compiles every `match` down to it. LOGOS is the exact inverse: `Term::Match` is a primitive of the term language and the recursor is DERIVED from it as `fix rec. lam indices. lam x. match x \u2026`. That inversion is the stronger position. An inductive's induction principle becomes a certified term whose reported type is by construction the one `infer_type` computes for it, and which the independent second kernel re-checks like any other proof \u2014 evidence rather than an axiom schema the trusted base must be trusted on. The prelude's `Eq_rec_dep`, `Eq_rec`, `Acc_rec` and `Decidable_rec` are all kernel-checked definitions where Lean takes J and well-founded recursion as primitive. The costs are real and are asserted by the test rather than hidden: deriving is a function call, not a side effect of declaring the type, so a term naming `Foo_rec` resolves to nothing until the caller registers it; and the derived motive's target sort is pinned to `Type 0` (or `Prop` for a non-subsingleton proposition) rather than universe-polymorphic, which is T01-007's gap and not a property of the inversion."
+    },
+    {
+      "id": "T03-022",
+      "verdict": "MUST",
+      "status": "Refused",
+      "test": "a_constructor_may_not_store_a_field_above_its_inductives_sort",
+      "why": ""
+    },
+    {
+      "id": "T03-023",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_declared_inductive_gets_a_decidable_equality_instance",
+      "why": ""
+    },
+    {
+      "id": "T03-024",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "quotients_offer_a_dependent_eliminator_over_their_classes",
+      "why": ""
+    }
+  ]
+}

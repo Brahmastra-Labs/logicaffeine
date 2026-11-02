@@ -1,0 +1,13 @@
+{
+  "capability": "math.asin",
+  "workload": "math.asin",
+  "arg": "1000000",
+  "expected": "570019641000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a king?",
-  "explanation": "Presidents, prime ministers, and dictators all rule countries without being kings. 'Ruler of a country' lets in non-kings, so the definition is TOO BROAD."
+  "hint": "Can you think of something that fits this definition but is not a king?",
+  "explanation": "Presidents and prime ministers rule countries without being kings.",
+  "section": "3.2"
 }

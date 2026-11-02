@@ -5,78 +5,47 @@
   "content": [
     {
       "type": "paragraph",
-      "text": "We've learned that a **valid** argument has a form that guarantees the conclusion follows from the premises, and a **sound** argument is valid with true premises. But there's more to a good argument than just validity and soundness."
+      "text": "A good argument has true premises and a conclusion that follows from them. Its premises bear on the issue, and they do not assume the conclusion."
     },
     {
       "type": "definition",
-      "term": "Cogent Argument",
-      "definition": "A good argument that: (1) has true premises, (2) has a conclusion that follows from the premises (validly or with strong inductive support), and (3) isn't circular or question-begging."
-    },
-    {
-      "type": "example",
-      "title": "A Sound but Not Cogent Argument",
-      "premises": [
-        "God exists because the Bible says so.",
-        "The Bible is true because it's the word of God."
-      ],
-      "conclusion": "Therefore, God exists.",
-      "note": "Even if these premises are true, the argument is circular - it assumes what it's trying to prove."
-    },
-    {
-      "type": "definition",
-      "term": "Circular Reasoning (Begging the Question)",
-      "definition": "An argument that assumes its conclusion in its premises. The truth of the premises depends on the truth of the conclusion, making the argument uninformative."
-    },
-    {
-      "type": "paragraph",
-      "text": "A good argument should also be **relevant**. The premises should actually bear on the conclusion, not just distract from the issue."
-    },
-    {
-      "type": "symbols",
-      "title": "Criteria for Good Arguments",
-      "symbols": [
-        {
-          "symbol": "1",
-          "name": "True Premises",
-          "meaning": "Premises should be true or well-supported",
-          "example": "Based on evidence, not assumptions"
-        },
-        {
-          "symbol": "2",
-          "name": "Valid or Strong",
-          "meaning": "Conclusion follows from premises",
-          "example": "Deductively valid or inductively strong"
-        },
-        {
-          "symbol": "3",
-          "name": "Non-Circular",
-          "meaning": "Doesn't assume what it's proving",
-          "example": "Premises independent of conclusion"
-        },
-        {
-          "symbol": "4",
-          "name": "Relevant",
-          "meaning": "Premises address the actual issue",
-          "example": "Not changing the subject"
-        }
-      ]
-    },
-    {
-      "type": "paragraph",
-      "text": "When evaluating arguments, we look for **fallacies** - common patterns of bad reasoning that can make arguments look convincing even when they're not."
-    },
-    {
-      "type": "quiz",
-      "question": "What makes an argument 'question-begging'?",
-      "options": [
-        "It asks too many questions",
-        "It assumes its conclusion in the premises",
-        "It uses invalid logical forms",
-        "It has false premises"
-      ],
-      "correct": 1,
-      "explanation": "An argument begs the question when it assumes what it's trying to prove. The conclusion is hidden in the premises, so the argument goes in a circle. This makes it uninformative - you'd already need to accept the conclusion to accept the premises."
+      "term": "Begging the question",
+      "definition": "Assuming the conclusion in the premises. The argument then goes in a circle."
     }
   ],
-  "key_symbols": []
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Circular",
+      "lines": [
+        "The Daily Record never prints a false story.",
+        "We know because the Daily Record says so."
+      ],
+      "conclusion": "So the Daily Record never prints a false story.",
+      "note": "The premise counts only if we already trust the paper, so the argument assumes what it tries to prove."
+    },
+    {
+      "type": "worked",
+      "title": "A good argument",
+      "lines": [
+        "All metals conduct electricity.",
+        "Copper is a metal."
+      ],
+      "conclusion": "So copper conducts electricity.",
+      "note": "The premises are true, the conclusion follows, and nothing is assumed."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does it mean to beg the question?",
+    "options": [
+      "To ask too many questions",
+      "To assume the conclusion in the premises",
+      "To use an invalid form",
+      "To have a false premise"
+    ],
+    "correct": 1,
+    "hint": "Think of an argument that goes in a circle.",
+    "explanation": "An argument begs the question when a premise assumes the conclusion. It cannot persuade anyone who doubts the conclusion."
+  }
 }

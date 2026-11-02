@@ -1,0 +1,10 @@
+{
+  "capability": "math.signbit",
+  "workload": "math.signbit",
+  "arg": "1000000",
+  "expected": "500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

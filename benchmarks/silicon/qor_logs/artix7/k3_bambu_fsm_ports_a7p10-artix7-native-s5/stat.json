@@ -1,0 +1,75 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\gemm8_ports": {
+         "num_wires":         1995,
+         "num_wire_bits":     40273,
+         "num_pub_wires":     1785,
+         "num_pub_wire_bits": 34606,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         893,
+         "num_cells_by_type": {
+            "CARRY4": 120,
+            "DSP48E1": 64,
+            "FDRE": 289,
+            "FDSE": 1,
+            "LUT2": 417,
+            "LUT3": 1,
+            "LUT4": 1
+         }
+      },
+      "\\qorsyn_k3_bambu_fsm_ports_a7p10": {
+         "num_wires":         157,
+         "num_wire_bits":     2903,
+         "num_pub_wires":     52,
+         "num_pub_wire_bits": 2268,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         506,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 223,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 50,
+            "LUT3": 11,
+            "LUT4": 34,
+            "LUT5": 18,
+            "LUT6": 53,
+            "OBUF": 16,
+            "gemm8_ports": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         2152,
+         "num_wire_bits":     43176,
+         "num_pub_wires":     1837,
+         "num_pub_wire_bits": 36874,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         1398,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 120,
+            "DSP48E1": 64,
+            "FDRE": 512,
+            "FDSE": 34,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 467,
+            "LUT3": 12,
+            "LUT4": 35,
+            "LUT5": 18,
+            "LUT6": 53,
+            "OBUF": 16
+         }
+      }
+}
+

@@ -1,8 +1,13 @@
 //! Native ownership analysis for use-after-move detection.
 //!
-//! Lightweight data-flow analysis that catches the 90% common ownership errors
-//! at check-time (milliseconds), before Rust compilation. This pass tracks
-//! `Owned`, `Moved`, and `Borrowed` states through control flow.
+//! Lightweight data-flow analysis that catches use-after-move at check-time
+//! (milliseconds), before Rust compilation. This pass tracks `Owned`, `Moved`,
+//! and `Borrowed` states through control flow.
+//!
+//! Collections have value semantics in every tier: a call's plain argument and
+//! `Let b be a` each receive a copy, and the caller's value stays usable. Only
+//! GIVING moves — the `Give x to y.` statement, and `give x` as a call argument
+//! (`Call consume with give data.`), which the backend emits as a real move.
 //!
 //! # State Transitions
 //!
@@ -10,23 +15,35 @@
 //!          Let x be value
 //!               │
 //!               ▼
-//!           [Owned]
+//!           [Owned] ── f(x) · Let y be x ──▶ [Owned]
 //!          /        \
 //!    Give x       Show x
-//!        │            │
-//!        ▼            ▼
-//!    [Moved]     [Borrowed]
-//!        │            │
-//!    use x?      use x? ✓
+//!  … with give x      │
+//!        │            ▼
+//!        ▼       [Borrowed]
+//!    [Moved]          │
+//!        │        use x? ✓
+//!    use x?
 //!        │
 //!     ERROR: use-after-move
 //! ```
 //!
 //! # Control Flow Awareness
 //!
-//! The checker handles branches by merging states:
-//! - `Moved` in one branch + `Owned` in other = `MaybeMoved`
-//! - Using a `MaybeMoved` variable produces an error
+//! The checker handles branches and loops by merging states:
+//! - `Moved` on one path + `Owned` on another = `MaybeMoved`, remembering whether a branch or a
+//!   loop made the move uncertain
+//! - A loop may run no pass at all, so its body's moves merge with the state before it
+//! - Using a `MaybeMoved` variable produces an error, wherever it is read: an `If` or `While`
+//!   condition, the collection a `Repeat` walks and the value an `Inspect` examines included
+//!
+//! # The Program as Written
+//!
+//! Ownership is a property of the program its author wrote, so every entry point runs this
+//! checker on the freshly-parsed statements, before any rewrite. Once `x` is a known constant,
+//! the optimizer's propagation turns `Give x to p.` into `Give 5 to p.` and `Show x.` into
+//! `Show 5.`, and folding flattens a constant `If` into its body: a checker fed that program
+//! would pass a use after a possible move, or call a possible move certain.
 //!
 //! # Example
 //!
@@ -36,10 +53,10 @@
 //! Show x to show.  ← Error: Cannot use 'x' after giving it away
 //! ```
 
-use std::collections::HashMap;
-use crate::ast::stmt::{BinaryOpKind, Literal, Stmt, Expr, TypeExpr};
+use crate::ast::stmt::{Expr, Stmt, StmtId};
 use crate::intern::{Interner, Symbol};
 use crate::token::Span;
+use std::collections::HashMap;
 
 /// Ownership state for a variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,10 +65,28 @@ pub enum VarState {
     Owned,
     /// Variable has been moved (Give)
     Moved,
-    /// Variable might be moved (conditional branch)
-    MaybeMoved,
+    /// Variable might be moved: some path through a branch or a loop gave it away
+    MaybeMoved(MaybeGivenIn),
     /// Variable is borrowed (Show) - still usable
     Borrowed,
+}
+
+/// Where a value may have been given away: the construct whose paths disagree about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaybeGivenIn {
+    /// One branch of an `If`, or one arm of an `Inspect`, gives it away and another does not.
+    Branch,
+    /// A loop's body gives it away, and the loop may run no pass at all.
+    Loop,
+}
+
+impl std::fmt::Display for MaybeGivenIn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            MaybeGivenIn::Branch => "a conditional branch",
+            MaybeGivenIn::Loop => "a pass through the loop",
+        })
+    }
 }
 
 /// Error type for ownership violations
@@ -65,8 +100,11 @@ pub struct OwnershipError {
 pub enum OwnershipErrorKind {
     /// Use after move
     UseAfterMove { variable: String },
-    /// Use after potential move (in conditional)
-    UseAfterMaybeMove { variable: String, branch: String },
+    /// Use after potential move (in a branch or a loop)
+    UseAfterMaybeMove {
+        variable: String,
+        given_in: MaybeGivenIn,
+    },
     /// Double move
     DoubleMoved { variable: String },
 }
@@ -75,25 +113,39 @@ impl std::fmt::Display for OwnershipError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.kind {
             OwnershipErrorKind::UseAfterMove { variable } => {
-                write!(f, "Cannot use '{}' after giving it away.\n\n\
+                write!(
+                    f,
+                    "Cannot use '{}' after giving it away.\n\n\
                     You transferred ownership of '{}' with Give.\n\
                     Once given, you cannot use it anymore.\n\n\
                     Tip: Use Show instead to lend without giving up ownership.",
-                    variable, variable)
+                    variable, variable
+                )
             }
-            OwnershipErrorKind::UseAfterMaybeMove { variable, branch } => {
-                write!(f, "Cannot use '{}' - it might have been given away in {}.\n\n\
-                    If the {} branch executes, '{}' will be moved.\n\
-                    Using it afterward is not safe.\n\n\
-                    Tip: Move the usage inside the branch, or restructure to ensure ownership.",
-                    variable, branch, branch, variable)
+            OwnershipErrorKind::UseAfterMaybeMove { variable, given_in } => {
+                write!(
+                    f,
+                    "Cannot use '{variable}' - it might have been given away in {given_in}.\n\n"
+                )?;
+                match given_in {
+                    MaybeGivenIn::Branch => write!(f,
+                        "If that branch runs, '{variable}' is moved, so using it afterward is not safe.\n\n\
+                        Tip: Move the usage inside the branch, or restructure to ensure ownership."),
+                    MaybeGivenIn::Loop => write!(f,
+                        "If that pass runs, '{variable}' is moved, so using it afterward is not safe.\n\n\
+                        Tip: Give a copy on each pass ('Give a copy of {variable} to ...'), or bind a \
+                        fresh value inside the loop."),
+                }
             }
             OwnershipErrorKind::DoubleMoved { variable } => {
-                write!(f, "Cannot give '{}' twice.\n\n\
+                write!(
+                    f,
+                    "Cannot give '{}' twice.\n\n\
                     You already transferred ownership of '{}' with Give.\n\
                     You cannot give it again.\n\n\
                     Tip: Consider using Copy to duplicate the value.",
-                    variable, variable)
+                    variable, variable
+                )
             }
         }
     }
@@ -105,42 +157,66 @@ impl std::error::Error for OwnershipError {}
 pub struct OwnershipChecker<'a> {
     /// Maps variable symbols to their current ownership state
     state: HashMap<Symbol, VarState>,
-    /// Tracks whether each variable is a Copy type (true = Copy, absent = unknown/Copy)
-    types: HashMap<Symbol, bool>,
     /// String interner for resolving symbols
     interner: &'a Interner,
-    /// Which top-level statement moved each variable — the cause link that
+    /// Which top-level statement moved each variable, and the statement that
+    /// did the moving — the cause link that
     /// [`OwnershipChecker::check_program_collect`] reports for diagnostics.
-    moved_at: HashMap<Symbol, usize>,
+    moved_at: HashMap<Symbol, (usize, StmtId)>,
     /// The top-level statement currently being checked (collect mode).
     current_top_stmt: usize,
+    /// The innermost statement currently being checked.
+    current_stmt: Option<StmtId>,
 }
 
 /// One ownership finding with its statement coordinates: the top-level
 /// statement that ERRED, and (when known) the one that CAUSED it by moving
-/// the variable. Both map 1:1 onto `Parser::stmt_spans()`.
+/// the variable — both map 1:1 onto `Parser::stmt_spans()` — plus the exact
+/// statements, nested ones included, for `Parser::nested_stmt_spans()`:
+/// `trail` is the erring statement and each one around it, innermost first,
+/// and `cause` is the statement that gave the value away.
 #[derive(Debug)]
 pub struct OwnershipFinding {
     pub stmt_index: usize,
     pub cause_stmt_index: Option<usize>,
+    pub trail: Vec<StmtId>,
+    pub cause: Option<StmtId>,
     pub error: OwnershipError,
+}
+
+/// An ownership error on its way out of the statements it was found in,
+/// naming each one as it passes, innermost first.
+struct Traced {
+    error: OwnershipError,
+    trail: Vec<StmtId>,
+}
+
+impl From<OwnershipError> for Traced {
+    fn from(error: OwnershipError) -> Self {
+        Traced {
+            error,
+            trail: Vec::new(),
+        }
+    }
 }
 
 impl<'a> OwnershipChecker<'a> {
     pub fn new(interner: &'a Interner) -> Self {
         Self {
             state: HashMap::new(),
-            types: HashMap::new(),
             interner,
             moved_at: HashMap::new(),
             current_top_stmt: 0,
+            current_stmt: None,
         }
     }
 
-    /// Record a move, remembering which top-level statement performed it.
+    /// Record a move, remembering which statement performed it.
     fn mark_moved(&mut self, sym: Symbol) {
         self.state.insert(sym, VarState::Moved);
-        self.moved_at.insert(sym, self.current_top_stmt);
+        if let Some(stmt) = self.current_stmt {
+            self.moved_at.insert(sym, (self.current_top_stmt, stmt));
+        }
     }
 
     /// The interned symbol behind an error's variable name, if still tracked.
@@ -166,15 +242,17 @@ impl<'a> OwnershipChecker<'a> {
         let mut findings = Vec::new();
         for (index, stmt) in stmts.iter().enumerate() {
             self.current_top_stmt = index;
-            if let Err(error) = self.check_stmt(stmt) {
+            if let Err(Traced { error, trail }) = self.check_stmt(stmt) {
                 let sym = self.symbol_for(&error);
-                let cause_stmt_index = sym.and_then(|s| self.moved_at.get(&s).copied());
+                let cause = sym.and_then(|s| self.moved_at.get(&s).copied());
                 if let Some(s) = sym {
                     self.state.insert(s, VarState::Owned);
                 }
                 findings.push(OwnershipFinding {
                     stmt_index: index,
-                    cause_stmt_index,
+                    cause_stmt_index: cause.map(|(top, _)| top),
+                    trail,
+                    cause: cause.map(|(_, stmt)| stmt),
                     error,
                 });
             }
@@ -187,106 +265,66 @@ impl<'a> OwnershipChecker<'a> {
         &self.state
     }
 
-    /// Returns true if a symbol is known to be a Copy type.
-    /// Unknown types conservatively return true (won't produce false positives).
-    fn is_copy_sym(&self, sym: Symbol) -> bool {
-        self.types.get(&sym).copied().unwrap_or(true)
-    }
-
-    /// Infer whether an expression produces a Copy type.
-    /// Conservative: returns true (Copy) when uncertain.
-    fn infer_copy_from_expr(&self, expr: &Expr) -> bool {
+    /// Mark every value GIVEN inside an expression as Moved: `give x` as a call
+    /// argument hands `x` over (the backend emits a move, not a copy). A plain
+    /// argument is a copy under value semantics and moves nothing.
+    fn mark_gives_in_expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::Literal(Literal::Number(_)) => true,
-            Expr::Literal(Literal::Float(_)) => true,
-            Expr::Literal(Literal::Boolean(_)) => true,
-            Expr::Literal(Literal::Nothing) => true,
-            Expr::Literal(Literal::Text(_)) => false,
-            Expr::Identifier(sym) => self.is_copy_sym(*sym),
-            Expr::New { .. } => false,
-            Expr::List(_) => false,
-            Expr::InterpolatedString(_) => false,
-            Expr::Copy { .. } => true,
-            Expr::BinaryOp { op: BinaryOpKind::Concat, .. } => false,
-            Expr::BinaryOp { .. } => true,
-            Expr::Contains { .. } => true,
-            Expr::Length { .. } => true,
-            _ => true,
-        }
-    }
-
-    /// After an expression has been validated, walk it to mark non-Copy
-    /// function call arguments as Moved.
-    fn mark_moves_in_expr(&mut self, expr: &Expr) {
-        match expr {
+            Expr::Give { value } => {
+                if let Expr::Identifier(sym) = value {
+                    self.mark_moved(*sym);
+                }
+                self.mark_gives_in_expr(value);
+            }
             Expr::Call { args, .. } | Expr::CallExpr { args, .. } => {
                 for arg in args.iter() {
-                    if let Expr::Identifier(sym) = arg {
-                        if !self.is_copy_sym(*sym) {
-                            self.mark_moved(*sym);
-                        }
-                    }
-                    self.mark_moves_in_expr(arg);
+                    self.mark_gives_in_expr(arg);
                 }
             }
             Expr::BinaryOp { left, right, .. } => {
-                self.mark_moves_in_expr(left);
-                self.mark_moves_in_expr(right);
+                self.mark_gives_in_expr(left);
+                self.mark_gives_in_expr(right);
             }
             Expr::Index { collection, index } => {
-                self.mark_moves_in_expr(collection);
-                self.mark_moves_in_expr(index);
+                self.mark_gives_in_expr(collection);
+                self.mark_gives_in_expr(index);
             }
             Expr::FieldAccess { object, .. } => {
-                self.mark_moves_in_expr(object);
+                self.mark_gives_in_expr(object);
             }
             _ => {}
         }
     }
 
-    /// Infer Copy-ness from a TypeExpr (function parameter type annotation).
-    /// Conservative: returns true (Copy) when uncertain.
-    fn infer_copy_from_type_name(&self, ty: &TypeExpr) -> bool {
-        match ty {
-            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-                let name = self.interner.resolve(*sym);
-                matches!(name, "Int" | "Nat" | "Float" | "Bool" | "Char" | "Byte")
-            }
-            TypeExpr::Generic { .. } => false,
-            TypeExpr::Function { .. } => true,
-            _ => true,
-        }
-    }
-
     /// Check a program for ownership violations
     pub fn check_program(&mut self, stmts: &[Stmt<'_>]) -> Result<(), OwnershipError> {
-        self.check_block(stmts)
+        self.check_block(stmts).map_err(|traced| traced.error)
     }
 
-    fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), OwnershipError> {
+    fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), Traced> {
         for stmt in stmts {
             self.check_stmt(stmt)?;
         }
         Ok(())
     }
 
-    fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), OwnershipError> {
+    fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), Traced> {
+        let id = StmtId::of(stmt);
+        let enclosing = self.current_stmt.replace(id);
+        let result = self.check_stmt_kind(stmt);
+        self.current_stmt = enclosing;
+        result.map_err(|mut traced| {
+            traced.trail.push(id);
+            traced
+        })
+    }
+
+    fn check_stmt_kind(&mut self, stmt: &Stmt<'_>) -> Result<(), Traced> {
         match stmt {
             Stmt::Let { var, value, .. } => {
-                // Check the value expression first
                 self.check_not_moved(value)?;
-                // Mark non-Copy identifiers used as values as Moved
-                if let Expr::Identifier(sym) = value {
-                    if !self.is_copy_sym(*sym) {
-                        self.mark_moved(*sym);
-                    }
-                }
-                // Mark non-Copy function call arguments as Moved
-                self.mark_moves_in_expr(value);
-                // Register variable as Owned and track its type
-                let is_copy = self.infer_copy_from_expr(value);
+                self.mark_gives_in_expr(value);
                 self.state.insert(*var, VarState::Owned);
-                self.types.insert(*var, is_copy);
             }
 
             Stmt::Give { object, .. } => {
@@ -300,16 +338,18 @@ impl<'a> OwnershipChecker<'a> {
                                     variable: self.interner.resolve(*sym).to_string(),
                                 },
                                 span: Span::default(),
-                            });
+                            }
+                            .into());
                         }
-                        VarState::MaybeMoved => {
+                        VarState::MaybeMoved(given_in) => {
                             return Err(OwnershipError {
                                 kind: OwnershipErrorKind::UseAfterMaybeMove {
                                     variable: self.interner.resolve(*sym).to_string(),
-                                    branch: "a previous branch".to_string(),
+                                    given_in,
                                 },
                                 span: Span::default(),
-                            });
+                            }
+                            .into());
                         }
                         _ => {
                             self.mark_moved(*sym);
@@ -333,50 +373,47 @@ impl<'a> OwnershipChecker<'a> {
                 }
             }
 
-            Stmt::If { then_block, else_block, .. } => {
-                // Clone state before branching
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                self.check_not_moved(cond)?;
                 let state_before = self.state.clone();
 
-                // Check then branch
                 self.check_block(then_block)?;
-                let state_after_then = self.state.clone();
+                let state_after_then = std::mem::replace(&mut self.state, state_before);
 
-                // Check else branch (if exists)
-                let state_after_else = if let Some(else_b) = else_block {
-                    self.state = state_before.clone();
+                if let Some(else_b) = else_block {
                     self.check_block(else_b)?;
-                    self.state.clone()
-                } else {
-                    state_before.clone()
-                };
+                }
 
                 // Merge states: MaybeMoved if moved in any branch
-                self.state = self.merge_states(&state_after_then, &state_after_else);
+                self.state =
+                    Self::merge_states(&state_after_then, &self.state, MaybeGivenIn::Branch);
             }
 
-            Stmt::While { body, .. } => {
-                // Clone state before loop
-                let state_before = self.state.clone();
-
-                // Check body once
-                self.check_block(body)?;
-                let state_after_body = self.state.clone();
-
-                // Merge: if moved in body, mark as MaybeMoved
-                // (loop might not execute, or might execute multiple times)
-                self.state = self.merge_states(&state_before, &state_after_body);
+            Stmt::While { cond, body, .. } => {
+                self.check_not_moved(cond)?;
+                self.check_loop_body(body)?;
             }
 
-            Stmt::Repeat { body, .. } => {
-                // Check body once
-                self.check_block(body)?;
+            Stmt::Repeat { iterable, body, .. } => {
+                self.check_not_moved(iterable)?;
+                self.check_loop_body(body)?;
             }
 
             Stmt::Zone { body, .. } => {
                 self.check_block(body)?;
             }
 
-            Stmt::Inspect { arms, .. } => {
+            // A `During` span is scope-transparent: its body runs once, in place.
+            Stmt::During { body, .. } => {
+                self.check_block(body)?;
+            }
+
+            Stmt::Inspect { target, arms, .. } => {
+                self.check_not_moved(target)?;
                 if arms.is_empty() {
                     return Ok(());
                 }
@@ -395,7 +432,7 @@ impl<'a> OwnershipChecker<'a> {
                 if let Some(first) = branch_states.first() {
                     let mut merged = first.clone();
                     for state in branch_states.iter().skip(1) {
-                        merged = self.merge_states(&merged, state);
+                        merged = Self::merge_states(&merged, state, MaybeGivenIn::Branch);
                     }
                     self.state = merged;
                 }
@@ -403,44 +440,33 @@ impl<'a> OwnershipChecker<'a> {
 
             Stmt::Return { value: Some(expr) } => {
                 self.check_not_moved(expr)?;
-                self.mark_moves_in_expr(expr);
+                self.mark_gives_in_expr(expr);
             }
 
             Stmt::Return { value: None } => {}
 
             Stmt::Set { value, .. } => {
                 self.check_not_moved(value)?;
-                // Mark non-Copy function call arguments as Moved
-                self.mark_moves_in_expr(value);
+                self.mark_gives_in_expr(value);
             }
 
             Stmt::Call { args, .. } => {
                 for arg in args.iter() {
                     self.check_not_moved(arg)?;
                 }
-                // Mark non-Copy identifier arguments as Moved
                 for arg in args.iter() {
-                    if let Expr::Identifier(sym) = arg {
-                        if !self.is_copy_sym(*sym) {
-                            self.mark_moved(*sym);
-                        }
-                    }
+                    self.mark_gives_in_expr(arg);
                 }
             }
 
             Stmt::FunctionDef { params, body, .. } => {
                 // Save state — function body is a separate scope
                 let saved_state = self.state.clone();
-                let saved_types = self.types.clone();
-                // Register parameters as Owned with inferred Copy-ness
-                for (param_sym, param_type) in params.iter() {
+                for (param_sym, _) in params.iter() {
                     self.state.insert(*param_sym, VarState::Owned);
-                    let is_copy = self.infer_copy_from_type_name(param_type);
-                    self.types.insert(*param_sym, is_copy);
                 }
                 self.check_block(body)?;
                 self.state = saved_state;
-                self.types = saved_types;
             }
 
             // Escape blocks are opaque to ownership analysis — the Rust compiler
@@ -456,6 +482,17 @@ impl<'a> OwnershipChecker<'a> {
     /// Check that an expression doesn't reference a moved variable
     fn check_not_moved(&self, expr: &Expr<'_>) -> Result<(), OwnershipError> {
         match expr {
+            // A view's holes read where it renders; handler blocks are closures (checked when called).
+            Expr::Dom(q) => match q.selector() {
+                Some(sel) => self.check_not_moved(sel),
+                None => Ok(()),
+            },
+            Expr::View(v) => {
+                for e in v.exprs_and_blocks().0 {
+                    self.check_not_moved(e)?;
+                }
+                Ok(())
+            }
             Expr::InterpolatedString(parts) => {
                 for part in parts {
                     if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
@@ -464,42 +501,38 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::Identifier(sym) => {
-                match self.state.get(sym).copied() {
-                    Some(VarState::Moved) => {
-                        Err(OwnershipError {
-                            kind: OwnershipErrorKind::UseAfterMove {
-                                variable: self.interner.resolve(*sym).to_string(),
-                            },
-                            span: Span::default(),
-                        })
-                    }
-                    Some(VarState::MaybeMoved) => {
-                        Err(OwnershipError {
-                            kind: OwnershipErrorKind::UseAfterMaybeMove {
-                                variable: self.interner.resolve(*sym).to_string(),
-                                branch: "a conditional branch".to_string(),
-                            },
-                            span: Span::default(),
-                        })
-                    }
-                    _ => Ok(())
-                }
-            }
+            Expr::Identifier(sym) => match self.state.get(sym).copied() {
+                Some(VarState::Moved) => Err(OwnershipError {
+                    kind: OwnershipErrorKind::UseAfterMove {
+                        variable: self.interner.resolve(*sym).to_string(),
+                    },
+                    span: Span::default(),
+                }),
+                Some(VarState::MaybeMoved(given_in)) => Err(OwnershipError {
+                    kind: OwnershipErrorKind::UseAfterMaybeMove {
+                        variable: self.interner.resolve(*sym).to_string(),
+                        given_in,
+                    },
+                    span: Span::default(),
+                }),
+                _ => Ok(()),
+            },
             Expr::BinaryOp { left, right, .. } => {
                 self.check_not_moved(left)?;
                 self.check_not_moved(right)?;
                 Ok(())
             }
-            Expr::FieldAccess { object, .. } => {
-                self.check_not_moved(object)
-            }
+            Expr::FieldAccess { object, .. } => self.check_not_moved(object),
             Expr::Index { collection, index } => {
                 self.check_not_moved(collection)?;
                 self.check_not_moved(index)?;
                 Ok(())
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.check_not_moved(collection)?;
                 self.check_not_moved(start)?;
                 self.check_not_moved(end)?;
@@ -534,13 +567,11 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr }
-            | Expr::Not { operand: expr } => {
-                self.check_not_moved(expr)
-            }
-            Expr::ManifestOf { zone } => {
-                self.check_not_moved(zone)
-            }
+            Expr::Copy { expr }
+            | Expr::Give { value: expr }
+            | Expr::Length { collection: expr }
+            | Expr::Not { operand: expr } => self.check_not_moved(expr),
+            Expr::ManifestOf { zone } => self.check_not_moved(zone),
             Expr::ChunkAt { index, zone } => {
                 self.check_not_moved(index)?;
                 self.check_not_moved(zone)
@@ -566,14 +597,10 @@ impl<'a> OwnershipChecker<'a> {
             // Closures capture by cloning — no ownership transfer at creation time.
             // We only check the expression body for moved variables; block bodies
             // create their own scope so ownership is handled there.
-            Expr::Closure { body, .. } => {
-                match body {
-                    crate::ast::stmt::ClosureBody::Expression(expr) => {
-                        self.check_not_moved(expr)
-                    }
-                    crate::ast::stmt::ClosureBody::Block(_) => Ok(()),
-                }
-            }
+            Expr::Closure { body, .. } => match body {
+                crate::ast::stmt::ClosureBody::Expression(expr) => self.check_not_moved(expr),
+                crate::ast::stmt::ClosureBody::Block(_) => Ok(()),
+            },
 
             Expr::CallExpr { callee, args } => {
                 self.check_not_moved(callee)?;
@@ -588,25 +615,37 @@ impl<'a> OwnershipChecker<'a> {
         }
     }
 
-    /// Merge two branch states - if moved in either, mark as MaybeMoved
+    /// A loop may run no pass at all, so what its body gives away may still be there after it:
+    /// the state after the loop is the state before it merged with the state one pass leaves.
+    fn check_loop_body(&mut self, body: &[Stmt<'_>]) -> Result<(), Traced> {
+        let state_before = self.state.clone();
+        self.check_block(body)?;
+        self.state = Self::merge_states(&state_before, &self.state, MaybeGivenIn::Loop);
+        Ok(())
+    }
+
+    /// Merge the states two paths reach where they meet — if moved on one path but not the
+    /// other, the value is MaybeMoved, given away in the construct `given_in` names. A variable
+    /// only one path declares keeps that path's state.
     fn merge_states(
-        &self,
         state_a: &HashMap<Symbol, VarState>,
         state_b: &HashMap<Symbol, VarState>,
+        given_in: MaybeGivenIn,
     ) -> HashMap<Symbol, VarState> {
         let mut merged = state_a.clone();
 
-        // Merge keys from state_b
         for (sym, state_b_val) in state_b {
             let state_a_val = state_a.get(sym).copied().unwrap_or(VarState::Owned);
 
             let merged_val = match (state_a_val, *state_b_val) {
                 // Both moved = definitely moved
                 (VarState::Moved, VarState::Moved) => VarState::Moved,
-                // One moved, one not = maybe moved
-                (VarState::Moved, _) | (_, VarState::Moved) => VarState::MaybeMoved,
-                // Any maybe moved = maybe moved
-                (VarState::MaybeMoved, _) | (_, VarState::MaybeMoved) => VarState::MaybeMoved,
+                // Already maybe moved = still maybe moved, where it first became uncertain
+                (VarState::MaybeMoved(earlier), _) | (_, VarState::MaybeMoved(earlier)) => {
+                    VarState::MaybeMoved(earlier)
+                }
+                // One moved, one not = maybe moved, here
+                (VarState::Moved, _) | (_, VarState::Moved) => VarState::MaybeMoved(given_in),
                 // Both borrowed = borrowed
                 (VarState::Borrowed, VarState::Borrowed) => VarState::Borrowed,
                 // Borrowed + Owned = Borrowed (conservative)
@@ -618,26 +657,10 @@ impl<'a> OwnershipChecker<'a> {
             merged.insert(*sym, merged_val);
         }
 
-        // Also check keys only in state_a
-        for sym in state_a.keys() {
-            if !state_b.contains_key(sym) {
-                // Variable exists in one branch but not other - keep state_a value
-                // (already in merged)
-            }
-        }
-
         merged
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_ownership_checker_basic() {
-        let interner = Interner::new();
-        let checker = OwnershipChecker::new(&interner);
-        assert!(checker.state.is_empty());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/analysis/ownership/tests.rs"]
+mod tests;

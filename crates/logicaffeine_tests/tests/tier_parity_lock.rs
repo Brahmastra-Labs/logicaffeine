@@ -52,6 +52,18 @@ enum TierDisposition {
     DeclarationOrMeta,
     /// Refused on the VM for soundness (escape analysis); tree-walker only.
     TreeWalkerOnly,
+    /// The LGX web frontend: components, directives, routes, the action vocabulary and typed
+    /// fetch. The tree-walker is the REFERENCE engine for them — instances, transactional turns,
+    /// rollback, the journal, the rendered DOM.
+    ///
+    /// The bytecode VM is arriving at the same page by a different road, one construct at a
+    /// time: a component whose view is plain markup is LOWERED to the `createElement` /
+    /// `setAttribute` / `appendChild` calls this tier has always run, and renders byte-identically
+    /// (`lgx_vm_parity_lock`). Everything that needs the runtime rather than the DOM — actions,
+    /// turns, stores, directives — is refused LOUDLY and by name, never silently skipped, which
+    /// is what `refuses_the_unlowered_lgx_constructs_loudly` pins. This row becomes `Portable` when
+    /// the refusal list is empty.
+    BrowserFrontend,
 }
 
 /// ★ THE COMPILE-TIME LOCK ★ — an exhaustive match over every `Stmt` variant. There is NO `_ =>`
@@ -72,13 +84,20 @@ fn every_statement_has_a_tier_disposition(s: &Stmt<'_>) -> TierDisposition {
         | Stmt::LetPeerAgent { .. } => TierDisposition::AsyncNetworking,
 
         // ── async host I/O: routed to the tree-walker by `needs_async` ──
+        // `Serve` binds an HTTP listener and awaits per-request handling; like the
+        // other host-I/O statements it routes to the tree-walker (the VM refuses it).
         Stmt::ReadFrom { .. }
         | Stmt::WriteFile { .. }
         | Stmt::Sleep { .. }
+        | Stmt::Serve { .. }
         | Stmt::Mount { .. } => TierDisposition::AsyncHostIo,
 
         // ── declaration / verification / meta: no runtime effect ──
-        Stmt::StructDef { .. }
+        // A `## Test` block is a declaration on BOTH tiers: the interpreter
+        // walks past it, the VM emits nothing; only the `largo test` runner
+        // collects and drives it (Wave 3).
+        Stmt::TestDef { .. }
+        | Stmt::StructDef { .. }
         | Stmt::FunctionDef { .. }
         | Stmt::Assert { .. }
         | Stmt::Trust { .. }
@@ -86,20 +105,62 @@ fn every_statement_has_a_tier_disposition(s: &Stmt<'_>) -> TierDisposition {
         | Stmt::Theorem(_)
         | Stmt::Definition(_)
         | Stmt::Axiom(_)
+        // Observation: no observable effect on either tier yet (emission is
+        // Wave 7/13); `During` runs its scope-transparent body identically on
+        // the tree-walker and the VM, so both are tier-portable/meta.
+        | Stmt::Observe { .. }
+        | Stmt::During { .. }
+        | Stmt::ForAll { .. }
         | Stmt::Theory(_) => TierDisposition::DeclarationOrMeta,
 
         // ── refused on the VM for soundness ──
         Stmt::Escape { .. } => TierDisposition::TreeWalkerOnly,
 
+        // ── tree-walker only: the test-framework statements ──
+        // Executable ONLY under the `largo test` runner's interpreter test
+        // mode (Wave 3): `Expect` records-and-continues, `Expect this to
+        // fail:` inverts, `Expect output:` compares byte-exactly. The VM
+        // refuses them (test-only), and outside test mode the tree-walker
+        // fails loudly too. `Advance time`/`Given a file` execute when the
+        // sealed world lands (Wave 4).
+        Stmt::Expect { .. }
+        | Stmt::ExpectFail { .. }
+        | Stmt::ExpectOutput { .. }
+        | Stmt::AdvanceTime { .. }
+        | Stmt::GivenFile { .. } => TierDisposition::TreeWalkerOnly,
+
+        // ── the LGX web frontend: tree-walker reference engine, loud VM refusal ──
+        Stmt::ComponentDef(_)
+        | Stmt::DirectiveDef { .. }
+        | Stmt::RouteDef { .. }
+        | Stmt::MiddlewareDef { .. }
+        | Stmt::RedirectDef { .. }
+        | Stmt::Ui(_)
+        | Stmt::GivenFetch { .. }
+        | Stmt::ServeFetches
+        | Stmt::Replay { .. }
+        | Stmt::Fetch { .. }
+        // A failure-site marker (Wave 3) only ever appears inside an action/handler body, so it
+        // is exactly as much "the action vocabulary" as the sentences it marks.
+        | Stmt::Site(_) => TierDisposition::BrowserFrontend,
+
         // ── everything else: portable across tree-walker + VM ──
         // (`Splice` is parser-desugar output — a scope-transparent sequence of
         // the portable statements below; the PE encoder lowers it to an
-        // always-taken `CIf`, so the PE dialects and decompiler need no arm.)
-        Stmt::Let { .. }
+        // always-taken `CIf`, so the PE dialects and decompiler need no arm.
+        // A `Reversibly:` block is output-transparent in the same way — every
+        // tier runs its body with the plain FORWARD semantics (interpreter, VM,
+        // AOT-Rust, C, and WASM all lower it identically to the body inline; the
+        // in-place `RevAdd`/`RevSub`/`RevXor`/`RevNeg` ops are a VM-only encoding
+        // of that same forward result so `run_reverse` can undo the region with
+        // no history tape), so it too is fully portable.)
+        Stmt::Swap { .. }
+        | Stmt::Let { .. }
         | Stmt::Set { .. }
         | Stmt::SetField { .. }
         | Stmt::SetIndex { .. }
         | Stmt::Splice { .. }
+        | Stmt::Reversibly { .. }
         | Stmt::Return { .. }
         | Stmt::Break
         | Stmt::Call { .. }
@@ -115,6 +176,7 @@ fn every_statement_has_a_tier_disposition(s: &Stmt<'_>) -> TierDisposition {
         | Stmt::Remove { .. }
         | Stmt::AppendToSequence { .. }
         | Stmt::RuntimeAssert { .. }
+        | Stmt::Fail { .. }
         | Stmt::Check { .. }
         | Stmt::Zone { .. }
         | Stmt::Concurrent { .. }
@@ -123,6 +185,8 @@ fn every_statement_has_a_tier_disposition(s: &Stmt<'_>) -> TierDisposition {
         | Stmt::LaunchTask { .. }
         | Stmt::LaunchTaskWithHandle { .. }
         | Stmt::StopTask { .. }
+        | Stmt::CloseChannel { .. }
+        | Stmt::AwaitTask { .. }
         | Stmt::Select { .. }
         | Stmt::CreatePipe { .. }
         | Stmt::SendPipe { .. }
@@ -132,8 +196,60 @@ fn every_statement_has_a_tier_disposition(s: &Stmt<'_>) -> TierDisposition {
         | Stmt::IncreaseCrdt { .. }
         | Stmt::DecreaseCrdt { .. }
         | Stmt::MergeCrdt { .. }
+        | Stmt::JoinCrdt { .. }
         | Stmt::ResolveConflict { .. } => TierDisposition::Portable,
     }
+}
+
+/// BEHAVIOURAL LOCK — a frontend construct the lowering does not carry is refused LOUDLY, by name,
+/// never compiled to a silent no-op — and refused the same way on EVERY tier. A page has one
+/// implementation, its lowered LOGOS, and the tree-walker runs that program as the VM does, so a
+/// page one tier refuses and another renders would be two implementations again. (What every tier
+/// CAN run is held to byte-identical output by `lgx_vm_parity_lock` instead.)
+#[test]
+fn refuses_the_unlowered_lgx_constructs_loudly() {
+    // ★ THE FIXTURE STANDS ON A DECISION, NOT ON AN ABSENCE. Four fixtures graduated out of this
+    // lock as the constructs they relied on were built; a fixture chosen because something is hard
+    // is a promise that it will land. A callback prop IS an action of the component that hands it
+    // down: running it is a turn of that component — journalled, rolled back when it traps. A plain
+    // `## To` function has no turn, no instance and no state to roll back, so handing one where a
+    // callback belongs is refused by what a callback means, not by what has not been built yet.
+    const PAGE: &str = "\
+## To shout:
+    Show \"hey\".
+
+## Component Child (onGo: fn() -> Unit)
+View:
+    <button id=\"go\" on-click={onGo}>go</button>
+
+## Component App
+View:
+    <Child onGo={shout}/>
+
+## Main
+Mount App.
+";
+    let vm = logicaffeine_compile::compile::vm_outcome(PAGE);
+    let message = vm
+        .error
+        .expect("the VM must REFUSE a page it cannot carry, not run it silently");
+    assert!(
+        message.contains("App") && message.contains("tier"),
+        "the refusal must NAME the component and say it is a tier limit: {message}"
+    );
+    assert!(
+        message.contains("onGo") && message.contains("callback"),
+        "and say WHAT it cannot carry, so the author knows what to change: {message}"
+    );
+    assert_eq!(vm.output, "", "a refused program produces no output");
+
+    let tw = logicaffeine_compile::compile::tw_outcome(PAGE);
+    assert_eq!(
+        tw.error.as_deref(),
+        Some(message.as_str()),
+        "the tree-walker runs the page's lowered program too, so it refuses it in the same words: {tw:?}"
+    );
+    assert_eq!(tw.output, "", "and runs nothing of it");
 }
 
 // BEHAVIOURAL LOCK (networking runs on the VM): the VM now NATIVELY executes peer networking via
@@ -172,7 +288,10 @@ fn all_three_pe_dialects_dispatch_on_identical_constructors() {
     let src = whens(pe_source_text());
     let mini = whens(pe_mini_source_text());
     let bti = whens(pe_bti_source_text());
-    assert!(!src.is_empty(), "PE-ALL lock is vacuous: pe_source has no `When C…` arms");
+    assert!(
+        !src.is_empty(),
+        "PE-ALL lock is vacuous: pe_source has no `When C…` arms"
+    );
     assert_eq!(
         src, mini,
         "PE-ALL DIALECT DRIFT (pe_source vs pe_mini): only in pe_source {:?}; only in pe_mini {:?}. \
@@ -182,7 +301,8 @@ fn all_three_pe_dialects_dispatch_on_identical_constructors() {
         mini.difference(&src).collect::<Vec<_>>()
     );
     assert_eq!(
-        src, bti,
+        src,
+        bti,
         "PE-ALL DIALECT DRIFT (pe_source vs pe_bti): only in pe_source {:?}; only in pe_bti {:?}. \
          Add the missing `When` arm, never weaken this lock.",
         src.difference(&bti).collect::<Vec<_>>(),

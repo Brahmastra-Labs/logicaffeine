@@ -80,7 +80,10 @@ fn fresh_list_builder_tiers() {
     let (out, err, fn_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "126000", "300 × (400 + 20)");
-    assert!(fn_ok >= 1, "the builder must JIT with native allocation (got {fn_ok})");
+    assert!(
+        fn_ok >= 1,
+        "the builder must JIT with native allocation (got {fn_ok})"
+    );
 }
 
 /// The REAL mergesort kernel: fresh left/right/result locals, read-only
@@ -137,7 +140,10 @@ fn mergesort_with_native_allocation_tiers() {
                Show checksum.\n";
     let (_, err, fn_ok) = tiered(src);
     assert_eq!(err, None);
-    assert!(fn_ok >= 1, "mergeSort must JIT with native allocation (got {fn_ok})");
+    assert!(
+        fn_ok >= 1,
+        "mergeSort must JIT with native allocation (got {fn_ok})"
+    );
 }
 
 /// A deopt AFTER allocations and pushes (division by zero at a

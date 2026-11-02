@@ -1,0 +1,43 @@
+{
+  "part": "Micron MT47H64M16HR-25:H (Nexys A7-100T DDR2-800)",
+  "exact": "bytes_moved_* and bytes_not_moved are structural (independent of any energy model)",
+  "projection_assumptions": {
+    "pj_per_bit_bus": 20.0,
+    "pj_per_in_dram_op": 250.0,
+    "note": "representative DDR2-era figures, stated for audit; NOT measured on silicon"
+  },
+  "measured": false,
+  "provenance": "projected_from_stated_assumptions",
+  "workloads": [
+    {
+      "op": "bulk_and",
+      "row_bytes": 2048,
+      "bytes_moved_cpu": 6144,
+      "bytes_moved_in_dram": 0,
+      "bytes_not_moved": 6144,
+      "energy_cpu_pj_projected": 983040.0,
+      "energy_in_dram_pj_projected": 250.0,
+      "energy_reduction_x_projected": 3932.2
+    },
+    {
+      "op": "bulk_or",
+      "row_bytes": 2048,
+      "bytes_moved_cpu": 6144,
+      "bytes_moved_in_dram": 0,
+      "bytes_not_moved": 6144,
+      "energy_cpu_pj_projected": 983040.0,
+      "energy_in_dram_pj_projected": 250.0,
+      "energy_reduction_x_projected": 3932.2
+    },
+    {
+      "op": "rowclone_copy",
+      "row_bytes": 2048,
+      "bytes_moved_cpu": 4096,
+      "bytes_moved_in_dram": 0,
+      "bytes_not_moved": 4096,
+      "energy_cpu_pj_projected": 655360.0,
+      "energy_in_dram_pj_projected": 250.0,
+      "energy_reduction_x_projected": 2621.4
+    }
+  ]
+}

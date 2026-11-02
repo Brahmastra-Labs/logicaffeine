@@ -8,7 +8,7 @@
 //! code and the reference interpreter.
 
 use logicaffeine_forge::jit::MicroOp;
-use z3::ast::{Ast, Bool, BV};
+use z3::ast::{Bool, BV};
 
 /// Which micro-op family a spec describes, with the frame shape the
 /// witness harness needs to build it.
@@ -71,8 +71,8 @@ fn pre_mul_no_overflow(a: &BV, b: &BV) -> Bool {
     no_overflow(&a.sign_ext(64).bvmul(&b.sign_ext(64)), &a.bvmul(b))
 }
 
-/// The kernel's shift-amount rule: `wrapping_shl(b as u32)` masks the
-/// amount to the low six bits.
+/// The semantics core's shift-amount rule (`logicaffeine_compile::semantics`):
+/// `wrapping_shl(b as u32)` masks the amount to the low six bits.
 fn shift_amount(b: &BV) -> BV {
     b.bvand(&BV::from_i64(63, 64))
 }
@@ -86,37 +86,57 @@ pub fn all_specs() -> Vec<OpSpec> {
         OpSpec {
             name: "add",
             kind: SpecKind::Checked,
-            build: || MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Add {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_add_no_overflow,
             result: |a, b| a.bvadd(b),
         },
         OpSpec {
             name: "sub",
             kind: SpecKind::Checked,
-            build: || MicroOp::Sub { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Sub {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_sub_no_overflow,
             result: |a, b| a.bvsub(b),
         },
         OpSpec {
             name: "mul",
             kind: SpecKind::Checked,
-            build: || MicroOp::Mul { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Mul {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_mul_no_overflow,
             result: |a, b| a.bvmul(b),
         },
         OpSpec {
             name: "div",
             kind: SpecKind::Checked,
-            build: || MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Div {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_div_defined,
             // On the defined domain (no zero divisor, no MIN/-1 overflow)
-            // bvsdiv truncates toward zero — exactly the kernel's `/`.
+            // bvsdiv truncates toward zero — exactly the semantics core's `/`.
             result: |a, b| a.bvsdiv(b),
         },
         OpSpec {
             name: "mod",
             kind: SpecKind::Checked,
-            build: || MicroOp::Mod { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Mod {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_divisor_nonzero,
             // bvsrem takes the DIVIDEND's sign — exactly `wrapping_rem`.
             result: |a, b| a.bvsrem(b),
@@ -124,57 +144,89 @@ pub fn all_specs() -> Vec<OpSpec> {
         OpSpec {
             name: "and",
             kind: SpecKind::Binop,
-            build: || MicroOp::BitAnd { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::BitAnd {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| a.bvand(b),
         },
         OpSpec {
             name: "or",
             kind: SpecKind::Binop,
-            build: || MicroOp::BitOr { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::BitOr {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| a.bvor(b),
         },
         OpSpec {
             name: "xor",
             kind: SpecKind::Binop,
-            build: || MicroOp::BitXor { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::BitXor {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| a.bvxor(b),
         },
         OpSpec {
             name: "shl",
             kind: SpecKind::Binop,
-            build: || MicroOp::Shl { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Shl {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| a.bvshl(&shift_amount(b)),
         },
         OpSpec {
             name: "shr",
             kind: SpecKind::Binop,
-            build: || MicroOp::Shr { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Shr {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
-            // Arithmetic shift (the kernel's Int is signed).
+            // Arithmetic shift (the semantics core's Int is signed).
             result: |a, b| a.bvashr(&shift_amount(b)),
         },
         OpSpec {
             name: "lt",
             kind: SpecKind::Binop,
-            build: || MicroOp::Lt { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Lt {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| bool_to_bv(a.bvslt(b)),
         },
         OpSpec {
             name: "lteq",
             kind: SpecKind::Binop,
-            build: || MicroOp::LtEq { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::LtEq {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| bool_to_bv(a.bvsle(b)),
         },
         OpSpec {
             name: "eq",
             kind: SpecKind::Binop,
-            build: || MicroOp::Eq { dst: 2, lhs: 0, rhs: 1 },
+            build: || MicroOp::Eq {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             pre: pre_true,
             result: |a, b| bool_to_bv(a.eq(b)),
         },
@@ -224,7 +276,10 @@ pub fn prove_commutative(name: &'static str) -> Result<(), String> {
     solver.assert(&lhs.eq(&rhs).not());
     match solver.check() {
         z3::SatResult::Unsat => Ok(()),
-        z3::SatResult::Sat => Err(format!("{name} is not commutative: {:?}", solver.get_model())),
+        z3::SatResult::Sat => Err(format!(
+            "{name} is not commutative: {:?}",
+            solver.get_model()
+        )),
         z3::SatResult::Unknown => Err(format!("{name}: solver unknown")),
     }
 }
@@ -236,7 +291,11 @@ pub fn deliberately_wrong_spec_for_canary() -> OpSpec {
     OpSpec {
         name: "add-claiming-sub",
         kind: SpecKind::Binop,
-        build: || MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
+        build: || MicroOp::Add {
+            dst: 2,
+            lhs: 0,
+            rhs: 1,
+        },
         pre: pre_true,
         result: |a, b| a.bvsub(b),
     }
@@ -253,6 +312,9 @@ pub fn prove_min_div_excluded() -> Result<(), String> {
     solver.assert(&pre_div_defined(&min, &neg1));
     match solver.check() {
         z3::SatResult::Unsat => Ok(()),
-        _ => Err("div precondition admits MIN / -1 — the side-exit case leaked into the spec".to_string()),
+        _ => Err(
+            "div precondition admits MIN / -1 — the side-exit case leaked into the spec"
+                .to_string(),
+        ),
     }
 }

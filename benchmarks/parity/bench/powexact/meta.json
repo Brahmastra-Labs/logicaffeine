@@ -1,0 +1,8 @@
+{
+  "capability": "math.pow_exact",
+  "workload": "sum of powExact((i mod 5)+1, i mod 13) over 1<=i<=n — an exact binary-exponentiation integer loop",
+  "arg": "5000000",
+  "expected": "25257726050642",
+  "logos_uses_stdlib": true,
+  "note": "main.lg calls powExact() WITHOUT defining it — auto-imported from math.lg. C/Go/Rust/Python hand-implement the identical exact binary exponentiation; C is -O3 -march=native -flto."
+}

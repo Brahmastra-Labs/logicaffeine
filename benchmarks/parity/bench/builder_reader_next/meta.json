@@ -1,0 +1,9 @@
+{
+  "capability": "builder.reader_next",
+  "arg": "200000",
+  "expected": "255049920",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

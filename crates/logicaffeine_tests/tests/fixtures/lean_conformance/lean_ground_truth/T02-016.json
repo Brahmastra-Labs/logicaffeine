@@ -1,0 +1,98 @@
+{
+  "case": "T02-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 12,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_016.nestedRec",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_016.nestedRec.outer",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_016.nestedRec.outer.inner",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((j : Nat) \u2192 motive j.succ) \u2192 motive x",
+      "name": "T02_016.nestedRec.outer.inner.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_016.plainLet",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_016.scaledSum",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_016.scaledSum.go",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat \u2192 Nat) \u2192 Nat \u2192 Nat",
+      "name": "T02_016.shadowedRec",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_016.shadowedRec.loop",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_016.sumTo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_016.sumTo.go",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Nat \u2192 Sort u_1) \u2192\n  (x x_1 : Nat) \u2192 ((acc : Nat) \u2192 motive 0 acc) \u2192 ((k acc : Nat) \u2192 motive k.succ acc) \u2192 motive x x_1",
+      "name": "T02_016.sumTo.go.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

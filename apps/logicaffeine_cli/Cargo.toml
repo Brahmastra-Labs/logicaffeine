@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "largo — the LOGOS build tool: new/init/build/run/check/verify/publish for logicaffeine projects"
+license = "MIT"
+description = "largo — the LOGOS build tool: projects, builds, tests, serving, proofs, and the package registry"
 readme = "README.md"
+include = ["src/**", "assets/**", "templates/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [lib]
 name = "logicaffeine_cli"
@@ -23,7 +24,8 @@ path = "src/main.rs"
 [dependencies]
 # Core language crates
 logicaffeine-base = { workspace = true }
-logicaffeine-kernel = { workspace = true }
+# `lean` — the Lean 4 export reader (`interface::lean`) behind `largo lean import` / `largo lean replay`.
+logicaffeine-kernel = { workspace = true, features = ["lean"] }
 logicaffeine-language = { workspace = true }
 # `wasm-jit` enables the BigInt-linker tier (`compile_to_wasm_linked`, used by `--emit wasm-linked`).
 # largo is a native dev tool and a distinct binary from the web app, so this feature does NOT unify
@@ -31,6 +33,8 @@ logicaffeine-language = { workspace = true }
 logicaffeine-compile = { workspace = true, features = ["wasm-jit"] }
 # `largo sat` / `largo prove` — already in the graph via logicaffeine-compile.
 logicaffeine-proof = { workspace = true }
+# `largo serve [--watch]` for a DOM app — its hand-rolled HTTP core + re-exported tokio.
+logicaffeine-system = { workspace = true }
 # Z3 static verification (`largo verify`) — the `verification` feature.
 logicaffeine-verify = { workspace = true, optional = true }
 
@@ -50,6 +54,13 @@ dirs = "5.0"
 rustyline = "15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# `browser` — the body of a CDP `Fetch.fulfillRequest` travels base64-encoded.
+base64 = "0.22"
+
+# `browser` — Chrome reads CDP from fd 3 and writes to fd 4 (`--remote-debugging-pipe`), which
+# takes `pipe2`/`fcntl`/`dup2` in the child before exec.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # The native tier (copy-and-patch JIT) — x86_64 System V only (Linux + macOS).
 # On Windows/aarch64/wasm largo runs the bytecode VM, so this is target-gated.
@@ -58,11 +69,16 @@ logicaffeine-jit = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+# `libc::kill` for the process-group teardown in `tests/bind_address_lock.rs`.
+# `kill(1)` cannot express "signal this process group" portably: procps-ng reads a
+# negative pid as an option cluster and keeps only its first digit, turning the group
+# kill into `kill(-1, SIGKILL)` — "every process this uid owns". See the comment there.
+libc = "0.2"
 
 [features]
 default = []
 # `largo verify` against the system Z3 (dynamic link).
-verification = ["dep:logicaffeine-verify"]
+verification = ["dep:logicaffeine-verify", "logicaffeine-compile/verification", "logicaffeine-proof/verification"]
 # The release `largo-full` flavor: verification with Z3 built from the
 # z3-sys vendored source and statically linked (needs cmake + C++ + libclang).
 verification-static = ["verification", "logicaffeine-verify/static-link-z3"]

@@ -24,7 +24,11 @@ fn linear_chain(ops: &[(&'static logicaffeine_forge::Stencil, Option<i64>)]) -> 
 
 #[test]
 fn jit_const_const_add_return_is_42() {
-    let r = linear_chain(&[(&ST_CONST, Some(7)), (&ST_CONST, Some(35)), (&ST_ADDI, None)]);
+    let r = linear_chain(&[
+        (&ST_CONST, Some(7)),
+        (&ST_CONST, Some(35)),
+        (&ST_ADDI, None),
+    ]);
     assert_eq!(r, 42);
 }
 
@@ -35,11 +39,19 @@ fn jit_sub_mul_wrap_at_boundaries() {
         -4
     );
     assert_eq!(
-        linear_chain(&[(&ST_CONST, Some(i64::MAX)), (&ST_CONST, Some(2)), (&ST_MULI, None)]),
+        linear_chain(&[
+            (&ST_CONST, Some(i64::MAX)),
+            (&ST_CONST, Some(2)),
+            (&ST_MULI, None)
+        ]),
         -2
     );
     assert_eq!(
-        linear_chain(&[(&ST_CONST, Some(i64::MAX)), (&ST_CONST, Some(1)), (&ST_ADDI, None)]),
+        linear_chain(&[
+            (&ST_CONST, Some(i64::MAX)),
+            (&ST_CONST, Some(1)),
+            (&ST_ADDI, None)
+        ]),
         i64::MIN
     );
 }
@@ -72,9 +84,15 @@ fn jit_branch_if_routes_both_ways() {
             &ST_BRANCH_IF,
             &[HoleValue::Cont(0, then_l), HoleValue::Cont(1, else_l)],
         );
-        buf.push_stencil(&ST_CONST, &[HoleValue::Const(0, 111), HoleValue::Cont(0, l3)]);
+        buf.push_stencil(
+            &ST_CONST,
+            &[HoleValue::Const(0, 111), HoleValue::Cont(0, l3)],
+        );
         buf.push_stencil(&ST_RETURN, &[]);
-        buf.push_stencil(&ST_CONST, &[HoleValue::Const(0, 222), HoleValue::Cont(0, l5)]);
+        buf.push_stencil(
+            &ST_CONST,
+            &[HoleValue::Const(0, 222), HoleValue::Cont(0, l5)],
+        );
         buf.push_stencil(&ST_RETURN, &[]);
         buf.finish().expect("finish").run()
     };
@@ -92,7 +110,10 @@ fn jit_missing_hole_and_bad_label_are_errors() {
 
     let mut buf = JitBuffer::new();
     let bogus = buf.label(99);
-    buf.push_stencil(&ST_CONST, &[HoleValue::Const(0, 1), HoleValue::Cont(0, bogus)]);
+    buf.push_stencil(
+        &ST_CONST,
+        &[HoleValue::Const(0, 1), HoleValue::Cont(0, bogus)],
+    );
     assert!(buf.finish().is_err());
 
     assert!(JitBuffer::new().finish().is_err());
@@ -143,7 +164,9 @@ struct SplitMix64 {
 }
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
-        SplitMix64 { state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15) }
+        SplitMix64 {
+            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+        }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);

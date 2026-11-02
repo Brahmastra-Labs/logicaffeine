@@ -1,0 +1,66 @@
+{
+  "case": "T08-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (a b : Nat) (p : Nat \u2192 Prop), a = b \u2192 p a \u2192 p b",
+      "name": "T08_011.atHypothesis",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat) (p : Nat \u2192 Nat \u2192 Prop), x = 0 \u2192 (\u2200 (y : Nat), p 0 y) \u2192 \u2200 (y : Nat), p x y",
+      "name": "T08_011.binderCollision",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat) (p : Nat \u2192 Prop), a = b \u2192 b = c \u2192 p c \u2192 p a",
+      "name": "T08_011.chain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat) (f : Nat \u2192 Nat \u2192 Nat), a = b \u2192 f a a = f b b",
+      "name": "T08_011.groundBoth",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat) (p : Nat \u2192 Prop), a = b \u2192 p b \u2192 p a",
+      "name": "T08_011.groundResidual",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f g : Nat \u2192 Nat), (\u2200 (x : Nat), f x = g x) \u2192 f 1 = g 1 \u2227 f 2 = g 2",
+      "name": "T08_011.quantified",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat) (p : Nat \u2192 Prop), a = b \u2192 p a \u2192 p b",
+      "name": "T08_011.reverse",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat) (p : Nat \u2192 Prop), a = b \u2192 p a \u2192 p b",
+      "name": "T08_011.substDiffers",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

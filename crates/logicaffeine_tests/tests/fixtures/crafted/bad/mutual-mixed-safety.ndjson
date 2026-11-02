@@ -1,0 +1,8 @@
+{"meta":{"exporter":{"name":"logos-crafted","version":"1"},"format":{"version":"3.1.0"},"lean":{"githash":"","version":"4.29.1"}}}
+{"in":1,"str":{"pre":0,"str":"f"}}
+{"const":{"name":1,"us":[]},"ie":0}
+{"in":2,"str":{"pre":0,"str":"g"}}
+{"const":{"name":2,"us":[]},"ie":1}
+{"ie":2,"sort":0}
+{"def":{"all":[1,2],"hints":"abbrev","levelParams":[],"name":1,"safety":"unsafe","type":2,"value":1}}
+{"def":{"all":[1,2],"hints":"abbrev","levelParams":[],"name":2,"safety":"partial","type":2,"value":0}}

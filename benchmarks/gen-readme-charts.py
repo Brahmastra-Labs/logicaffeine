@@ -7,7 +7,7 @@ self-contained, presentation-only SVGs to benchmarks/results/charts/. Gradients,
 shapes and text only — no <style>, <script>, <animate>, <foreignObject>, filter or
 external font — so GitHub's markdown sanitizer renders them verbatim, and each
 carries its own gradient background so it reads the same in light and dark mode.
-The palette mirrors apps/logicaffeine_web/src/ui/pages/benchmarks.rs and the
+The palette mirrors apps/logicaffeine_web/src/ui/pages/benchmarks/ and the
 headline numbers are computed the same way the page computes them.
 
     python3 benchmarks/gen-readme-charts.py           # write the charts
@@ -22,7 +22,27 @@ from xml.dom import minidom
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = os.path.join(HERE, "results")
-CHARTS = os.path.join(RESULTS, "charts")
+# BENCH_CHARTS_DIR draws somewhere other than the committed charts (readme_benchmark_numbers_lock redraws into a
+# temporary directory and compares).
+CHARTS = os.environ.get("BENCH_CHARTS_DIR") or os.path.join(RESULTS, "charts")
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import suite  # noqa: E402
+
+# The benchmarks whose C time the optimizer collapses (it proves a shortcut C still executes), as the registry's
+# collapse column names them; the same-algorithm geomeans leave them out.
+COLLAPSES = tuple(suite.collapses())
+
+# Every results file the charts were drawn from, with its FNV-1a-64 digest, as written to headlines.json
+# (readme_benchmark_numbers_lock recomputes the digests to prove the charts are current with the results).
+LOADED = {}
+
+
+def fnv1a64(data):
+    h = 0xcbf29ce484222325
+    for b in data:
+        h = ((h ^ b) * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return f"{h:016x}"
 
 # --- palette (matches the live benchmarks page) -----------------------------
 INK = "#eef2f8"
@@ -190,8 +210,15 @@ def geomean(xs):
 
 
 def load(name):
-    with open(os.path.join(RESULTS, name), encoding="utf-8") as f:
-        return json.load(f)
+    with open(os.path.join(RESULTS, name), "rb") as f:
+        raw = f.read()
+    LOADED[name] = fnv1a64(raw)
+    return json.loads(raw.decode("utf-8"))
+
+
+def c_baseline(d):
+    """The C baseline's compiler and flags, as the run that produced `d` recorded them."""
+    return d["metadata"]["compilers"]["c"]["label"]
 
 
 def lbl_value(s, x, y, text, color, inside_dark=False, anchor_outside=True):
@@ -302,11 +329,11 @@ def chart_overall():
     m = d["summary"]["geometric_mean_speedup_vs_c"]
     label = {x["id"]: x["label"] for x in d["languages"]}
 
-    # website-exact apples geomean (mean_ms, exclude the 5 curated collapses)
-    COLLAPSE = {"fib", "ackermann", "binary_trees", "loop_sum", "collect"}
+    # website-exact apples geomean (mean_ms, excluding the curated collapses)
+    n = len(d["benchmarks"])
     xs = []
     for b in d["benchmarks"]:
-        if b["id"] in COLLAPSE:
+        if b["id"] in COLLAPSES:
             continue
         t = b["scaling"].get(b["reference_size"], {})
         c, l = t.get("c"), t.get("logos_release")
@@ -314,7 +341,7 @@ def chart_overall():
             xs.append(c["mean_ms"] / l["mean_ms"])
     apples = geomean(xs)
 
-    rows = [("LOGOS — all 32", m["logos_release"], CYAN, "incl. 5 optimizer collapses"),
+    rows = [(f"LOGOS — all {n}", m["logos_release"], CYAN, f"incl. {len(COLLAPSES)} optimizer collapses"),
             ("LOGOS — same algorithm", apples, lighten(CYAN, 0.0), "collapses excluded"),
             (label["rust"], m["rust"], LANG_COLOR["rust"], None),
             (label["zig"], m["zig"], LANG_COLOR["zig"], None),
@@ -331,8 +358,8 @@ def chart_overall():
     bh, bg = 24, 12
     H = top + len(rows) * (bh + bg) + 52
     s = Svg(W, H, "Geomean speed vs C across languages")
-    s.header("Overall — geomean speed vs C, across 32 benchmarks",
-             "Higher = faster than C (gcc -O3 -march=native -flto). LOGOS shown "
+    s.header(f"Overall — geomean speed vs C, across {n} benchmarks",
+             f"Higher = faster than C ({c_baseline(d)}). LOGOS shown "
              "both ways; everyone runs the same programs.")
     lin_max = 2.75
 
@@ -355,7 +382,7 @@ def chart_overall():
            weight="700")
     s.text((base + X1) / 2, axy, "faster than C →", size=10, fill=FAINT,
            anchor="middle")
-    s.text(24, H - 14, "Measured: geomean speed vs C across 32 benchmarks "
+    s.text(24, H - 14, f"Measured: geomean speed vs C across {n} benchmarks "
            "(C time ÷ language time). Higher = faster; everyone runs the same "
            "programs.", size=9.5, fill=FAINT)
 
@@ -377,8 +404,10 @@ def chart_overall():
         if note:
             s.text(xlin(val) + 8, y + bh + 7, note, size=9.5, fill=FAINT)
         y += bh + bg
+    langs = {k: m[k] for k in ("rust", "zig", "cpp", "go", "nim", "java", "js")}
     return s.done(), {"logos_all": m["logos_release"],
-                      "logos_apples": round(apples, 3)}
+                      "logos_apples": round(apples, 3),
+                      "benchmarks": n, "collapses": len(COLLAPSES), **langs}
 
 
 # ===========================================================================
@@ -399,16 +428,9 @@ def chart_compiled():
             rc[b["id"]] = c / lo
             if z:
                 rz[b["id"]] = c / z
-    collapse = ["binary_trees", "ackermann", "fib", "collect", "loop_sum"]
+    collapse = list(COLLAPSES)
     apples = geomean([r for k, r in rc.items() if k not in collapse])
-    names = {"binary_trees": "Binary trees", "ackermann": "Ackermann",
-             "fib": "Recursive fib", "collect": "Collection ops",
-             "loop_sum": "Loop sum", "knapsack": "0/1 knapsack",
-             "nqueens": "N-Queens", "primes": "Primes", "gcd": "GCD sum",
-             "spectral_norm": "Spectral norm", "graph_bfs": "Graph BFS",
-             "quicksort": "Quicksort", "mandelbrot": "Mandelbrot",
-             "nbody": "N-body", "heap_sort": "Heap sort", "sieve": "Sieve",
-             "fib_iterative": "Iterative fib"}
+    names = {b["id"]: b["short"] for b in suite.benchmarks()}
     parity = [b for b in ["knapsack", "nqueens", "primes", "gcd",
                           "spectral_norm", "graph_bfs", "quicksort",
                           "mandelbrot", "fib_iterative", "sieve", "nbody",
@@ -423,12 +445,12 @@ def chart_compiled():
              f"Two numbers: {summ['logos_release']:.2f}× C overall (collapses "
              f"included) vs {apples:.2f}× same-algorithm. Zig {summ['zig']:.2f}× "
              f"· Rust {summ['rust']:.2f}×.",
-             kicker="HOW THE 2.54× BREAKS DOWN")
+             kicker=f"HOW THE {summ['logos_release']:.2f}× BREAKS DOWN")
 
     # panel A: collapses (log)
     aY = 96
     s.panel(20, aY, W - 40, 26 + len(collapse) * 27, accent=CYAN)
-    s.text(36, aY + 19, "Optimizer proves a shortcut C still runs  (5 of 32)",
+    s.text(36, aY + 19, f"Optimizer proves a shortcut C still runs  ({len(collapse)} of {len(rc)})",
            size=13, weight="700", fill=CYAN)
     aTop = aY + 36
     cmax = math.log10(max(rc[b] for b in collapse) * 1.4)
@@ -486,12 +508,18 @@ def chart_compiled():
                size=10, fill=CYAN, mono=True, weight="600")
         y += 22
 
+    meta = d["metadata"]
     s.text(24, 696, "Speed relative to C at the reference size (higher = "
-                    "faster). gcc -O3 -march=native -flto · 10 runs, 2 warmup.",
+                    f"faster). {c_baseline(d)} · {meta['runs']} runs, {meta['warmup']} warmup.",
            size=9.5, fill=FAINT)
     return s.done(), {"geomean_vs_c": summ["logos_release"],
                       "same_algo_geomean": round(apples, 3),
-                      "parity_n": len(parity)}
+                      "parity_n": len(parity),
+                      "collapses": len(collapse),
+                      "collapse_min": round(min(rc[b] for b in collapse), 3),
+                      "collapse_max": round(max(rc[b] for b in collapse), 3),
+                      "parity_min": round(min(rc[b] for b in parity), 3),
+                      "parity_max": round(max(rc[b] for b in parity), 3)}
 
 
 # ===========================================================================
@@ -525,14 +553,7 @@ def chart_interp():
             ea_off.append(js["mean_ms"] / ea["mean_ms"])
     eager_geo = geomean(ea_off)
 
-    names = {"collatz": "Collatz", "counting_sort": "Counting sort",
-             "string_search": "String search", "array_fill": "Array fill",
-             "strings": "String assembly", "two_sum": "Two-sum",
-             "prefix_sum": "Prefix sum", "fib_iterative": "Iterative fib",
-             "array_reverse": "Array reverse", "fib": "Recursive fib",
-             "binary_trees": "Binary trees", "sieve": "Sieve",
-             "collect": "Collection ops", "quicksort": "Quicksort",
-             "nbody": "N-body"}
+    names = {b["id"]: b["short"] for b in suite.benchmarks()}
     show = [b for b in ["counting_sort", "collatz", "strings", "array_fill",
                         "two_sum", "string_search", "prefix_sum",
                         "fib_iterative", "array_reverse", "fib", "binary_trees",
@@ -602,7 +623,9 @@ def chart_interp():
            "(Node off its ~30ms startup floor). Same naive algorithm, no manual "
            "tuning. i9-14900K, 10 runs.", size=9.5, fill=FAINT)
     return s.done(), {"eager_vs_v8": round(eager_geo, 3),
-                      "coldstart_x": round(js_ms / lo_ms, 2)}
+                      "coldstart_x": round(js_ms / lo_ms, 2),
+                      "coldstart_logos_ms": round(lo_ms, 1),
+                      "coldstart_node_ms": round(js_ms, 1)}
 
 
 FAIR_NAME = {"ints": "Int array", "floats": "Float array",
@@ -900,6 +923,12 @@ def chart_sat_arena():
     return s.done(), {"ours_solved": summ["ours"]["solved"],
                       "kissat_solved": summ["kissat"]["solved"],
                       "cadical_solved": summ["cadical"]["solved"],
+                      "ours_par2": round(summ["ours"]["par2"]),
+                      "kissat_par2": round(summ["kissat"]["par2"]),
+                      "cadical_par2": round(summ["cadical"]["par2"]),
+                      "ours_proofs": summ["ours"]["verified"],
+                      "kissat_proofs": summ["kissat"]["verified"],
+                      "cadical_proofs": summ["cadical"]["verified"],
                       "families": len(cats), "instances": total}
 
 
@@ -921,10 +950,10 @@ EXPECT = {
     "sat-solvers.svg": ["Tseitin parity", "n = 110", "Pigeonhole PHP",
                         "timeout", "Random 3-SAT"],
     "sat-arena.svg": ["SAT arena", "solved", "PAR-2", "CaDiCaL", "proofs"],
-    "overall-vs-c.svg": ["LOGOS — all 32", "same algorithm", "slower than C",
+    "overall-vs-c.svg": [f"LOGOS — all {len(suite.benchmark_ids())}", "same algorithm", "slower than C",
                          "faster than C", "Rust", "Zig"],
-    "compiled-vs-c.svg": ["Binary trees", "× C", "slower than C",
-                          "same-algorithm"],
+    "compiled-vs-c.svg": [*(b["short"] for b in suite.benchmarks() if b["id"] in COLLAPSES), "× C",
+                          "slower than C", "same-algorithm"],
     "interp-vs-v8.svg": ["slower than V8", "faster than V8", "Cold start",
                          "Collatz", "Eager VM"],
     "codec-board.svg": ["all three metrics", "random data", "★",
@@ -951,6 +980,15 @@ def main():
         for want in EXPECT.get(fname, []):
             assert want in svg, f"{fname}: expected text {want!r} missing"
         print(f"wrote {os.path.relpath(path, HERE)}  ({len(svg):,} bytes)  {meta}")
+
+    headlines = {"generated_by": "benchmarks/gen-readme-charts.py",
+                 "input_digest": "fnv1a64",
+                 "inputs": dict(sorted(LOADED.items())),
+                 "charts": summary}
+    with open(os.path.join(CHARTS, "headlines.json"), "w", encoding="utf-8") as f:
+        json.dump(headlines, f, indent=1, sort_keys=True)
+        f.write("\n")
+    print(f"wrote charts/headlines.json  (inputs: {', '.join(sorted(LOADED))})")
 
     if check:
         print("\n[check] all SVGs well-formed UTF-8 XML, no stripped elements, "

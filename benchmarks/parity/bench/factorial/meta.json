@@ -1,0 +1,1 @@
+{"capability":"math.factorial","workload":"sum of factorial((i%12)+1) over 1..n","arg":"4000000","expected":"174318596681381","note":"LOGOS math.lg factorial (auto-imported) vs Python math.factorial; the interpreted loop dominates."}

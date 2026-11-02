@@ -9,8 +9,8 @@
 //!       If UNSAT → proven.
 //! 2. If base fails → Counterexample. If induction fails for all k → InductionFailed.
 
-use crate::ir::{VerifyExpr, VerifyOp};
 use crate::equivalence::Trace;
+use crate::ir::{VerifyExpr, VerifyOp};
 use std::collections::HashMap;
 use z3::{ast::Ast, ast::Bool, ast::Dynamic, ast::Int, SatResult, Solver};
 
@@ -48,7 +48,6 @@ pub fn k_induction(
     signals: &[SignalDecl],
     max_k: u32,
 ) -> KInductionResult {
-
     for k in 1..=max_k {
         // ---- Base case ----
         // Check: init(0) AND T(0,1) AND T(1,2) AND ... AND T(k-2,k-1) AND NOT P(i) for some i
@@ -188,21 +187,23 @@ fn rename_timestep(expr: &VerifyExpr, suffix: &str, step: u32) -> VerifyExpr {
             rename_timestep(l, suffix, step),
             rename_timestep(r, suffix, step),
         ),
-        VerifyExpr::ForAll { vars, body } => VerifyExpr::forall(
-            vars.clone(),
-            rename_timestep(body, suffix, step),
-        ),
-        VerifyExpr::Exists { vars, body } => VerifyExpr::exists(
-            vars.clone(),
-            rename_timestep(body, suffix, step),
-        ),
+        VerifyExpr::ForAll { vars, body } => {
+            VerifyExpr::forall(vars.clone(), rename_timestep(body, suffix, step))
+        }
+        VerifyExpr::Exists { vars, body } => {
+            VerifyExpr::exists(vars.clone(), rename_timestep(body, suffix, step))
+        }
         VerifyExpr::ApplyInt { name, args } => VerifyExpr::apply_int(
             name.clone(),
-            args.iter().map(|a| rename_timestep(a, suffix, step)).collect(),
+            args.iter()
+                .map(|a| rename_timestep(a, suffix, step))
+                .collect(),
         ),
         VerifyExpr::Apply { name, args } => VerifyExpr::apply(
             name.clone(),
-            args.iter().map(|a| rename_timestep(a, suffix, step)).collect(),
+            args.iter()
+                .map(|a| rename_timestep(a, suffix, step))
+                .collect(),
         ),
         VerifyExpr::BitVecConst { width, value } => VerifyExpr::bv_const(*width, *value),
         VerifyExpr::BitVecBinary { op, left, right } => VerifyExpr::bv_binary(
@@ -223,7 +224,11 @@ fn rename_timestep(expr: &VerifyExpr, suffix: &str, step: u32) -> VerifyExpr {
             array: Box::new(rename_timestep(array, suffix, step)),
             index: Box::new(rename_timestep(index, suffix, step)),
         },
-        VerifyExpr::Store { array, index, value } => VerifyExpr::Store {
+        VerifyExpr::Store {
+            array,
+            index,
+            value,
+        } => VerifyExpr::Store {
             array: Box::new(rename_timestep(array, suffix, step)),
             index: Box::new(rename_timestep(index, suffix, step)),
             value: Box::new(rename_timestep(value, suffix, step)),
@@ -335,7 +340,11 @@ pub fn encode_expr_bool(
                     let r = encode_expr_int(right, int_vars).unwrap_or_else(|| Int::from_i64(0));
                     l.le(&r)
                 }
-                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
+                VerifyOp::Add
+                | VerifyOp::Sub
+                | VerifyOp::Mul
+                | VerifyOp::Div
+                | VerifyOp::FloorDiv => {
                     Bool::from_bool(false) // arithmetic ops aren't Bool
                 }
             }
@@ -350,8 +359,9 @@ pub fn encode_expr_bool(
                 return encode_expr_bool(body, bool_vars, int_vars);
             }
             let body_bool = encode_expr_bool(body, bool_vars, int_vars);
-            let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
-                match ty {
+            let bound_consts: Vec<Dynamic> = vars
+                .iter()
+                .map(|(name, ty)| match ty {
                     crate::ir::VerifyType::Int | crate::ir::VerifyType::Object => {
                         Dynamic::from_ast(&Int::new_const(name.as_str()))
                     }
@@ -365,8 +375,8 @@ pub fn encode_expr_bool(
                         Dynamic::from_ast(&z3::ast::BV::new_const(name.as_str(), *w))
                     }
                     _ => Dynamic::from_ast(&Int::new_const(name.as_str())),
-                }
-            }).collect();
+                })
+                .collect();
             let refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
             z3::ast::forall_const(&refs, &[], &body_bool)
         }
@@ -375,8 +385,9 @@ pub fn encode_expr_bool(
                 return encode_expr_bool(body, bool_vars, int_vars);
             }
             let body_bool = encode_expr_bool(body, bool_vars, int_vars);
-            let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
-                match ty {
+            let bound_consts: Vec<Dynamic> = vars
+                .iter()
+                .map(|(name, ty)| match ty {
                     crate::ir::VerifyType::Int | crate::ir::VerifyType::Object => {
                         Dynamic::from_ast(&Int::new_const(name.as_str()))
                     }
@@ -390,8 +401,8 @@ pub fn encode_expr_bool(
                         Dynamic::from_ast(&z3::ast::BV::new_const(name.as_str(), *w))
                     }
                     _ => Dynamic::from_ast(&Int::new_const(name.as_str())),
-                }
-            }).collect();
+                })
+                .collect();
             let refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
             z3::ast::exists_const(&refs, &[], &body_bool)
         }
@@ -400,10 +411,7 @@ pub fn encode_expr_bool(
 }
 
 /// Try to encode an expression as a Z3 Int. Returns None if not integer-typed.
-pub fn encode_expr_int(
-    expr: &VerifyExpr,
-    int_vars: &HashMap<String, Int>,
-) -> Option<Int> {
+pub fn encode_expr_int(expr: &VerifyExpr, int_vars: &HashMap<String, Int>) -> Option<Int> {
     match expr {
         VerifyExpr::Int(n) => Some(Int::from_i64(*n)),
         VerifyExpr::Var(name) => {

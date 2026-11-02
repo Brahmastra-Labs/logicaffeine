@@ -18,7 +18,11 @@ fn compile_to_rust_basic_let() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Basic let should compile: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let x = 5;"), "Should produce let binding: {}", rust);
+    assert!(
+        rust.contains("let x: i64 = 5;"),
+        "Should produce let binding: {}",
+        rust
+    );
 }
 
 #[test]
@@ -27,7 +31,11 @@ fn compile_to_rust_return() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Return should compile: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("return 42;"), "Should produce return: {}", rust);
+    assert!(
+        rust.contains("return 42;"),
+        "Should produce return: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -59,22 +67,36 @@ fn compile_with_while_loop() {
 fn compile_index_expression() {
     let source = "## Main\nLet x be item 1 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Index expression should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Index expression should compile: {:?}",
+        result
+    );
     let rust = result.unwrap();
     // Phase 57: Index now uses LogosIndex trait for polymorphic indexing
-    assert!(rust.contains("LogosIndex::logos_get(&list, 1)"),
-            "Should produce LogosIndex::logos_get call: {}", rust);
+    assert!(
+        rust.contains("LogosIndex::logos_get(&list, 1)"),
+        "Should produce LogosIndex::logos_get call: {}",
+        rust
+    );
 }
 
 #[test]
 fn compile_range_expression() {
     let source = "## Main\nLet x be items 2 through 5 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Range expression should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Range expression should compile: {:?}",
+        result
+    );
     let rust = result.unwrap();
-    // Phase 43D: Slice now uses explicit conversion with dynamic expressions
-    assert!(rust.contains("(2 - 1) as usize..5 as usize"),
-            "Should produce slice with conversion: {}", rust);
+    // A slice goes through the one index/slice rule, its 1-based bounds as written.
+    assert!(
+        rust.contains("logos_slice(2, 5)"),
+        "Should produce the slice through logos_slice: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -87,7 +109,11 @@ fn compile_assert_statement() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Assert should compile: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("assert!"), "Should produce assertion: {}", rust);
+    assert!(
+        rust.contains("panic!(\"Assertion failed\")"),
+        "Should produce assertion: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -96,10 +122,19 @@ fn compile_assert_statement() {
 
 #[test]
 fn compile_call_statement() {
-    let source = "## Main\nCall process with data.";
+    // The `Call <fn> with <arg>` statement lowers to a function call. Both the
+    // callee and the argument must be defined — a call to a name that exists
+    // nowhere is now a check error (`unknown_call_lock`), so the fixture binds
+    // both. The argument is a PARAMETER (`data`), not a literal, so constant
+    // propagation cannot fold it away — the emitted `process(data)` keeps the
+    // surface-form's wiring the real subject of the test.
+    let source = "## To process (x: Int) -> Int:\n    Return x.\n\n## To wire (data: Int) -> Int:\n    Call process with data.\n    Return data.\n\n## Main\nShow wire(7).";
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Call should compile: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("process(data)") || rust.contains("process(&data)"),
-            "Should produce function call: {}", rust);
+    assert!(
+        rust.contains("process(data)") || rust.contains("process(&data)"),
+        "Should produce function call: {}",
+        rust
+    );
 }

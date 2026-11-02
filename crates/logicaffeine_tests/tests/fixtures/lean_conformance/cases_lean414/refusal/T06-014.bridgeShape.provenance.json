@@ -1,0 +1,67 @@
+{
+  "case": "T06-014",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t06_propositions/T06-014_native_decide.lean",
+  "source_sha256": "a515164b610cb4144afe0c16b8c30ce785d9005193d512079f3e76f7a46954f9",
+  "ledger_sha256": "51841566e4b5aa4fa3e22f859f97831fd52a2dd8f6807b9a7c03613b0646751b",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T06_014.bridgeShape"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "82077f90eaac9318c45ec26a61ba3a77a30ee7858efa5447e02933102fe1ef2c",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 164,
+  "refusal": {
+    "root": "T06_014.bridgeShape",
+    "kind": "theorem",
+    "ground_truth": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/lean_ground_truth/T06-014.json",
+    "lean_print_axioms": [
+      "Lean.trustCompiler",
+      "Lean.ofReduceBool"
+    ],
+    "escapes": [
+      "Lean.trustCompiler",
+      "Lean.ofReduceBool"
+    ],
+    "lean_taint": {
+      "Lean.trustCompiler": [
+        "T06_014.bridgeShape",
+        "Lean.reduceBool",
+        "Lean.trustCompiler"
+      ],
+      "Lean.ofReduceBool": [
+        "T06_014.bridgeShape",
+        "Lean.ofReduceBool"
+      ]
+    },
+    "taint_rule": "breadth first from the root along Lean's CollectAxioms edges (definition, theorem, opaque: type and value; inductive: type and constructors; constructor, recursor: type; axiom, quotient: none), each declaration's constants in ascending Lean-name order; the first path found to each escape"
+  }
+}

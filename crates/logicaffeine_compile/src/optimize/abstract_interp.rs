@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use super::writes::{count_writes_of, rebound_names, CalleeGlobals, WriteSet};
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, MatchArm, Pattern, Stmt};
 use crate::intern::Symbol;
@@ -27,12 +28,16 @@ enum Bound {
 impl Bound {
     fn add(&self, other: &Bound) -> Bound {
         match (self, other) {
-            (Bound::Finite(a), Bound::Finite(b)) => {
-                match a.checked_add(*b) {
-                    Some(r) => Bound::Finite(r),
-                    None => if *a > 0 { Bound::PosInf } else { Bound::NegInf },
+            (Bound::Finite(a), Bound::Finite(b)) => match a.checked_add(*b) {
+                Some(r) => Bound::Finite(r),
+                None => {
+                    if *a > 0 {
+                        Bound::PosInf
+                    } else {
+                        Bound::NegInf
+                    }
                 }
-            }
+            },
             (Bound::PosInf, Bound::NegInf) | (Bound::NegInf, Bound::PosInf) => Bound::NegInf,
             (Bound::PosInf, _) | (_, Bound::PosInf) => Bound::PosInf,
             (Bound::NegInf, _) | (_, Bound::NegInf) => Bound::NegInf,
@@ -41,12 +46,16 @@ impl Bound {
 
     fn sub(&self, other: &Bound) -> Bound {
         match (self, other) {
-            (Bound::Finite(a), Bound::Finite(b)) => {
-                match a.checked_sub(*b) {
-                    Some(r) => Bound::Finite(r),
-                    None => if *a > 0 { Bound::PosInf } else { Bound::NegInf },
+            (Bound::Finite(a), Bound::Finite(b)) => match a.checked_sub(*b) {
+                Some(r) => Bound::Finite(r),
+                None => {
+                    if *a > 0 {
+                        Bound::PosInf
+                    } else {
+                        Bound::NegInf
+                    }
                 }
-            }
+            },
             (Bound::PosInf, Bound::PosInf) | (Bound::NegInf, Bound::NegInf) => Bound::NegInf,
             (Bound::PosInf, _) | (_, Bound::NegInf) => Bound::PosInf,
             (Bound::NegInf, _) | (_, Bound::PosInf) => Bound::NegInf,
@@ -131,12 +140,30 @@ impl Bound {
         }
     }
 
+    /// How `self` orders against `other` for every integer the two bounds stand for, when that is decided. An
+    /// infinite bound stands for integers past the word on its side — an endpoint that overflowed i64 is one — so
+    /// two of the same sign are not ordered by their bounds.
+    fn decided(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Bound::PosInf, Bound::PosInf) | (Bound::NegInf, Bound::NegInf) => None,
+            _ => Some(self.cmp_bound(other)),
+        }
+    }
+
     fn min_bound(a: &Bound, b: &Bound) -> Bound {
-        if a.cmp_bound(b) == std::cmp::Ordering::Less { a.clone() } else { b.clone() }
+        if a.cmp_bound(b) == std::cmp::Ordering::Less {
+            a.clone()
+        } else {
+            b.clone()
+        }
     }
 
     fn max_bound(a: &Bound, b: &Bound) -> Bound {
-        if a.cmp_bound(b) == std::cmp::Ordering::Greater { a.clone() } else { b.clone() }
+        if a.cmp_bound(b) == std::cmp::Ordering::Greater {
+            a.clone()
+        } else {
+            b.clone()
+        }
     }
 }
 
@@ -170,20 +197,31 @@ struct Interval {
 
 impl Interval {
     fn exact(n: i64) -> Self {
-        Interval { lo: Bound::Finite(n), hi: Bound::Finite(n) }
+        Interval {
+            lo: Bound::Finite(n),
+            hi: Bound::Finite(n),
+        }
     }
 
     fn top() -> Self {
-        Interval { lo: Bound::NegInf, hi: Bound::PosInf }
+        Interval {
+            lo: Bound::NegInf,
+            hi: Bound::PosInf,
+        }
     }
 
     fn non_negative() -> Self {
-        Interval { lo: Bound::Finite(0), hi: Bound::PosInf }
+        Interval {
+            lo: Bound::Finite(0),
+            hi: Bound::PosInf,
+        }
     }
 
     fn is_exact(&self) -> Option<i64> {
         if let (Bound::Finite(a), Bound::Finite(b)) = (&self.lo, &self.hi) {
-            if a == b { return Some(*a); }
+            if a == b {
+                return Some(*a);
+            }
         }
         None
     }
@@ -191,7 +229,10 @@ impl Interval {
     /// The empty interval `⊥`. Represented as `lo > hi`, which no reachable
     /// program point ever constructs, so it is unambiguous.
     fn bottom() -> Self {
-        Interval { lo: Bound::PosInf, hi: Bound::NegInf }
+        Interval {
+            lo: Bound::PosInf,
+            hi: Bound::NegInf,
+        }
     }
 
     fn is_bottom(&self) -> bool {
@@ -199,8 +240,12 @@ impl Interval {
     }
 
     fn join(&self, other: &Interval) -> Interval {
-        if self.is_bottom() { return other.clone(); }
-        if other.is_bottom() { return self.clone(); }
+        if self.is_bottom() {
+            return other.clone();
+        }
+        if other.is_bottom() {
+            return self.clone();
+        }
         Interval {
             lo: Bound::min_bound(&self.lo, &other.lo),
             hi: Bound::max_bound(&self.hi, &other.hi),
@@ -209,19 +254,29 @@ impl Interval {
 
     /// Intersection `⊓`. Disjoint inputs collapse to `⊥`.
     fn meet(&self, other: &Interval) -> Interval {
-        if self.is_bottom() || other.is_bottom() { return Interval::bottom(); }
+        if self.is_bottom() || other.is_bottom() {
+            return Interval::bottom();
+        }
         let r = Interval {
             lo: Bound::max_bound(&self.lo, &other.lo),
             hi: Bound::min_bound(&self.hi, &other.hi),
         };
-        if r.is_bottom() { Interval::bottom() } else { r }
+        if r.is_bottom() {
+            Interval::bottom()
+        } else {
+            r
+        }
     }
 
     /// Widening `self ▽ other` (self = old, other = new). An unstable bound is
     /// thrown to the corresponding infinity so ascending chains converge.
     fn widen(&self, other: &Interval) -> Interval {
-        if self.is_bottom() { return other.clone(); }
-        if other.is_bottom() { return self.clone(); }
+        if self.is_bottom() {
+            return other.clone();
+        }
+        if other.is_bottom() {
+            return self.clone();
+        }
         // EXODIA's threshold ladder: an unstable bound snaps to the next
         // rung before falling off to ±∞ — loop counters converge to finite
         // bounds (e.g. `While i < 10` keeps i ⊑ [entry, 10ish]) instead of
@@ -255,10 +310,38 @@ impl Interval {
         Interval { lo, hi }
     }
 
+    /// Narrowing `self △ other` (self = the widened post-fixpoint bound, other =
+    /// the body transfer recomputed from it). Only an INFINITE bound is replaced,
+    /// by the recomputed value; a finite bound is kept. Descending from a
+    /// post-fixpoint (`self ⊒ lfp`, so `other = F(self) ⊒ lfp`) every result stays
+    /// a sound over-approximation, and each step fills at least one ±∞ — so a
+    /// bounded run terminates. This is what recovers a modulo-clamped
+    /// accumulator's finite bound (`b = (a + b) % M` re-clamps `b` to `[0, M-1]`
+    /// even though the widener threw its upper to `+∞`): the license the raw-i64
+    /// arithmetic lowering needs to drop the overflow guard.
+    fn narrow(&self, other: &Interval) -> Interval {
+        if self.is_bottom() || other.is_bottom() {
+            return self.clone();
+        }
+        let lo = match self.lo {
+            Bound::NegInf => other.lo.clone(),
+            _ => self.lo.clone(),
+        };
+        let hi = match self.hi {
+            Bound::PosInf => other.hi.clone(),
+            _ => self.hi.clone(),
+        };
+        Interval { lo, hi }
+    }
+
     /// Lattice order `self ⊑ other`, i.e. `self ⊆ other` as concrete sets.
     fn leq(&self, other: &Interval) -> bool {
-        if self.is_bottom() { return true; }
-        if other.is_bottom() { return false; }
+        if self.is_bottom() {
+            return true;
+        }
+        if other.is_bottom() {
+            return false;
+        }
         other.lo.cmp_bound(&self.lo) != std::cmp::Ordering::Greater
             && self.hi.cmp_bound(&other.hi) != std::cmp::Ordering::Greater
     }
@@ -312,9 +395,15 @@ impl Interval {
         // fixpoint can bound `seed / 65536`, `hi / 2`, etc.
         if let Some(k) = other.is_exact() {
             if k > 0 {
-                return Interval { lo: self.lo.div_by(k), hi: self.hi.div_by(k) };
+                return Interval {
+                    lo: self.lo.div_by(k),
+                    hi: self.hi.div_by(k),
+                };
             } else if k < 0 {
-                return Interval { lo: self.hi.div_by(k), hi: self.lo.div_by(k) };
+                return Interval {
+                    lo: self.hi.div_by(k),
+                    hi: self.lo.div_by(k),
+                };
             }
         }
         Interval::top()
@@ -339,8 +428,16 @@ impl Interval {
                 let m = k.checked_abs().unwrap_or(i64::MAX).saturating_sub(1).max(0);
                 let nonneg = matches!(self.lo, Bound::Finite(v) if v >= 0);
                 let nonpos = matches!(self.hi, Bound::Finite(v) if v <= 0);
-                let lo = if nonneg { Bound::Finite(0) } else { Bound::Finite(-m) };
-                let hi = if nonpos { Bound::Finite(0) } else { Bound::Finite(m) };
+                let lo = if nonneg {
+                    Bound::Finite(0)
+                } else {
+                    Bound::Finite(-m)
+                };
+                let hi = if nonpos {
+                    Bound::Finite(0)
+                } else {
+                    Bound::Finite(m)
+                };
                 return Interval { lo, hi };
             }
         }
@@ -357,7 +454,10 @@ impl Interval {
             return Interval::non_negative();
         }
         if nonpos {
-            return Interval { lo: Bound::NegInf, hi: Bound::Finite(0) };
+            return Interval {
+                lo: Bound::NegInf,
+                hi: Bound::Finite(0),
+            };
         }
         Interval::top()
     }
@@ -372,47 +472,117 @@ impl Interval {
         if let Some(k) = other.is_exact() {
             if (0..64).contains(&k) {
                 let k = k as u32;
-                return Interval { lo: self.lo.shr_by(k), hi: self.hi.shr_by(k) };
+                return Interval {
+                    lo: self.lo.shr_by(k),
+                    hi: self.hi.shr_by(k),
+                };
             }
         }
         Interval::top()
     }
 
+    /// The finite non-negative `[lo, hi]` this interval is, if it is one.
+    fn natural(&self) -> Option<(i64, i64)> {
+        match (&self.lo, &self.hi) {
+            (Bound::Finite(lo), Bound::Finite(hi)) if *lo >= 0 && lo <= hi => Some((*lo, *hi)),
+            _ => None,
+        }
+    }
+
+    /// `x & y`. A non-negative operand bounds the result to `[0, it]`, whatever the other: on two words the
+    /// result has no sign bit and no bit the non-negative one lacks, and a big integer takes a mask only when it
+    /// is not negative, leaving its low bits — any other big operand is refused, giving no value at all.
+    fn bitand(&self, other: &Interval) -> Interval {
+        if let (Some(a), Some(b)) = (self.is_exact(), other.is_exact()) {
+            return Interval::exact(a & b);
+        }
+        let cap = |i: &Interval| match (&i.lo, &i.hi) {
+            (Bound::Finite(lo), hi) if *lo >= 0 => Some(hi.clone()),
+            _ => None,
+        };
+        match (cap(self), cap(other)) {
+            (Some(a), Some(b)) => Interval {
+                lo: Bound::Finite(0),
+                hi: Bound::min_bound(&a, &b),
+            },
+            (Some(hi), None) | (None, Some(hi)) => Interval {
+                lo: Bound::Finite(0),
+                hi,
+            },
+            (None, None) => Interval::top(),
+        }
+    }
+
+    /// `x | y` and `x ^ y` on two non-negative words: below the next power of two past both, and for `|` at
+    /// least the larger. A big operand is refused, so it gives no value.
+    fn bitor_or_xor(&self, other: &Interval, or: bool) -> Interval {
+        let (Some((al, ah)), Some((bl, bh))) = (self.natural(), other.natural()) else {
+            return Interval::top();
+        };
+        let width = 64 - (ah.max(bh) as u64).leading_zeros();
+        let ceiling = ((1u128 << width) - 1) as i64;
+        Interval {
+            lo: Bound::Finite(if or { al.max(bl) } else { 0 }),
+            hi: Bound::Finite(ceiling),
+        }
+    }
+
+    /// `x << s` for a constant `s`: the shift is by `s mod 64` (`i64::wrapping_shl`), which is the product by
+    /// `2^(s mod 64)` exactly when no endpoint's product leaves the word; otherwise it wraps, and nothing is known.
+    fn shl(&self, other: &Interval) -> Interval {
+        let (Some(s), Bound::Finite(lo), Bound::Finite(hi)) = (other.is_exact(), &self.lo, &self.hi) else {
+            return Interval::top();
+        };
+        let k = (s as u32) & 63;
+        let scale = |v: i64| i64::try_from((v as i128) << k).ok();
+        match (scale(*lo), scale(*hi)) {
+            (Some(lo), Some(hi)) => Interval {
+                lo: Bound::Finite(lo),
+                hi: Bound::Finite(hi),
+            },
+            _ => Interval::top(),
+        }
+    }
+
     fn definitely_gt(&self, other: &Interval) -> Option<bool> {
-        if self.lo.cmp_bound(&other.hi) == std::cmp::Ordering::Greater {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        if self.lo.decided(&other.hi) == Some(Greater) {
             return Some(true);
         }
-        if self.hi.cmp_bound(&other.lo) != std::cmp::Ordering::Greater {
+        if matches!(self.hi.decided(&other.lo), Some(Less | Equal)) {
             return Some(false);
         }
         None
     }
 
     fn definitely_lt(&self, other: &Interval) -> Option<bool> {
-        if self.hi.cmp_bound(&other.lo) == std::cmp::Ordering::Less {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        if self.hi.decided(&other.lo) == Some(Less) {
             return Some(true);
         }
-        if self.lo.cmp_bound(&other.hi) != std::cmp::Ordering::Less {
+        if matches!(self.lo.decided(&other.hi), Some(Greater | Equal)) {
             return Some(false);
         }
         None
     }
 
     fn definitely_gteq(&self, other: &Interval) -> Option<bool> {
-        if self.lo.cmp_bound(&other.hi) != std::cmp::Ordering::Less {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        if matches!(self.lo.decided(&other.hi), Some(Greater | Equal)) {
             return Some(true);
         }
-        if self.hi.cmp_bound(&other.lo) == std::cmp::Ordering::Less {
+        if self.hi.decided(&other.lo) == Some(Less) {
             return Some(false);
         }
         None
     }
 
     fn definitely_lteq(&self, other: &Interval) -> Option<bool> {
-        if self.hi.cmp_bound(&other.lo) != std::cmp::Ordering::Greater {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        if matches!(self.hi.decided(&other.lo), Some(Less | Equal)) {
             return Some(true);
         }
-        if self.lo.cmp_bound(&other.hi) == std::cmp::Ordering::Greater {
+        if self.lo.decided(&other.hi) == Some(Greater) {
             return Some(false);
         }
         None
@@ -426,8 +596,8 @@ impl Interval {
     }
 
     fn definitely_neq(&self, other: &Interval) -> Option<bool> {
-        if self.hi.cmp_bound(&other.lo) == std::cmp::Ordering::Less
-            || self.lo.cmp_bound(&other.hi) == std::cmp::Ordering::Greater
+        if self.hi.decided(&other.lo) == Some(std::cmp::Ordering::Less)
+            || self.lo.decided(&other.hi) == Some(std::cmp::Ordering::Greater)
         {
             return Some(true);
         }
@@ -439,12 +609,24 @@ impl Interval {
 }
 
 impl AbstractDomain for Interval {
-    fn top() -> Self { Interval::top() }
-    fn bottom() -> Self { Interval::bottom() }
-    fn join(&self, other: &Self) -> Self { Interval::join(self, other) }
-    fn meet(&self, other: &Self) -> Self { Interval::meet(self, other) }
-    fn widen(&self, other: &Self) -> Self { Interval::widen(self, other) }
-    fn leq(&self, other: &Self) -> bool { Interval::leq(self, other) }
+    fn top() -> Self {
+        Interval::top()
+    }
+    fn bottom() -> Self {
+        Interval::bottom()
+    }
+    fn join(&self, other: &Self) -> Self {
+        Interval::join(self, other)
+    }
+    fn meet(&self, other: &Self) -> Self {
+        Interval::meet(self, other)
+    }
+    fn widen(&self, other: &Self) -> Self {
+        Interval::widen(self, other)
+    }
+    fn leq(&self, other: &Self) -> bool {
+        Interval::leq(self, other)
+    }
 }
 
 /// Concrete runtime type of a value, the atoms of the type lattice. Mirrors the
@@ -516,8 +698,12 @@ impl PartialEq for TypeAbstraction {
 }
 
 impl AbstractDomain for TypeAbstraction {
-    fn top() -> Self { TypeAbstraction::Top }
-    fn bottom() -> Self { TypeAbstraction::Bottom }
+    fn top() -> Self {
+        TypeAbstraction::Top
+    }
+    fn bottom() -> Self {
+        TypeAbstraction::Bottom
+    }
 
     fn join(&self, other: &Self) -> Self {
         match (self.tag_set(), other.tag_set()) {
@@ -535,12 +721,14 @@ impl AbstractDomain for TypeAbstraction {
     }
 
     // Finite-height lattice (union capped at UNION_CAP): widening is just join.
-    fn widen(&self, other: &Self) -> Self { self.join(other) }
+    fn widen(&self, other: &Self) -> Self {
+        self.join(other)
+    }
 
     fn leq(&self, other: &Self) -> bool {
         match (self.tag_set(), other.tag_set()) {
-            (_, None) => true,            // everything ⊑ Top
-            (None, Some(_)) => false,     // Top ⊑ only Top
+            (_, None) => true,        // everything ⊑ Top
+            (None, Some(_)) => false, // Top ⊑ only Top
             (Some(a), Some(b)) => a.is_subset(&b),
         }
     }
@@ -577,28 +765,44 @@ fn binop_type(op: BinaryOpKind, l: &TypeAbstraction, r: &TypeAbstraction) -> Typ
         // Sequence concatenation yields a sequence — `Top` keeps it out of numeric reductions.
         SeqConcat => TypeAbstraction::Top,
         Add => {
-            if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
-            else if is(l, TypeTag::Float) && is(r, TypeTag::Float) { conc(TypeTag::Float) }
-            else if is(l, TypeTag::Text) || is(r, TypeTag::Text) { conc(TypeTag::Text) }
-            else { TypeAbstraction::Top }
+            if is(l, TypeTag::Int) && is(r, TypeTag::Int) {
+                conc(TypeTag::Int)
+            } else if is(l, TypeTag::Float) && is(r, TypeTag::Float) {
+                conc(TypeTag::Float)
+            } else if is(l, TypeTag::Text) || is(r, TypeTag::Text) {
+                conc(TypeTag::Text)
+            } else {
+                TypeAbstraction::Top
+            }
         }
         // ExactDivide produces a Rational, never a known Int — `Top` keeps a
         // Rational-derived value out of the integer-only strength reductions.
         // Pow can promote to BigInt (or a Float) — `Top` likewise.
         ExactDivide | Pow => TypeAbstraction::Top,
         Subtract | Multiply | Divide | FloorDivide | Modulo => {
-            if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
-            else if is(l, TypeTag::Float) && is(r, TypeTag::Float) { conc(TypeTag::Float) }
-            else { TypeAbstraction::Top }
+            if is(l, TypeTag::Int) && is(r, TypeTag::Int) {
+                conc(TypeTag::Int)
+            } else if is(l, TypeTag::Float) && is(r, TypeTag::Float) {
+                conc(TypeTag::Float)
+            } else {
+                TypeAbstraction::Top
+            }
         }
         And | Or => {
-            if is(l, TypeTag::Bool) && is(r, TypeTag::Bool) { conc(TypeTag::Bool) }
-            else if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
-            else { TypeAbstraction::Top }
+            if is(l, TypeTag::Bool) && is(r, TypeTag::Bool) {
+                conc(TypeTag::Bool)
+            } else if is(l, TypeTag::Int) && is(r, TypeTag::Int) {
+                conc(TypeTag::Int)
+            } else {
+                TypeAbstraction::Top
+            }
         }
         BitXor | Shl | Shr => {
-            if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
-            else { TypeAbstraction::Top }
+            if is(l, TypeTag::Int) && is(r, TypeTag::Int) {
+                conc(TypeTag::Int)
+            } else {
+                TypeAbstraction::Top
+            }
         }
     }
 }
@@ -624,6 +828,9 @@ fn eval_type(
         },
         Expr::Length { .. } => TypeAbstraction::Concrete(TypeTag::Int),
         Expr::Contains { .. } => TypeAbstraction::Concrete(TypeTag::Bool),
+        // A capacity is an allocation hint, not part of the value's type.
+        // Keep every type-driven optimization identical to the unhinted form.
+        Expr::WithCapacity { value, .. } => eval_type(value, types, fn_returns, elem_type),
         // A call's DECLARED primitive return type is a sound fact: the
         // kernel enforces it dynamically, native signatures statically.
         Expr::Call { function, .. } => fn_returns
@@ -634,7 +841,10 @@ fn eval_type(
         // over every value written into it. Sound because every element IS one
         // of those written values, so they all satisfy the join. Gated OFF by
         // default (`Top`, the prior behaviour) for byte-identical A/B.
-        Expr::Index { collection: Expr::Identifier(sym), .. } if elem_type_enabled() => {
+        Expr::Index {
+            collection: Expr::Identifier(sym),
+            ..
+        } if elem_type_enabled() => {
             let t = elem_type.get(sym).cloned().unwrap_or(TypeAbstraction::Top);
             if !matches!(t, TypeAbstraction::Top) {
                 crate::optimize::mark_fired(crate::optimization::Opt::ElemType);
@@ -669,7 +879,9 @@ enum CollectionShape {
 
 impl CollectionShape {
     /// A freshly constructed (`a new Seq/Set/Map`) collection is empty.
-    fn empty_collection() -> Self { CollectionShape::Empty }
+    fn empty_collection() -> Self {
+        CollectionShape::Empty
+    }
 
     /// Canonical size bounds `(lo, hi)`; `hi == None` is unbounded above,
     /// `None` overall is `Bottom`.
@@ -733,8 +945,12 @@ impl PartialEq for CollectionShape {
 }
 
 impl AbstractDomain for CollectionShape {
-    fn top() -> Self { CollectionShape::Top }
-    fn bottom() -> Self { CollectionShape::Bottom }
+    fn top() -> Self {
+        CollectionShape::Top
+    }
+    fn bottom() -> Self {
+        CollectionShape::Bottom
+    }
 
     fn join(&self, other: &Self) -> Self {
         match (self.bounds(), other.bounds()) {
@@ -832,8 +1048,12 @@ impl Nullability {
 }
 
 impl AbstractDomain for Nullability {
-    fn top() -> Self { Nullability::Maybe }
-    fn bottom() -> Self { Nullability::Bottom }
+    fn top() -> Self {
+        Nullability::Maybe
+    }
+    fn bottom() -> Self {
+        Nullability::Bottom
+    }
 
     fn join(&self, other: &Self) -> Self {
         use Nullability::*;
@@ -858,7 +1078,9 @@ impl AbstractDomain for Nullability {
     }
 
     // Four-element lattice → widening is join.
-    fn widen(&self, other: &Self) -> Self { self.join(other) }
+    fn widen(&self, other: &Self) -> Self {
+        self.join(other)
+    }
 
     fn leq(&self, other: &Self) -> bool {
         *self == Nullability::Bottom || *other == Nullability::Maybe || self == other
@@ -903,7 +1125,11 @@ impl AliasInfo {
             AliasReach::Bottom => AliasInfo::Bottom,
             AliasReach::Anything => AliasInfo::Top,
             AliasReach::Finite(s) => {
-                if s.is_empty() { AliasInfo::Unique } else { AliasInfo::MayAlias(s) }
+                if s.is_empty() {
+                    AliasInfo::Unique
+                } else {
+                    AliasInfo::MayAlias(s)
+                }
             }
         }
     }
@@ -921,8 +1147,12 @@ impl PartialEq for AliasInfo {
 }
 
 impl AbstractDomain for AliasInfo {
-    fn top() -> Self { AliasInfo::Top }
-    fn bottom() -> Self { AliasInfo::Bottom }
+    fn top() -> Self {
+        AliasInfo::Top
+    }
+    fn bottom() -> Self {
+        AliasInfo::Bottom
+    }
 
     fn join(&self, other: &Self) -> Self {
         match (self.reach(), other.reach()) {
@@ -947,7 +1177,9 @@ impl AbstractDomain for AliasInfo {
     }
 
     // May-alias sets are bounded by the program's variables → widen is join.
-    fn widen(&self, other: &Self) -> Self { self.join(other) }
+    fn widen(&self, other: &Self) -> Self {
+        self.join(other)
+    }
 
     fn leq(&self, other: &Self) -> bool {
         match (self.reach(), other.reach()) {
@@ -1070,6 +1302,8 @@ impl AliasGraph {
 
 #[derive(Clone)]
 struct AbstractState {
+    /// What any call in this program may write — shared by every state cloned from the entry.
+    globals: std::rc::Rc<CalleeGlobals>,
     vars: HashMap<Symbol, Interval>,
     lengths: HashMap<Symbol, Interval>,
     /// Per-collection ELEMENT interval: a bound satisfied by EVERY element of
@@ -1082,11 +1316,45 @@ struct AbstractState {
 
 impl AbstractState {
     fn new() -> Self {
+        AbstractState::with_globals(std::rc::Rc::default())
+    }
+
+    fn with_globals(globals: std::rc::Rc<CalleeGlobals>) -> Self {
         AbstractState {
+            globals,
             vars: HashMap::new(),
             lengths: HashMap::new(),
             elem: HashMap::new(),
         }
+    }
+
+    /// What `stmt` may write, with the program's callee-written globals folded in when it calls.
+    fn effects_of(&self, stmt: &Stmt) -> WriteSet {
+        WriteSet::of_stmt(stmt).with_callee_globals(&self.globals)
+    }
+
+    /// What EVALUATING `expr` may write (through the calls it makes).
+    fn effects_of_expr(&self, expr: &Expr) -> WriteSet {
+        WriteSet::of_expr(expr).with_callee_globals(&self.globals)
+    }
+
+    /// Forget every fact a statement with these effects may have made stale: the written variables
+    /// and lengths go to `top` — everything, after foreign code.
+    fn forget(&mut self, effects: &WriteSet) {
+        if effects.is_opaque() {
+            self.forget_all();
+            return;
+        }
+        for sym in effects.symbols() {
+            self.set_var(sym, Interval::top());
+            self.set_length(sym, Interval::top());
+        }
+    }
+
+    fn forget_all(&mut self) {
+        self.vars.clear();
+        self.lengths.clear();
+        self.elem.clear();
     }
 
     fn get_var(&self, sym: &Symbol) -> Interval {
@@ -1098,7 +1366,10 @@ impl AbstractState {
     }
 
     fn get_length(&self, sym: &Symbol) -> Interval {
-        self.lengths.get(sym).cloned().unwrap_or(Interval::non_negative())
+        self.lengths
+            .get(sym)
+            .cloned()
+            .unwrap_or(Interval::non_negative())
     }
 
     fn set_length(&mut self, sym: Symbol, range: Interval) {
@@ -1150,6 +1421,10 @@ fn eval_expr(expr: &Expr, state: &AbstractState) -> Interval {
                 BinaryOpKind::ExactDivide => Interval::top(),
                 BinaryOpKind::Modulo => l.modulo(&r),
                 BinaryOpKind::Shr => l.shr(&r),
+                BinaryOpKind::Shl => l.shl(&r),
+                BinaryOpKind::BitAnd => l.bitand(&r),
+                BinaryOpKind::BitOr => l.bitor_or_xor(&r, true),
+                BinaryOpKind::BitXor => l.bitor_or_xor(&r, false),
                 _ => Interval::top(),
             }
         }
@@ -1197,118 +1472,82 @@ fn eval_condition(cond: &Expr, state: &AbstractState) -> Option<bool> {
 }
 
 fn narrow_state(cond: &Expr, state: &mut AbstractState) {
-    match cond {
-        Expr::BinaryOp { op: BinaryOpKind::Gt, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    if let Some(new_lo) = n.checked_add(1) {
-                        state.set_var(*sym, Interval {
-                            lo: Bound::max_bound(&cur.lo, &Bound::Finite(new_lo)),
-                            hi: cur.hi,
-                        });
-                    }
-                }
-            }
-        }
-        Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    if let Some(new_hi) = n.checked_sub(1) {
-                        state.set_var(*sym, Interval {
-                            lo: cur.lo,
-                            hi: Bound::min_bound(&cur.hi, &Bound::Finite(new_hi)),
-                        });
-                    }
-                }
-            }
-        }
-        Expr::BinaryOp { op: BinaryOpKind::GtEq, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    state.set_var(*sym, Interval {
-                        lo: Bound::max_bound(&cur.lo, &Bound::Finite(n)),
-                        hi: cur.hi,
-                    });
-                }
-            }
-        }
-        Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    state.set_var(*sym, Interval {
-                        lo: cur.lo,
-                        hi: Bound::min_bound(&cur.hi, &Bound::Finite(n)),
-                    });
-                }
-            }
-        }
-        _ => {}
-    }
+    narrow_by_comparison(cond, state, false);
 }
 
 fn narrow_state_negated(cond: &Expr, state: &mut AbstractState) {
-    match cond {
-        Expr::BinaryOp { op: BinaryOpKind::Gt, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    state.set_var(*sym, Interval {
-                        lo: cur.lo,
-                        hi: Bound::min_bound(&cur.hi, &Bound::Finite(n)),
-                    });
-                }
-            }
+    narrow_by_comparison(cond, state, true);
+}
+
+/// Narrow the names a comparison compares by what its holding (or, `negated`, its failing) says, over intervals. The
+/// relation that holds is put as `small < big` or `small <= big`: a name on the small side is at most the big side's
+/// largest value (one less when strict), a name on the big side at least the small side's smallest (one more when
+/// strict), and an equality that holds puts each name inside the other side's interval. Sound whatever the other
+/// side's interval is, since a fact that holds only discards values it excludes: `j <= limit` bounds `j` by `limit`'s
+/// own bound, where only a constant `limit` used to.
+fn narrow_by_comparison(cond: &Expr, state: &mut AbstractState, negated: bool) {
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return;
+    };
+    let holds = match (op, negated) {
+        (BinaryOpKind::Lt, false) | (BinaryOpKind::GtEq, true) => BinaryOpKind::Lt,
+        (BinaryOpKind::LtEq, false) | (BinaryOpKind::Gt, true) => BinaryOpKind::LtEq,
+        (BinaryOpKind::Gt, false) | (BinaryOpKind::LtEq, true) => BinaryOpKind::Gt,
+        (BinaryOpKind::GtEq, false) | (BinaryOpKind::Lt, true) => BinaryOpKind::GtEq,
+        (BinaryOpKind::Eq, false) | (BinaryOpKind::NotEq, true) => BinaryOpKind::Eq,
+        _ => return,
+    };
+    let (l, r) = (eval_expr(left, state), eval_expr(right, state));
+    let cap = |state: &mut AbstractState, e: &Expr, hi: &Bound| {
+        if let Expr::Identifier(sym) = e {
+            let cur = state.get_var(sym);
+            state.set_var(
+                *sym,
+                Interval {
+                    lo: cur.lo.clone(),
+                    hi: Bound::min_bound(&cur.hi, hi),
+                },
+            );
         }
-        Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    state.set_var(*sym, Interval {
-                        lo: Bound::max_bound(&cur.lo, &Bound::Finite(n)),
-                        hi: cur.hi,
-                    });
-                }
-            }
+    };
+    let floor = |state: &mut AbstractState, e: &Expr, lo: &Bound| {
+        if let Expr::Identifier(sym) = e {
+            let cur = state.get_var(sym);
+            state.set_var(
+                *sym,
+                Interval {
+                    lo: Bound::max_bound(&cur.lo, lo),
+                    hi: cur.hi.clone(),
+                },
+            );
         }
-        Expr::BinaryOp { op: BinaryOpKind::GtEq, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    if let Some(new_hi) = n.checked_sub(1) {
-                        state.set_var(*sym, Interval {
-                            lo: cur.lo,
-                            hi: Bound::min_bound(&cur.hi, &Bound::Finite(new_hi)),
-                        });
-                    }
-                }
-            }
+    };
+    // A strict bound moves by one; at the very edge of i64 there is no such value, and nothing is narrowed.
+    let step = |b: &Bound, by: i64| -> Option<Bound> {
+        match b {
+            Bound::Finite(n) => n.checked_add(by).map(Bound::Finite),
+            other => Some(other.clone()),
         }
-        Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => {
-            if let Expr::Identifier(sym) = left {
-                let r = eval_expr(right, state);
-                if let Some(n) = r.is_exact() {
-                    let cur = state.get_var(sym);
-                    if let Some(new_lo) = n.checked_add(1) {
-                        state.set_var(*sym, Interval {
-                            lo: Bound::max_bound(&cur.lo, &Bound::Finite(new_lo)),
-                            hi: cur.hi,
-                        });
-                    }
-                }
-            }
+    };
+    let (small, big, small_iv, big_iv, strict) = match holds {
+        BinaryOpKind::Lt => (left, right, &l, &r, true),
+        BinaryOpKind::LtEq => (left, right, &l, &r, false),
+        BinaryOpKind::Gt => (right, left, &r, &l, true),
+        BinaryOpKind::GtEq => (right, left, &r, &l, false),
+        _ => {
+            cap(state, left, &r.hi);
+            floor(state, left, &r.lo);
+            cap(state, right, &l.hi);
+            floor(state, right, &l.lo);
+            return;
         }
-        _ => {}
+    };
+    let by = if strict { 1 } else { 0 };
+    if let Some(hi) = step(&big_iv.hi, -by) {
+        cap(state, small, &hi);
+    }
+    if let Some(lo) = step(&small_iv.lo, by) {
+        floor(state, big, &lo);
     }
 }
 
@@ -1317,7 +1556,8 @@ pub fn abstract_interp_stmts<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
 ) -> Vec<Stmt<'a>> {
-    let mut state = AbstractState::new();
+    let mut state =
+        AbstractState::with_globals(std::rc::Rc::new(CalleeGlobals::of_program(&stmts)));
     interp_block(stmts, &mut state, expr_arena, stmt_arena)
 }
 
@@ -1330,23 +1570,42 @@ fn interp_block<'a>(
     let mut result = Vec::with_capacity(stmts.len());
 
     for stmt in stmts {
+        // Everything this statement may write — its nested blocks and the globals its calls reach included.
+        let effects = state.effects_of(&stmt);
         match stmt {
-            Stmt::Let { var, ty, value, mutable } => {
+            Stmt::Let {
+                var,
+                ty,
+                value,
+                mutable,
+            } => {
+                // A call in the value runs before `var` takes it: what it may write is unknown from here on.
+                let value_effects = state.effects_of_expr(value);
+                state.forget(&value_effects);
                 let range = eval_expr(value, state);
                 state.set_var(var, range);
                 if matches!(value, Expr::New { .. }) {
                     state.set_length(var, Interval::exact(0));
                 }
-                result.push(Stmt::Let { var, ty, value, mutable });
+                result.push(Stmt::Let {
+                    var,
+                    ty,
+                    value,
+                    mutable,
+                });
             }
 
             Stmt::Set { target, value } => {
+                let value_effects = state.effects_of_expr(value);
+                state.forget(&value_effects);
                 let range = eval_expr(value, state);
                 state.set_var(target, range);
                 result.push(Stmt::Set { target, value });
             }
 
             Stmt::Push { value, collection } => {
+                let value_effects = state.effects_of_expr(value);
+                state.forget(&value_effects);
                 if let Expr::Identifier(sym) = collection {
                     let cur_len = state.get_length(sym);
                     state.set_length(*sym, cur_len.add(&Interval::exact(1)));
@@ -1354,13 +1613,24 @@ fn interp_block<'a>(
                 result.push(Stmt::Push { value, collection });
             }
 
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let cond_effects = state.effects_of_expr(cond);
+                state.forget(&cond_effects);
                 if let Some(val) = eval_condition(cond, state) {
                     let new_cond = expr_arena.alloc(Expr::Literal(Literal::Boolean(val)));
                     if val {
                         let mut then_state = state.clone();
                         narrow_state(cond, &mut then_state);
-                        let new_then = interp_nested_block(then_block, &mut then_state, expr_arena, stmt_arena);
+                        let new_then = interp_nested_block(
+                            then_block,
+                            &mut then_state,
+                            expr_arena,
+                            stmt_arena,
+                        );
                         *state = then_state;
                         result.push(Stmt::If {
                             cond: new_cond,
@@ -1371,7 +1641,8 @@ fn interp_block<'a>(
                         if let Some(eb) = else_block {
                             let mut else_state = state.clone();
                             narrow_state_negated(cond, &mut else_state);
-                            let new_else = interp_nested_block(eb, &mut else_state, expr_arena, stmt_arena);
+                            let new_else =
+                                interp_nested_block(eb, &mut else_state, expr_arena, stmt_arena);
                             *state = else_state;
                             result.push(Stmt::If {
                                 cond: new_cond,
@@ -1389,7 +1660,8 @@ fn interp_block<'a>(
                 } else {
                     let mut then_state = state.clone();
                     narrow_state(cond, &mut then_state);
-                    let new_then = interp_nested_block(then_block, &mut then_state, expr_arena, stmt_arena);
+                    let new_then =
+                        interp_nested_block(then_block, &mut then_state, expr_arena, stmt_arena);
 
                     let (new_else, else_state) = if let Some(eb) = else_block {
                         let mut es = state.clone();
@@ -1407,21 +1679,27 @@ fn interp_block<'a>(
                         join_states(state, &then_state, &orig);
                     }
 
-                    result.push(Stmt::If { cond, then_block: new_then, else_block: new_else });
+                    result.push(Stmt::If {
+                        cond,
+                        then_block: new_then,
+                        else_block: new_else,
+                    });
                 }
             }
 
-            Stmt::While { cond, body, decreasing } => {
+            Stmt::While {
+                cond,
+                body,
+                decreasing,
+            } => {
                 let mut loop_state = state.clone();
 
-                let loop_writes = collect_writes(body);
-                let bounded_var = extract_bounded_var(cond);
-
-                // Widen all loop-written variables (including the counter)
-                // to their full possible range before analyzing the body.
-                for w in &loop_writes {
-                    loop_state.set_var(*w, Interval::top());
-                }
+                // Widen everything the loop may write — variables (the counter included), lengths, and
+                // the globals any call in it reaches — to their full range before analyzing the body: a
+                // loop carries them across iterations, so every pre-loop fact about them is stale from
+                // the first iteration on (the Oracle must not fold a `(length of xs) > 0` guard against
+                // a stale pre-loop length). Foreign code in the body forgets everything.
+                loop_state.forget(&effects);
 
                 // Now narrow the loop state based on the condition.
                 // For the bounded variable (counter), this gives it the range
@@ -1431,82 +1709,125 @@ fn interp_block<'a>(
 
                 let new_body = interp_nested_block(body, &mut loop_state, expr_arena, stmt_arena);
 
-                // After loop: condition is false (loop exited)
-                narrow_state_negated(cond, state);
-                // Variables written in loop body get widened to top
-                for w in &loop_writes {
-                    if Some(*w) != bounded_var {
-                        state.set_var(*w, Interval::top());
-                    }
+                // After the loop: whatever it may have written holds what its last iteration left, so it is
+                // unknown here; and the loop ended because its condition failed, unless a `Break` of its own
+                // ended it with the condition still holding.
+                state.forget(&effects);
+                if !crate::loop_shape::leaves_by_break(body) {
+                    narrow_state_negated(cond, state);
                 }
 
-                result.push(Stmt::While { cond, body: new_body, decreasing });
+                result.push(Stmt::While {
+                    cond,
+                    body: new_body,
+                    decreasing,
+                });
             }
 
-            Stmt::Repeat { pattern, iterable, body } => {
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
                 let mut loop_state = state.clone();
 
                 if let Pattern::Identifier(var) = &pattern {
                     loop_state.set_var(*var, Interval::top());
                 }
 
-                let loop_writes = collect_writes(body);
-                for w in &loop_writes {
-                    loop_state.set_var(*w, Interval::top());
-                }
+                loop_state.forget(&effects);
 
                 let new_body = interp_nested_block(body, &mut loop_state, expr_arena, stmt_arena);
 
-                for w in &loop_writes {
-                    state.set_var(*w, Interval::top());
-                }
+                state.forget(&effects);
 
-                result.push(Stmt::Repeat { pattern, iterable, body: new_body });
-            }
-
-            Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
-                let mut func_state = AbstractState::new();
-                let new_body = interp_nested_block(body, &mut func_state, expr_arena, stmt_arena);
-                result.push(Stmt::FunctionDef {
-                    name, params, generics,
+                result.push(Stmt::Repeat {
+                    pattern,
+                    iterable,
                     body: new_body,
-                    return_type, is_native, native_path, is_exported, export_target, opt_flags,
                 });
             }
 
-            Stmt::Inspect { target, arms, has_otherwise } => {
-                let new_arms: Vec<_> = arms.into_iter().map(|arm| {
-                    let mut arm_state = state.clone();
-                    let new_body = interp_nested_block(arm.body, &mut arm_state, expr_arena, stmt_arena);
-                    crate::ast::stmt::MatchArm {
-                        enum_name: arm.enum_name,
-                        variant: arm.variant,
-                        bindings: arm.bindings,
-                        body: new_body,
-                    }
-                }).collect();
-                result.push(Stmt::Inspect { target, arms: new_arms, has_otherwise });
+            Stmt::FunctionDef {
+                name,
+                params,
+                generics,
+                body,
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
+            } => {
+                let mut func_state = AbstractState::with_globals(state.globals.clone());
+                let new_body = interp_nested_block(body, &mut func_state, expr_arena, stmt_arena);
+                result.push(Stmt::FunctionDef {
+                    name,
+                    params,
+                    generics,
+                    body: new_body,
+                    return_type,
+                    is_native,
+                    native_path,
+                    is_exported,
+                    export_target,
+                    opt_flags,
+                });
+            }
+
+            Stmt::Inspect {
+                target,
+                arms,
+                has_otherwise,
+            } => {
+                let new_arms: Vec<_> = arms
+                    .into_iter()
+                    .map(|arm| {
+                        let mut arm_state = state.clone();
+                        let new_body =
+                            interp_nested_block(arm.body, &mut arm_state, expr_arena, stmt_arena);
+                        crate::ast::stmt::MatchArm {
+                            enum_name: arm.enum_name,
+                            variant: arm.variant,
+                            bindings: arm.bindings,
+                            body: new_body,
+                        }
+                    })
+                    .collect();
+                // Whatever any arm may have written is unknown after the `Inspect`.
+                state.forget(&effects);
+                result.push(Stmt::Inspect {
+                    target,
+                    arms: new_arms,
+                    has_otherwise,
+                });
             }
 
             Stmt::Zone { .. } => {
                 // Don't analyze inside zones — zone-scoped bindings must be
                 // preserved for escape analysis (same as propagation pass).
+                state.forget(&effects);
                 result.push(stmt);
             }
 
             Stmt::Concurrent { tasks } => {
                 let mut sub_state = state.clone();
                 let new_tasks = interp_nested_block(tasks, &mut sub_state, expr_arena, stmt_arena);
+                state.forget(&effects);
                 result.push(Stmt::Concurrent { tasks: new_tasks });
             }
 
             Stmt::Parallel { tasks } => {
                 let mut sub_state = state.clone();
                 let new_tasks = interp_nested_block(tasks, &mut sub_state, expr_arena, stmt_arena);
+                state.forget(&effects);
                 result.push(Stmt::Parallel { tasks: new_tasks });
             }
 
+            // Every other statement passes through; whatever it may write is unknown afterwards.
             other => {
+                state.forget(&effects);
                 result.push(other);
             }
         }
@@ -1540,8 +1861,16 @@ fn join_states(out: &mut AbstractState, a: &AbstractState, b: &AbstractState) {
     len_keys.extend(b.lengths.keys().cloned());
 
     for key in len_keys {
-        let a_len = a.lengths.get(&key).cloned().unwrap_or(Interval::non_negative());
-        let b_len = b.lengths.get(&key).cloned().unwrap_or(Interval::non_negative());
+        let a_len = a
+            .lengths
+            .get(&key)
+            .cloned()
+            .unwrap_or(Interval::non_negative());
+        let b_len = b
+            .lengths
+            .get(&key)
+            .cloned()
+            .unwrap_or(Interval::non_negative());
         out.set_length(key, a_len.join(&b_len));
     }
 
@@ -1555,47 +1884,6 @@ fn join_states(out: &mut AbstractState, a: &AbstractState, b: &AbstractState) {
         let a_el = a.get_elem(&key);
         let b_el = b.get_elem(&key);
         out.elem.insert(key, a_el.join(&b_el));
-    }
-}
-
-fn collect_writes(block: &[Stmt]) -> Vec<Symbol> {
-    let mut writes = Vec::new();
-    for stmt in block {
-        collect_writes_stmt(stmt, &mut writes);
-    }
-    writes
-}
-
-fn collect_writes_stmt(stmt: &Stmt, writes: &mut Vec<Symbol>) {
-    match stmt {
-        Stmt::Set { target, .. } => {
-            if !writes.contains(target) {
-                writes.push(*target);
-            }
-        }
-        Stmt::If { then_block, else_block, .. } => {
-            for s in *then_block { collect_writes_stmt(s, writes); }
-            if let Some(eb) = else_block {
-                for s in *eb { collect_writes_stmt(s, writes); }
-            }
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            for s in *body { collect_writes_stmt(s, writes); }
-        }
-        _ => {}
-    }
-}
-
-fn extract_bounded_var(cond: &Expr) -> Option<Symbol> {
-    match cond {
-        Expr::BinaryOp { op: BinaryOpKind::Lt | BinaryOpKind::LtEq | BinaryOpKind::Gt | BinaryOpKind::GtEq, left, .. } => {
-            if let Expr::Identifier(sym) = left {
-                Some(*sym)
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
 
@@ -1694,6 +1982,8 @@ pub(crate) struct RichAbstractState {
     coll_vars: std::collections::HashSet<Symbol>,
     /// DECLARED primitive return types per function — calls produce facts.
     fn_returns: std::rc::Rc<HashMap<Symbol, TypeTag>>,
+    /// What any call in this program may write — the names a `Call` makes unknown.
+    callee_globals: std::rc::Rc<CalleeGlobals>,
     /// Symbolic length LOWER bound per collection: `arr -> (n, off)` means
     /// `length(arr) >= n + off`, where `n` is a program variable. Established
     /// by a counted build loop (`while c < n: push to arr` once per iteration
@@ -1757,6 +2047,24 @@ pub(crate) struct RichAbstractState {
     /// [`oracle_analyze_with_entry_guards`]; copied by `clone()` into branch
     /// states, so it survives the whole body walk.
     aot_entry_guard: bool,
+    /// The entry-guarded function's precondition lower bounds `(param, lb)` — `lo>=1`,
+    /// `hi>=1`, which `codegen::entry_guard`'s `assert!` enforces at runtime. Carried
+    /// ON THE STATE (like `aot_entry_guard`) so it reaches EVERY proof context: the
+    /// loop fixpoint's `inside = st.clone()` copies it into the loop's record-state,
+    /// where a thread-local was empty. Injected into every affine proof system; sound
+    /// because the runtime guard aborts if a caller violates the precondition.
+    entry_guard_lowers: Vec<(Symbol, i64)>,
+    /// The affine equalities among the function's integers and sequence lengths here ([`super::karr`]).
+    karr: super::karr::AffineSpace,
+    /// Names bound to a sequence (`a new Seq`, a list literal, a sequence parameter, a copy of one, or a call that
+    /// returns one as long as its argument): the collections `karr` tracks a length for, since a store into a
+    /// sequence keeps its length and a store into a map may not.
+    seq_vars: std::collections::HashSet<Symbol>,
+    /// The type names `a new …` builds a sequence from, when the walk has an interner.
+    seq_types: std::rc::Rc<std::collections::HashSet<Symbol>>,
+    /// Functions that return a sequence as long as the one handed to them at a parameter position
+    /// ([`length_preserving_functions`]).
+    len_summaries: std::rc::Rc<HashMap<Symbol, usize>>,
 }
 
 impl RichAbstractState {
@@ -1769,6 +2077,7 @@ impl RichAbstractState {
             aliases: AliasGraph::new(),
             coll_vars: std::collections::HashSet::new(),
             fn_returns: std::rc::Rc::new(HashMap::new()),
+            callee_globals: std::rc::Rc::new(CalleeGlobals::default()),
             length_def: HashMap::new(),
             param_colls: std::collections::HashSet::new(),
             scalar_def: HashMap::new(),
@@ -1777,7 +2086,49 @@ impl RichAbstractState {
             elem_type: HashMap::new(),
             scalar_lower: HashMap::new(),
             aot_entry_guard: false,
+            entry_guard_lowers: Vec::new(),
+            karr: super::karr::AffineSpace::top(),
+            seq_vars: std::collections::HashSet::new(),
+            seq_types: std::rc::Rc::new(std::collections::HashSet::new()),
+            len_summaries: std::rc::Rc::new(HashMap::new()),
         }
+    }
+
+    /// Every equality through `sym`'s value or its length is gone.
+    fn karr_forget(&mut self, sym: Symbol) {
+        self.karr.forget(super::affine::var_index(sym));
+        self.karr.forget(super::affine::len_index(sym));
+    }
+
+    /// The collection `c` may have changed length: what any other name for its allocation says about its own length
+    /// is gone. The names for one allocation are the alias graph's linked names (as the length intervals take them,
+    /// [`rich_grow`]); a resize through a handle of unknown provenance reaches every other such handle too.
+    fn karr_resized(&mut self, c: Symbol) {
+        let names = self.aliases.may_alias(c);
+        let tainted = &self.aliases.tainted;
+        let unknown = tainted.contains(&c);
+        let stale: Vec<i64> = self
+            .karr
+            .tracked()
+            .iter()
+            .copied()
+            .filter(|&d| {
+                super::affine::len_owner(d).is_some_and(|a| {
+                    a != c && (names.contains(&a) || (unknown && tainted.contains(&a)))
+                })
+            })
+            .collect();
+        for d in stale {
+            self.karr.forget(d);
+        }
+    }
+
+    /// `sym` may hold anything now, a collection of any length sharing any allocation it shared: nothing `karr`
+    /// says through it holds.
+    fn karr_unknown(&mut self, sym: Symbol) {
+        self.karr_resized(sym);
+        self.karr_forget(sym);
+        self.seq_vars.remove(&sym);
     }
 
     /// The product fact known about `sym` at this point.
@@ -1791,9 +2142,21 @@ impl RichAbstractState {
         };
         AbstractValue {
             interval: self.intervals.get_var(&sym),
-            ty: self.types.get(&sym).cloned().unwrap_or(TypeAbstraction::Top),
-            shape: self.shapes.get(&sym).cloned().unwrap_or(CollectionShape::Top),
-            nullability: self.nullability.get(&sym).cloned().unwrap_or(Nullability::Maybe),
+            ty: self
+                .types
+                .get(&sym)
+                .cloned()
+                .unwrap_or(TypeAbstraction::Top),
+            shape: self
+                .shapes
+                .get(&sym)
+                .cloned()
+                .unwrap_or(CollectionShape::Top),
+            nullability: self
+                .nullability
+                .get(&sym)
+                .cloned()
+                .unwrap_or(Nullability::Maybe),
             alias,
         }
     }
@@ -1801,7 +2164,62 @@ impl RichAbstractState {
     /// Forget every scalar fact about `sym` (used when its value is overwritten
     /// or produced by an operation we do not model). Rebinding can change
     /// KIND too, so the collection proof drops with it.
+    /// A call ran: every global some callee assigns is unknown now (everything is, if a callee holds
+    /// raw foreign code).
+    fn forget_callee_globals(&mut self) {
+        let globals = self.callee_globals.clone();
+        if globals.opaque {
+            self.forget_everything();
+            return;
+        }
+        for g in &globals.symbols {
+            self.karr_unknown(*g);
+            self.invalidate_var(*g);
+            self.aliases.unlink(*g);
+            self.intervals.set_length(*g, Interval::non_negative());
+            self.length_def.remove(g);
+        }
+    }
+
+    /// Raw foreign code ran: no fact about any name survives. Declared function return types, the
+    /// parameter-collection set, and the entry-guard mode are structural and stay.
+    fn forget_everything(&mut self) {
+        self.intervals.forget_all();
+        self.types.clear();
+        self.shapes.clear();
+        self.nullability.clear();
+        self.aliases = AliasGraph::new();
+        self.coll_vars.clear();
+        self.length_def.clear();
+        self.scalar_def.clear();
+        self.scalar_upper.clear();
+        self.elem_upper.clear();
+        self.elem_type.clear();
+        self.scalar_lower.clear();
+        self.entry_guard_lowers.clear();
+        self.karr = super::karr::AffineSpace::top();
+        self.seq_vars.clear();
+    }
+
+    /// Nothing this state says about the names in `written` holds any longer: each may hold anything, alias
+    /// anything, have any length, and no affine definition names or mentions it.
+    fn forget_written(&mut self, written: &[Symbol]) {
+        for &m in written {
+            self.karr_unknown(m);
+            self.invalidate_var(m);
+            self.aliases.unlink(m);
+            self.intervals.set_length(m, Interval::non_negative());
+            self.length_def.remove(&m);
+            let mi = m.index() as i64;
+            self.scalar_def.remove(&m);
+            self.scalar_def
+                .retain(|_, e| !e.coefficients.contains_key(&mi));
+        }
+    }
+
     fn invalidate_var(&mut self, sym: Symbol) {
+        self.karr_forget(sym);
+        self.seq_vars.remove(&sym);
         self.intervals.set_var(sym, Interval::top());
         self.types.insert(sym, TypeAbstraction::Top);
         self.shapes.insert(sym, CollectionShape::Top);
@@ -1810,12 +2228,15 @@ impl RichAbstractState {
         self.intervals.clear_elem(&sym);
         let si = sym.index() as i64;
         self.scalar_upper.remove(&sym);
-        self.scalar_upper.retain(|_, e| !e.coefficients.contains_key(&si));
+        self.scalar_upper
+            .retain(|_, e| !e.coefficients.contains_key(&si));
         self.elem_upper.remove(&sym);
-        self.elem_upper.retain(|_, e| !e.coefficients.contains_key(&si));
+        self.elem_upper
+            .retain(|_, e| !e.coefficients.contains_key(&si));
         self.elem_type.remove(&sym);
         self.scalar_lower.remove(&sym);
-        self.scalar_lower.retain(|_, e| !e.coefficients.contains_key(&si));
+        self.scalar_lower
+            .retain(|_, e| !e.coefficients.contains_key(&si));
     }
 }
 
@@ -1852,6 +2273,9 @@ pub struct VarProvenFacts {
 /// lost exactly where sharing occurs).
 #[derive(Default)]
 pub struct OracleFacts {
+    /// How many loop fixpoints are open on the current walk — [`rich_walk_loop`] bounds the nesting
+    /// at which a loop still gets its own fixpoint.
+    loop_depth: usize,
     exprs: HashMap<usize, AbstractValue>,
     /// Length interval of the collection an Identifier expression denotes,
     /// at that occurrence — the bounds-elision query's other half.
@@ -1920,11 +2344,17 @@ pub struct OracleFacts {
     /// range `[A, B]` (so the key was definitely written). When every key site of
     /// a dense map is here, the map needs no presence bitset (`…NoPresence`).
     map_key_covered: HashMap<usize, Symbol>,
+    /// The affine equalities ([`super::karr`]) holding where each index expression (by address) is evaluated,
+    /// joined over every recorded visit: what relates a store's index to the lengths around it.
+    karr_at: HashMap<usize, super::karr::AffineSpace>,
+    /// While a function is walked for its length summary ([`length_preserving_functions`]): each `Return`
+    /// statement's address, the name it returns, and the equalities where it returns.
+    return_probe: Option<Vec<(usize, Option<Symbol>, super::karr::AffineSpace)>>,
 }
 
 /// A region-entry bounds hoist in SYMBOL terms (the compiler maps to
 /// registers): `length(array) >= bound + add_max` and `iv + add_min >= 1`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HoistDesc {
     pub array: Symbol,
     pub bound: Symbol,
@@ -1938,14 +2368,17 @@ impl OracleFacts {
     /// `Repeat` statement's arena address). The compiler lowers each to a
     /// `RegionBoundsGuard` at the loop head.
     pub fn hoist_descs_for(&self, loop_ptr: usize) -> &[HoistDesc] {
-        self.hoist_descs.get(&loop_ptr).map_or(&[], |v| v.as_slice())
+        self.hoist_descs
+            .get(&loop_ptr)
+            .map_or(&[], |v| v.as_slice())
     }
 
     /// Is this `index` sub-expression proven in bounds only SPECULATIVELY
     /// (needs a region-entry guard)? The compiler elides it solely when it
     /// emitted that guard.
     pub fn index_is_speculative(&self, index: &Expr) -> bool {
-        self.speculative_inbounds.contains(&(index as *const Expr as usize))
+        self.speculative_inbounds
+            .contains(&(index as *const Expr as usize))
     }
 
     fn record(&mut self, e: &Expr, av: AbstractValue) {
@@ -2000,8 +2433,14 @@ impl OracleFacts {
     /// the soundness gate for `x % 2^k → x & (2^k - 1)`, whose identity needs
     /// only `x >= 0`, not a finite ceiling.
     pub fn expr_proven_nonneg(&self, e: &Expr) -> bool {
+        self.expr_proven_at_least(e, 0)
+    }
+
+    /// Is this occurrence's proven LOWER bound a finite `>= k`, whatever its upper bound? A 1-based index proven
+    /// `>= 1` names its item from the front.
+    pub fn expr_proven_at_least(&self, e: &Expr, k: i64) -> bool {
         match self.exprs.get(&(e as *const Expr as usize)) {
-            Some(av) => matches!(av.interval.lo, Bound::Finite(v) if v >= 0),
+            Some(av) => matches!(av.interval.lo, Bound::Finite(v) if v >= k),
             None => false,
         }
     }
@@ -2051,7 +2490,14 @@ impl OracleFacts {
                     _ => None,
                 };
                 let nonneg = matches!(av.interval.lo, Bound::Finite(v) if v >= 0);
-                (sym, VarProvenFacts { scalar, int_range, nonneg })
+                (
+                    sym,
+                    VarProvenFacts {
+                        scalar,
+                        int_range,
+                        nonneg,
+                    },
+                )
             })
             .collect()
     }
@@ -2107,12 +2553,7 @@ impl OracleFacts {
     /// meet at the loop invariant — including loop-CARRIED edges. Anything
     /// else (tainted handle, non-converged loop, unknown statement,
     /// concurrent context) refuses.
-    pub fn loop_handles_definitely_distinct(
-        &self,
-        loop_stmt: &Stmt,
-        a: Symbol,
-        b: Symbol,
-    ) -> bool {
+    pub fn loop_handles_definitely_distinct(&self, loop_stmt: &Stmt, a: Symbol, b: Symbol) -> bool {
         let key = loop_stmt as *const Stmt as usize;
         match self.loop_aliases.get(&key) {
             Some(g) => g.definitely_distinct(a, b),
@@ -2136,7 +2577,8 @@ impl OracleFacts {
     /// downgrading them to a bounds-checked `.swap()`; literal-index swaps
     /// (interval-proven) still become `.swap()`/`__swap_tmp`.
     pub fn index_proven_relational(&self, index: &Expr) -> bool {
-        self.relational_inbounds.contains(&(index as *const Expr as usize))
+        self.relational_inbounds
+            .contains(&(index as *const Expr as usize))
     }
 
     /// The guard-elision query (EXODIA 1.3): is `index` PROVABLY within the
@@ -2146,7 +2588,10 @@ impl OracleFacts {
         // Relational induction-variable bound (SCEV-style): the loop guard
         // already proved `1 <= index <= length(collection)` for this exact
         // read. Intervals alone cannot express it.
-        if self.relational_inbounds.contains(&(index as *const Expr as usize)) {
+        if self
+            .relational_inbounds
+            .contains(&(index as *const Expr as usize))
+        {
             return true;
         }
         // Non-relational interval check: a concrete index interval inside
@@ -2154,7 +2599,9 @@ impl OracleFacts {
         let Some(len) = self.lengths.get(&(collection as *const Expr as usize)) else {
             return false;
         };
-        let Some((ilo, ihi)) = self.expr_int_range(index) else { return false };
+        let Some((ilo, ihi)) = self.expr_int_range(index) else {
+            return false;
+        };
         let len_lo = match len.lo {
             Bound::Finite(v) => v,
             _ => return false,
@@ -2171,6 +2618,34 @@ impl OracleFacts {
             .get(&(index as *const Expr as usize))
             .map_or(&[], |v| v.as_slice())
     }
+
+    /// Whether `index` names an item of `collection` on EVERY run: a construct of
+    /// the compile proved it ([`super::facts::Fact::InBounds`]), or
+    /// [`Self::index_provably_in_bounds`] holds with no precondition. The one
+    /// question an access that nothing checks rests on.
+    pub fn index_always_in_bounds(&self, collection: &Expr, index: &Expr) -> bool {
+        super::facts::holds_expr(super::facts::Fact::InBounds, index)
+            || (self.index_provably_in_bounds(collection, index)
+                && self.index_positivity_guards(index).is_empty())
+    }
+}
+
+/// Record the equalities holding where the index expression `index` is evaluated, joined with any visit recorded
+/// before.
+fn record_karr(index: &Expr, st: &RichAbstractState, facts: &mut OracleFacts) {
+    if facts.suppress_exprs {
+        return;
+    }
+    let key = index as *const Expr as usize;
+    match facts.karr_at.entry(key) {
+        std::collections::hash_map::Entry::Occupied(mut e) => {
+            let joined = e.get().join(&st.karr);
+            e.insert(joined);
+        }
+        std::collections::hash_map::Entry::Vacant(v) => {
+            v.insert(st.karr.clone());
+        }
+    }
 }
 
 /// Compute a bottom-up product fact for `e` and every subexpression, at the
@@ -2181,7 +2656,10 @@ fn record_expr(e: &Expr, st: &RichAbstractState, facts: &mut OracleFacts) {
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             record_expr(left, st, facts);
             record_expr(right, st, facts);
         }
@@ -2200,8 +2678,13 @@ fn record_expr(e: &Expr, st: &RichAbstractState, facts: &mut OracleFacts) {
         Expr::Index { collection, index } => {
             record_expr(collection, st, facts);
             record_expr(index, st, facts);
+            record_karr(index, st, facts);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             record_expr(collection, st, facts);
             record_expr(start, st, facts);
             record_expr(end, st, facts);
@@ -2247,9 +2730,7 @@ fn record_expr(e: &Expr, st: &RichAbstractState, facts: &mut OracleFacts) {
         interval: eval_expr(e, &st.intervals),
         ty: eval_type(e, &st.types, &st.fn_returns, &st.elem_type),
         shape: match e {
-            Expr::Identifier(sym) => {
-                st.shapes.get(sym).cloned().unwrap_or(CollectionShape::Top)
-            }
+            Expr::Identifier(sym) => st.shapes.get(sym).cloned().unwrap_or(CollectionShape::Top),
             _ => CollectionShape::Top,
         },
         nullability: nullability_of_expr(e, st),
@@ -2295,7 +2776,11 @@ fn collect_idents_stmt(stmt: &Stmt, f: &mut dyn FnMut(Symbol, usize)) {
             collect_idents_expr(value, f);
             collect_idents_expr(collection, f);
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             collect_idents_expr(collection, f);
             collect_idents_expr(index, f);
             collect_idents_expr(value, f);
@@ -2307,12 +2792,19 @@ fn collect_idents_stmt(stmt: &Stmt, f: &mut dyn FnMut(Symbol, usize)) {
         Stmt::Inspect { target, .. } => collect_idents_expr(target, f),
         Stmt::RuntimeAssert { condition, .. } => collect_idents_expr(condition, f),
         Stmt::Sleep { milliseconds } => collect_idents_expr(milliseconds, f),
-        Stmt::ReadFrom { source: ReadSource::File(p), .. } => collect_idents_expr(p, f),
+        Stmt::ReadFrom {
+            source: ReadSource::File(p),
+            ..
+        } => collect_idents_expr(p, f),
         _ => {}
     }
     // Nested blocks (mirror the block recursion the production walk does).
     match stmt {
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             collect_idents_block(then_block, f);
             if let Some(eb) = else_block {
                 collect_idents_block(eb, f);
@@ -2340,7 +2832,10 @@ fn collect_idents_expr(e: &Expr, f: &mut dyn FnMut(Symbol, usize)) {
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             collect_idents_expr(left, f);
             collect_idents_expr(right, f);
         }
@@ -2360,7 +2855,11 @@ fn collect_idents_expr(e: &Expr, f: &mut dyn FnMut(Symbol, usize)) {
             collect_idents_expr(collection, f);
             collect_idents_expr(index, f);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             collect_idents_expr(collection, f);
             collect_idents_expr(start, f);
             collect_idents_expr(end, f);
@@ -2457,7 +2956,14 @@ fn record_loop_index_bounds(
     }
     let mut clobbered: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
     collect_resized_arrays(body, &mut clobbered);
-    record_proven_reads(body, &guards, &state.length_def, &mut clobbered, facts);
+    record_proven_reads(
+        body,
+        &guards,
+        &state.length_def,
+        &mut clobbered,
+        facts,
+        &state.callee_globals,
+    );
 }
 
 // ===================================================================
@@ -2485,6 +2991,13 @@ fn record_loop_index_bounds(
 struct AffineFacts {
     constraints: Vec<super::affine::Constraint>,
     syms: Vec<Symbol>,
+    /// The sequences a guard may read `length of` from: tracked sequences the loop neither resizes nor rebinds, so
+    /// the length a guard reads at the loop head is the length at every point of the body.
+    lengths: std::rc::Rc<HashSet<Symbol>>,
+    /// The walk that proves accesses from the equalities recorded where they are evaluated
+    /// ([`try_prove_affine_karr`]), which runs once the loop body's record pass has recorded them; the other proofs
+    /// run on the walk before it.
+    karr_pass: bool,
 }
 
 fn record_affine_index_bounds(
@@ -2493,6 +3006,7 @@ fn record_affine_index_bounds(
     state: &RichAbstractState,
     entry: &RichAbstractState,
     facts: &mut OracleFacts,
+    karr_pass: bool,
 ) {
     if !body_is_index_proof_safe(body) {
         return;
@@ -2500,7 +3014,9 @@ fn record_affine_index_bounds(
     let mut clobbered: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
     collect_resized_arrays(body, &mut clobbered);
     let mutated: std::collections::HashSet<Symbol> =
-        collect_mutations(body).into_iter().collect();
+        collect_mutations_in(body, &state.callee_globals)
+            .into_iter()
+            .collect();
     // The loop fixpoint merges `scalar_upper`/`scalar_lower` across the back-edge
     // but NOT `scalar_def`, so a mid-body `Let complement be target - x` is gone
     // by the record state. Re-establish the body's TOP-LEVEL affine definitions
@@ -2509,13 +3025,32 @@ fn record_affine_index_bounds(
     // -> x`'s element bounds`. Sound: each added equality holds at every use site.
     let state = {
         let mut st = state.clone();
+        // The entry-guard precondition lowers (`lo>=1`,`hi>=1`) hold throughout the
+        // entry-guarded function body, but the loop's record-state may not carry them
+        // through the fixpoint — copy them from the loop-ENTRY state, which does.
+        if st.entry_guard_lowers.is_empty() {
+            st.entry_guard_lowers = entry.entry_guard_lowers.clone();
+        }
         augment_body_scalar_defs(body, &mut st);
         st
     };
     let inits: HashMap<Symbol, i64> = HashMap::new();
-    let mut amb = AffineFacts::default();
+    let mut amb = AffineFacts {
+        lengths: std::rc::Rc::new(
+            state
+                .seq_vars
+                .iter()
+                .copied()
+                .filter(|c| !clobbered.contains(c) && !mutated.contains(c))
+                .collect(),
+        ),
+        karr_pass,
+        ..AffineFacts::default()
+    };
     affine_add_loop_guards(cond, body, &state, Some(entry), &inits, &mut amb);
-    affine_walk(body, &state, &clobbered, &mutated, &amb, &inits, facts);
+    affine_walk(
+        body, body, &state, &clobbered, &mutated, &amb, &inits, facts,
+    );
 }
 
 /// Re-establish the body's TOP-LEVEL affine scalar definitions into a proof
@@ -2527,8 +3062,7 @@ fn record_affine_index_bounds(
 fn augment_body_scalar_defs(body: &[Stmt], st: &mut RichAbstractState) {
     // Scalars reassigned via `Set` anywhere in the body: a def naming any of them
     // (as the bound var OR in its RHS) is not a stable iteration invariant.
-    let mut reassigned = std::collections::HashSet::new();
-    collect_set_targets(body, &mut reassigned);
+    let reassigned = reassigned_scalars(body, &st.callee_globals);
     // Only a single, unshadowed top-level `Let` has an unambiguous definition.
     let mut let_count: HashMap<Symbol, u32> = HashMap::new();
     for s in body {
@@ -2565,16 +3099,15 @@ fn augment_body_scalar_defs(body: &[Stmt], st: &mut RichAbstractState) {
     }
 }
 
-/// Collect every scalar `Set` reassignment target in `stmts` (recursing into
-/// nested blocks). Distinct from `collect_mutations`, which also counts `Let`
-/// bindings — here only true reassignments matter.
-fn collect_set_targets(stmts: &[Stmt], out: &mut std::collections::HashSet<Symbol>) {
-    for s in stmts {
-        if let Stmt::Set { target, .. } = s {
-            out.insert(*target);
-        }
-        each_child_block(s, &mut |b| collect_set_targets(b, out));
+/// Every scalar `body` may REASSIGN (`Set`, `Swap`, a global some callee it calls assigns) — the
+/// names whose body-local definitions are not stable iteration invariants. After foreign code every
+/// name the body binds or mentions is suspect.
+fn reassigned_scalars(body: &[Stmt], globals: &CalleeGlobals) -> std::collections::HashSet<Symbol> {
+    let writes = WriteSet::of_block(body).with_callee_globals(globals);
+    if writes.is_opaque() {
+        return collect_mutations_in(body, globals).into_iter().collect();
     }
+    writes.assigned().clone()
 }
 
 /// `a <op> b` (optionally negated) as a kernel constraint, when both sides are
@@ -2584,9 +3117,14 @@ fn affine_cmp(
     a: &Expr,
     b: &Expr,
     negate: bool,
+    lengths: &HashSet<Symbol>,
 ) -> Option<super::affine::Constraint> {
-    use super::affine::{ge, gt, le, lin_of, lt};
-    let (la, lb) = (lin_of(a)?, lin_of(b)?);
+    use super::affine::{ge, gt, le, lin_of_with_lengths, lt};
+    let fixed = |c: Symbol| lengths.contains(&c);
+    let (la, lb) = (
+        lin_of_with_lengths(a, &fixed)?,
+        lin_of_with_lengths(b, &fixed)?,
+    );
     Some(match (op, negate) {
         (BinaryOpKind::Lt, false) | (BinaryOpKind::GtEq, true) => lt(&la, &lb),
         (BinaryOpKind::LtEq, false) | (BinaryOpKind::Gt, true) => le(&la, &lb),
@@ -2601,20 +3139,20 @@ fn affine_cmp(
 /// termwise, so a negated `or`/anything non-comparison is dropped.
 fn affine_add_cmp(cond: &Expr, negate: bool, out: &mut AffineFacts) {
     match cond {
-        Expr::BinaryOp { op: BinaryOpKind::And, left, right } if !negate => {
+        Expr::BinaryOp {
+            op: BinaryOpKind::And,
+            left,
+            right,
+        } if !negate => {
             affine_add_cmp(left, false, out);
             affine_add_cmp(right, false, out);
         }
         Expr::BinaryOp {
-            op:
-                op @ (BinaryOpKind::Lt
-                | BinaryOpKind::LtEq
-                | BinaryOpKind::Gt
-                | BinaryOpKind::GtEq),
+            op: op @ (BinaryOpKind::Lt | BinaryOpKind::LtEq | BinaryOpKind::Gt | BinaryOpKind::GtEq),
             left,
             right,
         } => {
-            if let Some(c) = affine_cmp(*op, left, right, negate) {
+            if let Some(c) = affine_cmp(*op, left, right, negate, &out.lengths) {
                 out.constraints.push(c);
                 affine_collect_syms(left, &mut out.syms);
                 affine_collect_syms(right, &mut out.syms);
@@ -2653,7 +3191,11 @@ fn write_keeps_ge(
     mutated: &std::collections::HashSet<Symbol>,
 ) -> bool {
     match value {
-        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+        Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left,
+            right,
+        } => {
             let is_iv = |e: &&Expr| matches!(e, Expr::Identifier(s) if *s == iv);
             let nonneg = |e: &&Expr| matches!(e, Expr::Literal(Literal::Number(n)) if *n >= 0);
             (is_iv(&left) && nonneg(&right)) || (nonneg(&left) && is_iv(&right))
@@ -2702,7 +3244,11 @@ fn iv_lower_bound(
             Stmt::Let { var, value, .. } if *var == iv => {
                 write_keeps_ge(value, iv, lo, state, mutated)
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 preserved(iv, then_block, lo, state, mutated)
                     && else_block.map_or(true, |eb| preserved(iv, eb, lo, state, mutated))
             }
@@ -2721,7 +3267,12 @@ fn iv_lower_bound(
 /// its entry lower bound.
 /// `Set v to v + c` or `Set v to c + v` (literal `c`) → `Some(c)`.
 pub(crate) fn self_increment(v: Symbol, value: &Expr) -> Option<i64> {
-    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = value
+    {
         if let (Expr::Identifier(s), Expr::Literal(Literal::Number(c))) = (&**left, &**right) {
             if *s == v {
                 return Some(*c);
@@ -2736,35 +3287,33 @@ pub(crate) fn self_increment(v: Symbol, value: &Expr) -> Option<i64> {
     None
 }
 
-/// Total number of writes (`Set`/`Let`) to `v` anywhere in `stmts`.
-pub(crate) fn count_writes_of(stmts: &[Stmt], v: Symbol) -> usize {
-    let mut n = 0;
-    for s in stmts {
-        match s {
-            Stmt::Set { target, .. } if *target == v => n += 1,
-            Stmt::Let { var, .. } if *var == v => n += 1,
-            Stmt::If { then_block, else_block, .. } => {
-                n += count_writes_of(then_block, v);
-                if let Some(eb) = else_block {
-                    n += count_writes_of(eb, v);
-                }
+/// `Set v to v - c` (literal `c >= 0`) → `Some(c)` — the decreasing counterpart of
+/// [`self_increment`], used to recognize a monotonically-shrinking loop bound.
+pub(crate) fn self_decrement(v: Symbol, value: &Expr) -> Option<i64> {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Subtract,
+        left,
+        right,
+    } = value
+    {
+        if let (Expr::Identifier(s), Expr::Literal(Literal::Number(c))) = (&**left, &**right) {
+            if *s == v && *c >= 0 {
+                return Some(*c);
             }
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => n += count_writes_of(body, v),
-            _ => {}
         }
     }
-    n
+    None
 }
 
 /// Variables that have a TOP-LEVEL (direct child of `body`, not nested in any
 /// `If`/`While`) `Set v to v + dj` (`dj > 0`) that is `v`'s ONLY write in the
 /// whole body — so each iteration increments `v` by exactly `dj`.
-fn top_level_unconditional_incs(body: &[Stmt]) -> Vec<(Symbol, i64)> {
+fn top_level_unconditional_incs(body: &[Stmt], globals: &CalleeGlobals) -> Vec<(Symbol, i64)> {
     let mut out = Vec::new();
     for s in body {
         if let Stmt::Set { target, value } = s {
             if let Some(c) = self_increment(*target, value) {
-                if c > 0 && count_writes_of(body, *target) == 1 {
+                if c > 0 && count_writes_of(body, *target, globals) == 1 {
                     out.push((*target, c));
                 }
             }
@@ -2776,7 +3325,13 @@ fn top_level_unconditional_incs(body: &[Stmt]) -> Vec<(Symbol, i64)> {
 /// Is every write to `v` in `stmts` a `Set v to v + ci` (`ci >= 0`), none inside
 /// a nested loop, with the writes summing to `<= limit` and at least one present?
 /// Such a `v` increases by at most `limit` per outer iteration.
-fn monotone_inc_within(stmts: &[Stmt], v: Symbol, in_loop: bool, total: &mut i64, count: &mut usize) -> bool {
+fn monotone_inc_within(
+    stmts: &[Stmt],
+    v: Symbol,
+    in_loop: bool,
+    total: &mut i64,
+    count: &mut usize,
+) -> bool {
     for s in stmts {
         match s {
             Stmt::Set { target, value } if *target == v => match self_increment(v, value) {
@@ -2787,7 +3342,11 @@ fn monotone_inc_within(stmts: &[Stmt], v: Symbol, in_loop: bool, total: &mut i64
                 _ => return false,
             },
             Stmt::Let { var, .. } if *var == v => return false,
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 if !monotone_inc_within(then_block, v, in_loop, total, count) {
                     return false;
                 }
@@ -2820,7 +3379,11 @@ fn monotone_inc_vars(body: &[Stmt], limit: i64) -> Vec<Symbol> {
                         out.push(*target);
                     }
                 }
-                Stmt::If { then_block, else_block, .. } => {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     collect(then_block, out);
                     if let Some(eb) = else_block {
                         collect(eb, out);
@@ -2861,7 +3424,7 @@ fn derive_iv_le_invariants(
     amb: &mut AffineFacts,
 ) {
     use super::affine::{ge, konst, le, var};
-    for (j, dj) in top_level_unconditional_incs(body) {
+    for (j, dj) in top_level_unconditional_incs(body, &entry.callee_globals) {
         for i in monotone_inc_vars(body, dj) {
             if i == j {
                 continue;
@@ -2880,6 +3443,26 @@ fn derive_iv_le_invariants(
             // guard variable, so the guard pass would not add it).
             if let Some(lo) = iv_lower_bound(i, body, state, mutated, inits) {
                 amb.constraints.push(ge(&var(i), &konst(lo)));
+            }
+            // SYMBOLIC lower: `i`/`j` start at their shared entry def `U` (parameter
+            // `lo`) and only INCREASE, so `i >= U`, `j >= U`. Chained with the
+            // entry-guard's `scalar_lower[lo] >= 1` (pushed into the system for U's
+            // symbols), this discharges `1 <= E` for a SYMBOLIC `lo` — the partition
+            // swap's `item i`. Sound: a monotone-increasing var never drops below its
+            // initial value. Add U's symbols so `1 <= lo` (its scalar_lower) enters.
+            // `i`/`j` start at their shared entry def `U` (parameter `lo`) and only
+            // INCREASE, so `i >= U`, `j >= U`. Chained with the function-wide entry-guard
+            // ambient `lo >= 1` (injected in every proof system), this discharges
+            // `1 <= i,j` for the partition swap. Sound: monotone-increasing from init.
+            if let Some(u) = entry.scalar_def.get(&i) {
+                amb.constraints.push(ge(&var(i), u));
+                amb.constraints.push(ge(&var(j), u));
+                for &si in u.coefficients.keys() {
+                    let s = Symbol::from_index(si as usize);
+                    if !amb.syms.contains(&s) {
+                        amb.syms.push(s);
+                    }
+                }
             }
             for s in [i, j] {
                 if !amb.syms.contains(&s) {
@@ -2900,13 +3483,17 @@ fn affine_add_loop_guards(
 ) {
     affine_add_cmp(cond, false, amb);
     let mutated: std::collections::HashSet<Symbol> =
-        collect_mutations(body).into_iter().collect();
+        collect_mutations_in(body, &state.callee_globals)
+            .into_iter()
+            .collect();
     let mut ivs: Vec<Symbol> = Vec::new();
     affine_collect_syms(cond, &mut ivs);
     for iv in ivs {
         if let Some(lo) = iv_lower_bound(iv, body, state, &mutated, inits) {
-            amb.constraints
-                .push(super::affine::ge(&super::affine::var(iv), &super::affine::konst(lo)));
+            amb.constraints.push(super::affine::ge(
+                &super::affine::var(iv),
+                &super::affine::konst(lo),
+            ));
             if !amb.syms.contains(&iv) {
                 amb.syms.push(iv);
             }
@@ -2917,6 +3504,51 @@ fn affine_add_loop_guards(
     // `None`, since the widened body state cannot witness the entry equality).
     if let Some(entry) = entry {
         derive_iv_le_invariants(body, entry, state, &mutated, inits, amb);
+        derive_monotone_dec_invariants(body, entry, &mutated, amb);
+    }
+}
+
+/// A variable whose ONLY write in `body` is a single top-level `Set v to v - c`
+/// (`c >= 0`) monotonically DECREASES, so `v <= v_entry` holds throughout the loop.
+/// Its loop-entry def (`entry.scalar_def[v]` = `n - 1`, captured before the loop's
+/// first decrement) then discharges the UPPER bound of an `item v of arr` access
+/// when a length lower bound relates `arr` to that def (`len >= n`) — e.g.
+/// heap_sort's main-phase `arr[end]` swap. The decreasing mirror of
+/// [`derive_iv_le_invariants`]. SOUND: a value that only shrinks never exceeds its
+/// loop-entry value, and the entry def is used only when its own variables are
+/// loop-invariant (so it names the same fixed value at every access).
+fn derive_monotone_dec_invariants(
+    body: &[Stmt],
+    entry: &RichAbstractState,
+    mutated: &std::collections::HashSet<Symbol>,
+    amb: &mut AffineFacts,
+) {
+    use super::affine::{le, var};
+    for s in body {
+        if let Stmt::Set { target, value } = s {
+            if self_decrement(*target, value).is_some()
+                && count_writes_of(body, *target, &entry.callee_globals) == 1
+            {
+                if let Some(e0) = entry.scalar_def.get(target) {
+                    let e0_stable = e0
+                        .coefficients
+                        .keys()
+                        .all(|&si| !mutated.contains(&Symbol::from_index(si as usize)));
+                    if e0_stable {
+                        amb.constraints.push(le(&var(*target), e0));
+                        for &si in e0.coefficients.keys() {
+                            let sym = Symbol::from_index(si as usize);
+                            if !amb.syms.contains(&sym) {
+                                amb.syms.push(sym);
+                            }
+                        }
+                        if !amb.syms.contains(target) {
+                            amb.syms.push(*target);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2925,14 +3557,16 @@ fn affine_add_loop_guards(
 /// guard).
 fn affine_drop_mentioning(amb: &mut AffineFacts, set: &std::collections::HashSet<Symbol>) {
     amb.constraints.retain(|c| {
-        !set.iter().any(|s| c.expr.coefficients.contains_key(&(s.index() as i64)))
+        !set.iter()
+            .any(|s| c.expr.coefficients.contains_key(&(s.index() as i64)))
     });
     amb.syms.retain(|s| !set.contains(s));
 }
 
 fn affine_drop_one(amb: &mut AffineFacts, sym: Symbol) {
     let k = sym.index() as i64;
-    amb.constraints.retain(|c| !c.expr.coefficients.contains_key(&k));
+    amb.constraints
+        .retain(|c| !c.expr.coefficients.contains_key(&k));
     amb.syms.retain(|s| *s != sym);
 }
 
@@ -2940,6 +3574,7 @@ fn affine_drop_one(amb: &mut AffineFacts, sym: Symbol) {
 /// avoids threading the arena lifetime through a collecting `Vec`).
 fn affine_prove_in_expr(
     e: &Expr,
+    body: &[Stmt],
     state: &RichAbstractState,
     clobbered: &std::collections::HashSet<Symbol>,
     mutated: &std::collections::HashSet<Symbol>,
@@ -2947,16 +3582,22 @@ fn affine_prove_in_expr(
     facts: &mut OracleFacts,
 ) {
     if let Expr::Index { collection, index } = e {
-        // Dense `Map of Int to Int` get: `item k of m` → prove `0 <= k <= cap(m)`.
-        if let Expr::Identifier(m) = collection {
-            if facts.map_caps.contains_key(m) {
-                try_prove_dense_key(*m, index, state, mutated, amb, facts);
+        if amb.karr_pass {
+            try_prove_affine_karr(collection, index, state, mutated, amb, facts);
+        } else {
+            // Dense `Map of Int to Int` get: `item k of m` → prove `0 <= k <= cap(m)`.
+            if let Expr::Identifier(m) = collection {
+                if facts.map_caps.contains_key(m) {
+                    try_prove_dense_key(*m, index, state, mutated, amb, facts);
+                }
             }
+            try_prove_affine(
+                collection, index, body, state, clobbered, mutated, amb, facts,
+            );
         }
-        try_prove_affine(collection, index, state, clobbered, mutated, amb, facts);
     }
     // Dense map membership: `m contains k` → prove `0 <= k <= cap(m)`.
-    if let Expr::Contains { collection, value } = e {
+    if let (Expr::Contains { collection, value }, false) = (e, amb.karr_pass) {
         if let Expr::Identifier(m) = collection {
             if facts.map_caps.contains_key(m) {
                 try_prove_dense_key(*m, value, state, mutated, amb, facts);
@@ -2967,26 +3608,31 @@ fn affine_prove_in_expr(
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
-            affine_prove_in_expr(left, state, clobbered, mutated, amb, facts);
-            affine_prove_in_expr(right, state, clobbered, mutated, amb, facts);
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
+            affine_prove_in_expr(left, body, state, clobbered, mutated, amb, facts);
+            affine_prove_in_expr(right, body, state, clobbered, mutated, amb, facts);
         }
-        Expr::Not { operand } => affine_prove_in_expr(operand, state, clobbered, mutated, amb, facts),
+        Expr::Not { operand } => {
+            affine_prove_in_expr(operand, body, state, clobbered, mutated, amb, facts)
+        }
         Expr::Contains { collection, value } => {
-            affine_prove_in_expr(collection, state, clobbered, mutated, amb, facts);
-            affine_prove_in_expr(value, state, clobbered, mutated, amb, facts);
+            affine_prove_in_expr(collection, body, state, clobbered, mutated, amb, facts);
+            affine_prove_in_expr(value, body, state, clobbered, mutated, amb, facts);
         }
         Expr::Index { collection, index } => {
-            affine_prove_in_expr(collection, state, clobbered, mutated, amb, facts);
-            affine_prove_in_expr(index, state, clobbered, mutated, amb, facts);
+            affine_prove_in_expr(collection, body, state, clobbered, mutated, amb, facts);
+            affine_prove_in_expr(index, body, state, clobbered, mutated, amb, facts);
         }
         Expr::Call { args, .. } => {
             for a in args {
-                affine_prove_in_expr(a, state, clobbered, mutated, amb, facts);
+                affine_prove_in_expr(a, body, state, clobbered, mutated, amb, facts);
             }
         }
         Expr::Length { collection } => {
-            affine_prove_in_expr(collection, state, clobbered, mutated, amb, facts)
+            affine_prove_in_expr(collection, body, state, clobbered, mutated, amb, facts)
         }
         _ => {}
     }
@@ -3012,6 +3658,7 @@ fn affine_length_lb(
 /// loop guards, and prove each affine index access in scope.
 fn affine_walk(
     stmts: &[Stmt],
+    full_body: &[Stmt],
     state: &RichAbstractState,
     clobbered: &std::collections::HashSet<Symbol>,
     mutated: &std::collections::HashSet<Symbol>,
@@ -3023,27 +3670,58 @@ fn affine_walk(
     let mut inits = inits.clone();
     for stmt in stmts {
         for_each_direct_expr(stmt, &mut |e| {
-            affine_prove_in_expr(e, state, clobbered, mutated, &local, facts);
+            affine_prove_in_expr(e, full_body, state, clobbered, mutated, &local, facts);
         });
-        if let Stmt::SetIndex { collection, index, .. } = stmt {
-            // Dense `Map of Int to Int` insert: `Set item k of m to v` → prove
-            // `0 <= k <= cap(m)`.
-            if let Expr::Identifier(m) = collection {
-                if facts.map_caps.contains_key(m) {
-                    try_prove_dense_key(*m, index, state, mutated, &local, facts);
+        if let Stmt::SetIndex {
+            collection, index, ..
+        } = stmt
+        {
+            if local.karr_pass {
+                try_prove_affine_karr(collection, index, state, mutated, &local, facts);
+            } else {
+                // Dense `Map of Int to Int` insert: `Set item k of m to v` → prove
+                // `0 <= k <= cap(m)`.
+                if let Expr::Identifier(m) = collection {
+                    if facts.map_caps.contains_key(m) {
+                        try_prove_dense_key(*m, index, state, mutated, &local, facts);
+                    }
                 }
+                try_prove_affine(
+                    collection, index, full_body, state, clobbered, mutated, &local, facts,
+                );
             }
-            try_prove_affine(collection, index, state, clobbered, mutated, &local, facts);
         }
         match stmt {
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 let mut then_facts = local.clone();
                 affine_add_cmp(cond, false, &mut then_facts);
-                affine_walk(then_block, state, clobbered, mutated, &then_facts, &inits, facts);
+                affine_walk(
+                    then_block,
+                    full_body,
+                    state,
+                    clobbered,
+                    mutated,
+                    &then_facts,
+                    &inits,
+                    facts,
+                );
                 if let Some(eb) = else_block {
                     let mut else_facts = local.clone();
                     affine_add_cmp(cond, true, &mut else_facts);
-                    affine_walk(eb, state, clobbered, mutated, &else_facts, &inits, facts);
+                    affine_walk(
+                        eb,
+                        full_body,
+                        state,
+                        clobbered,
+                        mutated,
+                        &else_facts,
+                        &inits,
+                        facts,
+                    );
                 }
             }
             Stmt::While { cond, body, .. } => {
@@ -3051,14 +3729,20 @@ fn affine_walk(
                 // rests on (a later iteration reaching an earlier read), so drop
                 // facts naming anything it mutates before adding its own guard.
                 let nested: std::collections::HashSet<Symbol> =
-                    collect_mutations(body).into_iter().collect();
+                    collect_mutations_in(body, &state.callee_globals)
+                        .into_iter()
+                        .collect();
                 let mut inner = local.clone();
                 affine_drop_mentioning(&mut inner, &nested);
                 affine_add_loop_guards(cond, body, state, None, &inits, &mut inner);
-                affine_walk(body, state, clobbered, mutated, &inner, &inits, facts);
+                affine_walk(
+                    body, full_body, state, clobbered, mutated, &inner, &inits, facts,
+                );
             }
             Stmt::Repeat { body, .. } => {
-                affine_walk(body, state, clobbered, mutated, &local, &inits, facts);
+                affine_walk(
+                    body, full_body, state, clobbered, mutated, &local, &inits, facts,
+                );
             }
             _ => {}
         }
@@ -3087,19 +3771,506 @@ fn affine_walk(
     }
 }
 
+/// Discharge the index accesses a single TOP-LEVEL statement holds, at `st` (the
+/// statement's pre-state) — the same affine proof `affine_walk` runs over a loop
+/// body, applied to a statement OUTSIDE any loop. The entry-guarded partition's
+/// post-loop pivot swap (`item i of arr`) rests on the loop-EXIT invariant
+/// `lo <= i <= hi` that `rich_walk_loop` records into `st`; the function-wide
+/// entry-guard lowers (`lo>=1`,`hi>=1`) reach the proof from `st.entry_guard_lowers`
+/// inside `try_prove_affine`, so the ambient system is empty here. `body` is the
+/// whole function body (the `sym_ge_lo`/`sym_le_sym` walk domain).
+fn prove_toplevel_accesses(
+    stmt: &Stmt,
+    body: &[Stmt],
+    st: &RichAbstractState,
+    clobbered: &std::collections::HashSet<Symbol>,
+    mutated: &std::collections::HashSet<Symbol>,
+    facts: &mut OracleFacts,
+) {
+    let amb = AffineFacts::default();
+    for_each_direct_expr(stmt, &mut |e| {
+        affine_prove_in_expr(e, body, st, clobbered, mutated, &amb, facts);
+    });
+    if let Stmt::SetIndex {
+        collection, index, ..
+    } = stmt
+    {
+        try_prove_affine(collection, index, body, st, clobbered, mutated, &amb, facts);
+    }
+}
+
+/// Prove `value >= lo` under the assume-guarantee hypothesis that every symbol in
+/// `assumed` is already `>= lo` at the point of assignment.
+///
+/// **Soundness (co-induction over the `>= lo` safety invariant).** The `assumed`
+/// shortcut is the co-inductive hypothesis; it is sound because the invariant's BASE
+/// holds: every LOGOS variable has a grounded first definition (use-before-def is
+/// rejected by scope analysis *before* the optimizer runs), so every recursion
+/// bottoms out in a literal, a parameter interval / entry-guard lower, or an
+/// unconditional `>= lo` assignment not depending on the hypothesis. A variable is
+/// proven `>= lo` only when EVERY value assigned to it in `body` is `>= lo`. The
+/// index arithmetic stays overflow-CHECKED, so the runtime index equals this value
+/// (or the program panics first) — sound for `get_unchecked`.
+fn value_ge_lo(
+    value: &Expr,
+    lo: i64,
+    body: &[Stmt],
+    state: &RichAbstractState,
+    mutated: &std::collections::HashSet<Symbol>,
+    assumed: &std::collections::HashSet<Symbol>,
+    fuel: u32,
+) -> bool {
+    if fuel == 0 {
+        return false;
+    }
+    match value {
+        Expr::Literal(Literal::Number(n)) => *n >= lo,
+        Expr::Identifier(s) => {
+            if assumed.contains(s) {
+                return true;
+            }
+            if !mutated.contains(s) {
+                if matches!(state.intervals.get_var(s).lo, Bound::Finite(l) if l >= lo) {
+                    return true;
+                }
+            }
+            if state
+                .entry_guard_lowers
+                .iter()
+                .any(|(g, l)| g == s && *l >= lo)
+            {
+                return true;
+            }
+            let mut a2 = assumed.clone();
+            a2.insert(*s);
+            sym_ge_lo(*s, lo, body, state, mutated, &a2, fuel - 1)
+        }
+        Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left,
+            right,
+        } => {
+            (value_ge_lo(left, lo, body, state, mutated, assumed, fuel - 1)
+                && value_ge_lo(right, 0, body, state, mutated, assumed, fuel - 1))
+                || (value_ge_lo(left, 0, body, state, mutated, assumed, fuel - 1)
+                    && value_ge_lo(right, lo, body, state, mutated, assumed, fuel - 1))
+        }
+        // `k * v` with both factors `>= 0` is `>= 0 >= lo` (only claimed for `lo <= 0`).
+        Expr::BinaryOp {
+            op: BinaryOpKind::Multiply,
+            left,
+            right,
+        } => {
+            lo <= 0
+                && value_ge_lo(left, 0, body, state, mutated, assumed, fuel - 1)
+                && value_ge_lo(right, 0, body, state, mutated, assumed, fuel - 1)
+        }
+        _ => false,
+    }
+}
+
+/// `sym >= lo` whenever it has at least one definition in `body` and EVERY value
+/// assigned to it (its `Let` init and all `Set`s) is `>= lo` (via [`value_ge_lo`]).
+fn sym_ge_lo(
+    sym: Symbol,
+    lo: i64,
+    body: &[Stmt],
+    state: &RichAbstractState,
+    mutated: &std::collections::HashSet<Symbol>,
+    assumed: &std::collections::HashSet<Symbol>,
+    fuel: u32,
+) -> bool {
+    if fuel == 0 {
+        return false;
+    }
+    fn walk(
+        sym: Symbol,
+        stmts: &[Stmt],
+        lo: i64,
+        body: &[Stmt],
+        state: &RichAbstractState,
+        mutated: &std::collections::HashSet<Symbol>,
+        assumed: &std::collections::HashSet<Symbol>,
+        fuel: u32,
+        seen: &mut bool,
+    ) -> bool {
+        stmts.iter().all(|s| match s {
+            Stmt::Set { target, value } if *target == sym => {
+                *seen = true;
+                value_ge_lo(value, lo, body, state, mutated, assumed, fuel)
+            }
+            Stmt::Let { var, value, .. } if *var == sym => {
+                *seen = true;
+                value_ge_lo(value, lo, body, state, mutated, assumed, fuel)
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                walk(
+                    sym, then_block, lo, body, state, mutated, assumed, fuel, seen,
+                ) && else_block.map_or(true, |eb| {
+                    walk(sym, eb, lo, body, state, mutated, assumed, fuel, seen)
+                })
+            }
+            Stmt::While { body: b, .. } | Stmt::Repeat { body: b, .. } => {
+                walk(sym, b, lo, body, state, mutated, assumed, fuel, seen)
+            }
+            _ => true,
+        })
+    }
+    let mut seen = false;
+    let ok = walk(
+        sym, body, lo, body, state, mutated, assumed, fuel, &mut seen,
+    );
+    ok && seen
+}
+
+/// Prove `value <= bound_sym` under `base` plus the affine `path` guards enclosing
+/// the assignment (each as `(cond, negate)`), plus the scalar definitions of the
+/// value's own symbols (so `child = 2*root+1` reaches the loop guard `2*root+1 <=
+/// end`). Path-sensitive: `Set s to child+1` inside `if child+1 <= end` uses that
+/// guard.
+fn prove_le_bound(
+    value: &Expr,
+    bound_sym: Symbol,
+    base: &[super::affine::Constraint],
+    path: &[(&Expr, bool)],
+    state: &RichAbstractState,
+    local_defs: &HashMap<Symbol, super::affine::LinExpr>,
+) -> bool {
+    use super::affine::{consistent, le, lin_of, prove, var};
+    let Some(v_lin) = lin_of(value) else {
+        return false;
+    };
+    let mut facts = AffineFacts {
+        constraints: base.to_vec(),
+        ..AffineFacts::default()
+    };
+    for &(c, neg) in path {
+        affine_add_cmp(c, neg, &mut facts);
+    }
+    let mut vsyms = Vec::new();
+    affine_collect_syms(value, &mut vsyms);
+    for s in vsyms {
+        // A body scalar-def (`cols = capacity + 1`) OR a loop-local single-`Let`
+        // affine binding (`child = 2*root+1`). The latter is dropped from the
+        // shared `scalar_def` when its RHS (`root`) is reassigned, but `child = E`
+        // still holds at every use inside the iteration — and is SOUND here because
+        // it only combines with the loop guard, which is itself dropped from `base`
+        // once `root` is reassigned, so the pair is available only before the change.
+        if let Some(def) = state.scalar_def.get(&s).or_else(|| local_defs.get(&s)) {
+            facts.constraints.push(le(&var(s), def));
+            facts.constraints.push(le(def, &var(s)));
+        }
+    }
+    consistent(&facts.constraints) && prove(&facts.constraints, &var(bound_sym).sub(&v_lin))
+}
+
+/// Single-`Let`, never-`Set` affine bindings of `body` (`child = 2*root+1`),
+/// INCLUDING those whose RHS is later reassigned — sound for [`prove_le_bound`]'s
+/// guard-gated use (see there). The permissive counterpart of
+/// [`augment_body_scalar_defs`].
+fn collect_local_affine_defs(
+    body: &[Stmt],
+    globals: &CalleeGlobals,
+) -> HashMap<Symbol, super::affine::LinExpr> {
+    let set_targets = reassigned_scalars(body, globals);
+    let mut let_count: HashMap<Symbol, u32> = HashMap::new();
+    fn count(stmts: &[Stmt], lc: &mut HashMap<Symbol, u32>) {
+        for s in stmts {
+            match s {
+                Stmt::Let { var, .. } => *lc.entry(*var).or_insert(0) += 1,
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    count(then_block, lc);
+                    if let Some(e) = else_block {
+                        count(e, lc);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } => count(body, lc),
+                _ => {}
+            }
+        }
+    }
+    count(body, &mut let_count);
+    let mut defs: HashMap<Symbol, super::affine::LinExpr> = HashMap::new();
+    fn walk(
+        stmts: &[Stmt],
+        set_targets: &std::collections::HashSet<Symbol>,
+        let_count: &HashMap<Symbol, u32>,
+        defs: &mut HashMap<Symbol, super::affine::LinExpr>,
+    ) {
+        for s in stmts {
+            match s {
+                Stmt::Let { var, value, .. }
+                    if !set_targets.contains(var) && let_count.get(var) == Some(&1) =>
+                {
+                    if let Some(e) = super::affine::lin_of(value) {
+                        if !e.coefficients.is_empty()
+                            && !e.coefficients.contains_key(&(var.index() as i64))
+                        {
+                            defs.insert(*var, e);
+                        }
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    walk(then_block, set_targets, let_count, defs);
+                    if let Some(e) = else_block {
+                        walk(e, set_targets, let_count, defs);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                    walk(body, set_targets, let_count, defs)
+                }
+                _ => {}
+            }
+        }
+    }
+    walk(body, &set_targets, &let_count, &mut defs);
+    defs
+}
+
+/// `s <= bound_sym` when it has at least one definition and EVERY value assigned to
+/// it is `<= bound_sym` under its enclosing path guards (via [`prove_le_bound`]).
+/// The upper counterpart to [`sym_ge_lo`]; unlike the lower bound it needs no
+/// co-induction because a heap index's assignments (`root`, `2*root+1`, `child+1`)
+/// bound above by the loop / path guards, never by the index itself.
+fn sym_le_sym(
+    s: Symbol,
+    bound_sym: Symbol,
+    body: &[Stmt],
+    base: &[super::affine::Constraint],
+    state: &RichAbstractState,
+) -> bool {
+    #[allow(clippy::too_many_arguments)]
+    fn walk<'a>(
+        s: Symbol,
+        stmts: &'a [Stmt<'a>],
+        bound_sym: Symbol,
+        base: &[super::affine::Constraint],
+        state: &RichAbstractState,
+        local_defs: &HashMap<Symbol, super::affine::LinExpr>,
+        path: &mut Vec<(&'a Expr<'a>, bool)>,
+        seen: &mut bool,
+        fuel: &mut u32,
+    ) -> bool {
+        if *fuel == 0 {
+            return false;
+        }
+        *fuel -= 1;
+        stmts.iter().all(|stmt| match stmt {
+            Stmt::Set { target, value } if *target == s => {
+                *seen = true;
+                prove_le_bound(value, bound_sym, base, path, state, local_defs)
+            }
+            Stmt::Let { var, value, .. } if *var == s => {
+                *seen = true;
+                prove_le_bound(value, bound_sym, base, path, state, local_defs)
+            }
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                path.push((cond, false));
+                let ok_t = walk(
+                    s, then_block, bound_sym, base, state, local_defs, path, seen, fuel,
+                );
+                path.pop();
+                let ok_e = else_block.map_or(true, |eb| {
+                    path.push((cond, true));
+                    let r = walk(s, eb, bound_sym, base, state, local_defs, path, seen, fuel);
+                    path.pop();
+                    r
+                });
+                ok_t && ok_e
+            }
+            Stmt::While { body: b, .. } | Stmt::Repeat { body: b, .. } => {
+                walk(s, b, bound_sym, base, state, local_defs, path, seen, fuel)
+            }
+            _ => true,
+        })
+    }
+    let local_defs = collect_local_affine_defs(body, &state.callee_globals);
+    let mut path: Vec<(&Expr, bool)> = Vec::new();
+    let mut seen = false;
+    let mut fuel = 400u32;
+    let ok = walk(
+        s,
+        body,
+        bound_sym,
+        base,
+        state,
+        &local_defs,
+        &mut path,
+        &mut seen,
+        &mut fuel,
+    );
+    ok && seen
+}
+
+/// Discharge `1 <= E <= length(arr)` for one access from the affine equalities holding where it is evaluated
+/// ([`OracleFacts::karr_at`]) and the guards in scope, against the sequence's own length. A merge's store
+/// `item k of result` is the case: `k = li + ri - 1` under `li <= length of left` and `ri <= length of right`, with
+/// the builds before the loop making `length of left + length of right` equal to `length of result`. A name the body
+/// writes keeps no header interval here; the guards and the equalities speak for it.
+///
+/// The equalities never reach the prover as pairs of inequalities: each one solves for a variable of its own
+/// ([`super::karr::AffineSpace::solved`]), which is substituted out of the goal and every guard exactly. What is left
+/// is narrowed to the constraints that share a variable, directly or through others, with the goal, and the prover
+/// runs only on a system of at most [`KARR_MAX_CONSTRAINTS`] constraints over [`KARR_MAX_VARS`] variables:
+/// Fourier-Motzkin can square its constraint count with each variable it eliminates, and a large generated program
+/// holds dozens of equalities at one access. A system past the bound proves nothing, and the access keeps its check.
+fn try_prove_affine_karr(
+    collection: &Expr,
+    index: &Expr,
+    state: &RichAbstractState,
+    mutated: &HashSet<Symbol>,
+    amb: &AffineFacts,
+    facts: &mut OracleFacts,
+) {
+    use super::affine::{
+        consistent, konst, le, len_index, len_var, lin_of, prove, var, Constraint, LinExpr,
+    };
+    let Expr::Identifier(arr) = collection else {
+        return;
+    };
+    let key = index as *const Expr as usize;
+    if facts.relational_inbounds.contains(&key) {
+        return;
+    }
+    let Some(karr) = facts.karr_at.get(&key) else {
+        return;
+    };
+    if !karr.tracked().contains(&len_index(*arr)) {
+        return;
+    }
+    let Some(e) = lin_of(index) else { return };
+
+    // The guards and the bounds of every name they or the goal mention.
+    let mut system: Vec<Constraint> = amb.constraints.clone();
+    let mut mentioned: std::collections::BTreeSet<i64> = e.coefficients.keys().copied().collect();
+    mentioned.insert(len_index(*arr));
+    for c in &system {
+        mentioned.extend(c.expr.coefficients.keys().copied());
+    }
+    let solved = karr.solved();
+    for (_, v) in &solved {
+        mentioned.extend(v.coefficients.keys().copied());
+    }
+    for &(d, _) in &solved {
+        mentioned.insert(d);
+    }
+    for &k in &mentioned {
+        if k < 0 {
+            system.push(le(&konst(0), &LinExpr::var(k)));
+            continue;
+        }
+        let s = Symbol::from_index(k as usize);
+        if !mutated.contains(&s) {
+            let iv = state.intervals.get_var(&s);
+            if let Bound::Finite(lo) = iv.lo {
+                system.push(le(&konst(lo), &var(s)));
+            }
+            if let Bound::Finite(hi) = iv.hi {
+                system.push(le(&var(s), &konst(hi)));
+            }
+        }
+        if let Some(l) = state.scalar_lower.get(&s) {
+            system.push(le(l, &var(s)));
+        }
+    }
+    for &(s, lb) in &state.entry_guard_lowers {
+        system.push(le(&konst(lb), &var(s)));
+    }
+
+    // Substitute every solved equality out of the goals and the system.
+    let substitute = |x: &LinExpr| -> LinExpr {
+        let mut out = x.clone();
+        for (d, v) in &solved {
+            if let Some(c) = out.coefficients.remove(d) {
+                out = out.add(&v.scale(&c));
+            }
+        }
+        out
+    };
+    let low = substitute(&e.add(&konst(-1)));
+    let high = substitute(&len_var(*arr).sub(&e));
+    let system: Vec<Constraint> = system
+        .iter()
+        .map(|c| Constraint {
+            expr: substitute(&c.expr),
+            strict: c.strict,
+        })
+        .filter(|c| !c.expr.coefficients.is_empty() || !c.is_satisfied_constant())
+        .collect();
+
+    // The constraints connected to the goals through shared variables.
+    let mut reach: std::collections::BTreeSet<i64> = low.coefficients.keys().copied().collect();
+    reach.extend(high.coefficients.keys().copied());
+    let mut kept = vec![false; system.len()];
+    loop {
+        let mut grew = false;
+        for (k, c) in system.iter().enumerate() {
+            if kept[k] {
+                continue;
+            }
+            if c.expr.coefficients.is_empty()
+                || c.expr.coefficients.keys().any(|v| reach.contains(v))
+            {
+                kept[k] = true;
+                reach.extend(c.expr.coefficients.keys().copied());
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    let relevant: Vec<Constraint> = system
+        .into_iter()
+        .zip(kept)
+        .filter_map(|(c, k)| k.then_some(c))
+        .collect();
+    if relevant.len() > KARR_MAX_CONSTRAINTS || reach.len() > KARR_MAX_VARS {
+        return;
+    }
+    if consistent(&relevant) && prove(&relevant, &low) && prove(&relevant, &high) {
+        facts.relational_inbounds.insert(key);
+    }
+}
+
+/// The most constraints the equality proof hands Fourier-Motzkin for one access.
+const KARR_MAX_CONSTRAINTS: usize = 48;
+
+/// The most variables the equality proof's system may hold for one access.
+const KARR_MAX_VARS: usize = 12;
+
 /// Discharge `1 <= E <= length(arr)` for a single access via the kernel LIA
 /// prover, recording the index address on success.
 fn try_prove_affine(
     collection: &Expr,
     index: &Expr,
+    body: &[Stmt],
     state: &RichAbstractState,
     clobbered: &std::collections::HashSet<Symbol>,
     mutated: &std::collections::HashSet<Symbol>,
     amb: &AffineFacts,
     facts: &mut OracleFacts,
 ) {
-    use super::affine::{konst, le, lin_of, prove, var};
-    let Expr::Identifier(arr) = collection else { return };
+    use super::affine::{ge, konst, le, lin_of, prove, var};
+    let Expr::Identifier(arr) = collection else {
+        return;
+    };
     if clobbered.contains(arr) {
         return;
     }
@@ -3158,6 +4329,39 @@ fn try_prove_affine(
         }
     }
 
+    // Entry-guarded function's precondition (`lo>=1`, `hi>=1`): a FUNCTION-WIDE
+    // ambient fact, injected into every proof regardless of the per-state widening
+    // that drops the header interval in the swap's recording pass. Enforced by the
+    // `codegen::entry_guard` `assert!` at runtime, so sound at every access past the
+    // base-case guard. This is what discharges `1 <= i,j` for the partition swap.
+    for &(s, lb) in &state.entry_guard_lowers {
+        system.push(le(&konst(lb), &var(s)));
+    }
+
+    // Derived bounds for a conditionally-assigned index variable — a heap sift's
+    // `swapIdx` (`Set swapIdx to root | child | child+1`) has no `scalar_def` and is
+    // no loop IV, so nothing above bounds it. Add `s >= 0` (co-induction: every value
+    // assigned to it is `>= 0`, grounded by the seeded counter lowers) and `s <=
+    // <len-bound-sym>` (each assignment proven `<= end` under its path guards), both
+    // SOUND, closing its `[0, end] ⊆ [0, len)` accesses. `base_system`
+    // (pre-augmentation) is the fixed premise set for the upper proof — non-circular.
+    let base_system = system.clone();
+    let bound_sym = state.length_def.get(arr).map(|(b, _)| *b);
+    for &s in &syms {
+        if !mutated.contains(&s) || state.scalar_def.contains_key(&s) {
+            continue;
+        }
+        let assumed = std::collections::HashSet::new();
+        if sym_ge_lo(s, 0, body, state, mutated, &assumed, 64) {
+            system.push(ge(&var(s), &konst(0)));
+        }
+        if let Some(b) = bound_sym {
+            if s != b && sym_le_sym(s, b, body, &base_system, state) {
+                system.push(le(&var(s), &var(b)));
+            }
+        }
+    }
+
     // Defensive: a contradictory fact set proves any goal. Never elide from
     // inconsistency — if a stale/false hypothesis poisoned the system, refuse.
     if !super::affine::consistent(&system) {
@@ -3191,7 +4395,11 @@ fn try_prove_affine(
     if super::affine::consistent(&system) && prove(&system, &upper) {
         facts.relational_inbounds.insert(key);
         if !mod_divisors.is_empty() {
-            facts.positivity_guards.entry(key).or_default().extend(mod_divisors);
+            facts
+                .positivity_guards
+                .entry(key)
+                .or_default()
+                .extend(mod_divisors);
         }
     }
 }
@@ -3298,7 +4506,11 @@ fn try_prove_dense_key(
 /// constant (its loop-start value).
 fn collect_iv_guards(cond: &Expr, state: &RichAbstractState, out: &mut Vec<IvGuard>) {
     match cond {
-        Expr::BinaryOp { op: BinaryOpKind::And, left, right } => {
+        Expr::BinaryOp {
+            op: BinaryOpKind::And,
+            left,
+            right,
+        } => {
             collect_iv_guards(left, state, out);
             collect_iv_guards(right, state, out);
         }
@@ -3324,14 +4536,22 @@ fn collect_iv_guards(cond: &Expr, state: &RichAbstractState, out: &mut Vec<IvGua
                     Expr::Identifier(arr) => IvBound::LenOf(*arr),
                     _ => return,
                 },
-                Expr::Identifier(v) => IvBound::Var { var: *v, headroom: 0 },
+                Expr::Identifier(v) => IvBound::Var {
+                    var: *v,
+                    headroom: 0,
+                },
                 // `n - t1 - t2 - …` with each subtracted term provably ≥ 0.
                 _ => match var_minus_bound(bnd_e, state) {
                     Some((v, headroom)) => IvBound::Var { var: v, headroom },
                     None => return,
                 },
             };
-            out.push(IvGuard { iv: *iv, bound, strict, iv_lo });
+            out.push(IvGuard {
+                iv: *iv,
+                bound,
+                strict,
+                iv_lo,
+            });
         }
         _ => {}
     }
@@ -3344,7 +4564,11 @@ fn collect_iv_guards(cond: &Expr, state: &RichAbstractState, out: &mut Vec<IvGua
 fn var_minus_bound(b: &Expr, state: &RichAbstractState) -> Option<(Symbol, i64)> {
     match b {
         Expr::Identifier(v) => Some((*v, 0)),
-        Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } => {
+        Expr::BinaryOp {
+            op: BinaryOpKind::Subtract,
+            left,
+            right,
+        } => {
             let (v, head) = var_minus_bound(left, state)?;
             // The subtracted term must be provably non-negative (else `n -
             // term` could exceed `n` and the bound would be unsound).
@@ -3366,19 +4590,23 @@ fn var_minus_bound(b: &Expr, state: &RichAbstractState) -> Option<(Symbol, i64)>
 fn affine_of(e: &Expr) -> Option<(Symbol, i64)> {
     match e {
         Expr::Identifier(s) => Some((*s, 0)),
-        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
-            match (&**left, &**right) {
-                (Expr::Identifier(s), Expr::Literal(Literal::Number(k))) => Some((*s, *k)),
-                (Expr::Literal(Literal::Number(k)), Expr::Identifier(s)) => Some((*s, *k)),
-                _ => None,
-            }
-        }
-        Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } => {
-            match (&**left, &**right) {
-                (Expr::Identifier(s), Expr::Literal(Literal::Number(k))) => Some((*s, -*k)),
-                _ => None,
-            }
-        }
+        Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left,
+            right,
+        } => match (&**left, &**right) {
+            (Expr::Identifier(s), Expr::Literal(Literal::Number(k))) => Some((*s, *k)),
+            (Expr::Literal(Literal::Number(k)), Expr::Identifier(s)) => Some((*s, *k)),
+            _ => None,
+        },
+        Expr::BinaryOp {
+            op: BinaryOpKind::Subtract,
+            left,
+            right,
+        } => match (&**left, &**right) {
+            (Expr::Identifier(s), Expr::Literal(Literal::Number(k))) => Some((*s, -*k)),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -3395,16 +4623,22 @@ fn try_record_index(
     clobbered: &std::collections::HashSet<Symbol>,
     facts: &mut OracleFacts,
 ) {
-    let Expr::Identifier(arr) = collection else { return };
+    let Expr::Identifier(arr) = collection else {
+        return;
+    };
     if clobbered.contains(arr) {
         return;
     }
-    let Some((iv, k)) = affine_of(index) else { return };
+    let Some((iv, k)) = affine_of(index) else {
+        return;
+    };
     let proven = guards
         .iter()
         .any(|g| g.iv == iv && !clobbered.contains(&g.iv) && guard_proves(g, *arr, k, length_def));
     if proven {
-        facts.relational_inbounds.insert(index as *const Expr as usize);
+        facts
+            .relational_inbounds
+            .insert(index as *const Expr as usize);
     }
 }
 
@@ -3440,7 +4674,11 @@ fn var_rebound_in(sym: Symbol, body: &[Stmt]) -> bool {
     body.iter().any(|s| match s {
         Stmt::Set { target, .. } => *target == sym,
         Stmt::Let { var, .. } => *var == sym,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             var_rebound_in(sym, then_block)
                 || matches!(else_block, Some(eb) if var_rebound_in(sym, eb))
         }
@@ -3451,7 +4689,12 @@ fn var_rebound_in(sym: Symbol, body: &[Stmt]) -> bool {
 
 /// `value` is `iv + c` or `c + iv` with `c` a literal `>= 1`.
 fn is_positive_increment(value: &Expr, iv: Symbol) -> bool {
-    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = value
+    {
         let is_iv = |e: &Expr| matches!(e, Expr::Identifier(s) if *s == iv);
         let amt = match (&**left, &**right) {
             (l, Expr::Literal(Literal::Number(c))) if is_iv(l) => Some(*c),
@@ -3468,7 +4711,9 @@ fn is_positive_increment(value: &Expr, iv: Symbol) -> bool {
 /// `iv`, so no per-access clobber tracking is needed and the induction is
 /// monotone — the cleanest sound shape for region-entry hoisting.
 fn iv_increment_is_last(iv: Symbol, body: &[Stmt]) -> bool {
-    let Some((last, rest)) = body.split_last() else { return false };
+    let Some((last, rest)) = body.split_last() else {
+        return false;
+    };
     let last_is_inc = matches!(last, Stmt::Set { target, value }
         if *target == iv && is_positive_increment(value, iv));
     last_is_inc && !var_rebound_in(iv, rest)
@@ -3485,11 +4730,14 @@ fn consider_hoist_access(
     facts: &mut OracleFacts,
     per_array: &mut HashMap<Symbol, (i64, i64)>,
 ) {
-    let Expr::Identifier(arr) = collection else { return };
+    let Expr::Identifier(arr) = collection else {
+        return;
+    };
     // The array must be a proven collection, stable (never rebound, never
     // resized — a realloc would stale the pinned pointer), and the index
     // affine in THIS loop's induction variable.
-    if !state.coll_vars.contains(arr) || var_rebound_in(*arr, body) || array_resized_in(*arr, body) {
+    if !state.coll_vars.contains(arr) || var_rebound_in(*arr, body) || array_resized_in(*arr, body)
+    {
         return;
     }
     // Speculate ONLY on a function-PARAMETER collection — its length is
@@ -3499,7 +4747,9 @@ fn consider_hoist_access(
     if !state.param_colls.contains(arr) {
         return;
     }
-    let Some((aiv, k)) = affine_of(index) else { return };
+    let Some((aiv, k)) = affine_of(index) else {
+        return;
+    };
     if aiv != iv {
         return;
     }
@@ -3526,11 +4776,18 @@ fn walk_hoist_accesses(
         for_each_direct_expr(s, &mut |e| {
             walk_hoist_in_expr(e, iv, state, body, facts, per_array)
         });
-        if let Stmt::SetIndex { collection, index, .. } = s {
+        if let Stmt::SetIndex {
+            collection, index, ..
+        } = s
+        {
             consider_hoist_access(collection, index, iv, state, body, facts, per_array);
         }
         match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 walk_hoist_accesses(then_block, iv, state, body, facts, per_array);
                 if let Some(eb) = else_block {
                     walk_hoist_accesses(eb, iv, state, body, facts, per_array);
@@ -3562,7 +4819,10 @@ fn walk_hoist_in_expr(
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             go(left);
             go(right);
         }
@@ -3576,7 +4836,11 @@ fn walk_hoist_in_expr(
             go(collection);
             go(index);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             go(collection);
             go(start);
             go(end);
@@ -3606,6 +4870,31 @@ fn walk_hoist_in_expr(
         }
         _ => {}
     }
+}
+
+/// One region-entry guard per array a hoisted loop reads, from the covered offsets `(kmin, kmax)` of each,
+/// ordered by the array's symbol: the guards the compiler emits are a function of the loop, whatever order
+/// the accesses were collected in.
+fn hoist_descs(
+    per_array: impl IntoIterator<Item = (Symbol, (i64, i64))>,
+    bound: Symbol,
+    iv: Symbol,
+    strict: i64,
+) -> Vec<HoistDesc> {
+    let mut descs: Vec<HoistDesc> = per_array
+        .into_iter()
+        .filter_map(|(array, (kmin, kmax))| {
+            Some(HoistDesc {
+                array,
+                bound,
+                iv,
+                add_max: i32::try_from(kmax - strict).ok()?,
+                add_min: i32::try_from(kmin).ok()?,
+            })
+        })
+        .collect();
+    descs.sort_by_key(|d| d.array);
+    descs
 }
 
 /// SPECULATIVE region-entry hoist (V8 loop bound-check elimination): when a
@@ -3649,18 +4938,7 @@ fn record_hoist_speculation(
         return;
     }
     let strict = if g.strict { 1 } else { 0 };
-    let descs: Vec<HoistDesc> = per_array
-        .into_iter()
-        .filter_map(|(array, (kmin, kmax))| {
-            Some(HoistDesc {
-                array,
-                bound,
-                iv: g.iv,
-                add_max: i32::try_from(kmax - strict).ok()?,
-                add_min: i32::try_from(kmin).ok()?,
-            })
-        })
-        .collect();
+    let descs = hoist_descs(per_array, bound, g.iv, strict);
     if !descs.is_empty() {
         facts.hoist_descs.entry(loop_key).or_default().extend(descs);
     }
@@ -3670,23 +4948,21 @@ fn record_hoist_speculation(
 enum BuildLength {
     /// Variable bound: `length(arr) >= n + off`.
     Symbolic(Symbol, Symbol, i64),
-    /// Literal bound: `length(arr) == len` exactly (the interval check then
-    /// proves reads directly).
-    Concrete(Symbol, i64),
+    /// Literal bound: `length(arr)` lies in the interval — exact when the array's
+    /// entry length is (the interval check then proves reads directly).
+    Concrete(Symbol, Interval),
 }
 
 /// Recognize a counted build loop `while c </<= B: <fill arr once per
-/// iteration>` from an EMPTY array, where `B` is a variable (→ a symbolic
-/// length lower bound) or an integer literal (→ a concrete exact length) —
-/// the standard allocation-size fact. Strict by construction: the body is
-/// flat with exactly one `push to arr`, exactly one `c := c + 1`, `c`
-/// starting at a known constant, and nothing else that resizes a collection
-/// or branches (a conditional push would make the length too small).
-fn infer_build_length(
-    cond: &Expr,
-    body: &[Stmt],
-    entry: &RichAbstractState,
-) -> Vec<BuildLength> {
+/// iteration>`, where `B` is a variable (→ a symbolic length lower bound) or an
+/// integer literal (→ a concrete length) — the standard allocation-size fact.
+/// The loop appends one item per trip to whatever the array held at entry, so a
+/// table seeded before its fill loop (`Push 1 to dp`, then `n` zeros) ends with
+/// its seed counted in. Strict by construction: the body is flat with exactly
+/// one `push to arr`, exactly one `c := c + 1`, `c` starting at a known
+/// constant, and nothing else that resizes a collection or branches (a
+/// conditional push would make the length too small).
+fn infer_build_length(cond: &Expr, body: &[Stmt], entry: &RichAbstractState) -> Vec<BuildLength> {
     let (c_e, b_e, strict) = match cond {
         Expr::BinaryOp { op, left, right } => {
             let (l, r) = (&**left, &**right);
@@ -3698,7 +4974,9 @@ fn infer_build_length(
         }
         _ => return Vec::new(),
     };
-    let Expr::Identifier(c) = c_e else { return Vec::new() };
+    let Expr::Identifier(c) = c_e else {
+        return Vec::new();
+    };
     let c = *c;
     // The bound is a variable (symbolic) or an integer literal (concrete).
     let bound_var = match b_e {
@@ -3768,18 +5046,25 @@ fn infer_build_length(
         if count != 1 || arr == c || bound_var == Some(arr) {
             continue;
         }
-        // The array must be empty at loop entry — a fresh allocation filled here.
+        // The items the array holds at loop entry stay; the loop appends after
+        // them. The symbolic fact is a LOWER bound, so it takes the entry
+        // length's lower end, and it holds for a zero-trip loop too: no trips
+        // means `n + off <= 0`, so `n + off + seed <= seed <= length`.
         let entry_len = entry.intervals.get_length(&arr);
-        if !matches!(
-            (entry_len.lo, entry_len.hi),
-            (Bound::Finite(0), Bound::Finite(0))
-        ) {
+        let Bound::Finite(seed) = entry_len.lo else {
             continue;
-        }
+        };
         match (bound_var, b_e) {
-            (Some(n), _) => out.push(BuildLength::Symbolic(arr, n, off)),
+            (Some(n), _) => {
+                if let Some(total) = off.checked_add(seed) {
+                    out.push(BuildLength::Symbolic(arr, n, total));
+                }
+            }
             (None, Expr::Literal(Literal::Number(bn))) => {
-                out.push(BuildLength::Concrete(arr, (*bn + off).max(0)))
+                if let Some(trips) = bn.checked_add(off) {
+                    let filled = Interval::exact(trips.max(0)).add(&entry_len);
+                    out.push(BuildLength::Concrete(arr, filled));
+                }
             }
             _ => {}
         }
@@ -3789,7 +5074,12 @@ fn infer_build_length(
 
 /// `value` is exactly `c + 1` or `1 + c`.
 fn is_increment_by_one(value: &Expr, c: Symbol) -> bool {
-    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = value
+    {
         let is_c = |e: &Expr| matches!(e, Expr::Identifier(s) if *s == c);
         let is_one = |e: &Expr| matches!(e, Expr::Literal(Literal::Number(1)));
         return (is_c(&**left) && is_one(&**right)) || (is_one(&**left) && is_c(&**right));
@@ -3818,7 +5108,11 @@ fn body_is_index_proof_safe(body: &[Stmt]) -> bool {
         | Stmt::RuntimeAssert { .. }
         | Stmt::Assert { .. }
         | Stmt::Trust { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             body_is_index_proof_safe(then_block)
                 && match else_block {
                     Some(eb) => body_is_index_proof_safe(eb),
@@ -3868,7 +5162,11 @@ fn collect_resized_arrays(body: &[Stmt], out: &mut std::collections::HashSet<Sym
                     out.insert(*src);
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_resized_arrays(then_block, out);
                 if let Some(eb) = else_block {
                     collect_resized_arrays(eb, out);
@@ -3890,10 +5188,12 @@ fn array_resized_in(sym: Symbol, body: &[Stmt]) -> bool {
         Stmt::Push { collection, .. }
         | Stmt::Add { collection, .. }
         | Stmt::Remove { collection, .. } => hits(collection),
-        Stmt::Pop { collection, into } => {
-            hits(collection) || matches!(into, Some(v) if *v == sym)
-        }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::Pop { collection, into } => hits(collection) || matches!(into, Some(v) if *v == sym),
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             array_resized_in(sym, then_block)
                 || matches!(else_block, Some(eb) if array_resized_in(sym, eb))
         }
@@ -3913,6 +5213,7 @@ fn record_proven_reads(
     length_def: &HashMap<Symbol, (Symbol, i64)>,
     clobbered: &mut std::collections::HashSet<Symbol>,
     facts: &mut OracleFacts,
+    globals: &CalleeGlobals,
 ) {
     for stmt in stmts {
         for_each_direct_expr(stmt, &mut |e| {
@@ -3920,33 +5221,40 @@ fn record_proven_reads(
         });
         // A store `Set item E of arr to v` — prove the STORE index too (its
         // index is a direct expression, not an `Index` node a read walk sees).
-        if let Stmt::SetIndex { collection, index, .. } = stmt {
+        if let Stmt::SetIndex {
+            collection, index, ..
+        } = stmt
+        {
             try_record_index(collection, index, guards, length_def, clobbered, facts);
         }
         match stmt {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 let mut c_then = clobbered.clone();
-                record_proven_reads(then_block, guards, length_def, &mut c_then, facts);
+                record_proven_reads(then_block, guards, length_def, &mut c_then, facts, globals);
                 let mut c_else = clobbered.clone();
                 if let Some(eb) = else_block {
-                    record_proven_reads(eb, guards, length_def, &mut c_else, facts);
+                    record_proven_reads(eb, guards, length_def, &mut c_else, facts, globals);
                 }
                 clobbered.extend(c_then);
                 clobbered.extend(c_else);
             }
             Stmt::While { body, .. } => {
                 let mut inner = clobbered.clone();
-                for m in collect_mutations(body) {
+                for m in collect_mutations_in(body, globals) {
                     inner.insert(m);
                 }
-                record_proven_reads(body, guards, length_def, &mut inner.clone(), facts);
+                record_proven_reads(body, guards, length_def, &mut inner.clone(), facts, globals);
                 *clobbered = inner;
             }
             Stmt::Repeat { pattern, body, .. } => {
                 if let Some(v) = pattern_loop_var(pattern) {
                     clobbered.insert(v);
                 }
-                for m in collect_mutations(body) {
+                for m in collect_mutations_in(body, globals) {
                     clobbered.insert(m);
                 }
             }
@@ -3971,7 +5279,11 @@ fn record_proven_reads(
 fn for_each_direct_expr(stmt: &Stmt, f: &mut impl FnMut(&Expr)) {
     match stmt {
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => f(value),
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             f(collection);
             f(index);
             f(value);
@@ -3983,7 +5295,9 @@ fn for_each_direct_expr(stmt: &Stmt, f: &mut impl FnMut(&Expr)) {
         Stmt::Return { value: Some(v) } => f(v),
         Stmt::RuntimeAssert { condition, .. } => f(condition),
         Stmt::If { cond, .. } => f(cond),
-        Stmt::While { cond, decreasing, .. } => {
+        Stmt::While {
+            cond, decreasing, ..
+        } => {
             f(cond);
             if let Some(d) = decreasing {
                 f(d);
@@ -4012,7 +5326,10 @@ fn record_index_reads(
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             record_index_reads(left, guards, length_def, clobbered, facts);
             record_index_reads(right, guards, length_def, clobbered, facts);
         }
@@ -4032,14 +5349,20 @@ fn record_index_reads(
             record_index_reads(collection, guards, length_def, clobbered, facts);
             record_index_reads(index, guards, length_def, clobbered, facts);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             record_index_reads(collection, guards, length_def, clobbered, facts);
             record_index_reads(start, guards, length_def, clobbered, facts);
             record_index_reads(end, guards, length_def, clobbered, facts);
         }
         Expr::Copy { expr } => record_index_reads(expr, guards, length_def, clobbered, facts),
         Expr::Give { value } => record_index_reads(value, guards, length_def, clobbered, facts),
-        Expr::Length { collection } => record_index_reads(collection, guards, length_def, clobbered, facts),
+        Expr::Length { collection } => {
+            record_index_reads(collection, guards, length_def, clobbered, facts)
+        }
         Expr::Contains { collection, value } => {
             record_index_reads(collection, guards, length_def, clobbered, facts);
             record_index_reads(value, guards, length_def, clobbered, facts);
@@ -4049,7 +5372,9 @@ fn record_index_reads(
                 record_index_reads(it, guards, length_def, clobbered, facts);
             }
         }
-        Expr::FieldAccess { object, .. } => record_index_reads(object, guards, length_def, clobbered, facts),
+        Expr::FieldAccess { object, .. } => {
+            record_index_reads(object, guards, length_def, clobbered, facts)
+        }
         Expr::New { init_fields, .. } => {
             for (_, fe) in init_fields {
                 record_index_reads(fe, guards, length_def, clobbered, facts);
@@ -4060,7 +5385,9 @@ fn record_index_reads(
                 record_index_reads(fe, guards, length_def, clobbered, facts);
             }
         }
-        Expr::OptionSome { value } => record_index_reads(value, guards, length_def, clobbered, facts),
+        Expr::OptionSome { value } => {
+            record_index_reads(value, guards, length_def, clobbered, facts)
+        }
         Expr::WithCapacity { value, capacity } => {
             record_index_reads(value, guards, length_def, clobbered, facts);
             record_index_reads(capacity, guards, length_def, clobbered, facts);
@@ -4083,7 +5410,11 @@ fn record_index_reads(
 /// its scope — used by the program-wide scans the dense-map gate needs.
 fn each_child_block(s: &Stmt, f: &mut impl FnMut(&[Stmt])) {
     match s {
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             f(then_block);
             if let Some(eb) = else_block {
                 f(eb);
@@ -4099,43 +5430,6 @@ fn each_child_block(s: &Stmt, f: &mut impl FnMut(&[Stmt])) {
         Stmt::FunctionDef { body, .. } => f(body),
         _ => {}
     }
-}
-
-/// Symbols that are NOT program-invariant: every `Set` target, plus any symbol
-/// bound by more than one `Let` (a shadow/rebind). A `with capacity` expression
-/// built only from symbols OUTSIDE this set holds the same value at the map's
-/// declaration as at every key site, so the dense array's runtime size equals
-/// the capacity the bound proof reasons about. Conservative across scopes (a
-/// name reused in two scopes counts as reassigned) — sound, at worst it declines
-/// to optimize.
-fn collect_reassigned(stmts: &[Stmt]) -> std::collections::HashSet<Symbol> {
-    fn walk(
-        stmts: &[Stmt],
-        set_targets: &mut std::collections::HashSet<Symbol>,
-        let_counts: &mut HashMap<Symbol, u32>,
-    ) {
-        for s in stmts {
-            match s {
-                Stmt::Set { target, .. } => {
-                    set_targets.insert(*target);
-                }
-                Stmt::Let { var, .. } => {
-                    *let_counts.entry(*var).or_insert(0) += 1;
-                }
-                _ => {}
-            }
-            each_child_block(s, &mut |b| walk(b, set_targets, let_counts));
-        }
-    }
-    let mut set_targets = std::collections::HashSet::new();
-    let mut let_counts: HashMap<Symbol, u32> = HashMap::new();
-    walk(stmts, &mut set_targets, &mut let_counts);
-    for (sym, count) in let_counts {
-        if count > 1 {
-            set_targets.insert(sym);
-        }
-    }
-    set_targets
 }
 
 /// Record, per `Map`/`HashMap` local declared `… with capacity CAP`, the capacity
@@ -4154,7 +5448,11 @@ fn gather_map_caps(
 ) {
     for s in stmts {
         if let Stmt::Let { var, value, .. } = s {
-            if let Expr::WithCapacity { value: inner, capacity } = value {
+            if let Expr::WithCapacity {
+                value: inner,
+                capacity,
+            } = value
+            {
                 if let Expr::New { type_name, .. } = inner {
                     if matches!(interner.resolve(*type_name), "Map" | "HashMap") {
                         if let Some(cap_lin) = super::affine::lin_of(capacity) {
@@ -4176,7 +5474,9 @@ fn gather_map_caps(
                 }
             }
         }
-        each_child_block(s, &mut |b| gather_map_caps(b, interner, reassigned, out, poisoned));
+        each_child_block(s, &mut |b| {
+            gather_map_caps(b, interner, reassigned, out, poisoned)
+        });
     }
 }
 
@@ -4184,11 +5484,15 @@ fn gather_map_caps(
 /// is a bare identifier — the candidate key-domain capacity for a map filled by
 /// the loop. `None` for any other condition shape.
 fn counted_loop_bound<'a>(cond: &'a Expr<'a>) -> Option<&'a Expr<'a>> {
-    let Expr::BinaryOp { op, left, right } = cond else { return None };
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return None;
+    };
     if !matches!(op, BinaryOpKind::Lt | BinaryOpKind::LtEq) {
         return None;
     }
-    let Expr::Identifier(_) = *left else { return None };
+    let Expr::Identifier(_) = *left else {
+        return None;
+    };
     Some(*right)
 }
 
@@ -4220,7 +5524,11 @@ fn collect_loop_inserted_maps(
     out: &mut Vec<Symbol>,
 ) {
     for s in stmts {
-        if let Stmt::SetIndex { collection: Expr::Identifier(m), .. } = s {
+        if let Stmt::SetIndex {
+            collection: Expr::Identifier(m),
+            ..
+        } = s
+        {
             if candidates.contains(m) {
                 out.push(*m);
             }
@@ -4287,7 +5595,10 @@ fn gather_implicit_map_caps(
 /// constructor site. `None` if any coefficient or the constant is non-integer (no
 /// clean rendering), in which case the dense gate declines and the map stays a
 /// hash table. Terms are emitted in symbol-index order for determinism.
-pub fn lin_to_rust(e: &super::affine::LinExpr, interner: &crate::intern::Interner) -> Option<String> {
+pub fn lin_to_rust(
+    e: &super::affine::LinExpr,
+    interner: &crate::intern::Interner,
+) -> Option<String> {
     let mut coeffs: Vec<(i64, i64)> = Vec::new();
     for (idx, c) in e.coefficients.iter() {
         let ci = c.to_i64()?;
@@ -4317,7 +5628,11 @@ pub fn lin_to_rust(e: &super::affine::LinExpr, interner: &crate::intern::Interne
 /// full-coverage recognizer; more than one (or zero) is not.
 fn count_insert_sites(stmts: &[Stmt], out: &mut HashMap<Symbol, u32>) {
     for s in stmts {
-        if let Stmt::SetIndex { collection: Expr::Identifier(m), .. } = s {
+        if let Stmt::SetIndex {
+            collection: Expr::Identifier(m),
+            ..
+        } = s
+        {
             *out.entry(*m).or_insert(0) += 1;
         }
         each_child_block(s, &mut |b| count_insert_sites(b, out));
@@ -4339,8 +5654,12 @@ fn match_insert_loop(
 ) -> Option<(Symbol, Symbol, super::affine::LinExpr)> {
     use super::affine::{konst, lin_of};
     // cond: `iv < UB` (B = UB - 1) or `iv <= UB` (B = UB), iv a bare identifier.
-    let Expr::BinaryOp { op, left, right } = cond else { return None };
-    let Expr::Identifier(iv) = left else { return None };
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return None;
+    };
+    let Expr::Identifier(iv) = left else {
+        return None;
+    };
     let b_lin = match op {
         BinaryOpKind::Lt => lin_of(right)?.sub(&konst(1)),
         BinaryOpKind::LtEq => lin_of(right)?,
@@ -4354,18 +5673,26 @@ fn match_insert_loop(
     for s in body {
         match s {
             // The unconditional insert `Set item iv of m to _`.
-            Stmt::SetIndex { collection: Expr::Identifier(m), index: Expr::Identifier(ix), .. }
-                if ix == iv && map_caps.contains_key(m) =>
-            {
+            Stmt::SetIndex {
+                collection: Expr::Identifier(m),
+                index: Expr::Identifier(ix),
+                ..
+            } if ix == iv && map_caps.contains_key(m) => {
                 if found_map.is_some() {
                     return None;
                 }
                 found_map = Some(*m);
             }
             // The unit increment `Set iv to iv + 1` (either operand order).
-            Stmt::Set { target, value: Expr::BinaryOp { op: BinaryOpKind::Add, left: l, right: r } }
-                if target == iv =>
-            {
+            Stmt::Set {
+                target,
+                value:
+                    Expr::BinaryOp {
+                        op: BinaryOpKind::Add,
+                        left: l,
+                        right: r,
+                    },
+            } if target == iv => {
                 let iv_plus_one = matches!((l, r),
                     (Expr::Identifier(a), Expr::Literal(Literal::Number(1))) if a == iv)
                     || matches!((l, r),
@@ -4413,13 +5740,20 @@ fn gather_insert_coverage(
         // Track constant inits in execution order so a loop sees its IV's entry
         // value; any non-literal (re)assignment clears the fact.
         match s {
-            Stmt::Let { var, value: Expr::Literal(Literal::Number(n)), .. } => {
+            Stmt::Let {
+                var,
+                value: Expr::Literal(Literal::Number(n)),
+                ..
+            } => {
                 inits.insert(*var, *n);
             }
             Stmt::Let { var, .. } => {
                 inits.remove(var);
             }
-            Stmt::Set { target, value: Expr::Literal(Literal::Number(n)) } => {
+            Stmt::Set {
+                target,
+                value: Expr::Literal(Literal::Number(n)),
+            } => {
                 inits.insert(*target, *n);
             }
             Stmt::Set { target, .. } => {
@@ -4432,12 +5766,15 @@ fn gather_insert_coverage(
 
 pub fn oracle_analyze(stmts: &[Stmt]) -> OracleFacts {
     let mut facts = OracleFacts::default();
+    let callee_globals = std::rc::Rc::new(CalleeGlobals::of_program(stmts));
     let mut st = RichAbstractState::new();
+    st.callee_globals = callee_globals.clone();
     rich_walk_block(stmts, &mut st, &mut facts);
     // Function bodies: parameters carry their declared scalar types.
     for s in stmts {
         if let Stmt::FunctionDef { params, body, .. } = s {
             let mut fst = RichAbstractState::new();
+            fst.callee_globals = callee_globals.clone();
             for (psym, ty) in params.iter() {
                 if let crate::ast::stmt::TypeExpr::Primitive(t) = ty {
                     // Declared types arrive as interned names; tag the ones
@@ -4486,6 +5823,141 @@ pub fn oracle_analyze_with_entry_guards(
     oracle_analyze_with_opts(stmts, interner, true)
 }
 
+/// The functions every return of which hands back a sequence as long as the one handed to them at a parameter
+/// position: `function -> position`. A candidate (a sequence parameter, a sequence return type, and a body whose
+/// statements the walk enters, so no return hides from it) is walked with that parameter's entry length named
+/// ([`super::affine::entry_len_index`]); every `Return` it holds must be recorded handing back a sequence whose length
+/// equals it. Calls assume the summaries still standing, and a refuted candidate is dropped and the rest walked again
+/// until none is refuted. The greatest fixpoint is sound for what a call returns: a call that returns made only
+/// calls that returned, so the summaries hold by induction on the depth of the calls.
+fn length_preserving_functions(
+    stmts: &[Stmt],
+    fn_returns: &std::rc::Rc<HashMap<Symbol, TypeTag>>,
+    callee_globals: &std::rc::Rc<CalleeGlobals>,
+    seq_types: &std::rc::Rc<HashSet<Symbol>>,
+) -> HashMap<Symbol, usize> {
+    use super::affine::{entry_len_index, len_index, len_var, LinExpr};
+    use crate::ast::stmt::TypeExpr;
+    let is_seq =
+        |ty: &TypeExpr| matches!(ty, TypeExpr::Generic { base, .. } if seq_types.contains(base));
+    let mut defs = Vec::new();
+    let mut candidates: HashMap<Symbol, Vec<usize>> = HashMap::new();
+    for s in stmts {
+        let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            return_type: Some(ret),
+            ..
+        } = s
+        else {
+            continue;
+        };
+        let mut sites = Vec::new();
+        if !is_seq(ret) || !return_sites(body, &mut sites) || sites.is_empty() {
+            continue;
+        }
+        let positions: Vec<usize> = (0..params.len()).filter(|&i| is_seq(params[i].1)).collect();
+        if !positions.is_empty() {
+            candidates.insert(*name, positions);
+            defs.push((*name, params, *body, sites));
+        }
+    }
+    loop {
+        let assumed: std::rc::Rc<HashMap<Symbol, usize>> = std::rc::Rc::new(
+            candidates
+                .iter()
+                .filter_map(|(f, ps)| ps.first().map(|p| (*f, *p)))
+                .collect(),
+        );
+        let mut refuted = false;
+        for (name, params, body, sites) in &defs {
+            let positions = candidates[name].clone();
+            if positions.is_empty() {
+                continue;
+            }
+            let mut fst = RichAbstractState::new();
+            fst.fn_returns = fn_returns.clone();
+            fst.callee_globals = callee_globals.clone();
+            fst.seq_types = seq_types.clone();
+            fst.len_summaries = assumed.clone();
+            for (i, (p, ty)) in params.iter().enumerate() {
+                fst.aliases.taint(*p);
+                if is_seq(ty) {
+                    fst.seq_vars.insert(*p);
+                    fst.coll_vars.insert(*p);
+                    fst.karr
+                        .assign(len_index(*p), Some(&LinExpr::var(entry_len_index(i))));
+                }
+            }
+            let mut facts = OracleFacts {
+                return_probe: Some(Vec::new()),
+                ..OracleFacts::default()
+            };
+            rich_walk_block(body, &mut fst, &mut facts);
+            let returns = facts.return_probe.take().unwrap_or_default();
+            let kept: Vec<usize> = positions
+                .iter()
+                .copied()
+                .filter(|&p| {
+                    let entry = LinExpr::var(entry_len_index(p));
+                    sites.iter().all(|&site| {
+                        let mut at = returns.iter().filter(|(a, _, _)| *a == site).peekable();
+                        at.peek().is_some()
+                            && at.all(|(_, named, karr)| {
+                                named.is_some_and(|c| karr.entails_zero(&len_var(c).sub(&entry)))
+                            })
+                    })
+                })
+                .collect();
+            if kept.len() != positions.len() {
+                refuted = true;
+                candidates.insert(*name, kept);
+            }
+        }
+        if !refuted {
+            break;
+        }
+    }
+    candidates
+        .into_iter()
+        .filter_map(|(f, ps)| ps.first().map(|p| (f, *p)))
+        .collect()
+}
+
+/// Collect the address of every `Return` in `block` that hands back a value, through the blocks the walk enters.
+/// False when the block holds a `Return` without a value, or a statement whose blocks the walk does not enter: a
+/// return could hide there, so no summary may rest on the ones found.
+fn return_sites(block: &[Stmt], out: &mut Vec<usize>) -> bool {
+    block.iter().all(|s| match s {
+        Stmt::Return { value: Some(_) } => {
+            out.push(s as *const Stmt as usize);
+            true
+        }
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => return_sites(then_block, out) && else_block.map_or(true, |eb| return_sites(eb, out)),
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => return_sites(body, out),
+        Stmt::Inspect { arms, .. } => arms.iter().all(|a| return_sites(a.body, out)),
+        Stmt::Let { .. }
+        | Stmt::Set { .. }
+        | Stmt::SetIndex { .. }
+        | Stmt::SetField { .. }
+        | Stmt::Push { .. }
+        | Stmt::Pop { .. }
+        | Stmt::Add { .. }
+        | Stmt::Remove { .. }
+        | Stmt::Swap { .. }
+        | Stmt::Show { .. }
+        | Stmt::Call { .. }
+        | Stmt::Break
+        | Stmt::RuntimeAssert { .. } => true,
+        _ => false,
+    })
+}
+
 /// Shared body of the two public entry points. `aot_entry_guard` gates the
 /// entry-guard-precondition facts to the AOT path that enforces them.
 fn oracle_analyze_with_opts(
@@ -4494,13 +5966,20 @@ fn oracle_analyze_with_opts(
     aot_entry_guard: bool,
 ) -> OracleFacts {
     let mut facts = OracleFacts::default();
+    let callee_globals = std::rc::Rc::new(CalleeGlobals::of_program(stmts));
     // Dense-map gate (precondition): record each `Map of Int to Int … with
     // capacity CAP`'s invariant affine capacity BEFORE the loop walks, so
     // `try_prove_dense_key` can relate a key to it while the loop guards are live.
     {
-        let reassigned = collect_reassigned(stmts);
+        let reassigned = rebound_names(stmts, &callee_globals);
         let mut poisoned = std::collections::HashSet::new();
-        gather_map_caps(stmts, interner, &reassigned, &mut facts.map_caps, &mut poisoned);
+        gather_map_caps(
+            stmts,
+            interner,
+            &reassigned,
+            &mut facts.map_caps,
+            &mut poisoned,
+        );
         // Implicit capacity: a bare `new Map` filled by a counted loop takes that
         // loop's bound as a candidate key-domain cap (proof-gated downstream) —
         // so a `Map of Int to Int` written without `with capacity` can still go
@@ -4511,19 +5990,30 @@ fn oracle_analyze_with_opts(
         let mut insert_counts = HashMap::new();
         count_insert_sites(stmts, &mut insert_counts);
         let mut inits = HashMap::new();
-        gather_insert_coverage(stmts, &facts.map_caps, &insert_counts, &mut inits, &mut facts.map_insert_cover);
+        gather_insert_coverage(
+            stmts,
+            &facts.map_caps,
+            &insert_counts,
+            &mut inits,
+            &mut facts.map_insert_cover,
+        );
     }
     // DECLARED primitive return types: a call to one of these functions
     // (native or user-defined) produces a typed value — a static fact the
     // kernel enforces dynamically.
     let mut fn_returns: HashMap<Symbol, TypeTag> = HashMap::new();
     for s in stmts {
-        if let Stmt::FunctionDef { name, return_type: Some(ty), .. } = s {
-            if let crate::ast::stmt::TypeExpr::Primitive(t)
-            | crate::ast::stmt::TypeExpr::Named(t) = ty
+        if let Stmt::FunctionDef {
+            name,
+            return_type: Some(ty),
+            ..
+        } = s
+        {
+            if let crate::ast::stmt::TypeExpr::Primitive(t) | crate::ast::stmt::TypeExpr::Named(t) =
+                ty
             {
                 let tag = match interner.resolve(*t) {
-                    "Int" => Some(TypeTag::Int),
+                    "Int" | "Element" | "Event" | "View" => Some(TypeTag::Int),
                     "Float" => Some(TypeTag::Float),
                     "Bool" => Some(TypeTag::Bool),
                     "Text" => Some(TypeTag::Text),
@@ -4536,19 +6026,39 @@ fn oracle_analyze_with_opts(
         }
     }
     let fn_returns = std::rc::Rc::new(fn_returns);
+    let seq_types: std::rc::Rc<HashSet<Symbol>> = std::rc::Rc::new(
+        ["Seq", "List"]
+            .iter()
+            .filter_map(|n| interner.lookup(n))
+            .collect(),
+    );
+    let len_summaries = std::rc::Rc::new(length_preserving_functions(
+        stmts,
+        &fn_returns,
+        &callee_globals,
+        &seq_types,
+    ));
     let mut st = RichAbstractState::new();
     st.fn_returns = fn_returns.clone();
+    st.callee_globals = callee_globals.clone();
+    st.seq_types = seq_types.clone();
+    st.len_summaries = len_summaries.clone();
     rich_walk_block(stmts, &mut st, &mut facts);
     for s in stmts {
         if let Stmt::FunctionDef { params, body, .. } = s {
             let mut fst = RichAbstractState::new();
             fst.fn_returns = fn_returns.clone();
+            fst.callee_globals = callee_globals.clone();
+            fst.seq_types = seq_types.clone();
+            fst.len_summaries = len_summaries.clone();
             fst.aot_entry_guard = aot_entry_guard;
             for (psym, ty) in params.iter() {
                 match ty {
                     crate::ast::stmt::TypeExpr::Primitive(t) => {
                         let tag = match interner.resolve(*t) {
-                            "Int" => TypeAbstraction::Concrete(TypeTag::Int),
+                            "Int" | "Element" | "Event" | "View" => {
+                                TypeAbstraction::Concrete(TypeTag::Int)
+                            }
                             "Float" => TypeAbstraction::Concrete(TypeTag::Float),
                             "Bool" => TypeAbstraction::Concrete(TypeTag::Bool),
                             "Text" => TypeAbstraction::Concrete(TypeTag::Text),
@@ -4564,6 +6074,9 @@ fn oracle_analyze_with_opts(
                     {
                         fst.coll_vars.insert(*psym);
                         fst.param_colls.insert(*psym);
+                        if seq_types.contains(base) {
+                            fst.seq_vars.insert(*psym);
+                        }
                     }
                     _ => {}
                 }
@@ -4582,18 +6095,102 @@ fn oracle_analyze_with_opts(
             // AOT ONLY — the VM/JIT bytecode path emits no entry guard, so it
             // must not see these unenforced facts (else it would drop a
             // `RegionBoundsGuard` it actually needs).
+            let mut partition_guarded = false;
             if aot_entry_guard {
                 if let Some(g) =
                     crate::codegen::entry_guard::detect_entry_guard(params, body, interner)
                 {
-                    fst.intervals
-                        .set_var(g.lo, Interval { lo: Bound::Finite(1), hi: Bound::PosInf });
-                    fst.intervals
-                        .set_var(g.hi, Interval { lo: Bound::Finite(1), hi: Bound::PosInf });
+                    fst.intervals.set_var(
+                        g.lo,
+                        Interval {
+                            lo: Bound::Finite(1),
+                            hi: Bound::PosInf,
+                        },
+                    );
+                    fst.intervals.set_var(
+                        g.hi,
+                        Interval {
+                            lo: Bound::Finite(1),
+                            hi: Bound::PosInf,
+                        },
+                    );
                     fst.length_def.insert(g.arr, (g.hi, 0));
+                    // `lo>=1`/`hi>=1` as function-wide ambient facts carried ON THE
+                    // STATE — they flow (via clone) into the loop fixpoint's record
+                    // state, where the header interval is widened away and a
+                    // thread-local was empty. Enforced by the entry-guard `assert!`.
+                    fst.entry_guard_lowers = vec![(g.lo, 1), (g.hi, 1)];
+                    partition_guarded = true;
+                } else if let Some(g) =
+                    crate::codegen::entry_guard::detect_heap_sift_guard(params, body, interner)
+                {
+                    // Affine-index descent (heap sift): `end < arr.len()` (length_def)
+                    // and `start,end >= 0` (enforced by the codegen entry guard). LIFT:
+                    // the whole function body is in scope HERE, so verify the loop
+                    // `counter` is `>= 0` (grounded by `Let counter be start`, start>=0)
+                    // and seed that as a function-wide lower — no per-access whole-body
+                    // context needed. The conditionally-assigned indices (`swapIdx`)
+                    // then ground off this seeded lower in `try_prove_affine`.
+                    fst.intervals.set_var(
+                        g.start,
+                        Interval {
+                            lo: Bound::Finite(0),
+                            hi: Bound::PosInf,
+                        },
+                    );
+                    fst.intervals.set_var(
+                        g.end,
+                        Interval {
+                            lo: Bound::Finite(0),
+                            hi: Bound::PosInf,
+                        },
+                    );
+                    fst.length_def.insert(g.arr, (g.end, 1));
+                    fst.entry_guard_lowers = vec![(g.start, 0), (g.end, 0)];
+                    let mutated: std::collections::HashSet<Symbol> =
+                        collect_mutations_in(body, &callee_globals)
+                            .into_iter()
+                            .collect();
+                    let assumed = std::collections::HashSet::new();
+                    if sym_ge_lo(g.counter, 0, body, &fst, &mutated, &assumed, 64) {
+                        fst.entry_guard_lowers.push((g.counter, 0));
+                    }
                 }
             }
-            rich_walk_block(body, &mut fst, &mut facts);
+            if partition_guarded {
+                // Inlined top-level walk for the entry-guarded partition (quicksort):
+                // the affine index proof runs only for LOOP bodies, so a post-loop
+                // access — the Lomuto partition's `item i of arr` pivot swap, sitting
+                // after the `while j < hi` scan — is never proven and keeps its bounds
+                // branch. This mirrors `rich_walk_block`'s transfer exactly
+                // (`record_stmt_exprs` + `rich_walk_stmt`), interleaving the affine
+                // proof at each top-level statement's PRE-state — so the loop-exit
+                // invariant `lo <= i <= hi` that `rich_walk_loop` records into the
+                // post-loop state discharges the pivot swap. Scoped to the entry-guarded
+                // partition functions (no other program reaches this branch), so it
+                // cannot change any non-partition program's oracle output.
+                let tl_mutated: std::collections::HashSet<Symbol> =
+                    collect_mutations_in(body, &callee_globals)
+                        .into_iter()
+                        .collect();
+                let mut tl_clobbered: std::collections::HashSet<Symbol> =
+                    std::collections::HashSet::new();
+                collect_resized_arrays(body, &mut tl_clobbered);
+                for stmt in body.iter() {
+                    record_stmt_exprs(stmt, &fst, &mut facts);
+                    prove_toplevel_accesses(
+                        stmt,
+                        body,
+                        &fst,
+                        &tl_clobbered,
+                        &tl_mutated,
+                        &mut facts,
+                    );
+                    rich_walk_stmt(stmt, &mut fst, &mut facts);
+                }
+            } else {
+                rich_walk_block(body, &mut fst, &mut facts);
+            }
         }
     }
     strip_concurrent_loop_snapshots(stmts, &mut facts, false);
@@ -4612,7 +6209,11 @@ fn strip_concurrent_loop_snapshots(stmts: &[Stmt], facts: &mut OracleFacts, in_c
                 }
                 strip_concurrent_loop_snapshots(body, facts, in_concurrent);
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 strip_concurrent_loop_snapshots(then_block, facts, in_concurrent);
                 if let Some(eb) = else_block {
                     strip_concurrent_loop_snapshots(eb, facts, in_concurrent);
@@ -4643,6 +6244,7 @@ pub(crate) fn rich_abstract_interp_stmts<'a>(
     _stmt_arena: &'a Arena<Stmt<'a>>,
 ) -> (Vec<Stmt<'a>>, RichAbstractState) {
     let mut st = RichAbstractState::new();
+    st.callee_globals = std::rc::Rc::new(CalleeGlobals::of_program(&stmts));
     let mut facts = OracleFacts::default();
     rich_walk_block(&stmts, &mut st, &mut facts);
     (stmts, st)
@@ -4661,7 +6263,16 @@ fn record_stmt_exprs(stmt: &Stmt, st: &RichAbstractState, facts: &mut OracleFact
     use crate::ast::stmt::ReadSource;
     match stmt {
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => record_expr(value, st, facts),
-        Stmt::Return { value: Some(e) } => record_expr(e, st, facts),
+        Stmt::Return { value: Some(e) } => {
+            record_expr(e, st, facts);
+            if let Some(probe) = &mut facts.return_probe {
+                let named = match e {
+                    Expr::Identifier(s) if st.seq_vars.contains(s) => Some(*s),
+                    _ => None,
+                };
+                probe.push((stmt as *const Stmt as usize, named, st.karr.clone()));
+            }
+        }
         Stmt::Call { args, .. } => {
             for a in args {
                 record_expr(a, st, facts);
@@ -4676,10 +6287,15 @@ fn record_stmt_exprs(stmt: &Stmt, st: &RichAbstractState, facts: &mut OracleFact
             record_expr(value, st, facts);
             record_expr(collection, st, facts);
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             record_expr(collection, st, facts);
             record_expr(index, st, facts);
             record_expr(value, st, facts);
+            record_karr(index, st, facts);
         }
         Stmt::SetField { object, value, .. } => {
             record_expr(object, st, facts);
@@ -4688,14 +6304,34 @@ fn record_stmt_exprs(stmt: &Stmt, st: &RichAbstractState, facts: &mut OracleFact
         Stmt::Inspect { target, .. } => record_expr(target, st, facts),
         Stmt::RuntimeAssert { condition, .. } => record_expr(condition, st, facts),
         Stmt::Sleep { milliseconds } => record_expr(milliseconds, st, facts),
-        Stmt::ReadFrom { source: ReadSource::File(p), .. } => record_expr(p, st, facts),
+        Stmt::ReadFrom {
+            source: ReadSource::File(p),
+            ..
+        } => record_expr(p, st, facts),
         _ => {}
     }
 }
 
 fn rich_walk_stmt(stmt: &Stmt, st: &mut RichAbstractState, facts: &mut OracleFacts) {
+    // The statement's OWN effects (its arms below recurse into nested blocks, whose statements get
+    // their own turn here): foreign code forgets everything, a call forgets the callee-written globals.
+    let own = WriteSet::of_stmt_shallow(stmt).with_callee_globals(&st.callee_globals);
+    if own.is_opaque() {
+        st.forget_everything();
+        return;
+    }
+    if own.has_calls() {
+        st.forget_callee_globals();
+    }
+    karr_step(stmt, &own, st);
     match stmt {
         Stmt::Let { var, value, .. } => rich_bind(*var, value, st),
+        Stmt::Swap { a, b } => {
+            for sym in [*a, *b] {
+                st.invalidate_var(sym);
+                st.aliases.unlink(sym);
+            }
+        }
         Stmt::Set { target, value } => rich_bind(*target, value, st),
         Stmt::Push { collection, value } | Stmt::Add { collection, value } => {
             rich_grow(collection, st);
@@ -4715,7 +6351,9 @@ fn rich_walk_stmt(stmt: &Stmt, st: &mut RichAbstractState, facts: &mut OracleFac
         // A store leaves the length unchanged but adds an element value: join
         // it into the collection's element bound (the scatter `Set item k of
         // arr to V` case).
-        Stmt::SetIndex { collection, value, .. } => observe_written_elem(collection, value, st),
+        Stmt::SetIndex {
+            collection, value, ..
+        } => observe_written_elem(collection, value, st),
         Stmt::SetField { object, .. } => {
             if let Expr::Identifier(s) = *object {
                 for a in st.aliases.may_alias(*s) {
@@ -4723,7 +6361,11 @@ fn rich_walk_stmt(stmt: &Stmt, st: &mut RichAbstractState, facts: &mut OracleFac
                 }
             }
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             rich_walk_if(cond, then_block, *else_block, st, facts);
         }
         Stmt::While { cond, body, .. } => {
@@ -4736,7 +6378,10 @@ fn rich_walk_stmt(stmt: &Stmt, st: &mut RichAbstractState, facts: &mut OracleFac
         }
         Stmt::Inspect { target, arms, .. } => rich_walk_inspect(target, arms, st, facts),
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-            rich_walk_block(tasks, st, facts)
+            // Tasks interleave: an equality one establishes another may break between any two statements.
+            st.karr = super::karr::AffineSpace::top();
+            rich_walk_block(tasks, st, facts);
+            st.karr = super::karr::AffineSpace::top();
         }
         Stmt::Zone { body, .. } => {
             // Walk the zone body so aliasing established inside it is visible
@@ -4771,7 +6416,148 @@ fn rich_walk_stmt(stmt: &Stmt, st: &mut RichAbstractState, facts: &mut OracleFac
             st.invalidate_var(*var);
             st.aliases.unlink(*var);
         }
-        _ => {}
+        // Every other statement is not descended into: everything it (or any block inside it) binds,
+        // mutates, or reaches through a call is unknown afterwards; foreign code anywhere in it forgets
+        // everything.
+        _ => {
+            let effects = WriteSet::of_stmt(stmt).with_callee_globals(&st.callee_globals);
+            if effects.is_opaque() {
+                st.forget_everything();
+                return;
+            }
+            if effects.has_calls() {
+                st.forget_callee_globals();
+            }
+            for sym in effects.symbols() {
+                st.invalidate_var(sym);
+                st.aliases.unlink(sym);
+            }
+        }
+    }
+}
+
+/// A counted loop's exit value. `While x <= B` (or `x < B`) whose one write of `x` is an unconditional top-level
+/// `Set x to x + 1`, with `B` affine over names the body leaves alone and sequences it does not resize, ends with
+/// `x = B + 1` (`x = B`) when `x` starts at most there: every pass begins with the guard holding and adds at most
+/// one, so `x` never passes that value, and the loop ends only once `x` exceeds `B`. The equality joins `after`'s,
+/// along with everything that moved in step with `x` (a counted build's length).
+fn karr_counted_exit(
+    cond: &Expr,
+    body: &[Stmt],
+    entry: &RichAbstractState,
+    after: &mut RichAbstractState,
+) {
+    use super::affine::{konst, lin_of_with_lengths, var};
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return;
+    };
+    let Expr::Identifier(x) = left else { return };
+    let past = match op {
+        BinaryOpKind::LtEq => 1,
+        BinaryOpKind::Lt => 0,
+        _ => return,
+    };
+    let writes = WriteSet::of_block(body).with_callee_globals(&entry.callee_globals);
+    if writes.is_opaque()
+        || !top_level_unconditional_incs(body, &entry.callee_globals)
+            .iter()
+            .any(|(v, d)| v == x && *d == 1)
+    {
+        return;
+    }
+    let mut resized = HashSet::new();
+    collect_resized_arrays(body, &mut resized);
+    let fixed =
+        |c: Symbol| entry.seq_vars.contains(&c) && !resized.contains(&c) && !writes.may_write(c);
+    let Some(bound) = lin_of_with_lengths(right, &fixed) else {
+        return;
+    };
+    let int = |s: Symbol| {
+        matches!(
+            entry.types.get(&s),
+            Some(TypeAbstraction::Concrete(TypeTag::Int))
+        )
+    };
+    let names = bound
+        .coefficients
+        .keys()
+        .filter(|&&k| k >= 0)
+        .map(|&k| Symbol::from_index(k as usize));
+    let names_ok = names.clone().all(|s| int(s) && !writes.may_write(s));
+    if !int(*x) || !names_ok || !entry_proves(entry, &bound.add(&konst(past)).sub(&var(*x))) {
+        return;
+    }
+    after.karr.meet_eq(&var(*x).sub(&bound).sub(&konst(past)));
+}
+
+/// Whether `goal >= 0` follows at `st` from its equalities, the intervals and symbolic bounds of the names they and
+/// `goal` mention, and every length being non-negative.
+fn entry_proves(st: &RichAbstractState, goal: &super::affine::LinExpr) -> bool {
+    use super::affine::{consistent, konst, le, prove, var};
+    let mut system = Vec::new();
+    for eq in st.karr.equalities() {
+        system.push(le(&eq, &konst(0)));
+        system.push(le(&konst(0), &eq));
+    }
+    let mut mentioned: std::collections::BTreeSet<i64> =
+        goal.coefficients.keys().copied().collect();
+    for c in &system {
+        mentioned.extend(c.expr.coefficients.keys().copied());
+    }
+    for &k in &mentioned {
+        if k < 0 {
+            system.push(le(&konst(0), &super::affine::LinExpr::var(k)));
+            continue;
+        }
+        let s = Symbol::from_index(k as usize);
+        let iv = st.intervals.get_var(&s);
+        if let Bound::Finite(lo) = iv.lo {
+            system.push(le(&konst(lo), &var(s)));
+        }
+        if let Bound::Finite(hi) = iv.hi {
+            system.push(le(&var(s), &konst(hi)));
+        }
+        if let Some(u) = st.scalar_upper.get(&s) {
+            system.push(le(&var(s), u));
+        }
+        if let Some(l) = st.scalar_lower.get(&s) {
+            system.push(le(l, &var(s)));
+        }
+    }
+    consistent(&system) && prove(&system, goal)
+}
+
+/// What a statement other than a binding does to the equalities: a push or a pop moves its sequence's length by
+/// one, a store into a sequence keeps it, and every other name the statement writes (or lends to a callee's
+/// `mutable` parameter) may come back as anything. A binding's transfer is [`karr_after_bind`]; a compound
+/// statement's blocks are walked statement by statement.
+fn karr_step(stmt: &Stmt, own: &WriteSet, st: &mut RichAbstractState) {
+    use super::affine::{konst, len_index, len_var};
+    let named = |e: &Expr| match e {
+        Expr::Identifier(s) => Some(*s),
+        _ => None,
+    };
+    let moved: Option<(Symbol, i64)> = match stmt {
+        Stmt::Let { .. } | Stmt::Set { .. } => return,
+        Stmt::Push { collection, .. } => named(collection).map(|c| (c, 1)),
+        Stmt::Pop { collection, .. } => named(collection).map(|c| (c, -1)),
+        _ => None,
+    };
+    let kept = match stmt {
+        Stmt::SetIndex { collection, .. } => named(collection).filter(|c| st.seq_vars.contains(c)),
+        _ => None,
+    };
+    let unknown: Vec<Symbol> = own
+        .symbols()
+        .filter(|s| Some(*s) != moved.map(|(c, _)| c) && Some(*s) != kept)
+        .collect();
+    for name in unknown {
+        st.karr_unknown(name);
+    }
+    if let Some((c, by)) = moved {
+        st.karr_resized(c);
+        let next = st.seq_vars.contains(&c).then(|| len_var(c).add(&konst(by)));
+        st.karr.assign(len_index(c), next.as_ref());
     }
 }
 
@@ -4797,12 +6583,29 @@ fn value_upper(value: &Expr, st: &RichAbstractState) -> Option<super::affine::Li
             Expr::Identifier(arr) => st.elem_upper.get(arr).cloned(),
             _ => None,
         },
-        Expr::BinaryOp { op: BinaryOpKind::Modulo, right, .. } => match right {
+        Expr::BinaryOp {
+            op: BinaryOpKind::Modulo,
+            right,
+            ..
+        } => match right {
             Expr::Identifier(n) => Some(var(*n).sub(&konst(1))),
             _ => None,
         },
+        // A non-negative `y` divided by a literal `k >= 1` is at most `y`.
+        Expr::BinaryOp {
+            op: BinaryOpKind::Divide,
+            left,
+            right,
+        } if divides_nonnegative(left, right, st) => super::affine::lin_of(left),
         _ => None,
     }
+}
+
+/// Whether `left / right` divides a value the intervals prove non-negative by a literal of at least one: its quotient
+/// lies in `[0, left]`.
+fn divides_nonnegative(left: &Expr, right: &Expr, st: &RichAbstractState) -> bool {
+    matches!(right, Expr::Literal(Literal::Number(k)) if *k >= 1)
+        && matches!(eval_expr(left, &st.intervals).lo, Bound::Finite(lo) if lo >= 0)
 }
 
 /// The symbolic LOWER bound of `value`, the mirror of [`value_upper`]. An
@@ -4822,6 +6625,11 @@ fn value_lower(value: &Expr, st: &RichAbstractState) -> Option<super::affine::Li
             },
             _ => None,
         },
+        Expr::BinaryOp {
+            op: BinaryOpKind::Divide,
+            left,
+            right,
+        } if divides_nonnegative(left, right, st) => Some(konst(0)),
         _ => None,
     }
 }
@@ -4883,10 +6691,14 @@ fn is_nonpos_const(e: &super::affine::LinExpr) -> bool {
 /// bound is a finite non-negative. A non-integer rational or a variable whose
 /// interval is unbounded below (for a positive coefficient) fails closed.
 fn lin_ge_zero(e: &super::affine::LinExpr, st: &RichAbstractState) -> bool {
-    let Some(k) = e.constant.to_i64() else { return false };
+    let Some(k) = e.constant.to_i64() else {
+        return false;
+    };
     let mut acc = Interval::exact(k);
     for (idx, coeff) in &e.coefficients {
-        let Some(c) = coeff.to_i64() else { return false };
+        let Some(c) = coeff.to_i64() else {
+            return false;
+        };
         let sym = Symbol::from_index(*idx as usize);
         acc = acc.add(&Interval::exact(c).mul(&st.intervals.get_var(&sym)));
     }
@@ -4948,6 +6760,94 @@ fn observe_written_elem(collection: &Expr, value: &Expr, st: &mut RichAbstractSt
 }
 
 fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
+    let karr = karr_after_bind(var, value, st);
+    let is_seq = sequence_length(value, st).is_some();
+    rich_bind_facts(var, value, st);
+    st.karr = karr;
+    if is_seq {
+        st.seq_vars.insert(var);
+    } else {
+        st.seq_vars.remove(&var);
+    }
+}
+
+/// The equalities after `var := value`, from the state before it: `var`'s new value when it is an Int affine over
+/// the integers and sequence lengths, and its new length when it is a sequence. A name the value lends to a
+/// callee's `mutable` parameter may come back as anything.
+fn karr_after_bind(var: Symbol, value: &Expr, st: &RichAbstractState) -> super::karr::AffineSpace {
+    let int_valued = matches!(
+        eval_type(value, &st.types, &st.fn_returns, &st.elem_type),
+        TypeAbstraction::Concrete(TypeTag::Int)
+    );
+    let lent: Vec<Symbol> = WriteSet::of_expr(value).symbols().collect();
+    if lent.is_empty() {
+        return karr_assigned(var, value, int_valued, st.karr.clone(), st);
+    }
+    let mut probe = RichAbstractState {
+        karr: st.karr.clone(),
+        aliases: st.aliases.clone(),
+        seq_vars: st.seq_vars.clone(),
+        seq_types: st.seq_types.clone(),
+        len_summaries: st.len_summaries.clone(),
+        ..RichAbstractState::new()
+    };
+    for name in lent {
+        probe.karr_unknown(name);
+    }
+    let karr = std::mem::replace(&mut probe.karr, super::karr::AffineSpace::top());
+    karr_assigned(var, value, int_valued, karr, &probe)
+}
+
+/// `karr` after `var := value`, reading lengths through the sequences `lengths` tracks.
+fn karr_assigned(
+    var: Symbol,
+    value: &Expr,
+    int_valued: bool,
+    mut karr: super::karr::AffineSpace,
+    lengths: &RichAbstractState,
+) -> super::karr::AffineSpace {
+    use super::affine::{len_index, lin_of_with_lengths, var_index};
+    let scalar = if int_valued {
+        lin_of_with_lengths(value, &|c| lengths.seq_vars.contains(&c))
+    } else {
+        None
+    };
+    let length = sequence_length(value, lengths);
+    karr.assign(var_index(var), scalar.as_ref());
+    karr.assign(len_index(var), length.as_ref());
+    karr
+}
+
+/// The length of the sequence `value` makes, affine over the state before it, when it is one this walk tracks: a
+/// new sequence (0), a list literal, a copy of or another name for a tracked sequence, or a call that returns a
+/// sequence as long as a tracked one it is handed.
+fn sequence_length(value: &Expr, st: &RichAbstractState) -> Option<super::affine::LinExpr> {
+    use super::affine::{konst, len_var};
+    let tracked = |e: &Expr| match e {
+        Expr::Identifier(s) if st.seq_vars.contains(s) => Some(len_var(*s)),
+        _ => None,
+    };
+    match value {
+        Expr::New { type_name, .. } if st.seq_types.contains(type_name) => Some(konst(0)),
+        Expr::List(items) => Some(konst(items.len() as i64)),
+        Expr::Identifier(_) => tracked(value),
+        Expr::Copy { expr } => tracked(expr),
+        Expr::WithCapacity { value, .. } => sequence_length(value, st),
+        Expr::Call { function, args } => tracked(args.get(*st.len_summaries.get(function)?)?),
+        _ => None,
+    }
+}
+
+fn rich_bind_facts(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
+    // `WithCapacity` changes only the allocation strategy. Bind every semantic
+    // fact (freshness, shape, length, element type and aliases) from the inner
+    // value so an allocation hint cannot hide optimizations from this tier.
+    // Capacity metadata itself is collected independently by `gather_map_caps`
+    // and the backend-specific lowering.
+    if let Expr::WithCapacity { value, .. } = value {
+        rich_bind_facts(var, value, st);
+        return;
+    }
     st.aliases.unlink(var);
     // Writing `var` invalidates any length fact it participates in: the array
     // itself is rebound, or a size variable `n` in `length(arr) >= n + off`
@@ -4958,20 +6858,24 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
     // variable or anywhere in another's right-hand side) is now stale.
     st.scalar_def.remove(&var);
     let vi = var.index() as i64;
-    st.scalar_def.retain(|_, e| !e.coefficients.contains_key(&vi));
+    st.scalar_def
+        .retain(|_, e| !e.coefficients.contains_key(&vi));
     // Symbolic bounds that name `var` (its own scalar upper, the element upper
     // of a rebound collection, or any bound whose RHS mentions `var`) are now
     // stale — drop them exactly like the affine scalar definitions above.
     st.scalar_upper.remove(&var);
-    st.scalar_upper.retain(|_, e| !e.coefficients.contains_key(&vi));
+    st.scalar_upper
+        .retain(|_, e| !e.coefficients.contains_key(&vi));
     st.elem_upper.remove(&var);
-    st.elem_upper.retain(|_, e| !e.coefficients.contains_key(&vi));
+    st.elem_upper
+        .retain(|_, e| !e.coefficients.contains_key(&vi));
     // The element TYPE of a rebound collection is stale; its values can't name
     // another variable, so only its own entry needs dropping (re-seeded below
     // for a fresh/aliased collection by the element-write observers).
     st.elem_type.remove(&var);
     st.scalar_lower.remove(&var);
-    st.scalar_lower.retain(|_, e| !e.coefficients.contains_key(&vi));
+    st.scalar_lower
+        .retain(|_, e| !e.coefficients.contains_key(&vi));
     // Rebinding resets `var`'s extern-length status; the producer arms below
     // re-establish it for aliases/copies/slices of an extern-length array.
     st.param_colls.remove(&var);
@@ -5036,8 +6940,10 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
         }
         Expr::List(items) | Expr::Tuple(items) => {
             let n = items.len() as u64;
-            st.shapes.insert(var, CollectionShape::from_bounds(n, Some(n)));
-            st.intervals.set_length(var, Interval::exact(items.len() as i64));
+            st.shapes
+                .insert(var, CollectionShape::from_bounds(n, Some(n)));
+            st.intervals
+                .set_length(var, Interval::exact(items.len() as i64));
             st.coll_vars.insert(var);
             // Element bound = join of the literal items (`⊥` for an empty list).
             let mut el = Interval::bottom();
@@ -5096,13 +7002,14 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
                 }
             }
         }
-        Expr::Copy { expr } | Expr::WithCapacity { value: expr, .. } => {
+        Expr::Copy { expr } => {
             // A fresh unaliased value of the OPERAND's kind.
             st.shapes.insert(var, CollectionShape::Top);
-            let from_coll = matches!(
-                expr,
-                Expr::Identifier(s) if st.coll_vars.contains(s)
-            ) || matches!(expr, Expr::New { .. } | Expr::List(_) | Expr::Slice { .. });
+            let from_coll =
+                matches!(
+                    expr,
+                    Expr::Identifier(s) if st.coll_vars.contains(s)
+                ) || matches!(expr, Expr::New { .. } | Expr::List(_) | Expr::Slice { .. });
             if from_coll {
                 st.coll_vars.insert(var);
             } else {
@@ -5143,7 +7050,12 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
 /// length of the collection and every variable that aliases it.
 fn rich_grow(collection: &Expr, st: &mut RichAbstractState) {
     if let Expr::Identifier(sym) = collection {
-        let new_shape = st.shapes.get(sym).cloned().unwrap_or(CollectionShape::Top).pushed();
+        let new_shape = st
+            .shapes
+            .get(sym)
+            .cloned()
+            .unwrap_or(CollectionShape::Top)
+            .pushed();
         let new_len = st.intervals.get_length(sym).add(&Interval::exact(1));
         for a in st.aliases.may_alias(*sym) {
             st.shapes.insert(a, new_shape.clone());
@@ -5158,7 +7070,12 @@ fn rich_grow(collection: &Expr, st: &mut RichAbstractState) {
 /// `Pop`/`Remove` — one element removed from a shared allocation.
 fn rich_shrink(collection: &Expr, st: &mut RichAbstractState) {
     if let Expr::Identifier(sym) = collection {
-        let new_shape = st.shapes.get(sym).cloned().unwrap_or(CollectionShape::Top).popped();
+        let new_shape = st
+            .shapes
+            .get(sym)
+            .cloned()
+            .unwrap_or(CollectionShape::Top)
+            .popped();
         let new_len = st.intervals.get_length(sym).sub(&Interval::exact(1));
         for a in st.aliases.may_alias(*sym) {
             st.shapes.insert(a, new_shape.clone());
@@ -5239,12 +7156,19 @@ fn refine_invariant_bound_from_guard(
     mutated: &[Symbol],
     out: &mut AbstractState,
 ) {
-    if let Expr::BinaryOp { op: BinaryOpKind::And, left, right } = cond {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::And,
+        left,
+        right,
+    } = cond
+    {
         refine_invariant_bound_from_guard(left, pre, mutated, out);
         refine_invariant_bound_from_guard(right, pre, mutated, out);
         return;
     }
-    let Expr::BinaryOp { op, left, right } = cond else { return };
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return;
+    };
     let (iv_e, bnd_e, strict) = match op {
         BinaryOpKind::Lt => (left, right, true),
         BinaryOpKind::LtEq => (left, right, false),
@@ -5252,16 +7176,25 @@ fn refine_invariant_bound_from_guard(
         BinaryOpKind::GtEq => (right, left, false),
         _ => return,
     };
-    let (Expr::Identifier(iv), Expr::Identifier(bnd)) = (iv_e, bnd_e) else { return };
+    let (Expr::Identifier(iv), Expr::Identifier(bnd)) = (iv_e, bnd_e) else {
+        return;
+    };
     if mutated.contains(bnd) {
         return; // the bound must be loop-invariant for the relation to persist
     }
-    let Bound::Finite(i0) = pre.intervals.get_var(iv).lo else { return };
-    let Some(new_lo) = (if strict { i0.checked_add(1) } else { Some(i0) }) else { return };
+    let Bound::Finite(i0) = pre.intervals.get_var(iv).lo else {
+        return;
+    };
+    let Some(new_lo) = (if strict { i0.checked_add(1) } else { Some(i0) }) else {
+        return;
+    };
     let cur = out.get_var(bnd);
     out.set_var(
         *bnd,
-        Interval { lo: Bound::max_bound(&cur.lo, &Bound::Finite(new_lo)), hi: cur.hi },
+        Interval {
+            lo: Bound::max_bound(&cur.lo, &Bound::Finite(new_lo)),
+            hi: cur.hi,
+        },
     );
 }
 
@@ -5270,6 +7203,14 @@ fn refine_invariant_bound_from_guard(
 /// the threshold ladder; on convergence the recorded body facts hold at the
 /// loop invariant. A non-converging loop (cap hit) falls back to the sound
 /// invalidate-everything treatment for whatever is still unstable.
+/// How deep a loop may sit inside enclosing loops' fixpoints and still get a fixpoint of its own.
+/// Each fixpoint walks its body four times (two ascent passes, a narrowing probe, the recording pass),
+/// and every walk re-analyzes the loops nested inside — 4^depth on a deep nest, which the recursive
+/// inliner produces routinely (eight unfolded levels of `solve`). Beyond this depth a loop is walked
+/// once with everything it may write widened: sound, linear, and it only forfeits precision deep in a
+/// nest.
+const MAX_FIXPOINT_NESTING: usize = 4;
+
 fn rich_walk_loop(
     cond: Option<&Expr>,
     body: &[Stmt],
@@ -5278,12 +7219,99 @@ fn rich_walk_loop(
     facts: &mut OracleFacts,
     loop_key: Option<usize>,
 ) {
-    let mut mutated = collect_mutations(body);
+    let body_writes = WriteSet::of_block(body).with_callee_globals(&st.callee_globals);
+    if body_writes.is_opaque() {
+        // Foreign code in the body may rewrite anything: no fact survives the loop.
+        st.forget_everything();
+        return;
+    }
+    let mut mutated: Vec<Symbol> = body_writes.symbols().collect();
     if let Some(lv) = loop_var {
         if !mutated.contains(&lv) {
             mutated.push(lv);
         }
     }
+    // A loop a `Break` of its own can end leaves with its condition still holding and with what its last
+    // iteration wrote before breaking: neither the negated condition nor the loop head's facts hold after it.
+    let breaks = crate::loop_shape::leaves_by_break(body);
+    if facts.loop_depth >= MAX_FIXPOINT_NESTING {
+        rich_walk_loop_widened(cond, body, st, &mutated, breaks, facts, loop_key);
+        return;
+    }
+    facts.loop_depth += 1;
+    rich_walk_loop_fixpoint(cond, body, st, loop_var, &mutated, breaks, facts, loop_key);
+    facts.loop_depth -= 1;
+}
+
+/// The bounded-nesting path: everything the loop may write is unknown from its first iteration on,
+/// then ONE pass over the body under that widened state records the facts inside it (a fact that
+/// holds with every written name at ⊤ holds on every iteration).
+fn rich_walk_loop_widened(
+    cond: Option<&Expr>,
+    body: &[Stmt],
+    st: &mut RichAbstractState,
+    mutated: &[Symbol],
+    breaks: bool,
+    facts: &mut OracleFacts,
+    loop_key: Option<usize>,
+) {
+    for &m in mutated {
+        st.karr_unknown(m);
+        st.invalidate_var(m);
+        st.aliases.unlink(m);
+        st.intervals.set_length(m, Interval::non_negative());
+        st.length_def.remove(&m);
+    }
+    let mut record_state = st.clone();
+    if let Some(c) = cond {
+        narrow_state(c, &mut record_state.intervals);
+    }
+    // Record the SAME facts the converged path records, from the widened state. Every one of them is
+    // a statement about all iterations, and a fact that survives having each written name widened to
+    // `top` survives every iteration — so the facts are weaker here, never wrong. They must still be
+    // recorded: codegen's borrow-hoist reads `loop_aliases` KEYED BY THIS LOOP'S ADDRESS, and a loop
+    // that contributes no entry makes codegen plan against a different picture than the one the
+    // walk built (an aliased buffer hoisted to a slice at the loop head while a statement inside it
+    // still emits the `Rc<RefCell<…>>` form — Rust that does not compile).
+    if let Some(key) = loop_key {
+        match facts.loop_aliases.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                e.get_mut().union_from(&record_state.aliases);
+            }
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert(record_state.aliases.clone());
+            }
+        }
+    }
+    let header = record_state.clone();
+    if let Some(c) = cond {
+        record_loop_index_bounds(c, body, &record_state, facts);
+        record_affine_index_bounds(c, body, &record_state, st, facts, false);
+        if let Some(key) = loop_key {
+            record_hoist_speculation(c, body, &record_state, facts, key);
+        }
+    }
+    rich_walk_block(body, &mut record_state, facts);
+    if let Some(c) = cond {
+        record_expr(c, &record_state, facts);
+        record_affine_index_bounds(c, body, &header, st, facts, true);
+    }
+    if let Some(c) = cond.filter(|_| !breaks) {
+        narrow_state_negated(c, &mut st.intervals);
+    }
+}
+
+fn rich_walk_loop_fixpoint(
+    cond: Option<&Expr>,
+    body: &[Stmt],
+    st: &mut RichAbstractState,
+    loop_var: Option<Symbol>,
+    mutated: &[Symbol],
+    breaks: bool,
+    facts: &mut OracleFacts,
+    loop_key: Option<usize>,
+) {
+    let mutated: Vec<Symbol> = mutated.to_vec();
     // Repeat loop variables hold unknown element values inside the body —
     // and the element handle could be ANY handle stored in the iterable.
     let mut inside = st.clone();
@@ -5305,6 +7333,7 @@ fn rich_walk_loop(
     // Fixpoint over the mutated set: facts recorded into a SINK during the
     // ascent (intermediate states are not loop invariants).
     let mut sink = OracleFacts::default();
+    sink.loop_depth = facts.loop_depth;
     let mut converged = false;
     for pass in 0..12 {
         let mut next = inside.clone();
@@ -5326,9 +7355,14 @@ fn rich_walk_loop(
                 stable = false;
             }
             inside.intervals.set_var(m, wid);
+            // A length still growing is not a converged loop: a list the body pushes onto reaches a new
+            // length every pass, and the pass that stops looking is not the last one the program runs.
             let cur_len = inside.intervals.get_length(&m);
             let nxt_len = next.intervals.get_length(&m);
             let wid_len = cur_len.widen(&nxt_len);
+            if !wid_len.leq(&cur_len) || !cur_len.leq(&wid_len) {
+                stable = false;
+            }
             inside.intervals.set_length(m, wid_len);
 
             // Element bound: DELAYED widening. Join for the first few passes so
@@ -5360,7 +7394,10 @@ fn rich_walk_loop(
             let merged_sym = if inside_fresh_elem {
                 next.elem_upper.get(&m).cloned()
             } else {
-                match (inside.elem_upper.get(&m).cloned(), next.elem_upper.get(&m).cloned()) {
+                match (
+                    inside.elem_upper.get(&m).cloned(),
+                    next.elem_upper.get(&m).cloned(),
+                ) {
                     (Some(e), Some(n)) => join_sym_upper(&e, &n, &next),
                     _ => None,
                 }
@@ -5385,7 +7422,10 @@ fn rich_walk_loop(
             let merged_et = if inside_fresh_elem {
                 next.elem_type.get(&m).cloned()
             } else {
-                match (inside.elem_type.get(&m).cloned(), next.elem_type.get(&m).cloned()) {
+                match (
+                    inside.elem_type.get(&m).cloned(),
+                    next.elem_type.get(&m).cloned(),
+                ) {
                     (Some(e), Some(n)) => Some(e.join(&n)),
                     _ => None,
                 }
@@ -5445,7 +7485,11 @@ fn rich_walk_loop(
                 }
             }
 
-            let cur_ty = inside.types.get(&m).cloned().unwrap_or(TypeAbstraction::Top);
+            let cur_ty = inside
+                .types
+                .get(&m)
+                .cloned()
+                .unwrap_or(TypeAbstraction::Top);
             let nxt_ty = next.types.get(&m).cloned().unwrap_or(TypeAbstraction::Top);
             let j = cur_ty.join(&nxt_ty);
             if !(j.leq(&cur_ty) && cur_ty.leq(&j)) {
@@ -5453,7 +7497,11 @@ fn rich_walk_loop(
             }
             inside.types.insert(m, j);
 
-            let cur_sh = inside.shapes.get(&m).cloned().unwrap_or(CollectionShape::Top);
+            let cur_sh = inside
+                .shapes
+                .get(&m)
+                .cloned()
+                .unwrap_or(CollectionShape::Top);
             let nxt_sh = next.shapes.get(&m).cloned().unwrap_or(CollectionShape::Top);
             inside.shapes.insert(m, cur_sh.widen(&nxt_sh));
 
@@ -5463,8 +7511,16 @@ fn rich_walk_loop(
                 inside.coll_vars.remove(&m);
             }
 
-            let cur_n = inside.nullability.get(&m).cloned().unwrap_or(Nullability::Maybe);
-            let nxt_n = next.nullability.get(&m).cloned().unwrap_or(Nullability::Maybe);
+            let cur_n = inside
+                .nullability
+                .get(&m)
+                .cloned()
+                .unwrap_or(Nullability::Maybe);
+            let nxt_n = next
+                .nullability
+                .get(&m)
+                .cloned()
+                .unwrap_or(Nullability::Maybe);
             inside.nullability.insert(m, cur_n.join(&nxt_n));
         }
         // Loop-CARRIED aliasing: an edge created at the end of one iteration
@@ -5472,6 +7528,18 @@ fn rich_walk_loop(
         // graph joins by union across the back-edge. Monotone over a finite
         // symbol set — converges. Growth participates in the stability check.
         if inside.aliases.union_from(&next.aliases) {
+            stable = false;
+        }
+        // The equalities at the header hold on entry and after every pass: the hull of both. Each growth raises its
+        // dimension, so it settles within a pass per quantity it relates.
+        let hull = inside.karr.join(&next.karr);
+        if !hull.leq(&inside.karr) {
+            stable = false;
+        }
+        inside.karr = hull;
+        let seqs_before = inside.seq_vars.len();
+        inside.seq_vars.retain(|s| next.seq_vars.contains(s));
+        if inside.seq_vars.len() != seqs_before {
             stable = false;
         }
         if stable {
@@ -5494,6 +7562,41 @@ fn rich_walk_loop(
                 }
             }
         }
+        // NARROWING (Cousot descending iteration). The widening above accelerates
+        // ascending chains by throwing a still-growing bound to ±∞ — sound, but it
+        // discards the finite bound a MODULO re-establishes every iteration
+        // (`b = (a + b) % M` re-clamps `b` to `[0, M-1]` no matter the entry). Re-
+        // applying the body from the widened post-fixpoint and keeping every
+        // finite bound while replacing only ±∞ descends back toward the true
+        // invariant, STAYING a sound over-approximation (`inside ⊒ lfp` ⟹
+        // `F(inside) ⊒ lfp`). It is the license the raw-i64 lowering needs:
+        // recovering `a, b ∈ [0, M-1]` proves `a + b` fits i64, so the overflow
+        // guard is dropped and the hot loop matches C. Scoped to scalar var
+        // intervals (the arithmetic-guard input); element/length/shape facts,
+        // already converged, are untouched. Bounded — each pass fills ≥1 ±∞.
+        const NARROW_PASSES: usize = 4;
+        for _ in 0..NARROW_PASSES {
+            let mut probe = inside.clone();
+            let mut narrow_sink = OracleFacts::default();
+            narrow_sink.loop_depth = facts.loop_depth;
+            rich_walk_block(body, &mut probe, &mut narrow_sink);
+            if let Some(c) = cond {
+                narrow_state(c, &mut probe.intervals);
+            }
+            let mut tightened = false;
+            for &m in &mutated {
+                let cur = inside.intervals.get_var(&m);
+                let narrowed = cur.narrow(&probe.intervals.get_var(&m));
+                if !(narrowed.leq(&cur) && cur.leq(&narrowed)) {
+                    tightened = true;
+                }
+                inside.intervals.set_var(m, narrowed);
+            }
+            if !tightened {
+                break;
+            }
+        }
+
         // Record body facts at the invariant UNDER the loop condition (the
         // body only runs when it holds), then build the after-state: the
         // loop may run zero times (entry state) or exit from the invariant
@@ -5507,6 +7610,7 @@ fn rich_walk_loop(
         // `item i of arr` read in the body skip its bounds check. Then the
         // SPECULATIVE hoist: arrays whose length is not statically known get a
         // single region-entry runtime check instead.
+        let header = record_state.clone();
         if let Some(c) = cond {
             record_loop_index_bounds(c, body, &record_state, facts);
             // GENERAL multi-variable proof (kernel LIA): catches the affine
@@ -5514,15 +7618,27 @@ fn rich_walk_loop(
             // `prev[w-wi+1]` under a path guard, nested-loop windows, scatter
             // indices bounded through element ranges. Idempotent with the
             // single-var path (both feed the same `relational_inbounds` set).
-            record_affine_index_bounds(c, body, &record_state, st, facts);
+            record_affine_index_bounds(c, body, &record_state, st, facts, false);
             if let Some(key) = loop_key {
                 record_hoist_speculation(c, body, &record_state, facts, key);
             }
         }
         rich_walk_block(body, &mut record_state, facts);
-        let mut after = rich_join(st, &inside);
+        // The condition is evaluated again after every iteration, at what the body leaves: its facts join that
+        // state to the entry state `record_stmt_exprs` recorded them at.
         if let Some(c) = cond {
+            record_expr(c, &record_state, facts);
+        }
+        // The equalities each access is evaluated under are recorded now: prove from them.
+        if let Some(c) = cond {
+            record_affine_index_bounds(c, body, &header, st, facts, true);
+        }
+        let mut after = rich_join(st, &inside);
+        if breaks {
+            after.forget_written(&mutated);
+        } else if let Some(c) = cond {
             narrow_state_negated(c, &mut after.intervals);
+            karr_counted_exit(c, body, st, &mut after);
             // Allocation-size fact: a counted build loop establishes a length
             // bound on the array it fills (`st` is the pre-loop entry state —
             // the array's emptiness and the counter's start are read there).
@@ -5535,7 +7651,48 @@ fn rich_walk_loop(
                         after.length_def.insert(arr, (n, off));
                     }
                     BuildLength::Concrete(arr, len) => {
-                        after.intervals.set_length(arr, Interval::exact(len));
+                        after.intervals.set_length(arr, len);
+                    }
+                }
+            }
+        }
+        // Loop-EXIT induction bound for the entry-guarded partition's pivot swap.
+        // For `while j < hi` where `j` is a top-level unconditional `+1` counter and
+        // `i` a monotone-increasing var sharing `j`'s loop-entry def, the strict
+        // guard with `Δj = 1` lands `j` on exactly `hi` at exit, and the loop
+        // invariant `i <= j` (equal start, `Δi <= Δj`) then gives `i <= hi` AFTER the
+        // loop; `i >= lo` holds since `i` only rises from its init `lo`. Record
+        // `lo <= i <= hi` as symbolic bounds so the following top-level `item i of
+        // arr` (proven by the inlined entry-guard walk) discharges. Gated to the
+        // entry-guarded functions (`entry_guard_lowers` non-empty) so no other
+        // program's loops are affected; SOUND — both bounds hold throughout the
+        // post-loop region, where `i` is not written (a later write clears them).
+        if !breaks && !st.entry_guard_lowers.is_empty() {
+            if let Some(Expr::BinaryOp {
+                op: BinaryOpKind::Lt,
+                left: Expr::Identifier(j),
+                right: Expr::Identifier(hi),
+            }) = cond
+            {
+                if top_level_unconditional_incs(body, &st.callee_globals)
+                    .iter()
+                    .any(|(v, d)| v == j && *d == 1)
+                {
+                    for i in monotone_inc_vars(body, 1) {
+                        if i != *j {
+                            if let (Some(di), Some(dj)) =
+                                (st.scalar_def.get(&i), st.scalar_def.get(j))
+                            {
+                                if di == dj {
+                                    let lo_def = di.clone();
+                                    after.scalar_lower.entry(i).or_insert(lo_def);
+                                    after
+                                        .scalar_upper
+                                        .entry(i)
+                                        .or_insert_with(|| super::affine::var(*hi));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -5543,10 +7700,11 @@ fn rich_walk_loop(
         *st = after;
     } else {
         // Sound fallback: forget everything the body can write.
-        if let Some(c) = cond {
+        if let Some(c) = cond.filter(|_| !breaks) {
             narrow_state_negated(c, &mut st.intervals);
         }
         for m in mutated {
+            st.karr_unknown(m);
             st.intervals.set_var(m, Interval::top());
             st.intervals.set_length(m, Interval::non_negative());
             st.types.insert(m, TypeAbstraction::Top);
@@ -5608,6 +7766,7 @@ fn rich_join(a: &RichAbstractState, b: &RichAbstractState) -> RichAbstractState 
         // Kind proven only where BOTH paths prove it.
         coll_vars: a.coll_vars.intersection(&b.coll_vars).cloned().collect(),
         fn_returns: a.fn_returns.clone(),
+        callee_globals: a.callee_globals.clone(),
         // A length fact survives a join only where both paths agree exactly.
         length_def: a
             .length_def
@@ -5645,6 +7804,15 @@ fn rich_join(a: &RichAbstractState, b: &RichAbstractState) -> RichAbstractState 
         // A function-entry constant (both joined states are the same body), so
         // it survives every merge and reaches the post-branch alias binds.
         aot_entry_guard: a.aot_entry_guard || b.aot_entry_guard,
+        entry_guard_lowers: if a.entry_guard_lowers.is_empty() {
+            b.entry_guard_lowers.clone()
+        } else {
+            a.entry_guard_lowers.clone()
+        },
+        karr: a.karr.join(&b.karr),
+        seq_vars: a.seq_vars.intersection(&b.seq_vars).copied().collect(),
+        seq_types: a.seq_types.clone(),
+        len_summaries: a.len_summaries.clone(),
     }
 }
 
@@ -5659,7 +7827,12 @@ fn join_elem_upper_maps(
     b: &RichAbstractState,
 ) -> HashMap<Symbol, super::affine::LinExpr> {
     let mut out = HashMap::new();
-    let keys: HashSet<Symbol> = a.elem_upper.keys().chain(b.elem_upper.keys()).cloned().collect();
+    let keys: HashSet<Symbol> = a
+        .elem_upper
+        .keys()
+        .chain(b.elem_upper.keys())
+        .cloned()
+        .collect();
     for key in keys {
         let a_bot = a.intervals.get_elem(&key).is_bottom();
         let b_bot = b.intervals.get_elem(&key).is_bottom();
@@ -5690,7 +7863,12 @@ fn join_elem_type_maps(
     b: &RichAbstractState,
 ) -> HashMap<Symbol, TypeAbstraction> {
     let mut out = HashMap::new();
-    let keys: HashSet<Symbol> = a.elem_type.keys().chain(b.elem_type.keys()).cloned().collect();
+    let keys: HashSet<Symbol> = a
+        .elem_type
+        .keys()
+        .chain(b.elem_type.keys())
+        .cloned()
+        .collect();
     for key in keys {
         let a_bot = a.intervals.get_elem(&key).is_bottom();
         let b_bot = b.intervals.get_elem(&key).is_bottom();
@@ -5732,726 +7910,57 @@ fn alias_union(a: &AliasGraph, b: &AliasGraph) -> AliasGraph {
     out
 }
 
+/// Every name `block` may write, as the shared analysis sees it (nested blocks and every binder kind
+/// included). Use [`collect_mutations_in`] when the program's callee-written globals are at hand.
 fn collect_mutations(block: &[Stmt]) -> Vec<Symbol> {
-    let mut out = Vec::new();
-    for s in block {
-        collect_mut_stmt(s, &mut out);
+    collect_mutations_in(block, &CalleeGlobals::default())
+}
+
+/// [`collect_mutations`] with the globals any call in `block` may assign folded in. After foreign
+/// code every name the block mentions is suspect, so all of them are returned.
+fn collect_mutations_in(block: &[Stmt], globals: &CalleeGlobals) -> Vec<Symbol> {
+    let writes = WriteSet::of_block(block).with_callee_globals(globals);
+    let mut out: Vec<Symbol> = writes.symbols().collect();
+    if writes.is_opaque() {
+        for s in block {
+            collect_idents_stmt(s, &mut |sym, _| {
+                if !out.contains(&sym) {
+                    out.push(sym);
+                }
+            });
+        }
     }
     out
 }
 
-fn add_unique(sym: Symbol, out: &mut Vec<Symbol>) {
-    if !out.contains(&sym) {
-        out.push(sym);
-    }
-}
-
-fn collect_mut_stmt(s: &Stmt, out: &mut Vec<Symbol>) {
-    match s {
-        Stmt::Set { target, .. } => add_unique(*target, out),
-        Stmt::Let { var, .. } => add_unique(*var, out),
-        Stmt::Push { collection, .. }
-        | Stmt::Add { collection, .. }
-        | Stmt::Remove { collection, .. }
-        | Stmt::SetIndex { collection, .. } => {
-            if let Expr::Identifier(sym) = *collection {
-                add_unique(*sym, out);
-            }
-        }
-        Stmt::Pop { collection, into } => {
-            if let Expr::Identifier(sym) = *collection {
-                add_unique(*sym, out);
-            }
-            if let Some(v) = into {
-                add_unique(*v, out);
-            }
-        }
-        Stmt::SetField { object, .. } => {
-            if let Expr::Identifier(sym) = *object {
-                add_unique(*sym, out);
-            }
-        }
-        Stmt::ReadFrom { var, .. } => add_unique(*var, out),
-        Stmt::If { then_block, else_block, .. } => {
-            for st in *then_block {
-                collect_mut_stmt(st, out);
-            }
-            if let Some(eb) = else_block {
-                for st in *eb {
-                    collect_mut_stmt(st, out);
-                }
-            }
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            for st in *body {
-                collect_mut_stmt(st, out);
-            }
-        }
-        Stmt::Inspect { arms, .. } => {
-            for arm in arms {
-                for st in arm.body {
-                    collect_mut_stmt(st, out);
-                }
-            }
-        }
-        _ => {}
-    }
-}
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/domain_tests.rs"]
+mod domain_tests;
 
 #[cfg(test)]
-mod domain_tests {
-    use super::*;
-
-    fn iv(lo: i64, hi: i64) -> Interval {
-        Interval { lo: Bound::Finite(lo), hi: Bound::Finite(hi) }
-    }
-
-    #[test]
-    fn interval_top_and_bottom() {
-        let t = <Interval as AbstractDomain>::top();
-        assert!(matches!(t.lo, Bound::NegInf));
-        assert!(matches!(t.hi, Bound::PosInf));
-        assert!(!t.is_bottom());
-
-        let b = <Interval as AbstractDomain>::bottom();
-        assert!(b.is_bottom());
-    }
-
-    #[test]
-    fn interval_join_is_least_upper_bound() {
-        // [1,3] ⊔ [5,7] = [1,7]
-        let j = iv(1, 3).join(&iv(5, 7));
-        assert_eq!(j.lo, Bound::Finite(1));
-        assert_eq!(j.hi, Bound::Finite(7));
-        // bottom is the identity for join: ⊥ ⊔ x = x
-        let jb = Interval::bottom().join(&iv(2, 4));
-        assert_eq!(jb.lo, Bound::Finite(2));
-        assert_eq!(jb.hi, Bound::Finite(4));
-        let jb2 = iv(2, 4).join(&Interval::bottom());
-        assert_eq!(jb2.lo, Bound::Finite(2));
-        assert_eq!(jb2.hi, Bound::Finite(4));
-    }
-
-    #[test]
-    fn interval_meet_is_greatest_lower_bound() {
-        // [1,5] ⊓ [3,7] = [3,5]
-        let m = iv(1, 5).meet(&iv(3, 7));
-        assert_eq!(m.lo, Bound::Finite(3));
-        assert_eq!(m.hi, Bound::Finite(5));
-        // disjoint intervals meet to ⊥
-        assert!(iv(1, 2).meet(&iv(5, 6)).is_bottom());
-        // top is the identity for meet: ⊤ ⊓ x = x
-        let t = Interval::top().meet(&iv(2, 4));
-        assert_eq!(t.lo, Bound::Finite(2));
-        assert_eq!(t.hi, Bound::Finite(4));
-    }
-
-    #[test]
-    fn interval_widen_climbs_the_threshold_ladder_then_to_infinity() {
-        // CONTRACT UPDATE (EXODIA M9, plan-approved): widening no longer
-        // jumps straight to ±∞ — an unstable bound snaps to the next rung
-        // of the threshold ladder [-1000..1000], and only past the last
-        // rung falls off to ±∞. Loop counters keep finite bounds.
-        // rising upper bound snaps to the next rung, stable lower preserved
-        let w = iv(0, 5).widen(&iv(0, 10));
-        assert_eq!(w.lo, Bound::Finite(0));
-        assert_eq!(w.hi, Bound::Finite(10));
-        let w_mid = iv(0, 5).widen(&iv(0, 11));
-        assert_eq!(w_mid.hi, Bound::Finite(100));
-        // beyond the last rung → +∞
-        let w_inf = iv(0, 5).widen(&iv(0, 1001));
-        assert!(matches!(w_inf.hi, Bound::PosInf));
-        // falling lower bound snaps to the next rung down, upper preserved
-        let w2 = iv(0, 5).widen(&iv(-3, 5));
-        assert_eq!(w2.lo, Bound::Finite(-10));
-        assert_eq!(w2.hi, Bound::Finite(5));
-        // below the last rung → -∞
-        let w2_inf = iv(0, 5).widen(&iv(-1001, 5));
-        assert!(matches!(w2_inf.lo, Bound::NegInf));
-        // stable interval is a fixpoint (no spurious widening)
-        let w3 = iv(0, 5).widen(&iv(0, 5));
-        assert_eq!(w3.lo, Bound::Finite(0));
-        assert_eq!(w3.hi, Bound::Finite(5));
-        // widening from ⊥ yields the new value
-        let w4 = Interval::bottom().widen(&iv(2, 4));
-        assert_eq!(w4.lo, Bound::Finite(2));
-        assert_eq!(w4.hi, Bound::Finite(4));
-        // the ascent is FINITE: iterated widening against ever-growing
-        // inputs stabilizes within ladder-length steps (termination).
-        let mut cur = iv(0, 1);
-        let mut steps = 0;
-        loop {
-            let grown = Interval {
-                lo: cur.lo.clone(),
-                hi: match cur.hi {
-                    Bound::Finite(v) => Bound::Finite(v.saturating_add(v.abs() + 1)),
-                    ref b => b.clone(),
-                },
-            };
-            let next = cur.widen(&grown);
-            steps += 1;
-            if next.leq(&cur) && cur.leq(&next) {
-                break;
-            }
-            cur = next;
-            assert!(steps <= 12, "widening must terminate within the ladder");
-        }
-        assert!(matches!(cur.hi, Bound::PosInf));
-    }
-
-    #[test]
-    fn interval_leq_is_the_subset_order() {
-        assert!(iv(3, 5).leq(&iv(1, 7)));
-        assert!(!iv(1, 7).leq(&iv(3, 5)));
-        // ⊥ ⊑ everything; everything ⊑ ⊤
-        assert!(Interval::bottom().leq(&iv(1, 2)));
-        assert!(iv(1, 2).leq(&<Interval as AbstractDomain>::top()));
-        // reflexive
-        assert!(iv(1, 2).leq(&iv(1, 2)));
-    }
-
-    #[test]
-    fn interval_lattice_laws_hold() {
-        let a = iv(1, 5);
-        let b = iv(3, 9);
-        // a ⊑ a⊔b and b ⊑ a⊔b (join is an upper bound)
-        assert!(a.leq(&a.join(&b)));
-        assert!(b.leq(&a.join(&b)));
-        // a⊓b ⊑ a and a⊓b ⊑ b (meet is a lower bound)
-        assert!(a.meet(&b).leq(&a));
-        assert!(a.meet(&b).leq(&b));
-        // commutativity of join and meet
-        assert!(a.join(&b).leq(&b.join(&a)) && b.join(&a).leq(&a.join(&b)));
-        assert!(a.meet(&b).leq(&b.meet(&a)) && b.meet(&a).leq(&a.meet(&b)));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/type_domain_tests.rs"]
+mod type_domain_tests;
 
 #[cfg(test)]
-mod type_domain_tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    fn empty_types() -> HashMap<Symbol, TypeAbstraction> {
-        HashMap::new()
-    }
-
-    fn union(tags: &[TypeTag]) -> TypeAbstraction {
-        TypeAbstraction::Union(tags.iter().cloned().collect())
-    }
-
-    #[test]
-    fn literal_types_are_concrete() {
-        assert_eq!(eval_type(&Expr::Literal(Literal::Number(5)), &empty_types(), &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Int));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Float(1.5)), &empty_types(), &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Float));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Boolean(true)), &empty_types(), &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Bool));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Nothing), &empty_types(), &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Nothing));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Char('a')), &empty_types(), &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Char));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Duration(60)), &empty_types(), &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Duration));
-    }
-
-    #[test]
-    fn arithmetic_and_comparison_result_types() {
-        let five = Expr::Literal(Literal::Number(5));
-        let three = Expr::Literal(Literal::Number(3));
-        // Int + Int : Int
-        let add = Expr::BinaryOp { op: BinaryOpKind::Add, left: &five, right: &three };
-        assert_eq!(eval_type(&add, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Int));
-        // Int < Int : Bool
-        let lt = Expr::BinaryOp { op: BinaryOpKind::Lt, left: &five, right: &three };
-        assert_eq!(eval_type(&lt, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Bool));
-        // Float + Float : Float
-        let f1 = Expr::Literal(Literal::Float(1.0));
-        let f2 = Expr::Literal(Literal::Float(2.0));
-        let fadd = Expr::BinaryOp { op: BinaryOpKind::Add, left: &f1, right: &f2 };
-        assert_eq!(eval_type(&fadd, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Float));
-        // Int + Float : Top (we do not assume a coercion — conservative)
-        let mixed = Expr::BinaryOp { op: BinaryOpKind::Add, left: &five, right: &f1 };
-        assert_eq!(eval_type(&mixed, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Top);
-        // Text + Int : Text (interpolating concat)
-        let txt = Expr::Literal(Literal::Text(Symbol::EMPTY));
-        let concat = Expr::BinaryOp { op: BinaryOpKind::Add, left: &txt, right: &three };
-        assert_eq!(eval_type(&concat, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Text));
-    }
-
-    #[test]
-    fn let_binds_value_type_in_env() {
-        // `Let x be 5.` ⇒ env[x] = Concrete(Int); a later use of x reads Int.
-        let x = Symbol::EMPTY;
-        let mut env = empty_types();
-        let value = Expr::Literal(Literal::Number(5));
-        env.insert(x, eval_type(&value, &env, &HashMap::new(), &HashMap::new()));
-        assert_eq!(env.get(&x), Some(&TypeAbstraction::Concrete(TypeTag::Int)));
-        // and an identifier reference resolves through the env
-        assert_eq!(eval_type(&Expr::Identifier(x), &env, &HashMap::new(), &HashMap::new()),
-                   TypeAbstraction::Concrete(TypeTag::Int));
-        // an unbound identifier is Top (no information)
-        let unbound = empty_types();
-        assert_eq!(eval_type(&Expr::Identifier(x), &unbound, &HashMap::new(), &HashMap::new()), TypeAbstraction::Top);
-    }
-
-    #[test]
-    fn type_join_merges_distinct_into_union_and_collapses() {
-        let i = TypeAbstraction::Concrete(TypeTag::Int);
-        let b = TypeAbstraction::Concrete(TypeTag::Bool);
-        // distinct concretes join to a union
-        assert_eq!(i.join(&b), union(&[TypeTag::Int, TypeTag::Bool]));
-        // identical concretes stay concrete
-        assert_eq!(i.join(&i), i);
-        // a singleton union normalizes back to a concrete
-        assert_eq!(union(&[TypeTag::Int]), i);
-        // join with Top is Top; join with Bottom is identity
-        assert_eq!(i.join(&TypeAbstraction::Top), TypeAbstraction::Top);
-        assert_eq!(i.join(&TypeAbstraction::Bottom), i);
-        assert_eq!(TypeAbstraction::Bottom.join(&i), i);
-    }
-
-    #[test]
-    fn type_meet_intersects() {
-        let i = TypeAbstraction::Concrete(TypeTag::Int);
-        let b = TypeAbstraction::Concrete(TypeTag::Bool);
-        let ib = union(&[TypeTag::Int, TypeTag::Bool]);
-        // Concrete ⊓ matching Union = Concrete
-        assert_eq!(i.meet(&ib), i);
-        // disjoint concretes meet to Bottom
-        assert_eq!(i.meet(&b), TypeAbstraction::Bottom);
-        // Top is identity for meet
-        assert_eq!(TypeAbstraction::Top.meet(&i), i);
-        // Bottom annihilates
-        assert_eq!(TypeAbstraction::Bottom.meet(&i), TypeAbstraction::Bottom);
-    }
-
-    #[test]
-    fn type_lattice_order_and_laws() {
-        let i = TypeAbstraction::Concrete(TypeTag::Int);
-        let ib = union(&[TypeTag::Int, TypeTag::Bool]);
-        // Bottom ⊑ everything ⊑ Top
-        assert!(TypeAbstraction::Bottom.leq(&i));
-        assert!(i.leq(&TypeAbstraction::Top));
-        // Concrete ⊑ Union containing it
-        assert!(i.leq(&ib));
-        assert!(!ib.leq(&i));
-        // reflexive
-        assert!(i.leq(&i));
-        // join is an upper bound; widen over-approximates join (finite lattice → widen == join)
-        let b = TypeAbstraction::Concrete(TypeTag::Bool);
-        assert!(i.leq(&i.join(&b)));
-        assert!(b.leq(&i.join(&b)));
-        assert_eq!(i.widen(&b), i.join(&b));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/shape_domain_tests.rs"]
+mod shape_domain_tests;
 
 #[cfg(test)]
-mod shape_domain_tests {
-    use super::*;
-
-    #[test]
-    fn new_collection_is_empty_and_push_pop_track_size() {
-        assert_eq!(CollectionShape::empty_collection(), CollectionShape::Empty);
-        // Push grows the size precisely.
-        assert_eq!(CollectionShape::Empty.pushed(), CollectionShape::Singleton);
-        assert_eq!(CollectionShape::Singleton.pushed(), CollectionShape::KnownSize(2));
-        assert_eq!(CollectionShape::KnownSize(2).pushed(), CollectionShape::KnownSize(3));
-        // Pop shrinks it.
-        assert_eq!(CollectionShape::KnownSize(3).popped(), CollectionShape::KnownSize(2));
-        assert_eq!(CollectionShape::Singleton.popped(), CollectionShape::Empty);
-        // Pop on a definitely-empty collection stays Empty (saturating).
-        assert_eq!(CollectionShape::Empty.popped(), CollectionShape::Empty);
-        // Pushing an unknown (Top) collection proves it non-empty.
-        assert_eq!(CollectionShape::Top.pushed(), CollectionShape::NonEmpty);
-    }
-
-    #[test]
-    fn nonempty_and_empty_predicates() {
-        assert!(CollectionShape::Singleton.is_definitely_nonempty());
-        assert!(CollectionShape::KnownSize(5).is_definitely_nonempty());
-        assert!(CollectionShape::NonEmpty.is_definitely_nonempty());
-        assert!(!CollectionShape::Empty.is_definitely_nonempty());
-        assert!(!CollectionShape::Top.is_definitely_nonempty());
-        assert!(!CollectionShape::KnownSize(0).is_definitely_nonempty());
-
-        assert!(CollectionShape::Empty.is_definitely_empty());
-        assert!(CollectionShape::KnownSize(0).is_definitely_empty());
-        assert!(!CollectionShape::Singleton.is_definitely_empty());
-        assert!(!CollectionShape::Top.is_definitely_empty());
-    }
-
-    #[test]
-    fn shape_canonical_equality() {
-        // Named variants that denote the same size set compare equal.
-        assert_eq!(CollectionShape::KnownSize(0), CollectionShape::Empty);
-        assert_eq!(CollectionShape::KnownSize(1), CollectionShape::Singleton);
-        assert_eq!(CollectionShape::SizeRange(1, 1), CollectionShape::Singleton);
-    }
-
-    #[test]
-    fn shape_lattice_join_meet_leq() {
-        // join is union of size ranges
-        assert_eq!(CollectionShape::Empty.join(&CollectionShape::Singleton),
-                   CollectionShape::SizeRange(0, 1));
-        assert_eq!(CollectionShape::Singleton.join(&CollectionShape::KnownSize(3)),
-                   CollectionShape::SizeRange(1, 3));
-        assert_eq!(CollectionShape::Singleton.join(&CollectionShape::Top),
-                   CollectionShape::Top);
-        // meet is intersection; disjoint sizes collapse to Bottom
-        assert_eq!(CollectionShape::Empty.meet(&CollectionShape::Singleton),
-                   CollectionShape::Bottom);
-        assert_eq!(CollectionShape::Top.meet(&CollectionShape::Singleton),
-                   CollectionShape::Singleton);
-        // order
-        assert!(CollectionShape::Singleton.leq(&CollectionShape::NonEmpty));
-        assert!(CollectionShape::KnownSize(2).leq(&CollectionShape::SizeRange(0, 5)));
-        assert!(CollectionShape::Empty.leq(&CollectionShape::Top));
-        assert!(CollectionShape::Bottom.leq(&CollectionShape::Empty));
-        assert!(!CollectionShape::Top.leq(&CollectionShape::NonEmpty));
-    }
-
-    #[test]
-    fn shape_widening_converges_growing_loops() {
-        // A push-only loop keeps growing the upper bound → +∞, stays NonEmpty.
-        let w = CollectionShape::KnownSize(1).widen(&CollectionShape::KnownSize(2));
-        assert_eq!(w, CollectionShape::NonEmpty);
-        // A collection that might shrink widens its lower bound toward 0.
-        let w2 = CollectionShape::KnownSize(2).widen(&CollectionShape::KnownSize(1));
-        assert!(w2.leq(&CollectionShape::Top));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/nullability_domain_tests.rs"]
+mod nullability_domain_tests;
 
 #[cfg(test)]
-mod nullability_domain_tests {
-    use super::*;
-
-    #[test]
-    fn top_and_bottom() {
-        assert_eq!(<Nullability as AbstractDomain>::top(), Nullability::Maybe);
-        assert_eq!(<Nullability as AbstractDomain>::bottom(), Nullability::Bottom);
-    }
-
-    #[test]
-    fn literal_nullability() {
-        // `nothing` is definitely absent; everything else is definitely present.
-        assert_eq!(Nullability::for_literal(&Literal::Nothing), Nullability::Null);
-        assert_eq!(Nullability::for_literal(&Literal::Number(5)), Nullability::Definite);
-        assert_eq!(Nullability::for_literal(&Literal::Boolean(false)), Nullability::Definite);
-    }
-
-    #[test]
-    fn matched_variant_binding_is_definite() {
-        // `Inspect x: When Some(v): ...` ⇒ inside the arm, the match is present.
-        // This is the fact that lets the unwrap guard be eliminated.
-        assert_eq!(Nullability::for_matched_variant(), Nullability::Definite);
-    }
-
-    #[test]
-    fn nullability_join_meet() {
-        // join merges Definite and Null into Maybe (the diamond top)
-        assert_eq!(Nullability::Definite.join(&Nullability::Null), Nullability::Maybe);
-        assert_eq!(Nullability::Definite.join(&Nullability::Definite), Nullability::Definite);
-        assert_eq!(Nullability::Bottom.join(&Nullability::Null), Nullability::Null);
-        assert_eq!(Nullability::Maybe.join(&Nullability::Definite), Nullability::Maybe);
-        // meet refines; Definite ⊓ Null is unreachable
-        assert_eq!(Nullability::Definite.meet(&Nullability::Null), Nullability::Bottom);
-        assert_eq!(Nullability::Maybe.meet(&Nullability::Definite), Nullability::Definite);
-        assert_eq!(Nullability::Definite.meet(&Nullability::Definite), Nullability::Definite);
-    }
-
-    #[test]
-    fn nullability_order_and_widen() {
-        assert!(Nullability::Bottom.leq(&Nullability::Definite));
-        assert!(Nullability::Definite.leq(&Nullability::Maybe));
-        assert!(Nullability::Null.leq(&Nullability::Maybe));
-        assert!(Nullability::Definite.leq(&Nullability::Definite));
-        assert!(!Nullability::Definite.leq(&Nullability::Null));
-        assert!(!Nullability::Maybe.leq(&Nullability::Definite));
-        // finite lattice → widen is join
-        assert_eq!(Nullability::Definite.widen(&Nullability::Null),
-                   Nullability::Definite.join(&Nullability::Null));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/alias_domain_tests.rs"]
+mod alias_domain_tests;
 
 #[cfg(test)]
-mod alias_domain_tests {
-    use super::*;
-    use crate::intern::Interner;
-    use std::collections::HashSet;
-
-    fn set(syms: &[Symbol]) -> HashSet<Symbol> {
-        syms.iter().cloned().collect()
-    }
-
-    #[test]
-    fn alias_lattice_ops() {
-        let mut it = Interner::new();
-        let s = it.intern("s");
-        let t = it.intern("t");
-        assert_eq!(<AliasInfo as AbstractDomain>::top(), AliasInfo::Top);
-        assert_eq!(<AliasInfo as AbstractDomain>::bottom(), AliasInfo::Bottom);
-        // Unique is "may-alias nobody" = MayAlias(∅)
-        assert_eq!(AliasInfo::MayAlias(HashSet::new()), AliasInfo::Unique);
-        // join unions the may-alias sets
-        assert_eq!(AliasInfo::MayAlias(set(&[s])).join(&AliasInfo::MayAlias(set(&[t]))),
-                   AliasInfo::MayAlias(set(&[s, t])));
-        assert_eq!(AliasInfo::Unique.join(&AliasInfo::MayAlias(set(&[s]))),
-                   AliasInfo::MayAlias(set(&[s])));
-        assert_eq!(AliasInfo::Top.join(&AliasInfo::Unique), AliasInfo::Top);
-        // meet intersects
-        assert_eq!(AliasInfo::MayAlias(set(&[s, t])).meet(&AliasInfo::MayAlias(set(&[s]))),
-                   AliasInfo::MayAlias(set(&[s])));
-        assert_eq!(AliasInfo::Top.meet(&AliasInfo::MayAlias(set(&[s]))),
-                   AliasInfo::MayAlias(set(&[s])));
-        // order: fewer possible aliases is more precise
-        assert!(AliasInfo::Unique.leq(&AliasInfo::MayAlias(set(&[s]))));
-        assert!(AliasInfo::MayAlias(set(&[s])).leq(&AliasInfo::MayAlias(set(&[s, t]))));
-        assert!(AliasInfo::MayAlias(set(&[s])).leq(&AliasInfo::Top));
-        assert!(AliasInfo::Bottom.leq(&AliasInfo::Unique));
-        assert!(!AliasInfo::Top.leq(&AliasInfo::Unique));
-        // widen = join (alias sets are bounded by the program's variables)
-        assert_eq!(AliasInfo::MayAlias(set(&[s])).widen(&AliasInfo::MayAlias(set(&[t]))),
-                   AliasInfo::MayAlias(set(&[s])).join(&AliasInfo::MayAlias(set(&[t]))));
-    }
-
-    #[test]
-    fn aliasing_mutation_invalidates_shared_allocation() {
-        let mut it = Interner::new();
-        let a = it.intern("a");
-        let items = it.intern("items");
-        let c = it.intern("c"); // unrelated
-
-        let mut g = AliasGraph::new();
-        g.link(a, items); // `Let a be items.` — they share one Rc<RefCell>
-
-        // `Push 1 to a.` mutates the shared allocation → invalidate `items` too.
-        let inval = g.invalidated_by_mutation(a);
-        assert!(inval.contains(&items));
-        assert!(inval.contains(&a));
-        assert!(!inval.contains(&c));
-
-        // symmetric: mutating `items` invalidates `a`
-        assert!(g.invalidated_by_mutation(items).contains(&a));
-
-        // an unrelated variable aliases only itself
-        assert_eq!(g.invalidated_by_mutation(c), set(&[c]));
-
-        // rebinding `a` to a fresh allocation breaks the alias
-        g.unlink(a);
-        assert!(!g.invalidated_by_mutation(items).contains(&a));
-    }
-
-    #[test]
-    fn alias_transitivity() {
-        let mut it = Interner::new();
-        let a = it.intern("a");
-        let b = it.intern("b");
-        let c = it.intern("c");
-        let mut g = AliasGraph::new();
-        g.link(a, b); // Let b be a
-        g.link(b, c); // Let c be b
-        // mutation through a reaches c via b
-        let inval = g.invalidated_by_mutation(a);
-        assert!(inval.contains(&b) && inval.contains(&c));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/product_lattice_tests.rs"]
+mod product_lattice_tests;
 
 #[cfg(test)]
-mod product_lattice_tests {
-    use super::*;
-
-    fn av(iv: (i64, i64), t: TypeTag, sh: CollectionShape, n: Nullability) -> AbstractValue {
-        AbstractValue {
-            interval: Interval { lo: Bound::Finite(iv.0), hi: Bound::Finite(iv.1) },
-            ty: TypeAbstraction::Concrete(t),
-            shape: sh,
-            nullability: n,
-            alias: AliasInfo::Unique,
-        }
-    }
-
-    #[test]
-    fn product_top_is_all_top() {
-        let t = <AbstractValue as AbstractDomain>::top();
-        assert_eq!(t.ty, TypeAbstraction::Top);
-        assert_eq!(t.shape, CollectionShape::Top);
-        assert_eq!(t.nullability, Nullability::Maybe);
-        assert_eq!(t.alias, AliasInfo::Top);
-        assert!(t.interval.lo == Bound::NegInf && t.interval.hi == Bound::PosInf);
-    }
-
-    #[test]
-    fn product_join_is_componentwise() {
-        let a = av((1, 1), TypeTag::Int, CollectionShape::Singleton, Nullability::Definite);
-        let b = av((3, 3), TypeTag::Int, CollectionShape::KnownSize(3), Nullability::Definite);
-        let j = a.join(&b);
-        // interval joins to [1,3]
-        assert_eq!(j.interval.lo, Bound::Finite(1));
-        assert_eq!(j.interval.hi, Bound::Finite(3));
-        // same type stays Concrete(Int)
-        assert_eq!(j.ty, TypeAbstraction::Concrete(TypeTag::Int));
-        // shapes join to a size range
-        assert_eq!(j.shape, CollectionShape::SizeRange(1, 3));
-        // both Definite stays Definite
-        assert_eq!(j.nullability, Nullability::Definite);
-    }
-
-    #[test]
-    fn product_join_mixed_types_widens_each_component() {
-        let a = av((0, 0), TypeTag::Int, CollectionShape::Empty, Nullability::Null);
-        let b = av((5, 5), TypeTag::Bool, CollectionShape::Singleton, Nullability::Definite);
-        let j = a.join(&b);
-        assert_eq!(j.interval.lo, Bound::Finite(0));
-        assert_eq!(j.interval.hi, Bound::Finite(5));
-        // distinct types → union
-        assert_eq!(j.ty, TypeAbstraction::Union([TypeTag::Int, TypeTag::Bool].into_iter().collect()));
-        assert_eq!(j.shape, CollectionShape::SizeRange(0, 1));
-        // Null ⊔ Definite → Maybe
-        assert_eq!(j.nullability, Nullability::Maybe);
-    }
-
-    #[test]
-    fn product_leq_and_widen_componentwise() {
-        let a = av((1, 1), TypeTag::Int, CollectionShape::Singleton, Nullability::Definite);
-        let top = <AbstractValue as AbstractDomain>::top();
-        assert!(a.leq(&top));
-        assert!(!top.leq(&a));
-        // widen each component: the rising interval bound snaps to the
-        // next THRESHOLD rung (EXODIA M9 ladder), not straight to +∞ —
-        let b = av((1, 9), TypeTag::Int, CollectionShape::KnownSize(9), Nullability::Definite);
-        let w = a.widen(&b);
-        assert_eq!(w.interval.hi, Bound::Finite(10));
-        assert_eq!(w.ty, TypeAbstraction::Concrete(TypeTag::Int));
-        // — and falls off to +∞ only past the last rung.
-        let c = av((1, 5000), TypeTag::Int, CollectionShape::KnownSize(9), Nullability::Definite);
-        let w2 = a.widen(&c);
-        assert!(matches!(w2.interval.hi, Bound::PosInf));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/rich_walk_tests.rs"]
+mod rich_walk_tests;
 
 #[cfg(test)]
-mod rich_walk_tests {
-    use super::*;
-    use crate::arena::Arena;
-    use crate::intern::Interner;
-
-    fn lit_num<'a>(ea: &'a Arena<Expr<'a>>, n: i64) -> &'a Expr<'a> {
-        ea.alloc(Expr::Literal(Literal::Number(n)))
-    }
-    fn ident<'a>(ea: &'a Arena<Expr<'a>>, s: Symbol) -> &'a Expr<'a> {
-        ea.alloc(Expr::Identifier(s))
-    }
-    fn add<'a>(ea: &'a Arena<Expr<'a>>, l: &'a Expr<'a>, r: &'a Expr<'a>) -> &'a Expr<'a> {
-        ea.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: l, right: r })
-    }
-    fn new_seq<'a>(ea: &'a Arena<Expr<'a>>, name: Symbol) -> &'a Expr<'a> {
-        ea.alloc(Expr::New { type_name: name, type_args: vec![], init_fields: vec![] })
-    }
-    fn let_stmt<'a>(var: Symbol, value: &'a Expr<'a>) -> Stmt<'a> {
-        Stmt::Let { var, ty: None, value, mutable: true }
-    }
-
-    #[test]
-    fn let_chain_tracks_type_and_interval() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let mut it = Interner::new();
-        let x = it.intern("x");
-        let y = it.intern("y");
-        // Let x be 5. Let y be x + 7.
-        let five = lit_num(&ea, 5);
-        let xref = ident(&ea, x);
-        let seven = lit_num(&ea, 7);
-        let sum = add(&ea, xref, seven);
-        let stmts = vec![let_stmt(x, five), let_stmt(y, sum)];
-
-        let (_out, st) = rich_abstract_interp_stmts(stmts, &ea, &sa);
-        let vx = st.value_of(x);
-        let vy = st.value_of(y);
-        assert_eq!(vx.ty, TypeAbstraction::Concrete(TypeTag::Int));
-        assert_eq!(vx.interval.is_exact(), Some(5));
-        assert_eq!(vy.ty, TypeAbstraction::Concrete(TypeTag::Int));
-        assert_eq!(vy.interval.is_exact(), Some(12));
-        assert_eq!(vx.nullability, Nullability::Definite);
-    }
-
-    #[test]
-    fn new_and_push_track_shape() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let mut it = Interner::new();
-        let items = it.intern("items");
-        let seq_ty = it.intern("Seq");
-        // Let items be a new Seq. Push 10 to items.
-        let new_e = new_seq(&ea, seq_ty);
-        let ten = lit_num(&ea, 10);
-        let items_ref = ident(&ea, items);
-        let stmts = vec![
-            let_stmt(items, new_e),
-            Stmt::Push { value: ten, collection: items_ref },
-        ];
-        let (_out, st) = rich_abstract_interp_stmts(stmts, &ea, &sa);
-        let v = st.value_of(items);
-        assert_eq!(v.shape, CollectionShape::Singleton);
-        assert!(v.shape.is_definitely_nonempty());
-    }
-
-    #[test]
-    fn alias_push_keeps_aliases_consistent() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let mut it = Interner::new();
-        let items = it.intern("items");
-        let a = it.intern("a");
-        let seq_ty = it.intern("Seq");
-        // Let items be a new Seq. Push 1 to items. Let a be items. Push 2 to a.
-        let new_e = new_seq(&ea, seq_ty);
-        let one = lit_num(&ea, 1);
-        let two = lit_num(&ea, 2);
-        let items_ref1 = ident(&ea, items);
-        let items_ref2 = ident(&ea, items);
-        let a_ref = ident(&ea, a);
-        let stmts = vec![
-            let_stmt(items, new_e),
-            Stmt::Push { value: one, collection: items_ref1 },
-            let_stmt(a, items_ref2), // a aliases items
-            Stmt::Push { value: two, collection: a_ref }, // mutate through alias
-        ];
-        let (_out, st) = rich_abstract_interp_stmts(stmts, &ea, &sa);
-        let vitems = st.value_of(items);
-        let va = st.value_of(a);
-        // pushing through `a` updated `items` (shared Rc) — both see size 2.
-        assert!(vitems.shape.is_definitely_nonempty());
-        assert_eq!(vitems.shape, va.shape);
-        assert_eq!(vitems.shape, CollectionShape::KnownSize(2));
-    }
-
-    #[test]
-    fn if_branches_join() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let mut it = Interner::new();
-        let x = it.intern("x");
-        let n = it.intern("n"); // unbound → dynamic condition
-        // Let mutable x be 0. If n > 5: Set x to 10. Otherwise: Set x to 20.
-        let zero = lit_num(&ea, 0);
-        let nref = ident(&ea, n);
-        let five = lit_num(&ea, 5);
-        let cond = ea.alloc(Expr::BinaryOp { op: BinaryOpKind::Gt, left: nref, right: five });
-        let ten = lit_num(&ea, 10);
-        let twenty = lit_num(&ea, 20);
-        let then_block: &[Stmt] = sa.alloc_slice(vec![Stmt::Set { target: x, value: ten }]);
-        let else_block: &[Stmt] = sa.alloc_slice(vec![Stmt::Set { target: x, value: twenty }]);
-        let stmts = vec![
-            let_stmt(x, zero),
-            Stmt::If { cond, then_block, else_block: Some(else_block) },
-        ];
-        let (_out, st) = rich_abstract_interp_stmts(stmts, &ea, &sa);
-        let vx = st.value_of(x);
-        // x is 10 or 20 after the join → interval [10, 20], type Int
-        assert_eq!(vx.ty, TypeAbstraction::Concrete(TypeTag::Int));
-        assert_eq!(vx.interval.lo, Bound::Finite(10));
-        assert_eq!(vx.interval.hi, Bound::Finite(20));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/abstract_interp/hoist_order_tests.rs"]
+mod hoist_order_tests;

@@ -2,7 +2,7 @@
   "id": "C_6.120",
   "type": "multiple_choice",
   "difficulty": 2,
-  "prompt": "A formula is a CONTINGENCY when:",
+  "prompt": "When is a formula contingent?",
   "options": [
     "It is true in every row of its truth table",
     "It is false in every row of its truth table",
@@ -10,6 +10,7 @@
     "It contains no propositional variables"
   ],
   "correct": 2,
-  "hint": "Contingent = it depends. Its truth varies with the values of its variables.",
-  "explanation": "A contingency is true in some rows and false in others — its truth value depends on the assignment (most ordinary statements are contingent). 'True in every row' is a tautology; 'false in every row' is a contradiction. Together, tautology / contradiction / contingency classify every formula."
+  "hint": "Contingent means it depends on the truth values of its letters.",
+  "explanation": "A contingent formula is true in some rows and false in others. True in every row is a tautology, and false in every row is a contradiction.",
+  "section": "6.3"
 }

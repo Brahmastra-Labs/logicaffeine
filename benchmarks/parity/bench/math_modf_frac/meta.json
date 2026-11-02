@@ -1,0 +1,10 @@
+{
+  "capability": "math.modf",
+  "workload": "math.modf (fractional part)",
+  "arg": "1000000",
+  "expected": "499499505468",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

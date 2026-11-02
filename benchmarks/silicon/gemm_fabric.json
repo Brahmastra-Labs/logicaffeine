@@ -1,0 +1,157 @@
+{
+  "meta": {
+    "artifact": "certified int8-GEMM reconfigurable-dataflow demonstrator",
+    "kernel": "int8 multiply-accumulate dot-product (the GEMM inner kernel): acc += a·b",
+    "proof": "crates/logicaffeine_tests/tests/gemm_fabric_lock.rs (6 tests green)",
+    "proof_tiers": [
+      "fabric eval ≡ VM ≡ Rust oracle (loop_fabric_from_source / eval_loop_fabric)",
+      "placed grid ≡ abstract datapath, certified for ALL inputs by our own SAT (route_loop_body / bitblast / prove_unsat, width 8)",
+      "same MAC on the real soft-core RTL (nexys_soc_scalar.v) under iverilog ≡ VM",
+      "full int8 GEMM ≡ an independent Rust oracle on the VM (n = 2..6)"
+    ]
+  },
+  "sequential_baseline": {
+    "target": "scalar soft-core RTL (nexys_soc_scalar.v + soft_core_scalar.v + alu.v)",
+    "measured_by": "on-chip cycle counter under iverilog",
+    "kernel": "dotMac(16) = Sum_{k=1..16} k*(16-k)",
+    "cycles": 170,
+    "cycles_per_mac": 10.625,
+    "measured": true
+  },
+  "spatial_fabric": {
+    "note": "the loop body is a feed-forward combinational datapath — every placed tile evaluates in one wave, so multiply-count == MACs computed per clock. Unrolling the dot-product scales the multiply-count spatially. Throughput-per-clock is a structural measure; wall-clock also depends on the datapath's achieved Fmax (deep combinational paths pipeline for higher Fmax).",
+    "measured": true,
+    "scaling": [
+      {
+        "unroll": 1,
+        "macs_per_clock": 1,
+        "compute_tiles": 3,
+        "grid_rows": 8,
+        "grid_cols": 3,
+        "routed_channels": 14,
+        "est_mw": 0.21
+      },
+      {
+        "unroll": 2,
+        "macs_per_clock": 2,
+        "compute_tiles": 8,
+        "grid_rows": 18,
+        "grid_cols": 8,
+        "routed_channels": 88,
+        "est_mw": 0.56
+      },
+      {
+        "unroll": 4,
+        "macs_per_clock": 4,
+        "compute_tiles": 18,
+        "grid_rows": 38,
+        "grid_cols": 18,
+        "routed_channels": 386,
+        "est_mw": 1.26
+      },
+      {
+        "unroll": 8,
+        "macs_per_clock": 8,
+        "compute_tiles": 38,
+        "grid_rows": 78,
+        "grid_cols": 38,
+        "routed_channels": 1582,
+        "est_mw": 2.66
+      }
+    ],
+    "throughput_density_vs_sequential": {
+      "sequential_macs_per_cycle": 0.094,
+      "spatial_macs_per_clock_at_unroll_8": 8,
+      "ratio": 85,
+      "note": "8 MACs/clock vs 0.094 MACs/cycle ≈ 85x MAC-throughput density at 8-wide; ≈10.6x per lane. Structural (per-clock) measure, proven byte-identical to the VM."
+    }
+  },
+  "energy": {
+    "method": "MEASURED — VCD-annotated OpenSTA report_power on the signoff-clean OpenLane Sky130 tape of the LOGOS-emitted 8-wide int8 MAC array, at its signoff clock (scripts/measure-silicon-power.py)",
+    "measured": true,
+    "signoff_clean_tape": {
+      "design": "gemm_mac_realbist",
+      "rtl": "benchmarks/silicon/gemm_mac_realbist.v (on-chip LFSR/MISR harness) + gemm_mac_array.v (cgra_arr8, emitted by examples/emit_matmul_array — no hand RTL)",
+      "run": "tools/OpenLane/designs/logos_gemm_mac_realbist/runs/RUN_2026.10.18_19.21.23",
+      "gds_bytes": 34418498,
+      "clock_period_ns": 9.4,
+      "simulated_cycles": 4000,
+      "signature_port": "sig",
+      "signature": "0",
+      "signature_changes": 48,
+      "signature_trajectory_sha256": "1e97e0fa9f9520c32a2b56d94592a96e0f476a848d5f55ef626a96dd30138b17",
+      "rtl_signature": "0",
+      "rtl_signature_trajectory_sha256": "1e97e0fa9f9520c32a2b56d94592a96e0f476a848d5f55ef626a96dd30138b17",
+      "signoff": "DRC=0 LVS=match XOR=0 antenna=0 routing=0, every timing corner, golden sky130A_mr 0",
+      "die_mm2": 0.3237,
+      "std_cells": 38844,
+      "clock_mhz": 106.383,
+      "setup_slack_ns": 0.06,
+      "macs_per_clock": 8,
+      "power_mw": {
+        "default_activity": 83.2,
+        "vcd_measured": 13.9
+      },
+      "energy_per_mac_pJ": {
+        "default_activity": 97.76,
+        "vcd_measured": 16.33
+      },
+      "note": "whole-block incl. the on-chip LFSR/MISR stimulus (conservative attribution, like decision_hft's BIST harness — the MAC datapath alone draws less)"
+    },
+    "vs_soft_core": {
+      "soft_core_mw": 29.5,
+      "soft_core_cyc_per_mac": 10.625,
+      "soft_core_nJ_per_mac": 4.702,
+      "energy_per_mac_reduction_x": {
+        "vcd_measured": 288,
+        "default_activity": 48
+      },
+      "throughput_density_x": 85,
+      "area_x": 1.83,
+      "basis": "fabric (8 MAC/clk) vs the scalar soft-core (0.094 MAC/cyc) running the same int8 MAC kernel, each at its own Sky130 signoff clock"
+    },
+    "prior_estimate_superseded": {
+      "method": "OLD tile-scaled estimate (was OPTIMISTIC — undercounted the full 64-bit accumulate chain + stimulus; the signoff measurement above supersedes it for unroll=8)",
+      "formula": "est_mw = (compute_tiles / 17) * 1.19",
+      "unroll8_est_mw": 2.66,
+      "measured_vcd_mw": 13.9
+    }
+  },
+  "full_gemm": {
+    "fixture": "embedded in crates/logicaffeine_tests/tests/gemm_fabric_lock.rs (gemm_src); kept in-test so it is not enumerated by the benchmark-suite ratchets",
+    "kernel": "int8 GEMM (int8 operands via & 127), checksum output",
+    "oracle_checked_on_vm": true,
+    "sizes": [
+      2,
+      3,
+      4,
+      5,
+      6
+    ]
+  },
+  "measured_on_real_silicon": {
+    "board": "Nexys A7-100T (Artix-7 xc7a100t), full LOGOS soft-core, 6.25 MHz",
+    "core_clock_mhz": 6.25,
+    "bitstream": "benchmarks/silicon/full_core.bit (open flow: yosys + nextpnr-xilinx + prjxray)",
+    "method": "compile .lg -> full-core bytecode -> JTAG-flash + UART-stream to Board B -> read back Show + on-chip cycle counter",
+    "runs": [
+      {
+        "kernel": "int8 MAC dot-product, 128 MACs",
+        "result": 349504,
+        "oracle": 349504,
+        "byte_identical": true,
+        "on_chip_cycles": 3603,
+        "wall_us": 576.48
+      },
+      {
+        "kernel": "8x8 int8 GEMM, 512 MACs",
+        "result": 510720,
+        "oracle": 510720,
+        "byte_identical": true,
+        "on_chip_cycles": 45837,
+        "wall_us": 7333.92
+      }
+    ],
+    "note": "Executed on the physical FPGA, not simulation. Both results match an independent Python oracle exactly — the real silicon computes the int8 matmul byte-identical to the reference."
+  }
+}

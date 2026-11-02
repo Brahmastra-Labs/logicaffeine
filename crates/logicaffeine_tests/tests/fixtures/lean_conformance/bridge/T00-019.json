@@ -1,0 +1,90 @@
+{
+  "case": "T00-019",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_019.haveInDependentPosition",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T00_019.haveInType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "let_fun n := 3;\nFin (n + 1)",
+      "lean_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T00_019.letValueVisible",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_have_sharing_bridge::original_let_value_visible_preserves_the_dependent_proof_binding",
+      "logos": "Actual retained original body and published type imported from fixtures/lean_conformance/cases_lean414/T00-019.sharing.structural.ndjson; main and independent checking, exact source goal, empty logical assumptions, and incompatible-goal rejection. Checked theorem publication preserves opacity and independently derived axiom provenance.",
+      "why": "Five selected authored roots only. Original Lean4.14 structural export is unchanged. Source-only borrowed metadata is reported exactly; this does not certify surface elaboration-time opacity or the two Fin-based declarations."
+    },
+    {
+      "lean": "T00_019.nestedHaves",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 (n : Nat), n + 0 + 0 = n",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_have_sharing_bridge::original_nested_haves_preserves_the_actual_transitivity_proof",
+      "logos": "Actual retained original body and published type imported from fixtures/lean_conformance/cases_lean414/T00-019.sharing.structural.ndjson; main and independent checking, exact source goal, empty logical assumptions, and incompatible-goal rejection. Checked theorem publication preserves opacity and independently derived axiom provenance.",
+      "why": "Five selected authored roots only. Original Lean4.14 structural export is unchanged. Source-only borrowed metadata is reported exactly; this does not certify surface elaboration-time opacity or the two Fin-based declarations."
+    },
+    {
+      "lean": "T00_019.sharedProof",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 (n : Nat), n + 0 = n \u2227 n + 0 = n \u2227 n + 0 = n",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_have_sharing_bridge::original_shared_proof_preserves_all_three_conjuncts_without_new_axioms",
+      "logos": "Actual retained original body and published type imported from fixtures/lean_conformance/cases_lean414/T00-019.sharing.structural.ndjson; main and independent checking, exact source goal, empty logical assumptions, and incompatible-goal rejection. Checked theorem publication preserves opacity and independently derived axiom provenance.",
+      "why": "Five selected authored roots only. Original Lean4.14 structural export is unchanged. Source-only borrowed metadata is reported exactly; this does not certify surface elaboration-time opacity or the two Fin-based declarations."
+    },
+    {
+      "lean": "T00_019.viaHave",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_have_sharing_bridge::original_via_have_preserves_the_exported_application_and_value",
+      "logos": "Actual retained original body and published type imported from fixtures/lean_conformance/cases_lean414/T00-019.sharing.structural.ndjson; main and independent checking, exact source goal, empty logical assumptions, and incompatible-goal rejection. Checked theorem publication preserves opacity and independently derived axiom provenance.",
+      "why": "Five selected authored roots only. Original Lean4.14 structural export is unchanged. Source-only borrowed metadata is reported exactly; this does not certify surface elaboration-time opacity or the two Fin-based declarations."
+    },
+    {
+      "lean": "T00_019.viaLet",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_have_sharing_bridge::original_via_let_preserves_the_original_let_and_value",
+      "logos": "Actual retained original body and published type imported from fixtures/lean_conformance/cases_lean414/T00-019.sharing.structural.ndjson; main and independent checking, exact source goal, empty logical assumptions, and incompatible-goal rejection. Checked theorem publication preserves opacity and independently derived axiom provenance.",
+      "why": "Five selected authored roots only. Original Lean4.14 structural export is unchanged. Source-only borrowed metadata is reported exactly; this does not certify surface elaboration-time opacity or the two Fin-based declarations."
+    }
+  ]
+}

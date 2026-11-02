@@ -1,0 +1,216 @@
+{
+  "case": "T03-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 26,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T03_011.Pair",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_011.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_011.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T03_011.Pair.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T03_011.Pair \u03b1 \u03b2 \u2192 \u03b1",
+      "name": "T03_011.Pair.fst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 T03_011.Pair \u03b1 \u03b2",
+      "name": "T03_011.Pair.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {fst : \u03b1} {snd : \u03b2} {fst_1 : \u03b1} {snd_1 : \u03b2},\n  { fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 } \u2192 fst = fst_1 \u2227 snd = snd_1",
+      "name": "T03_011.Pair.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (fst : \u03b1) (snd : \u03b2) (fst_1 : \u03b1) (snd_1 : \u03b2),\n  ({ fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 }) = (fst = fst_1 \u2227 snd = snd_1)",
+      "name": "T03_011.Pair.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (fst : \u03b1) (snd : \u03b2),\n  sizeOf { fst := fst, snd := snd } = 1 + sizeOf fst + sizeOf snd",
+      "name": "T03_011.Pair.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_011.Pair \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T03_011.Pair.noConfusionType P v1 v2",
+      "name": "T03_011.Pair.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T03_011.Pair \u03b1 \u03b2 \u2192 T03_011.Pair \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T03_011.Pair.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_011.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 (t : T03_011.Pair \u03b1 \u03b2) \u2192 motive t",
+      "name": "T03_011.Pair.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_011.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_011.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T03_011.Pair.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T03_011.Pair \u03b1 \u03b2 \u2192 \u03b2",
+      "name": "T03_011.Pair.snd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_011.Point",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_011.Point \u2192 Sort u} \u2192 (t : T03_011.Point) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T03_011.Point.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T03_011.Point",
+      "name": "T03_011.Point.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {x y x_1 y_1 : Nat}, { x := x, y := y } = { x := x_1, y := y_1 } \u2192 x = x_1 \u2227 y = y_1",
+      "name": "T03_011.Point.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y x_1 y_1 : Nat), ({ x := x, y := y } = { x := x_1, y := y_1 }) = (x = x_1 \u2227 y = y_1)",
+      "name": "T03_011.Point.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Nat), sizeOf { x := x, y := y } = 1 + sizeOf x + sizeOf y",
+      "name": "T03_011.Point.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_011.Point} \u2192 v1 = v2 \u2192 T03_011.Point.noConfusionType P v1 v2",
+      "name": "T03_011.Point.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_011.Point \u2192 T03_011.Point \u2192 Sort u",
+      "name": "T03_011.Point.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_011.Point \u2192 Sort u} \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 (t : T03_011.Point) \u2192 motive t",
+      "name": "T03_011.Point.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_011.Point \u2192 Sort u} \u2192 (t : T03_011.Point) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T03_011.Point.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_011.Point \u2192 Nat",
+      "name": "T03_011.Point.x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_011.Point \u2192 Nat",
+      "name": "T03_011.Point.y",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T03_011.Pair \u03b1 \u03b2 \u2192 \u03b1",
+      "name": "T03_011.getFst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_011.Point \u2192 Nat",
+      "name": "T03_011.getX",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

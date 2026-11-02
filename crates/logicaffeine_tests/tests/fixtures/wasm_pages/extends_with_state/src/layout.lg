@@ -1,0 +1,4 @@
+## Component Site
+View:
+    <nav><a href="/">Home</a></nav>
+    <main>{block content}</main>

@@ -8,12 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Tier-0 foundation for logicaffeine: arena, interner, spans, the exact numeric/quantity/money/time/UUID value-type tower, and the shared MD5/SHA-1 hash oracle"
+license = "MIT"
+description = "Foundation types for Logicaffeine: arenas, string interning, spans, and exact integers, decimals, quantities, money, dates and UUIDs"
 readme = "README.md"
-
-[dependencies]
-bumpalo = "3.19"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [dev-dependencies]
 # Oracles for differential testing — our own MD5/SHA-1/UUID are validated bit-exact against the

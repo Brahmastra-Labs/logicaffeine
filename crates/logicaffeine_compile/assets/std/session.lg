@@ -1,0 +1,203 @@
+# Session
+
+Signed session cookies and CSRF tokens.
+
+A session cookie lives in the visitor's browser, where the visitor can edit it. The
+only thing between "logged in as me" and "logged in as anyone" is a signature the
+server can check and the visitor cannot forge, so every function here is written
+around the FORGERY case rather than the happy one.
+
+`examples/login` is a signed-in site built on this module without calling it. Its
+`## Session` block declares the session's fields, and the compiler writes the calls:
+`signSession` and `verifySession` around the cookie, `sessionField` to read a field
+back, `csrfToken` behind `csrf()` in a form, and `csrfValid` before any request that
+changes state. The Sessions section of `docs/lgx-stdlib.md` shows both halves: the
+sentence a program writes and the functions it becomes.
+
+## Note
+`t` up to and including its `n`th character; `""` when `n` is not positive.
+## To textUpTo (t: Text) and (n: Int) -> Text:
+    Let mutable out be "".
+    Let mutable i be 0.
+    For each c in t:
+        Set i to i + 1.
+        If i is at most n:
+            Set out to out + c.
+    Return out.
+
+## Note
+`t` after its `n`th character; the whole of `t` when `n` is 0.
+## To textFrom (t: Text) and (n: Int) -> Text:
+    Let mutable out be "".
+    Let mutable i be 0.
+    For each c in t:
+        Set i to i + 1.
+        If i is greater than n:
+            Set out to out + c.
+    Return out.
+
+## Note
+The 1-based position of the LAST `|` in `t`, or 0 when there is none.
+
+The last, not the first, and that choice is a security boundary rather than a
+preference: a session value may legitimately contain `|`, and a parser that split
+at the first one would read `signSession(s, "a|b")` = `"a|b|MAC"` as the value `"a"`
+carrying the signature `"b|MAC"` — letting an attacker present a DIFFERENT value
+with a signature that checks.
+## To lastSeparator (t: Text) -> Int:
+    Let mutable at be 0.
+    Let mutable i be 0.
+    For each c in t:
+        Set i to i + 1.
+        If c is equal to "|":
+            Set at to i.
+    Return at.
+
+## Note
+`msg` authenticated under `secret`, as lowercase hex.
+## To macHex (secret: Text) and (msg: Text) -> Text:
+    Let mac be hmacSha256(text_bytes(secret), text_bytes(msg)).
+    Let mutable out be "".
+    For each b in mac:
+        Let hi be b // 16.
+        Let lo be b - (hi * 16).
+        Set out to out + chr(hexDigit(hi)) + chr(hexDigit(lo)).
+    Return out.
+
+## Note
+Whether `a` and `b` are the same text, reading every byte of two texts of one length before it answers.
+
+The visitor chooses the signature a server checks. Text equality stops at the first byte that differs,
+so the time a forged signature takes to refuse would say how much of its front is right; this check
+takes the same steps wherever the texts differ, and leaks only their lengths, which are public.
+## To sameTextInConstantTime (a: Text) and (b: Text) -> Bool:
+    Let x be text_bytes(a).
+    Let y be text_bytes(b).
+    If (length of x) is not equal to (length of y):
+        Return false.
+    Let mutable diff be 0.
+    Repeat for i from 1 to length of x:
+        Set diff to diff + ((item i of x) xor (item i of y)).
+    Return diff is equal to 0.
+
+## Note
+`value`, followed by its signature — the cookie a server hands out.
+## To signSession (secret: Text) and (value: Text) -> Text:
+    Return value + "|" + macHex(secret, value).
+
+## Note
+The signature half of a cookie, for a caller that wants to inspect it.
+## To sessionMac (cookie: Text) -> Text:
+    Return textFrom(cookie, lastSeparator(cookie)).
+
+## Note
+The value a cookie carries, or `none` when its signature does not check.
+
+Every malformed shape answers `none` rather than trapping: a cookie is
+attacker-controlled input, and a server that crashes on a hand-edited one has been
+handed a denial of service.
+## To verifySession (secret: Text) and (cookie: Text) -> Option of Text:
+    Let at be lastSeparator(cookie).
+    If at is equal to 0:
+        Return none.
+    Let value be textUpTo(cookie, at - 1).
+    Let mac be textFrom(cookie, at).
+    If sameTextInConstantTime(mac, macHex(secret, value)) is equal to true:
+        Return some(value).
+    Return none.
+
+## Note
+A CSRF token BOUND to one session.
+
+Bound, because a token any session's token satisfies protects nothing — the
+attacker simply uses their own. The `|csrf` suffix keeps the token's key distinct
+from the session cookie's, so neither can be replayed as the other.
+## To csrfToken (secret: Text) and (session: Text) -> Text:
+    Return macHex(secret + "|csrf", session).
+
+## Note
+Whether `token` is the CSRF token for this `session`.
+## To csrfValid (secret: Text) and (session: Text) and (token: Text) -> Bool:
+    Return sameTextInConstantTime(token, csrfToken(secret, session)).
+
+## Note
+The UTF-8 bytes of `t` as lowercase hexadecimal; `unhexText` is the way back.
+
+A cookie value may not contain `;`, `,`, `"`, a space or a control character — `isCookieSafe`
+enforces exactly that — and a session payload is arbitrary text a visitor typed. Hex has no
+escaping rules to get wrong and no character outside `0-9a-f`, so the payload cannot break the
+cookie and cannot smuggle a second one.
+
+## To hexText (t: Text) -> Text:
+    Return bytesToHex(text_bytes(t)).
+
+## Note
+The text a `hexText` came from. Invalid hex answers `""` rather than trapping, because a cookie is
+attacker-controlled input.
+
+## To unhexText (h: Text) -> Text:
+    Return text_from_bytes(bytesFromHex(h)).
+
+## Note
+Field `i` of a session payload — counting from 1, as LOGOS indices do — or `""` when the payload
+does not carry one.
+
+Fields are joined with `.`, which is safe precisely because every field is hex — the separator
+cannot occur inside a value, so there is nothing to escape and no ambiguity to resolve. A payload
+with too few fields is what a visitor holding a cookie from an OLDER version of the program sends,
+so it answers the empty value rather than failing: a session that gained a field must not lock out
+everybody who was already signed in.
+
+## To sessionField (payload: Text) and (i: Int) -> Text:
+    Let parts be split(payload, ".").
+    If i is less than 1:
+        Return "".
+    If i is greater than length of parts:
+        Return "".
+    Return unhexText(item i of parts).
+
+## Note
+Field `i` of a session payload as a whole number, or `0` when it is absent or not one.
+
+## To sessionInt (payload: Text) and (i: Int) -> Int:
+    Let t be sessionField(payload, i).
+    If isIntText(t) is equal to false:
+        Return 0.
+    Return parseInt(t).
+
+## Note
+Field `i` of a session payload as a truth value. Anything that is not `true` is false, which is
+the safe direction for a flag a visitor holds a cookie for.
+
+## To sessionBool (payload: Text) and (i: Int) -> Bool:
+    Return sessionField(payload, i) is equal to "true".
+
+## Note
+The secret every session cookie is signed with.
+
+`LOGOS_SESSION_SECRET` sets it. With nothing set it is RANDOM, once, per process — so a program
+that never configures one still cannot have its sessions forged, and the cost is that sessions do
+not survive a restart. A fixed default would be the other way round: convenient, and forgeable on
+every LOGOS server anybody ever deployed without reading this note.
+
+## To sessionSecret () -> Text:
+    Let mutable found be "".
+    Inspect get("LOGOS_SESSION_SECRET"):
+        When Some (s):
+            Set found to s.
+        When None:
+            Set found to "".
+    If found is equal to "":
+        Return randomSecret().
+    Return found.
+
+## Note
+A fresh unguessable secret — 8 random 31-bit numbers in hex.
+
+## To randomSecret () -> Text:
+    Let mutable out be "".
+    Let mutable i be 0.
+    While i is less than 8:
+        Set out to out + toHexInt(randomInt(0, 2147483647)).
+        Set i to i + 1.
+    Return out.

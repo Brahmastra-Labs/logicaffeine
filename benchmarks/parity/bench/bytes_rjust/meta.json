@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.rjust",
+  "workload": "bytesRjust(xs, m+100, 32), positional fold (pad on left)",
+  "arg": "40000",
+  "expected": "5093856",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

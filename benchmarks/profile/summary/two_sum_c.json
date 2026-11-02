@@ -1,0 +1,11 @@
+{
+  "name": "two_sum",
+  "lang": "c",
+  "n": "119475543",
+  "samples_weight": 25804027485,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

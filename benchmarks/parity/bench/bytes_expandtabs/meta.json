@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.expandtabs",
+  "workload": "bytesExpandtabs(xs, 8) \u2014 column-aware, length fold",
+  "arg": "30000",
+  "expected": "124779118",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

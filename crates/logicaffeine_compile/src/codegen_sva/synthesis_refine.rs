@@ -3,8 +3,6 @@
 //! When synthesized SVA doesn't match the spec, classify the divergence
 //! as too-strong or too-weak, apply transformations, and re-check.
 
-use super::sva_model::SvaExpr;
-
 #[cfg(feature = "verification")]
 use super::hw_pipeline::check_z3_equivalence;
 
@@ -32,10 +30,7 @@ pub struct RefinementResult {
 ///
 /// Too strong: spec allows a behavior that SVA rejects.
 /// Too weak: SVA allows a behavior that spec rejects.
-pub fn classify_divergence(
-    spec_allows_ce: bool,
-    sva_allows_ce: bool,
-) -> Divergence {
+pub fn classify_divergence(spec_allows_ce: bool, sva_allows_ce: bool) -> Divergence {
     match (spec_allows_ce, sva_allows_ce) {
         (true, false) => Divergence::TooStrong,
         (false, true) => Divergence::TooWeak,

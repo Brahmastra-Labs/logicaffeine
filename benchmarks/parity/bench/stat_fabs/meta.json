@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.fabs",
+  "workload": "statistics.fabs",
+  "arg": "5000000",
+  "expected": "625000000000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 23224402009
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;__rtld_malloc_init_real;lookup_malloc_symbol;_dl_lookup_symbol_x;do_lookup_x 249999

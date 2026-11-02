@@ -10,7 +10,7 @@ pub fn main() !void {
     var sum: i64 = 0;
     var i: i64 = 1;
     while (i <= n) : (i += 1) {
-        sum = @mod(sum + i, 1000000007);
+        sum = @rem(sum + i, 1000000007);
     }
     try stdout.interface.print("{}\n", .{sum});
     try stdout.interface.flush();

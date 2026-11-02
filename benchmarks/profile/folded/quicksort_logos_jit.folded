@@ -1,0 +1,13 @@
+logos::<anonymous> [jit] 414253355898
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter;<core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::fold;__memcpy_avx_unaligned_erms 17618732941
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter;<core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::fold;__memcpy_avx_unaligned_erms;[unknown] 14655278191
+logos::<anonymous> [jit];logicaffeine_jit::logos_rt_alloc_scope_leave;std::thread::local::LocalKey<T>::with 3385195859
+logos::main::loop@74 [jit] 2981526630
+logos::<anonymous> [jit];logicaffeine_jit::logos_rt_alloc_scope_enter 2067429855
+logos::<anonymous> [jit];logicaffeine_jit::logos_rt_alloc_scope_leave 1269041060
+logos::main::loop@11 [jit] 526381173
+logos::<anonymous> [jit];logicaffeine_jit::logos_rt_list_triple 431238619
+logos::main::loop@36 [jit] 295965272
+logos::<anonymous> [jit];logicaffeine_jit::logos_rt_alloc_scope_leave;std::thread::local::LocalKey<T>::with;_ZN4core3ops8function6FnOnce9call_once17h11560185c9a4d092E.llvm.1398400347277817135 123250912
+logos::main::loop@11 [jit];[unknown] 41039409
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_native;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_function;_$LT$logicaffeine_jit..ForgeTier$u20$as$u20$logicaffeine_compile..vm..native_tier..NativeTier$GT$::compile_function::_$u7b$$u7b$closure$u7d$$u7d$::h7e904e25d94d91d8;logicaffeine_forge::regalloc::compile_function_regalloc_precise;logicaffeine_forge::regalloc::compile_impl 20171163

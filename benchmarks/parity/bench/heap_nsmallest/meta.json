@@ -1,0 +1,10 @@
+{
+  "capability": "heap.nsmallest",
+  "workload": "sum(nSmallest(10, xs))",
+  "arg": "20000",
+  "expected": "1265720271",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

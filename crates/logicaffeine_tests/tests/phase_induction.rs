@@ -19,21 +19,33 @@ fn test_try_induction_type() {
 fn test_induction_base_goal_type() {
     let mut repl = Repl::new();
     let result = repl.execute("Check induction_base_goal.");
-    assert!(result.is_ok(), "induction_base_goal should exist: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "induction_base_goal should exist: {:?}",
+        result
+    );
 }
 
 #[test]
 fn test_induction_step_goal_type() {
     let mut repl = Repl::new();
     let result = repl.execute("Check induction_step_goal.");
-    assert!(result.is_ok(), "induction_step_goal should exist: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "induction_step_goal should exist: {:?}",
+        result
+    );
 }
 
 #[test]
 fn test_induction_num_cases_type() {
     let mut repl = Repl::new();
     let result = repl.execute("Check induction_num_cases.");
-    assert!(result.is_ok(), "induction_num_cases should exist: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "induction_num_cases should exist: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -68,8 +80,10 @@ fn test_induction_nat_step_goal() {
     let mut repl = Repl::new();
     repl.execute("Definition motive : Syntax := SLam (SName \"Nat\") (SApp (SApp (SName \"Le\") (SVar 0)) (SVar 0)).")
         .unwrap();
-    repl.execute("Definition step_goal : Syntax := induction_step_goal (SName \"Nat\") motive (Succ Zero).")
-        .unwrap();
+    repl.execute(
+        "Definition step_goal : Syntax := induction_step_goal (SName \"Nat\") motive (Succ Zero).",
+    )
+    .unwrap();
     let result = repl.execute("Eval step_goal.").unwrap();
     // Should be: ∀k:Nat. (Le k k) → (Le (Succ k) (Succ k))
     assert!(

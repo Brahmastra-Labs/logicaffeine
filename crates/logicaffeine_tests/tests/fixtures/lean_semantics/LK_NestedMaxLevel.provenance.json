@@ -1,0 +1,48 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_semantics/LK_NestedMaxLevel.lean",
+  "source_sha256": "a4d92fa15ab2e92195c9ed6280604398077b0792191177844172aae0f69ffa3b",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b"
+  },
+  "exporter_olean_sha256": "49d73051495cae9b48b65442e84d7b1a76a78d66ad694720a80cf2d463c24add",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LK_NML.Node",
+    "LK_NML.Node.width",
+    "LK_NML.widthEmpty",
+    "LK_NML.nodeEntriesEmpty",
+    "LK_NML.LBox"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "cd1cb91fff927e66bb887b1f1121af516880465a13e895a7e2ff5ec13846ad80",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 2270,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated",
+  "compile_log": "BadT: kernel REJECTED: (kernel) mutually inductive types must live in the same universe\n",
+  "kernel_controls": {
+    "LK_NML.BadT": "REJECTED (mutually inductive types must live in the same universe): the nested instance LBox.{0} BadT lives in Type 1, the family in Type 0"
+  }
+}

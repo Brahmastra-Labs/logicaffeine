@@ -1,0 +1,106 @@
+{
+ "_what": "Measured batch-1 greedy decode rates, each read back from the ledger that recorded it (source.ledger at source.pointer, an RFC 6901 JSON pointer). spatial_decode_lock prices each row's checkpoint on its machine and requires the measured rate never to beat the floor. Speculative rows are excluded: a verify step yields more than one token per weight pass, so the greedy floor does not bound it.",
+ "_ctx": "The context a row's KV cache reaches: the prompt plus the generated tokens (512 + 128 for the same-boot sweep; 128 for tg128, which decodes from an empty cache). The floor at the largest context is the lowest, so the check is the strictest one the run supports.",
+ "rows": [
+  {
+   "label": "ours, greedy, H100 NVL, same boot as vLLM (2026-09-21)",
+   "machine": "h100-nvl",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 640,
+   "tok_s": 61.69,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/same_boot_head_to_head_2026_09_21/ours_greedy/b1"
+   }
+  },
+  {
+   "label": "vLLM fp8, one request, H100 NVL, same boot (2026-09-21)",
+   "machine": "h100-nvl",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 640,
+   "bytes_per_weight": 1.0,
+   "tok_s": 77.52,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/same_boot_head_to_head_2026_09_21/vllm/c1/decode_tok_s"
+   }
+  },
+  {
+   "label": "llama.cpp tg128 -fa 1, H100 NVL (2026-09-05)",
+   "machine": "h100-nvl",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 128,
+   "tok_s": 55.5,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/h100_nvl_2026_09_05/llama_cpp_tg128_fa1"
+   }
+  },
+  {
+   "label": "ours two-pass unrolled, H100 NVL (2026-09-05)",
+   "machine": "h100-nvl",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 128,
+   "tok_s": 59.74,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/h100_nvl_2026_09_05/lanes/ours_two_pass_u2/tg128"
+   }
+  },
+  {
+   "label": "ours int8-activation unrolled, H100 NVL (2026-09-05)",
+   "machine": "h100-nvl",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 128,
+   "tok_s": 65.25,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/h100_nvl_2026_09_05/lanes/ours_int8_act_u2/tg128"
+   }
+  },
+  {
+   "label": "ours precise lane, A100 SXM4 80GB",
+   "machine": "a100-sxm4-80gb",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 128,
+   "tok_s": 41.29,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/a100_sxm4_80gb/precise_lane/tg128_tok_s"
+   }
+  },
+  {
+   "label": "llama.cpp tg128 -fa 1, A100 SXM4 80GB",
+   "machine": "a100-sxm4-80gb",
+   "header": "qwen3.8-27b-q8_0",
+   "ctx": 128,
+   "tok_s": 42.17,
+   "source": {
+    "ledger": "benchmarks/results/qwen38_27b.json",
+    "pointer": "/logos/a100_sxm4_80gb/llama_cpp_tg128_fa1"
+   }
+  },
+  {
+   "label": "ours flash lane, Qwen3-30B-A3B, A100-80GB (2026-08-31)",
+   "machine": "a100-sxm4-80gb",
+   "header": "qwen3-30b-a3b-q8_0",
+   "ctx": 128,
+   "tok_s": 168.24,
+   "source": {
+    "ledger": "benchmarks/results/qwen30b_a100.json",
+    "pointer": "/generation_golden_and_faster/table/0/tg128"
+   }
+  },
+  {
+   "label": "llama.cpp -fa on (its fastest), Qwen3-30B-A3B, A100-80GB (2026-08-31)",
+   "machine": "a100-sxm4-80gb",
+   "header": "qwen3-30b-a3b-q8_0",
+   "ctx": 128,
+   "tok_s": 170.69,
+   "source": {
+    "ledger": "benchmarks/results/qwen30b_a100.json",
+    "pointer": "/generation_golden_and_faster/table/3/tg128"
+   }
+  }
+ ]
+}

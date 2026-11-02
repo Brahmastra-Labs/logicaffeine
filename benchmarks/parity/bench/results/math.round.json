@@ -1,0 +1,12 @@
+{
+  "capability": "math.round",
+  "timing_n": "96928967",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "rust": 1.054,
+    "c": 1.185,
+    "go": 1.241
+  },
+  "min_speedup": 1.054
+}

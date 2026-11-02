@@ -1,0 +1,34 @@
+Run Z3 static verification without building.
+
+Performs formal verification of logical constraints in the project using the Z3 SMT solver. This catches logical errors that would be impossible to detect through testing alone.
+
+Needs the full build (the `verification` feature).
+
+# Example
+
+```bash largo verify ```
+
+Usage: largo verify [OPTIONS]
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo verify

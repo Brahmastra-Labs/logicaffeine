@@ -1,0 +1,21 @@
+Fitter Status : Successful - Mon Oct 26 14:25:51 2026
+Quartus Prime Version : 23.4.0 Build 79 11/22/2023 Patches 0.01iofs SC Pro Edition
+Revision Name : d5005
+Top-level Entity Name : iofs_top
+Family : Stratix 10
+Device : 1SX280HN2F43E2VG
+Timing Models : Final
+Power Models : Final
+Device Status : Final
+Logic utilization (in ALMs) : 450,585 / 933,120 ( 48 % )
+Total dedicated logic registers : 611979
+Total pins : 630 / 912 ( 69 % )
+Total block memory bits : 20,536,484 / 240,046,080 ( 9 % )
+Total RAM Blocks : 3,115 / 11,721 ( 27 % )
+Total DSP Blocks : 1,679 / 5,760 ( 29 % )
+Total DIB Channels : 0 / 75 ( 0 % )
+Total HSSI RX channels : 17 / 48 ( 35 % )
+Total HSSI TX channels : 17 / 48 ( 35 % )
+Total HSSI HPS : 0 / 1 ( 0 % )
+Total HSSI EHIPs : 0 / 2 ( 0 % )
+Total PLLs : 36 / 104 ( 35 % )

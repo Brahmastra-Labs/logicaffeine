@@ -1,0 +1,18 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be word64(parseInt(item 2 of arguments)).
+Let total be word64(0).
+Let i be word64(1).
+While i is at most n:
+    Let k be i.
+    While k is not word64(1):
+        If k % word64(2) equals word64(0):
+            Set k to k / word64(2).
+        Otherwise:
+            Set k to word64(3) * k + word64(1).
+        Set total to total + word64(1).
+    Set i to i + word64(1).
+Show total.

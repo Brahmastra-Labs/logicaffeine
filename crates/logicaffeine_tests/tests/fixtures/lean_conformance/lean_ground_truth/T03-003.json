@@ -1,0 +1,387 @@
+{
+  "case": "T03-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 47,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_003.Boxed",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.Boxed \u03b1 \u2192 Sort u} \u2192\n    (t : T03_003.Boxed \u03b1) \u2192 ((a : Bool \u2192 \u03b1) \u2192 motive (T03_003.Boxed.wrap a)) \u2192 motive t",
+      "name": "T03_003.Boxed.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_003.Boxed \u03b1} \u2192 v1 = v2 \u2192 T03_003.Boxed.noConfusionType P v1 v2",
+      "name": "T03_003.Boxed.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_003.Boxed \u03b1 \u2192 T03_003.Boxed \u03b1 \u2192 Sort u",
+      "name": "T03_003.Boxed.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.Boxed \u03b1 \u2192 Sort u} \u2192\n    ((a : Bool \u2192 \u03b1) \u2192 motive (T03_003.Boxed.wrap a)) \u2192 (t : T03_003.Boxed \u03b1) \u2192 motive t",
+      "name": "T03_003.Boxed.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.Boxed \u03b1 \u2192 Sort u} \u2192\n    (t : T03_003.Boxed \u03b1) \u2192 ((a : Bool \u2192 \u03b1) \u2192 motive (T03_003.Boxed.wrap a)) \u2192 motive t",
+      "name": "T03_003.Boxed.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (Bool \u2192 \u03b1) \u2192 T03_003.Boxed \u03b1",
+      "name": "T03_003.Boxed.wrap",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : Bool \u2192 \u03b1}, T03_003.Boxed.wrap a = T03_003.Boxed.wrap a_1 \u2192 a = a_1",
+      "name": "T03_003.Boxed.wrap.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : Bool \u2192 \u03b1), (T03_003.Boxed.wrap a = T03_003.Boxed.wrap a_1) = (a = a_1)",
+      "name": "T03_003.Boxed.wrap.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : Bool \u2192 \u03b1), sizeOf (T03_003.Boxed.wrap a) = 1",
+      "name": "T03_003.Boxed.wrap.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_003.MyList",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_003.MyList \u03b1 \u2192 Sort u} \u2192 T03_003.MyList \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T03_003.MyList.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T03_003.MyList \u03b1 \u2192 Prop} (t : T03_003.MyList \u03b1),\n  (\u2200 (t : T03_003.MyList \u03b1), T03_003.MyList.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_003.MyList.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.MyList \u03b1 \u2192 Sort u} \u2192\n    (t : T03_003.MyList \u03b1) \u2192 ((t : T03_003.MyList \u03b1) \u2192 T03_003.MyList.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_003.MyList.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.MyList \u03b1 \u2192 Sort u} \u2192\n    (t : T03_003.MyList \u03b1) \u2192\n      motive T03_003.MyList.nil \u2192 ((a : \u03b1) \u2192 (a_1 : T03_003.MyList \u03b1) \u2192 motive (T03_003.MyList.cons a a_1)) \u2192 motive t",
+      "name": "T03_003.MyList.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T03_003.MyList \u03b1 \u2192 T03_003.MyList \u03b1",
+      "name": "T03_003.MyList.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {a_1 : T03_003.MyList \u03b1} {a_2 : \u03b1} {a_3 : T03_003.MyList \u03b1},\n  T03_003.MyList.cons a a_1 = T03_003.MyList.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_003.MyList.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1) (a_1 : T03_003.MyList \u03b1) (a_2 : \u03b1) (a_3 : T03_003.MyList \u03b1),\n  (T03_003.MyList.cons a a_1 = T03_003.MyList.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_003.MyList.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1) (a_1 : T03_003.MyList \u03b1),\n  sizeOf (T03_003.MyList.cons a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_003.MyList.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_003.MyList \u03b1 \u2192 Prop} \u2192 T03_003.MyList \u03b1 \u2192 Prop",
+      "name": "T03_003.MyList.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_003.MyList \u03b1",
+      "name": "T03_003.MyList.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T03_003.MyList.nil = 1",
+      "name": "T03_003.MyList.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_003.MyList \u03b1} \u2192 v1 = v2 \u2192 T03_003.MyList.noConfusionType P v1 v2",
+      "name": "T03_003.MyList.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_003.MyList \u03b1 \u2192 T03_003.MyList \u03b1 \u2192 Sort u",
+      "name": "T03_003.MyList.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.MyList \u03b1 \u2192 Sort u} \u2192\n    motive T03_003.MyList.nil \u2192\n      ((a : \u03b1) \u2192 (a_1 : T03_003.MyList \u03b1) \u2192 motive a_1 \u2192 motive (T03_003.MyList.cons a a_1)) \u2192\n        (t : T03_003.MyList \u03b1) \u2192 motive t",
+      "name": "T03_003.MyList.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_003.MyList \u03b1 \u2192 Sort u} \u2192\n    (t : T03_003.MyList \u03b1) \u2192\n      motive T03_003.MyList.nil \u2192\n        ((a : \u03b1) \u2192 (a_1 : T03_003.MyList \u03b1) \u2192 motive a_1 \u2192 motive (T03_003.MyList.cons a a_1)) \u2192 motive t",
+      "name": "T03_003.MyList.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T03_003.MyPair",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_003.MyPair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_003.MyPair \u03b1 \u03b2) \u2192 ((a : \u03b1) \u2192 (a_1 : \u03b2) \u2192 motive (T03_003.MyPair.mk a a_1)) \u2192 motive t",
+      "name": "T03_003.MyPair.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 T03_003.MyPair \u03b1 \u03b2",
+      "name": "T03_003.MyPair.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {a : \u03b1} {a_1 : \u03b2} {a_2 : \u03b1} {a_3 : \u03b2},\n  T03_003.MyPair.mk a a_1 = T03_003.MyPair.mk a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_003.MyPair.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (a : \u03b1) (a_1 : \u03b2) (a_2 : \u03b1) (a_3 : \u03b2),\n  (T03_003.MyPair.mk a a_1 = T03_003.MyPair.mk a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_003.MyPair.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (a : \u03b1) (a_1 : \u03b2),\n  sizeOf (T03_003.MyPair.mk a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_003.MyPair.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_003.MyPair \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T03_003.MyPair.noConfusionType P v1 v2",
+      "name": "T03_003.MyPair.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T03_003.MyPair \u03b1 \u03b2 \u2192 T03_003.MyPair \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T03_003.MyPair.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_003.MyPair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((a : \u03b1) \u2192 (a_1 : \u03b2) \u2192 motive (T03_003.MyPair.mk a a_1)) \u2192 (t : T03_003.MyPair \u03b1 \u03b2) \u2192 motive t",
+      "name": "T03_003.MyPair.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_003.MyPair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_003.MyPair \u03b1 \u03b2) \u2192 ((a : \u03b1) \u2192 (a_1 : \u03b2) \u2192 motive (T03_003.MyPair.mk a a_1)) \u2192 motive t",
+      "name": "T03_003.MyPair.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_003.MyList Bool",
+      "name": "T03_003.boolList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_003.MyPair Nat Bool \u2192 Nat",
+      "name": "T03_003.firstOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_003.MyPair Nat Bool \u2192 Sort u_1) \u2192\n  (x : T03_003.MyPair Nat Bool) \u2192 ((a : Nat) \u2192 (a_1 : Bool) \u2192 motive (T03_003.MyPair.mk a a_1)) \u2192 motive x",
+      "name": "T03_003.firstOf.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 T03_003.MyList \u03b1 \u2192 Nat",
+      "name": "T03_003.lengthGen",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192\n  (motive : T03_003.MyList \u03b1 \u2192 Sort u_1) \u2192\n    (x : T03_003.MyList \u03b1) \u2192\n      (Unit \u2192 motive T03_003.MyList.nil) \u2192\n        ((a : \u03b1) \u2192 (t : T03_003.MyList \u03b1) \u2192 motive (T03_003.MyList.cons a t)) \u2192 motive x",
+      "name": "T03_003.lengthGen.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_003.MyList Nat \u2192 Nat",
+      "name": "T03_003.lengthOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_003.MyList Nat \u2192 Sort u_1) \u2192\n  (x : T03_003.MyList Nat) \u2192\n    (Unit \u2192 motive T03_003.MyList.nil) \u2192\n      ((a : Nat) \u2192 (t : T03_003.MyList Nat) \u2192 motive (T03_003.MyList.cons a t)) \u2192 motive x",
+      "name": "T03_003.lengthOf.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_003.MyList Nat",
+      "name": "T03_003.natList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_003.MyList (T03_003.MyList Nat)",
+      "name": "T03_003.nestedList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 T03_003.Boxed \u03b1 \u2192 \u03b1",
+      "name": "T03_003.unwrap",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192\n  (motive : T03_003.Boxed \u03b1 \u2192 Sort u_1) \u2192\n    (x : T03_003.Boxed \u03b1) \u2192 ((f : Bool \u2192 \u03b1) \u2192 motive (T03_003.Boxed.wrap f)) \u2192 motive x",
+      "name": "T03_003.unwrap.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,4 +1,4 @@
-//! Phase 117 — §5.2 Cumulative / branching quantification (work/MISSING_ENGLISH.md).
+//! Phase 117 — Cumulative / branching quantification.
 //!
 //! A two-cardinal transitive sentence has, beyond its two NESTED scope readings,
 //! a CUMULATIVE reading (Scha) irreducible to either nesting:
@@ -17,16 +17,28 @@ fn two_cardinal_yields_nested_and_cumulative() {
     // Two nested readings + the cumulative reading.
     assert!(rs.len() >= 3, "nested ×2 + cumulative: {rs:?}");
     // Nested: subject-wide and object-wide.
-    assert!(rs.iter().any(|r| r.trim_start().starts_with("∃=3")), "subject-wide nested: {rs:?}");
-    assert!(rs.iter().any(|r| r.trim_start().starts_with("∃=5")), "object-wide nested: {rs:?}");
+    assert!(
+        rs.iter().any(|r| r.trim_start().starts_with("∃=3")),
+        "subject-wide nested: {rs:?}"
+    );
+    assert!(
+        rs.iter().any(|r| r.trim_start().starts_with("∃=5")),
+        "object-wide nested: {rs:?}"
+    );
     // Cumulative: a top-level CONJUNCTION of the two counted groups (both cardinals
     // appear as outermost conjuncts, neither nested inside the other).
-    let cumulative = rs.iter().find(|r| {
-        r.starts_with("(∃=3") && r.contains("∧ ∃=5")
-    });
-    assert!(cumulative.is_some(), "cumulative (Scha) reading present: {rs:?}");
+    let cumulative = rs
+        .iter()
+        .find(|r| r.starts_with("(∃=3") && r.contains("∧ ∃=5"));
+    assert!(
+        cumulative.is_some(),
+        "cumulative (Scha) reading present: {rs:?}"
+    );
     let c = cumulative.unwrap();
-    assert!(c.contains("Boys") && c.contains("Boxes") && c.contains("Lift"), "cumulative keeps both groups + relation: {c}");
+    assert!(
+        c.contains("Boy(") && c.contains("Box(") && c.contains("Lift"),
+        "cumulative keeps both groups + relation: {c}"
+    );
 }
 
 #[test]
@@ -34,7 +46,11 @@ fn single_cardinal_has_no_cumulative() {
     // Only one cardinal → no cumulative reading (just the two scope readings).
     let rs = compile_all_scopes("Three boys lifted a box.").unwrap();
     eprintln!("one-cardinal: {rs:?}");
-    assert!(!rs.iter().any(|r| r.starts_with("(∃=3") && r.contains("∧ ∃")), "no spurious cumulative: {rs:?}");
+    assert!(
+        !rs.iter()
+            .any(|r| r.starts_with("(∃=3") && r.contains("∧ ∃")),
+        "no spurious cumulative: {rs:?}"
+    );
 }
 
 #[test]

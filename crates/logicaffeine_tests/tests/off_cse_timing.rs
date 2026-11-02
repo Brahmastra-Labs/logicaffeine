@@ -32,7 +32,8 @@ fn program_source(name: &str) -> String {
 fn time_one(name: &str, size: &str) {
     let source = program_source(name);
     let argv = vec!["bench".to_string(), size.to_string()];
-    let cse = std::env::var("LOGOS_NO_OFF_CSE").map_or("ON", |v| if v == "1" { "OFF" } else { "ON" });
+    let cse =
+        std::env::var("LOGOS_NO_OFF_CSE").map_or("ON", |v| if v == "1" { "OFF" } else { "ON" });
 
     // Best-of-N to dampen scheduler noise on a shared box.
     let mut best = f64::MAX;

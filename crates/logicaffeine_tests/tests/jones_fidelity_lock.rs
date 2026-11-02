@@ -50,8 +50,20 @@ struct Case {
     round_trips: bool,
 }
 
-const fn c(name: &'static str, program: &'static str, expected: &'static str, identical: bool, round_trips: bool) -> Case {
-    Case { name, program, expected, identical, round_trips }
+const fn c(
+    name: &'static str,
+    program: &'static str,
+    expected: &'static str,
+    identical: bool,
+    round_trips: bool,
+) -> Case {
+    Case {
+        name,
+        program,
+        expected,
+        identical,
+        round_trips,
+    }
 }
 
 /// The executable corpus. Every entry must be JONES-OPTIMAL in all three stages; `identical`
@@ -142,9 +154,13 @@ fn dialect_residual(pe_text: &str, block_fn: &str, core_types: &str, program: &s
          Let fidCompiled be {bf}(encodedMain, fidState).\n\
          Let fidOut be decompileBlock(fidCompiled, 0).\n\
          Show fidOut.",
-        core = core_types, pe = pe_text, dec = decompile, enc = encoded, bf = block_fn
+        core = core_types,
+        pe = pe_text,
+        dec = decompile,
+        enc = encoded,
+        bf = block_fn
     );
-    compile::interpret_program(&src)
+    compile::interpret_bootstrap(&src)
         .unwrap_or_else(|e| panic!("[{block_fn}] PE run failed: {e:?}"))
         .trim()
         .to_string()
@@ -169,19 +185,31 @@ enum Dialect {
     Bti,
 }
 
-const DIALECTS: [(&str, Dialect); 3] =
-    [("pe_source", Dialect::Source), ("pe_mini", Dialect::Mini), ("pe_bti", Dialect::Bti)];
+const DIALECTS: [(&str, Dialect); 3] = [
+    ("pe_source", Dialect::Source),
+    ("pe_mini", Dialect::Mini),
+    ("pe_bti", Dialect::Bti),
+];
 
 fn residual_of(dialect: Dialect, program: &str) -> String {
     match dialect {
         Dialect::Source => dialect_residual(
-            compile::pe_source_text(), "peBlock", compile::core_types_for_pe_source(), program,
+            compile::pe_source_text(),
+            "peBlock",
+            compile::core_types_for_pe_source(),
+            program,
         ),
         Dialect::Mini => dialect_residual(
-            compile::pe_mini_source_text(), "peBlockM", compile::core_types_for_pe_source(), program,
+            compile::pe_mini_source_text(),
+            "peBlockM",
+            compile::core_types_for_pe_source(),
+            program,
         ),
         Dialect::Bti => dialect_residual(
-            compile::pe_bti_source_text(), "peBlockB", &core_types_bti(), program,
+            compile::pe_bti_source_text(),
+            "peBlockB",
+            &core_types_bti(),
+            program,
         ),
     }
 }
@@ -198,11 +226,19 @@ fn fidelity_residuals_are_jones_optimal() {
             let residual = residual_of(dialect, case.program);
             let d = compile::count_dispatch(&residual);
             if d != 0 {
-                fails.push(format!("[{}/{label}] carries {d} dispatch unit(s):\n{residual}", case.name));
+                fails.push(format!(
+                    "[{}/{label}] carries {d} dispatch unit(s):\n{residual}",
+                    case.name
+                ));
             }
         }
     }
-    assert!(fails.is_empty(), "{} non-Jones-optimal residual(s):\n{}", fails.len(), fails.join("\n\n"));
+    assert!(
+        fails.is_empty(),
+        "{} non-Jones-optimal residual(s):\n{}",
+        fails.len(),
+        fails.join("\n\n")
+    );
 }
 
 /// ★ STRUCTURAL FIDELITY ★ — on the `identical` constructs, all three dialects fold to the SAME
@@ -227,7 +263,12 @@ fn p2_p3_residuals_match_p1_structurally() {
             }
         }
     }
-    assert!(drifts.is_empty(), "{} structural drift(s):\n{}", drifts.len(), drifts.join("\n\n"));
+    assert!(
+        drifts.is_empty(),
+        "{} structural drift(s):\n{}",
+        drifts.len(),
+        drifts.join("\n\n")
+    );
     assert!(
         identical_count >= STRICT_IDENTITY_PROGRAMS,
         "strict-identity witnesses SHRANK to {identical_count} (floor {STRICT_IDENTITY_PROGRAMS}) — \
@@ -250,9 +291,14 @@ fn fidelity_residuals_run_to_correct_output() {
                     Ok(out) if out.trim() == case.expected => {}
                     Ok(out) => fails.push(format!(
                         "[{}/{label}] residual ran to {:?}, expected {:?}\n{residual}",
-                        case.name, out.trim(), case.expected
+                        case.name,
+                        out.trim(),
+                        case.expected
                     )),
-                    Err(e) => fails.push(format!("[{}/{label}] residual failed to run: {e:?}\n{residual}", case.name)),
+                    Err(e) => fails.push(format!(
+                        "[{}/{label}] residual failed to run: {e:?}\n{residual}",
+                        case.name
+                    )),
                 }
             }
         } else {
@@ -260,12 +306,22 @@ fn fidelity_residuals_run_to_correct_output() {
             // construct is correct via the source program.
             match compile::interpret_program(case.program) {
                 Ok(out) if out.trim() == case.expected => {}
-                Ok(out) => fails.push(format!("[{}/source-prog] ran to {:?}, expected {:?}", case.name, out.trim(), case.expected)),
+                Ok(out) => fails.push(format!(
+                    "[{}/source-prog] ran to {:?}, expected {:?}",
+                    case.name,
+                    out.trim(),
+                    case.expected
+                )),
                 Err(e) => fails.push(format!("[{}/source-prog] failed to run: {e:?}", case.name)),
             }
         }
     }
-    assert!(fails.is_empty(), "{} run-correctness failure(s):\n{}", fails.len(), fails.join("\n\n"));
+    assert!(
+        fails.is_empty(),
+        "{} run-correctness failure(s):\n{}",
+        fails.len(),
+        fails.join("\n\n")
+    );
 }
 
 /// Ratchet floor: the number of Jones-optimal constructs may only rise.

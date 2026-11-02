@@ -1,0 +1,11 @@
+{
+  "name": "sha256",
+  "lang": "logos_jit",
+  "n": "33000000",
+  "samples_weight": 235428187879,
+  "alloc_pct": 2.262,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 97.738
+}

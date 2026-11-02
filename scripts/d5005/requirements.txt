@@ -1,0 +1,2 @@
+# The SystemVerilog front end sv_check.py elaborates the accelerator with, pinned to its manylinux x86_64 wheel.
+pyslang==12.0.0 --hash=sha256:3c24dfadf0f318928433eedd7558e128f7a05f8a4d514f81aab08f2cba3db47d

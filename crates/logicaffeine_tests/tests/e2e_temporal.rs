@@ -22,8 +22,7 @@ Show "done".
     assert!(
         result.success,
         "Code should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
@@ -40,8 +39,7 @@ Show "done".
     assert!(
         result.success,
         "Code should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
@@ -58,8 +56,7 @@ Show "done".
     assert!(
         result.success,
         "Code should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
@@ -76,8 +73,7 @@ Show "done".
     assert!(
         result.success,
         "Code should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
@@ -94,8 +90,7 @@ Show "done".
     assert!(
         result.success,
         "Code should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
@@ -112,8 +107,7 @@ Show "done".
     assert!(
         result.success,
         "Code should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
@@ -132,8 +126,7 @@ Show "done".
     assert!(
         result.success,
         "Date literal should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert!(
         result.rust_code.contains("LogosDate"),

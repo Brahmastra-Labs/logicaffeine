@@ -1,0 +1,129 @@
+{
+ "bambu": {
+  "c": {
+   "file": "kernel.c",
+   "inputs": [
+    [
+     "micro100",
+     "micro100"
+    ],
+    [
+     "fair100",
+     "fair100"
+    ],
+    [
+     "edge100",
+     "edge100"
+    ],
+    [
+     "base_size",
+     "base_size"
+    ],
+    [
+     "max_order",
+     "max_order"
+    ],
+    [
+     "inventory",
+     "inventory"
+    ],
+    [
+     "pos_cap",
+     "pos_cap"
+    ],
+    [
+     "book_ok",
+     "book_ok"
+    ]
+   ],
+   "mems": [],
+   "outputs": [
+    [
+     "order",
+     "return_port",
+     0,
+     64
+    ]
+   ],
+   "pragmas": false,
+   "top": "decide"
+  }
+ },
+ "dahlia": {
+  "file": "kernel.fuse",
+  "mems": [
+   {
+    "contract": [
+     "micro100"
+    ],
+    "kind": "SeqMem",
+    "prefix": "micro100",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "fair100"
+    ],
+    "kind": "SeqMem",
+    "prefix": "fair100",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "edge100"
+    ],
+    "kind": "SeqMem",
+    "prefix": "edge100",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "base_size"
+    ],
+    "kind": "SeqMem",
+    "prefix": "base_size",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "max_order"
+    ],
+    "kind": "SeqMem",
+    "prefix": "max_order",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "inventory"
+    ],
+    "kind": "SeqMem",
+    "prefix": "inventory",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "pos_cap"
+    ],
+    "kind": "SeqMem",
+    "prefix": "pos_cap",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "book_ok"
+    ],
+    "kind": "SeqMem",
+    "prefix": "book_ok",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "order"
+    ],
+    "kind": "SeqMem",
+    "prefix": "order",
+    "words_per_port": 1
+   }
+  ]
+ }
+}

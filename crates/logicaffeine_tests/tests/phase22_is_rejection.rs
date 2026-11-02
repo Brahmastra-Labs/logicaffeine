@@ -1,10 +1,7 @@
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    Lexer, Parser,
-    drs::WorldState,
-    arena_ctx::AstContext,
-    analysis::TypeRegistry,
-    error::ParseErrorKind,
+    analysis::TypeRegistry, arena_ctx::AstContext, drs::WorldState, error::ParseErrorKind, Lexer,
+    Parser,
 };
 
 #[test]
@@ -77,7 +74,11 @@ fn let_x_is_5_accepted() {
     parser.process_block_headers();
 
     let result = parser.parse();
-    assert!(result.is_ok(), "Let x is 5 should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Let x is 5 should parse: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -143,5 +144,9 @@ fn x_is_true_accepted() {
     parser.process_block_headers();
 
     let result = parser.parse();
-    assert!(result.is_ok(), "Let x is true should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Let x is true should parse: {:?}",
+        result.err()
+    );
 }

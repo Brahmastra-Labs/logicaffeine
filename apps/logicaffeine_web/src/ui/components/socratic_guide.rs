@@ -124,10 +124,7 @@ impl Default for GuideMode {
 }
 
 #[component]
-pub fn SocraticGuide(
-    mode: GuideMode,
-    on_hint_request: Option<EventHandler<()>>,
-) -> Element {
+pub fn SocraticGuide(mode: GuideMode, on_hint_request: Option<EventHandler<()>>) -> Element {
     let (message_class, label, message) = match &mode {
         GuideMode::Idle => {
             return rsx! {
@@ -198,7 +195,7 @@ pub fn get_success_message(readings_count: usize) -> String {
         0 => "This sentence could not be resolved into a logical form.".to_string(),
         1 => "This sentence has a single, unambiguous logical form.".to_string(),
         2 => format!(
-            "This sentence is ambiguous \u{2014} {} different readings found. \
+            "This sentence is ambiguous: {} different readings found. \
             Click the reading buttons above to explore each interpretation.",
             readings_count
         ),
@@ -214,14 +211,70 @@ pub fn get_context_hint(input: &str) -> Option<String> {
     let lower = input.to_lowercase();
 
     if lower.starts_with("every") || lower.starts_with("all") {
-        Some("Universal quantification (\u{2200}) asserts something about ALL members of a set.".to_string())
+        Some(
+            "Universal quantification (\u{2200}) asserts something about ALL members of a set."
+                .to_string(),
+        )
     } else if lower.starts_with("some") || lower.starts_with("a ") {
-        Some("Existential quantification (\u{2203}) asserts the EXISTENCE of at least one entity.".to_string())
+        Some(
+            "Existential quantification (\u{2203}) asserts the EXISTENCE of at least one entity."
+                .to_string(),
+        )
     } else if lower.contains(" loves ") || lower.contains(" sees ") {
-        Some("Transitive verbs create two-place predicates relating a subject to an object.".to_string())
+        Some(
+            "Transitive verbs create two-place predicates relating a subject to an object."
+                .to_string(),
+        )
     } else if lower.contains(" is ") && lower.contains(" not ") {
-        Some("Negation (\u{00AC}) inverts the truth value of the proposition it scopes over.".to_string())
+        Some(
+            "Negation (\u{00AC}) inverts the truth value of the proposition it scopes over."
+                .to_string(),
+        )
     } else {
         None
     }
 }
+
+/// What the Analysis row says about Logic input: for sentences, how many readings they have;
+/// for a theorem, whether its goal was proved. Never "could not be resolved" beside a
+/// formula the Logic Output is showing.
+pub fn logic_guide(
+    error: Option<&str>,
+    logic: Option<&str>,
+    readings: usize,
+    input: &str,
+    proof: &crate::ui::components::proof_panel::ProofStatus,
+) -> GuideMode {
+    use crate::ui::components::proof_panel::ProofStatus;
+    if let Some(err) = error {
+        return GuideMode::Error(err.to_string());
+    }
+    if logic.is_none() {
+        return GuideMode::Idle;
+    }
+    match proof {
+        ProofStatus::Success => {
+            return GuideMode::Success("Proved: the goal follows from the premises.".to_string())
+        }
+        ProofStatus::Failed(_) => {
+            return GuideMode::Info("The goal does not follow from the premises as they stand.".to_string())
+        }
+        ProofStatus::Uncertified(_) => {
+            return GuideMode::Hint(
+                "A derivation was found but is not certified. The kernel did not accept it as a proof.".to_string(),
+            )
+        }
+        ProofStatus::Proving => return GuideMode::Info("Searching for a proof\u{2026}".to_string()),
+        ProofStatus::Idle => {}
+    }
+    // A formula on screen is at least one reading.
+    let message = get_success_message(readings.max(1));
+    match get_context_hint(input) {
+        Some(hint) => GuideMode::Info(format!("{message} {hint}")),
+        None => GuideMode::Success(message),
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/components/socratic_guide/logic_guide_tests.rs"]
+mod logic_guide_tests;

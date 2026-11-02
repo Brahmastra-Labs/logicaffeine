@@ -123,10 +123,7 @@ pub fn extract_io_from_spec(spec_type: &Term) -> (Vec<(String, Term)>, Option<Te
 /// Check if a Term represents a hardware type (Bit, BVec, Unit, Circuit).
 fn is_hardware_type(ty: &Term) -> bool {
     match ty {
-        Term::Global(name) => matches!(
-            name.as_str(),
-            "Bit" | "Unit" | "BVec" | "Circuit"
-        ),
+        Term::Global(name) => matches!(name.as_str(), "Bit" | "Unit" | "BVec" | "Circuit"),
         // BVec n — application of BVec to a Nat
         Term::App(func, _) => {
             if let Term::Global(name) = func.as_ref() {

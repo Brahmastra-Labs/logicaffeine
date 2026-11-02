@@ -2,8 +2,8 @@
 ## To native parseInt (s: Text) -> Int
 
 ## To gcd (a: Int, b: Int) -> Int:
-    Let mutable x be a.
-    Let mutable y be b.
+    Let x be a.
+    Let y be b.
     While y is greater than 0:
         Let temp be y.
         Set y to x % y.
@@ -13,10 +13,10 @@
 ## Main
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
-Let mutable sum be 0.
-Let mutable i be 1.
+Let sum be 0.
+Let i be 1.
 While i is at most n:
-    Let mutable j be i.
+    Let j be i.
     While j is at most n:
         Set sum to sum + gcd(i, j).
         Set j to j + 1.

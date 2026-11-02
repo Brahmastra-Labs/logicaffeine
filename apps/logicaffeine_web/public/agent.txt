@@ -1,0 +1,115 @@
+LOGOS programmer instructions, for any coding agent (bring your own).
+LOGOS is the English programming language from logicaffeine.com.
+LOGOS is lightweight and modular, and largo, its command line tool, is easy to install.
+
+1. Get the source
+Source, examples and docs are on GitHub. Clone it, and read it when a question comes up:
+    git clone https://github.com/Brahmastra-Labs/logicaffeine
+Its crates, one per part of the language, are listed at https://logicaffeine.com/crates.
+
+2. Install largo, the LOGOS command line tool
+On macOS and Linux:
+    curl -fsSL https://logicaffeine.com/install.sh | sh
+On Windows, in PowerShell:
+    irm https://logicaffeine.com/install.ps1 | iex
+If the shell can't find largo, open a new terminal or add its folder to PATH.
+Then check the install:
+    largo --version
+    largo doctor
+
+3. Start a website
+    largo new mysite --site
+    cd mysite
+    largo test
+    largo serve
+The front page is pages/app.lg: a counter with a button, written in English.
+largo test ran the ## Test at the end of the page: it clicks the button and counts.
+largo serve keeps running, so run it in a second terminal or in the background.
+The site is at http://localhost:8080. Each save rebuilds the page and reloads it.
+Report that the site is up before changing anything.
+
+4. Learn the language before you write it
+Read https://logicaffeine.com/llms-full.txt, every LOGOS guide in one file.
+largo new also wrote AGENTS.md in the project, the language taught to an agent. Read it.
+Use a command only if largo --help lists it, and say so when one is missing.
+Four rules to start with:
+- A statement is one English sentence, as in Let x be 5.
+- Let names a value and Set changes it, as in Set x to 6.
+- Lists count from 1: item 1 of xs is the first item.
+- Compare with is equal to, as in If name is equal to "Ada":
+
+The language on one page:
+Blocks: ## Main is the program. ## To add (a: Int, b: Int) -> Int: is a function.
+## A Point has: with An x: Int. below is a struct. ## A Shape is one of: is an enum.
+## Page /path is a web page. ## Route GET /api/x -> Seq of Todo: is an API route.
+## Test: name is a test of a page. ## Theorem: name is a theorem for the prover.
+Bind: Let x be 5. Let mutable n be 0. Let x: Int be 5. Change: Set n to n + 1.
+Also: Increase n by 1. Decrease n by 1. Set p's x to 5. Set item i of xs to v.
+Types: Int, Float, Text, Bool, Seq of Int, Map of Text to Int, Set of Int, some 30, none.
+Make: a new Seq of Int, [1, 2, 3], a new Map of Text to Int, {1, 2, 3}, a new Point.
+Read: item 1 of xs is the first item, length of xs, xs contains v, p's x, p.x.
+Slice: items 2 through 4 of xs. Change a list or set: Push v to xs. Pop from xs into y.
+Add v to s. Remove v from s. Arithmetic: x + y, x - y, x * y, x / y, x % y.
+Text: "Hi, {name}!" fills the hole with name, a combined with b joins two Texts.
+Compare: is equal to or ==, is not or !=, is less than or <, is greater than or >.
+Also: is at most or <=, is at least or >=, is between lo and hi, is divisible by n.
+Logic in a test: and, or, not. Choose: If c: then Otherwise If d: then Otherwise:.
+A block is the lines indented four spaces under the colon.
+Repeat: While c:, Repeat for x in xs:, Repeat for i from 1 to n:, Break.
+Match: Inspect t: then When V (a): and Otherwise:. Options: some 30, none.
+Filter: Let small be every n in xs where n is less than 4.
+In place: Remove every t from todos where t's done.
+Call: add(3, 7), or xs.f(a) for f(xs, a). A closure: (x: Int) -> x + 1. Return x.
+Show x. prints x. Contracts: Let x: Int where x > 0 be 5. Assert that x is equal to 42.
+Check that b is at least a. stops the program when it is not.
+Time: 500ms, 2s, 5min, 1h, 2026-05-20, 9am, 2 weeks, 2026-05-20 at 4pm.
+A page: State: holds Let draft be "". Actions: holds To add: and its steps.
+View: is HTML. {draft} is a hole, on-click={add}, bind={draft}, {if c:}...{else:}...{end}.
+Lists in a View: {for each t in todos, keyed by t's id:}...{end}. Style: is CSS, scoped.
+Derived state: Let left always be length of todos. It recomputes after every turn.
+A page test: Click "#add". Expect that the text of "#n" is equal to "1".
+Logic mode: one sentence per line. Every dog barks. Some cat sleeps. No cat barks.
+A theorem: Given: Every man is mortal. Given: Socrates is a man. Prove: He is mortal.
+Then Proof: Auto. and the kernel certifies it.
+
+5. Build the site
+Change pages/app.lg one thing at a time. After every change, run:
+    largo check
+    largo test
+largo check explains each mistake it finds in plain English, with its line.
+largo fmt sets the source in the standard layout.
+A page is its State, its Actions, its View in HTML with {holes}, and its Style in CSS.
+For a backend of ## Route blocks under the pages, scaffold with largo new mysite --web.
+
+6. Programs
+    largo new hello
+    cd hello
+    largo run --interpret
+It prints Hello, world! The program is src/main.lg and the manifest is Largo.toml.
+--interpret runs it in the interpreter, which needs no Rust toolchain.
+largo new also wrote a .gitignore, so git init makes the folder a repository.
+
+7. Logic
+    largo logic "Every student read a book." --all-readings
+prints every reading of the sentence in first-order logic.
+largo prove proves each ## Theorem block in a file (Given, Prove and Proof lines),
+and the type theory kernel certifies every proof it reports:
+    largo prove theorem.lg
+
+8. Math
+largo prove also proves the theorems of a ## Theory block from its axioms.
+Inductive types, Definition, Check and Eval run in the Studio's Math mode:
+    https://logicaffeine.com/studio?file=examples/math/natural-numbers.logos
+
+9. Hardware
+The Studio's Hardware mode turns an English spec into a SystemVerilog assertion
+and checks that the assertion matches the spec:
+    https://logicaffeine.com/studio?file=examples/hardware/handshake.hw
+The command line release has no hardware command yet.
+
+10. Working with the user
+- Take small steps. Change one thing, run it, and report the output.
+- Never report that something works before running it.
+- Show the LOGOS written. The user reads it as English, so keep it plain.
+- When a sentence can mean two things, ask which one is meant.
+- Commit each step that runs, so there is always a way back.

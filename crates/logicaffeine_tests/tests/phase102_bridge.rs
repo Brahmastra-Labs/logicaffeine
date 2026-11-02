@@ -15,7 +15,7 @@ mod common;
 #[cfg(not(target_arch = "wasm32"))]
 use common::assert_output;
 
-use logicaffeine_compile::interpreter::{RuntimeValue, InductiveValue};
+use logicaffeine_compile::interpreter::{InductiveValue, RuntimeValue};
 
 // =============================================================================
 // PHASE 102a: RuntimeValue::Inductive variant
@@ -23,7 +23,7 @@ use logicaffeine_compile::interpreter::{RuntimeValue, InductiveValue};
 
 #[test]
 fn test_runtime_inductive_zero() {
-    let val = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let val = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
@@ -33,12 +33,12 @@ fn test_runtime_inductive_zero() {
 
 #[test]
 fn test_runtime_inductive_succ() {
-    let zero = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let zero = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
     }));
-    let one = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let one = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![zero],
@@ -49,12 +49,12 @@ fn test_runtime_inductive_succ() {
 
 #[test]
 fn test_runtime_inductive_list() {
-    let nil = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let nil = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "List".to_string(),
         constructor: "Nil".to_string(),
         args: vec![],
     }));
-    let cons = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let cons = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "List".to_string(),
         constructor: "Cons".to_string(),
         args: vec![RuntimeValue::Int(42), nil],
@@ -65,17 +65,17 @@ fn test_runtime_inductive_list() {
 
 #[test]
 fn test_runtime_inductive_display_nested() {
-    let zero = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let zero = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
     }));
-    let one = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let one = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![zero],
     }));
-    let two = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let two = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![one],
@@ -90,17 +90,17 @@ fn test_runtime_inductive_equality() {
     use logicaffeine_base::Interner;
     use logicaffeine_compile::interpreter::Interpreter;
 
-    let zero1 = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let zero1 = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
     }));
-    let zero2 = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let zero2 = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
     }));
-    let one = RuntimeValue::Inductive(Box::new(InductiveValue {
+    let one = RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![zero1.clone()],
@@ -118,18 +118,24 @@ fn test_runtime_inductive_equality() {
 
 #[test]
 fn test_interpreter_with_kernel_context() {
-    use logicaffeine_kernel::Context;
     use logicaffeine_base::Interner;
     use logicaffeine_compile::interpreter::Interpreter;
+    use logicaffeine_kernel::Context;
     use std::sync::Arc;
 
     let mut ctx = Context::new();
-    ctx.add_inductive("Nat", logicaffeine_kernel::Term::Sort(logicaffeine_kernel::Universe::Type(0)));
-    ctx.add_constructor("Zero", "Nat", logicaffeine_kernel::Term::Global("Nat".to_string()));
+    ctx.add_inductive(
+        "Nat",
+        logicaffeine_kernel::Term::Sort(logicaffeine_kernel::Universe::Type(0)),
+    );
+    ctx.add_constructor(
+        "Zero",
+        "Nat",
+        logicaffeine_kernel::Term::Global("Nat".to_string()),
+    );
 
     let interner = Interner::new();
-    let interp = Interpreter::new(&interner)
-        .with_kernel(Arc::new(ctx));
+    let interp = Interpreter::new(&interner).with_kernel(Arc::new(ctx));
 
     assert!(interp.is_kernel_inductive("Nat"));
     assert!(!interp.is_kernel_inductive("NotAType"));
@@ -137,19 +143,29 @@ fn test_interpreter_with_kernel_context() {
 
 #[test]
 fn test_interpreter_get_constructors() {
-    use logicaffeine_kernel::Context;
     use logicaffeine_base::Interner;
     use logicaffeine_compile::interpreter::Interpreter;
+    use logicaffeine_kernel::Context;
     use std::sync::Arc;
 
     let mut ctx = Context::new();
-    ctx.add_inductive("Bool", logicaffeine_kernel::Term::Sort(logicaffeine_kernel::Universe::Type(0)));
-    ctx.add_constructor("True", "Bool", logicaffeine_kernel::Term::Global("Bool".to_string()));
-    ctx.add_constructor("False", "Bool", logicaffeine_kernel::Term::Global("Bool".to_string()));
+    ctx.add_inductive(
+        "Bool",
+        logicaffeine_kernel::Term::Sort(logicaffeine_kernel::Universe::Type(0)),
+    );
+    ctx.add_constructor(
+        "True",
+        "Bool",
+        logicaffeine_kernel::Term::Global("Bool".to_string()),
+    );
+    ctx.add_constructor(
+        "False",
+        "Bool",
+        logicaffeine_kernel::Term::Global("Bool".to_string()),
+    );
 
     let interner = Interner::new();
-    let interp = Interpreter::new(&interner)
-        .with_kernel(Arc::new(ctx));
+    let interp = Interpreter::new(&interner).with_kernel(Arc::new(ctx));
 
     let ctors = interp.get_kernel_constructors("Bool");
     assert_eq!(ctors.len(), 2);

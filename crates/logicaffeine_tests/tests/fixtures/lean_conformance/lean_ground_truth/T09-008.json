@@ -1,0 +1,88 @@
+{
+  "case": "T09-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T09_008.cosmetic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u_1} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T09_008.idAuto",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T09_008.idAuto n = n",
+      "name": "T09_008.idAutoWorks",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T09_008.idExplicit",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b2 : Type} \u2192 \u03b2 \u2192 \u03b2",
+      "name": "T09_008.idNoAuto",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T09_008.idNoAuto n = n",
+      "name": "T09_008.idNoAutoWorks",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n * 1 = n",
+      "name": "T09_008.inTactic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 True",
+      "name": "T09_008.linterSilenced",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T09_008.resourceBound",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), T09_008.idExplicit n = T09_008.idAuto n",
+      "name": "T09_008.sameArity",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

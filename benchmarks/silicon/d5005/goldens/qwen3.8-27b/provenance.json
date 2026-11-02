@@ -1,0 +1,83 @@
+{
+ "_what": "The llama.cpp goldens of Qwen3.8-27B that the D5005 engine's 27B bars read (d5005_engine_lock): the shipped Q4_K_M with an f16 cache, and its f32 dequantization with an f32 cache, over the short and long corpora, by the pinned llama.cpp on the CPU alone. The f32 pair ran batched (model_golden batch 1: every prompt its own sequence, decoded together, the 109 GB copy streaming once a step for the corpus); the cpu pair one prompt at a time, as llama.cpp ships.",
+ "llama_cpp": "685f70894b6618824156a876325f05919248e147",
+ "program": {
+  "path": "scripts/accel/model_golden.cpp",
+  "sha256": "f021260514ef3f85b2c4aff8ca5fb326439b2fa2ce9c767aaa8b2414a832c462",
+  "note": "the cpu pair ran on the program before its batch mode (sha256 prefix 87e218e156a555b8), whose output batch 0 reproduces byte for byte"
+ },
+ "checkpoints": {
+  "models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf": {
+   "sha256": "880a52af8317974f7b4b064a6bc29ff49e188b91aa218e08eea3078b6b1cc673",
+   "source": "bartowski/Qwen3.8-27B-GGUF"
+  },
+  "models/qwen3.8-27b-f32/Qwen3.8-27B-Q4_K_M-as-F32.gguf": {
+   "sha256": "4689e2cb56656791b032a744e215bc539c9d2f2d53f938e949bc2a4859d4c4ee",
+   "made_by": "crates/logicaffeine_compile/examples/gguf_f32.rs models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf"
+  }
+ },
+ "goldens": {
+  "golden-cpu.json": {
+   "checkpoint": "models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf",
+   "kv": "f16",
+   "prompts": "benchmarks/models/prompts.txt",
+   "prompt_count": 32,
+   "batch": null,
+   "command": "scripts/accel/model-golden.sh models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf <out> 16 16 0 f16 benchmarks/models/prompts.txt 0",
+   "program_sha256_prefix": "87e218e156a555b8",
+   "sha256": "40530b8adc7de475e002f17d03e3b146d31f1e8272a05cbe81ac86038a39f7ae"
+  },
+  "golden-long-cpu.json": {
+   "checkpoint": "models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf",
+   "kv": "f16",
+   "prompts": "benchmarks/models/prompts-long.txt",
+   "prompt_count": 8,
+   "batch": null,
+   "command": "scripts/accel/model-golden.sh models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf <out> 16 16 0 f16 benchmarks/models/prompts-long.txt 0",
+   "program_sha256_prefix": "87e218e156a555b8",
+   "sha256": "dbfa974da4fd58e8ea17c38e8902148d35d5365a478873d79755e5733f7cc573"
+  },
+  "golden-f32.json": {
+   "checkpoint": "models/qwen3.8-27b-f32/Qwen3.8-27B-Q4_K_M-as-F32.gguf",
+   "kv": "f32",
+   "prompts": "benchmarks/models/prompts.txt",
+   "prompt_count": 32,
+   "batch": 32,
+   "command": "scripts/accel/model-golden.sh models/qwen3.8-27b-f32/Qwen3.8-27B-Q4_K_M-as-F32.gguf <out> 16 16 0 f32 benchmarks/models/prompts.txt 1",
+   "program_sha256_prefix": "f021260514ef3f85",
+   "sha256": "5bfd274e1160abff343af3317f1b8e0f320627ba0b39d40186aeb3b69d4389cb"
+  },
+  "golden-long-f32.json": {
+   "checkpoint": "models/qwen3.8-27b-f32/Qwen3.8-27B-Q4_K_M-as-F32.gguf",
+   "kv": "f32",
+   "prompts": "benchmarks/models/prompts-long.txt",
+   "prompt_count": 8,
+   "batch": 8,
+   "command": "scripts/accel/model-golden.sh models/qwen3.8-27b-f32/Qwen3.8-27B-Q4_K_M-as-F32.gguf <out> 16 16 0 f32 benchmarks/models/prompts-long.txt 1",
+   "program_sha256_prefix": "f021260514ef3f85",
+   "sha256": "ce5fd8ef3d13cb9bc70ff7c2681b9b7b285088f7883e35cdd6485da1debaa343"
+  }
+ },
+ "batch_equivalence": {
+  "model": "qwen3.5-0.8b",
+  "against": "benchmarks/models/qwen3.5-0.8b/golden-{,long-}f32.json, one prompt at a time",
+  "criterion": "every top-5 logit within 1e-6 of its own magnitude (|\u0394| \u2264 1e-6\u00b7|logit|), the same top-5 tokens in the same order, and the same continuation for every prompt",
+  "ruled_by": "model-bring-up-fusion-compiler, reviewing scripts/accel/model_golden.cpp's batch mode",
+  "short": {
+   "prompts": 32,
+   "logits": 160,
+   "worst_abs": 1.04e-05,
+   "worst_rel": 7.57e-07,
+   "partings": 0
+  },
+  "long": {
+   "prompts": 8,
+   "logits": 40,
+   "worst_abs": 5.7e-06,
+   "worst_rel": 3.15e-07,
+   "partings": 0
+  },
+  "batch0": "byte-identical to the committed goldens, all four",
+  "quantized": "batch 1 refused: llama.cpp's batched quantized products part from its one-prompt run by up to 0.105 in a logit"
+ }
+}

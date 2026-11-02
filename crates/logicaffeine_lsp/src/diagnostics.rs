@@ -1,9 +1,9 @@
-use tower_lsp::lsp_types::{
+use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location, Range, Url,
 };
 
 use logicaffeine_base::Interner;
-use logicaffeine_language::error::{ParseError, ParseErrorKind, socratic_explanation};
+use logicaffeine_language::error::{socratic_explanation, ParseError, ParseErrorKind};
 use logicaffeine_language::token::{Token, TokenType};
 
 use crate::index::{find_cause_keyword_span, find_last_token_span_for_name};
@@ -48,7 +48,7 @@ fn error_to_diagnostic(
         severity: Some(decision.severity),
         code: decision
             .code
-            .map(|c| tower_lsp::lsp_types::NumberOrString::String(c.to_string())),
+            .map(|c| lsp_types::NumberOrString::String(c.to_string())),
         code_description: match decision.docs {
             DocsLink::Anchor(anchor) => code_description_for(anchor),
             DocsLink::None(_) => None,
@@ -80,9 +80,10 @@ pub fn unused_variable_hints(
         if def.span == logicaffeine_language::token::Span::default() || def.name.starts_with('_') {
             continue;
         }
-        let used = index.references.iter().any(|r| {
-            r.definition_idx == Some(def_idx) && r.span.start != def.span.start
-        });
+        let used = index
+            .references
+            .iter()
+            .any(|r| r.definition_idx == Some(def_idx) && r.span.start != def.span.start);
         if used {
             continue;
         }
@@ -92,7 +93,7 @@ pub fn unused_variable_hints(
                 end: line_index.position(def.span.end),
             },
             severity: Some(DiagnosticSeverity::HINT),
-            code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            code: Some(lsp_types::NumberOrString::String(
                 "unused-variable".to_string(),
             )),
             code_description: code_description_for("2-variables--mutation"),
@@ -102,7 +103,7 @@ pub fn unused_variable_hints(
                 Remove the statement, or use the value.",
                 name = def.name
             ),
-            tags: Some(vec![tower_lsp::lsp_types::DiagnosticTag::UNNECESSARY]),
+            tags: Some(vec![lsp_types::DiagnosticTag::UNNECESSARY]),
             ..Default::default()
         });
     }
@@ -127,7 +128,141 @@ pub const ANALYSIS_DECISIONS: &[(&str, DiagnosticSeverity, &str)] = &[
         DiagnosticSeverity::HINT,
         "a faded nudge, and only in programs with a Main — a library file's functions are its API",
     ),
+    (
+        REFUSAL_CODE,
+        DiagnosticSeverity::ERROR,
+        "`largo build` stops at it — a page the browser build refuses does not ship, whatever the \
+         tree-walker runs",
+    ),
 ];
+
+/// The LGX template checker's findings, as the editor shows them: at the element they are about,
+/// with the checker's own severity and message.
+///
+/// The code is `lgx-` and the finding's kind in kebab case (`lgx-image-without-alt`), one per kind,
+/// so a client can key on it the way it keys on a parse error's code.
+pub fn lgx_finding_diagnostics(
+    findings: &[logicaffeine_language::lgx::check::Finding],
+    line_index: &LineIndex,
+) -> Vec<Diagnostic> {
+    use logicaffeine_language::lgx::check::Severity;
+    findings
+        .iter()
+        .map(|f| Diagnostic {
+            range: Range {
+                start: line_index.position(f.span.start),
+                end: line_index.position(f.span.end.max(f.span.start + 1)),
+            },
+            severity: Some(match f.severity {
+                Severity::Error => DiagnosticSeverity::ERROR,
+                Severity::Warning => DiagnosticSeverity::WARNING,
+            }),
+            code: Some(lsp_types::NumberOrString::String(lgx_finding_code(&f.kind))),
+            source: Some("logicaffeine".to_string()),
+            message: f.message.clone(),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// `lgx-` and the kind's variant name in kebab case: `ImageWithoutAlt` → `lgx-image-without-alt`.
+///
+/// Derived from the variant rather than listed, so a kind the checker adds reaches the editor with
+/// a code the moment it exists.
+pub fn lgx_finding_code(kind: &logicaffeine_language::lgx::check::FindingKind) -> String {
+    let debug = format!("{kind:?}");
+    let variant = debug
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .next()
+        .unwrap_or("");
+    let mut code = String::from("lgx");
+    for c in variant.chars() {
+        if c.is_ascii_uppercase() {
+            code.push('-');
+        }
+        code.push(c.to_ascii_lowercase());
+    }
+    code
+}
+
+/// The value-semantics copy lint's findings, as the editor shows them — same treatment
+/// `lgx_finding_diagnostics` gives its own, separate finding type: at the mutation the lint is
+/// about, with its own severity and message.
+///
+/// The code is `copy-` and the finding's kind in kebab case (`copy-orphaned-copy`), mirroring
+/// `lgx_finding_code`'s own convention.
+pub fn copy_finding_diagnostics(
+    findings: &[logicaffeine_language::lint::Finding],
+    line_index: &LineIndex,
+) -> Vec<Diagnostic> {
+    use logicaffeine_language::lint::Severity;
+    findings
+        .iter()
+        .map(|f| Diagnostic {
+            range: Range {
+                start: line_index.position(f.span.start),
+                end: line_index.position(f.span.end.max(f.span.start + 1)),
+            },
+            severity: Some(match f.severity {
+                Severity::Warning => DiagnosticSeverity::WARNING,
+            }),
+            code: Some(lsp_types::NumberOrString::String(copy_finding_code(
+                &f.kind,
+            ))),
+            source: Some("logicaffeine".to_string()),
+            message: f.message.clone(),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// `copy-` and the kind's variant name in kebab case: `OrphanedCopy` → `copy-orphaned-copy` —
+/// mirrors `lgx_finding_code`'s own convention for its own, separate finding type.
+pub fn copy_finding_code(kind: &logicaffeine_language::lint::FindingKind) -> String {
+    let debug = format!("{kind:?}");
+    let variant = debug
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .next()
+        .unwrap_or("");
+    let mut code = String::from("copy");
+    for c in variant.chars() {
+        if c.is_ascii_uppercase() {
+            code.push('-');
+        }
+        code.push(c.to_ascii_lowercase());
+    }
+    code
+}
+
+/// The browser build's refusals, at the construct each refuses.
+///
+/// An error: the tree-walker may run the page under `largo test`, but `largo build` stops here,
+/// and a page exists to reach a browser.
+pub fn refusal_diagnostics(
+    refusals: &[logicaffeine_compile::vm::compiler::Refusal],
+    line_index: &LineIndex,
+) -> Vec<Diagnostic> {
+    refusals
+        .iter()
+        .filter_map(|r| {
+            let at = r.at?;
+            Some(Diagnostic {
+                range: Range {
+                    start: line_index.position(at.start),
+                    end: line_index.position(at.end.max(at.start + 1)),
+                },
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: Some(lsp_types::NumberOrString::String(REFUSAL_CODE.to_string())),
+                source: Some("logicaffeine".to_string()),
+                message: r.message.clone(),
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
+/// The diagnostic code of a browser-tier refusal.
+pub const REFUSAL_CODE: &str = "browser-tier-refusal";
 
 /// Warnings for re-declared names: a second `Let x` in the same block makes
 /// the earlier `x` unreachable from that point on — legal, and usually a
@@ -146,7 +281,10 @@ pub fn shadowing_warnings(
         {
             continue;
         }
-        by_name.entry((def.name.as_str(), def.scope.block_idx)).or_default().push(def);
+        by_name
+            .entry((def.name.as_str(), def.scope.block_idx))
+            .or_default()
+            .push(def);
     }
 
     let mut warnings = Vec::new();
@@ -163,7 +301,7 @@ pub fn shadowing_warnings(
                     end: line_index.position(shadow.span.end),
                 },
                 severity: Some(DiagnosticSeverity::WARNING),
-                code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                code: Some(lsp_types::NumberOrString::String(
                     "shadowed-variable".to_string(),
                 )),
                 code_description: code_description_for("2-variables--mutation"),
@@ -198,12 +336,9 @@ pub fn unused_function_hints(
     index: &crate::index::SymbolIndex,
     line_index: &LineIndex,
 ) -> Vec<Diagnostic> {
-    let has_main = index
-        .block_spans
-        .iter()
-        .any(|(_, block_type, _)| {
-            matches!(block_type, logicaffeine_language::token::BlockType::Main)
-        });
+    let has_main = index.block_spans.iter().any(|(_, block_type, _)| {
+        matches!(block_type, logicaffeine_language::token::BlockType::Main)
+    });
     if !has_main {
         return Vec::new();
     }
@@ -215,9 +350,10 @@ pub fn unused_function_hints(
         {
             continue;
         }
-        let called = index.references.iter().any(|r| {
-            r.definition_idx == Some(def_idx) && r.span.start != def.span.start
-        });
+        let called = index
+            .references
+            .iter()
+            .any(|r| r.definition_idx == Some(def_idx) && r.span.start != def.span.start);
         if called {
             continue;
         }
@@ -227,7 +363,7 @@ pub fn unused_function_hints(
                 end: line_index.position(def.span.end),
             },
             severity: Some(DiagnosticSeverity::HINT),
-            code: Some(tower_lsp::lsp_types::NumberOrString::String(
+            code: Some(lsp_types::NumberOrString::String(
                 "unused-function".to_string(),
             )),
             code_description: code_description_for("7-functions--closures"),
@@ -237,7 +373,7 @@ pub fn unused_function_hints(
                  Is it wired up yet, or left over from a refactor?",
                 name = def.name
             ),
-            tags: Some(vec![tower_lsp::lsp_types::DiagnosticTag::UNNECESSARY]),
+            tags: Some(vec![lsp_types::DiagnosticTag::UNNECESSARY]),
             ..Default::default()
         });
     }
@@ -254,13 +390,8 @@ fn parse_error_related_info(
 ) -> Option<Vec<DiagnosticRelatedInformation>> {
     match &error.kind {
         ParseErrorKind::UseAfterMove { name } => {
-            let cause_span = find_cause_keyword_span(
-                tokens,
-                TokenType::Give,
-                name,
-                interner,
-                error.span.start,
-            )?;
+            let cause_span =
+                find_cause_keyword_span(tokens, TokenType::Give, name, interner, error.span.start)?;
             Some(vec![DiagnosticRelatedInformation {
                 location: Location {
                     uri: uri.clone(),
@@ -289,6 +420,17 @@ pub fn convert_analysis_errors(
 ) -> Vec<Diagnostic> {
     errors
         .iter()
+        // ★ A DIAGNOSTIC ABOUT A NAME THE COMPILER WROTE IS NOISE, NOT HELP.
+        //
+        // The escape and ownership checks run over the LOWERED program, and an LGX page lowers
+        // into synthesized functions the author never sees. Opening any page with a handler put
+        // two `use-after-move` errors on it — about `__lgx_sel`, a dispatcher parameter, with the
+        // whole file as their range (the synthesized statements carry no source span, so the
+        // fallback is everything) and the advice "Use Show instead". Nothing in that sentence
+        // names anything the author can find, let alone change.
+        //
+        // The predicate lives in the module that MINTS the names, so this cannot drift from it.
+        .filter(|e| !logicaffeine_language::parser::lgx_lower::is_compiler_written(&e.variable))
         .map(|e| analysis_error_to_diagnostic(e, tokens, interner, line_index, uri))
         .collect()
 }
@@ -318,24 +460,30 @@ fn analysis_error_to_diagnostic(
         })
         .or_else(|| find_last_token_span_for_name(tokens, &error.variable, interner));
     let (start, end) = if let Some(span) = primary {
-        (line_index.position(span.start), line_index.position(span.end))
+        (
+            line_index.position(span.start),
+            line_index.position(span.end),
+        )
     } else {
         // Fallback: point to start of document
-        let zero = tower_lsp::lsp_types::Position { line: 0, character: 0 };
+        let zero = lsp_types::Position {
+            line: 0,
+            character: 0,
+        };
         (zero, zero)
     };
 
     // Build related information pointing to the cause (Give statement, Zone entry, etc.)
     let use_offset = primary.map(|s| s.start).unwrap_or(usize::MAX);
-    let related_information =
-        uri.and_then(|u| build_related_information(error, tokens, interner, line_index, u, use_offset));
+    let related_information = uri.and_then(|u| {
+        build_related_information(error, tokens, interner, line_index, u, use_offset)
+    });
 
     Diagnostic {
         range: Range { start, end },
         severity: Some(DiagnosticSeverity::ERROR),
-        code: Some(tower_lsp::lsp_types::NumberOrString::String(error.code.to_string())),
-        code_description: docs_anchor_for_analysis_code(error.code)
-            .and_then(code_description_for),
+        code: Some(lsp_types::NumberOrString::String(error.code.to_string())),
+        code_description: docs_anchor_for_analysis_code(error.code).and_then(code_description_for),
         source: Some("logicaffeine".to_string()),
         message: error.message.clone(),
         related_information,
@@ -427,10 +575,10 @@ fn docs_anchor_for_analysis_code(code: &str) -> Option<&'static str> {
 }
 
 /// A ready `codeDescription` for a quickguide anchor.
-fn code_description_for(anchor: &str) -> Option<tower_lsp::lsp_types::CodeDescription> {
+fn code_description_for(anchor: &str) -> Option<lsp_types::CodeDescription> {
     Url::parse(&crate::teach_md::guide_url(anchor))
         .ok()
-        .map(|href| tower_lsp::lsp_types::CodeDescription { href })
+        .map(|href| lsp_types::CodeDescription { href })
 }
 
 pub fn decision_for(kind: &ParseErrorKind) -> ErrorDecision {
@@ -569,424 +717,18 @@ pub fn decision_for(kind: &ParseErrorKind) -> ErrorDecision {
             DocsLink::None("caller prose carries no stable identity to link"),
         ),
     };
-    ErrorDecision { severity, code, quickfix, docs }
+    ErrorDecision {
+        severity,
+        code,
+        quickfix,
+        docs,
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_language::token::Span;
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/diagnostics/tests.rs"]
+mod tests;
 
-    #[test]
-    fn parse_error_produces_diagnostic() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Let x be 5.\nSet x to 10.");
-
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedExpression,
-            span: Span::new(12, 15),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].range.start.line, 1);
-        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
-        assert!(diagnostics[0].message.contains("expression"));
-    }
-
-    #[test]
-    fn is_value_equality_is_warning() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("x is 5");
-
-        let error = ParseError {
-            kind: ParseErrorKind::IsValueEquality {
-                variable: "x".to_string(),
-                value: "5".to_string(),
-            },
-            span: Span::new(0, 6),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
-    }
-
-    #[test]
-    fn grammar_error_is_warning() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("bad grammar");
-
-        let error = ParseError {
-            kind: ParseErrorKind::GrammarError("test".to_string()),
-            span: Span::new(0, 3),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
-    }
-
-    #[test]
-    fn zero_index_is_information() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("list[0]");
-
-        let error = ParseError {
-            kind: ParseErrorKind::ZeroIndex,
-            span: Span::new(4, 7),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::INFORMATION));
-    }
-
-    #[test]
-    fn multiple_errors_produce_multiple_diagnostics() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("abc\ndef\nghi");
-
-        let errors = vec![
-            ParseError {
-                kind: ParseErrorKind::ExpectedExpression,
-                span: Span::new(0, 3),
-            },
-            ParseError {
-                kind: ParseErrorKind::ExpectedExpression,
-                span: Span::new(4, 7),
-            },
-        ];
-
-        let diagnostics = convert_errors(&errors, &[], &interner, &line_index, None);
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].range.start.line, 0);
-        assert_eq!(diagnostics[1].range.start.line, 1);
-    }
-
-    #[test]
-    fn empty_errors_produce_empty_diagnostics() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("fine");
-        let diagnostics = convert_errors(&[], &[], &interner, &line_index, None);
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn use_after_move_is_error_severity() {
-        let decision = decision_for(&ParseErrorKind::UseAfterMove {
-            name: "x".to_string(),
-        });
-        assert_eq!(decision.severity, DiagnosticSeverity::ERROR);
-    }
-
-    #[test]
-    fn diagnostic_range_spans_correct_positions() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("abc\ndef");
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedExpression,
-            span: Span::new(4, 7),
-        };
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].range.start.line, 1);
-        assert_eq!(diagnostics[0].range.start.character, 0);
-        assert_eq!(diagnostics[0].range.end.line, 1);
-        assert_eq!(diagnostics[0].range.end.character, 3);
-    }
-
-    #[test]
-    fn is_value_equality_has_diagnostic_code() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("x is 5");
-
-        let error = ParseError {
-            kind: ParseErrorKind::IsValueEquality {
-                variable: "x".to_string(),
-                value: "5".to_string(),
-            },
-            span: Span::new(0, 6),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(
-            diagnostics[0].code,
-            Some(tower_lsp::lsp_types::NumberOrString::String("is-value-equality".to_string())),
-            "IsValueEquality should have diagnostic code"
-        );
-    }
-
-    #[test]
-    fn use_after_move_has_diagnostic_code() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("x moved");
-
-        let error = ParseError {
-            kind: ParseErrorKind::UseAfterMove {
-                name: "x".to_string(),
-            },
-            span: Span::new(0, 1),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(
-            diagnostics[0].code,
-            Some(tower_lsp::lsp_types::NumberOrString::String("use-after-move".to_string())),
-            "UseAfterMove should have diagnostic code"
-        );
-    }
-
-    #[test]
-    fn regular_error_has_no_diagnostic_code() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("bad");
-
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedExpression,
-            span: Span::new(0, 3),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].code, None, "ExpectedExpression should have no code");
-    }
-
-    #[test]
-    fn diagnostic_has_source() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("bad");
-
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedExpression,
-            span: Span::new(0, 3),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].source, Some("logicaffeine".to_string()));
-    }
-
-    #[test]
-    fn escape_error_produces_diagnostic_with_code() {
-        let error = AnalysisError {
-            message: "Reference 'x' cannot escape zone 'temp'.".to_string(),
-            variable: "x".to_string(),
-            code: "escape-return",
-            cause_context: Some("zone 'temp'".to_string()),
-            use_span: None,
-            cause_span: None,
-        };
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Let x be 5.");
-        let diagnostics = convert_analysis_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].code,
-            Some(tower_lsp::lsp_types::NumberOrString::String("escape-return".to_string()))
-        );
-        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
-    }
-
-    #[test]
-    fn ownership_error_has_error_severity() {
-        let error = AnalysisError {
-            message: "Cannot use 'x' after giving it away.".to_string(),
-            variable: "x".to_string(),
-            code: "use-after-move",
-            cause_context: None,
-            use_span: None,
-            cause_span: None,
-        };
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Let x be 5.");
-        let diagnostics = convert_analysis_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::ERROR));
-    }
-
-    #[test]
-    fn ownership_error_message_is_socratic() {
-        let error = AnalysisError {
-            message: "Cannot use 'x' after giving it away.\n\nYou transferred ownership.".to_string(),
-            variable: "x".to_string(),
-            code: "use-after-move",
-            cause_context: None,
-            use_span: None,
-            cause_span: None,
-        };
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Let x be 5.");
-        let diagnostics = convert_analysis_errors(&[error], &[], &interner, &line_index, None);
-        assert!(diagnostics[0].message.contains("giving it away"), "Message should be Socratic: {}", diagnostics[0].message);
-        assert!(diagnostics[0].message.contains("ownership"), "Message should explain ownership: {}", diagnostics[0].message);
-    }
-
-    #[test]
-    fn undefined_variable_has_diagnostic_code() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Show z.");
-
-        let error = ParseError {
-            kind: ParseErrorKind::UndefinedVariable {
-                name: "z".to_string(),
-            },
-            span: Span::new(5, 6),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(
-            diagnostics[0].code,
-            Some(tower_lsp::lsp_types::NumberOrString::String("undefined-variable".to_string()))
-        );
-    }
-
-    #[test]
-    fn type_mismatch_has_diagnostic_code() {
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Let x: Int be \"hello\".");
-
-        let error = ParseError {
-            kind: ParseErrorKind::TypeMismatch {
-                expected: "Int".to_string(),
-                found: "Text".to_string(),
-            },
-            span: Span::new(0, 22),
-        };
-
-        let diagnostics = convert_errors(&[error], &[], &interner, &line_index, None);
-        assert_eq!(
-            diagnostics[0].code,
-            Some(tower_lsp::lsp_types::NumberOrString::String("type-mismatch".to_string()))
-        );
-    }
-
-    #[test]
-    fn use_after_move_diagnostic_has_related_information() {
-        // Use the full pipeline to get real tokens with Give
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n";
-        let result = crate::pipeline::analyze(source);
-        let line_index = LineIndex::new(source);
-        let uri = Url::parse("file:///test.la").unwrap();
-
-        // Create a move error with cause_context (as pipeline does)
-        let error = AnalysisError {
-            message: "Cannot use 'x' after giving it away.".to_string(),
-            variable: "x".to_string(),
-            code: "use-after-move",
-            cause_context: Some("'x' was given away here".to_string()),
-            use_span: None,
-            cause_span: None,
-        };
-
-        let diagnostics = convert_analysis_errors(
-            &[error],
-            &result.tokens,
-            &result.interner,
-            &line_index,
-            Some(&uri),
-        );
-
-        assert_eq!(diagnostics.len(), 1);
-        let related = diagnostics[0].related_information.as_ref();
-        assert!(
-            related.is_some(),
-            "Use-after-move diagnostic should have related information"
-        );
-        let related = related.unwrap();
-        assert_eq!(related.len(), 1);
-        assert!(
-            related[0].message.contains("given away"),
-            "Related info should mention giving away: {}",
-            related[0].message
-        );
-        assert_eq!(related[0].location.uri, uri);
-    }
-
-    #[test]
-    fn related_info_points_to_give_statement() {
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n";
-        let result = crate::pipeline::analyze(source);
-        let line_index = LineIndex::new(source);
-        let uri = Url::parse("file:///test.la").unwrap();
-
-        let error = AnalysisError {
-            message: "Cannot use 'x' after giving it away.".to_string(),
-            variable: "x".to_string(),
-            code: "use-after-move",
-            cause_context: Some("'x' was given away here".to_string()),
-            use_span: None,
-            cause_span: None,
-        };
-
-        let diagnostics = convert_analysis_errors(
-            &[error],
-            &result.tokens,
-            &result.interner,
-            &line_index,
-            Some(&uri),
-        );
-
-        let related = diagnostics[0].related_information.as_ref().unwrap();
-        // The Give keyword should be on line 3 (0-indexed): "    Give x to y."
-        assert_eq!(
-            related[0].location.range.start.line, 3,
-            "Related info should point to the Give statement on line 3"
-        );
-    }
-
-    #[test]
-    fn no_related_info_without_uri() {
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n";
-        let result = crate::pipeline::analyze(source);
-        let line_index = LineIndex::new(source);
-
-        let error = AnalysisError {
-            message: "Cannot use 'x' after giving it away.".to_string(),
-            variable: "x".to_string(),
-            code: "use-after-move",
-            cause_context: Some("'x' was given away here".to_string()),
-            use_span: None,
-            cause_span: None,
-        };
-
-        let diagnostics = convert_analysis_errors(
-            &[error],
-            &result.tokens,
-            &result.interner,
-            &line_index,
-            None,
-        );
-
-        assert!(
-            diagnostics[0].related_information.is_none(),
-            "Without URI, related information should be None"
-        );
-    }
-
-    #[test]
-    fn escape_diagnostic_has_related_info_pointing_to_zone() {
-        // Escape errors should have related info pointing to the Zone keyword
-        let error = AnalysisError {
-            message: "Reference 'x' cannot escape zone 'temp'.".to_string(),
-            variable: "x".to_string(),
-            code: "escape-return",
-            cause_context: Some("zone 'temp'".to_string()),
-            use_span: None,
-            cause_span: None,
-        };
-
-        // Without real tokens containing a Zone keyword, related info won't resolve.
-        // This tests the fallback when no matching keyword is found.
-        let interner = Interner::new();
-        let line_index = LineIndex::new("Zone temp: Let x be 5.");
-        let uri = Url::parse("file:///test.la").unwrap();
-        let diagnostics = convert_analysis_errors(
-            &[error],
-            &[],
-            &interner,
-            &line_index,
-            Some(&uri),
-        );
-        // With empty tokens, the keyword search fails gracefully
-        assert_eq!(diagnostics.len(), 1);
-        // related_information is None because no tokens matched
-        assert!(
-            diagnostics[0].related_information.is_none(),
-            "With no tokens, related info should be None"
-        );
-    }
-}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/diagnostics/squiggle_anchor_tests.rs"]
+mod squiggle_anchor_tests;

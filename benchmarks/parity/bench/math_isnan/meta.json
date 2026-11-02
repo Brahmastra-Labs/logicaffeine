@@ -1,0 +1,11 @@
+{
+  "capability": "math.isnan",
+  "workload": "math.isnan",
+  "arg": "1000000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

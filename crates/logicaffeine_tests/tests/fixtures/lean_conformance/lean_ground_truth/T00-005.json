@@ -1,0 +1,80 @@
+{
+  "case": "T00-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T00_005.anonymousImplicit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "({\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1) \u2192 Nat",
+      "name": "T00_005.applyToPolyFn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool \u2192 Nat",
+      "name": "T00_005.domainFromExpectedType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_005.idNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T00_005.implicitId",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1",
+      "name": "T00_005.instanceDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1 \u2192 Bool \u2192 \u03b1",
+      "name": "T00_005.mixedKinds",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool \u2192 Nat",
+      "name": "T00_005.mixedTelescope",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_005.pickMiddle",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2983\u03b1 : Type\u2984 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T00_005.strictImplicitId",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

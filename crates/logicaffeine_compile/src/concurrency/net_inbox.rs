@@ -89,7 +89,7 @@ thread_local! {
     static NET_OFFLINE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Enter (or leave) OFFLINE networking mode — see [`NET_OFFLINE`]. Set by the deterministic
+/// Enter (or leave) OFFLINE networking mode — see `NET_OFFLINE`. Set by the deterministic
 /// tree-walker / VM oracles; unset in the browser/relay paths.
 pub fn set_net_offline(offline: bool) {
     NET_OFFLINE.with(|c| c.set(offline));
@@ -98,6 +98,31 @@ pub fn set_net_offline(offline: bool) {
 /// Whether `Connect` should skip the real dial and run as a single-node local no-op.
 pub fn net_is_offline() -> bool {
     NET_OFFLINE.with(|c| c.get())
+}
+
+/// Why an `Await` fails in a program that never `Listen`ed: there is no inbox to await a message in. Every
+/// tier reports this one sentence.
+pub const AWAIT_WITHOUT_LISTEN: &str = "Await requires a prior Listen to establish an inbox";
+
+/// The relay topic a `Send … to <dest>` / `Await … from <src>` operand names: a `PeerAgent`'s own topic, an
+/// address string's canonical topic; any other value is not an address, and the operation fails.
+pub fn peer_topic(value: &RuntimeValue) -> Result<String, String> {
+    match value {
+        RuntimeValue::Peer(topic) => Ok((**topic).clone()),
+        RuntimeValue::Text(s) => Ok(logicaffeine_system::addr::canonical_topic(s)),
+        other => Err(format!(
+            "Send/Await expects a PeerAgent or address string, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// The relay URL `Connect to <raw>` dials — a `ws://` URL as written, or a libp2p multiaddr as its `ws://`
+/// form — or why `raw` is neither, which fails the `Connect`.
+pub fn relay_url(raw: &str) -> Result<String, String> {
+    logicaffeine_system::addr::multiaddr_to_ws_url(raw).map_err(|e| {
+        format!("Connect address '{raw}' is not a ws:// URL or supported multiaddr: {e}")
+    })
 }
 
 impl NetInbox {
@@ -147,7 +172,10 @@ impl NetInbox {
     /// The profile `peer` advertised — assumed CONSERVATIVE (self-describing, no compression/type-id)
     /// until we have absorbed its handshake, so we never send a form an unannounced peer can't decode.
     pub fn peer_profile(&self, peer: &str) -> marshal::PeerProfile {
-        self.peer_profiles.get(peer).copied().unwrap_or_else(marshal::PeerProfile::conservative)
+        self.peer_profiles
+            .get(peer)
+            .copied()
+            .unwrap_or_else(marshal::PeerProfile::conservative)
     }
 
     /// How to encode a message TO `peer`: my surface ∩ the peer's advertised surface. The `Send` path
@@ -198,7 +226,9 @@ impl NetInbox {
     /// `registry` (the program's struct/enum type table) is passed in so a `Send shared` type-id
     /// message resolves; transparent to ordinary self-describing messages.
     pub fn drain(&mut self, registry: WireTypeRegistry) {
-        let Some(inbox) = self.inbox.clone() else { return };
+        let Some(inbox) = self.inbox.clone() else {
+            return;
+        };
         // Own the drained batch so the `net` borrow ends before we push into `received`. With a relay,
         // this is the relay's delivery; OFFLINE it is our own loopback outbox (the messages we've sent
         // to ourselves) — fed through the SAME filter + decode path a relay message would take.
@@ -247,7 +277,9 @@ impl NetInbox {
     fn enqueue_received(&mut self, data: Vec<u8>) {
         // Open the crypto envelope under the active suite (pass-through when none is engaged);
         // a tampered/foreign frame opens to `None` and is dropped here, never decoded.
-        let Some(data) = crate::concurrency::channel::open_active(data) else { return };
+        let Some(data) = crate::concurrency::channel::open_active(data) else {
+            return;
+        };
         // A capability handshake is ABSORBED (the peer's advertised profile is stored), never delivered
         // as a data message — so a subsequent `Send` to that peer negotiates against its real surface.
         if let Some((from, profile)) = marshal::parse_handshake_frame(&data) {
@@ -255,9 +287,11 @@ impl NetInbox {
             return;
         }
         if let Some(sender) = marshal::peek_stream_sender(&data) {
-            self.received.push_back((sender, RecvSlot::Stream(Rc::new(data))));
+            self.received
+                .push_back((sender, RecvSlot::Stream(Rc::new(data))));
         } else if let Some(sender) = marshal::peek_deferrable_sender(&data) {
-            self.received.push_back((sender, RecvSlot::RawRecordList(Rc::new(data))));
+            self.received
+                .push_back((sender, RecvSlot::RawRecordList(Rc::new(data))));
         } else if let Some((from, value)) =
             marshal::message_from_wire_cached(&data, &mut self.recv_schema)
         {
@@ -302,9 +336,9 @@ impl NetInbox {
                 }
             }
             // Unreachable on the plain `Await` path (it skips stream slots); deframe defensively.
-            RecvSlot::Stream(bytes) => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(
-                marshal::deframe_stream_message(&bytes).unwrap_or_default(),
-            )))),
+            RecvSlot::Stream(bytes) => RuntimeValue::List(Rc::new(RefCell::new(
+                ListRepr::from_values(marshal::deframe_stream_message(&bytes).unwrap_or_default()),
+            ))),
         }
     }
 
@@ -320,92 +354,5 @@ impl NetInbox {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::concurrency::marshal::{
-        make_handshake_frame, PeerProfile, ReceiveLimits, WireCompression, FEAT_COMPUTED, FEAT_LZ4,
-        FEAT_TYPE_ID, FEAT_ZSTD,
-    };
-
-    #[test]
-    fn absorbs_a_peer_handshake_and_negotiates_to_its_exposed_surface() {
-        let mut inbox = NetInbox::new();
-        // I speak zstd+lz4+type-id+computed and carry type-registry epoch 5.
-        inbox.my_profile.registry_epoch = 5;
-        inbox.my_profile.features = FEAT_ZSTD | FEAT_LZ4 | FEAT_TYPE_ID | FEAT_COMPUTED;
-
-        // Before any handshake, a peer is treated CONSERVATIVELY (no optional capabilities).
-        assert_eq!(inbox.peer_profile("bob"), PeerProfile::conservative());
-        // …so a send to an unheard peer negotiates to a plain, uncompressed, self-describing form.
-        let cold = inbox.negotiation_for("bob");
-        assert!(!cold.use_type_id && !cold.may_send_computed);
-        assert_eq!(cold.compression, WireCompression::None);
-
-        // Bob advertises a RESTRICTIVE surface: lz4 only (no zstd), type-id, same epoch, declines code,
-        // small byte budget.
-        let bob = PeerProfile {
-            limits: ReceiveLimits { max_bytes: 2048, accept_computed: false, ..Default::default() },
-            registry_epoch: 5,
-            features: FEAT_LZ4 | FEAT_TYPE_ID,
-        };
-        inbox.enqueue_received(make_handshake_frame("bob", &bob));
-
-        // The handshake was absorbed — stored, NOT queued as a data message.
-        assert!(inbox.received.is_empty(), "a handshake is absorbed, never delivered as data");
-        assert_eq!(inbox.peer_profile("bob"), bob);
-
-        // Sending to bob now negotiates to exactly his exposed surface.
-        let n = inbox.negotiation_for("bob");
-        assert!(n.use_type_id, "matching epochs + both type-id → names elided");
-        assert!(!n.may_send_computed, "bob declined computed → never ship code to him");
-        assert_eq!(n.compression, WireCompression::Lz4, "lz4 is the strongest compression both speak");
-        assert_eq!(n.peer_max_bytes, 2048, "stay under bob's byte budget");
-    }
-
-    #[test]
-    fn null_suite_seal_engages_through_enqueue_and_off_is_byte_identical() {
-        use crate::concurrency::channel::{seal_active, with_suite, SUITE_NULL};
-        use crate::concurrency::marshal::{message_to_wire_with, WireCodec, WireIntegrity};
-
-        let blob =
-            message_to_wire_with("bob", &RuntimeValue::Int(7), WireCodec::Native, WireIntegrity::Checked)
-                .expect("encode");
-
-        // OFF: no active suite → the wire is the raw blob and the receive path is unchanged.
-        let mut off = NetInbox::new();
-        let wire_off = seal_active(blob.clone());
-        assert_eq!(wire_off, blob, "no suite → byte-identical wire");
-        off.enqueue_received(wire_off);
-        assert_eq!(off.received.len(), 1, "message delivered with the channel disengaged");
-
-        // ON (null suite): the wire is the framed envelope and the receiver opens it back to the
-        // same message — the seam engages through the real receive path.
-        with_suite(Some(SUITE_NULL), || {
-            let mut on = NetInbox::new();
-            let wire_on = seal_active(blob.clone());
-            assert_ne!(wire_on, blob, "active suite → framed envelope on the wire");
-            on.enqueue_received(wire_on);
-            assert_eq!(on.received.len(), 1, "sealed message opened + delivered under the null suite");
-
-            // A body byte flipped after sealing: open() succeeds (null framing carries no tag of its
-            // own) but the inner FNV checksum fails, so the message is dropped — the transitional
-            // tamper-detection the plan relies on until an AEAD tag lands.
-            let mut tampered = seal_active(blob.clone());
-            let last = tampered.len() - 1;
-            tampered[last] ^= 0xFF;
-            on.enqueue_received(tampered);
-            assert_eq!(on.received.len(), 1, "tampered frame dropped, not delivered");
-        });
-    }
-
-    #[test]
-    fn my_handshake_advertises_my_inbox_identity_and_profile() {
-        let mut inbox = NetInbox::new();
-        inbox.inbox = Some(Rc::new("alice".to_string()));
-        inbox.my_profile.registry_epoch = 9;
-        let frame = inbox.my_handshake();
-        let (from, prof) = marshal::parse_handshake_frame(&frame).expect("my handshake parses");
-        assert_eq!(from, "alice", "advertises our inbox identity");
-        assert_eq!(prof, inbox.my_profile, "advertises our exact profile");
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/concurrency/net_inbox/tests.rs"]
+mod tests;

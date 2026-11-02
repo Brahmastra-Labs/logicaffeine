@@ -1,0 +1,50 @@
+{
+  "id": "1.1",
+  "title": "What Is Logic?",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Logic** is the study of arguments: what makes reasoning good, and what makes it bad."
+    },
+    {
+      "type": "definition",
+      "term": "Argument",
+      "definition": "A set of statements in which some, the premises, are given as reasons for another, the conclusion."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A simple argument",
+      "lines": [
+        "All humans are mortal.",
+        "Socrates is human."
+      ],
+      "conclusion": "So Socrates is mortal.",
+      "note": "The first two lines are the premises. The last line is the conclusion they support."
+    },
+    {
+      "type": "worked",
+      "title": "Words that mark a conclusion",
+      "lines": [
+        "It rained all night, so the streets are wet."
+      ],
+      "conclusion": "The conclusion: the streets are wet.",
+      "note": "So, therefore and thus come before a conclusion. Because and since come before a premise."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What is an argument, in logic?",
+    "options": [
+      "A heated disagreement",
+      "Premises given as reasons for a conclusion",
+      "A math equation",
+      "A logical symbol"
+    ],
+    "correct": 1,
+    "hint": "Logic uses the word in a narrow sense. Think about reasons and what they support.",
+    "explanation": "In logic an argument is a set of premises offered as reasons for a conclusion. A quarrel is not an argument in this sense."
+  }
+}

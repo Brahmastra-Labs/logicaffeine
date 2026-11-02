@@ -1,0 +1,35 @@
+prompt: The capital of France is
+model: Qwen3-30B-A3B Q8_0 (real GGUF)
+sampler: greedy (temp 0), n=24, raw completion (no chat template), BOS-tokenized
+golden (llama.cpp): The capital of France is Paris. The capital of the United Kingdom is London. The capital of the United States is Washington, D.C. The
+golden token ids: 12095 13 576 6722 315 279 3639 15072 374 7148 13 576 6722 315 279 3639 4180 374 6515 11 422 727 13 576
+
+=== THE DECISIVE HEAD-TO-HEAD (A100-80GB, same q30.gguf, same llama-bench tg128 metric) ===
+
+  config                              reproduces golden 24/24?   tg128 tok/s
+  ------------------------------------------------------------------------------
+  OURS flash lane (LOGOS->CUDA, P=8)  YES  (byte-exact)          168.24
+  OURS flash lane P=5 / P=6           YES  (byte-exact)          168.83 / 168.53
+  llama.cpp -fa OFF                   YES  (byte-exact)          157.53
+  llama.cpp -fa ON  (its FASTEST)     NO  -> "Germany/Spain"     170.69
+  OURS precise lane (f32-act)         YES  (robust, always)       75.59
+
+KEY RESULT — same golden sentence AND faster:
+  * llama's FLASH-attention path (-fa on, its 170.69 config) does NOT reproduce the golden sentence.
+    It diverges at token 15: "...the capital of Germany is Berlin. The capital of Spain is Madrid"
+    instead of "...the United States is Washington, D.C." (verified via patched llama-simple, raw greedy).
+  * llama's ONLY golden-reproducing config is -fa OFF = 157.53 tok/s.
+  * OUR compiler-emitted flash lane reproduces the golden sentence BYTE-FOR-BYTE at 168.24 tok/s
+    => +6.8% FASTER than the only llama config that produces the same sentence.
+  * i.e. llama cannot produce this exact output at its top speed; we can, and faster than it can.
+
+Both lanes are authored in LOGOS .lg and lowered to CUDA by our compiler. The flash lane is int8-activation
+DP4A + split-K flash-attention; at ATTN_SPLIT=8 its split-K reduction order matches llama's greedy output
+byte-for-byte on the A100 (the emitter default). Configs P=4/P=7 reorder the split floats and diverge (like
+llama's own -fa does). The precise lane (f32-activation) is byte-exact by construction on every GPU (the
+robust token lock), at 75.6 tok/s.
+
+journey: 157.5 -> 168-171 via kernel fusion (batch-1 decode is per-kernel-launch-latency bound): fused
+Q/K/V projection one launch (+7), fused Q+K RMSNorm+RoPE (+4), fused split-K combine+activation-quant (+1).
+Root cause MEASURED, not guessed: a 3060 microbench (cuda/attn_microbench.cu) proved llama's key-parallel
+fattn-vec and GQA-group fusion are both SLOWER for us; the win is collapsing launch-bound kernels/layer.

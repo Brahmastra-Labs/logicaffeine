@@ -6,11 +6,19 @@
 // Include the generated lexicon lookup functions
 include!(concat!(env!("OUT_DIR"), "/lexicon_data.rs"));
 
+/// Every word table of `lexicon`, `ontology` and `semantics` written as the linear `match` it
+/// replaced, arm by arm, first arm winning; `differences(word)` and `pair_differences(first,
+/// second)` name the tables whose answer is not their reference's.
+#[cfg(feature = "lexicon-reference")]
+pub mod reference {
+    include!(concat!(env!("OUT_DIR"), "/word_table_reference.rs"));
+}
+
 // Re-export types from lexicon crate that aren't defined in generated code
 // Note: Polarity, CanonicalMapping are defined in lexicon_data.rs
 pub use logicaffeine_lexicon::{
-    Aspect, Case, Definiteness, Feature, Gender, Number, Sort, Time, VerbClass,
-    AdjectiveMetadata, MorphologicalRule, NounMetadata, VerbEntry, VerbMetadata,
+    AdjectiveMetadata, Aspect, Case, Definiteness, Feature, Gender, MorphologicalRule,
+    NounMetadata, Number, Sort, Time, VerbClass, VerbEntry, VerbMetadata,
 };
 
 /// Get canonical verb form and whether it's lexically negative.
@@ -270,10 +278,7 @@ pub enum WordAnalysis {
     /// A dictionary entry (exact match or derived plural)
     Noun(NounMetadata),
     /// A word derived via morphological rules (agentive nouns like "blogger")
-    DerivedNoun {
-        lemma: String,
-        number: Number,
-    },
+    DerivedNoun { lemma: String, number: Number },
 }
 
 /// Smart word analysis with derivational morphology support.
@@ -343,7 +348,11 @@ pub fn analyze_word(word: &str) -> Option<WordAnalysis> {
         if check_word.ends_with(rule.suffix) {
             return Some(WordAnalysis::DerivedNoun {
                 lemma: check_word.to_string(),
-                number: if is_plural { Number::Plural } else { Number::Singular },
+                number: if is_plural {
+                    Number::Plural
+                } else {
+                    Number::Singular
+                },
             });
         }
     }

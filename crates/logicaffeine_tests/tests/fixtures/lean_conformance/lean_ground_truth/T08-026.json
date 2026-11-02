@@ -1,0 +1,73 @@
+{
+  "case": "T08-026",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2227 2 + 2 = 4",
+      "name": "T08_026.closedHave",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 p \u2192 q",
+      "name": "T08_026.haveByTerm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2200 (m : Nat), p m) \u2192 \u2200 (n : Nat), p n \u2227 p n",
+      "name": "T08_026.haveMentionsLocal",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2192 False) \u2192 \u00acp",
+      "name": "T08_026.showDefeq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T08_026.showIdentical",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T08_026.twice n = n + n",
+      "name": "T08_026.showUnfolds",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 p \u2192 q",
+      "name": "T08_026.sufficesStep",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), p 3 \u2192 p (1 + 2)",
+      "name": "T08_026.tacticLet",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T08_026.twice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

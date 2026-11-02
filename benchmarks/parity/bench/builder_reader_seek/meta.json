@@ -1,0 +1,9 @@
+{
+  "capability": "builder.reader_seek",
+  "arg": "200000",
+  "expected": "25500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

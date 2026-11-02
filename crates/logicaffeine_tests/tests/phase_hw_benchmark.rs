@@ -36,9 +36,20 @@ fn is_degenerate(body: &str) -> bool {
 fn synth_hw(spec: &str) -> SynthesizedSva {
     let r = synthesize_sva_from_spec(spec, "clk")
         .unwrap_or_else(|e| panic!("Parse failed for '{}': {}", spec, e));
-    assert!(!is_degenerate(&r.body), "Degenerate body for '{}': '{}'", spec, r.body);
+    assert!(
+        !is_degenerate(&r.body),
+        "Degenerate body for '{}': '{}'",
+        spec,
+        r.body
+    );
     let parse = parse_sva(&r.body);
-    assert!(parse.is_ok(), "Unparseable SVA for '{}': body='{}' err={:?}", spec, r.body, parse.err());
+    assert!(
+        parse.is_ok(),
+        "Unparseable SVA for '{}': body='{}' err={:?}",
+        spec,
+        r.body,
+        parse.err()
+    );
     r
 }
 
@@ -238,19 +249,39 @@ fn benchmark_corpus_probe() {
         match result {
             Err(e) => {
                 parse_fail += 1;
-                eprintln!("PARSE-FAIL [{}]: {} — {}", case.tags.join(","), case.spec, e);
+                eprintln!(
+                    "PARSE-FAIL [{}]: {} — {}",
+                    case.tags.join(","),
+                    case.spec,
+                    e
+                );
             }
             Ok(r) if is_degenerate(&r.body) => {
                 degenerate += 1;
-                eprintln!("DEGENERATE [{}]: {} → {}", case.tags.join(","), case.spec, r.body);
+                eprintln!(
+                    "DEGENERATE [{}]: {} → {}",
+                    case.tags.join(","),
+                    case.spec,
+                    r.body
+                );
             }
             Ok(r) => {
                 if parse_sva(&r.body).is_err() {
                     unparseable_sva += 1;
-                    eprintln!("BAD-SVA [{}]: {} → {}", case.tags.join(","), case.spec, r.body);
+                    eprintln!(
+                        "BAD-SVA [{}]: {} → {}",
+                        case.tags.join(","),
+                        case.spec,
+                        r.body
+                    );
                 } else if r.signals.is_empty() {
                     suspicious += 1;
-                    eprintln!("SUSPICIOUS [{}]: {} → {} (no signals)", case.tags.join(","), case.spec, r.body);
+                    eprintln!(
+                        "SUSPICIOUS [{}]: {} → {} (no signals)",
+                        case.tags.join(","),
+                        case.spec,
+                        r.body
+                    );
                 } else {
                     pass += 1;
                 }
@@ -304,16 +335,34 @@ fn run_fveval_probe(specs: &[(String, String)], label: &str) -> (u32, u32, u32, 
         match result {
             Err(e) => {
                 parse_fail += 1;
-                eprintln!("FVEVAL-PARSE-FAIL [{}:{}]: {} — {}", label, task_id, &prompt[..prompt.len().min(80)], e);
+                eprintln!(
+                    "FVEVAL-PARSE-FAIL [{}:{}]: {} — {}",
+                    label,
+                    task_id,
+                    &prompt[..prompt.len().min(80)],
+                    e
+                );
             }
             Ok(r) if is_degenerate(&r.body) => {
                 degenerate += 1;
-                eprintln!("FVEVAL-DEGENERATE [{}:{}]: {} → {}", label, task_id, &prompt[..prompt.len().min(80)], r.body);
+                eprintln!(
+                    "FVEVAL-DEGENERATE [{}:{}]: {} → {}",
+                    label,
+                    task_id,
+                    &prompt[..prompt.len().min(80)],
+                    r.body
+                );
             }
             Ok(r) => {
                 if parse_sva(&r.body).is_err() {
                     bad_sva += 1;
-                    eprintln!("FVEVAL-BAD-SVA [{}:{}]: {} → {}", label, task_id, &prompt[..prompt.len().min(80)], r.body);
+                    eprintln!(
+                        "FVEVAL-BAD-SVA [{}:{}]: {} → {}",
+                        label,
+                        task_id,
+                        &prompt[..prompt.len().min(80)],
+                        r.body
+                    );
                 } else if r.signals.is_empty() {
                     suspicious += 1;
                 } else {
@@ -339,13 +388,19 @@ fn fveval_machine_probe() {
     let csv_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../FVEval/data_nl2sva/data/nl2sva_machine.csv");
     if !csv_path.exists() {
-        eprintln!("SKIP: FVEval machine CSV not found at {}", csv_path.display());
+        eprintln!(
+            "SKIP: FVEval machine CSV not found at {}",
+            csv_path.display()
+        );
         return;
     }
     let specs = load_fveval_csv(&csv_path);
     assert!(!specs.is_empty(), "Machine CSV loaded 0 specs");
     let (pass, _pf, _deg, _bad, _sus, total) = run_fveval_probe(&specs, "machine");
-    eprintln!("  pass-rate:     {:.1}%", pass as f64 / total as f64 * 100.0);
+    eprintln!(
+        "  pass-rate:     {:.1}%",
+        pass as f64 / total as f64 * 100.0
+    );
 }
 
 #[test]
@@ -359,7 +414,10 @@ fn fveval_human_probe() {
     let specs = load_fveval_csv(&csv_path);
     assert!(!specs.is_empty(), "Human CSV loaded 0 specs");
     let (pass, _pf, _deg, _bad, _sus, total) = run_fveval_probe(&specs, "human");
-    eprintln!("  pass-rate:     {:.1}%", pass as f64 / total as f64 * 100.0);
+    eprintln!(
+        "  pass-rate:     {:.1}%",
+        pass as f64 / total as f64 * 100.0
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -384,15 +442,21 @@ fn error_gibberish_does_not_panic() {
 #[test]
 fn clock_variation_sys_clk() {
     let r = synthesize_sva_from_spec("Always, every signal is valid.", "sys_clk").unwrap();
-    assert!(r.sva_text.contains("sys_clk"),
-        "Should contain sys_clk. Got: {}", r.sva_text);
+    assert!(
+        r.sva_text.contains("sys_clk"),
+        "Should contain sys_clk. Got: {}",
+        r.sva_text
+    );
 }
 
 #[test]
 fn clock_variation_pclk() {
     let r = synthesize_sva_from_spec("Always, every signal is valid.", "pclk").unwrap();
-    assert!(r.sva_text.contains("pclk"),
-        "Should contain pclk. Got: {}", r.sva_text);
+    assert!(
+        r.sva_text.contains("pclk"),
+        "Should contain pclk. Got: {}",
+        r.sva_text
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -427,8 +491,11 @@ fn reg_safety_copula_signal_always_valid() {
 #[test]
 fn reg_safety_copula_clock_never_low() {
     let r = synth_hw("The clock is never low.");
-    assert!(r.body.contains("!") || r.body.contains("not") || r.body.contains("~"),
-        "Negation expected in body. Got: {}", r.body);
+    assert!(
+        r.body.contains("!") || r.body.contains("not") || r.body.contains("~"),
+        "Negation expected in body. Got: {}",
+        r.body
+    );
 }
 
 // ── Conditional Safety / Handshake ──
@@ -436,14 +503,21 @@ fn reg_safety_copula_clock_never_low() {
 #[test]
 fn reg_cond_request_grant() {
     let r = synth_hw("Always, if every request is valid then every grant is valid.");
-    assert!(r.body.contains("|->") || r.body.contains("|=>"),
-        "Should produce implication. Got: {}", r.body);
+    assert!(
+        r.body.contains("|->") || r.body.contains("|=>"),
+        "Should produce implication. Got: {}",
+        r.body
+    );
 }
 
 #[test]
 fn reg_cond_valid_ready() {
     let r = synth_hw("Always, if every valid holds then every ready holds.");
-    assert!(r.signals.len() >= 2, "Should extract >= 2 signals. Got: {:?}", r.signals);
+    assert!(
+        r.signals.len() >= 2,
+        "Should extract >= 2 signals. Got: {:?}",
+        r.signals
+    );
 }
 
 #[test]
@@ -454,8 +528,11 @@ fn reg_cond_request_ack() {
 #[test]
 fn reg_cond_liveness_request_response() {
     let r = synth_hw("Always, if every request holds, then eventually, every response holds.");
-    assert!(r.body.contains("s_eventually") || r.sva_text.contains("cover"),
-        "Should contain s_eventually. Got body: {}", r.body);
+    assert!(
+        r.body.contains("s_eventually") || r.sva_text.contains("cover"),
+        "Should contain s_eventually. Got body: {}",
+        r.body
+    );
 }
 
 #[test]
@@ -568,8 +645,12 @@ fn reg_error_overflow_status() {
 #[test]
 fn reg_liveness_eventually_valid() {
     let r = synth_hw("Eventually, every signal is valid.");
-    assert!(r.body.contains("s_eventually") || r.kind == "cover",
-        "Liveness should use s_eventually or cover. Got body: {}, kind: {}", r.body, r.kind);
+    assert!(
+        r.body.contains("s_eventually") || r.kind == "cover",
+        "Liveness should use s_eventually or cover. Got body: {}, kind: {}",
+        r.body,
+        r.kind
+    );
 }
 
 #[test]
@@ -629,13 +710,21 @@ fn reg_modal_signal_acknowledged() {
 #[test]
 fn reg_conjunction_request_and_grant() {
     let r = synth_hw("Always, every request is valid and every grant is valid.");
-    assert!(r.body.contains("&&"), "Conjunction should produce &&. Got: {}", r.body);
+    assert!(
+        r.body.contains("&&"),
+        "Conjunction should produce &&. Got: {}",
+        r.body
+    );
 }
 
 #[test]
 fn reg_disjunction_request_or_grant() {
     let r = synth_hw("Always, every request is valid or every grant is valid.");
-    assert!(r.body.contains("||"), "Disjunction should produce ||. Got: {}", r.body);
+    assert!(
+        r.body.contains("||"),
+        "Disjunction should produce ||. Got: {}",
+        r.body
+    );
 }
 
 #[test]
@@ -648,8 +737,11 @@ fn reg_conjunction_three_way() {
 #[test]
 fn reg_negation_not_every() {
     let r = synth_hw("Always, not every signal is valid.");
-    assert!(r.body.contains("!") || r.body.contains("~"),
-        "Negation expected. Got: {}", r.body);
+    assert!(
+        r.body.contains("!") || r.body.contains("~"),
+        "Negation expected. Got: {}",
+        r.body
+    );
 }
 
 // ── NeoEvent / Action ──
@@ -840,7 +932,9 @@ fn reg_af_dco_enable_wkup() {
 
 #[test]
 fn reg_af_uart_tx_busy_next() {
-    synth_hw("If tx_busy is low and new_tx_data is asserted, tx_busy is asserted in the next cycle.");
+    synth_hw(
+        "If tx_busy is low and new_tx_data is asserted, tx_busy is asserted in the next cycle.",
+    );
 }
 
 // ── AssertionForge: AXI until ──

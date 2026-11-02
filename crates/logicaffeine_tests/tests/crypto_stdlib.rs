@@ -50,7 +50,11 @@ fn quarter_round_from_stdlib_matches_rfc8439() {
     );
 
     let r = tw_outcome(&program());
-    assert_eq!(r.error, None, "stdlib quarterRound compiles + runs without error: {:?}", r.error);
+    assert_eq!(
+        r.error, None,
+        "stdlib quarterRound compiles + runs without error: {:?}",
+        r.error
+    );
     let expected = format!("{ea}\n{eb}\n{ec}\n{ed}");
     assert_eq!(
         r.output.trim(),
@@ -64,7 +68,10 @@ fn quarter_round_stdlib_tw_vm_byte_identical() {
     // Normalize trailing whitespace exactly as the house tw/vm differential (`norm`) does — the
     // tiers agree on every VALUE; only a trailing newline differs.
     fn norm(s: &str) -> Vec<String> {
-        s.lines().map(|l| l.trim_end().to_string()).filter(|l| !l.is_empty()).collect()
+        s.lines()
+            .map(|l| l.trim_end().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
     }
     let tw = tw_outcome(&program());
     let vm = vm_outcome(&program());
@@ -84,7 +91,11 @@ fn quarter_round_stdlib_aot_matches_treewalker() {
     // `Seq of Word32` (a mutating Word32-param function) compiled LOGOS → Rust → native binary,
     // its output byte-identical to the tree-walker. This is the compiled crypto that races libcrux.
     fn norm(s: &str) -> String {
-        s.lines().map(|l| l.trim_end()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
+        s.lines()
+            .map(|l| l.trim_end())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
     let tw = tw_outcome(&program());
     assert_eq!(tw.error, None, "tree-walker runs clean: {:?}", tw.error);

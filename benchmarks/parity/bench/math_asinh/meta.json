@@ -1,0 +1,12 @@
+{
+  "capability": "math.asinh",
+  "workload": "math.asinh",
+  "arg": "1000000",
+  "expected": "6601905509878",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

@@ -90,7 +90,9 @@ fn every_benchmark_runs_correctly_on_aot_native() {
         // Reference: the tree-walker (argv = [program-name, size]).
         let reference = tw_outcome_with_args(&src, &["bench".to_string(), size.to_string()]);
         if let Some(err) = &reference.error {
-            failures.push(format!("{name} @ {size}: interpreter reference errored: {err}"));
+            failures.push(format!(
+                "{name} @ {size}: interpreter reference errored: {err}"
+            ));
             continue;
         }
 

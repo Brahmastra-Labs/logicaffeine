@@ -16,7 +16,11 @@ While i is less than 5:
     Set i to i + 1.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 0..5"), "Set-based counter should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in 0..5"),
+        "Set-based counter should emit for-range, got:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -29,7 +33,11 @@ While i is at most 5:
     Set i to i + 1.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 1..6"), "Set-based inclusive counter should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in 1..6"),
+        "Set-based inclusive counter should emit for-range, got:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -73,7 +81,11 @@ fn opt1a_set_counter_in_function() {
 Show countUp(5).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 0.."), "Set-based counter in function should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in 0.."),
+        "Set-based counter in function should emit for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "10");
 }
 
@@ -95,7 +107,11 @@ fn opt1b_variable_start_for_range() {
 Show sumFrom(3).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in start..10"), "Variable start should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in start..10"),
+        "Variable start should emit for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "42");
 }
 
@@ -113,8 +129,11 @@ fn opt1b_variable_start_inclusive() {
 Show sumRange(2).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in start..(5 + 1)") || rust.contains("for i in start..6"),
-        "Variable start inclusive should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in start..(5 + 1)") || rust.contains("for i in start..6"),
+        "Variable start inclusive should emit for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "14");
 }
 
@@ -150,7 +169,11 @@ fn opt1b_set_with_variable_start() {
 Show loopFrom(5).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in start..10"), "Set + variable start should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in start..10"),
+        "Set + variable start should emit for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "35");
 }
 
@@ -168,7 +191,11 @@ fn opt1b_expression_start() {
 Show loopExpr(10).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in (n - 5)..n"), "Expression start should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in (n - 5)..n"),
+        "Expression start should emit for-range, got:\n{}",
+        rust
+    );
     // n=10, so i goes from 5 to 9: 5+6+7+8+9 = 35
     common::assert_exact_output(source, "35");
 }
@@ -189,9 +216,10 @@ While i is at most length of items:
     let rust = compile_to_rust(source).unwrap();
     assert!(
         rust.contains("for i in 0..(items.len() as i64)")
-        || rust.contains("for i in 1..((items.len() as i64) + 1)")
-        || rust.contains("for i in 1..(items.len() as i64 + 1)"),
-        "Length-of limit should emit for-range, got:\n{}", rust
+            || rust.contains("for i in 1..((items.len() as i64) + 1)")
+            || rust.contains("for i in 1..(items.len() as i64 + 1)"),
+        "Length-of limit should emit for-range, got:\n{}",
+        rust
     );
 }
 
@@ -207,7 +235,8 @@ While i is less than length of items:
     let rust = compile_to_rust(source).unwrap();
     assert!(
         rust.contains("for i in 0..(items.len() as i64)"),
-        "Length-of exclusive limit should emit for-range, got:\n{}", rust
+        "Length-of exclusive limit should emit for-range, got:\n{}",
+        rust
     );
 }
 
@@ -246,8 +275,16 @@ Show process(5).
     let rust = compile_to_rust(source).unwrap();
     // The for-range should fire, and the post-loop i = max(0, n) should be omitted
     // because i is immediately overwritten by Set i to 0.
-    assert!(rust.contains("for i in 0..n"), "Should emit for-range, got:\n{}", rust);
-    assert!(!rust.contains(".max("), "Should not emit post-loop max when immediately overwritten, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in 0..n"),
+        "Should emit for-range, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".max("),
+        "Should not emit post-loop max when immediately overwritten, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "10");
 }
 
@@ -270,7 +307,11 @@ Show twoLoops(5).
 "#;
     let rust = compile_to_rust(source).unwrap();
     // Between the two loops, i is reset — the first post-loop value is dead
-    assert!(!rust.contains(".max("), "Dead post-loop should be eliminated when next stmt overwrites counter, got:\n{}", rust);
+    assert!(
+        !rust.contains(".max("),
+        "Dead post-loop should be eliminated when next stmt overwrites counter, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "10");
 }
 
@@ -289,8 +330,11 @@ Show sumAndReturn(5).
 "#;
     let rust = compile_to_rust(source).unwrap();
     // i IS used after the loop (in total + i), so post-loop value MUST be kept
-    assert!(rust.contains(".max(") || rust.contains("let mut i ="),
-        "Post-loop value should be kept when counter is used, got:\n{}", rust);
+    assert!(
+        rust.contains(".max(") || rust.contains("let mut i ="),
+        "Post-loop value should be kept when counter is used, got:\n{}",
+        rust
+    );
     // 0+1+2+3+4 = 10, then i=5, total+i = 15
     common::assert_exact_output(source, "15");
 }
@@ -311,8 +355,11 @@ While i is at most length of src:
 Show length of dst.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".deep_clone()") || rust.contains(".to_vec()") || rust.contains(".clone()"),
-        "Full copy loop should emit slice/clone operation, got:\n{}", rust);
+    assert!(
+        rust.contains(".deep_clone()") || rust.contains(".to_vec()") || rust.contains(".clone()"),
+        "Full copy loop should emit slice/clone operation, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "5");
 }
 
@@ -330,8 +377,11 @@ Show item 2 of dst.
 Show item 3 of dst.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("[") && rust.contains("].to_vec()"),
-        "Partial copy loop should emit slice.to_vec(), got:\n{}", rust);
+    assert!(
+        rust.contains("[") && rust.contains("].to_vec()"),
+        "Partial copy loop should emit slice.to_vec(), got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "20\n30\n40");
 }
 
@@ -366,8 +416,11 @@ While i is at most 100:
 Show length of result.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("with_capacity") || rust.contains("Vec::with_capacity"),
-        "Counted push loop should pre-allocate, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity") || rust.contains("Vec::with_capacity"),
+        "Counted push loop should pre-allocate, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "100");
 }
 
@@ -383,8 +436,11 @@ While i is less than n:
 Show length of items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("with_capacity"),
-        "Variable-bound push loop should pre-allocate, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity"),
+        "Variable-bound push loop should pre-allocate, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "50");
 }
 
@@ -401,8 +457,11 @@ Show length of evens.
 "#;
     let rust = compile_to_rust(source).unwrap();
     // Should NOT pre-allocate when push is conditional — count isn't deterministic
-    assert!(!rust.contains("with_capacity"),
-        "Conditional push should NOT pre-allocate, got:\n{}", rust);
+    assert!(
+        !rust.contains("with_capacity"),
+        "Conditional push should NOT pre-allocate, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "5");
 }
 
@@ -417,8 +476,11 @@ While i is less than 100:
 Show length of m.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("with_capacity"),
-        "Counted map insertion loop should pre-allocate, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity"),
+        "Counted map insertion loop should pre-allocate, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "100");
 }
 
@@ -458,8 +520,11 @@ Show sum.
 "#;
     let rust = compile_to_rust(source).unwrap();
     // When loop bound IS length-of-items, assert_unchecked is trivially true but still helps LLVM
-    assert!(rust.contains("assert_unchecked") || rust.contains("for i in"),
-        "Length-bounded array loop should emit assert_unchecked or for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("assert_unchecked") || rust.contains("for i in"),
+        "Length-bounded array loop should emit assert_unchecked or for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "60");
 }
 
@@ -475,8 +540,11 @@ Show sum.
 "#;
     let rust = compile_to_rust(source).unwrap();
     // No array indexing → no assert needed
-    assert!(!rust.contains("assert_unchecked"),
-        "Loop without array indexing should NOT emit assert_unchecked, got:\n{}", rust);
+    assert!(
+        !rust.contains("assert_unchecked"),
+        "Loop without array indexing should NOT emit assert_unchecked, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -576,8 +644,11 @@ Show sum.
     // Either via for-range conversion (OPT-1c) or explicit hoisting
     let has_for_range = rust.contains("for i in");
     let has_hoisted_len = rust.contains("let __len") || rust.contains("let _len");
-    assert!(has_for_range || has_hoisted_len,
-        "Length should be hoisted or converted to for-range, got:\n{}", rust);
+    assert!(
+        has_for_range || has_hoisted_len,
+        "Length should be hoisted or converted to for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "15");
 }
 
@@ -616,8 +687,11 @@ Show total.
 "#;
     let rust = compile_to_rust(source).unwrap();
     // This combines OPT-1a (Set counter) + OPT-1c (length limit)
-    assert!(rust.contains("for i in"),
-        "Set counter + length limit should emit for-range, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in"),
+        "Set counter + length limit should emit for-range, got:\n{}",
+        rust
+    );
     common::assert_exact_output(source, "50");
 }
 
@@ -654,7 +728,12 @@ Show sum.
     let rust = compile_to_rust(source).unwrap();
     // Both loops should be converted to for-range
     let for_count = rust.matches("for ").count();
-    assert!(for_count >= 2, "Both nested loops should be for-range (found {} for), got:\n{}", for_count, rust);
+    assert!(
+        for_count >= 2,
+        "Both nested loops should be for-range (found {} for), got:\n{}",
+        for_count,
+        rust
+    );
     common::assert_exact_output(source, "100");
 }
 
@@ -730,7 +809,8 @@ Show search(data, 8).
     // While-loop bounds assertions should use assert_unchecked (not assert!).
     // The zero-release-cost debug_assert! pairing is permitted.
     let without_debug_pairs = rust.replace("debug_assert!(", "");
-    if without_debug_pairs.contains("assert_unchecked") || without_debug_pairs.contains("assert!(") {
+    if without_debug_pairs.contains("assert_unchecked") || without_debug_pairs.contains("assert!(")
+    {
         assert!(
             rust.contains("assert_unchecked"),
             "While-loop bounds hints should use assert_unchecked, got:\n{}",
@@ -966,13 +1046,13 @@ fn opt_g_fold_zero_minus_one() {
     let source = "## Main\nLet x be 0 - 1.\nShow x.";
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains("let x = -1") || rust.contains("let x = (0 - 1)"),
+        rust.contains("let x: i64 = -1") || rust.contains("let x: i64 = (0 - 1)"),
         "0 - 1 should fold to -1 or at least be a simple subtraction, got:\n{}",
         rust
     );
     // More strict: should fold to -1 literal
     assert!(
-        rust.contains("let x = -1"),
+        rust.contains("let x: i64 = -1"),
         "0 - 1 should be constant-folded to -1, got:\n{}",
         rust
     );
@@ -994,7 +1074,7 @@ Show result.
     // After constant folding: 42 % 8 = 2, so it should fold to a literal.
     // This test verifies the fold handles modulo correctly.
     assert!(
-        rust.contains("let result = 2") || rust.contains("& 7"),
+        rust.contains("let result: i64 = 2") || rust.contains("& 7"),
         "Power-of-2 modulo should be strength-reduced or constant-folded, got:\n{}",
         rust
     );

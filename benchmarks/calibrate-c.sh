@@ -21,10 +21,15 @@
 # exploding benchmark (fib, ackermann, fannkuch) from ever hanging the sweep and
 # makes the fast-counting overshoots cost almost nothing to detect.
 #
+# The C binary is the suite's: built by suite_build with the command
+# lib/languages.tsv publishes, and every probe runs pinned to the performance
+# cores, as run.sh times it.
+#
 # Output:
 #   - A table to stdout (and logs/optimization/calibrate-c.log).
-#   - results/calibrated-sizes.json — consumed by run-logos-vs-c.sh, which
-#     picks each benchmark's N from it (CALIBRATION_TARGET=100|500|1000).
+#   - results/calibrated-sizes.json — consumed by
+#     scripts/bench/profile-benchmarks.sh, which profiles each benchmark at its
+#     500 ms N.
 #
 # Usage: bash benchmarks/calibrate-c.sh
 #
@@ -39,7 +44,7 @@
 #   OVERSHOOT=2        A run is killed once it exceeds OVERSHOOT × the target
 #                      time; that run counts as "over". 2 = "more than double".
 #   TOL=0.01           A result within this of its target is flagged "ok".
-#   FORCE_BUILD=1      Rebuild every C binary even if cached.
+#   FORCE_BUILD=1      Rebuild every C binary even if suite_build would reuse it.
 #   OUT=results/calibrated-sizes.json   Output path (relative to benchmarks/).
 
 set -euo pipefail
@@ -47,22 +52,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-BIN_DIR="$SCRIPT_DIR/bin"
 PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
 
-BENCHMARKS=(
-    fib ackermann nqueens
-    bubble_sort mergesort quicksort counting_sort heap_sort
-    nbody mandelbrot spectral_norm pi_leibniz
-    gcd collatz primes
-    sieve matrix_mult prefix_sum array_reverse array_fill
-    collect two_sum histogram
-    knapsack coins
-    fannkuch
-    strings binary_trees
-    loop_sum fib_iterative graph_bfs string_search
-)
+# The benchmark list is the suite registry (benchmarks/lib/benchmarks.tsv), loaded here with the rest of it.
+. "$SCRIPT_DIR/lib/suite.sh"
 
 START="${START:-1}"
 BUDGET_S="${BUDGET_S:-1}"
@@ -96,7 +90,7 @@ if [ -n "${ONLY:-}" ]; then
     BENCHMARKS=("${SELECTED[@]}")
 fi
 
-mkdir -p "$BIN_DIR" "$RESULTS_DIR"
+mkdir -p "$RESULTS_DIR"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
@@ -113,7 +107,7 @@ within_tol() { awk -v t="$1" -v T="$2" -v tol="$TOL" 'BEGIN{exit !((t>T?t-T:T-t)
 measure() {
     local bin="$1" n="$2" to="$3" rc=0 start end
     start=$(date +%s.%N)
-    timeout "$to" "$bin" "$n" >/dev/null 2>&1 || rc=$?
+    timeout "$to" taskset -c "$(suite_cpus)" "$bin" "$n" >/dev/null 2>&1 || rc=$?
     end=$(date +%s.%N)
     if [ "$rc" -eq 124 ]; then echo "__OVER__"; return; fi
     if [ "$rc" -ne 0 ]; then echo "__ERR__"; return; fi
@@ -126,19 +120,16 @@ target_timeout() {
     awk -v T="$1" -v f="$OVERSHOOT" 'BEGIN{ s=T*f/1000; if (s<0.05) s=0.05; printf "%.3f", s }'
 }
 
-# --- build C (mirror run-logos-vs-c.sh: gcc -O2 ... -lm) ----------------------
-c_cached() {
-    [ "${FORCE_BUILD:-}" = "1" ] && return 1
-    [ -f "$BIN_DIR/${1}_c" ] && [ "$BIN_DIR/${1}_c" -nt "$PROGRAMS_DIR/$1/main.c" ]
-}
+# --- build C, the suite's way ------------------------------------------------
 build_c() {
-    local bench="$1"
-    if c_cached "$bench"; then ok "  C (cached)"; return 0; fi
-    if [ ! -f "$PROGRAMS_DIR/$bench/main.c" ]; then warn "  no main.c for $bench"; return 1; fi
-    if gcc -O2 -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null; then
-        ok "  C built"; return 0
+    local bench="$1" log
+    if ! suite_has "$bench" c; then warn "  no main.c for $bench"; return 1; fi
+    log=$(mktemp)
+    if suite_build "$bench" c > "$log" 2>&1; then
+        if [ "$SUITE_BUILD_REUSED" = 1 ]; then ok "  C (cached)"; else ok "  C built"; fi
+        rm -f "$log"; return 0
     fi
-    fail "  C build failed for $bench"; return 1
+    fail "  C build failed for $bench:"; cat "$log"; rm -f "$log"; return 1
 }
 
 # --- core: crawl one benchmark ----------------------------------------------
@@ -161,7 +152,7 @@ close_target() {  # bench ti-target prev_n prev_t fallback_n fallback_t
 
 calibrate() {
     local bench="$1"
-    local bin="$BIN_DIR/${bench}_c"
+    local bin; bin=$(suite_bin "$bench" c)
     local ti=0 prev_n="" prev_t="" n="$START" step=1
     local phase_start=$SECONDS
 
@@ -262,7 +253,7 @@ mkdir -p "$(dirname "$OUT")"
 jq -n \
     --arg date "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
     --arg cpu "$(detect_cpu)" --arg os "$(detect_os)" \
-    --arg gcc "$(gcc --version 2>/dev/null | head -1 || echo unknown)" \
+    --arg gcc "$(suite_toolchain c)" \
     --argjson targets "$TARGETS_JSON" --argjson tol "$TOL" \
     --argjson budget_s "$BUDGET_S" --argjson accel "$ACCEL" --argjson overshoot "$OVERSHOOT" \
     --argjson benchmarks "$BENCH_JSON" \

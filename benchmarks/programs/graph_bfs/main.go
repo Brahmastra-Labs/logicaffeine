@@ -40,5 +40,9 @@ func main() {
 	for i := 0; i < n; i++ {
 		if dist[i] >= 0 { reachable++; totalDist += dist[i] }
 	}
-	fmt.Println(reachable, totalDist)
+	h := 0
+	for i := 0; i < n; i++ {
+		h = (h*31 + dist[i] + 1) & 268435455
+	}
+	fmt.Println(reachable, totalDist, h)
 }

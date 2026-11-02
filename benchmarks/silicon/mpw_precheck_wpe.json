@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "gate": "efabless/ChipFoundry mpw_precheck \u2014 the shuttle ACCEPTANCE battery",
+    "tool": "efabless/mpw_precheck:latest (docker) against tools/mpw_precheck",
+    "pdk": "sky130A",
+    "submission": "tools/caravel_submissions/wpe (assembled by scripts/caravel-submission.sh)"
+  },
+  "checks_total": 19,
+  "checks_executed": 19,
+  "checks_passed": 19,
+  "checks_failed": [],
+  "checks": {
+    "License": "passed",
+    "Makefile": "passed",
+    "Default": "passed",
+    "Documentation": "passed",
+    "Top Cell Check": "passed",
+    "Consistency": "passed",
+    "GPIO-Defines": "passed",
+    "XOR": "passed",
+    "Magic DRC": "passed",
+    "Klayout FEOL": "passed",
+    "Klayout BEOL": "passed",
+    "Klayout Offgrid": "passed",
+    "Klayout Metal Minimum Clear Area Density": "passed",
+    "Klayout Pin Label Purposes Overlapping Drawing": "passed",
+    "Klayout ZeroArea": "passed",
+    "Spike Check": "passed",
+    "Illegal Cellname Check": "passed",
+    "OEB": "passed",
+    "LVS": "passed"
+  },
+  "submitted_gds_bytes": 760876070,
+  "all_checks_passed": true
+}

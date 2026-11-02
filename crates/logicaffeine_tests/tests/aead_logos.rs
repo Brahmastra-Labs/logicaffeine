@@ -52,7 +52,12 @@ fn logos_aead_seal_open_round_trips_and_rejects_tamper() {
         "AOT compile+run of the Logos AEAD failed:\n--- stderr ---\n{}\n--- rust ---\n{}",
         aot.stderr, aot.rust_code
     );
-    let out: Vec<&str> = aot.stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let out: Vec<&str> = aot
+        .stdout
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
     assert_eq!(
         out,
         vec!["56", "40", "1", "0"],

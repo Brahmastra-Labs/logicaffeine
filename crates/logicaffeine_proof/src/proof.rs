@@ -30,7 +30,9 @@ pub struct Perm {
 impl Perm {
     /// The identity permutation over `num_vars` variables.
     pub fn identity(num_vars: usize) -> Perm {
-        Perm { pos_image: (0..num_vars as Var).map(Lit::pos).collect() }
+        Perm {
+            pos_image: (0..num_vars as Var).map(Lit::pos).collect(),
+        }
     }
 
     /// Build from the image of each positive literal: `images[v] = σ(+v)`.
@@ -60,7 +62,10 @@ impl Perm {
 
     /// Whether this is the identity permutation.
     pub fn is_identity(&self) -> bool {
-        self.pos_image.iter().enumerate().all(|(v, &img)| img == Lit::pos(v as Var))
+        self.pos_image
+            .iter()
+            .enumerate()
+            .all(|(v, &img)| img == Lit::pos(v as Var))
     }
 
     /// Extend to `nv` variables, acting as the identity on the new (higher-indexed) variables.
@@ -117,3 +122,7 @@ impl ProofStep {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/proof/perm_tests.rs"]
+mod perm_tests;

@@ -1,0 +1,4 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 17614442709
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__memset_avx2_unaligned_erms;[unknown] 1519845268
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__memset_avx2_unaligned_erms 198801566
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;[unknown] 273224

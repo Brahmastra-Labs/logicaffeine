@@ -1,0 +1,18 @@
+─────────────────────────────────────────────────────────────
+ PASS 1/2 — cargo nextest run (unit + integration, ignored included)
+─────────────────────────────────────────────────────────────
+   Compiling logicaffeine-compile v0.10.1 (/src/logicaffeine/crates/logicaffeine_compile)
+error[E0119]: conflicting implementations of trait `Clone` for type `DirectiveDef<'_>`
+    --> crates/logicaffeine_compile/src/interpreter.rs:1711:10
+error: could not compile `logicaffeine-compile` (lib) due to 2 previous errors
+error: command `/root/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo test --no-run --workspace --features verification --profile test-opt` exited with code 101
+─────────────────────────────────────────────────────────────
+ PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile, --features wasm-jit)
+─────────────────────────────────────────────────────────────
+        PASS [   0.031s] (   1/248) logicaffeine-compile::wasm_aot_lock wasm_matches_the_vm
+     Summary [   9.118s] 248 tests run: 248 passed, 1437 skipped
+
+─────────────────────────────────────────────────────────────
+ PASS 2/2 — cargo test --doc (doctests, overlapped with pass 1)
+─────────────────────────────────────────────────────────────
+test result: ok. 10 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.20s

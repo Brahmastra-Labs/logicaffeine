@@ -1,7 +1,7 @@
 //! Sprint 5A: Pre-Verified Protocol Templates
 
 use logicaffeine_compile::codegen_sva::protocols::{
-    axi4_write_handshake, apb_protocol, uart_tx, spi_protocol, i2c_protocol,
+    apb_protocol, axi4_write_handshake, i2c_protocol, spi_protocol, uart_tx,
 };
 use logicaffeine_compile::codegen_sva::sva_model::parse_sva;
 use logicaffeine_compile::codegen_sva::SvaAssertionKind;
@@ -21,7 +21,11 @@ fn axi4_properties_have_names() {
     let props = axi4_write_handshake("clk");
     for p in &props {
         assert!(!p.name.is_empty(), "Property should have a name");
-        assert!(p.name.contains("AXI"), "Name should contain AXI. Got: {}", p.name);
+        assert!(
+            p.name.contains("AXI"),
+            "Name should contain AXI. Got: {}",
+            p.name
+        );
     }
 }
 
@@ -30,7 +34,12 @@ fn axi4_sva_bodies_parseable() {
     let props = axi4_write_handshake("clk");
     for p in &props {
         let result = parse_sva(&p.sva_body);
-        assert!(result.is_ok(), "SVA body '{}' should parse. Error: {:?}", p.sva_body, result.err());
+        assert!(
+            result.is_ok(),
+            "SVA body '{}' should parse. Error: {:?}",
+            p.sva_body,
+            result.err()
+        );
     }
 }
 
@@ -65,7 +74,12 @@ fn apb_sva_bodies_parseable() {
     let props = apb_protocol("pclk");
     for p in &props {
         let result = parse_sva(&p.sva_body);
-        assert!(result.is_ok(), "SVA body '{}' should parse. Error: {:?}", p.sva_body, result.err());
+        assert!(
+            result.is_ok(),
+            "SVA body '{}' should parse. Error: {:?}",
+            p.sva_body,
+            result.err()
+        );
     }
 }
 
@@ -84,7 +98,12 @@ fn uart_sva_parseable() {
     let props = uart_tx("clk");
     for p in &props {
         let result = parse_sva(&p.sva_body);
-        assert!(result.is_ok(), "SVA '{}' should parse. Error: {:?}", p.sva_body, result.err());
+        assert!(
+            result.is_ok(),
+            "SVA '{}' should parse. Error: {:?}",
+            p.sva_body,
+            result.err()
+        );
     }
 }
 
@@ -103,7 +122,12 @@ fn spi_sva_parseable() {
     let props = spi_protocol("sclk");
     for p in &props {
         let result = parse_sva(&p.sva_body);
-        assert!(result.is_ok(), "SVA '{}' should parse. Error: {:?}", p.sva_body, result.err());
+        assert!(
+            result.is_ok(),
+            "SVA '{}' should parse. Error: {:?}",
+            p.sva_body,
+            result.err()
+        );
     }
 }
 
@@ -122,15 +146,22 @@ fn i2c_sva_parseable() {
     let props = i2c_protocol("scl");
     for p in &props {
         let result = parse_sva(&p.sva_body);
-        assert!(result.is_ok(), "SVA '{}' should parse. Error: {:?}", p.sva_body, result.err());
+        assert!(
+            result.is_ok(),
+            "SVA '{}' should parse. Error: {:?}",
+            p.sva_body,
+            result.err()
+        );
     }
 }
 
 #[test]
 fn i2c_has_cover_kind() {
     let props = i2c_protocol("scl");
-    assert!(props.iter().any(|p| p.kind == SvaAssertionKind::Cover),
-        "I2C should have Cover properties");
+    assert!(
+        props.iter().any(|p| p.kind == SvaAssertionKind::Cover),
+        "I2C should have Cover properties"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -145,14 +176,19 @@ fn all_protocols_have_specs_and_bodies() {
         uart_tx("clk"),
         spi_protocol("sclk"),
         i2c_protocol("scl"),
-    ].concat();
+    ]
+    .concat();
 
     for p in &all_props {
         assert!(!p.name.is_empty(), "Missing name");
         assert!(!p.spec.is_empty(), "Missing spec for {}", p.name);
         assert!(!p.sva_body.is_empty(), "Missing SVA body for {}", p.name);
     }
-    assert!(all_props.len() >= 9, "Should have at least 9 protocol properties total. Got: {}", all_props.len());
+    assert!(
+        all_props.len() >= 9,
+        "Should have at least 9 protocol properties total. Got: {}",
+        all_props.len()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -180,46 +216,65 @@ mod z3_certificates {
         let props = axi4_write_handshake("clk");
         for p in &props {
             let bounded = translate_sva_to_bounded(&p.sva_body, 5);
-            assert!(bounded.is_ok(),
+            assert!(
+                bounded.is_ok(),
                 "AXI4 '{}' should translate. Body: '{}', Error: {:?}",
-                p.name, p.sva_body, bounded.err());
+                p.name,
+                p.sva_body,
+                bounded.err()
+            );
         }
     }
 
     #[test]
     fn axi4_properties_z3_self_consistent() {
         let props = axi4_write_handshake("clk");
-        let verify_exprs: Vec<VerifyExpr> = props.iter()
+        let verify_exprs: Vec<VerifyExpr> = props
+            .iter()
             .filter_map(|p| try_to_verify(&p.sva_body, 3))
             .collect();
-        assert!(verify_exprs.len() >= 2, "At least 2 AXI4 props should translate");
+        assert!(
+            verify_exprs.len() >= 2,
+            "At least 2 AXI4 props should translate"
+        );
         let result = check_consistency(&verify_exprs, &[], 3);
-        assert!(matches!(result, ConsistencyResult::Consistent),
-            "AXI4 write handshake properties must be mutually consistent. Got: {:?}", result);
+        assert!(
+            matches!(result, ConsistencyResult::Consistent),
+            "AXI4 write handshake properties must be mutually consistent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn apb_properties_z3_self_consistent() {
         let props = apb_protocol("pclk");
-        let verify_exprs: Vec<VerifyExpr> = props.iter()
+        let verify_exprs: Vec<VerifyExpr> = props
+            .iter()
             .filter_map(|p| try_to_verify(&p.sva_body, 3))
             .collect();
         assert!(verify_exprs.len() >= 2, "Both APB props should translate");
         let result = check_consistency(&verify_exprs, &[], 3);
-        assert!(matches!(result, ConsistencyResult::Consistent),
-            "APB properties must be mutually consistent. Got: {:?}", result);
+        assert!(
+            matches!(result, ConsistencyResult::Consistent),
+            "APB properties must be mutually consistent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn uart_property_z3_satisfiable() {
         let props = uart_tx("clk");
-        let verify_exprs: Vec<VerifyExpr> = props.iter()
+        let verify_exprs: Vec<VerifyExpr> = props
+            .iter()
             .filter_map(|p| try_to_verify(&p.sva_body, 3))
             .collect();
         assert!(!verify_exprs.is_empty(), "UART prop should translate");
         let result = check_consistency(&verify_exprs, &[], 3);
-        assert!(matches!(result, ConsistencyResult::Consistent),
-            "UART property must be satisfiable. Got: {:?}", result);
+        assert!(
+            matches!(result, ConsistencyResult::Consistent),
+            "UART property must be satisfiable. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -227,13 +282,17 @@ mod z3_certificates {
         let props = spi_protocol("sclk");
         // SPI uses $stable(mosi) which may not fully translate to Z3.
         // If it translates, check consistency. If not, document the limitation.
-        let verify_exprs: Vec<VerifyExpr> = props.iter()
+        let verify_exprs: Vec<VerifyExpr> = props
+            .iter()
             .filter_map(|p| try_to_verify(&p.sva_body, 3))
             .collect();
         if !verify_exprs.is_empty() {
             let result = check_consistency(&verify_exprs, &[], 3);
-            assert!(matches!(result, ConsistencyResult::Consistent),
-                "SPI property must be satisfiable. Got: {:?}", result);
+            assert!(
+                matches!(result, ConsistencyResult::Consistent),
+                "SPI property must be satisfiable. Got: {:?}",
+                result
+            );
         }
         // If empty, $stable is not translatable — documented limitation
     }
@@ -250,10 +309,13 @@ mod z3_certificates {
         for p in &props {
             if let Some(verify) = try_to_verify(&p.sva_body, 3) {
                 let result = check_consistency(&[verify], &[], 3);
-                assert!(matches!(result, ConsistencyResult::Inconsistent { .. }),
+                assert!(
+                    matches!(result, ConsistencyResult::Inconsistent { .. }),
                     "Cover property '{}' with $fell/$rose should be unsatisfiable \
                      under G-wrapping (edge events can't happen every cycle). Got: {:?}",
-                    p.name, result);
+                    p.name,
+                    result
+                );
             }
         }
     }
@@ -268,16 +330,24 @@ mod z3_certificates {
             uart_tx("clk"),
             spi_protocol("sclk"),
             i2c_protocol("scl"),
-        ].concat();
-        let verify_exprs: Vec<VerifyExpr> = all_props.iter()
+        ]
+        .concat();
+        let verify_exprs: Vec<VerifyExpr> = all_props
+            .iter()
             .filter(|p| p.kind == SvaAssertionKind::Assert)
             .filter_map(|p| try_to_verify(&p.sva_body, 3))
             .collect();
-        assert!(verify_exprs.len() >= 5,
-            "At least 5 assert protocol props should translate. Got {}", verify_exprs.len());
+        assert!(
+            verify_exprs.len() >= 5,
+            "At least 5 assert protocol props should translate. Got {}",
+            verify_exprs.len()
+        );
         let result = check_consistency(&verify_exprs, &[], 3);
-        assert!(matches!(result, ConsistencyResult::Consistent),
-            "All assert protocol properties must be mutually consistent. Got: {:?}", result);
+        assert!(
+            matches!(result, ConsistencyResult::Consistent),
+            "All assert protocol properties must be mutually consistent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -287,8 +357,11 @@ mod z3_certificates {
             VerifyExpr::not(VerifyExpr::Var("P@0".into())),
         ];
         let result = check_consistency(&props, &["P".into()], 1);
-        assert!(matches!(result, ConsistencyResult::Inconsistent { .. }),
-            "P and NOT(P) must be inconsistent. Got: {:?}", result);
+        assert!(
+            matches!(result, ConsistencyResult::Inconsistent { .. }),
+            "P and NOT(P) must be inconsistent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -297,8 +370,12 @@ mod z3_certificates {
         for p in &props {
             if let Some(verify) = try_to_verify(&p.sva_body, 3) {
                 let result = check_consistency(&[verify], &[], 3);
-                assert!(matches!(result, ConsistencyResult::Consistent),
-                    "AXI4 '{}' should be individually satisfiable. Got: {:?}", p.name, result);
+                assert!(
+                    matches!(result, ConsistencyResult::Consistent),
+                    "AXI4 '{}' should be individually satisfiable. Got: {:?}",
+                    p.name,
+                    result
+                );
             }
         }
     }
@@ -309,13 +386,17 @@ mod z3_certificates {
             axi4_write_handshake("clk"),
             apb_protocol("pclk"),
             uart_tx("clk"),
-        ].concat();
+        ]
+        .concat();
         for p in &all_props {
             let bounded = translate_sva_to_bounded(&p.sva_body, 3);
             if let Ok(b) = bounded {
-                assert!(!b.declarations.is_empty(),
+                assert!(
+                    !b.declarations.is_empty(),
                     "Protocol '{}' should have signal declarations. Body: '{}'",
-                    p.name, p.sva_body);
+                    p.name,
+                    p.sva_body
+                );
             }
         }
     }

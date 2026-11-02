@@ -1,0 +1,11 @@
+{
+  "capability": "math.min",
+  "workload": "sum of min(i, n-i) over 1..n",
+  "arg": "20000000",
+  "expected": "100000000000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "rust"
+  ]
+}

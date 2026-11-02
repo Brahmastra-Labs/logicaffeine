@@ -62,8 +62,16 @@ fn test_smoke_02_negation_scope_ambiguity() {
         not_pos < forall_pos
     });
 
-    assert!(has_surface, "Should include surface reading (∀ before ¬): {:?}", results);
-    assert!(has_inverse, "Should include inverse reading (¬ before ∀): {:?}", results);
+    assert!(
+        has_surface,
+        "Should include surface reading (∀ before ¬): {:?}",
+        results
+    );
+    assert!(
+        has_inverse,
+        "Should include inverse reading (¬ before ∀): {:?}",
+        results
+    );
 }
 
 /// SMOKE TEST 3: Donkey Sentences / Dynamic Binding (Russell)
@@ -149,9 +157,8 @@ fn test_smoke_06_distanced_phrasal_verb() {
 
     println!("Distanced: {}", output);
 
-    let recognizes_phrasal = output.contains("Surrender")
-        || output.contains("GiveUp")
-        || output.contains("Give_up");
+    let recognizes_phrasal =
+        output.contains("Surrender") || output.contains("GiveUp") || output.contains("Give_up");
 
     assert!(
         recognizes_phrasal,

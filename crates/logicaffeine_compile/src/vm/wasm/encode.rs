@@ -1,5 +1,5 @@
 //! WebAssembly binary-encoding primitives — the shared byte layer beneath both the browser
-//! WASM-JIT tier (`super::region_jit`) and the direct AOT backend ([`super::module`]).
+//! WASM-JIT tier (`super::region_jit`) and the direct AOT backend (`super::module`).
 //!
 //! Hand-rolled LEB128 + section/instruction encoders (no external wasm crate): the same
 //! routines `wasm_jit.rs` proved correct against `wasmi` and real V8. Nothing here depends on
@@ -219,10 +219,15 @@ pub(crate) fn emit_cond_jump(
     loop_depth: u32,
 ) {
     // Stack for `select`: [target, fallthrough, selector] → selector!=0 ? target : fallthrough.
-    code.push(0x41); // i32.const target
-    leb_u32(code, target_block as u32);
-    code.push(0x41); // i32.const fallthrough
-    leb_u32(code, fallthrough_block as u32);
+    // Block indices are `i32.const` immediates — SIGNED LEB128 (see `cfg::set_next_block`).
+    i32_const(
+        code,
+        i32::try_from(target_block).expect("a dispatch block index fits an i32"),
+    );
+    i32_const(
+        code,
+        i32::try_from(fallthrough_block).expect("a dispatch block index fits an i32"),
+    );
     local_get(code, cond as u32);
     if jump_when_false {
         code.push(0x50); // i64.eqz → i32 1 when cond is 0 (falsey) ⇒ pick target

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Adriano is a boastful person in Barcelona.",
   "options": [
-    "M is B",
-    "m is b",
-    "M is b",
-    "m is B"
+    "A is B",
+    "a is b",
+    "A is b",
+    "a is B"
   ],
   "correct": 3,
-  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
-  "explanation": "\"m\" refers to a specific individual, so use lowercase. The predicate \"B\" refers to a class/property, so use uppercase."
+  "hint": "Is adriano one person, or a kind? Is 'a boastful person' one person, or a kind?",
+  "explanation": "adriano is one person, so a small letter. 'A boastful person' is a kind, so a capital: a is B.",
+  "section": "2.1"
 }

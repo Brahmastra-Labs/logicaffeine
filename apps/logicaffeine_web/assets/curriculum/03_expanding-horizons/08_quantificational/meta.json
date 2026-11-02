@@ -2,5 +2,6 @@
   "id": "quantificational",
   "title": "Basic Quantificational Logic",
   "pedagogy": "Master universal (all) and existential (some) quantifiers. Learn translations, proofs, and refutations in predicate logic.",
-  "order": 1
+  "order": 1,
+  "summary": "Say all and some with ∀ and ∃, deny them, and nest them."
 }

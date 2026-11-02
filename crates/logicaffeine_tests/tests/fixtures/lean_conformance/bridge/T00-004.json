@@ -1,0 +1,51 @@
+{
+  "case": "T00-004",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_004.dependentArrow",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_dependent_pi.rs::original_dependent_pi_preserves_all_four_binding_graphs",
+      "logos": "Exact original Lean 4.14.0 structural export T00-004.ndjson: actual closed definition body and translated declared type checked by both kernels, empty axiom closure, and dependency/shadowing graph checked at both Pi binders.",
+      "why": ""
+    },
+    {
+      "lean": "T00_004.plainArrow",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_dependent_pi.rs::original_dependent_pi_preserves_all_four_binding_graphs",
+      "logos": "Exact original Lean 4.14.0 structural export T00-004.ndjson: actual closed definition body and translated declared type checked by both kernels, empty axiom closure, and dependency/shadowing graph checked at both Pi binders.",
+      "why": ""
+    },
+    {
+      "lean": "T00_004.shadowedBinder",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_dependent_pi.rs::original_dependent_pi_preserves_all_four_binding_graphs",
+      "logos": "Exact original Lean 4.14.0 structural export T00-004.ndjson: actual closed definition body and translated declared type checked by both kernels, empty axiom closure, and dependency/shadowing graph checked at both Pi binders.",
+      "why": ""
+    },
+    {
+      "lean": "T00_004.usedOnlyInLaterBinderType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_dependent_pi.rs::original_dependent_pi_preserves_all_four_binding_graphs",
+      "logos": "Exact original Lean 4.14.0 structural export T00-004.ndjson: actual closed definition body and translated declared type checked by both kernels, empty axiom closure, and dependency/shadowing graph checked at both Pi binders.",
+      "why": ""
+    }
+  ]
+}

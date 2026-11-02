@@ -1,0 +1,31 @@
+{
+  "case": "T10-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 3,
+  "declarations": [
+    {
+      "type": "Array Type",
+      "name": "T10_011.ofTypes",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Array Nat",
+      "name": "T10_011.small",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Array Nat \u2192 Nat",
+      "name": "T10_011.sumAll",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

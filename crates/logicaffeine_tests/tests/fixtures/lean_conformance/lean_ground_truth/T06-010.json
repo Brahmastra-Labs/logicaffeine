@@ -1,0 +1,74 @@
+{
+  "case": "T06-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "True = (0 = 0)",
+      "name": "T06_010.collapse",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {a b : Prop}, (a \u2194 b) \u2192 a = b",
+      "name": "T06_010.ext",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2227 True) = p",
+      "name": "T06_010.innocuous",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Nat \u2192 Prop), (\u2200 (n : Nat), p n \u2194 q n) \u2192 p = q",
+      "name": "T06_010.predExt",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound",
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2194 q) \u2192 \u2200 (P : Prop \u2192 Prop), P p \u2192 P q",
+      "name": "T06_010.rewriteByIff",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {a b : Prop}, (a \u2194 b) \u2192 a = b",
+      "name": "T06_010.toEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {a b : Prop}, (a \u2194 b) \u2192 a = b",
+      "name": "T06_010.toEqByRw",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

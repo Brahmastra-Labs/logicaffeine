@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "We're looking for a counterexample where premises are true but conclusion is false.",
   "explanation": "To test validity, assume premises true and conclusion FALSE. If all branches close (contradiction), no counterexample exists and the argument is VALID. If any branch stays open, that branch gives a counterexample (invalid).",
-  "visual_concept": "Truth tree = searching for a world where premises true + conclusion false. If no such world exists (all branches close), the argument is valid."
+  "visual_concept": "Truth tree = searching for a world where premises true + conclusion false. If no such world exists (all branches close), the argument is valid.",
+  "section": "7.6"
 }

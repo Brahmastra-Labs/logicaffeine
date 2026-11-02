@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 2,
-  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
-  "explanation": "'Chair' appears on both sides of the definition — 'whatever is used as a chair'. Defining a term with the term is CIRCULAR and leaves you no wiser about what a chair is."
+  "hint": "Does the definition use the word it is defining?",
+  "explanation": "'Chair' appears on both sides, so the definition explains the word by the word.",
+  "section": "3.2"
 }

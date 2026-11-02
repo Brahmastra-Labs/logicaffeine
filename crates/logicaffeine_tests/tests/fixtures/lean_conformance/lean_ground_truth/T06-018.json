@@ -1,0 +1,88 @@
+{
+  "case": "T06-018",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T06_018.blanketInstance",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 (\u00acp \u2192 q) \u2192 q",
+      "name": "T06_018.byCases",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : \u03b1 \u2192 Type} \u2192 (\u2200 (a : \u03b1), Nonempty (\u03b2 a)) \u2192 (a : \u03b1) \u2192 \u03b2 a",
+      "name": "T06_018.choiceFunction",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 DecidableEq \u03b1",
+      "name": "T06_018.decEqAnything",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u00ac\u2200 (n : Nat), p n) \u2194 \u2203 n, \u00acp n",
+      "name": "T06_018.notForall",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop) (motive : (\u2203 n, \u00acp n) \u2192 Prop) (x : \u2203 n, \u00acp n), (\u2200 (n : Nat) (hpn : \u00acp n), motive \u22ef) \u2192 motive x",
+      "name": "T06_018.notForall.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(p : Nat \u2192 Nat \u2192 Prop) \u2192 (\u2200 (n : Nat), \u2203 m, p n m) \u2192 { f // \u2200 (n : Nat), p n (f n) }",
+      "name": "T06_018.skolem",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Nat \u2192 Prop) (h : \u2200 (n : Nat), \u2203 m, p n m) (n : Nat), p n (Classical.choose \u22ef)",
+      "name": "T06_018.skolem.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,119 @@
+{
+  "fixture_set": "lean_emission",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b"
+  },
+  "exporter_olean_sha256": "49d73051495cae9b48b65442e84d7b1a76a78d66ad694720a80cf2d463c24add",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "expression_equality": "alpha_equivalent (unpatched upstream exporter)",
+  "commands": [
+    "ELAN_TOOLCHAIN=leanprover/lean4:v4.14.0 lean -o <Module>.olean <Module>.lean",
+    "ELAN_TOOLCHAIN=leanprover/lean4:v4.14.0 LEAN_PATH=<lean4export>/.lake/build/lib:. lean --run <lean4export>/Main.lean -- --export-mdata --export-unsafe <Module> -- <declarations>"
+  ],
+  "generated": "2026-09-22",
+  "fixtures": [
+    {
+      "purpose": "Lane LE (W04) LOGOS source emission: literate forms, universe preservation, binder capture, name collision, opacity, assumptions, dependency order.",
+      "source": "LE_Emit.lean",
+      "source_sha256": "ca1fb7bc7245ef6903c68126cb98bba09a694b727397230473a4b510c8919b02",
+      "module": "LE_Emit",
+      "export": "LE_Emit.ndjson",
+      "export_sha256": "5da8988e38c2502ca01986d032b9c51d9108d51b74436100c254a983f063df6e",
+      "records": 880,
+      "declarations": [
+        "LE_Emit.Color",
+        "LE_Emit.Shape",
+        "LE_Emit.Chain",
+        "LE_Emit.favorite",
+        "LE_Emit.two",
+        "LE_Emit.double",
+        "LE_Emit.area",
+        "LE_Emit.double_two",
+        "LE_Emit.pick",
+        "LE_Emit.Arrow",
+        "LE_Emit.Lift",
+        "LE_Emit.pick_self",
+        "LE_Emit.capture",
+        "LE_Emit.shadowGlobal",
+        "LE_Emit.dependent",
+        "LE_Emit.Oracle",
+        "LE_Emit.oracle_zero",
+        "LE_Emit.uses_oracle",
+        "LE_Emit.chained",
+        "add",
+        "«a b»",
+        "a_b",
+        "x.y",
+        "«x.y»",
+        "collisions"
+      ],
+      "compiler_exit": 0,
+      "exporter_exit": 0
+    },
+    {
+      "purpose": "Corruption twin: same names and closures as LE_Emit, one marked difference per altered declaration (Color constructor order, two body, double_two statement, pick universe order, Oracle type, uses_oracle kind).",
+      "source": "LE_Emit_Twin.lean",
+      "source_sha256": "f7f4b816616d530d2936de88a1599c49cdb37ef2072443dce1ab1c462ace517f",
+      "module": "LE_Emit_Twin",
+      "export": "LE_Emit_Twin.ndjson",
+      "export_sha256": "6d1d9383a97835e299b7e498f4d17f967b20895319d90c4dc59a20ea86dfe709",
+      "records": 889,
+      "declarations": [
+        "LE_Emit.Color",
+        "LE_Emit.Shape",
+        "LE_Emit.Chain",
+        "LE_Emit.favorite",
+        "LE_Emit.two",
+        "LE_Emit.double",
+        "LE_Emit.area",
+        "LE_Emit.double_two",
+        "LE_Emit.pick",
+        "LE_Emit.Arrow",
+        "LE_Emit.Lift",
+        "LE_Emit.pick_self",
+        "LE_Emit.capture",
+        "LE_Emit.shadowGlobal",
+        "LE_Emit.dependent",
+        "LE_Emit.Oracle",
+        "LE_Emit.oracle_zero",
+        "LE_Emit.uses_oracle",
+        "LE_Emit.chained",
+        "add",
+        "«a b»",
+        "a_b",
+        "x.y",
+        "«x.y»",
+        "collisions"
+      ],
+      "compiler_exit": 0,
+      "exporter_exit": 0
+    },
+    {
+      "purpose": "Names (lane LE, W04): a Lean root spelled like a prelude identity (Lean's class `Zero`), references their declaration's own namespace would capture (root `pick.{u}` from `LE_Names.pick`; root `twice` beside the universe-polymorphic `LE_Names.twice`), and binders named like prelude constants (`le`, `add`, `Nat`).",
+      "source": "LE_Names.lean",
+      "source_sha256": "0d13119dd5bf13a95971b8580e137a332179202bd85467c3c5eee898465f52f6",
+      "module": "LE_Names",
+      "export": "LE_Names.ndjson",
+      "export_sha256": "59bdd9c27990acfde55c827e2d5ce646d73365abcdb2ce0d4acc02d73057f5de",
+      "records": 656,
+      "declarations": [
+        "pick",
+        "twice",
+        "LE_Names.pick",
+        "LE_Names.twice",
+        "LE_Names.useTwice",
+        "LE_Names.viaZero",
+        "LE_Names.keepsNothing"
+      ],
+      "generated": "2026-09-23",
+      "compiler_exit": 0,
+      "exporter_exit": 0
+    }
+  ]
+}

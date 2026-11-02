@@ -26,6 +26,19 @@ fn all_specs_family_is_complete() {
     assert!(n >= 13, "expected the full integer spec family, got {n}");
 }
 
+/// The synth README's coverage claim is the spec family's size: a spec added or removed changes the number
+/// a reader of the crate page is told.
+#[test]
+fn the_synth_readme_states_the_spec_count() {
+    const README: &str = include_str!("../../logicaffeine_synth/README.md");
+    let n = all_specs().len();
+    let flat = README.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains(&format!("the {n} integer ops `all_specs` returns")),
+        "the synth README must say the {n} integer ops `all_specs` returns"
+    );
+}
+
 /// The algebra the Architect's kernel-certified rules lean on, re-proved
 /// at the BITVECTOR level: add/mul/and/or/xor/eq commute.
 #[test]
@@ -39,7 +52,10 @@ fn commutativity_proofs() {
 /// stamp.
 #[test]
 fn sub_is_not_commutative() {
-    assert!(prove_commutative("sub").is_err(), "sub commuting would be a prover bug");
+    assert!(
+        prove_commutative("sub").is_err(),
+        "sub commuting would be a prover bug"
+    );
 }
 
 /// Exact arithmetic: the div spec's precondition EXCLUDES ⌊MIN / −1⌋, so the
@@ -100,7 +116,10 @@ fn run_witness_shard(shard: usize) {
             report.inputs_checked
         );
     }
-    assert!(owned > 0, "witness shard {shard}/{FORGE_SHARDS} owns no specs");
+    assert!(
+        owned > 0,
+        "witness shard {shard}/{FORGE_SHARDS} owns no specs"
+    );
 }
 
 macro_rules! forge_witness_shards {
@@ -131,7 +150,10 @@ fn run_satisfiable_shard(shard: usize) {
         }
         prove_spec_satisfiable(&specs[i]).unwrap_or_else(|e| panic!("{e}"));
     }
-    assert!(owned > 0, "satisfiable shard {shard}/{FORGE_SHARDS} owns no specs");
+    assert!(
+        owned > 0,
+        "satisfiable shard {shard}/{FORGE_SHARDS} owns no specs"
+    );
 }
 
 macro_rules! forge_satisfiable_shards {
@@ -164,8 +186,8 @@ forge_satisfiable_shards! {
 fn witness_three_way_agreement_heavy() {
     let mut checked = 0usize;
     for spec in all_specs().iter().filter(|s| is_heavy(s.name)) {
-        let report = check_spec_with_witnesses(spec, 8)
-            .unwrap_or_else(|e| panic!("witness harness: {e}"));
+        let report =
+            check_spec_with_witnesses(spec, 8).unwrap_or_else(|e| panic!("witness harness: {e}"));
         assert!(
             report.inputs_checked >= 100,
             "spec '{}' checked only {} inputs",
@@ -174,7 +196,10 @@ fn witness_three_way_agreement_heavy() {
         );
         checked += 1;
     }
-    assert!(checked > 0, "no heavy specs found — has `mul` left all_specs()?");
+    assert!(
+        checked > 0,
+        "no heavy specs found — has `mul` left all_specs()?"
+    );
 }
 
 /// The inhabitance gate for the heavy specs (`mul`): each is satisfiable.
@@ -186,7 +211,10 @@ fn all_specs_satisfiable_heavy() {
         prove_spec_satisfiable(spec).unwrap_or_else(|e| panic!("{e}"));
         checked += 1;
     }
-    assert!(checked > 0, "no heavy specs found — has `mul` left all_specs()?");
+    assert!(
+        checked > 0,
+        "no heavy specs found — has `mul` left all_specs()?"
+    );
 }
 
 /// Coverage guard: the `FORGE_SHARDS` shards tile `all_specs()` exactly — every
@@ -207,7 +235,10 @@ fn forge_partition_tiles_specs() {
         "specs not tiled exactly once by {FORGE_SHARDS} shards: {hits:?}"
     );
     for shard in 0..FORGE_SHARDS {
-        assert!(forge_shard(shard).count() > 0, "forge shard {shard} owns no specs");
+        assert!(
+            forge_shard(shard).count() > 0,
+            "forge shard {shard} owns no specs"
+        );
     }
 }
 

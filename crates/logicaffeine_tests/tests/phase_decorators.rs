@@ -145,10 +145,18 @@ fn file_level_no_interleave_disables_aos() {
 /// a non-empty Rust program for a spread of real benchmark shapes.
 #[test]
 fn codegen_survives_every_single_disable() {
-    let mut programs: Vec<String> = ["nbody", "knapsack", "graph_bfs", "two_sum", "mergesort", "histogram", "collect"]
-        .iter()
-        .map(|n| bench_src(n))
-        .collect();
+    let mut programs: Vec<String> = [
+        "nbody",
+        "knapsack",
+        "graph_bfs",
+        "two_sum",
+        "mergesort",
+        "histogram",
+        "collect",
+    ]
+    .iter()
+    .map(|n| bench_src(n))
+    .collect();
     programs.push(QUICKSORT.to_string());
     programs.push(AOS.to_string());
 
@@ -211,6 +219,9 @@ fn file_level_decorator_value_is_preserved() {
         with_file_decorator(QUICKSORT, "Optimize"),
         with_file_decorator(AOS, "Interleave"),
     ] {
-        assert!(compile_to_rust(&decorated).is_ok(), "decorated source must still compile:\n{decorated}");
+        assert!(
+            compile_to_rust(&decorated).is_ok(),
+            "decorated source must still compile:\n{decorated}"
+        );
     }
 }

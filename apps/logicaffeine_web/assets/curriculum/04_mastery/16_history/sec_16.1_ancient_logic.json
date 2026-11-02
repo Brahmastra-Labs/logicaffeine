@@ -1,0 +1,50 @@
+{
+  "id": "16.1",
+  "title": "Ancient Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Aristotle** (384 to 322 BCE) founded logic as a discipline with his study of the syllogism."
+    },
+    {
+      "type": "paragraph",
+      "text": "The **Stoics**, among them Chrysippus, studied a different kind of logic: how whole statements combine with and, or and if."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Aristotle's syllogism",
+      "lines": [
+        "All humans are mortal.",
+        "Socrates is human."
+      ],
+      "conclusion": "So Socrates is mortal.",
+      "note": "Arguments about kinds of things, built from terms like human and mortal."
+    },
+    {
+      "type": "worked",
+      "title": "A Stoic argument",
+      "lines": [
+        "If it is day, it is light.",
+        "It is day."
+      ],
+      "conclusion": "So it is light.",
+      "note": "An argument about whole statements, like modus ponens."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Who founded formal logic as a discipline?",
+    "options": [
+      "Plato",
+      "Aristotle",
+      "Socrates",
+      "Euclid"
+    ],
+    "correct": 1,
+    "hint": "He taught Alexander the Great and wrote the Prior Analytics.",
+    "explanation": "Aristotle's study of the syllogism, in the Prior Analytics, made logic a discipline of its own."
+  }
+}

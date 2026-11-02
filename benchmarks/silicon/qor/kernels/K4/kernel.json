@@ -1,0 +1,133 @@
+{
+ "bambu": {
+  "array": {
+   "file": "bambu_array.c",
+   "inputs": [],
+   "mems": [
+    {
+     "contract": [
+      "s_in"
+     ],
+     "kind": {
+      "Bram": {
+       "ports": 2
+      }
+     },
+     "prefix": "in",
+     "words_per_port": 25
+    },
+    {
+     "contract": [
+      "s_out"
+     ],
+     "kind": {
+      "Bram": {
+       "ports": 2
+      }
+     },
+     "prefix": "out",
+     "words_per_port": 25
+    }
+   ],
+   "outputs": [],
+   "pragmas": true,
+   "top": "keccak_arrays"
+  },
+  "ports": {
+   "file": "bambu_ports.c",
+   "inputs": [
+    [
+     "s_in",
+     null
+    ]
+   ],
+   "lanes": {
+    "s_in": [
+     "i0",
+     "i1",
+     "i2",
+     "i3",
+     "i4",
+     "i5",
+     "i6",
+     "i7",
+     "i8",
+     "i9",
+     "i10",
+     "i11",
+     "i12",
+     "i13",
+     "i14",
+     "i15",
+     "i16",
+     "i17",
+     "i18",
+     "i19",
+     "i20",
+     "i21",
+     "i22",
+     "i23",
+     "i24"
+    ],
+    "s_out": [
+     "o0",
+     "o1",
+     "o2",
+     "o3",
+     "o4",
+     "o5",
+     "o6",
+     "o7",
+     "o8",
+     "o9",
+     "o10",
+     "o11",
+     "o12",
+     "o13",
+     "o14",
+     "o15",
+     "o16",
+     "o17",
+     "o18",
+     "o19",
+     "o20",
+     "o21",
+     "o22",
+     "o23",
+     "o24"
+    ]
+   },
+   "mems": [],
+   "outputs": [
+    [
+     "s_out",
+     null
+    ]
+   ],
+   "pragmas": true,
+   "strobe": true,
+   "top": "keccak_ports"
+  }
+ },
+ "dahlia": {
+  "file": "kernel.fuse",
+  "mems": [
+   {
+    "contract": [
+     "s_in"
+    ],
+    "kind": "SeqMem",
+    "prefix": "s_in",
+    "words_per_port": 25
+   },
+   {
+    "contract": [
+     "s_out"
+    ],
+    "kind": "SeqMem",
+    "prefix": "s_out",
+    "words_per_port": 25
+   }
+  ]
+ }
+}

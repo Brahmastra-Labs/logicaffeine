@@ -1,0 +1,11 @@
+{
+  "capability": "iter.swap_remove",
+  "workload": "swapRemove(xs,i) into a new seq, fold result length mod 1e9+7",
+  "arg": "100000",
+  "expected": "99900000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ],
+  "note": "main.lg calls swapRemove() WITHOUT defining it \u2014 auto-imported from iter.lg (returns a NEW seq of length m-1). Rust counterpart clones then Vec::swap_remove so both do the O(m) copy."
+}

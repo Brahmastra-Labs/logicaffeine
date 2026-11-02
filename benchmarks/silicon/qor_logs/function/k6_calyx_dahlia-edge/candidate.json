@@ -1,0 +1,352 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K6",
+  "mems": [
+   {
+    "contract": [
+     "a"
+    ],
+    "kind": "SeqMem",
+    "prefix": "a",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "b"
+    ],
+    "kind": "SeqMem",
+    "prefix": "b",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "mask"
+    ],
+    "kind": "SeqMem",
+    "prefix": "mask",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "x0",
+     "x1",
+     "x2",
+     "x3"
+    ],
+    "kind": "SeqMem",
+    "prefix": "x",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "y0",
+     "y1",
+     "y2",
+     "y3"
+    ],
+    "kind": "SeqMem",
+    "prefix": "y",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "sum"
+    ],
+    "kind": "SeqMem",
+    "prefix": "sum",
+    "words_per_port": 1
+   }
+  ],
+  "name": "k6_calyx_dahlia",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "a_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "a_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "b_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "b_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "b_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "b_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "go"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "mask_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "mask_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "mask_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "mask_done"
+   },
+   {
+    "bits": 4,
+    "dir": "In",
+    "name": "mask_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "mask_reset"
+   },
+   {
+    "bits": 4,
+    "dir": "Out",
+    "name": "mask_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "mask_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "sum_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "sum_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "sum_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "sum_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "sum_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "sum_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "sum_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "sum_write_en"
+   },
+   {
+    "bits": 3,
+    "dir": "Out",
+    "name": "x_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "x_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "x_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_write_en"
+   },
+   {
+    "bits": 3,
+    "dir": "Out",
+    "name": "y_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "y_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "y_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_write_en"
+   }
+  ],
+  "protocol": {
+   "GoDone": {
+    "done": "done",
+    "go": "go"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "main"
+ },
+ "files": [
+  "k6_calyx_dahlia.sv"
+ ],
+ "golden_signature": "5f02efb454ab968e",
+ "harness": "qorbist_k6_calyx_dahlia.v",
+ "harness_top": "qorbist_k6_calyx_dahlia",
+ "kernel": "K6",
+ "kernel_name": "simt_axpb_sum",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "go/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

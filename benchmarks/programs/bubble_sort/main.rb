@@ -12,4 +12,6 @@ end
     end
   end
 end
-puts arr[0]
+checksum = 0
+arr.each { |v| checksum = (checksum * 31 + v) & 268435455 }
+puts "#{arr[0]} #{arr[-1]} #{checksum}"

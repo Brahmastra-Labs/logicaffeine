@@ -153,7 +153,11 @@ fn asymmetric_search_is_left_alone() {
     let (out, err) = v2_outcome(ASYMMETRIC, &argv("6"));
     let tw = tw_outcome_with_args(ASYMMETRIC, &argv("6"));
     assert_eq!(err, None);
-    assert_eq!(norm(&out), norm(&tw.output), "asymmetric program miscompiled");
+    assert_eq!(
+        norm(&out),
+        norm(&tw.output),
+        "asymmetric program miscompiled"
+    );
 }
 
 // ---------------------------------------------------------------------------

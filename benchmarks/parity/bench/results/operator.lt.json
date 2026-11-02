@@ -1,0 +1,21 @@
+{
+  "capability": "operator.lt",
+  "arg": "3000000",
+  "timing_n": "604785871",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 45.094,
+    "python": 10452.181
+  },
+  "wall_ms": {
+    "logos": 45.454,
+    "python": 10460.323
+  },
+  "logos_ms": 45.094,
+  "speedups_vs_logos": {
+    "python": 231.786
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 231.786
+}

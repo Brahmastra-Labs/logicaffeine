@@ -1,0 +1,156 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [],
+  "kernel": "K4",
+  "mems": [
+   {
+    "contract": [
+     "s_in"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "in",
+    "words_per_port": 25
+   },
+   {
+    "contract": [
+     "s_out"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "out",
+    "words_per_port": 25
+   }
+  ],
+  "name": "k4_bambu_fsm_array_a7p10",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 5,
+    "dir": "Out",
+    "name": "in_address0"
+   },
+   {
+    "bits": 5,
+    "dir": "Out",
+    "name": "in_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "in_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "in_ce1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in_q0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in_q1"
+   },
+   {
+    "bits": 5,
+    "dir": "Out",
+    "name": "out_address0"
+   },
+   {
+    "bits": 5,
+    "dir": "Out",
+    "name": "out_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "out_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "out_ce1"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "out_d0"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "out_d1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "out_we0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "out_we1"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "keccak_arrays"
+ },
+ "files": [
+  "keccak_arrays.v",
+  "array_ref_428698.mem",
+  "array_ref_428911.mem",
+  "array_ref_429005.mem",
+  "array_ref_429412.mem"
+ ],
+ "golden_signature": "d8258bee4adc0dca",
+ "harness": "qorbist_k4_bambu_fsm_array_a7p10.v",
+ "harness_top": "qorbist_k4_bambu_fsm_array_a7p10",
+ "kernel": "K4",
+ "kernel_name": "keccak_f1600",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

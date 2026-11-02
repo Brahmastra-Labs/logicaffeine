@@ -1,10 +1,10 @@
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    Lexer, Token, Parser,
-    ast::{Stmt, Expr},
-    drs::WorldState,
-    arena_ctx::AstContext,
     analysis::TypeRegistry,
+    arena_ctx::AstContext,
+    ast::{Expr, Stmt},
+    drs::WorldState,
+    Lexer, Parser, Token,
 };
 
 fn make_parser(source: &str) -> (Interner, Vec<Token>) {
@@ -40,7 +40,13 @@ fn parse_program_method_exists() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -73,7 +79,13 @@ fn let_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -81,7 +93,10 @@ fn let_statement_parses() {
 
     let stmts = result.unwrap();
     assert!(!stmts.is_empty(), "Should have at least one statement");
-    assert!(matches!(stmts[0], Stmt::Let { .. }), "First statement should be Let");
+    assert!(
+        matches!(stmts[0], Stmt::Let { .. }),
+        "First statement should be Let"
+    );
 }
 
 #[test]
@@ -110,14 +125,27 @@ fn return_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "Return statement should parse: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Return statement should parse: {:?}",
+        result
+    );
 
     let stmts = result.unwrap();
-    assert!(matches!(stmts[0], Stmt::Return { .. }), "First statement should be Return");
+    assert!(
+        matches!(stmts[0], Stmt::Return { .. }),
+        "First statement should be Return"
+    );
 }
 
 #[test]
@@ -146,7 +174,13 @@ fn set_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -154,5 +188,8 @@ fn set_statement_parses() {
 
     let stmts = result.unwrap();
     assert_eq!(stmts.len(), 2, "Should have two statements");
-    assert!(matches!(stmts[1], Stmt::Set { .. }), "Second statement should be Set");
+    assert!(
+        matches!(stmts[1], Stmt::Set { .. }),
+        "Second statement should be Set"
+    );
 }

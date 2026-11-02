@@ -25,12 +25,20 @@ fn extractable(ctx: &Context, name: &str, memo: &mut HashMap<String, bool>) -> b
     }
     // Optimistic for recursive/cyclic references (a fixpoint that can't lower).
     memo.insert(name.to_string(), true);
-    let result = if ctx.is_constructor(name) {
+    // The prelude's arithmetic (`add`/`sub`/… at `Int -> Int -> Int`) is OPAQUE to extraction:
+    // it lowers to a Rust operator, so it extracts without emitting anything and without
+    // pulling in what implements it. Since `Int` became a real inductive these names have
+    // bodies (`Int_add`, …), and following one drags the whole structural integer tower into
+    // the output — where `Int` is `i64` and none of it type-checks. Asked before the body.
+    let result = if super::codegen::arith_builtin_operator(ctx, name).is_some() {
+        true
+    } else if ctx.is_constructor(name) {
         ctx.constructor_inductive(name)
             .map(|ind| !ctx.get_constructors(ind).is_empty())
             .unwrap_or(false)
     } else if ctx.is_inductive(name) {
-        (!ctx.get_constructors(name).is_empty() && !is_logical_type(name)) || is_mapped_primitive(name)
+        (!ctx.get_constructors(name).is_empty() && !is_logical_type(name))
+            || is_mapped_primitive(name)
     } else if let Some(body) = ctx.get_definition_body(name) {
         let mut refs = Vec::new();
         collect_globals(body, &mut refs);
@@ -38,7 +46,7 @@ fn extractable(ctx: &Context, name: &str, memo: &mut HashMap<String, bool>) -> b
             && matches_inferable(ctx, body)
             // Arithmetic builtins must be fully (binary) applied — a bare/partial
             // `add` has no Rust function to call.
-            && super::codegen::arith_uses_well_formed(body)
+            && super::codegen::arith_uses_well_formed(ctx, body)
     } else {
         // A declaration / axiom / primitive op with no body. The mapped primitives
         // and the arithmetic builtins (`add`/`sub`/… → Rust operators) are the only
@@ -56,7 +64,11 @@ fn extractable(ctx: &Context, name: &str, memo: &mut HashMap<String, bool>) -> b
 /// such definitions are not cleanly extractable.
 fn matches_inferable(ctx: &Context, term: &Term) -> bool {
     match term {
-        Term::Match { discriminant, motive, cases } => {
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
             if motive_inductive(ctx, motive)
                 .or_else(|| disc_inductive(ctx, discriminant))
                 .is_none()
@@ -67,12 +79,14 @@ fn matches_inferable(ctx: &Context, term: &Term) -> bool {
                 && matches_inferable(ctx, motive)
                 && cases.iter().all(|c| matches_inferable(ctx, c))
         }
-        Term::Lambda { param_type, body, .. } => {
-            matches_inferable(ctx, param_type) && matches_inferable(ctx, body)
-        }
-        Term::Pi { param_type, body_type, .. } => {
-            matches_inferable(ctx, param_type) && matches_inferable(ctx, body_type)
-        }
+        Term::Lambda {
+            param_type, body, ..
+        } => matches_inferable(ctx, param_type) && matches_inferable(ctx, body),
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => matches_inferable(ctx, param_type) && matches_inferable(ctx, body_type),
         Term::App(f, a) => matches_inferable(ctx, f) && matches_inferable(ctx, a),
         Term::Fix { body, .. } => matches_inferable(ctx, body),
         _ => true,
@@ -120,8 +134,19 @@ fn is_mapped_primitive(name: &str) -> bool {
 pub fn is_logical_type(name: &str) -> bool {
     matches!(
         name,
-        "Syntax" | "Derivation" | "Eq" | "And" | "Or" | "Iff" | "Ex" | "Not"
-            | "True" | "False" | "Entity" | "Univ" | "Prop"
+        "Syntax"
+            | "Derivation"
+            | "Eq"
+            | "And"
+            | "Or"
+            | "Iff"
+            | "Ex"
+            | "Not"
+            | "True"
+            | "False"
+            | "Entity"
+            | "Univ"
+            | "Prop"
     )
 }
 
@@ -138,6 +163,13 @@ pub fn collect_dependencies(ctx: &Context, entry: &str) -> HashSet<String> {
             continue;
         }
         visited.insert(name.clone());
+
+        // The prelude's arithmetic lowers to an operator, so it depends on NOTHING — see
+        // `extractable`. Following `add` into `Int_add` would pull the structural integer
+        // tower (and `Nat`) into every module that adds two numbers.
+        if super::codegen::arith_builtin_operator(ctx, &name).is_some() {
+            continue;
+        }
 
         // Get the term to analyze based on what kind of global it is
         if let Some(body) = ctx.get_definition_body(&name) {
@@ -214,6 +246,7 @@ pub(crate) fn collect_globals(term: &Term, deps: &mut Vec<String>) {
                 collect_globals(body, deps);
             }
         }
+        Term::Annotated { term, .. } => collect_globals(term, deps),
         // Base cases: no dependencies
         Term::Sort(_) | Term::Var(_) | Term::Lit(_) | Term::Hole => {}
     }

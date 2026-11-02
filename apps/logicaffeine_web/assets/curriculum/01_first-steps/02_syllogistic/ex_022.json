@@ -10,6 +10,7 @@
     "C is B"
   ],
   "correct": 2,
-  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
+  "hint": "The sentence is about every one of the carpenters. What does it say they are?",
+  "explanation": "It says every carpenter is one who bothers dangerous people. Both are kinds: all C is B.",
+  "section": "2.1"
 }

@@ -1,0 +1,72 @@
+{
+  "case": "T11-018",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t11_adversarial/T11-018_gimenez_guard_stricter.lean",
+  "source_sha256": "4f4a5f54eeecf4125753bb9085669b825fc3ecdc023d65a3bc259bbbe46ba4c5",
+  "ledger_sha256": "e3f04ae86546afd29e4ffea1a9b56916ffb28ea8d86402c0a3ea6163ee1cb917",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T11_018.NatList",
+    "T11_018.NatList.hd",
+    "T11_018.NatList.mk",
+    "T11_018.NatList.tl",
+    "T11_018.countDown",
+    "T11_018.everyOther",
+    "T11_018.shrink",
+    "T11_018.sumAcc",
+    "T11_018.sumFuel",
+    "T11_018.sumTail",
+    "T11_018.sumViaProjection",
+    "T11_018.underLet"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "d5a7b9307334472c38c3a106d6fd9c9e69493edb73615c35d23661dbb1413823",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1223,
+  "harvest": {
+    "roots": [
+      "T11_018.NatList",
+      "T11_018.NatList.hd",
+      "T11_018.NatList.mk",
+      "T11_018.NatList.tl",
+      "T11_018.countDown",
+      "T11_018.everyOther",
+      "T11_018.shrink",
+      "T11_018.sumAcc",
+      "T11_018.sumFuel",
+      "T11_018.sumTail",
+      "T11_018.sumViaProjection",
+      "T11_018.underLet"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

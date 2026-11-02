@@ -1,0 +1,29 @@
+# Sort
+
+Ordering predicates over sequences, written in pure LOGOS and compiled through every execution
+tier. `sortSeq` (iter.lg) does the sorting; these answer "is this already in ascending order?"
+for integer and real sequences. Auto-imported on reference.
+
+## Note
+True if the `Seq of Int` is in non-decreasing (ascending) order — false at the first adjacent pair out of order.
+
+## To isSortedSeq (xs: Seq of Int) -> Bool:
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is less than n:
+        If item i of xs is greater than item (i + 1) of xs:
+            Return false.
+        Set i to i + 1.
+    Return true.
+
+## Note
+True if the `Seq of Real` is in non-decreasing (ascending) order — false at the first adjacent pair out of order.
+
+## To isSortedReal (xs: Seq of Real) -> Bool:
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is less than n:
+        If item i of xs is greater than item (i + 1) of xs:
+            Return false.
+        Set i to i + 1.
+    Return true.

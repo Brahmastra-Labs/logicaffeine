@@ -1,0 +1,155 @@
+{
+  "case": "T08-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T08_005.Wrap",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_005.Wrap \u2192 Sort u} \u2192 (t : T08_005.Wrap) \u2192 ((val : Nat) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T08_005.Wrap.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T08_005.Wrap",
+      "name": "T08_005.Wrap.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {val val_1 : Nat}, { val := val } = { val := val_1 } \u2192 val = val_1",
+      "name": "T08_005.Wrap.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (val val_1 : Nat), ({ val := val } = { val := val_1 }) = (val = val_1)",
+      "name": "T08_005.Wrap.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (val : Nat), sizeOf { val := val } = 1 + sizeOf val",
+      "name": "T08_005.Wrap.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T08_005.Wrap} \u2192 v1 = v2 \u2192 T08_005.Wrap.noConfusionType P v1 v2",
+      "name": "T08_005.Wrap.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T08_005.Wrap \u2192 T08_005.Wrap \u2192 Sort u",
+      "name": "T08_005.Wrap.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_005.Wrap \u2192 Sort u} \u2192 ((val : Nat) \u2192 motive { val := val }) \u2192 (t : T08_005.Wrap) \u2192 motive t",
+      "name": "T08_005.Wrap.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_005.Wrap \u2192 Sort u} \u2192 (t : T08_005.Wrap) \u2192 ((val : Nat) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T08_005.Wrap.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T08_005.Wrap \u2192 Nat",
+      "name": "T08_005.Wrap.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T08_005.asTerm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), (fun k => k + 1) n = n + 1",
+      "name": "T08_005.beta",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T08_005.double n = n + n",
+      "name": "T08_005.delta",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T08_005.double",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T08_005.iota",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n \u2264 n",
+      "name": "T08_005.leRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (w : T08_005.Wrap), { val := w.val } = w",
+      "name": "T08_005.structEta",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T08_005.syntactic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -213,7 +213,7 @@ fn test_rga_delta_insert() {
 
 #[test]
 fn test_rga_delta_remove() {
-    use logicaffeine_data::crdt::{DeltaCrdt, RGA, VClock};
+    use logicaffeine_data::crdt::{DeltaCrdt, VClock, RGA};
 
     let mut seq: RGA<String> = RGA::new(1);
     seq.append("a".to_string());

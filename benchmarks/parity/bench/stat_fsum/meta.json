@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.fsum",
+  "workload": "statistics.fsum",
+  "arg": "20000",
+  "expected": "4062895103100",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

@@ -1,0 +1,2515 @@
+{
+ "count": 418,
+ "entries": [
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "contains_key"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "entry"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "first_key_value"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "insert"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "iter"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "keys"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "last_key_value"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "range"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "BTreeMap",
+   "signature": "",
+   "symbol": "values"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "into_sorted_vec"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "peek"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "pop"
+  },
+  {
+   "kind": "function",
+   "module": "BinaryHeap",
+   "signature": "",
+   "symbol": "push"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "clear"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "contains_key"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "drain"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "entry"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "extend"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "get_mut"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "insert"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "iter"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "iter_mut"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "keys"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "or_insert"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "retain"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "values"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "values_mut"
+  },
+  {
+   "kind": "function",
+   "module": "HashMap",
+   "signature": "",
+   "symbol": "with_capacity"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "clear"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "difference"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "extend"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "insert"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "intersection"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "is_disjoint"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "is_subset"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "is_superset"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "iter"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "retain"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "symmetric_difference"
+  },
+  {
+   "kind": "function",
+   "module": "HashSet",
+   "signature": "",
+   "symbol": "union"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "all"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "any"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "by_ref"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "chain"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "chunks"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "cloned"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "collect"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "copied"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "count"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "cycle"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "enumerate"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "filter"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "filter_map"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "find"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "flat_map"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "flatten"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "fold"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "for_each"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "inspect"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "last"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "map"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "max_by"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "max_by_key"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "min_by"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "min_by_key"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "nth"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "partition"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "peekable"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "position"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "product"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "reduce"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "rev"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "scan"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "skip"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "skip_while"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "step_by"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "sum"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "take"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "take_while"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "unzip"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "windows"
+  },
+  {
+   "kind": "function",
+   "module": "Iterator",
+   "signature": "",
+   "symbol": "zip"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "and_then"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "expect"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "filter"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "flatten"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "get_or_insert"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "is_none"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "is_some"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "map"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "map_or"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "ok_or"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "or"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "or_else"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "take"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "unwrap"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "unwrap_or"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "unwrap_or_default"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "unwrap_or_else"
+  },
+  {
+   "kind": "function",
+   "module": "Option",
+   "signature": "",
+   "symbol": "zip"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "and_then"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "err"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "expect"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "is_err"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "is_ok"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "map"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "map_err"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "ok"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "or_else"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "unwrap"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "unwrap_err"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "unwrap_or"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "unwrap_or_default"
+  },
+  {
+   "kind": "function",
+   "module": "Result",
+   "signature": "",
+   "symbol": "unwrap_or_else"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "as_str"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "capacity"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "chars"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "clear"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "drain"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "from"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "insert"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "insert_str"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "pop"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "push"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "push_str"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "retain"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "split_off"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "truncate"
+  },
+  {
+   "kind": "function",
+   "module": "String",
+   "signature": "",
+   "symbol": "with_capacity"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "append"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "binary_search"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "chunks"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "clear"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "concat"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "dedup"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "drain"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "extend"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "fill"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "first"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "insert"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "iter"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "iter_mut"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "join"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "last"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "pop"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "push"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "resize"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "retain"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "reverse"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "rotate_left"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "rotate_right"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "sort"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "sort_by"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "sort_by_key"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "sort_unstable"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "split_at"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "swap_remove"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "truncate"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "windows"
+  },
+  {
+   "kind": "function",
+   "module": "Vec",
+   "signature": "",
+   "symbol": "with_capacity"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "back"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "front"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "iter"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "new"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "pop_back"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "pop_front"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "push_back"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "push_front"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "rotate_left"
+  },
+  {
+   "kind": "function",
+   "module": "VecDeque",
+   "signature": "",
+   "symbol": "rotate_right"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "as u32"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "from_digit"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "from_u32"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_alphabetic"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_alphanumeric"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_ascii"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_ascii_digit"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_control"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_lowercase"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_numeric"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_uppercase"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "is_whitespace"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "to_ascii_lowercase"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "to_ascii_uppercase"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "to_digit"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "to_lowercase"
+  },
+  {
+   "kind": "function",
+   "module": "char",
+   "signature": "",
+   "symbol": "to_uppercase"
+  },
+  {
+   "kind": "function",
+   "module": "cmp",
+   "signature": "",
+   "symbol": "Ordering"
+  },
+  {
+   "kind": "function",
+   "module": "cmp",
+   "signature": "",
+   "symbol": "Reverse"
+  },
+  {
+   "kind": "function",
+   "module": "cmp",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "cmp",
+   "signature": "",
+   "symbol": "max_by"
+  },
+  {
+   "kind": "function",
+   "module": "cmp",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "cmp",
+   "signature": "",
+   "symbol": "min_by"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "args"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "current_dir"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "remove_var"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "set_current_dir"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "set_var"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "temp_dir"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "var"
+  },
+  {
+   "kind": "function",
+   "module": "env",
+   "signature": "",
+   "symbol": "vars"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "abs"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "acos"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "asin"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "atan"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "atan2"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "cbrt"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "ceil"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "clamp"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "copysign"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "cos"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "cosh"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "div_euclid"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "exp"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "exp2"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "floor"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "fract"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "hypot"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "is_finite"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "is_infinite"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "is_nan"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "ln"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "log"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "log10"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "log2"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "mul_add"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "powf"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "powi"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "recip"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "rem_euclid"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "round"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "signum"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "sin"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "sinh"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "sqrt"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "tan"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "tanh"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "to_degrees"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "to_radians"
+  },
+  {
+   "kind": "function",
+   "module": "f64",
+   "signature": "",
+   "symbol": "trunc"
+  },
+  {
+   "kind": "function",
+   "module": "fmt",
+   "signature": "",
+   "symbol": "Debug"
+  },
+  {
+   "kind": "function",
+   "module": "fmt",
+   "signature": "",
+   "symbol": "Display"
+  },
+  {
+   "kind": "function",
+   "module": "fmt",
+   "signature": "",
+   "symbol": "format"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "File"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "canonicalize"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "copy"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "create_dir"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "create_dir_all"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "metadata"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "read"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "read_dir"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "read_to_string"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "remove_dir"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "remove_dir_all"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "remove_file"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "rename"
+  },
+  {
+   "kind": "function",
+   "module": "fs",
+   "signature": "",
+   "symbol": "write"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "abs"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "checked_add"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "checked_div"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "checked_mul"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "checked_sub"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "clamp"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "count_ones"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "count_zeros"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "div_euclid"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "gcd"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "isqrt"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "leading_zeros"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "overflowing_add"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "pow"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "rem_euclid"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "rotate_left"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "rotate_right"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "saturating_add"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "signum"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "swap_bytes"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "to_string"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "trailing_zeros"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "wrapping_add"
+  },
+  {
+   "kind": "function",
+   "module": "i64",
+   "signature": "",
+   "symbol": "wrapping_mul"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "BufRead"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "BufReader"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "BufWriter"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "Read"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "Write"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "lines"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "read_line"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "stderr"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "stdin"
+  },
+  {
+   "kind": "function",
+   "module": "io",
+   "signature": "",
+   "symbol": "stdout"
+  },
+  {
+   "kind": "function",
+   "module": "mem",
+   "signature": "",
+   "symbol": "drop"
+  },
+  {
+   "kind": "function",
+   "module": "mem",
+   "signature": "",
+   "symbol": "replace"
+  },
+  {
+   "kind": "function",
+   "module": "mem",
+   "signature": "",
+   "symbol": "size_of"
+  },
+  {
+   "kind": "function",
+   "module": "mem",
+   "signature": "",
+   "symbol": "swap"
+  },
+  {
+   "kind": "function",
+   "module": "mem",
+   "signature": "",
+   "symbol": "take"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "Path"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "PathBuf"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "components"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "exists"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "extension"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "file_name"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "is_dir"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "is_file"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "join"
+  },
+  {
+   "kind": "function",
+   "module": "path",
+   "signature": "",
+   "symbol": "parent"
+  },
+  {
+   "kind": "function",
+   "module": "process",
+   "signature": "",
+   "symbol": "Command"
+  },
+  {
+   "kind": "function",
+   "module": "process",
+   "signature": "",
+   "symbol": "abort"
+  },
+  {
+   "kind": "function",
+   "module": "process",
+   "signature": "",
+   "symbol": "exit"
+  },
+  {
+   "kind": "function",
+   "module": "process",
+   "signature": "",
+   "symbol": "id"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "binary_search"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "chunks"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "concat"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "ends_with"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "fill"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "first"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "iter"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "join"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "last"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "reverse"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "rotate_left"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "sort"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "sort_by"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "sort_unstable"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "split_at"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "starts_with"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "swap"
+  },
+  {
+   "kind": "function",
+   "module": "slice",
+   "signature": "",
+   "symbol": "windows"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "as_bytes"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "bytes"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "char_at"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "char_indices"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "chars"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "chars_count"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "concat"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "ends_with"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "find"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "is_empty"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "join"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "len"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "lines"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "match_indices"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "matches"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "parse"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "repeat"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "replace"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "replacen"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "rfind"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "rsplit"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "rsplit_once"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "split"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "split_once"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "split_whitespace"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "splitn"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "starts_with"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "strip_prefix"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "strip_suffix"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "to_ascii_lowercase"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "to_ascii_uppercase"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "to_lowercase"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "to_uppercase"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "trim"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "trim_end"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "trim_matches"
+  },
+  {
+   "kind": "function",
+   "module": "str",
+   "signature": "",
+   "symbol": "trim_start"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "Duration"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "Instant"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "SystemTime"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "as_millis"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "as_nanos"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "as_secs"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "elapsed"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "from_millis"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "from_secs"
+  },
+  {
+   "kind": "function",
+   "module": "time",
+   "signature": "",
+   "symbol": "now"
+  }
+ ],
+ "language": "rust",
+ "version": "1.96.0"
+}

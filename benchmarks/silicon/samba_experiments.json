@@ -1,0 +1,236 @@
+{
+  "schema": 1,
+  "rows": [
+    {
+      "id": "X-0001",
+      "date": "2026-08-31",
+      "on": "A100-80GB, Qwen3-30B-A3B Q8_0, batch 1",
+      "hypothesis": "A whole decode step as one cooperative launch removes the per-kernel boundaries batch-1 decode pays.",
+      "change": "Every kernel of the step fused into one cooperative launch with 576 grid-wide synchronizations.",
+      "delta": "1,411.9 to 1,399.9 µs a step, 1.009x: within the noise.",
+      "verdict": "no-effect",
+      "log": "benchmarks/results/qwen30b_a100.json#/levers_tested/levers/3",
+      "lesson": "A grid-wide synchronization costs what a kernel boundary costs once launches are pre-scheduled, and an 8 KB hidden state has no locality against 2.8 GB of weights a token. Removing boundaries pays only when it also removes traffic."
+    },
+    {
+      "id": "X-0002",
+      "date": "2026-08-31",
+      "on": "A100-80GB, Qwen3-30B-A3B Q8_0, batch 1",
+      "hypothesis": "A 16-bit KV cache halves attention's reads and speeds batch-1 decode.",
+      "change": "The KV cache stored in f16.",
+      "delta": "169.4 against 169.5 tok/s.",
+      "verdict": "no-effect",
+      "log": "benchmarks/results/qwen30b_a100.json#/levers_tested/levers/1",
+      "lesson": "Batch-1 decode attention at short context is latency-bound, not bandwidth-bound; a narrower cache buys bytes no one was waiting on."
+    },
+    {
+      "id": "X-0003",
+      "date": "2026-08-31",
+      "on": "A100-80GB, Qwen3-30B-A3B Q8_0, batch 1",
+      "hypothesis": "Instruction-level parallelism or a split K inside the GEMVs raises batch-1 throughput.",
+      "change": "The GEMV inner loop unrolled for independent accumulators, and K split across warps.",
+      "delta": "Slower.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen30b_a100.json#/levers_tested/levers/2",
+      "lesson": "At batch 1 there is no operand reuse for either to exploit; the GEMV is already at the bandwidth wall."
+    },
+    {
+      "id": "X-0004",
+      "date": "2026-09-05",
+      "on": "A100, Qwen3.8 27B int8 activations",
+      "hypothesis": "Two output rows a warp reuse each activation load and speed the int8 GEMV.",
+      "change": "Each warp computes two output rows; the warp count halves.",
+      "delta": "Slower, bit-identical output.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/a100_speed_campaign_2026_09_05/lanes/ours_int8_act_wideN",
+      "lesson": "Halving the warps costs more parallelism than the activation reuse returns; on a bandwidth-bound shape, occupancy is worth more than reuse."
+    },
+    {
+      "id": "X-0005",
+      "date": "2026-09-06",
+      "on": "H100, Qwen3.8 27B, batch 8",
+      "hypothesis": "Tensor cores beat the dp4a GEMV at batch 8, as llama.cpp was assumed to switch to them.",
+      "change": "A tensor-core (MMA) lowering of the batched projections.",
+      "delta": "43.43 against 135.80 tok/s aggregate, 3x slower; llama.cpp 233.41.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/tensor_core_attempt_2026_09_06",
+      "lesson": "With a 16-row tile, batch 8 fills half of one tile row: 256 blocks against the GEMV's 2,048 on a 132-SM chip. llama.cpp itself keeps dp4a below batch 64. Read what a rival dispatches at the shape before copying a technique; a starved grid loses to any wider one."
+    },
+    {
+      "id": "X-0006",
+      "date": "2026-09-09",
+      "on": "H100 NVL, Qwen3.8 27B, batch 2 to 32",
+      "hypothesis": "Activation slabs re-read through L2 cost bandwidth; staging them in shared memory once removes it.",
+      "change": "The batched GEMV's activations staged cooperatively in shared memory, two barriers a 512-element K chunk.",
+      "delta": "-9.0% at batch 2, -22.9% at 8, -45.7% at 32 aggregate tok/s.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/staged_gemv_attempt_2026_09_09",
+      "lesson": "The diagnosis was wrong: the re-read activations were L2-resident (20 to 320 KB against 50 MB of L2), never HBM traffic. Staging bought an amortization the cache already gave and paid barriers and shared memory that grow with the batch. Measure where a byte comes from before removing it."
+    },
+    {
+      "id": "X-0007",
+      "date": "2026-09-09",
+      "on": "H100, Qwen3.8 27B int8 tile",
+      "hypothesis": "Combining the int32 partial with both scales before conversion halves the quarter-rate int-to-float conversions.",
+      "change": "One cvt.rn.f32.s32 a group in place of two.",
+      "delta": "1 to 2% slower at every shape.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/tensor_core_tile_2026_09_09/levers_measured_separately/int32_scale_combine",
+      "lesson": "A predicted instruction saving that lengthens a dependency chain can lose; it was also less faithful to the shipped arithmetic, so the two-conversion grouping stays."
+    },
+    {
+      "id": "X-0008",
+      "date": "2026-09-09",
+      "on": "H100, Qwen3.8 27B, batch 1 to 32",
+      "hypothesis": "llama.cpp's arrangement, a separate grid-parallel quantizer after a row-serial norm, is faster than ours.",
+      "change": "Our fused add, norm, f32 write and quantizer split into llama.cpp's two kernels.",
+      "delta": "0.77x.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/small_batch_campaign_2026_09_09/a_negative_worth_keeping",
+      "lesson": "Their split is right for their kernels and wrong for ours: splitting a fused pass reads the activation twice and doubles the launches. Read what a rival does; do not transcribe it."
+    },
+    {
+      "id": "X-0009",
+      "date": "2026-09-21",
+      "on": "H100 NVL, int8 prefill tile K=17408 N=5120 M=1024",
+      "hypothesis": "Hopper's warpgroup MMA is the 4x the Ampere tile leaves on the table (53% of peak on Ampere, 12% on Hopper).",
+      "change": "A wgmma tile, verified against an f32 oracle, in place of the mma.sync tile.",
+      "delta": "82.1 against 119.1 TFLOPS; 120.3 even with the rescale epilogue removed.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/wgmma_verified_and_rejected_2026_09_21",
+      "lesson": "The instruction sustains 1,639.8 TOPS alone, so the MMA was never the limit; every tile shape plateaus near 120 TFLOPS. What remains is operand delivery (TMA and warp specialization), not a different MMA. A ceiling that does not move with the instruction is not the instruction's."
+    },
+    {
+      "id": "X-0010",
+      "date": "2026-09-21",
+      "on": "H100 NVL, int8 decode tile",
+      "hypothesis": "An e4m3 tile is a second lane at the same accuracy and higher speed.",
+      "change": "An fp8 (e4m3) MMA lane with a per-channel requantizer, its fragment map copied from the verified int8 tile.",
+      "delta": "Relative L2 1.001 against an f64 oracle (int8: 0.0053); 359 against 903 GB/s at the decode shape.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/fp8_lane_2026_09_21",
+      "lesson": "A fragment map verified for one operand type is not verified for another; e4m3 operands lay out differently. Gate a new numeric format exactly, never with a tolerance a broken kernel can pass."
+    },
+    {
+      "id": "X-0011",
+      "date": "2026-09-21",
+      "on": "H100 NVL and RTX 3060, decode tile",
+      "hypothesis": "4-bit weights move 47% fewer bytes and speed the decode tile.",
+      "change": "Sequential-nibble Q4 weights expanded at staging, then at the fragment load.",
+      "delta": "0.085 and 0.119 ms against int8's 0.067 on the H100; 0.409 and 0.474 against 0.400 on the 3060.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/q4_lane_2026_09_21",
+      "lesson": "Expanding at staging breaks the asynchronous copy pipeline; expanding at the fragment load repeats the work for every column warp that reads the same rows. A narrower format pays only where the expansion is free and the read is the bottleneck."
+    },
+    {
+      "id": "X-0012",
+      "date": "2026-09-22",
+      "on": "H100 NVL, decode tile at batch 32",
+      "hypothesis": "Q4 halves the weight read and so the decode step, once the occupancy and split match the shipped int8 path.",
+      "change": "The Q4 lane at the shipped occupancy and split.",
+      "delta": "0.97x of int8: 0.496 against 0.480 ms.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/q4_root_cause_2026_09_22/valid_measurement_shipped_occupancy",
+      "lesson": "The int8 tile reaches 54% of the chip's bandwidth and Q4 26%: with bandwidth headroom, halving the bytes buys nothing while the unpacking costs. Two earlier readings (0.84x, 1.08x) were invalid measurements; check the measured path before believing a delta."
+    },
+    {
+      "id": "X-0013",
+      "date": "2026-09-21",
+      "on": "H100, Qwen3.8 27B decode",
+      "hypothesis": "Fusing the RMSNorm reduction into the SiLU consumer saves launches as the SiLU fusion did.",
+      "change": "The add-and-norm folded into the consumer (127 launches removed).",
+      "delta": "-3.3% (SiLU alone: +1.08%, shipped).",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/fusion_campaign_2026_09_21/verdict",
+      "lesson": "Fusion pays when the consumer has parallelism to spare, not when it deletes the most launches: SiLU runs 2,176 blocks and won, the norm runs 32 (one a sequence) and lost. Price a fusion by the consumer's parallelism."
+    },
+    {
+      "id": "X-0014",
+      "date": "2026-09-21",
+      "on": "H100, Qwen3.8 27B decode",
+      "hypothesis": "Folding the gated-delta gates into the recurrence kernel saves 48 launches; its consumer runs 12,288 blocks, the condition that made the SiLU fusion win.",
+      "change": "The gate computation fused into the gated-delta chunk kernel.",
+      "delta": "-4.7% (946.92 and 947.07 to 905.29 and 900.06 tok/s).",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/h100_sweep_2026_09_21/gdn_gate_fusion",
+      "lesson": "The consumer's grid has eight slices a head and sequence, so the fused gate's powf runs eight times inside the recurrence's hot path. A fusion that replicates work across a consumer's slices loses even when the consumer is wide."
+    },
+    {
+      "id": "X-0015",
+      "date": "2026-09-21",
+      "on": "H100, Qwen3.8 27B decode",
+      "hypothesis": "Folding the split-K reduction into the tile epilogue removes 256 launches a step.",
+      "change": "Each tile reduces its share in its epilogue, with a fence and an atomic a split block.",
+      "delta": "930.08 to 845.21 tok/s; graph nodes 1,045 to 789.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/campaign_final_ledger_2026_09_21/split_k_fold",
+      "lesson": "The standalone reduce spreads over hundreds of blocks; the fold funnels each tile into one block and serializes. A first version reduced the whole output in every tile, 10x slower and invisible to an equivalence check: correctness gates catch wrong answers, only measurement catches work done many times."
+    },
+    {
+      "id": "X-0016",
+      "date": "2026-09-21",
+      "on": "H100, Qwen3.8 27B decode",
+      "hypothesis": "A lower split-K target than 1,024 helps on Hopper as it did on the L40.",
+      "change": "Split-K targets 768, 512, 384 and 256.",
+      "delta": "Every step down slower: 949.68 at 1,024 to 924.02 at 256 tok/s.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/h100_sweep_2026_09_21/split_k_target",
+      "lesson": "A tuning result does not transfer across chips: Hopper holds 3 tile blocks a multiprocessor against Ada's 2 and has 4.5x the bandwidth, so blocks are dear and bytes cheap."
+    },
+    {
+      "id": "X-0017",
+      "date": "2026-09-21",
+      "on": "H100 PCIe, Qwen3.8 27B decode",
+      "hypothesis": "A different split ceiling or tile width improves on the shipped configuration.",
+      "change": "Split ceiling 24; tile width 64 and 32.",
+      "delta": "-1.6%, -2.9% and -19.2%.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/verdict_h100_pcie_2026_09_21/knob_verdict",
+      "lesson": "With the target sweep and the two fusions, the parametric search on this chip is finished: the shipped point is optimal on every knob measured. Further gains need a structural change, not a knob."
+    },
+    {
+      "id": "X-0018",
+      "date": "2026-09-21",
+      "on": "H100, Qwen3.8 27B prefill",
+      "hypothesis": "The gated-delta scan dominates prefill, so a faster delta rule is the lever.",
+      "change": "A replacement delta-rule kernel, measured in a prefill ablation.",
+      "delta": "The scan is 5.9% of prefill (the GEMMs about 53%), and the replacement 1.8x slower.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/prefill_ablation_2026_09_21/verdict",
+      "lesson": "Attribute before optimizing: the claim reversed one made and retracted the same day. A lever on 6% of the time is worth at most 6%."
+    },
+    {
+      "id": "X-0019",
+      "date": "2026-09-21",
+      "on": "H100 NVL, decode GEMM",
+      "hypothesis": "Deeper staging, bigger tiles, dynamic shared memory or blocks taken along M raise the decode GEMM's throughput.",
+      "change": "Each lever built and priced on its own.",
+      "delta": "Deeper staging: no gain, the wait stays 67 to 72%; bigger tiles 119 to 94 TFLOPS; blocks along M 224 to 79 GB/s; a pre-tiled weight layout +4% on the 3060 and worse on the H100 (1,221 against 1,261 GB/s).",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/decode_gemm_attribution_2026_09_21/levers_priced_and_eliminated",
+      "lesson": "Price every lever by attribution before building it; only warp specialization had headroom (+18.75%, priced by deleting the barrier). A layout that wins on one chip can lose on another."
+    },
+    {
+      "id": "X-0020",
+      "date": "2026-09-22",
+      "on": "CPU f64 oracle, gated-delta recurrence",
+      "hypothesis": "The gated-delta state can be held in bfloat16 to halve its 151 MB a sequence.",
+      "change": "The recurrent state held in f16 and in bf16, against an f64 state.",
+      "delta": "bf16: relative L2 up to 0.257 at decay 0.999; f16: 0.0019; f32: 2.4e-7.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/gdn_state_precision_2026_09_22",
+      "lesson": "Ten mantissa bits are needed: bf16's eight are 40 to 100x worse. The error does not grow with the sequence (the decay forgets it), so f16 holds; the half-width state is f16, never bf16."
+    },
+    {
+      "id": "X-0021",
+      "date": "2026-09-09",
+      "on": "H100 NVL, Qwen3.8 27B, batch 32",
+      "hypothesis": "Raising sequences a block (BTG) so one pass covers the batch removes the 4x weight re-read at batch 32.",
+      "change": "BTG swept above 8 at the real projection shape.",
+      "delta": "0.335 ms a launch at BTG 8 against 0.795 at 16 and 1.386 at 32: 2.6x worse at batch 32.",
+      "verdict": "rejected",
+      "log": "benchmarks/results/qwen38_27b.json#/logos/staged_gemv_attempt_2026_09_09/btg_sweep",
+      "lesson": "An unrolled per-sequence loop holds BTG activations and BTG accumulators in registers: 40 registers a thread at BTG 8 become 178 at 32, and occupancy collapses to about 18% with no spill. BTG 8 with no staging is a local optimum; the gap needs both operands tiled in shared memory with register blocking, a rewrite, not a knob."
+    }
+  ]
+}

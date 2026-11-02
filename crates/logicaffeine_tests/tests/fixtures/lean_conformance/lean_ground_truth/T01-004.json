@@ -1,0 +1,119 @@
+{
+  "case": "T01-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 12,
+  "declarations": [
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T01_004.arrow",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type w \u2192 Type (max u v w)",
+      "name": "T01_004.arrow3",
+      "levels": [
+        "u",
+        "v",
+        "w"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type w \u2192 Type (max (max u v) w)",
+      "name": "T01_004.arrow3Assoc",
+      "levels": [
+        "u",
+        "v",
+        "w"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_004.arrowAt00",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_004.arrowAt01",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_004.arrowAt10",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u \u2192 Type u",
+      "name": "T01_004.arrowSameLevel",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u \u2192 Type u",
+      "name": "T01_004.arrowSameLevelPlain",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_004.maxWithProp",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type (u + 1) \u2192 Type (u + 1)",
+      "name": "T01_004.maxWithSucc",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type (max (u + 1) (v + 1))",
+      "name": "T01_004.piComputedMax",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type v",
+      "name": "T01_004.secondOnly",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

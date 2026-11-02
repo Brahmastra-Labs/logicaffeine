@@ -1,0 +1,31 @@
+# A singly-placed, non-wrapper child whose own action structurally repaints itself
+
+## Component Counter
+
+State:
+    Let c be 0.
+Actions:
+    To inc:
+        Set c to c + 1.
+View:
+    <div class="counter"><span id="c">{c}</span>{if c > 1:}<b>big</b>{end}<button id="inc" on-click={inc}>+</button></div>
+
+## Page /
+
+State:
+    Let on be false.
+Actions:
+    To flip:
+        Set on to not on.
+View:
+    <main>
+      <Counter/>
+      {if on:}<p id="flag">on</p>{end}
+      <button id="flip" on-click={flip}>flip</button>
+    </main>
+
+## Test: a child's own structural repaint leaves its siblings in place
+    Click "#inc".
+    Click "#inc".
+    Expect that the text of "#c" is equal to "2".
+    Expect that "#flip" is visible.

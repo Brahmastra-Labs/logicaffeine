@@ -1,0 +1,36 @@
+{
+  "id": "12.1",
+  "title": "Obligation and Permission",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Deontic logic** reasons about what ought to be and what may be. O means obligatory and P means permitted. LOGOS prints 'should' as O and 'may' as P."
+    },
+    {
+      "type": "paragraph",
+      "text": "Something is forbidden when its denial is obligatory. And what you ought to do, you may do."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "John should run.",
+      "formula": "O_{0.6} ∃e(Run(e) ∧ Agent(e, John))",
+      "note": "O says the running ought to happen. The number is how strongly 'should' says it."
+    },
+    {
+      "type": "formula",
+      "sentence": "John may run.",
+      "formula": "P_{0.5} ∃e(Run(e) ∧ Agent(e, John))",
+      "note": "P says the running is permitted."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Mary should sleep.",
+    "answer": "O_{0.6} ∃e(Sleep(e) ∧ Agent(e, Mary))",
+    "hint": "Put O in front of the event. The number is optional.",
+    "explanation": "'Should' is obligation, so O goes in front of the sleeping event, with Mary as its Agent."
+  }
+}

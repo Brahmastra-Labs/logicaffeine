@@ -1,0 +1,10 @@
+{
+  "capability": "convert.can_backquote",
+  "workload": "canBackquote(numText(i)) -> true",
+  "arg": "2000000",
+  "expected": "2000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

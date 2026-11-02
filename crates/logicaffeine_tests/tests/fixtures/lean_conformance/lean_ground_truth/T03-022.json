@@ -1,0 +1,710 @@
+{
+  "case": "T03-022",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 88,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_022.Box",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_022.Box \u03b1 \u2192 Sort u} \u2192 (t : T03_022.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T03_022.Box.mk a)) \u2192 motive t",
+      "name": "T03_022.Box.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T03_022.Box \u03b1",
+      "name": "T03_022.Box.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T03_022.Box.mk a = T03_022.Box.mk a_1 \u2192 a = a_1",
+      "name": "T03_022.Box.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T03_022.Box.mk a = T03_022.Box.mk a_1) = (a = a_1)",
+      "name": "T03_022.Box.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T03_022.Box.mk a) = 1 + sizeOf a",
+      "name": "T03_022.Box.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_022.Box \u03b1} \u2192 v1 = v2 \u2192 T03_022.Box.noConfusionType P v1 v2",
+      "name": "T03_022.Box.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_022.Box \u03b1 \u2192 T03_022.Box \u03b1 \u2192 Sort u",
+      "name": "T03_022.Box.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_022.Box \u03b1 \u2192 Sort u} \u2192 ((a : \u03b1) \u2192 motive (T03_022.Box.mk a)) \u2192 (t : T03_022.Box \u03b1) \u2192 motive t",
+      "name": "T03_022.Box.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_022.Box \u03b1 \u2192 Sort u} \u2192 (t : T03_022.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T03_022.Box.mk a)) \u2192 motive t",
+      "name": "T03_022.Box.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T03_022.Carrier",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Carrier \u2192 Sort u} \u2192\n  (t : T03_022.Carrier) \u2192 ((ty : Type) \u2192 (point : ty) \u2192 motive { ty := ty, point := point }) \u2192 motive t",
+      "name": "T03_022.Carrier.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(ty : Type) \u2192 ty \u2192 T03_022.Carrier",
+      "name": "T03_022.Carrier.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {ty : Type} {point : ty} {ty_1 : Type} {point_1 : ty_1},\n  { ty := ty, point := point } = { ty := ty_1, point := point_1 } \u2192 ty = ty_1 \u2227 HEq point point_1",
+      "name": "T03_022.Carrier.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (ty : Type) (point : ty) (ty_1 : Type) (point_1 : ty_1),\n  ({ ty := ty, point := point } = { ty := ty_1, point := point_1 }) = (ty = ty_1 \u2227 HEq point point_1)",
+      "name": "T03_022.Carrier.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (ty : Type) (point : ty), sizeOf { ty := ty, point := point } = 1 + sizeOf ty + sizeOf point",
+      "name": "T03_022.Carrier.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_022.Carrier} \u2192 v1 = v2 \u2192 T03_022.Carrier.noConfusionType P v1 v2",
+      "name": "T03_022.Carrier.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_022.Carrier \u2192 T03_022.Carrier \u2192 Sort u",
+      "name": "T03_022.Carrier.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(self : T03_022.Carrier) \u2192 self.ty",
+      "name": "T03_022.Carrier.point",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Carrier \u2192 Sort u} \u2192\n  ((ty : Type) \u2192 (point : ty) \u2192 motive { ty := ty, point := point }) \u2192 (t : T03_022.Carrier) \u2192 motive t",
+      "name": "T03_022.Carrier.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Carrier \u2192 Sort u} \u2192\n  (t : T03_022.Carrier) \u2192 ((ty : Type) \u2192 (point : ty) \u2192 motive { ty := ty, point := point }) \u2192 motive t",
+      "name": "T03_022.Carrier.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Carrier \u2192 Type",
+      "name": "T03_022.Carrier.ty",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T03_022.Good",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Good \u2192 Sort u} \u2192 (t : T03_022.Good) \u2192 ((a : Type) \u2192 motive (T03_022.Good.mk a)) \u2192 motive t",
+      "name": "T03_022.Good.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T03_022.Good",
+      "name": "T03_022.Good.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Type}, T03_022.Good.mk a = T03_022.Good.mk a_1 \u2192 a = a_1",
+      "name": "T03_022.Good.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Type), (T03_022.Good.mk a = T03_022.Good.mk a_1) = (a = a_1)",
+      "name": "T03_022.Good.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Type), sizeOf (T03_022.Good.mk a) = 1 + sizeOf a",
+      "name": "T03_022.Good.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_022.Good} \u2192 v1 = v2 \u2192 T03_022.Good.noConfusionType P v1 v2",
+      "name": "T03_022.Good.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_022.Good \u2192 T03_022.Good \u2192 Sort u",
+      "name": "T03_022.Good.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Good \u2192 Sort u} \u2192 ((a : Type) \u2192 motive (T03_022.Good.mk a)) \u2192 (t : T03_022.Good) \u2192 motive t",
+      "name": "T03_022.Good.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Good \u2192 Sort u} \u2192 (t : T03_022.Good) \u2192 ((a : Type) \u2192 motive (T03_022.Good.mk a)) \u2192 motive t",
+      "name": "T03_022.Good.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T03_022.MA",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192 {motive_2 : T03_022.MB \u2192 Sort u} \u2192 T03_022.MA \u2192 Sort (max 1 u)",
+      "name": "T03_022.MA.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_022.MA \u2192 Prop} {motive_2 : T03_022.MB \u2192 Prop} (t : T03_022.MA),\n  (\u2200 (t : T03_022.MA), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T03_022.MB), t.ibelow \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_022.MA.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  {motive_2 : T03_022.MB \u2192 Sort u} \u2192\n    (t : T03_022.MA) \u2192\n      ((t : T03_022.MA) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T03_022.MB) \u2192 t.below \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_022.MA.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  (t : T03_022.MA) \u2192 ((a : Type) \u2192 (a_1 : T03_022.MB) \u2192 motive_1 (T03_022.MA.ma a a_1)) \u2192 motive_1 t",
+      "name": "T03_022.MA.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Prop} \u2192 {motive_2 : T03_022.MB \u2192 Prop} \u2192 T03_022.MA \u2192 Prop",
+      "name": "T03_022.MA.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T03_022.MB \u2192 T03_022.MA",
+      "name": "T03_022.MA.ma",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : Type} {a_1 : T03_022.MB} {a_2 : Type} {a_3 : T03_022.MB},\n  T03_022.MA.ma a a_1 = T03_022.MA.ma a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_022.MA.ma.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a : Type) (a_1 : T03_022.MB) (a_2 : Type) (a_3 : T03_022.MB),\n  (T03_022.MA.ma a a_1 = T03_022.MA.ma a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_022.MA.ma.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Type) (a_1 : T03_022.MB), sizeOf (T03_022.MA.ma a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_022.MA.ma.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_022.MA} \u2192 v1 = v2 \u2192 T03_022.MA.noConfusionType P v1 v2",
+      "name": "T03_022.MA.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_022.MA \u2192 T03_022.MA \u2192 Sort u",
+      "name": "T03_022.MA.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  {motive_2 : T03_022.MB \u2192 Sort u} \u2192\n    ((a : Type) \u2192 (a_1 : T03_022.MB) \u2192 motive_2 a_1 \u2192 motive_1 (T03_022.MA.ma a a_1)) \u2192\n      ((a : Type) \u2192 motive_2 (T03_022.MB.mb a)) \u2192 motive_2 T03_022.MB.mstop \u2192 (t : T03_022.MA) \u2192 motive_1 t",
+      "name": "T03_022.MA.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  {motive_2 : T03_022.MB \u2192 Sort u} \u2192\n    (t : T03_022.MA) \u2192\n      ((a : Type) \u2192 (a_1 : T03_022.MB) \u2192 motive_2 a_1 \u2192 motive_1 (T03_022.MA.ma a a_1)) \u2192\n        ((a : Type) \u2192 motive_2 (T03_022.MB.mb a)) \u2192 motive_2 T03_022.MB.mstop \u2192 motive_1 t",
+      "name": "T03_022.MA.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T03_022.MB",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192 {motive_2 : T03_022.MB \u2192 Sort u} \u2192 T03_022.MB \u2192 Sort (max 1 u)",
+      "name": "T03_022.MB.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_022.MA \u2192 Prop} {motive_2 : T03_022.MB \u2192 Prop} (t : T03_022.MB),\n  (\u2200 (t : T03_022.MA), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T03_022.MB), t.ibelow \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_022.MB.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  {motive_2 : T03_022.MB \u2192 Sort u} \u2192\n    (t : T03_022.MB) \u2192\n      ((t : T03_022.MA) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T03_022.MB) \u2192 t.below \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_022.MB.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_2 : T03_022.MB \u2192 Sort u} \u2192\n  (t : T03_022.MB) \u2192 ((a : Type) \u2192 motive_2 (T03_022.MB.mb a)) \u2192 motive_2 T03_022.MB.mstop \u2192 motive_2 t",
+      "name": "T03_022.MB.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Prop} \u2192 {motive_2 : T03_022.MB \u2192 Prop} \u2192 T03_022.MB \u2192 Prop",
+      "name": "T03_022.MB.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T03_022.MB",
+      "name": "T03_022.MB.mb",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Type}, T03_022.MB.mb a = T03_022.MB.mb a_1 \u2192 a = a_1",
+      "name": "T03_022.MB.mb.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Type), (T03_022.MB.mb a = T03_022.MB.mb a_1) = (a = a_1)",
+      "name": "T03_022.MB.mb.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Type), sizeOf (T03_022.MB.mb a) = 1 + sizeOf a",
+      "name": "T03_022.MB.mb.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.MB",
+      "name": "T03_022.MB.mstop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_022.MB.mstop = 1",
+      "name": "T03_022.MB.mstop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_022.MB} \u2192 v1 = v2 \u2192 T03_022.MB.noConfusionType P v1 v2",
+      "name": "T03_022.MB.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_022.MB \u2192 T03_022.MB \u2192 Sort u",
+      "name": "T03_022.MB.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  {motive_2 : T03_022.MB \u2192 Sort u} \u2192\n    ((a : Type) \u2192 (a_1 : T03_022.MB) \u2192 motive_2 a_1 \u2192 motive_1 (T03_022.MA.ma a a_1)) \u2192\n      ((a : Type) \u2192 motive_2 (T03_022.MB.mb a)) \u2192 motive_2 T03_022.MB.mstop \u2192 (t : T03_022.MB) \u2192 motive_2 t",
+      "name": "T03_022.MB.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_022.MA \u2192 Sort u} \u2192\n  {motive_2 : T03_022.MB \u2192 Sort u} \u2192\n    (t : T03_022.MB) \u2192\n      ((a : Type) \u2192 (a_1 : T03_022.MB) \u2192 motive_2 a_1 \u2192 motive_1 (T03_022.MA.ma a a_1)) \u2192\n        ((a : Type) \u2192 motive_2 (T03_022.MB.mb a)) \u2192 motive_2 T03_022.MB.mstop \u2192 motive_2 t",
+      "name": "T03_022.MB.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T03_022.Package",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Package \u2192 Sort u} \u2192\n  (t : T03_022.Package) \u2192 ((\u03b1 : Type) \u2192 (a : \u03b1) \u2192 motive (T03_022.Package.mk \u03b1 a)) \u2192 motive t",
+      "name": "T03_022.Package.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 \u03b1 \u2192 T03_022.Package",
+      "name": "T03_022.Package.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {\u03b1_1 : Type} {a_1 : \u03b1_1}, T03_022.Package.mk \u03b1 a = T03_022.Package.mk \u03b1_1 a_1 \u2192 \u03b1 = \u03b1_1 \u2227 HEq a a_1",
+      "name": "T03_022.Package.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (a : \u03b1) (\u03b1_1 : Type) (a_1 : \u03b1_1),\n  (T03_022.Package.mk \u03b1 a = T03_022.Package.mk \u03b1_1 a_1) = (\u03b1 = \u03b1_1 \u2227 HEq a a_1)",
+      "name": "T03_022.Package.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (a : \u03b1), sizeOf (T03_022.Package.mk \u03b1 a) = 1 + sizeOf \u03b1 + sizeOf a",
+      "name": "T03_022.Package.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_022.Package} \u2192 v1 = v2 \u2192 T03_022.Package.noConfusionType P v1 v2",
+      "name": "T03_022.Package.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_022.Package \u2192 T03_022.Package \u2192 Sort u",
+      "name": "T03_022.Package.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Package \u2192 Sort u} \u2192\n  ((\u03b1 : Type) \u2192 (a : \u03b1) \u2192 motive (T03_022.Package.mk \u03b1 a)) \u2192 (t : T03_022.Package) \u2192 motive t",
+      "name": "T03_022.Package.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_022.Package \u2192 Sort u} \u2192\n  (t : T03_022.Package) \u2192 ((\u03b1 : Type) \u2192 (a : \u03b1) \u2192 motive (T03_022.Package.mk \u03b1 a)) \u2192 motive t",
+      "name": "T03_022.Package.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T03_022.PropPackage",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_022.PropPackage \u2192 Prop} (t : T03_022.PropPackage), (\u2200 (\u03b1 : Type) (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T03_022.PropPackage.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type), \u03b1 \u2192 T03_022.PropPackage",
+      "name": "T03_022.PropPackage.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_022.PropPackage \u2192 Prop}, (\u2200 (\u03b1 : Type) (a : \u03b1), motive \u22ef) \u2192 \u2200 (t : T03_022.PropPackage), motive t",
+      "name": "T03_022.PropPackage.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_022.PropPackage \u2192 Prop} (t : T03_022.PropPackage), (\u2200 (\u03b1 : Type) (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T03_022.PropPackage.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Box Nat",
+      "name": "T03_022.boxed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Good",
+      "name": "T03_022.goodNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.MA",
+      "name": "T03_022.maNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.MB",
+      "name": "T03_022.mbNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Carrier",
+      "name": "T03_022.natCarrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Package \u2192 Type",
+      "name": "T03_022.packCarrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_022.Package \u2192 Sort u_1) \u2192\n  (x : T03_022.Package) \u2192 ((\u03b1 : Type) \u2192 (a : \u03b1) \u2192 motive (T03_022.Package.mk \u03b1 a)) \u2192 motive x",
+      "name": "T03_022.packCarrier.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Package",
+      "name": "T03_022.packNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.PropPackage",
+      "name": "T03_022.ppack",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_022.Box Nat \u2192 Nat",
+      "name": "T03_022.unbox",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_022.Box Nat \u2192 Sort u_1) \u2192 (x : T03_022.Box Nat) \u2192 ((n : Nat) \u2192 motive (T03_022.Box.mk n)) \u2192 motive x",
+      "name": "T03_022.unbox.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

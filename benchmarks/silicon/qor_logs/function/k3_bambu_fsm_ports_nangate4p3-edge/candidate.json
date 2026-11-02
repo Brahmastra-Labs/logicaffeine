@@ -1,0 +1,320 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "a",
+    "dut": "a",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "w",
+    "dut": "w0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w1",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w2",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w3",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w4",
+    "dut_lsb": 0,
+    "lsb": 256,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w5",
+    "dut_lsb": 0,
+    "lsb": 320,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w6",
+    "dut_lsb": 0,
+    "lsb": 384,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w",
+    "dut": "w7",
+    "dut_lsb": 0,
+    "lsb": 448,
+    "valid": null,
+    "width": 64
+   }
+  ],
+  "kernel": "K3",
+  "mems": [],
+  "name": "k3_bambu_fsm_ports_nangate4p3",
+  "outputs": [
+   {
+    "contract": "o",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "o0_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "o1_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "o2_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "o3_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "o4_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "o5_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "o6_vld",
+    "width": 32
+   },
+   {
+    "contract": "o",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "o7_vld",
+    "width": 32
+   }
+  ],
+  "ports": [
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o0_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o1_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o2"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o2_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o3"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o3_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o4"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o4_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o5"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o5_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o6"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o6_vld"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o7"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o7_vld"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w2"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w3"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w4"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w5"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w6"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w7"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "gemm8_ports"
+ },
+ "files": [
+  "gemm8_ports.v"
+ ],
+ "golden_signature": "d0c75b80a9766503",
+ "harness": "qorbist_k3_bambu_fsm_ports_nangate4p3.v",
+ "harness_top": "qorbist_k3_bambu_fsm_ports_nangate4p3",
+ "kernel": "K3",
+ "kernel_name": "gemm8",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

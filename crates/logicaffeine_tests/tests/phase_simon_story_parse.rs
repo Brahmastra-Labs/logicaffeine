@@ -33,22 +33,44 @@ fn clean_story(raw: &str) -> Vec<String> {
 fn load_story() -> String {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json"
+        "/tests/fixtures/puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json"
     );
-    let p: Puzzle = serde_json::from_str(&std::fs::read_to_string(path).expect("read"))
-        .expect("parse JSON");
+    let p: Puzzle =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("read")).expect("parse JSON");
     p.story
 }
 
 #[test]
 fn clean_story_strips_boilerplate_to_three_sentences() {
     let sents = clean_story(&load_story());
-    assert_eq!(sents.len(), 3, "narrative + goal + all-different; got: {sents:?}");
-    assert!(sents[0].starts_with("Every year Simon takes"), "narrative; got: {:?}", sents[0]);
-    assert!(sents[1].starts_with("Determine each trip"), "goal; got: {:?}", sents[1]);
-    assert!(sents[2].contains("no option in any category"), "all-different; got: {:?}", sents[2]);
-    assert!(!sents.iter().any(|s| s.contains("Clear Errors")), "UI help dropped");
-    assert!(!sents.iter().any(|s| s.contains("Backstory")), "header dropped");
+    assert_eq!(
+        sents.len(),
+        3,
+        "narrative + goal + all-different; got: {sents:?}"
+    );
+    assert!(
+        sents[0].starts_with("Every year Simon takes"),
+        "narrative; got: {:?}",
+        sents[0]
+    );
+    assert!(
+        sents[1].starts_with("Determine each trip"),
+        "goal; got: {:?}",
+        sents[1]
+    );
+    assert!(
+        sents[2].contains("no option in any category"),
+        "all-different; got: {:?}",
+        sents[2]
+    );
+    assert!(
+        !sents.iter().any(|s| s.contains("Clear Errors")),
+        "UI help dropped"
+    );
+    assert!(
+        !sents.iter().any(|s| s.contains("Backstory")),
+        "header dropped"
+    );
 }
 
 #[test]
@@ -76,5 +98,8 @@ fn story_goal_parses() {
 fn story_all_different_parses() {
     let sents = clean_story(&load_story());
     let out = compile(&sents[2]).unwrap_or_else(|e| panic!("all-different {:?}: {e:?}", sents[2]));
-    assert!(out.contains("Option") || out.contains("Category"), "all-different content; got: {out}");
+    assert!(
+        out.contains("Option") || out.contains("Category"),
+        "all-different content; got: {out}"
+    );
 }

@@ -1,0 +1,10 @@
+{
+  "capability": "text.zfill",
+  "workload": "zfill(s,5000) \u2014 length fold",
+  "arg": "20000",
+  "expected": "100000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

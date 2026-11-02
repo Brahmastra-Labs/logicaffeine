@@ -5,8 +5,7 @@
 //! signal types, parameters, and clock detection.
 
 use logicaffeine_compile::codegen_sva::rtl_extract::{
-    parse_verilog_module, RtlModule, RtlPort, RtlSignal, RtlParam,
-    PortDirection, SignalType,
+    parse_verilog_module, PortDirection, SignalType,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -91,7 +90,10 @@ fn parse_multiple_ports() {
 fn parse_wire_signal() {
     let src = "module m;\n  wire enable;\nendmodule";
     let m = parse_verilog_module(src).unwrap();
-    assert!(m.signals.iter().any(|s| s.name == "enable" && s.signal_type == SignalType::Wire));
+    assert!(m
+        .signals
+        .iter()
+        .any(|s| s.name == "enable" && s.signal_type == SignalType::Wire));
 }
 
 #[test]
@@ -139,8 +141,11 @@ fn parse_localparam() {
 fn detect_clock_from_always_posedge() {
     let src = "module m (\n  input clk\n);\n  always @(posedge clk) begin\n  end\nendmodule";
     let m = parse_verilog_module(src).unwrap();
-    assert!(m.clocks.contains(&"clk".to_string()),
-        "Should detect clk from always @(posedge clk). Clocks: {:?}", m.clocks);
+    assert!(
+        m.clocks.contains(&"clk".to_string()),
+        "Should detect clk from always @(posedge clk). Clocks: {:?}",
+        m.clocks
+    );
 }
 
 #[test]
@@ -171,8 +176,15 @@ fn parse_apb_slave_header() {
 endmodule"#;
     let m = parse_verilog_module(src).unwrap();
     assert_eq!(m.name, "apb_slave");
-    assert!(m.ports.len() >= 9, "APB slave should have at least 9 ports, got {}", m.ports.len());
-    assert!(m.ports.iter().any(|p| p.name == "pclk" && p.direction == PortDirection::Input));
+    assert!(
+        m.ports.len() >= 9,
+        "APB slave should have at least 9 ports, got {}",
+        m.ports.len()
+    );
+    assert!(m
+        .ports
+        .iter()
+        .any(|p| p.name == "pclk" && p.direction == PortDirection::Input));
     assert!(m.ports.iter().any(|p| p.name == "prdata" && p.width == 32));
 }
 
@@ -190,7 +202,10 @@ endmodule"#;
     let m = parse_verilog_module(src).unwrap();
     assert_eq!(m.name, "uart_tx");
     assert!(m.ports.iter().any(|p| p.name == "tx_data" && p.width == 8));
-    assert!(m.ports.iter().any(|p| p.name == "tx_busy" && p.direction == PortDirection::Output));
+    assert!(m
+        .ports
+        .iter()
+        .any(|p| p.name == "tx_busy" && p.direction == PortDirection::Output));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

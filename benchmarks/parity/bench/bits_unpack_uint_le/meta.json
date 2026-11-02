@@ -1,0 +1,11 @@
+{
+  "capability": "bits.unpack_uint_le",
+  "workload": "unpackUintLE over a 6-byte buffer whose LSB varies per rep, fold mod 1e9+7",
+  "arg": "2000000",
+  "expected": "834425733",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls unpackUintLE() WITHOUT defining it \u2014 auto-imported from bits.lg. Python counterpart uses int.from_bytes(...,'little'), recomputed each rep."
+}

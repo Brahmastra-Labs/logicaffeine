@@ -56,7 +56,11 @@ pub(crate) struct ReplState {
 impl ReplState {
     fn new(start_in_logic: bool, format: LogicFormat, color: bool) -> Self {
         ReplState {
-            mode: if start_in_logic { Mode::Logic } else { Mode::Imperative },
+            mode: if start_in_logic {
+                Mode::Logic
+            } else {
+                Mode::Imperative
+            },
             imperative: ReplSession::new(),
             logic: Session::with_format(format.into()),
             format,
@@ -108,7 +112,22 @@ impl ReplState {
                 anstream::println!("{}", colorize_fol(&fol, self.color));
                 self.last_sentence = Some(sentence.to_string());
             }
-            Err(e) => print_error(&format!("could not parse: {e:?}")),
+            Err(e) => {
+                let explanation = logicaffeine_language::socratic_explanation(
+                    &e,
+                    &logicaffeine_language::Interner::new(),
+                );
+                let excerpt: Vec<String> = e
+                    .display_with_source(sentence)
+                    .lines()
+                    .skip(1)
+                    .map(str::to_string)
+                    .collect();
+                print_error(&format!(
+                    "could not parse: {explanation}\n{}",
+                    excerpt.join("\n")
+                ))
+            }
         }
     }
 
@@ -130,8 +149,10 @@ impl ReplState {
             }
             MetaCommand::Readings => match &self.last_sentence {
                 Some(sentence) => {
-                    let options =
-                        CompileOptions { format: self.format.into(), pragmatic: false };
+                    let options = CompileOptions {
+                        format: self.format.into(),
+                        pragmatic: false,
+                    };
                     let readings = collect_readings(sentence, options);
                     if readings.is_empty() {
                         print_error("no readings for the last sentence");

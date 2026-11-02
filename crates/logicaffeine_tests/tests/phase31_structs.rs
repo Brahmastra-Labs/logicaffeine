@@ -16,7 +16,11 @@ A Point has:
 Return.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("struct Point"), "Should define Point struct: {}", rust);
+    assert!(
+        rust.contains("struct Point"),
+        "Should define Point struct: {}",
+        rust
+    );
 }
 
 #[test]
@@ -33,10 +37,18 @@ Set p's x to 10.
 Show p.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("pub struct Point"), "Should have pub struct: {}", rust);
+    assert!(
+        rust.contains("pub struct Point"),
+        "Should have pub struct: {}",
+        rust
+    );
     assert!(rust.contains("pub x: i64"), "x should be pub: {}", rust);
     assert!(rust.contains("pub y: i64"), "y should be pub: {}", rust);
-    assert!(rust.contains("mod user_types"), "Should wrap in module: {}", rust);
+    assert!(
+        rust.contains("mod user_types"),
+        "Should wrap in module: {}",
+        rust
+    );
 }
 
 #[test]
@@ -52,7 +64,11 @@ A User has:
 Return.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("pub name: String"), "name should be pub: {}", rust);
+    assert!(
+        rust.contains("pub name: String"),
+        "name should be pub: {}",
+        rust
+    );
     assert!(rust.contains("pub age: u64"), "age should be pub: {}", rust);
 }
 
@@ -67,7 +83,11 @@ A Point has:
 Let p be a new Point.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("Point::default()"), "Should use default constructor: {}", rust);
+    assert!(
+        rust.contains("Point::default()"),
+        "Should use default constructor: {}",
+        rust
+    );
 }
 
 #[test]
@@ -83,8 +103,16 @@ Set p's x to 42.
 Show p's x.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("p.x = 42"), "Should emit field assignment: {}", rust);
-    assert!(rust.contains("show(&p.x)"), "Should emit field access in show: {}", rust);
+    assert!(
+        rust.contains("p.x = 42"),
+        "Should emit field assignment: {}",
+        rust
+    );
+    assert!(
+        rust.contains("show(&p.x)"),
+        "Should emit field access in show: {}",
+        rust
+    );
 }
 
 #[test]
@@ -98,5 +126,9 @@ A Point has:
 Return.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("#[derive(Default, Debug, Clone, PartialEq)]"), "Should have derive macros: {}", rust);
+    assert!(
+        rust.contains("#[derive(Default, Debug, Clone, PartialEq)]"),
+        "Should have derive macros: {}",
+        rust
+    );
 }

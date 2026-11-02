@@ -17,8 +17,11 @@ fn liveness_simple_ack() {
     let transition = VerifyExpr::var("ack@t1"); // ack becomes true
     let property = VerifyExpr::var("ack@t");
     let result = check_liveness(&init, &transition, &[], &property, 5);
-    assert!(matches!(result, LivenessResult::Live),
-        "ack eventually true should be live. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "ack eventually true should be live. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -28,8 +31,11 @@ fn liveness_starvation() {
     let transition = VerifyExpr::not(VerifyExpr::var("ack@t1")); // ack stays false
     let property = VerifyExpr::var("ack@t");
     let result = check_liveness(&init, &transition, &[], &property, 5);
-    assert!(matches!(result, LivenessResult::NotLive { .. }),
-        "ack never true should fail liveness. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::NotLive { .. }),
+        "ack never true should fail liveness. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -39,14 +45,14 @@ fn liveness_eventually_response() {
         VerifyExpr::var("req@0"),
         VerifyExpr::not(VerifyExpr::var("ack@0")),
     );
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("ack@t1"),
-        VerifyExpr::var("req@t"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("ack@t1"), VerifyExpr::var("req@t"));
     let property = VerifyExpr::var("ack@t");
     let result = check_liveness(&init, &transition, &[], &property, 5);
-    assert!(matches!(result, LivenessResult::Live),
-        "Response within 2 cycles should be live. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "Response within 2 cycles should be live. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -56,22 +62,25 @@ fn liveness_progress() {
     let transition = VerifyExpr::var("progress@t1"); // progress always true
     let property = VerifyExpr::var("progress@t");
     let result = check_liveness(&init, &transition, &[], &property, 3);
-    assert!(matches!(result, LivenessResult::Live),
-        "Always-true progress should be live. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "Always-true progress should be live. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn liveness_deadlock_detected() {
     // System halts — no progress ever
     let init = VerifyExpr::not(VerifyExpr::var("active@0"));
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("active@t1"),
-        VerifyExpr::var("active@t"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("active@t1"), VerifyExpr::var("active@t"));
     let property = VerifyExpr::var("active@t");
     let result = check_liveness(&init, &transition, &[], &property, 5);
-    assert!(matches!(result, LivenessResult::NotLive { .. }),
-        "Dead system should fail liveness. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::NotLive { .. }),
+        "Dead system should fail liveness. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -96,8 +105,11 @@ fn liveness_empty_fairness() {
     let transition = VerifyExpr::var("ok@t1");
     let property = VerifyExpr::var("ok@t");
     let result = check_liveness(&init, &transition, &[], &property, 3);
-    assert!(matches!(result, LivenessResult::Live),
-        "Always-true with no fairness should be live. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "Always-true with no fairness should be live. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -110,8 +122,11 @@ fn liveness_safety_dual() {
     let property = VerifyExpr::var("p@t");
 
     let live_result = check_liveness(&init, &transition, &[], &property, 5);
-    assert!(matches!(live_result, LivenessResult::Live),
-        "Constant true should be live. Got: {:?}", live_result);
+    assert!(
+        matches!(live_result, LivenessResult::Live),
+        "Constant true should be live. Got: {:?}",
+        live_result
+    );
 }
 
 #[test]
@@ -127,8 +142,11 @@ fn liveness_integer_counter_resets() {
     let property = VerifyExpr::eq(VerifyExpr::var("c@t"), VerifyExpr::int(0));
     let result = check_liveness(&init, &transition, &[], &property, 5);
     // With unconstrained transition, c could be 0 at init, so Live
-    assert!(matches!(result, LivenessResult::Live),
-        "Counter starting at 0 satisfies c==0. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "Counter starting at 0 satisfies c==0. Got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -153,15 +171,24 @@ fn liveness_with_fairness_constraint() {
         VerifyExpr::not(VerifyExpr::var("p2@0")),
     );
     let transition = VerifyExpr::and(
-        VerifyExpr::iff(VerifyExpr::var("p1@t1"), VerifyExpr::not(VerifyExpr::var("p1@t"))),
-        VerifyExpr::iff(VerifyExpr::var("p2@t1"), VerifyExpr::not(VerifyExpr::var("p2@t"))),
+        VerifyExpr::iff(
+            VerifyExpr::var("p1@t1"),
+            VerifyExpr::not(VerifyExpr::var("p1@t")),
+        ),
+        VerifyExpr::iff(
+            VerifyExpr::var("p2@t1"),
+            VerifyExpr::not(VerifyExpr::var("p2@t")),
+        ),
     );
     let property = VerifyExpr::var("p1@t");
     let fairness = vec![VerifyExpr::var("p2@t")];
     let result = check_liveness(&init, &transition, &fairness, &property, 10);
     // p1 toggles: true, false, true, false, ... — it IS infinitely often true.
-    assert!(matches!(result, LivenessResult::Live),
-        "Toggling p1 should be live (infinitely often true). Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "Toggling p1 should be live (infinitely often true). Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -181,7 +208,8 @@ fn liveness_not_live_trace_has_cycles() {
             assert!(
                 loop_point < trace.cycles.len(),
                 "Loop point {} must be within trace (len {})",
-                loop_point, trace.cycles.len(),
+                loop_point,
+                trace.cycles.len(),
             );
         }
         other => panic!("Expected NotLive with trace, got: {:?}", other),
@@ -212,11 +240,11 @@ fn liveness_multiple_fairness_constraints() {
         ),
     );
     let property = VerifyExpr::var("s0@t");
-    let fairness = vec![
-        VerifyExpr::var("s1@t"),
-        VerifyExpr::var("s2@t"),
-    ];
+    let fairness = vec![VerifyExpr::var("s1@t"), VerifyExpr::var("s2@t")];
     let result = check_liveness(&init, &transition, &fairness, &property, 10);
-    assert!(matches!(result, LivenessResult::Live),
-        "Round-robin with fair scheduling: s0 recurs. Got: {:?}", result);
+    assert!(
+        matches!(result, LivenessResult::Live),
+        "Round-robin with fair scheduling: s0 recurs. Got: {:?}",
+        result
+    );
 }

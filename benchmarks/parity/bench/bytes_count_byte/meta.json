@@ -1,0 +1,11 @@
+{
+  "capability": "bytes.count_byte",
+  "workload": "bytesCountByte(xs,c)",
+  "arg": "60000",
+  "expected": "961920",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

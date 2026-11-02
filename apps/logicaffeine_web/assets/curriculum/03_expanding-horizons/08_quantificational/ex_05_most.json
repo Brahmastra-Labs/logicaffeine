@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "Standard FOL has ∀ (all) and ∃ (some), but what about 'most', 'few', 'many'?",
   "explanation": "Proportional quantifiers like 'most' (more than half), 'few', 'many' can't be expressed with just ∀ and ∃. They require counting or comparing set sizes, which standard FOL can't do. Extended logics (generalized quantifiers) can handle them.",
-  "visual_concept": "∀ = ALL of them. ∃ = At least ONE. 'Most' = More than half. Standard FOL can only see the first two."
+  "visual_concept": "∀ = ALL of them. ∃ = At least ONE. 'Most' = More than half. Standard FOL can only see the first two.",
+  "section": "8.1"
 }

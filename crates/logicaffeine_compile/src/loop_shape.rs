@@ -18,6 +18,7 @@ use crate::codegen::peephole::{
     is_simple_expr,
 };
 use crate::intern::Symbol;
+use logicaffeine_language::ast_depth::{walk_nodes, Visited, Walk};
 
 /// A loop with a unit-stride induction variable and explicit start/limit
 /// expressions. `body_without_increment` excludes the trailing counter bump for
@@ -73,11 +74,19 @@ pub(crate) fn extract_counted_while<'a>(
     // Statement 2: `While counter <= limit` (inclusive) or `While counter < limit`.
     let (body, limit_expr, is_exclusive): (Block<'a>, &'a Expr<'a>, bool) = match stmts[idx + 1] {
         Stmt::While { cond, body, .. } => match cond {
-            Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => match left {
+            Expr::BinaryOp {
+                op: BinaryOpKind::LtEq,
+                left,
+                right,
+            } => match left {
                 Expr::Identifier(sym) if *sym == counter_sym => (*body, *right, false),
                 _ => return None,
             },
-            Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => match left {
+            Expr::BinaryOp {
+                op: BinaryOpKind::Lt,
+                left,
+                right,
+            } => match left {
                 Expr::Identifier(sym) if *sym == counter_sym => (*body, *right, true),
                 _ => return None,
             },
@@ -86,7 +95,7 @@ pub(crate) fn extract_counted_while<'a>(
         _ => return None,
     };
 
-    if body.is_empty() {
+    if body.is_empty() || leaves_by_break(body) {
         return None;
     }
 
@@ -134,9 +143,17 @@ pub(crate) fn extract_counted_while<'a>(
 /// `Repeat for v in <list>` is rejected — its trip count is not statically a
 /// range.
 pub(crate) fn extract_counted_repeat<'a>(stmt: &Stmt<'a>) -> Option<CountedLoop<'a>> {
-    if let Stmt::Repeat { pattern, iterable, body } = stmt {
+    if let Stmt::Repeat {
+        pattern,
+        iterable,
+        body,
+    } = stmt
+    {
         if let Pattern::Identifier(var) = pattern {
             if let Expr::Range { start, end } = iterable {
+                if leaves_by_break(body) {
+                    return None;
+                }
                 return Some(CountedLoop {
                     var: *var,
                     start: *start,
@@ -148,6 +165,24 @@ pub(crate) fn extract_counted_repeat<'a>(stmt: &Stmt<'a>) -> Option<CountedLoop<
         }
     }
     None
+}
+
+/// Whether a `Break` of the loop whose body is `body` can end it: one in the body that no loop, function or
+/// closure nested in it captures. Such a loop runs no fixed number of times: it can end with its condition still
+/// holding, with its counter where the iteration that broke out left it, and with what that iteration wrote before
+/// breaking, which the loop head never saw.
+pub(crate) fn leaves_by_break(body: &[Stmt]) -> bool {
+    let mut breaks = false;
+    walk_nodes(body, |node| match node {
+        Visited::Stmt(Stmt::Break) => {
+            breaks = true;
+            Walk::Into
+        }
+        Visited::Stmt(Stmt::While { .. } | Stmt::Repeat { .. } | Stmt::FunctionDef { .. })
+        | Visited::Expr(Expr::Closure { .. }) => Walk::Past,
+        _ => Walk::Into,
+    });
+    breaks
 }
 
 /// Fold an expression to an `i64` when it is built purely from integer literals
@@ -186,3 +221,7 @@ pub(crate) fn const_eval_i64(expr: &Expr) -> Option<i64> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/loop_shape/tests.rs"]
+mod tests;

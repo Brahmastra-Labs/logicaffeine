@@ -79,11 +79,21 @@ fn t1_ring_axioms_usable() {
     let p = app2(global("add_comm"), lit(2), lit(3));
     let ty = infer_type(&ctx, &p).expect("add_comm must apply and type-check");
     let ty = normalize(&ctx, &ty);
-    assert_eq!(head_global(&ty).as_deref(), Some("Eq"), "add_comm did not yield an Eq: {ty}");
+    assert_eq!(
+        head_global(&ty).as_deref(),
+        Some("Eq"),
+        "add_comm did not yield an Eq: {ty}"
+    );
 
     // `mul_distrib_add x y z : Eq Int (mul x (add y z)) (add (mul x y) (mul x z))`
-    let d = app(app(app(global("mul_distrib_add"), global("x")), global("y")), global("z"));
-    assert!(infer_type(&ctx, &d).is_ok(), "mul_distrib_add must apply and type-check");
+    let d = app(
+        app(app(global("mul_distrib_add"), global("x")), global("y")),
+        global("z"),
+    );
+    assert!(
+        infer_type(&ctx, &d).is_ok(),
+        "mul_distrib_add must apply and type-check"
+    );
 }
 
 // =============================================================================
@@ -95,12 +105,15 @@ fn t2_closed_arithmetic_proves_to_prop() {
     let ctx = ctx();
     let goal = eq_int(add(lit(2), lit(3)), lit(5));
 
-    let proof = prove_int_eq(&ctx, &add(lit(2), lit(3)), &lit(5))
-        .expect("oracle must prove 2+3=5");
+    let proof = prove_int_eq(&ctx, &add(lit(2), lit(3)), &lit(5)).expect("oracle must prove 2+3=5");
     let ty = infer_type(&ctx, &proof).expect("proof of 2+3=5 must type-check");
 
     // The proof's type IS the goal proposition (a Prop), not the Syntax datatype.
-    assert_eq!(normalize(&ctx, &ty), normalize(&ctx, &goal), "proof type is not the goal");
+    assert_eq!(
+        normalize(&ctx, &ty),
+        normalize(&ctx, &goal),
+        "proof type is not the goal"
+    );
     assert_ne!(normalize(&ctx, &ty), Term::Global("Syntax".to_string()));
     assert_eq!(head_global(&normalize(&ctx, &ty)).as_deref(), Some("Eq"));
 }
@@ -140,10 +153,18 @@ fn t4_variable_commutativity_proves_to_prop() {
     let ctx = ctx();
     let goal = eq_int(add(global("x"), global("y")), add(global("y"), global("x")));
 
-    let proof = prove_int_eq(&ctx, &add(global("x"), global("y")), &add(global("y"), global("x")))
-        .expect("oracle must prove x+y=y+x");
+    let proof = prove_int_eq(
+        &ctx,
+        &add(global("x"), global("y")),
+        &add(global("y"), global("x")),
+    )
+    .expect("oracle must prove x+y=y+x");
     let ty = infer_type(&ctx, &proof).expect("proof of x+y=y+x must type-check");
-    assert_eq!(normalize(&ctx, &ty), normalize(&ctx, &goal), "proof type is not the goal");
+    assert_eq!(
+        normalize(&ctx, &ty),
+        normalize(&ctx, &goal),
+        "proof type is not the goal"
+    );
     assert_eq!(head_global(&normalize(&ctx, &ty)).as_deref(), Some("Eq"));
 }
 
@@ -155,7 +176,10 @@ fn t5_oracle_decides() {
     let ctx = ctx();
 
     // closed: 2 * 4 = 8
-    assert!(prove_int_eq(&ctx, &mul(lit(2), lit(4)), &lit(8)).is_some(), "2*4=8 not proven");
+    assert!(
+        prove_int_eq(&ctx, &mul(lit(2), lit(4)), &lit(8)).is_some(),
+        "2*4=8 not proven"
+    );
 
     // distributivity: x * (y + z) = x*y + x*z
     let dl = mul(global("x"), add(global("y"), global("z")));
@@ -166,7 +190,12 @@ fn t5_oracle_decides() {
 
     // genuinely false / undecided: x + y = x * y
     assert!(
-        prove_int_eq(&ctx, &add(global("x"), global("y")), &mul(global("x"), global("y"))).is_none(),
+        prove_int_eq(
+            &ctx,
+            &add(global("x"), global("y")),
+            &mul(global("x"), global("y"))
+        )
+        .is_none(),
         "oracle fabricated a proof of x+y = x*y"
     );
 }
@@ -186,7 +215,10 @@ fn t7_engine_certifies_arithmetic_identity() {
     let add = |a: &str, b: &str| {
         ProofTerm::Function(
             "add".to_string(),
-            vec![ProofTerm::Constant(a.to_string()), ProofTerm::Constant(b.to_string())],
+            vec![
+                ProofTerm::Constant(a.to_string()),
+                ProofTerm::Constant(b.to_string()),
+            ],
         )
     };
     let goal = ProofExpr::Identity(add("x", "y"), add("y", "x"));
@@ -204,7 +236,11 @@ fn t7_engine_certifies_arithmetic_identity() {
     let ty = infer_type(&ctx, &proof).expect("kernel must type-check the arithmetic proof");
 
     let goal_term = eq_int(add_t("x", "y"), add_t("y", "x"));
-    assert_eq!(normalize(&ctx, &ty), normalize(&ctx, &goal_term), "proof type is not the goal");
+    assert_eq!(
+        normalize(&ctx, &ty),
+        normalize(&ctx, &goal_term),
+        "proof type is not the goal"
+    );
     assert_eq!(head_global(&normalize(&ctx, &ty)).as_deref(), Some("Eq"));
 }
 
@@ -226,7 +262,11 @@ fn t8_congruence_nested_identity() {
 
     let proof = prove_int_eq(&ctx, &lhs, &rhs).expect("oracle must prove (x+y)+z = (y+x)+z");
     let ty = infer_type(&ctx, &proof).expect("nested congruence proof must type-check");
-    assert_eq!(normalize(&ctx, &ty), normalize(&ctx, &eq_int(lhs, rhs)), "proof type is not the goal");
+    assert_eq!(
+        normalize(&ctx, &ty),
+        normalize(&ctx, &eq_int(lhs, rhs)),
+        "proof type is not the goal"
+    );
 
     // And a deeper nesting on the other side: x + (y*1) = x + y   (mul_one under x + _)
     let l2 = add(global("x"), mul(global("y"), lit(1)));
@@ -249,7 +289,11 @@ fn t9_multistep_identity() {
 
     let proof = prove_int_eq(&ctx, &lhs, &rhs).expect("oracle must prove (x+y)+z = z+(y+x)");
     let ty = infer_type(&ctx, &proof).expect("multi-step proof must type-check");
-    assert_eq!(normalize(&ctx, &ty), normalize(&ctx, &eq_int(lhs, rhs)), "proof type is not the goal");
+    assert_eq!(
+        normalize(&ctx, &ty),
+        normalize(&ctx, &eq_int(lhs, rhs)),
+        "proof type is not the goal"
+    );
 }
 
 // =============================================================================
@@ -264,7 +308,10 @@ fn t10_oracle_cannot_be_tricked() {
 
     let non_identities: &[(Term, Term)] = &[
         // subtraction is NOT commutative
-        (app2(global("sub"), global("x"), global("y")), app2(global("sub"), global("y"), global("x"))),
+        (
+            app2(global("sub"), global("x"), global("y")),
+            app2(global("sub"), global("y"), global("x")),
+        ),
         // + is not ×
         (add(global("x"), global("y")), mul(global("x"), global("y"))),
         // unequal operands don't cancel
@@ -288,7 +335,10 @@ fn t10_oracle_cannot_be_tricked() {
                 let ok_as_goal = infer_type(&ctx, &term)
                     .map(|ty| normalize(&ctx, &ty) == normalize(&ctx, &goal))
                     .unwrap_or(false);
-                assert!(!ok_as_goal, "oracle produced a valid proof of a NON-identity: {l} = {r}");
+                assert!(
+                    !ok_as_goal,
+                    "oracle produced a valid proof of a NON-identity: {l} = {r}"
+                );
             }
         }
     }
@@ -302,10 +352,13 @@ fn t10_oracle_cannot_be_tricked() {
 fn t11_distribution_and_reordering() {
     let ctx = ctx();
     let prove = |l: &Term, r: &Term| {
-        let p = prove_int_eq(&ctx, l, r)
-            .unwrap_or_else(|| panic!("oracle failed to prove {l} = {r}"));
+        let p =
+            prove_int_eq(&ctx, l, r).unwrap_or_else(|| panic!("oracle failed to prove {l} = {r}"));
         let ty = infer_type(&ctx, &p).unwrap_or_else(|_| panic!("proof of {l}={r} ill-typed"));
-        assert_eq!(normalize(&ctx, &ty), normalize(&ctx, &eq_int(l.clone(), r.clone())));
+        assert_eq!(
+            normalize(&ctx, &ty),
+            normalize(&ctx, &eq_int(l.clone(), r.clone()))
+        );
     };
 
     // right distribution:  (x + y) * z  =  x*z + y*z
@@ -329,8 +382,8 @@ fn t11_distribution_and_reordering() {
 
 /// Shared check: the oracle proves `l = r` and the proof kernel-checks to the goal.
 fn assert_proves(ctx: &Context, l: &Term, r: &Term) {
-    let p = prove_int_eq(ctx, l, r)
-        .unwrap_or_else(|| panic!("normalizer failed to prove {l} = {r}"));
+    let p =
+        prove_int_eq(ctx, l, r).unwrap_or_else(|| panic!("normalizer failed to prove {l} = {r}"));
     let ty = infer_type(ctx, &p).unwrap_or_else(|_| panic!("proof of {l}={r} ill-typed"));
     assert_eq!(
         normalize(ctx, &ty),
@@ -346,7 +399,11 @@ fn assert_proves(ctx: &Context, l: &Term, r: &Term) {
 fn t12a_normalizer_coefficients() {
     let ctx = ctx();
     // x + x = 2*x
-    assert_proves(&ctx, &add(global("x"), global("x")), &mul(lit(2), global("x")));
+    assert_proves(
+        &ctx,
+        &add(global("x"), global("x")),
+        &mul(lit(2), global("x")),
+    );
     // 2*x + 3*x = 5*x
     assert_proves(
         &ctx,
@@ -365,14 +422,20 @@ fn t12b_normalizer_foil() {
     assert_proves(
         &ctx,
         &mul(add(global("x"), lit(1)), add(global("x"), lit(1))),
-        &add(add(mul(global("x"), global("x")), mul(lit(2), global("x"))), lit(1)),
+        &add(
+            add(mul(global("x"), global("x")), mul(lit(2), global("x"))),
+            lit(1),
+        ),
     );
     // (x + y) * (x + y)  =  x*x + 2*(x*y) + y*y
     assert_proves(
         &ctx,
         &mul(add(global("x"), global("y")), add(global("x"), global("y"))),
         &add(
-            add(mul(global("x"), global("x")), mul(lit(2), mul(global("x"), global("y")))),
+            add(
+                mul(global("x"), global("x")),
+                mul(lit(2), mul(global("x"), global("y"))),
+            ),
             mul(global("y"), global("y")),
         ),
     );
@@ -395,7 +458,10 @@ fn t6_tcb_inventory_locked() {
         "mul_zero",
         "mul_distrib_add",
     ] {
-        assert!(ctx.get_global(ax).is_some(), "ring axiom {ax} is not registered");
+        assert!(
+            ctx.get_global(ax).is_some(),
+            "ring axiom {ax} is not registered"
+        );
         assert!(
             infer_type(&ctx, &Term::Global(ax.to_string())).is_ok(),
             "ring axiom {ax} is not well-typed"
@@ -406,7 +472,10 @@ fn t6_tcb_inventory_locked() {
     // same "replaceable by deriving from Nat" path). They are the primitives a
     // linear-arithmetic / Farkas certificate is reconstructed from.
     for ax in ["le_refl", "le_trans", "le_add_mono", "le_mul_nonneg"] {
-        assert!(ctx.get_global(ax).is_some(), "order axiom {ax} is not registered");
+        assert!(
+            ctx.get_global(ax).is_some(),
+            "order axiom {ax} is not registered"
+        );
         assert!(
             infer_type(&ctx, &Term::Global(ax.to_string())).is_ok(),
             "order axiom {ax} is not well-typed"

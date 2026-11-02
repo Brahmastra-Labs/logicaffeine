@@ -1,0 +1,20 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To countUp (n: Int, salt: Int) -> Int:
+    Let mutable c be 0.
+    Repeat for i from 1 to n:
+        Set c to c + (i * salt) % 7.
+    Return c.
+
+## Main
+Let n be parseInt(item 2 of args()).
+Simultaneously:
+    Let a be countUp(n, 1).
+    Let b be countUp(n, 2).
+    Let c be countUp(n, 3).
+    Let d be countUp(n, 4).
+Show a.
+Show b.
+Show c.
+Show d.

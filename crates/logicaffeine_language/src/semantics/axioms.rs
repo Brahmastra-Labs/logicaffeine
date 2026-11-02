@@ -8,13 +8,15 @@
 //!
 //! The transformations use lexicon data generated at compile time.
 
-use logicaffeine_base::Arena;
 use crate::ast::{LogicExpr, NeoEventData, Term, ThematicRole};
-use logicaffeine_base::{Interner, Symbol};
 use crate::lexicon::{lookup_canonical, Polarity};
 use crate::token::TokenType;
+use logicaffeine_base::Arena;
+use logicaffeine_base::{Interner, Symbol};
 
-use super::{is_privative_adjective, lookup_noun_entailments, lookup_noun_hypernyms, lookup_verb_entailment};
+use super::{
+    is_privative_adjective, lookup_noun_entailments, lookup_noun_hypernyms, lookup_verb_entailment,
+};
 
 /// Apply axiom expansion to a logical expression.
 pub fn apply_axioms<'a>(
@@ -37,7 +39,12 @@ fn transform_expr<'a>(
             expand_predicate(*name, args, expr_arena, term_arena, interner)
         }
 
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } => {
             let new_body = transform_expr(body, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Quantifier {
                 kind: *kind,
@@ -65,9 +72,7 @@ fn transform_expr<'a>(
             })
         }
 
-        LogicExpr::NeoEvent(data) => {
-            expand_neo_event(data, expr_arena, term_arena, interner)
-        }
+        LogicExpr::NeoEvent(data) => expand_neo_event(data, expr_arena, term_arena, interner),
 
         LogicExpr::Modal { vector, operand } => {
             let new_operand = transform_expr(operand, expr_arena, term_arena, interner);
@@ -117,6 +122,24 @@ fn expand_predicate<'a>(
     term_arena: &'a Arena<Term<'a>>,
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
+    // A plural noun names the same predicate as its singular: "All dogs bark" and "Every dog
+    // barks" restrict to one `Dog`, as the prover's normalization reads them (`proof_convert`,
+    // `get_canonical_noun`). Only a lexicon-known plural changes; any other name is kept.
+    let name = match (
+        args.len(),
+        crate::lexicon::analyze_word(&interner.resolve(name).to_lowercase()),
+    ) {
+        (1, Some(crate::lexicon::WordAnalysis::Noun(meta)))
+            if meta.number == crate::lexicon::Number::Plural =>
+        {
+            let mut lemma = meta.lemma.to_string();
+            if let Some(first) = lemma.get_mut(..1) {
+                first.make_ascii_uppercase();
+            }
+            interner.intern(&lemma)
+        }
+        _ => name,
+    };
     let name_str = interner.resolve(name).to_string();
     let lower_name = name_str.to_lowercase();
 
@@ -153,17 +176,21 @@ fn expand_predicate<'a>(
     // Check for noun entailments (Bachelor -> Unmarried + Male)
     let entailments = lookup_noun_entailments(&lower_name);
     if !entailments.is_empty() {
-        return expand_noun_entailments(name, args, entailments, expr_arena, term_arena, interner);
+        return expand_noun_entailments(name, args, entailments, expr_arena, interner);
     }
 
     // Check for hypernyms (Dog -> Animal)
     let hypernyms = lookup_noun_hypernyms(&lower_name);
     if !hypernyms.is_empty() {
-        return expand_hypernyms(name, args, hypernyms, expr_arena, term_arena, interner);
+        return expand_hypernyms(name, args, hypernyms, expr_arena, interner);
     }
 
     // No expansion needed - return original
-    expr_arena.alloc(LogicExpr::Predicate { name, args, world: None })
+    expr_arena.alloc(LogicExpr::Predicate {
+        name,
+        args,
+        world: None,
+    })
 }
 
 fn expand_privative<'a>(
@@ -218,11 +245,14 @@ fn expand_noun_entailments<'a>(
     args: &'a [Term<'a>],
     entailments: &[&str],
     expr_arena: &'a Arena<LogicExpr<'a>>,
-    term_arena: &'a Arena<Term<'a>>,
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     // Bachelor(x) => Bachelor(x) ∧ Unmarried(x) ∧ Male(x)
-    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args, world: None });
+    let base_pred = expr_arena.alloc(LogicExpr::Predicate {
+        name: base,
+        args,
+        world: None,
+    });
 
     let mut result: &LogicExpr = base_pred;
     for entailment in entailments {
@@ -247,11 +277,14 @@ fn expand_hypernyms<'a>(
     args: &'a [Term<'a>],
     hypernyms: &[&str],
     expr_arena: &'a Arena<LogicExpr<'a>>,
-    term_arena: &'a Arena<Term<'a>>,
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     // Dog(x) => Dog(x) ∧ Animal(x)
-    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args, world: None });
+    let base_pred = expr_arena.alloc(LogicExpr::Predicate {
+        name: base,
+        args,
+        world: None,
+    });
 
     let mut result: &LogicExpr = base_pred;
     for hypernym in hypernyms {
@@ -341,7 +374,9 @@ fn expand_neo_event<'a>(
             let manner_sym = interner.intern(manner);
 
             // Find the agent in roles
-            let agent_term = data.roles.iter()
+            let agent_term = data
+                .roles
+                .iter()
                 .find(|(role, _)| *role == ThematicRole::Agent)
                 .map(|(_, term)| term);
 
@@ -386,15 +421,25 @@ fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
             let cloned: Vec<Term<'a>> = terms.iter().map(|t| clone_term(t, arena)).collect();
             Term::Group(arena.alloc_slice(cloned))
         }
-        Term::Possessed { possessor, possessed } => {
+        Term::Possessed {
+            possessor,
+            possessed,
+        } => {
             let cloned_possessor = arena.alloc(clone_term(possessor, arena));
-            Term::Possessed { possessor: cloned_possessor, possessed: *possessed }
+            Term::Possessed {
+                possessor: cloned_possessor,
+                possessed: *possessed,
+            }
         }
         Term::Sigma(s) => Term::Sigma(*s),
         Term::Intension(s) => Term::Intension(*s),
         Term::Kind(s) => Term::Kind(*s),
         Term::Proposition(e) => Term::Proposition(*e),
-        Term::Value { kind, unit, dimension } => Term::Value {
+        Term::Value {
+            kind,
+            unit,
+            dimension,
+        } => Term::Value {
             kind: *kind,
             unit: *unit,
             dimension: *dimension,

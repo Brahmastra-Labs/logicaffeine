@@ -1,0 +1,50 @@
+{
+  "id": "17.2",
+  "title": "Paraconsistent Logic",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In classical logic, a contradiction implies everything. This is the **principle of explosion**."
+    },
+    {
+      "type": "paragraph",
+      "text": "Paraconsistent logics block explosion, so a contradiction stays local instead of making every statement provable."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Explosion",
+      "lines": [
+        "1. A ∧ ¬A (assumed)",
+        "2. A (from 1)",
+        "3. A ∨ B (from 2)",
+        "4. ¬A (from 1)",
+        "5. B (from 3 and 4)"
+      ],
+      "note": "B can be anything at all."
+    },
+    {
+      "type": "worked",
+      "title": "Why block it",
+      "lines": [
+        "A large database holds two records that contradict each other."
+      ],
+      "note": "We still want to reason with the rest, without one error making everything true."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does a paraconsistent logic reject?",
+    "options": [
+      "The law of identity",
+      "The principle of explosion",
+      "Every proof",
+      "The use of symbols"
+    ],
+    "correct": 1,
+    "hint": "What happens to everything else in classical logic once a contradiction appears?",
+    "explanation": "Paraconsistent logic rejects explosion, the rule that a contradiction implies every statement."
+  }
+}

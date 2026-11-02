@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" uuid="6ff5346e-0366-4567-8d35-f0d264f5ef5b" timestamp="2026-09-23T03:14:59.909+00:00" tests="4" failures="2" errors="0" skipped="0">
+  <testsuite name="logicaffeine-web" tests="3" failures="2" errors="0" skipped="0">
+    <testcase name="content::tests::a_malformed_exercise_is_reported_by_path" classname="logicaffeine-web" timestamp="2026-09-23T03:14:59.912+00:00" time="0.006">
+      <failure message="thread 'content::tests::a_malformed_exercise_is_reported_by_path' (60943) panicked at apps/logicaffeine_web/src/content.rs:309:9" type="test failure with exit code 101">thread 'content::tests::a_malformed_exercise_is_reported_by_path' (60943) panicked at apps/logicaffeine_web/src/content.rs:309:9:
+assertion `left == right` failed: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+      <system-out>
+running 1 test
+test content::tests::a_malformed_exercise_is_reported_by_path ... FAILED
+
+failures:
+
+failures:
+    content::tests::a_malformed_exercise_is_reported_by_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 281 filtered out; finished in 0.00s
+
+</system-out>
+      <system-err>
+thread 'content::tests::a_malformed_exercise_is_reported_by_path' (60943) panicked at apps/logicaffeine_web/src/content.rs:309:9:
+assertion `left == right` failed: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+    </testcase>
+    <testcase name="learn_state::tests::first_correct_answer_earns_base_xp" classname="logicaffeine-web" timestamp="2026-09-23T03:15:00.037+00:00" time="0.011">
+      <failure message="thread 'learn_state::tests::first_correct_answer_earns_base_xp' (61021) panicked at apps/logicaffeine_web/src/learn_state.rs:52:86" type="test failure with exit code 101">thread 'learn_state::tests::first_correct_answer_earns_base_xp' (61021) panicked at apps/logicaffeine_web/src/learn_state.rs:52:86:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+      <system-out>
+running 1 test
+test learn_state::tests::first_correct_answer_earns_base_xp ... FAILED
+
+failures:
+
+failures:
+    learn_state::tests::first_correct_answer_earns_base_xp
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 281 filtered out; finished in 0.00s
+
+</system-out>
+      <system-err>
+thread 'learn_state::tests::first_correct_answer_earns_base_xp' (61021) panicked at apps/logicaffeine_web/src/learn_state.rs:52:86:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+    </testcase>
+    <testcase name="content::tests::a_clean_tree_loads_with_no_issues" classname="logicaffeine-web" timestamp="2026-09-23T03:15:01.572+00:00" time="0.006" />
+  </testsuite>
+  <testsuite name="logicaffeine-web::learn_page" tests="1" failures="0" errors="0" skipped="0">
+    <testcase name="cards_render_in_curriculum_order" classname="logicaffeine-web::learn_page" timestamp="2026-09-23T03:15:01.614+00:00" time="0.090" />
+  </testsuite>
+</testsuites>

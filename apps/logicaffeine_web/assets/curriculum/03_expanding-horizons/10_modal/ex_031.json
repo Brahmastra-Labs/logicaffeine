@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It's necessary that someone is B",
   "options": [
-    "$ \\square ((\\exists x)Bx) $",
-    "$ (\\exists x)(\\square Bx) $",
-    "$ \\square (\\exists x)Bx $",
-    "$ (\\exists x)\\square Bx $"
+    "∃x □B(x)",
+    "◇∃x B(x)",
+    "□∃x B(x)",
+    "∃x ◇B(x)"
   ],
   "correct": 2,
-  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "Necessity scopes over the whole existential: □(∃x)Bx — in every possible world, someone is B. This is de dicto: which individual is B may change from world to world."
+  "hint": "Does the necessity cover the whole claim that someone is B?",
+  "explanation": "Necessity covers the whole existential: □∃x B(x). In every world someone is B, though who it is may change.",
+  "section": "10.2"
 }

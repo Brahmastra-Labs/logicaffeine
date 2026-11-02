@@ -15,8 +15,16 @@ fn closed_form_double_recursion_uses_wrapping_arithmetic() {
     // `equals` (Eq), not `is`, is numeric equality in LOGOS.
     let src = "## To pow2 (d: Int) -> Int:\n    If d equals 0:\n        Return 1.\n    Return pow2(d - 1) + pow2(d - 1).\n\n## Main\nShow pow2(3).\n";
     let rust = compile_to_rust(src).expect("Int double-recursion compiles");
-    assert!(rust.contains("wrapping_mul"), "closed form must use wrapping_mul:\n{}", rust);
-    assert!(rust.contains(">= 64"), "closed form must guard the shift at the i64 bit width:\n{}", rust);
+    assert!(
+        rust.contains("wrapping_mul"),
+        "closed form must use wrapping_mul:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains(">= 64"),
+        "closed form must guard the shift at the i64 bit width:\n{}",
+        rust
+    );
 }
 
 /// BUG-027 value check (small d, so the COMPILED closed form runs; the

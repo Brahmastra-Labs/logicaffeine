@@ -1,0 +1,202 @@
+{
+  "tier": "t08_tactics",
+  "test_binary": "lean_conformance_t08_tactics",
+  "cases": [
+    {
+      "id": "T08-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "intro_on_a_negation_goal_assumes_the_negatum",
+      "why": ""
+    },
+    {
+      "id": "T08-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "exact_accepts_an_applied_proof_term",
+      "why": "`exact` elaborates a proof TERM (application, anonymous constructor, universal instantiation), not only a hypothesis name."
+    },
+    {
+      "id": "T08-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "apply_is_reachable_from_script_text",
+      "why": ""
+    },
+    {
+      "id": "T08-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "assumption_matches_a_hypothesis_up_to_definitional_unfolding",
+      "why": ""
+    },
+    {
+      "id": "T08-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "rfl_closes_a_reflexive_goal_under_its_own_name",
+      "why": ""
+    },
+    {
+      "id": "T08-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "constructor_introduces_a_biconditional_as_two_implications",
+      "why": ""
+    },
+    {
+      "id": "T08-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "left_and_right_select_the_named_disjunct",
+      "why": ""
+    },
+    {
+      "id": "T08-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "cases_binds_its_components_under_the_names_the_proof_chose",
+      "why": "`cases h with a b` binds the components under the proof's own names; the arity is checked against the shape and a chosen exists-witness must be genuinely fresh."
+    },
+    {
+      "id": "T08-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "induction_inducts_on_the_variable_it_is_given",
+      "why": "`induction n` names its target. An inner binder is GENERALIZED — the goal's forall prefix is reordered and bridged back by UniversalIntro/UniversalInst alone, so no new rule and no new axiom."
+    },
+    {
+      "id": "T08-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "induction_on_a_list_goal_splits_on_nil_and_cons",
+      "why": "The constructor scheme is read off the in-scope induction premises instead of being hard-wired to Peano, so a list goal splits on ENil/ECons and routes to the already-certified induction_over."
+    },
+    {
+      "id": "T08-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "rewrite_instantiates_a_quantified_equation_at_its_first_match",
+      "why": "`rewrite` accepts a forall-quantified equation, instantiates it at the FIRST match, and certifies through a UniversalInstTerm chain. Substitution is capture-avoiding throughout."
+    },
+    {
+      "id": "T08-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "simp_takes_a_named_rule_list",
+      "why": "`simp only [h]` builds the rule set from exactly the named hypotheses; an unknown name or one that does not orient is an error."
+    },
+    {
+      "id": "T08-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "omega_decides_a_positive_linear_goal",
+      "why": ""
+    },
+    {
+      "id": "T08-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "decide_covers_the_decidable_fragment_not_only_ground_int_and_bool",
+      "why": "Blocked outside this bunch: needs `decide.rs`. The `Not` arm needs a refutation channel (`of_decide_eq_false`), which decide.rs's own comment already flags as a follow-up, and the bignum half needs `eval_int` to leave i64."
+    },
+    {
+      "id": "T08-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "ring_normalises_a_polynomial_identity_from_a_script",
+      "why": "`ring` is a tactic-script atom over the same commutative-ring oracle ArithDecision certifies through, consulted at tactic time so a non-identity is declined rather than blown up at the trust door."
+    },
+    {
+      "id": "T08-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "linarith_is_rational_and_declines_an_integer_only_refutation",
+      "why": ""
+    },
+    {
+      "id": "T08-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "exists_accepts_a_compound_witness_term",
+      "why": "Blocked outside this bunch: `InferenceRule::ExistentialIntro` (lib.rs) carries its witness as a `String` that the certifier resolves as a Var or a Global, so a compound witness has no faithful image. Needs the `UniversalInst`/`UniversalInstTerm` treatment. The script surface, the `+` lexer and the variable-vs-constant resolution all landed; `exists` now DECLINES a compound witness rather than handing back a derivation the kernel refuses."
+    },
+    {
+      "id": "T08-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "then_all_touches_only_the_goals_its_left_hand_produced",
+      "why": "`<;>` applies its right-hand tactic to exactly the goals the left hand produced — told apart by node index, since those only ever grow."
+    },
+    {
+      "id": "T08-019",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "first_try_and_repeat_speculate_and_commit_like_leans",
+      "why": ""
+    },
+    {
+      "id": "T08-020",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "all_goals_and_any_goals_are_spellable_in_a_script",
+      "why": ""
+    },
+    {
+      "id": "T08-021",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "calc_composes_a_mixed_relation_chain",
+      "why": "Blocked outside this bunch: the script is `auto`, i.e. `engine.rs`. Composing `=` with `<` with `<=` also has no rule to compose with — the order fragment has LeTrans and LtSuccLe but no `le_succ_lt`, so `a<c<=d |- a<d` is not expressible in the current rule set at all."
+    },
+    {
+      "id": "T08-022",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "by_contra_is_a_step_that_leaves_false_as_the_goal",
+      "why": "`by_contra h` is a STEP: it binds the negation and leaves the absurdity, certified as ClassicalReductio so the axiom footprint still records that it went classical."
+    },
+    {
+      "id": "T08-023",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "rewriting_one_selected_occurrence_leaves_the_others_alone",
+      "why": "Blocked outside this bunch: `InferenceRule::Rewrite` (lib.rs) carries no occurrence index and `certifier.rs::build_equality_predicate` abstracts EVERY occurrence of the term, so a first-occurrence rewrite cannot certify. The test's own doc comment names this."
+    },
+    {
+      "id": "T08-024",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "tauto_and_aesop_goals_close_under_our_automation",
+      "why": ""
+    },
+    {
+      "id": "T08-025",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_focused_block_must_close_exactly_the_goal_it_opened",
+      "why": "`focus` / `next` focus one goal and make it an ERROR for the block to leave it open; a failed block commits nothing."
+    },
+    {
+      "id": "T08-026",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "have_introduces_a_locally_proved_hypothesis",
+      "why": "`have h from <term>` adds a locally-proved hypothesis carrying its own derivation, so each use emits that proof — no lifted theorem, and a statement mentioning an intro-bound variable works."
+    },
+    {
+      "id": "T08-027",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "refine_with_holes_spawns_one_goal_per_hole",
+      "why": "`refine <term>` spawns one proof-STATE goal per `?` hole, in source order, never a kernel Term::Hole (which types_equal matches against anything)."
+    },
+    {
+      "id": "T08-028",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "sorry_is_refused_and_smuggles_nothing",
+      "why": "An admitted proof is not a proof, and LOGOS has no encoding of one that is not worse than refusing. `add_declaration(\"sorryAx\", T)` resolves through `get_global` exactly like `dne` or `le_trans`, and with no attribute system and no `#print axioms` analogue it leaves no marker at all — Prop becomes inhabited by fiat and the certificate still reads PRELUDE_VERSION \"logos-coc-1\". `Term::Hole` is worse: `types_equal` matches it against anything, so the gap does not even localise to one type. Emitting a `verified == false` artefact merely defers the \"this is not a proof\" call to whoever reads the report. Admitting is in scope only once axiom-closure tracking exists to make the poisoning of the whole downstream cone visible; until then a loud refusal is strictly the better answer, and it is what we do today."
+    }
+  ]
+}

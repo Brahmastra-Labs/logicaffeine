@@ -1,0 +1,49 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_semantics/LF_W03_IndexedProjection.lean",
+  "source_sha256": "1614d4a6447d0cf49fd5a805634742e4fd52c3f072651730869369c0a73a9067",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LF_W03P.IBox",
+    "LF_W03P.DBox",
+    "LF_W03P.PBox",
+    "LF_W03P.firstAtZero",
+    "LF_W03P.firstAtAnyIndex",
+    "LF_W03P.dependentSecond",
+    "LF_W03P.paramFirst",
+    "LF_W03P.firstAtZero_mk",
+    "LF_W03P.paramFirst_mk"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "89d2ae1e277336d9000418cfac0de118c0ba98b162d4a9383e3b13edda0d3107",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 11965,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated",
+  "construction": "raw kernel projections added through Lean.Environment.addDecl; Lean 4.14.0 kernel accepted each"
+}

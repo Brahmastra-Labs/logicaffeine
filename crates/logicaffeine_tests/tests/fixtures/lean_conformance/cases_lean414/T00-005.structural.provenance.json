@@ -1,0 +1,63 @@
+{
+  "case": "T00-005",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-005_lambda_binder_info.lean",
+  "source_sha256": "f3541627653dbb7833a877f45d3f4fa99b600edf446f90cbf0faf7deef6a2878",
+  "ledger_sha256": "ea1e9df3e5392f944cf2ccbe6440a6242a941f7ccaf11f72281d7069ff7548f1",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T00_005.anonymousImplicit",
+    "T00_005.applyToPolyFn",
+    "T00_005.domainFromExpectedType",
+    "T00_005.idNat",
+    "T00_005.implicitId",
+    "T00_005.instanceDefault",
+    "T00_005.mixedKinds",
+    "T00_005.mixedTelescope",
+    "T00_005.pickMiddle",
+    "T00_005.strictImplicitId"
+  ],
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "c17adba4d1f78b746f45c2fbe779c8b065ed2b91f8dc9cb9935cf7a990b883cb",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 766,
+  "structural_key_patch": {
+    "base_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+    "equality": "Lean.ExprStructEq / Expr.equal (names and binder annotations included)",
+    "replacements": {
+      "visitedExprs : Std.HashMap Expr Nat": "visitedExprs : Std.HashMap ExprStructEq Nat",
+      "noMDataExprs : Std.HashMap Expr Expr": "noMDataExprs : Std.HashMap ExprStructEq Expr",
+      "getIdx e \"ie\"": "getIdx (ExprStructEq.mk e) \"ie\"",
+      "noMDataExprs[e]?": "noMDataExprs[ExprStructEq.mk e]?",
+      "noMDataExprs.insert e e'": "noMDataExprs.insert (ExprStructEq.mk e) e'"
+    },
+    "base_source_sha256": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+    "patched_source_sha256": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  }
+}

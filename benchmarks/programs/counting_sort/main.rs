@@ -15,6 +15,6 @@ fn main() {
         for _ in 0..counts[v] { sorted.push(v as i64); }
     }
     let mut checksum: i64 = 0;
-    for &v in &sorted { checksum = (checksum + v) % 1000000007; }
+    for &v in &sorted { checksum = (checksum * 31 + v) & 268435455; }
     println!("{} {} {}", sorted[0], sorted[n - 1], checksum);
 }

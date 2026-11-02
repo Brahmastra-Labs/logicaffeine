@@ -1,0 +1,59 @@
+{
+  "id": "9.3",
+  "title": "Properties of Relations",
+  "order": 3,
+  "content": [
+    {
+      "type": "definition",
+      "term": "Reflexive",
+      "definition": "Everything bears the relation to itself, like 'is the same age as'."
+    },
+    {
+      "type": "definition",
+      "term": "Symmetric",
+      "definition": "If x bears it to y, then y bears it to x, like 'is married to'."
+    },
+    {
+      "type": "definition",
+      "term": "Transitive",
+      "definition": "If x bears it to y and y to z, then x bears it to z, like 'is taller than'."
+    },
+    {
+      "type": "paragraph",
+      "text": "A relation with all three is an **equivalence relation**."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Symmetric but not transitive",
+      "lines": [
+        "'is within a mile of'",
+        "If A is within a mile of B, then B is within a mile of A.",
+        "A can be within a mile of B, and B of C, while A is two miles from C."
+      ]
+    },
+    {
+      "type": "worked",
+      "title": "Transitive but not symmetric",
+      "lines": [
+        "'is an ancestor of'",
+        "An ancestor of your ancestor is your ancestor.",
+        "If A is an ancestor of B, then B is not an ancestor of A."
+      ]
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which relation is transitive?",
+    "options": [
+      "is the mother of",
+      "is older than",
+      "is a friend of",
+      "is next to"
+    ],
+    "correct": 1,
+    "hint": "Chain two steps. Does the first link lead straight to the third?",
+    "explanation": "If A is older than B and B is older than C, then A is older than C. Your mother's mother is not your mother."
+  }
+}

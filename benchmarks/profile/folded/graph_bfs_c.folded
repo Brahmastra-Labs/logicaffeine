@@ -1,0 +1,4 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 23679662406
+_start;__libc_start_main_impl;__libc_start_call_main;main;[unknown] 369510195
+_start;__libc_start_main_impl;__libc_start_call_main;main;__memset_avx2_unaligned_erms;[unknown] 94720972
+_start;__libc_start_main_impl;__libc_start_call_main;main;__memset_avx2_unaligned_erms 10616942

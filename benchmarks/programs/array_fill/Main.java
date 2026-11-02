@@ -3,8 +3,8 @@ public class Main {
         int n = Integer.parseInt(args[0]);
         long[] arr = new long[n];
         for (int i = 0; i < n; i++) arr[i] = ((long) i * 7 + 3) % 1000000;
-        long sum = 0;
-        for (long v : arr) sum = (sum + v) % 1000000007;
-        System.out.println(sum);
+        long h = 0;
+        for (long v : arr) h = (h * 31 + v) & 268435455;
+        System.out.println(h);
     }
 }

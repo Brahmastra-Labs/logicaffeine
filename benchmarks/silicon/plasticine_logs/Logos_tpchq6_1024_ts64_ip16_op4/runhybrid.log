@@ -1,0 +1,40 @@
+Output link from (291,145) to (291,68)
+Output link from (281,145) to (281,74)
+Output link from (165,0) to (165,95)
+Output link from (163,198) to (163,96)
+Output link from (161,154) to (161,89)
+Output link from (164,88) to (164,84)
+Output link from (165,43) to (165,94)
+Output link from (163,22) to (163,99)
+Output link from (161,21) to (161,91)
+Output link from (164,44) to (164,87)
+Output link from (165,308) to (165,92)
+Output link from (163,242) to (163,97)
+Output link from (161,286) to (161,88)
+Output link from (164,330) to (164,86)
+Output link from (165,66) to (165,93)
+Output link from (163,109) to (163,98)
+Output link from (161,110) to (161,90)
+Output link from (164,131) to (164,85)
+../plastisim/final.place Elapsed seconds: 0.148388
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 258
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 63.5039 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 2.2526
+Exiting... 😊
+Destruct DRAM.
+out Result: 17296
+out Gold: 17296
+PASS: true (Logos_tpchq6_1024_ts64_ip16_op4)
+Complete Simulation
+Runtime:0:02.49

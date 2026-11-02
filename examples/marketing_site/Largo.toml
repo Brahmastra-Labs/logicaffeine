@@ -1,0 +1,7 @@
+[package]
+name = "marketing_site"
+version = "0.1.0"
+authors = []
+site = "https://acme.example"
+
+[dependencies]

@@ -1,0 +1,13 @@
+{
+  "capability": "math.sinh",
+  "workload": "math.sinh",
+  "arg": "1000000",
+  "expected": "1101228798136342",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "go",
+    "rust"
+  ]
+}

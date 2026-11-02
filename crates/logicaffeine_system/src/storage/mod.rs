@@ -48,12 +48,12 @@
 //! # }
 //! ```
 
+use crate::fs::{Vfs, VfsError, VfsResult};
+use async_lock::Mutex;
 use logicaffeine_data::crdt::Merge;
-use crate::fs::{Vfs, VfsResult, VfsError};
 use serde::{de::DeserializeOwned, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use async_lock::Mutex;
 
 /// Operation recorded in the journal.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -143,9 +143,10 @@ where
         let actual_checksum = crc32fast::hash(payload);
 
         if actual_checksum != expected_checksum {
-            return Err(VfsError::JournalCorrupted(
-                format!("Entry {} checksum mismatch", entry_count)
-            ));
+            return Err(VfsError::JournalCorrupted(format!(
+                "Entry {} checksum mismatch",
+                entry_count
+            )));
         }
 
         let op: JournalOp<T> = bincode::deserialize(payload)
@@ -174,7 +175,7 @@ where
     /// If the journal exists, replays all entries to reconstruct state.
     /// If not, creates a new journal with default state.
     ///
-        pub async fn mount(vfs: Arc<dyn Vfs + Send + Sync>, path: &str) -> VfsResult<Self> {
+    pub async fn mount(vfs: Arc<dyn Vfs + Send + Sync>, path: &str) -> VfsResult<Self> {
         let (state, entry_count) = if vfs.exists(path).await.unwrap_or(false) {
             let data = vfs.read(path).await?;
             replay_journal(&data)?
@@ -205,8 +206,8 @@ where
         let result = f(&mut *guard);
 
         let op = JournalOp::Delta(guard.clone());
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -224,8 +225,8 @@ where
         let state = self.inner.lock().await.clone();
 
         let op = JournalOp::<T>::Snapshot(state);
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -292,8 +293,8 @@ where
         let result = f(&mut *guard);
 
         let op = JournalOp::Delta(guard.clone());
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -311,8 +312,8 @@ where
         let state = self.inner.lock().await.clone();
 
         let op = JournalOp::<T>::Snapshot(state);
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -344,31 +345,5 @@ where
 // The storage module directly accepts Arc<dyn Vfs> for flexibility.
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_data::crdt::GCounter;
-    use tempfile::TempDir;
-
-    #[tokio::test]
-    async fn test_persistent_mount_empty() {
-        let temp = TempDir::new().unwrap();
-        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
-
-        let counter = Persistent::<GCounter>::mount(vfs, "counter.journal").await.unwrap();
-
-        assert_eq!(counter.get().await.value(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_persistent_mutate() {
-        let temp = TempDir::new().unwrap();
-        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
-
-        let counter = Persistent::<GCounter>::mount(vfs, "counter.journal").await.unwrap();
-
-        counter.mutate(|c| c.increment(5)).await.unwrap();
-        counter.mutate(|c| c.increment(3)).await.unwrap();
-
-        assert_eq!(counter.get().await.value(), 8);
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/storage/tests.rs"]
+mod tests;

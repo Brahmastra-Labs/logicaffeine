@@ -1,0 +1,12 @@
+## To fib (n: Int) -> Int:
+    If n is less than 2:
+        Return n.
+    Return fib(n - 1) + fib(n - 2).
+## To fact (n: Int) -> Int:
+    If n is at most 1:
+        Return 1.
+    Return n * fact(n - 1).
+## Main
+    Show fib(6).
+    Show fib(7).
+    Show fact(6).

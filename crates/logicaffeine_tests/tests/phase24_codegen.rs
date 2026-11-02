@@ -1,13 +1,13 @@
-use std::collections::HashSet;
 use logicaffeine_base::Arena;
-use logicaffeine_language::ast::{Expr, Literal, Stmt, BinaryOpKind};
-use logicaffeine_language::ast::stmt::SelectBranch;
-use logicaffeine_compile::codegen::{
-    codegen_expr, codegen_stmt, codegen_program, RefinementContext, empty_var_caps,
-    collect_async_functions, collect_pipe_vars, collect_pipe_sender_params,
-};
 use logicaffeine_base::{Interner, Symbol};
-use logicaffeine_language::analysis::{TypeRegistry, PolicyRegistry};
+use logicaffeine_compile::codegen::{
+    codegen_expr, codegen_program, codegen_stmt, collect_async_functions,
+    collect_pipe_sender_params, collect_pipe_vars, empty_var_caps, RefinementContext,
+};
+use logicaffeine_language::analysis::{PolicyRegistry, TypeRegistry};
+use logicaffeine_language::ast::stmt::SelectBranch;
+use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, Stmt};
+use std::collections::HashSet;
 
 // Empty LWW fields set for tests that don't involve CRDTs
 fn empty_lww_fields() -> HashSet<(String, String)> {
@@ -75,8 +75,11 @@ fn codegen_literal_text() {
     let text_sym = interner.intern("hello world");
     let expr = Expr::Literal(Literal::Text(text_sym));
     let result = codegen_expr(&expr, &interner, &synced_vars);
-    // String::from() ensures we get String type, not &str
-    assert_eq!(result, "String::from(\"hello world\")");
+    // `String::from(…)` ensures we get a `String`, not a `&str` — and it is spelled in FULL
+    // because `use user_types::*;` sits above the generated code: a LOGOS record named `String`
+    // would otherwise capture the call and the program would not compile. Same reason `Box` is
+    // qualified; `aot_prelude_name_collision_lock` holds the rule.
+    assert_eq!(result, "::std::string::String::from(\"hello world\")");
 }
 
 #[test]
@@ -140,10 +143,7 @@ fn codegen_index_1_indexed() {
     let collection = arena.alloc(Expr::Identifier(list));
     // Phase 43D: Index now takes an expression
     let index = arena.alloc(Expr::Literal(Literal::Number(1)));
-    let expr = Expr::Index {
-        collection,
-        index,
-    };
+    let expr = Expr::Index { collection, index };
     let result = codegen_expr(&expr, &interner, &synced_vars);
     // Phase 57: Uses LogosIndex trait for polymorphic indexing
     assert_eq!(result, "LogosIndex::logos_get(&list, 1)");
@@ -158,10 +158,7 @@ fn codegen_index_5_becomes_4() {
     let collection = arena.alloc(Expr::Identifier(items));
     // Phase 43D: Index now takes an expression
     let index = arena.alloc(Expr::Literal(Literal::Number(5)));
-    let expr = Expr::Index {
-        collection,
-        index,
-    };
+    let expr = Expr::Index { collection, index };
     let result = codegen_expr(&expr, &interner, &synced_vars);
     // Phase 57: Uses LogosIndex trait for polymorphic indexing
     assert_eq!(result, "LogosIndex::logos_get(&items, 5)");
@@ -183,8 +180,23 @@ fn codegen_let_statement() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
-    assert_eq!(result, "let x = 42;\n");
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
+    assert_eq!(result, "let x: i64 = 42;\n");
 }
 
 #[test]
@@ -203,8 +215,23 @@ fn codegen_let_mutable() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
-    assert_eq!(result, "let mut count = 0;\n");
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
+    assert_eq!(result, "let mut count: i64 = 0;\n");
 }
 
 #[test]
@@ -213,15 +240,27 @@ fn codegen_set_statement() {
     let x = interner.intern("x");
     let arena: Arena<Expr> = Arena::new();
     let value = arena.alloc(Expr::Literal(Literal::Number(10)));
-    let stmt = Stmt::Set {
-        target: x,
-        value,
-    };
+    let stmt = Stmt::Set { target: x, value };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
     assert_eq!(result, "x = 10;\n");
 }
 
@@ -230,14 +269,27 @@ fn codegen_return_with_value() {
     let mut interner = Interner::new();
     let arena: Arena<Expr> = Arena::new();
     let value = arena.alloc(Expr::Literal(Literal::Number(42)));
-    let stmt = Stmt::Return {
-        value: Some(value),
-    };
+    let stmt = Stmt::Return { value: Some(value) };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
     assert_eq!(result, "return 42;\n");
 }
 
@@ -249,7 +301,22 @@ fn codegen_return_without_value() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
     assert_eq!(result, "return;\n");
 }
 
@@ -270,7 +337,22 @@ fn codegen_if_without_else() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
     // An UNTYPED identifier condition gets the truthiness wrap — it could be
     // a Seq/Text/Float; only a statically-Bool cond emits bare (`if x {`).
     assert!(
@@ -298,7 +380,22 @@ fn codegen_while_loop() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
     // An UNTYPED identifier condition gets the truthiness wrap (see
     // codegen_if_without_else).
     assert!(
@@ -325,8 +422,23 @@ fn codegen_indentation() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
-    assert_eq!(result, "    let x = 5;\n");
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        1,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
+    assert_eq!(result, "    let x: i64 = 5;\n");
 }
 
 #[test]
@@ -336,9 +448,21 @@ fn codegen_program_wraps_in_main() {
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
     let policies = PolicyRegistry::new();
     let stmts: &[Stmt] = &[];
-    let type_env = logicaffeine_compile::analysis::types::TypeEnv::infer_program(stmts, &interner, &registry);
-    let result = codegen_program(stmts, &registry, &policies, &interner, &type_env, &logicaffeine_compile::optimization::OptimizationConfig::all_on());
-    assert!(result.contains("fn main()"), "Expected 'fn main()' but got: {}", result);
+    let type_env =
+        logicaffeine_compile::analysis::types::TypeEnv::infer_program(stmts, &interner, &registry);
+    let result = codegen_program(
+        stmts,
+        &registry,
+        &policies,
+        &interner,
+        &type_env,
+        &logicaffeine_compile::optimization::OptimizationConfig::all_on(),
+    );
+    assert!(
+        result.contains("fn main()"),
+        "Expected 'fn main()' but got: {}",
+        result
+    );
     assert!(result.contains("{"), "Expected '{{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -356,7 +480,22 @@ fn codegen_call_statement() {
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
+    let result = codegen_stmt(
+        &stmt,
+        &interner,
+        0,
+        &HashSet::<Symbol>::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
+    );
     assert_eq!(result, "println();\n");
 }
 
@@ -392,7 +531,10 @@ fn test_collect_async_functions_with_sleep() {
     let stmts = vec![func_def];
     let async_fns = collect_async_functions(&stmts);
 
-    assert!(async_fns.contains(&sleeper), "Function with Sleep should be detected as async");
+    assert!(
+        async_fns.contains(&sleeper),
+        "Function with Sleep should be detected as async"
+    );
 }
 
 #[test]
@@ -425,7 +567,10 @@ fn test_collect_async_functions_with_launch_task() {
     let stmts = vec![func_def];
     let async_fns = collect_async_functions(&stmts);
 
-    assert!(async_fns.contains(&launcher), "Function with LaunchTask should be detected as async");
+    assert!(
+        async_fns.contains(&launcher),
+        "Function with LaunchTask should be detected as async"
+    );
 }
 
 #[test]
@@ -476,8 +621,14 @@ fn test_collect_async_functions_transitive() {
     let stmts = vec![helper_def, wrapper_def];
     let async_fns = collect_async_functions(&stmts);
 
-    assert!(async_fns.contains(&helper), "helper should be detected as async (has Sleep)");
-    assert!(async_fns.contains(&wrapper), "wrapper should be detected as async (calls async helper)");
+    assert!(
+        async_fns.contains(&helper),
+        "helper should be detected as async (has Sleep)"
+    );
+    assert!(
+        async_fns.contains(&wrapper),
+        "wrapper should be detected as async (calls async helper)"
+    );
 }
 
 #[test]
@@ -497,7 +648,10 @@ fn test_collect_pipe_vars_basic() {
     let stmts: &[Stmt] = std::slice::from_ref(create_stmt);
     let pipe_vars = collect_pipe_vars(stmts);
 
-    assert!(pipe_vars.contains(&pipe_var), "CreatePipe variable should be collected");
+    assert!(
+        pipe_vars.contains(&pipe_var),
+        "CreatePipe variable should be collected"
+    );
 }
 
 #[test]
@@ -520,7 +674,10 @@ fn test_collect_pipe_vars_in_concurrent_block() {
     let stmts = vec![concurrent];
     let pipe_vars = collect_pipe_vars(&stmts);
 
-    assert!(pipe_vars.contains(&pipe_var), "CreatePipe inside Concurrent should be collected");
+    assert!(
+        pipe_vars.contains(&pipe_var),
+        "CreatePipe inside Concurrent should be collected"
+    );
 }
 
 #[test]
@@ -545,7 +702,10 @@ fn test_collect_pipe_sender_params_in_concurrent() {
 
     let senders = collect_pipe_sender_params(body);
 
-    assert!(senders.contains(&pipe_param), "SendPipe inside Concurrent should detect sender param");
+    assert!(
+        senders.contains(&pipe_param),
+        "SendPipe inside Concurrent should detect sender param"
+    );
 }
 
 #[test]
@@ -569,13 +729,27 @@ fn codegen_stmt_call_async_function_awaits() {
     async_functions.insert(async_fn);
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_functions,
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains(".await"), "Call to async function should have .await: {}", result);
+    assert!(
+        result.contains(".await"),
+        "Call to async function should have .await: {}",
+        result
+    );
     assert_eq!(result, "async_helper().await;\n");
 }
 
@@ -599,13 +773,27 @@ fn codegen_stmt_call_sync_function_no_await() {
     let async_functions = HashSet::new();
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_functions,
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(!result.contains(".await"), "Call to sync function should NOT have .await: {}", result);
+    assert!(
+        !result.contains(".await"),
+        "Call to sync function should NOT have .await: {}",
+        result
+    );
     assert_eq!(result, "sync_helper();\n");
 }
 
@@ -632,13 +820,27 @@ fn codegen_concurrent_with_async_call() {
     async_functions.insert(async_fn);
 
     let result = codegen_stmt(
-        &concurrent, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &concurrent,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_functions,
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains("fetch_data().await"), "Async call in Concurrent should have .await: {}", result);
+    assert!(
+        result.contains("fetch_data().await"),
+        "Async call in Concurrent should have .await: {}",
+        result
+    );
 }
 
 #[test]
@@ -664,14 +866,28 @@ fn codegen_concurrent_with_sync_call() {
     let async_functions = HashSet::new();
 
     let result = codegen_stmt(
-        &concurrent, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &concurrent,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_functions,
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
     // The sync function should NOT have .await
-    assert!(!result.contains("compute().await"), "Sync call in Concurrent should NOT have .await: {}", result);
+    assert!(
+        !result.contains("compute().await"),
+        "Sync call in Concurrent should NOT have .await: {}",
+        result
+    );
 }
 
 #[test]
@@ -686,13 +902,11 @@ fn codegen_select_receive_with_local_pipe() {
     let pipe_expr = expr_arena.alloc(Expr::Identifier(pipe_var));
 
     let select = Stmt::Select {
-        branches: vec![
-            SelectBranch::Receive {
-                var: msg_var,
-                pipe: pipe_expr,
-                body: &[],
-            },
-        ],
+        branches: vec![SelectBranch::Receive {
+            var: msg_var,
+            pipe: pipe_expr,
+            body: &[],
+        }],
     };
 
     let mut ctx = RefinementContext::new();
@@ -705,13 +919,27 @@ fn codegen_select_receive_with_local_pipe() {
     pipe_vars.insert(pipe_var);
 
     let result = codegen_stmt(
-        &select, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &empty_async_fns(), &pipe_vars,
-        &HashSet::new(), &registry, &type_env,
+        &select,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &pipe_vars,
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains("jobs_rx.recv()"), "Local pipe should use _rx suffix: {}", result);
+    assert!(
+        result.contains("jobs_rx.recv()"),
+        "Local pipe should use _rx suffix: {}",
+        result
+    );
 }
 
 #[test]
@@ -725,13 +953,11 @@ fn codegen_select_receive_with_pipe_param() {
     let pipe_expr = expr_arena.alloc(Expr::Identifier(pipe_param));
 
     let select = Stmt::Select {
-        branches: vec![
-            SelectBranch::Receive {
-                var: msg_var,
-                pipe: pipe_expr,
-                body: &[],
-            },
-        ],
+        branches: vec![SelectBranch::Receive {
+            var: msg_var,
+            pipe: pipe_expr,
+            body: &[],
+        }],
     };
 
     let mut ctx = RefinementContext::new();
@@ -743,15 +969,33 @@ fn codegen_select_receive_with_pipe_param() {
     let pipe_vars = HashSet::new();
 
     let result = codegen_stmt(
-        &select, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &empty_async_fns(), &pipe_vars,
-        &HashSet::new(), &registry, &type_env,
+        &select,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &pipe_vars,
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
     // Should use input_pipe.recv() NOT input_pipe_rx.recv()
-    assert!(result.contains("input_pipe.recv()"), "Pipe parameter should NOT use _rx suffix: {}", result);
-    assert!(!result.contains("input_pipe_rx"), "Pipe parameter should NOT have _rx: {}", result);
+    assert!(
+        result.contains("input_pipe.recv()"),
+        "Pipe parameter should NOT use _rx suffix: {}",
+        result
+    );
+    assert!(
+        !result.contains("input_pipe_rx"),
+        "Pipe parameter should NOT have _rx: {}",
+        result
+    );
 }
 
 #[test]
@@ -768,14 +1012,32 @@ fn codegen_sleep_statement() {
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains("tokio::time::sleep"), "Sleep should use tokio: {}", result);
-    assert!(result.contains(".await"), "Sleep should have .await: {}", result);
+    assert!(
+        result.contains("tokio::time::sleep"),
+        "Sleep should use tokio: {}",
+        result
+    );
+    assert!(
+        result.contains(".await"),
+        "Sleep should have .await: {}",
+        result
+    );
 }
 
 #[test]
@@ -797,15 +1059,37 @@ fn codegen_create_pipe() {
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains("jobs_tx"), "CreatePipe should create _tx var: {}", result);
-    assert!(result.contains("jobs_rx"), "CreatePipe should create _rx var: {}", result);
-    assert!(result.contains("mpsc::channel"), "CreatePipe should use mpsc: {}", result);
+    assert!(
+        result.contains("jobs_tx"),
+        "CreatePipe should create _tx var: {}",
+        result
+    );
+    assert!(
+        result.contains("jobs_rx"),
+        "CreatePipe should create _rx var: {}",
+        result
+    );
+    assert!(
+        result.contains("mpsc::channel"),
+        "CreatePipe should use mpsc: {}",
+        result
+    );
 }
 
 #[test]
@@ -824,14 +1108,32 @@ fn codegen_launch_task() {
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &empty_async_fns(),
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains("tokio::spawn"), "LaunchTask should use tokio::spawn: {}", result);
-    assert!(result.contains("worker()"), "LaunchTask should call the function: {}", result);
+    assert!(
+        result.contains("tokio::spawn"),
+        "LaunchTask should use tokio::spawn: {}",
+        result
+    );
+    assert!(
+        result.contains("worker()"),
+        "LaunchTask should call the function: {}",
+        result
+    );
 }
 
 #[test]
@@ -864,13 +1166,27 @@ fn codegen_let_with_async_call_awaits() {
     async_functions.insert(async_fn);
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_functions,
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(result.contains(".await"), "Let with async call should have .await: {}", result);
+    assert!(
+        result.contains(".await"),
+        "Let with async call should have .await: {}",
+        result
+    );
     assert_eq!(result, "let x = fetch_data().await;\n");
 }
 
@@ -903,13 +1219,27 @@ fn codegen_let_with_sync_call_no_await() {
     let async_functions = HashSet::new();
 
     let result = codegen_stmt(
-        &stmt, &interner, 0, &HashSet::new(), &mut ctx,
-        &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
-        &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry, &type_env,
+        &stmt,
+        &interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &async_functions,
+        &empty_pipe_vars(),
+        &HashSet::new(),
+        &registry,
+        &type_env,
     );
 
-    assert!(!result.contains(".await"), "Let with sync call should NOT have .await: {}", result);
+    assert!(
+        !result.contains(".await"),
+        "Let with sync call should NOT have .await: {}",
+        result
+    );
     assert_eq!(result, "let x = compute();\n");
 }
 
@@ -926,19 +1256,21 @@ fn codegen_generic_identity_has_type_param() {
 ## Main
 Let r be identity(42).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     assert!(
         rust.contains("fn identity<T>"),
-        "Generic function should emit <T> type param.\nGot:\n{}", rust
+        "Generic function should emit <T> type param.\nGot:\n{}",
+        rust
     );
     assert!(
         rust.contains("x: T"),
-        "Parameter type should be T.\nGot:\n{}", rust
+        "Parameter type should be T.\nGot:\n{}",
+        rust
     );
     assert!(
         rust.contains("-> T"),
-        "Return type should be T.\nGot:\n{}", rust
+        "Return type should be T.\nGot:\n{}",
+        rust
     );
 }
 
@@ -953,11 +1285,11 @@ fn codegen_generic_two_type_params() {
 ## Main
 Let r be first(1, true).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     assert!(
         rust.contains("fn first<T, U>"),
-        "Two-param generic should emit <T, U>.\nGot:\n{}", rust
+        "Two-param generic should emit <T, U>.\nGot:\n{}",
+        rust
     );
 }
 
@@ -970,15 +1302,16 @@ fn codegen_monomorphic_function_has_no_type_params() {
 ## Main
 Let r be double(5).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     assert!(
         rust.contains("fn double("),
-        "Monomorphic function should not have type params.\nGot:\n{}", rust
+        "Monomorphic function should not have type params.\nGot:\n{}",
+        rust
     );
     assert!(
         !rust.contains("fn double<"),
-        "Monomorphic function must not have angle brackets.\nGot:\n{}", rust
+        "Monomorphic function must not have angle brackets.\nGot:\n{}",
+        rust
     );
 }
 
@@ -997,11 +1330,11 @@ fn codegen_function_type_param_emits_impl_fn() {
 ## Main
 Show apply((x: Int) -> x > 0, 42).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     assert!(
         rust.contains("impl Fn(i64) -> bool"),
-        "Function type parameter should emit `impl Fn(i64) -> bool`.\nGot:\n{}", rust
+        "Function type parameter should emit `impl Fn(i64) -> bool`.\nGot:\n{}",
+        rust
     );
 }
 
@@ -1014,11 +1347,11 @@ fn codegen_function_type_param_two_inputs_emits_impl_fn() {
 ## Main
 Show combine((p: Int, q: Int) -> p + q, 3, 4).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     assert!(
         rust.contains("impl Fn(i64, i64) -> i64"),
-        "Two-input function type should emit `impl Fn(i64, i64) -> i64`.\nGot:\n{}", rust
+        "Two-input function type should emit `impl Fn(i64, i64) -> i64`.\nGot:\n{}",
+        rust
     );
 }
 
@@ -1031,11 +1364,11 @@ fn codegen_function_type_param_no_inputs_emits_impl_fn() {
 ## Main
 Show compute(() -> 42).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     assert!(
         rust.contains("impl Fn() -> i64"),
-        "Zero-input function type should emit `impl Fn() -> i64`.\nGot:\n{}", rust
+        "Zero-input function type should emit `impl Fn() -> i64`.\nGot:\n{}",
+        rust
     );
 }
 
@@ -1065,10 +1398,16 @@ fn codegen_vec_fill_registers_type_for_index() {
 Show sieve(100).
 "#;
     let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
-    assert!(!rust.contains("LogosIndex::logos_get"),
-        "Vec-fill variable should use direct indexing.\nGot:\n{}", rust);
-    assert!(!rust.contains("LogosIndexMut::logos_set"),
-        "Vec-fill variable should use direct set-index.\nGot:\n{}", rust);
+    assert!(
+        !rust.contains("LogosIndex::logos_get"),
+        "Vec-fill variable should use direct indexing.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("LogosIndexMut::logos_set"),
+        "Vec-fill variable should use direct set-index.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1086,10 +1425,16 @@ fn codegen_vec_fill_int_direct_index() {
 Show fill(10).
 "#;
     let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
-    assert!(!rust.contains("LogosIndex::logos_get"),
-        "Vec-fill Int should use direct indexing.\nGot:\n{}", rust);
-    assert!(!rust.contains("LogosIndexMut::logos_set"),
-        "Vec-fill Int should use direct set-index.\nGot:\n{}", rust);
+    assert!(
+        !rust.contains("LogosIndex::logos_get"),
+        "Vec-fill Int should use direct indexing.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("LogosIndexMut::logos_set"),
+        "Vec-fill Int should use direct set-index.\nGot:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1115,10 +1460,16 @@ Show countSort(1000).
 "#;
     let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
     // counts should be optimized to vec![0; n] — NOT Seq::default() + push loop
-    assert!(rust.contains("vec![0;"),
-        "Set-counter vec-fill should emit vec![].\nGot:\n{}", rust);
-    assert!(!rust.contains("counts.push("),
-        "Set-counter vec-fill should not have push loop.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("vec![0;"),
+        "Set-counter vec-fill should emit vec![].\nGot:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("counts.push("),
+        "Set-counter vec-fill should not have push loop.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1138,12 +1489,21 @@ Show item 1 of counts.
 "#;
     let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
     // vec-fill should fire and register the type, enabling direct indexing
-    assert!(rust.contains("vec![0;"),
-        "Vec-fill in main body should emit vec![].\nGot:\n{}", rust);
-    assert!(!rust.contains("LogosIndex::logos_get"),
-        "Vec-fill in main body should enable direct indexing.\nGot:\n{}", rust);
-    assert!(!rust.contains("LogosIndexMut::logos_set"),
-        "Vec-fill in main body should enable direct set-index.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("vec![0;"),
+        "Vec-fill in main body should emit vec![].\nGot:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("LogosIndex::logos_get"),
+        "Vec-fill in main body should enable direct indexing.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("LogosIndexMut::logos_set"),
+        "Vec-fill in main body should enable direct set-index.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1162,12 +1522,12 @@ fn codegen_last_use_emits_move() {
 Let data be [1, 2, 3].
 Show process(data).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     // `items` is not used after `Set result to consume(items)` — should be moved, no clone.
     assert!(
         !rust.contains("items.clone()"),
-        "Last-use arg should be moved, not cloned.\nGot:\n{}", rust
+        "Last-use arg should be moved, not cloned.\nGot:\n{}",
+        rust
     );
 }
 
@@ -1188,12 +1548,12 @@ fn codegen_not_last_use_emits_clone() {
 Let data be [1, 2, 3].
 Show process(data).
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     // `items` is used in both Set statements — at least the first call must clone.
     assert!(
         rust.contains("items.clone()"),
-        "Non-last-use arg must be cloned.\nGot:\n{}", rust
+        "Non-last-use arg must be cloned.\nGot:\n{}",
+        rust
     );
 }
 
@@ -1228,17 +1588,18 @@ Let mutable arr be [3, 1, 2].
 Set arr to qs(arr, 1, 3).
 Show item 1 of arr.
 "#;
-    let rust = logicaffeine_compile::compile_to_rust(code)
-        .expect("compile should succeed");
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
     // The `arr` parameter should be owned (Vec<i64>), not borrowed (&[i64]).
     // This means the function signature should NOT contain &[i64] for arr.
     assert!(
         !rust.contains("arr: &[i64]"),
-        "Consumed Seq param should not be borrowed.\nGot:\n{}", rust
+        "Consumed Seq param should not be borrowed.\nGot:\n{}",
+        rust
     );
     // The first statement `let mut result = arr` should be a move, not a .to_vec() clone.
     assert!(
         !rust.contains("arr.to_vec()"),
-        "Consumed Seq param should not need .to_vec() clone.\nGot:\n{}", rust
+        "Consumed Seq param should not need .to_vec() clone.\nGot:\n{}",
+        rust
     );
 }

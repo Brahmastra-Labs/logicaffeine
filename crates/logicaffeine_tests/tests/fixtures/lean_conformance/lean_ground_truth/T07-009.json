@@ -1,0 +1,543 @@
+{
+  "case": "T07-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 69,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T07_009.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Colour",
+      "name": "T07_009.Colour.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T07_009.Colour.blue = 1",
+      "name": "T07_009.Colour.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Colour \u2192 Sort u} \u2192\n  (t : T07_009.Colour) \u2192 motive T07_009.Colour.red \u2192 motive T07_009.Colour.green \u2192 motive T07_009.Colour.blue \u2192 motive t",
+      "name": "T07_009.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Colour",
+      "name": "T07_009.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T07_009.Colour.green = 1",
+      "name": "T07_009.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T07_009.Colour} \u2192 x = y \u2192 T07_009.Colour.noConfusionType P x y",
+      "name": "T07_009.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.54"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T07_009.Colour \u2192 T07_009.Colour \u2192 Sort v\u271d",
+      "name": "T07_009.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.53"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T07_009.Colour",
+      "name": "T07_009.Colour.ofNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : T07_009.Colour), T07_009.Colour.ofNat x.toCtorIdx = x",
+      "name": "T07_009.Colour.ofNat_toCtorIdx",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Colour \u2192 Sort u} \u2192\n  motive T07_009.Colour.red \u2192 motive T07_009.Colour.green \u2192 motive T07_009.Colour.blue \u2192 (t : T07_009.Colour) \u2192 motive t",
+      "name": "T07_009.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Colour \u2192 Sort u} \u2192\n  (t : T07_009.Colour) \u2192 motive T07_009.Colour.red \u2192 motive T07_009.Colour.green \u2192 motive T07_009.Colour.blue \u2192 motive t",
+      "name": "T07_009.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Colour",
+      "name": "T07_009.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T07_009.Colour.red = 1",
+      "name": "T07_009.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Colour \u2192 Nat",
+      "name": "T07_009.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T07_009.Flag",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Flag \u2192 Sort u} \u2192 (t : T07_009.Flag) \u2192 motive T07_009.Flag.on \u2192 motive T07_009.Flag.off \u2192 motive t",
+      "name": "T07_009.Flag.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T07_009.Flag} \u2192 x = y \u2192 T07_009.Flag.noConfusionType P x y",
+      "name": "T07_009.Flag.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.683"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T07_009.Flag \u2192 T07_009.Flag \u2192 Sort v\u271d",
+      "name": "T07_009.Flag.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.682"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Flag",
+      "name": "T07_009.Flag.off",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T07_009.Flag.off = 1",
+      "name": "T07_009.Flag.off.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Flag",
+      "name": "T07_009.Flag.on",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T07_009.Flag.on = 1",
+      "name": "T07_009.Flag.on.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Flag \u2192 Sort u} \u2192 motive T07_009.Flag.on \u2192 motive T07_009.Flag.off \u2192 (t : T07_009.Flag) \u2192 motive t",
+      "name": "T07_009.Flag.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Flag \u2192 Sort u} \u2192 (t : T07_009.Flag) \u2192 motive T07_009.Flag.on \u2192 motive T07_009.Flag.off \u2192 motive t",
+      "name": "T07_009.Flag.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Flag \u2192 Nat",
+      "name": "T07_009.Flag.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T07_009.Pt",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Pt \u2192 Sort u} \u2192 (t : T07_009.Pt) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T07_009.Pt.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T07_009.Pt",
+      "name": "T07_009.Pt.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {x y x_1 y_1 : Nat}, { x := x, y := y } = { x := x_1, y := y_1 } \u2192 x = x_1 \u2227 y = y_1",
+      "name": "T07_009.Pt.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y x_1 y_1 : Nat), ({ x := x, y := y } = { x := x_1, y := y_1 }) = (x = x_1 \u2227 y = y_1)",
+      "name": "T07_009.Pt.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Nat), sizeOf { x := x, y := y } = 1 + sizeOf x + sizeOf y",
+      "name": "T07_009.Pt.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T07_009.Pt} \u2192 v1 = v2 \u2192 T07_009.Pt.noConfusionType P v1 v2",
+      "name": "T07_009.Pt.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T07_009.Pt \u2192 T07_009.Pt \u2192 Sort u",
+      "name": "T07_009.Pt.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Pt \u2192 Sort u} \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 (t : T07_009.Pt) \u2192 motive t",
+      "name": "T07_009.Pt.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Pt \u2192 Sort u} \u2192 (t : T07_009.Pt) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T07_009.Pt.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Pt \u2192 Nat",
+      "name": "T07_009.Pt.x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Pt \u2192 Nat",
+      "name": "T07_009.Pt.y",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T07_009.Tree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Tree \u2192 Sort u} \u2192 T07_009.Tree \u2192 Sort (max 1 u)",
+      "name": "T07_009.Tree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T07_009.Tree \u2192 Prop} (t : T07_009.Tree), (\u2200 (t : T07_009.Tree), T07_009.Tree.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T07_009.Tree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Tree \u2192 Sort u} \u2192\n  (t : T07_009.Tree) \u2192 ((t : T07_009.Tree) \u2192 T07_009.Tree.below t \u2192 motive t) \u2192 motive t",
+      "name": "T07_009.Tree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Tree \u2192 Sort u} \u2192\n  (t : T07_009.Tree) \u2192 motive T07_009.Tree.leaf \u2192 ((a a_1 : T07_009.Tree) \u2192 motive (a.node a_1)) \u2192 motive t",
+      "name": "T07_009.Tree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Tree \u2192 Prop} \u2192 T07_009.Tree \u2192 Prop",
+      "name": "T07_009.Tree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Tree",
+      "name": "T07_009.Tree.leaf",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T07_009.Tree.leaf = 1",
+      "name": "T07_009.Tree.leaf.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T07_009.Tree} \u2192 v1 = v2 \u2192 T07_009.Tree.noConfusionType P v1 v2",
+      "name": "T07_009.Tree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T07_009.Tree \u2192 T07_009.Tree \u2192 Sort u",
+      "name": "T07_009.Tree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Tree \u2192 T07_009.Tree \u2192 T07_009.Tree",
+      "name": "T07_009.Tree.node",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 a_2 a_3 : T07_009.Tree}, a.node a_1 = a_2.node a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T07_009.Tree.node.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 a_2 a_3 : T07_009.Tree), (a.node a_1 = a_2.node a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T07_009.Tree.node.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a a_1 : T07_009.Tree), sizeOf (a.node a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T07_009.Tree.node.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Tree \u2192 Sort u} \u2192\n  motive T07_009.Tree.leaf \u2192\n    ((a a_1 : T07_009.Tree) \u2192 motive a \u2192 motive a_1 \u2192 motive (a.node a_1)) \u2192 (t : T07_009.Tree) \u2192 motive t",
+      "name": "T07_009.Tree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_009.Tree \u2192 Sort u} \u2192\n  (t : T07_009.Tree) \u2192\n    motive T07_009.Tree.leaf \u2192 ((a a_1 : T07_009.Tree) \u2192 motive a \u2192 motive a_1 \u2192 motive (a.node a_1)) \u2192 motive t",
+      "name": "T07_009.Tree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 Bool \u2192 Bool",
+      "name": "T07_009.boolEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Colour \u2192 T07_009.Colour \u2192 Bool",
+      "name": "T07_009.colourEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Flag \u2192 T07_009.Flag \u2192 Bool",
+      "name": "T07_009.flagEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T07_009.Colour",
+      "name": "T07_009.instDecidableEqColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T07_009.Colour), x.toCtorIdx = y.toCtorIdx \u2192 x = y",
+      "name": "T07_009.instDecidableEqColour.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T07_009.Colour), \u00acx.toCtorIdx = y.toCtorIdx \u2192 x = y \u2192 False",
+      "name": "T07_009.instDecidableEqColour.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T07_009.Flag",
+      "name": "T07_009.instDecidableEqFlag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T07_009.Flag \u2192 T07_009.Flag \u2192 Sort u_1) \u2192\n  (a b : T07_009.Flag) \u2192\n    (Unit \u2192 motive T07_009.Flag.on T07_009.Flag.on) \u2192\n      (Unit \u2192 motive T07_009.Flag.off T07_009.Flag.off) \u2192\n        (Unit \u2192 motive T07_009.Flag.on T07_009.Flag.off) \u2192 (Unit \u2192 motive T07_009.Flag.off T07_009.Flag.on) \u2192 motive a b",
+      "name": "T07_009.instDecidableEqFlag.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T07_009.Pt",
+      "name": "T07_009.instDecidableEqPt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T07_009.Tree",
+      "name": "T07_009.instDecidableEqTree",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int \u2192 Int \u2192 Bool",
+      "name": "T07_009.intEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 List Nat \u2192 Bool",
+      "name": "T07_009.listEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Bool",
+      "name": "T07_009.natEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Pt \u2192 T07_009.Pt \u2192 Bool",
+      "name": "T07_009.pairEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_009.Tree \u2192 T07_009.Tree \u2192 Bool",
+      "name": "T07_009.treeEq",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

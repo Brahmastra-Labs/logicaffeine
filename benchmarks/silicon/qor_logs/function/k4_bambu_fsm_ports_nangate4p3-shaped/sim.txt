@@ -1,0 +1,3 @@
+QOR first cycles 3009
+QOR mid ops 500 cycles 1503003
+QOR ops 1000 misr d8258bee4adc0dca cycles 3006003

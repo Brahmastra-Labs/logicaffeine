@@ -1,0 +1,10 @@
+{
+  "capability": "operator.and",
+  "workload": "sum of opAnd(i, 7) over 1..n",
+  "arg": "3000000",
+  "expected": "10500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "case": "T12-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t12_vernacular/T12-011_surface_selection_policy.lean",
+  "source_sha256": "fe13033197b2eda36902d66d83391ce9798925a87fbd3bdd974af516e31f3e32",
+  "ledger_sha256": "49745e29f610a0aeabda2a26f97513403e60c5f15c80bf9566704d10dc379d23",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T12_011.Cong",
+    "T12_011.Doomed",
+    "T12_011.Man",
+    "T12_011.Mortal",
+    "T12_011.socrates"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "837b53d303599bc2b0f4a7756da305099ed507685007024de6f5bba57212e6e5",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 39,
+  "harvest": {
+    "roots": [
+      "T12_011.Cong",
+      "T12_011.Doomed",
+      "T12_011.Man",
+      "T12_011.Mortal",
+      "T12_011.socrates"
+    ],
+    "probe_binary_sha256": "501903e02f00f242f22ac0b6dafe7ca52e212ec2226949507171502b3d62b361",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:3eb74ebd38bce97ad2ebe7f035748ca7919c34f5b68541101750d0bfd8aa62ef",
+    "joint_export": true
+  }
+}

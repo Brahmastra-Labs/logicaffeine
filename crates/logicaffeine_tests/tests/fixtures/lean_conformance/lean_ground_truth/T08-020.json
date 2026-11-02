@@ -1,0 +1,52 @@
+{
+  "case": "T08-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_020.allGoalsAfterConstructor",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 (p \u2227 p) \u2227 q \u2227 q",
+      "name": "T08_020.allGoalsNonClosing",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), p \u2192 q \u2192 r \u2192 (p \u2227 q) \u2227 r",
+      "name": "T08_020.allGoalsTwoStepsBack",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2227 0 = 0",
+      "name": "T08_020.anyGoals",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_020.focused",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r s : Prop), s \u2192 p \u2192 q \u2192 r \u2192 s",
+      "name": "T08_020.iterated",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

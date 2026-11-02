@@ -1,0 +1,11 @@
+{
+  "name": "coins",
+  "lang": "c",
+  "n": "401718368",
+  "samples_weight": 19292411011,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

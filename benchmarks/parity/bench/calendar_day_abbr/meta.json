@@ -1,0 +1,11 @@
+{
+  "capability": "calendar.day_abbr",
+  "workload": "sum of the length of dayAbbr(weekday) over a rolling weekday sweep",
+  "arg": "4000000",
+  "expected": "12000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "Pure-LOGOS calendar switch-lookup (calendar.day_abbr). Python rival present; C/Rust/Go rivals not yet authored, so perf stays pending. Sized so the Python rival is tolerable."
+}

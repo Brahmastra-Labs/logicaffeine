@@ -4,6 +4,9 @@
 //! The fast O(n log n) butterfly NTT — where the kernel-certified Gauss/symmetry speedups
 //! apply — is the next milestone; this locks the arithmetic and the Logos idioms it needs.
 
+#[path = "support/under_test.rs"]
+mod under_test;
+
 use logicaffeine_compile::compile::{tw_outcome, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
 use logicaffeine_jit::ForgeTier;
@@ -72,8 +75,16 @@ fn intt(fhat: &[i64], w: i64, q: i64) -> Vec<i64> {
 /// Build the Logos schoolbook NTT program for a concrete input + power table.
 fn logos_ntt_program(f: &[i64], powers: &[i64]) -> String {
     let n = f.len();
-    let f_lit = f.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let f_lit = f
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "## Main\n\
          Let f be [{f_lit}].\n\
@@ -112,7 +123,11 @@ fn assert_logos_ntt_matches_oracle(f: &[i64]) {
 
     let prog = logos_ntt_program(f, &powers);
     let r = tw_outcome(&prog);
-    assert_eq!(r.error, None, "Logos NTT must run without error: {:?}", r.error);
+    assert_eq!(
+        r.error, None,
+        "Logos NTT must run without error: {:?}",
+        r.error
+    );
     let got: Vec<i64> = r
         .output
         .lines()
@@ -120,7 +135,10 @@ fn assert_logos_ntt_matches_oracle(f: &[i64]) {
         .map(|l| l.trim().parse().expect("integer output line"))
         .collect();
     assert_eq!(got.len(), n as usize, "one output coefficient per index");
-    assert_eq!(got, expected, "the Logos NTT must equal the Rust DFT oracle");
+    assert_eq!(
+        got, expected,
+        "the Logos NTT must equal the Rust DFT oracle"
+    );
 }
 
 #[test]
@@ -151,8 +169,16 @@ fn bit_reverse_vec(f: &[i64]) -> Vec<i64> {
 fn logos_fast_ntt_program(a: &[i64], powers: &[i64]) -> String {
     let n = a.len();
     let stages = n.trailing_zeros() as usize; // log2(n)
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "## Main\n\
          Let a be [{a_lit}].\n\
@@ -196,7 +222,10 @@ fn assert_logos_fast_ntt_matches_oracle(f: &[i64]) {
     let a = bit_reverse_vec(f); // DIT consumes bit-reversed input
     let got = run_logos_ntt(&logos_fast_ntt_program(&a, &powers));
     assert_eq!(got.len(), n as usize, "one output per index");
-    assert_eq!(got, expected, "the fast butterfly NTT must equal the DFT oracle");
+    assert_eq!(
+        got, expected,
+        "the fast butterfly NTT must equal the DFT oracle"
+    );
 }
 
 #[test]
@@ -231,7 +260,16 @@ fn redc_oracle(x: i64) -> i64 {
 #[test]
 fn redc_computes_montgomery_reduction() {
     let r_inv = inv_mod(MONT_R, Q); // R⁻¹ mod q
-    for x in [0i64, 1, 7, Q, MONT_R, 11_000_000, Q * (MONT_R - 1), (Q - 1) * (Q - 1)] {
+    for x in [
+        0i64,
+        1,
+        7,
+        Q,
+        MONT_R,
+        11_000_000,
+        Q * (MONT_R - 1),
+        (Q - 1) * (Q - 1),
+    ] {
         let got = redc_oracle(x);
         let want = (x.rem_euclid(Q) * r_inv).rem_euclid(Q); // x·R⁻¹ mod q
         assert_eq!(got, want, "redc({x}) must equal x·R⁻¹ mod q");
@@ -245,8 +283,16 @@ fn redc_computes_montgomery_reduction() {
 fn logos_montgomery_ntt_program(a: &[i64], powers_mont: &[i64]) -> String {
     let n = a.len();
     let stages = n.trailing_zeros() as usize;
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers_mont.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers_mont
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let q = Q;
     let lines: Vec<String> = vec![
         "## To redc (x: Int) -> Int:".to_string(),
@@ -293,10 +339,16 @@ fn assert_logos_montgomery_ntt_matches_oracle(f: &[i64]) {
     let powers_mont: Vec<i64> = powers.iter().map(|&p| (p * MONT_R).rem_euclid(Q)).collect();
     let expected = ntt(f, w, Q); // schoolbook DFT oracle, natural order
 
-    let a: Vec<i64> = bit_reverse_vec(f).iter().map(|&x| x.rem_euclid(Q)).collect();
+    let a: Vec<i64> = bit_reverse_vec(f)
+        .iter()
+        .map(|&x| x.rem_euclid(Q))
+        .collect();
     let got = run_logos_ntt(&logos_montgomery_ntt_program(&a, &powers_mont));
     assert_eq!(got.len(), n as usize, "one output per index");
-    assert_eq!(got, expected, "the Montgomery (division-free) NTT must equal the DFT oracle");
+    assert_eq!(
+        got, expected,
+        "the Montgomery (division-free) NTT must equal the DFT oracle"
+    );
 }
 
 #[test]
@@ -304,7 +356,8 @@ fn probe_redc_codegen_uses_mask_and_shift() {
     // The redc reductions are powers of two: `% 65536` must lower to a mask and `/ 65536` to a
     // shift — NOT a hardware divide. Print the generated `redc` body.
     let prog = logos_montgomery_ntt_program(&[1, 2, 3, 4, 5, 6, 7, 8], &[1, 1, 1, 1, 1, 1, 1, 1]);
-    let rust = logicaffeine_compile::compile::compile_to_rust(&prog).expect("Montgomery NTT compiles");
+    let rust =
+        logicaffeine_compile::compile::compile_to_rust(&prog).expect("Montgomery NTT compiles");
     eprintln!("=== generated redc ===");
     let mut in_redc = false;
     for line in rust.lines() {
@@ -346,14 +399,28 @@ fn assert_stdlib_ntt_matches_oracle(f: &[i64]) {
     let powers: Vec<i64> = (0..n).map(|i| pow_mod(w, i, Q)).collect();
     let powers_mont: Vec<i64> = powers.iter().map(|&p| (p * MONT_R).rem_euclid(Q)).collect();
     let expected = ntt(f, w, Q);
-    let a: Vec<i64> = bit_reverse_vec(f).iter().map(|&x| x.rem_euclid(Q)).collect();
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers_mont.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a: Vec<i64> = bit_reverse_vec(f)
+        .iter()
+        .map(|&x| x.rem_euclid(Q))
+        .collect();
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers_mont
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let prog = format!(
         "## Main\nLet a be [{a_lit}].\nLet powers be [{p_lit}].\nLet result be ntt(a, powers).\nRepeat for i from 1 to {n}:\n    Show item i of result.\n"
     );
     let got = run_logos_ntt(&prog);
-    assert_eq!(got, expected, "the demand-imported stdlib `ntt` must equal the DFT oracle");
+    assert_eq!(
+        got, expected,
+        "the demand-imported stdlib `ntt` must equal the DFT oracle"
+    );
 }
 
 #[test]
@@ -394,8 +461,13 @@ fn fast_ntt_ratchets_the_multiply_count_vs_schoolbook() {
         let schoolbook = n * n;
         let fast = (n / 2) * (n.trailing_zeros() as i64);
         let ratio = schoolbook / fast;
-        println!("n={n:>4}: schoolbook {schoolbook:>6} mults | fast {fast:>5} mults | {ratio}× fewer");
-        assert!(fast < schoolbook, "the fast NTT must do strictly fewer multiplies");
+        println!(
+            "n={n:>4}: schoolbook {schoolbook:>6} mults | fast {fast:>5} mults | {ratio}× fewer"
+        );
+        assert!(
+            fast < schoolbook,
+            "the fast NTT must do strictly fewer multiplies"
+        );
     }
     assert_eq!(256 * 256, 65536);
     assert_eq!((256 / 2) * 8, 1024);
@@ -428,7 +500,10 @@ fn fast_and_schoolbook_ntt_agree_and_we_time_them_side_by_side() {
     let fast_out = run_logos_ntt(&fast_prog);
     let fast_t = t1.elapsed();
 
-    assert_eq!(fast_out, school_out, "fast and schoolbook NTT must produce identical coefficients");
+    assert_eq!(
+        fast_out, school_out,
+        "fast and schoolbook NTT must produce identical coefficients"
+    );
     println!(
         "n=256 tree-walker: schoolbook {school_t:?} | fast {fast_t:?} | speedup {:.1}×",
         school_t.as_secs_f64() / fast_t.as_secs_f64().max(1e-9)
@@ -482,8 +557,16 @@ fn fast_ntt_rust(a: &mut [i64], powers: &[i64], q: i64) {
 fn logos_fast_ntt_bench_program(a: &[i64], powers: &[i64], iters: usize) -> String {
     let n = a.len();
     let stages = n.trailing_zeros() as usize;
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "## Main\n\
          Let a be [{a_lit}].\n\
@@ -545,7 +628,11 @@ fn race_logos_jit_ntt_against_handwritten_rust() {
     let rust_ns = t.elapsed().as_nanos() as f64 / K as f64;
 
     // Correctness: coefficient 1 after K transforms must equal hand-written Rust's.
-    assert_eq!(ojit, ar[0].to_string(), "Logos-JIT NTT must agree with hand-written Rust");
+    assert_eq!(
+        ojit,
+        ar[0].to_string(),
+        "Logos-JIT NTT must agree with hand-written Rust"
+    );
 
     // Tree-walker floor, for the tier picture.
     let tw_t = std::time::Instant::now();
@@ -554,7 +641,10 @@ fn race_logos_jit_ntt_against_handwritten_rust() {
 
     println!("\n=== n=256 forward NTT — one 256-point transform ===");
     println!("  hand-written Rust    : {rust_ns:>10.0} ns");
-    println!("  Logos EXODIA JIT     : {jit_ns:>10.0} ns   ({:.1}× of Rust)", jit_ns / rust_ns.max(1.0));
+    println!(
+        "  Logos EXODIA JIT     : {jit_ns:>10.0} ns   ({:.1}× of Rust)",
+        jit_ns / rust_ns.max(1.0)
+    );
     println!("  Logos tree-walker    : {tw_ns:>10.0} ns   (interpreter floor)");
     assert!(jit_ns > 0.0 && rust_ns > 0.0);
 }
@@ -580,8 +670,16 @@ fn race_logos_jit_ntt_against_handwritten_rust() {
 fn logos_fast_ntt_bench_program_mut(a: &[i64], powers: &[i64], iters: usize) -> String {
     let n = a.len();
     let stages = n.trailing_zeros() as usize;
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "## Main\n\
          Let mutable a be [{a_lit}].\n\
@@ -607,8 +705,16 @@ fn logos_fast_ntt_bench_program_mut(a: &[i64], powers: &[i64], iters: usize) -> 
 }
 
 fn rust_ntt_bench_source(a: &[i64], powers: &[i64], iters: usize) -> String {
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "fn ntt(a: &mut [i64], powers: &[i64], q: i64) {{\n\
         \x20   let n = a.len();\n\
@@ -649,13 +755,19 @@ fn aot_native_race_compiled_logos_vs_rust() {
     let powers: Vec<i64> = (0..n).map(|i| pow_mod(w, i, Q)).collect();
     let mut s = 0xBEEFu64;
     let f: Vec<i64> = (0..256)
-        .map(|_| { s = s.wrapping_mul(1_103_515_245).wrapping_add(12_345); (s >> 16) as i64 % Q })
+        .map(|_| {
+            s = s.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            (s >> 16) as i64 % Q
+        })
         .collect();
     let a0 = bit_reverse_vec(&f);
 
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().to_path_buf();
-    let largo = repo.join("target/release/largo");
-    assert!(largo.exists(), "build largo first: cargo build -p logicaffeine-cli --release");
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .to_path_buf();
+    let largo = under_test::largo();
 
     let proj = std::env::temp_dir().join("ntt_logos_aot_race");
     let _ = std::fs::remove_dir_all(&proj);
@@ -669,16 +781,41 @@ fn aot_native_race_compiled_logos_vs_rust() {
             let o = Command::new(bin).output().expect("run bin");
             let dt = t.elapsed();
             out = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if dt < best { best = dt; }
+            if dt < best {
+                best = dt;
+            }
         }
         (out, best)
     };
     let bench = |iters: usize| -> (Duration_, Duration_) {
         // returns (logos, rust) process times for `iters` NTTs
-        std::fs::write(proj.join("src/main.lg"), logos_fast_ntt_bench_program_mut(&a0, &powers, iters)).unwrap();
-        std::fs::write(proj.join("Largo.toml"), "[package]\nname = \"nttbench\"\nversion = \"0.1.0\"\nentry = \"src/main.lg\"\n").unwrap();
-        let st = Command::new(&largo).args(["build", "--release"]).current_dir(&proj).env("LOGOS_WORKSPACE", &repo).status().unwrap();
-        assert!(st.success(), "largo build --release failed");
+        std::fs::write(
+            proj.join("src/main.lg"),
+            logos_fast_ntt_bench_program_mut(&a0, &powers, iters),
+        )
+        .unwrap();
+        std::fs::write(
+            proj.join("Largo.toml"),
+            "[package]\nname = \"nttbench\"\nversion = \"0.1.0\"\nentry = \"src/main.lg\"\n",
+        )
+        .unwrap();
+        // `.output()`, not `.status()`: a build failure here is a LOGOS CODEGEN bug, and the only
+        // thing that says which one is the compiler's own stderr. Both assertions in this file used
+        // to report the bare sentence below, so when `LogosInt >> {integer}` (E0369 — no `Shr` impl
+        // for the promoted type) broke both of them on 2026-09-11 the baseline log carried no
+        // evidence at all and the cause had to be found by reading codegen instead.
+        let o = Command::new(&largo)
+            .args(["build", "--release"])
+            .current_dir(&proj)
+            .env("LOGOS_WORKSPACE", &repo)
+            .output()
+            .unwrap();
+        assert!(
+            o.status.success(),
+            "largo build --release failed:\n{}\n{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        );
         // largo nests the binary under target/release/build/target/release/.
         let lbin = [
             "target/release/nttbench",
@@ -692,22 +829,46 @@ fn aot_native_race_compiled_logos_vs_rust() {
         let rs = proj.join("rust_ntt.rs");
         std::fs::write(&rs, rust_ntt_bench_source(&a0, &powers, iters)).unwrap();
         let rbin = proj.join("rust_ntt");
-        let st = Command::new("rustc").args(["-C","opt-level=3","-C","lto=fat","-C","codegen-units=1","-C","target-cpu=native","--edition","2021","-o"]).arg(&rbin).arg(&rs).status().unwrap();
+        let st = Command::new("rustc")
+            .args([
+                "-C",
+                "opt-level=3",
+                "-C",
+                "lto=fat",
+                "-C",
+                "codegen-units=1",
+                "-C",
+                "target-cpu=native",
+                "--edition",
+                "2021",
+                "-o",
+            ])
+            .arg(&rbin)
+            .arg(&rs)
+            .status()
+            .unwrap();
         assert!(st.success(), "rustc failed");
         let (lo, lt) = median(&lbin);
         let (ro, rt) = median(&rbin);
-        assert_eq!(lo, ro, "compiled Logos must agree with Rust (a[0] after {iters} NTTs)");
+        assert_eq!(
+            lo, ro,
+            "compiled Logos must agree with Rust (a[0] after {iters} NTTs)"
+        );
         (lt, rt)
     };
     // Subtract method: per-NTT = (t_K - t_base) / (K - base), isolating execution from startup.
-    let k = 40000usize; let base = 4000usize;
+    let k = 40000usize;
+    let base = 4000usize;
     let (lk, rk) = bench(k);
     let (lb, rb) = bench(base);
     let lo_ns = lk.saturating_sub(lb).as_nanos() as f64 / (k - base) as f64;
     let ru_ns = rk.saturating_sub(rb).as_nanos() as f64 / (k - base) as f64;
     println!("\n=== n=256 forward NTT — AOT NATIVE (rustc -O3 -lto -target-cpu=native) ===");
     println!("  hand-written Rust : {ru_ns:>8.0} ns");
-    println!("  compiled Logos    : {lo_ns:>8.0} ns   ({:.2}× of Rust)", lo_ns / ru_ns.max(1.0));
+    println!(
+        "  compiled Logos    : {lo_ns:>8.0} ns   ({:.2}× of Rust)",
+        lo_ns / ru_ns.max(1.0)
+    );
 }
 type Duration_ = std::time::Duration;
 
@@ -715,8 +876,16 @@ type Duration_ = std::time::Duration;
 fn logos_montgomery_ntt_bench_program_mut(a: &[i64], powers_mont: &[i64], iters: usize) -> String {
     let n = a.len();
     let stages = n.trailing_zeros() as usize;
-    let a_lit = a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
-    let p_lit = powers_mont.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let a_lit = a
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let p_lit = powers_mont
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let q = Q;
     let lines: Vec<String> = vec![
         "## To redc (x: Int) -> Int:".to_string(),
@@ -766,24 +935,51 @@ fn aot_montgomery_vs_schoolbook_ntt() {
     let powers_mont: Vec<i64> = powers.iter().map(|&p| (p * MONT_R).rem_euclid(Q)).collect();
     let mut s = 0xBEEFu64;
     let f: Vec<i64> = (0..256)
-        .map(|_| { s = s.wrapping_mul(1_103_515_245).wrapping_add(12_345); (s >> 16) as i64 % Q })
+        .map(|_| {
+            s = s.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            (s >> 16) as i64 % Q
+        })
         .collect();
     let a0 = bit_reverse_vec(&f);
 
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().to_path_buf();
-    let largo = repo.join("target/release/largo");
-    assert!(largo.exists(), "build largo first: cargo build -p logicaffeine-cli --release");
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .to_path_buf();
+    let largo = under_test::largo();
 
     let build_logos = |src: String, tag: &str| -> std::path::PathBuf {
         let proj = std::env::temp_dir().join(format!("ntt_mont_{tag}"));
         let _ = std::fs::remove_dir_all(&proj);
         std::fs::create_dir_all(proj.join("src")).unwrap();
         std::fs::write(proj.join("src/main.lg"), src).unwrap();
-        std::fs::write(proj.join("Largo.toml"), "[package]\nname = \"nttb\"\nversion = \"0.1.0\"\nentry = \"src/main.lg\"\n").unwrap();
-        let st = Command::new(&largo).args(["build", "--release"]).current_dir(&proj).env("LOGOS_WORKSPACE", &repo).status().unwrap();
-        assert!(st.success(), "largo build --release failed for {tag}");
-        ["target/release/nttb", "target/release/build/target/release/nttb"]
-            .iter().map(|p| proj.join(p)).find(|p| p.exists()).expect("logos binary")
+        std::fs::write(
+            proj.join("Largo.toml"),
+            "[package]\nname = \"nttb\"\nversion = \"0.1.0\"\nentry = \"src/main.lg\"\n",
+        )
+        .unwrap();
+        // `.output()` for the same reason as above: the compiler's stderr IS the diagnosis.
+        let o = Command::new(&largo)
+            .args(["build", "--release"])
+            .current_dir(&proj)
+            .env("LOGOS_WORKSPACE", &repo)
+            .output()
+            .unwrap();
+        assert!(
+            o.status.success(),
+            "largo build --release failed for {tag}:\n{}\n{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        );
+        [
+            "target/release/nttb",
+            "target/release/build/target/release/nttb",
+        ]
+        .iter()
+        .map(|p| proj.join(p))
+        .find(|p| p.exists())
+        .expect("logos binary")
     };
     let median = |bin: &std::path::Path| -> (String, std::time::Duration) {
         let mut best = std::time::Duration::from_secs(999);
@@ -793,7 +989,9 @@ fn aot_montgomery_vs_schoolbook_ntt() {
             let o = Command::new(bin).output().expect("run bin");
             let dt = t.elapsed();
             out = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if dt < best { best = dt; }
+            if dt < best {
+                best = dt;
+            }
         }
         (out, best)
     };
@@ -803,12 +1001,22 @@ fn aot_montgomery_vs_schoolbook_ntt() {
         let (ok, tk) = median(&bk);
         let bb = build_logos(prog(base), "base");
         let (_ob, tb) = median(&bb);
-        (ok, tk.saturating_sub(tb).as_nanos() as f64 / (k - base) as f64)
+        (
+            ok,
+            tk.saturating_sub(tb).as_nanos() as f64 / (k - base) as f64,
+        )
     };
     let (school_out, school_ns) = per_ntt(&|it| logos_fast_ntt_bench_program_mut(&a0, &powers, it));
-    let (mont_out, mont_ns) = per_ntt(&|it| logos_montgomery_ntt_bench_program_mut(&a0, &powers_mont, it));
-    assert_eq!(school_out, mont_out, "schoolbook and Montgomery must compute the same a[0]");
+    let (mont_out, mont_ns) =
+        per_ntt(&|it| logos_montgomery_ntt_bench_program_mut(&a0, &powers_mont, it));
+    assert_eq!(
+        school_out, mont_out,
+        "schoolbook and Montgomery must compute the same a[0]"
+    );
     println!("\n=== n=256 forward NTT — compiled-Logos: Montgomery vs schoolbook (AOT native) ===");
     println!("  schoolbook (% q)  : {school_ns:>8.0} ns / NTT");
-    println!("  Montgomery (redc) : {mont_ns:>8.0} ns / NTT   ({:.2}× of schoolbook)", mont_ns / school_ns.max(1.0));
+    println!(
+        "  Montgomery (redc) : {mont_ns:>8.0} ns / NTT   ({:.2}× of schoolbook)",
+        mont_ns / school_ns.max(1.0)
+    );
 }

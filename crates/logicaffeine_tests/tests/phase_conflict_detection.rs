@@ -41,8 +41,7 @@ fn assert_proves_false(premises: &[ProofExpr]) -> Term {
     let term = outcome
         .proof_term
         .expect("verified proof must carry a term");
-    let ty = infer_type(&outcome.kernel_ctx, &term)
-        .expect("verified term must type-check");
+    let ty = infer_type(&outcome.kernel_ctx, &term).expect("verified term must type-check");
     assert_eq!(
         ty,
         Term::Global("False".to_string()),
@@ -95,8 +94,14 @@ fn implication_contradiction_certifies_to_false() {
 fn eligibility_rule_conflict_certifies_to_false() {
     let premises = vec![
         pred("resident", "Alice"),
-        forall("x", implies(pred_var("resident", "x"), pred_var("taxed", "x"))),
-        forall("x", implies(pred_var("resident", "x"), not(pred_var("taxed", "x")))),
+        forall(
+            "x",
+            implies(pred_var("resident", "x"), pred_var("taxed", "x")),
+        ),
+        forall(
+            "x",
+            implies(pred_var("resident", "x"), not(pred_var("taxed", "x"))),
+        ),
     ];
     assert_proves_false(&premises);
 }
@@ -132,12 +137,18 @@ fn clean_barber_paradox_certifies_to_false() {
         // ∀x. (man(x) ∧ ¬shaves(x,x)) → shaves(barber, x)
         forall(
             "x",
-            implies(and(man_x.clone(), not(shaves_xx.clone())), shaves_bx.clone()),
+            implies(
+                and(man_x.clone(), not(shaves_xx.clone())),
+                shaves_bx.clone(),
+            ),
         ),
         // ∀x. (man(x) ∧ shaves(x,x)) → ¬shaves(barber, x)
         forall(
             "x",
-            implies(and(man_x.clone(), shaves_xx.clone()), not(shaves_bx.clone())),
+            implies(
+                and(man_x.clone(), shaves_xx.clone()),
+                not(shaves_bx.clone()),
+            ),
         ),
     ];
     assert_proves_false(&premises);
@@ -160,7 +171,10 @@ fn existential_conflict_certifies_to_false() {
     let premises = vec![
         exists("x", pred_var("evil", "x")),
         forall("x", implies(pred_var("evil", "x"), pred_var("vile", "x"))),
-        forall("x", implies(pred_var("evil", "x"), not(pred_var("vile", "x")))),
+        forall(
+            "x",
+            implies(pred_var("evil", "x"), not(pred_var("vile", "x"))),
+        ),
     ];
     assert_proves_false(&premises);
 }
@@ -171,7 +185,10 @@ fn consistent_rules_report_no_conflict() {
     use logicaffeine_proof::verify::detect_conflict;
     let premises = vec![
         pred("resident", "Alice"),
-        forall("x", implies(pred_var("resident", "x"), pred_var("taxed", "x"))),
+        forall(
+            "x",
+            implies(pred_var("resident", "x"), pred_var("taxed", "x")),
+        ),
     ];
     let report = detect_conflict(&premises);
     assert!(
@@ -188,14 +205,26 @@ fn consistent_rules_report_no_conflict() {
 fn detect_conflict_reports_clashing_premises() {
     use logicaffeine_proof::verify::detect_conflict;
     let premises = vec![
-        pred("resident", "Alice"),                                                  // 0
-        forall("x", implies(pred_var("resident", "x"), pred_var("taxed", "x"))),     // 1
-        forall("x", implies(pred_var("resident", "x"), not(pred_var("taxed", "x")))),// 2
+        pred("resident", "Alice"), // 0
+        forall(
+            "x",
+            implies(pred_var("resident", "x"), pred_var("taxed", "x")),
+        ), // 1
+        forall(
+            "x",
+            implies(pred_var("resident", "x"), not(pred_var("taxed", "x"))),
+        ), // 2
     ];
     let report = detect_conflict(&premises);
-    assert!(report.inconsistent, "failed to detect the conflict: {:?}", report.error);
+    assert!(
+        report.inconsistent,
+        "failed to detect the conflict: {:?}",
+        report.error
+    );
 
-    let term = report.proof_term.expect("a detected conflict must carry a proof term");
+    let term = report
+        .proof_term
+        .expect("a detected conflict must carry a proof term");
     assert_eq!(
         infer_type(&report.kernel_ctx, &term).expect("term must type-check"),
         Term::Global("False".to_string())

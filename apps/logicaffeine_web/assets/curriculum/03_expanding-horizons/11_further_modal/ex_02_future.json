@@ -2,10 +2,13 @@
   "id": "FM_1.2",
   "type": "translation",
   "difficulty": 4,
-  "prompt": "Translate this future event:",
+  "prompt": "Write this sentence in logic.",
   "template": "{ProperName} will {Verb}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Verb": [
+      "Intransitive"
+    ]
   },
-  "hint": "Future tense uses F operator: F(V(x)) means V(x) will be true at some future time."
+  "hint": "LOGOS marks a future action on its event: ∃e(Verb(e) ∧ Agent(e, name) ∧ Future(e)).",
+  "section": "11.2"
 }

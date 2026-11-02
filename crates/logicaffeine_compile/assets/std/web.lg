@@ -1,0 +1,516 @@
+# Web
+
+Browser fetch wrappers — a thin, typed layer over the correlated `fetchSend`
+core. Every wrapper returns the REQUEST ID that keys the whole response
+surface: when the response (or a structured transport failure) arrives, the
+completion closure runs as `onDone(reqId)` and reads its own request's state
+via `responseStatus(reqId)`, `responseBody(reqId)`, `responseHeader(reqId,
+name)`, and `responseError(reqId)` — never a shared global, so concurrent
+requests cannot misdeliver. `fetchAbort(reqId)` and `fetchSetTimeout(reqId,
+millis)` control an in-flight request by the same id.
+
+## Note
+GET `url`. The least-ceremony read: no body, no headers.
+
+## To webGet (url: Text) and (onDone: fn(Int) -> Unit) -> Int:
+    Let headers be a new Seq of Text.
+    Return fetchSend("GET", url, "", headers, onDone).
+
+## Note
+POST a JSON `body` to `url` with `content-type: application/json`.
+
+## To postJson (url: Text) and (body: Text) and (onDone: fn(Int) -> Unit) -> Int:
+    Let headers be a new Seq of Text.
+    Push "content-type" to headers.
+    Push "application/json" to headers.
+    Return fetchSend("POST", url, body, headers, onDone).
+
+## Note
+PUT a JSON `body` to `url` with `content-type: application/json`.
+
+## To putJson (url: Text) and (body: Text) and (onDone: fn(Int) -> Unit) -> Int:
+    Let headers be a new Seq of Text.
+    Push "content-type" to headers.
+    Push "application/json" to headers.
+    Return fetchSend("PUT", url, body, headers, onDone).
+
+## Note
+DELETE the resource at `url`.
+
+## To deleteAt (url: Text) and (onDone: fn(Int) -> Unit) -> Int:
+    Let headers be a new Seq of Text.
+    Return fetchSend("DELETE", url, "", headers, onDone).
+
+## Note
+POSTs a JSON `body` with an `idempotency-key` header, so a retried request can never be applied twice server-side.
+
+A retry may follow a timeout or a network failure. There is NO implicit retry — retrying is
+the caller's decision, made safe by the key.
+## To postJsonIdempotent (url: Text) and (body: Text) and (idempotencyKey: Text) and (onDone: fn(Int) -> Unit) -> Int:
+    Let headers be a new Seq of Text.
+    Push "content-type" to headers.
+    Push "application/json" to headers.
+    Push "idempotency-key" to headers.
+    Push idempotencyKey to headers.
+    Return fetchSend("POST", url, body, headers, onDone).
+
+## Note
+PUTs a JSON `body` conditioned on `x-expected-version`, so the write fails if the resource has moved on.
+
+The server rejects a stale write (typically `409`) — the optimistic-concurrency
+companion to `postJsonIdempotent`.
+## To putJsonExpecting (url: Text) and (body: Text) and (expectedVersion: Text) and (onDone: fn(Int) -> Unit) -> Int:
+    Let headers be a new Seq of Text.
+    Push "content-type" to headers.
+    Push "application/json" to headers.
+    Push "x-expected-version" to headers.
+    Push expectedVersion to headers.
+    Return fetchSend("PUT", url, body, headers, onDone).
+
+## Note
+Does one route-pattern segment accept one path segment? A `:name` segment accepts
+any value; every other segment must be exactly equal.
+
+## To segmentMatches (seg: Text) and (val: Text) -> Bool:
+    If startsWith(seg, ":"):
+        Return true.
+    Return seg is equal to val.
+
+## Note
+`current` — an element's `class` attribute — with `c` added, or unchanged when it is
+already there.
+
+A class list is SPACE-SEPARATED WORDS, so membership is a WORD test and never a
+substring one: `"active"` contains `"act"`, and a page that checked for a substring
+could never add `act` to an element already carrying `active`, nor remove one
+without cutting the other in half.
+
+`classListWith("a b", "c")` is `"a b c"`; `classListWith("a b", "b")` is `"a b"`.
+## To classListWith (current: Text, c: Text) -> Text:
+    Let parts be split(current, " ").
+    Let n be length of parts.
+    Let mutable i be 1.
+    While i is at most n:
+        If (item i of parts) is equal to c:
+            Return current.
+        Set i to i + 1.
+    If current is equal to "":
+        Return c.
+    Let mutable out be current.
+    Set out to out combined with " ".
+    Set out to out combined with c.
+    Return out.
+
+## Note
+`current` with `c` gone and every other class left alone.
+
+Empty pieces are dropped, so removing a class cannot leave a double space or a leading one
+behind — a `class=" a"` reads the same to a browser and differently to every test that compares
+rendered markup.
+
+`classListWithout("a b c", "b")` is `"a c"`; removing one that is not there changes
+nothing.
+## To classListWithout (current: Text, c: Text) -> Text:
+    Let parts be split(current, " ").
+    Let n be length of parts.
+    Let mutable kept be a new Seq of Text.
+    Let mutable i be 1.
+    While i is at most n:
+        Let w be item i of parts.
+        If w is not equal to c:
+            If w is not equal to "":
+                Push w to kept.
+        Set i to i + 1.
+    Return join(kept, " ").
+
+## Note
+`t` with the four characters that mean something to an HTML parser replaced by
+their entities — the escape a server-rendered page puts around every hole.
+
+A hole carries data the SERVER did not write: a path segment, a database row, a
+form field. Unescaped, a visitor who asks for the right URL runs script in every
+other visitor's browser. `&` goes first, or the entities this adds would themselves
+be re-escaped; `"` is included because the same function guards attribute values,
+where a bare quote ends the attribute and everything after it becomes markup
+nobody wrote.
+
+`htmlEscape("<b>")` is `"&lt;b&gt;"`; `htmlEscape("a\"b")` is `"a&quot;b"`.
+## To htmlEscape (t: Text) -> Text:
+    Let mutable out be "".
+    For each c in t:
+        Let mutable piece be c.
+        If c is equal to "&":
+            Set piece to "&amp;".
+        If c is equal to "<":
+            Set piece to "&lt;".
+        If c is equal to ">":
+            Set piece to "&gt;".
+        If c is equal to chr(34):
+            Set piece to "&quot;".
+        Set out to out + piece.
+    Return out.
+
+## Note
+The same for TEXT content, where a quote is an ordinary character.
+
+Three characters, not four. A `"` between tags is just a quote; only inside an attribute value,
+where a quote is what ENDS the value, does it have to go. Escaping it anyway is harmless to read
+and not harmless to compare: the served bytes stopped matching the painted ones for any hole
+holding one, and every cross-tier check in this codebase compares bytes.
+
+## To htmlEscapeText (t: Text) -> Text:
+    Let mutable out be "".
+    For each c in t:
+        Let mutable piece be c.
+        If c is equal to "&":
+            Set piece to "&amp;".
+        If c is equal to "<":
+            Set piece to "&lt;".
+        If c is equal to ">":
+            Set piece to "&gt;".
+        Set out to out + piece.
+    Return out.
+
+## Note
+Whether `t` reads as a whole number — the check a router runs BEFORE binding a
+`(id: Int)` path parameter.
+
+`parseInt` is strict and TRAPS on text that is not a number, which is right for a
+program reading its own data and wrong for a server reading a stranger's URL: a
+request for `/todos/abc` must be answered `400`, not kill the process. So the router
+asks first. Rejecting `""` and a lone `"-"` matters as much as rejecting `"abc"` —
+both would otherwise reach `parseInt`.
+
+`isIntText("42")` and `isIntText("-5")` are true; `""`, `"-"`, `"4a"` and `"abc"` are false.
+## To isIntText (t: Text) -> Bool:
+    If t is equal to "":
+        Return false.
+    If t is equal to "-":
+        Return false.
+    Let mutable ok be true.
+    Let mutable i be 0.
+    For each c in t:
+        Set i to i + 1.
+        If contains("0123456789", c) is equal to false:
+            If i is equal to 1 and c is equal to "-":
+                Set ok to ok.
+            Otherwise:
+                Set ok to false.
+    Return ok.
+
+## Note
+Does `pattern` match `path`? A `:name` segment matches any one segment, every other
+segment must be equal, and the counts must agree.
+
+## To matchRoute (pattern: Text) and (path: Text) -> Bool:
+    Let ps be split(pattern, "/").
+    Let xs be split(path, "/").
+    Let np be length of ps.
+    Let nx be length of xs.
+    If np is equal to nx:
+        Let mutable i be 1.
+        While i is at most np:
+            Let seg be item i of ps.
+            Let val be item i of xs.
+            If segmentMatches(seg, val) is equal to false:
+                Return false.
+            Set i to i + 1.
+        Return true.
+    Return false.
+
+## Note
+Extract the value of the `:name` segment of `pattern` from `path` — the safe path parameter.
+
+Returns "" when `pattern` does not match `path`, or names a segment the pattern
+has no `:name` slot for, so a caller never reads a stale or wrong id.
+`routeParam("/todos/:id", "id", "/todos/42")` is "42".
+## To routeParam (pattern: Text) and (name: Text) and (path: Text) -> Text:
+    If matchRoute(pattern, path) is equal to false:
+        Return "".
+    Let ps be split(pattern, "/").
+    Let xs be split(path, "/").
+    Let np be length of ps.
+    Let key be ":" combined with name.
+    Let mutable i be 1.
+    While i is at most np:
+        Let seg be item i of ps.
+        If seg is equal to key:
+            Return item i of xs.
+        Set i to i + 1.
+    Return "".
+
+
+## Note
+The PATH half of a URL — everything before the first `?`.
+
+A router matches on the path, and a query string is decoration a client may add to
+any URL: a `get` form navigates to `action?field=value`, a share link carries a
+`?ref=`, an analytics tool appends `?utm_source=`. Comparing the whole URL against
+a route's path 404s every one of them.
+`pathOf("/search?q=hi")` is `"/search"`; `pathOf("/search")` is `"/search"`.
+
+## To pathOf (url: Text) -> Text:
+    Let parts be split(url, "?").
+    Return item 1 of parts.
+
+## Note
+The QUERY half of a URL — everything after the first `?`, or `""` when there is none.
+
+Only the FIRST `?` separates; the rest are ordinary characters of the query, so a
+value carrying one survives rather than being truncated at it.
+`queryString("/search?q=hi")` is `"q=hi"`; `queryString("/search?")` is `""`.
+
+## To queryString (url: Text) -> Text:
+    Let parts be split(url, "?").
+    Let n be length of parts.
+    If n is at most 1:
+        Return "".
+    Let mutable q be item 2 of parts.
+    Let mutable i be 3.
+    While i is at most n:
+        Let piece be item i of parts.
+        Set q to q + "?" + piece.
+        Set i to i + 1.
+    Return q.
+
+## Note
+The value of a hex digit byte, or 99 — a value no nibble can hold — when it is not one.
+
+## To hexDigitValue (b: Int) -> Int:
+    If b is greater than 47 and b is less than 58:
+        Return b - 48.
+    If b is greater than 96 and b is less than 103:
+        Return b - 87.
+    If b is greater than 64 and b is less than 71:
+        Return b - 55.
+    Return 99.
+
+## Note
+Undo the form encoding a browser applies to a query string or a posted form body:
+`+` is a space and `%XX` is a byte.
+
+Decoded over BYTES rather than characters, because percent-encoding encodes bytes —
+a multi-byte character arrives as several escapes (`%E2%9C%93` is one check mark, not
+three characters), and decoding each escape to a character of its own would produce
+mojibake the sender never wrote.
+
+A `%` that is not followed by two hex digits is left ALONE rather than dropped or
+guessed at: it is a literal percent sign in text somebody typed, and a decoder that
+swallowed it would quietly change their data.
+`urlDecode("a+b")` is `"a b"`; `urlDecode("%2F")` is `"/"`; `urlDecode("50%")` is `"50%"`.
+
+## To urlDecode (t: Text) -> Text:
+    Let sb be text_bytes(t).
+    Let n be length of sb.
+    Let mutable out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b be item i of sb.
+        Let mutable step be 1.
+        If b is equal to 43:
+            Push 32 to out.
+        Otherwise:
+            Let mutable decoded be false.
+            If b is equal to 37 and i + 2 is at most n:
+                Let hp be i + 1.
+                Let lp be i + 2.
+                Let hi be hexDigitValue(item hp of sb).
+                Let lo be hexDigitValue(item lp of sb).
+                If hi is less than 16 and lo is less than 16:
+                    Push hi * 16 + lo to out.
+                    Set step to 3.
+                    Set decoded to true.
+            If decoded is equal to false:
+                Push b to out.
+        Set i to i + step.
+    Return text_from_bytes(out).
+
+## Note
+The value of query parameter `name` in a query STRING, decoded, or `""` when absent.
+
+A query is a list of `&`-separated pairs, so a reader that understood only the first
+would hand a route someone else's value the moment a form had two fields. The value
+is rejoined at `=` before decoding, because `=` is legal INSIDE a value (base64
+padding ends in one) and splitting it away would truncate the data.
+`queryParam("q=logos&page=3", "page")` is `"3"`.
+
+## To queryParam (query: Text) and (name: Text) -> Text:
+    Let pairs be split(query, "&").
+    Let n be length of pairs.
+    Let mutable i be 1.
+    While i is at most n:
+        Let pair be item i of pairs.
+        Let kv be split(pair, "=").
+        Let k be urlDecode(item 1 of kv).
+        If k is equal to name:
+            Let m be length of kv.
+            If m is at most 1:
+                Return "".
+            Let mutable v be item 2 of kv.
+            Let mutable j be 3.
+            While j is at most m:
+                Let piece be item j of kv.
+                Set v to v + "=" + piece.
+                Set j to j + 1.
+            Return urlDecode(v).
+        Set i to i + 1.
+    Return "".
+
+## Note
+The value of parameter `name` in a request BODY — form-encoded or JSON.
+
+A browser posting a `<form>` sends `a=1&b=2`; a page posting from script sends
+JSON. A server that understood only one of those would work from the page and
+break from the form, or the reverse, and the failure looks like a missing field
+rather than a missing parser. The shape is decided by the first character,
+because that is the only thing that distinguishes them.
+
+## To bodyParam (body: Text) and (name: Text) -> Text:
+    Let brace be text_from_bytes([123]).
+    If startsWith(trim(body), brace):
+        Inspect jsonTryParse(body):
+            When JOk (doc):
+                Let field be jsonGet(doc, name).
+                If jsonIsNull(field):
+                    Return "".
+                Inspect jsonString(field):
+                    When Ok (s):
+                        Return s.
+                    When Err (e):
+                        Return jsonSerialize(field).
+            When JErr (msg):
+                Return "".
+    Return queryParam(body, name).
+
+## Note
+Percent-encode `t` for a URL or a form body — the inverse of `urlDecode`.
+
+Everything outside the unreserved set (`A-Z a-z 0-9 - . _ ~`) is escaped, INCLUDING
+the space: `+` means a space only in a form body, while `%20` means it everywhere,
+so the safe encoding is the one that reads the same in both places.
+`urlEncode("a b&c")` is `"a%20b%26c"`.
+
+## To urlEncode (t: Text) -> Text:
+    Let sb be text_bytes(t).
+    Let n be length of sb.
+    Let mutable out be "".
+    Let mutable i be 1.
+    While i is at most n:
+        Let b be item i of sb.
+        Let unreserved be isUnreservedByte(b).
+        If unreserved:
+            Set out to out + text_from_bytes([b]).
+        Otherwise:
+            Set out to out + "%" + hexByteText(b).
+        Set i to i + 1.
+    Return out.
+
+## Note
+Is this byte safe to leave alone in a URL? `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`.
+
+## To isUnreservedByte (b: Int) -> Bool:
+    If b is greater than 47 and b is less than 58:
+        Return true.
+    If b is greater than 64 and b is less than 91:
+        Return true.
+    If b is greater than 96 and b is less than 123:
+        Return true.
+    If b is equal to 45 or b is equal to 46:
+        Return true.
+    If b is equal to 95 or b is equal to 126:
+        Return true.
+    Return false.
+
+## Note
+One byte as two uppercase hex digits — the `XX` of a `%XX` escape.
+
+## To hexByteText (b: Int) -> Text:
+    Let digits be "0123456789ABCDEF".
+    Let hi be b // 16.
+    Let lo be b % 16.
+    Return charAtText(digits, hi + 1) + charAtText(digits, lo + 1).
+
+## Note
+The character at 1-based `i` of `s`, or `""` past the end.
+
+## To charAtText (s: Text) and (i: Int) -> Text:
+    Let sb be text_bytes(s).
+    If i is less than 1:
+        Return "".
+    If i is greater than length of sb:
+        Return "".
+    Return text_from_bytes([item i of sb]).
+
+## Note
+A multipart boundary that does not occur inside `content`.
+
+★ THE ONE THAT CORRUPTS FILES SILENTLY: if the boundary appears in the content a
+server truncates the upload at that byte, and the failure reads as a corrupt file
+rather than a framing bug — on some uploads and not others.
+
+DERIVED, never random: a random boundary makes every recorded request
+unreproducible and every op-log comparison a coin flip. It starts from a fixed
+string and lengthens only when it has to, so the common case is stable and the
+awkward case is still safe.
+
+## To multipartBoundary (content: Text) -> Text:
+    Let mutable b be "LogosBoundary".
+    While contains(content, b):
+        Set b to b + "x".
+    Return b.
+
+## Note
+The `multipart/form-data` body an `Upload` sends — one part, named `file`.
+
+CRLF framing, never bare newlines: a body joined with `\n` looks right in a
+terminal and parses as one enormous field.
+
+## To multipartBody (content: Text) -> Text:
+    Let b be multipartBoundary(content).
+    Let nl be text_from_bytes([13, 10]).
+    Let q be chr(34).
+    Let head be "--" + b + nl + "Content-Disposition: form-data; name=" + q + "file" + q + nl + nl.
+    Return head + content + nl + "--" + b + "--" + nl.
+
+## Note
+The `Content-Type` that goes with `multipartBody` — held against it by the boundary
+they both derive from the same content, so the header and the body cannot disagree.
+
+## To multipartContentType (content: Text) -> Text:
+    Return "multipart/form-data; boundary=" + multipartBoundary(content).
+
+## Note
+Neutralise a URL a browser would EXECUTE rather than follow.
+
+A `javascript:` URL in an `href` is script, not a location: a visitor who clicks the
+link runs it in the page's own origin. Escaping cannot help, because there is nothing
+to escape — `javascript:alert(1)` contains no character `htmlEscape` touches, so it
+survives every other guard the page has. The danger is the SCHEME.
+
+`data:` is refused for the same reason: a `data:text/html` document runs in the origin
+that opened it, which is the same capability with more steps.
+
+A browser strips leading whitespace and control characters before it reads a scheme, and
+compares the scheme case-insensitively — so `JaVaScRiPt:`, a leading space, and a tab
+spliced inside the word all reach the same place. This compares the same way, or it would
+refuse the plain spelling and pass every disguise of it.
+
+The answer is `about:blank#blocked` rather than `""`: a missing link looks like a styling
+mistake and sends the reader to the wrong question, while this is inert, greppable, and
+obviously deliberate to anyone who inspects the page.
+
+`safeUrl("/about")` is `"/about"`; `safeUrl("javascript:alert(1)")` is `"about:blank#blocked"`.
+
+## To safeUrl (u: Text) -> Text:
+    Let mutable flat be "".
+    Repeat for bt in text_bytes(u):
+        If bt is greater than 32:
+            If bt is not equal to 127:
+                Set flat to flat + lower(chr(bt)).
+    If startsWith(flat, "javascript:"):
+        Return "about:blank#blocked".
+    If startsWith(flat, "data:"):
+        Return "about:blank#blocked".
+    If startsWith(flat, "vbscript:"):
+        Return "about:blank#blocked".
+    Return u.

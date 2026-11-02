@@ -1,0 +1,10 @@
+{
+  "capability": "text.cut_after",
+  "workload": "cutAfter(s,'0') \u2014 length of suffix",
+  "arg": "20000",
+  "expected": "79860000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

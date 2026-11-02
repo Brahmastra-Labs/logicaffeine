@@ -1,0 +1,11 @@
+{
+  "capability": "iter.insort",
+  "workload": "insort(xs,x) into a sorted seq, fold result length mod 1e9+7",
+  "arg": "100000",
+  "expected": "100100000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls insort() WITHOUT defining it \u2014 auto-imported from iter.lg (returns a NEW ordered seq). Python counterpart copies then bisect.insort so both do the O(m) insert-into-copy."
+}

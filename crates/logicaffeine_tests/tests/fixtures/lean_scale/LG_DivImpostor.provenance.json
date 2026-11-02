@@ -1,0 +1,46 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_scale/LG_DivImpostor.lean",
+  "source_sha256": "72720fb8c163fe7d5e08fcf6635dfc6e550fe8aaaa3dd029a0ff803ee78a653c",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "lean_version": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LG_DI.badMod",
+    "LG_DI.axMod"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "lean_print_axioms": [
+    "'LG_DI.badMod' does not depend on any axioms",
+    "'LG_DI.axMod' depends on axioms: [LG_DI.opaqueSub, LG_DI.opaqueSub_lt]"
+  ],
+  "export_sha256": "63ba90b735fbe48abc98551145025617c37dad24f8362e423000541b69eaa371",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 7527,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated"
+}

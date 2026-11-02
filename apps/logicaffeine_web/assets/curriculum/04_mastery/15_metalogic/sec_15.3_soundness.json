@@ -5,29 +5,44 @@
   "content": [
     {
       "type": "paragraph",
-      "text": "**Soundness** is the property that a proof system never proves anything false. If our system proves φ, then φ is actually valid. Soundness means our proofs are trustworthy."
-    },
-    {
-      "type": "definition",
-      "term": "Soundness",
-      "definition": "A proof system is sound if: whenever ⊢ φ (φ is provable), then ⊨ φ (φ is valid). Provability implies truth."
+      "text": "A proof system is **sound** when everything it proves is valid: if ⊢ φ, then ⊨ φ. Its proofs can be trusted."
     },
     {
       "type": "paragraph",
-      "text": "Soundness is proven by showing that each inference rule preserves validity. If the premises are valid and we apply a valid rule, the conclusion must be valid."
-    },
-    {
-      "type": "quiz",
-      "question": "What does it mean for a proof system to be sound?",
-      "options": [
-        "It can prove every true statement",
-        "It never proves false statements",
-        "It uses correct notation",
-        "It has no contradictions"
-      ],
-      "correct": 1,
-      "explanation": "Soundness means provability implies validity: if we can prove φ, then φ is actually true. The system never lies."
+      "text": "Soundness is shown by checking that every rule turns true premises into true conclusions."
     }
   ],
-  "key_symbols": ["⊢", "⊨"]
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Soundness stated",
+      "lines": [
+        "⊢ φ: φ is provable.",
+        "⊨ φ: φ is true in every interpretation."
+      ],
+      "conclusion": "Soundness: if ⊢ φ, then ⊨ φ."
+    },
+    {
+      "type": "worked",
+      "title": "Why it holds",
+      "lines": [
+        "Modus ponens takes true P → Q and true P to Q.",
+        "Q is then true as well."
+      ],
+      "note": "A rule that never leads from truth to falsehood keeps proofs safe."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does it mean for a proof system to be sound?",
+    "options": [
+      "It can prove every valid formula",
+      "It never proves a formula that is not valid",
+      "It uses correct notation",
+      "It has short proofs"
+    ],
+    "correct": 1,
+    "hint": "Soundness is about what the system proves.",
+    "explanation": "Soundness means provability implies validity. The system never proves a formula that is not valid."
+  }
 }

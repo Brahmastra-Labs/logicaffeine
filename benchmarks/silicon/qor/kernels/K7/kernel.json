@@ -1,0 +1,45 @@
+{
+ "designs": {
+  "k7_infinichip": {
+   "clock": "clk",
+   "note": "LOGOS Infinichip memory subsystem: the planned command player with SECDED(72,64) ECC on the 64-bit data path and a ping-pong double buffer; LiteDRAM and ddr2_ctrl carry no ECC",
+   "polarity": "high",
+   "reset": "rst",
+   "source": "logos",
+   "top": "infinichip"
+  },
+  "k7_litedram_ctrl": {
+   "clock": "sys_clk",
+   "note": "LiteDRAM's LiteDRAMController and crossbar with one native port for the Nexys A7 DDR2 (MT47H64M16HR-25 x16, every minimum of its -25 grade's datasheet; LiteDRAM's own entry for the part leaves tRRD, tFAW and tRAS unset) behind an A7DDRPHY at 1:2, 100 MHz system clock (DDR2-400): bank machines, refresher, command multiplexer; the DFI injector and initialisation CPU are left out",
+   "polarity": "high",
+   "reset": "sys_rst",
+   "script": "litedram_controller.py",
+   "source": "litedram",
+   "top": "litedram_ctrl"
+  },
+  "k7_logos_ddr2_ctrl": {
+   "clock": "clk",
+   "note": "LOGOS ddr2_ctrl for the Nexys A7's MT47H64M16HR-25 at DDR2-400, its timing the -25 grade's datasheet minimums in 5 ns clocks: closed-page, one request outstanding, 16-bit request port, command and data at 1:1; the initialisation FSM is separate",
+   "polarity": "high",
+   "reset": "rst",
+   "source": "logos",
+   "top": "ddr2_ctrl"
+  },
+  "k7_logos_dfi_ctrl": {
+   "clock": "sys_clk",
+   "note": "LOGOS ddr2_dfi_ctrl at LiteDRAM's operating point: the same 64-bit native port and DFI at 1:2 from a 100 MHz system clock (DDR2-400), the -25 grade's datasheet minimums in DDR2-400 clocks; one in-order queue of four requests whose rows open ahead in other banks, a row left open only while a waiting request reads it (otherwise its last column command auto-precharges), column commands on DFI phase 0 and row and refresh commands on phase 1, refresh postponed while requests wait (up to the eight JESD79-2 allows) and repaid when the queue empties; read data delivered without back-pressure, as LiteDRAM's crossbar delivers it; no initialisation",
+   "polarity": "high",
+   "reset": "sys_rst",
+   "source": "logos",
+   "top": "ddr2_dfi_ctrl"
+  },
+  "k7_logos_dram_executor": {
+   "clock": "clk",
+   "note": "LOGOS planned DRAM command player (Infinichip's core): the command stream is scheduled before the run, its timing legality proven by SAT, and the player issues each command on the cycle the plan names, so latency carries no jitter; no bank machines, no reordering at run time; 64-bit plan words in",
+   "polarity": "high",
+   "reset": "rst",
+   "source": "logos",
+   "top": "dram_executor"
+  }
+ }
+}

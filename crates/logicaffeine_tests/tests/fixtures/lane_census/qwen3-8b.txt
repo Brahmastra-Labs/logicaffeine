@@ -1,0 +1,39 @@
+183 launches a token
+embedding (1): gather_norm
+layer 0 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 1 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 2 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 3 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 4 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 5 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 6 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 7 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 8 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 9 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 10 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 11 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 12 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 13 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 14 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 15 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 16 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 17 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 18 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 19 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 20 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 21 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 22 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 23 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 24 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 25 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 26 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 27 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 28 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 29 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 30 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 31 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 32 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 33 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 34 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 35 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+head (2): gemv_q8 argmax

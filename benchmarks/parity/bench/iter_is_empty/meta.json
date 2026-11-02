@@ -1,0 +1,10 @@
+{
+  "capability": "iter.is_empty",
+  "workload": "isEmptySeq(xs) \u2014 always false",
+  "arg": "200000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

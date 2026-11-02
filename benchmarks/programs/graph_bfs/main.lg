@@ -5,11 +5,9 @@
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
 Let mutable adj be a new Seq of Int.
-Let mutable adjStarts be a new Seq of Int.
 Let mutable adjCounts be a new Seq of Int.
 Let mutable i be 0.
 While i is less than n:
-    Push i * 5 to adjStarts.
     Push 0 to adjCounts.
     Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.
     Set i to i + 1.
@@ -23,7 +21,7 @@ While p is at most 5:
     While i is less than n:
         Let neighbor be (i * item p of primes + item p of offsets) % n.
         If neighbor is not i:
-            Let start be item (i + 1) of adjStarts.
+            Let start be i * 5.
             Let cnt be item (i + 1) of adjCounts.
             Set item (start + cnt + 1) of adj to neighbor.
             Set item (i + 1) of adjCounts to cnt + 1.
@@ -40,7 +38,7 @@ Set item 1 of dist to 0.
 Let mutable front be 1.
 While front is at most length of queue:
     Let v be item front of queue.
-    Let start be item (v + 1) of adjStarts.
+    Let start be v * 5.
     Let cnt be item (v + 1) of adjCounts.
     Let mutable e be 0.
     While e is less than cnt:
@@ -58,4 +56,9 @@ While i is less than n:
         Set reachable to reachable + 1.
         Set totalDist to totalDist + item (i + 1) of dist.
     Set i to i + 1.
-Show "" + reachable + " " + totalDist.
+Let mutable h be 0.
+Set i to 0.
+While i is less than n:
+    Set h to (h * 31 + item (i + 1) of dist + 1) & 268435455.
+    Set i to i + 1.
+Show "" + reachable + " " + totalDist + " " + h.

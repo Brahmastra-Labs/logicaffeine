@@ -1,0 +1,38 @@
+Re-execute a `.replay` failure artifact.
+
+A failing `largo run --interpret` writes a self-contained bundle under `target/replays/` — embedded source, scheduler seed and decision trace, input transcript, and the failure coordinate. Replaying it re-executes the program deterministically and reports whether the recorded failure still reproduces byte-identically, no longer fires (fixed), or diverged (the program or bundle changed since recording).
+
+Bundles are portable and committable: a bundle checked into a project's test corpus is a permanent reproduction of the bug it recorded.
+
+Usage: largo replay [OPTIONS] <FILE>
+
+Arguments:
+  <FILE>
+          Path to the `.replay` bundle
+
+Options:
+      --verify
+          Treat divergence as a hard error (exit non-zero). Reproduced and fixed are both coherent verdicts; divergence never is
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo replay target/replays/main-1720000000.replay
+  largo replay bug.replay --verify

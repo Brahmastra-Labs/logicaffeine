@@ -32,10 +32,7 @@ fn test_type0_subtype_of_type1() {
     // (id Type0) should type-check because Type 0 : Type 1, and Type 1 ≤ Type 1
     // But we're passing Type0 as A, where A : Type 1 is expected.
     // Type 0 : Type 1, so this should work.
-    let applied = Term::App(
-        Box::new(id_type1),
-        Box::new(Term::Sort(Universe::Type(0))),
-    );
+    let applied = Term::App(Box::new(id_type1), Box::new(Term::Sort(Universe::Type(0))));
 
     let result = infer_type(&ctx, &applied);
     assert!(result.is_ok(), "id Type0 should type-check: {:?}", result);
@@ -62,10 +59,7 @@ fn test_prop_subtype_of_type() {
     };
 
     // (f Prop) should type-check because Prop : Type 1
-    let applied = Term::App(
-        Box::new(f),
-        Box::new(Term::Sort(Universe::Prop)),
-    );
+    let applied = Term::App(Box::new(f), Box::new(Term::Sort(Universe::Prop)));
 
     let result = infer_type(&ctx, &applied);
     assert!(result.is_ok(), "f Prop should type-check: {:?}", result);
@@ -127,13 +121,14 @@ fn test_cumulativity_transitive() {
     };
 
     // (h Type0) should work because Type 0 : Type 1 : Type 2
-    let applied = Term::App(
-        Box::new(h),
-        Box::new(Term::Sort(Universe::Type(0))),
-    );
+    let applied = Term::App(Box::new(h), Box::new(Term::Sort(Universe::Type(0))));
 
     let result = infer_type(&ctx, &applied);
-    assert!(result.is_ok(), "h Type0 should type-check (transitive): {:?}", result);
+    assert!(
+        result.is_ok(),
+        "h Type0 should type-check (transitive): {:?}",
+        result
+    );
 
     println!("✓ Type 0 ≤ Type 2 (transitive cumulativity)");
 }
@@ -157,13 +152,13 @@ fn test_type_not_subtype_of_prop() {
     };
 
     // (f Type0) should FAIL because Type 0 : Type 1, and Type 1 is NOT ≤ Prop
-    let applied = Term::App(
-        Box::new(f),
-        Box::new(Term::Sort(Universe::Type(0))),
-    );
+    let applied = Term::App(Box::new(f), Box::new(Term::Sort(Universe::Type(0))));
 
     let result = infer_type(&ctx, &applied);
-    assert!(result.is_err(), "f Type0 should NOT type-check (Type not ≤ Prop)");
+    assert!(
+        result.is_err(),
+        "f Type0 should NOT type-check (Type not ≤ Prop)"
+    );
 
     println!("✓ Type 0 rejected where Prop expected (no downward cumulativity)");
 }

@@ -1,0 +1,40 @@
+	Output: 2 chan 254
+Router 64
+	Output: 3 chan 259
+	Output: 4 ej port 64
+Router 65
+	Output: 1 chan 261
+Router 84
+	Output: 2 chan 338
+	Output: 3 chan 339
+Router 85
+	Output: 0 chan 340
+Router 86
+	Output: 0 chan 344
+Router 87
+	Output: 3 chan 351
+Router 106
+	Output: 4 ej port 106
+../plastisim/final.place Elapsed seconds: 1.26939
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 4715 (DEADLOCK)
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 22.6952 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 3.35933
+Exiting... 😊
+Destruct DRAM.
+PASS: false (Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x2x2)
+Assertion fail:
+Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x2x2.scala:139:11: Assertion failure
+tungsten: plasticine/templates/cppgenutil.cc:35: void ASSERT(bool, const char*): Assertion `false' failed.
+Command terminated by signal 6
+Runtime:0:03.72

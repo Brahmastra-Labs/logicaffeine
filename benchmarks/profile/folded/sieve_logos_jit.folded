@@ -1,0 +1,8 @@
+logos::main::loop@40 [jit] 32890534360
+logos::main::loop@56 [jit] 9683900246
+logos::main::loop@27 [jit] 3044992363
+logos::main::loop@27 [jit];[unknown] 115591993
+logos::main::loop@40 [jit];[unknown] 40602439
+[unknown];_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_jit::adapt_region;__GI___libc_free;_int_free 713225
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela;elf_machine_rela 536007
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_map_object_deps;__GI__dl_catch_exception;openaux;_dl_map_object;_dl_map_object_from_fd;_dl_map_segments 487804

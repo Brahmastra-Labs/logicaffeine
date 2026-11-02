@@ -61,8 +61,14 @@ fn contains_match(term: &Term) -> bool {
     match term {
         Term::Match { .. } => true,
         Term::App(f, a) => contains_match(f) || contains_match(a),
-        Term::Lambda { param_type, body, .. } => contains_match(param_type) || contains_match(body),
-        Term::Pi { param_type, body_type, .. } => contains_match(param_type) || contains_match(body_type),
+        Term::Lambda {
+            param_type, body, ..
+        } => contains_match(param_type) || contains_match(body),
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => contains_match(param_type) || contains_match(body_type),
         Term::Fix { body, .. } => contains_match(body),
         _ => false,
     }
@@ -88,7 +94,10 @@ fn logos_certifies_induction_to_kernel_checked_fix() {
     );
     ctx.add_declaration(
         "base_hyp",
-        Term::App(Box::new(Term::Global("P".into())), Box::new(Term::Global("Zero".into()))),
+        Term::App(
+            Box::new(Term::Global("P".into())),
+            Box::new(Term::Global("Zero".into())),
+        ),
     );
     ctx.add_declaration(
         "step_hyp",
@@ -112,7 +121,10 @@ fn logos_certifies_induction_to_kernel_checked_fix() {
         },
     );
 
-    let base = DerivationTree::leaf(ProofExpr::Atom("base_hyp".into()), InferenceRule::PremiseMatch);
+    let base = DerivationTree::leaf(
+        ProofExpr::Atom("base_hyp".into()),
+        InferenceRule::PremiseMatch,
+    );
     let step_hyp_k = DerivationTree::new(
         ProofExpr::Implies(
             Box::new(ProofExpr::Predicate {
@@ -122,21 +134,34 @@ fn logos_certifies_induction_to_kernel_checked_fix() {
             }),
             Box::new(ProofExpr::Predicate {
                 name: "P".into(),
-                args: vec![ProofTerm::Function("Succ".into(), vec![ProofTerm::Variable("k".into())])],
+                args: vec![ProofTerm::Function(
+                    "Succ".into(),
+                    vec![ProofTerm::Variable("k".into())],
+                )],
                 world: None,
             }),
         ),
         InferenceRule::UniversalInst("k".into()),
-        vec![DerivationTree::leaf(ProofExpr::Atom("step_hyp".into()), InferenceRule::PremiseMatch)],
+        vec![DerivationTree::leaf(
+            ProofExpr::Atom("step_hyp".into()),
+            InferenceRule::PremiseMatch,
+        )],
     );
     let ih = DerivationTree::leaf(
-        ProofExpr::Predicate { name: "P".into(), args: vec![ProofTerm::Variable("k".into())], world: None },
+        ProofExpr::Predicate {
+            name: "P".into(),
+            args: vec![ProofTerm::Variable("k".into())],
+            world: None,
+        },
         InferenceRule::PremiseMatch,
     );
     let step = DerivationTree::new(
         ProofExpr::Predicate {
             name: "P".into(),
-            args: vec![ProofTerm::Function("Succ".into(), vec![ProofTerm::Variable("k".into())])],
+            args: vec![ProofTerm::Function(
+                "Succ".into(),
+                vec![ProofTerm::Variable("k".into())],
+            )],
             world: None,
         },
         InferenceRule::ModusPonens,
@@ -163,12 +188,23 @@ fn logos_certifies_induction_to_kernel_checked_fix() {
     let term = certify(&tree, &cert_ctx).expect("induction must certify");
 
     // The certificate is a recursive term: a Fix wrapping a Match on the Nat.
-    assert!(matches!(term, Term::Fix { .. }), "expected a Fix term, got {:?}", term);
-    assert!(contains_match(&term), "induction certificate must Match on the inductive argument");
+    assert!(
+        matches!(term, Term::Fix { .. }),
+        "expected a Fix term, got {:?}",
+        term
+    );
+    assert!(
+        contains_match(&term),
+        "induction certificate must Match on the inductive argument"
+    );
 
     // And it kernel-type-checks to `Π(n:Nat). P n` — the kernel audited the recursion.
     let inferred = infer_type(&ctx, &term).expect("induction certificate must type-check");
-    assert!(matches!(inferred, Term::Pi { .. }), "expected Π type, got {:?}", inferred);
+    assert!(
+        matches!(inferred, Term::Pi { .. }),
+        "expected Π type, got {:?}",
+        inferred
+    );
 }
 
 // =============================================================================

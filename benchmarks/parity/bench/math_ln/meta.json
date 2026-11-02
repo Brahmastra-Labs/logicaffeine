@@ -1,0 +1,13 @@
+{
+  "capability": "math.ln",
+  "workload": "math.ln",
+  "arg": "1000000",
+  "expected": "12815517884939",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "go",
+    "rust"
+  ]
+}

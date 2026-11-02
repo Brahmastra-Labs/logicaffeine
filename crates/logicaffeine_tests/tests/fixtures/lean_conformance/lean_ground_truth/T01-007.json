@@ -1,0 +1,315 @@
+{
+  "case": "T01-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 31,
+  "declarations": [
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_007.Box",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_007.Box \u03b1 \u2192 Sort u_1} \u2192 (t : T01_007.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_007.Box.mk a)) \u2192 motive t",
+      "name": "T01_007.Box.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 T01_007.Box \u03b1",
+      "name": "T01_007.Box.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {a a_1 : \u03b1}, T01_007.Box.mk a = T01_007.Box.mk a_1 \u2192 a = a_1",
+      "name": "T01_007.Box.mk.inj",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} (a a_1 : \u03b1), (T01_007.Box.mk a = T01_007.Box.mk a_1) = (a = a_1)",
+      "name": "T01_007.Box.mk.injEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T01_007.Box.mk a) = 1 + sizeOf a",
+      "name": "T01_007.Box.mk.sizeOf_spec",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T01_007.Box \u03b1} \u2192 v1 = v2 \u2192 T01_007.Box.noConfusionType P v1 v2",
+      "name": "T01_007.Box.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T01_007.Box \u03b1 \u2192 T01_007.Box \u03b1 \u2192 Sort u_1",
+      "name": "T01_007.Box.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_007.Box \u03b1 \u2192 Sort u_1} \u2192 ((a : \u03b1) \u2192 motive (T01_007.Box.mk a)) \u2192 (t : T01_007.Box \u03b1) \u2192 motive t",
+      "name": "T01_007.Box.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_007.Box \u03b1 \u2192 Sort u_1} \u2192 (t : T01_007.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_007.Box.mk a)) \u2192 motive t",
+      "name": "T01_007.Box.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T01_007.Either",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192\n    {motive : T01_007.Either \u03b1 \u03b2 \u2192 Sort u_1} \u2192\n      (t : T01_007.Either \u03b1 \u03b2) \u2192\n        ((a : \u03b1) \u2192 motive (T01_007.Either.left a)) \u2192 ((a : \u03b2) \u2192 motive (T01_007.Either.right a)) \u2192 motive t",
+      "name": "T01_007.Either.casesOn",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {\u03b2 : Type v} \u2192 \u03b1 \u2192 T01_007.Either \u03b1 \u03b2",
+      "name": "T01_007.Either.left",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} {a a_1 : \u03b1}, T01_007.Either.left a = T01_007.Either.left a_1 \u2192 a = a_1",
+      "name": "T01_007.Either.left.inj",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} (a a_1 : \u03b1), (T01_007.Either.left a = T01_007.Either.left a_1) = (a = a_1)",
+      "name": "T01_007.Either.left.injEq",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (a : \u03b1), sizeOf (T01_007.Either.left a) = 1 + sizeOf a",
+      "name": "T01_007.Either.left.sizeOf_spec",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T01_007.Either \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T01_007.Either.noConfusionType P v1 v2",
+      "name": "T01_007.Either.noConfusion",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {\u03b2 : Type v} \u2192 Sort u_1 \u2192 T01_007.Either \u03b1 \u03b2 \u2192 T01_007.Either \u03b1 \u03b2 \u2192 Sort u_1",
+      "name": "T01_007.Either.noConfusionType",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192\n    {motive : T01_007.Either \u03b1 \u03b2 \u2192 Sort u_1} \u2192\n      ((a : \u03b1) \u2192 motive (T01_007.Either.left a)) \u2192\n        ((a : \u03b2) \u2192 motive (T01_007.Either.right a)) \u2192 (t : T01_007.Either \u03b1 \u03b2) \u2192 motive t",
+      "name": "T01_007.Either.rec",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {\u03b2 : Type v} \u2192\n    {motive : T01_007.Either \u03b1 \u03b2 \u2192 Sort u_1} \u2192\n      (t : T01_007.Either \u03b1 \u03b2) \u2192\n        ((a : \u03b1) \u2192 motive (T01_007.Either.left a)) \u2192 ((a : \u03b2) \u2192 motive (T01_007.Either.right a)) \u2192 motive t",
+      "name": "T01_007.Either.recOn",
+      "levels": [
+        "u_1",
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {\u03b2 : Type v} \u2192 \u03b2 \u2192 T01_007.Either \u03b1 \u03b2",
+      "name": "T01_007.Either.right",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} {a a_1 : \u03b2}, T01_007.Either.right a = T01_007.Either.right a_1 \u2192 a = a_1",
+      "name": "T01_007.Either.right.inj",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} (a a_1 : \u03b2), (T01_007.Either.right a = T01_007.Either.right a_1) = (a = a_1)",
+      "name": "T01_007.Either.right.injEq",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {\u03b2 : Type v} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (a : \u03b2),\n  sizeOf (T01_007.Either.right a) = 1 + sizeOf a",
+      "name": "T01_007.Either.right.sizeOf_spec",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Prop",
+      "name": "T01_007.Squash",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} {motive : T01_007.Squash \u03b1 \u2192 Prop} (t : T01_007.Squash \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T01_007.Squash.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u}, \u03b1 \u2192 T01_007.Squash \u03b1",
+      "name": "T01_007.Squash.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} {motive : T01_007.Squash \u03b1 \u2192 Prop}, (\u2200 (a : \u03b1), motive \u22ef) \u2192 \u2200 (t : T01_007.Squash \u03b1), motive t",
+      "name": "T01_007.Squash.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} {motive : T01_007.Squash \u03b1 \u2192 Prop} (t : T01_007.Squash \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T01_007.Squash.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_007.Box Nat",
+      "name": "T01_007.atLevel0",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_007.Box Type",
+      "name": "T01_007.atLevel1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

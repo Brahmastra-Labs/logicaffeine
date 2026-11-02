@@ -1,4 +1,4 @@
-//! Phase 113 — §8.2 Presupposition projection (Van der Sandt) (work/MISSING_ENGLISH.md).
+//! Phase 113 — Presupposition projection (Van der Sandt).
 //!
 //! A presupposition trigger under negation has its presupposition PROJECT (survive
 //! outside the ¬), while the assertion is negated:
@@ -14,16 +14,28 @@ fn positive_presupposition_present() {
     let out = compile("Mary regrets lying.").unwrap();
     eprintln!("pos: {out}");
     assert!(out.contains("Regret"), "the assertion: {out}");
-    assert!(out.contains("Presup"), "the presupposition is attached: {out}");
-    assert!(out.contains("Lie") || out.contains("Lying"), "presupposes the lying: {out}");
+    assert!(
+        out.contains("Presup"),
+        "the presupposition is attached: {out}"
+    );
+    assert!(
+        out.contains("Lie") || out.contains("Lying"),
+        "presupposes the lying: {out}"
+    );
 }
 
 #[test]
 fn regret_presupposition_projects_through_does_not() {
     let out = compile("Mary does not regret lying.").unwrap();
     eprintln!("does-not: {out}");
-    assert!(out.contains("Presup"), "presupposition must survive negation (project): {out}");
-    assert!(out.contains("Lie") || out.contains("Lying"), "the lying still presupposed: {out}");
+    assert!(
+        out.contains("Presup"),
+        "presupposition must survive negation (project): {out}"
+    );
+    assert!(
+        out.contains("Lie") || out.contains("Lying"),
+        "the lying still presupposed: {out}"
+    );
     assert!(out.contains('¬'), "the assertion is negated: {out}");
 }
 
@@ -31,16 +43,28 @@ fn regret_presupposition_projects_through_does_not() {
 fn regret_presupposition_projects_through_did_not() {
     let out = compile("Mary did not regret lying.").unwrap();
     eprintln!("did-not: {out}");
-    assert!(out.contains("Presup"), "presupposition projects through past negation: {out}");
-    assert!(out.contains("Lie") || out.contains("Lying"), "the lying still presupposed: {out}");
+    assert!(
+        out.contains("Presup"),
+        "presupposition projects through past negation: {out}"
+    );
+    assert!(
+        out.contains("Lie") || out.contains("Lying"),
+        "the lying still presupposed: {out}"
+    );
 }
 
 #[test]
 fn stop_presupposition_projects_through_negation() {
     let out = compile("John did not stop smoking.").unwrap();
     eprintln!("stop-neg: {out}");
-    assert!(out.contains("Presup"), "the prior-smoking presupposition projects: {out}");
-    assert!(out.contains("Smoke") || out.contains("Smoking"), "presupposes prior smoking: {out}");
+    assert!(
+        out.contains("Presup"),
+        "the prior-smoking presupposition projects: {out}"
+    );
+    assert!(
+        out.contains("Smoke") || out.contains("Smoking"),
+        "presupposes prior smoking: {out}"
+    );
 }
 
 #[test]
@@ -48,7 +72,10 @@ fn doesnt_contraction_projects() {
     let out = compile("Mary doesn't regret lying.").unwrap();
     eprintln!("doesnt: {out}");
     assert!(out.contains("Presup"), "contraction also projects: {out}");
-    assert!(out.contains("Lie") || out.contains("Lying"), "the lying still presupposed: {out}");
+    assert!(
+        out.contains("Lie") || out.contains("Lying"),
+        "the lying still presupposed: {out}"
+    );
 }
 
 // ============================================================================

@@ -1,0 +1,70 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\qor_k3_ws": {
+         "num_wires":         443,
+         "num_wire_bits":     11206,
+         "num_pub_wires":     315,
+         "num_pub_wire_bits": 7238,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         1512,
+         "num_cells_by_type": {
+            "DSP48E1": 64,
+            "FDRE": 1440,
+            "LUT4": 8
+         }
+      },
+      "\\qorsyn_k3_logos_ws": {
+         "num_wires":         188,
+         "num_wire_bits":     2669,
+         "num_pub_wires":     35,
+         "num_pub_wire_bits": 1935,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         553,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 223,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 31,
+            "LUT3": 7,
+            "LUT4": 71,
+            "LUT5": 9,
+            "LUT6": 95,
+            "OBUF": 16,
+            "qor_k3_ws": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         631,
+         "num_wire_bits":     13875,
+         "num_pub_wires":     350,
+         "num_pub_wire_bits": 9173,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         2064,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "DSP48E1": 64,
+            "FDRE": 1663,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 31,
+            "LUT3": 7,
+            "LUT4": 79,
+            "LUT5": 9,
+            "LUT6": 95,
+            "OBUF": 16
+         }
+      }
+}
+

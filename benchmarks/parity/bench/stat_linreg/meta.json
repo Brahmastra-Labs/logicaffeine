@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.linear_regression",
+  "workload": "statistics.linear_regression",
+  "arg": "20000",
+  "expected": "1164629529",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

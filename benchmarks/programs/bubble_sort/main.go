@@ -21,5 +21,9 @@ func main() {
 			}
 		}
 	}
-	fmt.Println(arr[0])
+	checksum := 0
+	for _, v := range arr {
+		checksum = (checksum*31 + v) & 268435455
+	}
+	fmt.Printf("%d %d %d\n", arr[0], arr[n-1], checksum)
 }

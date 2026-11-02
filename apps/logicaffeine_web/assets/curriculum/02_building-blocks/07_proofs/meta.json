@@ -2,5 +2,6 @@
   "id": "proofs",
   "title": "Propositional Proofs",
   "pedagogy": "Construct formal proofs and refutations in propositional logic. Learn Copi proofs and truth trees.",
-  "order": 2
+  "order": 2,
+  "summary": "Prove that a conclusion follows, or find a counterexample showing it does not."
 }

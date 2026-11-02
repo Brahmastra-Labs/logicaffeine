@@ -5,96 +5,77 @@
   "content": [
     {
       "type": "paragraph",
-      "text": "**Informal fallacies** are errors in reasoning that arise from content or context rather than logical form. Unlike invalid argument forms (formal fallacies), these require judgment to identify."
-    },
-    {
-      "type": "definition",
-      "term": "Ad Hominem",
-      "definition": "Attacking the person making an argument rather than the argument itself. The character or circumstances of an arguer don't determine whether their argument is good."
-    },
-    {
-      "type": "example",
-      "title": "Ad Hominem Fallacy",
-      "premises": [
-        "Dr. Smith argues that smoking causes cancer.",
-        "But Dr. Smith is funded by anti-smoking advocacy groups."
-      ],
-      "conclusion": "Therefore, smoking probably doesn't cause cancer.",
-      "note": "The funding source doesn't refute the scientific evidence. Attack the argument, not the arguer."
-    },
-    {
-      "type": "definition",
-      "term": "Straw Man",
-      "definition": "Misrepresenting someone's argument to make it easier to attack. You 'defeat' a weaker version of what they actually said."
-    },
-    {
-      "type": "example",
-      "title": "Straw Man Fallacy",
-      "premises": [
-        "Person A: 'We should have stricter environmental regulations.'",
-        "Person B: 'So you want to destroy all businesses and jobs?'"
-      ],
-      "conclusion": "Person B has distorted Person A's position.",
-      "note": "Stricter regulations ≠ destroying businesses. This is an unfair characterization."
+      "text": "An informal fallacy is a mistake in the content of an argument, not its form. Spotting one takes judgment."
     },
     {
       "type": "symbols",
-      "title": "Common Informal Fallacies",
+      "title": "Common fallacies",
       "symbols": [
         {
-          "symbol": "Ad Hominem",
-          "name": "Attack the Person",
-          "meaning": "Discrediting arguer instead of argument",
-          "example": "You're just saying that because..."
+          "symbol": "Ad hominem",
+          "name": "Attacking the person",
+          "meaning": "Answers the arguer instead of the argument."
         },
         {
-          "symbol": "Straw Man",
-          "name": "Misrepresent Position",
-          "meaning": "Attack a distorted version of the view",
-          "example": "So you think we should just..."
+          "symbol": "Straw man",
+          "name": "Distorting a view",
+          "meaning": "Attacks a weaker version of what was said."
         },
         {
-          "symbol": "Red Herring",
-          "name": "Change the Subject",
-          "meaning": "Introduce irrelevant distracting points",
-          "example": "But what about..."
+          "symbol": "Red herring",
+          "name": "Changing the subject",
+          "meaning": "Brings in a point that does not bear on the issue."
         },
         {
-          "symbol": "False Dilemma",
-          "name": "Only Two Options",
-          "meaning": "Present limited choices when more exist",
-          "example": "Either you're with us or against us"
+          "symbol": "False dilemma",
+          "name": "Too few options",
+          "meaning": "Offers two choices when there are more."
         },
         {
-          "symbol": "Slippery Slope",
-          "name": "Chain of Doom",
-          "meaning": "Claim small step leads to disaster",
-          "example": "If we allow X, then Y, then Z..."
+          "symbol": "Slippery slope",
+          "name": "A chain of doom",
+          "meaning": "Claims one step leads to disaster, without evidence."
         },
         {
-          "symbol": "Appeal to Authority",
-          "name": "Expert Says So",
-          "meaning": "Misusing authority as sole evidence",
-          "example": "Einstein believed in God, so..."
+          "symbol": "Appeal to authority",
+          "name": "The wrong expert",
+          "meaning": "Cites someone outside their field as proof."
         }
       ]
-    },
-    {
-      "type": "paragraph",
-      "text": "Not all appeals to authority are fallacious. It's reasonable to trust experts in their field. The fallacy occurs when the authority isn't relevant (Einstein on religion) or when expert opinion replaces evidence."
-    },
-    {
-      "type": "quiz",
-      "question": "\"You can't trust John's argument for recycling - he drives an SUV!\" This is an example of:",
-      "options": [
-        "Straw man - misrepresenting John's position",
-        "Ad hominem - attacking John instead of his argument",
-        "Red herring - changing the subject",
-        "False dilemma - presenting only two options"
-      ],
-      "correct": 1,
-      "explanation": "This is ad hominem because it attacks John's character (he drives an SUV) rather than addressing his actual argument for recycling. John's vehicle choice doesn't affect whether his argument about recycling is good or bad."
     }
   ],
-  "key_symbols": []
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Ad hominem",
+      "lines": [
+        "Dr. Smith says smoking causes cancer.",
+        "But Dr. Smith is paid by an anti-smoking group."
+      ],
+      "conclusion": "So smoking probably does not cause cancer.",
+      "note": "Who pays Dr. Smith does not touch the evidence. Answer the argument, not the person."
+    },
+    {
+      "type": "worked",
+      "title": "Straw man",
+      "lines": [
+        "A: We should have stricter pollution rules.",
+        "B: So you want to shut down every business?"
+      ],
+      "note": "B attacks a view that A never held."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "'You can't trust John's case for recycling. He drives a big truck!' Which fallacy is this?",
+    "options": [
+      "Straw man",
+      "Ad hominem",
+      "Red herring",
+      "False dilemma"
+    ],
+    "correct": 1,
+    "hint": "Is the reply about John's reasons, or about John?",
+    "explanation": "The reply attacks John's habits instead of his reasons. That is ad hominem."
+  }
 }

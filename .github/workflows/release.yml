@@ -64,13 +64,18 @@ jobs:
       - name: Build LSP binary
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build -p logicaffeine-lsp --release --target ${{ matrix.target }}
+        run: cargo build -p logicaffeine-lsp --profile dist --target ${{ matrix.target }}
+
+      # The size budgets (.config/size-budgets.toml) are x86_64 Linux measurements.
+      - name: LSP size budget
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: ./scripts/check-binary-sizes.sh --bin-dir target/${{ matrix.target }}/dist --only logicaffeine-lsp
 
       - name: Upload LSP binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          path: target/${{ matrix.target }}/dist/${{ matrix.binary }}
 
   # The CLI (`largo`) for every platform, in two flavors: lean (default) and
   # full (`verification-static`: Z3 4.12.x built from the source vendored in
@@ -139,7 +144,12 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'x86_64-apple-darwin' && '10.15' || '11.0' }}
           # Self-contained on Windows: no vcruntime140.dll prerequisite.
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
-        run: cargo build -p logicaffeine-cli --release --target ${{ matrix.target }}
+        run: cargo build -p logicaffeine-cli --profile dist --target ${{ matrix.target }}
+
+      # The size budgets (.config/size-budgets.toml) are x86_64 Linux measurements of the lean build.
+      - name: largo size budget
+        if: matrix.flavor == 'lean' && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: ./scripts/check-binary-sizes.sh --bin-dir target/${{ matrix.target }}/dist --only largo
 
       - name: Build largo (full, Z3 static)
         if: matrix.flavor == 'full'
@@ -172,13 +182,13 @@ jobs:
             ln -sf "$(g++-13 -print-file-name=libstdc++.a)" "$STDCPP_DIR/libstdc++.a"
             export RUSTFLAGS="-L $STDCPP_DIR -C link-arg=-static-libgcc"
           fi
-          cargo build -p logicaffeine-cli --release --target ${{ matrix.target }} --features verification-static
+          cargo build -p logicaffeine-cli --profile dist --target ${{ matrix.target }} --features verification-static
 
       - name: Assert no dynamic libz3 / libstdc++ (full, unix)
         if: matrix.flavor == 'full' && runner.os != 'Windows'
         shell: bash
         run: |
-          BIN=target/${{ matrix.target }}/release/largo
+          BIN=target/${{ matrix.target }}/dist/largo
           if [ "$(uname)" = "Darwin" ]; then
             if otool -L "$BIN" | grep -qi libz3; then echo "dynamic libz3 leaked in"; exit 1; fi
           else
@@ -197,7 +207,7 @@ jobs:
       - name: Smoke-run
         if: matrix.target != 'x86_64-apple-darwin'
         shell: bash
-        run: target/${{ matrix.target }}/release/${{ matrix.bin }} --version
+        run: target/${{ matrix.target }}/dist/${{ matrix.bin }} --version
 
       # Package INSIDE the build job: actions/upload-artifact@v4 drops the
       # executable bit, so tarring after download would ship non-executable
@@ -207,7 +217,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/stage
-          cp target/${{ matrix.target }}/release/largo dist/stage/
+          cp target/${{ matrix.target }}/dist/largo dist/stage/
           cp LICENSE.md dist/stage/
           printf '%s\n' \
             "largo — the LOGOS build tool" \
@@ -222,7 +232,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/stage | Out-Null
-          Copy-Item target/${{ matrix.target }}/release/largo.exe dist/stage/
+          Copy-Item target/${{ matrix.target }}/dist/largo.exe dist/stage/
           Copy-Item LICENSE.md dist/stage/
           Set-Content dist/stage/README.txt "largo - the LOGOS build tool`nhttps://logicaffeine.com`nInstall: irm https://logicaffeine.com/install.ps1 | iex"
           Compress-Archive -Path dist/stage/* -DestinationPath dist/${{ matrix.artifact }}.zip
@@ -419,6 +429,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out (for CHANGELOG.md → release notes)
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -440,10 +453,30 @@ jobs:
           cp vsix-*/logicaffeine-*.vsix ../release/
           cd ../release && sha256sum -- * > SHA256SUMS
 
+      # Curated notes from the CHANGELOG — NOT GitHub's auto-generator, which
+      # lists raw PR titles + authors and a "New Contributors" section (that
+      # mislabeled authorship on the v0.10.0 release). The changelog is the
+      # single professional source of truth for what shipped.
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # This tag's section: everything under "## [X.Y.Z]" up to the next
+          # "## [" (the version header is already the release title).
+          awk -v ver="$VERSION" '
+            $0 ~ ("^## \\[" ver "\\]") {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md | sed '/./,$!d' > release-notes.md
+          # Never publish an empty body — fall back to a changelog link.
+          if [ ! -s release-notes.md ]; then
+            printf 'See the [changelog](https://github.com/%s/blob/main/CHANGELOG.md).\n' "$GITHUB_REPOSITORY" > release-notes.md
+          fi
+          echo "----- release notes -----"; cat release-notes.md
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
           files: release/*
 
   # The honest post-publish gate: install the just-published release with
@@ -458,8 +491,15 @@ jobs:
       matrix:
         include:
           - { name: linux-lean,  os: ubuntu-22.04,     args: "" }
+          # linux-x64 --full on the glibc-2.35 floor: the exact combo whose
+          # dynamic-libstdc++ leak shipped broken in v0.10.0 ("GLIBCXX_3.4.31
+          # not found"). ubuntu-22.04 (NOT ubuntu-latest) is load-bearing —
+          # it's the floor where that symbol is absent, so a regression here
+          # fails to launch instead of passing on a too-new runner.
+          - { name: linux-full,  os: ubuntu-22.04,     args: "--full" }
           - { name: linux-arm-full, os: ubuntu-22.04-arm, args: "--full" }
           - { name: macos-lean,  os: macos-latest,     args: "" }
+          - { name: macos-full,  os: macos-latest,     args: "--full" }
     steps:
       - uses: actions/checkout@v4
       - name: Install via install.sh (pinned to this tag)

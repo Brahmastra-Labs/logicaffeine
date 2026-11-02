@@ -1,0 +1,10 @@
+{
+  "capability": "bits.reverse_bits",
+  "workload": "sum of reverseBits(i,32) over 1..n",
+  "arg": "1000000",
+  "expected": "2147474602913792",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

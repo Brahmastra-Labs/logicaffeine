@@ -1,0 +1,119 @@
+--- a/src/rsz/src/BufferedNet.cc
++++ b/src/rsz/src/BufferedNet.cc
+@@ -37,7 +37,11 @@
+ #include "rsz/Resizer.hh"
+ 
+ #include <algorithm>
++#include <map>
+ #include <memory>
++#include <set>
++#include <unordered_set>
++#include <utility>
+ // Use spdlog fmt::format until c++20 that supports std::format.
+ #include <spdlog/fmt/fmt.h>
+ 
+@@ -496,6 +500,7 @@
+ 
+ typedef std::unordered_map<RoutePt, vector<RoutePt>,
+                            RoutePtHash, RoutePtEqual> GRoutePtAdjacents;
++typedef std::unordered_set<RoutePt, RoutePtHash, RoutePtEqual> GRoutePtSet;
+ 
+ size_t
+ RoutePtHash::operator()(const RoutePt &pt) const
+@@ -525,6 +530,50 @@
+     && p1.y() == p2.y();
+ }
+ 
++// Does the route, its points taken by location and its parallel segments as one,
++// close a cycle? The walk below follows every adjacent point but the one it came
++// from, so on a cycle it never ends.
++static bool
++routeHasCycle(GRoutePtAdjacents &adjacents)
++{
++  typedef std::pair<int, int> Loc;
++  std::set<std::pair<Loc, Loc>> edges;
++  for (auto &[pt, adjs] : adjacents) {
++    for (RoutePt &adj : adjs) {
++      Loc a(pt.x(), pt.y());
++      Loc b(adj.x(), adj.y());
++      if (a != b)
++        edges.insert(std::minmax(a, b));
++    }
++  }
++  // Union-find, by size with path halving: no recursion, however long the route.
++  std::map<Loc, Loc> parent;
++  std::map<Loc, size_t> size;
++  auto root = [&](Loc p) {
++    if (parent.emplace(p, p).second)
++      size[p] = 1;
++    while (parent[p] != p) {
++      parent[p] = parent[parent[p]];
++      p = parent[p];
++    }
++    return p;
++  };
++  for (auto &[a, b] : edges) {
++    Loc ra = root(a);
++    Loc rb = root(b);
++    if (ra == rb)
++      return true;
++    if (size[ra] < size[rb])
++      std::swap(ra, rb);
++    parent[rb] = ra;
++    size[ra] += size[rb];
++  }
++  return false;
++}
++
++// `visited`, given only for a route with a cycle, holds the points walked so far:
++// each is walked once, so the walk covers a spanning tree of the route. A route
++// without a cycle is walked as it always was.
+ static BufferedNetPtr
+ makeBufferedNet(RoutePt &from,
+                 RoutePt &to,
+@@ -534,8 +583,11 @@
+                 const Corner *corner,
+                 const Resizer *resizer,
+                 Logger *logger,
+-                dbNetwork *db_network)
++                dbNetwork *db_network,
++                GRoutePtSet *visited)
+ {
++  if (visited)
++    visited->insert(to);
+   Point to_pt(to.x(), to.y());
+   const PinSeq &pins = loc_pin_map[to_pt];
+   Point from_pt(from.x(), from.y());
+@@ -555,11 +607,12 @@
+     }
+   }
+   for (RoutePt &adj : adjacents[to]) {
+-    if (!routePtLocEq(adj, from)) {
++    if (!routePtLocEq(adj, from)
++        && !(visited && visited->count(adj))) {
+       BufferedNetPtr bnet1 = makeBufferedNet(to, adj, adjacents,
+                                              loc_pin_map, level + 1,
+                                              corner, resizer, logger,
+-                                             db_network);
++                                             db_network, visited);
+       if (bnet1) {
+         if (bnet)
+           bnet = make_shared<BufferedNet>(BufferedNetType::junction,
+@@ -639,9 +692,16 @@
+     }
+     if (found_drvr_route_pt) {
+       RoutePt null_route_pt(0, 0, 0);
++      GRoutePtSet visited;
++      bool looped = routeHasCycle(adjacents);
++      if (looped)
++        debugPrint(logger_, RSZ, "groute_bnet", 1,
++                   "route of {} closes a cycle; walking a spanning tree",
++                   db_network_->pathName(drvr_pin));
+       return rsz::makeBufferedNet(null_route_pt, drvr_route_pt,
+                                   adjacents, loc_pin_map, 0,
+-                                  corner, this, logger_, db_network_);
++                                  corner, this, logger_, db_network_,
++                                  looped ? &visited : nullptr);
+     }
+     else
+       logger_->warn(RSZ, 73, "driver pin {} not found in global routes",

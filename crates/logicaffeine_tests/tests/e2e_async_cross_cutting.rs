@@ -62,7 +62,7 @@ fn e2e_sleep_with_async_delay() {
     Sleep get_delay().
     Show "done".
 "#;
-    assert_exact_output(source,"done");
+    assert_exact_output(source, "done");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -78,7 +78,7 @@ fn e2e_concurrent_with_sleep() {
         Let b be delayed(20).
     Show a + b.
 "#;
-    assert_exact_output(source,"30");
+    assert_exact_output(source, "30");
 }
 
 // =============================================================================
@@ -121,7 +121,7 @@ fn e2e_crdt_after_async_call() {
     Increase c's value by 50.
     Show c's value.
 "#;
-    assert_exact_output(source,"50");
+    assert_exact_output(source, "50");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -143,7 +143,7 @@ fn e2e_crdt_in_concurrent_block() {
     Increase s's hits by b.
     Show s's hits.
 "#;
-    assert_exact_output(source,"30");
+    assert_exact_output(source, "30");
 }
 
 // =============================================================================
@@ -167,7 +167,7 @@ fn e2e_async_returns_enum() {
         When Success (v): Show v.
         When Failure (m): Show m.
 "#;
-    assert_exact_output(source,"42");
+    assert_exact_output(source, "42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -190,7 +190,7 @@ fn e2e_async_inside_inspect_arm() {
     Let result be process_status(s).
     Show result.
 "#;
-    assert_exact_output(source,"0");
+    assert_exact_output(source, "0");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -209,7 +209,7 @@ fn e2e_pipe_with_enum() {
         When Data (p): Show p.
         When Eof: Show "end".
 "#;
-    assert_exact_output(source,"123");
+    assert_exact_output(source, "123");
 }
 
 // =============================================================================
@@ -252,7 +252,7 @@ fn e2e_struct_field_after_async() {
     Call wait.
     Show cfg's threshold.
 "#;
-    assert_exact_output(source,"100");
+    assert_exact_output(source, "100");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -296,7 +296,7 @@ Repeat for x in items:
     Set total to total + processed.
 Show total.
 "#;
-    assert_exact_output(source,"12");
+    assert_exact_output(source, "12");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -314,7 +314,7 @@ fn e2e_pipe_with_int_list_workaround() {
     Receive c from ch.
     Show a + b + c.
 "#;
-    assert_exact_output(source,"6");
+    assert_exact_output(source, "6");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -334,7 +334,7 @@ fn e2e_concurrent_list_processing() {
         Let b be sum_list(list2).
     Show a + b.
 "#;
-    assert_exact_output(source,"21");
+    assert_exact_output(source, "21");
 }
 
 // =============================================================================
@@ -353,7 +353,7 @@ fn e2e_async_map_value_init() {
     Set item "key" of data to async_value().
     Show item "key" of data.
 "#;
-    assert_exact_output(source,"42");
+    assert_exact_output(source, "42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -369,7 +369,7 @@ fn e2e_map_access_after_async() {
     Call wait.
     Show item "alice" of scores.
 "#;
-    assert_exact_output(source,"100");
+    assert_exact_output(source, "100");
 }
 
 // =============================================================================
@@ -389,7 +389,7 @@ fn e2e_async_set_add() {
     Add 100 to items.
     Show length of items.
 "#;
-    assert_exact_output(source,"2");
+    assert_exact_output(source, "2");
 }
 
 // =============================================================================
@@ -424,7 +424,7 @@ fn e2e_refinement_after_async() {
     Call wait.
     Show x.
 "#;
-    assert_exact_output(source,"10");
+    assert_exact_output(source, "10");
 }
 
 // =============================================================================
@@ -444,7 +444,7 @@ fn e2e_zone_after_async() {
         Let x be 42.
         Show x.
 "#;
-    assert_exact_output(source,"42");
+    assert_exact_output(source, "42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -485,7 +485,7 @@ fn e2e_select_with_enum_handling() {
         After 1 seconds:
             Show "timeout".
 "#;
-    assert_exact_output(source,"42");
+    assert_exact_output(source, "42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -504,7 +504,7 @@ fn e2e_select_inside_loop() {
                 Show "timeout".
     Show total.
 "#;
-    assert_exact_output(source,"3");
+    assert_exact_output(source, "3");
 }
 
 // =============================================================================
@@ -577,7 +577,7 @@ fn e2e_nested_async_calls_with_struct() {
     Let w be outer().
     Show w's value.
 "#;
-    assert_exact_output(source,"5");
+    assert_exact_output(source, "5");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -602,7 +602,7 @@ fn e2e_async_chain_with_enum_result() {
         When Just (val): Show val.
         When Nothing: Show "none".
 "#;
-    assert_exact_output(source,"10");
+    assert_exact_output(source, "10");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -641,7 +641,7 @@ fn e2e_pipe_send_async_value() {
     Receive x from ch.
     Show x.
 "#;
-    assert_exact_output(source,"99");
+    assert_exact_output(source, "99");
 }
 
 #[cfg(not(target_arch = "wasm32"))]

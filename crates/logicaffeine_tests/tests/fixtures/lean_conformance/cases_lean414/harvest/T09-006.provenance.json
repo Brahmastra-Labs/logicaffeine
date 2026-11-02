@@ -1,0 +1,116 @@
+{
+  "case": "T09-006",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t09_metaprogramming/T09-006_custom_deriving_handler.lean",
+  "source_sha256": "58bcd3c5c1c7412349dd3afb5660ff3630041b2567d5819b5e217a0bd711e312",
+  "ledger_sha256": "d4df63e54cad79f5e783566d3670f26fab565a11c76046f628555b72409d78e5",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T09_006.Chain",
+    "T09_006.Chain.link",
+    "T09_006.Chain.stop",
+    "T09_006.Colour",
+    "T09_006.Colour.blue",
+    "T09_006.Colour.green",
+    "T09_006.Colour.ofNat_toCtorIdx",
+    "T09_006.Colour.red",
+    "T09_006.Flag",
+    "T09_006.Flag.down",
+    "T09_006.Flag.up",
+    "T09_006.Flag_tag",
+    "T09_006.MyTag",
+    "T09_006.MyTag.mk",
+    "T09_006.MyTag.tag",
+    "T09_006.Pair",
+    "T09_006.Pair.a",
+    "T09_006.Pair.b",
+    "T09_006.Pair.mk",
+    "T09_006.Pair_tag",
+    "T09_006.derivedBEq",
+    "T09_006.derivedDecEq",
+    "T09_006.derivedInhabited",
+    "T09_006.derivedRecursiveBEq",
+    "T09_006.generatedDefTranslates",
+    "T09_006.generatedInstanceTranslates",
+    "T09_006.instBEqChain",
+    "T09_006.instBEqColour",
+    "T09_006.instDecidableEqChain",
+    "T09_006.instDecidableEqColour",
+    "T09_006.instInhabitedColour",
+    "T09_006.instMyTagFlag",
+    "T09_006.instMyTagPair",
+    "T09_006.pairGenerated"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "7e8b86f888b410e4da34c9623da42ed24e685d8596b482bc83e64aaf1375290f",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 3381,
+  "harvest": {
+    "roots": [
+      "T09_006.Chain",
+      "T09_006.Chain.link",
+      "T09_006.Chain.stop",
+      "T09_006.Colour",
+      "T09_006.Colour.blue",
+      "T09_006.Colour.green",
+      "T09_006.Colour.ofNat_toCtorIdx",
+      "T09_006.Colour.red",
+      "T09_006.Flag",
+      "T09_006.Flag.down",
+      "T09_006.Flag.up",
+      "T09_006.Flag_tag",
+      "T09_006.MyTag",
+      "T09_006.MyTag.mk",
+      "T09_006.MyTag.tag",
+      "T09_006.Pair",
+      "T09_006.Pair.a",
+      "T09_006.Pair.b",
+      "T09_006.Pair.mk",
+      "T09_006.Pair_tag",
+      "T09_006.derivedBEq",
+      "T09_006.derivedDecEq",
+      "T09_006.derivedInhabited",
+      "T09_006.derivedRecursiveBEq",
+      "T09_006.generatedDefTranslates",
+      "T09_006.generatedInstanceTranslates",
+      "T09_006.instBEqChain",
+      "T09_006.instBEqColour",
+      "T09_006.instDecidableEqChain",
+      "T09_006.instDecidableEqColour",
+      "T09_006.instInhabitedColour",
+      "T09_006.instMyTagFlag",
+      "T09_006.instMyTagPair",
+      "T09_006.pairGenerated"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

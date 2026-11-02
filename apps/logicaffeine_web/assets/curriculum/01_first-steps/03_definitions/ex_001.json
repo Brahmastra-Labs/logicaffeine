@@ -7,13 +7,14 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 5,
-  "hint": "Does this definition describe Science neutrally, or does it judge Science? Would a scientist agree this captures what they do?",
-  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!",
-  "visual_concept": "A balance scale: the neutral word 'Science' on one side, the definition dripping with negative words (cold, empty) on the other. The scale tips because the emotional weights don't match."
+  "hint": "Does the definition describe, or does it praise or sneer?",
+  "explanation": "'Cold', 'empty' and 'worship' sneer at science. A definition should match the neutral tone of the word.",
+  "visual_concept": "A balance scale: the neutral word 'Science' on one side, the definition dripping with negative words (cold, empty) on the other. The scale tips because the emotional weights don't match.",
+  "section": "3.2"
 }

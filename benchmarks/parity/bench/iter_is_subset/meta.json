@@ -1,0 +1,11 @@
+{
+  "capability": "iter.is_subset",
+  "workload": "isSubset(xs,ys) \u2014 mostly false",
+  "arg": "20000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "python"
+  ]
+}

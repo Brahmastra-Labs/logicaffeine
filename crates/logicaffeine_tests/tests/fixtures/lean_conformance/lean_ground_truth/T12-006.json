@@ -1,0 +1,97 @@
+{
+  "case": "T12-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "T12_006.Point \u2192 T12_006.Point \u2192 T12_006.Point \u2192 T12_006.Point \u2192 Prop",
+      "name": "T12_006.Cong",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_006.Cong"
+      ]
+    },
+    {
+      "type": "Prop",
+      "name": "T12_006.InnerTransitivity",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "T12_006.Point",
+        "T12_006.Cong"
+      ]
+    },
+    {
+      "type": "Type",
+      "name": "T12_006.Point",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_006.Point"
+      ]
+    },
+    {
+      "type": "Prop",
+      "name": "T12_006.PseudoReflexivity",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "T12_006.Point",
+        "T12_006.Cong"
+      ]
+    },
+    {
+      "type": "(\u2200 (a b c : T12_006.Point), T12_006.Cong a b c c \u2192 a = b) \u2192 \u2200 (P Q R : T12_006.Point), T12_006.Cong P Q R R \u2192 P = Q",
+      "name": "T12_006.nullSegment",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_006.Point",
+        "T12_006.Cong"
+      ]
+    },
+    {
+      "type": "T12_006.PseudoReflexivity \u2192 T12_006.InnerTransitivity \u2192 \u2200 (a b : T12_006.Point), T12_006.Cong a b a b",
+      "name": "T12_006.reflexivity",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_006.Point",
+        "T12_006.Cong"
+      ]
+    },
+    {
+      "type": "\u2200 (b c d : T12_006.Point), \u2203 x, T12_006.Cong b x c d",
+      "name": "T12_006.segmentConstruction",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_006.segmentConstruction"
+      ]
+    },
+    {
+      "type": "T12_006.PseudoReflexivity \u2192\n  T12_006.InnerTransitivity \u2192 \u2200 (a b c d : T12_006.Point), T12_006.Cong a b c d \u2192 T12_006.Cong c d a b",
+      "name": "T12_006.symmetry",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_006.Point",
+        "T12_006.Cong"
+      ]
+    },
+    {
+      "type": "T12_006.PseudoReflexivity \u2192\n  T12_006.InnerTransitivity \u2192\n    \u2200 (a b c d e f : T12_006.Point), T12_006.Cong a b c d \u2192 T12_006.Cong c d e f \u2192 T12_006.Cong a b e f",
+      "name": "T12_006.transitivity",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_006.Point",
+        "T12_006.Cong"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

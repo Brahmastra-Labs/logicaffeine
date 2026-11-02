@@ -1,0 +1,83 @@
+{
+  "case": "T08-022",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_022.contraDirect",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), (\u00acp \u2192 q) \u2192 \u00acq \u2192 p",
+      "name": "T08_022.contraUnderIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), \u00ac\u00acp \u2192 p",
+      "name": "T08_022.dneCore",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2228 \u00acp",
+      "name": "T08_022.em",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2192 False) \u2192 \u00acp",
+      "name": "T08_022.negativeGoal",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), \u00ac(p \u2227 q) \u2192 \u00acp \u2228 \u00acq",
+      "name": "T08_022.pushNegAnd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u00ac\u2200 (n : Nat), p n) \u2192 \u2203 n, \u00acp n",
+      "name": "T08_022.pushNegForall",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,406 @@
+{
+  "case": "T03-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 48,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T03_020.NeverAt",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 (motive : T03_020.NeverAt a \u2192 Sort u) \u2192 (t : T03_020.NeverAt a) \u2192 motive t",
+      "name": "T03_020.NeverAt.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_020.NeverAt a} \u2192 v1 = v2 \u2192 T03_020.NeverAt.noConfusionType P v1 v2",
+      "name": "T03_020.NeverAt.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 Sort u \u2192 T03_020.NeverAt a \u2192 T03_020.NeverAt a \u2192 Sort u",
+      "name": "T03_020.NeverAt.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 (motive : T03_020.NeverAt a \u2192 Sort u) \u2192 (t : T03_020.NeverAt a) \u2192 motive t",
+      "name": "T03_020.NeverAt.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 (motive : T03_020.NeverAt a \u2192 Sort u) \u2192 (t : T03_020.NeverAt a) \u2192 motive t",
+      "name": "T03_020.NeverAt.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_020.NotNothing",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_020.NotNothing \u2192 Sort u} \u2192 (t : T03_020.NotNothing) \u2192 motive T03_020.NotNothing.oops \u2192 motive t",
+      "name": "T03_020.NotNothing.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T03_020.NotNothing} \u2192 x = y \u2192 T03_020.NotNothing.noConfusionType P x y",
+      "name": "T03_020.NotNothing.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.127"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T03_020.NotNothing \u2192 T03_020.NotNothing \u2192 Sort v\u271d",
+      "name": "T03_020.NotNothing.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.126"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_020.NotNothing",
+      "name": "T03_020.NotNothing.oops",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_020.NotNothing.oops = 1",
+      "name": "T03_020.NotNothing.oops.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_020.NotNothing \u2192 Sort u} \u2192 motive T03_020.NotNothing.oops \u2192 (t : T03_020.NotNothing) \u2192 motive t",
+      "name": "T03_020.NotNothing.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_020.NotNothing \u2192 Sort u} \u2192 (t : T03_020.NotNothing) \u2192 motive T03_020.NotNothing.oops \u2192 motive t",
+      "name": "T03_020.NotNothing.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_020.NotNothing \u2192 Nat",
+      "name": "T03_020.NotNothing.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_020.Nothing",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Nothing \u2192 Sort u) \u2192 (t : T03_020.Nothing) \u2192 motive t",
+      "name": "T03_020.Nothing.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_020.Nothing} \u2192 v1 = v2 \u2192 T03_020.Nothing.noConfusionType P v1 v2",
+      "name": "T03_020.Nothing.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_020.Nothing \u2192 T03_020.Nothing \u2192 Sort u",
+      "name": "T03_020.Nothing.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Nothing \u2192 Sort u) \u2192 (t : T03_020.Nothing) \u2192 motive t",
+      "name": "T03_020.Nothing.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Nothing \u2192 Sort u) \u2192 (t : T03_020.Nothing) \u2192 motive t",
+      "name": "T03_020.Nothing.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T03_020.Void",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Void \u2192 Sort u) \u2192 (t : T03_020.Void) \u2192 motive t",
+      "name": "T03_020.Void.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_020.Void} \u2192 v1 = v2 \u2192 T03_020.Void.noConfusionType P v1 v2",
+      "name": "T03_020.Void.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_020.Void \u2192 T03_020.Void \u2192 Sort u",
+      "name": "T03_020.Void.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Void \u2192 Sort u) \u2192 (t : T03_020.Void) \u2192 motive t",
+      "name": "T03_020.Void.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Void \u2192 Sort u) \u2192 (t : T03_020.Void) \u2192 motive t",
+      "name": "T03_020.Void.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Prop",
+      "name": "T03_020.VoidOf",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (motive : T03_020.VoidOf \u03b1 \u2192 Sort u) \u2192 (t : T03_020.VoidOf \u03b1) \u2192 motive t",
+      "name": "T03_020.VoidOf.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_020.VoidOf \u03b1} \u2192 v1 = v2 \u2192 T03_020.VoidOf.noConfusionType P v1 v2",
+      "name": "T03_020.VoidOf.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_020.VoidOf \u03b1 \u2192 T03_020.VoidOf \u03b1 \u2192 Sort u",
+      "name": "T03_020.VoidOf.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (motive : T03_020.VoidOf \u03b1 \u2192 Sort u) \u2192 (t : T03_020.VoidOf \u03b1) \u2192 motive t",
+      "name": "T03_020.VoidOf.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (motive : T03_020.VoidOf \u03b1 \u2192 Sort u) \u2192 (t : T03_020.VoidOf \u03b1) \u2192 motive t",
+      "name": "T03_020.VoidOf.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 True",
+      "name": "T03_020.elimToProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Type",
+      "name": "T03_020.elimToSort",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Nat",
+      "name": "T03_020.elimToType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{n : Nat} \u2192 T03_020.NeverAt n \u2192 Nat",
+      "name": "T03_020.neverElim",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{n : Nat} \u2192 (motive : T03_020.NeverAt n \u2192 Sort u_1) \u2192 (h : T03_020.NeverAt n) \u2192 motive h",
+      "name": "T03_020.neverElim.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Prop} \u2192 P \u2192 \u00acP \u2192 Nat",
+      "name": "T03_020.notBoth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 T03_020.Nothing \u2192 \u03b1",
+      "name": "T03_020.nothingElim",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Nothing \u2192 Sort u_1) \u2192 (n : T03_020.Nothing) \u2192 motive n",
+      "name": "T03_020.nothingElim.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_020.Nothing \u2192 Nat",
+      "name": "T03_020.nothingToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Nat",
+      "name": "T03_020.viaNomatch",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : False \u2192 Sort u_1) \u2192 (h : False) \u2192 motive h",
+      "name": "T03_020.viaNomatch.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 T03_020.Void \u2192 \u03b1",
+      "name": "T03_020.voidElim",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_020.Void \u2192 Sort u_1) \u2192 (v : T03_020.Void) \u2192 motive v",
+      "name": "T03_020.voidElim.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_020.VoidOf \u03b1 \u2192 \u03b1",
+      "name": "T03_020.voidOfElim",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (motive : T03_020.VoidOf \u03b1 \u2192 Sort u_1) \u2192 (h : T03_020.VoidOf \u03b1) \u2192 motive h",
+      "name": "T03_020.voidOfElim.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

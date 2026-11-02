@@ -1,0 +1,11 @@
+{
+  "capability": "sort.is_sorted_int",
+  "workload": "isSortedSeq(xs) on a sorted 0..999 seq, count the trues",
+  "arg": "100000",
+  "expected": "100000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ],
+  "note": "main.lg calls isSortedSeq() WITHOUT defining it \u2014 auto-imported from sort.lg. Go counterpart uses sort.IntsAreSorted; both full-scan a sorted seq each rep."
+}

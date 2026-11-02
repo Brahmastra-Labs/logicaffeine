@@ -1,0 +1,54 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_scale/LG_StringLit.lean",
+  "source_sha256": "117ee9c4965901eac8c68458465450d75a046958e9e3ed399f65ca497206c6d4",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "lean_version": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LG_SL.emptyIsMk",
+    "LG_SL.abIsMk",
+    "LG_SL.unicodeIsMk",
+    "LG_SL.hello",
+    "LG_SL.helloData",
+    "LG_SL.helloLength"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "lean_print_axioms": [
+    "'LG_SL.emptyIsMk' does not depend on any axioms",
+    "'LG_SL.abIsMk' does not depend on any axioms",
+    "'LG_SL.unicodeIsMk' does not depend on any axioms",
+    "'LG_SL.hello' does not depend on any axioms",
+    "'LG_SL.helloData' does not depend on any axioms",
+    "'LG_SL.helloLength' does not depend on any axioms"
+  ],
+  "export_sha256": "00e9534a089b12e8235bd8889d5e6710cd28fe3d92629b13a01ce3061109ae95",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 5935,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated"
+}

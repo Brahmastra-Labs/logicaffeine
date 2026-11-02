@@ -1,0 +1,55 @@
+{
+  "id": "18.3",
+  "title": "The Basis for Logical Laws",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Why are the laws of logic true? Answers compete."
+    },
+    {
+      "type": "definition",
+      "term": "Conventionalism",
+      "definition": "Logical truths hold by convention, from how we use words like and, or and not."
+    },
+    {
+      "type": "definition",
+      "term": "Psychologism",
+      "definition": "Logical laws describe how people actually think. Frege and Husserl argued against it."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Against psychologism",
+      "lines": [
+        "Logic says how we should reason.",
+        "Psychology says how we do reason.",
+        "People often reason badly."
+      ],
+      "conclusion": "So logic cannot just describe how we think."
+    },
+    {
+      "type": "worked",
+      "title": "Against conventionalism",
+      "lines": [
+        "To agree on conventions, we must already reason.",
+        "Reasoning already uses logic."
+      ],
+      "note": "So logic cannot be only a convention."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What is the main problem with psychologism about logic?",
+    "options": [
+      "Psychology is too hard",
+      "Logic says how we should reason, psychology how we do",
+      "People do not think",
+      "Logic is older than psychology"
+    ],
+    "correct": 1,
+    "hint": "Do people always reason well?",
+    "explanation": "Logic is normative: it says how we should reason. Psychology describes how we do, and the two often differ."
+  }
+}

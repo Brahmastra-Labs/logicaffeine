@@ -1,4 +1,4 @@
-//! Phase 0 (work/FINISH_INTERPRETER.md) — determinacy classifier tests.
+//! Determinacy classifier tests.
 //!
 //! The classifier labels a LOGOS program as belonging to the determinate
 //! (Kahn-deterministic) or nondeterminate fragment. Determinate = spawn + FIFO
@@ -26,7 +26,11 @@ fn classify_producer_consumer_is_determinate() {
         \x20   Show first.\n\
         \x20   Show second.\n";
     let d = classify_source(src).expect("parse");
-    assert!(d.is_determinate(), "producer/consumer must be Determinate, got {:?}", d);
+    assert!(
+        d.is_determinate(),
+        "producer/consumer must be Determinate, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -35,7 +39,11 @@ fn classify_plain_program_is_determinate() {
         \x20   Let x be 1 + 2.\n\
         \x20   Show x.\n";
     let d = classify_source(src).expect("parse");
-    assert!(d.is_determinate(), "plain arithmetic must be Determinate, got {:?}", d);
+    assert!(
+        d.is_determinate(),
+        "plain arithmetic must be Determinate, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -50,8 +58,16 @@ fn classify_select_is_nondeterminate() {
         \x20           Show \"timeout\".\n";
     let d = classify_source(src).expect("parse");
     let ks = kinds(&d);
-    assert!(ks.contains(&NondetKind::Select), "expected Select witness, got {:?}", d);
-    assert!(ks.contains(&NondetKind::AfterTimer), "expected AfterTimer witness, got {:?}", d);
+    assert!(
+        ks.contains(&NondetKind::Select),
+        "expected Select witness, got {:?}",
+        d
+    );
+    assert!(
+        ks.contains(&NondetKind::AfterTimer),
+        "expected AfterTimer witness, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -91,7 +107,11 @@ fn classify_silent_worker_with_main_printer_is_determinate() {
         \x20   Let total be a + b.\n\
         \x20   Show total.\n";
     let d = classify_source(src).expect("parse");
-    assert!(d.is_determinate(), "single-printer pipeline must stay Determinate, got {:?}", d);
+    assert!(
+        d.is_determinate(),
+        "single-printer pipeline must stay Determinate, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -109,7 +129,11 @@ fn classify_two_silent_workers_one_main_printer_is_determinate() {
         \x20   Receive y from b.\n\
         \x20   Show x.\n";
     let d = classify_source(src).expect("parse");
-    assert!(d.is_determinate(), "one printer + silent workers must stay Determinate, got {:?}", d);
+    assert!(
+        d.is_determinate(),
+        "one printer + silent workers must stay Determinate, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -120,7 +144,11 @@ fn classify_after_timeout_is_nondeterminate() {
         \x20       After 1 seconds:\n\
         \x20           Show \"timeout\".\n";
     let d = classify_source(src).expect("parse");
-    assert!(kinds(&d).contains(&NondetKind::AfterTimer), "expected AfterTimer, got {:?}", d);
+    assert!(
+        kinds(&d).contains(&NondetKind::AfterTimer),
+        "expected AfterTimer, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -130,7 +158,11 @@ fn classify_try_receive_is_nondeterminate() {
         \x20   Try to receive x from ch.\n\
         \x20   Show \"tried\".\n";
     let d = classify_source(src).expect("parse");
-    assert!(kinds(&d).contains(&NondetKind::TryRecv), "expected TryRecv, got {:?}", d);
+    assert!(
+        kinds(&d).contains(&NondetKind::TryRecv),
+        "expected TryRecv, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -140,7 +172,11 @@ fn classify_try_send_is_nondeterminate() {
         \x20   Try to send 99 into ch.\n\
         \x20   Show \"sent\".\n";
     let d = classify_source(src).expect("parse");
-    assert!(kinds(&d).contains(&NondetKind::TrySend), "expected TrySend, got {:?}", d);
+    assert!(
+        kinds(&d).contains(&NondetKind::TrySend),
+        "expected TrySend, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -153,7 +189,11 @@ fn classify_stop_task_is_nondeterminate() {
         \x20   Stop handle.\n\
         \x20   Show \"stopped\".\n";
     let d = classify_source(src).expect("parse");
-    assert!(kinds(&d).contains(&NondetKind::StopTask), "expected StopTask, got {:?}", d);
+    assert!(
+        kinds(&d).contains(&NondetKind::StopTask),
+        "expected StopTask, got {:?}",
+        d
+    );
 }
 
 #[test]
@@ -171,8 +211,16 @@ fn classify_transitive_through_launch() {
         \x20   Launch a task to g with ch.\n\
         \x20   Send 5 into ch.\n";
     let d = classify_source(src).expect("parse");
-    assert!(!d.is_determinate(), "Select in a launched fn must make the program Nondeterminate, got {:?}", d);
-    assert!(kinds(&d).contains(&NondetKind::Select), "expected Select witness, got {:?}", d);
+    assert!(
+        !d.is_determinate(),
+        "Select in a launched fn must make the program Nondeterminate, got {:?}",
+        d
+    );
+    assert!(
+        kinds(&d).contains(&NondetKind::Select),
+        "expected Select witness, got {:?}",
+        d
+    );
 }
 
 #[test]

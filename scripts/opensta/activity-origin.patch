@@ -1,0 +1,12 @@
+--- a/power/Power.cc
++++ b/power/Power.cc
+@@ -435,7 +435,8 @@
+   float activity_delta = abs(activity.activity() - prev_activity.activity());
+   float duty_delta = abs(activity.duty() - prev_activity.duty());
+   if (activity_delta > change_tolerance_
+-      || duty_delta > change_tolerance_) {
++      || duty_delta > change_tolerance_
++      || activity.origin() != prev_activity.origin()) {
+     max_change_ = max(max_change_, activity_delta);
+     max_change_ = max(max_change_, duty_delta);
+     power_->setActivity(pin, activity);

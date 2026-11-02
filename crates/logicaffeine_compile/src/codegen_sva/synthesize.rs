@@ -4,7 +4,6 @@
 //! Orchestrates: parse → encode → tactic proof search → extract Verilog.
 
 use logicaffeine_kernel::Term;
-use logicaffeine_kernel::interface::Repl;
 
 /// Configuration for the synthesis pipeline.
 #[derive(Debug, Clone)]
@@ -54,10 +53,7 @@ pub enum SynthesisResult {
 /// 2. Try tactic-based proof search (try_hw_auto)
 /// 3. If tactics succeed, extract Verilog from the proof term
 /// 4. Return the result with proof term and Verilog
-pub fn synthesize_from_spec(
-    spec: &str,
-    config: &SynthesisConfig,
-) -> SynthesisResult {
+pub fn synthesize_from_spec(spec: &str, config: &SynthesisConfig) -> SynthesisResult {
     // Step 1: Check for contradictions (unrealizable specs)
     if is_contradictory(spec) {
         return SynthesisResult::Unrealizable(
@@ -68,13 +64,12 @@ pub fn synthesize_from_spec(
     // Step 2: Parse spec into kernel type
     let (spec_type, inputs, output_expr) = match parse_hw_spec(spec) {
         Some(parsed) => parsed,
-        None => return SynthesisResult::Failed(format!(
-            "could not parse hardware spec: '{}'", spec
-        )),
+        None => {
+            return SynthesisResult::Failed(format!("could not parse hardware spec: '{}'", spec))
+        }
     };
 
     // Step 3: Try tactic-based synthesis via the kernel
-    let mut repl = Repl::new();
     let mut iterations = 0u32;
 
     // Build the spec as a Syntax term and try try_hw_auto
@@ -83,7 +78,7 @@ pub fn synthesize_from_spec(
 
         // Try to prove the spec type is inhabited via try_tabulate
         // For simple Bit→Bit specs, this exhaustively enumerates
-        if let Some(proof_term) = try_tactic_synthesis(&mut repl, &spec_type) {
+        if let Some(proof_term) = try_tactic_synthesis(&spec_type) {
             // Step 4: Extract Verilog from proof term
             let verilog = extract_verilog_from_proof(&proof_term, &inputs, &output_expr);
 
@@ -99,7 +94,8 @@ pub fn synthesize_from_spec(
     }
 
     SynthesisResult::Failed(format!(
-        "tactic synthesis failed after {} iterations", iterations
+        "tactic synthesis failed after {} iterations",
+        iterations
     ))
 }
 
@@ -157,11 +153,15 @@ fn is_contradictory(spec: &str) -> bool {
 }
 
 /// Try to synthesize a proof term using kernel tactics.
-fn try_tactic_synthesis(repl: &mut Repl, spec_type: &Term) -> Option<Term> {
+fn try_tactic_synthesis(spec_type: &Term) -> Option<Term> {
     // For Bit→Bit or Bit→Bit→Bit specs, we can use try_tabulate
     // which exhaustively enumerates all input combinations
     match spec_type {
-        Term::Pi { param_type, body_type, .. } => {
+        Term::Pi {
+            param_type,
+            body_type: _,
+            ..
+        } => {
             if matches!(param_type.as_ref(), Term::Global(n) if n == "Bit") {
                 // This is a Bit-input spec — try to build a proof term
                 // For now, construct the implementation directly from the spec structure
@@ -181,7 +181,12 @@ fn build_proof_term_from_spec(spec_type: &Term) -> Option<Term> {
     // Collect input params
     let mut params = Vec::new();
     let mut current = spec_type;
-    while let Term::Pi { param, param_type, body_type } = current {
+    while let Term::Pi {
+        param,
+        param_type,
+        body_type,
+    } = current
+    {
         if matches!(param_type.as_ref(), Term::Global(n) if n == "Bit") {
             params.push(param.clone());
             current = body_type;
@@ -228,17 +233,16 @@ fn build_proof_term_from_spec(spec_type: &Term) -> Option<Term> {
 }
 
 /// Extract Verilog from a kernel proof term.
-fn extract_verilog_from_proof(
-    proof_term: &Term,
-    inputs: &[String],
-    _output_expr: &str,
-) -> String {
+fn extract_verilog_from_proof(proof_term: &Term, inputs: &[String], _output_expr: &str) -> String {
     use crate::extraction::verilog::term_to_verilog;
 
     let body_verilog = term_to_verilog(proof_term);
 
     // Build a simple module
-    let input_decls: Vec<String> = inputs.iter().map(|n| format!("  input logic {},", n)).collect();
+    let input_decls: Vec<String> = inputs
+        .iter()
+        .map(|n| format!("  input logic {},", n))
+        .collect();
     let input_section = input_decls.join("\n");
 
     format!(

@@ -1,0 +1,224 @@
+# Statistics
+
+Summary statistics over real-valued sequences, pure LOGOS, identical on every tier. Auto-imported
+on reference.
+
+## Note
+Arithmetic mean: sum of `xs` divided by its length.
+
+## To meanReal (xs: Seq of Real) -> Real:
+    Let mutable total be 0.0.
+    Repeat for v in xs:
+        Set total to total + v.
+    Return total / (length of xs * 1.0).
+
+## Note
+Population variance: mean of squared deviations from the mean, dividing by `length of xs`.
+
+## To pvarianceReal (xs: Seq of Real) -> Real:
+    Let m be meanReal(xs).
+    Let mutable acc be 0.0.
+    Repeat for v in xs:
+        Let d be v - m.
+        Set acc to acc + d * d.
+    Return acc / (length of xs * 1.0).
+
+## Note
+Population standard deviation: the square root of `pvarianceReal(xs)`.
+
+## To pstdevReal (xs: Seq of Real) -> Real:
+    Return sqrt(pvarianceReal(xs)).
+
+## Note
+Sample variance: sum of squared deviations from the mean divided by `length of xs - 1` (Bessel's correction).
+
+## To varianceReal (xs: Seq of Real) -> Real:
+    Let m be meanReal(xs).
+    Let mutable acc be 0.0.
+    Repeat for v in xs:
+        Let d be v - m.
+        Set acc to acc + d * d.
+    Return acc / ((length of xs - 1) * 1.0).
+
+## Note
+Sample standard deviation: the square root of `varianceReal(xs)`.
+
+## To stdevReal (xs: Seq of Real) -> Real:
+    Return sqrt(varianceReal(xs)).
+
+## Note
+Harmonic mean: the count divided by the sum of the reciprocals of `xs`.
+
+## To harmonicMeanReal (xs: Seq of Real) -> Real:
+    Let mutable acc be 0.0.
+    Repeat for v in xs:
+        Set acc to acc + (1.0 / v).
+    Return (length of xs * 1.0) / acc.
+
+## Note
+Returns `xs` sorted in ascending order using an O(n log n) stable mergesort.
+
+## To sortReal (xs: Seq of Real) -> Seq of Real:
+    Let n be length of xs.
+    If n is at most 1:
+        Return xs.
+    Let mid be n / 2.
+    Return mergeReal(sortReal(sliceReal(xs, 1, mid)), sortReal(sliceReal(xs, mid + 1, n))).
+
+## Note
+The `[lo, hi]` (1-indexed, inclusive) slice of a `Real` sequence.
+
+## To sliceReal (xs: Seq of Real) and (lo: Int) and (hi: Int) -> Seq of Real:
+    Let out be a new Seq of Real.
+    Let mutable i be lo.
+    While i is at most hi:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Merge two already-sorted `Real` sequences, stable on equal elements.
+
+## To mergeReal (a: Seq of Real) and (b: Seq of Real) -> Seq of Real:
+    Let mutable out be a new Seq of Real.
+    Let la be length of a.
+    Let lb be length of b.
+    Let mutable i be 1.
+    Let mutable j be 1.
+    Let mutable more be true.
+    While more is equal to true:
+        If i is greater than la:
+            Set more to false.
+        Otherwise:
+            If j is greater than lb:
+                Set more to false.
+            Otherwise:
+                If item i of a is at most item j of b:
+                    Push item i of a to out.
+                    Set i to i + 1.
+                Otherwise:
+                    Push item j of b to out.
+                    Set j to j + 1.
+    While i is at most la:
+        Push item i of a to out.
+        Set i to i + 1.
+    While j is at most lb:
+        Push item j of b to out.
+        Set j to j + 1.
+    Return out.
+
+## Note
+Median of `xs`: the middle element when the count is odd, else the average of the two middle elements.
+
+## To medianReal (xs: Seq of Real) -> Real:
+    Let s be sortReal(xs).
+    Let n be length of s.
+    If (n mod 2) is equal to 1:
+        Return item ((n + 1) / 2) of s.
+    Let lo be item (n / 2) of s.
+    Let hi be item (n / 2 + 1) of s.
+    Return (lo + hi) / 2.0.
+
+## Note
+Dot product: the sum of pairwise products `xs[i] * ys[i]` over the length of `xs`.
+
+## To sumProdReal (xs: Seq of Real) and (ys: Seq of Real) -> Real:
+    Let mutable total be 0.0.
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        Set total to total + (item i of xs) * (item i of ys).
+        Set i to i + 1.
+    Return total.
+
+## Note
+Sum of all elements of `xs`, accumulated left to right.
+
+## To fsumReal (xs: Seq of Real) -> Real:
+    Let mutable s be 0.0.
+    Let mutable c be 0.0.
+    Repeat for v in xs:
+        Let t be s + v.
+        If absReal(s) is at least absReal(v):
+            Set c to c + ((s - t) + v).
+        Otherwise:
+            Set c to c + ((v - t) + s).
+        Set s to t.
+    Return s + c.
+
+## Note
+Geometric mean: the product of `xs` raised to the power `1 / count`.
+
+## To geometricMeanReal (xs: Seq of Real) -> Real:
+    Let mutable s be 0.0.
+    Let mutable cnt be 0.0.
+    Repeat for v in xs:
+        Set s to s + ln(v).
+        Set cnt to cnt + 1.0.
+    Return exp(s / cnt).
+
+## Note
+Sample covariance of `xs` and `ys`: the sum of products of paired deviations divided by `count - 1`.
+
+## To covarianceReal (xs: Seq of Real) and (ys: Seq of Real) -> Real:
+    Let mx be meanReal(xs).
+    Let my be meanReal(ys).
+    Let mutable s be 0.0.
+    Let mutable cnt be 0.0.
+    Let n be length of xs.
+    Let mutable i be 1.
+    While i is at most n:
+        Set s to s + ((item i of xs) - mx) * ((item i of ys) - my).
+        Set cnt to cnt + 1.0.
+        Set i to i + 1.
+    Return s / (cnt - 1.0).
+
+## Note
+Pearson correlation: the covariance of `xs` and `ys` divided by the product of their sample standard deviations.
+
+## To correlationReal (xs: Seq of Real) and (ys: Seq of Real) -> Real:
+    Let cov be covarianceReal(xs, ys).
+    Let sx be stdevReal(xs).
+    Let sy be stdevReal(ys).
+    Return cov / (sx * sy).
+
+## Note
+Arithmetic mean of an integer sequence, returned as a Real via float division of the sum by the count.
+
+## To meanInt (xs: Seq of Int) -> Real:
+    Let mutable total be 0.
+    Let mutable cnt be 0.
+    Repeat for v in xs:
+        Set total to total + v.
+        Set cnt to cnt + 1.
+    Return (total + 0.0) / (cnt + 0.0).
+
+## Note
+Least-squares regression slope: `covarianceReal(xs, ys)` divided by `varianceReal(xs)`.
+
+## To linRegSlope (xs: Seq of Real) and (ys: Seq of Real) -> Real:
+    Return covarianceReal(xs, ys) / varianceReal(xs).
+
+## Note
+Least-squares regression intercept: `meanReal(ys)` minus the slope times `meanReal(xs)`.
+
+## To linRegIntercept (xs: Seq of Real) and (ys: Seq of Real) -> Real:
+    Let slope be covarianceReal(xs, ys) / varianceReal(xs).
+    Return meanReal(ys) - slope * meanReal(xs).
+
+## Note
+The `i`-th of `n` quantiles of `xs`, linearly interpolating between the two nearest sorted samples.
+
+## To quantile (xs: Seq of Real) and (i: Int) and (n: Int) -> Real:
+    Let s be sortReal(xs).
+    Let ld be length of s.
+    Let m be ld + 1.
+    Let mutable j be (i * m) / n.
+    Let delta be (i * m) mod n.
+    If j is less than 1:
+        Set j to 1.
+    If j is greater than (ld - 1):
+        Set j to ld - 1.
+    Let lo be item j of s.
+    Let hi be item (j + 1) of s.
+    Return (lo * ((n - delta) + 0.0) + hi * (delta + 0.0)) / (n + 0.0).

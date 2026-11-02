@@ -1,7 +1,12 @@
 {
   "Main block": {
     "prefix": "main",
-    "body": ["## Main", "${1:Let x be 5.}", "Show ${2:x}.", ""],
+    "body": [
+      "## Main",
+      "${1:Let x be 5.}",
+      "Show ${2:x}.",
+      ""
+    ],
     "description": "Program entry point"
   },
   "Function": {
@@ -15,17 +20,29 @@
   },
   "Procedure": {
     "prefix": "toproc",
-    "body": ["## To ${1:name} (${2:param}: ${3:Text}):", "    ${4:Show $2.}", ""],
+    "body": [
+      "## To ${1:name} (${2:param}: ${3:Text}):",
+      "    ${4:Show $2.}",
+      ""
+    ],
     "description": "Procedure — a function with no return"
   },
   "Native import": {
     "prefix": "tonative",
-    "body": ["## To native ${1:name} (${2:s}: ${3:Text}) -> ${4:Int}", ""],
+    "body": [
+      "## To native ${1:name} (${2:s}: ${3:Text}) -> ${4:Int}",
+      ""
+    ],
     "description": "FFI declaration (## To native)"
   },
   "Struct": {
     "prefix": "struct",
-    "body": ["## A ${1:Point} has:", "    An ${2:x}: ${3:Int}.", "    A ${4:y}: ${5:Int}.", ""],
+    "body": [
+      "## A ${1:Point} has:",
+      "    An ${2:x}: ${3:Int}.",
+      "    A ${4:y}: ${5:Int}.",
+      ""
+    ],
     "description": "Struct definition (## A … has:)"
   },
   "Enum": {
@@ -52,42 +69,65 @@
   },
   "Let binding": {
     "prefix": "let",
-    "body": ["Let ${1:name} be ${2:value}."],
+    "body": [
+      "Let ${1:name} be ${2:value}."
+    ],
     "description": "Immutable binding"
   },
   "Mutable binding": {
     "prefix": "letmut",
-    "body": ["Let mutable ${1:name} be ${2:value}."],
+    "body": [
+      "Let mutable ${1:name} be ${2:value}."
+    ],
     "description": "Mutable binding"
   },
   "Refined binding": {
     "prefix": "letwhere",
-    "body": ["Let ${1:x}: ${2:Int} where ${3:$1 > 0} be ${4:5}."],
+    "body": [
+      "Let ${1:x}: ${2:Int} where ${3:$1 > 0} be ${4:5}."
+    ],
     "description": "Binding with a refinement constraint"
   },
   "If / Otherwise": {
     "prefix": "if",
-    "body": ["If ${1:condition}:", "    ${2:Show \"then\".}", "Otherwise:", "    ${3:Show \"else\".}"],
+    "body": [
+      "If ${1:condition}:",
+      "    ${2:Show \"then\".}",
+      "Otherwise:",
+      "    ${3:Show \"else\".}"
+    ],
     "description": "Conditional"
   },
   "While loop": {
     "prefix": "while",
-    "body": ["While ${1:i is less than n}:", "    ${2:Set i to i + 1.}"],
+    "body": [
+      "While ${1:i is less than n}:",
+      "    ${2:Set i to i + 1.}"
+    ],
     "description": "While loop"
   },
   "While with termination proof": {
     "prefix": "whiledec",
-    "body": ["While ${1:n > 0} (decreasing ${2:n}):", "    ${3:Set n to n - 1.}"],
+    "body": [
+      "While ${1:n > 0} (decreasing ${2:n}):",
+      "    ${3:Set n to n - 1.}"
+    ],
     "description": "While with a decreasing variant"
   },
   "For each": {
     "prefix": "for",
-    "body": ["Repeat for ${1:item} in ${2:items}:", "    ${3:Show $1.}"],
+    "body": [
+      "Repeat for ${1:item} in ${2:items}:",
+      "    ${3:Show $1.}"
+    ],
     "description": "Iterate a collection"
   },
   "Counted for": {
     "prefix": "forrange",
-    "body": ["for ${1:i} from ${2:1} to ${3:n}:", "    ${4:Show $1.}"],
+    "body": [
+      "for ${1:i} from ${2:1} to ${3:n}:",
+      "    ${4:Show $1.}"
+    ],
     "description": "Counted loop (inclusive)"
   },
   "Pattern match": {
@@ -103,37 +143,140 @@
   },
   "New sequence": {
     "prefix": "seq",
-    "body": ["Let ${1:items} be a new Seq of ${2:Int}."],
+    "body": [
+      "Let ${1:items} be a new Seq of ${2:Int}."
+    ],
     "description": "Empty sequence"
   },
   "New map": {
     "prefix": "map",
-    "body": ["Let ${1:table} be a new Map of ${2:Text} to ${3:Int}."],
+    "body": [
+      "Let ${1:table} be a new Map of ${2:Text} to ${3:Int}."
+    ],
     "description": "Empty map"
   },
   "Assert": {
     "prefix": "assert",
-    "body": ["Assert that ${1:x} is equal to ${2:42}."],
+    "body": [
+      "Assert that ${1:x} is equal to ${2:42}."
+    ],
     "description": "Debug assertion"
   },
   "Trust with reason": {
     "prefix": "trust",
-    "body": ["Trust that ${1:x is greater than 0} because \"${2:set above}\"."],
+    "body": [
+      "Trust that ${1:x is greater than 0} because \"${2:set above}\"."
+    ],
     "description": "Justified assertion"
   },
   "Check (security gate)": {
     "prefix": "check",
-    "body": ["Check that ${1:balance is at least amount}."],
+    "body": [
+      "Check that ${1:balance is at least amount}."
+    ],
     "description": "Mandatory runtime guard"
   },
   "Shared CRDT struct": {
     "prefix": "shared",
-    "body": ["## A ${1:Counter} is Shared and has:", "    ${2:points}: ${3:ConvergentCount}.", ""],
+    "body": [
+      "## A ${1:Counter} is Shared and has:",
+      "    ${2:points}: ${3:ConvergentCount}.",
+      ""
+    ],
     "description": "CRDT struct (conflict-free replication)"
   },
   "Zone (arena)": {
     "prefix": "zone",
-    "body": ["Inside a zone called \"${1:Scratch}\":", "    ${2:Let t be 1.}"],
+    "body": [
+      "Inside a zone called \"${1:Scratch}\":",
+      "    ${2:Let t be 1.}"
+    ],
     "description": "Scoped arena allocation"
+  },
+  "LGX page": {
+    "prefix": "page",
+    "body": [
+      "## Page ${1:/about}",
+      "",
+      "Head:",
+      "    <title>${2:About}</title>",
+      "",
+      "State:",
+      "    Let ${3:name} be \"${4:Ada}\".",
+      "",
+      "View:",
+      "    <main>",
+      "      <h1>{$3}</h1>",
+      "    </main>",
+      "$0"
+    ],
+    "description": "A ## Page — a URL that renders itself"
+  },
+  "LGX component": {
+    "prefix": "component",
+    "body": [
+      "## Component ${1:Counter}",
+      "",
+      "State:",
+      "    Let ${2:count} be 0.",
+      "",
+      "Actions:",
+      "    To ${3:bump}:",
+      "        Set $2 to $2 + 1.",
+      "",
+      "View:",
+      "    <div>",
+      "      <p>{$2}</p>",
+      "      <button on-click={$3}>+</button>",
+      "    </div>",
+      "$0"
+    ],
+    "description": "A ## Component — state, actions and a view"
+  },
+  "LGX store": {
+    "prefix": "store",
+    "body": [
+      "## Store ${1:Session}",
+      "",
+      "State:",
+      "    Let ${2:user} be \"\".",
+      "",
+      "Actions:",
+      "    To ${3:signIn} (name: Text):",
+      "        Set $2 to name.",
+      "$0"
+    ],
+    "description": "A ## Store — state shared between components"
+  },
+  "LGX route": {
+    "prefix": "route",
+    "body": [
+      "## Route ${1|GET,POST,PUT,PATCH,DELETE|} ${2:/api/things} -> ${3:Text}:",
+      "    Return ${4:\"ok\"}.",
+      "$0"
+    ],
+    "description": "A ## Route — one typed HTTP path"
+  },
+  "LGX session": {
+    "prefix": "session",
+    "body": [
+      "## Session",
+      "    a ${1:user}, which is ${2|Text,Int,Bool|}.",
+      "$0"
+    ],
+    "description": "A ## Session — per-visitor state in a signed cookie"
+  },
+  "LGX error page": {
+    "prefix": "errorpage",
+    "body": [
+      "## Error page ${1:404}",
+      "",
+      "View:",
+      "    <main>",
+      "      <h1>${2:Not found}</h1>",
+      "    </main>",
+      "$0"
+    ],
+    "description": "An ## Error page — what a visitor sees for a status"
   }
 }

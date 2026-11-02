@@ -1,0 +1,67 @@
+{
+  "id": "10.2",
+  "title": "Scope in Modal Logic",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Where a modal sits changes the meaning. ¬◇P says P is impossible. ◇¬P says only that P might be false."
+    },
+    {
+      "type": "paragraph",
+      "text": "□(P → Q) says the whole if then holds in every world. P → □Q says that if P is true, Q is necessary."
+    },
+    {
+      "type": "definition",
+      "term": "Consistent",
+      "definition": "Two claims could both be true together: ◇(A ∧ B)."
+    },
+    {
+      "type": "definition",
+      "term": "Entails",
+      "definition": "A entails B when B must be true if A is: □(A → B)."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Impossible, or possibly not",
+      "lines": [
+        "It isn't possible that you're careful: ¬◇C",
+        "It's possible that you're not careful: ◇¬C"
+      ],
+      "note": "The first rules out every world where you are careful. The second needs only one world where you are not."
+    },
+    {
+      "type": "worked",
+      "title": "The whole, or a part",
+      "lines": [
+        "Necessarily, if you're a dentist, you're tough: □(D → T)",
+        "If you're a dentist, you're necessarily tough: D → □T"
+      ],
+      "note": "The second says a dentist could not have been anything but tough."
+    },
+    {
+      "type": "worked",
+      "title": "Someone, necessarily",
+      "lines": [
+        "It's necessary that someone is strong: □∃x S(x)",
+        "Someone is necessarily strong: ∃x □S(x)"
+      ],
+      "note": "In the first, the strong one may differ from world to world. In the second, one person is strong in every world."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which formula says 'It isn't necessary that N is true'?",
+    "options": [
+      "¬□N",
+      "□¬N",
+      "◇N",
+      "¬◇N"
+    ],
+    "correct": 0,
+    "hint": "Is the 'not' in front of 'necessary', or in front of 'N is true'?",
+    "explanation": "'It isn't necessary that N' denies □N, so it is ¬□N. N may still be true, just not in every world."
+  }
+}

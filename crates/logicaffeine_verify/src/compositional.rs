@@ -4,8 +4,8 @@
 //! Each component has assumptions (what it requires from environment) and
 //! guarantees (what it provides). Verify each component independently.
 
-use crate::ir::VerifyExpr;
 use crate::equivalence::Trace;
+use crate::ir::VerifyExpr;
 use crate::kinduction;
 use std::collections::HashMap;
 
@@ -43,7 +43,6 @@ pub fn verify_compositional(components: &[ComponentSpec]) -> CompositionalResult
         return CompositionalResult::AllVerified;
     }
 
-
     // Phase 1: Verify each component in isolation (assumptions → guarantees)
     for comp in components {
         for guarantee in &comp.guarantees {
@@ -51,12 +50,17 @@ pub fn verify_compositional(components: &[ComponentSpec]) -> CompositionalResult
             let assumptions = if comp.assumes.is_empty() {
                 VerifyExpr::bool(true)
             } else {
-                comp.assumes.iter().cloned().reduce(|a, b| VerifyExpr::and(a, b)).unwrap()
+                comp.assumes
+                    .iter()
+                    .cloned()
+                    .reduce(|a, b| VerifyExpr::and(a, b))
+                    .unwrap()
             };
 
             // Use k-induction to verify: under assumptions, guarantee holds
             let strengthened_init = VerifyExpr::and(comp.init.clone(), assumptions.clone());
-            let strengthened_transition = VerifyExpr::and(comp.transition.clone(), assumptions.clone());
+            let strengthened_transition =
+                VerifyExpr::and(comp.transition.clone(), assumptions.clone());
 
             let result = kinduction::k_induction(
                 &strengthened_init,
@@ -102,13 +106,17 @@ pub fn verify_compositional(components: &[ComponentSpec]) -> CompositionalResult
     // Phase 2: Check that guarantees discharge assumptions
     // For each component A's assumption, check that some component B's guarantee covers it
     // (simplified: check that the conjunction of all guarantees implies each assumption)
-    let all_guarantees: Vec<VerifyExpr> = components.iter()
+    let all_guarantees: Vec<VerifyExpr> = components
+        .iter()
         .flat_map(|c| c.guarantees.clone())
         .collect();
 
     if !all_guarantees.is_empty() {
-        let guarantees_conj = all_guarantees.iter().cloned()
-            .reduce(|a, b| VerifyExpr::and(a, b)).unwrap();
+        let guarantees_conj = all_guarantees
+            .iter()
+            .cloned()
+            .reduce(|a, b| VerifyExpr::and(a, b))
+            .unwrap();
 
         for comp in components {
             for assumption in &comp.assumes {

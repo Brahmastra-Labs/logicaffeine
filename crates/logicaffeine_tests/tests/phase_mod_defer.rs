@@ -81,8 +81,15 @@ fn o8_semantic_battery() {
     common::assert_exact_output(&defer_program("50", "1"), "0");
     // p = 2: parity of the running sum.
     common::assert_exact_output(&defer_program("17", "2"), "1"); // 153 % 2 = 1
-    // Modulo actually wraps: sum of 1..100000 = 5000050000, mod 1e9+7.
-    common::assert_exact_output(&defer_program("100000", "1000000007"), "5000050000".parse::<i128>().map(|v| (v % 1000000007).to_string()).unwrap().as_str());
+                                                                 // Modulo actually wraps: sum of 1..100000 = 5000050000, mod 1e9+7.
+    common::assert_exact_output(
+        &defer_program("100000", "1000000007"),
+        "5000050000"
+            .parse::<i128>()
+            .map(|v| (v % 1000000007).to_string())
+            .unwrap()
+            .as_str(),
+    );
 }
 
 #[test]

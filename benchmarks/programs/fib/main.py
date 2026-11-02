@@ -5,5 +5,11 @@ def fib(n):
         return n
     return fib(n - 1) + fib(n - 2)
 
-n = int(sys.argv[1])
-print(fib(n))
+
+def main():
+    n = int(sys.argv[1])
+    print(fib(n))
+
+
+if __name__ == "__main__":
+    main()

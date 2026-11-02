@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It isn't necessary that N is true",
   "options": [
-    "$ \\sim \\square (N) $",
-    "$ \\sim (\\square N) $",
-    "$ \\square \\sim N $",
-    "$ \\sim \\square N $"
+    "¬◇N",
+    "◇N",
+    "□¬N",
+    "¬□N"
   ],
   "correct": 3,
-  "hint": "If something 'isn't necessary', does that mean it's false, or just that it doesn't HAVE to be true?",
-  "explanation": "'Not necessary' means: there's at least one possible world where this is false. We write ~\u25a1P. This is weaker than saying 'P is false' \u2014 it just means P isn't guaranteed. In fact, P might still be true in the actual world!"
+  "hint": "Does 'isn't necessary' mean false, or only not guaranteed?",
+  "explanation": "It denies □N, giving ¬□N. N may still be true, just not in every world.",
+  "section": "10.2"
 }

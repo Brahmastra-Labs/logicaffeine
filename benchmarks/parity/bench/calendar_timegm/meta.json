@@ -1,0 +1,11 @@
+{
+  "capability": "calendar.timegm",
+  "workload": "fold timegm(y,mo,d,h,mi,s) mod 1e9+7 over a rolling civil-datetime sweep",
+  "arg": "1000000",
+  "expected": "258136756",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls timegm() WITHOUT defining it \u2014 auto-imported from calendar.lg. Python counterpart uses calendar.timegm on the 9-tuple. Fold keeps the accumulator in i64 range (no bignum)."
+}

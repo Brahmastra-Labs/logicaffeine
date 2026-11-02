@@ -1,167 +1,102 @@
 #![cfg(feature = "web-tests")]
-/// Tests for Tab and Focus state management
-///
-/// Tab Modes: LESSON | EXAMPLES | PRACTICE | TEST
-/// Focus Mode: Collapse other eras when one is expanded
+//! The Learn roadmap's journey over the real curriculum.
+//!
+//! `learn_state`'s unit tests pin the rules on toy roadmaps; these walk the curriculum the page
+//! ships: every lesson in order, every module's link, and the journey kept in `UserProgress`
+//! through a save and a load, as the browser keeps it.
 
-use logicaffeine_web::learn_state::{TabMode, ModuleTabState, FocusState};
+use logicaffeine_web::content::ContentEngine;
+use logicaffeine_web::learn_state::Journey;
+use logicaffeine_web::progress::UserProgress;
 
-// ═══════════════════════════════════════════════════════════════════
-// TabMode Tests
-// ═══════════════════════════════════════════════════════════════════
-
-#[test]
-fn test_tab_modes_all_four_exist() {
-    let tabs = TabMode::all();
-    assert_eq!(tabs.len(), 4);
+/// Every lesson id, in roadmap order.
+fn roadmap() -> Vec<String> {
+    ContentEngine::shared()
+        .eras()
+        .iter()
+        .flat_map(|e| e.modules.iter())
+        .flat_map(|m| m.sections.iter().map(|s| s.id.clone()))
+        .collect()
 }
 
 #[test]
-fn test_tab_mode_labels() {
-    assert_eq!(TabMode::Lesson.label(), "LESSON");
-    assert_eq!(TabMode::Examples.label(), "EXAMPLES");
-    assert!(TabMode::Practice.label().contains("PRACTICE"));
-    assert!(TabMode::Test.label().contains("TEST"));
+fn the_roadmap_has_lessons() {
+    assert!(
+        roadmap().len() >= 70,
+        "only {} lessons on the roadmap",
+        roadmap().len()
+    );
 }
 
 #[test]
-fn test_tab_mode_default_is_lesson() {
-    assert_eq!(TabMode::default(), TabMode::Lesson);
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// ModuleTabState Tests
-// ═══════════════════════════════════════════════════════════════════
-
-#[test]
-fn test_initial_tab_is_lesson() {
-    let state = ModuleTabState::new("introduction");
-    assert_eq!(state.current_tab, TabMode::Lesson);
-}
-
-#[test]
-fn test_tab_switch() {
-    let mut state = ModuleTabState::new("introduction");
-    state.switch_tab(TabMode::Practice);
-    assert_eq!(state.current_tab, TabMode::Practice);
+fn walking_the_whole_roadmap_finishes_every_lesson_in_order() {
+    let order = roadmap();
+    let mut journey = Journey::new(order.clone(), Vec::new(), None);
+    let mut walked = Vec::new();
+    loop {
+        walked.push(journey.open().expect("a lesson is open").to_string());
+        journey.finish();
+        if !journey.advance() {
+            break;
+        }
+    }
+    assert_eq!(walked, order);
+    assert!(journey.is_finished());
 }
 
 #[test]
-fn test_tab_switch_resets_exercise_index() {
-    let mut state = ModuleTabState::new("introduction");
-    state.exercise_index = 5;
-    state.switch_tab(TabMode::Test);
-    assert_eq!(state.exercise_index, 0, "Exercise index should reset on tab change");
+fn every_module_link_opens_that_module_at_its_first_lesson() {
+    let order = roadmap();
+    for module in ContentEngine::shared()
+        .eras()
+        .iter()
+        .flat_map(|e| e.modules.iter())
+    {
+        let ids: Vec<&str> = module.sections.iter().map(|s| s.id.as_str()).collect();
+        let mut journey = Journey::new(order.clone(), Vec::new(), None);
+        assert!(
+            journey.open_first_unfinished(&ids),
+            "/learn#{} opens nothing",
+            module.meta.id
+        );
+        assert_eq!(
+            journey.open(),
+            ids.first().copied(),
+            "/learn#{}",
+            module.meta.id
+        );
+    }
 }
 
 #[test]
-fn test_tab_switch_resets_submitted() {
-    let mut state = ModuleTabState::new("introduction");
-    state.submitted = true;
-    state.switch_tab(TabMode::Practice);
-    assert!(!state.submitted, "Submitted flag should reset on tab change");
-}
+fn the_journey_survives_a_save_and_a_load() {
+    let order = roadmap();
+    let mut journey = Journey::new(order.clone(), Vec::new(), None);
+    for _ in 0..3 {
+        journey.finish();
+        journey.advance();
+    }
+    let mut progress = UserProgress::new();
+    progress.lessons = journey.done_ids().map(str::to_string).collect();
+    progress.open_lesson = journey.open().map(str::to_string);
 
-#[test]
-fn test_module_tab_state_module_id() {
-    let state = ModuleTabState::new("syllogistic");
-    assert_eq!(state.module_id, "syllogistic");
-}
-
-#[test]
-fn test_reset_exercise() {
-    let mut state = ModuleTabState::new("introduction");
-    state.exercise_index = 5;
-    state.submitted = true;
-    state.reset_exercise();
-    assert_eq!(state.exercise_index, 0);
-    assert!(!state.submitted);
-    // Tab should remain unchanged
-    assert_eq!(state.current_tab, TabMode::Lesson);
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// FocusState Tests
-// ═══════════════════════════════════════════════════════════════════
-
-#[test]
-fn test_initial_focus_is_none() {
-    let focus = FocusState::new();
-    assert!(focus.focused_era.is_none());
-    assert!(focus.expanded_module.is_none());
-}
-
-#[test]
-fn test_focus_era() {
-    let mut focus = FocusState::new();
-    focus.focus_era("logic-caffeine");
-    assert_eq!(focus.focused_era, Some("logic-caffeine".to_string()));
-}
-
-#[test]
-fn test_unfocus_clears_focus() {
-    let mut focus = FocusState::new();
-    focus.focus_era("logic-caffeine");
-    focus.unfocus();
-    assert!(focus.focused_era.is_none());
-}
-
-#[test]
-fn test_is_era_visible_when_no_focus() {
-    let focus = FocusState::new();
-    assert!(focus.is_era_visible("logic-caffeine"));
-    assert!(focus.is_era_visible("other-era"));
-    assert!(focus.is_era_visible("any-era"));
-}
-
-#[test]
-fn test_is_era_visible_when_focused() {
-    let mut focus = FocusState::new();
-    focus.focus_era("logic-caffeine");
-    assert!(focus.is_era_visible("logic-caffeine"));
-    assert!(!focus.is_era_visible("other-era"));
-}
-
-#[test]
-fn test_focus_state_default() {
-    let focus = FocusState::default();
-    assert!(focus.focused_era.is_none());
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Expanded Module State Tests
-// ═══════════════════════════════════════════════════════════════════
-
-#[test]
-fn test_expand_module() {
-    let mut focus = FocusState::new();
-    focus.expand_module("logic-caffeine", "introduction");
-    assert!(focus.is_module_expanded("logic-caffeine", "introduction"));
-    assert!(!focus.is_module_expanded("logic-caffeine", "syllogistic"));
-}
-
-#[test]
-fn test_expand_module_also_focuses_era() {
-    let mut focus = FocusState::new();
-    focus.expand_module("logic-caffeine", "introduction");
-    assert_eq!(focus.focused_era, Some("logic-caffeine".to_string()));
-}
-
-#[test]
-fn test_collapse_module() {
-    let mut focus = FocusState::new();
-    focus.expand_module("logic-caffeine", "introduction");
-    focus.collapse_module();
-    assert!(!focus.is_module_expanded("logic-caffeine", "introduction"));
-    // Era should still be focused
-    assert!(focus.is_era_visible("logic-caffeine"));
-}
-
-#[test]
-fn test_unfocus_clears_expanded_module() {
-    let mut focus = FocusState::new();
-    focus.expand_module("logic-caffeine", "introduction");
-    focus.unfocus();
-    assert!(focus.focused_era.is_none());
-    assert!(focus.expanded_module.is_none());
+    let saved = serde_json::to_string(&progress).unwrap();
+    let back: UserProgress = serde_json::from_str(&saved).unwrap();
+    let again = Journey::new(
+        order.clone(),
+        back.lessons.iter().cloned(),
+        back.open_lesson.as_deref(),
+    );
+    assert_eq!(
+        again.open(),
+        Some(order[3].as_str()),
+        "the reload opens the lesson left open"
+    );
+    assert_eq!(again.done_count(), 3);
+    for id in &order[..3] {
+        assert!(
+            again.is_done(id),
+            "lesson {id} is no longer done after the reload"
+        );
+    }
 }

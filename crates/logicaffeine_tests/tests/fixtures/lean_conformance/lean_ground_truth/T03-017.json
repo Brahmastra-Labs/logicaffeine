@@ -1,0 +1,398 @@
+{
+  "case": "T03-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 52,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T03_017.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_017.Colour \u2192 Sort u} \u2192\n  (t : T03_017.Colour) \u2192 motive T03_017.Colour.red \u2192 motive T03_017.Colour.green \u2192 motive t",
+      "name": "T03_017.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Colour",
+      "name": "T03_017.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_017.Colour.green = 1",
+      "name": "T03_017.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T03_017.Colour} \u2192 x = y \u2192 T03_017.Colour.noConfusionType P x y",
+      "name": "T03_017.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.302"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T03_017.Colour \u2192 T03_017.Colour \u2192 Sort v\u271d",
+      "name": "T03_017.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.301"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_017.Colour \u2192 Sort u} \u2192\n  motive T03_017.Colour.red \u2192 motive T03_017.Colour.green \u2192 (t : T03_017.Colour) \u2192 motive t",
+      "name": "T03_017.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_017.Colour \u2192 Sort u} \u2192\n  (t : T03_017.Colour) \u2192 motive T03_017.Colour.red \u2192 motive T03_017.Colour.green \u2192 motive t",
+      "name": "T03_017.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Colour",
+      "name": "T03_017.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_017.Colour.red = 1",
+      "name": "T03_017.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Colour \u2192 Nat",
+      "name": "T03_017.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T03_017.Sized",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_017.Sized \u2192 Prop} (t : T03_017.Sized), (\u2200 (a : Nat) (a_1 : True), motive \u22ef) \u2192 motive t",
+      "name": "T03_017.Sized.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 True \u2192 T03_017.Sized",
+      "name": "T03_017.Sized.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_017.Sized \u2192 Prop}, (\u2200 (a : Nat) (a_1 : True), motive \u22ef) \u2192 \u2200 (t : T03_017.Sized), motive t",
+      "name": "T03_017.Sized.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_017.Sized \u2192 Prop} (t : T03_017.Sized), (\u2200 (a : Nat) (a_1 : True), motive \u22ef) \u2192 motive t",
+      "name": "T03_017.Sized.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T03_017.Tri",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Tri",
+      "name": "T03_017.Tri.a",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Tri",
+      "name": "T03_017.Tri.b",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Tri",
+      "name": "T03_017.Tri.c",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_017.Tri \u2192 Prop} (t : T03_017.Tri),\n  motive T03_017.Tri.a \u2192 motive T03_017.Tri.b \u2192 motive T03_017.Tri.c \u2192 motive t",
+      "name": "T03_017.Tri.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_017.Tri \u2192 Prop},\n  motive T03_017.Tri.a \u2192 motive T03_017.Tri.b \u2192 motive T03_017.Tri.c \u2192 \u2200 (t : T03_017.Tri), motive t",
+      "name": "T03_017.Tri.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_017.Tri \u2192 Prop} (t : T03_017.Tri),\n  motive T03_017.Tri.a \u2192 motive T03_017.Tri.b \u2192 motive T03_017.Tri.c \u2192 motive t",
+      "name": "T03_017.Tri.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T03_017.Weird",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Nat) \u2192 T03_017.Weird a \u2192 Sort u} \u2192\n  {a : Nat} \u2192 (t : T03_017.Weird a) \u2192 ((a : True) \u2192 (n : Nat) \u2192 motive n \u22ef) \u2192 motive a t",
+      "name": "T03_017.Weird.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "True \u2192 \u2200 (n : Nat), T03_017.Weird n",
+      "name": "T03_017.Weird.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_017.Weird a} \u2192 v1 = v2 \u2192 T03_017.Weird.noConfusionType P v1 v2",
+      "name": "T03_017.Weird.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 Sort u \u2192 T03_017.Weird a \u2192 T03_017.Weird a \u2192 Sort u",
+      "name": "T03_017.Weird.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Nat) \u2192 T03_017.Weird a \u2192 Sort u} \u2192\n  ((a : True) \u2192 (n : Nat) \u2192 motive n \u22ef) \u2192 {a : Nat} \u2192 (t : T03_017.Weird a) \u2192 motive a t",
+      "name": "T03_017.Weird.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Nat) \u2192 T03_017.Weird a \u2192 Sort u} \u2192\n  {a : Nat} \u2192 (t : T03_017.Weird a) \u2192 ((a : True) \u2192 (n : Nat) \u2192 motive n \u22ef) \u2192 motive a t",
+      "name": "T03_017.Weird.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T03_017.Weird2",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_017.Weird2 a \u2192 Prop} {a : Nat} (t : T03_017.Weird2 a),\n  (\u2200 (m : Nat) (a : True), motive 0 \u22ef) \u2192 motive a t",
+      "name": "T03_017.Weird2.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 True \u2192 T03_017.Weird2 0",
+      "name": "T03_017.Weird2.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_017.Weird2 a \u2192 Prop},\n  (\u2200 (m : Nat) (a : True), motive 0 \u22ef) \u2192 \u2200 {a : Nat} (t : T03_017.Weird2 a), motive a t",
+      "name": "T03_017.Weird2.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_017.Weird2 a \u2192 Prop} {a : Nat} (t : T03_017.Weird2 a),\n  (\u2200 (m : Nat) (a : True), motive 0 \u22ef) \u2192 motive a t",
+      "name": "T03_017.Weird2.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {r : \u03b1 \u2192 \u03b1 \u2192 Prop} \u2192 {x : \u03b1} \u2192 Acc r x \u2192 Nat",
+      "name": "T03_017.accDepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192 p \u2227 q \u2192 Nat",
+      "name": "T03_017.andToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192 (motive : p \u2227 q \u2192 Sort u_1) \u2192 (h : p \u2227 q) \u2192 ((left : p) \u2192 (right : q) \u2192 motive \u22ef) \u2192 motive h",
+      "name": "T03_017.andToNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Colour \u2192 Prop",
+      "name": "T03_017.colourProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_017.Colour \u2192 Sort u_1) \u2192\n  (x : T03_017.Colour) \u2192 (Unit \u2192 motive T03_017.Colour.red) \u2192 (Unit \u2192 motive T03_017.Colour.green) \u2192 motive x",
+      "name": "T03_017.colourProp.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Nat",
+      "name": "T03_017.exFalsoNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Type",
+      "name": "T03_017.exFalsoType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p : Prop}, p \u2228 p \u2192 p",
+      "name": "T03_017.orIdem",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p : Prop} (motive : p \u2228 p \u2192 Prop) (h : p \u2228 p), (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hp : p), motive \u22ef) \u2192 motive h",
+      "name": "T03_017.orIdem.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Sized \u2192 True",
+      "name": "T03_017.sizedToProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (motive : T03_017.Sized \u2192 Prop) (h : T03_017.Sized), (\u2200 (a : Nat) (t : True), motive \u22ef) \u2192 motive h",
+      "name": "T03_017.sizedToProp.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a b : \u03b1} \u2192 a = b \u2192 (P : \u03b1 \u2192 Type) \u2192 P a \u2192 P b",
+      "name": "T03_017.transportType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Tri \u2192 True",
+      "name": "T03_017.triToTrue",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (motive : T03_017.Tri \u2192 Prop) (h : T03_017.Tri),\n  (Unit \u2192 motive T03_017.Tri.a) \u2192 (Unit \u2192 motive T03_017.Tri.b) \u2192 (Unit \u2192 motive T03_017.Tri.c) \u2192 motive h",
+      "name": "T03_017.triToTrue.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Weird2 0",
+      "name": "T03_017.w2a",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_017.Weird2 0",
+      "name": "T03_017.w2b",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 T03_017.Weird a \u2192 Nat",
+      "name": "T03_017.weirdToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

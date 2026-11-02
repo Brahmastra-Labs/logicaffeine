@@ -28,12 +28,19 @@ use common::compile_to_rust;
 /// The loop body text between the LAST `for <counter> in` header in the
 /// generated code and the first `}` line back at the same indentation.
 fn last_for_body<'a>(rust: &'a str, counter: &str) -> &'a str {
-    let header = format!("for {} in", counter);
+    last_loop_body(rust, &format!("for {} in", counter))
+}
+
+/// The body of the last loop whose header starts with `header`.
+fn last_loop_body<'a>(rust: &'a str, header: &str) -> &'a str {
     let start = rust
-        .rfind(&header)
+        .rfind(header)
         .unwrap_or_else(|| panic!("no `{}` loop in:\n{}", header, rust));
     let body_start = start + rust[start..].find('\n').expect("newline after for header") + 1;
-    let indent = rust[..start].rfind('\n').map(|p| start - p - 1).unwrap_or(0);
+    let indent = rust[..start]
+        .rfind('\n')
+        .map(|p| start - p - 1)
+        .unwrap_or(0);
     let closer = format!("\n{}}}", " ".repeat(indent));
     let body_end = rust[body_start..]
         .find(&closer)
@@ -139,12 +146,14 @@ Show total.
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains("let __prev_g = prev.borrow();") && rust.contains("let prev = &__prev_g[..];"),
+        rust.contains("let __prev_g = prev.borrow();")
+            && rust.contains("let prev = &__prev_g[..];"),
         "prev should be hoisted shared around the inner loop. Got:\n{}",
         rust
     );
     assert!(
-        rust.contains("let __curr_g = curr.borrow();") && rust.contains("let curr = &__curr_g[..];"),
+        rust.contains("let __curr_g = curr.borrow();")
+            && rust.contains("let curr = &__curr_g[..];"),
         "curr should also be hoisted shared around the inner loop (its outer \
          handle is read to reach the inner rows). Got:\n{}",
         rust
@@ -165,10 +174,10 @@ Show total.
 #[test]
 fn hoist_two_reads_one_write_distinct() {
     std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt (see hoist_knapsack_inner_loop)
-    // dot-product-with-output shape: two read handles, one write handle, all
-    // fresh allocations — all three hoisted. Each is a Seq OF Seq (singleton
-    // inner rows), so de-Rc leaves the outer handles reference-semantics
-    // `LogosSeq`s and all three hoist exactly as before.
+                                                     // dot-product-with-output shape: two read handles, one write handle, all
+                                                     // fresh allocations — all three hoisted. Each is a Seq OF Seq (singleton
+                                                     // inner rows), so de-Rc leaves the outer handles reference-semantics
+                                                     // `LogosSeq`s and all three hoist exactly as before.
     let source = r#"## To native parseInt (s: Text) -> Int
 
 ## Main
@@ -327,8 +336,8 @@ Show total.
 #[test]
 fn no_hoist_write_aliased_handles() {
     std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt + aliasing soundness (see hoist_knapsack_inner_loop)
-    // `Let b be arr.` then the loop WRITES b and reads arr: a long-lived
-    // borrow_mut on b plus any arr access would panic. Must stay per-access.
+                                                     // `Let b be arr.` then the loop WRITES b and reads arr: a long-lived
+                                                     // borrow_mut on b plus any arr access would panic. Must stay per-access.
     let source = r#"## To native parseInt (s: Text) -> Int
 
 ## Main
@@ -509,7 +518,8 @@ Show total.
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains("let mut __arr_g = arr.borrow_mut();") && rust.contains("let arr = &mut *__arr_g;"),
+        rust.contains("let mut __arr_g = arr.borrow_mut();")
+            && rust.contains("let arr = &mut *__arr_g;"),
         "read+pushed handle should be vec-hoisted as a held RefMut. Got:\n{}",
         rust
     );
@@ -831,7 +841,8 @@ Show total.
     // The growing queue is vec-hoisted (held `&mut Vec`), never as a slice
     // (a slice would dangle on push).
     assert!(
-        !rust.contains("let queue = &mut __queue_g[..]") && !rust.contains("let queue = &__queue_g[..]"),
+        !rust.contains("let queue = &mut __queue_g[..]")
+            && !rust.contains("let queue = &__queue_g[..]"),
         "the growing queue must not be slice-hoisted (would dangle on push). Got:\n{}",
         rust
     );
@@ -883,8 +894,8 @@ Inside a new zone called "Scratch":
 #[test]
 fn no_hoist_aliased_handles_inside_zone() {
     std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt + aliasing soundness (see hoist_knapsack_inner_loop)
-    // `Let b be arr.` inside a zone aliases; a write loop through b reading
-    // arr must NOT mut-hoist b (the runtime would panic `already borrowed`).
+                                                     // `Let b be arr.` inside a zone aliases; a write loop through b reading
+                                                     // arr must NOT mut-hoist b (the runtime would panic `already borrowed`).
     let source = r#"## To native parseInt (s: Text) -> Int
 
 ## Main
@@ -925,9 +936,9 @@ Inside a new zone called "Scratch":
 #[test]
 fn hoist_inside_tiled_matmul() {
     std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt (see hoist_knapsack_inner_loop)
-    // a/b/c are Seqs OF Seq (each flat matrix cell is a singleton inner row),
-    // so the outer handles survive de-Rc as reference-semantics `LogosSeq`s and
-    // hoist once around the whole 32-tile nest exactly as before.
+                                                     // a/b/c are Seqs OF Seq (each flat matrix cell is a singleton inner row),
+                                                     // so the outer handles survive de-Rc as reference-semantics `LogosSeq`s and
+                                                     // hoist once around the whole 32-tile nest exactly as before.
     let source = r#"## To native parseInt (s: Text) -> Int
 
 ## Main
@@ -961,7 +972,11 @@ While i is less than n:
 Show item 1 of (item 1 of c).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("step_by"), "tiling should still fire. Got:\n{}", rust);
+    assert!(
+        rust.contains("step_by"),
+        "tiling should still fire. Got:\n{}",
+        rust
+    );
     assert!(
         rust.contains("let __a_g = a.borrow();")
             && rust.contains("let __b_g = b.borrow();")
@@ -971,8 +986,9 @@ Show item 1 of (item 1 of c).
     );
     // The innermost FMA must index the hoisted OUTER slices directly (the outer
     // handles a/b/c must not be re-borrowed inside the tile body — inner
-    // singleton-row borrows are separate).
-    let inner = last_for_body(&rust, "j");
+    // singleton-row borrows are separate). The tiled nest is the versioned clone,
+    // its innermost loop the one stepping inside a tile (`for j in __j_t..`).
+    let inner = last_loop_body(&rust, "for j in __j_t");
     assert!(
         inner.contains("c[(idx - 1) as usize]")
             && !inner.contains("c.borrow_mut()[(idx")
@@ -1044,10 +1060,28 @@ fn no_hoist_loop_with_user_call() {
     // (singleton inner rows) so the outer handle survives de-Rc, but the user
     // call in the read loop still forces a per-access borrow of the outer
     // handle rather than a hoist.
+    //
+    // ★ `twice` IS RECURSIVE SO THAT A CALL STILL EXISTS WHEN THE HOIST PASS LOOKS. It used to be
+    // `Return x * 2.` — a one-line pure leaf, which the optimizer now dissolves into `x + x` with
+    // the index argument duplicated. With no call left in the body the hoist became CORRECT, and
+    // this test went red asserting the absence of a guard that belonged there. The implementation
+    // was never wrong: `codegen::hoist` still bails on every call that is not a pure scalar
+    // builtin (see `scan_value_expr`'s `Expr::Call` arm). The FIXTURE stopped exhibiting the
+    // precondition.
+    //
+    // `## No inline`/`## No unfold` alone were not enough — the call site vanished with those off
+    // too — so the fixture does not rely on which pass currently has the appetite. Recursion is a
+    // property of the callee rather than a setting, and it is also representative: a scalar helper
+    // that survives to codegen in real code is one the optimizer could not see through.
     let source = r#"## To native parseInt (s: Text) -> Int
 
 ## To twice (x: Int) -> Int:
-    Return x * 2.
+    If x is less than 1:
+        Return 0.
+    Return twice(x - 1) + 2.
+
+## No inline
+## No unfold
 
 ## Main
 Let n be parseInt("20").
@@ -1118,7 +1152,8 @@ Show item 1 of (item n of dst).
     let rust = compile_to_rust(source).unwrap();
     // dst is push-built in the second loop → vec-hoisted (one borrow_mut).
     assert!(
-        rust.contains("let mut __dst_g = dst.borrow_mut();") && rust.contains("let dst = &mut *__dst_g;"),
+        rust.contains("let mut __dst_g = dst.borrow_mut();")
+            && rust.contains("let dst = &mut *__dst_g;"),
         "push-only handle should be vec-hoisted as a held RefMut. Got:\n{}",
         rust
     );
@@ -1162,7 +1197,8 @@ Show total.
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains("let __src_g = src.borrow();") && rust.contains("let mut __dst_g = dst.borrow_mut();"),
+        rust.contains("let __src_g = src.borrow();")
+            && rust.contains("let mut __dst_g = dst.borrow_mut();"),
         "src slice-hoisted (read), dst vec-hoisted (push). Got:\n{}",
         rust
     );

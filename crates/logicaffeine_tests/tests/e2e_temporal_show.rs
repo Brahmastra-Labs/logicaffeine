@@ -123,6 +123,6 @@ Let b be 500ms.
 Let total be a + b.
 Show total.
 "#,
-        "1s",  // 1500ms shows as 1s (truncated display)
+        "1s", // 1500ms shows as 1s (truncated display)
     );
 }

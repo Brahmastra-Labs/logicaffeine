@@ -46,7 +46,10 @@ fn test_launch_basic() {
     Launch a task to worker.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("tokio::spawn"), "Should generate tokio::spawn");
+    assert!(
+        rust.contains("tokio::spawn"),
+        "Should generate tokio::spawn"
+    );
 }
 
 #[test]
@@ -59,7 +62,10 @@ fn test_launch_with_args() {
     Launch a task to process with 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("tokio::spawn"), "Should generate tokio::spawn");
+    assert!(
+        rust.contains("tokio::spawn"),
+        "Should generate tokio::spawn"
+    );
     assert!(rust.contains("process(42)"), "Should pass arguments");
 }
 
@@ -103,7 +109,10 @@ fn test_try_send_nonblocking() {
 "#;
     let result = compile_to_rust(source);
     if let Ok(rust) = result {
-        assert!(rust.contains("try_send"), "Should use try_send for non-blocking");
+        assert!(
+            rust.contains("try_send"),
+            "Should use try_send for non-blocking"
+        );
     }
 }
 
@@ -116,7 +125,10 @@ fn test_try_receive_nonblocking() {
 "#;
     let result = compile_to_rust(source);
     if let Ok(rust) = result {
-        assert!(rust.contains("try_recv"), "Should use try_recv for non-blocking");
+        assert!(
+            rust.contains("try_recv"),
+            "Should use try_recv for non-blocking"
+        );
     }
 }
 
@@ -158,7 +170,10 @@ fn test_select_basic() {
 "#;
     let result = compile_to_rust(source);
     if let Ok(rust) = result {
-        assert!(rust.contains("tokio::select!"), "Should generate tokio::select!");
+        assert!(
+            rust.contains("tokio::select!"),
+            "Should generate tokio::select!"
+        );
     }
 }
 
@@ -173,7 +188,10 @@ fn test_select_with_timeout() {
 "#;
     let result = compile_to_rust(source);
     if let Ok(rust) = result {
-        assert!(rust.contains("tokio::time::sleep"), "Should generate sleep for timeout");
+        assert!(
+            rust.contains("tokio::time::sleep"),
+            "Should generate sleep for timeout"
+        );
     }
 }
 
@@ -227,6 +245,9 @@ fn test_send_pipe_uses_into_not_to() {
     let result = compile_to_rust(source);
     // Should not contain pipe send pattern
     if let Ok(rust) = result {
-        assert!(!rust.contains("_tx.send"), "Send...to should not be pipe send");
+        assert!(
+            !rust.contains("_tx.send"),
+            "Send...to should not be pipe send"
+        );
     }
 }

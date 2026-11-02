@@ -1,0 +1,133 @@
+{
+  "case": "T00-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 13,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T00_017.chainedDependency",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "2 < 2 + 1",
+      "name": "T00_017.chainedDependency.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_017.finAtLet",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "2 < 3",
+      "name": "T00_017.finAtLet.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_017.letOfProof",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "let n := 4;\n(motive : n = 4 \u2192 Sort u_1) \u2192 (h : n = 4) \u2192 (Unit \u2192 motive \u22ef) \u2192 motive h",
+      "name": "T00_017.letOfProof.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "4 < 4 + 1",
+      "name": "T00_017.letOfProof.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_017.letOfTypeDependent",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_017.letUnderBinder",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (k : Nat), 3 < 3 + k + 1",
+      "name": "T00_017.letUnderBinder.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_017.nonDependentControl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "let n := 3;\nFin n",
+      "name": "T00_017.resultTypeDependsOnLet",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "2 < 3",
+      "name": "T00_017.resultTypeDependsOnLet.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

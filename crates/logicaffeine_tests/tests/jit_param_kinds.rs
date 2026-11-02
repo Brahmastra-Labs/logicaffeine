@@ -84,7 +84,10 @@ fn mixed_float_int_recursion_tiers() {
     let (out, err, fn_ok, _) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "500.0", "500 × geo(1024, 10) = 500 × 1.0");
-    assert!(fn_ok >= 1, "mixed-kind recursive function must JIT (got {fn_ok})");
+    assert!(
+        fn_ok >= 1,
+        "mixed-kind recursive function must JIT (got {fn_ok})"
+    );
 }
 
 /// A declared-Bool parameter: the entry guard admits Bool values and the
@@ -140,7 +143,10 @@ fn sqrt_region_tiers_and_matches() {
     let (out, err, _, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "6248750.0", "Σ 0.5·i over 0..4999");
-    assert!(region_ok >= 1, "the sqrt loop must tier as a region (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the sqrt loop must tier as a region (got {region_ok})"
+    );
 }
 
 /// `sqrt` inside a declared-Float FUNCTION (the nbody `dist` kernel).
@@ -185,7 +191,10 @@ fn float_function_deopt_replays_with_exact_error() {
             (norm(&tw.output), &tw.error),
             "float deopt replay diverged"
         );
-        assert!(vm.error.is_some(), "division by zero at the base case must error");
+        assert!(
+            vm.error.is_some(),
+            "division by zero at the base case must error"
+        );
         assert_eq!(norm(&vm.output), "7");
     });
 }

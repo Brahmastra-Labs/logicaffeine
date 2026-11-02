@@ -6,20 +6,23 @@ import (
 	"strconv"
 )
 
-func mergeSort(arr []int64) []int64 {
+func mergeSort(arr []int64) {
 	n := len(arr)
-	if n < 2 { return arr }
+	if n < 2 { return }
 	mid := n / 2
-	left := mergeSort(append([]int64{}, arr[:mid]...))
-	right := mergeSort(append([]int64{}, arr[mid:]...))
-	result := make([]int64, 0, n)
-	i, j := 0, 0
-	for i < len(left) && j < len(right) {
-		if left[i] <= right[j] { result = append(result, left[i]); i++ } else { result = append(result, right[j]); j++ }
+	left := make([]int64, mid)
+	right := make([]int64, n-mid)
+	copy(left, arr[:mid])
+	copy(right, arr[mid:])
+	mergeSort(left)
+	mergeSort(right)
+	i, j, k := 0, 0, 0
+	for i < mid && j < n-mid {
+		if left[i] <= right[j] { arr[k] = left[i]; i++ } else { arr[k] = right[j]; j++ }
+		k++
 	}
-	result = append(result, left[i:]...)
-	result = append(result, right[j:]...)
-	return result
+	for i < mid { arr[k] = left[i]; i++; k++ }
+	for j < n-mid { arr[k] = right[j]; j++; k++ }
 }
 
 func main() {
@@ -30,8 +33,8 @@ func main() {
 		seed = (seed*1103515245 + 12345) % 2147483648
 		arr[i] = (seed >> 16) & 0x7fff
 	}
-	arr = mergeSort(arr)
+	mergeSort(arr)
 	checksum := int64(0)
-	for _, v := range arr { checksum = (checksum + v) % 1000000007 }
+	for _, v := range arr { checksum = (checksum*31 + v) & 268435455 }
 	fmt.Printf("%d %d %d\n", arr[0], arr[n-1], checksum)
 }

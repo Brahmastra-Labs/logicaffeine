@@ -1,0 +1,53 @@
+{
+  "id": "5.3",
+  "title": "What Is Probability?",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "What does a probability of 0.7 mean? There are rival answers."
+    },
+    {
+      "type": "definition",
+      "term": "Frequency view",
+      "definition": "Probability is how often something happens over many trials."
+    },
+    {
+      "type": "definition",
+      "term": "Subjective view",
+      "definition": "Probability is how strongly a reasonable person should believe something, given the evidence."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Frequency",
+      "lines": [
+        "A coin lands heads 4,998 times in 10,000 flips."
+      ],
+      "conclusion": "Its probability of heads is about 0.5.",
+      "note": "On this view the probability is the long run rate."
+    },
+    {
+      "type": "worked",
+      "title": "A single event",
+      "lines": [
+        "What is the chance this one surgery succeeds?"
+      ],
+      "note": "One event has no long run of trials. The subjective view treats its chance as a degree of belief."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "On the frequency view, what does 'a 0.7 chance of rain tomorrow' mean?",
+    "options": [
+      "I am 70% sure it will rain",
+      "On days like this one, it rains about 70% of the time",
+      "70% of the sky will have rain",
+      "The forecast is right 70% of the time"
+    ],
+    "correct": 1,
+    "hint": "The frequency view counts how often something happens.",
+    "explanation": "The frequency view reads probability as a long run rate: in conditions like these, it rains about 70% of the time."
+  }
+}

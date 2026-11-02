@@ -1,0 +1,10 @@
+{
+  "capability": "operator.lshift",
+  "workload": "sum of opLshift(i, 3) over 1..n",
+  "arg": "3000000",
+  "expected": "36000012000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

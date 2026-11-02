@@ -16,7 +16,7 @@
 use super::sva_to_proof::bounded_to_proof;
 use super::sva_to_verify::{BitVecBoundedOp, BoundedExpr};
 use logicaffeine_proof::bmc::{self, BmcOutcome, InductionOutcome};
-use logicaffeine_proof::sat::{find_model, ModelOutcome};
+use logicaffeine_proof::sat::{find_model, prove_unsat, ModelOutcome, UnsatOutcome};
 use logicaffeine_proof::ProofExpr;
 use std::collections::HashMap;
 
@@ -25,7 +25,11 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub enum NextState {
     Simple(BoundedExpr),
-    Ite { cond: BoundedExpr, then_: Box<NextState>, else_: Box<NextState> },
+    Ite {
+        cond: BoundedExpr,
+        then_: Box<NextState>,
+        else_: Box<NextState>,
+    },
 }
 
 /// A hardware register: a width, an optional initial value, and its next-state function.
@@ -143,7 +147,10 @@ fn reg_init_eq(name: &str, width: u32, init: u64) -> BoundedExpr {
         BoundedExpr::BitVecBinary {
             op: BitVecBoundedOp::Eq,
             left: Box::new(BoundedExpr::BitVecVar(at0, width)),
-            right: Box::new(BoundedExpr::BitVecConst { width, value: init & mask(width) }),
+            right: Box::new(BoundedExpr::BitVecConst {
+                width,
+                value: init & mask(width),
+            }),
         }
     }
 }
@@ -246,7 +253,9 @@ pub struct RtlParseError {
 }
 
 fn perr<T>(msg: impl Into<String>) -> Result<T, RtlParseError> {
-    Err(RtlParseError { message: msg.into() })
+    Err(RtlParseError {
+        message: msg.into(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -317,16 +326,17 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, RtlParseError> {
                     'h' => 16,
                     _ => return perr(format!("unsupported literal base '{base}'")),
                 };
-                let value = u64::from_str_radix(&vstr, radix)
-                    .map_err(|_| RtlParseError { message: format!("bad literal value '{vstr}'") })?;
-                let width: u32 = size_digits
-                    .parse()
-                    .map_err(|_| RtlParseError { message: format!("bad literal size '{size_digits}'") })?;
+                let value = u64::from_str_radix(&vstr, radix).map_err(|_| RtlParseError {
+                    message: format!("bad literal value '{vstr}'"),
+                })?;
+                let width: u32 = size_digits.parse().map_err(|_| RtlParseError {
+                    message: format!("bad literal size '{size_digits}'"),
+                })?;
                 toks.push(Tok::Num(value, Some(width)));
             } else {
-                let value: u64 = size_digits
-                    .parse()
-                    .map_err(|_| RtlParseError { message: format!("bad number '{size_digits}'") })?;
+                let value: u64 = size_digits.parse().map_err(|_| RtlParseError {
+                    message: format!("bad number '{size_digits}'"),
+                })?;
                 toks.push(Tok::Num(value, None));
             }
             continue;
@@ -364,7 +374,10 @@ impl Typed {
             Typed::Bv(e, ew) if ew == w => Ok(e),
             Typed::Bv(_, ew) => perr(format!("width mismatch: expected {w}, got {ew}")),
             Typed::Num(v) if w == 1 => Ok(BoundedExpr::Bool(v & 1 == 1)),
-            Typed::Num(v) => Ok(BoundedExpr::BitVecConst { width: w, value: v & mask(w) }),
+            Typed::Num(v) => Ok(BoundedExpr::BitVecConst {
+                width: w,
+                value: v & mask(w),
+            }),
             Typed::Bool(e) if w == 1 => Ok(e),
             Typed::Bool(_) => perr(format!("expected a {w}-bit value, got a Boolean")),
         }
@@ -485,7 +498,12 @@ impl<'a> Parser<'a> {
         while self.is_sym("|") {
             self.i += 1;
             let b = self.p_bxor()?;
-            a = self.bitwise(a, b, |x, y| BoundedExpr::Or(bx(x), bx(y)), BitVecBoundedOp::Or)?;
+            a = self.bitwise(
+                a,
+                b,
+                |x, y| BoundedExpr::Or(bx(x), bx(y)),
+                BitVecBoundedOp::Or,
+            )?;
         }
         Ok(a)
     }
@@ -508,7 +526,12 @@ impl<'a> Parser<'a> {
         while self.is_sym("&") {
             self.i += 1;
             let b = self.p_eq()?;
-            a = self.bitwise(a, b, |x, y| BoundedExpr::And(bx(x), bx(y)), BitVecBoundedOp::And)?;
+            a = self.bitwise(
+                a,
+                b,
+                |x, y| BoundedExpr::And(bx(x), bx(y)),
+                BitVecBoundedOp::And,
+            )?;
         }
         Ok(a)
     }
@@ -559,7 +582,11 @@ impl<'a> Parser<'a> {
             let (l, r, w) = bv_pair(a, b)?;
             a = Typed::Bv(
                 BoundedExpr::BitVecBinary {
-                    op: if sub { BitVecBoundedOp::Sub } else { BitVecBoundedOp::Add },
+                    op: if sub {
+                        BitVecBoundedOp::Sub
+                    } else {
+                        BitVecBoundedOp::Add
+                    },
                     left: bx(l),
                     right: bx(r),
                 },
@@ -575,7 +602,11 @@ impl<'a> Parser<'a> {
             let b = self.p_unary()?;
             let (l, r, w) = bv_pair(a, b)?;
             a = Typed::Bv(
-                BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Mul, left: bx(l), right: bx(r) },
+                BoundedExpr::BitVecBinary {
+                    op: BitVecBoundedOp::Mul,
+                    left: bx(l),
+                    right: bx(r),
+                },
                 w,
             );
         }
@@ -584,7 +615,9 @@ impl<'a> Parser<'a> {
     fn p_unary(&mut self) -> Result<Typed, RtlParseError> {
         if self.is_sym("!") {
             self.i += 1;
-            return Ok(Typed::Bool(BoundedExpr::Not(bx(self.p_unary()?.as_bool()?))));
+            return Ok(Typed::Bool(BoundedExpr::Not(bx(self
+                .p_unary()?
+                .as_bool()?))));
         }
         if self.is_sym("~") {
             self.i += 1;
@@ -618,7 +651,13 @@ impl<'a> Parser<'a> {
                 Ok(match w {
                     None => Typed::Num(v),
                     Some(1) => Typed::Bool(BoundedExpr::Bool(v & 1 == 1)),
-                    Some(w) => Typed::Bv(BoundedExpr::BitVecConst { width: w, value: v & mask(w) }, w),
+                    Some(w) => Typed::Bv(
+                        BoundedExpr::BitVecConst {
+                            width: w,
+                            value: v & mask(w),
+                        },
+                        w,
+                    ),
                 })
             }
             Some(Tok::Ident(n)) => {
@@ -644,7 +683,14 @@ impl<'a> Parser<'a> {
         match (&a, &b) {
             (Typed::Bv(..), _) | (_, Typed::Bv(..)) => {
                 let (l, r, w) = bv_pair(a, b)?;
-                Ok(Typed::Bv(BoundedExpr::BitVecBinary { op: bv_op, left: bx(l), right: bx(r) }, w))
+                Ok(Typed::Bv(
+                    BoundedExpr::BitVecBinary {
+                        op: bv_op,
+                        left: bx(l),
+                        right: bx(r),
+                    },
+                    w,
+                ))
             }
             _ => Ok(Typed::Bool(bool_op(a.as_bool()?, b.as_bool()?))),
         }
@@ -655,7 +701,11 @@ impl<'a> Parser<'a> {
         match (&a, &b) {
             (Typed::Bv(..), _) | (_, Typed::Bv(..)) => {
                 let (l, r, _w) = bv_pair(a, b)?;
-                Ok(BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Eq, left: bx(l), right: bx(r) })
+                Ok(BoundedExpr::BitVecBinary {
+                    op: BitVecBoundedOp::Eq,
+                    left: bx(l),
+                    right: bx(r),
+                })
             }
             _ => Ok(BoundedExpr::Eq(bx(a.as_bool()?), bx(b.as_bool()?))),
         }
@@ -787,7 +837,11 @@ pub fn parse_transition_system(src: &str) -> Result<TransitionSystem, RtlParseEr
                 j += 1;
                 let mut w = 1u32;
                 if matches!(toks.get(j), Some(Tok::Sym(s)) if s == "[") {
-                    let mut tmp = Parser { t: &toks, i: j, widths: HashMap::new() };
+                    let mut tmp = Parser {
+                        t: &toks,
+                        i: j,
+                        widths: HashMap::new(),
+                    };
                     w = tmp.parse_range_width()?;
                     j = tmp.i;
                 }
@@ -813,7 +867,11 @@ pub fn parse_transition_system(src: &str) -> Result<TransitionSystem, RtlParseEr
         }
     }
 
-    let mut p = Parser { t: &toks, i: 0, widths };
+    let mut p = Parser {
+        t: &toks,
+        i: 0,
+        widths,
+    };
     p.eat_kw("module")?;
     let _name = p.ident()?;
     if p.is_sym("(") {
@@ -930,445 +988,300 @@ pub fn parse_transition_system(src: &str) -> Result<TransitionSystem, RtlParseEr
                 NextState::Simple(BoundedExpr::BitVecVar(name.clone(), width))
             }
         });
-        registers.push(Register { name: name.clone(), width, init: init_val, next: next_ns });
+        registers.push(Register {
+            name: name.clone(),
+            width,
+            init: init_val,
+            next: next_ns,
+        });
     }
 
-    Ok(TransitionSystem { registers, property })
+    Ok(TransitionSystem {
+        registers,
+        property,
+    })
+}
+
+/// Emit a synthesizable Verilog SOFT-CORE for the reversible ALU datapath (corner 5, phase 3) — the
+/// register-VM's `RevAdd` charge-recovery core as RTL: a `width`-bit register advanced by `step` each
+/// clock. `q := (q + step) mod 2^width` is a PERMUTATION of the state space (a cyclic reversible
+/// datapath whose reverse module is the `−step` decrement), and the emitted text is real synthesizable
+/// Verilog — [`parse_transition_system`] accepts it and BMC / k-induction discharge its obligations.
+/// This is the round-tripping HDL twin of the software `RevAdd`; the full VM-datapath soft-core + a
+/// VM↔RTL SMT equivalence are the larger MAKE_A_CHIP build this slice opens.
+pub fn emit_reversible_alu_verilog(width: u32, step: u64) -> String {
+    let hi = width - 1;
+    let max = if width >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << width) - 1
+    };
+    format!(
+        "module rev_alu(input clk);\n  reg [{hi}:0] q;\n  initial q = 0;\n  always @(posedge clk) q <= q + {width}'d{step};\n  assert property (q <= {width}'d{max});\nendmodule"
+    )
+}
+
+/// Emit the reversible `RevAdd` DATAPATH as synthesizable Verilog — a `width`-bit accumulator advanced
+/// by a data INPUT each clock (`q := (q + delta) mod 2^width`), the genuine charge-recovery ALU slice
+/// (its reverse is `q := q − delta`). For every fixed `delta` the clocked transition is a bijection in
+/// `q`. Unlike the constant-step [`emit_reversible_alu_verilog`], this is the real datapath the VM's
+/// `RevAdd` maps to; `benchmarks/silicon/` synthesizes + place-and-routes the 32-bit form on an ECP5 FPGA.
+pub fn emit_reversible_datapath_verilog(width: u32) -> String {
+    let hi = width - 1;
+    format!(
+        "module rev_alu(input clk, input [{hi}:0] delta, output reg [{hi}:0] q);\n  initial q = 0;\n  always @(posedge clk) q <= q + delta;\n  assert property (q == q);\nendmodule"
+    )
+}
+
+/// Emit the LOGOS reversible ALU CORE as synthesizable Verilog — the abelian charge-recovery datapath
+/// of the VM: two `width`-bit registers `a`,`b` and a 3-bit opcode selecting `RevAdd`/`RevSub`/`RevXor`/
+/// `RevNeg`/`RevSwap`. For every fixed opcode the transition on `(a,b)` is a BIJECTION, so the whole ALU
+/// runs backward with zero erased bits. The 32-bit form place-and-routes on a Lattice ECP5 (ULX3S) via
+/// `scripts/synth-soft-core.sh` (`benchmarks/silicon/rev_alu_core.v`): 336 LUTs + 64 FFs at ~136 MHz.
+pub fn emit_reversible_alu_core_verilog(width: u32) -> String {
+    let hi = width - 1;
+    format!(
+        "module rev_alu_core(input clk, input [2:0] op, output reg [{hi}:0] a, output reg [{hi}:0] b);\n\
+         \x20 initial begin a = 0; b = 0; end\n\
+         \x20 always @(posedge clk) begin\n\
+         \x20   case (op)\n\
+         \x20     3'd0: a <= a + b;\n\
+         \x20     3'd1: a <= a - b;\n\
+         \x20     3'd2: a <= a ^ b;\n\
+         \x20     3'd3: a <= (~a) + {width}'d1;\n\
+         \x20     3'd4: begin a <= b; b <= a; end\n\
+         \x20     default: ;\n\
+         \x20   endcase\n\
+         \x20 end\n\
+         endmodule"
+    )
+}
+
+/// Emit the ISA **opcode decoder** for the reversible core — the silicon FRONT-END that turns a wire
+/// opcode BYTE (the exact byte [`crate::vm::binisa::encode_program`] puts on the wire) into the
+/// reversible ALU's 3-bit control select plus a `core` valid flag. The `case` labels are DERIVED from
+/// [`crate::vm::binisa::opcode`], so the decoder and the wire format share ONE source of truth: the
+/// byte the network carries is the byte the chip decodes, with no translation layer. Compose with
+/// [`emit_reversible_alu_core_verilog`] — wire `isa_core_decoder.sel → rev_alu_core.op`.
+pub fn emit_isa_core_decoder_verilog() -> String {
+    use crate::vm::binisa::opcode;
+    use crate::vm::Op;
+    let core = [
+        (Op::RevAdd { place: 0, delta: 0 }, "RevAdd"),
+        (Op::RevSub { place: 0, delta: 0 }, "RevSub"),
+        (Op::RevXor { place: 0, delta: 0 }, "RevXor"),
+        (Op::RevNeg { place: 0 }, "RevNeg"),
+        (Op::RevSwap { a: 0, b: 0 }, "RevSwap"),
+    ];
+    let mut arms = String::new();
+    for (op, name) in &core {
+        let code = opcode(op);
+        arms.push_str(&format!(
+            "\x20     8'd{code}: begin sel = 3'd{code}; core = 1'b1; end  // {name}\n"
+        ));
+    }
+    // An UNRECOGNISED wire byte decodes to an ALU-identity select (`3'd7` hits the ALU's `default: ;`)
+    // and asserts `core = 0`: an illegal opcode is an inert no-op on the reversible state, never a
+    // silent RevAdd. Correct ISA hygiene — a corrupt byte cannot perturb the datapath.
+    format!(
+        "module isa_core_decoder(input [7:0] opcode, output reg [2:0] sel, output reg core);\n\
+         \x20 always @(*) begin\n\
+         \x20   case (opcode)\n\
+         {arms}\
+         \x20     default: begin sel = 3'd7; core = 1'b0; end\n\
+         \x20   endcase\n\
+         \x20 end\n\
+         endmodule"
+    )
+}
+
+/// Emit the GENERAL INTEGER ALU datapath — the combinational functional unit that executes the
+/// arithmetic / bitwise / signed-comparison ops straight off a WIRE OPCODE BYTE. The `case` labels are
+/// the stable `binisa` opcodes (one source of truth with the wire format), so the ALU decodes the same
+/// bytes the network carries. Each operation is proven correct by our own certified SAT (the identity
+/// battery `the_general_alu_datapath_is_proven_correct_by_our_sat`); comparisons are SIGNED (matching
+/// the VM's i64 semantics) and yield 0/1. This is the ratchet frontier grown from the reversible core.
+pub fn emit_alu_datapath_verilog(width: u32) -> String {
+    use crate::vm::binisa::opcode;
+    use crate::vm::Op;
+    let hi = width - 1;
+    let add = opcode(&Op::Add {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let addassign = opcode(&Op::AddAssign { dst: 0, src: 0 });
+    let sub = opcode(&Op::Sub {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let mul = opcode(&Op::Mul {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    // Div / ExactDiv / Mod / FloorDiv are NOT in the combinational ALU: division is inherently
+    // sequential, so the soft-core issues those opcodes to the shared iterative `shared_divider`
+    // (a ~26x LUT saving). DivPow2 stays here — it is a cheap round-toward-zero arithmetic shift.
+    let divpow2 = opcode(&Op::DivPow2 {
+        dst: 0,
+        lhs: 0,
+        k: 0,
+    });
+    let xor = opcode(&Op::BitXor {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let and = opcode(&Op::BitAnd {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let or = opcode(&Op::BitOr {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let not = opcode(&Op::Not { dst: 0, src: 0 });
+    let shl = opcode(&Op::Shl {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let shr = opcode(&Op::Shr {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    // The shift COUNT is masked to the value width (`b[log2(W)-1:0]`), matching the VM's
+    // `wrapping_shl/shr(b as u32)` which masks the count mod the word width. `Shr` is ARITHMETIC.
+    let cnt_hi = width.trailing_zeros().saturating_sub(1);
+    let lt = opcode(&Op::Lt {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let gt = opcode(&Op::Gt {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let lte = opcode(&Op::LtEq {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let gte = opcode(&Op::GtEq {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let eq = opcode(&Op::Eq {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    let neq = opcode(&Op::NotEq {
+        dst: 0,
+        lhs: 0,
+        rhs: 0,
+    });
+    format!(
+        "module alu(input [7:0] opcode, input [{hi}:0] a, input [{hi}:0] b, output reg [{hi}:0] y);\n\
+         \x20 always @(*) begin\n\
+         \x20   case (opcode)\n\
+         \x20     8'd{add}: y = a + b;\n\
+         \x20     8'd{addassign}: y = a + b;\n\
+         \x20     8'd{sub}: y = a - b;\n\
+         \x20     8'd{mul}: y = a * b;\n\
+         \x20     8'd{divpow2}: y = a[{hi}] ? ($signed($signed(a) + (({width}'d1 << b[{cnt_hi}:0]) - {width}'d1)) >>> b[{cnt_hi}:0]) : ($signed(a) >>> b[{cnt_hi}:0]);\n\
+         \x20     8'd{xor}: y = a ^ b;\n\
+         \x20     8'd{and}: y = a & b;\n\
+         \x20     8'd{or}: y = a | b;\n\
+         \x20     8'd{not}: y = ~a;\n\
+         \x20     8'd{shl}: y = a << b[{cnt_hi}:0];\n\
+         \x20     8'd{shr}: y = $signed(a) >>> b[{cnt_hi}:0];\n\
+         \x20     8'd{lt}: y = ($signed(a) < $signed(b)) ? 1 : 0;\n\
+         \x20     8'd{gt}: y = ($signed(a) > $signed(b)) ? 1 : 0;\n\
+         \x20     8'd{lte}: y = ($signed(a) <= $signed(b)) ? 1 : 0;\n\
+         \x20     8'd{gte}: y = ($signed(a) >= $signed(b)) ? 1 : 0;\n\
+         \x20     8'd{eq}: y = (a == b) ? 1 : 0;\n\
+         \x20     8'd{neq}: y = (a != b) ? 1 : 0;\n\
+         \x20     8'd226: y = a + b;\n\
+         \x20     8'd227: y = a - b;\n\
+         \x20     8'd228: y = a * b;\n\
+         \x20     default: y = {width}'d0;\n\
+         \x20   endcase\n\
+         \x20 end\n\
+         endmodule"
+    )
+}
+
+/// Emit the SHARED ITERATIVE DIVIDER — one sequential restoring divider that computes signed
+/// quotient AND remainder, replacing the ~24,600-cell COMBINATIONAL `$signed(a)/$signed(b)` +
+/// `$signed(a)%$signed(b)` the ALU instantiates per-op (Div/Mod/FloorDiv). It costs 833 LUT / 204 FF
+/// placed-and-routed on the ECP5-85K at ~100 MHz — a ~26× LUT drop vs the ~22,000-LUT combinational
+/// divide, the lever that fits the full 113-op CPU under 83,640. Truncated (round-toward-zero)
+/// semantics matching the VM: quotient sign = sign(a)^sign(b), remainder sign = sign(a); b==0 →
+/// q=r=0. One 1-bit/cycle restoring loop over |a|/|b| (W cycles) then a sign fixup; the soft-core
+/// pulses `start` and stalls until `done`. The module is Verilog-parameterized (default W=32;
+/// instantiate #(.W(64)) for the BigInt lane), so this emitter is the single source for the on-disk
+/// `shared_divider.v`, proven == the combinational oracle by iverilog ([`emit_shared_divider_testbench`]).
+pub fn emit_shared_divider_verilog() -> String {
+    include_str!("shared_divider.v").to_string()
+}
+
+/// Emit the divider's self-checking testbench: drive the sequential `shared_divider`, wait for
+/// `done`, and check quotient+remainder against the combinational `$signed` div/mod oracle over
+/// every sign/edge case plus a 4000-pair pseudo-random sweep. PASS iff all match.
+pub fn emit_shared_divider_testbench() -> String {
+    include_str!("tb_shared_divider.v").to_string()
+}
+
+/// Emit a yosys synthesis FLOW (`.ys`) that takes the reversible soft-core RTL to a gate-level netlist
+/// (corner 5, phase 5). This is the tape-out-ready boundary produced IN-REPO: the synthesizable,
+/// formally-verified reversible RTL ([`emit_reversible_alu_verilog`]) PLUS this flow. Executing it needs
+/// the external `yosys` synthesizer (not installed here); mapping the generic gate set to an
+/// adiabatic / charge-recovery PDK and running a foundry are the physical tape-out steps beyond
+/// software. The flow reads the module, elaborates, techmaps, maps to a generic gate library, and
+/// writes the gate-level netlist + a resource report.
+pub fn emit_yosys_tapeout_flow(module: &str, rtl_file: &str) -> String {
+    format!(
+        "# LOGOS reversible soft-core — tape-out synthesis flow.  Run with:  yosys {module}.ys\n\
+         read_verilog {rtl_file}\n\
+         hierarchy -check -top {module}\n\
+         proc; opt; fsm; opt; memory; opt\n\
+         techmap; opt\n\
+         # Generic gate mapping; a reversible/adiabatic PDK (charge-recovery cells) replaces this for silicon.\n\
+         abc -g AND,OR,XOR,NAND,NOR\n\
+         opt; clean\n\
+         write_verilog {module}_netlist.v\n\
+         stat\n"
+    )
+}
+
+/// LOGICAL EQUIVALENCE CHECK (corner 5, phase 3) — discharged by OUR OWN certified SAT, not yosys's
+/// SAT or Z3. Parse the soft-core RTL, extract register `reg`'s next-state, and prove it equals `spec`
+/// (the VM op's datapath function) for EVERY input by refuting the miter `rtl_next ≠ spec` with
+/// [`logicaffeine_proof::sat::prove_unsat`] — a bit-blasted CDCL refutation, the LEC "back-check". This
+/// is the equivalence a tool like yosys `equiv` runs on its internal SAT, done here on ours. Returns
+/// `Some(true)` iff the RTL datapath is equivalent to the VM spec, `Some(false)` if a differing input
+/// exists, `None` if the RTL / next-state / miter can't be lowered to the bit-blaster.
+pub fn lec_next_state_matches_vm(rtl: &str, reg: &str, spec: BoundedExpr) -> Option<bool> {
+    let ts = parse_transition_system(rtl).ok()?;
+    let r = ts.registers.iter().find(|r| r.name == reg)?;
+    let rtl_next = match &r.next {
+        NextState::Simple(e) => e.clone(),
+        NextState::Ite { .. } => return None,
+    };
+    // The miter: are the RTL datapath and the VM spec EVER unequal? Equivalent iff that is UNSAT.
+    let miter = BoundedExpr::Eq(Box::new(rtl_next), Box::new(spec));
+    let p = super::bitblast::lower_bool(&miter)?;
+    Some(prove_unsat(&ProofExpr::Not(Box::new(p))) == UnsatOutcome::Refuted)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn var(n: &str) -> BoundedExpr {
-        BoundedExpr::Var(n.to_string())
-    }
-    fn not(e: BoundedExpr) -> BoundedExpr {
-        BoundedExpr::Not(Box::new(e))
-    }
-    fn reg(name: &str, init: u64, next: BoundedExpr) -> Register {
-        Register {
-            name: name.to_string(),
-            width: 1,
-            init: Some(init),
-            next: NextState::Simple(next),
-        }
-    }
-
-    #[test]
-    fn bmc_finds_toggle_violation() {
-        let ts = TransitionSystem {
-            registers: vec![reg("q", 0, not(var("q")))],
-            property: not(var("q")),
-        };
-        match ts.bmc(5) {
-            BmcOutcome::CounterexampleAt { k, trace } => {
-                assert_eq!(k, 1);
-                assert!(trace.iter().any(|(n, v)| n == "q@1" && *v), "trace: {trace:?}");
-            }
-            other => panic!("expected a counterexample, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn k_induction_proves_latched_invariant() {
-        let ts = TransitionSystem {
-            registers: vec![reg("x", 1, var("x"))],
-            property: var("x"),
-        };
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-        assert_eq!(ts.bmc(6), BmcOutcome::NoneWithin(6));
-    }
-
-    #[test]
-    fn k_induction_proves_two_register_mutex() {
-        let ts = TransitionSystem {
-            registers: vec![reg("a", 1, var("b")), reg("b", 0, var("a"))],
-            property: not(BoundedExpr::And(Box::new(var("a")), Box::new(var("b")))),
-        };
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    // ── Real Verilog ingestion ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn verilog_toggle_violation_found() {
-        let src = r#"
-            module toggle(input clk);
-              reg q;
-              initial q = 0;
-              always @(posedge clk) q <= ~q;
-              assert property (@(posedge clk) ~q);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        match ts.bmc(5) {
-            BmcOutcome::CounterexampleAt { k, trace } => {
-                assert_eq!(k, 1);
-                assert!(trace.iter().any(|(n, v)| n == "q@1" && *v));
-            }
-            other => panic!("expected a counterexample, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn verilog_latched_invariant_proven() {
-        let src = r#"
-            module latch(input clk);
-              reg x;
-              initial x = 1;
-              always @(posedge clk) x <= x;
-              assert property (x);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    #[test]
-    fn verilog_mutex_swap_invariant_proven() {
-        let src = r#"
-            module mutex(input clk);
-              reg a;
-              reg b;
-              initial begin a = 1; b = 0; end
-              always @(posedge clk) begin
-                a <= b;
-                b <= a;
-              end
-              assert property (~(a & b));
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    // ── Multi-bit (bitvector) datapath registers ────────────────────────────────────────
-
-    #[test]
-    fn verilog_two_bit_counter_reaches_three() {
-        // A 2-bit counter cnt++ reaches 3 at step 3, violating "cnt != 3".
-        let src = r#"
-            module counter(input clk);
-              reg [1:0] cnt;
-              initial cnt = 0;
-              always @(posedge clk) cnt <= cnt + 1;
-              assert property (cnt != 2'd3);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.registers[0].width, 2);
-        match ts.bmc(6) {
-            BmcOutcome::CounterexampleAt { k, .. } => assert_eq!(k, 3),
-            other => panic!("expected a counterexample, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn verilog_four_bit_counter_bound_is_invariant() {
-        // A 4-bit counter never exceeds 15 — a genuine (trivial) invariant, PROVEN.
-        let src = r#"
-            module counter(input clk);
-              reg [3:0] cnt;
-              initial cnt = 0;
-              always @(posedge clk) cnt <= cnt + 1;
-              assert property (cnt <= 4'd15);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.registers[0].width, 4);
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    #[test]
-    fn verilog_three_bit_counter_violates_a_false_bound() {
-        // A 3-bit counter DOES reach 5 — "cnt < 5" is violated at step 5.
-        let src = r#"
-            module counter(input clk);
-              reg [2:0] cnt;
-              initial cnt = 0;
-              always @(posedge clk) cnt <= cnt + 1;
-              assert property (cnt < 3'd5);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        match ts.bmc(8) {
-            BmcOutcome::CounterexampleAt { k, .. } => assert_eq!(k, 5),
-            other => panic!("expected a counterexample, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn verilog_datapath_register_equality_invariant() {
-        // Two 4-bit regs initialised equal and updated identically stay equal — PROVEN.
-        let src = r#"
-            module mirror(input clk);
-              reg [3:0] x;
-              reg [3:0] y;
-              initial begin x = 3; y = 3; end
-              always @(posedge clk) begin
-                x <= x + 1;
-                y <= y + 1;
-              end
-              assert property (x == y);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    // ── Rejections (no silent mis-parse) ────────────────────────────────────────────────
-
-    // ── Reset-as-free-input (the reset INPUT is a free variable each cycle) ──────────────
-
-    #[test]
-    fn verilog_reset_mirrored_registers_stay_equal() {
-        // Two registers with identical reset+update logic over a FREE reset input stay equal
-        // — a genuine invariant, PROVEN by k-induction regardless of when reset fires.
-        let src = r#"
-            module mirror(input clk, input rst);
-              reg a;
-              reg b;
-              initial begin a = 0; b = 0; end
-              always @(posedge clk) begin
-                if (rst) a <= 0; else a <= ~a;
-                if (rst) b <= 0; else b <= ~b;
-              end
-              assert property (a == b);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses reset logic");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    #[test]
-    fn verilog_multibit_reset_clears_counter() {
-        // A counter that holds unless reset; with reset a free input, "cnt == 0" is NOT an
-        // invariant (cnt grows when reset stays low), so BMC must find a violation.
-        let src = r#"
-            module counter(input clk, input rst);
-              reg [3:0] cnt;
-              initial cnt = 0;
-              always @(posedge clk) if (rst) cnt <= 0; else cnt <= cnt + 1;
-              assert property (cnt == 4'd0);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        match ts.bmc(4) {
-            BmcOutcome::CounterexampleAt { k, .. } => assert_eq!(k, 1, "rst low for one cycle ⇒ cnt=1"),
-            other => panic!("expected a counterexample, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn verilog_free_initial_state_is_explored() {
-        // No `initial`: the register's start value is FREE, so "q is low" is violated
-        // immediately (q@0 may be high). Proves we explore all initial states soundly.
-        let src = r#"
-            module m(input clk);
-              reg q;
-              always @(posedge clk) q <= q;
-              assert property (~q);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses without initial");
-        assert!(ts.registers[0].init.is_none(), "q must have a free initial state");
-        match ts.bmc(3) {
-            BmcOutcome::CounterexampleAt { k, .. } => assert_eq!(k, 0, "a free q can start high"),
-            other => panic!("expected a step-0 counterexample, got {other:?}"),
-        }
-    }
-
-    // ── Real hardware: arbiters, flow control, one-hot FSMs ──────────────────────────────
-
-    #[test]
-    fn verilog_arbiter_mutual_exclusion_proven() {
-        // A 2-master round-robin arbiter. Grants are set in mutually-exclusive branches, so
-        // "never two grants at once" is a genuine safety invariant — PROVEN by k-induction.
-        let src = r#"
-            module arbiter(input clk, input r0, input r1);
-              reg g0;
-              reg g1;
-              reg turn;
-              initial begin g0 = 0; g1 = 0; turn = 0; end
-              always @(posedge clk) begin
-                if (r0 && (!r1 || turn == 0)) begin
-                  g0 <= 1;
-                  g1 <= 0;
-                end else if (r1) begin
-                  g0 <= 0;
-                  g1 <= 1;
-                end else begin
-                  g0 <= 0;
-                  g1 <= 0;
-                end
-                turn <= ~turn;
-              end
-              assert property (~(g0 & g1));
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    #[test]
-    fn verilog_naive_arbiter_double_grant_bug_found() {
-        // The classic arbiter bug: granting each request independently. If both masters
-        // request at once, BOTH are granted — a mutual-exclusion violation BMC must catch.
-        let src = r#"
-            module bad_arbiter(input clk, input r0, input r1);
-              reg g0;
-              reg g1;
-              initial begin g0 = 0; g1 = 0; end
-              always @(posedge clk) begin
-                if (r0) g0 <= 1; else g0 <= 0;
-                if (r1) g1 <= 1; else g1 <= 0;
-              end
-              assert property (~(g0 & g1));
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        match ts.bmc(4) {
-            BmcOutcome::CounterexampleAt { k, trace } => {
-                assert_eq!(k, 1, "both requested at t0 ⇒ double grant at t1");
-                assert!(trace.iter().any(|(n, v)| n == "g0@1" && *v));
-                assert!(trace.iter().any(|(n, v)| n == "g1@1" && *v));
-            }
-            other => panic!("expected a double-grant counterexample, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn verilog_fifo_occupancy_never_overflows_proven() {
-        // A FIFO occupancy counter (depth 8) over free push/pop inputs: increment only when
-        // not full, decrement only when not empty. "count never exceeds 8" is a genuine
-        // datapath invariant — PROVEN for every push/pop sequence, even though `count` is a
-        // 4-bit register that could otherwise reach 15.
-        let src = r#"
-            module fifo(input clk, input push, input pop);
-              reg [3:0] count;
-              initial count = 0;
-              always @(posedge clk)
-                if (push && (count < 4'd8) && !(pop && (count > 4'd0)))
-                  count <= count + 1;
-                else if (pop && (count > 4'd0) && !(push && (count < 4'd8)))
-                  count <= count - 1;
-                else
-                  count <= count;
-              assert property (count <= 4'd8);
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.registers[0].width, 4);
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    // A COMPLEX signalized intersection: NS/EW through (ns/ew) PLUS protected left turns
-    // (nsl/ewl) PLUS a pedestrian phase (ped), sequenced by a 9-state controller with a
-    // per-phase down-counter. Lights: 0=red, 1=green, 2=yellow; ped: 0=don't-walk, 1=walk.
-    // Each phase fully sets ALL movements to a non-conflicting configuration, which keeps the
-    // safety property 1-inductive.
-    const TRAFFIC_SAFE: &str = r#"
-        module traffic(input clk);
-          reg [1:0] ns;
-          reg [1:0] ew;
-          reg [1:0] nsl;
-          reg [1:0] ewl;
-          reg ped;
-          reg [3:0] phase;
-          reg [2:0] timer;
-          initial begin ns=2'd0; ew=2'd0; nsl=2'd1; ewl=2'd0; ped=1'd0; phase=4'd0; timer=3'd1; end
-          always @(posedge clk)
-            if (timer == 3'd0) begin
-              timer <= 3'd1;
-              if (phase == 4'd0) begin phase<=4'd1; nsl<=2'd2; ns<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd1) begin phase<=4'd2; nsl<=2'd0; ns<=2'd1; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd2) begin phase<=4'd3; ns<=2'd2; nsl<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd3) begin phase<=4'd4; ewl<=2'd1; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd4) begin phase<=4'd5; ewl<=2'd2; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd5) begin phase<=4'd6; ewl<=2'd0; ew<=2'd1; ns<=2'd0; nsl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd6) begin phase<=4'd7; ew<=2'd2; ns<=2'd0; nsl<=2'd0; ewl<=2'd0; ped<=1'd0; end
-              else if (phase == 4'd7) begin phase<=4'd8; ped<=1'd1; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ewl<=2'd0; end
-              else begin phase<=4'd0; nsl<=2'd1; ns<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end
-            end else
-              timer <= timer - 1;
-          assert property (~((ns != 2'd0) & (ew != 2'd0)) & ~((ped == 1'd1) & ((ns != 2'd0) | (ew != 2'd0) | (nsl != 2'd0) | (ewl != 2'd0))));
-        endmodule
-    "#;
-
-    #[test]
-    fn verilog_complex_traffic_controller_is_proven_safe() {
-        // No two conflicting movements are ever active together, and pedestrians only get a
-        // WALK when EVERY vehicle movement is red — PROVEN by k-induction.
-        let ts = parse_transition_system(TRAFFIC_SAFE).expect("parses");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-
-    #[test]
-    fn verilog_buggy_traffic_controller_crashes() {
-        // A subtle, dangerous bug: the pedestrian phase raises WALK but leaves NS GREEN, so
-        // pedestrians are sent into live cross traffic. BMC finds the exact cycle.
-        let buggy = TRAFFIC_SAFE.replace(
-            "phase<=4'd8; ped<=1'd1; ns<=2'd0;",
-            "phase<=4'd8; ped<=1'd1; ns<=2'd1;",
-        );
-        assert_ne!(buggy, TRAFFIC_SAFE, "the buggy variant must differ");
-        let ts = parse_transition_system(&buggy).expect("parses");
-        match ts.bmc(40) {
-            BmcOutcome::CounterexampleAt { .. } => {}
-            other => panic!("expected a pedestrian-vs-traffic conflict, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn witness_trace_of_safe_controller_is_a_conflict_free_run() {
-        // The proven-safe controller has no counterexample to animate, so the Studio shows a
-        // WITNESS execution instead. That witness must be a real run from the declared initial
-        // state in which the safety property holds at EVERY step.
-        let ts = parse_transition_system(TRAFFIC_SAFE).expect("parses");
-        let steps = 16u32;
-        let model = ts.witness_trace(steps).expect("a witness run exists");
-        let m: HashMap<String, bool> = model.into_iter().collect();
-        let bv = |name: &str, t: u32, width: u32| -> u64 {
-            (0..width)
-                .filter(|i| *m.get(&format!("{name}@{t}#{i}")).unwrap_or(&false))
-                .fold(0u64, |acc, i| acc | (1 << i))
-        };
-        let bit = |name: &str, t: u32| -> bool { *m.get(&format!("{name}@{t}")).unwrap_or(&false) };
-        // The run starts in the declared initial state: NS-left green, everything else red.
-        assert_eq!(bv("nsl", 0, 2), 1, "init: NS-left should be green");
-        assert_eq!(bv("ns", 0, 2), 0, "init: NS-through should be red");
-        for t in 0..steps {
-            let (ns, ew, nsl, ewl) = (bv("ns", t, 2), bv("ew", t, 2), bv("nsl", t, 2), bv("ewl", t, 2));
-            let ped = bit("ped", t);
-            let cross = ns != 0 && ew != 0;
-            let ped_conflict = ped && (ns != 0 || ew != 0 || nsl != 0 || ewl != 0);
-            assert!(
-                !cross && !ped_conflict,
-                "witness conflicts at step {t}: ns={ns} ew={ew} nsl={nsl} ewl={ewl} ped={ped}"
-            );
-        }
-    }
-
-    #[test]
-    fn verilog_onehot_fsm_stays_one_hot_proven() {
-        // A 3-state one-hot ring FSM. Exactly one of a/b/c is high — PROVEN invariant: the
-        // rotation a<=c, b<=a, c<=b permutes the bits, preserving one-hotness.
-        let src = r#"
-            module onehot(input clk);
-              reg a;
-              reg b;
-              reg c;
-              initial begin a = 1; b = 0; c = 0; end
-              always @(posedge clk) begin
-                a <= c;
-                b <= a;
-                c <= b;
-              end
-              assert property ((a | b | c) & ~(a & b) & ~(a & c) & ~(b & c));
-            endmodule
-        "#;
-        let ts = parse_transition_system(src).expect("parses");
-        assert_eq!(ts.prove_invariant(1), InductionOutcome::Proven);
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen_sva/rtl/tests.rs"]
+mod tests;

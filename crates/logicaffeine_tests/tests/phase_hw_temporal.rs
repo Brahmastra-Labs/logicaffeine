@@ -7,7 +7,7 @@
 //! F(φ) → ∃w'(Reachable_Temporal(w, w') ∧ φ(w'))
 //! X(φ) → ∀w'(Next_Temporal(w, w') → φ(w'))
 
-use logicaffeine_language::{compile, compile_kripke};
+use logicaffeine_language::compile_kripke;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AST SIZE BUDGET
@@ -123,10 +123,7 @@ fn kripke_until_lowers_correctly() {
 #[test]
 fn kripke_nested_always_implies_next() {
     // G(P → X(Q)) — safety property with one-cycle delay
-    let output = compile_kripke(
-        "Always, if every dog runs, then next, every cat sleeps.",
-    )
-    .unwrap();
+    let output = compile_kripke("Always, if every dog runs, then next, every cat sleeps.").unwrap();
     assert!(
         output.contains("Accessible_Temporal"),
         "G should generate Accessible_Temporal. Got: {}",
@@ -252,7 +249,10 @@ fn kripke_context_domain_hint_starts_as_none() {
     use logicaffeine_language::semantics::kripke::KripkeContext;
     let mut interner = logicaffeine_base::Interner::new();
     let ctx = KripkeContext::new(&mut interner);
-    assert!(ctx.domain_hint().is_none(), "Domain hint should start as None");
+    assert!(
+        ctx.domain_hint().is_none(),
+        "Domain hint should start as None"
+    );
 }
 
 #[test]
@@ -261,11 +261,17 @@ fn kripke_next_advances_clock() {
     // We verify this indirectly: "Next" produces Next_Temporal with fresh worlds
     let result = compile_kripke("Next, every dog runs.");
     let output = result.unwrap();
-    assert!(output.contains("Next_Temporal"),
-        "Next must produce Next_Temporal. Got: {}", output);
+    assert!(
+        output.contains("Next_Temporal"),
+        "Next must produce Next_Temporal. Got: {}",
+        output
+    );
     // The world variables (w1, w2) indicate fresh worlds were generated
-    assert!(output.contains("w1") || output.contains("w"),
-        "Next must generate fresh world variables. Got: {}", output);
+    assert!(
+        output.contains("w1") || output.contains("w"),
+        "Next must generate fresh world variables. Got: {}",
+        output
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,11 @@
+{
+  "capability": "text.is_upper",
+  "workload": "isUpper(s)",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python"
+  ]
+}

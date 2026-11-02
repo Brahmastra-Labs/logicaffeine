@@ -124,7 +124,10 @@ Show sum.
     let Some(defer_pos) = rust.find("__defer_stop") else {
         panic!("chunked inner loop (__defer_stop) missing:\n{rust}");
     };
-    assert!(defer_pos > guard_pos, "chunk loop should sit inside the guard");
+    assert!(
+        defer_pos > guard_pos,
+        "chunk loop should sit inside the guard"
+    );
     // The chunk body: from the inner loop to the mod fold. Raw adds only.
     let chunk_end = rust[defer_pos..]
         .find("% 1000000007")
@@ -173,7 +176,11 @@ Let arguments be args().
 Show ackermann(3, parseInt(item 2 of arguments)).
 "#;
     let run = common::run_logos_with_args(code, &["5"]);
-    assert!(run.success, "ackermann tower program must run: {}", run.stderr);
+    assert!(
+        run.success,
+        "ackermann tower program must run: {}",
+        run.stderr
+    );
     assert_eq!(run.stdout.trim(), "253", "ackermann(3,5) = 2^8 - 3");
     let rust = compile_to_rust(code).unwrap();
     assert!(
@@ -262,7 +269,11 @@ Show total.
 
     for n in [1_i64, 9, 16] {
         let run = common::run_logos_with_args(code, &[&n.to_string()]);
-        assert!(run.success, "bound-versioned nest must run at n={n}: {}", run.stderr);
+        assert!(
+            run.success,
+            "bound-versioned nest must run at n={n}: {}",
+            run.stderr
+        );
         let got: f64 = run
             .stdout
             .trim()
@@ -353,10 +364,11 @@ Show "" + item 1 of arr + " " + item 3 of arr + " " + item 5 of arr.
     assert_exact_output(code, "1 5 9");
     let rust = compile_to_rust(code).unwrap();
     let qs_start = rust.find("fn qs").expect("qs function in generated code");
-    let qs_body = &rust[qs_start..rust[qs_start..]
-        .find("\nfn ")
-        .map(|p| qs_start + p)
-        .unwrap_or(rust.len())];
+    let qs_body = &rust[qs_start
+        ..rust[qs_start..]
+            .find("\nfn ")
+            .map(|p| qs_start + p)
+            .unwrap_or(rust.len())];
     assert!(
         !qs_body.contains(".clone()"),
         "qs must not deep-copy (or refcount-share into a later cow deep-copy) \

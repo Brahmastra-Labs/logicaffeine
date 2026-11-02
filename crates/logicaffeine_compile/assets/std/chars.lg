@@ -1,0 +1,185 @@
+# Character classification
+
+Classify and case-fold ASCII code points (as Int), the char-level counterpart of the string
+predicates. Pure LOGOS, identical on every tier. Auto-imported on reference.
+
+## Note
+True when `c` is an ASCII decimal digit (codepoints 48 to 57, `0`-`9`).
+
+## To charIsDigit (c: Int) -> Bool:
+    If c is less than 48:
+        Return false.
+    If c is greater than 57:
+        Return false.
+    Return true.
+
+## Note
+True when `c` is an ASCII uppercase letter (codepoints 65 to 90, `A`-`Z`).
+
+## To charIsUpper (c: Int) -> Bool:
+    If c is less than 65:
+        Return false.
+    If c is greater than 90:
+        Return false.
+    Return true.
+
+## Note
+True when `c` is an ASCII lowercase letter (codepoints 97 to 122, `a`-`z`).
+
+## To charIsLower (c: Int) -> Bool:
+    If c is less than 97:
+        Return false.
+    If c is greater than 122:
+        Return false.
+    Return true.
+
+## Note
+True when `c` is an ASCII letter, that is uppercase or lowercase.
+
+## To charIsLetter (c: Int) -> Bool:
+    If charIsUpper(c):
+        Return true.
+    If charIsLower(c):
+        Return true.
+    Return false.
+
+## Note
+True when `c` is an ASCII letter or digit.
+
+## To charIsAlnum (c: Int) -> Bool:
+    If charIsLetter(c):
+        Return true.
+    If charIsDigit(c):
+        Return true.
+    Return false.
+
+## Note
+True for ASCII whitespace: space (32), tab (9), newline (10), carriage return (13), vertical tab (11), and form feed (12).
+
+## To charIsSpace (c: Int) -> Bool:
+    If c is equal to 32:
+        Return true.
+    If c is equal to 9:
+        Return true.
+    If c is equal to 10:
+        Return true.
+    If c is equal to 13:
+        Return true.
+    If c is equal to 11:
+        Return true.
+    If c is equal to 12:
+        Return true.
+    Return false.
+
+## Note
+True when `c` is a hexadecimal digit: `0`-`9`, `A`-`F` (65-70), or `a`-`f` (97-102).
+
+## To charIsHexDigit (c: Int) -> Bool:
+    If charIsDigit(c):
+        Return true.
+    If c is at least 65:
+        If c is at most 70:
+            Return true.
+    If c is at least 97:
+        If c is at most 102:
+            Return true.
+    Return false.
+
+## Note
+True for ASCII punctuation in the ranges 33-47, 58-64, 91-96, and 123-126.
+
+## To charIsPunct (c: Int) -> Bool:
+    If c is at least 33:
+        If c is at most 47:
+            Return true.
+    If c is at least 58:
+        If c is at most 64:
+            Return true.
+    If c is at least 91:
+        If c is at most 96:
+            Return true.
+    If c is at least 123:
+        If c is at most 126:
+            Return true.
+    Return false.
+
+## Note
+Uppercases an ASCII lowercase letter by subtracting 32; other codepoints are returned unchanged.
+
+## To charToUpper (c: Int) -> Int:
+    If charIsLower(c):
+        Return c - 32.
+    Return c.
+
+## Note
+Lowercases an ASCII uppercase letter by adding 32; other codepoints are returned unchanged.
+
+## To charToLower (c: Int) -> Int:
+    If charIsUpper(c):
+        Return c + 32.
+    Return c.
+
+## Note
+True for ASCII control characters: codepoints below 32 or the DEL character (127).
+
+## To charIsControl (c: Int) -> Bool:
+    If c is less than 32:
+        Return true.
+    If c is equal to 127:
+        Return true.
+    Return false.
+
+## Note
+True for printable ASCII, codepoints 32 to 126 inclusive (space through `~`).
+
+## To charIsPrint (c: Int) -> Bool:
+    If c is at least 32:
+        If c is at most 126:
+            Return true.
+    Return false.
+
+## Note
+True only for the two ASCII blank characters: space (32) and tab (9).
+
+## To charIsBlank (c: Int) -> Bool:
+    If c is equal to 32:
+        Return true.
+    If c is equal to 9:
+        Return true.
+    Return false.
+
+## Note
+True for visible ASCII graphic characters, codepoints 33 to 126 (printable but not space).
+
+## To charIsGraph (c: Int) -> Bool:
+    If c is at least 33:
+        If c is at most 126:
+            Return true.
+    Return false.
+
+## Note
+Titlecases a character by uppercasing an ASCII lowercase letter (subtracting 32); other codepoints are returned unchanged.
+
+## To charToTitle (c: Int) -> Int:
+    If c is at least 97:
+        If c is at most 122:
+            Return c - 32.
+    Return c.
+
+## Note
+True when `c` is a titlecase character, that is an ASCII uppercase letter (codepoints 65 to 90).
+
+## To charIsTitle (c: Int) -> Bool:
+    If c is at least 65:
+        If c is at most 90:
+            Return true.
+    Return false.
+
+## Note
+The numeric value 0-9 of an ASCII digit, or -1 when `c` is not a digit.
+
+## To charDigitVal (c: Int) -> Int:
+    If c is at least 48:
+        If c is at most 57:
+            Return c - 48.
+    Return 0 - 1.

@@ -56,41 +56,64 @@ Show n.
     // de-Rc makes `mergeSort` return an owned `Vec<i64>`, so `result` de-Rc's to
     // a plain `Vec::with_capacity` (no Rc/RefCell) — the allocation Phase 4 was
     // built to remove. The capacity-hint intent is preserved.
-    assert!(rust.contains("Vec::with_capacity"),
-        "Merge result should use Vec::with_capacity (Phase 4 de-Rc), got:\n{}", rust);
+    assert!(
+        rust.contains("Vec::with_capacity"),
+        "Merge result should use Vec::with_capacity (Phase 4 de-Rc), got:\n{}",
+        rust
+    );
 
     // Loop bounds hoisting: left_len and right_len should be hoisted
-    assert!(rust.contains("let left_len"),
-        "left length should be hoisted, got:\n{}", rust);
-    assert!(rust.contains("let right_len"),
-        "right length should be hoisted, got:\n{}", rust);
+    assert!(
+        rust.contains("let left_len"),
+        "left length should be hoisted, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("let right_len"),
+        "right length should be hoisted, got:\n{}",
+        rust
+    );
 
     // Hoisted names should appear in while condition
-    assert!(rust.contains("li <= left_len"),
-        "While condition should use hoisted left_len, got:\n{}", rust);
+    assert!(
+        rust.contains("li <= left_len"),
+        "While condition should use hoisted left_len, got:\n{}",
+        rust
+    );
 
     // Hoisted names should appear in body (If condition)
-    assert!(rust.contains("ri > right_len"),
-        "Body condition should use hoisted right_len, got:\n{}", rust);
+    assert!(
+        rust.contains("ri > right_len"),
+        "Body condition should use hoisted right_len, got:\n{}",
+        rust
+    );
 
     // With borrow params, readonly arr is passed as &[i64] (zero-copy borrow)
-    assert!(rust.contains("arr: &[i64]"),
-        "Param should be &[i64] (readonly borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("arr: &[i64]"),
+        "Param should be &[i64] (readonly borrow), got:\n{}",
+        rust
+    );
 
     // BUG FIX: .clone() on Copy types in hoisted while loops.
     // The |__hl: suffix on variable types broke type parsing, causing
     // from_rust_type_str("Vec<i64>|__hl:left_len") to return Unknown
     // instead of Seq(Int). This made has_copy_element_type return false,
     // emitting .clone() on every i64 array access inside hoisted loops.
-    let merge_fn = rust.split("fn mergeSort").nth(1)
+    let merge_fn = rust
+        .split("fn mergeSort")
+        .nth(1)
         .and_then(|s| s.split("\nfn ").next())
         .unwrap_or(&rust);
     // LogosSeq.clone() is expected (O(1) Rc clone for reference semantics).
     // But element-level .clone() on logos_get results (i64 is Copy) should NOT appear.
     for line in merge_fn.lines() {
         if line.contains("logos_get") {
-            assert!(!line.contains(".clone()"),
-                "Should not clone i64 element from logos_get — i64 is Copy.\nLine: {}", line);
+            assert!(
+                !line.contains(".clone()"),
+                "Should not clone i64 element from logos_get — i64 is Copy.\nLine: {}",
+                line
+            );
         }
     }
 }
@@ -126,16 +149,24 @@ Show length of merge(a, b).
     let rust = compile_to_rust(code).unwrap();
 
     // Loop bounds should be hoisted
-    assert!(rust.contains("let left_len"),
-        "left length should be hoisted, got:\n{}", rust);
+    assert!(
+        rust.contains("let left_len"),
+        "left length should be hoisted, got:\n{}",
+        rust
+    );
 
     // No .clone() on i64 elements — i64 is Copy
-    let merge_fn = rust.split("fn merge(").nth(1)
+    let merge_fn = rust
+        .split("fn merge(")
+        .nth(1)
         .and_then(|s| s.split("\nfn ").next())
         .unwrap_or(&rust);
-    assert!(!merge_fn.contains(".clone()"),
+    assert!(
+        !merge_fn.contains(".clone()"),
         "i64 element access should NOT use .clone() when bounds are hoisted.\n\
-         Generated code:\n{}", merge_fn);
+         Generated code:\n{}",
+        merge_fn
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -155,9 +186,15 @@ Show sumAll(nums).
     let rust = compile_to_rust(code).unwrap();
 
     // For-each over &[i64] should use .iter().copied(), not .iter().cloned()
-    assert!(rust.contains(".iter().copied()") || rust.contains("for n in"),
-        "For-each over &[i64] should use iter().copied(), got:\n{}", rust);
-    assert!(!rust.contains(".iter().cloned()"),
+    assert!(
+        rust.contains(".iter().copied()") || rust.contains("for n in"),
+        "For-each over &[i64] should use iter().copied(), got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".iter().cloned()"),
         "For-each over &[i64] should NOT use iter().cloned() — i64 is Copy.\n\
-         Generated code:\n{}", rust);
+         Generated code:\n{}",
+        rust
+    );
 }

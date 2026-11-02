@@ -7,15 +7,17 @@ int main(int argc, char *argv[]) {
     int limit = atoi(argv[1]);
     char *sieve = calloc(limit + 1, 1);
     if (!sieve) return 1;
-    int count = 0;
+    long count = 0;
+    long h = 0;
     for (int i = 2; i <= limit; i++) {
+        h = (h * 31 + !sieve[i]) & 268435455;
         if (!sieve[i]) {
             count++;
             for (long j = (long)i * i; j <= limit; j += i)
                 sieve[j] = 1;
         }
     }
-    printf("%d\n", count);
+    printf("%ld %ld\n", count, h);
     free(sieve);
     return 0;
 }

@@ -1,0 +1,91 @@
+{
+  "command": "lean --run <exporter>/Main.lean -- --export-mdata --export-unsafe <modules> -- <target>  (cwd = isolated copy of the project, LEAN_PATH = <exporter>/.lake/build/lib:<copy>)",
+  "exporter": {
+    "Export.lean_sha256": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+    "Main.lean_sha256": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "name": "lean4export",
+    "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+    "structural_patch": false
+  },
+  "exports": {
+    "Demo.addZero.ndjson": {
+      "export_sha256": "f9b54f8571de5330386bad4b810d9ee886a31cfba43cdf30826daa9bd32e17ba",
+      "modules": [
+        "Demo.Defs",
+        "Demo"
+      ],
+      "project": "projects/valid",
+      "sources_sha256": {
+        "Demo.lean": "8e96313b1c756d59631d864c877386d52bdfa7ae944eb9d59774eada82dcb919",
+        "Demo/Defs.lean": "acdc69b32aa6c90717ca97441e8e318302a38d0ca7802f161967597d749f9061"
+      },
+      "target": "Demo.addZero"
+    },
+    "Demo.andSwap.ndjson": {
+      "export_sha256": "a621b99cf4e021059e4063ea95a1763b2c7324fd595eba08ac424d5ae8ae5eb3",
+      "modules": [
+        "Demo.Defs",
+        "Demo"
+      ],
+      "project": "projects/valid",
+      "sources_sha256": {
+        "Demo.lean": "8e96313b1c756d59631d864c877386d52bdfa7ae944eb9d59774eada82dcb919",
+        "Demo/Defs.lean": "acdc69b32aa6c90717ca97441e8e318302a38d0ca7802f161967597d749f9061"
+      },
+      "target": "Demo.andSwap"
+    },
+    "Demo.doubleTwo.ndjson": {
+      "export_sha256": "900d4035ed36211108a7fa33b4c38881af2ae2cbe40c59baacb574c23537848d",
+      "modules": [
+        "Demo.Defs",
+        "Demo"
+      ],
+      "project": "projects/valid",
+      "sources_sha256": {
+        "Demo.lean": "8e96313b1c756d59631d864c877386d52bdfa7ae944eb9d59774eada82dcb919",
+        "Demo/Defs.lean": "acdc69b32aa6c90717ca97441e8e318302a38d0ca7802f161967597d749f9061"
+      },
+      "target": "Demo.doubleTwo"
+    },
+    "Excluded.middle.ndjson": {
+      "export_sha256": "05a7aa136a5d0bd65bcc1abcea6c5a00855153c6fd4df7f82aadfee8b5c5567b",
+      "modules": [
+        "Excluded"
+      ],
+      "project": "projects/classical",
+      "sources_sha256": {
+        "Excluded.lean": "b1d88bbd4ee0b72bb8643dd2fd9e87bac1246dc0a9028d5d568f10953fa182eb"
+      },
+      "target": "Excluded.middle"
+    },
+    "Gap.viaHole.ndjson": {
+      "export_sha256": "68466ec14fb5dffb9dc6e19c635a87c8992b1c2d190eb969699314c1cf0ca137",
+      "modules": [
+        "Gap"
+      ],
+      "project": "projects/sorry",
+      "sources_sha256": {
+        "Gap.lean": "25b47d71600114a659065a5646f07180a7993389f8c8c31c4361f322323325fb"
+      },
+      "target": "Gap.viaHole"
+    },
+    "Runtime.identity.ndjson": {
+      "export_sha256": "79ad54c297a2e4617f4c2c608ea4a0af515ce0791b0ecb3fa9e5207521df3d0a",
+      "modules": [
+        "Runtime"
+      ],
+      "project": "projects/unsupported",
+      "sources_sha256": {
+        "Runtime.lean": "46210d5358790a6d1bc5a652d8eb9d5407ddba33fb67a28c0e94aae184f6f22f"
+      },
+      "target": "Runtime.identity"
+    }
+  },
+  "flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "generated": "2026-09-22",
+  "lean_githash": "410fab7284703f41660ca2454218dcca9b2ec896",
+  "toolchain": "leanprover/lean4:v4.14.0"
+}

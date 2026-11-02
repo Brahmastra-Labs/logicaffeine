@@ -1,5 +1,5 @@
 mod common;
-use common::{assert_exact_output, assert_interpreter_output, assert_c_output};
+use common::{assert_c_output, assert_exact_output, assert_interpreter_output};
 
 // =====================================================================
 // sqrt — both interpreter and compiled

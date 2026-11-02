@@ -10,11 +10,11 @@
 
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    Lexer, Token, Parser,
-    ast::{Stmt, Expr},
-    drs::WorldState,
-    arena_ctx::AstContext,
     analysis::TypeRegistry,
+    arena_ctx::AstContext,
+    ast::{Expr, Stmt},
+    drs::WorldState,
+    Lexer, Parser, Token,
 };
 
 fn make_parser(source: &str) -> (Interner, Vec<Token>) {
@@ -25,7 +25,9 @@ fn make_parser(source: &str) -> (Interner, Vec<Token>) {
 }
 
 fn parse_and_check<F>(source: &str, checker: F) -> bool
-where F: Fn(&Vec<Stmt>) -> bool {
+where
+    F: Fn(&Vec<Stmt>) -> bool,
+{
     let (mut interner, tokens) = make_parser(source);
 
     let mut world_state = WorldState::new();
@@ -51,7 +53,13 @@ where F: Fn(&Vec<Stmt>) -> bool {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     match parser.parse_program() {
@@ -97,7 +105,9 @@ Let items be [1, 2, 3].
 Pop from items.
 "#;
     let result = parse_and_check(source, |stmts| {
-        stmts.iter().any(|s| matches!(s, Stmt::Pop { into: None, .. }))
+        stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::Pop { into: None, .. }))
     });
     assert!(result, "Expected Pop statement without binding");
 }
@@ -109,7 +119,9 @@ Let items be [1, 2, 3].
 Pop from items into last.
 "#;
     let result = parse_and_check(source, |stmts| {
-        stmts.iter().any(|s| matches!(s, Stmt::Pop { into: Some(_), .. }))
+        stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::Pop { into: Some(_), .. }))
     });
     assert!(result, "Expected Pop statement with 'into' binding");
 }
@@ -202,7 +214,10 @@ Let n be length of items.
 Pop from items into last.
 "#;
     let result = parse_and_check(source, |stmts| {
-        let push_count = stmts.iter().filter(|s| matches!(s, Stmt::Push { .. })).count();
+        let push_count = stmts
+            .iter()
+            .filter(|s| matches!(s, Stmt::Push { .. }))
+            .count();
         let has_length = stmts.iter().any(|s| {
             if let Stmt::Let { value, .. } = s {
                 matches!(**value, Expr::Length { .. })
@@ -210,7 +225,9 @@ Pop from items into last.
                 false
             }
         });
-        let has_pop = stmts.iter().any(|s| matches!(s, Stmt::Pop { into: Some(_), .. }));
+        let has_pop = stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::Pop { into: Some(_), .. }));
 
         push_count == 3 && has_length && has_pop
     });

@@ -1,0 +1,16 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable buffer be a new Seq of Int.
+Repeat for i from 1 to n:
+    Push 0 to buffer.
+Repeat for i from 1 to n:
+    Set item i of buffer to i % 251.
+Repeat for i from 1 to n:
+    Set item i of buffer to item i of buffer + 1.
+Let mutable checksum be 0.
+Repeat for v in buffer:
+    Set checksum to (checksum * 31 + v) % 268435456.
+Show checksum.

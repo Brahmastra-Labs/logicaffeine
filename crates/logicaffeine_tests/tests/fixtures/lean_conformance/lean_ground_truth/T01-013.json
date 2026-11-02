@@ -1,0 +1,345 @@
+{
+  "case": "T01-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 42,
+  "declarations": [
+    {
+      "type": "Type \u2192 Prop",
+      "name": "T01_013.MySquash",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T01_013.MySquash \u03b1 \u2192 Prop} (t : T01_013.MySquash \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T01_013.MySquash.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, \u03b1 \u2192 T01_013.MySquash \u03b1",
+      "name": "T01_013.MySquash.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T01_013.MySquash \u03b1 \u2192 Prop}, (\u2200 (a : \u03b1), motive \u22ef) \u2192 \u2200 (t : T01_013.MySquash \u03b1), motive t",
+      "name": "T01_013.MySquash.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T01_013.MySquash \u03b1 \u2192 Prop} (t : T01_013.MySquash \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T01_013.MySquash.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 Prop",
+      "name": "T01_013.MySubsingleton",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} [self : T01_013.MySubsingleton \u03b1] (a b : \u03b1), a = b",
+      "name": "T01_013.MySubsingleton.allEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192\n  {motive : T01_013.MySubsingleton \u03b1 \u2192 Sort u_1} \u2192\n    (t : T01_013.MySubsingleton \u03b1) \u2192 ((allEq : \u2200 (a b : \u03b1), a = b) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T01_013.MySubsingleton.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u}, (\u2200 (a b : \u03b1), a = b) \u2192 T01_013.MySubsingleton \u03b1",
+      "name": "T01_013.MySubsingleton.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192\n  {P : Sort u_1} \u2192 {v1 v2 : T01_013.MySubsingleton \u03b1} \u2192 v1 = v2 \u2192 T01_013.MySubsingleton.noConfusionType P v1 v2",
+      "name": "T01_013.MySubsingleton.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 Sort u_1 \u2192 T01_013.MySubsingleton \u03b1 \u2192 T01_013.MySubsingleton \u03b1 \u2192 Sort u_1",
+      "name": "T01_013.MySubsingleton.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192\n  {motive : T01_013.MySubsingleton \u03b1 \u2192 Sort u_1} \u2192\n    ((allEq : \u2200 (a b : \u03b1), a = b) \u2192 motive \u22ef) \u2192 (t : T01_013.MySubsingleton \u03b1) \u2192 motive t",
+      "name": "T01_013.MySubsingleton.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192\n  {motive : T01_013.MySubsingleton \u03b1 \u2192 Sort u_1} \u2192\n    (t : T01_013.MySubsingleton \u03b1) \u2192 ((allEq : \u2200 (a b : \u03b1), a = b) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T01_013.MySubsingleton.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_013.Triv",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_013.Triv \u2192 Sort u} \u2192 (t : T01_013.Triv) \u2192 motive T01_013.Triv.mk \u2192 motive t",
+      "name": "T01_013.Triv.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_013.Triv",
+      "name": "T01_013.Triv.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T01_013.Triv} \u2192 v1 = v2 \u2192 T01_013.Triv.noConfusionType P v1 v2",
+      "name": "T01_013.Triv.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T01_013.Triv \u2192 T01_013.Triv \u2192 Sort u",
+      "name": "T01_013.Triv.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_013.Triv \u2192 Sort u} \u2192 motive T01_013.Triv.mk \u2192 (t : T01_013.Triv) \u2192 motive t",
+      "name": "T01_013.Triv.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_013.Triv \u2192 Sort u} \u2192 (t : T01_013.Triv) \u2192 motive T01_013.Triv.mk \u2192 motive t",
+      "name": "T01_013.Triv.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop \u2192 Prop",
+      "name": "T01_013.TwoWays",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} {motive : T01_013.TwoWays p q \u2192 Prop} (t : T01_013.TwoWays p q),\n  (\u2200 (a : p), motive \u22ef) \u2192 (\u2200 (a : q), motive \u22ef) \u2192 motive t",
+      "name": "T01_013.TwoWays.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop}, p \u2192 T01_013.TwoWays p q",
+      "name": "T01_013.TwoWays.first",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} {motive : T01_013.TwoWays p q \u2192 Prop},\n  (\u2200 (a : p), motive \u22ef) \u2192 (\u2200 (a : q), motive \u22ef) \u2192 \u2200 (t : T01_013.TwoWays p q), motive t",
+      "name": "T01_013.TwoWays.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} {motive : T01_013.TwoWays p q \u2192 Prop} (t : T01_013.TwoWays p q),\n  (\u2200 (a : p), motive \u22ef) \u2192 (\u2200 (a : q), motive \u22ef) \u2192 motive t",
+      "name": "T01_013.TwoWays.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop}, q \u2192 T01_013.TwoWays p q",
+      "name": "T01_013.TwoWays.second",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T01_013.Wrapped",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{p : Prop} \u2192 {motive : T01_013.Wrapped p \u2192 Sort u} \u2192 (t : T01_013.Wrapped p) \u2192 ((a : p) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T01_013.Wrapped.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p : Prop}, p \u2192 T01_013.Wrapped p",
+      "name": "T01_013.Wrapped.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{p : Prop} \u2192 {P : Sort u} \u2192 {v1 v2 : T01_013.Wrapped p} \u2192 v1 = v2 \u2192 T01_013.Wrapped.noConfusionType P v1 v2",
+      "name": "T01_013.Wrapped.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{p : Prop} \u2192 Sort u \u2192 T01_013.Wrapped p \u2192 T01_013.Wrapped p \u2192 Sort u",
+      "name": "T01_013.Wrapped.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{p : Prop} \u2192 {motive : T01_013.Wrapped p \u2192 Sort u} \u2192 ((a : p) \u2192 motive \u22ef) \u2192 (t : T01_013.Wrapped p) \u2192 motive t",
+      "name": "T01_013.Wrapped.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{p : Prop} \u2192 {motive : T01_013.Wrapped p \u2192 Sort u} \u2192 (t : T01_013.Wrapped p) \u2192 ((a : p) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T01_013.Wrapped.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat) (h1 h2 : n = n), h1 = h2",
+      "name": "T01_013.eqProofsIrrelevant",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T01_013.MySubsingleton True",
+      "name": "T01_013.instMySubsingletonTrue",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_013.MySquash Nat",
+      "name": "T01_013.squashNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_013.MySquash Nat",
+      "name": "T01_013.squashNatAgain",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_013.squashNat = T01_013.squashNatAgain",
+      "name": "T01_013.squashesEqual",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : T01_013.Triv), a = b",
+      "name": "T01_013.trivIrrelevant",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), T01_013.TwoWays p q \u2192 T01_013.TwoWays q p",
+      "name": "T01_013.twoWaysSmallElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop) (motive : T01_013.TwoWays p q \u2192 Prop) (h : T01_013.TwoWays p q),\n  (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hq : q), motive \u22ef) \u2192 motive h",
+      "name": "T01_013.twoWaysSmallElim.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop) (a b : T01_013.Wrapped p), a = b",
+      "name": "T01_013.wrappedIrrelevant",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

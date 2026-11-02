@@ -1,0 +1,11 @@
+{
+  "_provenance": "ALL PROJECTED from the certified thermal model (exact-Q G*dT=P solve over the modeled V1 stack; geometry and film coefficients are MODELED design parameters per benchmarks/silicon/analog/thermal-constants.md; digital power is the OpenLane signoff figure). No thermal camera has met silicon — nothing here is a measurement.",
+  "stack": "sky130-stack-v1",
+  "region": "dot3",
+  "ambient_c": 25.0,
+  "projections": {
+    "natural-convection": { "peak_delta_t_c": 375.0241007911708, "t_junction_c": 400.0241007911708, "meets_85c_budget": false },
+    "forced-air": { "peak_delta_t_c": 68.26272210806238, "t_junction_c": 93.26272210806238, "meets_85c_budget": false },
+    "cold-plate": { "peak_delta_t_c": 3.8284206069907127, "t_junction_c": 28.82842060699071, "meets_85c_budget": true }
+  }
+}

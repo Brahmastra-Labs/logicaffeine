@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If D is true, then C couldn't be true",
   "options": [
-    "Ambiguous between 2 & 3",
-    "$ (D \\supset \\square \\sim C) $",
-    "$ \\square (D \\supset \\sim C) $",
-    "$ \\square D \\supset \\sim C $"
+    "Ambiguous between 2 and 3",
+    "D → □¬C",
+    "□(D → ¬C)",
+    "□D → ¬C"
   ],
   "correct": 0,
-  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
-  "explanation": "Scope-ambiguous. 'C couldn't be true' is □∼C. NARROW scope gives D ⊃ □∼C, 'if D then C is impossible' (option 2); WIDE scope gives □(D ⊃ ∼C), 'necessarily, if D then not C' (option 3). English doesn't disambiguate. (□D ⊃ ∼C, necessity on the antecedent, is not natural.)"
+  "hint": "Can the modal cover only the then part, or the whole if then?",
+  "explanation": "It is ambiguous. Narrow scope gives D → □¬C. Wide scope gives □(D → ¬C).",
+  "section": "10.2"
 }

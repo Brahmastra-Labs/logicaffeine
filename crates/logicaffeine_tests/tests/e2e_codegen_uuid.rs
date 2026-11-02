@@ -75,7 +75,11 @@ fn uuid_logos_written_constructors_on_aot() {
     // The uuid.lg algorithm compiles to native Rust (calling the md5/sha1 kernels) and agrees.
     common::assert_output_lines(
         UUID_LG,
-        &["2ed6657d-e927-568b-95e1-2665a8aea6a2", "5df41881-3aed-3515-88a7-2f4a814cf09e", "true"],
+        &[
+            "2ed6657d-e927-568b-95e1-2665a8aea6a2",
+            "5df41881-3aed-3515-88a7-2f4a814cf09e",
+            "true",
+        ],
     );
 }
 
@@ -144,7 +148,10 @@ fn natural_uuid_literal_on_interpreter_vm_and_treewalker() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_uuid_literal_on_aot() {
-    common::assert_output_lines(UUID_NATURAL, &["550e8400-e29b-41d4-a716-446655440000", "true"]);
+    common::assert_output_lines(
+        UUID_NATURAL,
+        &["550e8400-e29b-41d4-a716-446655440000", "true"],
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

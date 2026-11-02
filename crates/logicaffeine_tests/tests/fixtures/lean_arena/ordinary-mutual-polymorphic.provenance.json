@@ -1,0 +1,29 @@
+{
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_base_revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "Lean.ExprStructEq / Expr.equal",
+  "source_sha256": "2284f64c8b26c31161d610815d0b33361b05be2ea103b491e08e29dda498a49d",
+  "export_sha256": "fdbee47056a6fa3d693452d4ca00dd9bc68e589ec1c37a5a290529d18ff2d440",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_patch": {
+    "base_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+    "equality": "Lean.ExprStructEq / Expr.equal (names and binder annotations included)",
+    "replacements": {
+      "visitedExprs : Std.HashMap Expr Nat": "visitedExprs : Std.HashMap ExprStructEq Nat",
+      "noMDataExprs : Std.HashMap Expr Expr": "noMDataExprs : Std.HashMap ExprStructEq Expr",
+      "getIdx e \"ie\"": "getIdx (ExprStructEq.mk e) \"ie\"",
+      "noMDataExprs[e]?": "noMDataExprs[ExprStructEq.mk e]?",
+      "noMDataExprs.insert e e'": "noMDataExprs.insert (ExprStructEq.mk e) e'"
+    },
+    "base_source_sha256": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+    "patched_source_sha256": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "declarations": [
+    "ArenaTree.rec",
+    "ArenaForest.rec",
+    "arenaSingleton"
+  ]
+}

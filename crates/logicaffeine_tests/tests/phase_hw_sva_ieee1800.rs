@@ -27,7 +27,11 @@ use logicaffeine_compile::codegen_sva::sva_to_verify::SvaTranslator;
 #[test]
 fn parse_not_equal() {
     let expr = parse_sva("req != ack").unwrap();
-    assert!(matches!(expr, SvaExpr::NotEq(_, _)), "Should parse != operator. Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::NotEq(_, _)),
+        "Should parse != operator. Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -51,7 +55,11 @@ fn parse_less_than() {
 #[test]
 fn parse_greater_than() {
     let expr = parse_sva("count > 0").unwrap();
-    assert!(matches!(expr, SvaExpr::GreaterThan(_, _)), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::GreaterThan(_, _)),
+        "Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -63,7 +71,11 @@ fn parse_less_equal() {
 #[test]
 fn parse_greater_equal() {
     let expr = parse_sva("count >= min").unwrap();
-    assert!(matches!(expr, SvaExpr::GreaterEqual(_, _)), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::GreaterEqual(_, _)),
+        "Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -123,7 +135,11 @@ fn roundtrip_ternary() {
 #[test]
 fn parse_throughout() {
     let expr = parse_sva("valid throughout (req ##[1:5] ack)").unwrap();
-    assert!(matches!(expr, SvaExpr::Throughout { .. }), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::Throughout { .. }),
+        "Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -198,7 +214,11 @@ fn translate_not_equal_to_bounded() {
     let mut translator = logicaffeine_compile::codegen_sva::sva_to_verify::SvaTranslator::new(3);
     let result = translator.translate(&sva, 0);
     // NotEq should translate to Not(Eq(...))
-    assert!(matches!(result, BoundedExpr::Not(_)), "NotEq should translate to Not. Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::Not(_)),
+        "NotEq should translate to Not. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -207,7 +227,10 @@ fn translate_less_than_to_bounded() {
     let mut translator = logicaffeine_compile::codegen_sva::sva_to_verify::SvaTranslator::new(3);
     let result = translator.translate(&sva, 0);
     // LessThan should produce a bounded variable comparison
-    assert!(!matches!(result, BoundedExpr::Bool(true)), "LessThan should not be vacuously true");
+    assert!(
+        !matches!(result, BoundedExpr::Bool(true)),
+        "LessThan should not be vacuously true"
+    );
 }
 
 #[test]
@@ -216,8 +239,11 @@ fn translate_ternary_to_bounded() {
     let mut translator = logicaffeine_compile::codegen_sva::sva_to_verify::SvaTranslator::new(3);
     let result = translator.translate(&sva, 0);
     // Ternary should translate to (cond ∧ then) ∨ (¬cond ∧ else)
-    assert!(matches!(result, BoundedExpr::Or(_, _) | BoundedExpr::And(_, _)),
-        "Ternary should translate to conditional. Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::Or(_, _) | BoundedExpr::And(_, _)),
+        "Ternary should translate to conditional. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -229,8 +255,11 @@ fn translate_throughout_to_bounded() {
     // (one per possible match endpoint). Each And chain conjoins the signal at
     // every timestep AND the sequence condition at that match length.
     let debug = format!("{:?}", result);
-    assert!(debug.contains("valid@0") && debug.contains("req@0") && debug.contains("ack@"),
-        "Throughout should reference valid, req, and ack at timesteps. Got: {:?}", result);
+    assert!(
+        debug.contains("valid@0") && debug.contains("req@0") && debug.contains("ack@"),
+        "Throughout should reference valid, req, and ack at timesteps. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -239,7 +268,10 @@ fn translate_first_match_to_bounded() {
     let mut translator = logicaffeine_compile::codegen_sva::sva_to_verify::SvaTranslator::new(5);
     let result = translator.translate(&sva, 0);
     // FirstMatch is the inner sequence (first matching length)
-    assert!(!matches!(result, BoundedExpr::Bool(true)), "FirstMatch should not be vacuously true");
+    assert!(
+        !matches!(result, BoundedExpr::Bool(true)),
+        "FirstMatch should not be vacuously true"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -248,9 +280,9 @@ fn translate_first_match_to_bounded() {
 
 #[cfg(feature = "verification")]
 mod z3_ieee1800 {
-    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
-    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
     use logicaffeine_compile::codegen_sva::hw_pipeline::translate_sva_to_bounded;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
 
     #[test]
     fn z3_not_equal_equiv_not_eq() {
@@ -260,8 +292,11 @@ mod z3_ieee1800 {
         let v_lhs = bounded_to_verify(&lhs.expr);
         let v_rhs = bounded_to_verify(&rhs.expr);
         let result = check_equivalence(&v_lhs, &v_rhs, &["req".into(), "ack".into()], 3);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "a!=b must equal !(a==b). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "a!=b must equal !(a==b). Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -271,22 +306,37 @@ mod z3_ieee1800 {
         let rhs = translate_sva_to_bounded("if (mode) req else idle", 3).unwrap();
         let v_lhs = bounded_to_verify(&lhs.expr);
         let v_rhs = bounded_to_verify(&rhs.expr);
-        let result = check_equivalence(&v_lhs, &v_rhs,
-            &["mode".into(), "req".into(), "idle".into()], 3);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Ternary must equal if/else. Got: {:?}", result);
+        let result = check_equivalence(
+            &v_lhs,
+            &v_rhs,
+            &["mode".into(), "req".into(), "idle".into()],
+            3,
+        );
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Ternary must equal if/else. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_different_comparisons_are_not_equivalent() {
         use logicaffeine_verify::ir::{VerifyExpr, VerifyOp};
-        let lt = VerifyExpr::binary(VerifyOp::Lt,
-            VerifyExpr::Var("x".into()), VerifyExpr::Int(5));
-        let gt = VerifyExpr::binary(VerifyOp::Gt,
-            VerifyExpr::Var("x".into()), VerifyExpr::Int(100));
+        let lt = VerifyExpr::binary(
+            VerifyOp::Lt,
+            VerifyExpr::Var("x".into()),
+            VerifyExpr::Int(5),
+        );
+        let gt = VerifyExpr::binary(
+            VerifyOp::Gt,
+            VerifyExpr::Var("x".into()),
+            VerifyExpr::Int(100),
+        );
         let result = check_equivalence(&lt, &gt, &["x".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "x<5 and x>100 MUST be NotEquivalent. If Equivalent, comparisons are broken.");
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "x<5 and x>100 MUST be NotEquivalent. If Equivalent, comparisons are broken."
+        );
     }
 }
 
@@ -303,8 +353,10 @@ fn collect_bounded_vars(expr: &BoundedExpr) -> Vec<String> {
 fn collect_bounded_vars_rec(expr: &BoundedExpr, vars: &mut Vec<String>) {
     match expr {
         BoundedExpr::Var(name) => vars.push(name.clone()),
-        BoundedExpr::And(l, r) | BoundedExpr::Or(l, r)
-        | BoundedExpr::Implies(l, r) | BoundedExpr::Eq(l, r) => {
+        BoundedExpr::And(l, r)
+        | BoundedExpr::Or(l, r)
+        | BoundedExpr::Implies(l, r)
+        | BoundedExpr::Eq(l, r) => {
             collect_bounded_vars_rec(l, vars);
             collect_bounded_vars_rec(r, vars);
         }
@@ -325,8 +377,12 @@ fn collect_bounded_vars_rec(expr: &BoundedExpr, vars: &mut Vec<String>) {
 
 fn has_no_synthetic_vars(expr: &BoundedExpr) -> bool {
     let vars = collect_bounded_vars(expr);
-    !vars.iter().any(|v| v.starts_with("__lt_") || v.starts_with("__gt_")
-        || v.starts_with("__le_") || v.starts_with("__ge_"))
+    !vars.iter().any(|v| {
+        v.starts_with("__lt_")
+            || v.starts_with("__gt_")
+            || v.starts_with("__le_")
+            || v.starts_with("__ge_")
+    })
 }
 
 #[test]
@@ -335,10 +391,15 @@ fn sva_less_than_references_actual_operands() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
-    assert!(vars.iter().any(|v| v.contains("count")),
-        "LessThan must reference signal 'count', got: {:?}", vars);
-    assert!(has_no_synthetic_vars(&result),
-        "LessThan must NOT create synthetic __lt_ variables");
+    assert!(
+        vars.iter().any(|v| v.contains("count")),
+        "LessThan must reference signal 'count', got: {:?}",
+        vars
+    );
+    assert!(
+        has_no_synthetic_vars(&result),
+        "LessThan must NOT create synthetic __lt_ variables"
+    );
 }
 
 #[test]
@@ -347,10 +408,15 @@ fn sva_greater_than_references_actual_operands() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
-    assert!(vars.iter().any(|v| v.contains("count")),
-        "GreaterThan must reference signal 'count', got: {:?}", vars);
-    assert!(has_no_synthetic_vars(&result),
-        "GreaterThan must NOT create synthetic __gt_ variables");
+    assert!(
+        vars.iter().any(|v| v.contains("count")),
+        "GreaterThan must reference signal 'count', got: {:?}",
+        vars
+    );
+    assert!(
+        has_no_synthetic_vars(&result),
+        "GreaterThan must NOT create synthetic __gt_ variables"
+    );
 }
 
 #[test]
@@ -359,12 +425,20 @@ fn sva_less_equal_references_both_operands() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
-    assert!(vars.iter().any(|v| v.contains("count")),
-        "LessEqual must reference 'count', got: {:?}", vars);
-    assert!(vars.iter().any(|v| v.contains("max")),
-        "LessEqual must reference 'max', got: {:?}", vars);
-    assert!(has_no_synthetic_vars(&result),
-        "LessEqual must NOT create synthetic variables");
+    assert!(
+        vars.iter().any(|v| v.contains("count")),
+        "LessEqual must reference 'count', got: {:?}",
+        vars
+    );
+    assert!(
+        vars.iter().any(|v| v.contains("max")),
+        "LessEqual must reference 'max', got: {:?}",
+        vars
+    );
+    assert!(
+        has_no_synthetic_vars(&result),
+        "LessEqual must NOT create synthetic variables"
+    );
 }
 
 #[test]
@@ -373,12 +447,20 @@ fn sva_greater_equal_references_both_operands() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
-    assert!(vars.iter().any(|v| v.contains("count")),
-        "GreaterEqual must reference 'count', got: {:?}", vars);
-    assert!(vars.iter().any(|v| v.contains("min")),
-        "GreaterEqual must reference 'min', got: {:?}", vars);
-    assert!(has_no_synthetic_vars(&result),
-        "GreaterEqual must NOT create synthetic variables");
+    assert!(
+        vars.iter().any(|v| v.contains("count")),
+        "GreaterEqual must reference 'count', got: {:?}",
+        vars
+    );
+    assert!(
+        vars.iter().any(|v| v.contains("min")),
+        "GreaterEqual must reference 'min', got: {:?}",
+        vars
+    );
+    assert!(
+        has_no_synthetic_vars(&result),
+        "GreaterEqual must NOT create synthetic variables"
+    );
 }
 
 #[test]
@@ -387,8 +469,11 @@ fn sva_comparison_at_nonzero_timestep_uses_correct_suffix() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 3);
     let vars = collect_bounded_vars(&result);
-    assert!(vars.iter().any(|v| v.contains("count@3")),
-        "Comparison at t=3 must use count@3, got: {:?}", vars);
+    assert!(
+        vars.iter().any(|v| v.contains("count@3")),
+        "Comparison at t=3 must use count@3, got: {:?}",
+        vars
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -401,11 +486,14 @@ fn throughout_produces_signal_at_multiple_timesteps() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
-    let valid_timesteps: Vec<u32> = vars.iter()
+    let valid_timesteps: Vec<u32> = vars
+        .iter()
         .filter_map(|v| {
             if v.starts_with("valid@") {
                 v.strip_prefix("valid@").and_then(|s| s.parse().ok())
-            } else { None }
+            } else {
+                None
+            }
         })
         .collect();
     assert!(valid_timesteps.len() >= 2,
@@ -421,9 +509,16 @@ fn within_references_inner_and_outer_at_multiple_timesteps() {
     let vars = collect_bounded_vars(&result);
     let req_count = vars.iter().filter(|v| v.starts_with("req@")).count();
     let valid_count = vars.iter().filter(|v| v.starts_with("valid@")).count();
-    assert!(req_count >= 1, "within must reference inner sequence signals, got req@: {}", req_count);
-    assert!(valid_count >= 2,
-        "within's outer [*3:5] MUST produce valid@ at multiple timesteps, got: {}", valid_count);
+    assert!(
+        req_count >= 1,
+        "within must reference inner sequence signals, got req@: {}",
+        req_count
+    );
+    assert!(
+        valid_count >= 2,
+        "within's outer [*3:5] MUST produce valid@ at multiple timesteps, got: {}",
+        valid_count
+    );
 }
 
 #[test]
@@ -432,10 +527,16 @@ fn intersect_references_both_sequences_signals() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
-    assert!(vars.iter().any(|v| v.starts_with("req@")),
-        "intersect must translate left sequence: {:?}", vars);
-    assert!(vars.iter().any(|v| v.starts_with("valid@")),
-        "intersect must translate right sequence: {:?}", vars);
+    assert!(
+        vars.iter().any(|v| v.starts_with("req@")),
+        "intersect must translate left sequence: {:?}",
+        vars
+    );
+    assert!(
+        vars.iter().any(|v| v.starts_with("valid@")),
+        "intersect must translate right sequence: {:?}",
+        vars
+    );
 }
 
 #[test]
@@ -444,11 +545,15 @@ fn throughout_at_nonzero_start_still_spans() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 2);
     let vars = collect_bounded_vars(&result);
-    let valid_timesteps: Vec<u32> = vars.iter()
+    let valid_timesteps: Vec<u32> = vars
+        .iter()
         .filter_map(|v| v.strip_prefix("valid@").and_then(|s| s.parse().ok()))
         .collect();
-    assert!(valid_timesteps.len() >= 2,
-        "throughout at t=2 must still span multiple timesteps, got: {:?}", valid_timesteps);
+    assert!(
+        valid_timesteps.len() >= 2,
+        "throughout at t=2 must still span multiple timesteps, got: {:?}",
+        valid_timesteps
+    );
 }
 
 // ════════════════════════════���═══════════════════════════════��══════════════
@@ -508,17 +613,26 @@ fn translate_onehot0_produces_apply() {
 fn onehot0_does_not_match_onehot() {
     let a = parse_sva("$onehot0(grant)").unwrap();
     let b = parse_sva("$onehot(grant)").unwrap();
-    assert!(!sva_exprs_structurally_equivalent(&a, &b),
-        "$onehot0 and $onehot are DIFFERENT constructs");
+    assert!(
+        !sva_exprs_structurally_equivalent(&a, &b),
+        "$onehot0 and $onehot are DIFFERENT constructs"
+    );
 }
 
 #[test]
 fn onehot0_in_implication() {
     let expr = parse_sva("$onehot0(grant) |-> $stable(data)").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }),
-        "Should parse as implication. Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::Implication { .. }),
+        "Should parse as implication. Got: {:?}",
+        expr
+    );
     let text = sva_expr_to_string(&expr);
-    assert!(text.contains("$onehot0(grant)"), "Emitter must preserve $onehot0. Got: {}", text);
+    assert!(
+        text.contains("$onehot0(grant)"),
+        "Emitter must preserve $onehot0. Got: {}",
+        text
+    );
 }
 
 #[test]
@@ -532,8 +646,11 @@ fn onehot0_negated() {
     let expr = parse_sva("!($onehot0(sel))").unwrap();
     assert!(matches!(expr, SvaExpr::Not(_)), "Got: {:?}", expr);
     if let SvaExpr::Not(inner) = &expr {
-        assert!(matches!(inner.as_ref(), SvaExpr::OneHot0(_)),
-            "Inner should be OneHot0. Got: {:?}", inner);
+        assert!(
+            matches!(inner.as_ref(), SvaExpr::OneHot0(_)),
+            "Inner should be OneHot0. Got: {:?}",
+            inner
+        );
     }
 }
 
@@ -607,7 +724,11 @@ fn translate_onehot_produces_apply() {
 #[test]
 fn onehot_in_implication_body() {
     let expr = parse_sva("$onehot(state) |-> ack").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::Implication { .. }),
+        "Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -615,7 +736,11 @@ fn onehot_negated_body() {
     let expr = parse_sva("!($onehot(state))").unwrap();
     assert!(matches!(expr, SvaExpr::Not(_)), "Got: {:?}", expr);
     if let SvaExpr::Not(inner) = &expr {
-        assert!(matches!(inner.as_ref(), SvaExpr::OneHot(_)), "Got: {:?}", inner);
+        assert!(
+            matches!(inner.as_ref(), SvaExpr::OneHot(_)),
+            "Got: {:?}",
+            inner
+        );
     }
 }
 
@@ -623,8 +748,16 @@ fn onehot_negated_body() {
 fn onehot0_before_onehot_no_confusion() {
     let oh0 = parse_sva("$onehot0(x)").unwrap();
     let oh = parse_sva("$onehot(x)").unwrap();
-    assert!(matches!(oh0, SvaExpr::OneHot0(_)), "$onehot0 parsed as: {:?}", oh0);
-    assert!(matches!(oh, SvaExpr::OneHot(_)), "$onehot parsed as: {:?}", oh);
+    assert!(
+        matches!(oh0, SvaExpr::OneHot0(_)),
+        "$onehot0 parsed as: {:?}",
+        oh0
+    );
+    assert!(
+        matches!(oh, SvaExpr::OneHot(_)),
+        "$onehot parsed as: {:?}",
+        oh
+    );
 }
 
 #[test]
@@ -692,10 +825,16 @@ fn countones_in_comparison() {
     let expr = parse_sva("$countones(mask) >= 2").unwrap();
     match &expr {
         SvaExpr::GreaterEqual(left, right) => {
-            assert!(matches!(left.as_ref(), SvaExpr::CountOnes(_)),
-                "LHS should be CountOnes. Got: {:?}", left);
-            assert!(matches!(right.as_ref(), SvaExpr::Const(2, 32)),
-                "RHS should be Const(2). Got: {:?}", right);
+            assert!(
+                matches!(left.as_ref(), SvaExpr::CountOnes(_)),
+                "LHS should be CountOnes. Got: {:?}",
+                left
+            );
+            assert!(
+                matches!(right.as_ref(), SvaExpr::Const(2, 32)),
+                "RHS should be Const(2). Got: {:?}",
+                right
+            );
         }
         _ => panic!("Expected GreaterEqual(CountOnes, Const). Got: {:?}", expr),
     }
@@ -784,8 +923,12 @@ fn translate_isunknown_is_false() {
     let expr = parse_sva("$isunknown(data_out)").unwrap();
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Bool(false),
-        "In 2-state formal, $isunknown is always false. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Bool(false),
+        "In 2-state formal, $isunknown is always false. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -794,8 +937,13 @@ fn translate_isunknown_is_false_at_any_timestep() {
     let mut translator = SvaTranslator::new(10);
     for t in 0..10 {
         let result = translator.translate(&expr, t);
-        assert_eq!(result, BoundedExpr::Bool(false),
-            "$isunknown must be false at ALL timesteps. Failed at t={}. Got: {:?}", t, result);
+        assert_eq!(
+            result,
+            BoundedExpr::Bool(false),
+            "$isunknown must be false at ALL timesteps. Failed at t={}. Got: {:?}",
+            t,
+            result
+        );
     }
 }
 
@@ -805,8 +953,11 @@ fn isunknown_negated_translates_to_true() {
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
     // Not(Bool(false)) = Not(false)
-    assert!(matches!(result, BoundedExpr::Not(_)),
-        "!$isunknown should be Not(Bool(false)). Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::Not(_)),
+        "!$isunknown should be Not(Bool(false)). Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -819,7 +970,11 @@ fn isunknown_different_signals_not_equiv() {
 #[test]
 fn isunknown_in_disable_iff() {
     let expr = parse_sva("disable iff ($isunknown(reset)) req |-> ack").unwrap();
-    assert!(matches!(expr, SvaExpr::DisableIff { .. }), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::DisableIff { .. }),
+        "Got: {:?}",
+        expr
+    );
 }
 
 // ════════��══════════════════════════════════════════════════��═══════════════
@@ -858,8 +1013,12 @@ fn translate_sampled_is_identity() {
     let expr = parse_sva("$sampled(req)").unwrap();
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 5);
-    assert_eq!(result, BoundedExpr::Var("req@5".into()),
-        "$sampled should be identity in synchronous formal. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Var("req@5".into()),
+        "$sampled should be identity in synchronous formal. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -873,10 +1032,17 @@ fn translate_sampled_is_identity_at_t0() {
 #[test]
 fn sampled_of_rose() {
     let expr = parse_sva("$sampled($rose(clk))").unwrap();
-    assert!(matches!(expr, SvaExpr::Sampled(_)), "Outer should be Sampled. Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::Sampled(_)),
+        "Outer should be Sampled. Got: {:?}",
+        expr
+    );
     if let SvaExpr::Sampled(inner) = &expr {
-        assert!(matches!(inner.as_ref(), SvaExpr::Rose(_)),
-            "Inner should be Rose. Got: {:?}", inner);
+        assert!(
+            matches!(inner.as_ref(), SvaExpr::Rose(_)),
+            "Inner should be Rose. Got: {:?}",
+            inner
+        );
     }
 }
 
@@ -890,7 +1056,11 @@ fn sampled_different_signals_not_equiv() {
 #[test]
 fn sampled_in_implication() {
     let expr = parse_sva("$sampled(req) |-> ack").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::Implication { .. }),
+        "Got: {:?}",
+        expr
+    );
     let text = sva_expr_to_string(&expr);
     assert!(text.contains("$sampled(req)"), "Got: {}", text);
 }
@@ -946,10 +1116,16 @@ fn bits_in_comparison() {
     let expr = parse_sva("$bits(data) == 32").unwrap();
     match &expr {
         SvaExpr::Eq(left, right) => {
-            assert!(matches!(left.as_ref(), SvaExpr::Bits(_)),
-                "LHS should be Bits. Got: {:?}", left);
-            assert!(matches!(right.as_ref(), SvaExpr::Const(32, 32)),
-                "RHS should be Const(32). Got: {:?}", right);
+            assert!(
+                matches!(left.as_ref(), SvaExpr::Bits(_)),
+                "LHS should be Bits. Got: {:?}",
+                left
+            );
+            assert!(
+                matches!(right.as_ref(), SvaExpr::Const(32, 32)),
+                "RHS should be Const(32). Got: {:?}",
+                right
+            );
         }
         _ => panic!("Expected Eq(Bits, Const). Got: {:?}", expr),
     }
@@ -965,7 +1141,11 @@ fn bits_different_signals_not_equiv() {
 #[test]
 fn bits_greater_than_comparison() {
     let expr = parse_sva("$bits(data) > 8").unwrap();
-    assert!(matches!(expr, SvaExpr::GreaterThan(_, _)), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::GreaterThan(_, _)),
+        "Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -1029,17 +1209,32 @@ fn translate_clog2_constant_folds() {
     // $clog2(8) = 3
     let expr = parse_sva("$clog2(8)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(3), "$clog2(8) should fold to 3. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(3),
+        "$clog2(8) should fold to 3. Got: {:?}",
+        result
+    );
 
     // $clog2(16) = 4
     let expr = parse_sva("$clog2(16)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(4), "$clog2(16) should fold to 4. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(4),
+        "$clog2(16) should fold to 4. Got: {:?}",
+        result
+    );
 
     // $clog2(1) = 0
     let expr = parse_sva("$clog2(1)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(0), "$clog2(1) should fold to 0. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(0),
+        "$clog2(1) should fold to 0. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1047,7 +1242,12 @@ fn translate_clog2_zero_is_zero() {
     let expr = parse_sva("$clog2(0)").unwrap();
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(0), "$clog2(0) should be 0 (IEEE edge case). Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(0),
+        "$clog2(0) should be 0 (IEEE edge case). Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1056,7 +1256,12 @@ fn translate_clog2_non_power_of_two() {
     // $clog2(5) = 3 (ceil)
     let expr = parse_sva("$clog2(5)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(3), "$clog2(5) should fold to 3. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(3),
+        "$clog2(5) should fold to 3. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1070,7 +1275,10 @@ fn translate_clog2_variable_produces_apply() {
             assert_eq!(args.len(), 1);
             assert_eq!(args[0], BoundedExpr::Var("depth@0".into()));
         }
-        _ => panic!("$clog2(variable) should translate to Apply. Got: {:?}", result),
+        _ => panic!(
+            "$clog2(variable) should translate to Apply. Got: {:?}",
+            result
+        ),
     }
 }
 
@@ -1080,7 +1288,12 @@ fn translate_clog2_large_power() {
     // $clog2(1024) = 10
     let expr = parse_sva("$clog2(1024)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(10), "$clog2(1024) should be 10. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(10),
+        "$clog2(1024) should be 10. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1089,7 +1302,12 @@ fn translate_clog2_two() {
     // $clog2(2) = 1
     let expr = parse_sva("$clog2(2)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(1), "$clog2(2) should be 1. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(1),
+        "$clog2(2) should be 1. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1098,7 +1316,12 @@ fn translate_clog2_three() {
     // $clog2(3) = 2 (ceiling)
     let expr = parse_sva("$clog2(3)").unwrap();
     let result = translator.translate(&expr, 0);
-    assert_eq!(result, BoundedExpr::Int(2), "$clog2(3) should be 2. Got: {:?}", result);
+    assert_eq!(
+        result,
+        BoundedExpr::Int(2),
+        "$clog2(3) should be 2. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1117,8 +1340,12 @@ fn clog2_in_equality_with_bits() {
     // LHS: Apply("bits", [Var("addr@0")]), RHS: Int(8) (folded)
     match &result {
         BoundedExpr::Eq(_, rhs) => {
-            assert_eq!(rhs.as_ref(), &BoundedExpr::Int(8),
-                "$clog2(256) should fold to 8 inside comparison. Got: {:?}", rhs);
+            assert_eq!(
+                rhs.as_ref(),
+                &BoundedExpr::Int(8),
+                "$clog2(256) should fold to 8 inside comparison. Got: {:?}",
+                rhs
+            );
         }
         _ => panic!("Expected Eq. Got: {:?}", result),
     }
@@ -1139,8 +1366,13 @@ fn all_seven_system_functions_parse_independently() {
     for (input, expected_name) in &tests {
         let expr = parse_sva(input).unwrap();
         let name = format!("{:?}", expr);
-        assert!(name.starts_with(expected_name),
-            "Input '{}' should parse to {}. Got: {}", input, expected_name, name);
+        assert!(
+            name.starts_with(expected_name),
+            "Input '{}' should parse to {}. Got: {}",
+            input,
+            expected_name,
+            name
+        );
     }
 }
 
@@ -1153,8 +1385,11 @@ fn parse_goto_repetition() {
     let expr = parse_sva("ack[->1]").unwrap();
     match &expr {
         SvaExpr::GotoRepetition { body, count } => {
-            assert!(matches!(body.as_ref(), SvaExpr::Signal(s) if s == "ack"),
-                "Body should be Signal(ack). Got: {:?}", body);
+            assert!(
+                matches!(body.as_ref(), SvaExpr::Signal(s) if s == "ack"),
+                "Body should be Signal(ack). Got: {:?}",
+                body
+            );
             assert_eq!(*count, 1);
         }
         _ => panic!("Expected GotoRepetition. Got: {:?}", expr),
@@ -1201,8 +1436,10 @@ fn goto_repetition_structural_equiv() {
 fn goto_repetition_structural_equiv_different_count() {
     let a = parse_sva("ack[->1]").unwrap();
     let b = parse_sva("ack[->2]").unwrap();
-    assert!(!sva_exprs_structurally_equivalent(&a, &b),
-        "Different goto counts must NOT be structurally equivalent");
+    assert!(
+        !sva_exprs_structurally_equivalent(&a, &b),
+        "Different goto counts must NOT be structurally equivalent"
+    );
 }
 
 #[test]
@@ -1219,7 +1456,11 @@ fn translate_goto_repetition_1_is_disjunction() {
     let result = translator.translate(&expr, 0);
     // sig[->1] at bound=5 → sig@1 ∨ sig@2 ∨ sig@3 ∨ sig@4 ∨ sig@5
     let leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(leaves, 5, "sig[->1] at bound=5 should produce 5 Or leaves. Got: {}", leaves);
+    assert_eq!(
+        leaves, 5,
+        "sig[->1] at bound=5 should produce 5 Or leaves. Got: {}",
+        leaves
+    );
 }
 
 #[test]
@@ -1228,10 +1469,17 @@ fn translate_goto_repetition_gt1_produces_combinatorial_disjunction() {
     let expr = parse_sva("sig[->3]").unwrap();
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[->3] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[->3] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(leaves, 10, "C(5,3)=10 Or-branches expected. Got: {}", leaves);
+    assert_eq!(
+        leaves, 10,
+        "C(5,3)=10 Or-branches expected. Got: {}",
+        leaves
+    );
 }
 
 #[test]
@@ -1241,8 +1489,11 @@ fn goto_repetition_1_references_signal_at_multiple_timesteps() {
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
     let ack_timesteps: Vec<&String> = vars.iter().filter(|v| v.starts_with("ack@")).collect();
-    assert!(ack_timesteps.len() >= 2,
-        "[->1] must reference ack at multiple timesteps. Got: {:?}", ack_timesteps);
+    assert!(
+        ack_timesteps.len() >= 2,
+        "[->1] must reference ack at multiple timesteps. Got: {:?}",
+        ack_timesteps
+    );
 }
 
 #[test]
@@ -1250,8 +1501,16 @@ fn goto_does_not_conflict_with_consecutive_repetition() {
     // [*] and [->] must coexist
     let star = parse_sva("sig[*3]").unwrap();
     let goto = parse_sva("sig[->3]").unwrap();
-    assert!(matches!(star, SvaExpr::Repetition { .. }), "Got: {:?}", star);
-    assert!(matches!(goto, SvaExpr::GotoRepetition { .. }), "Got: {:?}", goto);
+    assert!(
+        matches!(star, SvaExpr::Repetition { .. }),
+        "Got: {:?}",
+        star
+    );
+    assert!(
+        matches!(goto, SvaExpr::GotoRepetition { .. }),
+        "Got: {:?}",
+        goto
+    );
     assert!(!sva_exprs_structurally_equivalent(&star, &goto));
 }
 
@@ -1320,8 +1579,12 @@ fn nonconsec_roundtrip() {
         let expr = parse_sva(input).unwrap();
         let text = sva_expr_to_string(&expr);
         let reparsed = parse_sva(&text).unwrap();
-        assert!(sva_exprs_structurally_equivalent(&expr, &reparsed),
-            "Roundtrip failed for '{}'. Rendered: '{}'", input, text);
+        assert!(
+            sva_exprs_structurally_equivalent(&expr, &reparsed),
+            "Roundtrip failed for '{}'. Rendered: '{}'",
+            input,
+            text
+        );
     }
 }
 
@@ -1352,10 +1615,17 @@ fn translate_nonconsec_exact_produces_combinatorial_disjunction() {
     let expr = parse_sva("ack[=3]").unwrap();
     let mut translator = SvaTranslator::new(5);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[=3] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[=3] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(leaves, 10, "C(5,3)=10 Or-branches expected. Got: {}", leaves);
+    assert_eq!(
+        leaves, 10,
+        "C(5,3)=10 Or-branches expected. Got: {}",
+        leaves
+    );
 }
 
 #[test]
@@ -1381,10 +1651,16 @@ fn parse_accept_on() {
     let expr = parse_sva("accept_on(flush) req |-> ack").unwrap();
     match &expr {
         SvaExpr::AcceptOn { condition, body } => {
-            assert!(matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "flush"),
-                "Condition should be flush. Got: {:?}", condition);
-            assert!(matches!(body.as_ref(), SvaExpr::Implication { .. }),
-                "Body should be implication. Got: {:?}", body);
+            assert!(
+                matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "flush"),
+                "Condition should be flush. Got: {:?}",
+                condition
+            );
+            assert!(
+                matches!(body.as_ref(), SvaExpr::Implication { .. }),
+                "Body should be implication. Got: {:?}",
+                body
+            );
         }
         _ => panic!("Expected AcceptOn. Got: {:?}", expr),
     }
@@ -1402,8 +1678,11 @@ fn accept_on_roundtrip() {
     let expr = parse_sva("accept_on(flush) req |-> ack").unwrap();
     let text = sva_expr_to_string(&expr);
     let reparsed = parse_sva(&text).unwrap();
-    assert!(sva_exprs_structurally_equivalent(&expr, &reparsed),
-        "Roundtrip failed. Rendered: '{}'", text);
+    assert!(
+        sva_exprs_structurally_equivalent(&expr, &reparsed),
+        "Roundtrip failed. Rendered: '{}'",
+        text
+    );
 }
 
 #[test]
@@ -1435,10 +1714,18 @@ fn translate_accept_on_is_or() {
     // accept_on(C) P ≡ C ∨ P
     match &result {
         BoundedExpr::Or(left, right) => {
-            assert_eq!(left.as_ref(), &BoundedExpr::Var("flush@2".into()),
-                "Left should be flush@2. Got: {:?}", left);
-            assert_eq!(right.as_ref(), &BoundedExpr::Var("valid@2".into()),
-                "Right should be valid@2. Got: {:?}", right);
+            assert_eq!(
+                left.as_ref(),
+                &BoundedExpr::Var("flush@2".into()),
+                "Left should be flush@2. Got: {:?}",
+                left
+            );
+            assert_eq!(
+                right.as_ref(),
+                &BoundedExpr::Var("valid@2".into()),
+                "Right should be valid@2. Got: {:?}",
+                right
+            );
         }
         _ => panic!("accept_on should translate to Or. Got: {:?}", result),
     }
@@ -1447,11 +1734,17 @@ fn translate_accept_on_is_or() {
 #[test]
 fn accept_on_with_disable_iff() {
     let expr = parse_sva("accept_on(flush) disable iff (reset) req |-> ack").unwrap();
-    assert!(matches!(expr, SvaExpr::AcceptOn { .. }),
-        "Outer should be AcceptOn. Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::AcceptOn { .. }),
+        "Outer should be AcceptOn. Got: {:?}",
+        expr
+    );
     if let SvaExpr::AcceptOn { body, .. } = &expr {
-        assert!(matches!(body.as_ref(), SvaExpr::DisableIff { .. }),
-            "Inner should be DisableIff. Got: {:?}", body);
+        assert!(
+            matches!(body.as_ref(), SvaExpr::DisableIff { .. }),
+            "Inner should be DisableIff. Got: {:?}",
+            body
+        );
     }
 }
 
@@ -1470,10 +1763,16 @@ fn parse_reject_on() {
     let expr = parse_sva("reject_on(error) req |-> ack").unwrap();
     match &expr {
         SvaExpr::RejectOn { condition, body } => {
-            assert!(matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "error"),
-                "Condition should be error. Got: {:?}", condition);
-            assert!(matches!(body.as_ref(), SvaExpr::Implication { .. }),
-                "Body should be implication. Got: {:?}", body);
+            assert!(
+                matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "error"),
+                "Condition should be error. Got: {:?}",
+                condition
+            );
+            assert!(
+                matches!(body.as_ref(), SvaExpr::Implication { .. }),
+                "Body should be implication. Got: {:?}",
+                body
+            );
         }
         _ => panic!("Expected RejectOn. Got: {:?}", expr),
     }
@@ -1491,8 +1790,11 @@ fn reject_on_roundtrip() {
     let expr = parse_sva("reject_on(error) req |-> ack").unwrap();
     let text = sva_expr_to_string(&expr);
     let reparsed = parse_sva(&text).unwrap();
-    assert!(sva_exprs_structurally_equivalent(&expr, &reparsed),
-        "Roundtrip failed. Rendered: '{}'", text);
+    assert!(
+        sva_exprs_structurally_equivalent(&expr, &reparsed),
+        "Roundtrip failed. Rendered: '{}'",
+        text
+    );
 }
 
 #[test]
@@ -1520,15 +1822,26 @@ fn translate_reject_on_is_and_not() {
             // left should be Not(Var("error@2"))
             match left.as_ref() {
                 BoundedExpr::Not(inner) => {
-                    assert_eq!(inner.as_ref(), &BoundedExpr::Var("error@2".into()),
-                        "Inner of Not should be error@2. Got: {:?}", inner);
+                    assert_eq!(
+                        inner.as_ref(),
+                        &BoundedExpr::Var("error@2".into()),
+                        "Inner of Not should be error@2. Got: {:?}",
+                        inner
+                    );
                 }
                 _ => panic!("Left should be Not. Got: {:?}", left),
             }
-            assert_eq!(right.as_ref(), &BoundedExpr::Var("valid@2".into()),
-                "Right should be valid@2. Got: {:?}", right);
+            assert_eq!(
+                right.as_ref(),
+                &BoundedExpr::Var("valid@2".into()),
+                "Right should be valid@2. Got: {:?}",
+                right
+            );
         }
-        _ => panic!("reject_on should translate to And(Not, P). Got: {:?}", result),
+        _ => panic!(
+            "reject_on should translate to And(Not, P). Got: {:?}",
+            result
+        ),
     }
 }
 
@@ -1542,8 +1855,10 @@ fn reject_on_with_complex_body() {
 fn accept_on_and_reject_on_are_not_equiv() {
     let a = parse_sva("accept_on(x) y").unwrap();
     let b = parse_sva("reject_on(x) y").unwrap();
-    assert!(!sva_exprs_structurally_equivalent(&a, &b),
-        "accept_on and reject_on are DIFFERENT operators");
+    assert!(
+        !sva_exprs_structurally_equivalent(&a, &b),
+        "accept_on and reject_on are DIFFERENT operators"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1556,18 +1871,28 @@ fn onehot0_nested_in_implication_roundtrip() {
     let expr = parse_sva(input).unwrap();
     let text = sva_expr_to_string(&expr);
     let reparsed = parse_sva(&text).unwrap();
-    assert!(sva_exprs_structurally_equivalent(&expr, &reparsed),
-        "Complex nested expression must roundtrip. Rendered: '{}'", text);
+    assert!(
+        sva_exprs_structurally_equivalent(&expr, &reparsed),
+        "Complex nested expression must roundtrip. Rendered: '{}'",
+        text
+    );
 }
 
 #[test]
 fn goto_repetition_in_sequence_delay() {
     // req ##1 ack[->1] — sequence concat with goto
     let expr = parse_sva("req ##1 ack[->1]").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }),
-        "Sequence concat should produce implication. Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::Implication { .. }),
+        "Sequence concat should produce implication. Got: {:?}",
+        expr
+    );
     let text = sva_expr_to_string(&expr);
-    assert!(text.contains("[->1]"), "Must preserve goto repetition in sequence. Got: {}", text);
+    assert!(
+        text.contains("[->1]"),
+        "Must preserve goto repetition in sequence. Got: {}",
+        text
+    );
 }
 
 #[test]
@@ -1596,8 +1921,12 @@ fn clog2_in_bits_comparison_folds_correctly() {
                 BoundedExpr::Apply { name, .. } => assert_eq!(name, "bits"),
                 _ => panic!("LHS should be Apply(bits). Got: {:?}", lhs),
             }
-            assert_eq!(rhs.as_ref(), &BoundedExpr::Int(10),
-                "$clog2(1024) must fold to 10. Got: {:?}", rhs);
+            assert_eq!(
+                rhs.as_ref(),
+                &BoundedExpr::Int(10),
+                "$clog2(1024) must fold to 10. Got: {:?}",
+                rhs
+            );
         }
         _ => panic!("Expected Eq. Got: {:?}", result),
     }
@@ -1619,7 +1948,10 @@ fn sampled_of_rose_translates_correctly() {
                 _ => panic!("Expected Not(clk@2). Got: {:?}", right),
             }
         }
-        _ => panic!("$sampled($rose(clk))@3 should be And(clk@3, Not(clk@2)). Got: {:?}", result),
+        _ => panic!(
+            "$sampled($rose(clk))@3 should be And(clk@3, Not(clk@2)). Got: {:?}",
+            result
+        ),
     }
 }
 
@@ -1636,7 +1968,11 @@ fn multiple_system_functions_in_conjunction() {
 #[test]
 fn system_function_in_disable_iff() {
     let expr = parse_sva("disable iff ($isunknown(reset)) $onehot(state)").unwrap();
-    assert!(matches!(expr, SvaExpr::DisableIff { .. }), "Got: {:?}", expr);
+    assert!(
+        matches!(expr, SvaExpr::DisableIff { .. }),
+        "Got: {:?}",
+        expr
+    );
 }
 
 #[test]
@@ -1664,7 +2000,12 @@ fn all_new_constructs_do_not_break_existing_parser() {
     ];
     for case in &existing_cases {
         let result = parse_sva(case);
-        assert!(result.is_ok(), "Existing parse case '{}' MUST still work. Error: {:?}", case, result.err());
+        assert!(
+            result.is_ok(),
+            "Existing parse case '{}' MUST still work. Error: {:?}",
+            case,
+            result.err()
+        );
     }
 }
 
@@ -1676,7 +2017,11 @@ fn property_level_translation_with_new_constructs() {
     let result = translator.translate_property(&expr);
     // Should be conjunction: onehot0(grant@0) ∧ onehot0(grant@1) ∧ onehot0(grant@2)
     let leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&result.expr);
-    assert_eq!(leaves, 3, "Property over 3 timesteps = 3 And-leaves. Got: {}", leaves);
+    assert_eq!(
+        leaves, 3,
+        "Property over 3 timesteps = 3 And-leaves. Got: {}",
+        leaves
+    );
 }
 
 #[test]
@@ -1685,8 +2030,11 @@ fn accept_on_preserves_inner_property_structure() {
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
     // Or(flush@0, Implies(Apply("onehot", [state@0]), Or-tree))
-    assert!(matches!(result, BoundedExpr::Or(_, _)),
-        "accept_on must produce Or. Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::Or(_, _)),
+        "accept_on must produce Or. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1695,8 +2043,11 @@ fn reject_on_preserves_inner_property_structure() {
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
     // And(Not(error@0), Implies(Apply("onehot0", [grant@0]), ack@0))
-    assert!(matches!(result, BoundedExpr::And(_, _)),
-        "reject_on must produce And. Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::And(_, _)),
+        "reject_on must produce And. Got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1706,10 +2057,10 @@ fn reject_on_preserves_inner_property_structure() {
 fn count_not_nodes(expr: &BoundedExpr) -> usize {
     match expr {
         BoundedExpr::Not(inner) => 1 + count_not_nodes(inner),
-        BoundedExpr::And(l, r) | BoundedExpr::Or(l, r)
-        | BoundedExpr::Implies(l, r) | BoundedExpr::Eq(l, r) => {
-            count_not_nodes(l) + count_not_nodes(r)
-        }
+        BoundedExpr::And(l, r)
+        | BoundedExpr::Or(l, r)
+        | BoundedExpr::Implies(l, r)
+        | BoundedExpr::Eq(l, r) => count_not_nodes(l) + count_not_nodes(r),
         _ => 0,
     }
 }
@@ -1720,10 +2071,17 @@ fn translate_goto_repetition_2_bound_3() {
     let expr = parse_sva("sig[->2]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[->2] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[->2] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let or_leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(or_leaves, 3, "C(3,2)=3 Or-branches expected. Got: {}", or_leaves);
+    assert_eq!(
+        or_leaves, 3,
+        "C(3,2)=3 Or-branches expected. Got: {}",
+        or_leaves
+    );
 }
 
 #[test]
@@ -1733,9 +2091,21 @@ fn translate_goto_repetition_2_references_correct_vars() {
     let result = translator.translate(&expr, 0);
     let vars = collect_bounded_vars(&result);
     // Should reference sig@1, sig@2, sig@3 (all positions in window)
-    assert!(vars.iter().any(|v| v == "sig@1"), "Must reference sig@1. Vars: {:?}", vars);
-    assert!(vars.iter().any(|v| v == "sig@2"), "Must reference sig@2. Vars: {:?}", vars);
-    assert!(vars.iter().any(|v| v == "sig@3"), "Must reference sig@3. Vars: {:?}", vars);
+    assert!(
+        vars.iter().any(|v| v == "sig@1"),
+        "Must reference sig@1. Vars: {:?}",
+        vars
+    );
+    assert!(
+        vars.iter().any(|v| v == "sig@2"),
+        "Must reference sig@2. Vars: {:?}",
+        vars
+    );
+    assert!(
+        vars.iter().any(|v| v == "sig@3"),
+        "Must reference sig@3. Vars: {:?}",
+        vars
+    );
 }
 
 #[test]
@@ -1744,8 +2114,11 @@ fn translate_goto_repetition_exceeds_bound_is_false() {
     let expr = parse_sva("sig[->6]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(matches!(result, BoundedExpr::Bool(false)),
-        "[->6] at bound=3 must be Bool(false). Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::Bool(false)),
+        "[->6] at bound=3 must be Bool(false). Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1754,10 +2127,17 @@ fn translate_goto_repetition_count_equals_bound() {
     let expr = parse_sva("sig[->3]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[->3] at bound=3 must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[->3] at bound=3 must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let or_leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(or_leaves, 1, "C(3,3)=1 single conjunction expected. Got: {}", or_leaves);
+    assert_eq!(
+        or_leaves, 1,
+        "C(3,3)=1 single conjunction expected. Got: {}",
+        or_leaves
+    );
 }
 
 #[test]
@@ -1766,10 +2146,17 @@ fn translate_goto_repetition_no_not_nodes() {
     let expr = parse_sva("sig[->2]").unwrap();
     let mut translator = SvaTranslator::new(4);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[->2] at bound=4 must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[->2] at bound=4 must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let nots = count_not_nodes(&result);
-    assert_eq!(nots, 0, "GotoRepetition must NOT contain Not nodes. Got {} Not nodes", nots);
+    assert_eq!(
+        nots, 0,
+        "GotoRepetition must NOT contain Not nodes. Got {} Not nodes",
+        nots
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1782,10 +2169,17 @@ fn translate_nonconsec_exact_2_bound_3() {
     let expr = parse_sva("ack[=2]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[=2] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[=2] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let or_leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(or_leaves, 3, "C(3,2)=3 Or-branches expected. Got: {}", or_leaves);
+    assert_eq!(
+        or_leaves, 3,
+        "C(3,2)=3 Or-branches expected. Got: {}",
+        or_leaves
+    );
 }
 
 #[test]
@@ -1794,10 +2188,17 @@ fn translate_nonconsec_range_1_to_2_bound_3() {
     let expr = parse_sva("ack[=1:2]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[=1:2] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[=1:2] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let or_leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(or_leaves, 6, "C(3,1)+C(3,2)=3+3=6 Or-branches expected. Got: {}", or_leaves);
+    assert_eq!(
+        or_leaves, 6,
+        "C(3,1)+C(3,2)=3+3=6 Or-branches expected. Got: {}",
+        or_leaves
+    );
 }
 
 #[test]
@@ -1806,10 +2207,17 @@ fn translate_nonconsec_unbounded_max_bound_3() {
     let expr = parse_sva("ack[=1:$]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[=1:$] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[=1:$] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let or_leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(or_leaves, 7, "C(3,1)+C(3,2)+C(3,3)=3+3+1=7 Or-branches expected. Got: {}", or_leaves);
+    assert_eq!(
+        or_leaves, 7,
+        "C(3,1)+C(3,2)+C(3,3)=3+3+1=7 Or-branches expected. Got: {}",
+        or_leaves
+    );
 }
 
 #[test]
@@ -1818,8 +2226,11 @@ fn translate_nonconsec_min_exceeds_bound_is_false() {
     let expr = parse_sva("ack[=5]").unwrap();
     let mut translator = SvaTranslator::new(3);
     let result = translator.translate(&expr, 0);
-    assert!(matches!(result, BoundedExpr::Bool(false)),
-        "[=5] at bound=3 must be Bool(false). Got: {:?}", result);
+    assert!(
+        matches!(result, BoundedExpr::Bool(false)),
+        "[=5] at bound=3 must be Bool(false). Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -1830,9 +2241,17 @@ fn translate_nonconsec_includes_negations() {
     let mut translator = SvaTranslator::new(2);
     let result = translator.translate(&expr, 0);
     let nots = count_not_nodes(&result);
-    assert!(nots > 0, "NonConsecRepetition must contain Not nodes for exact-count. Got 0. Result: {:?}", result);
+    assert!(
+        nots > 0,
+        "NonConsecRepetition must contain Not nodes for exact-count. Got 0. Result: {:?}",
+        result
+    );
     // Each of the 2 combinations has 1 Not → 2 Nots total
-    assert_eq!(nots, 2, "ack[=1] at bound=2 should have 2 Not nodes. Got: {}", nots);
+    assert_eq!(
+        nots, 2,
+        "ack[=1] at bound=2 should have 2 Not nodes. Got: {}",
+        nots
+    );
 }
 
 #[test]
@@ -1841,10 +2260,21 @@ fn translate_nonconsec_exact_0_bound_2() {
     let expr = parse_sva("ack[=0]").unwrap();
     let mut translator = SvaTranslator::new(2);
     let result = translator.translate(&expr, 0);
-    assert!(!matches!(result, BoundedExpr::Unsupported(_)),
-        "[=0] must NOT be Unsupported. Got: {:?}", result);
+    assert!(
+        !matches!(result, BoundedExpr::Unsupported(_)),
+        "[=0] must NOT be Unsupported. Got: {:?}",
+        result
+    );
     let nots = count_not_nodes(&result);
-    assert_eq!(nots, 2, "ack[=0] at bound=2: all positions negated → 2 Not nodes. Got: {}", nots);
+    assert_eq!(
+        nots, 2,
+        "ack[=0] at bound=2: all positions negated → 2 Not nodes. Got: {}",
+        nots
+    );
     let or_leaves = logicaffeine_compile::codegen_sva::sva_to_verify::count_or_leaves(&result);
-    assert_eq!(or_leaves, 1, "ack[=0] at bound=2: C(2,0)=1 single conjunction. Got: {}", or_leaves);
+    assert_eq!(
+        or_leaves, 1,
+        "ack[=0] at bound=2: C(2,0)=1 single conjunction. Got: {}",
+        or_leaves
+    );
 }

@@ -1,0 +1,64 @@
+{
+  "case": "T11-006",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t11_adversarial/T11-006_named_variable_capture.lean",
+  "source_sha256": "daeef03b60a682149756ad8f2512f44e3d68a20e745749d83f5e34ef76cb01a2",
+  "ledger_sha256": "fd91448305d72e12586fd79a3224c36b1893b5f1bbb6dcebcf96bc966c6fcf60",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T11_006.captureViaSubst",
+    "T11_006.dependentShadow",
+    "T11_006.hygienic",
+    "T11_006.innerWins",
+    "T11_006.letShadow",
+    "T11_006.outerWins",
+    "T11_006.shadowsAGlobal",
+    "T11_006.tripleShadow"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "8626e911077f405275cea2cf59f2fa73a967f9d172a242d58a095f2b1e8ef6b3",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 786,
+  "harvest": {
+    "roots": [
+      "T11_006.captureViaSubst",
+      "T11_006.dependentShadow",
+      "T11_006.hygienic",
+      "T11_006.innerWins",
+      "T11_006.letShadow",
+      "T11_006.outerWins",
+      "T11_006.shadowsAGlobal",
+      "T11_006.tripleShadow"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

@@ -11,6 +11,7 @@
   ],
   "correct": 2,
   "hint": "This argument presents only two options when more possibilities exist.",
-  "explanation": "This is a False Dilemma (also called Black-and-White thinking) - presenting only two options as if they're the only possibilities. In reality, someone might be neutral, partially supportive, or have a more nuanced position.",
-  "visual_concept": "False Dilemma: Showing someone only doors A and B, while hiding doors C, D, and E behind a curtain."
+  "explanation": "This is a false dilemma. Someone can be neutral, or agree in part.",
+  "visual_concept": "False Dilemma: Showing someone only doors A and B, while hiding doors C, D, and E behind a curtain.",
+  "section": "4.2"
 }

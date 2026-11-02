@@ -4,7 +4,7 @@
 //! (mod 512)`, so `X²⁵⁶+1` splits fully), with signed Montgomery reduction. Validated against the
 //! schoolbook negacyclic convolution.
 
-use std::sync::OnceLock;
+use crate::kernel_args as args;
 
 pub(crate) const Q: i32 = 8_380_417;
 const QINV: i32 = 58_728_449; // q⁻¹ mod 2³² (signed)
@@ -21,24 +21,26 @@ pub(crate) fn montgomery_reduce(a: i64) -> i32 {
 }
 
 /// The Dilithium twiddle table: `zetas[i] = ζ^brv₈(i) · R mod q`, reduced into `(−q/2, q/2]`.
-fn zetas() -> &'static [i32; 256] {
-    static ZETAS: OnceLock<[i32; 256]> = OnceLock::new();
-    ZETAS.get_or_init(|| {
-        let mut pow = [1i64; 256];
-        for i in 1..256 {
-            pow[i] = pow[i - 1] * ZETA % Q as i64;
+pub(crate) const ZETAS: [i32; 256] = zeta_table();
+
+const fn zeta_table() -> [i32; 256] {
+    let mut pow = [1i64; 256];
+    let mut i = 1;
+    while i < 256 {
+        pow[i] = pow[i - 1] * ZETA % Q as i64;
+        i += 1;
+    }
+    let mut z = [0i32; 256];
+    let mut i = 0;
+    while i < 256 {
+        let mut v = pow[(i as u8).reverse_bits() as usize] * MONT % Q as i64;
+        if v > Q as i64 / 2 {
+            v -= Q as i64;
         }
-        let mut z = [0i32; 256];
-        for (i, slot) in z.iter_mut().enumerate() {
-            let br = (i as u8).reverse_bits() as usize;
-            let mut v = pow[br] * MONT % Q as i64;
-            if v > Q as i64 / 2 {
-                v -= Q as i64;
-            }
-            *slot = v as i32;
-        }
-        z
-    })
+        z[i] = v as i32;
+        i += 1;
+    }
+    z
 }
 
 /// Forward NTT in place (Dilithium reference): `a` normal domain → NTT domain. Kept scalar/
@@ -46,7 +48,7 @@ fn zetas() -> &'static [i32; 256] {
 /// overhead + the scalar is already register-tight); the win is in the full-poly ops (inverse
 /// F-scaling, pointwise), not the butterflies.
 pub(crate) fn ntt(a: &mut [i32; N]) {
-    let zetas = zetas();
+    let zetas = &ZETAS;
     let mut k = 0usize;
     let mut len = 128usize;
     while len > 0 {
@@ -71,7 +73,7 @@ const INVNTT_F: i64 = 41_978; // mont²/256 mod q
 /// folding in the final `f = mont²/256` factor. Scalar — LLVM auto-vectorizes the butterfly and the
 /// final scaling in release; hand-written AVX2 measured slower.
 pub(crate) fn invntt_tomont(a: &mut [i32; N]) {
-    let zetas = zetas();
+    let zetas = &ZETAS;
     let mut k = 256usize;
     let mut len = 1usize;
     while len < N {
@@ -94,6 +96,24 @@ pub(crate) fn invntt_tomont(a: &mut [i32; N]) {
     }
 }
 
+/// `a mod q` as a representative in [−6283009, 6283008], by a multiply-free rounding shift (the
+/// Dilithium reference `reduce32`). Exact for `a ≤ 2³¹ − 2²² − 1`.
+#[inline]
+pub(crate) fn reduce32(a: i32) -> i32 {
+    let t = (a + (1 << 22)) >> 23;
+    a - t * Q
+}
+
+/// Return a sum of pointwise products to the normal domain: the matrix–vector rows of KeyGen
+/// (Â∘ŝ₁), Sign (Â∘ŷ) and Verify (Â∘ẑ − ĉ∘t̂₁·2ᵈ) each end here. A row of six products reaches
+/// 6(q − 1), past `invntt_tomont`'s input bound of q, so every coefficient is reduced first.
+pub(crate) fn to_normal_domain(acc: &mut [i32; N]) {
+    for x in acc.iter_mut() {
+        *x = reduce32(*x);
+    }
+    invntt_tomont(acc);
+}
+
 /// Pointwise product in the NTT domain, with Montgomery reduction (`poly_pointwise_montgomery`).
 pub(crate) fn pointwise_montgomery(a: &[i32; N], b: &[i32; N]) -> [i32; N] {
     // Scalar — LLVM auto-vectorizes this element-wise `montgomery_reduce` loop in release; measured A/B
@@ -102,10 +122,16 @@ pub(crate) fn pointwise_montgomery(a: &[i32; N], b: &[i32; N]) -> [i32; N] {
     std::array::from_fn(|i| montgomery_reduce(a[i] as i64 * b[i] as i64))
 }
 
-/// Reduce a coefficient into the canonical `[0, q)` representative.
+/// Reduce a coefficient into the canonical `[0, q)` representative, for `a ≤ 2³¹ − 2²² − 1`.
 #[inline]
 pub(crate) fn freeze(a: i32) -> i32 {
-    ((a % Q) + Q) % Q
+    caddq(reduce32(a))
+}
+
+/// Add q to a negative representative: `(−q, q)` → `[0, q)`, by the sign mask.
+#[inline]
+pub(crate) fn caddq(a: i32) -> i32 {
+    a + ((a >> 31) & Q)
 }
 
 // ── ML-DSA-65 (Dilithium3) parameters ──────────────────────────────────────────────────────────
@@ -186,7 +212,9 @@ fn rej_ntt_poly(seed: &[u8]) -> Poly {
             crate::keccak::shake_squeeze_block(&st, &mut buf, 168);
             pos = 0;
         }
-        let d = (buf[pos] as u32) | ((buf[pos + 1] as u32) << 8) | (((buf[pos + 2] as u32) & 0x7f) << 16);
+        let d = (buf[pos] as u32)
+            | ((buf[pos + 1] as u32) << 8)
+            | (((buf[pos + 2] as u32) & 0x7f) << 16);
         pos += 3;
         if d < Q as u32 {
             a[ctr] = d as i32;
@@ -237,7 +265,7 @@ pub(crate) fn expand_a(rho: &[u8]) -> Vec<Vec<Poly>> {
     {
         if std::is_x86_feature_detected!("avx2") {
             const ENTRIES: usize = MK * ML;
-            let coords: [(usize, usize); ENTRIES] = std::array::from_fn(|i| (i / ML, i % ML));
+            let coords = &ENTRY_COORDS;
             let mut flat = vec![[0i32; N]; ENTRIES];
             let mut e = 0;
             while e + 4 <= ENTRIES {
@@ -277,10 +305,26 @@ pub(crate) fn expand_a(rho: &[u8]) -> Vec<Vec<Poly>> {
                 flat[r * ML + c] = rej_ntt_poly(&seed);
                 e += 1;
             }
-            return (0..MK).map(|r| (0..ML).map(|c| flat[r * ML + c]).collect()).collect();
+            return (0..MK)
+                .map(|r| (0..ML).map(|c| flat[r * ML + c]).collect())
+                .collect();
         }
     }
     expand_a_scalar(rho)
+}
+
+/// `(row, column)` of each entry of Â in row-major order, the order ExpandA batches them in.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+pub(crate) const ENTRY_COORDS: [(usize, usize); MK * ML] = entry_coords();
+
+const fn entry_coords() -> [(usize, usize); MK * ML] {
+    let mut coords = [(0, 0); MK * ML];
+    let mut e = 0;
+    while e < MK * ML {
+        coords[e] = (e / ML, e % ML);
+        e += 1;
+    }
+    coords
 }
 
 fn expand_a_scalar(rho: &[u8]) -> Vec<Vec<Poly>> {
@@ -414,7 +458,14 @@ pub fn keygen(seed: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
         })
         .collect();
 
-    let s1_hat: Vec<Poly> = s1.iter().map(|p| { let mut q = *p; ntt(&mut q); q }).collect();
+    let s1_hat: Vec<Poly> = s1
+        .iter()
+        .map(|p| {
+            let mut q = *p;
+            ntt(&mut q);
+            q
+        })
+        .collect();
     let mut t1 = vec![[0i32; N]; MK];
     let mut t0 = vec![[0i32; N]; MK];
     for i in 0..MK {
@@ -425,7 +476,7 @@ pub fn keygen(seed: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
                 acc[c] += prod[c];
             }
         }
-        invntt_tomont(&mut acc);
+        to_normal_domain(&mut acc);
         for c in 0..N {
             let t = freeze(acc[c] + s2[i][c]);
             let (r1, r0) = power2round(t);
@@ -463,14 +514,11 @@ const CTILDE: usize = 48; // λ/4
 pub const SIG_BYTES: usize = CTILDE + ML * 640 + OMEGA + MK;
 
 /// Map `a` into the signed representative `(−q/2, q/2]` and return its magnitude basis for ‖·‖∞.
+/// Subtracts q exactly when `Q/2 − r` is negative, by its sign mask.
 #[inline]
-fn to_signed(a: i32) -> i32 {
+pub(crate) fn to_signed(a: i32) -> i32 {
     let r = freeze(a);
-    if r > Q / 2 {
-        r - Q
-    } else {
-        r
-    }
+    r - (((Q / 2 - r) >> 31) & Q)
 }
 fn inf_norm(p: &Poly) -> i32 {
     p.iter().map(|&c| to_signed(c).abs()).max().unwrap()
@@ -576,7 +624,9 @@ fn pack_z(p: &Poly) -> Vec<u8> {
 }
 
 fn pack_w1(p: &Poly) -> Vec<u8> {
-    (0..N / 2).map(|i| (p[2 * i] | (p[2 * i + 1] << 4)) as u8).collect()
+    (0..N / 2)
+        .map(|i| (p[2 * i] | (p[2 * i + 1] << 4)) as u8)
+        .collect()
 }
 
 fn pack_hint(h: &[Poly]) -> Vec<u8> {
@@ -604,7 +654,8 @@ fn expand_mask(rho: &[u8], kappa: u16) -> Poly {
     for i in 0..N / 2 {
         let o = 5 * i;
         let z0 = (buf[o] as u32) | ((buf[o + 1] as u32) << 8) | (((buf[o + 2] as u32) & 0xf) << 16);
-        let z1 = ((buf[o + 2] as u32) >> 4) | ((buf[o + 3] as u32) << 4) | ((buf[o + 4] as u32) << 12);
+        let z1 =
+            ((buf[o + 2] as u32) >> 4) | ((buf[o + 3] as u32) << 4) | ((buf[o + 4] as u32) << 12);
         a[2 * i] = GAMMA1 - z0 as i32;
         a[2 * i + 1] = GAMMA1 - z1 as i32;
     }
@@ -639,47 +690,147 @@ fn sample_in_ball(seed: &[u8]) -> Poly {
     c
 }
 
-/// `M' = 0x00 ‖ |ctx| ‖ ctx ‖ M` (FIPS-204 pure, no pre-hash), then `μ = H(tr ‖ M', 64)`.
-fn compute_mu(tr: &[u8], m: &[u8], ctx: &[u8]) -> Vec<u8> {
-    let mut mp = vec![0u8, ctx.len() as u8];
+/// The message representative of the pure (no pre-hash) interface, FIPS 204 Algorithms 2–3:
+/// `M' = 0x00 ‖ |ctx| ‖ ctx ‖ M`. `None` for a context longer than its one-byte length can name.
+fn message_representative(m: &[u8], ctx: &[u8]) -> Option<Vec<u8>> {
+    let len = u8::try_from(ctx.len()).ok()?;
+    let mut mp = Vec::with_capacity(2 + ctx.len() + m.len());
+    mp.push(0);
+    mp.push(len);
     mp.extend_from_slice(ctx);
     mp.extend_from_slice(m);
+    Some(mp)
+}
+
+/// `μ = H(tr ‖ M', 64)`.
+fn compute_mu(tr: &[u8], mp: &[u8]) -> Vec<u8> {
     let mut mu_in = tr.to_vec();
-    mu_in.extend_from_slice(&mp);
+    mu_in.extend_from_slice(mp);
     crate::keccak::shake256_bytes(&mu_in, 64)
 }
 
 // ── ML-DSA.Sign / Verify (FIPS-204 §6.2, §6.3) ─────────────────────────────────────────────────
 
+/// Why [`sign`] refuses its inputs: FIPS 204 returns ⊥ for these instead of a signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignError {
+    /// The context string is longer than the 255 bytes its one-byte length prefix can name.
+    ContextTooLong { len: usize },
+    /// The secret key is not the [`SK_BYTES`] bytes of an ML-DSA-65 secret key.
+    SecretKeyLength { len: usize },
+    /// A coefficient of s₁ or s₂ decodes outside [−η, η], so no KeyGen produced this key.
+    SecretKeyOutOfRange,
+}
+
+impl std::fmt::Display for SignError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SignError::ContextTooLong { len } => {
+                write!(f, "the context is {len} bytes; FIPS 204 allows at most 255")
+            }
+            SignError::SecretKeyLength { len } => write!(
+                f,
+                "the secret key is {len} bytes; an ML-DSA-65 secret key is {SK_BYTES}"
+            ),
+            SignError::SecretKeyOutOfRange => write!(
+                f,
+                "the secret key holds an s1 or s2 coefficient outside [-{ETA}, {ETA}]"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SignError {}
+
+/// A secret key through FIPS 204 skDecode: `ρ ‖ K ‖ tr ‖ s₁ ‖ s₂ ‖ t₀`, refused unless it is exactly
+/// [`SK_BYTES`] long and every s₁/s₂ coefficient lies in [−η, η].
+struct SecretKey<'a> {
+    rho: &'a [u8],
+    k_key: &'a [u8],
+    tr: &'a [u8],
+    s1: Vec<Poly>,
+    s2: Vec<Poly>,
+    t0: Vec<Poly>,
+}
+
+impl<'a> SecretKey<'a> {
+    fn decode(sk: &'a [u8]) -> Result<Self, SignError> {
+        if sk.len() != SK_BYTES {
+            return Err(SignError::SecretKeyLength { len: sk.len() });
+        }
+        let s1_at = 128;
+        let s2_at = s1_at + ML * 128;
+        let t0_at = s2_at + MK * 128;
+        let eta = |at: usize, count: usize| -> Vec<Poly> {
+            (0..count)
+                .map(|i| unpack_eta(&sk[at + 128 * i..at + 128 * (i + 1)]))
+                .collect()
+        };
+        if !eta_nibbles_in_range(&sk[s1_at..t0_at]) {
+            return Err(SignError::SecretKeyOutOfRange);
+        }
+        Ok(SecretKey {
+            rho: &sk[0..32],
+            k_key: &sk[32..64],
+            tr: &sk[64..128],
+            s1: eta(s1_at, ML),
+            s2: eta(s2_at, MK),
+            t0: (0..MK)
+                .map(|i| unpack_t0(&sk[t0_at + 416 * i..t0_at + 416 * (i + 1)]))
+                .collect(),
+        })
+    }
+}
+
+/// Whether every 4-bit field of the packed s₁ ‖ s₂ is at most 2η, so `η − nibble` lies in [−η, η]. The
+/// verdict is accumulated over every nibble, never decided early on a secret one.
+fn eta_nibbles_in_range(packed: &[u8]) -> bool {
+    let mut over = 0u8;
+    for &b in packed {
+        over |= ((b & 15) > 2 * ETA as u8) as u8;
+        over |= ((b >> 4) > 2 * ETA as u8) as u8;
+    }
+    over == 0
+}
+
 /// Deterministic ML-DSA-65 signature over `m` with context `ctx` (the `rnd = 0` variant).
-pub fn sign(sk: &[u8], m: &[u8], ctx: &[u8]) -> Vec<u8> {
-    let rho = &sk[0..32];
-    let k_key = &sk[32..64];
-    let tr = &sk[64..128];
-    let mut off = 128;
-    let mut take = |n: usize, sk: &[u8], off: &mut usize| {
-        let s = sk[*off..*off + n].to_vec();
-        *off += n;
-        s
-    };
-    let s1: Vec<Poly> = (0..ML).map(|_| unpack_eta(&take(128, sk, &mut off))).collect();
-    let s2: Vec<Poly> = (0..MK).map(|_| unpack_eta(&take(128, sk, &mut off))).collect();
-    let t0: Vec<Poly> = (0..MK).map(|_| unpack_t0(&take(416, sk, &mut off))).collect();
+pub fn sign(sk: &[u8], m: &[u8], ctx: &[u8]) -> Result<Vec<u8>, SignError> {
+    sign_randomized(sk, m, ctx, &[0u8; 32])
+}
 
-    let a_hat = expand_a(rho);
-    let s1_hat: Vec<Poly> = s1.iter().map(nttp).collect();
-    let s2_hat: Vec<Poly> = s2.iter().map(nttp).collect();
-    let t0_hat: Vec<Poly> = t0.iter().map(nttp).collect();
+/// Hedged ML-DSA-65 signature, FIPS 204's default variant: `rnd` is 32 fresh random bytes mixed into
+/// the signature's mask seed, so signing one message twice, or under an injected fault, never
+/// repeats the mask.
+pub fn sign_randomized(
+    sk: &[u8],
+    m: &[u8],
+    ctx: &[u8],
+    rnd: &[u8; 32],
+) -> Result<Vec<u8>, SignError> {
+    let mp = message_representative(m, ctx).ok_or(SignError::ContextTooLong { len: ctx.len() })?;
+    let key = SecretKey::decode(sk)?;
+    Ok(sign_internal(&key, &mp, rnd))
+}
 
-    let mu = compute_mu(tr, m, ctx);
-    let mut rp_in = k_key.to_vec();
-    rp_in.extend_from_slice(&[0u8; 32]); // rnd = 0 (deterministic)
+/// ML-DSA.Sign_internal (FIPS 204 Algorithm 7) over the message representative `mp` with the
+/// 32-byte randomness `rnd` (all zero for the deterministic variant).
+fn sign_internal(key: &SecretKey<'_>, mp: &[u8], rnd: &[u8; 32]) -> Vec<u8> {
+    let a_hat = expand_a(key.rho);
+    let s1_hat: Vec<Poly> = key.s1.iter().map(nttp).collect();
+    let s2_hat: Vec<Poly> = key.s2.iter().map(nttp).collect();
+    let t0_hat: Vec<Poly> = key.t0.iter().map(nttp).collect();
+
+    let mu = compute_mu(key.tr, mp);
+    let mut rp_in = key.k_key.to_vec();
+    rp_in.extend_from_slice(rnd);
     rp_in.extend_from_slice(&mu);
     let rho_pp = crate::keccak::shake256_bytes(&rp_in, 64);
 
     let mut kappa = 0u16;
     loop {
-        let y: Vec<Poly> = (0..ML).map(|i| expand_mask(&rho_pp, kappa + i as u16)).collect();
+        let y: Vec<Poly> = (0..ML)
+            .map(|i| expand_mask(&rho_pp, kappa + i as u16))
+            .collect();
         let y_hat: Vec<Poly> = y.iter().map(nttp).collect();
         let mut w = vec![[0i32; N]; MK];
         for i in 0..MK {
@@ -690,11 +841,13 @@ pub fn sign(sk: &[u8], m: &[u8], ctx: &[u8]) -> Vec<u8> {
                     acc[c] += prod[c];
                 }
             }
-            invntt_tomont(&mut acc);
+            to_normal_domain(&mut acc);
             w[i] = acc;
         }
-        let w1: Vec<Poly> =
-            w.iter().map(|p| std::array::from_fn(|c| highbits(p[c]))).collect();
+        let w1: Vec<Poly> = w
+            .iter()
+            .map(|p| std::array::from_fn(|c| highbits(p[c])))
+            .collect();
 
         let mut ct_in = mu.clone();
         for p in &w1 {
@@ -720,9 +873,12 @@ pub fn sign(sk: &[u8], m: &[u8], ctx: &[u8]) -> Vec<u8> {
             })
             .collect();
 
-        let z: Vec<Poly> = (0..ML).map(|j| std::array::from_fn(|c| y[j][c] + cs1[j][c])).collect();
-        let r0: Vec<Poly> =
-            (0..MK).map(|i| std::array::from_fn(|c| lowbits(freeze(w[i][c] - cs2[i][c])))).collect();
+        let z: Vec<Poly> = (0..ML)
+            .map(|j| std::array::from_fn(|c| y[j][c] + cs1[j][c]))
+            .collect();
+        let r0: Vec<Poly> = (0..MK)
+            .map(|i| std::array::from_fn(|c| lowbits(freeze(w[i][c] - cs2[i][c]))))
+            .collect();
 
         if z.iter().any(|p| inf_norm(p) >= GAMMA1 - BETA)
             || r0.iter().any(|p| inf_norm(p) >= GAMMA2 - BETA)
@@ -765,11 +921,16 @@ pub fn sign(sk: &[u8], m: &[u8], ctx: &[u8]) -> Vec<u8> {
 
 /// Verify an ML-DSA-65 signature; `true` iff valid for `(pk, m, ctx)`.
 pub fn verify(pk: &[u8], m: &[u8], ctx: &[u8], sig: &[u8]) -> bool {
+    let Some(mp) = message_representative(m, ctx) else {
+        return false;
+    };
     if sig.len() != SIG_BYTES || pk.len() != PK_BYTES {
         return false;
     }
     let rho = &pk[0..32];
-    let t1: Vec<Poly> = (0..MK).map(|i| unpack_t1(&pk[32 + i * 320..32 + (i + 1) * 320])).collect();
+    let t1: Vec<Poly> = (0..MK)
+        .map(|i| unpack_t1(&pk[32 + i * 320..32 + (i + 1) * 320]))
+        .collect();
 
     let c_tilde = &sig[0..CTILDE];
     let mut off = CTILDE;
@@ -790,7 +951,7 @@ pub fn verify(pk: &[u8], m: &[u8], ctx: &[u8], sig: &[u8]) -> bool {
 
     let a_hat = expand_a(rho);
     let tr = crate::keccak::shake256_bytes(pk, 64);
-    let mu = compute_mu(&tr, m, ctx);
+    let mu = compute_mu(&tr, &mp);
     let c_hat = nttp(&sample_in_ball(c_tilde));
     let z_hat: Vec<Poly> = z.iter().map(nttp).collect();
 
@@ -808,7 +969,7 @@ pub fn verify(pk: &[u8], m: &[u8], ctx: &[u8], sig: &[u8]) -> bool {
         for c in 0..N {
             acc[c] -= ct1[c];
         }
-        invntt_tomont(&mut acc);
+        to_normal_domain(&mut acc);
         for c in 0..N {
             w1[i][c] = use_hint(h[i][c] as u8, acc[c]);
         }
@@ -829,10 +990,18 @@ pub fn bench_verify_breakdown(pk: &[u8], sig: &[u8]) {
     let iters = 2000u32;
     macro_rules! t {
         ($l:expr, $b:expr) => {{
-            for _ in 0..50 { std::hint::black_box($b); }
+            for _ in 0..50 {
+                std::hint::black_box($b);
+            }
             let s = Instant::now();
-            for _ in 0..iters { std::hint::black_box($b); }
-            eprintln!("  {:<22} {:>9.1} ns/op", $l, s.elapsed().as_nanos() as f64 / iters as f64);
+            for _ in 0..iters {
+                std::hint::black_box($b);
+            }
+            eprintln!(
+                "  {:<22} {:>9.1} ns/op",
+                $l,
+                s.elapsed().as_nanos() as f64 / iters as f64
+            );
         }};
     }
     eprintln!("--- ML-DSA verify component breakdown ---");
@@ -845,159 +1014,38 @@ pub fn bench_verify_breakdown(pk: &[u8], sig: &[u8]) {
 
 // ── Logos-facing wrappers (Seq of Int bytes 0..255) — the natives crypto.lg's handshake calls ────
 
-fn bytes(s: &[i64]) -> Vec<u8> {
-    s.iter().map(|&x| x.rem_euclid(256) as u8).collect()
-}
-fn seq(v: &[u8]) -> logicaffeine_data::LogosSeq<i64> {
-    logicaffeine_data::LogosSeq::from_vec(v.iter().map(|&b| b as i64).collect())
-}
-
 /// `mldsaKeypair(seed)` → pk(1952) ‖ sk(4032).
-pub fn mldsa_keypair_seq(seed: &[i64]) -> logicaffeine_data::LogosSeq<i64> {
-    let mut s = [0u8; 32];
-    for (b, &x) in s.iter_mut().zip(seed) {
-        *b = x.rem_euclid(256) as u8;
-    }
-    let (pk, sk) = keygen(&s);
+pub fn mldsa_keypair_seq(seed: &[i64]) -> Result<logicaffeine_data::LogosSeq<i64>, String> {
+    let (pk, sk) = keygen(&args::byte_array::<32>("seed", seed)?);
     let mut out = pk;
     out.extend(sk);
-    seq(&out)
+    Ok(args::seq_of_bytes(&out))
 }
 /// `mldsaSign(sk, msg, ctx)` → signature(3309).
-pub fn mldsa_sign_seq(sk: &[i64], msg: &[i64], ctx: &[i64]) -> logicaffeine_data::LogosSeq<i64> {
-    seq(&sign(&bytes(sk), &bytes(msg), &bytes(ctx)))
+pub fn mldsa_sign_seq(
+    sk: &[i64],
+    msg: &[i64],
+    ctx: &[i64],
+) -> Result<logicaffeine_data::LogosSeq<i64>, String> {
+    let sk = args::bytes("secret key", sk)?;
+    let msg = args::bytes("message", msg)?;
+    let ctx = args::bytes("context", ctx)?;
+    sign(&sk, &msg, &ctx)
+        .map(|sig| args::seq_of_bytes(&sig))
+        .map_err(|e| e.to_string())
 }
-/// `mldsaVerify(pk, msg, ctx, sig)` → 1 if valid, else 0.
-pub fn mldsa_verify_seq(pk: &[i64], msg: &[i64], ctx: &[i64], sig: &[i64]) -> i64 {
-    verify(&bytes(pk), &bytes(msg), &bytes(ctx), &bytes(sig)) as i64
+/// `mldsaVerify(pk, msg, ctx, sig)` → 1 if valid, else 0. Whatever is not a byte string of the right
+/// shape verifies nothing, so it answers 0 rather than failing the program.
+pub fn mldsa_verify_seq(pk: &[i64], msg: &[i64], ctx: &[i64], sig: &[i64]) -> Result<i64, String> {
+    let as_bytes = |s: &[i64]| args::bytes("", s).ok();
+    Ok(
+        match (as_bytes(pk), as_bytes(msg), as_bytes(ctx), as_bytes(sig)) {
+            (Some(pk), Some(msg), Some(ctx), Some(sig)) => verify(&pk, &msg, &ctx, &sig) as i64,
+            _ => 0,
+        },
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Schoolbook negacyclic convolution mod (X²⁵⁶ + 1) over ℤ_q, the gold-standard reference.
-    fn schoolbook(a: &[i32; N], b: &[i32; N]) -> [i32; N] {
-        let mut c = [0i64; N];
-        for i in 0..N {
-            for j in 0..N {
-                let prod = a[i] as i64 * b[j] as i64;
-                if i + j < N {
-                    c[i + j] += prod;
-                } else {
-                    c[i + j - N] -= prod;
-                }
-            }
-        }
-        std::array::from_fn(|i| ((c[i] % Q as i64 + Q as i64) % Q as i64) as i32)
-    }
-
-    fn rand_coeff(s: &mut u64) -> i32 {
-        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((*s >> 33) % Q as u64) as i32
-    }
-    fn rand_poly(s: &mut u64) -> [i32; N] {
-        std::array::from_fn(|_| rand_coeff(s))
-    }
-
-    #[test]
-    fn ntt_multiply_matches_schoolbook_convolution() {
-        let mut s = 0xD15A_C0DEu64;
-        for _ in 0..50 {
-            let a = rand_poly(&mut s);
-            let b = rand_poly(&mut s);
-            let mut na = a;
-            let mut nb = b;
-            ntt(&mut na);
-            ntt(&mut nb);
-            let mut nc = pointwise_montgomery(&na, &nb);
-            invntt_tomont(&mut nc);
-            let got: [i32; N] = std::array::from_fn(|i| freeze(nc[i]));
-            assert_eq!(got, schoolbook(&a, &b), "NTT product must equal the schoolbook convolution");
-        }
-    }
-
-    #[test]
-    fn power2round_reconstructs() {
-        let mut s = 0xABCD_1234u64;
-        for _ in 0..100000 {
-            let r = rand_coeff(&mut s);
-            let (r1, r0) = power2round(r);
-            assert!(r0 > -(1 << (D - 1)) && r0 <= (1 << (D - 1)), "r0 ∈ (−2¹², 2¹²]");
-            assert_eq!(r1 * (1 << D) + r0, r, "r = r1·2ᵈ + r0");
-        }
-    }
-
-    #[test]
-    fn decompose_reconstructs_and_bounds() {
-        let mut s = 0x5678_9ABCu64;
-        for _ in 0..100000 {
-            let r = rand_coeff(&mut s);
-            let (r1, r0) = decompose(r);
-            assert!(r0 > -GAMMA2 && r0 <= GAMMA2, "r0 ∈ (−γ2, γ2]: got {r0}");
-            assert!((0..16).contains(&r1), "r1 ∈ [0,16): got {r1}");
-            // r1·2γ2 + r0 ≡ r (mod q)
-            assert_eq!(freeze(r1 * 2 * GAMMA2 + r0), r, "r1·2γ2 + r0 = r (mod q)");
-        }
-    }
-
-    #[test]
-    fn use_hint_inverts_make_hint() {
-        // FIPS-204: UseHint(MakeHint(z, r), r) = HighBits(r + z) for |z| ≤ γ2.
-        let mut s = 0xFEED_FACEu64;
-        for _ in 0..100000 {
-            let r = rand_coeff(&mut s);
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let z = ((s >> 40) as i32 % (2 * GAMMA2 + 1)) - GAMMA2; // |z| ≤ γ2
-            let h = make_hint(z, r);
-            assert_eq!(use_hint(h, r), highbits(freeze(r + z)), "UseHint∘MakeHint = HighBits(r+z)");
-        }
-    }
-
-    #[test]
-    fn sign_verify_round_trips_and_rejects_tamper() {
-        let (pk, sk) = keygen(&[0x33; 32]);
-        let m = b"the quick brown fox jumps over the lazy dog";
-        let ctx = b"ctx";
-        let sig = sign(&sk, m, ctx);
-        assert_eq!(sig.len(), SIG_BYTES, "ML-DSA-65 sig = 3309 bytes");
-        assert!(verify(&pk, m, ctx, &sig), "a fresh signature verifies");
-        // Tampered message, tampered signature, and wrong context all reject.
-        assert!(!verify(&pk, b"different message", ctx, &sig), "wrong message rejects");
-        assert!(!verify(&pk, m, b"other", &sig), "wrong context rejects");
-        let mut bad = sig.clone();
-        bad[100] ^= 1;
-        assert!(!verify(&pk, m, ctx, &bad), "tampered signature rejects");
-        // A signature under a different key rejects.
-        let (pk2, _) = keygen(&[0x99; 32]);
-        assert!(!verify(&pk2, m, ctx, &sig), "wrong public key rejects");
-    }
-
-    #[test]
-    fn keygen_sizes_and_determinism() {
-        let (pk, sk) = keygen(&[0x11; 32]);
-        assert_eq!(pk.len(), PK_BYTES, "ML-DSA-65 pk = 1952 bytes");
-        assert_eq!(sk.len(), SK_BYTES, "ML-DSA-65 sk = 4032 bytes");
-        assert_eq!(keygen(&[0x11; 32]).0, pk, "keygen is deterministic in the seed");
-        assert_ne!(keygen(&[0x22; 32]).0, pk, "distinct seeds ⇒ distinct keys");
-    }
-
-    #[test]
-    fn ntt_round_trip_is_identity() {
-        // invntt_tomont(ntt(a)) = a·(2³²) — multiply by the Montgomery one (ntt of the unit) recovers a.
-        let mut s = 0x1234_5678u64;
-        let a = rand_poly(&mut s);
-        // Multiply a by the constant polynomial 1 via NTT (1 in normal domain).
-        let mut one = [0i32; N];
-        one[0] = 1;
-        let mut na = a;
-        let mut n1 = one;
-        ntt(&mut na);
-        ntt(&mut n1);
-        let mut prod = pointwise_montgomery(&na, &n1);
-        invntt_tomont(&mut prod);
-        let got: [i32; N] = std::array::from_fn(|i| freeze(prod[i]));
-        let want: [i32; N] = std::array::from_fn(|i| freeze(a[i]));
-        assert_eq!(got, want, "a · 1 through the NTT must recover a");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_system/mldsa/tests.rs"]
+mod tests;

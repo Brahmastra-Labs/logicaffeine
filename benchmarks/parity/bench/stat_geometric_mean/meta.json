@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.geometric_mean",
+  "workload": "statistics.geometric_mean",
+  "arg": "20000",
+  "expected": "7297922763",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

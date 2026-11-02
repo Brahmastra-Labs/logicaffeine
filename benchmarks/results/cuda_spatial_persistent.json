@@ -1,0 +1,38 @@
+{
+  "floor_ratio": 0.9,
+  "gpu": "rtx3060",
+  "lattice_best": {
+    "gops": 15001.5
+  },
+  "persistent": {
+    "census": {
+      "barrier_semaphores": 0,
+      "buffer_templates": 3,
+      "fifos": 768,
+      "kernels": 2,
+      "mcast_groups": 0,
+      "semaphores": 0,
+      "sites": 256
+    },
+    "config": {
+      "blocks_per_sm": 2,
+      "dyn_bytes": 8192,
+      "dynamic_opt_in": false,
+      "regs_est": 112,
+      "rings_dynamic": false,
+      "smem_bytes": 40960,
+      "threads": 256
+    },
+    "gops": 17994.5
+  },
+  "precision": "bf16",
+  "provenance": "measured_rtx3060",
+  "ratio": 1.1995133819951338,
+  "reproduce": "SPATIAL_RECORD=1 cargo nextest run -p logicaffeine-tests --test cuda_spatial_persistent_lock -E 'test(persistent_throughput_ratchets_against_the_lattice_best)'",
+  "schema_version": 1,
+  "shape": [
+    2048,
+    2048,
+    2048
+  ]
+}

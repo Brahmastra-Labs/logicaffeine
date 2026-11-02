@@ -1,0 +1,11 @@
+{
+  "capability": "iter.unique",
+  "workload": "uniqueSeq(xs) \u2014 count of distinct (length fold)",
+  "arg": "30000",
+  "expected": "122872432",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "go"
+  ]
+}

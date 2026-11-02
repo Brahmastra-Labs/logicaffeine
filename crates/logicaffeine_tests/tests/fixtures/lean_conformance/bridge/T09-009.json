@@ -1,0 +1,29 @@
+{
+  "case": "T09-009",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T09_009.realDef",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t09_009_1",
+      "logos": "Checked LOGOS Context artifact for T09_009.realDef imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T09-009.ndjson (export sha256 6ed7a9d18e306a17535ee8fe9a708a2b31453c806efb6b3d4dc23bab8e8f4f7c); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 9bd4c00b90f1f4685f3068afeb3077da2973d3d6efd3349530fe815f9b01c3f6), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T09_009.realTheorem",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "T09_009.realDef 3 = 6",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t09_009_1",
+      "logos": "Checked LOGOS Context artifact for T09_009.realTheorem imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T09-009.ndjson (export sha256 6ed7a9d18e306a17535ee8fe9a708a2b31453c806efb6b3d4dc23bab8e8f4f7c); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 9bd4c00b90f1f4685f3068afeb3077da2973d3d6efd3349530fe815f9b01c3f6), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    }
+  ]
+}

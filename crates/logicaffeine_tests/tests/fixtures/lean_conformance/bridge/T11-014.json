@@ -1,0 +1,234 @@
+{
+  "case": "T11-014",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T11_014.Trivial'",
+      "lean_kind": "inductive",
+      "lean_levels": [],
+      "lean_type": "Type → Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t11_014_1",
+      "logos": "Checked LOGOS Context artifact for T11_014.Trivial' imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T11-014.ndjson (export sha256 d1879c09b1a8776555dd7871e26f49c778e2a45c24f6795977892af20389c605); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T11_014.Trivial'.mk",
+      "lean_kind": "ctor",
+      "lean_levels": [],
+      "lean_type": "{α : Type} → α → T11_014.Trivial' α",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t11_014_1",
+      "logos": "Checked LOGOS Context artifact for T11_014.Trivial'.mk imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T11-014.ndjson (export sha256 d1879c09b1a8776555dd7871e26f49c778e2a45c24f6795977892af20389c605); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T11_014.Trivial'.witness",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{α : Type} → [self : T11_014.Trivial' α] → α",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t11_014_1",
+      "logos": "Checked LOGOS Context artifact for T11_014.Trivial'.witness imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T11-014.ndjson (export sha256 d1879c09b1a8776555dd7871e26f49c778e2a45c24f6795977892af20389c605); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T11_014.actuallyProved",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (n : Nat), 0 ≤ n",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t11_014_1",
+      "logos": "Checked LOGOS Context artifact for T11_014.actuallyProved imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T11-014.ndjson (export sha256 d1879c09b1a8776555dd7871e26f49c778e2a45c24f6795977892af20389c605); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T11_014.alsoUnproved",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "2 = 3",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t11_014_also_unproved",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T11_014.alsoUnproved names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T11-014.alsoUnproved.ndjson (sha256 3356f5b0b4f76c42062c2330490e917b9c6837b3cfcfc490bd442c8a14d5e5cb; source sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T11_014.alsoUnproved → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T11_014.alsoUnproved",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T11_014.deliberateAssumption",
+      "lean_kind": "axiom",
+      "lean_levels": [],
+      "lean_type": "∀ (n : Nat), 0 ≤ n",
+      "lean_axioms": [
+        "T11_014.deliberateAssumption"
+      ],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t11_014_1",
+      "logos": "Checked LOGOS Context artifact for T11_014.deliberateAssumption imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T11-014.ndjson (export sha256 d1879c09b1a8776555dd7871e26f49c778e2a45c24f6795977892af20389c605); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T11_014.dependsOnIt",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (n : Nat), n = n + 1",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t11_014_depends_on_it",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T11_014.dependsOnIt names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T11-014.dependsOnIt.ndjson (sha256 e7a6e0accd8a9e74876561a137fb39ec4f1afe4ab705025f161bb7938189e8b5; source sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T11_014.dependsOnIt → T11_014.obviouslyUnproved → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T11_014.dependsOnIt",
+            "T11_014.obviouslyUnproved",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T11_014.dependsTransitively",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "0 = 1",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t11_014_depends_transitively",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T11_014.dependsTransitively names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T11-014.dependsTransitively.ndjson (sha256 75641a54283606a8a45cbfcbd045a7f9b006336dc81ffd568af6012d55c31bc5; source sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T11_014.dependsTransitively → T11_014.dependsOnIt → T11_014.obviouslyUnproved → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T11_014.dependsTransitively",
+            "T11_014.dependsOnIt",
+            "T11_014.obviouslyUnproved",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T11_014.instTrivial'Nat",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "T11_014.Trivial' Nat",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t11_014_inst_trivial_nat",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T11_014.instTrivial'Nat names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T11-014.instTrivial_Nat.ndjson (sha256 457918edccf25b3b3ceb5b2ffc992d1f9debc43bc51d923c0704904135e0aeac; source sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T11_014.instTrivial'Nat → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T11_014.instTrivial'Nat",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T11_014.obviouslyUnproved",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (n : Nat), n = n + 1",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t11_014_obviously_unproved",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T11_014.obviouslyUnproved names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T11-014.obviouslyUnproved.ndjson (sha256 2b58c7ed74007eaa35f30a0fa389602471a662752d40223f1daba11b571f5dfe; source sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T11_014.obviouslyUnproved → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T11_014.obviouslyUnproved",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T11_014.sorryNat",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t11_014_sorry_nat",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T11_014.sorryNat names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T11-014.sorryNat.ndjson (sha256 1424c312ee6dd784cc0b50fcadc710278c09d255f3a07ab1537a7f8038c169a8; source sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T11_014.sorryNat → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T11_014.sorryNat",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T11_014.usesInstance",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "[inst : T11_014.Trivial' Nat] → Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t11_014_1",
+      "logos": "Checked LOGOS Context artifact for T11_014.usesInstance imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T11-014.ndjson (export sha256 d1879c09b1a8776555dd7871e26f49c778e2a45c24f6795977892af20389c605); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 3094ff30c2e1c0a41f50131f338abf9163c7bfdf9487101cb32e2f20fded2893), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    }
+  ]
+}

@@ -10,6 +10,7 @@
     "all W is C"
   ],
   "correct": 3,
-  "hint": "Is this saying 'not all' or 'not any at all'?",
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+  "hint": "Read 'not A unless B' as 'if A, then B'. What does that say about everyone who is A?",
+  "explanation": "Not weak unless confused means every weak person is confused: all W is C.",
+  "section": "2.1"
 }

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# qemu-riscv64 — memory-capped wrapper around /usr/bin/qemu-riscv64.
+#
+# WHY THIS EXISTS. qemu-user maps the guest's allocations into its OWN host
+# process, and there is no guest kernel in between to stop a runaway. A RISC-V
+# program that allocates without bound therefore becomes a host process that
+# allocates without bound: qemu-riscv64 has repeatedly reached ~126 GB RSS on
+# this 125 GiB box and taken the whole user slice down with it, killing every
+# SSH session and the VS Code server along with the test run.
+#
+# nextest's slow-timeout cannot catch this. It kills a test that runs too LONG,
+# and memory has no timeout — qemu goes from 2 GB to 126 GB well inside the
+# 900s warning period, so the box dies before the backstop ever fires.
+#
+# THE CAP. RLIMIT_AS (ulimit -v), applied here and inherited through the exec.
+# Measured on this box:
+#   * qemu-riscv64 starts and runs a static RV64 hello-world fine at a 256 MB
+#     cap, so there is no large sparse VA reservation to trip over — the
+#     emulator's address space is close to its RSS (the OOM records agree:
+#     total-vm 127 GB vs anon-rss 126 GB).
+#   * A guest that mallocs 64 MB at a time in a loop hits the cap in ~2 seconds
+#     and gets a clean NULL back from malloc, exiting with its own status. The
+#     test then reports a real failure instead of the machine falling over.
+#
+# So the failure mode changes from "the box dies and you learn nothing" to
+# "one test fails and tells you which program blew its budget".
+#
+# TUNING. LOGICAFFEINE_QEMU_MEM_MB overrides the cap (megabytes).
+# The 8192 default is deliberately far above any legitimate benchmark-corpus
+# program and far below catastrophic; raise it if a real program needs more,
+# but treat needing to raise it as a signal worth reading. Set it to 0 to
+# disable the cap entirely (CI on a box with its own cgroup limits, say).
+set -u
+
+REAL=/usr/bin/qemu-riscv64
+[ -x "$REAL" ] || { echo "qemu-riscv64 wrapper: $REAL not found or not executable" >&2; exit 127; }
+
+MB="${LOGICAFFEINE_QEMU_MEM_MB:-8192}"
+case "$MB" in
+  ''|*[!0-9]*) echo "qemu-riscv64 wrapper: LOGICAFFEINE_QEMU_MEM_MB must be an integer, got '$MB'" >&2; exit 2 ;;
+esac
+
+if [ "$MB" -ne 0 ]; then
+  # ulimit is in KB. The cap is a ceiling: an inherited limit already at or under it (the parity harness
+  # runs every guest under its own, stricter one) is kept, and nothing is written to the guest's stderr.
+  # Best-effort: never let an unsettable limit block the run.
+  CAP_KB=$((MB * 1024))
+  CUR_KB=$(ulimit -v)
+  if [ "$CUR_KB" = unlimited ] || [ "$CUR_KB" -gt "$CAP_KB" ]; then
+    ulimit -v "$CAP_KB" 2>/dev/null || \
+      echo "qemu-riscv64 wrapper: warning — could not set RLIMIT_AS to ${MB} MB" >&2
+  fi
+fi
+
+exec "$REAL" "$@"

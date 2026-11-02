@@ -1,0 +1,95 @@
+{
+  "case": "T06-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 11,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T06_012.Parity",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T06_012.bigQuot",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : T06_012.Parity \u2192 Prop), (\u2200 (n : Nat), P (T06_012.mk n)) \u2192 \u2200 (q : T06_012.Parity), P q",
+      "name": "T06_012.indProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T06_012.parityBit (T06_012.mk n) = n % 2",
+      "name": "T06_012.liftComputes",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T06_012.Parity",
+      "name": "T06_012.mk",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_012.Parity \u2192 Nat",
+      "name": "T06_012.parityBit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_012.Parity \u2192 Unit",
+      "name": "T06_012.recIntoType",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (x x_1 : Nat) (x_2 : T06_012.rel x x_1), \u22ef \u25b8 (fun x => ()) x = \u22ef \u25b8 (fun x => ()) x",
+      "name": "T06_012.recIntoType.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Prop",
+      "name": "T06_012.rel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), T06_012.rel a b \u2192 T06_012.mk a = T06_012.mk b",
+      "name": "T06_012.soundness",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "T06_012.mk 0 = T06_012.mk 2",
+      "name": "T06_012.zeroTwo",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

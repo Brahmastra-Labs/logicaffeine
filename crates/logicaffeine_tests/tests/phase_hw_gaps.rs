@@ -296,7 +296,9 @@ fn gap_d_counting_of_list_contains_all_signals() {
     let r = synth("At most one of grant0, grant1, and grant2 is asserted.");
     let body_lower = r.body.to_lowercase();
     assert!(
-        body_lower.contains("grant0") && body_lower.contains("grant1") && body_lower.contains("grant2"),
+        body_lower.contains("grant0")
+            && body_lower.contains("grant1")
+            && body_lower.contains("grant2"),
         "SVA body must reference all listed signals. Got: '{}'",
         r.body
     );

@@ -10,6 +10,7 @@
     "There is no largest prime number"
   ],
   "correct": 0,
-  "hint": "The first theorem gives an unprovable truth; the second turns that on the statement 'this system is consistent'.",
-  "explanation": "Gödel's Second Incompleteness Theorem: a consistent formal system F powerful enough to express arithmetic cannot prove the sentence asserting its own consistency (Con(F)). So a system can never certify its own reliability from within — you must step up to a stronger metatheory."
+  "hint": "The first theorem gives an unprovable truth. The second is about the statement 'this system is consistent'.",
+  "explanation": "A consistent system strong enough for arithmetic cannot prove its own consistency. To trust it, we must reason in a stronger system.",
+  "section": "15.6"
 }

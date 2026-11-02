@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Sleep, Donna",
   "options": [
-    "$ S\\underline{d} $",
-    "$ S\\underline{u} d $",
-    "$ OS\\underline{d} $",
-    "$ Sd $"
+    "S(d̲)",
+    "S(u̲, d)",
+    "O S(d̲)",
+    "S(d)"
   ],
   "correct": 0,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "A command to Donna to sleep. Donna is the agent (underlined) and the verb is intransitive: S͟d."
+  "hint": "Who is told to act? Underline that person's letter.",
+  "explanation": "A command to Donna to sleep: S(d̲).",
+  "section": "12.2"
 }

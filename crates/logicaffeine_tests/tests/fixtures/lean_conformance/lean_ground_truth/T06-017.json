@@ -1,0 +1,53 @@
+{
+  "case": "T06-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "3 = 3",
+      "name": "T06_017.clean",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T06_017.dataSorry",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q",
+      "name": "T06_017.tacticSorry",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T06_017.taintedLemma",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "3 + 0 = 3",
+      "name": "T06_017.taintedUser",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T06_017.lean:77:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T06_017.lean:81:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T06_017.lean:85:4: warning: declaration uses 'sorry'"
+}

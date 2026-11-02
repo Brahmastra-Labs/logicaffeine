@@ -1,0 +1,52 @@
+{
+  "case": "T11-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t11_adversarial/T11-011_mutual_unequal_params.lean",
+  "source_sha256": "0323bafde4382e2dde3c564682823a4d29d5fc4c233c032014a8c80622f7c3a1",
+  "ledger_sha256": "e1fdc7f81e3d326df8c19959793c2a7951fdd93819d1549db35e050324886f6c",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T11_011.forestSize",
+    "T11_011.treeSize"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "f02fbd78f806f48a61700061c0147557d729efbdffb32255e32fb2ee3a6dc8f5",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1120,
+  "harvest": {
+    "roots": [
+      "T11_011.forestSize",
+      "T11_011.treeSize"
+    ],
+    "probe_binary_sha256": "696ac3170370b23648a463b3e8b1bd49d7aeb2ecef8c8571a02981663611885c",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:bd3b0fcc3735954a05b1e03b69f554a5de4fb6171e478af17f5b96e5910c0c6e",
+    "joint_export": true
+  }
+}

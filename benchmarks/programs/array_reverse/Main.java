@@ -12,6 +12,8 @@ public class Main {
             long tmp = arr[lo]; arr[lo] = arr[hi]; arr[hi] = tmp;
             lo++; hi--;
         }
-        System.out.println(arr[0] + " " + arr[n - 1] + " " + arr[n / 2]);
+        long checksum = 0;
+        for (long v : arr) checksum = (checksum * 31 + v) & 268435455;
+        System.out.println(arr[0] + " " + arr[n - 1] + " " + checksum);
     }
 }

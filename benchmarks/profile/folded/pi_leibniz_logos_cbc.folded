@@ -1,0 +1,3 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 23338615499
+_start;__libc_start_main_impl;__libc_start_call_main;__GI_exit;__run_exit_handlers;lc_gc_teardown;__GI___libc_free;__GI_munmap;[unknown] 2983619
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__libc_calloc;tcache_init 231683

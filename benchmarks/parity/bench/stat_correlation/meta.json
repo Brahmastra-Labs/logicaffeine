@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.correlation",
+  "workload": "statistics.correlation",
+  "arg": "20000",
+  "expected": "175782560",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

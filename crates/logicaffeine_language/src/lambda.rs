@@ -35,11 +35,11 @@
 //! - `make_intensional`: Wraps an expression in an intensional operator
 //! - `substitute_respecting_opacity`: Blocks substitution inside intensional contexts
 
-use logicaffeine_base::Arena;
 use crate::ast::{LogicExpr, QuantifierKind, Term};
-use logicaffeine_base::{Interner, Symbol};
 use crate::lexicon;
 use crate::token::TokenType;
+use logicaffeine_base::Arena;
+use logicaffeine_base::{Interner, Symbol};
 
 fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
     match term {
@@ -53,7 +53,10 @@ fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
             let cloned: Vec<Term<'a>> = members.iter().map(|t| clone_term(t, arena)).collect();
             Term::Group(arena.alloc_slice(cloned))
         }
-        Term::Possessed { possessor, possessed } => Term::Possessed {
+        Term::Possessed {
+            possessor,
+            possessed,
+        } => Term::Possessed {
             possessor: arena.alloc(clone_term(possessor, arena)),
             possessed: *possessed,
         },
@@ -61,7 +64,11 @@ fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
         Term::Intension(predicate) => Term::Intension(*predicate),
         Term::Kind(kind) => Term::Kind(*kind),
         Term::Proposition(expr) => Term::Proposition(*expr),
-        Term::Value { kind, unit, dimension } => Term::Value {
+        Term::Value {
+            kind,
+            unit,
+            dimension,
+        } => Term::Value {
             kind: *kind,
             unit: *unit,
             dimension: *dimension,
@@ -103,12 +110,10 @@ pub fn substitute_respecting_opacity<'a>(
     term_arena: &'a Arena<Term<'a>>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Intensional { operator, content } => {
-            expr_arena.alloc(LogicExpr::Intensional {
-                operator: *operator,
-                content: *content,
-            })
-        }
+        LogicExpr::Intensional { operator, content } => expr_arena.alloc(LogicExpr::Intensional {
+            operator: *operator,
+            content: *content,
+        }),
 
         LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<Term<'a>> = args
@@ -130,17 +135,34 @@ pub fn substitute_respecting_opacity<'a>(
 
         LogicExpr::UnaryOp { op, operand } => expr_arena.alloc(LogicExpr::UnaryOp {
             op: op.clone(),
-            operand: substitute_respecting_opacity(operand, var, replacement, expr_arena, term_arena),
+            operand: substitute_respecting_opacity(
+                operand,
+                var,
+                replacement,
+                expr_arena,
+                term_arena,
+            ),
         }),
 
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } => {
             if *variable == var {
                 expr
             } else {
                 expr_arena.alloc(LogicExpr::Quantifier {
                     kind: *kind,
                     variable: *variable,
-                    body: substitute_respecting_opacity(body, var, replacement, expr_arena, term_arena),
+                    body: substitute_respecting_opacity(
+                        body,
+                        var,
+                        replacement,
+                        expr_arena,
+                        term_arena,
+                    ),
                     island_id: *island_id,
                 })
             }
@@ -152,14 +174,32 @@ pub fn substitute_respecting_opacity<'a>(
             } else {
                 expr_arena.alloc(LogicExpr::Lambda {
                     variable: *variable,
-                    body: substitute_respecting_opacity(body, var, replacement, expr_arena, term_arena),
+                    body: substitute_respecting_opacity(
+                        body,
+                        var,
+                        replacement,
+                        expr_arena,
+                        term_arena,
+                    ),
                 })
             }
         }
 
         LogicExpr::App { function, argument } => expr_arena.alloc(LogicExpr::App {
-            function: substitute_respecting_opacity(function, var, replacement, expr_arena, term_arena),
-            argument: substitute_respecting_opacity(argument, var, replacement, expr_arena, term_arena),
+            function: substitute_respecting_opacity(
+                function,
+                var,
+                replacement,
+                expr_arena,
+                term_arena,
+            ),
+            argument: substitute_respecting_opacity(
+                argument,
+                var,
+                replacement,
+                expr_arena,
+                term_arena,
+            ),
         }),
 
         LogicExpr::Atom(s) => {
@@ -181,18 +221,14 @@ fn substitute_term_for_opacity<'a>(
     arena: &'a Arena<Term<'a>>,
 ) -> Term<'a> {
     match term {
-        Term::Constant(c) if *c == var => {
-            match replacement {
-                LogicExpr::Atom(s) => Term::Constant(*s),
-                _ => clone_term(term, arena),
-            }
-        }
-        Term::Variable(v) if *v == var => {
-            match replacement {
-                LogicExpr::Atom(s) => Term::Constant(*s),
-                _ => clone_term(term, arena),
-            }
-        }
+        Term::Constant(c) if *c == var => match replacement {
+            LogicExpr::Atom(s) => Term::Constant(*s),
+            _ => clone_term(term, arena),
+        },
+        Term::Variable(v) if *v == var => match replacement {
+            LogicExpr::Atom(s) => Term::Constant(*s),
+            _ => clone_term(term, arena),
+        },
         _ => clone_term(term, arena),
     }
 }
@@ -221,7 +257,8 @@ pub fn to_event_semantics<'a>(
             let mut body = event_pred;
 
             if !args.is_empty() {
-                let agent_args = term_arena.alloc_slice([Term::Variable(e_sym), clone_term(&args[0], term_arena)]);
+                let agent_args = term_arena
+                    .alloc_slice([Term::Variable(e_sym), clone_term(&args[0], term_arena)]);
                 let agent_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Agent"),
                     args: agent_args,
@@ -235,7 +272,8 @@ pub fn to_event_semantics<'a>(
             }
 
             if args.len() > 1 {
-                let theme_args = term_arena.alloc_slice([Term::Variable(e_sym), clone_term(&args[1], term_arena)]);
+                let theme_args = term_arena
+                    .alloc_slice([Term::Variable(e_sym), clone_term(&args[1], term_arena)]);
                 let theme_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Theme"),
                     args: theme_args,
@@ -249,7 +287,8 @@ pub fn to_event_semantics<'a>(
             }
 
             if args.len() > 2 {
-                let goal_args = term_arena.alloc_slice([Term::Variable(e_sym), clone_term(&args[2], term_arena)]);
+                let goal_args = term_arena
+                    .alloc_slice([Term::Variable(e_sym), clone_term(&args[2], term_arena)]);
                 let goal_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Goal"),
                     args: goal_args,
@@ -285,7 +324,12 @@ pub fn apply_adverb<'a>(
 ) -> &'a LogicExpr<'a> {
     let e_sym = interner.intern("e");
     match expr {
-        LogicExpr::Quantifier { kind, variable, body, island_id } if *variable == e_sym => {
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } if *variable == e_sym => {
             let adverb_str = interner.resolve(adverb);
             let capitalized = capitalize(adverb_str);
             let adverb_pred = expr_arena.alloc(LogicExpr::Predicate {
@@ -383,7 +427,11 @@ impl<'a> Iterator for ScopeIterator<'a> {
         }
         let ordered = self.nth_island_aware_permutation(self.current_index);
         self.current_index += 1;
-        Some(rebuild_with_scopal_elements(&ordered, self.core, self.expr_arena))
+        Some(rebuild_with_scopal_elements(
+            &ordered,
+            self.core,
+            self.expr_arena,
+        ))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -454,7 +502,10 @@ pub fn enumerate_scopings<'a>(
     }
 
     let islands = group_scopal_by_island(elements);
-    let total: u64 = islands.iter().map(|island| factorial(island.len())).product();
+    let total: u64 = islands
+        .iter()
+        .map(|island| factorial(island.len()))
+        .product();
 
     ScopeIterator {
         expr_arena,
@@ -465,17 +516,6 @@ pub fn enumerate_scopings<'a>(
         single_result: None,
         returned_single: false,
     }
-}
-
-fn group_by_island<'a>(quantifiers: Vec<QuantifierInfo<'a>>) -> Vec<Vec<QuantifierInfo<'a>>> {
-    use std::collections::BTreeMap;
-
-    let mut by_island: BTreeMap<u32, Vec<QuantifierInfo<'a>>> = BTreeMap::new();
-    for q in quantifiers {
-        by_island.entry(q.island_id).or_default().push(q);
-    }
-
-    by_island.into_values().collect()
 }
 
 fn group_scopal_by_island<'a>(elements: Vec<ScopalElement<'a>>) -> Vec<Vec<ScopalElement<'a>>> {
@@ -521,7 +561,11 @@ pub fn cumulative_reading<'a>(
     }
 
     let and = |l: &'a LogicExpr<'a>, r: &'a LogicExpr<'a>| -> &'a LogicExpr<'a> {
-        expr_arena.alloc(LogicExpr::BinaryOp { left: l, op: TokenType::And, right: r })
+        expr_arena.alloc(LogicExpr::BinaryOp {
+            left: l,
+            op: TokenType::And,
+            right: r,
+        })
     };
 
     // Conjunct 1: q1 x ( R1(x) ∧ ∃y( R2(y) ∧ core ) )
@@ -562,11 +606,20 @@ fn extract_scopal_elements<'a>(
     expr_arena: &'a Arena<LogicExpr<'a>>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } => {
             if let LogicExpr::BinaryOp { left, op, right } = body {
                 if matches!(op, TokenType::If | TokenType::Implies | TokenType::And) {
                     // Check if right side has a negation at the top level
-                    if let LogicExpr::UnaryOp { op: TokenType::Not, operand } = right {
+                    if let LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand,
+                    } = right
+                    {
                         // Pattern: ∀x(R(x) → ¬P(x)) or ∃x(R(x) ∧ ¬P(x))
                         // Extract both quantifier and negation
                         elements.push(ScopalElement::Quantifier(QuantifierInfo {
@@ -575,7 +628,9 @@ fn extract_scopal_elements<'a>(
                             restrictor: *left,
                             island_id: *island_id,
                         }));
-                        elements.push(ScopalElement::Negation { island_id: *island_id });
+                        elements.push(ScopalElement::Negation {
+                            island_id: *island_id,
+                        });
                         return extract_scopal_elements(operand, elements, interner, expr_arena);
                     }
                     // No negation in right side, just extract quantifier
@@ -597,7 +652,10 @@ fn extract_scopal_elements<'a>(
             }));
             extract_scopal_elements(body, elements, interner, expr_arena)
         }
-        LogicExpr::UnaryOp { op: TokenType::Not, operand } => {
+        LogicExpr::UnaryOp {
+            op: TokenType::Not,
+            operand,
+        } => {
             // Standalone negation (not inside a quantifier body)
             elements.push(ScopalElement::Negation { island_id: 0 });
             extract_scopal_elements(operand, elements, interner, expr_arena)
@@ -641,67 +699,6 @@ fn rebuild_with_scopal_elements<'a>(
                 });
             }
         }
-    }
-
-    result
-}
-
-fn extract_quantifiers<'a>(
-    expr: &'a LogicExpr<'a>,
-    quantifiers: &mut Vec<QuantifierInfo<'a>>,
-    interner: &mut Interner,
-    expr_arena: &'a Arena<LogicExpr<'a>>,
-) -> &'a LogicExpr<'a> {
-    match expr {
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
-            if let LogicExpr::BinaryOp { left, op, right } = body {
-                if matches!(op, TokenType::If | TokenType::Implies | TokenType::And) {
-                    quantifiers.push(QuantifierInfo {
-                        kind: *kind,
-                        variable: *variable,
-                        restrictor: *left,
-                        island_id: *island_id,
-                    });
-                    return extract_quantifiers(right, quantifiers, interner, expr_arena);
-                }
-            }
-            quantifiers.push(QuantifierInfo {
-                kind: *kind,
-                variable: *variable,
-                restrictor: expr_arena.alloc(LogicExpr::Atom(interner.intern("T"))),
-                island_id: *island_id,
-            });
-            extract_quantifiers(body, quantifiers, interner, expr_arena)
-        }
-        _ => expr,
-    }
-}
-
-fn rebuild_with_scope_order<'a>(
-    quantifiers: &[QuantifierInfo<'a>],
-    core: &'a LogicExpr<'a>,
-    arena: &'a Arena<LogicExpr<'a>>,
-) -> &'a LogicExpr<'a> {
-    let mut result = core;
-
-    for q in quantifiers.iter().rev() {
-        let connective = match q.kind {
-            QuantifierKind::Universal => TokenType::Implies,
-            _ => TokenType::And,
-        };
-
-        let body = arena.alloc(LogicExpr::BinaryOp {
-            left: q.restrictor,
-            op: connective,
-            right: result,
-        });
-
-        result = arena.alloc(LogicExpr::Quantifier {
-            kind: q.kind,
-            variable: q.variable,
-            body,
-            island_id: q.island_id,
-        });
     }
 
     result
@@ -843,7 +840,12 @@ fn substitute<'a>(
             operand: substitute(operand, var, replacement, expr_arena, term_arena),
         }),
 
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } => {
             if *variable == var {
                 expr
             } else {
@@ -875,13 +877,11 @@ fn substitute_term<'a>(
     term_arena: &'a Arena<Term<'a>>,
 ) -> Term<'a> {
     match term {
-        Term::Variable(v) if *v == var => {
-            match replacement {
-                LogicExpr::Atom(s) => Term::Constant(*s),
-                LogicExpr::Predicate { name, .. } => Term::Constant(*name),
-                _ => clone_term(term, term_arena),
-            }
-        }
+        Term::Variable(v) if *v == var => match replacement {
+            LogicExpr::Atom(s) => Term::Constant(*s),
+            LogicExpr::Predicate { name, .. } => Term::Constant(*name),
+            _ => clone_term(term, term_arena),
+        },
         _ => clone_term(term, term_arena),
     }
 }
@@ -892,7 +892,6 @@ fn substitute_term<'a>(
 
 #[derive(Debug)]
 struct IntensionalContext {
-    verb: Symbol,
     quantifier_var: Symbol,
     restrictor: Symbol,
 }
@@ -902,15 +901,29 @@ fn find_opaque_verb_context<'a>(
     interner: &Interner,
 ) -> Option<IntensionalContext> {
     match expr {
-        LogicExpr::Quantifier { kind: QuantifierKind::Existential, variable, body, .. } => {
-            if let LogicExpr::BinaryOp { left, op: TokenType::And, right } = body {
-                if let LogicExpr::Predicate { name: restrictor, args, .. } = left {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable,
+            body,
+            ..
+        } => {
+            if let LogicExpr::BinaryOp {
+                left,
+                op: TokenType::And,
+                right,
+            } = body
+            {
+                if let LogicExpr::Predicate {
+                    name: restrictor,
+                    args,
+                    ..
+                } = left
+                {
                     if args.len() == 1 {
                         if let Term::Variable(v) = &args[0] {
                             if *v == *variable {
-                                if let Some(verb) = find_opaque_verb_in_scope(right, *variable, interner) {
+                                if find_opaque_verb_in_scope(right, *variable, interner).is_some() {
                                     return Some(IntensionalContext {
-                                        verb,
                                         quantifier_var: *variable,
                                         restrictor: *restrictor,
                                     });
@@ -973,9 +986,12 @@ fn build_de_dicto_reading<'a>(
     role_arena: &'a Arena<(crate::ast::ThematicRole, Term<'a>)>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Quantifier { kind: QuantifierKind::Existential, variable, body, .. }
-            if *variable == ctx.quantifier_var =>
-        {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable,
+            body,
+            ..
+        } if *variable == ctx.quantifier_var => {
             if let LogicExpr::BinaryOp { right, .. } = body {
                 replace_theme_with_intension(right, ctx, expr_arena, term_arena, role_arena)
             } else {
@@ -994,8 +1010,14 @@ fn replace_theme_with_intension<'a>(
     role_arena: &'a Arena<(crate::ast::ThematicRole, Term<'a>)>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Quantifier { kind, variable, body, island_id } => {
-            let new_body = replace_theme_with_intension(body, ctx, expr_arena, term_arena, role_arena);
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        } => {
+            let new_body =
+                replace_theme_with_intension(body, ctx, expr_arena, term_arena, role_arena);
             expr_arena.alloc(LogicExpr::Quantifier {
                 kind: *kind,
                 variable: *variable,
@@ -1004,8 +1026,10 @@ fn replace_theme_with_intension<'a>(
             })
         }
         LogicExpr::BinaryOp { left, op, right } => {
-            let new_left = replace_theme_with_intension(left, ctx, expr_arena, term_arena, role_arena);
-            let new_right = replace_theme_with_intension(right, ctx, expr_arena, term_arena, role_arena);
+            let new_left =
+                replace_theme_with_intension(left, ctx, expr_arena, term_arena, role_arena);
+            let new_right =
+                replace_theme_with_intension(right, ctx, expr_arena, term_arena, role_arena);
             expr_arena.alloc(LogicExpr::BinaryOp {
                 left: new_left,
                 op: op.clone(),
@@ -1013,16 +1037,20 @@ fn replace_theme_with_intension<'a>(
             })
         }
         LogicExpr::NeoEvent(data) => {
-            let new_roles: Vec<_> = data.roles.iter().map(|(role, term)| {
-                if matches!(role, crate::ast::ThematicRole::Theme) {
-                    if let Term::Variable(v) = term {
-                        if *v == ctx.quantifier_var {
-                            return (*role, Term::Intension(ctx.restrictor));
+            let new_roles: Vec<_> = data
+                .roles
+                .iter()
+                .map(|(role, term)| {
+                    if matches!(role, crate::ast::ThematicRole::Theme) {
+                        if let Term::Variable(v) = term {
+                            if *v == ctx.quantifier_var {
+                                return (*role, Term::Intension(ctx.restrictor));
+                            }
                         }
                     }
-                }
-                (*role, clone_term(term, term_arena))
-            }).collect();
+                    (*role, clone_term(term, term_arena))
+                })
+                .collect();
 
             expr_arena.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
                 event_var: data.event_var,
@@ -1034,14 +1062,17 @@ fn replace_theme_with_intension<'a>(
             })))
         }
         LogicExpr::Predicate { name, args, .. } => {
-            let new_args: Vec<_> = args.iter().map(|arg| {
-                if let Term::Variable(v) = arg {
-                    if *v == ctx.quantifier_var {
-                        return Term::Intension(ctx.restrictor);
+            let new_args: Vec<_> = args
+                .iter()
+                .map(|arg| {
+                    if let Term::Variable(v) = arg {
+                        if *v == ctx.quantifier_var {
+                            return Term::Intension(ctx.restrictor);
+                        }
                     }
-                }
-                clone_term(arg, term_arena)
-            }).collect();
+                    clone_term(arg, term_arena)
+                })
+                .collect();
 
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
@@ -1061,7 +1092,9 @@ pub fn enumerate_intensional_readings<'a>(
     role_arena: &'a Arena<(crate::ast::ThematicRole, Term<'a>)>,
 ) -> Vec<&'a LogicExpr<'a>> {
     // Check if expression already has intensional terms (de dicto from parser)
-    if let Some(de_re) = build_de_re_from_de_dicto(expr, interner, expr_arena, term_arena, role_arena) {
+    if let Some(de_re) =
+        build_de_re_from_de_dicto(expr, interner, expr_arena, term_arena, role_arena)
+    {
         // Return both: de re first (existential), de dicto second (intension)
         return vec![de_re, expr];
     }
@@ -1171,22 +1204,28 @@ fn build_de_re_from_de_dicto<'a>(
                         });
 
                         // Build new roles with variable instead of intension
-                        let new_roles: Vec<_> = data.roles.iter().map(|(r, t)| {
-                            if matches!(r, crate::ast::ThematicRole::Theme) {
-                                (*r, Term::Variable(var))
-                            } else {
-                                (*r, t.clone())
-                            }
-                        }).collect();
+                        let new_roles: Vec<_> = data
+                            .roles
+                            .iter()
+                            .map(|(r, t)| {
+                                if matches!(r, crate::ast::ThematicRole::Theme) {
+                                    (*r, Term::Variable(var))
+                                } else {
+                                    (*r, t.clone())
+                                }
+                            })
+                            .collect();
 
-                        let new_event = expr_arena.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
-                            event_var: data.event_var,
-                            verb: data.verb,
-                            roles: role_arena.alloc_slice(new_roles),
-                            modifiers: data.modifiers,
-                            suppress_existential: false,
-                            world: None,
-                        })));
+                        let new_event = expr_arena.alloc(LogicExpr::NeoEvent(Box::new(
+                            crate::ast::NeoEventData {
+                                event_var: data.event_var,
+                                verb: data.verb,
+                                roles: role_arena.alloc_slice(new_roles),
+                                modifiers: data.modifiers,
+                                suppress_existential: false,
+                                world: None,
+                            },
+                        )));
 
                         // Build: ∃x(Noun(x) ∧ Event)
                         let body = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -1211,878 +1250,5 @@ fn build_de_re_from_de_dicto<'a>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::{LogicExpr, Term};
-    use logicaffeine_base::Interner;
-    use crate::registry::SymbolRegistry;
-    use crate::OutputFormat;
-
-    #[test]
-    fn test_lambda_formatting_unicode() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let sleep = interner.intern("Sleep");
-
-        let body = expr_arena.alloc(LogicExpr::Predicate {
-            name: sleep,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
-
-        let mut registry = SymbolRegistry::new();
-        let output = lambda.transpile(&mut registry, &interner, OutputFormat::Unicode);
-        assert!(output.contains("λx"), "Unicode should use λ: {}", output);
-    }
-
-    #[test]
-    fn test_lambda_formatting_latex() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let sleep = interner.intern("Sleep");
-
-        let body = expr_arena.alloc(LogicExpr::Predicate {
-            name: sleep,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
-
-        let mut registry = SymbolRegistry::new();
-        let output = lambda.transpile(&mut registry, &interner, OutputFormat::LaTeX);
-        assert!(output.contains("\\lambda"), "LaTeX should use \\lambda: {}", output);
-    }
-
-    #[test]
-    fn test_application_formatting() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-
-        let p = interner.intern("P");
-        let j = interner.intern("j");
-
-        let func = expr_arena.alloc(LogicExpr::Atom(p));
-        let arg = expr_arena.alloc(LogicExpr::Atom(j));
-        let app = expr_arena.alloc(LogicExpr::App { function: func, argument: arg });
-
-        let mut registry = SymbolRegistry::new();
-        let output = app.transpile(&mut registry, &interner, OutputFormat::Unicode);
-        assert!(output.contains("(") && output.contains(")"), "App should have parens: {}", output);
-    }
-
-    #[test]
-    fn test_nested_lambda() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-
-        let inner_body = expr_arena.alloc(LogicExpr::Atom(x));
-        let inner_lambda = expr_arena.alloc(LogicExpr::Lambda { variable: y, body: inner_body });
-        let outer_lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body: inner_lambda });
-
-        let mut registry = SymbolRegistry::new();
-        let output = outer_lambda.transpile(&mut registry, &interner, OutputFormat::Unicode);
-        assert!(output.contains("λx") && output.contains("λy"), "Nested lambdas: {}", output);
-    }
-
-    #[test]
-    fn test_lambda_app_helper_functions() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let _term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let p = interner.intern("P");
-
-        let body = expr_arena.alloc(LogicExpr::Atom(x));
-        let lambda = LogicExpr::lambda(x, body, &expr_arena);
-
-        let arg = expr_arena.alloc(LogicExpr::Atom(p));
-        let app = LogicExpr::app(lambda, arg, &expr_arena);
-
-        assert!(matches!(app, LogicExpr::App { .. }));
-    }
-
-    #[test]
-    fn lift_proper_name_returns_lambda() {
-        let mut interner = Interner::new();
-        let arena: Arena<LogicExpr> = Arena::new();
-
-        let john = interner.intern("John");
-        let lifted = lift_proper_name(john, &mut interner, &arena);
-
-        assert!(matches!(lifted, LogicExpr::Lambda { .. }), "Should return Lambda");
-    }
-
-    #[test]
-    fn lift_proper_name_applies_predicate() {
-        let mut interner = Interner::new();
-        let arena: Arena<LogicExpr> = Arena::new();
-
-        let john = interner.intern("John");
-        let lifted = lift_proper_name(john, &mut interner, &arena);
-
-        if let LogicExpr::Lambda { body, .. } = lifted {
-            assert!(matches!(body, LogicExpr::App { .. }), "Body should be App");
-        } else {
-            panic!("Expected Lambda");
-        }
-    }
-
-    #[test]
-    fn lift_quantifier_universal_returns_lambda() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let woman = interner.intern("woman");
-        let lifted = lift_quantifier(QuantifierKind::Universal, woman, &mut interner, &expr_arena, &term_arena);
-
-        assert!(matches!(lifted, LogicExpr::Lambda { .. }), "Should return Lambda");
-    }
-
-    #[test]
-    fn lift_quantifier_universal_structure() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let woman = interner.intern("woman");
-        let lifted = lift_quantifier(QuantifierKind::Universal, woman, &mut interner, &expr_arena, &term_arena);
-
-        if let LogicExpr::Lambda { body, .. } = lifted {
-            assert!(
-                matches!(body, LogicExpr::Quantifier { kind: QuantifierKind::Universal, .. }),
-                "Body should contain ∀, got {:?}",
-                body
-            );
-        } else {
-            panic!("Expected Lambda, got {:?}", lifted);
-        }
-    }
-
-    #[test]
-    fn lift_quantifier_existential_returns_lambda() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let man = interner.intern("man");
-        let lifted = lift_quantifier(QuantifierKind::Existential, man, &mut interner, &expr_arena, &term_arena);
-
-        assert!(matches!(lifted, LogicExpr::Lambda { .. }), "Should return Lambda");
-    }
-
-    #[test]
-    fn lift_quantifier_existential_structure() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let man = interner.intern("man");
-        let lifted = lift_quantifier(QuantifierKind::Existential, man, &mut interner, &expr_arena, &term_arena);
-
-        if let LogicExpr::Lambda { body, .. } = lifted {
-            assert!(
-                matches!(body, LogicExpr::Quantifier { kind: QuantifierKind::Existential, .. }),
-                "Body should contain ∃, got {:?}",
-                body
-            );
-        } else {
-            panic!("Expected Lambda, got {:?}", lifted);
-        }
-    }
-
-    #[test]
-    fn beta_reduce_simple_predicate() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let john = interner.intern("John");
-        let run = interner.intern("Run");
-
-        let body = expr_arena.alloc(LogicExpr::Predicate {
-            name: run,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
-        let arg = expr_arena.alloc(LogicExpr::Atom(john));
-        let app = expr_arena.alloc(LogicExpr::App { function: lambda, argument: arg });
-
-        let reduced = beta_reduce(app, &expr_arena, &term_arena);
-
-        let mut registry = SymbolRegistry::new();
-        let output = reduced.transpile(&mut registry, &interner, OutputFormat::Unicode);
-        assert!(output.contains("R(J)") || output.contains("Run(John)"), "Should substitute: {}", output);
-    }
-
-    #[test]
-    fn beta_reduce_with_constant() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let c = interner.intern("c");
-
-        let body = expr_arena.alloc(LogicExpr::Atom(c));
-        let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
-        let arg = expr_arena.alloc(LogicExpr::Atom(interner.intern("anything")));
-        let app = expr_arena.alloc(LogicExpr::App { function: lambda, argument: arg });
-
-        let reduced = beta_reduce(app, &expr_arena, &term_arena);
-        assert!(matches!(reduced, LogicExpr::Atom(s) if *s == c), "Constant should remain");
-    }
-
-    #[test]
-    fn beta_reduce_nested_lambda() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-
-        let inner_body = expr_arena.alloc(LogicExpr::Atom(x));
-        let inner_lambda = expr_arena.alloc(LogicExpr::Lambda { variable: y, body: inner_body });
-        let outer_lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body: inner_lambda });
-
-        let reduced = beta_reduce(outer_lambda, &expr_arena, &term_arena);
-        assert!(matches!(reduced, LogicExpr::Lambda { .. }), "Should still be lambda");
-    }
-
-    #[test]
-    fn beta_reduce_non_application_unchanged() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let p = interner.intern("P");
-        let atom = expr_arena.alloc(LogicExpr::Atom(p));
-
-        let reduced = beta_reduce(atom, &expr_arena, &term_arena);
-        assert!(matches!(reduced, LogicExpr::Atom(s) if *s == p), "Atom unchanged");
-    }
-
-    #[test]
-    fn beta_reduce_preserves_unbound_variables() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let john = interner.intern("John");
-        let loves = interner.intern("Loves");
-
-        let body = expr_arena.alloc(LogicExpr::Predicate {
-            name: loves,
-            args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
-            world: None,
-        });
-        let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
-        let arg = expr_arena.alloc(LogicExpr::Atom(john));
-        let app = expr_arena.alloc(LogicExpr::App { function: lambda, argument: arg });
-
-        let reduced = beta_reduce(app, &expr_arena, &term_arena);
-
-        let mut registry = SymbolRegistry::new();
-        let output = reduced.transpile(&mut registry, &interner, OutputFormat::Unicode);
-        assert!(output.contains("y"), "y should remain unbound: {}", output);
-    }
-
-    #[test]
-    fn enumerate_scopings_single_quantifier() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let dog = interner.intern("Dog");
-        let bark = interner.intern("Bark");
-
-        let left = expr_arena.alloc(LogicExpr::Predicate {
-            name: dog,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let right = expr_arena.alloc(LogicExpr::Predicate {
-            name: bark,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let body = expr_arena.alloc(LogicExpr::BinaryOp {
-            left,
-            op: TokenType::Implies,
-            right,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body,
-            island_id: 0,
-        });
-
-        let scopings = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
-        assert_eq!(scopings.len(), 1, "Single quantifier should have 1 reading");
-    }
-
-    #[test]
-    fn enumerate_scopings_no_quantifier() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let run = interner.intern("Run");
-        let john = interner.intern("John");
-
-        let expr = expr_arena.alloc(LogicExpr::Predicate {
-            name: run,
-            args: term_arena.alloc_slice([Term::Constant(john)]),
-            world: None,
-        });
-
-        let scopings = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
-        assert_eq!(scopings.len(), 1, "No quantifiers should have 1 reading");
-    }
-
-    #[test]
-    fn is_opaque_verb_believes() {
-        let mut interner = Interner::new();
-        let believes = interner.intern("believes");
-        let believes_cap = interner.intern("Believes");
-        assert!(is_opaque_verb(believes, &interner), "believes should be opaque");
-        assert!(is_opaque_verb(believes_cap, &interner), "Believes should be opaque");
-    }
-
-    #[test]
-    fn is_opaque_verb_seeks() {
-        let mut interner = Interner::new();
-        let seeks = interner.intern("seeks");
-        let wants = interner.intern("wants");
-        assert!(is_opaque_verb(seeks, &interner), "seeks should be opaque");
-        assert!(is_opaque_verb(wants, &interner), "wants should be opaque");
-    }
-
-    #[test]
-    fn is_opaque_verb_normal_verbs() {
-        let mut interner = Interner::new();
-        let runs = interner.intern("runs");
-        let loves = interner.intern("loves");
-        assert!(!is_opaque_verb(runs, &interner), "runs should NOT be opaque");
-        assert!(!is_opaque_verb(loves, &interner), "loves should NOT be opaque");
-    }
-
-    #[test]
-    fn make_intensional_creates_wrapper() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let weak = interner.intern("Weak");
-        let clark = interner.intern("Clark");
-        let believes = interner.intern("believes");
-
-        let content = expr_arena.alloc(LogicExpr::Predicate {
-            name: weak,
-            args: term_arena.alloc_slice([Term::Constant(clark)]),
-            world: None,
-        });
-
-        let intensional = make_intensional(believes, content, &expr_arena);
-
-        assert!(
-            matches!(intensional, LogicExpr::Intensional { operator, .. } if *operator == believes),
-            "Should create Intensional wrapper, got {:?}",
-            intensional
-        );
-    }
-
-    #[test]
-    fn intensional_transpiles_with_brackets() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let weak = interner.intern("Weak");
-        let clark = interner.intern("Clark");
-        let believes = interner.intern("Believes");
-
-        let content = expr_arena.alloc(LogicExpr::Predicate {
-            name: weak,
-            args: term_arena.alloc_slice([Term::Constant(clark)]),
-            world: None,
-        });
-
-        let intensional = expr_arena.alloc(LogicExpr::Intensional {
-            operator: believes,
-            content,
-        });
-
-        let mut registry = SymbolRegistry::new();
-        let output = intensional.transpile(&mut registry, &interner, OutputFormat::Unicode);
-
-        assert!(
-            output.contains("[") && output.contains("]"),
-            "Intensional should use brackets: got {}",
-            output
-        );
-    }
-
-    #[test]
-    fn substitute_respecting_opacity_blocks_inside_intensional() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let weak = interner.intern("Weak");
-        let clark = interner.intern("Clark");
-        let believes = interner.intern("Believes");
-        let superman = interner.intern("Superman");
-
-        let inner = expr_arena.alloc(LogicExpr::Predicate {
-            name: weak,
-            args: term_arena.alloc_slice([Term::Constant(clark)]),
-            world: None,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Intensional {
-            operator: believes,
-            content: inner,
-        });
-
-        let replacement = expr_arena.alloc(LogicExpr::Atom(superman));
-        let result = substitute_respecting_opacity(expr, clark, replacement, &expr_arena, &term_arena);
-
-        let mut registry = SymbolRegistry::new();
-        let output = result.transpile(&mut registry, &interner, OutputFormat::Unicode);
-
-        assert!(
-            output.contains("C") && !output.contains("S"),
-            "Should NOT substitute inside intensional context: got {}",
-            output
-        );
-    }
-
-    #[test]
-    fn substitute_respecting_opacity_allows_outside() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let weak = interner.intern("Weak");
-        let clark = interner.intern("Clark");
-        let superman = interner.intern("Superman");
-
-        let expr = expr_arena.alloc(LogicExpr::Predicate {
-            name: weak,
-            args: term_arena.alloc_slice([Term::Constant(clark)]),
-            world: None,
-        });
-
-        let replacement = expr_arena.alloc(LogicExpr::Atom(superman));
-        let result = substitute_respecting_opacity(expr, clark, replacement, &expr_arena, &term_arena);
-
-        let mut registry = SymbolRegistry::new();
-        let output = result.transpile(&mut registry, &interner, OutputFormat::Unicode);
-
-        assert!(
-            output.contains("S"),
-            "Should substitute outside intensional context: got {}",
-            output
-        );
-    }
-
-    #[test]
-    fn factorial_basic() {
-        assert_eq!(factorial(0), 1);
-        assert_eq!(factorial(1), 1);
-        assert_eq!(factorial(2), 2);
-        assert_eq!(factorial(3), 6);
-        assert_eq!(factorial(4), 24);
-        assert_eq!(factorial(5), 120);
-    }
-
-    #[test]
-    fn scope_iterator_two_quantifiers_yields_two() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let man = interner.intern("Man");
-        let woman = interner.intern("Woman");
-        let loves = interner.intern("Loves");
-
-        let man_x = expr_arena.alloc(LogicExpr::Predicate {
-            name: man,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let woman_y = expr_arena.alloc(LogicExpr::Predicate {
-            name: woman,
-            args: term_arena.alloc_slice([Term::Variable(y)]),
-            world: None,
-        });
-        let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
-            name: loves,
-            args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
-            world: None,
-        });
-
-        let inner = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: woman_y,
-            op: TokenType::And,
-            right: loves_xy,
-        });
-        let inner_q = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: y,
-            body: inner,
-            island_id: 0,
-        });
-
-        let outer = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: man_x,
-            op: TokenType::Implies,
-            right: inner_q,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body: outer,
-            island_id: 0,
-        });
-
-        let scopings: Vec<_> = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena).collect();
-        assert_eq!(scopings.len(), 2, "Two quantifiers should have 2! = 2 readings");
-    }
-
-    #[test]
-    fn scope_iterator_three_quantifiers_yields_six() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let z = interner.intern("z");
-        let man = interner.intern("Man");
-        let woman = interner.intern("Woman");
-        let book = interner.intern("Book");
-        let gives = interner.intern("Gives");
-
-        let man_x = expr_arena.alloc(LogicExpr::Predicate {
-            name: man,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let woman_y = expr_arena.alloc(LogicExpr::Predicate {
-            name: woman,
-            args: term_arena.alloc_slice([Term::Variable(y)]),
-            world: None,
-        });
-        let book_z = expr_arena.alloc(LogicExpr::Predicate {
-            name: book,
-            args: term_arena.alloc_slice([Term::Variable(z)]),
-            world: None,
-        });
-        let gives_xyz = expr_arena.alloc(LogicExpr::Predicate {
-            name: gives,
-            args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y), Term::Variable(z)]),
-            world: None,
-        });
-
-        let inner_z = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: book_z,
-            op: TokenType::And,
-            right: gives_xyz,
-        });
-        let q_z = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: z,
-            body: inner_z,
-            island_id: 0,
-        });
-
-        let inner_y = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: woman_y,
-            op: TokenType::And,
-            right: q_z,
-        });
-        let q_y = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: y,
-            body: inner_y,
-            island_id: 0,
-        });
-
-        let outer = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: man_x,
-            op: TokenType::Implies,
-            right: q_y,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body: outer,
-            island_id: 0,
-        });
-
-        let scopings: Vec<_> = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena).collect();
-        assert_eq!(scopings.len(), 6, "Three quantifiers should have 3! = 6 readings");
-    }
-
-    #[test]
-    fn scope_iterator_no_duplicates() {
-        use std::collections::HashSet;
-
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let man = interner.intern("Man");
-        let woman = interner.intern("Woman");
-        let loves = interner.intern("Loves");
-
-        let man_x = expr_arena.alloc(LogicExpr::Predicate {
-            name: man,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let woman_y = expr_arena.alloc(LogicExpr::Predicate {
-            name: woman,
-            args: term_arena.alloc_slice([Term::Variable(y)]),
-            world: None,
-        });
-        let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
-            name: loves,
-            args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
-            world: None,
-        });
-
-        let inner = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: woman_y,
-            op: TokenType::And,
-            right: loves_xy,
-        });
-        let inner_q = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: y,
-            body: inner,
-            island_id: 0,
-        });
-
-        let outer = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: man_x,
-            op: TokenType::Implies,
-            right: inner_q,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body: outer,
-            island_id: 0,
-        });
-
-        let mut registry = SymbolRegistry::new();
-        let outputs: HashSet<String> = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena)
-            .map(|e| e.transpile(&mut registry, &interner, OutputFormat::Unicode))
-            .collect();
-
-        assert_eq!(outputs.len(), 2, "All scopings should be unique");
-    }
-
-    #[test]
-    fn scope_iterator_exact_size() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let man = interner.intern("Man");
-        let woman = interner.intern("Woman");
-        let loves = interner.intern("Loves");
-
-        let man_x = expr_arena.alloc(LogicExpr::Predicate {
-            name: man,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let woman_y = expr_arena.alloc(LogicExpr::Predicate {
-            name: woman,
-            args: term_arena.alloc_slice([Term::Variable(y)]),
-            world: None,
-        });
-        let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
-            name: loves,
-            args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
-            world: None,
-        });
-
-        let inner = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: woman_y,
-            op: TokenType::And,
-            right: loves_xy,
-        });
-        let inner_q = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: y,
-            body: inner,
-            island_id: 0,
-        });
-
-        let outer = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: man_x,
-            op: TokenType::Implies,
-            right: inner_q,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body: outer,
-            island_id: 0,
-        });
-
-        let mut iter = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
-        assert_eq!(iter.len(), 2);
-        iter.next();
-        assert_eq!(iter.len(), 1);
-        iter.next();
-        assert_eq!(iter.len(), 0);
-    }
-
-    #[test]
-    fn island_constraints_reduce_permutations() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let man = interner.intern("Man");
-        let woman = interner.intern("Woman");
-        let loves = interner.intern("Loves");
-
-        let man_x = expr_arena.alloc(LogicExpr::Predicate {
-            name: man,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let woman_y = expr_arena.alloc(LogicExpr::Predicate {
-            name: woman,
-            args: term_arena.alloc_slice([Term::Variable(y)]),
-            world: None,
-        });
-        let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
-            name: loves,
-            args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
-            world: None,
-        });
-
-        let inner = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: woman_y,
-            op: TokenType::And,
-            right: loves_xy,
-        });
-        let inner_q = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: y,
-            body: inner,
-            island_id: 1,
-        });
-
-        let outer = expr_arena.alloc(LogicExpr::BinaryOp {
-            left: man_x,
-            op: TokenType::Implies,
-            right: inner_q,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body: outer,
-            island_id: 0,
-        });
-
-        let scopings = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
-        assert_eq!(
-            scopings.len(),
-            1,
-            "Two quantifiers in different islands: 1! × 1! = 1 reading (no cross-island scoping)"
-        );
-    }
-
-    #[test]
-    fn multiple_quantifiers_per_island() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-
-        let x = interner.intern("x");
-        let y = interner.intern("y");
-        let z = interner.intern("z");
-        let w = interner.intern("w");
-        let pred = interner.intern("P");
-
-        let core = expr_arena.alloc(LogicExpr::Predicate {
-            name: pred,
-            args: term_arena.alloc_slice([
-                Term::Variable(x),
-                Term::Variable(y),
-                Term::Variable(z),
-                Term::Variable(w),
-            ]),
-            world: None,
-        });
-
-        let true_sym = interner.intern("T");
-        let t = expr_arena.alloc(LogicExpr::Atom(true_sym));
-
-        let q_w = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: w,
-            body: expr_arena.alloc(LogicExpr::BinaryOp { left: t, op: TokenType::And, right: core }),
-            island_id: 1,
-        });
-        let q_z = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: z,
-            body: expr_arena.alloc(LogicExpr::BinaryOp { left: t, op: TokenType::And, right: q_w }),
-            island_id: 1,
-        });
-        let q_y = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Existential,
-            variable: y,
-            body: expr_arena.alloc(LogicExpr::BinaryOp { left: t, op: TokenType::And, right: q_z }),
-            island_id: 0,
-        });
-        let expr = expr_arena.alloc(LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body: expr_arena.alloc(LogicExpr::BinaryOp { left: t, op: TokenType::Implies, right: q_y }),
-            island_id: 0,
-        });
-
-        let scopings = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
-        assert_eq!(
-            scopings.len(),
-            4,
-            "4 quantifiers split 2+2 across islands: 2! × 2! = 4 (not 4! = 24)"
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/lambda/tests.rs"]
+mod tests;

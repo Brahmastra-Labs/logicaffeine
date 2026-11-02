@@ -15,7 +15,10 @@ pub struct CiConfig {
 
 impl Default for CiConfig {
     fn default() -> Self {
-        Self { changed_files_only: false, temporal_bound: 10 }
+        Self {
+            changed_files_only: false,
+            temporal_bound: 10,
+        }
     }
 }
 
@@ -70,7 +73,9 @@ pub fn run_ci_verification(
     let sarif = build_sarif(&results);
     let summary = format!(
         "{} of {} properties passed ({} failed)",
-        passed, results.len(), failed
+        passed,
+        results.len(),
+        failed
     );
 
     CiReport {
@@ -85,28 +90,35 @@ pub fn run_ci_verification(
 
 /// Build a SARIF 2.1.0 JSON document from property results.
 fn build_sarif(results: &[PropertyResult]) -> Value {
-    let sarif_results: Vec<Value> = results.iter().map(|r| {
-        let level = if r.passed { "note" } else { "error" };
-        let message = r.message.clone().unwrap_or_else(|| {
-            if r.passed { "Property verified".into() } else { "Property violated".into() }
-        });
-
-        let mut result = json!({
-            "ruleId": r.name,
-            "level": level,
-            "message": { "text": message },
-        });
-
-        if let Some(loc) = &r.location {
-            result["locations"] = json!([{
-                "physicalLocation": {
-                    "artifactLocation": { "uri": loc }
+    let sarif_results: Vec<Value> = results
+        .iter()
+        .map(|r| {
+            let level = if r.passed { "note" } else { "error" };
+            let message = r.message.clone().unwrap_or_else(|| {
+                if r.passed {
+                    "Property verified".into()
+                } else {
+                    "Property violated".into()
                 }
-            }]);
-        }
+            });
 
-        result
-    }).collect();
+            let mut result = json!({
+                "ruleId": r.name,
+                "level": level,
+                "message": { "text": message },
+            });
+
+            if let Some(loc) = &r.location {
+                result["locations"] = json!([{
+                    "physicalLocation": {
+                        "artifactLocation": { "uri": loc }
+                    }
+                }]);
+            }
+
+            result
+        })
+        .collect();
 
     json!({
         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -126,10 +138,14 @@ fn build_sarif(results: &[PropertyResult]) -> Value {
 
 /// Compute exit code: 0 if all pass, 1 if any fail.
 pub fn exit_code(report: &CiReport) -> i32 {
-    if report.properties_failed == 0 { 0 } else { 1 }
+    if report.properties_failed == 0 {
+        0
+    } else {
+        1
+    }
 }
 
-/// Generate a GitHub Actions workflow template for LogicAffeine verification.
+/// Generate a GitHub Actions workflow template for Logicaffeine verification.
 pub fn generate_github_actions_template() -> String {
     r#"name: LogicAffeine Verification
 on:
@@ -152,5 +168,6 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
-"#.into()
+"#
+    .into()
 }

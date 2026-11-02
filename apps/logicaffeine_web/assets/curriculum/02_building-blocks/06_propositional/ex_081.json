@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "B is sufficient for G",
   "options": [
-    "$ B \\supset G $",
-    "$ (B \\equiv G) $",
-    "$ (B \\supset G) $",
-    "$ (\\sim B \\supset \\, \\sim G) $"
+    "B ↔ G",
+    "¬B → ¬G",
+    "B → G",
+    "B ∧ G"
   ],
   "correct": 2,
-  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
-  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
+  "hint": "'A is sufficient for B' means A → B.",
+  "explanation": "The first part guarantees the second, so the formula is B → G.",
+  "section": "6.2"
 }

@@ -20,12 +20,8 @@ RUNS="${RUNS:-50}"
 WARMUP="${WARMUP:-5}"
 
 export LOGOS_WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
-LOGOS_TARGET_DIR="$SCRIPT_DIR/.logos-bench-target"
-LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$LOGOS_TARGET_DIR/release/largo"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/largo"
-if [ ! -f "$LARGO" ]; then echo "largo not found; build it first"; exit 1; fi
+. "$SCRIPT_DIR/lib/suite.sh"
+largo_build || exit 1
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -53,7 +49,7 @@ HF_ARGS=(--warmup "$WARMUP" --runs "$RUNS" --time-unit millisecond --export-json
 for i in "${!IDS[@]}"; do HF_ARGS+=(-n "${LABELS[$i]}" "${CMDS[$i]}"); done
 
 echo "Measuring cold start ($RUNS runs, $WARMUP warmup)..."
-hyperfine "${HF_ARGS[@]}" || { echo "hyperfine failed"; exit 1; }
+taskset -c "$(suite_cpus)" hyperfine "${HF_ARGS[@]}" || { echo "hyperfine failed"; exit 1; }
 
 # Map hyperfine command labels back to engine ids and build the startup block.
 LABELS_JSON=$(printf '%s\n' "${LABELS[@]}" | jq -R . | jq -s .)

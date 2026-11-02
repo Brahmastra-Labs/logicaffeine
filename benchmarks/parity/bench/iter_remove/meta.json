@@ -1,0 +1,11 @@
+{
+  "capability": "iter.remove",
+  "workload": "removeAt(xs, pos) 1-based",
+  "arg": "40000",
+  "expected": "2793436256",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "go"
+  ]
+}

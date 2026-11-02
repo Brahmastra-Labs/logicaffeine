@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.sumprod",
+  "workload": "statistics.sumprod",
+  "arg": "20000",
+  "expected": "20326773960115",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

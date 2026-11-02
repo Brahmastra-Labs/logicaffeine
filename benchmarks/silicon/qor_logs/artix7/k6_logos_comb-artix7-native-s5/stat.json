@@ -1,0 +1,82 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\gpu_qor_k6_comb": {
+         "num_wires":         554,
+         "num_wire_bits":     9355,
+         "num_pub_wires":     29,
+         "num_pub_wire_bits": 1377,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         1908,
+         "num_cells_by_type": {
+            "CARRY4": 180,
+            "DSP48E1": 40,
+            "FDRE": 405,
+            "INV": 1,
+            "LUT2": 696,
+            "LUT3": 70,
+            "LUT4": 64,
+            "LUT5": 311,
+            "LUT6": 135,
+            "MUXF7": 4,
+            "MUXF8": 2
+         }
+      },
+      "\\qorsyn_k6_logos_comb": {
+         "num_wires":         261,
+         "num_wire_bits":     920,
+         "num_pub_wires":     16,
+         "num_pub_wire_bits": 605,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         562,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 165,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 40,
+            "LUT2": 69,
+            "LUT3": 8,
+            "LUT4": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "gpu_qor_k6_comb": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         815,
+         "num_wire_bits":     10275,
+         "num_pub_wires":     45,
+         "num_pub_wire_bits": 1982,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         2469,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 180,
+            "DSP48E1": 40,
+            "FDRE": 570,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 41,
+            "LUT2": 765,
+            "LUT3": 78,
+            "LUT4": 68,
+            "LUT5": 311,
+            "LUT6": 270,
+            "MUXF7": 65,
+            "MUXF8": 29,
+            "OBUF": 16
+         }
+      }
+}
+

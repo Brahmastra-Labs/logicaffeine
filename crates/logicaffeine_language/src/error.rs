@@ -13,10 +13,10 @@
 //! Errors can be displayed with source context using [`ParseError::display_with_source`],
 //! which produces rustc-style error output with underlined spans.
 
-use logicaffeine_base::Interner;
 use crate::style::Style;
 use crate::suggest::{find_similar, KNOWN_WORDS};
 use crate::token::{Span, TokenType};
+use logicaffeine_base::Interner;
 
 /// A parse error with location information.
 #[derive(Debug, Clone)]
@@ -63,7 +63,7 @@ impl ParseError {
         let underline = format!("{}{}", " ".repeat(col), "^".repeat(len));
 
         let error_label = Style::bold_red("error");
-        let kind_str = format!("{:?}", self.kind);
+        let kind_str = self.kind.headline().replace('\n', " ");
         let line_num_str = Style::blue(&format!("{:4}", line_num));
         let pipe = Style::blue("|");
         let underline_colored = Style::red(&underline);
@@ -73,14 +73,29 @@ impl ParseError {
             error_label, kind_str, line_num_str, pipe, line_content, pipe, underline_colored
         );
 
-        if let Some(word) = self.extract_word(source) {
-            if let Some(suggestion) = find_similar(&word, KNOWN_WORDS, 2) {
-                let hint = Style::cyan("help");
-                result.push_str(&format!("\n     {} {}: did you mean '{}'?", pipe, hint, Style::green(suggestion)));
-            }
+        if let Some(suggestion) = self.suggestion(source) {
+            let hint = Style::cyan("help");
+            result.push_str(&format!(
+                "\n     {} {}: did you mean '{}'?",
+                pipe,
+                hint,
+                Style::green(suggestion)
+            ));
         }
 
         result
+    }
+
+    /// The "did you mean" word for this error's span, when the error is about the word under it
+    /// (`is_about_a_word`) and the span covers an alphabetic word within edit distance 2 of a
+    /// known word. The caret renderer and the `logos-diagnostic/1` JSON surface share this one
+    /// suggester so their hints can never disagree.
+    pub fn suggestion(&self, source: &str) -> Option<&'static str> {
+        if !is_about_a_word(&self.kind) {
+            return None;
+        }
+        let word = self.extract_word(source)?;
+        find_similar(word, KNOWN_WORDS, 2)
     }
 
     fn extract_word<'a>(&self, source: &'a str) -> Option<&'a str> {
@@ -91,6 +106,22 @@ impl ParseError {
             }
         }
         None
+    }
+
+    /// The structured pieces of a caret diagnostic — the Socratic message, the source
+    /// line, the caret column + length, and the optional "did you mean". Shared by the
+    /// terminal renderer and the browser build-error overlay so the two can never drift.
+    /// (`socratic_explanation` ignores its interner, so a fresh one is fine here.)
+    pub fn diagnostic_parts(&self, source: &str) -> DiagnosticParts {
+        let (line_num, line_start, line_content) = self.find_context(source);
+        DiagnosticParts {
+            line_num,
+            line: line_content.to_string(),
+            column: self.span.start.saturating_sub(line_start),
+            caret_len: (self.span.end - self.span.start).max(1),
+            message: socratic_explanation(self, &Interner::new()),
+            suggestion: self.suggestion(source),
+        }
     }
 
     fn find_context<'a>(&self, source: &'a str) -> (usize, usize, &'a str) {
@@ -114,6 +145,74 @@ impl ParseError {
 
         (line_num, line_start, &source[line_start..line_end])
     }
+}
+
+/// Whether `kind` is about the word under its span — the parser expected a word of some class
+/// there and found this one, so a nearby known word is a likely intended spelling. Every other
+/// kind is about a construct, a type, a name the program declares, or the discourse, and the word
+/// under its span is spelled as the author meant it.
+fn is_about_a_word(kind: &ParseErrorKind) -> bool {
+    use ParseErrorKind::*;
+    match kind {
+        UnexpectedToken { .. }
+        | ExpectedContentWord { .. }
+        | ExpectedCopula
+        | UnknownQuantifier { .. }
+        | UnknownModal { .. }
+        | ExpectedVerb { .. }
+        | ExpectedTemporalAdverb
+        | ExpectedPresuppositionTrigger
+        | ExpectedFocusParticle
+        | ExpectedScopalAdverb
+        | ExpectedSuperlativeAdjective
+        | ExpectedComparativeAdjective
+        | ExpectedThan
+        | ExpectedNumber
+        | ExpectedStatement
+        | ExpectedKeyword { .. }
+        | ExpectedExpression
+        | ExpectedIdentifier
+        | TrailingTokens { .. } => true,
+        EmptyRestriction
+        | GappingResolutionFailed
+        | StativeProgressiveConflict
+        | UndefinedVariable { .. }
+        | UseAfterMove { .. }
+        | IsValueEquality { .. }
+        | ZeroIndex
+        | RespectivelyLengthMismatch { .. }
+        | TypeMismatch { .. }
+        | TypeMismatchDetailed { .. }
+        | InfiniteType { .. }
+        | ArityMismatch { .. }
+        | FieldNotFound { .. }
+        | NotAFunction { .. }
+        | InvalidRefinementPredicate
+        | GrammarError(_)
+        | ScopeViolation(_)
+        | UnresolvedPronoun { .. }
+        | AstTooDeep { .. }
+        | Custom(_) => false,
+    }
+}
+
+/// The structured pieces a caret-style diagnostic needs — produced by
+/// [`ParseError::diagnostic_parts`] and shared by every renderer (terminal, browser
+/// overlay) so their line, caret, message, and hint can never disagree.
+#[derive(Debug, Clone)]
+pub struct DiagnosticParts {
+    /// 1-based line number of the error.
+    pub line_num: usize,
+    /// The full source line containing the error.
+    pub line: String,
+    /// Byte column of the caret within `line` (0-based).
+    pub column: usize,
+    /// Number of `^` carets under the offending span (≥1).
+    pub caret_len: usize,
+    /// The Socratic explanation of what went wrong.
+    pub message: String,
+    /// An optional "did you mean '…'?" spelling suggestion.
+    pub suggestion: Option<&'static str>,
 }
 
 #[derive(Debug, Clone)]
@@ -158,7 +257,9 @@ pub enum ParseErrorKind {
     },
     ZeroIndex,
     ExpectedStatement,
-    ExpectedKeyword { keyword: String },
+    ExpectedKeyword {
+        keyword: String,
+    },
     ExpectedExpression,
     ExpectedIdentifier,
     /// Subject and object lists have different lengths in a "respectively" construction.
@@ -303,7 +404,10 @@ pub fn describe_token(token: &TokenType) -> String {
 }
 
 /// The surface pronoun a gender/number pair names, quoted for prose.
-fn pronoun_word(gender: &crate::drs::Gender, number: &crate::drs::Number) -> &'static str {
+pub(crate) fn pronoun_word(
+    gender: &crate::drs::Gender,
+    number: &crate::drs::Number,
+) -> &'static str {
     use crate::drs::{Gender, Number};
     match (number, gender) {
         (Number::Plural, _) | (Number::Singular, Gender::Unknown) => "'they'",
@@ -473,7 +577,10 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
             on, so a keyword or symbol cannot stand in. What is the thing called? Use its \
             declared name, or declare it first with Let."
             .to_string(),
-        ParseErrorKind::RespectivelyLengthMismatch { subject_count, object_count } => {
+        ParseErrorKind::RespectivelyLengthMismatch {
+            subject_count,
+            object_count,
+        } => {
             format!(
                 "'Respectively' pairs the two lists one-to-one, but the subject side has \
                 {subject_count} element(s) and the object side has {object_count}. With \
@@ -490,16 +597,26 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 Change the one that is lying."
             )
         }
-        ParseErrorKind::TypeMismatchDetailed { expected, found, context } => {
-            let ctx_note =
-                if context.is_empty() { String::new() } else { format!(" ({context})") };
+        ParseErrorKind::TypeMismatchDetailed {
+            expected,
+            found,
+            context,
+        } => {
+            let ctx_note = if context.is_empty() {
+                String::new()
+            } else {
+                format!(" ({context})")
+            };
             format!(
                 "I expected '{expected}' here but found '{found}'{ctx_note}. The two sides \
                 of this position must agree on one type. Which side has it right? Adjust \
                 the annotation or the value so they tell the same story."
             )
         }
-        ParseErrorKind::InfiniteType { var_description, type_description } => {
+        ParseErrorKind::InfiniteType {
+            var_description,
+            type_description,
+        } => {
             format!(
                 "This would make an infinite type: {var_description} would have to equal \
                 {type_description}, which contains it — a type inside itself, forever. This \
@@ -508,7 +625,11 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 level of indirection breaks the cycle."
             )
         }
-        ParseErrorKind::ArityMismatch { function, expected, found } => {
+        ParseErrorKind::ArityMismatch {
+            function,
+            expected,
+            found,
+        } => {
             format!(
                 "'{function}' takes {expected} argument(s), but this call passes {found}. A \
                 call must fill every parameter — each one is a promise the function body \
@@ -516,7 +637,11 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 call up against the function's '## To' header."
             )
         }
-        ParseErrorKind::FieldNotFound { type_name, field_name, available } => {
+        ParseErrorKind::FieldNotFound {
+            type_name,
+            field_name,
+            available,
+        } => {
             if available.is_empty() {
                 format!(
                     "'{type_name}' has no field named '{field_name}'. A struct's fields are \
@@ -597,155 +722,5 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::token::Span;
-
-    #[test]
-    fn parse_error_has_span() {
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedCopula,
-            span: Span::new(5, 10),
-        };
-        assert_eq!(error.span.start, 5);
-        assert_eq!(error.span.end, 10);
-    }
-
-    #[test]
-    fn display_with_source_shows_line_and_underline() {
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedCopula,
-            span: Span::new(8, 14),
-        };
-        let source = "All men mortal are.";
-        let display = error.display_with_source(source);
-        assert!(display.contains("mortal"), "Should contain source word: {}", display);
-        assert!(display.contains("^^^^^^"), "Should contain underline: {}", display);
-    }
-
-    #[test]
-    fn display_with_source_suggests_typo_fix() {
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedCopula,
-            span: Span::new(0, 5),
-        };
-        let source = "logoc is the study of reason.";
-        let display = error.display_with_source(source);
-        assert!(display.contains("did you mean"), "Should suggest fix: {}", display);
-        assert!(display.contains("logic"), "Should suggest 'logic': {}", display);
-    }
-
-    #[test]
-    fn display_with_source_has_color_codes() {
-        let error = ParseError {
-            kind: ParseErrorKind::ExpectedCopula,
-            span: Span::new(0, 3),
-        };
-        let source = "Alll men are mortal.";
-        let display = error.display_with_source(source);
-        assert!(display.contains("\x1b["), "Should contain ANSI escape codes: {}", display);
-    }
-
-    // =========================================================================
-    // Phase 4 — Type error reporting variants
-    // =========================================================================
-
-    #[test]
-    fn type_mismatch_detailed_socratic_mentions_types() {
-        let interner = logicaffeine_base::Interner::new();
-        let error = ParseError {
-            kind: ParseErrorKind::TypeMismatchDetailed {
-                expected: "Int".to_string(),
-                found: "Bool".to_string(),
-                context: "in let binding".to_string(),
-            },
-            span: Span::new(0, 0),
-        };
-        let explanation = socratic_explanation(&error, &interner);
-        assert!(explanation.contains("Int"), "Should mention expected type: {}", explanation);
-        assert!(explanation.contains("Bool"), "Should mention found type: {}", explanation);
-        assert!(explanation.contains("let binding"), "Should include context: {}", explanation);
-    }
-
-    #[test]
-    fn type_mismatch_detailed_without_context_is_clean() {
-        let interner = logicaffeine_base::Interner::new();
-        let error = ParseError {
-            kind: ParseErrorKind::TypeMismatchDetailed {
-                expected: "Text".to_string(),
-                found: "Int".to_string(),
-                context: String::new(),
-            },
-            span: Span::new(0, 0),
-        };
-        let explanation = socratic_explanation(&error, &interner);
-        assert!(explanation.contains("Text"), "Should mention expected type: {}", explanation);
-        assert!(explanation.contains("Int"), "Should mention found type: {}", explanation);
-        // No spurious "()" from empty context
-        assert!(!explanation.contains("()"), "Empty context should not leave '()': {}", explanation);
-    }
-
-    #[test]
-    fn infinite_type_socratic_mentions_both_descriptions() {
-        let interner = logicaffeine_base::Interner::new();
-        let error = ParseError {
-            kind: ParseErrorKind::InfiniteType {
-                var_description: "type variable α0".to_string(),
-                type_description: "Seq of α0".to_string(),
-            },
-            span: Span::new(0, 0),
-        };
-        let explanation = socratic_explanation(&error, &interner);
-        assert!(explanation.contains("α0"), "Should mention var: {}", explanation);
-        assert!(explanation.contains("Seq of α0"), "Should mention type: {}", explanation);
-    }
-
-    #[test]
-    fn arity_mismatch_socratic_mentions_function_and_counts() {
-        let interner = logicaffeine_base::Interner::new();
-        let error = ParseError {
-            kind: ParseErrorKind::ArityMismatch {
-                function: "double".to_string(),
-                expected: 1,
-                found: 3,
-            },
-            span: Span::new(0, 0),
-        };
-        let explanation = socratic_explanation(&error, &interner);
-        assert!(explanation.contains("double"), "Should name the function: {}", explanation);
-        assert!(explanation.contains("1"), "Should mention expected count: {}", explanation);
-        assert!(explanation.contains("3"), "Should mention found count: {}", explanation);
-    }
-
-    #[test]
-    fn field_not_found_socratic_mentions_type_and_field() {
-        let interner = logicaffeine_base::Interner::new();
-        let error = ParseError {
-            kind: ParseErrorKind::FieldNotFound {
-                type_name: "Point".to_string(),
-                field_name: "z".to_string(),
-                available: vec!["x".to_string(), "y".to_string()],
-            },
-            span: Span::new(0, 0),
-        };
-        let explanation = socratic_explanation(&error, &interner);
-        assert!(explanation.contains("Point"), "Should name the type: {}", explanation);
-        assert!(explanation.contains("z"), "Should name the missing field: {}", explanation);
-        assert!(explanation.contains("x"), "Should list available fields: {}", explanation);
-        assert!(explanation.contains("y"), "Should list available fields: {}", explanation);
-    }
-
-    #[test]
-    fn not_a_function_socratic_mentions_found_type() {
-        let interner = logicaffeine_base::Interner::new();
-        let error = ParseError {
-            kind: ParseErrorKind::NotAFunction {
-                found_type: "Int".to_string(),
-            },
-            span: Span::new(0, 0),
-        };
-        let explanation = socratic_explanation(&error, &interner);
-        assert!(explanation.contains("Int"), "Should mention the type found: {}", explanation);
-        assert!(explanation.to_lowercase().contains("function"), "Should mention function: {}", explanation);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/error/tests.rs"]
+mod tests;

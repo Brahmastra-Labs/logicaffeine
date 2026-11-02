@@ -1,0 +1,10 @@
+{
+  "capability": "operator.xor",
+  "workload": "sum of opXor(i, 7) over 1..n",
+  "arg": "3000000",
+  "expected": "4500001500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

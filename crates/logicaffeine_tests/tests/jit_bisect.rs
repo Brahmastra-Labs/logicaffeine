@@ -15,8 +15,15 @@ fn chains_run_correctly_across_the_4k_page_boundary() {
     for n in 1..=60usize {
         let mut ops: Vec<MicroOp> = Vec::new();
         for k in 0..n {
-            ops.push(MicroOp::LoadConst { dst: 0, value: k as i64 });
-            ops.push(MicroOp::Add { dst: 1, lhs: 1, rhs: 0 });
+            ops.push(MicroOp::LoadConst {
+                dst: 0,
+                value: k as i64,
+            });
+            ops.push(MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 0,
+            });
         }
         ops.push(MicroOp::Return { src: 1 });
 
@@ -27,7 +34,12 @@ fn chains_run_correctly_across_the_4k_page_boundary() {
         let mut ref_frame = vec![0i64; 8];
         let reference = reference_eval(&ops, &mut ref_frame, 1_000_000).expect("fuel");
 
-        assert_eq!(jit, reference, "n={n} (mapping {} bytes)", chain.bytes().len());
+        assert_eq!(
+            jit,
+            reference,
+            "n={n} (mapping {} bytes)",
+            chain.bytes().len()
+        );
         assert_eq!(jit_frame, ref_frame, "n={n} frame");
     }
 }

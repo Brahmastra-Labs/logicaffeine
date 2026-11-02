@@ -14,9 +14,16 @@ fn bta_literal_int_static() {
     let mut env = BtaEnv::analyze_source(source).unwrap();
     let result = env.analyze_main();
     let x = env.lookup("x").unwrap();
-    assert_eq!(result.division[&x], BindingTime::Static(Literal::Number(42)));
+    assert_eq!(
+        result.division[&x],
+        BindingTime::Static(Literal::Number(42))
+    );
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("42"), "Generated Rust should inline 42.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("42"),
+        "Generated Rust should inline 42.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -39,7 +46,10 @@ fn bta_literal_bool_static() {
     let mut env = BtaEnv::analyze_source(source).unwrap();
     let result = env.analyze_main();
     let x = env.lookup("x").unwrap();
-    assert_eq!(result.division[&x], BindingTime::Static(Literal::Boolean(true)));
+    assert_eq!(
+        result.division[&x],
+        BindingTime::Static(Literal::Boolean(true))
+    );
 }
 
 #[test]
@@ -73,11 +83,12 @@ fn bta_identifier_tracks_division() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("identity", vec![
-        BindingTime::Static(Literal::Number(10)),
-    ]);
+    let result = env.analyze_function("identity", vec![BindingTime::Static(Literal::Number(10))]);
     let x = env.lookup("x").unwrap();
-    assert_eq!(result.division[&x], BindingTime::Static(Literal::Number(10)));
+    assert_eq!(
+        result.division[&x],
+        BindingTime::Static(Literal::Number(10))
+    );
 }
 
 #[test]
@@ -99,10 +110,13 @@ fn bta_binop_static_dynamic() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("f", vec![
-        BindingTime::Static(Literal::Number(3)),
-        BindingTime::Dynamic,
-    ]);
+    let result = env.analyze_function(
+        "f",
+        vec![
+            BindingTime::Static(Literal::Number(3)),
+            BindingTime::Dynamic,
+        ],
+    );
     assert_eq!(result.return_bt, BindingTime::Dynamic);
 }
 
@@ -116,10 +130,7 @@ fn bta_binop_dynamic_dynamic() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("f", vec![
-        BindingTime::Dynamic,
-        BindingTime::Dynamic,
-    ]);
+    let result = env.analyze_function("f", vec![BindingTime::Dynamic, BindingTime::Dynamic]);
     assert_eq!(result.return_bt, BindingTime::Dynamic);
 }
 
@@ -129,7 +140,10 @@ fn bta_not_static() {
     let mut env = BtaEnv::analyze_source(source).unwrap();
     let result = env.analyze_main();
     let x = env.lookup("x").unwrap();
-    assert_eq!(result.division[&x], BindingTime::Static(Literal::Boolean(false)));
+    assert_eq!(
+        result.division[&x],
+        BindingTime::Static(Literal::Boolean(false))
+    );
 }
 
 #[test]
@@ -183,11 +197,14 @@ fn bta_if_static_true_only_then() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("select", vec![
-        BindingTime::Static(Literal::Boolean(true)),
-        BindingTime::Static(Literal::Number(42)),
-        BindingTime::Static(Literal::Number(99)),
-    ]);
+    let result = env.analyze_function(
+        "select",
+        vec![
+            BindingTime::Static(Literal::Boolean(true)),
+            BindingTime::Static(Literal::Number(42)),
+            BindingTime::Static(Literal::Number(99)),
+        ],
+    );
     // S(true) → only then-branch analyzed. result = x = S(42).
     assert_eq!(result.return_bt, BindingTime::Static(Literal::Number(42)));
 }
@@ -207,11 +224,14 @@ fn bta_if_static_false_only_else() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("select", vec![
-        BindingTime::Static(Literal::Boolean(false)),
-        BindingTime::Static(Literal::Number(42)),
-        BindingTime::Static(Literal::Number(99)),
-    ]);
+    let result = env.analyze_function(
+        "select",
+        vec![
+            BindingTime::Static(Literal::Boolean(false)),
+            BindingTime::Static(Literal::Number(42)),
+            BindingTime::Static(Literal::Number(99)),
+        ],
+    );
     // S(false) → only else-branch analyzed. result = y = S(99).
     assert_eq!(result.return_bt, BindingTime::Static(Literal::Number(99)));
 }
@@ -318,11 +338,12 @@ fn bta_all_static_args() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("add5", vec![
-        BindingTime::Static(Literal::Number(10)),
-    ]);
+    let result = env.analyze_function("add5", vec![BindingTime::Static(Literal::Number(10))]);
     let x = env.lookup("x").unwrap();
-    assert_eq!(result.division[&x], BindingTime::Static(Literal::Number(10)));
+    assert_eq!(
+        result.division[&x],
+        BindingTime::Static(Literal::Number(10))
+    );
     assert_eq!(result.return_bt, BindingTime::Static(Literal::Number(15)));
 }
 
@@ -336,9 +357,7 @@ fn bta_all_dynamic_args() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("double", vec![
-        BindingTime::Dynamic,
-    ]);
+    let result = env.analyze_function("double", vec![BindingTime::Dynamic]);
     let x = env.lookup("x").unwrap();
     assert_eq!(result.division[&x], BindingTime::Dynamic);
     assert_eq!(result.return_bt, BindingTime::Dynamic);
@@ -354,10 +373,13 @@ fn bta_mixed_args() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("multiply", vec![
-        BindingTime::Static(Literal::Number(3)),
-        BindingTime::Dynamic,
-    ]);
+    let result = env.analyze_function(
+        "multiply",
+        vec![
+            BindingTime::Static(Literal::Number(3)),
+            BindingTime::Dynamic,
+        ],
+    );
     let a = env.lookup("a").unwrap();
     let b = env.lookup("b").unwrap();
     assert_eq!(result.division[&a], BindingTime::Static(Literal::Number(3)));
@@ -377,9 +399,7 @@ fn bta_recursive_static() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("factorial", vec![
-        BindingTime::Static(Literal::Number(5)),
-    ]);
+    let result = env.analyze_function("factorial", vec![BindingTime::Static(Literal::Number(5))]);
     assert_eq!(result.return_bt, BindingTime::Static(Literal::Number(120)));
 }
 
@@ -428,7 +448,10 @@ Show 0.
     let a = env.lookup("a").unwrap();
     let b = env.lookup("b").unwrap();
     // g(3) should be analyzed: g with S(3) → return S(13). So a=S(13).
-    assert_eq!(result.division[&a], BindingTime::Static(Literal::Number(13)));
+    assert_eq!(
+        result.division[&a],
+        BindingTime::Static(Literal::Number(13))
+    );
     // h(x) with x=D → return D. So b=D.
     assert_eq!(result.division[&b], BindingTime::Dynamic);
     // S(13) + D = D
@@ -467,9 +490,7 @@ fn bta_collection_params_always_d() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("f", vec![
-        BindingTime::Static(Literal::Number(0)),
-    ]);
+    let result = env.analyze_function("f", vec![BindingTime::Static(Literal::Number(0))]);
     let items = env.lookup("items").unwrap();
     assert_eq!(result.division[&items], BindingTime::Dynamic);
 }
@@ -524,9 +545,7 @@ fn bta_loop_static_bound() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result = env.analyze_function("sumTo", vec![
-        BindingTime::Static(Literal::Number(10)),
-    ]);
+    let result = env.analyze_function("sumTo", vec![BindingTime::Static(Literal::Number(10))]);
     assert_eq!(result.return_bt, BindingTime::Static(Literal::Number(55)));
 }
 
@@ -563,22 +582,34 @@ fn bta_polyvariant_different_sites() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result1 = env.analyze_function("multiply", vec![
-        BindingTime::Static(Literal::Number(3)),
-        BindingTime::Dynamic,
-    ]);
+    let result1 = env.analyze_function(
+        "multiply",
+        vec![
+            BindingTime::Static(Literal::Number(3)),
+            BindingTime::Dynamic,
+        ],
+    );
     let a = env.lookup("a").unwrap();
     let b = env.lookup("b").unwrap();
-    assert_eq!(result1.division[&a], BindingTime::Static(Literal::Number(3)));
+    assert_eq!(
+        result1.division[&a],
+        BindingTime::Static(Literal::Number(3))
+    );
     assert_eq!(result1.division[&b], BindingTime::Dynamic);
     assert_eq!(result1.return_bt, BindingTime::Dynamic);
 
-    let result2 = env.analyze_function("multiply", vec![
-        BindingTime::Dynamic,
-        BindingTime::Static(Literal::Number(5)),
-    ]);
+    let result2 = env.analyze_function(
+        "multiply",
+        vec![
+            BindingTime::Dynamic,
+            BindingTime::Static(Literal::Number(5)),
+        ],
+    );
     assert_eq!(result2.division[&a], BindingTime::Dynamic);
-    assert_eq!(result2.division[&b], BindingTime::Static(Literal::Number(5)));
+    assert_eq!(
+        result2.division[&b],
+        BindingTime::Static(Literal::Number(5))
+    );
     assert_eq!(result2.return_bt, BindingTime::Dynamic);
 }
 
@@ -592,18 +623,27 @@ fn bta_polyvariant_cache_hit() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result1 = env.analyze_function("add", vec![
-        BindingTime::Static(Literal::Number(10)),
-        BindingTime::Dynamic,
-    ]);
-    let result2 = env.analyze_function("add", vec![
-        BindingTime::Static(Literal::Number(10)),
-        BindingTime::Dynamic,
-    ]);
-    let result3 = env.analyze_function("add", vec![
-        BindingTime::Static(Literal::Number(10)),
-        BindingTime::Dynamic,
-    ]);
+    let result1 = env.analyze_function(
+        "add",
+        vec![
+            BindingTime::Static(Literal::Number(10)),
+            BindingTime::Dynamic,
+        ],
+    );
+    let result2 = env.analyze_function(
+        "add",
+        vec![
+            BindingTime::Static(Literal::Number(10)),
+            BindingTime::Dynamic,
+        ],
+    );
+    let result3 = env.analyze_function(
+        "add",
+        vec![
+            BindingTime::Static(Literal::Number(10)),
+            BindingTime::Dynamic,
+        ],
+    );
     assert_eq!(result1.return_bt, result2.return_bt);
     assert_eq!(result2.return_bt, result3.return_bt);
     assert_eq!(result1.return_bt, BindingTime::Dynamic);
@@ -621,16 +661,22 @@ fn bta_polyvariant_recursive_distinct() {
 Show 0.
 ";
     let mut env = BtaEnv::analyze_source(source).unwrap();
-    let result1 = env.analyze_function("power", vec![
-        BindingTime::Static(Literal::Number(2)),
-        BindingTime::Static(Literal::Number(5)),
-    ]);
+    let result1 = env.analyze_function(
+        "power",
+        vec![
+            BindingTime::Static(Literal::Number(2)),
+            BindingTime::Static(Literal::Number(5)),
+        ],
+    );
     assert_eq!(result1.return_bt, BindingTime::Static(Literal::Number(32)));
 
-    let result2 = env.analyze_function("power", vec![
-        BindingTime::Static(Literal::Number(3)),
-        BindingTime::Static(Literal::Number(4)),
-    ]);
+    let result2 = env.analyze_function(
+        "power",
+        vec![
+            BindingTime::Static(Literal::Number(3)),
+            BindingTime::Static(Literal::Number(4)),
+        ],
+    );
     assert_eq!(result2.return_bt, BindingTime::Static(Literal::Number(81)));
 }
 

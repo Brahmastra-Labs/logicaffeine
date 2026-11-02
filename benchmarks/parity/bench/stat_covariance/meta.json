@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.covariance",
+  "workload": "statistics.covariance",
+  "arg": "20000",
+  "expected": "1456713078",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're cruel if you're terrified",
   "options": [
-    "$ (T \\supset C) $",
-    "$ (C \\equiv T) $",
-    "$ C \\supset T $",
-    "$ (C \\supset T) $"
+    "T → C",
+    "C ↔ T",
+    "C → T",
+    "T ∧ C"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A if B' means B → A: the part after 'if' is the if part.",
+  "explanation": "The part after 'if' is the condition, so the formula is T → C.",
+  "section": "6.2"
 }

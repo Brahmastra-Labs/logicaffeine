@@ -31,8 +31,10 @@ fn test_dcong_succ_congruence() {
         .expect("Define eq_proof");
 
     // context: λx. Succ x
-    repl.execute(r#"Definition context : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#)
-        .expect("Define context");
+    repl.execute(
+        r#"Definition context : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#,
+    )
+    .expect("Define context");
 
     // DCong context eq_proof should prove Eq Nat (Succ Zero) (Succ Zero)
     repl.execute("Definition cong_proof : Derivation := DCong context eq_proof.")
@@ -139,7 +141,10 @@ fn test_dcong_fails_on_non_lambda_context() {
         .expect("Define cong_proof");
 
     let result = repl.execute("Eval (concludes cong_proof).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "Should return Error for non-lambda context");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "Should return Error for non-lambda context"
+    );
 }
 
 #[test]
@@ -151,14 +156,19 @@ fn test_dcong_fails_on_non_equality_proof() {
         .expect("Define bad_proof");
 
     // context: λx. Succ x
-    repl.execute(r#"Definition context : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#)
-        .expect("Define context");
+    repl.execute(
+        r#"Definition context : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#,
+    )
+    .expect("Define context");
 
     repl.execute("Definition cong_proof : Derivation := DCong context bad_proof.")
         .expect("Define cong_proof");
 
     let result = repl.execute("Eval (concludes cong_proof).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "Should return Error for non-equality proof");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "Should return Error for non-equality proof"
+    );
 }
 
 // =============================================================================
@@ -185,8 +195,10 @@ fn test_try_cong_basic() {
         .expect("Define eq_proof");
 
     // context: λx. Succ x
-    repl.execute(r#"Definition context : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#)
-        .expect("Define context");
+    repl.execute(
+        r#"Definition context : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#,
+    )
+    .expect("Define context");
 
     // try_cong context eq_proof
     repl.execute("Definition cong_proof : Derivation := try_cong context eq_proof.")
@@ -215,7 +227,10 @@ fn test_dcong_type_error_proof() {
     let mut repl = Repl::new();
     // DCong expects Derivation for proof, not Syntax
     let result = repl.execute(r#"Check (DCong (SName "ctx") (SName "not_a_proof"))."#);
-    assert!(result.is_err(), "Should reject Syntax where Derivation expected");
+    assert!(
+        result.is_err(),
+        "Should reject Syntax where Derivation expected"
+    );
 }
 
 #[test]
@@ -240,8 +255,10 @@ fn test_step_case_pattern() {
         .expect("Define ih");
 
     // Context: λx. Succ x
-    repl.execute(r#"Definition succ_ctx : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#)
-        .expect("Define succ_ctx");
+    repl.execute(
+        r#"Definition succ_ctx : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#,
+    )
+    .expect("Define succ_ctx");
 
     // Apply congruence: Eq Nat (Succ k) (Succ k)
     repl.execute("Definition step_result : Derivation := DCong succ_ctx ih.")
@@ -271,7 +288,8 @@ fn test_induction_with_congruence_structure() {
         .expect("Define base");
 
     // Step formula: ∀k. Eq Nat k k → Eq Nat (Succ k) (Succ k)
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition step_formula : Syntax :=
             SApp (SApp (SName "Forall") (SName "Nat"))
                 (SLam (SName "Nat")
@@ -280,7 +298,9 @@ fn test_induction_with_congruence_structure() {
                         (SApp (SApp (SApp (SName "Eq") (SName "Nat"))
                             (SApp (SName "Succ") (SVar 0)))
                             (SApp (SName "Succ") (SVar 0))))).
-    "#).expect("Define step_formula");
+    "#,
+    )
+    .expect("Define step_formula");
 
     // Step proof (using axiom for now - in real usage would use DCong)
     repl.execute("Definition step : Derivation := DAxiom step_formula.")
@@ -292,7 +312,11 @@ fn test_induction_with_congruence_structure() {
 
     let result = repl.execute("Eval (concludes ind_proof).").expect("Eval");
 
-    assert!(result.contains("Forall"), "Should contain Forall: {}", result);
+    assert!(
+        result.contains("Forall"),
+        "Should contain Forall: {}",
+        result
+    );
     assert!(result.contains("Nat"), "Should contain Nat: {}", result);
 }
 
@@ -309,8 +333,10 @@ fn test_dcong_chaining() {
         .expect("Define eq1");
 
     // First congruence: λx. Succ x
-    repl.execute(r#"Definition ctx1 : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#)
-        .expect("Define ctx1");
+    repl.execute(
+        r#"Definition ctx1 : Syntax := SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))."#,
+    )
+    .expect("Define ctx1");
 
     // Get Eq Nat (Succ Zero) (Succ Zero)
     repl.execute("Definition eq2 : Derivation := DCong ctx1 eq1.")
@@ -326,5 +352,10 @@ fn test_dcong_chaining() {
     // Should have doubly-nested Succ
     // Count occurrences of Succ
     let succ_count = result.matches("Succ").count();
-    assert!(succ_count >= 2, "Should have multiple Succ: {} (count: {})", result, succ_count);
+    assert!(
+        succ_count >= 2,
+        "Should have multiple Succ: {} (count: {})",
+        result,
+        succ_count
+    );
 }

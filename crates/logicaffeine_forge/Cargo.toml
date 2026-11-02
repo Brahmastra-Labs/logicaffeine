@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Copy-and-patch JIT for LOGOS — executable-memory layer and stencil runtime (native only)."
+license = "MIT"
+description = "The machine-code layer of the LOGOS copy-and-patch JIT: W^X executable memory, build-time stencils, a register-allocating x86-64 backend"
 readme = "README.md"
+include = ["src/**", "/build.rs", "stencils/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [lints]
 workspace = true

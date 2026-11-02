@@ -1,0 +1,301 @@
+{
+  "case": "T09-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 37,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T09_010.Documentable",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T09_010.Documentable \u03b1 \u2192 Sort u} \u2192\n    (t : T09_010.Documentable \u03b1) \u2192 ((tag : \u03b1 \u2192 Nat) \u2192 motive { tag := tag }) \u2192 motive t",
+      "name": "T09_010.Documentable.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T09_010.Documentable \u03b1",
+      "name": "T09_010.Documentable.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T09_010.Documentable \u03b1} \u2192 v1 = v2 \u2192 T09_010.Documentable.noConfusionType P v1 v2",
+      "name": "T09_010.Documentable.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T09_010.Documentable \u03b1 \u2192 T09_010.Documentable \u03b1 \u2192 Sort u",
+      "name": "T09_010.Documentable.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T09_010.Documentable \u03b1 \u2192 Sort u} \u2192\n    ((tag : \u03b1 \u2192 Nat) \u2192 motive { tag := tag }) \u2192 (t : T09_010.Documentable \u03b1) \u2192 motive t",
+      "name": "T09_010.Documentable.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T09_010.Documentable \u03b1 \u2192 Sort u} \u2192\n    (t : T09_010.Documentable \u03b1) \u2192 ((tag : \u03b1 \u2192 Nat) \u2192 motive { tag := tag }) \u2192 motive t",
+      "name": "T09_010.Documentable.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T09_010.Documentable \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T09_010.Documentable.tag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T09_010.Documented",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_010.Documented \u2192 Sort u} \u2192\n  (t : T09_010.Documented) \u2192 ((fst snd : Nat) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T09_010.Documented.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_010.Documented \u2192 Nat",
+      "name": "T09_010.Documented.fst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T09_010.Documented",
+      "name": "T09_010.Documented.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {fst snd fst_1 snd_1 : Nat}, { fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 } \u2192 fst = fst_1 \u2227 snd = snd_1",
+      "name": "T09_010.Documented.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (fst snd fst_1 snd_1 : Nat),\n  ({ fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 }) = (fst = fst_1 \u2227 snd = snd_1)",
+      "name": "T09_010.Documented.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (fst snd : Nat), sizeOf { fst := fst, snd := snd } = 1 + sizeOf fst + sizeOf snd",
+      "name": "T09_010.Documented.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T09_010.Documented} \u2192 v1 = v2 \u2192 T09_010.Documented.noConfusionType P v1 v2",
+      "name": "T09_010.Documented.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T09_010.Documented \u2192 T09_010.Documented \u2192 Sort u",
+      "name": "T09_010.Documented.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_010.Documented \u2192 Sort u} \u2192\n  ((fst snd : Nat) \u2192 motive { fst := fst, snd := snd }) \u2192 (t : T09_010.Documented) \u2192 motive t",
+      "name": "T09_010.Documented.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_010.Documented \u2192 Sort u} \u2192\n  (t : T09_010.Documented) \u2192 ((fst snd : Nat) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T09_010.Documented.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_010.Documented \u2192 Nat",
+      "name": "T09_010.Documented.snd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T09_010.DocumentedEnum",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_010.DocumentedEnum \u2192 Sort u} \u2192\n  (t : T09_010.DocumentedEnum) \u2192 motive T09_010.DocumentedEnum.yes \u2192 motive T09_010.DocumentedEnum.no \u2192 motive t",
+      "name": "T09_010.DocumentedEnum.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_010.DocumentedEnum",
+      "name": "T09_010.DocumentedEnum.no",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T09_010.DocumentedEnum.no = 1",
+      "name": "T09_010.DocumentedEnum.no.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T09_010.DocumentedEnum} \u2192 x = y \u2192 T09_010.DocumentedEnum.noConfusionType P x y",
+      "name": "T09_010.DocumentedEnum.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.49"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T09_010.DocumentedEnum \u2192 T09_010.DocumentedEnum \u2192 Sort v\u271d",
+      "name": "T09_010.DocumentedEnum.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.48"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_010.DocumentedEnum \u2192 Sort u} \u2192\n  motive T09_010.DocumentedEnum.yes \u2192 motive T09_010.DocumentedEnum.no \u2192 (t : T09_010.DocumentedEnum) \u2192 motive t",
+      "name": "T09_010.DocumentedEnum.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_010.DocumentedEnum \u2192 Sort u} \u2192\n  (t : T09_010.DocumentedEnum) \u2192 motive T09_010.DocumentedEnum.yes \u2192 motive T09_010.DocumentedEnum.no \u2192 motive t",
+      "name": "T09_010.DocumentedEnum.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_010.DocumentedEnum \u2192 Nat",
+      "name": "T09_010.DocumentedEnum.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_010.DocumentedEnum",
+      "name": "T09_010.DocumentedEnum.yes",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T09_010.DocumentedEnum.yes = 1",
+      "name": "T09_010.DocumentedEnum.yes.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T09_010.afterModuleDoc",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_010.documented",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T09_010.documented n = n + 1",
+      "name": "T09_010.documentedTheorem",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_010.inheritsDoc",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T09_010.markupHeavy",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_010.original",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

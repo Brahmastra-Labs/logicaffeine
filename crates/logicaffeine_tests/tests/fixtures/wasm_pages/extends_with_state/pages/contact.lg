@@ -1,0 +1,13 @@
+Import Layout.
+## Page /contact
+State:
+    Let n be 0.
+Actions:
+    To bump:
+        Set n to n + 1.
+View:
+    {extends Site}
+    {block content:}
+      <h1>Contact</h1>
+      <button id="go" on-click={bump}>go</button>
+    {end}

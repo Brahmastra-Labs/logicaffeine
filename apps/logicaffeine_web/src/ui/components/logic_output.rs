@@ -28,7 +28,7 @@ const OUTPUT_STYLE: &str = r#"
 .logic-output-container {
     display: flex;
     flex-direction: column;
-    padding: 16px;
+    padding: var(--studio-inset, 16px);
 }
 
 .reading-selector {
@@ -67,15 +67,12 @@ const OUTPUT_STYLE: &str = r#"
     color: white;
 }
 
+/* The formula sits on the panel's own surface, set like the code editor's text. */
 .logic-display {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    padding: 16px;
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 16px;
+    font-size: 14px;
     line-height: 1.6;
-    color: #e8e8e8;
+    color: #e8eaed;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     word-break: break-word;
@@ -84,11 +81,9 @@ const OUTPUT_STYLE: &str = r#"
 .logic-display.empty {
     color: #666;
     font-style: italic;
-    padding: 16px;
 }
 
 .logic-display.error {
-    border-color: rgba(224, 108, 117, 0.3);
     color: #e06c75;
 }
 
@@ -102,7 +97,7 @@ const OUTPUT_STYLE: &str = r#"
 /* Mobile optimizations */
 @media (max-width: 768px) {
     .logic-output-container {
-        padding: 12px;
+        padding: var(--studio-inset, 12px);
     }
 
     .reading-selector {
@@ -127,16 +122,6 @@ const OUTPUT_STYLE: &str = r#"
         transform: scale(0.95);
     }
 
-    .logic-display {
-        padding: 16px;
-        font-size: 16px;
-        border-radius: 10px;
-    }
-
-    .logic-display.empty {
-        font-size: 14px;
-        padding: 16px;
-    }
 }
 
 /* Extra small screens */
@@ -160,17 +145,17 @@ pub enum OutputFormat {
     Unicode,
     SimpleFOL,
     LaTeX,
-    Kripke,  // Deep/Kripke semantics
+    Kripke, // Deep/Kripke semantics
 }
 
 #[component]
 pub fn LogicOutput(
     logic: Option<String>,
     simple_logic: Option<String>,
-    kripke_logic: Option<String>,  // Deep/Kripke semantics output (single)
+    kripke_logic: Option<String>, // Deep/Kripke semantics output (single)
     readings: Vec<String>,
-    simple_readings: Vec<String>,   // SimpleFOL readings (deduplicated)
-    kripke_readings: Vec<String>,   // Deep/Kripke readings for ambiguous sentences
+    simple_readings: Vec<String>, // SimpleFOL readings (deduplicated)
+    kripke_readings: Vec<String>, // Deep/Kripke readings for ambiguous sentences
     error: Option<String>,
     format: OutputFormat,
 ) -> Element {
@@ -194,7 +179,10 @@ pub fn LogicOutput(
     };
 
     let formatted_output = match format {
-        OutputFormat::LaTeX => display_logic.as_ref().map(|l| convert_to_latex(l)).unwrap_or_default(),
+        OutputFormat::LaTeX => display_logic
+            .as_ref()
+            .map(|l| convert_to_latex(l))
+            .unwrap_or_default(),
         _ => display_logic.clone().unwrap_or_default(),
     };
 
@@ -273,9 +261,16 @@ pub fn highlight_logic(logic: &str) -> String {
                         break;
                     }
                 }
-                if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                if word
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
                     && word.len() > 1
-                    && word.chars().skip(1).all(|c| c.is_lowercase() || c.is_numeric())
+                    && word
+                        .chars()
+                        .skip(1)
+                        .all(|c| c.is_lowercase() || c.is_numeric())
                 {
                     result.push_str(&format!(r#"<span class="logic-constant">{}</span>"#, word));
                 } else {

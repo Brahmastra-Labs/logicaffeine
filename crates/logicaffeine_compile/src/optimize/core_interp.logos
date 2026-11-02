@@ -1097,6 +1097,8 @@
                 Let skip be true.
             When CMerge (mergeTarget, mergeOther):
                 Let skip be true.
+            When CJoin (joinTarget, joinOther):
+                Let skip be true.
             When CIncrease (incTarget, incAmountExpr):
                 Let incAmount be coreEval(incAmountExpr, env, funcs).
                 Let incTargetVal be item incTarget of env.

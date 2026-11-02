@@ -1,0 +1,11 @@
+{
+  "name": "array_fill",
+  "lang": "logos_c",
+  "n": "1227634320",
+  "samples_weight": 14633195966,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

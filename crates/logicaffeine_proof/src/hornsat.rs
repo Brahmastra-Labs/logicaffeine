@@ -23,15 +23,24 @@ pub struct HornClause {
 impl HornClause {
     /// A definite rule `body ⇒ head`.
     pub fn rule(body: impl Into<Vec<usize>>, head: usize) -> Self {
-        HornClause { body: body.into(), head: Some(head) }
+        HornClause {
+            body: body.into(),
+            head: Some(head),
+        }
     }
     /// A fact `⇒ head` (empty body).
     pub fn fact(head: usize) -> Self {
-        HornClause { body: Vec::new(), head: Some(head) }
+        HornClause {
+            body: Vec::new(),
+            head: Some(head),
+        }
     }
     /// A goal `body ⇒ false`.
     pub fn goal(body: impl Into<Vec<usize>>) -> Self {
-        HornClause { body: body.into(), head: None }
+        HornClause {
+            body: body.into(),
+            head: None,
+        }
     }
 }
 
@@ -50,7 +59,7 @@ pub enum HornOutcome {
 pub fn solve(clauses: &[HornClause], num_vars: usize) -> HornOutcome {
     let mut val = vec![false; num_vars];
     let mut forced_by = vec![usize::MAX; num_vars]; // the clause that first set each variable true
-    // Count of not-yet-true body variables per clause; a clause is ready to fire at count 0.
+                                                    // Count of not-yet-true body variables per clause; a clause is ready to fire at count 0.
     let mut remaining: Vec<usize> = clauses
         .iter()
         .map(|c| c.body.iter().filter(|&&b| b < num_vars).count())
@@ -63,8 +72,7 @@ pub fn solve(clauses: &[HornClause], num_vars: usize) -> HornOutcome {
             }
         }
     }
-    let mut ready: VecDeque<usize> =
-        (0..clauses.len()).filter(|&i| remaining[i] == 0).collect();
+    let mut ready: VecDeque<usize> = (0..clauses.len()).filter(|&i| remaining[i] == 0).collect();
     while let Some(ci) = ready.pop_front() {
         match clauses[ci].head {
             None => {
@@ -112,7 +120,10 @@ fn derivation(clauses: &[HornClause], goal_ci: usize, forced_by: &[usize]) -> Ve
 /// has a false body).
 pub fn satisfies(clauses: &[HornClause], assignment: &[bool]) -> bool {
     clauses.iter().all(|c| {
-        let body_true = c.body.iter().all(|&b| b < assignment.len() && assignment[b]);
+        let body_true = c
+            .body
+            .iter()
+            .all(|&b| b < assignment.len() && assignment[b]);
         match c.head {
             Some(h) => !body_true || (h < assignment.len() && assignment[h]),
             None => !body_true,
@@ -150,103 +161,5 @@ pub fn is_refutation(clauses: &[HornClause], num_vars: usize, refutation: &[usiz
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn facts_and_rules_chain_to_a_least_model() {
-        // ⇒a, ⇒b, (a∧b)⇒c, c⇒d  ⇒  {a,b,c,d} all true.
-        let cs = vec![
-            HornClause::fact(0),
-            HornClause::fact(1),
-            HornClause::rule([0, 1], 2),
-            HornClause::rule([2], 3),
-        ];
-        match solve(&cs, 4) {
-            HornOutcome::Sat(m) => {
-                assert_eq!(m, vec![true, true, true, true]);
-                assert!(satisfies(&cs, &m));
-            }
-            o => panic!("expected Sat, got {o:?}"),
-        }
-    }
-
-    #[test]
-    fn least_model_leaves_unforced_variables_false() {
-        // Only a is a fact; b is never forced ⇒ least model {a}, not {a,b}.
-        let cs = vec![HornClause::fact(0), HornClause::rule([1], 0)];
-        match solve(&cs, 2) {
-            HornOutcome::Sat(m) => {
-                assert_eq!(m, vec![true, false]);
-                assert!(satisfies(&cs, &m));
-            }
-            o => panic!("expected Sat, got {o:?}"),
-        }
-    }
-
-    #[test]
-    fn forced_goal_is_refuted_with_a_derivation() {
-        // ⇒a, a⇒b, (a∧b)⇒false  — the goal's body is forced, so UNSAT.
-        let cs = vec![
-            HornClause::fact(0),
-            HornClause::rule([0], 1),
-            HornClause::goal([0, 1]),
-        ];
-        match solve(&cs, 2) {
-            HornOutcome::Unsat(r) => {
-                assert!(is_refutation(&cs, 2, &r), "refutation must re-check: {r:?}");
-            }
-            o => panic!("expected Unsat, got {o:?}"),
-        }
-    }
-
-    #[test]
-    fn an_unforced_goal_is_satisfiable() {
-        // The goal needs b, which is never forced ⇒ SAT (least model {a}).
-        let cs = vec![HornClause::fact(0), HornClause::goal([0, 1])];
-        match solve(&cs, 2) {
-            HornOutcome::Sat(m) => assert!(satisfies(&cs, &m)),
-            o => panic!("expected Sat, got {o:?}"),
-        }
-    }
-
-    #[test]
-    fn matches_brute_force_on_random_horn_systems() {
-        let mut s: u64 = 0xA0761D6478BD642F;
-        let mut next = || {
-            s ^= s << 13;
-            s ^= s >> 7;
-            s ^= s << 17;
-            s
-        };
-        for _ in 0..400 {
-            let num_vars = (next() % 6) as usize + 1;
-            let m = (next() % 8) as usize + 1;
-            let cs: Vec<HornClause> = (0..m)
-                .map(|_| {
-                    let body: Vec<usize> = (0..num_vars).filter(|_| next() % 3 == 0).collect();
-                    // ~1/4 goal clauses, else a definite rule with a random head.
-                    if next() % 4 == 0 {
-                        HornClause::goal(body)
-                    } else {
-                        HornClause::rule(body, (next() as usize) % num_vars)
-                    }
-                })
-                .collect();
-            let brute_sat = (0..(1u32 << num_vars)).any(|mask| {
-                let a: Vec<bool> = (0..num_vars).map(|i| (mask >> i) & 1 == 1).collect();
-                satisfies(&cs, &a)
-            });
-            match solve(&cs, num_vars) {
-                HornOutcome::Sat(m) => {
-                    assert!(brute_sat, "we said SAT, brute force UNSAT: {cs:?}");
-                    assert!(satisfies(&cs, &m), "least model is wrong: {m:?}");
-                }
-                HornOutcome::Unsat(r) => {
-                    assert!(!brute_sat, "we said UNSAT, brute force SAT: {cs:?}");
-                    assert!(is_refutation(&cs, num_vars, &r), "bogus refutation {r:?}");
-                }
-            }
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/hornsat/tests.rs"]
+mod tests;

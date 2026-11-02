@@ -1,4 +1,4 @@
-//! Phase 5c (work/FINISH_INTERPRETER.md) — cross-tier concurrency differential.
+//! Cross-tier concurrency differential.
 //!
 //! The tree-walker and the bytecode VM share ONE deterministic scheduler
 //! (`logicaffeine_runtime`) under the same seed, so a determinate concurrency
@@ -135,8 +135,16 @@ fn diff_select_both_ready_seed_sweep() {
     for seed in [0u64, 1, 2, 7, 42] {
         let tw = run_treewalker_concurrent_seeded(src, seed);
         let vm = run_vm_concurrent_seeded(src, seed);
-        assert!(tw.error.is_none(), "tree-walker error at seed {seed}: {:?}", tw.error);
-        assert!(vm.error.is_none(), "vm error at seed {seed}: {:?}", vm.error);
+        assert!(
+            tw.error.is_none(),
+            "tree-walker error at seed {seed}: {:?}",
+            tw.error
+        );
+        assert!(
+            vm.error.is_none(),
+            "vm error at seed {seed}: {:?}",
+            vm.error
+        );
         assert_eq!(
             tw.lines, vm.lines,
             "tier divergence at seed {seed}: tree-walker {:?} vs vm {:?}",
@@ -148,7 +156,11 @@ fn diff_select_both_ready_seed_sweep() {
             tw.lines
         );
         // Same seed reproduces its winner.
-        assert_eq!(run_vm_concurrent_seeded(src, seed).lines, vm.lines, "seed {seed} reproducible");
+        assert_eq!(
+            run_vm_concurrent_seeded(src, seed).lines,
+            vm.lines,
+            "seed {seed} reproducible"
+        );
     }
 }
 

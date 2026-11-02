@@ -1,4 +1,4 @@
-//! Phase 115 — §6.2 Mass vs count semantics (work/MISSING_ENGLISH.md).
+//! Phase 115 — Mass vs count semantics.
 //!
 //! Mass nouns denote cumulative, non-atomic stuff; count nouns have atoms.
 //!   "Water is wet."        → kind predication (no ∃ individual)
@@ -15,16 +15,25 @@ use logicaffeine_language::compile;
 fn mass_count_use_coerces_to_portion() {
     let out = compile("John drank a water.").unwrap();
     eprintln!("a-water: {out}");
-    assert!(out.contains("Portion("), "count use of a mass noun coerces a portion: {out}");
+    assert!(
+        out.contains("Portion("),
+        "count use of a mass noun coerces a portion: {out}"
+    );
     assert!(out.contains("Water("), "the stuff predicate: {out}");
-    assert!(out.contains('∃'), "the portion is an introduced atom: {out}");
+    assert!(
+        out.contains('∃'),
+        "the portion is an introduced atom: {out}"
+    );
 }
 
 #[test]
 fn mass_count_numeral_coerces_to_portions() {
     let out = compile("John drank two waters.").unwrap();
     eprintln!("two-waters: {out}");
-    assert!(out.contains("Portion("), "a numeral on a mass noun counts portions: {out}");
+    assert!(
+        out.contains("Portion("),
+        "a numeral on a mass noun counts portions: {out}"
+    );
     assert!(out.contains("Water("), "the stuff predicate: {out}");
 }
 
@@ -33,16 +42,28 @@ fn bare_mass_is_not_a_counted_individual() {
     let out = compile("John drank water.").unwrap();
     eprintln!("bare-water: {out}");
     // Bare mass: the stuff itself, no Portion atom and no ∃x(Water(x)) quantification.
-    assert!(!out.contains("Portion("), "bare mass is not portioned: {out}");
-    assert!(!out.contains("∃x(Water"), "bare mass is not a counted individual: {out}");
+    assert!(
+        !out.contains("Portion("),
+        "bare mass is not portioned: {out}"
+    );
+    assert!(
+        !out.contains("∃x(Water"),
+        "bare mass is not a counted individual: {out}"
+    );
 }
 
 #[test]
 fn mass_kind_predication() {
     let out = compile("Water is wet.").unwrap();
     eprintln!("water-wet: {out}");
-    assert!(out.contains("Wet") && out.contains("Water"), "kind predication over the stuff: {out}");
-    assert!(!out.contains("Portion("), "kind predication introduces no portion: {out}");
+    assert!(
+        out.contains("Wet") && out.contains("Water"),
+        "kind predication over the stuff: {out}"
+    );
+    assert!(
+        !out.contains("Portion("),
+        "kind predication introduces no portion: {out}"
+    );
 }
 
 #[test]
@@ -50,7 +71,10 @@ fn count_noun_unaffected() {
     // Regression: a genuine count noun must NOT be coerced to a portion.
     let out = compile("John saw a dog.").unwrap();
     eprintln!("a-dog: {out}");
-    assert!(!out.contains("Portion("), "count nouns are not portioned: {out}");
+    assert!(
+        !out.contains("Portion("),
+        "count nouns are not portioned: {out}"
+    );
     assert!(out.contains("Dog("), "the count noun: {out}");
 }
 

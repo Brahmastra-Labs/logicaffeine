@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If S, then H and L",
   "options": [
-    "$ (S \\supset (H \\cdot L)) $",
-    "$ S \\supset H \\cdot L $",
-    "$ ((S \\supset H) \\cdot L) $",
-    "$ (S \\supset H) \\cdot L $"
+    "S → (H ∧ L)",
+    "(S → H) ∧ L",
+    "S ∧ H ∧ L",
+    "S ∨ (H ∧ L)"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part S to the then part H ∧ L: S → (H ∧ L).",
+  "section": "6.2"
 }

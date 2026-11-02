@@ -1,0 +1,11 @@
+{
+  "capability": "calendar.leapdays",
+  "workload": "sum leapDaysBetween(a, a+40) over a rolling window",
+  "arg": "300000",
+  "expected": "2910000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls leapDaysBetween() WITHOUT defining it \u2014 auto-imported from calendar.lg. Python counterpart uses calendar.leapdays (closed-form). NOTE: the LOGOS module counts by iterating [y1,y2) \u2014 a Phase-B closed-form rewrite is the lever to beat Python's O(1) formula."
+}

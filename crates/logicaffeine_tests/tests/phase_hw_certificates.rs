@@ -26,7 +26,10 @@ fn cert_verifiable() {
 fn cert_rejects_tampered() {
     let mut cert = generate_equivalence_certificate("A", "B", true);
     cert.steps[0].premises.push(999); // Invalid forward reference
-    assert!(!verify_certificate(&cert), "Tampered certificate should fail");
+    assert!(
+        !verify_certificate(&cert),
+        "Tampered certificate should fail"
+    );
 }
 
 #[test]
@@ -62,7 +65,9 @@ fn cert_serializable_json() {
 #[test]
 fn cert_empty_fails() {
     let cert = ProofCertificate {
-        claim: VerifyClaim::Equivalent { description: "test".into() },
+        claim: VerifyClaim::Equivalent {
+            description: "test".into(),
+        },
         steps: vec![],
         axioms: vec![],
         checkable: true,

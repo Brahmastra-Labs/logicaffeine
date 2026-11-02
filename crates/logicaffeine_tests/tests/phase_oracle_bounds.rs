@@ -64,10 +64,12 @@ Show total.
 /// static nonlinear proof and no UB. This is the general 2D/grid/DP-table lever.
 ///
 /// AOT BCE-hoist (task #21). The inner-loop offset `i*n` is loop-invariant, so
-/// `c[i*n+j]` is monotone in `j`; codegen emits a preheader `assert!(maxIdx <
-/// len)` + a per-iteration `assert_unchecked`, eliding the bounds check soundly
-/// (the hard `assert!` panics, never UB, on an out-of-range program). Worth
-/// ~11% on matrix_mult (hand-elision experiment: 0.61s→0.54s, bit-identical).
+/// `c[i*n+j]` is monotone in `j`; the nest runs versioned on its corner indices
+/// (`If P`, a guard that cannot fail, every name it reads bounded first) and the
+/// clone carries a per-iteration `assert_unchecked`, eliding the bounds check
+/// soundly; an out-of-range program runs as written and fails where every tier
+/// fails. Worth ~11% on matrix_mult (hand-elision experiment: 0.61s→0.54s,
+/// bit-identical).
 #[test]
 fn oracle_hoists_row_major_2d_index() {
     let source = r#"## To native parseInt (s: Text) -> Int
@@ -99,11 +101,12 @@ Show sum.
         "the bilinear row-major write `c[i*n+j]` must get an assert_unchecked hint. Got:\n{}",
         rust
     );
-    // ...justified by a hoisted preheader runtime guard (a hard `assert!`, so an
-    // OOB program panics rather than hits UB — the soundness anchor).
+    // ...justified by the nest's versioning guard (the soundness anchor): it
+    // bounds every name it reads first, so it cannot fail, and there is no
+    // Rust-only bounds assert to fail differently from the other tiers.
     assert!(
-        rust.contains("assert!(") && rust.contains("LOGOS bounds guard"),
-        "a preheader hoisted bounds guard `assert!(...)` must anchor the elision. Got:\n{}",
+        !rust.contains("LOGOS bounds guard") && rust.contains("1073741824"),
+        "the nest's versioning guard must anchor the elision, with no Rust-only bounds assert. Got:\n{}",
         rust
     );
     // sum of c[0..n*n] = sum of 0..63 = 63*64/2 = 2016.

@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 2,
-  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
-  "explanation": "'Philosophy' is used to define 'philosophy' — 'what you study in philosophy classes'. That is CIRCULAR; it assumes you already know what philosophy is."
+  "hint": "Does the definition use the word it is defining?",
+  "explanation": "'Philosophy' is used to explain 'philosophy', so the definition assumes you already know the word.",
+  "section": "3.2"
 }

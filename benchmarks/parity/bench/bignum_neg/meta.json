@@ -1,0 +1,8 @@
+{
+  "capability": "bignum.neg",
+  "workload": "modular accumulator via double negation v=0-(0-(BASE+i)) - a big-negation stress loop; two arbitrary-precision negations per iteration",
+  "arg": "3000000",
+  "expected": "3000000000000000000000004500022500000",
+  "logos_uses_stdlib": false,
+  "note": "bignum.neg is a CORE LOGOS Int operator (Int transparently promotes to BigInt), so main.lg uses it directly - no stdlib import. The >i64 constants are BUILT via arithmetic from i64-safe pieces (LOGOS Int literals cap at i64; bignums come from overflow promotion). Go hand-implements the identical loop with math/big using PREALLOCATED big.Ints and in-place operations (the fast idiomatic form) so any LOGOS win is honest."
+}

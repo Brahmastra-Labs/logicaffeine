@@ -1,0 +1,237 @@
+{
+  "case": "T01-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 27,
+  "declarations": [
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_008.Box",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_008.Box \u03b1 \u2192 Sort u_1} \u2192 (t : T01_008.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_008.Box.mk a)) \u2192 motive t",
+      "name": "T01_008.Box.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 T01_008.Box \u03b1",
+      "name": "T01_008.Box.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {a a_1 : \u03b1}, T01_008.Box.mk a = T01_008.Box.mk a_1 \u2192 a = a_1",
+      "name": "T01_008.Box.mk.inj",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} (a a_1 : \u03b1), (T01_008.Box.mk a = T01_008.Box.mk a_1) = (a = a_1)",
+      "name": "T01_008.Box.mk.injEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T01_008.Box.mk a) = 1 + sizeOf a",
+      "name": "T01_008.Box.mk.sizeOf_spec",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T01_008.Box \u03b1} \u2192 v1 = v2 \u2192 T01_008.Box.noConfusionType P v1 v2",
+      "name": "T01_008.Box.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T01_008.Box \u03b1 \u2192 T01_008.Box \u03b1 \u2192 Sort u_1",
+      "name": "T01_008.Box.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_008.Box \u03b1 \u2192 Sort u_1} \u2192 ((a : \u03b1) \u2192 motive (T01_008.Box.mk a)) \u2192 (t : T01_008.Box \u03b1) \u2192 motive t",
+      "name": "T01_008.Box.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_008.Box \u03b1 \u2192 Sort u_1} \u2192 (t : T01_008.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_008.Box.mk a)) \u2192 motive t",
+      "name": "T01_008.Box.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Bool",
+      "name": "T01_008.boxBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box (T01_008.Box Nat)",
+      "name": "T01_008.boxBoxNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Nat",
+      "name": "T01_008.boxNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.boxNat = T01_008.boxNat",
+      "name": "T01_008.boxNatRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box (T01_008.Box Type)",
+      "name": "T01_008.boxOfBoxType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Type",
+      "name": "T01_008.boxType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Type",
+      "name": "T01_008.boxTypeAgain",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.boxType = T01_008.boxType",
+      "name": "T01_008.boxTypeRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Type",
+      "name": "T01_008.mapAtOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Nat",
+      "name": "T01_008.mapAtZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type u} \u2192 (\u03b1 \u2192 \u03b2) \u2192 T01_008.Box \u03b1 \u2192 T01_008.Box \u03b2",
+      "name": "T01_008.mapBox",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u_1} \u2192\n  (motive : T01_008.Box \u03b1 \u2192 Sort u_2) \u2192 (b : T01_008.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_008.Box.mk a)) \u2192 motive b",
+      "name": "T01_008.mapBox.match_1",
+      "levels": [
+        "u_1",
+        "u_2"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} (b : T01_008.Box \u03b1), b = b",
+      "name": "T01_008.polyBoxId",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Nat \u2192 Nat",
+      "name": "T01_008.unbox",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T01_008.Box Nat \u2192 Sort u_1) \u2192 (b : T01_008.Box Nat) \u2192 ((a : Nat) \u2192 motive (T01_008.Box.mk a)) \u2192 motive b",
+      "name": "T01_008.unbox.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_008.Box Type \u2192 Type",
+      "name": "T01_008.unboxType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T01_008.Box Type \u2192 Sort u_1) \u2192 (b : T01_008.Box Type) \u2192 ((a : Type) \u2192 motive (T01_008.Box.mk a)) \u2192 motive b",
+      "name": "T01_008.unboxType.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -13,22 +13,34 @@ use common::compile_to_rust;
 fn test_concurrent_basic() {
     let source = "## Main\nAttempt all of the following:\n    Let x be 1.\n    Let y be 2.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("tokio::join!"), "Should generate tokio::join! for concurrent block");
+    assert!(
+        rust.contains("tokio::join!"),
+        "Should generate tokio::join! for concurrent block"
+    );
 }
 
 #[test]
 fn test_concurrent_destructures_let_bindings() {
     let source = "## Main\nAttempt all of the following:\n    Let a be 1.\n    Let b be 2.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("let (a, b) = tokio::join!"), "Should destructure Let bindings into tuple");
+    assert!(
+        rust.contains("let (a, b) = tokio::join!"),
+        "Should destructure Let bindings into tuple"
+    );
 }
 
 #[test]
 fn test_concurrent_with_single_statement() {
     let source = "## Main\nAttempt all of the following:\n    Let x be 42.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("tokio::join!"), "Should generate tokio::join! even for single task");
-    assert!(rust.contains("async {"), "Should wrap statement in async block");
+    assert!(
+        rust.contains("tokio::join!"),
+        "Should generate tokio::join! even for single task"
+    );
+    assert!(
+        rust.contains("async {"),
+        "Should wrap statement in async block"
+    );
 }
 
 // =============================================================================
@@ -39,28 +51,54 @@ fn test_concurrent_with_single_statement() {
 fn test_parallel_basic() {
     let source = "## Main\nSimultaneously:\n    Let x be 1.\n    Let y be 2.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("rayon::join"), "Should generate rayon::join for parallel block with 2 tasks");
+    assert!(
+        rust.contains("rayon::join"),
+        "Should generate rayon::join for parallel block with 2 tasks"
+    );
 }
 
 #[test]
 fn test_parallel_destructures_let_bindings() {
     let source = "## Main\nSimultaneously:\n    Let a be 1.\n    Let b be 2.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("let (a, b) = rayon::join"), "Should destructure Let bindings into tuple");
+    assert!(
+        rust.contains("let (a, b) = rayon::join"),
+        "Should destructure Let bindings into tuple"
+    );
 }
 
 #[test]
 fn test_parallel_three_tasks_uses_threads() {
     let source = "## Main\nSimultaneously:\n    Let a be 1.\n    Let b be 2.\n    Let c be 3.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("std::thread::spawn"), "Should use thread::spawn for 3+ tasks");
+    assert!(
+        rust.contains("|| rayon::join("),
+        "Should run 3+ tasks as one join tree on the pool"
+    );
+}
+
+#[test]
+fn test_parallel_literal_tasks_state_their_type() {
+    // The generated Rust states every type the analysis decided: a task whose value is a bare literal is an `i64`,
+    // never left to rustc's `i32` default.
+    let source = "## Main\nSimultaneously:\n    Let a be 1.\n    Let b be 2.\n    Let c be 3.\nShow a + b + c.";
+    let rust = compile_to_rust(source).expect("Should compile");
+    for literal in ["{ 1_i64 }", "{ 2_i64 }", "{ 3_i64 }"] {
+        assert!(
+            rust.contains(literal),
+            "a literal task returns `{literal}`:\n{rust}"
+        );
+    }
 }
 
 #[test]
 fn test_parallel_uses_closure_syntax() {
     let source = "## Main\nSimultaneously:\n    Let x be 1.\n    Let y be 2.";
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("|| {"), "Should use closure syntax for rayon::join tasks");
+    assert!(
+        rust.contains("|| {"),
+        "Should use closure syntax for rayon::join tasks"
+    );
 }
 
 // =============================================================================
@@ -103,8 +141,14 @@ fn test_concurrent_in_function() {
 ## Main
 Call fetch_all."#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn fetch_all"), "Should have function definition");
-    assert!(rust.contains("tokio::join!"), "Should have concurrent block in function");
+    assert!(
+        rust.contains("fn fetch_all"),
+        "Should have function definition"
+    );
+    assert!(
+        rust.contains("tokio::join!"),
+        "Should have concurrent block in function"
+    );
 }
 
 #[test]
@@ -118,8 +162,14 @@ fn test_parallel_in_function() {
 ## Main
 Call compute_all."#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn compute_all"), "Should have function definition");
-    assert!(rust.contains("rayon::join"), "Should have parallel block in function");
+    assert!(
+        rust.contains("fn compute_all"),
+        "Should have function definition"
+    );
+    assert!(
+        rust.contains("rayon::join"),
+        "Should have parallel block in function"
+    );
 }
 
 #[test]

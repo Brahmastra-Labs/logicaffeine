@@ -1,0 +1,52 @@
+════════════════════════════════════════════════════════════════════
+ logicaffeine — full test baseline (FAST / nextest)
+════════════════════════════════════════════════════════════════════
+ started : 2026-09-01 18:30:26 UTC
+ host    : dcdev-ubuntu
+ branch  : main @ f6712fe98603
+ rustc   : rustc 1.96.0 (ac68faa20 2026-05-25)
+ nextest : cargo-nextest 0.9.137 (75ddba7e9 2026-05-26)
+ z3      : Z3 version 4.8.12 - 64 bit
+ command : cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt --run-ignored all
+         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + binary(wasm_aot_lock) + binary(wasm_aot_unit) + test(wasm_jit)'
+         + cargo test --workspace --features verification --profile test-opt --doc --no-fail-fast -- --include-ignored
+
+════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────
+ PASS 1/2 — cargo nextest run (unit + integration, ignored included)
+        PASS [   0.012s] (    1/20340) logicaffeine-base numeric::tests::rational_from_f64_exact
+        FAIL [   0.026s] (  411/20340) logicaffeine-cli::check_deep_regression deep_finding_is_source_mapped_through_the_splice
+        FAIL [  11.519s] (  567/20340) logicaffeine-cli::check_deep_regression crlf_entry_with_title_head_deep_checks_clean
+        FAIL [  12.818s] (  569/20340) logicaffeine-cli::check_deep_regression leading_comment_prose_head_with_stdlib_splice_deep_checks_clean
+     TIMEOUT [1800.024s] (20309/20340) logicaffeine-compile::riscv_aot_lock riscv_matches_the_vm_on_the_benchmark_corpus
+     TIMEOUT [1800.022s] (20314/20340) logicaffeine-compile::scratch_rv qa_execution_differential
+   FLAKY 2/3 [ 440.648s] (19593/20340) logicaffeine-tests::aot_native_tier aot_native_tier_executes_and_is_dispatched
+     Summary [3435.410s] 20340 tests run: 20241 passed (86 slow, 1 flaky), 86 failed, 13 timed out, 3 skipped
+
+
+──────────────────────────────────────────────────────────────────────
+ PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile, --features wasm-jit)
+──────────────────────────────────────────────────────────────────────
+warning: variable does not need to be mutable
+     Summary [   5.470s] 58 tests run: 58 passed, 2304 skipped
+
+
+──────────────────────────────────────────────────────────────────────
+ PASS 2/2 — cargo test --doc (doctests, overlapped with pass 1)
+──────────────────────────────────────────────────────────────────────
+    Blocking waiting for file lock on package cache
+   Doc-tests logicaffeine_base
+running 2 tests
+test crates/logicaffeine_base/src/lib.rs - (line 12) ... ok
+test crates/logicaffeine_base/src/lib.rs - (line 40) ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+   Doc-tests logicaffeine_compile
+running 3 tests
+test crates/logicaffeine_compile/src/lib.rs - (line 8) ... ok
+test crates/logicaffeine_compile/src/repl.rs - (line 20) ... FAILED
+test crates/logicaffeine_compile/src/lib.rs - (line 30) ... ok
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s

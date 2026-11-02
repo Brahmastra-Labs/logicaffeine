@@ -1,0 +1,490 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K1",
+  "mems": [
+   {
+    "contract": [
+     "micro100"
+    ],
+    "kind": "SeqMem",
+    "prefix": "micro100",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "fair100"
+    ],
+    "kind": "SeqMem",
+    "prefix": "fair100",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "edge100"
+    ],
+    "kind": "SeqMem",
+    "prefix": "edge100",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "base_size"
+    ],
+    "kind": "SeqMem",
+    "prefix": "base_size",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "max_order"
+    ],
+    "kind": "SeqMem",
+    "prefix": "max_order",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "inventory"
+    ],
+    "kind": "SeqMem",
+    "prefix": "inventory",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "pos_cap"
+    ],
+    "kind": "SeqMem",
+    "prefix": "pos_cap",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "book_ok"
+    ],
+    "kind": "SeqMem",
+    "prefix": "book_ok",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "order"
+    ],
+    "kind": "SeqMem",
+    "prefix": "order",
+    "words_per_port": 1
+   }
+  ],
+  "name": "k1_calyx_dahlia",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "base_size_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "base_size_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "base_size_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "base_size_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "base_size_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "base_size_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "base_size_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "base_size_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "book_ok_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "book_ok_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "book_ok_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "book_ok_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "book_ok_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "book_ok_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "book_ok_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "book_ok_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "edge100_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "edge100_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "edge100_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "edge100_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "edge100_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "edge100_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "edge100_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "edge100_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "fair100_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "fair100_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "fair100_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "fair100_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "fair100_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "fair100_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "fair100_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "fair100_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "go"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "inventory_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "inventory_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "inventory_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "inventory_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "inventory_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "inventory_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "inventory_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "inventory_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "max_order_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "max_order_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "max_order_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "max_order_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "max_order_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "max_order_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "max_order_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "max_order_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "micro100_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "micro100_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "micro100_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "micro100_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "micro100_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "micro100_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "micro100_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "micro100_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "order_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "order_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "order_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "order_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "order_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "order_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "order_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "order_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "pos_cap_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "pos_cap_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "pos_cap_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "pos_cap_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "pos_cap_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "pos_cap_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "pos_cap_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "pos_cap_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   }
+  ],
+  "protocol": {
+   "GoDone": {
+    "done": "done",
+    "go": "go"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "main"
+ },
+ "files": [
+  "k1_calyx_dahlia.sv"
+ ],
+ "golden_signature": "127aeaa116b23299",
+ "harness": "qorbist_k1_calyx_dahlia.v",
+ "harness_top": "qorbist_k1_calyx_dahlia",
+ "kernel": "K1",
+ "kernel_name": "decide",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "go/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

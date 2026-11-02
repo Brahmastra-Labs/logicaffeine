@@ -2,10 +2,13 @@
   "id": "I_1.1",
   "type": "translation",
   "difficulty": 1,
-  "prompt": "Translate this observation:",
+  "prompt": "Write this sentence in logic.",
   "template": "{ProperName} is {Adjective}.",
   "constraints": {
-    "Adjective": ["Intersective"]
+    "Adjective": [
+      "Intersective"
+    ]
   },
-  "hint": "Apply the adjective as a predicate to the constant."
+  "hint": "Write the adjective as the predicate and the name in parentheses.",
+  "section": "1.4"
 }

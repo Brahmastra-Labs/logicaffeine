@@ -1,0 +1,49 @@
+{
+  "id": "5.6",
+  "title": "The Problem of Other Minds",
+  "order": 6,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "How do you know other people have experiences? You feel your own pain directly, but you only see how others act."
+    },
+    {
+      "type": "definition",
+      "term": "The argument from analogy",
+      "definition": "Others act and are built like me. When I act that way, I feel pain. So they probably feel pain too."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "The analogy",
+      "lines": [
+        "When I am hurt, I wince and cry out.",
+        "Others wince and cry out when hurt.",
+        "Others are built like me."
+      ],
+      "conclusion": "So others probably feel pain as I do."
+    },
+    {
+      "type": "worked",
+      "title": "An objection",
+      "lines": [
+        "The argument rests on one case: my own mind."
+      ],
+      "note": "A generalization from a single case is weak. A robot could also act hurt without feeling anything."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What is the main weakness of the argument from analogy for other minds?",
+    "options": [
+      "Others do not act like us",
+      "It rests on a single case, my own mind",
+      "Pain is not real",
+      "Bodies are easy to see"
+    ],
+    "correct": 1,
+    "hint": "How many minds can you observe directly?",
+    "explanation": "I observe only one mind directly, my own. Generalizing from one case gives weak support."
+  }
+}

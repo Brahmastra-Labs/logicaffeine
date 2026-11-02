@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "The argument misrepresents the opponent's position to make it easier to attack.",
-  "explanation": "This is a Straw Man fallacy - the opponent's position (reduce spending) is exaggerated to an extreme version (leave defenseless) that wasn't actually claimed. Reducing spending doesn't equal eliminating it entirely.",
-  "visual_concept": "Straw Man: Building a weak scarecrow version of someone's argument, then knocking it down and claiming victory."
+  "explanation": "This is a straw man. The opponent wants to cut spending, not to leave the country defenseless.",
+  "visual_concept": "Straw Man: Building a weak scarecrow version of someone's argument, then knocking it down and claiming victory.",
+  "section": "4.2"
 }

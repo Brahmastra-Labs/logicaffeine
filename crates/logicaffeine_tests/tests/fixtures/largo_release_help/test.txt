@@ -1,0 +1,62 @@
+Run the project's `## Test` blocks.
+
+Discovers every `## Test: <prose name>` in the project, runs each in a fresh, isolated world on the interpreter tier, and prints a deterministic, name-ordered report. `Expect that` failures record-and-continue (one run reports everything); runaway tests fail at a deterministic op budget (the timeout that cannot flake); skips are loud, need a reason, and fail the run unless budgeted under `[test] skip_budget` in Largo.toml.
+
+Usage: largo test [OPTIONS] [FILTER]
+
+Arguments:
+  [FILTER]
+          Run only tests whose prose name contains this substring
+
+Options:
+      --seed <SEED>
+          The suite seed (default 0 — reproducibility is the default)
+          
+          [default: 0]
+
+      --format <FORMAT>
+          Report format
+          
+          [default: text]
+          [possible values: text, json]
+
+      --json
+          Emit the machine-readable CLAIM INVENTORY as JSON: every `## Test` classified by kind (example / finite-enumeration property) with an honest status, vacuous flags, disclosed domain bounds, and any concrete counterexample. A superset of `--format json`
+
+      --live
+          Also run capability-granted tests (`This test may use the real filesystem.` etc.) — they leave the hermetic no-flake guarantee
+
+      --prove
+          Escalate finite-domain `For all` properties to exhaustive proof (booleans are checked over every case, not sampled) → rank PROVEN
+
+      --tiers <TIERS>
+          Cross-tier differential: `all` (or a list of `interpreter`,`vm`) also runs each passing test's computation on the bytecode VM and compares it byte for byte, failing if the compiled tier cannot run what the interpreter did (the F18 "works-on-my-tier" guard). Any other value is refused rather than ignored
+
+      --browser
+          A mounted test's page tiers also drive a real headless Chrome (`CHROME_BIN`, or the first of `google-chrome`/`google-chrome-stable`/`chromium`/`chromium-browser`/`chrome` on `PATH`) and must agree with it, exactly as they already must agree with the lowered bytecode VM. No Chrome found is a refused run, not a silent skip
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo test
+  largo test withdraw
+  largo test --seed 7
+  largo test --format json
+  largo test --json

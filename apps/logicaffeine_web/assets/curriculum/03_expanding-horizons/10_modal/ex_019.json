@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Necessarily, if you're a dentist then you're tough",
   "options": [
-    "$ (D \\supset \\square T) $",
-    "$ \\square D \\supset T $",
-    "Ambiguous between 1 & 4",
-    "$ \\square (D \\supset T) $"
+    "D → □T",
+    "□D → T",
+    "Ambiguous between 1 and 4",
+    "□(D → T)"
   ],
   "correct": 3,
-  "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
-  "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
+  "hint": "Does 'necessarily' come before the whole if then?",
+  "explanation": "'Necessarily' covers the whole conditional: □(D → T).",
+  "section": "10.2"
 }

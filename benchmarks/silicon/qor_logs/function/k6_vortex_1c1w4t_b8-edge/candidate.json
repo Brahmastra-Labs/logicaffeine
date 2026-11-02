@@ -1,0 +1,358 @@
+{
+ "candidate": {
+  "batch": 8,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K6",
+  "mems": [],
+  "name": "k6_vortex_1c1w4t_b8",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "busy"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 12,
+    "dir": "In",
+    "name": "dcr_req_addr"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "dcr_req_data"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "dcr_req_rw"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "dcr_req_valid"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "dcr_rsp_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "dcr_rsp_valid"
+   },
+   {
+    "bits": 84,
+    "dir": "Out",
+    "name": "mem_req_addr"
+   },
+   {
+    "bits": 128,
+    "dir": "Out",
+    "name": "mem_req_byteen"
+   },
+   {
+    "bits": 1024,
+    "dir": "Out",
+    "name": "mem_req_data"
+   },
+   {
+    "bits": 2,
+    "dir": "In",
+    "name": "mem_req_ready"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "mem_req_rw"
+   },
+   {
+    "bits": 18,
+    "dir": "Out",
+    "name": "mem_req_tag"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "mem_req_valid"
+   },
+   {
+    "bits": 1024,
+    "dir": "In",
+    "name": "mem_rsp_data"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "mem_rsp_ready"
+   },
+   {
+    "bits": 18,
+    "dir": "In",
+    "name": "mem_rsp_tag"
+   },
+   {
+    "bits": 2,
+    "dir": "In",
+    "name": "mem_rsp_valid"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start"
+   }
+  ],
+  "protocol": {
+   "Launch": {
+    "bus": {
+     "addr_bits": 42,
+     "image": [
+      {
+       "hex": "0c2b0b130003cb370c1a8a930003cab7003299930080091301e484b3000204b703df0f3302800f1301e404330001043703df0f3303800f13cc102ef3cc0022f3",
+       "line": 100663296
+      },
+      {
+       "hex": "0368688b00f808330357e80b00fe302301348e330077f7b3407003b30013f3930056d3b300c787b302e587b30183370301340333010436830084360300043583",
+       "line": 100663297
+      },
+      {
+       "hex": "00000000000000000000000000000000000000000000000000000000000000000000000b0000700bfa0916e3fff9091302848493038404130314b023010888b3",
+       "line": 100663298
+      }
+     ],
+     "line_bytes": 64,
+     "msb_first": true,
+     "ports": 2,
+     "prefix": "mem",
+     "regions": [
+      {
+       "base_line": 1024,
+       "contract": [
+        "a@0",
+        "b@0",
+        "mask@0",
+        "x0@0",
+        "x1@0",
+        "x2@0",
+        "x3@0",
+        "a@1",
+        "b@1",
+        "mask@1",
+        "x0@1",
+        "x1@1",
+        "x2@1",
+        "x3@1",
+        "a@2",
+        "b@2",
+        "mask@2",
+        "x0@2",
+        "x1@2",
+        "x2@2",
+        "x3@2",
+        "a@3",
+        "b@3",
+        "mask@3",
+        "x0@3",
+        "x1@3",
+        "x2@3",
+        "x3@3",
+        "a@4",
+        "b@4",
+        "mask@4",
+        "x0@4",
+        "x1@4",
+        "x2@4",
+        "x3@4",
+        "a@5",
+        "b@5",
+        "mask@5",
+        "x0@5",
+        "x1@5",
+        "x2@5",
+        "x3@5",
+        "a@6",
+        "b@6",
+        "mask@6",
+        "x0@6",
+        "x1@6",
+        "x2@6",
+        "x3@6",
+        "a@7",
+        "b@7",
+        "mask@7",
+        "x0@7",
+        "x1@7",
+        "x2@7",
+        "x3@7"
+       ],
+       "stride_bits": 64,
+       "words_per_port": 1
+      },
+      {
+       "base_line": 2048,
+       "contract": [
+        "y0@0",
+        "y1@0",
+        "y2@0",
+        "y3@0",
+        "sum@0",
+        "y0@1",
+        "y1@1",
+        "y2@1",
+        "y3@1",
+        "sum@1",
+        "y0@2",
+        "y1@2",
+        "y2@2",
+        "y3@2",
+        "sum@2",
+        "y0@3",
+        "y1@3",
+        "y2@3",
+        "y3@3",
+        "sum@3",
+        "y0@4",
+        "y1@4",
+        "y2@4",
+        "y3@4",
+        "sum@4",
+        "y0@5",
+        "y1@5",
+        "y2@5",
+        "y3@5",
+        "sum@5",
+        "y0@6",
+        "y1@6",
+        "y2@6",
+        "y3@6",
+        "sum@6",
+        "y0@7",
+        "y1@7",
+        "y2@7",
+        "y3@7",
+        "sum@7"
+       ],
+       "stride_bits": 64,
+       "words_per_port": 1
+      }
+     ],
+     "tag_bits": 9
+    },
+    "busy": "busy",
+    "dcr": {
+     "addr": "dcr_req_addr",
+     "data": "dcr_req_data",
+     "rsp_valid": "dcr_rsp_valid",
+     "rw": "dcr_req_rw",
+     "valid": "dcr_req_valid"
+    },
+    "flush": 0,
+    "setup": [
+     {
+      "addr": 16,
+      "data": 2147483648
+     },
+     {
+      "addr": 17,
+      "data": 1
+     },
+     {
+      "addr": 20,
+      "data": 0
+     },
+     {
+      "addr": 21,
+      "data": 0
+     },
+     {
+      "addr": 22,
+      "data": 4
+     },
+     {
+      "addr": 23,
+      "data": 1
+     },
+     {
+      "addr": 24,
+      "data": 1
+     },
+     {
+      "addr": 25,
+      "data": 1
+     },
+     {
+      "addr": 26,
+      "data": 1
+     },
+     {
+      "addr": 27,
+      "data": 1
+     },
+     {
+      "addr": 28,
+      "data": 0
+     },
+     {
+      "addr": 29,
+      "data": 4
+     },
+     {
+      "addr": 30,
+      "data": 0
+     },
+     {
+      "addr": 31,
+      "data": 0
+     },
+     {
+      "addr": 32,
+      "data": 0
+     },
+     {
+      "addr": 33,
+      "data": 1
+     },
+     {
+      "addr": 34,
+      "data": 1
+     },
+     {
+      "addr": 35,
+      "data": 1
+     }
+    ],
+    "start": "start"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "Vortex"
+ },
+ "files": [
+  "Vortex.v"
+ ],
+ "golden_signature": "5f02efb454ab968e",
+ "harness": "qorbist_k6_vortex_1c1w4t_b8.v",
+ "harness_top": "qorbist_k6_vortex_1c1w4t_b8",
+ "kernel": "K6",
+ "kernel_name": "simt_axpb_sum",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "kernel launch over a 2-port 64-byte-line memory bus, flushed before the results are read",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

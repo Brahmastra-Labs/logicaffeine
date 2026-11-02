@@ -14,20 +14,32 @@ use logicaffeine_language::{compile, compile_kripke};
 fn filter_passes_simple_sentence() {
     // A basic sentence should still parse fine
     let result = compile("Every dog runs.");
-    assert!(result.is_ok(), "Simple sentence should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Simple sentence should parse: {:?}",
+        result.err()
+    );
 }
 
 #[test]
 fn filter_passes_modal_sentence() {
     // Modal sentences should still work after our temporal additions
     let result = compile_kripke("John can fly.");
-    assert!(result.is_ok(), "Modal sentence should Kripke-lower: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Modal sentence should Kripke-lower: {:?}",
+        result.err()
+    );
 }
 
 #[test]
 fn filter_passes_deontic_modal() {
     let result = compile_kripke("John should study.");
-    assert!(result.is_ok(), "Deontic modal should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Deontic modal should parse: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert!(
         output.contains("Accessible_Deontic"),
@@ -73,15 +85,26 @@ fn filter_rejects_incomplete_sentence() {
     let result = compile("Every.");
     assert!(result.is_err(), "Incomplete sentence should be rejected");
     let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(!err_msg.contains("panic"), "Should be a parse error, not a panic: {}", err_msg);
+    assert!(
+        !err_msg.contains("panic"),
+        "Should be a parse error, not a panic: {}",
+        err_msg
+    );
 }
 
 #[test]
 fn filter_rejects_bare_quantifier() {
     let result = compile("Every and some.");
-    assert!(result.is_err(), "Bare quantifiers without nouns should fail");
+    assert!(
+        result.is_err(),
+        "Bare quantifiers without nouns should fail"
+    );
     let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(!err_msg.contains("panic"), "Should be a parse error, not a panic: {}", err_msg);
+    assert!(
+        !err_msg.contains("panic"),
+        "Should be a parse error, not a panic: {}",
+        err_msg
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -110,12 +133,21 @@ fn filter_kripke_always_generates_correct_quantifier_structure() {
     // "Always" must produce BOTH universal quantifier AND temporal accessibility
     // AND an implication: ∀w'(Accessible_Temporal(w,w') → P(w'))
     let result = compile_kripke("Always, every dog runs.").unwrap();
-    assert!(result.contains("Accessible_Temporal"),
-        "Must have temporal accessibility. Got: {}", result);
-    assert!(result.contains("∀") || result.contains("ForAll"),
-        "Must have universal quantifier. Got: {}", result);
-    assert!(result.contains("→") || result.contains("Implies") || result.contains("If"),
-        "Always must generate implication: Accessible → P. Got: {}", result);
+    assert!(
+        result.contains("Accessible_Temporal"),
+        "Must have temporal accessibility. Got: {}",
+        result
+    );
+    assert!(
+        result.contains("∀") || result.contains("ForAll"),
+        "Must have universal quantifier. Got: {}",
+        result
+    );
+    assert!(
+        result.contains("→") || result.contains("Implies") || result.contains("If"),
+        "Always must generate implication: Accessible → P. Got: {}",
+        result
+    );
 }
 
 #[test]
@@ -123,12 +155,21 @@ fn filter_kripke_eventually_generates_correct_quantifier_structure() {
     // "Eventually" must produce existential quantifier AND temporal reachability
     // AND a conjunction: ∃w'(Reachable_Temporal(w,w') ∧ P(w'))
     let result = compile_kripke("Eventually, John runs.").unwrap();
-    assert!(result.contains("Reachable_Temporal"),
-        "Must have reachable accessibility. Got: {}", result);
-    assert!(result.contains("∃") || result.contains("Exists"),
-        "Must have existential quantifier. Got: {}", result);
-    assert!(result.contains("∧") || result.contains("And"),
-        "Eventually must generate conjunction: Reachable ∧ P. Got: {}", result);
+    assert!(
+        result.contains("Reachable_Temporal"),
+        "Must have reachable accessibility. Got: {}",
+        result
+    );
+    assert!(
+        result.contains("∃") || result.contains("Exists"),
+        "Must have existential quantifier. Got: {}",
+        result
+    );
+    assert!(
+        result.contains("∧") || result.contains("And"),
+        "Eventually must generate conjunction: Reachable ∧ P. Got: {}",
+        result
+    );
 }
 
 #[test]
@@ -137,8 +178,14 @@ fn filter_rejects_incomplete_sentence_with_useful_error() {
     let result = compile("Every.");
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(err_msg.len() > 5,
-        "Error message should be substantive, not empty. Got: {}", err_msg);
-    assert!(!err_msg.contains("panic"),
-        "Should be a parse error, not a panic. Got: {}", err_msg);
+    assert!(
+        err_msg.len() > 5,
+        "Error message should be substantive, not empty. Got: {}",
+        err_msg
+    );
+    assert!(
+        !err_msg.contains("panic"),
+        "Should be a parse error, not a panic. Got: {}",
+        err_msg
+    );
 }

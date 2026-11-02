@@ -51,7 +51,11 @@ fn quantity_in_program_contexts_all_tiers_agree() {
 fn dimension_mismatch_rejected_before_execution_on_interpreter() {
     let r = common::run_interpreter("## Main\nShow \"starting\".\nShow 2 meters + 1 gram.");
     assert!(!r.success, "interpreter must reject a dimension mismatch");
-    assert!(r.error.contains("different dimensions"), "expected a dimension error, got: {}", r.error);
+    assert!(
+        r.error.contains("different dimensions"),
+        "expected a dimension error, got: {}",
+        r.error
+    );
     // The rejection is at analysis time, BEFORE the first `Show` runs — so nothing was printed.
     assert!(
         !r.output.contains("starting"),
@@ -68,10 +72,7 @@ fn dimension_mismatch_rejected_before_execution_on_interpreter() {
 #[test]
 fn quantity_dimension_mismatch_is_a_compile_error() {
     // `LOGOS compile error:` proves it was rejected at compile time (a runtime panic lacks that prefix).
-    common::assert_compile_fails(
-        "## Main\nShow 2 meters + 1 gram.",
-        "LOGOS compile error",
-    );
+    common::assert_compile_fails("## Main\nShow 2 meters + 1 gram.", "LOGOS compile error");
     common::assert_compile_fails("## Main\nShow 2 meters + 1 gram.", "different dimensions");
 }
 

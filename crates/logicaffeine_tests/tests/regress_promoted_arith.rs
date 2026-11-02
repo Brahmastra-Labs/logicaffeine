@@ -18,7 +18,11 @@ use logicaffeine_compile::compile::tw_outcome;
 /// compilable but numerically correct.
 fn aot_matches_treewalker(prog: &str) {
     let tw = tw_outcome(prog);
-    assert_eq!(tw.error, None, "tree-walker must run cleanly: {:?}", tw.error);
+    assert_eq!(
+        tw.error, None,
+        "tree-walker must run cleanly: {:?}",
+        tw.error
+    );
     let aot = common::run_logos_with_args(prog, &[]);
     assert!(
         aot.success,
@@ -26,7 +30,11 @@ fn aot_matches_treewalker(prog: &str) {
          --- stderr ---\n{}\n--- generated rust ---\n{}",
         aot.stderr, aot.rust_code
     );
-    assert_eq!(aot.stdout.trim(), tw.output.trim(), "AOT output must match the tree-walker exactly");
+    assert_eq!(
+        aot.stdout.trim(),
+        tw.output.trim(),
+        "AOT output must match the tree-walker exactly"
+    );
 }
 
 // A doubling additive accumulator (`x = x + x`) is exactly the shape `bigint_promote` promotes to

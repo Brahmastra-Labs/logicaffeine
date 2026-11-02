@@ -24,20 +24,18 @@
 #   * Timings are single-run, wall-clock, on whatever machine you run this on. For a real evaluation
 #     use PAR-2 scoring, fixed timeout, documented hardware, multiple seeds, cactus plots.
 #
-# PROVENANCE (the binaries this builds; all open-source, none vendored into the repo):
-#   kissat    https://github.com/arminbiere/kissat
-#   sadical   https://fmv.jku.at/sadical/sadical.zip   (Heule-Kiesl-Biere, TACAS'19)
-#   drat-trim https://github.com/marijnheule/drat-trim  (also provides lrat-check)
-#   sr2drat   https://github.com/marijnheule/sr2drat    (SR → DRAT expansion)
+# PROVENANCE: the binaries are built from source at pinned revisions by benchmarks/sat/external-solvers.sh
+# (all open-source, none vendored into the repo) — kissat, sadical (Heule-Kiesl-Biere, TACAS'19) with its
+# dpr-trim, drat-trim + lrat-check, and sr2drat (SR → DRAT expansion).
 #
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 ROOT="$(pwd)"
-EXT="${SATBENCH_EXT:-$ROOT/external-solvers}"   # gitignored; override with SATBENCH_EXT
 LOGDIR="$ROOT/logs/optimization/satbench"
 TS="$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$EXT" "$LOGDIR"
+mkdir -p "$LOGDIR"
 LOG="$LOGDIR/run-$TS.log"
+. "$ROOT/benchmarks/sat/external-solvers.sh"
 TIMEOUT="${SATBENCH_TIMEOUT:-60}"
 
 say() { echo "$@" | tee -a "$LOG"; }
@@ -48,37 +46,8 @@ say "# building our engine (release) ..."
 cargo build --release -p logicaffeine-proof --example satbench >>"$LOG" 2>&1 || { say "build failed"; exit 1; }
 OURS="$ROOT/target/release/examples/satbench"
 
-build_kissat() {
-  [ -x "$EXT/kissat/build/kissat" ] && return 0
-  say "# fetching+building kissat ..."
-  ( cd "$EXT" && git clone --depth 1 https://github.com/arminbiere/kissat 2>>"$LOG" \
-    && cd kissat && ./configure >>"$LOG" 2>&1 && make -j >>"$LOG" 2>&1 )
-}
-build_sadical() {
-  [ -x "$EXT/sadical/sadical/sadical" ] && return 0
-  say "# fetching+building sadical ..."
-  ( cd "$EXT" && curl -sL https://fmv.jku.at/sadical/sadical.zip -o sadical.zip \
-    && mkdir -p sadical && cd sadical && unzip -oq ../sadical.zip \
-    && cd sadical && ./configure.sh >>"$LOG" 2>&1 && make >>"$LOG" 2>&1 \
-    && gcc -O2 -o tests/dpr-trim tests/dpr-trim.c >>"$LOG" 2>&1 )
-}
-build_drattrim() {
-  [ -x "$EXT/drat-trim/drat-trim" ] && return 0
-  say "# fetching+building drat-trim + lrat-check ..."
-  ( cd "$EXT" && git clone --depth 1 https://github.com/marijnheule/drat-trim 2>>"$LOG" \
-    && cd drat-trim && gcc -O2 -o drat-trim drat-trim.c >>"$LOG" 2>&1 \
-    && gcc -O2 -o lrat-check lrat-check.c >>"$LOG" 2>&1 )
-}
-build_sr2drat() {
-  [ -x "$EXT/sr2drat/sr2drat" ] && return 0
-  say "# fetching+building sr2drat (SR → DRAT) ..."
-  ( cd "$EXT" && git clone --depth 1 https://github.com/marijnheule/sr2drat 2>>"$LOG" \
-    && cd sr2drat && gcc -D_GNU_SOURCE -std=gnu99 -O2 sr2drat.c -o sr2drat >>"$LOG" 2>&1 )
-}
-build_kissat;  KIS="$EXT/kissat/build/kissat"
-build_sadical; SAT="$EXT/sadical/sadical/sadical"; DPRTRIM="$EXT/sadical/sadical/tests/dpr-trim"
-build_drattrim; DRAT="$EXT/drat-trim/drat-trim"; LRAT="$EXT/drat-trim/lrat-check"
-build_sr2drat; SR2DRAT="$EXT/sr2drat/sr2drat"
+require_solvers kissat sadical drattrim sr2drat || exit 1
+KIS="$KISSAT"; SAT="$SADICAL"; DRAT="$DRATTRIM"; LRAT="$LRATCHECK"
 
 ms() { date +%s.%N; }
 el() { echo "($2-$1)*1000" | bc | cut -d. -f1; }

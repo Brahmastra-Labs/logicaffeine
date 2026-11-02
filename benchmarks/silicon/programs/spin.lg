@@ -1,0 +1,7 @@
+## Main
+    Let mutable total be 0.
+    Let mutable i be 1.
+    While i is at most 200000:
+        Set total to total + i * i.
+        Set i to i + 1.
+    Show total.

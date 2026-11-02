@@ -8,10 +8,12 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "SMT translation validation: prove emitted Rust is observationally equivalent to LOGOS source"
+license = "MIT"
+description = "Translation validation for LOGOS: a symbolic encoder of the source, checked with Z3 against the tree-walking interpreter per program"
 readme = "README.md"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [dependencies]
 logicaffeine-compile = { workspace = true }
 logicaffeine-verify = { workspace = true }
+z3 = "0.20"

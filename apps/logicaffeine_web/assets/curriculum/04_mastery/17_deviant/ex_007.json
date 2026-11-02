@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "The distributive law fails for quantum measurements.",
   "explanation": "Quantum logic (Birkhoff & von Neumann, 1936) arose because classical logic's distributive law fails in quantum mechanics. Measuring one property can disturb another, so 'A and (B or C)' isn't equivalent to '(A and B) or (A and C)' for quantum measurements.",
-  "visual_concept": "Classical: checking position doesn't affect momentum. Quantum: measurement itself changes the system, breaking classical logical equivalences."
+  "visual_concept": "Classical: checking position doesn't affect momentum. Quantum: measurement itself changes the system, breaking classical logical equivalences.",
+  "section": "17.1"
 }

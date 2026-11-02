@@ -1,0 +1,26 @@
+{
+  "case": "T00-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 2,
+  "declarations": [
+    {
+      "type": "(F : (Nat \u2192 Nat) \u2192 Type) \u2192 (f : Nat \u2192 Nat) \u2192 (F fun n => f n) \u2192 F f",
+      "name": "T00_014.etaInType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f g : Nat \u2192 Nat), (\u2200 (n : Nat), f n = g n) \u2192 f = g",
+      "name": "T00_014.needsFunext",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

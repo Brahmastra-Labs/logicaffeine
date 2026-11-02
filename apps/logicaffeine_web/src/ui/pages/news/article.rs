@@ -1,13 +1,18 @@
 //! Individual news article page.
 
+use super::data::{format_tag, get_all_tags, get_article_by_slug};
+use crate::ui::components::footer::Footer;
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::inline_markup::inline_markup_html;
+use crate::ui::markdown_blocks::{blocks, Block};
+use crate::ui::router::Route;
+use crate::ui::seo::{
+    article_schema, breadcrumb_schema, organization_schema, BreadcrumbItem, JsonLdMultiple,
+    PageHead,
+};
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, article_schema, BreadcrumbItem};
-use crate::ui::router::Route;
-use super::data::{get_article_by_slug, get_all_tags, format_tag};
 
 const ARTICLE_STYLES: &str = r#"
 .article-page {
@@ -61,10 +66,12 @@ const ARTICLE_STYLES: &str = r#"
 
 .article-tags {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
 .article-tag {
+    white-space: nowrap;
     font-size: 11px;
     padding: 4px 10px;
     border-radius: var(--radius-full, 9999px);
@@ -171,6 +178,38 @@ const ARTICLE_STYLES: &str = r#"
 .article-body strong {
     font-weight: 600;
     color: var(--text-primary, #f0f0f0);
+}
+
+.article-body hr {
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin: 40px 0;
+}
+
+.article-body .article-table {
+    margin: 0 0 24px;
+    overflow-x: auto;
+}
+
+.article-body table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-body-md, 16px);
+    line-height: 1.5;
+}
+
+.article-body th,
+.article-body td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: left;
+    vertical-align: top;
+}
+
+.article-body th {
+    font-weight: 600;
+    color: var(--text-primary, #f0f0f0);
+    border-bottom-color: rgba(255, 255, 255, 0.16);
 }
 
 .article-not-found {
@@ -282,10 +321,7 @@ const ARTICLE_STYLES: &str = r#"
 pub fn NewsArticle(slug: String) -> Element {
     let article = get_article_by_slug(&slug);
     let (page_title, page_desc) = match article {
-        Some(a) => (
-            format!("{} - LOGICAFFEINE", a.title),
-            a.summary.to_string(),
-        ),
+        Some(a) => (format!("{} - LOGICAFFEINE", a.title), a.summary.to_string()),
         None => (
             "Article Not Found - LOGICAFFEINE".to_string(),
             "Latest news and updates from LOGICAFFEINE.".to_string(),
@@ -392,132 +428,49 @@ pub fn NewsArticle(slug: String) -> Element {
     }
 }
 
-/// Simple markdown to HTML converter for article content
+/// An article's Markdown as HTML, block by block; each block's text with inline code, bold and
+/// links.
 fn markdown_to_html(markdown: &str) -> String {
-    let mut html = String::new();
-    let mut in_code_block = false;
-    let mut in_list = false;
-    let mut list_type = "ul";
-
-    for line in markdown.lines() {
-        let trimmed = line.trim();
-
-        // Code blocks
-        if trimmed.starts_with("```") {
-            if in_code_block {
-                html.push_str("</code></pre>\n");
-                in_code_block = false;
-            } else {
-                html.push_str("<pre><code>");
-                in_code_block = true;
-            }
-            continue;
-        }
-
-        if in_code_block {
-            html.push_str(&html_escape(trimmed));
-            html.push('\n');
-            continue;
-        }
-
-        // Close list if line doesn't start with list marker
-        if in_list && !trimmed.starts_with("- ") && !trimmed.starts_with("* ") && !trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-            html.push_str(&format!("</{}>", list_type));
-            in_list = false;
-        }
-
-        // Headers
-        if trimmed.starts_with("### ") {
-            html.push_str(&format!("<h3>{}</h3>\n", &trimmed[4..]));
-        } else if trimmed.starts_with("## ") {
-            html.push_str(&format!("<h2>{}</h2>\n", &trimmed[3..]));
-        } else if trimmed.starts_with("# ") {
-            html.push_str(&format!("<h1>{}</h1>\n", &trimmed[2..]));
-        }
-        // Blockquotes
-        else if trimmed.starts_with("> ") {
-            html.push_str(&format!("<blockquote>{}</blockquote>\n", &trimmed[2..]));
-        }
-        // Unordered lists
-        else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-            if !in_list {
-                html.push_str("<ul>\n");
-                in_list = true;
-                list_type = "ul";
-            }
-            html.push_str(&format!("<li>{}</li>\n", inline_markdown(&trimmed[2..])));
-        }
-        // Ordered lists
-        else if let Some(rest) = trimmed.strip_prefix(|c: char| c.is_ascii_digit()) {
-            if rest.starts_with(". ") {
-                if !in_list {
-                    html.push_str("<ol>\n");
-                    in_list = true;
-                    list_type = "ol";
-                }
-                html.push_str(&format!("<li>{}</li>\n", inline_markdown(&rest[2..])));
-            }
-        }
-        // Paragraphs (non-empty lines)
-        else if !trimmed.is_empty() {
-            html.push_str(&format!("<p>{}</p>\n", inline_markdown(trimmed)));
-        }
-    }
-
-    // Close any remaining list
-    if in_list {
-        html.push_str(&format!("</{}>", list_type));
-    }
-
-    html
+    blocks(markdown).iter().map(block_html).collect()
 }
 
-/// Process inline markdown (bold, italic, code, links)
-fn inline_markdown(text: &str) -> String {
-    let mut result = html_escape(text);
-
-    // Code (backticks) - must be done first
-    let mut i = 0;
-    while let Some(start) = result[i..].find('`') {
-        let start = i + start;
-        if let Some(end) = result[start + 1..].find('`') {
-            let end = start + 1 + end;
-            let code = result[start + 1..end].to_string();
-            let code_len = code.len();
-            result = format!("{}<code>{}</code>{}", &result[..start], code, &result[end + 1..]);
-            i = start + 13 + code_len; // Skip past the inserted code tag
-        } else {
-            break;
+fn block_html(block: &Block) -> String {
+    match block {
+        Block::Heading { level, text } => {
+            format!("<h{level}>{}</h{level}>\n", inline_markup_html(text))
         }
-    }
-
-    // Bold (**text**)
-    while let Some(start) = result.find("**") {
-        if let Some(end) = result[start + 2..].find("**") {
-            let end = start + 2 + end;
-            let bold = &result[start + 2..end];
-            result = format!("{}<strong>{}</strong>{}", &result[..start], bold, &result[end + 2..]);
-        } else {
-            break;
+        Block::Paragraph(text) => format!("<p>{}</p>\n", inline_markup_html(text)),
+        Block::List { ordered, items } => {
+            let tag = if *ordered { "ol" } else { "ul" };
+            let items: String = items
+                .iter()
+                .map(|item| format!("<li>{}</li>\n", inline_markup_html(item)))
+                .collect();
+            format!("<{tag}>\n{items}</{tag}>\n")
         }
-    }
-
-    // Links [text](url)
-    while let Some(start) = result.find('[') {
-        if let Some(mid) = result[start..].find("](") {
-            let mid = start + mid;
-            if let Some(end) = result[mid + 2..].find(')') {
-                let end = mid + 2 + end;
-                let text = &result[start + 1..mid];
-                let url = &result[mid + 2..end];
-                result = format!("{}<a href=\"{}\">{}</a>{}", &result[..start], url, text, &result[end + 1..]);
-                continue;
-            }
+        Block::Quote(paragraphs) => {
+            let body: Vec<String> = paragraphs.iter().map(|p| inline_markup_html(p)).collect();
+            format!("<blockquote>{}</blockquote>\n", body.join("<br/><br/>"))
         }
-        break;
+        Block::Table { header, rows } => {
+            let row = |cells: &[String], tag: &str| -> String {
+                let cells: String = cells
+                    .iter()
+                    .map(|cell| format!("<{tag}>{}</{tag}>", inline_markup_html(cell)))
+                    .collect();
+                format!("<tr>{cells}</tr>")
+            };
+            let head = header.as_ref().map_or(String::new(), |h| {
+                format!("<thead>{}</thead>", row(h, "th"))
+            });
+            let body: String = rows.iter().map(|r| row(r, "td")).collect();
+            format!(
+                "<div class=\"article-table\"><table>{head}<tbody>{body}</tbody></table></div>\n"
+            )
+        }
+        Block::Fence { code, .. } => format!("<pre><code>{}</code></pre>\n", html_escape(code)),
+        Block::Rule => "<hr/>\n".to_string(),
     }
-
-    result
 }
 
 /// Escape HTML special characters
@@ -526,3 +479,7 @@ fn html_escape(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
+
+#[cfg(test)]
+#[path = "../../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/news/article/tests.rs"]
+mod tests;

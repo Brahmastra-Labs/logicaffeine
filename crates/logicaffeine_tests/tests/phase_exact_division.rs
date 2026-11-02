@@ -34,7 +34,10 @@ fn exact_division_propagates_across_the_arithmetic_spine() {
     // Every `/` on the arithmetic spine of a Rational value is exact: 1/3 + 1/6 = 1/2.
     assert_interpreter_output("## Main\nLet x: Rational be 1 / 3 + 1 / 6.\nShow x.", "1/2");
     // 1/2 * 2/3 = 1/3.
-    assert_interpreter_output("## Main\nLet x: Rational be 1 / 2 * (2 / 3).\nShow x.", "1/3");
+    assert_interpreter_output(
+        "## Main\nLet x: Rational be 1 / 2 * (2 / 3).\nShow x.",
+        "1/3",
+    );
 }
 
 #[test]
@@ -108,15 +111,15 @@ fn rational_context_is_exhaustively_exact() {
         ("1 / 3", "1/3"),
         ("17 / 5", "17/5"),
         ("22 / 7", "22/7"),
-        ("6 / 8", "3/4"),   // reduces
-        ("10 / 4", "5/2"),  // reduces
+        ("6 / 8", "3/4"),  // reduces
+        ("10 / 4", "5/2"), // reduces
         ("100 / 8", "25/2"),
         ("-7 / 2", "-7/2"),
         ("7 / -2", "-7/2"), // sign normalizes onto the numerator
         ("-6 / -8", "3/4"),
-        ("0 / 5", "0"),     // zero
-        ("6 / 2", "3"),     // even → downsizes to Int
-        ("100 / 4", "25"),  // even → downsizes
+        ("0 / 5", "0"),    // zero
+        ("6 / 2", "3"),    // even → downsizes to Int
+        ("100 / 4", "25"), // even → downsizes
         ("9 / 3", "3"),
     ] {
         let src = format!("## Main\nLet x: Rational be {expr}.\nShow x.");
@@ -228,7 +231,10 @@ fn a_rational_sum_that_reduces_to_a_whole_number_shows_as_an_int() {
 #[test]
 fn an_integer_added_to_a_rational_variable_widens_to_rational() {
     // r is a Rational variable; the Int 3 widens to a rational → 7/2 (no explicit cast).
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet s be r + 3.\nShow s.", "7/2");
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet s be r + 3.\nShow s.",
+        "7/2",
+    );
 }
 
 #[test]
@@ -240,26 +246,47 @@ fn an_integer_literal_in_a_rational_binding_widens() {
 #[test]
 fn int_and_rational_mix_across_minus_and_times() {
     // 1/2 * 4 = 2 (reduces to a whole) ; 5 - 1/2 = 9/2.
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet a be r * 4.\nShow a.", "2");
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet b be 5 - r.\nShow b.", "9/2");
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet a be r * 4.\nShow a.",
+        "2",
+    );
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet b be 5 - r.\nShow b.",
+        "9/2",
+    );
     // Multiplication, both operand orders, non-reducing and reducing.
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet a be r * 3.\nShow a.", "3/2");
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet a be 6 * r.\nShow a.", "3");
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet a be r * 3.\nShow a.",
+        "3/2",
+    );
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet a be 6 * r.\nShow a.",
+        "3",
+    );
 }
 
 #[test]
 fn every_division_combination_of_int_and_rational_is_exact() {
     // Rational / Int :  (1/2) / 2 = 1/4
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet q be r / 2.\nShow q.", "1/4");
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet q be r / 2.\nShow q.",
+        "1/4",
+    );
     // Int / Rational :  3 / (1/2) = 6
-    assert_interpreter_output("## Main\nLet r: Rational be 1 / 2.\nLet q be 3 / r.\nShow q.", "6");
+    assert_interpreter_output(
+        "## Main\nLet r: Rational be 1 / 2.\nLet q be 3 / r.\nShow q.",
+        "6",
+    );
     // Rational / Rational :  (1/2) / (1/3) = 3/2
     assert_interpreter_output(
         "## Main\nLet a: Rational be 1 / 2.\nLet b: Rational be 1 / 3.\nLet q be a / b.\nShow q.",
         "3/2",
     );
     // A rational over itself is exactly 1.
-    assert_interpreter_output("## Main\nLet a: Rational be 3 / 4.\nLet q be a / a.\nShow q.", "1");
+    assert_interpreter_output(
+        "## Main\nLet a: Rational be 3 / 4.\nLet q be a / a.\nShow q.",
+        "1",
+    );
 }
 
 #[test]
@@ -286,7 +313,10 @@ fn a_long_constant_rational_chain_lightning_folds_to_its_closed_form() {
     let src = "## Main\nLet x: Rational be 1 / 2 + 1 / 3 + 1 / 4 + 1 / 5 + 1 / 6.\nShow x.";
     assert_interpreter_output(src, "29/20");
     // A chain that reduces to a whole number: 1/2 + 1/3 + 1/6 = 1.
-    assert_interpreter_output("## Main\nLet x: Rational be 1 / 2 + 1 / 3 + 1 / 6.\nShow x.", "1");
+    assert_interpreter_output(
+        "## Main\nLet x: Rational be 1 / 2 + 1 / 3 + 1 / 6.\nShow x.",
+        "1",
+    );
     // Mixed +/-/* in one constant chain: (2/3 * 3/4) + 1/2 - 1/4 = 1/2 + 1/2 - 1/4 = 3/4.
     assert_interpreter_output(
         "## Main\nLet x: Rational be 2 / 3 * (3 / 4) + 1 / 2 - 1 / 4.\nShow x.",
@@ -300,7 +330,11 @@ fn a_non_whole_rational_used_as_an_index_errors_gracefully() {
     // clean error — never a panic or a silently-floored read.
     let src = "## Main\nLet i: Rational be 1 / 3.\nLet xs be [10, 20, 30].\nShow item i of xs.";
     let r = common::run_interpreter(src);
-    assert!(!r.success, "a non-whole Rational index must be rejected.\nOutput: {}", r.output);
+    assert!(
+        !r.success,
+        "a non-whole Rational index must be rejected.\nOutput: {}",
+        r.output
+    );
 }
 
 // =====================================================================
@@ -343,7 +377,11 @@ fn every_small_rational_literal_matches_the_exact_oracle() {
         let src = format!("## Main\nLet x: Rational be ({n}) / ({d}).\nShow x.");
         let r = common::run_interpreter(&src);
         assert!(r.success, "the language rejected {n}/{d}: {}", r.error);
-        assert_eq!(r.output.trim(), want, "{n} / {d} (Rational) diverged from the exact oracle");
+        assert_eq!(
+            r.output.trim(),
+            want,
+            "{n} / {d} (Rational) diverged from the exact oracle"
+        );
     }
 }
 
@@ -361,11 +399,14 @@ fn random_rational_arithmetic_matches_the_exact_oracle() {
             1 => ("-", x.sub(&y)),
             _ => ("*", x.mul(&y)),
         };
-        let src = format!(
-            "## Main\nLet x: Rational be (({a}) / ({b})) {op} (({c}) / ({d})).\nShow x.",
-        );
+        let src =
+            format!("## Main\nLet x: Rational be (({a}) / ({b})) {op} (({c}) / ({d})).\nShow x.",);
         let r = common::run_interpreter(&src);
-        assert!(r.success, "the language rejected ({a}/{b}) {op} ({c}/{d}): {}", r.error);
+        assert!(
+            r.success,
+            "the language rejected ({a}/{b}) {op} ({c}/{d}): {}",
+            r.error
+        );
         assert_eq!(
             r.output.trim(),
             want.to_string(),

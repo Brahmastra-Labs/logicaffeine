@@ -19,14 +19,13 @@ use logicaffeine_language::{compile, compile_discourse};
 /// "He" should NOT resolve to "farmer" - it's trapped in negation.
 #[test]
 fn test_negation_blocks_anaphora() {
-    let result = compile_discourse(&[
-        "No farmer owns a donkey.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["No farmer owns a donkey.", "He is happy."]);
     eprintln!("DEBUG test_negation_blocks_anaphora: {:?}", result);
 
-    assert!(result.is_err(),
-        "Should fail: 'farmer' is trapped in negation scope and should be inaccessible");
+    assert!(
+        result.is_err(),
+        "Should fail: 'farmer' is trapped in negation scope and should be inaccessible"
+    );
 }
 
 /// Disjunction creates scope islands.
@@ -34,14 +33,13 @@ fn test_negation_blocks_anaphora() {
 /// Neither "farmer" nor "merchant" should be accessible.
 #[test]
 fn test_disjunction_blocks_anaphora() {
-    let result = compile_discourse(&[
-        "Either a farmer walks or a merchant runs.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["Either a farmer walks or a merchant runs.", "He is happy."]);
     eprintln!("DEBUG test_disjunction_blocks_anaphora: {:?}", result);
 
-    assert!(result.is_err(),
-        "Should fail: referents in disjuncts are inaccessible from outside");
+    assert!(
+        result.is_err(),
+        "Should fail: referents in disjuncts are inaccessible from outside"
+    );
 }
 
 /// Double negation still blocks.
@@ -49,15 +47,14 @@ fn test_disjunction_blocks_anaphora() {
 /// Even with double negation, the farmer is trapped.
 #[test]
 fn test_double_negation_still_blocks() {
-    let result = compile_discourse(&[
-        "It is not the case that no farmer exists.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["It is not the case that no farmer exists.", "He is happy."]);
     eprintln!("DEBUG test_double_negation_still_blocks: {:?}", result);
 
     // Even with double negation, referents inside are inaccessible
-    assert!(result.is_err(),
-        "Should fail: double negation doesn't rescue referents");
+    assert!(
+        result.is_err(),
+        "Should fail: double negation doesn't rescue referents"
+    );
 }
 
 // ============================================
@@ -69,37 +66,43 @@ fn test_double_negation_still_blocks() {
 /// Both "farmer" and "donkey" should be accessible.
 #[test]
 fn test_main_clause_indefinite_accessible() {
-    let result = compile_discourse(&[
-        "A farmer owns a donkey.",
-        "He beats it."
-    ]);
+    let result = compile_discourse(&["A farmer owns a donkey.", "He beats it."]);
     eprintln!("DEBUG test_main_clause_indefinite_accessible: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Main clause indefinites should be accessible cross-sentence: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Main clause indefinites should be accessible cross-sentence: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     // Should not have unresolved pronouns
-    assert!(!output.contains("?"),
-        "Should not have unresolved pronouns: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Should not have unresolved pronouns: {}",
+        output
+    );
 }
 
 /// Proper names are always accessible.
 /// "John owns a donkey. He beats it."
 #[test]
 fn test_proper_name_accessible() {
-    let result = compile_discourse(&[
-        "John owns a donkey.",
-        "He beats it."
-    ]);
+    let result = compile_discourse(&["John owns a donkey.", "He beats it."]);
     eprintln!("DEBUG test_proper_name_accessible: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Proper names should always be accessible: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Proper names should always be accessible: {:?}",
+        result
+    );
 
     let output = result.unwrap();
-    assert!(!output.contains("?"),
-        "Should not have unresolved pronouns: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Should not have unresolved pronouns: {}",
+        output
+    );
 }
 
 /// Multiple sentences with accessible referents.
@@ -107,15 +110,14 @@ fn test_proper_name_accessible() {
 /// "He" should resolve to "merchant" (most recent).
 #[test]
 fn test_multiple_accessible_most_recent() {
-    let result = compile_discourse(&[
-        "A farmer walks.",
-        "A merchant runs.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["A farmer walks.", "A merchant runs.", "He is happy."]);
     eprintln!("DEBUG test_multiple_accessible_most_recent: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Multiple accessible referents should work: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Multiple accessible referents should work: {:?}",
+        result
+    );
 }
 
 // ============================================
@@ -127,22 +129,28 @@ fn test_multiple_accessible_most_recent() {
 /// Should telescope the universal scope to include "He is happy."
 #[test]
 fn test_telescoping_universal_succeeds() {
-    let result = compile_discourse(&[
-        "Every chess game has a winner.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["Every chess game has a winner.", "He is happy."]);
     eprintln!("DEBUG test_telescoping_universal_succeeds: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Should telescope: extend universal scope to include continuation: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should telescope: extend universal scope to include continuation: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     // The output should have universal quantifier
-    assert!(output.contains("∀"),
-        "Telescoped output should have universal quantifier: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Telescoped output should have universal quantifier: {}",
+        output
+    );
     // Happy should be bound to the winner variable
-    assert!(output.contains("Happy"),
-        "Should have Happy predicate: {}", output);
+    assert!(
+        output.contains("Happy"),
+        "Should have Happy predicate: {}",
+        output
+    );
 }
 
 /// Negation CANNOT telescope.
@@ -150,14 +158,13 @@ fn test_telescoping_universal_succeeds() {
 /// This should FAIL - negation blocks telescoping.
 #[test]
 fn test_telescoping_negation_fails() {
-    let result = compile_discourse(&[
-        "No chess game has a winner.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["No chess game has a winner.", "He is happy."]);
     eprintln!("DEBUG test_telescoping_negation_fails: {:?}", result);
 
-    assert!(result.is_err(),
-        "Should NOT telescope out of negation - must fail");
+    assert!(
+        result.is_err(),
+        "Should NOT telescope out of negation - must fail"
+    );
 }
 
 /// Chain telescope: multiple sentences extend the same scope.
@@ -167,31 +174,37 @@ fn test_telescoping_chain() {
     let result = compile_discourse(&[
         "Every player gets a trophy.",
         "It is shiny.",
-        "The player displays it."
+        "The player displays it.",
     ]);
     eprintln!("DEBUG test_telescoping_chain: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Chain telescoping should work: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Chain telescoping should work: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     // Should have universal quantifier
-    assert!(output.contains("∀"),
-        "Chain telescope should preserve universal: {}", output);
+    assert!(
+        output.contains("∀"),
+        "Chain telescope should preserve universal: {}",
+        output
+    );
 }
 
 /// Telescope with passive continuation.
 /// "Every student submitted a paper. It was graded."
 #[test]
 fn test_telescoping_passive_continuation() {
-    let result = compile_discourse(&[
-        "Every student submitted a paper.",
-        "It was graded."
-    ]);
+    let result = compile_discourse(&["Every student submitted a paper.", "It was graded."]);
     eprintln!("DEBUG test_telescoping_passive_continuation: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Telescope with passive should work: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Telescope with passive should work: {:?}",
+        result
+    );
 }
 
 /// Conditional telescoping.
@@ -201,17 +214,23 @@ fn test_telescoping_passive_continuation() {
 fn test_telescoping_conditional() {
     let result = compile_discourse(&[
         "If a farmer owns a donkey, he beats it.",
-        "The donkey is grey."
+        "The donkey is grey.",
     ]);
     eprintln!("DEBUG test_telescoping_conditional: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Conditional telescoping should work: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Conditional telescoping should work: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     // Should have implication preserved
-    assert!(output.contains("→"),
-        "Should preserve conditional structure: {}", output);
+    assert!(
+        output.contains("→"),
+        "Should preserve conditional structure: {}",
+        output
+    );
 }
 
 // ============================================
@@ -223,14 +242,23 @@ fn test_telescoping_conditional() {
 #[test]
 fn test_conditional_antecedent_accessible_in_consequent() {
     let result = compile("If a farmer owns a donkey, he beats it.");
-    eprintln!("DEBUG test_conditional_antecedent_accessible_in_consequent: {:?}", result);
+    eprintln!(
+        "DEBUG test_conditional_antecedent_accessible_in_consequent: {:?}",
+        result
+    );
 
-    assert!(result.is_ok(),
-        "Consequent should access antecedent referents: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Consequent should access antecedent referents: {:?}",
+        result
+    );
 
     let output = result.unwrap();
-    assert!(!output.contains("?"),
-        "Should resolve all pronouns: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Should resolve all pronouns: {}",
+        output
+    );
 }
 
 /// Antecedent should NOT be accessible cross-sentence without telescope.
@@ -239,10 +267,7 @@ fn test_conditional_antecedent_accessible_in_consequent() {
 /// (This test documents expected behavior - may need Council decision)
 #[test]
 fn test_conditional_cross_sentence_strict() {
-    let result = compile_discourse(&[
-        "If a farmer is rich, he is happy.",
-        "He walks."
-    ]);
+    let result = compile_discourse(&["If a farmer is rich, he is happy.", "He walks."]);
     eprintln!("DEBUG test_conditional_cross_sentence_strict: {:?}", result);
 
     // With strict DRT, this might fail because "farmer" is inside conditional
@@ -262,10 +287,7 @@ fn test_conditional_cross_sentence_strict() {
 /// Error message should explain WHY the referent is inaccessible.
 #[test]
 fn test_scope_error_message_explains_negation() {
-    let result = compile_discourse(&[
-        "No farmer owns a donkey.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["No farmer owns a donkey.", "He is happy."]);
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -275,10 +297,11 @@ fn test_scope_error_message_explains_negation() {
     // Error should mention scope or accessibility
     assert!(
         err_msg.to_lowercase().contains("scope")
-        || err_msg.to_lowercase().contains("access")
-        || err_msg.to_lowercase().contains("negation")
-        || err_msg.to_lowercase().contains("resolve"),
-        "Error should explain scope issue: {}", err_msg
+            || err_msg.to_lowercase().contains("access")
+            || err_msg.to_lowercase().contains("negation")
+            || err_msg.to_lowercase().contains("resolve"),
+        "Error should explain scope issue: {}",
+        err_msg
     );
 }
 
@@ -294,13 +317,19 @@ fn test_backtracking_preserves_drs_state() {
     let result = compile("The farmer who saw a cat chased it.");
     eprintln!("DEBUG test_backtracking_preserves_drs_state: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Should parse successfully even with backtracking: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse successfully even with backtracking: {:?}",
+        result
+    );
 
     let output = result.unwrap();
     // "it" should resolve to "cat"
-    assert!(!output.contains("?"),
-        "Pronoun should resolve correctly after backtracking: {}", output);
+    assert!(
+        !output.contains("?"),
+        "Pronoun should resolve correctly after backtracking: {}",
+        output
+    );
 }
 
 /// Complex sentence with multiple potential backtrack points.
@@ -310,8 +339,11 @@ fn test_complex_backtracking() {
     let result = compile("Every farmer who owns a donkey that is grey beats it.");
     eprintln!("DEBUG test_complex_backtracking: {:?}", result);
 
-    assert!(result.is_ok(),
-        "Complex sentence should parse correctly: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Complex sentence should parse correctly: {:?}",
+        result
+    );
 }
 
 // ============================================
@@ -349,15 +381,15 @@ fn test_single_sentence_discourse() {
 /// so we use a proper name with explicit gender.
 #[test]
 fn test_gender_mismatch_blocks() {
-    let result = compile_discourse(&[
-        "John owns a donkey.",
-        "She is happy."
-    ]);
+    let result = compile_discourse(&["John owns a donkey.", "She is happy."]);
     eprintln!("DEBUG test_gender_mismatch_blocks: {:?}", result);
 
     // Should fail - John is Male, donkey is Neuter, neither matches She (Female)
-    assert!(result.is_err() || result.as_ref().map(|o| o.contains("?")).unwrap_or(false),
-        "She (Female) should not resolve to John (Male) or donkey (Neuter): {:?}", result);
+    assert!(
+        result.is_err() || result.as_ref().map(|o| o.contains("?")).unwrap_or(false),
+        "She (Female) should not resolve to John (Male) or donkey (Neuter): {:?}",
+        result
+    );
 }
 
 /// Plural/singular mismatch.
@@ -365,15 +397,15 @@ fn test_gender_mismatch_blocks() {
 /// "He" (singular) should not resolve to "farmers" (plural).
 #[test]
 fn test_number_mismatch_blocks() {
-    let result = compile_discourse(&[
-        "Farmers walk.",
-        "He is happy."
-    ]);
+    let result = compile_discourse(&["Farmers walk.", "He is happy."]);
     eprintln!("DEBUG test_number_mismatch_blocks: {:?}", result);
 
     // Should fail or have unresolved pronoun
     if let Ok(output) = result {
-        assert!(output.contains("?"),
-            "He (singular) should not resolve to farmers (plural): {}", output);
+        assert!(
+            output.contains("?"),
+            "He (singular) should not resolve to farmers (plural): {}",
+            output
+        );
     }
 }

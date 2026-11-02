@@ -1,0 +1,838 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "s_in",
+    "dut": "i0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i1",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i2",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i3",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i4",
+    "dut_lsb": 0,
+    "lsb": 256,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i5",
+    "dut_lsb": 0,
+    "lsb": 320,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i6",
+    "dut_lsb": 0,
+    "lsb": 384,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i7",
+    "dut_lsb": 0,
+    "lsb": 448,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i8",
+    "dut_lsb": 0,
+    "lsb": 512,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i9",
+    "dut_lsb": 0,
+    "lsb": 576,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i10",
+    "dut_lsb": 0,
+    "lsb": 640,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i11",
+    "dut_lsb": 0,
+    "lsb": 704,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i12",
+    "dut_lsb": 0,
+    "lsb": 768,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i13",
+    "dut_lsb": 0,
+    "lsb": 832,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i14",
+    "dut_lsb": 0,
+    "lsb": 896,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i15",
+    "dut_lsb": 0,
+    "lsb": 960,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i16",
+    "dut_lsb": 0,
+    "lsb": 1024,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i17",
+    "dut_lsb": 0,
+    "lsb": 1088,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i18",
+    "dut_lsb": 0,
+    "lsb": 1152,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i19",
+    "dut_lsb": 0,
+    "lsb": 1216,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i20",
+    "dut_lsb": 0,
+    "lsb": 1280,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i21",
+    "dut_lsb": 0,
+    "lsb": 1344,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i22",
+    "dut_lsb": 0,
+    "lsb": 1408,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i23",
+    "dut_lsb": 0,
+    "lsb": 1472,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "s_in",
+    "dut": "i24",
+    "dut_lsb": 0,
+    "lsb": 1536,
+    "valid": null,
+    "width": 64
+   }
+  ],
+  "kernel": "K4",
+  "mems": [],
+  "name": "k4_bambu_fsm_ports_nangate4p3",
+  "outputs": [
+   {
+    "contract": "s_out",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "o0_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "o1_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "o2_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "o3_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 256,
+    "valid": "o4_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 320,
+    "valid": "o5_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 384,
+    "valid": "o6_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 448,
+    "valid": "o7_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o8",
+    "dut_lsb": 0,
+    "lsb": 512,
+    "valid": "o8_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o9",
+    "dut_lsb": 0,
+    "lsb": 576,
+    "valid": "o9_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o10",
+    "dut_lsb": 0,
+    "lsb": 640,
+    "valid": "o10_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o11",
+    "dut_lsb": 0,
+    "lsb": 704,
+    "valid": "o11_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o12",
+    "dut_lsb": 0,
+    "lsb": 768,
+    "valid": "o12_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o13",
+    "dut_lsb": 0,
+    "lsb": 832,
+    "valid": "o13_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o14",
+    "dut_lsb": 0,
+    "lsb": 896,
+    "valid": "o14_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o15",
+    "dut_lsb": 0,
+    "lsb": 960,
+    "valid": "o15_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o16",
+    "dut_lsb": 0,
+    "lsb": 1024,
+    "valid": "o16_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o17",
+    "dut_lsb": 0,
+    "lsb": 1088,
+    "valid": "o17_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o18",
+    "dut_lsb": 0,
+    "lsb": 1152,
+    "valid": "o18_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o19",
+    "dut_lsb": 0,
+    "lsb": 1216,
+    "valid": "o19_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o20",
+    "dut_lsb": 0,
+    "lsb": 1280,
+    "valid": "o20_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o21",
+    "dut_lsb": 0,
+    "lsb": 1344,
+    "valid": "o21_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o22",
+    "dut_lsb": 0,
+    "lsb": 1408,
+    "valid": "o22_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o23",
+    "dut_lsb": 0,
+    "lsb": 1472,
+    "valid": "o23_vld",
+    "width": 64
+   },
+   {
+    "contract": "s_out",
+    "dut": "o24",
+    "dut_lsb": 0,
+    "lsb": 1536,
+    "valid": "o24_vld",
+    "width": 64
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i10"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i11"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i12"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i13"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i14"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i15"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i16"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i17"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i18"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i19"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i2"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i20"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i21"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i22"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i23"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i24"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i3"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i4"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i5"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i6"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i7"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i8"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "i9"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o0_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o1"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o10"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o10_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o11"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o11_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o12"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o12_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o13"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o13_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o14"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o14_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o15"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o15_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o16"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o16_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o17"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o17_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o18"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o18_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o19"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o19_vld"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o1_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o2"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o20"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o20_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o21"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o21_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o22"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o22_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o23"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o23_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o24"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o24_vld"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o2_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o3"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o3_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o4"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o4_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o5"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o5_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o6"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o6_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o7"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o7_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o8"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o8_vld"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o9"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o9_vld"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "keccak_ports"
+ },
+ "files": [
+  "keccak_ports.v",
+  "array_ref_428842.mem",
+  "array_ref_429025.mem",
+  "array_ref_429119.mem",
+  "array_ref_429526.mem"
+ ],
+ "golden_signature": "d8258bee4adc0dca",
+ "harness": "qorbist_k4_bambu_fsm_ports_nangate4p3.v",
+ "harness_top": "qorbist_k4_bambu_fsm_ports_nangate4p3",
+ "kernel": "K4",
+ "kernel_name": "keccak_f1600",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

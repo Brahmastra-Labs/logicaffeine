@@ -1,0 +1,11 @@
+{
+  "capability": "text.remove_suffix",
+  "workload": "removeSuffix(s,'12 ') \u2014 length fold",
+  "arg": "40000",
+  "expected": "161860000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

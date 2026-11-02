@@ -1,0 +1,39 @@
+{
+  "what": "Where each memory channel's bank is on the D5005: the channel, the clock its paths run on and the site of the IO tile control that clock leaves, read off a fitted build's reports by d5005_anchors (codegen_sva::floorplan::anchor). The unit floorplan (d5005_unit_floorplan) wires each channel to its anchor.",
+  "build": "hybrid3",
+  "recorded": "2026-10-25",
+  "anchors": [
+    {
+      "instance": "afu_top|port_gasket|pr_slot|afu_main|ofs_plat_afu|shell|ch[0].channel",
+      "clock": "emif_top_inst|mem_bank[3].emif_ddr4_inst|emif_s10_0_core_usr_clk",
+      "site": [
+        233,
+        360
+      ]
+    },
+    {
+      "instance": "afu_top|port_gasket|pr_slot|afu_main|ofs_plat_afu|shell|ch[1].channel",
+      "clock": "emif_top_inst|mem_bank[2].emif_ddr4_inst|emif_s10_0_core_usr_clk",
+      "site": [
+        233,
+        36
+      ]
+    },
+    {
+      "instance": "afu_top|port_gasket|pr_slot|afu_main|ofs_plat_afu|shell|ch[2].channel",
+      "clock": "emif_top_inst|mem_bank[1].emif_ddr4_inst|emif_s10_0_core_usr_clk",
+      "site": [
+        61,
+        360
+      ]
+    },
+    {
+      "instance": "afu_top|port_gasket|pr_slot|afu_main|ofs_plat_afu|shell|ch[3].channel",
+      "clock": "emif_top_inst|mem_bank[0].emif_ddr4_inst|emif_s10_0_core_usr_clk",
+      "site": [
+        61,
+        36
+      ]
+    }
+  ]
+}

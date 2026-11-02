@@ -1,0 +1,208 @@
+{
+  "meta": {
+    "deck": "sky130A_mr.drc (foundry/efabless maximal-rule deck) + zeroarea",
+    "source": "efabless/mpw_precheck golden decks, run under OpenLane KLayout"
+  },
+  "blocks": {
+    "dram_executor": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 2417934
+    },
+    "infinichip": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 8310574
+    },
+    "dram_executor_wb": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 4342832
+    },
+    "user_project_wrapper": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 57732922
+    },
+    "nested_tri": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 4508738
+    },
+    "decision_hft_bist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 2450052
+    },
+    "cgra_sumto": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 5143172
+    },
+    "dpu_ingest": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 5420848
+    },
+    "rev_alu_core": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 4109670
+    },
+    "decision_hft_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 3720334
+    },
+    "soft_core_scalar": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 31492840
+    },
+    "gpu_simt": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 32993822
+    },
+    "gemm_mac_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 34418498
+    },
+    "systolic_tile_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 28819816
+    },
+    "systolic_pipe8_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 64859084
+    },
+    "fabric_horner_seq": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 83373064
+    },
+    "coproc_core": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 115920574
+    },
+    "fabric_soc": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 58379660
+    },
+    "systolic_pipe16_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 290086528
+    },
+    "systolic_os_pipe8_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 234115580
+    },
+    "soft_core_realbist": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 48186640
+    },
+    "psram_edge": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 5755340
+    },
+    "dram_user_project": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 55957328
+    },
+    "wpe_user_project": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 759856194
+    },
+    "user_project_wrapper_wpe": {
+      "golden_drc_violations": 0,
+      "zeroarea_violations": 0,
+      "feol": true,
+      "beol": true,
+      "golden_clean": true,
+      "gds_bytes": 760876070
+    }
+  }
+}

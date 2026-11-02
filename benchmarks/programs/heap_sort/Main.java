@@ -22,7 +22,7 @@ public class Main {
             siftDown(arr, 0, end-1);
         }
         long checksum = 0;
-        for (long v : arr) checksum = (checksum + v) % 1000000007;
+        for (long v : arr) checksum = (checksum * 31 + v) & 268435455;
         System.out.println(arr[0] + " " + arr[n-1] + " " + checksum);
     }
 }

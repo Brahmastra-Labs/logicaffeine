@@ -1,4 +1,4 @@
-//! Phase 124 — §1.1 Exclamatives (work/MISSING_ENGLISH.md).
+//! Phase 124 — Exclamatives.
 //!
 //! Clauses expressing affective stance toward a DEGREE, marked by how/what with
 //! NO subject-aux inversion, and asserting a degree is surprisingly high:
@@ -16,14 +16,20 @@ fn how_adj_exclamative_asserts_high_degree() {
         out.contains("Exclaim") || out.contains("Excl") || out.contains('!'),
         "exclamative force marker: {out}"
     );
-    assert!(out.contains("Tall") || out.contains("tall"), "the gradable predicate: {out}");
+    assert!(
+        out.contains("Tall") || out.contains("tall"),
+        "the gradable predicate: {out}"
+    );
     // A surprisingly-high degree: d ≫ θ.
     assert!(
         out.contains('≫') || out.contains("θ") || out.contains(">>"),
         "asserts a degree far above the standard (d ≫ θ): {out}"
     );
     // Not a wh-question.
-    assert!(!out.contains("Question") && !out.contains('?'), "exclamative, not a question: {out}");
+    assert!(
+        !out.contains("Question") && !out.contains('?'),
+        "exclamative, not a question: {out}"
+    );
 }
 
 #[test]
@@ -34,6 +40,12 @@ fn what_a_n_exclamative() {
         out.contains("Exclaim") || out.contains("Excl") || out.contains('!'),
         "exclamative force: {out}"
     );
-    assert!(out.contains("Fool") || out.contains("fool"), "the noun: {out}");
-    assert!(!out.contains("Question"), "exclamative, not a question: {out}");
+    assert!(
+        out.contains("Fool") || out.contains("fool"),
+        "the noun: {out}"
+    );
+    assert!(
+        !out.contains("Question"),
+        "exclamative, not a question: {out}"
+    );
 }

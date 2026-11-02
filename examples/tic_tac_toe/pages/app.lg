@@ -1,0 +1,107 @@
+# Tic tac toe
+
+## To lineWinner (b: Seq of Text) and (a: Int) and (c: Int) and (d: Int) -> Text:
+    Let x be item a of b.
+    If x is equal to "":
+        Return "".
+    If x is equal to (item c of b) and x is equal to (item d of b):
+        Return x.
+    Return "".
+
+## To winnerOf (b: Seq of Text) -> Text:
+    Let lines be [[1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 4, 7], [2, 5, 8], [3, 6, 9], [1, 5, 9], [3, 5, 7]].
+    Repeat for line in lines:
+        Let w be lineWinner(b, item 1 of line, item 2 of line, item 3 of line).
+        If w is not equal to "":
+            Return w.
+    Return "".
+
+## Page /
+
+State:
+    Let board be ["", "", "", "", "", "", "", "", ""].
+    Let turn be "X".
+    Let winner always be winnerOf(board).
+
+Actions:
+    To play (at: Int):
+        If (item at of board) is equal to "" and winner is equal to "":
+            Set item at of board to turn.
+            If turn is equal to "X":
+                Set turn to "O".
+            Otherwise:
+                Set turn to "X".
+
+    To reset:
+        Set board to ["", "", "", "", "", "", "", "", ""].
+        Set turn to "X".
+
+View:
+    <main>
+      <h1 id="status">{if winner is not equal to "":}{winner} wins{else:}Turn: {turn}{end}</h1>
+      <div class="board">
+        {for each cell in board, at index i:}<button class="cell" id="c{i}" on-click={play(i)}>{cell}</button>{end}
+      </div>
+      <button id="again" on-click={reset}>Play again</button>
+    </main>
+
+## Test: X wins across the top row
+
+Expect that the text of "#status" is equal to "Turn: X".
+Click "#c1".
+Click "#c4".
+Click "#c2".
+Click "#c5".
+Click "#c3".
+Expect that the text of "#status" is equal to "X wins".
+Expect that the text of ".board" is equal to "XXXOO".
+
+## Test: a cell shows the mark of whoever played it, and the turn passes
+
+Click "#c5".
+Expect that the text of "#c5" is equal to "X".
+Expect that the text of "#status" is equal to "Turn: O".
+Click "#c9".
+Expect that the text of "#c9" is equal to "O".
+Expect that the text of "#status" is equal to "Turn: X".
+
+## Test: a cell already played cannot be played again
+
+Click "#c5".
+Click "#c5".
+Expect that the text of "#c5" is equal to "X".
+Expect that the text of "#status" is equal to "Turn: O".
+
+## Test: O wins down the middle column
+
+Click "#c1".
+Click "#c2".
+Click "#c4".
+Click "#c5".
+Click "#c9".
+Click "#c8".
+Expect that the text of "#status" is equal to "O wins".
+
+## Test: nothing moves once the game is won
+
+Click "#c1".
+Click "#c4".
+Click "#c2".
+Click "#c5".
+Click "#c3".
+Click "#c9".
+Expect that the text of "#c9" is equal to "".
+Expect that the text of "#status" is equal to "X wins".
+
+## Test: play again clears the board and gives X the first move
+
+Click "#c1".
+Click "#c4".
+Click "#c2".
+Click "#c5".
+Click "#c3".
+Click "#again".
+Expect that the text of ".board" is equal to "".
+Expect that the text of "#status" is equal to "Turn: X".
+Click "#c7".
+Expect that the text of "#c7" is equal to "X".

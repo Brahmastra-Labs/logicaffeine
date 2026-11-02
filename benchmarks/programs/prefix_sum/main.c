@@ -14,7 +14,9 @@ int main(int argc, char *argv[]) {
     for (long i = 1; i < n; i++) {
         arr[i] = (arr[i] + arr[i-1]) % MOD;
     }
-    printf("%ld\n", arr[n-1]);
+    long h = 0;
+    for (long i = 0; i < n; i++) h = (h * 31 + arr[i]) & 268435455;
+    printf("%ld %ld\n", arr[n-1], h);
     free(arr);
     return 0;
 }

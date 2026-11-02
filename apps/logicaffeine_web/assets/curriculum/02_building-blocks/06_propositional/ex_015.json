@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're short then you're greedy, or you're hideous",
   "options": [
-    "$ S \\supset G \\vee H $",
-    "$ (S \\supset G) \\vee H $",
-    "$ (S \\supset (G \\vee H)) $",
-    "$ ((S \\supset G) \\vee H) $"
+    "(S → G) ∧ H",
+    "(S → G) → H",
+    "(S → G) ∨ ¬H",
+    "(S → G) ∨ H"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining S → G and H: (S → G) ∨ H.",
+  "section": "6.2"
 }

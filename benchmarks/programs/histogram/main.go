@@ -14,10 +14,13 @@ func main() {
 		seed = (seed*1103515245 + 12345) % 2147483648
 		counts[((seed>>16)&0x7fff)%1000]++
 	}
-	var maxFreq, maxIdx, distinct int64
+	var maxFreq, maxIdx int64
 	for i := 0; i < 1000; i++ {
-		if counts[i] > 0 { distinct++ }
 		if counts[i] > maxFreq { maxFreq = counts[i]; maxIdx = int64(i) }
 	}
-	fmt.Printf("%d %d %d\n", maxFreq, maxIdx, distinct)
+	var h int64
+	for _, c := range counts {
+		h = (h*31 + c) & 268435455
+	}
+	fmt.Printf("%d %d %d\n", maxFreq, maxIdx, h)
 }

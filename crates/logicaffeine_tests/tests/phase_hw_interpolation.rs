@@ -2,8 +2,8 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::interpolation::{interpolate, itp_model_check, InterpolationResult};
 use logicaffeine_verify::ic3::check_sat;
+use logicaffeine_verify::interpolation::{interpolate, itp_model_check, InterpolationResult};
 use logicaffeine_verify::{VerifyExpr, VerifyOp};
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -16,7 +16,10 @@ fn interpolant_exists_for_unsat() {
     let a = VerifyExpr::var("p");
     let b = VerifyExpr::not(VerifyExpr::var("p"));
     let result = interpolate(&a, &b);
-    assert!(result.is_some(), "p AND NOT p is UNSAT, interpolant should exist");
+    assert!(
+        result.is_some(),
+        "p AND NOT p is UNSAT, interpolant should exist"
+    );
 }
 
 #[test]
@@ -25,7 +28,10 @@ fn interpolant_none_for_sat() {
     let a = VerifyExpr::var("p");
     let b = VerifyExpr::var("q");
     let result = interpolate(&a, &b);
-    assert!(result.is_none(), "p AND q is SAT, no interpolant should exist");
+    assert!(
+        result.is_none(),
+        "p AND q is SAT, no interpolant should exist"
+    );
 }
 
 #[test]
@@ -43,7 +49,10 @@ fn interpolant_integer() {
     let a = VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(10));
     let b = VerifyExpr::lt(VerifyExpr::var("x"), VerifyExpr::int(5));
     let result = interpolate(&a, &b);
-    assert!(result.is_some(), "(x>10) AND (x<5) is UNSAT, interpolant should exist");
+    assert!(
+        result.is_some(),
+        "(x>10) AND (x<5) is UNSAT, interpolant should exist"
+    );
 }
 
 #[test]
@@ -66,8 +75,14 @@ fn itp_mc_safe_constant() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::bool(true);
     let result = itp_model_check(&init, &transition, &property, 5);
-    assert!(matches!(result, InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }),
-        "Trivially true property should be safe. Got: {:?}", result);
+    assert!(
+        matches!(
+            result,
+            InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }
+        ),
+        "Trivially true property should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -77,8 +92,11 @@ fn itp_mc_unsafe_immediate() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::var("p@t");
     let result = itp_model_check(&init, &transition, &property, 5);
-    assert!(matches!(result, InterpolationResult::Unsafe { .. }),
-        "Property false at init should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, InterpolationResult::Unsafe { .. }),
+        "Property false at init should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -88,8 +106,14 @@ fn itp_mc_safe_inductive() {
     let transition = VerifyExpr::iff(VerifyExpr::var("p@t1"), VerifyExpr::var("p@t"));
     let property = VerifyExpr::var("p@t");
     let result = itp_model_check(&init, &transition, &property, 5);
-    assert!(matches!(result, InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }),
-        "Inductive property should be safe. Got: {:?}", result);
+    assert!(
+        matches!(
+            result,
+            InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }
+        ),
+        "Inductive property should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -102,8 +126,11 @@ fn itp_mc_unsafe_reachable() {
     );
     let property = VerifyExpr::lt(VerifyExpr::var("x@t"), VerifyExpr::int(3));
     let result = itp_model_check(&init, &transition, &property, 10);
-    assert!(matches!(result, InterpolationResult::Unsafe { .. }),
-        "Counter exceeding 3 should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, InterpolationResult::Unsafe { .. }),
+        "Counter exceeding 3 should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -116,25 +143,34 @@ fn itp_mc_safe_counter() {
     );
     let property = VerifyExpr::gte(VerifyExpr::var("c@t"), VerifyExpr::int(0));
     let result = itp_model_check(&init, &transition, &property, 10);
-    assert!(matches!(result, InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }),
-        "Counter >= 0 should be safe. Got: {:?}", result);
+    assert!(
+        matches!(
+            result,
+            InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }
+        ),
+        "Counter >= 0 should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn itp_mc_pipeline() {
     // Two-stage pipeline: data propagates, stays valid
-    let init = VerifyExpr::and(
-        VerifyExpr::var("s1@0"),
-        VerifyExpr::var("s2@0"),
-    );
+    let init = VerifyExpr::and(VerifyExpr::var("s1@0"), VerifyExpr::var("s2@0"));
     let transition = VerifyExpr::and(
         VerifyExpr::var("s1@t1"),
         VerifyExpr::iff(VerifyExpr::var("s2@t1"), VerifyExpr::var("s1@t")),
     );
     let property = VerifyExpr::var("s1@t");
     let result = itp_model_check(&init, &transition, &property, 5);
-    assert!(matches!(result, InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }),
-        "Pipeline should be safe. Got: {:?}", result);
+    assert!(
+        matches!(
+            result,
+            InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }
+        ),
+        "Pipeline should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -164,8 +200,15 @@ fn itp_mc_compared_to_kinduction() {
     let property = VerifyExpr::gte(VerifyExpr::var("x@t"), VerifyExpr::int(0));
 
     let itp_result = itp_model_check(&init, &transition, &property, 5);
-    let is_safe = matches!(itp_result, InterpolationResult::Safe | InterpolationResult::Fixpoint { .. });
-    assert!(is_safe, "ITP should agree with k-induction on safety. Got: {:?}", itp_result);
+    let is_safe = matches!(
+        itp_result,
+        InterpolationResult::Safe | InterpolationResult::Fixpoint { .. }
+    );
+    assert!(
+        is_safe,
+        "ITP should agree with k-induction on safety. Got: {:?}",
+        itp_result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -215,7 +258,8 @@ fn interpolant_implies_from_a() {
     assert!(
         !check_sat(&check),
         "A must imply the interpolant. A = {:?}, I = {:?}",
-        a, itp,
+        a,
+        itp,
     );
 }
 
@@ -232,7 +276,8 @@ fn interpolant_contradicts_b() {
     assert!(
         !check_sat(&check),
         "Interpolant AND B must be UNSAT. I = {:?}, B = {:?}",
-        itp, b,
+        itp,
+        b,
     );
 }
 
@@ -252,15 +297,13 @@ fn interpolant_is_weaker_than_a() {
     // I should be satisfiable even when q=false or r=false (weaker than A)
     let weaker_check = VerifyExpr::and(
         itp.clone(),
-        VerifyExpr::and(
-            VerifyExpr::var("p"),
-            VerifyExpr::not(VerifyExpr::var("q")),
-        ),
+        VerifyExpr::and(VerifyExpr::var("p"), VerifyExpr::not(VerifyExpr::var("q"))),
     );
     assert!(
         check_sat(&weaker_check),
         "Interpolant should be weaker than A — satisfiable with q=false. \
-         If I == A, this fails. I = {:?}", itp,
+         If I == A, this fails. I = {:?}",
+        itp,
     );
 }
 

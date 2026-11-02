@@ -1,0 +1,10 @@
+{
+  "capability": "math.modf",
+  "workload": "math.modf (integer part)",
+  "arg": "1000000",
+  "expected": "499501000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

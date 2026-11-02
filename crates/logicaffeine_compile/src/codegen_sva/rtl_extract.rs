@@ -7,8 +7,6 @@
 //! This is NOT a full Verilog parser — it handles declaration-level
 //! extraction for hardware verification KG construction.
 
-use std::collections::HashSet;
-
 /// Port direction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortDirection {
@@ -76,17 +74,21 @@ pub fn parse_verilog_module(src: &str) -> Result<RtlModule, RtlParseError> {
     let cleaned = strip_comments(src);
 
     // Find module declaration (must be at word boundary — not inside another word)
-    let module_start = find_keyword(&cleaned, "module")
-        .ok_or_else(|| RtlParseError { message: "no 'module' keyword found".into() })?;
+    let module_start = find_keyword(&cleaned, "module").ok_or_else(|| RtlParseError {
+        message: "no 'module' keyword found".into(),
+    })?;
 
     // Check for endmodule
     if !cleaned.contains("endmodule") {
-        return Err(RtlParseError { message: "no 'endmodule' found".into() });
+        return Err(RtlParseError {
+            message: "no 'endmodule' found".into(),
+        });
     }
 
     // Extract module name
     let after_module = &cleaned[module_start + 7..];
-    let name_end = after_module.find(|c: char| c == '(' || c == ';' || c.is_whitespace())
+    let name_end = after_module
+        .find(|c: char| c == '(' || c == ';' || c.is_whitespace())
         .unwrap_or(after_module.len());
     let module_name = after_module[..name_end].trim().to_string();
 
@@ -123,7 +125,9 @@ pub fn parse_verilog_module(src: &str) -> Result<RtlModule, RtlParseError> {
 fn find_keyword(input: &str, keyword: &str) -> Option<usize> {
     let klen = keyword.len();
     for i in 0..input.len() {
-        if i + klen > input.len() { break; }
+        if i + klen > input.len() {
+            break;
+        }
         if &input[i..i + klen] == keyword {
             let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
             let before_ok = i == 0 || !is_ident(input.as_bytes()[i - 1]);
@@ -184,7 +188,9 @@ fn find_balanced_paren(input: &str) -> Option<usize> {
 fn parse_port_list(port_list: &str, ports: &mut Vec<RtlPort>) {
     for port_decl in port_list.split(',') {
         let trimmed = port_decl.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
         if let Some(port) = parse_port_decl(trimmed) {
             ports.push(port);
         }
@@ -194,13 +200,24 @@ fn parse_port_list(port_list: &str, ports: &mut Vec<RtlPort>) {
 /// Parse a single port declaration like "input [7:0] data".
 fn parse_port_decl(decl: &str) -> Option<RtlPort> {
     let tokens: Vec<&str> = decl.split_whitespace().collect();
-    if tokens.is_empty() { return None; }
+    if tokens.is_empty() {
+        return None;
+    }
 
     let mut idx = 0;
     let direction = match tokens.get(idx)?.to_lowercase().as_str() {
-        "input" => { idx += 1; PortDirection::Input }
-        "output" => { idx += 1; PortDirection::Output }
-        "inout" => { idx += 1; PortDirection::Inout }
+        "input" => {
+            idx += 1;
+            PortDirection::Input
+        }
+        "output" => {
+            idx += 1;
+            PortDirection::Output
+        }
+        "inout" => {
+            idx += 1;
+            PortDirection::Inout
+        }
         _ => return None,
     };
 
@@ -224,8 +241,12 @@ fn parse_port_decl(decl: &str) -> Option<RtlPort> {
     };
 
     // Port name
-    let name = tokens.get(idx)?.trim_end_matches(|c: char| c == ',' || c == ')' || c == ';');
-    if name.is_empty() { return None; }
+    let name = tokens
+        .get(idx)?
+        .trim_end_matches(|c: char| c == ',' || c == ')' || c == ';');
+    if name.is_empty() {
+        return None;
+    }
 
     Some(RtlPort {
         name: name.to_string(),
@@ -249,7 +270,9 @@ fn parse_width_spec(spec: &str) -> u32 {
 /// Parse a line from the module body.
 fn parse_body_line(line: &str, module: &mut RtlModule) {
     let tokens: Vec<&str> = line.split_whitespace().collect();
-    if tokens.is_empty() { return; }
+    if tokens.is_empty() {
+        return;
+    }
 
     match tokens[0] {
         "wire" | "reg" | "logic" => {
@@ -285,7 +308,10 @@ fn parse_body_line(line: &str, module: &mut RtlModule) {
                 let value = if tokens.len() >= 4 && tokens[2] == "=" {
                     tokens[3].trim_end_matches(';').to_string()
                 } else if tokens.len() >= 3 {
-                    tokens[2].trim_start_matches('=').trim_end_matches(';').to_string()
+                    tokens[2]
+                        .trim_start_matches('=')
+                        .trim_end_matches(';')
+                        .to_string()
                 } else {
                     String::new()
                 };
@@ -299,7 +325,8 @@ fn parse_body_line(line: &str, module: &mut RtlModule) {
                 let after_edge = &joined[edge_start..];
                 let clock_start = after_edge.find(char::is_whitespace).unwrap_or(0) + 1;
                 let after_space = after_edge[clock_start..].trim();
-                let clock_end = after_space.find(|c: char| c == ')' || c == ',' || c.is_whitespace())
+                let clock_end = after_space
+                    .find(|c: char| c == ')' || c == ',' || c.is_whitespace())
                     .unwrap_or(after_space.len());
                 let clock_name = &after_space[..clock_end];
                 if !clock_name.is_empty() {

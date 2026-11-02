@@ -1,0 +1,93 @@
+Emit compiled code without building a binary.
+
+Prints the generated Rust or C translation of the program, or writes a self-contained `.wasm` module (built-in backend, no rustc) with its Node.js host shim. Without FILE, uses the current project's entry; with FILE, works on any standalone `.lg`/`.md` source.
+
+Usage: largo emit [OPTIONS] <TARGET> [FILE]
+
+Arguments:
+  <TARGET>
+          What to emit
+
+          Possible values:
+          - rust:        The generated Rust program (what `largo build` hands to cargo)
+          - c:           The C translation: one self-contained C file with its runtime embedded
+          - riscv:       RV64GC assembly (the RISC-V AOT tier) — assemble+link with a RISC-V GCC, run under qemu
+          - wasm:        A self-contained `.wasm` module + Node.js host shim (no toolchain)
+          - wasm-linked: A `.wasm` module linked against the real Rust runtime (rust-lld)
+          - wasm-dom:    A self-contained `.wasm` DOM app + a browser host (`.html` + `.js`) that wires the `dom_*` imports to the real DOM and events to the LOGOS trampoline
+          - tenstorrent: A single-Tensix-core TT-Metalium program (the LOGOS → Tenstorrent AOT tier): a data-movement compute kernel for a baby RISC-V core + a host orchestrator + CMake glue + the ≡VM C oracle. `-o DIR` writes the bundle; bare prints the kernel
+          - cuda:        A single-file CUDA program (the LOGOS → CUDA AOT tier): a `__global__` kernel running a whole LOGOS program on one GPU thread + host launcher + Makefile + the ≡VM C oracle. `-o DIR` writes the bundle; bare prints the `.cu`
+          - analog:      A mixed-signal analog bundle (the LOGOS → analog spatial fabric tier): the region's tile netlist + gain schedule + range certificate + itemized error budget + placement + a behavioral ngspice netlist, for the modeled sky130-class FPAA. `-o DIR` writes the bundle; bare prints the SPICE netlist
+          - plasticine:  A Plasticine bundle (the LOGOS → open-RDU lane, Prabhakar et al. ISCA 2017) for the first function, a counted loop: Spatial source (`Logos_<fn>.scala`), the same loop as a Spatial regression-harness app checking the VM's answer (`Logos_<fn>_test.scala`, what the public toolchain's gate runs), the checkerboard placement + metapipeline II model (`placement.json`) and the MODELED report row (`report.json`). `-o DIR` writes the bundle; bare prints the Spatial source
+          - rdu:         The SambaNova RDU — a certified neutral placement, SDK-gated for the vendor config. ONE front door, the lane chosen by program shape and printed by name (tensor / loop / whole-program), the chip's descriptor by `--chip sn40l|sn50`, the artifact by `--format`, the vendor SDK by `--bridge`. `-o DIR` writes `neutral.json` + `placement.txt` + `certificate.json` + `report.json` (+ the format's files); bare prints the placement text (or the chosen format) with the lane and chip on stderr
+
+  [FILE]
+          A standalone source file (defaults to the project entry)
+
+Options:
+  -o, --output <OUTPUT>
+          Write to this path instead of stdout (rust/c) or the default module path (wasm)
+
+      --chip <CHIP>
+          `emit rdu`: the RDU generation to lower onto — `sn40l` or `sn50` (the default)
+
+      --format <FORMAT>
+          `emit rdu`: the artifact to print bare / add to the bundle — `placement` (the default; the neutral placement text), `spatial` (Spatial source), `sambaflow` (PyTorch module + compile scaffold), `vllm` (the Qwen3.8 deployment plan for the chip), `report` (the MODELED II report)
+
+          Possible values:
+          - placement: The neutral placement text (one line per IR object)
+          - spatial:   Spatial source (`@spatial class Logos_<name> extends SpatialTest`) — `spatial.scala`
+          - sambaflow: A PyTorch module + weights manifest + SambaFlow compile scaffold — `model.py`, `compile.py`, `manifest.json`
+          - vllm:      The Qwen3.8 deployment plan for the chip's vLLM backend — `vllm_plan.json`
+          - report:    The MODELED report: lane, certificate, census, the II view — `report.json`
+
+      --bridge <BRIDGE>
+          `emit rdu`: hand the certified artifact to an SDK bridge by name (`mock`, `sambaflow`)
+
+      --model <MODEL>
+          `emit rdu`: lower a whole model instead of FILE — `qwen38` (Qwen3.8-27B, all 64 layers), `qwen38-tiny`, `qwen38-mini` (the tiny shape with heads that split over 2 or 4 chips), or a Qwen3.5/3.8 checkpoint's `.gguf`, its program read from the checkpoint — as one certified program per layer kind plus the head, the program they are cuts of (`program.lg`) and a manifest binding every layer and naming every program's cut. Needs `-o DIR`
+
+      --ctx <CTX>
+          `emit rdu --model`: lower the DECODE deployment with a KV cache of CTX positions — an embedding program, layer kinds whose attention appends to and reads the cache, and a head that emits the next token; `tok` and `pos` are runtime inputs. Without it, the bundle is the authored forward
+
+      --batch <BATCH>
+          `emit rdu --model --ctx`: serve BATCH sequences per decode step — the hidden states stacked `BATCH × d`, every weight read once for all of them, each sequence with its own KV caches and carried state; `tok_s{b}` and `pos_s{b}` are runtime inputs. `auto`: the most sequences whose per-step working set stays in a chip's SRAM (the serving plan). The default is one sequence
+
+      --tp <TP>
+          `emit rdu --model --ctx`: TENSOR-PARALLEL over TP chips — every layer kind one program over the chips, each chip its own heads and FFN columns and a slice of every weight, the partials summed by two all-reduces a layer. TP must split the model's heads (Qwen3.8-27B: 1, 2, 4 or 8). `auto`: the widest width the heads admit in the chip's scale-up domain. The default is one chip
+
+      --prefill <PREFILL>
+          `emit rdu --model --ctx`: PREFILL a chunk of PREFILL prompt tokens of one sequence per step — the chunk's hidden states stacked `PREFILL × d`, every weight read once for the chunk, the rows taking the sequence's KV caches and recurrent memories in order, the last row's next token out. The state is the decode bundle's, so decoding continues from it; `tok_s{b}` and `pos_s{b}` are runtime inputs
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo emit rust
+  largo emit rust -o generated.rs
+  largo emit c standalone.lg
+  largo emit wasm
+  largo emit wasm-linked -o dist/app.wasm
+  largo emit rdu --chip sn50 qwen38_tiny.lg -o out/
+  largo emit rdu --format vllm qwen38_tiny.lg
+  largo emit rdu --model qwen38 -o qwen38_sn50/
+  largo emit rdu --model qwen38 --ctx 4096 -o qwen38_sn50_decode/
+  largo emit rdu --model qwen38 --ctx 4096 --batch 8 -o qwen38_sn50_batch8/
+  largo emit rdu --model qwen38 --ctx 4096 --tp 8 -o qwen38_sn50_tp8/
+  largo emit rdu --model qwen38 --ctx 4096 --prefill 512 -o qwen38_sn50_prefill/

@@ -1,0 +1,76 @@
+{
+  "case": "T03-003",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-003_parameterised_inductive.lean",
+  "source_sha256": "a5798c186efcb16f7665b6b50340f78d2ce28567adab6ea8612f1d0eee074f72",
+  "ledger_sha256": "af0612e107cab09921e6c6f9df105c6bcf076b8fa832ab526a2b380be3a3faab",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_003.Boxed",
+    "T03_003.Boxed.wrap",
+    "T03_003.MyList",
+    "T03_003.MyList.cons",
+    "T03_003.MyList.nil",
+    "T03_003.MyPair",
+    "T03_003.MyPair.mk",
+    "T03_003.boolList",
+    "T03_003.firstOf",
+    "T03_003.lengthGen",
+    "T03_003.lengthOf",
+    "T03_003.natList",
+    "T03_003.nestedList",
+    "T03_003.unwrap"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "ebee2921f07dafb8e19d05403517bc7aa75f2a891746bc5088ee0f4aff98edef",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 776,
+  "harvest": {
+    "roots": [
+      "T03_003.Boxed",
+      "T03_003.Boxed.wrap",
+      "T03_003.MyList",
+      "T03_003.MyList.cons",
+      "T03_003.MyList.nil",
+      "T03_003.MyPair",
+      "T03_003.MyPair.mk",
+      "T03_003.boolList",
+      "T03_003.firstOf",
+      "T03_003.lengthGen",
+      "T03_003.lengthOf",
+      "T03_003.natList",
+      "T03_003.nestedList",
+      "T03_003.unwrap"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

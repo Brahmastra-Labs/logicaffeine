@@ -1,0 +1,19 @@
+83 launches a token
+embedding (1): gather_norm
+layer 0 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 1 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 2 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 3 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 4 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 5 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 6 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 7 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 8 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 9 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 10 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 11 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 12 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 13 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 14 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+layer 15 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
+head (2): gemv_q8 argmax

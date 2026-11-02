@@ -1,0 +1,161 @@
+{
+  "case": "T05-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T05_007.Bounded",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_007.Bounded \u2192 Sort u} \u2192\n  (t : T05_007.Bounded) \u2192 ((n i : Nat) \u2192 (h : i \u2264 n) \u2192 motive { n := n, i := i, h := h }) \u2192 motive t",
+      "name": "T05_007.Bounded.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T05_007.Bounded), self.i \u2264 self.n",
+      "name": "T05_007.Bounded.h",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T05_007.Bounded \u2192 Nat",
+      "name": "T05_007.Bounded.i",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n i : Nat) \u2192 autoParam (i \u2264 n) _auto\u271d \u2192 T05_007.Bounded",
+      "name": "T05_007.Bounded.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {n i : Nat} {h : autoParam (i \u2264 n) _auto\u271d} {n_1 i_1 : Nat} {h_1 : autoParam (i_1 \u2264 n_1) _auto\u271d},\n  { n := n, i := i, h := h } = { n := n_1, i := i_1, h := h_1 } \u2192 n = n_1 \u2227 i = i_1",
+      "name": "T05_007.Bounded.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n i : Nat) (h : autoParam (i \u2264 n) _auto\u271d) (n_1 i_1 : Nat) (h_1 : autoParam (i_1 \u2264 n_1) _auto\u271d),\n  ({ n := n, i := i, h := h } = { n := n_1, i := i_1, h := h_1 }) = (n = n_1 \u2227 i = i_1)",
+      "name": "T05_007.Bounded.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n i : Nat) (h : autoParam (i \u2264 n) _auto\u271d), sizeOf { n := n, i := i, h := h } = 1 + sizeOf n + sizeOf i + sizeOf h",
+      "name": "T05_007.Bounded.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T05_007.Bounded \u2192 Nat",
+      "name": "T05_007.Bounded.n",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_007.Bounded} \u2192 v1 = v2 \u2192 T05_007.Bounded.noConfusionType P v1 v2",
+      "name": "T05_007.Bounded.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_007.Bounded \u2192 T05_007.Bounded \u2192 Sort u",
+      "name": "T05_007.Bounded.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_007.Bounded \u2192 Sort u} \u2192\n  ((n i : Nat) \u2192 (h : i \u2264 n) \u2192 motive { n := n, i := i, h := h }) \u2192 (t : T05_007.Bounded) \u2192 motive t",
+      "name": "T05_007.Bounded.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_007.Bounded \u2192 Sort u} \u2192\n  (t : T05_007.Bounded) \u2192 ((n i : Nat) \u2192 (h : i \u2264 n) \u2192 motive { n := n, i := i, h := h }) \u2192 motive t",
+      "name": "T05_007.Bounded.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 autoParam (0 \u2264 n) _auto\u271d \u2192 Nat",
+      "name": "T05_007.atLeast",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_007.Bounded",
+      "name": "T05_007.b1",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "3 \u2264 5",
+      "name": "T05_007.b1.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "(n i : Nat) \u2192 autoParam (i < n + 1) _auto\u271d \u2192 Nat",
+      "name": "T05_007.boundedPick",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 autoParam (n \u2260 0) _auto\u271d \u2192 Nat",
+      "name": "T05_007.predOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 (b : Nat) \u2192 autoParam (b \u2260 0) _auto\u271d \u2192 Nat",
+      "name": "T05_007.safeDiv",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

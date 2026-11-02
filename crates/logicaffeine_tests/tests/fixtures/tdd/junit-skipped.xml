@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="learn-e2e" tests="2" failures="1">
+  <testsuite name="learn-e2e" tests="2" failures="1">
+    <testcase classname="learn-e2e" name="word_bank_is_served_as_json" time="1.2"><failure message="not JSON">not JSON</failure></testcase>
+    <testcase classname="learn-e2e" name="learn_fits_a_phone" time="0.0"><skipped message="no phone profile"/></testcase>
+  </testsuite>
+</testsuites>

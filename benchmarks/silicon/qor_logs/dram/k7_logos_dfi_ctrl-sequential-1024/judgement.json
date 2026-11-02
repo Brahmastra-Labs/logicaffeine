@@ -1,0 +1,50 @@
+{
+ "bus_span": 4133,
+ "candidate": "k7_logos_dfi_ctrl",
+ "commands": {
+  "activate": 8,
+  "precharge": 0,
+  "read": 1024,
+  "refresh": 2,
+  "write": 1024
+ },
+ "data_cycles": 4096,
+ "pattern": "sequential",
+ "payload_cycles": 4096,
+ "read_bus": {
+  "max": 17,
+  "mean": 13.01953125,
+  "min": 13,
+  "n": 1024,
+  "p50": 13,
+  "p99": 13
+ },
+ "read_latency": {
+  "max": 12,
+  "mean": 8.015625,
+  "min": 8,
+  "n": 1024,
+  "p50": 8,
+  "p99": 8
+ },
+ "read_service": {
+  "max": 30,
+  "mean": 26.01953125,
+  "min": 26,
+  "n": 1024,
+  "p50": 26,
+  "p99": 26
+ },
+ "requests": 2048,
+ "row_hits": 2040,
+ "stream_cycles": 4124,
+ "words": 1024,
+ "write_latency": {
+  "max": 8,
+  "mean": 8.0,
+  "min": 8,
+  "n": 1024,
+  "p50": 8,
+  "p99": 8
+ }
+}

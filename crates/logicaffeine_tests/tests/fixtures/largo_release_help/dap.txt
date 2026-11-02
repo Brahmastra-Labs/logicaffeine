@@ -1,0 +1,28 @@
+Debug a LOGOS program over the Debug Adapter Protocol (stdio).
+
+Speaks DAP with `Content-Length` framing: `launch`, breakpoints, `stackTrace`/`scopes`/`variables`, the stepping verbs, `evaluate`, and — the headline — real reverse execution (`stepBack`/`reverseContinue`, `supportsStepBack: true`). A thin serializer over the same `DebugSession` facade the Studio drawer renders, so an editor and the browser drawer see the same session. Made for editor integrations; humans want `largo repl`.
+
+Usage: largo dap [OPTIONS]
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo dap

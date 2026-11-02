@@ -1,0 +1,98 @@
+# The third-party tools and designs the comparative-synthesis bench runs, each at one pinned version.
+# `fetch-qor-tools.py` installs exactly these into tools/qor/ and refuses any download whose sha256
+# differs from the pin. Every ledger row names the tool by the key it has here.
+
+[bambu]
+version = "2024.10"
+image = "logos-qor-bambu:2024.10"
+base_image = "ubuntu@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401"
+license = "GPL-3.0"
+url = "https://release.bambuhls.eu/appimage/bambu-2024.10.AppImage"
+sha256 = "e4f0214496a5d35de1932975b0f41cd95bc33a53a904fc565d6c2cb01df40773"
+
+[calyx]
+version = "ghcr.io/calyxir/calyx@sha256:f63b639df8efe83ef196638820d3b2f7ca34e07b826f19680c9e3407082bdcb4"
+license = "MIT"
+image = "ghcr.io/calyxir/calyx@sha256:f63b639df8efe83ef196638820d3b2f7ca34e07b826f19680c9e3407082bdcb4"
+
+[sv2v]
+version = "v0.0.13"
+license = "BSD-3-Clause"
+url = "https://github.com/zachjs/sv2v/releases/download/v0.0.13/sv2v-Linux.zip"
+sha256 = "552799a1d76cd177b9b4cc63a3e77823a3d2a6eb4ec006569288abeff28e1ff8"
+
+[gemmini]
+version = "ucb-bar/gemmini@8c3f9923a44a2fe2c7930587be297d6d4f8c09ca"
+license = "BSD-3-Clause"
+url = "https://codeload.github.com/ucb-bar/gemmini/tar.gz/8c3f9923a44a2fe2c7930587be297d6d4f8c09ca"
+sha256 = "943f721ce57293aec17423849c19f3a512293329767f4d0a92cd5310961443aa"
+# Arithmetic.scala imports berkeley-hardfloat: the commit chipyard@e02074414158c85059c1dcb231ff2f8941254b9a
+# (Gemmini's CHIPYARD.hash) pins as generators/hardfloat.
+hardfloat_version = "ucb-bar/berkeley-hardfloat@4225367ed282aadd70f4cbd131f6959f4d00c502"
+hardfloat_license = "BSD-3-Clause"
+hardfloat_url = "https://codeload.github.com/ucb-bar/berkeley-hardfloat/tar.gz/4225367ed282aadd70f4cbd131f6959f4d00c502"
+hardfloat_sha256 = "eaec2be309299c712c9204db01afc5996fd974e96626cb4dd8d87d1c19e1958a"
+
+[chisel]
+version = "chisel3 3.6.0 on Scala 2.13.10 (Gemmini's build.sbt), sbt 1.9.9, Temurin JDK 17"
+license = "Apache-2.0"
+jdk_image = "eclipse-temurin@sha256:43f4431cc895d37ceb115e2e1f160545ec45caee9c1cb4246fc6bb879d58aeda"
+sbt_version = "1.9.9"
+sbt_url = "https://github.com/sbt/sbt/releases/download/v1.9.9/sbt-1.9.9.tgz"
+sbt_sha256 = "c57cae60c2122ca1bba77184dfb4d0d25fc6c18805394ab36ab6208b0c0f262f"
+image = "logos-qor-chisel:3.6.0"
+
+[vortex]
+version = "vortexgpgpu/vortex@954ee2944d9388d9c81b779c944e5445563df595 (v3.0)"
+license = "Apache-2.0"
+url = "https://codeload.github.com/vortexgpgpu/vortex/tar.gz/954ee2944d9388d9c81b779c944e5445563df595"
+sha256 = "26ec3f79155a0b8274d3b2e9de06f61ba3ebd72c25994bafc9f42fd42213e6da"
+
+[vortex.submodules]
+"third_party/softfloat" = "https://codeload.github.com/ucb-bar/berkeley-softfloat-3/tar.gz/b51ef8f3201669b2288104c28546fc72532a1ea4"
+"third_party/cvfpu" = "https://codeload.github.com/openhwgroup/cvfpu/tar.gz/79e453139072df42c9ec8f697132ba485d74e23d"
+"third_party/hardfloat" = "https://codeload.github.com/bsg-external/HardFloat/tar.gz/aaf5736dffa521603b681fd5853760c671446c85"
+"third_party/cocogfx" = "https://codeload.github.com/gtcasl/cocogfx/tar.gz/b1befdb36df8af7ac9e2c96acaf81957aab5d107"
+"third_party/ramulator" = "https://codeload.github.com/CMU-SAFARI/ramulator2/tar.gz/e62c84a6f0e06566ba6e182d308434b4532068a5"
+
+[vortex.submodule_sha256]
+"third_party/softfloat" = "94f62d78ac68d8591a1f14f601224a9e011c1459211028030f3200f9e214d568"
+"third_party/cvfpu" = "90662538ef8ccad67112a82f6b8f37069a7e59c54e3168f02751606ad6bc005b"
+"third_party/hardfloat" = "277a2d27cdf24f6380132dc497279dccc86908343eb4089d38968977cdac1f73"
+"third_party/cocogfx" = "29a3a7155b143c072d142f3bae09b67a8bc8b1d328de198a1f5c9171bcfaee35"
+"third_party/ramulator" = "b2389de9a7ad4d2e5bfa464a2e50a6191722cd6066ac40319654f6343045e2aa"
+
+[litex]
+version = "enjoy-digital/litex@2026.08 + enjoy-digital/litedram@2026.08 (c454a440ca94afd57bca148a0ba2af491325f0e6)"
+license = "BSD-2-Clause"
+litex_url = "https://codeload.github.com/enjoy-digital/litex/tar.gz/b6ae9e0b227354aecffef5339d3e946f2395ac09"
+litedram_url = "https://codeload.github.com/enjoy-digital/litedram/tar.gz/c454a440ca94afd57bca148a0ba2af491325f0e6"
+# migen from its repository at its last code change (the PyPI 0.9.2 of 2019 cannot read Python 3.12 bytecode,
+# which LiteX's CSR naming depends on); LiteX itself installs migen from the repository.
+migen = "m-labs/migen@e64d0bc12bff644e746d2ddb0d26b3e682b12064"
+migen_url = "https://codeload.github.com/m-labs/migen/tar.gz/e64d0bc12bff644e746d2ddb0d26b3e682b12064"
+migen_sha256 = "660c12736e8f1759cd3002dddb36985a335cea102ddd0105ea5bc74df6bfc4f3"
+litex_sha256 = "831f1db6794c979d541d8be15f8717d2f2bf38539d4487d68aba16873f75fa24"
+litedram_sha256 = "6820ae5824c9b0f80fb48c75a96ee9baae3b4d1df996f8ee20740aa182607f08"
+
+[spatial]
+# Spatial's own Chisel backend, at the commit the public Plasticine toolchain runs (dataplane-ai/spatial, branch pir):
+# fringe and its dependencies published into the bench's cache, an app compiled with `--synth --fpga <target>`, and the
+# accelerator elaborated fringeless by chisel3 at the versions the generated build.sbt names.
+version = "dataplane-ai/spatial@c551db69d68bc459fd99e0c501ad9ad72090e1dc (branch pir, 2023-01-31); chisel3 3.1.6, chisel-iotesters 1.2.8, sbt 1.1.1"
+license = "MIT"
+url = "https://gitlab.com/dataplane-ai/spatial/-/archive/c551db69d68bc459fd99e0c501ad9ad72090e1dc/spatial-c551db69d68bc459fd99e0c501ad9ad72090e1dc.tar.gz"
+sha256 = "1d64cc0ca989d14355d1013fdf4954506225adaa6f79d47c69e4ef40a5ec7e92"
+sbt_version = "1.1.1"
+# The Plasticine toolchain's image (scripts/plasticine/Dockerfile: JDK 8 and sbt on ubuntu:18.04).
+image = "logos-plasticine-toolchain"
+
+[openlane_release]
+# OpenLane as released at the commit the repo's overlay is written over (scripts/openlane-overlay/BASE), unpacked twice:
+# the bench's stock tree, its control runs' (the overlay's contribution is a candidate's run with the overlay against
+# its run on this), and the bench's own tree, every other run's, with the overlay laid over it.
+version = "The-OpenROAD-Project/OpenLane@ff5509f65b17bfa4068d5336495ab1718987ff69"
+license = "Apache-2.0"
+commit = "ff5509f65b17bfa4068d5336495ab1718987ff69"
+url = "https://codeload.github.com/The-OpenROAD-Project/OpenLane/tar.gz/ff5509f65b17bfa4068d5336495ab1718987ff69"
+sha256 = "f29c1b7740eb0d619b395be518f28a2099d3728a42374dba99c565f30d924073"

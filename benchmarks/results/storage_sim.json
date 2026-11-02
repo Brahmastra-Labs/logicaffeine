@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "model": "host-managed ZNS-TLC, 8ch × 8 dies, die-interleaved / channel-striped, erases scheduled into idle windows",
+    "timings": { "t_r": 64, "t_prog": 640, "t_bers": 6400, "data_cycles": 8, "suspend_window": 96, "ldpc_retry_worst": 32, "channels": 8, "dies_per_channel": 8 },
+    "read_latency_bound": 200,
+    "note": "pure function of the timing table — regenerate with STORAGE_RECORD=1"
+  },
+  "scenarios": {
+    "sequential_read_8k_pages": { "utilization": 0.9922, "reads": 8192, "programs": 0, "erases": 0, "worst_read_latency": 72, "span_cycles": 8256 },
+    "zns_append_4k_pages": { "utilization": 0.0986, "reads": 0, "programs": 4096, "erases": 0, "worst_read_latency": 0, "span_cycles": 41528 },
+    "reads_with_concurrent_gc": { "utilization": 0.8678, "reads": 6144, "programs": 0, "erases": 8, "worst_read_latency": 72, "span_cycles": 7080 },
+    "random_gather_4096": { "utilization": 0.3357, "reads": 4096, "programs": 0, "erases": 0, "worst_read_latency": 72, "span_cycles": 12200 }
+  }
+}

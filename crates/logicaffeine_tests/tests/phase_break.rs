@@ -1,11 +1,11 @@
 mod common;
 use common::{assert_exact_output, assert_interpreter_output};
-use std::collections::HashSet;
 use logicaffeine_base::{Interner, Symbol};
-use logicaffeine_language::ast::Stmt;
-use logicaffeine_compile::codegen::{codegen_stmt, RefinementContext, empty_var_caps};
 use logicaffeine_compile::analysis::types::TypeEnv;
+use logicaffeine_compile::codegen::{codegen_stmt, empty_var_caps, RefinementContext};
 use logicaffeine_language::analysis::TypeRegistry;
+use logicaffeine_language::ast::Stmt;
+use std::collections::HashSet;
 
 fn empty_lww_fields() -> HashSet<(String, String)> {
     HashSet::new()

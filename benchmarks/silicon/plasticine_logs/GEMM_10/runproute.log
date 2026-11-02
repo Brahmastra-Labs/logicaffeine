@@ -1,0 +1,40 @@
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 22.61 mean 6.66
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 18.65 mean 6.00
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 22.65 mean 5.94
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 18.65 mean 5.94
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 19.65 mean 6.43
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 19.73 mean 5.93
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 17.20 mean 5.84
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 20.65 mean 6.19
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 18.63 mean 6.20
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 20.67 mean 5.96
+   100 scores: min 2.02 	0.00/0.00/4/0.00/0 	max 19.63 mean 6.24
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 19.66 mean 6.33
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 20.67 mean 9.92
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 21.64 mean 9.80
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 24.70 mean 9.93
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 20.65 mean 10.00
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 19.60 mean 9.42
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 21.64 mean 10.55
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 19.56 mean 9.23
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 20.65 mean 9.89
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 21.70 mean 9.89
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 19.57 mean 9.82
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 21.69 mean 10.27
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 17.56 mean 8.82
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 18.19 mean 9.92
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 20.64 mean 9.62
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 18.60 mean 9.60
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 19.63 mean 9.52
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 19.64 mean 9.42
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 22.62 mean 9.60
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 18.65 mean 9.20
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 23.64 mean 9.75
+   100 scores: min 1.52 	0.00/0.00/3/0.00/0 	max 18.58 mean 9.69
+All static routes:
+All dynamic routes:
+Best score is 1.52
+Used 0 VCs for endpoint coloring.
+	Used 0 VCs.
+cp script_hybrid script
+Runtime:1:37.65

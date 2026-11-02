@@ -1,0 +1,208 @@
+{
+  "case": "T09-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 26,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T09_003.MyList",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_003.MyList \u2192 Sort u} \u2192 T09_003.MyList \u2192 Sort (max 1 u)",
+      "name": "T09_003.MyList.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T09_003.MyList \u2192 Prop} (t : T09_003.MyList),\n  (\u2200 (t : T09_003.MyList), T09_003.MyList.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T09_003.MyList.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_003.MyList \u2192 Sort u} \u2192\n  (t : T09_003.MyList) \u2192 ((t : T09_003.MyList) \u2192 T09_003.MyList.below t \u2192 motive t) \u2192 motive t",
+      "name": "T09_003.MyList.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_003.MyList \u2192 Sort u} \u2192\n  (t : T09_003.MyList) \u2192\n    motive T09_003.MyList.nil \u2192 ((a : Nat) \u2192 (a_1 : T09_003.MyList) \u2192 motive (T09_003.MyList.cons a a_1)) \u2192 motive t",
+      "name": "T09_003.MyList.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T09_003.MyList \u2192 T09_003.MyList",
+      "name": "T09_003.MyList.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : Nat} {a_1 : T09_003.MyList} {a_2 : Nat} {a_3 : T09_003.MyList},\n  T09_003.MyList.cons a a_1 = T09_003.MyList.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T09_003.MyList.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a : Nat) (a_1 : T09_003.MyList) (a_2 : Nat) (a_3 : T09_003.MyList),\n  (T09_003.MyList.cons a a_1 = T09_003.MyList.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T09_003.MyList.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat) (a_1 : T09_003.MyList), sizeOf (T09_003.MyList.cons a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T09_003.MyList.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_003.MyList \u2192 Prop} \u2192 T09_003.MyList \u2192 Prop",
+      "name": "T09_003.MyList.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_003.MyList",
+      "name": "T09_003.MyList.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T09_003.MyList.nil = 1",
+      "name": "T09_003.MyList.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T09_003.MyList} \u2192 v1 = v2 \u2192 T09_003.MyList.noConfusionType P v1 v2",
+      "name": "T09_003.MyList.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T09_003.MyList \u2192 T09_003.MyList \u2192 Sort u",
+      "name": "T09_003.MyList.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_003.MyList \u2192 Sort u} \u2192\n  motive T09_003.MyList.nil \u2192\n    ((a : Nat) \u2192 (a_1 : T09_003.MyList) \u2192 motive a_1 \u2192 motive (T09_003.MyList.cons a a_1)) \u2192\n      (t : T09_003.MyList) \u2192 motive t",
+      "name": "T09_003.MyList.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T09_003.MyList \u2192 Sort u} \u2192\n  (t : T09_003.MyList) \u2192\n    motive T09_003.MyList.nil \u2192\n      ((a : Nat) \u2192 (a_1 : T09_003.MyList) \u2192 motive a_1 \u2192 motive (T09_003.MyList.cons a a_1)) \u2192 motive t",
+      "name": "T09_003.MyList.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), (fun x => a + b + (a + b) + x) 0 = a + b + (a + b)",
+      "name": "T09_003.compound",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T09_003.MyList.nil = T09_003.MyList.nil",
+      "name": "T09_003.expandsEmpty",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T09_003.MyList.cons 1 (T09_003.MyList.cons 2 (T09_003.MyList.cons 3 T09_003.MyList.nil)) =\n  T09_003.MyList.cons 1 (T09_003.MyList.cons 2 (T09_003.MyList.cons 3 T09_003.MyList.nil))",
+      "name": "T09_003.expandsFully",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), (fun x_1 => x + x + x_1) 0 = x + x",
+      "name": "T09_003.hygienic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T09_003.macroTactic",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "5 + 100 = 105",
+      "name": "T09_003.overlappingRules",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_003.tacticReflAll",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_003.termTwiceIt_",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_003.\u00abtermNested![_]\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_003.\u00abtermPick![_]\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

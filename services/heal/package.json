@@ -1,0 +1,19 @@
+{
+  "name": "logos-heal",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.3.4",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.145.0"
+  }
+}

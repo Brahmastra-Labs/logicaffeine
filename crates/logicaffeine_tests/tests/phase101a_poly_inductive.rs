@@ -1,12 +1,12 @@
 //! Phase 101a: Polymorphic Inductive Types (Parser Enhancement)
 //!
 //! Extends the vernacular parser to support type parameters:
-//! `Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.`
+//! `Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.`
 //!
 //! The parser must:
 //! - Parse type parameters from the header (before `:=`)
 //! - Build a polymorphic sort: Π(A:Type). Type
-//! - Prepend parameters to constructor types: Π(A:Type). A -> List A -> List A
+//! - Prepend parameters to constructor types: Π(A:Type). A -> PList A -> PList A
 
 use logicaffeine_kernel::interface::Repl;
 
@@ -18,8 +18,8 @@ use logicaffeine_kernel::interface::Repl;
 fn test_parse_polymorphic_inductive_list() {
     let mut repl = Repl::new();
 
-    // Define polymorphic List
-    let cmd = "Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.";
+    // Define polymorphic PList
+    let cmd = "Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.";
     let result = repl.execute(cmd);
 
     assert!(
@@ -33,23 +33,23 @@ fn test_parse_polymorphic_inductive_list() {
 fn test_polymorphic_list_type_sort() {
     let mut repl = Repl::new();
 
-    // Define List
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    // Define PList
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Check List's type - should be Type -> Type (or Π(A:Type). Type)
-    let output = repl.execute("Check List.").expect("Check List");
+    // Check PList's type - should be Type -> Type (or Π(A:Type). Type)
+    let output = repl.execute("Check PList.").expect("Check PList");
 
-    // List : Π(A:Type0). Type0 (polymorphic type constructor)
+    // PList : Π(A:Type0). Type0 (polymorphic type constructor)
     assert!(
-        output.contains("List :"),
+        output.contains("PList :"),
         "Should have type annotation: {}",
         output
     );
     // Accept either "Type -> Type" or "Π(A:Type). Type" notation
     assert!(
         output.contains("Type") && (output.contains("->") || output.contains("Π")),
-        "List should be a type constructor: {}",
+        "PList should be a type constructor: {}",
         output
     );
 }
@@ -58,10 +58,10 @@ fn test_polymorphic_list_type_sort() {
 fn test_polymorphic_nil_type() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Check Nil's type - should be Π(A:Type). List A
+    // Check Nil's type - should be Π(A:Type). PList A
     let output = repl.execute("Check Nil.").expect("Check Nil");
 
     assert!(
@@ -70,7 +70,7 @@ fn test_polymorphic_nil_type() {
         output
     );
     // Nil must be polymorphic (takes a type parameter)
-    // Could be displayed as "forall (A : Type), List A" or "Π(A:Type). List A"
+    // Could be displayed as "forall (A : Type), PList A" or "Π(A:Type). PList A"
     assert!(
         output.contains("forall") || output.contains("Π") || output.contains("Type"),
         "Nil should be polymorphic (take type parameter): {}",
@@ -82,10 +82,10 @@ fn test_polymorphic_nil_type() {
 fn test_polymorphic_cons_type() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Check Cons's type - should be Π(A:Type). A -> List A -> List A
+    // Check Cons's type - should be Π(A:Type). A -> PList A -> PList A
     let output = repl.execute("Check Cons.").expect("Check Cons");
 
     assert!(
@@ -109,15 +109,15 @@ fn test_polymorphic_cons_type() {
 fn test_instantiate_list_nat() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Instantiate List with Nat
-    let output = repl.execute("Check (List Nat).").expect("Check List Nat");
+    // Instantiate PList with Nat
+    let output = repl.execute("Check (PList Nat).").expect("Check PList Nat");
 
     assert!(
         output.contains("Type"),
-        "List Nat should be a Type: {}",
+        "PList Nat should be a Type: {}",
         output
     );
 }
@@ -126,15 +126,15 @@ fn test_instantiate_list_nat() {
 fn test_instantiate_nil_nat() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Nil Nat : List Nat
+    // Nil Nat : PList Nat
     let output = repl.execute("Check (Nil Nat).").expect("Check Nil Nat");
 
     assert!(
-        output.contains("List"),
-        "Nil Nat should have type List Nat: {}",
+        output.contains("PList"),
+        "Nil Nat should have type PList Nat: {}",
         output
     );
 }
@@ -143,17 +143,17 @@ fn test_instantiate_nil_nat() {
 fn test_instantiate_cons_nat() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Cons Nat Zero (Nil Nat) : List Nat
+    // Cons Nat Zero (Nil Nat) : PList Nat
     let output = repl
         .execute("Check (Cons Nat Zero (Nil Nat)).")
         .expect("Check cons list");
 
     assert!(
-        output.contains("List"),
-        "Cons Nat Zero (Nil Nat) should have type List Nat: {}",
+        output.contains("PList"),
+        "Cons Nat Zero (Nil Nat) should have type PList Nat: {}",
         output
     );
 }
@@ -162,8 +162,8 @@ fn test_instantiate_cons_nat() {
 fn test_eval_list_construction() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
     // Build a list: Cons Nat Zero (Cons Nat (Succ Zero) (Nil Nat))
     // This represents [0, 1]
@@ -301,7 +301,7 @@ fn test_error_missing_colon_in_param() {
     let mut repl = Repl::new();
 
     // Missing type annotation for parameter
-    let cmd = "Inductive List (A) := Nil : List A.";
+    let cmd = "Inductive PList (A) := Nil : PList A.";
     let result = repl.execute(cmd);
 
     assert!(
@@ -315,7 +315,7 @@ fn test_error_empty_parameter_list() {
     let mut repl = Repl::new();
 
     // Empty parentheses (syntactically odd but should be handled)
-    let cmd = "Inductive List () := Nil : List.";
+    let cmd = "Inductive PList () := Nil : PList.";
     let result = repl.execute(cmd);
 
     // This could either be an error or parse as no parameters
@@ -331,10 +331,10 @@ fn test_error_empty_parameter_list() {
 fn test_type_error_wrong_arity() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
-    // Using List without the type argument should be a type error
+    // Using PList without the type argument should be a type error
     // (Nil alone is polymorphic, but applying it wrong should error)
     let result = repl.execute("Check (Cons Zero (Nil Nat)).");
 
@@ -372,12 +372,11 @@ fn test_parameter_with_arrow_type() {
 fn test_definition_using_list() {
     let mut repl = Repl::new();
 
-    repl.execute("Inductive List (A : Type) := Nil : List A | Cons : A -> List A -> List A.")
-        .expect("Define List");
+    repl.execute("Inductive PList (A : Type) := Nil : PList A | Cons : A -> PList A -> PList A.")
+        .expect("Define PList");
 
     // Define a concrete list value
-    let result =
-        repl.execute("Definition myList : List Nat := Cons Nat Zero (Nil Nat).");
+    let result = repl.execute("Definition myList : PList Nat := Cons Nat Zero (Nil Nat).");
 
     assert!(
         result.is_ok(),
@@ -387,8 +386,8 @@ fn test_definition_using_list() {
 
     let output = repl.execute("Check myList.").expect("Check myList");
     assert!(
-        output.contains("List"),
-        "myList should have type List Nat: {}",
+        output.contains("PList"),
+        "myList should have type PList Nat: {}",
         output
     );
 }

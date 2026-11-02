@@ -1,0 +1,78 @@
+// K1 decide for Calyx through Dahlia: the HFT decision of DECIDE_FN, statement for statement, every operand
+// read from and the order written to a one-word memory (Dahlia's calling convention).
+decl micro100: bit<64>[1];
+decl fair100: bit<64>[1];
+decl edge100: bit<64>[1];
+decl base_size: bit<64>[1];
+decl max_order: bit<64>[1];
+decl inventory: bit<64>[1];
+decl pos_cap: bit<64>[1];
+decl book_ok: bit<64>[1];
+decl order: bit<64>[1];
+let i: ubit<1> = (0 as ubit<1>);
+---
+let micro: bit<64> = micro100[i];
+---
+let fair: bit<64> = fair100[i];
+---
+let edge: bit<64> = edge100[i];
+---
+let base: bit<64> = base_size[i];
+---
+let maxo: bit<64> = max_order[i];
+---
+let inv: bit<64> = inventory[i];
+---
+let cap: bit<64> = pos_cap[i];
+---
+let ok: bit<64> = book_ok[i];
+---
+let side: bit<64> = (0 as bit<64>);
+---
+let size: bit<64> = (0 as bit<64>);
+---
+if (ok == (1 as bit<64>)) {
+  if (micro > fair + edge) {
+    side := (2 as bit<64>);
+    ---
+    size := base;
+  } else {
+    if (micro < fair - edge) {
+      side := (1 as bit<64>);
+      ---
+      size := base;
+    }
+  }
+}
+---
+if (size > maxo) {
+  size := maxo;
+}
+---
+let signed_order: bit<64> = (0 as bit<64>);
+---
+if (side == (1 as bit<64>)) {
+  signed_order := size;
+}
+---
+if (side == (2 as bit<64>)) {
+  signed_order := (0 as bit<64>) - size;
+}
+---
+let projected: bit<64> = inv + signed_order;
+---
+let risk_ok: bit<64> = (1 as bit<64>);
+---
+if (projected > cap) {
+  risk_ok := (0 as bit<64>);
+}
+---
+if (projected < (0 as bit<64>) - cap) {
+  risk_ok := (0 as bit<64>);
+}
+---
+if (risk_ok == (0 as bit<64>)) {
+  signed_order := (0 as bit<64>);
+}
+---
+order[i] := signed_order;

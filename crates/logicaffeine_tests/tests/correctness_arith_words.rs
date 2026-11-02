@@ -18,7 +18,11 @@ use logicaffeine_compile::compile::{tw_outcome, vm_outcome};
 fn tw_vm_agree(src: &str) {
     let tw = tw_outcome(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim_end(), tw.output.trim_end(), "VM/tw output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}");
+    assert_eq!(
+        vm.output.trim_end(),
+        tw.output.trim_end(),
+        "VM/tw output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}"
+    );
     assert_eq!(vm.error, tw.error, "VM/tw error diverged for:\n{src}");
 }
 
@@ -57,7 +61,10 @@ fn prefix_is_atomic_in_a_larger_expression() {
 
 #[test]
 fn prefix_over_variables() {
-    eq("## Main\nLet a be 8.\nLet b be 5.\nShow the sum of a and b.\n", "13");
+    eq(
+        "## Main\nLet a be 8.\nLet b be 5.\nShow the sum of a and b.\n",
+        "13",
+    );
 }
 
 // ---- Infix: `A word B` ----
@@ -96,7 +103,10 @@ fn infix_precedence_times_binds_tighter_than_plus() {
 
 #[test]
 fn infix_over_variables() {
-    eq("## Main\nLet a be 3.\nLet b be 4.\nShow a plus b times b.\n", "19");
+    eq(
+        "## Main\nLet a be 3.\nLet b be 4.\nShow a plus b times b.\n",
+        "19",
+    );
 }
 
 #[test]
@@ -111,7 +121,11 @@ fn power_word_binds_tighter_than_times() {
 fn range_loop_still_iterates() {
     let src = "## Main\nLet total be 0.\nRepeat for i from 1 to 3:\n    Set total to total + i.\nShow total.\n";
     let r = run_interpreter(src);
-    assert!(r.success, "a range loop must still parse and run: {}", r.error);
+    assert!(
+        r.success,
+        "a range loop must still parse and run: {}",
+        r.error
+    );
     assert_eq!(r.output.trim(), "6");
 }
 

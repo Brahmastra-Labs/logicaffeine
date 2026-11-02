@@ -1,0 +1,67 @@
+{
+ "part": "NVIDIA GeForce RTX 3060 (sm_86), driver 580.178.04",
+ "boot": "2026-10-18 02:53:57 UTC",
+ "measured": "2026-10-20",
+ "model": "tiny_transformer.json",
+ "trace": {
+  "prompt_tokens": [
+   13,
+   6,
+   4,
+   0,
+   2,
+   1,
+   13,
+   0,
+   12,
+   1,
+   13,
+   0,
+   10,
+   9,
+   0,
+   13,
+   6,
+   4,
+   0
+  ],
+  "generated_tokens": [
+   8,
+   1,
+   13
+  ]
+ },
+ "programs": [
+  {
+   "program": "hand-written reference",
+   "how": "Int8Model::reference_cuda: one warp, the trace's 21 steps on the device in one launch, cudaEvent over 400,000 repetitions in a window with no other process on the GPU",
+   "us_per_token": 11.398,
+   "power_w": 58.69,
+   "idle_power_w": 17.61,
+   "power_how": "nvidia-smi power.draw sampled 321 times while those 400,000 repetitions ran (95.7 s, a sample about every 0.30 s), the 321 at 90% utilization or more averaged, standard deviation 0.49 W; idle 17.61 W in P8 before the runs",
+   "energy_uj_per_token": 668.949
+  },
+  {
+   "program": "LOGOS one-block program",
+   "how": "spatial::lower::cuda one-block program of the decode step (16x16 tiles), one step a launch: cudaEvent over 281,700 launches back to back, in a window with no other process on the GPU",
+   "us_per_token": 46.258,
+   "best_us_per_step": 53.248,
+   "best_how": "its bench: best of 200 launches of one step, each between two events",
+   "power_w": 58.86,
+   "idle_power_w": 17.61,
+   "power_how": "nvidia-smi power.draw sampled 42 times while those 281,700 launches ran (13.0 s, a sample about every 0.31 s), the 42 at 90% utilization or more averaged, standard deviation 4.00 W; idle 17.61 W in P8 before the runs",
+   "energy_uj_per_token": 2722.746
+  },
+  {
+   "program": "LOGOS one block per site",
+   "how": "spatial::lower::cuda general program of the decode step, one step a launch: cudaEvent over 126,279 launches back to back, in a window with no other process on the GPU",
+   "us_per_token": 105.258,
+   "best_us_per_step": 118.784,
+   "best_how": "its bench: best of 200 launches of one step, each between two events",
+   "power_w": 58.86,
+   "idle_power_w": 17.61,
+   "power_how": "nvidia-smi power.draw sampled 44 times while those 126,279 launches ran (13.3 s, a sample about every 0.30 s), the 44 at 90% utilization or more averaged, standard deviation 1.97 W; idle 17.61 W in P8 before the runs",
+   "energy_uj_per_token": 6195.486
+  }
+ ]
+}

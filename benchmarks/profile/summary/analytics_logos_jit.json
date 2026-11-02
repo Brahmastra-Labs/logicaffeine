@@ -1,0 +1,11 @@
+{
+  "name": "analytics",
+  "lang": "logos_jit",
+  "n": "880000000",
+  "samples_weight": 32655144760,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

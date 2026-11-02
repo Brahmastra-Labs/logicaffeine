@@ -1,0 +1,29 @@
+description: |
+  **logos-dual** — [LOGOS](https://logicaffeine.com)'s kernel core with two independently written
+  checkers that must agree on every declaration.
+
+  Each definition, theorem, opaque and axiom is checked twice, by two complete implementations of
+  Lean's judgment: a substitution engine (weak-head reduction over a hash-consed DAG, binders
+  crossed by substitution) and a value engine (evaluation into closures, types as values, lazy δ
+  on neutral values). A disagreement is never resolved in favour of acceptance: the checker
+  declines and reports both verdicts. The reader, inductive elaboration and primitive validation
+  are shared; typing and definitional equality are implemented twice.
+
+  It declines mathlib: checking every declaration twice does not fit that test's time limit. The
+  single-engine `logos-kernel` entry checks it.
+url: https://github.com/Brahmastra-Labs/logicaffeine
+ref: SUBMISSION_REF
+rev: SUBMISSION_REV
+build: |
+  set -eu
+  export CARGO_TARGET_DIR="$PWD/target"
+  TRAIN=crates/logicaffeine_tests/tests/fixtures/arena_corpus/good/init-prelude.ndjson
+  RUSTFLAGS="-C target-cpu=native -C profile-generate=$PWD/pgo" \
+    cargo build --locked --profile arena -p logicaffeine-kernel --example logos_dual
+  target/arena/examples/logos_dual "$TRAIN"
+  llvm-profdata merge -o "$PWD/pgo/merged.profdata" "$PWD/pgo"
+  RUSTFLAGS="-C target-cpu=native -C profile-use=$PWD/pgo/merged.profdata" \
+    cargo build --locked --profile arena -p logicaffeine-kernel --example logos_dual
+run: |
+  target/arena/examples/logos_dual "$IN"
+declines: mathlib

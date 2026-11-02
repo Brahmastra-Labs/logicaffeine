@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.variance",
+  "workload": "statistics.variance",
+  "arg": "20000",
+  "expected": "16610396620",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

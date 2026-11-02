@@ -1,0 +1,123 @@
+# Signup form
+
+`forms.lg` validation: an error summary, `.prevent`, a submit button disabled
+while the form is invalid.
+
+## Note
+
+The form says `novalidate`: this page validates in `To submit:` and shows its
+own messages, so the browser's built-in validation (which would stop `submit`
+at the first field `type="email"` rejects) stays out of the way.
+
+## Note
+
+Two kinds of "is this valid": `errors` is a plain `State:` field, set only
+inside `To submit:`, so nothing is scolded before the visitor has tried once.
+`formValid` is a DERIVED `Bool`, recomputed from the live field values on
+every keystroke, and only ever drives `disabled` on the submit button.
+
+## To validate (email: Text) and (password: Text) and (confirmPassword: Text) -> Seq of FieldError:
+    Let mutable e be noErrors().
+    Set e to checkRequired(e, "email", email).
+    Set e to checkEmail(e, "email", email).
+    Set e to checkMinLength(e, "password", password, 8).
+    Set e to checkSame(e, "confirmPassword", password, confirmPassword, "Passwords do not match.").
+    Return e.
+
+## To isFormValid (email: Text) and (password: Text) and (confirmPassword: Text) -> Bool:
+    Return isValid(validate(email, password, confirmPassword)).
+
+## Page /signup
+
+State:
+    Let email be "".
+    Let password be "".
+    Let confirmPassword be "".
+    Let errors be a new Seq of FieldError.
+    Let welcomed be false.
+    Let formValid always be isFormValid(email, password, confirmPassword).
+
+Actions:
+    To submit:
+        Set errors to validate(email, password, confirmPassword).
+        If isValid(errors):
+            Set welcomed to true.
+
+View:
+    <main class="signup card">
+      <h1>Create an account</h1>
+      <form id="signup" novalidate on-submit.prevent={submit}>
+        {if length of errors is greater than 0:}
+          <div id="summary" class="error-summary">
+            <p>Please fix the following:</p>
+            <ul>
+              {for each e in errors, keyed by e's field:}
+                <li class="summary-item">{e's message}</li>
+              {end}
+            </ul>
+          </div>
+        {end}
+        <label for="email">Email</label>
+        <input id="email" type="email" bind={email}>
+        <p id="email-error" class="field-error">{errorFor(errors, "email")}</p>
+        <label for="password">Password</label>
+        <input id="password" type="password" bind={password}>
+        <p id="password-error" class="field-error">{errorFor(errors, "password")}</p>
+        <label for="confirm">Confirm password</label>
+        <input id="confirm" type="password" bind={confirmPassword}>
+        <p id="confirm-error" class="field-error">{errorFor(errors, "confirmPassword")}</p>
+        <button id="submit-btn" type="submit" disabled={not formValid}>Sign up</button>
+      </form>
+      {if welcomed:}<p id="welcome">Welcome aboard.</p>{end}
+    </main>
+
+Style:
+    .signup { max-width: 24rem; margin: 3rem auto; }
+    .error-summary { border: 1px solid var(--accent); border-radius: var(--radius); padding: .5rem 1rem; margin-bottom: 1rem; }
+    .field-error:empty { display: none; }
+
+## Test: the button starts disabled and no errors show before a first attempt
+
+Expect that "#submit-btn" is disabled.
+Expect that "#summary" is hidden.
+
+## Test: a bad submission names each problem and keeps the button disabled
+
+Type "ada" into "#email".
+Type "short" into "#password".
+Type "short" into "#confirm".
+Submit "#signup".
+Expect that the text of "#email-error" is equal to "This does not look like an email address.".
+Expect that the text of "#password-error" is equal to "Use at least 8 characters.".
+Expect that the count of ".summary-item" is equal to 2.
+Expect that "#submit-btn" is disabled.
+Expect that "#welcome" is hidden.
+
+## Test: mismatched passwords are refused even when both are long enough
+
+Type "ada@example.com" into "#email".
+Type "correct horse" into "#password".
+Type "different horse" into "#confirm".
+Expect that "#submit-btn" is disabled.
+Submit "#signup".
+Expect that the text of "#confirm-error" is equal to "Passwords do not match.".
+Expect that "#welcome" is hidden.
+
+## Test: the button stays disabled until every field is valid
+
+Type "ada@example.com" into "#email".
+Expect that "#submit-btn" is disabled.
+Type "correct horse" into "#password".
+Expect that "#submit-btn" is disabled.
+Type "correct horse" into "#confirm".
+Expect that "#submit-btn" is not disabled.
+
+## Test: a good submission is accepted and clears the error summary
+
+Type "ada@example.com" into "#email".
+Type "correct horse" into "#password".
+Type "correct horse" into "#confirm".
+Expect that "#submit-btn" is not disabled.
+Submit "#signup".
+Expect that the text of "#welcome" is equal to "Welcome aboard.".
+Expect that "#summary" is hidden.

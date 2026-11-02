@@ -14,23 +14,26 @@
         Set i to i + 1.
     Set left to mergeSort(left).
     Set right to mergeSort(right).
-    Let mutable result be a new Seq of Int.
+    Let mutable result be arr.
     Let mutable li be 1.
     Let mutable ri be 1.
-    While li is at most length of left:
-        If ri is greater than length of right:
-            Push item li of left to result.
+    Let mutable k be 1.
+    While li is at most length of left and ri is at most length of right:
+        If item li of left is at most item ri of right:
+            Set item k of result to item li of left.
             Set li to li + 1.
         Otherwise:
-            If item li of left is at most item ri of right:
-                Push item li of left to result.
-                Set li to li + 1.
-            Otherwise:
-                Push item ri of right to result.
-                Set ri to ri + 1.
+            Set item k of result to item ri of right.
+            Set ri to ri + 1.
+        Set k to k + 1.
+    While li is at most length of left:
+        Set item k of result to item li of left.
+        Set li to li + 1.
+        Set k to k + 1.
     While ri is at most length of right:
-        Push item ri of right to result.
+        Set item k of result to item ri of right.
         Set ri to ri + 1.
+        Set k to k + 1.
     Return result.
 
 ## Main
@@ -46,6 +49,6 @@ Set arr to mergeSort(arr).
 Let mutable checksum be 0.
 Set i to 1.
 While i is at most n:
-    Set checksum to (checksum + item i of arr) % 1000000007.
+    Set checksum to (checksum * 31 + item i of arr) & 268435455.
     Set i to i + 1.
 Show "" + item 1 of arr + " " + item n of arr + " " + checksum.

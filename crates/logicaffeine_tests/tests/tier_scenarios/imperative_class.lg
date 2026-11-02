@@ -1,0 +1,19 @@
+# A class added by a turn that writes no state
+
+## Component App
+State:
+    Let n be 0.
+Actions:
+    To add:
+        Add class "act" to "#c".
+    To bump:
+        Set n to n + 1.
+View:
+    <p id="c">x</p><p id="n">{n}</p><button id="a" on-click={add}>a</button><button id="b" on-click={bump}>b</button>
+
+## Test: a class added by a turn that moved nothing
+    Mount App.
+    Click "#a".
+    Expect that the count of ".act" is equal to 1.
+    Click "#b".
+    Expect that the text of "#n" is equal to "1".

@@ -1,0 +1,10 @@
+{
+  "capability": "convert.parse_bool",
+  "workload": "parseBool(formatBool(...))",
+  "arg": "3000000",
+  "expected": "1500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

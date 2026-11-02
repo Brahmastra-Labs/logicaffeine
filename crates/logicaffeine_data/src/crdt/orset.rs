@@ -208,16 +208,9 @@ impl<T: Hash + Eq + Clone, B: SetBias> Merge for ORSet<T, B> {
             .collect();
 
         for value in all_keys {
-            let my_dots_before: HashSet<Dot> = self
-                .entries
-                .get(&value)
-                .cloned()
-                .unwrap_or_default();
-            let other_dots: HashSet<Dot> = other
-                .entries
-                .get(&value)
-                .cloned()
-                .unwrap_or_default();
+            let my_dots_before: HashSet<Dot> =
+                self.entries.get(&value).cloned().unwrap_or_default();
+            let other_dots: HashSet<Dot> = other.entries.get(&value).cloned().unwrap_or_default();
 
             // Detect if either side "removed" the element:
             // A side has removed if they've seen some dots for this element
@@ -287,8 +280,11 @@ impl<T: Hash + Eq + Clone + Serialize + DeserializeOwned + Send + 'static, B: Se
         let mut entries: HashMap<T, HashSet<Dot>> = HashMap::new();
         let mut context = DotContext::new();
         for (value, dots) in &self.entries {
-            let fresh: HashSet<Dot> =
-                dots.iter().filter(|d| d.counter > since.get(d.replica)).copied().collect();
+            let fresh: HashSet<Dot> = dots
+                .iter()
+                .filter(|d| d.counter > since.get(d.replica))
+                .copied()
+                .collect();
             if !fresh.is_empty() {
                 for d in &fresh {
                     context.add(*d);
@@ -321,54 +317,19 @@ impl<T: Hash + Eq + Clone, B: SetBias> Default for ORSet<T, B> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Owned iteration visits the present elements SORTED — a set has no intrinsic order, so sorting is
+/// the order every replica holding the same elements agrees on (the language's `Repeat for`).
+impl<T: Hash + Eq + Clone + Ord, B: SetBias> IntoIterator for ORSet<T, B> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
 
-    #[test]
-    fn test_orset_add_contains() {
-        let mut set: ORSet<String> = ORSet::new(1);
-        set.add("alice".to_string());
-        assert!(set.contains(&"alice".to_string()));
-        assert!(!set.contains(&"bob".to_string()));
-    }
-
-    #[test]
-    fn test_orset_remove() {
-        let mut set: ORSet<String> = ORSet::new(1);
-        set.add("alice".to_string());
-        set.remove(&"alice".to_string());
-        assert!(!set.contains(&"alice".to_string()));
-    }
-
-    #[test]
-    fn test_orset_add_wins() {
-        let mut a: ORSet<String> = ORSet::new(1);
-        let mut b: ORSet<String> = ORSet::new(2);
-
-        a.add("item".to_string());
-        b.merge(&a);
-
-        a.remove(&"item".to_string());
-        b.add("item".to_string());
-
-        a.merge(&b);
-        assert!(a.contains(&"item".to_string()));
-    }
-
-    #[test]
-    fn test_orset_merge_commutative() {
-        let mut a: ORSet<String> = ORSet::new(1);
-        let mut b: ORSet<String> = ORSet::new(2);
-
-        a.add("x".to_string());
-        b.add("y".to_string());
-
-        let mut a1 = a.clone();
-        let mut b1 = b.clone();
-        a1.merge(&b);
-        b1.merge(&a);
-
-        assert_eq!(a1.len(), b1.len());
+    fn into_iter(self) -> Self::IntoIter {
+        let mut elements: Vec<T> = self.iter().cloned().collect();
+        elements.sort();
+        elements.into_iter()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_data/crdt/orset/tests.rs"]
+mod tests;

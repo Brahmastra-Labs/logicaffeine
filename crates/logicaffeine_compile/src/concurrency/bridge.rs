@@ -99,7 +99,10 @@ pub struct YieldState<'a> {
 
 impl<'a> YieldState<'a> {
     pub fn new() -> Self {
-        YieldState { request: None, resume: ResumeValue::None }
+        YieldState {
+            request: None,
+            resume: ResumeValue::None,
+        }
     }
 }
 

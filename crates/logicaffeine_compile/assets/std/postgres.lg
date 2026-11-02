@@ -1,0 +1,2157 @@
+# Postgres
+
+The PostgreSQL v3 wire protocol, written entirely in LOGOS on the tcp.lg client
+natives — the flagship byte-level protocol library of the language. Every frame
+is built and parsed here as a `Seq of Int` of bytes, exactly as the protocol
+documents them: length-prefixed messages, big-endian integers, null-terminated
+strings. The message tags and authentication codes mirror the PostgreSQL source
+(src/include/libpq/protocol.h): Query 'Q', Terminate 'X', PasswordMessage /
+SASLInitialResponse / SASLResponse all 'p'; AuthenticationRequest codes 0 (Ok),
+3 (CleartextPassword), 5 (MD5Password), 10/11/12 (SASL begin/continue/final).
+
+`pgConnect` speaks the startup handshake with cleartext, MD5
+(fe-auth.c's md5(md5(password+user)+salt) double hash), and SCRAM-SHA-256
+(RFC 5802/7677 over the SASL frames, exactly libpq's fe-auth-scram.c exchange:
+gs2 header "n,,", empty username "n=", channel binding "c=biws", and the
+server-nonce-must-extend-ours and server-signature checks). `pgQuery` runs the
+simple-query protocol ('Q' → RowDescription/DataRow/CommandComplete/
+ReadyForQuery); `pgExecute` returns the rows-affected count from the
+CommandComplete tag (PQcmdTuples semantics); `pgClose` sends Terminate and
+closes the socket. Errors are values everywhere: an ErrorResponse becomes an
+`Err` carrying severity, SQLSTATE code, and message; an unknown tag, a torn
+frame, or a refused connect can never hang or trap a program.
+
+The EXTENDED QUERY PROTOCOL is the parameterized path — prepared statements
+are how user data reaches SQL, never string interpolation. `pgPrepare` sends
+Parse ('P') + Describe ('S') + Sync and captures the declared parameter OIDs
+(ParameterDescription 't') and result shape (RowDescription 'T' or NoData
+'n'); `pgExecPrepared`/`pgExecPreparedN` send Bind ('B', text-format params,
+NULL as length -1 via the nulls mask) + Describe ('P') + Execute ('E',
+max_rows 0 = ALL rows, so PortalSuspended never arrives) + Sync, exactly
+libpq's PQsendQueryGuts flight (fe-exec.c); `pgQueryParams` is the
+unnamed-statement fast path (Parse+Bind+Describe+Execute+Sync in one flight,
+PQsendQueryParams). `pgCancelRequest` opens a FRESH connection and sends the
+16-byte CancelRequest packet (code 80877102 = PG_PROTOCOL(1234,5678),
+pqcomm.h) built from the BackendKeyData pid/secret every connect captures.
+
+NULL is honest here: `QueryResult` carries a `nullMask` parallel to `rows`
+(DataRow length -1 → true; a present empty string → false), the `*AtOpt`
+getters return `some value`/`none`, and `pgIsNullAt` asks directly. The
+LEGACY getters keep their original projection for compatibility: `pgTextAt`
+surfaces NULL as `""`, and the typed parsers reject that `""` with a parse
+Err — reach for the Opt getters when NULL matters.
+
+## Note
+SINGLE-CONNECTION SEMANTICS: a `PgConn` is one socket speaking one strictly-ordered protocol conversation — share it across concurrent tasks and the interleaved frames would corrupt the stream.
+
+Run one statement at a time per connection; open more connections for
+parallelism. Connection POOLING is deliberately future work — this version hands
+you the honest primitive. THE PARAMETERIZED PATH IS THE PATH: never interpolate
+user data into SQL text; put it in `$n` parameters through
+pgPrepare/pgExecPrepared/ pgQueryParams. The only SQL this module composes
+itself is from a validated closed set (transaction control, `SET
+statement_timeout = <int>`).
+## Definition
+
+## Note
+An open PostgreSQL connection: the tcp.lg handle, the endpoint, and the server's cancel key.
+
+The endpoint is kept for the cancel protocol's fresh connection; the BackendKeyData pid/secret pair is what the startup drains ('K', pqcomm.h
+CancelRequestPacket) — 0/0 when the server sent none.
+
+A PgConn has:
+    a conn, which is Int.
+    a host, which is Text.
+    a port, which is Int.
+    a backendPid, which is Int.
+    a backendSecret, which is Int.
+
+## Note
+A parsed connection URL: postgres://user:pass@host:port/database (postgresql:// is an alias).
+
+The port defaults to 5432; the database defaults to the user (libpq's rule); the
+password defaults to empty.
+
+A PgUrl has:
+    a user, which is Text.
+    a pass, which is Text.
+    a host, which is Text.
+    a port, which is Int.
+    a database, which is Text.
+
+## Note
+The result of a query: column names and type OIDs, every row as text, the NULL mask, and the command tag.
+
+The result of a query: the column names, their type OIDs (RowDescription
+order), every row's values as text (both protocols deliver text format here),
+the honest NULL mask parallel to `rows` (DataRow length -1 → true), and the
+CommandComplete tag (so DML through the parameterized path reports
+rows-affected via pgRowsAffected).
+
+A QueryResult has:
+    a columns, which is Seq of Text.
+    a typeOids, which is Seq of Int.
+    a rows, which is Seq of Seq of Text.
+    a nullMask, which is Seq of Seq of Bool.
+    a cmdTag, which is Text.
+
+## Note
+A prepared statement's captured shape: its parameter OIDs and result columns.
+
+The parameter OIDs are server-declared (ParameterDescription 't') and the result columns come from RowDescription 'T'; `hasRows` is false when Describe
+answered NoData 'n' (DML without RETURNING).
+
+A PgPrepared has:
+    a stmtName, which is Text.
+    a paramOids, which is Seq of Int.
+    a columns, which is Seq of Text.
+    a typeOids, which is Seq of Int.
+    a hasRows, which is Bool.
+
+## Note
+A signed Int32 as four big-endian bytes (two's complement, so -1 is ff ff ff ff
+— the protocol's NULL column length).
+
+## To pgI32be (n: Int) -> Seq of Int:
+    Let mutable v be n.
+    If v is less than 0:
+        Set v to v + 4294967296.
+    Let out be a new Seq of Int.
+    Push (v / 16777216) % 256 to out.
+    Push (v / 65536) % 256 to out.
+    Push (v / 256) % 256 to out.
+    Push v % 256 to out.
+    Return out.
+
+## Note
+A signed Int16 as two big-endian bytes (two's complement).
+
+## To pgI16be (n: Int) -> Seq of Int:
+    Let mutable v be n.
+    If v is less than 0:
+        Set v to v + 65536.
+    Let out be a new Seq of Int.
+    Push (v / 256) % 256 to out.
+    Push v % 256 to out.
+    Return out.
+
+## Note
+Reads a signed big-endian Int32 at 1-based offset `off`.
+
+## To pgReadI32be (xs: Seq of Int) and (off: Int) -> Int:
+    Let b0 be item off of xs.
+    Let b1 be item (off + 1) of xs.
+    Let b2 be item (off + 2) of xs.
+    Let b3 be item (off + 3) of xs.
+    Let mutable v be b0 * 16777216 + b1 * 65536 + b2 * 256 + b3.
+    If v is at least 2147483648:
+        Set v to v - 4294967296.
+    Return v.
+
+## Note
+Reads a signed big-endian Int16 at 1-based offset `off`.
+
+## To pgReadI16be (xs: Seq of Int) and (off: Int) -> Int:
+    Let b0 be item off of xs.
+    Let b1 be item (off + 1) of xs.
+    Let mutable v be b0 * 256 + b1.
+    If v is at least 32768:
+        Set v to v - 65536.
+    Return v.
+
+## Note
+The protocol's String(s) atom: the UTF-8 bytes of `s` plus the terminating NUL.
+
+## To pgCString (s: Text) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let sb be text_bytes(s).
+    Repeat for b in sb:
+        Push b to out.
+    Push 0 to out.
+    Return out.
+
+## Note
+Frames a tagged message: the tag byte, the Int32 length (the length counts
+itself and the payload, never the tag), then the payload.
+
+## To pgTaggedMessage (tag: Int) and (payload: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Push tag to out.
+    Let plen be length of payload.
+    Let lenBytes be pgI32be(plen + 4).
+    Repeat for b in lenBytes:
+        Push b to out.
+    Repeat for b in payload:
+        Push b to out.
+    Return out.
+
+## Note
+The 8-byte SSLRequest: a length of 8 and the reserved version code 80877103.
+
+PostgreSQL negotiates TLS *before* the startup message and outside the normal framing — the
+server answers with a single byte, `S` to proceed or `N` to decline, and only then does the same
+socket become a TLS session. That is why `tcpUpgradeTls` exists: a connect-with-TLS call cannot
+express it.
+
+## To pgSslRequestMessage () -> Seq of Int:
+    Let mutable out be a new Seq of Int.
+    Let len be pgI32be(8).
+    Repeat for b in len:
+        Push b to out.
+    Let code be pgI32be(80877103).
+    Repeat for b in code:
+        Push b to out.
+    Return out.
+
+## Note
+Offers TLS on an open connection and secures it if the server agrees.
+
+`Ok true` means the session is encrypted; `Ok false` means the server declined and the
+connection is still usable in the clear. A caller that must not proceed unencrypted checks the
+answer — which is why this reports what happened rather than deciding.
+
+## To pgOfferTls (c: Int) and (hostName: Text) -> Result of Bool and Text:
+    Let req be pgSslRequestMessage().
+    Inspect tcpSend(c, req):
+        When Ok (n):
+            Let n2 be n.
+        When Err (e):
+            Return a new Err with error e.
+    Inspect tcpRecvExact(c, 1):
+        When Ok (reply):
+            Let answer be item 1 of reply.
+            If answer is equal to 83:
+                Inspect tcpUpgradeTls(c, hostName):
+                    When Ok (u):
+                        Return a new Ok with value true.
+                    When Err (e):
+                        Return a new Err with error e.
+            Return a new Ok with value false.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The StartupMessage — the one UNTAGGED frontend message: Int32 total length,
+Int32 protocol version 196608 (3.0), the cstring pairs user/database, and a
+trailing terminator byte.
+
+## To pgStartupMessage (userName: Text) and (databaseName: Text) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Let ver be pgI32be(196608).
+    Repeat for b in ver:
+        Push b to payload.
+    Let ku be pgCString("user").
+    Repeat for b in ku:
+        Push b to payload.
+    Let vu be pgCString(userName).
+    Repeat for b in vu:
+        Push b to payload.
+    Let kd be pgCString("database").
+    Repeat for b in kd:
+        Push b to payload.
+    Let vd be pgCString(databaseName).
+    Repeat for b in vd:
+        Push b to payload.
+    Push 0 to payload.
+    Let mutable out be a new Seq of Int.
+    Let plen be length of payload.
+    Let lenBytes be pgI32be(plen + 4).
+    Repeat for b in lenBytes:
+        Push b to out.
+    Repeat for b in payload:
+        Push b to out.
+    Return out.
+
+## Note
+The Query message 'Q': the SQL as a cstring.
+
+## To pgQueryMessage (sql: Text) -> Seq of Int:
+    Let payload be pgCString(sql).
+    Return pgTaggedMessage(81, payload).
+
+## Note
+The PasswordMessage 'p': the (cleartext or md5-hashed) password as a cstring.
+
+## To pgPasswordMessage (password: Text) -> Seq of Int:
+    Let payload be pgCString(password).
+    Return pgTaggedMessage(112, payload).
+
+## Note
+The Terminate message 'X': an empty body.
+
+## To pgTerminateMessage () -> Seq of Int:
+    Let payload be a new Seq of Int.
+    Return pgTaggedMessage(88, payload).
+
+## Note
+The SASLInitialResponse frame (also tag 'p'): the mechanism name
+"SCRAM-SHA-256" as a cstring, the Int32 byte length of the initial client
+response, then those bytes verbatim.
+
+## To pgSaslInitialMessage (initial: Text) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Let mech be pgCString("SCRAM-SHA-256").
+    Repeat for b in mech:
+        Push b to payload.
+    Let dataB be text_bytes(initial).
+    Let dn be length of dataB.
+    Let dlen be pgI32be(dn).
+    Repeat for b in dlen:
+        Push b to payload.
+    Repeat for b in dataB:
+        Push b to payload.
+    Return pgTaggedMessage(112, payload).
+
+## Note
+The SASLResponse frame (also tag 'p'): the client-final message verbatim, no
+mechanism and no inner length.
+
+## To pgSaslResponseMessage (final: Text) -> Seq of Int:
+    Let payload be text_bytes(final).
+    Return pgTaggedMessage(112, payload).
+
+## Note
+Maps a 6-bit value to its RFC 4648 standard-alphabet character byte.
+
+## To pgBase64Char (v: Int) -> Int:
+    If v is less than 26:
+        Return v + 65.
+    If v is less than 52:
+        Return v + 71.
+    If v is less than 62:
+        Return v - 4.
+    If v is equal to 62:
+        Return 43.
+    Return 47.
+
+## Note
+Base64 over raw BYTES (RFC 4648, with padding) — SCRAM salts and HMAC proofs
+are arbitrary binary, so this works on `Seq of Int`, not on Text.
+
+## To pgBase64 (xs: Seq of Int) -> Text:
+    Let out be a new Seq of Int.
+    Let n be length of xs.
+    Let mutable i be 1.
+    While (i + 2) is at most n:
+        Let ba be item i of xs.
+        Let bb be item (i + 1) of xs.
+        Let bc be item (i + 2) of xs.
+        Push pgBase64Char(ba / 4) to out.
+        Push pgBase64Char((ba % 4) * 16 + bb / 16) to out.
+        Push pgBase64Char((bb % 16) * 4 + bc / 64) to out.
+        Push pgBase64Char(bc % 64) to out.
+        Set i to i + 3.
+    Let rem be n - i + 1.
+    If rem is equal to 1:
+        Let ra be item i of xs.
+        Push pgBase64Char(ra / 4) to out.
+        Push pgBase64Char((ra % 4) * 16) to out.
+        Push 61 to out.
+        Push 61 to out.
+    If rem is equal to 2:
+        Let sa be item i of xs.
+        Let sb be item (i + 1) of xs.
+        Push pgBase64Char(sa / 4) to out.
+        Push pgBase64Char((sa % 4) * 16 + sb / 16) to out.
+        Push pgBase64Char((sb % 16) * 4) to out.
+        Push 61 to out.
+    Return text_from_bytes(out).
+
+## Note
+Maps an RFC 4648 character byte back to its 6-bit value, or -1 for padding and
+anything else (decode simply stops consuming such bytes).
+
+## To pgBase64Val (ch: Int) -> Int:
+    If ch is at least 65:
+        If ch is at most 90:
+            Return ch - 65.
+    If ch is at least 97:
+        If ch is at most 122:
+            Return ch - 71.
+    If ch is at least 48:
+        If ch is at most 57:
+            Return ch + 4.
+    If ch is equal to 43:
+        Return 62.
+    If ch is equal to 47:
+        Return 63.
+    Return -1.
+
+## Note
+Decodes RFC 4648 base64 into raw bytes, ignoring padding.
+
+## To pgBase64Decode (s: Text) -> Seq of Int:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Let mutable acc be 0.
+    Let mutable bits be 0.
+    Repeat for ch in sb:
+        Let v be pgBase64Val(ch).
+        If v is at least 0:
+            Set acc to acc * 64 + v.
+            Set bits to bits + 6.
+            If bits is at least 8:
+                Set bits to bits - 8.
+                Let mutable dv be 1.
+                If bits is equal to 2:
+                    Set dv to 4.
+                If bits is equal to 4:
+                    Set dv to 16.
+                Push (acc / dv) % 256 to out.
+                Set acc to acc % dv.
+    Return out.
+
+## Note
+The libpq MD5 double hash (fe-auth.c pg_md5_encrypt): "md5" followed by the
+lowercase hex of md5(hex(md5(password+user)) + salt).
+
+## To pgMd5Password (password: Text) and (userName: Text) and (salt: Seq of Int) -> Text:
+    Let mutable stage1 be a new Seq of Int.
+    Let pb be text_bytes(password).
+    Repeat for b in pb:
+        Push b to stage1.
+    Let ub be text_bytes(userName).
+    Repeat for b in ub:
+        Push b to stage1.
+    Let innerHex be bytesToHex(md5(stage1)).
+    Let mutable stage2 be a new Seq of Int.
+    Let ib be text_bytes(innerHex).
+    Repeat for b in ib:
+        Push b to stage2.
+    Repeat for b in salt:
+        Push b to stage2.
+    Let outerHex be bytesToHex(md5(stage2)).
+    Return "md5{outerHex}".
+
+## Note
+The SCRAM-SHA-256 ClientProof of RFC 5802.
+
+SaltedPassword = Hi(password, salt, iters)
+via pbkdf2Sha256; ClientKey = HMAC(SaltedPassword, "Client Key"); StoredKey =
+SHA-256(ClientKey); ClientSignature = HMAC(StoredKey, AuthMessage); the proof is
+ClientKey XOR ClientSignature.
+## To scramClientProof (password: Seq of Int) and (salt: Seq of Int) and (iters: Int) and (authMessage: Seq of Int) -> Seq of Int:
+    Let sp be pbkdf2Sha256(password, salt, iters).
+    Let ckLabel be text_bytes("Client Key").
+    Let ck be hmacSha256(sp, ckLabel).
+    Let stk be sha256(ck).
+    Let cs be hmacSha256(stk, authMessage).
+    Let proof be a new Seq of Int.
+    Repeat for i from 1 to 32:
+        Push ((item i of ck) xor (item i of cs)) to proof.
+    Return proof.
+
+## Note
+The SCRAM-SHA-256 ServerSignature of RFC 5802: HMAC(ServerKey, AuthMessage).
+
+ServerKey = HMAC(SaltedPassword, "Server Key"). The server's final v=
+value must equal it, proving the server also knows the password.
+## To scramServerSignature (password: Seq of Int) and (salt: Seq of Int) and (iters: Int) and (authMessage: Seq of Int) -> Seq of Int:
+    Let sp be pbkdf2Sha256(password, salt, iters).
+    Let skLabel be text_bytes("Server Key").
+    Let sk be hmacSha256(sp, skLabel).
+    Return hmacSha256(sk, authMessage).
+
+## Note
+A fresh client nonce: 18 random bytes (libpq's SCRAM_RAW_NONCE_LEN),
+base64-encoded so every byte is printable and comma-free as SCRAM requires.
+
+## To pgScramClientNonce () -> Text:
+    Let raw be a new Seq of Int.
+    Repeat for i from 1 to 18:
+        Push randomInt(0, 255) to raw.
+    Return pgBase64(raw).
+
+## Note
+The rows-affected count of a CommandComplete tag (PQcmdTuples semantics): the
+last space-separated word when it is numeric ("INSERT 0 3" is 3, "UPDATE 7" is
+7), otherwise 0 ("CREATE TABLE", "BEGIN").
+
+## To pgRowsAffected (tag: Text) -> Int:
+    Let parts be split(tag, " ").
+    Let np be length of parts.
+    If np is less than 2:
+        Return 0.
+    Let lastPart be item np of parts.
+    If allDigits(lastPart) is equal to false:
+        Return 0.
+    Return parseInt(lastPart).
+
+## Note
+Parses postgres://user:pass@host:port/database (postgresql:// alias accepted).
+
+The port defaults to 5432, the database to the user, the password to "". The
+user is required; a malformed port is an Err, never a trap.
+## To pgParseUrl (url: Text) -> Result of PgUrl and Text:
+    Let mutable rest be "".
+    Let mutable schemeOk be false.
+    If startsWith(url, "postgres://") is equal to true:
+        Set rest to removePrefix(url, "postgres://").
+        Set schemeOk to true.
+    If startsWith(url, "postgresql://") is equal to true:
+        Set rest to removePrefix(url, "postgresql://").
+        Set schemeOk to true.
+    If schemeOk is equal to false:
+        Return a new Err with error "pgParseUrl: the url must start with postgres:// or postgresql://".
+    Let atIdx be lastIndexOf(rest, "@").
+    If atIdx is equal to 0:
+        Return a new Err with error "pgParseUrl: the url must include a user (postgres://user@host)".
+    Let rb be text_bytes(rest).
+    Let rn be length of rb.
+    Let mutable credsB be a new Seq of Int.
+    Let mutable i be 1.
+    While i is less than atIdx:
+        Push item i of rb to credsB.
+        Set i to i + 1.
+    Let mutable hostB be a new Seq of Int.
+    Set i to atIdx + 1.
+    While i is at most rn:
+        Push item i of rb to hostB.
+        Set i to i + 1.
+    Let creds be text_from_bytes(credsB).
+    Let mutable hostPart be text_from_bytes(hostB).
+    Let mutable userVal be creds.
+    Let mutable passVal be "".
+    Let colonIdx be indexOf(creds, ":").
+    If colonIdx is greater than 0:
+        Set userVal to cutBefore(creds, ":").
+        Set passVal to cutAfter(creds, ":").
+    If userVal is equal to "":
+        Return a new Err with error "pgParseUrl: the url must include a user (postgres://user@host)".
+    Let qIdx be indexOf(hostPart, "?").
+    If qIdx is greater than 0:
+        Set hostPart to cutBefore(hostPart, "?").
+    Let mutable hostPort be hostPart.
+    Let mutable dbVal be "".
+    Let slashIdx be indexOf(hostPart, "/").
+    If slashIdx is greater than 0:
+        Set hostPort to cutBefore(hostPart, "/").
+        Set dbVal to cutAfter(hostPart, "/").
+    Let mutable hostVal be hostPort.
+    Let mutable portVal be 5432.
+    Let portColon be indexOf(hostPort, ":").
+    If portColon is greater than 0:
+        Set hostVal to cutBefore(hostPort, ":").
+        Let portText be cutAfter(hostPort, ":").
+        If allDigits(portText) is equal to false:
+            Return a new Err with error "pgParseUrl: the port must be a number".
+        Set portVal to parseInt(portText).
+    If hostVal is equal to "":
+        Return a new Err with error "pgParseUrl: the url must include a host".
+    If dbVal is equal to "":
+        Set dbVal to userVal.
+    Let parsed be a new PgUrl with user userVal and pass passVal and host hostVal and port portVal and database dbVal.
+    Return a new Ok with value parsed.
+
+## Note
+The bytes of a received frame after the tag: items 2..end.
+
+## To pgFrameBody (frame: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let n be length of frame.
+    Let mutable i be 2.
+    While i is at most n:
+        Push item i of frame to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+The bytes of `xs` from 1-based offset `off` to the end.
+
+## To pgSliceFrom (xs: Seq of Int) and (off: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let n be length of xs.
+    Let mutable i be off.
+    While i is at most n:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+Reads a cstring at 1-based `off`: the text before the NUL and the offset just
+past it.
+
+## To pgReadCStringAt (xs: Seq of Int) and (off: Int) -> (Text, Int):
+    Let out be a new Seq of Int.
+    Let n be length of xs.
+    Let mutable i be off.
+    While i is at most n:
+        Let b be item i of xs.
+        If b is equal to 0:
+            Let sDone be text_from_bytes(out).
+            Return (sDone, i + 1).
+        Push b to out.
+        Set i to i + 1.
+    Let sAll be text_from_bytes(out).
+    Return (sAll, i).
+
+## Note
+Renders an ErrorResponse/NoticeResponse body as "SEVERITY SQLSTATE: message"
+from its (field-type byte, cstring) pairs — S severity, C code, M message.
+
+## To pgErrorText (payload: Seq of Int) -> Text:
+    Let mutable sev be "".
+    Let mutable sqlstate be "".
+    Let mutable msg be "".
+    Let n be length of payload.
+    Let mutable i be 1.
+    While i is at most n:
+        Let ft be item i of payload.
+        If ft is equal to 0:
+            Set i to n + 1.
+        If ft is greater than 0:
+            Let (fv, nxt) be pgReadCStringAt(payload, i + 1).
+            If ft is equal to 83:
+                Set sev to fv.
+            If ft is equal to 67:
+                Set sqlstate to fv.
+            If ft is equal to 77:
+                Set msg to fv.
+            Set i to nxt.
+    Return "{sev} {sqlstate}: {msg}".
+
+## Note
+Receives one backend message: the tag byte followed by the length-counted body.
+
+The returned Seq is the tag at item 1 and the body from item 2 on — a torn frame
+or a malformed length surfaces as an Err, never a hang or a truncation.
+## To pgRecvMessage (c: Int) -> Result of Seq of Int and Text:
+    Let tagR be tcpRecvExact(c, 1).
+    Inspect tagR:
+        When Ok (tagBytes):
+            Let lenR be tcpRecvExact(c, 4).
+            Inspect lenR:
+                When Ok (lenBytes):
+                    Let bodyLen be pgReadI32be(lenBytes, 1) - 4.
+                    If bodyLen is less than 0:
+                        Return a new Err with error "pg: the server sent a malformed message length".
+                    Let mutable frame be a new Seq of Int.
+                    Push item 1 of tagBytes to frame.
+                    If bodyLen is greater than 0:
+                        Let bodyR be tcpRecvExact(c, bodyLen).
+                        Inspect bodyR:
+                            When Ok (body):
+                                Repeat for b in body:
+                                    Push b to frame.
+                            When Err (e):
+                                Return a new Err with error e.
+                    Return a new Ok with value frame.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The SCRAM-SHA-256 SASL exchange (RFC 5802) with mutual authentication — a wrong server signature is rejected.
+
+The SCRAM-SHA-256 SASL exchange (libpq fe-auth-scram.c): verify the server
+offers SCRAM-SHA-256, send the client-first message with a fresh nonce, check
+the server nonce extends ours, prove the password, and verify the server's
+signature — a wrong ServerSignature is rejected (mutual authentication).
+
+## To pgScramAuth (c: Int) and (password: Text) and (mechPayload: Seq of Int) -> Result of Int and Text:
+    Let mn be length of mechPayload.
+    Let mutable seen be false.
+    Let mutable i be 1.
+    Let mutable scanning be true.
+    While scanning is equal to true:
+        If i is greater than mn:
+            Set scanning to false.
+        If scanning is equal to true:
+            Let mb be item i of mechPayload.
+            If mb is equal to 0:
+                Set scanning to false.
+            If mb is greater than 0:
+                Let (mech, nxt) be pgReadCStringAt(mechPayload, i).
+                If mech is equal to "SCRAM-SHA-256":
+                    Set seen to true.
+                Set i to nxt.
+    If seen is equal to false:
+        Return a new Err with error "pgConnect: the server offered no SCRAM-SHA-256 mechanism".
+    Let clientNonce be pgScramClientNonce().
+    Let clientFirstBare be "n=,r={clientNonce}".
+    Let clientFirst be "n,,{clientFirstBare}".
+    Let initialFrame be pgSaslInitialMessage(clientFirst).
+    Let sent1 be tcpSend(c, initialFrame).
+    Inspect sent1:
+        When Ok (n1):
+            Let ok1 be 0.
+        When Err (e):
+            Return a new Err with error "pgConnect: {e}".
+    Let m1 be pgRecvMessage(c).
+    Let mutable serverFirst be "".
+    Inspect m1:
+        When Ok (frame):
+            Let t1 be item 1 of frame.
+            If t1 is equal to 69:
+                Let body be pgFrameBody(frame).
+                Let etext be pgErrorText(body).
+                Return a new Err with error etext.
+            If t1 is equal to 82:
+                Let body be pgFrameBody(frame).
+                Let code be pgReadI32be(body, 1).
+                If code is equal to 11:
+                    Let dataPart be pgSliceFrom(body, 5).
+                    Set serverFirst to text_from_bytes(dataPart).
+        When Err (e):
+            Return a new Err with error "pgConnect: {e}".
+    If serverFirst is equal to "":
+        Return a new Err with error "pgConnect: expected the SCRAM server-first message".
+    Let mutable combined be "".
+    Let mutable saltB64 be "".
+    Let mutable itersText be "".
+    Let sfParts be split(serverFirst, ",").
+    Repeat for part in sfParts:
+        If startsWith(part, "r=") is equal to true:
+            Set combined to removePrefix(part, "r=").
+        If startsWith(part, "s=") is equal to true:
+            Set saltB64 to removePrefix(part, "s=").
+        If startsWith(part, "i=") is equal to true:
+            Set itersText to removePrefix(part, "i=").
+    If startsWith(combined, clientNonce) is equal to false:
+        Return a new Err with error "pgConnect: the server nonce does not extend the client nonce".
+    If allDigits(itersText) is equal to false:
+        Return a new Err with error "pgConnect: the server sent a malformed iteration count".
+    Let iters be parseInt(itersText).
+    If iters is less than 1:
+        Return a new Err with error "pgConnect: the server sent a malformed iteration count".
+    Let scramSalt be pgBase64Decode(saltB64).
+    Let sn be length of scramSalt.
+    If sn is equal to 0:
+        Return a new Err with error "pgConnect: the server sent an empty salt".
+    Let clientFinalNoProof be "c=biws,r={combined}".
+    Let authMessage be "{clientFirstBare},{serverFirst},{clientFinalNoProof}".
+    Let authBytes be text_bytes(authMessage).
+    Let passBytes be text_bytes(password).
+    Let proof be scramClientProof(passBytes, scramSalt, iters, authBytes).
+    Let proofB64 be pgBase64(proof).
+    Let clientFinal be "{clientFinalNoProof},p={proofB64}".
+    Let finalFrame be pgSaslResponseMessage(clientFinal).
+    Let sent2 be tcpSend(c, finalFrame).
+    Inspect sent2:
+        When Ok (n2):
+            Let ok2 be 0.
+        When Err (e):
+            Return a new Err with error "pgConnect: {e}".
+    Let m2 be pgRecvMessage(c).
+    Let mutable serverFinal be "".
+    Inspect m2:
+        When Ok (frame):
+            Let t2 be item 1 of frame.
+            If t2 is equal to 69:
+                Let body be pgFrameBody(frame).
+                Let etext be pgErrorText(body).
+                Return a new Err with error etext.
+            If t2 is equal to 82:
+                Let body be pgFrameBody(frame).
+                Let code be pgReadI32be(body, 1).
+                If code is equal to 12:
+                    Let dataPart be pgSliceFrom(body, 5).
+                    Set serverFinal to text_from_bytes(dataPart).
+        When Err (e):
+            Return a new Err with error "pgConnect: {e}".
+    If startsWith(serverFinal, "v=") is equal to false:
+        Return a new Err with error "pgConnect: expected the SCRAM server-final message".
+    Let gotSig be removePrefix(serverFinal, "v=").
+    Let expectedSigBytes be scramServerSignature(passBytes, scramSalt, iters, authBytes).
+    Let expectedSig be pgBase64(expectedSigBytes).
+    If gotSig is equal to expectedSig:
+        Return a new Ok with value 0.
+    Return a new Err with error "pgConnect: the server signature does not verify".
+
+## Note
+The post-startup authentication loop: answers every AuthenticationRequest and finishes at ReadyForQuery.
+
+The post-startup authentication loop: answer AuthenticationRequest frames
+(Ok/cleartext/MD5/SASL), drain ParameterStatus, CAPTURE BackendKeyData's
+pid/secret (the cancel protocol's key, protocol.h 'K'), surface an
+ErrorResponse as an Err, and finish at ReadyForQuery.
+
+## To pgAuthLoop (c: Int) and (userName: Text) and (password: Text) and (hostVal: Text) and (portVal: Int) -> Result of PgConn and Text:
+    Let mutable bkPid be 0.
+    Let mutable bkSecret be 0.
+    Let mutable looping be true.
+    While looping is equal to true:
+        Let mR be pgRecvMessage(c).
+        Inspect mR:
+            When Ok (frame):
+                Let tg be item 1 of frame.
+                Let body be pgFrameBody(frame).
+                Let mutable handled be false.
+                If tg is equal to 82:
+                    Set handled to true.
+                    Let code be pgReadI32be(body, 1).
+                    Let mutable authKnown be false.
+                    If code is equal to 0:
+                        Set authKnown to true.
+                    If code is equal to 3:
+                        Set authKnown to true.
+                        Let pwFrame be pgPasswordMessage(password).
+                        Let sentPw be tcpSend(c, pwFrame).
+                        Inspect sentPw:
+                            When Ok (ns):
+                                Let okc be 0.
+                            When Err (e):
+                                Return a new Err with error "pgConnect: {e}".
+                    If code is equal to 5:
+                        Set authKnown to true.
+                        Let md5Salt be pgSliceFrom(body, 5).
+                        Let hashed be pgMd5Password(password, userName, md5Salt).
+                        Let md5Frame be pgPasswordMessage(hashed).
+                        Let sentMd5 be tcpSend(c, md5Frame).
+                        Inspect sentMd5:
+                            When Ok (nm):
+                                Let okm be 0.
+                            When Err (e):
+                                Return a new Err with error "pgConnect: {e}".
+                    If code is equal to 10:
+                        Set authKnown to true.
+                        Let mechList be pgSliceFrom(body, 5).
+                        Let sasl be pgScramAuth(c, password, mechList).
+                        Inspect sasl:
+                            When Ok (nz):
+                                Let oks be 0.
+                            When Err (e):
+                                Return a new Err with error e.
+                    If authKnown is equal to false:
+                        Return a new Err with error "pgConnect: unsupported authentication request {code}".
+                If tg is equal to 83:
+                    Set handled to true.
+                If tg is equal to 75:
+                    Set handled to true.
+                    Let keyLen be length of body.
+                    If keyLen is at least 8:
+                        Set bkPid to pgReadI32be(body, 1).
+                        Set bkSecret to pgReadI32be(body, 5).
+                If tg is equal to 78:
+                    Set handled to true.
+                If tg is equal to 69:
+                    Let etext be pgErrorText(body).
+                    Return a new Err with error etext.
+                If tg is equal to 90:
+                    Set handled to true.
+                    Set looping to false.
+                If handled is equal to false:
+                    Return a new Err with error "pgConnect: unexpected message tag {tg}".
+            When Err (e):
+                Return a new Err with error "pgConnect: {e}".
+    Let cleared be tcpSetTimeout(c, 0).
+    Let made be a new PgConn with conn c and host hostVal and port portVal and backendPid bkPid and backendSecret bkSecret.
+    Return a new Ok with value made.
+
+## Note
+The connect/auth deadline in milliseconds: the whole startup handshake must finish within it.
+
+The handshake runs startup → authentication → ReadyForQuery; past the deadline every blocking recv on the socket surfaces `tcp:
+operation timed out` as an Err. It is BOUNDED WELL BELOW PostgreSQL's server-
+side `authentication_timeout` (postmaster.c `AuthenticationTimeout`, default
+60000 ms) so a failed SCRAM (or any silent / half-closed peer mid-handshake)
+refuses PROMPTLY on the client instead of blocking on a dead socket until the
+server's timeout fires. Cleared to 0 (no deadline) the moment ReadyForQuery
+arrives — a live query blocks as long as it needs.
+## To pgConnectDeadlineMillis () -> Int:
+    Return 5000.
+
+## Note
+Opens a connection from a postgres:// URL and authenticates; every failure (or a stalled handshake) is a bounded `Err`.
+
+Opens a connection from a postgres:// URL: parse, tcp-connect, arm the
+connect/auth deadline, send the StartupMessage, authenticate (cleartext, MD5,
+or SCRAM-SHA-256 as the server demands), and drain to ReadyForQuery — which
+clears the deadline. Every failure is an Err value, and a stalled handshake is
+a BOUNDED Err, never a hang on a closed socket.
+
+## Note
+Connects in the clear. See `pgConnectSecure` for a connection that requires TLS — which is what
+every managed PostgreSQL (RDS, Neon, Supabase, Cloud SQL) needs.
+
+★ THIS ONE DOES NOT NEGOTIATE, DELIBERATELY. Offering TLS here would change the bytes every
+existing caller puts on the wire before its first message, and a server or a proxy that does not
+expect an SSLRequest sees a protocol error rather than a connection. Security that arrives by
+silently altering an existing handshake is not a gift; it is a breaking change wearing one.
+
+## To pgConnect (url: Text) -> Result of PgConn and Text:
+    Let parsed be pgParseUrl(url).
+    Inspect parsed:
+        When Ok (u):
+            Let hostVal be u's host.
+            Let portVal be u's port.
+            Let cR be tcpConnect(hostVal, portVal).
+            Inspect cR:
+                When Ok (c):
+                    Let armed be tcpSetTimeout(c, pgConnectDeadlineMillis()).
+                    Inspect armed:
+                        When Ok (au):
+                            Let ok0 be 0.
+                        When Err (e):
+                            Let closedAnyway be tcpClose(c).
+                            Return a new Err with error "pgConnect: {e}".
+                    Let userName be u's user.
+                    Let dbName be u's database.
+                    Let hello be pgStartupMessage(userName, dbName).
+                    Let sent be tcpSend(c, hello).
+                    Inspect sent:
+                        When Ok (n):
+                            Let passVal be u's pass.
+                            Return pgAuthLoop(c, userName, passVal, hostVal, portVal).
+                        When Err (e):
+                            Return a new Err with error "pgConnect: {e}".
+                When Err (e):
+                    Return a new Err with error "pgConnect: {e}".
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+Connects and REQUIRES TLS: the SSLRequest is offered before the startup message, and a server
+that declines is an `Err` rather than a quiet fall back to cleartext.
+
+★ REQUIRE, NOT PREFER. A "prefer" mode that continues in the clear when the server says `N` can
+be defeated by anything in the path that can say `N` — which is exactly the position an attacker
+occupies. A caller that genuinely wants either uses `pgConnect` and `pgOfferTls` and decides for
+itself; this one answers a connection that is encrypted or no connection at all.
+
+## To pgConnectSecure (url: Text) -> Result of PgConn and Text:
+    Inspect pgParseUrl(url):
+        When Ok (u):
+            Let hostVal be u's host.
+            Let portVal be u's port.
+            Inspect tcpConnect(hostVal, portVal):
+                When Ok (c):
+                    Inspect tcpSetTimeout(c, pgConnectDeadlineMillis()):
+                        When Ok (au):
+                            Let armedOk be 0.
+                        When Err (e):
+                            Let closedArm be tcpClose(c).
+                            Return a new Err with error "pgConnectSecure: {e}".
+                    Inspect pgOfferTls(c, hostVal):
+                        When Ok (secured):
+                            If secured is equal to false:
+                                Let closedPlain be tcpClose(c).
+                                Return a new Err with error "pgConnectSecure: the server declined TLS".
+                        When Err (e):
+                            Let closedTls be tcpClose(c).
+                            Return a new Err with error "pgConnectSecure: {e}".
+                    Let userName be u's user.
+                    Let dbName be u's database.
+                    Inspect tcpSend(c, pgStartupMessage(userName, dbName)):
+                        When Ok (n):
+                            Return pgAuthLoop(c, userName, u's pass, hostVal, portVal).
+                        When Err (e):
+                            Let closedSend be tcpClose(c).
+                            Return a new Err with error "pgConnectSecure: {e}".
+                When Err (e):
+                    Return a new Err with error "pgConnectSecure: {e}".
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+Runs one simple query 'Q' and collects its result.
+
+Column names and type OIDs come from RowDescription and rows (text values)
+from DataRow. An ErrorResponse becomes the Err after the protocol drains to
+ReadyForQuery (the connection stays usable); NoticeResponse and ParameterStatus
+are skipped; an unknown tag is a clean Err.
+## To pgQuery (pgc: PgConn) and (sql: Text) -> Result of QueryResult and Text:
+    Let c be pgc's conn.
+    Let q be pgQueryMessage(sql).
+    Let sentQ be tcpSend(c, q).
+    Inspect sentQ:
+        When Ok (n0):
+            Let okq be 0.
+        When Err (e):
+            Return a new Err with error "pgQuery: {e}".
+    Let mutable cols be a new Seq of Text.
+    Let mutable oids be a new Seq of Int.
+    Let mutable rws be a new Seq of Seq of Text.
+    Let mutable masks be a new Seq of Seq of Bool.
+    Let mutable tagVal be "".
+    Let mutable errText be "".
+    Let mutable looping be true.
+    While looping is equal to true:
+        Let mR be pgRecvMessage(c).
+        Inspect mR:
+            When Ok (frame):
+                Let tg be item 1 of frame.
+                Let body be pgFrameBody(frame).
+                Let mutable handled be false.
+                If tg is equal to 84:
+                    Set handled to true.
+                    Let (rdNames, rdOids) be pgParseRowDescription(body).
+                    Set cols to rdNames.
+                    Set oids to rdOids.
+                If tg is equal to 68:
+                    Set handled to true.
+                    Let (rowCells, rowMask) be pgParseDataRow(body).
+                    Push rowCells to rws.
+                    Push rowMask to masks.
+                If tg is equal to 67:
+                    Set handled to true.
+                    Let (tagText, tEnd) be pgReadCStringAt(body, 1).
+                    Set tagVal to tagText.
+                If tg is equal to 73:
+                    Set handled to true.
+                If tg is equal to 78:
+                    Set handled to true.
+                If tg is equal to 83:
+                    Set handled to true.
+                If tg is equal to 69:
+                    Set handled to true.
+                    Set errText to pgErrorText(body).
+                If tg is equal to 90:
+                    Set handled to true.
+                    Set looping to false.
+                If handled is equal to false:
+                    Return a new Err with error "pgQuery: unexpected message tag {tg}".
+            When Err (e):
+                Return a new Err with error "pgQuery: {e}".
+    If errText is equal to "":
+        Let qr be a new QueryResult with columns cols and typeOids oids and rows rws and nullMask masks and cmdTag tagVal.
+        Return a new Ok with value qr.
+    Return a new Err with error errText.
+
+## Note
+Runs a statement and returns the rows-affected count parsed from the CommandComplete tag.
+
+Same drain discipline as pgQuery: an ErrorResponse is collected, the protocol
+still drains to ReadyForQuery, then the Err surfaces.
+## To pgExecute (pgc: PgConn) and (sql: Text) -> Result of Int and Text:
+    Let c be pgc's conn.
+    Let q be pgQueryMessage(sql).
+    Let sentQ be tcpSend(c, q).
+    Inspect sentQ:
+        When Ok (n0):
+            Let okq be 0.
+        When Err (e):
+            Return a new Err with error "pgExecute: {e}".
+    Let mutable cmdTag be "".
+    Let mutable errText be "".
+    Let mutable looping be true.
+    While looping is equal to true:
+        Let mR be pgRecvMessage(c).
+        Inspect mR:
+            When Ok (frame):
+                Let tg be item 1 of frame.
+                Let body be pgFrameBody(frame).
+                Let mutable handled be false.
+                If tg is equal to 67:
+                    Set handled to true.
+                    Let (tagText, tEnd) be pgReadCStringAt(body, 1).
+                    Set cmdTag to tagText.
+                If tg is equal to 84:
+                    Set handled to true.
+                If tg is equal to 68:
+                    Set handled to true.
+                If tg is equal to 73:
+                    Set handled to true.
+                If tg is equal to 78:
+                    Set handled to true.
+                If tg is equal to 83:
+                    Set handled to true.
+                If tg is equal to 69:
+                    Set handled to true.
+                    Set errText to pgErrorText(body).
+                If tg is equal to 90:
+                    Set handled to true.
+                    Set looping to false.
+                If handled is equal to false:
+                    Return a new Err with error "pgExecute: unexpected message tag {tg}".
+            When Err (e):
+                Return a new Err with error "pgExecute: {e}".
+    If errText is equal to "":
+        Let affected be pgRowsAffected(cmdTag).
+        Return a new Ok with value affected.
+    Return a new Err with error errText.
+
+## Note
+Sends Terminate 'X' and closes the socket. The handle is dead afterwards.
+
+## To pgClose (pgc: PgConn) -> Result of Unit and Text:
+    Let c be pgc's conn.
+    Let bye be pgTerminateMessage().
+    Let sentBye be tcpSend(c, bye).
+    Inspect sentBye:
+        When Ok (nb):
+            Let okb be 0.
+        When Err (e):
+            Let oke be 0.
+    Return tcpClose(c).
+
+## Note
+The raw text of a cell, 1-based row and column, bounds-checked.
+
+## To pgCellAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Text and Text:
+    Let rws be qr's rows.
+    Let nr be length of rws.
+    If rowIdx is less than 1:
+        Return a new Err with error "pg: row {rowIdx} is out of range (1..{nr})".
+    If rowIdx is greater than nr:
+        Return a new Err with error "pg: row {rowIdx} is out of range (1..{nr})".
+    Let row be item rowIdx of rws.
+    Let nc be length of row.
+    If colIdx is less than 1:
+        Return a new Err with error "pg: column {colIdx} is out of range (1..{nc})".
+    If colIdx is greater than nc:
+        Return a new Err with error "pg: column {colIdx} is out of range (1..{nc})".
+    Let cell be item colIdx of row.
+    Return a new Ok with value cell.
+
+## Note
+The cell as Text (PostgreSQL's simple-query values are already text).
+
+## To pgTextAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Text and Text:
+    Return pgCellAt(qr, rowIdx, colIdx).
+
+## Note
+True when `s` is a decimal integer: an optional leading minus, then digits.
+
+## To pgIsIntText (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is equal to 0:
+        Return false.
+    Let mutable i be 1.
+    If (item 1 of sb) is equal to 45:
+        If n is equal to 1:
+            Return false.
+        Set i to 2.
+    While i is at most n:
+        Let b be item i of sb.
+        If b is less than 48:
+            Return false.
+        If b is greater than 57:
+            Return false.
+        Set i to i + 1.
+    Return true.
+
+## Note
+True when `s` is a decimal real: optional sign, digits, optional fraction,
+optional e/E exponent with optional sign — the shapes float8's text output takes.
+
+## To pgIsRealText (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is equal to 0:
+        Return false.
+    Let mutable i be 1.
+    Let mutable sawDigit be false.
+    Let mutable sawDot be false.
+    Let mutable sawExp be false.
+    If (item 1 of sb) is equal to 45:
+        Set i to 2.
+    While i is at most n:
+        Let b be item i of sb.
+        Let mutable okb be false.
+        If b is at least 48:
+            If b is at most 57:
+                Set okb to true.
+                Set sawDigit to true.
+        If b is equal to 46:
+            If sawDot is equal to false:
+                If sawExp is equal to false:
+                    Set okb to true.
+                    Set sawDot to true.
+        If b is equal to 101:
+            If sawExp is equal to false:
+                If sawDigit is equal to true:
+                    Set okb to true.
+                    Set sawExp to true.
+                    Set sawDigit to false.
+                    If (i + 1) is at most n:
+                        Let nb be item (i + 1) of sb.
+                        If nb is equal to 43:
+                            Set i to i + 1.
+                        If nb is equal to 45:
+                            Set i to i + 1.
+        If b is equal to 69:
+            If sawExp is equal to false:
+                If sawDigit is equal to true:
+                    Set okb to true.
+                    Set sawExp to true.
+                    Set sawDigit to false.
+                    If (i + 1) is at most n:
+                        Let nb be item (i + 1) of sb.
+                        If nb is equal to 43:
+                            Set i to i + 1.
+                        If nb is equal to 45:
+                            Set i to i + 1.
+        If okb is equal to false:
+            Return false.
+        Set i to i + 1.
+    Return sawDigit.
+
+## Note
+The cell parsed as an Int; a non-integer cell is an Err, never a trap.
+
+## To pgIntAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Int and Text:
+    Let cellR be pgCellAt(qr, rowIdx, colIdx).
+    Inspect cellR:
+        When Ok (cell):
+            If pgIsIntText(cell) is equal to false:
+                Return a new Err with error "pg: the value '{cell}' is not an Int".
+            Let parsedInt be parseInt(cell).
+            Return a new Ok with value parsedInt.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell parsed as a Bool: PostgreSQL's text bools "t"/"f" (and "true"/"false").
+
+## To pgBoolAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Bool and Text:
+    Let cellR be pgCellAt(qr, rowIdx, colIdx).
+    Inspect cellR:
+        When Ok (cell):
+            If cell is equal to "t":
+                Return a new Ok with value true.
+            If cell is equal to "true":
+                Return a new Ok with value true.
+            If cell is equal to "f":
+                Return a new Ok with value false.
+            If cell is equal to "false":
+                Return a new Ok with value false.
+            Return a new Err with error "pg: the value '{cell}' is not a Bool".
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell parsed as a Real; a non-numeric cell is an Err, never a trap.
+
+## To pgRealAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Real and Text:
+    Let cellR be pgCellAt(qr, rowIdx, colIdx).
+    Inspect cellR:
+        When Ok (cell):
+            If pgIsRealText(cell) is equal to false:
+                Return a new Err with error "pg: the value '{cell}' is not a Real".
+            Let parsedReal be parseFloat(cell).
+            Return a new Ok with value parsedReal.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The Parse message 'P' (protocol.h, fe-exec.c PQsendPrepare): statement-name
+cstring, query cstring, Int16 0 declared parameter types — the server infers
+them, exactly libpq's paramTypes-NULL form.
+
+## To pgParseMessage (stmtName: Text) and (sql: Text) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Let nb be pgCString(stmtName).
+    Repeat for b in nb:
+        Push b to payload.
+    Let sqb be pgCString(sql).
+    Repeat for b in sqb:
+        Push b to payload.
+    Let zeroTypes be pgI16be(0).
+    Repeat for b in zeroTypes:
+        Push b to payload.
+    Return pgTaggedMessage(80, payload).
+
+## Note
+The Describe message 'D' for a prepared statement (variant 'S').
+
+The Describe message 'D' for a prepared STATEMENT: variant byte 'S' then the
+statement name — the server answers ParameterDescription then RowDescription
+or NoData (postgres.c exec_describe_statement_message).
+
+## To pgDescribeStatementMessage (stmtName: Text) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Push 83 to payload.
+    Let nb be pgCString(stmtName).
+    Repeat for b in nb:
+        Push b to payload.
+    Return pgTaggedMessage(68, payload).
+
+## Note
+The Describe message 'D' for a PORTAL: variant byte 'P' then the portal name
+— the server answers RowDescription or NoData for the bound result.
+
+## To pgDescribePortalMessage (portalName: Text) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Push 80 to payload.
+    Let nb be pgCString(portalName).
+    Repeat for b in nb:
+        Push b to payload.
+    Return pgTaggedMessage(68, payload).
+
+## Note
+The Bind message 'B' in text format: portal, statement, the text params (NULLs from the mask), one text result format.
+
+The Bind message 'B' in text format (fe-exec.c PQsendQueryGuts): portal +
+statement cstrings, Int16 0 parameter-format codes (all text, libpq's
+paramFormats-NULL form), Int16 param count, then each param as Int32 byte
+length + bytes — or Int32 -1 for NULL, driven by the nulls mask — and
+Int16 1 + Int16 0 (one result-format code: text). The builder is total: a
+mask entry beyond the mask's length reads as not-NULL (the Result-typed
+callers validate lengths first).
+
+## To pgBindMessage (portalName: Text) and (stmtName: Text) and (params: Seq of Text) and (nulls: Seq of Bool) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Let pb be pgCString(portalName).
+    Repeat for b in pb:
+        Push b to payload.
+    Let sb be pgCString(stmtName).
+    Repeat for b in sb:
+        Push b to payload.
+    Let zeroFormats be pgI16be(0).
+    Repeat for b in zeroFormats:
+        Push b to payload.
+    Let np be length of params.
+    Let npBytes be pgI16be(np).
+    Repeat for b in npBytes:
+        Push b to payload.
+    Let nn be length of nulls.
+    Let mutable i be 1.
+    While i is at most np:
+        Let mutable isNull be false.
+        If i is at most nn:
+            Set isNull to item i of nulls.
+        If isNull is equal to true:
+            Let negOne be pgI32be(-1).
+            Repeat for b in negOne:
+                Push b to payload.
+        If isNull is equal to false:
+            Let vb be text_bytes(item i of params).
+            Let vn be length of vb.
+            Let vlenBytes be pgI32be(vn).
+            Repeat for b in vlenBytes:
+                Push b to payload.
+            Repeat for b in vb:
+                Push b to payload.
+        Set i to i + 1.
+    Let oneResult be pgI16be(1).
+    Repeat for b in oneResult:
+        Push b to payload.
+    Let textFormat be pgI16be(0).
+    Repeat for b in textFormat:
+        Push b to payload.
+    Return pgTaggedMessage(66, payload).
+
+## Note
+The Execute message 'E': portal cstring + Int32 max_rows. This client always
+sends 0 = fetch ALL rows (the backend treats max_rows <= 0 as FETCH_ALL,
+postgres.c), so PortalSuspended never arrives.
+
+## To pgExecuteMessage (portalName: Text) and (maxRows: Int) -> Seq of Int:
+    Let mutable payload be a new Seq of Int.
+    Let pb be pgCString(portalName).
+    Repeat for b in pb:
+        Push b to payload.
+    Let mr be pgI32be(maxRows).
+    Repeat for b in mr:
+        Push b to payload.
+    Return pgTaggedMessage(69, payload).
+
+## Note
+The Sync message 'S': an empty body — closes an extended-protocol flight and
+makes the server answer ReadyForQuery even after an error.
+
+## To pgSyncMessage () -> Seq of Int:
+    Let payload be a new Seq of Int.
+    Return pgTaggedMessage(83, payload).
+
+## Note
+The 16-byte CancelRequest packet (pqcomm.h CancelRequestPacket): Int32 16, Int32 80877102 (PG_PROTOCOL(1234,5678)), Int32 backend pid, Int32 secret key.
+
+UNTAGGED — it is the first and only thing sent on a fresh connection.
+## To pgCancelRequestMessage (pid: Int) and (secret: Int) -> Seq of Int:
+    Let mutable out be a new Seq of Int.
+    Let lenB be pgI32be(16).
+    Repeat for b in lenB:
+        Push b to out.
+    Let codeB be pgI32be(80877102).
+    Repeat for b in codeB:
+        Push b to out.
+    Let pidB be pgI32be(pid).
+    Repeat for b in pidB:
+        Push b to out.
+    Let secB be pgI32be(secret).
+    Repeat for b in secB:
+        Push b to out.
+    Return out.
+
+## Note
+Parses a RowDescription 'T' body into (column names, type OIDs).
+
+Parses a RowDescription 'T' body: Int16 field count, then per field the name
+cstring, table oid Int32, attnum Int16, TYPE OID Int32, typlen Int16,
+atttypmod Int32, format Int16 — returns (names, type oids).
+
+## To pgParseRowDescription (body: Seq of Int) -> (Seq of Text, Seq of Int):
+    Let mutable names be a new Seq of Text.
+    Let mutable oids be a new Seq of Int.
+    Let fieldCount be pgReadI16be(body, 1).
+    Let mutable off be 3.
+    If fieldCount is greater than 0:
+        Repeat for f from 1 to fieldCount:
+            Let (fname, afterName) be pgReadCStringAt(body, off).
+            Push fname to names.
+            Push pgReadI32be(body, afterName + 6) to oids.
+            Set off to afterName + 18.
+    Return (names, oids).
+
+## Note
+Parses a DataRow 'D' body: Int16 cell count, then per cell Int32 length + bytes, or length -1 for NULL.
+
+Returns (cells, mask): a NULL cell is "" with mask true; a present EMPTY string
+is "" with mask false — the distinction the nullMask exists to keep.
+## To pgParseDataRow (body: Seq of Int) -> (Seq of Text, Seq of Bool):
+    Let mutable cells be a new Seq of Text.
+    Let mutable mask be a new Seq of Bool.
+    Let colCount be pgReadI16be(body, 1).
+    Let mutable roff be 3.
+    If colCount is greater than 0:
+        Repeat for cc from 1 to colCount:
+            Let vlen be pgReadI32be(body, roff).
+            Set roff to roff + 4.
+            If vlen is less than 0:
+                Push "" to cells.
+                Push true to mask.
+            If vlen is equal to 0:
+                Push "" to cells.
+                Push false to mask.
+            If vlen is greater than 0:
+                Let mutable vbytes be a new Seq of Int.
+                Let vEnd be roff + vlen - 1.
+                Let mutable vi be roff.
+                While vi is at most vEnd:
+                    Push item vi of body to vbytes.
+                    Set vi to vi + 1.
+                Push text_from_bytes(vbytes) to cells.
+                Push false to mask.
+                Set roff to roff + vlen.
+    Return (cells, mask).
+
+## Note
+Parses a ParameterDescription 't' body: Int16 count + Int32 type OIDs.
+
+## To pgParseParamDescription (body: Seq of Int) -> Seq of Int:
+    Let mutable oids be a new Seq of Int.
+    Let n be pgReadI16be(body, 1).
+    Let mutable off be 3.
+    If n is greater than 0:
+        Repeat for i from 1 to n:
+            Push pgReadI32be(body, off) to oids.
+            Set off to off + 4.
+    Return oids.
+
+## Note
+The `bool` type OID (16), verified against the catalog (pg_type.dat) like every
+`pgOid*` constant below.
+
+## To pgOidBool () -> Int:
+    Return 16.
+
+## Note
+The `int8` (BIGINT) type OID (20).
+
+## To pgOidInt8 () -> Int:
+    Return 20.
+
+## Note
+The `int2` (SMALLINT) type OID (21).
+
+## To pgOidInt2 () -> Int:
+    Return 21.
+
+## Note
+The `int4` (INTEGER) type OID (23).
+
+## To pgOidInt4 () -> Int:
+    Return 23.
+
+## Note
+The `text` type OID (25).
+
+## To pgOidText () -> Int:
+    Return 25.
+
+## Note
+The `float8` (DOUBLE PRECISION) type OID (701).
+
+## To pgOidFloat8 () -> Int:
+    Return 701.
+
+## Note
+The `varchar` type OID (1043).
+
+## To pgOidVarchar () -> Int:
+    Return 1043.
+
+## Note
+The `numeric` type OID (1700).
+
+## To pgOidNumeric () -> Int:
+    Return 1700.
+
+## Note
+The `uuid` type OID (2950).
+
+## To pgOidUuid () -> Int:
+    Return 2950.
+
+## Note
+Collects the backend's reply to an extended-protocol flight into a result, draining to ReadyForQuery so the connection stays usable.
+
+Collects the backend's reply to an extended-protocol flight: ParseComplete
+'1', BindComplete '2', and CloseComplete '3' are acknowledgements;
+RowDescription 'T' and DataRow 'D' build the result with its honest NULL
+mask; CommandComplete 'C' carries the tag; NoData 'n' and EmptyQueryResponse
+'I' are clean no-row outcomes; PortalSuspended 's' cannot arrive for our
+Execute max_rows 0 but drains gracefully; an ErrorResponse becomes the Err
+after the drain reaches ReadyForQuery, so the connection stays usable.
+
+## To pgCollectExtended (c: Int) and (label: Text) -> Result of QueryResult and Text:
+    Let mutable cols be a new Seq of Text.
+    Let mutable oids be a new Seq of Int.
+    Let mutable rws be a new Seq of Seq of Text.
+    Let mutable masks be a new Seq of Seq of Bool.
+    Let mutable tagVal be "".
+    Let mutable errText be "".
+    Let mutable looping be true.
+    While looping is equal to true:
+        Let mR be pgRecvMessage(c).
+        Inspect mR:
+            When Ok (frame):
+                Let tg be item 1 of frame.
+                Let body be pgFrameBody(frame).
+                Let mutable handled be false.
+                If tg is equal to 49:
+                    Set handled to true.
+                If tg is equal to 50:
+                    Set handled to true.
+                If tg is equal to 51:
+                    Set handled to true.
+                If tg is equal to 84:
+                    Set handled to true.
+                    Let (rdNames, rdOids) be pgParseRowDescription(body).
+                    Set cols to rdNames.
+                    Set oids to rdOids.
+                If tg is equal to 110:
+                    Set handled to true.
+                If tg is equal to 68:
+                    Set handled to true.
+                    Let (rowCells, rowMask) be pgParseDataRow(body).
+                    Push rowCells to rws.
+                    Push rowMask to masks.
+                If tg is equal to 67:
+                    Set handled to true.
+                    Let (tagText, tEnd) be pgReadCStringAt(body, 1).
+                    Set tagVal to tagText.
+                If tg is equal to 115:
+                    Set handled to true.
+                If tg is equal to 73:
+                    Set handled to true.
+                If tg is equal to 78:
+                    Set handled to true.
+                If tg is equal to 83:
+                    Set handled to true.
+                If tg is equal to 69:
+                    Set handled to true.
+                    Set errText to pgErrorText(body).
+                If tg is equal to 90:
+                    Set handled to true.
+                    Set looping to false.
+                If handled is equal to false:
+                    Return a new Err with error "{label}: unexpected message tag {tg}".
+            When Err (e):
+                Return a new Err with error "{label}: {e}".
+    If errText is equal to "":
+        Let qr be a new QueryResult with columns cols and typeOids oids and rows rws and nullMask masks and cmdTag tagVal.
+        Return a new Ok with value qr.
+    Return a new Err with error errText.
+
+## Note
+Prepares a named statement: Parse + Describe('S')
+
++ Sync in one flight, then captures ParameterDescription's declared OIDs and the
+result shape (RowDescription or NoData). An ErrorResponse (e.g. a syntax error)
+drains to ReadyForQuery and surfaces as the Err — the connection stays usable.
+## To pgPrepare (pgc: PgConn) and (stmtName: Text) and (sql: Text) -> Result of PgPrepared and Text:
+    Let c be pgc's conn.
+    Let flight be pgParseMessage(stmtName, sql) followed by pgDescribeStatementMessage(stmtName) followed by pgSyncMessage().
+    Let sentF be tcpSend(c, flight).
+    Inspect sentF:
+        When Ok (n0):
+            Let okf be 0.
+        When Err (e):
+            Return a new Err with error "pgPrepare: {e}".
+    Let mutable pOids be a new Seq of Int.
+    Let mutable cols be a new Seq of Text.
+    Let mutable oids be a new Seq of Int.
+    Let mutable rowsFlag be false.
+    Let mutable errText be "".
+    Let mutable looping be true.
+    While looping is equal to true:
+        Let mR be pgRecvMessage(c).
+        Inspect mR:
+            When Ok (frame):
+                Let tg be item 1 of frame.
+                Let body be pgFrameBody(frame).
+                Let mutable handled be false.
+                If tg is equal to 49:
+                    Set handled to true.
+                If tg is equal to 116:
+                    Set handled to true.
+                    Set pOids to pgParseParamDescription(body).
+                If tg is equal to 84:
+                    Set handled to true.
+                    Let (rdNames, rdOids) be pgParseRowDescription(body).
+                    Set cols to rdNames.
+                    Set oids to rdOids.
+                    Set rowsFlag to true.
+                If tg is equal to 110:
+                    Set handled to true.
+                    Set rowsFlag to false.
+                If tg is equal to 78:
+                    Set handled to true.
+                If tg is equal to 83:
+                    Set handled to true.
+                If tg is equal to 69:
+                    Set handled to true.
+                    Set errText to pgErrorText(body).
+                If tg is equal to 90:
+                    Set handled to true.
+                    Set looping to false.
+                If handled is equal to false:
+                    Return a new Err with error "pgPrepare: unexpected message tag {tg}".
+            When Err (e):
+                Return a new Err with error "pgPrepare: {e}".
+    If errText is equal to "":
+        Let nameVal be stmtName.
+        Let made be a new PgPrepared with stmtName nameVal and paramOids pOids and columns cols and typeOids oids and hasRows rowsFlag.
+        Return a new Ok with value made.
+    Return a new Err with error errText.
+
+## Note
+Executes a prepared statement with text-format params and an explicit nulls mask (true = send NULL for that param): Bind + Describe('P')
+
++ Execute (max_rows 0 = ALL) + Sync — libpq's PQsendQueryPrepared flight. The
+mask must have exactly one entry per param.
+## To pgExecPreparedN (pgc: PgConn) and (stmtName: Text) and (params: Seq of Text) and (nulls: Seq of Bool) -> Result of QueryResult and Text:
+    Let np be length of params.
+    Let nn be length of nulls.
+    Let mutable lenOk be false.
+    If nn is equal to np:
+        Set lenOk to true.
+    If lenOk is equal to false:
+        Return a new Err with error "pg: the nulls mask must have one entry per param".
+    Let c be pgc's conn.
+    Let flight be pgBindMessage("", stmtName, params, nulls) followed by pgDescribePortalMessage("") followed by pgExecuteMessage("", 0) followed by pgSyncMessage().
+    Let sentF be tcpSend(c, flight).
+    Inspect sentF:
+        When Ok (n0):
+            Let okf be 0.
+        When Err (e):
+            Return a new Err with error "pgExecPrepared: {e}".
+    Return pgCollectExtended(c, "pgExecPrepared").
+
+## Note
+Executes a prepared statement with no NULL params — the common form,
+delegating to pgExecPreparedN with an all-false mask.
+
+## To pgExecPrepared (pgc: PgConn) and (stmtName: Text) and (params: Seq of Text) -> Result of QueryResult and Text:
+    Let mutable noNulls be a new Seq of Bool.
+    Repeat for p in params:
+        Push false to noNulls.
+    Return pgExecPreparedN(pgc, stmtName, params, noNulls).
+
+## Note
+The unnamed-statement fast path with an explicit nulls mask: Parse("") +
+Bind + Describe('P') + Execute + Sync in ONE flight — libpq's
+PQsendQueryParams (PQsendQueryGuts with the unnamed statement).
+
+## To pgQueryParamsN (pgc: PgConn) and (sql: Text) and (params: Seq of Text) and (nulls: Seq of Bool) -> Result of QueryResult and Text:
+    Let np be length of params.
+    Let nn be length of nulls.
+    Let mutable lenOk be false.
+    If nn is equal to np:
+        Set lenOk to true.
+    If lenOk is equal to false:
+        Return a new Err with error "pg: the nulls mask must have one entry per param".
+    Let c be pgc's conn.
+    Let flight be pgParseMessage("", sql) followed by pgBindMessage("", "", params, nulls) followed by pgDescribePortalMessage("") followed by pgExecuteMessage("", 0) followed by pgSyncMessage().
+    Let sentF be tcpSend(c, flight).
+    Inspect sentF:
+        When Ok (n0):
+            Let okf be 0.
+        When Err (e):
+            Return a new Err with error "pgQueryParams: {e}".
+    Return pgCollectExtended(c, "pgQueryParams").
+
+## Note
+The unnamed-statement fast path with no NULL params.
+
+## To pgQueryParams (pgc: PgConn) and (sql: Text) and (params: Seq of Text) -> Result of QueryResult and Text:
+    Let mutable noNulls be a new Seq of Bool.
+    Repeat for p in params:
+        Push false to noNulls.
+    Return pgQueryParamsN(pgc, sql, params, noNulls).
+
+## Note
+True when the cell at (row, column) was SQL NULL, bounds-checked with the
+same range errors as the cell getters.
+
+## To pgIsNullAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Bool and Text:
+    Let masks be qr's nullMask.
+    Let nr be length of masks.
+    If rowIdx is less than 1:
+        Return a new Err with error "pg: row {rowIdx} is out of range (1..{nr})".
+    If rowIdx is greater than nr:
+        Return a new Err with error "pg: row {rowIdx} is out of range (1..{nr})".
+    Let mrow be item rowIdx of masks.
+    Let nc be length of mrow.
+    If colIdx is less than 1:
+        Return a new Err with error "pg: column {colIdx} is out of range (1..{nc})".
+    If colIdx is greater than nc:
+        Return a new Err with error "pg: column {colIdx} is out of range (1..{nc})".
+    Let flag be item colIdx of mrow.
+    Return a new Ok with value flag.
+
+## Note
+The cell as an optional Text: `none` for SQL NULL, `some value` otherwise —
+NULL is expressible, not spoofed as "".
+
+## To pgTextAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Option of Text and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let cellR be pgCellAt(qr, rowIdx, colIdx).
+            Inspect cellR:
+                When Ok (cell):
+                    Let wrapped be some cell.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as an optional Int: `none` for NULL, the pgIntAt parse otherwise.
+
+## To pgIntAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Option of Int and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let intR be pgIntAt(qr, rowIdx, colIdx).
+            Inspect intR:
+                When Ok (v):
+                    Let wrapped be some v.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as an optional Bool: `none` for NULL, the pgBoolAt parse otherwise.
+
+## To pgBoolAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Option of Bool and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let boolR be pgBoolAt(qr, rowIdx, colIdx).
+            Inspect boolR:
+                When Ok (v):
+                    Let wrapped be some v.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as an optional Real: `none` for NULL, the pgRealAt parse otherwise.
+
+## To pgRealAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Option of Real and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let realR be pgRealAt(qr, rowIdx, colIdx).
+            Inspect realR:
+                When Ok (v):
+                    Let wrapped be some v.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+True when `s` has numeric_out's plain-decimal shape: optional minus, digits,
+optionally a point with digits on BOTH sides. NaN and Infinity are rejected
+(surface those as Errs, not fake numbers).
+
+## To pgIsNumericText (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    If n is equal to 0:
+        Return false.
+    Let mutable i be 1.
+    If (item 1 of sb) is equal to 45:
+        If n is equal to 1:
+            Return false.
+        Set i to 2.
+    Let mutable sawDigit be false.
+    Let mutable sawDot be false.
+    While i is at most n:
+        Let b be item i of sb.
+        Let mutable okb be false.
+        If b is at least 48:
+            If b is at most 57:
+                Set okb to true.
+                Set sawDigit to true.
+        If b is equal to 46:
+            If sawDot is equal to false:
+                If sawDigit is equal to true:
+                    If i is less than n:
+                        Set okb to true.
+                        Set sawDot to true.
+                        Set sawDigit to false.
+        If okb is equal to false:
+            Return false.
+        Set i to i + 1.
+    Return sawDigit.
+
+## Note
+The cell as the EXACT decimal (arbitrary precision — 30+ digit numerics
+round-trip digit for digit). NULL and non-numeric text are value-level Errs.
+
+## To pgDecimalAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Decimal and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Return a new Err with error "pg: the cell at row {rowIdx} column {colIdx} is NULL (use pgDecimalAtOpt)".
+            Let cellR be pgCellAt(qr, rowIdx, colIdx).
+            Inspect cellR:
+                When Ok (cell):
+                    If pgIsNumericText(cell) is equal to false:
+                        Return a new Err with error "pg: the value '{cell}' is not a numeric".
+                    Let d be decimal(cell).
+                    Return a new Ok with value d.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as an optional exact decimal: `none` for NULL.
+
+## To pgDecimalAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Option of Decimal and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let decR be pgDecimalAt(qr, rowIdx, colIdx).
+            Inspect decR:
+                When Ok (v):
+                    Let wrapped be some v.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+True when `s` is the canonical 8-4-4-4-12 UUID text (uuid_out's shape),
+either case: 36 bytes, dashes at positions 9/14/19/24, hex elsewhere.
+
+## To pgIsUuidText (s: Text) -> Bool:
+    Let sb be text_bytes(s).
+    Let sn be length of sb.
+    If sn is equal to 36:
+        Let mutable i be 1.
+        While i is at most 36:
+            Let b be item i of sb.
+            Let mutable isDash be false.
+            If i is equal to 9:
+                Set isDash to true.
+            If i is equal to 14:
+                Set isDash to true.
+            If i is equal to 19:
+                Set isDash to true.
+            If i is equal to 24:
+                Set isDash to true.
+            Let mutable good be false.
+            If isDash is equal to true:
+                If b is equal to 45:
+                    Set good to true.
+            If isDash is equal to false:
+                If b is at least 48:
+                    If b is at most 57:
+                        Set good to true.
+                If b is at least 97:
+                    If b is at most 102:
+                        Set good to true.
+                If b is at least 65:
+                    If b is at most 70:
+                        Set good to true.
+            If good is equal to false:
+                Return false.
+            Set i to i + 1.
+        Return true.
+    Return false.
+
+## Note
+The cell as a Uuid (uuid.lg), case-normalized. NULL and malformed text are
+value-level Errs.
+
+## To pgUuidAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Uuid and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Return a new Err with error "pg: the cell at row {rowIdx} column {colIdx} is NULL (use pgUuidAtOpt)".
+            Let cellR be pgCellAt(qr, rowIdx, colIdx).
+            Inspect cellR:
+                When Ok (cell):
+                    If pgIsUuidText(cell) is equal to false:
+                        Return a new Err with error "pg: the value '{cell}' is not a uuid".
+                    Let low be lower(cell).
+                    Let u be uuidParse(low).
+                    Return a new Ok with value u.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as an optional Uuid: `none` for NULL.
+
+## To pgUuidAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Option of Uuid and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let uuidR be pgUuidAt(qr, rowIdx, colIdx).
+            Inspect uuidR:
+                When Ok (v):
+                    Let wrapped be some v.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as a PG enum label, asserted to be one of the expected labels (enum
+values arrive as text; the expected set is yours to declare). NULL and an
+unexpected label are value-level Errs.
+
+## To pgEnumAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) and (allowed: Seq of Text) -> Result of Text and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Return a new Err with error "pg: the cell at row {rowIdx} column {colIdx} is NULL (use pgEnumAtOpt)".
+            Let cellR be pgCellAt(qr, rowIdx, colIdx).
+            Inspect cellR:
+                When Ok (cell):
+                    Let mutable found be false.
+                    Repeat for lab in allowed:
+                        If lab is equal to cell:
+                            Set found to true.
+                    If found is equal to false:
+                        Return a new Err with error "pg: the value '{cell}' is not one of the expected enum values".
+                    Return a new Ok with value cell.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The cell as an optional enum label: `none` for NULL.
+
+## To pgEnumAtOpt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) and (allowed: Seq of Text) -> Result of Option of Text and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Let emptyOpt be none.
+                Return a new Ok with value emptyOpt.
+            Let enumR be pgEnumAt(qr, rowIdx, colIdx, allowed).
+            Inspect enumR:
+                When Ok (v):
+                    Let wrapped be some v.
+                    Return a new Ok with value wrapped.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+The typed checkpoint: validates a cell against its column's declared OID before handing it back; NULL is an `Err`.
+
+The typed checkpoint: dispatches on the column's declared OID and VALIDATES
+the cell against it — ints must be integers, bool normalizes to true/false,
+float4/float8 must be reals, numeric must be plain decimal, uuid normalizes
+to lowercase; text/varchar and unknown OIDs pass through opaque. NULL is an
+Err (ask pgIsNullAt first, or use the Opt getters).
+
+## To pgTypedAt (qr: QueryResult) and (rowIdx: Int) and (colIdx: Int) -> Result of Text and Text:
+    Let nullR be pgIsNullAt(qr, rowIdx, colIdx).
+    Inspect nullR:
+        When Ok (isNull):
+            If isNull is equal to true:
+                Return a new Err with error "pg: the cell at row {rowIdx} column {colIdx} is NULL (use pgIsNullAt)".
+            Let cellR be pgCellAt(qr, rowIdx, colIdx).
+            Inspect cellR:
+                When Ok (cell):
+                    Let toids be qr's typeOids.
+                    Let ntoids be length of toids.
+                    Let mutable oid be 0.
+                    If colIdx is at most ntoids:
+                        Set oid to item colIdx of toids.
+                    If oid is equal to 16:
+                        Let bR be pgBoolAt(qr, rowIdx, colIdx).
+                        Inspect bR:
+                            When Ok (bv):
+                                If bv is equal to true:
+                                    Return a new Ok with value "true".
+                                Return a new Ok with value "false".
+                            When Err (e):
+                                Return a new Err with error e.
+                    Let mutable isIntOid be false.
+                    If oid is equal to 20:
+                        Set isIntOid to true.
+                    If oid is equal to 21:
+                        Set isIntOid to true.
+                    If oid is equal to 23:
+                        Set isIntOid to true.
+                    If isIntOid is equal to true:
+                        If pgIsIntText(cell) is equal to false:
+                            Return a new Err with error "pg: the value '{cell}' is not an Int".
+                        Return a new Ok with value cell.
+                    Let mutable isRealOid be false.
+                    If oid is equal to 700:
+                        Set isRealOid to true.
+                    If oid is equal to 701:
+                        Set isRealOid to true.
+                    If isRealOid is equal to true:
+                        If pgIsRealText(cell) is equal to false:
+                            Return a new Err with error "pg: the value '{cell}' is not a Real".
+                        Return a new Ok with value cell.
+                    If oid is equal to 1700:
+                        If pgIsNumericText(cell) is equal to false:
+                            Return a new Err with error "pg: the value '{cell}' is not a numeric".
+                        Return a new Ok with value cell.
+                    If oid is equal to 2950:
+                        If pgIsUuidText(cell) is equal to false:
+                            Return a new Err with error "pg: the value '{cell}' is not a uuid".
+                        Let low be lower(cell).
+                        Return a new Ok with value low.
+                    Return a new Ok with value cell.
+                When Err (e):
+                    Return a new Err with error e.
+        When Err (e):
+            Return a new Err with error e.
+
+## Note
+Opens a transaction at the session's default isolation. Thin over pgExecute
+("BEGIN" is from the validated closed set, never user data).
+
+## To pgBegin (pgc: PgConn) -> Result of Int and Text:
+    Return pgExecute(pgc, "BEGIN").
+
+## Note
+Opens a transaction at an EXPLICIT isolation level.
+
+The level is validated against the closed set {"read committed", "repeatable
+read", "serializable"} BEFORE any SQL is composed — an unknown level never
+reaches the server.
+## To pgBeginIsolation (pgc: PgConn) and (level: Text) -> Result of Int and Text:
+    Let mutable okLevel be false.
+    If level is equal to "read committed":
+        Set okLevel to true.
+    If level is equal to "repeatable read":
+        Set okLevel to true.
+    If level is equal to "serializable":
+        Set okLevel to true.
+    If okLevel is equal to false:
+        Return a new Err with error "pgBeginIsolation: the isolation level must be 'read committed', 'repeatable read', or 'serializable'".
+    Return pgExecute(pgc, "BEGIN ISOLATION LEVEL {level}").
+
+## Note
+Commits the open transaction. A serialization failure (SQLSTATE 40001) at
+commit arrives as an ordinary Err — retry the transaction.
+
+## To pgCommit (pgc: PgConn) -> Result of Int and Text:
+    Return pgExecute(pgc, "COMMIT").
+
+## Note
+Rolls the open transaction back, discarding its writes.
+
+## To pgRollback (pgc: PgConn) -> Result of Int and Text:
+    Return pgExecute(pgc, "ROLLBACK").
+
+## Note
+Sets this session's statement_timeout in milliseconds (0 disables).
+
+A statement that exceeds it is cancelled by the server with SQLSTATE 57014
+(query_canceled), which surfaces as an ordinary Err. Only the validated integer
+is interpolated — never text.
+## To pgSetStatementTimeout (pgc: PgConn) and (millis: Int) -> Result of Int and Text:
+    If millis is less than 0:
+        Return a new Err with error "pgSetStatementTimeout: the timeout must be at least 0 milliseconds".
+    Return pgExecute(pgc, "SET statement_timeout = {millis}").
+
+## Note
+Fires the cancel protocol at the connection's backend WHEN A QUERY IS GENUINELY IN FLIGHT — the `inFlight` guard is the correlation the cancel needs.
+
+A cancel is routed to the backend by its PID (docs, protocol-flow "Canceling
+Requests in Progress"), and that PID serves the session's NEXT statement too; so
+a cancel dispatched after the target already finished races the following query
+and can cancel IT. When `inFlight` is false the target is not running: this
+opens NO socket and is a clean `Ok` no-op — a stale cancel can never disturb the
+next query. When `inFlight` is true it opens a FRESH connection carrying only
+the 16-byte CancelRequest packet and waits for the postmaster to close it — the
+server never replies, and its close says the backend has been signalled — before
+closing its own end, as libpq's PQcancel does: a statement sent after this
+returns reaches a backend whose signal already arrived while it waited for a
+command, which ignores it, so the cancel never lands on the statement after it.
+Best-effort by design: even a correctly-correlated dispatch is no guarantee the
+statement dies. Requires the BackendKeyData the startup captured.
+## To pgCancelInFlight (pgc: PgConn) and (inFlight: Bool) -> Result of Unit and Text:
+    If inFlight is equal to false:
+        Return a new Ok with value nothing.
+    Let hostVal be pgc's host.
+    Let portVal be pgc's port.
+    Let cR be tcpConnect(hostVal, portVal).
+    Inspect cR:
+        When Ok (c2):
+            Let pidVal be pgc's backendPid.
+            Let secretVal be pgc's backendSecret.
+            Let pkt be pgCancelRequestMessage(pidVal, secretVal).
+            Let sentP be tcpSend(c2, pkt).
+            Inspect sentP:
+                When Ok (n0):
+                    Let processed be tcpRecv(c2, 1).
+                    Return tcpClose(c2).
+                When Err (e):
+                    Let closedAnyway be tcpClose(c2).
+                    Return a new Err with error "pgCancelRequest: {e}".
+        When Err (e):
+            Return a new Err with error "pgCancelRequest: {e}".
+
+## Note
+The best-effort cancel for a query the caller KNOWS is in flight (issued from a separate task while `pgQuery`/`pgExecute` blocks on this connection).
+
+Thin over `pgCancelInFlight(pgc, true)` — the byte-exact CancelRequest fires.
+Correlate with `pgCancelInFlight` and an in-flight token whenever a stale cancel
+could otherwise race the connection's next statement.
+## To pgCancelRequest (pgc: PgConn) -> Result of Unit and Text:
+    Return pgCancelInFlight(pgc, true).

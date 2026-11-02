@@ -1,0 +1,12 @@
+{
+  "capability": "heap.push",
+  "workload": "peek(push(heapify(xs), r%1000))",
+  "arg": "25000",
+  "expected": "10399060",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go",
+    "rust"
+  ]
+}

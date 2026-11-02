@@ -19,6 +19,7 @@
 
 mod common;
 use common::{run_interpreter, run_logos};
+use logicaffeine_compile::compile::vm_outcome;
 
 /// Run `source` through BOTH tiers and assert they agree. Unlike the bare
 /// `assert_compiled_equals_interpreted` (which is satisfied when *both* tiers fail),
@@ -226,8 +227,17 @@ Show length of a's lines.
 /// Assert the interpreter produces exactly `expected` (trimmed).
 fn assert_interp_output(source: &str, expected: &str) {
     let r = run_interpreter(source);
-    assert!(r.success, "interpreter failed:\n{}\nerr: {}", source, r.error);
-    assert_eq!(r.output.trim(), expected, "interpreter output mismatch:\n{}", source);
+    assert!(
+        r.success,
+        "interpreter failed:\n{}\nerr: {}",
+        source, r.error
+    );
+    assert_eq!(
+        r.output.trim(),
+        expected,
+        "interpreter output mismatch:\n{}",
+        source
+    );
 }
 
 #[test]
@@ -265,4 +275,162 @@ fn guide_crdt_collaborative() {
     let src = "## Definition\nA Editor is Shared and has:\n    a text, which is a CollaborativeSequence of Text.\n\n## Main\nLet mutable e be a new Editor.\nAppend \"Hello\" to e's text.\nAppend \" \" to e's text.\nAppend \"World\" to e's text.\nShow length of e's text.";
     assert_interp_output(src, "3");
     assert_tiers_agree(src);
+}
+
+// =============================================================================
+// COUNTER MERGE IDEMPOTENCY — the deepest CRDT lock, and the one that matters most
+// on a "runs on a potato" unreliable link: a state-based counter merge MUST be
+// IDEMPOTENT, so a redelivered / duplicated remote state never double-counts. The
+// AOT tier lowers `ConvergentCount`→`GCounter` and `Tally`→`PNCounter` (real
+// per-replica CRDTs, idempotent by construction). The interpreter and VM MUST agree
+// with that oracle. A bare-`Int` op-based counter (add on every merge) passes a
+// SINGLE merge but diverges the moment the same delta arrives twice — exactly what
+// gossip + FEC redelivery does. All three tiers, one answer.
+// =============================================================================
+
+/// Assert `source` produces `expected` on the tree-walker, the VM, AND the AOT tier —
+/// with AOT as the oracle (it must succeed). Catches a TW/VM-vs-AOT divergence that a
+/// two-tier check would miss.
+fn assert_three_tiers(source: &str, expected: &str) {
+    let aot = run_logos(source);
+    assert!(
+        aot.success,
+        "AOT/compiled tier failed — cannot serve as the parity oracle.\nSource:\n{source}\n\nstderr:\n{}",
+        aot.stderr
+    );
+    assert_eq!(
+        aot.stdout.trim(),
+        expected,
+        "AOT oracle produced an unexpected value.\nSource:\n{source}"
+    );
+
+    let interp = run_interpreter(source);
+    assert!(
+        interp.success,
+        "interpreter failed:\n{source}\nerr: {}",
+        interp.error
+    );
+    assert_eq!(
+        interp.output.trim(),
+        expected,
+        "TIER MISMATCH: interpreter ≠ AOT oracle ({expected}).\nSource:\n{source}\ninterpreter: {:?}",
+        interp.output.trim()
+    );
+
+    let vm = vm_outcome(source);
+    assert!(
+        vm.error.is_none(),
+        "VM failed:\n{source}\nerr: {:?}",
+        vm.error
+    );
+    assert_eq!(
+        vm.output.trim(),
+        expected,
+        "TIER MISMATCH: VM ≠ AOT oracle ({expected}).\nSource:\n{source}\nVM: {:?}",
+        vm.output.trim()
+    );
+}
+
+/// `ConvergentCount` (G-Counter): two replicas increment disjointly, then the SAME remote
+/// delta is merged TWICE. Idempotent ⇒ still 5+3 = 8, never 5+3+3 = 11.
+#[test]
+fn crdt_tier_parity_convergent_count_merge_is_idempotent() {
+    assert_three_tiers(
+        "## Definition\n\
+         A Reactions is Shared and has:\n\
+         \x20   a thumbsUp, which is ConvergentCount.\n\
+         \n\
+         ## Main\n\
+         Let mutable local be a new Reactions.\n\
+         Let mutable delta be a new Reactions.\n\
+         Increase local's thumbsUp by 5.\n\
+         Increase delta's thumbsUp by 3.\n\
+         Merge delta into local.\n\
+         Merge delta into local.\n\
+         Show local's thumbsUp.\n",
+        "8",
+    );
+}
+
+/// `Tally` (PN-Counter): increments and a decrement, then a duplicated merge. Idempotent ⇒
+/// 10 + (4−1) = 13, never 10 + 3 + 3 = 16.
+#[test]
+fn crdt_tier_parity_tally_merge_is_idempotent() {
+    assert_three_tiers(
+        "## Definition\n\
+         A Score is Shared and has:\n\
+         \x20   a points, which is a Tally.\n\
+         \n\
+         ## Main\n\
+         Let mutable a be a new Score.\n\
+         Let mutable b be a new Score.\n\
+         Increase a's points by 10.\n\
+         Increase b's points by 4.\n\
+         Decrease b's points by 1.\n\
+         Merge b into a.\n\
+         Merge b into a.\n\
+         Show a's points.\n",
+        "13",
+    );
+}
+
+/// A single merge must still be correct on all three tiers (the union of two disjoint replicas).
+#[test]
+fn crdt_tier_parity_convergent_count_single_merge_unions_replicas() {
+    assert_three_tiers(
+        "## Definition\n\
+         A Reactions is Shared and has:\n\
+         \x20   a thumbsUp, which is ConvergentCount.\n\
+         \n\
+         ## Main\n\
+         Let mutable local be a new Reactions.\n\
+         Let mutable delta be a new Reactions.\n\
+         Increase local's thumbsUp by 5.\n\
+         Increase delta's thumbsUp by 3.\n\
+         Merge delta into local.\n\
+         Show local's thumbsUp.\n",
+        "8",
+    );
+}
+
+/// A counter reads as its integer value in the interpreted tiers: a relational comparison
+/// sees the value, not the CRDT wrapper (`8 is at least 8` ⇒ "enough"). AOT does not support
+/// relational comparison of a raw counter (`GCounter` is `PartialEq` but not `PartialOrd`), so
+/// this is a tree-walker == VM lock — it guards the representation change from regressing the
+/// interpreted-tier read path.
+#[test]
+fn crdt_tier_parity_counter_compares_as_its_value_on_interpreted_tiers() {
+    let src = "## Definition\n\
+         A Reactions is Shared and has:\n\
+         \x20   a thumbsUp, which is ConvergentCount.\n\
+         \n\
+         ## Main\n\
+         Let mutable a be a new Reactions.\n\
+         Let mutable b be a new Reactions.\n\
+         Increase a's thumbsUp by 5.\n\
+         Increase b's thumbsUp by 3.\n\
+         Merge b into a.\n\
+         Merge b into a.\n\
+         If a's thumbsUp is at least 8:\n\
+         \x20   Show \"enough\".\n\
+         Otherwise:\n\
+         \x20   Show \"not-enough\".\n";
+    let interp = run_interpreter(src);
+    assert!(
+        interp.success,
+        "interpreter failed:\n{src}\nerr: {}",
+        interp.error
+    );
+    assert_eq!(
+        interp.output.trim(),
+        "enough",
+        "interpreter counter comparison\n{src}"
+    );
+    let vm = vm_outcome(src);
+    assert!(vm.error.is_none(), "VM failed:\n{src}\nerr: {:?}", vm.error);
+    assert_eq!(
+        vm.output.trim(),
+        "enough",
+        "VM counter comparison must match the tree-walker\n{src}"
+    );
 }

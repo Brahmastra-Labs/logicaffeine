@@ -1,7 +1,7 @@
 //! Self-Certifying Proof Certificates
 //!
 //! Generate proof certificates that can be independently verified
-//! without trusting LogicAffeine's implementation.
+//! without trusting Logicaffeine's implementation.
 //!
 //! Each certificate binds its proof steps to the claim via a cryptographic-style
 //! digest chain. Tampering with the claim, conclusion, or formulas is detected
@@ -11,7 +11,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::ir::VerifyExpr;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// A self-certifying proof certificate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,9 +25,16 @@ pub struct ProofCertificate {
 /// What is being proven.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VerifyClaim {
-    Equivalent { description: String },
-    Safe { property: String, bound: Option<u32> },
-    Unsafe { counterexample: String },
+    Equivalent {
+        description: String,
+    },
+    Safe {
+        property: String,
+        bound: Option<u32>,
+    },
+    Unsafe {
+        counterexample: String,
+    },
 }
 
 /// A single step in the proof.
@@ -122,11 +129,7 @@ pub fn generate_equivalence_certificate(
 }
 
 /// Generate a proof certificate for a safety result.
-pub fn generate_safety_certificate(
-    property_desc: &str,
-    k: u32,
-    is_safe: bool,
-) -> ProofCertificate {
+pub fn generate_safety_certificate(property_desc: &str, k: u32, is_safe: bool) -> ProofCertificate {
     let claim = if is_safe {
         VerifyClaim::Safe {
             property: property_desc.into(),
@@ -140,10 +143,7 @@ pub fn generate_safety_certificate(
 
     let binding = digest_claim(&claim);
 
-    let safety_formula = VerifyExpr::apply(
-        "G",
-        vec![VerifyExpr::var(property_desc)],
-    );
+    let safety_formula = VerifyExpr::apply("G", vec![VerifyExpr::var(property_desc)]);
 
     ProofCertificate {
         claim,

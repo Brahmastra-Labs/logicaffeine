@@ -5,8 +5,8 @@
 //! If UNSAT → extract minimal unsatisfiable subset (MUS).
 //! If SAT → check for vacuity and redundancy.
 
-use crate::ir::{VerifyExpr, VerifyOp};
 use crate::equivalence::Trace;
+use crate::ir::{VerifyExpr, VerifyOp};
 use std::collections::{HashMap, HashSet};
 use z3::{ast::Bool, ast::Int, SatResult, Solver};
 
@@ -68,7 +68,12 @@ pub fn check_consistency(
     let empty_int_vars = HashMap::new();
     let empty_bv_vars = HashMap::new();
     let empty_array_vars = HashMap::new();
-    let encoder = crate::equivalence::EquivEncoder::new(&var_map, &empty_int_vars, &empty_bv_vars, &empty_array_vars);
+    let encoder = crate::equivalence::EquivEncoder::new(
+        &var_map,
+        &empty_int_vars,
+        &empty_bv_vars,
+        &empty_array_vars,
+    );
     for prop in props {
         let encoded = encoder.encode_as_bool(prop);
         solver.assert(&encoded);
@@ -205,7 +210,6 @@ pub fn check_spec_consistency(
         };
     }
 
-
     // Collect all variable names from all formulas
     let mut all_vars: HashSet<String> = HashSet::new();
     for lf in formulas {
@@ -216,10 +220,7 @@ pub fn check_spec_consistency(
     let mut bool_vars: HashMap<String, Bool> = HashMap::new();
     let mut int_vars: HashMap<String, Int> = HashMap::new();
     for var_name in &all_vars {
-        bool_vars.insert(
-            var_name.clone(),
-            Bool::new_const(var_name.as_str()),
-        );
+        bool_vars.insert(var_name.clone(), Bool::new_const(var_name.as_str()));
     }
     // Also detect integer variables from arithmetic contexts
     let exprs: Vec<&VerifyExpr> = formulas.iter().map(|lf| &lf.expr).collect();
@@ -229,7 +230,12 @@ pub fn check_spec_consistency(
 
     let empty_bv_vars = HashMap::new();
     let empty_array_vars = HashMap::new();
-    let encoder = crate::equivalence::EquivEncoder::new(&bool_vars, &int_vars, &empty_bv_vars, &empty_array_vars);
+    let encoder = crate::equivalence::EquivEncoder::new(
+        &bool_vars,
+        &int_vars,
+        &empty_bv_vars,
+        &empty_array_vars,
+    );
 
     // Step 1: Check full conjunction satisfiability
     let solver = crate::solver::new_solver();
@@ -279,14 +285,12 @@ pub fn check_spec_consistency(
                 pairwise_conflicts,
             }
         }
-        SatResult::Unknown => {
-            ConsistencyReport {
-                satisfiability: SatisfiabilityResult::Unknown,
-                vacuity: vec![],
-                redundancies: vec![],
-                pairwise_conflicts: vec![],
-            }
-        }
+        SatResult::Unknown => ConsistencyReport {
+            satisfiability: SatisfiabilityResult::Unknown,
+            vacuity: vec![],
+            redundancies: vec![],
+            pairwise_conflicts: vec![],
+        },
     }
 }
 
@@ -341,7 +345,9 @@ fn extract_mus(
         }
     }
 
-    in_mus.iter().enumerate()
+    in_mus
+        .iter()
+        .enumerate()
         .filter(|(_, &b)| b)
         .map(|(i, _)| i)
         .collect()
@@ -356,7 +362,11 @@ fn extract_mus(
 /// Looks through ForAll wrappers to find the implication core.
 fn extract_antecedent(expr: &VerifyExpr) -> Option<&VerifyExpr> {
     match expr {
-        VerifyExpr::Binary { op: VerifyOp::Implies, left, .. } => Some(left),
+        VerifyExpr::Binary {
+            op: VerifyOp::Implies,
+            left,
+            ..
+        } => Some(left),
         VerifyExpr::ForAll { body, .. } => extract_antecedent(body),
         _ => None,
     }
@@ -449,9 +459,7 @@ fn detect_redundancy(
 
         if solver.check() == SatResult::Unsat {
             // context ∧ ¬F_i is UNSAT → F_i is entailed by others
-            let entailed_by: Vec<usize> = (0..formulas.len())
-                .filter(|&j| j != i)
-                .collect();
+            let entailed_by: Vec<usize> = (0..formulas.len()).filter(|&j| j != i).collect();
             findings.push(RedundancyFinding {
                 redundant_index: i,
                 label: formulas[i].label.clone(),

@@ -1,0 +1,184 @@
+{
+  "case": "T04-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 22,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T04_008.Shape",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T04_008.Shape \u2192 Sort u} \u2192\n  (t : T04_008.Shape) \u2192\n    ((a : Nat) \u2192 motive (T04_008.Shape.circle a)) \u2192 ((a a_1 : Nat) \u2192 motive (T04_008.Shape.rect a a_1)) \u2192 motive t",
+      "name": "T04_008.Shape.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T04_008.Shape",
+      "name": "T04_008.Shape.circle",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat}, T04_008.Shape.circle a = T04_008.Shape.circle a_1 \u2192 a = a_1",
+      "name": "T04_008.Shape.circle.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat), (T04_008.Shape.circle a = T04_008.Shape.circle a_1) = (a = a_1)",
+      "name": "T04_008.Shape.circle.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat), sizeOf (T04_008.Shape.circle a) = 1 + sizeOf a",
+      "name": "T04_008.Shape.circle.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T04_008.Shape} \u2192 v1 = v2 \u2192 T04_008.Shape.noConfusionType P v1 v2",
+      "name": "T04_008.Shape.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T04_008.Shape \u2192 T04_008.Shape \u2192 Sort u",
+      "name": "T04_008.Shape.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T04_008.Shape \u2192 Sort u} \u2192\n  ((a : Nat) \u2192 motive (T04_008.Shape.circle a)) \u2192\n    ((a a_1 : Nat) \u2192 motive (T04_008.Shape.rect a a_1)) \u2192 (t : T04_008.Shape) \u2192 motive t",
+      "name": "T04_008.Shape.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T04_008.Shape \u2192 Sort u} \u2192\n  (t : T04_008.Shape) \u2192\n    ((a : Nat) \u2192 motive (T04_008.Shape.circle a)) \u2192 ((a a_1 : Nat) \u2192 motive (T04_008.Shape.rect a a_1)) \u2192 motive t",
+      "name": "T04_008.Shape.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T04_008.Shape",
+      "name": "T04_008.Shape.rect",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 a_2 a_3 : Nat}, T04_008.Shape.rect a a_1 = T04_008.Shape.rect a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T04_008.Shape.rect.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 a_2 a_3 : Nat), (T04_008.Shape.rect a a_1 = T04_008.Shape.rect a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T04_008.Shape.rect.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat), sizeOf (T04_008.Shape.rect a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T04_008.Shape.rect.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_008.classify",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192\n  (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 (Unit \u2192 motive 1) \u2192 ((n : Nat) \u2192 motive n.succ.succ) \u2192 motive x",
+      "name": "T04_008.classify.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option T04_008.Shape \u2192 Nat",
+      "name": "T04_008.describe",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Option T04_008.Shape \u2192 Sort u_1) \u2192\n  (x : Option T04_008.Shape) \u2192\n    (Unit \u2192 motive none) \u2192\n      ((r : Nat) \u2192 motive (some (T04_008.Shape.circle r))) \u2192\n        ((w h : Nat) \u2192 motive (some (T04_008.Shape.rect w h))) \u2192 motive x",
+      "name": "T04_008.describe.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List (Nat \u00d7 Nat) \u2192 List Nat",
+      "name": "T04_008.firstComponents",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 List (Nat \u00d7 Nat) \u2192 Nat",
+      "name": "T04_008.shadowed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List (Nat \u00d7 Nat) \u2192 Nat",
+      "name": "T04_008.sumPairs",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List (Nat \u00d7 Nat) \u2192 Sort u_1) \u2192\n  (x : List (Nat \u00d7 Nat)) \u2192 (Unit \u2192 motive []) \u2192 ((a b : Nat) \u2192 (t : List (Nat \u00d7 Nat)) \u2192 motive ((a, b) :: t)) \u2192 motive x",
+      "name": "T04_008.sumPairs.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

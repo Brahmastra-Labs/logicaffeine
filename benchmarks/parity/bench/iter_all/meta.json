@@ -1,0 +1,11 @@
+{
+  "capability": "iter.all",
+  "workload": "allSeq((n)->n>=0, xs) \u2014 always true",
+  "arg": "80000",
+  "expected": "80000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

@@ -43,9 +43,9 @@
 //! ```
 
 use crate::network::behaviour::{MeshBehaviour, MeshBehaviourEvent};
+use crate::network::gossip;
 use crate::network::protocol::{LogosRequest, LogosResponse};
 use crate::network::wire;
-use crate::network::gossip;
 use futures::prelude::*;
 use libp2p::gossipsub;
 use libp2p::request_response::{self, OutboundRequestId};
@@ -222,9 +222,7 @@ enum MeshCommand {
         response: oneshot::Sender<Vec<Multiaddr>>,
     },
     /// Subscribe to a GossipSub topic.
-    GossipSubscribe {
-        topic: String,
-    },
+    GossipSubscribe { topic: String },
     /// Publish to a GossipSub topic with retry tracking.
     GossipPublish {
         topic: String,
@@ -297,10 +295,15 @@ impl MeshNode {
     }
 
     /// The main event loop for the mesh node.
-    async fn event_loop(mut swarm: Swarm<MeshBehaviour>, mut command_rx: mpsc::Receiver<MeshCommand>) {
+    async fn event_loop(
+        mut swarm: Swarm<MeshBehaviour>,
+        mut command_rx: mpsc::Receiver<MeshCommand>,
+    ) {
         // Track pending outbound requests
-        let mut pending_requests: HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, NetworkError>>> =
-            HashMap::new();
+        let mut pending_requests: HashMap<
+            OutboundRequestId,
+            oneshot::Sender<Result<Vec<u8>, NetworkError>>,
+        > = HashMap::new();
 
         // Track pending dials (by multiaddr string -> response sender)
         let mut pending_dials: HashMap<String, oneshot::Sender<Result<(), NetworkError>>> =
@@ -712,11 +715,15 @@ pub async fn gossip_publish(topic: &str, data: Vec<u8>) {
     }
 
     if let Some(tx) = GOSSIP_TX.get() {
-        if tx.send(MeshCommand::GossipPublish {
-            topic: topic.to_string(),
-            data,
-            retry_count: 0,
-        }).await.is_err() {
+        if tx
+            .send(MeshCommand::GossipPublish {
+                topic: topic.to_string(),
+                data,
+                retry_count: 0,
+            })
+            .await
+            .is_err()
+        {
             eprintln!("[GOSSIP] Command channel closed");
         }
     }
@@ -738,9 +745,13 @@ pub async fn gossip_subscribe(topic: &str) {
     }
 
     if let Some(tx) = GOSSIP_TX.get() {
-        if tx.send(MeshCommand::GossipSubscribe {
-            topic: topic.to_string(),
-        }).await.is_err() {
+        if tx
+            .send(MeshCommand::GossipSubscribe {
+                topic: topic.to_string(),
+            })
+            .await
+            .is_err()
+        {
             eprintln!("[GOSSIP] Command channel closed");
         }
     }
@@ -751,96 +762,9 @@ pub async fn gossip_subscribe(topic: &str) {
 // =============================================================================
 
 #[cfg(test)]
-pub mod test_control {
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-    use std::sync::OnceLock;
-
-    pub struct MeshTestControl {
-        pub pause_publish: AtomicBool,
-        pub pause_receive: AtomicBool,
-        pub retry_count: AtomicU32,
-    }
-
-    static CONTROL: OnceLock<MeshTestControl> = OnceLock::new();
-
-    pub fn get() -> &'static MeshTestControl {
-        CONTROL.get_or_init(|| MeshTestControl {
-            pause_publish: AtomicBool::new(false),
-            pause_receive: AtomicBool::new(false),
-            retry_count: AtomicU32::new(0),
-        })
-    }
-
-    pub fn pause_network() {
-        get().pause_publish.store(true, Ordering::SeqCst);
-    }
-
-    pub fn resume_network() {
-        get().pause_publish.store(false, Ordering::SeqCst);
-    }
-
-    pub fn is_paused() -> bool {
-        get().pause_publish.load(Ordering::Relaxed)
-    }
-
-    pub fn increment_retry() {
-        get().retry_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn get_retry_count() -> u32 {
-        get().retry_count.load(Ordering::Relaxed)
-    }
-
-    pub fn reset_retry_count() {
-        get().retry_count.store(0, Ordering::Relaxed);
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/mesh/test_control.rs"]
+pub mod test_control;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_peer_agent_new() {
-        let peer = PeerAgent::new("/ip4/127.0.0.1/tcp/8000");
-        assert!(peer.is_ok());
-        let peer = peer.unwrap();
-        assert_eq!(peer.addr(), "/ip4/127.0.0.1/tcp/8000");
-        assert!(peer.peer_id.is_none()); // No /p2p/ component
-    }
-
-    #[test]
-    fn test_peer_agent_empty_fails() {
-        let peer = PeerAgent::new("");
-        assert!(peer.is_err());
-    }
-
-    #[test]
-    fn test_peer_agent_invalid_fails() {
-        let peer = PeerAgent::new("not-a-multiaddr");
-        assert!(peer.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_mesh_node_creation() {
-        let node = MeshNode::new().await;
-        assert!(node.is_ok());
-        let node = node.unwrap();
-        // Peer ID should be valid
-        assert!(!node.local_peer_id().to_string().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_listen_empty_fails() {
-        // This tests the early return before mesh initialization
-        let result = listen("").await;
-        assert!(matches!(result, Err(NetworkError::InvalidAddress(_))));
-    }
-
-    #[tokio::test]
-    async fn test_connect_empty_fails() {
-        // This tests the early return before mesh initialization
-        let result = connect("").await;
-        assert!(matches!(result, Err(NetworkError::InvalidAddress(_))));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/mesh/tests.rs"]
+mod tests;

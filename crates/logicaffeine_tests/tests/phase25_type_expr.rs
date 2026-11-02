@@ -20,7 +20,11 @@ fn let_with_int_annotation() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let x: i64 = 5;"), "Should emit typed let: {}", rust);
+    assert!(
+        rust.contains("let x: i64 = 5;"),
+        "Should emit typed let: {}",
+        rust
+    );
 }
 
 #[test]
@@ -30,7 +34,11 @@ fn let_with_nat_annotation() {
     assert!(result.is_ok(), "Should parse: {:?}", result);
     let rust = result.unwrap();
     // Spec §10.6.1: Nat → u64 (not usize, which varies by platform)
-    assert!(rust.contains("let count: u64 = 10;"), "Should emit u64: {}", rust);
+    assert!(
+        rust.contains("let count: u64 = 10;"),
+        "Should emit u64: {}",
+        rust
+    );
 }
 
 #[test]
@@ -48,7 +56,11 @@ fn let_with_bool_annotation() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let flag: bool = true;"), "Should emit bool: {}", rust);
+    assert!(
+        rust.contains("let flag: bool = true;"),
+        "Should emit bool: {}",
+        rust
+    );
 }
 
 #[test]
@@ -57,7 +69,11 @@ fn let_without_annotation_still_works() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse untyped let: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let x = 5;"), "Should emit untyped: {}", rust);
+    assert!(
+        rust.contains("let x: i64 = 5;"),
+        "An unannotated Int binding states its machine word: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -70,7 +86,11 @@ fn let_with_list_of_int() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse generic: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("LogosSeq<i64>"), "Should emit LogosSeq<i64>: {}", rust);
+    assert!(
+        rust.contains("LogosSeq<i64>"),
+        "Should emit LogosSeq<i64>: {}",
+        rust
+    );
 }
 
 #[test]
@@ -79,7 +99,11 @@ fn let_with_option_of_text() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse Option: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("Option<String>"), "Should emit Option<String>: {}", rust);
+    assert!(
+        rust.contains("Option<String>"),
+        "Should emit Option<String>: {}",
+        rust
+    );
 }
 
 #[test]
@@ -89,17 +113,41 @@ fn let_with_nested_generic() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse nested generic: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("LogosSeq<LogosSeq<i64>>"), "Should emit LogosSeq<LogosSeq<i64>>: {}", rust);
+    assert!(
+        rust.contains("LogosSeq<LogosSeq<i64>>"),
+        "Should emit LogosSeq<LogosSeq<i64>>: {}",
+        rust
+    );
 }
 
 #[test]
 fn let_with_result_two_params() {
     // "Result of Int and Text" should parse as Result<i64, String>
+    let source = "## Main\nLet res: Result of Int and Text be a new Ok with value 5.";
+    let result = compile_to_rust(source);
+    assert!(
+        result.is_ok(),
+        "Should parse multi-param generic: {:?}",
+        result
+    );
+    let rust = result.unwrap();
+    assert!(
+        rust.contains("Result<i64, String>"),
+        "Should emit Result<i64, String>: {}",
+        rust
+    );
+}
+
+#[test]
+fn a_result_annotation_refuses_nothing() {
+    // `nothing` is an absent Option or the unit value, never a Result.
     let source = "## Main\nLet res: Result of Int and Text be nothing.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse multi-param generic: {:?}", result);
-    let rust = result.unwrap();
-    assert!(rust.contains("Result<i64, String>"), "Should emit Result<i64, String>: {}", rust);
+    assert!(
+        result.is_err(),
+        "`nothing` is not a Result of Int and Text: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -112,7 +160,11 @@ fn mutable_with_int_annotation() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse mutable typed: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let mut counter: i64 = 0;"), "Should emit mut typed: {}", rust);
+    assert!(
+        rust.contains("let mut counter: i64 = 0;"),
+        "Should emit mut typed: {}",
+        rust
+    );
 }
 
 #[test]
@@ -122,7 +174,11 @@ fn mutable_with_list_annotation() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse mutable generic: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let mut values: LogosSeq<String>"), "Should emit mut LogosSeq: {}", rust);
+    assert!(
+        rust.contains("let mut values: LogosSeq<String>"),
+        "Should emit mut LogosSeq: {}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -135,16 +191,28 @@ fn maybe_of_int_annotation() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse Maybe of Int: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("Option<i64>"), "Maybe of Int should emit Option<i64>: {}", rust);
+    assert!(
+        rust.contains("Option<i64>"),
+        "Maybe of Int should emit Option<i64>: {}",
+        rust
+    );
 }
 
 #[test]
 fn maybe_int_direct_syntax() {
     let source = "## Main\nLet x: Maybe Int be nothing.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse Maybe Int (no 'of'): {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse Maybe Int (no 'of'): {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("Option<i64>"), "Maybe Int should emit Option<i64>: {}", rust);
+    assert!(
+        rust.contains("Option<i64>"),
+        "Maybe Int should emit Option<i64>: {}",
+        rust
+    );
 }
 
 #[test]
@@ -153,7 +221,11 @@ fn maybe_text_direct_syntax() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse Maybe Text: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("Option<String>"), "Maybe Text should emit Option<String>: {}", rust);
+    assert!(
+        rust.contains("Option<String>"),
+        "Maybe Text should emit Option<String>: {}",
+        rust
+    );
 }
 
 #[test]
@@ -165,18 +237,34 @@ fn maybe_as_return_type() {
 Show f().
 "#;
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse Maybe Int return type: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse Maybe Int return type: {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("Option<i64>"), "Maybe return type should emit Option<i64>: {}", rust);
+    assert!(
+        rust.contains("Option<i64>"),
+        "Maybe return type should emit Option<i64>: {}",
+        rust
+    );
 }
 
 #[test]
 fn maybe_nested_generic() {
     let source = "## Main\nLet x: Maybe List of Int be nothing.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse Maybe List of Int: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse Maybe List of Int: {:?}",
+        result
+    );
     let rust = result.unwrap();
-    assert!(rust.contains("Option<LogosSeq<i64>>"), "Maybe List of Int should emit Option<LogosSeq<i64>>: {}", rust);
+    assert!(
+        rust.contains("Option<LogosSeq<i64>>"),
+        "Maybe List of Int should emit Option<LogosSeq<i64>>: {}",
+        rust
+    );
 }
 
 #[test]

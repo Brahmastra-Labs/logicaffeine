@@ -36,7 +36,9 @@ fn non_one_start_loop_rebases_to_zero_based() {
         .map(|(_, b)| b)
         .unwrap_or(&rust);
     assert!(
-        body.contains("(lo - 1)..hi") || body.contains("((lo - 1))..hi") || body.contains("(lo - 1)..(hi)"),
+        body.contains("(lo - 1)..hi")
+            || body.contains("((lo - 1))..hi")
+            || body.contains("(lo - 1)..(hi)"),
         "a non-1-start indexing loop must rebase its range to 0-based \
          (`for i in (lo - 1)..hi`). Got:\n{}",
         rust

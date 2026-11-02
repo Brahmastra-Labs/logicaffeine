@@ -340,7 +340,11 @@ fn is_actionable_gap(text: &str, category: &TokenCategory) -> bool {
     ) {
         return false;
     }
-    let first_lower = text.chars().next().map(|c| c.is_lowercase()).unwrap_or(false);
+    let first_lower = text
+        .chars()
+        .next()
+        .map(|c| c.is_lowercase())
+        .unwrap_or(false);
     if !first_lower || !text.chars().all(|c| c.is_ascii_alphabetic()) {
         return false;
     }
@@ -416,28 +420,88 @@ pub fn count_nodes(node: &AstNode) -> (usize, usize) {
 fn classify_error(kind: &ParseErrorKind) -> (Category, Subsystem, &'static str) {
     use ParseErrorKind::*;
     match kind {
-        UnknownQuantifier { .. } => (Category::ActionableLexiconGap, Subsystem::Lexicon, "unknown_quantifier"),
-        UnknownModal { .. } => (Category::ActionableLexiconGap, Subsystem::Lexicon, "unknown_modal"),
-        ExpectedSuperlativeAdjective => (Category::ActionableLexiconGap, Subsystem::Lexicon, "expected_superlative"),
-        ExpectedComparativeAdjective => (Category::ActionableLexiconGap, Subsystem::Lexicon, "expected_comparative"),
+        UnknownQuantifier { .. } => (
+            Category::ActionableLexiconGap,
+            Subsystem::Lexicon,
+            "unknown_quantifier",
+        ),
+        UnknownModal { .. } => (
+            Category::ActionableLexiconGap,
+            Subsystem::Lexicon,
+            "unknown_modal",
+        ),
+        ExpectedSuperlativeAdjective => (
+            Category::ActionableLexiconGap,
+            Subsystem::Lexicon,
+            "expected_superlative",
+        ),
+        ExpectedComparativeAdjective => (
+            Category::ActionableLexiconGap,
+            Subsystem::Lexicon,
+            "expected_comparative",
+        ),
 
-        StativeProgressiveConflict => (Category::SemanticLossy, Subsystem::Semantics, "stative_progressive_conflict"),
-        ScopeViolation(_) => (Category::AmbiguityHuman, Subsystem::Semantics, "scope_violation"),
-        UnresolvedPronoun { .. } => (Category::AmbiguityHuman, Subsystem::Semantics, "unresolved_pronoun"),
-        IsValueEquality { .. } => (Category::SemanticLossy, Subsystem::Semantics, "is_value_equality"),
+        StativeProgressiveConflict => (
+            Category::SemanticLossy,
+            Subsystem::Semantics,
+            "stative_progressive_conflict",
+        ),
+        ScopeViolation(_) => (
+            Category::AmbiguityHuman,
+            Subsystem::Semantics,
+            "scope_violation",
+        ),
+        UnresolvedPronoun { .. } => (
+            Category::AmbiguityHuman,
+            Subsystem::Semantics,
+            "unresolved_pronoun",
+        ),
+        IsValueEquality { .. } => (
+            Category::SemanticLossy,
+            Subsystem::Semantics,
+            "is_value_equality",
+        ),
 
-        ExpectedContentWord { .. } => (Category::ParserGap, Subsystem::Parser, "expected_content_word"),
+        ExpectedContentWord { .. } => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "expected_content_word",
+        ),
         ExpectedVerb { .. } => (Category::ParserGap, Subsystem::Parser, "expected_verb"),
         ExpectedCopula => (Category::ParserGap, Subsystem::Parser, "expected_copula"),
-        GappingResolutionFailed => (Category::ParserGap, Subsystem::Parser, "gapping_resolution_failed"),
-        ExpectedTemporalAdverb => (Category::ParserGap, Subsystem::Parser, "expected_temporal_adverb"),
-        ExpectedPresuppositionTrigger => (Category::ParserGap, Subsystem::Parser, "expected_presupposition_trigger"),
-        ExpectedFocusParticle => (Category::ParserGap, Subsystem::Parser, "expected_focus_particle"),
-        ExpectedScopalAdverb => (Category::ParserGap, Subsystem::Parser, "expected_scopal_adverb"),
+        GappingResolutionFailed => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "gapping_resolution_failed",
+        ),
+        ExpectedTemporalAdverb => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "expected_temporal_adverb",
+        ),
+        ExpectedPresuppositionTrigger => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "expected_presupposition_trigger",
+        ),
+        ExpectedFocusParticle => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "expected_focus_particle",
+        ),
+        ExpectedScopalAdverb => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "expected_scopal_adverb",
+        ),
         ExpectedThan => (Category::ParserGap, Subsystem::Parser, "expected_than"),
         ExpectedNumber => (Category::ParserGap, Subsystem::Parser, "expected_number"),
         EmptyRestriction => (Category::ParserGap, Subsystem::Parser, "empty_restriction"),
-        RespectivelyLengthMismatch { .. } => (Category::ParserGap, Subsystem::Parser, "respectively_length_mismatch"),
+        RespectivelyLengthMismatch { .. } => (
+            Category::ParserGap,
+            Subsystem::Parser,
+            "respectively_length_mismatch",
+        ),
         UnexpectedToken { .. } => (Category::ParserGap, Subsystem::Parser, "unexpected_token"),
         GrammarError(_) => (Category::ParserGap, Subsystem::Parser, "grammar_error"),
         ExpectedKeyword { .. } => (Category::ParserGap, Subsystem::Parser, "expected_keyword"),
@@ -516,12 +580,17 @@ pub fn classify(index: usize, input: &str) -> TriageRecord {
 
             if offending_isolated {
                 (Outcome::Fail, Category::IsolateOutOfScope, Subsystem::None)
-            } else if offending_is_gap || (!lexicon_misses.is_empty() && is_lexical_error(&err.kind))
+            } else if offending_is_gap
+                || (!lexicon_misses.is_empty() && is_lexical_error(&err.kind))
             {
                 if let Some(w) = lexicon_misses.first() {
                     proposal.lexicon_entry = Some(propose_lexicon_entry(w));
                 }
-                (Outcome::Fail, Category::ActionableLexiconGap, Subsystem::Lexicon)
+                (
+                    Outcome::Fail,
+                    Category::ActionableLexiconGap,
+                    Subsystem::Lexicon,
+                )
             } else {
                 let (cat, sub, _) = classify_error(&err.kind);
                 // Try the metamorphic oracle: a paraphrase that parses is the spec.
@@ -550,11 +619,23 @@ pub fn classify(index: usize, input: &str) -> TriageRecord {
                 if let Some(w) = lexicon_misses.first() {
                     proposal.lexicon_entry = Some(propose_lexicon_entry(w));
                 }
-                (Outcome::Partial, Category::ActionableLexiconGap, Subsystem::Lexicon)
+                (
+                    Outcome::Partial,
+                    Category::ActionableLexiconGap,
+                    Subsystem::Lexicon,
+                )
             } else if collapsed {
-                (Outcome::Partial, Category::SemanticLossy, Subsystem::Semantics)
+                (
+                    Outcome::Partial,
+                    Category::SemanticLossy,
+                    Subsystem::Semantics,
+                )
             } else if ast_other > 0 {
-                (Outcome::Partial, Category::SemanticLossy, Subsystem::Semantics)
+                (
+                    Outcome::Partial,
+                    Category::SemanticLossy,
+                    Subsystem::Semantics,
+                )
             } else if result.readings.len() >= 6 {
                 (Outcome::Ok, Category::AmbiguityHuman, Subsystem::Semantics)
             } else {
@@ -634,7 +715,10 @@ fn confidence_for(
 }
 
 /// Stable label + span + offending text for a parse error.
-fn describe_error(err: &ParseError, input: &str) -> (String, Option<(usize, usize)>, Option<String>) {
+fn describe_error(
+    err: &ParseError,
+    input: &str,
+) -> (String, Option<(usize, usize)>, Option<String>) {
     let label = classify_error(&err.kind).2.to_string();
     let start = err.span.start.min(input.len());
     let end = err.span.end.min(input.len());
@@ -691,14 +775,32 @@ fn guess_pos(word: &str) -> &'static str {
     let ends = |s: &str| w.ends_with(s);
     if ends("ize") || ends("ise") || ends("ify") || ends("fy") {
         "Verb"
-    } else if ends("ive") || ends("ous") || ends("ful") || ends("less")
-        || ends("able") || ends("ible") || ends("ical") || ends("ic")
-        || ends("al") || ends("ary") || ends("ed")
+    } else if ends("ive")
+        || ends("ous")
+        || ends("ful")
+        || ends("less")
+        || ends("able")
+        || ends("ible")
+        || ends("ical")
+        || ends("ic")
+        || ends("al")
+        || ends("ary")
+        || ends("ed")
     {
         "Adjective"
-    } else if ends("tion") || ends("sion") || ends("ment") || ends("ity")
-        || ends("ness") || ends("ance") || ends("ence") || ends("ship")
-        || ends("ism") || ends("ist") || ends("ology") || ends("er") || ends("or")
+    } else if ends("tion")
+        || ends("sion")
+        || ends("ment")
+        || ends("ity")
+        || ends("ness")
+        || ends("ance")
+        || ends("ence")
+        || ends("ship")
+        || ends("ism")
+        || ends("ist")
+        || ends("ology")
+        || ends("er")
+        || ends("or")
     {
         "Noun"
     } else {
@@ -765,7 +867,11 @@ fn signature(r: &TriageRecord) -> String {
     match r.category {
         Category::ActionableLexiconGap => format!(
             "lexicon:{}",
-            r.localization.suspect_words.first().cloned().unwrap_or_default()
+            r.localization
+                .suspect_words
+                .first()
+                .cloned()
+                .unwrap_or_default()
         ),
         Category::ParserGap => format!("parser:{}", r.localization.error_kind),
         Category::SemanticLossy => "semantics:lossy".to_string(),
@@ -776,35 +882,5 @@ fn signature(r: &TriageRecord) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn abbreviation_detector_precision() {
-        for w in ["EEG", "ERPs", "BSc", "MSc", "PhD", "N2pc"] {
-            assert!(looks_like_abbreviation(w), "{w} should look like an abbreviation");
-        }
-        for w in ["Mary", "Paris", "cat", "lecture", "the"] {
-            assert!(!looks_like_abbreviation(w), "{w} should NOT be an abbreviation");
-        }
-    }
-
-    #[test]
-    fn pos_guess_by_suffix() {
-        assert_eq!(guess_pos("cognitive"), "Adjective");
-        assert_eq!(guess_pos("neural"), "Adjective");
-        assert_eq!(guess_pos("publications"), "Noun");
-        assert_eq!(guess_pos("stimulation"), "Noun");
-        assert_eq!(guess_pos("characterize"), "Verb");
-    }
-
-    #[test]
-    fn function_words_are_never_gaps() {
-        for w in ["is", "are", "from", "where", "of", "the", "than"] {
-            assert!(
-                !is_actionable_gap(w, &TokenCategory::Other),
-                "{w} is a function word, never a lexicon gap"
-            );
-        }
-    }
-}
+#[path = "../../../crates/logicaffeine_tests/unit/wiki_trace/tests.rs"]
+mod tests;

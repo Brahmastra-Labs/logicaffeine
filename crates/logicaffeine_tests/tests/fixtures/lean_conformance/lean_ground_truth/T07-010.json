@@ -1,0 +1,256 @@
+{
+  "case": "T07-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 32,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_010.Box",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_010.Box \u03b1 \u2192 Sort u} \u2192 (t : T07_010.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T07_010.Box.mk a)) \u2192 motive t",
+      "name": "T07_010.Box.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_010.Box \u03b1",
+      "name": "T07_010.Box.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T07_010.Box.mk a = T07_010.Box.mk a_1 \u2192 a = a_1",
+      "name": "T07_010.Box.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T07_010.Box.mk a = T07_010.Box.mk a_1) = (a = a_1)",
+      "name": "T07_010.Box.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T07_010.Box.mk a) = 1 + sizeOf a",
+      "name": "T07_010.Box.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_010.Box \u03b1} \u2192 v1 = v2 \u2192 T07_010.Box.noConfusionType P v1 v2",
+      "name": "T07_010.Box.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_010.Box \u03b1 \u2192 T07_010.Box \u03b1 \u2192 Sort u",
+      "name": "T07_010.Box.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_010.Box \u03b1 \u2192 Sort u} \u2192 ((a : \u03b1) \u2192 motive (T07_010.Box.mk a)) \u2192 (t : T07_010.Box \u03b1) \u2192 motive t",
+      "name": "T07_010.Box.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_010.Box \u03b1 \u2192 Sort u} \u2192 (t : T07_010.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T07_010.Box.mk a)) \u2192 motive t",
+      "name": "T07_010.Box.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_010.MyInhabited",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_010.MyInhabited \u03b1 \u2192 Sort u} \u2192\n    (t : T07_010.MyInhabited \u03b1) \u2192 ((deflt : \u03b1) \u2192 motive { deflt := deflt }) \u2192 motive t",
+      "name": "T07_010.MyInhabited.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_010.MyInhabited \u03b1] \u2192 \u03b1",
+      "name": "T07_010.MyInhabited.deflt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_010.MyInhabited \u03b1",
+      "name": "T07_010.MyInhabited.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_010.MyInhabited \u03b1} \u2192 v1 = v2 \u2192 T07_010.MyInhabited.noConfusionType P v1 v2",
+      "name": "T07_010.MyInhabited.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_010.MyInhabited \u03b1 \u2192 T07_010.MyInhabited \u03b1 \u2192 Sort u",
+      "name": "T07_010.MyInhabited.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_010.MyInhabited \u03b1 \u2192 Sort u} \u2192\n    ((deflt : \u03b1) \u2192 motive { deflt := deflt }) \u2192 (t : T07_010.MyInhabited \u03b1) \u2192 motive t",
+      "name": "T07_010.MyInhabited.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_010.MyInhabited \u03b1 \u2192 Sort u} \u2192\n    (t : T07_010.MyInhabited \u03b1) \u2192 ((deflt : \u03b1) \u2192 motive { deflt := deflt }) \u2192 motive t",
+      "name": "T07_010.MyInhabited.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Prop",
+      "name": "T07_010.MyNonempty",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T07_010.MyNonempty \u03b1 \u2192 Prop} (t : T07_010.MyNonempty \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T07_010.MyNonempty.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, \u03b1 \u2192 T07_010.MyNonempty \u03b1",
+      "name": "T07_010.MyNonempty.intro",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T07_010.MyNonempty \u03b1 \u2192 Prop}, (\u2200 (a : \u03b1), motive \u22ef) \u2192 \u2200 (t : T07_010.MyNonempty \u03b1), motive t",
+      "name": "T07_010.MyNonempty.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T07_010.MyNonempty \u03b1 \u2192 Prop} (t : T07_010.MyNonempty \u03b1), (\u2200 (a : \u03b1), motive \u22ef) \u2192 motive t",
+      "name": "T07_010.MyNonempty.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_010.Box Nat",
+      "name": "T07_010.boxedDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_010.MyInhabited \u03b1] \u2192 \u03b1",
+      "name": "T07_010.getDefault",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) [inst : T07_010.MyInhabited \u03b1], T07_010.MyNonempty \u03b1",
+      "name": "T07_010.inhabitedNonempty",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T07_010.MyInhabited Bool",
+      "name": "T07_010.instMyInhabitedBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T07_010.MyInhabited \u03b1] \u2192 T07_010.MyInhabited (T07_010.Box \u03b1)",
+      "name": "T07_010.instMyInhabitedBox",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_010.MyInhabited Nat",
+      "name": "T07_010.instMyInhabitedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_010.MyNonempty Nat",
+      "name": "T07_010.natNonempty",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, T07_010.MyNonempty \u03b1 \u2192 \u2200 (p : Prop), (\u03b1 \u2192 p) \u2192 p",
+      "name": "T07_010.nonemptyElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_010.opaqueThing",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,79 @@
+{
+  "case": "T04-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "(p : Nat \u2192 Bool) \u2192 List Nat \u2192 Option { x // p x = true }",
+      "name": "T04_012.findSub",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Bool \u2192 Sort u_1) \u2192 (x : Bool) \u2192 (x = true \u2192 motive true) \u2192 (x = false \u2192 motive false) \u2192 motive x",
+      "name": "T04_012.findSub.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((y : Nat) \u2192 (t : List Nat) \u2192 motive (y :: t)) \u2192 motive x",
+      "name": "T04_012.findSub.match_2",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Option { z // z % 2 = 0 }",
+      "name": "T04_012.firstEven",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (x = 0 \u2192 motive 0) \u2192 ((n : Nat) \u2192 x = n.succ \u2192 motive n.succ) \u2192 motive x",
+      "name": "T04_012.firstEven.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Option { z // 0 < z }",
+      "name": "T04_012.firstPos",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (y : Nat), Nat.ble 1 y = true \u2192 Nat.succ 0 \u2264 y",
+      "name": "T04_012.firstPos.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (y : Nat), Nat.ble 1 y = true \u2192 Nat.succ 0 \u2264 y",
+      "name": "T04_012.firstPos.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T04_012.parity",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

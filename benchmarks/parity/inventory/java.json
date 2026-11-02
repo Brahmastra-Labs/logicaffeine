@@ -1,0 +1,1219 @@
+{
+ "count": 202,
+ "entries": [
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "digit"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "forDigit"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "getNumericValue"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "isDigit"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "isLetter"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "isLetterOrDigit"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "isLowerCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "isUpperCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "isWhitespace"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "toLowerCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Character",
+   "signature": "",
+   "symbol": "toUpperCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "MAX_VALUE"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "MIN_VALUE"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "compare"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "isFinite"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "isInfinite"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "isNaN"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "parseDouble"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "toString"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Double",
+   "signature": "",
+   "symbol": "valueOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "bitCount"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "compare"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "highestOneBit"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "numberOfLeadingZeros"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "numberOfTrailingZeros"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "parseInt"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "reverse"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "signum"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "toBinaryString"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "toHexString"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "toOctalString"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "toString"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Integer",
+   "signature": "",
+   "symbol": "valueOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "E"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "PI"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "abs"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "acos"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "addExact"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "asin"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "atan"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "atan2"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "cbrt"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "ceil"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "clamp"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "copySign"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "cos"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "cosh"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "exp"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "floor"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "floorDiv"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "floorMod"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "gcd"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "hypot"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "log"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "log10"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "multiplyExact"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "pow"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "rint"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "round"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "signum"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "sin"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "sinh"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "sqrt"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "tan"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "tanh"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "toDegrees"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.Math",
+   "signature": "",
+   "symbol": "toRadians"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "charAt"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "chars"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "codePointAt"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "compareTo"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "concat"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "endsWith"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "equals"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "equalsIgnoreCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "format"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "indexOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "isBlank"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "isEmpty"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "join"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "lastIndexOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "length"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "matches"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "repeat"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "replace"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "replaceAll"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "split"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "startsWith"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "strip"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "stripLeading"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "stripTrailing"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "substring"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "toCharArray"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "toLowerCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "toUpperCase"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "trim"
+  },
+  {
+   "kind": "function",
+   "module": "java.lang.String",
+   "signature": "",
+   "symbol": "valueOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "format"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "getDayOfMonth"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "getDayOfWeek"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "getMonthValue"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "getYear"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "isLeapYear"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "now"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "of"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "parse"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "plusDays"
+  },
+  {
+   "kind": "function",
+   "module": "java.time.LocalDate",
+   "signature": "",
+   "symbol": "plusMonths"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "asList"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "binarySearch"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "copyOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "equals"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "fill"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "sort"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "stream"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Arrays",
+   "signature": "",
+   "symbol": "toString"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "binarySearch"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "emptyList"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "frequency"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "reverse"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "shuffle"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "sort"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Collections",
+   "signature": "",
+   "symbol": "unmodifiableList"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "add"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "clear"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "indexOf"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "isEmpty"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "iterator"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "of"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "set"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "size"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "sort"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "subList"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.List",
+   "signature": "",
+   "symbol": "toArray"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "computeIfAbsent"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "containsKey"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "containsValue"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "entrySet"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "getOrDefault"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "isEmpty"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "keySet"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "merge"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "of"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "put"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "putIfAbsent"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "size"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Map",
+   "signature": "",
+   "symbol": "values"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "empty"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "filter"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "flatMap"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "get"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "ifPresent"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "isEmpty"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "isPresent"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "map"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "of"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "ofNullable"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "orElse"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Optional",
+   "signature": "",
+   "symbol": "orElseGet"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "doubles"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "ints"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "nextBoolean"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "nextDouble"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "nextGaussian"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "nextInt"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "nextLong"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Random",
+   "signature": "",
+   "symbol": "setSeed"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "add"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "contains"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "isEmpty"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "iterator"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "of"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.Set",
+   "signature": "",
+   "symbol": "size"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "allMatch"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "anyMatch"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "collect"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "count"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "distinct"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "filter"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "findFirst"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "flatMap"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "forEach"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "limit"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "map"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "max"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "min"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "reduce"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "skip"
+  },
+  {
+   "kind": "function",
+   "module": "java.util.stream.Stream",
+   "signature": "",
+   "symbol": "sorted"
+  }
+ ],
+ "language": "java",
+ "version": "curated (secondary reference, JDK 21 surface)"
+}

@@ -15,7 +15,9 @@ int main(int argc, char *argv[]) {
         long tmp = arr[lo]; arr[lo] = arr[hi]; arr[hi] = tmp;
         lo++; hi--;
     }
-    printf("%ld %ld %ld\n", arr[0], arr[n-1], arr[n/2]);
+    long checksum = 0;
+    for (long i = 0; i < n; i++) checksum = (checksum * 31 + arr[i]) & 268435455;
+    printf("%ld %ld %ld\n", arr[0], arr[n-1], checksum);
     delete[] arr;
     return 0;
 }

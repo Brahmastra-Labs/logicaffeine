@@ -1,14 +1,29 @@
-//! Local Common Subexpression Elimination via Value Numbering.
+//! Common Subexpression Elimination via Value Numbering, DOMINATOR-SCOPED.
 //!
-//! Identifies identical subexpressions within a basic block and replaces
-//! redundant computations with references to previously computed values.
-//! Fresh table per basic block (If/While/Repeat boundaries).
+//! Identifies identical subexpressions and replaces redundant computations with
+//! references to previously computed values. The value table is NOT reset at
+//! control-flow boundaries: it threads INTO an `If`'s arms and a loop's body (so
+//! a subexpression computed before a branch is reused inside it), and after the
+//! region the parent table is restored with the region's writes invalidated (so
+//! a value computed before a loop the loop does not write survives past it).
+//! Every reuse stays RELOAD-CORRECT: any read whose dependency symbol is written
+//! — including an `item k of arr` across a write to `arr` — is invalidated, so a
+//! stale value is never forwarded. What a statement writes comes from the one
+//! shared answer, [`super::writes`]: a `Set` in an `Inspect` arm, a `Swap`, a push
+//! through a field, a call to a function that assigns a global — every one of
+//! them invalidates here. A loop body is LOOP-CARRIED: whatever it may write is
+//! unavailable at the top of every iteration, the first included, so the body is
+//! processed against the pre-loop table MINUS its own writes. `gvn_scope_lock`
+//! pins the cross-boundary reuse; `cse_loop_soundness_lock` and
+//! `optimizer_write_effects_lock` pin the reload-correctness.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::arena::Arena;
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, Stmt};
 use crate::intern::{Interner, Symbol};
+
+use super::writes::{CalleeGlobals, WriteSet};
 
 /// Structural key for expressions, used for equality comparison in CSE.
 #[derive(Hash, Eq, PartialEq, Clone)]
@@ -74,7 +89,9 @@ fn is_non_trivial(expr: &Expr) -> bool {
 /// Collect all symbols referenced in an expression key.
 fn collect_key_symbols(key: &ExprKey, out: &mut HashSet<Symbol>) {
     match key {
-        ExprKey::Ident(sym) => { out.insert(*sym); }
+        ExprKey::Ident(sym) => {
+            out.insert(*sym);
+        }
         ExprKey::LitInt(_) | ExprKey::LitBool(_) | ExprKey::LitText(_) => {}
         ExprKey::BinaryOp(_, l, r) | ExprKey::Index(l, r) | ExprKey::Contains(l, r) => {
             collect_key_symbols(l, out);
@@ -95,16 +112,30 @@ struct CseState {
     cache: HashMap<ExprKey, Symbol>,
     /// Maps each symbol to the set of cache keys that depend on it.
     deps: HashMap<Symbol, Vec<ExprKey>>,
+    /// Maps each holder symbol to the cache keys whose value it holds — reassigning the holder
+    /// kills those entries too (the value is gone even though the key's inputs are intact).
+    held: HashMap<Symbol, Vec<ExprKey>>,
     /// Counter for generating unique temp variable names.
     counter: u32,
+    /// What any call in this program may write.
+    callee_globals: CalleeGlobals,
+}
+
+/// The availability table at one point, restored after a region whose effects were invalidated.
+struct CseSnapshot {
+    cache: HashMap<ExprKey, Symbol>,
+    deps: HashMap<Symbol, Vec<ExprKey>>,
+    held: HashMap<Symbol, Vec<ExprKey>>,
 }
 
 impl CseState {
-    fn new() -> Self {
+    fn new(callee_globals: CalleeGlobals) -> Self {
         Self {
             cache: HashMap::new(),
             deps: HashMap::new(),
+            held: HashMap::new(),
             counter: 0,
+            callee_globals,
         }
     }
 
@@ -115,16 +146,64 @@ impl CseState {
         for s in syms {
             self.deps.entry(s).or_default().push(key.clone());
         }
+        self.held.entry(sym).or_default().push(key.clone());
         self.cache.insert(key, sym);
     }
 
-    /// Invalidate all cache entries that reference the given symbol.
+    /// Invalidate every cache entry that reads the given symbol, or whose value it holds.
     fn invalidate(&mut self, sym: Symbol) {
         if let Some(keys) = self.deps.remove(&sym) {
             for key in keys {
                 self.cache.remove(&key);
             }
         }
+        if let Some(keys) = self.held.remove(&sym) {
+            for key in keys {
+                self.cache.remove(&key);
+            }
+        }
+    }
+
+    /// Forget everything: foreign code ran and may have written any name.
+    fn clear(&mut self) {
+        self.cache.clear();
+        self.deps.clear();
+        self.held.clear();
+    }
+
+    /// What `stmt` may write, with the program's callee-written globals folded in when it calls.
+    fn effects_of(&self, stmt: &Stmt) -> WriteSet {
+        WriteSet::of_stmt(stmt).with_callee_globals(&self.callee_globals)
+    }
+
+    /// What EVALUATING `expr` may write (through the calls it makes).
+    fn effects_of_expr(&self, expr: &Expr) -> WriteSet {
+        WriteSet::of_expr(expr).with_callee_globals(&self.callee_globals)
+    }
+
+    /// Drop every entry a statement with these effects may have made stale.
+    fn invalidate_effects(&mut self, effects: &WriteSet) {
+        if effects.is_opaque() {
+            self.clear();
+            return;
+        }
+        for sym in effects.symbols() {
+            self.invalidate(sym);
+        }
+    }
+
+    fn snapshot(&self) -> CseSnapshot {
+        CseSnapshot {
+            cache: self.cache.clone(),
+            deps: self.deps.clone(),
+            held: self.held.clone(),
+        }
+    }
+
+    fn restore(&mut self, snapshot: CseSnapshot) {
+        self.cache = snapshot.cache;
+        self.deps = snapshot.deps;
+        self.held = snapshot.held;
     }
 
     /// Look up an expression key in the cache.
@@ -146,13 +225,20 @@ fn count_subexpressions(expr: &Expr, counts: &mut HashMap<ExprKey, usize>) {
             count_subexpressions(left, counts);
             count_subexpressions(right, counts);
         }
-        Expr::Length { collection } | Expr::Not { operand: collection } => {
+        Expr::Length { collection }
+        | Expr::Not {
+            operand: collection,
+        } => {
             count_subexpressions(collection, counts);
         }
         Expr::FieldAccess { object, .. } => {
             count_subexpressions(object, counts);
         }
-        Expr::Index { collection, index } | Expr::Contains { collection, value: index } => {
+        Expr::Index { collection, index }
+        | Expr::Contains {
+            collection,
+            value: index,
+        } => {
             count_subexpressions(collection, counts);
             count_subexpressions(index, counts);
         }
@@ -190,40 +276,151 @@ fn rewrite_expr<'a>(
     // Recursively process sub-expressions
     let new_expr: &'a Expr<'a> = match expr {
         Expr::BinaryOp { op, left, right } => {
-            let new_left = rewrite_expr(left, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            let new_right = rewrite_expr(right, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
+            let new_left = rewrite_expr(
+                left,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            let new_right = rewrite_expr(
+                right,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
             if std::ptr::eq(*left, new_left) && std::ptr::eq(*right, new_right) {
                 expr
             } else {
-                expr_arena.alloc(Expr::BinaryOp { op: *op, left: new_left, right: new_right })
+                expr_arena.alloc(Expr::BinaryOp {
+                    op: *op,
+                    left: new_left,
+                    right: new_right,
+                })
             }
         }
         Expr::Length { collection } => {
-            let new_coll = rewrite_expr(collection, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            if std::ptr::eq(*collection, new_coll) { expr }
-            else { expr_arena.alloc(Expr::Length { collection: new_coll }) }
+            let new_coll = rewrite_expr(
+                collection,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            if std::ptr::eq(*collection, new_coll) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Length {
+                    collection: new_coll,
+                })
+            }
         }
         Expr::Not { operand } => {
-            let new_op = rewrite_expr(operand, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            if std::ptr::eq(*operand, new_op) { expr }
-            else { expr_arena.alloc(Expr::Not { operand: new_op }) }
+            let new_op = rewrite_expr(
+                operand,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            if std::ptr::eq(*operand, new_op) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Not { operand: new_op })
+            }
         }
         Expr::FieldAccess { object, field } => {
-            let new_obj = rewrite_expr(object, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            if std::ptr::eq(*object, new_obj) { expr }
-            else { expr_arena.alloc(Expr::FieldAccess { object: new_obj, field: *field }) }
+            let new_obj = rewrite_expr(
+                object,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            if std::ptr::eq(*object, new_obj) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::FieldAccess {
+                    object: new_obj,
+                    field: *field,
+                })
+            }
         }
         Expr::Index { collection, index } => {
-            let new_coll = rewrite_expr(collection, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            let new_idx = rewrite_expr(index, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            if std::ptr::eq(*collection, new_coll) && std::ptr::eq(*index, new_idx) { expr }
-            else { expr_arena.alloc(Expr::Index { collection: new_coll, index: new_idx }) }
+            let new_coll = rewrite_expr(
+                collection,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            let new_idx = rewrite_expr(
+                index,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            if std::ptr::eq(*collection, new_coll) && std::ptr::eq(*index, new_idx) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Index {
+                    collection: new_coll,
+                    index: new_idx,
+                })
+            }
         }
         Expr::Contains { collection, value } => {
-            let new_coll = rewrite_expr(collection, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            let new_val = rewrite_expr(value, intra_counts, local_cache, state, hoisted, interner, expr_arena, stmt_arena);
-            if std::ptr::eq(*collection, new_coll) && std::ptr::eq(*value, new_val) { expr }
-            else { expr_arena.alloc(Expr::Contains { collection: new_coll, value: new_val }) }
+            let new_coll = rewrite_expr(
+                collection,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            let new_val = rewrite_expr(
+                value,
+                intra_counts,
+                local_cache,
+                state,
+                hoisted,
+                interner,
+                expr_arena,
+                stmt_arena,
+            );
+            if std::ptr::eq(*collection, new_coll) && std::ptr::eq(*value, new_val) {
+                expr
+            } else {
+                expr_arena.alloc(Expr::Contains {
+                    collection: new_coll,
+                    value: new_val,
+                })
+            }
         }
         // Non-compound expressions: return as-is
         _ => expr,
@@ -284,93 +481,73 @@ fn cse_block<'a>(
     let mut result = Vec::with_capacity(stmts.len());
 
     for stmt in stmts {
+        // Everything this statement may write: its own binds and in-place mutations, whatever its
+        // nested blocks write, and every global a call it makes may change.
+        let effects = state.effects_of(&stmt);
         match stmt {
-            Stmt::Let { var, ty, value, mutable } => {
+            Stmt::Let {
+                var,
+                ty,
+                value,
+                mutable,
+            } => {
                 // Count intra-expression subexpression occurrences
                 let mut intra_counts = HashMap::new();
                 count_subexpressions(value, &mut intra_counts);
 
                 let has_intra_dupes = intra_counts.values().any(|&c| c > 1);
 
-                if has_intra_dupes {
+                let new_value = if has_intra_dupes {
                     // Full rewrite with potential hoisting
                     let mut hoisted = Vec::new();
                     let mut local_cache = HashMap::new();
                     let new_value = rewrite_expr(
-                        value, &intra_counts, &mut local_cache,
-                        state, &mut hoisted, interner, expr_arena, stmt_arena,
+                        value,
+                        &intra_counts,
+                        &mut local_cache,
+                        state,
+                        &mut hoisted,
+                        interner,
+                        expr_arena,
+                        stmt_arena,
                     );
                     result.extend(hoisted);
-                    // Add the whole expression to cross-statement cache
-                    if let Some(key) = compute_key(new_value) {
-                        if is_non_trivial(new_value) {
-                            state.insert(key, var);
-                        }
-                    }
-                    result.push(Stmt::Let { var, ty, value: new_value, mutable });
+                    new_value
                 } else {
-                    // Simple cross-statement check
-                    let new_value = cse_expr_cross_stmt(value, state, expr_arena);
-                    // Add to cache
-                    if let Some(key) = compute_key(value) {
-                        if is_non_trivial(value) {
-                            state.insert(key, var);
-                        }
+                    cse_expr_cross_stmt(value, state, expr_arena)
+                };
+                // The value is computed (and any call in it has run) before `var` takes it: entries a
+                // call made stale, and entries the OLD `var` held, die before the new one is recorded.
+                state.invalidate_effects(&effects);
+                if let Some(key) = compute_key(new_value) {
+                    if is_non_trivial(new_value) {
+                        state.insert(key, var);
                     }
-                    result.push(Stmt::Let { var, ty, value: new_value, mutable });
                 }
+                result.push(Stmt::Let {
+                    var,
+                    ty,
+                    value: new_value,
+                    mutable,
+                });
             }
-            Stmt::Set { target, value } => {
-                state.invalidate(target);
-                result.push(Stmt::Set { target, value });
-            }
-            Stmt::Push { value, collection } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-                result.push(Stmt::Push { value, collection });
-            }
-            Stmt::Pop { collection, into } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-                result.push(Stmt::Pop { collection, into });
-            }
-            Stmt::Add { value, collection } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-                result.push(Stmt::Add { value, collection });
-            }
-            Stmt::Remove { value, collection } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-                result.push(Stmt::Remove { value, collection });
-            }
-            Stmt::SetIndex { collection, index, value } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-                result.push(Stmt::SetIndex { collection, index, value });
-            }
-            Stmt::SetField { object, field, value } => {
-                if let Expr::Identifier(sym) = object {
-                    state.invalidate(*sym);
-                }
-                result.push(Stmt::SetField { object, field, value });
-            }
-            // Control flow: process inner blocks with fresh state, then clear outer cache
-            Stmt::If { cond, then_block, else_block } => {
-                let saved_cache = state.cache.clone();
-                let saved_deps = state.deps.clone();
+            // Control flow: each arm is processed from the table as it stands after the condition;
+            // afterwards the table is restored with everything either arm may have written invalidated.
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let cond_effects = state.effects_of_expr(cond);
+                state.invalidate_effects(&cond_effects);
+                let before = state.snapshot();
 
-                let new_then = cse_block(then_block.to_vec(), state, expr_arena, stmt_arena, interner);
+                let new_then =
+                    cse_block(then_block.to_vec(), state, expr_arena, stmt_arena, interner);
                 let new_then_block: Block = stmt_arena.alloc_slice(new_then);
 
-                // Restore state for else block
-                state.cache = saved_cache.clone();
-                state.deps = saved_deps.clone();
+                state.restore(before);
+                let before = state.snapshot();
 
                 let new_else = else_block.map(|eb| {
                     let processed = cse_block(eb.to_vec(), state, expr_arena, stmt_arena, interner);
@@ -378,98 +555,101 @@ fn cse_block<'a>(
                     b
                 });
 
-                // After If: conservatively clear cache (variables may have been modified)
-                state.cache = saved_cache;
-                state.deps = saved_deps;
-                // Invalidate everything that might be modified in the branches
-                invalidate_block_writes(then_block, state);
-                if let Some(eb) = else_block {
-                    invalidate_block_writes(eb, state);
-                }
+                state.restore(before);
+                state.invalidate_effects(&effects);
 
-                result.push(Stmt::If { cond, then_block: new_then_block, else_block: new_else });
+                result.push(Stmt::If {
+                    cond,
+                    then_block: new_then_block,
+                    else_block: new_else,
+                });
             }
-            Stmt::While { cond, body, decreasing } => {
-                let saved_cache = state.cache.clone();
-                let saved_deps = state.deps.clone();
+            // Loops are LOOP-CARRIED: a value the body may write is unavailable at the top of every
+            // iteration, the first included. Invalidate the body's effects first, process the body
+            // against that table, then return to it (the body's own entries do not outlive the loop).
+            Stmt::While {
+                cond,
+                body,
+                decreasing,
+            } => {
+                state.invalidate_effects(&effects);
+                let before = state.snapshot();
 
                 let new_body = cse_block(body.to_vec(), state, expr_arena, stmt_arena, interner);
                 let new_body_block: Block = stmt_arena.alloc_slice(new_body);
 
-                // After While: conservatively clear for variables modified in loop
-                state.cache = saved_cache;
-                state.deps = saved_deps;
-                invalidate_block_writes(body, state);
-
-                result.push(Stmt::While { cond, body: new_body_block, decreasing });
+                state.restore(before);
+                result.push(Stmt::While {
+                    cond,
+                    body: new_body_block,
+                    decreasing,
+                });
             }
-            Stmt::Repeat { pattern, iterable, body } => {
-                let saved_cache = state.cache.clone();
-                let saved_deps = state.deps.clone();
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
+                state.invalidate_effects(&effects);
+                let before = state.snapshot();
 
                 let new_body = cse_block(body.to_vec(), state, expr_arena, stmt_arena, interner);
                 let new_body_block: Block = stmt_arena.alloc_slice(new_body);
 
-                state.cache = saved_cache;
-                state.deps = saved_deps;
-                invalidate_block_writes(body, state);
-
-                result.push(Stmt::Repeat { pattern, iterable, body: new_body_block });
+                state.restore(before);
+                result.push(Stmt::Repeat {
+                    pattern,
+                    iterable,
+                    body: new_body_block,
+                });
             }
-            Stmt::FunctionDef { name, generics, params, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
+            Stmt::FunctionDef {
+                name,
+                generics,
+                params,
+                body,
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
+            } => {
                 // Process function body with fresh state
-                let mut fn_state = CseState::new();
+                let mut fn_state = CseState::new(state.callee_globals.clone());
                 fn_state.counter = state.counter;
-                let new_body = cse_block(body.to_vec(), &mut fn_state, expr_arena, stmt_arena, interner);
+                let new_body = cse_block(
+                    body.to_vec(),
+                    &mut fn_state,
+                    expr_arena,
+                    stmt_arena,
+                    interner,
+                );
                 state.counter = fn_state.counter;
                 let new_body_block: Block = stmt_arena.alloc_slice(new_body);
                 result.push(Stmt::FunctionDef {
-                    name, generics, params, body: new_body_block, return_type,
-                    is_native, native_path, is_exported, export_target, opt_flags,
+                    name,
+                    generics,
+                    params,
+                    body: new_body_block,
+                    return_type,
+                    is_native,
+                    native_path,
+                    is_exported,
+                    export_target,
+                    opt_flags,
                 });
             }
-            // All other statements pass through unchanged
-            other => result.push(other),
+            // Every other statement passes through unchanged; whatever it may write is gone from the table.
+            other => {
+                state.invalidate_effects(&effects);
+                result.push(other);
+            }
         }
     }
 
     result
 }
-
-/// Scan a block for all write targets and invalidate them in the CSE state.
-fn invalidate_block_writes(stmts: &[Stmt], state: &mut CseState) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::Set { target, .. } => state.invalidate(*target),
-            Stmt::Push { collection, .. } | Stmt::Pop { collection, .. }
-            | Stmt::Add { collection, .. } | Stmt::Remove { collection, .. } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-            }
-            Stmt::SetIndex { collection, .. } | Stmt::SetField { object: collection, .. } => {
-                if let Expr::Identifier(sym) = collection {
-                    state.invalidate(*sym);
-                }
-            }
-            Stmt::If { then_block, else_block, .. } => {
-                invalidate_block_writes(then_block, state);
-                if let Some(eb) = else_block {
-                    invalidate_block_writes(eb, state);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-                invalidate_block_writes(body, state);
-            }
-            Stmt::Zone { body, .. } => {
-                invalidate_block_writes(body, state);
-            }
-            _ => {}
-        }
-    }
-}
-
-use crate::ast::stmt::Block;
 
 /// Entry point: run local CSE on a program.
 pub fn cse_stmts<'a>(
@@ -478,6 +658,6 @@ pub fn cse_stmts<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
-    let mut state = CseState::new();
+    let mut state = CseState::new(CalleeGlobals::of_program(&stmts));
     cse_block(stmts, &mut state, expr_arena, stmt_arena, interner)
 }

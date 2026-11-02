@@ -4,8 +4,9 @@
 //!
 //! Fairness: every engine attacks a BYTE-IDENTICAL formula (`families::*`). External solvers run as
 //! subprocesses via `timeout` on the dumped DIMACS, emitting a clausal proof (so their number is
-//! solve+certify, like ours); binary paths come from `KISSAT_BIN` / `SADICAL_BIN`, defaulting to the
-//! `/tmp` build locations — a missing binary is recorded `absent` and omitted from the page. Z3 is
+//! solve+certify, like ours); binary paths come from `KISSAT_BIN` / `SADICAL_BIN` / `CADICAL_BIN` / `CMS_BIN`,
+//! defaulting to the builds under `$SATBENCH_EXT` (else `<repo>/external/solvers`, the layout
+//! `benchmarks/sat/run-satbench.sh` builds) — a missing binary is recorded `absent` and omitted from the page. Z3 is
 //! the in-process oracle (10s timeout). Ours is the in-process certified prover — the very code the
 //! Studio runs in WASM. Exit codes: 20=UNSAT, 10=SAT, 124=timeout (the resolution wall).
 //!
@@ -15,13 +16,16 @@
 
 #[cfg(not(feature = "verification"))]
 fn main() {
-    eprintln!("solver_bench requires --features verification (Z3). Use benchmarks/run-solver-vs-z3.sh.");
+    eprintln!(
+        "solver_bench requires --features verification (Z3). Use benchmarks/run-solver-vs-z3.sh."
+    );
 }
 
 #[cfg(feature = "verification")]
 fn main() {
     use std::time::Instant;
 
+    use core::fmt::Write as _;
     use logicaffeine_proof::cdcl::{Lit, SolveResult, Solver};
     use logicaffeine_proof::dimacs::{self, DimacsCnf};
     use logicaffeine_proof::families::{php, random_3sat};
@@ -34,7 +38,6 @@ fn main() {
     use logicaffeine_proof::sym_certify::heule_php_refutation;
     use logicaffeine_proof::xorsat::{self, XorEquation, XorOutcome};
     use logicaffeine_proof::ProofExpr;
-    use core::fmt::Write as _;
     use std::collections::BTreeMap;
 
     // Our own proof size is measured by streaming the certified artifact through a capped byte counter
@@ -165,24 +168,25 @@ fn main() {
         if args.get(1).map(String::as_str) == Some("modp-probe") {
             use logicaffeine_proof::families::mod_p_tseitin_expander;
             use logicaffeine_proof::modp::{self, ModpOutcome};
-            let kissat = solver_bin("KISSAT_BIN", "/tmp/kissat/build/kissat");
+            let kissat = solver_bin("KISSAT_BIN", "kissat/build/kissat");
             for p in [3u64, 5, 7] {
-            for n in [20usize, 30, 40] {
-                let (eqs, cnf, _) = mod_p_tseitin_expander(n, p, 0xC0FFEE ^ n as u64 ^ (p << 24));
-                let edges = cnf.num_vars / p as usize;
-                let t = Instant::now();
-                let ours_unsat = matches!(modp::solve(&eqs, edges, p), ModpOutcome::Unsat(_));
-                let ours_ms = t.elapsed().as_secs_f64() * 1e3;
-                let zo = z3_other(&cnf);
-                let kis = run_external("kissat", &kissat, &cnf, 20)
-                    .map(|o| format!("{} {:.0}ms", o.status, o.ms))
-                    .unwrap_or_else(|| "absent".to_string());
-                let (zstatus, zms) = (zo.status, zo.ms);
-                let (vars, ncl) = (cnf.num_vars, cnf.clauses.len());
-                eprintln!(
+                for n in [20usize, 30, 40] {
+                    let (eqs, cnf, _) =
+                        mod_p_tseitin_expander(n, p, 0xC0FFEE ^ n as u64 ^ (p << 24));
+                    let edges = cnf.num_vars / p as usize;
+                    let t = Instant::now();
+                    let ours_unsat = matches!(modp::solve(&eqs, edges, p), ModpOutcome::Unsat(_));
+                    let ours_ms = t.elapsed().as_secs_f64() * 1e3;
+                    let zo = z3_other(&cnf);
+                    let kis = run_external("kissat", &kissat, &cnf, 20)
+                        .map(|o| format!("{} {:.0}ms", o.status, o.ms))
+                        .unwrap_or_else(|| "absent".to_string());
+                    let (zstatus, zms) = (zo.status, zo.ms);
+                    let (vars, ncl) = (cnf.num_vars, cnf.clauses.len());
+                    eprintln!(
                     "[modp-probe] p={p} n={n}: {vars} vars, {ncl} clauses | ours {ours_ms:.3}ms (unsat={ours_unsat}) | z3 {zstatus} {zms:.0}ms | kissat {kis}"
                 );
-            }
+                }
             }
             return;
         }
@@ -212,12 +216,18 @@ fn main() {
     // ---- Z3 (in-process oracle) ---------------------------------------------------------------
     fn lit_expr(l: &Lit) -> ProofExpr {
         let a = ProofExpr::Atom(format!("x{}", l.var()));
-        if l.is_positive() { a } else { ProofExpr::Not(Box::new(a)) }
+        if l.is_positive() {
+            a
+        } else {
+            ProofExpr::Not(Box::new(a))
+        }
     }
     fn clause_to_expr(c: &[Lit]) -> ProofExpr {
         let mut it = c.iter();
         let first = lit_expr(it.next().expect("non-empty clause"));
-        it.fold(first, |acc, l| ProofExpr::Or(Box::new(acc), Box::new(lit_expr(l))))
+        it.fold(first, |acc, l| {
+            ProofExpr::Or(Box::new(acc), Box::new(lit_expr(l)))
+        })
     }
     fn cnf_to_expr(cnf: &DimacsCnf) -> ProofExpr {
         // Delegate to the library builder, which assembles a BALANCED connective tree — so the
@@ -235,7 +245,12 @@ fn main() {
             SmtConsistency::Consistent => "sat",
             SmtConsistency::Unknown => "timeout",
         };
-        Other { solver: "z3".into(), status: status.into(), ms, proof_bytes: None }
+        Other {
+            solver: "z3".into(),
+            status: status.into(),
+            ms,
+            proof_bytes: None,
+        }
     }
 
     // ---- external solver (subprocess on the shared DIMACS) ------------------------------------
@@ -245,8 +260,15 @@ fn main() {
         ms: f64,
         proof_bytes: Option<u64>,
     }
-    fn solver_bin(env_key: &str, default: &str) -> Option<String> {
-        let p = std::env::var(env_key).unwrap_or_else(|_| default.to_string());
+    /// The solver binary `env_key` names, else `<external solvers>/<rel>`; `None` when absent.
+    fn solver_bin(env_key: &str, rel: &str) -> Option<String> {
+        let ext = std::env::var("SATBENCH_EXT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../external/solvers")
+            });
+        let p =
+            std::env::var(env_key).unwrap_or_else(|_| ext.join(rel).to_string_lossy().into_owned());
         if std::path::Path::new(&p).exists() {
             Some(p)
         } else {
@@ -254,7 +276,9 @@ fn main() {
         }
     }
     fn version_of(bin: &Option<String>) -> String {
-        let Some(bin) = bin else { return "absent".to_string() };
+        let Some(bin) = bin else {
+            return "absent".to_string();
+        };
         std::process::Command::new(bin)
             .arg("--version")
             .output()
@@ -270,20 +294,34 @@ fn main() {
             .unwrap_or_else(|| "unknown".to_string())
     }
     // Run `name` (kissat|sadical) on `cnf` with proof emission; record verdict, wall-ms, proof size.
-    fn run_external(name: &str, bin: &Option<String>, cnf: &DimacsCnf, timeout_s: u64) -> Option<Other> {
+    fn run_external(
+        name: &str,
+        bin: &Option<String>,
+        cnf: &DimacsCnf,
+        timeout_s: u64,
+    ) -> Option<Other> {
         let bin = bin.as_ref()?;
         let cnf_path = format!("/tmp/solverbench_{name}.cnf");
         let proof_path = format!("/tmp/solverbench_{name}.proof");
         let _ = std::fs::remove_file(&proof_path);
         if std::fs::write(&cnf_path, dimacs::print(cnf)).is_err() {
-            return Some(Other { solver: name.into(), status: "error".into(), ms: 0.0, proof_bytes: None });
+            return Some(Other {
+                solver: name.into(),
+                status: "error".into(),
+                ms: 0.0,
+                proof_bytes: None,
+            });
         }
         let mut cmd = std::process::Command::new("timeout");
         cmd.arg("-k").arg("2").arg(timeout_s.to_string()).arg(bin);
         match name {
             // SaDiCaL: -q quiet, -n no-witness, -f force-overwrite proof, then <cnf> <proof.dpr>.
             "sadical" => {
-                cmd.arg("-q").arg("-n").arg("-f").arg(&cnf_path).arg(&proof_path);
+                cmd.arg("-q")
+                    .arg("-n")
+                    .arg("-f")
+                    .arg(&cnf_path)
+                    .arg(&proof_path);
             }
             // CaDiCaL (Biere's mainline reference): -q quiet, then <cnf> <proof.drat>.
             "cadical" => {
@@ -301,7 +339,8 @@ fn main() {
                 cmd.arg("-q").arg(&cnf_path).arg(&proof_path);
             }
         }
-        cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
         let t = Instant::now();
         let code = cmd.status().ok().and_then(|s| s.code());
         let ms = t.elapsed().as_secs_f64() * 1e3;
@@ -318,7 +357,12 @@ fn main() {
         };
         let _ = std::fs::remove_file(&proof_path);
         let _ = std::fs::remove_file(&cnf_path);
-        Some(Other { solver: name.into(), status: status.into(), ms, proof_bytes })
+        Some(Other {
+            solver: name.into(),
+            status: status.into(),
+            ms,
+            proof_bytes,
+        })
     }
 
     // ---- generators (mutilated chessboard + tseitin expander mirror satbench) ------------------
@@ -362,7 +406,10 @@ fn main() {
                 }
             }
         }
-        DimacsCnf { num_vars: edges.len(), clauses }
+        DimacsCnf {
+            num_vars: edges.len(),
+            clauses,
+        }
     }
     fn random_3regular(n: usize, seed: u64) -> Vec<(usize, usize)> {
         let mut state = seed ^ 0x9E3779B97F4A7C15;
@@ -415,11 +462,21 @@ fn main() {
             let d = inc.len();
             for mask in 0u32..(1u32 << d) {
                 if ((mask.count_ones() % 2) == 1) != r {
-                    clauses.push((0..d).map(|i| Lit::new(inc[i] as u32, (mask >> i) & 1 == 0)).collect());
+                    clauses.push(
+                        (0..d)
+                            .map(|i| Lit::new(inc[i] as u32, (mask >> i) & 1 == 0))
+                            .collect(),
+                    );
                 }
             }
         }
-        (eqs, DimacsCnf { num_vars: m, clauses })
+        (
+            eqs,
+            DimacsCnf {
+                num_vars: m,
+                clauses,
+            },
+        )
     }
 
     // ---- JSON emitter ---------------------------------------------------------------------------
@@ -455,7 +512,12 @@ fn main() {
             Some(b) => format!(",\"proof_bytes\":{b}"),
             None => String::new(),
         };
-        format!("{{\"solver\":{},\"status\":{},\"ms\":{:.1}{pb}}}", jstr(&o.solver), jstr(&o.status), o.ms)
+        format!(
+            "{{\"solver\":{},\"status\":{},\"ms\":{:.1}{pb}}}",
+            jstr(&o.solver),
+            jstr(&o.status),
+            o.ms
+        )
     }
     fn row_json(r: &Row) -> String {
         let others: Vec<String> = r.others.iter().map(other_json).collect();
@@ -476,7 +538,14 @@ fn main() {
             others.join(",")
         )
     }
-    fn family_json(id: &str, name: &str, mechanism: &str, separation: &str, note: &str, rows: &[Row]) -> String {
+    fn family_json(
+        id: &str,
+        name: &str,
+        mechanism: &str,
+        separation: &str,
+        note: &str,
+        rows: &[Row],
+    ) -> String {
         let rows_s: Vec<String> = rows.iter().map(row_json).collect();
         format!(
             "{{\"id\":{},\"name\":{},\"mechanism\":{},\"separation\":{},\"note\":{},\"rows\":[{}]}}",
@@ -489,10 +558,10 @@ fn main() {
         )
     }
 
-    let kissat = solver_bin("KISSAT_BIN", "/tmp/kissat/build/kissat");
-    let sadical = solver_bin("SADICAL_BIN", "/tmp/sadical/sadical/sadical");
-    let cadical = solver_bin("CADICAL_BIN", "/tmp/cadical/build/cadical");
-    let cryptominisat = solver_bin("CMS_BIN", "/tmp/cryptominisat/build/cryptominisat5");
+    let kissat = solver_bin("KISSAT_BIN", "kissat/build/kissat");
+    let sadical = solver_bin("SADICAL_BIN", "sadical/sadical/sadical");
+    let cadical = solver_bin("CADICAL_BIN", "cadical/build/cadical");
+    let cryptominisat = solver_bin("CMS_BIN", "cryptominisat/build/cryptominisat5");
     eprintln!(
         "kissat: {:?}  sadical: {:?}  cadical: {:?}  cryptominisat: {:?}",
         kissat, sadical, cadical, cryptominisat
@@ -539,7 +608,11 @@ fn main() {
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[php] n={n}: ours {ours_min:.2}ms ({sbp} SR steps, cert={cert})  {}",
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             let ours_proof_bytes = if cert {
                 sr_proof_bytes(cnf.num_vars, &cnf.clauses, &heule_php_refutation(n).steps)
@@ -551,7 +624,14 @@ fn main() {
                 param: n,
                 ours_ms,
                 ours_min_ms: ours_min,
-                ours_detail: format!("certified SR proof: {sbp} steps (= n(n-1)/2), {}", if cert { "machine-checked" } else { "UNCERTIFIED" }),
+                ours_detail: format!(
+                    "certified SR proof: {sbp} steps (= n(n-1)/2), {}",
+                    if cert {
+                        "machine-checked"
+                    } else {
+                        "UNCERTIFIED"
+                    }
+                ),
                 ours_proof_bytes,
                 ours_proof_fmt,
                 others,
@@ -563,7 +643,10 @@ fn main() {
             let t = Instant::now();
             let r = sdcl_refute(cnf.num_vars, &cnf.clauses);
             let ms = t.elapsed().as_secs_f64() * 1e3;
-            sdcl_note.push_str(&format!("PHP({n})={} clauses in {ms:.0}ms; ", r.sbp_clauses));
+            sdcl_note.push_str(&format!(
+                "PHP({n})={} clauses in {ms:.0}ms; ",
+                r.sbp_clauses
+            ));
         }
         families.push(family_json(
             "php",
@@ -582,22 +665,45 @@ fn main() {
     {
         use logicaffeine_proof::families::{functional_php, onto_php, weak_php};
         let variants: Vec<(usize, u128, u128, String, DimacsCnf)> = vec![
-            (18, 18, 17, "functional PHP(18): + “each pigeon in ≤1 hole”".to_string(), functional_php(18).0),
-            (20, 20, 19, "onto PHP(20): bijection — every hole filled".to_string(), onto_php(20).0),
-            (24, 24, 18, "weak PHP(24→18): 24 pigeons into 18 holes".to_string(), weak_php(24, 18).0),
+            (
+                18,
+                18,
+                17,
+                "functional PHP(18): + “each pigeon in ≤1 hole”".to_string(),
+                functional_php(18).0,
+            ),
+            (
+                20,
+                20,
+                19,
+                "onto PHP(20): bijection — every hole filled".to_string(),
+                onto_php(20).0,
+            ),
+            (
+                24,
+                24,
+                18,
+                "weak PHP(24→18): 24 pigeons into 18 holes".to_string(),
+                weak_php(24, 18).0,
+            ),
         ];
         let mut rows = Vec::new();
         for (param, pigeons, holes, label, cnf) in variants {
             eprintln!("[php-variant] {label} …");
             let e = cnf_to_expr(&cnf);
             let mut refuted = false;
-            let (ours_ms, ours_min) = time_ours(|| refuted = matches!(prove_unsat(&e), UnsatOutcome::Refuted));
+            let (ours_ms, ours_min) =
+                time_ours(|| refuted = matches!(prove_unsat(&e), UnsatOutcome::Refuted));
             let mut others = vec![z3_other(&cnf)];
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[php-variant] {label}: {} vars, ours {ours_min:.3}ms (refuted={refuted})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // The proof IS the O(1) counting certificate: pigeons > holes refutes the pigeonhole core
             // these variants all embed — one re-checkable inequality vs the competitors' megabytes.
@@ -607,7 +713,9 @@ fn main() {
                 param,
                 ours_ms,
                 ours_min_ms: ours_min,
-                ours_detail: format!("counting certificate: {pigeons} pigeons > {holes} holes (O(1)) — {label}"),
+                ours_detail: format!(
+                    "counting certificate: {pigeons} pigeons > {holes} holes (O(1)) — {label}"
+                ),
                 ours_proof_bytes,
                 ours_proof_fmt,
                 others,
@@ -632,13 +740,18 @@ fn main() {
             let cnf = mutilated_chessboard(side);
             let e = cnf_to_expr(&cnf);
             let mut refuted = false;
-            let (ours_ms, ours_min) = time_ours(|| refuted = matches!(prove_unsat(&e), UnsatOutcome::Refuted));
+            let (ours_ms, ours_min) =
+                time_ours(|| refuted = matches!(prove_unsat(&e), UnsatOutcome::Refuted));
             let mut others = vec![z3_other(&cnf)];
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[mutilated] {side}: {} vars, ours {ours_min:.3}ms (refuted={refuted})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // The proof IS the Hall witness — a violating item set with fewer neighbouring slots,
             // re-checked and serialized to a handful of bytes (not a clausal proof).
@@ -648,7 +761,10 @@ fn main() {
                 param: side,
                 ours_ms,
                 ours_min_ms: ours_min,
-                ours_detail: format!("generic prover → Hall witness over {} dominoes (matching)", cnf.num_vars),
+                ours_detail: format!(
+                    "generic prover → Hall witness over {} dominoes (matching)",
+                    cnf.num_vars
+                ),
                 ours_proof_bytes,
                 ours_proof_fmt,
                 others,
@@ -679,13 +795,18 @@ fn main() {
             let (cnf, _) = clique_coloring(n, k);
             let e = cnf_to_expr(&cnf);
             let mut refuted = false;
-            let (ours_ms, ours_min) = time_ours(|| refuted = matches!(prove_unsat(&e), UnsatOutcome::Refuted));
+            let (ours_ms, ours_min) =
+                time_ours(|| refuted = matches!(prove_unsat(&e), UnsatOutcome::Refuted));
             let mut others = vec![z3_other(&cnf)];
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[clique] K_{n}/{k}: {} vars, ours {ours_min:.3}ms (refuted={refuted})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // The proof IS the O(1) counting certificate: n vertices need n colours, only n-1 given.
             let ours_proof_bytes = counting_cert_bytes(n as u128, k as u128);
@@ -734,7 +855,11 @@ fn main() {
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[tseitin] n={n}: ours {ours_min:.3}ms ({wl}-eq refutation, ok={ok})  {}",
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             let ours_proof_bytes = match xorsat::solve(&eqs, cnf.num_vars) {
                 XorOutcome::Unsat(w) => Some(gf2_cert_bytes(&w)),
@@ -787,7 +912,11 @@ fn main() {
             eprintln!(
                 "[grid] {w}x{n}: {} vars, ours {ours_min:.3}ms ({wl}-eq refutation, ok={ok})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             let ours_proof_bytes = match xorsat::solve(&eqs, cnf.num_vars) {
                 XorOutcome::Unsat(wit) => Some(gf2_cert_bytes(&wit)),
@@ -833,23 +962,30 @@ fn main() {
             // formula's XOR system — microseconds, vs the fused route spinning up a full CDCL solver.
             let mut refuted = false;
             let (ours_ms, ours_min) = time_ours(|| {
-                refuted = logicaffeine_proof::parity_cardinality::refute(cnf.num_vars, &cnf.clauses);
+                refuted =
+                    logicaffeine_proof::parity_cardinality::refute(cnf.num_vars, &cnf.clauses);
             });
             let mut others = vec![z3_other(&cnf)];
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[fused] n={n}: {} vars, ours {ours_min:.3}ms (refuted={refuted})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // The proof is a machine-checked certified refutation of the same UNSAT fact, re-verified
             // (check_pr_refutation) before it is serialized to its byte size.
-            let cert = logicaffeine_proof::sym_certify::certified_unsat_auto(cnf.num_vars, &cnf.clauses);
-            let ours_proof_bytes = if cert.refuted && check_pr_refutation(cnf.num_vars, &cnf.clauses, &cert.steps) {
-                sr_proof_bytes(cnf.num_vars, &cnf.clauses, &cert.steps)
-            } else {
-                None
-            };
+            let cert =
+                logicaffeine_proof::sym_certify::certified_unsat_auto(cnf.num_vars, &cnf.clauses);
+            let ours_proof_bytes =
+                if cert.refuted && check_pr_refutation(cnf.num_vars, &cnf.clauses, &cert.steps) {
+                    sr_proof_bytes(cnf.num_vars, &cnf.clauses, &cert.steps)
+                } else {
+                    None
+                };
             let ours_proof_fmt = ours_proof_bytes.map(|_| "certified proof".to_string());
             rows.push(Row {
                 param: n,
@@ -882,12 +1018,19 @@ fn main() {
     // mod-p, so an 18s cap confirms the wall without burning the full 45s per instance.
     {
         use logicaffeine_proof::modp::{self, ModpOutcome};
-        for (p, sizes) in [(3u64, [30usize, 40, 50]), (5, [20, 30, 40]), (7, [20, 30, 40])] {
+        for (p, sizes) in [
+            (3u64, [30usize, 40, 50]),
+            (5, [20, 30, 40]),
+            (7, [20, 30, 40]),
+        ] {
             let mut rows = Vec::new();
             for n in sizes {
                 eprintln!("[modp] p={p} n={n} …");
-                let (eqs, cnf, _) =
-                    logicaffeine_proof::families::mod_p_tseitin_expander(n, p, 0xC0FFEE ^ n as u64 ^ (p << 24));
+                let (eqs, cnf, _) = logicaffeine_proof::families::mod_p_tseitin_expander(
+                    n,
+                    p,
+                    0xC0FFEE ^ n as u64 ^ (p << 24),
+                );
                 let edges = cnf.num_vars / p as usize;
                 let mut ok = false;
                 let mut combo_len = 0usize;
@@ -1000,18 +1143,29 @@ fn main() {
             // The counting cut: recover the coverage/disjointness structure and refute by q ∤ n — O(clauses),
             // microseconds, versus the general cascade's super-linear route on the dense overlap clauses.
             let mut refuted = false;
-            let (ours_ms, ours_min) =
-                time_ours(|| refuted = logicaffeine_proof::counting_principle::refute_counting(cnf.num_vars, &cnf.clauses));
+            let (ours_ms, ours_min) = time_ours(|| {
+                refuted = logicaffeine_proof::counting_principle::refute_counting(
+                    cnf.num_vars,
+                    &cnf.clauses,
+                )
+            });
             let mut others = vec![z3_other(&cnf)];
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[count_q] Count_{q}({n}): {} vars, ours {ours_min:.3}ms (refuted={refuted})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // The proof IS the counting certificate: n mod q ≠ 0, re-checkable in O(1).
-            let ours_proof_bytes = logicaffeine_proof::counting_principle::counting_certificate(cnf.num_vars, &cnf.clauses)
-                .map(|c| c.byte_len() as u64);
+            let ours_proof_bytes = logicaffeine_proof::counting_principle::counting_certificate(
+                cnf.num_vars,
+                &cnf.clauses,
+            )
+            .map(|c| c.byte_len() as u64);
             let ours_proof_fmt = ours_proof_bytes.map(|_| "counting cert".to_string());
             rows.push(Row {
                 param: n,
@@ -1053,19 +1207,25 @@ fn main() {
             // the ordering algorithm. This is our actual decision, the analogue of the field parsing +
             // solving the DIMACS.
             let mut refuted = false;
-            let (ours_ms, ours_min) =
-                time_ours(|| refuted = logicaffeine_proof::ordering::refute_ordering(cnf.num_vars, &cnf.clauses));
+            let (ours_ms, ours_min) = time_ours(|| {
+                refuted = logicaffeine_proof::ordering::refute_ordering(cnf.num_vars, &cnf.clauses)
+            });
             let mut others = vec![z3_other(&cnf)];
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[ordering] GT({n}): {} vars, ours {ours_min:.3}ms (refuted={refuted})  {}",
                 cnf.num_vars,
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // The proof IS the recovered element/edge identification of the GT(n) core, re-checked from
             // scratch against the raw clauses (check_ordering_cert) — an O(n²) structural certificate.
-            let ours_proof_bytes = logicaffeine_proof::ordering::ordering_certificate(cnf.num_vars, &cnf.clauses)
-                .map(|c| c.byte_len() as u64);
+            let ours_proof_bytes =
+                logicaffeine_proof::ordering::ordering_certificate(cnf.num_vars, &cnf.clauses)
+                    .map(|c| c.byte_len() as u64);
             let ours_proof_fmt = ours_proof_bytes.map(|_| "ordering cert".to_string());
             rows.push(Row {
                 param: n,
@@ -1114,7 +1274,11 @@ fn main() {
             others.extend(run_field(&cnf, SADICAL_TIMEOUT_S));
             eprintln!(
                 "[random3sat] n={n}: ours {ours_min:.2}ms ({verdict})  {}",
-                others.iter().map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms)).collect::<Vec<_>>().join("  ")
+                others
+                    .iter()
+                    .map(|o| format!("{}={} {:.0}ms", o.solver, o.status, o.ms))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             // Even the control carries a proof where it refutes: the plain-CDCL DRAT from the learned
             // clauses (polynomial here — the engine actually solves this one). SAT rows have a model,
@@ -1164,9 +1328,19 @@ fn main() {
         })
         .unwrap_or_else(|| "unknown".to_string());
     let date = std::env::var("SOLVERS_DATE").unwrap_or_else(|_| "unknown".to_string());
+    // The box and the build the figures came from: this boot, the load the run started under (the bench reads both
+    // from the box it runs on), and the commit the script built, `-dirty` when the tree held uncommitted changes.
+    let boot_id = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").map(|s| s.trim().to_string()).ok();
+    let load = std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|s| s.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()));
+    let commit = std::env::var("SOLVERS_COMMIT").ok().filter(|c| !c.is_empty());
     let meta = format!(
-        "{{\"schema_version\":2,\"date\":{},\"cpu\":{},\"z3_timeout_ms\":{},\"kissat_timeout_ms\":{},\"sadical_timeout_ms\":{},\"ours_runs\":{},\"kissat\":{},\"sadical\":{},\"cadical\":{},\"cryptominisat\":{},\"note\":{}}}",
+        "{{\"schema_version\":2,\"date\":{},\"boot_id\":{},\"load_average_1m\":{},\"logos_commit\":{},\"cpu\":{},\"z3_timeout_ms\":{},\"kissat_timeout_ms\":{},\"sadical_timeout_ms\":{},\"ours_runs\":{},\"kissat\":{},\"sadical\":{},\"cadical\":{},\"cryptominisat\":{},\"note\":{}}}",
         jstr(&date),
+        boot_id.as_deref().map(jstr).unwrap_or_else(|| "null".to_string()),
+        load.map(|l| l.to_string()).unwrap_or_else(|| "null".to_string()),
+        commit.as_deref().map(jstr).unwrap_or_else(|| "null".to_string()),
         jstr(&cpu),
         Z3_TIMEOUT_MS,
         KISSAT_TIMEOUT_S * 1000,

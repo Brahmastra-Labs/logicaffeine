@@ -14,7 +14,7 @@
 //! The checker is deliberately small and naive (linear, fixpoint unit propagation) — its
 //! simplicity IS the trust. If it cannot confirm the solver's UNSAT, we fail closed.
 
-use crate::cdcl::{Lit, SolveResult, Solver};
+use crate::cdcl::{Lit, SolveResult};
 use crate::cnf::Cnf;
 use crate::ProofExpr;
 
@@ -56,8 +56,7 @@ fn certified_from_cnf(mut cnf: Cnf, goal: &ProofExpr) -> Option<Verdict> {
     match solver.solve() {
         SolveResult::Sat(_) => Some(Verdict::NotEntailed),
         SolveResult::Unsat => {
-            let learned: Vec<Vec<Lit>> =
-                solver.learned().iter().map(|c| c.lits.clone()).collect();
+            let learned: Vec<Vec<Lit>> = solver.learned().iter().map(|c| c.lits.clone()).collect();
             if check_refutation(num_vars, solver.original_clauses(), &learned) {
                 Some(Verdict::Entailed)
             } else {
@@ -115,44 +114,50 @@ pub(crate) fn set_true(assign: &mut [Option<bool>], l: Lit) -> bool {
     }
 }
 
+/// What a clause says under an assignment.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum ClauseState {
+    /// Every literal is false.
+    Conflict,
+    /// No literal is true and exactly one distinct literal is unset: it is forced.
+    Unit(Lit),
+    /// A literal is true, or two distinct literals are unset (a tautology's `x` and `¬x` among them): no literal
+    /// after them can make the clause a conflict or a unit.
+    Quiet,
+}
+
+/// The state of `clause` under `assign`. A repeated literal counts once (`x ∨ x` is the unit `x`); a tautology
+/// (`x ∨ ¬x`) has two distinct unset literals and never propagates.
+#[inline]
+pub(crate) fn clause_state(clause: &[Lit], assign: &[Option<bool>]) -> ClauseState {
+    let mut unset: Option<Lit> = None;
+    for &l in clause {
+        match lit_val(assign, l) {
+            Some(true) => return ClauseState::Quiet,
+            Some(false) => {}
+            None => match unset {
+                None => unset = Some(l),
+                Some(u) if u == l => {}
+                Some(_) => return ClauseState::Quiet,
+            },
+        }
+    }
+    unset.map_or(ClauseState::Conflict, ClauseState::Unit)
+}
+
 /// Fixpoint unit propagation over `db`. Returns `true` on conflict (some clause all-false).
 /// Naive on purpose: a checker you can read in one sitting is a checker you can trust.
 pub(crate) fn propagate(db: &[Vec<Lit>], assign: &mut [Option<bool>]) -> bool {
     loop {
         let mut changed = false;
         for clause in db {
-            // Evaluate the clause robustly to DUPLICATE literals (`x ∨ x` is the unit `x`) and
-            // TAUTOLOGIES (`x ∨ ¬x` is always satisfied) — both are legal CNF, and a trusted checker
-            // must count *distinct* unset literals or it will miss real unit propagations.
-            let mut satisfied = false;
-            let mut unset: Vec<Lit> = Vec::new();
-            for &l in clause {
-                match lit_val(assign, l) {
-                    Some(true) => {
-                        satisfied = true;
-                        break;
-                    }
-                    Some(false) => {}
-                    None => {
-                        if unset.contains(&l.negated()) {
-                            satisfied = true; // tautology — never propagates, never conflicts
-                            break;
-                        }
-                        if !unset.contains(&l) {
-                            unset.push(l);
-                        }
-                    }
+            match clause_state(clause, assign) {
+                ClauseState::Conflict => return true,
+                ClauseState::Unit(l) => {
+                    set_true(assign, l);
+                    changed = true;
                 }
-            }
-            if satisfied {
-                continue;
-            }
-            if unset.is_empty() {
-                return true; // every literal false ⇒ conflict
-            }
-            if unset.len() == 1 {
-                set_true(assign, unset[0]);
-                changed = true;
+                ClauseState::Quiet => {}
             }
         }
         if !changed {
@@ -162,84 +167,5 @@ pub(crate) fn propagate(db: &[Vec<Lit>], assign: &mut [Option<bool>]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cdcl::Lit;
-    use crate::{ProofExpr, ProofTerm};
-
-    fn c(s: &str) -> ProofTerm {
-        ProofTerm::Constant(s.to_string())
-    }
-    fn pred(name: &str, args: Vec<ProofTerm>) -> ProofExpr {
-        ProofExpr::Predicate { name: name.to_string(), args, world: None }
-    }
-    fn not(e: ProofExpr) -> ProofExpr {
-        ProofExpr::Not(Box::new(e))
-    }
-    fn or(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::Or(Box::new(a), Box::new(b))
-    }
-    fn imp(a: ProofExpr, b: ProofExpr) -> ProofExpr {
-        ProofExpr::Implies(Box::new(a), Box::new(b))
-    }
-
-    #[test]
-    fn certified_disjunctive_syllogism() {
-        let p = pred("P", vec![c("a")]);
-        let q = pred("Q", vec![c("a")]);
-        let prem = vec![or(p.clone(), q.clone()), not(p.clone())];
-        assert_eq!(entails_certified(&prem, &q), Some(Verdict::Entailed));
-        assert_eq!(entails_certified(&[or(p, q.clone())], &q), Some(Verdict::NotEntailed));
-    }
-
-    #[test]
-    fn certified_two_value_grid() {
-        let in_ = |t: &str, s: &str| pred("In", vec![c(t), c(s)]);
-        let (fl, me) = ("Florida", "Maine");
-        let prem = vec![
-            or(in_("Alpha", fl), in_("Alpha", me)),
-            or(in_("Beta", fl), in_("Beta", me)),
-            imp(in_("Alpha", fl), not(in_("Beta", fl))),
-            imp(in_("Alpha", me), not(in_("Beta", me))),
-            or(in_("Alpha", fl), in_("Beta", fl)),
-            or(in_("Alpha", me), in_("Beta", me)),
-            in_("Alpha", fl),
-        ];
-        assert_eq!(entails_certified(&prem, &in_("Beta", me)), Some(Verdict::Entailed));
-        assert_eq!(entails_certified(&prem, &in_("Beta", fl)), Some(Verdict::NotEntailed));
-    }
-
-    #[test]
-    fn rup_rejects_a_bogus_proof() {
-        // Original `(p ∨ q)` is SATISFIABLE. A "proof" that bolts on the un-entailed units
-        // `¬p`, `¬q` must NOT verify — the checker rejects clauses that are not RUP.
-        let p = Lit::pos(0);
-        let q = Lit::pos(1);
-        let original = vec![vec![p, q]];
-        let bogus_learned = vec![vec![p.negated()], vec![q.negated()]];
-        assert!(
-            !check_refutation(2, &original, &bogus_learned),
-            "a non-RUP learned clause must be rejected"
-        );
-    }
-
-    #[test]
-    fn rup_needs_the_proof_not_just_the_clauses() {
-        // A genuinely UNSAT formula whose unsatisfiability is NOT visible to unit
-        // propagation alone (all four 2-literal clauses over p,q) must fail to verify
-        // WITHOUT the solver's learned clauses — proving the checker really replays the
-        // proof rather than re-searching.
-        let p = Lit::pos(0);
-        let q = Lit::pos(1);
-        let original = vec![
-            vec![p, q],
-            vec![p, q.negated()],
-            vec![p.negated(), q],
-            vec![p.negated(), q.negated()],
-        ];
-        assert!(!check_refutation(2, &original, &[]), "UP alone cannot refute this; needs the proof");
-        // With the resolvents the solver would learn (`p`, then `¬p` ⇒ empty), it checks.
-        let learned = vec![vec![p], vec![p.negated()]];
-        assert!(check_refutation(2, &original, &learned), "the learned resolvents make it RUP");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/rup/tests.rs"]
+mod tests;

@@ -20,12 +20,12 @@ pub fn main() !void {
     _ = args.skip();
     const n_str = args.next() orelse return;
     const n: usize = @intCast(try std.fmt.parseInt(i64, n_str, 10));
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.smp_allocator;
     var arr = try allocator.alloc(i64, n);
     defer allocator.free(arr);
     var seed: i64 = 42;
     for (0..n) |i| {
-        seed = @mod(seed *% 1103515245 + 12345, 2147483648);
+        seed = @rem(seed *% 1103515245 + 12345, 2147483648);
         arr[i] = (seed >> 16) & 0x7fff;
     }
     var s: isize = @divTrunc(@as(isize, @intCast(n)) - 2, 2);
@@ -36,7 +36,7 @@ pub fn main() !void {
         siftDown(arr, 0, e - 1);
     }
     var checksum: i64 = 0;
-    for (arr) |v| checksum = @mod(checksum + v, 1000000007);
+    for (arr) |v| checksum = (checksum * 31 + v) & 268435455;
     try stdout.interface.print("{} {} {}\n", .{ arr[0], arr[n - 1], checksum });
     try stdout.interface.flush();
 }

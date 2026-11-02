@@ -1,0 +1,7 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Repeat for i from 1 to n:
+    Show i.

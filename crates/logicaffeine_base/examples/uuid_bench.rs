@@ -22,7 +22,12 @@ const ITERS: u32 = 2_000_000;
 fn sha1_compress_lane(h: &mut [u32; 5], block: &[u8; 64]) {
     let mut w = [0u32; 16];
     for i in 0..16 {
-        w[i] = u32::from_be_bytes([block[4 * i], block[4 * i + 1], block[4 * i + 2], block[4 * i + 3]]);
+        w[i] = u32::from_be_bytes([
+            block[4 * i],
+            block[4 * i + 1],
+            block[4 * i + 2],
+            block[4 * i + 3],
+        ]);
     }
     let l = Lanes4Word32; // constructor alias
     let mut st = l([h[3], h[2], h[1], h[0]]);
@@ -161,7 +166,13 @@ fn sha1_lane(msg: &[u8]) -> [u8; 20] {
     buf[n] = 0x80;
     let total = if n + 1 <= 56 { 64 } else { 128 };
     buf[total - 8..total].copy_from_slice(&((n as u64) * 8).to_be_bytes());
-    let mut h = [0x67452301u32, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+    let mut h = [
+        0x67452301u32,
+        0xEFCDAB89,
+        0x98BADCFE,
+        0x10325476,
+        0xC3D2E1F0,
+    ];
     for chunk in buf[..total].chunks_exact(64) {
         let block: &[u8; 64] = chunk.try_into().unwrap();
         sha1_compress_lane(&mut h, block);
@@ -189,9 +200,7 @@ fn bench<T>(iters: u32, mut f: impl FnMut() -> T) -> f64 {
 fn row(name: &str, ours: f64, theirs: f64) {
     let ratio = ours / theirs;
     let verdict = if ratio >= 1.0 { "WIN " } else { "lose" };
-    println!(
-        "{name:<18} ours {ours:>8.2} M/s   ref {theirs:>8.2} M/s   {ratio:>5.2}× {verdict}"
-    );
+    println!("{name:<18} ours {ours:>8.2} M/s   ref {theirs:>8.2} M/s   {ratio:>5.2}× {verdict}");
 }
 
 fn main() {
@@ -224,7 +233,11 @@ fn main() {
     // intrinsic — no `#[target_feature]` call boundary, no per-op detect — so the ~80 ops stay in XMM
     // registers and MATCH the monolithic native kernel. RESULT (measured, native build): matches/beats
     // the `sha1` crate, i.e. SHA-1 in-language runs at silicon speed. Byte-exact vs our reference kernel.
-    assert_eq!(sha1_lane(msg), sha1(msg), "lane-path SHA-1 must match the reference digest");
+    assert_eq!(
+        sha1_lane(msg),
+        sha1(msg),
+        "lane-path SHA-1 must match the reference digest"
+    );
     row(
         "sha1 (logos-lane)",
         bench(ITERS, || sha1_lane(black_box(msg))),
@@ -260,12 +273,16 @@ fn main() {
     row(
         "v3 (md5)",
         bench(ITERS, || Uuid::new_v3(black_box(ns_ours), black_box(name))),
-        bench(ITERS, || uuid::Uuid::new_v3(black_box(&ns_their), black_box(name))),
+        bench(ITERS, || {
+            uuid::Uuid::new_v3(black_box(&ns_their), black_box(name))
+        }),
     );
     row(
         "v5 (sha1)",
         bench(ITERS, || Uuid::new_v5(black_box(ns_ours), black_box(name))),
-        bench(ITERS, || uuid::Uuid::new_v5(black_box(&ns_their), black_box(name))),
+        bench(ITERS, || {
+            uuid::Uuid::new_v5(black_box(&ns_their), black_box(name))
+        }),
     );
 
     // --- v4 / v7 from fixed entropy (the generation cost, RNG excluded so it is apples-to-apples). ---
@@ -274,13 +291,18 @@ fn main() {
     row(
         "v4 (build)",
         bench(ITERS, || Uuid::new_v4(black_box(rand16))),
-        bench(ITERS, || uuid::Builder::from_random_bytes(black_box(rand16)).into_uuid()),
+        bench(ITERS, || {
+            uuid::Builder::from_random_bytes(black_box(rand16)).into_uuid()
+        }),
     );
     row(
         "v7 (build)",
-        bench(ITERS, || Uuid::new_v7(black_box(123456789), black_box(rand10))),
         bench(ITERS, || {
-            uuid::Builder::from_unix_timestamp_millis(black_box(123456789), black_box(&rand10)).into_uuid()
+            Uuid::new_v7(black_box(123456789), black_box(rand10))
+        }),
+        bench(ITERS, || {
+            uuid::Builder::from_unix_timestamp_millis(black_box(123456789), black_box(&rand10))
+                .into_uuid()
         }),
     );
 
@@ -300,12 +322,14 @@ fn main() {
         their_ids.push(uuid::Uuid::from_bytes(b));
     }
     let batches = (ITERS / N as u32).max(1);
-    let bulk_ours =
-        bench(batches, || logicaffeine_base::uuid::encode_many(black_box(&ours_ids))) * N as f64;
+    let bulk_ours = bench(batches, || {
+        logicaffeine_base::uuid::encode_many(black_box(&ours_ids))
+    }) * N as f64;
     let bulk_theirs = bench(batches, || {
         let mut buf = vec![0u8; N * 36];
         for (i, id) in their_ids.iter().enumerate() {
-            id.as_hyphenated().encode_lower(&mut buf[i * 36..i * 36 + 36]);
+            id.as_hyphenated()
+                .encode_lower(&mut buf[i * 36..i * 36 + 36]);
         }
         buf
     }) * N as f64;
@@ -316,7 +340,8 @@ fn main() {
     //     fair reference loops its single-id `parse_str` (what a user would actually write). ---
     let packed = logicaffeine_base::uuid::encode_many(&ours_ids); // N*36 canonical bytes
     let packed_str = std::str::from_utf8(&packed).unwrap();
-    let bulk_parse_ours = bench(batches, || Uuid::parse_many(black_box(&packed)).unwrap()) * N as f64;
+    let bulk_parse_ours =
+        bench(batches, || Uuid::parse_many(black_box(&packed)).unwrap()) * N as f64;
     let bulk_parse_theirs = bench(batches, || {
         let mut v = Vec::with_capacity(N);
         for i in 0..N {

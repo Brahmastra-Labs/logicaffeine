@@ -1,0 +1,112 @@
+{
+  "case": "T07-008",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t07_typeclasses/T07-008_instance_priority.lean",
+  "source_sha256": "7969812495642cd1404d864e9c8d59fbd9e192cd552d4b3cd2b51172b6b0ecee",
+  "ledger_sha256": "3c3dccb2990845786b8cdc1531fa9cc4e713fb8496c5b9bf7f72ba8fadc0f303",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T07_008.Box",
+    "T07_008.Box.mk",
+    "T07_008.Inverted",
+    "T07_008.Inverted.mk",
+    "T07_008.Inverted.value",
+    "T07_008.Ranked",
+    "T07_008.Ranked.mk",
+    "T07_008.Ranked.rank",
+    "T07_008.Render",
+    "T07_008.Render.mk",
+    "T07_008.Render.render",
+    "T07_008.Scoped",
+    "T07_008.Scoped.mk",
+    "T07_008.Scoped.scopedValue",
+    "T07_008.Tagged",
+    "T07_008.Tagged.mk",
+    "T07_008.Tagged.tag",
+    "T07_008.earlyHigh",
+    "T07_008.firstDeclared",
+    "T07_008.generalBeatsSpecific",
+    "T07_008.generalBox",
+    "T07_008.highPriority",
+    "T07_008.instRenderNat",
+    "T07_008.invertedWins",
+    "T07_008.lateLow",
+    "T07_008.laterWins",
+    "T07_008.localOnly",
+    "T07_008.lowPriority",
+    "T07_008.priorityWins",
+    "T07_008.secondDeclared",
+    "T07_008.specificBox",
+    "T07_008.usesLocal"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "1e5db84332fdbf571a0d4d05bbc9b59f599eca1b4fe11eadd0ca37b313e7db71",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 523,
+  "harvest": {
+    "roots": [
+      "T07_008.Box",
+      "T07_008.Box.mk",
+      "T07_008.Inverted",
+      "T07_008.Inverted.mk",
+      "T07_008.Inverted.value",
+      "T07_008.Ranked",
+      "T07_008.Ranked.mk",
+      "T07_008.Ranked.rank",
+      "T07_008.Render",
+      "T07_008.Render.mk",
+      "T07_008.Render.render",
+      "T07_008.Scoped",
+      "T07_008.Scoped.mk",
+      "T07_008.Scoped.scopedValue",
+      "T07_008.Tagged",
+      "T07_008.Tagged.mk",
+      "T07_008.Tagged.tag",
+      "T07_008.earlyHigh",
+      "T07_008.firstDeclared",
+      "T07_008.generalBeatsSpecific",
+      "T07_008.generalBox",
+      "T07_008.highPriority",
+      "T07_008.instRenderNat",
+      "T07_008.invertedWins",
+      "T07_008.lateLow",
+      "T07_008.laterWins",
+      "T07_008.localOnly",
+      "T07_008.lowPriority",
+      "T07_008.priorityWins",
+      "T07_008.secondDeclared",
+      "T07_008.specificBox",
+      "T07_008.usesLocal"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

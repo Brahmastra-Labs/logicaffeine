@@ -1,0 +1,12 @@
+# fpu_synth.ys — prove every fpu.v module is truly synthesizable (no `real`, no latches, no
+# combinational loops), independent of the iverilog bit-exact proof. `check -assert` fails loudly on
+# any inferred latch / floating logic; `synth` maps to a generic gate netlist. Run one module at a
+# time with: yosys -q -p "read_verilog -sv fpu.v; synth -top <mod> -flatten; check -assert; stat"
+# or just: yosys fpu_synth.ys  (checks fp_addsub / fp_mul / fp_cmp / fp_div / fp_sqrt in turn).
+read_verilog -sv fpu.v
+hierarchy -check
+proc
+opt
+check -assert
+synth -flatten
+stat

@@ -1,0 +1,156 @@
+{
+  "schema": "logos.rdu.vllm_plan",
+  "version": 1,
+  "_generated_by": "cargo run -p logicaffeine-compile --example emit_qwen38_rdu",
+  "provenance": "modeled",
+  "no_speed_claim": true,
+  "honesty": "Every number is a model's: sizes from the config and the authored program, the chip from its published facts (cited) or its modeled unit model (labeled). Nothing here ran on an RDU; no field is a time and no throughput is claimed.",
+  "model": {
+    "id": "Qwen/Qwen3.8-27B",
+    "hf_model_type": "qwen3_5",
+    "inherits": "qwen3_next",
+    "checkpoint": "safetensors, bf16",
+    "gguf_alternative": "bartowski/Qwen3.8-27B-GGUF (Q8_0)"
+  },
+  "serve": {
+    "tensor_parallel_size": 16,
+    "dtype": "bfloat16",
+    "max_model_len": 262144,
+    "command": "vllm serve Qwen/Qwen3.8-27B --tensor-parallel-size 16 --dtype bfloat16 --max-model-len 262144",
+    "provenance": "modeled"
+  },
+  "chip": {
+    "part": "SN50",
+    "chip": "sn50",
+    "chips_per_node": {
+      "value": 8,
+      "provenance": "published",
+      "cite": "[SN50WEB] chips per node: 8"
+    },
+    "chips_per_rack": {
+      "value": 16,
+      "provenance": "published",
+      "cite": "[HC26] seven integrated 800G Ethernet links make the eight-socket node's full mesh, two more 800G ports reach the inter-node fabric, ten 800G ports carry an aggregate 2 TB/s per RDU, a 400G RoCEv2 NIC scales out; [STH26] 16 RDUs in a rack, two nodes"
+    },
+    "tensor_parallel_width": {
+      "value": 16,
+      "provenance": "published",
+      "cite": "[HC26] seven integrated 800G Ethernet links make the eight-socket node's full mesh, two more 800G ports reach the inter-node fabric, ten 800G ports carry an aggregate 2 TB/s per RDU, a 400G RoCEv2 NIC scales out; [STH26] 16 RDUs in a rack, two nodes"
+    },
+    "provenance": "modeled"
+  },
+  "ops_the_backend_must_support": [
+    {
+      "eps": 1e-6,
+      "op": "rmsnorm",
+      "per_head_variants": {
+        "k": 256,
+        "q": 256
+      },
+      "provenance": "modeled",
+      "width": 5120
+    },
+    {
+      "dtype": "bfloat16",
+      "op": "matmul",
+      "provenance": "modeled",
+      "widest": {
+        "cols": 248320,
+        "rows": 5120
+      }
+    },
+    {
+      "head_dim": 256,
+      "note": "partial rotary: only the first rotary_dims of each head rotate",
+      "op": "rope",
+      "provenance": "modeled",
+      "rotary_dims": 64,
+      "theta": 10000000.0
+    },
+    {
+      "causal": true,
+      "head_dim": 256,
+      "heads": 24,
+      "kv_heads": 4,
+      "layers": 16,
+      "op": "gqa_attention",
+      "provenance": "modeled"
+    },
+    {
+      "note": "the attention output gate, hadamard with the context",
+      "op": "sigmoid_gate",
+      "provenance": "modeled",
+      "width": 6144
+    },
+    {
+      "channels": 10240,
+      "layers": 48,
+      "op": "causal_conv",
+      "provenance": "modeled",
+      "taps": 4
+    },
+    {
+      "op": "silu",
+      "provenance": "modeled"
+    },
+    {
+      "head_dim": 128,
+      "heads": 16,
+      "op": "l2norm_per_head",
+      "provenance": "modeled"
+    },
+    {
+      "heads": 48,
+      "note": "exp(A · softplus(u + dt_bias)) — the per-head forget gate",
+      "op": "decay",
+      "provenance": "modeled"
+    },
+    {
+      "head_dim": 128,
+      "k_heads": 16,
+      "layers": 48,
+      "op": "gated_delta",
+      "provenance": "modeled",
+      "state_elems_per_layer": 786432,
+      "v_heads": 48
+    },
+    {
+      "dff": 17408,
+      "op": "swiglu",
+      "provenance": "modeled"
+    },
+    {
+      "note": "greedy next token",
+      "op": "argmax",
+      "provenance": "modeled",
+      "vocab": 248320
+    }
+  ],
+  "state_bytes_per_layer": {
+    "attention_kv_per_token": 4096,
+    "gdn_memory": 3145728,
+    "conv_rings": 163840,
+    "provenance": "modeled"
+  },
+  "from_fit": {
+    "weights_bf16_bytes": 53791996928,
+    "weights_per_chip_bytes": 3363273728,
+    "hbm_fit": true,
+    "kv_cache_at_ctx": {
+      "ctx": 262144,
+      "bytes": 17179869184,
+      "kv_shards": 4,
+      "replication": 4,
+      "per_chip_bytes": 4294967296
+    },
+    "max_ctx_in_hbm": 3988420,
+    "sram_until_ctx": 27035,
+    "provenance": "modeled"
+  },
+  "intake_question": "does the RDU vLLM backend support HF model_type qwen3_5 (Gated DeltaNet: causal_conv + decay + gated_delta with a per-layer ghd×ghd memory per v-head)? If not, which of these ops is missing?",
+  "fallbacks": [
+    "SambaFlow: `largo emit rdu --format sambaflow` on the tiny config first, then the real one (PEF compile time is the risk)",
+    "RDA/Spatial-IR: `largo emit rdu` neutral.json v2 + certificate; `--format spatial` for the Spatial source",
+    "API only: the SambaCloud baseline plus the `largo emit rdu` demo stand on their own"
+  ]
+}

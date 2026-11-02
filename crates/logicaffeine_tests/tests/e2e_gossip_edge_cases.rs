@@ -38,7 +38,8 @@ fn e2e_test_rapid_publish_before_mesh() {
     let topic = unique_topic();
 
     // Node A: Publishes immediately, multiple times
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -56,10 +57,13 @@ Sleep 20000.
 Show state's clicks.
 If state's clicks equals 15:
     Show "RAPID_PUBLISH_A".
-"#, topic);
+"#,
+        topic
+    );
 
     // Node B: Joins and should eventually get all updates
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -71,7 +75,9 @@ Sleep 18000.
 Show state's clicks.
 If state's clicks equals 15:
     Show "RAPID_PUBLISH_B".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
@@ -116,14 +122,13 @@ If state's clicks equals 15:
 #[test]
 fn e2e_test_multiple_topics_isolation() {
     use std::process::{Command, Stdio};
-    use std::thread;
-    use std::time::Duration;
 
     let topic_a = unique_topic();
     let topic_b = format!("{}_other", unique_topic());
 
     // Node A: Subscribes to topic_a
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -138,10 +143,13 @@ Sleep 12000.
 Show state's clicks.
 If state's clicks equals 100:
     Show "TOPIC_ISOLATION_A".
-"#, topic_a);
+"#,
+        topic_a
+    );
 
     // Node B: Subscribes to topic_b (different topic!)
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -156,7 +164,9 @@ Sleep 12000.
 Show state's clicks.
 If state's clicks equals 200:
     Show "TOPIC_ISOLATION_B".
-"#, topic_b);
+"#,
+        topic_b
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
@@ -206,7 +216,8 @@ fn e2e_test_three_node_same_topic() {
     let topic = unique_topic();
 
     // All three nodes subscribe to the same topic
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -221,9 +232,12 @@ Sleep 15000.
 Show state's clicks.
 If state's clicks equals 42:
     Show "THREE_TOPIC_A".
-"#, topic);
+"#,
+        topic
+    );
 
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -238,9 +252,12 @@ Sleep 15000.
 Show state's clicks.
 If state's clicks equals 42:
     Show "THREE_TOPIC_B".
-"#, topic);
+"#,
+        topic
+    );
 
-    let source_c = format!(r#"## Definition
+    let source_c = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -255,7 +272,9 @@ Sleep 15000.
 Show state's clicks.
 If state's clicks equals 42:
     Show "THREE_TOPIC_C".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);
@@ -321,7 +340,8 @@ fn e2e_test_late_rejoin_sync() {
     let topic = unique_topic();
 
     // Node A: Stays online the whole time
-    let source_a = format!(r#"## Definition
+    let source_a = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -337,10 +357,13 @@ Increase state's clicks by 50.
 Show "A: second write".
 Sleep 15000.
 Show state's clicks.
-"#, topic);
+"#,
+        topic
+    );
 
     // Node B: Joins very late
-    let source_b = format!(r#"## Definition
+    let source_b = format!(
+        r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
@@ -352,7 +375,9 @@ Sleep 25000.
 Show state's clicks.
 If state's clicks equals 100:
     Show "LATE_REJOIN_SUCCESS".
-"#, topic);
+"#,
+        topic
+    );
 
     let result_a = compile_logos(&source_a);
     let result_b = compile_logos(&source_b);

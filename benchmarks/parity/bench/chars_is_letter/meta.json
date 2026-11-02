@@ -1,0 +1,11 @@
+{
+  "capability": "chars.is_letter",
+  "workload": "count codepoints (i%128) where is_letter",
+  "arg": "20000000",
+  "expected": "8125000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go"
+  ]
+}

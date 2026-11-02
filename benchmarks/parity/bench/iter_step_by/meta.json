@@ -1,0 +1,11 @@
+{
+  "capability": "iter.step_by",
+  "workload": "stepBySeq(xs,3) \u2014 length fold",
+  "arg": "40000",
+  "expected": "54640000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "python"
+  ]
+}

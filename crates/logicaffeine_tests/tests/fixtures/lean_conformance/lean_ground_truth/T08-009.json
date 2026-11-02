@@ -1,0 +1,61 @@
+{
+  "case": "T08-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), 0 + n = n",
+      "name": "T08_009.contextVariable",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), p 0 \u2192 (\u2200 (k : Nat), p k \u2192 p (k + 1)) \u2192 \u2200 (n : Nat), p n",
+      "name": "T08_009.dependentHypothesis",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2200 (m : Nat), p m) \u2192 (\u2200 (k : Nat), p k \u2192 p (k + 1)) \u2192 \u2200 (n : Nat), p n",
+      "name": "T08_009.ihOrdering",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (m n : Nat), m + n = n + m",
+      "name": "T08_009.innerBinder",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n * 1 = n",
+      "name": "T08_009.namedCases",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T08_009.outermost",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

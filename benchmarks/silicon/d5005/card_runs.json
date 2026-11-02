@@ -1,0 +1,88 @@
+{
+  "doc": "The D5005 card's decode runs on 2026-10-26: Qwen3.8-27B and Qwen3.5-0.8B, each decoded by the engine on the card from the decode step model::author writes. Every figure is read from the committed run logs under card_runs/2026-10-26/ and re-derived by d5005_card_runs_lock: a step's seconds are its last position's core cycles times the core's clock divider over the user clock; a run's tokens a second are its sequences over that. No energy or power figure.",
+  "image": {
+    "name": "hybrid7c (flat)",
+    "fit_summary": "benchmarks/silicon/d5005/card_runs/2026-10-26/hybrid7c-fit.summary",
+    "fmax_report": "benchmarks/silicon/d5005/card_runs/2026-10-26/hybrid7c-fmax.txt",
+    "sof_sha256": "fc92f5605b1959f5f1ad3e0acb1722b260c78d4bd2842171024a83510eb3b613",
+    "host_software": "benchmarks/silicon/d5005/card_runs/2026-10-26/host-software.sha256"
+  },
+  "clock": {
+    "user_clock_mhz": 100.0,
+    "core_divider": 8
+  },
+  "runs": [
+    {
+      "log": "benchmarks/silicon/d5005/card_runs/2026-10-26/qwen3.8-27b.log",
+      "model": "qwen3.8-27b",
+      "program": "LOGOS program: decode step, ctx 4096, sha256 a60922cbe91dfc37cde8d02a3b2f74f3e22dec0df55a8982476f5377045cb698",
+      "golden": "benchmarks/silicon/d5005/goldens/qwen3.8-27b/golden-f32.json",
+      "golden_prompt": 0,
+      "sequences": 1,
+      "prompt": 5,
+      "tokens": [
+        760,
+        6511,
+        314,
+        9338,
+        369,
+        11751,
+        13,
+        198
+      ],
+      "core_cycles_last_step": 12651453,
+      "seconds_a_step": 1.012116,
+      "tokens_a_second": 0.988,
+      "faults": 0,
+      "checks_failed": 0
+    },
+    {
+      "log": "benchmarks/silicon/d5005/card_runs/2026-10-26/qwen3.8-27b-batch4.log",
+      "model": "qwen3.8-27b",
+      "program": "LOGOS program: decode step, ctx 4096, sha256 a60922cbe91dfc37cde8d02a3b2f74f3e22dec0df55a8982476f5377045cb698",
+      "golden": "benchmarks/silicon/d5005/goldens/qwen3.8-27b/golden-f32.json",
+      "golden_prompt": 0,
+      "sequences": 4,
+      "prompt": 5,
+      "tokens": [
+        760,
+        6511,
+        314,
+        9338,
+        369,
+        11751,
+        13,
+        198
+      ],
+      "core_cycles_last_step": 15910269,
+      "seconds_a_step": 1.272822,
+      "tokens_a_second": 3.1426,
+      "faults": 0,
+      "checks_failed": 0
+    },
+    {
+      "log": "benchmarks/silicon/d5005/card_runs/2026-10-26/qwen3.5-0.8b.log",
+      "model": "qwen3.5-0.8b",
+      "program": "LOGOS program: decode step, ctx 4096, sha256 c67668ef959fd4c26c5432846c383fcf492496b3e1b2f5c11e123a6714ad462d",
+      "golden": "benchmarks/models/qwen3.5-0.8b/golden-f32.json",
+      "golden_prompt": 0,
+      "sequences": 1,
+      "prompt": 5,
+      "tokens": [
+        760,
+        6511,
+        314,
+        9338,
+        369,
+        11751,
+        13,
+        198
+      ],
+      "core_cycles_last_step": 1995582,
+      "seconds_a_step": 0.159647,
+      "tokens_a_second": 6.2638,
+      "faults": 0,
+      "checks_failed": 0
+    }
+  ]
+}

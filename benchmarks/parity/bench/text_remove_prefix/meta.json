@@ -1,0 +1,11 @@
+{
+  "capability": "text.remove_prefix",
+  "workload": "removePrefix(s,'aa') \u2014 length fold",
+  "arg": "40000",
+  "expected": "161900800",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

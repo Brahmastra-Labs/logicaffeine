@@ -1,0 +1,9 @@
+{
+  "capability": "builder.truncate",
+  "arg": "2000000",
+  "expected": "6000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

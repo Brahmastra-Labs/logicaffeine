@@ -1,0 +1,10 @@
+{
+  "capability": "heap.sort",
+  "workload": "heapSortSeq(xs) ascending, positional fold",
+  "arg": "20000",
+  "expected": "181239633",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

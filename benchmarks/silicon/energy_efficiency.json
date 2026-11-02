@@ -1,0 +1,69 @@
+{
+  "_provenance": "Derived ENTIRELY from one measurement: scripts/measure-silicon-power.py decision_hft_realbist — the signoff-clean netlist its ledger ships, gate-level simulated at its signoff clock, VCD-annotated OpenSTA report_power at each PVT corner with that corner's parasitics — plus the Hot Chips 2025 poster IMG_8874 for the external HiVec reference. Efficiency figures are computed from that power and clock and the tile count (E = P/f, TOPS/W = ops*f/P); energy_efficiency_lock.rs re-derives every figure.",
+  "design": "decision_hft",
+  "ops_per_eval": 17,
+  "cycles_per_eval": 1,
+  "die_mm2": 0.0381,
+  "typical_corner": {
+    "corner": "tt_1v80_25C",
+    "vdd": 1.8,
+    "fmax_mhz": 92.593,
+    "power_mw": 3.31,
+    "energy_per_eval_pj": 35.75,
+    "tops_per_w": 0.476,
+    "_note": "the operating point is the 92.593 MHz signoff clock the VCD power was measured at (every timing corner meets it); 17-tile decision select-DAG, 1 cycle/decision. Control-dominated, so its win is energy-per-decision + single-cycle latency, NOT raw TOPS/W."
+  },
+  "vdd_sweep": [
+    {
+      "corner": "ss_1v60_100C",
+      "vdd": 1.6,
+      "power_mw": 2.65,
+      "basis": "VCD-measured PVT corner"
+    },
+    {
+      "corner": "tt_1v80_25C",
+      "vdd": 1.8,
+      "power_mw": 3.31,
+      "basis": "VCD-measured PVT corner"
+    },
+    {
+      "corner": "ff_1v95_n40C",
+      "vdd": 1.95,
+      "power_mw": 3.78,
+      "basis": "VCD-measured PVT corner"
+    }
+  ],
+  "vdd_scaling_law": {
+    "relation": "P_switching ~ C*V^2",
+    "measured_power_ratio_ff_over_ss": 1.426,
+    "v_squared_prediction": 1.485,
+    "status": "measured-consistent within C/temperature slack"
+  },
+  "area_breakdown": {
+    "tiles_total": 17,
+    "tiles": {
+      "select_mux": 12,
+      "arith": 5
+    },
+    "std_cells_placed": 3754,
+    "die_mm2": 0.0381
+  },
+  "sota_comparison": [
+    {
+      "platform": "LOGOS decision fabric (Sky130)",
+      "tops_per_w": 0.476,
+      "energy_per_eval_pj": 35.75,
+      "area_mm2": 0.0381,
+      "cycles": 1,
+      "vdd": 1.8,
+      "source": "this repo — VCD-measured on the signoff-clean netlist at its signoff clock (benchmarks/silicon/decision_fabric_power.json, scripts/measure-silicon-power.py)"
+    },
+    {
+      "platform": "HiVec CGRA (NUS/A*STAR)",
+      "tops_per_w": 16.2,
+      "vdd": 0.4,
+      "note": "MAC-dense near-threshold; a different workload class than our control-heavy decision kernel",
+      "source": "Hot Chips 2025 poster IMG_8874 (work/hot-chips-2025/IMG_8874_HiVec_CGRA.md)"
+    }
+  ]
+}

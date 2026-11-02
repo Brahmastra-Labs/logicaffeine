@@ -1,0 +1,63 @@
+{
+  "case": "T10-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T10_017.natSub",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), T10_017.natSub x 0 = x",
+      "name": "T10_017.natSub.eq_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T10_017.natSub 0 n.succ = 0",
+      "name": "T10_017.natSub.eq_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat), T10_017.natSub n.succ m.succ = T10_017.natSub n m",
+      "name": "T10_017.natSub.eq_3",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Nat \u2192 Sort u_1) \u2192\n  (x x_1 : Nat) \u2192\n    ((n : Nat) \u2192 motive n 0) \u2192 ((n : Nat) \u2192 motive 0 n.succ) \u2192 ((n m : Nat) \u2192 motive n.succ m.succ) \u2192 motive x x_1",
+      "name": "T10_017.natSub.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat), T10_017.natSub n m = n - m",
+      "name": "T10_017.natSub_eq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (motive : Nat \u2192 Nat \u2192 Prop) (x x_1 : Nat),\n  (\u2200 (x : Nat), motive x 0) \u2192 (\u2200 (n : Nat), motive 0 n.succ) \u2192 (\u2200 (n m : Nat), motive n.succ m.succ) \u2192 motive x x_1",
+      "name": "T10_017.natSub_eq.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

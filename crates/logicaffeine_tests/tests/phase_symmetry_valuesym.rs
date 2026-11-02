@@ -23,7 +23,11 @@ use logicaffeine_compile::vm::NativeTier;
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
-    s.lines().map(|l| l.trim_end()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| l.trim_end())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Cap recursion unroll depth so the debug VM (which runs the sub-calls
@@ -37,7 +41,12 @@ fn v2_outcome(src: &str, argv: &[String]) -> (String, Option<String>) {
     let tier = ForgeTier::new();
     with_v2_optimized_program(src, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
-            stmts, interner, Some(types), Some(&policies), argv, Some(&tier as &dyn NativeTier),
+            stmts,
+            interner,
+            Some(types),
+            Some(&policies),
+            argv,
+            Some(&tier as &dyn NativeTier),
         ),
         Err(advice) => (String::new(), Some(advice)),
     })

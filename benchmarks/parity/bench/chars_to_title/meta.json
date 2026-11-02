@@ -1,0 +1,10 @@
+{
+  "capability": "chars.to_title",
+  "workload": "sum of to_title(i%128)",
+  "arg": "20000000",
+  "expected": "1140000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

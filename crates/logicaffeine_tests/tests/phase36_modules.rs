@@ -6,10 +6,10 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-use logicaffeine_language::analysis::dependencies::scan_dependencies;
-use logicaffeine_compile::Loader;
-use logicaffeine_compile::analysis::discover_with_imports;
 use logicaffeine_base::Interner;
+use logicaffeine_compile::analysis::discover_with_imports;
+use logicaffeine_compile::Loader;
+use logicaffeine_language::analysis::dependencies::scan_dependencies;
 
 #[test]
 fn test_scan_dependencies_in_abstract() {
@@ -42,7 +42,12 @@ This second paragraph has [Dep2](file:b.md).
 Let x be 1.
 "#;
     let deps = scan_dependencies(source);
-    assert_eq!(deps.len(), 1, "Should only find 1 dependency in abstract: {:?}", deps);
+    assert_eq!(
+        deps.len(),
+        1,
+        "Should only find 1 dependency in abstract: {:?}",
+        deps
+    );
     assert_eq!(deps[0].alias, "Dep1");
 }
 
@@ -50,26 +55,37 @@ Let x be 1.
 fn test_loader_file_scheme() {
     let temp_dir = tempdir().unwrap();
     let geo_path = temp_dir.path().join("geo.md");
-    fs::write(&geo_path, "## Definition\nA Point has:\n    an x, which is Int.\n").unwrap();
+    fs::write(
+        &geo_path,
+        "## Definition\nA Point has:\n    an x, which is Int.\n",
+    )
+    .unwrap();
 
     let mut loader = Loader::new(temp_dir.path().to_path_buf());
     let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
 
     assert!(result.is_ok(), "Should resolve file: scheme: {:?}", result);
-    assert!(result.unwrap().content.contains("Point"), "Should contain Point definition");
+    assert!(
+        result.unwrap().content.contains("Point"),
+        "Should contain Point definition"
+    );
 }
 
 #[test]
 fn test_recursive_discovery_imports_types() {
     let temp_dir = tempdir().unwrap();
     // A proper LOGOS file has a # Header before ## Definition
-    fs::write(temp_dir.path().join("geo.md"), r#"# Geometry
+    fs::write(
+        temp_dir.path().join("geo.md"),
+        r#"# Geometry
 
 ## Definition
 A Point has:
     an x, which is Int.
     a y, which is Int.
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let main_source = r#"
 # Main
@@ -86,11 +102,15 @@ Let p be a new Point from Geometry.
         &temp_dir.path().join("main.md"),
         main_source,
         &mut loader,
-        &mut interner
-    ).expect("Should discover imports");
+        &mut interner,
+    )
+    .expect("Should discover imports");
 
     let qualified = interner.intern("Geometry::Point");
-    assert!(registry.is_type(qualified), "Should have Geometry::Point in registry");
+    assert!(
+        registry.is_type(qualified),
+        "Should have Geometry::Point in registry"
+    );
 }
 
 #[test]
@@ -110,7 +130,11 @@ Let x be 1.
 
     let mut loader = Loader::new(PathBuf::from("."));
     let result = loader.resolve(&PathBuf::from("main.md"), "logos:std");
-    assert!(result.is_ok(), "Should resolve logos:std scheme: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should resolve logos:std scheme: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -122,7 +146,11 @@ fn test_no_dependencies_without_abstract() {
 Let x be 1.
 "#;
     let deps = scan_dependencies(source);
-    assert_eq!(deps.len(), 0, "Should find no dependencies without abstract");
+    assert_eq!(
+        deps.len(),
+        0,
+        "Should find no dependencies without abstract"
+    );
 }
 
 #[test]
@@ -137,7 +165,12 @@ and [IO](file:./io.md) for input/output operations.
 Let x be 1.
 "#;
     let deps = scan_dependencies(source);
-    assert_eq!(deps.len(), 2, "Should find dependencies across multiline abstract: {:?}", deps);
+    assert_eq!(
+        deps.len(),
+        2,
+        "Should find dependencies across multiline abstract: {:?}",
+        deps
+    );
     assert_eq!(deps[0].alias, "Math");
     assert_eq!(deps[1].alias, "IO");
 }
@@ -153,8 +186,16 @@ fn test_from_module_lexer() {
     let tokens = lexer.tokenize();
 
     // Should have: ProperName(Point), From, ProperName(Geometry), EOF
-    assert!(tokens.len() >= 3, "Should have at least 3 tokens: {:?}", tokens);
-    assert!(matches!(tokens[1].kind, TokenType::From), "Second token should be From: {:?}", tokens[1].kind);
+    assert!(
+        tokens.len() >= 3,
+        "Should have at least 3 tokens: {:?}",
+        tokens
+    );
+    assert!(
+        matches!(tokens[1].kind, TokenType::From),
+        "Second token should be From: {:?}",
+        tokens[1].kind
+    );
 }
 
 #[test]
@@ -164,27 +205,38 @@ fn test_compile_project_with_imports() {
     let temp_dir = tempdir().unwrap();
 
     // Create dependency module
-    fs::write(temp_dir.path().join("geo.md"), r#"# Geometry
+    fs::write(
+        temp_dir.path().join("geo.md"),
+        r#"# Geometry
 
 ## Definition
 A Point has:
     an x, which is Int.
     a y, which is Int.
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     // Create main module that imports it
     let main_path = temp_dir.path().join("main.md");
-    fs::write(&main_path, r#"# Main
+    fs::write(
+        &main_path,
+        r#"# Main
 
 Uses [Geometry](file:./geo.md) for points.
 
 ## Main
 Let p be a new Point from Geometry.
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let result = compile_project(&main_path);
     assert!(result.is_ok(), "Should compile project: {:?}", result);
     let output = result.unwrap();
     // The codegen should produce struct usage
-    assert!(output.rust_code.contains("fn main()"), "Should have main function");
+    assert!(
+        output.rust_code.contains("fn main()"),
+        "Should have main function"
+    );
 }

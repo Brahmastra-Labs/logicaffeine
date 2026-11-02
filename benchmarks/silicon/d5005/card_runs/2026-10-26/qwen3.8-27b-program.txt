@@ -1,0 +1,1 @@
+LOGOS program: decode step, ctx 4096, sha256 a60922cbe91dfc37cde8d02a3b2f74f3e22dec0df55a8982476f5377045cb698

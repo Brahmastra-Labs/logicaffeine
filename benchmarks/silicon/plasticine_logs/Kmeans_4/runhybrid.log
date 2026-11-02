@@ -1,0 +1,40 @@
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000           7396 Hz
+     20000           7827 Hz
+     30000           7371 Hz
+     40000           8072 Hz
+     50000           7498 Hz
+     60000           7045 Hz
+     70000           7820 Hz
+     80000           7941 Hz
+     90000           7037 Hz
+    100000           5993 Hz
+    110000           7493 Hz
+    120000           8331 Hz
+    130000           8012 Hz
+    140000           6576 Hz
+    150000           7114 Hz
+    160000           5408 Hz
+    170000           6026 Hz
+    180000           6516 Hz
+Simulation complete at cycle 181272
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.723068 GB/s
+Average DRAM Write Bandwidth: 0.0903835 GB/s
+script Elapsed seconds: 27.9195
+Exiting... 😊
+Destruct DRAM.
+Original Points:
+Correct Centers:
+Result Centers:
+PASS: true (Kmeans)
+Complete Simulation
+Runtime:0:28.32

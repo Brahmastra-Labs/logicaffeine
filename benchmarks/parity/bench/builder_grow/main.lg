@@ -1,0 +1,13 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let reps be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 0.
+While i is less than reps:
+    Let b be builderGrow(newBuilder(), 100).
+    Set sum to sum + builderLen(b).
+    Set i to i + 1.
+Show sum.

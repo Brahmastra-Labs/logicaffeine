@@ -1,0 +1,9 @@
+{
+  "capability": "builder.reader_unread_byte",
+  "arg": "200000",
+  "expected": "25502328",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

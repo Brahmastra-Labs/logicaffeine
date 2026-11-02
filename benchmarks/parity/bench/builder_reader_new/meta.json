@@ -1,0 +1,9 @@
+{
+  "capability": "builder.reader_new",
+  "arg": "200000",
+  "expected": "819200000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

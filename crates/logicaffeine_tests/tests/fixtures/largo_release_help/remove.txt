@@ -1,0 +1,32 @@
+Remove a dependency from Largo.toml.
+
+Deletes the named entry from `[dependencies]`, leaving the rest of the manifest byte-identical.
+
+Usage: largo remove [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          The dependency name to remove
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo remove math_utils

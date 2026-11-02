@@ -1,0 +1,77 @@
+{
+  "case": "T06-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (\u03b2 : Nat \u2192 Type) (f g : (n : Nat) \u2192 \u03b2 n), (\u2200 (n : Nat), f n = g n) \u2192 f = g",
+      "name": "T06_011.dependentFunext",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} {\u03b2 : \u03b1 \u2192 Sort v} {f g : (x : \u03b1) \u2192 \u03b2 x}, (\u2200 (x : \u03b1), f x = g x) \u2192 f = g",
+      "name": "T06_011.ext",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 {f g : Nat \u2192 Nat}, (\u2200 (n : Nat), f n = g n) \u2192 f = g",
+      "name": "T06_011.extSimple",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (F G : (Nat \u2192 Nat) \u2192 Nat), (\u2200 (f : Nat \u2192 Nat), F f = G f) \u2192 F = G",
+      "name": "T06_011.higherOrderExt",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "(fun n => n * 1) = fun n => n",
+      "name": "T06_011.innocuous",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "(fun n => n + 0) = fun n => n",
+      "name": "T06_011.pointwiseNotDefEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Nat \u2192 Prop), (\u2200 (n : Nat), p n \u2194 q n) \u2192 p = q",
+      "name": "T06_011.predExt",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Quot.sound",
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

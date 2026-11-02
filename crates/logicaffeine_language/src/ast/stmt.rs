@@ -14,7 +14,8 @@ use super::axiom::{AxiomBlock, TheoryBlock};
 use super::definition::DefinitionBlock;
 use super::logic::LogicExpr;
 use super::theorem::TheoremBlock;
-use logicaffeine_base::Symbol;
+use crate::token::Span;
+use logicaffeine_base::{Interner, Symbol};
 
 /// Type expression for explicit type annotations.
 ///
@@ -34,6 +35,19 @@ pub enum TypeExpr<'a> {
     Generic {
         base: Symbol,
         params: &'a [TypeExpr<'a>],
+    },
+    /// Anonymous tuple type: `(Int, Int)`, `(Int, Text, Bool)`. A positional heterogeneous product —
+    /// the first-class form of a multiple-return / paired parameter. Resolves to `BoundaryType::Tuple`
+    /// (the same cross-tier classification `Pair`/`Triple` already use) and rides one slot per tier.
+    Tuple(&'a [TypeExpr<'a>]),
+    /// Named record type: `(quotient: Int, remainder: Int)`. A tuple whose positions carry NAMES, so it is
+    /// accessed by field (`r's quotient`) rather than position. Its VALUE is a self-describing struct
+    /// (`RuntimeValue::Struct` with these field names), built by coercing the returned positional tuple —
+    /// so it reuses the entire struct field-access + codegen machinery on every tier. Parallel slices
+    /// (`field_names[i]` : `field_types[i]`) keep the arena allocators simple.
+    Record {
+        field_names: &'a [Symbol],
+        field_types: &'a [TypeExpr<'a>],
     },
     /// Function type: fn(A, B) -> C (for higher-order functions)
     Function {
@@ -145,16 +159,376 @@ pub enum BinaryOpKind {
     Shr,
 }
 
+/// The HTTP method of a [`Stmt::Fetch`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
+    /// `Upload <file> to URL as T, then action.` — a multipart body.
+    Upload,
+}
+
+/// What a component action can do to the page, the browser, storage or a store. Each is a
+/// sentence in the `Actions:` vocabulary; the selector forms take a selector TEXT or an
+/// `Element`.
+#[derive(Debug, Clone)]
+pub enum UiStmt<'a> {
+    /// `Focus SEL.` — put focus on the element AND raise the `focus` event, so a
+    /// `When "#x" is focused:` handler runs. Setting focus without raising it left that handler
+    /// unreachable from any test.
+    Focus {
+        selector: &'a Expr<'a>,
+    },
+    /// `Blur SEL.` — take focus off the element and raise `blur`.
+    ///
+    /// ★ ITS EVENT COULD BE WAITED FOR AND NOT CAUSED. `blurred` is one of the six predicates a
+    /// handler may name, and nothing in the language could make one happen — so a page's
+    /// leave-the-field path (validate on blur, save a draft, close a menu) was unreachable from
+    /// every test in the suite.
+    Blur {
+        selector: &'a Expr<'a>,
+    },
+    /// `Hover SEL.` — raise `mouseover`.
+    ///
+    /// ★ IT WAS ALLOWLISTED WITH NOTHING BEHIND IT: `Hover` appeared in the gate that decides
+    /// whether a sentence may open a UI statement, and `parse_ui_statement` had no branch for it,
+    /// so the word was accepted into the gate and then fell out the bottom as "I expected a
+    /// statement here". Two hand-maintained halves of one table, each complete on its own.
+    Hover {
+        selector: &'a Expr<'a>,
+    },
+    /// `Scroll to SEL.`
+    ScrollTo {
+        selector: &'a Expr<'a>,
+    },
+    /// `Add class C to SEL.`
+    AddClass {
+        class: &'a Expr<'a>,
+        selector: &'a Expr<'a>,
+    },
+    /// `Remove class C from SEL.`
+    RemoveClass {
+        class: &'a Expr<'a>,
+        selector: &'a Expr<'a>,
+    },
+    /// `Select the text in SEL.`
+    SelectText {
+        selector: &'a Expr<'a>,
+    },
+    /// `Copy TEXT to the clipboard.`
+    CopyToClipboard {
+        text: &'a Expr<'a>,
+    },
+    /// `Download BYTES as "name.ext".`
+    Download {
+        bytes: &'a Expr<'a>,
+        name: &'a Expr<'a>,
+    },
+    /// `Navigate to URL.`
+    Navigate {
+        url: &'a Expr<'a>,
+    },
+    /// `Replace the URL with URL.` — history replace, no new entry.
+    ReplaceUrl {
+        url: &'a Expr<'a>,
+    },
+    /// `Go back.`
+    /// `Raise "offline".` — cause a WINDOW event in a test.
+    ///
+    /// ★ ONE DRIVER FOR EVERY EVENT THAT HAPPENS TO THE PAGE RATHER THAN TO AN ELEMENT. Going
+    /// offline, coming back online and the window resizing are not things a page does to itself
+    /// and not things a visitor does to an element, so none of the element verbs can cause one —
+    /// and a trigger no test can cause is a trigger nothing checks. Naming the event as TEXT means
+    /// the next window event needs no new sentence.
+    RaiseWindowEvent {
+        event: &'a Expr<'a>,
+        target: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
+
+    GoBack,
+    /// `Set the title to TEXT.`
+    SetTitle {
+        title: &'a Expr<'a>,
+    },
+    /// `Save VALUE as "key".`
+    Save {
+        value: &'a Expr<'a>,
+        key: &'a Expr<'a>,
+    },
+    /// `Load "key" into FIELD.`
+    Load {
+        key: &'a Expr<'a>,
+        var: Symbol,
+    },
+    /// `Forget "key".`
+    Forget {
+        key: &'a Expr<'a>,
+    },
+    /// `Reload the page.` — every component instance, listener and mounted root goes; browser
+    /// storage stays. What a `persisted` store survives and a local one does not.
+    Reload,
+    /// `Notify MESSAGE [as success|error].`
+    Notify {
+        message: &'a Expr<'a>,
+        tone: Option<Symbol>,
+    },
+    /// `Publish MESSAGE on TOPIC.` — send on a relay topic.
+    ///
+    /// ★ THE OUTBOUND HALF OF A CONSTRUCT THAT SHIPPED WITH ONLY ITS INBOUND HALF.
+    /// `When a message arrives on "t":` subscribes, and nothing in the language could publish —
+    /// so a page could hear a server and never answer it, and two tabs of one app could not talk.
+    /// The relay had the other side complete the whole time (`RelayFrame::Publish` fans out to
+    /// every local subscriber and gossips on to native nodes); what was missing was a sentence.
+    ///
+    /// It delivers to THIS page's own subscribers as well as sending the frame, so a publish
+    /// means one thing wherever the page runs: every handler on the topic hears it exactly once.
+    /// The relay excludes the originating connection, so the local delivery is not a second copy.
+    Publish {
+        message: &'a Expr<'a>,
+        topic: &'a Expr<'a>,
+    },
+    /// `Toggle FIELD.` — a Bool state field.
+    Toggle {
+        field: Symbol,
+    },
+    /// `Call <Store>'s <action> [with a and b].`
+    CallStore {
+        store: Symbol,
+        action: Symbol,
+        args: Vec<&'a Expr<'a>>,
+    },
+    /// `Stop the timer NAME.`
+    StopTimer {
+        name: Symbol,
+    },
+    /// `Start the timer NAME.` — (re)start a named timer from a whole period, its period read from
+    /// its sentence now; a running timer restarts, a stopped one runs again.
+    StartTimer {
+        name: Symbol,
+    },
+    /// `Click SEL.` — fire a click on the element the selector names.
+    Click {
+        selector: &'a Expr<'a>,
+    },
+    /// `Submit SEL.` — submit a form, as a user pressing the button would.
+    Submit {
+        selector: &'a Expr<'a>,
+    },
+    /// `Choose VALUE in SEL.` — pick an option in a `<select>`.
+    ///
+    /// Its own verb because a dropdown is neither typed into nor clicked; without one a test can
+    /// only reach a `<select>` by faking the event some other control raises.
+    Choose {
+        value: &'a Expr<'a>,
+        selector: &'a Expr<'a>,
+    },
+    /// `Press KEY [in SEL].` — a key press, on an element or on the page.
+    Press {
+        key: &'a Expr<'a>,
+        selector: Option<&'a Expr<'a>>,
+    },
+    /// `Type TEXT into SEL.` — type into a bound input, as a user would.
+    TypeInto {
+        text: &'a Expr<'a>,
+        selector: &'a Expr<'a>,
+    },
+    /// `Mount <Component> [at "#sel"].` — create the component's root instance and render it.
+    /// (The legacy indentation dialect keeps its own synthesized-`render` lowering.)
+    Mount {
+        component: Symbol,
+        selector: Option<&'a Expr<'a>>,
+    },
+}
+
+impl<'a> UiStmt<'a> {
+    /// Every expression this statement evaluates — the traversal surface for the analyses.
+    pub fn exprs(&self) -> Vec<&'a Expr<'a>> {
+        match self {
+            UiStmt::Focus { selector }
+            | UiStmt::Blur { selector }
+            | UiStmt::Hover { selector }
+            | UiStmt::ScrollTo { selector }
+            | UiStmt::SelectText { selector } => vec![selector],
+            UiStmt::AddClass { class, selector } | UiStmt::RemoveClass { class, selector } => {
+                vec![class, selector]
+            }
+            UiStmt::CopyToClipboard { text } => vec![text],
+            UiStmt::Download { bytes, name } => vec![bytes, name],
+            UiStmt::Navigate { url } | UiStmt::ReplaceUrl { url } => vec![url],
+            UiStmt::SetTitle { title } => vec![title],
+            UiStmt::RaiseWindowEvent {
+                event,
+                target,
+                value,
+            } => vec![event, target, value],
+            UiStmt::Save { value, key } => vec![value, key],
+            UiStmt::Load { key, .. } => vec![key],
+            UiStmt::Forget { key } => vec![key],
+            UiStmt::Notify { message, .. } => vec![message],
+            UiStmt::Publish { message, topic } => vec![message, topic],
+            UiStmt::CallStore { args, .. } => args.clone(),
+            UiStmt::Click { selector } | UiStmt::Submit { selector } => vec![selector],
+            UiStmt::Choose { value, selector } => vec![value, selector],
+            UiStmt::Press { key, selector } => {
+                let mut v = vec![*key];
+                v.extend(selector.iter().copied());
+                v
+            }
+            UiStmt::TypeInto { text, selector } => vec![text, selector],
+            UiStmt::Mount { selector, .. } => selector.iter().copied().collect(),
+            UiStmt::GoBack
+            | UiStmt::Reload
+            | UiStmt::Toggle { .. }
+            | UiStmt::StopTimer { .. }
+            | UiStmt::StartTimer { .. } => Vec::new(),
+        }
+    }
+
+    /// The binding this statement WRITES, if any (`Load … into x`, `Toggle done`).
+    pub fn writes(&self) -> Option<Symbol> {
+        match self {
+            UiStmt::Load { var, .. } => Some(*var),
+            UiStmt::Toggle { field } => Some(*field),
+            _ => None,
+        }
+    }
+
+    /// Where this statement may be written: driving a page from a `## Main`/`## Test` body,
+    /// inside a component's `Actions:`, or either.
+    pub fn role(&self) -> Role {
+        match self {
+            // Drive-only: `action_verb_tier_lock`'s `NOT_IN_ACTIONS` proves none of these compile
+            // inside `Actions:`, and `page_host::Drive` carries each to a page under test.
+            UiStmt::Mount { .. }
+            | UiStmt::Click { .. }
+            | UiStmt::Submit { .. }
+            | UiStmt::Choose { .. }
+            | UiStmt::Press { .. }
+            | UiStmt::TypeInto { .. }
+            | UiStmt::RaiseWindowEvent { .. } => Role::Drive,
+            // Both: `action_verb_tier_lock`'s `VERBS` proves each compiles inside `Actions:`, and
+            // `page_host::Drive` also carries each to a page under test.
+            UiStmt::Focus { .. }
+            | UiStmt::Blur { .. }
+            | UiStmt::Hover { .. }
+            | UiStmt::Navigate { .. }
+            | UiStmt::Reload => Role::Both,
+            // Action-only: `action_verb_tier_lock`'s `VERBS` proves each compiles inside
+            // `Actions:`, and none is a variant of `page_host::Drive`.
+            UiStmt::ScrollTo { .. }
+            | UiStmt::AddClass { .. }
+            | UiStmt::RemoveClass { .. }
+            | UiStmt::SelectText { .. }
+            | UiStmt::CopyToClipboard { .. }
+            | UiStmt::Download { .. }
+            | UiStmt::ReplaceUrl { .. }
+            | UiStmt::GoBack
+            | UiStmt::SetTitle { .. }
+            | UiStmt::Save { .. }
+            | UiStmt::Load { .. }
+            | UiStmt::Forget { .. }
+            | UiStmt::Notify { .. }
+            | UiStmt::Publish { .. }
+            | UiStmt::Toggle { .. }
+            | UiStmt::CallStore { .. }
+            | UiStmt::StopTimer { .. }
+            | UiStmt::StartTimer { .. } => Role::Action,
+        }
+    }
+}
+
+/// Which position a `UiStmt` may be written in — the partition [`UiStmt::role`] holds to, cross-
+/// checked against `action_verb_tier_lock`'s own census (which verbs compile inside `Actions:`)
+/// and `page_host::Drive` (which verbs carry a `## Main`/`## Test` statement to a page under
+/// test), so the two catalogues cannot silently drift apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    /// A `## Main`/`## Test` driving statement only — never legal inside a component's `Actions:`.
+    Drive,
+    /// Only ever written inside a component's `Actions:` — never a driving statement.
+    Action,
+    /// Legal in either position.
+    Both,
+}
+
 /// Block is a sequence of statements.
 pub type Block<'a> = &'a [Stmt<'a>];
+
+/// A statement's identity: where it lives. Stable for as long as the AST it
+/// was taken from is alive; a statement copied into a new block is a new
+/// identity. Diagnostics use it to name the exact statement a finding is
+/// about, nested ones included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StmtId(usize);
+
+impl StmtId {
+    pub fn of(stmt: &Stmt<'_>) -> Self {
+        StmtId(stmt as *const Stmt<'_> as usize)
+    }
+}
 
 /// Match arm for pattern matching in Inspect statements.
 #[derive(Debug, Clone)]
 pub struct MatchArm<'a> {
-    pub enum_name: Option<Symbol>,          // The enum type (e.g., Shape)
-    pub variant: Option<Symbol>,            // None = Otherwise (wildcard)
-    pub bindings: Vec<(Symbol, Symbol)>,    // (field_name, binding_name)
+    pub enum_name: Option<Symbol>,       // The enum type (e.g., Shape)
+    pub variant: Option<Symbol>,         // None = Otherwise (wildcard)
+    pub bindings: Vec<(Symbol, Symbol)>, // (field_name, binding_name)
     pub body: Block<'a>,
+}
+
+/// Which sealed-world resources a `## Test` may really touch, granted by
+/// capability sentences (`This test may use the real filesystem.`). Everything
+/// defaults to sealed; a granted capability moves the test to the `--live` set.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TestCapabilities {
+    pub filesystem: bool,
+    pub network: bool,
+    pub environment: bool,
+    pub clock: bool,
+}
+
+/// A table-driven test's case fixture: `For each of these cases:` followed by
+/// a markdown pipe table. Columns bind names in the test body's scope; each
+/// data row is a named sub-test.
+#[derive(Debug, Clone)]
+pub struct CaseTable<'a> {
+    pub columns: Vec<Symbol>,
+    pub rows: Vec<Vec<&'a Expr<'a>>>,
+}
+
+/// Where an `Expect output:` snapshot lives: indented in the document, or in
+/// an external golden file (`Expect output as in "golden/report.txt".`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedOutput {
+    Inline(Symbol),
+    File(Symbol),
+}
+
+/// The domain a property quantifies over (`For all integers a and b:`).
+/// Generation draws from this; shrinking minimizes toward the domain's zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropDomain {
+    Integers,
+    Naturals,
+    Booleans,
+}
+
+/// The speech-act category of an observation statement:
+/// audience + retention, not a
+/// numeric level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObsCategory {
+    /// `Note that …` — for the developer replaying the run; ring-buffered,
+    /// elidable in release.
+    Note,
+    /// `Warn that …` — for the operator; never dropped, never sampled.
+    Warn,
+    /// `Record that …` — the audit/business trail; durable.
+    Record,
 }
 
 /// The wire compression codec a `Send compressed [with <codec>]` selects. The
@@ -240,10 +614,12 @@ pub enum Stmt<'a> {
     },
 
     /// Mutation: `Set x to 10.`
-    Set {
-        target: Symbol,
-        value: &'a Expr<'a>,
-    },
+    Set { target: Symbol, value: &'a Expr<'a> },
+
+    /// Reversible register exchange: `Swap x and y.` — the canonical ZERO-GARBAGE reversible
+    /// primitive (`Op::RevSwap`, its own inverse), the first LOGOS surface that emits the abelian
+    /// reversible ISA. Exchanges the two variables' values with no history-tape cost.
+    Swap { a: Symbol, b: Symbol },
 
     /// Function call as statement: `Call process with data.`
     Call {
@@ -268,23 +644,19 @@ pub enum Stmt<'a> {
 
     /// Iteration: `Repeat for x in list: ...` or `Repeat for i from 1 to 10: ...`
     Repeat {
-        pattern: Pattern,  // Changed from `var: Symbol` to support tuple destructuring
+        pattern: Pattern, // Changed from `var: Symbol` to support tuple destructuring
         iterable: &'a Expr<'a>,
         body: Block<'a>,
     },
 
     /// Return: `Return x.` or `Return.`
-    Return {
-        value: Option<&'a Expr<'a>>,
-    },
+    Return { value: Option<&'a Expr<'a>> },
 
     /// Break: `Break.` — exits the innermost while loop.
     Break,
 
     /// Bridge to Logic Kernel: `Assert that P.`
-    Assert {
-        proposition: &'a LogicExpr<'a>,
-    },
+    Assert { proposition: &'a LogicExpr<'a> },
 
     /// Documented assertion with justification.
     /// `Trust that P because "reason".`
@@ -298,10 +670,21 @@ pub enum Stmt<'a> {
     /// `Assert that condition.` (`hard: false` → `debug_assert!`, a development check)
     /// `Require that condition.` (`hard: true` → `assert!`, an enforced invariant that
     /// survives release — the form a proven property lowers to).
+    /// `dim` is the physical dimension of a range contract whose literal quantity bounds the
+    /// parser folded to SI magnitudes (`Assume v is between 0.2 volts and 0.7 volts.`) —
+    /// metadata for static consumers (the analog lane); `None` for ordinary conditions.
+    /// `reason` is the `, otherwise <text>` clause: why the contract exists, reported verbatim when
+    /// it breaks and evaluated ONLY then. `None` reports `Assertion failed`.
     RuntimeAssert {
         condition: &'a Expr<'a>,
         hard: bool,
+        dim: Option<logicaffeine_base::dimension::Dimension>,
+        reason: Option<&'a Expr<'a>>,
     },
+
+    /// `Fail with <reason>.` — raise an error. With no `Result` to return it into and no `Try:`
+    /// region around it, the program stops with `reason` as its report.
+    Fail { reason: &'a Expr<'a> },
 
     /// Ownership transfer (move): `Give x to processor.`
     /// Semantics: Move ownership of `object` to `recipient`.
@@ -328,7 +711,7 @@ pub enum Stmt<'a> {
     StructDef {
         name: Symbol,
         fields: Vec<(Symbol, Symbol, bool)>, // (name, type_name, is_public)
-        is_portable: bool,                    // Derives Serialize/Deserialize
+        is_portable: bool,                   // Derives Serialize/Deserialize
     },
 
     /// Function definition.
@@ -352,11 +735,91 @@ pub enum Stmt<'a> {
         opt_flags: crate::optimization::OptimizationConfig,
     },
 
+    /// A `## Test: <prose sentence>` block — an independent test entry point.
+    /// The prose name is the
+    /// test's identity everywhere; duplicates in a module are a parse error.
+    /// Ignored by normal execution; collected by the `largo test` runner.
+    TestDef {
+        /// The prose sentence after the colon, whitespace-normalized.
+        name: Symbol,
+        /// `Skip this test because "<reason>".` — the mandatory reason.
+        skip: Option<Symbol>,
+        /// Capability sentences granting real-world access (sealed by default).
+        capabilities: TestCapabilities,
+        /// `This test may run up to N steps.` — op-budget escalation.
+        budget: Option<u64>,
+        /// `For each of these cases:` + pipe table, when present.
+        cases: Option<CaseTable<'a>>,
+        body: Block<'a>,
+    },
+
+    /// Test-only assertion: `Expect that <condition>.` — records the failure
+    /// and CONTINUES (a test reports every failed expectation, not just the
+    /// first). Refused outside `## Test`/`## Example` blocks.
+    Expect { condition: &'a Expr<'a> },
+
+    /// `Expect this to fail [with "<message>"]:` — the only error-expectation
+    /// form; the test FAILS if the block succeeds.
+    ExpectFail {
+        message: Option<Symbol>,
+        body: Block<'a>,
+    },
+
+    /// `Expect output:` — byte-exact stdout snapshot (in-document or golden file).
+    ExpectOutput { expected: ExpectedOutput },
+
+    /// `Advance time by <duration>.` — moves the sealed world's virtual clock
+    /// (test-only; the statement that makes every timeout test instant).
+    AdvanceTime {
+        /// The advance in milliseconds.
+        millis: &'a Expr<'a>,
+    },
+
+    /// `Given a file "<path>" containing "<content>".` — pre-seeds the sealed
+    /// world's in-memory filesystem (test-only).
+    GivenFile { path: Symbol, content: Symbol },
+
+    /// An observation statement: `Note/Warn/Record that <clause> [with <p> and
+    /// <p>]`. The that-clause is
+    /// captured as the rendered `message`; payloads are the named values that
+    /// travel with the event. Legal anywhere; emission is Wave 7.
+    Observe {
+        category: ObsCategory,
+        /// The that-clause, rendered to text (the event's stable message).
+        message: Symbol,
+        /// Prepositional payloads (`with X and Y`) — name → value expression.
+        payloads: Vec<(Symbol, &'a Expr<'a>)>,
+        /// Deterministic counter-based sampling (`Note once in every N times
+        /// that …`): emit 1-in-N. `None` = always. Sampling is a rendering
+        /// decision, never an evidence decision (replay regenerates the rest).
+        sample: Option<u64>,
+    },
+
+    /// `During <gerund>:` — a lexical trace span (no imperative start/stop, so
+    /// a span can never leak). The body is ordinary code.
+    During {
+        /// The span's name (the gerund phrase or quoted literal), rendered.
+        label: Symbol,
+        body: Block<'a>,
+    },
+
+    /// `For all <domain> <vars> [where <cond>]:` — a property test.
+    /// The runner generates seeded
+    /// cases, binds the vars, runs the body, and shrinks any counterexample.
+    /// Test-only (like `Expect`).
+    ForAll {
+        vars: Vec<Symbol>,
+        domain: PropDomain,
+        /// Optional refinement filter (`where n is greater than 0`).
+        constraint: Option<&'a Expr<'a>>,
+        body: Block<'a>,
+    },
+
     /// Pattern matching on sum types.
     Inspect {
         target: &'a Expr<'a>,
         arms: Vec<MatchArm<'a>>,
-        has_otherwise: bool,            // For exhaustiveness tracking
+        has_otherwise: bool, // For exhaustiveness tracking
     },
 
     /// Push to collection: `Push x to items.`
@@ -398,9 +861,20 @@ pub enum Stmt<'a> {
     /// the ENCLOSING scope with no block of its own: temporaries inside are
     /// gensym'd (`__place_*`), so they can never collide with user names, and
     /// engines that execute blocks with scoping must NOT scope this one.
-    Splice {
-        body: Block<'a>,
-    },
+    Splice { body: Block<'a> },
+
+    /// A REVERSIBLE / UNCOMPUTE block: `Reversibly:` (alias `Uncompute:`) introducing an
+    /// indented body. Semantically TRANSPARENT — the body runs in the enclosing scope and
+    /// produces byte-identical OUTPUT to the same statements outside the block. The only
+    /// difference is the LOWERING: an IN-PLACE ABELIAN scalar update inside the body compiles
+    /// to the zero-garbage reversible ISA (`Op::RevAdd`/`RevSub`/`RevXor`/`RevNeg`) instead of
+    /// the plain journaling op, so `Vm::run_reverse` can undo the whole region with NO history
+    /// tape (the adiabatic charge-recovery contract). Recognized in-place forms — where `x` is a
+    /// local and `e` provably never observes `x`:
+    /// `Set x to x + e` → `RevAdd`, `Set x to x - e` → `RevSub`,
+    /// `Set x to x xor e` → `RevXor`, `Set x to -x` → `RevNeg`.
+    /// Anything else in the body lowers exactly as it would outside the block.
+    Reversibly { body: Block<'a> },
 
     /// Memory arena block (Zone).
     /// "Inside a new zone called 'Scratch':"
@@ -437,10 +911,7 @@ pub enum Stmt<'a> {
 
     /// Read from console or file.
     /// `Read input from the console.` or `Read data from file "path.txt".`
-    ReadFrom {
-        var: Symbol,
-        source: ReadSource<'a>,
-    },
+    ReadFrom { var: Symbol, source: ReadSource<'a> },
 
     /// Write to file.
     /// `Write "content" to file "output.txt".`
@@ -451,10 +922,7 @@ pub enum Stmt<'a> {
 
     /// Spawn an agent.
     /// `Spawn a Worker called "w1".`
-    Spawn {
-        agent_type: Symbol,
-        name: Symbol,
-    },
+    Spawn { agent_type: Symbol, name: Symbol },
 
     /// Send message to agent.
     /// `Send Ping to "agent".`, `Send compressed Ping to "agent".`,
@@ -498,6 +966,11 @@ pub enum Stmt<'a> {
         /// shared sub-structure (a lookup table referenced by many records, one object aliased
         /// across the payload). Self-describing by tag, so any peer decodes it.
         deduped: bool,
+        /// `Send unreliably …` — the transport RELIABILITY dial: an unordered, best-effort
+        /// datagram (may reorder or drop) instead of the reliable, ordered default. The media
+        /// path pairs it with FEC so lossy frames recover without a retransmit stall. `false`
+        /// is the default (reliable, ordered).
+        unreliable: bool,
     },
 
     /// Await response from agent.
@@ -526,6 +999,15 @@ pub enum Stmt<'a> {
     /// Merge CRDT state.
     /// `Merge remote into local.` or `Merge remote's field into local's field.`
     MergeCrdt {
+        source: &'a Expr<'a>,
+        target: &'a Expr<'a>,
+    },
+
+    /// Converge CRDT state by the IDEMPOTENT lattice join — the sibling of [`Stmt::MergeCrdt`].
+    /// `Converge remote into local.` A bare-`Int` field takes per-field MAX (not ADD), so applying a
+    /// redelivered state twice equals applying it once; counter/other fields defer to the same rule as
+    /// `Merge` (already idempotent / last-writer-wins).
+    JoinCrdt {
         source: &'a Expr<'a>,
         target: &'a Expr<'a>,
     },
@@ -589,6 +1071,15 @@ pub enum Stmt<'a> {
         secure: Option<SecurePad<'a>>,
     },
 
+    /// Serve HTTP requests on a port with a handler function.
+    /// `Serve on port 8080 with handleRequest.`
+    /// Semantics: bind an HTTP server on the port and, per request, invoke the
+    /// handler (a `Request -> Response` function) and write back its response.
+    Serve {
+        port: &'a Expr<'a>,
+        handler: &'a Expr<'a>,
+    },
+
     /// Connect to remote peer.
     /// `Connect to "/ip4/127.0.0.1/tcp/8000".`
     /// Semantics: Dial peer via libp2p
@@ -601,25 +1092,112 @@ pub enum Stmt<'a> {
     /// Create PeerAgent remote handle.
     /// `Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".`
     /// Semantics: Create handle for remote agent communication
-    LetPeerAgent {
-        var: Symbol,
-        address: &'a Expr<'a>,
-    },
+    LetPeerAgent { var: Symbol, address: &'a Expr<'a> },
 
     /// Sleep for milliseconds.
     /// `Sleep 1000.` or `Sleep delay.`
     /// Semantics: Pause execution for N milliseconds (async)
-    Sleep {
-        milliseconds: &'a Expr<'a>,
-    },
+    Sleep { milliseconds: &'a Expr<'a> },
 
     /// Sync CRDT variable on topic.
     /// `Sync x on "topic".`
     /// Semantics: Subscribe to GossipSub topic, auto-publish on mutation, auto-merge on receive
-    Sync {
-        var: Symbol,
-        topic: &'a Expr<'a>,
+    Sync { var: Symbol, topic: &'a Expr<'a> },
+
+    /// One of the English things a component action DOES: an element verb, navigation,
+    /// persistence, feedback, a store call, or a timer ([`UiStmt`]). First-class: every tier
+    /// implements it natively rather than receiving a desugared builtin call.
+    Ui(UiStmt<'a>),
+
+    /// A typed request: `Get URL as T, then action.` / `Post <body> to URL as T, then action.`
+    /// The completion action receives `Result of T and HttpError` — the decode is derived from
+    /// `as_type`, and a non-2xx status becomes the `Err` side. No implicit retry.
+    Fetch {
+        method: FetchMethod,
+        url: &'a Expr<'a>,
+        /// The request body (`Post <body> to …`); `None` for `Get` / `Delete`.
+        body: Option<&'a Expr<'a>>,
+        as_type: &'a TypeExpr<'a>,
+        /// The action the response is delivered to.
+        then: Symbol,
     },
+
+    /// `Replay these actions: a, b, c.` — re-run a sequence of the page's actions, in order.
+    ///
+    /// The journal's reason for existing: a bug report becomes a test by naming the actions that
+    /// produced it, and the dev panel's time travel is this with a slider on it. Each one is a
+    /// REAL TURN — it rolls back if it traps, it is journalled, and the page repaints — because a
+    /// replay that bypassed the turn machinery would reproduce a different bug from the one being
+    /// investigated.
+    Replay { actions: Vec<Symbol> },
+
+    /// `Serve fetches with routes.` — answer the page's requests from the program's OWN routes.
+    ///
+    /// The full-stack loop with no network: a `Get "/api/todo"` is answered by the matching
+    /// `## Route`, through the derived encoder on the way out and the derived decoder on the way
+    /// back. That round trip is the only thing that can catch the two halves of the wire
+    /// contract drifting apart — a stub answers with whatever the test author typed, which
+    /// agrees with itself no matter what the encoder does.
+    ///
+    /// A DECISION a test makes, never a default: a page whose fetches were silently answered by
+    /// the local route table would pass tests that a deployed page fails, because in a browser
+    /// nothing local answers anything.
+    ServeFetches,
+
+    /// `Given that METHOD "/url" answers STATUS with BODY.` — how a test answers a fetch.
+    ///
+    /// The sealed-world rule the rest of the suite follows: a page test must not depend on a
+    /// network, and a page whose data never arrives is a page that proves nothing. Matched by
+    /// method AND url together, because a stub that answered the wrong request is how a test
+    /// ends up proving something nobody asked for.
+    GivenFetch {
+        method: Symbol,
+        url: &'a Expr<'a>,
+        status: &'a Expr<'a>,
+        body: &'a Expr<'a>,
+    },
+
+    /// An LGX page / component / store / error page — the component model, first-class
+    /// (see [`crate::ast::component`]). Every tier implements it natively.
+    ComponentDef(Box<crate::ast::component::ComponentDef<'a>>),
+
+    /// `## Directive name (el: Element) and (value: T):` — a custom attribute behavior:
+    /// `body` runs when the attribute appears on an element and whenever its value changes;
+    /// `removed` (a `When removed:` block) runs when the element leaves.
+    DirectiveDef {
+        name: Symbol,
+        params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+        body: Block<'a>,
+        removed: Option<Block<'a>>,
+    },
+
+    /// `## Route METHOD /path (params) -> T:` — a typed HTTP route.
+    RouteDef {
+        method: Symbol,
+        path: Symbol,
+        params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+        return_type: Option<&'a TypeExpr<'a>>,
+        /// ★ BOXED, AND THE REASON IS THE WHOLE NODE'S SIZE. `RouteBody` is 88 bytes, which made
+        /// `RouteDef` 144 — the single widest `Stmt` variant, and therefore the size of EVERY `Stmt`.
+        /// `compiler_stack_safety_lock::ast_nodes_stay_small` holds the node to 128 bytes because the
+        /// compiler walk keeps many per frame, so widening it multiplies stack use across every tier.
+        /// A route's body is the rare payload and does not belong inline; `ComponentDef` next door is
+        /// boxed for the same reason.
+        body: Box<crate::ast::component::RouteBody<'a>>,
+        /// Where the route was declared. A `## Route` is refused for reasons the author has to
+        /// go and look at — a parameter type the path matcher cannot bind, an answer type the
+        /// derived codecs do not cover — and those refusals had nowhere to point.
+        span: Span,
+    },
+
+    /// `## Before each request (request: Request) -> Option of Response:` — middleware.
+    MiddlewareDef {
+        param: (Symbol, &'a TypeExpr<'a>),
+        body: Block<'a>,
+    },
+
+    /// `## Redirect /from -> /to.`
+    RedirectDef { from: Symbol, to: Symbol },
 
     /// Mount persistent CRDT from journal file.
     /// `Mount counter at "data/counter.journal".`
@@ -634,7 +1212,6 @@ pub enum Stmt<'a> {
     // =========================================================================
     // Go-like Concurrency (Green Threads, Channels, Select)
     // =========================================================================
-
     /// Launch a fire-and-forget task (green thread).
     /// `Launch a task to process(data).`
     /// Semantics: tokio::spawn with no handle capture
@@ -719,6 +1296,28 @@ pub enum Stmt<'a> {
         handle: &'a Expr<'a>,
     },
 
+    /// Close a channel (pipe).
+    /// `Close ch.` or `Close the pipe ch.`
+    /// Semantics: mark the channel closed so pending/future receivers wake with the
+    /// closed signal (`Op::ChanClose`). Buffered values stay receivable; a later send
+    /// is the error. The deterministic-scheduler sibling of `Stop` for tasks.
+    CloseChannel {
+        /// The channel to close
+        channel: &'a Expr<'a>,
+    },
+
+    /// Await a spawned task handle's completion.
+    /// `Await worker.` or `Wait for worker.` (optionally `… into result`).
+    /// Semantics: park until the task finishes, taking its result (`Op::TaskAwait`).
+    /// The join sibling of `Stop` (which cancels) — this waits for and observes the
+    /// child's completion.
+    AwaitTask {
+        /// The task handle to join.
+        handle: &'a Expr<'a>,
+        /// Optional binding for the task's result (`… into r`); `None` discards it.
+        result: Option<Symbol>,
+    },
+
     /// Select on multiple channels/timeouts.
     /// `Await the first of:`
     ///     `Receive x from ch:`
@@ -774,6 +1373,99 @@ pub enum Stmt<'a> {
         features: Vec<Symbol>,
         span: crate::token::Span,
     },
+
+    /// ★ A RUNTIME FAILURE-SITE MARKER (Wave 3: "runtime failures carry a location") — no `Stmt`
+    /// variant carries a span (this one included: its OWN payload is an opaque id, not a span), so
+    /// a trap deep inside an action's body has never been able to say WHERE in the source it
+    /// happened. This is the fix, and it is a MARKER rather than a span field on every `Stmt`
+    /// variant on purpose: giving every variant a span is a schema change touching every
+    /// constructor and every exhaustive match in the workspace for a span most of them never need
+    /// (a `Let` inside a `## Main` that never fails costs nothing to leave unmarked). A `Site(id)`
+    /// is inserted as its OWN statement, immediately before the sentence it marks, by
+    /// `Parser::parse_indented_block` whenever `Parser::site_tracking` names a component and
+    /// action — so it travels through the ordinary statement pipeline into every backend's own
+    /// compiled form (bytecode, wasm, C, …) exactly like any other statement, which a parse-time-
+    /// only side table (`Parser::stmt_spans`) cannot: that table is gone by the time a COMPILED
+    /// program traps at runtime, and `stmt_spans` covers only top-level statements besides.
+    ///
+    /// `id` indexes [`Parser::failure_sites`] (built as each marker is inserted) for the
+    /// `(file, span, component, action)` it names. Every backend that runs a `Stmt` must accept
+    /// this variant in an EXPLICIT arm, not a wildcard — this file's own doc history is full of
+    /// wildcard arms that silently swallowed a case nobody noticed was reachable; a backend with
+    /// nothing to do here yet says so by name (`Stmt::Site(_) => {}` or equivalent), so the day it
+    /// DOES need to do something, the compiler — not a bug report — is what tells whoever adds a
+    /// new backend that this one still needs it. The tree-walker's job with it is the simplest one
+    /// there is: `current site = id` (`FailureSite`'s own doc comment says why this is enough for a
+    /// location); every OTHER backend, not yet given a reason to do more, ignores it explicitly and
+    /// moves on.
+    ///
+    /// [`Parser::failure_sites`]: crate::Parser::failure_sites
+    Site(u32),
+}
+
+/// One entry in [`Parser::failure_sites`] — everything a runtime failure needs to point BACK at
+/// the sentence a [`Stmt::Site`] marker stood in front of.
+///
+/// ★ "CURRENT SITE = n" IS ENOUGH, AND HERE IS WHY. A trap does not need a call stack to be useful
+/// — LOGOS actions do not recurse into each other's OWN bodies the way a general-purpose language's
+/// functions do (an action calls another via `Call <Store>'s <action>`, a dispatch through data, not
+/// a nested nomination-time invocation whose OWN Sites would need distinguishing on a stack) — so
+/// "which Site did the runtime most recently pass through" already answers "which sentence trapped"
+/// unambiguously, for the same reason a program counter alone (no full backtrace) already answers it
+/// in a language with no first-class stack frames to unwind through. A future construct that DOES
+/// nest one action's failure inside another's turn is exactly the case that would need this
+/// reconsidered — flagging it here so nobody has to rediscover why a stack was not built.
+///
+/// ★ NO `file` FIELD, ON PURPOSE. A `Parser` parses ONE flat token stream and has no concept of
+/// splicing at all — `loader::apply_prelude_mapped` assembles a user file plus its demand-imported
+/// stdlib modules into that ONE stream BEFORE the parser ever sees it, and `ui_bridge.rs`'s checked
+/// seam is what undoes the splice, exactly once, on whatever span leaves the compile pipeline (item
+/// 10 of this session's own record — the double-mapping bug that fix closed). `span` here is in the
+/// SAME spliced coordinates every other span this parser hands out is in, for the same reason: a
+/// second, bespoke translation point for `FailureSite` spans specifically would be exactly the
+/// double-mapping shape that bug already was. Whoever renders a `FailureSite` for a person translates
+/// it through the SAME seam every other diagnostic in this pipeline already goes through.
+///
+/// [`Parser::failure_sites`]: crate::Parser::failure_sites
+#[derive(Debug, Clone, Copy)]
+pub struct FailureSite {
+    /// Where the marked sentence is, in spliced coordinates — see the field's own note above for
+    /// why there is no separate `file` to pair it with.
+    pub span: crate::token::Span,
+    /// The component (or store, or page) whose action/handler this sentence is written in.
+    pub component: Symbol,
+    /// The action or event handler this sentence belongs to — `__e3`-style synthesized names for a
+    /// `When …:` handler, same as every other place this pipeline names one.
+    pub action: Symbol,
+}
+
+impl FailureSite {
+    /// `message` (the runtime error text itself, unchanged) wrapped with WHICH sentence raised it
+    /// — `component`/`action`, in the author's own words wherever this site can recover them.
+    /// Deliberately does NOT touch `file:line:col`: `span` is still in spliced coordinates (this
+    /// struct's own doc comment says why there is no `file` to pair it with), and turning a byte
+    /// offset into a line/column needs the source text this crate never holds once parsing ends —
+    /// that translation is `ui_bridge.rs`'s checked seam's job, on the SAME span, same as every
+    /// other diagnostic; this method only ever supplies the component/action half.
+    ///
+    /// An event handler's `action` is a synthesized `__e<n>` (`lgx_lower.rs::action_fn_name`'s own
+    /// numbering) — never a name the author wrote, so it is named generically ("an event handler")
+    /// rather than surfaced verbatim. An ordinary `To <name>:` action's own name IS what the author
+    /// wrote, and is quoted as `` `To <name>` `` to read the same way the section that declares it
+    /// does.
+    pub fn render(&self, interner: &Interner, message: &str) -> String {
+        let component = interner.resolve(self.component);
+        let action = interner.resolve(self.action);
+        let is_synthesized_event_name = action
+            .strip_prefix("__e")
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        let where_ = if is_synthesized_event_name {
+            format!("an event handler in `{component}`")
+        } else {
+            format!("`To {action}` in `{component}`")
+        };
+        format!("{where_}: {message}")
+    }
 }
 
 /// A branch in a Select statement.
@@ -812,9 +1504,7 @@ pub enum Expr<'a> {
     },
 
     /// Unary NOT: "not x" → `!x` (logical for Bool, bitwise for Int)
-    Not {
-        operand: &'a Expr<'a>,
-    },
+    Not { operand: &'a Expr<'a> },
 
     /// Function call as expression: f(x, y)
     Call {
@@ -836,20 +1526,14 @@ pub enum Expr<'a> {
     },
 
     /// Copy expression: `copy of slice` → slice.to_vec().
-    Copy {
-        expr: &'a Expr<'a>,
-    },
+    Copy { expr: &'a Expr<'a> },
 
     /// Give expression: `Give x` → transfers ownership, no clone needed.
     /// Used in function calls to explicitly move values.
-    Give {
-        value: &'a Expr<'a>,
-    },
+    Give { value: &'a Expr<'a> },
 
     /// Length expression: `length of items` → items.len().
-    Length {
-        collection: &'a Expr<'a>,
-    },
+    Length { collection: &'a Expr<'a> },
 
     /// Set contains: `set contains x` or `x in set`
     Contains {
@@ -871,9 +1555,7 @@ pub enum Expr<'a> {
 
     /// Get manifest of a zone.
     /// `the manifest of Zone` → FileSipper::from_zone(&zone).manifest()
-    ManifestOf {
-        zone: &'a Expr<'a>,
-    },
+    ManifestOf { zone: &'a Expr<'a> },
 
     /// Get chunk at index from a zone.
     /// `the chunk at N in Zone` → FileSipper::from_zone(&zone).get_chunk(N)
@@ -895,37 +1577,29 @@ pub enum Expr<'a> {
     },
 
     /// Field access: `p's x` or `the x of p`.
-    FieldAccess {
-        object: &'a Expr<'a>,
-        field: Symbol,
-    },
+    FieldAccess { object: &'a Expr<'a>, field: Symbol },
 
     /// Constructor: `a new Point` or `a new Point with x 10 and y 20`.
     /// Supports generics: `a new Box of Int` and nested types: `a new Seq of (Seq of Int)`
     New {
         type_name: Symbol,
-        type_args: Vec<TypeExpr<'a>>,  // Empty for non-generic types - now supports nested types
-        init_fields: Vec<(Symbol, &'a Expr<'a>)>,  // Optional field initialization
+        type_args: Vec<TypeExpr<'a>>, // Empty for non-generic types - now supports nested types
+        init_fields: Vec<(Symbol, &'a Expr<'a>)>, // Optional field initialization
     },
 
     /// Enum variant constructor: `a new Circle with radius 10`.
     NewVariant {
-        enum_name: Symbol,                      // Shape (resolved from registry)
-        variant: Symbol,                        // Circle
-        fields: Vec<(Symbol, &'a Expr<'a>)>,    // [(radius, 10)]
+        enum_name: Symbol,                   // Shape (resolved from registry)
+        variant: Symbol,                     // Circle
+        fields: Vec<(Symbol, &'a Expr<'a>)>, // [(radius, 10)]
     },
 
     /// Escape hatch expression: raw foreign code that produces a value.
     /// Used in expression position: `Let x: Int be Escape to Rust:`
-    Escape {
-        language: Symbol,
-        code: Symbol,
-    },
+    Escape { language: Symbol, code: Symbol },
 
     /// Option Some: `some 30` → Some(30)
-    OptionSome {
-        value: &'a Expr<'a>,
-    },
+    OptionSome { value: &'a Expr<'a> },
 
     /// Option None: `none` → None
     OptionNone,
@@ -955,6 +1629,92 @@ pub enum Expr<'a> {
 
     /// Interpolated string: `"Hello, {name}! Value: {x:.2}"`
     InterpolatedString(Vec<StringPart<'a>>),
+
+    /// A template literal — the body of a `## To … -> View:` function: a view tree that
+    /// renders wherever the returned `View` value is placed.
+    View(Box<crate::ast::view::ViewDef<'a>>),
+
+    /// A question about the rendered page: `the text of "#draft"`, `the count of ".row"`.
+    /// An ordinary expression, so every assertion form already works on it — a page test
+    /// needs no statements of its own.
+    Dom(DomQuery<'a>),
+}
+
+/// What `the <thing> of <selector>` asks the page.
+#[derive(Debug, Clone)]
+pub enum DomQuery<'a> {
+    /// `the text of SEL` — the element's text content (its own text plus its descendants').
+    Text { selector: &'a Expr<'a> },
+    /// `the count of SEL` — how many elements match.
+    Count { selector: &'a Expr<'a> },
+    /// `the value of SEL` — an input's current value.
+    Value { selector: &'a Expr<'a> },
+    /// `SEL is visible` — whether anything matches at all.
+    Visible { selector: &'a Expr<'a> },
+    /// `SEL is hidden` — the exact complement of `visible`, so an element is always one or the
+    /// other and a test written with either word is complete.
+    Hidden { selector: &'a Expr<'a> },
+    /// `SEL is disabled` — whether the match carries the `disabled` attribute. A PRESENCE, like
+    /// the render: asking by comparing against the string `"false"` would call an enabled
+    /// control disabled.
+    Disabled { selector: &'a Expr<'a> },
+    /// `SEL is checked` — a checkbox's or radio's LIVE state, which is a property rather than an
+    /// attribute (see `DomOp::SetChecked`), so this follows a click.
+    Checked { selector: &'a Expr<'a> },
+    /// `SEL is focused` — whether the match is the element focus is on.
+    Focused { selector: &'a Expr<'a> },
+    /// `the journal` — the ACTIONS that have run, in order, as a `Seq of Text`.
+    ///
+    /// A value rather than a bespoke assertion, so `the count of`, `contains` and `item N of`
+    /// all work on it and the ordinary questions need no journal-specific vocabulary.
+    Journal,
+    /// `the journal shows A then B` — did `A` run and `B` run AFTER it?
+    ///
+    /// The one question a sequence operation cannot ask without an index-of. "Then" means after,
+    /// not immediately after: pinning adjacency would break a test every time an unrelated turn
+    /// appeared between the two it cares about.
+    JournalShows { first: Symbol, second: Symbol },
+    /// `the title` — the page title.
+    Title,
+    /// `the URL` — the current path.
+    Url,
+}
+
+impl<'a> DomQuery<'a> {
+    /// The selector expression, when the query has one.
+    pub fn selector(&self) -> Option<&'a Expr<'a>> {
+        match self {
+            DomQuery::Text { selector }
+            | DomQuery::Count { selector }
+            | DomQuery::Value { selector }
+            | DomQuery::Visible { selector }
+            | DomQuery::Hidden { selector }
+            | DomQuery::Disabled { selector }
+            | DomQuery::Checked { selector }
+            | DomQuery::Focused { selector } => Some(selector),
+            DomQuery::Title | DomQuery::Url | DomQuery::Journal | DomQuery::JournalShows { .. } => {
+                None
+            }
+        }
+    }
+
+    /// The English word this query reads as — for messages and shape printers.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            DomQuery::Text { .. } => "text",
+            DomQuery::Count { .. } => "count",
+            DomQuery::Value { .. } => "value",
+            DomQuery::Visible { .. } => "visible",
+            DomQuery::Hidden { .. } => "hidden",
+            DomQuery::Disabled { .. } => "disabled",
+            DomQuery::Checked { .. } => "checked",
+            DomQuery::Focused { .. } => "focused",
+            DomQuery::Journal => "journal",
+            DomQuery::JournalShows { .. } => "journal ordering",
+            DomQuery::Title => "title",
+            DomQuery::Url => "URL",
+        }
+    }
 }
 
 /// A segment of an interpolated string.
@@ -1021,7 +1781,16 @@ impl PartialEq for Literal {
             (Literal::Duration(a), Literal::Duration(b)) => a == b,
             (Literal::Date(a), Literal::Date(b)) => a == b,
             (Literal::Moment(a), Literal::Moment(b)) => a == b,
-            (Literal::Span { months: m1, days: d1 }, Literal::Span { months: m2, days: d2 }) => m1 == m2 && d1 == d2,
+            (
+                Literal::Span {
+                    months: m1,
+                    days: d1,
+                },
+                Literal::Span {
+                    months: m2,
+                    days: d2,
+                },
+            ) => m1 == m2 && d1 == d2,
             (Literal::Time(a), Literal::Time(b)) => a == b,
             _ => false,
         }

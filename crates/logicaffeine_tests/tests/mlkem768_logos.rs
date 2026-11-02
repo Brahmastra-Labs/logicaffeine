@@ -9,16 +9,23 @@
 mod common;
 
 use common::run_logos_with_args;
-use ml_kem::kem::{Decapsulate, Encapsulate};
-use ml_kem::{B32, EncapsulateDeterministic, EncodedSizeUser, KemCore, MlKem768};
+use ml_kem::kem::Decapsulate;
+use ml_kem::{EncapsulateDeterministic, EncodedSizeUser, KemCore, MlKem768, B32};
 
 fn lit(v: &[u8]) -> String {
-    v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")
+    v.iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn run_bytes(prog: &str, n: usize) -> Vec<u8> {
     let aot = run_logos_with_args(prog, &[]);
-    assert!(aot.success, "AOT failed:\n--- stderr ---\n{}\n--- rust ---\n{}", aot.stderr, aot.rust_code);
+    assert!(
+        aot.success,
+        "AOT failed:\n--- stderr ---\n{}\n--- rust ---\n{}",
+        aot.stderr, aot.rust_code
+    );
     let got: Vec<u8> = aot
         .stdout
         .lines()
@@ -41,7 +48,11 @@ fn logos_mlkem768_keygen_is_bit_exact_vs_oracle() {
         "## Main\nLet d be [{}].\nLet ek be mlkem768Keygen(d).\nRepeat for i from 1 to 1184:\n    Show item i of ek.\n",
         lit(&d)
     );
-    assert_eq!(run_bytes(&prog, 1184), want, "compiled Logos ML-KEM-768 keygen must match the oracle");
+    assert_eq!(
+        run_bytes(&prog, 1184),
+        want,
+        "compiled Logos ML-KEM-768 keygen must match the oracle"
+    );
 }
 
 #[test]
@@ -61,8 +72,16 @@ fn logos_mlkem768_encaps_is_bit_exact_vs_oracle() {
         lit(&m)
     );
     let out = run_bytes(&prog, 1120);
-    assert_eq!(&out[..1088], ct.as_slice(), "compiled Logos encaps ciphertext must match the oracle");
-    assert_eq!(&out[1088..], k.as_slice(), "compiled Logos encaps shared secret must match the oracle");
+    assert_eq!(
+        &out[..1088],
+        ct.as_slice(),
+        "compiled Logos encaps ciphertext must match the oracle"
+    );
+    assert_eq!(
+        &out[1088..],
+        k.as_slice(),
+        "compiled Logos encaps shared secret must match the oracle"
+    );
 }
 
 #[test]
@@ -83,5 +102,9 @@ fn logos_mlkem768_decaps_recovers_oracle_secret() {
         lit(&dk_bytes),
         lit(ct.as_slice())
     );
-    assert_eq!(run_bytes(&prog, 32), want, "compiled Logos decaps must recover the oracle shared secret");
+    assert_eq!(
+        run_bytes(&prog, 32),
+        want,
+        "compiled Logos decaps must recover the oracle shared secret"
+    );
 }

@@ -1,0 +1,177 @@
+{
+  "meta": {
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "date": "2026-07-14T05:42:56Z",
+    "box": "dev",
+    "runs_per_bench": 3,
+    "note": "ns/op per run; three-way bit-exact gates pass before timing. box=dev is a shared interactive machine (expect spread); box=bench is the silenced bench box."
+  },
+  "mlkem768": {
+    "keygen": {
+      "ours_ns": [
+        12184,
+        12191,
+        12863
+      ],
+      "portable_ns": [
+        20693,
+        20767,
+        20727
+      ],
+      "libcrux_ns": [
+        7649,
+        7682,
+        7654
+      ]
+    },
+    "encaps": {
+      "ours_ns": [
+        14494,
+        14503,
+        14492
+      ],
+      "portable_ns": [
+        21061,
+        21079,
+        21073
+      ],
+      "libcrux_ns": [
+        8122,
+        8135,
+        8153
+      ]
+    },
+    "decaps": {
+      "ours_ns": [
+        16101,
+        16079,
+        16083
+      ],
+      "portable_ns": [
+        26972,
+        26924,
+        26920
+      ],
+      "libcrux_ns": [
+        8691,
+        8682,
+        8678
+      ]
+    }
+  },
+  "mldsa65": {
+    "keygen": {
+      "ours_ns": [
+        37191,
+        37330,
+        37259
+      ],
+      "portable_ns": [
+        111748,
+        111669,
+        112433
+      ],
+      "libcrux_ns": [
+        26663,
+        26762,
+        26654
+      ]
+    },
+    "sign": {
+      "ours_ns": [
+        96978,
+        97434,
+        98919
+      ],
+      "portable_ns": [
+        222184,
+        222234,
+        223265
+      ],
+      "libcrux_ns": [
+        61002,
+        61627,
+        62087
+      ]
+    },
+    "verify": {
+      "ours_ns": [
+        34904,
+        34933,
+        35042
+      ],
+      "portable_ns": [
+        28813,
+        28891,
+        28974
+      ],
+      "libcrux_ns": [
+        25654,
+        25738,
+        25786
+      ]
+    }
+  },
+  "hash": {
+    "md5": {
+      "ours_mops": 13.93,
+      "ref_mops": 14.81,
+      "ratio": 0.94
+    },
+    "sha1": {
+      "ours_mops": 31.25,
+      "ref_mops": 30.19,
+      "ratio": 1.04
+    },
+    "sha1 (logos-lane)": {
+      "ours_mops": 33.88,
+      "ref_mops": 30.18,
+      "ratio": 1.12
+    },
+    "parse": {
+      "ours_mops": 101.34,
+      "ref_mops": 87.91,
+      "ratio": 1.15
+    },
+    "format": {
+      "ours_mops": 78.07,
+      "ref_mops": 60.54,
+      "ratio": 1.29
+    },
+    "v3 (md5)": {
+      "ours_mops": 12.61,
+      "ref_mops": 12.26,
+      "ratio": 1.03
+    },
+    "v5 (sha1)": {
+      "ours_mops": 24.7,
+      "ref_mops": 14.82,
+      "ratio": 1.67
+    },
+    "v4 (build)": {
+      "ours_mops": 2345.43,
+      "ref_mops": 916.34,
+      "ratio": 2.56
+    },
+    "v7 (build)": {
+      "ours_mops": 246.84,
+      "ref_mops": 227.28,
+      "ratio": 1.09
+    },
+    "bulk format": {
+      "ours_mops": 875.14,
+      "ref_mops": 190.29,
+      "ratio": 4.6
+    },
+    "bulk parse": {
+      "ours_mops": 205.13,
+      "ref_mops": 71.25,
+      "ratio": 2.88
+    },
+    "bulk md5": {
+      "ours_mops": 55.97,
+      "ref_mops": 14.88,
+      "ratio": 3.76
+    }
+  }
+}

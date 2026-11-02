@@ -6,9 +6,11 @@
 # (100-2000ms C runtime) so process-startup noise is irrelevant. Ends with a
 # worst-first ratio table — the top rows are the optimization targets.
 #
-# Built for the optimization loop: C baselines are measured ONCE and cached
-# in results/c-baselines.json (C never changes between compiler iterations),
-# so a typical run only re-measures LOGOS. Output is teed to
+# Both sides build through suite_build, with the commands lib/languages.tsv
+# publishes, and time pinned to the performance cores, as in run.sh. Built for
+# the optimization loop: C baselines are measured ONCE and cached in
+# results/c-baselines.json against the C binary's digest (C never changes
+# between compiler iterations), so a typical run only re-measures LOGOS. Output is teed to
 # logs/optimization/logos-vs-c.log. Results JSON goes to
 # results/local-logos-vs-c.json in the same schema as results/latest.json.
 #
@@ -28,8 +30,9 @@
 #                        slow; use with ONLY= for the bench being studied).
 #   FORCE_BASELINE=1     Re-measure cached C baselines.
 #   OUT=results/local-logos-vs-c.json  Output JSON path (relative to benchmarks/).
-#   FORCE_BUILD=1        Rebuild every binary. By default a binary newer than
-#                        its source is reused; LOGOS binaries additionally
+#   FORCE_BUILD=1        Rebuild every binary. By default a binary is reused
+#                        when the same command and toolchain built it and it
+#                        is newer than its source; LOGOS binaries additionally
 #                        rebuild whenever largo itself was rebuilt.
 
 set -euo pipefail
@@ -37,40 +40,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-BIN_DIR="$SCRIPT_DIR/bin"
 PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
 RAW_DIR="$RESULTS_DIR/raw-logos-vs-c"
-GENERATED_DIR="$SCRIPT_DIR/generated"
 ASM_DIR="$SCRIPT_DIR/asm"
 
-BENCHMARKS=(
-    fib ackermann nqueens
-    bubble_sort mergesort quicksort counting_sort heap_sort
-    nbody mandelbrot spectral_norm pi_leibniz
-    gcd collatz primes
-    sieve matrix_mult prefix_sum array_reverse array_fill
-    collect two_sum histogram
-    knapsack coins
-    fannkuch
-    strings binary_trees
-    loop_sum fib_iterative graph_bfs string_search
-)
+# The benchmark list is the suite registry (benchmarks/lib/benchmarks.tsv), loaded here with the rest of it.
+. "$SCRIPT_DIR/lib/suite.sh"
+BIN_DIR="$SUITE_BIN"
+GENERATED_DIR="$SUITE_GENERATED"
 
 WARMUP="${WARMUP:-2}"
 RUNS="${RUNS:-10}"
 TIMEOUT=180
-BUILD_TIMEOUT=60
 HYPERFINE_TIMEOUT=600  # 10 min per hyperfine invocation
 OUT="${OUT:-results/local-logos-vs-c.json}"
 BASELINES_FILE="$RESULTS_DIR/c-baselines.json"
-
-# Per-benchmark sizes are discovered by calibrate-c.sh (the N at which C runs
-# for ~CALIBRATION_TARGET ms) and cached in results/calibrated-sizes.json.
-# When that file is present each benchmark's size comes from it; otherwise the
-# hardcoded bench_size() table below is the fallback. SIZE_<bench> always wins.
-CALIBRATED_FILE="${CALIBRATED_FILE:-$RESULTS_DIR/calibrated-sizes.json}"
-CALIBRATION_TARGET="${CALIBRATION_TARGET:-500}"
 
 LOG_DIR="$SCRIPT_DIR/../logs/optimization"
 mkdir -p "$LOG_DIR"
@@ -132,72 +117,11 @@ else
     }
 fi
 
-# Last entry in sizes.txt; used as fallback by bench_size().
-max_size() {
-    local bench="$1"
-    local sizes
-    sizes=$(cat "$PROGRAMS_DIR/$bench/sizes.txt")
-    echo "$sizes" | tr ' ' '\n' | tail -1
-}
-
-# Calibrated benchmark size targeting 100–2000ms C runtime.
-# Eliminates process-startup noise that dominates at very small sizes.
-# SIZE_<bench> env vars override; falls back to max_size() for any unknown
-# benchmark.
+# A benchmark's size: SIZE_<bench> when set, else its registry dev_size, where C runs long enough (hundreds of
+# milliseconds) that process startup is noise.
 bench_size() {
-    local bench="$1"
-    local override_var="SIZE_${bench}"
-    if [ -n "${!override_var:-}" ]; then
-        echo "${!override_var}"
-        return
-    fi
-    if [ -f "$CALIBRATED_FILE" ]; then
-        local calibrated
-        calibrated=$(jq -r --arg b "$bench" --arg t "$CALIBRATION_TARGET" \
-            '.benchmarks[$b][$t].n // empty' "$CALIBRATED_FILE" 2>/dev/null)
-        if [ -n "$calibrated" ]; then
-            echo "$calibrated"
-            return
-        fi
-    fi
-    case "$bench" in
-        # Verified C medians in parentheses (measured on Apple Silicon)
-        fib)             echo 40 ;;          # ~1271ms (exponential)
-        ackermann)       echo 11 ;;          # ~570ms  (exponential)
-        nqueens)         echo 14 ;;          # ~498ms  (super-exponential)
-        bubble_sort)     echo 30000 ;;       # ~969ms  (O(n²))
-        mergesort)       echo 3000000 ;;     # ~509ms  (O(n log n))
-        quicksort)       echo 3000000 ;;     # ~577ms  (O(n log n))
-        counting_sort)   echo 40000000 ;;    # ~675ms  (O(n))
-        heap_sort)       echo 2500000 ;;     # ~726ms  (O(n log n))
-        nbody)           echo 4000000 ;;     # ~521ms  (O(n))
-        mandelbrot)      echo 2000 ;;        # ~558ms  (O(n²))
-        spectral_norm)   echo 5000 ;;        # ~1445ms (O(n²))
-        pi_leibniz)      echo 200000000 ;;   # ~200ms  (O(n))
-        gcd)             echo 5000 ;;        # ~599ms  (O(n²))
-        collatz)         echo 5000000 ;;     # ~1033ms (O(n))
-        primes)          echo 3000000 ;;     # ~622ms  (O(n√n))
-        sieve)           echo 100000000 ;;   # ~790ms  (O(n))
-        matrix_mult)     echo 700 ;;         # ~613ms  (O(n³))
-        prefix_sum)      echo 50000000 ;;    # ~718ms  (O(n))
-        array_reverse)   echo 50000000 ;;    # ~483ms  (O(n))
-        array_fill)      echo 50000000 ;;    # ~587ms  (O(n))
-        histogram)       echo 100000000 ;;   # ~163ms  (O(n))
-        knapsack)        echo 9000 ;;        # ~648ms  (O(n²))
-        fannkuch)        echo 10 ;;          # ~191ms  (O(n·n!))
-        binary_trees)    echo 30 ;;          # ~2ms (closed-form O(n))
-        loop_sum)        echo 500000000 ;;   # ~1802ms (O(n))
-        fib_iterative)   echo 500000000 ;;   # ~1881ms (O(n))
-        # Hash-heavy: dynamic C hash tables scale with n
-        collect)         echo 30000000 ;;    # ~620ms (O(n) hash insert+lookup)
-        two_sum)         echo 60000000 ;;    # ~540ms (O(n) hash insert+lookup)
-        # String/graph-heavy
-        coins)           echo 10000000 ;;    # ~150ms (O(6n) DP)
-        strings)         echo 5000000 ;;     # ~350ms (O(n) string concat)
-        graph_bfs)       echo 3000000 ;;     # ~280ms (O(V+E) BFS)
-        string_search)   echo 50000000 ;;    # ~145ms (O(5n) naive search)
-        *)               max_size "$bench" ;;
-    esac
+    local override="SIZE_$1"
+    echo "${!override:-${BENCH_DEV_SIZE[$1]}}"
 }
 
 # ===========================================================================
@@ -206,132 +130,56 @@ bench_size() {
 info "Phase 1: Building LOGOS (release) and C..."
 
 info "Building largo${LARGO_FEATURES:+ (features: $LARGO_FEATURES)}..."
-cargo build -p logicaffeine-cli --release ${LARGO_FEATURES:+--features "$LARGO_FEATURES"} --manifest-path "$SCRIPT_DIR/../Cargo.toml" || fail "largo build failed"
-LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
-if [ ! -f "$LARGO" ]; then
-    LARGO="$LOGOS_TARGET_DIR/release/largo"
-fi
-if [ ! -f "$LARGO" ]; then
-    LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
-fi
-if [ ! -f "$LARGO" ]; then
-    LARGO="$SCRIPT_DIR/../target/release/largo"
-fi
-if [ ! -f "$LARGO" ]; then
-    fail "Could not find largo binary"
-    exit 1
-fi
+. "$SCRIPT_DIR/lib/largo.sh"
+largo_build "${LARGO_FEATURES:-}" || exit 1
 ok "largo built"
 
-# A cached binary is reusable when it is newer than its source — and for
-# LOGOS, newer than the largo compiler too, so iterating on the compiler
-# invalidates exactly the LOGOS binaries and nothing else. FORCE_BUILD=1
-# rebuilds everything.
-c_cached() {
-    [ "${FORCE_BUILD:-}" = "1" ] && return 1
-    [ -f "$BIN_DIR/${1}_c" ] && [ "$BIN_DIR/${1}_c" -nt "$PROGRAMS_DIR/$1/main.c" ] || return 1
-    if [ "${DUMPS:-}" = "1" ] && command -v clang &>/dev/null; then
-        [ -f "$ASM_DIR/${1}_c.s" ] && [ -f "$ASM_DIR/${1}_c.ll" ] || return 1
-    fi
-    return 0
+# DUMPS=1: the assembly and LLVM IR of both sides, for reading what the optimizer made of a benchmark. C through clang
+# at the C row's optimization and float flags (gcc's -flto output is LTO bytecode, not assembly); LOGOS through a
+# second `largo build --release` whose Rust is re-emitted by `cargo rustc --emit`.
+dump_c() {
+    local bench="$1" flags="-O3 -march=native -ffp-contract=off"
+    clang -S $flags -fno-asynchronous-unwind-tables \
+        -o "$ASM_DIR/${bench}_c.s" "$PROGRAMS_DIR/$bench/main.c" 2>/dev/null && ok "  C asm" || true
+    clang -S -emit-llvm $flags \
+        -o "$ASM_DIR/${bench}_c.ll" "$PROGRAMS_DIR/$bench/main.c" 2>/dev/null && ok "  C llvm-ir" || true
 }
 
-logos_cached() {
-    [ "${FORCE_BUILD:-}" = "1" ] && return 1
-    [ -f "$BIN_DIR/${1}_logos_release" ] && \
-        [ "$BIN_DIR/${1}_logos_release" -nt "$PROGRAMS_DIR/$1/main.lg" ] && \
-        [ "$BIN_DIR/${1}_logos_release" -nt "$LARGO" ] || return 1
-    if [ "${DUMPS:-}" = "1" ]; then
-        [ -f "$ASM_DIR/${1}_logos.s" ] && [ -f "$ASM_DIR/${1}_logos.ll" ] && \
-            [ -f "$GENERATED_DIR/$1.rs" ] || return 1
+dump_logos() {
+    local bench="$1" proj project_dir file
+    proj=$(mktemp -d)
+    _logos_scaffold "$bench" "$proj"
+    if (cd "$proj" && "$LARGO" -q build --release 2>/dev/null); then
+        project_dir="$proj/target/release/build"
+        sed -i.bak 's/strip = true/strip = false/' "$project_dir/Cargo.toml" 2>/dev/null || true
+        for kind in asm:s llvm-ir:ll; do
+            (cd "$project_dir" && cargo rustc --release -- --emit="${kind%%:*}" 2>/dev/null) || continue
+            file=$(find "$project_dir/target/release/deps" "${CARGO_TARGET_DIR:-/nonexistent}/release/deps" \
+                -name "bench-*.${kind##*:}" 2>/dev/null | head -1)
+            [ -n "$file" ] && cp "$file" "$ASM_DIR/${bench}_logos.${kind##*:}" && ok "  LOGOS ${kind%%:*}" || true
+        done
     fi
-    return 0
+    rm -rf "$proj"
 }
 
-declare -A C_REBUILT
-
+mkdir -p "$RAW_DIR/build"
 for bench in "${BENCHMARKS[@]}"; do
     info "Building $bench..."
-
-    if c_cached "$bench"; then
-        ok "  C (cached)"
-    elif [ -f "$PROGRAMS_DIR/$bench/main.c" ]; then
-        C_REBUILT[$bench]=1
-        # Flag PARITY with the LOGOS side (rustc release: opt-level=3, lto=true,
-        # codegen-units=1, target-cpu=native). Without `-march=native` the C
-        # side is stuck on generic SSE2 while we emit AVX2/FMA — a 2–4x ISA
-        # handicap on the float/SIMD benches that is purely a flag artifact, not
-        # a codegen result. `-flto` barely moves a single-`.c` program (the
-        # inliner already sees the whole TU) but is included for symmetry.
-        gcc -O3 -march=native -flto -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-            ok "  C" || true
-
-        # Assembly + LLVM IR dumps for C (requires clang)
-        if [ "${DUMPS:-}" = "1" ] && command -v clang &>/dev/null; then
-            clang -S -O3 -march=native -fno-asynchronous-unwind-tables \
-                -o "$ASM_DIR/${bench}_c.s" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-                ok "  C asm" || true
-            clang -S -emit-llvm -O3 -march=native \
-                -o "$ASM_DIR/${bench}_c.ll" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-                ok "  C llvm-ir" || true
+    for id in c logos_release; do
+        suite_has "$bench" "$id" || continue
+        log="$RAW_DIR/build/${bench}_${id}.log"
+        if suite_build "$bench" "$id" > "$log" 2>&1; then
+            if [ "$SUITE_BUILD_REUSED" = 1 ]; then ok "  ${LANG_LABEL[$id]} (cached)"; else ok "  ${LANG_LABEL[$id]}"; fi
+        else
+            fail "  ${LANG_LABEL[$id]} build failed ($log)"
+            continue
         fi
-    fi
-
-    if logos_cached "$bench"; then
-        ok "  LOGOS (release) (cached)"
-    elif [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
-        LOGOS_TMP=$(mktemp -d)
-        mkdir -p "$LOGOS_TMP/src"
-        cp "$PROGRAMS_DIR/$bench/main.lg" "$LOGOS_TMP/src/main.lg"
-        cat > "$LOGOS_TMP/Largo.toml" << 'TOML'
-[package]
-name = "bench"
-version = "0.1.0"
-entry = "src/main.lg"
-TOML
-        (cd "$LOGOS_TMP" && "$LARGO" build --release 2>/dev/null) && {
-            LOGOS_BIN=""
-            if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -f "$CARGO_TARGET_DIR/release/bench" ]; then
-                LOGOS_BIN="$CARGO_TARGET_DIR/release/bench"
-            elif [[ "$(uname -s)" == "Darwin" ]]; then
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -perm +111 -name "bench" 2>/dev/null | head -1)
-            else
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -executable -name "bench" 2>/dev/null | head -1)
-            fi
-            [ -n "$LOGOS_BIN" ] && rm -f "$BIN_DIR/${bench}_logos_release" && cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_release" && ok "  LOGOS (release)" || true
-            GENERATED_RS=$(find "$LOGOS_TMP" -name "main.rs" -path "*/build/src/*" 2>/dev/null | head -1)
-            [ -n "$GENERATED_RS" ] && cp "$GENERATED_RS" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
-
-            # Assembly + LLVM IR dumps for Logos/Rust (DUMPS=1 only — 2 extra cargo builds)
-            RUST_PROJECT=$(find "$LOGOS_TMP" -name "Cargo.toml" -path "*/build/Cargo.toml" 2>/dev/null | head -1)
-            if [ "${DUMPS:-}" = "1" ] && [ -n "$RUST_PROJECT" ]; then
-                RUST_PROJECT_DIR=$(dirname "$RUST_PROJECT")
-                # Disable strip so symbols appear in assembly
-                sed -i.bak 's/strip = true/strip = false/' "$RUST_PROJECT" 2>/dev/null || true
-
-                # Emit assembly
-                (cd "$RUST_PROJECT_DIR" && \
-                    cargo rustc --release -- --emit=asm 2>/dev/null) && {
-                    ASM_FILE=$(find "$RUST_PROJECT_DIR/target/release/deps" -name "bench-*.s" 2>/dev/null | head -1)
-                    if [ -z "$ASM_FILE" ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
-                        ASM_FILE=$(find "$CARGO_TARGET_DIR/release/deps" -name "bench-*.s" 2>/dev/null | head -1)
-                    fi
-                    [ -n "$ASM_FILE" ] && cp "$ASM_FILE" "$ASM_DIR/${bench}_logos.s" && ok "  LOGOS asm" || true
-                } || true
-
-                # Emit LLVM IR
-                (cd "$RUST_PROJECT_DIR" && \
-                    cargo rustc --release -- --emit=llvm-ir 2>/dev/null) && {
-                    LL_FILE=$(find "$RUST_PROJECT_DIR/target/release/deps" -name "bench-*.ll" 2>/dev/null | head -1)
-                    if [ -z "$LL_FILE" ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
-                        LL_FILE=$(find "$CARGO_TARGET_DIR/release/deps" -name "bench-*.ll" 2>/dev/null | head -1)
-                    fi
-                    [ -n "$LL_FILE" ] && cp "$LL_FILE" "$ASM_DIR/${bench}_logos.ll" && ok "  LOGOS llvm-ir" || true
-                } || true
-            fi
-        } || true
-        rm -rf "$LOGOS_TMP"
-    fi
+        [ "${DUMPS:-}" = "1" ] || continue
+        case "$id" in
+            c) command -v clang &>/dev/null && { [ "$SUITE_BUILD_REUSED" = 1 ] && [ -f "$ASM_DIR/${bench}_c.s" ] && [ -f "$ASM_DIR/${bench}_c.ll" ] || dump_c "$bench"; } ;;
+            logos_release) [ "$SUITE_BUILD_REUSED" = 1 ] && [ -f "$ASM_DIR/${bench}_logos.s" ] && [ -f "$ASM_DIR/${bench}_logos.ll" ] || dump_logos "$bench" ;;
+        esac
+    done
 done
 
 ok "Phase 1 complete"
@@ -420,7 +268,7 @@ try_bench() {
 
     local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
     local rc=0
-    run_timeout "$HYPERFINE_TIMEOUT" hyperfine \
+    run_timeout "$HYPERFINE_TIMEOUT" taskset -c "$(suite_cpus)" hyperfine \
         --warmup "$WARMUP" --runs "$RUNS" \
         --export-json "$pf" --time-unit millisecond \
         -n "$label" "$cmd" || rc=$?
@@ -437,21 +285,31 @@ try_bench() {
 }
 
 # C baselines are static between compiler iterations: measured once, stored
-# as raw hyperfine result objects in results/c-baselines.json, re-measured
-# only when main.c changed (binary rebuilt) or FORCE_BASELINE=1.
+# as raw hyperfine result objects in results/c-baselines.json beside the
+# SHA-256 of the binary they timed, and re-measured whenever the C binary is
+# not that one (main.c, the build command or the compiler changed) or
+# FORCE_BASELINE=1.
 [ -f "$BASELINES_FILE" ] || echo '{"meta":{},"baselines":{}}' > "$BASELINES_FILE"
 
+c_digest() {
+    sha256sum "$BIN_DIR/${1}_c" | cut -d' ' -f1
+}
+
 c_baseline_get() {
-    jq -ce --arg b "$1" --arg s "$2" '.baselines[$b][$s] // empty' "$BASELINES_FILE" 2>/dev/null
+    jq -ce --arg b "$1" --arg s "$2" --arg d "$(c_digest "$1")" \
+        'select(.binaries[$b] == $d) | .baselines[$b][$s] // empty' "$BASELINES_FILE" 2>/dev/null
 }
 
 c_baseline_put() {
-    local bench="$1" size="$2" pf="$3" tmp
+    local bench="$1" size="$2" pf="$3" tmp digest
+    digest=$(c_digest "$bench")
     tmp=$(mktemp)
-    jq --arg b "$bench" --arg s "$size" --slurpfile r "$pf" \
-        --arg gcc "$(gcc --version 2>/dev/null | head -1)" \
+    jq --arg b "$bench" --arg s "$size" --slurpfile r "$pf" --arg d "$digest" \
+        --arg gcc "$(suite_toolchain c)" \
         --arg date "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-        '.baselines[$b][$s] = $r[0].results[0]
+        'if .binaries[$b] != $d then .baselines[$b] = {} else . end
+         | .binaries[$b] = $d
+         | .baselines[$b][$s] = $r[0].results[0]
          | .meta = {gcc: $gcc, updated: $date}' \
         "$BASELINES_FILE" > "$tmp" && mv "$tmp" "$BASELINES_FILE"
 }
@@ -470,7 +328,7 @@ for bench in "${BENCHMARKS[@]}"; do
 
     if [ -f "$BIN_DIR/${bench}_c" ]; then
         baseline=""
-        if [ "${FORCE_BASELINE:-}" != "1" ] && [ -z "${C_REBUILT[$bench]:-}" ]; then
+        if [ "${FORCE_BASELINE:-}" != "1" ]; then
             baseline=$(c_baseline_get "$bench" "$size") || baseline=""
         fi
         if [ -n "$baseline" ]; then
@@ -569,59 +427,11 @@ lang_id() {
 }
 
 bench_name() {
-    case "$1" in
-        fib) echo "Recursive Fibonacci" ;; ackermann) echo "Ackermann Function" ;; nqueens) echo "N-Queens" ;;
-        bubble_sort) echo "Bubble Sort" ;; mergesort) echo "Merge Sort" ;; quicksort) echo "Quicksort" ;;
-        counting_sort) echo "Counting Sort" ;; heap_sort) echo "Heap Sort" ;;
-        nbody) echo "N-Body Simulation" ;; mandelbrot) echo "Mandelbrot Set" ;;
-        spectral_norm) echo "Spectral Norm" ;; pi_leibniz) echo "Pi (Leibniz Series)" ;;
-        gcd) echo "GCD Sum" ;; collatz) echo "Collatz Conjecture" ;; primes) echo "Primes (Trial Division)" ;;
-        sieve) echo "Sieve of Eratosthenes" ;; matrix_mult) echo "Matrix Multiply" ;;
-        prefix_sum) echo "Prefix Sum" ;; array_reverse) echo "Array Reverse" ;; array_fill) echo "Array Fill & Sum" ;;
-        collect) echo "Collection Operations" ;; two_sum) echo "Two Sum" ;; histogram) echo "Histogram" ;;
-        knapsack) echo "0/1 Knapsack" ;; coins) echo "Coin Change" ;;
-        fannkuch) echo "Fannkuch Redux" ;;
-        strings) echo "String Assembly" ;; binary_trees) echo "Binary Trees" ;;
-        loop_sum) echo "Loop Sum" ;; fib_iterative) echo "Iterative Fibonacci" ;;
-        graph_bfs) echo "Graph BFS" ;; string_search) echo "Naive String Search" ;;
-    esac
+    echo "${BENCH_NAME[$1]}"
 }
 
 bench_desc() {
-    case "$1" in
-        fib) echo "Naive recursive fibonacci. Measures function call overhead and recursion depth." ;;
-        ackermann) echo "Ackermann(3, m). Measures extreme recursion depth and stack frame overhead." ;;
-        nqueens) echo "N-Queens backtracking. Measures recursive constraint solving." ;;
-        bubble_sort) echo "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns." ;;
-        mergesort) echo "Top-down merge sort. Measures allocation-heavy divide-and-conquer." ;;
-        quicksort) echo "Lomuto-partition quicksort. Measures in-place swap-heavy recursion." ;;
-        counting_sort) echo "Non-comparison O(n+k) sort. Measures pure array indexing throughput." ;;
-        heap_sort) echo "Heap sort with sift-down. Measures logarithmic array jumps." ;;
-        nbody) echo "5-body gravitational simulation. Measures FP struct arrays and sqrt." ;;
-        mandelbrot) echo "Mandelbrot set escape iteration. Measures FP branching and convergence." ;;
-        spectral_norm) echo "Spectral norm power method. Measures FP dot products and array throughput." ;;
-        pi_leibniz) echo "Leibniz series for pi. Measures pure FP loop overhead." ;;
-        gcd) echo "GCD sum via Euclidean algorithm. Measures modulo-heavy tight loops." ;;
-        collatz) echo "Collatz step counting. Measures unpredictable branching." ;;
-        primes) echo "Trial division prime counting. Measures nested loops with early exit." ;;
-        sieve) echo "Classic prime sieve. Measures indexed array mutation and tight loops." ;;
-        matrix_mult) echo "O(n^3) matrix multiply. Measures cache locality and triple-nested loops." ;;
-        prefix_sum) echo "Sequential prefix sum scan. Measures read-modify-write bandwidth." ;;
-        array_reverse) echo "Two-pointer in-place reversal. Measures strided cache access." ;;
-        array_fill) echo "Array push and sum. Measures raw memory bandwidth and allocation." ;;
-        collect) echo "Hash map insert and lookup. Measures hash computation and cache behavior." ;;
-        two_sum) echo "Interleaved hash insert+lookup. Measures hash table under mixed workload." ;;
-        histogram) echo "Array-indexed frequency counting. Measures random array access." ;;
-        knapsack) echo "0/1 knapsack DP. Measures 2D table fills and conditional max." ;;
-        coins) echo "Coin change DP. Measures 1D DP with inner-loop additions." ;;
-        fannkuch) echo "Fannkuch permutation benchmark. Measures tight array reversal loops." ;;
-        strings) echo "String concatenation and assembly. Measures allocator throughput and GC pressure." ;;
-        binary_trees) echo "Recursive tree creation and checksum. Measures allocation pressure." ;;
-        loop_sum) echo "Pure loop accumulation. Measures raw loop overhead with minimal body." ;;
-        fib_iterative) echo "Iterative fibonacci mod. Measures loop + data dependency chain." ;;
-        graph_bfs) echo "BFS on generated graph. Measures queue operations and random access." ;;
-        string_search) echo "Naive O(nm) string search. Measures character-level access and inner loop." ;;
-    esac
+    echo "${BENCH_DESC[$1]}"
 }
 
 extract_name() {

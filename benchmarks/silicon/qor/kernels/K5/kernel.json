@@ -1,0 +1,83 @@
+{
+ "bambu": {
+  "c": {
+   "file": "kernel.c",
+   "inputs": [
+    [
+     "a",
+     "a"
+    ],
+    [
+     "b",
+     "b"
+    ],
+    [
+     "zeta",
+     "zeta"
+    ]
+   ],
+   "mems": [],
+   "outputs": [
+    [
+     "hi",
+     "return_port",
+     16,
+     16
+    ],
+    [
+     "lo",
+     "return_port",
+     0,
+     16
+    ]
+   ],
+   "pragmas": false,
+   "top": "ntt_bfly"
+  }
+ },
+ "dahlia": {
+  "file": "kernel.fuse",
+  "mems": [
+   {
+    "contract": [
+     "a"
+    ],
+    "kind": "SeqMem",
+    "prefix": "a",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "b"
+    ],
+    "kind": "SeqMem",
+    "prefix": "b",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "zeta"
+    ],
+    "kind": "SeqMem",
+    "prefix": "zeta",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "hi"
+    ],
+    "kind": "SeqMem",
+    "prefix": "hi",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "lo"
+    ],
+    "kind": "SeqMem",
+    "prefix": "lo",
+    "words_per_port": 1
+   }
+  ]
+ }
+}

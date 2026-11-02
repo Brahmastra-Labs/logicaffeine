@@ -88,17 +88,37 @@ fn chacha20_block_matches_rfc8439_2_3_2() {
     assert_eq!(
         oracle,
         [
-            0xe4e7_f110, 0x1559_3bd1, 0x1fdd_0f50, 0xc471_20a3, 0xc7f4_d1c7, 0x0368_c033,
-            0x9aaa_2204, 0x4e6c_d4c3, 0x4664_82d2, 0x09aa_9f07, 0x05d7_c214, 0xa202_8bd9,
-            0xd19c_12b5, 0xb94e_16de, 0xe883_d0cb, 0x4e3c_50a2,
+            0xe4e7_f110,
+            0x1559_3bd1,
+            0x1fdd_0f50,
+            0xc471_20a3,
+            0xc7f4_d1c7,
+            0x0368_c033,
+            0x9aaa_2204,
+            0x4e6c_d4c3,
+            0x4664_82d2,
+            0x09aa_9f07,
+            0x05d7_c214,
+            0xa202_8bd9,
+            0xd19c_12b5,
+            0xb94e_16de,
+            0xe883_d0cb,
+            0x4e3c_50a2,
         ],
         "oracle must match RFC 8439 §2.3.2"
     );
 
-    let expected: String =
-        oracle.iter().map(|w| w.to_string()).collect::<Vec<_>>().join("\n");
+    let expected: String = oracle
+        .iter()
+        .map(|w| w.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     let r = tw_outcome(&program(&key, counter, &nonce));
-    assert_eq!(r.error, None, "stdlib chacha20Block compiles + runs: {:?}", r.error);
+    assert_eq!(
+        r.error, None,
+        "stdlib chacha20Block compiles + runs: {:?}",
+        r.error
+    );
     assert_eq!(
         r.output.trim(),
         expected,
@@ -109,7 +129,10 @@ fn chacha20_block_matches_rfc8439_2_3_2() {
 #[test]
 fn chacha20_block_tw_vm_byte_identical() {
     fn norm(s: &str) -> Vec<String> {
-        s.lines().map(|l| l.trim_end().to_string()).filter(|l| !l.is_empty()).collect()
+        s.lines()
+            .map(|l| l.trim_end().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
     }
     let (key, counter, nonce) = rfc_inputs();
     let prog = program(&key, counter, &nonce);
@@ -117,20 +140,36 @@ fn chacha20_block_tw_vm_byte_identical() {
     let vm = vm_outcome(&prog);
     assert_eq!(tw.error, None, "tw clean: {:?}", tw.error);
     assert_eq!(vm.error, None, "vm clean: {:?}", vm.error);
-    assert_eq!(norm(&tw.output), norm(&vm.output), "tw == vm for stdlib ChaCha20 block");
+    assert_eq!(
+        norm(&tw.output),
+        norm(&vm.output),
+        "tw == vm for stdlib ChaCha20 block"
+    );
 }
 
 #[test]
 #[ignore = "compiles a cargo project via rustc (slow) — the COMPILED stdlib ChaCha20-block gate"]
 fn chacha20_block_aot_matches_treewalker() {
     fn norm(s: &str) -> String {
-        s.lines().map(|l| l.trim_end()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
+        s.lines()
+            .map(|l| l.trim_end())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
     let (key, counter, nonce) = rfc_inputs();
     let prog = program(&key, counter, &nonce);
     let tw = tw_outcome(&prog);
     assert_eq!(tw.error, None, "tw clean: {:?}", tw.error);
     let aot = common::run_logos_with_args(&prog, &[]);
-    assert!(aot.success, "AOT failed:\n{}\n{}", aot.stderr, aot.rust_code);
-    assert_eq!(norm(&aot.stdout), norm(&tw.output), "COMPILED ChaCha20 block == tree-walker");
+    assert!(
+        aot.success,
+        "AOT failed:\n{}\n{}",
+        aot.stderr, aot.rust_code
+    );
+    assert_eq!(
+        norm(&aot.stdout),
+        norm(&tw.output),
+        "COMPILED ChaCha20 block == tree-walker"
+    );
 }

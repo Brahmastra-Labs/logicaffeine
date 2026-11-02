@@ -3,7 +3,8 @@ name = "logicaffeine-wirebench"
 version = "0.0.0"
 edition.workspace = true
 publish = false
-description = "Fair head-to-head benchmark of the Logos wire codec vs industry serializers (size + encode/decode speed + single-field read). Kept out of default-members so its competitor deps never touch the main build."
+license = "MIT"
+description = "Fair head-to-head benchmark of the LOGOS wire codec against industry serializers: encoded size, encode/decode speed, single-field reads"
 readme = "README.md"
 
 [lib]

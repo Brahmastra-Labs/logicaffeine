@@ -78,6 +78,7 @@ const CORE_TYPES: &str = r#"
     A CTrust with proposition CExpr and justification Text.
     A CRequire with dependency Text.
     A CMerge with target Text and other CExpr.
+    A CJoin with target Text and other CExpr.
     A CIncrease with target Text and amount CExpr.
     A CDecrease with target Text and amount CExpr.
     A CAppendToSeq with target Text and value CExpr.
@@ -191,13 +192,19 @@ fn promoted_core_interp_is_the_fixture_self_interpreter() {
         INTERPRETER,
         "core_interp.logos and the phase_futamura fixture must be the same self-interpreter"
     );
-    assert!(INTERPRETER.contains("## To coreEval"), "the promoted file must define coreEval");
-    assert!(INTERPRETER.contains("## To coreExecBlock"), "the promoted file must define coreExecBlock");
+    assert!(
+        INTERPRETER.contains("## To coreEval"),
+        "the promoted file must define coreEval"
+    );
+    assert!(
+        INTERPRETER.contains("## To coreExecBlock"),
+        "the promoted file must define coreExecBlock"
+    );
 }
 
 fn run_interpreter_program(main_block: &str, expected: &str) {
     let source = format!("{}\n{}\n## Main\n{}", CORE_TYPES, INTERPRETER, main_block);
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 #[test]
@@ -955,7 +962,7 @@ fn run_encoded_program(program_stmts: &str, expected: &str) {
         "{}\n{}\n## Main\n{}\n{}",
         CORE_TYPES, INTERPRETER, encoded, RUN_ENCODED
     );
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 fn get_p1_residual(program: &str) -> String {
@@ -985,7 +992,10 @@ fn p1_verifier_catches_violations() {
         CORE_TYPES
     );
     let result = logicaffeine_compile::compile::verify_no_overhead_source(&source_with_overhead);
-    assert!(result.is_err(), "Should reject residual with Inspect on CStmt variant");
+    assert!(
+        result.is_err(),
+        "Should reject residual with Inspect on CStmt variant"
+    );
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("CStmt") || err_msg.contains("CShow") || err_msg.contains("overhead"),
@@ -1001,10 +1011,7 @@ fn p1_no_inspect_on_cstmt() {
 
 #[test]
 fn p1_no_inspect_on_cexpr() {
-    run_p1_and_verify(
-        "Let x be 5.\nShow x + 3.",
-        "8",
-    );
+    run_p1_and_verify("Let x be 5.\nShow x + 3.", "8");
 }
 
 #[test]
@@ -1019,16 +1026,17 @@ fn p1_no_core_constructors() {
 fn p1_trivial_show() {
     let residual = get_p1_residual("Show 42.");
     let overhead = logicaffeine_compile::compile::verify_no_overhead_source(&residual);
-    assert!(overhead.is_ok(), "Trivial show should have no overhead: {:?}", overhead.unwrap_err());
+    assert!(
+        overhead.is_ok(),
+        "Trivial show should have no overhead: {:?}",
+        overhead.unwrap_err()
+    );
     common::assert_exact_output(&residual, "42");
 }
 
 #[test]
 fn p1_arithmetic() {
-    run_p1_and_verify(
-        "Let x be 5.\nShow x + 3.",
-        "8",
-    );
+    run_p1_and_verify("Let x be 5.\nShow x + 3.", "8");
 }
 
 #[test]
@@ -1206,7 +1214,10 @@ fn p1_equivalence_25_pairs() {
             pass_count += 1;
         }
     }
-    assert_eq!(pass_count, 25, "Should have verified 25 program/input pairs");
+    assert_eq!(
+        pass_count, 25,
+        "Should have verified 25 program/input pairs"
+    );
 }
 
 #[test]
@@ -1214,47 +1225,68 @@ fn p1_compiled_has_direct_computation() {
     let residual = get_p1_residual(
         "## To factorial (n: Int) -> Int:\n    If n is at most 1:\n        Return 1.\n    Return n * factorial(n - 1).\n\n## Main\nShow factorial(5).",
     );
-    assert!(residual.contains("*") || residual.contains("factorial"), "Residual should contain direct multiplication or function call");
-    assert!(residual.contains("If ") || residual.contains("Return "), "Residual should contain direct control flow");
-    assert!(!residual.contains("Inspect"), "Residual should not contain Inspect (dispatch)");
-    assert!(!residual.contains("CExpr") && !residual.contains("CStmt"), "Residual should not reference Core types");
+    assert!(
+        residual.contains("*") || residual.contains("factorial"),
+        "Residual should contain direct multiplication or function call"
+    );
+    assert!(
+        residual.contains("If ") || residual.contains("Return "),
+        "Residual should contain direct control flow"
+    );
+    assert!(
+        !residual.contains("Inspect"),
+        "Residual should not contain Inspect (dispatch)"
+    );
+    assert!(
+        !residual.contains("CExpr") && !residual.contains("CStmt"),
+        "Residual should not reference Core types"
+    );
     common::assert_exact_output(&residual, "120");
 }
 
 #[test]
 fn p1_dynamic_control_flow() {
-    let program_big = "Let x be 10.\nIf x is greater than 5:\n    Show \"big\".\nOtherwise:\n    Show \"small\".";
+    let program_big =
+        "Let x be 10.\nIf x is greater than 5:\n    Show \"big\".\nOtherwise:\n    Show \"small\".";
     run_p1_and_verify(program_big, "big");
 
-    let program_small = "Let x be 3.\nIf x is greater than 5:\n    Show \"big\".\nOtherwise:\n    Show \"small\".";
+    let program_small =
+        "Let x be 3.\nIf x is greater than 5:\n    Show \"big\".\nOtherwise:\n    Show \"small\".";
     run_p1_and_verify(program_small, "small");
 
     let residual = get_p1_residual(program_big);
-    assert!(residual.contains("If "), "Residual should preserve If for dynamic control flow");
-    assert!(residual.contains("Otherwise"), "Residual should preserve Otherwise branch");
+    assert!(
+        residual.contains("If "),
+        "Residual should preserve If for dynamic control flow"
+    );
+    assert!(
+        residual.contains("Otherwise"),
+        "Residual should preserve Otherwise branch"
+    );
 }
 
 #[test]
 fn p1_strings_dynamic() {
-    run_p1_and_verify(
-        "Let greeting be \"hello\".\nShow greeting.",
-        "hello",
-    );
-    run_p1_and_verify(
-        "Let name be \"world\".\nShow \"hello\".",
-        "hello",
-    );
+    run_p1_and_verify("Let greeting be \"hello\".\nShow greeting.", "hello");
+    run_p1_and_verify("Let name be \"world\".\nShow \"hello\".", "hello");
 }
 
 #[test]
 fn p1_no_env_lookup() {
-    let residual = get_p1_residual(
-        "Let x be 5.\nLet y be 10.\nLet z be x + y.\nShow z.",
+    let residual = get_p1_residual("Let x be 5.\nLet y be 10.\nLet z be x + y.\nShow z.");
+    assert!(
+        !residual.contains("item") || !residual.contains("env"),
+        "Residual should not contain env map lookups. Got:\n{}",
+        residual
     );
-    assert!(!residual.contains("item") || !residual.contains("env"),
-        "Residual should not contain env map lookups. Got:\n{}", residual);
-    assert!(residual.contains("Let x"), "Residual should have direct Let x binding");
-    assert!(residual.contains("Let y"), "Residual should have direct Let y binding");
+    assert!(
+        residual.contains("Let x"),
+        "Residual should have direct Let x binding"
+    );
+    assert!(
+        residual.contains("Let y"),
+        "Residual should have direct Let y binding"
+    );
     common::assert_exact_output(&residual, "15");
 }
 
@@ -1302,7 +1334,8 @@ fn p1_identity_test() {
             assert!(
                 overhead.is_ok(),
                 "P1 identity: residual should have no overhead.\nProgram: {}\nError: {:?}",
-                full_source, overhead.unwrap_err()
+                full_source,
+                overhead.unwrap_err()
             );
             common::assert_exact_output(&residual, expected);
         }
@@ -1329,9 +1362,18 @@ fn pe_source_parses() {
 #[test]
 fn pe_no_closures() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    assert!(!pe_source.contains("Lambda"), "PE source should not contain Lambda (closure syntax)");
-    assert!(!pe_source.contains("lambda"), "PE source should not contain lambda (closure syntax)");
-    assert!(!pe_source.contains("=>"), "PE source should not contain => (arrow function syntax)");
+    assert!(
+        !pe_source.contains("Lambda"),
+        "PE source should not contain Lambda (closure syntax)"
+    );
+    assert!(
+        !pe_source.contains("lambda"),
+        "PE source should not contain lambda (closure syntax)"
+    );
+    assert!(
+        !pe_source.contains("=>"),
+        "PE source should not contain => (arrow function syntax)"
+    );
     // Note: pe_source may contain "CClosure" as a Core type name (handling closures in the interpreter).
     // That's not the same as using Logos closure syntax in the PE implementation itself.
 }
@@ -1359,7 +1401,10 @@ fn pe_quotation_idempotent() {
     let q1 = logicaffeine_compile::compile::quote_pe_source().unwrap();
     let q2 = logicaffeine_compile::compile::quote_pe_source().unwrap();
     assert!(!q1.is_empty(), "Quoted PE should not be empty");
-    assert_eq!(q1, q2, "quote_pe_source should produce identical results on repeated calls");
+    assert_eq!(
+        q1, q2,
+        "quote_pe_source should produce identical results on repeated calls"
+    );
 }
 
 #[test]
@@ -1382,13 +1427,18 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&direct_source, "42");
+    common::assert_bootstrap_exact_output(&direct_source, "42");
 
     // Verify encoded PE parses and is well-formed
     let encoded = logicaffeine_compile::compile::quote_pe_source().unwrap();
-    assert!(encoded.contains("encodedFuncMap"), "Encoded PE should have function map");
-    assert!(encoded.contains("peBlock") || encoded.contains("peExpr"),
-        "Encoded PE should reference PE functions");
+    assert!(
+        encoded.contains("encodedFuncMap"),
+        "Encoded PE should have function map"
+    );
+    assert!(
+        encoded.contains("peBlock") || encoded.contains("peExpr"),
+        "Encoded PE should reference PE functions"
+    );
 }
 
 #[test]
@@ -1416,16 +1466,31 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&direct_source, "8");
+    common::assert_bootstrap_exact_output(&direct_source, "8");
 
     // Verify PE encodes to CProgram successfully with all functions present
     let encoded_pe = logicaffeine_compile::compile::quote_pe_source().unwrap();
     assert!(!encoded_pe.is_empty(), "PE encoding should not be empty");
-    assert!(encoded_pe.contains("\"peBlock\""), "Encoded PE should have peBlock function");
-    assert!(encoded_pe.contains("\"peExpr\""), "Encoded PE should have peExpr function");
-    assert!(encoded_pe.contains("\"isLiteral\""), "Encoded PE should have isLiteral function");
-    assert!(encoded_pe.contains("\"evalBinOp\""), "Encoded PE should have evalBinOp function");
-    assert!(encoded_pe.contains("\"extractReturn\""), "Encoded PE should have extractReturn function");
+    assert!(
+        encoded_pe.contains("\"peBlock\""),
+        "Encoded PE should have peBlock function"
+    );
+    assert!(
+        encoded_pe.contains("\"peExpr\""),
+        "Encoded PE should have peExpr function"
+    );
+    assert!(
+        encoded_pe.contains("\"isLiteral\""),
+        "Encoded PE should have isLiteral function"
+    );
+    assert!(
+        encoded_pe.contains("\"evalBinOp\""),
+        "Encoded PE should have evalBinOp function"
+    );
+    assert!(
+        encoded_pe.contains("\"extractReturn\""),
+        "Encoded PE should have extractReturn function"
+    );
 
     // Run same test program directly through Core interpreter to verify identical output
     let test_as_logos = "Let x be 5.\nShow x + 3.";
@@ -1434,7 +1499,7 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n## Main\n{}\n{}",
         CORE_TYPES, INTERPRETER, encoded_test, RUN_ENCODED
     );
-    common::assert_exact_output(&interpreter_run, "8");
+    common::assert_bootstrap_exact_output(&interpreter_run, "8");
 }
 
 // ============================================================
@@ -1469,11 +1534,13 @@ fn assert_pe_encoding_complete() {
         + encoded_pe.matches("a new CSetIdx ").count()
         + encoded_pe.matches("a new CMapSet ").count();
 
-    assert!(cstmt_constructions >= 30,
+    assert!(
+        cstmt_constructions >= 30,
         "Encoded PE must have complete CStmt constructions for self-application. \
          Expected >=30 (peBlock handles 10 stmt variants, each emitting CStmt nodes), \
          got {}. The encoder must handle Inspect/Repeat/NewVariant constructs.",
-        cstmt_constructions);
+        cstmt_constructions
+    );
 }
 
 #[test]
@@ -1503,7 +1570,7 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&source, "8");
+    common::assert_bootstrap_exact_output(&source, "8");
 }
 
 #[test]
@@ -1534,7 +1601,7 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&source, "42");
+    common::assert_bootstrap_exact_output(&source, "42");
 }
 
 #[test]
@@ -1586,7 +1653,7 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&source, "120");
+    common::assert_bootstrap_exact_output(&source, "120");
 }
 
 #[test]
@@ -1630,7 +1697,7 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&source, "12");
+    common::assert_bootstrap_exact_output(&source, "12");
 }
 
 #[test]
@@ -1656,7 +1723,7 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&direct_source, "5");
+    common::assert_bootstrap_exact_output(&direct_source, "5");
 
     // Part 2: Encode PE as CProgram → pe_cprogram
     // Run Core interpreter on pe_cprogram with P as input → residual_meta
@@ -1677,14 +1744,12 @@ Let result be coreExecBlock(peResult, runEnv, runFuncMap)."#;
          Let runEnv be a new Map of Text to CVal.\n\
          Let runFuncMap be a new Map of Text to CFunc.\n\
          Let result be coreExecBlock(peResult, runEnv, runFuncMap).",
-        encoded_pe, test_main.lines().take(8).collect::<Vec<_>>().join("\n")
+        encoded_pe,
+        test_main.lines().take(8).collect::<Vec<_>>().join("\n")
     );
 
-    let meta_source = format!(
-        "{}\n{}\n## Main\n{}",
-        CORE_TYPES, INTERPRETER, meta_main
-    );
-    common::assert_exact_output(&meta_source, "5");
+    let meta_source = format!("{}\n{}\n## Main\n{}", CORE_TYPES, INTERPRETER, meta_main);
+    common::assert_bootstrap_exact_output(&meta_source, "5");
 }
 
 #[test]
@@ -1745,7 +1810,7 @@ Push showStmt to stmts."#;
         "{}\n{}\n{}\n## Main\n{}",
         CORE_TYPES, pe_source, INTERPRETER, test_main
     );
-    common::assert_exact_output(&source, "120");
+    common::assert_bootstrap_exact_output(&source, "120");
 }
 
 // ============================================================
@@ -1765,7 +1830,9 @@ fn p2_no_pe_dispatch() {
     // All PE logic should be resolved for this specific interpreter.
     let compiler = get_p2_compiler();
     assert!(
-        !compiler.contains("peExpr") && !compiler.contains("peStmt") && !compiler.contains("peBlock"),
+        !compiler.contains("peExpr")
+            && !compiler.contains("peStmt")
+            && !compiler.contains("peBlock"),
         "Compiler should not contain PE dispatch functions (peExpr/peStmt/peBlock). \
          All PE logic should be specialized away for the interpreter."
     );
@@ -1788,10 +1855,14 @@ fn p2_has_program_manipulation() {
     // The compiler DOES manipulate programs — it takes CExpr/CStmt data as input.
     // It should not be trivially empty.
     let compiler = get_p2_compiler();
-    let has_cexpr = compiler.contains("CExpr") || compiler.contains("CInt")
-        || compiler.contains("CBinOp") || compiler.contains("CVar");
-    let has_cstmt = compiler.contains("CStmt") || compiler.contains("CLet")
-        || compiler.contains("CIf") || compiler.contains("CReturn");
+    let has_cexpr = compiler.contains("CExpr")
+        || compiler.contains("CInt")
+        || compiler.contains("CBinOp")
+        || compiler.contains("CVar");
+    let has_cstmt = compiler.contains("CStmt")
+        || compiler.contains("CLet")
+        || compiler.contains("CIf")
+        || compiler.contains("CReturn");
     assert!(
         has_cexpr || has_cstmt,
         "Compiler should reference CExpr/CStmt types — it processes programs. \
@@ -1819,7 +1890,7 @@ fn compile_and_run_via_p2(program: &str, expected: &str) {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         compiler, INTERPRETER, encoded
     );
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 #[test]
@@ -1933,7 +2004,7 @@ fn p2_compiler_reusable() {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         compiler, INTERPRETER, fac_encoded
     );
-    common::assert_exact_output(&fac_source, "3628800");
+    common::assert_bootstrap_exact_output(&fac_source, "3628800");
 
     // Fibonacci(10) — same compiler
     let fib_program = "## To fib (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    If n equals 1:\n        Return 1.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nShow fib(10).";
@@ -1947,7 +2018,7 @@ fn p2_compiler_reusable() {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         compiler, INTERPRETER, fib_encoded
     );
-    common::assert_exact_output(&fib_source, "55");
+    common::assert_bootstrap_exact_output(&fib_source, "55");
 }
 
 #[test]
@@ -1960,8 +2031,10 @@ fn p2_depth_limit_sufficient() {
         "PE(PE, int) should terminate and produce a non-empty compiler"
     );
     assert!(
-        compiler.contains("compileBlock") || compiler.contains("compileExpr")
-            || compiler.contains("## To") || compiler.contains("## Main"),
+        compiler.contains("compileBlock")
+            || compiler.contains("compileExpr")
+            || compiler.contains("## To")
+            || compiler.contains("## Main"),
         "Compiler should contain function definitions or main block"
     );
 }
@@ -1973,7 +2046,7 @@ fn p2_produces_valid_cprogram() {
     let compiler = get_p2_compiler();
 
     // It should parse and run as valid LOGOS source
-    let result = logicaffeine_compile::compile::interpret_program(&compiler);
+    let result = logicaffeine_compile::compile::interpret_bootstrap(&compiler);
     assert!(
         result.is_ok(),
         "P2 compiler should be valid LOGOS source that parses and runs: {:?}",
@@ -2000,7 +2073,7 @@ fn p2_produces_compiler() {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         compiler, INTERPRETER, encoded
     );
-    common::assert_exact_output(&source, "120");
+    common::assert_bootstrap_exact_output(&source, "120");
 }
 
 #[test]
@@ -2060,7 +2133,7 @@ fn compile_and_run_via_p3(program: &str, expected: &str) {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         cogen, INTERPRETER, encoded
     );
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 #[test]
@@ -2076,7 +2149,7 @@ fn p3_no_pe_self_reference() {
 #[test]
 fn p3_valid_cprogram() {
     let cogen = get_p3_cogen();
-    let result = logicaffeine_compile::compile::interpret_program(&cogen);
+    let result = logicaffeine_compile::compile::interpret_bootstrap(&cogen);
     assert!(
         result.is_ok(),
         "P3 cogen should be valid LOGOS source that parses and runs: {:?}",
@@ -2275,7 +2348,7 @@ fn run_via_p2(program: &str) -> String {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         compiler, INTERPRETER, encoded
     );
-    let result = common::run_logos(&source);
+    let result = common::run_bootstrap_logos(&source);
     assert!(
         result.success,
         "P2 should run successfully.\nProgram:\n{}\nError: {}",
@@ -2296,7 +2369,7 @@ fn run_via_p3(program: &str) -> String {
          Let result be coreExecBlock(compiled, runEnv, encodedFuncMap).",
         cogen, INTERPRETER, encoded
     );
-    let result = common::run_logos(&source);
+    let result = common::run_bootstrap_logos(&source);
     assert!(
         result.success,
         "P3 should run successfully.\nProgram:\n{}\nError: {}",
@@ -2366,11 +2439,7 @@ fn p3_different_interpreter() {
 #[test]
 fn p3_full_chain_fibonacci_dynamic() {
     // Full chain: cogen → compiler → compiled fibonacci with different inputs.
-    let inputs_outputs = [
-        (0, "0"),
-        (1, "1"),
-        (10, "55"),
-    ];
+    let inputs_outputs = [(0, "0"), (1, "1"), (10, "55")];
     for (input, expected) in &inputs_outputs {
         compile_and_run_via_p3(
             &format!(
@@ -2400,11 +2469,13 @@ fn p3_cross_projection_byte_identical() {
 
         assert_eq!(
             output_p1, output_p2,
-            "P1 != P2 for {} (P1={}, P2={})", label, output_p1, output_p2
+            "P1 != P2 for {} (P1={}, P2={})",
+            label, output_p1, output_p2
         );
         assert_eq!(
             output_p2, output_p3,
-            "P2 != P3 for {} (P2={}, P3={})", label, output_p2, output_p3
+            "P2 != P3 for {} (P2={}, P3={})",
+            label, output_p2, output_p3
         );
     }
 }
@@ -2454,7 +2525,13 @@ fn p3_triple_equivalence_10_programs() {
     let start = std::time::Instant::now();
     for (i, (program, expected)) in test_cases.iter().enumerate() {
         let fn_name = program.lines().next().unwrap_or("?");
-        eprintln!("[{}/{}] {} — expected {}", i + 1, test_cases.len(), fn_name, expected);
+        eprintln!(
+            "[{}/{}] {} — expected {}",
+            i + 1,
+            test_cases.len(),
+            fn_name,
+            expected
+        );
 
         let t0 = std::time::Instant::now();
         let output_p1 = run_via_p1(program);
@@ -2466,11 +2543,13 @@ fn p3_triple_equivalence_10_programs() {
 
         assert_eq!(
             output_p1, *expected,
-            "P1 mismatch for program:\n{}", program
+            "P1 mismatch for program:\n{}",
+            program
         );
         assert_eq!(
             output_p3, *expected,
-            "P3 mismatch for program:\n{}", program
+            "P3 mismatch for program:\n{}",
+            program
         );
     }
     eprintln!("Total: {:?}", start.elapsed());
@@ -5057,10 +5136,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_temporal_encode_roundtrip() {
-    run_encoded_program(
-        "## Main\nLet d be 5s.\nShow \"{d}\".",
-        "5s",
-    );
+    run_encoded_program("## Main\nLet d be 5s.\nShow \"{d}\".", "5s");
 }
 
 // ── Sprint 16: IO, Sleep, Assert, Escape ───────────────────────────────
@@ -5244,10 +5320,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_io_encode_roundtrip() {
-    run_encoded_program(
-        "## Main\nLet mutable x be 10.\nShow \"{x}\".",
-        "10",
-    );
+    run_encoded_program("## Main\nLet mutable x be 10.\nShow \"{x}\".", "10");
 }
 
 // ── Sprint 17: Security, Proofs, Require ───────────────────────────────
@@ -5362,10 +5435,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_security_encode_roundtrip() {
-    run_encoded_program(
-        "## Main\nLet x be 42.\nShow \"{x}\".",
-        "42",
-    );
+    run_encoded_program("## Main\nLet x be 42.\nShow \"{x}\".", "42");
 }
 
 // ── Sprint 18: CRDTs ────────────────────────────────────────────────────
@@ -5515,10 +5585,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_crdt_encode_roundtrip() {
-    run_encoded_program(
-        "## Main\nLet x be 99.\nShow \"{x}\".",
-        "99",
-    );
+    run_encoded_program("## Main\nLet x be 99.\nShow \"{x}\".", "99");
 }
 
 // ── Sprint 19: Concurrency, Actors, Networking ──────────────────────────
@@ -5770,10 +5837,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_concurrent_encode_roundtrip() {
-    run_encoded_program(
-        "## Main\nLet x be 55.\nShow \"{x}\".",
-        "55",
-    );
+    run_encoded_program("## Main\nLet x be 55.\nShow \"{x}\".", "55");
 }
 
 // ===== Sprint 20 — Full Coverage Projection Verification =====
@@ -5791,7 +5855,11 @@ Let g be a > 0.
 Show "{a}".
 "#;
     let result = logicaffeine_compile::compile::encode_program_source(source);
-    assert!(result.is_ok(), "encode_program should not panic on basic exprs: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "encode_program should not panic on basic exprs: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -5810,7 +5878,11 @@ While y is greater than 100:
 Show y.
 "#;
     let result = logicaffeine_compile::compile::encode_program_source(source);
-    assert!(result.is_ok(), "encode_program should not panic on stmt variants: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "encode_program should not panic on stmt variants: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -5929,8 +6001,14 @@ fn full_p1_mixed_features() {
 #[test]
 fn full_p1_p2_equivalence() {
     let programs: Vec<(&str, &str)> = vec![
-        ("## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nShow double(7).", "14"),
-        ("## To square (n: Int) -> Int:\n    Return n * n.\n\n## Main\nShow square(5).", "25"),
+        (
+            "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nShow double(7).",
+            "14",
+        ),
+        (
+            "## To square (n: Int) -> Int:\n    Return n * n.\n\n## Main\nShow square(5).",
+            "25",
+        ),
         ("## Main\nLet x be 100.\nLet y be x / 4.\nShow y.", "25"),
     ];
 
@@ -5987,7 +6065,12 @@ fn full_coverage_audit() {
     ];
     for src in &basic_programs {
         let result = logicaffeine_compile::compile::encode_program_source(src);
-        assert!(result.is_ok(), "encode_program failed for: {}\nerror: {:?}", src, result.err());
+        assert!(
+            result.is_ok(),
+            "encode_program failed for: {}\nerror: {:?}",
+            src,
+            result.err()
+        );
     }
 }
 
@@ -6002,7 +6085,12 @@ fn full_coverage_stmt_audit() {
     ];
     for src in &programs_with_stmts {
         let result = logicaffeine_compile::compile::encode_program_source(src);
-        assert!(result.is_ok(), "encode_program failed for stmt program: {}\nerror: {:?}", src, result.err());
+        assert!(
+            result.is_ok(),
+            "encode_program failed for stmt program: {}\nerror: {:?}",
+            src,
+            result.err()
+        );
     }
 }
 
@@ -6010,7 +6098,10 @@ fn full_coverage_stmt_audit() {
 fn full_identity_extended() {
     let program = "## Main\nShow 42.";
     let p1_output = run_via_p1(program);
-    assert_eq!(p1_output, "42", "Identity: pe(int, trivial) should yield same output");
+    assert_eq!(
+        p1_output, "42",
+        "Identity: pe(int, trivial) should yield same output"
+    );
 }
 
 #[test]
@@ -6189,20 +6280,24 @@ fn fix_pe_unroll_respects_break() {
 
 fn fix_pe_state_record_exists() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
     Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Show peDepth(state).
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "10");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "10");
 }
 
 #[test]
 fn fix_pe_state_peblock_works() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6222,8 +6317,10 @@ fn fix_pe_state_peblock_works() {
                         Show "NOT INT".
             Otherwise:
                 Show "NOT SHOW".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "99");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "99");
 }
 
 #[test]
@@ -6247,7 +6344,8 @@ fn fix_pe_unroll_respects_return() {
 #[test]
 fn fix_partial_static_list_index_static() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6263,14 +6361,17 @@ fn fix_partial_static_list_index_static() {
             Show "FOLDED:{{v}}".
         Otherwise:
             Show "NOT FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:1");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:1");
 }
 
 #[test]
 fn fix_partial_static_list_index_dynamic() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6286,14 +6387,17 @@ fn fix_partial_static_list_index_dynamic() {
             Show "ELEMENT:{{name}}".
         Otherwise:
             Show "NOT FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "ELEMENT:x");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "ELEMENT:x");
 }
 
 #[test]
 fn fix_partial_static_len() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6308,14 +6412,17 @@ fn fix_partial_static_len() {
             Show "LEN:{{v}}".
         Otherwise:
             Show "NOT FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "LEN:3");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "LEN:3");
 }
 
 #[test]
 fn fix_partial_static_full_static_still_works() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6330,14 +6437,17 @@ fn fix_partial_static_full_static_still_works() {
             Show v.
         Otherwise:
             Show "FAIL".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "20");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "20");
 }
 
 #[test]
 fn fix_partial_static_full_dynamic_unchanged() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6354,14 +6464,17 @@ fn fix_partial_static_full_dynamic_unchanged() {
             Show "RESIDUALIZED".
         Otherwise:
             Show "WRONG".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "RESIDUALIZED");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "RESIDUALIZED");
 }
 
 #[test]
 fn fix_partial_static_variant_field() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6376,8 +6489,10 @@ fn fix_partial_static_variant_field() {
             Show "FOLDED:{{val}}".
         Otherwise:
             Show "NOT FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:5");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:5");
 }
 
 // ============================================================
@@ -6406,7 +6521,8 @@ fn fix_pe_mixed_arg_specializes() {
 #[test]
 fn fix_pe_mixed_arg_interpreter_dispatch() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6425,8 +6541,10 @@ fn fix_pe_mixed_arg_interpreter_dispatch() {
                         Show "NOT FOLDED".
             Otherwise:
                 Show "OTHER".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED");
 }
 
 #[test]
@@ -6524,7 +6642,8 @@ fn fix_arity_mutual_recursion() {
 #[test]
 fn fix_pe_source_mixed_arg_substitutes_static() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6561,9 +6680,15 @@ fn fix_pe_source_mixed_arg_substitutes_static() {
                 Show "SPECIALIZED_CALL:{{name}}:{{numArgs}}".
         Otherwise:
             Show "OTHER".
-"#, CORE_TYPES, pe_source);
-    let result = common::run_logos(&source);
-    assert!(result.success, "PE source mixed-arg test should compile and run: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_source
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "PE source mixed-arg test should compile and run: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
     assert!(
         output == "INLINED:3" || output.starts_with("SPECIALIZED_CALL:"),
@@ -6575,7 +6700,8 @@ fn fix_pe_source_mixed_arg_substitutes_static() {
 #[test]
 fn fix_pe_source_mixed_arg_all_dynamic_residualizes() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6601,8 +6727,10 @@ fn fix_pe_source_mixed_arg_all_dynamic_residualizes() {
             Show "RESIDUALIZED:{{name}}".
         Otherwise:
             Show "NOT_CALL".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "RESIDUALIZED:add");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "RESIDUALIZED:add");
 }
 
 // ============================================================
@@ -6683,8 +6811,8 @@ fn pe_memoization_prevents_code_duplication() {
     // The residual should contain at most one reference to the expensive computation body.
     // Count how many times the multiplication pattern appears (from n*n*n+n*n+n+1)
     let body_pattern_count = residual.matches("156").count(); // 5*5*5 + 5*5 + 5 + 1 = 156
-    // With proper memoization, the value 156 appears at most twice (a=156, b=156)
-    // but the COMPUTATION (multiply chain) appears at most once
+                                                              // With proper memoization, the value 156 appears at most twice (a=156, b=156)
+                                                              // but the COMPUTATION (multiply chain) appears at most once
     assert!(body_pattern_count <= 2,
         "Memoization should prevent duplicate computation in residual. Got {} occurrences of '156':\n{}",
         body_pattern_count, residual);
@@ -6707,7 +6835,8 @@ fn fix_pe_source_termination_guarantee() {
 #[test]
 fn fix_pe_source_memo_caches_all_static() {
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6736,8 +6865,10 @@ fn fix_pe_source_memo_caches_all_static() {
                     Show "R2_NOT_FOLDED".
         Otherwise:
             Show "R1_NOT_FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "BOTH_FOLDED:10:10");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "BOTH_FOLDED:10:10");
 }
 
 // ===== Sprint C.4 — Environment Splitting + Positive Information Propagation =====
@@ -6766,7 +6897,8 @@ fn fix_pe_env_split_static_let() {
 fn fix_pe_env_split_set_dynamic() {
     // Let x = 5; Set x = CVar("input"); Show x → x should be residual CVar after Set
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6788,8 +6920,10 @@ fn fix_pe_env_split_set_dynamic() {
                         Show "OTHER_EXPR".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "DYNAMIC:input");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "DYNAMIC:input");
 }
 
 #[test]
@@ -6797,7 +6931,8 @@ fn fix_pe_env_split_into_function() {
     // Define f(x) = Return x * 2. Call f(5). PE should propagate 5 into f's body via staticEnv
     // and fold the multiplication.
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6817,8 +6952,10 @@ fn fix_pe_env_split_into_function() {
             Show "FOLDED:{{v}}".
         Otherwise:
             Show "NOT_FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:10");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:10");
 }
 
 #[test]
@@ -6827,7 +6964,8 @@ fn fix_pe_env_split_loop_dynamic() {
     // We use: Let x = 0; Repeat for i in [1, 2, 3]: Set x = CVar("input"). Show x.
     // After the loop, x should be dynamic because the loop body sets it to a dynamic value.
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6855,15 +6993,18 @@ fn fix_pe_env_split_loop_dynamic() {
                         Show "OTHER_EXPR".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "DYNAMIC:input");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "DYNAMIC:input");
 }
 
 #[test]
 fn fix_pe_env_split_static_binop() {
     // Let x = 3; Let y = 4; Show x + y → should fold to 7 via staticEnv
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6883,15 +7024,18 @@ fn fix_pe_env_split_static_binop() {
                         Show "NOT_FOLDED".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:7");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:7");
 }
 
 #[test]
 fn fix_pe_env_split_static_list() {
     // Let x = CList([1,2,3]); Show length of x → should fold to 3 via staticEnv
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6914,8 +7058,10 @@ fn fix_pe_env_split_static_list() {
                         Show "NOT_FOLDED".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:3");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:3");
 }
 
 #[test]
@@ -6923,7 +7069,8 @@ fn fix_positive_info_inspect_arm() {
     // After matching CInt in an Inspect arm, the PE should know the target is CInt.
     // If the arm body re-dispatches on the same target, it should fold.
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6959,9 +7106,11 @@ fn fix_positive_info_inspect_arm() {
                 Show "INSPECT_RESIDUALIZED".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
+"#,
+        CORE_TYPES, pe_source
+    );
     // With positive info propagation, the inner Inspect folds because x is known CInt
-    common::assert_exact_output(&source, "FOLDED:42");
+    common::assert_bootstrap_exact_output(&source, "FOLDED:42");
 }
 
 #[test]
@@ -6969,7 +7118,8 @@ fn fix_pe_env_split_mixed_arg_static_propagation() {
     // scale(factor, y) where factor=3 — static arg should propagate via staticEnv
     // into the function body, enabling folding of factor * 10 → 30 inside the body
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -6995,9 +7145,11 @@ fn fix_pe_env_split_mixed_arg_static_propagation() {
                     Show "LEFT_NOT_FOLDED".
         Otherwise:
             Show "RESULT_NOT_BINOP".
-"#, CORE_TYPES, pe_source);
+"#,
+        CORE_TYPES, pe_source
+    );
     // factor * 10 should fold to 30 because factor=3 is in staticEnv
-    common::assert_exact_output(&source, "LEFT_FOLDED:30");
+    common::assert_bootstrap_exact_output(&source, "LEFT_FOLDED:30");
 }
 
 // --- Sprint C.5: Static Map and Collection Operations ---
@@ -7007,7 +7159,8 @@ fn fix_pe_static_index_via_staticenv() {
     // Index into a static list stored in staticEnv should fold
     // Let x = CList([10, 20, 30]); Show item 2 of x → should fold to CInt(20)
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -7030,8 +7183,10 @@ fn fix_pe_static_index_via_staticenv() {
                         Show "NOT_FOLDED".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:20");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:20");
 }
 
 #[test]
@@ -7039,7 +7194,8 @@ fn fix_pe_static_field_access_variant() {
     // Field access on a static CNewVariant in staticEnv should fold
     // Let p = CNewVariant("Point", ["x","y"], [3, 7]); Show y of p → CInt(7)
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -7058,8 +7214,10 @@ fn fix_pe_static_field_access_variant() {
             Show "FOLDED:{{v}}".
         Otherwise:
             Show "NOT_FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:7");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:7");
 }
 
 #[test]
@@ -7067,7 +7225,8 @@ fn fix_pe_static_field_access_via_staticenv() {
     // Field access on a CVar bound to CNewVariant via staticEnv should fold
     // Let p = CNewVariant("Pair", ["a","b"], [10, 20]); Show b of p → CInt(20)
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -7092,15 +7251,18 @@ fn fix_pe_static_field_access_via_staticenv() {
                         Show "NOT_FOLDED".
             Otherwise:
                 Let skip be true.
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:20");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:20");
 }
 
 #[test]
 fn fix_pe_dynamic_index_preserved() {
     // Index with dynamic operands should be residualized unchanged
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -7114,8 +7276,10 @@ fn fix_pe_dynamic_index_preserved() {
             Show "RESIDUALIZED".
         Otherwise:
             Show "WRONG".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "RESIDUALIZED");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "RESIDUALIZED");
 }
 
 #[test]
@@ -7123,7 +7287,8 @@ fn fix_pe_static_len_via_staticenv() {
     // Length of a list bound via staticEnv should fold
     // This is the same as fix_pe_env_split_static_list but validates CLen specifically
     let pe_source = logicaffeine_compile::compile::pe_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -7142,8 +7307,10 @@ fn fix_pe_static_len_via_staticenv() {
             Show "FOLDED:{{v}}".
         Otherwise:
             Show "NOT_FOLDED".
-"#, CORE_TYPES, pe_source);
-    common::assert_exact_output(&source, "FOLDED:5");
+"#,
+        CORE_TYPES, pe_source
+    );
+    common::assert_bootstrap_exact_output(&source, "FOLDED:5");
 }
 
 // --- Sprint D: Decompile Functions ---
@@ -7153,7 +7320,8 @@ fn fix_decompile_expr_int() {
     // decompileExpr(CInt(42)) should return "42"
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7161,8 +7329,10 @@ fn fix_decompile_expr_int() {
     Let e be a new CInt with value 42.
     Let result be decompileExpr(e).
     Show result.
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "42");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "42");
 }
 
 #[test]
@@ -7170,7 +7340,8 @@ fn fix_decompile_expr_binop() {
     // decompileExpr(CBinOp("+", CInt(3), CInt(5))) should return "3 + 5"
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7180,8 +7351,10 @@ fn fix_decompile_expr_binop() {
     Let e be a new CBinOp with op "+" and left left and right right.
     Let result be decompileExpr(e).
     Show result.
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "(3 + 5)");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "(3 + 5)");
 }
 
 #[test]
@@ -7189,7 +7362,8 @@ fn fix_decompile_expr_call() {
     // decompileExpr(CCall("double", [CInt(21)])) should return "double(21)"
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7199,8 +7373,10 @@ fn fix_decompile_expr_call() {
     Let e be a new CCall with name "double" and args callArgs.
     Let result be decompileExpr(e).
     Show result.
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "double(21)");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "double(21)");
 }
 
 #[test]
@@ -7208,7 +7384,8 @@ fn fix_decompile_expr_comparison() {
     // decompileExpr with comparison operators should use LOGOS syntax
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7219,8 +7396,10 @@ fn fix_decompile_expr_comparison() {
     Let e2 be a new CBinOp with op "<=" and left (a new CVar with name "n") and right (a new CInt with value 1).
     Let r2 be decompileExpr(e2).
     Show r2.
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "(x equals 0)\n(n is at most 1)");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "(x equals 0)\n(n is at most 1)");
 }
 
 #[test]
@@ -7228,7 +7407,8 @@ fn fix_decompile_stmt_let() {
     // decompileStmt(CLet("x", CInt(10)), 0) should return "Let x be 10.\n"
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7237,8 +7417,10 @@ fn fix_decompile_stmt_let() {
     Let stmt be a new CLet with name "x" and expr expr.
     Let result be decompileStmt(stmt, 0).
     Show result.
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "Let x be 10.");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "Let x be 10.");
 }
 
 #[test]
@@ -7246,7 +7428,8 @@ fn fix_decompile_stmt_show_indented() {
     // decompileStmt(CShow(CVar("x")), 1) should produce "    Show x.\n" (4-space indent)
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7255,8 +7438,10 @@ fn fix_decompile_stmt_show_indented() {
     Let stmt be a new CShow with expr expr.
     Let result be decompileStmt(stmt, 1).
     Show "|" + result + "|".
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "|    Show x.\n|");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "|    Show x.\n|");
 }
 
 #[test]
@@ -7264,7 +7449,8 @@ fn fix_decompile_block_full() {
     // decompileBlock with multiple statements
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7274,8 +7460,10 @@ fn fix_decompile_block_full() {
     Push (a new CShow with expr (a new CVar with name "x")) to stmts.
     Let result be decompileBlock(stmts, 0).
     Show result.
-"#, CORE_TYPES, pe_source, decompile_source);
-    common::assert_exact_output(&source, "Let x be 5.\nShow x.");
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    common::assert_bootstrap_exact_output(&source, "Let x be 5.\nShow x.");
 }
 
 #[test]
@@ -7283,7 +7471,8 @@ fn fix_decompile_roundtrip() {
     // Encode → PE → decompile should produce correct source
     let pe_source = logicaffeine_compile::compile::pe_source_text();
     let decompile_source = logicaffeine_compile::compile::decompile_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 {}
@@ -7295,10 +7484,20 @@ fn fix_decompile_roundtrip() {
     Let peResult be peBlock(stmts, state).
     Let decompiled be decompileBlock(peResult, 0).
     Show decompiled.
-"#, CORE_TYPES, pe_source, decompile_source);
-    let result = common::run_logos(&source);
-    assert!(result.success, "Code should run.\nstderr: {}", result.stderr);
-    assert!(result.stdout.contains("Show 42"), "PE should substitute x=42 into Show, got: {}", result.stdout.trim());
+"#,
+        CORE_TYPES, pe_source, decompile_source
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "Code should run.\nstderr: {}",
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Show 42"),
+        "PE should substitute x=42 into Show, got: {}",
+        result.stdout.trim()
+    );
 }
 
 // ============================================================
@@ -7306,7 +7505,8 @@ fn fix_decompile_roundtrip() {
 // ============================================================
 
 fn get_p1_real_residual(program: &str) -> String {
-    logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, program).unwrap()
+    logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, program)
+        .unwrap()
 }
 
 fn run_p1_real_and_verify(program: &str, expected_output: &str) {
@@ -7321,10 +7521,7 @@ fn fix_p1_real_simple_show() {
 
 #[test]
 fn fix_p1_real_arithmetic() {
-    run_p1_real_and_verify(
-        "Let x be 3 + 4.\nShow x.",
-        "7",
-    );
+    run_p1_real_and_verify("Let x be 3 + 4.\nShow x.", "7");
 }
 
 #[test]
@@ -7338,9 +7535,18 @@ fn fix_p1_real_function() {
 #[test]
 fn fix_p1_real_no_overhead() {
     let residual = get_p1_real_residual("Show 42.");
-    assert!(!residual.contains("CInt"), "Residual should not contain CInt");
-    assert!(!residual.contains("CShow"), "Residual should not contain CShow");
-    assert!(!residual.contains("peExpr"), "Residual should not contain peExpr");
+    assert!(
+        !residual.contains("CInt"),
+        "Residual should not contain CInt"
+    );
+    assert!(
+        !residual.contains("CShow"),
+        "Residual should not contain CShow"
+    );
+    assert!(
+        !residual.contains("peExpr"),
+        "Residual should not contain peExpr"
+    );
 }
 
 #[test]
@@ -7371,11 +7577,13 @@ fn fix_p1_real_recursive() {
 // Sprint F — Real Projections 2 & 3 (RED tests)
 // ============================================================
 
-use std::sync::OnceLock;
 use logicaffeine_compile::compile::GenuineProjectionResult;
+use std::sync::OnceLock;
 
 fn core_types_bti() -> String {
-    CORE_TYPES.replace("specResults", "memoCache").replace("onStack", "callGuard")
+    CORE_TYPES
+        .replace("specResults", "memoCache")
+        .replace("onStack", "callGuard")
 }
 
 static GENUINE_P2: OnceLock<GenuineProjectionResult> = OnceLock::new();
@@ -7427,7 +7635,7 @@ fn compile_and_run_via_p2_real(program: &str, expected: &str) {
          coreExecBlock(compiled, runEnv, encodedFuncMap).",
         CORE_TYPES, pe_mini, INTERPRETER, encoded
     );
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 fn run_via_p2_real(program: &str) -> String {
@@ -7442,8 +7650,12 @@ fn run_via_p2_real(program: &str) -> String {
          coreExecBlock(compiled, runEnv, encodedFuncMap).",
         CORE_TYPES, pe_mini, INTERPRETER, encoded
     );
-    let result = common::run_logos(&source);
-    assert!(result.success, "P2 real should run successfully.\nProgram:\n{}\nError: {}", program, result.stderr);
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "P2 real should run successfully.\nProgram:\n{}\nError: {}",
+        program, result.stderr
+    );
     result.stdout.trim().to_string()
 }
 
@@ -7460,15 +7672,18 @@ fn compile_and_run_via_p3_real(program: &str, expected: &str) {
          coreExecBlock(compiled, runEnv, encodedFuncMap).",
         types, pe_bti, INTERPRETER, encoded
     );
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 // Genuine P2 end-to-end: PE(pe_source, pe_mini(Show 42.))
 #[test]
 fn genuine_p2_end_to_end_show_literal() {
     let output = logicaffeine_compile::compile::run_genuine_p2_on_target(
-        "## Main\nShow 42.", CORE_TYPES, INTERPRETER
-    ).expect("Genuine P2 end-to-end must succeed");
+        "## Main\nShow 42.",
+        CORE_TYPES,
+        INTERPRETER,
+    )
+    .expect("Genuine P2 end-to-end must succeed");
     assert_eq!(output.trim(), "42");
 }
 
@@ -7477,12 +7692,24 @@ fn genuine_p2_end_to_end_show_literal() {
 #[test]
 fn fix_p2_real_produces_compiler() {
     let p2 = get_p2_genuine();
-    assert_eq!(p2.block_entry, "compileBlock", "P2 must have compileBlock wrapper");
+    assert_eq!(
+        p2.block_entry, "compileBlock",
+        "P2 must have compileBlock wrapper"
+    );
     let entry = p2.expr_entry.as_ref().expect("P2 must have an expr entry");
-    assert!(entry.starts_with("peExprM_"), "P2 expr entry must be specialized: {}", entry);
-    assert!(p2.source.contains("## To compileBlock"), "P2 must contain compileBlock wrapper");
-    assert!(p2.source.contains(&format!("## To {}", entry)),
-        "P2 must contain specialized expression function");
+    assert!(
+        entry.starts_with("peExprM_"),
+        "P2 expr entry must be specialized: {}",
+        entry
+    );
+    assert!(
+        p2.source.contains("## To compileBlock"),
+        "P2 must contain compileBlock wrapper"
+    );
+    assert!(
+        p2.source.contains(&format!("## To {}", entry)),
+        "P2 must contain specialized expression function"
+    );
 }
 
 #[test]
@@ -7656,12 +7883,24 @@ fn p2_real_compound_corpus() {
 #[test]
 fn fix_p3_real_produces_cogen() {
     let p3 = get_p3_genuine();
-    assert_eq!(p3.block_entry, "cogenBlock", "P3 must have cogenBlock wrapper");
+    assert_eq!(
+        p3.block_entry, "cogenBlock",
+        "P3 must have cogenBlock wrapper"
+    );
     let entry = p3.expr_entry.as_ref().expect("P3 must have an expr entry");
-    assert!(entry.starts_with("peExprB_"), "P3 expr entry must be specialized: {}", entry);
-    assert!(p3.source.contains("## To cogenBlock"), "P3 must contain cogenBlock wrapper");
-    assert!(p3.source.contains(&format!("## To {}", entry)),
-        "P3 must contain specialized expression function");
+    assert!(
+        entry.starts_with("peExprB_"),
+        "P3 expr entry must be specialized: {}",
+        entry
+    );
+    assert!(
+        p3.source.contains("## To cogenBlock"),
+        "P3 must contain cogenBlock wrapper"
+    );
+    assert!(
+        p3.source.contains(&format!("## To {}", entry)),
+        "P3 must contain specialized expression function"
+    );
 }
 
 #[test]
@@ -7676,13 +7915,17 @@ fn fix_cross_projection_real_equivalence() {
     let programs: Vec<(&str, &str)> = vec![
         ("## Main\nShow 42.", "42"),
         ("## Main\nLet x be 3 + 4.\nShow x.", "7"),
-        ("## Main\nIf true:\n    Show 1.\nOtherwise:\n    Show 0.", "1"),
+        (
+            "## Main\nIf true:\n    Show 1.\nOtherwise:\n    Show 0.",
+            "1",
+        ),
     ];
     for (program, expected) in &programs {
         let p2_output = run_via_p2_real(program);
         assert_eq!(
             p2_output, *expected,
-            "P2 real output mismatch for: {}", program
+            "P2 real output mismatch for: {}",
+            program
         );
     }
 }
@@ -7700,7 +7943,8 @@ fn fix_p2_real_smaller_than_pe() {
     assert!(
         p2_lines < pe_lines,
         "P2 compiler ({} lines) should be smaller than PE source ({} lines)",
-        p2_lines, pe_lines
+        p2_lines,
+        pe_lines
     );
 }
 
@@ -7724,10 +7968,14 @@ fn fix_p2_real_no_memo_infrastructure() {
     );
     // pe_mini's onStackM is expected; pe_source's bare "onStack " (6 chars + space) is not.
     // Count occurrences of "onStack" that are NOT followed by "M" to detect pe_source leakage.
-    let bare_onstack_count = p2.source.match_indices("onStack").filter(|(idx, _)| {
-        let after = p2.source.as_bytes().get(idx + 7);
-        after != Some(&b'M')
-    }).count();
+    let bare_onstack_count = p2
+        .source
+        .match_indices("onStack")
+        .filter(|(idx, _)| {
+            let after = p2.source.as_bytes().get(idx + 7);
+            after != Some(&b'M')
+        })
+        .count();
     assert_eq!(
         bare_onstack_count, 0,
         "P2 compiler should not contain pe_source's bare 'onStack' (found {})",
@@ -7746,8 +7994,18 @@ fn fix_p3_real_smaller_than_p2() {
     let pe_lines = pe.lines().count();
     let p2_lines = p2.lines().count();
     let p3_lines = p3.lines().count();
-    assert!(p2_lines < pe_lines, "P2 ({}) must be smaller than PE ({})", p2_lines, pe_lines);
-    assert!(p3_lines < pe_lines, "P3 ({}) must be smaller than PE ({})", p3_lines, pe_lines);
+    assert!(
+        p2_lines < pe_lines,
+        "P2 ({}) must be smaller than PE ({})",
+        p2_lines,
+        pe_lines
+    );
+    assert!(
+        p3_lines < pe_lines,
+        "P3 ({}) must be smaller than PE ({})",
+        p3_lines,
+        pe_lines
+    );
 }
 
 #[test]
@@ -7761,7 +8019,11 @@ fn fix_p2_real_matches_p1() {
         let p2_output = run_via_p2_real(program);
         assert_eq!(p1_output, *expected, "P1 mismatch for: {}", program);
         assert_eq!(p2_output, *expected, "P2 real mismatch for: {}", program);
-        assert_eq!(p1_output, p2_output, "P1 and P2 real should agree for: {}", program);
+        assert_eq!(
+            p1_output, p2_output,
+            "P1 and P2 real should agree for: {}",
+            program
+        );
     }
 }
 
@@ -7774,27 +8036,37 @@ fn fix_jones_no_env_lookup() {
     // P1 residual for "Let x be 5. Show x." should be "Show 5.",
     // NOT "Set item \"x\" of env to VInt(5). Show item \"x\" of env."
     let program = "## Main\n    Let x be 5.\n    Show x.\n";
-    let result = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, program,
-    ).unwrap();
-    assert!(!result.contains("item \"x\" of env"),
-        "P1 residual should not contain env lookups: {}", result);
-    assert!(!result.contains("VInt"),
-        "P1 residual should not contain CVal constructors: {}", result);
-    common::assert_exact_output(&result, "5");
+    let result =
+        logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, program)
+            .unwrap();
+    assert!(
+        !result.contains("item \"x\" of env"),
+        "P1 residual should not contain env lookups: {}",
+        result
+    );
+    assert!(
+        !result.contains("VInt"),
+        "P1 residual should not contain CVal constructors: {}",
+        result
+    );
+    common::assert_user_exact_output(&result, "5");
 }
 
 #[test]
 fn fix_jones_no_funcs_lookup() {
     // P1 residual for a function call should inline the function,
     // not retain a lookup in the funcs map.
-    let program = "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\n    Show double(21).\n";
-    let result = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, program,
-    ).unwrap();
-    assert!(!result.contains("item \"double\" of funcs"),
-        "P1 residual should not contain funcs lookups: {}", result);
-    common::assert_exact_output(&result, "42");
+    let program =
+        "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\n    Show double(21).\n";
+    let result =
+        logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, program)
+            .unwrap();
+    assert!(
+        !result.contains("item \"double\" of funcs"),
+        "P1 residual should not contain funcs lookups: {}",
+        result
+    );
+    common::assert_user_exact_output(&result, "42");
 }
 
 #[test]
@@ -7808,7 +8080,8 @@ fn fix_the_trick_pe_inspect_eliminated() {
     assert!(
         p2_inspect_count < pe_inspect_count,
         "P2 compiler ({} Inspects) should have fewer Inspects than PE ({} Inspects)",
-        p2_inspect_count, pe_inspect_count
+        p2_inspect_count,
+        pe_inspect_count
     );
 }
 
@@ -7816,12 +8089,18 @@ fn fix_the_trick_pe_inspect_eliminated() {
 fn fix_online_pe_no_is_static_in_p2() {
     // P2 compiler should not contain isStatic/isLiteral/allStatic calls.
     let p2 = get_p2_genuine();
-    assert!(!p2.source.contains("isStatic("),
-        "P2 compiler should not contain isStatic calls");
-    assert!(!p2.source.contains("isLiteral("),
-        "P2 compiler should not contain isLiteral calls");
-    assert!(!p2.source.contains("allStatic("),
-        "P2 compiler should not contain allStatic calls");
+    assert!(
+        !p2.source.contains("isStatic("),
+        "P2 compiler should not contain isStatic calls"
+    );
+    assert!(
+        !p2.source.contains("isLiteral("),
+        "P2 compiler should not contain isLiteral calls"
+    );
+    assert!(
+        !p2.source.contains("allStatic("),
+        "P2 compiler should not contain allStatic calls"
+    );
 }
 
 #[test]
@@ -7838,7 +8117,8 @@ fn fix_p3_cogen_structure_differs() {
     assert!(
         p3_fn_count <= pe_fn_count,
         "P3 cogen ({} functions) should not have MORE functions than PE ({} functions)",
-        p3_fn_count, pe_fn_count
+        p3_fn_count,
+        pe_fn_count
     );
 }
 
@@ -7853,9 +8133,8 @@ fn fix_full_roundtrip() {
         ("## To f (n: Int) -> Int:\n    Return n * 2.\n\n## Main\n    Show f(5).\n", "10"),
     ];
     for (program, expected) in &programs {
-        let real_p1 = logicaffeine_compile::compile::projection1_source_real(
-            "", "", program,
-        ).unwrap();
+        let real_p1 =
+            logicaffeine_compile::compile::projection1_source_real("", "", program).unwrap();
         common::assert_exact_output(&real_p1, expected);
     }
 }
@@ -7870,7 +8149,12 @@ fn fix_all_representative_on_real() {
     ];
     for program in &simple_programs {
         let result = logicaffeine_compile::compile::projection1_source_real("", "", program);
-        assert!(result.is_ok(), "Real P1 should handle: {}\nError: {:?}", program, result.err());
+        assert!(
+            result.is_ok(),
+            "Real P1 should handle: {}\nError: {:?}",
+            program,
+            result.err()
+        );
     }
 }
 
@@ -7900,48 +8184,75 @@ fn full_triple_equivalence_extended() {
 #[test]
 fn pe_bti_no_is_static_function() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(!source.contains("isStatic("), "pe_bti must not contain isStatic function calls");
-    assert!(!source.contains("## To isStatic"), "pe_bti must not contain isStatic function definition");
+    assert!(
+        !source.contains("isStatic("),
+        "pe_bti must not contain isStatic function calls"
+    );
+    assert!(
+        !source.contains("## To isStatic"),
+        "pe_bti must not contain isStatic function definition"
+    );
 }
 
 #[test]
 fn pe_bti_no_is_literal_function() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(!source.contains("isLiteral("), "pe_bti must not contain isLiteral function calls");
-    assert!(!source.contains("## To isLiteral"), "pe_bti must not contain isLiteral definition");
+    assert!(
+        !source.contains("isLiteral("),
+        "pe_bti must not contain isLiteral function calls"
+    );
+    assert!(
+        !source.contains("## To isLiteral"),
+        "pe_bti must not contain isLiteral definition"
+    );
 }
 
 #[test]
 fn pe_bti_no_all_static_function() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(!source.contains("allStatic("), "pe_bti must not contain allStatic function calls");
+    assert!(
+        !source.contains("allStatic("),
+        "pe_bti must not contain allStatic function calls"
+    );
 }
 
 #[test]
 fn pe_bti_no_spec_results() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(!source.contains("specResults"), "pe_bti must not contain specResults");
+    assert!(
+        !source.contains("specResults"),
+        "pe_bti must not contain specResults"
+    );
 }
 
 #[test]
 fn pe_bti_no_on_stack() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(!source.contains("onStack"), "pe_bti must not contain onStack");
+    assert!(
+        !source.contains("onStack"),
+        "pe_bti must not contain onStack"
+    );
 }
 
 #[test]
 fn pe_bti_no_depth_is_at_most_0() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(!source.contains("depth is at most 0"), "pe_bti must not contain 'depth is at most 0'");
+    assert!(
+        !source.contains("depth is at most 0"),
+        "pe_bti must not contain 'depth is at most 0'"
+    );
 }
 
 #[test]
 fn pe_bti_smaller_than_full_pe() {
     let full_pe = logicaffeine_compile::compile::pe_source_text();
     let bti_pe = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(bti_pe.lines().count() < full_pe.lines().count(),
+    assert!(
+        bti_pe.lines().count() < full_pe.lines().count(),
         "pe_bti ({} lines) must be smaller than full PE ({} lines)",
-        bti_pe.lines().count(), full_pe.lines().count());
+        bti_pe.lines().count(),
+        full_pe.lines().count()
+    );
 }
 
 #[test]
@@ -7950,26 +8261,50 @@ fn pe_bti_fewer_inspects_than_full_pe() {
     let bti_pe = logicaffeine_compile::compile::pe_bti_source_text();
     let full_count = full_pe.matches("Inspect ").count();
     let bti_count = bti_pe.matches("Inspect ").count();
-    assert!(bti_count < full_count,
+    assert!(
+        bti_count < full_count,
         "pe_bti ({} Inspects) must have fewer Inspects than full PE ({} Inspects)",
-        bti_count, full_count);
+        bti_count,
+        full_count
+    );
 }
 
 #[test]
 fn pe_bti_has_check_static() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(source.contains("checkStatic"), "pe_bti must contain renamed checkStatic");
-    assert!(source.contains("checkLiteral"), "pe_bti must contain renamed checkLiteral");
+    assert!(
+        source.contains("checkStatic"),
+        "pe_bti must contain renamed checkStatic"
+    );
+    assert!(
+        source.contains("checkLiteral"),
+        "pe_bti must contain renamed checkLiteral"
+    );
 }
 
 #[test]
 fn pe_bti_retains_all_optimizations() {
     let source = logicaffeine_compile::compile::pe_bti_source_text();
-    assert!(source.contains("peStaticEnvB"), "pe_bti must retain staticEnv support");
-    assert!(source.contains("peStateWithStaticBindingB"), "pe_bti must retain static binding");
-    assert!(source.contains("collectSetVarsB"), "pe_bti must retain collectSetVars for while-loop safety");
-    assert!(source.contains("makeKeyB"), "pe_bti must retain memoization key generation");
-    assert!(source.contains("peStateWithEnvDepthStaticB"), "pe_bti must retain env+depth+static state");
+    assert!(
+        source.contains("peStaticEnvB"),
+        "pe_bti must retain staticEnv support"
+    );
+    assert!(
+        source.contains("peStateWithStaticBindingB"),
+        "pe_bti must retain static binding"
+    );
+    assert!(
+        source.contains("collectSetVarsB"),
+        "pe_bti must retain collectSetVars for while-loop safety"
+    );
+    assert!(
+        source.contains("makeKeyB"),
+        "pe_bti must retain memoization key generation"
+    );
+    assert!(
+        source.contains("peStateWithEnvDepthStaticB"),
+        "pe_bti must retain env+depth+static state"
+    );
 }
 
 // --- H.2: pe_bti P1 correctness ---
@@ -7985,8 +8320,11 @@ fn run_via_pe_bti(program: &str) -> String {
     let encoded = logicaffeine_compile::compile::encode_program_source(&full_source).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockB(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_bti, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        types, pe_bti, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "pe_bti P1 failed: {}", result.stderr);
     let residual_source = result.stdout.trim();
     let runnable = if residual_source.contains("## To ") {
@@ -7994,8 +8332,12 @@ fn run_via_pe_bti(program: &str) -> String {
     } else {
         format!("## Main\n{}", residual_source)
     };
-    let run_result = common::run_logos(&runnable);
-    assert!(run_result.success, "pe_bti residual failed to run: {}", run_result.stderr);
+    let run_result = common::run_user_logos(&runnable);
+    assert!(
+        run_result.success,
+        "pe_bti residual failed to run: {}",
+        run_result.stderr
+    );
     run_result.stdout.trim().to_string()
 }
 
@@ -8011,7 +8353,8 @@ fn pe_bti_p1_arithmetic_fold() {
 
 #[test]
 fn pe_bti_p1_function_inline() {
-    let prog = "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\n    Show double(21).\n";
+    let prog =
+        "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\n    Show double(21).\n";
     assert_eq!(run_via_pe_bti(prog), "42");
 }
 
@@ -8023,7 +8366,10 @@ fn pe_bti_p1_factorial() {
 
 #[test]
 fn pe_bti_p1_if_fold() {
-    assert_eq!(run_via_pe_bti("## Main\n    If true:\n        Show 1.\n    Otherwise:\n        Show 0.\n"), "1");
+    assert_eq!(
+        run_via_pe_bti("## Main\n    If true:\n        Show 1.\n    Otherwise:\n        Show 0.\n"),
+        "1"
+    );
 }
 
 #[test]
@@ -8040,11 +8386,20 @@ fn pe_bti_p1_jones_optimality() {
     let encoded = logicaffeine_compile::compile::encode_program_source(prog).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockB(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_bti, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        types, pe_bti, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
     let residual = result.stdout.trim();
-    assert!(!residual.contains("item \"x\" of env"), "pe_bti residual should not contain env lookups");
-    assert!(residual.contains("Show 5"), "pe_bti should fold let x=5; Show x into Show 5");
+    assert!(
+        !residual.contains("item \"x\" of env"),
+        "pe_bti residual should not contain env lookups"
+    );
+    assert!(
+        residual.contains("Show 5"),
+        "pe_bti should fold let x=5; Show x into Show 5"
+    );
 }
 
 #[test]
@@ -8059,8 +8414,11 @@ fn pe_bti_matches_full_pe() {
     for prog in &programs {
         let full_pe_output = run_via_p1(prog);
         let bti_output = run_via_pe_bti(prog);
-        assert_eq!(full_pe_output, bti_output,
-            "pe_bti output must match full PE for: {}", prog);
+        assert_eq!(
+            full_pe_output, bti_output,
+            "pe_bti output must match full PE for: {}",
+            prog
+        );
     }
 }
 
@@ -8076,8 +8434,11 @@ fn run_via_pe_mini(program: &str) -> String {
     let encoded = logicaffeine_compile::compile::encode_program_source(&full_source).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockM(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe_mini, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe_mini, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "pe_mini P1 failed: {}", result.stderr);
     let residual_source = result.stdout.trim();
     let runnable = if residual_source.contains("## To ") {
@@ -8085,8 +8446,12 @@ fn run_via_pe_mini(program: &str) -> String {
     } else {
         format!("## Main\n{}", residual_source)
     };
-    let run_result = common::run_logos(&runnable);
-    assert!(run_result.success, "pe_mini residual failed to run: {}", run_result.stderr);
+    let run_result = common::run_user_logos(&runnable);
+    assert!(
+        run_result.success,
+        "pe_mini residual failed to run: {}",
+        run_result.stderr
+    );
     run_result.stdout.trim().to_string()
 }
 
@@ -8110,9 +8475,12 @@ fn pe_mini_p1_factorial() {
 fn pe_mini_smaller_than_pe_bti() {
     let bti = logicaffeine_compile::compile::pe_bti_source_text();
     let mini = logicaffeine_compile::compile::pe_mini_source_text();
-    assert!(mini.lines().count() < bti.lines().count(),
+    assert!(
+        mini.lines().count() < bti.lines().count(),
         "pe_mini ({} lines) must be smaller than pe_bti ({} lines)",
-        mini.lines().count(), bti.lines().count());
+        mini.lines().count(),
+        bti.lines().count()
+    );
 }
 
 #[test]
@@ -8121,12 +8489,27 @@ fn pe_mini_no_overhead_markers() {
     // pe_mini has its OWN versions (isStaticM, allStaticM, onStackM) but should NOT
     // have pe_source's exact names (isStatic, allStatic, onStack without M suffix).
     // This ensures pe_mini is a distinct PE, not a copy of pe_source.
-    assert!(!source.contains("isLiteral("), "pe_mini has no isLiteral (pe_source's predicate)");
-    assert!(!source.contains("specResults"), "pe_mini uses memoCache not specResults");
+    assert!(
+        !source.contains("isLiteral("),
+        "pe_mini has no isLiteral (pe_source's predicate)"
+    );
+    assert!(
+        !source.contains("specResults"),
+        "pe_mini uses memoCache not specResults"
+    );
     // pe_mini now has isStaticM, allStaticM, onStackM — these are proper PE features
-    assert!(source.contains("isStaticM("), "pe_mini should have isStaticM");
-    assert!(source.contains("allStaticM("), "pe_mini should have allStaticM");
-    assert!(source.contains("onStackM"), "pe_mini should have onStackM for cycle detection");
+    assert!(
+        source.contains("isStaticM("),
+        "pe_mini should have isStaticM"
+    );
+    assert!(
+        source.contains("allStaticM("),
+        "pe_mini should have allStaticM"
+    );
+    assert!(
+        source.contains("onStackM"),
+        "pe_mini should have onStackM for cycle detection"
+    );
 }
 
 // --- H.5: Cross-projection verification ---
@@ -8186,8 +8569,11 @@ fn pe_mini_residual_source(program: &str) -> String {
     let encoded = logicaffeine_compile::compile::encode_program_source(&full_source).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockM(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe_mini, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe_mini, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "pe_mini PE failed: {}", result.stderr);
     result.stdout.trim().to_string()
 }
@@ -8204,8 +8590,12 @@ fn pe_mini_direct_residual_count(setup_stmts: &str) -> usize {
          Show length of residual.\n",
         CORE_TYPES, pe_mini, setup_stmts
     );
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini direct test failed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini direct test failed: {}",
+        result.stderr
+    );
     result.stdout.trim().parse::<usize>().unwrap_or(0)
 }
 
@@ -8215,16 +8605,24 @@ fn pe_mini_preserves_check_stmt() {
         "    Let testStmts be a new Seq of CStmt.\n\
          Push (a new CCheck with predicate (a new CBool with value true) and msg (a new CText with value \"ok\")) to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_mini must preserve CCheck (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CCheck (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
 fn pe_mini_preserves_assert_stmt() {
     let count = pe_mini_direct_residual_count(
         "    Let testStmts be a new Seq of CStmt.\n\
-         Push (a new CAssert with proposition (a new CBool with value true)) to testStmts.\n"
+         Push (a new CAssert with proposition (a new CBool with value true)) to testStmts.\n",
     );
-    assert_eq!(count, 1, "pe_mini must preserve CAssert (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CAssert (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8233,16 +8631,24 @@ fn pe_mini_preserves_trust_stmt() {
         "    Let testStmts be a new Seq of CStmt.\n\
          Push (a new CTrust with proposition (a new CBool with value true) and justification \"axiom\") to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_mini must preserve CTrust (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CTrust (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
 fn pe_mini_preserves_require_stmt() {
     let count = pe_mini_direct_residual_count(
         "    Let testStmts be a new Seq of CStmt.\n\
-         Push (a new CRequire with dependency \"math\") to testStmts.\n"
+         Push (a new CRequire with dependency \"math\") to testStmts.\n",
     );
-    assert_eq!(count, 1, "pe_mini must preserve CRequire (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CRequire (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8252,7 +8658,11 @@ fn pe_mini_preserves_increase_decrease() {
          Push (a new CIncrease with target \"x\" and amount (a new CInt with value 5)) to testStmts.\n\
          Push (a new CDecrease with target \"x\" and amount (a new CInt with value 3)) to testStmts.\n"
     );
-    assert_eq!(count, 2, "pe_mini must preserve CIncrease+CDecrease (got {} stmts)", count);
+    assert_eq!(
+        count, 2,
+        "pe_mini must preserve CIncrease+CDecrease (got {} stmts)",
+        count
+    );
 }
 
 #[test]
@@ -8261,7 +8671,11 @@ fn pe_mini_preserves_merge_stmt() {
         "    Let testStmts be a new Seq of CStmt.\n\
          Push (a new CMerge with target \"x\" and other (a new CVar with name \"y\")) to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_mini must preserve CMerge (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CMerge (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8270,7 +8684,11 @@ fn pe_mini_preserves_append_to_seq() {
         "    Let testStmts be a new Seq of CStmt.\n\
          Push (a new CAppendToSeq with target \"items\" and value (a new CInt with value 42)) to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_mini must preserve CAppendToSeq (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CAppendToSeq (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8284,9 +8702,13 @@ fn pe_mini_preserves_concurrent_stmt() {
          Push b1 to branches.\n\
          Push b2 to branches.\n\
          Let testStmts be a new Seq of CStmt.\n\
-         Push (a new CConcurrent with branches branches) to testStmts.\n"
+         Push (a new CConcurrent with branches branches) to testStmts.\n",
     );
-    assert_eq!(count, 1, "pe_mini must preserve CConcurrent (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CConcurrent (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8297,7 +8719,11 @@ fn pe_mini_preserves_zone_stmt() {
          Let testStmts be a new Seq of CStmt.\n\
          Push (a new CZone with name \"critical\" and kind \"mutex\" and body zBody) to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_mini must preserve CZone (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_mini must preserve CZone (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8308,7 +8734,11 @@ fn pe_mini_preserves_pipe_stmts() {
          Push (a new CSendPipe with chan \"ch\" and value (a new CInt with value 42)) to testStmts.\n\
          Push (a new CReceivePipe with chan \"ch\" and target \"val\") to testStmts.\n"
     );
-    assert_eq!(count, 3, "pe_mini must preserve pipe stmts (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 3,
+        "pe_mini must preserve pipe stmts (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -8317,10 +8747,15 @@ fn pe_mini_no_otherwise_fallback() {
     // peBlockM must not have "Otherwise:\n...Let skip be true" which silently drops CStmt variants.
     // Legitimate Otherwise usages (inside CIf for non-literal cond, CLet/CSet for non-literal values) are fine.
     let pe_block_start = source.find("## To peBlockM").unwrap();
-    let pe_block_end = source[pe_block_start..].find("\n## To ").map(|i| pe_block_start + i).unwrap_or(source.len());
+    let pe_block_end = source[pe_block_start..]
+        .find("\n## To ")
+        .map(|i| pe_block_start + i)
+        .unwrap_or(source.len());
     let pe_block = &source[pe_block_start..pe_block_end];
-    assert!(!pe_block.contains("Otherwise:\n                Let skip be true"),
-        "peBlockM must not have a catch-all Otherwise that silently drops CStmt variants");
+    assert!(
+        !pe_block.contains("Otherwise:\n                Let skip be true"),
+        "peBlockM must not have a catch-all Otherwise that silently drops CStmt variants"
+    );
 }
 
 // --- I.2: pe_mini CInspect static dispatch ---
@@ -8330,7 +8765,8 @@ fn pe_mini_inspect_static_dispatch() {
     // When CInspect target is a known CNewVariant, pe_mini should match
     // the correct arm and eliminate dead arms. Test via direct CStmt construction.
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8365,21 +8801,31 @@ fn pe_mini_inspect_static_dispatch() {
                 Show "SHOW".
             Otherwise:
                 Show "OTHER".
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini CInspect test failed: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini CInspect test failed: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
     // Without static dispatch: residual has 1 CInspect node → output "1\nINSPECT"
     // With static dispatch: residual has 1 CShow node → output "1\nSHOW"
-    assert!(output.contains("SHOW") && !output.contains("INSPECT"),
-        "pe_mini must statically dispatch CInspect on known CNewVariant (got: {})", output);
+    assert!(
+        output.contains("SHOW") && !output.contains("INSPECT"),
+        "pe_mini must statically dispatch CInspect on known CNewVariant (got: {})",
+        output
+    );
 }
 
 #[test]
 fn pe_mini_inspect_static_dispatch_binds_fields() {
     // Verify fields are bound: Inspect (CNewVariant "Mk" [42]) → When Mk (x) → Show x → Show 42
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8404,11 +8850,21 @@ fn pe_mini_inspect_static_dispatch_binds_fields() {
             Show v.
         Otherwise:
             Show "NOT_FOLDED".
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini CInspect bind test failed: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini CInspect bind test failed: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert_eq!(output, "42", "pe_mini must bind CNewVariant fields and fold to literal (got: {})", output);
+    assert_eq!(
+        output, "42",
+        "pe_mini must bind CNewVariant fields and fold to literal (got: {})",
+        output
+    );
 }
 
 // --- I.3: pe_mini CRepeat static unrolling ---
@@ -8417,7 +8873,8 @@ fn pe_mini_inspect_static_dispatch_binds_fields() {
 fn pe_mini_repeat_static_unroll() {
     // When CRepeat over a literal CList, pe_mini should unroll the loop body
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8442,21 +8899,31 @@ fn pe_mini_repeat_static_unroll() {
                 Show "SHOW".
             Otherwise:
                 Show "OTHER".
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini CRepeat test failed: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini CRepeat test failed: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
     // Without unrolling: residual has 1 CRepeat → "1\nLOOP"
     // With unrolling: residual has 3 CShow stmts → "3\nSHOW\nSHOW\nSHOW"
-    assert!(output.contains("SHOW") && !output.contains("LOOP"),
-        "pe_mini must unroll CRepeat over literal CList (got: {})", output);
+    assert!(
+        output.contains("SHOW") && !output.contains("LOOP"),
+        "pe_mini must unroll CRepeat over literal CList (got: {})",
+        output
+    );
 }
 
 #[test]
 fn pe_mini_repeat_static_unroll_with_break() {
     // Unrolling should stop when a CBreak is encountered
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8478,14 +8945,24 @@ fn pe_mini_repeat_static_unroll_with_break() {
     Let residual be peBlockM(testStmts, state).
     Let residualLen be length of residual.
     Show residualLen.
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini CRepeat break test failed: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini CRepeat break test failed: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
     let count: usize = output.parse().unwrap_or(999);
     // With unrolling+break: should have stmts for items 1,2 then stop at 99 due to break
     // Without unrolling: would have 1 CRepeat stmt
-    assert!(count > 1, "pe_mini must unroll CRepeat and stop at break (got {} stmts)", count);
+    assert!(
+        count > 1,
+        "pe_mini must unroll CRepeat and stop at break (got {} stmts)",
+        count
+    );
 }
 
 // --- I.3a2: pe_mini exprToKeyPartM completeness ---
@@ -8493,7 +8970,8 @@ fn pe_mini_repeat_static_unroll_with_break() {
 #[test]
 fn pe_mini_key_no_unk_collisions() {
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8531,11 +9009,17 @@ fn pe_mini_key_no_unk_collisions() {
     If k2 equals k3:
         Show "COLLISION_2_3".
     Show "DONE".
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
     assert!(result.success, "Failed: {}", result.stderr);
     let out = result.stdout.trim();
-    assert!(!out.contains("UNK_"), "Variant fell through to unk: {}", out);
+    assert!(
+        !out.contains("UNK_"),
+        "Variant fell through to unk: {}",
+        out
+    );
     assert!(!out.contains("COLLISION"), "Key collision: {}", out);
     assert!(out.contains("DONE"));
 }
@@ -8548,7 +9032,8 @@ fn pe_mini_while_loop_variable_invalidation() {
     // the condition and body. Without invalidation, x stays static as CInt(5) and
     // the residual becomes `While true: Show 5.` (infinite loop, wrong).
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8583,19 +9068,37 @@ fn pe_mini_while_loop_variable_invalidation() {
                             Show "BODY_STMT".
             Otherwise:
                 Show "NON_WHILE".
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini CWhile test failed: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini CWhile test failed: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
     // After fix: condition must be dynamic (references x), body Show must reference x dynamically
-    assert!(output.contains("DYN_COND"),
-        "pe_mini must produce dynamic while condition when body modifies tested var.\nGot: {}", output);
-    assert!(output.contains("DYN_SHOW"),
-        "pe_mini must produce dynamic Show(x) in while body, not constant.\nGot: {}", output);
-    assert!(!output.contains("CONST_COND"),
-        "pe_mini must NOT fold while condition to constant when body modifies tested var.\nGot: {}", output);
-    assert!(!output.contains("CONST_SHOW"),
-        "pe_mini must NOT fold Show(x) to constant in while body.\nGot: {}", output);
+    assert!(
+        output.contains("DYN_COND"),
+        "pe_mini must produce dynamic while condition when body modifies tested var.\nGot: {}",
+        output
+    );
+    assert!(
+        output.contains("DYN_SHOW"),
+        "pe_mini must produce dynamic Show(x) in while body, not constant.\nGot: {}",
+        output
+    );
+    assert!(
+        !output.contains("CONST_COND"),
+        "pe_mini must NOT fold while condition to constant when body modifies tested var.\nGot: {}",
+        output
+    );
+    assert!(
+        !output.contains("CONST_SHOW"),
+        "pe_mini must NOT fold Show(x) to constant in while body.\nGot: {}",
+        output
+    );
 }
 
 #[test]
@@ -8603,7 +9106,8 @@ fn pe_mini_repeat_non_static_invalidates_loop_var() {
     // When CRepeat over a dynamic collection, the loop variable must be removed
     // from staticEnv so the body doesn't substitute a stale value.
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## Main
@@ -8637,12 +9141,21 @@ fn pe_mini_repeat_non_static_invalidates_loop_var() {
         Show "CONST_SHOW".
     If foundDynShow:
         Show "DYN_SHOW".
-"#, CORE_TYPES, pe_mini);
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_mini CRepeat invalidation test failed: {}", result.stderr);
+"#,
+        CORE_TYPES, pe_mini
+    );
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_mini CRepeat invalidation test failed: {}",
+        result.stderr
+    );
     let output = result.stdout.trim();
-    assert!(output.contains("DYN_SHOW"),
-        "pe_mini must use dynamic var in non-static CRepeat body, not stale static.\nGot: {}", output);
+    assert!(
+        output.contains("DYN_SHOW"),
+        "pe_mini must use dynamic var in non-static CRepeat body, not stale static.\nGot: {}",
+        output
+    );
     assert!(!output.contains("CONST_SHOW"),
         "pe_mini must NOT substitute stale static value (999) for loop var in CRepeat body.\nGot: {}", output);
 }
@@ -8655,8 +9168,12 @@ fn decompile_expr_text(expr_constructor: &str) -> String {
         "{}\n{}\n## Main\n    {}\n    Let result be decompileExpr(testExpr).\n    Show result.\n",
         CORE_TYPES, decompile, expr_constructor
     );
-    let result = common::run_logos(&source);
-    assert!(result.success, "decompile expr test failed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "decompile expr test failed: {}",
+        result.stderr
+    );
     result.stdout.trim().to_string()
 }
 
@@ -8666,8 +9183,12 @@ fn decompile_stmt_text(stmt_constructor: &str) -> String {
         "{}\n{}\n## Main\n    {}\n    Let result be decompileStmt(testStmt, 0).\n    Show result.\n",
         CORE_TYPES, decompile, stmt_constructor
     );
-    let result = common::run_logos(&source);
-    assert!(result.success, "decompile stmt test failed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "decompile stmt test failed: {}",
+        result.stderr
+    );
     result.stdout.trim().to_string()
 }
 
@@ -8687,8 +9208,12 @@ fn decompile_expr_no_placeholders() {
     ];
     for (constructor, variant_name) in &cases {
         let text = decompile_expr_text(constructor);
-        assert!(!text.contains("<?expr?>"),
-            "decompile must handle {} (got: {})", variant_name, text);
+        assert!(
+            !text.contains("<?expr?>"),
+            "decompile must handle {} (got: {})",
+            variant_name,
+            text
+        );
     }
 }
 
@@ -8697,8 +9222,16 @@ fn decompile_stmt_callS() {
     let text = decompile_stmt_text(
         "Let testStmt be a new CCallS with name \"doSomething\" and args [(a new CInt with value 1)]."
     );
-    assert!(!text.contains("<?stmt?>"), "decompile must handle CCallS, got: {}", text);
-    assert!(text.contains("doSomething"), "decompile CCallS must include function name, got: {}", text);
+    assert!(
+        !text.contains("<?stmt?>"),
+        "decompile must handle CCallS, got: {}",
+        text
+    );
+    assert!(
+        text.contains("doSomething"),
+        "decompile CCallS must include function name, got: {}",
+        text
+    );
 }
 
 #[test]
@@ -8706,15 +9239,21 @@ fn decompile_stmt_map_set() {
     let text = decompile_stmt_text(
         "Let testStmt be a new CMapSet with target \"m\" and key (a new CText with value \"k\") and val (a new CInt with value 42)."
     );
-    assert!(!text.contains("<?stmt?>"), "decompile must handle CMapSet, got: {}", text);
+    assert!(
+        !text.contains("<?stmt?>"),
+        "decompile must handle CMapSet, got: {}",
+        text
+    );
 }
 
 #[test]
 fn decompile_stmt_pop() {
-    let text = decompile_stmt_text(
-        "Let testStmt be a new CPop with target \"xs\"."
+    let text = decompile_stmt_text("Let testStmt be a new CPop with target \"xs\".");
+    assert!(
+        !text.contains("<?stmt?>"),
+        "decompile must handle CPop, got: {}",
+        text
     );
-    assert!(!text.contains("<?stmt?>"), "decompile must handle CPop, got: {}", text);
 }
 
 #[test]
@@ -8722,20 +9261,32 @@ fn decompile_stmt_repeat_range() {
     let text = decompile_stmt_text(
         "Let testStmt be a new CRepeatRange with var \"i\" and start (a new CInt with value 1) and end (a new CInt with value 10) and body (a new Seq of CStmt)."
     );
-    assert!(!text.contains("<?stmt?>"), "decompile must handle CRepeatRange, got: {}", text);
+    assert!(
+        !text.contains("<?stmt?>"),
+        "decompile must handle CRepeatRange, got: {}",
+        text
+    );
 }
 
 #[test]
 fn decompile_stmt_add_remove() {
     let add_text = decompile_stmt_text(
-        "Let testStmt be a new CAdd with elem (a new CInt with value 5) and target \"mySet\"."
+        "Let testStmt be a new CAdd with elem (a new CInt with value 5) and target \"mySet\".",
     );
-    assert!(!add_text.contains("<?stmt?>"), "decompile must handle CAdd, got: {}", add_text);
+    assert!(
+        !add_text.contains("<?stmt?>"),
+        "decompile must handle CAdd, got: {}",
+        add_text
+    );
 
     let rem_text = decompile_stmt_text(
-        "Let testStmt be a new CRemove with elem (a new CInt with value 5) and target \"mySet\"."
+        "Let testStmt be a new CRemove with elem (a new CInt with value 5) and target \"mySet\".",
     );
-    assert!(!rem_text.contains("<?stmt?>"), "decompile must handle CRemove, got: {}", rem_text);
+    assert!(
+        !rem_text.contains("<?stmt?>"),
+        "decompile must handle CRemove, got: {}",
+        rem_text
+    );
 }
 
 #[test]
@@ -8743,25 +9294,41 @@ fn decompile_stmt_runtime_assert() {
     let text = decompile_stmt_text(
         "Let testStmt be a new CRuntimeAssert with cond (a new CBool with value true) and msg (a new CText with value \"ok\")."
     );
-    assert!(!text.contains("<?stmt?>"), "decompile must handle CRuntimeAssert, got: {}", text);
+    assert!(
+        !text.contains("<?stmt?>"),
+        "decompile must handle CRuntimeAssert, got: {}",
+        text
+    );
 }
 
 #[test]
 fn decompile_stmt_io_stmts() {
     let sleep_text = decompile_stmt_text(
-        "Let testStmt be a new CSleep with duration (a new CInt with value 1000)."
+        "Let testStmt be a new CSleep with duration (a new CInt with value 1000).",
     );
-    assert!(!sleep_text.contains("<?stmt?>"), "decompile must handle CSleep, got: {}", sleep_text);
+    assert!(
+        !sleep_text.contains("<?stmt?>"),
+        "decompile must handle CSleep, got: {}",
+        sleep_text
+    );
 
     let read_text = decompile_stmt_text(
         "Let testStmt be a new CReadFile with path (a new CText with value \"f.txt\") and target \"data\"."
     );
-    assert!(!read_text.contains("<?stmt?>"), "decompile must handle CReadFile, got: {}", read_text);
+    assert!(
+        !read_text.contains("<?stmt?>"),
+        "decompile must handle CReadFile, got: {}",
+        read_text
+    );
 
     let write_text = decompile_stmt_text(
         "Let testStmt be a new CWriteFile with path (a new CText with value \"f.txt\") and content (a new CText with value \"hello\")."
     );
-    assert!(!write_text.contains("<?stmt?>"), "decompile must handle CWriteFile, got: {}", write_text);
+    assert!(
+        !write_text.contains("<?stmt?>"),
+        "decompile must handle CWriteFile, got: {}",
+        write_text
+    );
 }
 
 #[test]
@@ -8787,12 +9354,23 @@ fn decompile_full_p1_roundtrip_no_placeholders() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(prog).unwrap();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "P1 roundtrip failed: {}", result.stderr);
     let residual = result.stdout.trim();
-    assert!(!residual.contains("<?expr?>"), "P1 residual must have no <?expr?> placeholders:\n{}", residual);
-    assert!(!residual.contains("<?stmt?>"), "P1 residual must have no <?stmt?> placeholders:\n{}", residual);
+    assert!(
+        !residual.contains("<?expr?>"),
+        "P1 residual must have no <?expr?> placeholders:\n{}",
+        residual
+    );
+    assert!(
+        !residual.contains("<?stmt?>"),
+        "P1 residual must have no <?stmt?> placeholders:\n{}",
+        residual
+    );
 }
 
 #[test]
@@ -8801,7 +9379,11 @@ fn pe_bti_self_application_genuine() {
     let types = core_types_bti();
     let pe_bti_program = format!("{}\n{}\n## Main\n    Let skip be true.\n", types, pe_bti);
     let encoded = logicaffeine_compile::compile::encode_program_source(&pe_bti_program);
-    assert!(encoded.is_ok(), "pe_bti must be encodable: {:?}", encoded.err());
+    assert!(
+        encoded.is_ok(),
+        "pe_bti must be encodable: {:?}",
+        encoded.err()
+    );
 }
 
 #[test]
@@ -8812,8 +9394,18 @@ fn pe_bti_projection_size_ordering() {
     let pe_lines = pe.lines().count();
     let p2_lines = p2.lines().count();
     let p3_lines = p3.lines().count();
-    assert!(p2_lines < pe_lines, "P2 ({}) < PE ({}) must hold", p2_lines, pe_lines);
-    assert!(p3_lines < pe_lines, "P3 ({}) < PE ({}) must hold", p3_lines, pe_lines);
+    assert!(
+        p2_lines < pe_lines,
+        "P2 ({}) < PE ({}) must hold",
+        p2_lines,
+        pe_lines
+    );
+    assert!(
+        p3_lines < pe_lines,
+        "P3 ({}) < PE ({}) must hold",
+        p3_lines,
+        pe_lines
+    );
 }
 
 // ============================================================
@@ -8828,13 +9420,24 @@ fn self_application_pe_source_encodable() {
     let pe = logicaffeine_compile::compile::pe_source_text();
     let full = format!("{}\n{}\n## Main\n    Let skip be true.\n", CORE_TYPES, pe);
     let encoded = logicaffeine_compile::compile::encode_program_source(&full);
-    assert!(encoded.is_ok(), "PE source must be encodable: {:?}", encoded.err());
+    assert!(
+        encoded.is_ok(),
+        "PE source must be encodable: {:?}",
+        encoded.err()
+    );
     let enc = encoded.unwrap();
     // The encoding must produce encodedFuncMap entries for PE functions
-    assert!(enc.contains("encodedFuncMap"), "Encoded PE must populate encodedFuncMap");
+    assert!(
+        enc.contains("encodedFuncMap"),
+        "Encoded PE must populate encodedFuncMap"
+    );
     // Report size metrics
     let func_count = enc.matches("a new CFuncDef").count();
-    assert!(func_count > 20, "Encoded PE must have >20 functions, got {}", func_count);
+    assert!(
+        func_count > 20,
+        "Encoded PE must have >20 functions, got {}",
+        func_count
+    );
 }
 
 /// Phase 3.1b: Encoding feasibility for pe_mini.
@@ -8842,13 +9445,27 @@ fn self_application_pe_source_encodable() {
 #[test]
 fn self_application_pe_mini_encodable() {
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    let full = format!("{}\n{}\n## Main\n    Let skip be true.\n", CORE_TYPES, pe_mini);
+    let full = format!(
+        "{}\n{}\n## Main\n    Let skip be true.\n",
+        CORE_TYPES, pe_mini
+    );
     let encoded = logicaffeine_compile::compile::encode_program_source(&full);
-    assert!(encoded.is_ok(), "pe_mini must be encodable: {:?}", encoded.err());
+    assert!(
+        encoded.is_ok(),
+        "pe_mini must be encodable: {:?}",
+        encoded.err()
+    );
     let enc = encoded.unwrap();
-    assert!(enc.contains("encodedFuncMap"), "Encoded pe_mini must populate encodedFuncMap");
+    assert!(
+        enc.contains("encodedFuncMap"),
+        "Encoded pe_mini must populate encodedFuncMap"
+    );
     let func_count = enc.matches("a new CFuncDef").count();
-    assert!(func_count > 10, "Encoded pe_mini must have >10 functions, got {}", func_count);
+    assert!(
+        func_count > 10,
+        "Encoded pe_mini must have >10 functions, got {}",
+        func_count
+    );
 }
 
 /// Phase 3.2: P1 roundtrip as baseline.
@@ -8864,13 +9481,24 @@ fn self_application_p1_roundtrip_baseline() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
-    assert!(result.success, "P1 baseline must succeed: {}", result.stderr);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "P1 baseline must succeed: {}",
+        result.stderr
+    );
     let residual = result.stdout.trim();
     assert!(!residual.is_empty(), "P1 must produce non-empty residual");
     // The residual should contain Show (x is dynamic, so Show is preserved)
-    assert!(residual.contains("Show"), "P1 residual must contain Show: got: {}", residual);
+    assert!(
+        residual.contains("Show"),
+        "P1 residual must contain Show: got: {}",
+        residual
+    );
 }
 
 /// Phase 3.3: Genuine self-application of pe_mini on a target program.
@@ -8912,15 +9540,19 @@ fn genuine_self_application_pe_mini_on_target() {
     let pe_mini_applied = format!("{}\n{}\n## Main\n{}", CORE_TYPES, pe_mini, driver);
 
     // Now encode THIS ENTIRE PROGRAM and feed it to the outer PE (pe_source)
-    let outer_encoded = logicaffeine_compile::compile::encode_program_source(&pe_mini_applied).unwrap();
+    let outer_encoded =
+        logicaffeine_compile::compile::encode_program_source(&pe_mini_applied).unwrap();
 
     let pe = logicaffeine_compile::compile::pe_source_text();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let outer_driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 30).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, outer_encoded, outer_driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, outer_encoded, outer_driver
+    );
 
     let start = std::time::Instant::now();
-    let result = common::run_logos(&combined);
+    let result = common::run_bootstrap_logos(&combined);
     let elapsed = start.elapsed();
     eprintln!("PE(pe_mini, target) timing: {:?}", elapsed);
 
@@ -8936,9 +9568,16 @@ fn genuine_self_application_pe_mini_on_target() {
          PE specializer has regressed (memoization/whistle blowup)."
     );
 
-    assert!(result.success, "PE(pe_mini, target) must complete: {}", result.stderr);
+    assert!(
+        result.success,
+        "PE(pe_mini, target) must complete: {}",
+        result.stderr
+    );
     let residual = result.stdout.trim();
-    assert!(!residual.is_empty(), "PE(pe_mini, target) residual must not be empty");
+    assert!(
+        !residual.is_empty(),
+        "PE(pe_mini, target) residual must not be empty"
+    );
     eprintln!("PE(pe_mini, target) residual:\n{}", residual);
 }
 
@@ -8964,11 +9603,21 @@ fn pe_mini_directly_specializes_simple_target() {
         target_encoded
     );
 
-    let combined = format!("{}\n{}\n{}\n## Main\n{}", CORE_TYPES, pe_mini, decompile, driver);
-    let result = common::run_logos(&combined);
-    assert!(result.success, "pe_mini direct specialization must succeed: {}", result.stderr);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}",
+        CORE_TYPES, pe_mini, decompile, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "pe_mini direct specialization must succeed: {}",
+        result.stderr
+    );
     let residual = result.stdout.trim();
-    assert!(!residual.is_empty(), "pe_mini must produce non-empty residual for target");
+    assert!(
+        !residual.is_empty(),
+        "pe_mini must produce non-empty residual for target"
+    );
     // The residual should contain Show (x=5 is static, but Show is preserved)
     eprintln!("pe_mini direct residual:\n{}", residual);
 }
@@ -8988,16 +9637,22 @@ fn genuine_pe_source_specializes_target_with_functions() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(target).unwrap();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "PE(target) must succeed: {}", result.stderr);
     let residual = result.stdout.trim();
     assert!(!residual.is_empty(), "PE residual must not be empty");
     // double(5) should be specialized: the function call should be inlined/folded
     eprintln!("PE residual for double program:\n{}", residual);
     // The residual should NOT contain the double function call (it should be folded to 10)
-    assert!(!residual.contains("double("), "double(5) should be fully specialized away");
+    assert!(
+        !residual.contains("double("),
+        "double(5) should be fully specialized away"
+    );
 }
 
 /// Phase 3.5: Verify PE(pe_mini) produces output that doesn't contain online dispatch.
@@ -9023,16 +9678,32 @@ fn self_application_pe_mini_residual_no_online_dispatch() {
         target_encoded
     );
 
-    let combined = format!("{}\n{}\n{}\n## Main\n{}", CORE_TYPES, pe_mini, decompile, driver);
-    let result = common::run_logos(&combined);
-    assert!(result.success, "pe_mini specialization must succeed: {}", result.stderr);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}",
+        CORE_TYPES, pe_mini, decompile, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "pe_mini specialization must succeed: {}",
+        result.stderr
+    );
     let residual = result.stdout.trim();
     assert!(!residual.is_empty(), "Residual must not be empty");
     // The residual is the specialized output — it should be the compiled target
     // program, not pe_mini's dispatch infrastructure
-    assert!(!residual.contains("checkVNothingM("), "Residual should not contain PE online checks");
-    assert!(!residual.contains("peExprM("), "Residual should not contain PE function calls");
-    assert!(!residual.contains("peBlockM("), "Residual should not contain PE function calls");
+    assert!(
+        !residual.contains("checkVNothingM("),
+        "Residual should not contain PE online checks"
+    );
+    assert!(
+        !residual.contains("peExprM("),
+        "Residual should not contain PE function calls"
+    );
+    assert!(
+        !residual.contains("peBlockM("),
+        "Residual should not contain PE function calls"
+    );
 }
 
 // ============================================================
@@ -9046,10 +9717,15 @@ fn self_application_pe_mini_residual_no_online_dispatch() {
 fn p2_raw_residual_no_pe_dispatch_names() {
     let p2 = get_p2_residual();
     // Genuine P2 must NOT contain unspecialized peExprM definitions
-    assert!(!p2.contains("## To peExprM ("), "P2 must not contain unspecialized peExprM");
+    assert!(
+        !p2.contains("## To peExprM ("),
+        "P2 must not contain unspecialized peExprM"
+    );
     // The residual must contain a specialized peExprM variant
-    assert!(p2.contains("peExprM_"),
-        "Residual should contain a specialized peExprM variant");
+    assert!(
+        p2.contains("peExprM_"),
+        "Residual should contain a specialized peExprM variant"
+    );
 }
 
 /// Phase 4.2: "The Trick" end-to-end (Corner Cut 21).
@@ -9063,7 +9739,10 @@ fn the_trick_p2_fewer_inspects_than_pe() {
     let pe_inspects = pe.matches("Inspect ").count();
     let p2_inspects = p2.matches("Inspect ").count();
 
-    eprintln!("PE: {} Inspect nodes, P2: {} Inspect nodes", pe_inspects, p2_inspects);
+    eprintln!(
+        "PE: {} Inspect nodes, P2: {} Inspect nodes",
+        pe_inspects, p2_inspects
+    );
     assert!(
         p2_inspects <= pe_inspects,
         "P2 ({}) must have at most as many Inspects as PE ({}) — specialization should not increase dispatch",
@@ -9085,16 +9764,21 @@ fn the_trick_p3_fewer_inspects_than_p2() {
     let p2_inspects = p2.matches("Inspect ").count();
     let p3_inspects = p3.matches("Inspect ").count();
 
-    eprintln!("PE: {} Inspects, P2: {} Inspects, P3: {} Inspects", pe_inspects, p2_inspects, p3_inspects);
+    eprintln!(
+        "PE: {} Inspects, P2: {} Inspects, P3: {} Inspects",
+        pe_inspects, p2_inspects, p3_inspects
+    );
     assert!(
         p2_inspects < pe_inspects,
         "P2 ({}) must have fewer Inspects than PE ({})",
-        p2_inspects, pe_inspects
+        p2_inspects,
+        pe_inspects
     );
     assert!(
         p3_inspects < pe_inspects,
         "P3 ({}) must have fewer Inspects than PE ({})",
-        p3_inspects, pe_inspects
+        p3_inspects,
+        pe_inspects
     );
 }
 
@@ -9164,17 +9848,41 @@ fn stream_survives_every_partial_evaluator_dialect() {
              \x20   Let source be decompileBlock(residual, 0).\n\
              \x20   Show source.\n"
         );
-        let combined =
-            format!("{}\n{}\n{}\n## Main\n{}\n{}", catalog, dialect_text, decompile, encoded, driver);
-        let r = common::run_logos(&combined);
-        (r.success, if r.success { r.stdout.trim().to_string() } else { r.stderr })
+        let combined = format!(
+            "{}\n{}\n{}\n## Main\n{}\n{}",
+            catalog, dialect_text, decompile, encoded, driver
+        );
+        let r = common::run_bootstrap_logos(&combined);
+        (
+            r.success,
+            if r.success {
+                r.stdout.trim().to_string()
+            } else {
+                r.stderr
+            },
+        )
     }
     // Each dialect needs its own catalog: pe_source/pe_mini use the base CORE_TYPES; pe_bti's
     // memoizing PEState (memoCache/callGuard) needs the bti-augmented catalog.
     for (catalog, text, block_call, name) in [
-        (CORE_TYPES.to_string(), logicaffeine_compile::compile::pe_source_text(), "peBlock", "pe_source"),
-        (CORE_TYPES.to_string(), logicaffeine_compile::compile::pe_mini_source_text(), "peBlockM", "pe_mini"),
-        (core_types_bti(), logicaffeine_compile::compile::pe_bti_source_text(), "peBlockB", "pe_bti"),
+        (
+            CORE_TYPES.to_string(),
+            logicaffeine_compile::compile::pe_source_text(),
+            "peBlock",
+            "pe_source",
+        ),
+        (
+            CORE_TYPES.to_string(),
+            logicaffeine_compile::compile::pe_mini_source_text(),
+            "peBlockM",
+            "pe_mini",
+        ),
+        (
+            core_types_bti(),
+            logicaffeine_compile::compile::pe_bti_source_text(),
+            "peBlockB",
+            "pe_bti",
+        ),
     ] {
         let (ok, residual) = stream_residual(&catalog, text, block_call);
         assert!(
@@ -9220,18 +9928,35 @@ fn post_unfolding_cascading_constant_fold() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
-    assert!(result.success, "Post-unfolding test must succeed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "Post-unfolding test must succeed: {}",
+        result.stderr
+    );
     let residual = result.stdout.trim();
     eprintln!("Post-unfolding residual:\n{}", residual);
     // After inlining addOne(3) → 3+1=4, doubleAddOne(3) → 4*2=8
     // The residual should contain the folded result, not the function calls
-    assert!(!residual.contains("addOne("), "addOne should be inlined away");
-    assert!(!residual.contains("doubleAddOne("), "doubleAddOne should be inlined away");
+    assert!(
+        !residual.contains("addOne("),
+        "addOne should be inlined away"
+    );
+    assert!(
+        !residual.contains("doubleAddOne("),
+        "doubleAddOne should be inlined away"
+    );
     // The result should be fully folded: Show 8
-    assert!(residual.contains("8"), "Result should be fully folded to 8, got:\n{}", residual);
+    assert!(
+        residual.contains("8"),
+        "Result should be fully folded to 8, got:\n{}",
+        residual
+    );
 }
 
 /// Phase 4.5: Arity raising recursive test (Corner Cut 25).
@@ -9251,8 +9976,13 @@ fn arity_raising_recursive_specialization() {
     let rust = logicaffeine_compile::compile::compile_to_rust(source).unwrap();
     // The Rust-level PE should specialize power(2, n) since base=2 is static
     // The specialized function should be power_s0 or similar
-    let has_specialized = rust.contains("power_s0") || rust.contains("power_s1") || rust.contains("power_s2");
-    assert!(has_specialized, "power(2, n) should be specialized for base=2:\n{}", rust);
+    let has_specialized =
+        rust.contains("power_s0") || rust.contains("power_s1") || rust.contains("power_s2");
+    assert!(
+        has_specialized,
+        "power(2, n) should be specialized for base=2:\n{}",
+        rust
+    );
     // The specialized function bakes base=2: it DROPS the `base` parameter (taking
     // only `exp`) and uses the literal 2 as the per-step multiplier in its TCE
     // accumulator loop. (The old assertion accepted `<< 1` from the now-removed
@@ -9276,7 +10006,11 @@ fn arity_raising_recursive_specialization() {
         || spec_fn.contains("2 *")
         || spec_fn.contains("2i64")
         || spec_fn.contains("<< 1");
-    assert!(has_base_2, "Specialized power must hardcode base=2 as the multiplier:\n{}", rust);
+    assert!(
+        has_base_2,
+        "Specialized power must hardcode base=2 as the multiplier:\n{}",
+        rust
+    );
 }
 
 // ============================================================
@@ -9304,7 +10038,12 @@ Show a + b.
     // The residual should NOT contain two copies of the inlined body
     // Count occurrences of "6" (the result of 5+1) — should appear once as the memoized result
     let body_count = residual.matches("5 + 1").count();
-    assert!(body_count <= 1, "f(5) should be memoized, not inlined twice. Found {} copies of '5 + 1' in:\n{}", body_count, residual);
+    assert!(
+        body_count <= 1,
+        "f(5) should be memoized, not inlined twice. Found {} copies of '5 + 1' in:\n{}",
+        body_count,
+        residual
+    );
 }
 
 /// Different arguments should produce different memoized results.
@@ -9412,10 +10151,15 @@ fn genuine_p2_no_pe_dispatch_names() {
     let p2 = logicaffeine_compile::compile::genuine_projection2_residual()
         .expect("Genuine P2 must complete");
     // Genuine P2 must NOT contain unspecialized peExprM definitions
-    assert!(!p2.contains("## To peExprM ("), "P2 must not contain unspecialized peExprM");
+    assert!(
+        !p2.contains("## To peExprM ("),
+        "P2 must not contain unspecialized peExprM"
+    );
     // Must contain specialized entry point
-    assert!(p2.contains("peExprM_") || p2.contains("peBlockM_"),
-        "P2 must contain specialized PE function variants");
+    assert!(
+        p2.contains("peExprM_") || p2.contains("peBlockM_"),
+        "P2 must contain specialized PE function variants"
+    );
 }
 
 /// P2 compiler must NOT contain online predicates (isStatic, checkStatic, etc.)
@@ -9425,9 +10169,18 @@ fn genuine_p2_no_online_predicates() {
     let p2 = get_p2_genuine();
     // Genuine P2 via self-application — pe_mini doesn't have these predicates,
     // so the specialized P2 should not contain them either
-    assert!(!p2.source.contains("checkStatic("), "P2 must not contain checkStatic(");
-    assert!(!p2.source.contains("checkLiteral("), "P2 must not contain checkLiteral(");
-    assert!(!p2.source.contains("checkAllStatic("), "P2 must not contain checkAllStatic(");
+    assert!(
+        !p2.source.contains("checkStatic("),
+        "P2 must not contain checkStatic("
+    );
+    assert!(
+        !p2.source.contains("checkLiteral("),
+        "P2 must not contain checkLiteral("
+    );
+    assert!(
+        !p2.source.contains("checkAllStatic("),
+        "P2 must not contain checkAllStatic("
+    );
     assert!(p2.source.len() > 100, "P2 must be non-trivial");
 }
 
@@ -9436,7 +10189,8 @@ fn genuine_p2_no_online_predicates() {
 #[test]
 fn cross_interpreter_p3_real_calculator() {
     // A minimal calculator interpreter that handles CInt, CBinOp(+,*), CShow
-    let calc_interp = format!(r#"
+    let calc_interp = format!(
+        r#"
 {}
 
 ## To calcEval (e: CExpr) -> CVal:
@@ -9484,11 +10238,17 @@ fn cross_interpreter_p3_real_calculator() {
     Push (a new CShow with expr (a new CBinOp with op "+" and left (a new CInt with value 3) and right (a new CInt with value 4))) to targetStmts.
     Let calcEnv be a new Map of Text to CVal.
     calcRun(targetStmts, calcEnv).
-"#, CORE_TYPES);
+"#,
+        CORE_TYPES
+    );
 
     // Step 1: Run the calculator interpreter directly — verify it works
-    let direct = common::run_logos(&calc_interp);
-    assert!(direct.success, "Calculator interpreter must work directly: {}", direct.stderr);
+    let direct = common::run_user_logos(&calc_interp);
+    assert!(
+        direct.success,
+        "Calculator interpreter must work directly: {}",
+        direct.stderr
+    );
     assert_eq!(direct.stdout.trim(), "7", "Direct calculator: 3+4=7");
 
     // Step 2: Run PE(pe_source, calculator(3+4)) — the PE specializes the calculator
@@ -9497,9 +10257,16 @@ fn cross_interpreter_p3_real_calculator() {
     let encoded = logicaffeine_compile::compile::encode_program_source_compact(&calc_interp)
         .expect("Encoding calculator must succeed");
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
-    let pe_result = common::run_logos(&combined);
-    assert!(pe_result.success, "PE(calculator) must succeed: {}", pe_result.stderr);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
+    let pe_result = common::run_bootstrap_logos(&combined);
+    assert!(
+        pe_result.success,
+        "PE(calculator) must succeed: {}",
+        pe_result.stderr
+    );
     let residual = pe_result.stdout.trim();
 
     // Step 3: Verify specialization happened
@@ -9507,10 +10274,16 @@ fn cross_interpreter_p3_real_calculator() {
     // The residual should be SMALLER than the original calculator (PE removed dispatch overhead)
     let original_lines = calc_interp.lines().count();
     let residual_lines = residual.lines().count();
-    eprintln!("Calculator: {} lines, PE residual: {} lines", original_lines, residual_lines);
-    assert!(residual_lines < original_lines,
+    eprintln!(
+        "Calculator: {} lines, PE residual: {} lines",
+        original_lines, residual_lines
+    );
+    assert!(
+        residual_lines < original_lines,
         "PE residual ({} lines) must be smaller than original calculator ({} lines)",
-        residual_lines, original_lines);
+        residual_lines,
+        original_lines
+    );
 }
 
 /// WQO termination: PE must terminate growing specialization chains via structural embedding.
@@ -9519,7 +10292,8 @@ fn cross_interpreter_p3_real_calculator() {
 #[test]
 fn pe_source_wqo_terminates_growing_chain() {
     // grow(n) calls grow(n+1) — infinite chain. PE must catch this via embedding.
-    let source = format!(r#"
+    let source = format!(
+        r#"
 {}
 {}
 ## To grow (n: Int) -> Int:
@@ -9527,25 +10301,39 @@ fn pe_source_wqo_terminates_growing_chain() {
 
 ## Main
     Show grow(1).
-"#, CORE_TYPES, logicaffeine_compile::compile::pe_source_text());
+"#,
+        CORE_TYPES,
+        logicaffeine_compile::compile::pe_source_text()
+    );
 
     // Use pe_source to PE this program. With a growing chain, the PE would normally
     // try to specialize grow(1) → grow(2) → grow(3) → ... forever.
     // The exprEmbeds function detects: CInt(1) embeds in CInt(2) embeds in CInt(3)...
     // and residualizes the call instead of continuing.
     let encoded = logicaffeine_compile::compile::encode_program_source(
-        "## To grow (n: Int) -> Int:\n    Return grow(n + 1).\n\n## Main\n    Show grow(1).\n"
-    ).unwrap();
+        "## To grow (n: Int) -> Int:\n    Return grow(n + 1).\n\n## Main\n    Show grow(1).\n",
+    )
+    .unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let pe = logicaffeine_compile::compile::pe_source_text();
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
-    let result = common::run_logos(&combined);
-    assert!(result.success, "PE on growing chain must terminate: {}", result.stderr);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "PE on growing chain must terminate: {}",
+        result.stderr
+    );
     let residual = result.stdout.trim();
     // The residual should contain a residualized call to grow (not infinite expansion)
-    assert!(residual.contains("grow"),
-        "Residual should contain residualized grow call (PE stopped expanding): {}", residual);
+    assert!(
+        residual.contains("grow"),
+        "Residual should contain residualized grow call (PE stopped expanding): {}",
+        residual
+    );
 }
 
 /// The Trick: P2 must have strictly fewer Inspect nodes than pe_source.
@@ -9557,11 +10345,15 @@ fn the_trick_genuine_p2_fewer_inspects() {
     let pe_inspects = pe.matches("Inspect ").count();
     let p2_inspects = p2.matches("Inspect ").count();
 
-    eprintln!("PE: {} Inspect nodes, P2: {} Inspect nodes", pe_inspects, p2_inspects);
+    eprintln!(
+        "PE: {} Inspect nodes, P2: {} Inspect nodes",
+        pe_inspects, p2_inspects
+    );
     assert!(
         p2_inspects <= pe_inspects,
         "P2 ({}) must have at most as many Inspects as PE ({})",
-        p2_inspects, pe_inspects
+        p2_inspects,
+        pe_inspects
     );
 }
 
@@ -9571,10 +10363,16 @@ fn decompile_no_placeholders() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     // Verify the decompile source covers common variants
     assert!(decompile.contains("CInt"), "decompile should handle CInt");
-    assert!(decompile.contains("CBinOp"), "decompile should handle CBinOp");
+    assert!(
+        decompile.contains("CBinOp"),
+        "decompile should handle CBinOp"
+    );
     assert!(decompile.contains("CCall"), "decompile should handle CCall");
     assert!(decompile.contains("CIf"), "decompile should handle CIf");
-    assert!(decompile.contains("CWhile"), "decompile should handle CWhile");
+    assert!(
+        decompile.contains("CWhile"),
+        "decompile should handle CWhile"
+    );
 }
 
 /// P2 real compiler must produce correct output for factorial.
@@ -9650,13 +10448,16 @@ fn genuine_self_app_nano_pe_cint() {
 
     // Use the battle-tested P1 pipeline
     let residual = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &nano_pe_program,
-    ).expect("P1 of nano-PE(CInt(42)) must succeed");
+        CORE_TYPES,
+        INTERPRETER,
+        &nano_pe_program,
+    )
+    .expect("P1 of nano-PE(CInt(42)) must succeed");
 
     eprintln!("Residual of PE(nano-PE(CInt(42))):\n{}", residual);
 
     // The residual should show 42 — nanoEval's Inspect dispatch compiled away
-    common::assert_exact_output(&residual, "42");
+    common::assert_user_exact_output(&residual, "42");
 }
 
 /// Genuine self-application: PE(pe_source, nano-PE(5 + 3)).
@@ -9703,13 +10504,16 @@ fn genuine_self_app_nano_pe_binop() {
     );
 
     let residual = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &nano_pe_program,
-    ).expect("P1 of nano-PE(5+3) must succeed");
+        CORE_TYPES,
+        INTERPRETER,
+        &nano_pe_program,
+    )
+    .expect("P1 of nano-PE(5+3) must succeed");
 
     eprintln!("Residual of PE(nano-PE(5+3)):\n{}", residual);
 
     // The residual should compute 8 — all nanoEval dispatch compiled away
-    common::assert_exact_output(&residual, "8");
+    common::assert_user_exact_output(&residual, "8");
 }
 
 /// Genuine self-application: PE(pe_source, pe_mini(CInt(42))).
@@ -9742,13 +10546,16 @@ fn genuine_self_app_pe_mini_on_cint() {
 
     let start = std::time::Instant::now();
     let residual = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &pe_mini_program,
-    ).expect("P1 of pe_mini(CInt(42)) must succeed");
+        CORE_TYPES,
+        INTERPRETER,
+        &pe_mini_program,
+    )
+    .expect("P1 of pe_mini(CInt(42)) must succeed");
     let elapsed = start.elapsed();
     eprintln!("PE(pe_mini, CInt(42)) timing: {:?}", elapsed);
     eprintln!("Residual of PE(pe_mini(CInt(42))):\n{}", residual);
 
-    common::assert_exact_output(&residual, "42");
+    common::assert_user_exact_output(&residual, "42");
 }
 
 /// Genuine self-application: PE(pe_source, pe_mini(5+3)).
@@ -9781,13 +10588,16 @@ fn genuine_self_app_pe_mini_on_binop() {
 
     let start = std::time::Instant::now();
     let residual = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &pe_mini_program,
-    ).expect("P1 of pe_mini(5+3) must succeed");
+        CORE_TYPES,
+        INTERPRETER,
+        &pe_mini_program,
+    )
+    .expect("P1 of pe_mini(5+3) must succeed");
     let elapsed = start.elapsed();
     eprintln!("PE(pe_mini, 5+3) timing: {:?}", elapsed);
     eprintln!("Residual of PE(pe_mini(5+3)):\n{}", residual);
 
-    common::assert_exact_output(&residual, "8");
+    common::assert_user_exact_output(&residual, "8");
 }
 
 /// Residual of PE(nano-PE) must have strictly fewer Inspect nodes than
@@ -9835,10 +10645,17 @@ fn genuine_self_app_dispatch_elimination() {
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
-    assert!(result.success, "dispatch elimination test must succeed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "dispatch elimination test must succeed: {}",
+        result.stderr
+    );
 
     let residual = result.stdout.trim();
     let original_inspects = nano_pe_program.matches("Inspect ").count();
@@ -9910,9 +10727,12 @@ fn genuine_self_app_no_pe_function_definitions() {
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "must succeed: {}", result.stderr);
 
     let residual = result.stdout.trim();
@@ -9982,9 +10802,12 @@ fn genuine_self_app_no_online_predicates() {
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "must succeed: {}", result.stderr);
 
     let residual = result.stdout.trim();
@@ -10063,9 +10886,12 @@ fn the_trick_strict_inspect_reduction() {
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
+    let result = common::run_bootstrap_logos(&combined);
     assert!(result.success, "must succeed: {}", result.stderr);
 
     let residual = result.stdout.trim();
@@ -10080,7 +10906,9 @@ fn the_trick_strict_inspect_reduction() {
     assert!(
         residual_inspects < original_inspects,
         "Residual ({}) must have strictly fewer Inspects than original ({}).\nResidual:\n{}",
-        residual_inspects, original_inspects, residual
+        residual_inspects,
+        original_inspects,
+        residual
     );
 }
 
@@ -10161,8 +10989,12 @@ fn decompile_all_cexpr_variants_no_placeholder() {
         CORE_TYPES, decompile
     );
 
-    let result = common::run_logos(&test_program);
-    assert!(result.success, "decompile expr test must succeed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&test_program);
+    assert!(
+        result.success,
+        "decompile expr test must succeed: {}",
+        result.stderr
+    );
     assert!(
         result.stdout.trim().contains("ALL_EXPR_VARIANTS_OK"),
         "Some CExpr variants produced <?expr?> placeholder:\n{}",
@@ -10231,8 +11063,12 @@ fn decompile_all_cstmt_variants_no_placeholder() {
         CORE_TYPES, decompile
     );
 
-    let result = common::run_logos(&test_program);
-    assert!(result.success, "decompile stmt test must succeed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&test_program);
+    assert!(
+        result.success,
+        "decompile stmt test must succeed: {}",
+        result.stderr
+    );
     assert!(
         result.stdout.trim().contains("ALL_STMT_VARIANTS_OK"),
         "Some CStmt variants produced <?stmt?> placeholder:\n{}",
@@ -10303,13 +11139,23 @@ fn genuine_p2_nano_pe_dynamic_target() {
     // pe_source specializes nanoEval's dispatch (static function body)
     // but leaves targetExpr as dynamic.
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
-    assert!(result.success, "Genuine P2 nano-PE must succeed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "Genuine P2 nano-PE must succeed: {}",
+        result.stderr
+    );
 
     let residual = result.stdout.trim();
-    eprintln!("Genuine P2 (nano-PE, dynamic target) residual:\n{}", residual);
+    eprintln!(
+        "Genuine P2 (nano-PE, dynamic target) residual:\n{}",
+        residual
+    );
 
     // The residual should reference targetExpr (the dynamic input)
     assert!(
@@ -10427,21 +11273,21 @@ fn genuine_p2_pe_specializes_micro_pe_for_multiple_targets() {
     );
 
     // P1 of microPE(5+3)
-    let residual1 = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &program1,
-    ).expect("P1 of microPE(5+3) must succeed");
+    let residual1 =
+        logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, &program1)
+            .expect("P1 of microPE(5+3) must succeed");
 
     // P1 of microPE(10*2)
-    let residual2 = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &program2,
-    ).expect("P1 of microPE(10*2) must succeed");
+    let residual2 =
+        logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, &program2)
+            .expect("P1 of microPE(10*2) must succeed");
 
     eprintln!("P2(microPE, 5+3) residual:\n{}", residual1);
     eprintln!("P2(microPE, 10*2) residual:\n{}", residual2);
 
     // Both must produce correct output
-    common::assert_exact_output(&residual1, "8");
-    common::assert_exact_output(&residual2, "20");
+    common::assert_user_exact_output(&residual1, "8");
+    common::assert_user_exact_output(&residual2, "20");
 
     // Both residuals must NOT contain microPE function definitions
     assert!(!residual1.contains("## To microPE"), "microPE was inlined");
@@ -10449,11 +11295,13 @@ fn genuine_p2_pe_specializes_micro_pe_for_multiple_targets() {
 
     // Both residuals must NOT contain Inspect dispatch
     assert_eq!(
-        residual1.matches("Inspect ").count(), 0,
+        residual1.matches("Inspect ").count(),
+        0,
         "All dispatch compiled away for static target"
     );
     assert_eq!(
-        residual2.matches("Inspect ").count(), 0,
+        residual2.matches("Inspect ").count(),
+        0,
         "All dispatch compiled away for static target"
     );
 }
@@ -10486,11 +11334,14 @@ fn genuine_self_app_pe_mini_factorial() {
     );
 
     let residual = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &pe_mini_program,
-    ).expect("P1 of pe_mini(6*7) must succeed");
+        CORE_TYPES,
+        INTERPRETER,
+        &pe_mini_program,
+    )
+    .expect("P1 of pe_mini(6*7) must succeed");
 
     eprintln!("Residual of PE(pe_mini, 6*7):\n{}", residual);
-    common::assert_exact_output(&residual, "42");
+    common::assert_user_exact_output(&residual, "42");
 }
 
 // ============================================================
@@ -10535,15 +11386,15 @@ fn genuine_p2_pe_mini_specializes_arith_eval() {
     );
 
     // Run P1 on this program (PE(pe_source, pe_mini(5+3)))
-    let residual = logicaffeine_compile::compile::projection1_source_real(
-        CORE_TYPES, INTERPRETER, &program,
-    ).expect("P1 of pe_mini(5+3) must succeed");
+    let residual =
+        logicaffeine_compile::compile::projection1_source_real(CORE_TYPES, INTERPRETER, &program)
+            .expect("P1 of pe_mini(5+3) must succeed");
 
     eprintln!("Genuine P2 arith residual:\n{}", residual);
 
     // The residual should compute 8 — pe_mini folded 5+3 to 8,
     // then the outer PE folded the whole thing
-    common::assert_exact_output(&residual, "8");
+    common::assert_user_exact_output(&residual, "8");
 }
 
 /// Genuine P2 with dynamic target: PE specializes a mid-size PE (with
@@ -10691,13 +11542,23 @@ fn genuine_p2_dynamic_target_produces_compiler() {
     let encoded = logicaffeine_compile::compile::encode_program_source(&program).unwrap();
 
     let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    let result = common::run_logos(&combined);
-    assert!(result.success, "Genuine P2 with dynamic target must compile: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&combined);
+    assert!(
+        result.success,
+        "Genuine P2 with dynamic target must compile: {}",
+        result.stderr
+    );
 
     let residual = result.stdout.trim();
-    eprintln!("Genuine P2 (midi-PE, dynamic target) residual:\n{}", residual);
+    eprintln!(
+        "Genuine P2 (midi-PE, dynamic target) residual:\n{}",
+        residual
+    );
 
     // The residual must reference the dynamic target
     assert!(
@@ -10709,7 +11570,10 @@ fn genuine_p2_dynamic_target_produces_compiler() {
     // Count original Inspect nodes vs residual
     let original_inspects = program.matches("Inspect ").count();
     let residual_inspects = residual.matches("Inspect ").count();
-    eprintln!("Original Inspects: {}, Residual Inspects: {}", original_inspects, residual_inspects);
+    eprintln!(
+        "Original Inspects: {}, Residual Inspects: {}",
+        original_inspects, residual_inspects
+    );
 
     // The residual should NOT contain midiPE function definitions
     // (they were inlined by the outer PE)
@@ -10764,7 +11628,8 @@ fn genuine_p2_pe_mini_full_scale_dynamic_target() {
     let start = std::time::Instant::now();
     let encoded = logicaffeine_compile::compile::encode_program_source_compact(&program).unwrap();
     let encode_time = start.elapsed();
-    eprintln!("pe_mini compact encoding: {} bytes, {} lines, {:?}",
+    eprintln!(
+        "pe_mini compact encoding: {} bytes, {} lines, {:?}",
         encoded.len(),
         encoded.lines().count(),
         encode_time
@@ -10794,16 +11659,20 @@ fn genuine_p2_pe_mini_full_scale_dynamic_target() {
     Set output to "{output}## Main{nl}{mainSrc}".
     Show output.
 "#;
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe, decompile, encoded, driver
+    );
 
-    eprintln!("Combined source: {} bytes, {} lines",
+    eprintln!(
+        "Combined source: {} bytes, {} lines",
         combined.len(),
         combined.lines().count()
     );
 
     // Run PE(pe_source, pe_mini(targetExpr))
     let start = std::time::Instant::now();
-    let result = common::run_logos(&combined);
+    let result = common::run_bootstrap_logos(&combined);
     let total_time = start.elapsed();
     eprintln!("PE(pe_source, pe_mini) total time: {:?}", total_time);
 
@@ -10814,8 +11683,14 @@ fn genuine_p2_pe_mini_full_scale_dynamic_target() {
     );
 
     let residual = result.stdout.trim();
-    eprintln!("Genuine P2 (pe_mini, dynamic target) residual length: {} chars", residual.len());
-    eprintln!("Residual (first 5000 chars):\n{}", &residual[..residual.len().min(5000)]);
+    eprintln!(
+        "Genuine P2 (pe_mini, dynamic target) residual length: {} chars",
+        residual.len()
+    );
+    eprintln!(
+        "Residual (first 5000 chars):\n{}",
+        &residual[..residual.len().min(5000)]
+    );
 
     // The residual must reference the dynamic target
     assert!(
@@ -10857,13 +11732,17 @@ fn genuine_p2_residual_fewer_inspects_than_pe() {
     let pe_inspects = pe_source.matches("Inspect ").count();
     let genuine_inspects = genuine.matches("Inspect ").count();
 
-    eprintln!("PE source: {} Inspects, Genuine P2: {} Inspects", pe_inspects, genuine_inspects);
+    eprintln!(
+        "PE source: {} Inspects, Genuine P2: {} Inspects",
+        pe_inspects, genuine_inspects
+    );
 
     assert!(
         genuine_inspects < pe_inspects,
         "Genuine P2 ({} Inspects) must have fewer Inspects than PE ({} Inspects).\n\
          This proves The Trick: PE's own constructor dispatch is partially evaluated away.",
-        genuine_inspects, pe_inspects
+        genuine_inspects,
+        pe_inspects
     );
 }
 
@@ -10891,12 +11770,16 @@ fn genuine_p2_residual_smaller_than_pe() {
     let pe_lines = pe_source.lines().count();
     let genuine_lines = genuine.lines().count();
 
-    eprintln!("PE source: {} lines, Genuine P2: {} lines", pe_lines, genuine_lines);
+    eprintln!(
+        "PE source: {} lines, Genuine P2: {} lines",
+        pe_lines, genuine_lines
+    );
 
     assert!(
         genuine_lines < pe_lines,
         "Genuine P2 ({} lines) must be smaller than PE source ({} lines)",
-        genuine_lines, pe_lines
+        genuine_lines,
+        pe_lines
     );
 }
 
@@ -10951,8 +11834,11 @@ fn genuine_p3_self_application_completes() {
         !genuine.is_empty(),
         "Genuine P3 must produce non-empty output"
     );
-    eprintln!("Genuine P3 output length: {} chars, {} lines",
-        genuine.len(), genuine.lines().count());
+    eprintln!(
+        "Genuine P3 output length: {} chars, {} lines",
+        genuine.len(),
+        genuine.lines().count()
+    );
 }
 
 /// Genuine P3 residual has fewer Inspects than PE source.
@@ -10965,13 +11851,17 @@ fn genuine_p3_residual_fewer_inspects_than_pe() {
     let pe_inspects = pe_source.matches("Inspect ").count();
     let genuine_inspects = genuine.matches("Inspect ").count();
 
-    eprintln!("PE source: {} Inspects, Genuine P3: {} Inspects", pe_inspects, genuine_inspects);
+    eprintln!(
+        "PE source: {} Inspects, Genuine P3: {} Inspects",
+        pe_inspects, genuine_inspects
+    );
 
     assert!(
         genuine_inspects < pe_inspects,
         "Genuine P3 ({} Inspects) must have fewer Inspects than PE ({} Inspects).\n\
          This proves The Trick at the P3 level.",
-        genuine_inspects, pe_inspects
+        genuine_inspects,
+        pe_inspects
     );
 }
 
@@ -10984,12 +11874,16 @@ fn genuine_p3_residual_smaller_than_pe() {
     let pe_lines = pe_source.lines().count();
     let genuine_lines = genuine.lines().count();
 
-    eprintln!("PE source: {} lines, Genuine P3: {} lines", pe_lines, genuine_lines);
+    eprintln!(
+        "PE source: {} lines, Genuine P3: {} lines",
+        pe_lines, genuine_lines
+    );
 
     assert!(
         genuine_lines < pe_lines,
         "Genuine P3 ({} lines) must be smaller than PE source ({} lines)",
-        genuine_lines, pe_lines
+        genuine_lines,
+        pe_lines
     );
 }
 
@@ -11054,11 +11948,24 @@ fn genuine_p3_p2_pe_size_ordering() {
     let p2_lines = p2.lines().count();
     let p3_lines = p3.lines().count();
 
-    eprintln!("PE: {} lines, P2: {} lines, P3: {} lines", pe_lines, p2_lines, p3_lines);
+    eprintln!(
+        "PE: {} lines, P2: {} lines, P3: {} lines",
+        pe_lines, p2_lines, p3_lines
+    );
 
     // Both P2 and P3 must be smaller than PE
-    assert!(p2_lines < pe_lines, "P2 ({}) must be smaller than PE ({})", p2_lines, pe_lines);
-    assert!(p3_lines < pe_lines, "P3 ({}) must be smaller than PE ({})", p3_lines, pe_lines);
+    assert!(
+        p2_lines < pe_lines,
+        "P2 ({}) must be smaller than PE ({})",
+        p2_lines,
+        pe_lines
+    );
+    assert!(
+        p3_lines < pe_lines,
+        "P3 ({}) must be smaller than PE ({})",
+        p3_lines,
+        pe_lines
+    );
 }
 
 // ============================================================
@@ -11075,12 +11982,12 @@ fn genuine_p2_no_generic_dispatch_definitions() {
 
     // Generic peExprM/peBlockM definitions should NOT exist
     // Only specialized variants like peExprM_d_vPEMiniR_... should appear
-    let has_generic_peExprM = genuine.lines().any(|l| {
-        l.starts_with("## To peExprM ") && !l.contains("_")
-    });
-    let has_generic_peBlockM = genuine.lines().any(|l| {
-        l.starts_with("## To peBlockM ") && !l.contains("_")
-    });
+    let has_generic_peExprM = genuine
+        .lines()
+        .any(|l| l.starts_with("## To peExprM ") && !l.contains("_"));
+    let has_generic_peBlockM = genuine
+        .lines()
+        .any(|l| l.starts_with("## To peBlockM ") && !l.contains("_"));
 
     assert!(
         !has_generic_peExprM,
@@ -11099,12 +12006,12 @@ fn genuine_p3_no_generic_dispatch_definitions() {
     let genuine = logicaffeine_compile::compile::genuine_projection3_residual()
         .expect("Genuine P3 must complete");
 
-    let has_generic_peExprB = genuine.lines().any(|l| {
-        l.starts_with("## To peExprB ") && !l.contains("_")
-    });
-    let has_generic_peBlockB = genuine.lines().any(|l| {
-        l.starts_with("## To peBlockB ") && !l.contains("_")
-    });
+    let has_generic_peExprB = genuine
+        .lines()
+        .any(|l| l.starts_with("## To peExprB ") && !l.contains("_"));
+    let has_generic_peBlockB = genuine
+        .lines()
+        .any(|l| l.starts_with("## To peBlockB ") && !l.contains("_"));
 
     assert!(
         !has_generic_peExprB,
@@ -11157,7 +12064,10 @@ fn genuine_p3_no_decompile_placeholders() {
 
 #[test]
 fn diag_encoded_list_index_len() {
-    run_encoded_program("## Main\nLet xs be [10, 20, 30].\nShow length of xs.\nShow item 2 of xs.", "3\n20");
+    run_encoded_program(
+        "## Main\nLet xs be [10, 20, 30].\nShow length of xs.\nShow item 2 of xs.",
+        "3\n20",
+    );
 }
 
 #[test]
@@ -11174,7 +12084,10 @@ fn diag_encoded_option() {
 #[test]
 fn diag_encoded_map_ops() {
     // Test function calls with multiple args (exercises CCall with multiple params)
-    run_encoded_program("## To add (a: Int) and (b: Int) -> Int:\n    Return a + b.\n\n## Main\nShow add(10, 20).", "30");
+    run_encoded_program(
+        "## To add (a: Int) and (b: Int) -> Int:\n    Return a + b.\n\n## Main\nShow add(10, 20).",
+        "30",
+    );
 }
 
 #[test]
@@ -11195,7 +12108,10 @@ fn diag_encoded_repeat_collection() {
 
 #[test]
 fn diag_encoded_set_index() {
-    run_encoded_program("## Main\nLet xs be [1, 2, 3].\nSet item 2 of xs to 99.\nShow item 2 of xs.", "99");
+    run_encoded_program(
+        "## Main\nLet xs be [1, 2, 3].\nSet item 2 of xs to 99.\nShow item 2 of xs.",
+        "99",
+    );
 }
 
 #[test]
@@ -11205,7 +12121,10 @@ fn diag_encoded_nested_repeat() {
 
 #[test]
 fn diag_encoded_increase_decrease() {
-    run_encoded_program("## Main\nLet mutable x be 10.\nSet x to x + 5.\nShow x.\nSet x to x - 3.\nShow x.", "15\n12");
+    run_encoded_program(
+        "## Main\nLet mutable x be 10.\nSet x to x + 5.\nShow x.\nSet x to x - 3.\nShow x.",
+        "15\n12",
+    );
 }
 
 // ============================================================
@@ -11678,9 +12597,11 @@ fn jones_p2_no_pe_source_specresults() {
 fn jones_p2_no_pe_source_onstack() {
     let p2 = get_p2_genuine();
     // Check for pe_source's bare "onStack" (not pe_mini's "onStackM")
-    let bare_count = p2.source.match_indices("onStack").filter(|(idx, _)| {
-        p2.source.as_bytes().get(idx + 7) != Some(&b'M')
-    }).count();
+    let bare_count = p2
+        .source
+        .match_indices("onStack")
+        .filter(|(idx, _)| p2.source.as_bytes().get(idx + 7) != Some(&b'M'))
+        .count();
     assert_eq!(
         bare_count, 0,
         "P2 compiler should not contain pe_source's bare 'onStack' (found {})",
@@ -11698,7 +12619,8 @@ fn jones_p2_smaller_than_pe() {
     assert!(
         p2.len() < pe.len(),
         "P2 ({} bytes) must be smaller than PE ({} bytes) — specialization removes overhead.",
-        p2.len(), pe.len()
+        p2.len(),
+        pe.len()
     );
 }
 
@@ -11710,7 +12632,8 @@ fn jones_p3_smaller_than_pe() {
     assert!(
         p3.len() < pe.len(),
         "P3 ({} bytes) must be smaller than PE ({} bytes) — specialization removes overhead.",
-        p3.len(), pe.len()
+        p3.len(),
+        pe.len()
     );
 }
 
@@ -11727,7 +12650,8 @@ fn jones_p2_fewer_inspects_than_pe_source() {
         p2_inspects < pe_inspects,
         "P2 ({}) must have strictly fewer Inspects than PE ({}).\n\
          Specialization should eliminate pe_mini's dispatch overhead.",
-        p2_inspects, pe_inspects
+        p2_inspects,
+        pe_inspects
     );
 }
 
@@ -11742,7 +12666,8 @@ fn jones_p3_fewer_inspects_than_pe_source() {
         p3_inspects < pe_inspects,
         "P3 ({}) must have strictly fewer Inspects than PE ({}).\n\
          Specialization should eliminate pe_bti's dispatch overhead.",
-        p3_inspects, pe_inspects
+        p3_inspects,
+        pe_inspects
     );
 }
 
@@ -11751,29 +12676,65 @@ fn jones_p3_fewer_inspects_than_pe_source() {
 #[test]
 fn jones_pe_mini_has_function_specialization() {
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    assert!(pe_mini.contains("hasSomeStatic"), "pe_mini must detect mixed static/dynamic args");
-    assert!(pe_mini.contains("hasSomeDynamic"), "pe_mini must detect mixed static/dynamic args");
-    assert!(pe_mini.contains("dynParams"), "pe_mini must create specialized functions with dynamic-only params");
-    assert!(pe_mini.contains("makeCycleKeyM"), "pe_mini must generate unique specialization keys");
+    assert!(
+        pe_mini.contains("hasSomeStatic"),
+        "pe_mini must detect mixed static/dynamic args"
+    );
+    assert!(
+        pe_mini.contains("hasSomeDynamic"),
+        "pe_mini must detect mixed static/dynamic args"
+    );
+    assert!(
+        pe_mini.contains("dynParams"),
+        "pe_mini must create specialized functions with dynamic-only params"
+    );
+    assert!(
+        pe_mini.contains("makeCycleKeyM"),
+        "pe_mini must generate unique specialization keys"
+    );
 }
 
 #[test]
 fn jones_pe_mini_has_cycle_detection() {
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    assert!(pe_mini.contains("onStackM"), "pe_mini must have cycle detection via onStackM");
-    assert!(pe_mini.contains("osHitM"), "pe_mini must check for recursive specialization cycles");
+    assert!(
+        pe_mini.contains("onStackM"),
+        "pe_mini must have cycle detection via onStackM"
+    );
+    assert!(
+        pe_mini.contains("osHitM"),
+        "pe_mini must check for recursive specialization cycles"
+    );
 }
 
 #[test]
 fn jones_pe_mini_has_compound_static_recognition() {
     let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
-    assert!(pe_mini.contains("isStaticM"), "pe_mini must have isStaticM predicate");
-    assert!(pe_mini.contains("isStaticValueM"), "pe_mini must have isStaticValueM predicate");
-    assert!(pe_mini.contains("allStaticM"), "pe_mini must have allStaticM predicate");
+    assert!(
+        pe_mini.contains("isStaticM"),
+        "pe_mini must have isStaticM predicate"
+    );
+    assert!(
+        pe_mini.contains("isStaticValueM"),
+        "pe_mini must have isStaticValueM predicate"
+    );
+    assert!(
+        pe_mini.contains("allStaticM"),
+        "pe_mini must have allStaticM predicate"
+    );
     // Verify isStaticM recognizes compound types
-    assert!(pe_mini.contains("CNewVariant"), "pe_mini's isStaticM must handle CNewVariant");
-    assert!(pe_mini.contains("CTuple"), "pe_mini's isStaticM must handle CTuple");
-    assert!(pe_mini.contains("CNew"), "pe_mini's isStaticM must handle CNew");
+    assert!(
+        pe_mini.contains("CNewVariant"),
+        "pe_mini's isStaticM must handle CNewVariant"
+    );
+    assert!(
+        pe_mini.contains("CTuple"),
+        "pe_mini's isStaticM must handle CTuple"
+    );
+    assert!(
+        pe_mini.contains("CNew"),
+        "pe_mini's isStaticM must handle CNew"
+    );
 }
 
 // --- L.7: P2/P3 behavioral correctness (cross-projection equivalence) ---
@@ -11784,7 +12745,10 @@ fn jones_p1_p2_equivalence_factorial() {
     let p2_out = run_via_p2_real("## To f (n: Int) -> Int:\n    If n is at most 1:\n        Return 1.\n    Return n * f(n - 1).\n\n## Main\nShow f(5).");
     assert_eq!(p1_out, "120", "P1 factorial");
     assert_eq!(p2_out, "120", "P2 factorial");
-    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for factorial.");
+    assert_eq!(
+        p1_out, p2_out,
+        "P1 and P2 must produce identical output for factorial."
+    );
 }
 
 #[test]
@@ -11793,7 +12757,10 @@ fn jones_p1_p2_equivalence_fibonacci() {
     let p2_out = run_via_p2_real("## To fib (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    If n equals 1:\n        Return 1.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nShow fib(10).");
     assert_eq!(p1_out, "55", "P1 fibonacci");
     assert_eq!(p2_out, "55", "P2 fibonacci");
-    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for fibonacci.");
+    assert_eq!(
+        p1_out, p2_out,
+        "P1 and P2 must produce identical output for fibonacci."
+    );
 }
 
 #[test]
@@ -11803,7 +12770,10 @@ fn jones_p1_p2_equivalence_string_concat() {
     let p2_out = run_via_p2_real(prog);
     assert_eq!(p1_out, "hello world");
     assert_eq!(p2_out, "hello world");
-    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for string concat.");
+    assert_eq!(
+        p1_out, p2_out,
+        "P1 and P2 must produce identical output for string concat."
+    );
 }
 
 #[test]
@@ -11813,7 +12783,10 @@ fn jones_p1_p2_equivalence_control_flow() {
     let p2_out = run_via_p2_real(prog);
     assert_eq!(p1_out, "55");
     assert_eq!(p2_out, "55");
-    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for while loop.");
+    assert_eq!(
+        p1_out, p2_out,
+        "P1 and P2 must produce identical output for while loop."
+    );
 }
 
 #[test]
@@ -11823,7 +12796,10 @@ fn jones_p1_p2_equivalence_collections() {
     let p2_out = run_via_p2_real(prog);
     assert_eq!(p1_out, "20\n3");
     assert_eq!(p2_out, "20\n3");
-    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for collections.");
+    assert_eq!(
+        p1_out, p2_out,
+        "P1 and P2 must produce identical output for collections."
+    );
 }
 
 // --- L.8: P2/P3 correctness on diverse programs ---
@@ -11896,7 +12872,8 @@ fn jones_decompiler_emits_real_types() {
 #[test]
 fn jones_encoding_preserves_types() {
     // Encode a function and verify the output contains paramTypes and returnType
-    let program = "## To add (x: Int) and (y: Int) -> Int:\n    Return x + y.\n\n## Main\nShow add(1, 2).";
+    let program =
+        "## To add (x: Int) and (y: Int) -> Int:\n    Return x + y.\n\n## Main\nShow add(1, 2).";
     let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
     assert!(
         encoded.contains("paramTypes"),
@@ -11948,7 +12925,9 @@ fn jones_p2_block_handler_has_pe_logic() {
 fn jones_p3_block_handler_has_pe_logic() {
     let p3 = get_p3_genuine();
     assert!(
-        p3.source.contains("hasReturn") || p3.source.contains("hasReturn_") || p3.source.contains("hasReturnB"),
+        p3.source.contains("hasReturn")
+            || p3.source.contains("hasReturn_")
+            || p3.source.contains("hasReturnB"),
         "P3 block handler must include PE's hasReturn logic — proves it's PE-generated."
     );
 }
@@ -12052,10 +13031,16 @@ fn run_crdt_via_dialect(program: &str, pe_source: &str, types: &str, pe_block_fn
         "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be {}(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n",
         pe_block_fn
     );
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_source, decompile, encoded, driver);
-    let pe_result = common::run_logos(&combined);
-    assert!(pe_result.success, "{} PE step failed on CRDT program: {}", pe_block_fn, pe_result.stderr);
-    let residual_source = pe_result.stdout.trim();
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        types, pe_source, decompile, encoded, driver
+    );
+    let pe_result = logicaffeine_compile::semantics::collections::with_reference_semantics(|| {
+        logicaffeine_compile::compile::run_logos_source(&combined)
+    });
+    let pe_stdout = pe_result
+        .unwrap_or_else(|e| panic!("{} PE step failed on CRDT program: {}", pe_block_fn, e));
+    let residual_source = pe_stdout.trim();
     let runnable = crdt_prepend_defs(program, residual_source);
     // Run the residual on the tree-walker — the same semantic oracle the PE
     // differential corpus uses (`run_p1` → `interpret_program`). The Logos PE's
@@ -12086,9 +13071,18 @@ fn run_crdt_via_pe_bti(program: &str) -> String {
 fn crdt_force_dynamic_handler_in_all_pe_dialects() {
     let dialects = [
         ("pe_source", logicaffeine_compile::compile::pe_source_text()),
-        ("pe_mini", logicaffeine_compile::compile::pe_mini_source_text()),
-        ("pe_bti", logicaffeine_compile::compile::pe_bti_source_text()),
-        ("decompile", logicaffeine_compile::compile::decompile_source_text()),
+        (
+            "pe_mini",
+            logicaffeine_compile::compile::pe_mini_source_text(),
+        ),
+        (
+            "pe_bti",
+            logicaffeine_compile::compile::pe_bti_source_text(),
+        ),
+        (
+            "decompile",
+            logicaffeine_compile::compile::decompile_source_text(),
+        ),
     ];
     for (name, src) in dialects {
         assert!(
@@ -12113,7 +13107,10 @@ fn __dump_crdt_mini_rust() {
         "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be {}(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n",
         "peBlockM"
     );
-    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe_mini, decompile, encoded, driver);
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES, pe_mini, decompile, encoded, driver
+    );
     match logicaffeine_compile::compile::compile_to_rust(&combined) {
         Ok(rust) => std::fs::write("/tmp/crdt_gen.rs", rust).unwrap(),
         Err(e) => std::fs::write("/tmp/crdt_gen.rs", format!("COMPILE ERROR: {:?}", e)).unwrap(),
@@ -12122,26 +13119,38 @@ fn __dump_crdt_mini_rust() {
 
 #[test]
 fn crdt_mini_pe_counter_end_to_end() {
-    assert_eq!(run_crdt_via_pe_mini(CRDT_COUNTER_PROG), "70",
-        "pe_mini must residualize a Shared-struct Tally counter to a correct program");
+    assert_eq!(
+        run_crdt_via_pe_mini(CRDT_COUNTER_PROG),
+        "70",
+        "pe_mini must residualize a Shared-struct Tally counter to a correct program"
+    );
 }
 
 #[test]
 fn crdt_mini_pe_set_end_to_end() {
-    assert_eq!(run_crdt_via_pe_mini(CRDT_SET_PROG), "found\n1",
-        "pe_mini must residualize a Shared-struct OR-Set to a correct program");
+    assert_eq!(
+        run_crdt_via_pe_mini(CRDT_SET_PROG),
+        "found\n1",
+        "pe_mini must residualize a Shared-struct OR-Set to a correct program"
+    );
 }
 
 #[test]
 fn crdt_bti_pe_counter_end_to_end() {
-    assert_eq!(run_crdt_via_pe_bti(CRDT_COUNTER_PROG), "70",
-        "pe_bti must residualize a Shared-struct Tally counter to a correct program");
+    assert_eq!(
+        run_crdt_via_pe_bti(CRDT_COUNTER_PROG),
+        "70",
+        "pe_bti must residualize a Shared-struct Tally counter to a correct program"
+    );
 }
 
 #[test]
 fn crdt_bti_pe_set_end_to_end() {
-    assert_eq!(run_crdt_via_pe_bti(CRDT_SET_PROG), "found\n1",
-        "pe_bti must residualize a Shared-struct OR-Set to a correct program");
+    assert_eq!(
+        run_crdt_via_pe_bti(CRDT_SET_PROG),
+        "found\n1",
+        "pe_bti must residualize a Shared-struct OR-Set to a correct program"
+    );
 }
 
 // ── Lockstep: tree-walker ground truth == full PE == mini PE == bti PE ───────
@@ -12166,12 +13175,24 @@ fn crdt_all_pe_dialects_agree() {
             .expect("tree-walker ground truth must run")
             .trim()
             .to_string();
-        assert_eq!(run_crdt_via_full_pe(prog), truth,
-            "genuine full PE diverged from tree-walker for:\n{}", prog);
-        assert_eq!(run_crdt_via_pe_mini(prog), truth,
-            "pe_mini diverged from tree-walker for:\n{}", prog);
-        assert_eq!(run_crdt_via_pe_bti(prog), truth,
-            "pe_bti diverged from tree-walker for:\n{}", prog);
+        assert_eq!(
+            run_crdt_via_full_pe(prog),
+            truth,
+            "genuine full PE diverged from tree-walker for:\n{}",
+            prog
+        );
+        assert_eq!(
+            run_crdt_via_pe_mini(prog),
+            truth,
+            "pe_mini diverged from tree-walker for:\n{}",
+            prog
+        );
+        assert_eq!(
+            run_crdt_via_pe_bti(prog),
+            truth,
+            "pe_bti diverged from tree-walker for:\n{}",
+            prog
+        );
     }
 }
 
@@ -12190,8 +13211,12 @@ fn pe_bti_direct_residual_count(setup_stmts: &str) -> usize {
          Show length of residual.\n",
         types, pe_bti, setup_stmts
     );
-    let result = common::run_logos(&source);
-    assert!(result.success, "pe_bti direct test failed: {}", result.stderr);
+    let result = common::run_bootstrap_logos(&source);
+    assert!(
+        result.success,
+        "pe_bti direct test failed: {}",
+        result.stderr
+    );
     result.stdout.trim().parse::<usize>().unwrap_or(0)
 }
 
@@ -12202,7 +13227,11 @@ fn pe_bti_preserves_increase_decrease() {
          Push (a new CIncrease with target \"x\" and amount (a new CInt with value 5)) to testStmts.\n\
          Push (a new CDecrease with target \"x\" and amount (a new CInt with value 3)) to testStmts.\n"
     );
-    assert_eq!(count, 2, "pe_bti must preserve CIncrease+CDecrease (got {} stmts)", count);
+    assert_eq!(
+        count, 2,
+        "pe_bti must preserve CIncrease+CDecrease (got {} stmts)",
+        count
+    );
 }
 
 #[test]
@@ -12211,7 +13240,11 @@ fn pe_bti_preserves_merge_stmt() {
         "    Let testStmts be a new Seq of CStmt.\n\
          Push (a new CMerge with target \"x\" and other (a new CVar with name \"y\")) to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_bti must preserve CMerge (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_bti must preserve CMerge (got {} stmts in residual)",
+        count
+    );
 }
 
 #[test]
@@ -12220,7 +13253,11 @@ fn pe_bti_preserves_append_to_seq() {
         "    Let testStmts be a new Seq of CStmt.\n\
          Push (a new CAppendToSeq with target \"items\" and value (a new CInt with value 42)) to testStmts.\n"
     );
-    assert_eq!(count, 1, "pe_bti must preserve CAppendToSeq (got {} stmts in residual)", count);
+    assert_eq!(
+        count, 1,
+        "pe_bti must preserve CAppendToSeq (got {} stmts in residual)",
+        count
+    );
 }
 
 // ── P2 (compiler) and P3 (cogen) must preserve + correctly run CRDT stmts ────
@@ -12252,17 +13289,27 @@ fn run_cstmts_via_compiler(build_prog: &str, compiler_src: &str, compile_fn: &st
          Let result be coreExecBlock(compiled, runEnv, funcs).\n",
         compiler_src, INTERPRETER, build_prog, compile_fn
     );
-    common::assert_exact_output(&source, expected);
+    common::assert_bootstrap_exact_output(&source, expected);
 }
 
 #[test]
 fn crdt_p2_compiler_preserves_and_runs_crdt() {
-    run_cstmts_via_compiler(CRDT_CSTMTS_COUNTER_MERGE, &get_p2_compiler(), "compileBlock", "70");
+    run_cstmts_via_compiler(
+        CRDT_CSTMTS_COUNTER_MERGE,
+        &get_p2_compiler(),
+        "compileBlock",
+        "70",
+    );
 }
 
 #[test]
 fn crdt_p3_cogen_preserves_and_runs_crdt() {
-    run_cstmts_via_compiler(CRDT_CSTMTS_COUNTER_MERGE, &get_p3_cogen(), "cogenBlock", "70");
+    run_cstmts_via_compiler(
+        CRDT_CSTMTS_COUNTER_MERGE,
+        &get_p3_cogen(),
+        "cogenBlock",
+        "70",
+    );
 }
 
 // ── Rust-native P1 (projection1_source, optimizer-shortcut) must ALSO be ─────
@@ -12275,18 +13322,27 @@ fn run_rust_native_p1(program: &str) -> String {
         .expect("Rust-native P1 must residualize the CRDT program");
     match logicaffeine_compile::compile::interpret_program(&residual) {
         Ok(out) => out.trim().to_string(),
-        Err(e) => panic!("Rust-native P1 residual did not run.\nResidual:\n{}\nError: {:?}", residual, e),
+        Err(e) => panic!(
+            "Rust-native P1 residual did not run.\nResidual:\n{}\nError: {:?}",
+            residual, e
+        ),
     }
 }
 
 #[test]
 fn crdt_rust_native_p1_counter() {
-    assert_eq!(run_rust_native_p1(CRDT_COUNTER_PROG), "70",
-        "projection1_source dropped/folded the Tally counter mutations");
+    assert_eq!(
+        run_rust_native_p1(CRDT_COUNTER_PROG),
+        "70",
+        "projection1_source dropped/folded the Tally counter mutations"
+    );
 }
 
 #[test]
 fn crdt_rust_native_p1_set() {
-    assert_eq!(run_rust_native_p1(CRDT_SET_PROG), "found\n1",
-        "projection1_source dropped/folded the OR-Set mutations");
+    assert_eq!(
+        run_rust_native_p1(CRDT_SET_PROG),
+        "found\n1",
+        "projection1_source dropped/folded the OR-Set mutations"
+    );
 }

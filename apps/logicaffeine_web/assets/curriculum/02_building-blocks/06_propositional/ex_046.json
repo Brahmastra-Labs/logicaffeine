@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're strong then you're talented, or you're cautious",
   "options": [
-    "$ (S \\supset T) \\vee C $",
-    "$ (S \\supset (T \\vee C)) $",
-    "$ S \\supset T \\vee C $",
-    "$ ((S \\supset T) \\vee C) $"
+    "(S → T) ∧ C",
+    "(S → T) → C",
+    "(S → T) ∨ ¬C",
+    "(S → T) ∨ C"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining S → T and C: (S → T) ∨ C.",
+  "section": "6.2"
 }

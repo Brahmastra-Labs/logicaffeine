@@ -9,7 +9,8 @@
 //!     Set lo to lo + 1.
 //!     Set hi to hi - 1.
 //! ```
-//! is lowered to a single slice `C[(lo-1)..hi].reverse()`. This both removes the
+//! is lowered to `C.logos_reverse_between(lo, hi)`. For valid positive bounds the helper uses
+//! one slice reversal. This both removes the
 //! per-element bounds checks (one slice check instead of N) AND lets LLVM emit a
 //! vectorized reverse (the SIMD `pshufd`/`movdqu` loop that gcc/clang generate for
 //! C's fannkuch flip), instead of a scalar swap loop whose panic branches block
@@ -90,8 +91,8 @@ Show maxFlips.
 fn prefix_reverse_fannkuch_flip_emits_reverse() {
     let rust = compile_to_rust(FANNKUCH_N7).unwrap();
     assert!(
-        rust.contains(".reverse()"),
-        "the converging-swap flip loop must lower to a slice .reverse(), got:\n{rust}"
+        rust.contains(".logos_reverse_between("),
+        "the converging-swap flip loop must lower to the checked slice-reversal helper, got:\n{rust}"
     );
 }
 
@@ -126,8 +127,8 @@ Show item 2 of a.
 fn prefix_reverse_generic_emits_reverse() {
     let rust = compile_to_rust(GENERIC_REVERSE).unwrap();
     assert!(
-        rust.contains(".reverse()"),
-        "a general in-place reversal must lower to .reverse(), got:\n{rust}"
+        rust.contains(".logos_reverse_between("),
+        "a general in-place reversal must lower to the checked slice-reversal helper, got:\n{rust}"
     );
 }
 
@@ -158,7 +159,7 @@ Show sum.
 fn prefix_reverse_skips_non_converging_loop() {
     let rust = compile_to_rust(NOT_A_REVERSE).unwrap();
     assert!(
-        !rust.contains(".reverse()"),
+        !rust.contains(".logos_reverse_between("),
         "a non-converging scan loop must not become a reverse, got:\n{rust}"
     );
     assert_exact_output(NOT_A_REVERSE, "10");

@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Triangles?",
-  "explanation": "Geometry also studies circles, angles, areas, and proofs. 'What you study in geometry' covers much more than triangles, so the definition is TOO BROAD."
+  "hint": "Can you think of something that fits this definition but is not a triangle?",
+  "explanation": "Geometry also studies circles and angles, so the definition takes in far more than triangles.",
+  "section": "3.2"
 }

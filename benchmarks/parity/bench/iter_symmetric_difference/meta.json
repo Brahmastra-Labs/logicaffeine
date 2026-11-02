@@ -1,0 +1,11 @@
+{
+  "capability": "iter.symmetric_difference",
+  "workload": "seqSymmetricDifference(xs,ys) \u2014 distinct count",
+  "arg": "20000",
+  "expected": "81760482",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "python"
+  ]
+}

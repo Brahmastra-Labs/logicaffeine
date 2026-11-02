@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Either not B or not C",
   "options": [
-    "$ (\\sim B \\vee C) $",
-    "$ \\sim(B \\vee \\sim C) $",
-    "$ (\\sim B \\vee \\sim C) $",
-    "$ \\sim B \\vee \\sim C $"
+    "¬B ∨ C",
+    "¬(B ∨ ¬C)",
+    "¬B ∨ ¬C",
+    "¬B ∧ ¬C"
   ],
   "correct": 2,
-  "hint": "How many negations do you see? Does each thing get its own 'not', or is the whole statement negated?",
-  "explanation": "Count the 'not's carefully. 'Either NOT A or NOT B' gives us (~A \u2228 ~B) \u2014 each part is individually negated. This is very different from ~(A \u2228 B), which negates the entire disjunction."
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining ¬B and ¬C: ¬B ∨ ¬C.",
+  "section": "6.2"
 }

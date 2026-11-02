@@ -1,0 +1,21 @@
+{
+  "language": "java",
+  "version": "curated (secondary reference, JDK 21 surface)",
+  "note": "Curated Java standard-library surface — secondary provenance reference for the superset. Grouped by class; the parity-relevant public methods.",
+  "modules": {
+    "java.lang.String": ["length", "isEmpty", "isBlank", "charAt", "codePointAt", "substring", "indexOf", "lastIndexOf", "contains", "startsWith", "endsWith", "split", "replace", "replaceAll", "trim", "strip", "stripLeading", "stripTrailing", "toUpperCase", "toLowerCase", "repeat", "chars", "concat", "join", "compareTo", "equals", "equalsIgnoreCase", "format", "valueOf", "toCharArray", "matches"],
+    "java.lang.Math": ["abs", "max", "min", "pow", "sqrt", "cbrt", "exp", "log", "log10", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "hypot", "floor", "ceil", "round", "rint", "signum", "copySign", "toDegrees", "toRadians", "floorDiv", "floorMod", "gcd", "addExact", "multiplyExact", "clamp", "PI", "E"],
+    "java.lang.Integer": ["parseInt", "valueOf", "toString", "toBinaryString", "toHexString", "toOctalString", "bitCount", "numberOfLeadingZeros", "numberOfTrailingZeros", "highestOneBit", "reverse", "max", "min", "signum", "compare"],
+    "java.lang.Double": ["parseDouble", "valueOf", "toString", "isNaN", "isInfinite", "isFinite", "compare", "MAX_VALUE", "MIN_VALUE"],
+    "java.lang.Character": ["isDigit", "isLetter", "isLetterOrDigit", "isWhitespace", "isUpperCase", "isLowerCase", "toUpperCase", "toLowerCase", "getNumericValue", "digit", "forDigit"],
+    "java.util.List": ["add", "get", "set", "remove", "size", "isEmpty", "contains", "indexOf", "iterator", "sort", "clear", "subList", "of", "toArray"],
+    "java.util.Map": ["put", "get", "remove", "containsKey", "containsValue", "keySet", "values", "entrySet", "size", "isEmpty", "getOrDefault", "putIfAbsent", "merge", "computeIfAbsent", "of"],
+    "java.util.Set": ["add", "remove", "contains", "size", "isEmpty", "iterator", "of"],
+    "java.util.Collections": ["sort", "reverse", "shuffle", "min", "max", "binarySearch", "frequency", "emptyList", "unmodifiableList"],
+    "java.util.Arrays": ["sort", "binarySearch", "fill", "copyOf", "asList", "stream", "equals", "toString"],
+    "java.util.Optional": ["of", "ofNullable", "empty", "isPresent", "isEmpty", "get", "orElse", "orElseGet", "map", "flatMap", "filter", "ifPresent"],
+    "java.util.stream.Stream": ["map", "filter", "reduce", "collect", "forEach", "count", "min", "max", "anyMatch", "allMatch", "findFirst", "sorted", "distinct", "limit", "skip", "flatMap"],
+    "java.time.LocalDate": ["now", "of", "parse", "plusDays", "plusMonths", "getDayOfWeek", "getYear", "getMonthValue", "getDayOfMonth", "isLeapYear", "format"],
+    "java.util.Random": ["nextInt", "nextLong", "nextDouble", "nextBoolean", "nextGaussian", "setSeed", "ints", "doubles"]
+  }
+}

@@ -12,5 +12,6 @@
   "correct": 2,
   "hint": "We're 'chaining' two conditionals together.",
   "explanation": "Hypothetical Syllogism (HS): From (P → Q) and (Q → R), derive (P → R). If P leads to Q and Q leads to R, then P leads to R. We can chain implications together.",
-  "visual_concept": "Dominoes: If A knocks down B, and B knocks down C, then A (ultimately) knocks down C."
+  "visual_concept": "Dominoes: If A knocks down B, and B knocks down C, then A (ultimately) knocks down C.",
+  "section": "7.5"
 }

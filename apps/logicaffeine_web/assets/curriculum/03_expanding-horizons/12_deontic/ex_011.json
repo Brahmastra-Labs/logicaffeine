@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Don't insult Donna",
   "options": [
-    "$ \\sim I\\underline{u} d $",
-    "$ \\sim I\\underline{d} $",
-    "$ \\sim Iud $",
-    "$ O\\sim I\\underline{u} d $"
+    "¬I(u̲, d)",
+    "¬I(d̲)",
+    "¬I(u, d)",
+    "O¬I(u̲, d)"
   ],
   "correct": 0,
-  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
-  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
+  "hint": "Who is told not to act? Underline that person's letter.",
+  "explanation": "A command to you not to insult Donna: ¬I(u̲, d).",
+  "section": "12.2"
 }

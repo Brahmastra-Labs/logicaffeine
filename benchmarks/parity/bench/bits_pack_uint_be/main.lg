@@ -1,0 +1,16 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable r be 0.
+While r is less than n:
+    Let bytes be packUintBE(r, 6).
+    Let mutable j be 1.
+    While j is at most 6:
+        Set sum to (sum + j * (item j of bytes)) % 1000000007.
+        Set j to j + 1.
+    Set r to r + 1.
+Show sum.

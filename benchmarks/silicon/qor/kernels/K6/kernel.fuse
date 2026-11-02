@@ -1,0 +1,35 @@
+// K6 simt_axpb_sum for Calyx through Dahlia: each of four lanes whose mask bit is set computes a*x+b over
+// 64-bit values, a masked lane yields 0, and the lanes sum; operands and results in memories.
+decl a: bit<64>[1];
+decl b: bit<64>[1];
+decl mask: ubit<4>[1];
+decl x: bit<64>[4];
+decl y: bit<64>[4];
+decl sum: bit<64>[1];
+let i: ubit<1> = (0 as ubit<1>);
+---
+let av: bit<64> = a[i];
+---
+let bv: bit<64> = b[i];
+---
+let mv: ubit<4> = mask[i];
+---
+let acc: bit<64> = (0 as bit<64>);
+---
+for (let lane: ubit<2> = 0..4) {
+  let xv: bit<64> = x[lane];
+  ---
+  let bit: ubit<4> = (mv >> (lane as ubit<4>)) & (1 as ubit<4>);
+  ---
+  let v: bit<64> = (0 as bit<64>);
+  ---
+  if (bit == (1 as ubit<4>)) {
+    v := av * xv + bv;
+  }
+  ---
+  y[lane] := v;
+  ---
+  acc := acc + v;
+}
+---
+sum[i] := acc;

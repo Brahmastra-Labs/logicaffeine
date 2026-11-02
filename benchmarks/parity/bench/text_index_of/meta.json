@@ -1,0 +1,13 @@
+{
+  "capability": "text.index_of",
+  "workload": "indexOf(s,'012') 1-based/0 \u2014 position shifts with prefix",
+  "arg": "60000",
+  "expected": "3390000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "5.5",
+  "title": "Analogical Reasoning",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "An argument by **analogy** reasons that two things alike in some ways are alike in another way too."
+    },
+    {
+      "type": "paragraph",
+      "text": "What matters is relevant likeness. More relevant likenesses make the argument stronger, and relevant differences make it weaker."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A fair analogy",
+      "lines": [
+        "This drug worked in mice.",
+        "Mice resemble humans in the ways that matter for this drug."
+      ],
+      "conclusion": "So it will probably work in humans."
+    },
+    {
+      "type": "worked",
+      "title": "A weak analogy",
+      "lines": [
+        "The body is like a machine.",
+        "Machines need oil changes."
+      ],
+      "conclusion": "So bodies need oil changes?",
+      "note": "The likeness has nothing to do with the conclusion."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What makes an argument from analogy stronger?",
+    "options": [
+      "More likenesses of any kind",
+      "More relevant likenesses",
+      "Things that differ a lot",
+      "Longer premises"
+    ],
+    "correct": 1,
+    "hint": "Do likenesses that have nothing to do with the conclusion help?",
+    "explanation": "Only likenesses that bear on the conclusion count. Two things both being blue does not make a drug work."
+  }
+}

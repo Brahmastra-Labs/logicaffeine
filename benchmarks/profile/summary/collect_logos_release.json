@@ -1,0 +1,11 @@
+{
+  "name": "collect",
+  "lang": "logos_release",
+  "n": "59518550",
+  "samples_weight": 28345817021,
+  "alloc_pct": 0.001,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.999
+}

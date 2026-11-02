@@ -56,13 +56,19 @@ impl BgAotCompiler {
         let (res_tx, res_rx) = std::sync::mpsc::channel::<AotResult>();
         let worker = std::thread::spawn(move || {
             while let Ok(req) = req_rx.recv() {
-                let nf = crate::compile::aot_build_function(&req.source, &req.fn_name, &req.cache_dir);
+                let nf =
+                    crate::compile::aot_build_function(&req.source, &req.fn_name, &req.cache_dir);
                 if res_tx.send(AotResult { fi: req.fi, nf }).is_err() {
                     break; // interpreter gone — stop quietly
                 }
             }
         });
-        BgAotCompiler { req_tx, res_rx, inflight: 0, _worker: worker }
+        BgAotCompiler {
+            req_tx,
+            res_rx,
+            inflight: 0,
+            _worker: worker,
+        }
     }
 
     /// Queue an AOT build. Non-blocking; the interpreter keeps running on the lower

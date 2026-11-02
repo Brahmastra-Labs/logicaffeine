@@ -1,0 +1,10 @@
+{
+  "capability": "iter.truncate",
+  "workload": "truncateSeq(xs,1000), positional fold",
+  "arg": "40000",
+  "expected": "720396000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

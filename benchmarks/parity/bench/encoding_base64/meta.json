@@ -1,0 +1,11 @@
+{
+  "capability": "encoding.base64",
+  "workload": "base64Encode(s) length fold",
+  "arg": "30000",
+  "expected": "162020400",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

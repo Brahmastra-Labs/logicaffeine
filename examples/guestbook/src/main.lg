@@ -1,0 +1,114 @@
+# Guestbook
+
+A guestbook that works with JavaScript switched off. Every page is rendered on the
+server and every change is an ordinary form POST, so this project ships no WebAssembly
+at all — the other end of the range from a reactive page in `pages/`.
+
+## A Signing has:
+    a public who, which is Text
+    a public body, which is Text
+
+## Note
+Where the book is kept. One line per signing, `who|body` — the server's PRIVATE
+format, never the wire.
+
+## To storePath () -> Text:
+    Return "guestbook.txt".
+
+## To signings () -> Seq of Signing:
+    Let mutable out be a new Seq of Signing.
+    Let mutable raw be "".
+    Inspect read(storePath()):
+        When Ok (t):
+            Set raw to t.
+        When Err (e):
+            Set raw to "".
+    Repeat for line in lines(raw):
+        If length of text_bytes(line) is greater than 0:
+            Let parts be split(line, "|").
+            If length of parts is at least 2:
+                Push (a new Signing with who (item 1 of parts) and body (item 2 of parts)) to out.
+    Return out.
+
+## To signIf (ok: Bool) and (who: Text) and (body: Text) -> Bool:
+    If ok is equal to false:
+        Return false.
+    Return sign(who, body).
+
+## To sign (who: Text) and (body: Text) -> Bool:
+    Let mutable raw be "".
+    Inspect read(storePath()):
+        When Ok (t):
+            Set raw to t.
+        When Err (e):
+            Set raw to "".
+    Set raw to raw + "{who}|{body}\n".
+    Inspect write(storePath(), raw):
+        When Ok (v):
+            Return true.
+        When Err (e):
+            Return false.
+
+## Note
+The whole site is two routes. `GET /` draws the page; the form posts to `/say`, which
+appends a line and answers with a page saying so, linking back to `/`. No JavaScript is
+involved at any point.
+
+## Note
+A visitor's session. Declaring one is what makes the router CHECK the form's token: a
+`POST` whose `_csrf` field is not the one `csrf()` minted for this visitor is answered
+`403` before `/say` runs. The token is bound to a per-visitor nonce the session carries,
+so one visitor's token is worthless to anyone else. The session also remembers the name a
+visitor last signed with, so the form offers it back.
+
+## Session
+    a name, which is Text.
+
+## Route GET / -> View:
+    <main>
+      <h1>Guestbook</h1>
+      <ul id="signings">
+        {for each s in signings():}<li><b>{s's who}</b> &mdash; {s's body}</li>{end}
+      </ul>
+      <form method="post" action="/say">
+        <input type="hidden" name="_csrf" value={csrf()}>
+        <label>Your name <input name="who" value={the session's name}></label>
+        <label>Your message <input name="body"></label>
+        <button type="submit">Sign the book</button>
+      </form>
+    </main>
+
+## Note
+What a signing answers: a page saying whether it went in, with the way back.
+
+## To answer (saved: Bool) and (who: Text) -> View:
+    <main>
+      {if saved:}
+        <h1>Signed</h1>
+        <p>Thank you, {who}.</p>
+      {else:}
+        <h1>Not signed</h1>
+        <p>Give a name and a message.</p>
+      {end}
+      <a href="/">Back to the book</a>
+    </main>
+
+## Route POST /say (who: Text) and (body: Text) -> View:
+    Let saved be signIf(who is not equal to "" and body is not equal to "", who, body).
+    If saved:
+        Set the session's name to who.
+    Return answer(saved, who).
+
+## Test: the book shows what it holds
+
+Given a file "guestbook.txt" containing "Ada|hello\n".
+Expect that route("GET", "/") contains "<li><b>Ada</b>".
+Expect that route("GET", "/") contains "hello</li>".
+
+## Test: the form carries this visitor's token
+
+Expect that route("GET", "/") contains "name=\"_csrf\"".
+
+## Main
+
+Serve on port 8080.

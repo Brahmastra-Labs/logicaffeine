@@ -4,8 +4,11 @@
 # Emits apps/logicaffeine_web/src/ui/pages/roadmap_history.json — a JSON array,
 # newest-first, of { version, date, title, tagged } — which the web app bakes at
 # compile time (see roadmap_history.rs). The CHANGELOG is the source of truth
-# (it carries dates + content and includes prepared-but-untagged releases);
-# git tags are cross-checked to set "tagged".
+# (it carries dates + content and includes prepared-but-untagged releases).
+# A release is "tagged" (published) when its git tag exists, or when it is the
+# release this tree cuts: the workspace version, rolled in the CHANGELOG with a
+# date. The JSON generated at the release commit, before `git tag`, is then
+# already right.
 #
 # Also prints a staging report: releases not yet tagged, tags with no changelog
 # entry, and commits on HEAD since the latest tag (the "what isn't on the
@@ -14,31 +17,42 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 CHANGELOG="$ROOT/CHANGELOG.md"
+WORKSPACE_VERSION="$(awk '/^\[workspace\.package\]/{p=1; next} /^\[/{p=0} p && /^version *=/{gsub(/.*= *"|".*/, ""); print; exit}' "$ROOT/Cargo.toml")"
 OUT="$ROOT/apps/logicaffeine_web/src/ui/pages/roadmap_history.json"
 
 # --- Parse CHANGELOG into "version<TAB>date<TAB>title-source" records ---------
 # For each "## [x.y.z] - YYYY-MM-DD" block, the title source is the first
-# meaningful line: the first bullet of the first section, or a prose preamble
-# (e.g. "First public release.", "(skipped — …)").
+# meaningful line in `### Highlights` when that section exists. Otherwise it
+# falls back to the first bullet of the first section, or a prose preamble
+# (e.g. "First public release.", "(skipped — …)"). This keeps a late release
+# fix from silently replacing the curated roadmap headline.
 records="$(awk '
+  function emit() {
+    if (ver != "" && ver != "Unreleased") {
+      title = highlight != "" ? highlight : fallback
+      print ver "\t" date "\t" title
+    }
+  }
   /^## \[/ {
-    if (ver != "" && ver != "Unreleased") print ver "\t" date "\t" title
+    emit()
     line = $0
     ver = line; sub(/^## \[/, "", ver); sub(/\].*/, "", ver)
     date = line; if (line ~ /\] - /) { date = line; sub(/.*\] - /, "", date) } else { date = "" }
-    title = ""; want = 1
+    fallback = ""; highlight = ""; in_highlights = 0
+    next
+  }
+  /^### / {
+    in_highlights = ($0 == "### Highlights")
     next
   }
   {
-    if (want == 1) {
-      l = $0
-      if (l ~ /^[[:space:]]*$/) next     # skip blank lines
-      if (l ~ /^### /) next              # skip section headers
-      sub(/^- /, "", l)                  # strip a bullet marker if present
-      title = l; want = 0
-    }
+    l = $0
+    if (l ~ /^[[:space:]]*$/) next       # skip blank lines
+    sub(/^- /, "", l)                    # strip a bullet marker if present
+    if (fallback == "") fallback = l
+    if (in_highlights && highlight == "") highlight = l
   }
-  END { if (ver != "" && ver != "Unreleased") print ver "\t" date "\t" title }
+  END { emit() }
 ' "$CHANGELOG")"
 
 # --- Derive a brief, clean headline from a title source ----------------------
@@ -82,7 +96,11 @@ EOF
 while IFS=$'\t' read -r ver date tsrc; do
   [[ -z "$ver" ]] && continue
   title="$(clean_title "$tsrc")"
-  if [[ -n "$(git -C "$ROOT" tag -l "v$ver")" ]]; then tagged=true; else tagged=false; fi
+  if [[ -n "$(git -C "$ROOT" tag -l "v$ver")" ]] || [[ "$ver" == "$WORKSPACE_VERSION" && -n "$date" ]]; then
+    tagged=true
+  else
+    tagged=false
+  fi
   if grep -qx "$ver" <<< "$MAINTENANCE"; then maint=true; else maint=false; fi
   jq -n --arg v "$ver" --arg d "$date" --arg t "$title" --argjson g "$tagged" --argjson m "$maint" \
      '{version: $v, date: $d, title: $t, tagged: $g, maintenance: $m}'

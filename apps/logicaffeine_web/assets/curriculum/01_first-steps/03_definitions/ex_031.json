@@ -2,17 +2,18 @@
   "id": "Q_3.40",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "A lie is a falsehood that you assert to be true.",
+  "prompt": "A lie is any statement that turns out to be false.",
   "options": [
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a lie?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+  "hint": "Can you think of something that fits this definition but is not a lie?",
+  "explanation": "An honest mistake turns out false, but it is not a lie. The definition lets in too much.",
+  "section": "3.2"
 }

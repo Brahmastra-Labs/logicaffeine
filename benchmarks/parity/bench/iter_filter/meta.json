@@ -1,0 +1,11 @@
+{
+  "capability": "iter.filter",
+  "workload": "filterSeq((n)->n>500000, xs) \u2014 count kept",
+  "arg": "40000",
+  "expected": "4388812",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

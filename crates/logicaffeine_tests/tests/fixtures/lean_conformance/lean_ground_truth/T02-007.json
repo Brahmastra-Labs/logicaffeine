@@ -1,0 +1,54 @@
+{
+  "case": "T02-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_007.collatzSteps",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T02_007.isEvenP",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T02_007.isEvenStruct",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192\n  (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 (Unit \u2192 motive 1) \u2192 ((k : Nat) \u2192 motive k.succ.succ) \u2192 motive x",
+      "name": "T02_007.isEvenStruct.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T02_007.isOddP",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_007.spin",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

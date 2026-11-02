@@ -13,7 +13,9 @@ fn simon_doc(goal: &str) -> String {
     doc.push_str("Given: 2001, 2002, 2003, and 2004 are four different years.\n");
     doc.push_str("Given: Connecticut, Florida, Kentucky, and Maine are four different states.\n");
     doc.push_str("Given: Bill, Lillie, Neal, and Yvonne are four different friends.\n");
-    doc.push_str("Given: Cycling, hunting, kayaking, and skydiving are four different activities.\n");
+    doc.push_str(
+        "Given: Cycling, hunting, kayaking, and skydiving are four different activities.\n",
+    );
     for (prep, items) in [
         ("in", ["2001", "2002", "2003", "2004"]),
         ("in", ["Connecticut", "Florida", "Kentucky", "Maine"]),

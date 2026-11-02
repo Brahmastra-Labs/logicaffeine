@@ -1,0 +1,11 @@
+{
+  "capability": "iter.concat",
+  "workload": "concatSeq(xs,ys), positional fold",
+  "arg": "30000",
+  "expected": "449985000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "python"
+  ]
+}

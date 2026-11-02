@@ -1,11 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-use tower_lsp::lsp_types::{
-    SemanticToken, SemanticTokenType, SemanticTokensLegend, SemanticTokenModifier,
-};
+use lsp_types::{SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend};
 
-use logicaffeine_language::token::{BlockType, Span, Token, TokenType};
+use logicaffeine_language::token::{BlockType, RawKind, Span, Token, TokenType};
 
 use crate::document::DocumentState;
 use crate::index::DefinitionKind;
@@ -15,19 +13,24 @@ use crate::line_index::LineIndex;
 /// The legend is APPEND-ONLY — indices are a wire contract with client themes
 /// (pinned by `tests/locks.rs`).
 pub const TOKEN_TYPES: &[SemanticTokenType] = &[
-    SemanticTokenType::KEYWORD,    // 0
-    SemanticTokenType::TYPE,       // 1
-    SemanticTokenType::FUNCTION,   // 2
-    SemanticTokenType::VARIABLE,   // 3
-    SemanticTokenType::STRING,     // 4
-    SemanticTokenType::NUMBER,     // 5
-    SemanticTokenType::OPERATOR,   // 6
-    SemanticTokenType::NAMESPACE,  // 7
-    SemanticTokenType::MODIFIER,   // 8
-    SemanticTokenType::PROPERTY,   // 9
-    SemanticTokenType::COMMENT,    // 10
-    SemanticTokenType::PARAMETER,  // 11
+    SemanticTokenType::KEYWORD,     // 0
+    SemanticTokenType::TYPE,        // 1
+    SemanticTokenType::FUNCTION,    // 2
+    SemanticTokenType::VARIABLE,    // 3
+    SemanticTokenType::STRING,      // 4
+    SemanticTokenType::NUMBER,      // 5
+    SemanticTokenType::OPERATOR,    // 6
+    SemanticTokenType::NAMESPACE,   // 7
+    SemanticTokenType::MODIFIER,    // 8
+    SemanticTokenType::PROPERTY,    // 9
+    SemanticTokenType::COMMENT,     // 10
+    SemanticTokenType::PARAMETER,   // 11
     SemanticTokenType::ENUM_MEMBER, // 12
+    // A template's element names and plain attribute names. No standard type exists for either;
+    // the VS Code manifest maps both onto the TextMate scopes an HTML grammar uses, so a theme
+    // paints them as it paints HTML.
+    SemanticTokenType::new("tag"),       // 13
+    SemanticTokenType::new("attribute"), // 14
 ];
 
 pub const TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
@@ -50,6 +53,8 @@ pub const TYPE_PROPERTY: u32 = 9;
 pub const TYPE_COMMENT: u32 = 10;
 pub const TYPE_PARAMETER: u32 = 11;
 pub const TYPE_ENUM_MEMBER: u32 = 12;
+pub const TYPE_TAG: u32 = 13;
+pub const TYPE_ATTRIBUTE: u32 = 14;
 
 pub const MOD_DECLARATION: u32 = 1 << 0;
 pub const MOD_READONLY: u32 = 1 << 1;
@@ -81,7 +86,9 @@ pub fn encode_document_tokens(doc: &DocumentState) -> Vec<SemanticToken> {
 /// The classified paint spans for the document: one per token, EXCEPT
 /// interpolated strings, whose `{expr}` interiors expand into real code
 /// spans — string segments stay strings, braces paint as operators, and the
-/// interior re-lexes and resolves against the document's own index.
+/// interior re-lexes and resolves against the document's own index — and a
+/// `View:` / `Head:` body, which is painted by its own grammar
+/// ([`paint_template`]).
 fn paint_spans(
     doc: &DocumentState,
     overlay: &ResolutionOverlay,
@@ -94,10 +101,18 @@ fn paint_spans(
                 continue;
             }
         }
+        if let TokenType::RawBlock { kind, .. } = token.kind {
+            if matches!(kind, RawKind::View | RawKind::Head) {
+                paint_template(doc, overlay, token.span, &mut spans);
+            }
+            continue;
+        }
         let (token_type, modifiers) = overlay.classify(token, doc);
-        let Some(token_type) = token_type else { continue };
+        let Some(token_type) = token_type else {
+            continue;
+        };
         if matches!(token.kind, TokenType::InterpolatedString(_)) && token_type == TYPE_STRING {
-            expand_interpolation(doc, token, &mut spans);
+            expand_interpolation(doc, overlay, token, &mut spans);
         } else {
             spans.push((token.span, token_type, modifiers));
         }
@@ -105,9 +120,268 @@ fn paint_spans(
     spans
 }
 
+/// Paint a `View:` / `Head:` body by the language it is written in.
+///
+/// The body is HTML whose `{…}` groups are template tags and LOGOS holes, so it is painted as
+/// that: an element's name as a `tag` (a component's as the `type` it names), an attribute's name
+/// as an `attribute` (a component's as the `parameter` it binds, a directive as the `keyword` the
+/// framework reads, an event modifier as a `modifier`), a static value as a `string`, a tag's
+/// phrase and clause words as `keyword`s, and every expression through the resolution the rest of
+/// the file gets. Text and markup punctuation carry no token: the editor's HTML grammar paints
+/// them, and a semantic token over them would replace its colouring.
+///
+/// A `Style:` body gets no tokens for the same reason — the CSS grammar paints it and the server
+/// knows nothing about CSS it could add.
+///
+/// The token's span is the body's place in the file with its indentation intact, and indentation
+/// is whitespace to HTML, so tokenizing that slice yields spans that are file offsets once shifted
+/// by its start. A body that does not tokenize (a tag half-typed) gets no tokens.
+fn paint_template(
+    doc: &DocumentState,
+    overlay: &ResolutionOverlay,
+    span: Span,
+    out: &mut Vec<(Span, u32, u32)>,
+) {
+    use logicaffeine_language::lgx::html::{self, HtmlToken};
+    let Some(body) = doc.source.get(span.start..span.end) else {
+        return;
+    };
+    let Ok(tokens) = html::tokenize(body) else {
+        return;
+    };
+    let base = span.start;
+    for token in &tokens {
+        match token {
+            HtmlToken::StartTag {
+                name,
+                attrs,
+                span: at,
+                ..
+            } => {
+                let component = html::is_component_name(name);
+                paint_tag_name(name, base + at.start + 1, out);
+                for attr in attrs {
+                    paint_attribute(doc, overlay, body, base, attr, component, out);
+                }
+            }
+            HtmlToken::EndTag { name, span: at } => paint_tag_name(name, base + at.start + 2, out),
+            HtmlToken::Brace { inner, span: at } => {
+                paint_brace(doc, overlay, inner, base + at.start, out)
+            }
+            HtmlToken::Text { .. } => {}
+        }
+    }
+}
+
+/// An element's name: a component is the type it names, anything else is an HTML tag.
+fn paint_tag_name(name: &str, at: usize, out: &mut Vec<(Span, u32, u32)>) {
+    let kind = if logicaffeine_language::lgx::html::is_component_name(name) {
+        TYPE_TYPE
+    } else {
+        TYPE_TAG
+    };
+    out.push((Span::new(at, at + name.len()), kind, 0));
+}
+
+/// One attribute of a start tag, name and value. `body` is the template text `attr`'s span indexes
+/// and `base` its offset in the file.
+fn paint_attribute(
+    doc: &DocumentState,
+    overlay: &ResolutionOverlay,
+    body: &str,
+    base: usize,
+    attr: &logicaffeine_language::lgx::html::HtmlAttr,
+    on_component: bool,
+    out: &mut Vec<(Span, u32, u32)>,
+) {
+    use logicaffeine_language::lgx::html::{AttrPart, AttrValue};
+    let name = attr.name.as_str();
+    let at = base + attr.span.start;
+    if let Some(directive) = name.strip_prefix("on-") {
+        let mut pieces = directive.split('.');
+        let event = pieces.next().unwrap_or("");
+        let mut cursor = at + "on-".len() + event.len();
+        out.push((Span::new(at, cursor), TYPE_KEYWORD, 0));
+        for modifier in pieces {
+            let end = cursor + 1 + modifier.len();
+            out.push((Span::new(cursor, end), TYPE_MODIFIER, 0));
+            cursor = end;
+        }
+    } else if let Some(class) = name.strip_prefix("class:") {
+        let split = at + "class:".len();
+        out.push((Span::new(at, split), TYPE_KEYWORD, 0));
+        out.push((Span::new(split, split + class.len()), TYPE_ATTRIBUTE, 0));
+    } else if name == "bind" {
+        out.push((Span::new(at, at + name.len()), TYPE_KEYWORD, 0));
+    } else {
+        let kind = if on_component {
+            TYPE_PARAMETER
+        } else {
+            TYPE_ATTRIBUTE
+        };
+        out.push((Span::new(at, at + name.len()), kind, 0));
+    }
+
+    let Some(value) = &attr.value else { return };
+    // The value begins after the name, the `=` and any whitespace around it.
+    let after_name = attr.span.start + name.len();
+    let value_start = body[after_name..attr.span.end]
+        .find(|c: char| !c.is_whitespace() && c != '=')
+        .map_or(attr.span.end, |k| after_name + k);
+    let mut cursor = value_start;
+    if let AttrValue::Parts(parts) = value {
+        for part in parts {
+            let AttrPart::Brace { inner, span } = part else {
+                continue;
+            };
+            if span.start > cursor {
+                out.push((Span::new(base + cursor, base + span.start), TYPE_STRING, 0));
+            }
+            paint_brace(doc, overlay, inner, base + span.start, out);
+            cursor = span.end;
+        }
+    }
+    if attr.span.end > cursor {
+        out.push((
+            Span::new(base + cursor, base + attr.span.end),
+            TYPE_STRING,
+            0,
+        ));
+    }
+}
+
+/// One `{…}` group whose `{` sits at file offset `open`: a comment, a template tag (its phrase a
+/// keyword, the rest code), or a hole (code, then each filter a function applied to it).
+fn paint_brace(
+    doc: &DocumentState,
+    overlay: &ResolutionOverlay,
+    inner: &str,
+    open: usize,
+    out: &mut Vec<(Span, u32, u32)>,
+) {
+    let close = open + 1 + inner.len();
+    if crate::template::is_comment(inner) {
+        out.push((Span::new(open, close + 1), TYPE_COMMENT, 0));
+        return;
+    }
+    out.push((Span::new(open, open + 1), TYPE_OPERATOR, 0));
+    let at = open + 1;
+    match crate::template::tag_phrase(inner) {
+        Some((phrase, len)) => {
+            out.push((
+                Span::new(at + len - phrase.len(), at + len),
+                TYPE_KEYWORD,
+                0,
+            ));
+            let rest = &inner[len..];
+            if phrase == "for each" {
+                paint_with_clause_words(
+                    doc,
+                    overlay,
+                    rest,
+                    at + len,
+                    crate::template::FOR_EACH_CLAUSES,
+                    out,
+                );
+            } else {
+                paint_fragment(doc, overlay, rest, at + len, out);
+            }
+        }
+        None => {
+            let pipes = crate::template::filter_pipes(inner);
+            let mut segment_start = 0;
+            for (k, &pipe) in pipes
+                .iter()
+                .chain(std::iter::once(&inner.len()))
+                .enumerate()
+            {
+                let segment = &inner[segment_start..pipe];
+                if k == 0 {
+                    paint_fragment(doc, overlay, segment, at + segment_start, out);
+                } else {
+                    // `| name args…` — the name is the function the hole's value is passed to.
+                    let trimmed = segment.trim_start();
+                    let name_at = segment_start + (segment.len() - trimmed.len());
+                    let name_len = trimmed
+                        .find(|c: char| !c.is_alphanumeric() && c != '_')
+                        .unwrap_or(trimmed.len());
+                    let modifiers = if prelude_names().contains(&trimmed[..name_len]) {
+                        MOD_DEFAULT_LIBRARY
+                    } else {
+                        0
+                    };
+                    out.push((
+                        Span::new(at + name_at, at + name_at + name_len),
+                        TYPE_FUNCTION,
+                        modifiers,
+                    ));
+                    let args_at = name_at + name_len;
+                    paint_fragment(doc, overlay, &inner[args_at..pipe], at + args_at, out);
+                }
+                if pipe < inner.len() {
+                    out.push((Span::new(at + pipe, at + pipe + 1), TYPE_OPERATOR, 0));
+                }
+                segment_start = pipe + 1;
+            }
+        }
+    }
+    out.push((Span::new(close, close + 1), TYPE_OPERATOR, 0));
+}
+
+/// Paint `text` (at file offset `at`) as code, with every whole-word occurrence of `clauses`
+/// outside a string painted as a keyword — the `in`, `keyed by` and `at index` of a
+/// `{for each …:}` tag, which the expression lexer would read as ordinary words.
+fn paint_with_clause_words(
+    doc: &DocumentState,
+    overlay: &ResolutionOverlay,
+    text: &str,
+    at: usize,
+    clauses: &[&str],
+    out: &mut Vec<(Span, u32, u32)>,
+) {
+    let mut words: Vec<(usize, usize)> = Vec::new();
+    let mut in_string = false;
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < text.len() {
+        if bytes[i] == b'"' {
+            in_string = !in_string;
+        } else if !in_string {
+            let boundary_before =
+                i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+            if boundary_before {
+                if let Some(word) = clauses.iter().find(|w| {
+                    text[i..].starts_with(**w)
+                        && text[i + w.len()..]
+                            .chars()
+                            .next()
+                            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+                }) {
+                    words.push((i, i + word.len()));
+                    i += word.len();
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    let mut cursor = 0;
+    for (start, end) in words {
+        paint_fragment(doc, overlay, &text[cursor..start], at + cursor, out);
+        out.push((Span::new(at + start, at + end), TYPE_KEYWORD, 0));
+        cursor = end;
+    }
+    paint_fragment(doc, overlay, &text[cursor..], at + cursor, out);
+}
+
 /// Split one interpolated-string token into string segments, `{`/`}`
 /// operators, and re-lexed interior code (`{{` escapes stay string).
-fn expand_interpolation(doc: &DocumentState, token: &Token, out: &mut Vec<(Span, u32, u32)>) {
+fn expand_interpolation(
+    doc: &DocumentState,
+    overlay: &ResolutionOverlay,
+    token: &Token,
+    out: &mut Vec<(Span, u32, u32)>,
+) {
     let Some(src) = doc.source.get(token.span.start..token.span.end) else {
         out.push((token.span, TYPE_STRING, 0));
         return;
@@ -129,7 +403,7 @@ fn expand_interpolation(doc: &DocumentState, token: &Token, out: &mut Vec<(Span,
                     out.push((Span::new(base + segment_start, base + i), TYPE_STRING, 0));
                 }
                 out.push((Span::new(base + i, base + i + 1), TYPE_OPERATOR, 0));
-                paint_fragment(doc, &src[i + 1..close], base + i + 1, out);
+                paint_fragment(doc, overlay, &src[i + 1..close], base + i + 1, out);
                 out.push((Span::new(base + close, base + close + 1), TYPE_OPERATOR, 0));
                 segment_start = close + 1;
                 i = close + 1;
@@ -138,16 +412,24 @@ fn expand_interpolation(doc: &DocumentState, token: &Token, out: &mut Vec<(Span,
         }
     }
     if segment_start < src.len() {
-        out.push((Span::new(base + segment_start, base + src.len()), TYPE_STRING, 0));
+        out.push((
+            Span::new(base + segment_start, base + src.len()),
+            TYPE_STRING,
+            0,
+        ));
     }
 }
 
-/// Paint an interpolation interior: lex the fragment with the REAL lexer,
-/// classify by part of speech, and upgrade identifier-like tokens through
-/// the document's definitions — a `{name}` paints exactly like `name` would
-/// outside the string.
+/// Paint an embedded code fragment — an interpolation interior, a template hole or a tag's
+/// expression — at file offset `offset`: lex it with the REAL lexer, classify by part of speech,
+/// and upgrade identifier-like tokens through resolution — a `{name}` paints exactly like `name`
+/// would outside the string.
+///
+/// A reference the index already resolved at this exact file position (every name a template
+/// mentions is one) is taken as resolved; any other name falls back to its definitions by name.
 fn paint_fragment(
     doc: &DocumentState,
+    overlay: &ResolutionOverlay,
     fragment: &str,
     offset: usize,
     out: &mut Vec<(Span, u32, u32)>,
@@ -160,14 +442,22 @@ fn paint_fragment(
             continue;
         }
         let (token_type, mut modifiers) = classify_token(&token.kind);
-        let Some(mut token_type) = token_type else { continue };
-        // The same surface-form resolution the overlay applies (verbs and
-        // ambiguous words resolve by what they LOOK like, not their lemma).
-        if let Some(name) = crate::index::resolve_token_name(&token, &interner) {
-            if let Some(def) = doc.symbol_index.definitions_of(name).first() {
-                token_type = semantic_type_for(&def.kind);
-                modifiers = readonly_bit(def);
-            }
+        let Some(mut token_type) = token_type else {
+            continue;
+        };
+        let resolved = overlay
+            .ref_at
+            .get(&(offset + token.span.start))
+            .map(|&i| &doc.symbol_index.definitions[i])
+            // The same surface-form resolution the overlay applies (verbs and
+            // ambiguous words resolve by what they LOOK like, not their lemma).
+            .or_else(|| {
+                crate::index::resolve_token_name(&token, &interner)
+                    .and_then(|name| doc.symbol_index.definitions_of(name).first().copied())
+            });
+        if let Some(def) = resolved {
+            token_type = semantic_type_for(&def.kind);
+            modifiers = readonly_bit(def);
         }
         out.push((
             Span::new(offset + token.span.start, offset + token.span.end),
@@ -177,31 +467,102 @@ fn paint_fragment(
     }
 }
 
-/// Delta-encode classified spans into the LSP wire form.
-fn encode_spans(spans: &[(Span, u32, u32)], line_index: &LineIndex) -> Vec<SemanticToken> {
-    let mut result = Vec::with_capacity(spans.len());
+/// One protocol-legal (single-line) semantic token in absolute coordinates,
+/// before delta-encoding.
+struct AbsToken {
+    line: u32,
+    character: u32,
+    length: u32,
+    token_type: u32,
+    modifiers: u32,
+}
+
+/// Split a byte span into one `AbsToken` per source line it covers (each a
+/// single line, terminator excluded) and push them into `out`. A single-line
+/// span (the common case) yields exactly one; a multi-line `"""…"""` string
+/// yields one token per line — the protocol forbids a token that crosses a
+/// newline, and an over-long `length` desyncs every token after it.
+fn push_span_pieces(
+    span: &Span,
+    token_type: u32,
+    modifiers: u32,
+    li: &LineIndex,
+    out: &mut Vec<AbsToken>,
+) {
+    let start = li.position(span.start);
+    let end = li.position(span.end);
+    let mut emit = |line: u32, character: u32, length: u32| {
+        if length > 0 {
+            out.push(AbsToken {
+                line,
+                character,
+                length,
+                token_type,
+                modifiers,
+            });
+        }
+    };
+    if start.line == end.line {
+        emit(
+            start.line,
+            start.character,
+            end.character.saturating_sub(start.character),
+        );
+        return;
+    }
+    // First covered line: from the span start to that line's content end.
+    let first_end = li.line_end_offset(start.line as usize);
+    emit(
+        start.line,
+        start.character,
+        li.utf16_length(span.start, first_end),
+    );
+    // Whole intermediate lines.
+    for line in (start.line as usize + 1)..(end.line as usize) {
+        let ls = li.line_start_offset(line);
+        let le = li.line_end_offset(line);
+        emit(line as u32, 0, li.utf16_length(ls, le));
+    }
+    // Last covered line: from its start to the span end.
+    emit(end.line, 0, end.character);
+}
+
+/// Delta-encode absolute tokens (sorted by position) into the LSP wire form.
+/// Sorting + saturating deltas make the encoder total: the wire contract
+/// (monotonic, non-negative deltas) holds even if the input spans are out of
+/// order — one negative delta would otherwise wrap and corrupt the whole stream.
+fn delta_encode(mut abs: Vec<AbsToken>) -> Vec<SemanticToken> {
+    abs.sort_by_key(|t| (t.line, t.character));
+    let mut result = Vec::with_capacity(abs.len());
     let mut prev_line = 0u32;
     let mut prev_start = 0u32;
-    for (span, token_type, modifiers) in spans {
-        let pos = line_index.position(span.start);
-        let length = line_index.utf16_length(span.start, span.end);
-        if length == 0 {
-            continue;
-        }
-        let delta_line = pos.line - prev_line;
-        let delta_start =
-            if delta_line == 0 { pos.character - prev_start } else { pos.character };
+    for t in abs {
+        let delta_line = t.line.saturating_sub(prev_line);
+        let delta_start = if delta_line == 0 {
+            t.character.saturating_sub(prev_start)
+        } else {
+            t.character
+        };
         result.push(SemanticToken {
             delta_line,
             delta_start,
-            length,
-            token_type: *token_type,
-            token_modifiers_bitset: *modifiers,
+            length: t.length,
+            token_type: t.token_type,
+            token_modifiers_bitset: t.modifiers,
         });
-        prev_line = pos.line;
-        prev_start = pos.character;
+        prev_line = t.line;
+        prev_start = t.character;
     }
     result
+}
+
+/// Delta-encode classified spans into the LSP wire form.
+fn encode_spans(spans: &[(Span, u32, u32)], line_index: &LineIndex) -> Vec<SemanticToken> {
+    let mut abs = Vec::with_capacity(spans.len());
+    for (span, token_type, modifiers) in spans {
+        push_span_pieces(span, *token_type, *modifiers, line_index, &mut abs);
+    }
+    delta_encode(abs)
 }
 
 struct ResolutionOverlay {
@@ -239,9 +600,7 @@ impl ResolutionOverlay {
         let prose = index
             .block_spans
             .iter()
-            .filter(|(_, block_type, _)| {
-                matches!(block_type, BlockType::Note | BlockType::Example)
-            })
+            .filter(|(_, block_type, _)| matches!(block_type, BlockType::Note | BlockType::Example))
             .map(|(_, _, span)| *span)
             .collect();
 
@@ -289,10 +648,7 @@ impl ResolutionOverlay {
             // `Int`, `Text`, …) is a TYPE wherever it appears.
             token_type = Some(TYPE_TYPE);
             modifiers &= !MOD_DECLARATION;
-        } else if matches!(
-            doc.interner.resolve(token.lexeme),
-            "mutable" | "mut"
-        ) {
+        } else if matches!(doc.interner.resolve(token.lexeme), "mutable" | "mut") {
             // The mutability marker lexes as an English noun; it IS a
             // storage modifier (the grammar layer agrees).
             token_type = Some(TYPE_MODIFIER);
@@ -336,6 +692,9 @@ pub fn semantic_type_for(kind: &DefinitionKind) -> u32 {
         DefinitionKind::Block => TYPE_NAMESPACE,
         DefinitionKind::Variant => TYPE_ENUM_MEMBER,
         DefinitionKind::Theorem => TYPE_NAMESPACE,
+        DefinitionKind::Component => TYPE_TYPE,
+        DefinitionKind::Action => TYPE_FUNCTION,
+        DefinitionKind::StateField => TYPE_PROPERTY,
     }
 }
 
@@ -379,9 +738,7 @@ pub fn find_mutation_targets(tokens: &[Token]) -> HashSet<usize> {
                         TokenType::To => break,
                         TokenType::At => before_at = last_ident,
                         TokenType::Period => break,
-                        kind if is_identifier_like(kind) => {
-                            last_ident = Some(tokens[j].span.start)
-                        }
+                        kind if is_identifier_like(kind) => last_ident = Some(tokens[j].span.start),
                         _ => {}
                     }
                     j += 1;
@@ -392,10 +749,7 @@ pub fn find_mutation_targets(tokens: &[Token]) -> HashSet<usize> {
                 i = j;
             }
             TokenType::Increase | TokenType::Decrease => {
-                if let Some(next) = tokens[i + 1..]
-                    .iter()
-                    .find(|t| is_identifier_like(&t.kind))
-                {
+                if let Some(next) = tokens[i + 1..].iter().find(|t| is_identifier_like(&t.kind)) {
                     targets.insert(next.span.start);
                 }
                 i += 1;
@@ -426,9 +780,7 @@ fn ident_after_keyword(tokens: &[Token], from: usize, keyword: &TokenType) -> Op
         match &token.kind {
             TokenType::Period => return None,
             kind if kind == keyword => seen_keyword = true,
-            kind if seen_keyword && is_identifier_like(kind) => {
-                return Some(token.span.start)
-            }
+            kind if seen_keyword && is_identifier_like(kind) => return Some(token.span.start),
             _ => {}
         }
     }
@@ -464,7 +816,7 @@ pub fn encode_document_tokens_in_range(
 pub fn semantic_token_edits(
     prev: &[SemanticToken],
     next: &[SemanticToken],
-) -> Vec<tower_lsp::lsp_types::SemanticTokensEdit> {
+) -> Vec<lsp_types::SemanticTokensEdit> {
     let prefix = prev
         .iter()
         .zip(next.iter())
@@ -482,7 +834,7 @@ pub fn semantic_token_edits(
         .count()
         .min(max_suffix);
 
-    vec![tower_lsp::lsp_types::SemanticTokensEdit {
+    vec![lsp_types::SemanticTokensEdit {
         start: (prefix * 5) as u32,
         delete_count: ((prev.len() - prefix - suffix) * 5) as u32,
         data: Some(next[prefix..next.len() - suffix].to_vec()),
@@ -494,44 +846,15 @@ fn encode_with(
     line_index: &LineIndex,
     classify: impl Fn(&Token) -> (Option<u32>, u32),
 ) -> Vec<SemanticToken> {
-    let mut result = Vec::with_capacity(tokens.len());
-    let mut prev_line = 0u32;
-    let mut prev_start = 0u32;
-
+    let mut abs = Vec::with_capacity(tokens.len());
     for token in tokens {
         let (token_type, modifiers) = classify(token);
-        let token_type = match token_type {
-            Some(t) => t,
-            None => continue, // Skip tokens we don't highlight
-        };
-
-        let pos = line_index.position(token.span.start);
-        let length = line_index.utf16_length(token.span.start, token.span.end);
-
-        if length == 0 {
+        let Some(token_type) = token_type else {
             continue;
-        }
-
-        let delta_line = pos.line - prev_line;
-        let delta_start = if delta_line == 0 {
-            pos.character - prev_start
-        } else {
-            pos.character
-        };
-
-        result.push(SemanticToken {
-            delta_line,
-            delta_start,
-            length,
-            token_type,
-            token_modifiers_bitset: modifiers,
-        });
-
-        prev_line = pos.line;
-        prev_start = pos.character;
+        }; // Skip tokens we don't highlight
+        push_span_pieces(&token.span, token_type, modifiers, line_index, &mut abs);
     }
-
-    result
+    delta_encode(abs)
 }
 
 /// Map a `TokenType` to a semantic token type index and modifier bitset.
@@ -568,225 +891,5 @@ pub fn classify_token(kind: &TokenType) -> (Option<u32>, u32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_base::Interner;
-    use logicaffeine_language::token::Span;
-
-    #[test]
-    fn all_token_types_classified() {
-        // This test ensures that adding new TokenType variants forces an update
-        // to classify_token. If this test compiles, all variants are handled.
-        let mut interner = Interner::new();
-        let sym = interner.intern("test");
-
-        let test_tokens = vec![
-            TokenType::Let,
-            TokenType::Noun(sym),
-            TokenType::Verb {
-                lemma: sym,
-                time: logicaffeine_language::lexicon::Time::Present,
-                aspect: logicaffeine_language::lexicon::Aspect::Simple,
-                class: logicaffeine_language::lexicon::VerbClass::Activity,
-            },
-            TokenType::StringLiteral(sym),
-            TokenType::Number(sym),
-            TokenType::BlockHeader { block_type: logicaffeine_language::token::BlockType::Main },
-        ];
-
-        for tt in &test_tokens {
-            let (ty, _) = classify_token(tt);
-            assert!(ty.is_some(), "Token {:?} should be classified", tt);
-        }
-    }
-
-    #[test]
-    fn keywords_classified_as_keyword() {
-        let keywords = [
-            TokenType::Let, TokenType::Set, TokenType::Return,
-            TokenType::While, TokenType::Repeat, TokenType::Push,
-        ];
-        for kw in &keywords {
-            let (ty, _) = classify_token(kw);
-            assert_eq!(ty, Some(0), "Keyword {:?} should map to type 0", kw);
-        }
-    }
-
-    #[test]
-    fn operators_classified_correctly() {
-        let ops = [
-            TokenType::Plus, TokenType::Minus, TokenType::Star,
-            TokenType::Lt, TokenType::Gt, TokenType::EqEq,
-        ];
-        for op in &ops {
-            let (ty, _) = classify_token(op);
-            assert_eq!(ty, Some(6), "Operator {:?} should map to type 6", op);
-        }
-    }
-
-    #[test]
-    fn string_literal_classified() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("hello");
-        let (ty, _) = classify_token(&TokenType::StringLiteral(sym));
-        assert_eq!(ty, Some(4), "String literal should map to type 4");
-    }
-
-    #[test]
-    fn number_literal_classified() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("42");
-        let (ty, _) = classify_token(&TokenType::Number(sym));
-        assert_eq!(ty, Some(5), "Number should map to type 5");
-    }
-
-    #[test]
-    fn structural_tokens_skipped() {
-        let skipped = [
-            TokenType::Indent, TokenType::Dedent,
-            TokenType::Newline, TokenType::EOF,
-        ];
-        for tt in &skipped {
-            let (ty, _) = classify_token(tt);
-            assert_eq!(ty, None, "Structural token {:?} should be skipped", tt);
-        }
-    }
-
-    #[test]
-    fn zero_length_tokens_skipped_in_encoding() {
-        let line_index = LineIndex::new("Let x be 5.");
-        let mut interner = Interner::new();
-        let sym = interner.intern("");
-        let tokens = vec![
-            Token::new(TokenType::Indent, sym, Span::new(0, 0)),
-        ];
-        let encoded = encode_tokens(&tokens, &line_index);
-        assert!(encoded.is_empty(), "Zero-length tokens should be skipped");
-    }
-
-    #[test]
-    fn multi_line_delta_encoding() {
-        let line_index = LineIndex::new("Let x\nbe 5.");
-        let mut interner = Interner::new();
-        let let_sym = interner.intern("Let");
-        let be_sym = interner.intern("be");
-
-        let tokens = vec![
-            Token::new(TokenType::Let, let_sym, Span::new(0, 3)),
-            Token::new(TokenType::Be, be_sym, Span::new(6, 8)),
-        ];
-
-        let encoded = encode_tokens(&tokens, &line_index);
-        assert_eq!(encoded.len(), 2);
-        assert_eq!(encoded[0].delta_line, 0);
-        assert_eq!(encoded[1].delta_line, 1, "Second token should be on next line");
-        assert_eq!(encoded[1].delta_start, 0, "After line change, delta_start resets");
-    }
-
-    #[test]
-    fn block_header_classified_as_namespace() {
-        let (ty, _) = classify_token(&TokenType::BlockHeader {
-            block_type: logicaffeine_language::token::BlockType::Main,
-        });
-        assert_eq!(ty, Some(7), "Block header should map to type 7 (namespace)");
-    }
-
-    #[test]
-    fn noun_classified_as_type() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("person");
-        let (ty, _) = classify_token(&TokenType::Noun(sym));
-        assert_eq!(ty, Some(1), "Noun should map to type 1 (TYPE)");
-    }
-
-    #[test]
-    fn proper_name_has_declaration_modifier() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("Alice");
-        let (ty, mods) = classify_token(&TokenType::ProperName(sym));
-        assert_eq!(ty, Some(3), "ProperName should map to type 3 (VARIABLE)");
-        assert_eq!(mods, 1, "ProperName should have DECLARATION modifier (bit 0)");
-    }
-
-    #[test]
-    fn ambiguous_uses_primary() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("test");
-        let primary = Box::new(TokenType::Noun(sym));
-        let alternatives = vec![TokenType::Identifier];
-        let (ty, _) = classify_token(&TokenType::Ambiguous { primary, alternatives });
-        assert_eq!(ty, Some(1), "Ambiguous wrapping Noun should classify as type 1");
-    }
-
-    #[test]
-    fn encode_tokens_utf16_length() {
-        // 'é' is 2 bytes in UTF-8 but 1 UTF-16 code unit
-        let source = "café";
-        let line_index = LineIndex::new(source);
-        let mut interner = Interner::new();
-        let sym = interner.intern("café");
-        let tokens = vec![
-            Token::new(TokenType::Identifier, sym, Span::new(0, 5)), // 5 bytes: c(1)+a(1)+f(1)+é(2)
-        ];
-        let encoded = encode_tokens(&tokens, &line_index);
-        assert_eq!(encoded.len(), 1);
-        assert_eq!(encoded[0].length, 4, "UTF-16 length of 'café' should be 4, not 5 bytes");
-    }
-
-    #[test]
-    fn classify_ambiguous_nested_has_depth_guard() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("test");
-        // Create a deeply nested Ambiguous chain: Ambiguous(Ambiguous(Ambiguous(Noun)))
-        let inner = TokenType::Noun(sym);
-        let mid = TokenType::Ambiguous {
-            primary: Box::new(inner),
-            alternatives: vec![TokenType::Identifier],
-        };
-        let outer = TokenType::Ambiguous {
-            primary: Box::new(mid),
-            alternatives: vec![TokenType::Identifier],
-        };
-        let (ty, _) = classify_token(&outer);
-        assert_eq!(ty, Some(1), "Nested Ambiguous wrapping Noun should still classify as type 1 (TYPE)");
-    }
-
-    #[test]
-    fn classify_ambiguous_too_deep_returns_none() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("test");
-        // Create a chain deeper than the depth limit
-        let mut current = TokenType::Noun(sym);
-        for _ in 0..10 {
-            current = TokenType::Ambiguous {
-                primary: Box::new(current),
-                alternatives: vec![TokenType::Identifier],
-            };
-        }
-        // Should not stack overflow; should return None for excessive depth
-        let (ty, _) = classify_token(&current);
-        assert_eq!(ty, None, "Excessively nested Ambiguous should return None");
-    }
-
-    #[test]
-    fn delta_encoding() {
-        let line_index = LineIndex::new("Let x be 5.");
-        let mut interner = Interner::new();
-        let let_sym = interner.intern("Let");
-        let x_sym = interner.intern("x");
-
-        let tokens = vec![
-            Token::new(TokenType::Let, let_sym, Span::new(0, 3)),
-            Token::new(TokenType::Identifier, x_sym, Span::new(4, 5)),
-        ];
-
-        let encoded = encode_tokens(&tokens, &line_index);
-        assert_eq!(encoded.len(), 2);
-        assert_eq!(encoded[0].delta_line, 0);
-        assert_eq!(encoded[0].delta_start, 0);
-        assert_eq!(encoded[0].length, 3);
-        assert_eq!(encoded[1].delta_line, 0);
-        assert_eq!(encoded[1].delta_start, 4);
-        assert_eq!(encoded[1].length, 1);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/semantic_tokens/tests.rs"]
+mod tests;

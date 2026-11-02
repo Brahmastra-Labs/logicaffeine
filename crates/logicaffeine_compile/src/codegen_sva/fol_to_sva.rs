@@ -11,7 +11,9 @@
 //! | User `If`: `P → Q` with worlds | `P \|-> Q` |
 //! | `¬(P ∧ Q)` with worlds | `!(P && Q)` |
 
-use logicaffeine_language::ast::logic::{LogicExpr, QuantifierKind, TemporalOperator, ThematicRole, Term};
+use logicaffeine_language::ast::logic::{
+    LogicExpr, QuantifierKind, TemporalOperator, Term, ThematicRole,
+};
 use logicaffeine_language::token::TokenType;
 use logicaffeine_language::Interner;
 
@@ -83,10 +85,10 @@ fn spec_blocks(spec: &str) -> Vec<String> {
 }
 
 fn synthesize_one(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
-    use logicaffeine_language::compile_kripke_with;
-    use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
     use super::fol_to_verify::FolTranslator;
     use super::sva_to_verify::extract_signal_names;
+    use logicaffeine_language::compile_kripke_with;
+    use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
 
     // Parse and Kripke-lower the spec, then extract BOTH the SVA body
     // AND the FOL signal names (so they match for Z3 equivalence)
@@ -103,7 +105,8 @@ fn synthesize_one(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
         // Synthesize SVA body using signal names from the FOL translator
         let body = synthesize_from_ast(ast, interner, clock, &fol_sigs);
         (body, kg_signals, fol_sigs)
-    }).map_err(|_e| {
+    })
+    .map_err(|_e| {
         "not a hardware property — I couldn't read a temporal spec here. Try a sentence like \
          \"Always, if request is high, then grant is high.\""
             .to_string()
@@ -114,9 +117,12 @@ fn synthesize_one(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
     // Reject degenerate synthesis results — these indicate the spec is not
     // a temporal property (e.g., bare action sentences like "The bus acknowledges the request.")
     if body.trim() == "0" {
-        return Err("Not a temporal property: this sentence describes an action or event, \
+        return Err(
+            "Not a temporal property: this sentence describes an action or event, \
             not a verifiable hardware property. Wrap in a temporal operator \
-            (e.g., \"Always, ...\") or restructure as a conditional.".to_string());
+            (e.g., \"Always, ...\") or restructure as a conditional."
+                .to_string(),
+        );
     }
 
     // Determine the assertion kind from the property's SHAPE, not a substring search. A `cover`
@@ -125,20 +131,26 @@ fn synthesize_one(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
     // with no implication guarding it) — a liveness implication like `req |-> s_eventually(grant)`
     // is an ASSERTION, not a cover.
     let trimmed = body.trim_start();
-    let is_reachability_cover = (trimmed.starts_with("s_eventually(") || trimmed.starts_with("cover"))
+    let is_reachability_cover = (trimmed.starts_with("s_eventually(")
+        || trimmed.starts_with("cover"))
         && !body.contains("|->")
         && !body.contains("|=>");
-    let kind = if is_reachability_cover { "cover" } else { "assert" };
+    let kind = if is_reachability_cover {
+        "cover"
+    } else {
+        "assert"
+    };
 
-    let sva_text = format!(
-        "{} property (@(posedge {}) {});",
-        kind, clock, body
-    );
+    let sva_text = format!("{} property (@(posedge {}) {});", kind, clock, body);
 
     Ok(SynthesizedSva {
         sva_text,
         body,
-        signals: if signals.is_empty() { fol_signals } else { signals },
+        signals: if signals.is_empty() {
+            fol_signals
+        } else {
+            signals
+        },
         kind: kind.to_string(),
     })
 }
@@ -167,10 +179,20 @@ fn synthesize_from_ast<'a>(
 
         // Kripke-lowered G: ∀w'(Accessible_Temporal(w,w') → P(w'))
         // Kripke-lowered X: ∀w'(Next_Temporal(w,w') → P(w'))
-        LogicExpr::Quantifier { kind: QuantifierKind::Universal, body, variable, .. } => {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::Universal,
+            body,
+            variable,
+            ..
+        } => {
             let var_name = interner.resolve(*variable).to_string();
             if var_name.starts_with('w') {
-                if let LogicExpr::BinaryOp { left, right, op: TokenType::Implies } = body {
+                if let LogicExpr::BinaryOp {
+                    left,
+                    right,
+                    op: TokenType::Implies,
+                } = body
+                {
                     if is_accessibility_predicate(left, interner) {
                         let inner = synthesize_from_ast(right, interner, clock, fol_signals);
                         // Distinguish Next_Temporal → nexttime(P) vs Accessible → P
@@ -186,12 +208,25 @@ fn synthesize_from_ast<'a>(
         }
 
         // Kripke-lowered F: ∃w'(Reachable_Temporal(w,w') ∧ P(w'))
-        LogicExpr::Quantifier { kind: QuantifierKind::Existential, body, variable, .. } => {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            body,
+            variable,
+            ..
+        } => {
             let var_name = interner.resolve(*variable).to_string();
             if var_name.starts_with('w') {
-                if let LogicExpr::BinaryOp { left, right, op: TokenType::And } = body {
+                if let LogicExpr::BinaryOp {
+                    left,
+                    right,
+                    op: TokenType::And,
+                } = body
+                {
                     if is_accessibility_predicate(left, interner) {
-                        return format!("s_eventually({})", synthesize_from_ast(right, interner, clock, fol_signals));
+                        return format!(
+                            "s_eventually({})",
+                            synthesize_from_ast(right, interner, clock, fol_signals)
+                        );
                     }
                 }
             }
@@ -199,7 +234,11 @@ fn synthesize_from_ast<'a>(
         }
 
         // Counting quantifiers: AtMost(n), AtLeast(n), Cardinal(n)
-        LogicExpr::Quantifier { kind: QuantifierKind::AtMost(n), body, .. } => {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::AtMost(n),
+            body,
+            ..
+        } => {
             let inner = synthesize_from_ast(body, interner, clock, fol_signals);
             if *n == 1 {
                 format!("$onehot0({})", inner)
@@ -208,7 +247,11 @@ fn synthesize_from_ast<'a>(
             }
         }
 
-        LogicExpr::Quantifier { kind: QuantifierKind::AtLeast(n), body, .. } => {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::AtLeast(n),
+            body,
+            ..
+        } => {
             let inner = synthesize_from_ast(body, interner, clock, fol_signals);
             if *n == 1 {
                 inner // at least one → signal is high (OR-reduction implicit)
@@ -217,7 +260,11 @@ fn synthesize_from_ast<'a>(
             }
         }
 
-        LogicExpr::Quantifier { kind: QuantifierKind::Cardinal(n), body, .. } => {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::Cardinal(n),
+            body,
+            ..
+        } => {
             let inner = synthesize_from_ast(body, interner, clock, fol_signals);
             if *n == 1 {
                 format!("$onehot({})", inner)
@@ -232,7 +279,11 @@ fn synthesize_from_ast<'a>(
         }
 
         // User conditional: P → Q (TokenType::If from parser)
-        LogicExpr::BinaryOp { left, right, op: TokenType::If } => {
+        LogicExpr::BinaryOp {
+            left,
+            right,
+            op: TokenType::If,
+        } => {
             let ante = synthesize_from_ast(left, interner, clock, fol_signals);
             let cons = synthesize_from_ast(right, interner, clock, fol_signals);
             format!("{} |-> {}", ante, cons)
@@ -241,7 +292,11 @@ fn synthesize_from_ast<'a>(
         // Compiler-generated implication (restriction): synthesize as SVA implication
         // ∀x(Restriction(x) → Body(x)) → restriction |-> body
         // This preserves the full semantic content for Z3 equivalence checking.
-        LogicExpr::BinaryOp { left, right, op: TokenType::Implies } => {
+        LogicExpr::BinaryOp {
+            left,
+            right,
+            op: TokenType::Implies,
+        } => {
             let ante = synthesize_from_ast(left, interner, clock, fol_signals);
             let cons = synthesize_from_ast(right, interner, clock, fol_signals);
             // If the antecedent is just "1" (vacuous), skip the implication
@@ -253,14 +308,22 @@ fn synthesize_from_ast<'a>(
         }
 
         // Conjunction
-        LogicExpr::BinaryOp { left, right, op: TokenType::And } => {
+        LogicExpr::BinaryOp {
+            left,
+            right,
+            op: TokenType::And,
+        } => {
             let l = synthesize_from_ast(left, interner, clock, fol_signals);
             let r = synthesize_from_ast(right, interner, clock, fol_signals);
             format!("({} && {})", l, r)
         }
 
         // Disjunction
-        LogicExpr::BinaryOp { left, right, op: TokenType::Or } => {
+        LogicExpr::BinaryOp {
+            left,
+            right,
+            op: TokenType::Or,
+        } => {
             let l = synthesize_from_ast(left, interner, clock, fol_signals);
             let r = synthesize_from_ast(right, interner, clock, fol_signals);
             format!("({} || {})", l, r)
@@ -276,9 +339,11 @@ fn synthesize_from_ast<'a>(
         LogicExpr::Predicate { name, args, .. } => {
             let pred_name = interner.resolve(*name).to_string();
             // Skip meta-predicates
-            if pred_name.contains("Accessible") || pred_name.contains("Reachable")
+            if pred_name.contains("Accessible")
+                || pred_name.contains("Reachable")
                 || pred_name.contains("Next_Temporal")
-                || pred_name == "Agent" || pred_name == "Theme"
+                || pred_name == "Agent"
+                || pred_name == "Theme"
             {
                 return "1".to_string(); // vacuously true
             }
@@ -286,9 +351,10 @@ fn synthesize_from_ast<'a>(
             let arg_name = args.first().map(|a| term_to_string_helper(a, interner));
             if let Some(ref arg) = arg_name {
                 let candidate = format!("{}_{}_", pred_name, arg);
-                if let Some(fol_sig) = fol_signals.iter().find(|s| {
-                    s.to_lowercase() == candidate.to_lowercase()
-                }) {
+                if let Some(fol_sig) = fol_signals
+                    .iter()
+                    .find(|s| s.to_lowercase() == candidate.to_lowercase())
+                {
                     return fol_sig.clone();
                 }
             }
@@ -307,7 +373,9 @@ fn synthesize_from_ast<'a>(
         // NeoEvent: extract verb + agent as signal (matching FolTranslator naming)
         LogicExpr::NeoEvent(data) => {
             let verb_name = interner.resolve(data.verb).to_string();
-            let agent_name = data.roles.iter()
+            let agent_name = data
+                .roles
+                .iter()
                 .find(|(role, _)| matches!(role, ThematicRole::Agent))
                 .map(|(_, term)| term_to_string_helper(term, interner));
 
@@ -318,9 +386,10 @@ fn synthesize_from_ast<'a>(
             };
 
             // Match against fol_signals for consistency
-            if let Some(fol_sig) = fol_signals.iter().find(|s| {
-                s.to_lowercase() == candidate.to_lowercase()
-            }) {
+            if let Some(fol_sig) = fol_signals
+                .iter()
+                .find(|s| s.to_lowercase() == candidate.to_lowercase())
+            {
                 fol_sig.clone()
             } else if let Some(fol_sig) = fol_signals.iter().find(|s| {
                 let s_lower = s.to_lowercase();
@@ -333,7 +402,11 @@ fn synthesize_from_ast<'a>(
         }
 
         // Temporal binary
-        LogicExpr::TemporalBinary { operator, left, right } => {
+        LogicExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => {
             let l = synthesize_from_ast(left, interner, clock, fol_signals);
             let r = synthesize_from_ast(right, interner, clock, fol_signals);
             use logicaffeine_language::ast::logic::BinaryTemporalOp;
@@ -356,9 +429,7 @@ fn synthesize_from_ast<'a>(
         }
 
         // Voice: PASSIVE(P) → unwrap to body
-        LogicExpr::Voice { body, .. } => {
-            synthesize_from_ast(body, interner, clock, fol_signals)
-        }
+        LogicExpr::Voice { body, .. } => synthesize_from_ast(body, interner, clock, fol_signals),
 
         // Relation: S-V-O → map verb and subject/object to signal names
         LogicExpr::Relation(data) => {
@@ -366,9 +437,10 @@ fn synthesize_from_ast<'a>(
             let subj_name = interner.resolve(data.subject.noun).to_string();
             let obj_name = interner.resolve(data.object.noun).to_string();
             let candidate = format!("{}_{}_", verb_name, subj_name);
-            if let Some(fol_sig) = fol_signals.iter().find(|s| {
-                s.to_lowercase() == candidate.to_lowercase()
-            }) {
+            if let Some(fol_sig) = fol_signals
+                .iter()
+                .find(|s| s.to_lowercase() == candidate.to_lowercase())
+            {
                 fol_sig.clone()
             } else if let Some(fol_sig) = fol_signals.iter().find(|s| {
                 let s_lower = s.to_lowercase();
@@ -384,8 +456,14 @@ fn synthesize_from_ast<'a>(
 
         // Categorical: Aristotelian A/E/I/O → synthesize subject and predicate
         LogicExpr::Categorical(data) => {
-            let subj_name = interner.resolve(data.subject.noun).to_string().to_lowercase();
-            let pred_name = interner.resolve(data.predicate.noun).to_string().to_lowercase();
+            let subj_name = interner
+                .resolve(data.subject.noun)
+                .to_string()
+                .to_lowercase();
+            let pred_name = interner
+                .resolve(data.predicate.noun)
+                .to_string()
+                .to_lowercase();
             if data.copula_negative {
                 format!("({} && !({}))", subj_name, pred_name)
             } else {
@@ -394,9 +472,7 @@ fn synthesize_from_ast<'a>(
         }
 
         // Scopal: "only X", "always X" as scopal adverb → unwrap to body
-        LogicExpr::Scopal { body, .. } => {
-            synthesize_from_ast(body, interner, clock, fol_signals)
-        }
+        LogicExpr::Scopal { body, .. } => synthesize_from_ast(body, interner, clock, fol_signals),
 
         // Causal: "effect because cause" → both sides as conjunction
         LogicExpr::Causal { effect, cause } => {
@@ -413,9 +489,10 @@ fn synthesize_from_ast<'a>(
         // Atom: bare symbol → treat as signal name
         LogicExpr::Atom(sym) => {
             let name = interner.resolve(*sym).to_string();
-            if let Some(fol_sig) = fol_signals.iter().find(|s| {
-                s.to_lowercase() == name.to_lowercase()
-            }) {
+            if let Some(fol_sig) = fol_signals
+                .iter()
+                .find(|s| s.to_lowercase() == name.to_lowercase())
+            {
                 fol_sig.clone()
             } else {
                 name.to_lowercase()
@@ -439,7 +516,9 @@ fn synthesize_from_ast<'a>(
 fn is_accessibility_predicate<'a>(expr: &'a LogicExpr<'a>, interner: &Interner) -> bool {
     if let LogicExpr::Predicate { name, .. } = expr {
         let pred_name = interner.resolve(*name).to_string();
-        pred_name.contains("Accessible") || pred_name.contains("Reachable") || pred_name.contains("Next_Temporal")
+        pred_name.contains("Accessible")
+            || pred_name.contains("Reachable")
+            || pred_name.contains("Next_Temporal")
     } else {
         false
     }
@@ -465,26 +544,5 @@ fn term_to_string_helper<'a>(term: &'a Term<'a>, interner: &Interner) -> String 
 }
 
 #[cfg(test)]
-mod block_header_robustness {
-    use super::*;
-
-    /// A property sentence followed by a `## Theorem`/`## Main` block (multi-section
-    /// editor content) must still synthesize the property, not fail with a parse error
-    /// on the trailing block header.
-    #[test]
-    fn property_followed_by_a_block_synthesizes() {
-        let spec = "Always, if request then eventually grant.\n## Theorem t:\n  It holds.";
-        let r = synthesize_sva_from_spec(spec, "clk");
-        assert!(r.is_ok(), "expected SVA, got error: {:?}", r.err());
-        assert!(r.unwrap().sva_text.contains("property"));
-    }
-
-    /// A property INSIDE a leading block (header first) already works via the parser's
-    /// leading-header handling — guard that the fix doesn't break it.
-    #[test]
-    fn property_inside_a_leading_block_still_works() {
-        let spec = "## Hardware\nAlways, if request then eventually grant.";
-        let r = synthesize_sva_from_spec(spec, "clk");
-        assert!(r.is_ok(), "expected SVA, got error: {:?}", r.err());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen_sva/fol_to_sva/block_header_robustness.rs"]
+mod block_header_robustness;

@@ -1,4 +1,4 @@
-//! Concurrency determinacy model + classifier (Phase 0 of `work/FINISH_INTERPRETER.md`).
+//! Concurrency determinacy model + classifier.
 //!
 //! This module is the single source of truth for the language's concurrency
 //! *memory model* and the *determinacy classifier* that labels a program as
@@ -7,10 +7,9 @@
 //! validation (Phase 11), so both agree on one boundary.
 
 pub mod bridge;
-pub mod driver;
-pub mod vm_driver;
 pub mod channel;
 pub mod classify;
+pub mod driver;
 pub mod fec;
 pub mod marshal;
 pub mod model;
@@ -18,6 +17,8 @@ pub(crate) mod net_inbox;
 pub mod pnp;
 pub mod send_check;
 pub mod stream;
+pub(crate) mod tcp_registry;
+pub mod vm_driver;
 
 use crate::ast::stmt::Stmt;
 
@@ -38,7 +39,11 @@ fn stmt_uses_scheduler(s: &Stmt) -> bool {
         | Stmt::TryReceivePipe { .. }
         | Stmt::Select { .. }
         | Stmt::StopTask { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             then_block.iter().any(stmt_uses_scheduler)
                 || else_block.map_or(false, |b| b.iter().any(stmt_uses_scheduler))
         }
@@ -49,9 +54,7 @@ fn stmt_uses_scheduler(s: &Stmt) -> bool {
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             tasks.iter().any(stmt_uses_scheduler)
         }
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|a| a.body.iter().any(stmt_uses_scheduler))
-        }
+        Stmt::Inspect { arms, .. } => arms.iter().any(|a| a.body.iter().any(stmt_uses_scheduler)),
         _ => false,
     }
 }

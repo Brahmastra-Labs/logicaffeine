@@ -34,7 +34,10 @@ fn scalar_function_builds_to_a_wasm_module() {
     assert!(wasm.exists(), "wasm module exists at {wasm:?}");
     assert_eq!(wasm.extension().and_then(|e| e.to_str()), Some("wasm"));
     let bytes = std::fs::read(&wasm).expect("readable");
-    assert!(bytes.starts_with(b"\0asm"), "a real wasm module (magic header)");
+    assert!(
+        bytes.starts_with(b"\0asm"),
+        "a real wasm module (magic header)"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

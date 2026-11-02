@@ -5,7 +5,10 @@ use logicaffeine_compile::ui_bridge::{AstNode, CompileResult};
 
 fn render_ast(node: &AstNode, prefix: &str, last: bool, out: &mut String) {
     let branch = if last { "└─ " } else { "├─ " };
-    out.push_str(&format!("{prefix}{branch}{} [{}]\n", node.label, node.node_type));
+    out.push_str(&format!(
+        "{prefix}{branch}{} [{}]\n",
+        node.label, node.node_type
+    ));
     let child_prefix = format!("{prefix}{}", if last { "   " } else { "│  " });
     let count = node.children.len();
     for (i, child) in node.children.iter().enumerate() {
@@ -43,18 +46,32 @@ pub fn render_trace(n: usize, sentence: &str, result: &CompileResult) -> String 
         }
         None => {
             s.push_str("FOL:\n");
-            s.push_str(&format!("  unicode: {}\n", result.logic.as_deref().unwrap_or("")));
-            s.push_str(&format!("  simple : {}\n", result.simple_logic.as_deref().unwrap_or("")));
-            s.push_str(&format!("  kripke : {}\n\n", result.kripke_logic.as_deref().unwrap_or("")));
+            s.push_str(&format!(
+                "  unicode: {}\n",
+                result.logic.as_deref().unwrap_or("")
+            ));
+            s.push_str(&format!(
+                "  simple : {}\n",
+                result.simple_logic.as_deref().unwrap_or("")
+            ));
+            s.push_str(&format!(
+                "  kripke : {}\n\n",
+                result.kripke_logic.as_deref().unwrap_or("")
+            ));
 
-            s.push_str(&format!("AST ({total_nodes} nodes, {other_nodes} unhandled):\n"));
+            s.push_str(&format!(
+                "AST ({total_nodes} nodes, {other_nodes} unhandled):\n"
+            ));
             if let Some(ast) = &result.ast {
                 render_ast(ast, "  ", true, &mut s);
             }
             s.push('\n');
 
             if result.readings.len() > 1 {
-                s.push_str(&format!("AMBIGUITY READINGS ({}):\n", result.readings.len()));
+                s.push_str(&format!(
+                    "AMBIGUITY READINGS ({}):\n",
+                    result.readings.len()
+                ));
                 for (j, r) in result.readings.iter().enumerate() {
                     s.push_str(&format!("  [{}] {r}\n", j + 1));
                 }

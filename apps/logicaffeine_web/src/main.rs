@@ -8,10 +8,10 @@
 //! The client deliberately does NOT hydrate: prerendered HTML is for crawlers and
 //! the pre-wasm paint, and a hydrating client would hard-fail on the SPA-fallback
 //! URLs that cannot be prerendered (`/registry/package/:name`). Instead the wasm
-//! mounts into `#app` while the prerendered copy stays visible in `#main`; the
-//! `body:has(#app > *) > #main` rule in index.html hides the copy in the same
-//! paint the app's first frame lands, and the App root then removes it — an
-//! atomic swap with no cleared-DOM gap and no unstyled flash.
+//! mounts into `#app` while the prerendered copy stays visible in `#main`; a
+//! polling watchdog in index.html hides and then removes the copy once the live
+//! app has painted real content, and restores it if the app ever goes blank —
+//! an atomic-looking swap with no cleared-DOM gap and no unstyled flash.
 
 use logicaffeine_web::App;
 
@@ -22,7 +22,7 @@ fn main() {
     // The prerender pass writes into a SIBLING of public/ rather than public/
     // itself: dx finishes the client build after the prerender and rewrites
     // public/index.html (the shell), which would clobber the prerendered `/`.
-    // scripts/merge-ssg.sh copies prerendered/ over public/ once dx is done.
+    // scripts/web/merge-ssg.sh copies prerendered/ over public/ once dx is done.
     dioxus::LaunchBuilder::new()
         .with_cfg(web! {
             dioxus::web::Config::new().rootname("app")

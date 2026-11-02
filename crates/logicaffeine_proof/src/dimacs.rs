@@ -64,9 +64,11 @@ pub fn parse(input: &str) -> Result<DimacsCnf, DimacsError> {
             let mut it = rest.split_whitespace();
             match (it.next(), it.next(), it.next(), it.next()) {
                 (Some("cnf"), Some(nv), Some(nc), None) => {
-                    let num_vars =
-                        nv.parse::<usize>().map_err(|_| DimacsError::MalformedHeader(line.to_string()))?;
-                    nc.parse::<usize>().map_err(|_| DimacsError::MalformedHeader(line.to_string()))?;
+                    let num_vars = nv
+                        .parse::<usize>()
+                        .map_err(|_| DimacsError::MalformedHeader(line.to_string()))?;
+                    nc.parse::<usize>()
+                        .map_err(|_| DimacsError::MalformedHeader(line.to_string()))?;
                     header = Some(num_vars);
                 }
                 _ => return Err(DimacsError::MalformedHeader(line.to_string())),
@@ -76,7 +78,9 @@ pub fn parse(input: &str) -> Result<DimacsCnf, DimacsError> {
         // A clause-body line: a header must already have been seen.
         let num_vars = header.ok_or(DimacsError::MissingHeader)?;
         for tok in line.split_whitespace() {
-            let n: i64 = tok.parse().map_err(|_| DimacsError::InvalidToken(tok.to_string()))?;
+            let n: i64 = tok
+                .parse()
+                .map_err(|_| DimacsError::InvalidToken(tok.to_string()))?;
             if n == 0 {
                 clauses.push(std::mem::take(&mut current));
             } else {
@@ -109,3 +113,7 @@ pub fn print(cnf: &DimacsCnf) -> String {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/dimacs/dimacs_tests.rs"]
+mod dimacs_tests;

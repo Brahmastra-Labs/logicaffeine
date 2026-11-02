@@ -1,0 +1,9 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable total be 0.0.
+Repeat for i from 1 to n:
+    Set total to total + (i % 8) / 4.0.
+Show "done".

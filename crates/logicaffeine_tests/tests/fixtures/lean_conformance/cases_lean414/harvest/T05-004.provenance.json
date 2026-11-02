@@ -1,0 +1,74 @@
+{
+  "case": "T05-004",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t05_elaboration/T05-004_explicit_all_application.lean",
+  "source_sha256": "c5d27ee683870d695dd3e9af8d7dab6e5687a777b4916ac4c2f2ba132d81f07c",
+  "ledger_sha256": "23bd636209b425785c9a42614159e36495b5a546a9a1fa7a7ed72e456a8fa25e",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T05_004.Pair",
+    "T05_004.Pair.fst",
+    "T05_004.Pair.mk",
+    "T05_004.Pair.snd",
+    "T05_004.Sizeable",
+    "T05_004.Sizeable.mk",
+    "T05_004.Sizeable.size",
+    "T05_004.compose",
+    "T05_004.idf",
+    "T05_004.instSizeableNat",
+    "T05_004.natId",
+    "T05_004.polyId",
+    "T05_004.sizeOf'"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "e747877dcda5a0a9b301ac9c238303da1b4183954f4927ee9390083b825e6daa",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 219,
+  "harvest": {
+    "roots": [
+      "T05_004.Pair",
+      "T05_004.Pair.fst",
+      "T05_004.Pair.mk",
+      "T05_004.Pair.snd",
+      "T05_004.Sizeable",
+      "T05_004.Sizeable.mk",
+      "T05_004.Sizeable.size",
+      "T05_004.compose",
+      "T05_004.idf",
+      "T05_004.instSizeableNat",
+      "T05_004.natId",
+      "T05_004.polyId",
+      "T05_004.sizeOf'"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

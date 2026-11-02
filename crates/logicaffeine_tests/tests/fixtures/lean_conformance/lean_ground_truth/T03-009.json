@@ -1,0 +1,1189 @@
+{
+  "case": "T03-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 147,
+  "declarations": [
+    {
+      "type": "Type 1",
+      "name": "T03_009.BigTree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.TList Nat \u2192 T03_009.BigTree",
+      "name": "T03_009.BigTree.bnode",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_009.TList Nat}, T03_009.BigTree.bnode a = T03_009.BigTree.bnode a_1 \u2192 a = a_1",
+      "name": "T03_009.BigTree.bnode.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_009.TList Nat), (T03_009.BigTree.bnode a = T03_009.BigTree.bnode a_1) = (a = a_1)",
+      "name": "T03_009.BigTree.bnode.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_009.TList Nat), sizeOf (T03_009.BigTree.bnode a) = 1 + sizeOf a",
+      "name": "T03_009.BigTree.bnode.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T03_009.BigTree",
+      "name": "T03_009.BigTree.bty",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Type}, T03_009.BigTree.bty a = T03_009.BigTree.bty a_1 \u2192 a = a_1",
+      "name": "T03_009.BigTree.bty.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Type), (T03_009.BigTree.bty a = T03_009.BigTree.bty a_1) = (a = a_1)",
+      "name": "T03_009.BigTree.bty.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Type), sizeOf (T03_009.BigTree.bty a) = 1 + sizeOf a",
+      "name": "T03_009.BigTree.bty.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.BigTree \u2192 Sort u} \u2192\n  (t : T03_009.BigTree) \u2192\n    ((a : T03_009.TList Nat) \u2192 motive (T03_009.BigTree.bnode a)) \u2192\n      ((a : Type) \u2192 motive (T03_009.BigTree.bty a)) \u2192 motive t",
+      "name": "T03_009.BigTree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_009.BigTree} \u2192 v1 = v2 \u2192 T03_009.BigTree.noConfusionType P v1 v2",
+      "name": "T03_009.BigTree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_009.BigTree \u2192 T03_009.BigTree \u2192 Sort u",
+      "name": "T03_009.BigTree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.BigTree \u2192 Sort u} \u2192\n  ((a : T03_009.TList Nat) \u2192 motive (T03_009.BigTree.bnode a)) \u2192\n    ((a : Type) \u2192 motive (T03_009.BigTree.bty a)) \u2192 (t : T03_009.BigTree) \u2192 motive t",
+      "name": "T03_009.BigTree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.BigTree \u2192 Sort u} \u2192\n  (t : T03_009.BigTree) \u2192\n    ((a : T03_009.TList Nat) \u2192 motive (T03_009.BigTree.bnode a)) \u2192\n      ((a : Type) \u2192 motive (T03_009.BigTree.bty a)) \u2192 motive t",
+      "name": "T03_009.BigTree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_009.FnTree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.FnTree \u2192 Type u} \u2192 T03_009.FnTree \u2192 Type u",
+      "name": "T03_009.FnTree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_009.FnTree \u2192 Prop} (t : T03_009.FnTree),\n  (\u2200 (t : T03_009.FnTree), T03_009.FnTree.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_009.FnTree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.FnTree \u2192 Type u} \u2192\n  (t : T03_009.FnTree) \u2192 ((t : T03_009.FnTree) \u2192 T03_009.FnTree.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_009.FnTree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.FnTree \u2192 Sort u} \u2192\n  (t : T03_009.FnTree) \u2192\n    ((a : Nat \u2192 T03_009.FnTree) \u2192 motive (T03_009.FnTree.fnode a)) \u2192 motive T03_009.FnTree.fstop \u2192 motive t",
+      "name": "T03_009.FnTree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 T03_009.FnTree) \u2192 T03_009.FnTree",
+      "name": "T03_009.FnTree.fnode",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat \u2192 T03_009.FnTree}, T03_009.FnTree.fnode a = T03_009.FnTree.fnode a_1 \u2192 a = a_1",
+      "name": "T03_009.FnTree.fnode.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat \u2192 T03_009.FnTree), (T03_009.FnTree.fnode a = T03_009.FnTree.fnode a_1) = (a = a_1)",
+      "name": "T03_009.FnTree.fnode.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat \u2192 T03_009.FnTree), sizeOf (T03_009.FnTree.fnode a) = 1",
+      "name": "T03_009.FnTree.fnode.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.FnTree",
+      "name": "T03_009.FnTree.fstop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_009.FnTree.fstop = 1",
+      "name": "T03_009.FnTree.fstop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.FnTree \u2192 Prop} \u2192 T03_009.FnTree \u2192 Prop",
+      "name": "T03_009.FnTree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_009.FnTree} \u2192 v1 = v2 \u2192 T03_009.FnTree.noConfusionType P v1 v2",
+      "name": "T03_009.FnTree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_009.FnTree \u2192 T03_009.FnTree \u2192 Sort u",
+      "name": "T03_009.FnTree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.FnTree \u2192 Sort u} \u2192\n  ((a : Nat \u2192 T03_009.FnTree) \u2192 ((a_1 : Nat) \u2192 motive (a a_1)) \u2192 motive (T03_009.FnTree.fnode a)) \u2192\n    motive T03_009.FnTree.fstop \u2192 (t : T03_009.FnTree) \u2192 motive t",
+      "name": "T03_009.FnTree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_009.FnTree \u2192 Sort u} \u2192\n  (t : T03_009.FnTree) \u2192\n    ((a : Nat \u2192 T03_009.FnTree) \u2192 ((a_1 : Nat) \u2192 motive (a a_1)) \u2192 motive (T03_009.FnTree.fnode a)) \u2192\n      motive T03_009.FnTree.fstop \u2192 motive t",
+      "name": "T03_009.FnTree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_009.LTree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192 T03_009.LTree \u2192 Sort (max 1 u)",
+      "name": "T03_009.LTree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192 T03_009.Tagged T03_009.LTree \u2192 Sort (max 1 u)",
+      "name": "T03_009.LTree.below_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_009.LTree \u2192 Prop} {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Prop} (t : T03_009.LTree),\n  (\u2200 (t : T03_009.LTree), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (t : T03_009.Tagged T03_009.LTree), T03_009.LTree.ibelow_1 t \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_009.LTree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_009.LTree \u2192 Prop} {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Prop} (t : T03_009.Tagged T03_009.LTree),\n  (\u2200 (t : T03_009.LTree), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (t : T03_009.Tagged T03_009.LTree), T03_009.LTree.ibelow_1 t \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_009.LTree.binductionOn_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192\n    (t : T03_009.LTree) \u2192\n      ((t : T03_009.LTree) \u2192 t.below \u2192 motive_1 t) \u2192\n        ((t : T03_009.Tagged T03_009.LTree) \u2192 T03_009.LTree.below_1 t \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_009.LTree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192\n    (t : T03_009.Tagged T03_009.LTree) \u2192\n      ((t : T03_009.LTree) \u2192 t.below \u2192 motive_1 t) \u2192\n        ((t : T03_009.Tagged T03_009.LTree) \u2192 T03_009.LTree.below_1 t \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_009.LTree.brecOn_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  (t : T03_009.LTree) \u2192 ((a : T03_009.Tagged T03_009.LTree) \u2192 motive_1 (T03_009.LTree.lnode a)) \u2192 motive_1 t",
+      "name": "T03_009.LTree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Prop} \u2192 {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Prop} \u2192 T03_009.LTree \u2192 Prop",
+      "name": "T03_009.LTree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Prop} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Prop} \u2192 T03_009.Tagged T03_009.LTree \u2192 Prop",
+      "name": "T03_009.LTree.ibelow_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.Tagged T03_009.LTree \u2192 T03_009.LTree",
+      "name": "T03_009.LTree.lnode",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_009.Tagged T03_009.LTree}, T03_009.LTree.lnode a = T03_009.LTree.lnode a_1 \u2192 a = a_1",
+      "name": "T03_009.LTree.lnode.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_009.Tagged T03_009.LTree), (T03_009.LTree.lnode a = T03_009.LTree.lnode a_1) = (a = a_1)",
+      "name": "T03_009.LTree.lnode.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_009.Tagged T03_009.LTree), sizeOf (T03_009.LTree.lnode a) = 1 + sizeOf a",
+      "name": "T03_009.LTree.lnode.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_009.LTree} \u2192 v1 = v2 \u2192 T03_009.LTree.noConfusionType P v1 v2",
+      "name": "T03_009.LTree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_009.LTree \u2192 T03_009.LTree \u2192 Sort u",
+      "name": "T03_009.LTree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192\n    ((a : T03_009.Tagged T03_009.LTree) \u2192 motive_2 a \u2192 motive_1 (T03_009.LTree.lnode a)) \u2192\n      motive_2 T03_009.Tagged.tnil \u2192\n        ((a : Nat) \u2192\n            (a_1 : T03_009.LTree) \u2192\n              (a_2 : T03_009.Tagged T03_009.LTree) \u2192\n                motive_1 a_1 \u2192 motive_2 a_2 \u2192 motive_2 (T03_009.Tagged.tcons a a_1 a_2)) \u2192\n          (t : T03_009.LTree) \u2192 motive_1 t",
+      "name": "T03_009.LTree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192\n    (t : T03_009.LTree) \u2192\n      ((a : T03_009.Tagged T03_009.LTree) \u2192 motive_2 a \u2192 motive_1 (T03_009.LTree.lnode a)) \u2192\n        motive_2 T03_009.Tagged.tnil \u2192\n          ((a : Nat) \u2192\n              (a_1 : T03_009.LTree) \u2192\n                (a_2 : T03_009.Tagged T03_009.LTree) \u2192\n                  motive_1 a_1 \u2192 motive_2 a_2 \u2192 motive_2 (T03_009.Tagged.tcons a a_1 a_2)) \u2192\n            motive_1 t",
+      "name": "T03_009.LTree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.LTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.Tagged T03_009.LTree \u2192 Sort u} \u2192\n    ((a : T03_009.Tagged T03_009.LTree) \u2192 motive_2 a \u2192 motive_1 (T03_009.LTree.lnode a)) \u2192\n      motive_2 T03_009.Tagged.tnil \u2192\n        ((a : Nat) \u2192\n            (a_1 : T03_009.LTree) \u2192\n              (a_2 : T03_009.Tagged T03_009.LTree) \u2192\n                motive_1 a_1 \u2192 motive_2 a_2 \u2192 motive_2 (T03_009.Tagged.tcons a a_1 a_2)) \u2192\n          (t : T03_009.Tagged T03_009.LTree) \u2192 motive_2 t",
+      "name": "T03_009.LTree.rec_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_009.PTree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192 T03_009.PTree \u2192 Sort (max 1 u)",
+      "name": "T03_009.PTree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192 T03_009.TPair Nat T03_009.PTree \u2192 Sort (max 1 u)",
+      "name": "T03_009.PTree.below_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_009.PTree \u2192 Prop} {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Prop} (t : T03_009.PTree),\n  (\u2200 (t : T03_009.PTree), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (t : T03_009.TPair Nat T03_009.PTree), T03_009.PTree.ibelow_1 t \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_009.PTree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_009.PTree \u2192 Prop} {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Prop}\n  (t : T03_009.TPair Nat T03_009.PTree),\n  (\u2200 (t : T03_009.PTree), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (t : T03_009.TPair Nat T03_009.PTree), T03_009.PTree.ibelow_1 t \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_009.PTree.binductionOn_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192\n    (t : T03_009.PTree) \u2192\n      ((t : T03_009.PTree) \u2192 t.below \u2192 motive_1 t) \u2192\n        ((t : T03_009.TPair Nat T03_009.PTree) \u2192 T03_009.PTree.below_1 t \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_009.PTree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192\n    (t : T03_009.TPair Nat T03_009.PTree) \u2192\n      ((t : T03_009.PTree) \u2192 t.below \u2192 motive_1 t) \u2192\n        ((t : T03_009.TPair Nat T03_009.PTree) \u2192 T03_009.PTree.below_1 t \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_009.PTree.brecOn_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  (t : T03_009.PTree) \u2192\n    motive_1 T03_009.PTree.pstop \u2192\n      ((a : T03_009.TPair Nat T03_009.PTree) \u2192 motive_1 (T03_009.PTree.pnode a)) \u2192 motive_1 t",
+      "name": "T03_009.PTree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Prop} \u2192 {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Prop} \u2192 T03_009.PTree \u2192 Prop",
+      "name": "T03_009.PTree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Prop} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Prop} \u2192 T03_009.TPair Nat T03_009.PTree \u2192 Prop",
+      "name": "T03_009.PTree.ibelow_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_009.PTree} \u2192 v1 = v2 \u2192 T03_009.PTree.noConfusionType P v1 v2",
+      "name": "T03_009.PTree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_009.PTree \u2192 T03_009.PTree \u2192 Sort u",
+      "name": "T03_009.PTree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.TPair Nat T03_009.PTree \u2192 T03_009.PTree",
+      "name": "T03_009.PTree.pnode",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_009.TPair Nat T03_009.PTree}, T03_009.PTree.pnode a = T03_009.PTree.pnode a_1 \u2192 a = a_1",
+      "name": "T03_009.PTree.pnode.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_009.TPair Nat T03_009.PTree), (T03_009.PTree.pnode a = T03_009.PTree.pnode a_1) = (a = a_1)",
+      "name": "T03_009.PTree.pnode.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_009.TPair Nat T03_009.PTree), sizeOf (T03_009.PTree.pnode a) = 1 + sizeOf a",
+      "name": "T03_009.PTree.pnode.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.PTree",
+      "name": "T03_009.PTree.pstop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_009.PTree.pstop = 1",
+      "name": "T03_009.PTree.pstop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192\n    motive_1 T03_009.PTree.pstop \u2192\n      ((a : T03_009.TPair Nat T03_009.PTree) \u2192 motive_2 a \u2192 motive_1 (T03_009.PTree.pnode a)) \u2192\n        ((a : Nat) \u2192 (a_1 : T03_009.PTree) \u2192 motive_1 a_1 \u2192 motive_2 (T03_009.TPair.tpair a a_1)) \u2192\n          (t : T03_009.PTree) \u2192 motive_1 t",
+      "name": "T03_009.PTree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192\n    (t : T03_009.PTree) \u2192\n      motive_1 T03_009.PTree.pstop \u2192\n        ((a : T03_009.TPair Nat T03_009.PTree) \u2192 motive_2 a \u2192 motive_1 (T03_009.PTree.pnode a)) \u2192\n          ((a : Nat) \u2192 (a_1 : T03_009.PTree) \u2192 motive_1 a_1 \u2192 motive_2 (T03_009.TPair.tpair a a_1)) \u2192 motive_1 t",
+      "name": "T03_009.PTree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.PTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair Nat T03_009.PTree \u2192 Sort u} \u2192\n    motive_1 T03_009.PTree.pstop \u2192\n      ((a : T03_009.TPair Nat T03_009.PTree) \u2192 motive_2 a \u2192 motive_1 (T03_009.PTree.pnode a)) \u2192\n        ((a : Nat) \u2192 (a_1 : T03_009.PTree) \u2192 motive_1 a_1 \u2192 motive_2 (T03_009.TPair.tpair a a_1)) \u2192\n          (t : T03_009.TPair Nat T03_009.PTree) \u2192 motive_2 t",
+      "name": "T03_009.PTree.rec_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_009.QTree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192 T03_009.QTree \u2192 Sort (max 1 u)",
+      "name": "T03_009.QTree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192 T03_009.TPair T03_009.QTree Bool \u2192 Sort (max 1 u)",
+      "name": "T03_009.QTree.below_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_009.QTree \u2192 Prop} {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Prop} (t : T03_009.QTree),\n  (\u2200 (t : T03_009.QTree), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (t : T03_009.TPair T03_009.QTree Bool), T03_009.QTree.ibelow_1 t \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_009.QTree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_009.QTree \u2192 Prop} {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Prop}\n  (t : T03_009.TPair T03_009.QTree Bool),\n  (\u2200 (t : T03_009.QTree), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (t : T03_009.TPair T03_009.QTree Bool), T03_009.QTree.ibelow_1 t \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_009.QTree.binductionOn_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192\n    (t : T03_009.QTree) \u2192\n      ((t : T03_009.QTree) \u2192 t.below \u2192 motive_1 t) \u2192\n        ((t : T03_009.TPair T03_009.QTree Bool) \u2192 T03_009.QTree.below_1 t \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_009.QTree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192\n    (t : T03_009.TPair T03_009.QTree Bool) \u2192\n      ((t : T03_009.QTree) \u2192 t.below \u2192 motive_1 t) \u2192\n        ((t : T03_009.TPair T03_009.QTree Bool) \u2192 T03_009.QTree.below_1 t \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_009.QTree.brecOn_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  (t : T03_009.QTree) \u2192\n    motive_1 T03_009.QTree.qstop \u2192\n      ((a : T03_009.TPair T03_009.QTree Bool) \u2192 motive_1 (T03_009.QTree.qnode a)) \u2192 motive_1 t",
+      "name": "T03_009.QTree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Prop} \u2192 {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Prop} \u2192 T03_009.QTree \u2192 Prop",
+      "name": "T03_009.QTree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Prop} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Prop} \u2192 T03_009.TPair T03_009.QTree Bool \u2192 Prop",
+      "name": "T03_009.QTree.ibelow_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_009.QTree} \u2192 v1 = v2 \u2192 T03_009.QTree.noConfusionType P v1 v2",
+      "name": "T03_009.QTree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_009.QTree \u2192 T03_009.QTree \u2192 Sort u",
+      "name": "T03_009.QTree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.TPair T03_009.QTree Bool \u2192 T03_009.QTree",
+      "name": "T03_009.QTree.qnode",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_009.TPair T03_009.QTree Bool}, T03_009.QTree.qnode a = T03_009.QTree.qnode a_1 \u2192 a = a_1",
+      "name": "T03_009.QTree.qnode.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_009.TPair T03_009.QTree Bool), (T03_009.QTree.qnode a = T03_009.QTree.qnode a_1) = (a = a_1)",
+      "name": "T03_009.QTree.qnode.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_009.TPair T03_009.QTree Bool), sizeOf (T03_009.QTree.qnode a) = 1 + sizeOf a",
+      "name": "T03_009.QTree.qnode.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.QTree",
+      "name": "T03_009.QTree.qstop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_009.QTree.qstop = 1",
+      "name": "T03_009.QTree.qstop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192\n    motive_1 T03_009.QTree.qstop \u2192\n      ((a : T03_009.TPair T03_009.QTree Bool) \u2192 motive_2 a \u2192 motive_1 (T03_009.QTree.qnode a)) \u2192\n        ((a : T03_009.QTree) \u2192 (a_1 : Bool) \u2192 motive_1 a \u2192 motive_2 (T03_009.TPair.tpair a a_1)) \u2192\n          (t : T03_009.QTree) \u2192 motive_1 t",
+      "name": "T03_009.QTree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192\n    (t : T03_009.QTree) \u2192\n      motive_1 T03_009.QTree.qstop \u2192\n        ((a : T03_009.TPair T03_009.QTree Bool) \u2192 motive_2 a \u2192 motive_1 (T03_009.QTree.qnode a)) \u2192\n          ((a : T03_009.QTree) \u2192 (a_1 : Bool) \u2192 motive_1 a \u2192 motive_2 (T03_009.TPair.tpair a a_1)) \u2192 motive_1 t",
+      "name": "T03_009.QTree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_009.QTree \u2192 Sort u} \u2192\n  {motive_2 : T03_009.TPair T03_009.QTree Bool \u2192 Sort u} \u2192\n    motive_1 T03_009.QTree.qstop \u2192\n      ((a : T03_009.TPair T03_009.QTree Bool) \u2192 motive_2 a \u2192 motive_1 (T03_009.QTree.qnode a)) \u2192\n        ((a : T03_009.QTree) \u2192 (a_1 : Bool) \u2192 motive_1 a \u2192 motive_2 (T03_009.TPair.tpair a a_1)) \u2192\n          (t : T03_009.TPair T03_009.QTree Bool) \u2192 motive_2 t",
+      "name": "T03_009.QTree.rec_1",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_009.TList",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_009.TList \u03b1 \u2192 Sort u} \u2192 T03_009.TList \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T03_009.TList.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T03_009.TList \u03b1 \u2192 Prop} (t : T03_009.TList \u03b1),\n  (\u2200 (t : T03_009.TList \u03b1), T03_009.TList.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_009.TList.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.TList \u03b1 \u2192 Sort u} \u2192\n    (t : T03_009.TList \u03b1) \u2192 ((t : T03_009.TList \u03b1) \u2192 T03_009.TList.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_009.TList.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.TList \u03b1 \u2192 Sort u} \u2192\n    (t : T03_009.TList \u03b1) \u2192\n      motive T03_009.TList.tnil \u2192 ((a : \u03b1) \u2192 (a_1 : T03_009.TList \u03b1) \u2192 motive (T03_009.TList.tcons a a_1)) \u2192 motive t",
+      "name": "T03_009.TList.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_009.TList \u03b1 \u2192 Prop} \u2192 T03_009.TList \u03b1 \u2192 Prop",
+      "name": "T03_009.TList.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_009.TList \u03b1} \u2192 v1 = v2 \u2192 T03_009.TList.noConfusionType P v1 v2",
+      "name": "T03_009.TList.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_009.TList \u03b1 \u2192 T03_009.TList \u03b1 \u2192 Sort u",
+      "name": "T03_009.TList.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.TList \u03b1 \u2192 Sort u} \u2192\n    motive T03_009.TList.tnil \u2192\n      ((a : \u03b1) \u2192 (a_1 : T03_009.TList \u03b1) \u2192 motive a_1 \u2192 motive (T03_009.TList.tcons a a_1)) \u2192\n        (t : T03_009.TList \u03b1) \u2192 motive t",
+      "name": "T03_009.TList.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.TList \u03b1 \u2192 Sort u} \u2192\n    (t : T03_009.TList \u03b1) \u2192\n      motive T03_009.TList.tnil \u2192\n        ((a : \u03b1) \u2192 (a_1 : T03_009.TList \u03b1) \u2192 motive a_1 \u2192 motive (T03_009.TList.tcons a a_1)) \u2192 motive t",
+      "name": "T03_009.TList.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T03_009.TList \u03b1 \u2192 T03_009.TList \u03b1",
+      "name": "T03_009.TList.tcons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {a_1 : T03_009.TList \u03b1} {a_2 : \u03b1} {a_3 : T03_009.TList \u03b1},\n  T03_009.TList.tcons a a_1 = T03_009.TList.tcons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_009.TList.tcons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1) (a_1 : T03_009.TList \u03b1) (a_2 : \u03b1) (a_3 : T03_009.TList \u03b1),\n  (T03_009.TList.tcons a a_1 = T03_009.TList.tcons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_009.TList.tcons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1) (a_1 : T03_009.TList \u03b1),\n  sizeOf (T03_009.TList.tcons a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_009.TList.tcons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_009.TList \u03b1",
+      "name": "T03_009.TList.tnil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T03_009.TList.tnil = 1",
+      "name": "T03_009.TList.tnil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T03_009.TPair",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_009.TPair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_009.TPair \u03b1 \u03b2) \u2192 ((a : \u03b1) \u2192 (a_1 : \u03b2) \u2192 motive (T03_009.TPair.tpair a a_1)) \u2192 motive t",
+      "name": "T03_009.TPair.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_009.TPair \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T03_009.TPair.noConfusionType P v1 v2",
+      "name": "T03_009.TPair.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T03_009.TPair \u03b1 \u03b2 \u2192 T03_009.TPair \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T03_009.TPair.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_009.TPair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((a : \u03b1) \u2192 (a_1 : \u03b2) \u2192 motive (T03_009.TPair.tpair a a_1)) \u2192 (t : T03_009.TPair \u03b1 \u03b2) \u2192 motive t",
+      "name": "T03_009.TPair.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_009.TPair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_009.TPair \u03b1 \u03b2) \u2192 ((a : \u03b1) \u2192 (a_1 : \u03b2) \u2192 motive (T03_009.TPair.tpair a a_1)) \u2192 motive t",
+      "name": "T03_009.TPair.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 T03_009.TPair \u03b1 \u03b2",
+      "name": "T03_009.TPair.tpair",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {a : \u03b1} {a_1 : \u03b2} {a_2 : \u03b1} {a_3 : \u03b2},\n  T03_009.TPair.tpair a a_1 = T03_009.TPair.tpair a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_009.TPair.tpair.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (a : \u03b1) (a_1 : \u03b2) (a_2 : \u03b1) (a_3 : \u03b2),\n  (T03_009.TPair.tpair a a_1 = T03_009.TPair.tpair a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_009.TPair.tpair.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (a : \u03b1) (a_1 : \u03b2),\n  sizeOf (T03_009.TPair.tpair a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_009.TPair.tpair.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_009.Tagged",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_009.Tagged \u03b1 \u2192 Sort u} \u2192 T03_009.Tagged \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T03_009.Tagged.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T03_009.Tagged \u03b1 \u2192 Prop} (t : T03_009.Tagged \u03b1),\n  (\u2200 (t : T03_009.Tagged \u03b1), T03_009.Tagged.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_009.Tagged.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.Tagged \u03b1 \u2192 Sort u} \u2192\n    (t : T03_009.Tagged \u03b1) \u2192 ((t : T03_009.Tagged \u03b1) \u2192 T03_009.Tagged.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_009.Tagged.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.Tagged \u03b1 \u2192 Sort u} \u2192\n    (t : T03_009.Tagged \u03b1) \u2192\n      motive T03_009.Tagged.tnil \u2192\n        ((a : Nat) \u2192 (a_1 : \u03b1) \u2192 (a_2 : T03_009.Tagged \u03b1) \u2192 motive (T03_009.Tagged.tcons a a_1 a_2)) \u2192 motive t",
+      "name": "T03_009.Tagged.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T03_009.Tagged \u03b1 \u2192 Prop} \u2192 T03_009.Tagged \u03b1 \u2192 Prop",
+      "name": "T03_009.Tagged.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_009.Tagged \u03b1} \u2192 v1 = v2 \u2192 T03_009.Tagged.noConfusionType P v1 v2",
+      "name": "T03_009.Tagged.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_009.Tagged \u03b1 \u2192 T03_009.Tagged \u03b1 \u2192 Sort u",
+      "name": "T03_009.Tagged.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.Tagged \u03b1 \u2192 Sort u} \u2192\n    motive T03_009.Tagged.tnil \u2192\n      ((a : Nat) \u2192 (a_1 : \u03b1) \u2192 (a_2 : T03_009.Tagged \u03b1) \u2192 motive a_2 \u2192 motive (T03_009.Tagged.tcons a a_1 a_2)) \u2192\n        (t : T03_009.Tagged \u03b1) \u2192 motive t",
+      "name": "T03_009.Tagged.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_009.Tagged \u03b1 \u2192 Sort u} \u2192\n    (t : T03_009.Tagged \u03b1) \u2192\n      motive T03_009.Tagged.tnil \u2192\n        ((a : Nat) \u2192 (a_1 : \u03b1) \u2192 (a_2 : T03_009.Tagged \u03b1) \u2192 motive a_2 \u2192 motive (T03_009.Tagged.tcons a a_1 a_2)) \u2192\n          motive t",
+      "name": "T03_009.Tagged.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Nat \u2192 \u03b1 \u2192 T03_009.Tagged \u03b1 \u2192 T03_009.Tagged \u03b1",
+      "name": "T03_009.Tagged.tcons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : Nat} {a_1 : \u03b1} {a_2 : T03_009.Tagged \u03b1} {a_3 : Nat} {a_4 : \u03b1} {a_5 : T03_009.Tagged \u03b1},\n  T03_009.Tagged.tcons a a_1 a_2 = T03_009.Tagged.tcons a_3 a_4 a_5 \u2192 a = a_3 \u2227 a_1 = a_4 \u2227 a_2 = a_5",
+      "name": "T03_009.Tagged.tcons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : Nat) (a_1 : \u03b1) (a_2 : T03_009.Tagged \u03b1) (a_3 : Nat) (a_4 : \u03b1) (a_5 : T03_009.Tagged \u03b1),\n  (T03_009.Tagged.tcons a a_1 a_2 = T03_009.Tagged.tcons a_3 a_4 a_5) = (a = a_3 \u2227 a_1 = a_4 \u2227 a_2 = a_5)",
+      "name": "T03_009.Tagged.tcons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : Nat) (a_1 : \u03b1) (a_2 : T03_009.Tagged \u03b1),\n  sizeOf (T03_009.Tagged.tcons a a_1 a_2) = 1 + sizeOf a + sizeOf a_1 + sizeOf a_2",
+      "name": "T03_009.Tagged.tcons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_009.Tagged \u03b1",
+      "name": "T03_009.Tagged.tnil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T03_009.Tagged.tnil = 1",
+      "name": "T03_009.Tagged.tnil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.FnTree \u2192 Nat",
+      "name": "T03_009.fdepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_009.FnTree \u2192 Sort u_1) \u2192\n  (x : T03_009.FnTree) \u2192\n    (Unit \u2192 motive T03_009.FnTree.fstop) \u2192 ((f : Nat \u2192 T03_009.FnTree) \u2192 motive (T03_009.FnTree.fnode f)) \u2192 motive x",
+      "name": "T03_009.fdepth.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.LTree",
+      "name": "T03_009.lleaf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.LTree \u2192 Nat",
+      "name": "T03_009.lsize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_009.LTree \u2192 Sort u_1) \u2192\n  (x : T03_009.LTree) \u2192 ((kids : T03_009.Tagged T03_009.LTree) \u2192 motive (T03_009.LTree.lnode kids)) \u2192 motive x",
+      "name": "T03_009.lsize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.Tagged T03_009.LTree \u2192 Nat",
+      "name": "T03_009.ltagSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_009.Tagged T03_009.LTree \u2192 Sort u_1) \u2192\n  (x : T03_009.Tagged T03_009.LTree) \u2192\n    (Unit \u2192 motive T03_009.Tagged.tnil) \u2192\n      ((a : Nat) \u2192\n          (t : T03_009.LTree) \u2192 (rest : T03_009.Tagged T03_009.LTree) \u2192 motive (T03_009.Tagged.tcons a t rest)) \u2192\n        motive x",
+      "name": "T03_009.ltagSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.PTree",
+      "name": "T03_009.pOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.PTree",
+      "name": "T03_009.pTwo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.PTree \u2192 Nat",
+      "name": "T03_009.pdepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_009.PTree \u2192 Sort u_1) \u2192\n  (x : T03_009.PTree) \u2192\n    (Unit \u2192 motive T03_009.PTree.pstop) \u2192\n      ((a : Nat) \u2192 (t : T03_009.PTree) \u2192 motive (T03_009.PTree.pnode (T03_009.TPair.tpair a t))) \u2192 motive x",
+      "name": "T03_009.pdepth.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.QTree",
+      "name": "T03_009.qOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_009.QTree \u2192 Nat",
+      "name": "T03_009.qdepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_009.QTree \u2192 Sort u_1) \u2192\n  (x : T03_009.QTree) \u2192\n    (Unit \u2192 motive T03_009.QTree.qstop) \u2192\n      ((t : T03_009.QTree) \u2192 (a : Bool) \u2192 motive (T03_009.QTree.qnode (T03_009.TPair.tpair t a))) \u2192 motive x",
+      "name": "T03_009.qdepth.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

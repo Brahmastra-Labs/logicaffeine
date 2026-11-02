@@ -41,7 +41,9 @@ fn gram_schmidt(b: &[Vec<Rational>]) -> (Vec<Vec<Rational>>, Vec<Vec<Rational>>)
     for i in 0..n {
         let mut v = b[i].clone();
         for j in 0..i {
-            let m = dot(&b[i], &bstar[j]).div(&dot(&bstar[j], &bstar[j])).expect("independent basis");
+            let m = dot(&b[i], &bstar[j])
+                .div(&dot(&bstar[j], &bstar[j]))
+                .expect("independent basis");
             for d in 0..v.len() {
                 v[d] = v[d].sub(&m.mul(&bstar[j][d]));
             }
@@ -80,7 +82,9 @@ fn lll_core(mut b: Vec<Vec<Rational>>) -> Vec<Vec<Rational>> {
             }
         }
         // Lovász condition: ‖b*ₖ‖² ≥ (δ − μ²ₖ,ₖ₋₁)·‖b*ₖ₋₁‖².
-        let rhs = delta.sub(&mu[k][k - 1].mul(&mu[k][k - 1])).mul(&norm[k - 1]);
+        let rhs = delta
+            .sub(&mu[k][k - 1].mul(&mu[k][k - 1]))
+            .mul(&norm[k - 1]);
         if norm[k] >= rhs {
             k += 1;
         } else {
@@ -101,8 +105,14 @@ fn lll_core(mut b: Vec<Vec<Rational>>) -> Vec<Vec<Rational>> {
 /// LLL-reduced basis. The first row is a short vector — for a lattice built to encode a cryptographic
 /// weakness, that short vector is the leaked secret.
 pub fn lll_reduce(basis: &[Vec<i64>]) -> Vec<Vec<BigInt>> {
-    let b = basis.iter().map(|row| row.iter().map(|&x| Rational::from_i64(x)).collect()).collect();
-    lll_core(b).iter().map(|row| row.iter().map(|r| r.round()).collect()).collect()
+    let b = basis
+        .iter()
+        .map(|row| row.iter().map(|&x| Rational::from_i64(x)).collect())
+        .collect();
+    lll_core(b)
+        .iter()
+        .map(|row| row.iter().map(|r| r.round()).collect())
+        .collect()
 }
 
 /// The bit length of `|x|`.
@@ -128,7 +138,15 @@ fn gram_schmidt_f64(b: &[Vec<BigInt>]) -> (Vec<Vec<f64>>, Vec<f64>) {
     }
     let cf: Vec<Vec<f64>> = b
         .iter()
-        .map(|row| row.iter().map(|x| Rational::new(x.clone(), scale.clone()).map(|r| r.to_f64()).unwrap_or(0.0)).collect())
+        .map(|row| {
+            row.iter()
+                .map(|x| {
+                    Rational::new(x.clone(), scale.clone())
+                        .map(|r| r.to_f64())
+                        .unwrap_or(0.0)
+                })
+                .collect()
+        })
         .collect();
     let mut bstar = vec![vec![0f64; dim]; n];
     let mut mu = vec![vec![0f64; n]; n];
@@ -144,12 +162,17 @@ fn gram_schmidt_f64(b: &[Vec<BigInt>]) -> (Vec<Vec<f64>>, Vec<f64>) {
             }
         }
     }
-    let norm = bstar.iter().map(|v| v.iter().map(|c| c * c).sum()).collect();
+    let norm = bstar
+        .iter()
+        .map(|v| v.iter().map(|c| c * c).sum())
+        .collect();
     (mu, norm)
 }
 
 fn vdot(u: &[BigInt], v: &[BigInt]) -> BigInt {
-    u.iter().zip(v).fold(BigInt::zero(), |a, (x, y)| a.add(&x.mul(y)))
+    u.iter()
+        .zip(v)
+        .fold(BigInt::zero(), |a, (x, y)| a.add(&x.mul(y)))
 }
 
 // ---- BigFloat: fixed-precision binary floating point for the L² reduction (fpLLL) --------------------
@@ -205,13 +228,19 @@ impl BigFloat {
         let bl = bit_length(&m);
         if bl > FP_PREC {
             let s = bl - FP_PREC;
-            Self { m: shr(&m, s), e: e + s as i64 }
+            Self {
+                m: shr(&m, s),
+                e: e + s as i64,
+            }
         } else {
             Self { m, e }
         }
     }
     fn zero() -> Self {
-        Self { m: BigInt::zero(), e: 0 }
+        Self {
+            m: BigInt::zero(),
+            e: 0,
+        }
     }
     fn from_bigint(n: &BigInt) -> Self {
         Self::normalized(n.clone(), 0)
@@ -242,7 +271,10 @@ impl BigFloat {
         Self::normalized(ma.add(&mb), e)
     }
     fn neg(&self) -> Self {
-        Self { m: self.m.negated(), e: self.e }
+        Self {
+            m: self.m.negated(),
+            e: self.e,
+        }
     }
     fn sub(&self, o: &Self) -> Self {
         self.add(&o.neg())
@@ -252,10 +284,16 @@ impl BigFloat {
     }
     fn div(&self, o: &Self) -> Self {
         let num = shl(&self.m, FP_PREC);
-        Self::normalized(num.div_rem(&o.m).expect("nonzero div").0, self.e - o.e - FP_PREC as i64)
+        Self::normalized(
+            num.div_rem(&o.m).expect("nonzero div").0,
+            self.e - o.e - FP_PREC as i64,
+        )
     }
     fn abs(&self) -> Self {
-        Self { m: self.m.abs(), e: self.e }
+        Self {
+            m: self.m.abs(),
+            e: self.e,
+        }
     }
     fn cmp(&self, o: &Self) -> std::cmp::Ordering {
         let d = self.sub(o).m;
@@ -274,19 +312,28 @@ impl BigFloat {
         } else {
             let k = (-self.e) as u64;
             let half = two_pow(k - 1);
-            let adj = if self.m.is_negative() { self.m.sub(&half) } else { self.m.add(&half) };
+            let adj = if self.m.is_negative() {
+                self.m.sub(&half)
+            } else {
+                self.m.add(&half)
+            };
             adj.div_rem(&two_pow(k)).expect("nonzero").0
         }
     }
 }
 
 fn dot_bf(u: &[BigFloat], v: &[BigFloat]) -> BigFloat {
-    u.iter().zip(v).fold(BigFloat::zero(), |a, (x, y)| a.add(&x.mul(y)))
+    u.iter()
+        .zip(v)
+        .fold(BigFloat::zero(), |a, (x, y)| a.add(&x.mul(y)))
 }
 
 fn gram_schmidt_bf(b: &[Vec<BigInt>]) -> (Vec<Vec<BigFloat>>, Vec<BigFloat>) {
     let (n, dim) = (b.len(), b[0].len());
-    let cf: Vec<Vec<BigFloat>> = b.iter().map(|r| r.iter().map(BigFloat::from_bigint).collect()).collect();
+    let cf: Vec<Vec<BigFloat>> = b
+        .iter()
+        .map(|r| r.iter().map(BigFloat::from_bigint).collect())
+        .collect();
     let mut bstar = vec![vec![BigFloat::zero(); dim]; n];
     let mut mu = vec![vec![BigFloat::zero(); n]; n];
     for i in 0..n {
@@ -305,7 +352,13 @@ fn gram_schmidt_bf(b: &[Vec<BigInt>]) -> (Vec<Vec<BigFloat>>, Vec<BigFloat>) {
 
 /// Incrementally update the Gram–Schmidt data `(mu, norm)` when swapping basis rows `k` and `k−1` — the
 /// standard LLL swap formulas, so a swap is `O(n)` rather than a full `O(n²·dim)` recomputation.
-fn swap_gso(k: usize, n: usize, b: &mut [Vec<BigInt>], mu: &mut [Vec<BigFloat>], norm: &mut [BigFloat]) {
+fn swap_gso(
+    k: usize,
+    n: usize,
+    b: &mut [Vec<BigInt>],
+    mu: &mut [Vec<BigFloat>],
+    norm: &mut [BigFloat],
+) {
     b.swap(k, k - 1);
     let nu = mu[k][k - 1].clone();
     let db = norm[k].add(&nu.mul(&nu).mul(&norm[k - 1])); // new ‖b*_{k-1}‖²
@@ -364,7 +417,9 @@ pub fn lll_reduce_bigint_fp(basis: &[Vec<BigInt>]) -> Vec<Vec<BigInt>> {
                 }
             }
         }
-        let rhs = delta.sub(&mu[k][k - 1].mul(&mu[k][k - 1])).mul(&norm[k - 1]);
+        let rhs = delta
+            .sub(&mu[k][k - 1].mul(&mu[k][k - 1]))
+            .mul(&norm[k - 1]);
         if norm[k].cmp(&rhs) != std::cmp::Ordering::Less {
             k += 1;
         } else {
@@ -413,11 +468,26 @@ fn swapi(k: usize, n: usize, b: &mut [Vec<BigInt>], d: &mut [BigInt], lam: &mut 
         lam[k - 1][j] = t;
     }
     let lambda = lam[k][k - 1].clone();
-    let bval = d[k - 2].mul(&d[k]).add(&lambda.mul(&lambda)).div_rem(&d[k - 1]).expect("exact").0;
+    let bval = d[k - 2]
+        .mul(&d[k])
+        .add(&lambda.mul(&lambda))
+        .div_rem(&d[k - 1])
+        .expect("exact")
+        .0;
     for i in (k + 1)..=n {
         let t = lam[i][k].clone();
-        let new_ik = d[k].mul(&lam[i][k - 1]).sub(&lambda.mul(&t)).div_rem(&d[k - 1]).expect("exact").0;
-        let new_ik1 = bval.mul(&t).add(&lambda.mul(&new_ik)).div_rem(&d[k]).expect("exact").0;
+        let new_ik = d[k]
+            .mul(&lam[i][k - 1])
+            .sub(&lambda.mul(&t))
+            .div_rem(&d[k - 1])
+            .expect("exact")
+            .0;
+        let new_ik1 = bval
+            .mul(&t)
+            .add(&lambda.mul(&new_ik))
+            .div_rem(&d[k])
+            .expect("exact")
+            .0;
         lam[i][k] = new_ik;
         lam[i][k - 1] = new_ik1;
     }
@@ -449,7 +519,12 @@ pub fn lll_reduce_bigint_exact(basis: &[Vec<BigInt>]) -> Vec<Vec<BigInt>> {
             for j in 1..=k {
                 let mut u = vdot(&b[k], &b[j]);
                 for i in 1..j {
-                    u = d[i].mul(&u).sub(&lam[k][i].mul(&lam[j][i])).div_rem(&d[i - 1]).expect("exact").0;
+                    u = d[i]
+                        .mul(&u)
+                        .sub(&lam[k][i].mul(&lam[j][i]))
+                        .div_rem(&d[i - 1])
+                        .expect("exact")
+                        .0;
                 }
                 if j < k {
                     lam[k][j] = u;
@@ -523,71 +598,5 @@ pub fn lll_reduce_bigint(basis: &[Vec<BigInt>]) -> Vec<Vec<BigInt>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn as_i64(v: &[Vec<BigInt>]) -> Vec<Vec<i64>> {
-        v.iter().map(|row| row.iter().map(|x| x.to_i64().expect("small entry")).collect()).collect()
-    }
-
-    fn norm_sq(row: &[i64]) -> i64 {
-        row.iter().map(|&x| x * x).sum()
-    }
-
-    #[test]
-    fn lll_reduces_a_skewed_basis_to_the_standard_one() {
-        // The lattice ℤ² given by a badly skewed basis: [10,1] is long, but 10·[1,0] shears it to [0,1].
-        let reduced = as_i64(&lll_reduce(&[vec![1, 0], vec![10, 1]]));
-        assert_eq!(reduced, vec![vec![1, 0], vec![0, 1]], "LLL recovers the standard basis");
-    }
-
-    #[test]
-    fn lll_finds_the_shortest_vector_of_a_flat_lattice() {
-        // det = 15·17 − 23·11 = 2, so this lattice is very flat and its shortest vector is tiny ([1,1],
-        // norm² = 2); both input rows have norm² in the hundreds. LLL surfaces it.
-        let reduced = as_i64(&lll_reduce(&[vec![15, 23], vec![11, 17]]));
-        let shortest = reduced.iter().map(|r| norm_sq(r)).min().unwrap();
-        assert_eq!(shortest, 2, "LLL finds the shortest vector, norm² = 2");
-        assert!(reduced.iter().any(|r| r == &[1, 1] || r == &[-1, -1]), "and it is ±[1,1]");
-    }
-
-    #[test]
-    fn exact_integer_lll_matches_the_known_reductions() {
-        let big = |rows: &[&[i64]]| -> Vec<Vec<BigInt>> {
-            rows.iter().map(|r| r.iter().map(|&x| BigInt::from_i64(x)).collect()).collect()
-        };
-        let out = as_i64(&lll_reduce_bigint_exact(&big(&[&[1, 0], &[10, 1]])));
-        assert_eq!(out, vec![vec![1, 0], vec![0, 1]], "exact LLL recovers the standard basis");
-
-        let out = as_i64(&lll_reduce_bigint_exact(&big(&[&[15, 23], &[11, 17]])));
-        let shortest = out.iter().map(|r| norm_sq(r)).min().unwrap();
-        assert_eq!(shortest, 2, "exact LLL finds the shortest vector, norm² = 2");
-    }
-
-    #[test]
-    fn l2_fplll_matches_the_known_reductions() {
-        let big = |rows: &[&[i64]]| -> Vec<Vec<BigInt>> {
-            rows.iter().map(|r| r.iter().map(|&x| BigInt::from_i64(x)).collect()).collect()
-        };
-        let out = as_i64(&lll_reduce_bigint_fp(&big(&[&[1, 0], &[10, 1]])));
-        assert_eq!(out, vec![vec![1, 0], vec![0, 1]], "L² recovers the standard basis");
-
-        let out = as_i64(&lll_reduce_bigint_fp(&big(&[&[15, 23], &[11, 17]])));
-        let shortest = out.iter().map(|r| norm_sq(r)).min().unwrap();
-        assert_eq!(shortest, 2, "L² finds the shortest vector, norm² = 2");
-    }
-
-    #[test]
-    fn lll_output_is_size_reduced() {
-        // A 3-D lattice: after reduction every off-diagonal Gram–Schmidt coefficient satisfies |μ| ≤ ½.
-        let reduced = lll_reduce(&[vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 10]]);
-        let b: Vec<Vec<Rational>> =
-            reduced.iter().map(|row| row.iter().map(|x| Rational::from_bigint(x.clone())).collect()).collect();
-        let (_, mu) = gram_schmidt(&b);
-        for i in 0..b.len() {
-            for j in 0..i {
-                assert!(mu[i][j].abs() <= rat(1, 2), "size-reduced: |μ[{i}][{j}]| ≤ ½");
-            }
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/lattice/tests.rs"]
+mod tests;

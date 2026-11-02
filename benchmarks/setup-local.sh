@@ -39,6 +39,8 @@ fi
 APT_PACKAGES=()
 have gcc     || APT_PACKAGES+=(gcc)
 have g++     || APT_PACKAGES+=(g++)
+have clang   || APT_PACKAGES+=(clang)
+have taskset || APT_PACKAGES+=(util-linux)
 have go      || APT_PACKAGES+=(golang-go)
 have javac   || APT_PACKAGES+=(default-jdk)
 have node    || APT_PACKAGES+=(nodejs)
@@ -114,6 +116,7 @@ report() {
 }
 report "C"          gcc      "gcc --version"
 report "C++"        g++      "g++ --version"
+report "C (clang)"  clang    "clang --version"
 report "Rust"       rustc    "rustc --version"
 report "Zig"        zig      "zig version"
 report "Go"         go       "go version"

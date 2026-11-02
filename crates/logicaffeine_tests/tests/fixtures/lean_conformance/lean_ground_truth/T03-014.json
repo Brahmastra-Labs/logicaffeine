@@ -1,0 +1,344 @@
+{
+  "case": "T03-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 42,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T03_014.Convert",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_014.Convert \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_014.Convert \u03b1 \u03b2) \u2192 ((convert : \u03b1 \u2192 \u03b2) \u2192 motive { convert := convert }) \u2192 motive t",
+      "name": "T03_014.Convert.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 [self : T03_014.Convert \u03b1 \u03b2] \u2192 \u03b1 \u2192 \u03b2",
+      "name": "T03_014.Convert.convert",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 (\u03b1 \u2192 \u03b2) \u2192 T03_014.Convert \u03b1 \u03b2",
+      "name": "T03_014.Convert.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_014.Convert \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T03_014.Convert.noConfusionType P v1 v2",
+      "name": "T03_014.Convert.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T03_014.Convert \u03b1 \u03b2 \u2192 T03_014.Convert \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T03_014.Convert.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_014.Convert \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((convert : \u03b1 \u2192 \u03b2) \u2192 motive { convert := convert }) \u2192 (t : T03_014.Convert \u03b1 \u03b2) \u2192 motive t",
+      "name": "T03_014.Convert.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T03_014.Convert \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T03_014.Convert \u03b1 \u03b2) \u2192 ((convert : \u03b1 \u2192 \u03b2) \u2192 motive { convert := convert }) \u2192 motive t",
+      "name": "T03_014.Convert.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_014.Measured",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Measured \u03b1 \u2192 Sort u} \u2192\n    (t : T03_014.Measured \u03b1) \u2192 ((weight height : \u03b1 \u2192 Nat) \u2192 motive { weight := weight, height := height }) \u2192 motive t",
+      "name": "T03_014.Measured.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T03_014.Measured \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T03_014.Measured.height",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 (\u03b1 \u2192 Nat) \u2192 T03_014.Measured \u03b1",
+      "name": "T03_014.Measured.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_014.Measured \u03b1} \u2192 v1 = v2 \u2192 T03_014.Measured.noConfusionType P v1 v2",
+      "name": "T03_014.Measured.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_014.Measured \u03b1 \u2192 T03_014.Measured \u03b1 \u2192 Sort u",
+      "name": "T03_014.Measured.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Measured \u03b1 \u2192 Sort u} \u2192\n    ((weight height : \u03b1 \u2192 Nat) \u2192 motive { weight := weight, height := height }) \u2192 (t : T03_014.Measured \u03b1) \u2192 motive t",
+      "name": "T03_014.Measured.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Measured \u03b1 \u2192 Sort u} \u2192\n    (t : T03_014.Measured \u03b1) \u2192 ((weight height : \u03b1 \u2192 Nat) \u2192 motive { weight := weight, height := height }) \u2192 motive t",
+      "name": "T03_014.Measured.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T03_014.Measured \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T03_014.Measured.weight",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_014.Pointed",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T03_014.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T03_014.Pointed.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T03_014.Pointed \u03b1",
+      "name": "T03_014.Pointed.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_014.Pointed \u03b1} \u2192 v1 = v2 \u2192 T03_014.Pointed.noConfusionType P v1 v2",
+      "name": "T03_014.Pointed.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_014.Pointed \u03b1 \u2192 T03_014.Pointed \u03b1 \u2192 Sort u",
+      "name": "T03_014.Pointed.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T03_014.Pointed \u03b1] \u2192 \u03b1",
+      "name": "T03_014.Pointed.point",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Pointed \u03b1 \u2192 Sort u} \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 (t : T03_014.Pointed \u03b1) \u2192 motive t",
+      "name": "T03_014.Pointed.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T03_014.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T03_014.Pointed.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_014.Sizeable",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Sizeable \u03b1 \u2192 Sort u} \u2192\n    (t : T03_014.Sizeable \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T03_014.Sizeable.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T03_014.Sizeable \u03b1",
+      "name": "T03_014.Sizeable.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_014.Sizeable \u03b1} \u2192 v1 = v2 \u2192 T03_014.Sizeable.noConfusionType P v1 v2",
+      "name": "T03_014.Sizeable.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_014.Sizeable \u03b1 \u2192 T03_014.Sizeable \u03b1 \u2192 Sort u",
+      "name": "T03_014.Sizeable.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Sizeable \u03b1 \u2192 Sort u} \u2192\n    ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 (t : T03_014.Sizeable \u03b1) \u2192 motive t",
+      "name": "T03_014.Sizeable.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_014.Sizeable \u03b1 \u2192 Sort u} \u2192\n    (t : T03_014.Sizeable \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T03_014.Sizeable.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T03_014.Sizeable \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T03_014.Sizeable.size",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_014.Convert Bool Nat",
+      "name": "T03_014.instConvertBoolNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_014.Convert Nat Nat",
+      "name": "T03_014.instConvertNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_014.Measured Bool",
+      "name": "T03_014.instMeasuredBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_014.Pointed Bool",
+      "name": "T03_014.instPointedBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_014.Pointed Nat",
+      "name": "T03_014.instPointedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T03_014.Sizeable \u03b1] \u2192 T03_014.Sizeable (List \u03b1)",
+      "name": "T03_014.instSizeableList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_014.Sizeable Nat",
+      "name": "T03_014.instSizeableNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 [inst : T03_014.Pointed \u03b1] \u2192 \u03b1",
+      "name": "T03_014.pointOfSame",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T03_014.Pointed \u03b1] \u2192 Nat \u2192 Nat",
+      "name": "T03_014.repeatPoint",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

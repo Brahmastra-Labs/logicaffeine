@@ -1,0 +1,184 @@
+{
+ "_provenance": "The HFT DECISION lowered to a combinational select-DAG, proven ==VM (hft_decision_fabric_lock + iverilog tb_decision_hft, 256 vectors), taped out standalone behind an on-chip BIST harness. Every number below is measured on the netlist the signoff ledger ships (scripts/measure-silicon-power.py) and every ratio derived from those measurements (scripts/record-silicon-power.py).",
+ "design": "decision_hft (HFT microprice market-making decision + fat-finger clamp + position risk gate)",
+ "tiles": {
+  "total": 17,
+  "select_mux": 12,
+  "arith": 5
+ },
+ "signoff_clean": {
+  "_provenance": "OpenLane Sky130 RTL-to-GDSII of decision_hft_bist.v (LFSR-fed BIST harness, clk/rst/sig only) — signoff-clean at every timing corner, golden sky130A_mr DRC 0. OpenSTA report_power on the post-route RC-extracted netlist at the signoff clock, typical corner, default switching activity.",
+  "run": "tools/OpenLane/designs/logos_decision_hft_bist/runs/RUN_2026.10.17_17.04.21",
+  "gds_bytes": 2450052,
+  "clock_period_ns": 4.4,
+  "simulated_cycles": 4000,
+  "signature_port": "sig",
+  "signature": "00",
+  "signature_changes": 0,
+  "signature_trajectory_sha256": "03f620da1a2380785a176be03f31a0c6ad08e9eb707d1a6bc05161b960ebd642",
+  "rtl_signature": "00",
+  "rtl_signature_trajectory_sha256": "03f620da1a2380785a176be03f31a0c6ad08e9eb707d1a6bc05161b960ebd642",
+  "die_mm2": 0.0298,
+  "std_cells_placed": 2902,
+  "clock_mhz": 227.273,
+  "setup_slack_ns": 0.06,
+  "fmax_mhz": 230.4,
+  "cycles_per_trade": 1,
+  "power_mw": {
+   "block_total": 7.35,
+   "decision_selectdag_comb": 5.2,
+   "bist_lfsr_misr_seq": 2.16,
+   "note": "decision_selectdag_comb (Combinational group) is the decision; bist_lfsr_misr_seq is the stimulus/signature overhead, not the decision."
+  },
+  "energy_per_trade_pJ": {
+   "decision": 22.88,
+   "block": 32.34
+  },
+  "vs_soft_core": {
+   "basis": "the SAME decision kernel on the soft-core: 82 cycles at 29.5 mW over its 15 ns clock = 36.28 nJ",
+   "power_draw_reduction_x": [
+    4,
+    6
+   ],
+   "area_reduction_x": 20,
+   "energy_per_trade_reduction_x": [
+    1122,
+    1586
+   ]
+  },
+  "cross_check": "cgra_sumto adder-fabric signoff-clean 5.46 mW ~ decision 5.2 mW"
+ },
+ "vcd_validation": {
+  "_what": "VCD-annotated signoff power: real switching activity from a gate-level simulation of the signoff-clean post-route netlist at its signoff clock, fed into OpenSTA report_power. Open equivalent of PrimePower/Voltus.",
+  "design": "decision_hft_realbist (decision + realistic market-input stimulus, signoff-clean at every corner)",
+  "run": "tools/OpenLane/designs/logos_decision_hft_realbist/runs/RUN_2026.10.18_16.36.28",
+  "gds_bytes": 3720334,
+  "clock_period_ns": 10.8,
+  "simulated_cycles": 4000,
+  "signature_port": "sig",
+  "signature": "92de",
+  "signature_changes": 3995,
+  "signature_trajectory_sha256": "5b36b73c49629afe0d1b97377d6cf410544cb26adbdfbfef53e0e53fdd90b5e2",
+  "rtl_signature": "92de",
+  "rtl_signature_trajectory_sha256": "5b36b73c49629afe0d1b97377d6cf410544cb26adbdfbfef53e0e53fdd90b5e2",
+  "clock_mhz": 92.593,
+  "fmax_mhz": 92.8,
+  "workload": "on-chip realistic market-input stimulus; 4000 cycles of gate-level simulation deciding buy 523 / sell 833 / risk-blocked 419 / no-trade 2225, signature X-free and equal to its RTL's (92de); 3976 of 4265 design pins annotated",
+  "decision_mix": {
+   "_what": "every decision latched in the measured window, classified on the RTL: buy (quantity > 0), sell (< 0), risk-blocked (a side chosen, the position limit refuses it), no-trade (no side)",
+   "cycles": 4000,
+   "buy": 523,
+   "sell": 833,
+   "risk_blocked": 419,
+   "no_trade": 2225,
+   "decision_changes": 2266,
+   "rtl_signature": "92de",
+   "gate_signature": "92de"
+  },
+  "power_mw": {
+   "default_activity_assumed": 11.8,
+   "vcd_measured_activity": 3.31,
+   "vcd_measured_combinational": 2.38
+  },
+  "energy_per_decision_pJ": {
+   "whole_block": 35.75,
+   "combinational": 25.7
+  },
+  "finding": "MEASURED activity draws ~3.6x LESS than the tool's default-activity assumption -> the default-activity numbers quoted elsewhere are CONSERVATIVE upper bounds.",
+  "reproduce": "python3 scripts/measure-silicon-power.py decision_hft_realbist   (gate sim -> VCD -> report_power)",
+  "artifacts": "post-route netlist + extracted SPEF + PDK Liberty per corner + VCD — all standard, inspectable (GTKWave/PrimePower/Voltus)"
+ },
+ "threat_closure": {
+  "multi_corner_mw": {
+   "ss_1v60_100C": 2.65,
+   "tt_1v80_25C": 3.31,
+   "ff_1v95_n40C": 3.78,
+   "note": "VCD-annotated power at each PVT corner with that corner's parasitics; ff/tt = 1.14 against (1.95/1.80)^2 = 1.17."
+  },
+  "independent_physics_check": {
+   "implied_fF_per_net_rise": 4.57,
+   "spef_avg_net_parasitic_fF": 3.95,
+   "verdict": "typical-corner VCD switching energy / (V^2 x 3,619,124 VCD rises) = 4.57 fF per net-rise, beside a 3.95 fF SPEF-extracted average net parasitic: the tool's number reduces to first-principles physics."
+  },
+  "glitch_power": {
+   "status": "bounded",
+   "reason": "functional VCD excludes glitch; iverilog SDF timing simulation on the sky130 models is X-pessimistic. Glitch in a shallow, multiplier-free datapath is a small fraction of dynamic power; the default-activity headline already exceeds the measured activity by 3.6x, so a glitch correction cannot flip the conservatism."
+  },
+  "second_kernel_cross_check_mw": {
+   "cgra_sumto_loop_accumulator": 5.46,
+   "note": "an independent signoff-clean circuit of a different class corroborates the ~1 mW power density."
+  }
+ },
+ "honest_comparison": {
+  "_correction": "The fabric implements the DECISION KERNEL; the fair baseline is the SAME kernel on the soft-core, measured cycle-accurately.",
+  "soft_core": {
+   "power_mw": 29.5,
+   "decision_kernel_cycles": 82,
+   "cycles_source": "tb_hft.v cycle-accurate RTL: 187 (decision inline) - 105 (Seq+index marshaling) = 82",
+   "die_mm2": 0.5923,
+   "fmax_mhz": 68.5,
+   "energy_per_op_nJ": 36.28
+  },
+  "fabric": {
+   "power_mw_block_total": 7.35,
+   "power_mw_combinational": 5.2,
+   "cycles": 1,
+   "die_mm2": 0.0298,
+   "fmax_mhz": 230.4,
+   "energy_per_op_pJ_block": 32.34,
+   "energy_per_op_pJ_comb": 22.88
+  },
+  "reductions": {
+   "power_draw_x": [
+    4,
+    6
+   ],
+   "cycles_x": 82,
+   "energy_per_op_x": [
+    1122,
+    1586
+   ],
+   "area_x": 20,
+   "fmax_x": 3.4,
+   "headline": "~1,122x less energy per operation (conservative block-total basis), measured"
+  },
+  "note_core_basis": "cycles measured on the full soft-core RTL; power is the scalar-core Sky130 signoff (a smaller instance of the same core family) - using it is conservative (a larger core draws more).",
+  "full_pipeline": "NOT claimed. The full tick-to-trade pipeline (866 cyc) needs a divider unit (microprice) and CGRA loop projections (book-keeping) composed with the decision select-DAG - future work; a full-pipeline fabric would only increase the advantage."
+ },
+ "cpu_twin": {
+  "_what": "the routable scalar LOGOS core, its boot ROM the HFT decision over decision_hft_realbist's input ranges; signoff-clean at every corner, VCD-measured at its signoff clock",
+  "design": "soft_core_realbist",
+  "run": "tools/OpenLane/designs/logos_soft_core_realbist/runs/RUN_2026.10.15_17.39.59",
+  "gds_bytes": 48186640,
+  "clock_period_ns": 24.5,
+  "simulated_cycles": 4000,
+  "signature_port": "out",
+  "signature": "ffffffde",
+  "signature_changes": 27,
+  "signature_trajectory_sha256": "c15b748a2b5806fe3214c65b642e588cb7b9984da9c2c5d6fc647c2224db369c",
+  "rtl_signature": "ffffffde",
+  "rtl_signature_trajectory_sha256": "c15b748a2b5806fe3214c65b642e588cb7b9984da9c2c5d6fc647c2224db369c",
+  "clock_mhz": 40.816,
+  "fmax_mhz": 41.5,
+  "std_cells": 91942,
+  "die_mm2": 0.7857,
+  "power_mw": {
+   "default_activity_assumed": 39.9,
+   "vcd_measured_activity": 18.9
+  },
+  "power_mw_multi_corner": {
+   "ss_1v60_100C": 15.2,
+   "tt_1v80_25C": 18.9,
+   "ff_1v95_n40C": 21.7
+  },
+  "decisions": 38,
+  "decision_mix": {
+   "buy": 3,
+   "sell": 8,
+   "risk_blocked": 6,
+   "no_trade": 21
+  },
+  "cycles_per_decision": 105.26,
+  "energy_per_decision_pJ": 48740.6
+ }
+}

@@ -1,0 +1,186 @@
+## qwen38_tiny (71 stages)
+FusedRow out=xn0 x=x reduce=rmsnorm rows=1 cols=8 weight=an0 residual=- bias=-
+Matmul out=qr0 a=xn0 b=Wq0 m=1 k=8 n=4
+Matmul out=kr0 a=xn0 b=Wk0 m=1 k=8 n=4
+Matmul out=vr0 a=xn0 b=Wv0 m=1 k=8 n=8
+Matmul out=zz0 a=xn0 b=Wz0 m=1 k=8 n=8
+Silu out=qs0 x=qc0 n=5
+Silu out=ks0 x=kc0 n=5
+Silu out=vs0 x=vc0 n=9
+Matmul out=br0 a=xn0 b=Wb0 m=1 k=8 n=2
+Matmul out=ar0 a=xn0 b=Wa0 m=1 k=8 n=2
+Matmul out=ao0 a=od0 b=Wo0 m=1 k=8 n=8
+Elementwise out=xr0 a=x b=ao0 op=Add n=8
+FusedRow out=x2n0 x=xr0 reduce=rmsnorm rows=1 cols=8 weight=fn0 residual=- bias=-
+Matmul out=gt0 a=x2n0 b=Wg0 m=1 k=8 n=16
+Matmul out=up0 a=x2n0 b=Wu0 m=1 k=8 n=16
+Matmul out=dn0 a=hh0 b=Wd0 m=1 k=16 n=8
+Elementwise out=xo0 a=xr0 b=dn0 op=Add n=8
+FusedRow out=xn1 x=xo0 reduce=rmsnorm rows=1 cols=8 weight=an1 residual=- bias=-
+Matmul out=qr1 a=xn1 b=Wq1 m=1 k=8 n=4
+Matmul out=kr1 a=xn1 b=Wk1 m=1 k=8 n=4
+Matmul out=vr1 a=xn1 b=Wv1 m=1 k=8 n=8
+Matmul out=zz1 a=xn1 b=Wz1 m=1 k=8 n=8
+Silu out=qs1 x=qc1 n=5
+Silu out=ks1 x=kc1 n=5
+Silu out=vs1 x=vc1 n=9
+Matmul out=br1 a=xn1 b=Wb1 m=1 k=8 n=2
+Matmul out=ar1 a=xn1 b=Wa1 m=1 k=8 n=2
+Matmul out=ao1 a=od1 b=Wo1 m=1 k=8 n=8
+Elementwise out=xr1 a=xo0 b=ao1 op=Add n=8
+FusedRow out=x2n1 x=xr1 reduce=rmsnorm rows=1 cols=8 weight=fn1 residual=- bias=-
+Matmul out=gt1 a=x2n1 b=Wg1 m=1 k=8 n=16
+Matmul out=up1 a=x2n1 b=Wu1 m=1 k=8 n=16
+Matmul out=dn1 a=hh1 b=Wd1 m=1 k=16 n=8
+Elementwise out=xo1 a=xr1 b=dn1 op=Add n=8
+FusedRow out=xn2 x=xo1 reduce=rmsnorm rows=1 cols=8 weight=an2 residual=- bias=-
+Matmul out=qr2 a=xn2 b=Wq2 m=1 k=8 n=4
+Matmul out=kr2 a=xn2 b=Wk2 m=1 k=8 n=4
+Matmul out=vr2 a=xn2 b=Wv2 m=1 k=8 n=8
+Matmul out=zz2 a=xn2 b=Wz2 m=1 k=8 n=8
+Silu out=qs2 x=qc2 n=5
+Silu out=ks2 x=kc2 n=5
+Silu out=vs2 x=vc2 n=9
+Matmul out=br2 a=xn2 b=Wb2 m=1 k=8 n=2
+Matmul out=ar2 a=xn2 b=Wa2 m=1 k=8 n=2
+Matmul out=ao2 a=od2 b=Wo2 m=1 k=8 n=8
+Elementwise out=xr2 a=xo1 b=ao2 op=Add n=8
+FusedRow out=x2n2 x=xr2 reduce=rmsnorm rows=1 cols=8 weight=fn2 residual=- bias=-
+Matmul out=gt2 a=x2n2 b=Wg2 m=1 k=8 n=16
+Matmul out=up2 a=x2n2 b=Wu2 m=1 k=8 n=16
+Matmul out=dn2 a=hh2 b=Wd2 m=1 k=16 n=8
+Elementwise out=xo2 a=xr2 b=dn2 op=Add n=8
+FusedRow out=xn3 x=xo2 reduce=rmsnorm rows=1 cols=8 weight=an3 residual=- bias=-
+Matmul out=qr3 a=xn3 b=Wq3 m=1 k=8 n=8
+Matmul out=gr3 a=xn3 b=Wqg3 m=1 k=8 n=8
+Matmul out=kr3 a=xn3 b=Wk3 m=1 k=8 n=4
+Matmul out=vr3 a=xn3 b=Wv3 m=1 k=8 n=4
+FusedRow out=qm3 x=qr3 reduce=rmsnorm rows=2 cols=4 weight=Qn3 residual=- bias=-
+FusedRow out=km3 x=kr3 reduce=rmsnorm rows=1 cols=4 weight=Kn3 residual=- bias=-
+Rope out=qp3 q=qm3 rc=RC rs=RS h=2 half=1
+Rope out=kp3 q=km3 rc=RC rs=RS h=1 half=1
+Attention out=ct3 q=qp3 kc=kp3 vc=vr3 h=2 kv=1 hd=4 l=1
+Elementwise out=cg3 a=ct3 b=gs3 op=Mul n=8
+Matmul out=ao3 a=cg3 b=Wo3 m=1 k=8 n=8
+Elementwise out=xr3 a=xo2 b=ao3 op=Add n=8
+FusedRow out=x2n3 x=xr3 reduce=rmsnorm rows=1 cols=8 weight=fn3 residual=- bias=-
+Matmul out=gt3 a=x2n3 b=Wg3 m=1 k=8 n=16
+Matmul out=up3 a=x2n3 b=Wu3 m=1 k=8 n=16
+Matmul out=dn3 a=hh3 b=Wd3 m=1 k=16 n=8
+Elementwise out=xo3 a=xr3 b=dn3 op=Add n=8
+FusedRow out=xf x=xo3 reduce=rmsnorm rows=1 cols=8 weight=on residual=- bias=-
+Matmul out=logits a=xf b=Wout m=1 k=8 n=32
+
+## qwen_tiny_demo.lg (0 stages)
+
+## qwen30b_tiny (22 stages)
+FusedRow out=xn0 x=x reduce=rmsnorm rows=1 cols=8 weight=an0 residual=- bias=-
+Matmul out=q0 a=xn0 b=Wq0 m=1 k=8 n=8
+Matmul out=kk0 a=xn0 b=Wk0 m=1 k=8 n=4
+Matmul out=vv0 a=xn0 b=Wv0 m=1 k=8 n=4
+Attention out=ctx0 q=q0 kc=kk0 vc=vv0 h=2 kv=1 hd=4 l=1
+Matmul out=ao0 a=ctx0 b=Wo0 m=1 k=8 n=8
+Elementwise out=xr0 a=x b=ao0 op=Add n=8
+FusedRow out=x2n0 x=xr0 reduce=rmsnorm rows=1 cols=8 weight=fn0 residual=- bias=-
+Moe out=ff0 x=x2n0 wr=Wr0 wg=Wg0 wu=Wu0 wd=Wd0 d=8 dff=4 ne=4 k=2
+Elementwise out=xo0 a=xr0 b=ff0 op=Add n=8
+FusedRow out=xn1 x=xo0 reduce=rmsnorm rows=1 cols=8 weight=an1 residual=- bias=-
+Matmul out=q1 a=xn1 b=Wq1 m=1 k=8 n=8
+Matmul out=kk1 a=xn1 b=Wk1 m=1 k=8 n=4
+Matmul out=vv1 a=xn1 b=Wv1 m=1 k=8 n=4
+Attention out=ctx1 q=q1 kc=kk1 vc=vv1 h=2 kv=1 hd=4 l=1
+Matmul out=ao1 a=ctx1 b=Wo1 m=1 k=8 n=8
+Elementwise out=xr1 a=xo0 b=ao1 op=Add n=8
+FusedRow out=x2n1 x=xr1 reduce=rmsnorm rows=1 cols=8 weight=fn1 residual=- bias=-
+Moe out=ff1 x=x2n1 wr=Wr1 wg=Wg1 wu=Wu1 wd=Wd1 d=8 dff=4 ne=4 k=2
+Elementwise out=xo1 a=xr1 b=ff1 op=Add n=8
+FusedRow out=xf x=xo1 reduce=rmsnorm rows=1 cols=8 weight=on residual=- bias=-
+Matmul out=logits a=xf b=Wout m=1 k=8 n=16
+
+## probe:matmul (1 stages)
+Matmul out=C a=A b=B m=2 k=2 n=2
+
+## probe:plus (1 stages)
+Elementwise out=C a=A b=B op=Add n=4
+
+## probe:hadamard (1 stages)
+Elementwise out=C a=A b=B op=Mul n=4
+
+## probe:rmsnorm (1 stages)
+FusedRow out=Y x=X reduce=rmsnorm rows=1 cols=4 weight=- residual=- bias=-
+
+## probe:softmax (1 stages)
+FusedRow out=Y x=X reduce=softmax rows=1 cols=4 weight=- residual=- bias=-
+
+## probe:rmsnorm_weighted (1 stages)
+FusedRow out=Y x=X reduce=rmsnorm rows=1 cols=4 weight=W residual=- bias=-
+
+## probe:fused_add_rmsnorm (1 stages)
+FusedRow out=Y x=X reduce=rmsnorm rows=1 cols=4 weight=W residual=R bias=-
+
+## probe:layernorm (1 stages)
+FusedRow out=Y x=X reduce=layernorm rows=1 cols=4 weight=W residual=- bias=B
+
+## probe:swiglu (0 stages)
+
+## probe:sigmoid (0 stages)
+
+## probe:gelu (1 stages)
+Silu out=Y x=X n=5
+
+## probe:l2norm (0 stages)
+
+## probe:rope_partial (1 stages)
+Rope out=Y q=Q rc=RC rs=RS h=2 half=1
+
+## probe:causal_conv (0 stages)
+
+## probe:full_attention (0 stages)
+
+## probe:gated_delta (0 stages)
+
+## probe:attention (1 stages)
+Attention out=C q=Q kc=K vc=V h=2 kv=1 hd=2 l=2
+
+## probe:moe (1 stages)
+Moe out=H x=X wr=Wr wg=Wg wu=Wu wd=Wd d=2 dff=2 ne=2 k=1
+
+## probe:softmax_rows (1 stages)
+FusedRow out=Y x=X reduce=softmax rows=2 cols=3 weight=- residual=- bias=-
+
+## probe:transpose (1 stages)
+Transpose out=Kt x=K rows=2 cols=3
+
+## probe:decay (0 stages)
+
+## probe:silu (1 stages)
+Silu out=Y x=X n=5
+
+## probe:l2norm_heads (0 stages)
+
+## probe:row_of (0 stages)
+
+## probe:rows_of (0 stages)
+
+## probe:argmax (0 stages)
+
+## probe:set_row (0 stages)
+
+## probe:scale (0 stages)
+
+## probe:softcap (0 stages)
+
+## probe:head_slice (0 stages)
+
+## probe:join (0 stages)
+
+## probe:head_matmul (0 stages)
+
+## probe:int_requant (0 stages)
+
+## probe:int_clamp (0 stages)
+
+## probe:relu (0 stages)
+
+## probe:lut_attention (0 stages)
+

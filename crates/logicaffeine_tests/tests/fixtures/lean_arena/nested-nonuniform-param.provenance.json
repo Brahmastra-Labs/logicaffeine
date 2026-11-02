@@ -1,0 +1,9 @@
+{
+  "source_path": "reference-kernels/lean-kernel-arena/_build/tests/nested-nonuniform-param.ndjson",
+  "export_sha256": "aaab3a45abbef89db7b24cef96e7ca6a6901e87a38baeec56118846c64a75c56",
+  "arena_revision": "a538455e201c1be48a11963cb83058649a36dc0e",
+  "upstream_case": "tests/nested-nonuniform-param.lean",
+  "upstream_outcome": "either",
+  "source_sha256": "398a1b6739e1ebd124a5e5332a38b48b9d5020e45510f3dcc2287365b404f15a",
+  "notes": "Copied byte-for-byte from pinned generated Arena corpus. No claim of regenerating the exporter in this lane."
+}

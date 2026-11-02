@@ -1,0 +1,10 @@
+{
+  "capability": "iter.rotate_right",
+  "workload": "rotateRightSeq(xs,7), positional fold",
+  "arg": "30000",
+  "expected": "453715544",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

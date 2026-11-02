@@ -10,6 +10,7 @@
     "some P is C"
   ],
   "correct": 3,
-  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
-  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+  "hint": "Is this about all of them, or at least one? Which letters do kinds get?",
+  "explanation": "At least one dishonest plumber is cowardly, and both terms are kinds: some P is C.",
+  "section": "2.1"
 }

@@ -1,0 +1,10 @@
+{
+  "capability": "iter.nth",
+  "workload": "nthSeq(xs, n) 1-based",
+  "arg": "300000",
+  "expected": "44999850000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

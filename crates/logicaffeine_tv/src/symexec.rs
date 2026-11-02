@@ -64,7 +64,7 @@ pub enum SymValue {
     Int(VerifyExpr),
     /// A boolean value, as a `Bool`-sorted `VerifyExpr`.
     Bool(VerifyExpr),
-    /// A channel handle — an opaque id into [`State::channels`]. Not an SMT value; it is
+    /// A channel handle — an opaque id into `State::channels`. Not an SMT value; it is
     /// the dataflow conduit the determinate concurrency fragment threads `Send`/`Receive`
     /// through (and passes as a task argument).
     Chan(usize),
@@ -132,7 +132,11 @@ pub fn execute(stmts: &[Stmt], interner: &Interner) -> Result<SymSummary, Unsupp
 /// `Select` winner from a SplitMix64 mirror of the scheduler's choice function. The result
 /// is cross-checked per-seed against `run_treewalker_concurrent_seeded` at the same seed,
 /// so a misaligned encoding surfaces as a disagreement — never a false proof.
-pub fn execute_seeded(stmts: &[Stmt], interner: &Interner, seed: u64) -> Result<SymSummary, Unsupported> {
+pub fn execute_seeded(
+    stmts: &[Stmt],
+    interner: &Interner,
+    seed: u64,
+) -> Result<SymSummary, Unsupported> {
     let funcs = collect_funcs(stmts, interner);
     let mut state = State::new();
     state.rng = Some(SplitMix64::new(seed));
@@ -147,8 +151,18 @@ pub fn execute_seeded(stmts: &[Stmt], interner: &Interner, seed: u64) -> Result<
 fn collect_funcs<'a>(stmts: &'a [Stmt<'a>], interner: &Interner) -> FuncTable<'a> {
     let mut table = FuncTable::new();
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, is_native: false, .. } = stmt {
-            let param_names = params.iter().map(|(p, _)| interner.resolve(*p).to_string()).collect();
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            is_native: false,
+            ..
+        } = stmt
+        {
+            let param_names = params
+                .iter()
+                .map(|(p, _)| interner.resolve(*p).to_string())
+                .collect();
             table.insert(interner.resolve(*name).to_string(), (param_names, *body));
         }
     }
@@ -189,13 +203,19 @@ fn exec_stmt(
             let id = state.chan_counter;
             state.chan_counter += 1;
             state.channels.insert(id, VecDeque::new());
-            state.env.insert(interner.resolve(*var).to_string(), SymValue::Chan(id));
+            state
+                .env
+                .insert(interner.resolve(*var).to_string(), SymValue::Chan(id));
             Ok(())
         }
         Stmt::SendPipe { value, pipe } => {
             let v = eval(state, value, interner)?;
             let id = resolve_chan(state, pipe, interner)?;
-            state.channels.get_mut(&id).expect("channel id is allocated").push_back(v);
+            state
+                .channels
+                .get_mut(&id)
+                .expect("channel id is allocated")
+                .push_back(v);
             Ok(())
         }
         Stmt::ReceivePipe { var, pipe } => {
@@ -204,7 +224,9 @@ fn exec_stmt(
                 Some(v) => v,
                 // A receive on an empty channel cannot be statically resolved under the
                 // single modeled schedule — bail honestly rather than guess.
-                None => return unsupported("receive on an empty channel (not statically resolvable)"),
+                None => {
+                    return unsupported("receive on an empty channel (not statically resolvable)")
+                }
             };
             state.env.insert(interner.resolve(*var).to_string(), v);
             Ok(())
@@ -251,7 +273,12 @@ fn exec_stmt(
             for (i, b) in branches.iter().enumerate() {
                 if let SelectBranch::Receive { pipe, .. } = b {
                     let id = resolve_chan(state, pipe, interner)?;
-                    if state.channels.get(&id).map(|q| !q.is_empty()).unwrap_or(false) {
+                    if state
+                        .channels
+                        .get(&id)
+                        .map(|q| !q.is_empty())
+                        .unwrap_or(false)
+                    {
                         ready.push(i);
                     }
                 }
@@ -261,9 +288,14 @@ fn exec_stmt(
                 ready[k]
             } else {
                 // No receive ready ⇒ the timeout arm fires. Find the first one.
-                match branches.iter().position(|b| matches!(b, SelectBranch::Timeout { .. })) {
+                match branches
+                    .iter()
+                    .position(|b| matches!(b, SelectBranch::Timeout { .. }))
+                {
                     Some(i) => i,
-                    None => return unsupported("Select with no ready arm and no timeout would block"),
+                    None => {
+                        return unsupported("Select with no ready arm and no timeout would block")
+                    }
                 }
             };
             match &branches[winner] {

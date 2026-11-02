@@ -30,7 +30,11 @@ fn test_nat_in_prelude() {
         Box::new(Term::Global("Zero".to_string())),
     );
     let one_type = infer_type(&ctx, &one);
-    assert!(one_type.is_ok(), "Succ Zero should type-check: {:?}", one_type);
+    assert!(
+        one_type.is_ok(),
+        "Succ Zero should type-check: {:?}",
+        one_type
+    );
 
     println!("✓ Nat, Zero, Succ registered in prelude");
 }

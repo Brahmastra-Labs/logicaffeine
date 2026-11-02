@@ -158,7 +158,11 @@ Show total.
         "xs must de-Rc to Vec<i64>. Got:\n{}",
         rust
     );
-    assert!(!rust.contains("xs.borrow"), "no RefCell borrows. Got:\n{}", rust);
+    assert!(
+        !rust.contains("xs.borrow"),
+        "no RefCell borrows. Got:\n{}",
+        rust
+    );
     // 0+10+20+30+40+50 = 150.
     common::assert_exact_output(source, "150");
 }
@@ -238,8 +242,8 @@ Show countTrue(5).
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains("flags: Vec<bool>"),
-        "a function-local, non-escaping scalar Seq must de-Rc to Vec<bool>. Got:\n{}",
+        rust.contains("flags: Vec<bool>") || rust.contains("flags: logicaffeine_data::LogosBits"),
+        "a function-local, non-escaping scalar Seq must de-Rc to an owned Vec<bool> or LogosBits. Got:\n{}",
         rust
     );
     assert!(
@@ -478,7 +482,8 @@ Show item 1 of prev.
         rust
     );
     assert!(
-        rust.contains("curr[") || rust.contains("curr [")
+        rust.contains("curr[")
+            || rust.contains("curr [")
             || rust.contains("= v;") && rust.contains("Vec::with_capacity"),
         "curr must be sized + written by index. Got:\n{}",
         rust

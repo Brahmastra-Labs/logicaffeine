@@ -31,7 +31,10 @@ fn main() {
         }
         Some("ours-php") => {
             let n: usize = args[2].parse().expect("usage: ours-php <n> [stem]");
-            let stem = args.get(3).cloned().unwrap_or_else(|| format!("/tmp/logos_php{n}"));
+            let stem = args
+                .get(3)
+                .cloned()
+                .unwrap_or_else(|| format!("/tmp/logos_php{n}"));
             ours_php(n, &stem);
         }
         Some("solve") => {
@@ -57,7 +60,10 @@ fn main() {
         Some("discover-clique") => {
             let n: usize = args[2].parse().expect("usage: discover-clique <n> <k>");
             let k: usize = args[3].parse().expect("usage: discover-clique <n> <k>");
-            discover(&format!("clique({n},{k})"), families::clique_coloring(n, k).0);
+            discover(
+                &format!("clique({n},{k})"),
+                families::clique_coloring(n, k).0,
+            );
         }
         Some("lyapunov-php") => {
             let n: usize = args[2].parse().expect("usage: lyapunov-php <n>");
@@ -162,8 +168,12 @@ fn main() {
         }
         Some("gen-weakphp") => {
             // Weak pigeonhole PHP^h_p (any hole count) — UNSAT iff p > h, resolution-exponential.
-            let p: usize = args[2].parse().expect("usage: gen-weakphp <pigeons> <holes>");
-            let h: usize = args[3].parse().expect("usage: gen-weakphp <pigeons> <holes>");
+            let p: usize = args[2]
+                .parse()
+                .expect("usage: gen-weakphp <pigeons> <holes>");
+            let h: usize = args[3]
+                .parse()
+                .expect("usage: gen-weakphp <pigeons> <holes>");
             print!("{}", dimacs::print(&families::weak_php(p, h).0));
         }
         Some("gen-fphp") => {
@@ -263,7 +273,10 @@ fn ours_php(n: usize, stem: &str) {
     match proof_emit::emit_dpr(nv, &cnf.clauses, &cr.steps) {
         Ok(dpr) => {
             std::fs::write(format!("{stem}.dpr"), &dpr).ok();
-            println!("  wrote {stem}.dpr ({} bytes) — fully PR, dpr-trim-checkable", dpr.len());
+            println!(
+                "  wrote {stem}.dpr ({} bytes) — fully PR, dpr-trim-checkable",
+                dpr.len()
+            );
         }
         Err(e) => println!("  short SR proof not standard-DPR-expressible ({e:?}) — uses SR power"),
     }
@@ -283,7 +296,12 @@ fn ours_php(n: usize, stem: &str) {
 }
 
 /// Replicate the swap-pigeons automorphism PHP(n) uses.
-fn swap_pigeons(holes: usize, npigeons: usize, i: usize, j: usize) -> logicaffeine_proof::proof::Perm {
+fn swap_pigeons(
+    holes: usize,
+    npigeons: usize,
+    i: usize,
+    j: usize,
+) -> logicaffeine_proof::proof::Perm {
     use logicaffeine_proof::cdcl::Lit;
     let images: Vec<Lit> = (0..npigeons * holes)
         .map(|v| {
@@ -366,14 +384,22 @@ fn run_auto_collapse(path: &str, cnf: &DimacsCnf) {
                 measure.items, measure.bins, ranked.refuted, ok
             );
         }
-        AutoCollapse::Cardinality { trajectory, reached_goal, constraints } => {
+        AutoCollapse::Cardinality {
+            trajectory,
+            reached_goal,
+            constraints,
+        } => {
             let ok = verify_lyapunov(&trajectory, reached_goal).is_some();
             println!(
                 "{path}: CARDINALITY/CUTTING-PLANES collapse — {constraints} constraints summed, valid_lyapunov={}  ({dt:?})",
                 ok
             );
         }
-        AutoCollapse::Algebraic { trajectory, reached_goal, xor_equations } => {
+        AutoCollapse::Algebraic {
+            trajectory,
+            reached_goal,
+            xor_equations,
+        } => {
             let ok = verify_lyapunov(&trajectory, reached_goal).is_some();
             println!(
                 "{path}: PARITY/ALGEBRAIC collapse — {xor_equations} XOR constraints, dim {}→{}, valid_lyapunov={}  ({dt:?})",
@@ -398,7 +424,10 @@ fn show_unified_lyapunov(n: usize) {
     let fmt = |traj: &[u64]| -> String {
         let mut d: Vec<u64> = traj.to_vec();
         d.dedup();
-        d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" ▸ ")
+        d.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(" ▸ ")
     };
 
     println!("ONE Lyapunov framework, TWO physics — both checked by the same `verify_lyapunov`:\n");
@@ -407,7 +436,10 @@ fn show_unified_lyapunov(n: usize) {
     let (cnf, _) = families::php(n);
     if let Some((m, ranked)) = solve_by_measure_synthesis(cnf.num_vars, &cnf.clauses) {
         if let Some(c) = lyapunov_of_symmetry(&ranked) {
-            println!("  [GEOMETRIC]  PHP({n}) — potential V = active items remaining (discovered {}×{})", m.items, m.bins);
+            println!(
+                "  [GEOMETRIC]  PHP({n}) — potential V = active items remaining (discovered {}×{})",
+                m.items, m.bins
+            );
             println!("    descent:  {}", fmt(&ranked.ranks));
             println!(
                 "    axioms ✓: monotone={} strict_descent={} reaches_goal={};  levels={} × width={} ⇒ size ≤ {} (actual {})",
@@ -447,7 +479,10 @@ fn show_lyapunov(label: &str, cnf: DimacsCnf) {
             let descent: Vec<String> = levels.iter().map(|r| r.to_string()).collect();
             let work: Vec<u64> = levels.iter().map(|r| counts[r]).collect();
             println!("{label}: DISCOVERED Lyapunov potential  V(state) = active items remaining");
-            println!("  layout recovered from opaque CNF:  {} items × {} bins", m.items, m.bins);
+            println!(
+                "  layout recovered from opaque CNF:  {} items × {} bins",
+                m.items, m.bins
+            );
             println!("  monotone descent:   V = {}", descent.join(" ▸ "));
             println!(
                 "  per-level dissipation (clauses shed):  {:?}   (Σ = {} steps)",
@@ -465,7 +500,9 @@ fn show_lyapunov(label: &str, cnf: DimacsCnf) {
                 None => println!("  descent FAILED to certify (not a valid Lyapunov function)"),
             }
         }
-        None => println!("{label}: no Lyapunov potential found in the covering class (bounded impossibility)"),
+        None => println!(
+            "{label}: no Lyapunov potential found in the covering class (bounded impossibility)"
+        ),
     }
 }
 
@@ -500,10 +537,16 @@ fn run_sdcl(cnf: &DimacsCnf) {
     let out = solve_certified(cnf.num_vars, &cnf.clauses);
     let dt = t.elapsed();
     let v = match &out {
-        CertifiedOutcome::Unsat { steps, discovered } => format!("UNSAT (discovered={discovered}, {} steps)", steps.len()),
+        CertifiedOutcome::Unsat { steps, discovered } => {
+            format!("UNSAT (discovered={discovered}, {} steps)", steps.len())
+        }
         CertifiedOutcome::Sat(_) => "SAT".to_string(),
     };
-    println!("sdcl  vars={} clauses={}  {v}  time={dt:?}", cnf.num_vars, cnf.clauses.len());
+    println!(
+        "sdcl  vars={} clauses={}  {v}  time={dt:?}",
+        cnf.num_vars,
+        cnf.clauses.len()
+    );
 }
 
 /// The GENERAL certified crusher (auto symmetry detection) on clique-coloring(n,k) — a
@@ -516,7 +559,9 @@ fn ours_clique(n: usize, k: usize) {
     let out = solve_certified(nv, &cnf.clauses);
     let dt = t.elapsed();
     let (verdict, steps) = match &out {
-        CertifiedOutcome::Unsat { steps, discovered } => (format!("UNSAT (PR-discovered={discovered})"), steps.len()),
+        CertifiedOutcome::Unsat { steps, discovered } => {
+            (format!("UNSAT (PR-discovered={discovered})"), steps.len())
+        }
         CertifiedOutcome::Sat(_) => ("SAT".to_string(), 0),
     };
     println!("ours  clique({n},{k})  vars={nv} clauses={}  {verdict}  steps={steps}  solve+certify={dt:?}", cnf.clauses.len());
@@ -563,7 +608,10 @@ fn random_3regular(n: usize, seed: u64) -> Vec<(usize, usize)> {
 /// per edge, and per vertex the XOR of its incident edges equals that vertex's charge. Exponentially
 /// hard for resolution on an expander, trivially solved by Gaussian elimination over GF(2). Returns
 /// the XOR system and its CNF expansion.
-fn tseitin_expander(n: usize, seed: u64) -> (Vec<logicaffeine_proof::xorsat::XorEquation>, DimacsCnf) {
+fn tseitin_expander(
+    n: usize,
+    seed: u64,
+) -> (Vec<logicaffeine_proof::xorsat::XorEquation>, DimacsCnf) {
     use logicaffeine_proof::cdcl::Lit;
     use logicaffeine_proof::xorsat::XorEquation;
     assert!(n % 2 == 0, "3-regular needs an even vertex count");
@@ -595,7 +643,13 @@ fn tseitin_expander(n: usize, seed: u64) -> (Vec<logicaffeine_proof::xorsat::Xor
             }
         }
     }
-    (eqs, DimacsCnf { num_vars: m, clauses })
+    (
+        eqs,
+        DimacsCnf {
+            num_vars: m,
+            clauses,
+        },
+    )
 }
 
 /// Solve the expander-Tseitin XOR system with Gaussian elimination over GF(2) — the polynomial
@@ -656,7 +710,11 @@ fn sel_php(n: usize) {
     let out = sel_refute(cnf.num_vars, &cnf.clauses);
     let sel_dt = t.elapsed();
     match out {
-        SelOutcome::Unsat { conflicts, amplified, .. } => {
+        SelOutcome::Unsat {
+            conflicts,
+            amplified,
+            ..
+        } => {
             println!(
                 "PHP({n}): plain CDCL = {plain_c} conflicts ({plain_dt:?}) | SEL = {conflicts} conflicts (+{amplified} sym clauses, {sel_dt:?}) | {:.1}x fewer conflicts",
                 plain_c as f64 / conflicts.max(1) as f64
@@ -678,5 +736,10 @@ fn solve(cnf: &DimacsCnf) {
         SolveResult::Unsat => "UNSATISFIABLE",
     };
     let dt = t.elapsed();
-    println!("ours  vars={} clauses={}  {verdict}  time={:?}", cnf.num_vars, cnf.clauses.len(), dt);
+    println!(
+        "ours  vars={} clauses={}  {verdict}  time={:?}",
+        cnf.num_vars,
+        cnf.clauses.len(),
+        dt
+    );
 }

@@ -53,10 +53,7 @@ fn test_gcounter_concurrent_increments() {
     }
 
     // Total should be num_threads * increments_per_thread
-    assert_eq!(
-        result.value(),
-        (num_threads * increments_per_thread) as u64
-    );
+    assert_eq!(result.value(), (num_threads * increments_per_thread) as u64);
 }
 
 #[test]

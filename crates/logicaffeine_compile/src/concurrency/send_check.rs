@@ -1,5 +1,5 @@
 //! Send / escape analysis — the static soundness gate for the concurrency
-//! memory model (Phase 4 of `work/FINISH_INTERPRETER.md`).
+//! memory model.
 //!
 //! The memory model is message-passing + CRDT: tasks have isolated heaps, and the
 //! only cross-task sharing is channels (move semantics) and CRDT cells. This pass
@@ -46,7 +46,11 @@ fn check_block(stmts: &[Stmt], diags: &mut Vec<SendDiagnostic>) {
                 }
                 check_block(tasks, diags);
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 check_block(then_block, diags);
                 if let Some(eb) = else_block {
                     check_block(eb, diags);
@@ -55,6 +59,7 @@ fn check_block(stmts: &[Stmt], diags: &mut Vec<SendDiagnostic>) {
             Stmt::While { body, .. }
             | Stmt::Repeat { body, .. }
             | Stmt::Zone { body, .. }
+            | Stmt::Reversibly { body }
             | Stmt::FunctionDef { body, .. } => check_block(body, diags),
             Stmt::Inspect { arms, .. } => {
                 for arm in arms.iter() {

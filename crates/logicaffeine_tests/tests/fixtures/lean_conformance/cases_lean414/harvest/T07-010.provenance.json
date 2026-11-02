@@ -1,0 +1,80 @@
+{
+  "case": "T07-010",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t07_typeclasses/T07-010_inhabited_nonempty.lean",
+  "source_sha256": "d0d1623a96181eafb43d44db7f2577d13927556c656d579d9e6689750e3ac0a9",
+  "ledger_sha256": "f70e4e4d6a1d063fea40c881193f631328b3aa2dd008f8ab910a938bc45830f7",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T07_010.Box",
+    "T07_010.Box.mk",
+    "T07_010.MyInhabited",
+    "T07_010.MyInhabited.deflt",
+    "T07_010.MyInhabited.mk",
+    "T07_010.MyNonempty",
+    "T07_010.MyNonempty.intro",
+    "T07_010.boxedDefault",
+    "T07_010.getDefault",
+    "T07_010.inhabitedNonempty",
+    "T07_010.instMyInhabitedBool",
+    "T07_010.instMyInhabitedBox",
+    "T07_010.instMyInhabitedNat",
+    "T07_010.natNonempty",
+    "T07_010.nonemptyElim",
+    "T07_010.opaqueThing"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "0bdbd096f46e4e90d4e5af3c901ec3f74e1c8d761dc538ddf7b37e8f022bf4f1",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 459,
+  "harvest": {
+    "roots": [
+      "T07_010.Box",
+      "T07_010.Box.mk",
+      "T07_010.MyInhabited",
+      "T07_010.MyInhabited.deflt",
+      "T07_010.MyInhabited.mk",
+      "T07_010.MyNonempty",
+      "T07_010.MyNonempty.intro",
+      "T07_010.boxedDefault",
+      "T07_010.getDefault",
+      "T07_010.inhabitedNonempty",
+      "T07_010.instMyInhabitedBool",
+      "T07_010.instMyInhabitedBox",
+      "T07_010.instMyInhabitedNat",
+      "T07_010.natNonempty",
+      "T07_010.nonemptyElim",
+      "T07_010.opaqueThing"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

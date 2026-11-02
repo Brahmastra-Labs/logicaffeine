@@ -1,0 +1,161 @@
+{
+  "case": "T00-002",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_002.appliedToProp",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_applied_to_prop",
+      "logos": "Actual independently audited imported declaration T00_002.appliedToProp from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.appliedToType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_applied_to_type",
+      "logos": "Actual independently audited imported declaration T00_002.appliedToType from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.idTypeAtOne",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 1 \u2192 Type 1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_id_type_at_one",
+      "logos": "Actual independently audited imported declaration T00_002.idTypeAtOne from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.idTypeAtZero",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type \u2192 Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_id_type_at_zero",
+      "logos": "Actual independently audited imported declaration T00_002.idTypeAtZero from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.levelLadder",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 3",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_level_ladder",
+      "logos": "Actual independently audited imported declaration T00_002.levelLadder from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.propAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_prop_alias",
+      "logos": "Actual independently audited imported declaration T00_002.propAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.quantifiesOverProps",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_quantifies_over_props",
+      "logos": "Actual independently audited imported declaration T00_002.quantifiesOverProps from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.quantifiesOverTypes",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_quantifies_over_types",
+      "logos": "Actual independently audited imported declaration T00_002.quantifiesOverTypes from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.sortOneAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_sort_one_alias",
+      "logos": "Actual independently audited imported declaration T00_002.sortOneAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.sortTwoAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 2",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_sort_two_alias",
+      "logos": "Actual independently audited imported declaration T00_002.sortTwoAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.sortZeroAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_sort_zero_alias",
+      "logos": "Actual independently audited imported declaration T00_002.sortZeroAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.typeAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_type_alias",
+      "logos": "Actual independently audited imported declaration T00_002.typeAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.typeOneAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 2",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_type_one_alias",
+      "logos": "Actual independently audited imported declaration T00_002.typeOneAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    },
+    {
+      "lean": "T00_002.typeZeroAlias",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type 1",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_sort_bridge::original_type_zero_alias",
+      "logos": "Actual independently audited imported declaration T00_002.typeZeroAlias from T00-002.ndjson",
+      "why": "Byte-identical original Lean4.14 source; independently translated type/body, main and de Bruijn checking, empty original axiom sets, exact case-specific universe/binder/computation oracle."
+    }
+  ]
+}

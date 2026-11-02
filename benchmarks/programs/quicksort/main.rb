@@ -15,5 +15,5 @@ seed = 42
 n.times { seed = (seed * 1103515245 + 12345) % 2147483648; arr << ((seed >> 16) & 0x7fff) }
 qs(arr, 0, n - 1)
 checksum = 0
-arr.each { |v| checksum = (checksum + v) % 1000000007 }
+arr.each { |v| checksum = (checksum * 31 + v) & 268435455 }
 puts "#{arr[0]} #{arr[-1]} #{checksum}"

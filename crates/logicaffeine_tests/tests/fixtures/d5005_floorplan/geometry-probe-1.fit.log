@@ -1,0 +1,30 @@
+Error (21728): Deterministic overuse of FF resources in region (160,0) to (175,23)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_10: (160,0) to (175,23)
+Error (21728): Deterministic overuse of FF resources in region (176,0) to (191,23)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_11: (176,0) to (191,23)
+Error (21728): Deterministic overuse of FF resources in region (64,408) to (79,431)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_310: (64,408) to (79,431)
+Error (21728): Deterministic overuse of FF resources in region (80,408) to (95,431)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_311: (80,408) to (95,431)
+Error (21728): Deterministic overuse of FF resources in region (96,408) to (111,431)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_312: (96,408) to (111,431)
+Error (21728): Deterministic overuse of FF resources in region (112,408) to (127,431)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_313: (112,408) to (127,431)
+Error (21728): Deterministic overuse of FF resources in region (64,432) to (79,432)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_328: (64,432) to (79,432)
+Error (21728): Deterministic overuse of FF resources in region (80,432) to (95,432)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_329: (80,432) to (95,432)
+Error (21728): Deterministic overuse of FF resources in region (96,432) to (111,432)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_330: (96,432) to (111,432)
+Error (21728): Deterministic overuse of FF resources in region (112,432) to (127,432)
+    Info (22480): The region requires 1 FF resources but there are only 0 FF resources available
+    Info (22479): Logic Lock Region geo_331: (112,432) to (127,432)

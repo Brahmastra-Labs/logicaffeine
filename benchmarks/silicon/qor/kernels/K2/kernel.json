@@ -1,0 +1,45 @@
+{
+ "bambu": {
+  "c": {
+   "file": "kernel.c",
+   "inputs": [
+    [
+     "x",
+     "x"
+    ]
+   ],
+   "mems": [],
+   "outputs": [
+    [
+     "y",
+     "return_port",
+     0,
+     64
+    ]
+   ],
+   "pragmas": false,
+   "top": "poly"
+  }
+ },
+ "dahlia": {
+  "file": "kernel.fuse",
+  "mems": [
+   {
+    "contract": [
+     "x"
+    ],
+    "kind": "SeqMem",
+    "prefix": "x",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "y"
+    ],
+    "kind": "SeqMem",
+    "prefix": "y",
+    "words_per_port": 1
+   }
+  ]
+ }
+}

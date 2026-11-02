@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use lsp_types::*;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::document::DocumentState;
@@ -143,10 +143,7 @@ impl LanguageServer for LogicAffeineServer {
                 }),
                 references_provider: Some(OneOf::Left(true)),
                 signature_help_provider: Some(SignatureHelpOptions {
-                    trigger_characters: Some(vec![
-                        " ".to_string(),
-                        ",".to_string(),
-                    ]),
+                    trigger_characters: Some(vec![" ".to_string(), ",".to_string()]),
                     ..Default::default()
                 }),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
@@ -255,11 +252,10 @@ impl LanguageServer for LogicAffeineServer {
         tokio::spawn(async move {
             let run_text = text.clone();
             let run_flycheck = Arc::clone(&flycheck);
-            let findings = tokio::task::spawn_blocking(move || {
-                run_flycheck.run(&run_text, &workspace_key)
-            })
-            .await
-            .expect("flycheck task panicked");
+            let findings =
+                tokio::task::spawn_blocking(move || run_flycheck.run(&run_text, &workspace_key))
+                    .await
+                    .expect("flycheck task panicked");
 
             // Unavailable toolchain: interactive-only diagnostics, silently.
             let Some(findings) = findings else { return };
@@ -349,15 +345,23 @@ impl LanguageServer for LogicAffeineServer {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
 
-        let Some(generation) =
-            self.scheduler
-                .apply_changes(&uri, params.content_changes, version)
+        let Some(generation) = self
+            .scheduler
+            .apply_changes(&uri, params.content_changes, version)
         else {
             return;
         };
 
-        // Edits invalidate flycheck findings — their positions would lie.
-        self.flycheck.clear(&uri);
+        // Edits invalidate flycheck findings — their positions would lie. If any
+        // were on screen, retract them NOW (republish the interactive-only
+        // snapshot) so they don't linger at pre-edit positions until the debounce.
+        if self.flycheck.clear(&uri) {
+            if let Some(doc) = self.state.snapshot(&uri) {
+                self.client
+                    .publish_diagnostics(uri.clone(), doc.diagnostics.clone(), Some(doc.version))
+                    .await;
+            }
+        }
 
         // Debounce: analysis fires only if no newer edit arrives in the
         // window; the generation guard drops stale results after it.
@@ -431,10 +435,12 @@ impl LanguageServer for LogicAffeineServer {
                 )))
             }
             // Unknown or stale id: answer with the full set.
-            _ => Ok(Some(SemanticTokensFullDeltaResult::Tokens(SemanticTokens {
-                result_id: Some(result_id),
-                data,
-            }))),
+            _ => Ok(Some(SemanticTokensFullDeltaResult::Tokens(
+                SemanticTokens {
+                    result_id: Some(result_id),
+                    data,
+                },
+            ))),
         }
     }
 
@@ -511,7 +517,11 @@ impl LanguageServer for LogicAffeineServer {
             None => return Ok(None),
         };
 
-        Ok(crate::hover::hover(&doc, position))
+        Ok(crate::hover::hover_with_workspace(
+            &doc,
+            position,
+            &*self.workspace_index,
+        ))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -523,7 +533,12 @@ impl LanguageServer for LogicAffeineServer {
             None => return Ok(None),
         };
 
-        Ok(crate::completion::completions(&doc, position))
+        Ok(crate::completion::completions_with_workspace(
+            &doc,
+            position,
+            &*self.workspace_index,
+            uri,
+        ))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
@@ -553,7 +568,10 @@ impl LanguageServer for LogicAffeineServer {
                         &name,
                         include_declaration,
                     ) {
-                        locations.push(Location { uri: other_uri.clone(), range });
+                        locations.push(Location {
+                            uri: other_uri.clone(),
+                            range,
+                        });
                     }
                 }
                 let skip: Vec<&Url> = open_docs.iter().map(|(u, _)| u).collect();
@@ -589,7 +607,21 @@ impl LanguageServer for LogicAffeineServer {
             None => return Ok(None),
         };
 
-        let actions = crate::code_actions::code_actions(&doc, range, uri);
+        let mut actions = crate::code_actions::code_actions(&doc, range, uri);
+        // Auto-import quickfixes need the workspace index (which module exports the
+        // unresolved name) — computed from the LIVE buffer's references.
+        actions.extend(crate::code_actions::import_code_actions(
+            &doc,
+            range,
+            uri,
+            &*self.workspace_index,
+        ));
+        actions.extend(crate::code_actions::unused_import_actions(
+            &doc,
+            range,
+            uri,
+            &*self.workspace_index,
+        ));
         if actions.is_empty() {
             Ok(None)
         } else {
@@ -622,8 +654,7 @@ impl LanguageServer for LogicAffeineServer {
                     if other_uri == uri {
                         continue;
                     }
-                    let ranges =
-                        crate::references::cross_file_candidates(other_doc, &name, true);
+                    let ranges = crate::references::cross_file_candidates(other_doc, &name, true);
                     if !ranges.is_empty() {
                         changes.entry(other_uri.clone()).or_default().extend(
                             ranges.into_iter().map(|range| TextEdit {
@@ -658,12 +689,14 @@ impl LanguageServer for LogicAffeineServer {
             None => return Ok(None),
         };
 
-        Ok(crate::rename::prepare_rename(&doc, position).map(|(range, text)| {
-            PrepareRenameResponse::RangeWithPlaceholder {
-                range,
-                placeholder: text,
-            }
-        }))
+        Ok(
+            crate::rename::prepare_rename(&doc, position).map(|(range, text)| {
+                PrepareRenameResponse::RangeWithPlaceholder {
+                    range,
+                    placeholder: text,
+                }
+            }),
+        )
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
@@ -786,8 +819,14 @@ impl LanguageServer for LogicAffeineServer {
         let end_character = line.encode_utf16().count() as u32;
         Ok(Some(vec![TextEdit {
             range: Range {
-                start: Position { line: line_number as u32, character: 0 },
-                end: Position { line: line_number as u32, character: end_character },
+                start: Position {
+                    line: line_number as u32,
+                    character: 0,
+                },
+                end: Position {
+                    line: line_number as u32,
+                    character: end_character,
+                },
             },
             new_text: formatted,
         }]))

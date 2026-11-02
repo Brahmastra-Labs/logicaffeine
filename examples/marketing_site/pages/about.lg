@@ -1,0 +1,24 @@
+# About
+
+Import Layout.
+
+## Page /about
+
+Head:
+    <title>About — Acme</title>
+    <meta name="description" content="Three people, one workshop, since 2019.">
+
+View:
+    {extends Site}
+    {block content:}
+      <h1>About</h1>
+      <p id="body">Three people and one workshop, since 2019.</p>
+    {end}
+
+## Test: the about page says who Acme is and marks About active
+
+Expect that the text of "h1" is equal to "About".
+Expect that the text of "#body" is equal to "Three people and one workshop, since 2019.".
+Expect that the count of "nav a" is equal to 4.
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "About".

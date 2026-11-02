@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Both not C and B",
   "options": [
-    "$ \\sim(C \\cdot B) $",
-    "$ (\\sim C \\cdot \\, \\sim B) $",
-    "$ \\sim C \\cdot B $",
-    "$ (\\sim C \\cdot B) $"
+    "¬(C ∧ B)",
+    "¬C ∧ ¬B",
+    "¬C ∨ B",
+    "¬C ∧ B"
   ],
   "correct": 3,
-  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
-  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
+  "hint": "Find the main connective: which 'and' joins the two largest parts?",
+  "explanation": "The main connective is ∧, joining ¬C and B: ¬C ∧ B.",
+  "section": "6.2"
 }

@@ -1,0 +1,9 @@
+05000002  // LoadConst r0, 2
+05010003  // LoadConst r1, 3
+05020004  // LoadConst r2, 4
+05030001  // LoadConst r3, 1
+0b040102  // Mul r4 = 3 * 4 = 12
+08050004  // Add r5 = 2 + 12 = 14
+0a060503  // Sub r6 = 14 - 1 = 13
+59000600  // Show r6
+2b000000  // Halt

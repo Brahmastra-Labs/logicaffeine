@@ -1,0 +1,8 @@
+LOGOS_TT_ENV chip=wormhole_b0 so=libttsim_wh.so so_sha256=590f6d38aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4194 ttsim_version=v1.10.2 tt_metal_sha=9aa797dec5ed247251aa142deb3cea0af2df4321
+== ttsim (wormhole_b0) : /home/x/tt-metal/build_Release/programming_examples/metal_example_matmul_multi_core ==
+                 Metal | INFO     | Initializing device 0
+Metalium vs Golden -- PCC = 0.99985
+Test Passed
+                 Metal | INFO     | Closing device 0
+                 BuildKernels | JIT cache stats: 13/13 hits (100.0%) [13 cached, 0 build-once dedup] (build_cache_telemetry.cpp:207)
+[9735] 10.0 seconds (1.0 KHz)

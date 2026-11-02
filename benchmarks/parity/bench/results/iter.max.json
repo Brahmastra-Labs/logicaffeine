@@ -1,0 +1,24 @@
+{
+  "capability": "iter.max",
+  "arg": "100000",
+  "timing_n": "581972",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 209.253,
+    "rust": 312.098,
+    "go": 837.362
+  },
+  "wall_ms": {
+    "logos": 209.492,
+    "rust": 312.228,
+    "go": 837.777
+  },
+  "logos_ms": 209.253,
+  "speedups_vs_logos": {
+    "rust": 1.491,
+    "go": 4.002
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 1.491
+}

@@ -1,0 +1,10 @@
+## Main
+    Let mutable a be 0.
+    Let mutable b be 1.
+    Let mutable n be 10.
+    While n is greater than 0:
+        Let next be a + b.
+        Set a to b.
+        Set b to next.
+        Set n to n - 1.
+    Show a.

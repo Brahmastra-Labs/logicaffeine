@@ -7,7 +7,7 @@
 //! parse_sva() and structural equivalence checking.
 
 use logicaffeine_compile::codegen_sva::sva_model::{
-    SvaExpr, parse_sva, sva_exprs_structurally_equivalent,
+    parse_sva, sva_exprs_structurally_equivalent, SvaExpr,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

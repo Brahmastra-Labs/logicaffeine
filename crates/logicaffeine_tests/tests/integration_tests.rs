@@ -1,22 +1,26 @@
 use logicaffeine_language::ast::{QuantifierKind, ThematicRole};
 mod common;
+use logicaffeine_base::Interner;
 use logicaffeine_language::token::TokenType;
 use logicaffeine_language::view::{ExprView, TermView};
-use logicaffeine_base::Interner;
-use logicaffeine_language::{compile, compile_all_scopes, compile_with_world_state, compile_with_discourse, compile_discourse, compile_ambiguous};
+use logicaffeine_language::{
+    compile, compile_all_scopes, compile_ambiguous, compile_discourse, compile_with_discourse,
+};
 
 fn has_modifier(modifiers: &[&str], name: &str) -> bool {
     modifiers.iter().any(|m| m.eq_ignore_ascii_case(name))
 }
 
 fn get_agent<'a>(roles: &'a [(ThematicRole, TermView<'a>)]) -> Option<&'a TermView<'a>> {
-    roles.iter()
+    roles
+        .iter()
         .find(|(role, _)| *role == ThematicRole::Agent)
         .map(|(_, term)| term)
 }
 
 fn get_theme<'a>(roles: &'a [(ThematicRole, TermView<'a>)]) -> Option<&'a TermView<'a>> {
-    roles.iter()
+    roles
+        .iter()
         .find(|(role, _)| *role == ThematicRole::Theme)
         .map(|(_, term)| term)
 }
@@ -29,9 +33,15 @@ fn get_theme<'a>(roles: &'a [(ThematicRole, TermView<'a>)]) -> Option<&'a TermVi
 fn past_tense_produces_temporal_past_operator() {
     let view = parse!("John ran.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Run");
-            assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier, got {:?}", modifiers);
+            assert!(
+                has_modifier(&modifiers, "Past"),
+                "Expected Past modifier, got {:?}",
+                modifiers
+            );
         }
         _ => panic!("Expected NeoEvent variant, got {:?}", view),
     }
@@ -52,9 +62,15 @@ fn past_tense_regular_verb() {
 fn future_tense_produces_temporal_future_operator() {
     let view = parse!("John will run.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Run");
-            assert!(has_modifier(&modifiers, "Future"), "Expected Future modifier, got {:?}", modifiers);
+            assert!(
+                has_modifier(&modifiers, "Future"),
+                "Expected Future modifier, got {:?}",
+                modifiers
+            );
         }
         _ => panic!("Expected NeoEvent variant, got {:?}", view),
     }
@@ -66,7 +82,10 @@ fn present_tense_has_no_temporal_operator() {
     // Activity verbs in present tense get Habitual wrapper
     match view {
         ExprView::Aspectual { operator, body } => {
-            assert_eq!(operator, logicaffeine_language::ast::AspectOperator::Habitual);
+            assert_eq!(
+                operator,
+                logicaffeine_language::ast::AspectOperator::Habitual
+            );
             if let ExprView::NeoEvent { modifiers, .. } = *body {
                 assert!(
                     !has_modifier(&modifiers, "Past") && !has_modifier(&modifiers, "Future"),
@@ -88,17 +107,25 @@ fn same_lemma_different_tenses_produce_correct_operators() {
 
     match past {
         ExprView::NeoEvent { modifiers, .. } => {
-            assert!(has_modifier(&modifiers, "Past"), "Past tense should have Past modifier");
+            assert!(
+                has_modifier(&modifiers, "Past"),
+                "Past tense should have Past modifier"
+            );
         }
         _ => panic!("Expected NeoEvent for past tense"),
     }
     // Activity verbs in present tense get Habitual wrapper
     match present {
         ExprView::Aspectual { operator, body } => {
-            assert_eq!(operator, logicaffeine_language::ast::AspectOperator::Habitual);
+            assert_eq!(
+                operator,
+                logicaffeine_language::ast::AspectOperator::Habitual
+            );
             if let ExprView::NeoEvent { modifiers, .. } = *body {
-                assert!(!has_modifier(&modifiers, "Past") && !has_modifier(&modifiers, "Future"),
-                    "Present tense should NOT have temporal modifier");
+                assert!(
+                    !has_modifier(&modifiers, "Past") && !has_modifier(&modifiers, "Future"),
+                    "Present tense should NOT have temporal modifier"
+                );
             } else {
                 panic!("Expected NeoEvent inside Habitual");
             }
@@ -107,7 +134,10 @@ fn same_lemma_different_tenses_produce_correct_operators() {
     }
     match future {
         ExprView::NeoEvent { modifiers, .. } => {
-            assert!(has_modifier(&modifiers, "Future"), "Future tense should have Future modifier");
+            assert!(
+                has_modifier(&modifiers, "Future"),
+                "Future tense should have Future modifier"
+            );
         }
         _ => panic!("Expected NeoEvent for future tense"),
     }
@@ -144,13 +174,22 @@ fn past_progressive_has_both_operators() {
         ExprView::Temporal { operator, body } => {
             assert_eq!(operator, TemporalOperator::Past);
             assert!(
-                matches!(*body, ExprView::Aspectual { operator: AspectOperator::Progressive, .. }),
+                matches!(
+                    *body,
+                    ExprView::Aspectual {
+                        operator: AspectOperator::Progressive,
+                        ..
+                    }
+                ),
                 "Expected Progressive inside Past Temporal"
             );
         }
         ExprView::NeoEvent { modifiers, .. } => {
             assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier");
-            assert!(has_modifier(&modifiers, "Progressive"), "Expected Progressive modifier");
+            assert!(
+                has_modifier(&modifiers, "Progressive"),
+                "Expected Progressive modifier"
+            );
         }
         _ => panic!("Expected Temporal/Aspectual or NeoEvent, got {:?}", view),
     }
@@ -164,10 +203,20 @@ fn past_progressive_has_both_operators() {
 fn all_produces_universal_quantifier() {
     let view = parse!("All dogs bark.");
     match view {
-        ExprView::Quantifier { kind, variable, body } => {
+        ExprView::Quantifier {
+            kind,
+            variable,
+            body,
+        } => {
             assert_eq!(kind, QuantifierKind::Universal);
             assert_eq!(variable, "x");
-            assert!(matches!(*body, ExprView::BinaryOp { op: TokenType::Implies, .. }));
+            assert!(matches!(
+                *body,
+                ExprView::BinaryOp {
+                    op: TokenType::Implies,
+                    ..
+                }
+            ));
         }
         _ => panic!("Expected Quantifier(Universal), got {:?}", view),
     }
@@ -188,17 +237,29 @@ fn some_produces_existential_quantifier() {
 fn no_produces_universal_with_negation() {
     let view = parse!("No dogs bark.");
     match view {
-        ExprView::Quantifier { kind: QuantifierKind::Universal, body, .. } => {
-            match *body {
-                ExprView::BinaryOp { op: TokenType::Implies, right, .. } => {
-                    assert!(
-                        matches!(*right, ExprView::UnaryOp { op: TokenType::Not, .. }),
-                        "Consequent should be negated"
-                    );
-                }
-                _ => panic!("Body should be implication"),
+        ExprView::Quantifier {
+            kind: QuantifierKind::Universal,
+            body,
+            ..
+        } => match *body {
+            ExprView::BinaryOp {
+                op: TokenType::Implies,
+                right,
+                ..
+            } => {
+                assert!(
+                    matches!(
+                        *right,
+                        ExprView::UnaryOp {
+                            op: TokenType::Not,
+                            ..
+                        }
+                    ),
+                    "Consequent should be negated"
+                );
             }
-        }
+            _ => panic!("Body should be implication"),
+        },
         _ => panic!("Expected Universal quantifier, got {:?}", view),
     }
 }
@@ -229,8 +290,14 @@ fn few_produces_few_quantifier() {
 fn cardinal_three_produces_cardinal_quantifier() {
     let view = parse!("Three dogs bark.");
     match view {
-        ExprView::Quantifier { kind: QuantifierKind::AtLeast(3), .. } => {}
-        ExprView::Quantifier { kind: QuantifierKind::Cardinal(3), .. } => {}
+        ExprView::Quantifier {
+            kind: QuantifierKind::AtLeast(3),
+            ..
+        } => {}
+        ExprView::Quantifier {
+            kind: QuantifierKind::Cardinal(3),
+            ..
+        } => {}
         _ => panic!("Expected Cardinal or AtLeast(3), got {:?}", view),
     }
 }
@@ -239,7 +306,10 @@ fn cardinal_three_produces_cardinal_quantifier() {
 fn at_least_two_produces_atleast_quantifier() {
     let view = parse!("At least two birds fly.");
     match view {
-        ExprView::Quantifier { kind: QuantifierKind::AtLeast(2), .. } => {}
+        ExprView::Quantifier {
+            kind: QuantifierKind::AtLeast(2),
+            ..
+        } => {}
         _ => panic!("Expected AtLeast(2), got {:?}", view),
     }
 }
@@ -248,7 +318,10 @@ fn at_least_two_produces_atleast_quantifier() {
 fn at_most_five_produces_atmost_quantifier() {
     let view = parse!("At most five cats sleep.");
     match view {
-        ExprView::Quantifier { kind: QuantifierKind::AtMost(5), .. } => {}
+        ExprView::Quantifier {
+            kind: QuantifierKind::AtMost(5),
+            ..
+        } => {}
         _ => panic!("Expected AtMost(5), got {:?}", view),
     }
 }
@@ -276,11 +349,17 @@ fn intransitive_verb_produces_unary_predicate() {
     // Activity verbs in present tense get Habitual wrapper
     match view {
         ExprView::Aspectual { operator, body } => {
-            assert_eq!(operator, logicaffeine_language::ast::AspectOperator::Habitual);
+            assert_eq!(
+                operator,
+                logicaffeine_language::ast::AspectOperator::Habitual
+            );
             if let ExprView::NeoEvent { verb, roles, .. } = *body {
                 assert_eq!(verb, "Run");
                 assert!(get_agent(&roles).is_some(), "Expected Agent role");
-                assert!(get_theme(&roles).is_none(), "Intransitive should not have Theme");
+                assert!(
+                    get_theme(&roles).is_none(),
+                    "Intransitive should not have Theme"
+                );
             } else {
                 panic!("Expected NeoEvent inside Habitual, got {:?}", body);
             }
@@ -311,7 +390,9 @@ fn identity_produces_identity_variant() {
 fn conditional_produces_binary_op_implies() {
     let view = parse!("If it is raining, then it is pouring.");
     match view {
-        ExprView::BinaryOp { op: TokenType::If, .. } => {}
+        ExprView::BinaryOp {
+            op: TokenType::If, ..
+        } => {}
         _ => panic!("Expected BinaryOp(If), got {:?}", view),
     }
 }
@@ -320,7 +401,9 @@ fn conditional_produces_binary_op_implies() {
 fn biconditional_produces_iff() {
     let view = parse!("A if and only if B.");
     match view {
-        ExprView::BinaryOp { op: TokenType::Iff, .. } => {}
+        ExprView::BinaryOp {
+            op: TokenType::Iff, ..
+        } => {}
         _ => panic!("Expected BinaryOp(Iff), got {:?}", view),
     }
 }
@@ -560,8 +643,12 @@ fn different_words_get_different_symbols() {
 #[test]
 fn same_word_gets_same_symbol() {
     let output = compile("All cats are cats.").unwrap();
-    let c_count = output.matches("Cats(").count();
-    assert!(c_count >= 2, "Same word should produce same symbol: got '{}'", output);
+    let c_count = output.matches("Cat(").count();
+    assert!(
+        c_count >= 2,
+        "Same word should produce same symbol: got '{}'",
+        output
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -697,16 +784,27 @@ fn non_intersective_fake() {
 fn gapping_basic() {
     let view = parse!("John ate an apple, and Mary, a pear.");
     match view {
-        ExprView::BinaryOp { op: TokenType::And, right, .. } => {
-            match *right {
-                ExprView::NeoEvent { verb, roles, .. } => {
-                    assert_eq!(verb, "Eat", "Gapped clause should borrow verb 'Eat'");
-                    assert!(get_agent(&roles).is_some(), "Gapped event should have Agent");
-                    assert!(get_theme(&roles).is_some(), "Gapped event should have Theme");
-                }
-                _ => panic!("Expected NeoEvent with borrowed verb 'Eat', got {:?}", right),
+        ExprView::BinaryOp {
+            op: TokenType::And,
+            right,
+            ..
+        } => match *right {
+            ExprView::NeoEvent { verb, roles, .. } => {
+                assert_eq!(verb, "Eat", "Gapped clause should borrow verb 'Eat'");
+                assert!(
+                    get_agent(&roles).is_some(),
+                    "Gapped event should have Agent"
+                );
+                assert!(
+                    get_theme(&roles).is_some(),
+                    "Gapped event should have Theme"
+                );
             }
-        }
+            _ => panic!(
+                "Expected NeoEvent with borrowed verb 'Eat', got {:?}",
+                right
+            ),
+        },
         _ => panic!("Expected BinaryOp with And, got {:?}", view),
     }
 }
@@ -720,9 +818,16 @@ fn generic_bare_plural() {
     let view = parse!("Birds fly.");
     match view {
         ExprView::Quantifier { kind, .. } => {
-            assert_eq!(kind, QuantifierKind::Generic, "Bare plural should use Generic quantifier");
+            assert_eq!(
+                kind,
+                QuantifierKind::Generic,
+                "Bare plural should use Generic quantifier"
+            );
         }
-        _ => panic!("Expected Quantifier with Generic kind for bare plural, got {:?}", view),
+        _ => panic!(
+            "Expected Quantifier with Generic kind for bare plural, got {:?}",
+            view
+        ),
     }
 }
 
@@ -749,22 +854,30 @@ fn pp_ambiguity_returns_multiple_readings() {
 fn plural_definite_sigma_collective() {
     let view = parse!("The dogs gathered.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, roles, .. } => {
+        ExprView::NeoEvent {
+            verb,
+            modifiers,
+            roles,
+            ..
+        } => {
             assert_eq!(verb, "Gather");
             assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier");
             let agent = get_agent(&roles).expect("Expected Agent");
-            assert!(matches!(agent, TermView::Sigma("Dog")),
-                "Expected Sigma(Dog) as Agent, got {:?}", agent);
+            assert!(
+                matches!(agent, TermView::Sigma("Dog")),
+                "Expected Sigma(Dog) as Agent, got {:?}",
+                agent
+            );
         }
-        ExprView::Distributive { predicate } => {
-            match *predicate {
-                ExprView::NeoEvent { verb, modifiers, .. } => {
-                    assert_eq!(verb, "Gather");
-                    assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier");
-                }
-                _ => panic!("Expected NeoEvent inside Distributive"),
+        ExprView::Distributive { predicate } => match *predicate {
+            ExprView::NeoEvent {
+                verb, modifiers, ..
+            } => {
+                assert_eq!(verb, "Gather");
+                assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier");
             }
-        }
+            _ => panic!("Expected NeoEvent inside Distributive"),
+        },
         _ => panic!("Expected NeoEvent or Distributive variant, got {:?}", view),
     }
 }
@@ -773,15 +886,15 @@ fn plural_definite_sigma_collective() {
 fn plural_definite_sigma_distributive() {
     let view = parse!("The dogs barked.");
     match view {
-        ExprView::Distributive { predicate } => {
-            match *predicate {
-                ExprView::NeoEvent { verb, modifiers, .. } => {
-                    assert_eq!(verb, "Bark");
-                    assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier");
-                }
-                _ => panic!("Expected NeoEvent inside Distributive, got {:?}", predicate),
+        ExprView::Distributive { predicate } => match *predicate {
+            ExprView::NeoEvent {
+                verb, modifiers, ..
+            } => {
+                assert_eq!(verb, "Bark");
+                assert!(has_modifier(&modifiers, "Past"), "Expected Past modifier");
             }
-        }
+            _ => panic!("Expected NeoEvent inside Distributive, got {:?}", predicate),
+        },
         _ => panic!("Expected Distributive variant, got {:?}", view),
     }
 }
@@ -793,14 +906,12 @@ fn collective_verb_no_distributive_wrapper() {
         ExprView::NeoEvent { verb, .. } => {
             assert_eq!(verb, "Gather");
         }
-        ExprView::Distributive { predicate } => {
-            match *predicate {
-                ExprView::NeoEvent { verb, .. } => {
-                    assert_eq!(verb, "Gather");
-                }
-                _ => {}
+        ExprView::Distributive { predicate } => match *predicate {
+            ExprView::NeoEvent { verb, .. } => {
+                assert_eq!(verb, "Gather");
             }
-        }
+            _ => {}
+        },
         _ => panic!("Expected NeoEvent variant, got {:?}", view),
     }
 }
@@ -824,12 +935,15 @@ fn long_distance_wh_movement() {
     let output = compile("Who did John say Mary loves?").unwrap();
     assert!(
         output.contains("Say(John") || output.contains("S(John"),
-        "Main verb found: got '{}'", output
+        "Main verb found: got '{}'",
+        output
     );
     assert!(
-        output.contains("Love(Mary, x)") || output.contains("L(Mary, x)")
+        output.contains("Love(Mary, x)")
+            || output.contains("L(Mary, x)")
             || (output.contains("Agent(e, Mary)") && output.contains("Theme(e, x)")),
-        "Nested clause binds 'x' to object position: got '{}'", output
+        "Nested clause binds 'x' to object position: got '{}'",
+        output
     );
 }
 
@@ -842,10 +956,17 @@ fn indirect_speech_act_request() {
     let output = compile("Can you pass the salt?").unwrap();
     // Currently parses as a question with possibility modal
     // Future: Should detect indirect speech act and produce Imperative/Command with "!"
-    assert!(output.contains("?") || output.contains("!"),
-        "Should be a question or command: got '{}'", output);
+    assert!(
+        output.contains("?") || output.contains("!"),
+        "Should be a question or command: got '{}'",
+        output
+    );
     // Note: HAB wrapper is correct for activity verb "pass" in simple aspect
-    assert!(output.contains("Pass"), "Should contain Pass verb: got '{}'", output);
+    assert!(
+        output.contains("Pass"),
+        "Should contain Pass verb: got '{}'",
+        output
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -855,8 +976,16 @@ fn indirect_speech_act_request() {
 #[test]
 fn negative_existential() {
     let output = compile("The King of France does not exist.").unwrap();
-    assert!(output.starts_with("¬∃"), "Must negate the existence quantifier directly: got '{}'", output);
-    assert!(!output.contains("Exist("), "Existence is a quantifier, not a predicate here: got '{}'", output);
+    assert!(
+        output.starts_with("¬∃"),
+        "Must negate the existence quantifier directly: got '{}'",
+        output
+    );
+    assert!(
+        !output.contains("Exist("),
+        "Existence is a quantifier, not a predicate here: got '{}'",
+        output
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -871,7 +1000,8 @@ fn pp_attachment_in_np_restriction() {
     // PP "with a tail" should attach to noun variable x, producing W(x, T) or With(x, Tail)
     assert!(
         output.contains("W(x,") || output.contains("With(x,"),
-        "PP 'with a tail' should attach to noun variable 'x', got '{}'", output
+        "PP 'with a tail' should attach to noun variable 'x', got '{}'",
+        output
     );
 }
 
@@ -881,7 +1011,8 @@ fn pp_attachment_nested() {
     let output = compile("The man with the hat walked.").unwrap();
     assert!(
         output.contains("W(x,") || output.contains("With(x,"),
-        "PP should attach to noun: got '{}'", output
+        "PP should attach to noun: got '{}'",
+        output
     );
 }
 
@@ -891,7 +1022,8 @@ fn pp_in_quantifier_restriction() {
     // PP should attach to noun x, not event e
     assert!(
         (output.contains("I(x,") || output.contains("In(x,")) && !output.contains("In(e,"),
-        "PP should attach to noun 'x', not event 'e': got '{}'", output
+        "PP should attach to noun 'x', not event 'e': got '{}'",
+        output
     );
 }
 
@@ -902,7 +1034,8 @@ fn deixis_proximal_this() {
     let output = compile("This dog barks.").unwrap();
     assert!(
         output.contains("Proximal") || output.contains("P("),
-        "Proximal 'this' should produce Proximal predicate: got '{}'", output
+        "Proximal 'this' should produce Proximal predicate: got '{}'",
+        output
     );
 }
 
@@ -911,7 +1044,8 @@ fn deixis_distal_that_as_determiner() {
     let output = compile("That cat sleeps.").unwrap();
     assert!(
         output.contains("Distal") || output.contains("D("),
-        "Distal 'that' as determiner should produce Distal predicate: got '{}'", output
+        "Distal 'that' as determiner should produce Distal predicate: got '{}'",
+        output
     );
 }
 
@@ -920,7 +1054,8 @@ fn deixis_plural_these() {
     let output = compile("These dogs bark.").unwrap();
     assert!(
         output.contains("Proximal") || output.contains("P("),
-        "Plural proximal 'these' should produce Proximal predicate: got '{}'", output
+        "Plural proximal 'these' should produce Proximal predicate: got '{}'",
+        output
     );
 }
 
@@ -929,7 +1064,8 @@ fn deixis_plural_those() {
     let output = compile("Those cats sleep.").unwrap();
     assert!(
         output.contains("Distal") || output.contains("D("),
-        "Plural distal 'those' should produce Distal predicate: got '{}'", output
+        "Plural distal 'those' should produce Distal predicate: got '{}'",
+        output
     );
 }
 
@@ -940,11 +1076,13 @@ fn ditransitive_double_object() {
     let output = compile("John gave Mary a book.").unwrap();
     assert!(
         output.contains("Recipient"),
-        "Ditransitive should have Recipient role for 'Mary': got '{}'", output
+        "Ditransitive should have Recipient role for 'Mary': got '{}'",
+        output
     );
     assert!(
         output.contains("Theme"),
-        "Ditransitive should have Theme role for 'book': got '{}'", output
+        "Ditransitive should have Theme role for 'book': got '{}'",
+        output
     );
 }
 
@@ -953,7 +1091,8 @@ fn ditransitive_send() {
     let output = compile("Mary sent John a letter.").unwrap();
     assert!(
         output.contains("Recipient") && output.contains("Theme"),
-        "Send should produce Recipient and Theme roles: got '{}'", output
+        "Send should produce Recipient and Theme roles: got '{}'",
+        output
     );
 }
 
@@ -962,7 +1101,8 @@ fn ditransitive_tell() {
     let output = compile("She told him a story.").unwrap();
     assert!(
         output.contains("Recipient"),
-        "Tell should produce Recipient role: got '{}'", output
+        "Tell should produce Recipient role: got '{}'",
+        output
     );
 }
 
@@ -975,7 +1115,8 @@ fn gerund_as_subject() {
     // predicate "healthy" becomes H
     assert!(
         output.contains("Running") || output.contains("Run") || output.contains("H(R)"),
-        "Gerund 'Running' should be parsed as noun: got '{}'", output
+        "Gerund 'Running' should be parsed as noun: got '{}'",
+        output
     );
 }
 
@@ -985,7 +1126,8 @@ fn gerund_as_object() {
     // Theme(e, S) where S = Swim (gerund parsed as noun, abbreviated)
     assert!(
         output.contains("Swimming") || output.contains("Swim") || output.contains("Theme(e, S)"),
-        "Gerund 'swimming' should be parsed as object: got '{}'", output
+        "Gerund 'swimming' should be parsed as object: got '{}'",
+        output
     );
 }
 
@@ -996,7 +1138,8 @@ fn causal_because() {
     let output = compile("John fell because he ran.").unwrap();
     assert!(
         output.contains("Cause("),
-        "Because should produce Cause predicate: got '{}'", output
+        "Because should produce Cause predicate: got '{}'",
+        output
     );
 }
 
@@ -1005,7 +1148,8 @@ fn causal_because_order() {
     let output = compile("The plant died because it lacked water.").unwrap();
     assert!(
         output.contains("Cause("),
-        "Because should produce Cause predicate: got '{}'", output
+        "Because should produce Cause predicate: got '{}'",
+        output
     );
 }
 
@@ -1020,7 +1164,8 @@ fn mass_noun_much() {
         (output.contains("Measure") && output.contains("Much"))
             || (output.contains("(x, M)") && output.contains("W(x)"))
             || (output.contains("(x, M2)") && output.contains("W(x)")),
-        "Much should produce Measure(x, Much) predicate: got '{}'", output
+        "Much should produce Measure(x, Much) predicate: got '{}'",
+        output
     );
 }
 
@@ -1032,7 +1177,8 @@ fn mass_noun_little() {
     assert!(
         (output.contains("Measure") && output.contains("Little"))
             || (output.contains("(x, L)") && output.contains("T(x)")),
-        "Little should produce Measure(x, Little) predicate: got '{}'", output
+        "Little should produce Measure(x, Little) predicate: got '{}'",
+        output
     );
 }
 
@@ -1325,7 +1471,10 @@ fn parsing_coordination_ambiguity() {
 fn parsing_np_coordination_with_relative() {
     let output = compile("The horse and the cow that jumped fell.").unwrap();
     assert!(
-        output.contains("Jump") || output.contains("J(") || output.contains("Fall") || output.contains("F("),
+        output.contains("Jump")
+            || output.contains("J(")
+            || output.contains("Fall")
+            || output.contains("F("),
         "NP coordination with relative should parse: got '{}'",
         output
     );
@@ -1335,7 +1484,10 @@ fn parsing_np_coordination_with_relative() {
 fn parsing_reduced_relative_with_passive() {
     let output = compile("The evidence examined by the lawyer proved false.").unwrap();
     assert!(
-        output.contains("Examine") || output.contains("E(") || output.contains("Prove") || output.contains("P("),
+        output.contains("Examine")
+            || output.contains("E(")
+            || output.contains("Prove")
+            || output.contains("P("),
         "Reduced relative with passive should parse: got '{}'",
         output
     );
@@ -1375,7 +1527,10 @@ fn parsing_double_relative_clause() {
 fn parsing_center_embedded_relative() {
     let output = compile("The cat the dog chased ran.").unwrap();
     assert!(
-        output.contains("Chase") || output.contains("C(") || output.contains("Ran") || output.contains("R("),
+        output.contains("Chase")
+            || output.contains("C(")
+            || output.contains("Ran")
+            || output.contains("R("),
         "Center-embedded relative should parse: got '{}'",
         output
     );
@@ -1446,11 +1601,7 @@ fn discourse_definite_coreference_chain() {
 
 #[test]
 fn discourse_batch_three_sentences() {
-    let result = compile_discourse(&[
-        "A man entered.",
-        "He saw a woman.",
-        "She smiled.",
-    ]).unwrap();
+    let result = compile_discourse(&["A man entered.", "He saw a woman.", "She smiled."]).unwrap();
     assert!(
         result.contains("∧"),
         "Batch should conjoin sentences: got '{}'",
@@ -1465,11 +1616,7 @@ fn discourse_gender_agreement() {
     let mut interner = Interner::new();
     compile_with_discourse("Mary ran.", &mut world_state, &mut interner).unwrap();
     let r2 = compile_with_discourse("She stopped.", &mut world_state, &mut interner).unwrap();
-    assert!(
-        r2.contains("M"),
-        "She should resolve to Mary: got '{}'",
-        r2
-    );
+    assert!(r2.contains("M"), "She should resolve to Mary: got '{}'", r2);
 }
 
 #[test]
@@ -1579,7 +1726,10 @@ fn pragmatics_please_marker() {
 fn pragmatics_full_pipeline_complex() {
     let output = compile("Can every student who studies hard pass the exam?").unwrap();
     assert!(
-        output.contains("∀") || output.contains("!") || output.contains("?") || output.contains("Pass"),
+        output.contains("∀")
+            || output.contains("!")
+            || output.contains("?")
+            || output.contains("Pass"),
         "Complex full pipeline should parse: got '{}'",
         output
     );

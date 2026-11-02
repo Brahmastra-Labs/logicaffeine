@@ -1,0 +1,49 @@
+{
+  "id": "16.2",
+  "title": "Medieval Logic",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Medieval logicians built on Aristotle. They worked out theories of meaning and of valid consequence."
+    },
+    {
+      "type": "definition",
+      "term": "Supposition theory",
+      "definition": "A theory of how a term in a sentence stands for things. The same word can stand for different things in different sentences."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Three kinds of supposition",
+      "lines": [
+        "'Man is a species': man stands for the kind.",
+        "'Man has three letters': man stands for the word.",
+        "'A man runs': man stands for a person."
+      ]
+    },
+    {
+      "type": "worked",
+      "title": "Ockham's razor",
+      "lines": [
+        "William of Ockham (about 1287 to 1347):",
+        "Do not multiply entities beyond need."
+      ],
+      "note": "Prefer the explanation that needs fewer things."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What was supposition theory about?",
+    "options": [
+      "Making assumptions in proofs",
+      "How terms in a sentence stand for things",
+      "Guesses about the future",
+      "The order of a syllogism"
+    ],
+    "correct": 1,
+    "hint": "Look at the three kinds of supposition in the examples.",
+    "explanation": "Supposition theory explained how a term stands for things. The same word can stand for the kind, the word, or a thing."
+  }
+}

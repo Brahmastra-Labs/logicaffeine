@@ -10,7 +10,8 @@
     "Probabilistic rather than certain"
   ],
   "correct": 1,
-  "hint": "On this view, we made the rules of logic; they're not forced on us by reality.",
-  "explanation": "Conventionalism holds that logical truths are true by virtue of how we use language - they're implicit definitions of logical words. 'P ∨ ¬P' is true because that's what 'or' and 'not' mean by our conventions. We could have chosen different conventions.",
-  "visual_concept": "Logic as the rules of a game we invented. We defined 'or' to work this way; different definitions = different 'logics'."
+  "hint": "On this view, we made the rules of logic.",
+  "explanation": "Conventionalism holds that logical truths hold because of how we use words like or and not.",
+  "visual_concept": "Logic as the rules of a game we invented. We defined 'or' to work this way; different definitions = different 'logics'.",
+  "section": "18.3"
 }

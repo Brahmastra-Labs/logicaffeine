@@ -1,0 +1,83 @@
+{
+  "case": "T08-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (x y : Int) (q : Prop), x < y \u2227 y < x + 1 \u2192 q",
+      "name": "T08_013.discretenessMatters",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 \u2264 n",
+      "name": "T08_013.natNonneg",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T08_013.positiveGoalNoHyps",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (x : Int), x \u2264 3 \u2192 x \u2264 4",
+      "name": "T08_013.positiveGoalSatHyps",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Int) (q : Prop), x < y \u2192 y < x + 1 \u2192 q",
+      "name": "T08_013.refuteDiscrete",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat) (q : Prop), n < 2 \u2192 3 < n \u2192 q",
+      "name": "T08_013.refuteNat",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n \u2264 3 \u2192 n - 5 = 0",
+      "name": "T08_013.truncatedSub",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

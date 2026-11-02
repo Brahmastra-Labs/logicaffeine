@@ -1,0 +1,47 @@
+{
+  "id": "14.3",
+  "title": "The Golden Rule",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The **golden rule** appears in many traditions: treat others as you want to be treated."
+    },
+    {
+      "type": "paragraph",
+      "text": "Taken literally, it has problems. Someone who wants to be hurt would be told to hurt others. Harry Gensler words it more carefully: treat others only as you consent to being treated in the same situation."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A simple test",
+      "lines": [
+        "I am thinking of lying to get what I want.",
+        "Do I consent to being lied to, in the same situation, so that others get what they want?"
+      ],
+      "conclusion": "If not, I should not lie."
+    },
+    {
+      "type": "worked",
+      "title": "The careful wording",
+      "lines": [
+        "Same situation means imagining yourself in the other's place, with their desires and needs."
+      ],
+      "note": "So the rule asks what you consent to as that person, not what you happen to like."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which wording of the golden rule avoids the problem of someone who wants to be hurt?",
+    "options": [
+      "Do whatever others ask of you",
+      "Treat others only as you consent to being treated in the same situation",
+      "Do to others whatever you happen to want done to you",
+      "Never do anything others dislike"
+    ],
+    "correct": 1,
+    "hint": "Which wording puts you in the other person's place, with their needs?",
+    "explanation": "Asking what you would consent to in the same situation, the other's situation, keeps a person's odd wants from licensing harm to others."
+  }
+}

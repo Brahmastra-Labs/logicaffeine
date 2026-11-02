@@ -1,4 +1,4 @@
-//! The work-stealing M:N native driver (Phase 7 of work/FINISH_INTERPRETER.md).
+//! The work-stealing M:N native driver.
 //!
 //! Genuine multicore for the VM/tree-walker tiers, native-only (`std::thread` +
 //! `std::sync`; never tokio, never `crossbeam` — this crate is dependency-free by
@@ -64,7 +64,12 @@ pub enum ResumeKind {
     /// `is_main` distinguishes the program's root task (whose body is the
     /// top-level program, not a spawned function) so the builder positions it
     /// correctly.
-    Spawn { func: FuncIdx, args: Vec<RtPayload>, priority: u8, is_main: bool },
+    Spawn {
+        func: FuncIdx,
+        args: Vec<RtPayload>,
+        priority: u8,
+        is_main: bool,
+    },
     /// Resume a pinned continuation with a delivered value (`Recv`/`TryRecv`/`Await`).
     Payload(RtPayload),
     /// Resume a `Select` winner: the winning arm index + its (recv) payload.
@@ -88,7 +93,7 @@ enum ReportStep {
     Select(Vec<SelectArm>),
     Sleep(u64),
     NewChan(Option<usize>),
-    Spawn { func: FuncIdx, args: Vec<RtPayload>, want_handle: bool },
+    Spawn { func: FuncIdx, args: Vec<RtPayload> },
     Await(TaskId),
     Abort(TaskId),
     Close(ChanId),
@@ -132,9 +137,9 @@ fn _assert_boundary_send() {
 use std::collections::HashMap;
 use std::sync::mpsc;
 
+use crate::config::SchedulerConfig;
 use crate::scheduler::{RunOutcome, Scheduler};
 use crate::seed::{Chooser, SchedSeed};
-use crate::config::SchedulerConfig;
 use crate::task::{TaskCtx, TaskStep};
 
 /// Run a concurrent program on the **work-stealing M:N driver** under `seed`.
@@ -221,7 +226,10 @@ where
                         is_main: desc.is_main,
                     }
                 } else if let Some(arm) = d.selected_arm {
-                    ResumeKind::Select { arm, payload: d.resume }
+                    ResumeKind::Select {
+                        arm,
+                        payload: d.resume,
+                    }
                 } else if let Some(ch) = d.new_chan {
                     ResumeKind::NewChan(ch)
                 } else if let Some(t) = d.spawned {
@@ -232,7 +240,9 @@ where
                         p => ResumeKind::Payload(p),
                     }
                 };
-                work_txs[w].send(WorkMsg::Run { tid: d.tid, resume }).expect("worker alive");
+                work_txs[w]
+                    .send(WorkMsg::Run { tid: d.tid, resume })
+                    .expect("worker alive");
             }
 
             // Barrier: collect this batch's reports (arrival order is irrelevant).
@@ -246,8 +256,11 @@ where
             // through the SAME Scheduler methods the cooperative driver uses — this
             // is what makes output + channel resolution identical to cooperative.
             for tid in &order {
-                let WorkerReport { tid: rt, output: slice_out, step } =
-                    reports.remove(tid).expect("report for dispatched task");
+                let WorkerReport {
+                    tid: rt,
+                    output: slice_out,
+                    step,
+                } = reports.remove(tid).expect("report for dispatched task");
                 output.extend(slice_out);
                 apply_step(&mut sched, &mut fresh, rt, step);
             }
@@ -260,7 +273,11 @@ where
         (outcome, output, sched.into_trace())
     });
 
-    WsOutcome { outcome, output, trace }
+    WsOutcome {
+        outcome,
+        output,
+        trace,
+    }
 }
 
 /// Apply one worker's report through the authoritative `Scheduler` (reusing its
@@ -285,11 +302,19 @@ fn apply_step(
         ReportStep::Abort(t) => sched.process_step(tid, TaskStep::Abort(t)),
         ReportStep::Close(ch) => sched.process_step(tid, TaskStep::Close(ch)),
         ReportStep::Exit(v) => sched.process_step(tid, TaskStep::Exit(v)),
-        ReportStep::Spawn { func, args, want_handle: _ } => {
+        ReportStep::Spawn { func, args } => {
             // Mirror the cooperative `Spawn` step: create the child + hand the
             // parent the child id; record the child's build descriptor.
             let child = sched.ws_spawn_child(tid, 0);
-            fresh.insert(child, SpawnDesc { func, args, priority: 0, is_main: false });
+            fresh.insert(
+                child,
+                SpawnDesc {
+                    func,
+                    args,
+                    priority: 0,
+                    is_main: false,
+                },
+            );
         }
     }
 }
@@ -317,8 +342,21 @@ fn worker_main<'env, B>(
         };
         match resume {
             ResumeKind::Nothing => {}
-            ResumeKind::Spawn { func, args, priority, is_main } => {
-                local.insert(tid, build(SpawnDesc { func, args, priority, is_main }));
+            ResumeKind::Spawn {
+                func,
+                args,
+                priority,
+                is_main,
+            } => {
+                local.insert(
+                    tid,
+                    build(SpawnDesc {
+                        func,
+                        args,
+                        priority,
+                        is_main,
+                    }),
+                );
             }
             ResumeKind::Payload(p) => ctx.resumed_with = p,
             ResumeKind::Select { arm, payload } => {
@@ -328,14 +366,23 @@ fn worker_main<'env, B>(
             ResumeKind::NewChan(ch) => ctx.new_chan = Some(ch),
             ResumeKind::SpawnedHandle(t) => ctx.spawned = Some(t),
         }
-        let task = local.get_mut(&tid).expect("task body present on its owning worker");
+        let task = local
+            .get_mut(&tid)
+            .expect("task body present on its owning worker");
         let step = task.poll(&mut ctx);
         let out = task.take_output();
         let (rstep, done) = project_step(step);
         if done {
             local.remove(&tid);
         }
-        if report_tx.send(WorkerReport { tid, output: out, step: rstep }).is_err() {
+        if report_tx
+            .send(WorkerReport {
+                tid,
+                output: out,
+                step: rstep,
+            })
+            .is_err()
+        {
             break;
         }
     }
@@ -353,9 +400,7 @@ fn project_step<'env>(step: TaskStep<'env>) -> (ReportStep, bool) {
         TaskStep::Select(arms) => (ReportStep::Select(arms), false),
         TaskStep::Sleep(t) => (ReportStep::Sleep(t), false),
         TaskStep::NewChan(cap) => (ReportStep::NewChan(cap), false),
-        TaskStep::SpawnDesc { func, args, want_handle } => {
-            (ReportStep::Spawn { func, args, want_handle }, false)
-        }
+        TaskStep::SpawnDesc { func, args, .. } => (ReportStep::Spawn { func, args }, false),
         TaskStep::Spawn(_) => {
             panic!("work-stealing tasks must spawn via SpawnDesc, not a boxed Spawn")
         }

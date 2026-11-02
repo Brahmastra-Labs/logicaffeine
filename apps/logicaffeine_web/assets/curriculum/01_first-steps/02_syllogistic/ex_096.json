@@ -10,6 +10,7 @@
     "I is B"
   ],
   "correct": 0,
-  "hint": "Does 'I' refer to one specific person (the speaker) or a category?",
-  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"B\" refers to a class/property, so use uppercase."
+  "hint": "'I' is one person. Is 'a short banker' one person, or a kind?",
+  "explanation": "'I' is one person, so i. 'A short banker' is a kind, so it gets a capital: i is B.",
+  "section": "2.1"
 }

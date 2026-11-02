@@ -1,4 +1,4 @@
-use logicaffeine_language::scope::{ScopeStack, ScopeEntry};
+use logicaffeine_language::scope::{ScopeEntry, ScopeStack};
 
 #[test]
 fn resolution_order_scope_before_fallback() {

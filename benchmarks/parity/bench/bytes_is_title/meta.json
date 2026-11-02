@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.is_title",
+  "workload": "bytesIsTitle(xs) \u2014 titlecase predicate",
+  "arg": "80000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

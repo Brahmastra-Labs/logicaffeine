@@ -28,7 +28,7 @@
 //! reassociated; the array's other co-built sibling arrays (graph_bfs's
 //! `adjCounts`/`adj`) keep their pushes in place.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, MatchArm, Stmt};
@@ -58,9 +58,32 @@ pub fn affine_scalarize_seqs<'a>(
         return (stmts, false);
     }
 
-    let mut rw = Rewriter { qualified: &qualified, expr_arena, stmt_arena };
-    let out = rw.rewrite_stmts(stmts);
-    (out, true)
+    let mut qualified = qualified;
+    loop {
+        if qualified.is_empty() {
+            return (stmts, false);
+        }
+        let mut rw = Rewriter {
+            qualified: &qualified,
+            expr_arena,
+            stmt_arena,
+        };
+        let out = rw.rewrite_stmts(stmts.clone());
+        // A deleted array's name surviving anywhere means a form the rewriter does not rebuild still reads it:
+        // keep that array and redo the rewrite without it.
+        let residue = super::Mentions::of_block(&out);
+        let survivors: Vec<Symbol> = qualified
+            .keys()
+            .copied()
+            .filter(|a| residue.symbols().any(|s| s == *a) || residue.is_opaque())
+            .collect();
+        if survivors.is_empty() {
+            return (out, true);
+        }
+        for a in survivors {
+            qualified.remove(&a);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +94,9 @@ pub fn affine_scalarize_seqs<'a>(
 fn detect_affine_arrays(stmts: &[Stmt]) -> HashMap<Symbol, AffineInfo> {
     let mut out = HashMap::new();
     for (di, stmt) in stmts.iter().enumerate() {
-        let Stmt::Let { var, value, .. } = stmt else { continue };
+        let Stmt::Let { var, value, .. } = stmt else {
+            continue;
+        };
         if !is_new_empty_numeric_seq(value) {
             continue;
         }
@@ -85,7 +110,14 @@ fn detect_affine_arrays(stmts: &[Stmt]) -> HashMap<Symbol, AffineInfo> {
 
 /// `a new Seq of Int`/`a new Seq of Float` (an empty, numeric-element sequence).
 fn is_new_empty_numeric_seq(value: &Expr) -> bool {
-    let Expr::New { type_args, init_fields, .. } = value else { return false };
+    let Expr::New {
+        type_args,
+        init_fields,
+        ..
+    } = value
+    else {
+        return false;
+    };
     init_fields.is_empty() && type_args.len() == 1
 }
 
@@ -96,7 +128,12 @@ fn analyze(a: Symbol, di: usize, body: &[Stmt]) -> Option<AffineInfo> {
     // body holds exactly one affine `push f(i) to a`.
     let mut build: Option<(usize, AffineInfo)> = None;
     for bi in (di + 1)..body.len() {
-        let Stmt::While { cond, body: lbody, .. } = &body[bi] else { continue };
+        let Stmt::While {
+            cond, body: lbody, ..
+        } = &body[bi]
+        else {
+            continue;
+        };
         if let Some(info) = match_build_loop(a, cond, lbody, body, bi) {
             build = Some((bi, info));
             break;
@@ -148,12 +185,16 @@ fn match_build_loop(
     body: &[Stmt],
     bi: usize,
 ) -> Option<AffineInfo> {
-    let Expr::BinaryOp { op, left, right: _ } = cond else { return None };
+    let Expr::BinaryOp { op, left, right: _ } = cond else {
+        return None;
+    };
     match op {
         BinaryOpKind::Lt | BinaryOpKind::LtEq => {}
         _ => return None,
     }
-    let Expr::Identifier(iv) = left else { return None };
+    let Expr::Identifier(iv) = left else {
+        return None;
+    };
     let iv = *iv;
 
     if !iv_starts_at_zero(body, bi, iv) {
@@ -205,12 +246,14 @@ fn is_increment_by_one(e: &Expr, iv: Symbol) -> bool {
             || (const_eval(left) == Some(1) && is_iv(right)))
 }
 
-/// The nearest assignment to `iv` before the build loop sets it to literal 0.
+/// The nearest statement before the build loop that may write `iv` sets it to literal 0: a `Let`/`Set` of 0 at the top
+/// level. Any other write — inside a branch, a swap, foreign code — leaves the start unknown.
 fn iv_starts_at_zero(body: &[Stmt], bi: usize, iv: Symbol) -> bool {
     for idx in (0..bi).rev() {
         match &body[idx] {
             Stmt::Let { var, value, .. } if *var == iv => return const_eval(value) == Some(0),
             Stmt::Set { target, value } if *target == iv => return const_eval(value) == Some(0),
+            other if super::WriteSet::of_stmt(other).may_write(iv) => return false,
             _ => {}
         }
     }
@@ -264,10 +307,10 @@ fn names_collection(e: &Expr, a: Symbol) -> bool {
     matches!(e, Expr::Identifier(s) if *s == a)
 }
 
-/// `s` is a `Let`/`Set` that assigns `v`.
+/// `s` may write `v` in any way — a `Let`, a `Set`, a swap, a write inside a nested block, foreign code — from the
+/// optimizer's one exhaustive write walk.
 fn assigns_var(s: &Stmt, v: Symbol) -> bool {
-    matches!(s, Stmt::Let { var, .. } if *var == v)
-        || matches!(s, Stmt::Set { target, .. } if *target == v)
+    super::WriteSet::of_stmt(s).may_write(v)
 }
 
 /// `s` opens a nested control-flow scope (so a push inside the build loop could
@@ -294,22 +337,32 @@ fn is_control_flow(s: &Stmt) -> bool {
 /// or escape).
 fn read_only_stmt(s: &Stmt, a: Symbol) -> bool {
     match s {
-        Stmt::Push { collection, value } => !names_collection(collection, a) && ok_read_only(value, a),
+        Stmt::Push { collection, value } => {
+            !names_collection(collection, a) && ok_read_only(value, a)
+        }
         Stmt::Pop { collection, .. }
         | Stmt::Remove { collection, .. }
         | Stmt::Add { collection, .. } => !names_collection(collection, a),
-        Stmt::SetIndex { collection, index, value } => {
-            !names_collection(collection, a) && ok_read_only(index, a) && ok_read_only(value, a)
-        }
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => !names_collection(collection, a) && ok_read_only(index, a) && ok_read_only(value, a),
         // A rebind of `a` itself (`Set a to …` / a shadowing `Let a be …`) means
         // the array is no longer the affine sequence we proved — disqualify.
         Stmt::Let { var, value, .. } => *var != a && ok_read_only(value, a),
         Stmt::Set { target, value } => *target != a && ok_read_only(value, a),
         Stmt::SetField { object, value, .. } => ok_read_only(object, a) && ok_read_only(value, a),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             ok_read_only(cond, a)
                 && then_block.iter().all(|x| read_only_stmt(x, a))
-                && else_block.as_ref().map_or(true, |eb| eb.iter().all(|x| read_only_stmt(x, a)))
+                && else_block
+                    .as_ref()
+                    .map_or(true, |eb| eb.iter().all(|x| read_only_stmt(x, a)))
         }
         Stmt::While { cond, body, .. } => {
             ok_read_only(cond, a) && body.iter().all(|x| read_only_stmt(x, a))
@@ -318,7 +371,10 @@ fn read_only_stmt(s: &Stmt, a: Symbol) -> bool {
             ok_read_only(iterable, a) && body.iter().all(|x| read_only_stmt(x, a))
         }
         Stmt::Inspect { target, arms, .. } => {
-            ok_read_only(target, a) && arms.iter().all(|arm| arm.body.iter().all(|x| read_only_stmt(x, a)))
+            ok_read_only(target, a)
+                && arms
+                    .iter()
+                    .all(|arm| arm.body.iter().all(|x| read_only_stmt(x, a)))
         }
         Stmt::Zone { body, .. }
         | Stmt::Concurrent { tasks: body }
@@ -340,7 +396,19 @@ fn ok_read_only(e: &Expr, a: Symbol) -> bool {
         Expr::Identifier(s) => *s != a, // a bare reference to `a` escapes it
         Expr::Index { collection, index } => {
             let coll_ok = match collection {
-                Expr::Identifier(s) if *s == a => true,
+                Expr::Identifier(s) if *s == a => {
+                    // The closed form `coeff * (k - 1) + offset` reifies the value pushed at 1-based
+                    // position `k` — valid ONLY for a positive, in-range `k`. A CONSTANT index `< 1`
+                    // (a from-the-end `item -1 of arr`, or `item 0`) is a different element the closed
+                    // form cannot honor, so this array must stay a runtime `Seq`. (Non-constant indices
+                    // keep the pass's existing 1-based-in-range contract — e.g. graph_bfs's `item k`.)
+                    if let Some(k) = const_eval(index) {
+                        if k < 1 {
+                            return false;
+                        }
+                    }
+                    true
+                }
                 other => ok_read_only(other, a),
             };
             coll_ok && ok_read_only(index, a)
@@ -353,7 +421,10 @@ fn ok_read_only(e: &Expr, a: Symbol) -> bool {
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => ok_read_only(left, a) && ok_read_only(right, a),
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => ok_read_only(left, a) && ok_read_only(right, a),
         Expr::Not { operand } => ok_read_only(operand, a),
         Expr::Call { args, .. } => args.iter().all(|x| ok_read_only(x, a)),
         Expr::CallExpr { callee, args } => {
@@ -365,12 +436,16 @@ fn ok_read_only(e: &Expr, a: Symbol) -> bool {
         Expr::Contains { collection, value } => {
             !names_collection(collection, a) && ok_read_only(value, a)
         }
-        Expr::Slice { collection, start, end } => {
-            !names_collection(collection, a) && ok_read_only(start, a) && ok_read_only(end, a)
-        }
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => !names_collection(collection, a) && ok_read_only(start, a) && ok_read_only(end, a),
         Expr::FieldAccess { object, .. } => ok_read_only(object, a),
         Expr::List(items) | Expr::Tuple(items) => items.iter().all(|i| ok_read_only(i, a)),
-        Expr::WithCapacity { value, capacity } => ok_read_only(value, a) && ok_read_only(capacity, a),
+        Expr::WithCapacity { value, capacity } => {
+            ok_read_only(value, a) && ok_read_only(capacity, a)
+        }
         Expr::InterpolatedString(parts) => parts.iter().all(|p| match p {
             crate::ast::stmt::StringPart::Expr { value, .. } => ok_read_only(value, a),
             _ => true,
@@ -389,7 +464,11 @@ fn reads_item_of(stmts: &[Stmt], a: Symbol) -> bool {
             }
         });
         hit || match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 reads_item_of(then_block, a)
                     || else_block.as_ref().map_or(false, |eb| reads_item_of(eb, a))
             }
@@ -446,91 +525,15 @@ fn expr_has_index_of(e: &Expr, a: Symbol) -> bool {
     }
 }
 
-/// `a` appears anywhere in the statement's own expressions or nested blocks.
+/// `a` appears anywhere in the statement — read, written, swapped, captured — nested blocks included: the optimizer's
+/// one exhaustive walk. Foreign code names everything.
 fn stmt_mentions(s: &Stmt, a: Symbol) -> bool {
-    let mut found = false;
-    for_each_stmt_expr(s, &mut |e| {
-        if expr_mentions(e, a) {
-            found = true;
-        }
-    });
-    if found {
-        return true;
-    }
-    match s {
-        Stmt::If { then_block, else_block, .. } => {
-            then_block.iter().any(|x| stmt_mentions(x, a))
-                || else_block.as_ref().map_or(false, |eb| eb.iter().any(|x| stmt_mentions(x, a)))
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => body.iter().any(|x| stmt_mentions(x, a)),
-        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| arm.body.iter().any(|x| stmt_mentions(x, a))),
-        Stmt::Zone { body, .. }
-        | Stmt::Concurrent { tasks: body }
-        | Stmt::Parallel { tasks: body } => body.iter().any(|x| stmt_mentions(x, a)),
-        _ => false,
-    }
+    super::stmt_touches(s, a)
 }
 
-/// `a` appears anywhere in the expression tree (any position).
+/// `a` appears anywhere in the expression tree, closures included.
 fn expr_mentions(e: &Expr, a: Symbol) -> bool {
-    let mut found = false;
-    visit_idents(e, &mut |s| {
-        if s == a {
-            found = true;
-        }
-    });
-    found
-}
-
-/// Visit every `Identifier` in an expression tree.
-fn visit_idents(e: &Expr, f: &mut impl FnMut(Symbol)) {
-    match e {
-        Expr::Identifier(s) => f(*s),
-        Expr::BinaryOp { left, right, .. }
-        | Expr::Union { left, right }
-        | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
-            visit_idents(left, f);
-            visit_idents(right, f);
-        }
-        Expr::Not { operand } => visit_idents(operand, f),
-        Expr::Index { collection, index } => {
-            visit_idents(collection, f);
-            visit_idents(index, f);
-        }
-        Expr::Length { collection }
-        | Expr::Copy { expr: collection }
-        | Expr::Give { value: collection }
-        | Expr::OptionSome { value: collection }
-        | Expr::FieldAccess { object: collection, .. } => visit_idents(collection, f),
-        Expr::Contains { collection, value } => {
-            visit_idents(collection, f);
-            visit_idents(value, f);
-        }
-        Expr::Slice { collection, start, end } => {
-            visit_idents(collection, f);
-            visit_idents(start, f);
-            visit_idents(end, f);
-        }
-        Expr::Call { args, .. } => args.iter().for_each(|a| visit_idents(a, f)),
-        Expr::CallExpr { callee, args } => {
-            visit_idents(callee, f);
-            args.iter().for_each(|a| visit_idents(a, f));
-        }
-        Expr::List(items) | Expr::Tuple(items) => items.iter().for_each(|i| visit_idents(i, f)),
-        Expr::New { init_fields, .. } => init_fields.iter().for_each(|(_, e)| visit_idents(e, f)),
-        Expr::NewVariant { fields, .. } => fields.iter().for_each(|(_, e)| visit_idents(e, f)),
-        Expr::WithCapacity { value, capacity } => {
-            visit_idents(value, f);
-            visit_idents(capacity, f);
-        }
-        Expr::InterpolatedString(parts) => parts.iter().for_each(|p| {
-            if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
-                visit_idents(value, f);
-            }
-        }),
-        _ => {}
-    }
+    super::expr_touches(e, a)
 }
 
 /// Visit every top-level expression of a statement (not recursing into nested
@@ -550,7 +553,11 @@ fn for_each_stmt_expr(s: &Stmt, f: &mut impl FnMut(&Expr)) {
             f(value);
         }
         Stmt::Pop { collection, .. } | Stmt::Remove { collection, .. } => f(collection),
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             f(collection);
             f(index);
             f(value);
@@ -599,15 +606,32 @@ impl<'a, 'q> Rewriter<'a, 'q> {
             // The build `Push f(i) to arr` of a qualified array is deleted; any
             // sibling pushes in the same loop are left in place by the block
             // walk (this arm fires only for the affine array's own push).
-            Stmt::Push { collection, .. }
-                if matches!(collection, Expr::Identifier(s) if self.qualified.contains_key(s)) => {}
-            Stmt::Let { var, ty, value, mutable } => {
-                out.push(Stmt::Let { var, ty, value: self.rewrite_expr(value), mutable });
+            Stmt::Push { collection, .. } if matches!(collection, Expr::Identifier(s) if self.qualified.contains_key(s)) =>
+                {}
+            Stmt::Let {
+                var,
+                ty,
+                value,
+                mutable,
+            } => {
+                out.push(Stmt::Let {
+                    var,
+                    ty,
+                    value: self.rewrite_expr(value),
+                    mutable,
+                });
             }
             Stmt::Set { target, value } => {
-                out.push(Stmt::Set { target, value: self.rewrite_expr(value) });
+                out.push(Stmt::Set {
+                    target,
+                    value: self.rewrite_expr(value),
+                });
             }
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 out.push(Stmt::SetIndex {
                     collection: self.rewrite_expr(collection),
                     index: self.rewrite_expr(index),
@@ -620,29 +644,47 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                     collection: self.rewrite_expr(collection),
                 });
             }
+            // A recipient is the function the value is handed to — a callee, not an array read.
             Stmt::Show { object, recipient } => {
                 out.push(Stmt::Show {
                     object: self.rewrite_expr(object),
-                    recipient: self.rewrite_expr(recipient),
+                    recipient,
                 });
             }
             Stmt::Give { object, recipient } => {
                 out.push(Stmt::Give {
                     object: self.rewrite_expr(object),
-                    recipient: self.rewrite_expr(recipient),
+                    recipient,
                 });
             }
             Stmt::Return { value } => {
-                out.push(Stmt::Return { value: value.map(|v| self.rewrite_expr(v)) });
+                out.push(Stmt::Return {
+                    value: value.map(|v| self.rewrite_expr(v)),
+                });
             }
-            Stmt::RuntimeAssert { condition, hard } => {
-                out.push(Stmt::RuntimeAssert { condition: self.rewrite_expr(condition) , hard });
+            Stmt::RuntimeAssert {
+                condition,
+                hard,
+                dim,
+                reason,
+            } => {
+                let reason = reason.map(|r| self.rewrite_expr(r));
+                out.push(Stmt::RuntimeAssert {
+                    condition: self.rewrite_expr(condition),
+                    hard,
+                    dim,
+                    reason,
+                });
             }
             Stmt::Call { function, args } => {
                 let args = args.into_iter().map(|a| self.rewrite_expr(a)).collect();
                 out.push(Stmt::Call { function, args });
             }
-            Stmt::SetField { object, field, value } => {
+            Stmt::SetField {
+                object,
+                field,
+                value,
+            } => {
                 out.push(Stmt::SetField {
                     object: self.rewrite_expr(object),
                     field,
@@ -661,28 +703,44 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                     collection: self.rewrite_expr(collection),
                 });
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 out.push(Stmt::If {
                     cond: self.rewrite_expr(cond),
                     then_block: self.rewrite_block_ref(then_block),
                     else_block: else_block.map(|b| self.rewrite_block_ref(b)),
                 });
             }
-            Stmt::While { cond, body, decreasing } => {
+            Stmt::While {
+                cond,
+                body,
+                decreasing,
+            } => {
                 out.push(Stmt::While {
                     cond: self.rewrite_expr(cond),
                     body: self.rewrite_block_ref(body),
                     decreasing: decreasing.map(|d| self.rewrite_expr(d)),
                 });
             }
-            Stmt::Repeat { pattern, iterable, body } => {
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
                 out.push(Stmt::Repeat {
                     pattern,
                     iterable: self.rewrite_expr(iterable),
                     body: self.rewrite_block_ref(body),
                 });
             }
-            Stmt::Inspect { target, arms, has_otherwise } => {
+            Stmt::Inspect {
+                target,
+                arms,
+                has_otherwise,
+            } => {
                 let arms = arms
                     .into_iter()
                     .map(|a| MatchArm {
@@ -692,9 +750,18 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                         body: self.rewrite_block_ref(a.body),
                     })
                     .collect();
-                out.push(Stmt::Inspect { target: self.rewrite_expr(target), arms, has_otherwise });
+                out.push(Stmt::Inspect {
+                    target: self.rewrite_expr(target),
+                    arms,
+                    has_otherwise,
+                });
             }
-            Stmt::Zone { name, capacity, source_file, body } => {
+            Stmt::Zone {
+                name,
+                capacity,
+                source_file,
+                body,
+            } => {
                 out.push(Stmt::Zone {
                     name,
                     capacity,
@@ -726,9 +793,9 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                 left: self.rewrite_expr(left),
                 right: self.rewrite_expr(right),
             }),
-            Expr::Not { operand } => {
-                self.expr_arena.alloc(Expr::Not { operand: self.rewrite_expr(operand) })
-            }
+            Expr::Not { operand } => self.expr_arena.alloc(Expr::Not {
+                operand: self.rewrite_expr(operand),
+            }),
             Expr::Call { function, args } => self.expr_arena.alloc(Expr::Call {
                 function: *function,
                 args: args.iter().map(|a| self.rewrite_expr(a)).collect(),
@@ -737,20 +804,24 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                 callee: self.rewrite_expr(callee),
                 args: args.iter().map(|a| self.rewrite_expr(a)).collect(),
             }),
-            Expr::Slice { collection, start, end } => self.expr_arena.alloc(Expr::Slice {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => self.expr_arena.alloc(Expr::Slice {
                 collection: self.rewrite_expr(collection),
                 start: self.rewrite_expr(start),
                 end: self.rewrite_expr(end),
             }),
-            Expr::Length { collection } => self
-                .expr_arena
-                .alloc(Expr::Length { collection: self.rewrite_expr(collection) }),
-            Expr::Copy { expr } => {
-                self.expr_arena.alloc(Expr::Copy { expr: self.rewrite_expr(expr) })
-            }
-            Expr::Give { value } => {
-                self.expr_arena.alloc(Expr::Give { value: self.rewrite_expr(value) })
-            }
+            Expr::Length { collection } => self.expr_arena.alloc(Expr::Length {
+                collection: self.rewrite_expr(collection),
+            }),
+            Expr::Copy { expr } => self.expr_arena.alloc(Expr::Copy {
+                expr: self.rewrite_expr(expr),
+            }),
+            Expr::Give { value } => self.expr_arena.alloc(Expr::Give {
+                value: self.rewrite_expr(value),
+            }),
             Expr::Contains { collection, value } => self.expr_arena.alloc(Expr::Contains {
                 collection: self.rewrite_expr(collection),
                 value: self.rewrite_expr(value),
@@ -771,15 +842,15 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                 object: self.rewrite_expr(object),
                 field: *field,
             }),
-            Expr::List(items) => self
-                .expr_arena
-                .alloc(Expr::List(items.iter().map(|i| self.rewrite_expr(i)).collect())),
-            Expr::Tuple(items) => self
-                .expr_arena
-                .alloc(Expr::Tuple(items.iter().map(|i| self.rewrite_expr(i)).collect())),
-            Expr::OptionSome { value } => {
-                self.expr_arena.alloc(Expr::OptionSome { value: self.rewrite_expr(value) })
-            }
+            Expr::List(items) => self.expr_arena.alloc(Expr::List(
+                items.iter().map(|i| self.rewrite_expr(i)).collect(),
+            )),
+            Expr::Tuple(items) => self.expr_arena.alloc(Expr::Tuple(
+                items.iter().map(|i| self.rewrite_expr(i)).collect(),
+            )),
+            Expr::OptionSome { value } => self.expr_arena.alloc(Expr::OptionSome {
+                value: self.rewrite_expr(value),
+            }),
             Expr::WithCapacity { value, capacity } => self.expr_arena.alloc(Expr::WithCapacity {
                 value: self.rewrite_expr(value),
                 capacity: self.rewrite_expr(capacity),
@@ -788,13 +859,15 @@ impl<'a, 'q> Rewriter<'a, 'q> {
                 let parts = parts
                     .iter()
                     .map(|p| match p {
-                        crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
-                            crate::ast::stmt::StringPart::Expr {
-                                value: self.rewrite_expr(value),
-                                format_spec: *format_spec,
-                                debug: *debug,
-                            }
-                        }
+                        crate::ast::stmt::StringPart::Expr {
+                            value,
+                            format_spec,
+                            debug,
+                        } => crate::ast::stmt::StringPart::Expr {
+                            value: self.rewrite_expr(value),
+                            format_spec: *format_spec,
+                            debug: *debug,
+                        },
                         crate::ast::stmt::StringPart::Literal(s) => {
                             crate::ast::stmt::StringPart::Literal(*s)
                         }
@@ -838,7 +911,12 @@ impl<'a, 'q> Rewriter<'a, 'q> {
         if let Some(k) = const_eval(idx) {
             return self.num(k - 1);
         }
-        if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = idx {
+        if let Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left,
+            right,
+        } = idx
+        {
             if const_eval(right) == Some(1) {
                 return left;
             }
@@ -854,363 +932,14 @@ impl<'a, 'q> Rewriter<'a, 'q> {
     }
 
     fn bin(&self, op: BinaryOpKind, l: &'a Expr<'a>, r: &'a Expr<'a>) -> &'a Expr<'a> {
-        self.expr_arena.alloc(Expr::BinaryOp { op, left: l, right: r })
+        self.expr_arena.alloc(Expr::BinaryOp {
+            op,
+            left: l,
+            right: r,
+        })
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::stmt::TypeExpr;
-
-    struct B<'a> {
-        ea: &'a Arena<Expr<'a>>,
-    }
-    impl<'a> B<'a> {
-        fn id(&self, s: Symbol) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Identifier(s))
-        }
-        fn num(&self, n: i64) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Literal(Literal::Number(n)))
-        }
-        fn bin(&self, op: BinaryOpKind, l: &'a Expr<'a>, r: &'a Expr<'a>) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::BinaryOp { op, left: l, right: r })
-        }
-        fn index(&self, coll: &'a Expr<'a>, idx: &'a Expr<'a>) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Index { collection: coll, index: idx })
-        }
-        fn new_seq(&self, seq: Symbol, elem: Symbol) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::New {
-                type_name: seq,
-                type_args: vec![TypeExpr::Primitive(elem)],
-                init_fields: vec![],
-            })
-        }
-    }
-
-    fn run<'a>(
-        input: Vec<Stmt<'a>>,
-        ea: &'a Arena<Expr<'a>>,
-        sa: &'a Arena<Stmt<'a>>,
-        it: &mut Interner,
-    ) -> (Vec<Stmt<'a>>, bool) {
-        affine_scalarize_seqs(input, ea, sa, it)
-    }
-
-    /// Recursively evaluate a constant-foldable closed-form expression so a test
-    /// can assert the EXACT i64 value the substitution produces.
-    fn eval(e: &Expr) -> i64 {
-        const_eval(e).expect("closed form must be constant-foldable")
-    }
-
-    /// Build the graph_bfs shape: an `adjStarts` populated only by `Push i*5`
-    /// inside a `while i < n` loop that ALSO pushes to a sibling array, then read
-    /// twice as `item (v+1) of adjStarts`. The array and its push must vanish,
-    /// the sibling push must survive, and the reads must become `v * 5`.
-    #[test]
-    fn affine_csr_array_scalarizes_to_closed_form() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let seq = it.intern("Seq");
-        let int = it.intern("Int");
-        let adj_starts = it.intern("adjStarts");
-        let sibling = it.intern("adjCounts");
-        let i = it.intern("i");
-        let n = it.intern("n");
-        let v = it.intern("v");
-        let out_var = it.intern("start");
-        let b = B { ea: &ea };
-
-        let decl_sibling = Stmt::Let {
-            var: sibling,
-            ty: None,
-            value: b.new_seq(seq, int),
-            mutable: true,
-        };
-        let decl = Stmt::Let {
-            var: adj_starts,
-            ty: None,
-            value: b.new_seq(seq, int),
-            mutable: true,
-        };
-        let init_i = Stmt::Let { var: i, ty: None, value: b.num(0), mutable: true };
-        // while i < n: Push i*5 to adjStarts; Push 0 to adjCounts; Set i to i+1
-        let push_affine = Stmt::Push {
-            value: b.bin(BinaryOpKind::Multiply, b.id(i), b.num(5)),
-            collection: b.id(adj_starts),
-        };
-        let push_sibling = Stmt::Push { value: b.num(0), collection: b.id(sibling) };
-        let step = Stmt::Set {
-            target: i,
-            value: b.bin(BinaryOpKind::Add, b.id(i), b.num(1)),
-        };
-        let body = sa.alloc_slice(vec![push_affine, push_sibling, step]);
-        let build = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(i), b.id(n)),
-            body,
-            decreasing: None,
-        };
-        // Let start be item (v + 1) of adjStarts.
-        let read = Stmt::Let {
-            var: out_var,
-            ty: None,
-            value: b.index(b.id(adj_starts), b.bin(BinaryOpKind::Add, b.id(v), b.num(1))),
-            mutable: true,
-        };
-
-        let input = vec![decl_sibling, decl, init_i, build, read];
-        let (out, changed) = run(input, &ea, &sa, &mut it);
-        assert!(changed, "affine scalarization should fire");
-
-        // adjStarts' declaration is gone; adjCounts' survives.
-        assert!(
-            !out.iter().any(|s| matches!(s, Stmt::Let { var, .. } if *var == adj_starts)),
-            "adjStarts decl must be deleted"
-        );
-        assert!(
-            out.iter().any(|s| matches!(s, Stmt::Let { var, .. } if *var == sibling)),
-            "sibling adjCounts decl must survive"
-        );
-
-        // The build loop keeps the sibling push and the IV step; the affine push
-        // is gone.
-        let while_stmt = out.iter().find(|s| matches!(s, Stmt::While { .. })).unwrap();
-        let Stmt::While { body, .. } = while_stmt else { unreachable!() };
-        assert_eq!(body.len(), 2, "only the affine push is removed");
-        assert!(
-            !body.iter().any(|s| matches!(s, Stmt::Push { collection, .. }
-                if matches!(collection, Expr::Identifier(sy) if *sy == adj_starts))),
-            "the affine push must be gone"
-        );
-        assert!(
-            body.iter().any(|s| matches!(s, Stmt::Push { collection, .. }
-                if matches!(collection, Expr::Identifier(sy) if *sy == sibling))),
-            "the sibling push must survive"
-        );
-
-        // The read `item (v+1) of adjStarts` became `v * 5` (coeff 5, offset 0,
-        // `(v+1)-1 == v`): a Multiply of `v` by 5, no Index left.
-        let read_out = out.last().unwrap();
-        let Stmt::Let { value, .. } = read_out else { panic!("expected Let") };
-        match value {
-            Expr::BinaryOp { op: BinaryOpKind::Multiply, left, right } => {
-                assert!(matches!(left, Expr::Identifier(s) if *s == v), "lhs is v");
-                assert!(matches!(right, Expr::Literal(Literal::Number(5))), "rhs is 5");
-            }
-            other => panic!("expected `v * 5`, got {other:?}"),
-        }
-    }
-
-    /// The closed form must EXACTLY reproduce the pushed values for every
-    /// in-range 1-based index — the off-by-one is the whole correctness story.
-    /// `Push (i*5 + 3)` makes 0-based element p equal `5p + 3`, so 1-based
-    /// `item k` must equal `5*(k-1) + 3`.
-    #[test]
-    fn closed_form_matches_pushed_values_exactly() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let seq = it.intern("Seq");
-        let int = it.intern("Int");
-        let arr = it.intern("arr");
-        let i = it.intern("i");
-        let n = it.intern("n");
-        let sink = it.intern("sink");
-        let b = B { ea: &ea };
-
-        let decl = Stmt::Let { var: arr, ty: None, value: b.new_seq(seq, int), mutable: true };
-        let init_i = Stmt::Let { var: i, ty: None, value: b.num(0), mutable: true };
-        // Push (i * 5 + 3) to arr
-        let affine = b.bin(
-            BinaryOpKind::Add,
-            b.bin(BinaryOpKind::Multiply, b.id(i), b.num(5)),
-            b.num(3),
-        );
-        let push = Stmt::Push { value: affine, collection: b.id(arr) };
-        let step = Stmt::Set { target: i, value: b.bin(BinaryOpKind::Add, b.id(i), b.num(1)) };
-        let body = sa.alloc_slice(vec![push, step]);
-        let build = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(i), b.id(n)),
-            body,
-            decreasing: None,
-        };
-        // Read every constant index 1..=4; assert the substituted value equals
-        // the value the k-th push computed (element p = k-1 ⟹ 5*(k-1)+3).
-        let mut reads = vec![decl, init_i, build];
-        for k in 1..=4i64 {
-            reads.push(Stmt::Let {
-                var: sink,
-                ty: None,
-                value: b.index(b.id(arr), b.num(k)),
-                mutable: true,
-            });
-        }
-        let (out, changed) = run(reads, &ea, &sa, &mut it);
-        assert!(changed, "affine scalarization should fire");
-
-        let read_stmts: Vec<_> = out
-            .iter()
-            .filter(|s| matches!(s, Stmt::Let { var, .. } if *var == sink))
-            .collect();
-        assert_eq!(read_stmts.len(), 4);
-        for (j, s) in read_stmts.iter().enumerate() {
-            let k = (j + 1) as i64;
-            let Stmt::Let { value, .. } = s else { unreachable!() };
-            let expected = 5 * (k - 1) + 3;
-            assert_eq!(
-                eval(value),
-                expected,
-                "item {k} of arr must equal 5*({k}-1)+3 = {expected}"
-            );
-        }
-    }
-
-    /// A `SetIndex` write on the array disqualifies it — left untouched.
-    #[test]
-    fn in_place_write_blocks() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let seq = it.intern("Seq");
-        let int = it.intern("Int");
-        let arr = it.intern("arr");
-        let i = it.intern("i");
-        let n = it.intern("n");
-        let b = B { ea: &ea };
-
-        let decl = Stmt::Let { var: arr, ty: None, value: b.new_seq(seq, int), mutable: true };
-        let init_i = Stmt::Let { var: i, ty: None, value: b.num(0), mutable: true };
-        let push = Stmt::Push {
-            value: b.bin(BinaryOpKind::Multiply, b.id(i), b.num(5)),
-            collection: b.id(arr),
-        };
-        let step = Stmt::Set { target: i, value: b.bin(BinaryOpKind::Add, b.id(i), b.num(1)) };
-        let body = sa.alloc_slice(vec![push, step]);
-        let build = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(i), b.id(n)),
-            body,
-            decreasing: None,
-        };
-        // Set item 1 of arr to 99 — an in-place write after the build.
-        let write = Stmt::SetIndex { collection: b.id(arr), index: b.num(1), value: b.num(99) };
-        let read = Stmt::Let {
-            var: it.intern("sink"),
-            ty: None,
-            value: b.index(b.id(arr), b.num(1)),
-            mutable: true,
-        };
-        let input = vec![decl, init_i, build, write, read];
-        let (out, changed) = run(input, &ea, &sa, &mut it);
-        assert!(!changed, "an in-place write must block scalarization");
-        assert!(out.iter().any(|s| matches!(s, Stmt::Let { var, .. } if *var == arr)));
-    }
-
-    /// A `length of arr` query disqualifies — the closed form has no length.
-    #[test]
-    fn length_query_blocks() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let seq = it.intern("Seq");
-        let int = it.intern("Int");
-        let arr = it.intern("arr");
-        let i = it.intern("i");
-        let n = it.intern("n");
-        let b = B { ea: &ea };
-
-        let decl = Stmt::Let { var: arr, ty: None, value: b.new_seq(seq, int), mutable: true };
-        let init_i = Stmt::Let { var: i, ty: None, value: b.num(0), mutable: true };
-        let push = Stmt::Push {
-            value: b.bin(BinaryOpKind::Multiply, b.id(i), b.num(5)),
-            collection: b.id(arr),
-        };
-        let step = Stmt::Set { target: i, value: b.bin(BinaryOpKind::Add, b.id(i), b.num(1)) };
-        let body = sa.alloc_slice(vec![push, step]);
-        let build = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(i), b.id(n)),
-            body,
-            decreasing: None,
-        };
-        let read = Stmt::Let {
-            var: it.intern("len"),
-            ty: None,
-            value: ea.alloc(Expr::Length { collection: b.id(arr) }),
-            mutable: true,
-        };
-        let input = vec![decl, init_i, build, read];
-        let (_out, changed) = run(input, &ea, &sa, &mut it);
-        assert!(!changed, "a length query must block scalarization");
-    }
-
-    /// A non-affine pushed value (`i * i`) disqualifies the array.
-    #[test]
-    fn non_affine_push_blocks() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let seq = it.intern("Seq");
-        let int = it.intern("Int");
-        let arr = it.intern("arr");
-        let i = it.intern("i");
-        let n = it.intern("n");
-        let b = B { ea: &ea };
-
-        let decl = Stmt::Let { var: arr, ty: None, value: b.new_seq(seq, int), mutable: true };
-        let init_i = Stmt::Let { var: i, ty: None, value: b.num(0), mutable: true };
-        let push = Stmt::Push {
-            value: b.bin(BinaryOpKind::Multiply, b.id(i), b.id(i)),
-            collection: b.id(arr),
-        };
-        let step = Stmt::Set { target: i, value: b.bin(BinaryOpKind::Add, b.id(i), b.num(1)) };
-        let body = sa.alloc_slice(vec![push, step]);
-        let build = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(i), b.id(n)),
-            body,
-            decreasing: None,
-        };
-        let read = Stmt::Let {
-            var: it.intern("sink"),
-            ty: None,
-            value: b.index(b.id(arr), b.num(1)),
-            mutable: true,
-        };
-        let input = vec![decl, init_i, build, read];
-        let (_out, changed) = run(input, &ea, &sa, &mut it);
-        assert!(!changed, "a non-affine push (i*i) must block scalarization");
-    }
-
-    /// A bare reference to the array (an alias/escape) disqualifies it.
-    #[test]
-    fn alias_blocks() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let seq = it.intern("Seq");
-        let int = it.intern("Int");
-        let arr = it.intern("arr");
-        let alias = it.intern("alias");
-        let i = it.intern("i");
-        let n = it.intern("n");
-        let b = B { ea: &ea };
-
-        let decl = Stmt::Let { var: arr, ty: None, value: b.new_seq(seq, int), mutable: true };
-        let init_i = Stmt::Let { var: i, ty: None, value: b.num(0), mutable: true };
-        let push = Stmt::Push {
-            value: b.bin(BinaryOpKind::Multiply, b.id(i), b.num(5)),
-            collection: b.id(arr),
-        };
-        let step = Stmt::Set { target: i, value: b.bin(BinaryOpKind::Add, b.id(i), b.num(1)) };
-        let body = sa.alloc_slice(vec![push, step]);
-        let build = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(i), b.id(n)),
-            body,
-            decreasing: None,
-        };
-        // Let alias be arr — a bare escape.
-        let escape = Stmt::Let { var: alias, ty: None, value: b.id(arr), mutable: true };
-        let input = vec![decl, init_i, build, escape];
-        let (_out, changed) = run(input, &ea, &sa, &mut it);
-        assert!(!changed, "a bare alias must block scalarization");
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/affine_scalarize/tests.rs"]
+mod tests;

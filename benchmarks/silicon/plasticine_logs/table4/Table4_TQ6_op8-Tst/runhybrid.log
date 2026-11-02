@@ -1,0 +1,40 @@
+    830000           6944 Hz
+    840000           6900 Hz
+    850000           6882 Hz
+    860000           5327 Hz
+    870000           6454 Hz
+    880000           6488 Hz
+    890000           6507 Hz
+    900000           6458 Hz
+    910000           6428 Hz
+    920000           6386 Hz
+    930000           6371 Hz
+    940000           6394 Hz
+    950000           6298 Hz
+    960000           6370 Hz
+    970000           6439 Hz
+    980000           6438 Hz
+    990000           6532 Hz
+   1000000           6487 Hz
+   1010000           6640 Hz
+   1020000           6550 Hz
+   1030000           6506 Hz
+   1040000           6463 Hz
+   1050000           6466 Hz
+   1060000           4494 Hz
+   1070000           4025 Hz
+   1080000           4159 Hz
+   1090000           4377 Hz
+Simulation complete at cycle 1095825
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 93.4456 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 210.894
+Exiting... 😊
+Destruct DRAM.
+expected 108100000
+result 108100000
+PASS: true (TPCHQ6)
+Complete Simulation
+Runtime:3:31.27

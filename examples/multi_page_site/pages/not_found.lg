@@ -1,0 +1,10 @@
+# Not found
+
+## Error page 404
+
+View:
+    <main>
+      <h1 id="title">Nothing here</h1>
+      <p id="body">That page has moved, or never existed.</p>
+      <a href="/">Back home</a>
+    </main>

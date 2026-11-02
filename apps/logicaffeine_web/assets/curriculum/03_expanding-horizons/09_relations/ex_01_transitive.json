@@ -2,10 +2,13 @@
   "id": "R_1.1",
   "type": "translation",
   "difficulty": 2,
-  "prompt": "Translate this relationship:",
-  "template": "{ProperName} {Verb} {ProperName}.",
+  "prompt": "Write this sentence in logic.",
+  "template": "{ProperName} {Verb:Present3s} {ProperName}.",
   "constraints": {
-    "Verb": ["Transitive"]
+    "Verb": [
+      "Transitive"
+    ]
   },
-  "hint": "A transitive verb creates a two-place relation: R(subject, object)."
+  "hint": "LOGOS writes the verb as an event: the subject is its Agent and the object its Theme.",
+  "section": "9.1"
 }

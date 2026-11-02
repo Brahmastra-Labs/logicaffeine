@@ -9,15 +9,18 @@ fn test_analytic_entailment_bachelor() {
     // Transpiler abbreviates predicates (Bachelor->B, Unmarried->U, Male->M2)
     assert!(
         result.contains("B(") || result.contains("Bachelor("),
-        "Should have bachelor predicate: {}", result
+        "Should have bachelor predicate: {}",
+        result
     );
     assert!(
         result.contains("Unmarried") || result.contains("U("),
-        "Bachelor should imply Unmarried: {}", result
+        "Bachelor should imply Unmarried: {}",
+        result
     );
     assert!(
         result.contains("Male") || result.contains("M("),
-        "Bachelor should imply Male: {}", result
+        "Bachelor should imply Male: {}",
+        result
     );
 }
 
@@ -30,11 +33,13 @@ fn test_privative_adjective_fake() {
     // Privative: Fake-Gun should expand to NOT Gun
     assert!(
         result.contains("¬") || result.contains("\\neg"),
-        "Fake should negate the noun: {}", result
+        "Fake should negate the noun: {}",
+        result
     );
     assert!(
         result.contains("Gun") || result.contains("G("),
-        "Should reference Gun: {}", result
+        "Should reference Gun: {}",
+        result
     );
 }
 
@@ -46,11 +51,13 @@ fn test_verbal_entailment_murder() {
     // Preserve original verb, add entailed verb
     assert!(
         result.contains("Murder"),
-        "Should preserve original verb: {}", result
+        "Should preserve original verb: {}",
+        result
     );
     assert!(
         result.contains("Kill") || result.contains("K("),
-        "Murder implies Killing: {}", result
+        "Murder implies Killing: {}",
+        result
     );
 }
 
@@ -62,10 +69,12 @@ fn test_hypernym_expansion() {
     // Dog predicate should be preserved, Animal added
     assert!(
         result.contains("D(") || result.contains("Dog("),
-        "Should preserve dog predicate: {}", result
+        "Should preserve dog predicate: {}",
+        result
     );
     assert!(
         result.contains("Animal") || result.contains("A("),
-        "Dog should imply Animal: {}", result
+        "Dog should imply Animal: {}",
+        result
     );
 }

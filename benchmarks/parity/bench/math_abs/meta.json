@@ -1,0 +1,13 @@
+{
+  "capability": "math.abs",
+  "workload": "abs(i-n/2) \u2014 native tie",
+  "arg": "3000000",
+  "expected": "2250000000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

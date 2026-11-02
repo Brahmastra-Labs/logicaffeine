@@ -1,0 +1,165 @@
+{
+  "case": "T08-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T08_016.OrderedFieldLike",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192 [self : T08_016.OrderedFieldLike F] \u2192 F \u2192 F \u2192 F",
+      "name": "T08_016.OrderedFieldLike.add",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192\n  {motive : T08_016.OrderedFieldLike F \u2192 Sort u} \u2192\n    (t : T08_016.OrderedFieldLike F) \u2192\n      ((le : F \u2192 F \u2192 Prop) \u2192\n          (add : F \u2192 F \u2192 F) \u2192\n            (one : F) \u2192\n              (half : F \u2192 F) \u2192\n                (le_trans : \u2200 (a b c : F), le a b \u2192 le b c \u2192 le a c) \u2192\n                  (half_between : \u2200 (a b : F), le a b \u2192 le a (half (add a b)) \u2227 le (half (add a b)) b) \u2192\n                    motive\n                      { le := le, add := add, one := one, half := half, le_trans := le_trans,\n                        half_between := half_between }) \u2192\n        motive t",
+      "name": "T08_016.OrderedFieldLike.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192 [self : T08_016.OrderedFieldLike F] \u2192 F \u2192 F",
+      "name": "T08_016.OrderedFieldLike.half",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {F : Type} [self : T08_016.OrderedFieldLike F] (a b : F),\n  T08_016.OrderedFieldLike.le a b \u2192\n    T08_016.OrderedFieldLike.le a (T08_016.OrderedFieldLike.half (T08_016.OrderedFieldLike.add a b)) \u2227\n      T08_016.OrderedFieldLike.le (T08_016.OrderedFieldLike.half (T08_016.OrderedFieldLike.add a b)) b",
+      "name": "T08_016.OrderedFieldLike.half_between",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192 [self : T08_016.OrderedFieldLike F] \u2192 F \u2192 F \u2192 Prop",
+      "name": "T08_016.OrderedFieldLike.le",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {F : Type} [self : T08_016.OrderedFieldLike F] (a b c : F),\n  T08_016.OrderedFieldLike.le a b \u2192 T08_016.OrderedFieldLike.le b c \u2192 T08_016.OrderedFieldLike.le a c",
+      "name": "T08_016.OrderedFieldLike.le_trans",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192\n  (le : F \u2192 F \u2192 Prop) \u2192\n    (add : F \u2192 F \u2192 F) \u2192\n      F \u2192\n        (half : F \u2192 F) \u2192\n          (\u2200 (a b c : F), le a b \u2192 le b c \u2192 le a c) \u2192\n            (\u2200 (a b : F), le a b \u2192 le a (half (add a b)) \u2227 le (half (add a b)) b) \u2192 T08_016.OrderedFieldLike F",
+      "name": "T08_016.OrderedFieldLike.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192\n  {P : Sort u} \u2192 {v1 v2 : T08_016.OrderedFieldLike F} \u2192 v1 = v2 \u2192 T08_016.OrderedFieldLike.noConfusionType P v1 v2",
+      "name": "T08_016.OrderedFieldLike.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192 Sort u \u2192 T08_016.OrderedFieldLike F \u2192 T08_016.OrderedFieldLike F \u2192 Sort u",
+      "name": "T08_016.OrderedFieldLike.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192 [self : T08_016.OrderedFieldLike F] \u2192 F",
+      "name": "T08_016.OrderedFieldLike.one",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192\n  {motive : T08_016.OrderedFieldLike F \u2192 Sort u} \u2192\n    ((le : F \u2192 F \u2192 Prop) \u2192\n        (add : F \u2192 F \u2192 F) \u2192\n          (one : F) \u2192\n            (half : F \u2192 F) \u2192\n              (le_trans : \u2200 (a b c : F), le a b \u2192 le b c \u2192 le a c) \u2192\n                (half_between : \u2200 (a b : F), le a b \u2192 le a (half (add a b)) \u2227 le (half (add a b)) b) \u2192\n                  motive\n                    { le := le, add := add, one := one, half := half, le_trans := le_trans,\n                      half_between := half_between }) \u2192\n      (t : T08_016.OrderedFieldLike F) \u2192 motive t",
+      "name": "T08_016.OrderedFieldLike.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{F : Type} \u2192\n  {motive : T08_016.OrderedFieldLike F \u2192 Sort u} \u2192\n    (t : T08_016.OrderedFieldLike F) \u2192\n      ((le : F \u2192 F \u2192 Prop) \u2192\n          (add : F \u2192 F \u2192 F) \u2192\n            (one : F) \u2192\n              (half : F \u2192 F) \u2192\n                (le_trans : \u2200 (a b c : F), le a b \u2192 le b c \u2192 le a c) \u2192\n                  (half_between : \u2200 (a b : F), le a b \u2192 le a (half (add a b)) \u2227 le (half (add a b)) b) \u2192\n                    motive\n                      { le := le, add := add, one := one, half := half, le_trans := le_trans,\n                        half_between := half_between }) \u2192\n        motive t",
+      "name": "T08_016.OrderedFieldLike.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Int) (q : Prop), x < y \u2192 y < x + 1 \u2192 q",
+      "name": "T08_016.discretenessRefutes",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (F : Type) [inst : T08_016.OrderedFieldLike F] (a b c : F),\n  T08_016.OrderedFieldLike.le a b \u2192 T08_016.OrderedFieldLike.le b c \u2192 T08_016.OrderedFieldLike.le a c",
+      "name": "T08_016.fieldTrans",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Int), x \u2264 y \u2192 y \u2264 x \u2192 x = y",
+      "name": "T08_016.intLinear",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (a b c : Nat), a \u2264 b \u2192 b \u2264 c \u2192 a \u2264 c",
+      "name": "T08_016.natLinear",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (x : Int), 0 \u2264 x \u2192 0 \u2264 x * x",
+      "name": "T08_016.nonlinear",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (F : Type) [inst : T08_016.OrderedFieldLike F] (a b : F),\n  T08_016.OrderedFieldLike.le a b \u2192\n    T08_016.OrderedFieldLike.le a (T08_016.OrderedFieldLike.half (T08_016.OrderedFieldLike.add a b))",
+      "name": "T08_016.ratFieldSatisfiable",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

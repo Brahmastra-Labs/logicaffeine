@@ -1,0 +1,20 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let reps be parseInt(item 2 of arguments).
+Let m be 4096.
+Let mutable xs be a new Seq of Int.
+Let mutable k be 0.
+While k is less than m:
+    Push (k * 2654435761) % 1048576 to xs.
+    Set k to k + 1.
+Let mutable checksum be 0.
+Let mutable r be 0.
+While r is less than reps:
+    Set item ((r % m) + 1) of xs to r % 1048576.
+    If isEmptySeq(xs):
+        Set checksum to checksum + 1.
+    Set r to r + 1.
+Show checksum.

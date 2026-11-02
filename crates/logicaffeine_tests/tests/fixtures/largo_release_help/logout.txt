@@ -1,0 +1,36 @@
+Remove stored credentials for a registry.
+
+Deletes the authentication token from the local credentials file.
+
+# Example
+
+```bash largo logout ```
+
+Usage: largo logout [OPTIONS]
+
+Options:
+      --registry <REGISTRY>
+          Registry URL. Defaults to `registry.logicaffeine.com`
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo logout
+  largo logout --registry https://registry.example.com

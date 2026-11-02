@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You aren't either dull or boastful",
   "options": [
-    "$ (\\sim D \\vee \\sim B) $",
-    "$ (\\sim D \\vee B) $",
-    "$ \\sim D \\vee B $",
-    "$ \\sim(D \\vee B) $"
+    "¬D ∨ ¬B",
+    "¬D ∨ B",
+    "D ∨ B",
+    "¬(D ∨ B)"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Does the 'not' deny a single letter, or the whole compound after it?",
+  "explanation": "The denial covers the whole compound, so ¬ goes outside the parentheses: ¬(D ∨ B).",
+  "section": "6.2"
 }

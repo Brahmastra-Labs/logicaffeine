@@ -263,7 +263,10 @@ fn test_e2e_logic_relational_quantifiers_compile_and_run() {
     ] {
         let rust = logicaffeine_compile::extract_logic_rust(sentence)
             .unwrap_or_else(|e| panic!("{sentence}: {e}"));
-        assert!(rust.contains("fn holds("), "{sentence}: model-checker:\n{rust}");
+        assert!(
+            rust.contains("fn holds("),
+            "{sentence}: model-checker:\n{rust}"
+        );
         assert!(
             !rust.contains("unsupported: event"),
             "{sentence}: events must be handled, not dropped to true:\n{rust}"
@@ -278,7 +281,11 @@ fn test_e2e_logic_relational_quantifiers_compile_and_run() {
             "{sentence}: must compile and run.\n--- rust ---\n{}\n--- stderr ---\n{}",
             result.rust_code, result.stderr
         );
-        assert!(result.stdout.contains("holds ="), "{sentence}: got {}", result.stdout);
+        assert!(
+            result.stdout.contains("holds ="),
+            "{sentence}: got {}",
+            result.stdout
+        );
     }
 }
 
@@ -304,7 +311,11 @@ fn test_e2e_logic_temporal_monitor_compiles_and_runs() {
             "{sentence}: must compile and run.\n--- rust ---\n{}\n--- stderr ---\n{}",
             result.rust_code, result.stderr
         );
-        assert!(result.stdout.contains("holds ="), "{sentence}: got {}", result.stdout);
+        assert!(
+            result.stdout.contains("holds ="),
+            "{sentence}: got {}",
+            result.stdout
+        );
     }
 }
 
@@ -313,16 +324,23 @@ fn test_e2e_logic_temporal_monitor_compiles_and_runs() {
 fn test_e2e_logic_model_checker_quantified_sentence_runs() {
     // Universal quantifier + a predicate (and an event the checker degrades to
     // `true`): exercises `m.domain.iter().all(..)` and must still compile/run.
-    let rust = logicaffeine_compile::extract_logic_rust("Every cat sleeps.")
-        .expect("extract_logic_rust");
-    assert!(rust.contains("fn holds("), "quantified sentence => model-checker:\n{rust}");
+    let rust =
+        logicaffeine_compile::extract_logic_rust("Every cat sleeps.").expect("extract_logic_rust");
+    assert!(
+        rust.contains("fn holds("),
+        "quantified sentence => model-checker:\n{rust}"
+    );
     let result = run_extracted(&rust, "");
     assert!(
         result.success,
         "model-checker must compile and run.\n--- rust ---\n{}\n--- stderr ---\n{}",
         result.rust_code, result.stderr
     );
-    assert!(result.stdout.contains("holds ="), "should print the result; got: {}", result.stdout);
+    assert!(
+        result.stdout.contains("holds ="),
+        "should print the result; got: {}",
+        result.stdout
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -330,14 +348,21 @@ fn test_e2e_logic_model_checker_quantified_sentence_runs() {
 fn test_e2e_logic_model_checker_plain_sentence_runs() {
     let rust =
         logicaffeine_compile::extract_logic_rust("Socrates is a man.").expect("extract_logic_rust");
-    assert!(rust.contains("fn holds("), "plain sentence => model-checker:\n{rust}");
+    assert!(
+        rust.contains("fn holds("),
+        "plain sentence => model-checker:\n{rust}"
+    );
     let result = run_extracted(&rust, "");
     assert!(
         result.success,
         "model-checker must compile and run.\n--- rust ---\n{}\n--- stderr ---\n{}",
         result.rust_code, result.stderr
     );
-    assert!(result.stdout.contains("holds ="), "should print the result; got: {}", result.stdout);
+    assert!(
+        result.stdout.contains("holds ="),
+        "should print the result; got: {}",
+        result.stdout
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

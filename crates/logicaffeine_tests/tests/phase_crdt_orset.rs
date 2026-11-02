@@ -241,7 +241,7 @@ fn test_orset_serialization() {
 
 #[test]
 fn test_orset_with_integers() {
-    use logicaffeine_data::crdt::{Merge, ORSet};
+    use logicaffeine_data::crdt::ORSet;
     let mut set: ORSet<i64> = ORSet::new(1);
     set.add(42);
     set.add(99);

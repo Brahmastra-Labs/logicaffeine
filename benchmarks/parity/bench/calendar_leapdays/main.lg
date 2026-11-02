@@ -1,0 +1,13 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 0.
+While i is less than n:
+    Let a be 1800 + (i % 400).
+    Set sum to sum + leapDaysBetween(a, a + 40).
+    Set i to i + 1.
+Show sum.

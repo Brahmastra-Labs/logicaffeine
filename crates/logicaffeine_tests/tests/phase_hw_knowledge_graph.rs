@@ -4,9 +4,7 @@
 //! These test the KG data structures that provide LLMs with formally grounded
 //! context for SVA generation.
 
-use logicaffeine_language::semantics::knowledge_graph::{
-    HwKnowledgeGraph, KgRelation, SignalRole,
-};
+use logicaffeine_language::semantics::knowledge_graph::{HwKnowledgeGraph, KgRelation, SignalRole};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KG CONSTRUCTION
@@ -73,7 +71,10 @@ fn kg_serializes_to_valid_json() {
     assert!(json.contains("req"), "JSON should contain signal name");
     assert!(json.contains("Safety"), "JSON should contain property name");
     assert!(json.contains("\"signals\""), "JSON should have signals key");
-    assert!(json.contains("\"properties\""), "JSON should have properties key");
+    assert!(
+        json.contains("\"properties\""),
+        "JSON should have properties key"
+    );
     assert!(json.contains("\"edges\""), "JSON should have edges key");
 }
 
@@ -84,7 +85,10 @@ fn kg_json_contains_signal_roles() {
     kg.add_signal("data", 8, SignalRole::Internal);
 
     let json = kg.to_json();
-    assert!(json.contains("\"clock\""), "Clock signal should have clock role");
+    assert!(
+        json.contains("\"clock\""),
+        "Clock signal should have clock role"
+    );
     assert!(
         json.contains("\"internal\""),
         "Data signal should have internal role"
@@ -128,7 +132,10 @@ fn kg_json_includes_edge_properties() {
     kg.add_edge("req", "ack", KgRelation::Triggers, Some("Handshake".into()));
 
     let json = kg.to_json();
-    assert!(json.contains("\"triggers\""), "Edge should have triggers relation");
+    assert!(
+        json.contains("\"triggers\""),
+        "Edge should have triggers relation"
+    );
     assert!(
         json.contains("\"Handshake\""),
         "Edge should reference Handshake property"

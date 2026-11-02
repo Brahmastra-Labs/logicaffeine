@@ -3,7 +3,7 @@
 //! (Main is the program, not a function) — their calls simply don't appear
 //! as incoming edges.
 
-use tower_lsp::lsp_types::{
+use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, Position, Range,
     SymbolKind, Url,
 };
@@ -98,9 +98,12 @@ pub fn outgoing_calls(
 }
 
 fn function_index_by_name(doc: &DocumentState, name: &str) -> Option<usize> {
-    doc.symbol_index.name_to_defs.get(name)?.iter().copied().find(|&ix| {
-        doc.symbol_index.definitions[ix].kind == DefinitionKind::Function
-    })
+    doc.symbol_index
+        .name_to_defs
+        .get(name)?
+        .iter()
+        .copied()
+        .find(|&ix| doc.symbol_index.definitions[ix].kind == DefinitionKind::Function)
 }
 
 fn item_for(doc: &DocumentState, def_idx: usize, uri: &Url) -> CallHierarchyItem {

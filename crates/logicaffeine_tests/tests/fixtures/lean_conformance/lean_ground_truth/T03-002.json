@@ -1,0 +1,490 @@
+{
+  "case": "T03-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 60,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T03_002.Branching",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Branching \u2192 Type u} \u2192 T03_002.Branching \u2192 Type u",
+      "name": "T03_002.Branching.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_002.Branching \u2192 Prop} (t : T03_002.Branching),\n  (\u2200 (t : T03_002.Branching), T03_002.Branching.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_002.Branching.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Branching \u2192 Type u} \u2192\n  (t : T03_002.Branching) \u2192 ((t : T03_002.Branching) \u2192 T03_002.Branching.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_002.Branching.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Branching \u2192 Sort u} \u2192\n  (t : T03_002.Branching) \u2192\n    motive T03_002.Branching.stop \u2192 ((a : Bool \u2192 T03_002.Branching) \u2192 motive (T03_002.Branching.fork a)) \u2192 motive t",
+      "name": "T03_002.Branching.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Bool \u2192 T03_002.Branching) \u2192 T03_002.Branching",
+      "name": "T03_002.Branching.fork",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Bool \u2192 T03_002.Branching}, T03_002.Branching.fork a = T03_002.Branching.fork a_1 \u2192 a = a_1",
+      "name": "T03_002.Branching.fork.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Bool \u2192 T03_002.Branching), (T03_002.Branching.fork a = T03_002.Branching.fork a_1) = (a = a_1)",
+      "name": "T03_002.Branching.fork.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Bool \u2192 T03_002.Branching), sizeOf (T03_002.Branching.fork a) = 1",
+      "name": "T03_002.Branching.fork.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Branching \u2192 Prop} \u2192 T03_002.Branching \u2192 Prop",
+      "name": "T03_002.Branching.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_002.Branching} \u2192 v1 = v2 \u2192 T03_002.Branching.noConfusionType P v1 v2",
+      "name": "T03_002.Branching.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_002.Branching \u2192 T03_002.Branching \u2192 Sort u",
+      "name": "T03_002.Branching.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Branching \u2192 Sort u} \u2192\n  motive T03_002.Branching.stop \u2192\n    ((a : Bool \u2192 T03_002.Branching) \u2192 ((a_1 : Bool) \u2192 motive (a a_1)) \u2192 motive (T03_002.Branching.fork a)) \u2192\n      (t : T03_002.Branching) \u2192 motive t",
+      "name": "T03_002.Branching.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Branching \u2192 Sort u} \u2192\n  (t : T03_002.Branching) \u2192\n    motive T03_002.Branching.stop \u2192\n      ((a : Bool \u2192 T03_002.Branching) \u2192 ((a_1 : Bool) \u2192 motive (a a_1)) \u2192 motive (T03_002.Branching.fork a)) \u2192 motive t",
+      "name": "T03_002.Branching.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.Branching",
+      "name": "T03_002.Branching.stop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_002.Branching.stop = 1",
+      "name": "T03_002.Branching.stop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_002.MyNat",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.MyNat \u2192 Sort u} \u2192 T03_002.MyNat \u2192 Sort (max 1 u)",
+      "name": "T03_002.MyNat.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_002.MyNat \u2192 Prop} (t : T03_002.MyNat),\n  (\u2200 (t : T03_002.MyNat), T03_002.MyNat.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_002.MyNat.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.MyNat \u2192 Sort u} \u2192\n  (t : T03_002.MyNat) \u2192 ((t : T03_002.MyNat) \u2192 T03_002.MyNat.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_002.MyNat.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.MyNat \u2192 Sort u} \u2192\n  (t : T03_002.MyNat) \u2192 motive T03_002.MyNat.zero \u2192 ((a : T03_002.MyNat) \u2192 motive a.succ) \u2192 motive t",
+      "name": "T03_002.MyNat.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.MyNat \u2192 Prop} \u2192 T03_002.MyNat \u2192 Prop",
+      "name": "T03_002.MyNat.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_002.MyNat} \u2192 v1 = v2 \u2192 T03_002.MyNat.noConfusionType P v1 v2",
+      "name": "T03_002.MyNat.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_002.MyNat \u2192 T03_002.MyNat \u2192 Sort u",
+      "name": "T03_002.MyNat.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.MyNat \u2192 Sort u} \u2192\n  motive T03_002.MyNat.zero \u2192 ((a : T03_002.MyNat) \u2192 motive a \u2192 motive a.succ) \u2192 (t : T03_002.MyNat) \u2192 motive t",
+      "name": "T03_002.MyNat.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.MyNat \u2192 Sort u} \u2192\n  (t : T03_002.MyNat) \u2192 motive T03_002.MyNat.zero \u2192 ((a : T03_002.MyNat) \u2192 motive a \u2192 motive a.succ) \u2192 motive t",
+      "name": "T03_002.MyNat.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.MyNat \u2192 T03_002.MyNat",
+      "name": "T03_002.MyNat.succ",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_002.MyNat}, a.succ = a_1.succ \u2192 a = a_1",
+      "name": "T03_002.MyNat.succ.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_002.MyNat), (a.succ = a_1.succ) = (a = a_1)",
+      "name": "T03_002.MyNat.succ.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_002.MyNat), sizeOf a.succ = 1 + sizeOf a",
+      "name": "T03_002.MyNat.succ.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.MyNat",
+      "name": "T03_002.MyNat.zero",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_002.MyNat.zero = 1",
+      "name": "T03_002.MyNat.zero.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_002.Tree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Tree \u2192 Sort u} \u2192 T03_002.Tree \u2192 Sort (max 1 u)",
+      "name": "T03_002.Tree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_002.Tree \u2192 Prop} (t : T03_002.Tree), (\u2200 (t : T03_002.Tree), T03_002.Tree.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_002.Tree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Tree \u2192 Sort u} \u2192\n  (t : T03_002.Tree) \u2192 ((t : T03_002.Tree) \u2192 T03_002.Tree.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_002.Tree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Tree \u2192 Sort u} \u2192\n  (t : T03_002.Tree) \u2192\n    ((a : Nat) \u2192 motive (T03_002.Tree.leaf a)) \u2192 ((a a_1 : T03_002.Tree) \u2192 motive (a.node a_1)) \u2192 motive t",
+      "name": "T03_002.Tree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Tree \u2192 Prop} \u2192 T03_002.Tree \u2192 Prop",
+      "name": "T03_002.Tree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T03_002.Tree",
+      "name": "T03_002.Tree.leaf",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat}, T03_002.Tree.leaf a = T03_002.Tree.leaf a_1 \u2192 a = a_1",
+      "name": "T03_002.Tree.leaf.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat), (T03_002.Tree.leaf a = T03_002.Tree.leaf a_1) = (a = a_1)",
+      "name": "T03_002.Tree.leaf.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat), sizeOf (T03_002.Tree.leaf a) = 1 + sizeOf a",
+      "name": "T03_002.Tree.leaf.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_002.Tree} \u2192 v1 = v2 \u2192 T03_002.Tree.noConfusionType P v1 v2",
+      "name": "T03_002.Tree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_002.Tree \u2192 T03_002.Tree \u2192 Sort u",
+      "name": "T03_002.Tree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.Tree \u2192 T03_002.Tree \u2192 T03_002.Tree",
+      "name": "T03_002.Tree.node",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 a_2 a_3 : T03_002.Tree}, a.node a_1 = a_2.node a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_002.Tree.node.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 a_2 a_3 : T03_002.Tree), (a.node a_1 = a_2.node a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_002.Tree.node.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_002.Tree), sizeOf (a.node a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_002.Tree.node.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Tree \u2192 Sort u} \u2192\n  ((a : Nat) \u2192 motive (T03_002.Tree.leaf a)) \u2192\n    ((a a_1 : T03_002.Tree) \u2192 motive a \u2192 motive a_1 \u2192 motive (a.node a_1)) \u2192 (t : T03_002.Tree) \u2192 motive t",
+      "name": "T03_002.Tree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_002.Tree \u2192 Sort u} \u2192\n  (t : T03_002.Tree) \u2192\n    ((a : Nat) \u2192 motive (T03_002.Tree.leaf a)) \u2192\n      ((a a_1 : T03_002.Tree) \u2192 motive a \u2192 motive a_1 \u2192 motive (a.node a_1)) \u2192 motive t",
+      "name": "T03_002.Tree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.MyNat \u2192 T03_002.MyNat \u2192 T03_002.MyNat",
+      "name": "T03_002.addMyNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_002.MyNat \u2192 T03_002.MyNat \u2192 Sort u_1) \u2192\n  (x x_1 : T03_002.MyNat) \u2192\n    ((m : T03_002.MyNat) \u2192 motive T03_002.MyNat.zero m) \u2192 ((k m : T03_002.MyNat) \u2192 motive k.succ m) \u2192 motive x x_1",
+      "name": "T03_002.addMyNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.Branching \u2192 Nat",
+      "name": "T03_002.depth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_002.Branching \u2192 Sort u_1) \u2192\n  (x : T03_002.Branching) \u2192\n    (Unit \u2192 motive T03_002.Branching.stop) \u2192\n      ((f : Bool \u2192 T03_002.Branching) \u2192 motive (T03_002.Branching.fork f)) \u2192 motive x",
+      "name": "T03_002.depth.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T03_002.MyNat",
+      "name": "T03_002.fromNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((k : Nat) \u2192 motive k.succ) \u2192 motive x",
+      "name": "T03_002.fromNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.MyNat \u2192 Nat",
+      "name": "T03_002.toNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_002.MyNat \u2192 Sort u_1) \u2192\n  (x : T03_002.MyNat) \u2192 (Unit \u2192 motive T03_002.MyNat.zero) \u2192 ((k : T03_002.MyNat) \u2192 motive k.succ) \u2192 motive x",
+      "name": "T03_002.toNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_002.Tree \u2192 Nat",
+      "name": "T03_002.total",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_002.Tree \u2192 Sort u_1) \u2192\n  (x : T03_002.Tree) \u2192\n    ((n : Nat) \u2192 motive (T03_002.Tree.leaf n)) \u2192 ((l r : T03_002.Tree) \u2192 motive (l.node r)) \u2192 motive x",
+      "name": "T03_002.total.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

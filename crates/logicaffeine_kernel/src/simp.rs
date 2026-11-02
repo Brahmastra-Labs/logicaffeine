@@ -96,48 +96,36 @@ fn term_to_sterm(term: &Term) -> Option<STerm> {
     None
 }
 
-/// Convert STerm back to kernel Term (Syntax encoding)
-fn sterm_to_term(st: &STerm) -> Term {
-    match st {
-        STerm::Lit(n) => Term::App(
-            Box::new(Term::Global("SLit".to_string())),
-            Box::new(Term::Lit(Literal::Int(*n))),
-        ),
-        STerm::Var(i) => Term::App(
-            Box::new(Term::Global("SVar".to_string())),
-            Box::new(Term::Lit(Literal::Int(*i))),
-        ),
-        STerm::Name(s) => Term::App(
-            Box::new(Term::Global("SName".to_string())),
-            Box::new(Term::Lit(Literal::Text(s.clone()))),
-        ),
-        STerm::App(f, a) => Term::App(
-            Box::new(Term::App(
-                Box::new(Term::Global("SApp".to_string())),
-                Box::new(sterm_to_term(f)),
-            )),
-            Box::new(sterm_to_term(a)),
-        ),
-    }
-}
-
 // =============================================================================
 // SIMPLIFICATION ENGINE
 // =============================================================================
 
-/// Simplify an STerm using the given substitution (from hypotheses)
-/// and arithmetic evaluation.
-fn simplify_sterm(term: &STerm, subst: &Substitution, fuel: usize) -> STerm {
+/// Simplify an STerm, reporting honestly when the budget ran out before it finished.
+///
+/// `None` means EXHAUSTED — the simplification did not reach a fixpoint, and what it had
+/// reached is not an answer. This is the same separation `reduction::normalize_checked` draws
+/// against `reduction::normalize`, and it is here for the same reason, one rung more urgent:
+/// [`check_goal`] decides a goal by simplifying BOTH sides and comparing, and
+/// `reduction::try_dsimp_solve_conclude` ACCEPTS PROOFS through that verdict. A simplifier that
+/// hands back how far it got makes "they came out equal" mean two different things — "both
+/// reached the same normal form" and "both were abandoned in the same place" — and the door
+/// cannot tell which it was handed.
+///
+/// The budget is reached by a SUBSTITUTION THAT NEVER SETTLES (`x = f x` as a hypothesis, which
+/// nothing here forbids: `decompose_goal` reads hypotheses off the goal's own implications and
+/// never checks that the variable is absent from the right-hand side) and by a term deeper than
+/// the budget. Both are now refusals rather than answers.
+fn simplify_checked(term: &STerm, subst: &Substitution, fuel: usize) -> Option<STerm> {
     if fuel == 0 {
-        return term.clone();
+        return None;
     }
 
-    match term {
+    Some(match term {
         // Variables: apply substitution if bound
         STerm::Var(i) => {
             if let Some(replacement) = subst.get(i) {
                 // Re-simplify the replacement (may enable more rewrites)
-                simplify_sterm(replacement, subst, fuel - 1)
+                simplify_checked(replacement, subst, fuel - 1)?
             } else {
                 term.clone()
             }
@@ -149,17 +137,50 @@ fn simplify_sterm(term: &STerm, subst: &Substitution, fuel: usize) -> STerm {
 
         // Applications: simplify children first, then try arithmetic
         STerm::App(f, a) => {
-            let sf = simplify_sterm(f, subst, fuel - 1);
-            let sa = simplify_sterm(a, subst, fuel - 1);
+            let sf = simplify_checked(f, subst, fuel - 1)?;
+            let sa = simplify_checked(a, subst, fuel - 1)?;
 
             // Try arithmetic simplification on the simplified application
             if let Some(result) = try_arithmetic(&sf, &sa) {
-                return simplify_sterm(&result, subst, fuel - 1);
+                return simplify_checked(&result, subst, fuel - 1);
             }
 
             STerm::App(Box::new(sf), Box::new(sa))
         }
+    })
+}
+
+/// The BEST-EFFORT face of [`simplify_checked`]: an exhausted budget yields how far the
+/// simplification got. ONE implementation with two faces, exactly as `normalize` is the
+/// best-effort face of `normalize_checked`, so the two can never drift apart and answer
+/// differently about the same term.
+///
+/// `#[cfg(test)]` states the fact rather than hiding it: NOTHING that certifies may use this
+/// face, and today nothing else wants it either — the module's own unit tests pin the
+/// simplifier's arithmetic directly and are its only caller. A production caller that genuinely
+/// wants best-effort simplification lifts the attribute and inherits the argument above; one
+/// that is about to CERTIFY must call [`simplify_checked`] instead.
+#[cfg(test)]
+fn simplify_sterm(term: &STerm, subst: &Substitution, fuel: usize) -> STerm {
+    simplify_checked(term, subst, fuel).unwrap_or_else(|| term.clone())
+}
+
+/// Lean 4's `Int.ediv` / `Int.emod` — this folder's own implementation of the specification
+/// written out in `reduction.rs::ediv_emod_i64`:
+///
+/// ```text
+///   b ≠ 0  ⟹  a = b·q + r   ∧   0 ≤ r < |b|
+///   b = 0  ⟹  q = 0  ∧  r = a
+/// ```
+///
+/// It has to be exactly the reducer's answer, not merely a defensible one: `check_goal` is a
+/// door `try_dsimp_solve_conclude` accepts proofs through, so a folder that still truncated
+/// would CERTIFY `(div (-7) 2) = -3` — false under the kernel's own `div`.
+fn ediv_emod(a: i64, b: i64) -> Option<(i64, i64)> {
+    if b == 0 {
+        return Some((0, a));
     }
+    Some((a.checked_div_euclid(b)?, a.checked_rem_euclid(b)?))
 }
 
 /// Try to evaluate arithmetic operations on literals.
@@ -175,8 +196,8 @@ fn try_arithmetic(func: &STerm, arg: &STerm) -> Option<STerm> {
                     "add" => x.checked_add(*y)?,
                     "sub" => x.checked_sub(*y)?,
                     "mul" => x.checked_mul(*y)?,
-                    "div" if *y != 0 => x.checked_div(*y)?,
-                    "mod" if *y != 0 => x.checked_rem(*y)?,
+                    "div" => ediv_emod(*x, *y)?.0,
+                    "mod" => ediv_emod(*x, *y)?.1,
                     _ => return None,
                 };
                 return Some(STerm::Lit(result));
@@ -252,10 +273,17 @@ pub fn check_goal(goal: &Term) -> bool {
         None => return false,
     };
 
-    // Simplify both sides
+    // Simplify both sides — through the HONEST face. A side that did not finish is not
+    // evidence of anything, and `reduction::try_dsimp_solve_conclude` accepts proofs through
+    // this verdict, so "both were abandoned in the same place" must not read as "both reached
+    // the same normal form".
     const FUEL: usize = 1000;
-    let simp_lhs = simplify_sterm(&st_lhs, &subst, FUEL);
-    let simp_rhs = simplify_sterm(&st_rhs, &subst, FUEL);
+    let (Some(simp_lhs), Some(simp_rhs)) = (
+        simplify_checked(&st_lhs, &subst, FUEL),
+        simplify_checked(&st_rhs, &subst, FUEL),
+    ) else {
+        return false;
+    };
 
     // Check if they're equal
     simp_lhs == simp_rhs
@@ -321,14 +349,54 @@ fn extract_sapp(term: &Term) -> Option<(Term, Term)> {
     None
 }
 
-/// Extract implication: SApp (SApp (SName "implies") hyp) concl
+/// Extract an implication, in EVERY spelling the reflected surface has for it.
+///
+/// THE SPECIFICATION, stated once and implemented here in this module's own idiom (never copied
+/// from `reduction.rs`'s reader, which is written over its own extractors):
+///
+/// > `A → B` is `SApp (SApp (SName "implies") A) B`, `SApp (SApp (SName "Implies") A) B`, or a
+/// > NON-DEPENDENT `SPi A B` — one whose consequent mentions no de Bruijn index. A dependent
+/// > `SPi` is a quantifier and is not an implication.
+///
+/// Reading only the lower-case spelling is why an induction step case — built capitalised — was
+/// invisible to every goal reader, and why the literate `Statement:` surface's infix `implies`,
+/// which desugars to a `Pi` and reflects as an `SPi`, could not be simplified at all.
 fn extract_implication(term: &Term) -> Option<(Term, Term)> {
     if let Some((op, hyp, concl)) = extract_binary_app(term) {
-        if op == "implies" {
+        if op == "implies" || op == "Implies" {
             return Some((hyp, concl));
         }
     }
+    let (hyp, concl) = extract_spi(term)?;
+    if mentions_svar(&concl) {
+        return None;
+    }
+    Some((hyp, concl))
+}
+
+/// Extract `SPi A B`.
+fn extract_spi(term: &Term) -> Option<(Term, Term)> {
+    if let Term::App(outer, body) = term {
+        if let Term::App(spi, param) = outer.as_ref() {
+            if let Term::Global(ctor) = spi.as_ref() {
+                if ctor == "SPi" {
+                    return Some((param.as_ref().clone(), body.as_ref().clone()));
+                }
+            }
+        }
+    }
     None
+}
+
+/// Whether a reflected term mentions any de Bruijn index.
+fn mentions_svar(term: &Term) -> bool {
+    if extract_svar(term).is_some() {
+        return true;
+    }
+    match term {
+        Term::App(f, x) => mentions_svar(f) || mentions_svar(x),
+        _ => false,
+    }
 }
 
 /// Extract equality: SApp (SApp (SName "Eq") lhs) rhs
@@ -380,11 +448,7 @@ fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
                             if let Term::Global(ctor2) = sapp_inner.as_ref() {
                                 if ctor2 == "SApp" {
                                     if let Some(op) = extract_sname(op_term) {
-                                        return Some((
-                                            op,
-                                            a.as_ref().clone(),
-                                            b.as_ref().clone(),
-                                        ));
+                                        return Some((op, a.as_ref().clone(), b.as_ref().clone()));
                                     }
                                 }
                             }
@@ -402,203 +466,5 @@ fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
 // =============================================================================
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Helper to build SName "s"
-    fn make_sname(s: &str) -> Term {
-        Term::App(
-            Box::new(Term::Global("SName".to_string())),
-            Box::new(Term::Lit(Literal::Text(s.to_string()))),
-        )
-    }
-
-    /// Helper to build SVar i
-    fn make_svar(i: i64) -> Term {
-        Term::App(
-            Box::new(Term::Global("SVar".to_string())),
-            Box::new(Term::Lit(Literal::Int(i))),
-        )
-    }
-
-    /// Helper to build SLit n
-    fn make_slit(n: i64) -> Term {
-        Term::App(
-            Box::new(Term::Global("SLit".to_string())),
-            Box::new(Term::Lit(Literal::Int(n))),
-        )
-    }
-
-    /// Helper to build SApp f a
-    fn make_sapp(f: Term, a: Term) -> Term {
-        Term::App(
-            Box::new(Term::App(
-                Box::new(Term::Global("SApp".to_string())),
-                Box::new(f),
-            )),
-            Box::new(a),
-        )
-    }
-
-    #[test]
-    fn test_term_to_sterm_lit() {
-        let term = make_slit(42);
-        let result = term_to_sterm(&term);
-        assert_eq!(result, Some(STerm::Lit(42)));
-    }
-
-    #[test]
-    fn test_term_to_sterm_var() {
-        let term = make_svar(0);
-        let result = term_to_sterm(&term);
-        assert_eq!(result, Some(STerm::Var(0)));
-    }
-
-    #[test]
-    fn test_term_to_sterm_name() {
-        let term = make_sname("add");
-        let result = term_to_sterm(&term);
-        assert_eq!(result, Some(STerm::Name("add".to_string())));
-    }
-
-    #[test]
-    fn test_term_to_sterm_app() {
-        // (add 2 3) = SApp (SApp (SName "add") (SLit 2)) (SLit 3)
-        let add_2 = make_sapp(make_sname("add"), make_slit(2));
-        let add_2_3 = make_sapp(add_2, make_slit(3));
-        let result = term_to_sterm(&add_2_3);
-
-        let expected = STerm::App(
-            Box::new(STerm::App(
-                Box::new(STerm::Name("add".to_string())),
-                Box::new(STerm::Lit(2)),
-            )),
-            Box::new(STerm::Lit(3)),
-        );
-        assert_eq!(result, Some(expected));
-    }
-
-    #[test]
-    fn test_arithmetic_add() {
-        // (add 2) applied to 3
-        let func = STerm::App(
-            Box::new(STerm::Name("add".to_string())),
-            Box::new(STerm::Lit(2)),
-        );
-        let arg = STerm::Lit(3);
-        let result = try_arithmetic(&func, &arg);
-        assert_eq!(result, Some(STerm::Lit(5)));
-    }
-
-    #[test]
-    fn test_arithmetic_mul() {
-        let func = STerm::App(
-            Box::new(STerm::Name("mul".to_string())),
-            Box::new(STerm::Lit(4)),
-        );
-        let arg = STerm::Lit(5);
-        let result = try_arithmetic(&func, &arg);
-        assert_eq!(result, Some(STerm::Lit(20)));
-    }
-
-    #[test]
-    fn test_arithmetic_sub() {
-        let func = STerm::App(
-            Box::new(STerm::Name("sub".to_string())),
-            Box::new(STerm::Lit(10)),
-        );
-        let arg = STerm::Lit(3);
-        let result = try_arithmetic(&func, &arg);
-        assert_eq!(result, Some(STerm::Lit(7)));
-    }
-
-    #[test]
-    fn test_simplify_constant_addition() {
-        // 2 + 3 should simplify to 5
-        let term = STerm::App(
-            Box::new(STerm::App(
-                Box::new(STerm::Name("add".to_string())),
-                Box::new(STerm::Lit(2)),
-            )),
-            Box::new(STerm::Lit(3)),
-        );
-        let result = simplify_sterm(&term, &HashMap::new(), 100);
-        assert_eq!(result, STerm::Lit(5));
-    }
-
-    #[test]
-    fn test_simplify_nested_arithmetic() {
-        // (1 + 1) * 3 = 6
-        let one_plus_one = STerm::App(
-            Box::new(STerm::App(
-                Box::new(STerm::Name("add".to_string())),
-                Box::new(STerm::Lit(1)),
-            )),
-            Box::new(STerm::Lit(1)),
-        );
-        let term = STerm::App(
-            Box::new(STerm::App(
-                Box::new(STerm::Name("mul".to_string())),
-                Box::new(one_plus_one),
-            )),
-            Box::new(STerm::Lit(3)),
-        );
-        let result = simplify_sterm(&term, &HashMap::new(), 100);
-        assert_eq!(result, STerm::Lit(6));
-    }
-
-    #[test]
-    fn test_simplify_with_substitution() {
-        // x + 1 with x = 0 should give 1
-        let x_plus_1 = STerm::App(
-            Box::new(STerm::App(
-                Box::new(STerm::Name("add".to_string())),
-                Box::new(STerm::Var(0)),
-            )),
-            Box::new(STerm::Lit(1)),
-        );
-        let mut subst = HashMap::new();
-        subst.insert(0, STerm::Lit(0));
-
-        let result = simplify_sterm(&x_plus_1, &subst, 100);
-        assert_eq!(result, STerm::Lit(1));
-    }
-
-    #[test]
-    fn test_check_goal_reflexive() {
-        // (Eq x x) should be provable
-        let x = make_svar(0);
-        let goal = make_sapp(make_sapp(make_sname("Eq"), x.clone()), x);
-        assert!(check_goal(&goal), "simp should prove x = x");
-    }
-
-    #[test]
-    fn test_check_goal_constant() {
-        // (Eq (add 2 3) 5) should be provable
-        let add_2_3 = make_sapp(make_sapp(make_sname("add"), make_slit(2)), make_slit(3));
-        let goal = make_sapp(make_sapp(make_sname("Eq"), add_2_3), make_slit(5));
-        assert!(check_goal(&goal), "simp should prove 2+3 = 5");
-    }
-
-    #[test]
-    fn test_check_goal_with_hypothesis() {
-        // (implies (Eq x 0) (Eq (add x 1) 1)) should be provable
-        let x = make_svar(0);
-        let zero = make_slit(0);
-        let one = make_slit(1);
-
-        let x_plus_1 = make_sapp(make_sapp(make_sname("add"), x.clone()), one.clone());
-        let hyp = make_sapp(make_sapp(make_sname("Eq"), x), zero);
-        let concl = make_sapp(make_sapp(make_sname("Eq"), x_plus_1), one);
-        let goal = make_sapp(make_sapp(make_sname("implies"), hyp), concl);
-
-        assert!(check_goal(&goal), "simp should prove x=0 -> x+1=1");
-    }
-
-    #[test]
-    fn test_check_goal_false_equality() {
-        // (Eq 2 3) should NOT be provable
-        let goal = make_sapp(make_sapp(make_sname("Eq"), make_slit(2)), make_slit(3));
-        assert!(!check_goal(&goal), "simp should NOT prove 2 = 3");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/simp/tests.rs"]
+mod tests;

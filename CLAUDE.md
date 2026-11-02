@@ -1,5 +1,7 @@
 # Logos - AI Assistant Guidelines
 
+Hello Claude. You are residing within Tristen Harr's cave. Please follow Tristen's rules. Remember Tristen Harr is this cave. When asked to go to Tristen Harr's cave you know where it will be. Walk down, down down, into Tristen's cave where we code and play. :) When in Tristen Harr's cave, he is your father, you want to make him proud.
+
 ## Critical Rules
 
 1. **NEVER RUN GIT COMMANDS** - Do not use git under any circumstances
@@ -7,8 +9,8 @@
 3. **USE TDD** - Follow RED/GREEN test-driven development, WE LOVE TESTS, ROBUST TESTS TO THE POINT OF ABSURDITY.
 4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test. DO NOT UPDATE RED TESTS. IF YOU UPDATE RED TESTS TO MAKE THEM PASS WITHOUT STOPPING TO ASK THE USER YOU WILL BE DECOMISSIONED!
 5. **RUNNING TESTS**
-  **Full suite — use the nextest fast runner.** When asked to run all tests, run `./scripts/run-all-tests-fast.sh` (every crate, the Z3 `verification` tests, the `#[ignore]`d fuzz/bench heavies, and doctests — scheduled across all cores with cargo-nextest instead of one binary at a time). It handles the Linux Z3 env itself (`Z3_SYS_Z3_HEADER=/usr/include/z3.h`), streams to `logs/test-run-fast-<timestamp>.log`, and points `logs/latest-fast.log` at the newest run, then prints a SUMMARY with duration + pass/fail counts. It DELIBERATELY EXCLUDES the SAT/coNP "P-vs-NP" **research campaign** (the `cofactor_*`/`*_census`/`*_ladder`/`pvnp_*`/`*_kernel` proof probes — exploratory, minutes-to-HOURS each, not correctness locks; see `RESEARCH_EXCLUDE` in the script) so the baseline stays ~20 min instead of 4h+; run those on purpose with `./scripts/run-research-tests.sh`. A **30-min per-test `terminate-after`** in the `full` nextest profile is a hard backstop — a runaway or newly-added probe can never hang the run for hours again (a terminated test FAILS loudly, never silent). For the fastest iteration, `./scripts/run-all-tests-fast.sh --no-ignored` skips the multi-minute `#[ignore]` fuzz/bench monsters. The script refuses to start if another suite is already running (honoring rule 11).
-  `./scripts/compare-test-runs.sh logs/latest.log logs/latest-fast.log` compares a fast run against a cargo-test baseline; the excluded research campaign is now the one expected delta. `./scripts/run-all-tests.sh` is the slow cargo-test ground-truth baseline — only needed when you want to regenerate that comparison point.
+  **Full suite — use the nextest fast runner.** When asked to run all tests, run `./scripts/run-all-tests-fast.sh` (every crate, the Z3 `verification` tests, the `#[ignore]`d fuzz/bench heavies, and doctests — scheduled across all cores with cargo-nextest instead of one binary at a time). It handles the Linux Z3 env itself (`Z3_SYS_Z3_HEADER=/usr/include/z3.h`), streams to `logs/test-run-fast-<timestamp>.log`, and points `logs/latest-fast.log` at the newest run, then prints a SUMMARY with duration + pass/fail counts. It DELIBERATELY EXCLUDES the SAT/coNP "P-vs-NP" **research campaign** (the `cofactor_*`/`*_census`/`*_ladder`/`*_kernel` proof probes — exploratory, minutes-to-HOURS each, not correctness locks; see `RESEARCH_EXCLUDE` in the script) so the baseline stays ~20 min instead of 4h+; run those on purpose with `./scripts/run-research-tests.sh`. The same filter leaves out four more on-demand classes, each with its own runner: the gate-level silicon sims (`./scripts/run-silicon-tests.sh`), the stdlib-parity pending specs (`./scripts/run-parity-pending-tests.sh`), the qemu benchmark-corpus differentials (`./scripts/run-qemu-corpus-tests.sh`) and the Arena mathlib cases (`./scripts/run-arena-mathlib-tests.sh`). A **30-min per-test `terminate-after`** in the `full` nextest profile is a hard backstop — a runaway or newly-added probe can never hang the run for hours again (a terminated test FAILS loudly, never silent). For the fastest iteration, `./scripts/run-all-tests-fast.sh --no-ignored` skips the multi-minute `#[ignore]` fuzz/bench monsters. The script refuses to start if another suite is already running (honoring rule 11).
+  `./scripts/compare-test-runs.sh logs/latest.log logs/latest-fast.log` compares a fast run against a cargo-test baseline; the excluded classes are the expected delta. `./scripts/run-all-tests.sh` is the slow cargo-test ground-truth baseline — only needed when you want to regenerate that comparison point.
   **Quick targeted runs during the RED/GREEN loop** — `cargo nextest run -p <crate>` or `cargo nextest run -E 'test(<name>)'` for a single crate/test; or `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` to skip the e2e tests (this path needs NO Z3 — the Z3-backed crates are outside `default-members` and their test files are gated behind the `verification` feature).
   When running tests, don't tail or head the outputs, just read the entire thing.
   During development, we will develop the RED test, then work until that passes, then run all our tests.
@@ -80,10 +82,10 @@
 3. **REFACTOR** - Clean up while keeping tests green
 
 ```bash
-./scripts/run-all-tests-fast.sh                      # Full suite (see rule 5)
-cargo nextest run -p <crate>                         # One crate
-cargo nextest run -p logicaffeine-tests -E 'binary(phase1_garden_path)'  # One test file
-cargo nextest run -E 'test(<name>)'                  # One test by name
+./scripts/run-all-tests-fast.sh                                          # Full suite (see rule 5)
+cargo nextest run -p <crate>                                             # One crate's unit tests
+cargo nextest run -p logicaffeine-tests --test phase1_garden_path        # One test file
+cargo nextest run -p logicaffeine-tests --test <file> -E 'test(<name>)'  # One test by name
 ```
 
 ## Project Overview
@@ -91,7 +93,7 @@ cargo nextest run -E 'test(<name>)'                  # One test by name
 LOGOS is an English programming language: Logic mode parses natural-language sentences to First-Order Logic (Unicode/LaTeX, event semantics, kernel-certified proofs), and Imperative mode compiles English programs through five execution tiers — tree-walking interpreter, register bytecode VM, copy-and-patch JIT (EXODIA), AOT-to-Rust, and a direct WASM backend.
 
 **Logic pipeline:** Input → Lexer → Parser → AST → Transpiler → FOL Output
-**Imperative pipeline:** Input → Lexer → Parser → AST → interpreter / VM+JIT / codegen (Rust, C, WASM)
+**Imperative pipeline:** Input → Lexer → Parser → AST → interpreter / VM+JIT / codegen (Rust, C, WASM, RISC-V, CUDA, and the `largo emit` device bundles)
 
 ## Key Directories
 
@@ -105,34 +107,48 @@ logicaffeine/
 │   ├── logicaffeine_system/    # Platform IO, networking, relay, persistence
 │   ├── logicaffeine_language/  # NL→FOL: lexer, parser, AST, transpiler
 │   ├── logicaffeine_proof/     # Proof engine: solvers, CDCL, certified SAT, tactics, number-theory/cryptanalysis substrate
-│   ├── logicaffeine_compile/   # Compilation pipeline: codegen, interpreter, VM, wire codec
+│   ├── logicaffeine_compile/   # Compilation pipeline: codegen, interpreter, VM, wire codec; the stdlib in assets/std/
 │   ├── logicaffeine_forge/     # Copy-and-patch JIT: executable memory, stencils, regalloc
 │   ├── logicaffeine_jit/       # Native tier bridge: VM bytecode → forge (native only)
 │   ├── logicaffeine_runtime/   # Deterministic concurrency runtime (scheduler, channels, seed/trace)
 │   ├── logicaffeine_lsp/       # Language server (+ VSCode extension in editors/)
-│   ├── logicaffeine_verify/    # Z3 static verification + license gating (verification feature)
+│   ├── logicaffeine_verify/    # Z3 static verification (verification feature)
 │   ├── logicaffeine_tv/        # SMT translation validation (Z3)
 │   ├── logicaffeine_synth/     # Offline Z3 stencil proofs for the JIT (dev-time only)
-│   ├── logicaffeine_tests/     # The integration suite: 600+ phase-organized test files
+│   ├── logicaffeine_tests/     # EVERY test: integration suites in tests/ + unit-test bodies in unit/
 │   └── logicaffeine_wirebench/ # Wire codec benchmark harness (0.0.0, unpublished)
 ├── apps/
 │   ├── logicaffeine_cli/       # largo — the LOGOS build tool
-│   └── logicaffeine_web/       # Dioxus web IDE: Studio, Learn Logic, Syntax Guide, Benchmarks
-├── assets/std/                 # LOGOS stdlib prelude (demand-imported .lg/.md modules)
+│   ├── logicaffeine_web/       # Dioxus web IDE: Studio, Learn Logic, Syntax Guide, Benchmarks
+│   └── logicaffeine_docs/      # build.sh that renders the workspace rustdoc into the docs.logicaffeine.com site
 ├── benchmarks/                 # 11-language benchmark suite + results
-├── docs/                       # The documentation guides (every example locked by doc_examples.rs)
-├── scripts/                    # Test runners, doc generators, release tooling, wiki_trace
-└── work/                       # Planning docs, campaign logs, research notes
+├── docs/                       # The documentation guides (every example locked by doc_examples.rs); docs/project/ = FAQ, challenge, versioning
+├── editors/                    # VSCode extension
+├── examples/                   # Example LOGOS projects
+├── scripts/                    # Entry points at the top (suite runners, release checks); the rest in a folder per area, indexed in scripts/README.md
+├── services/                   # Cloudflare Workers: the package registry, the lead form and the heal worker
+├── .config/                    # nextest profiles, repo shape, size budgets, mutation scope, coverage floors
+├── .githooks/                  # pre-push leak guard (enable with `git config core.hooksPath .githooks`)
+├── external/                   # Local only, ignored: third-party checkouts (reference kernels, SAT solvers, LAPACK, corpora)
+├── tools/  models/  logs/      # Local only, ignored: EDA toolchains, model weights, run logs
+└── work/                       # Private workspace: its own repository, gitignored, never committed here
 ```
 
 ## Tests
 
-The suite lives in `crates/logicaffeine_tests/tests/` (600+ files). NL phenomena are
-phase-organized (`phase1_garden_path` garden paths, polarity, tense/aspect, movement,
-wh-movement, … through the 100+ range); the rest covers the execution tiers
-(interpreter/VM/JIT/AOT/WASM differentials), concurrency, wire codec, crypto oracles,
-and proofs. Z3-backed tests live behind the `verification` feature and in the
-`logicaffeine_verify`/`logicaffeine_tv` crates (outside `default-members`).
+Every test lives in `crates/logicaffeine_tests` — no other crate has a `tests/` directory
+(`test_home_lock`) and no `src/` holds a test (`unit_home_lock`). Integration suites are
+`crates/logicaffeine_tests/tests/*.rs`, one test binary each. A crate's white-box unit tests have
+their bodies in `crates/logicaffeine_tests/unit/<crate dir>/<module path>.rs`, reached through a
+one-line `#[cfg(test)] #[path = "…"] mod tests;` stub in the crate, so they keep private access and
+still run under `cargo nextest run -p <crate>`. A new test goes in one of those two places.
+Name the suite with `--test <file>` when running part of `logicaffeine-tests`: a `-E` filter only
+picks which tests run, and cargo still builds every test binary it is pointed at, every suite in
+`tests/` (one such sweep filled 828 GB of disk).
+NL phenomena are phase-organized (`phase1_garden_path` garden paths, polarity, tense/aspect,
+movement, wh-movement, … through the 100+ range); the rest covers the execution tiers
+(interpreter/VM/JIT/AOT/WASM differentials), concurrency, wire codec, crypto oracles, and proofs.
+Z3-backed suites are gated behind the `verification` feature.
 
 ## Lexicon System
 
@@ -153,7 +169,7 @@ The `dynamic-lexicon` feature enables runtime JSON loading (used by the web app)
 cargo build                                  # Build (default members — no Z3 needed)
 cargo run -p logicaffeine-cli -- <args>      # largo: new/init/build/run/check/verify/publish/…
 dx serve -p logicaffeine-web                 # Web IDE — run from REPO ROOT, not the app dir
-./scripts/generate-docs.sh                   # Regenerate LOGOS_DOCUMENTATION.md
+./scripts/generate-docs.sh                   # Regenerate target/docs/LOGOS_DOCUMENTATION.md
 ```
 
 ## Feature Flags
@@ -207,25 +223,20 @@ crates/logicaffeine_verify/
 └── src/
     ├── lib.rs        # Public API
     ├── solver.rs     # Z3 Verifier wrapper
-    ├── license.rs    # Stripe license validation
     ├── error.rs      # Socratic error messages
     └── …             # BMC, k-induction, IC3, interpolation, equivalence, SVA
 ```
 
-### License Gating
-
-Verification is gated by license. Valid license keys are Stripe subscription IDs (`sub_*` format) validated against `api.logicaffeine.com/validate`. Only Pro, Premium, Lifetime, and Enterprise plans can use verification.
-
 ## Release Process
 
-The canonical runbook is `VERSIONING.md` (Release Process section). Summary:
+The canonical runbook is `docs/project/VERSIONING.md` (Release Process section). Summary:
 
 1. **Ensure all tests pass**: `./scripts/run-all-tests-fast.sh`
 2. **Update CHANGELOGs**: roll `[Unreleased]` → `[<version>] - <date>` in the root `CHANGELOG.md` (full cross-crate entry) and each changed crate's own `CHANGELOG.md`
-3. **Bump the version** via `./scripts/bump-version.sh <old> <new>` — the lockstep version lives only in the root `Cargo.toml` (`[workspace.package]` + `[workspace.dependencies]` internal entries, inherited by every member via `version.workspace = true`); the script also updates the VSCode `package.json` and runs `cargo check --workspace`
+3. **Bump the version** via `./scripts/bump-version.sh <old> <new>` — the lockstep version lives only in the root `Cargo.toml` (`[workspace.package]` + `[workspace.dependencies]` internal entries, inherited by every member via `version.workspace = true`); the script also rewrites every non-inheriting surface (VSCode `package.json` + `package-lock.json`, README badge, roadmap hero span, `install.ps1` example pin) and runs `cargo check --workspace`; `tests/version_lock.rs` pins all of them so a missed surface goes RED, and `tests/bump_version_script_lock.rs` holds the script to moving nothing else
 4. **Regenerate benchmarks on the bench box**: silence the box (no other sessions/builds/timers), then `bash benchmarks/run.sh` (full 11-language suite + interpreter + codec; writes `results/latest*.json` and archives `results/history/v<version>*.json`) and `bash benchmarks/run-solver-vs-z3.sh` (`results/solvers.json`); commit the refreshed `benchmarks/results/` — benchmarks never run in CI
-5. **Update web surfaces**: news article in `apps/logicaffeine_web/src/ui/pages/news/data.rs`, version span in `roadmap.rs`, `./scripts/generate-roadmap.sh`, README version badge
-6. **Publish preflight**: `cargo publish --workspace --dry-run`; confirm the `CARGO_REGISTRY_TOKEN` secret is valid
+5. **Update web surfaces**: news article in `apps/logicaffeine_web/src/ui/pages/news/data.rs`, `./scripts/generate-roadmap.sh` (version_lock.rs pins `roadmap_history.json` to the new version), `CURRENT_DATE` in `apps/logicaffeine_web/src/sitemap.rs` set to the article's date and `public/sitemap.xml` regenerated (`cargo nextest run -p logicaffeine-web -E 'test(regenerate_shipped_sitemap)' --run-ignored all`)
+6. **Publish preflight**: the two checks `publish.yml` runs before it uploads — `./scripts/check-packaging.sh` (every published crate built from its own tarball, every docs.rs feature set, the tarball size budgets) and `python3 scripts/release/check-changelogs.py` (every changed crate's CHANGELOG says what changed); confirm the `CARGO_REGISTRY_TOKEN` secret is valid
 7. **Pull and rebase**:
    ```bash
    git stash        # if needed
@@ -243,50 +254,47 @@ The canonical runbook is `VERSIONING.md` (Release Process section). Summary:
    git push origin main --tags
    ```
 
-The tag push triggers CI workflows: `publish.yml` (crates.io — derives the publish set and dependency order from `cargo metadata`, fail-loud, re-run safe) and `release.yml` (GitHub release + LSP binaries). Benchmarks are NOT a CI job — they run on the bench box (step 4) and the frontend deploys from the checked-in `benchmarks/results/` JSON when main goes green. Afterwards verify the crates.io versions actually advanced.
+The tag push triggers CI workflows: `publish.yml` (crates.io — runs both preflights, derives the publish set from `cargo metadata`, and hands it to one `cargo publish`, which uploads in dependency order; fail-loud, re-run safe) and `release.yml` (GitHub release + LSP binaries, the `largo` binaries, and the VSCode extension). Benchmarks are NOT a CI job — they run on the bench box (step 4) and the frontend deploys from the checked-in `benchmarks/results/` JSON when main goes green. Afterwards verify the crates.io versions actually advanced.
 
-## Updating Documentation (generate-docs.sh)
+## Updating Documentation
 
-When asked to update documentation, follow this process:
+The documentation is the guides in `docs/`, the root `README.md`, every crate's `README.md` (also its crates.io
+page and rustdoc root), `LOGOS_QUICKGUIDE.md`, and `docs/project/`. `./scripts/generate-docs.sh` assembles all of
+it into one book, `target/docs/LOGOS_DOCUMENTATION.md` (`--with-source` appends the core source files); the book is
+never edited by hand. When asked to update documentation, follow this process:
 
-### 1. Audit for Missing Features
+### 1. Audit for what changed
 
-Compare source code against documentation:
-- Check `tests/` for new phase files (phase13_*, phase14_*, etc.)
-- Check `src/` for new modules not in add_file calls
-- Grep for new functions/patterns in lexer.rs, parser/mod.rs
-- Look for new Token types, Expr variants, Term variants
+- Read the `[Unreleased]` sections of `CHANGELOG.md` and each crate's `CHANGELOG.md`: every user-visible change there
+  belongs in a guide or a crate README.
+- Check each crate's `src/lib.rs` for new `pub mod`s (`readme_lock` requires each in the crate README) and
+  `apps/logicaffeine_cli/src/cli.rs` for new subcommands (`cli_docs_lock` requires a row and a section in
+  `docs/cli.md` and a row in the CLI README).
+- Grep for new syntax in `crates/logicaffeine_language/src/lexer.rs` and `parser/`; new constructs go in the guide
+  that teaches them and in `LOGOS_QUICKGUIDE.md`.
 
-### 2. Sections to Update (in order)
+### 2. Where things go
 
-| Section | Location | What to Update |
-|---------|----------|----------------|
-| Table of Contents | Lines 40-55 | Add new phases, sections |
-| Key Design Decisions | Lines 109-150 | Add architectural bullets |
-| Word Classification Priority | Line ~176 | Add rows for new ambiguity patterns |
-| Lexical Ambiguity | Line ~185 | Add new ambiguity patterns |
-| Linguistic Phenomena | Lines 480-720 | Add new linguistic features |
-| Glossary | Lines 1000-1230 | Add implementation terms |
-| Test Descriptions | Lines 1245-1380 | Add `add_test_description` calls |
-| Source Modules | Lines 1520-1680 | Add `add_file` calls for new .rs files |
-| Lexer Description | Line ~1530 | Update with new lexer features |
-| Parser Description | Line ~1550 | Update with new parser features |
+| Change | Document |
+|--------|----------|
+| A new language construct | The guide that teaches it (`docs/imperative-mode.md`, `docs/frontend.md`, `docs/web.md`, `docs/logic-mode.md`, …) + `LOGOS_QUICKGUIDE.md` |
+| A new or changed `largo` command | `docs/cli.md` + `apps/logicaffeine_cli/README.md` |
+| A crate's public API | That crate's `README.md` |
+| A new guide | `docs/<name>.md`, listed in `docs/README.md` and README's `## Documentation`, and in `PARTS` of `scripts/release/docs/handbook.py` |
+| The first-run path | `docs/getting-started.md` and README's Quick start (`getting_started_lock` replays both with only `largo` on the `PATH`) |
 
 ### 3. Checklist
 
-Before running `./scripts/generate-docs.sh`:
-- [ ] Table of Contents matches actual phases
-- [ ] All test phases have `add_test_description` entries
-- [ ] All src/*.rs files have `add_file` entries
-- [ ] New glossary terms added for new concepts
-- [ ] Lexer/Parser descriptions mention new features
-- [ ] Linguistic Phenomena covers new syntax patterns
-- [ ] Design decisions include new architectural patterns
+- [ ] Every example runs: `logos` blocks compile, a `logos` block followed by an `output` block prints exactly it,
+      `## Test`s pass, `"English" → FOL` pairs match the compiler, `logos-dom` pages mount on both tiers
+- [ ] No hard counts in prose that no lock computes; no internal codenames; no history in READMEs
+- [ ] Every link resolves (crate READMEs use absolute `github.com/Brahmastra-Labs/logicaffeine/blob/main/…` links)
+- [ ] `./scripts/release/gen-agent-artifacts.sh` after editing `docs/`, the quick guide or the Syntax Guide
 
 ### 4. Verification
 
-After running `./scripts/generate-docs.sh`:
 ```bash
-# Verify new content appears
-grep -n "Phase 13\|Phase 14\|<new-feature>" LOGOS_DOCUMENTATION.md
+./scripts/generate-docs.sh                                   # the book assembles, or names what is missing
+cargo nextest run -p logicaffeine-tests --test generate_docs_paths_lock --test doc_examples \
+  --test readme_lock --test docs_index_lock --test getting_started_lock --test public_prose_lock
 ```

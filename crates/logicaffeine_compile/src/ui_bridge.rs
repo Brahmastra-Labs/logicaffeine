@@ -32,9 +32,9 @@ use std::collections::HashSet;
 
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    ast::{self, LogicExpr, Term},
     analysis::DiscoveryPass,
     arena_ctx::AstContext,
+    ast::{self, LogicExpr, Term},
     compile::{compile_forest, compile_forest_with_options},
     drs,
     error::socratic_explanation,
@@ -100,19 +100,39 @@ pub struct TokenInfo {
 
 fn categorize_token(kind: &TokenType, _interner: &Interner) -> TokenCategory {
     match kind {
-        TokenType::All | TokenType::Some | TokenType::No | TokenType::Any
-        | TokenType::Most | TokenType::Few | TokenType::Many
-        | TokenType::Cardinal(_) | TokenType::AtLeast(_) | TokenType::AtMost(_) => TokenCategory::Quantifier,
+        TokenType::All
+        | TokenType::Some
+        | TokenType::No
+        | TokenType::Any
+        | TokenType::Most
+        | TokenType::Few
+        | TokenType::Many
+        | TokenType::Cardinal(_)
+        | TokenType::AtLeast(_)
+        | TokenType::AtMost(_) => TokenCategory::Quantifier,
         TokenType::Noun(_) => TokenCategory::Noun,
         TokenType::Verb { .. } => TokenCategory::Verb,
-        TokenType::Adjective(_) | TokenType::NonIntersectiveAdjective(_) => TokenCategory::Adjective,
-        TokenType::And | TokenType::Or | TokenType::Not | TokenType::If | TokenType::Then
-        | TokenType::Iff | TokenType::Because => TokenCategory::Connective,
+        TokenType::Adjective(_) | TokenType::NonIntersectiveAdjective(_) => {
+            TokenCategory::Adjective
+        }
+        TokenType::And
+        | TokenType::Or
+        | TokenType::Not
+        | TokenType::If
+        | TokenType::Then
+        | TokenType::Iff
+        | TokenType::Because => TokenCategory::Connective,
         TokenType::Article(_) => TokenCategory::Determiner,
         TokenType::Preposition(_) => TokenCategory::Preposition,
         TokenType::Pronoun { .. } => TokenCategory::Pronoun,
-        TokenType::Must | TokenType::Can | TokenType::Should | TokenType::Shall
-        | TokenType::Would | TokenType::Could | TokenType::May | TokenType::Cannot
+        TokenType::Must
+        | TokenType::Can
+        | TokenType::Should
+        | TokenType::Shall
+        | TokenType::Would
+        | TokenType::Could
+        | TokenType::May
+        | TokenType::Cannot
         | TokenType::Might => TokenCategory::Modal,
         TokenType::Period | TokenType::Comma => TokenCategory::Punctuation,
         TokenType::ProperName(_) => TokenCategory::Proper,
@@ -129,12 +149,15 @@ pub fn tokenize_for_ui(input: &str) -> Vec<TokenInfo> {
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
 
-    tokens.iter().map(|t| TokenInfo {
-        start: t.span.start,
-        end: t.span.end,
-        text: input[t.span.start..t.span.end].to_string(),
-        category: categorize_token(&t.kind, &interner),
-    }).collect()
+    tokens
+        .iter()
+        .map(|t| TokenInfo {
+            start: t.span.start,
+            end: t.span.end,
+            text: input[t.span.start..t.span.end].to_string(),
+            category: categorize_token(&t.kind, &interner),
+        })
+        .collect()
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -172,118 +195,211 @@ impl AstNode {
 
 /// Converts a logic expression to an AST node for tree visualization.
 ///
-/// Recursively builds a tree structure with labeled nodes suitable for
-/// rendering in the UI. Each node includes a display label, node type
-/// for styling, and child nodes.
+/// Every variant gets a node in the notation the Logic Output prints — the operator symbols
+/// come from the one table in `logicaffeine_language::debug` — with its sub-expressions and
+/// terms as children. The match has no fallback arm, so a new variant cannot reach the tree
+/// as a `Debug` dump: it must be given a node here.
 pub fn expr_to_ast_node(expr: &LogicExpr, interner: &Interner) -> AstNode {
+    use logicaffeine_language::debug::{
+        aspect_symbol, binary_temporal_symbol, connective_symbol, focus_symbol, modal_symbol,
+        quantifier_symbol, temporal_symbol, voice_symbol, DisplayWith,
+    };
+    let node = |e: &LogicExpr| expr_to_ast_node(e, interner);
+    let term = |t: &Term| term_to_ast_node(t, interner);
+    let name = |sym: &logicaffeine_base::Symbol| interner.resolve(*sym).to_string();
+    // A node with no sub-expression to open: labelled in the notation itself.
+    let written = |node_type: &str| AstNode::leaf(&expr.with(interner).to_string(), node_type);
     match expr {
-        LogicExpr::Predicate { name, args, .. } => {
-            let name_str = interner.resolve(*name);
-            let arg_nodes: Vec<AstNode> = args.iter()
-                .map(|t| term_to_ast_node(t, interner))
-                .collect();
-            AstNode::with_children(
-                &format!("{}({})", name_str, args.len()),
-                "predicate",
-                arg_nodes,
-            )
-        }
-        LogicExpr::Quantifier { kind, variable, body, .. } => {
-            let var_str = interner.resolve(*variable);
-            let symbol = match kind {
-                ast::QuantifierKind::Universal => "∀",
-                ast::QuantifierKind::Existential => "∃",
-                ast::QuantifierKind::Most => "MOST",
-                ast::QuantifierKind::Few => "FEW",
-                ast::QuantifierKind::Many => "MANY",
-                ast::QuantifierKind::Cardinal(n) => return AstNode::with_children(
-                    &format!("∃={}{}", n, var_str),
-                    "quantifier",
-                    vec![expr_to_ast_node(body, interner)],
-                ),
-                ast::QuantifierKind::AtLeast(n) => return AstNode::with_children(
-                    &format!("∃≥{}{}", n, var_str),
-                    "quantifier",
-                    vec![expr_to_ast_node(body, interner)],
-                ),
-                ast::QuantifierKind::AtMost(n) => return AstNode::with_children(
-                    &format!("∃≤{}{}", n, var_str),
-                    "quantifier",
-                    vec![expr_to_ast_node(body, interner)],
-                ),
-                ast::QuantifierKind::Generic => "GEN",
-            };
-            AstNode::with_children(
-                &format!("{}{}", symbol, var_str),
-                "quantifier",
-                vec![expr_to_ast_node(body, interner)],
-            )
-        }
-        LogicExpr::BinaryOp { left, op, right } => {
-            let op_str = match op {
-                TokenType::And => "∧",
-                TokenType::Or => "∨",
-                TokenType::If | TokenType::Then => "→",
-                TokenType::Iff => "↔",
-                _ => "?",
-            };
-            AstNode::with_children(
-                op_str,
-                "binary_op",
-                vec![
-                    expr_to_ast_node(left, interner),
-                    expr_to_ast_node(right, interner),
-                ],
-            )
-        }
-        LogicExpr::UnaryOp { op, operand } => {
-            let op_str = match op {
-                TokenType::Not => "¬",
-                _ => "?",
-            };
-            AstNode::with_children(
-                op_str,
-                "unary_op",
-                vec![expr_to_ast_node(operand, interner)],
-            )
-        }
+        LogicExpr::Predicate {
+            name: pred, args, ..
+        } => AstNode::with_children(
+            &format!("{}({})", name(pred), args.len()),
+            "predicate",
+            args.iter().map(|t| term(t)).collect(),
+        ),
         LogicExpr::Identity { left, right } => {
-            AstNode::with_children(
-                "=",
-                "identity",
-                vec![
-                    term_to_ast_node(left, interner),
-                    term_to_ast_node(right, interner),
-                ],
-            )
+            AstNode::with_children("=", "identity", vec![term(left), term(right)])
         }
+        LogicExpr::Metaphor { tenor, vehicle } => {
+            AstNode::with_children("Metaphor", "metaphor", vec![term(tenor), term(vehicle)])
+        }
+        LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            ..
+        } => AstNode::with_children(
+            &format!("{}{}", quantifier_symbol(kind), name(variable)),
+            "quantifier",
+            vec![node(body)],
+        ),
+        LogicExpr::Categorical(_) => written("categorical"),
+        LogicExpr::Relation(_) => written("relation"),
         LogicExpr::Modal { vector, operand } => {
-            AstNode::with_children(
-                &format!("□{:?}", vector.domain),
-                "modal",
-                vec![expr_to_ast_node(operand, interner)],
-            )
+            AstNode::with_children(modal_symbol(vector), "modal", vec![node(operand)])
         }
+        LogicExpr::Temporal { operator, body } => {
+            AstNode::with_children(temporal_symbol(operator), "temporal", vec![node(body)])
+        }
+        LogicExpr::TemporalBinary {
+            operator,
+            left,
+            right,
+        } => AstNode::with_children(
+            binary_temporal_symbol(operator),
+            "temporal",
+            vec![node(left), node(right)],
+        ),
+        LogicExpr::Aspectual { operator, body } => {
+            AstNode::with_children(aspect_symbol(operator), "aspect", vec![node(body)])
+        }
+        LogicExpr::Voice { operator, body } => {
+            AstNode::with_children(voice_symbol(operator), "voice", vec![node(body)])
+        }
+        LogicExpr::BinaryOp { left, op, right } => AstNode::with_children(
+            connective_symbol(op),
+            "binary_op",
+            vec![node(left), node(right)],
+        ),
+        LogicExpr::UnaryOp { op, operand } => {
+            AstNode::with_children(connective_symbol(op), "unary_op", vec![node(operand)])
+        }
+        LogicExpr::Question { wh_variable, body } => AstNode::with_children(
+            &format!("?{}", name(wh_variable)),
+            "question",
+            vec![node(body)],
+        ),
+        LogicExpr::YesNoQuestion { body } => {
+            AstNode::with_children("?", "question", vec![node(body)])
+        }
+        LogicExpr::Atom(sym) => AstNode::leaf(&name(sym), "atom"),
         LogicExpr::Lambda { variable, body } => {
-            let var_str = interner.resolve(*variable);
+            AstNode::with_children(&format!("λ{}", name(variable)), "lambda", vec![node(body)])
+        }
+        LogicExpr::App { function, argument } => {
+            AstNode::with_children("apply", "application", vec![node(function), node(argument)])
+        }
+        LogicExpr::Intensional { operator, content } => {
+            AstNode::with_children(&name(operator), "intensional", vec![node(content)])
+        }
+        LogicExpr::Event { predicate, adverbs } => {
+            let mut children = vec![node(predicate)];
+            children.extend(adverbs.iter().map(|a| AstNode::leaf(&name(a), "modifier")));
+            AstNode::with_children("event", "event", children)
+        }
+        // A Neo-Davidsonian event: its verb over the event variable, each thematic role a
+        // branch holding its filler, and each adverbial modifier a leaf.
+        LogicExpr::NeoEvent(data) => {
+            let mut children: Vec<AstNode> = data
+                .roles
+                .iter()
+                .map(|(role, filler)| {
+                    AstNode::with_children(&format!("{:?}", role), "role", vec![term(filler)])
+                })
+                .collect();
+            children.extend(
+                data.modifiers
+                    .iter()
+                    .map(|m| AstNode::leaf(&name(m), "modifier")),
+            );
             AstNode::with_children(
-                &format!("λ{}", var_str),
-                "lambda",
-                vec![expr_to_ast_node(body, interner)],
+                &format!("∃{} {}", name(&data.event_var), name(&data.verb)),
+                "event",
+                children,
             )
         }
-        LogicExpr::SpeechAct { performer, act_type, content } => {
-            AstNode::with_children(
-                &format!(
-                    "{}!{}",
-                    interner.resolve(*act_type),
-                    interner.resolve(*performer)
-                ),
-                "speech_act",
-                vec![expr_to_ast_node(content, interner)],
-            )
+        LogicExpr::Imperative { action } => {
+            AstNode::with_children("!", "speech_act", vec![node(action)])
         }
-        _ => AstNode::leaf(&format!("{:?}", expr), "other"),
+        LogicExpr::Exclamative { body, .. } => {
+            AstNode::with_children("Exclaim", "speech_act", vec![node(body)])
+        }
+        LogicExpr::Optative { wish } => {
+            AstNode::with_children("Wish", "speech_act", vec![node(wish)])
+        }
+        LogicExpr::Implicature {
+            assertion,
+            implicature,
+        } => AstNode::with_children(
+            "+>",
+            "implicature",
+            vec![node(assertion), node(implicature)],
+        ),
+        LogicExpr::SpeechAct {
+            performer,
+            act_type,
+            content,
+        } => AstNode::with_children(
+            &format!("{}!{}", name(act_type), name(performer)),
+            "speech_act",
+            vec![node(content)],
+        ),
+        LogicExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => AstNode::with_children(
+            "□→",
+            "conditional",
+            vec![node(antecedent), node(consequent)],
+        ),
+        LogicExpr::Causal { effect, cause } => {
+            AstNode::with_children("Cause", "causal", vec![node(cause), node(effect)])
+        }
+        LogicExpr::Concessive { main, concession } => AstNode::with_children(
+            "Concessive",
+            "concessive",
+            vec![node(main), node(concession)],
+        ),
+        LogicExpr::Comparative { .. } => written("comparative"),
+        LogicExpr::Superlative { .. } => written("superlative"),
+        LogicExpr::Scopal { operator, body } => {
+            AstNode::with_children(&name(operator), "scopal", vec![node(body)])
+        }
+        LogicExpr::Control {
+            verb,
+            subject,
+            object,
+            infinitive,
+        } => {
+            let mut children = vec![term(subject)];
+            children.extend(object.map(|o| term(o)));
+            children.push(node(infinitive));
+            AstNode::with_children(&name(verb), "control", children)
+        }
+        LogicExpr::Presupposition {
+            assertion,
+            presupposition,
+        } => AstNode::with_children(
+            "presupposes",
+            "presupposition",
+            vec![node(assertion), node(presupposition)],
+        ),
+        LogicExpr::Focus {
+            kind,
+            focused,
+            scope,
+        } => AstNode::with_children(
+            focus_symbol(kind),
+            "focus",
+            vec![term(focused), node(scope)],
+        ),
+        LogicExpr::TemporalAnchor { anchor, body } => {
+            AstNode::with_children(&format!("@{}", name(anchor)), "temporal", vec![node(body)])
+        }
+        LogicExpr::Distributive { predicate } => {
+            AstNode::with_children("*", "distributive", vec![node(predicate)])
+        }
+        LogicExpr::GroupQuantifier {
+            group_var,
+            count,
+            restriction,
+            body,
+            ..
+        } => AstNode::with_children(
+            &format!("∃{} (group of {})", name(group_var), count),
+            "quantifier",
+            vec![node(restriction), node(body)],
+        ),
     }
 }
 
@@ -293,18 +409,25 @@ fn term_to_ast_node(term: &Term, interner: &Interner) -> AstNode {
         Term::Variable(sym) => AstNode::leaf(interner.resolve(*sym), "variable"),
         Term::Function(name, args) => {
             let name_str = interner.resolve(*name);
-            let arg_nodes: Vec<AstNode> = args.iter()
-                .map(|t| term_to_ast_node(t, interner))
-                .collect();
+            let arg_nodes: Vec<AstNode> =
+                args.iter().map(|t| term_to_ast_node(t, interner)).collect();
             AstNode::with_children(&format!("{}()", name_str), "function", arg_nodes)
         }
         Term::Group(terms) => {
-            let term_nodes: Vec<AstNode> = terms.iter()
+            let term_nodes: Vec<AstNode> = terms
+                .iter()
                 .map(|t| term_to_ast_node(t, interner))
                 .collect();
             AstNode::with_children("⊕", "group", term_nodes)
         }
-        _ => AstNode::leaf(&format!("{:?}", term), "term"),
+        // A proposition used as a term (`believes that …`): its own structure beneath it.
+        Term::Proposition(expr) => {
+            AstNode::with_children("[ ]", "proposition", vec![expr_to_ast_node(expr, interner)])
+        }
+        _ => {
+            use logicaffeine_language::debug::DisplayWith;
+            AstNode::leaf(&term.with(interner).to_string(), "term")
+        }
     }
 }
 
@@ -342,13 +465,25 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
 
     // Generate Simple readings (modals stripped) - deduplicated
     let simple_readings: Vec<String> = {
-        let raw = compile_forest_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL, pragmatic: false });
+        let raw = compile_forest_with_options(
+            input,
+            CompileOptions {
+                format: OutputFormat::SimpleFOL,
+                pragmatic: false,
+            },
+        );
         let mut seen = HashSet::new();
         raw.into_iter().filter(|r| seen.insert(r.clone())).collect()
     };
 
     // Generate Kripke readings with explicit world quantification
-    let kripke_readings = compile_forest_with_options(input, CompileOptions { format: OutputFormat::Kripke, pragmatic: false });
+    let kripke_readings = compile_forest_with_options(
+        input,
+        CompileOptions {
+            format: OutputFormat::Kripke,
+            pragmatic: false,
+        },
+    );
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -381,7 +516,13 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
 
     // Pass 2: Parse
     let mut world_state = drs::WorldState::new();
-    let mut parser = Parser::new(lex_tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let mut parser = Parser::new(
+        lex_tokens,
+        &mut world_state,
+        &mut interner,
+        ctx,
+        type_registry,
+    );
 
     match parser.parse() {
         Ok(ast) => {
@@ -390,10 +531,13 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let ast_node = expr_to_ast_node(ast, &interner);
             let mut registry = SymbolRegistry::new();
             let logic = ast.transpile_discourse(&mut registry, &interner, OutputFormat::Unicode);
-            let simple_logic = ast.transpile_discourse(&mut registry, &interner, OutputFormat::SimpleFOL);
+            let simple_logic =
+                ast.transpile_discourse(&mut registry, &interner, OutputFormat::SimpleFOL);
 
-            let kripke_ast = semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner);
-            let kripke_logic = kripke_ast.transpile_discourse(&mut registry, &interner, OutputFormat::Kripke);
+            let kripke_ast =
+                semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner);
+            let kripke_logic =
+                kripke_ast.transpile_discourse(&mut registry, &interner, OutputFormat::Kripke);
 
             CompileResult {
                 logic: Some(logic),
@@ -476,7 +620,13 @@ pub fn compile_for_proof(input: &str) -> ProofCompileResult {
     );
 
     let mut world_state = drs::WorldState::new();
-    let mut parser = Parser::new(lex_tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let mut parser = Parser::new(
+        lex_tokens,
+        &mut world_state,
+        &mut interner,
+        ctx,
+        type_registry,
+    );
 
     match parser.parse() {
         Ok(ast) => {
@@ -533,6 +683,22 @@ pub struct TheoremCompileResult {
     pub grid: Option<SolvedGrid>,
     /// Error message if compilation or proof failed.
     pub error: Option<String>,
+    /// How many obligations the DECLARED method left open and the automation closed.
+    ///
+    /// `0` means the author's own proof was complete — and also that there was no proof at
+    /// all: a count is a fact about a certificate, so an unverified theorem reports 0, exactly
+    /// as the prose door annotates only its certified arm. The TEXT door
+    /// (`logicaffeine_language::compile_theorem`) has always said this in prose — "Proved!
+    /// \[kernel-verified\] (2 residual obligations discharged by automation)" — and this door
+    /// silently dropped it, so two Surface A doors reported the same `verified: true` with
+    /// different amounts of disclosure. A `Proof:` line that declares a METHOD and closes
+    /// nothing (`By induction on n.` on a goal needing no induction) reaches `verified: true`
+    /// here, and this is the field that says the machine, not the author, did the work.
+    ///
+    /// It is disclosure, never trust: every swept obligation is assembled into the SAME
+    /// derivation and certified through `qed` → `check_derivation` → the kernel, so
+    /// `verified` means exactly what it meant before.
+    pub discharged: usize,
 }
 
 /// A solved (or partially solved) logic grid: the row entities plus one column per
@@ -560,6 +726,99 @@ pub struct GridColumn {
     pub cells: Vec<Option<String>>,
 }
 
+/// The `Proof:` line a `## Theorem` block declared, lowered to what a driver needs.
+///
+/// There is ONE lowering of [`ProofStrategy`](logicaffeine_language::ast::theorem::ProofStrategy)
+/// in this crate, and it lives in [`declared_proof`]. Every Surface A door reads the declared
+/// method from here, which is the invariant that keeps two doors from reaching opposite
+/// verdicts on the same input.
+#[derive(Debug, Clone, Default)]
+struct DeclaredProof {
+    /// The tactic-script source to run, or `None` for `Auto` (automatic proof search).
+    script: Option<String>,
+    /// The INFERENCE-RULE name a one-word `Proof:` line gave (`ProofStrategy::ByRule`).
+    /// Only the diagnostic depends on it: a word the tactic namespace does not carry is
+    /// reported as a rule name rather than as a bad tactic.
+    rule_name: Option<String>,
+    /// `Given (h): …` names, parallel to the premises, so a script can cite `h`.
+    premise_names: Vec<Option<String>>,
+}
+
+/// Lower a theorem block's declared proof strategy. EXHAUSTIVE on purpose: a `_ => None`
+/// arm turned every non-`Auto`, non-`Script` strategy into a third, undefined state — "not
+/// auto, no script" — which reported the theorem as unproved with no error at all.
+fn declared_proof(theorem: &ast::theorem::TheoremBlock<'_>) -> DeclaredProof {
+    use ast::theorem::ProofStrategy;
+    let (script, rule_name) = match &theorem.strategy {
+        ProofStrategy::Auto => (None, None),
+        ProofStrategy::Script(s) => (Some(s.clone()), None),
+        ProofStrategy::ByRule(rule) => (Some(rule.clone()), Some(rule.clone())),
+        ProofStrategy::Induction(variable) => (Some(format!("induction {variable}")), None),
+    };
+    DeclaredProof {
+        script,
+        rule_name,
+        premise_names: theorem.premise_names.clone(),
+    }
+}
+
+/// Prove a Surface A theorem BY THE METHOD ITS AUTHOR DECLARED.
+///
+/// `verify_theorem`, [`prove_theorem_trace`] and [`theorem_certificate`] used to run
+/// automatic proof search unconditionally, ignoring the `Proof:` line entirely. A theorem
+/// whose declared proof was a tactic script was therefore certified by a search nobody
+/// wrote; worse, a theorem whose script is BROKEN still got a kernel term — and a portable
+/// CERTIFICATE — from these doors while `compile_theorem` failed loudly on the same input.
+/// Two doors, opposite verdicts, and no test between them.
+///
+/// `Auto` keeps the definition-aware automatic path. A declared script runs through the one
+/// vernacular driver. The two cannot be combined: `ProofState` carries no `## Define`
+/// environment, so a script plus definitions is refused rather than proved with the
+/// definitions silently dropped.
+///
+/// The second half of the answer is how many obligations the declared method LEFT and the
+/// automation closed — see [`TheoremCompileResult::discharged`]. It travels with the verdict
+/// rather than beside it, because a door that has the number and does not report it is how
+/// the two Surface A doors came to disclose different amounts about the same proof.
+fn prove_declared(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    definitions: &[logicaffeine_proof::verify::Definition],
+    declared: &DeclaredProof,
+) -> (logicaffeine_proof::verify::VerifiedProof, usize) {
+    let Some(script) = declared.script.as_deref() else {
+        return (
+            logicaffeine_proof::verify::prove_certify_check_with_defs(premises, goal, definitions),
+            0,
+        );
+    };
+    if !definitions.is_empty() {
+        return (
+            logicaffeine_proof::verify::VerifiedProof {
+                derivation: None,
+                proof_term: None,
+                kernel_ctx: Default::default(),
+                verified: false,
+                verification_error: Some(
+                    "a `Proof:` tactic script cannot see this document's `## Define` blocks — \
+                 the tactic state carries no definition environment. Either prove this \
+                 theorem with `Proof: Auto.` (which δ-unfolds the definitions) or inline \
+                 the definition"
+                        .to_string(),
+                ),
+            },
+            0,
+        );
+    }
+    logicaffeine_language::run_proof_sketch(
+        premises,
+        &declared.premise_names,
+        goal,
+        script,
+        declared.rule_name.as_deref(),
+    )
+}
+
 /// A parsed theorem block: premises and goal as owned (arena-free) `ProofExpr`s, the goal's
 /// display string, and whether the strategy is `Auto`. Factored out of
 /// [`compile_theorem_for_ui`] so the grounded grid problem can feed every trust tier and the
@@ -573,9 +832,16 @@ struct ParsedTheorem {
     /// An explicit `Proof:` tactic script (English-esque vernacular), if the block
     /// gave one instead of `Auto`. Run by the tactic framework, kernel-certified.
     script: Option<String>,
+    /// The INFERENCE-RULE name a one-word `Proof:` line gave
+    /// (`ProofStrategy::ByRule`). Only the diagnostic depends on it: a word the tactic
+    /// namespace does not carry is reported as a rule name rather than as a bad tactic.
+    rule_name: Option<String>,
     /// Optional names for the premises (`Given (h): …`), parallel to `premises`, so a
     /// script can refer to a premise as `h` rather than `hp0`.
     premise_names: Vec<Option<String>>,
+    /// Whether the goal asks ("Who is in Florida?") rather than claims ("Some dog barks."):
+    /// a question is answered by its witnesses, a claim is proved.
+    asks: bool,
 }
 
 fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
@@ -612,13 +878,22 @@ fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
     let mut world_state = drs::WorldState::new();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
 
-    let statements = parser
-        .parse_program()
-        .map_err(|e| format!("Parse error: {:?}", e))?;
+    let statements = parser.parse_program().map_err(|e| {
+        format!(
+            "Parse error: {}",
+            socratic_explanation(&e, &Interner::new())
+        )
+    })?;
 
     let theorem = statements
         .iter()
-        .find_map(|stmt| if let ast::Stmt::Theorem(t) = stmt { Some(t) } else { None })
+        .find_map(|stmt| {
+            if let ast::Stmt::Theorem(t) = stmt {
+                Some(t)
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| "No theorem block found".to_string())?;
 
     let premises: Vec<ProofExpr> = theorem
@@ -629,12 +904,15 @@ fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
     let goal = logic_expr_to_proof_expr(theorem.goal, &interner);
 
     let mut registry = SymbolRegistry::new();
-    let goal_string = theorem.goal.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
+    let goal_string = theorem
+        .goal
+        .transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
-    let script = match &theorem.strategy {
-        ast::theorem::ProofStrategy::Script(s) => Some(s.clone()),
-        _ => None,
-    };
+    let DeclaredProof {
+        script,
+        rule_name,
+        premise_names,
+    } = declared_proof(theorem);
 
     Ok(ParsedTheorem {
         name: theorem.name.clone(),
@@ -643,7 +921,9 @@ fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
         goal_string,
         is_auto: matches!(theorem.strategy, ast::theorem::ProofStrategy::Auto),
         script,
-        premise_names: theorem.premise_names.clone(),
+        rule_name,
+        premise_names,
+        asks: matches!(theorem.goal, ast::LogicExpr::Question { .. }),
     })
 }
 
@@ -662,6 +942,11 @@ pub struct TheoryTheoremResult {
 pub struct TheoryCompileResult {
     pub theory_name: Option<String>,
     pub axiom_count: usize,
+    /// The NAMES of every admitted axiom (standalone `## Axiom <name>` blocks and
+    /// `Axiom <name>` declarations in a `## Theory` body), in discovery order.
+    /// The inventory needs these to report axioms as named assumptions and to
+    /// reject a theorem/axiom name collision (G13-full) — a count alone cannot.
+    pub axiom_names: Vec<String>,
     pub theorems: Vec<TheoryTheoremResult>,
     pub parse_error: Option<String>,
 }
@@ -716,25 +1001,34 @@ pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
             return TheoryCompileResult {
                 theory_name: None,
                 axiom_count: 0,
+                axiom_names: Vec::new(),
                 theorems: Vec::new(),
-                parse_error: Some(format!("Parse error: {:?}", e)),
+                parse_error: Some(format!(
+                    "Parse error: {}",
+                    socratic_explanation(&e, &Interner::new())
+                )),
             }
         }
     };
 
     // Collect the development: standalone `## Axiom` blocks + `## Theory` bodies.
     let mut axioms: Vec<ProofExpr> = Vec::new();
+    let mut axiom_names: Vec<String> = Vec::new();
     let mut theorems: Vec<LibraryTheorem> = Vec::new();
     let mut theory_name: Option<String> = None;
 
     for stmt in &statements {
         match stmt {
             ast::Stmt::Axiom(a) => match parse_formula(&a.formula) {
-                Ok(expr) => axioms.push(expr),
+                Ok(expr) => {
+                    axioms.push(expr);
+                    axiom_names.push(a.name.clone());
+                }
                 Err(e) => {
                     return TheoryCompileResult {
                         theory_name,
                         axiom_count: axioms.len(),
+                        axiom_names,
                         theorems: Vec::new(),
                         parse_error: Some(format!("Axiom '{}': {}", a.name, e)),
                     }
@@ -747,6 +1041,7 @@ pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
                 if !t.body.trim().is_empty() {
                     match parse_development(&t.body) {
                         Ok(dev) => {
+                            axiom_names.extend(dev.axioms.iter().map(|(n, _)| n.clone()));
                             axioms.extend(dev.axiom_exprs());
                             theorems.extend(dev.theorems);
                         }
@@ -754,6 +1049,7 @@ pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
                             return TheoryCompileResult {
                                 theory_name,
                                 axiom_count: axioms.len(),
+                                axiom_names,
                                 theorems: Vec::new(),
                                 parse_error: Some(format!("Theory '{}': {}", t.name, e)),
                             }
@@ -779,6 +1075,7 @@ pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
     TheoryCompileResult {
         theory_name,
         axiom_count: axioms.len(),
+        axiom_names,
         theorems: theorem_results,
         parse_error: None,
     }
@@ -814,11 +1111,21 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                 answer: None,
                 grid: None,
                 error: Some(e),
+                discharged: 0,
             };
         }
     };
-    let ParsedTheorem { name, premises, goal, goal_string, is_auto, script, premise_names } =
-        parsed;
+    let ParsedTheorem {
+        name,
+        premises,
+        goal,
+        goal_string,
+        is_auto,
+        script,
+        rule_name,
+        premise_names,
+        asks,
+    } = parsed;
 
     // The easter egg: when the premises take the grid form (declared bijection +
     // disjunctive closures), fill every cell the certified prover can force — no flag,
@@ -830,19 +1137,22 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
         None
     };
 
-    let (derivation, verified, verification_error, answer) =
-        if is_auto {
-            // A wh-question goal ("Who is in Florida?") is an open ∃-form; the closed-goal
-            // prover cannot discharge it and grinds a deep, futile search. Recognize the
-            // form and ANSWER it by enumerating witnesses through the same certified no-Z3
-            // path the puzzle uses — each candidate proved (or refuted) in ~1ms.
-            if let ProofExpr::Exists { variable, body } = &goal {
-                let witnesses = answer_wh(&premises, variable, body);
-                let verified = !witnesses.is_empty();
-                let verr = (!verified)
-                    .then(|| "no individual in the domain satisfies the question".to_string());
-                (None, verified, verr, Some(witnesses))
-            } else {
+    // How many obligations the DECLARED method left for the automation. Only the declared-
+    // script route can leave any: `Auto` IS the automation, so its count is 0 by construction.
+    let mut discharged = 0usize;
+    let (derivation, verified, verification_error, answer) = if is_auto {
+        // A wh-question goal ("Who is in Florida?") is an open ∃-form; the closed-goal
+        // prover cannot discharge it and grinds a deep, futile search. Recognize the
+        // question and ANSWER it by enumerating witnesses through the same certified no-Z3
+        // path the puzzle uses — each candidate proved (or refuted) in ~1ms. A claim that
+        // merely has an ∃ ("Some dog barks.") is proved like any other goal.
+        if let (true, ProofExpr::Exists { variable, body }) = (asks, &goal) {
+            let witnesses = answer_wh(&premises, variable, body);
+            let verified = !witnesses.is_empty();
+            let verr = (!verified)
+                .then(|| "no individual in the domain satisfies the question".to_string());
+            (None, verified, verr, Some(witnesses))
+        } else {
             // A finite-domain GRID (a declared closure / "exactly one") is proved over
             // its GROUNDED, quantifier-free form, so the certified kernel can close it
             // in the browser (no Z3). An OPEN syllogism (Socrates: "every man is
@@ -863,14 +1173,24 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                     let tree = logicaffeine_proof::grid_solver::grid_prove(&solver_input, &g);
                     if let Some(t_solve) = t_solve {
                         let n = tree.as_ref().map(count_tree_nodes).unwrap_or(0);
-                        eprintln!("[grid] solve+emit {:.2?} ({} tree nodes)", t_solve.elapsed(), n);
+                        eprintln!(
+                            "[grid] solve+emit {:.2?} ({} tree nodes)",
+                            t_solve.elapsed(),
+                            n
+                        );
                     }
                     let t_cert = trace.then(std::time::Instant::now);
                     let solved = tree
-                        .map(|tree| logicaffeine_proof::verify::check_derivation(&solver_input, &g, tree))
+                        .map(|tree| {
+                            logicaffeine_proof::verify::check_derivation(&solver_input, &g, tree)
+                        })
                         .filter(|vp| vp.verified);
                     if let Some(t_cert) = t_cert {
-                        eprintln!("[grid] kernel-certify {:.2?} (verified={})", t_cert.elapsed(), solved.is_some());
+                        eprintln!(
+                            "[grid] kernel-certify {:.2?} (verified={})",
+                            t_cert.elapsed(),
+                            solved.is_some()
+                        );
                     }
                     match solved {
                         Some(vp) => vp,
@@ -896,7 +1216,9 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                                 };
                             }
                             let grounded = prepare_premises(&premises);
-                            logicaffeine_proof::verify::prove_certify_check_bounded(&grounded, &g, 60)
+                            logicaffeine_proof::verify::prove_certify_check_bounded(
+                                &grounded, &g, 60,
+                            )
                         }
                     }
                 };
@@ -921,38 +1243,46 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
             } else {
                 logicaffeine_proof::verify::prove_certify_check(&premises, &goal)
             };
-            (outcome.derivation, outcome.verified, outcome.verification_error, None)
-            }
-        } else if let Some(src) = &script {
-            // An explicit `Proof:` tactic script (English-esque vernacular): run it
-            // through the tactic framework on a generous stack, kernel-certified.
-            use logicaffeine_proof::tactic::ProofState;
-            let run = || {
-                let mut st =
-                    ProofState::start_with_names(premises.clone(), &premise_names, goal.clone());
-                match st.run_script(src) {
-                    Ok(_) => match st.qed() {
-                        Ok(vp) => (vp.derivation, vp.verified, vp.verification_error),
-                        Err(e) => (None, false, Some(format!("{e:?}"))),
-                    },
-                    Err(e) => (None, false, Some(e.to_string())),
-                }
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            let (derivation, verified, verr) = std::thread::scope(|s| {
-                std::thread::Builder::new()
-                    .stack_size(256 * 1024 * 1024)
-                    .spawn_scoped(s, run)
-                    .expect("spawn proof-script thread")
-                    .join()
-                    .expect("proof-script thread panicked")
-            });
-            #[cfg(target_arch = "wasm32")]
-            let (derivation, verified, verr) = run();
-            (derivation, verified, verr, None)
-        } else {
-            (None, false, None, None)
+            (
+                outcome.derivation,
+                outcome.verified,
+                outcome.verification_error,
+                None,
+            )
+        }
+    } else if script.is_some() {
+        // An explicit `Proof:` line (English-esque vernacular): the SAME declared-method
+        // driver every other Surface A door uses, run on a generous stack and
+        // kernel-certified. (This door parses no `## Define` blocks, so its definition
+        // environment is empty by construction.)
+        let declared = DeclaredProof {
+            script,
+            rule_name,
+            premise_names,
         };
+        let run = || {
+            let (vp, swept) = prove_declared(&premises, &goal, &[], &declared);
+            (vp.derivation, vp.verified, vp.verification_error, swept)
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let (derivation, verified, verr, swept) = std::thread::scope(|s| {
+            std::thread::Builder::new()
+                .stack_size(256 * 1024 * 1024)
+                .spawn_scoped(s, run)
+                .expect("spawn proof-script thread")
+                .join()
+                .expect("proof-script thread panicked")
+        });
+        #[cfg(target_arch = "wasm32")]
+        let (derivation, verified, verr, swept) = run();
+        // A count is a fact about a PROOF. A sketch that did not certify has none, and
+        // the prose door annotates only the certified arm — so reporting the sweep of a
+        // failed run would make the two doors disagree in the other direction.
+        discharged = if verified { swept } else { 0 };
+        (derivation, verified, verr, None)
+    } else {
+        (None, false, None, None)
+    };
 
     TheoremCompileResult {
         name,
@@ -965,6 +1295,7 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
         answer,
         grid,
         error: None,
+        discharged,
     }
 }
 
@@ -983,14 +1314,21 @@ fn count_tree_nodes(t: &logicaffeine_proof::DerivationTree) -> usize {
 #[cfg(feature = "codegen")]
 pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
     let (imperative_src, math_src) = partition_mixed(source);
-    let proven = math_src.as_deref().and_then(mixed_proven_module);
+    let proven = match math_src.as_deref() {
+        Some(math) => mixed_proven_module(math)?,
+        None => None,
+    };
     generate_rust_code_with_proven(&imperative_src, proven.as_deref())
 }
 
 /// [`generate_rust_code`] with an already-extracted proven module bundled in.
 #[cfg(feature = "codegen")]
-pub fn generate_rust_code_with_proven(source: &str, proven: Option<&str>) -> Result<String, ParseError> {
-    use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
+pub fn generate_rust_code_with_proven(
+    source: &str,
+    proven: Option<&str>,
+) -> Result<String, ParseError> {
+    use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
+    let library = crate::loader::LibraryProvenance::of(source);
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(source, &mut interner);
@@ -1004,7 +1342,6 @@ pub fn generate_rust_code_with_proven(source: &str, proven: Option<&str>) -> Res
         let result = discovery.run_full();
         (result.types, result.policies)
     };
-    let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
     let mut world_state = drs::WorldState::new();
@@ -1015,6 +1352,7 @@ pub fn generate_rust_code_with_proven(source: &str, proven: Option<&str>) -> Res
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
@@ -1030,11 +1368,47 @@ pub fn generate_rust_code_with_proven(source: &str, proven: Option<&str>) -> Res
         &type_expr_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        type_registry,
+    );
     let stmts = parser.parse_program()?;
+    let opt_flags = parser.program_opt_flags();
+    let codegen_registry = parser.into_type_registry();
+    let mut run_cfg =
+        crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
+    run_cfg.normalize();
+    let resolved = crate::resolve_program::resolve_program(
+        &stmts,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+        &mut interner,
+        run_cfg.is_on(crate::optimization::Opt::Comptime),
+        library.functions(),
+    );
+    let stmts: Vec<Stmt> = match resolved {
+        Some(rw) => rw.to_vec(),
+        None => stmts,
+    };
 
-    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
-    let rust_code = crate::codegen::codegen_program_with_proven(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env, &crate::optimization::OptimizationConfig::from_env(), "proven", proven);
+    let type_env =
+        crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let rust_code = crate::codegen::codegen_program_with_proven(
+        &stmts,
+        &codegen_registry,
+        &codegen_policies,
+        &interner,
+        &type_env,
+        &crate::optimization::OptimizationConfig::from_env(),
+        "proven",
+        proven,
+    );
     Ok(rust_code)
 }
 
@@ -1053,10 +1427,15 @@ pub fn generate_rust_code_with_proven(source: &str, proven: Option<&str>) -> Res
 /// memory model. This is the static concurrency gate (Phase 4): a program whose
 /// concurrent branches share non-CRDT mutable state is refused *before* any tier
 /// runs, so neither the VM nor the tree-walker executes a data race.
-fn send_escape_rejection(stmts: &[logicaffeine_language::ast::stmt::Stmt]) -> Option<InterpreterResult> {
+fn send_escape_rejection(
+    stmts: &[logicaffeine_language::ast::stmt::Stmt],
+) -> Option<InterpreterResult> {
     crate::concurrency::check_send_escape(stmts)
         .first()
-        .map(|d| InterpreterResult { lines: Vec::new(), error: Some(d.message.clone()) })
+        .map(|d| InterpreterResult {
+            lines: Vec::new(),
+            error: Some(d.message.clone()),
+        })
 }
 
 /// Reject a dimension-incoherent program (`2 meters + 1 gram`) BEFORE it runs, so the interpreter
@@ -1069,39 +1448,84 @@ fn send_dimension_rejection(
     crate::analysis::dimension_check::DimensionChecker::new(interner)
         .check_program(stmts)
         .err()
-        .map(|e| InterpreterResult { lines: Vec::new(), error: Some(e.message) })
+        .map(|e| InterpreterResult {
+            lines: Vec::new(),
+            error: Some(e.message),
+        })
 }
 
 pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     interpret_for_ui_with_args(input, &[]).await
 }
 
+/// Each run the IDE, a guide, an exercise or the REPL starts is a page load of its own: the document
+/// its program paints starts empty, as a browser's does for a page it loads, so the nodes one run's
+/// paint names are never taken for nodes an earlier run left behind.
+fn begin_ui_run() {
+    crate::semantics::dom::reset();
+}
+
+/// The debug shadow oracle runs the program a second time. It paints a document of its own, so the
+/// run the caller sees keeps the page its own engine drew, and the two runs' pages never meet.
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+fn in_a_document_of_its_own<T>(run: impl FnOnce() -> T) -> T {
+    let shown = crate::semantics::dom::take();
+    let out = run();
+    crate::semantics::dom::restore(shown);
+    out
+}
+
 /// Like [`interpret_for_ui`], but supplies the program's argument vector to the
 /// `args()` system native. `program_args` is the full argv (index 0 is the
 /// program name), matching the compiled binary's `env::args()`.
-pub async fn interpret_for_ui_with_args(
-    input: &str,
-    program_args: &[String],
-) -> InterpreterResult {
+pub async fn interpret_for_ui_with_args(input: &str, program_args: &[String]) -> InterpreterResult {
+    begin_ui_run();
     // The synchronous dispatcher covers every non-async program; for async
     // ones it uses block_on, which would nest inside this future — so handle
     // the async case here with a real await.
-    let needs_async = with_parsed_program(input, |parsed, _| match parsed {
-        Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts),
+    let needs_async = with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts, interner),
         Err(_) => false,
     });
+    if needs_async && matches!(engine(), Engine::Jit | Engine::Vm) {
+        if std::env::var_os("LOGOS_ENGINE_TRACE").is_some() {
+            eprintln!("logos-engine: refused");
+        }
+        return InterpreterResult {
+            lines: Vec::new(),
+            error: Some(
+                "the selected VM/JIT tier is sync-only; this program requires async execution"
+                    .to_string(),
+            ),
+        };
+    }
     if !needs_async {
         return interpret_for_ui_sync_with_args(input, program_args);
     }
 
-    use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
+    // Match the sync path's preprocessing: wrap a bare script as `## Main`, then
+    // demand-import the stdlib modules the program references. Without this an
+    // async handler that calls a prelude function (http.lg's `plain`, net.lg's
+    // `Message`, …) fails at runtime with "Unknown function".
+    let implicit = implicit_main(input);
+    let input = implicit.as_deref().unwrap_or(input);
+    let prelude_src = crate::loader::apply_prelude(input);
+    let input = prelude_src.as_ref();
+    let library = crate::loader::LibraryProvenance::of(input);
+
+    use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
 
     let mwe_trie = mwe::build_mwe_trie();
-    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let mut tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Resolve the qualified escape hatch for cross-module calls (`Alias::fn` →
+    // bare `fn`); no-op for single-file programs.
+    let functions = crate::analysis::assemble::defined_function_names(input);
+    crate::analysis::assemble::resolve_qualified_names(&mut tokens, &mut interner, &functions);
 
     let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
@@ -1116,6 +1540,7 @@ pub async fn interpret_for_ui_with_args(
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
@@ -1132,11 +1557,31 @@ pub async fn interpret_for_ui_with_args(
     );
 
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_interp = type_registry.clone();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let parsed = parser.parse_program();
+    let opt_flags = parser.program_opt_flags();
+    let type_registry_for_interp = parser.into_type_registry();
 
-    match parser.parse_program() {
+    match parsed {
         Ok(stmts) => {
+            let mut run_cfg =
+                crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
+            run_cfg.normalize();
+            let resolved = crate::resolve_program::resolve_program(
+                &stmts,
+                crate::ast_map::Arenas {
+                    exprs: &imperative_expr_arena,
+                    stmts: &stmt_arena,
+                    types: &type_expr_arena,
+                },
+                &mut interner,
+                run_cfg.is_on(crate::optimization::Opt::Comptime),
+                library.functions(),
+            );
+            let stmts: Vec<Stmt> = match resolved {
+                Some(rw) => rw.to_vec(),
+                None => stmts,
+            };
             if let Some(rejection) = send_escape_rejection(&stmts) {
                 return rejection;
             }
@@ -1163,15 +1608,11 @@ pub async fn interpret_for_ui_with_args(
                 .with_type_registry(&type_registry_for_interp)
                 .with_policies(policy_registry)
                 .with_program_args(program_args.to_vec());
-            match interp.run(&stmts).await {
-                Ok(()) => InterpreterResult {
-                    lines: interp.output,
-                    error: None,
-                },
-                Err(e) => InterpreterResult {
-                    lines: interp.output,
-                    error: Some(e),
-                },
+            let run_result = interp.run(&stmts).await;
+            let unhandled = interp.take_page_failure();
+            InterpreterResult {
+                error: run_result.err().or(unhandled),
+                lines: interp.output,
             }
         }
         Err(e) => {
@@ -1193,9 +1634,19 @@ pub async fn interpret_for_ui_with_args(
 /// Parsed statements borrow stack-local arenas, so they are handed to the
 /// closure rather than returned. A parse failure is delivered as
 /// `Err(socratic advice text)` — also identical for both engines.
-pub fn with_parsed_program<R>(
+///
+/// This private core also installs the file's `## No <opt>` decorators as the active config
+/// (so the VM compiler's opt gates honor them) and hands the closure the `## Require` demands
+/// so a Result-returning caller can enforce them. The public [`with_parsed_program`] /
+/// [`with_parsed_program_checked`] wrappers select whether `## Require` is verified.
+/// [`parse_seam_e`], with the failure already rendered as its Socratic message.
+///
+/// The overwhelming majority of callers want the sentence and nothing else. The few that need to
+/// point AT the mistake — a dev-server overlay, a diagnostic with a caret — take the seam below
+/// and keep the span.
+fn parse_seam<R>(
     input: &str,
-    f: impl for<'a> FnOnce(
+    body: impl for<'a> FnOnce(
         Result<
             (
                 &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
@@ -1205,25 +1656,139 @@ pub fn with_parsed_program<R>(
             String,
         >,
         &'a Interner,
+        Vec<crate::optimization::Opt>,
+    ) -> R,
+) -> R {
+    parse_seam_e(input, |parsed, interner, facts| {
+        body(
+            parsed.map_err(|e| socratic_explanation(&e, interner)),
+            interner,
+            facts.required,
+        )
+    })
+}
+
+/// How a span of the text the parser saw maps back to the author's own text: the seam wraps a bare
+/// script as `## Main` (a prefix) and then splices the stdlib modules the program uses (after any
+/// leading prose). Both edits are undone here, once, so every span leaving the seam is a span of
+/// the file the author wrote.
+struct UserText {
+    /// The `## Main\n` prefix the implicit-main wrap added, or 0.
+    implicit_prefix: usize,
+    /// The exact splice `apply_prelude_mapped` performed on the wrapped text.
+    segments: Vec<crate::loader::PreludeSegment>,
+}
+
+impl UserText {
+    /// `span` in the author's text, or `None` when it lies in text the seam added.
+    fn span(&self, span: crate::token::Span) -> Option<crate::token::Span> {
+        let wrapped = crate::compile::prelude_user_span(&self.segments, span)?;
+        if wrapped.start < self.implicit_prefix {
+            return None;
+        }
+        Some(crate::token::Span::new(
+            wrapped.start - self.implicit_prefix,
+            wrapped.end - self.implicit_prefix,
+        ))
+    }
+
+    /// `span` in the author's text; a span in added text becomes the default (no location).
+    fn span_or_default(&self, span: crate::token::Span) -> crate::token::Span {
+        self.span(span).unwrap_or_default()
+    }
+}
+
+/// What the parser learned about a program besides its statements.
+struct ParseFacts {
+    /// The optimizations `## Require` demands.
+    required: Vec<crate::optimization::Opt>,
+    /// The LGX accessibility and structure findings, their spans in the author's text.
+    findings: Vec<logicaffeine_language::lgx::check::Finding>,
+    /// The value-semantics copy lint's findings, their spans in the author's text — see
+    /// `value_copy_findings_of`.
+    copy_findings: Vec<logicaffeine_language::lint::Finding>,
+    /// Every tensor the program binds, as `(rows, cols)` — see `Parser::tensor_shapes`.
+    tensor_shapes: std::collections::HashMap<logicaffeine_base::Symbol, (i64, i64)>,
+    /// Every `Stmt::Site` marker's `(span, component, action)`, in the AUTHOR's own file
+    /// coordinates — translated here, once, the same way `findings` is just below, so a runtime
+    /// failure's location never needs a second, bespoke undoing of the implicit-`## Main`/stdlib
+    /// splice (`FailureSite`'s own doc comment names that exact double-mapping shape as a past bug).
+    failure_sites: Vec<logicaffeine_language::ast::stmt::FailureSite>,
+    /// The map from the parsed text back to the author's.
+    user_text: UserText,
+}
+
+/// The parse seam, handing a failure over whole — message AND span — so a caller that points at
+/// a location has one. [`parse_seam`] is the message-shaped wrapper most callers take.
+
+fn parse_seam_e<R>(
+    input: &str,
+    body: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            logicaffeine_language::error::ParseError,
+        >,
+        &'a Interner,
+        ParseFacts,
+    ) -> R,
+) -> R {
+    parse_seam_with(input, None, body)
+}
+
+/// [`parse_seam_e`], and — under `mono` — the program handed on is the monomorphic one
+/// ([`crate::monomorphize`]): every generic function and applied generic type made concrete, for
+/// a backend that lowers only concrete code.
+fn parse_seam_with<R>(
+    input: &str,
+    mono: Option<crate::monomorphize::Options>,
+    body: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            logicaffeine_language::error::ParseError,
+        >,
+        &'a Interner,
+        ParseFacts,
     ) -> R,
 ) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
     // A bare script (no `##` headers, imperative opening) runs as `## Main`.
     let implicit = implicit_main(input);
+    let implicit_prefix = implicit
+        .as_ref()
+        .map_or(0, |wrapped| wrapped.len() - input.len());
     let input = implicit.as_deref().unwrap_or(input);
 
     // Phase 10: auto-prepend the stdlib modules the program references (no-op when
     // it uses no stdlib vocabulary, so such programs stay byte-identical).
-    let prelude_src = crate::loader::apply_prelude(input);
+    let (prelude_src, segments) = crate::loader::apply_prelude_mapped(input);
+    let user_text = UserText {
+        implicit_prefix,
+        segments,
+    };
     let input = prelude_src.as_ref();
+    let library = crate::loader::LibraryProvenance::of(input);
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
 
     let mwe_trie = mwe::build_mwe_trie();
-    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let mut tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Resolve the qualified escape hatch for cross-module calls (`Alias::fn` →
+    // bare `fn`); no-op for single-file programs. Feeds the VM, JIT, wasm, isa,
+    // and sync-interpreter tiers that share this seam.
+    let functions = crate::analysis::assemble::defined_function_names(input);
+    crate::analysis::assemble::resolve_qualified_names(&mut tokens, &mut interner, &functions);
 
     let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
@@ -1238,6 +1803,7 @@ pub fn with_parsed_program<R>(
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
@@ -1254,16 +1820,82 @@ pub fn with_parsed_program<R>(
     );
 
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_engines = type_registry.clone();
-    let (parsed, opt_flags) = {
+    let (parsed, opt_flags, facts, type_registry_for_engines) = {
         let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
         let stmts = parser.parse_program();
         let flags = parser.program_opt_flags();
-        (stmts, flags)
+        let findings = parser
+            .lgx_findings()
+            .iter()
+            .cloned()
+            .map(|mut f| {
+                f.span = user_text.span_or_default(f.span);
+                f
+            })
+            .collect();
+        let failure_sites = parser
+            .failure_sites()
+            .iter()
+            .cloned()
+            .map(|mut s| {
+                s.span = user_text.span_or_default(s.span);
+                s
+            })
+            .collect();
+        let copy_findings = parser
+            .value_copy_findings()
+            .iter()
+            .cloned()
+            .map(|mut f| {
+                f.span = user_text.span_or_default(f.span);
+                f
+            })
+            .collect();
+        let facts = ParseFacts {
+            required: parser.required_optimizations(),
+            findings,
+            tensor_shapes: parser.tensor_shapes().clone(),
+            failure_sites,
+            copy_findings,
+            user_text,
+        };
+        (stmts, flags, facts, parser.into_type_registry())
     };
 
+    let parsed =
+        parsed.and_then(
+            |stmts| match crate::analysis::refuse_retired_calls(&stmts, &interner) {
+                Ok(()) => Ok(stmts),
+                Err(refusal) => Err(logicaffeine_language::error::ParseError {
+                    kind: logicaffeine_language::error::ParseErrorKind::Custom(refusal),
+                    span: logicaffeine_language::token::Span::default(),
+                }),
+            },
+        );
+    // Under `mono`, the program as its concrete instances (see `parse_seam_with`).
+    let parsed = match (parsed, mono) {
+        (Ok(stmts), Some(opts)) => crate::monomorphize::monomorphize(
+            &stmts,
+            &type_registry_for_engines,
+            &mut interner,
+            crate::ast_map::Arenas {
+                exprs: &imperative_expr_arena,
+                stmts: &stmt_arena,
+                types: &type_expr_arena,
+            },
+            opts,
+        )
+        .map(|m| (m.stmts, Some(m.registry)))
+        .map_err(|message| logicaffeine_language::error::ParseError {
+            kind: logicaffeine_language::error::ParseErrorKind::Custom(message),
+            span: logicaffeine_language::token::Span::default(),
+        }),
+        (Ok(stmts), None) => Ok((stmts, None)),
+        (Err(e), _) => Err(e),
+    };
     match parsed {
-        Ok(stmts) => {
+        Ok((stmts, mono_registry)) => {
+            let type_registry_for_engines = mono_registry.unwrap_or(type_registry_for_engines);
             // Strength-reduce accumulator recursion to a constant-stack `while`
             // loop so the VM and tree-walker match the AOT (and never hit the
             // call-depth limit on `Return n + f(n-1)`-shaped recursion).
@@ -1274,12 +1906,20 @@ pub fn with_parsed_program<R>(
             let mut run_cfg =
                 crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
             run_cfg.normalize();
-            let resolved = crate::resolve_division::resolve_divisions(
+            // Install `## No` as the active config so the VM compiler's opt gates
+            // (`NarrowVm`/`FastDiv`/`Borrow`) honor it too — the AOT path gets this via
+            // `optimize_program`; the raw VM/wasm/isa seam needs it explicitly.
+            crate::optimize::set_active_config(run_cfg);
+            let resolved = crate::resolve_program::resolve_program(
                 &stmts,
-                &stmt_arena,
-                &imperative_expr_arena,
-                &interner,
+                crate::ast_map::Arenas {
+                    exprs: &imperative_expr_arena,
+                    stmts: &stmt_arena,
+                    types: &type_expr_arena,
+                },
+                &mut interner,
                 run_cfg.is_on(crate::optimization::Opt::Comptime),
+                library.functions(),
             );
             let pre = resolved.unwrap_or(stmts.as_slice());
             match crate::tail_call::rewrite_accumulators(
@@ -1288,15 +1928,248 @@ pub fn with_parsed_program<R>(
                 &imperative_expr_arena,
                 &mut interner,
             ) {
-                Some(rw) => f(Ok((rw, &type_registry_for_engines, policy_registry)), &interner),
-                None => f(Ok((pre, &type_registry_for_engines, policy_registry)), &interner),
+                Some(rw) => body(
+                    Ok((rw, &type_registry_for_engines, policy_registry)),
+                    &interner,
+                    facts,
+                ),
+                None => body(
+                    Ok((pre, &type_registry_for_engines, policy_registry)),
+                    &interner,
+                    facts,
+                ),
             }
         }
-        Err(e) => {
-            let advice = socratic_explanation(&e, &interner);
-            f(Err(advice), &interner)
-        }
+        Err(e) => body(Err(e), &interner, facts),
     }
+}
+
+/// The execution front-end shared by every engine (see `parse_seam`): lex → MWE → discovery →
+/// parse, with the file's `## No` decorators installed as the active config. `## Require` is NOT
+/// enforced here — this generic variant serves the differential-test seams and callers whose
+/// return type can't carry a compile error; use [`with_parsed_program_checked`] for the emit
+/// paths that must fail an unfired `## Require`.
+pub fn with_parsed_program<R>(
+    input: &str,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+    ) -> R,
+) -> R {
+    parse_seam(input, |parsed, interner, _required| f(parsed, interner))
+}
+
+/// [`with_parsed_program`] that also hands over every tensor's `(rows, cols)` — the shape table the parser keeps
+/// and the desugared statements do not (a declaration desugars to a flat `Seq` of `rows · cols` elements). The
+/// spatial walk reads it to declare each tensor in the shape the program gives it.
+pub fn with_parsed_tensor_program<R>(
+    input: &str,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+        &std::collections::HashMap<logicaffeine_base::Symbol, (i64, i64)>,
+    ) -> R,
+) -> R {
+    parse_seam_e(input, |parsed, interner, facts| {
+        f(
+            parsed.map_err(|e| socratic_explanation(&e, interner)),
+            interner,
+            &facts.tensor_shapes,
+        )
+    })
+}
+
+/// [`with_parsed_program`] for a Result-returning compile (the `emit c`/`isa`/`wasm` backends):
+/// installs `## No`, opens a `## Require` firing-trace around `f`, and after `f` succeeds fails
+/// the compile on any demanded optimization that did not fire — the honest answer when a backend
+/// (e.g. the VM tiers, which don't memoize) cannot provide a required optimization. `f`'s own
+/// error propagates unchanged.
+///
+/// `f` is handed the parse Result RAW — spans still in the prelude-expanded text `f` actually
+/// parsed, exactly like every backend's own `stmts` — and undone EXACTLY ONCE, at the single point
+/// below where an error leaves this function. `f` may return the parse error unchanged (the
+/// overwhelming majority: `let (stmts, ..) = parsed?;`) or a NEW error located at an AST span
+/// `compile_with_oracle_located` or a resolver check built (also still prelude-coordinate,
+/// unavoidably, since nothing between the parse and here ever undoes the splice) — both need the
+/// SAME one undoing, so there is exactly one place to trust and it runs on whatever comes out,
+/// not on what goes in. Undoing it going IN as well as coming OUT re-translated an already-correct
+/// span a second time: the splice's stdlib segment is typically the largest run in the expanded
+/// text, so almost any small, correct, already-undone offset falls inside where IT sits and maps
+/// to "added text" — silently becoming `Span::default()` for any caller whose `f` simply forwards
+/// `parsed`'s own error, which is the shape every current caller uses.
+pub fn with_parsed_program_checked<T>(
+    input: &str,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            logicaffeine_language::error::ParseError,
+        >,
+        &'a Interner,
+    ) -> Result<T, crate::error::ParseError>,
+) -> Result<T, crate::error::ParseError> {
+    parse_seam_e(input, |parsed, interner, facts| {
+        let gate = crate::optimize::DecoratorGate::for_required(facts.required);
+        let user_text = facts.user_text;
+        match f(parsed, interner) {
+            Ok(t) => gate
+                .verify()
+                .map(|_| t)
+                .map_err(|m| crate::error::ParseError {
+                    kind: crate::error::ParseErrorKind::Custom(m),
+                    span: crate::token::Span::default(),
+                }),
+            Err(mut e) => {
+                gate.close();
+                e.span = user_text.span_or_default(e.span);
+                Err(e)
+            }
+        }
+    })
+}
+
+/// [`with_parsed_program`] over the program's monomorphic form ([`crate::monomorphize`]) — every
+/// generic function and applied generic type made concrete — for a backend that lowers only
+/// concrete code.
+pub fn with_monomorphic_program<R>(
+    input: &str,
+    options: crate::monomorphize::Options,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+    ) -> R,
+) -> R {
+    parse_seam_with(input, Some(options), |parsed, interner, _facts| {
+        f(
+            parsed.map_err(|e| socratic_explanation(&e, interner)),
+            interner,
+        )
+    })
+}
+
+/// [`with_parsed_program_checked`] over the program's monomorphic form ([`crate::monomorphize`]) —
+/// every generic function and applied generic type made concrete — for a backend that lowers only
+/// concrete code.
+pub fn with_monomorphic_program_checked<T>(
+    input: &str,
+    options: crate::monomorphize::Options,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            logicaffeine_language::error::ParseError,
+        >,
+        &'a Interner,
+    ) -> Result<T, crate::error::ParseError>,
+) -> Result<T, crate::error::ParseError> {
+    parse_seam_with(input, Some(options), |parsed, interner, facts| {
+        let gate = crate::optimize::DecoratorGate::for_required(facts.required);
+        let user_text = facts.user_text;
+        match f(parsed, interner) {
+            Ok(t) => gate
+                .verify()
+                .map(|_| t)
+                .map_err(|m| crate::error::ParseError {
+                    kind: crate::error::ParseErrorKind::Custom(m),
+                    span: crate::token::Span::default(),
+                }),
+            Err(mut e) => {
+                gate.close();
+                e.span = user_text.span_or_default(e.span);
+                Err(e)
+            }
+        }
+    })
+}
+
+/// The accessibility and structure warnings `lgx/check.rs` computes for `input`.
+///
+/// ★ THE CHECKER RAN ON EVERY PARSE AND NOTHING READ IT. `img` without `alt`, a `button` that
+/// announces nothing, an input with no label, a link with no href — all computed, all discarded,
+/// because `Parser::lgx_findings()` had exactly one caller and it was a test. That is the failure
+/// its own lock warns about ("a checker nobody runs is worse than no checker"), one layer up.
+pub fn lgx_findings_of(input: &str) -> Vec<logicaffeine_language::lgx::check::Finding> {
+    parse_seam_e(input, |_parsed, _interner, facts| facts.findings)
+}
+
+/// The value-semantics copy lint's warnings for `input` — see `logicaffeine_language::lint`. Same
+/// shape as [`lgx_findings_of`]: computed on every parse, worth nothing until something reads it.
+pub fn value_copy_findings_of(input: &str) -> Vec<logicaffeine_language::lint::Finding> {
+    parse_seam_e(input, |_parsed, _interner, facts| facts.copy_findings)
+}
+
+/// Every [`Stmt::Site`](logicaffeine_language::ast::stmt::Stmt::Site) marker `input` parsed to, as
+/// the `(span, component, action)` [`FailureSite`](logicaffeine_language::ast::stmt::FailureSite)
+/// the marker's id indexes — in the author's own file coordinates, the implicit-`## Main` wrap and
+/// the stdlib-prelude splice already undone (matching [`lgx_findings_of`]/[`parse_error_of`]'s own
+/// treatment). The tree-walker's `current_site()` and a compiled program's `site_at` pc-lookup both
+/// answer an id into THIS SAME table; whoever renders a runtime failure looks it up here and calls
+/// [`FailureSite::render`](logicaffeine_language::ast::stmt::FailureSite::render) with the message.
+pub fn failure_sites_of(input: &str) -> Vec<logicaffeine_language::ast::stmt::FailureSite> {
+    parse_seam_e(input, |_parsed, _interner, facts| facts.failure_sites)
+}
+
+/// The parse error for `input`, in the AUTHOR's own file coordinates — the implicit-`## Main` wrap
+/// and the stdlib-prelude splice both undone, exactly as [`with_parsed_program_checked`] undoes
+/// them for its callers — or `None` when `input` parses. A pure parse check with no `## Require`
+/// gate: a caller that wants to render its OWN caret block (`largo run --interpret`, matching what
+/// `largo check` already shows) takes the located error from here instead of formatting whatever
+/// `Result::Err` variant happened to reach it.
+pub fn parse_error_of(input: &str) -> Option<logicaffeine_language::error::ParseError> {
+    parse_seam_e(input, |parsed, _interner, facts| {
+        parsed.err().map(|mut e| {
+            e.span = facts.user_text.span_or_default(e.span);
+            e
+        })
+    })
+}
+
+/// The `## Require <opt>` demands declared in `input` (a lightweight parse via `parse_seam`).
+/// Empty for a program with no `## Require` decorators.
+pub fn program_required_opts(input: &str) -> Vec<crate::optimization::Opt> {
+    parse_seam(input, |_parsed, _interner, required| required)
+}
+
+/// The tree-walk interpreter (`largo run --interpret`) is the raw differential tier — it applies
+/// NO optimizations, so it cannot satisfy any `## Require <opt>`. Returns the honest error for the
+/// first requirement (mirroring the compiled tiers' message), or `None` when there is none.
+pub fn interpret_unsatisfiable_require(input: &str) -> Option<String> {
+    program_required_opts(input).first().map(|opt| {
+        let kw = opt.meta().keyword;
+        format!(
+            "`## Require {kw}` was declared, but the `{kw}` optimization did not fire — the \
+             tree-walk interpreter (`--interpret`) applies no optimizations. Run the compiled \
+             tier (`largo run` / `largo build` / `largo emit`) to satisfy it, or remove the \
+             `## Require {kw}`."
+        )
+    })
 }
 
 /// [`with_parsed_program`], but the statements pass through the RUN-PATH
@@ -1319,11 +2192,33 @@ pub fn with_optimized_program<R>(
         &'a Interner,
     ) -> R,
 ) -> R {
+    with_optimized_program_scoped(input, None, f)
+}
+
+/// [`with_optimized_program`], with the assembled project's file scope checked
+/// on the same parsed AST before it is optimized.  Project runners use this to
+/// avoid assembling and parsing the entire project a second time merely to
+/// enforce import visibility.
+pub fn with_optimized_program_scoped<R>(
+    input: &str,
+    scope: Option<&crate::analysis::ScopeInfo>,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+    ) -> R,
+) -> R {
     // The run-path upfront tier is the env-configured mode (default Eager → T3, i.e.
     // today's behavior, bit-for-bit). `LOGOS_TIER_PROFILE`/`LOGOS_FORCE_TIER` select
     // Tiered/Baseline for the benchmark A/B and the T_optimize measurement (§12.1).
     let tier = crate::optimization::HotswapConfig::from_env().run_tier();
-    with_optimized_program_tiered(input, tier, f)
+    with_optimized_program_tiered_scoped(input, tier, scope, f)
 }
 
 /// [`with_optimized_program`] gated by an explicit hotness `tier` (HOTSWAP §4): the
@@ -1347,6 +2242,25 @@ pub fn with_optimized_program_tiered<R>(
         &'a Interner,
     ) -> R,
 ) -> R {
+    with_optimized_program_tiered_scoped(input, tier, None, f)
+}
+
+fn with_optimized_program_tiered_scoped<R>(
+    input: &str,
+    tier: crate::optimization::Tier,
+    scope: Option<&crate::analysis::ScopeInfo>,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+    ) -> R,
+) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
     // A bare script (no `##` headers, imperative opening) runs as `## Main`.
@@ -1357,13 +2271,20 @@ pub fn with_optimized_program_tiered<R>(
     // it uses no stdlib vocabulary, so such programs stay byte-identical).
     let prelude_src = crate::loader::apply_prelude(input);
     let input = prelude_src.as_ref();
+    let library = crate::loader::LibraryProvenance::of(input);
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
 
     let mwe_trie = mwe::build_mwe_trie();
-    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let mut tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Resolve the qualified escape hatch for cross-module calls (`Alias::fn` →
+    // bare `fn`); no-op for single-file programs. Feeds the VM, JIT, wasm, isa,
+    // and sync-interpreter tiers that share this seam.
+    let functions = crate::analysis::assemble::defined_function_names(input);
+    crate::analysis::assemble::resolve_qualified_names(&mut tokens, &mut interner, &functions);
 
     let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
@@ -1378,6 +2299,7 @@ pub fn with_optimized_program_tiered<R>(
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
@@ -1394,17 +2316,21 @@ pub fn with_optimized_program_tiered<R>(
     );
 
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_engines = type_registry.clone();
-    let (parsed, opt_flags, tier_pins) = {
+    let (parsed, opt_flags, tier_pins, type_registry_for_engines) = {
         let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
         let stmts = parser.parse_program();
         let flags = parser.program_opt_flags();
         let pins = parser.program_tier_pins();
-        (stmts, flags, pins)
+        (stmts, flags, pins, parser.into_type_registry())
     };
 
     match parsed {
         Ok(stmts) => {
+            if let Some(scope) = scope {
+                if let Err(why) = crate::analysis::check_scopes(&stmts, scope, &interner) {
+                    return f(Err(why), &interner);
+                }
+            }
             // Respect file-level `## No <opt>` decorators on the run path too, so
             // optimization toggles behave consistently with the AOT compile.
             let mut run_cfg =
@@ -1417,12 +2343,16 @@ pub fn with_optimized_program_tiered<R>(
             // Type-directed division (Divide → ExactDivide in Rational contexts) runs
             // BEFORE optimization so the optimizer sees ExactDivide (opaque, never
             // floor-folded), not a bare `7 / 2` it would fold to `3`.
-            let resolved = crate::resolve_division::resolve_divisions(
+            let resolved = crate::resolve_program::resolve_program(
                 &stmts,
-                &stmt_arena,
-                &imperative_expr_arena,
-                &interner,
+                crate::ast_map::Arenas {
+                    exprs: &imperative_expr_arena,
+                    stmts: &stmt_arena,
+                    types: &type_expr_arena,
+                },
+                &mut interner,
                 run_cfg.is_on(crate::optimization::Opt::Comptime),
+                library.functions(),
             );
             let pre: Vec<_> = match resolved {
                 Some(rw) => rw.to_vec(),
@@ -1445,8 +2375,14 @@ pub fn with_optimized_program_tiered<R>(
                 &imperative_expr_arena,
                 &mut interner,
             ) {
-                Some(rw) => f(Ok((rw, &type_registry_for_engines, policy_registry)), &interner),
-                None => f(Ok((&optimized, &type_registry_for_engines, policy_registry)), &interner),
+                Some(rw) => f(
+                    Ok((rw, &type_registry_for_engines, policy_registry)),
+                    &interner,
+                ),
+                None => f(
+                    Ok((&optimized, &type_registry_for_engines, policy_registry)),
+                    &interner,
+                ),
             }
         }
         Err(e) => {
@@ -1485,13 +2421,20 @@ pub fn with_v2_optimized_program<R>(
     // it uses no stdlib vocabulary, so such programs stay byte-identical).
     let prelude_src = crate::loader::apply_prelude(input);
     let input = prelude_src.as_ref();
+    let library = crate::loader::LibraryProvenance::of(input);
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
 
     let mwe_trie = mwe::build_mwe_trie();
-    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let mut tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Resolve the qualified escape hatch for cross-module calls (`Alias::fn` →
+    // bare `fn`); no-op for single-file programs. Feeds the VM, JIT, wasm, isa,
+    // and sync-interpreter tiers that share this seam.
+    let functions = crate::analysis::assemble::defined_function_names(input);
+    crate::analysis::assemble::resolve_qualified_names(&mut tokens, &mut interner, &functions);
 
     let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
@@ -1506,6 +2449,7 @@ pub fn with_v2_optimized_program<R>(
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
@@ -1522,22 +2466,41 @@ pub fn with_v2_optimized_program<R>(
     );
 
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_engines = type_registry.clone();
-    let parsed = {
+    let (parsed, type_registry_for_engines) = {
         let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
-        parser.parse_program()
+        let parsed = parser.parse_program();
+        (parsed, parser.into_type_registry())
     };
 
     match parsed {
         Ok(stmts) => {
+            let config = crate::optimization::OptimizationConfig::from_env();
+            let resolved = crate::resolve_program::resolve_program(
+                &stmts,
+                crate::ast_map::Arenas {
+                    exprs: &imperative_expr_arena,
+                    stmts: &stmt_arena,
+                    types: &type_expr_arena,
+                },
+                &mut interner,
+                config.is_on(crate::optimization::Opt::Comptime),
+                library.functions(),
+            );
+            let stmts: Vec<Stmt> = match resolved {
+                Some(rw) => rw.to_vec(),
+                None => stmts,
+            };
             let optimized = crate::optimize::optimize_program(
                 stmts,
                 &imperative_expr_arena,
                 &stmt_arena,
                 &mut interner,
-                &crate::optimization::OptimizationConfig::from_env(),
+                &config,
             );
-            f(Ok((&optimized, &type_registry_for_engines, policy_registry)), &interner)
+            f(
+                Ok((&optimized, &type_registry_for_engines, policy_registry)),
+                &interner,
+            )
         }
         Err(e) => {
             let advice = socratic_explanation(&e, &interner);
@@ -1555,6 +2518,31 @@ pub fn with_v2_optimized_program<R>(
 /// fallback for anything the VM compiler rejects.
 pub fn interpret_for_ui_sync(input: &str) -> InterpreterResult {
     interpret_for_ui_sync_with_args(input, &[])
+}
+
+/// In-process execution tier. All choices consume the same optimized program.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Engine {
+    /// Preserve the product dispatcher: JIT/VM for synchronous programs and
+    /// the tree-walker for programs requiring async or the scheduler.
+    #[default]
+    Auto,
+    Jit,
+    Vm,
+    TreeWalker,
+}
+
+thread_local! {
+    static ENGINE: std::cell::Cell<Engine> = const { std::cell::Cell::new(Engine::Auto) };
+}
+
+/// Select the tier used by subsequent in-process runs on this thread.
+pub fn set_engine(engine: Engine) {
+    ENGINE.with(|selected| selected.set(engine));
+}
+
+fn engine() -> Engine {
+    ENGINE.with(std::cell::Cell::get)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1599,12 +2587,82 @@ fn install_pending_aot_natives(
     }
 }
 
+/// The bytecode the VM runs for `input`, as `largo run --interpret` compiles it: the run path's optimizer, the oracle
+/// and the VM compiler. One section per function, `## Main` first, then `## To <name>` in code order, each instruction
+/// at its pc. A source that does not parse, or that only the tree-walker runs, answers why.
+pub fn vm_listing(input: &str) -> Result<String, String> {
+    with_optimized_program(input, |parsed, interner| {
+        let (stmts, type_registry, _policies) = parsed?;
+        if crate::interpreter::needs_async(stmts, interner)
+            || crate::concurrency::uses_scheduler(stmts)
+        {
+            return Err(
+                "this program awaits or runs tasks, so it runs on the tree-walker, not the VM"
+                    .to_string(),
+            );
+        }
+        let oracle = crate::optimize::oracle_analyze_with(stmts, interner);
+        let program = crate::vm::Compiler::compile_with_oracle(
+            stmts,
+            interner,
+            Some(type_registry),
+            Some(oracle),
+        )
+        .map_err(|e| {
+            format!(
+                "the VM compiler does not take this program, so it runs on the tree-walker: {e:?}"
+            )
+        })?;
+        let mut starts: Vec<(usize, String)> = program
+            .functions
+            .iter()
+            .map(|f| (f.entry_pc, format!("## To {}", interner.resolve(f.name))))
+            .collect();
+        starts.sort();
+        let lines = crate::vm::disasm::disassemble(&program);
+        let width = lines.len().saturating_sub(1).to_string().len();
+        let mut out = String::from("## Main\n");
+        let mut next = starts.iter().peekable();
+        for line in &lines {
+            while let Some((pc, header)) = next.peek() {
+                if *pc > line.pc {
+                    break;
+                }
+                out.push_str(&format!("\n{header}\n"));
+                next.next();
+            }
+            out.push_str(&format!("{:>width$}  {}\n", line.pc, line.text));
+        }
+        Ok(out)
+    })
+}
+
 /// Like [`interpret_for_ui_sync`], but supplies the program's argument vector
 /// to the `args()` system native. `program_args` is the full argv (index 0 is
 /// the program name), matching the compiled binary's `env::args()` — this is
 /// what `largo run --interpret N` forwards so an args-driven `main.lg` runs the
 /// same on the VM/JIT as on the native binary.
 pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> InterpreterResult {
+    interpret_for_ui_sync_with_args_impl(input, program_args, None)
+}
+
+/// Project-aware form of [`interpret_for_ui_sync_with_args`].  The scope gate
+/// consumes the AST this execution already parsed, so explicit VM/JIT runs do
+/// not pay for a separate front-end parse on every invocation.
+pub fn interpret_for_ui_sync_with_args_scoped(
+    input: &str,
+    program_args: &[String],
+    scope: &crate::analysis::ScopeInfo,
+) -> InterpreterResult {
+    interpret_for_ui_sync_with_args_impl(input, program_args, Some(scope))
+}
+
+fn interpret_for_ui_sync_with_args_impl(
+    input: &str,
+    program_args: &[String],
+    scope: Option<&crate::analysis::ScopeInfo>,
+) -> InterpreterResult {
+    begin_ui_run();
     // Diagnostic for benchmarking: with LOGOS_ENGINE_TRACE set, report which
     // engine actually ran a program to stderr, so a silent tree-walker fallback
     // is never mistaken for the VM+JIT.
@@ -1617,7 +2675,7 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
     // shadow oracle receive the SAME optimized program (two engines, one
     // program — the optimizer is differentially gated elsewhere against the
     // raw tree-walker).
-    with_optimized_program(input, |parsed, interner| match parsed {
+    with_optimized_program_scoped(input, scope, |parsed, interner| match parsed {
         Ok((stmts, type_registry, policies)) => {
             if let Some(rejection) = send_escape_rejection(stmts) {
                 return rejection;
@@ -1625,9 +2683,52 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
             if let Some(rejection) = send_dimension_rejection(stmts, interner) {
                 return rejection;
             }
-            if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
+            let needs_async = crate::interpreter::needs_async(stmts, interner);
+            let needs_scheduler = crate::concurrency::uses_scheduler(stmts);
+            if needs_async || needs_scheduler {
+                if !matches!(engine(), Engine::Auto | Engine::TreeWalker) {
+                    let why = if needs_async {
+                        "the selected VM/JIT tier is sync-only; this program requires async execution"
+                    } else {
+                        "the selected VM/JIT tier has no scheduler driver; this program requires the tree-walker scheduler"
+                    };
+                    trace("refused");
+                    return InterpreterResult {
+                        lines: Vec::new(),
+                        error: Some(why.to_string()),
+                    };
+                }
                 trace("treewalker (async)");
-                return run_treewalker(stmts, type_registry, policies, interner, true, program_args);
+                return run_treewalker(
+                    stmts,
+                    type_registry,
+                    policies,
+                    interner,
+                    true,
+                    program_args,
+                );
+            }
+            if engine() == Engine::TreeWalker {
+                trace("treewalker");
+                return run_treewalker(
+                    stmts,
+                    type_registry,
+                    policies,
+                    interner,
+                    false,
+                    program_args,
+                );
+            }
+            if engine() == Engine::TreeWalker {
+                trace("treewalker");
+                return run_treewalker(
+                    stmts,
+                    type_registry,
+                    policies,
+                    interner,
+                    false,
+                    program_args,
+                );
             }
             // Oracle range analysis (M9) over the EXACT snapshot being
             // compiled → bounds-check elimination in the JIT.
@@ -1639,34 +2740,101 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
                 Some(oracle),
             ) {
                 Ok(program) => {
-                    trace("vm+jit");
                     let mut vm = crate::vm::Vm::new(&program)
                         .with_policy_ctx(&policies, interner)
                         .with_program_args(program_args.to_vec());
-                    if let Some(tier) = crate::vm::installed_native_tier() {
-                        vm = vm.with_native_tier(tier);
+                    // A budgeted run stays on the VM dispatch loop: JIT-tiered
+                    // native code executes outside the STEPPED accounting, so a
+                    // pure hot loop would escape its step budget entirely.
+                    // Unbudgeted runs keep the full tier ladder.
+                    let mut native = None;
+                    if engine() == Engine::Jit && crate::interpreter::active_fuel().is_some() {
+                        trace("refused");
+                        return InterpreterResult {
+                            lines: Vec::new(),
+                            error: Some(
+                                "the selected JIT tier cannot preserve --max-steps accounting; use --engine vm"
+                                    .to_string(),
+                            ),
+                        };
                     }
+                    if crate::interpreter::active_fuel().is_none()
+                        && matches!(engine(), Engine::Auto | Engine::Jit)
+                    {
+                        if let Some(tier) = crate::vm::installed_native_tier() {
+                            vm = vm.with_native_tier(tier);
+                            native = Some(tier);
+                        }
+                    }
+                    if engine() == Engine::Jit && native.is_none() {
+                        trace("refused");
+                        return InterpreterResult {
+                            lines: Vec::new(),
+                            error: Some(
+                                "the selected JIT tier is unavailable on this build or platform"
+                                    .to_string(),
+                            ),
+                        };
+                    }
+                    trace(if native.is_some() { "vm+jit" } else { "vm" });
                     // Compiled-native tier (HOTSWAP §Axis-3): install any AOT functions
                     // the run was given, so they dispatch to rustc -O3 machine code.
                     #[cfg(not(target_arch = "wasm32"))]
                     install_pending_aot_natives(&mut vm, &program, interner);
-                    let error = vm.run().err();
-                    let result = InterpreterResult { lines: vm.into_lines(), error };
+                    // A budgeted run (`--max-steps` / MCP `step_budget`) drives
+                    // the resumable STEPPED monomorph and stops at the
+                    // deterministic op where the shared fuel cell runs dry;
+                    // the unbudgeted path is the untouched hot loop.
+                    let error = crate::vm::drive_vm(&mut vm);
+                    if let Some(tier) = native {
+                        trace(&format!(
+                            "native-tier {}: {}",
+                            tier.engine_name(),
+                            tier.compile_summary()
+                        ));
+                        let declines = tier.decline_summary();
+                        if !declines.is_empty() {
+                            trace(&format!(
+                                "native-declines {}: {declines}",
+                                tier.engine_name()
+                            ));
+                        }
+                        let opts = tier.optimization_summary();
+                        if !opts.is_empty() {
+                            trace(&format!("native-opts {}: {opts}", tier.engine_name()));
+                        }
+                        let execution = tier.execution_summary();
+                        if !execution.is_empty() {
+                            trace(&format!(
+                                "native-runtime {}: {execution}",
+                                tier.engine_name()
+                            ));
+                        }
+                    }
+                    let result = InterpreterResult {
+                        lines: vm.into_lines(),
+                        error,
+                    };
 
                     // Debug-build shadow oracle: the SAME program runs on the
                     // tree-walker and the full outcome must match — this turns
                     // the entire existing test corpus into a differential
-                    // suite. (Skipped on wasm to keep dev builds light.)
+                    // suite. (Skipped on wasm to keep dev builds light, and
+                    // under fuel: the VM already drained the shared cell, so
+                    // the shadow would exhaust at step one and always diverge.
+                    // Budgeted equivalence is fuel_budget.rs's job.)
                     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-                    {
-                        let shadow = run_treewalker(
-                            stmts,
-                            type_registry,
-                            policies.clone(),
-                            interner,
-                            false,
-                            program_args,
-                        );
+                    if crate::interpreter::active_fuel().is_none() {
+                        let shadow = in_a_document_of_its_own(|| {
+                            run_treewalker(
+                                stmts,
+                                type_registry,
+                                policies.clone(),
+                                interner,
+                                false,
+                                program_args,
+                            )
+                        });
                         assert_eq!(
                             (&result.lines, &result.error),
                             (&shadow.lines, &shadow.error),
@@ -1677,13 +2845,33 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
                 }
                 // The VM compiler rejects only constructs outside the parser's
                 // reach; run them on the tree-walker rather than failing.
-                Err(_) => {
-                    trace("treewalker (vm-reject)");
-                    run_treewalker(stmts, type_registry, policies, interner, false, program_args)
+                Err(reason) => {
+                    if engine() != Engine::Auto {
+                        trace("refused");
+                        InterpreterResult {
+                            lines: Vec::new(),
+                            error: Some(format!(
+                                "the selected VM/JIT tier cannot compile this program: {reason}"
+                            )),
+                        }
+                    } else {
+                        trace("treewalker (vm-reject)");
+                        run_treewalker(
+                            stmts,
+                            type_registry,
+                            policies,
+                            interner,
+                            false,
+                            program_args,
+                        )
+                    }
                 }
             }
         }
-        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+        Err(advice) => InterpreterResult {
+            lines: vec![],
+            error: Some(advice),
+        },
     })
 }
 
@@ -1708,12 +2896,13 @@ pub async fn interpret_for_ui_baseline_with_args(
     input: &str,
     program_args: &[String],
 ) -> InterpreterResult {
+    begin_ui_run();
     // Async programs (file I/O, sleep, mount) run on the tree-walker's async
     // executor regardless of tier — the VM is sync-only — so that case is
     // identical to the optimized entry (and must `await` rather than nest a
     // `block_on`); delegate it.
-    let needs_async = with_parsed_program(input, |parsed, _| match parsed {
-        Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts),
+    let needs_async = with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts, interner),
         Err(_) => false,
     });
     if needs_async {
@@ -1729,6 +2918,7 @@ pub fn interpret_for_ui_baseline_sync_with_args(
     input: &str,
     program_args: &[String],
 ) -> InterpreterResult {
+    begin_ui_run();
     let trace = |engine: &str| {
         if std::env::var_os("LOGOS_ENGINE_TRACE").is_some() {
             eprintln!("logos-engine: {engine}");
@@ -1742,25 +2932,74 @@ pub fn interpret_for_ui_baseline_sync_with_args(
             if let Some(rejection) = send_dimension_rejection(stmts, interner) {
                 return rejection;
             }
-            if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
+            if crate::interpreter::needs_async(stmts, interner)
+                || crate::concurrency::uses_scheduler(stmts)
+            {
                 trace("treewalker (async)");
-                return run_treewalker(stmts, type_registry, policies, interner, true, program_args);
+                return run_treewalker(
+                    stmts,
+                    type_registry,
+                    policies,
+                    interner,
+                    true,
+                    program_args,
+                );
             }
             match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry)) {
                 Ok(program) => {
-                    trace("vm (baseline)");
                     let mut vm = crate::vm::Vm::new(&program)
                         .with_policy_ctx(&policies, interner)
                         .with_program_args(program_args.to_vec());
-                    if let Some(tier) = crate::vm::installed_native_tier() {
-                        vm = vm.with_native_tier(tier);
+                    // A budgeted run stays on the VM dispatch loop: JIT-tiered
+                    // native code executes outside the STEPPED accounting, so a
+                    // pure hot loop would escape its step budget entirely.
+                    // Unbudgeted runs keep the full tier ladder.
+                    let mut native = None;
+                    if crate::interpreter::active_fuel().is_none() {
+                        if let Some(tier) = crate::vm::installed_native_tier() {
+                            vm = vm.with_native_tier(tier);
+                            native = Some(tier);
+                        }
                     }
+                    trace(if native.is_some() {
+                        "vm+jit (baseline)"
+                    } else {
+                        "vm (baseline)"
+                    });
                     // Compiled-native tier (HOTSWAP §Axis-3): install any AOT functions
                     // the run was given, so they dispatch to rustc -O3 machine code.
                     #[cfg(not(target_arch = "wasm32"))]
                     install_pending_aot_natives(&mut vm, &program, interner);
                     let error = vm.run().err();
-                    let result = InterpreterResult { lines: vm.into_lines(), error };
+                    if let Some(tier) = native {
+                        trace(&format!(
+                            "native-tier {}: {}",
+                            tier.engine_name(),
+                            tier.compile_summary()
+                        ));
+                        let declines = tier.decline_summary();
+                        if !declines.is_empty() {
+                            trace(&format!(
+                                "native-declines {}: {declines}",
+                                tier.engine_name()
+                            ));
+                        }
+                        let opts = tier.optimization_summary();
+                        if !opts.is_empty() {
+                            trace(&format!("native-opts {}: {opts}", tier.engine_name()));
+                        }
+                        let execution = tier.execution_summary();
+                        if !execution.is_empty() {
+                            trace(&format!(
+                                "native-runtime {}: {execution}",
+                                tier.engine_name()
+                            ));
+                        }
+                    }
+                    let result = InterpreterResult {
+                        lines: vm.into_lines(),
+                        error,
+                    };
 
                     // The same debug differential net as the optimized path: the
                     // baseline VM and the tree-walker must agree on the SAME
@@ -1768,14 +3007,16 @@ pub fn interpret_for_ui_baseline_sync_with_args(
                     // builds light.)
                     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                     {
-                        let shadow = run_treewalker(
-                            stmts,
-                            type_registry,
-                            policies.clone(),
-                            interner,
-                            false,
-                            program_args,
-                        );
+                        let shadow = in_a_document_of_its_own(|| {
+                            run_treewalker(
+                                stmts,
+                                type_registry,
+                                policies.clone(),
+                                interner,
+                                false,
+                                program_args,
+                            )
+                        });
                         assert_eq!(
                             (&result.lines, &result.error),
                             (&shadow.lines, &shadow.error),
@@ -1788,11 +3029,21 @@ pub fn interpret_for_ui_baseline_sync_with_args(
                 // reach; run them on the tree-walker rather than failing.
                 Err(_) => {
                     trace("treewalker (vm-reject)");
-                    run_treewalker(stmts, type_registry, policies, interner, false, program_args)
+                    run_treewalker(
+                        stmts,
+                        type_registry,
+                        policies,
+                        interner,
+                        false,
+                        program_args,
+                    )
                 }
             }
         }
-        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+        Err(advice) => InterpreterResult {
+            lines: vec![],
+            error: Some(advice),
+        },
     })
 }
 
@@ -1840,7 +3091,7 @@ fn run_program_concurrent<'a>(
         main = main.with_vfs(v);
     }
     let main_ys = Rc::new(RefCell::new(YieldState::new()));
-    main.install_yield_state(main_ys.clone());
+    main.install_yield_state(main_ys.clone(), err_sink.clone());
 
     let main_fut = Box::pin(async move { main.run(stmts).await });
     let main_task = InterpreterTask::new(main_fut, main_ys, Some(err_sink.clone()));
@@ -1875,7 +3126,8 @@ fn run_program_concurrent<'a>(
 
 /// A snapshot sink for the Studio's Tasks/Channels strip — invoked between scheduler
 /// slices with the live task/channel state.
-pub type ObserverCallback = std::rc::Rc<std::cell::RefCell<dyn FnMut(logicaffeine_runtime::SchedSnapshot)>>;
+pub type ObserverCallback =
+    std::rc::Rc<std::cell::RefCell<dyn FnMut(logicaffeine_runtime::SchedSnapshot)>>;
 
 /// Yield a macrotask so the host event loop (Dioxus) can repaint between scheduler
 /// slices. On wasm this is a real `setTimeout(0)`; on native there is no event loop to
@@ -1951,12 +3203,13 @@ async fn run_program_concurrent_streaming<'a>(
 
     let output_sink: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let sink = output_sink.clone();
-    let callback: crate::interpreter::OutputCallback = Rc::new(RefCell::new(move |line: String| {
-        if let Some(s) = &stream {
-            (s.borrow_mut())(line.clone());
-        }
-        sink.borrow_mut().push(line);
-    }));
+    let callback: crate::interpreter::OutputCallback =
+        Rc::new(RefCell::new(move |line: String| {
+            if let Some(s) = &stream {
+                (s.borrow_mut())(line.clone());
+            }
+            sink.borrow_mut().push(line);
+        }));
     let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
 
     let mut main = crate::interpreter::Interpreter::new(interner)
@@ -1968,7 +3221,7 @@ async fn run_program_concurrent_streaming<'a>(
         main = main.with_vfs(v);
     }
     let main_ys = Rc::new(RefCell::new(YieldState::new()));
-    main.install_yield_state(main_ys.clone());
+    main.install_yield_state(main_ys.clone(), err_sink.clone());
 
     let main_fut = Box::pin(async move { main.run(stmts).await });
     let main_task = InterpreterTask::new(main_fut, main_ys, Some(err_sink.clone()));
@@ -2013,17 +3266,27 @@ async fn run_program_concurrent_streaming<'a>(
 /// `run_program_concurrent` entry, used by the cross-tier seeded differential.
 pub fn run_treewalker_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
     with_parsed_program(input, |parsed, interner| match parsed {
-        Ok((stmts, type_registry, policies)) => {
-            run_program_concurrent(stmts, type_registry, policies, interner, &[], None, None, seed)
-        }
-        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+        Ok((stmts, type_registry, policies)) => run_program_concurrent(
+            stmts,
+            type_registry,
+            policies,
+            interner,
+            &[],
+            None,
+            None,
+            seed,
+        ),
+        Err(advice) => InterpreterResult {
+            lines: vec![],
+            error: Some(advice),
+        },
     })
 }
 
 /// Run a concurrent program on the **bytecode VM** under the deterministic
 /// scheduler (T11): compile to opcodes, then drive the main `Vm` (and any
 /// spawned per-task VMs) through `run_until_block` via a `VmTask`. This is the
-/// VM analog of [`run_program_concurrent`]; the default routing still sends
+/// VM analog of `run_program_concurrent`; the default routing still sends
 /// concurrent programs to the tree-walker, so this is the explicit VM entry used
 /// to exercise and (Phase 5c) differentially compare the VM concurrency tier.
 pub fn run_vm_concurrent(input: &str) -> InterpreterResult {
@@ -2033,21 +3296,70 @@ pub fn run_vm_concurrent(input: &str) -> InterpreterResult {
 /// [`run_vm_concurrent`] under an explicit scheduler `seed` — the VM sibling of
 /// [`run_treewalker_concurrent_seeded`] for the cross-tier seeded differential.
 pub fn run_vm_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
+    run_vm_concurrent_traced(input, seed).0
+}
+
+/// [`run_vm_concurrent_seeded`], also returning the recorded scheduling trace —
+/// the seam the `.replay` failure artifact captures its schedule through.
+pub fn run_vm_concurrent_traced(
+    input: &str,
+    seed: u64,
+) -> (InterpreterResult, logicaffeine_runtime::SchedTrace) {
+    run_vm_concurrent_traced_with_config(
+        input,
+        logicaffeine_runtime::SchedulerConfig::default(),
+        seed,
+    )
+}
+
+/// Run a concurrent program on the VM under an EXPLICIT [`SchedulerConfig`](logicaffeine_runtime::SchedulerConfig) — the same knob surface the AOT
+/// bytecode-walker's stepped scheduler exposes ([`crate::codegen_c::concurrency::SchedulerKnobs`]). This is
+/// the oracle side of the cross-tier knob equivalence: `AOT-at-knobs-K == VM-at-knobs-K`. The default-config
+/// wrapper is [`run_vm_concurrent`].
+///
+/// [`SchedulerConfig`]: logicaffeine_runtime::SchedulerConfig
+pub fn run_vm_concurrent_with_config(
+    input: &str,
+    config: logicaffeine_runtime::SchedulerConfig,
+    seed: u64,
+) -> InterpreterResult {
+    run_vm_concurrent_traced_with_config(input, config, seed).0
+}
+
+/// [`run_vm_concurrent_traced`] under an explicit [`SchedulerConfig`](logicaffeine_runtime::SchedulerConfig) (the config-parameterized core both
+/// the default-config and knobbed entry points delegate to).
+///
+/// [`SchedulerConfig`]: logicaffeine_runtime::SchedulerConfig
+pub fn run_vm_concurrent_traced_with_config(
+    input: &str,
+    config: logicaffeine_runtime::SchedulerConfig,
+    seed: u64,
+) -> (InterpreterResult, logicaffeine_runtime::SchedTrace) {
     use crate::concurrency::vm_driver::VmTask;
-    use logicaffeine_runtime::{run_with_seed, RunOutcome, SchedSeed, SchedulerConfig};
+    use logicaffeine_runtime::{run_with_seed, RunOutcome, SchedSeed};
     use std::cell::RefCell;
     use std::rc::Rc;
 
     with_parsed_program(input, |parsed, interner| match parsed {
         Ok((stmts, type_registry, policies)) => {
-            let program = match crate::vm::Compiler::compile_with_types(
-                stmts,
-                interner,
-                Some(type_registry),
-            ) {
-                Ok(p) => p,
-                Err(e) => return InterpreterResult { lines: vec![], error: Some(e) },
+            let empty_trace = || logicaffeine_runtime::SchedTrace {
+                seed: SchedSeed(seed),
+                choices: Vec::new(),
             };
+            let program =
+                match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry))
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return (
+                            InterpreterResult {
+                                lines: vec![],
+                                error: Some(e),
+                            },
+                            empty_trace(),
+                        )
+                    }
+                };
             let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
             let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
             let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policies, interner);
@@ -2061,10 +3373,9 @@ pub fn run_vm_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
                 vm = vm.with_native_tier(tier);
             }
             let main_task = VmTask::new(vm, output.clone(), Some(err_sink.clone()));
-            let (outcome, _trace) =
-                run_with_seed(SchedulerConfig::default(), SchedSeed(seed), move |sched| {
-                    sched.spawn_main(Box::new(main_task));
-                });
+            let (outcome, trace) = run_with_seed(config, SchedSeed(seed), move |sched| {
+                sched.spawn_main(Box::new(main_task));
+            });
             let mut error = err_sink.borrow().clone();
             if error.is_none() {
                 if let RunOutcome::Deadlock = outcome {
@@ -2072,9 +3383,21 @@ pub fn run_vm_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
                 }
             }
             let lines = output.borrow().clone();
-            InterpreterResult { lines, error }
+            (InterpreterResult { lines, error }, trace)
         }
-        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+        Err(advice) => {
+            let trace = logicaffeine_runtime::SchedTrace {
+                seed: logicaffeine_runtime::SchedSeed(seed),
+                choices: Vec::new(),
+            };
+            (
+                InterpreterResult {
+                    lines: vec![],
+                    error: Some(advice),
+                },
+                trace,
+            )
+        }
     })
 }
 
@@ -2087,19 +3410,6 @@ async fn vm_net_poll_tick() {
     gloo_timers::future::TimeoutFuture::new(2).await;
 }
 
-/// A peer value → its relay topic (mirrors the tree-walker's `Interpreter::peer_topic_of`).
-fn vm_peer_topic_of(value: &crate::interpreter::RuntimeValue) -> Result<String, String> {
-    use crate::interpreter::RuntimeValue;
-    match value {
-        RuntimeValue::Peer(topic) => Ok((**topic).clone()),
-        RuntimeValue::Text(s) => Ok(logicaffeine_system::addr::canonical_topic(s)),
-        other => Err(format!(
-            "Send/Await expects a PeerAgent or address string, got {}",
-            other.type_name()
-        )),
-    }
-}
-
 /// Service one suspended VM networking request through the shared [`NetInbox`] — the SAME inbox the
 /// tree-walker uses, so the wire encode/decode is identical and a `Send`/`Await` produces the same
 /// value on both tiers. `Connect`/`Listen` do the async relay I/O; `Send`/`Stream` encode + publish;
@@ -2107,17 +3417,26 @@ fn vm_peer_topic_of(value: &crate::interpreter::RuntimeValue) -> Result<String, 
 async fn service_vm_net_block(
     vm: &mut crate::vm::Vm<'_>,
     netbox: &mut crate::concurrency::net_inbox::NetInbox,
+    tcpbox: &mut crate::concurrency::tcp_registry::TcpRegistry,
     req: crate::vm::VmBlock,
 ) -> Result<(), String> {
     use crate::concurrency::marshal::{self};
     use crate::interpreter::RuntimeValue;
     use crate::vm::{Value, VmBlock};
     match req {
+        // tcp.lg natives: rebuild the operand values and run the SAME value-level
+        // exec the tree-walker calls — one implementation, both tiers.
+        VmBlock::Tcp(kind, payloads) => {
+            let op = crate::concurrency::tcp_registry::TcpOp::from_code(kind)
+                .ok_or_else(|| format!("vm: unknown tcp op code {kind}"))?;
+            let vals: Vec<RuntimeValue> = payloads.into_iter().map(marshal::rebuild).collect();
+            let result = tcpbox.exec_values(op, vals).await?;
+            vm.deliver_resume(Value::from_runtime(result));
+            Ok(())
+        }
         VmBlock::NetConnect(url_payload) => {
             let raw = marshal::rebuild(url_payload).to_display_string();
-            let url = logicaffeine_system::addr::multiaddr_to_ws_url(&raw).map_err(|e| {
-                format!("Connect address '{raw}' is not a ws:// URL or supported multiaddr: {e}")
-            })?;
+            let url = crate::concurrency::net_inbox::relay_url(&raw)?;
             // OFFLINE mode: `Connect` is a single-node local no-op (mirrors the tree-walker's offline
             // `Connect`), so the VM net oracle agrees with it. A relay-connected driver dials for real.
             if !crate::concurrency::net_inbox::net_is_offline() {
@@ -2146,42 +3465,57 @@ async fn service_vm_net_block(
             Ok(())
         }
         VmBlock::NetSend(to_payload, msg_payload) => {
-            let topic = vm_peer_topic_of(&marshal::rebuild(to_payload))?;
+            let topic = crate::concurrency::net_inbox::peer_topic(&marshal::rebuild(to_payload))?;
             // Advertise our surface to this peer on first contact — on its HANDSHAKE topic, never the
             // data topic — so it can negotiate back. Absorbed by the peer's drain, invisible to data.
             if let Some(hs) = netbox.first_contact_handshake(&topic) {
-                netbox.publish(&crate::concurrency::net_inbox::handshake_topic_for(&topic), hs)?;
+                netbox.publish(
+                    &crate::concurrency::net_inbox::handshake_topic_for(&topic),
+                    hs,
+                )?;
             }
             let value = marshal::rebuild(msg_payload);
-            let from = netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+            let from = netbox
+                .inbox
+                .as_ref()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
             // The negotiated maximal crush — byte-identical to the tree-walker's plain send (both call
             // `encode_negotiated` with the same program registry). Type-id fires only on a matching
             // peer epoch, so a raw / different-program peer still gets the plain encoding.
-            let bytes = netbox.encode_negotiated(&from, &value, &topic, netbox.my_registry.clone())?;
+            let bytes =
+                netbox.encode_negotiated(&from, &value, &topic, netbox.my_registry.clone())?;
             netbox.publish(&topic, bytes)?;
             vm.deliver_resume(Value::nothing());
             Ok(())
         }
         VmBlock::NetStream(to_payload, values_payload) => {
-            let topic = vm_peer_topic_of(&marshal::rebuild(to_payload))?;
+            let topic = crate::concurrency::net_inbox::peer_topic(&marshal::rebuild(to_payload))?;
             if let Some(hs) = netbox.first_contact_handshake(&topic) {
-                netbox.publish(&crate::concurrency::net_inbox::handshake_topic_for(&topic), hs)?;
+                netbox.publish(
+                    &crate::concurrency::net_inbox::handshake_topic_for(&topic),
+                    hs,
+                )?;
             }
             let list = marshal::rebuild(values_payload);
             let items = match &list {
                 RuntimeValue::List(rc) => rc.borrow().to_values(),
                 other => vec![other.clone()],
             };
-            let from = netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+            let from = netbox
+                .inbox
+                .as_ref()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
             let blob = marshal::frame_stream_message(&from, &items)?;
             netbox.publish(&topic, blob)?;
             vm.deliver_resume(Value::nothing());
             Ok(())
         }
         VmBlock::NetAwait(from_payload, stream) => {
-            let want = vm_peer_topic_of(&marshal::rebuild(from_payload))?;
+            let want = crate::concurrency::net_inbox::peer_topic(&marshal::rebuild(from_payload))?;
             if netbox.inbox.is_none() {
-                return Err("Await requires a prior Listen to establish an inbox".to_string());
+                return Err(crate::concurrency::net_inbox::AWAIT_WITHOUT_LISTEN.to_string());
             }
             // OFFLINE (no relay): drain our own loopback outbox (the `Send … to <self>` delivered
             // locally) rather than requiring a relay — the VM net oracle mirrors the tree-walker.
@@ -2213,7 +3547,9 @@ async fn service_vm_net_block(
         VmBlock::NetMakePeer(addr_payload) => {
             let raw = marshal::rebuild(addr_payload).to_display_string();
             let topic = logicaffeine_system::addr::canonical_topic(&raw);
-            vm.deliver_resume(Value::from_runtime(RuntimeValue::Peer(std::rc::Rc::new(topic))));
+            vm.deliver_resume(Value::from_runtime(RuntimeValue::Peer(std::rc::Rc::new(
+                topic,
+            ))));
             Ok(())
         }
         VmBlock::NetSync(topic_payload, current_payload) => {
@@ -2241,19 +3577,238 @@ async fn service_vm_net_block(
             vm.deliver_resume(Value::from_runtime(merged));
             Ok(())
         }
-        _ => Err("run_vm_net_async services only peer-networking blocks; this program mixes \
+        // `Op::Sleep` always yields `VmBlock::Sleep`, whichever async driver resumes it — a plain
+        // sequential program with a bare `Sleep` (no channels/tasks, no networking) reaches THIS
+        // driver too, because `run_strict_vm` refuses any `Sleep` as needing the async runtime and
+        // the dispatcher's only other fallback is the concurrency scheduler's virtual clock, which a
+        // program with no tasks never drives. Mirrors the tree-walker's own non-scheduled
+        // `Stmt::Sleep` arm: a real timer, tokio's reactor when one is current (this driver runs
+        // under `futures::executor::block_on`, which has none, so the fallback is what actually
+        // fires), a blocking thread sleep otherwise, `gloo_timers` on wasm. `as_ticks` already
+        // reports a Duration-valued Sleep in nanoseconds, the unit `Duration::from_nanos` wants.
+        VmBlock::Sleep(ticks) => {
+            if ticks > 0 {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let dur = std::time::Duration::from_nanos(ticks);
+                    match logicaffeine_system::tokio::runtime::Handle::try_current() {
+                        Ok(_) => logicaffeine_system::tokio::time::sleep(dur).await,
+                        Err(_) => std::thread::sleep(dur),
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let millis = (ticks / 1_000_000) as u32;
+                    if millis > 0 {
+                        gloo_timers::future::TimeoutFuture::new(millis).await;
+                    }
+                }
+            }
+            vm.deliver_resume(Value::nothing());
+            Ok(())
+        }
+        _ => Err(
+            "run_vm_net_async services only peer-networking blocks; this program mixes \
                   channels/tasks with networking, which the VM net runner does not yet drive"
-            .to_string()),
+                .to_string(),
+        ),
     }
 }
 
-/// Run a peer-networking program on the BYTECODE VM (single task, no channels): drive the resumable
-/// VM and service each `VmBlock::Net*` through the shared `NetInbox` — the SAME inbox the
-/// tree-walker uses — so `Connect`/`Listen`/`Send`/`Stream`/`Await` run byte-identically on both
-/// tiers. The VM analog of the tree-walker's networking path; the cross-tier lock proves they agree.
+/// Run a peer-networking program on the BYTECODE VM — the historical name for
+/// [`run_vm_io_async`], kept so existing locks keep reading naturally.
 pub async fn run_vm_net_async(input: &str) -> InterpreterResult {
+    run_vm_io_async(input).await
+}
+
+/// The bytecode-tier HTTP accept loop for a `Serve` statement — the byte-for-byte
+/// analogue of the tree-walker's `serve_http_concurrent`. It owns the SAME
+/// `Listener` + `FuturesUnordered` overlap machinery: every connection is an
+/// OWNED future driven inline (the VM is `!Send`, nothing is spawned), overlapped
+/// with the accept future by `select!`, keep-alive per the shared
+/// `request_wants_keep_alive` law, at most `MAX_INFLIGHT` in flight, a parse
+/// error → 400 + close.
+///
+/// The ONLY difference from the interpreter is the handler dispatch: each request
+/// re-enters `handler` AS VM BYTECODE via [`crate::vm::Vm::call_handler_bytecode`]
+/// (a fresh child VM at the handler's entry, fed the marshaled `Request` value),
+/// then reads back its `Response` through the SHARED
+/// [`crate::interpreter::Interpreter::value_to_http_response`] marshaling. A
+/// handler failure (runtime error, nested-IO suspension, or a non-`Response`
+/// return) answers a 500 for THAT request and keeps serving — a bad request
+/// never takes the server down. The loop never returns except on a fatal bind
+/// error; the host aborts the task to stop it.
+#[cfg(not(target_arch = "wasm32"))]
+async fn serve_vm_accept_loop(
+    vm: &crate::vm::Vm<'_>,
+    port: u16,
+    handler: u16,
+) -> Result<(), String> {
+    use futures::stream::{FuturesUnordered, StreamExt};
+    use logicaffeine_system::http::server::{
+        internal_error, read_error_response, Conn, Listener, ReadError,
+    };
+    use logicaffeine_system::http::wire::{request_wants_keep_alive, HttpRequest, HttpResponse};
+    use logicaffeine_system::http::{
+        service_unavailable, shutdown_requested, Admission, Lifecycle, LifecycleConfig,
+    };
+    use std::time::Duration;
+
+    enum Step {
+        Request(Conn, Result<HttpRequest, ReadError>),
+        Closed,
+    }
+    type StepFut<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Step> + 'a>>;
+
+    /// Read one request under the configured body cap and read deadline — the
+    /// same bounds the tree-walker and the native engines apply, so a slow or
+    /// oversized peer is refused identically on every tier.
+    async fn read_bounded(
+        conn: &mut Conn,
+        max_body: usize,
+        deadline: Duration,
+    ) -> Option<Result<HttpRequest, ReadError>> {
+        match logicaffeine_system::tokio::time::timeout(
+            deadline,
+            conn.read_request_capped(max_body),
+        )
+        .await
+        {
+            Ok(read) => Some(read),
+            Err(_) => None,
+        }
+    }
+
+    fn read_step<'a>(mut conn: Conn, max_body: usize, deadline: Duration) -> StepFut<'a> {
+        Box::pin(async move {
+            match read_bounded(&mut conn, max_body, deadline).await {
+                Some(read) => Step::Request(conn, read),
+                None => Step::Closed,
+            }
+        })
+    }
+
+    fn write_step<'a>(
+        mut conn: Conn,
+        resp: HttpResponse,
+        keep_alive: bool,
+        max_body: usize,
+        deadline: Duration,
+    ) -> StepFut<'a> {
+        Box::pin(async move {
+            if conn.write_response_conn(&resp, keep_alive).await.is_err() || !keep_alive {
+                return Step::Closed;
+            }
+            match read_bounded(&mut conn, max_body, deadline).await {
+                Some(read) => Step::Request(conn, read),
+                None => Step::Closed,
+            }
+        })
+    }
+
+    // The ONE deployment/dev-proxy seam: `LOGOS_HOST` names the interface (default
+    // loopback) and `LOGOS_PORT` (then `PORT`) overrides the program's port —
+    // composed into the whole address by `env_bind_address`, shared with the
+    // interpreter + AOT tiers so no tier drifts.
+    let port = logicaffeine_system::http::server::env_port_override(port);
+    let addr = logicaffeine_system::http::server::env_bind_address(port);
+    let listener = Listener::bind(&addr)
+        .await
+        .map_err(|e| format!("Serve: cannot bind {addr}: {e}"))?;
+    let bound = listener.local_addr().map_err(|e| format!("Serve: {e}"))?;
+    logicaffeine_system::http::server::announce_serving(bound);
+
+    // The SAME lifecycle the tree-walker and the compiled tier get, read from the
+    // SAME place, so the three tiers cannot drift.
+    let lifecycle = Lifecycle::new(LifecycleConfig::from_env());
+    lifecycle.set_ready(true);
+    let cfg = lifecycle.config();
+    let (max_body, read_deadline, max_inflight) =
+        (cfg.max_body, cfg.read_deadline, cfg.max_inflight);
+
+    let shutdown = shutdown_requested();
+    futures::pin_mut!(shutdown);
+    let mut draining = false;
+    let mut inflight: FuturesUnordered<StepFut> = FuturesUnordered::new();
+    loop {
+        if draining && inflight.is_empty() {
+            return Ok(());
+        }
+        logicaffeine_system::tokio::select! {
+            accepted = listener.accept(), if !draining && inflight.len() < max_inflight => {
+                if let Ok(conn) = accepted {
+                    inflight.push(read_step(conn, max_body, read_deadline));
+                }
+            }
+            _ = &mut shutdown, if !draining => {
+                lifecycle.set_ready(false);
+                draining = true;
+            }
+            Some(step) = inflight.next() => {
+                match step {
+                    Step::Request(conn, Ok(req)) => {
+                        let keep_alive = request_wants_keep_alive(&req);
+                        if let Some(resp) = lifecycle.probe_response(&req.path) {
+                            inflight.push(write_step(conn, resp, keep_alive, max_body, read_deadline));
+                            continue;
+                        }
+                        let guard = match lifecycle.admit() {
+                            Admission::Admit(g) => g,
+                            Admission::NotReady | Admission::Overloaded => {
+                                inflight.push(write_step(conn, service_unavailable(), false, max_body, read_deadline));
+                                continue;
+                            }
+                        };
+                        let request_value = crate::interpreter::Interpreter::http_request_to_value(&req);
+                        // Re-enter the handler as VM bytecode; its `Show` output is
+                        // dropped to stderr like the interpreter's (a running server
+                        // never surfaces `lines`).
+                        let (result, _handler_output) =
+                            vm.call_handler_bytecode(handler, request_value);
+                        let resp = match result {
+                            Ok(value) => match crate::interpreter::Interpreter::value_to_http_response(&value) {
+                                Ok(resp) => resp,
+                                Err(e) => {
+                                    eprintln!("Serve: handler error: {e}");
+                                    internal_error()
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Serve: handler error: {e}");
+                                internal_error()
+                            }
+                        };
+                        drop(guard);
+                        lifecycle.notify_slot_freed();
+                        inflight.push(write_step(conn, resp, keep_alive, max_body, read_deadline));
+                    }
+                    Step::Request(conn, Err(ReadError::Parse(ref e))) => {
+                        // The SHARED read-error law, the same one the tree-walker and both
+                        // native engines apply: a declared body over the limit is 413 so the
+                        // client knows to send less, and everything else is 400. Answering a
+                        // flat 400 here made this tier disagree with its own oracle.
+                        inflight.push(write_step(conn, read_error_response(e), false, max_body, read_deadline));
+                    }
+                    Step::Request(_, Err(_)) | Step::Closed => {}
+                }
+            }
+        }
+    }
+}
+
+/// Run an IO program (peer networking and/or tcp.lg sockets) on the BYTECODE VM (single task, no
+/// channels): drive the resumable VM and service each `VmBlock::Net*`/`VmBlock::Tcp` through the
+/// shared `NetInbox`/`TcpRegistry` — the SAME seams the tree-walker uses — so networking and
+/// sockets run byte-identically on both tiers. The cross-tier locks prove they agree.
+pub async fn run_vm_io_async(input: &str) -> InterpreterResult {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
+    // The stdlib prelude splices exactly as on the tree-walker path — the tcp.lg
+    // native declarations (and any other referenced modules) must exist on BOTH
+    // tiers or the differential is meaningless.
+    let input = crate::loader::apply_prelude(input);
+    let library = crate::loader::LibraryProvenance::of(input.as_ref());
+    let input: &str = &input;
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -2271,6 +3826,7 @@ pub async fn run_vm_net_async(input: &str) -> InterpreterResult {
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
     let ctx = AstContext::with_types(
@@ -2285,19 +3841,52 @@ pub async fn run_vm_net_async(input: &str) -> InterpreterResult {
         &type_expr_arena,
     );
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_vm = type_registry.clone();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
     let stmts = match parser.parse_program() {
         Ok(s) => s,
-        Err(e) => return InterpreterResult { lines: vec![], error: Some(format!("{e:?}")) },
+        Err(e) => {
+            return InterpreterResult {
+                lines: vec![],
+                error: Some(socratic_explanation(&e, &Interner::new())),
+            }
+        }
     };
-    let program =
-        match crate::vm::Compiler::compile_with_types(&stmts, &interner, Some(&type_registry_for_vm)) {
-            Ok(p) => p,
-            Err(e) => return InterpreterResult { lines: vec![], error: Some(e) },
-        };
+    let opt_flags = parser.program_opt_flags();
+    let type_registry_for_vm = parser.into_type_registry();
+    let mut run_cfg =
+        crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
+    run_cfg.normalize();
+    let resolved = crate::resolve_program::resolve_program(
+        &stmts,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+        &mut interner,
+        run_cfg.is_on(crate::optimization::Opt::Comptime),
+        library.functions(),
+    );
+    let stmts: Vec<Stmt> = match resolved {
+        Some(rw) => rw.to_vec(),
+        None => stmts,
+    };
+    let program = match crate::vm::Compiler::compile_with_types(
+        &stmts,
+        &interner,
+        Some(&type_registry_for_vm),
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            return InterpreterResult {
+                lines: vec![],
+                error: Some(e),
+            }
+        }
+    };
     let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policy_registry, &interner);
     let mut netbox = crate::concurrency::net_inbox::NetInbox::new();
+    let mut tcpbox = crate::concurrency::tcp_registry::TcpRegistry::new();
     // Build the wire type registry from the analysis types — IDENTICALLY to the tree-walker's
     // `build_wire_type_registry` (both derive from the same analysis table) — so two same-program peers
     // advertise matching registry epochs and may elide type NAMES from the wire (type-id).
@@ -2305,13 +3894,31 @@ pub async fn run_vm_net_async(input: &str) -> InterpreterResult {
         let mut structs: Vec<(String, Vec<String>)> = Vec::new();
         let mut enums: Vec<(String, Vec<String>)> = Vec::new();
         for (name_sym, type_def) in type_registry_for_vm.iter_types() {
+            // Skip a compiler-provided struct (`HttpError`/`File`) the program never declared —
+            // every program's analysis table carries both, so leaving them in would advertise a
+            // non-zero epoch (and inflate the registry) for a program with no types of its own.
+            if type_registry_for_vm.is_builtin_struct(*name_sym) {
+                continue;
+            }
             let type_name = interner.resolve(*name_sym).to_string();
             match type_def {
                 crate::analysis::registry::TypeDef::Struct { fields, .. } => {
-                    structs.push((type_name, fields.iter().map(|f| interner.resolve(f.name).to_string()).collect()));
+                    structs.push((
+                        type_name,
+                        fields
+                            .iter()
+                            .map(|f| interner.resolve(f.name).to_string())
+                            .collect(),
+                    ));
                 }
                 crate::analysis::registry::TypeDef::Enum { variants, .. } => {
-                    enums.push((type_name, variants.iter().map(|v| interner.resolve(v.name).to_string()).collect()));
+                    enums.push((
+                        type_name,
+                        variants
+                            .iter()
+                            .map(|v| interner.resolve(v.name).to_string())
+                            .collect(),
+                    ));
                 }
                 _ => {}
             }
@@ -2332,7 +3939,29 @@ pub async fn run_vm_net_async(input: &str) -> InterpreterResult {
                     Some(r) => r,
                     None => break,
                 };
-                if let Err(e) = service_vm_net_block(&mut vm, &mut netbox, req).await {
+                // `Serve` owns the accept loop: it never resumes the top-level VM
+                // (the loop runs until the host aborts the task), so it is driven
+                // HERE rather than through `service_vm_net_block`. The loop only
+                // returns on a fatal bind error — a served response never
+                // surfaces through `lines` (a running server never completes),
+                // exactly as on the tree-walker.
+                if let crate::vm::VmBlock::Serve(port, handler) = req {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        if let Err(e) = serve_vm_accept_loop(&vm, port, handler).await {
+                            error = Some(e);
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (port, handler);
+                        error = Some(
+                            "serve: networking is unavailable on the wasm32 target".to_string(),
+                        );
+                    }
+                    break;
+                }
+                if let Err(e) = service_vm_net_block(&mut vm, &mut netbox, &mut tcpbox, req).await {
                     error = Some(e);
                     break;
                 }
@@ -2367,14 +3996,17 @@ pub fn run_vm_workstealing_seeded(input: &str, seed: u64, workers: usize) -> Int
 
     with_parsed_program(input, |parsed, interner| match parsed {
         Ok((stmts, type_registry, policies)) => {
-            let program = match crate::vm::Compiler::compile_with_types(
-                stmts,
-                interner,
-                Some(type_registry),
-            ) {
-                Ok(p) => p,
-                Err(e) => return InterpreterResult { lines: vec![], error: Some(e) },
-            };
+            let program =
+                match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry))
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return InterpreterResult {
+                            lines: vec![],
+                            error: Some(e),
+                        }
+                    }
+                };
             // Build a worker-local task body from a `Send` descriptor. Workers run
             // the bytecode path: the native JIT tier is per-thread state (its code
             // cache is `!Sync`), so no shared tier is installed across workers.
@@ -2391,18 +4023,27 @@ pub fn run_vm_workstealing_seeded(input: &str, seed: u64, workers: usize) -> Int
                 }
                 Box::new(VmTask::work_stealing(vm, None))
             };
-            let main = SpawnDesc { func: 0, args: vec![], priority: 0, is_main: true };
+            let main = SpawnDesc {
+                func: 0,
+                args: vec![],
+                priority: 0,
+                is_main: true,
+            };
             let config = SchedulerConfig::default().with_workers(workers.max(1));
             let result = run_workstealing_seeded(config, SchedSeed(seed), main, build);
             let error = match result.outcome {
-                RunOutcome::Deadlock => {
-                    Some("deadlock: every task is blocked waiting".to_string())
-                }
+                RunOutcome::Deadlock => Some("deadlock: every task is blocked waiting".to_string()),
                 _ => None,
             };
-            InterpreterResult { lines: result.output, error }
+            InterpreterResult {
+                lines: result.output,
+                error,
+            }
         }
-        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+        Err(advice) => InterpreterResult {
+            lines: vec![],
+            error: Some(advice),
+        },
     })
 }
 
@@ -2410,10 +4051,15 @@ pub fn run_vm_workstealing_seeded(input: &str, seed: u64, workers: usize) -> Int
 /// bindings as sorted `(name, type, value)` rows — the REPL's `:vars`
 /// inspection. Returns `None` for programs the sync walker can't host
 /// (async/concurrent) or that fail to parse or run.
-pub fn repl_global_bindings(input: &str, program_args: &[String]) -> Option<Vec<(String, String, String)>> {
+pub fn repl_global_bindings(
+    input: &str,
+    program_args: &[String],
+) -> Option<Vec<(String, String, String)>> {
     with_parsed_program(input, |parsed, interner| match parsed {
         Ok((stmts, type_registry, policies)) => {
-            if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
+            if crate::interpreter::needs_async(stmts, interner)
+                || crate::concurrency::uses_scheduler(stmts)
+            {
                 return None;
             }
             let mut interp = crate::interpreter::Interpreter::new(interner)
@@ -2437,21 +4083,34 @@ pub(crate) fn run_treewalker<'a>(
 ) -> InterpreterResult {
     if crate::concurrency::uses_scheduler(stmts) {
         return run_program_concurrent(
-            stmts, type_registry, policies, interner, program_args, None, None, 0,
+            stmts,
+            type_registry,
+            policies,
+            interner,
+            program_args,
+            Some(std::sync::Arc::new(logicaffeine_system::fs::MemVfs::new())),
+            None,
+            0,
         );
     }
     let mut interp = crate::interpreter::Interpreter::new(interner)
         .with_type_registry(type_registry)
         .with_policies(policies)
-        .with_program_args(program_args.to_vec());
+        .with_program_args(program_args.to_vec())
+        .with_vfs(std::sync::Arc::new(logicaffeine_system::fs::MemVfs::new()));
     let run_result = if force_async {
         futures::executor::block_on(interp.run(stmts))
     } else {
         interp.run_sync(stmts)
     };
-    match run_result {
-        Ok(()) => InterpreterResult { lines: interp.output, error: None },
-        Err(e) => InterpreterResult { lines: interp.output, error: Some(e) },
+    // ★ AN UNHANDLED ACTION FAILURE IS THE PROGRAM'S ERROR, reported once the run has finished
+    // rather than thrown when it happened. Thrown, it would stop a `Replay` at its first trap;
+    // dropped, an author gets a button that silently does nothing. A real error the program raised
+    // outranks it — that one stopped the run, and it is the one that explains the rest.
+    let unhandled = interp.take_page_failure();
+    InterpreterResult {
+        error: run_result.err().or(unhandled),
+        lines: interp.output,
     }
 }
 
@@ -2477,7 +4136,10 @@ pub(crate) fn run_treewalker<'a>(
 /// }))).await;
 /// # }
 /// ```
-pub async fn interpret_streaming<F>(input: &str, on_output: std::rc::Rc<std::cell::RefCell<F>>) -> InterpreterResult
+pub async fn interpret_streaming<F>(
+    input: &str,
+    on_output: std::rc::Rc<std::cell::RefCell<F>>,
+) -> InterpreterResult
 where
     F: FnMut(String) + 'static,
 {
@@ -2524,15 +4186,21 @@ async fn interpret_streaming_impl<F>(
 where
     F: FnMut(String) + 'static,
 {
-    use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
     use crate::interpreter::OutputCallback;
+    use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
+    begin_ui_run();
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
 
     let mwe_trie = mwe::build_mwe_trie();
-    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let mut tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Resolve the qualified escape hatch for cross-module calls (`Alias::fn` →
+    // bare `fn`); no-op for single-file programs.
+    let functions = crate::analysis::assemble::defined_function_names(input);
+    crate::analysis::assemble::resolve_qualified_names(&mut tokens, &mut interner, &functions);
 
     let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
@@ -2547,6 +4215,7 @@ where
     let role_arena = Arena::new();
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
+    let _compile_facts = crate::optimize::facts::scope();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
     let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
@@ -2563,18 +4232,39 @@ where
     );
 
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_interp = type_registry.clone();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let parsed = parser.parse_program();
+    let opt_flags = parser.program_opt_flags();
+    let type_registry_for_interp = parser.into_type_registry();
 
-    match parser.parse_program() {
+    match parsed {
         Ok(stmts) => {
+            let mut run_cfg =
+                crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
+            run_cfg.normalize();
+            let resolved = crate::resolve_program::resolve_program(
+                &stmts,
+                crate::ast_map::Arenas {
+                    exprs: &imperative_expr_arena,
+                    stmts: &stmt_arena,
+                    types: &type_expr_arena,
+                },
+                &mut interner,
+                run_cfg.is_on(crate::optimization::Opt::Comptime),
+                &crate::loader::library_owned_functions(input),
+            );
+            let stmts: Vec<Stmt> = match resolved {
+                Some(rw) => rw.to_vec(),
+                None => stmts,
+            };
             if let Some(rejection) = send_escape_rejection(&stmts) {
                 return rejection;
             }
             // Create the callback wrapper that calls the user's callback
-            let callback: OutputCallback = std::rc::Rc::new(std::cell::RefCell::new(move |line: String| {
-                (on_output.borrow_mut())(line);
-            }));
+            let callback: OutputCallback =
+                std::rc::Rc::new(std::cell::RefCell::new(move |line: String| {
+                    (on_output.borrow_mut())(line);
+                }));
 
             // Concurrent programs run on the deterministic scheduler — the browser
             // concurrency path — driven in slices that yield a macrotask between them so
@@ -2629,9 +4319,9 @@ where
 // Theorem Verification (Kernel-certified)
 // ═══════════════════════════════════════════════════════════════════
 
+use crate::kernel;
 use logicaffeine_language::ast::Stmt;
 use logicaffeine_language::proof_convert::logic_expr_to_proof_expr;
-use crate::kernel;
 
 /// Phase 78: Verify a theorem with full kernel certification.
 ///
@@ -2643,14 +4333,11 @@ use crate::kernel;
 /// 5. Type-check the term
 /// 6. Return (proof_term, context)
 pub fn verify_theorem(input: &str) -> Result<(kernel::Term, kernel::Context), ParseError> {
-    let (proof_exprs, goal_expr, definitions) = theorem_proof_exprs_with_defs(input)?;
+    let (proof_exprs, goal_expr, definitions, declared) = theorem_problem_declared(input)?;
 
-    // === STEPS 3-6: Prove → certify → type-check (the one canonical pipeline) ===
-    let outcome = logicaffeine_proof::verify::prove_certify_check_with_defs(
-        &proof_exprs,
-        &goal_expr,
-        &definitions,
-    );
+    // === STEPS 3-6: Prove → certify → type-check (the one canonical pipeline), BY THE
+    // METHOD THE BLOCK DECLARED — see `prove_declared`. ===
+    let (outcome, _) = prove_declared(&proof_exprs, &goal_expr, &definitions, &declared);
     if outcome.verified {
         Ok((
             outcome
@@ -2693,12 +4380,8 @@ pub struct TheoremTrace {
 /// TRACE. Unlike [`verify_theorem`] (which returns the raw kernel term), this
 /// surfaces the derivation tree so the proof steps are visible.
 pub fn prove_theorem_trace(input: &str) -> Result<TheoremTrace, ParseError> {
-    let (proof_exprs, goal_expr, definitions) = theorem_proof_exprs_with_defs(input)?;
-    let outcome = logicaffeine_proof::verify::prove_certify_check_with_defs(
-        &proof_exprs,
-        &goal_expr,
-        &definitions,
-    );
+    let (proof_exprs, goal_expr, definitions, declared) = theorem_problem_declared(input)?;
+    let (outcome, _) = prove_declared(&proof_exprs, &goal_expr, &definitions, &declared);
     Ok(TheoremTrace {
         verified: outcome.verified,
         premises: proof_exprs.iter().map(|p| p.to_string()).collect(),
@@ -2706,6 +4389,96 @@ pub fn prove_theorem_trace(input: &str) -> Result<TheoremTrace, ParseError> {
         trace: outcome.derivation.as_ref().map(|d| d.display_tree()),
         error: outcome.verification_error,
     })
+}
+
+/// Build an INDEPENDENTLY RE-CHECKABLE certificate for a proved English `## Theorem`.
+///
+/// A `largo prove` ✓ is a boolean the caller must trust the prover for. A
+/// [`kernel::certificate::TheoremCertificate`] is instead a portable artifact — the
+/// kernel proof term, the goal it proves, and the theorem's DISCLOSED environment delta
+/// (its declared vocabulary + stated premises as hypotheses) — that a third party can
+/// re-verify with nothing but the kernel, by TYPE-CHECKING the term, never by re-running
+/// proof search.
+///
+/// Returns `Ok(None)` when the theorem block parses but is NOT kernel-certified (an
+/// unproved goal has no proof term, so no certificate exists — the honest outcome).
+/// Only a genuine kernel derivation yields a certificate; there is no finite-enumeration
+/// path here that could mint one.
+pub fn theorem_certificate(
+    input: &str,
+) -> Result<Option<kernel::certificate::TheoremCertificate>, ParseError> {
+    let (proof_exprs, goal_expr, definitions, declared) = theorem_problem_declared(input)?;
+    let (outcome, _) = prove_declared(&proof_exprs, &goal_expr, &definitions, &declared);
+    // A derivation alone is NOT a proof: only a `verified` outcome carries a
+    // kernel-certified proof term, and only that becomes a certificate.
+    if !outcome.verified {
+        return Ok(None);
+    }
+    let Some(proof_term) = outcome.proof_term else {
+        return Ok(None);
+    };
+    let name = english_theorem_name(input);
+    Ok(Some(build_theorem_certificate(
+        &name,
+        proof_term,
+        &outcome.kernel_ctx,
+    )))
+}
+
+/// The display name of an English `## Theorem: Name` block (mirrors the CLI's namer).
+fn english_theorem_name(input: &str) -> String {
+    input
+        .lines()
+        .find(|l| l.trim_start().starts_with("## Theorem"))
+        .and_then(|l| l.split_once(':'))
+        .map(|(_, name)| name.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "theorem".to_string())
+}
+
+/// Assemble a [`kernel::certificate::TheoremCertificate`] from a proved theorem's kernel
+/// proof term and its proving context. The certificate's claimed type is the term's
+/// inferred type in that context; its disclosed delta is EVERY declaration/definition the
+/// context holds beyond the standard prelude — the theorem's own vocabulary and premises.
+///
+/// The prelude baseline is subtracted so the delta carries ONLY the theorem-specific
+/// assumptions, in the open, and the checker rebuilds the trusted prelude itself.
+pub(crate) fn build_theorem_certificate(
+    name: &str,
+    proof_term: kernel::Term,
+    ctx: &kernel::Context,
+) -> kernel::certificate::TheoremCertificate {
+    use kernel::certificate::{CertDeclaration, CertDefinition, TheoremCertificate};
+
+    // The trusted baseline: the standard prelude. Anything in `ctx` NOT in the baseline is
+    // the theorem's disclosed delta.
+    let baseline = kernel::prelude::StandardLibrary::context();
+
+    let declarations: Vec<CertDeclaration> = ctx
+        .iter_declarations()
+        .filter(|(n, _)| baseline.get_global(n).is_none())
+        .map(|(n, ty)| CertDeclaration {
+            name: n.to_string(),
+            ty: ty.clone(),
+        })
+        .collect();
+    let definitions: Vec<CertDefinition> = ctx
+        .iter_definitions()
+        .filter(|(n, _, _)| baseline.get_global(n).is_none())
+        .map(|(n, ty, body)| CertDefinition {
+            name: n.to_string(),
+            ty: ty.clone(),
+            body: body.clone(),
+        })
+        .collect();
+
+    // The claimed type is what the term actually proves in the full context. If the term
+    // somehow fails to type-check here it is not a real proof; a bogus fallback type would
+    // simply be rejected by the independent re-checker, never silently accepted.
+    let claimed_type = kernel::infer_type(ctx, &proof_term)
+        .unwrap_or_else(|_| kernel::Term::Global("False".to_string()));
+
+    TheoremCertificate::new(name, proof_term, claimed_type, declarations, definitions)
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2717,37 +4490,29 @@ pub fn prove_theorem_trace(input: &str) -> Result<TheoremTrace, ParseError> {
 /// before definitions so the extracted module reads top-down; StandardLibrary
 /// items are pulled in by [`extract_math_rust`] only when transitively needed.
 fn user_defined_entries(ctx: &kernel::Context) -> Vec<String> {
-    let baseline = kernel::interface::Repl::new();
-    let base = baseline.context();
-    let mut base_names: HashSet<String> = HashSet::new();
-    for (name, _) in base.iter_inductives() {
-        base_names.insert(name.to_string());
-    }
-    for (name, _, _) in base.iter_definitions() {
-        base_names.insert(name.to_string());
-    }
+    let base = Baseline::new();
 
     let mut entries = Vec::new();
     for (name, _) in ctx.iter_inductives() {
         // A user inductive extracts as an enum only if every constructor field is
         // a concrete Rust type. Dependent/indexed families (e.g. `Eq<Nat,n,…>`,
         // value-indexed proof types) and opaque/primitive types are skipped.
-        if !base_names.contains(name) && inductive_is_emittable(ctx, name) {
+        if !base.owns_inductive(name) && inductive_is_emittable(ctx, name) {
             entries.push(name.to_string());
         }
     }
-    for (name, ty, _) in ctx.iter_definitions() {
+    for (name, ty, body) in ctx.iter_definitions() {
         // Only data-typed definitions whose body references nothing inextractable
         // (no Prop proofs, no axioms/tactics like `syn_diag`/`try_auto`) extract to
         // runnable Rust — so we never emit Rust that references undefined symbols.
-        if !base_names.contains(name)
+        if !base.owns_definition(name, ty, body)
             && type_is_emittable(ctx, ty, &[])
             && crate::extraction::is_extractable(ctx, name)
         {
             entries.push(name.to_string());
         }
     }
-    // Deterministic order (iter_* walk HashMaps with per-instance random seeds).
+    // The module lists its items by name, whatever order they were declared in.
     entries.sort();
     entries.dedup();
     entries
@@ -2769,8 +4534,13 @@ fn type_is_emittable(ctx: &kernel::Context, ty: &kernel::Term, generics: &[Strin
         // A type variable is only a real Rust type if it's a declared generic of
         // the enclosing inductive — never in a bare definition type.
         Term::Var(v) => generics.iter().any(|g| g == v),
-        Term::Pi { param_type, body_type, .. } => {
-            type_is_emittable(ctx, param_type, generics) && type_is_emittable(ctx, body_type, generics)
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => {
+            type_is_emittable(ctx, param_type, generics)
+                && type_is_emittable(ctx, body_type, generics)
         }
         Term::App(f, a) => {
             type_is_emittable(ctx, f, generics) && type_is_emittable(ctx, a, generics)
@@ -2787,7 +4557,12 @@ fn inductive_generics(ctx: &kernel::Context, ind: &str) -> Vec<String> {
         Some(t) => t,
         None => return names,
     };
-    while let Term::Pi { param, param_type, body_type } = cur {
+    while let Term::Pi {
+        param,
+        param_type,
+        body_type,
+    } = cur
+    {
         if matches!(param_type.as_ref(), Term::Sort(_)) {
             names.push(param.clone());
             cur = body_type;
@@ -2816,7 +4591,12 @@ fn inductive_is_emittable(ctx: &kernel::Context, ind: &str) -> bool {
                 break;
             }
         }
-        while let Term::Pi { param_type, body_type, .. } = cur {
+        while let Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } = cur
+        {
             if !type_is_emittable(ctx, param_type, &generics) {
                 return false;
             }
@@ -2836,10 +4616,15 @@ pub fn extract_math_rust(ctx: &kernel::Context) -> Result<String, String> {
         return Ok("// nothing defined yet — add a Definition or Inductive".to_string());
     }
     let module = extract_math_module(ctx)?;
-    let checks: Vec<(String, Vec<kernel::Term>)> =
-        property_checks(ctx).into_iter().map(|(n, _, p)| (n, p)).collect();
+    let checks: Vec<(String, Vec<kernel::Term>)> = property_checks(ctx)
+        .into_iter()
+        .map(|(n, _, p)| (n, p))
+        .collect();
     // The "compiled mathematical object" runs and proves itself.
-    Ok(format!("{module}{}", math_demo_main(ctx, &entries, &checks)))
+    Ok(format!(
+        "{module}{}",
+        math_demo_main(ctx, &entries, &checks)
+    ))
 }
 
 /// Extract every user-defined inductive/definition in `ctx` into one Rust module —
@@ -2867,13 +4652,14 @@ pub fn extract_math_module(ctx: &kernel::Context) -> Result<String, String> {
     // of a Prop has no computational content — so it has no runnable form. The
     // constructive dependencies it uses are still extracted above; the note explains
     // why the theorem itself isn't a function. Sorted for deterministic output.
-    let base = baseline_names();
+    let base = Baseline::new();
     let mut notes: Vec<String> = Vec::new();
-    for (name, ty, _) in ctx.iter_definitions() {
-        if base.contains(name) || check_names.contains(name) {
+    for (name, ty, body) in ctx.iter_definitions() {
+        if base.owns_definition(name, ty, body) || check_names.contains(name) {
             continue;
         }
         if def_type_is_proposition(ty) {
+            let name = ctx.written_name(name);
             notes.push(format!(
                 "// note: `{name}` is a proof of a proposition — proof-irrelevant (no \
                  computational content), so it has no runnable form; any constructive \
@@ -2910,10 +4696,10 @@ fn def_type_is_proposition(ty: &kernel::Term) -> bool {
 /// [`crate::extraction::emit_property_check`] produces a runnable predicate over the
 /// extracted functions (it quantifies only over data types).
 fn property_checks(ctx: &kernel::Context) -> Vec<(String, String, Vec<kernel::Term>)> {
-    let base = baseline_names();
+    let base = Baseline::new();
     let mut checks: Vec<(String, String, Vec<kernel::Term>)> = Vec::new();
-    for (name, ty, _) in ctx.iter_definitions() {
-        if base.contains(name) {
+    for (name, ty, body) in ctx.iter_definitions() {
+        if base.owns_definition(name, ty, body) {
             continue;
         }
         if let Some(check_fn) = crate::extraction::emit_property_check(ctx, name, ty) {
@@ -2924,18 +4710,50 @@ fn property_checks(ctx: &kernel::Context) -> Vec<(String, String, Vec<kernel::Te
     checks
 }
 
-/// Names present in a fresh `Repl::new()` (the StandardLibrary baseline).
-fn baseline_names() -> std::collections::HashSet<String> {
-    let baseline = kernel::interface::Repl::new();
-    let base = baseline.context();
-    let mut names = std::collections::HashSet::new();
-    for (n, _) in base.iter_inductives() {
-        names.insert(n.to_string());
+/// The StandardLibrary baseline: what a fresh `Repl::new()` declares, and AS WHAT.
+///
+/// A NAME is not an identity. `add_zero`, `mul_zero`, `le_add_mono`, `Nat_add` — the prelude's
+/// integer laws and structural arithmetic — are all perfectly ordinary names for a user's own
+/// theorem, and compared by name alone a user's
+/// `Definition add_zero : Eq MyNat (my_add MZero MZero) MZero` IS the prelude's
+/// `∀a:Int. a + 0 = a`: it vanishes from the extracted module with no `check_add_zero` and not
+/// even the honest note that would say why. The comparison that holds is the one the trust
+/// door already makes about an axiom footprint — a name the rebuilt prelude declares AT THE
+/// SAME TYPE AND BODY is the prelude's; anything else at that name was introduced by this run.
+///
+/// INDUCTIVES are compared by name, because in this kernel a redeclared inductive is not a
+/// second declaration: its constructors are APPENDED to the same family (which is why
+/// `distinct_constructors` exists), so there is no rival declaration to compare against.
+struct Baseline {
+    inductives: std::collections::HashSet<String>,
+    definitions: std::collections::HashMap<String, (kernel::Term, kernel::Term)>,
+}
+
+impl Baseline {
+    fn new() -> Self {
+        let baseline = kernel::interface::Repl::new();
+        let base = baseline.context();
+        Self {
+            inductives: base.iter_inductives().map(|(n, _)| n.to_string()).collect(),
+            definitions: base
+                .iter_definitions()
+                .map(|(n, ty, body)| (n.to_string(), (ty.clone(), body.clone())))
+                .collect(),
+        }
     }
-    for (n, _, _) in base.iter_definitions() {
-        names.insert(n.to_string());
+
+    /// Is `name` the prelude's inductive (not a user type that reuses the spelling)?
+    fn owns_inductive(&self, name: &str) -> bool {
+        self.inductives.contains(name)
     }
-    names
+
+    /// Is the definition `name : ty := body` the prelude's own, rather than a user
+    /// declaration that happens to share its spelling?
+    fn owns_definition(&self, name: &str, ty: &kernel::Term, body: &kernel::Term) -> bool {
+        self.definitions
+            .get(name)
+            .is_some_and(|(bty, bbody)| bty == ty && bbody == body)
+    }
 }
 
 /// Whether a term applies the `div`/`mod` arithmetic builtins (whose extracted Rust
@@ -2945,14 +4763,20 @@ fn term_uses_div_or_mod(term: &kernel::Term) -> bool {
     match term {
         Term::Global(n) => n == "div" || n == "mod",
         Term::App(f, a) => term_uses_div_or_mod(f) || term_uses_div_or_mod(a),
-        Term::Lambda { param_type, body, .. } => {
-            term_uses_div_or_mod(param_type) || term_uses_div_or_mod(body)
-        }
-        Term::Pi { param_type, body_type, .. } => {
-            term_uses_div_or_mod(param_type) || term_uses_div_or_mod(body_type)
-        }
+        Term::Lambda {
+            param_type, body, ..
+        } => term_uses_div_or_mod(param_type) || term_uses_div_or_mod(body),
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => term_uses_div_or_mod(param_type) || term_uses_div_or_mod(body_type),
         Term::Fix { body, .. } => term_uses_div_or_mod(body),
-        Term::Match { discriminant, motive, cases } => {
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
             term_uses_div_or_mod(discriminant)
                 || term_uses_div_or_mod(motive)
                 || cases.iter().any(term_uses_div_or_mod)
@@ -2975,6 +4799,12 @@ fn math_demo_main(
         let Some(body) = ctx.get_definition_body(name) else {
             continue; // an inductive, not a definition
         };
+        // The Rust item a key was emitted as, and the name its author wrote, which a key that a
+        // shadow minted is not.
+        let (item, written) = (
+            crate::extraction::rust_global(ctx, name),
+            ctx.written_name(name),
+        );
         // Skip exercising a def that uses `div`/`mod`: the demo samples Int as 0, and
         // `n / n` / `n % n` at n=0 is a compile-time divide-by-zero panic (and the
         // kernel leaves div-by-0 stuck, diverging from Rust's panic). The function is
@@ -2984,29 +4814,32 @@ fn math_demo_main(
         }
         if matches!(body, Term::Lambda { .. } | Term::Fix { .. }) {
             // A function: apply it to kernel-built sample arguments.
-            let Some(ty) = ctx.get_definition_type(name) else { continue };
+            let Some(ty) = ctx.get_definition_type(name) else {
+                continue;
+            };
             let params = pi_param_types(ty);
-            let samples: Option<Vec<Term>> =
-                params.iter().map(|p| sample_value(ctx, p)).collect();
+            let samples: Option<Vec<Term>> = params.iter().map(|p| sample_value(ctx, p)).collect();
             let Some(samples) = samples else { continue }; // can't sample → skip
             if samples.is_empty() {
                 continue;
             }
-            let args_rust: Vec<String> =
-                samples.iter().map(|s| crate::extraction::emit_value(ctx, s)).collect();
+            let args_rust: Vec<String> = samples
+                .iter()
+                .map(|s| crate::extraction::emit_value(ctx, s))
+                .collect();
             let mut app = Term::Global(name.clone());
             for s in &samples {
                 app = Term::App(Box::new(app), Box::new(s.clone()));
             }
             let expected = crate::extraction::emit_value(ctx, &kernel::normalize(ctx, &app));
-            let call = format!("{}({})", name, args_rust.join(", "));
+            let call = format!("{}({})", item, args_rust.join(", "));
             lines.push(format!("    assert_eq!({call}, {expected});"));
-            lines.push(format!("    println!(\"{name}(..) = {{:?}}\", {call});"));
+            lines.push(format!("    println!(\"{written}(..) = {{:?}}\", {call});"));
         } else {
             // A value: evaluate and self-verify.
             let expected = crate::extraction::emit_value(ctx, &kernel::normalize(ctx, body));
-            lines.push(format!("    assert_eq!({name}(), {expected});"));
-            lines.push(format!("    println!(\"{name} = {{:?}}\", {name}());"));
+            lines.push(format!("    assert_eq!({item}(), {expected});"));
+            lines.push(format!("    println!(\"{written} = {{:?}}\", {item}());"));
         }
     }
     // Run each proven theorem's property check on a sample and assert it holds.
@@ -3014,11 +4847,21 @@ fn math_demo_main(
         let samples: Option<Vec<kernel::Term>> =
             param_types.iter().map(|p| sample_value(ctx, p)).collect();
         let Some(samples) = samples else { continue };
-        let args: Vec<String> =
-            samples.iter().map(|s| crate::extraction::emit_value(ctx, s)).collect();
-        let call = format!("check_{}({})", name, args.join(", "));
-        lines.push(format!("    assert!({call}, \"theorem {name} failed on sample\");"));
-        lines.push(format!("    println!(\"\\u{{2713}} {name} holds (checked on a sample)\");"));
+        let args: Vec<String> = samples
+            .iter()
+            .map(|s| crate::extraction::emit_value(ctx, s))
+            .collect();
+        let (item, written) = (
+            crate::extraction::rust_global(ctx, name),
+            ctx.written_name(name),
+        );
+        let call = format!("check_{}({})", item, args.join(", "));
+        lines.push(format!(
+            "    assert!({call}, \"theorem {written} failed on sample\");"
+        ));
+        lines.push(format!(
+            "    println!(\"\\u{{2713}} {written} holds (checked on a sample)\");"
+        ));
     }
     if lines.is_empty() {
         return "\nfn main() {}\n".to_string();
@@ -3031,7 +4874,12 @@ fn pi_param_types(ty: &kernel::Term) -> Vec<kernel::Term> {
     use kernel::Term;
     let mut params = Vec::new();
     let mut cur = ty;
-    while let Term::Pi { param_type, body_type, .. } = cur {
+    while let Term::Pi {
+        param_type,
+        body_type,
+        ..
+    } = cur
+    {
         params.push((**param_type).clone());
         cur = body_type;
     }
@@ -3093,24 +4941,9 @@ pub fn extract_math_module_from_source(input: &str) -> String {
     }
 }
 
-/// Partition a possibly-MIXED document into its imperative and math streams.
-///
-/// A mixed document interleaves imperative LOGOS (`## To`/`## Main`/statements) with
-/// Coq-style math (`Definition`/`Inductive`/`Axiom`/`Theorem`/`Lemma`/`Fixpoint`) and
-/// literate `## Theorem:`/`## Lemma:` blocks. The math blocks feed the Forge (extracted
-/// into `mod proven`); the imperative blocks compile normally and call into it.
-///
-/// Returns `(imperative_src, Some(math_src))` when math is present, or
-/// `(source.to_string(), None)` for a pure imperative program — so that path is a
-/// guaranteed no-op (byte-identical compile). In `imperative_src` the math lines are
-/// BLANKED (kept as empty lines), not deleted, so imperative line numbers — and thus
-/// error spans — stay aligned with the original source.
-///
-/// `## To`/`## A X is one of` stay imperative (only the Coq keywords and `## Theorem:`/
-/// `## Lemma:` route to math), so this never steals an imperative function or enum.
 /// IMPLICIT MAIN: a source with no `##` headers whose first non-blank line
-/// reads as an imperative statement runs as its own `## Main` body — a bare
-/// script no longer parses as logic prose and runs to empty output.
+/// reads as an imperative statement runs as its own `## Main` body, so a bare
+/// script runs rather than parsing as logic prose.
 /// Natural-language documents (no statement-keyword opening) are untouched.
 /// Returns the wrapped source, or `None` when the input is not a bare script.
 pub fn implicit_main(source: &str) -> Option<String> {
@@ -3119,9 +4952,23 @@ pub fn implicit_main(source: &str) -> Option<String> {
     }
     let first = source.lines().find(|l| !l.trim().is_empty())?;
     const STATEMENT_HEADS: &[&str] = &[
-        "Let ", "Show ", "Set ", "If ", "While ", "Repeat ", "Push ",
-        "Pop ", "Add ", "Remove ", "Call ", "Return ", "Increase ",
-        "Decrease ", "Break", "Inspect ", "Assert ",
+        "Let ",
+        "Show ",
+        "Set ",
+        "If ",
+        "While ",
+        "Repeat ",
+        "Push ",
+        "Pop ",
+        "Add ",
+        "Remove ",
+        "Call ",
+        "Return ",
+        "Increase ",
+        "Decrease ",
+        "Break",
+        "Inspect ",
+        "Assert ",
     ];
     let t = first.trim_start();
     if STATEMENT_HEADS.iter().any(|h| t.starts_with(h)) {
@@ -3131,6 +4978,24 @@ pub fn implicit_main(source: &str) -> Option<String> {
     }
 }
 
+/// Partition a possibly-MIXED document into its imperative and math streams.
+///
+/// A mixed document interleaves the language's blocks with the kernel's vernacular: Coq-style
+/// sentences (`Definition`/`Inductive`/`Axiom`/`Theorem`/`Lemma`/`Fixpoint`) and literate
+/// `## Theorem:`/`## Lemma:` blocks in the kernel's own form, the name followed by `Statement:`.
+/// The math feeds the Forge (extracted into `mod proven`); the imperative blocks compile
+/// normally and call into it.
+///
+/// What the language reads never reaches the kernel: `## To`/`## A X is one of` stay
+/// imperative, an English `## Theorem:` (`Given:`/`Prove:`) is the proof engine's
+/// (`opens_kernel_statement`), and a block the language reads as text owns its body to the
+/// next header (`language_reads_as_text`), even where a line opens with a kernel keyword.
+///
+/// Returns `(imperative_src, Some(math_src))` when math is present, or
+/// `(source.to_string(), None)` for a pure imperative program — so that path is a
+/// guaranteed no-op (byte-identical compile). In `imperative_src` the math lines are
+/// BLANKED (kept as empty lines), not deleted, so imperative line numbers — and thus
+/// error spans — stay aligned with the original source.
 pub fn partition_mixed(source: &str) -> (String, Option<String>) {
     if let Some(wrapped) = implicit_main(source) {
         return (wrapped, None);
@@ -3139,14 +5004,23 @@ pub fn partition_mixed(source: &str) -> (String, Option<String>) {
     let mut is_math = vec![false; lines.len()];
     let mut i = 0;
     let mut any = false;
+    let mut in_text_block = false;
     while i < lines.len() {
         let t = lines[i].trim();
-        if !is_math_block_start(t) {
+        if let Some(header) = t.strip_prefix("##") {
+            in_text_block = language_reads_as_text(header);
+        }
+        if in_text_block || !is_math_block_start(t) {
+            i += 1;
+            continue;
+        }
+        let literate = t.starts_with("## Theorem:") || t.starts_with("## Lemma:");
+        if literate && !opens_kernel_statement(&lines, i) {
             i += 1;
             continue;
         }
         any = true;
-        if t.starts_with("## Theorem:") || t.starts_with("## Lemma:") {
+        if literate {
             // Literate theorem: header + indented / `Statement:` / `Proof:` lines.
             is_math[i] = true;
             i += 1;
@@ -3205,41 +5079,100 @@ pub fn partition_mixed(source: &str) -> (String, Option<String>) {
 
 fn is_math_block_start(trimmed: &str) -> bool {
     const COQ: [&str; 6] = [
-        "Definition ", "Inductive ", "Axiom ", "Theorem ", "Lemma ", "Fixpoint ",
+        "Definition ",
+        "Inductive ",
+        "Axiom ",
+        "Theorem ",
+        "Lemma ",
+        "Fixpoint ",
     ];
     COQ.iter().any(|k| trimmed.starts_with(k))
         || trimmed.starts_with("## Theorem:")
         || trimmed.starts_with("## Lemma:")
 }
 
+/// Whether the block header `header` (the text after `##`) opens a block the language reads as
+/// raw text — `## Axiom` and `## Theory`, whose bodies the parser captures whole
+/// (`collect_block_text`) up to the next block header.
+fn language_reads_as_text(header: &str) -> bool {
+    let word = header
+        .trim_start()
+        .split(|c: char| c.is_whitespace() || c == ':')
+        .next()
+        .unwrap_or("");
+    matches!(word.to_ascii_lowercase().as_str(), "axiom" | "theory")
+}
+
+/// Whether the literate block whose header is `lines[at]` is the kernel's: its name followed by
+/// the kernel's `Statement:`, on the header line or the first line after it — the one form the
+/// kernel's literate parser reads. Any other body (`Given:`/`Prove:`) is the proof engine's
+/// English theorem, which the language reads.
+fn opens_kernel_statement(lines: &[&str], at: usize) -> bool {
+    let header = lines[at].trim();
+    let after_colon = header
+        .split_once(':')
+        .map_or("", |(_, rest)| rest)
+        .trim_start();
+    let after_name = after_colon
+        .split_once(char::is_whitespace)
+        .map_or("", |(_, rest)| rest)
+        .trim_start();
+    let next = if after_name.is_empty() {
+        lines[at + 1..]
+            .iter()
+            .map(|l| l.trim())
+            .find(|l| !l.is_empty())
+            .unwrap_or("")
+    } else {
+        after_name
+    };
+    next.strip_prefix("Statement")
+        .is_some_and(|rest| rest.trim_start().starts_with(':'))
+}
+
 /// Extract a mixed document's math stream into a bundleable `mod proven` body, or
-/// `None` if it has no public items to call into (e.g. only vacuous proofs / parse
-/// errors) — so we never emit a `use proven::*;` over an empty module.
+/// `Ok(None)` if it has no public items to call into (e.g. only vacuous proofs) — so
+/// we never emit a `use proven::*;` over an empty module.
 ///
 /// Unlike standalone math extraction, this ALSO emits a `Showable` impl for each
 /// non-generic proven enum, so imperative `Show <proven value>` works. `Showable`
 /// lives in `logicaffeine_system` (in scope inside `mod proven` via `use super::*;`),
 /// which is ONLY linked when bundled into an imperative program — hence it is added
 /// here, not in `extract_math_module` (whose output must also compile standalone, dep-free).
-pub(crate) fn mixed_proven_module(math_src: &str) -> Option<String> {
+///
+/// A statement the kernel REFUSES refuses the program, in the kernel's own words and naming the
+/// statement. Dropping it and extracting the rest leaves the imperative half calling a
+/// `check_*` that was never emitted, and the reader is told "Unknown function" three layers
+/// away from the refusal that caused it.
+pub(crate) fn mixed_proven_module(math_src: &str) -> Result<Option<String>, ParseError> {
     let mut repl = kernel::interface::Repl::new();
     // Batch execution groups mutually-recursive inductives (see `Repl::execute_batch`).
     let stmts = parse_math_statements(math_src);
-    let _ = repl.execute_batch(&stmts);
+    for (stmt, outcome) in stmts.iter().zip(repl.execute_batch(&stmts)) {
+        if let Err(refusal) = outcome {
+            return Err(ParseError {
+                kind: crate::error::ParseErrorKind::Custom(format!(
+                    "the kernel refused the math statement `{}`: {refusal}",
+                    stmt.trim()
+                )),
+                span: crate::token::Span::default(),
+            });
+        }
+    }
     let ctx = repl.context();
     let mut rust = match extract_math_module(ctx) {
         Ok(r) => r,
-        Err(_) => return None,
+        Err(_) => return Ok(None),
     };
     if !(rust.contains("pub fn") || rust.contains("pub enum") || rust.contains("pub struct")) {
-        return None;
+        return Ok(None);
     }
     // Show-verb integration: bridge each non-generic proven enum to the runtime
     // `Showable` trait (via Debug). Sorted for deterministic output.
-    let base = baseline_names();
+    let base = Baseline::new();
     let mut inds: Vec<String> = Vec::new();
     for (name, _) in ctx.iter_inductives() {
-        if !base.contains(name)
+        if !base.owns_inductive(name)
             && inductive_is_emittable(ctx, name)
             && inductive_generics(ctx, name).is_empty()
         {
@@ -3248,11 +5181,12 @@ pub(crate) fn mixed_proven_module(math_src: &str) -> Option<String> {
     }
     inds.sort();
     for ind in inds {
+        let ind = crate::extraction::rust_global(ctx, &ind);
         rust.push_str(&format!(
             "impl Showable for {ind} {{ fn format_show(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{ write!(f, \"{{:?}}\", self) }} }}\n"
         ));
     }
-    Some(rust)
+    Ok(Some(rust))
 }
 
 /// Split a Math-mode program into complete vernacular statements.
@@ -3331,8 +5265,8 @@ pub fn parse_math_statements(code: &str) -> Vec<String> {
                 }
 
                 let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
-                let is_theorem_part = next_trimmed.starts_with("Statement:")
-                    || next_trimmed.starts_with("Proof:");
+                let is_theorem_part =
+                    next_trimmed.starts_with("Statement:") || next_trimmed.starts_with("Proof:");
 
                 if is_indented || is_theorem_part {
                     block.push('\n');
@@ -3351,7 +5285,8 @@ pub fn parse_math_statements(code: &str) -> Vec<String> {
         }
 
         // Literate inductive: "A X is either..." / "An X is either..."
-        if (trimmed.starts_with("A ") || trimmed.starts_with("An ")) && trimmed.contains(" is either")
+        if (trimmed.starts_with("A ") || trimmed.starts_with("An "))
+            && trimmed.contains(" is either")
         {
             if trimmed.ends_with('.') && !trimmed.trim_end_matches('.').ends_with(':') {
                 statements.push(trimmed.to_string());
@@ -3450,6 +5385,18 @@ pub fn extract_logic_rust(input: &str) -> Result<String, String> {
     extract_logic_impl(input, true)
 }
 
+/// Why Logic's Compile has no Rust to give for `input`, or `None` when it has one: a finite-domain
+/// puzzle is solved by Execute, and extracting it would run the whole solver — the same test
+/// [`extract_logic_rust`] makes before it bails.
+pub fn logic_compile_note(input: &str) -> Option<&'static str> {
+    match theorem_proof_exprs(input) {
+        Ok((premises, _)) if looks_like_grid(&premises) => {
+            Some("A finite-domain puzzle is solved by Execute \u{2014} compiling it would run the whole solver to extract it.")
+        }
+        _ => None,
+    }
+}
+
 /// Like [`extract_logic_rust`], but emits NO demo `main` — the linkable form bundled
 /// into an imperative program's `mod proven` (which has its own `main`). Produces the
 /// `World` + `holds` (+ `Monitor`) library items only.
@@ -3483,7 +5430,11 @@ fn extract_logic_impl(input: &str, emit_main: bool) -> Result<String, String> {
         } else {
             format!(
                 "{} ⊢ {}",
-                premises.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+                premises
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 goal
             )
         };
@@ -3493,7 +5444,10 @@ fn extract_logic_impl(input: &str, emit_main: bool) -> Result<String, String> {
     // A plain sentence: model-check the single formula.
     let proof = compile_for_proof(input);
     if let Some(expr) = proof.proof_expr {
-        let fol = proof.logic_string.clone().unwrap_or_else(|| expr.to_string());
+        let fol = proof
+            .logic_string
+            .clone()
+            .unwrap_or_else(|| expr.to_string());
         return Ok(emit(&[], &expr, input, &fol));
     }
 
@@ -3569,7 +5523,7 @@ pub fn check_theorem_premises_consistent(
 pub fn check_theorem_defeasible(
     input: &str,
 ) -> Result<logicaffeine_proof::oracle::SmtVerdict, ParseError> {
-    let (proof_exprs, goal, defaults, _definitions) = theorem_problem(input, true)?;
+    let (proof_exprs, goal, defaults, _definitions, _declared) = theorem_problem(input, true)?;
     let theory = smt_theory_for(&proof_exprs, Some(&goal));
     Ok(crate::defeasible::defeasible_entails(
         &proof_exprs,
@@ -3585,7 +5539,7 @@ pub fn check_theorem_defeasible(
 pub fn check_theorem_defeasible_consistent(
     input: &str,
 ) -> Result<logicaffeine_proof::oracle::SmtConsistency, ParseError> {
-    let (proof_exprs, _goal, defaults, _definitions) = theorem_problem(input, true)?;
+    let (proof_exprs, _goal, defaults, _definitions, _declared) = theorem_problem(input, true)?;
     let theory = smt_theory_for(&proof_exprs, None);
     Ok(crate::defeasible::defeasible_consistent(
         &proof_exprs,
@@ -3601,7 +5555,7 @@ pub fn check_theorem_defeasible_consistent(
 /// [`ProofExpr`]. Public so a puzzle solver can obtain the parsed-FOL premises
 /// (the Given clues/declarations) and feed them to the entailment oracle.
 pub fn theorem_proof_exprs(input: &str) -> Result<(Vec<ProofExpr>, ProofExpr), ParseError> {
-    let (premises, goal, _defaults, _definitions) = theorem_problem(input, false)?;
+    let (premises, goal, _defaults, _definitions, _declared) = theorem_problem(input, false)?;
     Ok((premises, goal))
 }
 
@@ -3618,8 +5572,26 @@ pub fn theorem_proof_exprs_with_defs(
     ),
     ParseError,
 > {
-    let (premises, goal, _defaults, definitions) = theorem_problem(input, false)?;
+    let (premises, goal, _defaults, definitions, _declared) = theorem_problem(input, false)?;
     Ok((premises, goal, definitions))
+}
+
+/// [`theorem_proof_exprs_with_defs`] plus the `Proof:` line the block DECLARED — the entry
+/// every kernel-certified Surface A door uses, so none of them can prove a theorem by a
+/// method its author did not write (see [`prove_declared`]).
+fn theorem_problem_declared(
+    input: &str,
+) -> Result<
+    (
+        Vec<ProofExpr>,
+        ProofExpr,
+        Vec<logicaffeine_proof::verify::Definition>,
+        DeclaredProof,
+    ),
+    ParseError,
+> {
+    let (premises, goal, _defaults, definitions, declared) = theorem_problem(input, false)?;
+    Ok((premises, goal, definitions, declared))
 }
 
 /// The `uses` dependency graph (Rung 0b) for an English document: its `## Define`
@@ -3735,7 +5707,8 @@ fn flatten_or<'a>(e: &'a ProofExpr, out: &mut Vec<&'a ProofExpr>) {
 /// The unary SORT predicate guarding `var` (`Trip(x)` → "trip"), if the antecedent is
 /// one — possibly under conjunction.
 fn antecedent_sort(e: &ProofExpr, var: &str) -> Option<String> {
-    let is_var = |t: &ProofTerm| matches!(t, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == var);
+    let is_var =
+        |t: &ProofTerm| matches!(t, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == var);
     match e {
         ProofExpr::Predicate { name, args, .. } if args.len() == 1 && is_var(&args[0]) => {
             Some(name.clone())
@@ -3749,7 +5722,8 @@ fn antecedent_sort(e: &ProofExpr, var: &str) -> Option<String> {
 /// (`in(x, Florida)` → "Florida") or the predicate name of a unary one (`cycling(x)` →
 /// "cycling"). `None` if the disjunct is not a simple predicate over `var`.
 fn disjunct_value(d: &ProofExpr, var: &str) -> Option<String> {
-    let is_var = |t: &ProofTerm| matches!(t, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == var);
+    let is_var =
+        |t: &ProofTerm| matches!(t, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == var);
     match d {
         ProofExpr::Predicate { name, args, .. } => match args.as_slice() {
             [a] if is_var(a) => Some(name.clone()),
@@ -3779,7 +5753,11 @@ fn extract_grid_closures(premises: &[ProofExpr]) -> Vec<GridClosure> {
                         // Only a closure whose every disjunct is a clean predicate over the
                         // row var defines a column (guards against a stray non-grid ∀).
                         if !disjuncts.is_empty() && disjuncts.len() == leaves.len() {
-                            out.push(GridClosure { var: variable.clone(), row_sort, disjuncts });
+                            out.push(GridClosure {
+                                var: variable.clone(),
+                                row_sort,
+                                disjuncts,
+                            });
                         }
                     }
                 }
@@ -3853,7 +5831,8 @@ fn surface_form_map(input: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     for word in input.split(|c: char| !c.is_alphanumeric()) {
         if !word.is_empty() {
-            map.entry(category_stem(word)).or_insert_with(|| word.to_string());
+            map.entry(category_stem(word))
+                .or_insert_with(|| word.to_string());
         }
     }
     map
@@ -3889,7 +5868,12 @@ fn solve_grid_from_premises(premises: &[ProofExpr], input: &str) -> Option<Solve
     // exclusion lemmas let RUP decide each non-entailed candidate in ~1ms.
     let prepared = prepare_premises_opts(premises, true);
     let surface = surface_form_map(input);
-    let display = |v: &str| surface.get(&category_stem(v)).cloned().unwrap_or_else(|| v.to_string());
+    let display = |v: &str| {
+        surface
+            .get(&category_stem(v))
+            .cloned()
+            .unwrap_or_else(|| v.to_string())
+    };
     let mut columns = Vec::new();
     for clo in &closures {
         if clo.row_sort != row_sort {
@@ -3913,9 +5897,17 @@ fn solve_grid_from_premises(premises: &[ProofExpr], input: &str) -> Option<Solve
             cells.push(found);
         }
         let label = grid_column_label(&values, &sorts, columns.len());
-        columns.push(GridColumn { label, values, cells });
+        columns.push(GridColumn {
+            label,
+            values,
+            cells,
+        });
     }
-    Some(SolvedGrid { row_label: title_case(&row_sort), rows, columns })
+    Some(SolvedGrid {
+        row_label: title_case(&row_sort),
+        rows,
+        columns,
+    })
 }
 
 /// Prepare the premise set for the per-candidate solve, ONCE.
@@ -4087,7 +6079,10 @@ fn collect_unary_predicate_names(e: &ProofExpr, out: &mut HashSet<String>) {
             collect_unary_predicate_names(l, out);
             collect_unary_predicate_names(r, out);
         }
-        ProofExpr::Counterfactual { antecedent, consequent } => {
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
             collect_unary_predicate_names(antecedent, out);
             collect_unary_predicate_names(consequent, out);
         }
@@ -4127,9 +6122,7 @@ fn candidate_entailed_prepared(prepared: &[ProofExpr], goal: &ProofExpr) -> bool
 fn erase_tense(e: &ProofExpr) -> ProofExpr {
     match e {
         ProofExpr::Temporal { body, .. } => erase_tense(body),
-        ProofExpr::And(l, r) => {
-            ProofExpr::And(Box::new(erase_tense(l)), Box::new(erase_tense(r)))
-        }
+        ProofExpr::And(l, r) => ProofExpr::And(Box::new(erase_tense(l)), Box::new(erase_tense(r))),
         ProofExpr::Or(l, r) => ProofExpr::Or(Box::new(erase_tense(l)), Box::new(erase_tense(r))),
         ProofExpr::Implies(l, r) => {
             ProofExpr::Implies(Box::new(erase_tense(l)), Box::new(erase_tense(r)))
@@ -4226,6 +6219,7 @@ fn theorem_problem(
         ProofExpr,
         Vec<logicaffeine_language::proof_convert::DefaultRule>,
         Vec<logicaffeine_proof::verify::Definition>,
+        DeclaredProof,
     ),
     ParseError,
 > {
@@ -4277,7 +6271,9 @@ fn theorem_problem(
             }
         })
         .ok_or_else(|| ParseError {
-            kind: logicaffeine_language::error::ParseErrorKind::Custom("No theorem block found in input".to_string()),
+            kind: logicaffeine_language::error::ParseErrorKind::Custom(
+                "No theorem block found in input".to_string(),
+            ),
             span: logicaffeine_language::token::Span::default(),
         })?;
 
@@ -4310,5 +6306,11 @@ fn theorem_problem(
         })
         .collect();
 
-    Ok((proof_exprs, goal_expr, defaults, definitions))
+    Ok((
+        proof_exprs,
+        goal_expr,
+        defaults,
+        definitions,
+        declared_proof(theorem),
+    ))
 }

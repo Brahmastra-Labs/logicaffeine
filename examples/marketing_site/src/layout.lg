@@ -1,0 +1,22 @@
+# Layout
+
+The shared shell every page extends: a header with a nav whose current link is marked
+`active`, and a footer every page inherits.
+
+## Component Site
+
+View:
+    <header>
+      <nav>
+        <a id="nav-home" href="/" class:active={routePath() is equal to "/"}>Home</a>
+        <a id="nav-about" href="/about" class:active={routePath() is equal to "/about"}>About</a>
+        <a id="nav-writing" href="/writing" class:active={routePath() is equal to "/writing"}>Writing</a>
+        <a id="nav-contact" href="/contact" class:active={routePath() is equal to "/contact"}>Contact</a>
+      </nav>
+    </header>
+    <main>{block content}</main>
+    <footer>&copy; Acme</footer>
+
+Style:
+    nav { display: flex; gap: 1rem; }
+    nav a.active { font-weight: 700; text-decoration: underline; }

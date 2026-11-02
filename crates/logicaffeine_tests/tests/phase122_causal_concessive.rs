@@ -1,4 +1,4 @@
-//! Phase 122 — §3.4 Causal / concessive adverbial clauses (work/MISSING_ENGLISH.md).
+//! Phase 122 — Causal / concessive adverbial clauses.
 //!
 //! Subordinators encode logical relations beyond temporal precedence:
 //!   causal     — "John stayed because it rained."  → Stay(john) ∧ Cause(Rain, Stay(john))
@@ -13,7 +13,10 @@ fn because_introduces_cause() {
     eprintln!("because: {out}");
     assert!(out.contains("Stay"), "main clause: {out}");
     assert!(out.contains("Rain"), "subordinate clause: {out}");
-    assert!(out.contains("Cause"), "because contributes a Cause relation: {out}");
+    assert!(
+        out.contains("Cause"),
+        "because contributes a Cause relation: {out}"
+    );
 }
 
 #[test]
@@ -21,8 +24,14 @@ fn although_introduces_concessive() {
     let out = compile("Although she was tired, she finished.").unwrap();
     eprintln!("although: {out}");
     assert!(out.contains("Finish"), "main clause: {out}");
-    assert!(out.contains("Tired") || out.contains("tired"), "concession clause: {out}");
-    assert!(out.contains("Concessive"), "although contributes a Concessive relation: {out}");
+    assert!(
+        out.contains("Tired") || out.contains("tired"),
+        "concession clause: {out}"
+    );
+    assert!(
+        out.contains("Concessive"),
+        "although contributes a Concessive relation: {out}"
+    );
 }
 
 #[test]

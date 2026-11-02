@@ -18,7 +18,9 @@ async fn interp_sync_publishes_counter_via_relay() {
 
     // A peer subscribes first, so the interpreter's publish can't race ahead.
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe("counter").await.expect("peer subscribe acked");
+    peer.subscribe("counter")
+        .await
+        .expect("peer subscribe acked");
 
     let program = format!(
         "## Main\n\
@@ -27,7 +29,11 @@ async fn interp_sync_publishes_counter_via_relay() {
          \x20   Sync counter on \"counter\".\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "interpreter networking ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "interpreter networking ran: {:?}",
+        result.error
+    );
 
     // The peer receives the counter published over the relay, in the JSON wire
     // form (a bare Int counter uses the empty field name).
@@ -63,12 +69,17 @@ async fn interp_sync_merges_received_counter() {
     let inject = async {
         // Let the interpreter subscribe (its first Sync), then publish a delta.
         tokio::time::sleep(Duration::from_millis(250)).await;
-        peer.publish("t", br#"{"":7}"#.to_vec()).expect("peer publishes");
+        peer.publish("t", br#"{"":7}"#.to_vec())
+            .expect("peer publishes");
     };
     let (result, ()) = tokio::join!(interp, inject);
     let result = result.expect("interpreter did not hang");
 
-    assert!(result.error.is_none(), "interpreter merged the delta: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "interpreter merged the delta: {:?}",
+        result.error
+    );
     assert!(
         result.lines.iter().any(|l| l == "7"),
         "interpreter should have merged the received counter (7), output: {:?}",
@@ -87,7 +98,9 @@ async fn interp_pipe_and_network_run_together() {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe("counter").await.expect("peer subscribe acked");
+    peer.subscribe("counter")
+        .await
+        .expect("peer subscribe acked");
 
     let program = format!(
         "## To produce (ch: Int):\n\
@@ -103,7 +116,11 @@ async fn interp_pipe_and_network_run_together() {
     let result = tokio::time::timeout(Duration::from_secs(10), interpret_for_ui(&program))
         .await
         .expect("mixed pipe+network program did not hang");
-    assert!(result.error.is_none(), "mixed pipe+network ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "mixed pipe+network ran: {:?}",
+        result.error
+    );
 
     let (topic, data) = tokio::time::timeout(Duration::from_secs(5), peer.next_event())
         .await
@@ -133,7 +150,11 @@ async fn interp_sync_publishes_struct_counter() {
          \x20   Sync c on \"game\".\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "struct CRDT sync ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "struct CRDT sync ran: {:?}",
+        result.error
+    );
 
     let (topic, data) = tokio::time::timeout(Duration::from_secs(5), peer.next_event())
         .await
@@ -163,14 +184,21 @@ async fn interp_sync_publishes_lww_register() {
          \x20   Sync p on \"page\".\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "LWW register sync ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "LWW register sync ran: {:?}",
+        result.error
+    );
 
     let (topic, data) = tokio::time::timeout(Duration::from_secs(5), peer.next_event())
         .await
         .expect("event arrives")
         .expect("event present");
     assert_eq!(topic, "page");
-    assert_eq!(String::from_utf8(data).expect("utf8"), r#"{"title":"hello"}"#);
+    assert_eq!(
+        String::from_utf8(data).expect("utf8"),
+        r#"{"title":"hello"}"#
+    );
 }
 
 #[tokio::test]
@@ -185,7 +213,9 @@ async fn interp_connect_accepts_libp2p_multiaddr_surface() {
     let multiaddr = format!("/ip4/{host}/tcp/{port}");
 
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe("counter").await.expect("peer subscribe acked");
+    peer.subscribe("counter")
+        .await
+        .expect("peer subscribe acked");
 
     let program = format!(
         "## Main\n\
@@ -356,7 +386,11 @@ async fn interp_send_compressed_keyword_compresses_the_wire() {
          \x20   Send compressed s to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`Send compressed` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Send compressed` ran: {:?}",
+        result.error
+    );
 
     let (topic, data) = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
         .await
@@ -365,14 +399,18 @@ async fn interp_send_compressed_keyword_compresses_the_wire() {
     assert_eq!(topic, "bob");
     // The frame's compression bit (0x02) is set, the wire is smaller than the raw
     // string, and it still decodes back to exactly the original text.
-    assert!(data[0] & 0x02 != 0, "the `compressed` keyword set the compression bit");
+    assert!(
+        data[0] & 0x02 != 0,
+        "the `compressed` keyword set the compression bit"
+    );
     assert!(
         data.len() < long.len(),
         "compressed wire ({}) should be smaller than the raw string ({})",
         data.len(),
         long.len()
     );
-    let (_from, back) = logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
+    let (_from, back) =
+        logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
     match back {
         logicaffeine_compile::interpreter::RuntimeValue::Text(t) => assert_eq!(t.as_str(), long),
         other => panic!("expected text, got {other:?}"),
@@ -395,7 +433,11 @@ async fn send_and_capture(send_clause: &str, body_expr: &str) -> Vec<u8> {
          \x20   {send_clause} s to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`{send_clause}` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`{send_clause}` ran: {:?}",
+        result.error
+    );
     let (topic, data) = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
         .await
         .expect("event arrives in time")
@@ -422,7 +464,11 @@ async fn capture_table_send(table_def: &str, send_clause: &str) -> Vec<u8> {
          \x20   {send_clause} table to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`{send_clause}` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`{send_clause}` ran: {:?}",
+        result.error
+    );
     let (topic, data) = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
         .await
         .expect("event arrives in time")
@@ -488,7 +534,9 @@ async fn interp_send_auto_dedups_a_shared_table_and_deduped_matches_it() {
 
     // The explicitly-deduped decode rebuilt the SHARING: the six rows re-alias ONE Rc, not six copies —
     // proving the full language path (`[row, row, …]` shares the Rc → `Send deduped` → decode rebuilds it).
-    let RuntimeValue::List(l) = &b else { panic!("expected a list") };
+    let RuntimeValue::List(l) = &b else {
+        panic!("expected a list")
+    };
     let rows = match &*l.borrow() {
         ListRepr::Boxed(v) => v.clone(),
         other => panic!("expected Boxed rows, got {other:?}"),
@@ -497,7 +545,10 @@ async fn interp_send_auto_dedups_a_shared_table_and_deduped_matches_it() {
     let (RuntimeValue::List(r0), RuntimeValue::List(r5)) = (&rows[0], &rows[5]) else {
         panic!("expected list rows");
     };
-    assert!(Rc::ptr_eq(r0, r5), "the six rows re-alias ONE Rc — the sharing survived the wire");
+    assert!(
+        Rc::ptr_eq(r0, r5),
+        "the six rows re-alias ONE Rc — the sharing survived the wire"
+    );
 }
 
 #[tokio::test]
@@ -505,7 +556,9 @@ async fn interp_send_cached_references_schema_on_repeat() {
     // `Send cached <struct list>` sends the schema once; a repeat references it by id
     // (content-addressed) and is smaller, and both decode to the same list through a
     // schema-aware receiver.
-    use logicaffeine_compile::concurrency::marshal::{message_from_wire_cached, message_to_wire, WireSchemaCache};
+    use logicaffeine_compile::concurrency::marshal::{
+        message_from_wire_cached, message_to_wire, WireSchemaCache,
+    };
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut bob = RelayClient::connect(&url).await.expect("bob dials");
@@ -524,18 +577,37 @@ async fn interp_send_cached_references_schema_on_repeat() {
          \x20   Send cached pts to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`Send cached` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Send cached` ran: {:?}",
+        result.error
+    );
 
-    let (t1, m1) = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("1st arrives").expect("present");
-    let (t2, m2) = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("2nd arrives").expect("present");
+    let (t1, m1) = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("1st arrives")
+        .expect("present");
+    let (t2, m2) = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("2nd arrives")
+        .expect("present");
     assert_eq!(t1, "bob");
     assert_eq!(t2, "bob");
-    assert!(m2.len() < m1.len(), "the repeat references the schema → smaller: {} vs {}", m2.len(), m1.len());
+    assert!(
+        m2.len() < m1.len(),
+        "the repeat references the schema → smaller: {} vs {}",
+        m2.len(),
+        m1.len()
+    );
 
     // A schema-aware receiver decodes both; the reference resolves against the def.
     let mut rc = WireSchemaCache::content_addressed();
-    let d1 = message_from_wire_cached(&m1, &mut rc).expect("schema def decodes").1;
-    let d2 = message_from_wire_cached(&m2, &mut rc).expect("schema ref decodes").1;
+    let d1 = message_from_wire_cached(&m1, &mut rc)
+        .expect("schema def decodes")
+        .1;
+    let d2 = message_from_wire_cached(&m2, &mut rc)
+        .expect("schema ref decodes")
+        .1;
     assert_eq!(
         message_to_wire("alice", &d1).unwrap(),
         message_to_wire("alice", &d2).unwrap(),
@@ -549,9 +621,12 @@ async fn interp_send_unchecked_drops_the_checksum() {
     // latency dial — and still decodes exactly. Composes with the other modifiers.
     let data = send_and_capture("Send unchecked", "\"hello world\"").await;
     assert_eq!(data[0] & 0x01, 0, "unchecked drops the checksum bit");
-    let (_from, back) = logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
+    let (_from, back) =
+        logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
     match back {
-        logicaffeine_compile::interpreter::RuntimeValue::Text(t) => assert_eq!(t.as_str(), "hello world"),
+        logicaffeine_compile::interpreter::RuntimeValue::Text(t) => {
+            assert_eq!(t.as_str(), "hello world")
+        }
         other => panic!("expected text, got {other:?}"),
     }
 }
@@ -564,8 +639,12 @@ async fn interp_send_compressed_with_lz4_keyword() {
     let data = send_and_capture("Send compressed with lz4", &format!("\"{long}\"")).await;
     assert!(data[0] & 0x02 != 0, "compression bit set");
     assert_eq!(data[0] & 0x0C, 0x04, "header records the lz4 codec id");
-    assert!(data.len() < long.len(), "lz4 wire smaller than the raw string");
-    let (_from, back) = logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
+    assert!(
+        data.len() < long.len(),
+        "lz4 wire smaller than the raw string"
+    );
+    let (_from, back) =
+        logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
     match back {
         logicaffeine_compile::interpreter::RuntimeValue::Text(t) => assert_eq!(t.as_str(), long),
         other => panic!("expected text, got {other:?}"),
@@ -634,7 +713,9 @@ async fn interp_send_indexed_picks_the_random_access_view_and_composes() {
     // offset tables), so the receiver reaches any (row, field) in O(1) — Cap'n Proto's turf.
     // It is a different wire layout than the default, reads exactly, and COMPOSES with
     // `compressed` (the knob wraps every path), proving "all options always".
-    use logicaffeine_compile::concurrency::marshal::{message_from_wire, message_to_wire, view_message};
+    use logicaffeine_compile::concurrency::marshal::{
+        message_from_wire, message_to_wire, view_message,
+    };
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut bob = RelayClient::connect(&url).await.expect("bob dials");
@@ -654,25 +735,59 @@ async fn interp_send_indexed_picks_the_random_access_view_and_composes() {
          \x20   Send indexed compressed pts to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`Send indexed` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Send indexed` ran: {:?}",
+        result.error
+    );
 
-    let plain = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("1st arrives").expect("present").1;
-    let indexed = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("2nd arrives").expect("present").1;
-    let indexed_compressed =
-        tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("3rd arrives").expect("present").1;
+    let plain = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("1st arrives")
+        .expect("present")
+        .1;
+    let indexed = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("2nd arrives")
+        .expect("present")
+        .1;
+    let indexed_compressed = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("3rd arrives")
+        .expect("present")
+        .1;
 
     // The indexed message opens as a random-access view and reads any (row, field) in O(1).
     let v = view_message(&indexed).expect("indexed message opens as a struct-view");
-    assert_eq!(v.structs_row_field(1, "x").and_then(|c| c.as_int()), Some(30), "O(1) random (row 1, x)");
-    assert_eq!(v.structs_row_field(2, "y").and_then(|c| c.as_int()), Some(60), "O(1) random (row 2, y)");
+    assert_eq!(
+        v.structs_row_field(1, "x").and_then(|c| c.as_int()),
+        Some(30),
+        "O(1) random (row 1, x)"
+    );
+    assert_eq!(
+        v.structs_row_field(2, "y").and_then(|c| c.as_int()),
+        Some(60),
+        "O(1) random (row 2, y)"
+    );
 
     // The knob reached the wire: the indexed layout differs from the default columnar one.
-    assert_ne!(indexed, plain, "indexed must pick a different (view) layout than the default");
+    assert_ne!(
+        indexed, plain,
+        "indexed must pick a different (view) layout than the default"
+    );
 
     // Every form carries the SAME logical list (canonicalize through a re-encode).
     let canon = |b: &[u8]| message_to_wire("x", &message_from_wire(b).expect("decodes").1).unwrap();
-    assert_eq!(canon(&plain), canon(&indexed), "indexed view carries the same logical data");
-    assert_eq!(canon(&plain), canon(&indexed_compressed), "indexed+compressed composes and round-trips");
+    assert_eq!(
+        canon(&plain),
+        canon(&indexed),
+        "indexed view carries the same logical data"
+    );
+    assert_eq!(
+        canon(&plain),
+        canon(&indexed_compressed),
+        "indexed+compressed composes and round-trips"
+    );
 }
 
 #[tokio::test]
@@ -680,7 +795,9 @@ async fn interp_send_indexed_fast_uses_the_fixed_stride_view() {
     // `Send indexed fast <recs>` composes the random-access struct-view with the fixed numeric
     // dial → the FIXED-stride view (no offset tables, arithmetic O(1)). It is a different layout
     // than plain `indexed` (the variable offset-table view) and round-trips to the same list.
-    use logicaffeine_compile::concurrency::marshal::{message_from_wire, message_to_wire, view_message};
+    use logicaffeine_compile::concurrency::marshal::{
+        message_from_wire, message_to_wire, view_message,
+    };
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut bob = RelayClient::connect(&url).await.expect("bob dials");
@@ -699,28 +816,56 @@ async fn interp_send_indexed_fast_uses_the_fixed_stride_view() {
          \x20   Send indexed fast pts to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`Send indexed fast` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Send indexed fast` ran: {:?}",
+        result.error
+    );
 
-    let variable = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("1st").expect("present").1;
-    let fixed = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("2nd").expect("present").1;
+    let variable = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("1st")
+        .expect("present")
+        .1;
+    let fixed = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("2nd")
+        .expect("present")
+        .1;
 
     // The plain `indexed` message is the variable offset-table view: `structs_row_field` works.
     let vv = view_message(&variable).expect("variable view opens");
-    assert!(vv.structs_row_field(0, "x").is_some(), "plain indexed is the variable offset-table view");
+    assert!(
+        vv.structs_row_field(0, "x").is_some(),
+        "plain indexed is the variable offset-table view"
+    );
 
     // `indexed fast` is the FIXED-stride view: the variable-only `structs_row_field` REFUSES it,
     // but the unified arithmetic reader serves it — proving the fixed layout reached the wire.
     let fv = view_message(&fixed).expect("fixed view opens");
-    assert!(fv.structs_row_field(0, "x").is_none(), "fixed view is not the offset-table layout");
+    assert!(
+        fv.structs_row_field(0, "x").is_none(),
+        "fixed view is not the offset-table layout"
+    );
     assert_eq!(
-        fv.structs_row_field_value(1, "y").and_then(|c| if let logicaffeine_compile::interpreter::RuntimeValue::Int(n) = c { Some(n) } else { None }),
+        fv.structs_row_field_value(1, "y").and_then(|c| {
+            if let logicaffeine_compile::interpreter::RuntimeValue::Int(n) = c {
+                Some(n)
+            } else {
+                None
+            }
+        }),
         Some(444),
         "fixed view reads (row 1, y) in O(1)"
     );
 
     // Both layouts carry the same logical list.
     let canon = |b: &[u8]| message_to_wire("x", &message_from_wire(b).expect("decodes").1).unwrap();
-    assert_eq!(canon(&variable), canon(&fixed), "indexed and indexed-fast carry the same data");
+    assert_eq!(
+        canon(&variable),
+        canon(&fixed),
+        "indexed and indexed-fast carry the same data"
+    );
 }
 
 #[tokio::test]
@@ -742,7 +887,11 @@ async fn interp_send_redundant_publishes_reconstructable_shards() {
          \x20   Send redundant s to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "`Send redundant` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Send redundant` ran: {:?}",
+        result.error
+    );
 
     // Collect every shard the peer received (the interpreter has finished publishing).
     let mut shards: Vec<Vec<u8>> = Vec::new();
@@ -752,7 +901,11 @@ async fn interp_send_redundant_publishes_reconstructable_shards() {
         assert_eq!(topic, "bob");
         shards.push(data);
     }
-    assert!(shards.len() > 1, "redundant must publish multiple shards, got {}", shards.len());
+    assert!(
+        shards.len() > 1,
+        "redundant must publish multiple shards, got {}",
+        shards.len()
+    );
 
     use logicaffeine_compile::concurrency::fec::reconstruct_redundant;
     use logicaffeine_compile::concurrency::marshal::message_from_wire;
@@ -796,12 +949,17 @@ async fn interp_receive_reconstructs_redundant_after_loss() {
         // Let the interpreter subscribe, then deliver only 4 of the 6 shards (2 lost).
         tokio::time::sleep(Duration::from_millis(250)).await;
         for s in shards.iter().take(4) {
-            peer.publish("dave", s.clone()).expect("peer publishes shard");
+            peer.publish("dave", s.clone())
+                .expect("peer publishes shard");
         }
     };
     let (result, ()) = tokio::join!(interp, inject);
     let result = result.expect("interpreter did not hang");
-    assert!(result.error.is_none(), "interpreter reconstructed from K shards: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "interpreter reconstructed from K shards: {:?}",
+        result.error
+    );
     assert!(
         result.lines.iter().any(|l| l == "42"),
         "the reconstructed Int (42) is shown, output: {:?}",
@@ -832,7 +990,11 @@ async fn interp_send_shared_elides_names_default_stays_self_describing() {
          \x20   Send shared g to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "struct sends ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "struct sends ran: {:?}",
+        result.error
+    );
     // First send — default, self-describing; second — opt-in `shared`, name-elided.
     let plain = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
         .await
@@ -845,10 +1007,24 @@ async fn interp_send_shared_elides_names_default_stays_self_describing() {
         .expect("event present")
         .1;
     let on_wire = |d: &[u8], n: &[u8]| d.windows(n.len()).any(|w| w == n);
-    assert!(on_wire(&plain, b"wingspan"), "DEFAULT send must stay self-describing (names present) for any peer/relay");
-    assert!(!on_wire(&shared, b"wingspan"), "`shared` must elide the field name via the type registry; wire={shared:?}");
-    assert!(!on_wire(&shared, b"Gadget"), "`shared` must elide the type name too");
-    assert!(shared.len() < plain.len(), "`shared` ({}) is smaller than default ({})", shared.len(), plain.len());
+    assert!(
+        on_wire(&plain, b"wingspan"),
+        "DEFAULT send must stay self-describing (names present) for any peer/relay"
+    );
+    assert!(
+        !on_wire(&shared, b"wingspan"),
+        "`shared` must elide the field name via the type registry; wire={shared:?}"
+    );
+    assert!(
+        !on_wire(&shared, b"Gadget"),
+        "`shared` must elide the type name too"
+    );
+    assert!(
+        shared.len() < plain.len(),
+        "`shared` ({}) is smaller than default ({})",
+        shared.len(),
+        plain.len()
+    );
 }
 
 #[tokio::test]
@@ -889,10 +1065,24 @@ async fn interp_send_shared_elides_enum_names() {
         .expect("event present")
         .1;
     let on_wire = |d: &[u8], n: &[u8]| d.windows(n.len()).any(|w| w == n);
-    assert!(on_wire(&plain, b"Viridian"), "DEFAULT enum send must stay self-describing (ctor name present)");
-    assert!(!on_wire(&shared, b"Viridian"), "`shared` must elide the constructor name; wire={shared:?}");
-    assert!(!on_wire(&shared, b"Color"), "`shared` must elide the enum type name too");
-    assert!(shared.len() < plain.len(), "`shared` enum ({}) is smaller than default ({})", shared.len(), plain.len());
+    assert!(
+        on_wire(&plain, b"Viridian"),
+        "DEFAULT enum send must stay self-describing (ctor name present)"
+    );
+    assert!(
+        !on_wire(&shared, b"Viridian"),
+        "`shared` must elide the constructor name; wire={shared:?}"
+    );
+    assert!(
+        !on_wire(&shared, b"Color"),
+        "`shared` must elide the enum type name too"
+    );
+    assert!(
+        shared.len() < plain.len(),
+        "`shared` enum ({}) is smaller than default ({})",
+        shared.len(),
+        plain.len()
+    );
 }
 
 #[tokio::test]
@@ -914,7 +1104,11 @@ async fn interp_send_computed_ships_the_function_as_a_callable() {
          \x20   Send computed f to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "computed send ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "computed send ran: {:?}",
+        result.error
+    );
     let wire = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
         .await
         .expect("event arrives")
@@ -924,7 +1118,9 @@ async fn interp_send_computed_ships_the_function_as_a_callable() {
         .expect("the computed function decodes off the wire");
     match val {
         logicaffeine_compile::interpreter::RuntimeValue::Function(c) => {
-            let gen = c.generated.expect("a shipped computed function carries its sandboxed generator");
+            let gen = c
+                .generated
+                .expect("a shipped computed function carries its sandboxed generator");
             for x in -10..10i64 {
                 assert_eq!(
                     logicaffeine_compile::concurrency::marshal::gen_eval(&gen, x),
@@ -960,7 +1156,11 @@ async fn computed_function_runs_only_through_the_acceptance_contract_end_to_end(
          \x20   Send computed f to remote.\n"
     );
     let result = interpret_for_ui(&program).await;
-    assert!(result.error.is_none(), "computed send ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "computed send ran: {:?}",
+        result.error
+    );
     let wire = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
         .await
         .expect("event arrives")
@@ -1029,7 +1229,10 @@ fn run_under_an_undeclared_contract_is_an_error() {
         Run f on 5 under Undeclared into y.\n\
         Show y.\n";
     let result = logicaffeine_compile::compile::interpret_program(program);
-    assert!(result.is_err(), "Run under an undeclared contract must error");
+    assert!(
+        result.is_err(),
+        "Run under an undeclared contract must error"
+    );
 }
 
 #[tokio::test]
@@ -1040,8 +1243,12 @@ async fn interp_send_compressed_with_zstd_keyword() {
     let data = send_and_capture("Send compressed with zstd", &format!("\"{long}\"")).await;
     assert!(data[0] & 0x02 != 0, "compression bit set");
     assert_eq!(data[0] & 0x0C, 0x08, "header records the zstd codec id");
-    assert!(data.len() < long.len(), "zstd wire smaller than the raw string");
-    let (_from, back) = logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
+    assert!(
+        data.len() < long.len(),
+        "zstd wire smaller than the raw string"
+    );
+    let (_from, back) =
+        logicaffeine_compile::concurrency::marshal::message_from_wire(&data).expect("decodes");
     match back {
         logicaffeine_compile::interpreter::RuntimeValue::Text(t) => assert_eq!(t.as_str(), long),
         other => panic!("expected text, got {other:?}"),
@@ -1057,7 +1264,11 @@ async fn interp_send_without_connect_is_a_clean_offline_delivery() {
         \x20   Let bob be a PeerAgent at \"bob\".\n\
         \x20   Send \"hi\" to bob.\n";
     let result = interpret_for_ui(program).await;
-    assert!(result.error.is_none(), "offline Send is a clean local delivery, got: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "offline Send is a clean local delivery, got: {:?}",
+        result.error
+    );
 }
 
 #[tokio::test]
@@ -1072,8 +1283,16 @@ async fn interp_offline_send_await_loops_back_to_self() {
         \x20   Await response from me into reply.\n\
         \x20   Show reply.\n";
     let result = interpret_for_ui(program).await;
-    assert!(result.error.is_none(), "offline loopback ran without error, got: {:?}", result.error);
-    assert_eq!(result.lines, vec!["hi".to_string()], "the looped-back message is delivered");
+    assert!(
+        result.error.is_none(),
+        "offline loopback ran without error, got: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["hi".to_string()],
+        "the looped-back message is delivered"
+    );
 }
 
 #[tokio::test]
@@ -1089,7 +1308,10 @@ async fn interp_await_without_listen_errors_cleanly() {
     );
     let result = interpret_for_ui(&program).await;
     let err = result.error.expect("Await without Listen must error");
-    assert!(err.contains("Listen"), "error should name the missing Listen, got: {err}");
+    assert!(
+        err.contains("Listen"),
+        "error should name the missing Listen, got: {err}"
+    );
 }
 
 #[tokio::test]
@@ -1100,5 +1322,9 @@ async fn interp_sync_without_connect_is_a_clean_offline_noop() {
         \x20   Let counter be 1.\n\
         \x20   Sync counter on \"t\".\n";
     let result = interpret_for_ui(program).await;
-    assert!(result.error.is_none(), "offline Sync is a clean no-op, got: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "offline Sync is a clean no-op, got: {:?}",
+        result.error
+    );
 }

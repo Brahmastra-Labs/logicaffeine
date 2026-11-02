@@ -1,0 +1,157 @@
+{
+  "case": "T05-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T05_013.Pair",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_013.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T05_013.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T05_013.Pair.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_013.Pair \u03b1 \u03b2 \u2192 \u03b1",
+      "name": "T05_013.Pair.fst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 T05_013.Pair \u03b1 \u03b2",
+      "name": "T05_013.Pair.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {fst : \u03b1} {snd : \u03b2} {fst_1 : \u03b1} {snd_1 : \u03b2},\n  { fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 } \u2192 fst = fst_1 \u2227 snd = snd_1",
+      "name": "T05_013.Pair.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (fst : \u03b1) (snd : \u03b2) (fst_1 : \u03b1) (snd_1 : \u03b2),\n  ({ fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 }) = (fst = fst_1 \u2227 snd = snd_1)",
+      "name": "T05_013.Pair.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (fst : \u03b1) (snd : \u03b2),\n  sizeOf { fst := fst, snd := snd } = 1 + sizeOf fst + sizeOf snd",
+      "name": "T05_013.Pair.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_013.Pair \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T05_013.Pair.noConfusionType P v1 v2",
+      "name": "T05_013.Pair.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T05_013.Pair \u03b1 \u03b2 \u2192 T05_013.Pair \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T05_013.Pair.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_013.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 (t : T05_013.Pair \u03b1 \u03b2) \u2192 motive t",
+      "name": "T05_013.Pair.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_013.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T05_013.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T05_013.Pair.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_013.Pair \u03b1 \u03b2 \u2192 \u03b2",
+      "name": "T05_013.Pair.snd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : \u03b1 \u2192 Type} \u2192 ((x : \u03b1) \u2192 \u03b2 x) \u2192 (a : \u03b1) \u2192 \u03b2 a",
+      "name": "T05_013.applyTo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 Nat",
+      "name": "T05_013.boolCase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Bool \u2192 Sort u_1) \u2192 (b : Bool) \u2192 (Unit \u2192 motive true) \u2192 (Unit \u2192 motive false) \u2192 motive b",
+      "name": "T05_013.boolCase.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 \u03b3 : Type} \u2192 (\u03b2 \u2192 \u03b3) \u2192 (\u03b1 \u2192 \u03b2) \u2192 \u03b1 \u2192 \u03b3",
+      "name": "T05_013.compose",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T05_013.holeProof",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_013.idf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat",
+      "name": "T05_013.viaLater",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

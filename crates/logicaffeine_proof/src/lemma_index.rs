@@ -51,9 +51,16 @@ impl LemmaIndex {
             let (premises, conclusion) = peel(formula);
             let idx = lemmas.len();
             concl_index.insert_expr(&conclusion, idx);
-            lemmas.push(CompiledLemma { name: name.clone(), conclusion, premises });
+            lemmas.push(CompiledLemma {
+                name: name.clone(),
+                conclusion,
+                premises,
+            });
         }
-        LemmaIndex { lemmas, concl_index }
+        LemmaIndex {
+            lemmas,
+            concl_index,
+        }
     }
 
     /// Lemmas whose conclusion IS the goal (an instance of it). Ranked most-
@@ -67,8 +74,11 @@ impl LemmaIndex {
     /// Lemmas whose conclusion matches the goal AND have antecedents — applying
     /// them reduces the goal to those (instantiated) antecedents. `apply?`.
     pub fn find_apply(&self, goal: &ProofExpr) -> Vec<Suggestion> {
-        let mut out: Vec<Suggestion> =
-            self.matches(goal, "apply").into_iter().filter(|s| !s.remaining.is_empty()).collect();
+        let mut out: Vec<Suggestion> = self
+            .matches(goal, "apply")
+            .into_iter()
+            .filter(|s| !s.remaining.is_empty())
+            .collect();
         out.sort_by_key(|s| (s.remaining.len(), s.subst.len()));
         out
     }
@@ -79,8 +89,12 @@ impl LemmaIndex {
     /// sharing no symbol with the goal are dropped entirely.
     pub fn select_premises(&self, goal: &ProofExpr, k: usize) -> Vec<String> {
         let goal_syms = expr_symbols(goal);
-        let matching: std::collections::HashSet<usize> =
-            self.concl_index.candidates_expr(goal).into_iter().copied().collect();
+        let matching: std::collections::HashSet<usize> = self
+            .concl_index
+            .candidates_expr(goal)
+            .into_iter()
+            .copied()
+            .collect();
 
         let mut scored: Vec<(i64, usize)> = self
             .lemmas
@@ -102,20 +116,30 @@ impl LemmaIndex {
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0));
         scored.truncate(k);
-        scored.into_iter().map(|(_, i)| self.lemmas[i].name.clone()).collect()
+        scored
+            .into_iter()
+            .map(|(_, i)| self.lemmas[i].name.clone())
+            .collect()
     }
 
     fn matches(&self, goal: &ProofExpr, verb: &str) -> Vec<Suggestion> {
         let mut out = Vec::new();
-        let mut cand: Vec<usize> =
-            self.concl_index.candidates_expr(goal).into_iter().copied().collect();
+        let mut cand: Vec<usize> = self
+            .concl_index
+            .candidates_expr(goal)
+            .into_iter()
+            .copied()
+            .collect();
         cand.sort_unstable();
         cand.dedup();
         for i in cand {
             let lem = &self.lemmas[i];
             if let Some(subst) = match_expr_pattern(&lem.conclusion, goal) {
-                let remaining =
-                    lem.premises.iter().map(|p| apply_subst_to_expr(p, &subst)).collect();
+                let remaining = lem
+                    .premises
+                    .iter()
+                    .map(|p| apply_subst_to_expr(p, &subst))
+                    .collect();
                 out.push(Suggestion {
                     lemma: lem.name.clone(),
                     tactic_text: format!("{verb} {}", lem.name),

@@ -85,9 +85,8 @@ impl ReadCompletion {
                 let _ = tx.send(Ok(data));
             }
             ReadCompletion::String(tx) => {
-                let result = String::from_utf8(data).map_err(|e| {
-                    VfsError::IoError(io::Error::new(io::ErrorKind::InvalidData, e))
-                });
+                let result = String::from_utf8(data)
+                    .map_err(|e| VfsError::IoError(io::Error::new(io::ErrorKind::InvalidData, e)));
                 let _ = tx.send(result);
             }
         }
@@ -326,7 +325,14 @@ fn prepare_read(
 
     // SAFETY: buf is stored in inflight and stays alive until CQE is processed.
     if unsafe { push_sqe(ring, &sqe) } {
-        inflight.insert(id, InflightOp::Read { fd, buf, completion });
+        inflight.insert(
+            id,
+            InflightOp::Read {
+                fd,
+                buf,
+                completion,
+            },
+        );
     } else {
         let result = fallback_read_and_close(fd);
         match result {
@@ -389,7 +395,9 @@ fn prepare_atomic_write(
             },
         );
     } else {
-        let _ = tx.send(fallback_atomic_write_and_close(fd, &data, &temp_path, &dest_path));
+        let _ = tx.send(fallback_atomic_write_and_close(
+            fd, &data, &temp_path, &dest_path,
+        ));
     }
 }
 
@@ -514,9 +522,8 @@ fn process_completions(
                             },
                         );
                     } else {
-                        let _ = tx.send(fallback_fsync_rename_and_close(
-                            fd, &temp_path, &dest_path,
-                        ));
+                        let _ =
+                            tx.send(fallback_fsync_rename_and_close(fd, &temp_path, &dest_path));
                     }
                 }
             }
@@ -532,8 +539,7 @@ fn process_completions(
                     let _ = fs::remove_file(&temp_path);
                     let _ = tx.send(Err(cqe_error(result)));
                 } else {
-                    let _ =
-                        tx.send(fs::rename(&temp_path, &dest_path).map_err(VfsError::from));
+                    let _ = tx.send(fs::rename(&temp_path, &dest_path).map_err(VfsError::from));
                 }
             }
 
@@ -651,11 +657,7 @@ fn fallback_append_and_close(fd: RawFd, data: &[u8]) -> VfsResult<()> {
     Ok(())
 }
 
-fn fallback_fsync_rename_and_close(
-    fd: RawFd,
-    temp_path: &Path,
-    dest_path: &Path,
-) -> VfsResult<()> {
+fn fallback_fsync_rename_and_close(fd: RawFd, temp_path: &Path, dest_path: &Path) -> VfsResult<()> {
     // SAFETY: fd is valid and exclusively owned by us.
     let file = unsafe { fs::File::from_raw_fd(fd) };
     if let Err(e) = file.sync_all() {

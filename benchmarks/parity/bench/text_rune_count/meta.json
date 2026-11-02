@@ -1,0 +1,11 @@
+{
+  "capability": "text.rune_count",
+  "workload": "runeCount of a 2400-codepoint UTF-8 string (é/ö multibyte), fold mod 1e9+7",
+  "arg": "200000",
+  "expected": "480000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ],
+  "note": "main.lg calls runeCount() WITHOUT defining it — auto-imported from strings.lg. Go counterpart uses utf8.RuneCountInString over the same UTF-8 bytes."
+}

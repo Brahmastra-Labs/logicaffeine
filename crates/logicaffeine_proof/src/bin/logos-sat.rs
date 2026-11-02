@@ -16,26 +16,8 @@
 //! competition; the binary itself runs the search to completion. The driver itself lives in
 //! [`logicaffeine_proof::satcli`], shared verbatim with `largo sat`.
 
-use std::path::Path;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
-    let positional: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with('-')).collect();
-
-    let Some(input) = positional.first() else {
-        eprintln!("usage: logos-sat <input.cnf> [proof.drat]");
-        return ExitCode::from(1);
-    };
-    let proof_path = positional.get(1).map(|p| Path::new(p.as_str()));
-    let stats = std::env::var("LOGOS_STATS").is_ok();
-
-    let code = logicaffeine_proof::satcli::run(
-        Path::new(input.as_str()),
-        proof_path,
-        stats,
-        &mut std::io::stdout(),
-        &mut std::io::stderr(),
-    );
-    ExitCode::from(code)
+    logicaffeine_proof::satcli::main()
 }

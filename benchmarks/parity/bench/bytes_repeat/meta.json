@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.repeat",
+  "workload": "bytesRepeat(xs,2), positional fold",
+  "arg": "40000",
+  "expected": "5093856",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

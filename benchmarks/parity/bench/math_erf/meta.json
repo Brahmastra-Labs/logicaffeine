@@ -1,0 +1,10 @@
+{
+  "capability": "math.erf",
+  "workload": "math.erf",
+  "arg": "1000000",
+  "expected": "486064879659",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

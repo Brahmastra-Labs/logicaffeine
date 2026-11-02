@@ -1,0 +1,844 @@
+{
+  "case": "T03-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 104,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T03_015.GoodFn",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodFn \u2192 Type u} \u2192 T03_015.GoodFn \u2192 Type u",
+      "name": "T03_015.GoodFn.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_015.GoodFn \u2192 Prop} (t : T03_015.GoodFn),\n  (\u2200 (t : T03_015.GoodFn), T03_015.GoodFn.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_015.GoodFn.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodFn \u2192 Type u} \u2192\n  (t : T03_015.GoodFn) \u2192 ((t : T03_015.GoodFn) \u2192 T03_015.GoodFn.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_015.GoodFn.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodFn \u2192 Sort u} \u2192\n  (t : T03_015.GoodFn) \u2192\n    motive T03_015.GoodFn.stop \u2192 ((a : Nat \u2192 T03_015.GoodFn) \u2192 motive (T03_015.GoodFn.mk a)) \u2192 motive t",
+      "name": "T03_015.GoodFn.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodFn \u2192 Prop} \u2192 T03_015.GoodFn \u2192 Prop",
+      "name": "T03_015.GoodFn.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 T03_015.GoodFn) \u2192 T03_015.GoodFn",
+      "name": "T03_015.GoodFn.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat \u2192 T03_015.GoodFn}, T03_015.GoodFn.mk a = T03_015.GoodFn.mk a_1 \u2192 a = a_1",
+      "name": "T03_015.GoodFn.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat \u2192 T03_015.GoodFn), (T03_015.GoodFn.mk a = T03_015.GoodFn.mk a_1) = (a = a_1)",
+      "name": "T03_015.GoodFn.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat \u2192 T03_015.GoodFn), sizeOf (T03_015.GoodFn.mk a) = 1",
+      "name": "T03_015.GoodFn.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_015.GoodFn} \u2192 v1 = v2 \u2192 T03_015.GoodFn.noConfusionType P v1 v2",
+      "name": "T03_015.GoodFn.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_015.GoodFn \u2192 T03_015.GoodFn \u2192 Sort u",
+      "name": "T03_015.GoodFn.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodFn \u2192 Sort u} \u2192\n  motive T03_015.GoodFn.stop \u2192\n    ((a : Nat \u2192 T03_015.GoodFn) \u2192 ((a_1 : Nat) \u2192 motive (a a_1)) \u2192 motive (T03_015.GoodFn.mk a)) \u2192\n      (t : T03_015.GoodFn) \u2192 motive t",
+      "name": "T03_015.GoodFn.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodFn \u2192 Sort u} \u2192\n  (t : T03_015.GoodFn) \u2192\n    motive T03_015.GoodFn.stop \u2192\n      ((a : Nat \u2192 T03_015.GoodFn) \u2192 ((a_1 : Nat) \u2192 motive (a a_1)) \u2192 motive (T03_015.GoodFn.mk a)) \u2192 motive t",
+      "name": "T03_015.GoodFn.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.GoodFn",
+      "name": "T03_015.GoodFn.stop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_015.GoodFn.stop = 1",
+      "name": "T03_015.GoodFn.stop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_015.GoodNested",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodNested \u2192 Type u} \u2192 T03_015.GoodNested \u2192 Type u",
+      "name": "T03_015.GoodNested.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_015.GoodNested \u2192 Prop} (t : T03_015.GoodNested),\n  (\u2200 (t : T03_015.GoodNested), T03_015.GoodNested.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_015.GoodNested.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodNested \u2192 Type u} \u2192\n  (t : T03_015.GoodNested) \u2192 ((t : T03_015.GoodNested) \u2192 T03_015.GoodNested.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_015.GoodNested.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodNested \u2192 Sort u} \u2192\n  (t : T03_015.GoodNested) \u2192\n    motive T03_015.GoodNested.stop \u2192\n      ((a : (Nat \u2192 Nat) \u2192 T03_015.GoodNested) \u2192 motive (T03_015.GoodNested.mk a)) \u2192 motive t",
+      "name": "T03_015.GoodNested.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodNested \u2192 Prop} \u2192 T03_015.GoodNested \u2192 Prop",
+      "name": "T03_015.GoodNested.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "((Nat \u2192 Nat) \u2192 T03_015.GoodNested) \u2192 T03_015.GoodNested",
+      "name": "T03_015.GoodNested.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : (Nat \u2192 Nat) \u2192 T03_015.GoodNested}, T03_015.GoodNested.mk a = T03_015.GoodNested.mk a_1 \u2192 a = a_1",
+      "name": "T03_015.GoodNested.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : (Nat \u2192 Nat) \u2192 T03_015.GoodNested), (T03_015.GoodNested.mk a = T03_015.GoodNested.mk a_1) = (a = a_1)",
+      "name": "T03_015.GoodNested.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : (Nat \u2192 Nat) \u2192 T03_015.GoodNested), sizeOf (T03_015.GoodNested.mk a) = 1",
+      "name": "T03_015.GoodNested.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_015.GoodNested} \u2192 v1 = v2 \u2192 T03_015.GoodNested.noConfusionType P v1 v2",
+      "name": "T03_015.GoodNested.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_015.GoodNested \u2192 T03_015.GoodNested \u2192 Sort u",
+      "name": "T03_015.GoodNested.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodNested \u2192 Sort u} \u2192\n  motive T03_015.GoodNested.stop \u2192\n    ((a : (Nat \u2192 Nat) \u2192 T03_015.GoodNested) \u2192 ((a_1 : Nat \u2192 Nat) \u2192 motive (a a_1)) \u2192 motive (T03_015.GoodNested.mk a)) \u2192\n      (t : T03_015.GoodNested) \u2192 motive t",
+      "name": "T03_015.GoodNested.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodNested \u2192 Sort u} \u2192\n  (t : T03_015.GoodNested) \u2192\n    motive T03_015.GoodNested.stop \u2192\n      ((a : (Nat \u2192 Nat) \u2192 T03_015.GoodNested) \u2192\n          ((a_1 : Nat \u2192 Nat) \u2192 motive (a a_1)) \u2192 motive (T03_015.GoodNested.mk a)) \u2192\n        motive t",
+      "name": "T03_015.GoodNested.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.GoodNested",
+      "name": "T03_015.GoodNested.stop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_015.GoodNested.stop = 1",
+      "name": "T03_015.GoodNested.stop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_015.GoodRec",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodRec \u2192 Sort u} \u2192 T03_015.GoodRec \u2192 Sort (max 1 u)",
+      "name": "T03_015.GoodRec.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T03_015.GoodRec \u2192 Prop} (t : T03_015.GoodRec),\n  (\u2200 (t : T03_015.GoodRec), T03_015.GoodRec.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T03_015.GoodRec.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodRec \u2192 Sort u} \u2192\n  (t : T03_015.GoodRec) \u2192 ((t : T03_015.GoodRec) \u2192 T03_015.GoodRec.below t \u2192 motive t) \u2192 motive t",
+      "name": "T03_015.GoodRec.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodRec \u2192 Sort u} \u2192\n  (t : T03_015.GoodRec) \u2192\n    ((a : Nat) \u2192 motive (T03_015.GoodRec.leaf a)) \u2192 ((a a_1 : T03_015.GoodRec) \u2192 motive (a.node a_1)) \u2192 motive t",
+      "name": "T03_015.GoodRec.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodRec \u2192 Prop} \u2192 T03_015.GoodRec \u2192 Prop",
+      "name": "T03_015.GoodRec.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T03_015.GoodRec",
+      "name": "T03_015.GoodRec.leaf",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : Nat}, T03_015.GoodRec.leaf a = T03_015.GoodRec.leaf a_1 \u2192 a = a_1",
+      "name": "T03_015.GoodRec.leaf.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : Nat), (T03_015.GoodRec.leaf a = T03_015.GoodRec.leaf a_1) = (a = a_1)",
+      "name": "T03_015.GoodRec.leaf.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat), sizeOf (T03_015.GoodRec.leaf a) = 1 + sizeOf a",
+      "name": "T03_015.GoodRec.leaf.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_015.GoodRec} \u2192 v1 = v2 \u2192 T03_015.GoodRec.noConfusionType P v1 v2",
+      "name": "T03_015.GoodRec.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_015.GoodRec \u2192 T03_015.GoodRec \u2192 Sort u",
+      "name": "T03_015.GoodRec.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.GoodRec \u2192 T03_015.GoodRec \u2192 T03_015.GoodRec",
+      "name": "T03_015.GoodRec.node",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 a_2 a_3 : T03_015.GoodRec}, a.node a_1 = a_2.node a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T03_015.GoodRec.node.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 a_2 a_3 : T03_015.GoodRec), (a.node a_1 = a_2.node a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T03_015.GoodRec.node.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_015.GoodRec), sizeOf (a.node a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T03_015.GoodRec.node.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodRec \u2192 Sort u} \u2192\n  ((a : Nat) \u2192 motive (T03_015.GoodRec.leaf a)) \u2192\n    ((a a_1 : T03_015.GoodRec) \u2192 motive a \u2192 motive a_1 \u2192 motive (a.node a_1)) \u2192 (t : T03_015.GoodRec) \u2192 motive t",
+      "name": "T03_015.GoodRec.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.GoodRec \u2192 Sort u} \u2192\n  (t : T03_015.GoodRec) \u2192\n    ((a : Nat) \u2192 motive (T03_015.GoodRec.leaf a)) \u2192\n      ((a a_1 : T03_015.GoodRec) \u2192 motive a \u2192 motive a_1 \u2192 motive (a.node a_1)) \u2192 motive t",
+      "name": "T03_015.GoodRec.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_015.PingOk",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192 {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192 T03_015.PingOk \u2192 Sort (max 1 u)",
+      "name": "T03_015.PingOk.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_015.PingOk \u2192 Prop} {motive_2 : T03_015.PongOk \u2192 Prop} (t : T03_015.PingOk),\n  (\u2200 (t : T03_015.PingOk), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T03_015.PongOk), t.ibelow \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_015.PingOk.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n    (t : T03_015.PingOk) \u2192\n      ((t : T03_015.PingOk) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T03_015.PongOk) \u2192 t.below \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T03_015.PingOk.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  (t : T03_015.PingOk) \u2192\n    ((a : T03_015.PongOk) \u2192 motive_1 (T03_015.PingOk.p a)) \u2192 motive_1 T03_015.PingOk.pstop \u2192 motive_1 t",
+      "name": "T03_015.PingOk.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Prop} \u2192 {motive_2 : T03_015.PongOk \u2192 Prop} \u2192 T03_015.PingOk \u2192 Prop",
+      "name": "T03_015.PingOk.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_015.PingOk} \u2192 v1 = v2 \u2192 T03_015.PingOk.noConfusionType P v1 v2",
+      "name": "T03_015.PingOk.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_015.PingOk \u2192 T03_015.PingOk \u2192 Sort u",
+      "name": "T03_015.PingOk.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.PongOk \u2192 T03_015.PingOk",
+      "name": "T03_015.PingOk.p",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_015.PongOk}, T03_015.PingOk.p a = T03_015.PingOk.p a_1 \u2192 a = a_1",
+      "name": "T03_015.PingOk.p.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_015.PongOk), (T03_015.PingOk.p a = T03_015.PingOk.p a_1) = (a = a_1)",
+      "name": "T03_015.PingOk.p.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_015.PongOk), sizeOf (T03_015.PingOk.p a) = 1 + sizeOf a",
+      "name": "T03_015.PingOk.p.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.PingOk",
+      "name": "T03_015.PingOk.pstop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_015.PingOk.pstop = 1",
+      "name": "T03_015.PingOk.pstop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n    ((a : T03_015.PongOk) \u2192 motive_2 a \u2192 motive_1 (T03_015.PingOk.p a)) \u2192\n      motive_1 T03_015.PingOk.pstop \u2192\n        ((a : T03_015.PingOk) \u2192 motive_1 a \u2192 motive_2 (T03_015.PongOk.q a)) \u2192\n          motive_2 T03_015.PongOk.qstop \u2192 (t : T03_015.PingOk) \u2192 motive_1 t",
+      "name": "T03_015.PingOk.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n    (t : T03_015.PingOk) \u2192\n      ((a : T03_015.PongOk) \u2192 motive_2 a \u2192 motive_1 (T03_015.PingOk.p a)) \u2192\n        motive_1 T03_015.PingOk.pstop \u2192\n          ((a : T03_015.PingOk) \u2192 motive_1 a \u2192 motive_2 (T03_015.PongOk.q a)) \u2192\n            motive_2 T03_015.PongOk.qstop \u2192 motive_1 t",
+      "name": "T03_015.PingOk.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_015.PongOk",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192 {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192 T03_015.PongOk \u2192 Sort (max 1 u)",
+      "name": "T03_015.PongOk.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : T03_015.PingOk \u2192 Prop} {motive_2 : T03_015.PongOk \u2192 Prop} (t : T03_015.PongOk),\n  (\u2200 (t : T03_015.PingOk), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T03_015.PongOk), t.ibelow \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_015.PongOk.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n    (t : T03_015.PongOk) \u2192\n      ((t : T03_015.PingOk) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T03_015.PongOk) \u2192 t.below \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T03_015.PongOk.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n  (t : T03_015.PongOk) \u2192\n    ((a : T03_015.PingOk) \u2192 motive_2 (T03_015.PongOk.q a)) \u2192 motive_2 T03_015.PongOk.qstop \u2192 motive_2 t",
+      "name": "T03_015.PongOk.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Prop} \u2192 {motive_2 : T03_015.PongOk \u2192 Prop} \u2192 T03_015.PongOk \u2192 Prop",
+      "name": "T03_015.PongOk.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_015.PongOk} \u2192 v1 = v2 \u2192 T03_015.PongOk.noConfusionType P v1 v2",
+      "name": "T03_015.PongOk.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_015.PongOk \u2192 T03_015.PongOk \u2192 Sort u",
+      "name": "T03_015.PongOk.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.PingOk \u2192 T03_015.PongOk",
+      "name": "T03_015.PongOk.q",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_015.PingOk}, T03_015.PongOk.q a = T03_015.PongOk.q a_1 \u2192 a = a_1",
+      "name": "T03_015.PongOk.q.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_015.PingOk), (T03_015.PongOk.q a = T03_015.PongOk.q a_1) = (a = a_1)",
+      "name": "T03_015.PongOk.q.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_015.PingOk), sizeOf (T03_015.PongOk.q a) = 1 + sizeOf a",
+      "name": "T03_015.PongOk.q.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.PongOk",
+      "name": "T03_015.PongOk.qstop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_015.PongOk.qstop = 1",
+      "name": "T03_015.PongOk.qstop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n    ((a : T03_015.PongOk) \u2192 motive_2 a \u2192 motive_1 (T03_015.PingOk.p a)) \u2192\n      motive_1 T03_015.PingOk.pstop \u2192\n        ((a : T03_015.PingOk) \u2192 motive_1 a \u2192 motive_2 (T03_015.PongOk.q a)) \u2192\n          motive_2 T03_015.PongOk.qstop \u2192 (t : T03_015.PongOk) \u2192 motive_2 t",
+      "name": "T03_015.PongOk.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : T03_015.PingOk \u2192 Sort u} \u2192\n  {motive_2 : T03_015.PongOk \u2192 Sort u} \u2192\n    (t : T03_015.PongOk) \u2192\n      ((a : T03_015.PongOk) \u2192 motive_2 a \u2192 motive_1 (T03_015.PingOk.p a)) \u2192\n        motive_1 T03_015.PingOk.pstop \u2192\n          ((a : T03_015.PingOk) \u2192 motive_1 a \u2192 motive_2 (T03_015.PongOk.q a)) \u2192\n            motive_2 T03_015.PongOk.qstop \u2192 motive_2 t",
+      "name": "T03_015.PongOk.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_015.UsesOther",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.UsesOther \u2192 Sort u} \u2192\n  (t : T03_015.UsesOther) \u2192 ((a : T03_015.GoodRec \u2192 Nat) \u2192 motive (T03_015.UsesOther.mk a)) \u2192 motive t",
+      "name": "T03_015.UsesOther.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(T03_015.GoodRec \u2192 Nat) \u2192 T03_015.UsesOther",
+      "name": "T03_015.UsesOther.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a a_1 : T03_015.GoodRec \u2192 Nat}, T03_015.UsesOther.mk a = T03_015.UsesOther.mk a_1 \u2192 a = a_1",
+      "name": "T03_015.UsesOther.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a a_1 : T03_015.GoodRec \u2192 Nat), (T03_015.UsesOther.mk a = T03_015.UsesOther.mk a_1) = (a = a_1)",
+      "name": "T03_015.UsesOther.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T03_015.GoodRec \u2192 Nat), sizeOf (T03_015.UsesOther.mk a) = 1",
+      "name": "T03_015.UsesOther.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_015.UsesOther} \u2192 v1 = v2 \u2192 T03_015.UsesOther.noConfusionType P v1 v2",
+      "name": "T03_015.UsesOther.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_015.UsesOther \u2192 T03_015.UsesOther \u2192 Sort u",
+      "name": "T03_015.UsesOther.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.UsesOther \u2192 Sort u} \u2192\n  ((a : T03_015.GoodRec \u2192 Nat) \u2192 motive (T03_015.UsesOther.mk a)) \u2192 (t : T03_015.UsesOther) \u2192 motive t",
+      "name": "T03_015.UsesOther.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_015.UsesOther \u2192 Sort u} \u2192\n  (t : T03_015.UsesOther) \u2192 ((a : T03_015.GoodRec \u2192 Nat) \u2192 motive (T03_015.UsesOther.mk a)) \u2192 motive t",
+      "name": "T03_015.UsesOther.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.UsesOther \u2192 Nat",
+      "name": "T03_015.applyOther",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_015.UsesOther \u2192 Sort u_1) \u2192\n  (x : T03_015.UsesOther) \u2192 ((f : T03_015.GoodRec \u2192 Nat) \u2192 motive (T03_015.UsesOther.mk f)) \u2192 motive x",
+      "name": "T03_015.applyOther.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.GoodFn \u2192 Nat",
+      "name": "T03_015.depthG",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_015.GoodFn \u2192 Sort u_1) \u2192\n  (x : T03_015.GoodFn) \u2192\n    (Unit \u2192 motive T03_015.GoodFn.stop) \u2192 ((f : Nat \u2192 T03_015.GoodFn) \u2192 motive (T03_015.GoodFn.mk f)) \u2192 motive x",
+      "name": "T03_015.depthG.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.PingOk \u2192 Nat",
+      "name": "T03_015.pingSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_015.PingOk \u2192 Sort u_1) \u2192\n  (x : T03_015.PingOk) \u2192\n    (Unit \u2192 motive T03_015.PingOk.pstop) \u2192 ((q : T03_015.PongOk) \u2192 motive (T03_015.PingOk.p q)) \u2192 motive x",
+      "name": "T03_015.pingSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.PongOk \u2192 Nat",
+      "name": "T03_015.pongSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_015.PongOk \u2192 Sort u_1) \u2192\n  (x : T03_015.PongOk) \u2192\n    (Unit \u2192 motive T03_015.PongOk.qstop) \u2192 ((p : T03_015.PingOk) \u2192 motive (T03_015.PongOk.q p)) \u2192 motive x",
+      "name": "T03_015.pongSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.GoodNested \u2192 Nat",
+      "name": "T03_015.probeG",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_015.GoodNested \u2192 Sort u_1) \u2192\n  (x : T03_015.GoodNested) \u2192\n    (Unit \u2192 motive T03_015.GoodNested.stop) \u2192\n      ((f : (Nat \u2192 Nat) \u2192 T03_015.GoodNested) \u2192 motive (T03_015.GoodNested.mk f)) \u2192 motive x",
+      "name": "T03_015.probeG.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_015.GoodRec \u2192 Nat",
+      "name": "T03_015.sumG",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_015.GoodRec \u2192 Sort u_1) \u2192\n  (x : T03_015.GoodRec) \u2192\n    ((n : Nat) \u2192 motive (T03_015.GoodRec.leaf n)) \u2192 ((l r : T03_015.GoodRec) \u2192 motive (l.node r)) \u2192 motive x",
+      "name": "T03_015.sumG.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

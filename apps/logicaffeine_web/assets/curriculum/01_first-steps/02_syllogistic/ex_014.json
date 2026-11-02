@@ -10,6 +10,7 @@
     "some p is not B"
   ],
   "correct": 2,
-  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
-  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+  "hint": "Is this about all of them, or at least one? And is it affirmed or denied?",
+  "explanation": "At least one prisoner is not one who blames frivolous people: some P is not B.",
+  "section": "2.1"
 }

@@ -1,4 +1,4 @@
-//! Phase 129 — §8.6 Metonymy (work/MISSING_ENGLISH.md).
+//! Phase 129 — Metonymy.
 //!
 //! Reference by association: a place that conventionally denotes an institution
 //! coerces to that institution when it acts:
@@ -24,6 +24,12 @@ fn place_in_object_position_is_literal() {
     // Regression: the same place as an object is NOT coerced (it is the building).
     let out = compile("I visited the White House.").unwrap();
     eprintln!("visited: {out}");
-    assert!(out.contains("White_House") || out.contains("WhiteHouse"), "the literal place: {out}");
-    assert!(!out.contains("GovernmentOf"), "object place is literal, not coerced: {out}");
+    assert!(
+        out.contains("White_House") || out.contains("WhiteHouse"),
+        "the literal place: {out}"
+    );
+    assert!(
+        !out.contains("GovernmentOf"),
+        "object place is literal, not coerced: {out}"
+    );
 }

@@ -1,0 +1,216 @@
+{
+  "case": "T05-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 26,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T05_004.Pair",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_004.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T05_004.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T05_004.Pair.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_004.Pair \u03b1 \u03b2 \u2192 \u03b1",
+      "name": "T05_004.Pair.fst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 T05_004.Pair \u03b1 \u03b2",
+      "name": "T05_004.Pair.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {fst : \u03b1} {snd : \u03b2} {fst_1 : \u03b1} {snd_1 : \u03b2},\n  { fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 } \u2192 fst = fst_1 \u2227 snd = snd_1",
+      "name": "T05_004.Pair.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (fst : \u03b1) (snd : \u03b2) (fst_1 : \u03b1) (snd_1 : \u03b2),\n  ({ fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 }) = (fst = fst_1 \u2227 snd = snd_1)",
+      "name": "T05_004.Pair.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (fst : \u03b1) (snd : \u03b2),\n  sizeOf { fst := fst, snd := snd } = 1 + sizeOf fst + sizeOf snd",
+      "name": "T05_004.Pair.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_004.Pair \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T05_004.Pair.noConfusionType P v1 v2",
+      "name": "T05_004.Pair.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T05_004.Pair \u03b1 \u03b2 \u2192 T05_004.Pair \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T05_004.Pair.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_004.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 (t : T05_004.Pair \u03b1 \u03b2) \u2192 motive t",
+      "name": "T05_004.Pair.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_004.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T05_004.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T05_004.Pair.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_004.Pair \u03b1 \u03b2 \u2192 \u03b2",
+      "name": "T05_004.Pair.snd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T05_004.Sizeable",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_004.Sizeable \u03b1 \u2192 Sort u} \u2192\n    (t : T05_004.Sizeable \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T05_004.Sizeable.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T05_004.Sizeable \u03b1",
+      "name": "T05_004.Sizeable.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_004.Sizeable \u03b1} \u2192 v1 = v2 \u2192 T05_004.Sizeable.noConfusionType P v1 v2",
+      "name": "T05_004.Sizeable.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T05_004.Sizeable \u03b1 \u2192 T05_004.Sizeable \u03b1 \u2192 Sort u",
+      "name": "T05_004.Sizeable.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_004.Sizeable \u03b1 \u2192 Sort u} \u2192\n    ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 (t : T05_004.Sizeable \u03b1) \u2192 motive t",
+      "name": "T05_004.Sizeable.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_004.Sizeable \u03b1 \u2192 Sort u} \u2192\n    (t : T05_004.Sizeable \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T05_004.Sizeable.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T05_004.Sizeable \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T05_004.Sizeable.size",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 \u03b3 : Type} \u2192 (\u03b2 \u2192 \u03b3) \u2192 (\u03b1 \u2192 \u03b2) \u2192 \u03b1 \u2192 \u03b3",
+      "name": "T05_004.compose",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_004.idf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_004.Sizeable Nat",
+      "name": "T05_004.instSizeableNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T05_004.natId",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort v} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_004.polyId",
+      "levels": [
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T05_004.Sizeable \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T05_004.sizeOf'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

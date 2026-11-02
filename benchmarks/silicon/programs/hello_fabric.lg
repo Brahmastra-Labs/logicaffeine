@@ -1,0 +1,11 @@
+## To square (x: Int) -> Int:
+    Return x * x.
+## Main
+    Show "hi fabric".
+    Let mutable total be 0.
+    Let mutable k be 1.
+    While k is less than or equal to 10:
+        Set total to total + square(k).
+        Set k to k + 1.
+    Show total.
+    Show total is greater than 300.

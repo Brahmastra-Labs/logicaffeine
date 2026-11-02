@@ -10,6 +10,7 @@
     "some m is not H"
   ],
   "correct": 0,
-  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
-  "explanation": "\"Some\" indicates an existential statement about at least one member. \"M\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+  "hint": "Is this about all of them, or at least one? And is it affirmed or denied?",
+  "explanation": "At least one musician is not one who hurts naive people: some M is not H.",
+  "section": "2.1"
 }

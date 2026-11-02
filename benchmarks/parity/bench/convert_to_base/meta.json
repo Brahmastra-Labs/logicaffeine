@@ -1,0 +1,10 @@
+{
+  "capability": "convert.to_base",
+  "workload": "len toBase(i,16)",
+  "arg": "2000000",
+  "expected": "10881525",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

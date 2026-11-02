@@ -14,7 +14,11 @@ Set item 1 of m to 100.
 Show item 1 of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "100");
 }
 
@@ -30,7 +34,11 @@ Show item 2 of m.
 Show item 3 of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "10\n20\n30");
 }
 
@@ -43,7 +51,11 @@ Set item 5 of m to 200.
 Show item 5 of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "200");
 }
 
@@ -59,7 +71,11 @@ Show item 1 of m.
 Show item 5 of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "10\n50");
 }
 
@@ -74,7 +90,11 @@ If m contains 99:
     Show "oops".
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "found");
 }
 
@@ -87,7 +107,11 @@ Set item 2 of m to 20.
 Show length of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "2");
 }
 
@@ -111,7 +135,11 @@ fn interpreter_map_int_key_collect_pattern() {
 Show benchmark(100).
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "100");
 }
 
@@ -129,7 +157,11 @@ Show item true of m.
 Show item false of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "yes\nno");
 }
 
@@ -147,7 +179,11 @@ Show item 1 of m.
 Show item 2 of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "one\ntwo");
 }
 
@@ -165,7 +201,11 @@ Show item "hello" of m.
 Show item "world" of m.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "1\n2");
 }
 
@@ -178,7 +218,11 @@ If m contains "key":
     Show "found".
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "found");
 }
 
@@ -198,6 +242,10 @@ Repeat for entry in m:
 Show count.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "2");
 }

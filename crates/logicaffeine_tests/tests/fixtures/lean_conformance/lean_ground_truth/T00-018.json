@@ -1,0 +1,385 @@
+{
+  "case": "T00-018",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 47,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_018.Col",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Col",
+      "name": "T00_018.Col.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T00_018.Col.blue = 1",
+      "name": "T00_018.Col.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_018.Col \u2192 Sort u} \u2192\n  (t : T00_018.Col) \u2192 motive T00_018.Col.red \u2192 motive T00_018.Col.green \u2192 motive T00_018.Col.blue \u2192 motive t",
+      "name": "T00_018.Col.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Col",
+      "name": "T00_018.Col.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T00_018.Col.green = 1",
+      "name": "T00_018.Col.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T00_018.Col} \u2192 x = y \u2192 T00_018.Col.noConfusionType P x y",
+      "name": "T00_018.Col.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.8"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T00_018.Col \u2192 T00_018.Col \u2192 Sort v\u271d",
+      "name": "T00_018.Col.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.7"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_018.Col \u2192 Sort u} \u2192\n  motive T00_018.Col.red \u2192 motive T00_018.Col.green \u2192 motive T00_018.Col.blue \u2192 (t : T00_018.Col) \u2192 motive t",
+      "name": "T00_018.Col.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_018.Col \u2192 Sort u} \u2192\n  (t : T00_018.Col) \u2192 motive T00_018.Col.red \u2192 motive T00_018.Col.green \u2192 motive T00_018.Col.blue \u2192 motive t",
+      "name": "T00_018.Col.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Col",
+      "name": "T00_018.Col.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T00_018.Col.red = 1",
+      "name": "T00_018.Col.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Col \u2192 Nat",
+      "name": "T00_018.Col.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T00_018.Opt",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T00_018.Opt \u03b1 \u2192 Sort u} \u2192\n    (t : T00_018.Opt \u03b1) \u2192 motive T00_018.Opt.none \u2192 ((a : \u03b1) \u2192 motive (T00_018.Opt.some a)) \u2192 motive t",
+      "name": "T00_018.Opt.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T00_018.Opt \u03b1} \u2192 v1 = v2 \u2192 T00_018.Opt.noConfusionType P v1 v2",
+      "name": "T00_018.Opt.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T00_018.Opt \u03b1 \u2192 T00_018.Opt \u03b1 \u2192 Sort u",
+      "name": "T00_018.Opt.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T00_018.Opt \u03b1",
+      "name": "T00_018.Opt.none",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T00_018.Opt.none = 1",
+      "name": "T00_018.Opt.none.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T00_018.Opt \u03b1 \u2192 Sort u} \u2192\n    motive T00_018.Opt.none \u2192 ((a : \u03b1) \u2192 motive (T00_018.Opt.some a)) \u2192 (t : T00_018.Opt \u03b1) \u2192 motive t",
+      "name": "T00_018.Opt.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T00_018.Opt \u03b1 \u2192 Sort u} \u2192\n    (t : T00_018.Opt \u03b1) \u2192 motive T00_018.Opt.none \u2192 ((a : \u03b1) \u2192 motive (T00_018.Opt.some a)) \u2192 motive t",
+      "name": "T00_018.Opt.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T00_018.Opt \u03b1",
+      "name": "T00_018.Opt.some",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T00_018.Opt.some a = T00_018.Opt.some a_1 \u2192 a = a_1",
+      "name": "T00_018.Opt.some.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T00_018.Opt.some a = T00_018.Opt.some a_1) = (a = a_1)",
+      "name": "T00_018.Opt.some.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T00_018.Opt.some a) = 1 + sizeOf a",
+      "name": "T00_018.Opt.some.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_018.Tagged",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_018.Tagged \u2192 Sort u} \u2192\n  (t : T00_018.Tagged) \u2192 ((a : Nat) \u2192 (a_1 : Bool) \u2192 motive (T00_018.Tagged.tag a a_1)) \u2192 motive t",
+      "name": "T00_018.Tagged.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T00_018.Tagged} \u2192 v1 = v2 \u2192 T00_018.Tagged.noConfusionType P v1 v2",
+      "name": "T00_018.Tagged.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T00_018.Tagged \u2192 T00_018.Tagged \u2192 Sort u",
+      "name": "T00_018.Tagged.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_018.Tagged \u2192 Sort u} \u2192\n  ((a : Nat) \u2192 (a_1 : Bool) \u2192 motive (T00_018.Tagged.tag a a_1)) \u2192 (t : T00_018.Tagged) \u2192 motive t",
+      "name": "T00_018.Tagged.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_018.Tagged \u2192 Sort u} \u2192\n  (t : T00_018.Tagged) \u2192 ((a : Nat) \u2192 (a_1 : Bool) \u2192 motive (T00_018.Tagged.tag a a_1)) \u2192 motive t",
+      "name": "T00_018.Tagged.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool \u2192 T00_018.Tagged",
+      "name": "T00_018.Tagged.tag",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : Nat} {a_1 : Bool} {a_2 : Nat} {a_3 : Bool},\n  T00_018.Tagged.tag a a_1 = T00_018.Tagged.tag a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T00_018.Tagged.tag.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a : Nat) (a_1 : Bool) (a_2 : Nat) (a_3 : Bool),\n  (T00_018.Tagged.tag a a_1 = T00_018.Tagged.tag a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T00_018.Tagged.tag.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : Nat) (a_1 : Bool), sizeOf (T00_018.Tagged.tag a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T00_018.Tagged.tag.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(b : Bool) \u2192 if b = true then Nat else Bool",
+      "name": "T00_018.depMatch",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Bool \u2192 Sort u_1) \u2192 (x : Bool) \u2192 (Unit \u2192 motive true) \u2192 (Unit \u2192 motive false) \u2192 motive x",
+      "name": "T00_018.depMatch.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Col \u2192 Nat",
+      "name": "T00_018.pc",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T00_018.Col \u2192 Sort u_1) \u2192\n  (x : T00_018.Col) \u2192\n    (Unit \u2192 motive T00_018.Col.blue) \u2192 (Unit \u2192 motive T00_018.Col.red) \u2192 (Unit \u2192 motive T00_018.Col.green) \u2192 motive x",
+      "name": "T00_018.pc.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_018.predOrOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((n : Nat) \u2192 motive n.succ) \u2192 motive x",
+      "name": "T00_018.predOrOne.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Tagged \u2192 Nat",
+      "name": "T00_018.readTag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T00_018.Tagged \u2192 Sort u_1) \u2192\n  (x : T00_018.Tagged) \u2192 ((n : Nat) \u2192 (b : Bool) \u2192 motive (T00_018.Tagged.tag n b)) \u2192 motive x",
+      "name": "T00_018.readTag.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Opt Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_018.unwrapOr",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T00_018.Opt Nat \u2192 Nat \u2192 Sort u_1) \u2192\n  (x : T00_018.Opt Nat) \u2192\n    (x_1 : Nat) \u2192 ((d : Nat) \u2192 motive T00_018.Opt.none d) \u2192 ((a x : Nat) \u2192 motive (T00_018.Opt.some a) x) \u2192 motive x x_1",
+      "name": "T00_018.unwrapOr.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_018.Col \u2192 Nat",
+      "name": "T00_018.viaMatchExpr",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T00_018.Col \u2192 Sort u_1) \u2192\n  (c : T00_018.Col) \u2192\n    (Unit \u2192 motive T00_018.Col.red) \u2192 (Unit \u2192 motive T00_018.Col.green) \u2192 (Unit \u2192 motive T00_018.Col.blue) \u2192 motive c",
+      "name": "T00_018.viaMatchExpr.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

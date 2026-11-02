@@ -13,101 +13,117 @@ pub mod lattice;
 pub mod period;
 
 pub mod arith;
-pub mod cdcl;
-pub mod cnf;
-pub mod dimacs;
-pub mod proof;
-pub mod proof_emit;
-pub mod complexity;
-pub mod ait;
-pub mod isogeny;
-pub mod coalgebra;
-pub mod groupoid;
-pub mod category_collapse;
-pub mod two_group;
-pub mod proof_rewrite;
-pub mod trace_determinism;
-pub mod progress_complex;
-pub mod cubical;
-pub mod kan_complex;
-pub mod two_type;
-pub mod eilenberg_maclane;
-pub mod postnikov;
-pub mod steenrod;
-pub mod pr;
+// Independent replay checker for the analog lane's range-safety certificates (the PR/RUP-checker
+// pattern applied to voltage bounds): dependency-free, fail-closed, trusted over the producer.
 pub mod affine;
 pub mod affine_gfp;
+pub mod aig;
+pub mod ait;
+pub mod bmc;
+pub mod cardinality;
+pub mod cdcl;
+pub mod certifier;
+pub mod cnf;
+pub mod coalgebra;
+pub mod complexity;
+pub mod counterexample;
+pub mod counting_principle;
+pub mod crush;
+pub mod cubical;
+pub mod cycle_ratio;
+pub mod decide;
+pub mod development;
+pub mod dimacs;
+pub mod discrimination;
+pub mod eilenberg_maclane;
+pub mod engine;
+pub mod error;
 pub mod families;
+pub mod formula;
+pub mod fraig;
 pub mod gf2;
+pub mod grid_solver;
+pub mod grounding;
+pub mod groupoid;
+pub mod hints;
+pub mod hornsat;
 pub mod hypercube;
-pub mod census;
-pub mod cofactor;
-pub mod res_width;
+pub mod inprocess;
+pub mod interval_replay;
+pub mod interval_sched;
+pub mod isogeny;
+pub mod kan_complex;
+pub mod lemma_index;
+pub mod linalg;
+pub mod linalg_certify;
+pub mod linarith_solve;
+pub mod lll;
+pub mod lrat;
+pub mod lyapunov;
+pub mod macaulay;
+pub mod matching;
+pub mod min_cost_flow;
+pub mod modm;
+pub mod modp;
+mod numeral;
+pub mod omega_solve;
+pub mod optimize;
+pub mod ordering;
+pub mod parity_cardinality;
+pub mod permgroup;
+pub mod pigeonhole;
+pub mod polycalc;
+pub mod postnikov;
+pub mod pr;
+pub mod progress_complex;
+pub mod proof;
+pub mod proof_emit;
+pub mod proof_rewrite;
+pub mod pseudo_boolean;
+pub mod rainbow;
+pub mod register_alloc;
+pub mod relax_replay;
+pub mod revgate;
+pub mod rule_search;
 pub mod rup;
 pub mod sat;
 pub mod satcli;
+pub mod sdcl;
+pub mod seq_equiv;
+pub mod simp;
 pub mod solve;
-pub mod xor_drat;
-pub mod xor_engine;
-pub mod bmc;
-pub mod cardinality;
-pub mod counting_principle;
-pub mod matching;
-pub mod ordering;
-pub mod parity_cardinality;
-pub mod pigeonhole;
-pub mod pseudo_boolean;
-pub mod symmetry;
-pub mod symmetry_detect;
+pub mod sos;
+pub mod steenrod;
+pub mod sweep;
+pub mod sym_break;
 pub mod sym_certify;
 pub mod sym_dynamic;
-pub mod lyapunov;
-pub mod inprocess;
-pub mod sdcl;
-pub mod xorsat;
-pub mod lll;
-pub mod modp;
-pub mod modm;
-pub mod orbit_stability;
-pub mod polycalc;
-pub mod polycalc_gfp;
-pub mod polycalc_zm;
-pub mod sos;
-pub mod permgroup;
-pub mod sym_break;
-pub mod hornsat;
-pub mod twosat;
-pub mod interval_sched;
-pub mod register_alloc;
-pub mod optimize;
-pub mod certifier;
-pub mod counterexample;
-pub mod crush;
-pub mod decide;
-pub mod development;
-pub mod discrimination;
-pub mod lemma_index;
-pub mod engine;
-pub mod simp;
-pub mod formula;
+mod symbols;
+pub mod symmetry;
+pub mod symmetry_detect;
 pub mod tactic;
+pub mod tactic_cert;
 pub mod tactic_script;
-pub mod rule_search;
-pub mod linarith_solve;
-pub mod omega_solve;
-pub mod grounding;
-pub mod grid_solver;
-pub mod error;
-pub mod hints;
+pub mod thermal_replay;
+pub mod trace_determinism;
+pub mod two_group;
+pub mod two_type;
+pub mod twosat;
 pub mod unify;
+pub mod units;
+pub mod streams;
 pub mod verify;
+pub mod xl;
+pub mod xor_drat;
+pub mod xor_engine;
+pub mod xorsat;
 
-#[cfg(feature = "verification")]
-pub mod oracle;
 #[cfg(feature = "verification")]
 mod modal_translation;
+#[cfg(feature = "verification")]
+pub mod oracle;
 
-pub use engine::BackwardChainer;
+pub use engine::{BackwardChainer, PremiseVariables};
 pub use error::ProofError;
 pub use hints::{suggest_hint, SocraticHint, SuggestedTactic};
 pub use unify::Substitution;
@@ -198,7 +214,6 @@ impl fmt::Display for ProofTerm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProofExpr {
     // --- Core FOL ---
-
     /// Atomic predicate: P(t1, t2, ...)
     Predicate {
         name: String,
@@ -213,7 +228,6 @@ pub enum ProofExpr {
     Atom(String),
 
     // --- Logical Connectives ---
-
     /// Conjunction: P ∧ Q
     And(Box<ProofExpr>, Box<ProofExpr>),
 
@@ -230,7 +244,6 @@ pub enum ProofExpr {
     Not(Box<ProofExpr>),
 
     // --- Quantifiers ---
-
     /// Universal quantification: ∀x P(x)
     ForAll {
         variable: String,
@@ -244,7 +257,6 @@ pub enum ProofExpr {
     },
 
     // --- Modal Logic ---
-
     /// Modal operator: □P or ◇P (with world semantics)
     Modal {
         domain: String,
@@ -262,7 +274,6 @@ pub enum ProofExpr {
     },
 
     // --- Temporal Logic ---
-
     /// Temporal operator: Past(P), Future(P), Always(P), Eventually(P), Next(P)
     Temporal {
         operator: String,
@@ -277,7 +288,6 @@ pub enum ProofExpr {
     },
 
     // --- Lambda Calculus (CIC extension) ---
-
     /// Lambda abstraction: λx.P
     Lambda {
         variable: String,
@@ -288,7 +298,6 @@ pub enum ProofExpr {
     App(Box<ProofExpr>, Box<ProofExpr>),
 
     // --- Event Semantics ---
-
     /// Neo-Davidsonian event: ∃e(Verb(e) ∧ Agent(e,x) ∧ ...)
     NeoEvent {
         event_var: String,
@@ -297,13 +306,9 @@ pub enum ProofExpr {
     },
 
     // --- Peano / Inductive Types (CIC Extension) ---
-
     /// Data Constructor: Zero, Succ(n), Cons(h, t), etc.
     /// The building blocks of inductive types.
-    Ctor {
-        name: String,
-        args: Vec<ProofExpr>,
-    },
+    Ctor { name: String, args: Vec<ProofExpr> },
 
     /// Pattern Matching: match n { Zero => A, Succ(k) => B }
     /// Eliminates inductive types by case analysis.
@@ -314,20 +319,13 @@ pub enum ProofExpr {
 
     /// Recursive Function (Fixpoint): fix f. λn. ...
     /// Defines recursive functions over inductive types.
-    Fixpoint {
-        name: String,
-        body: Box<ProofExpr>,
-    },
+    Fixpoint { name: String, body: Box<ProofExpr> },
 
     /// Typed Variable: n : Nat
     /// Signals to the prover that induction may be applicable.
-    TypedVar {
-        name: String,
-        typename: String,
-    },
+    TypedVar { name: String, typename: String },
 
     // --- Higher-Order Pattern Unification ---
-
     /// Meta-variable (unification hole) to be solved during proof search.
     /// Represents an unknown expression, typically a function or predicate.
     /// Example: Hole("P") in ?P(x) = Body, to be solved as P = λx.Body
@@ -339,7 +337,6 @@ pub enum ProofExpr {
     Term(ProofTerm),
 
     // --- Fallback ---
-
     /// Unsupported construct (with description for debugging)
     Unsupported(String),
 }
@@ -391,19 +388,35 @@ impl fmt::Display for ProofExpr {
             ProofExpr::Not(inner) => write!(f, "¬{}", inner),
             ProofExpr::ForAll { variable, body } => write!(f, "∀{} {}", variable, body),
             ProofExpr::Exists { variable, body } => write!(f, "∃{} {}", variable, body),
-            ProofExpr::Modal { domain, force, flavor, body } => {
+            ProofExpr::Modal {
+                domain,
+                force,
+                flavor,
+                body,
+            } => {
                 write!(f, "□[{}/{}/{}]{}", domain, force, flavor, body)
             }
-            ProofExpr::Counterfactual { antecedent, consequent } => {
+            ProofExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => {
                 write!(f, "({} □→ {})", antecedent, consequent)
             }
             ProofExpr::Temporal { operator, body } => write!(f, "{}({})", operator, body),
-            ProofExpr::TemporalBinary { operator, left, right } => {
+            ProofExpr::TemporalBinary {
+                operator,
+                left,
+                right,
+            } => {
                 write!(f, "TemporalBinary({}, {}, {})", operator, left, right)
             }
             ProofExpr::Lambda { variable, body } => write!(f, "λ{}.{}", variable, body),
             ProofExpr::App(func, arg) => write!(f, "({} {})", func, arg),
-            ProofExpr::NeoEvent { event_var, verb, roles } => {
+            ProofExpr::NeoEvent {
+                event_var,
+                verb,
+                roles,
+            } => {
                 write!(f, "∃{}({}({})", event_var, verb, event_var)?;
                 for (role, term) in roles {
                     write!(f, " ∧ {}({}, {})", role, event_var, term)?;
@@ -484,10 +497,28 @@ pub struct InductionArg {
     pub recursive: bool,
 }
 
+/// `ModusPonens` → `modus_ponens`. The script spelling of a rule name: a capital starts a new
+/// word, and a run of capitals (`EqualityTransitivity` has none, but a future `LHS` would) stays
+/// one word, so the transformation is a bijection on the names it is applied to.
+fn snake_case(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    let chars: Vec<char> = name.chars().collect();
+    for (i, c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            let prev_lower = chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit();
+            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_ascii_lowercase());
+            if prev_lower || next_lower {
+                out.push('_');
+            }
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InferenceRule {
     // --- Basic FOL ---
-
     /// Direct match with a known fact in the Context/KnowledgeBase.
     /// Logic: Γ, P ⊢ P
     PremiseMatch,
@@ -529,7 +560,6 @@ pub enum InferenceRule {
     ClassicalReductio,
 
     // --- Quantifiers ---
-
     /// Logic: ∀x P(x) ⊢ P(c)
     /// Stores the specific term 'c' used to instantiate the universal.
     UniversalInst(String),
@@ -551,8 +581,23 @@ pub enum InferenceRule {
         witness_type: String,
     },
 
-    // --- Modal Logic (World Moves) ---
+    /// Logic: P(t) ⊢ ∃x.P(x) at an arbitrary witness TERM — `use (n + 1)`, `use (f x)`,
+    /// the compound witnesses Lean's `exists`/`use` takes. [`InferenceRule::ExistentialIntro`]
+    /// carries its witness as a `String`, which the certifier can only resolve as one NAME, so
+    /// `add(n, 1)` certified to a global literally called `"add(n, 1)"` that no context
+    /// declares. This carries the term, exactly as [`InferenceRule::UniversalInstTerm`] sits
+    /// beside [`InferenceRule::UniversalInst`] for the dual quantifier.
+    ///
+    /// `witness_type` is the ∃-binder's DOMAIN, not the witness's own type name: it must be
+    /// the domain `certifier::proof_expr_to_type` gives the same `Exists`, or the certified
+    /// term's type and the goal type disagree. Both sides read it from one function,
+    /// `certifier::existential_domain`.
+    ExistentialIntroTerm {
+        witness: ProofTerm,
+        witness_type: String,
+    },
 
+    // --- Modal Logic (World Moves) ---
     /// Logic: □P (in w0), Accessible(w0, w1) ⊢ P (in w1)
     /// "Necessity Elimination" / "Distribution"
     ModalAccess,
@@ -562,7 +607,6 @@ pub enum InferenceRule {
     ModalGeneralization,
 
     // --- Temporal Logic ---
-
     /// Logic: t1 < t2, t2 < t3 ⊢ t1 < t3
     TemporalTransitivity,
 
@@ -582,13 +626,12 @@ pub enum InferenceRule {
     UntilInduction,
 
     // --- Peano / Inductive Reasoning (CIC seed) ---
-
     /// Logic: P(0), ∀k(P(k) → P(S(k))) ⊢ ∀n P(n)
     /// Stores the variable name, its inductive type, and the step variable used.
     StructuralInduction {
-        variable: String,  // "n" - the induction variable
-        ind_type: String,  // "Nat" - the inductive type
-        step_var: String,  // "k" - the predecessor variable (for IH matching)
+        variable: String, // "n" - the induction variable
+        ind_type: String, // "Nat" - the inductive type
+        step_var: String, // "k" - the predecessor variable (for IH matching)
     },
 
     /// Logic: generic structural induction over ANY inductive type. Generalizes
@@ -604,7 +647,6 @@ pub enum InferenceRule {
     },
 
     // --- Linear arithmetic (order) ---
-
     /// `a ≤ b`, `b ≤ c` ⊢ `a ≤ c` over `Int`. The middle term is recovered from
     /// the first premise's conclusion. Certifies to `le_trans a b c p₀ p₁`.
     /// Inequalities are encoded as the Prop `Eq Bool (le a b) true`.
@@ -648,15 +690,66 @@ pub enum InferenceRule {
     /// constant instead of propagating it into the Farkas reconstruction.
     LtAdd1Le,
 
-    // --- Equality ---
+    /// `(a + 1) ≤ b` ⊢ `a < b` — the CONVERSE of [`InferenceRule::LtSuccLe`], and the only
+    /// way to CONCLUDE a strict inequality about symbolic operands. Operands are read from the
+    /// conclusion `lt(a, b) = true`; `premise[0]` proves `le(add a 1, b) = true`. Certifies to
+    /// `le_succ_lt a b p₀`.
+    ///
+    /// **It needs a prelude axiom that is not registered yet.** Of the `Int` order axioms in
+    /// the trusted base, NONE concludes a `lt`: `lt_succ_le` and `lt_add1_le` both take one as
+    /// a PREMISE, so a relation chain can compose a strict step but can only state its result
+    /// in the tightened form `a + 1 ≤ d`. Adding `le_succ_lt : Π a b. (a + 1) ≤ b → a < b`
+    /// closes that, and it is a ledger decision (`tcb_ledger_lock`'s `DEFINABLE_CEILING`), not
+    /// a tactic one — Lean PROVES this, because its `Int` is an inductive.
+    ///
+    /// The strictly better move, which costs no axiom at all and REMOVES two, is to make `lt`
+    /// a DEFINITION (`lt a b := le (add a 1) b`) instead of an opaque primitive: `lt_succ_le`
+    /// and `lt_add1_le` then hold by conversion and leave the ledger, and `a < b` becomes
+    /// definitionally `a + 1 ≤ b`, so this rule is not needed either.
+    ///
+    /// Until one of those lands, nothing CONSTRUCTS this rule: every producer asks
+    /// `engine::strict_conclusions_available` first, so no tree is ever built that the
+    /// kernel would have to refuse.
+    LeSuccLt,
 
+    /// `⊢ (a ≤ b) ∨ (b ≤ a)` over `Int` — LINEAR-ORDER TOTALITY, a leaf (no premises).
+    /// Certifies to `le_total a b`, whose operands are read from the conclusion
+    /// `Or (le(a,b) = true) (le(b,a) = true)`.
+    ///
+    /// This is the GOAL-DIRECTED half of `omega`. A refutation engine only ever proves `⊥`;
+    /// a decision procedure proves the goal, and the way it does that is to assume the goal
+    /// false and refute. Totality is the sound, axiom-free approximation of that assumption
+    /// for a `≤` goal: split on `le_total a b`, take the goal itself in the left branch, and
+    /// refute the hypotheses together with `b ≤ a` in the right. It reaches every goal whose
+    /// negation-by-totality is refutable; the strictly larger fragment (`¬(a ≤ b) ⟹ b+1 ≤ a`)
+    /// needs an axiom the trusted base does not have, and is deliberately NOT assumed here.
+    LeTotal,
+
+    // --- Equality ---
     /// Leibniz's Law / Substitution of Equals
     /// Logic: a = b, P(a) ⊢ P(b)
     /// The equality proof is in `premise\[0\]`, the P(a) proof is in `premise\[1\]`.
     /// Carries the original term and replacement term for certification.
-    Rewrite {
+    Rewrite { from: ProofTerm, to: ProofTerm },
+
+    /// POSITIONAL Leibniz: like [`InferenceRule::Rewrite`], but abstracting exactly ONE
+    /// occurrence of `to` in the conclusion — the `occurrence`-th, counted left-to-right in
+    /// the same pre-order walk the tactic layer uses.
+    ///
+    /// `Rewrite` carries no position, and the `Eq_rec` motive it builds abstracts EVERY
+    /// occurrence, so `P(a, a)` rewritten by `a = b` could only ever become `P(b, b)`. That
+    /// is why Lean has `conv` and occurrence arguments at all: `P(b, a)` is a different (and
+    /// frequently the only provable) goal. A caller that rewrote one occurrence had nowhere
+    /// to record which, so the trust door could not follow it.
+    ///
+    /// The kernel is the check on the index: `Eq_rec` demands the source premise prove
+    /// `P from`, so an index that abstracted the wrong occurrence yields a motive the source
+    /// subgoal does not inhabit and the proof is REFUSED. A wrong position cannot be unsound,
+    /// only unprovable.
+    RewriteAt {
         from: ProofTerm,
         to: ProofTerm,
+        occurrence: usize,
     },
 
     /// Symmetry of Equality: a = b ⊢ b = a
@@ -681,8 +774,21 @@ pub enum InferenceRule {
     /// term, so a lying leaf is rejected.
     NativeDecide,
 
-    // --- Fallbacks ---
+    /// Proof by ground REFUTATION: the conclusion is `¬P` for a closed `P` that COMPUTES
+    /// FALSE. A leaf — like [`InferenceRule::NativeDecide`], it carries only the claim, and
+    /// certification re-runs the computation, so a lying leaf certifies to nothing.
+    ///
+    /// The dual `NativeDecide` lacks is the reason `decide` had no `ProofExpr::Not` arm at
+    /// all: a `Decidable` instance decides `P` true through `of_decide_eq_true`, and the
+    /// false direction needs `of_decide_eq_false`, which the trusted base does not register.
+    /// No axiom is needed, because `Bool` is an inductive with two constructors and its
+    /// no-confusion discriminator is already how a ground-false inequality becomes `⊥`
+    /// ([`InferenceRule::LinFalse`]): a ground `Int` disequality transports `le a a` (true by
+    /// computation) along the assumed equality into `le a b` (false by computation) with
+    /// `Eq_rec`, and a ground `Bool` disequality is that contradiction already.
+    GroundRefutation,
 
+    // --- Fallbacks ---
     /// "The User Said So." Used for top-level axioms.
     Axiom,
 
@@ -700,7 +806,6 @@ pub enum InferenceRule {
     Contradiction,
 
     // --- Quantifier Elimination ---
-
     /// Existential Elimination (Skolemization in a proof context)
     /// Logic: ∃x.P(x), [c fresh] P(c) ⊢ Goal implies ∃x.P(x) ⊢ Goal
     /// The witness c must be fresh (not appearing in Goal).
@@ -725,6 +830,312 @@ pub enum InferenceRule {
     /// is a conjunction, each of its conjuncts) are bound as local hypotheses in the
     /// respective branch, so a branch may reference them directly.
     DisjunctionCases,
+}
+
+impl InferenceRule {
+    /// Why [`certifier::certify`] cannot turn this rule into a kernel term —
+    /// `None` when it can.
+    ///
+    /// **This is the list a proof PRODUCER must consult before it emits a tree.**
+    /// A [`DerivationTree`] is an ordinary Rust value: it can be built with any
+    /// variant, it passes every Rust type check, and a rule with no certifier arm
+    /// fails only at [`verify::check_derivation`] — surfacing as a
+    /// `verification_error` that reads like a kernel limitation rather than what
+    /// it is, a tree that was never certifiable. Selecting a rule by NAME is how
+    /// that happens: `TemporalTransitivity` looks exactly right for `t₁ < t₂`,
+    /// `t₂ < t₃` ⊢ `t₁ < t₃`, and it is dead.
+    ///
+    /// Existence in this enum is not evidence of implementation. The match below
+    /// is EXHAUSTIVE and so is `certify`'s — adding a variant without deciding
+    /// both is a compile error, which is the only thing that keeps the enum and
+    /// the certifier from drifting apart.
+    pub fn uncertifiable_reason(&self) -> Option<&'static str> {
+        match self {
+            // --- Modal and temporal: DECLARED, never implemented. -------------
+            // Nothing in any engine constructs these, `certify` has no arm for
+            // any of them, and each names a proof shape with a perfectly good
+            // translation into live rules. Each reason states that translation,
+            // so a producer that reached for the name can rebuild the tree.
+            InferenceRule::ModalAccess => Some(
+                "no certifier arm: modal necessity-elimination is unimplemented. Express \
+                 `□P` as `∀v. Accessible(w, v) → P(v)` and use UniversalInst + ModusPonens",
+            ),
+            InferenceRule::ModalGeneralization => Some(
+                "no certifier arm: modal necessity-introduction is unimplemented. Express \
+                 `□P` as `∀v. Accessible(w, v) → P(v)` and use UniversalIntro",
+            ),
+            InferenceRule::TemporalTransitivity => Some(
+                "no certifier arm: temporal-order transitivity is unimplemented. A time \
+                 order is an ordinary order — use LeTrans on `≤`, or the `<` chain it \
+                 tightens to",
+            ),
+            InferenceRule::TemporalInduction => Some(
+                "no certifier arm: k-induction over a trace is unimplemented. Induct on \
+                 the trace index with StructuralInduction / InductionScheme",
+            ),
+            InferenceRule::TemporalUnfolding => Some(
+                "no certifier arm: fixpoint unfolding of `Always` is unimplemented. \
+                 Express `G P` as `∀n. P n` and use ConjunctionIntro over its \
+                 instantiations",
+            ),
+            InferenceRule::EventualityProgress => Some(
+                "no certifier arm: `Eventually` by witness is unimplemented. Express \
+                 `F P` as `∃n. P n` and use ExistentialIntro",
+            ),
+            InferenceRule::UntilInduction => Some(
+                "no certifier arm: induction for `P U Q` is unimplemented. Express it as \
+                 `∃k. Q k ∧ ∀j < k. P j` and use ExistentialIntro + ConjunctionIntro",
+            ),
+
+            // --- Deliberately outside the trusted base. ----------------------
+            InferenceRule::OracleVerification(_) => Some(
+                "refused by design: an SMT oracle attests satisfiability but hands back no \
+                 checkable proof term, so it can never become a kernel certificate. For \
+                 arithmetic, ArithDecision is the proof-producing route",
+            ),
+
+            // --- Everything below has a real arm in `certifier::certify`. ----
+            InferenceRule::PremiseMatch
+            | InferenceRule::ModusPonens
+            | InferenceRule::ModusTollens
+            | InferenceRule::ConjunctionIntro
+            | InferenceRule::ConjunctionElim
+            | InferenceRule::DisjunctionIntro
+            | InferenceRule::DisjunctionElim
+            | InferenceRule::ExFalso
+            | InferenceRule::ImpliesIntro
+            | InferenceRule::BicondIntro
+            | InferenceRule::DoubleNegation
+            | InferenceRule::ClassicalReductio
+            | InferenceRule::UniversalInst(_)
+            | InferenceRule::UniversalInstTerm(_)
+            | InferenceRule::UniversalIntro { .. }
+            | InferenceRule::ExistentialIntro { .. }
+            | InferenceRule::ExistentialIntroTerm { .. }
+            | InferenceRule::StructuralInduction { .. }
+            | InferenceRule::InductionScheme { .. }
+            | InferenceRule::LeTrans
+            | InferenceRule::LeRefl
+            | InferenceRule::LeAddMono
+            | InferenceRule::LinFalse
+            | InferenceRule::LeMulNonneg
+            | InferenceRule::LeSub
+            | InferenceRule::LtSuccLe
+            | InferenceRule::LtAdd1Le
+            | InferenceRule::LeSuccLt
+            | InferenceRule::LeTotal
+            | InferenceRule::Rewrite { .. }
+            | InferenceRule::RewriteAt { .. }
+            | InferenceRule::EqualitySymmetry
+            | InferenceRule::EqualityTransitivity
+            | InferenceRule::Reflexivity
+            | InferenceRule::ArithDecision
+            | InferenceRule::NativeDecide
+            | InferenceRule::GroundRefutation
+            | InferenceRule::Axiom
+            | InferenceRule::ReductioAdAbsurdum
+            | InferenceRule::Contradiction
+            | InferenceRule::ExistentialElim { .. }
+            | InferenceRule::CaseAnalysis { .. }
+            | InferenceRule::DisjunctionCases => None,
+        }
+    }
+
+    /// Rewrite every NAME, TERM and PROPOSITION this rule carries in its PAYLOAD.
+    ///
+    /// Two places in this crate rename a rigid eigen-CONSTANT back to the variable it stands
+    /// for, and a renaming that reaches a node's conclusion but not the payload of the rule
+    /// that justifies it produces a tree whose motive, witness or case formula is about a name
+    /// the conclusion no longer mentions — the certifier then computes against one proposition
+    /// and checks another, and refuses a correct proof. Each of the two walkers had its own
+    /// `match` with an `other => other.clone()` catch-all, and each caught a DIFFERENT subset:
+    /// `engine::rewrite_tree_const_to_var` covered `UniversalInst`, `ExistentialIntro`,
+    /// `ExistentialElim`, `Rewrite` and `CaseAnalysis`; `tactic::eigen_to_var_tree` covered
+    /// `Rewrite` alone. NEITHER covered `RewriteAt`, `UniversalInstTerm` or
+    /// `ExistentialIntroTerm` — the three payload-carrying rules added after they were written,
+    /// which is exactly what a catch-all guarantees will happen again.
+    ///
+    /// This is that decision, once, and the match is EXHAUSTIVE: a rule variant added later
+    /// cannot silently keep a stale name in its payload, because adding one without deciding
+    /// its arm here is a compile error.
+    ///
+    /// Binder names a rule INTRODUCES (`UniversalIntro`'s variable, `StructuralInduction`'s
+    /// induction and step variables, `InductionScheme`'s case arguments) are deliberately left
+    /// alone: they are not references to anything outside the node, and renaming one would
+    /// change which variable the eliminator abstracts.
+    pub fn map_payload(
+        &self,
+        name: &dyn Fn(&str) -> String,
+        term: &dyn Fn(&ProofTerm) -> ProofTerm,
+        expr: &dyn Fn(&ProofExpr) -> ProofExpr,
+    ) -> InferenceRule {
+        match self {
+            // --- Payloads that NAME a term the surrounding proof also mentions. ----------
+            InferenceRule::UniversalInst(witness) => InferenceRule::UniversalInst(name(witness)),
+            InferenceRule::ExistentialIntro { witness, witness_type } => {
+                InferenceRule::ExistentialIntro {
+                    witness: name(witness),
+                    witness_type: witness_type.clone(),
+                }
+            }
+            InferenceRule::ExistentialElim { witness } => {
+                InferenceRule::ExistentialElim { witness: name(witness) }
+            }
+
+            // --- Payloads that ARE terms. ------------------------------------------------
+            InferenceRule::UniversalInstTerm(witness) => {
+                InferenceRule::UniversalInstTerm(term(witness))
+            }
+            InferenceRule::ExistentialIntroTerm { witness, witness_type } => {
+                InferenceRule::ExistentialIntroTerm {
+                    witness: term(witness),
+                    witness_type: witness_type.clone(),
+                }
+            }
+            InferenceRule::Rewrite { from, to } => {
+                InferenceRule::Rewrite { from: term(from), to: term(to) }
+            }
+            InferenceRule::RewriteAt { from, to, occurrence } => InferenceRule::RewriteAt {
+                from: term(from),
+                to: term(to),
+                occurrence: *occurrence,
+            },
+
+            // --- The one payload that is a PROPOSITION. ----------------------------------
+            InferenceRule::CaseAnalysis { case_formula } => {
+                InferenceRule::CaseAnalysis { case_formula: Box::new(expr(case_formula)) }
+            }
+
+            // --- Binders the rule introduces, type NAMES, and the oracle's justification
+            //     string: nothing here refers outward, so nothing here is renamed.
+            InferenceRule::UniversalIntro { .. }
+            | InferenceRule::StructuralInduction { .. }
+            | InferenceRule::InductionScheme { .. }
+            | InferenceRule::OracleVerification(_)
+            // --- …and every payload-free rule.
+            | InferenceRule::PremiseMatch
+            | InferenceRule::ModusPonens
+            | InferenceRule::ModusTollens
+            | InferenceRule::ConjunctionIntro
+            | InferenceRule::ConjunctionElim
+            | InferenceRule::DisjunctionIntro
+            | InferenceRule::DisjunctionElim
+            | InferenceRule::ExFalso
+            | InferenceRule::ImpliesIntro
+            | InferenceRule::BicondIntro
+            | InferenceRule::DoubleNegation
+            | InferenceRule::ClassicalReductio
+            | InferenceRule::ModalAccess
+            | InferenceRule::ModalGeneralization
+            | InferenceRule::TemporalTransitivity
+            | InferenceRule::TemporalInduction
+            | InferenceRule::TemporalUnfolding
+            | InferenceRule::EventualityProgress
+            | InferenceRule::UntilInduction
+            | InferenceRule::LeTrans
+            | InferenceRule::LeRefl
+            | InferenceRule::LeAddMono
+            | InferenceRule::LinFalse
+            | InferenceRule::LeMulNonneg
+            | InferenceRule::LeSub
+            | InferenceRule::LtSuccLe
+            | InferenceRule::LtAdd1Le
+            | InferenceRule::LeSuccLt
+            | InferenceRule::LeTotal
+            | InferenceRule::EqualitySymmetry
+            | InferenceRule::EqualityTransitivity
+            | InferenceRule::Reflexivity
+            | InferenceRule::ArithDecision
+            | InferenceRule::NativeDecide
+            | InferenceRule::GroundRefutation
+            | InferenceRule::Axiom
+            | InferenceRule::ReductioAdAbsurdum
+            | InferenceRule::Contradiction
+            | InferenceRule::DisjunctionCases => self.clone(),
+        }
+    }
+
+    /// Every rule that can be applied from a NAME alone — the payload-free variants, whose
+    /// application is fixed by the goal and the facts in scope.
+    ///
+    /// A rule carrying an argument is deliberately absent: `Rewrite` needs its equation,
+    /// `UniversalInstTerm` its witness, `StructuralInduction` its variable, and a name cannot
+    /// supply any of them. Those have their own tactics (`rewrite`, `exists`, `induction`),
+    /// and reporting the absence is more useful than guessing the argument.
+    ///
+    /// The seven declared-but-unimplemented rules ARE here. `by_rule` looks them up, finds
+    /// [`InferenceRule::uncertifiable_reason`] and reports that reason — which is the whole
+    /// point of the list: a producer that reached for a dead name learns it is dead, instead
+    /// of watching a search fail for no stated cause.
+    pub const NAMEABLE: &'static [InferenceRule] = &[
+        InferenceRule::PremiseMatch,
+        InferenceRule::ModusPonens,
+        InferenceRule::ModusTollens,
+        InferenceRule::ConjunctionIntro,
+        InferenceRule::ConjunctionElim,
+        InferenceRule::DisjunctionIntro,
+        InferenceRule::DisjunctionElim,
+        InferenceRule::DisjunctionCases,
+        InferenceRule::ExFalso,
+        InferenceRule::ImpliesIntro,
+        InferenceRule::BicondIntro,
+        InferenceRule::DoubleNegation,
+        InferenceRule::ClassicalReductio,
+        InferenceRule::ReductioAdAbsurdum,
+        InferenceRule::Contradiction,
+        InferenceRule::Axiom,
+        InferenceRule::EqualitySymmetry,
+        InferenceRule::EqualityTransitivity,
+        InferenceRule::Reflexivity,
+        InferenceRule::LeTrans,
+        InferenceRule::LeRefl,
+        InferenceRule::LeAddMono,
+        InferenceRule::LeMulNonneg,
+        InferenceRule::LeSub,
+        InferenceRule::LinFalse,
+        InferenceRule::LtSuccLe,
+        InferenceRule::LtAdd1Le,
+        InferenceRule::LeSuccLt,
+        InferenceRule::LeTotal,
+        InferenceRule::ArithDecision,
+        InferenceRule::NativeDecide,
+        InferenceRule::GroundRefutation,
+        InferenceRule::ModalAccess,
+        InferenceRule::ModalGeneralization,
+        InferenceRule::TemporalTransitivity,
+        InferenceRule::TemporalInduction,
+        InferenceRule::TemporalUnfolding,
+        InferenceRule::EventualityProgress,
+        InferenceRule::UntilInduction,
+    ];
+
+    /// Resolve a rule NAME, as a proof script or a translator spells it: the variant's own
+    /// name (`ModusPonens`) or its snake_case form (`modus_ponens`). Nothing else — a
+    /// case-insensitive or punctuation-insensitive match would quietly accept `MODUSPONENS`
+    /// and make a typo indistinguishable from a rule that does not exist.
+    pub fn from_name(name: &str) -> Option<InferenceRule> {
+        InferenceRule::NAMEABLE
+            .iter()
+            .find(|r| {
+                let canonical = r.canonical_name();
+                name == canonical || name == snake_case(&canonical)
+            })
+            .cloned()
+    }
+
+    /// This rule's canonical name. A payload-free variant renders as its bare variant name —
+    /// the spelling [`InferenceRule::from_name`] accepts; a payload-carrying one renders with
+    /// its payload, which is what a derivation dump wants and what `from_name` deliberately
+    /// cannot read back.
+    pub fn canonical_name(&self) -> String {
+        format!("{self:?}")
+    }
+
+    /// Whether [`certifier::certify`] has an arm that builds a kernel term for
+    /// this rule. The negation of [`InferenceRule::uncertifiable_reason`].
+    pub fn is_certifiable(&self) -> bool {
+        self.uncertifiable_reason().is_none()
+    }
 }
 
 // =============================================================================
@@ -766,18 +1177,30 @@ pub struct DerivationTree {
     /// The depth of the tree (used for complexity limits).
     pub depth: usize,
 
-    /// Substitution applied at this step (for unification-based rules).
+    /// The bindings unification discovered at this step — SEARCH TELEMETRY, not part of the
+    /// claim.
+    ///
+    /// Ten sites in [`BackwardChainer`] write it and NOTHING in the repository reads it: not
+    /// [`certifier::certify`], not [`verify::check_derivation`], not the derivation-document writer. Only the two
+    /// eigenconstant-renaming walkers touch it, and they only carry it along. So a rule that
+    /// recorded a substitution INSTEAD of instantiating its own conclusion would be believed by
+    /// nobody and checked by nobody — the certified term would prove one proposition while the
+    /// node claimed another, and every rule that computes from its own conclusion (a motive, a
+    /// rewrite's endpoints) would compute from the stale one.
+    ///
+    /// What keeps that from happening is an invariant, not a checker: **a node's conclusion is a
+    /// fixed point of its own substitution.** Every writer either applies it to the conclusion
+    /// first or binds only variables the conclusion does not carry. It is locked by
+    /// `T_tactics_extra::no_certified_node_records_a_substitution_its_conclusion_has_not_taken`,
+    /// which sweeps the chainer and checks it directly — keep that green, or give the field a
+    /// reader.
     pub substitution: unify::Substitution,
 }
 
 impl DerivationTree {
     /// Constructs a new Proof Node.
     /// Automatically calculates depth based on children.
-    pub fn new(
-        conclusion: ProofExpr,
-        rule: InferenceRule,
-        premises: Vec<DerivationTree>,
-    ) -> Self {
+    pub fn new(conclusion: ProofExpr, rule: InferenceRule, premises: Vec<DerivationTree>) -> Self {
         let max_depth = premises.iter().map(|p| p.depth).max().unwrap_or(0);
         Self {
             conclusion,
@@ -799,6 +1222,36 @@ impl DerivationTree {
         self
     }
 
+    /// Every node of this tree whose rule [`certifier::certify`] cannot build, as
+    /// `(rule, why)` pairs in pre-order — empty when the whole tree is certifiable.
+    ///
+    /// **A proof PRODUCER runs this before handing the tree to
+    /// [`verify::check_derivation`].** A `DerivationTree` is an ordinary Rust value:
+    /// any rule can be put in any node, the result type-checks, and a dead rule is
+    /// discovered only when certification reaches it — as a `verification_error`
+    /// that reads like the kernel refusing a proof. Asking here instead makes the
+    /// answer structural and keeps it where the producer can act on it: rebuild the
+    /// node out of live rules, or reject the input.
+    ///
+    /// The dead rule is usually not at the root. A root of `ExFalso` over a subtree
+    /// justified by `TemporalUnfolding` is well-formed everywhere except the one
+    /// node that matters, which is why this walks the whole tree rather than
+    /// answering about `self.rule`.
+    pub fn uncertifiable_rules(&self) -> Vec<(String, &'static str)> {
+        let mut out = Vec::new();
+        self.collect_uncertifiable(&mut out);
+        out
+    }
+
+    fn collect_uncertifiable(&self, out: &mut Vec<(String, &'static str)>) {
+        if let Some(why) = self.rule.uncertifiable_reason() {
+            out.push((format!("{:?}", self.rule), why));
+        }
+        for premise in &self.premises {
+            premise.collect_uncertifiable(out);
+        }
+    }
+
     /// Renders the proof as a text-based tree (for debugging/CLI).
     pub fn display_tree(&self) -> String {
         self.display_recursive(0)
@@ -813,14 +1266,34 @@ impl DerivationTree {
             InferenceRule::UniversalIntro { variable, var_type } => {
                 format!("UniversalIntro({}:{})", variable, var_type)
             }
-            InferenceRule::ExistentialIntro { witness, witness_type } => {
+            InferenceRule::ExistentialIntro {
+                witness,
+                witness_type,
+            } => {
                 format!("∃Intro({}:{})", witness, witness_type)
             }
-            InferenceRule::StructuralInduction { variable, ind_type, step_var } => {
+            InferenceRule::ExistentialIntroTerm {
+                witness,
+                witness_type,
+            } => {
+                format!("∃Intro({}:{})", witness, witness_type)
+            }
+            InferenceRule::StructuralInduction {
+                variable,
+                ind_type,
+                step_var,
+            } => {
                 format!("Induction({}:{}, step={})", variable, ind_type, step_var)
             }
             InferenceRule::OracleVerification(s) => format!("Oracle({})", s),
             InferenceRule::Rewrite { from, to } => format!("Rewrite({} → {})", from, to),
+            InferenceRule::RewriteAt {
+                from,
+                to,
+                occurrence,
+            } => {
+                format!("Rewrite({} → {} @{})", from, to, occurrence)
+            }
             InferenceRule::EqualitySymmetry => "EqSymmetry".to_string(),
             InferenceRule::EqualityTransitivity => "EqTransitivity".to_string(),
             r => format!("{:?}", r),

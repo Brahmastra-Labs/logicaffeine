@@ -1,0 +1,9 @@
+# started on Thu Oct  8 12:43:50 2026
+
+16897.83,msec,task-clock,1.09%,16911431799,100.00,1.000,CPUs utilized
+585113787601,,cpu_core/instructions/u,0.00%,16911431799,100.00,,
+100941595575,,cpu_core/cycles/u,1.09%,16911431799,100.00,,
+106984485296,,cpu_core/branches/u,0.00%,16911431799,100.00,,
+6767398,,cpu_core/branch-misses/u,0.01%,16911431799,100.00,,
+6692833190,,cpu_core/cache-references/u,0.01%,16911431799,100.00,,
+60406,,cpu_core/cache-misses/u,7.01%,16911431799,100.00,,

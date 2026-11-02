@@ -1,0 +1,10 @@
+{
+  "top": "xtop",
+  "clocks": ["a_clk", "b_clk"],
+  "crossings": ["logos_dcfifo_mlab", "logos_dcfifo_m20k"],
+  "ports": [
+    {"port": "a_rst_n", "clock": "a_clk"},
+    {"port": "a_in", "clock": "a_clk"},
+    {"port": "b_rst_n", "clock": "b_clk"}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.to_upper",
+  "workload": "bytesToUpper(xs) ASCII byte-wise, positional fold",
+  "arg": "40000",
+  "expected": "4964064",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

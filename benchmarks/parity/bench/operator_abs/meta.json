@@ -1,0 +1,10 @@
+{
+  "capability": "operator.abs",
+  "workload": "sum of opAbs(i - 1500000) over 1..n",
+  "arg": "3000000",
+  "expected": "2250000000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

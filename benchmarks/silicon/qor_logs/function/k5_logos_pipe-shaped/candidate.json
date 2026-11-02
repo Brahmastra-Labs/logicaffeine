@@ -1,0 +1,105 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [
+   {
+    "contract": "a",
+    "dut": "a",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "b",
+    "dut": "b",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "zeta",
+    "dut": "zeta",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K5",
+  "mems": [],
+  "name": "k5_logos_pipe",
+  "outputs": [
+   {
+    "contract": "hi",
+    "dut": "hi",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "lo",
+    "dut": "lo",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "a"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "b"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "zeta"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "hi"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "lo"
+   }
+  ],
+  "protocol": {
+   "Registered": {
+    "latency": 5
+   }
+  },
+  "reset": null,
+  "top": "ntt_butterfly_pipe"
+ },
+ "files": [
+  "ntt_butterfly_pipe.v"
+ ],
+ "golden_signature": "c2acac7a72db07ce",
+ "harness": "qorbist_k5_logos_pipe.v",
+ "harness_top": "qorbist_k5_logos_pipe",
+ "kernel": "K5",
+ "kernel_name": "ntt_bfly",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "registered, latency 5",
+ "source_kind": "rtl-generator",
+ "testbench": "tb_qor.v"
+}

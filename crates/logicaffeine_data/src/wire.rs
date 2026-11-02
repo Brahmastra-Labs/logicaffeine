@@ -167,10 +167,86 @@ impl WireDecode for bool {
     }
 }
 
+/// The bits every NaN is written as: the canonical quiet NaN. A NaN's sign and payload differ by host
+/// (x86 arithmetic makes `0xFFF8…`, other hosts and WASM differ), and the wire is the one place a
+/// program can read a float's bits, so every encoder writes a NaN as this and nothing else.
+pub const CANONICAL_NAN_BITS: u64 = 0x7FF8_0000_0000_0000;
+
+/// The bits the wire carries for `x`: its own, or the canonical NaN's.
+#[inline]
+pub fn canonical_f64_bits(x: f64) -> u64 {
+    if x.is_nan() {
+        CANONICAL_NAN_BITS
+    } else {
+        x.to_bits()
+    }
+}
+
+/// `x`, or the canonical NaN when `x` is a NaN.
+#[inline]
+pub fn canonical_f64(x: f64) -> f64 {
+    f64::from_bits(canonical_f64_bits(x))
+}
+
+/// Append `x`'s wire bytes (little-endian, NaN canonical).
+#[inline]
+pub fn put_f64(out: &mut Vec<u8>, x: f64) {
+    out.extend_from_slice(&canonical_f64_bits(x).to_le_bytes());
+}
+
+/// Append a float column's wire bytes (little-endian, every NaN canonical) in one pass: each element is
+/// loaded, tested and stored once, the memory traffic of a copy. On an AVX2 host the pass runs four
+/// elements per instruction (an unordered compare and a blend).
+pub fn put_f64s(out: &mut Vec<u8>, v: &[f64]) {
+    let start = out.len();
+    out.reserve(v.len() * 8);
+    let dst = out.spare_capacity_mut().as_mut_ptr().cast::<u64>();
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 is present; `reserve` made room for `v.len()` words past `start`.
+            unsafe { put_f64s_avx2(dst, v) };
+        } else {
+            // SAFETY: `reserve` made room for `v.len()` words past `start`.
+            unsafe { put_f64s_into(dst, v) };
+        }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    // SAFETY: `reserve` made room for `v.len()` words past `start`.
+    unsafe {
+        put_f64s_into(dst, v)
+    };
+    // SAFETY: every byte in `start..start + 8·v.len()` was written above.
+    unsafe { out.set_len(start + v.len() * 8) };
+}
+
+/// Write `v`'s wire words to `dst`, each once and unaligned.
+///
+/// # Safety
+/// `dst` must be valid for `v.len()` unaligned 8-byte writes.
+#[inline(always)]
+unsafe fn put_f64s_into(dst: *mut u64, v: &[f64]) {
+    for (i, &x) in v.iter().enumerate() {
+        // SAFETY: the caller's contract covers word `i < v.len()`.
+        unsafe { dst.add(i).write_unaligned(canonical_f64_bits(x).to_le()) };
+    }
+}
+
+/// [`put_f64s_into`] compiled for AVX2.
+///
+/// # Safety
+/// The host has AVX2, and `dst` is valid for `v.len()` unaligned 8-byte writes.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn put_f64s_avx2(dst: *mut u64, v: &[f64]) {
+    // SAFETY: forwarded from the caller.
+    unsafe { put_f64s_into(dst, v) }
+}
+
 impl WireEncode for f64 {
     fn wire_encode(&self, out: &mut Vec<u8>) {
         out.push(T_FLOAT);
-        out.extend_from_slice(&self.to_le_bytes());
+        put_f64(out, *self);
     }
 }
 impl WireDecode for f64 {
@@ -252,174 +328,5 @@ impl<T: WireDecode> WireDecode for crate::types::LogosSeq<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // A mirror of what codegen emits for an algebraic type: an enum with scalar, string,
-    // bool, float, boxed-recursive, and list fields. If THIS round-trips, the emitted
-    // impls round-trip.
-    #[derive(Debug, Clone, PartialEq)]
-    enum Tree {
-        Leaf(i64),
-        Str(String),
-        Node { tag: String, flag: bool, ratio: f64, kids: Vec<Tree>, boxed: Box<Tree> },
-        Empty,
-    }
-
-    impl WireEncode for Tree {
-        fn wire_encode(&self, out: &mut Vec<u8>) {
-            match self {
-                Tree::Leaf(v) => {
-                    write_inductive_header(out, "Tree", "Leaf", 1);
-                    v.wire_encode(out);
-                }
-                Tree::Str(s) => {
-                    write_inductive_header(out, "Tree", "Str", 1);
-                    s.wire_encode(out);
-                }
-                Tree::Node { tag, flag, ratio, kids, boxed } => {
-                    write_inductive_header(out, "Tree", "Node", 5);
-                    tag.wire_encode(out);
-                    flag.wire_encode(out);
-                    ratio.wire_encode(out);
-                    kids.wire_encode(out);
-                    boxed.wire_encode(out);
-                }
-                Tree::Empty => write_inductive_header(out, "Tree", "Empty", 0),
-            }
-        }
-    }
-    impl WireDecode for Tree {
-        fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
-            let (ty, ctor, _n) = read_inductive_header(buf, pos)?;
-            assert_eq!(ty, "Tree");
-            Some(match ctor.as_str() {
-                "Leaf" => Tree::Leaf(i64::wire_decode(buf, pos)?),
-                "Str" => Tree::Str(String::wire_decode(buf, pos)?),
-                "Node" => Tree::Node {
-                    tag: String::wire_decode(buf, pos)?,
-                    flag: bool::wire_decode(buf, pos)?,
-                    ratio: f64::wire_decode(buf, pos)?,
-                    kids: Vec::<Tree>::wire_decode(buf, pos)?,
-                    boxed: Box::<Tree>::wire_decode(buf, pos)?,
-                },
-                "Empty" => Tree::Empty,
-                _ => return None,
-            })
-        }
-    }
-
-    fn roundtrip(t: &Tree) -> Tree {
-        let mut out = Vec::new();
-        t.wire_encode(&mut out);
-        let mut pos = 0usize;
-        let back = Tree::wire_decode(&out, &mut pos).expect("decode");
-        assert_eq!(pos, out.len(), "decoder must consume every byte");
-        back
-    }
-
-    #[test]
-    fn varint_roundtrips_across_the_range() {
-        for x in [0u64, 1, 127, 128, 16383, 16384, u32::MAX as u64, u64::MAX] {
-            let mut b = Vec::new();
-            write_uvarint(x, &mut b);
-            let mut p = 0;
-            assert_eq!(read_uvarint(&b, &mut p), Some(x));
-            assert_eq!(p, b.len());
-        }
-    }
-
-    #[test]
-    fn zigzag_roundtrips_including_extremes() {
-        for x in [0i64, 1, -1, 42, -42, i64::MAX, i64::MIN] {
-            assert_eq!(unzigzag(zigzag(x)), x);
-        }
-    }
-
-    #[test]
-    fn scalar_leaves_roundtrip() {
-        for v in [0i64, 1, -1, 42, -99999, i64::MAX, i64::MIN] {
-            assert_eq!(roundtrip(&Tree::Leaf(v)), Tree::Leaf(v));
-        }
-    }
-
-    #[test]
-    fn strings_roundtrip_including_empty_and_unicode() {
-        for s in ["", "x", "hello world", "héllo, 世界! + x_1", "\n\t\"quoted\""] {
-            assert_eq!(roundtrip(&Tree::Str(s.to_string())), Tree::Str(s.to_string()));
-        }
-    }
-
-    #[test]
-    fn nested_node_with_every_field_kind_roundtrips() {
-        let t = Tree::Node {
-            tag: "root".into(),
-            flag: true,
-            ratio: 3.5,
-            kids: vec![
-                Tree::Leaf(1),
-                Tree::Str("two".into()),
-                Tree::Node {
-                    tag: "inner".into(),
-                    flag: false,
-                    ratio: -0.25,
-                    kids: vec![],
-                    boxed: Box::new(Tree::Empty),
-                },
-            ],
-            boxed: Box::new(Tree::Leaf(-7)),
-        };
-        assert_eq!(roundtrip(&t), t);
-    }
-
-    #[test]
-    fn empty_list_and_nullary_variant_roundtrip() {
-        assert_eq!(roundtrip(&Tree::Empty), Tree::Empty);
-        let t = Tree::Node { tag: "".into(), flag: false, ratio: 0.0, kids: vec![], boxed: Box::new(Tree::Empty) };
-        assert_eq!(roundtrip(&t), t);
-    }
-
-    #[test]
-    fn deep_recursion_roundtrips() {
-        let mut t = Tree::Leaf(0);
-        for i in 1..500 {
-            t = Tree::Node { tag: format!("n{i}"), flag: i % 2 == 0, ratio: i as f64, kids: vec![Tree::Leaf(i)], boxed: Box::new(t) };
-        }
-        assert_eq!(roundtrip(&t), t);
-    }
-
-    #[test]
-    fn logos_seq_roundtrips_and_matches_vec_bytes() {
-        use crate::types::LogosSeq;
-        let elems = vec![1i64, -2, 3, 0, i64::MAX];
-        let seq = LogosSeq::from_vec(elems.clone());
-
-        let mut seq_bytes = Vec::new();
-        seq.wire_encode(&mut seq_bytes);
-        let mut vec_bytes = Vec::new();
-        elems.wire_encode(&mut vec_bytes);
-        assert_eq!(seq_bytes, vec_bytes, "LogosSeq and Vec must share the T_LIST byte format");
-
-        let mut pos = 0usize;
-        let back = LogosSeq::<i64>::wire_decode(&seq_bytes, &mut pos).expect("decode");
-        assert_eq!(pos, seq_bytes.len());
-        assert_eq!(back.to_vec(), elems);
-
-        // empty
-        let empty = LogosSeq::<i64>::from_vec(vec![]);
-        let mut b = Vec::new();
-        empty.wire_encode(&mut b);
-        let mut p = 0usize;
-        assert_eq!(LogosSeq::<i64>::wire_decode(&b, &mut p).unwrap().to_vec(), Vec::<i64>::new());
-    }
-
-    #[test]
-    fn truncated_input_returns_none_never_panics() {
-        let mut out = Vec::new();
-        Tree::Leaf(123456).wire_encode(&mut out);
-        for cut in 0..out.len() {
-            let mut pos = 0usize;
-            let _ = Tree::wire_decode(&out[..cut], &mut pos); // must not panic
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_data/wire/tests.rs"]
+mod tests;

@@ -45,5 +45,9 @@ Show "Sum: " + (x + y + z).
     println!("{}", result.stdout);
     println!("=== STDERR ===");
     println!("{}", result.stderr);
-    assert!(result.success, "Should compile and run. stderr: {}", result.stderr);
+    assert!(
+        result.success,
+        "Should compile and run. stderr: {}",
+        result.stderr
+    );
 }

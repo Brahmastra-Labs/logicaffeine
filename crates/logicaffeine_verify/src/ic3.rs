@@ -11,11 +11,11 @@
 //! 3. Propagation: Push clauses forward through frames
 //! 4. Convergence: Check if F_i == F_{i+1}
 
+use crate::equivalence::{CycleState, SignalValue, Trace};
 use crate::ir::VerifyExpr;
-use crate::equivalence::{Trace, CycleState, SignalValue};
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
-use z3::{ast::Ast, ast::Bool, ast::Int, SatResult};
+use z3::{ast::Bool, ast::Int, SatResult};
 
 /// Result of IC3/PDR verification.
 #[derive(Debug)]
@@ -37,7 +37,9 @@ struct Frame {
 
 impl Frame {
     fn new() -> Self {
-        Frame { clauses: Vec::new() }
+        Frame {
+            clauses: Vec::new(),
+        }
     }
 
     fn add_clause(&mut self, clause: VerifyExpr) {
@@ -75,7 +77,6 @@ pub fn ic3(
     property: &VerifyExpr,
     max_frames: u32,
 ) -> Ic3Result {
-
     // Collect all variable names for model extraction
     let mut all_vars = HashSet::new();
     collect_all_vars(init, &mut all_vars);
@@ -117,7 +118,6 @@ pub fn ic3(
         let k = frames.len() - 1;
 
         // Block CTIs at this frame level
-        let mut blocked = true;
         for _block_attempt in 0..50 {
             // CTI check: is there a state satisfying F_{k-1} AND T that reaches NOT P?
             let frame_expr = frames[k - 1].to_expr();
@@ -131,7 +131,6 @@ pub fn ic3(
 
             if !is_sat(&cti_formula) {
                 // No CTI — this frame is OK
-                blocked = true;
                 break;
             }
 
@@ -141,22 +140,19 @@ pub fn ic3(
             // Check if the bad state is reachable from init (recursively)
             if is_reachable_from_init(init, transition, &bad_state, k as u32, &signal_names) {
                 // Real counterexample — extract full trace
-                let trace = extract_trace_from_bmc(
-                    init, transition, property, k as u32, &signal_names,
-                );
+                let trace =
+                    extract_trace_from_bmc(init, transition, property, k as u32, &signal_names);
                 return Ic3Result::Unsafe { trace };
             }
 
             // Block the bad state: add its negation as a clause
             // Generalize: try to drop literals from the blocking clause
-            let blocking_clause = generalize_blocking_clause(
-                transition, property, &bad_state, &frames[k - 1],
-            );
+            let blocking_clause =
+                generalize_blocking_clause(transition, property, &bad_state, &frames[k - 1]);
             // Add blocking clause to frame k-1 and all earlier frames (down to 1)
             for fi in 1..k {
                 frames[fi].add_clause(blocking_clause.clone());
             }
-            blocked = false;
         }
 
         // Propagate clauses forward
@@ -175,7 +171,10 @@ pub fn ic3(
         kinduction::KInductionResult::Proven { .. } => {
             // k-induction proved it — but we should still return a proper invariant
             // Use the last frame as the invariant (it's at least as strong as property)
-            let inv = frames.last().map(|f| f.to_expr()).unwrap_or_else(|| property.clone());
+            let inv = frames
+                .last()
+                .map(|f| f.to_expr())
+                .unwrap_or_else(|| property.clone());
             Ic3Result::Safe { invariant: inv }
         }
         kinduction::KInductionResult::Counterexample { trace, .. } => Ic3Result::Unsafe { trace },
@@ -198,7 +197,9 @@ fn extract_signal_names(all_vars: &HashSet<String>) -> Vec<String> {
 /// Collect all variable names from an expression.
 fn collect_all_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
     match expr {
-        VerifyExpr::Var(name) => { vars.insert(name.clone()); }
+        VerifyExpr::Var(name) => {
+            vars.insert(name.clone());
+        }
         VerifyExpr::Binary { left, right, .. } => {
             collect_all_vars(left, vars);
             collect_all_vars(right, vars);
@@ -234,10 +235,7 @@ fn build_bmc_check(
 
 /// Extract a CTI (counterexample to induction) state from a SAT formula.
 /// Returns a conjunction of literals describing the bad predecessor state.
-fn extract_cti_state(
-    formula: &VerifyExpr,
-    signal_names: &[String],
-) -> VerifyExpr {
+fn extract_cti_state(formula: &VerifyExpr, signal_names: &[String]) -> VerifyExpr {
     let solver = crate::solver::new_solver();
     let encoded = encode_bool(formula);
     solver.assert(&encoded);
@@ -350,7 +348,11 @@ fn generalize_blocking_clause(
 /// Extract top-level AND literals from an expression.
 fn extract_literals(expr: &VerifyExpr) -> Vec<VerifyExpr> {
     match expr {
-        VerifyExpr::Binary { op: crate::ir::VerifyOp::And, left, right } => {
+        VerifyExpr::Binary {
+            op: crate::ir::VerifyOp::And,
+            left,
+            right,
+        } => {
             let mut lits = extract_literals(left);
             lits.extend(extract_literals(right));
             lits
@@ -395,12 +397,10 @@ fn is_reachable_from_init(
 }
 
 /// Propagate clauses from frame[i] to frame[i+1] where they are inductive.
-fn propagate_clauses(
-    transition: &VerifyExpr,
-    frames: &mut Vec<Frame>,
-    k: usize,
-) {
-    if k == 0 { return; }
+fn propagate_clauses(transition: &VerifyExpr, frames: &mut Vec<Frame>, k: usize) {
+    if k == 0 {
+        return;
+    }
     let clauses_to_try: Vec<VerifyExpr> = frames[k - 1].clauses.clone();
 
     for clause in clauses_to_try {
@@ -425,7 +425,9 @@ fn propagate_clauses(
 
 /// Check if frames[k-1] and frames[k] have converged (same clause set modulo entailment).
 fn check_convergence(frames: &[Frame], k: usize) -> bool {
-    if k == 0 { return false; }
+    if k == 0 {
+        return false;
+    }
 
     let fk = frames[k].to_expr();
     let fk_prev = frames[k - 1].to_expr();
@@ -501,7 +503,10 @@ fn extract_trace_from_bmc(
             }
         }
         if !signals.is_empty() {
-            cycles.push(CycleState { cycle: step as usize, signals });
+            cycles.push(CycleState {
+                cycle: step as usize,
+                signals,
+            });
         }
     }
 

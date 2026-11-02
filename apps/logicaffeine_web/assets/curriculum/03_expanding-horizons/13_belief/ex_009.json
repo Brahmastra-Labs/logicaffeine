@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You want Carol to harm you",
   "options": [
-    "$ \\underline{u}:Hcu $",
-    "$ u:Hcu $",
-    "$ u:H\\underline{c} u $",
-    "$ \\underline{u}:H\\underline{c} u $"
+    "u̲:H(c, u)",
+    "u:H(c, u)",
+    "u:H(c̲, u)",
+    "u̲:H(c̲, u)"
   ],
   "correct": 2,
-  "hint": "In belief/desire logic, who is the AGENT having the desire? What do they desire?",
-  "explanation": "Desires work like beliefs: u:P means 'you (agent u) want P'. The underlined letter marks who has the desire. The content after the colon is what they want."
+  "hint": "In what you want, who would act?",
+  "explanation": "This describes a want, so u is not underlined. Inside it, Carol is the one who would act, so c is underlined: u:H(c̲, u).",
+  "section": "13.2"
 }

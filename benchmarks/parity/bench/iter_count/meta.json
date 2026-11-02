@@ -1,0 +1,10 @@
+{
+  "capability": "iter.count",
+  "workload": "countSeq(xs) \u2014 length",
+  "arg": "400000",
+  "expected": "1638400000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

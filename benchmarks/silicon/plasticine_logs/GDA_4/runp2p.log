@@ -1,0 +1,33 @@
+Allocate x of size 64 * 32 at 0x55ebd66331c0 (94471402500544)
+Allocate y of size 64 at 0x55ebd66309c0 (94471402490304)
+Allocate mu0 of size 32 at 0x55ebd6630b00 (94471402490624)
+Allocate mu1 of size 32 at 0x55ebd6630bc0 (94471402490816)
+Allocate sigma of size 32 * 32 at 0x55ebd6635240 (94471402508864)
+Run simulation with with 681 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 681 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.102651
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 2828
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 3.07779 GB/s
+Average DRAM Write Bandwidth: 1.44837 GB/s
+script Elapsed seconds: 2.1658
+Exiting... 😊
+Destruct DRAM.
+gold: 
+result: 
+PASS: true (GDA)
+Complete Simulation
+Runtime:0:02.32

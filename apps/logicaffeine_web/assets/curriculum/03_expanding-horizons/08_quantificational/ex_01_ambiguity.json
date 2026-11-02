@@ -3,9 +3,12 @@
   "type": "ambiguity",
   "difficulty": 4,
   "prompt": "This sentence has two readings. Identify both:",
-  "template": "Every {Noun} {Verb} a {Noun}.",
+  "template": "Every {Noun} {Verb:Present3s} a {Noun}.",
   "constraints": {
-    "Verb": ["Transitive"]
+    "Verb": [
+      "Transitive"
+    ]
   },
-  "hint": "Think about 'Every person has a mother' vs 'Every citizen has a President.' In one case, each person has their OWN mother (narrow scope). In the other, everyone shares the SAME President (wide scope). Which reading applies here?"
+  "hint": "Think about 'Every person has a mother' vs 'Every citizen has a President.' In one case, each person has their OWN mother (narrow scope). In the other, everyone shares the SAME President (wide scope). Which reading applies here?",
+  "section": "8.4"
 }

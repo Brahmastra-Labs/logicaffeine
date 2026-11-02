@@ -1,0 +1,59 @@
+{
+  "case": "T06-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 {\u03b1 : Type} {a b c : \u03b1}, a = b \u2192 c = b \u2192 a = c",
+      "name": "T06_003.chained",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (f : \u03b1 \u2192 \u03b2) {a b : \u03b1}, a = b \u2192 f a = f b",
+      "name": "T06_003.congrArgCross",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f : Nat \u2192 Nat) {a b : Nat}, a = b \u2192 f a = f b",
+      "name": "T06_003.congrArgNat",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {f g : \u03b1 \u2192 \u03b2} {a b : \u03b1}, f = g \u2192 a = b \u2192 f a = g b",
+      "name": "T06_003.congrBoth",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {f g : Nat \u2192 Nat}, f = g \u2192 \u2200 (a : Nat), f a = g a",
+      "name": "T06_003.congrFunNat",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a b : \u03b1}, a = b \u2192 b = a",
+      "name": "T06_003.sym",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a b c : \u03b1}, a = b \u2192 b = c \u2192 a = c",
+      "name": "T06_003.trans",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

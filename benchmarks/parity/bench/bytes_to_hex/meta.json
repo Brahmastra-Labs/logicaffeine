@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.to_hex",
+  "workload": "bytesToHex(xs) \u2014 length fold (2*M)",
+  "arg": "40000",
+  "expected": "327680000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

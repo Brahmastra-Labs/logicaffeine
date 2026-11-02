@@ -1,0 +1,15 @@
+--- a/common/place/placer1.cc	2026-08-10 22:31:44.379861311 +0000
++++ b/common/place/placer1.cc	2026-10-18 16:04:48.842019045 +0000
+@@ -712,6 +712,12 @@
+             if (!ctx->isBelLocationValid(cell->bel) || !cell->testRegion(cell->bel))
+                 goto swap_fail;
+         }
++        // The locations the chain left: a cell that stayed may have depended on one that moved (a flip-flop fed directly
++        // by a LUT the chain carried away), so every tile the chain left must still be legal, as a plain swap checks.
++        for (const auto &mm : moved_cells) {
++            if (!ctx->isBelLocationValid(mm.second))
++                goto swap_fail;
++        }
+ #if CHAIN_DEBUG
+         log_info("legal chain swap %s\n", cell->name.c_str(ctx));
+ #endif

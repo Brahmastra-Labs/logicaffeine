@@ -1,0 +1,13 @@
+{
+  "capability": "text.contains",
+  "workload": "s contains '012'",
+  "arg": "60000",
+  "expected": "60000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -1,0 +1,448 @@
+──────────────────────────────────────────────────────────────────────
+ PASS 1/2 — cargo nextest run (unit + integration, ignored included)
+──────────────────────────────────────────────────────────────────────
+    Starting 29131 tests across 2387 binaries (23 tests and 13 binaries skipped)
+        FAIL [   0.481s] (    4/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s3
+        FAIL [   0.494s] (    6/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s5
+        FAIL [   0.554s] (    7/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s2
+        FAIL [   0.563s] (    8/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s9
+        FAIL [   0.570s] (    9/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s0
+        FAIL [   0.584s] (   10/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s8
+        FAIL [   0.587s] (   11/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s7
+        FAIL [   0.587s] (   12/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s6
+        FAIL [   0.592s] (   13/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s1
+        FAIL [   0.593s] (   14/29131) logicaffeine-tests::phase_pe_differential generative_differential_arith_s4
+        FAIL [   0.073s] (   15/29131) logicaffeine-tests::spatial_p6_ttsim_lock the_generated_program_beats_ttnn_production_at_640_cubed_at_matched_knobs
+        FAIL [   1.153s] (   17/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_s1
+        FAIL [   1.124s] (   22/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_s3
+        FAIL [   1.323s] (   37/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_s2
+        FAIL [   1.296s] (   38/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_strict_s2
+        FAIL [   1.322s] (   41/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_strict_s3
+        FAIL [   1.335s] (   42/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_strict_s1
+        FAIL [   1.550s] (   84/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_s0
+        FAIL [   1.559s] (  107/29131) logicaffeine-tests::phase_pe_differential interp_vs_treewalk_corpus_strict_s0
+        FAIL [   0.008s] (  284/29131) logicaffeine-base word::tests::wordval_dispatches_by_width_and_rejects_mismatch
+        FAIL [   0.010s] ( 1383/29131) logicaffeine-compile loader::tests::a_variant_is_a_name_with_or_without_its_article
+        FAIL [   0.027s] ( 1867/29131) logicaffeine-compile vm::tests::vm_inspect_unhandled_variant_without_otherwise_is_loud
+        FAIL [   0.195s] ( 2117/29131) logicaffeine-tests::phase_futamura crdt_all_pe_dialects_agree
+        FAIL [   0.153s] ( 2118/29131) logicaffeine-tests::phase_futamura crdt_bti_pe_counter_end_to_end
+        FAIL [   0.123s] ( 2120/29131) logicaffeine-tests::phase_futamura crdt_bti_pe_set_end_to_end
+        FAIL [   0.133s] ( 2121/29131) logicaffeine-tests::phase_futamura crdt_mini_pe_counter_end_to_end
+        FAIL [   0.128s] ( 2122/29131) logicaffeine-tests::phase_futamura crdt_mini_pe_set_end_to_end
+        FAIL [   0.165s] ( 2123/29131) logicaffeine-tests::phase_futamura crdt_p2_compiler_preserves_and_runs_crdt
+        FAIL [   0.216s] ( 2126/29131) logicaffeine-tests::phase_futamura crdt_p3_cogen_preserves_and_runs_crdt
+        FAIL [   0.147s] ( 2127/29131) logicaffeine-tests::phase_futamura cross_interpreter_p3_calculator
+        FAIL [   0.139s] ( 2133/29131) logicaffeine-tests::phase_futamura decompile_full_p1_roundtrip_no_placeholders
+        FAIL [   1.516s] ( 2140/29131) logicaffeine-tests::phase_futamura cross_interpreter_p3_real_calculator
+        FAIL [   0.112s] ( 2151/29131) logicaffeine-tests::phase_futamura fix_all_representative_on_real
+        FAIL [   0.121s] ( 2154/29131) logicaffeine-tests::phase_futamura fix_cross_projection_real_equivalence
+        FAIL [   0.163s] ( 2155/29131) logicaffeine-tests::phase_futamura fix_decompile_block_full
+        FAIL [   0.138s] ( 2157/29131) logicaffeine-tests::phase_futamura fix_decompile_expr_binop
+        FAIL [   0.137s] ( 2158/29131) logicaffeine-tests::phase_futamura fix_decompile_expr_call
+        FAIL [   0.130s] ( 2159/29131) logicaffeine-tests::phase_futamura fix_decompile_expr_comparison
+        FAIL [   0.126s] ( 2160/29131) logicaffeine-tests::phase_futamura fix_decompile_expr_int
+        FAIL [   0.163s] ( 2161/29131) logicaffeine-tests::phase_futamura fix_decompile_roundtrip
+        FAIL [   0.183s] ( 2162/29131) logicaffeine-tests::phase_futamura fix_decompile_stmt_let
+        FAIL [   0.191s] ( 2163/29131) logicaffeine-tests::phase_futamura fix_decompile_stmt_show_indented
+        FAIL [   0.224s] ( 2164/29131) logicaffeine-tests::phase_futamura fix_full_roundtrip
+        FAIL [   0.179s] ( 2165/29131) logicaffeine-tests::phase_futamura fix_jones_no_env_lookup
+        FAIL [   0.039s] ( 2166/29131) logicaffeine-tests::phase_futamura fix_online_pe_no_is_static_in_p2
+        FAIL [   0.159s] ( 2167/29131) logicaffeine-tests::phase_futamura fix_jones_no_funcs_lookup
+        FAIL [   0.179s] ( 2169/29131) logicaffeine-tests::phase_futamura fix_p1_real_arithmetic
+        FAIL [   0.189s] ( 2170/29131) logicaffeine-tests::phase_futamura fix_p1_real_function
+        FAIL [   0.133s] ( 2171/29131) logicaffeine-tests::phase_futamura fix_p1_real_if_else
+        FAIL [   0.162s] ( 2172/29131) logicaffeine-tests::phase_futamura fix_p1_real_no_overhead
+        FAIL [   0.169s] ( 2173/29131) logicaffeine-tests::phase_futamura fix_p1_real_recursive
+        FAIL [   0.176s] ( 2175/29131) logicaffeine-tests::phase_futamura fix_p1_real_simple_show
+        FAIL [   0.123s] ( 2176/29131) logicaffeine-tests::phase_futamura fix_p2_real_compiler_arithmetic
+        FAIL [   0.175s] ( 2178/29131) logicaffeine-tests::phase_futamura fix_p1_real_while_loop
+        FAIL [   0.135s] ( 2179/29131) logicaffeine-tests::phase_futamura fix_p2_real_compiler_correctness
+        FAIL [   0.031s] ( 2180/29131) logicaffeine-tests::phase_futamura fix_p2_real_no_depth_tracking
+        FAIL [   0.044s] ( 2181/29131) logicaffeine-tests::phase_futamura fix_p2_real_no_memo_infrastructure
+        FAIL [   0.026s] ( 2182/29131) logicaffeine-tests::phase_futamura fix_p2_real_produces_compiler
+        FAIL [   0.041s] ( 2183/29131) logicaffeine-tests::phase_futamura fix_p2_real_smaller_than_pe
+        FAIL [   0.045s] ( 2184/29131) logicaffeine-tests::phase_futamura fix_p3_cogen_structure_differs
+        FAIL [   0.045s] ( 2185/29131) logicaffeine-tests::phase_futamura fix_p3_real_produces_cogen
+        FAIL [   0.028s] ( 2187/29131) logicaffeine-tests::phase_futamura fix_p3_real_smaller_than_p2
+        FAIL [   0.128s] ( 2188/29131) logicaffeine-tests::phase_futamura fix_partial_static_full_dynamic_unchanged
+        FAIL [   0.119s] ( 2189/29131) logicaffeine-tests::phase_futamura fix_partial_static_len
+        FAIL [   0.124s] ( 2190/29131) logicaffeine-tests::phase_futamura fix_partial_static_full_static_still_works
+        FAIL [   0.172s] ( 2191/29131) logicaffeine-tests::phase_futamura fix_p3_real_cogen_correctness
+        FAIL [   0.153s] ( 2192/29131) logicaffeine-tests::phase_futamura fix_partial_static_list_index_dynamic
+        FAIL [   0.134s] ( 2193/29131) logicaffeine-tests::phase_futamura fix_partial_static_list_index_static
+        FAIL [   0.124s] ( 2194/29131) logicaffeine-tests::phase_futamura fix_pe_dynamic_index_preserved
+        FAIL [   0.154s] ( 2195/29131) logicaffeine-tests::phase_futamura fix_partial_static_variant_field
+        FAIL [   0.149s] ( 2196/29131) logicaffeine-tests::phase_futamura fix_pe_env_split_into_function
+        FAIL [   0.093s] ( 2197/29131) logicaffeine-tests::phase_futamura fix_pe_env_split_loop_dynamic
+        FAIL [   0.094s] ( 2198/29131) logicaffeine-tests::phase_futamura fix_pe_env_split_mixed_arg_static_propagation
+        FAIL [   0.108s] ( 2199/29131) logicaffeine-tests::phase_futamura fix_pe_env_split_set_dynamic
+        FAIL [   0.134s] ( 2201/29131) logicaffeine-tests::phase_futamura fix_pe_env_split_static_binop
+        FAIL [   0.139s] ( 2204/29131) logicaffeine-tests::phase_futamura fix_pe_env_split_static_list
+        FAIL [   0.111s] ( 2205/29131) logicaffeine-tests::phase_futamura fix_pe_mixed_arg_interpreter_dispatch
+        FAIL [   1.450s] ( 2208/29131) logicaffeine-tests::phase_futamura fix_p2_real_matches_p1
+        FAIL [   0.137s] ( 2216/29131) logicaffeine-tests::phase_futamura fix_pe_source_memo_caches_all_static
+        FAIL [   0.107s] ( 2219/29131) logicaffeine-tests::phase_futamura fix_pe_source_mixed_arg_all_dynamic_residualizes
+        FAIL [   0.084s] ( 2220/29131) logicaffeine-tests::phase_futamura fix_pe_state_peblock_works
+        FAIL [   0.130s] ( 2221/29131) logicaffeine-tests::phase_futamura fix_pe_source_mixed_arg_substitutes_static
+        FAIL [   0.103s] ( 2224/29131) logicaffeine-tests::phase_futamura fix_pe_state_record_exists
+        FAIL [   0.088s] ( 2225/29131) logicaffeine-tests::phase_futamura fix_pe_static_field_access_variant
+        FAIL [   0.104s] ( 2226/29131) logicaffeine-tests::phase_futamura fix_pe_static_field_access_via_staticenv
+        FAIL [   0.089s] ( 2227/29131) logicaffeine-tests::phase_futamura fix_pe_static_index_via_staticenv
+        FAIL [   0.087s] ( 2228/29131) logicaffeine-tests::phase_futamura fix_pe_static_len_via_staticenv
+        FAIL [   0.026s] ( 2230/29131) logicaffeine-tests::phase_futamura fix_the_trick_pe_inspect_eliminated
+        FAIL [   0.125s] ( 2231/29131) logicaffeine-tests::phase_futamura fix_positive_info_inspect_arm
+        FAIL [   3.216s] ( 2244/29131) logicaffeine-tests::phase_futamura full_all_projections_enum
+        FAIL [   3.285s] ( 2245/29131) logicaffeine-tests::phase_futamura full_all_projections_closure
+        FAIL [   3.108s] ( 2248/29131) logicaffeine-tests::phase_futamura full_all_projections_struct
+        FAIL [   0.153s] ( 2250/29131) logicaffeine-tests::phase_futamura genuine_p2_dynamic_target_produces_compiler
+        FAIL [   0.039s] ( 2251/29131) logicaffeine-tests::phase_futamura genuine_p2_end_to_end_show_literal
+        FAIL [   0.124s] ( 2252/29131) logicaffeine-tests::phase_futamura genuine_p2_nano_pe_dynamic_target
+        FAIL [   0.039s] ( 2253/29131) logicaffeine-tests::phase_futamura genuine_p2_no_decompile_placeholders
+        FAIL [   0.025s] ( 2254/29131) logicaffeine-tests::phase_futamura genuine_p2_no_generic_dispatch_definitions
+        FAIL [   0.030s] ( 2255/29131) logicaffeine-tests::phase_futamura genuine_p2_no_online_predicates
+        FAIL [   0.042s] ( 2256/29131) logicaffeine-tests::phase_futamura genuine_p2_no_pe_dispatch_names
+        FAIL [   0.035s] ( 2257/29131) logicaffeine-tests::phase_futamura genuine_p2_pe_mini_full_scale_dynamic_target
+        FAIL [   0.035s] ( 2258/29131) logicaffeine-tests::phase_futamura genuine_p2_pe_mini_specializes_arith_eval
+        FAIL [   0.035s] ( 2260/29131) logicaffeine-tests::phase_futamura genuine_p2_residual_fewer_inspects_than_pe
+        FAIL [   0.167s] ( 2261/29131) logicaffeine-tests::phase_futamura genuine_p2_pe_specializes_micro_pe_for_multiple_targets
+        FAIL [   0.029s] ( 2262/29131) logicaffeine-tests::phase_futamura genuine_p2_residual_has_dynamic_target
+        FAIL [   0.038s] ( 2263/29131) logicaffeine-tests::phase_futamura genuine_p2_residual_has_specialized_functions
+        FAIL [   0.024s] ( 2264/29131) logicaffeine-tests::phase_futamura genuine_p2_residual_no_isStatic_definitions
+        FAIL [   0.036s] ( 2265/29131) logicaffeine-tests::phase_futamura genuine_p3_no_decompile_placeholders
+        FAIL [   0.038s] ( 2266/29131) logicaffeine-tests::phase_futamura genuine_p2_residual_smaller_than_pe
+        FAIL [   0.027s] ( 2267/29131) logicaffeine-tests::phase_futamura genuine_p3_p2_pe_size_ordering
+        FAIL [   0.028s] ( 2268/29131) logicaffeine-tests::phase_futamura genuine_p3_no_generic_dispatch_definitions
+        FAIL [   0.021s] ( 2269/29131) logicaffeine-tests::phase_futamura genuine_p3_residual_has_dynamic_target
+        FAIL [   0.030s] ( 2270/29131) logicaffeine-tests::phase_futamura genuine_p3_residual_fewer_inspects_than_pe
+        FAIL [   0.028s] ( 2271/29131) logicaffeine-tests::phase_futamura genuine_p3_residual_has_specialized_functions
+        FAIL [   0.032s] ( 2272/29131) logicaffeine-tests::phase_futamura genuine_p3_residual_no_checkStatic_definitions
+        FAIL [   0.027s] ( 2273/29131) logicaffeine-tests::phase_futamura genuine_p3_residual_smaller_than_pe
+        FAIL [   0.022s] ( 2274/29131) logicaffeine-tests::phase_futamura genuine_p3_self_application_completes
+        FAIL [   0.123s] ( 2276/29131) logicaffeine-tests::phase_futamura genuine_self_app_dispatch_elimination
+        FAIL [   0.131s] ( 2277/29131) logicaffeine-tests::phase_futamura genuine_pe_source_specializes_target_with_functions
+        FAIL [   0.144s] ( 2279/29131) logicaffeine-tests::phase_futamura genuine_self_app_nano_pe_binop
+        FAIL [   0.037s] ( 2280/29131) logicaffeine-tests::phase_futamura genuine_self_app_pe_mini_factorial
+        FAIL [   0.030s] ( 2281/29131) logicaffeine-tests::phase_futamura genuine_self_app_pe_mini_on_binop
+        FAIL [   0.136s] ( 2282/29131) logicaffeine-tests::phase_futamura genuine_self_app_no_online_predicates
+        FAIL [   0.020s] ( 2283/29131) logicaffeine-tests::phase_futamura genuine_self_application_pe_mini_on_target
+        FAIL [   0.025s] ( 2284/29131) logicaffeine-tests::phase_futamura genuine_self_app_pe_mini_on_cint
+        FAIL [   0.170s] ( 2286/29131) logicaffeine-tests::phase_futamura genuine_self_app_nano_pe_cint
+        FAIL [   0.035s] ( 2290/29131) logicaffeine-tests::phase_futamura jones_optimality_lock
+        FAIL [   0.181s] ( 2291/29131) logicaffeine-tests::phase_futamura genuine_self_app_no_pe_function_definitions
+        FAIL [   0.031s] ( 2294/29131) logicaffeine-tests::phase_futamura jones_p2_block_entry_is_pe_generated
+        FAIL [   0.037s] ( 2296/29131) logicaffeine-tests::phase_futamura jones_p2_block_handler_has_pe_logic
+        FAIL [   0.046s] ( 2297/29131) logicaffeine-tests::phase_futamura jones_p2_fewer_inspects_than_pe_source
+        FAIL [   0.035s] ( 2298/29131) logicaffeine-tests::phase_futamura jones_p2_no_depth_tracking
+        FAIL [   0.019s] ( 2299/29131) logicaffeine-tests::phase_futamura jones_p2_no_pe_source_onstack
+        FAIL [   0.033s] ( 2300/29131) logicaffeine-tests::phase_futamura jones_p2_no_pe_source_specresults
+        FAIL [   0.109s] ( 2301/29131) logicaffeine-tests::phase_futamura jones_p2_real_handles_nested_functions
+        FAIL [   0.105s] ( 2302/29131) logicaffeine-tests::phase_futamura jones_p2_real_handles_recursion
+        FAIL [   0.034s] ( 2303/29131) logicaffeine-tests::phase_futamura jones_p2_residual_has_dynamic_stmts
+        FAIL [   0.030s] ( 2305/29131) logicaffeine-tests::phase_futamura jones_p2_residual_no_unspecialized_pe_dispatch
+        FAIL [   0.032s] ( 2306/29131) logicaffeine-tests::phase_futamura jones_p2_smaller_than_pe
+        FAIL [   0.032s] ( 2307/29131) logicaffeine-tests::phase_futamura jones_p3_block_handler_has_pe_logic
+        FAIL [   0.033s] ( 2308/29131) logicaffeine-tests::phase_futamura jones_p3_block_entry_is_pe_generated
+        FAIL [   0.030s] ( 2309/29131) logicaffeine-tests::phase_futamura jones_p3_fewer_inspects_than_pe_source
+        FAIL [   0.042s] ( 2310/29131) logicaffeine-tests::phase_futamura jones_p3_residual_has_dynamic_stmts
+        FAIL [   0.019s] ( 2311/29131) logicaffeine-tests::phase_futamura jones_p3_residual_no_unspecialized_pe_dispatch
+        FAIL [   0.023s] ( 2312/29131) logicaffeine-tests::phase_futamura jones_p3_smaller_than_pe
+        FAIL [   0.118s] ( 2314/29131) logicaffeine-tests::phase_futamura jones_p3_real_handles_recursion
+        FAIL [   0.126s] ( 2315/29131) logicaffeine-tests::phase_futamura jones_p3_real_handles_nested_functions
+        FAIL [   1.955s] ( 2319/29131) logicaffeine-tests::phase_futamura jones_p1_p2_equivalence_control_flow
+        FAIL [   2.033s] ( 2320/29131) logicaffeine-tests::phase_futamura jones_p1_p2_equivalence_collections
+        FAIL [   2.111s] ( 2321/29131) logicaffeine-tests::phase_futamura jones_p1_p2_equivalence_factorial
+        FAIL [   2.245s] ( 2322/29131) logicaffeine-tests::phase_futamura jones_p1_p2_equivalence_fibonacci
+        FAIL [   2.614s] ( 2323/29131) logicaffeine-tests::phase_futamura jones_p1_p2_equivalence_string_concat
+        FAIL [   0.128s] ( 2342/29131) logicaffeine-tests::phase_futamura p2_compiler_reusable
+        FAIL [   0.180s] ( 2343/29131) logicaffeine-tests::phase_futamura p2_correct_for_all_inputs
+        FAIL [   0.184s] ( 2346/29131) logicaffeine-tests::phase_futamura p2_factorial_5
+        FAIL [   0.164s] ( 2347/29131) logicaffeine-tests::phase_futamura p2_fibonacci_10
+        FAIL [   0.169s] ( 2349/29131) logicaffeine-tests::phase_futamura p2_gcd
+        FAIL [   0.195s] ( 2353/29131) logicaffeine-tests::phase_futamura p2_multiple_programs
+        FAIL [   0.164s] ( 2354/29131) logicaffeine-tests::phase_futamura p2_produces_compiler
+        FAIL [   0.118s] ( 2355/29131) logicaffeine-tests::phase_futamura p2_produces_valid_cprogram
+        FAIL [   0.079s] ( 2356/29131) logicaffeine-tests::phase_futamura p2_raw_residual_no_pe_dispatch_names
+        FAIL [   0.179s] ( 2357/29131) logicaffeine-tests::phase_futamura p2_real_closure_applied_argument
+        FAIL [   0.130s] ( 2358/29131) logicaffeine-tests::phase_futamura p2_real_closure_ignored_argument
+        FAIL [   0.184s] ( 2360/29131) logicaffeine-tests::phase_futamura p2_real_compound_corpus
+        FAIL [   0.128s] ( 2361/29131) logicaffeine-tests::phase_futamura p2_real_data_corpus
+        FAIL [   0.200s] ( 2362/29131) logicaffeine-tests::phase_futamura p2_real_control_flow_corpus
+        FAIL [   0.517s] ( 2363/29131) logicaffeine-tests::phase_futamura p2_real_extra_corpus
+        FAIL [   0.512s] ( 2364/29131) logicaffeine-tests::phase_futamura p2_real_semantic_fidelity_corpus
+        FAIL [   0.662s] ( 2365/29131) logicaffeine-tests::phase_futamura p2_real_factorial_correct
+        FAIL [   0.195s] ( 2366/29131) logicaffeine-tests::phase_futamura p2_strings
+        FAIL [   0.250s] ( 2367/29131) logicaffeine-tests::phase_futamura p2_sum_50
+        FAIL [   0.217s] ( 2368/29131) logicaffeine-tests::phase_futamura p3_cogen_produces_identical_compiler
+        FAIL [   0.283s] ( 2369/29131) logicaffeine-tests::phase_futamura p3_core_compiler_matches_p2
+        FAIL [   0.211s] ( 2370/29131) logicaffeine-tests::phase_futamura p3_different_interpreter
+        FAIL [   0.196s] ( 2371/29131) logicaffeine-tests::phase_futamura p3_full_chain_factorial
+        FAIL [   0.206s] ( 2374/29131) logicaffeine-tests::phase_futamura p3_full_chain_fibonacci_dynamic
+        FAIL [   0.210s] ( 2375/29131) logicaffeine-tests::phase_futamura p3_full_chain_fibonacci
+        FAIL [   0.164s] ( 2376/29131) logicaffeine-tests::phase_futamura p3_full_chain_sum
+        FAIL [   0.151s] ( 2378/29131) logicaffeine-tests::phase_futamura p3_lambda_conditional
+        FAIL [   0.152s] ( 2379/29131) logicaffeine-tests::phase_futamura p3_lambda_addition
+        FAIL [   0.212s] ( 2381/29131) logicaffeine-tests::phase_futamura p3_lambda_cross_projection
+        FAIL [   0.197s] ( 2384/29131) logicaffeine-tests::phase_futamura p3_lambda_let_binding
+        FAIL [   0.139s] ( 2385/29131) logicaffeine-tests::phase_futamura p3_lambda_nested_arithmetic
+        FAIL [   0.142s] ( 2386/29131) logicaffeine-tests::phase_futamura p3_lambda_literal
+        FAIL [   0.139s] ( 2387/29131) logicaffeine-tests::phase_futamura p3_lambda_subtraction
+        FAIL [   0.108s] ( 2388/29131) logicaffeine-tests::phase_futamura p3_real_closure_applied_argument
+        FAIL [   2.994s] ( 2389/29131) logicaffeine-tests::phase_futamura p2_matches_p1
+        FAIL [   0.160s] ( 2390/29131) logicaffeine-tests::phase_futamura p3_real_semantic_fidelity_corpus
+        FAIL [   0.157s] ( 2391/29131) logicaffeine-tests::phase_futamura p3_real_simple_correct
+        FAIL [   0.166s] ( 2392/29131) logicaffeine-tests::phase_futamura p3_rpn_add
+        FAIL [   0.167s] ( 2393/29131) logicaffeine-tests::phase_futamura p3_rpn_complex
+        FAIL [   0.202s] ( 2394/29131) logicaffeine-tests::phase_futamura p3_rpn_mul
+        FAIL [   0.173s] ( 2395/29131) logicaffeine-tests::phase_futamura p3_rpn_push_print
+        FAIL [   0.169s] ( 2396/29131) logicaffeine-tests::phase_futamura p3_rpn_sub
+        FAIL [   0.168s] ( 2397/29131) logicaffeine-tests::phase_futamura p3_surface_binop_not
+        FAIL [   0.191s] ( 2398/29131) logicaffeine-tests::phase_futamura p3_surface_comparison
+        FAIL [   0.191s] ( 2399/29131) logicaffeine-tests::phase_futamura p3_surface_copy_semantics
+        FAIL [   0.164s] ( 2400/29131) logicaffeine-tests::phase_futamura p3_surface_if_while_break
+        FAIL [   0.183s] ( 2401/29131) logicaffeine-tests::phase_futamura p3_surface_increase_decrease
+        FAIL [   0.163s] ( 2402/29131) logicaffeine-tests::phase_futamura p3_surface_int_bool_text
+        FAIL [   0.219s] ( 2403/29131) logicaffeine-tests::phase_futamura p3_surface_list_index_len
+        FAIL [   0.201s] ( 2404/29131) logicaffeine-tests::phase_futamura p3_surface_map_ops
+        FAIL [   0.194s] ( 2405/29131) logicaffeine-tests::phase_futamura p3_surface_multiple_functions
+        FAIL [   0.171s] ( 2406/29131) logicaffeine-tests::phase_futamura p3_surface_nested_control_flow
+        FAIL [   0.188s] ( 2407/29131) logicaffeine-tests::phase_futamura p3_surface_recursive_mutual
+        FAIL [   0.218s] ( 2408/29131) logicaffeine-tests::phase_futamura p3_surface_option
+        FAIL [   0.176s] ( 2409/29131) logicaffeine-tests::phase_futamura p3_surface_repeat_collection
+        FAIL [   0.187s] ( 2410/29131) logicaffeine-tests::phase_futamura p3_surface_return_early
+        FAIL [   0.192s] ( 2411/29131) logicaffeine-tests::phase_futamura p3_surface_seq_push_pop
+        FAIL [   0.230s] ( 2412/29131) logicaffeine-tests::phase_futamura p3_surface_repeat_range
+        FAIL [   0.167s] ( 2413/29131) logicaffeine-tests::phase_futamura p3_surface_string_concat
+        FAIL [   0.176s] ( 2414/29131) logicaffeine-tests::phase_futamura p3_surface_set_index
+        FAIL [   0.172s] ( 2415/29131) logicaffeine-tests::phase_futamura p3_surface_variant_inspect
+        FAIL [   0.122s] ( 2416/29131) logicaffeine-tests::phase_futamura p3_valid_cprogram
+        FAIL [   0.194s] ( 2417/29131) logicaffeine-tests::phase_futamura p3_surface_struct_set_field
+        FAIL [   0.239s] ( 2418/29131) logicaffeine-tests::phase_futamura p3_surface_struct_field
+        FAIL [   2.438s] ( 2427/29131) logicaffeine-tests::phase_futamura p3_consistency_all_projections
+        FAIL [   0.165s] ( 2428/29131) logicaffeine-tests::phase_futamura pe_bti_p1_arithmetic_fold
+        FAIL [   0.159s] ( 2429/29131) logicaffeine-tests::phase_futamura pe_bti_p1_factorial
+        FAIL [   0.164s] ( 2430/29131) logicaffeine-tests::phase_futamura pe_bti_p1_function_inline
+        FAIL [   0.139s] ( 2431/29131) logicaffeine-tests::phase_futamura pe_bti_p1_show_literal
+        FAIL [   0.157s] ( 2432/29131) logicaffeine-tests::phase_futamura pe_bti_p1_jones_optimality
+        FAIL [   0.196s] ( 2433/29131) logicaffeine-tests::phase_futamura pe_bti_p1_if_fold
+        FAIL [   0.143s] ( 2434/29131) logicaffeine-tests::phase_futamura pe_bti_p2_compiler_correctness
+        FAIL [   0.180s] ( 2435/29131) logicaffeine-tests::phase_futamura pe_bti_p1_while_loop
+        FAIL [   0.200s] ( 2436/29131) logicaffeine-tests::phase_futamura pe_bti_p2_compiler_factorial
+        FAIL [   0.166s] ( 2438/29131) logicaffeine-tests::phase_futamura pe_bti_p3_cogen_arithmetic
+        FAIL [   2.916s] ( 2439/29131) logicaffeine-tests::phase_futamura p3_cross_projection_byte_identical
+        FAIL [   0.137s] ( 2440/29131) logicaffeine-tests::phase_futamura pe_bti_p3_cogen_correctness
+        FAIL [   0.021s] ( 2441/29131) logicaffeine-tests::phase_futamura pe_bti_projection_size_ordering
+        FAIL [   0.020s] ( 2443/29131) logicaffeine-tests::phase_futamura pe_bti_self_application_genuine
+        FAIL [   0.087s] ( 2444/29131) logicaffeine-tests::phase_futamura pe_bti_preserves_append_to_seq
+        FAIL [   0.069s] ( 2446/29131) logicaffeine-tests::phase_futamura pe_bti_preserves_merge_stmt
+        FAIL [   0.076s] ( 2447/29131) logicaffeine-tests::phase_futamura pe_bti_preserves_increase_decrease
+        FAIL [   0.029s] ( 2449/29131) logicaffeine-tests::phase_futamura pe_memoization_works
+        FAIL [   0.085s] ( 2450/29131) logicaffeine-tests::phase_futamura pe_mini_inspect_static_dispatch
+        FAIL [   0.070s] ( 2452/29131) logicaffeine-tests::phase_futamura pe_mini_inspect_static_dispatch_binds_fields
+        FAIL [   0.072s] ( 2453/29131) logicaffeine-tests::phase_futamura pe_mini_key_no_unk_collisions
+        FAIL [   0.101s] ( 2454/29131) logicaffeine-tests::phase_futamura pe_mini_directly_specializes_simple_target
+        FAIL [   0.114s] ( 2456/29131) logicaffeine-tests::phase_futamura pe_memoization_prevents_code_duplication
+        FAIL [   0.064s] ( 2457/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_append_to_seq
+        FAIL [   0.073s] ( 2458/29131) logicaffeine-tests::phase_futamura pe_mini_p1_show_literal
+        FAIL [   0.084s] ( 2459/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_assert_stmt
+        FAIL [   0.104s] ( 2460/29131) logicaffeine-tests::phase_futamura pe_mini_p1_arithmetic
+        FAIL [   0.111s] ( 2461/29131) logicaffeine-tests::phase_futamura pe_mini_p1_factorial
+        FAIL [   0.060s] ( 2462/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_check_stmt
+        FAIL [   0.062s] ( 2463/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_concurrent_stmt
+        FAIL [   0.071s] ( 2464/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_increase_decrease
+        FAIL [   0.065s] ( 2465/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_merge_stmt
+        FAIL [   0.061s] ( 2466/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_require_stmt
+        FAIL [   0.089s] ( 2467/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_pipe_stmts
+        FAIL [   0.068s] ( 2468/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_trust_stmt
+        FAIL [   0.071s] ( 2470/29131) logicaffeine-tests::phase_futamura pe_mini_preserves_zone_stmt
+        FAIL [   0.071s] ( 2471/29131) logicaffeine-tests::phase_futamura pe_mini_repeat_non_static_invalidates_loop_var
+        FAIL [   0.061s] ( 2472/29131) logicaffeine-tests::phase_futamura pe_mini_repeat_static_unroll
+        FAIL [   0.072s] ( 2475/29131) logicaffeine-tests::phase_futamura pe_mini_repeat_static_unroll_with_break
+        FAIL [   0.024s] ( 2476/29131) logicaffeine-tests::phase_futamura pe_quotation_idempotent
+        FAIL [   0.066s] ( 2477/29131) logicaffeine-tests::phase_futamura pe_mini_while_loop_variable_invalidation
+        FAIL [   0.051s] ( 2478/29131) logicaffeine-tests::phase_futamura pe_self_applicable_arithmetic
+        FAIL [   0.032s] ( 2479/29131) logicaffeine-tests::phase_futamura pe_self_applicable_control_flow
+        FAIL [   0.044s] ( 2480/29131) logicaffeine-tests::phase_futamura pe_self_applicable_recursion
+        FAIL [   0.127s] ( 2481/29131) logicaffeine-tests::phase_futamura pe_self_applicable_smoke
+        FAIL [   0.030s] ( 2482/29131) logicaffeine-tests::phase_futamura pe_specializes_interpreter
+        FAIL [   0.187s] ( 2483/29131) logicaffeine-tests::phase_futamura pe_quotation_preserves_behavior
+        FAIL [   0.135s] ( 2484/29131) logicaffeine-tests::phase_futamura pe_self_encodes_correctly
+        FAIL [   0.166s] ( 2486/29131) logicaffeine-tests::phase_futamura pe_source_wqo_terminates_growing_chain
+        FAIL [   0.022s] ( 2487/29131) logicaffeine-tests::phase_futamura self_application_pe_mini_encodable
+        FAIL [   0.215s] ( 2488/29131) logicaffeine-tests::phase_futamura pe_source_parses
+        FAIL [   0.027s] ( 2489/29131) logicaffeine-tests::phase_futamura self_application_pe_source_encodable
+        FAIL [   0.133s] ( 2490/29131) logicaffeine-tests::phase_futamura self_application_p1_roundtrip_baseline
+        FAIL [   0.172s] ( 2491/29131) logicaffeine-tests::phase_futamura pe_static_struct_inlined
+        FAIL [   0.121s] ( 2492/29131) logicaffeine-tests::phase_futamura self_application_pe_mini_residual_no_online_dispatch
+        FAIL [   0.192s] ( 2493/29131) logicaffeine-tests::phase_futamura post_unfolding_cascading_constant_fold
+        FAIL [   0.044s] ( 2494/29131) logicaffeine-tests::phase_futamura the_trick_genuine_p2_fewer_inspects
+        FAIL [   0.041s] ( 2495/29131) logicaffeine-tests::phase_futamura the_trick_p2_fewer_inspects_than_pe
+        FAIL [   0.034s] ( 2496/29131) logicaffeine-tests::phase_futamura the_trick_p3_fewer_inspects_than_p2
+        FAIL [   0.200s] ( 2497/29131) logicaffeine-tests::phase_futamura stream_survives_every_partial_evaluator_dialect
+        FAIL [   0.195s] ( 2498/29131) logicaffeine-tests::phase_futamura the_trick_strict_inspect_reduction
+        FAIL [   2.315s] ( 2499/29131) logicaffeine-tests::phase_futamura p3_triple_equivalence_10_programs
+        FAIL [   2.766s] ( 2502/29131) logicaffeine-tests::phase_futamura pe_bti_matches_full_pe
+        FAIL [   2.274s] ( 2503/29131) logicaffeine-tests::phase_futamura pe_bti_p2_matches_p1_comprehensive
+        FAIL [ 149.123s] ( 2507/29131) logicaffeine-tests::spatial_tensix_ttsim_lock bf16_packing_640_cubed_ties_or_beats_every_recorded_program
+        FAIL [   0.337s] ( 3087/29131) logicaffeine-kernel interface::lean::lazy_conversion::runtime_controls::original_app_lam_converts_without_expanding_its_captured_source
+        FAIL [   0.010s] ( 3117/29131) logicaffeine-kernel interface::lean::lazy_conversion::runtime_conversion::source_fusion_replay_controls::a_fused_source_certificate_cannot_project_an_unrelated_call
+        FAIL [   0.724s] ( 3204/29131) logicaffeine-kernel interface::lean::lazy_conversion::runtime_import_controls::the_entire_original_app_lam_imports_and_publishes_a_checked_definition
+        FAIL [   0.051s] ( 4607/29131) logicaffeine-lsp completion::tests::completion_before_the_first_token_still_offers_keywords
+        FAIL [   0.053s] ( 4618/29131) logicaffeine-lsp completion::tests::keyword_completions_teach_with_detail_and_documentation
+        FAIL [   0.631s] ( 6322/29131) logicaffeine-tests::G_recursor_extra a_field_in_a_domain_position_over_the_nesting_parameter_is_still_refused
+        FAIL [   1.490s] ( 6350/29131) logicaffeine-tests::G_recursor_extra an_impure_container_is_refused_with_a_reason_that_names_the_hazard
+        FAIL [   0.011s] ( 6979/29131) logicaffeine-tests::action_verb_tier_lock every_verb_role_agrees_with_where_it_actually_runs
+        FAIL [   0.577s] ( 7066/29131) logicaffeine-tests::lean_conformance_t00_terms a_lambda_telescope_keeps_its_order_but_cannot_carry_its_binder_kind
+        FAIL [   0.785s] ( 7078/29131) logicaffeine-tests::lean_conformance_t00_terms a_translated_term_cannot_remember_where_it_came_from
+        FAIL [ 129.913s] ( 7115/29131) logicaffeine-kernel type_checker::lazy_delta_controls::the_omega_originals_import_without_a_full_normalization
+        FAIL [   0.041s] ( 7531/29131) logicaffeine-tests::app_shape_matrix_lock a_placed_child_appears_on_both_tiers
+        FAIL [   1.449s] ( 7858/29131) logicaffeine-tests::automation_extra a_certified_proof_discloses_the_trusted_axioms_it_rests_on
+        FAIL [   1.601s] ( 7875/29131) logicaffeine-tests::automation_extra the_footprint_is_read_off_the_kernel_term_the_kernel_accepted
+        FAIL [   5.506s] ( 7915/29131) logicaffeine-tests::axiom_footprint_lean_parity the_footprint_the_importer_and_lean_name_the_same_axioms
+        FAIL [   7.119s] ( 7916/29131) logicaffeine-tests::axiom_footprint_lean_parity both_doors_to_leans_quotient_constants_report_them_as_lean_does
+        FAIL [  19.550s] ( 8036/29131) logicaffeine-tests::bitblast_budget_lock structural_sharing_keeps_the_bit_blast_linear
+        FAIL [   0.034s] ( 8417/29131) logicaffeine-tests::certificate_environment an_unknown_schema_is_unsupported_never_guessed
+        FAIL [ 120.104s] ( 8419/29131) logicaffeine-tests::browser_tier_lock every_example_page_agrees_on_the_tree_walker_the_vm_and_chrome_or_is_ledgered
+        FAIL [  30.888s] ( 8587/29131) logicaffeine-tests::canonical_teaching_lock every_teaching_surface_holds_to_the_canon
+        FAIL [   1.752s] ( 8589/29131) logicaffeine-tests::code_examples_all_tiers every_exact_example_prints_the_same_on_the_vm
+        FAIL [   0.010s] ( 8732/29131) logicaffeine-tests::component_def_lock every_lgx_closure_is_built_by_the_host_callback_helper_or_the_named_exception
+        FAIL [   0.008s] ( 8733/29131) logicaffeine-tests::component_def_lock every_rewrite_store_calls_turn_entry_is_followed_by_protect_early_return
+        FAIL [   3.590s] ( 9004/29131) logicaffeine-tests::construct_tier_totality_lock every_construct_agrees_across_every_tier
+        FAIL [  50.313s] ( 9059/29131) logicaffeine-tests::code_examples_all_tiers every_code_example_builds_and_runs_identically_when_compiled
+        FAIL [   0.744s] (10185/29131) logicaffeine-tests::definition_kernel definition_unfolds_at_kernel_root
+        FAIL [   0.850s] (10208/29131) logicaffeine-tests::derived_arithmetic_consumers changed_transitive_arithmetic_dependency_invalidates_oracle_interpretation
+        FAIL [   0.676s] (10212/29131) logicaffeine-tests::derived_arithmetic_consumers rebound_operator_names_do_not_inherit_ring_interpretation
+        FAIL [   0.012s] (10406/29131) logicaffeine-tests::diagnostic_location_lock every_browser_tier_refusal_has_a_row
+        FAIL [   0.008s] (10408/29131) logicaffeine-tests::diagnostic_location_lock every_lgx_parser_check_has_a_row
+        FAIL [   2.969s] (10969/29131) logicaffeine-tests::e2e_codegen_optimization e2e_opt_push_str_literal
+ TERMINATING [>1800.000s] (───────────) logicaffeine-kernel interface::lean::function_type_head_controls::the_same_application_at_a_false_equation_is_refused
+     TIMEOUT [1801.471s] (11123/29131) logicaffeine-kernel interface::lean::function_type_head_controls::the_same_application_at_a_false_equation_is_refused
+ TERMINATING [>1800.000s] (───────────) logicaffeine-kernel type_checker::lazy_delta_controls::the_nat_linear_originals_import_without_a_full_normalization
+     TIMEOUT [1801.066s] (11133/29131) logicaffeine-kernel type_checker::lazy_delta_controls::the_nat_linear_originals_import_without_a_full_normalization
+        FAIL [  14.299s] (11696/29131) logicaffeine-tests::e2e_language_gaps e2e_assert_fail
+        FAIL [   4.686s] (11866/29131) logicaffeine-tests::cuda_forward_attention_lock single_query_attention_runs_on_the_gpu_equals_the_vm
+        FAIL [   8.201s] (11867/29131) logicaffeine-tests::e2e_policy e2e_predicate_composition
+        FAIL [  14.709s] (11868/29131) logicaffeine-tests::e2e_policy e2e_capability_owner_passes
+        FAIL [  44.172s] (11869/29131) logicaffeine-tests::e2e_multi_node e2e_test_three_node_convergence
+        FAIL [  42.993s] (11870/29131) logicaffeine-tests::e2e_network_partition e2e_test_late_joiner_after_mutations
+        FAIL [  36.317s] (11871/29131) logicaffeine-tests::e2e_network_partition e2e_test_repeated_mutation_cycles
+        FAIL [  44.727s] (11872/29131) logicaffeine-tests::e2e_multi_node e2e_test_node_join_mid_session
+        FAIL [   3.964s] (11876/29131) logicaffeine-tests::cuda_forward_attention_lock transpose_lowers_to_a_parallel_kernel_and_matches_the_vm
+        FAIL [   3.776s] (11877/29131) logicaffeine-tests::e2e_policy e2e_predicate_passes
+        FAIL [   3.654s] (11878/29131) logicaffeine-tests::e2e_ref_semantics ref_semantics_copy_of_map_deep_copy
+        FAIL [   4.003s] (11879/29131) logicaffeine-tests::e2e_policy e2e_predicate_fails
+        FAIL [   2.726s] (11880/29131) logicaffeine-tests::e2e_ref_semantics ref_semantics_map_multiple_mutations
+        |         |
+        |         help: remove this `mut`
+        |
+        = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+    warning: value assigned to `len` is never read
+       --> /mnt/build/release-base/src/crates/logicaffeine_system/src/ntt.rs:117:9
+        |
+    117 |         len >>= 1;
+        |         ^^^^^^^^^ this value is reassigned later and never used
+    ...
+    142 |         len >>= 1;
+        |         --------- `len` is overwritten here before the previous value is read
+        |
+        = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+    warning: value assigned to `len` is never read
+       --> /mnt/build/release-base/src/crates/logicaffeine_system/src/ntt.rs:142:9
+        |
+    142 |         len >>= 1;
+        |         ^^^^^^^^^
+        |
+        = help: maybe it is overwritten before being read?
+
+    warning: variable does not need to be mutable
+       --> /mnt/build/release-base/src/crates/logicaffeine_system/src/mldsa.rs:660:9
+        |
+    660 |     let mut take = |n: usize, sk: &[u8], off: &mut usize| {
+        |         ----^^^^
+        |         |
+        |         help: remove this `mut`
+        |
+        = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+    error: failed to write `/tmp/logos_e2e_cache_7/debug/.fingerprint/logos_e2e_1790393055228144670_0-c161d28311ef9101/invoked.timestamp`
+
+    Caused by:
+      No space left on device (os error 28)
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   0.035s] (11881/29131) logicaffeine-tests::e2e_ref_semantics ref_semantics_nested_function_calls
+        PASS [   0.540s] (11882/29131) logicaffeine-tests::elaborate a_solved_metavariable_stays_consistent
+        PASS [   0.463s] (11883/29131) logicaffeine-tests::elaborate an_eliminator_motive_is_inferred_by_pattern_unification
+        FAIL [   0.979s] (11884/29131) logicaffeine-tests::e2e_ref_semantics ref_semantics_seq_push_visible
+  stdout ───
+
+    running 1 test
+    test ref_semantics_seq_push_visible ... FAILED
+
+    failures:
+
+  
+──────────────────────────────────────────────────────────────────────
+ PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile lib + logicaffeine-tests, --features wasm-jit)
+──────────────────────────────────────────────────────────────────────
+    Blocking waiting for file lock on package cache
+    Starting 485 tests across 38 binaries (1516 tests skipped)
+        FAIL [   0.023s] ( 33/485) logicaffeine-tests::fullstack_todo_lock the_backend_wire_format_is_what_the_frontend_parses
+        FAIL [   0.019s] ( 34/485) logicaffeine-tests::fullstack_todo_lock the_two_lg_files_interoperate_headlessly
+        FAIL [   0.580s] (183/485) logicaffeine-tests::storage_lock the_two_store_refusals_do_not_borrow_each_others_words
+        FAIL [   0.550s] (280/485) logicaffeine-tests::wasm_aot_lock the_generics_corpus_runs_on_wasm
+        FAIL [   3.482s] (283/485) logicaffeine-tests::lgx_wasm_lock every_landed_construct_compiles_to_wasm
+        FAIL [   0.099s] (329/485) logicaffeine-tests::wasm_dom wasm_tier::a_page_timer_fires_through_the_real_module
+        FAIL [   0.772s] (389/485) logicaffeine-tests::wasm_dom wasm_tier::lgx_a_fetch_completion_re_renders_the_view_with_the_body_on_wasm
+        FAIL [   0.490s] (423/485) logicaffeine-tests::wasm_memory_bound_lock a_second_fetch_completing_through_an_already_used_action_still_journals_its_turn
+        FAIL [   1.468s] (468/485) logicaffeine-tests::wasm_memory_bound_lock two_concurrently_pending_fetches_to_the_same_completion_both_journal_when_answered
+     Summary [  30.415s] 485 tests run: 476 passed, 9 failed, 1516 skipped
+        FAIL [   0.023s] ( 33/485) logicaffeine-tests::fullstack_todo_lock the_backend_wire_format_is_what_the_frontend_parses
+        FAIL [   0.019s] ( 34/485) logicaffeine-tests::fullstack_todo_lock the_two_lg_files_interoperate_headlessly
+        FAIL [   0.580s] (183/485) logicaffeine-tests::storage_lock the_two_store_refusals_do_not_borrow_each_others_words
+        FAIL [   0.550s] (280/485) logicaffeine-tests::wasm_aot_lock the_generics_corpus_runs_on_wasm
+        FAIL [   3.482s] (283/485) logicaffeine-tests::lgx_wasm_lock every_landed_construct_compiles_to_wasm
+        FAIL [   0.099s] (329/485) logicaffeine-tests::wasm_dom wasm_tier::a_page_timer_fires_through_the_real_module
+        FAIL [   0.772s] (389/485) logicaffeine-tests::wasm_dom wasm_tier::lgx_a_fetch_completion_re_renders_the_view_with_the_body_on_wasm
+        FAIL [   0.490s] (423/485) logicaffeine-tests::wasm_memory_bound_lock a_second_fetch_completing_through_an_already_used_action_still_journals_its_turn
+        FAIL [   1.468s] (468/485) logicaffeine-tests::wasm_memory_bound_lock two_concurrently_pending_fetches_to_the_same_completion_both_journal_when_answered
+
+──────────────────────────────────────────────────────────────────────
+ PASS 2/2 — cargo test --doc (doctests)
+──────────────────────────────────────────────────────────────────────
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.24s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.22s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test crates/logicaffeine_kernel/src/term_store.rs - term_store::zeta_or_share_opt (line 3512) ... FAILED
+test crates/logicaffeine_kernel/src/int_inductive.rs - int_inductive::register_inductive_int (line 471) ... FAILED
+test crates/logicaffeine_kernel/src/term_store.rs - term_store::deepen_stack (line 4069) ... FAILED
+test crates/logicaffeine_kernel/src/term_store.rs - term_store::deepen_stack_all_with_depth (line 4119) ... FAILED
+test crates/logicaffeine_kernel/src/term_store.rs - term_store::DefEqCache::scoped (line 4408) ... FAILED
+test crates/logicaffeine_kernel/src/term_store.rs - term_store::KernelCall (line 4475) ... FAILED
+test crates/logicaffeine_kernel/src/termination.rs - termination::structural_position (line 205) ... FAILED
+test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.86s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.69s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.23s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.42s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+──────────────────────────────────────────────────────────────────────
+ PASS 3 — Lean-parity verdicts vs reality (scripts/lean/conformance-verify-verdicts.sh)
+──────────────────────────────────────────────────────────────────────
+     Summary [  57.630s] 311 tests run: 307 passed, 4 failed, 0 skipped
+VERDICT: MISMATCH

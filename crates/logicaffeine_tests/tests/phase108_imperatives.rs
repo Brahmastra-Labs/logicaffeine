@@ -1,4 +1,4 @@
-//! Phase 108 — §1.4 Imperatives (work/MISSING_ENGLISH.md).
+//! Phase 108 — Imperatives.
 //!
 //! Commands with a covert 2nd-person subject:
 //!   "Close the door."  → Directive(hearer, ⟨∃e(Close(e)∧Agent(e,hearer)∧Theme(e,door))⟩)
@@ -26,7 +26,10 @@ fn imperative_has_hearer_agent_and_theme() {
     );
     // The object must survive as a Theme (not be dropped).
     assert!(out.contains("Theme"), "object must be a Theme role: {out}");
-    assert!(out.contains("Door") || out.contains("door"), "the object 'door': {out}");
+    assert!(
+        out.contains("Door") || out.contains("door"),
+        "the object 'door': {out}"
+    );
 }
 
 #[test]
@@ -34,7 +37,10 @@ fn negative_imperative_flips_polarity() {
     let out = compile("Don't touch that.").unwrap();
     eprintln!("dont-touch: {out}");
     assert!(out.contains("Directive("), "directive operator: {out}");
-    assert!(out.contains('¬') || out.contains("NOT") || out.contains("\\neg"), "negation: {out}");
+    assert!(
+        out.contains('¬') || out.contains("NOT") || out.contains("\\neg"),
+        "negation: {out}"
+    );
     assert!(out.contains("Touch"), "the command verb: {out}");
     assert!(out.contains("Addressee"), "agent is the hearer: {out}");
 }
@@ -43,7 +49,10 @@ fn negative_imperative_flips_polarity() {
 fn hortative_lets_has_inclusive_agent() {
     let out = compile("Let's leave.").unwrap();
     eprintln!("lets-leave: {out}");
-    assert!(out.contains("Directive("), "directive/hortative operator: {out}");
+    assert!(
+        out.contains("Directive("),
+        "directive/hortative operator: {out}"
+    );
     assert!(out.contains("Leave"), "the command verb: {out}");
     // Hortative "let's" = inclusive we (speaker + addressee), not a bare addressee.
     assert!(
@@ -56,7 +65,10 @@ fn hortative_lets_has_inclusive_agent() {
 fn imperative_renders_in_simple_and_kripke() {
     let simple = compile_simple("Close the door.").unwrap();
     eprintln!("close(simple): {simple}");
-    assert!(simple.contains("Close") && simple.contains("Addressee"), "SimpleFOL: {simple}");
+    assert!(
+        simple.contains("Close") && simple.contains("Addressee"),
+        "SimpleFOL: {simple}"
+    );
 
     let kripke = compile_kripke("Close the door.").unwrap();
     eprintln!("close(kripke): {kripke}");
@@ -70,7 +82,9 @@ fn imperative_renders_in_simple_and_kripke() {
 #[cfg(feature = "verification")]
 mod verification_spec {
     use logicaffeine_compile::compile_for_proof;
-    use logicaffeine_proof::oracle::{oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict};
+    use logicaffeine_proof::oracle::{
+        oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict,
+    };
     use logicaffeine_proof::ProofExpr;
 
     #[test]
@@ -84,9 +98,7 @@ mod verification_spec {
                 assert_eq!(domain, "Deontic", "directive domain: {expr}");
                 assert_eq!(flavor, "Bouletic", "directive flavor: {expr}");
             }
-            other => panic!(
-                "Directive must lower to a Deontic/Bouletic Modal, got: {other}"
-            ),
+            other => panic!("Directive must lower to a Deontic/Bouletic Modal, got: {other}"),
         }
     }
 

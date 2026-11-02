@@ -1,0 +1,61 @@
+{
+ "cases": [
+  {
+   "description": "A non-recursive inductive whose single field mentions no inductive: accepted, so the recursor the builder spells out is exactly the one the kernel derives.",
+   "name": "positive-control",
+   "outcome": "good",
+   "path": "good/positive-control.ndjson",
+   "rejected_by": null,
+   "targets": "the recursor builder itself"
+  },
+  {
+   "description": "`Bad | mk : ((Bad \u2192 Prop) \u2192 Prop) \u2192 Bad`: `Bad` occurs to the left of an arrow inside a field. The field is not a recursive argument, so recursor construction goes through; only strict positivity rejects it.",
+   "name": "non-strictly-positive",
+   "outcome": "bad",
+   "path": "bad/non-strictly-positive.ndjson",
+   "rejected_by": "non positive occurrence",
+   "targets": "inductive.rs: check_positivity for safe families"
+  },
+  {
+   "description": "`axiom foo : Sort u` with no universe parameters declared: `u` is unbound.",
+   "name": "undefined-universe-parameter",
+   "outcome": "bad",
+   "path": "bad/undefined-universe-parameter.ndjson",
+   "rejected_by": "undefined universe level parameter",
+   "targets": "level.rs: undef_param / tc.rs: check_level"
+  },
+  {
+   "description": "A constructor whose field mentions a constant named `_nested.X`: the prefix is reserved for the kernel's own nested-inductive auxiliaries.",
+   "name": "reserved-nested-prefix",
+   "outcome": "bad",
+   "path": "bad/reserved-nested-prefix.ndjson",
+   "rejected_by": "reserved prefix",
+   "targets": "inductive.rs: check_no_nested_aux"
+  },
+  {
+   "description": "`unsafe def f : Prop := g` and `unsafe def g : Prop := f` as one mutual block.",
+   "name": "mutual-unsafe-pair",
+   "outcome": "good",
+   "path": "good/mutual-unsafe-pair.ndjson",
+   "rejected_by": null,
+   "targets": "check.rs: add_mutual (unsafe blocks)"
+  },
+  {
+   "description": "A mutual block mixing an `unsafe` and a `partial` definition.",
+   "name": "mutual-mixed-safety",
+   "outcome": "bad",
+   "path": "bad/mutual-mixed-safety.ndjson",
+   "rejected_by": "same safety annotation",
+   "targets": "check.rs: add_mutual (one safety per block)"
+  },
+  {
+   "description": "A mutual unsafe block whose two definitions declare different universe parameters.",
+   "name": "mutual-mismatched-universes",
+   "outcome": "bad",
+   "path": "bad/mutual-mismatched-universes.ndjson",
+   "rejected_by": "same universe parameters",
+   "targets": "check.rs: add_mutual (one universe list per block)"
+  }
+ ],
+ "schema": "logos-crafted-cases/1"
+}

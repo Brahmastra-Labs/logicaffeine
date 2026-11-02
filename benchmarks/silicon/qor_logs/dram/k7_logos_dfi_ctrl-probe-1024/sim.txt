@@ -1,0 +1,1 @@
+PASS: 1024 words through ddr2_dfi_ctrl in 68235 system clocks

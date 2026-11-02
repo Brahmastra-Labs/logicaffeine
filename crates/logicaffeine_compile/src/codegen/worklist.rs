@@ -49,7 +49,9 @@ pub(crate) fn detect_worklists(
     let mut out = HashMap::new();
     // Candidates: top-level `Let mutable q be a new Seq of Int`.
     for stmt in body {
-        let Stmt::Let { var, value, .. } = stmt else { continue };
+        let Stmt::Let { var, value, .. } = stmt else {
+            continue;
+        };
         if !is_new_empty_int_seq(value) {
             continue;
         }
@@ -64,6 +66,8 @@ pub(crate) fn detect_worklists(
             out.insert(q, info);
         }
     }
+    // A buffer whose logical length lives in a register tail is not a variable a swap can exchange.
+    crate::optimize::SwapClasses::of(body, interner).exclude(&mut out, interner);
     out
 }
 
@@ -128,7 +132,11 @@ fn analyze_worklist(q: Symbol, body: &[Stmt], interner: &Interner) -> Option<Wor
     // visited set's own (equally huge) allocation, exactly as before.
     let capacity = format!("(({size} as i64).max(0) as usize) + {seed_count}");
     let tail_var = format!("__{}_tail", interner.resolve(q));
-    Some(WorklistInfo { tail_var, capacity, elem_default: "0i64".to_string() })
+    Some(WorklistInfo {
+        tail_var,
+        capacity,
+        elem_default: "0i64".to_string(),
+    })
 }
 
 /// A guarded enqueue's context: `if array[_] == sentinel { … }`.
@@ -152,7 +160,13 @@ struct QRefs {
 /// classify every reference to `q`. Returns `false` (and sets `disqualified`)
 /// the moment `q` is used in any way other than push / `item _ of` / `length
 /// of`. `guards` is the active visited-set-guard stack.
-fn walk(stmts: &[Stmt], q: Symbol, guards: &mut Vec<Guard>, in_loop: bool, refs: &mut QRefs) -> bool {
+fn walk(
+    stmts: &[Stmt],
+    q: Symbol,
+    guards: &mut Vec<Guard>,
+    in_loop: bool,
+    refs: &mut QRefs,
+) -> bool {
     for s in stmts {
         if !walk_stmt(s, q, guards, in_loop, refs) {
             refs.disqualified = true;
@@ -162,7 +176,13 @@ fn walk(stmts: &[Stmt], q: Symbol, guards: &mut Vec<Guard>, in_loop: bool, refs:
     true
 }
 
-fn walk_stmt(s: &Stmt, q: Symbol, guards: &mut Vec<Guard>, in_loop: bool, refs: &mut QRefs) -> bool {
+fn walk_stmt(
+    s: &Stmt,
+    q: Symbol,
+    guards: &mut Vec<Guard>,
+    in_loop: bool,
+    refs: &mut QRefs,
+) -> bool {
     match s {
         Stmt::Push { collection, value } => {
             // A push of `q` is an enqueue; a push that READS `q` in its value
@@ -189,7 +209,11 @@ fn walk_stmt(s: &Stmt, q: Symbol, guards: &mut Vec<Guard>, in_loop: bool, refs: 
         }
         Stmt::Let { value, .. } => ok_read_only(value, q),
         Stmt::Set { target: _, value } => ok_read_only(value, q),
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             // A SetIndex on q is an in-place write — disqualify. On another
             // array it is fine unless it reads q.
             if names_collection(collection, q) {
@@ -198,7 +222,11 @@ fn walk_stmt(s: &Stmt, q: Symbol, guards: &mut Vec<Guard>, in_loop: bool, refs: 
             ok_read_only(index, q) && ok_read_only(value, q)
         }
         Stmt::SetField { object, value, .. } => ok_read_only(object, q) && ok_read_only(value, q),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             if expr_uses(cond, q) {
                 return false; // q in a condition isn't the cursor pattern
             }
@@ -270,12 +298,18 @@ pub(crate) fn ok_read_only(e: &Expr, q: Symbol) -> bool {
         Expr::BinaryOp { left, right, .. } => ok_read_only(left, q) && ok_read_only(right, q),
         Expr::Not { operand } => ok_read_only(operand, q),
         Expr::Call { args, .. } => args.iter().all(|a| ok_read_only(a, q)),
-        Expr::CallExpr { callee, args } => ok_read_only(callee, q) && args.iter().all(|a| ok_read_only(a, q)),
-        Expr::Copy { expr } | Expr::Give { value: expr } => ok_read_only(expr, q),
-        Expr::Contains { collection, value } => !names_collection(collection, q) && ok_read_only(value, q),
-        Expr::Slice { collection, start, end } => {
-            !names_collection(collection, q) && ok_read_only(start, q) && ok_read_only(end, q)
+        Expr::CallExpr { callee, args } => {
+            ok_read_only(callee, q) && args.iter().all(|a| ok_read_only(a, q))
         }
+        Expr::Copy { expr } | Expr::Give { value: expr } => ok_read_only(expr, q),
+        Expr::Contains { collection, value } => {
+            !names_collection(collection, q) && ok_read_only(value, q)
+        }
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => !names_collection(collection, q) && ok_read_only(start, q) && ok_read_only(end, q),
         Expr::Range { start, end } => ok_read_only(start, q) && ok_read_only(end, q),
         Expr::Union { left, right } | Expr::Intersection { left, right } => {
             ok_read_only(left, q) && ok_read_only(right, q)
@@ -315,15 +349,29 @@ pub(crate) fn const_eval(e: &Expr) -> Option<i64> {
 
 /// `if M[k] == S` (or `S == M[k]`) with constant `S` ⟹ the visited-set guard.
 fn visited_guard(cond: &Expr) -> Option<Guard> {
-    let Expr::BinaryOp { op: BinaryOpKind::Eq, left, right } = cond else { return None };
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Eq,
+        left,
+        right,
+    } = cond
+    else {
+        return None;
+    };
     let (idx_side, sentinel) = match (const_eval(left), const_eval(right)) {
         (None, Some(s)) => (&**left, s),
         (Some(s), None) => (&**right, s),
         _ => return None,
     };
-    let Expr::Index { collection, .. } = idx_side else { return None };
-    let Expr::Identifier(array) = &**collection else { return None };
-    Some(Guard { array: *array, sentinel })
+    let Expr::Index { collection, .. } = idx_side else {
+        return None;
+    };
+    let Expr::Identifier(array) = &**collection else {
+        return None;
+    };
+    Some(Guard {
+        array: *array,
+        sentinel,
+    })
 }
 
 /// The visited set must be created `vec![S; E]` (a counted build loop pushing
@@ -359,7 +407,9 @@ fn m_monotone(stmts: &[Stmt], m: Symbol, sentinel: i64) -> bool {
     fn rec(stmts: &[Stmt], m: Symbol, sentinel: i64, ok: &mut bool) {
         for s in stmts {
             match s {
-                Stmt::SetIndex { collection, value, .. } if names_collection(collection, m) => {
+                Stmt::SetIndex {
+                    collection, value, ..
+                } if names_collection(collection, m) => {
                     if !is_above_sentinel(value, m, sentinel) {
                         *ok = false;
                     }
@@ -372,13 +422,23 @@ fn m_monotone(stmts: &[Stmt], m: Symbol, sentinel: i64) -> bool {
                 }
                 Stmt::Set { target, .. } if *target == m => *ok = false, // rebind
                 Stmt::Pop { collection, .. } | Stmt::Remove { collection, .. }
-                    if names_collection(collection, m) => *ok = false,
+                    if names_collection(collection, m) =>
+                {
+                    *ok = false
+                }
                 Stmt::Call { args, .. } => {
-                    if args.iter().any(|a| matches!(a, Expr::Identifier(s) if *s == m)) {
+                    if args
+                        .iter()
+                        .any(|a| matches!(a, Expr::Identifier(s) if *s == m))
+                    {
                         *ok = false; // M could be reset behind the call
                     }
                 }
-                Stmt::If { then_block, else_block, .. } => {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     rec(then_block, m, sentinel, ok);
                     if let Some(eb) = else_block {
                         rec(eb, m, sentinel, ok);
@@ -401,7 +461,12 @@ fn is_above_sentinel(value: &Expr, m: Symbol, sentinel: i64) -> bool {
     if let Some(k) = const_eval(value) {
         return k > sentinel;
     }
-    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value {
+    if let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = value
+    {
         let reads_m = |e: &Expr| matches!(e, Expr::Index { collection, .. } if names_collection(collection, m));
         let pos = |e: &Expr| matches!(const_eval(e), Some(c) if c > 0);
         return (reads_m(left) && pos(right)) || (pos(left) && reads_m(right));
@@ -432,7 +497,11 @@ fn find_sentinel_build_size(
                     return Some(b);
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 if let Some(b) = find_sentinel_build_size(then_block, m, sentinel, interner) {
                     return Some(b);
                 }
@@ -456,11 +525,20 @@ fn build_loop_bound(
     sentinel: i64,
     interner: &Interner,
 ) -> Option<String> {
-    let Expr::BinaryOp { op: BinaryOpKind::Lt, left: _, right } = cond else { return None };
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Lt,
+        left: _,
+        right,
+    } = cond
+    else {
+        return None;
+    };
     // Body must push the sentinel to M.
-    let pushes_sentinel = body.iter().any(|s| matches!(
+    let pushes_sentinel = body.iter().any(|s| {
+        matches!(
         s, Stmt::Push { collection, value }
-            if names_collection(collection, m) && is_const_eq(value, sentinel)));
+            if names_collection(collection, m) && is_const_eq(value, sentinel))
+    });
     if !pushes_sentinel {
         return None;
     }
@@ -549,7 +627,10 @@ pub(crate) fn visit_idents(e: &Expr, f: &mut impl FnMut(Symbol)) {
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             visit_idents(left, f);
             visit_idents(right, f);
         }
@@ -558,15 +639,22 @@ pub(crate) fn visit_idents(e: &Expr, f: &mut impl FnMut(Symbol)) {
             visit_idents(collection, f);
             visit_idents(index, f);
         }
-        Expr::Length { collection } | Expr::Copy { expr: collection } | Expr::Give { value: collection }
-        | Expr::OptionSome { value: collection } | Expr::FieldAccess { object: collection, .. } => {
-            visit_idents(collection, f)
-        }
+        Expr::Length { collection }
+        | Expr::Copy { expr: collection }
+        | Expr::Give { value: collection }
+        | Expr::OptionSome { value: collection }
+        | Expr::FieldAccess {
+            object: collection, ..
+        } => visit_idents(collection, f),
         Expr::Contains { collection, value } => {
             visit_idents(collection, f);
             visit_idents(value, f);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             visit_idents(collection, f);
             visit_idents(start, f);
             visit_idents(end, f);
@@ -596,8 +684,10 @@ pub(crate) fn visit_idents(e: &Expr, f: &mut impl FnMut(Symbol)) {
 /// blocks — callers walk those separately).
 pub(crate) fn for_each_stmt_expr(s: &Stmt, f: &mut impl FnMut(&Expr)) {
     match s {
-        Stmt::Let { value, .. } | Stmt::Set { value, .. }
-        | Stmt::Return { value: Some(value) } | Stmt::Inspect { target: value, .. } => f(value),
+        Stmt::Let { value, .. }
+        | Stmt::Set { value, .. }
+        | Stmt::Return { value: Some(value) }
+        | Stmt::Inspect { target: value, .. } => f(value),
         Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => {
             f(object);
             f(recipient);
@@ -607,7 +697,11 @@ pub(crate) fn for_each_stmt_expr(s: &Stmt, f: &mut impl FnMut(&Expr)) {
             f(value);
         }
         Stmt::Pop { collection, .. } | Stmt::Remove { collection, .. } => f(collection),
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             f(collection);
             f(index);
             f(value);

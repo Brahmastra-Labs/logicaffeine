@@ -1,0 +1,20 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable bytes be a new Seq of Int.
+Push 1 to bytes.
+Push 2 to bytes.
+Push 3 to bytes.
+Push 4 to bytes.
+Push 5 to bytes.
+Push 6 to bytes.
+Let mutable sum be 0.
+Let mutable r be 0.
+While r is less than n:
+    Set item 1 of bytes to r % 256.
+    Set sum to (sum + unpackUintBE(bytes)) % 1000000007.
+    Set r to r + 1.
+Show sum.

@@ -1,0 +1,20 @@
+## Main
+Let mutable sum be 0.
+Let mutable i be 1.
+While i is at most 1000:
+    Set sum to sum + i.
+    Set i to i + 1.
+Show sum.
+Show 100000 + sum.
+Let mutable count be 0.
+Let mutable n be 2.
+While n is at most 50:
+    Let mutable d be 2.
+    Let mutable prime be 1.
+    While d is less than n:
+        If n % d is equal to 0:
+            Set prime to 0.
+        Set d to d + 1.
+    Set count to count + prime.
+    Set n to n + 1.
+Show count.

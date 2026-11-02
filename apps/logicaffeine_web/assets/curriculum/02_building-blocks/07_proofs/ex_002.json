@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "This rule 'denies the consequent' to deny the antecedent.",
   "explanation": "Modus Tollens (MT): From (P → Q) and ¬Q, derive ¬P. If P implies Q, but Q is false, then P must be false too. This is the contrapositive of Modus Ponens.",
-  "visual_concept": "If it rains, the ground gets wet. The ground is NOT wet. Therefore? It's NOT raining."
+  "visual_concept": "If it rains, the ground gets wet. The ground is NOT wet. Therefore? It's NOT raining.",
+  "section": "7.5"
 }

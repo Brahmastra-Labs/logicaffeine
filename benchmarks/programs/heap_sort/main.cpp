@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <cstdlib>
-#define MOD 1000000007L
 
 void sift_down(long *arr, long start, long end) {
     long root = start;
@@ -30,7 +29,7 @@ int main(int argc, char *argv[]) {
         sift_down(arr, 0, end - 1);
     }
     long checksum = 0;
-    for (long i = 0; i < n; i++) checksum = (checksum + arr[i]) % MOD;
+    for (long i = 0; i < n; i++) checksum = (checksum * 31 + arr[i]) & 268435455;
     printf("%ld %ld %ld\n", arr[0], arr[n-1], checksum);
     delete[] arr;
     return 0;

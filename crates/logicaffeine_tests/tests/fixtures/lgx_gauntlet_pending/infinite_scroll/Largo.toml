@@ -1,0 +1,6 @@
+[dependencies]
+
+[package]
+authors = []
+name = "infinite_scroll"
+version = "0.1.0"

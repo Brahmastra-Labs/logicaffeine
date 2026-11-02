@@ -10,7 +10,8 @@
     "Logic is only valid in normal conditions"
   ],
   "correct": 0,
-  "hint": "Logic doesn't just describe - it prescribes and evaluates our reasoning.",
-  "explanation": "Logic's normativity means it provides standards for how we OUGHT to reason, not just descriptions of how we do reason. If you believe P and P→Q, you SHOULD believe Q - logic evaluates and guides reasoning. How logic gets this authority is a deep philosophical puzzle.",
-  "visual_concept": "Logic as a judge: 'Your reasoning is valid' or 'That's a fallacy.' Not just observing thought, but evaluating it."
+  "hint": "Logic does not only describe how we reason. It also judges reasoning.",
+  "explanation": "Logic is normative: it sets the standards for good reasoning. If you believe P and P → Q, you should believe Q.",
+  "visual_concept": "Logic as a judge: 'Your reasoning is valid' or 'That's a fallacy.' Not just observing thought, but evaluating it.",
+  "section": "18.5"
 }

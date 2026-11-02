@@ -1,0 +1,12 @@
+{
+  "capability": "text.ends_with",
+  "workload": "endsWith(s,'12 ')",
+  "arg": "60000",
+  "expected": "60000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

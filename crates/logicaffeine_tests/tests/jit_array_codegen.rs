@@ -102,7 +102,10 @@ fn scalar_dot_product_two_buffers_bit_identical() {
                \x20   Set i to i + 1.\n\
                Show sum.\n";
     let (_out, region_ok) = tiered(src);
-    assert!(region_ok >= 1, "the dot-product loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the dot-product loop must tier (got {region_ok})"
+    );
 }
 
 /// OUT-OF-BOUNDS on a FUSED two-load: the dot-product loop runs one element
@@ -139,7 +142,11 @@ fn fused_two_load_oob_deopt_replay_parity() {
         "fused two-load OOB deopt replay diverged"
     );
     assert!(vm.error.is_some(), "indexing b past its end must error");
-    assert_eq!(norm(&vm.output), "5", "the pre-loop Show must survive the deopt");
+    assert_eq!(
+        norm(&vm.output),
+        "5",
+        "the pre-loop Show must survive the deopt"
+    );
 }
 
 /// HISTOGRAM (indexed read-modify-write). The hot loop's `count[v+1] += 1`
@@ -171,7 +178,10 @@ fn histogram_indexed_rmw_bit_identical() {
                \x20   Set i to i + 1.\n\
                Show \"\" + maxFreq + \" \" + distinct.\n";
     let (_out, region_ok) = tiered(src);
-    assert!(region_ok >= 1, "the histogram loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the histogram loop must tier (got {region_ok})"
+    );
 }
 
 /// DEPENDENT-INDEX DP (the knapsack shape). The reduction reads `dp[w]` and
@@ -200,7 +210,10 @@ fn knapsack_dependent_index_dp_bit_identical() {
                \x20   Set it to it + 1.\n\
                Show item (cap + 1) of dp.\n";
     let (_out, region_ok) = tiered(src);
-    assert!(region_ok >= 1, "the knapsack DP loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the knapsack DP loop must tier (got {region_ok})"
+    );
 }
 
 /// WINNER — COUNTING SORT (dense indexed counts + cumulative scan). Must stay
@@ -233,7 +246,10 @@ fn winner_counting_sort_unregressed() {
                \x20   Set i to i + 1.\n\
                Show checksum.\n";
     let (_out, region_ok) = tiered(src);
-    assert!(region_ok >= 1, "counting_sort must keep tiering (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "counting_sort must keep tiering (got {region_ok})"
+    );
 }
 
 /// WINNER — TWO-SUM style dense probe (`seen[x]` reads + writes). Must stay
@@ -257,7 +273,10 @@ fn winner_dense_probe_unregressed() {
                \x20   Set i to i + 1.\n\
                Show hits.\n";
     let (_out, region_ok) = tiered(src);
-    assert!(region_ok >= 1, "the dense-probe loop must keep tiering (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the dense-probe loop must keep tiering (got {region_ok})"
+    );
 }
 
 /// WINNER — pure scalar loop sum (no arrays): the cleanest tiering case, must

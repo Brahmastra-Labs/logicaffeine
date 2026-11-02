@@ -1,0 +1,17 @@
+{
+  "capability": "bits.pack_uint_be",
+  "arg": "2000000",
+  "timing_n": "7298660",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 277.752
+  },
+  "wall_ms": {
+    "logos": 278.17
+  },
+  "logos_ms": 277.752,
+  "speedups_vs_logos": {},
+  "logos_strictly_fastest": false,
+  "min_speedup": null
+}

@@ -2,5 +2,6 @@
   "id": "metalogic",
   "title": "Metalogic",
   "pedagogy": "Study logic about logic: soundness, completeness, axiomatic systems, and Godel's incompleteness theorem.",
-  "order": 2
+  "order": 2,
+  "summary": "Logic about logic: soundness, completeness, axioms, and Gödel's limits."
 }

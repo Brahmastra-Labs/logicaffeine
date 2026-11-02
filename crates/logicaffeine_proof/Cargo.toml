@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Backward-chaining proof engine (certified SAT/CDCL, tactics, Socratic hints) plus the number-theory / cryptanalysis substrate (factoring, isogeny, lattice, order-finding)"
+license = "MIT"
+description = "Kernel-checked proof search and tactics, certified SAT/CDCL with DRAT/LRAT output, and a number-theory and cryptanalysis library"
 readme = "README.md"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [features]
 default = []
@@ -21,9 +22,6 @@ logicaffeine-base = { workspace = true }
 logicaffeine-kernel = { workspace = true }
 logicaffeine-verify = { workspace = true, optional = true }
 # CRITICAL: NO LANGUAGE DEPENDENCY - Liskov Invariant
-
-[dev-dependencies]
-tempfile = "3"
 
 # Solver-vs-Z3 benchmark generator (emits benchmarks/results/solvers.json). Z3-gated.
 [[example]]

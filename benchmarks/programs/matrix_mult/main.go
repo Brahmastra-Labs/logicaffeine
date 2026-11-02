@@ -13,11 +13,14 @@ func main() {
 	a := make([]int64, n*n)
 	b := make([]int64, n*n)
 	c := make([]int64, n*n)
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			a[i*n+j] = int64((i*n + j) % 100)
-			b[i*n+j] = int64((j*n + i) % 100)
-		}
+	seed := int64(42)
+	for i := 0; i < n*n; i++ {
+		seed = (seed*1103515245 + 12345) % 2147483648
+		a[i] = (seed >> 16) % 100
+	}
+	for i := 0; i < n*n; i++ {
+		seed = (seed*1103515245 + 12345) % 2147483648
+		b[i] = (seed >> 16) % 100
 	}
 	for i := 0; i < n; i++ {
 		for k := 0; k < n; k++ {
@@ -28,7 +31,7 @@ func main() {
 	}
 	checksum := int64(0)
 	for _, v := range c {
-		checksum = (checksum + v) % MOD
+		checksum = (checksum*31 + v) & 268435455
 	}
 	fmt.Println(checksum)
 }

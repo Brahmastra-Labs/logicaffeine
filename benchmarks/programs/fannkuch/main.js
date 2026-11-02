@@ -1,10 +1,11 @@
 const n = parseInt(process.argv[2]);
 const perm1 = Array.from({length: n}, (_, i) => i);
-const count = new Array(n).fill(0);
+const count = Array.from({length: n}, () => 0);
+const perm = Array.from({length: n}, () => 0);
 let maxFlips = 0, checksum = 0, permCount = 0, r = n;
 outer: while (true) {
     while (r > 1) { count[r-1] = r; r--; }
-    const perm = [...perm1];
+    for (let i = 0; i < n; i++) perm[i] = perm1[i];
     let flips = 0;
     while (perm[0] !== 0) {
         const k = perm[0] + 1;

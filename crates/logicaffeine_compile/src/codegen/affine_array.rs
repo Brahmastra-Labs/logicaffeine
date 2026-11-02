@@ -27,7 +27,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::worklist::{
     bound_rust_expr, const_eval, for_each_stmt_expr, is_new_empty_int_seq, names_collection,
-    ok_read_only, visit_idents,
+    ok_read_only,
 };
 
 /// How to emit a recognized affine array: the value at 0-based position `p` is
@@ -54,7 +54,9 @@ pub(crate) fn detect_affine_arrays(
         return out;
     }
     for (di, stmt) in body.iter().enumerate() {
-        let Stmt::Let { var, value, .. } = stmt else { continue };
+        let Stmt::Let { var, value, .. } = stmt else {
+            continue;
+        };
         if !is_new_empty_int_seq(value) {
             continue;
         }
@@ -68,6 +70,8 @@ pub(crate) fn detect_affine_arrays(
             out.insert(a, info);
         }
     }
+    // A deleted array has no value for a swap to exchange.
+    crate::optimize::SwapClasses::of(body, interner).exclude(&mut out, interner);
     if !out.is_empty() {
         crate::optimize::mark_fired(crate::optimization::Opt::Affine);
     }
@@ -105,14 +109,21 @@ pub(crate) fn detect_const_tables(
     }
     let no_vars: HashSet<Symbol> = HashSet::new();
     for (di, stmt) in body.iter().enumerate() {
-        let Stmt::Let { var, value, .. } = stmt else { continue };
+        let Stmt::Let { var, value, .. } = stmt else {
+            continue;
+        };
         let a = *var;
         if !de_rc.contains(&a) {
             continue;
         }
         let (elem_ty, values, after): (String, Vec<String>, usize) = match value {
-            Expr::New { type_name, type_args, init_fields }
-                if interner.resolve(*type_name) == "Seq" && init_fields.is_empty() && type_args.len() == 1 =>
+            Expr::New {
+                type_name,
+                type_args,
+                init_fields,
+            } if interner.resolve(*type_name) == "Seq"
+                && init_fields.is_empty()
+                && type_args.len() == 1 =>
             {
                 let mut vi = di + 1;
                 let mut vals = Vec::new();
@@ -127,7 +138,11 @@ pub(crate) fn detect_const_tables(
                 if vals.is_empty() {
                     continue;
                 }
-                (super::types::codegen_type_expr(&type_args[0], interner), vals, vi)
+                (
+                    super::types::codegen_type_expr(&type_args[0], interner),
+                    vals,
+                    vi,
+                )
             }
             // Function-call constant tables: `Let kk be md5Constants()` binds a niladic constant-table
             // function's result. Inline that function's constants here so the binding becomes a stack
@@ -144,7 +159,10 @@ pub(crate) fn detect_const_tables(
         if body[..di].iter().any(|s| mentions_anywhere(s, a)) {
             continue;
         }
-        if !body[after..].iter().all(|s| const_table_read_only_stmt(s, a, borrow)) {
+        if !body[after..]
+            .iter()
+            .all(|s| const_table_read_only_stmt(s, a, borrow))
+        {
             continue;
         }
         if !body[after..].iter().any(|s| mentions_anywhere(s, a)) {
@@ -152,6 +170,8 @@ pub(crate) fn detect_const_tables(
         }
         out.insert(a, ConstTableInfo { elem_ty, values });
     }
+    // A table hoisted as an immutable cannot be swapped.
+    crate::optimize::SwapClasses::of(body, interner).exclude(&mut out, interner);
     out
 }
 
@@ -169,6 +189,9 @@ pub(crate) struct ScratchInfo {
     pub len: usize,
     /// The counted loop's inclusive start (the induction variable's first value).
     pub lo: i64,
+    /// The buffer is mutated IN PLACE after the fill (`Set item i of w`) — so it is emitted `let mut`
+    /// and its indexed writes lower to `w[i] = …` on the same `[T; N]` stack array. Read-only when false.
+    pub mutated: bool,
 }
 
 /// Only element types whose Rust repr is a plain `Copy`/`Clone` scalar are lowered to a `[T; N]` stack
@@ -177,16 +200,29 @@ pub(crate) struct ScratchInfo {
 fn stack_scalar_elem(t: &str) -> bool {
     matches!(
         t,
-        "i64" | "u64" | "i32" | "u32" | "usize" | "isize" | "bool" | "char" | "u8"
-            | "f64" | "f32" | "Word8" | "Word16" | "Word32" | "Word64"
+        "i64"
+            | "u64"
+            | "i32"
+            | "u32"
+            | "usize"
+            | "isize"
+            | "bool"
+            | "char"
+            | "u8"
+            | "f64"
+            | "f32"
+            | "Word8"
+            | "Word16"
+            | "Word32"
+            | "Word64"
+            | "Lanes4Word64"
     )
 }
 
 /// `w` is mentioned anywhere in `e`.
+/// Whether `e` names `w` anywhere, closures and foreign code included.
 fn expr_mentions(e: &Expr, w: Symbol) -> bool {
-    let mut hit = false;
-    visit_idents(e, &mut |s| { if s == w { hit = true; } });
-    hit
+    crate::optimize::expr_touches(e, w)
 }
 
 /// The fill loop's body must be a straight-line build: only `Let`s of non-`w`, non-loop-var locals
@@ -198,7 +234,10 @@ fn scratch_fill_body_ok(lbody: &[Stmt], w: Symbol, loop_var: Symbol) -> bool {
     let mut pushes = 0usize;
     for s in lbody {
         match s {
-            Stmt::Push { collection: Expr::Identifier(c), value } if *c == w => {
+            Stmt::Push {
+                collection: Expr::Identifier(c),
+                value,
+            } if *c == w => {
                 if expr_mentions(value, w) {
                     return false;
                 }
@@ -235,6 +274,8 @@ pub(crate) fn detect_scratch_buffers(
     // nested body; the flat `scratch_buffers` map + `variable_types` registration then reach it wherever
     // its fill loop is codegen'd.
     detect_scratch_in_block(body, de_rc, borrow, interner, &mut out);
+    // A buffer built in place by `from_fn` is not a variable a swap can exchange.
+    crate::optimize::SwapClasses::of(body, interner).exclude(&mut out, interner);
     out
 }
 
@@ -248,14 +289,27 @@ fn detect_scratch_in_block(
 ) {
     use crate::ast::stmt::Pattern;
     for (di, stmt) in body.iter().enumerate() {
-        let Stmt::Let { var, value, mutable: true, .. } = stmt else { continue };
+        let Stmt::Let {
+            var,
+            value,
+            mutable: true,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
         let w = *var;
         if !de_rc.contains(&w) {
             continue;
         }
         let elem_ty = match value {
-            Expr::New { type_name, type_args, init_fields }
-                if interner.resolve(*type_name) == "Seq" && init_fields.is_empty() && type_args.len() == 1 =>
+            Expr::New {
+                type_name,
+                type_args,
+                init_fields,
+            } if interner.resolve(*type_name) == "Seq"
+                && init_fields.is_empty()
+                && type_args.len() == 1 =>
             {
                 super::types::codegen_type_expr(&type_args[0], interner)
             }
@@ -266,9 +320,20 @@ fn detect_scratch_in_block(
         }
         // The first statement after the decl that mentions `w` must be its fill loop; nothing may touch
         // `w` in between (a read of a partially-built buffer would change behavior).
-        let Some(fi) = ((di + 1)..body.len()).find(|&k| mentions_anywhere(&body[k], w)) else { continue };
-        let Stmt::Repeat { pattern: Pattern::Identifier(loop_var), iterable: Expr::Range { start, end }, body: lbody } = &body[fi] else { continue };
-        let (Some(lo), Some(hi)) = (const_eval(start), const_eval(end)) else { continue };
+        let Some(fi) = ((di + 1)..body.len()).find(|&k| mentions_anywhere(&body[k], w)) else {
+            continue;
+        };
+        let Stmt::Repeat {
+            pattern: Pattern::Identifier(loop_var),
+            iterable: Expr::Range { start, end },
+            body: lbody,
+        } = &body[fi]
+        else {
+            continue;
+        };
+        let (Some(lo), Some(hi)) = (const_eval(start), const_eval(end)) else {
+            continue;
+        };
         if hi < lo {
             continue;
         }
@@ -276,20 +341,56 @@ fn detect_scratch_in_block(
         if !scratch_fill_body_ok(lbody, w, *loop_var) {
             continue;
         }
-        // Read-only + non-escaping after the fill (borrow-aware: `&w` into a `&[T]` param is fine, a
-        // return / field-store / re-push / bare alias is not), and actually used (else leave to DCE).
-        if !body[fi + 1..].iter().all(|s| const_table_read_only_stmt(s, w, borrow)) {
+        // After the fill: EITHER read-only + non-escaping (the classic scratch table), OR indexed-
+        // written-only + non-escaping (a fill+mutate fixed-size buffer → `let mut [T; N]`). Both bar a
+        // re-push (would grow it) and any escape (return / field-store / bare alias). Borrow-aware
+        // read-only permits `&w` into a `&[T]` param; the mutated shape reuses the indexed-buffer
+        // non-escape rule (`indexed_buf_ok_stmt`) and requires at least one actual indexed write.
+        let post = &body[fi + 1..];
+        // A trailing `Return w` (the buffer IS the function result) is allowed for the mutated shape:
+        // the stack array carries the hot fill+mutate, and only the return materializes it back to a
+        // `Seq`. Split it off so the escape check ignores it (read-only returns stay the array-return
+        // pass's job — this is strictly the mutated Keccak-permutation pattern).
+        let (scan, returned) = match post.last() {
+            Some(Stmt::Return {
+                value: Some(Expr::Identifier(r)),
+            }) if *r == w => (&post[..post.len() - 1], true),
+            _ => (post, false),
+        };
+        let read_only = !returned
+            && scan
+                .iter()
+                .all(|s| const_table_read_only_stmt(s, w, borrow));
+        let mutated = !read_only
+            && scan.iter().all(|s| indexed_buf_ok_stmt(s, w))
+            && scan.iter().any(|s| has_setindex_to(s, w));
+        if !read_only && !mutated {
             continue;
         }
-        if !body[fi + 1..].iter().any(|s| mentions_anywhere(s, w)) {
+        if returned && !mutated {
             continue;
         }
-        out.insert(w, ScratchInfo { elem_ty, len, lo });
+        if !post.iter().any(|s| mentions_anywhere(s, w)) {
+            continue;
+        }
+        out.insert(
+            w,
+            ScratchInfo {
+                elem_ty,
+                len,
+                lo,
+                mutated,
+            },
+        );
     }
     // Recurse into nested blocks — a scratch buffer may be declared inside a loop / branch (MD5's `w`).
     for stmt in body {
         match stmt {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 detect_scratch_in_block(then_block, de_rc, borrow, interner, out);
                 if let Some(eb) = else_block {
                     detect_scratch_in_block(eb, de_rc, borrow, interner, out);
@@ -338,7 +439,11 @@ fn count_returns(body: &[Stmt]) -> usize {
     for s in body {
         match s {
             Stmt::Return { .. } => n += 1,
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 n += count_returns(then_block);
                 if let Some(eb) = else_block {
                     n += count_returns(eb);
@@ -360,7 +465,12 @@ fn count_returns(body: &[Stmt]) -> usize {
 /// <val> to out` (no `val` referencing `out`), then `Return out` — with `out` a stack scalar, the function's
 /// ONLY return, and never mentioned before its decl — return `(N, rust_elem_ty)`.
 fn fixed_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, String)> {
-    let Some(Stmt::Return { value: Some(Expr::Identifier(out)) }) = body.last() else { return None };
+    let Some(Stmt::Return {
+        value: Some(Expr::Identifier(out)),
+    }) = body.last()
+    else {
+        return None;
+    };
     let out = *out;
     if count_returns(body) != 1 {
         return None;
@@ -368,7 +478,11 @@ fn fixed_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, Str
     let ret_idx = body.len().checked_sub(1)?;
     let mut i = ret_idx;
     while i > 0 {
-        if let Stmt::Push { collection: Expr::Identifier(c), value } = &body[i - 1] {
+        if let Stmt::Push {
+            collection: Expr::Identifier(c),
+            value,
+        } = &body[i - 1]
+        {
             if *c == out && !expr_mentions(value, out) {
                 i -= 1;
                 continue;
@@ -382,11 +496,20 @@ fn fixed_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, Str
     }
     let decl_idx = i.checked_sub(1)?;
     let elem_ty = match &body[decl_idx] {
-        Stmt::Let { var, value: Expr::New { type_name, type_args, init_fields }, mutable: true, .. }
-            if *var == out
-                && interner.resolve(*type_name) == "Seq"
-                && init_fields.is_empty()
-                && type_args.len() == 1 =>
+        Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    type_args,
+                    init_fields,
+                },
+            mutable: true,
+            ..
+        } if *var == out
+            && interner.resolve(*type_name) == "Seq"
+            && init_fields.is_empty()
+            && type_args.len() == 1 =>
         {
             super::types::codegen_type_expr(&type_args[0], interner)
         }
@@ -405,12 +528,27 @@ fn fixed_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, Str
 /// array). `None` if `sym` is not a straight-line-seeded local (e.g. a param — runtime length).
 fn local_seq_len(body: &[Stmt], sym: Symbol) -> Option<usize> {
     for (di, s) in body.iter().enumerate() {
-        if let Stmt::Let { var, value: Expr::New { type_name, init_fields, .. }, mutable: true, .. } = s {
+        if let Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    init_fields,
+                    ..
+                },
+            mutable: true,
+            ..
+        } = s
+        {
             if *var == sym && init_fields.is_empty() {
                 let _ = type_name;
                 let mut k = di + 1;
                 let mut n = 0usize;
-                while let Some(Stmt::Push { collection: Expr::Identifier(c), .. }) = body.get(k) {
+                while let Some(Stmt::Push {
+                    collection: Expr::Identifier(c),
+                    ..
+                }) = body.get(k)
+                {
                     if *c == sym {
                         n += 1;
                         k += 1;
@@ -431,20 +569,33 @@ fn local_seq_len(body: &[Stmt], sym: Symbol) -> Option<usize> {
 /// (`for word in h: push 4 bytes; return out`). Returns `(N, elem_ty)`.
 fn loop_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, String)> {
     use crate::ast::stmt::Pattern;
-    let Some(Stmt::Return { value: Some(Expr::Identifier(out)) }) = body.last() else { return None };
+    let Some(Stmt::Return {
+        value: Some(Expr::Identifier(out)),
+    }) = body.last()
+    else {
+        return None;
+    };
     let out = *out;
     if count_returns(body) != 1 {
         return None;
     }
     let ret_idx = body.len().checked_sub(1)?;
     let loop_idx = ret_idx.checked_sub(1)?;
-    let Stmt::Repeat { pattern: Pattern::Identifier(_), iterable: Expr::Identifier(coll), body: lbody } = &body[loop_idx] else {
+    let Stmt::Repeat {
+        pattern: Pattern::Identifier(_),
+        iterable: Expr::Identifier(coll),
+        body: lbody,
+    } = &body[loop_idx]
+    else {
         return None;
     };
     let mut k = 0usize;
     for s in lbody.iter() {
         match s {
-            Stmt::Push { collection: Expr::Identifier(c), value } if *c == out => {
+            Stmt::Push {
+                collection: Expr::Identifier(c),
+                value,
+            } if *c == out => {
                 if expr_mentions(value, out) {
                     return None;
                 }
@@ -462,11 +613,20 @@ fn loop_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, Stri
     }
     let decl_idx = loop_idx.checked_sub(1)?;
     let elem_ty = match &body[decl_idx] {
-        Stmt::Let { var, value: Expr::New { type_name, type_args, init_fields }, mutable: true, .. }
-            if *var == out
-                && interner.resolve(*type_name) == "Seq"
-                && init_fields.is_empty()
-                && type_args.len() == 1 =>
+        Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    type_args,
+                    init_fields,
+                },
+            mutable: true,
+            ..
+        } if *var == out
+            && interner.resolve(*type_name) == "Seq"
+            && init_fields.is_empty()
+            && type_args.len() == 1 =>
         {
             super::types::codegen_type_expr(&type_args[0], interner)
         }
@@ -487,13 +647,21 @@ fn loop_return_buffer(body: &[Stmt], interner: &Interner) -> Option<(usize, Stri
 fn count_pushes_to(scope: &[Stmt], x: Symbol) -> usize {
     let mut n = 0;
     for s in scope {
-        if let Stmt::Push { collection: Expr::Identifier(c), .. } = s {
+        if let Stmt::Push {
+            collection: Expr::Identifier(c),
+            ..
+        } = s
+        {
             if *c == x {
                 n += 1;
             }
         }
         match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 n += count_pushes_to(then_block, x);
                 if let Some(eb) = else_block {
                     n += count_pushes_to(eb, x);
@@ -525,18 +693,31 @@ fn caller_seed(
     // `x` may be declared at this block's top level OR nested (e.g. `Let d be f(...)` inside a hot loop),
     // so search this block then recurse. The declaration is unique, so the first `Let var==x` is `x`'s.
     for (di, s) in scope.iter().enumerate() {
-        let Stmt::Let { var, value, .. } = s else { continue };
+        let Stmt::Let { var, value, .. } = s else {
+            continue;
+        };
         if *var != x {
             continue;
         }
         return match value {
-            Expr::Call { function, .. } if cand.get(function).map_or(false, |i| i.len == n) => Some((0, false)),
-            Expr::New { type_name, type_args, init_fields }
-                if interner.resolve(*type_name) == "Seq" && init_fields.is_empty() && type_args.len() == 1 =>
+            Expr::Call { function, .. } if cand.get(function).map_or(false, |i| i.len == n) => {
+                Some((0, false))
+            }
+            Expr::New {
+                type_name,
+                type_args,
+                init_fields,
+            } if interner.resolve(*type_name) == "Seq"
+                && init_fields.is_empty()
+                && type_args.len() == 1 =>
             {
                 let mut sc = 0;
                 let mut k = di + 1;
-                while let Some(Stmt::Push { collection: Expr::Identifier(c), .. }) = scope.get(k) {
+                while let Some(Stmt::Push {
+                    collection: Expr::Identifier(c),
+                    ..
+                }) = scope.get(k)
+                {
                     if *c == x {
                         sc += 1;
                         k += 1;
@@ -551,10 +732,21 @@ fn caller_seed(
     }
     for s in scope {
         let r = match s {
-            Stmt::If { then_block, else_block, .. } => caller_seed(then_block, x, n, cand, interner)
-                .or_else(|| else_block.as_ref().and_then(|eb| caller_seed(eb, x, n, cand, interner))),
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => caller_seed(body, x, n, cand, interner),
-            Stmt::Inspect { arms, .. } => arms.iter().find_map(|a| caller_seed(a.body, x, n, cand, interner)),
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => caller_seed(then_block, x, n, cand, interner).or_else(|| {
+                else_block
+                    .as_ref()
+                    .and_then(|eb| caller_seed(eb, x, n, cand, interner))
+            }),
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                caller_seed(body, x, n, cand, interner)
+            }
+            Stmt::Inspect { arms, .. } => arms
+                .iter()
+                .find_map(|a| caller_seed(a.body, x, n, cand, interner)),
             _ => None,
         };
         if r.is_some() {
@@ -579,33 +771,61 @@ fn array_var_stmt_ok(
         Stmt::FunctionDef { .. } => true,
         Stmt::Set { target, value } if *target == x => match value {
             Expr::Call { function, args } => {
-                cand.get(function).map_or(false, |i| i.len == n) && call_args_ok(*function, args, x, borrow)
+                cand.get(function).map_or(false, |i| i.len == n)
+                    && call_args_ok(*function, args, x, borrow)
             }
             _ => false,
         },
         Stmt::Set { value, .. } => cok(value, x, borrow),
-        Stmt::Let { var, value, .. } if *var == x => matches!(value, Expr::New { .. })
-            || matches!(value, Expr::Call { function, .. } if cand.get(function).map_or(false, |i| i.len == n)),
+        Stmt::Let { var, value, .. } if *var == x => {
+            matches!(value, Expr::New { .. })
+                || matches!(value, Expr::Call { function, .. } if cand.get(function).map_or(false, |i| i.len == n))
+        }
         Stmt::Let { value, .. } => cok(value, x, borrow),
-        Stmt::Push { collection: Expr::Identifier(c), value } if *c == x => !expr_mentions(value, x),
-        Stmt::Push { collection, value } => !names_collection(collection, x) && cok(value, x, borrow),
+        Stmt::Push {
+            collection: Expr::Identifier(c),
+            value,
+        } if *c == x => !expr_mentions(value, x),
+        Stmt::Push { collection, value } => {
+            !names_collection(collection, x) && cok(value, x, borrow)
+        }
         Stmt::Repeat { iterable, body, .. } => {
             (matches!(iterable, Expr::Identifier(s) if *s == x) || cok(iterable, x, borrow))
-                && body.iter().all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
+                && body
+                    .iter()
+                    .all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
         }
         Stmt::While { cond, body, .. } => {
-            cok(cond, x, borrow) && body.iter().all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
-        }
-        Stmt::If { cond, then_block, else_block } => {
             cok(cond, x, borrow)
-                && then_block.iter().all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
-                && else_block.as_ref().map_or(true, |eb| eb.iter().all(|b| array_var_stmt_ok(b, x, n, cand, borrow)))
+                && body
+                    .iter()
+                    .all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            cok(cond, x, borrow)
+                && then_block
+                    .iter()
+                    .all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
+                && else_block.as_ref().map_or(true, |eb| {
+                    eb.iter().all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
+                })
         }
         Stmt::Inspect { target, arms, .. } => {
-            cok(target, x, borrow) && arms.iter().all(|a| a.body.iter().all(|b| array_var_stmt_ok(b, x, n, cand, borrow)))
+            cok(target, x, borrow)
+                && arms.iter().all(|a| {
+                    a.body
+                        .iter()
+                        .all(|b| array_var_stmt_ok(b, x, n, cand, borrow))
+                })
         }
         Stmt::Return { value: Some(v) } => cok(v, x, borrow),
-        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => cok(object, x, borrow) && cok(recipient, x, borrow),
+        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => {
+            cok(object, x, borrow) && cok(recipient, x, borrow)
+        }
         Stmt::Call { function, args } => call_args_ok(*function, args, x, borrow),
         Stmt::RuntimeAssert { condition, .. } => cok(condition, x, borrow),
         _ => !mentions_anywhere(s, x),
@@ -623,19 +843,27 @@ fn array_var_ok(
     borrow: &HashMap<Symbol, HashSet<usize>>,
     interner: &Interner,
 ) -> bool {
-    let Some((seed_count, is_seq_seed)) = caller_seed(scope, x, n, cand, interner) else { return false };
+    let Some((seed_count, is_seq_seed)) = caller_seed(scope, x, n, cand, interner) else {
+        return false;
+    };
     if is_seq_seed && seed_count != n {
         return false;
     }
     if count_pushes_to(scope, x) != seed_count {
         return false;
     }
-    scope.iter().all(|s| array_var_stmt_ok(s, x, n, cand, borrow))
+    scope
+        .iter()
+        .all(|s| array_var_stmt_ok(s, x, n, cand, borrow))
 }
 
 /// Collect every `(x, f)` where a `Let/Set x to f(args)` in this scope binds a candidate array-return fn
 /// `f` (nested blocks yes, nested function bodies NO — each function scope is analyzed separately).
-fn collect_array_bindings(scope: &[Stmt], cand: &HashMap<Symbol, ArrayReturnInfo>, out: &mut Vec<(Symbol, Symbol)>) {
+fn collect_array_bindings(
+    scope: &[Stmt],
+    cand: &HashMap<Symbol, ArrayReturnInfo>,
+    out: &mut Vec<(Symbol, Symbol)>,
+) {
     for s in scope {
         let binding = match s {
             Stmt::Let { var, value, .. } => Some((*var, value)),
@@ -648,13 +876,19 @@ fn collect_array_bindings(scope: &[Stmt], cand: &HashMap<Symbol, ArrayReturnInfo
             }
         }
         match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_array_bindings(then_block, cand, out);
                 if let Some(eb) = else_block {
                     collect_array_bindings(eb, cand, out);
                 }
             }
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => collect_array_bindings(body, cand, out),
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                collect_array_bindings(body, cand, out)
+            }
             Stmt::Inspect { arms, .. } => {
                 for arm in arms {
                     collect_array_bindings(arm.body, cand, out);
@@ -668,9 +902,13 @@ fn collect_array_bindings(scope: &[Stmt], cand: &HashMap<Symbol, ArrayReturnInfo
 /// Flag (for removal) any candidate array-return fn used in a NON-binding (inline) position — its result
 /// would be a `[T; N]` where a `LogosSeq` is expected. The single safe consuming position is a top-level
 /// `Let/Set x to f(...)` binding (its ARGS are still inline positions).
-fn flag_inline_array_calls(stmts: &[Stmt], cand: &HashMap<Symbol, ArrayReturnInfo>, remove: &mut HashSet<Symbol>) {
-    // `symbol_appears_in_expr` visits CALLEE symbols (`f(...)`), which `expr_mentions`/`visit_idents` do
-    // not — so an inline call like `splatAll(md5Constants())` correctly disqualifies `md5Constants`.
+fn flag_inline_array_calls(
+    stmts: &[Stmt],
+    cand: &HashMap<Symbol, ArrayReturnInfo>,
+    remove: &mut HashSet<Symbol>,
+) {
+    // `symbol_appears_in_expr` counts a CALLEE's name (`f(...)`) as a mention, so an inline call like
+    // `splatAll(md5Constants())` disqualifies `md5Constants`.
     let flag_expr = |e: &Expr, remove: &mut HashSet<Symbol>| {
         for f in cand.keys() {
             if super::detection::symbol_appears_in_expr(*f, e) {
@@ -689,7 +927,11 @@ fn flag_inline_array_calls(stmts: &[Stmt], cand: &HashMap<Symbol, ArrayReturnInf
                     flag_expr(value, remove);
                 }
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 flag_expr(cond, remove);
                 flag_inline_array_calls(then_block, cand, remove);
                 if let Some(eb) = else_block {
@@ -730,12 +972,33 @@ pub(crate) fn collect_array_return_fns(
         return cand;
     }
     for s in stmts {
-        if let Stmt::FunctionDef { name, body, return_type: Some(rt), is_native: false, .. } = s {
+        if let Stmt::FunctionDef {
+            name,
+            body,
+            return_type: Some(rt),
+            is_native: false,
+            ..
+        } = s
+        {
             if super::detection::is_vec_type_expr(rt, interner) {
                 if let Some((len, elem_ty)) = fixed_return_buffer(body, interner) {
-                    cand.insert(*name, ArrayReturnInfo { len, elem_ty, loop_built: false });
+                    cand.insert(
+                        *name,
+                        ArrayReturnInfo {
+                            len,
+                            elem_ty,
+                            loop_built: false,
+                        },
+                    );
                 } else if let Some((len, elem_ty)) = loop_return_buffer(body, interner) {
-                    cand.insert(*name, ArrayReturnInfo { len, elem_ty, loop_built: true });
+                    cand.insert(
+                        *name,
+                        ArrayReturnInfo {
+                            len,
+                            elem_ty,
+                            loop_built: true,
+                        },
+                    );
                 }
             }
         }
@@ -791,7 +1054,10 @@ pub(crate) fn array_var_types(
 ) -> Vec<(Symbol, String)> {
     let mut out = Vec::new();
     if let Some(info) = this_fn_return {
-        if let Some(Stmt::Return { value: Some(Expr::Identifier(buf)) }) = body.last() {
+        if let Some(Stmt::Return {
+            value: Some(Expr::Identifier(buf)),
+        }) = body.last()
+        {
             out.push((*buf, format!("[{}; {}]", info.elem_ty, info.len)));
         }
     }
@@ -832,13 +1098,26 @@ fn is_zero_init_loop(body: &[Stmt], v: Symbol) -> bool {
 /// Any `Set item _ of v to _` (indexed write) in `s`, including nested blocks.
 fn has_setindex_to(s: &Stmt, v: Symbol) -> bool {
     match s {
-        Stmt::SetIndex { collection: Expr::Identifier(c), .. } => *c == v,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::SetIndex {
+            collection: Expr::Identifier(c),
+            ..
+        } => *c == v,
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             then_block.iter().any(|x| has_setindex_to(x, v))
-                || else_block.as_ref().map_or(false, |eb| eb.iter().any(|x| has_setindex_to(x, v)))
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| eb.iter().any(|x| has_setindex_to(x, v)))
         }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => body.iter().any(|x| has_setindex_to(x, v)),
-        Stmt::Inspect { arms, .. } => arms.iter().any(|a| a.body.iter().any(|x| has_setindex_to(x, v))),
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+            body.iter().any(|x| has_setindex_to(x, v))
+        }
+        Stmt::Inspect { arms, .. } => arms
+            .iter()
+            .any(|a| a.body.iter().any(|x| has_setindex_to(x, v))),
         _ => false,
     }
 }
@@ -848,29 +1127,54 @@ fn has_setindex_to(s: &Stmt, v: Symbol) -> bool {
 /// `read_only_stmt` but permits the buffer's own indexed store.
 fn indexed_buf_ok_stmt(s: &Stmt, v: Symbol) -> bool {
     match s {
-        Stmt::SetIndex { collection: Expr::Identifier(c), index, value } if *c == v => {
-            ok_read_only(index, v) && ok_read_only(value, v)
+        Stmt::SetIndex {
+            collection: Expr::Identifier(c),
+            index,
+            value,
+        } if *c == v => ok_read_only(index, v) && ok_read_only(value, v),
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => !names_collection(collection, v) && ok_read_only(index, v) && ok_read_only(value, v),
+        Stmt::Push { collection, value } => {
+            !names_collection(collection, v) && ok_read_only(value, v)
         }
-        Stmt::SetIndex { collection, index, value } => {
-            !names_collection(collection, v) && ok_read_only(index, v) && ok_read_only(value, v)
-        }
-        Stmt::Push { collection, value } => !names_collection(collection, v) && ok_read_only(value, v),
-        Stmt::Pop { collection, .. } | Stmt::Remove { collection, .. } | Stmt::Add { collection, .. } => !names_collection(collection, v),
+        Stmt::Pop { collection, .. }
+        | Stmt::Remove { collection, .. }
+        | Stmt::Add { collection, .. } => !names_collection(collection, v),
         Stmt::Let { var, value, .. } => *var != v && ok_read_only(value, v),
         Stmt::Set { target, value } => *target != v && ok_read_only(value, v),
         Stmt::SetField { object, value, .. } => ok_read_only(object, v) && ok_read_only(value, v),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             ok_read_only(cond, v)
                 && then_block.iter().all(|x| indexed_buf_ok_stmt(x, v))
-                && else_block.as_ref().map_or(true, |eb| eb.iter().all(|x| indexed_buf_ok_stmt(x, v)))
+                && else_block
+                    .as_ref()
+                    .map_or(true, |eb| eb.iter().all(|x| indexed_buf_ok_stmt(x, v)))
         }
-        Stmt::While { cond, body, .. } => ok_read_only(cond, v) && body.iter().all(|x| indexed_buf_ok_stmt(x, v)),
+        Stmt::While { cond, body, .. } => {
+            ok_read_only(cond, v) && body.iter().all(|x| indexed_buf_ok_stmt(x, v))
+        }
         Stmt::Repeat { body, .. } => body.iter().all(|x| indexed_buf_ok_stmt(x, v)),
         Stmt::Return { value: Some(x) } => ok_read_only(x, v),
-        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => ok_read_only(object, v) && ok_read_only(recipient, v),
+        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => {
+            ok_read_only(object, v) && ok_read_only(recipient, v)
+        }
         Stmt::Call { args, .. } => args.iter().all(|x| ok_read_only(x, v)),
         Stmt::RuntimeAssert { condition, .. } => ok_read_only(condition, v),
-        Stmt::Inspect { target, .. } => ok_read_only(target, v),
+        Stmt::Inspect { target, arms, .. } => {
+            ok_read_only(target, v)
+                && arms
+                    .iter()
+                    .all(|arm| arm.body.iter().all(|x| indexed_buf_ok_stmt(x, v)))
+        }
+        // A swap exchanges the buffer whole; each detection closes its claims under `SwapClasses`.
+        Stmt::Swap { .. } => true,
         _ => !mentions_anywhere(s, v),
     }
 }
@@ -889,6 +1193,10 @@ pub(crate) fn detect_indexed_buffers(
         return out;
     }
     detect_indexed_in_block(body, de_rc, interner, &mut out);
+    // Swapped buffers stay `[T; N]` only as the same `[T; N]`.
+    crate::optimize::SwapClasses::of(body, interner).close_by(&mut out, interner, |x, y| {
+        x.elem_ty == y.elem_ty && x.len == y.len
+    });
     out
 }
 
@@ -900,7 +1208,18 @@ fn detect_indexed_in_block(
 ) {
     use crate::ast::stmt::Pattern;
     for (di, stmt) in block.iter().enumerate() {
-        if let Stmt::Let { var, value: Expr::New { type_name, type_args, init_fields }, mutable: true, .. } = stmt {
+        if let Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    type_args,
+                    init_fields,
+                },
+            mutable: true,
+            ..
+        } = stmt
+        {
             let v = *var;
             if de_rc.contains(&v)
                 && interner.resolve(*type_name) == "Seq"
@@ -909,7 +1228,12 @@ fn detect_indexed_in_block(
             {
                 let elem_ty = super::types::codegen_type_expr(&type_args[0], interner);
                 if stack_scalar_elem(&elem_ty) {
-                    if let Some(Stmt::Repeat { pattern: Pattern::Identifier(_), iterable: Expr::Range { start, end }, body: init_body }) = block.get(di + 1) {
+                    if let Some(Stmt::Repeat {
+                        pattern: Pattern::Identifier(_),
+                        iterable: Expr::Range { start, end },
+                        body: init_body,
+                    }) = block.get(di + 1)
+                    {
                         if let (Some(lo), Some(hi)) = (const_eval(start), const_eval(end)) {
                             let rest = &block[di + 2..];
                             if hi >= lo
@@ -918,7 +1242,13 @@ fn detect_indexed_in_block(
                                 && rest.iter().all(|s| indexed_buf_ok_stmt(s, v))
                                 && rest.iter().any(|s| has_setindex_to(s, v))
                             {
-                                out.insert(v, IndexedBufInfo { elem_ty, len: (hi - lo + 1) as usize });
+                                out.insert(
+                                    v,
+                                    IndexedBufInfo {
+                                        elem_ty,
+                                        len: (hi - lo + 1) as usize,
+                                    },
+                                );
                             }
                         }
                     }
@@ -926,13 +1256,19 @@ fn detect_indexed_in_block(
             }
         }
         match stmt {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 detect_indexed_in_block(then_block, de_rc, interner, out);
                 if let Some(eb) = else_block {
                     detect_indexed_in_block(eb, de_rc, interner, out);
                 }
             }
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => detect_indexed_in_block(body, de_rc, interner, out),
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                detect_indexed_in_block(body, de_rc, interner, out)
+            }
             Stmt::Inspect { arms, .. } => {
                 for arm in arms {
                     detect_indexed_in_block(arm.body, de_rc, interner, out);
@@ -975,6 +1311,8 @@ pub(crate) fn detect_straightline_buffers(
         return out;
     }
     detect_sl_in_block(body, de_rc, borrow, interner, &mut out);
+    // Swapped buffers stay `[T; K]` only as the same `[T; K]`.
+    crate::optimize::SwapClasses::of(body, interner).close(&mut out, interner);
     out
 }
 
@@ -986,7 +1324,18 @@ fn detect_sl_in_block(
     out: &mut HashMap<Symbol, (String, usize)>,
 ) {
     for (di, stmt) in block.iter().enumerate() {
-        if let Stmt::Let { var, value: Expr::New { type_name, type_args, init_fields }, mutable: true, .. } = stmt {
+        if let Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    type_args,
+                    init_fields,
+                },
+            mutable: true,
+            ..
+        } = stmt
+        {
             let v = *var;
             if de_rc.contains(&v)
                 && interner.resolve(*type_name) == "Seq"
@@ -997,7 +1346,11 @@ fn detect_sl_in_block(
                 if stack_scalar_elem(&elem_ty) {
                     let mut k = di + 1;
                     let mut n = 0usize;
-                    while let Some(Stmt::Push { collection: Expr::Identifier(c), value }) = block.get(k) {
+                    while let Some(Stmt::Push {
+                        collection: Expr::Identifier(c),
+                        value,
+                    }) = block.get(k)
+                    {
                         if *c == v && !expr_mentions(value, v) {
                             n += 1;
                             k += 1;
@@ -1008,7 +1361,9 @@ fn detect_sl_in_block(
                     let rest = &block[k..];
                     if n > 0
                         && !block[..di].iter().any(|s| mentions_anywhere(s, v))
-                        && rest.iter().all(|s| const_table_read_only_stmt(s, v, borrow))
+                        && rest
+                            .iter()
+                            .all(|s| const_table_read_only_stmt(s, v, borrow))
                         && rest.iter().any(|s| mentions_anywhere(s, v))
                     {
                         out.insert(v, (elem_ty, n));
@@ -1017,13 +1372,19 @@ fn detect_sl_in_block(
             }
         }
         match stmt {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 detect_sl_in_block(then_block, de_rc, borrow, interner, out);
                 if let Some(eb) = else_block {
                     detect_sl_in_block(eb, de_rc, borrow, interner, out);
                 }
             }
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => detect_sl_in_block(body, de_rc, borrow, interner, out),
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                detect_sl_in_block(body, de_rc, borrow, interner, out)
+            }
             Stmt::Inspect { arms, .. } => {
                 for arm in arms {
                     detect_sl_in_block(arm.body, de_rc, borrow, interner, out);
@@ -1034,31 +1395,475 @@ fn detect_sl_in_block(
     }
 }
 
+// =============================================================================
+// Cursor-filled fixed-size buffer scalarization (self-referential / multi-phase)
+// =============================================================================
+//
+// The general push-built buffer that `detect_straightline_buffers` cannot reach:
+// its fill spans one or more LOOPS (a `for _ in <const Range>` compute loop, a
+// `for _ in <fixed-size collection>` copy loop, and/or straight-line pushes) whose
+// pushed value MAY read the buffer itself. sha256's message schedule —
+// `for x in m: push x` then `for t in 16..63: push σ1(w[t-2]) + w[t-7] + …` — is
+// the archetype: 64 push-grown-`Vec` slots reallocated per block. Emitted as a
+// zero-init stack array `[T; N]` plus a fill cursor, with each `Push x` lowered to
+// `V[__cur] = x; __cur += 1`. The cursor is what makes SELF-READS sound: a read of
+// `V[j]` (j < cur) sees an already-filled slot, exactly as the `Vec` did — unlike
+// `ScratchInfo`'s `from_fn`, which evaluates slots independently. `N` is the
+// compile-time sum of the phases' push counts (literal = 1, `Range lo..=hi` =
+// hi-lo+1, `for _ in coll` = the fixed length of `coll`).
+#[derive(Clone, Debug)]
+pub(crate) struct SeqFillInfo {
+    pub elem_ty: String,
+    /// Compile-time total element count = sum of every phase's push count.
+    pub len: usize,
+}
+
+fn fixed_seq_candidates(body: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
+    let mut out = HashSet::new();
+    logicaffeine_language::ast_depth::for_each_node(body, |node| {
+        if let logicaffeine_language::ast_depth::Visited::Stmt(Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    init_fields,
+                    ..
+                },
+            mutable: true,
+            ..
+        }) = node
+        {
+            if interner.resolve(*type_name) == "Seq" && init_fields.is_empty() {
+                out.insert(*var);
+            }
+        }
+    });
+    out
+}
+
+fn fixed_array_len(ty: &str) -> Option<usize> {
+    ty.strip_prefix('[')
+        .and_then(|s| s.rsplit_once("; "))
+        .and_then(|(_, n)| n.strip_suffix(']'))
+        .and_then(|n| n.parse().ok())
+}
+
+/// The single fixed-sequence proof shared by every backend. It recognizes
+/// non-escaping straight-line and cursor-filled `Seq` builders, carries exact
+/// lengths through read-only call parameters, and returns each proven source
+/// binding's capacity. Backends choose their representation from this one plan;
+/// they must not independently rediscover a smaller subset.
+pub(crate) fn fixed_stack_seq_plan(
+    stmts: &[Stmt],
+    borrow: &HashMap<Symbol, HashSet<usize>>,
+    interner: &Interner,
+) -> HashMap<(Option<Symbol>, Symbol), usize> {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize) {
+        return HashMap::new();
+    }
+    let array_returns = collect_array_return_fns(stmts, borrow, interner);
+
+    let mut scope_sizes: Vec<(Option<Symbol>, HashMap<Symbol, usize>)> = Vec::new();
+    let initial_sizes = |body: &[Stmt], this_ret: Option<&ArrayReturnInfo>| {
+        let candidates = fixed_seq_candidates(body, interner);
+        let straight = detect_straightline_buffers(body, &candidates, borrow, interner);
+        let mut sizes: HashMap<Symbol, usize> = straight
+            .into_iter()
+            .map(|(symbol, (_, len))| (symbol, len))
+            .collect();
+        for (symbol, ty) in array_var_types(body, this_ret, &array_returns) {
+            if let Some(len) = fixed_array_len(&ty) {
+                sizes.insert(symbol, len);
+            }
+        }
+        sizes
+    };
+
+    scope_sizes.push((None, initial_sizes(stmts, None)));
+    for stmt in stmts {
+        if let Stmt::FunctionDef {
+            name,
+            body,
+            is_native: false,
+            ..
+        } = stmt
+        {
+            scope_sizes.push((Some(*name), initial_sizes(body, array_returns.get(name))));
+        }
+    }
+
+    let mut param_sizes: HashMap<(Symbol, usize), Option<usize>> = HashMap::new();
+    for (scope_fn, sizes) in &scope_sizes {
+        let body = match scope_fn {
+            None => stmts,
+            Some(function) => stmts
+                .iter()
+                .find_map(|stmt| match stmt {
+                    Stmt::FunctionDef { name, body, .. } if name == function => Some(*body),
+                    _ => None,
+                })
+                .unwrap_or(&[]),
+        };
+        logicaffeine_language::ast_depth::for_each_node(body, |node| {
+            let logicaffeine_language::ast_depth::Visited::Expr(Expr::Call { function, args }) =
+                node
+            else {
+                return;
+            };
+            let Some(readonly) = borrow.get(function) else {
+                return;
+            };
+            for (index, arg) in args.iter().enumerate() {
+                if !readonly.contains(&index) {
+                    continue;
+                }
+                let observed = match arg {
+                    Expr::Identifier(symbol) => sizes.get(symbol).copied(),
+                    _ => None,
+                };
+                param_sizes
+                    .entry((*function, index))
+                    .and_modify(|old| {
+                        if *old != observed {
+                            *old = None;
+                        }
+                    })
+                    .or_insert(observed);
+            }
+        });
+    }
+
+    let mut plan = HashMap::new();
+    for (scope_fn, mut sizes) in scope_sizes {
+        let (body, params): (&[Stmt], &[(Symbol, &crate::ast::stmt::TypeExpr)]) = match scope_fn {
+            None => (stmts, &[]),
+            Some(function) => stmts
+                .iter()
+                .find_map(|stmt| match stmt {
+                    Stmt::FunctionDef {
+                        name, body, params, ..
+                    } if *name == function => Some((*body, params.as_slice())),
+                    _ => None,
+                })
+                .unwrap_or((&[], &[])),
+        };
+        let mut fixed_params = HashMap::new();
+        if let Some(function) = scope_fn {
+            for (index, (param, _)) in params.iter().enumerate() {
+                if let Some(Some(len)) = param_sizes.get(&(function, index)) {
+                    fixed_params.insert(*param, *len);
+                }
+            }
+        }
+        let candidates = fixed_seq_candidates(body, interner);
+        let fills = detect_seq_fill_buffers(
+            body,
+            &candidates,
+            borrow,
+            &|symbol| {
+                sizes
+                    .get(&symbol)
+                    .copied()
+                    .or_else(|| fixed_params.get(&symbol).copied())
+            },
+            interner,
+        );
+        for (symbol, info) in &fills {
+            sizes.insert(*symbol, info.len);
+        }
+        plan.extend(
+            detect_straightline_buffers(body, &candidates, borrow, interner)
+                .into_iter()
+                .map(|(symbol, (_, len))| ((scope_fn, symbol), len)),
+        );
+        plan.extend(
+            fills
+                .into_iter()
+                .map(|(symbol, info)| ((scope_fn, symbol), info.len)),
+        );
+    }
+    if !plan.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
+    }
+    plan
+}
+
+/// A build-phase's push count, or `None` if `s` is not a sound, statically-counted
+/// push phase to `v`. A bare `Push` counts 1; a `Repeat` over a constant `Range`
+/// or a fixed-size collection whose body pushes `v` EXACTLY once counts its trip.
+/// The pushed value (and the loop body) MAY read `v` — that is the whole point.
+fn seq_fill_phase_count(
+    s: &Stmt,
+    v: Symbol,
+    fixed_len: &dyn Fn(Symbol) -> Option<usize>,
+) -> Option<usize> {
+    use crate::ast::stmt::Pattern;
+    match s {
+        Stmt::Push {
+            collection: Expr::Identifier(c),
+            ..
+        } if *c == v => Some(1),
+        Stmt::Repeat {
+            pattern: Pattern::Identifier(lv),
+            iterable,
+            body,
+        } if *lv != v => {
+            let trip = match iterable {
+                Expr::Range { start, end } => {
+                    let (lo, hi) = (const_eval(start)?, const_eval(end)?);
+                    if hi < lo {
+                        return None;
+                    }
+                    (hi - lo + 1) as usize
+                }
+                Expr::Identifier(coll) if *coll != v => fixed_len(*coll)?,
+                _ => return None,
+            };
+            seq_fill_loop_body_ok(body, v, *lv).then_some(trip)
+        }
+        _ => None,
+    }
+}
+
+/// The fill loop's body pushes `v` EXACTLY once at top level and writes it no other
+/// way (no `Set`/`SetIndex`/`Pop`/`Remove`/rebind, no conditional or nested push —
+/// any of which would change the element count or order). Reads of `v` (the
+/// self-reference) and non-`v` intermediate `Let`s are allowed.
+fn seq_fill_loop_body_ok(lbody: &[Stmt], v: Symbol, loop_var: Symbol) -> bool {
+    let mut pushes = 0usize;
+    for s in lbody {
+        match s {
+            Stmt::Push {
+                collection: Expr::Identifier(c),
+                ..
+            } if *c == v => pushes += 1,
+            Stmt::Let { var, .. } if *var == v || *var == loop_var => return false,
+            _ => {
+                if seq_writes_var(s, v) {
+                    return false;
+                }
+            }
+        }
+    }
+    pushes == 1
+}
+
+/// `s` (or a nested block) writes the sequence `v` in ANY way — pushes, indexed
+/// store, pop/remove/add, scalar rebind, or re-`Let`. Reads do not count.
+fn seq_writes_var(s: &Stmt, v: Symbol) -> bool {
+    match s {
+        Stmt::Push { collection, .. }
+        | Stmt::Pop { collection, .. }
+        | Stmt::Remove { collection, .. }
+        | Stmt::Add { collection, .. } => names_collection(collection, v),
+        Stmt::SetIndex { collection, .. } => names_collection(collection, v),
+        Stmt::Set { target, .. } => *target == v,
+        Stmt::Let { var, .. } => *var == v,
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            then_block.iter().any(|x| seq_writes_var(x, v))
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| eb.iter().any(|x| seq_writes_var(x, v)))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+            body.iter().any(|x| seq_writes_var(x, v))
+        }
+        Stmt::Inspect { arms, .. } => arms
+            .iter()
+            .any(|a| a.body.iter().any(|x| seq_writes_var(x, v))),
+        _ => false,
+    }
+}
+
+/// `v` escapes the function through a `return` (as the value or inside it). Such a
+/// buffer belongs to the array-RETURN scalarizer (which also drives a fill cursor);
+/// this LOCAL pass must leave it alone or the two collide on the same symbol.
+fn seq_escapes_via_return(stmts: &[Stmt], v: Symbol) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Return { value: Some(e) } => expr_mentions(e, v),
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            seq_escapes_via_return(then_block, v)
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| seq_escapes_via_return(eb, v))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => seq_escapes_via_return(body, v),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|a| seq_escapes_via_return(a.body, v)),
+        _ => false,
+    })
+}
+
+/// Recognize cursor-filled fixed-size buffers, at any nesting. `fixed_len` resolves
+/// the constant length of a `for _ in <collection>` iterable (a fixed-array param
+/// or another already-recognized fixed buffer) so a COPY phase can be counted.
+pub(crate) fn detect_seq_fill_buffers(
+    body: &[Stmt],
+    de_rc: &HashSet<Symbol>,
+    borrow: &HashMap<Symbol, HashSet<usize>>,
+    fixed_len: &dyn Fn(Symbol) -> Option<usize>,
+    interner: &Interner,
+) -> HashMap<Symbol, SeqFillInfo> {
+    let mut out = HashMap::new();
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize) {
+        return out;
+    }
+    detect_seq_fill_in_block(body, de_rc, borrow, fixed_len, interner, &mut out);
+    // A buffer filled through its own cursor is not a variable a swap can exchange.
+    crate::optimize::SwapClasses::of(body, interner).exclude(&mut out, interner);
+    out
+}
+
+fn detect_seq_fill_in_block(
+    block: &[Stmt],
+    de_rc: &HashSet<Symbol>,
+    borrow: &HashMap<Symbol, HashSet<usize>>,
+    fixed_len: &dyn Fn(Symbol) -> Option<usize>,
+    interner: &Interner,
+    out: &mut HashMap<Symbol, SeqFillInfo>,
+) {
+    for (di, stmt) in block.iter().enumerate() {
+        if let Stmt::Let {
+            var,
+            value:
+                Expr::New {
+                    type_name,
+                    type_args,
+                    init_fields,
+                },
+            mutable: true,
+            ..
+        } = stmt
+        {
+            let v = *var;
+            if de_rc.contains(&v)
+                && interner.resolve(*type_name) == "Seq"
+                && init_fields.is_empty()
+                && type_args.len() == 1
+            {
+                let elem_ty = super::types::codegen_type_expr(&type_args[0], interner);
+                if stack_scalar_elem(&elem_ty)
+                    && !block[..di].iter().any(|s| mentions_anywhere(s, v))
+                {
+                    // Consume the maximal run of statically-counted push phases.
+                    let mut k = di + 1;
+                    let mut n = 0usize;
+                    while let Some(c) = block
+                        .get(k)
+                        .and_then(|s| seq_fill_phase_count(s, v, fixed_len))
+                    {
+                        match n.checked_add(c) {
+                            Some(sum) => {
+                                n = sum;
+                                k += 1;
+                            }
+                            None => break,
+                        }
+                    }
+                    // Only worth it when ≥1 phase is a loop or ≥2 straight-line (a
+                    // single straight-line push is `detect_straightline_buffers`).
+                    let has_loop = ((di + 1)..k).any(|i| matches!(block[i], Stmt::Repeat { .. }));
+                    let rest = &block[k..];
+                    if n >= 1
+                        && (has_loop || (k - di - 1) >= 2)
+                        // Post-build: read-only or its own indexed store, never grown
+                        // (no push), never escaping — `indexed_buf_ok_stmt` bars a push.
+                        && rest.iter().all(|s| indexed_buf_ok_stmt(s, v))
+                        && rest.iter().any(|s| mentions_anywhere(s, v))
+                        // A RETURNED buffer is the array-return scalarizer's job — both
+                        // drive a fill cursor on the same symbol, so they must be disjoint.
+                        && !seq_escapes_via_return(rest, v)
+                    {
+                        let _ = borrow;
+                        out.insert(v, SeqFillInfo { elem_ty, len: n });
+                    }
+                }
+            }
+        }
+        match stmt {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                detect_seq_fill_in_block(then_block, de_rc, borrow, fixed_len, interner, out);
+                if let Some(eb) = else_block {
+                    detect_seq_fill_in_block(eb, de_rc, borrow, fixed_len, interner, out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                detect_seq_fill_in_block(body, de_rc, borrow, fixed_len, interner, out)
+            }
+            Stmt::Inspect { arms, .. } => {
+                for arm in arms {
+                    detect_seq_fill_in_block(arm.body, de_rc, borrow, fixed_len, interner, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// If `f` is a niladic function whose body is exactly `let mut V be a new Seq of T`, then only constant
 /// `Push`es to V, then `Return V`, return `(rust_elem_ty, codegen'd_value_exprs)`.
-fn niladic_const_table(f: Symbol, all_stmts: &[Stmt], interner: &Interner) -> Option<(String, Vec<String>)> {
+fn niladic_const_table(
+    f: Symbol,
+    all_stmts: &[Stmt],
+    interner: &Interner,
+) -> Option<(String, Vec<String>)> {
     for s in all_stmts {
-        let Stmt::FunctionDef { name, params, body, is_native: false, .. } = s else { continue };
+        let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            is_native: false,
+            ..
+        } = s
+        else {
+            continue;
+        };
         if *name != f || !params.is_empty() || body.len() < 2 {
             continue;
         }
         let (var, elem_te) = match &body[0] {
-            Stmt::Let { var, value: Expr::New { type_name, type_args, init_fields }, .. }
-                if interner.resolve(*type_name) == "Seq" && init_fields.is_empty() && type_args.len() == 1 =>
+            Stmt::Let {
+                var,
+                value:
+                    Expr::New {
+                        type_name,
+                        type_args,
+                        init_fields,
+                    },
+                ..
+            } if interner.resolve(*type_name) == "Seq"
+                && init_fields.is_empty()
+                && type_args.len() == 1 =>
             {
                 (*var, &type_args[0])
             }
             _ => return None,
         };
         match body.last() {
-            Some(Stmt::Return { value: Some(Expr::Identifier(s)) }) if *s == var => {}
+            Some(Stmt::Return {
+                value: Some(Expr::Identifier(s)),
+            }) if *s == var => {}
             _ => return None,
         }
         let no_vars: HashSet<Symbol> = HashSet::new();
         let mut vals = Vec::new();
         for st in &body[1..body.len() - 1] {
             match st {
-                Stmt::Push { collection: Expr::Identifier(c), value } if *c == var && const_scalar_expr(value, interner) => {
+                Stmt::Push {
+                    collection: Expr::Identifier(c),
+                    value,
+                } if *c == var && const_scalar_expr(value, interner) => {
                     vals.push(super::expr::codegen_expr(value, interner, &no_vars));
                 }
                 _ => return None,
@@ -1078,41 +1883,88 @@ fn const_scalar_expr(e: &Expr, interner: &Interner) -> bool {
     match e {
         Expr::Literal(Literal::Number(_)) => true,
         Expr::Not { operand } => const_scalar_expr(operand, interner),
-        Expr::BinaryOp { left, right, .. } => const_scalar_expr(left, interner) && const_scalar_expr(right, interner),
+        Expr::BinaryOp { left, right, .. } => {
+            const_scalar_expr(left, interner) && const_scalar_expr(right, interner)
+        }
         Expr::Call { function, args } => {
-            matches!(interner.resolve(*function), "word8" | "word16" | "word32" | "word64")
-                && args.iter().all(|a| const_scalar_expr(a, interner))
+            matches!(
+                interner.resolve(*function),
+                "word8" | "word16" | "word32" | "word64"
+            ) && args.iter().all(|a| const_scalar_expr(a, interner))
         }
         _ => false,
     }
 }
 
 /// Like `read_only_stmt`, but also permits `a` at a BORROW (`&[T]`) parameter position (`borrow[f]` index).
-fn const_table_read_only_stmt(s: &Stmt, a: Symbol, borrow: &HashMap<Symbol, HashSet<usize>>) -> bool {
+fn const_table_read_only_stmt(
+    s: &Stmt,
+    a: Symbol,
+    borrow: &HashMap<Symbol, HashSet<usize>>,
+) -> bool {
     match s {
-        Stmt::Push { collection, value } => !names_collection(collection, a) && cok(value, a, borrow),
-        Stmt::Pop { collection, .. } | Stmt::Remove { collection, .. } | Stmt::Add { collection, .. } => !names_collection(collection, a),
-        Stmt::SetIndex { collection, index, value } => !names_collection(collection, a) && cok(index, a, borrow) && cok(value, a, borrow),
+        Stmt::Push { collection, value } => {
+            !names_collection(collection, a) && cok(value, a, borrow)
+        }
+        Stmt::Pop { collection, .. }
+        | Stmt::Remove { collection, .. }
+        | Stmt::Add { collection, .. } => !names_collection(collection, a),
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => !names_collection(collection, a) && cok(index, a, borrow) && cok(value, a, borrow),
         Stmt::Let { var, value, .. } => *var != a && cok(value, a, borrow),
         Stmt::Set { target, value } => *target != a && cok(value, a, borrow),
         Stmt::SetField { object, value, .. } => cok(object, a, borrow) && cok(value, a, borrow),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             cok(cond, a, borrow)
-                && then_block.iter().all(|x| const_table_read_only_stmt(x, a, borrow))
-                && else_block.as_ref().map_or(true, |eb| eb.iter().all(|x| const_table_read_only_stmt(x, a, borrow)))
+                && then_block
+                    .iter()
+                    .all(|x| const_table_read_only_stmt(x, a, borrow))
+                && else_block.as_ref().map_or(true, |eb| {
+                    eb.iter().all(|x| const_table_read_only_stmt(x, a, borrow))
+                })
         }
-        Stmt::While { cond, body, .. } => cok(cond, a, borrow) && body.iter().all(|x| const_table_read_only_stmt(x, a, borrow)),
-        Stmt::Repeat { body, .. } => body.iter().all(|x| const_table_read_only_stmt(x, a, borrow)),
+        Stmt::While { cond, body, .. } => {
+            cok(cond, a, borrow)
+                && body
+                    .iter()
+                    .all(|x| const_table_read_only_stmt(x, a, borrow))
+        }
+        Stmt::Repeat { body, .. } => body
+            .iter()
+            .all(|x| const_table_read_only_stmt(x, a, borrow)),
         Stmt::Return { value: Some(v) } => cok(v, a, borrow),
-        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => cok(object, a, borrow) && cok(recipient, a, borrow),
+        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => {
+            cok(object, a, borrow) && cok(recipient, a, borrow)
+        }
         Stmt::Call { function, args } => call_args_ok(*function, args, a, borrow),
         Stmt::RuntimeAssert { condition, .. } => cok(condition, a, borrow),
-        Stmt::Inspect { target, .. } => cok(target, a, borrow),
+        Stmt::Inspect { target, arms, .. } => {
+            cok(target, a, borrow)
+                && arms.iter().all(|arm| {
+                    arm.body
+                        .iter()
+                        .all(|x| const_table_read_only_stmt(x, a, borrow))
+                })
+        }
+        // A swap exchanges the buffer whole; each detection closes its claims under `SwapClasses`.
+        Stmt::Swap { .. } => true,
         _ => !mentions_anywhere(s, a),
     }
 }
 
-fn call_args_ok(f: Symbol, args: &[&Expr], a: Symbol, borrow: &HashMap<Symbol, HashSet<usize>>) -> bool {
+fn call_args_ok(
+    f: Symbol,
+    args: &[&Expr],
+    a: Symbol,
+    borrow: &HashMap<Symbol, HashSet<usize>>,
+) -> bool {
     let bset = borrow.get(&f);
     args.iter().enumerate().all(|(i, arg)| {
         if matches!(arg, Expr::Identifier(s) if *s == a) {
@@ -1128,19 +1980,32 @@ fn cok(e: &Expr, a: Symbol, borrow: &HashMap<Symbol, HashSet<usize>>) -> bool {
     match e {
         Expr::Identifier(s) => *s != a,
         Expr::Index { collection, index } => {
-            let coll_ok = matches!(&**collection, Expr::Identifier(s) if *s == a) || cok(collection, a, borrow);
+            let coll_ok = matches!(&**collection, Expr::Identifier(s) if *s == a)
+                || cok(collection, a, borrow);
             coll_ok && cok(index, a, borrow)
         }
-        Expr::Length { collection } => matches!(&**collection, Expr::Identifier(s) if *s == a) || cok(collection, a, borrow),
+        Expr::Length { collection } => {
+            matches!(&**collection, Expr::Identifier(s) if *s == a) || cok(collection, a, borrow)
+        }
         Expr::BinaryOp { left, right, .. } => cok(left, a, borrow) && cok(right, a, borrow),
         Expr::Not { operand } => cok(operand, a, borrow),
         Expr::Call { function, args } => call_args_ok(*function, args, a, borrow),
-        Expr::CallExpr { callee, args } => cok(callee, a, borrow) && args.iter().all(|x| cok(x, a, borrow)),
+        Expr::CallExpr { callee, args } => {
+            cok(callee, a, borrow) && args.iter().all(|x| cok(x, a, borrow))
+        }
         Expr::Copy { expr } | Expr::Give { value: expr } => cok(expr, a, borrow),
-        Expr::Contains { collection, value } => !names_collection(collection, a) && cok(value, a, borrow),
-        Expr::Slice { collection, start, end } => !names_collection(collection, a) && cok(start, a, borrow) && cok(end, a, borrow),
+        Expr::Contains { collection, value } => {
+            !names_collection(collection, a) && cok(value, a, borrow)
+        }
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => !names_collection(collection, a) && cok(start, a, borrow) && cok(end, a, borrow),
         Expr::Range { start, end } => cok(start, a, borrow) && cok(end, a, borrow),
-        Expr::Union { left, right } | Expr::Intersection { left, right } => cok(left, a, borrow) && cok(right, a, borrow),
+        Expr::Union { left, right } | Expr::Intersection { left, right } => {
+            cok(left, a, borrow) && cok(right, a, borrow)
+        }
         Expr::List(items) | Expr::Tuple(items) => items.iter().all(|i| cok(i, a, borrow)),
         Expr::FieldAccess { object, .. } => cok(object, a, borrow),
         Expr::OptionSome { value } => cok(value, a, borrow),
@@ -1148,11 +2013,7 @@ fn cok(e: &Expr, a: Symbol, borrow: &HashMap<Symbol, HashSet<usize>>) -> bool {
             StringPart::Expr { value, .. } => cok(value, a, borrow),
             _ => true,
         }),
-        _ => {
-            let mut used = false;
-            visit_idents(e, &mut |s| { if s == a { used = true; } });
-            !used
-        }
+        _ => !crate::optimize::expr_touches(e, a),
     }
 }
 
@@ -1167,7 +2028,12 @@ fn analyze(a: Symbol, di: usize, body: &[Stmt], interner: &Interner) -> Option<A
     // whose body affinely builds `A`.
     let mut build: Option<(usize, AffineFit)> = None;
     for bi in (di + 1)..body.len() {
-        let Stmt::While { cond, body: lbody, .. } = &body[bi] else { continue };
+        let Stmt::While {
+            cond, body: lbody, ..
+        } = &body[bi]
+        else {
+            continue;
+        };
         if let Some(fit) = match_build_loop(a, cond, lbody, body, bi, interner) {
             build = Some((bi, fit));
             break;
@@ -1214,7 +2080,11 @@ fn analyze(a: Symbol, di: usize, body: &[Stmt], interner: &Interner) -> Option<A
         return None;
     }
 
-    Some(AffineArrayInfo { coeff: fit.coeff, offset: fit.offset, trip: fit.trip })
+    Some(AffineArrayInfo {
+        coeff: fit.coeff,
+        offset: fit.offset,
+        trip: fit.trip,
+    })
 }
 
 /// `while i < N` (or `i <= N`) whose body is exactly: one unconditional affine
@@ -1228,13 +2098,17 @@ fn match_build_loop(
     bi: usize,
     interner: &Interner,
 ) -> Option<AffineFit> {
-    let Expr::BinaryOp { op, left, right } = cond else { return None };
+    let Expr::BinaryOp { op, left, right } = cond else {
+        return None;
+    };
     let inclusive = match op {
         BinaryOpKind::Lt => false,
         BinaryOpKind::LtEq => true,
         _ => return None,
     };
-    let Expr::Identifier(iv) = left else { return None };
+    let Expr::Identifier(iv) = left else {
+        return None;
+    };
     let iv = *iv;
     let n_str = bound_rust_expr(right, interner)?;
 
@@ -1292,8 +2166,16 @@ fn match_build_loop(
     }
 
     // IV starts at 0 and steps by 1, so the element count is the trip count.
-    let trip = if inclusive { format!("({} + 1)", n_str) } else { n_str };
-    Some(AffineFit { coeff, offset, trip })
+    let trip = if inclusive {
+        format!("({} + 1)", n_str)
+    } else {
+        n_str
+    };
+    Some(AffineFit {
+        coeff,
+        offset,
+        trip,
+    })
 }
 
 /// The nearest assignment to `iv` before the build loop sets it to literal 0.
@@ -1302,6 +2184,8 @@ fn iv_starts_at_zero(body: &[Stmt], bi: usize, iv: Symbol) -> bool {
         match &body[idx] {
             Stmt::Let { var, value, .. } if *var == iv => return const_eval(value) == Some(0),
             Stmt::Set { target, value } if *target == iv => return const_eval(value) == Some(0),
+            // Any other write — inside a branch, a swap, foreign code — leaves the start unknown.
+            other if crate::optimize::WriteSet::of_stmt(other).may_write(iv) => return false,
             _ => {}
         }
     }
@@ -1353,10 +2237,10 @@ fn is_increment_by_one(e: &Expr, iv: Symbol) -> bool {
             || (const_eval(left) == Some(1) && is_iv(right)))
 }
 
-/// `s` is a `Let`/`Set` that assigns `v`.
+/// `s` may write `v` in any way — a `Let`, a `Set`, a swap, a write in a nested block, foreign code — from the
+/// optimizer's one exhaustive write walk.
 fn assigns_var(s: &Stmt, v: Symbol) -> bool {
-    matches!(s, Stmt::Let { var, .. } if *var == v)
-        || matches!(s, Stmt::Set { target, .. } if *target == v)
+    crate::optimize::WriteSet::of_stmt(s).may_write(v)
 }
 
 /// `v` is reassigned by a `Set` anywhere in the body, including nested blocks.
@@ -1364,38 +2248,24 @@ fn assigns_var(s: &Stmt, v: Symbol) -> bool {
 fn is_set_anywhere(body: &[Stmt], v: Symbol) -> bool {
     body.iter().any(|s| match s {
         Stmt::Set { target, .. } if *target == v => true,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             is_set_anywhere(then_block, v)
-                || else_block.as_ref().map_or(false, |eb| is_set_anywhere(eb, v))
+                || else_block
+                    .as_ref()
+                    .map_or(false, |eb| is_set_anywhere(eb, v))
         }
         Stmt::While { body, .. } | Stmt::Repeat { body, .. } => is_set_anywhere(body, v),
         _ => false,
     })
 }
 
-/// `a` appears anywhere in the statement, including nested blocks.
+/// `a` appears anywhere in the statement — read, written, declared, swapped, captured — nested blocks included.
 fn mentions_anywhere(s: &Stmt, a: Symbol) -> bool {
-    let mut found = false;
-    for_each_stmt_expr(s, &mut |e| {
-        visit_idents(e, &mut |sym| {
-            if sym == a {
-                found = true;
-            }
-        });
-    });
-    if found {
-        return true;
-    }
-    match s {
-        Stmt::If { then_block, else_block, .. } => {
-            then_block.iter().any(|x| mentions_anywhere(x, a))
-                || else_block.as_ref().map_or(false, |eb| eb.iter().any(|x| mentions_anywhere(x, a)))
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            body.iter().any(|x| mentions_anywhere(x, a))
-        }
-        _ => false,
-    }
+    crate::optimize::stmt_touches(s, a)
 }
 
 /// Does any expression in `stmts` (including nested blocks) read `item _ of a`?
@@ -1408,7 +2278,11 @@ fn reads_item_of(stmts: &[Stmt], a: Symbol) -> bool {
             }
         });
         hit || match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 reads_item_of(then_block, a)
                     || else_block.as_ref().map_or(false, |eb| reads_item_of(eb, a))
             }
@@ -1428,9 +2302,15 @@ fn reads_length_of(stmts: &[Stmt], a: Symbol) -> bool {
             }
         });
         hit || match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 reads_length_of(then_block, a)
-                    || else_block.as_ref().map_or(false, |eb| reads_length_of(eb, a))
+                    || else_block
+                        .as_ref()
+                        .map_or(false, |eb| reads_length_of(eb, a))
             }
             Stmt::While { body, .. } | Stmt::Repeat { body, .. } => reads_length_of(body, a),
             _ => false,
@@ -1514,22 +2394,32 @@ fn expr_has_index_of(e: &Expr, a: Symbol) -> bool {
 /// written (push/setindex/pop/remove/add), never bare (aliased/escaped).
 fn read_only_stmt(s: &Stmt, a: Symbol) -> bool {
     match s {
-        Stmt::Push { collection, value } => !names_collection(collection, a) && ok_read_only(value, a),
+        Stmt::Push { collection, value } => {
+            !names_collection(collection, a) && ok_read_only(value, a)
+        }
         Stmt::Pop { collection, .. }
         | Stmt::Remove { collection, .. }
         | Stmt::Add { collection, .. } => !names_collection(collection, a),
-        Stmt::SetIndex { collection, index, value } => {
-            !names_collection(collection, a) && ok_read_only(index, a) && ok_read_only(value, a)
-        }
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => !names_collection(collection, a) && ok_read_only(index, a) && ok_read_only(value, a),
         // A rebind of `a` itself (`Set a to …` / a shadowing `Let a be …`) means
         // the array is no longer the affine sequence we proved — disqualify.
         Stmt::Let { var, value, .. } => *var != a && ok_read_only(value, a),
         Stmt::Set { target, value } => *target != a && ok_read_only(value, a),
         Stmt::SetField { object, value, .. } => ok_read_only(object, a) && ok_read_only(value, a),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             ok_read_only(cond, a)
                 && then_block.iter().all(|x| read_only_stmt(x, a))
-                && else_block.as_ref().map_or(true, |eb| eb.iter().all(|x| read_only_stmt(x, a)))
+                && else_block
+                    .as_ref()
+                    .map_or(true, |eb| eb.iter().all(|x| read_only_stmt(x, a)))
         }
         Stmt::While { cond, body, .. } => {
             ok_read_only(cond, a) && body.iter().all(|x| read_only_stmt(x, a))

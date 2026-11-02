@@ -1,0 +1,76 @@
+{
+  "case": "T04-015",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T04_015.accCount",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{x : Nat} \u2192 Acc Nat.lt x \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_well_founded_promotion_bridge::original_acc_count_recurses_through_constructed_accessibility",
+      "logos": "/s:\"T04_015\"/s:\"accCount\"",
+      "why": "Exact original Lean 4.14 structural export retained in T04-015.four.ndjson (SHA256 a8d5e679d0fb82e43a954f5f3edcaa96d58538fafb0344ef8c86a433c833787f). The retained original body is checked in both kernels against the exact source goal (Lean's Nat.lt at the reader's reserved Nat namespace), wrong goals are rejected in both kernels, and no axiom is used. accCount computes 0, 1 and 3 through Acc.rec on accessibility proofs built from Acc.intro, and an Eq.refl claiming the next value is rejected. wfSum and wfDiv stay open (see the lane LF report)."
+    },
+    {
+      "lean": "T04_015.accDepth",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{\u03b1 : Type} \u2192 {r : \u03b1 \u2192 \u03b1 \u2192 Prop} \u2192 {x : \u03b1} \u2192 Acc r x \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_acc_depth_bridge.rs::original_acc_depth_retains_its_closed_exact_source_goal_without_axioms",
+      "logos": "/s:\"T04_015\"/s:\"accDepth\"",
+      "why": "Exact original Lean 4.14 structural export retained in T04-015.accDepth.ndjson (SHA256 261c066a18ed4c6dba61c2e8b3bf846d22d2072bbdafe0765ad17271a6c26378). Both kernels check the original body against its declared goal, compute zero on a checked accessibility proof, and reject wrong goals and a corrupted original body. No axioms or metadata losses. Other T04-015 declarations remain separately open."
+    },
+    {
+      "lean": "T04_015.accIsAType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Prop",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_well_founded_promotion_bridge::original_acc_is_a_type_is_the_nat_accessibility_family",
+      "logos": "/s:\"T04_015\"/s:\"accIsAType\"",
+      "why": "Exact original Lean 4.14 structural export retained in T04-015.four.ndjson (SHA256 a8d5e679d0fb82e43a954f5f3edcaa96d58538fafb0344ef8c86a433c833787f). The retained original body is checked in both kernels against the exact source goal (Lean's Nat.lt at the reader's reserved Nat namespace), wrong goals are rejected in both kernels, and no axiom is used. Both directions between the original family and Acc Nat Nat.lt n check. wfSum and wfDiv stay open (see the lane LF report)."
+    },
+    {
+      "lean": "T04_015.ltWf",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "WellFounded Nat.lt",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_well_founded_promotion_bridge::original_lt_wf_is_leans_well_founded_structure_for_nat_lt",
+      "logos": "/s:\"T04_015\"/s:\"ltWf\"",
+      "why": "Exact original Lean 4.14 structural export retained in T04-015.four.ndjson (SHA256 a8d5e679d0fb82e43a954f5f3edcaa96d58538fafb0344ef8c86a433c833787f). The retained original body is checked in both kernels against the exact source goal (Lean's Nat.lt at the reader's reserved Nat namespace), wrong goals are rejected in both kernels, and no axiom is used. WellFounded is Lean's structure, and WellFounded.apply of the original supplies Acc Nat.lt n at every n. wfSum and wfDiv stay open (see the lane LF report)."
+    },
+    {
+      "lean": "T04_015.wfDiv",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat \u2192 Nat",
+      "lean_axioms": [
+        "propext",
+        "Quot.sound"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T04_015.wfSum",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_well_founded_bridge::original_wf_sum_computes_zero_one_and_three",
+      "logos": "/s:\"T04_015\"/s:\"wfSum\"",
+      "why": "Exact original Lean 4.14 structural export T04-015.four.ndjson (SHA256 a8d5e679d0fb82e43a954f5f3edcaa96d58538fafb0344ef8c86a433c833787f). Both kernels check the retained original body against its exact goal Nat -> Nat and reject Nat as a goal; wfSum 0, 1 and 3 compute 0, 1 and 6 through WellFounded.fix and Lean's theorem WellFounded.apply, unfolded as Lean's kernel unfolds theorems (Tristen's ruling, 2026-09-23); Eq.refl at each value checks in both kernels; no axioms."
+    }
+  ]
+}

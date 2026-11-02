@@ -1,0 +1,199 @@
+{
+  "case": "T05-020",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 25,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T05_020.MyOpt",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_020.MyOpt \u03b1 \u2192 (\u03b1 \u2192 T05_020.MyOpt \u03b2) \u2192 T05_020.MyOpt \u03b2",
+      "name": "T05_020.MyOpt.bind",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  (motive : T05_020.MyOpt \u03b1 \u2192 (\u03b1 \u2192 T05_020.MyOpt \u03b2) \u2192 Sort u_1) \u2192\n    (x : T05_020.MyOpt \u03b1) \u2192\n      (x_1 : \u03b1 \u2192 T05_020.MyOpt \u03b2) \u2192\n        ((x : \u03b1 \u2192 T05_020.MyOpt \u03b2) \u2192 motive T05_020.MyOpt.none x) \u2192\n          ((a : \u03b1) \u2192 (f : \u03b1 \u2192 T05_020.MyOpt \u03b2) \u2192 motive (T05_020.MyOpt.some a) f) \u2192 motive x x_1",
+      "name": "T05_020.MyOpt.bind.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_020.MyOpt \u03b1 \u2192 Sort u} \u2192\n    (t : T05_020.MyOpt \u03b1) \u2192 motive T05_020.MyOpt.none \u2192 ((a : \u03b1) \u2192 motive (T05_020.MyOpt.some a)) \u2192 motive t",
+      "name": "T05_020.MyOpt.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_020.MyOpt \u03b1} \u2192 v1 = v2 \u2192 T05_020.MyOpt.noConfusionType P v1 v2",
+      "name": "T05_020.MyOpt.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T05_020.MyOpt \u03b1 \u2192 T05_020.MyOpt \u03b1 \u2192 Sort u",
+      "name": "T05_020.MyOpt.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T05_020.MyOpt \u03b1",
+      "name": "T05_020.MyOpt.none",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T05_020.MyOpt.none = 1",
+      "name": "T05_020.MyOpt.none.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_020.MyOpt \u03b1 \u2192 Sort u} \u2192\n    motive T05_020.MyOpt.none \u2192 ((a : \u03b1) \u2192 motive (T05_020.MyOpt.some a)) \u2192 (t : T05_020.MyOpt \u03b1) \u2192 motive t",
+      "name": "T05_020.MyOpt.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_020.MyOpt \u03b1 \u2192 Sort u} \u2192\n    (t : T05_020.MyOpt \u03b1) \u2192 motive T05_020.MyOpt.none \u2192 ((a : \u03b1) \u2192 motive (T05_020.MyOpt.some a)) \u2192 motive t",
+      "name": "T05_020.MyOpt.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T05_020.MyOpt \u03b1",
+      "name": "T05_020.MyOpt.some",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T05_020.MyOpt.some a = T05_020.MyOpt.some a_1 \u2192 a = a_1",
+      "name": "T05_020.MyOpt.some.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T05_020.MyOpt.some a = T05_020.MyOpt.some a_1) = (a = a_1)",
+      "name": "T05_020.MyOpt.some.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T05_020.MyOpt.some a) = 1 + sizeOf a",
+      "name": "T05_020.MyOpt.some.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat \u2192 Option Nat",
+      "name": "T05_020.bindEx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T05_020.decideEx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Monad T05_020.MyOpt",
+      "name": "T05_020.instMonadMyOpt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat \u2192 Option Nat",
+      "name": "T05_020.mapEx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_020.MyOpt Nat \u2192 T05_020.MyOpt Nat",
+      "name": "T05_020.myTwice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "IO Unit",
+      "name": "T05_020.prog",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "IO Unit",
+      "name": "T05_020.progBind",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat",
+      "name": "T05_020.pureEx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "IO Nat",
+      "name": "T05_020.readNothing",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option (Nat \u2192 Nat) \u2192 Option Nat \u2192 Option Nat",
+      "name": "T05_020.seqEx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{m : Type \u2192 Type} \u2192 [inst : Monad m] \u2192 m Nat \u2192 m Nat",
+      "name": "T05_020.twice",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

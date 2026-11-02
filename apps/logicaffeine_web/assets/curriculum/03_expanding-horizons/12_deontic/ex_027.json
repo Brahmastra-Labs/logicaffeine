@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Let someone despair",
   "options": [
-    "$ O(\\exists x)D\\underline{x} $",
-    "$ (\\exists x)Dx $",
-    "$ (\\exists x)D\\underline{x} $",
-    "$ (\\exists \\underline{x} )Dx $"
+    "O∃x D(x̲)",
+    "∃x D(x)",
+    "∃x D(x̲)",
+    "∃x̲ D(x)"
   ],
   "correct": 2,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'Let someone despair' is an optative with an indefinite agent: (∃x)D͟x — some person despairs."
+  "hint": "This is a wish about someone. Who would act?",
+  "explanation": "'Let someone despair' wishes that someone despair: ∃x D(x̲).",
+  "section": "12.2"
 }

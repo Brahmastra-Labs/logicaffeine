@@ -1,4 +1,4 @@
-//! Shared test harness for the partial-evaluator phases (work/PE_IMPROVE.md §4.5).
+//! Shared test harness for the partial-evaluator phases.
 //!
 //! A partial evaluator is the kind of program where a plausible-looking output is the
 //! most dangerous failure mode, so the harness defends the three properties that matter:
@@ -82,21 +82,37 @@ impl Observation {
                 } else {
                     Outcome::Value(trimmed.clone())
                 };
-                Observation { value, output: trimmed, error: None }
+                Observation {
+                    value,
+                    output: trimmed,
+                    error: None,
+                }
             }
             Err(e) => {
                 let msg = format!("{:?}", e);
-                Observation { value: Outcome::Error(msg.clone()), output: String::new(), error: Some(msg) }
+                Observation {
+                    value: Outcome::Error(msg.clone()),
+                    output: String::new(),
+                    error: Some(msg),
+                }
             }
         }
     }
 
     fn timed_out() -> Self {
-        Observation { value: Outcome::Timeout, output: String::new(), error: Some("budget exceeded".to_string()) }
+        Observation {
+            value: Outcome::Timeout,
+            output: String::new(),
+            error: Some("budget exceeded".to_string()),
+        }
     }
 
     fn errored(msg: String) -> Self {
-        Observation { value: Outcome::Error(msg.clone()), output: String::new(), error: Some(msg) }
+        Observation {
+            value: Outcome::Error(msg.clone()),
+            output: String::new(),
+            error: Some(msg),
+        }
     }
 
     pub fn is_value(&self) -> bool {
@@ -188,10 +204,13 @@ pub fn decompile_on_vm(program: &str) -> Result<String, String> {
 /// Run the PE residual of `program` through the tree-walker.
 pub fn run_p1(program: &str) -> Observation {
     let program = program.to_string();
-    let result = with_budget(move || match compile::projection1_source_real_fast("", "", &program) {
-        Ok(residual) => Observation::from_interp(compile::interpret_program(&residual)),
-        Err(e) => Observation::errored(e),
-    });
+    let result =
+        with_budget(
+            move || match compile::projection1_source_real_fast("", "", &program) {
+                Ok(residual) => Observation::from_interp(compile::interpret_program(&residual)),
+                Err(e) => Observation::errored(e),
+            },
+        );
     match result {
         Ok(obs) => obs,
         Err(_) => Observation::timed_out(),
@@ -211,10 +230,15 @@ pub fn run_via_dialect(program: &str, bti: bool) -> Result<String, String> {
                 .replace("onStack", "callGuard");
             (compile::pe_bti_source_text().to_string(), "peBlockB", core)
         } else {
-            (compile::pe_mini_source_text().to_string(), "peBlockM", compile::core_types_for_pe_source().to_string())
+            (
+                compile::pe_mini_source_text().to_string(),
+                "peBlockM",
+                compile::core_types_for_pe_source().to_string(),
+            )
         };
         let decompile = compile::decompile_source_text();
-        let encoded = compile::encode_program_source(&program).map_err(|e| format!("encode: {e:?}"))?;
+        let encoded =
+            compile::encode_program_source(&program).map_err(|e| format!("encode: {e:?}"))?;
         let src = format!(
             "{core}\n{pe}\n{decompile}\n## Main\n{encoded}\n\
              Let fzState be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n\
@@ -222,7 +246,8 @@ pub fn run_via_dialect(program: &str, bti: bool) -> Result<String, String> {
              Let fzOut be decompileBlock(fzCompiled, 0).\n\
              Show fzOut."
         );
-        let residual = compile::interpret_program(&src).map_err(|e| format!("residual: {e:?}"))?;
+        let residual =
+            compile::interpret_bootstrap(&src).map_err(|e| format!("residual: {e:?}"))?;
         let wrapped = format!("## Main\n{}", residual.trim());
         compile::interpret_program(&wrapped)
             .map(|o| o.trim().to_string())
@@ -268,7 +293,10 @@ pub fn count_dispatch(residual: &str) -> usize {
 /// re-deriving (and risking drift from) the exact comparison semantics.
 pub fn behavior_diff(a: &Observation, b: &Observation, mode: CmpMode) -> Option<String> {
     if a.output != b.output {
-        return Some(format!("output streams differ:\n  a = {:?}\n  b = {:?}", a, b));
+        return Some(format!(
+            "output streams differ:\n  a = {:?}\n  b = {:?}",
+            a, b
+        ));
     }
     let same_value = match (&a.value, &b.value) {
         (Outcome::Value(x), Outcome::Value(y)) => x == y,
@@ -315,7 +343,9 @@ pub fn assert_run_equals(program: &str, expected: &str) {
 /// Returns the residual for further structural assertions.
 pub fn assert_halts_and_correct(program: &str, expected: &str) -> String {
     let prog = program.to_string();
-    let residual = match with_budget_for(DEFAULT_BUDGET, move || compile::projection1_source_real_fast("", "", &prog)) {
+    let residual = match with_budget_for(DEFAULT_BUDGET, move || {
+        compile::projection1_source_real_fast("", "", &prog)
+    }) {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => panic!("PE failed (did not halt cleanly): {}", e),
         Err(b) => panic!("PE did not halt within budget: {:?}", b),
@@ -420,7 +450,12 @@ pub fn gen_diverse_program(seed: u64) -> String {
         body.push_str(&format!("Let mutable v{i} be {e}.\n"));
         vars.push(format!("v{i}"));
     }
-    let cmps = ["is less than", "is greater than", "is at most", "is at least"];
+    let cmps = [
+        "is less than",
+        "is greater than",
+        "is at most",
+        "is at least",
+    ];
     let nstmts = 4 + (next_rand(&mut rng) % 6) as usize; // 4..=9 more statements
     for _ in 0..nstmts {
         let target = vars[(next_rand(&mut rng) as usize) % vars.len()].clone();
@@ -444,13 +479,17 @@ pub fn gen_diverse_program(seed: u64) -> String {
             }
             2 => {
                 let k = 1 + next_rand(&mut rng) % 4; // small loop — pe_source unrolls (< cap 64)
-                body.push_str(&format!("Repeat for gi from 1 to {k}:\n    Set {target} to {target} + gi.\n"));
+                body.push_str(&format!(
+                    "Repeat for gi from 1 to {k}:\n    Set {target} to {target} + gi.\n"
+                ));
             }
             3 => {
                 // LARGE loop (>= pe_source's unroll cap of 64) — forces pe_source to RESIDUALIZE,
                 // driving its dynamic-regime path (the one the small-loop corpus never reached).
                 let k = 64 + next_rand(&mut rng) % 40; // 64..=103
-                body.push_str(&format!("Repeat for gi from 1 to {k}:\n    Set {target} to ({target} + 1).\n"));
+                body.push_str(&format!(
+                    "Repeat for gi from 1 to {k}:\n    Set {target} to ({target} + 1).\n"
+                ));
             }
             4 => {
                 // If INSIDE a loop — nested dynamic control flow (modvar handling under a dynamic

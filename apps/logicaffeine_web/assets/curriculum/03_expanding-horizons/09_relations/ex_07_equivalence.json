@@ -12,5 +12,6 @@
   "correct": 0,
   "hint": "Equivalence relations partition a set into equivalence classes.",
   "explanation": "An equivalence relation requires all three properties: Reflexive (∀x Rxx), Symmetric (∀x∀y(Rxy → Ryx)), and Transitive (∀x∀y∀z((Rxy ∧ Ryz) → Rxz)). Examples: 'same age as', 'same color as', equality itself.",
-  "visual_concept": "Equivalence relation divides things into groups. Everything in the same group is equivalent. = is the canonical example."
+  "visual_concept": "Equivalence relation divides things into groups. Everything in the same group is equivalent. = is the canonical example.",
+  "section": "9.3"
 }

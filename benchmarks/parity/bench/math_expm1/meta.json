@@ -1,0 +1,11 @@
+{
+  "capability": "math.expm1",
+  "workload": "math.expm1",
+  "arg": "1000000",
+  "expected": "718282187789",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python"
+  ]
+}

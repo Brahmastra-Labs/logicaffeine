@@ -1,0 +1,32 @@
+Remove build artifacts.
+
+Deletes the project's `target/` directory. With `--all`, also removes the `.logos-native/` compiled-function bundle cache produced by `largo build --native-functions`.
+
+Usage: largo clean [OPTIONS]
+
+Options:
+      --all
+          Also remove the `.logos-native/` bundle cache
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo clean
+  largo clean --all

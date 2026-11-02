@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "If one option in an 'or' is false, what can we conclude?",
   "explanation": "Disjunctive Syllogism (DS): From (P ∨ Q) and ¬Q, derive P. If 'P or Q' is true but Q is false, then P must be true. One of them has to be true!",
-  "visual_concept": "Two doors: One leads to P, one to Q. Door Q is locked (false). If you must go through one, you must go through P."
+  "visual_concept": "Two doors: One leads to P, one to Q. Door Q is locked (false). If you must go through one, you must go through P.",
+  "section": "7.5"
 }

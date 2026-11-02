@@ -1,0 +1,67 @@
+Info: Device utilisation:
+Info: 	          SLICE_LUTX:   468/126800     0%
+Info: 	           SLICE_FFX:   315/126800     0%
+Info: 	              CARRY4:    23/15850     0%
+Info: 	          PSEUDO_GND:     1/30932     0%
+Info: 	          PSEUDO_VCC:     1/30932     0%
+Info: 	               HARD0:     0/ 2376     0%
+Info: 	   RAMB18E1_RAMB18E1:     0/  270     0%
+Info: 	   FIFO18E1_FIFO18E1:     0/  135     0%
+Info: 	RAMBFIFO36E1_RAMBFIFO36E1:     0/  135     0%
+Info: 	   RAMB36E1_RAMB36E1:     0/  135     0%
+Info: 	     DSP48E1_DSP48E1:     0/  240     0%
+Info: 	                 PAD:    18/  876     2%
+Info: 	       IOB33M_OUTBUF:     0/  144     0%
+Info: 	       IOB33S_OUTBUF:     0/  144     0%
+Info: 	        IOB33_OUTBUF:    16/  300     5%
+Info: 	     IOB33M_INBUF_EN:     0/  144     0%
+Info: 	     IOB33S_INBUF_EN:     0/  144     0%
+Info: 	      IOB33_INBUF_EN:     2/  300     0%
+Info: 	IOB33M_TERM_OVERRIDE:     0/  144     0%
+Info: 	IOB33S_TERM_OVERRIDE:     0/  144     0%
+Info: 	 IOB33_TERM_OVERRIDE:     0/  300     0%
+Info: 	       PULL_OR_KEEP1:     0/  588     0%
+Info: 	   IDELAYE2_IDELAYE2:     0/  300     0%
+Info: 	        OLOGICE3_TFF:     0/  300     0%
+Info: 	      OLOGICE3_OUTFF:     0/  300     0%
+Info: 	       OLOGICE3_MISR:     0/  300     0%
+Info: 	 OSERDESE2_OSERDESE2:     0/  300     0%
+Info: 	        ILOGICE3_IFF:     0/  300     0%
+Info: 	ILOGICE3_ZHOLD_DELAY:     0/  300     0%
+Info: 	 ISERDESE2_ISERDESE2:     0/  300     0%
+Info: 	         BUFIO_BUFIO:     0/   24     0%
+Info: 	IDELAYCTRL_IDELAYCTRL:     0/    6     0%
+Info: 	            BUFGCTRL:     1/   32     3%
+Info: 	           BUFG_BUFG:     0/   32     0%
+Info: 	            INVERTER:     0/  144     0%
+Info: 	        OLOGICE2_TFF:     0/  300     0%
+Info: 	      OLOGICE2_OUTFF:     0/  300     0%
+Info: 	 PLLE2_ADV_PLLE2_ADV:     0/    6     0%
+Info: 	           SELMUX2_1:    98/48750     0%
+Info: 	       BUFHCE_BUFHCE:     0/   96     0%
+Info: 	              BUFFER:     0/  288     0%
+Info: 	        ILOGICE2_IFF:     0/  300     0%
+Info: 	       OLOGICE2_MISR:     0/  300     0%
+Info:     iter=1 wires=12649 overused=642 overuse=689 archfail=NA
+Info:     iter=2 wires=12949 overused=144 overuse=144 archfail=NA
+Info:     iter=3 wires=13018 overused=25 overuse=25 archfail=NA
+Info:     iter=4 wires=13035 overused=3 overuse=3 archfail=NA
+Info:     iter=5 wires=13034 overused=0 overuse=0 archfail=0
+Info: Max frequency for clock '$iopadmap$clk': 168.29 MHz (PASS at 100.00 MHz)
+Info: Routing complete.
+Info: Max frequency for clock '$iopadmap$clk': 226.40 MHz (PASS at 100.00 MHz)
+Info: Critical path report for clock '$iopadmap$clk' (posedge -> posedge):
+Info:  0.1  0.1  Source u_dut.$auto$ff.cc:266:slice$4136.Q
+Info:                Sink u_dut.$abc$4781$auto$blifparse.cc:525:parse_blif$4786.A2
+Info:  0.1  0.9  Source u_dut.$abc$4781$auto$blifparse.cc:525:parse_blif$4786.O6
+Info:                Sink u_dut.$ge$/mnt/build/qor-ws/logs/tmpa67bg08s/ddr2_ctrl.v:70$1401.genblk1.S[3]$LUT$300.A1
+Info:  0.1  2.0  Source u_dut.$ge$/mnt/build/qor-ws/logs/tmpa67bg08s/ddr2_ctrl.v:70$1401.genblk1.S[3]$LUT$300.O6
+Info:                Sink u_dut.$ge$/mnt/build/qor-ws/logs/tmpa67bg08s/ddr2_ctrl.v:70$1401.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.S3
+Info:  0.4  2.4  Source u_dut.$ge$/mnt/build/qor-ws/logs/tmpa67bg08s/ddr2_ctrl.v:70$1401.genblk1.slice[0].genblk1.carry4$split$muxcy0$PACKED_CARRY4$.CO3
+Info:                Sink u_dut.$ge$/mnt/build/qor-ws/logs/tmpa67bg08s/ddr2_ctrl.v:70$1401.CO[3]$feed$muxcy$PACKED_CARRY4$.CIN
+Info:  0.2  2.7  Source u_dut.$ge$/mnt/build/qor-ws/logs/tmpa67bg08s/ddr2_ctrl.v:70$1401.CO[3]$feed$muxcy$PACKED_CARRY4$.O0
+Info:                Sink u_dut.$abc$4781$auto$blifparse.cc:525:parse_blif$4853.A1
+Info:  0.1  3.3  Source u_dut.$abc$4781$auto$blifparse.cc:525:parse_blif$4853.O6
+Info:                Sink u_dut.$abc$4781$auto$blifparse.cc:525:parse_blif$4868.A1
+Info:  0.2  4.3  Source u_dut.$abc$4781$auto$blifparse.cc:525:parse_blif$4868.O5
+Info:                Sink u_dut.$auto$ff.cc:266:slice$4140.D

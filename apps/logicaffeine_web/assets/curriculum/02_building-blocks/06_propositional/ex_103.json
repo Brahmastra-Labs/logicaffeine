@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're strong, then you're naive or persistent",
   "options": [
-    "$ (S \\supset (N \\vee P)) $",
-    "$ S \\supset N \\vee P $",
-    "$ (S \\supset N) \\vee P $",
-    "$ ((S \\supset N) \\vee P) $"
+    "S → (N ∨ P)",
+    "S ∧ (N ∨ P)",
+    "S ∨ N ∨ P",
+    "(N ∨ P) → S"
   ],
   "correct": 0,
-  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
-  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part S to the then part N ∨ P: S → (N ∨ P).",
+  "section": "6.2"
 }

@@ -1,0 +1,122 @@
+# Collections
+
+Higher-level collection operations. A Counter tallies element frequencies into a Map, mirroring
+Python's collections.Counter. Pure LOGOS over the built-in Map, identical on every tier.
+Auto-imported on reference.
+
+## Note
+Reads the count for key `k` in a frequency-counter `Map of Int to Int`, returning 0 when the key is absent.
+
+## To counterGet (m: Map of Int to Int) and (k: Int) -> Int:
+    If m contains k:
+        Return item k of m.
+    Return 0.
+
+## Note
+Tallies a `Seq of Int` into a frequency-counter map from each distinct value to how many times it occurs.
+
+## To countInts (xs: Seq of Int) -> Map of Int to Int:
+    Let m be a new Map of Int to Int.
+    Repeat for v in xs:
+        Set item v of m to counterGet(m, v) + 1.
+    Return m.
+
+## Note
+Sums every count in a frequency-counter map, giving the total number of tallied elements.
+
+## To counterTotal (m: Map of Int to Int) -> Int:
+    Let mutable total be 0.
+    Repeat for (k, v) in m:
+        Set total to total + v.
+    Return total.
+
+## Note
+Returns the key with the highest count in a frequency-counter map (the first-seen key on a tie).
+
+## To counterMostCommon (m: Map of Int to Int) -> Int:
+    Let mutable best be 0.
+    Let mutable bestCount be 0.
+    Repeat for (k, v) in m:
+        If v is greater than bestCount:
+            Set bestCount to v.
+            Set best to k.
+    Return best.
+
+## Note
+A double-ended queue of integers, backed by a single `Seq of Int` in its `items` field.
+
+## A Deque has:
+    an items, which is Seq of Int.
+
+## Note
+Builds an empty `Deque` with a fresh, empty `items` sequence.
+
+## To newDeque () -> Deque:
+    Return a new Deque with items (a new Seq of Int).
+
+## Note
+Returns a `Deque` with `x` appended to the back (end) of its items.
+
+## To dequePushBack (d: Deque) and (x: Int) -> Deque:
+    Let xs be d's items.
+    Push x to xs.
+    Return a new Deque with items xs.
+
+## Note
+Returns a `Deque` with `x` prepended to the front, followed by the existing items in order.
+
+## To dequePushFront (d: Deque) and (x: Int) -> Deque:
+    Let out be a new Seq of Int.
+    Push x to out.
+    Repeat for v in (d's items):
+        Push v to out.
+    Return a new Deque with items out.
+
+## Note
+Peeks the front element of the deque (the first item), without removing it.
+
+## To dequeFront (d: Deque) -> Int:
+    Return item 1 of (d's items).
+
+## Note
+Peeks the back element of the deque (the last item), without removing it.
+
+## To dequeBack (d: Deque) -> Int:
+    Return item (length of (d's items)) of (d's items).
+
+## Note
+Returns a `Deque` with the front element dropped (rebuilt from items starting at index 2).
+
+## To dequePopFront (d: Deque) -> Deque:
+    Let xs be d's items.
+    Let n be length of xs.
+    Let out be a new Seq of Int.
+    Let mutable i be 2.
+    While i is at most n:
+        Push item i of xs to out.
+        Set i to i + 1.
+    Return a new Deque with items out.
+
+## Note
+Returns the number of elements currently in the deque.
+
+## To dequeLen (d: Deque) -> Int:
+    Return length of (d's items).
+
+## Note
+Collects the keys of a `Map of Int to Int` into a `Seq of Int`, in iteration order.
+
+## To dictKeys (m: Map of Int to Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for (k, v) in m:
+        Push k to out.
+    Return out.
+
+## Note
+Collects the values of a `Map of Int to Int` into a `Seq of Int`, in iteration order.
+
+## To dictValues (m: Map of Int to Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for (k, v) in m:
+        Push v to out.
+    Return out.

@@ -1,0 +1,10 @@
+{
+  "capability": "operator.rshift",
+  "workload": "sum of opRshift(i, 3) over 1..n",
+  "arg": "3000000",
+  "expected": "562498875000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

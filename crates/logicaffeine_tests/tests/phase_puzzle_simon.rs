@@ -1,5 +1,5 @@
 //! End-to-end spec for ONE puzzle — PuzzleBaron "Simon's adventure holidays"
-//! (`puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json`). We thread it the whole
+//! (`tests/fixtures/puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json`). We thread it the whole
 //! way: every clue, the option declarations, the all-different rule, and the
 //! goal must parse to FIRST-ORDER LOGIC with ZERO meaning loss — pinned here as
 //! the exact logical form, not merely `Ok`. The grid solver (in
@@ -61,7 +61,9 @@ fn clue4_negated_copula_with_pp_subject() {
 fn clue5_of_pair_keeps_skydiving_modifier() {
     // Regression for the modifier-drop bug: "the skydiving trip" (verb-ambiguous
     // head "trip") must stay `Skydive_trip(x)`, NOT collapse to bare `Trip`.
-    let out = fol("Of the skydiving trip and the Maine holiday, one was in 2003 and the other was with Bill.");
+    let out = fol(
+        "Of the skydiving trip and the Maine holiday, one was in 2003 and the other was with Bill.",
+    );
     assert_eq!(
         out,
         "∃x(∃y(((Trip(x) ∧ Skydive(x)) ∧ ((Holiday(y) ∧ Maine(y)) ∧ (¬x = y ∧ ((P(In(x, 2003)) ∧ P(With(y, Bill))) ∨ (P(In(y, 2003)) ∧ P(With(x, Bill)))))))))"

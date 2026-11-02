@@ -1,0 +1,45 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t05_elaboration/T05-018_type_ascription.lean",
+  "source_sha256": "a0bb1cb3c7a3827894635a64b7b0b1caf70687c25c5690b1a03b52ad2f6902f2",
+  "module": "_stdin",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "lean_version": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T05_018.instCoeBoolNat__stdin"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "lean_print_axioms": [
+    "'T05_018.instCoeBoolNat__stdin' does not depend on any axioms"
+  ],
+  "export_sha256": "077006c441ce78293e4ae79d60563ff10add2ce0006d0bcf1a1a26658b25b15b",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 701,
+  "conformance_status": "not_evaluated"
+}

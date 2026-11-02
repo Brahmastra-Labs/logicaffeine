@@ -20,16 +20,27 @@ fn window() -> std::sync::MutexGuard<'static, ()> {
     TIER_WINDOW.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-fn run_live(src: &str) -> (Vec<String>, Option<String>, (u32, u32), (u32, u32)) {
+fn run_live(
+    src: &str,
+) -> (
+    Vec<String>,
+    Option<String>,
+    (u32, u32),
+    (u32, u32),
+    logicaffeine_jit::JitOptimizationTrace,
+) {
     let tier = logicaffeine_jit::install();
     let (f0, r0) = (tier.function_counts(), tier.region_counts());
+    let o0 = tier.optimization_trace();
     let result = interpret_for_ui_sync(src);
     let (f1, r1) = (tier.function_counts(), tier.region_counts());
+    let optimization_delta = tier.optimization_trace().since(o0);
     (
         result.lines,
         result.error,
         (f1.0 - f0.0, f1.1 - f0.1),
         (r1.0 - r0.0, r1.1 - r0.1),
+        optimization_delta,
     )
 }
 
@@ -45,7 +56,7 @@ While i is less than 2000:
     Set i to i + 1.
 Show total.
 ";
-    let (lines, error, _fn_counts, region_counts) = run_live(src);
+    let (lines, error, _fn_counts, region_counts, optimizations) = run_live(src);
     assert_eq!(error, None);
     assert_eq!(lines, vec!["2664667000".to_string()]);
     assert_eq!(
@@ -53,23 +64,28 @@ Show total.
         (1, 1),
         "the LIVE engine must region-tier the hot Main loop"
     );
+    assert!(
+        !optimizations.fired().is_empty(),
+        "a successfully compiled hot region must expose the native optimizations it actually used"
+    );
 }
 
 #[test]
 fn live_engine_tiers_hot_function() {
     let _window = window();
-    // The early-return guard makes `sq` non-inlinable (the run-path leaf
-    // inliner rejects multi-return bodies), so it survives as a callable
-    // function — this test pins the FUNCTION-TIERING machinery, which needs a
-    // real call to tier. For n >= 0 the guard never fires, so sq(n) = n*n and
-    // the checksum is unchanged.
+    // Keep the call in Main: decorators on sq only govern its own body,
+    // while specializing the caller could otherwise erase the call entirely.
     let src = "\
+## No Inline
+## No SpecializeLoop
 ## To sq (n: Int) -> Int:
     If n is less than 0:
         Return 0.
     Let t be n * n.
     Return t.
 
+## No Inline
+## No SpecializeLoop
 ## Main
 Let mutable i be 0.
 Let mutable acc be 0.
@@ -78,7 +94,7 @@ While i is less than 500:
     Set i to i + 1.
 Show acc.
 ";
-    let (lines, error, fn_counts, _region_counts) = run_live(src);
+    let (lines, error, fn_counts, _region_counts, _optimizations) = run_live(src);
     assert_eq!(error, None);
     assert_eq!(lines, vec!["41541750".to_string()]);
     assert_eq!(
@@ -102,11 +118,18 @@ While i is less than 150:
     Set i to i + 1.
 Show length of out.
 ";
-    let (lines, error, fn_counts, region_counts) = run_live(src);
+    let (lines, error, fn_counts, region_counts, optimizations) = run_live(src);
     assert_eq!(error, None);
     assert_eq!(lines, vec!["150".to_string()]);
     assert_eq!(fn_counts.1, 0, "nothing here can compile as a function");
-    assert_eq!(region_counts.1, 0, "a text loop must not compile as a region");
+    assert_eq!(
+        region_counts.1, 0,
+        "a text loop must not compile as a region"
+    );
+    assert!(
+        optimizations.fired().is_empty(),
+        "a JIT refusal must not claim that a native optimization fired"
+    );
 }
 
 #[test]
@@ -119,7 +142,7 @@ fn live_engine_outcomes_match_untiered_outcomes() {
         "## Main\nLet a be 9223372036854775807.\nShow a + 1.\n",
         "## Main\nLet mutable n be 20.\nLet mutable acc be 1.\nWhile n is greater than 1:\n    Set acc to acc * n.\n    Set n to n - 1.\nShow acc.\n",
     ] {
-        let (lines, error, _, _) = run_live(src);
+        let (lines, error, _, _, _) = run_live(src);
         let pure = logicaffeine_compile::compile::vm_outcome(src);
         let pure_lines: Vec<String> =
             pure.output.lines().map(|l| l.to_string()).collect();

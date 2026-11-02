@@ -1,0 +1,40 @@
+Output link from (85,40) to (85,33)
+Output link from (70,40) to (70,39)
+Output link from (80,86) to (80,1)
+Output link from (78,86) to (78,5)
+Output link from (80,63) to (80,0)
+Output link from (78,63) to (78,6)
+Output link from (90,76) to (90,18)
+Output link from (92,78) to (92,28)
+Output link from (72,51) to (72,15)
+Output link from (76,51) to (76,16)
+Output link from (68,17) to (68,38)
+Output link from (74,42) to (74,19)
+Output link from (112,19) to (112,2)
+Output link from (105,21) to (105,17)
+Output link from (103,21) to (103,21)
+Output link from (100,21) to (100,34)
+Output link from (102,21) to (102,35)
+../plastisim/final.place Elapsed seconds: 0.0732523
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          34168 Hz
+Simulation complete at cycle 17310
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.85777 GB/s
+Average DRAM Write Bandwidth: 0.236626 GB/s
+script Elapsed seconds: 2.18357
+Exiting... 😊
+Destruct DRAM.
+C Gold: 
+C Result: 
+PASS: true (GEMM)
+Complete Simulation
+Runtime:0:02.51

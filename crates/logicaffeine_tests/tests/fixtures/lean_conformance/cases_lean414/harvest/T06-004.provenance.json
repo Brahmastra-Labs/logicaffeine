@@ -1,0 +1,68 @@
+{
+  "case": "T06-004",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t06_propositions/T06-004_proof_irrelevance.lean",
+  "source_sha256": "39829a5f0c59546dc5a138a8a705193816682f36df900649eb0915b2dbb11e3e",
+  "ledger_sha256": "f1ddadeaddb4cb7de6caf8180f46745b4ed400121b5d4bb6ffc1a1d35c1f7b69",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T06_004.Bounded",
+    "T06_004.Bounded.isSmall",
+    "T06_004.Bounded.mk",
+    "T06_004.Bounded.val",
+    "T06_004.Small",
+    "T06_004.boundedEta",
+    "T06_004.irrelevanceUnderBinder",
+    "T06_004.orProofs",
+    "T06_004.reducedProps",
+    "T06_004.twoProofs"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "1b594cc8c6b9d2d5d55d7be64867e41618e945fc83b2e3d592be408c2d23f738",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1341,
+  "harvest": {
+    "roots": [
+      "T06_004.Bounded",
+      "T06_004.Bounded.isSmall",
+      "T06_004.Bounded.mk",
+      "T06_004.Bounded.val",
+      "T06_004.Small",
+      "T06_004.boundedEta",
+      "T06_004.irrelevanceUnderBinder",
+      "T06_004.orProofs",
+      "T06_004.reducedProps",
+      "T06_004.twoProofs"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__posix_memalign;__posix_memalign;_mid_memalign;_int_memalign;_int_malloc;sysmalloc;sysmalloc_mmap 249999
+_start;__libc_start_main_impl;__libc_start_call_main;__GI_exit;__run_exit_handlers;lc_gc_teardown 249999

@@ -11,9 +11,7 @@
 // Infer: Motive = λx. (Add(x, Zero) = x)
 // Apply: P(Zero) ∧ ∀k(P(k) → P(Succ(k))) ⊢ ∀n P(n)
 
-use logicaffeine_proof::{
-    BackwardChainer, DerivationTree, InferenceRule, ProofExpr, ProofTerm,
-};
+use logicaffeine_proof::{BackwardChainer, InferenceRule, ProofExpr, ProofTerm};
 
 // =============================================================================
 // HELPER FUNCTIONS - Same as Phase 61
@@ -56,14 +54,9 @@ fn expr_to_term(expr: ProofExpr) -> ProofTerm {
     match expr {
         ProofExpr::Atom(s) => ProofTerm::Variable(s),
         ProofExpr::Ctor { name, args } => {
-            ProofTerm::Function(
-                name,
-                args.into_iter().map(expr_to_term).collect(),
-            )
+            ProofTerm::Function(name, args.into_iter().map(expr_to_term).collect())
         }
-        ProofExpr::Predicate { name, args, .. } => {
-            ProofTerm::Function(name, args)
-        }
+        ProofExpr::Predicate { name, args, .. } => ProofTerm::Function(name, args),
         ProofExpr::TypedVar { name, typename } => {
             ProofTerm::Variable(format!("{}:{}", name, typename))
         }
@@ -95,10 +88,7 @@ fn test_auto_induction_right_identity() {
     engine.set_max_depth(20);
 
     // Axiom 1: Add(Zero, m) = m (base definition)
-    engine.add_axiom(eq(
-        app("Add", vec![zero(), var("m")]),
-        var("m"),
-    ));
+    engine.add_axiom(eq(app("Add", vec![zero(), var("m")]), var("m")));
 
     // Axiom 2: Add(Succ(k), m) = Succ(Add(k, m)) (step definition)
     engine.add_axiom(eq(
@@ -108,15 +98,16 @@ fn test_auto_induction_right_identity() {
 
     // Goal: ∀n:Nat. Add(n, Zero) = n
     // This requires motive inference to work properly
-    let goal = eq(
-        app("Add", vec![nat_var("n"), zero()]),
-        nat_var("n"),
-    );
+    let goal = eq(app("Add", vec![nat_var("n"), zero()]), nat_var("n"));
 
     let result = engine.prove(goal);
 
     // Should succeed using structural induction with auto-inferred motive
-    assert!(result.is_ok(), "Should prove Add(n, Zero) = n by auto-induction: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should prove Add(n, Zero) = n by auto-induction: {:?}",
+        result
+    );
 
     let proof = result.unwrap();
 
@@ -145,20 +136,18 @@ fn test_left_identity_no_induction_needed() {
     engine.set_max_depth(10);
 
     // Axiom: Add(Zero, m) = m
-    engine.add_axiom(eq(
-        app("Add", vec![zero(), var("m")]),
-        var("m"),
-    ));
+    engine.add_axiom(eq(app("Add", vec![zero(), var("m")]), var("m")));
 
     // Goal: Add(Zero, n) = n (n is not typed, so no induction)
-    let goal = eq(
-        app("Add", vec![zero(), var("n")]),
-        var("n"),
-    );
+    let goal = eq(app("Add", vec![zero(), var("n")]), var("n"));
 
     let result = engine.prove(goal);
 
-    assert!(result.is_ok(), "Left identity should work via unification: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Left identity should work via unification: {:?}",
+        result
+    );
 
     let proof = result.unwrap();
     println!("✓ Proved Add(Zero, n) = n:");
@@ -174,7 +163,7 @@ fn test_motive_inference_direct() {
     // Test that the pattern unification correctly infers the motive
     // This is a unit test for the motive inference mechanism
 
-    use logicaffeine_proof::unify::{unify_pattern, beta_reduce};
+    use logicaffeine_proof::unify::{beta_reduce, unify_pattern};
 
     // Pattern: ?Motive(#n) where n is bound var
     let motive_hole = ProofExpr::Hole("Motive".to_string());
@@ -187,17 +176,21 @@ fn test_motive_inference_direct() {
     // Note: Using Variable for n since it's a free var in the body
     let n = ProofTerm::Variable("n".to_string());
     let body = ProofExpr::Identity(
-        ProofTerm::Function("Add".to_string(), vec![
-            n.clone(),
-            ProofTerm::Function("Zero".to_string(), vec![]),
-        ]),
+        ProofTerm::Function(
+            "Add".to_string(),
+            vec![n.clone(), ProofTerm::Function("Zero".to_string(), vec![])],
+        ),
         n.clone(),
     );
 
     // Unify: ?Motive(#n) = Add(n, Zero) = n
     let result = unify_pattern(&pattern, &body);
 
-    assert!(result.is_ok(), "Motive inference should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Motive inference should succeed: {:?}",
+        result
+    );
 
     let solution = result.unwrap();
     let motive = solution.get("Motive").expect("Motive should be solved");
@@ -215,7 +208,10 @@ fn test_motive_inference_direct() {
     // Now verify applying motive(Zero) gives correct base case
     let base_app = ProofExpr::App(
         Box::new(motive.clone()),
-        Box::new(ProofExpr::Ctor { name: "Zero".to_string(), args: vec![] }),
+        Box::new(ProofExpr::Ctor {
+            name: "Zero".to_string(),
+            args: vec![],
+        }),
     );
     let base_case = beta_reduce(&base_app);
 
@@ -249,16 +245,11 @@ fn test_motive_inference_triggered_in_engine() {
     // reflects the motive-based approach (beta reduction of λx.Body applied
     // to Zero and Succ(k)).
 
-    use logicaffeine_proof::unify::beta_reduce;
-
     let mut engine = BackwardChainer::new();
     engine.set_max_depth(20);
 
     // Axiom 1: Add(Zero, m) = m
-    engine.add_axiom(eq(
-        app("Add", vec![zero(), var("m")]),
-        var("m"),
-    ));
+    engine.add_axiom(eq(app("Add", vec![zero(), var("m")]), var("m")));
 
     // Axiom 2: Add(Succ(k), m) = Succ(Add(k, m))
     engine.add_axiom(eq(
@@ -267,10 +258,7 @@ fn test_motive_inference_triggered_in_engine() {
     ));
 
     // Goal: Add(n:Nat, Zero) = n:Nat
-    let goal = eq(
-        app("Add", vec![nat_var("n"), zero()]),
-        nat_var("n"),
-    );
+    let goal = eq(app("Add", vec![nat_var("n"), zero()]), nat_var("n"));
 
     let result = engine.prove(goal);
     assert!(result.is_ok(), "Should prove by induction: {:?}", result);
@@ -284,7 +272,11 @@ fn test_motive_inference_triggered_in_engine() {
     );
 
     // The proof should have 2 premises (base and step)
-    assert_eq!(proof.premises.len(), 2, "Induction needs base and step cases");
+    assert_eq!(
+        proof.premises.len(),
+        2,
+        "Induction needs base and step cases"
+    );
 
     // Verify base case structure:
     // If motive inference worked, the base case should be proving

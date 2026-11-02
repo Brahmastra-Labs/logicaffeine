@@ -1,9 +1,10 @@
-use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position, Range};
+use lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position, Range};
 
 use logicaffeine_compile::analysis::VarState;
 use logicaffeine_language::token::{BlockType, TokenType};
 
 use crate::document::DocumentState;
+use crate::workspace::WorkspaceView;
 
 /// Handle hover request.
 ///
@@ -12,10 +13,69 @@ use crate::document::DocumentState;
 pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
     let offset = doc.line_index.offset(position);
 
+    // ★ A NAME INSIDE A TEMPLATE IS NOT A TOKEN. The match below dispatches on the token's KIND,
+    // and a `View:` body is one `RawBlock` — so `{count}` never reached the identifier arm and
+    // hovering it said nothing at all. The reference the parser recorded is the only place that
+    // name exists by now, and it already points at the definition, which is exactly what the
+    // identifier arm goes on to look up.
+    //
+    // ★ ONLY WHERE THERE IS NO NAME TOKEN, which means only inside a raw block. Taking this path
+    // whenever a reference covered the cursor ALSO took it for ordinary code, and skipped the
+    // enrichment below — the ownership state, the diagnostics on the token — so hovering a plain
+    // `x` stopped saying whether it had been given away. A narrower gate keeps the two worlds
+    // apart: outside a template the token path was always right and still is.
+    let inside_raw_block = doc
+        .tokens
+        .iter()
+        .find(|t| offset >= t.span.start && offset < t.span.end)
+        .is_some_and(|t| matches!(t.kind, TokenType::RawBlock { .. }));
+    if let Some(reference) = doc
+        .symbol_index
+        .references
+        .iter()
+        .find(|r| inside_raw_block && offset >= r.span.start && offset < r.span.end)
+    {
+        if let Some(def) = reference
+            .definition_idx
+            .and_then(|i| doc.symbol_index.definitions.get(i))
+        {
+            if let Some(md) = definition_hover(def) {
+                return Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: md,
+                    }),
+                    range: Some(Range {
+                        start: doc.line_index.position(reference.span.start),
+                        end: doc.line_index.position(reference.span.end),
+                    }),
+                });
+            }
+        }
+    }
+
     // Find the token at the cursor position
-    let token = doc.tokens.iter().find(|t| {
-        offset >= t.span.start && offset < t.span.end
-    })?;
+    let at = doc
+        .tokens
+        .iter()
+        .position(|t| offset >= t.span.start && offset < t.span.end)?;
+    let token = &doc.tokens[at];
+
+    // A comparison written in English (`is less than`, `at least`, `is equal to`) is several
+    // tokens that mean one thing; the hover covers the phrase and teaches the comparison, the
+    // same lesson `<`, `>=` or `==` would.
+    if let Some((lesson, span)) = logicaffeine_language::teach::doc_for_phrase(&doc.source, &doc.tokens, at) {
+        return Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: crate::teach_md::keyword_hover_md(lesson),
+            }),
+            range: Some(Range {
+                start: doc.line_index.position(span.start),
+                end: doc.line_index.position(span.end),
+            }),
+        });
+    }
 
     let text = doc.source.get(token.span.start..token.span.end)?;
 
@@ -42,11 +102,18 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
 
         // Identifiers, proper names, adjectives, nouns → look up definition
         // info first (detail + literate doc), then the stdlib registry.
-        TokenType::Identifier | TokenType::ProperName(_)
-        | TokenType::Adjective(_) | TokenType::Noun(_) => {
+        TokenType::Identifier
+        | TokenType::ProperName(_)
+        | TokenType::Adjective(_)
+        | TokenType::Noun(_) => {
             let defs = doc.symbol_index.definitions_of(text);
             if let Some(def) = defs.first() {
                 definition_hover(def)
+            } else if let Some(binding) = let_binding(doc, text) {
+                Some(binding)
+            } else if let Some(lesson) = logicaffeine_language::teach::doc_for_primitive(text) {
+                // `Int`, `Text`, `Seq`: the type's lesson (DAT-106).
+                Some(crate::teach_md::keyword_hover_md(lesson))
             } else if let Some(entry) = crate::stdlib_docs::stdlib_doc(text) {
                 Some(crate::stdlib_docs::hover_md(text, entry))
             } else {
@@ -65,10 +132,17 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
 
         // Verbs → a defined function first (English-word function names lex
         // as verbs), then the stdlib registry, then the verb-class display.
-        TokenType::Verb { lemma, time, aspect, class } => {
+        TokenType::Verb {
+            lemma,
+            time,
+            aspect,
+            class,
+        } => {
             let defs = doc.symbol_index.definitions_of(text);
             if let Some(def) = defs.first() {
                 definition_hover(def)
+            } else if let Some(binding) = let_binding(doc, text) {
+                Some(binding)
             } else if let Some(entry) = crate::stdlib_docs::stdlib_doc(text) {
                 Some(crate::stdlib_docs::hover_md(text, entry))
             } else {
@@ -83,10 +157,11 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
             }
         }
 
-        // Type names → look up in registry
+        // Type names → the primitive's lesson, else the registry
         _ => {
-            // Check if this is a type name
-            if let Some(sym) = doc.interner.lookup(text) {
+            if let Some(lesson) = logicaffeine_language::teach::doc_for_primitive(text) {
+                Some(crate::teach_md::keyword_hover_md(lesson))
+            } else if let Some(sym) = doc.interner.lookup(text) {
                 if let Some(typedef) = doc.type_registry.get(sym) {
                     Some(format_typedef(text, typedef, &doc.interner))
                 } else {
@@ -103,42 +178,37 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
         end: doc.line_index.position(token.span.end),
     };
 
-    // Enrich with ownership state and diagnostics for variable-like tokens
+    // Enrich variable-like tokens with their ownership state. A token's problems are the
+    // editor's to show, in its own section of the hover — repeating them here says each twice.
     let content = content.map(|mut c| {
         if matches!(
             &token.kind,
-            TokenType::Identifier | TokenType::ProperName(_)
-            | TokenType::Adjective(_) | TokenType::Noun(_)
+            TokenType::Identifier
+                | TokenType::ProperName(_)
+                | TokenType::Adjective(_)
+                | TokenType::Noun(_)
         ) {
             // Ownership state
             if let Some(state) = doc.ownership_states.get(text) {
                 let state_str = match state {
                     VarState::Owned => "Owned",
                     VarState::Moved => "Moved",
-                    VarState::MaybeMoved => "Maybe Moved",
+                    VarState::MaybeMoved(_) => "Maybe Moved",
                     VarState::Borrowed => "Borrowed",
                 };
                 c.push_str(&format!("\n\n**Ownership**: {}", state_str));
                 match state {
                     VarState::Moved => {
-                        c.push_str("\n\n*This variable has been given away and can no longer be used.*");
+                        c.push_str(
+                            "\n\n*This variable has been given away and can no longer be used.*",
+                        );
                     }
-                    VarState::MaybeMoved => {
-                        c.push_str("\n\n*This variable might have been given away in a conditional branch.*");
+                    VarState::MaybeMoved(given_in) => {
+                        c.push_str(&format!(
+                            "\n\n*This variable might have been given away in {given_in}.*"
+                        ));
                     }
                     _ => {}
-                }
-            }
-
-            // Diagnostics affecting this token
-            let affecting: Vec<_> = doc.diagnostics.iter()
-                .filter(|d| ranges_overlap(&token_range, &d.range))
-                .collect();
-            if !affecting.is_empty() {
-                c.push_str("\n\n---\n");
-                for diag in affecting.iter().take(3) {
-                    let first_line = diag.message.lines().next().unwrap_or(&diag.message);
-                    c.push_str(&format!("\n**Diagnostic**: {}", first_line));
                 }
             }
         }
@@ -183,6 +253,29 @@ fn aspect_display(aspect: &logicaffeine_language::lexicon::Aspect) -> &'static s
 
 /// A definition's hover: its signature detail plus its literate `## Note`
 /// documentation, when either exists.
+/// The `Let` that binds `name`, read from the tokens alone — `Let mut tries` for
+/// `Let mutable tries be 0.` A program that does not parse (an exercise with a `???` hole) has
+/// no symbol index to find its variables in, yet its `Let` lines still say which words they
+/// are, whatever those words would lex as on their own.
+fn let_binding(doc: &DocumentState, name: &str) -> Option<String> {
+    let text = |i: usize| {
+        doc.tokens
+            .get(i)
+            .and_then(|t| doc.source.get(t.span.start..t.span.end))
+            .unwrap_or("")
+    };
+    (0..doc.tokens.len()).find_map(|i| {
+        if !matches!(doc.tokens[i].kind, TokenType::Let) {
+            return None;
+        }
+        let mutable = matches!(doc.tokens.get(i + 1).map(|t| &t.kind), Some(TokenType::Mut))
+            || text(i + 1).eq_ignore_ascii_case("mutable")
+            || text(i + 1).eq_ignore_ascii_case("mut");
+        let bound = if mutable { i + 2 } else { i + 1 };
+        (text(bound) == name).then(|| format!("Let {}{name}", if mutable { "mut " } else { "" }))
+    })
+}
+
 fn definition_hover(def: &crate::index::Definition) -> Option<String> {
     match (&def.detail, &def.doc) {
         (Some(detail), Some(doc)) => Some(format!("{detail}\n\n{doc}")),
@@ -190,13 +283,6 @@ fn definition_hover(def: &crate::index::Definition) -> Option<String> {
         (None, Some(doc)) => Some(doc.clone()),
         (None, None) => None,
     }
-}
-
-fn ranges_overlap(a: &Range, b: &Range) -> bool {
-    !(a.end.line < b.start.line
-        || (a.end.line == b.start.line && a.end.character < b.start.character)
-        || b.end.line < a.start.line
-        || (b.end.line == a.start.line && b.end.character < a.start.character))
 }
 
 fn format_typedef(
@@ -232,7 +318,11 @@ fn format_typedef(
                             )
                         })
                         .collect();
-                    s.push_str(&format!("- `{}` with {}\n", variant_name, fields.join(", ")));
+                    s.push_str(&format!(
+                        "- `{}` with {}\n",
+                        variant_name,
+                        fields.join(", ")
+                    ));
                 }
             }
             s
@@ -241,7 +331,10 @@ fn format_typedef(
             format!("**primitive** {}", name)
         }
         logicaffeine_language::analysis::TypeDef::Generic { param_count } => {
-            format!("**generic** {} (takes {} type parameter(s))", name, param_count)
+            format!(
+                "**generic** {} (takes {} type parameter(s))",
+                name, param_count
+            )
         }
         logicaffeine_language::analysis::TypeDef::Alias { target } => {
             format!("**alias** {} = {}", name, interner.resolve(*target))
@@ -249,308 +342,75 @@ fn format_typedef(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::document::DocumentState;
+/// "Defined in module `util.lg`" for a cross-file name — a name NOT defined in
+/// this document and NOT a stdlib name, but publicly exported by some project
+/// module. Returns `None` for local/stdlib names (they have their own hover).
+pub fn module_attribution(
+    doc: &DocumentState,
+    position: Position,
+    ws: &dyn WorkspaceView,
+) -> Option<String> {
+    let offset = doc.line_index.offset(position);
+    let token = doc
+        .tokens
+        .iter()
+        .find(|t| offset >= t.span.start && offset < t.span.end)?;
+    let text = doc.source.get(token.span.start..token.span.end)?;
 
-    fn make_doc(source: &str) -> DocumentState {
-        DocumentState::new(source.to_string(), 1)
+    if !doc.symbol_index.definitions_of(text).is_empty() {
+        return None;
     }
+    if crate::stdlib_docs::stdlib_doc(text).is_some() {
+        return None;
+    }
+    let files: Vec<String> = ws
+        .module_exporting(text)
+        .iter()
+        .filter_map(|e| crate::workspace::url_path(&e.module_url))
+        .filter_map(|p| {
+            p.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| format!("`{s}`"))
+        })
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+    Some(format!("*Defined in module {}*", files.join(", ")))
+}
 
-    #[test]
-    fn hover_on_keyword_shows_docs() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position on "Let" (line 1, character 4)
-        let pos = Position { line: 1, character: 4 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover info for 'Let'");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(m.value.contains("Let"), "Hover should mention 'Let': {}", m.value);
-                assert!(m.value.contains("variable"), "Hover should describe variable declaration: {}", m.value);
+/// [`hover`] enriched with cross-file module attribution: when the name under the
+/// cursor is defined in another project module, append "Defined in module X".
+pub fn hover_with_workspace(
+    doc: &DocumentState,
+    position: Position,
+    ws: &dyn WorkspaceView,
+) -> Option<Hover> {
+    let base = hover(doc, position);
+    let attribution = module_attribution(doc, position, ws);
+    match (base, attribution) {
+        (Some(mut h), Some(attr)) => {
+            if let HoverContents::Markup(mc) = &mut h.contents {
+                mc.value.push_str("\n\n---\n\n");
+                mc.value.push_str(&attr);
             }
-            _ => panic!("Expected markup content"),
+            Some(h)
         }
-    }
-
-    #[test]
-    fn hover_on_variable_shows_definition() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover info for variable 'x'");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(m.value.contains("Let") || m.value.contains("x"),
-                    "Variable hover should contain 'Let' or 'x': {}", m.value);
-            }
-            _ => panic!("Expected markup content"),
-        }
-    }
-
-    #[test]
-    fn hover_on_block_header() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        let pos = Position { line: 0, character: 0 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover for block header");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(
-                    m.value.contains("Block Header") || m.value.contains("entry point"),
-                    "Expected block header info: {}",
-                    m.value
-                );
-            }
-            _ => panic!("Expected markup content"),
-        }
-    }
-
-    #[test]
-    fn hover_whitespace_returns_none() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        let pos = Position { line: 0, character: 50 };
-        let result = hover(&doc, pos);
-        assert!(result.is_none(), "Hover on whitespace/OOB should return None");
-    }
-
-    #[test]
-    fn hover_returns_correct_range() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some());
-        let h = result.unwrap();
-        assert!(h.range.is_some(), "Hover should include a range");
-        let range = h.range.unwrap();
-        assert_eq!(range.start.line, 2, "Hover range should be on line 2");
-    }
-
-    #[test]
-    fn hover_verb_shows_lowercase_class() {
-        // Verb hover should show lowercase class/time/aspect, not Debug format
-        let _doc = make_doc("## Main\n    Let x be 5.\n");
-        assert_eq!(verb_class_display(&logicaffeine_language::lexicon::VerbClass::Activity), "activity");
-        assert_eq!(verb_class_display(&logicaffeine_language::lexicon::VerbClass::State), "state");
-        assert_eq!(verb_class_display(&logicaffeine_language::lexicon::VerbClass::Accomplishment), "accomplishment");
-        assert_eq!(verb_class_display(&logicaffeine_language::lexicon::VerbClass::Achievement), "achievement");
-        assert_eq!(verb_class_display(&logicaffeine_language::lexicon::VerbClass::Semelfactive), "semelfactive");
-        assert_eq!(time_display(&logicaffeine_language::lexicon::Time::Past), "past");
-        assert_eq!(time_display(&logicaffeine_language::lexicon::Time::Present), "present");
-        assert_eq!(time_display(&logicaffeine_language::lexicon::Time::Future), "future");
-        assert_eq!(time_display(&logicaffeine_language::lexicon::Time::None), "none");
-        assert_eq!(aspect_display(&logicaffeine_language::lexicon::Aspect::Simple), "simple");
-        assert_eq!(aspect_display(&logicaffeine_language::lexicon::Aspect::Progressive), "progressive");
-        assert_eq!(aspect_display(&logicaffeine_language::lexicon::Aspect::Perfect), "perfect");
-    }
-
-    #[test]
-    fn hover_set_keyword_docs() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Set x to 10.\n");
-        // Position on "Set" keyword (line 2, character 4)
-        let pos = Position { line: 2, character: 4 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover for 'Set' keyword");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(m.value.contains("Updates") || m.value.contains("Set"),
-                    "Set hover should contain 'Updates': {}", m.value);
-            }
-            _ => panic!("Expected markup content"),
-        }
-    }
-
-    #[test]
-    fn hover_shows_the_notes_prose_for_a_documented_function() {
-        let doc = make_doc(
-            "## Note\nDoubles a number.\n\n## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nLet x be double(3).\n",
-        );
-        // Hover over "double" at the call site (line 7).
-        let pos = Position { line: 7, character: 10 };
-        let result = hover(&doc, pos).expect("hover on documented call");
-        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
-        assert!(
-            m.value.contains("double"),
-            "the signature detail renders: {}",
-            m.value
-        );
-        assert!(
-            m.value.contains("Doubles a number."),
-            "the ## Note prose renders: {}",
-            m.value
-        );
-    }
-
-    #[test]
-    fn hover_teaches_stdlib_names_from_their_literate_docs() {
-        let doc = make_doc("## Main\nLet d be md5([1]).\n");
-        // Hover over "md5" (line 1, character 9).
-        let pos = Position { line: 1, character: 9 };
-        let result = hover(&doc, pos).expect("hover on a stdlib name");
-        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
-        assert!(m.value.contains("standard library"), "{}", m.value);
-        assert!(m.value.contains("MD5"), "the literate Note teaches: {}", m.value);
-    }
-
-    #[test]
-    fn hover_keyword_carries_the_full_lesson() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n");
-        // Position on "Give" (line 3, character 4).
-        let pos = Position { line: 3, character: 4 };
-        let result = hover(&doc, pos).expect("hover on 'Give'");
-        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
-        let lesson = logicaffeine_language::teach::doc_for(&TokenType::Give)
-            .expect("Give is a taught keyword");
-        assert!(
-            m.value.contains(lesson.what),
-            "Give hover must carry the lesson's `what`: {}",
-            m.value
-        );
-        assert!(
-            m.value.contains(lesson.question_or_tip),
-            "Give hover must carry the socratic question: {}",
-            m.value
-        );
-        assert!(
-            m.value.contains("LOGOS_QUICKGUIDE.md#"),
-            "Give hover must link the quickguide anchor: {}",
-            m.value
-        );
-    }
-
-    #[test]
-    fn hover_covers_newly_taught_keywords() {
-        let doc = make_doc("## Main\n    While true:\n        Break.\n");
-        // Position on "Break" (line 2, character 8).
-        let pos = Position { line: 2, character: 8 };
-        let result = hover(&doc, pos).expect("hover on 'Break' — newly taught");
-        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
-        assert!(
-            m.value.contains("innermost"),
-            "Break hover must teach the innermost-loop rule: {}",
-            m.value
-        );
-    }
-
-    #[test]
-    fn hover_block_header_carries_the_lesson_question() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        let pos = Position { line: 0, character: 0 };
-        let result = hover(&doc, pos).expect("hover on ## Main");
-        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
-        let lesson = logicaffeine_language::teach::doc_for_block(
-            &logicaffeine_language::token::BlockType::Main,
-        );
-        assert!(
-            m.value.contains("Block Header"),
-            "block hover keeps the Block Header banner: {}",
-            m.value
-        );
-        assert!(
-            m.value.contains(lesson.question_or_tip),
-            "block hover must carry the lesson's question or tip: {}",
-            m.value
-        );
-    }
-
-    #[test]
-    fn hover_theorem_shows_proof_hint() {
-        let doc = make_doc("## Theorem: all humans are mortal\n    All humans are mortal.\n");
-        // Hover on the block header "##" (line 0, character 0)
-        let pos = Position { line: 0, character: 0 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover for Theorem block header");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(
-                    m.value.contains("Proof Strategy"),
-                    "Theorem hover should include proof strategy hint: {}",
-                    m.value
-                );
-                assert!(
-                    m.value.contains("universal"),
-                    "Theorem with 'all' should suggest universal proof strategy: {}",
-                    m.value
-                );
-            }
-            _ => panic!("Expected markup content"),
-        }
-    }
-
-    #[test]
-    fn hover_theorem_implication_shows_strategy() {
-        let doc = make_doc("## Theorem: if it rains then ground is wet\n    If it rains then the ground is wet.\n");
-        let pos = Position { line: 0, character: 0 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover for Theorem block");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(
-                    m.value.contains("implication"),
-                    "Theorem with 'if' should suggest implication strategy: {}",
-                    m.value
-                );
-            }
-            _ => panic!("Expected markup content"),
-        }
-    }
-
-    #[test]
-    fn hover_owned_variable_shows_owned() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        // Hover on "x" in "Show x." (line 2, character 9)
-        let pos = Position { line: 2, character: 9 };
-        let result = hover(&doc, pos);
-        assert!(result.is_some(), "Expected hover for 'x'");
-        let h = result.unwrap();
-        match &h.contents {
-            HoverContents::Markup(m) => {
-                assert!(
-                    m.value.contains("Ownership") && m.value.contains("Owned")
-                    || m.value.contains("Borrowed"),
-                    "Hover should show ownership state: {}",
-                    m.value
-                );
-            }
-            _ => panic!("Expected markup content"),
-        }
-    }
-
-    #[test]
-    fn hover_moved_variable_shows_ownership_state() {
-        // After Give, x is Moved. The parser may emit use-after-move, but
-        // the ownership state should still be Moved on the checker.
-        let doc = make_doc("## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n");
-        // Check that x has Moved state in ownership_states
-        if let Some(state) = doc.ownership_states.get("x") {
-            assert!(
-                matches!(state, VarState::Moved),
-                "x should be Moved after Give, got: {:?}",
-                state
-            );
-        }
-    }
-
-    #[test]
-    fn hover_borrowed_variable_shows_borrowed() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        // After Show, x should be Borrowed (or still Owned)
-        if let Some(state) = doc.ownership_states.get("x") {
-            assert!(
-                matches!(state, VarState::Borrowed | VarState::Owned),
-                "x should be Borrowed or Owned after Show, got: {:?}",
-                state
-            );
-        }
+        (Some(h), None) => Some(h),
+        (None, Some(attr)) => Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: attr,
+            }),
+            range: None,
+        }),
+        (None, None) => None,
     }
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/hover/tests.rs"]
+mod tests;
 
 /// Analyze the source text of a Theorem block to suggest a proof strategy.
 ///
@@ -561,7 +421,8 @@ fn proof_strategy_hint_from_source(source: &str, block_start: usize) -> String {
     let block_end = block_text.find("\n## ").unwrap_or(block_text.len());
     let block_body = &block_text[..block_end].to_lowercase();
 
-    if block_body.contains("for all") || block_body.contains("every") || block_body.contains("all ") {
+    if block_body.contains("for all") || block_body.contains("every") || block_body.contains("all ")
+    {
         return "Your theorem involves a universal claim. To prove it, consider an arbitrary element and show the property holds.".to_string();
     }
     if block_body.contains("there exists") || block_body.contains("some ") {
@@ -571,10 +432,12 @@ fn proof_strategy_hint_from_source(source: &str, block_start: usize) -> String {
         return "Your theorem is an implication. Try assuming the antecedent and proving the consequent.".to_string();
     }
     if block_body.contains(" and ") {
-        return "Your theorem is a conjunction. You need to prove both parts separately.".to_string();
+        return "Your theorem is a conjunction. You need to prove both parts separately."
+            .to_string();
     }
     if block_body.contains(" or ") {
-        return "Your theorem is a disjunction. You only need to prove one of the alternatives.".to_string();
+        return "Your theorem is a disjunction. You only need to prove one of the alternatives."
+            .to_string();
     }
     if block_body.contains("not ") || block_body.contains("no ") {
         return "Your theorem involves negation. Try assuming the positive form and deriving a contradiction.".to_string();
@@ -583,7 +446,8 @@ fn proof_strategy_hint_from_source(source: &str, block_start: usize) -> String {
         return "Your theorem is an equality. Can you rewrite one side to match the other, or use reflexivity?".to_string();
     }
 
-    "What logical structure does your theorem have? Try breaking it down into simpler parts.".to_string()
+    "What logical structure does your theorem have? Try breaking it down into simpler parts."
+        .to_string()
 }
 
 pub fn format_field_type(
@@ -607,6 +471,26 @@ pub fn format_field_type(
         }
         logicaffeine_language::analysis::FieldType::TypeParam(sym) => {
             interner.resolve(*sym).to_string()
+        }
+        logicaffeine_language::analysis::FieldType::Tuple(items) => {
+            let parts: Vec<String> = items
+                .iter()
+                .map(|t| format_field_type(t, interner))
+                .collect();
+            format!("({})", parts.join(", "))
+        }
+        logicaffeine_language::analysis::FieldType::Record(fields) => {
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(n, t)| {
+                    format!(
+                        "{}: {}",
+                        interner.resolve(*n),
+                        format_field_type(t, interner)
+                    )
+                })
+                .collect();
+            format!("({})", parts.join(", "))
         }
     }
 }

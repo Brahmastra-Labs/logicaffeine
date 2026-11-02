@@ -1,0 +1,10 @@
+{
+  "capability": "convert.to_hex_int",
+  "workload": "len toHexInt(i)",
+  "arg": "2000000",
+  "expected": "10881525",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

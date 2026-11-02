@@ -42,10 +42,10 @@
 //!
 //! This module requires the `verification` feature to be enabled.
 
-use logicaffeine_language::ast::{LogicExpr, ModalDomain, NumberKind, QuantifierKind, Term};
-use logicaffeine_language::ast::{TemporalOperator, AspectOperator};
-use logicaffeine_language::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use logicaffeine_base::{Interner, Symbol};
+use logicaffeine_language::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use logicaffeine_language::ast::{AspectOperator, TemporalOperator};
+use logicaffeine_language::ast::{LogicExpr, ModalDomain, NumberKind, QuantifierKind, Term};
 use logicaffeine_language::token::TokenType;
 
 use logicaffeine_verify::{VerificationSession, VerifyExpr, VerifyOp, VerifyType};
@@ -272,7 +272,9 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::SeqConcat => VerifyType::Object,
                     BinaryOpKind::ApproxEq => VerifyType::Bool,
                     // Bitwise operations produce Int
-                    BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    BinaryOpKind::BitXor
+                    | BinaryOpKind::BitAnd
+                    | BinaryOpKind::BitOr
                     | BinaryOpKind::Shl
                     | BinaryOpKind::Shr => VerifyType::Int,
                 }
@@ -309,26 +311,27 @@ impl<'a> VerificationPass<'a> {
         let bound_name = self.interner.resolve(bound_var);
 
         // 4. Verify with the binding
-        self.session.verify_with_binding(
-            bound_name,
-            VerifyType::Int, // Refinements are typically on Int
-            &val_ir,
-            &pred_ir,
-        ).map_err(|e| format!(
-            "Refinement type verification failed for '{}': {}",
-            var_name, e
-        ))
+        self.session
+            .verify_with_binding(
+                bound_name,
+                VerifyType::Int, // Refinements are typically on Int
+                &val_ir,
+                &pred_ir,
+            )
+            .map_err(|e| {
+                format!(
+                    "Refinement type verification failed for '{}': {}",
+                    var_name, e
+                )
+            })
     }
 
     /// Phase 44: Verify that a loop terminates by checking its decreasing variant.
-    fn check_termination(
-        &self,
-        variant_expr: &Expr,
-        body: &[Stmt],
-    ) -> Result<(), String> {
+    fn check_termination(&self, variant_expr: &Expr, body: &[Stmt]) -> Result<(), String> {
         // 1. Map the variant to IR (this is V₀ - value before loop body)
-        let v0 = self.map_imperative_expr(variant_expr)
-            .ok_or_else(|| "Cannot verify termination: variant expression not supported".to_string())?;
+        let v0 = self.map_imperative_expr(variant_expr).ok_or_else(|| {
+            "Cannot verify termination: variant expression not supported".to_string()
+        })?;
 
         // 2. Get the variant variable name (must be a simple identifier for now)
         let variant_name = match variant_expr {
@@ -349,7 +352,10 @@ impl<'a> VerificationPass<'a> {
         let termination_proof = VerifyExpr::and(decreasing_constraint, bounded_constraint);
 
         self.session.verify(&termination_proof).map_err(|e| {
-            format!("Termination verification failed for '{}': {}", variant_name, e)
+            format!(
+                "Termination verification failed for '{}': {}",
+                variant_name, e
+            )
         })
     }
 
@@ -379,7 +385,9 @@ impl<'a> VerificationPass<'a> {
                         latest_value = self.map_imperative_expr_with_bindings(value, &bindings);
                     } else {
                         // Track other Set statements that might affect bindings
-                        if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                        if let Some(val_ir) =
+                            self.map_imperative_expr_with_bindings(value, &bindings)
+                        {
                             bindings.insert(target_name.to_string(), val_ir);
                         }
                     }
@@ -390,9 +398,8 @@ impl<'a> VerificationPass<'a> {
             }
         }
 
-        latest_value.ok_or_else(|| {
-            format!("Variant '{}' is not modified in loop body", variant_name)
-        })
+        latest_value
+            .ok_or_else(|| format!("Variant '{}' is not modified in loop body", variant_name))
     }
 
     /// Map an imperative expression to Verification IR, substituting known bindings.
@@ -444,11 +451,16 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Or => VerifyOp::Or,
                     // Modulo, Pow, Concat, and bitwise ops are not directly supported in the
                     // verification IR.
-                    BinaryOpKind::Modulo | BinaryOpKind::Pow
-                    | BinaryOpKind::Concat | BinaryOpKind::SeqConcat
+                    BinaryOpKind::Modulo
+                    | BinaryOpKind::Pow
+                    | BinaryOpKind::Concat
+                    | BinaryOpKind::SeqConcat
                     | BinaryOpKind::ApproxEq
-                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
-                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    | BinaryOpKind::BitXor
+                    | BinaryOpKind::BitAnd
+                    | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl
+                    | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -475,7 +487,7 @@ impl<'a> VerificationPass<'a> {
             Expr::Literal(Literal::Text(_)) => None, // Text not supported in Z3
             Expr::Literal(Literal::Nothing) => None,
             Expr::Literal(Literal::Float(_)) => None, // Float not directly supported
-            Expr::Literal(Literal::Char(_)) => None, // Char not directly supported
+            Expr::Literal(Literal::Char(_)) => None,  // Char not directly supported
             // Temporal types map to Int (nanoseconds/days are just integers for Z3)
             Expr::Literal(Literal::Duration(nanos)) => Some(VerifyExpr::int(*nanos)),
             Expr::Literal(Literal::Date(days)) => Some(VerifyExpr::int(*days as i64)),
@@ -507,11 +519,16 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Or => VerifyOp::Or,
                     // Modulo, Pow, Concat, and bitwise ops are not directly supported in the
                     // verification IR.
-                    BinaryOpKind::Modulo | BinaryOpKind::Pow
-                    | BinaryOpKind::Concat | BinaryOpKind::SeqConcat
+                    BinaryOpKind::Modulo
+                    | BinaryOpKind::Pow
+                    | BinaryOpKind::Concat
+                    | BinaryOpKind::SeqConcat
                     | BinaryOpKind::ApproxEq
-                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
-                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    | BinaryOpKind::BitXor
+                    | BinaryOpKind::BitAnd
+                    | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl
+                    | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -545,10 +562,7 @@ impl<'a> VerificationPass<'a> {
 
             LogicExpr::Predicate { name, args, .. } => {
                 let pred_name = self.interner.resolve(*name);
-                let verify_args: Vec<VerifyExpr> = args
-                    .iter()
-                    .map(|t| self.map_term(t))
-                    .collect();
+                let verify_args: Vec<VerifyExpr> = args.iter().map(|t| self.map_term(t)).collect();
 
                 // Phase 43D: Handle comparison predicates from refinement types
                 // The parser creates predicates like "Greater(it, 0)" for "it > 0"
@@ -584,29 +598,39 @@ impl<'a> VerificationPass<'a> {
                     TokenType::Or => VerifyOp::Or,
                     TokenType::If | TokenType::Implies | TokenType::Then => VerifyOp::Implies,
                     TokenType::Iff => VerifyOp::Eq, // Biconditional is boolean equality
-                    _ => VerifyOp::And, // Fallback
+                    _ => VerifyOp::And,             // Fallback
                 };
                 VerifyExpr::binary(verify_op, l, r)
             }
 
-            LogicExpr::UnaryOp { op, operand } => {
-                match op {
-                    TokenType::Not => VerifyExpr::not(self.map_logic_expr(operand)),
-                    _ => self.map_logic_expr(operand),
-                }
-            }
+            LogicExpr::UnaryOp { op, operand } => match op {
+                TokenType::Not => VerifyExpr::not(self.map_logic_expr(operand)),
+                _ => self.map_logic_expr(operand),
+            },
 
             // Smart Mapping: Modal operators become uninterpreted functions
             LogicExpr::Modal { vector, operand } => {
                 let op_name = match vector.domain {
                     ModalDomain::Alethic => {
-                        if vector.force > 0.5 { "Necessarily" } else { "Possibly" }
+                        if vector.force > 0.5 {
+                            "Necessarily"
+                        } else {
+                            "Possibly"
+                        }
                     }
                     ModalDomain::Deontic => {
-                        if vector.force > 0.5 { "Obligatory" } else { "Permissible" }
+                        if vector.force > 0.5 {
+                            "Obligatory"
+                        } else {
+                            "Permissible"
+                        }
                     }
                     ModalDomain::Temporal => {
-                        if vector.force > 0.5 { "Always" } else { "Eventually" }
+                        if vector.force > 0.5 {
+                            "Always"
+                        } else {
+                            "Eventually"
+                        }
                     }
                 };
                 VerifyExpr::apply(op_name, vec![self.map_logic_expr(operand)])
@@ -618,24 +642,29 @@ impl<'a> VerificationPass<'a> {
                     TemporalOperator::Past => "Past",
                     TemporalOperator::Future => "Future",
                     TemporalOperator::Always => "Always",
-                    TemporalOperator::Eventually
-                    | TemporalOperator::BoundedEventually(_) => "Eventually",
+                    TemporalOperator::Eventually | TemporalOperator::BoundedEventually(_) => {
+                        "Eventually"
+                    }
                     TemporalOperator::Next => "Next",
                 };
                 VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
             }
 
             // Binary temporal operators (Until, Release, WeakUntil)
-            LogicExpr::TemporalBinary { operator, left, right } => {
+            LogicExpr::TemporalBinary {
+                operator,
+                left,
+                right,
+            } => {
                 let op_name = match operator {
                     logicaffeine_language::ast::logic::BinaryTemporalOp::Until => "Until",
                     logicaffeine_language::ast::logic::BinaryTemporalOp::Release => "Release",
                     logicaffeine_language::ast::logic::BinaryTemporalOp::WeakUntil => "WeakUntil",
                 };
-                VerifyExpr::apply(op_name, vec![
-                    self.map_logic_expr(left),
-                    self.map_logic_expr(right),
-                ])
+                VerifyExpr::apply(
+                    op_name,
+                    vec![self.map_logic_expr(left), self.map_logic_expr(right)],
+                )
             }
 
             // Smart Mapping: Aspectual operators become uninterpreted functions
@@ -650,22 +679,23 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Quantifiers map to IR quantifiers
-            LogicExpr::Quantifier { kind, variable, body, .. } => {
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                ..
+            } => {
                 let var_name = self.interner.resolve(*variable);
                 let body_ir = self.map_logic_expr(body);
                 match kind {
-                    QuantifierKind::Universal => {
-                        VerifyExpr::forall(
-                            vec![(var_name.to_string(), VerifyType::Object)],
-                            body_ir,
-                        )
-                    }
-                    QuantifierKind::Existential => {
-                        VerifyExpr::exists(
-                            vec![(var_name.to_string(), VerifyType::Object)],
-                            body_ir,
-                        )
-                    }
+                    QuantifierKind::Universal => VerifyExpr::forall(
+                        vec![(var_name.to_string(), VerifyType::Object)],
+                        body_ir,
+                    ),
+                    QuantifierKind::Existential => VerifyExpr::exists(
+                        vec![(var_name.to_string(), VerifyType::Object)],
+                        body_ir,
+                    ),
                     // Generalized quantifiers become uninterpreted
                     QuantifierKind::Most => {
                         VerifyExpr::apply("Most", vec![VerifyExpr::var(var_name), body_ir])
@@ -676,27 +706,32 @@ impl<'a> VerificationPass<'a> {
                     QuantifierKind::Many => {
                         VerifyExpr::apply("Many", vec![VerifyExpr::var(var_name), body_ir])
                     }
-                    QuantifierKind::Cardinal(n) => {
-                        VerifyExpr::apply(
-                            &format!("Exactly{}", n),
-                            vec![VerifyExpr::var(var_name), body_ir],
-                        )
-                    }
-                    QuantifierKind::AtLeast(n) => {
-                        VerifyExpr::apply(
-                            &format!("AtLeast{}", n),
-                            vec![VerifyExpr::var(var_name), body_ir],
-                        )
-                    }
-                    QuantifierKind::AtMost(n) => {
-                        VerifyExpr::apply(
-                            &format!("AtMost{}", n),
-                            vec![VerifyExpr::var(var_name), body_ir],
-                        )
-                    }
+                    QuantifierKind::Cardinal(n) => VerifyExpr::apply(
+                        &format!("Exactly{}", n),
+                        vec![VerifyExpr::var(var_name), body_ir],
+                    ),
+                    QuantifierKind::AtLeast(n) => VerifyExpr::apply(
+                        &format!("AtLeast{}", n),
+                        vec![VerifyExpr::var(var_name), body_ir],
+                    ),
+                    QuantifierKind::AtMost(n) => VerifyExpr::apply(
+                        &format!("AtMost{}", n),
+                        vec![VerifyExpr::var(var_name), body_ir],
+                    ),
                     QuantifierKind::Generic => {
                         VerifyExpr::apply("Generic", vec![VerifyExpr::var(var_name), body_ir])
                     }
+                    QuantifierKind::InfinitelyMany => VerifyExpr::apply(
+                        "InfinitelyMany",
+                        vec![VerifyExpr::var(var_name), body_ir],
+                    ),
+                    QuantifierKind::FinitelyMany => {
+                        VerifyExpr::apply("FinitelyMany", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::AllButFinitelyMany => VerifyExpr::apply(
+                        "AllButFinitelyMany",
+                        vec![VerifyExpr::var(var_name), body_ir],
+                    ),
                 }
             }
 
@@ -710,28 +745,28 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Function application
-            LogicExpr::App { function, argument } => {
-                VerifyExpr::apply(
-                    "App",
-                    vec![self.map_logic_expr(function), self.map_logic_expr(argument)],
-                )
-            }
+            LogicExpr::App { function, argument } => VerifyExpr::apply(
+                "App",
+                vec![self.map_logic_expr(function), self.map_logic_expr(argument)],
+            ),
 
             // Counterfactuals: if-then with special modal semantics
-            LogicExpr::Counterfactual { antecedent, consequent } => {
-                VerifyExpr::apply(
-                    "Counterfactual",
-                    vec![self.map_logic_expr(antecedent), self.map_logic_expr(consequent)],
-                )
-            }
+            LogicExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => VerifyExpr::apply(
+                "Counterfactual",
+                vec![
+                    self.map_logic_expr(antecedent),
+                    self.map_logic_expr(consequent),
+                ],
+            ),
 
             // Causation
-            LogicExpr::Causal { cause, effect } => {
-                VerifyExpr::apply(
-                    "Causes",
-                    vec![self.map_logic_expr(cause), self.map_logic_expr(effect)],
-                )
-            }
+            LogicExpr::Causal { cause, effect } => VerifyExpr::apply(
+                "Causes",
+                vec![self.map_logic_expr(cause), self.map_logic_expr(effect)],
+            ),
 
             LogicExpr::Concessive { main, concession } => {
                 // main ∧ Concessive(concession): the main clause is asserted.
@@ -767,22 +802,32 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Speech acts
-            LogicExpr::SpeechAct { performer, act_type, content } => {
+            LogicExpr::SpeechAct {
+                performer,
+                act_type,
+                content,
+            } => {
                 let performer_name = self.interner.resolve(*performer);
                 let act_name = self.interner.resolve(*act_type);
                 VerifyExpr::apply(
                     act_name,
-                    vec![VerifyExpr::var(performer_name), self.map_logic_expr(content)],
+                    vec![
+                        VerifyExpr::var(performer_name),
+                        self.map_logic_expr(content),
+                    ],
                 )
             }
 
             // Comparatives
-            LogicExpr::Comparative { adjective, subject, object, difference, .. } => {
+            LogicExpr::Comparative {
+                adjective,
+                subject,
+                object,
+                difference,
+                ..
+            } => {
                 let adj_name = self.interner.resolve(*adjective);
-                let mut args = vec![
-                    self.map_term(subject),
-                    self.map_term(object),
-                ];
+                let mut args = vec![self.map_term(subject), self.map_term(object)];
                 if let Some(diff) = difference {
                     args.push(self.map_term(diff));
                 }
@@ -790,7 +835,11 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Superlatives
-            LogicExpr::Superlative { adjective, subject, domain } => {
+            LogicExpr::Superlative {
+                adjective,
+                subject,
+                domain,
+            } => {
                 let adj_name = self.interner.resolve(*adjective);
                 let domain_name = self.interner.resolve(*domain);
                 VerifyExpr::apply(
@@ -800,15 +849,16 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Focus
-            LogicExpr::Focus { focused, scope, .. } => {
-                VerifyExpr::apply(
-                    "Focus",
-                    vec![self.map_term(focused), self.map_logic_expr(scope)],
-                )
-            }
+            LogicExpr::Focus { focused, scope, .. } => VerifyExpr::apply(
+                "Focus",
+                vec![self.map_term(focused), self.map_logic_expr(scope)],
+            ),
 
             // Presupposition
-            LogicExpr::Presupposition { assertion, presupposition } => {
+            LogicExpr::Presupposition {
+                assertion,
+                presupposition,
+            } => {
                 // Verify both assertion and presupposition
                 VerifyExpr::and(
                     self.map_logic_expr(presupposition),
@@ -872,28 +922,22 @@ impl<'a> VerificationPass<'a> {
 
             Term::Function(name, args) => {
                 let func_name = self.interner.resolve(*name);
-                let verify_args: Vec<VerifyExpr> = args
-                    .iter()
-                    .map(|t| self.map_term(t))
-                    .collect();
+                let verify_args: Vec<VerifyExpr> = args.iter().map(|t| self.map_term(t)).collect();
                 VerifyExpr::apply(func_name, verify_args)
             }
 
             Term::Group(terms) => {
                 // Group terms become a special "Group" function
-                let verify_args: Vec<VerifyExpr> = terms
-                    .iter()
-                    .map(|t| self.map_term(t))
-                    .collect();
+                let verify_args: Vec<VerifyExpr> = terms.iter().map(|t| self.map_term(t)).collect();
                 VerifyExpr::apply("Group", verify_args)
             }
 
-            Term::Possessed { possessor, possessed } => {
+            Term::Possessed {
+                possessor,
+                possessed,
+            } => {
                 let poss_name = self.interner.resolve(*possessed);
-                VerifyExpr::apply(
-                    &format!("{}Of", poss_name),
-                    vec![self.map_term(possessor)],
-                )
+                VerifyExpr::apply(&format!("{}Of", poss_name), vec![self.map_term(possessor)])
             }
 
             Term::Sigma(sym) => {
@@ -913,26 +957,11 @@ impl<'a> VerificationPass<'a> {
                 VerifyExpr::apply("Kind", vec![VerifyExpr::var(name)])
             }
 
-            Term::Proposition(expr) => {
-                self.map_logic_expr(expr)
-            }
+            Term::Proposition(expr) => self.map_logic_expr(expr),
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_interner() -> Interner {
-        Interner::new()
-    }
-
-    #[test]
-    fn test_verification_pass_creation() {
-        let interner = make_interner();
-        let pass = VerificationPass::new(&interner);
-        // Just verify it constructs without panic
-        drop(pass);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/verification/tests.rs"]
+mod tests;

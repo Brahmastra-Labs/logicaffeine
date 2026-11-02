@@ -8,6 +8,8 @@ public class Main {
             arr[i] = ((seed >> 16) & 0x7fff) % 1000;
         }
         for (int i = 1; i < n; i++) arr[i] = (arr[i] + arr[i - 1]) % 1000000007;
-        System.out.println(arr[n - 1]);
+        long h = 0;
+        for (long v : arr) h = (h * 31 + v) & 268435455;
+        System.out.println(arr[n - 1] + " " + h);
     }
 }

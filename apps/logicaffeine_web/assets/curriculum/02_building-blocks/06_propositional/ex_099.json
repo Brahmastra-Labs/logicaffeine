@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "C is necessary and sufficient for R",
   "options": [
-    "$ C \\equiv R $",
-    "$ (R \\supset C) $",
-    "$ (C \\supset R) $",
-    "$ (C \\equiv R) $"
+    "R → C",
+    "C → R",
+    "C ∧ R",
+    "C ↔ R"
   ],
   "correct": 3,
-  "hint": "'Necessary AND sufficient' \u2014 is this just an 'if' or something stronger?",
-  "explanation": "'A is necessary and sufficient for B' means they're equivalent: A \u2261 B (biconditional). A guarantees B (A \u2283 B) AND B guarantees A (B \u2283 A). They rise and fall together."
+  "hint": "This sets up a two-way link between the parts.",
+  "explanation": "Each part holds exactly when the other does, so the formula is C ↔ R.",
+  "section": "6.2"
 }

@@ -1,0 +1,47 @@
+// K5 ntt_bfly for Calyx through Dahlia: Montgomery fqmul (q = 3329, q^-1 = -3327 mod 2^16) and the
+// Cooley-Tukey add/sub over 16-bit values, operands and results in one-word memories. A widening `as`
+// zero-extends, so each signed operand is sign-extended explicitly before the 32-bit product.
+decl a: bit<16>[1];
+decl b: bit<16>[1];
+decl zeta: bit<16>[1];
+decl hi: bit<16>[1];
+decl lo: bit<16>[1];
+let i: ubit<1> = (0 as ubit<1>);
+---
+let av: bit<16> = a[i];
+---
+let bv: bit<16> = b[i];
+---
+let zv: bit<16> = zeta[i];
+---
+let z32: bit<32> = (zv as bit<32>);
+---
+if (zv < (0 as bit<16>)) {
+  z32 := z32 - (65536 as bit<32>);
+}
+---
+let b32: bit<32> = (bv as bit<32>);
+---
+if (bv < (0 as bit<16>)) {
+  b32 := b32 - (65536 as bit<32>);
+}
+---
+let prod: bit<32> = z32 * b32;
+---
+let qinv: bit<16> = (0 as bit<16>) - (3327 as bit<16>);
+---
+let m: bit<16> = (prod as bit<16>) * qinv;
+---
+let m32: bit<32> = (m as bit<32>);
+---
+if (m < (0 as bit<16>)) {
+  m32 := m32 - (65536 as bit<32>);
+}
+---
+let sub: bit<32> = prod - m32 * (3329 as bit<32>);
+---
+let t: bit<16> = ((sub >> (16 as bit<32>)) as bit<16>);
+---
+hi[i] := av + t;
+---
+lo[i] := av - t;

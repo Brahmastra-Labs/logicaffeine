@@ -48,7 +48,11 @@ Proof: Auto.
 fn socrates_all_entry_points_kernel_check() {
     // verify_theorem: returns a term that independently type-checks.
     let vt = verify_theorem(VALID_SOCRATES);
-    assert!(vt.is_ok(), "verify_theorem rejected a valid proof: {:?}", vt);
+    assert!(
+        vt.is_ok(),
+        "verify_theorem rejected a valid proof: {:?}",
+        vt
+    );
     let (term, ctx) = vt.unwrap();
     assert!(
         infer_type(&ctx, &term).is_ok(),
@@ -57,14 +61,21 @@ fn socrates_all_entry_points_kernel_check() {
 
     // compile_theorem_for_ui: the verified flag is the honest signal.
     let ui = compile_theorem_for_ui(VALID_SOCRATES);
-    assert!(ui.verified, "UI door did not report a valid proof as verified");
+    assert!(
+        ui.verified,
+        "UI door did not report a valid proof as verified"
+    );
     assert!(
         ui.verification_error.is_none(),
         "UI door reported a verification error on a valid proof: {:?}",
         ui.verification_error
     );
     assert!(ui.derivation.is_some(), "UI door lost the derivation");
-    assert!(ui.error.is_none(), "UI door reported a parse error: {:?}", ui.error);
+    assert!(
+        ui.error.is_none(),
+        "UI door reported a parse error: {:?}",
+        ui.error
+    );
 
     // compile_theorem (String door): only says "Proved" when kernel-checked.
     let ct = compile_theorem(VALID_SOCRATES);
@@ -81,7 +92,11 @@ fn socrates_all_entry_points_kernel_check() {
 #[test]
 fn chain_reasoning_all_entry_points() {
     let vt = verify_theorem(VALID_CHAIN);
-    assert!(vt.is_ok(), "verify_theorem rejected the chain proof: {:?}", vt);
+    assert!(
+        vt.is_ok(),
+        "verify_theorem rejected the chain proof: {:?}",
+        vt
+    );
     let (term, ctx) = vt.unwrap();
     assert!(infer_type(&ctx, &term).is_ok());
 
@@ -102,7 +117,10 @@ fn invalid_rejected_by_every_door() {
     assert!(vt.is_err(), "verify_theorem accepted an unprovable theorem");
 
     let ui = compile_theorem_for_ui(INVALID_MISSING_PREMISE);
-    assert!(!ui.verified, "UI door reported an unprovable theorem as verified");
+    assert!(
+        !ui.verified,
+        "UI door reported an unprovable theorem as verified"
+    );
 
     let ct = compile_theorem(INVALID_MISSING_PREMISE);
     assert!(ct.is_err(), "String door accepted an unprovable theorem");
@@ -164,7 +182,11 @@ fn shared_core_verified_is_independently_recheckable() {
 
     let result = prove_certify_check(&[premise_fact, premise_rule], &goal);
 
-    assert!(result.verified, "core failed to verify the syllogism: {:?}", result.verification_error);
+    assert!(
+        result.verified,
+        "core failed to verify the syllogism: {:?}",
+        result.verification_error
+    );
     let term = result.proof_term.expect("verified proof must carry a term");
     // Independent re-check in the returned context — the guarantee is real.
     assert!(

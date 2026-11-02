@@ -1,0 +1,81 @@
+{
+  "case": "T06-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "Prop \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T06_009.chooseBranch",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "(p : Prop) \u2192 Decidable p",
+      "name": "T06_009.decideAnything",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 (p : \u03b1 \u2192 Prop) \u2192 (\u2203 x, p x) \u2192 { x // p x }",
+      "name": "T06_009.describe",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2203 n, p n) \u2192 \u2203 n, p n",
+      "name": "T06_009.innocuous",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 Nonempty \u03b1 \u2192 \u03b1",
+      "name": "T06_009.pick",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "(p : Nat \u2192 Prop) \u2192 (\u2203 n, p n) \u2192 Nat",
+      "name": "T06_009.witnessOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop) (h : \u2203 n, p n), p (Classical.choose h)",
+      "name": "T06_009.witnessSpec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

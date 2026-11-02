@@ -1,0 +1,12 @@
+{
+  "capability": "heap.pop",
+  "workload": "peek(popRest(heapify(xs))) = 2nd min",
+  "arg": "25000",
+  "expected": "218524162",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go",
+    "rust"
+  ]
+}

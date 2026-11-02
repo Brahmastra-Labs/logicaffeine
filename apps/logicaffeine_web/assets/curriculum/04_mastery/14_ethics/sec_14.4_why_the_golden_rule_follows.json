@@ -1,0 +1,49 @@
+{
+  "id": "14.4",
+  "title": "Why the Golden Rule Follows",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Gensler argues that the golden rule follows from consistency. Imagine yourself in the other person's exact place."
+    },
+    {
+      "type": "paragraph",
+      "text": "If you do something to them, consistency asks you to accept it being done to you there. If you would not consent to that, your actions and your attitudes clash."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "The steps",
+      "lines": [
+        "I am about to do A to X.",
+        "Imagine the same act done to me, in X's exact place.",
+        "I do not consent to that."
+      ],
+      "conclusion": "So acting this way is inconsistent with my own attitudes."
+    },
+    {
+      "type": "worked",
+      "title": "Keeping their needs",
+      "lines": [
+        "X needs quiet to sleep. I love loud music.",
+        "In X's exact place, I would need the quiet."
+      ],
+      "note": "The test uses X's needs, not my tastes."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "On this view, what does the golden rule forbid?",
+    "options": [
+      "Any act others dislike",
+      "Acting toward others in a way you would not consent to in their place",
+      "Every act you dislike",
+      "Disagreeing with others"
+    ],
+    "correct": 1,
+    "hint": "The rule is about a clash between how you act and what you would accept.",
+    "explanation": "It forbids acting toward others in a way you would not consent to if you were in their exact place."
+  }
+}

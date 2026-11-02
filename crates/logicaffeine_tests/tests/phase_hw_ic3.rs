@@ -2,7 +2,7 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::ic3::{ic3, check_sat, Ic3Result};
+use logicaffeine_verify::ic3::{check_sat, ic3, Ic3Result};
 use logicaffeine_verify::kinduction;
 use logicaffeine_verify::{VerifyExpr, VerifyOp};
 
@@ -26,8 +26,11 @@ fn ic3_simple_mutex_safe() {
         VerifyExpr::var("gb@t"),
     ));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Mutex should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Mutex should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -37,8 +40,11 @@ fn ic3_unsafe_detected() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::var("safe@t");
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Init violating property should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Init violating property should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -65,8 +71,11 @@ fn ic3_converges_on_small() {
     let transition = VerifyExpr::iff(VerifyExpr::var("x@t1"), VerifyExpr::var("x@t"));
     let property = VerifyExpr::var("x@t");
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Simple constant should converge. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Simple constant should converge. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -79,8 +88,11 @@ fn ic3_counter_safe() {
     );
     let property = VerifyExpr::gte(VerifyExpr::var("c@t"), VerifyExpr::int(0));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Counter >= 0 should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Counter >= 0 should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -93,25 +105,28 @@ fn ic3_counter_unsafe() {
     );
     let property = VerifyExpr::lt(VerifyExpr::var("c@t"), VerifyExpr::int(5));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Counter exceeding 5 should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Counter exceeding 5 should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn ic3_pipeline_safe() {
     // Two-stage pipeline: data propagates, property on first stage
-    let init = VerifyExpr::and(
-        VerifyExpr::var("s1@0"),
-        VerifyExpr::var("s2@0"),
-    );
+    let init = VerifyExpr::and(VerifyExpr::var("s1@0"), VerifyExpr::var("s2@0"));
     let transition = VerifyExpr::and(
         VerifyExpr::var("s1@t1"),
         VerifyExpr::iff(VerifyExpr::var("s2@t1"), VerifyExpr::var("s1@t")),
     );
     let property = VerifyExpr::var("s1@t");
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Pipeline with s1 always true should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Pipeline with s1 always true should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -139,8 +154,11 @@ fn ic3_multiple_properties_conjunction() {
     );
     let property = VerifyExpr::and(VerifyExpr::var("a@t"), VerifyExpr::var("b@t"));
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Conjunction of safe properties should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Conjunction of safe properties should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -165,8 +183,11 @@ fn ic3_compared_to_kinduction() {
     );
     let property = VerifyExpr::gte(VerifyExpr::var("x@t"), VerifyExpr::int(0));
     let ic3_result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(ic3_result, Ic3Result::Safe { .. }),
-        "IC3 should agree: counter >= 0 is safe. Got: {:?}", ic3_result);
+    assert!(
+        matches!(ic3_result, Ic3Result::Safe { .. }),
+        "IC3 should agree: counter >= 0 is safe. Got: {:?}",
+        ic3_result
+    );
 }
 
 #[test]
@@ -176,8 +197,11 @@ fn ic3_latch_property() {
     let transition = VerifyExpr::iff(VerifyExpr::var("latch@t1"), VerifyExpr::var("latch@t"));
     let property = VerifyExpr::var("latch@t");
     let result = ic3(&init, &transition, &property, 3);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Latch should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Latch should be safe. Got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -194,8 +218,11 @@ fn ic3_frame_monotone() {
     );
     let property = VerifyExpr::or(VerifyExpr::var("a@t"), VerifyExpr::var("b@t"));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "a OR b should be safe when a AND b initially. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "a OR b should be safe when a AND b initially. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -205,8 +232,11 @@ fn ic3_trace_is_valid() {
     let transition = VerifyExpr::iff(VerifyExpr::var("ok@t1"), VerifyExpr::var("ok@t"));
     let property = VerifyExpr::var("ok@t");
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Init violating property should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Init violating property should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -219,8 +249,11 @@ fn ic3_bitvec_safe() {
     );
     let property = VerifyExpr::gte(VerifyExpr::var("c@t"), VerifyExpr::int(0));
     let result = ic3(&init, &transition, &property, 15);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Counter >= 0 should be trivially safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Counter >= 0 should be trivially safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -240,8 +273,11 @@ fn ic3_arbiter_fair() {
         VerifyExpr::var("g2@t"),
     ));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Mutex arbiter should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Mutex arbiter should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -263,8 +299,11 @@ fn ic3_three_signal_safe() {
         VerifyExpr::and(VerifyExpr::var("b@t"), VerifyExpr::var("c@t")),
     );
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Three preserved signals should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Three preserved signals should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -275,22 +314,25 @@ fn ic3_empty_init_unsafe() {
     let property = VerifyExpr::var("p@t");
     let result = ic3(&init, &transition, &property, 5);
     // With unconstrained init, p might start false
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Unconstrained init should be unsafe for p. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Unconstrained init should be unsafe for p. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn ic3_fsm_reachability() {
     // FSM: state starts at s0, transitions to s1, property: always in s0 or s1
     let init = VerifyExpr::var("s0@0");
-    let transition = VerifyExpr::or(
-        VerifyExpr::var("s0@t1"),
-        VerifyExpr::var("s1@t1"),
-    );
+    let transition = VerifyExpr::or(VerifyExpr::var("s0@t1"), VerifyExpr::var("s1@t1"));
     let property = VerifyExpr::or(VerifyExpr::var("s0@t"), VerifyExpr::var("s1@t"));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "FSM always in s0/s1 should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "FSM always in s0/s1 should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -305,8 +347,11 @@ fn ic3_toggle_safe() {
     );
     let property = VerifyExpr::var("p@t"); // false at odd cycles
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Toggle violates p at odd cycles. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Toggle violates p at odd cycles. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -319,8 +364,11 @@ fn ic3_or_property_weaker() {
     );
     let property = VerifyExpr::or(VerifyExpr::var("a@t"), VerifyExpr::var("b@t"));
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "a OR b is weaker than a AND b, should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "a OR b is weaker than a AND b, should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -333,8 +381,11 @@ fn ic3_implication_property() {
     );
     let property = VerifyExpr::implies(VerifyExpr::var("a@t"), VerifyExpr::var("b@t"));
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "a→b should be safe when both always true. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "a→b should be safe when both always true. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -347,8 +398,11 @@ fn ic3_data_forwarding() {
     );
     let property = VerifyExpr::var("out@t");
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Out following preserved in should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Out following preserved in should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -361,7 +415,11 @@ fn ic3_invariant_not_empty() {
     match result {
         Ic3Result::Safe { invariant } => {
             let inv_str = format!("{:?}", invariant);
-            assert!(inv_str.len() > 5, "Invariant should be non-trivial: {}", inv_str);
+            assert!(
+                inv_str.len() > 5,
+                "Invariant should be non-trivial: {}",
+                inv_str
+            );
         }
         other => panic!("Expected Safe, got: {:?}", other),
     }
@@ -389,8 +447,11 @@ fn ic3_two_counter_safe() {
         VerifyExpr::gte(VerifyExpr::var("b@t"), VerifyExpr::int(0)),
     );
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Two counters >= 0 should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Two counters >= 0 should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -400,8 +461,11 @@ fn ic3_constant_true_property() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::bool(true);
     let result = ic3(&init, &transition, &property, 3);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Trivially true property should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Trivially true property should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -411,25 +475,28 @@ fn ic3_single_step_unsafe() {
     let transition = VerifyExpr::not(VerifyExpr::var("ok@t1")); // always becomes false
     let property = VerifyExpr::var("ok@t");
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Property violated after 1 step should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Property violated after 1 step should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn ic3_identity_transition() {
     // Identity transition: every signal stays the same
-    let init = VerifyExpr::and(
-        VerifyExpr::var("p@0"),
-        VerifyExpr::var("q@0"),
-    );
+    let init = VerifyExpr::and(VerifyExpr::var("p@0"), VerifyExpr::var("q@0"));
     let transition = VerifyExpr::and(
         VerifyExpr::iff(VerifyExpr::var("p@t1"), VerifyExpr::var("p@t")),
         VerifyExpr::iff(VerifyExpr::var("q@t1"), VerifyExpr::var("q@t")),
     );
     let property = VerifyExpr::and(VerifyExpr::var("p@t"), VerifyExpr::var("q@t"));
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Identity transition preserves init. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Identity transition preserves init. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -442,8 +509,11 @@ fn ic3_eventually_violated() {
     );
     let property = VerifyExpr::lt(VerifyExpr::var("c@t"), VerifyExpr::int(3));
     let result = ic3(&init, &transition, &property, 10);
-    assert!(matches!(result, Ic3Result::Unsafe { .. }),
-        "Counter < 3 eventually violated. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Unsafe { .. }),
+        "Counter < 3 eventually violated. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -456,8 +526,11 @@ fn ic3_shift_register_safe() {
     );
     let property = VerifyExpr::var("s2@t");
     let result = ic3(&init, &transition, &property, 5);
-    assert!(matches!(result, Ic3Result::Safe { .. }),
-        "Shift register with s1=true should keep s2=true. Got: {:?}", result);
+    assert!(
+        matches!(result, Ic3Result::Safe { .. }),
+        "Shift register with s1=true should keep s2=true. Got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -499,7 +572,10 @@ fn ic3_invariant_is_inductive() {
             let inv_0 = kinduction::instantiate_at(&invariant, 0);
             let trans = kinduction::instantiate_transition(&transition, 0);
             let inv_1 = kinduction::instantiate_at(&invariant, 1);
-            let inductiveness = VerifyExpr::and(inv_0.clone(), VerifyExpr::and(trans, VerifyExpr::not(inv_1)));
+            let inductiveness = VerifyExpr::and(
+                inv_0.clone(),
+                VerifyExpr::and(trans, VerifyExpr::not(inv_1)),
+            );
             assert!(
                 !check_sat(&inductiveness),
                 "IC3 invariant must be inductive (inv AND T => inv'), but inductiveness check is SAT"
@@ -547,12 +623,14 @@ fn ic3_blocking_clause_actually_used() {
             let inv_0 = kinduction::instantiate_at(&invariant, 0);
             let trans = kinduction::instantiate_transition(&transition, 0);
             let inv_1 = kinduction::instantiate_at(&invariant, 1);
-            let inductiveness = VerifyExpr::and(inv_0, VerifyExpr::and(trans, VerifyExpr::not(inv_1)));
+            let inductiveness =
+                VerifyExpr::and(inv_0, VerifyExpr::and(trans, VerifyExpr::not(inv_1)));
             assert!(
                 !check_sat(&inductiveness),
                 "IC3 invariant must be inductive. \
                  A non-inductive invariant means blocking clauses are not being used. \
-                 Invariant: {:?}", invariant,
+                 Invariant: {:?}",
+                invariant,
             );
         }
         other => panic!("Expected Safe, got: {:?}", other),
@@ -612,7 +690,8 @@ fn ic3_propagation_pushes_learned_clauses() {
             let inv_0 = kinduction::instantiate_at(&invariant, 0);
             let trans = kinduction::instantiate_transition(&transition, 0);
             let inv_1 = kinduction::instantiate_at(&invariant, 1);
-            let inductiveness = VerifyExpr::and(inv_0, VerifyExpr::and(trans, VerifyExpr::not(inv_1)));
+            let inductiveness =
+                VerifyExpr::and(inv_0, VerifyExpr::and(trans, VerifyExpr::not(inv_1)));
             assert!(
                 !check_sat(&inductiveness),
                 "IC3 invariant with propagated clauses must be inductive"
@@ -648,10 +727,7 @@ fn ic3_counterexample_trace_is_concrete() {
 #[test]
 fn ic3_invariant_init_implies_invariant() {
     // The invariant must be reachable from init: init => invariant.
-    let init = VerifyExpr::and(
-        VerifyExpr::var("p@0"),
-        VerifyExpr::var("q@0"),
-    );
+    let init = VerifyExpr::and(VerifyExpr::var("p@0"), VerifyExpr::var("q@0"));
     let transition = VerifyExpr::and(
         VerifyExpr::iff(VerifyExpr::var("p@t1"), VerifyExpr::var("p@t")),
         VerifyExpr::iff(VerifyExpr::var("q@t1"), VerifyExpr::var("q@t")),
@@ -665,10 +741,7 @@ fn ic3_invariant_init_implies_invariant() {
             let init_0 = kinduction::instantiate_at(&init, 0);
             let inv_0 = kinduction::instantiate_at(&invariant, 0);
             let check = VerifyExpr::and(init_0, VerifyExpr::not(inv_0));
-            assert!(
-                !check_sat(&check),
-                "Init must imply the IC3 invariant"
-            );
+            assert!(!check_sat(&check), "Init must imply the IC3 invariant");
         }
         other => panic!("Expected Safe, got: {:?}", other),
     }

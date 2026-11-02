@@ -97,7 +97,10 @@ fn verb_and_word32_function_names_all_parse_via_tw() {
     ];
     for (label, src) in cases {
         let e = tw_outcome(src).error;
-        assert_eq!(e, None, "case '{label}' must parse + run via tw_outcome, got: {e:?}");
+        assert_eq!(
+            e, None,
+            "case '{label}' must parse + run via tw_outcome, got: {e:?}"
+        );
     }
 }
 
@@ -106,6 +109,10 @@ fn control_nonword_function_then_main_via_tw() {
     // A plain Int function + Main through `tw_outcome` — the baseline that the Word32 ring builds on.
     let src = "## To dbl (x: Int, y: Int) -> Int:\n    Let z be x + y.\n    Return z.\n## Main\nLet r be dbl(5, 7).\nShow r.\n";
     let tw = tw_outcome(src);
-    assert_eq!(tw.error, None, "plain Int function + Main via tw_outcome must parse: {:?}", tw.error);
+    assert_eq!(
+        tw.error, None,
+        "plain Int function + Main via tw_outcome must parse: {:?}",
+        tw.error
+    );
     assert_eq!(tw.output.trim(), "12", "dbl(5,7) = 12");
 }

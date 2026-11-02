@@ -1,0 +1,42 @@
+{
+  "id": "13.1",
+  "title": "Belief and Knowledge",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Belief logic** studies attitudes like believing and knowing. LOGOS writes the content of a belief inside brackets: Believe(John, [ … ])."
+    },
+    {
+      "type": "paragraph",
+      "text": "Knowledge implies truth: if John knows something, it is true. Belief does not. People can believe false things."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "John believes that Mary ran.",
+      "formula": "Believe(John, [∃e(Run(e) ∧ Agent(e, Mary) ∧ Past(e))])",
+      "note": "The brackets hold what John believes."
+    },
+    {
+      "type": "formula",
+      "sentence": "John knows that Mary ran.",
+      "formula": "Know(John, [∃e(Run(e) ∧ Agent(e, Mary) ∧ Past(e))])",
+      "note": "Knowing implies that Mary really ran. Believing does not."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Can 'John believes that P' be true while P is false?",
+    "options": [
+      "No, belief needs truth",
+      "Yes, people can believe false things",
+      "Only if P is about the future",
+      "Only if John is unsure"
+    ],
+    "correct": 1,
+    "hint": "Compare believing with knowing.",
+    "explanation": "Belief does not imply truth. Knowledge does: if John knows P, then P is true."
+  }
+}

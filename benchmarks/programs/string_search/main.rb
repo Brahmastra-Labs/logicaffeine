@@ -1,31 +1,32 @@
 n = ARGV[0].to_i
 text = []
-pos = 0
-while pos < n
-  if pos > 0 && pos % 1000 == 0 && pos + 5 <= n
-    text << "XXXXX"
-    pos += 5
-  else
-    text << (97 + pos % 5).chr
-    pos += 1
-  end
+seed = 42
+n.times do
+  seed = (seed * 1103515245 + 12345) % 2147483648
+  text << (97 + (seed >> 16) % 5).chr
 end
 text = text.join
-needle = "XXXXX"
+needle = "cabed"
 needle_len = 5
 count = 0
+positions = []
 i = 0
 while i <= n - needle_len
   match = true
   j = 0
   while j < needle_len
-    if text[i + j] != needle[j]
+    if text.getbyte(i + j) != needle.getbyte(j)
       match = false
       break
     end
     j += 1
   end
-  count += 1 if match
+  if match
+    count += 1
+    positions << i
+  end
   i += 1
 end
-puts count
+checksum = 0
+positions.each { |p| checksum = (checksum * 31 + p) & 268435455 }
+puts "#{count} #{checksum}"

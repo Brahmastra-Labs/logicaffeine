@@ -1,0 +1,9 @@
+30bef4b7997ec584038462d163792e86ff634fa3da342e9033e18309e9d47c9e OpenROAD-41a51eaf4ca2171c92ff38afb91eb37bbd3f36da.tar.gz https://github.com/The-OpenROAD-Project/OpenROAD/archive/41a51eaf4ca2171c92ff38afb91eb37bbd3f36da.tar.gz
+026789ce6bc304f12163f9d10bf0a1ada7f9de42d67ae74ad9d880b3a44ed0af OpenSTA-2609cc89eeb02a06ceca1890624d4fa1932d930b.tar.gz https://github.com/The-OpenROAD-Project/OpenSTA/archive/2609cc89eeb02a06ceca1890624d4fa1932d930b.tar.gz
+d931a8a02027fd84c605323c12b497a2838d256b1fcb2c020bf623799ac019e2 abc-95b3543e928640dfa25f9e882e72a090a8883a9c.tar.gz https://github.com/The-OpenROAD-Project/abc/archive/95b3543e928640dfa25f9e882e72a090a8883a9c.tar.gz
+1e19565d82e43bc59209a168f5ac899d3ba471d55c7610c677d4ccf2c9c500c0 boost_1_80_0.tar.bz2 https://sourceforge.net/projects/boost/files/boost/1.80.0/boost_1_80_0.tar.bz2/download
+1bc843b08d0015d5cc0d403662ee182366cb19b0859fab8872585342c671ec12 eigen-3.3.tar.gz https://gitlab.com/libeigen/eigen/-/archive/3.3/eigen-3.3.tar.gz
+f829a87c357b193a97987293030cb086b8fc7ef000eac24899efd3b822f383d8 lemon-graph-1.3.1.tar.gz https://github.com/The-OpenROAD-Project/lemon-graph/archive/refs/tags/1.3.1.tar.gz
+5197b3147cfcfaa67dd564db7b878e4a4b3d9f3443801722b3915cdeced656cb spdlog-1.8.1.tar.gz https://github.com/gabime/spdlog/archive/refs/tags/v1.8.1.tar.gz
+ace86bba4d99e40d178487796521de86b48356031381bdd026cf3acf40f22d9b swig-4.0.1.tar.gz https://github.com/swig/swig/archive/refs/tags/v4.0.1.tar.gz
+180fbc45f6e5ce5ff153bea2df0df59b15346f2a7f8ffbd7cb4aed0fb484b8f6 or-tools-9.4.tar.gz https://github.com/google/or-tools/archive/refs/tags/v9.4.tar.gz

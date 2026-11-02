@@ -1,0 +1,39 @@
+# Pinned upstream stdlib sources for the parity campaign. Regenerate snapshots with
+# scripts/bench/fetch-parity-snapshots.sh. The lock recomputes fnv1a64 to prove the committed
+# evidence is unmodified (parity_catalog_lock.rs).
+
+[python]
+version  = "3.12.3"
+method   = "sys.stdlib_module_names + inspect.getmembers + builtin type methods"
+snapshot = "snapshots/python/symbols.json"
+bytes    = 213602
+fnv1a64  = "0x3dd3b1a40a815ca0"
+
+[go]
+version  = "go1.22.2"
+method   = "go list std | go doc -all (non-internal packages)"
+snapshot = "snapshots/go/go-doc.txt"
+bytes    = 233741
+fnv1a64  = "0x4d5e673fc7b84fd3"
+
+[c]
+standard = "C23 (WG14 N3220)"
+glibc    = "2.39"
+method   = "curated standard surface, verified present in local headers"
+snapshot = "snapshots/c/c23-functions.json"
+bytes    = 2897
+fnv1a64  = "0xd8c51cfda21d9f0a"
+
+[rust]
+version  = "1.96.0"
+method   = "curated std surface, pinned to rustc version"
+snapshot = "snapshots/rust/std-curated.json"
+bytes    = 5288
+fnv1a64  = "0x83f12c66e34bf33b"
+
+[java]
+version  = "curated (secondary reference)"
+method   = "curated java.lang/java.util/java.io/java.time surface"
+snapshot = "snapshots/java/java-curated.json"
+bytes    = 2879
+fnv1a64  = "0xf0d0697f33184069"

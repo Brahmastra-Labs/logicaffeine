@@ -44,20 +44,27 @@ fn run_jones_fuzz_shard(shard: u64) {
                     ));
                 }
             }
-            Err(e) => failures.push(format!("[seed {seed}] P1 projection failed: {e}\n{program}")),
+            Err(e) => failures.push(format!(
+                "[seed {seed}] P1 projection failed: {e}\n{program}"
+            )),
         }
 
         // (2) CORRECTNESS: the residual must compute the same output as the tree-walker on source.
         let tw = run_treewalk(&program);
         let p1 = run_p1(&program);
         if let Some(diff) = behavior_diff(&p1, &tw, CmpMode::Strict) {
-            failures.push(format!("[seed {seed}] P1 residual behavior diverges: {diff}\n{program}"));
+            failures.push(format!(
+                "[seed {seed}] P1 residual behavior diverges: {diff}\n{program}"
+            ));
         }
         if failures.len() >= 8 {
             break; // report a batch; don't spew thousands
         }
     }
-    assert!(checked > 0, "jones fuzz shard {shard}/{FUZZ_SHARDS} explored no seeds");
+    assert!(
+        checked > 0,
+        "jones fuzz shard {shard}/{FUZZ_SHARDS} explored no seeds"
+    );
     assert!(
         failures.is_empty(),
         "{} Jones-optimality / correctness failure(s) over diverse RANDOM programs (shard {shard}):\n{}",
@@ -108,7 +115,10 @@ fn run_fidelity_fuzz_shard(shard: u64) {
             break;
         }
     }
-    assert!(checked > 0, "fidelity fuzz shard {shard}/{FUZZ_SHARDS} explored no seeds");
+    assert!(
+        checked > 0,
+        "fidelity fuzz shard {shard}/{FUZZ_SHARDS} explored no seeds"
+    );
     assert!(
         failures.is_empty(),
         "{} P2/P3 behavioral-fidelity failure(s) over random programs (shard {shard}):\n{}",
@@ -180,10 +190,17 @@ fn jones_fuzz_shards_tile_seed_space() {
     let mut owner = std::collections::HashMap::new();
     for shard in 0..FUZZ_SHARDS {
         for seed in (0..FUZZ_SEEDS).filter(|s| s % FUZZ_SHARDS == shard) {
-            assert!(owner.insert(seed, shard).is_none(), "seed {seed} owned by two shards");
+            assert!(
+                owner.insert(seed, shard).is_none(),
+                "seed {seed} owned by two shards"
+            );
         }
     }
-    assert_eq!(owner.len() as u64, FUZZ_SEEDS, "shards do not cover the full seed space");
+    assert_eq!(
+        owner.len() as u64,
+        FUZZ_SEEDS,
+        "shards do not cover the full seed space"
+    );
     for shard in 0..FUZZ_SHARDS {
         assert!(
             (0..FUZZ_SEEDS).any(|s| s % FUZZ_SHARDS == shard),
@@ -191,7 +208,6 @@ fn jones_fuzz_shards_tile_seed_space() {
         );
     }
 }
-
 
 /// Sanity: the generator itself produces well-formed, ENCODABLE programs (a generator that emitted
 /// invalid syntax would make the fuzz fail for the wrong reason — this isolates that).
@@ -207,5 +223,10 @@ fn generator_emits_encodable_programs() {
             }
         }
     }
-    assert!(bad.is_empty(), "{} generated program(s) failed to encode:\n{}", bad.len(), bad.join("\n---\n"));
+    assert!(
+        bad.is_empty(),
+        "{} generated program(s) failed to encode:\n{}",
+        bad.len(),
+        bad.join("\n---\n")
+    );
 }

@@ -1,0 +1,5 @@
+# ★ C-TIER KNOWN COMPILE GAPS — shrink-only ledger for the ultimate gauntlet's Invariant-B C leg.
+# Each line is a harvested-corpus program name that `codegen_c` cannot yet EMIT/compile — a documented
+# feature gap. A NEW compile-gap outside this list fails the lock; a listed program that starts compiling
+# must be DELETED here (shrink-only). Comments (#) and blanks ignored.
+#

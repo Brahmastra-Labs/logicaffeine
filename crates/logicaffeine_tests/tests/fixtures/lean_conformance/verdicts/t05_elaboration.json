@@ -1,0 +1,146 @@
+{
+  "tier": "t05_elaboration",
+  "test_binary": "lean_conformance_t05_elaboration",
+  "cases": [
+    {
+      "id": "T05-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "implicit_binders_interleave_and_are_solved_in_their_real_positions",
+      "why": ""
+    },
+    {
+      "id": "T05-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_strict_implicit_is_not_instantiated_until_an_explicit_argument_follows",
+      "why": ""
+    },
+    {
+      "id": "T05-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "instance_implicits_resolve_after_the_explicit_arguments_and_recurse",
+      "why": ""
+    },
+    {
+      "id": "T05-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "explicit_all_application_yields_the_same_left_nested_spine",
+      "why": ""
+    },
+    {
+      "id": "T05-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "named_arguments_resolve_into_the_declarations_parameter_order",
+      "why": ""
+    },
+    {
+      "id": "T05-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_omitted_default_argument_is_filled_from_the_declaration",
+      "why": ""
+    },
+    {
+      "id": "T05-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_auto_param_obligation_is_discharged_at_each_call_site",
+      "why": ""
+    },
+    {
+      "id": "T05-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_auto_bound_implicit_is_universe_polymorphic_like_lean",
+      "why": ""
+    },
+    {
+      "id": "T05-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_anonymous_constructor_resolves_against_its_expected_inductive",
+      "why": ""
+    },
+    {
+      "id": "T05-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "dot_notation_projects_with_the_structures_parameters_first",
+      "why": ""
+    },
+    {
+      "id": "T05-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "coercions_compose_transitively_like_lean_coe",
+      "why": ""
+    },
+    {
+      "id": "T05-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_structure_can_be_applied_as_a_function_and_used_as_a_sort",
+      "why": ""
+    },
+    {
+      "id": "T05-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "underscore_holes_are_solved_and_never_reach_the_kernel",
+      "why": ""
+    },
+    {
+      "id": "T05-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "higher_order_pattern_unification_solves_motives_in_both_directions",
+      "why": ""
+    },
+    {
+      "id": "T05-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_postponed_elaboration_problem_is_retried_when_its_type_is_known",
+      "why": ""
+    },
+    {
+      "id": "T05-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_ellipsis_fills_the_remaining_fields_with_solved_holes",
+      "why": ""
+    },
+    {
+      "id": "T05-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_numeral_elaborates_at_a_user_type_through_its_instance",
+      "why": ""
+    },
+    {
+      "id": "T05-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_type_ascription_constrains_the_term_it_ascribes",
+      "why": ""
+    },
+    {
+      "id": "T05-019",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "do_notation_is_refused_and_never_half_translated",
+      "why": "`do` is an effectful programming surface, and LOGOS deliberately keeps effects out of the CIC core: the kernel is the mathematics engine, while sequencing, mutation and `for` loops already live in the imperative language's five execution tiers. Lean's do-elaborator is a CPS transformation whose OUTPUT is a tower of `Bind.bind`/`Pure.pure`/`ForIn.forIn` applications over a monad hierarchy that has no place in a proof kernel, so implementing it would mean importing that hierarchy wholesale for no mathematical gain. The obligation is therefore to refuse without half-working: no `Global` for any absent operation and, above all, no axiom standing in for one — an axiomatised `bind`/`pure` never reduces, so every `rfl` the source proved by running the block would silently stop holding. The refusal must also not over-reach, which is why the test pins that an ordinary pure `let` is untouched."
+    },
+    {
+      "id": "T05-020",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "monadic_bind_and_io_are_refused_rather_than_axiomatised",
+      "why": "T05-019 refuses because the do-elaborator's output names things LOGOS lacks; this refuses because they cannot be supplied at all. A `Monad` class is parameterised by `m : Type u -> Type v` and so lives above `Type 0`, while `add_structure` hard-codes every structure's sort to `Type 0` — declaring it would register a type whose stated sort is a lie, and LOGOS's cumulativity would let that lie propagate silently downstream. `IO` is worse: it is `EStateM IO.Error IO.RealWorld` over an opaque world token whose primitives are `@[extern]` runtime calls with no defining equations, so there is no term to translate — not a term LOGOS cannot hold, but none at all — and axiomatising it would assert inhabitants of arbitrary types. A mathematics kernel loses nothing by declining and would lose its consistency by pretending. The refusal is kept precise: the test also pins that `Decidable`, a `Type 0`-valued one-parameter prelude class, is not swept up by it."
+    }
+  ]
+}

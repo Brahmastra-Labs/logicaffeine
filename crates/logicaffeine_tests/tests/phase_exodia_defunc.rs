@@ -30,9 +30,7 @@ fn expr_closures(e: &Expr, n: &mut usize) {
         Expr::Closure { body, .. } => {
             *n += 1;
             match body {
-                logicaffeine_compile::ast::stmt::ClosureBody::Expression(b) => {
-                    expr_closures(b, n)
-                }
+                logicaffeine_compile::ast::stmt::ClosureBody::Expression(b) => expr_closures(b, n),
                 logicaffeine_compile::ast::stmt::ClosureBody::Block(stmts) => {
                     for s in *stmts {
                         stmt_closures(s, n);
@@ -86,7 +84,11 @@ fn stmt_closures(s: &Stmt, n: &mut usize) {
                 stmt_closures(b, n);
             }
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_closures(cond, n);
             for b in *then_block {
                 stmt_closures(b, n);

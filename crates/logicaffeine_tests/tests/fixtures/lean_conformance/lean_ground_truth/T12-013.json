@@ -1,0 +1,65 @@
+{
+  "case": "T12-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T12_013.Box",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_013.Box"
+      ]
+    },
+    {
+      "type": "\u2200 (x : Nat), 2 < x \u2192 x < 4 \u2192 x = 3",
+      "name": "T12_013.boundedRange",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (P Q : Prop), T12_013.Box (P \u2192 Q) \u2192 T12_013.Box P \u2192 T12_013.Box Q",
+      "name": "T12_013.boxMP",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_013.boxMP"
+      ]
+    },
+    {
+      "type": "\u2200 (P Q : Prop), (P \u2192 Q) \u2192 P \u2192 Q",
+      "name": "T12_013.certifiable",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), 3 * x \u2264 10 \u2192 x \u2264 3",
+      "name": "T12_013.coefficientBound",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (P Q : Prop), T12_013.Box (P \u2192 Q) \u2192 T12_013.Box P \u2192 T12_013.Box Q",
+      "name": "T12_013.modalDistribution",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_013.Box",
+        "T12_013.boxMP"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

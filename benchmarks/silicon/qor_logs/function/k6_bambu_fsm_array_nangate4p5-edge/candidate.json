@@ -1,0 +1,212 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "a",
+    "dut": "a",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "b",
+    "dut": "b",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "mask",
+    "dut": "mask",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K6",
+  "mems": [
+   {
+    "contract": [
+     "x0",
+     "x1",
+     "x2",
+     "x3"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "x",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "y0",
+     "y1",
+     "y2",
+     "y3"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "y",
+    "words_per_port": 1
+   }
+  ],
+  "name": "k6_bambu_fsm_array_nangate4p5",
+  "outputs": [
+   {
+    "contract": "sum",
+    "dut": "sum",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   }
+  ],
+  "ports": [
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "b"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "mask"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "sum"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "x_address0"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "x_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_ce1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x_q0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x_q1"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "y_address0"
+   },
+   {
+    "bits": 2,
+    "dir": "Out",
+    "name": "y_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_ce1"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y_d0"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y_d1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_we0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_we1"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "simt_arrays"
+ },
+ "files": [
+  "simt_arrays.v"
+ ],
+ "golden_signature": "5f02efb454ab968e",
+ "harness": "qorbist_k6_bambu_fsm_array_nangate4p5.v",
+ "harness_top": "qorbist_k6_bambu_fsm_array_nangate4p5",
+ "kernel": "K6",
+ "kernel_name": "simt_axpb_sum",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

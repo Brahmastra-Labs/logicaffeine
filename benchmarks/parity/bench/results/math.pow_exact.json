@@ -1,0 +1,12 @@
+{
+  "capability": "math.pow_exact",
+  "timing_n": "97821215",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "c": 2.362,
+    "rust": 2.508,
+    "go": 3.184
+  },
+  "min_speedup": 2.362
+}

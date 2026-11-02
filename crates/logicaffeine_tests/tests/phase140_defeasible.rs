@@ -25,10 +25,7 @@ use logicaffeine_compile::{
 use logicaffeine_proof::oracle::{SmtConsistency, SmtVerdict};
 
 fn theorem(premises: &[&str], goal: &str) -> String {
-    let givens: String = premises
-        .iter()
-        .map(|p| format!("Given: {p}\n"))
-        .collect();
+    let givens: String = premises.iter().map(|p| format!("Given: {p}\n")).collect();
     format!("## Theorem: Phase140\n{givens}Prove: {goal}\nProof: Auto.\n")
 }
 

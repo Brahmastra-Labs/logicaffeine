@@ -1,7 +1,7 @@
 use logicaffeine_base::Arena;
-use logicaffeine_language::ast::logic::{LogicExpr, Term, NumberKind};
-use logicaffeine_compile::codegen::codegen_assertion;
 use logicaffeine_base::Interner;
+use logicaffeine_compile::codegen::codegen_assertion;
+use logicaffeine_language::ast::logic::{LogicExpr, NumberKind, Term};
 use logicaffeine_language::token::TokenType;
 
 #[test]
@@ -39,9 +39,17 @@ fn codegen_predicate_greater() {
     let arena: Arena<Term> = Arena::new();
     let args = arena.alloc_slice([
         Term::Variable(x),
-        Term::Value { kind: NumberKind::Integer(0), unit: None, dimension: None },
+        Term::Value {
+            kind: NumberKind::Integer(0),
+            unit: None,
+            dimension: None,
+        },
     ]);
-    let expr = LogicExpr::Predicate { name: greater, args, world: None };
+    let expr = LogicExpr::Predicate {
+        name: greater,
+        args,
+        world: None,
+    };
     let result = codegen_assertion(&expr, &interner);
     assert_eq!(result, "(x > 0)");
 }
@@ -54,9 +62,17 @@ fn codegen_predicate_less() {
     let arena: Arena<Term> = Arena::new();
     let args = arena.alloc_slice([
         Term::Variable(x),
-        Term::Value { kind: NumberKind::Integer(10), unit: None, dimension: None },
+        Term::Value {
+            kind: NumberKind::Integer(10),
+            unit: None,
+            dimension: None,
+        },
     ]);
-    let expr = LogicExpr::Predicate { name: less, args, world: None };
+    let expr = LogicExpr::Predicate {
+        name: less,
+        args,
+        world: None,
+    };
     let result = codegen_assertion(&expr, &interner);
     assert_eq!(result, "(x < 10)");
 }

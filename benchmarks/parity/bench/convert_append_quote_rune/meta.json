@@ -1,0 +1,10 @@
+{
+  "capability": "convert.append_quote_rune",
+  "workload": "len appendQuoteRune('x',65+i%26)",
+  "arg": "3000000",
+  "expected": "12000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

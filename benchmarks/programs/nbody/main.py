@@ -48,8 +48,12 @@ def advance(dt):
             bj[3]+=dx*bi[6]*mag; bj[4]+=dy*bi[6]*mag; bj[5]+=dz*bi[6]*mag
     for b in bodies: b[0]+=dt*b[3]; b[1]+=dt*b[4]; b[2]+=dt*b[5]
 
-n=int(sys.argv[1])
-offset_momentum()
-print(f"{energy():.9f}")
-for _ in range(n): advance(0.01)
-print(f"{energy():.9f}")
+def main():
+    n=int(sys.argv[1])
+    offset_momentum()
+    print(f"{energy():.9f}")
+    for _ in range(n): advance(0.01)
+    print(f"{energy():.9f}")
+
+if __name__ == "__main__":
+    main()

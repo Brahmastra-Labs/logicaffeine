@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "This shattered the hope of a complete formal foundation for mathematics.",
   "explanation": "Gödel proved that any consistent formal system powerful enough to express arithmetic contains true statements that cannot be proven within that system. This fundamentally limited what formal logic could achieve, ending the dream of a complete axiomatic foundation for all math.",
-  "visual_concept": "No matter how many axioms you add, there will always be true statements your system can't prove. It's like a ladder that can never reach the ceiling."
+  "visual_concept": "No matter how many axioms you add, there will always be true statements your system can't prove. It's like a ladder that can never reach the ceiling.",
+  "section": "16.5"
 }

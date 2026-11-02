@@ -1,0 +1,27 @@
+{
+ "files": {
+  "disallowed_assumptions.diagnostics.ndjson": "639e6d7df49767a4920b8eb6402f207f454179a9ba0209165da6f7b7ca78f3f2",
+  "disallowed_assumptions.exit": "1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2",
+  "disallowed_assumptions.result.json": "c1fd21ffa714e9dced6b1e857d79919c2ed923f5cdc246130e5319c897044002",
+  "infrastructure_failure.diagnostics.ndjson": "68fe530ed58a1ea03afceec32f3698d5f8679c7ce89de4ba78e64a728d309cbb",
+  "infrastructure_failure.exit": "f0b5c2c2211c8d67ed15e75e656c7862d086e9245420892a7de62cd9ec582a06",
+  "infrastructure_failure.result.json": "cad6a77955593ed9a6716eac0a3a6771782e545e3b23a6660ecd1e76bcf66807",
+  "invalid_source.diagnostics.ndjson": "a0811c61824e97c46c0c3db9d295e100f45e6d65b2451a9570ff5b0bc9eb4d6b",
+  "invalid_source.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+  "invalid_source.result.json": "1a2a63fceebac48525f56af1627e2a70e1f98f4faf430272d63586146ad54e0e",
+  "replay.receipt.json": "db170235cfe09242372045803ab9b01d856de58c55ee6551de84bb5598c979ec",
+  "resource_limit.diagnostics.ndjson": "49c439db0ceca1aaece8c84c7e7a02689e83e5d6f2d348910cf8cb1ec61ef2f1",
+  "resource_limit.exit": "7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d",
+  "resource_limit.result.json": "1541f13d5704616263e74ec959812d8bb2aaec4732ad785a113eca93e8796d79",
+  "unsupported_feature.diagnostics.ndjson": "923df180bbf7458c7bec79cfdf8bd420c46b43310b971f76aa7c304395242443",
+  "unsupported_feature.exit": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+  "unsupported_feature.result.json": "a27b2dd3ab6db11dbf768a3256f06183fd6dc6c543794c26c2c0d25c2f3a5daa",
+  "verified.diagnostics.ndjson": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "verified.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+  "verified.result.json": "1a3d7d54ed9dfc872a8700b3cadbe21a24ca01a0667fb405ffde3aba987657f6"
+ },
+ "kind": "recorded",
+ "largo_sha256": "35695ecf46bb9e2e1c63a33183eb869c3014f58fb6835d9db9a2bd2d26692f8a",
+ "note": "Recorded from real `largo lean` runs for building against before a worker exists. Not live results.",
+ "recorded_at": "2026-09-23T05:38:18Z"
+}

@@ -1,0 +1,10 @@
+{
+  "capability": "convert.format_bool",
+  "workload": "len formatBool(i%2==0)",
+  "arg": "3000000",
+  "expected": "13500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

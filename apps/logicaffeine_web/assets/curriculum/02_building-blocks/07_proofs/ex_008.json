@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "De Morgan 'flips' the connective and distributes the negation.",
   "explanation": "De Morgan's Law: ¬(P ∧ Q) ≡ (¬P ∨ ¬Q). Not-both is equivalent to at-least-one-not. Similarly, ¬(P ∨ Q) ≡ (¬P ∧ ¬Q). The negation 'swaps' AND/OR and negates both parts.",
-  "visual_concept": "It's NOT true that (it's sunny AND warm) = It's not sunny OR it's not warm. Breaking the 'and' becomes an 'or'."
+  "visual_concept": "It's NOT true that (it's sunny AND warm) = It's not sunny OR it's not warm. Breaking the 'and' becomes an 'or'.",
+  "section": "7.5"
 }

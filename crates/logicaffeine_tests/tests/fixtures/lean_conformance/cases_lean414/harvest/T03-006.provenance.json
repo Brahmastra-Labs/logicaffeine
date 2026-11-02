@@ -1,0 +1,102 @@
+{
+  "case": "T03-006",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-006_mutual_inductive.lean",
+  "source_sha256": "4ea5e7b014a73b19c7635f3e365b7780cd367f94a73234979a6f6aee0974f01f",
+  "ledger_sha256": "88a6c6bd4cefd02b94bcd167ac23651ef3a679e8548d11ed940be4ea1812da4d",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_006.A3",
+    "T03_006.A3.a",
+    "T03_006.B3",
+    "T03_006.B3.b",
+    "T03_006.B3.bstop",
+    "T03_006.C3",
+    "T03_006.C3.c",
+    "T03_006.C3.cstop",
+    "T03_006.EvenP",
+    "T03_006.EvenP.below.succ",
+    "T03_006.EvenP.below.zero",
+    "T03_006.EvenP.succ",
+    "T03_006.EvenP.zero",
+    "T03_006.Forest",
+    "T03_006.Forest.cons",
+    "T03_006.Forest.nil",
+    "T03_006.OddP",
+    "T03_006.OddP.below.succ",
+    "T03_006.OddP.succ",
+    "T03_006.PForest",
+    "T03_006.PForest.pcons",
+    "T03_006.PForest.pnil",
+    "T03_006.PTree",
+    "T03_006.PTree.pnode",
+    "T03_006.Tree",
+    "T03_006.Tree.node",
+    "T03_006.sample"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "22069ada7680cd9bad31143fc66458159657a086f20a7184c21be97aa158807d",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1293,
+  "harvest": {
+    "roots": [
+      "T03_006.A3",
+      "T03_006.A3.a",
+      "T03_006.B3",
+      "T03_006.B3.b",
+      "T03_006.B3.bstop",
+      "T03_006.C3",
+      "T03_006.C3.c",
+      "T03_006.C3.cstop",
+      "T03_006.EvenP",
+      "T03_006.EvenP.below.succ",
+      "T03_006.EvenP.below.zero",
+      "T03_006.EvenP.succ",
+      "T03_006.EvenP.zero",
+      "T03_006.Forest",
+      "T03_006.Forest.cons",
+      "T03_006.Forest.nil",
+      "T03_006.OddP",
+      "T03_006.OddP.below.succ",
+      "T03_006.OddP.succ",
+      "T03_006.PForest",
+      "T03_006.PForest.pcons",
+      "T03_006.PForest.pnil",
+      "T03_006.PTree",
+      "T03_006.PTree.pnode",
+      "T03_006.Tree",
+      "T03_006.Tree.node",
+      "T03_006.sample"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

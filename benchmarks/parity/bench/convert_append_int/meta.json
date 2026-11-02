@@ -1,0 +1,10 @@
+{
+  "capability": "convert.append_int",
+  "workload": "len appendInt('x',i)",
+  "arg": "2000000",
+  "expected": "14888896",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

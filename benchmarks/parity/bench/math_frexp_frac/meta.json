@@ -1,0 +1,10 @@
+{
+  "capability": "math.frexp",
+  "workload": "math.frexp (mantissa)",
+  "arg": "1000000",
+  "expected": "744276971758",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -37,7 +37,10 @@ fn fused_self_call_removes_one_piece_per_argument() {
     // BEFORE Lever A: `arg_count` Move pieces stage the window, then the
     // self-call piece — `arg_count + 1` pieces plus the trailing Return.
     let mut staged: Vec<MicroOp> = (0..arg_count)
-        .map(|j| MicroOp::Move { dst: window + j, src: src_start + j })
+        .map(|j| MicroOp::Move {
+            dst: window + j,
+            src: src_start + j,
+        })
         .collect();
     staged.push(MicroOp::CallSelf {
         dst: 5,

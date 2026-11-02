@@ -1,0 +1,10 @@
+{
+  "capability": "encoding.base64url_decode",
+  "workload": "base64UrlDecode round-trip",
+  "arg": "30000",
+  "expected": "121485000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

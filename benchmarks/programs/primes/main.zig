@@ -13,7 +13,7 @@ pub fn main() !void {
         var is_prime = true;
         var d: i64 = 2;
         while (d * d <= i) : (d += 1) {
-            if (@mod(i, d) == 0) { is_prime = false; break; }
+            if (@rem(i, d) == 0) { is_prime = false; break; }
         }
         if (is_prime) count += 1;
     }

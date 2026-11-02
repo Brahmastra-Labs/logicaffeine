@@ -49,7 +49,8 @@ fn test_modal_perfect_passive_agent() {
     let result = compile("The house could have been built by John.");
     match result {
         Ok(output) => {
-            let has_passive = output.contains("Pass") || output.contains("Build") || output.contains("B(");
+            let has_passive =
+                output.contains("Pass") || output.contains("Build") || output.contains("B(");
             let has_agent = output.contains("Agent") || output.contains("J");
             assert!(
                 has_passive || has_agent,
@@ -163,7 +164,8 @@ fn test_deep_right_branching() {
         Ok(output) => {
             let has_see = output.contains("See") || output.contains("S(");
             // "own" is a synonym of "have" so it gets normalized to canonical form
-            let has_own = output.contains("Own") || output.contains("O(") || output.contains("Have");
+            let has_own =
+                output.contains("Own") || output.contains("O(") || output.contains("Have");
             let has_chase = output.contains("Chase") || output.contains("C(");
             let has_eat = output.contains("Eat") || output.contains("E(");
             assert!(
@@ -189,7 +191,8 @@ fn test_stacked_relatives_single_head() {
         Ok(output) => {
             let has_universal = output.contains("∀");
             let has_read = output.contains("Read") || output.contains("R(");
-            let has_wrote = output.contains("Write") || output.contains("Wrote") || output.contains("W(");
+            let has_wrote =
+                output.contains("Write") || output.contains("Wrote") || output.contains("W(");
             let has_famous = output.contains("Famous") || output.contains("F(");
             assert!(
                 has_universal,
@@ -248,7 +251,8 @@ fn test_negative_quantifier_donkey() {
             let has_universal = output.contains("∀");
             let has_negation = output.contains("¬");
             // "own" is a synonym of "have" so it gets normalized to canonical form
-            let has_own = output.contains("Own") || output.contains("O(") || output.contains("Have");
+            let has_own =
+                output.contains("Own") || output.contains("O(") || output.contains("Have");
             let has_beat = output.contains("Beat") || output.contains("B(");
             assert!(
                 has_universal || has_negation,
@@ -275,7 +279,8 @@ fn test_conditional_donkey_sentence() {
             let has_conditional = output.contains("→");
             let has_universal = output.contains("∀");
             // "own" is a synonym of "have" so it gets normalized to canonical form
-            let has_own = output.contains("Own") || output.contains("O(") || output.contains("Have");
+            let has_own =
+                output.contains("Own") || output.contains("O(") || output.contains("Have");
             let has_beat = output.contains("Beat") || output.contains("B(");
             assert!(
                 has_conditional || has_universal,
@@ -305,13 +310,10 @@ fn test_event_multiple_modifiers() {
         Ok(output) => {
             let has_open = output.contains("Open");
             let has_agent = output.contains("Agent") || output.contains("J");
-            let has_theme = output.contains("Theme") || output.contains("Door") || output.contains("D(");
+            let has_theme =
+                output.contains("Theme") || output.contains("Door") || output.contains("D(");
             let has_quietly = output.contains("Quietly");
-            assert!(
-                has_open,
-                "Event should contain Open: got '{}'",
-                output
-            );
+            assert!(has_open, "Event should contain Open: got '{}'", output);
             assert!(
                 has_agent || has_theme,
                 "Event should have Agent/Theme roles: got '{}'",
@@ -372,11 +374,7 @@ fn test_npi_any_licensing() {
                 "NPI licensing requires negation: got '{}'",
                 output
             );
-            assert!(
-                has_see,
-                "NPI sentence should contain See: got '{}'",
-                output
-            );
+            assert!(has_see, "NPI sentence should contain See: got '{}'", output);
             assert!(
                 has_existential || has_negation,
                 "NPI 'any' should produce existential under negation: got '{}'",
@@ -425,11 +423,7 @@ fn test_indirect_speech_act_request() {
                 "Should be question or imperative: got '{}'",
                 output
             );
-            assert!(
-                has_open,
-                "Should contain Open verb: got '{}'",
-                output
-            );
+            assert!(has_open, "Should contain Open verb: got '{}'", output);
             // Note: HAB wrapper is correct for activity verb "open" in simple aspect
         }
         Err(e) => panic!("Indirect speech act request failed to parse: {:?}", e),
@@ -448,7 +442,8 @@ fn test_relative_raising_modal_aspect() {
     match result {
         Ok(output) => {
             let has_seem = output.contains("Seem") || output.contains("S(");
-            let has_happy = output.contains("Happy") || output.contains("H(") || output.contains(", H)");
+            let has_happy =
+                output.contains("Happy") || output.contains("H(") || output.contains(", H)");
             let has_modal = output.contains("□") || output.contains("Must");
             let has_neg = output.contains("¬");
             let has_sleep = output.contains("Sleep") || output.contains("S(");
@@ -467,13 +462,12 @@ fn test_relative_raising_modal_aspect() {
                 "Should contain modal + negation (□ + ¬): got '{}'",
                 output
             );
-            assert!(
-                has_sleep,
-                "Should contain Sleep: got '{}'",
-                output
-            );
+            assert!(has_sleep, "Should contain Sleep: got '{}'", output);
         }
-        Err(e) => panic!("Relative + raising + modal + aspect failed to parse: {:?}", e),
+        Err(e) => panic!(
+            "Relative + raising + modal + aspect failed to parse: {:?}",
+            e
+        ),
     }
 }
 
@@ -498,7 +492,10 @@ fn test_quantifier_opaque_control_pronoun() {
                 output
             );
         }
-        Err(e) => panic!("Quantifier + opaque + control + pronoun failed to parse: {:?}", e),
+        Err(e) => panic!(
+            "Quantifier + opaque + control + pronoun failed to parse: {:?}",
+            e
+        ),
     }
 }
 
@@ -508,9 +505,11 @@ fn test_counterfactual_passive_agent() {
     let result = compile("If John had run, he would have been seen by Mary.");
     match result {
         Ok(output) => {
-            let has_counterfactual = output.contains("□→") || output.contains("→") || output.contains("Counterfactual");
+            let has_counterfactual =
+                output.contains("□→") || output.contains("→") || output.contains("Counterfactual");
             let has_run = output.contains("Run") || output.contains("R(");
-            let has_see = output.contains("See") || output.contains("S(") || output.contains("Seen");
+            let has_see =
+                output.contains("See") || output.contains("S(") || output.contains("Seen");
             let has_passive = output.contains("Pass") || output.contains("Agent");
             assert!(
                 has_counterfactual,

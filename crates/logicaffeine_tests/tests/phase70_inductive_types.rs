@@ -65,7 +65,11 @@ fn test_nat_succ_type() {
 
     let ty = result.unwrap();
     match &ty {
-        Term::Pi { param_type, body_type, .. } => {
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => {
             assert!(matches!(param_type.as_ref(), Term::Global(n) if n == "Nat"));
             assert!(matches!(body_type.as_ref(), Term::Global(n) if n == "Nat"));
         }
@@ -165,10 +169,7 @@ fn test_type_mismatch_with_inductives() {
     };
 
     // (nat_id true) should fail - type mismatch
-    let bad_app = Term::App(
-        Box::new(nat_id),
-        Box::new(Term::Global("true".to_string())),
-    );
+    let bad_app = Term::App(Box::new(nat_id), Box::new(Term::Global("true".to_string())));
 
     let result = infer_type(&ctx, &bad_app);
     assert!(result.is_err(), "Should reject (nat_id true): {:?}", result);

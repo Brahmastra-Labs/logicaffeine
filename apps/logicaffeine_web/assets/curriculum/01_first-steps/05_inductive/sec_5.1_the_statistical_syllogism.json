@@ -1,0 +1,51 @@
+{
+  "id": "5.1",
+  "title": "The Statistical Syllogism",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In a **deductive** argument, true premises guarantee the conclusion. In an **inductive** argument, true premises only make it probable."
+    },
+    {
+      "type": "definition",
+      "term": "Statistical syllogism",
+      "definition": "Most A are B. This is an A. So this is probably a B."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A strong one",
+      "lines": [
+        "90% of students who study every week pass the exam.",
+        "Maria studies every week."
+      ],
+      "conclusion": "So Maria will probably pass.",
+      "note": "Strong, but not valid: Maria could be among the 10% who fail."
+    },
+    {
+      "type": "worked",
+      "title": "A weak one",
+      "lines": [
+        "55% of voters in this town favor the plan.",
+        "Lee votes in this town."
+      ],
+      "conclusion": "So Lee probably favors the plan.",
+      "note": "The premises give only weak support. Inductive strength comes in degrees."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What makes an argument inductive?",
+    "options": [
+      "It uses numbers",
+      "Its conclusion could be false even if every premise is true",
+      "It has more than two premises",
+      "It is about the future"
+    ],
+    "correct": 1,
+    "hint": "Compare it with a valid deductive argument. What cannot happen there?",
+    "explanation": "In an inductive argument, true premises make the conclusion probable, not certain. The conclusion can still be false."
+  }
+}

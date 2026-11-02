@@ -1,0 +1,26 @@
+--- a/power/Power.cc
++++ b/power/Power.cc
+@@ -614,6 +614,23 @@
+       bfs.enqueueAdjacentVertices(vertex);
+     }
+   }
++  // Every pin with an activity of its own seeds the walk as well, so logic no path from an input reaches (a register
++  // holding its own value) is read at its annotated activity rather than the input default.
++  for (auto &pin_activity : user_activity_map_) {
++    const Pin *pin = pin_activity.first;
++    if (!sdc_->isLeafPinClock(pin)
++	&& !network_->direction(pin)->isInternal()) {
++      debugPrint(debug_, "power_activity", 3, "seed %s",
++                 network_->pathName(pin));
++      setActivity(pin, pin_activity.second);
++      Vertex *drvr = graph_->pinDrvrVertex(pin);
++      if (drvr)
++        bfs.enqueueAdjacentVertices(drvr);
++      Vertex *load = graph_->pinLoadVertex(pin);
++      if (load && load != drvr)
++        bfs.enqueueAdjacentVertices(load);
++    }
++  }
+ }
+ 
+ void

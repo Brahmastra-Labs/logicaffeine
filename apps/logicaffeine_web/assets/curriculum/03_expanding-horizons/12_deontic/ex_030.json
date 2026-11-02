@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Boast and speak",
   "options": [
-    "$ (Bu\\cdot S\\underline{u} ) $",
-    "$ (B\\underline{u}\\cdot S\\underline{u}  ) $",
-    "$ (Bu\\cdot Su) $",
-    "$ (B\\underline{u}\\cdot Su ) $"
+    "B(u) ∧ S(u̲)",
+    "B(u̲) ∧ S(u̲)",
+    "B(u) ∧ S(u)",
+    "B(u̲) ∧ S(u)"
   ],
   "correct": 1,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'Boast and speak' conjoins two commands of you, the underlined agent: (B͟u · S͟u)."
+  "hint": "Two commands joined by and. Who acts in each?",
+  "explanation": "Both acts are commanded of you: B(u̲) ∧ S(u̲).",
+  "section": "12.2"
 }

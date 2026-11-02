@@ -1,0 +1,238 @@
+# Todo
+
+Add, remove, toggle, filter (all / active / done), a live count, persisted across reloads.
+
+## Note
+
+`Save todos as "todos".` writes the whole list after every change, and
+`Load "todos" into todos.` reads it back when the page loads: a `Seq` of `Todo`
+records round-trips through the JSON codec derived from the record type, so the
+page carries no encoder of its own. A visitor who has never saved anything loads
+the empty list the field started with.
+
+The filter is a derived list. `Let visible always be visibleTodos(todos, filter).`
+is recomputed whenever `todos` or `filter` changes, and the view loops over it,
+`keyed by t's id`, with an `{else:}` arm for a filter nothing matches.
+
+## A Todo has:
+    an id, which is Int.
+    a text, which is Text.
+    a done, which is Bool.
+
+## To nextIdFor (todos: Seq of Todo) -> Int:
+    Let mutable highest be 0.
+    Repeat for t in todos:
+        If t's id is greater than highest:
+            Set highest to t's id.
+    Return highest + 1.
+
+## To openCount (todos: Seq of Todo) -> Int:
+    Let mutable n be 0.
+    Repeat for t in todos:
+        If t's done is equal to false:
+            Set n to n + 1.
+    Return n.
+
+## To isVisible (t: Todo) and (filter: Text) -> Bool:
+    If filter is equal to "active":
+        Return t's done is equal to false.
+    If filter is equal to "done":
+        Return t's done is equal to true.
+    Return true.
+
+## To visibleTodos (todos: Seq of Todo) and (filter: Text) -> Seq of Todo:
+    Let mutable shown be a new Seq of Todo.
+    Repeat for t in todos:
+        If isVisible(t, filter):
+            Push t to shown.
+    Return shown.
+
+## Page /
+
+State:
+    Let todos be a new Seq of Todo.
+    Let draft be "".
+    Let nextId be 1.
+    Let filter be "all".
+    Let left always be openCount(todos).
+    Let visible always be visibleTodos(todos, filter).
+
+Actions:
+    When the page loads:
+        Load "todos" into todos.
+        Set nextId to nextIdFor(todos).
+
+    To add:
+        If draft is equal to "":
+            Return.
+        Push (a new Todo with id nextId and text draft and done false) to todos.
+        Set nextId to nextId + 1.
+        Set draft to "".
+        Save todos as "todos".
+
+    To toggle (id: Int):
+        Let mutable next be a new Seq of Todo.
+        Repeat for t in todos:
+            If t's id is equal to id:
+                Push (a new Todo with id t's id and text t's text and done (not t's done)) to next.
+            Otherwise:
+                Push t to next.
+        Set todos to next.
+        Save todos as "todos".
+
+    To remove (id: Int):
+        Let mutable kept be a new Seq of Todo.
+        Repeat for t in todos:
+            If t's id is not equal to id:
+                Push t to kept.
+        Set todos to kept.
+        Save todos as "todos".
+
+    To showAll:
+        Set filter to "all".
+
+    To showActive:
+        Set filter to "active".
+
+    To showDone:
+        Set filter to "done".
+
+View:
+    <main class="todo card">
+      <h1>Todo</h1>
+      <form id="add-form" on-submit.prevent={add}>
+        <label for="draft">What needs doing?</label>
+        <input id="draft" type="text" bind={draft} placeholder="What needs doing?">
+        <button type="submit">Add</button>
+      </form>
+      <ul>
+        {for each t in visible, keyed by t's id:}
+          <li class="todo-row" class:done={t's done}>
+            <button id="toggle-{t's id}" class="toggle" on-click={toggle(t's id)}>{t's text}</button>
+            <button id="remove-{t's id}" class="remove" on-click={remove(t's id)}>remove</button>
+          </li>
+        {else:}
+          <li class="empty">Nothing to do.</li>
+        {end}
+      </ul>
+      <p id="left">{left} left</p>
+      <nav class="filters">
+        <button id="filter-all" class:active={filter is equal to "all"} on-click={showAll}>all</button>
+        <button id="filter-active" class:active={filter is equal to "active"} on-click={showActive}>active</button>
+        <button id="filter-done" class:active={filter is equal to "done"} on-click={showDone}>done</button>
+      </nav>
+    </main>
+
+Style:
+    .todo { max-width: 28rem; margin: 3rem auto; }
+    .todo-row.done .toggle { text-decoration: line-through; color: var(--muted); }
+    .filters button.active { font-weight: 700; text-decoration: underline; }
+
+## Test: the empty list shows its placeholder and a zero count
+
+Expect that the text of ".empty" is equal to "Nothing to do.".
+Expect that the text of "#left" is equal to "0 left".
+
+## Test: adding builds the list and counts what is left
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Type "bread" into "#draft".
+Submit "#add-form".
+Expect that the count of ".todo-row" is equal to 2.
+Expect that the text of "#left" is equal to "2 left".
+Expect that the value of "#draft" is equal to "".
+
+## Test: an empty draft adds nothing
+
+Submit "#add-form".
+Expect that the count of ".todo-row" is equal to 0.
+
+## Test: toggling strikes a row and moves the count
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Type "bread" into "#draft".
+Submit "#add-form".
+Click "#toggle-1".
+Expect that the count of ".done" is equal to 1.
+Expect that the text of "#left" is equal to "1 left".
+Click "#toggle-1".
+Expect that the count of ".done" is equal to 0.
+Expect that the text of "#left" is equal to "2 left".
+
+## Test: removing drops exactly that row
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Type "bread" into "#draft".
+Submit "#add-form".
+Click "#remove-1".
+Expect that the count of ".todo-row" is equal to 1.
+Expect that the text of "#toggle-2" is equal to "bread".
+
+## Test: the filters narrow the visible rows without losing the others
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Type "bread" into "#draft".
+Submit "#add-form".
+Click "#toggle-1".
+Click "#filter-active".
+Expect that the count of ".todo-row" is equal to 1.
+Expect that the text of "#toggle-2" is equal to "bread".
+Click "#filter-done".
+Expect that the count of ".todo-row" is equal to 1.
+Expect that the text of "#toggle-1" is equal to "milk".
+Click "#filter-all".
+Expect that the count of ".todo-row" is equal to 2.
+
+## Test: a filter nothing matches shows the placeholder, and follows new items
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Click "#filter-done".
+Expect that the count of ".todo-row" is equal to 0.
+Expect that the text of ".empty" is equal to "Nothing to do.".
+Expect that the text of "#left" is equal to "1 left".
+Type "bread" into "#draft".
+Submit "#add-form".
+Expect that the count of ".todo-row" is equal to 0.
+Click "#filter-active".
+Expect that the count of ".todo-row" is equal to 2.
+Expect that the count of ".empty" is equal to 0.
+
+## Test: the list survives a reload
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Click "#toggle-1".
+Reload the page.
+Expect that the count of ".todo-row" is equal to 1.
+Expect that the count of ".done" is equal to 1.
+Expect that the text of "#toggle-1" is equal to "milk".
+
+## Test: removing after a reload still persists
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Type "bread" into "#draft".
+Submit "#add-form".
+Reload the page.
+Click "#remove-1".
+Reload the page.
+Expect that the count of ".todo-row" is equal to 1.
+Expect that the text of "#toggle-2" is equal to "bread".
+
+## Test: an item added after a reload takes the next free id
+
+Type "milk" into "#draft".
+Submit "#add-form".
+Type "bread" into "#draft".
+Submit "#add-form".
+Reload the page.
+Type "eggs" into "#draft".
+Submit "#add-form".
+Expect that the count of ".todo-row" is equal to 3.
+Expect that the text of "#toggle-3" is equal to "eggs".
+Expect that the text of "#left" is equal to "3 left".

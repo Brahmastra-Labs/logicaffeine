@@ -1,0 +1,10 @@
+{
+  "capability": "chars.is_graph",
+  "workload": "count codepoints (i%128) where is_graph",
+  "arg": "20000000",
+  "expected": "14687500",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c"
+  ]
+}

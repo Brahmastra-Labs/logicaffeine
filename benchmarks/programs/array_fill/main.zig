@@ -7,16 +7,16 @@ pub fn main() !void {
     _ = args.skip();
     const n_str = args.next() orelse return;
     const n: usize = @intCast(try std.fmt.parseInt(i64, n_str, 10));
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.smp_allocator;
     var arr = try allocator.alloc(i64, n);
     defer allocator.free(arr);
     for (0..n) |i| {
-        arr[i] = @mod(@as(i64, @intCast(i)) * 7 + 3, 1000000);
+        arr[i] = @rem(@as(i64, @intCast(i)) * 7 + 3, 1000000);
     }
-    var sum: i64 = 0;
+    var h: i64 = 0;
     for (arr) |v| {
-        sum = @mod(sum + v, 1000000007);
+        h = (h * 31 + v) & 268435455;
     }
-    try stdout.interface.print("{}\n", .{sum});
+    try stdout.interface.print("{}\n", .{h});
     try stdout.interface.flush();
 }

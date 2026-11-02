@@ -32,15 +32,24 @@ async fn await_stream_receives_a_batch_and_reads_an_element() {
         tokio::time::sleep(Duration::from_millis(300)).await;
         let blob = frame_stream_message(
             &canonical_topic("sensor"),
-            &[RuntimeValue::Int(11), RuntimeValue::Int(22), RuntimeValue::Int(33)],
+            &[
+                RuntimeValue::Int(11),
+                RuntimeValue::Int(22),
+                RuntimeValue::Int(33),
+            ],
         )
         .unwrap();
-        peer.publish(&canonical_topic("me"), blob).expect("peer streams the batch");
+        peer.publish(&canonical_topic("me"), blob)
+            .expect("peer streams the batch");
     };
 
     let (result, ()) = tokio::join!(interp, inject);
     let result = result.expect("interpreter did not hang");
-    assert!(result.error.is_none(), "`Await stream` ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Await stream` ran: {:?}",
+        result.error
+    );
     assert!(
         result.lines.iter().any(|l| l == "11"),
         "interpreter deframed the batch and read item 1 (11); output: {:?}",
@@ -53,7 +62,9 @@ async fn stream_sends_a_batch_that_a_peer_deframes() {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe(&canonical_topic("sink")).await.expect("peer subscribes to the stream sink");
+    peer.subscribe(&canonical_topic("sink"))
+        .await
+        .expect("peer subscribes to the stream sink");
 
     // The interpreter batches a list and `Stream`s it to "sink" in one framed message.
     let program = format!(
@@ -75,12 +86,20 @@ async fn stream_sends_a_batch_that_a_peer_deframes() {
 
     let (result, data) = tokio::join!(interp, recv);
     let result = result.expect("interpreter did not hang");
-    assert!(result.error.is_none(), "`Stream` send ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Stream` send ran: {:?}",
+        result.error
+    );
 
     let values = deframe_stream_message(&data).expect("the peer received a batch stream message");
     assert_eq!(
         values,
-        vec![RuntimeValue::Int(11), RuntimeValue::Int(22), RuntimeValue::Int(33)],
+        vec![
+            RuntimeValue::Int(11),
+            RuntimeValue::Int(22),
+            RuntimeValue::Int(33)
+        ],
         "the peer deframed exactly the values the program streamed"
     );
 }

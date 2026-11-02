@@ -1,0 +1,77 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\ntt_butterfly_deep": {
+         "num_wires":         184,
+         "num_wire_bits":     3119,
+         "num_pub_wires":     100,
+         "num_pub_wire_bits": 1760,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         1314,
+         "num_cells_by_type": {
+            "CARRY4": 107,
+            "FDRE": 700,
+            "INV": 8,
+            "LUT2": 362,
+            "LUT3": 13,
+            "LUT4": 120,
+            "LUT5": 4
+         }
+      },
+      "\\qorsyn_k5_logos_deep": {
+         "num_wires":         213,
+         "num_wire_bits":     774,
+         "num_pub_wires":     15,
+         "num_pub_wire_bits": 546,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         462,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 139,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 13,
+            "LUT2": 8,
+            "LUT3": 22,
+            "LUT4": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "ntt_butterfly_deep": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         397,
+         "num_wire_bits":     3893,
+         "num_pub_wires":     115,
+         "num_pub_wire_bits": 2306,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         1775,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 107,
+            "FDRE": 839,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 21,
+            "LUT2": 370,
+            "LUT3": 35,
+            "LUT4": 124,
+            "LUT5": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16
+         }
+      }
+}
+

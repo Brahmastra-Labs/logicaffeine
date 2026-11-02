@@ -63,11 +63,7 @@ Proof: Auto.
         println!("Chain error: {:?}", e);
     }
 
-    assert!(
-        result.is_ok(),
-        "Event chain reasoning failed: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "Event chain reasoning failed: {:?}", result);
 }
 
 #[test]

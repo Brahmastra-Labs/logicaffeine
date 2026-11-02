@@ -2,7 +2,7 @@
   "name": "logicaffeine",
   "displayName": "LOGOS",
   "description": "The English programming language: literate-Markdown programs, socratic errors, kernel-certified theorem proving, and Rust's borrow checker speaking English.",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "publisher": "brahmastra-labs",
   "repository": {
     "type": "git",
@@ -41,11 +41,72 @@
         }
       }
     ],
+    "breakpoints": [
+      {
+        "language": "logicaffeine"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "logos",
+        "label": "LOGOS Debug",
+        "languages": [
+          "logicaffeine"
+        ],
+        "program": "largo",
+        "args": [
+          "dap"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the .lg program to debug.",
+                "default": "${file}"
+              },
+              "source": {
+                "type": "string",
+                "description": "Inline LOGOS source (overrides program)."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "logos",
+            "request": "launch",
+            "name": "Debug LOGOS file",
+            "program": "${file}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "LOGOS: Launch file",
+            "description": "Debug the current LOGOS file with reverse execution (step back through time).",
+            "body": {
+              "type": "logos",
+              "request": "launch",
+              "name": "Debug LOGOS file",
+              "program": "^\"\\${file}\""
+            }
+          }
+        ]
+      }
+    ],
     "grammars": [
       {
         "language": "logicaffeine",
         "scopeName": "source.logicaffeine",
-        "path": "./syntaxes/logicaffeine.tmLanguage.json"
+        "path": "./syntaxes/logicaffeine.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.html": "html",
+          "meta.embedded.block.css": "css",
+          "meta.embedded.line.logicaffeine": "logicaffeine"
+        }
       },
       {
         "scopeName": "markdown.logicaffeine.codeblock",
@@ -56,6 +117,16 @@
         "embeddedLanguages": {
           "meta.embedded.block.logicaffeine": "logicaffeine"
         }
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "tag",
+        "description": "An HTML element's name in an LGX `View:` or `Head:` template."
+      },
+      {
+        "id": "attribute",
+        "description": "An HTML attribute's name in an LGX `View:` or `Head:` template."
       }
     ],
     "semanticTokenScopes": [
@@ -106,6 +177,12 @@
           ],
           "enumMember": [
             "variable.other.enummember.logicaffeine"
+          ],
+          "tag": [
+            "entity.name.tag.html"
+          ],
+          "attribute": [
+            "entity.other.attribute-name.html"
           ]
         }
       }
@@ -185,11 +262,6 @@
       {
         "command": "logicaffeine.checkProof",
         "title": "Check Proof",
-        "category": "LOGOS"
-      },
-      {
-        "command": "logicaffeine.setLicense",
-        "title": "Set Verification License Key",
         "category": "LOGOS"
       },
       {
@@ -333,7 +405,7 @@
     "vscode-tmgrammar-test": "^0.1.3"
   },
   "icon": "icon.png",
-  "license": "SEE LICENSE IN LICENSE.md",
+  "license": "MIT",
   "homepage": "https://logicaffeine.com",
   "bugs": {
     "url": "https://github.com/Brahmastra-Labs/logicaffeine/issues"

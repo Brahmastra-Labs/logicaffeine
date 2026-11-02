@@ -10,5 +10,5 @@ arr.each { |v| counts[v] += 1 }
 sorted = []
 1000.times { |v| counts[v].times { sorted << v } }
 checksum = 0
-sorted.each { |v| checksum = (checksum + v) % 1000000007 }
+sorted.each { |v| checksum = (checksum * 31 + v) & 268435455 }
 puts "#{sorted[0]} #{sorted[-1]} #{checksum}"

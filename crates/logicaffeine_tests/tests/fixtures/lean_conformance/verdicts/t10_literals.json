@@ -1,0 +1,132 @@
+{
+  "tier": "t10_literals",
+  "test_binary": "lean_conformance_t10_literals",
+  "cases": [
+    {
+      "id": "T10-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_small_nat_literal_is_a_nat_not_an_int",
+      "why": "Literal::Nat(BigInt) infers the INDUCTIVE Nat, is defeq to Succ^n Zero, drives a Match, and an emitted structural add computes 2+3=5. Nat is not a subtype of Int, so the tempting Nat-as-Int emission is caught."
+    },
+    {
+      "id": "T10-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_nat_literal_past_the_machine_word_keeps_every_digit",
+      "why": "Arbitrary precision is shipped end to end: 2^63/2^64/30-digit literals type-check exactly, differ in their last digit, bridge to Succ in one peel, and int_lit's canonicality invariant holds across the i64 boundary in both directions."
+    },
+    {
+      "id": "T10-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_negative_int_literal_canonicalises_at_the_i64_boundary",
+      "why": "i64::MIN stays machine-form, one below it widens, wide results demote back, and add/sub/mul compute across zero. No Int_negSucc/Int_ofNat shadow encoding exists to reach for."
+    },
+    {
+      "id": "T10-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_int_can_be_case_split_the_way_lean_case_splits_on_it",
+      "why": "Lean's Int is an inductive (ofNat/negSucc) that PROVES its ring and order laws; LOGOS's Int is an inductive with ZERO constructors plus 16 axioms. signOf, Int.natAbs, Int.toNat and every proof by cases on an integer are unstatable. The largest trusted-base liability in the tier."
+    },
+    {
+      "id": "T10-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_string_literal_is_its_character_list_spelling",
+      "why": "The literal injects and infers Text, and literal equality/disequality survive — that is the whole residual semantics. Text is a zero-constructor opaque carrier, so String.mk, .data and the character layer are unrecoverable (Char is absent too)."
+    },
+    {
+      "id": "T10-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_character_literal_has_a_type_to_land_in",
+      "why": "Char is registered as Lean defines it — { val : UInt32 // val.isValidChar } — which needed both blocked layers first: Subtype as a structure, and UInt32 as Fin 2^32. isValidChar excludes the surrogate range by COMPUTATION (Nat_lt reduces), so a Char really is a scalar value and not a labelled UInt32. Text stays opaque, so the two dead-end re-encodings the case names are still dead ends."
+    },
+    {
+      "id": "T10-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "float_has_arithmetic_and_leans_equality",
+      "why": "Float is a labelled atom: the literal injects and nothing else exists — zero declared operations, zero axioms, zero reduction rules. Worse, literal defeq is Rust IEEE PartialEq, so def_eq is NOT reflexive at NaN and 0.0 is definitionally identified with -0.0."
+    },
+    {
+      "id": "T10-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "bool_is_the_preludes_own_two_constructor_inductive",
+      "why": "Bool is the prelude's two-constructor inductive, le/lt/ge return its bare true/false globals, a positional Match dispatches correctly, and the decide/Decidable bridge computes. Registration order is true-then-false — the OPPOSITE of Lean's false-then-true."
+    },
+    {
+      "id": "T10-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "machine_words_wrap_at_their_width",
+      "why": "UInt8/16/32/64/USize are registered as Fin 2^N, Lean's own definition — a Nat carrying a proof it is below the width, so the carrier cannot hold an out-of-range value and cannot be confused with Nat. The WRAPPING ARITHMETIC is still absent: LOGOS arithmetic is exact by construction, so modular ops must be defined, which needs Nat +/% plus Nat.mod_lt. The case's assertion is registration; the arithmetic is tracked by prelude_types_extra's machine-word test."
+    },
+    {
+      "id": "T10-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_bitvec_adds_modulo_two_to_the_width",
+      "why": "BitVec is absent. The similarly-named BVec is a Bit cons-list whose complete operation surface is bv_and/bv_or/bv_xor/bv_not — no arithmetic, no shifts, no toNat/ofNat. BVec's separate params/indices misdeclaration is defect 8, reproduced in lean_conformance_defects."
+    },
+    {
+      "id": "T10-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_array_literal_indexes_in_constant_time",
+      "why": "Array A is a structure over List A, as Lean's is, with Array_size, Array_push and an Array_get that TAKES THE BOUND PROOF (Nat_lt i (Array_size A a)) — so there is no out-of-range call to decide behaviour for. All four compute: size_push holds by reduction. The TList substitution the case warns about is avoided because indexing is bound-checked rather than defaulting."
+    },
+    {
+      "id": "T10-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "leans_list_is_in_the_prelude_with_nil_before_cons",
+      "why": "List A is registered parametric with nil before cons, plus List_rec, List_length, List_append and List_get; TList and EList are untouched. The recursor and all three operations ι-reduce — which required hoisting the type parameter OUTSIDE the Fix, because the kernel unfolds a fixpoint only when the argument it is IMMEDIATELY applied to is constructor-form. Not universe-polymorphic: List_rec's motive is List A -> Type 0."
+    },
+    {
+      "id": "T10-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_six_structural_types_lean_core_ships_are_registered",
+      "why": "All six are registered at Type 0: Option (none before some), Prod/Sigma/Subtype via add_structure (so eta and the dependent second projection hold), Sum, and Fin as Subtype Nat (i < n). The Nat order the bound needed is new and is a COMPUTATION, not a second axiom set — natLe/natLt by structural recursion, Nat_lt i n = Eq Bool (natLt i n) true — so a bound proof is refl when the bound holds and uninhabited when it does not, and Fin 0 is empty by reduction. Universe polymorphism is still absent: these are the Type 0 instances and nothing above."
+    },
+    {
+      "id": "T10-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_numeral_takes_the_type_the_context_asks_for",
+      "why": "No OfNat class and no default-instance concept. A literal's type is read off its VARIANT, never off the context, and elaborating 5 against an expected Int is not an error — it silently returns the Nat literal. A user OfNat instance is dropped entirely."
+    },
+    {
+      "id": "T10-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_nat_literal_peels_one_succ_per_step_however_large_it_is",
+      "why": "The accelerated numeral is definitionally Succ^n Zero in BOTH kernels (double_check agrees), a Match peels one Succ in O(1) so pred 50000 stays a compact literal, and literal-vs-literal equality is decided by BigInt comparison rather than peeling."
+    },
+    {
+      "id": "T10-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "string_concatenation_computes",
+      "why": "Not one Text operation is declared anywhere in the prelude. The axiom repair is demonstrated to fail: Text_append type-checks, never reduces, and the rfl Lean proves is therefore FALSE in LOGOS."
+    },
+    {
+      "id": "T10-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "nat_subtraction_truncates_at_zero_and_scales",
+      "why": "LOGOS ships no Nat arithmetic; its sub is an Int axiom that goes negative, and on Nat literals it is both ill-typed and stuck — the double refusal that keeps the conflation loud. An emitted structural recursion truncates correctly but 5007-5000 silently exhausts normalize's 10000-step fuel."
+    },
+    {
+      "id": "T10-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "int_division_and_remainder_follow_leans_euclidean_convention",
+      "why": "A SILENT WRONG ANSWER. Lean's / and % on Int are Euclidean; LOGOS's div/mod truncate toward zero with the remainder carrying the dividend's sign. 370 disagreements over a -20..20 by -6..6 grid, 82 violations of 0 <= a % b, and a zero divisor leaves the term stuck where Lean totalises."
+    }
+  ]
+}

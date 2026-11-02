@@ -1,0 +1,513 @@
+{
+  "case": "T02-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 65,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T02_017.Chain",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Chain \u2192 Sort u} \u2192 T02_017.Chain \u2192 Sort (max 1 u)",
+      "name": "T02_017.Chain.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : T02_017.Chain \u2192 Prop} (t : T02_017.Chain),\n  (\u2200 (t : T02_017.Chain), T02_017.Chain.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T02_017.Chain.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Chain \u2192 Sort u} \u2192\n  (t : T02_017.Chain) \u2192 ((t : T02_017.Chain) \u2192 T02_017.Chain.below t \u2192 motive t) \u2192 motive t",
+      "name": "T02_017.Chain.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Chain \u2192 Sort u} \u2192\n  (t : T02_017.Chain) \u2192\n    motive T02_017.Chain.stop \u2192\n      ((a : T02_017.Colour) \u2192 (a_1 : T02_017.Chain) \u2192 motive (T02_017.Chain.link a a_1)) \u2192 motive t",
+      "name": "T02_017.Chain.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Chain \u2192 Prop} \u2192 T02_017.Chain \u2192 Prop",
+      "name": "T02_017.Chain.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Colour \u2192 T02_017.Chain \u2192 T02_017.Chain",
+      "name": "T02_017.Chain.link",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a : T02_017.Colour} {a_1 : T02_017.Chain} {a_2 : T02_017.Colour} {a_3 : T02_017.Chain},\n  T02_017.Chain.link a a_1 = T02_017.Chain.link a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T02_017.Chain.link.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a : T02_017.Colour) (a_1 : T02_017.Chain) (a_2 : T02_017.Colour) (a_3 : T02_017.Chain),\n  (T02_017.Chain.link a a_1 = T02_017.Chain.link a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T02_017.Chain.link.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a : T02_017.Colour) (a_1 : T02_017.Chain), sizeOf (T02_017.Chain.link a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T02_017.Chain.link.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T02_017.Chain} \u2192 v1 = v2 \u2192 T02_017.Chain.noConfusionType P v1 v2",
+      "name": "T02_017.Chain.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T02_017.Chain \u2192 T02_017.Chain \u2192 Sort u",
+      "name": "T02_017.Chain.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Chain \u2192 Sort u} \u2192\n  motive T02_017.Chain.stop \u2192\n    ((a : T02_017.Colour) \u2192 (a_1 : T02_017.Chain) \u2192 motive a_1 \u2192 motive (T02_017.Chain.link a a_1)) \u2192\n      (t : T02_017.Chain) \u2192 motive t",
+      "name": "T02_017.Chain.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Chain \u2192 Sort u} \u2192\n  (t : T02_017.Chain) \u2192\n    motive T02_017.Chain.stop \u2192\n      ((a : T02_017.Colour) \u2192 (a_1 : T02_017.Chain) \u2192 motive a_1 \u2192 motive (T02_017.Chain.link a a_1)) \u2192 motive t",
+      "name": "T02_017.Chain.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Chain",
+      "name": "T02_017.Chain.stop",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_017.Chain.stop = 1",
+      "name": "T02_017.Chain.stop.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T02_017.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Colour",
+      "name": "T02_017.Colour.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_017.Colour.blue = 1",
+      "name": "T02_017.Colour.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Colour \u2192 Sort u} \u2192\n  (t : T02_017.Colour) \u2192 motive T02_017.Colour.red \u2192 motive T02_017.Colour.green \u2192 motive T02_017.Colour.blue \u2192 motive t",
+      "name": "T02_017.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Colour",
+      "name": "T02_017.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_017.Colour.green = 1",
+      "name": "T02_017.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T02_017.Colour} \u2192 x = y \u2192 T02_017.Colour.noConfusionType P x y",
+      "name": "T02_017.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.8"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T02_017.Colour \u2192 T02_017.Colour \u2192 Sort v\u271d",
+      "name": "T02_017.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.7"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T02_017.Colour",
+      "name": "T02_017.Colour.ofNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : T02_017.Colour), T02_017.Colour.ofNat x.toCtorIdx = x",
+      "name": "T02_017.Colour.ofNat_toCtorIdx",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Colour \u2192 Sort u} \u2192\n  motive T02_017.Colour.red \u2192 motive T02_017.Colour.green \u2192 motive T02_017.Colour.blue \u2192 (t : T02_017.Colour) \u2192 motive t",
+      "name": "T02_017.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Colour \u2192 Sort u} \u2192\n  (t : T02_017.Colour) \u2192 motive T02_017.Colour.red \u2192 motive T02_017.Colour.green \u2192 motive T02_017.Colour.blue \u2192 motive t",
+      "name": "T02_017.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Colour",
+      "name": "T02_017.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_017.Colour.red = 1",
+      "name": "T02_017.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Colour \u2192 Nat",
+      "name": "T02_017.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T02_017.Pixel",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Pixel \u2192 Sort u} \u2192\n  (t : T02_017.Pixel) \u2192 ((x y : Nat) \u2192 (hue : T02_017.Colour) \u2192 motive { x := x, y := y, hue := hue }) \u2192 motive t",
+      "name": "T02_017.Pixel.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Pixel \u2192 T02_017.Colour",
+      "name": "T02_017.Pixel.hue",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T02_017.Colour \u2192 T02_017.Pixel",
+      "name": "T02_017.Pixel.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {x y : Nat} {hue : T02_017.Colour} {x_1 y_1 : Nat} {hue_1 : T02_017.Colour},\n  { x := x, y := y, hue := hue } = { x := x_1, y := y_1, hue := hue_1 } \u2192 x = x_1 \u2227 y = y_1 \u2227 hue = hue_1",
+      "name": "T02_017.Pixel.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : Nat) (hue : T02_017.Colour) (x_1 y_1 : Nat) (hue_1 : T02_017.Colour),\n  ({ x := x, y := y, hue := hue } = { x := x_1, y := y_1, hue := hue_1 }) = (x = x_1 \u2227 y = y_1 \u2227 hue = hue_1)",
+      "name": "T02_017.Pixel.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Nat) (hue : T02_017.Colour), sizeOf { x := x, y := y, hue := hue } = 1 + sizeOf x + sizeOf y + sizeOf hue",
+      "name": "T02_017.Pixel.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T02_017.Pixel} \u2192 v1 = v2 \u2192 T02_017.Pixel.noConfusionType P v1 v2",
+      "name": "T02_017.Pixel.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T02_017.Pixel \u2192 T02_017.Pixel \u2192 Sort u",
+      "name": "T02_017.Pixel.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Pixel \u2192 Sort u} \u2192\n  ((x y : Nat) \u2192 (hue : T02_017.Colour) \u2192 motive { x := x, y := y, hue := hue }) \u2192 (t : T02_017.Pixel) \u2192 motive t",
+      "name": "T02_017.Pixel.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Pixel \u2192 Sort u} \u2192\n  (t : T02_017.Pixel) \u2192 ((x y : Nat) \u2192 (hue : T02_017.Colour) \u2192 motive { x := x, y := y, hue := hue }) \u2192 motive t",
+      "name": "T02_017.Pixel.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Pixel \u2192 Nat",
+      "name": "T02_017.Pixel.x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Pixel \u2192 Nat",
+      "name": "T02_017.Pixel.y",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T02_017.Shape",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Shape \u2192 Sort u} \u2192\n  (t : T02_017.Shape) \u2192 motive T02_017.Shape.dot \u2192 motive T02_017.Shape.line \u2192 motive t",
+      "name": "T02_017.Shape.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Shape",
+      "name": "T02_017.Shape.dot",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_017.Shape.dot = 1",
+      "name": "T02_017.Shape.dot.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Shape",
+      "name": "T02_017.Shape.line",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T02_017.Shape.line = 1",
+      "name": "T02_017.Shape.line.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T02_017.Shape} \u2192 x = y \u2192 T02_017.Shape.noConfusionType P x y",
+      "name": "T02_017.Shape.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.675"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T02_017.Shape \u2192 T02_017.Shape \u2192 Sort v\u271d",
+      "name": "T02_017.Shape.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.674"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Shape \u2192 Sort u} \u2192\n  motive T02_017.Shape.dot \u2192 motive T02_017.Shape.line \u2192 (t : T02_017.Shape) \u2192 motive t",
+      "name": "T02_017.Shape.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_017.Shape \u2192 Sort u} \u2192\n  (t : T02_017.Shape) \u2192 motive T02_017.Shape.dot \u2192 motive T02_017.Shape.line \u2192 motive t",
+      "name": "T02_017.Shape.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_017.Shape \u2192 Nat",
+      "name": "T02_017.Shape.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "BEq T02_017.Chain",
+      "name": "T02_017.instBEqChain",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "BEq T02_017.Colour",
+      "name": "T02_017.instBEqColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "BEq T02_017.Pixel",
+      "name": "T02_017.instBEqPixel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "BEq T02_017.Shape",
+      "name": "T02_017.instBEqShape",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T02_017.Colour",
+      "name": "T02_017.instDecidableEqColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T02_017.Colour), x.toCtorIdx = y.toCtorIdx \u2192 x = y",
+      "name": "T02_017.instDecidableEqColour.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T02_017.Colour), \u00acx.toCtorIdx = y.toCtorIdx \u2192 x = y \u2192 False",
+      "name": "T02_017.instDecidableEqColour.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T02_017.Pixel",
+      "name": "T02_017.instDecidableEqPixel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Inhabited T02_017.Colour",
+      "name": "T02_017.instInhabitedColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Repr T02_017.Colour",
+      "name": "T02_017.instReprColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

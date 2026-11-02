@@ -1,0 +1,10 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 40519922447
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__memset_avx2_unaligned_erms;[unknown] 991760003
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;lc_gc_collect;lc_gc_scan 954055803
+_start;__libc_start_main_impl;__libc_start_call_main;main;seq_i64_push;lc_gc_resize.constprop.0;__memset_avx2_unaligned_erms;[unknown] 162332874
+_start;__libc_start_main_impl;__libc_start_call_main;main;seq_i64_push 137618376
+_start;__libc_start_main_impl;__libc_start_call_main;main;logos_idx0 126244918
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__memset_avx2_unaligned_erms 103145609
+_start;__libc_start_main_impl;__libc_start_call_main;main;seq_i64_push;lc_gc_resize.constprop.0;__memset_avx2_unaligned_erms 28400254
+_start;__libc_start_main_impl;__libc_start_call_main;main;[unknown] 6049380
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__GI___libc_realloc;_int_realloc;__GI_memcpy;__memcpy_avx_unaligned_erms;[unknown] 507614

@@ -6,7 +6,6 @@
 //! # Context Providers
 //!
 //! The [`App`] component provides these global contexts:
-//! - [`LicenseState`] - License key validation and plan tiers
 //! - [`RegistryAuthState`] - GitHub authentication for package registry
 //!
 //! # Global Styles
@@ -18,11 +17,9 @@
 //!
 //! The app uses Dioxus Router with routes defined in [`crate::ui::router::Route`].
 
-use dioxus::prelude::*;
 use crate::ui::router::Route;
-use crate::ui::state::{LicenseState, RegistryAuthState};
-use crate::ui::theme;
-use crate::ui::theme_state::{ThemeState, theme_css};
+use crate::ui::state::RegistryAuthState;
+use dioxus::prelude::*;
 
 /// Global CSS including design tokens, reset styles, and common component styles.
 const GLOBAL_STYLE: &str = r#"
@@ -38,6 +35,18 @@ const GLOBAL_STYLE: &str = r#"
     --color-warning: #f59e0b;
     --color-error: #e06c75;
     --color-info: #60a5fa;
+
+    /* Palette: the page background and the two accents */
+    --bg-gradient-start: #09090b;
+    --bg-gradient-mid: #0c0c10;
+    --bg-gradient-end: #09090b;
+    --accent-primary: #00d4ff;
+    --accent-secondary: #818cf8;
+    --accent-tertiary: #f0f0f0;
+    --accent-primary-rgb: 0, 212, 255;
+    --accent-secondary-rgb: 129, 140, 248;
+    --accent-border: rgba(0, 212, 255, 0.3);
+    --accent-glow: rgba(0, 212, 255, 0.2);
 
     /* Text colors - MUCH lighter for readability */
     --text-primary: #f5f5f5;
@@ -88,7 +97,12 @@ const GLOBAL_STYLE: &str = r#"
 
 html, body {
     height: 100%;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    background: linear-gradient(
+        135deg,
+        var(--bg-gradient-start) 0%,
+        var(--bg-gradient-mid) 50%,
+        var(--bg-gradient-end) 100%
+    );
     color: var(--text-primary);
     font-family: var(--font-sans);
     font-size: var(--font-body-lg);
@@ -210,217 +224,75 @@ a {
     transform: translateY(0);
 }
 
-/* Interactive reveal section */
-.reveal-section {
-    margin-top: var(--spacing-lg);
-    padding-top: var(--spacing-lg);
-    border-top: 1px solid rgba(255,255,255,0.06);
+/* Accents. These components still hardcode colours of their own; the rules below paint
+   them from the palette, which is why they carry !important. */
+.main-nav-link.active::after {
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary)) !important;
 }
 
-.reveal-buttons {
-    display: flex;
-    gap: var(--spacing-md);
-    flex-wrap: wrap;
-    margin-bottom: var(--spacing-lg);
+.btn-primary,
+.main-nav-btn.primary {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+    box-shadow: 0 12px 30px rgba(var(--accent-primary-rgb), 0.18) !important;
 }
 
-.reveal-btn {
-    padding: 10px 16px;
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.05);
-    color: var(--text-secondary);
-    font-size: var(--font-body-sm);
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+.btn-primary:hover,
+.main-nav-btn.primary:hover {
+    box-shadow: 0 16px 40px rgba(var(--accent-primary-rgb), 0.25) !important;
 }
 
-.reveal-btn:hover {
-    background: rgba(255,255,255,0.10);
-    color: var(--text-primary);
+.mobile-nav-item.active,
+.mobile-nav-link.active {
+    background: rgba(var(--accent-primary-rgb), 0.12) !important;
+    color: var(--accent-primary) !important;
 }
 
-.reveal-btn.active {
-    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb),0.2), rgba(var(--accent-secondary-rgb),0.2));
-    border-color: rgba(var(--accent-secondary-rgb),0.4);
-    color: var(--text-primary);
+input:focus,
+textarea:focus {
+    box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.3);
+    border-color: var(--accent-primary);
 }
 
-.revealed-content {
-    padding: var(--spacing-lg);
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: var(--radius-lg);
-    margin-top: var(--spacing-md);
-    animation: fadeIn 0.2s ease;
+.badge .dot {
+    background: var(--accent-primary) !important;
+    box-shadow: 0 0 0 6px rgba(var(--accent-primary-rgb), 0.12) !important;
 }
 
-.revealed-label {
-    font-size: var(--font-caption-sm);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-tertiary);
-    margin-bottom: var(--spacing-sm);
+.card:hover {
+    border-color: rgba(var(--accent-secondary-rgb), 0.28) !important;
 }
 
-.revealed-logic {
-    font-family: var(--font-mono);
-    font-size: var(--font-heading-sm);
-    color: var(--accent-primary);
-    padding: var(--spacing-md);
-    background: rgba(var(--accent-primary-rgb), 0.08);
-    border-radius: var(--radius-md);
-    margin: var(--spacing-md) 0;
+.card:hover::before {
+    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.12), rgba(var(--accent-secondary-rgb), 0.12)) !important;
 }
 
-/* Socratic hint box */
-.socratic-hint-box {
-    margin-top: var(--spacing-lg);
-    padding: var(--spacing-lg);
-    background: linear-gradient(135deg, rgba(var(--accent-secondary-rgb),0.08), rgba(var(--accent-primary-rgb),0.08));
-    border: 1px solid rgba(var(--accent-secondary-rgb),0.2);
-    border-radius: var(--radius-lg);
-    border-left: 4px solid var(--accent-secondary);
+.icon-box {
+    background: rgba(var(--accent-primary-rgb), 0.15) !important;
 }
 
-.hint-header {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-    font-size: var(--font-caption-md);
-    font-weight: 600;
-    color: var(--accent-secondary);
-}
-
-.hint-text {
-    color: var(--text-secondary);
-    line-height: 1.6;
-}
-
-/* Multiple choice options */
-.multiple-choice-options {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-    margin: var(--spacing-lg) 0;
-}
-
-.multiple-choice-options .reveal-btn {
-    width: 100%;
-    text-align: left;
-    padding: var(--spacing-md) var(--spacing-lg);
-    font-family: var(--font-mono);
-}
-
-.multiple-choice-options .reveal-btn.correct {
-    background: rgba(74, 222, 128, 0.15);
-    border-color: var(--color-success);
-}
-
-.multiple-choice-options .reveal-btn.incorrect {
-    background: rgba(248, 113, 113, 0.15);
-    border-color: var(--color-error);
-}
-
-/* Progress indicator - shows exercise completion within a module */
-.exercise-progress {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    font-size: var(--font-caption-md);
-    color: var(--text-tertiary);
-    margin-bottom: var(--spacing-md);
-}
-
-.progress-bar {
-    flex: 1;
-    height: 4px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 2px;
-    overflow: hidden;
-}
-
-.progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-    border-radius: 2px;
-    transition: width 0.3s ease;
-}
-
-.practice-score {
-    font-weight: 600;
-    color: var(--color-success);
-}
-
-/* Exercise mode badges */
-.exercise-mode-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 10px;
-    border-radius: var(--radius-full);
-    font-size: var(--font-caption-sm);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-right: var(--spacing-md);
-}
-
-.exercise-mode-badge.test {
-    background: rgba(251, 191, 36, 0.15);
-    color: #fbbf24;
-}
-
-.exercise-mode-badge.practice {
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--color-success);
+.code.logic {
+    color: var(--accent-secondary) !important;
 }
 "#;
 
 /// Root application component.
 ///
-/// Sets up global context providers for license, registry authentication, and theme,
-/// triggers license revalidation on mount, and renders the router.
+/// Sets up the registry authentication context and renders the router.
 ///
 /// # Context Providers
 ///
-/// - [`LicenseState`] - Manages subscription validation
 /// - [`RegistryAuthState`] - Manages GitHub OAuth for package registry
-/// - [`ThemeState`] - Manages theme selection with localStorage persistence
 pub fn App() -> Element {
-    let license_state = use_context_provider(LicenseState::new);
     let _registry_auth = use_context_provider(RegistryAuthState::new);
-    let theme_state = use_context_provider(ThemeState::new);
-
-    use_effect(move || {
-        let mut license_state = license_state.clone();
-        spawn(async move {
-            if license_state.has_license() && license_state.needs_revalidation() {
-                license_state.validate().await;
-            }
-        });
-    });
-
-    // Generate dynamic theme CSS
-    let current_theme = theme_state.current();
-    let dynamic_theme_css = theme_css(current_theme);
 
     rsx! {
         style { "{GLOBAL_STYLE}" }
-        style { "{dynamic_theme_css}" }
         div {
-            "data-theme": "{current_theme.data_attr()}",
             id: "app-root",
             // No explicit SuspenseBoundary: lazy route chunks suspend against
             // the implicit root boundary (the wasm-split harness shape). The
-            // CSR takeover that swaps out the prerendered copy is DOM-driven —
-            // see the MutationObserver in index.html.
+            // CSR takeover that swaps out the prerendered copy watches this
+            // element's content from outside — see the poll in index.html.
             Router::<Route> {}
         }
     }

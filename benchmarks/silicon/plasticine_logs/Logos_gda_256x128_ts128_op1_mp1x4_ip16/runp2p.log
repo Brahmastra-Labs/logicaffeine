@@ -1,0 +1,40 @@
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          37255 Hz
+     20000          37762 Hz
+     30000          37704 Hz
+     40000          37583 Hz
+     50000          38013 Hz
+     60000          37537 Hz
+     70000          37593 Hz
+     80000          37896 Hz
+     90000          37574 Hz
+    100000          37827 Hz
+    110000          37699 Hz
+    120000          37628 Hz
+    130000          37877 Hz
+    140000          37271 Hz
+    150000          37518 Hz
+    160000          37810 Hz
+    170000          37500 Hz
+    180000          37500 Hz
+    190000          37755 Hz
+    200000          37651 Hz
+    210000          38621 Hz
+    220000          38669 Hz
+    230000          38566 Hz
+    240000          39200 Hz
+    250000          38890 Hz
+    260000          39053 Hz
+Simulation complete at cycle 269310
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.4943 GB/s
+Average DRAM Write Bandwidth: 0.243348 GB/s
+script Elapsed seconds: 9.13083
+Exiting... 😊
+Destruct DRAM.
+PASS: true (Logos_gda_256x128_ts128_op1_mp1x4_ip16)
+Complete Simulation
+Runtime:0:09.25

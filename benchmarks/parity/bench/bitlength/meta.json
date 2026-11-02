@@ -1,0 +1,11 @@
+{
+  "capability": "bits.bit_length",
+  "workload": "sum of bit_length(i) over 1<=i<=n",
+  "arg": "5000000",
+  "expected": "106611416",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

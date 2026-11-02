@@ -1,0 +1,8 @@
+{
+  "capability": "bits.leading_zeros",
+  "workload": "sum of leadingZeros(i,64) over 1<=i<=n \u2014 64-bit CLZ stress loop",
+  "arg": "20000000",
+  "expected": "813554406",
+  "logos_uses_stdlib": true,
+  "note": "main.lg calls leadingZeros() auto-imported from the pure-LOGOS bits stdlib module; counterparts use __builtin_clzll / u64::leading_zeros / bits.LeadingZeros64 / 64-bit_length."
+}

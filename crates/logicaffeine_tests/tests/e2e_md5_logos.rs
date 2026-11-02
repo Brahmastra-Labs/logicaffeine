@@ -170,6 +170,8 @@ fn md5_compress_written_in_logos_matches_reference() {
     common::assert_interpreter_output(src, "2555380112\n2958021180\n2101319382\n1920983336");
     // AOT: the Logos MD5 compiles to native Rust (Word32 → u32 wrapping ops + word_and/or/not) and
     // produces the identical digest — proving the algorithm is Logos AND compiles to native code.
-    common::assert_output_lines(src, &["2555380112", "2958021180", "2101319382", "1920983336"]);
+    common::assert_output_lines(
+        src,
+        &["2555380112", "2958021180", "2101319382", "1920983336"],
+    );
 }
-

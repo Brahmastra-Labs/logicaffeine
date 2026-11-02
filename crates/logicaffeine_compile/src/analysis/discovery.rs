@@ -17,10 +17,16 @@
 //!   - Geometry::Point { x: Int, y: Int }
 //! ```
 
-use std::path::Path;
+use super::{scan_dependencies, DiscoveryPass, TypeDef, TypeRegistry};
 use crate::loader::Loader;
-use crate::{Interner, Lexer, mwe};
-use super::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies};
+use crate::{mwe, Interner, Lexer};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+/// Canonicalize a path for cycle/diamond dedup; fall back to the path itself.
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
 
 /// Recursive discovery with module imports.
 ///
@@ -68,24 +74,39 @@ pub fn discover_with_imports(
     loader: &mut Loader,
     interner: &mut Interner,
 ) -> Result<TypeRegistry, String> {
+    // Seed the visited set with the entry so a module that imports the entry
+    // back (a legal cycle) never re-discovers it — no infinite recursion.
+    let mut visited: HashSet<PathBuf> = HashSet::new();
+    visited.insert(canonical(file_path));
+    discover_with_imports_inner(file_path, source, loader, interner, &mut visited)
+}
+
+fn discover_with_imports_inner(
+    file_path: &Path,
+    source: &str,
+    loader: &mut Loader,
+    interner: &mut Interner,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<TypeRegistry, String> {
     let mut registry = TypeRegistry::with_primitives(interner);
 
     // 1. Scan for dependencies in the abstract
     let deps = scan_dependencies(source);
 
-    // 2. For each dependency, recursively discover types
+    // 2. For each dependency, recursively discover types (cycle/diamond-safe:
+    //    a module already discovered on this path contributes its types once).
     for dep in deps {
         let module_source = loader.resolve(file_path, &dep.uri)?;
         let dep_content = module_source.content.clone();
         let dep_path = module_source.path.clone();
 
+        if !visited.insert(canonical(&dep_path)) {
+            continue;
+        }
+
         // Recursively discover types in the dependency
-        let dep_registry = discover_with_imports(
-            &dep_path,
-            &dep_content,
-            loader,
-            interner
-        )?;
+        let dep_registry =
+            discover_with_imports_inner(&dep_path, &dep_content, loader, interner, visited)?;
 
         // Merge with namespace prefix
         merge_registry(&mut registry, &dep.alias, dep_registry, interner);
@@ -120,13 +141,15 @@ fn merge_registry(
     interner: &mut Interner,
 ) {
     for (sym, def) in dep.iter_types() {
-        // Get original name
-        let orig_name = interner.resolve(*sym);
-
-        // Skip primitives
-        if ["Int", "Nat", "Text", "Bool", "Real", "Unit"].contains(&orig_name) {
+        // Only what the module declares takes its namespace. Primitives, the intrinsic generics and
+        // the compiler-provided structs sit in every registry; namespacing them would mint a
+        // `Geometry::File` no program declared, and the emitters would write it out.
+        if matches!(def, TypeDef::Primitive | TypeDef::Generic { .. })
+            || dep.is_builtin_struct(*sym)
+        {
             continue;
         }
+        let orig_name = interner.resolve(*sym);
 
         // Create namespaced name: "Geometry::Point"
         let namespaced = format!("{}::{}", namespace, orig_name);
@@ -134,13 +157,23 @@ fn merge_registry(
 
         // Clone the typedef with the new namespaced symbol
         let namespaced_def = match def {
-            TypeDef::Struct { fields, generics, is_portable, is_shared } => TypeDef::Struct {
+            TypeDef::Struct {
+                fields,
+                generics,
+                is_portable,
+                is_shared,
+            } => TypeDef::Struct {
                 fields: fields.clone(),
                 generics: generics.clone(),
                 is_portable: *is_portable,
                 is_shared: *is_shared,
             },
-            TypeDef::Enum { variants, generics, is_portable, is_shared } => TypeDef::Enum {
+            TypeDef::Enum {
+                variants,
+                generics,
+                is_portable,
+                is_shared,
+            } => TypeDef::Enum {
                 variants: variants.clone(),
                 generics: generics.clone(),
                 is_portable: *is_portable,

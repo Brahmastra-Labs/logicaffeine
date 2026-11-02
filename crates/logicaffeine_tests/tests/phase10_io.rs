@@ -11,50 +11,65 @@ use common::compile_to_rust;
 
 #[test]
 fn test_read_console_tokens() {
-    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_base::Interner;
+    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_language::token::TokenType;
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new("## Main\nRead input from the console.", &mut interner);
     let tokens = lexer.tokenize();
 
-    assert!(tokens.iter().any(|t| matches!(t.kind, TokenType::Read)),
-            "Should have Read token");
-    assert!(tokens.iter().any(|t| matches!(t.kind, TokenType::Console)),
-            "Should have Console token");
+    assert!(
+        tokens.iter().any(|t| matches!(t.kind, TokenType::Read)),
+        "Should have Read token"
+    );
+    assert!(
+        tokens.iter().any(|t| matches!(t.kind, TokenType::Console)),
+        "Should have Console token"
+    );
 }
 
 #[test]
 fn test_read_file_tokens() {
-    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_base::Interner;
+    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_language::token::TokenType;
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new("## Main\nRead data from file \"test.txt\".", &mut interner);
     let tokens = lexer.tokenize();
 
-    assert!(tokens.iter().any(|t| matches!(t.kind, TokenType::Read)),
-            "Should have Read token");
-    assert!(tokens.iter().any(|t| matches!(t.kind, TokenType::File)),
-            "Should have File token");
+    assert!(
+        tokens.iter().any(|t| matches!(t.kind, TokenType::Read)),
+        "Should have Read token"
+    );
+    assert!(
+        tokens.iter().any(|t| matches!(t.kind, TokenType::File)),
+        "Should have File token"
+    );
 }
 
 #[test]
 fn test_write_file_tokens() {
-    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_base::Interner;
+    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_language::token::TokenType;
 
     let mut interner = Interner::new();
-    let mut lexer = Lexer::new("## Main\nWrite \"hello\" to file \"out.txt\".", &mut interner);
+    let mut lexer = Lexer::new(
+        "## Main\nWrite \"hello\" to file \"out.txt\".",
+        &mut interner,
+    );
     let tokens = lexer.tokenize();
 
-    assert!(tokens.iter().any(|t| matches!(t.kind, TokenType::Write)),
-            "Should have Write token");
-    assert!(tokens.iter().any(|t| matches!(t.kind, TokenType::File)),
-            "Should have File token");
+    assert!(
+        tokens.iter().any(|t| matches!(t.kind, TokenType::Write)),
+        "Should have Write token"
+    );
+    assert!(
+        tokens.iter().any(|t| matches!(t.kind, TokenType::File)),
+        "Should have File token"
+    );
 }
 
 // =============================================================================
@@ -66,8 +81,11 @@ fn test_read_from_console_codegen() {
     let source = "## Main\nRead input from the console.\nShow input.";
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("read_line()"),
-            "Should call read_line().\nGot:\n{}", rust);
+    assert!(
+        rust.contains("read_line()"),
+        "Should call read_line().\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -76,8 +94,11 @@ fn test_read_from_console_without_article() {
     let source = "## Main\nRead input from console.\nShow input.";
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("read_line()"),
-            "Should call read_line() without 'the'.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("read_line()"),
+        "Should call read_line() without 'the'.\nGot:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -92,10 +113,16 @@ Show data."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("read_to_string"),
-            "Should call vfs.read_to_string.\nGot:\n{}", rust);
-    assert!(rust.contains("config.txt"),
-            "Should include file path.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("read_to_string"),
+        "Should call vfs.read_to_string.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("config.txt"),
+        "Should include file path.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -107,10 +134,16 @@ Show content."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("read_to_string"),
-            "Should call vfs.read_to_string.\nGot:\n{}", rust);
-    assert!(rust.contains("path"),
-            "Should use path variable.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("read_to_string"),
+        "Should call vfs.read_to_string.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("path"),
+        "Should use path variable.\nGot:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -124,10 +157,16 @@ Write "hello world" to file "output.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("vfs.write"),
-            "Should call vfs.write.\nGot:\n{}", rust);
-    assert!(rust.contains("output.txt"),
-            "Should include file path.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("vfs.write"),
+        "Should call vfs.write.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("output.txt"),
+        "Should include file path.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -138,8 +177,11 @@ Write message to file "greeting.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("vfs.write"),
-            "Should call vfs.write.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("vfs.write"),
+        "Should call vfs.write.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -150,10 +192,16 @@ Write original to file "output.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("read_to_string"),
-            "Should have vfs.read_to_string.\nGot:\n{}", rust);
-    assert!(rust.contains("vfs.write"),
-            "Should have vfs.write.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("read_to_string"),
+        "Should have vfs.read_to_string.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("vfs.write"),
+        "Should have vfs.write.\nGot:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -209,13 +257,22 @@ fn test_io_in_function() {
 Call greet."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("fn greet"),
-            "Should have function definition.\nGot:\n{}", rust);
-    assert!(rust.contains("read_line()"),
-            "Should have read_line in function.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("fn greet"),
+        "Should have function definition.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("read_line()"),
+        "Should have read_line in function.\nGot:\n{}",
+        rust
+    );
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("vfs.write"),
-            "Should have vfs.write in function.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("vfs.write"),
+        "Should have vfs.write in function.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -230,11 +287,17 @@ Otherwise:
     Write "default" to file "output.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("read_line()"),
-            "Should have read_line in if branch.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("read_line()"),
+        "Should have read_line in if branch.\nGot:\n{}",
+        rust
+    );
     // Phase 53: File operations now use VFS abstraction
-    assert!(rust.contains("vfs.write"),
-            "Should have vfs.write in else branch.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("vfs.write"),
+        "Should have vfs.write in else branch.\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -247,8 +310,14 @@ While count < 3:
     let rust = compile_to_rust(source).expect("Should compile");
 
     // For-range optimization may convert `while count < 3` → `for count in 0..3`
-    assert!(rust.contains("while") || rust.contains("for count in"),
-            "Should have while or for-range loop.\nGot:\n{}", rust);
-    assert!(rust.contains("read_line()"),
-            "Should have read_line in loop.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("while") || rust.contains("for count in"),
+        "Should have while or for-range loop.\nGot:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("read_line()"),
+        "Should have read_line in loop.\nGot:\n{}",
+        rust
+    );
 }

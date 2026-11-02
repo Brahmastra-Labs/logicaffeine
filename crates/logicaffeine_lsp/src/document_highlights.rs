@@ -2,7 +2,7 @@
 //! with WRITE kind on binding and mutation sites and READ everywhere else —
 //! the cursor-hold highlight editors render natively.
 
-use tower_lsp::lsp_types::{DocumentHighlight, DocumentHighlightKind, Position, Range};
+use lsp_types::{DocumentHighlight, DocumentHighlightKind, Position, Range};
 
 use crate::document::DocumentState;
 use crate::semantic_tokens::find_mutation_targets;

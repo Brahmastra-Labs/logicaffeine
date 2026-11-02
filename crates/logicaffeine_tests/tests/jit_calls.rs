@@ -165,7 +165,10 @@ fn deopt_inside_native_recursion_unwinds_and_replays() {
             (norm(&tw.output), &tw.error),
             "recursive deopt replay diverged"
         );
-        assert!(vm.error.is_some(), "division by zero at the base case must error");
+        assert!(
+            vm.error.is_some(),
+            "division by zero at the base case must error"
+        );
         assert_eq!(norm(&vm.output), "1");
     });
 }

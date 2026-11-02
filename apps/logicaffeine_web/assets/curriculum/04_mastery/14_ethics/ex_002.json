@@ -10,7 +10,8 @@
     "Obligations can be impossible"
   ],
   "correct": 1,
-  "hint": "'Ought implies can' - you can't be obligated to do what's not allowed.",
-  "explanation": "O(p) → P(p) captures the intuition that obligations entail permissions. If you're obligated to do something, it must at least be permitted. You can't be required to do what's forbidden - that would be an incoherent normative system.",
-  "visual_concept": "If you MUST pay taxes, then paying taxes must be ALLOWED. Obligation is a stronger requirement than mere permission."
+  "hint": "If something is required, can it also be forbidden?",
+  "explanation": "O(p) → P(p) says what is obligatory is permitted. A system that could require a forbidden act would be incoherent.",
+  "visual_concept": "If you MUST pay taxes, then paying taxes must be ALLOWED. Obligation is a stronger requirement than mere permission.",
+  "section": "14.5"
 }

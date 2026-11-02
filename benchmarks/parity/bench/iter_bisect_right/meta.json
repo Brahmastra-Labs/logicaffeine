@@ -1,0 +1,10 @@
+{
+  "capability": "iter.bisect_right",
+  "workload": "bisectRight(sorted xs, key) \u2014 1-based",
+  "arg": "200000",
+  "expected": "78130089",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

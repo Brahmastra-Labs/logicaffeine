@@ -21,29 +21,27 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::buffer::{HoleValue, JitBuffer, JitChain};
 use crate::{
-    V_BINOP, V_BRANCH, V_CONST, V_FBINOP, V_FMOV, V_MOV, V_RET, V_SQRTF, V_DIVF, V_I2F, V_BRANCHF,
-    V_ARRLD_RPTR, V_ARRLD_RPTR_C, V_ARRST_RPTR, V_ARRST_RPTR_C,
-    ST_ADD3, ST_ADDF3, ST_AND3, ST_ARRLD, ST_ARRLD2_ADDF, ST_ARRLD2_MULF, ST_ARRLD2_SUBF, ST_ARRLDB, ST_ARRLDB_U, ST_ARRLD_U, ST_ARRST, ST_ARRSTB, ST_ARRSTB_U, ST_ARRST_U, ST_BREQ, ST_BREQF, ST_BRLEF, ST_BRLT, ST_CALL, ST_PUSH, ST_LIST_CLEAR,
-    ST_ARRLD_I32, ST_ARRLD_I32_U, ST_ARRST_I32, ST_ARRST_I32_U,
-    ST_ARRLD2_ADD, ST_ARRLD2_ADD_U, ST_ARRLD2_SUB, ST_ARRLD2_SUB_U, ST_ARRLD2_MUL, ST_ARRLD2_MUL_U,
-    ST_ARRLDAFF_NONE, ST_ARRLDAFF_NONE_U, ST_ARRLDAFF_ADD, ST_ARRLDAFF_ADD_U,
-    ST_ARRLDAFF_SUB, ST_ARRLDAFF_SUB_U, ST_ARRLDAFF_MUL, ST_ARRLDAFF_MUL_U,
-    ST_ARRRMW_ADD, ST_ARRRMW_ADD_U, ST_ARRRMW_SUB, ST_ARRRMW_SUB_U, ST_ARRRMW_MUL, ST_ARRRMW_MUL_U,
-    ST_ARRRMW_AND, ST_ARRRMW_AND_U, ST_ARRRMW_OR, ST_ARRRMW_OR_U, ST_ARRRMW_XOR, ST_ARRRMW_XOR_U,
-    ST_ARRRMW_ADDF, ST_ARRRMW_ADDF_U, ST_ARRRMW_SUBF, ST_ARRRMW_SUBF_U, ST_ARRRMW_MULF, ST_ARRRMW_MULF_U,
-    ST_FMAF,
-    ST_ARRCONDSWAP_GT, ST_ARRCONDSWAP_GT_U, ST_ARRCONDSWAP_LT, ST_ARRCONDSWAP_LT_U,
-    ST_ARRCONDSWAP_GE, ST_ARRCONDSWAP_GE_U, ST_ARRCONDSWAP_LE, ST_ARRCONDSWAP_LE_U,
-    ST_ARRSWAP, ST_ARRSWAP_U,
-    ST_BRLTF, ST_BRZ, ST_CALL_PRECISE, ST_CONSTST, ST_DEOPT, ST_DEOPT_AT, ST_DIV3C,
-    ST_DIVPOW2, ST_MAGICDIV,
-    ST_DIVF3C, ST_EQ3, ST_EQF3, ST_I2F2,
-    ST_JUMP, ST_LE3, ST_LEF3, ST_LT3, ST_LTF3, ST_MOD3C, ST_MOVSS, ST_MUL3, ST_MULF3, ST_NE3,
-    ST_ALLOCLIST, ST_CALL_SELF, ST_CALL_SELF_COPY, ST_LISTTRIPLE, ST_MAPHGET, ST_MAPHHAS, ST_MAPHSET, ST_MEMMEM, ST_NEF3,
-    ST_NOTB2,
-    ST_NOTI2, ST_OR3, ST_RET2,
-    ST_SHL3, ST_SHR3, ST_SQRTF2, ST_SUB3,
-    ST_SUBF3, ST_XOR3,
+    ST_ADD3, ST_ADDF3, ST_ALLOCLIST, ST_AND3, ST_ARRCONDSWAP_GE, ST_ARRCONDSWAP_GE_U,
+    ST_ARRCONDSWAP_GT, ST_ARRCONDSWAP_GT_U, ST_ARRCONDSWAP_LE, ST_ARRCONDSWAP_LE_U,
+    ST_ARRCONDSWAP_LT, ST_ARRCONDSWAP_LT_U, ST_ARRLD, ST_ARRLD2_ADD, ST_ARRLD2_ADDF,
+    ST_ARRLD2_ADD_U, ST_ARRLD2_MUL, ST_ARRLD2_MULF, ST_ARRLD2_MUL_U, ST_ARRLD2_SUB, ST_ARRLD2_SUBF,
+    ST_ARRLD2_SUB_U, ST_ARRLDAFF_ADD, ST_ARRLDAFF_ADD_U, ST_ARRLDAFF_MUL, ST_ARRLDAFF_MUL_U,
+    ST_ARRLDAFF_NONE, ST_ARRLDAFF_NONE_U, ST_ARRLDAFF_SUB, ST_ARRLDAFF_SUB_U, ST_ARRLDB,
+    ST_ARRLDB_U, ST_ARRLD_I32, ST_ARRLD_I32_U, ST_ARRLD_U, ST_ARRRMW_ADD, ST_ARRRMW_ADDF,
+    ST_ARRRMW_ADDF_U, ST_ARRRMW_ADD_U, ST_ARRRMW_AND, ST_ARRRMW_AND_U, ST_ARRRMW_MUL,
+    ST_ARRRMW_MULF, ST_ARRRMW_MULF_U, ST_ARRRMW_MUL_U, ST_ARRRMW_OR, ST_ARRRMW_OR_U, ST_ARRRMW_SUB,
+    ST_ARRRMW_SUBF, ST_ARRRMW_SUBF_U, ST_ARRRMW_SUB_U, ST_ARRRMW_XOR, ST_ARRRMW_XOR_U, ST_ARRST,
+    ST_ARRSTB, ST_ARRSTB_U, ST_ARRST_I32, ST_ARRST_I32_U, ST_ARRST_U, ST_ARRSWAP, ST_ARRSWAP_U,
+    ST_BREQ, ST_BREQF, ST_BRLEF, ST_BRLT, ST_BRLTF, ST_BRZ, ST_CALL, ST_CALL_PRECISE, ST_CALL_SELF,
+    ST_CALL_SELF_COPY, ST_CEILF2, ST_CHRGUARD, ST_CONSTST, ST_DEOPT, ST_DEOPT_AT, ST_DIV3C,
+    ST_DIVF3C, ST_DIVPOW2, ST_EQ3, ST_EQF3, ST_FLOORF2, ST_FMAF, ST_HOST, ST_I2F2, ST_JUMP, ST_LE3,
+    ST_LEF3, ST_LISTTRIPLE, ST_LIST_CLEAR, ST_LT3, ST_LTF3, ST_LZCNT2, ST_MAGICDIV, ST_MAPHGET,
+    ST_MAPHHAS, ST_MAPHSET, ST_MEMMEM, ST_MOD3C, ST_MOVSS, ST_MUL3, ST_MULF3, ST_NE3, ST_NEF3,
+    ST_NOTB2, ST_NOTI2, ST_OR3, ST_POPCNT2, ST_PUSH, ST_RET2, ST_ROL32_3, ST_ROL64_3, ST_ROR32_3,
+    ST_ROR64_3, ST_ROUNDF2, ST_SHL3, ST_SHR3, ST_SQRTF2, ST_SUB3, ST_SUBF3, ST_TZCNT2, ST_USHR3,
+    ST_UTF8LEN2, ST_XOR3, V_ARRLD_RPTR, V_ARRLD_RPTR_C, V_ARRST_RPTR, V_ARRST_RPTR_C, V_BINOP,
+    V_BRANCH, V_BRANCHF, V_CEILF, V_CHRGUARD, V_CONST, V_DIVF, V_FBINOP, V_FLOORF, V_FMOV, V_I2F,
+    V_LZCNT, V_MOV, V_POPCNT, V_RET, V_ROUNDF, V_SQRTF, V_TZCNT, V_UTF8LEN,
 };
 
 /// Frame slot index (a VM register number).
@@ -248,6 +246,27 @@ pub enum StrSrc {
         /// The constant's byte length.
         len: i64,
     },
+    /// An `Int` VALUE living in a frame slot (`text + i`): the helper appends its decimal text, exactly the VM's
+    /// `Text + Int`.
+    Int(Slot),
+}
+
+impl StrSrc {
+    /// The frame slot the source reads, if it reads one (a constant is baked into the chain).
+    pub fn slot(self) -> Option<Slot> {
+        match self {
+            StrSrc::Byte(s) | StrSrc::Int(s) => Some(s),
+            StrSrc::Const { .. } => None,
+        }
+    }
+
+    /// [`StrSrc::slot`], for a pass that renames the slots an op reads.
+    pub fn slot_mut(&mut self) -> Option<&mut Slot> {
+        match self {
+            StrSrc::Byte(s) | StrSrc::Int(s) => Some(s),
+            StrSrc::Const { .. } => None,
+        }
+    }
 }
 
 /// The integer straight-line subset the J1 compiler accepts.
@@ -466,11 +485,116 @@ pub enum MicroOp {
         /// Right operand slot.
         rhs: Slot,
     },
+    /// `frame[dst] = ((frame[lhs] as u64) >> (frame[rhs] & 63)) as i64` — LOGICAL (unsigned) shift-right.
+    /// Register-threaded through the binop family (`V_BINOP` fam 12) / frame `ST_USHR3`. The Word64 substrate
+    /// for a variable `word64Shr` and the `rotl`/`rotr` composition (`shr` is arithmetic and would sign-extend
+    /// a high-bit-set carrier).
+    Ushr {
+        /// Destination slot.
+        dst: Slot,
+        /// Left operand slot.
+        lhs: Slot,
+        /// Right operand slot.
+        rhs: Slot,
+    },
+    /// Native word rotate. `width32` selects the low-32-bit Word32 operation
+    /// (whose result is zero-extended); otherwise the full Word64 carrier is
+    /// rotated. The hardware masks the count exactly like LOGOS (`& 31` or
+    /// `& 63`), including negative counts after their low bits are taken.
+    Rotate {
+        /// Destination slot.
+        dst: Slot,
+        /// Word value slot.
+        lhs: Slot,
+        /// Rotation-count slot.
+        rhs: Slot,
+        /// `true` for a 32-bit Word32 rotate, `false` for Word64.
+        width32: bool,
+        /// `true` for rotate-left, `false` for rotate-right.
+        left: bool,
+    },
     /// `frame[dst] = !frame[src]` — bitwise NOT (the kernel's Int `not`).
     NotInt {
         /// Destination slot.
         dst: Slot,
         /// Source slot.
+        src: Slot,
+    },
+    /// `frame[dst] = (frame[src] as u64).count_ones()` — population count via the `popcnt` stencil
+    /// (`ST_POPCNT2`) / register-form `popcnt_rr`. A unary Int op shaped like [`MicroOp::NotInt`]. Reads
+    /// its source from the frame, so its `src` is kept out of the GP-pin budget (`gp_blocked` in the
+    /// pin selector) — otherwise a register-pinned source (a hot `count_ones(k)` induction variable)
+    /// would be read stale.
+    Popcnt {
+        /// Destination slot.
+        dst: Slot,
+        /// Source slot.
+        src: Slot,
+    },
+    /// `frame[dst] = (frame[src] as u64).leading_zeros()` (64 for 0) via the `lzcnt` stencil (`ST_LZCNT2`)
+    /// / register-form `lzcnt_rr`. Shaped exactly like [`MicroOp::Popcnt`]; its `src` is `gp_blocked` so a
+    /// register-pinned source is never read stale, and the register-form `V_LZCNT` reads the pin directly.
+    Lzcnt {
+        /// Destination slot.
+        dst: Slot,
+        /// Source slot.
+        src: Slot,
+    },
+    /// `frame[dst] = (frame[src] as u64).trailing_zeros()` (64 for 0) via the `tzcnt` stencil (`ST_TZCNT2`)
+    /// / register-form `tzcnt_rr`. Shaped exactly like [`MicroOp::Popcnt`]; its `src` is `gp_blocked` so a
+    /// register-pinned source is never read stale, and the register-form `V_TZCNT` reads the pin directly.
+    Tzcnt {
+        /// Destination slot.
+        dst: Slot,
+        /// Source slot.
+        src: Slot,
+    },
+    /// `frame[dst:Int] = f64::from_bits(frame[src:Float]).floor() as i64` via the `roundsd …,1`+`cvttsd2si`
+    /// stencil (`ST_FLOORF2`) / register-form `V_FLOORF`. A FLOAT source → INT dest: the src is read at its
+    /// XMM pin (`floc`) in the register form, the dst written to a GP pin. Guard the lowering on `sse4.1`.
+    FloorToInt {
+        /// Destination slot (Int).
+        dst: Slot,
+        /// Source slot (Float).
+        src: Slot,
+    },
+    /// `frame[dst:Int] = f64::from_bits(frame[src:Float]).ceil() as i64` via `roundsd …,2`+`cvttsd2si`
+    /// (`ST_CEILF2`) / register-form `V_CEILF`. Same FLOAT→INT shape as [`MicroOp::FloorToInt`].
+    CeilToInt {
+        /// Destination slot (Int).
+        dst: Slot,
+        /// Source slot (Float).
+        src: Slot,
+    },
+    /// `frame[dst:Int] = f64::from_bits(frame[src:Float]).round() as i64` — round-half-AWAY via `roundsd …,3`
+    /// (trunc) + a ties-away adjust + saturating `cvttsd2si` (`ST_ROUNDF2`) / register-form `V_ROUNDF`.
+    /// Same FLOAT→INT shape as [`MicroOp::FloorToInt`]; `roundsd`'s nearest mode ties to EVEN so is unusable.
+    RoundToInt {
+        /// Destination slot (Int).
+        dst: Slot,
+        /// Source slot (Float).
+        src: Slot,
+    },
+    /// `chr(code)` guard: DEOPTABLE. If `frame[src]` is a valid Unicode scalar it is carried to
+    /// `frame[dst]` (a `Kind::CharText` slot re-boxed to a 1-char `Text` at exit); an invalid code takes the
+    /// side-exit (`cont_1`) so the VM re-runs `chr` and traps. Frame stencil `ST_CHRGUARD`, register-form
+    /// `V_CHRGUARD` (reads a pinned code register directly, like `V_POPCNT`). Its `src` is `gp_blocked`.
+    ChrGuard {
+        /// Destination slot (the carried code; `Kind::CharText`).
+        dst: Slot,
+        /// Source slot (the candidate code point, `Int`).
+        src: Slot,
+    },
+    /// `frame[dst] = utf8_len(frame[src] as u32)` — the UTF-8 byte length (1..4) of a Unicode scalar. This is
+    /// how `length of chr(k)` lowers: a `CharText` is carried unboxed as its code point, and its `Length` is
+    /// the byte length of that code point's UTF-8 encoding (a single scalar can be 1–4 bytes, never a constant
+    /// 1), matching the tree-walker's byte-count `Length` over the boxed 1-char `Text`. Frame stencil
+    /// `ST_UTF8LEN`, register-form `V_UTF8LEN` (reads a pinned code register directly, like `V_POPCNT`); its
+    /// `src` is `gp_blocked`. Not deoptable — the code was already validated by the producing [`MicroOp::ChrGuard`].
+    Utf8Len {
+        /// Destination slot (Int).
+        dst: Slot,
+        /// Source slot (the code point, `Kind::CharText` carried as `Int`).
         src: Slot,
     },
     /// `frame[dst] = frame[src] ^ 1` — logical NOT over 0/1 Bools.
@@ -599,6 +723,21 @@ pub enum MicroOp {
         dst: Slot,
         /// Source slot.
         src: Slot,
+    },
+    /// A runtime helper over the frame: `helper(frame, dst, src, count, imm)` reads the slots `src..src + count`,
+    /// writes the slot `dst`, and answers 0 to side-exit (the VM re-runs the op). One helper per operation the
+    /// stencil set has no shape for — the enum lane builds, tests, reads, retains and releases nodes through it.
+    Host {
+        /// The slot the helper writes.
+        dst: Slot,
+        /// The first slot the helper reads.
+        src: Slot,
+        /// How many consecutive slots from `src` the helper reads.
+        count: Slot,
+        /// An operand the helper interprets (a descriptor address, a field index).
+        imm: i64,
+        /// Runtime helper address (indirect call, no relocation).
+        helper_addr: i64,
     },
     /// Map get through the pinned storage: an Int hit lands in `dst`; a
     /// miss or non-Int value side-exits (the replay raises the kernel's
@@ -1081,7 +1220,10 @@ impl std::fmt::Display for JitCompileError {
                 write!(f, "jit: the final op must be Return or Jump")
             }
             JitCompileError::BadJumpTarget { op_index, target } => {
-                write!(f, "jit: op {op_index} jumps to {target}, outside the program")
+                write!(
+                    f,
+                    "jit: op {op_index} jumps to {target}, outside the program"
+                )
             }
             JitCompileError::Assembly(e) => write!(f, "jit: assembly failed: {e}"),
             JitCompileError::Unsupported(name) => {
@@ -1142,11 +1284,12 @@ impl CompiledChain {
     /// Wrap a raw `JitChain` (from the contiguous regalloc backend) and its
     /// shared status cell as a runnable `CompiledChain` — same run/deopt
     /// contract as a stencil chain.
-    pub(crate) fn from_chain(
-        chain: JitChain,
-        status: Option<std::sync::Arc<AtomicI64>>,
-    ) -> Self {
-        CompiledChain { chain, status, keepalive: Vec::new() }
+    pub(crate) fn from_chain(chain: JitChain, status: Option<std::sync::Arc<AtomicI64>>) -> Self {
+        CompiledChain {
+            chain,
+            status,
+            keepalive: Vec::new(),
+        }
     }
 
     /// Wrap a `JitChain` plus its status cell AND any extra cells the code reads
@@ -1157,7 +1300,11 @@ impl CompiledChain {
         status: Option<std::sync::Arc<AtomicI64>>,
         keepalive: Vec<std::sync::Arc<AtomicI64>>,
     ) -> Self {
-        CompiledChain { chain, status, keepalive }
+        CompiledChain {
+            chain,
+            status,
+            keepalive,
+        }
     }
 
     /// Run over the given frame (slot 0 = VM register 0, …) with a fresh
@@ -1312,13 +1459,28 @@ fn emit_mem_form(
 ) {
     match *op {
         MicroOp::Div { dst, lhs, rhs } | MicroOp::Mod { dst, lhs, rhs } => {
-            let stencil = if matches!(op, MicroOp::Div { .. }) { &ST_DIV3C } else { &ST_MOD3C };
+            let stencil = if matches!(op, MicroOp::Div { .. }) {
+                &ST_DIV3C
+            } else {
+                &ST_MOD3C
+            };
             buf.push_stencil(
                 stencil,
                 &[
                     HoleValue::Const(0, lhs as i64),
                     HoleValue::Const(1, rhs as i64),
                     HoleValue::Const(2, dst as i64),
+                    HoleValue::Cont(0, next),
+                    HoleValue::Cont(1, buf.label(deopt_piece)),
+                ],
+            );
+        }
+        MicroOp::ChrGuard { dst, src } => {
+            buf.push_stencil(
+                &ST_CHRGUARD,
+                &[
+                    HoleValue::Const(0, src as i64),
+                    HoleValue::Const(1, dst as i64),
                     HoleValue::Cont(0, next),
                     HoleValue::Cont(1, buf.label(deopt_piece)),
                 ],
@@ -1336,7 +1498,13 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::MagicDivU { dst, lhs, magic, more, mul_back } => {
+        MicroOp::MagicDivU {
+            dst,
+            lhs,
+            magic,
+            more,
+            mul_back,
+        } => {
             buf.push_stencil(
                 &ST_MAGICDIV,
                 &[
@@ -1421,11 +1589,27 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::NotInt { dst, src } | MicroOp::NotBool { dst, src }
-        | MicroOp::IntToFloat { dst, src } | MicroOp::SqrtF { dst, src } => {
+        MicroOp::NotInt { dst, src }
+        | MicroOp::NotBool { dst, src }
+        | MicroOp::Popcnt { dst, src }
+        | MicroOp::Lzcnt { dst, src }
+        | MicroOp::Tzcnt { dst, src }
+        | MicroOp::Utf8Len { dst, src }
+        | MicroOp::FloorToInt { dst, src }
+        | MicroOp::CeilToInt { dst, src }
+        | MicroOp::RoundToInt { dst, src }
+        | MicroOp::IntToFloat { dst, src }
+        | MicroOp::SqrtF { dst, src } => {
             let stencil = match op {
                 MicroOp::NotInt { .. } => &ST_NOTI2,
                 MicroOp::NotBool { .. } => &ST_NOTB2,
+                MicroOp::Popcnt { .. } => &ST_POPCNT2,
+                MicroOp::Lzcnt { .. } => &ST_LZCNT2,
+                MicroOp::Tzcnt { .. } => &ST_TZCNT2,
+                MicroOp::Utf8Len { .. } => &ST_UTF8LEN2,
+                MicroOp::FloorToInt { .. } => &ST_FLOORF2,
+                MicroOp::CeilToInt { .. } => &ST_CEILF2,
+                MicroOp::RoundToInt { .. } => &ST_ROUNDF2,
                 MicroOp::SqrtF { .. } => &ST_SQRTF2,
                 _ => &ST_I2F2,
             };
@@ -1462,7 +1646,12 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::MapGet { dst, key, map_slot, helper_addr } => {
+        MicroOp::MapGet {
+            dst,
+            key,
+            map_slot,
+            helper_addr,
+        } => {
             buf.push_stencil(
                 &ST_MAPHGET,
                 &[
@@ -1475,7 +1664,32 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::MapSet { src, key, map_slot, helper_addr } => {
+        MicroOp::Host {
+            dst,
+            src,
+            count,
+            imm,
+            helper_addr,
+        } => {
+            buf.push_stencil(
+                &ST_HOST,
+                &[
+                    HoleValue::Const(0, dst as i64),
+                    HoleValue::Const(1, src as i64),
+                    HoleValue::Const(2, count as i64),
+                    HoleValue::Const(3, imm),
+                    HoleValue::Const(4, helper_addr),
+                    HoleValue::Cont(0, next),
+                    HoleValue::Cont(1, buf.label(deopt_piece)),
+                ],
+            );
+        }
+        MicroOp::MapSet {
+            src,
+            key,
+            map_slot,
+            helper_addr,
+        } => {
             buf.push_stencil(
                 &ST_MAPHSET,
                 &[
@@ -1497,7 +1711,10 @@ fn emit_mem_form(
             count_slot,
             helper_addr,
         } => {
-            debug_assert!(status.is_some(), "memmem requires the status cell for its deopt exit");
+            debug_assert!(
+                status.is_some(),
+                "memmem requires the status cell for its deopt exit"
+            );
             buf.push_stencil(
                 &ST_MEMMEM,
                 &[
@@ -1514,7 +1731,14 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::CallSelf { dst, args_start, depth_addr, status_addr, limit_slot, frame_size } => {
+        MicroOp::CallSelf {
+            dst,
+            args_start,
+            depth_addr,
+            status_addr,
+            limit_slot,
+            frame_size,
+        } => {
             buf.push_stencil(
                 &ST_CALL_SELF,
                 &[
@@ -1557,7 +1781,12 @@ fn emit_mem_form(
             );
             buf.mark_patch_hole(0);
         }
-        MicroOp::NewList { vec_slot, ptr_slot, len_slot, helper_addr } => {
+        MicroOp::NewList {
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+        } => {
             buf.push_stencil(
                 &ST_ALLOCLIST,
                 &[
@@ -1569,7 +1798,13 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, helper_addr } => {
+        MicroOp::ListTriple {
+            handle_slot,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+        } => {
             buf.push_stencil(
                 &ST_LISTTRIPLE,
                 &[
@@ -1582,7 +1817,12 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::MapHas { dst, key, map_slot, helper_addr } => {
+        MicroOp::MapHas {
+            dst,
+            key,
+            map_slot,
+            helper_addr,
+        } => {
             buf.push_stencil(
                 &ST_MAPHHAS,
                 &[
@@ -1599,7 +1839,15 @@ fn emit_mem_form(
         // The pinned mem-form path has already spilled the pinned operands
         // (idx/ptr/len/src) to the frame, so these read frame slots exactly
         // like the unpinned chain.
-        MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
+        MicroOp::ArrLoad {
+            dst,
+            idx,
+            ptr_slot,
+            len_slot,
+            byte,
+            narrow32,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     arrld_stencil(byte, narrow32, true),
@@ -1624,7 +1872,16 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrLoadAffine { dst, a, op, b, const_offset, ptr_slot, len_slot, checked } => {
+        MicroOp::ArrLoadAffine {
+            dst,
+            a,
+            op,
+            b,
+            const_offset,
+            ptr_slot,
+            len_slot,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     affine_stencil(op, true),
@@ -1653,7 +1910,14 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrLoad2F { dst, i: ix, j: jx, ptr_slot, len_slot, op } => {
+        MicroOp::ArrLoad2F {
+            dst,
+            i: ix,
+            j: jx,
+            ptr_slot,
+            len_slot,
+            op,
+        } => {
             let stencil = match op {
                 FOp::Add => &ST_ARRLD2_ADDF,
                 FOp::Sub => &ST_ARRLD2_SUBF,
@@ -1672,7 +1936,17 @@ fn emit_mem_form(
                 ],
             );
         }
-        MicroOp::ArrLoad2 { dst, i: ix, j: jx, ptr_a, len_a, ptr_b, len_b, op, checked } => {
+        MicroOp::ArrLoad2 {
+            dst,
+            i: ix,
+            j: jx,
+            ptr_a,
+            len_a,
+            ptr_b,
+            len_b,
+            op,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     ld2_int_stencil(op, true),
@@ -1702,7 +1976,15 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
+        MicroOp::ArrStore {
+            src,
+            idx,
+            ptr_slot,
+            len_slot,
+            byte,
+            narrow32,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     arrst_stencil(byte, narrow32, true),
@@ -1727,7 +2009,14 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrRMW { idx, operand, ptr_slot, len_slot, op, checked } => {
+        MicroOp::ArrRMW {
+            idx,
+            operand,
+            ptr_slot,
+            len_slot,
+            op,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     rmw_stencil(op, true),
@@ -1752,7 +2041,14 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrCondSwap { idx1, idx2, ptr_slot, len_slot, cmp, checked } => {
+        MicroOp::ArrCondSwap {
+            idx1,
+            idx2,
+            ptr_slot,
+            len_slot,
+            cmp,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     condswap_stencil(cmp, true),
@@ -1777,7 +2073,13 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrSwap { idx1, idx2, ptr_slot, len_slot, checked } => {
+        MicroOp::ArrSwap {
+            idx1,
+            idx2,
+            ptr_slot,
+            len_slot,
+            checked,
+        } => {
             if checked {
                 buf.push_stencil(
                     &ST_ARRSWAP,
@@ -1816,7 +2118,15 @@ fn emit_mem_form(
         }
         // Helper-call push; refreshes the pinned ptr/len after a possible
         // realloc (the mem-form path reloads them from the frame after).
-        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte: _, narrow32: _ } => {
+        MicroOp::ArrPush {
+            src,
+            vec_slot,
+            ptr_slot,
+            len_slot,
+            helper_addr,
+            byte: _,
+            narrow32: _,
+        } => {
             buf.push_stencil(
                 &ST_PUSH,
                 &[
@@ -1829,7 +2139,9 @@ fn emit_mem_form(
                 ],
             );
         }
-        ref other => unreachable!("emit_mem_form: unsupported op {other:?} (pinned chains exclude it)"),
+        ref other => {
+            unreachable!("emit_mem_form: unsupported op {other:?} (pinned chains exclude it)")
+        }
     }
 }
 
@@ -1886,7 +2198,10 @@ pub fn compile_straightline_pinned_float(
         return compile_straightline_coded(ops, shared_status, None, 0);
     }
     assert!(pins.len() <= 4, "at most four threaded GP registers");
-    assert!(fpins.len() <= 6, "at most six threaded XMM registers (f0..f5)");
+    assert!(
+        fpins.len() <= 6,
+        "at most six threaded XMM registers (f0..f5)"
+    );
     debug_assert!(
         pins.iter().all(|p| !fpins.contains(p)),
         "a slot cannot be both GP- and float-pinned"
@@ -1894,15 +2209,25 @@ pub fn compile_straightline_pinned_float(
     if ops.is_empty() {
         return Err(JitCompileError::Empty);
     }
-    if !matches!(ops.last(), Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })) {
+    if !matches!(
+        ops.last(),
+        Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })
+    ) {
         return Err(JitCompileError::FallsOffTheEnd);
     }
     let loc = |slot: u16| -> usize {
-        pins.iter().position(|&p| p == slot).map(|i| i + 1).unwrap_or(0)
+        pins.iter()
+            .position(|&p| p == slot)
+            .map(|i| i + 1)
+            .unwrap_or(0)
     };
     // The XMM-pin location of a slot: 0 = frame, 1..4 = f0..f3.
     let floc = |slot: u16| -> usize {
-        fpins.iter().position(|&p| p == slot).map(|i| i + 1).unwrap_or(0)
+        fpins
+            .iter()
+            .position(|&p| p == slot)
+            .map(|i| i + 1)
+            .unwrap_or(0)
     };
     // Which pinned registers an op forces through MEMORY (spill before /
     // reload after) because it has no variant family.
@@ -1934,7 +2259,8 @@ pub fn compile_straightline_pinned_float(
             MicroOp::NotInt { dst, src }
             | MicroOp::NotBool { dst, src }
             | MicroOp::IntToFloat { dst, src }
-            | MicroOp::SqrtF { dst, src } => {
+            | MicroOp::SqrtF { dst, src }
+            | MicroOp::ChrGuard { dst, src } => {
                 reads.push(src);
                 writes.push(dst);
             }
@@ -1956,11 +2282,15 @@ pub fn compile_straightline_pinned_float(
                 }
                 writes.push(dst);
             }
-            MicroOp::ArrLoad2F { dst, i: ix, j: jx, .. } => {
+            MicroOp::ArrLoad2F {
+                dst, i: ix, j: jx, ..
+            } => {
                 reads.extend([ix, jx]);
                 writes.push(dst);
             }
-            MicroOp::ArrLoad2 { dst, i: ix, j: jx, .. } => {
+            MicroOp::ArrLoad2 {
+                dst, i: ix, j: jx, ..
+            } => {
                 reads.extend([ix, jx]);
                 writes.push(dst);
             }
@@ -1980,18 +2310,36 @@ pub fn compile_straightline_pinned_float(
                 reads.extend([a, b, c]);
                 writes.push(dst);
             }
-            MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ArrPush {
+                src,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 reads.extend([src, vec_slot, ptr_slot, len_slot]);
                 writes.extend([ptr_slot, len_slot]);
             }
-            MicroOp::MapGet { dst, key, map_slot, .. } => {
+            MicroOp::MapGet {
+                dst, key, map_slot, ..
+            } => {
                 reads.extend([key, map_slot]);
                 writes.push(dst);
             }
-            MicroOp::MapSet { src, key, map_slot, .. } => {
+            MicroOp::Host {
+                dst, src, count, ..
+            } => {
+                reads.extend(src..src + count);
+                writes.push(dst);
+            }
+            MicroOp::MapSet {
+                src, key, map_slot, ..
+            } => {
                 reads.extend([src, key, map_slot]);
             }
-            MicroOp::MapHas { dst, key, map_slot, .. } => {
+            MicroOp::MapHas {
+                dst, key, map_slot, ..
+            } => {
                 reads.extend([key, map_slot]);
                 writes.push(dst);
             }
@@ -2021,10 +2369,21 @@ pub fn compile_straightline_pinned_float(
                 ]);
                 writes.extend([i_slot, count_slot]);
             }
-            MicroOp::NewList { vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::NewList {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 writes.extend([vec_slot, ptr_slot, len_slot]);
             }
-            MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, .. } => {
+            MicroOp::ListTriple {
+                handle_slot,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                ..
+            } => {
                 reads.push(handle_slot);
                 writes.extend([vec_slot, ptr_slot, len_slot]);
             }
@@ -2033,7 +2392,12 @@ pub fn compile_straightline_pinned_float(
                 // result lands in the frame.
                 writes.push(dst);
             }
-            MicroOp::CallSelfCopy { dst, src_start, arg_count, .. } => {
+            MicroOp::CallSelfCopy {
+                dst,
+                src_start,
+                arg_count,
+                ..
+            } => {
                 // The fused stencil reads the SOURCE block from the FRAME, so
                 // any source slot held in a pinned register must spill to its
                 // frame cell before the copy; the result lands in the frame.
@@ -2063,6 +2427,8 @@ pub fn compile_straightline_pinned_float(
                 | MicroOp::BitXor { .. }
                 | MicroOp::Shl { .. }
                 | MicroOp::Shr { .. }
+                | MicroOp::Ushr { .. }
+                | MicroOp::Rotate { .. }
                 | MicroOp::Lt { .. }
                 | MicroOp::LtEq { .. }
                 | MicroOp::Eq { .. }
@@ -2084,6 +2450,13 @@ pub fn compile_straightline_pinned_float(
                 | MicroOp::SqrtF { .. }
                 | MicroOp::IntToFloat { .. }
                 | MicroOp::BranchF { .. }
+                // `chr` validity guard — register-threaded through V_CHRGUARD,
+                // one piece; like DivF its variant carries the `cont_1` deopt
+                // for the invalid-code side-exit (surrogate / past-max).
+                | MicroOp::ChrGuard { .. }
+                // `utf8_len` — register-threaded through V_UTF8LEN, one piece;
+                // computes the UTF-8 byte length of a validated code point.
+                | MicroOp::Utf8Len { .. }
         )
     };
 
@@ -2102,7 +2475,11 @@ pub fn compile_straightline_pinned_float(
             _ if has_variant(op) => 1,
             MicroOp::Jump { .. } => 1,
             MicroOp::JumpIfFalse { cond, .. } | MicroOp::JumpIfTrue { cond, .. } => {
-                if loc(cond) != 0 { 2 } else { 1 }
+                if loc(cond) != 0 {
+                    2
+                } else {
+                    1
+                }
             }
             _ => {
                 let (r, w) = mem_form_touch(op);
@@ -2134,7 +2511,11 @@ pub fn compile_straightline_pinned_float(
                 | MicroOp::CallSelf { .. }
                 | MicroOp::CallSelfCopy { .. }
                 | MicroOp::MapGet { .. }
+                | MicroOp::Host { .. }
                 | MicroOp::MemMem { .. }
+                // `chr` validity guard side-exits (`cont_1`) on an invalid code
+                // so the VM re-runs `chr` and traps — needs the deopt terminal.
+                | MicroOp::ChrGuard { .. }
         )
     });
     let status: Option<std::sync::Arc<AtomicI64>> = if has_checked {
@@ -2153,14 +2534,20 @@ pub fn compile_straightline_pinned_float(
     for (i, &slot) in pins.iter().enumerate() {
         buf.push_stencil(
             V_MOV[i + 1][0],
-            &[HoleValue::Const(0, slot as i64), HoleValue::Cont(0, buf.label(i + 1))],
+            &[
+                HoleValue::Const(0, slot as i64),
+                HoleValue::Cont(0, buf.label(i + 1)),
+            ],
         );
     }
     for (j, &slot) in fpins.iter().enumerate() {
         let here = pins.len() + j;
         buf.push_stencil(
             V_FMOV[j + 1][0],
-            &[HoleValue::Const(0, slot as i64), HoleValue::Cont(0, buf.label(here + 1))],
+            &[
+                HoleValue::Const(0, slot as i64),
+                HoleValue::Cont(0, buf.label(here + 1)),
+            ],
         );
     }
     // Spill/reload a pinned slot — dispatching on its budget. A GP pin moves
@@ -2170,12 +2557,18 @@ pub fn compile_straightline_pinned_float(
         if floc(slot) != 0 {
             buf.push_stencil(
                 V_FMOV[0][floc(slot)],
-                &[HoleValue::Const(1, slot as i64), HoleValue::Cont(0, buf.label(after))],
+                &[
+                    HoleValue::Const(1, slot as i64),
+                    HoleValue::Cont(0, buf.label(after)),
+                ],
             );
         } else {
             buf.push_stencil(
                 V_MOV[0][loc(slot)],
-                &[HoleValue::Const(1, slot as i64), HoleValue::Cont(0, buf.label(after))],
+                &[
+                    HoleValue::Const(1, slot as i64),
+                    HoleValue::Cont(0, buf.label(after)),
+                ],
             );
         }
     };
@@ -2183,12 +2576,18 @@ pub fn compile_straightline_pinned_float(
         if floc(slot) != 0 {
             buf.push_stencil(
                 V_FMOV[floc(slot)][0],
-                &[HoleValue::Const(0, slot as i64), HoleValue::Cont(0, buf.label(after))],
+                &[
+                    HoleValue::Const(0, slot as i64),
+                    HoleValue::Cont(0, buf.label(after)),
+                ],
             );
         } else {
             buf.push_stencil(
                 V_MOV[loc(slot)][0],
-                &[HoleValue::Const(0, slot as i64), HoleValue::Cont(0, buf.label(after))],
+                &[
+                    HoleValue::Const(0, slot as i64),
+                    HoleValue::Cont(0, buf.label(after)),
+                ],
             );
         }
     };
@@ -2218,7 +2617,10 @@ pub fn compile_straightline_pinned_float(
             here,
             "PASS1/PASS2 piece divergence before op {i} ({op:?}); pins={pins:?} fpins={fpins:?}"
         );
-        let next_op = op_piece.get(thread(i + 1)).copied().unwrap_or(total_op_pieces);
+        let next_op = op_piece
+            .get(thread(i + 1))
+            .copied()
+            .unwrap_or(total_op_pieces);
         let lbl = |t: usize| -> usize { op_piece[thread(t)] };
         match *op {
             MicroOp::LoadConst { dst, value } => {
@@ -2235,7 +2637,10 @@ pub fn compile_straightline_pinned_float(
                 } else {
                     buf.push_stencil(
                         V_CONST[d - 1],
-                        &[HoleValue::Const(0, value), HoleValue::Cont(0, buf.label(next_op))],
+                        &[
+                            HoleValue::Const(0, value),
+                            HoleValue::Cont(0, buf.label(next_op)),
+                        ],
                     );
                 }
             }
@@ -2289,6 +2694,8 @@ pub fn compile_straightline_pinned_float(
             | MicroOp::BitXor { dst, lhs, rhs }
             | MicroOp::Shl { dst, lhs, rhs }
             | MicroOp::Shr { dst, lhs, rhs }
+            | MicroOp::Ushr { dst, lhs, rhs }
+            | MicroOp::Rotate { dst, lhs, rhs, .. }
             | MicroOp::Lt { dst, lhs, rhs }
             | MicroOp::LtEq { dst, lhs, rhs }
             | MicroOp::Eq { dst, lhs, rhs }
@@ -2311,6 +2718,27 @@ pub fn compile_straightline_pinned_float(
                     MicroOp::GtEq { .. } => (9, rhs, lhs),
                     MicroOp::Eq { .. } => (10, lhs, rhs),
                     MicroOp::Neq { .. } => (11, lhs, rhs),
+                    MicroOp::Ushr { .. } => (12, lhs, rhs),
+                    MicroOp::Rotate {
+                        width32: true,
+                        left: true,
+                        ..
+                    } => (13, lhs, rhs),
+                    MicroOp::Rotate {
+                        width32: true,
+                        left: false,
+                        ..
+                    } => (14, lhs, rhs),
+                    MicroOp::Rotate {
+                        width32: false,
+                        left: true,
+                        ..
+                    } => (15, lhs, rhs),
+                    MicroOp::Rotate {
+                        width32: false,
+                        left: false,
+                        ..
+                    } => (16, lhs, rhs),
                     _ => unreachable!(),
                 };
                 let (d, l, r) = (loc(dst), loc(a), loc(b));
@@ -2375,6 +2803,68 @@ pub fn compile_straightline_pinned_float(
                 holes.push(HoleValue::Cont(0, buf.label(next_op)));
                 buf.push_stencil(V_SQRTF[d][s], &holes);
             }
+            // Int popcount threaded through the GP pins (`popcnt`, no side-exit). Reading its source at
+            // the pin LOCATION (`loc`, not the frame) is what fixes a register-pinned induction variable:
+            // the frame-form stencil would read a stale frame slot for a value that lives in `r0..r3`.
+            MicroOp::Popcnt { dst, src }
+            | MicroOp::Lzcnt { dst, src }
+            | MicroOp::Tzcnt { dst, src }
+            | MicroOp::Utf8Len { dst, src } => {
+                let (d, s) = (loc(dst), loc(src));
+                let table = match op {
+                    MicroOp::Popcnt { .. } => &V_POPCNT,
+                    MicroOp::Lzcnt { .. } => &V_LZCNT,
+                    MicroOp::Tzcnt { .. } => &V_TZCNT,
+                    _ => &V_UTF8LEN,
+                };
+                let mut holes: Vec<HoleValue> = Vec::new();
+                if s == 0 {
+                    holes.push(HoleValue::Const(0, src as i64));
+                }
+                if d == 0 {
+                    holes.push(HoleValue::Const(1, dst as i64));
+                }
+                holes.push(HoleValue::Cont(0, buf.label(next_op)));
+                buf.push_stencil(table[d][s], &holes);
+            }
+            // `chr` guard threaded through the GP pins — like `popcnt` but DEOPTABLE: an invalid code
+            // side-exits to the deopt terminal (cont 1) so the VM re-runs `chr` and traps. Reading the code
+            // at the pin LOCATION (`loc`) makes a register-pinned hot code (`chr(k)`) correct, not stale.
+            MicroOp::ChrGuard { dst, src } => {
+                let (d, s) = (loc(dst), loc(src));
+                let mut holes: Vec<HoleValue> = Vec::new();
+                if s == 0 {
+                    holes.push(HoleValue::Const(0, src as i64));
+                }
+                if d == 0 {
+                    holes.push(HoleValue::Const(1, dst as i64));
+                }
+                holes.push(HoleValue::Cont(0, buf.label(next_op)));
+                holes.push(HoleValue::Cont(1, buf.label(deopt_piece)));
+                buf.push_stencil(V_CHRGUARD[d][s], &holes);
+            }
+            // Float→Int rounding: the FLOAT src is read at its XMM pin (`floc`), the INT dst written to
+            // its GP pin (`loc`). Reading the src via `floc` (not `loc`) is what makes a register-pinned
+            // hot float — e.g. an `fk += 1.0` accumulator fed to `floor(fk)` — correct rather than stale.
+            MicroOp::FloorToInt { dst, src }
+            | MicroOp::CeilToInt { dst, src }
+            | MicroOp::RoundToInt { dst, src } => {
+                let (d, s) = (loc(dst), floc(src));
+                let table = match op {
+                    MicroOp::FloorToInt { .. } => &V_FLOORF,
+                    MicroOp::CeilToInt { .. } => &V_CEILF,
+                    _ => &V_ROUNDF,
+                };
+                let mut holes: Vec<HoleValue> = Vec::new();
+                if s == 0 {
+                    holes.push(HoleValue::Const(0, src as i64));
+                }
+                if d == 0 {
+                    holes.push(HoleValue::Const(1, dst as i64));
+                }
+                holes.push(HoleValue::Cont(0, buf.label(next_op)));
+                buf.push_stencil(table[d][s], &holes);
+            }
             // FLOAT divide threaded through XMM pins; a zero divisor side-exits
             // to the deopt terminal (cont 1), exactly like the mem-form form.
             MicroOp::DivF { dst, lhs, rhs } => {
@@ -2410,7 +2900,12 @@ pub fn compile_straightline_pinned_float(
             // FUSED float compare-and-branch threaded through XMM pins. Same
             // NaN-correct cmp→family mapping as the unpinned form (brlef for
             // <=/>=, never brltf-swapped — NaN makes `a<=b` ≠ `!(b<a)`).
-            MicroOp::BranchF { cmp, lhs, rhs, target } => {
+            MicroOp::BranchF {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            } => {
                 let t = buf.label(lbl(target));
                 let n = buf.label(next_op);
                 let (fam, a, b) = match cmp {
@@ -2434,7 +2929,12 @@ pub fn compile_straightline_pinned_float(
                 holes.push(HoleValue::Cont(1, c1));
                 buf.push_stencil(V_BRANCHF[fam][l][r], &holes);
             }
-            MicroOp::Branch { cmp, lhs, rhs, target } => {
+            MicroOp::Branch {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            } => {
                 // TRUE -> fall through (cont 0 of the variant is TAKEN when
                 // the condition holds; mirror the unpinned mapping: jump
                 // when FALSE).
@@ -2478,7 +2978,11 @@ pub fn compile_straightline_pinned_float(
                 };
                 buf.push_stencil(
                     &ST_BRZ,
-                    &[HoleValue::Const(0, cond as i64), HoleValue::Cont(0, c0), HoleValue::Cont(1, c1)],
+                    &[
+                        HoleValue::Const(0, cond as i64),
+                        HoleValue::Cont(0, c0),
+                        HoleValue::Cont(1, c1),
+                    ],
                 );
             }
             MicroOp::Return { src } => {
@@ -2520,8 +3024,13 @@ pub fn compile_straightline_pinned_float(
                 // as the mem-form path, so the spill/reload bookkeeping above is
                 // unchanged (mem_form_touch excludes ptr/len). Falls back to the
                 // frame-pointer mem-form for byte arrays / unpinned pointers.
-                let rptr = |buf: &mut JitBuffer, table: &[&'static crate::Stencil; 5],
-                            n: usize, idx: u16, vslot: u16, len_slot: u16, checked: bool| {
+                let rptr = |buf: &mut JitBuffer,
+                            table: &[&'static crate::Stencil; 5],
+                            n: usize,
+                            idx: u16,
+                            vslot: u16,
+                            len_slot: u16,
+                            checked: bool| {
                     let mut holes = vec![
                         HoleValue::Const(0, idx as i64),
                         HoleValue::Const(3, vslot as i64),
@@ -2534,19 +3043,39 @@ pub fn compile_straightline_pinned_float(
                     buf.push_stencil(table[n], &holes);
                 };
                 let used_rptr = match *other {
-                    MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte: false, narrow32: false, checked }
-                        if loc(ptr_slot) != 0 =>
-                    {
+                    MicroOp::ArrLoad {
+                        dst,
+                        idx,
+                        ptr_slot,
+                        len_slot,
+                        byte: false,
+                        narrow32: false,
+                        checked,
+                    } if loc(ptr_slot) != 0 => {
                         let n = loc(ptr_slot);
-                        let t = if checked { &V_ARRLD_RPTR_C } else { &V_ARRLD_RPTR };
+                        let t = if checked {
+                            &V_ARRLD_RPTR_C
+                        } else {
+                            &V_ARRLD_RPTR
+                        };
                         rptr(&mut buf, t, n, idx, dst, len_slot, checked);
                         true
                     }
-                    MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte: false, narrow32: false, checked }
-                        if loc(ptr_slot) != 0 =>
-                    {
+                    MicroOp::ArrStore {
+                        src,
+                        idx,
+                        ptr_slot,
+                        len_slot,
+                        byte: false,
+                        narrow32: false,
+                        checked,
+                    } if loc(ptr_slot) != 0 => {
                         let n = loc(ptr_slot);
-                        let t = if checked { &V_ARRST_RPTR_C } else { &V_ARRST_RPTR };
+                        let t = if checked {
+                            &V_ARRST_RPTR_C
+                        } else {
+                            &V_ARRST_RPTR
+                        };
                         rptr(&mut buf, t, n, idx, src, len_slot, checked);
                         true
                     }
@@ -2557,7 +3086,11 @@ pub fn compile_straightline_pinned_float(
                 }
                 cursor += 1;
                 for (k, &slot) in writes.iter().enumerate() {
-                    let after = if k + 1 == writes.len() { next_op } else { cursor + 1 };
+                    let after = if k + 1 == writes.len() {
+                        next_op
+                    } else {
+                        cursor + 1
+                    };
                     reload(&mut buf, slot, after);
                     cursor += 1;
                 }
@@ -2568,8 +3101,14 @@ pub fn compile_straightline_pinned_float(
         let addr = cell.as_ref() as *const AtomicI64 as i64;
         buf.push_stencil(&ST_DEOPT, &[HoleValue::Const(0, addr)]);
     }
-    let chain = buf.finish().map_err(|e| JitCompileError::Assembly(e.to_string()))?;
-    Ok(CompiledChain { chain, status, keepalive: Vec::new() })
+    let chain = buf
+        .finish()
+        .map_err(|e| JitCompileError::Assembly(e.to_string()))?;
+    Ok(CompiledChain {
+        chain,
+        status,
+        keepalive: Vec::new(),
+    })
 }
 
 /// The returned chain is run with [`CompiledChain::run_with_frame`]; the
@@ -2606,7 +3145,10 @@ pub fn compile_straightline_coded(
     if ops.is_empty() {
         return Err(JitCompileError::Empty);
     }
-    if !matches!(ops.last(), Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })) {
+    if !matches!(
+        ops.last(),
+        Some(MicroOp::Return { .. }) | Some(MicroOp::Jump { .. })
+    ) {
         return Err(JitCompileError::FallsOffTheEnd);
     }
     for (i, op) in ops.iter().enumerate() {
@@ -2617,7 +3159,10 @@ pub fn compile_straightline_coded(
             | MicroOp::Branch { target, .. }
             | MicroOp::BranchF { target, .. } => {
                 if target >= ops.len() {
-                    return Err(JitCompileError::BadJumpTarget { op_index: i, target });
+                    return Err(JitCompileError::BadJumpTarget {
+                        op_index: i,
+                        target,
+                    });
                 }
             }
             _ => {}
@@ -2651,7 +3196,11 @@ pub fn compile_straightline_coded(
                 | MicroOp::CallSelf { .. }
                 | MicroOp::CallSelfCopy { .. }
                 | MicroOp::MapGet { .. }
+                | MicroOp::Host { .. }
                 | MicroOp::MemMem { .. }
+                // `chr` validity guard side-exits (`cont_1`) on an invalid code
+                // so the VM re-runs `chr` and traps — needs the deopt terminal.
+                | MicroOp::ChrGuard { .. }
         )
     });
     let status: Option<std::sync::Arc<AtomicI64>> = if has_checked {
@@ -2684,6 +3233,7 @@ pub fn compile_straightline_coded(
                     | MicroOp::ArrLoad2 { checked: true, .. }
                     | MicroOp::ArrStore { .. }
                     | MicroOp::MapGet { .. }
+                    | MicroOp::Host { .. }
             );
             if coded && codes[i] != 1 && !code_pieces.contains(&codes[i]) {
                 code_pieces.push(codes[i]);
@@ -2749,7 +3299,10 @@ pub fn compile_straightline_coded(
                 // add/sub/mul are CHECKED: their stencil takes cont_1 to this op's
                 // deopt terminal on signed overflow so the exact tier promotes. The
                 // comparisons (lt/le/eq/ne) never overflow → cont_0 only.
-                if matches!(op, MicroOp::Add { .. } | MicroOp::Sub { .. } | MicroOp::Mul { .. }) {
+                if matches!(
+                    op,
+                    MicroOp::Add { .. } | MicroOp::Sub { .. } | MicroOp::Mul { .. }
+                ) {
                     holes.push(HoleValue::Cont(1, buf.label(piece_for(code_at(i)))));
                 }
                 buf.push_stencil(stencil, &holes);
@@ -2782,6 +3335,7 @@ pub fn compile_straightline_coded(
             | MicroOp::BitXor { dst, lhs, rhs }
             | MicroOp::Shl { dst, lhs, rhs }
             | MicroOp::Shr { dst, lhs, rhs }
+            | MicroOp::Ushr { dst, lhs, rhs }
             | MicroOp::AddF { dst, lhs, rhs }
             | MicroOp::SubF { dst, lhs, rhs }
             | MicroOp::MulF { dst, lhs, rhs }
@@ -2795,6 +3349,7 @@ pub fn compile_straightline_coded(
                     MicroOp::BitXor { .. } => &ST_XOR3,
                     MicroOp::Shl { .. } => &ST_SHL3,
                     MicroOp::Shr { .. } => &ST_SHR3,
+                    MicroOp::Ushr { .. } => &ST_USHR3,
                     MicroOp::AddF { .. } => &ST_ADDF3,
                     MicroOp::SubF { .. } => &ST_SUBF3,
                     MicroOp::MulF { .. } => &ST_MULF3,
@@ -2802,6 +3357,29 @@ pub fn compile_straightline_coded(
                     MicroOp::LtEqF { .. } => &ST_LEF3,
                     MicroOp::EqF { .. } => &ST_EQF3,
                     _ => &ST_NEF3,
+                };
+                buf.push_stencil(
+                    stencil,
+                    &[
+                        HoleValue::Const(0, lhs as i64),
+                        HoleValue::Const(1, rhs as i64),
+                        HoleValue::Const(2, dst as i64),
+                        HoleValue::Cont(0, next),
+                    ],
+                );
+            }
+            MicroOp::Rotate {
+                dst,
+                lhs,
+                rhs,
+                width32,
+                left,
+            } => {
+                let stencil = match (width32, left) {
+                    (true, true) => &ST_ROL32_3,
+                    (true, false) => &ST_ROR32_3,
+                    (false, true) => &ST_ROL64_3,
+                    (false, false) => &ST_ROR64_3,
                 };
                 buf.push_stencil(
                     stencil,
@@ -2869,7 +3447,14 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::CallSelf { dst, args_start, depth_addr, status_addr, limit_slot, frame_size } => {
+            MicroOp::CallSelf {
+                dst,
+                args_start,
+                depth_addr,
+                status_addr,
+                limit_slot,
+                frame_size,
+            } => {
                 buf.push_stencil(
                     &ST_CALL_SELF,
                     &[
@@ -2912,7 +3497,12 @@ pub fn compile_straightline_coded(
                 );
                 buf.mark_patch_hole(0);
             }
-            MicroOp::NewList { vec_slot, ptr_slot, len_slot, helper_addr } => {
+            MicroOp::NewList {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                helper_addr,
+            } => {
                 buf.push_stencil(
                     &ST_ALLOCLIST,
                     &[
@@ -2924,7 +3514,13 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ListTriple { handle_slot, vec_slot, ptr_slot, len_slot, helper_addr } => {
+            MicroOp::ListTriple {
+                handle_slot,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                helper_addr,
+            } => {
                 buf.push_stencil(
                     &ST_LISTTRIPLE,
                     &[
@@ -2937,7 +3533,12 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::MapGet { dst, key, map_slot, helper_addr } => {
+            MicroOp::MapGet {
+                dst,
+                key,
+                map_slot,
+                helper_addr,
+            } => {
                 buf.push_stencil(
                     &ST_MAPHGET,
                     &[
@@ -2950,7 +3551,32 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::MapSet { src, key, map_slot, helper_addr } => {
+            MicroOp::Host {
+                dst,
+                src,
+                count,
+                imm,
+                helper_addr,
+            } => {
+                buf.push_stencil(
+                    &ST_HOST,
+                    &[
+                        HoleValue::Const(0, dst as i64),
+                        HoleValue::Const(1, src as i64),
+                        HoleValue::Const(2, count as i64),
+                        HoleValue::Const(3, imm),
+                        HoleValue::Const(4, helper_addr),
+                        HoleValue::Cont(0, next),
+                        HoleValue::Cont(1, buf.label(piece_for(code_at(i)))),
+                    ],
+                );
+            }
+            MicroOp::MapSet {
+                src,
+                key,
+                map_slot,
+                helper_addr,
+            } => {
                 buf.push_stencil(
                     &ST_MAPHSET,
                     &[
@@ -2988,7 +3614,12 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::MapHas { dst, key, map_slot, helper_addr } => {
+            MicroOp::MapHas {
+                dst,
+                key,
+                map_slot,
+                helper_addr,
+            } => {
                 buf.push_stencil(
                     &ST_MAPHHAS,
                     &[
@@ -3000,7 +3631,15 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte: _, narrow32: _ } => {
+            MicroOp::ArrPush {
+                src,
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                helper_addr,
+                byte: _,
+                narrow32: _,
+            } => {
                 buf.push_stencil(
                     &ST_PUSH,
                     &[
@@ -3013,7 +3652,12 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ListClear { vec_slot, ptr_slot, len_slot, helper_addr } => {
+            MicroOp::ListClear {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                helper_addr,
+            } => {
                 buf.push_stencil(
                     &ST_LIST_CLEAR,
                     &[
@@ -3025,7 +3669,15 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
+            MicroOp::ArrLoad {
+                dst,
+                idx,
+                ptr_slot,
+                len_slot,
+                byte,
+                narrow32,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         arrld_stencil(byte, narrow32, true),
@@ -3052,7 +3704,16 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::ArrLoadAffine { dst, a, op, b, const_offset, ptr_slot, len_slot, checked } => {
+            MicroOp::ArrLoadAffine {
+                dst,
+                a,
+                op,
+                b,
+                const_offset,
+                ptr_slot,
+                len_slot,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         affine_stencil(op, true),
@@ -3081,7 +3742,15 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
+            MicroOp::ArrStore {
+                src,
+                idx,
+                ptr_slot,
+                len_slot,
+                byte,
+                narrow32,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         arrst_stencil(byte, narrow32, true),
@@ -3106,7 +3775,14 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::ArrRMW { idx, operand, ptr_slot, len_slot, op, checked } => {
+            MicroOp::ArrRMW {
+                idx,
+                operand,
+                ptr_slot,
+                len_slot,
+                op,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         rmw_stencil(op, true),
@@ -3131,7 +3807,14 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::ArrCondSwap { idx1, idx2, ptr_slot, len_slot, cmp, checked } => {
+            MicroOp::ArrCondSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                cmp,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         condswap_stencil(cmp, true),
@@ -3156,7 +3839,13 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::ArrSwap { idx1, idx2, ptr_slot, len_slot, checked } => {
+            MicroOp::ArrSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         &ST_ARRSWAP,
@@ -3193,7 +3882,14 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ArrLoad2F { dst, i: ix, j: jx, ptr_slot, len_slot, op } => {
+            MicroOp::ArrLoad2F {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_slot,
+                len_slot,
+                op,
+            } => {
                 let stencil = match op {
                     FOp::Add => &ST_ARRLD2_ADDF,
                     FOp::Sub => &ST_ARRLD2_SUBF,
@@ -3212,7 +3908,17 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ArrLoad2 { dst, i: ix, j: jx, ptr_a, len_a, ptr_b, len_b, op, checked } => {
+            MicroOp::ArrLoad2 {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_a,
+                len_a,
+                ptr_b,
+                len_b,
+                op,
+                checked,
+            } => {
                 if checked {
                     buf.push_stencil(
                         ld2_int_stencil(op, true),
@@ -3242,11 +3948,27 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::NotInt { dst, src } | MicroOp::NotBool { dst, src }
-            | MicroOp::IntToFloat { dst, src } | MicroOp::SqrtF { dst, src } => {
+            MicroOp::NotInt { dst, src }
+            | MicroOp::NotBool { dst, src }
+            | MicroOp::Popcnt { dst, src }
+            | MicroOp::Lzcnt { dst, src }
+            | MicroOp::Tzcnt { dst, src }
+            | MicroOp::Utf8Len { dst, src }
+            | MicroOp::FloorToInt { dst, src }
+            | MicroOp::CeilToInt { dst, src }
+            | MicroOp::RoundToInt { dst, src }
+            | MicroOp::IntToFloat { dst, src }
+            | MicroOp::SqrtF { dst, src } => {
                 let stencil = match op {
                     MicroOp::NotInt { .. } => &ST_NOTI2,
                     MicroOp::NotBool { .. } => &ST_NOTB2,
+                    MicroOp::Popcnt { .. } => &ST_POPCNT2,
+                    MicroOp::Lzcnt { .. } => &ST_LZCNT2,
+                    MicroOp::Tzcnt { .. } => &ST_TZCNT2,
+                    MicroOp::Utf8Len { .. } => &ST_UTF8LEN2,
+                    MicroOp::FloorToInt { .. } => &ST_FLOORF2,
+                    MicroOp::CeilToInt { .. } => &ST_CEILF2,
+                    MicroOp::RoundToInt { .. } => &ST_ROUNDF2,
                     MicroOp::SqrtF { .. } => &ST_SQRTF2,
                     _ => &ST_I2F2,
                 };
@@ -3259,7 +3981,12 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::BranchF { cmp, lhs, rhs, target } => {
+            MicroOp::BranchF {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            } => {
                 // Jump to target when cmp is FALSE — under IEEE, the false
                 // path also catches every NaN-unordered pair, so the mapping
                 // may ONLY swap operands (a>b ⇔ b<a; a>=b ⇔ b<=a), never
@@ -3305,6 +4032,17 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
+            MicroOp::ChrGuard { dst, src } => {
+                buf.push_stencil(
+                    &ST_CHRGUARD,
+                    &[
+                        HoleValue::Const(0, src as i64),
+                        HoleValue::Const(1, dst as i64),
+                        HoleValue::Cont(0, next),
+                        HoleValue::Cont(1, buf.label(piece_for(code_at(i)))),
+                    ],
+                );
+            }
             MicroOp::DivPow2 { dst, lhs, k } => {
                 buf.push_stencil(
                     &ST_DIVPOW2,
@@ -3342,7 +4080,12 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::Branch { cmp, lhs, rhs, target } => {
+            MicroOp::Branch {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            } => {
                 // Jump to target when cmp is FALSE; fall through when TRUE.
                 // brlt/breq put the TRUE outcome on cont 0; operand and
                 // continuation swaps express all six comparison kinds.
@@ -3380,7 +4123,13 @@ pub fn compile_straightline_coded(
             // owns the mixed regions regalloc declines — e.g. a `% c` next to a
             // map insert). Holes: 0 = lhs, 1 = magic, 2 = more, 3 = mul_back,
             // 4 = dst. No deopt continuation (a literal `c > 0` never faults).
-            MicroOp::MagicDivU { dst, lhs, magic, more, mul_back } => {
+            MicroOp::MagicDivU {
+                dst,
+                lhs,
+                magic,
+                more,
+                mul_back,
+            } => {
                 buf.push_stencil(
                     &ST_MAGICDIV,
                     &[
@@ -3411,8 +4160,14 @@ pub fn compile_straightline_coded(
         }
     }
 
-    let chain = buf.finish().map_err(|e| JitCompileError::Assembly(e.to_string()))?;
-    Ok(CompiledChain { chain, status, keepalive: Vec::new() })
+    let chain = buf
+        .finish()
+        .map_err(|e| JitCompileError::Assembly(e.to_string()))?;
+    Ok(CompiledChain {
+        chain,
+        status,
+        keepalive: Vec::new(),
+    })
 }
 
 /// Evaluate the unsigned magic reciprocal for [`MicroOp::MagicDivU`]:
@@ -3489,7 +4244,13 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 let mask = (1i64 << k) - 1;
                 frame[dst as usize] = x.wrapping_add((x >> 63) & mask) >> k;
             }
-            MicroOp::MagicDivU { dst, lhs, magic, more, mul_back } => {
+            MicroOp::MagicDivU {
+                dst,
+                lhs,
+                magic,
+                more,
+                mul_back,
+            } => {
                 frame[dst as usize] = magic_eval(frame[lhs as usize], magic, more, mul_back);
             }
             MicroOp::Mod { dst, lhs, rhs } => {
@@ -3532,7 +4293,61 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
             MicroOp::Shr { dst, lhs, rhs } => {
                 frame[dst as usize] = frame[lhs as usize].wrapping_shr(frame[rhs as usize] as u32)
             }
+            MicroOp::Ushr { dst, lhs, rhs } => {
+                frame[dst as usize] =
+                    ((frame[lhs as usize] as u64).wrapping_shr(frame[rhs as usize] as u32)) as i64
+            }
+            MicroOp::Rotate {
+                dst,
+                lhs,
+                rhs,
+                width32,
+                left,
+            } => {
+                let count = frame[rhs as usize] as u32;
+                frame[dst as usize] = if width32 {
+                    let word = frame[lhs as usize] as u32;
+                    (if left {
+                        word.rotate_left(count)
+                    } else {
+                        word.rotate_right(count)
+                    }) as i64
+                } else {
+                    let word = frame[lhs as usize] as u64;
+                    (if left {
+                        word.rotate_left(count)
+                    } else {
+                        word.rotate_right(count)
+                    }) as i64
+                };
+            }
             MicroOp::NotInt { dst, src } => frame[dst as usize] = !frame[src as usize],
+            MicroOp::Popcnt { dst, src } => {
+                frame[dst as usize] = (frame[src as usize] as u64).count_ones() as i64
+            }
+            MicroOp::Lzcnt { dst, src } => {
+                frame[dst as usize] = (frame[src as usize] as u64).leading_zeros() as i64
+            }
+            MicroOp::Tzcnt { dst, src } => {
+                frame[dst as usize] = (frame[src as usize] as u64).trailing_zeros() as i64
+            }
+            MicroOp::Utf8Len { dst, src } => {
+                let u = frame[src as usize] as u32;
+                frame[dst as usize] =
+                    1 + (u >= 0x80) as i64 + (u >= 0x800) as i64 + (u >= 0x1_0000) as i64
+            }
+            MicroOp::FloorToInt { dst, src } => {
+                frame[dst as usize] = f64::from_bits(frame[src as usize] as u64).floor() as i64
+            }
+            MicroOp::CeilToInt { dst, src } => {
+                frame[dst as usize] = f64::from_bits(frame[src as usize] as u64).ceil() as i64
+            }
+            MicroOp::RoundToInt { dst, src } => {
+                frame[dst as usize] = f64::from_bits(frame[src as usize] as u64).round() as i64
+            }
+            // The valid-path behavior — carry the code (the deopt on an invalid code + the Text re-box are
+            // runtime/boundary concerns not modeled by this pure i64 reference evaluator).
+            MicroOp::ChrGuard { dst, src } => frame[dst as usize] = frame[src as usize],
             MicroOp::NotBool { dst, src } => frame[dst as usize] = frame[src as usize] ^ 1,
             MicroOp::AddF { dst, lhs, rhs } => {
                 let a = f64::from_bits(frame[lhs as usize] as u64);
@@ -3589,7 +4404,12 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 let b = f64::from_bits(frame[rhs as usize] as u64);
                 frame[dst as usize] = (a != b) as i64
             }
-            MicroOp::BranchF { cmp, lhs, rhs, target } => {
+            MicroOp::BranchF {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            } => {
                 let a = f64::from_bits(frame[lhs as usize] as u64);
                 let b = f64::from_bits(frame[rhs as usize] as u64);
                 let truth = match cmp {
@@ -3624,9 +4444,18 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
             | MicroOp::MapGet { .. }
             | MicroOp::MapSet { .. }
             | MicroOp::MapHas { .. }
+            | MicroOp::Host { .. }
             | MicroOp::NewList { .. }
             | MicroOp::ListTriple { .. } => return None,
-            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
+            MicroOp::ArrLoad {
+                dst,
+                idx,
+                ptr_slot,
+                len_slot,
+                byte,
+                narrow32,
+                checked,
+            } => {
                 let i = frame[idx as usize];
                 let len = frame[len_slot as usize];
                 let im1 = i.wrapping_sub(1);
@@ -3648,7 +4477,16 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     }
                 };
             }
-            MicroOp::ArrLoadAffine { dst, a, op, b, const_offset, ptr_slot, len_slot, checked } => {
+            MicroOp::ArrLoadAffine {
+                dst,
+                a,
+                op,
+                b,
+                const_offset,
+                ptr_slot,
+                len_slot,
+                checked,
+            } => {
                 let _ = checked;
                 let idx = op.eval(frame[a as usize], frame[b as usize], const_offset);
                 let len = frame[len_slot as usize];
@@ -3660,7 +4498,14 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 frame[dst as usize] =
                     unsafe { *(frame[ptr_slot as usize] as *const i64).add(im1 as usize) };
             }
-            MicroOp::ArrLoad2F { dst, i: ix, j: jx, ptr_slot, len_slot, op } => {
+            MicroOp::ArrLoad2F {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_slot,
+                len_slot,
+                op,
+            } => {
                 let len = frame[len_slot as usize];
                 let im1 = frame[ix as usize].wrapping_sub(1);
                 let jm1 = frame[jx as usize].wrapping_sub(1);
@@ -3677,7 +4522,17 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 };
                 frame[dst as usize] = op.eval(a, b).to_bits() as i64;
             }
-            MicroOp::ArrLoad2 { dst, i: ix, j: jx, ptr_a, len_a, ptr_b, len_b, op, checked } => {
+            MicroOp::ArrLoad2 {
+                dst,
+                i: ix,
+                j: jx,
+                ptr_a,
+                len_a,
+                ptr_b,
+                len_b,
+                op,
+                checked,
+            } => {
                 let _ = checked;
                 let lena = frame[len_a as usize];
                 let lenb = frame[len_b as usize];
@@ -3694,7 +4549,15 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 };
                 frame[dst as usize] = op.eval(a, b);
             }
-            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
+            MicroOp::ArrStore {
+                src,
+                idx,
+                ptr_slot,
+                len_slot,
+                byte,
+                narrow32,
+                checked,
+            } => {
                 // The reference always validates — a sound proof never trips it.
                 let _ = checked;
                 let i = frame[idx as usize];
@@ -3717,7 +4580,14 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     }
                 }
             }
-            MicroOp::ArrRMW { idx, operand, ptr_slot, len_slot, op, checked } => {
+            MicroOp::ArrRMW {
+                idx,
+                operand,
+                ptr_slot,
+                len_slot,
+                op,
+                checked,
+            } => {
                 let _ = checked;
                 let i = frame[idx as usize];
                 let len = frame[len_slot as usize];
@@ -3731,7 +4601,14 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     *cell = op.eval(*cell, frame[operand as usize]);
                 }
             }
-            MicroOp::ArrCondSwap { idx1, idx2, ptr_slot, len_slot, cmp, checked } => {
+            MicroOp::ArrCondSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                cmp,
+                checked,
+            } => {
                 let _ = checked;
                 let len = frame[len_slot as usize];
                 let m1 = frame[idx1 as usize].wrapping_sub(1);
@@ -3750,7 +4627,13 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     }
                 }
             }
-            MicroOp::ArrSwap { idx1, idx2, ptr_slot, len_slot, checked } => {
+            MicroOp::ArrSwap {
+                idx1,
+                idx2,
+                ptr_slot,
+                len_slot,
+                checked,
+            } => {
                 let _ = checked;
                 let len = frame[len_slot as usize];
                 let m1 = frame[idx1 as usize].wrapping_sub(1);
@@ -3789,7 +4672,12 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     continue;
                 }
             }
-            MicroOp::Branch { cmp, lhs, rhs, target } => {
+            MicroOp::Branch {
+                cmp,
+                lhs,
+                rhs,
+                target,
+            } => {
                 if !cmp.eval(frame[lhs as usize], frame[rhs as usize]) {
                     pc = target;
                     continue;

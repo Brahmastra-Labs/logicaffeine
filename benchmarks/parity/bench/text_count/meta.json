@@ -1,0 +1,11 @@
+{
+  "capability": "text.count",
+  "workload": "countSub(s,'012')",
+  "arg": "15000",
+  "expected": "6000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

@@ -1,0 +1,24 @@
+# About
+
+Import Layout.
+
+## Page /about
+
+Head:
+    <title>About — Acme</title>
+    <meta name="description" content="Who Acme is.">
+
+View:
+    {extends Site}
+    {block content:}
+      <h1 id="title">About</h1>
+      <p id="body">Acme has been making anvils since 1949.</p>
+    {end}
+
+## Test: the layout wraps the page and marks About active
+
+Expect that the text of "#title" is equal to "About".
+Expect that the count of "nav a" is equal to 3.
+Expect that the text of "footer" is equal to "© Acme".
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "About".

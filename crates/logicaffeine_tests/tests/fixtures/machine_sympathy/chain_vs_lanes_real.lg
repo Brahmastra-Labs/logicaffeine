@@ -1,0 +1,48 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To chainSum (xs: Seq of Float) -> Float:
+    Let mutable s be 0.0.
+    Repeat for x in xs:
+        Set s to s + x.
+    Return s.
+
+## To laneSum (xs: Seq of Float) -> Float:
+    Let n be length of xs.
+    Let mutable a0 be 0.0.
+    Let mutable a1 be 0.0.
+    Let mutable a2 be 0.0.
+    Let mutable a3 be 0.0.
+    Let mutable a4 be 0.0.
+    Let mutable a5 be 0.0.
+    Let mutable a6 be 0.0.
+    Let mutable a7 be 0.0.
+    Let mutable i be 1.
+    While i + 7 is at most n:
+        Set a0 to a0 + item i of xs.
+        Set a1 to a1 + item (i + 1) of xs.
+        Set a2 to a2 + item (i + 2) of xs.
+        Set a3 to a3 + item (i + 3) of xs.
+        Set a4 to a4 + item (i + 4) of xs.
+        Set a5 to a5 + item (i + 5) of xs.
+        Set a6 to a6 + item (i + 6) of xs.
+        Set a7 to a7 + item (i + 7) of xs.
+        Set i to i + 8.
+    While i is at most n:
+        Set a0 to a0 + item i of xs.
+        Set i to i + 1.
+    Return ((a0 + a1) + (a2 + a3)) + ((a4 + a5) + (a6 + a7)).
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable exact be a new Seq of Float.
+Let mutable harmonic be a new Seq of Float.
+Let mutable seed be 13.
+Repeat for i from 1 to n:
+    Set seed to (seed * 1103515245 + 12345) % 2147483648.
+    Push ((seed / 65536) % 4) + 0.0 to exact.
+    Push 1.0 / (i + 0.0) to harmonic.
+Show chainSum(exact).
+Show laneSum(exact).
+Show chainSum(harmonic).
+Show laneSum(harmonic).

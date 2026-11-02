@@ -1,0 +1,10 @@
+{
+  "capability": "text.last_index_of",
+  "workload": "lastIndexOf(s,'012') 1-based/0",
+  "arg": "40000",
+  "expected": "161860000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

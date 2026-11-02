@@ -1,0 +1,11 @@
+{
+  "name": "nqueens",
+  "lang": "logos_jit",
+  "n": "14",
+  "samples_weight": 1296984538,
+  "alloc_pct": 0.076,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.924
+}

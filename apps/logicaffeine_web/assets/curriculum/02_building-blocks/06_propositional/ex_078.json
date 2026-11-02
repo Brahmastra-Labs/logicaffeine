@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're curious unless you're mean",
   "options": [
-    "$ (C \\supset \\, \\sim M) $",
-    "$ (C \\vee M) $",
-    "$ C \\equiv M $",
-    "$ (C \\equiv M) $"
+    "C → ¬M",
+    "C ∨ M",
+    "C ↔ M",
+    "C ∧ M"
   ],
   "correct": 1,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A unless B' means A ∨ B.",
+  "explanation": "'Unless' is read as or, so the formula is C ∨ M.",
+  "section": "6.2"
 }

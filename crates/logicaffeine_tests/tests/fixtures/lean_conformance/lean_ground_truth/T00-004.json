@@ -1,0 +1,38 @@
+{
+  "case": "T00-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 4,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_004.dependentArrow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_004.plainArrow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_004.shadowedBinder",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_004.usedOnlyInLaterBinderType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T00_004.lean:36:45: warning: unused variable `n`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`"
+}

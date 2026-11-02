@@ -8,7 +8,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_exact_output;
+use common::{assert_all_tiers, assert_exact_output};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
@@ -43,5 +43,16 @@ fn e2e_codegen_modular_division_by_inverse() {
     assert_exact_output(
         "## Main\nLet a be modular(1, 7).\nLet b be modular(3, 7).\nShow a / b.",
         "5 (mod 7)",
+    );
+}
+
+/// Direct tree-walker ≡ VM lock for the full ring/field/exponentiation surface — the one tier pair
+/// `assert_exact_output` (AOT-Rust) and `linked_modular` (WASM≡VM) don't assert against each other.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn modular_ring_field_pow_are_tier_identical() {
+    assert_all_tiers(
+        "## Main\n    Show modular(5, 7) + modular(4, 7).\n    Show modular(2, 7) - modular(5, 7).\n    Show modular(6, 7) * modular(6, 7).\n    Show modular(3, 7) / modular(5, 7).\n    Show pow(modular(2, 7), 5).\n",
+        "2 (mod 7)\n4 (mod 7)\n1 (mod 7)\n2 (mod 7)\n4 (mod 7)",
     );
 }

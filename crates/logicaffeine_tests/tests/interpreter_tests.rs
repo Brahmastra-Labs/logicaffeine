@@ -74,7 +74,11 @@ Show length of z."#;
         panic!("Interpreter error: {}", err);
     }
 
-    assert_eq!(result.lines, vec!["1"], "Intersection of {{1}} and {{1}} should be {{1}}");
+    assert_eq!(
+        result.lines,
+        vec!["1"],
+        "Intersection of {{1}} and {{1}} should be {{1}}"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -94,7 +98,11 @@ Show length of z."#;
         panic!("Interpreter error: {}", err);
     }
 
-    assert_eq!(result.lines, vec!["2"], "Union of {{1}} and {{2}} should have length 2");
+    assert_eq!(
+        result.lines,
+        vec!["2"],
+        "Union of {{1}} and {{2}} should have length 2"
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

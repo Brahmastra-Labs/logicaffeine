@@ -28,17 +28,24 @@ impl FiniteGroup {
     }
 
     pub fn inverse(&self, a: usize) -> usize {
-        (0..self.order()).find(|&b| self.mul[a][b] == self.id).expect("a group element has an inverse")
+        (0..self.order())
+            .find(|&b| self.mul[a][b] == self.id)
+            .expect("a group element has an inverse")
     }
 
     /// The trivial group `1`.
     pub fn trivial() -> FiniteGroup {
-        FiniteGroup { mul: vec![vec![0]], id: 0 }
+        FiniteGroup {
+            mul: vec![vec![0]],
+            id: 0,
+        }
     }
 
     /// The cyclic group `Z/m` (elements `0..m`, addition mod `m`).
     pub fn cyclic(m: usize) -> FiniteGroup {
-        let mul = (0..m).map(|a| (0..m).map(|b| (a + b) % m).collect()).collect();
+        let mul = (0..m)
+            .map(|a| (0..m).map(|b| (a + b) % m).collect())
+            .collect();
         FiniteGroup { mul, id: 0 }
     }
 
@@ -50,9 +57,14 @@ impl FiniteGroup {
         let mut perms: Vec<Vec<usize>> = Vec::new();
         let mut cur: Vec<usize> = (0..n).collect();
         permute(&mut cur, 0, &mut perms);
-        let index: std::collections::HashMap<Vec<usize>, usize> =
-            perms.iter().cloned().enumerate().map(|(i, p)| (p, i)).collect();
-        let compose = |p: &[usize], q: &[usize]| -> Vec<usize> { (0..n).map(|i| p[q[i]]).collect() };
+        let index: std::collections::HashMap<Vec<usize>, usize> = perms
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, p)| (p, i))
+            .collect();
+        let compose =
+            |p: &[usize], q: &[usize]| -> Vec<usize> { (0..n).map(|i| p[q[i]]).collect() };
         let mul: Vec<Vec<usize>> = perms
             .iter()
             .map(|p| perms.iter().map(|q| index[&compose(p, q)]).collect())
@@ -95,7 +107,9 @@ impl CrossedModule {
 
     /// `π₂ = ker(∂)` — the elements of `H` mapping to the identity of `G`. The genuine higher homotopy.
     pub fn pi_two(&self) -> Vec<usize> {
-        (0..self.h.order()).filter(|&x| self.partial[x] == self.g.id).collect()
+        (0..self.h.order())
+            .filter(|&x| self.partial[x] == self.g.id)
+            .collect()
     }
 
     /// `|im(∂)|` — the size of `∂`'s image in `G`.
@@ -113,60 +127,5 @@ impl CrossedModule {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finite_groups_are_well_formed() {
-        for g in [FiniteGroup::trivial(), FiniteGroup::cyclic(5), FiniteGroup::symmetric(4)] {
-            let n = g.order();
-            // identity acts as identity, and every element has an inverse
-            for a in 0..n {
-                assert_eq!(g.mul[g.id][a], a);
-                assert_eq!(g.mul[a][g.id], a);
-                let _ = g.inverse(a);
-            }
-        }
-        assert_eq!(FiniteGroup::symmetric(4).order(), 24, "|S_4| = 24");
-    }
-
-    #[test]
-    fn discrete_symmetry_is_a_one_type_pi_two_vanishes() {
-        // Our SAT symmetry is DISCRETE: the degenerate crossed module 1 → G. π₂ = ker(∂) = 1, π₁ = G.
-        // So the ∞-groupoid is BG = K(G,1), a 1-TYPE — exactly the tower's named top, now via the
-        // 2-group machinery. (G = S_4, the pigeon symmetry of PHP(5).)
-        let g = FiniteGroup::symmetric(4);
-        let cm = CrossedModule { g, h: FiniteGroup::trivial(), partial: vec![0] };
-        assert!(cm.is_homomorphism(), "∂ : 1 → G is a homomorphism");
-        assert_eq!(cm.pi_two().len(), 1, "π₂ = ker(∂) = trivial ⇒ a 1-type (discrete symmetry)");
-        assert_eq!(cm.pi_one_order(), 24, "π₁ = G = S_4");
-    }
-
-    #[test]
-    fn a_genuine_2_group_populates_pi_two() {
-        // A GENUINE 2-group (the frontier): the crossed module Z/m → 1 with ∂ = 0. Now π₂ = ker(∂) =
-        // Z/m ≠ 0 — a K(Z/m, 2), a genuine 2-TYPE. This is what a symmetry-with-internal-symmetry
-        // would contribute; our SAT structure does not provide it, but the machinery reads it off.
-        for m in [2usize, 3, 5] {
-            let cm = CrossedModule { g: FiniteGroup::trivial(), h: FiniteGroup::cyclic(m), partial: vec![0; m] };
-            assert!(cm.is_homomorphism(), "∂ = 0 : Z/m → 1 is a homomorphism");
-            assert_eq!(cm.pi_two().len(), m, "π₂ = ker(∂) = Z/{m} — genuine higher homotopy");
-            assert_eq!(cm.pi_one_order(), 1, "π₁ = coker = trivial");
-        }
-    }
-
-    #[test]
-    fn an_isomorphism_crossed_module_is_contractible() {
-        // ∂ = id : Z/m → Z/m kills both homotopy groups (π₁ = coker = 1, π₂ = ker = 1) — a contractible
-        // 2-group. The machinery spans the range: from contractible, through K(G,1), to K(Z/m,2).
-        let m = 6;
-        let cm = CrossedModule {
-            g: FiniteGroup::cyclic(m),
-            h: FiniteGroup::cyclic(m),
-            partial: (0..m).collect(), // ∂ = identity
-        };
-        assert!(cm.is_homomorphism());
-        assert_eq!(cm.pi_two().len(), 1, "π₂ = ker(id) = trivial");
-        assert_eq!(cm.pi_one_order(), 1, "π₁ = coker(id) = trivial");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/two_group/tests.rs"]
+mod tests;

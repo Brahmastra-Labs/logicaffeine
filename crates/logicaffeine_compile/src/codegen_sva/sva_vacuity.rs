@@ -29,10 +29,10 @@ pub enum VacuityStatus {
 pub fn analyze_vacuity(expr: &SvaExpr) -> VacuityStatus {
     match expr {
         // Rule (a): A sequence is always nonvacuous
-        SvaExpr::Delay { .. } | SvaExpr::Repetition { .. } |
-        SvaExpr::GotoRepetition { .. } | SvaExpr::NonConsecRepetition { .. } => {
-            VacuityStatus::Nonvacuous
-        }
+        SvaExpr::Delay { .. }
+        | SvaExpr::Repetition { .. }
+        | SvaExpr::GotoRepetition { .. }
+        | SvaExpr::NonConsecRepetition { .. } => VacuityStatus::Nonvacuous,
 
         // Rule (b): strong(seq) is always nonvacuous
         SvaExpr::Strong(_) => VacuityStatus::Nonvacuous,
@@ -66,14 +66,16 @@ pub fn analyze_vacuity(expr: &SvaExpr) -> VacuityStatus {
         }
 
         // Rule (g): if(cond) p else q — nonvacuous if either branch can be
-        SvaExpr::IfElse { then_expr, else_expr, .. } => {
-            match (analyze_vacuity(then_expr), analyze_vacuity(else_expr)) {
-                (VacuityStatus::Nonvacuous, _) | (_, VacuityStatus::Nonvacuous) => {
-                    VacuityStatus::Nonvacuous
-                }
-                _ => VacuityStatus::Unknown,
+        SvaExpr::IfElse {
+            then_expr,
+            else_expr,
+            ..
+        } => match (analyze_vacuity(then_expr), analyze_vacuity(else_expr)) {
+            (VacuityStatus::Nonvacuous, _) | (_, VacuityStatus::Nonvacuous) => {
+                VacuityStatus::Nonvacuous
             }
-        }
+            _ => VacuityStatus::Unknown,
+        },
 
         // Rule (h): seq |-> prop is nonvacuous when seq has an endpoint match
         // Rule (i): seq |=> prop is nonvacuous when seq has a match point
@@ -87,23 +89,17 @@ pub fn analyze_vacuity(expr: &SvaExpr) -> VacuityStatus {
         }
 
         // Rule (j-k): followed-by operators
-        SvaExpr::FollowedBy { antecedent, .. } => {
-            match analyze_vacuity(antecedent) {
-                VacuityStatus::Nonvacuous => VacuityStatus::Unknown,
-                VacuityStatus::Vacuous => VacuityStatus::Vacuous,
-                VacuityStatus::Unknown => VacuityStatus::Unknown,
-            }
-        }
+        SvaExpr::FollowedBy { antecedent, .. } => match analyze_vacuity(antecedent) {
+            VacuityStatus::Nonvacuous => VacuityStatus::Unknown,
+            VacuityStatus::Vacuous => VacuityStatus::Vacuous,
+            VacuityStatus::Unknown => VacuityStatus::Unknown,
+        },
 
         // Rule (l-n): nexttime/s_nexttime — nonvacuous if next tick exists and body nonvacuous
-        SvaExpr::Nexttime(inner, _) | SvaExpr::SNexttime(inner, _) => {
-            analyze_vacuity(inner)
-        }
+        SvaExpr::Nexttime(inner, _) | SvaExpr::SNexttime(inner, _) => analyze_vacuity(inner),
 
         // Rule (p): always p — nonvacuous when p is nonvacuous at some tick
-        SvaExpr::Always(inner) | SvaExpr::SAlways(inner) => {
-            analyze_vacuity(inner)
-        }
+        SvaExpr::Always(inner) | SvaExpr::SAlways(inner) => analyze_vacuity(inner),
 
         // Rule (q-r): always [m:n] p — nonvacuous at some tick in range
         SvaExpr::AlwaysBounded { body, .. } | SvaExpr::SAlwaysBounded { body, .. } => {
@@ -131,9 +127,7 @@ pub fn analyze_vacuity(expr: &SvaExpr) -> VacuityStatus {
         }
 
         // Rule (ag): disable iff (rst) p — nonvacuous when rst is not always active
-        SvaExpr::DisableIff { body, .. } => {
-            analyze_vacuity(body)
-        }
+        SvaExpr::DisableIff { body, .. } => analyze_vacuity(body),
 
         // PropertyCase: vacuity depends on whether the case expression matches
         // any item at runtime. Without a default, unmatched cases are vacuously true.
@@ -149,35 +143,60 @@ pub fn analyze_vacuity(expr: &SvaExpr) -> VacuityStatus {
         }
 
         // Atomic signals, constants, system functions — nonvacuous (they always evaluate)
-        SvaExpr::Signal(_) | SvaExpr::Const(_, _) |
-        SvaExpr::Rose(_) | SvaExpr::Fell(_) | SvaExpr::Past(_, _) |
-        SvaExpr::Stable(_) | SvaExpr::Changed(_) |
-        SvaExpr::Not(_) | SvaExpr::Eq(_, _) | SvaExpr::NotEq(_, _) |
-        SvaExpr::LessThan(_, _) | SvaExpr::GreaterThan(_, _) |
-        SvaExpr::LessEqual(_, _) | SvaExpr::GreaterEqual(_, _) |
-        SvaExpr::Ternary { .. } |
-        SvaExpr::OneHot0(_) | SvaExpr::OneHot(_) | SvaExpr::CountOnes(_) |
-        SvaExpr::IsUnknown(_) | SvaExpr::Sampled(_) | SvaExpr::Bits(_) | SvaExpr::Clog2(_) |
-        SvaExpr::CountBits(_, _) | SvaExpr::IsUnbounded(_) |
-        SvaExpr::AcceptOn { .. } | SvaExpr::RejectOn { .. } |
-        SvaExpr::SyncAcceptOn { .. } | SvaExpr::SyncRejectOn { .. } |
-        SvaExpr::FirstMatch(_) | SvaExpr::Throughout { .. } | SvaExpr::Within { .. } |
-        SvaExpr::Intersect { .. } |
-        SvaExpr::BitAnd(_, _) | SvaExpr::BitOr(_, _) | SvaExpr::BitXor(_, _) |
-        SvaExpr::BitNot(_) | SvaExpr::ReductionAnd(_) | SvaExpr::ReductionOr(_) |
-        SvaExpr::ReductionXor(_) | SvaExpr::BitSelect { .. } | SvaExpr::PartSelect { .. } |
-        SvaExpr::Concat(_) | SvaExpr::ConstCast(_) |
-        SvaExpr::FieldAccess { .. } | SvaExpr::EnumLiteral { .. } |
-        SvaExpr::Triggered(_) | SvaExpr::Matched(_) |
-        SvaExpr::ImmediateAssert { .. } |
-        SvaExpr::SequenceAction { .. } |
-        SvaExpr::Clocked { .. } |
-        SvaExpr::LocalVar(_) |
-        SvaExpr::ArrayMap { .. } |
-        SvaExpr::TypeThis |
-        SvaExpr::RealConst(_) => {
-            VacuityStatus::Nonvacuous
-        }
+        SvaExpr::Signal(_)
+        | SvaExpr::Const(_, _)
+        | SvaExpr::Rose(_)
+        | SvaExpr::Fell(_)
+        | SvaExpr::Past(_, _)
+        | SvaExpr::Stable(_)
+        | SvaExpr::Changed(_)
+        | SvaExpr::Not(_)
+        | SvaExpr::Eq(_, _)
+        | SvaExpr::NotEq(_, _)
+        | SvaExpr::LessThan(_, _)
+        | SvaExpr::GreaterThan(_, _)
+        | SvaExpr::LessEqual(_, _)
+        | SvaExpr::GreaterEqual(_, _)
+        | SvaExpr::Ternary { .. }
+        | SvaExpr::OneHot0(_)
+        | SvaExpr::OneHot(_)
+        | SvaExpr::CountOnes(_)
+        | SvaExpr::IsUnknown(_)
+        | SvaExpr::Sampled(_)
+        | SvaExpr::Bits(_)
+        | SvaExpr::Clog2(_)
+        | SvaExpr::CountBits(_, _)
+        | SvaExpr::IsUnbounded(_)
+        | SvaExpr::AcceptOn { .. }
+        | SvaExpr::RejectOn { .. }
+        | SvaExpr::SyncAcceptOn { .. }
+        | SvaExpr::SyncRejectOn { .. }
+        | SvaExpr::FirstMatch(_)
+        | SvaExpr::Throughout { .. }
+        | SvaExpr::Within { .. }
+        | SvaExpr::Intersect { .. }
+        | SvaExpr::BitAnd(_, _)
+        | SvaExpr::BitOr(_, _)
+        | SvaExpr::BitXor(_, _)
+        | SvaExpr::BitNot(_)
+        | SvaExpr::ReductionAnd(_)
+        | SvaExpr::ReductionOr(_)
+        | SvaExpr::ReductionXor(_)
+        | SvaExpr::BitSelect { .. }
+        | SvaExpr::PartSelect { .. }
+        | SvaExpr::Concat(_)
+        | SvaExpr::ConstCast(_)
+        | SvaExpr::FieldAccess { .. }
+        | SvaExpr::EnumLiteral { .. }
+        | SvaExpr::Triggered(_)
+        | SvaExpr::Matched(_)
+        | SvaExpr::ImmediateAssert { .. }
+        | SvaExpr::SequenceAction { .. }
+        | SvaExpr::Clocked { .. }
+        | SvaExpr::LocalVar(_)
+        | SvaExpr::ArrayMap { .. }
+        | SvaExpr::TypeThis
+        | SvaExpr::RealConst(_) => VacuityStatus::Nonvacuous,
     }
 }
 

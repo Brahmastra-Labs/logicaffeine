@@ -1,0 +1,6 @@
+[dependencies]
+
+[package]
+authors = []
+name = "modal_toast_keyboard"
+version = "0.1.0"

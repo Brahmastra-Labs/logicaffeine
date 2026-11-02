@@ -29,8 +29,8 @@ use crate::vm::instruction::CompiledProgram;
 ///   `js_sys::WebAssembly`. This is the production tier — a hot function tiers up to a
 ///   freshly-compiled native WebAssembly module the host JITs, exactly as the spec requires.
 ///
-/// `on_call` and the tier-up bookkeeping are target-independent; only [`instantiate`] and
-/// [`ReadyModule::call`] (the host seam) are `#[cfg]`-split.
+/// `on_call` and the tier-up bookkeeping are target-independent; only `instantiate` and
+/// `ReadyModule::call` (the host seam) are `#[cfg]`-split.
 pub struct WasmTier {
     entries: std::collections::HashMap<u16, TierEntry>,
     threshold: u32,
@@ -145,7 +145,9 @@ fn instantiate(program: &CompiledProgram, func: u16) -> Option<ReadyModule> {
 #[cfg(target_arch = "wasm32")]
 fn instantiate(program: &CompiledProgram, func: u16) -> Option<ReadyModule> {
     let bytes = compile_function_to_wasm(program, func as usize)?;
-    Some(ReadyModule { func: instantiate_on_host(&bytes)? })
+    Some(ReadyModule {
+        func: instantiate_on_host(&bytes)?,
+    })
 }
 
 /// Compile + instantiate raw WASM bytes through the host's `WebAssembly` (V8 in the browser
@@ -158,10 +160,13 @@ fn instantiate_on_host(bytes: &[u8]) -> Option<js_sys::Function> {
     let arr = js_sys::Uint8Array::from(bytes);
     let module = js_sys::WebAssembly::Module::new(arr.as_ref()).ok()?;
     let instance = js_sys::WebAssembly::Instance::new(&module, &js_sys::Object::new()).ok()?;
-    js_sys::Reflect::get(instance.exports().as_ref(), &wasm_bindgen::JsValue::from_str("f"))
-        .ok()?
-        .dyn_into::<js_sys::Function>()
-        .ok()
+    js_sys::Reflect::get(
+        instance.exports().as_ref(),
+        &wasm_bindgen::JsValue::from_str("f"),
+    )
+    .ok()?
+    .dyn_into::<js_sys::Function>()
+    .ok()
 }
 
 /// Call a host `WebAssembly` export taking/returning i64. WebAssembly i64 crosses the JS

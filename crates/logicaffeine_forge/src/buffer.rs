@@ -98,7 +98,11 @@ impl JitChain {
     /// one contiguous function regardless.
     pub fn from_code(code: &[u8], pieces: usize) -> Result<JitChain, crate::JitError> {
         let page = JitPage::new(code)?;
-        Ok(JitChain { page, pieces, patch_slots: Vec::new() })
+        Ok(JitChain {
+            page,
+            pieces,
+            patch_slots: Vec::new(),
+        })
     }
 
     /// Write `value` into every marked literal-pool slot (the self-call
@@ -126,13 +130,37 @@ impl JitChain {
     /// chain's pushes; the page must outlive every call.
     pub unsafe fn entry(
         &self,
-    ) -> unsafe extern "C" fn(*mut i64, *mut i64, i64, i64, i64, i64, f64, f64, f64, f64, f64, f64) -> i64 {
+    ) -> unsafe extern "C" fn(
+        *mut i64,
+        *mut i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        f64,
+        f64,
+        f64,
+        f64,
+        f64,
+        f64,
+    ) -> i64 {
         std::mem::transmute::<
             *const u8,
-            unsafe extern "C" fn(*mut i64, *mut i64, i64, i64, i64, i64, f64, f64, f64, f64, f64, f64) -> i64,
-        >(
-            self.page.as_ptr(),
-        )
+            unsafe extern "C" fn(
+                *mut i64,
+                *mut i64,
+                i64,
+                i64,
+                i64,
+                i64,
+                f64,
+                f64,
+                f64,
+                f64,
+                f64,
+                f64,
+            ) -> i64,
+        >(self.page.as_ptr())
     }
 
     /// Run the chain with an empty frame and a fresh operand stack.
@@ -160,11 +188,25 @@ impl JitChain {
                 *c = SENTINEL;
             }
             let r = unsafe {
-                (self.entry())(frame.as_mut_ptr(), stack.as_mut_ptr(), 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                (self.entry())(
+                    frame.as_mut_ptr(),
+                    stack.as_mut_ptr(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
             };
             for (k, c) in stack[STACK..].iter().enumerate() {
                 assert_eq!(
-                    *c, SENTINEL,
+                    *c,
+                    SENTINEL,
                     "OPERAND STACK OVERFLOW: canary slot {k} (stack base + {}) clobbered",
                     STACK + k
                 );
@@ -175,7 +217,20 @@ impl JitChain {
         // Threaded registers enter zeroed; a pinned chain's prologue
         // reloads them from the frame before any use.
         unsafe {
-            (self.entry())(frame.as_mut_ptr(), stack.as_mut_ptr(), 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            (self.entry())(
+                frame.as_mut_ptr(),
+                stack.as_mut_ptr(),
+                0,
+                0,
+                0,
+                0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
         }
     }
 
@@ -232,7 +287,10 @@ impl JitBuffer {
     }
 
     pub fn push_stencil(&mut self, stencil: &'static Stencil, holes: &[HoleValue]) -> Label {
-        self.pieces.push(Piece { stencil, holes: holes.to_vec() });
+        self.pieces.push(Piece {
+            stencil,
+            holes: holes.to_vec(),
+        });
         Label(self.pieces.len() - 1)
     }
 
@@ -265,7 +323,8 @@ impl JitBuffer {
         // composed address breaks as soon as the pool straddles a page
         // boundary.
         let mut value_slot: Vec<Vec<Option<usize>>> = Vec::new(); // [piece][hole-n] -> slot off
-        let mut pointer_slot: std::collections::HashMap<(usize, HoleId), usize> = std::collections::HashMap::new();
+        let mut pointer_slot: std::collections::HashMap<(usize, HoleId), usize> =
+            std::collections::HashMap::new();
         let mut slot_cursor = align_up(cursor, SLOT_SIZE);
 
         for (pi, piece) in self.pieces.iter().enumerate() {
@@ -300,7 +359,10 @@ impl JitBuffer {
                     _ => {}
                 }
             }
-            Err(BufferError::MissingHoleValue { stencil: piece.stencil.name, hole })
+            Err(BufferError::MissingHoleValue {
+                stencil: piece.stencil.name,
+                hole,
+            })
         };
 
         // Validate labels up front.
@@ -343,8 +405,8 @@ impl JitBuffer {
                     let content: u64 = match find_hole(piece, hole)? {
                         HoleValue::Cont(_, Label(t)) => base + piece_off[t] as u64,
                         HoleValue::Const(n, _) => {
-                            let vslot = value_slot[pi][n as usize]
-                                .expect("const hole has a value slot");
+                            let vslot =
+                                value_slot[pi][n as usize].expect("const hole has a value slot");
                             base + vslot as u64
                         }
                     };
@@ -371,21 +433,36 @@ impl JitBuffer {
                             }
                         };
                         let r = match reloc.kind {
-                            RelocKind::Branch26 => {
-                                patch::patch_aarch64_branch26(&mut buf, site_off, site_addr, target_addr)
-                            }
+                            RelocKind::Branch26 => patch::patch_aarch64_branch26(
+                                &mut buf,
+                                site_off,
+                                site_addr,
+                                target_addr,
+                            ),
                             RelocKind::Page21 | RelocKind::GotPage21 => {
-                                patch::patch_aarch64_page21(&mut buf, site_off, site_addr, target_addr)
+                                patch::patch_aarch64_page21(
+                                    &mut buf,
+                                    site_off,
+                                    site_addr,
+                                    target_addr,
+                                )
                             }
-                            RelocKind::PageOff12 { scale } => {
-                                patch::patch_aarch64_pageoff12(&mut buf, site_off, target_addr, scale)
-                            }
+                            RelocKind::PageOff12 { scale } => patch::patch_aarch64_pageoff12(
+                                &mut buf,
+                                site_off,
+                                target_addr,
+                                scale,
+                            ),
                             RelocKind::GotPageOff12 => {
                                 patch::patch_aarch64_pageoff12(&mut buf, site_off, target_addr, 3)
                             }
-                            RelocKind::Rel32 | RelocKind::GotRel32 => {
-                                patch::patch_x64_rel32(&mut buf, site_off, site_addr, target_addr, reloc.addend)
-                            }
+                            RelocKind::Rel32 | RelocKind::GotRel32 => patch::patch_x64_rel32(
+                                &mut buf,
+                                site_off,
+                                site_addr,
+                                target_addr,
+                                reloc.addend,
+                            ),
                             RelocKind::Abs64 => {
                                 patch::patch_abs64(&mut buf, site_off, target_addr, reloc.addend);
                                 Ok(())
@@ -408,10 +485,12 @@ impl JitBuffer {
         }
         let patch_slots: Vec<usize> = patch_marks
             .iter()
-            .map(|&(pi, n)| {
-                value_slot[pi][n as usize].expect("marked hole has a const value slot")
-            })
+            .map(|&(pi, n)| value_slot[pi][n as usize].expect("marked hole has a const value slot"))
             .collect();
-        Ok(JitChain { page, pieces: pieces.len(), patch_slots })
+        Ok(JitChain {
+            page,
+            pieces: pieces.len(),
+            patch_slots,
+        })
     }
 }

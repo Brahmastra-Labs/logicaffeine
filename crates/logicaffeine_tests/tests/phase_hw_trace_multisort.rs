@@ -27,8 +27,26 @@ fn signal_value_int_display() {
 
 #[test]
 fn signal_value_bitvec_display() {
-    assert_eq!(format!("{}", SignalValue::BitVec { width: 8, value: 0xAB }), "0xAB");
-    assert_eq!(format!("{}", SignalValue::BitVec { width: 16, value: 0x1234 }), "0x1234");
+    assert_eq!(
+        format!(
+            "{}",
+            SignalValue::BitVec {
+                width: 8,
+                value: 0xAB
+            }
+        ),
+        "0xAB"
+    );
+    assert_eq!(
+        format!(
+            "{}",
+            SignalValue::BitVec {
+                width: 16,
+                value: 0x1234
+            }
+        ),
+        "0x1234"
+    );
 }
 
 #[test]
@@ -88,7 +106,7 @@ fn trace_integer_signal_in_counterexample() {
             let first = &counterexample.cycles[0];
             if let Some(val) = first.signals.get("count") {
                 match val {
-                    SignalValue::Int(_) => {} // expected
+                    SignalValue::Int(_) => {}  // expected
                     SignalValue::Bool(_) => {} // acceptable if Z3 treats as bool
                     other => panic!("Expected Int or Bool for count signal, got: {:?}", other),
                 }
@@ -105,21 +123,18 @@ fn trace_integer_signal_in_counterexample() {
 #[test]
 fn trace_preserves_signal_names() {
     // Counterexample should use clean signal names, not @t suffixed
-    let a = VerifyExpr::and(
-        VerifyExpr::var("req@0"),
-        VerifyExpr::var("ack@0"),
-    );
-    let b = VerifyExpr::or(
-        VerifyExpr::var("req@0"),
-        VerifyExpr::var("ack@0"),
-    );
+    let a = VerifyExpr::and(VerifyExpr::var("req@0"), VerifyExpr::var("ack@0"));
+    let b = VerifyExpr::or(VerifyExpr::var("req@0"), VerifyExpr::var("ack@0"));
     let result = check_equivalence(&a, &b, &["req".into(), "ack".into()], 1);
     match result {
         EquivalenceResult::NotEquivalent { counterexample } => {
             for cycle in &counterexample.cycles {
                 for key in cycle.signals.keys() {
-                    assert!(!key.contains('@'),
-                        "Signal name should not contain @, got: {}", key);
+                    assert!(
+                        !key.contains('@'),
+                        "Signal name should not contain @, got: {}",
+                        key
+                    );
                 }
             }
         }
@@ -141,23 +156,20 @@ fn trace_multi_cycle() {
     // Multiple timesteps should produce multiple cycles
     let a = VerifyExpr::and(
         VerifyExpr::var("sig@0"),
-        VerifyExpr::and(
-            VerifyExpr::var("sig@1"),
-            VerifyExpr::var("sig@2"),
-        ),
+        VerifyExpr::and(VerifyExpr::var("sig@1"), VerifyExpr::var("sig@2")),
     );
     let b = VerifyExpr::and(
         VerifyExpr::not(VerifyExpr::var("sig@0")),
-        VerifyExpr::and(
-            VerifyExpr::var("sig@1"),
-            VerifyExpr::var("sig@2"),
-        ),
+        VerifyExpr::and(VerifyExpr::var("sig@1"), VerifyExpr::var("sig@2")),
     );
     let result = check_equivalence(&a, &b, &["sig".into()], 3);
     match result {
         EquivalenceResult::NotEquivalent { counterexample } => {
-            assert!(counterexample.cycles.len() >= 1,
-                "Should have at least 1 cycle, got: {}", counterexample.cycles.len());
+            assert!(
+                counterexample.cycles.len() >= 1,
+                "Should have at least 1 cycle, got: {}",
+                counterexample.cycles.len()
+            );
         }
         other => panic!("Expected NotEquivalent, got: {:?}", other),
     }
@@ -190,14 +202,23 @@ fn signal_value_equality() {
     assert_eq!(SignalValue::Int(42), SignalValue::Int(42));
     assert_ne!(SignalValue::Int(1), SignalValue::Bool(true));
     assert_eq!(
-        SignalValue::BitVec { width: 8, value: 0xFF },
-        SignalValue::BitVec { width: 8, value: 0xFF },
+        SignalValue::BitVec {
+            width: 8,
+            value: 0xFF
+        },
+        SignalValue::BitVec {
+            width: 8,
+            value: 0xFF
+        },
     );
 }
 
 #[test]
 fn signal_value_clone() {
-    let val = SignalValue::BitVec { width: 16, value: 0x1234 };
+    let val = SignalValue::BitVec {
+        width: 16,
+        value: 0x1234,
+    };
     let cloned = val.clone();
     assert_eq!(val, cloned);
 }

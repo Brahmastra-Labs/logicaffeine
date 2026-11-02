@@ -1,0 +1,76 @@
+{
+  "id": "5.7",
+  "title": "Mill's Methods",
+  "order": 7,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "John Stuart Mill described methods for finding causes."
+    },
+    {
+      "type": "symbols",
+      "title": "The methods",
+      "symbols": [
+        {
+          "symbol": "Agreement",
+          "name": "One shared factor",
+          "meaning": "A factor present in every case of the effect."
+        },
+        {
+          "symbol": "Difference",
+          "name": "One difference",
+          "meaning": "The only factor that differs between cases with and without the effect."
+        },
+        {
+          "symbol": "Joint method",
+          "name": "Both together",
+          "meaning": "Agreement and difference used together."
+        },
+        {
+          "symbol": "Residues",
+          "name": "What is left",
+          "meaning": "Subtract the known causes, and the rest explains what remains."
+        },
+        {
+          "symbol": "Concomitant variation",
+          "name": "Change with change",
+          "meaning": "A factor that rises and falls with the effect."
+        }
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Agreement",
+      "lines": [
+        "Five guests got food poisoning.",
+        "They ate different meals, but all of them ate the salad."
+      ],
+      "conclusion": "The salad probably caused it."
+    },
+    {
+      "type": "worked",
+      "title": "Difference",
+      "lines": [
+        "Two groups are alike in every way but one.",
+        "Only one group got treatment A.",
+        "Only that group got better."
+      ],
+      "conclusion": "Treatment A probably caused the improvement."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "The more fertilizer a field gets, the taller its corn grows. Which method is this?",
+    "options": [
+      "Agreement",
+      "Difference",
+      "Residues",
+      "Concomitant variation"
+    ],
+    "correct": 3,
+    "hint": "Is the factor simply there or not, or does it change in amount?",
+    "explanation": "The factor and the effect rise together. Mill calls this the method of concomitant variation."
+  }
+}

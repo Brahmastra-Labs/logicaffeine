@@ -2,8 +2,8 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::smtlib::{to_smtlib2, equivalence_to_smtlib2};
-use logicaffeine_verify::{VerifyExpr, VerifyOp, VerifyType, BitVecOp};
+use logicaffeine_verify::smtlib::{equivalence_to_smtlib2, to_smtlib2};
+use logicaffeine_verify::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
 
 #[test]
 fn smtlib_bool_formula() {
@@ -44,7 +44,13 @@ fn smtlib_array_formula() {
         array: Box::new(VerifyExpr::var("a")),
         index: Box::new(VerifyExpr::int(0)),
     };
-    let smt = to_smtlib2(&expr, &[("a", VerifyType::Array(Box::new(VerifyType::Int), Box::new(VerifyType::Int)))]);
+    let smt = to_smtlib2(
+        &expr,
+        &[(
+            "a",
+            VerifyType::Array(Box::new(VerifyType::Int), Box::new(VerifyType::Int)),
+        )],
+    );
     assert!(smt.contains("(Array Int Int)"));
     assert!(smt.contains("(select a 0)"));
 }
@@ -86,7 +92,10 @@ fn smtlib_mixed_sorts() {
         VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(5)),
         VerifyExpr::var("valid"),
     );
-    let smt = to_smtlib2(&expr, &[("x", VerifyType::Int), ("valid", VerifyType::Bool)]);
+    let smt = to_smtlib2(
+        &expr,
+        &[("x", VerifyType::Int), ("valid", VerifyType::Bool)],
+    );
     assert!(smt.contains("Int"));
     assert!(smt.contains("Bool"));
 }

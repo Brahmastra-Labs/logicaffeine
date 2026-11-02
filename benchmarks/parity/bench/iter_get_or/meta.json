@@ -1,0 +1,10 @@
+{
+  "capability": "iter.get_or",
+  "workload": "getOr(xs, i, -1) 1-based, i sometimes out of range",
+  "arg": "200000",
+  "expected": "13372261160",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

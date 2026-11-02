@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're dull then you're logical, and you're persistent",
   "options": [
-    "$ (D \\supset L) \\cdot P $",
-    "$ (D \\supset (L \\cdot P)) $",
-    "$ ((D \\supset L) \\cdot P) $",
-    "$ D \\supset L \\cdot P $"
+    "D → (L ∧ P)",
+    "(D → L) ∨ P",
+    "(D → L) ∧ P",
+    "(D → L) → P"
   ],
   "correct": 2,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'and' joins the two largest parts?",
+  "explanation": "The main connective is ∧, joining D → L and P: (D → L) ∧ P.",
+  "section": "6.2"
 }

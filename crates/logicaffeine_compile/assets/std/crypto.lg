@@ -698,24 +698,579 @@ Converts coefficients into the Montgomery domain.
 ## To native toMont (coeffs: Seq of Int) -> Seq of Int
 
 ## Note
-SHA3-256 of a byte sequence (FIPS 202).
+One Keccak-f[1600] permutation: 24 rounds of theta, rho+pi, chi, iota over the 25-lane Word64 state.
 
-## To native sha3_256 (a: Seq of Int) -> Seq of Int
+## To keccakF (st: Seq of Word64) and (rc: Seq of Word64) and (rsrc: Seq of Int) and (roff: Seq of Int) -> Seq of Word64:
+    Let mutable a be a new Seq of Word64.
+    Repeat for x in st:
+        Push x to a.
+    Repeat for rnd from 1 to 24:
+        Let mutable c be a new Seq of Word64.
+        Repeat for x from 0 to 4:
+            Push ((item (x + 1) of a) xor (item (x + 6) of a) xor (item (x + 11) of a) xor (item (x + 16) of a) xor (item (x + 21) of a)) to c.
+        Repeat for x from 0 to 4:
+            Let d be (item ((x + 4) % 5 + 1) of c) xor rotl(item ((x + 1) % 5 + 1) of c, 1).
+            Repeat for y from 0 to 4:
+                Set item (5 * y + x + 1) of a to (item (5 * y + x + 1) of a) xor d.
+        Let mutable b be a new Seq of Word64.
+        Repeat for k from 0 to 24:
+            Push rotl(item ((item (k + 1) of rsrc) + 1) of a, item (k + 1) of roff) to b.
+        Let allones be word64(0 - 1).
+        Repeat for y from 0 to 4:
+            Repeat for x from 0 to 4:
+                Let bb0 be item (5 * y + x + 1) of b.
+                Let bb1 be item (5 * y + (x + 1) % 5 + 1) of b.
+                Let bb2 be item (5 * y + (x + 2) % 5 + 1) of b.
+                Set item (5 * y + x + 1) of a to bb0 xor word64And(bb1 xor allones, bb2).
+        Set item 1 of a to (item 1 of a) xor (item rnd of rc).
+    Return a.
 
 ## Note
-SHA3-512 of a byte sequence (FIPS 202).
+FIPS-202 sponge in pure LOGOS: absorb rate-byte blocks, permute, squeeze outlen bytes; rate+dsbyte select SHA3/SHAKE.
 
-## To native sha3_512 (a: Seq of Int) -> Seq of Int
+## To keccakSponge (msg: Seq of Int) and (rate: Int) and (dsbyte: Int) and (outlen: Int) -> Seq of Int:
+    cryptoRequireBytes("keccakSponge", "message", msg).
+    cryptoRequireOutputLength("keccakSponge", outlen).
+    Let rc be [word64(1), word64(32898), word64(-9223372036854742902), word64(-9223372034707259392), word64(32907), word64(2147483649), word64(-9223372034707259263), word64(-9223372036854743031), word64(138), word64(136), word64(2147516425), word64(2147483658), word64(2147516555), word64(-9223372036854775669), word64(-9223372036854742903), word64(-9223372036854743037), word64(-9223372036854743038), word64(-9223372036854775680), word64(32778), word64(-9223372034707292150), word64(-9223372034707259263), word64(-9223372036854742912), word64(2147483649), word64(-9223372034707259384)].
+    Let rsrc be [0, 6, 12, 18, 24, 3, 9, 10, 16, 22, 1, 7, 13, 19, 20, 4, 5, 11, 17, 23, 2, 8, 14, 15, 21].
+    Let roff be [0, 44, 43, 21, 14, 28, 20, 3, 45, 61, 1, 6, 25, 8, 18, 27, 36, 10, 15, 56, 62, 55, 39, 41, 2].
+    Let mutable padded be a new Seq of Int.
+    Repeat for x in msg:
+        Push x to padded.
+    Push dsbyte to padded.
+    While ((length of padded) % rate) is greater than 0:
+        Push 0 to padded.
+    Let ln be length of padded.
+    Set item ln of padded to (item ln of padded) + 128.
+    Let mutable state be a new Seq of Word64.
+    Repeat for k from 1 to 25:
+        Push word64(0) to state.
+    Let lanes be rate / 8.
+    Let nblk be (length of padded) / rate.
+    Repeat for blk from 0 to (nblk - 1):
+        Repeat for l from 0 to (lanes - 1):
+            Let base be blk * rate + l * 8.
+            Let mutable lane be word64(item (base + 1) of padded).
+            Repeat for j from 1 to 7:
+                Set lane to lane xor word64Shl(word64(item (base + j + 1) of padded), 8 * j).
+            Set item (l + 1) of state to (item (l + 1) of state) xor lane.
+        Set state to keccakF(state, rc, rsrc, roff).
+    Let mutable out be a new Seq of Int.
+    While (length of out) is less than outlen:
+        Repeat for l from 0 to (lanes - 1):
+            Let lane be item (l + 1) of state.
+            Repeat for jj from 0 to 7:
+                If (length of out) is less than outlen:
+                    Push intOfWord64(word64And(word64Shr(lane, 8 * jj), word64(255))) to out.
+        If (length of out) is less than outlen:
+            Set state to keccakF(state, rc, rsrc, roff).
+    Return out.
 
 ## Note
-SHAKE128 extendable output of the requested length (FIPS 202).
+SHAKE128 in pure LOGOS: the FIPS-202 sponge at rate 168 with domain byte 0x1F.
 
-## To native shake128 (a: Seq of Int) and (outlen: Int) -> Seq of Int
+## To shake128 (a: Seq of Int) and (outlen: Int) -> Seq of Int:
+    cryptoRequireBytes("shake128", "message", a).
+    cryptoRequireOutputLength("shake128", outlen).
+    Return keccakSponge(a, 168, 31, outlen).
 
 ## Note
-SHAKE256 extendable output of the requested length (FIPS 202).
+SHAKE256 in pure LOGOS: the FIPS-202 sponge at rate 136 with domain byte 0x1F.
 
-## To native shake256 (a: Seq of Int) and (outlen: Int) -> Seq of Int
+## To shake256 (a: Seq of Int) and (outlen: Int) -> Seq of Int:
+    cryptoRequireBytes("shake256", "message", a).
+    cryptoRequireOutputLength("shake256", outlen).
+    Return keccakSponge(a, 136, 31, outlen).
+
+## Note
+SHA3-256 in pure LOGOS: the FIPS-202 sponge at rate 136, domain byte 0x06, 32-byte digest.
+
+## To sha3_256 (a: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes("sha3_256", "message", a).
+    Return keccakSponge(a, 136, 6, 32).
+
+## Note
+SHA3-512 in pure LOGOS: the FIPS-202 sponge at rate 72, domain byte 0x06, 64-byte digest.
+
+## To sha3_512 (a: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes("sha3_512", "message", a).
+    Return keccakSponge(a, 72, 6, 64).
+
+## Note
+One 4-way Keccak-f[1600] permutation over a Lanes4Word64 state (AVX2 under +avx2): 24 rounds, four independent sponges in lock-step.
+
+## To keccakF4Logos (st: Seq of Lanes4Word64) and (rc: Seq of Int) and (rsrc: Seq of Int) and (roff: Seq of Int) -> Seq of Lanes4Word64:
+    Let mutable a be a new Seq of Lanes4Word64.
+    Repeat for x in st:
+        Push x to a.
+    Repeat for rnd from 1 to 24:
+        Let mutable c be a new Seq of Lanes4Word64.
+        Repeat for x from 0 to 4:
+            Push ((item (x + 1) of a) xor (item (x + 6) of a) xor (item (x + 11) of a) xor (item (x + 16) of a) xor (item (x + 21) of a)) to c.
+        Repeat for x from 0 to 4:
+            Let d be (item ((x + 4) % 5 + 1) of c) xor rotl(item ((x + 1) % 5 + 1) of c, 1).
+            Repeat for y from 0 to 4:
+                Set item (5 * y + x + 1) of a to (item (5 * y + x + 1) of a) xor d.
+        Let mutable b be a new Seq of Lanes4Word64.
+        Repeat for k from 0 to 24:
+            Push rotl(item ((item (k + 1) of rsrc) + 1) of a, item (k + 1) of roff) to b.
+        Repeat for y from 0 to 4:
+            Repeat for x from 0 to 4:
+                Let bb0 be item (5 * y + x + 1) of b.
+                Let bb1 be item (5 * y + (x + 1) % 5 + 1) of b.
+                Let bb2 be item (5 * y + (x + 2) % 5 + 1) of b.
+                Set item (5 * y + x + 1) of a to bb0 xor andNot4(bb1, bb2).
+        Set item 1 of a to (item 1 of a) xor splat4Word64(word64(item rnd of rc)).
+    Return a.
+
+## Note
+Byte-pad a message for the FIPS-202 sponge: every item a byte, then the domain byte, zero-fill to the rate, and the final pad bit.
+
+## To keccakPad (msg: Seq of Int) and (rate: Int) and (dsbyte: Int) -> Seq of Int:
+    cryptoRequireBytes("keccakPad", "message", msg).
+    Let mutable padded be a new Seq of Int.
+    Repeat for x in msg:
+        Push x to padded.
+    Push dsbyte to padded.
+    While ((length of padded) % rate) is greater than 0:
+        Push 0 to padded.
+    Let ln be length of padded.
+    Set item ln of padded to (item ln of padded) + 128.
+    Return padded.
+
+## Note
+Four FIPS-202 sponges run in lock-step over one Lanes4Word64 SIMD state: absorb four equal-length messages, permute 4-way, and squeeze outlen bytes each; returns the streams lane-contiguous.
+
+## To keccakSponge4 (m0: Seq of Int) and (m1: Seq of Int) and (m2: Seq of Int) and (m3: Seq of Int) and (rate: Int) and (dsbyte: Int) and (outlen: Int) -> Seq of Int:
+    Let rc be [1, 32898, -9223372036854742902, -9223372034707259392, 32907, 2147483649, -9223372034707259263, -9223372036854743031, 138, 136, 2147516425, 2147483658, 2147516555, -9223372036854775669, -9223372036854742903, -9223372036854743037, -9223372036854743038, -9223372036854775680, 32778, -9223372034707292150, -9223372034707259263, -9223372036854742912, 2147483649, -9223372034707259384].
+    Let rsrc be [0, 6, 12, 18, 24, 3, 9, 10, 16, 22, 1, 7, 13, 19, 20, 4, 5, 11, 17, 23, 2, 8, 14, 15, 21].
+    Let roff be [0, 44, 43, 21, 14, 28, 20, 3, 45, 61, 1, 6, 25, 8, 18, 27, 36, 10, 15, 56, 62, 55, 39, 41, 2].
+    Let p0 be keccakPad(m0, rate, dsbyte).
+    Let p1 be keccakPad(m1, rate, dsbyte).
+    Let p2 be keccakPad(m2, rate, dsbyte).
+    Let p3 be keccakPad(m3, rate, dsbyte).
+    Let mutable state be a new Seq of Lanes4Word64.
+    Repeat for k from 1 to 25:
+        Push splat4Word64(word64(0)) to state.
+    Let lanes be rate / 8.
+    Let nblk be (length of p0) / rate.
+    Repeat for blk from 0 to (nblk - 1):
+        Repeat for l from 0 to (lanes - 1):
+            Let base be blk * rate + l * 8.
+            Let mutable w0 be word64(item (base + 1) of p0).
+            Let mutable w1 be word64(item (base + 1) of p1).
+            Let mutable w2 be word64(item (base + 1) of p2).
+            Let mutable w3 be word64(item (base + 1) of p3).
+            Repeat for j from 1 to 7:
+                Set w0 to w0 xor word64Shl(word64(item (base + j + 1) of p0), 8 * j).
+                Set w1 to w1 xor word64Shl(word64(item (base + j + 1) of p1), 8 * j).
+                Set w2 to w2 xor word64Shl(word64(item (base + j + 1) of p2), 8 * j).
+                Set w3 to w3 xor word64Shl(word64(item (base + j + 1) of p3), 8 * j).
+            Let laneVec be lanes4Word64([intOfWord64(w0), intOfWord64(w1), intOfWord64(w2), intOfWord64(w3)]).
+            Set item (l + 1) of state to (item (l + 1) of state) xor laneVec.
+        Set state to keccakF4Logos(state, rc, rsrc, roff).
+    Let mutable o0 be a new Seq of Int.
+    Let mutable o1 be a new Seq of Int.
+    Let mutable o2 be a new Seq of Int.
+    Let mutable o3 be a new Seq of Int.
+    While (length of o0) is less than outlen:
+        Repeat for l from 0 to (lanes - 1):
+            Let v be seqOfLanes4(item (l + 1) of state).
+            Let lane0 be word64(item 1 of v).
+            Let lane1 be word64(item 2 of v).
+            Let lane2 be word64(item 3 of v).
+            Let lane3 be word64(item 4 of v).
+            Repeat for jj from 0 to 7:
+                If (length of o0) is less than outlen:
+                    Push intOfWord64(word64And(word64Shr(lane0, 8 * jj), word64(255))) to o0.
+                    Push intOfWord64(word64And(word64Shr(lane1, 8 * jj), word64(255))) to o1.
+                    Push intOfWord64(word64And(word64Shr(lane2, 8 * jj), word64(255))) to o2.
+                    Push intOfWord64(word64And(word64Shr(lane3, 8 * jj), word64(255))) to o3.
+        If (length of o0) is less than outlen:
+            Set state to keccakF4Logos(state, rc, rsrc, roff).
+    Return o0 followed by o1 followed by o2 followed by o3.
+
+
+## Note
+ML-DSA ExpandA for four matrix entries at once: one 4-way SHAKE128(seed,1024) then FIPS-204 rejection sampling per lane; returns the four NTT-domain polynomials concatenated (256 coefficients each).
+
+## To mldsaExpandA4 (s0: Seq of Int) and (s1: Seq of Int) and (s2: Seq of Int) and (s3: Seq of Int) -> Seq of Int:
+    Let buf be keccakSponge4(s0, s1, s2, s3, 168, 31, 1024).
+    Let b0 be mldsaSubRange(buf, 0, 1024).
+    Let b1 be mldsaSubRange(buf, 1024, 1024).
+    Let b2 be mldsaSubRange(buf, 2048, 1024).
+    Let b3 be mldsaSubRange(buf, 3072, 1024).
+    Return mldsaRejNttPolyBuf(b0) followed by mldsaRejNttPolyBuf(b1) followed by mldsaRejNttPolyBuf(b2) followed by mldsaRejNttPolyBuf(b3).
+
+## Note
+Seed for ML-DSA matrix entry e (row-major, l columns): rho followed by the column byte then the row byte, per FIPS-204 ExpandA.
+
+## To mldsaMatrixSeed (rho: Seq of Int) and (e: Int) and (l: Int) -> Seq of Int:
+    Let mutable seedA be a new Seq of Int.
+    Repeat for x in rho:
+        Push x to seedA.
+    Push (e % l) to seedA.
+    Push (e / l) to seedA.
+    Return seedA.
+
+## Note
+Expand the whole ML-DSA k-by-l matrix A in NTT domain, four entries per 4-way SHAKE128, remainder scalar; row-major, 256 coefficients per entry.
+
+## To mldsaExpandAMatrix (rho: Seq of Int) and (k: Int) and (l: Int) -> Seq of Int:
+    Let total be k * l.
+    Let mutable out be a new Seq of Int.
+    Let mutable e be 0.
+    While (e + 4) is at most total:
+        Let a0 be mldsaMatrixSeed(rho, e, l).
+        Let a1 be mldsaMatrixSeed(rho, e + 1, l).
+        Let a2 be mldsaMatrixSeed(rho, e + 2, l).
+        Let a3 be mldsaMatrixSeed(rho, e + 3, l).
+        Set out to out followed by mldsaExpandA4(a0, a1, a2, a3).
+        Set e to e + 4.
+    While e is less than total:
+        Set out to out followed by mldsaExpandAElem(mldsaMatrixSeed(rho, e, l)).
+        Set e to e + 1.
+    Return out.
+
+## Note
+Ding Key Exchange (NIST Round-1, n = 512, q = 120833): Jintai Ding's RLWE key exchange with error reconciliation, ancestor of the NewHope/Kyber signal idea, written entirely in LOGOS. It is here for study: a secret reused across exchanges leaks through the signal (Ding, Alsayigh, Saraswathy, Fluhrer and Lin, 2016), and a protocol agrees on keys with ML-KEM-768 (`mlkemEncapsKem`).
+
+## Note
+The exact product in R_q = Z_q[x]/(x^n + 1): a schoolbook negacyclic convolution (x^n = -1), coefficients in [0, q).
+
+## To dingNegacyclic (a: Seq of Int) and (b: Seq of Int) and (q: Int) -> Seq of Int:
+    Let n be length of a.
+    Let out be a new Seq of Int.
+    Repeat for i from 1 to n:
+        Push 0 to out.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let prod be ((item i of a) * (item j of b)) % q.
+            Let k be (i - 1) + (j - 1).
+            If k is less than n:
+                Set item (k + 1) of out to (((item (k + 1) of out) + prod) % q).
+            If k is at least n:
+                Set item (k - n + 1) of out to ((((item (k - n + 1) of out) + q) - prod) % q).
+    Return out.
+
+## Note
+The Ding signal function: 1 when v is in the outer region [0, q/4) or (3q/4, q), else 0; the boundary bit shifts the edge by one.
+
+## To dingSignal (v: Int) and (q: Int) and (boundary: Int) -> Int:
+    Let lb be q / 4 + boundary.
+    Let ub be 3 * q / 4 + boundary.
+    If v is less than lb:
+        Return 1.
+    If v is greater than ub:
+        Return 1.
+    Return 0.
+
+## Note
+The Ding reconciliation Mod2(v, w) = (v + w*(q-1)/2 mod q) mod 2 — one shared key bit.
+
+## To dingMod2 (v: Int) and (w: Int) and (q: Int) -> Int:
+    Let shifted be (v + w * ((q - 1) / 2)) % q.
+    Return shifted % 2.
+
+## Note
+The responder's signal across a whole key polynomial (deterministic boundary).
+
+## To dingSignalBits (k: Seq of Int) and (q: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for i from 1 to length of k:
+        Push dingSignal(item i of k, q, 0) to out.
+    Return out.
+
+## Note
+The reconciled shared key: one bit per coefficient from the key polynomial and the signal.
+
+## To dingSharedKey (k: Seq of Int) and (signal: Seq of Int) and (q: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for i from 1 to length of k:
+        Push dingMod2(item i of k, item i of signal, q) to out.
+    Return out.
+
+## Note
+Coefficient-wise (x + scale*e) mod q; inputs already reduced into [0, q).
+
+## To dingAddScaled (x: Seq of Int) and (e: Seq of Int) and (scale: Int) and (q: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for i from 1 to length of x:
+        Let v be ((item i of x) + scale * (item i of e)) % q.
+        Push v to out.
+    Return out.
+
+## Note
+A Ding public key p = a*s + 2e in R_q — the "as+2e" form that makes mod-2 reconciliation work.
+
+## To dingPublicKey (a: Seq of Int) and (s: Seq of Int) and (e: Seq of Int) and (q: Int) -> Seq of Int:
+    Return dingAddScaled(dingNegacyclic(a, s, q), e, 2, q).
+
+## Note
+GF(2^8) field multiplication: a carryless product reduced modulo the polynomial 0x11d (field addition is xor).
+
+## To gf256Mul (a: Int) and (b: Int) -> Int:
+    Let mutable aa be a.
+    Let mutable bb be b.
+    Let mutable p be 0.
+    Repeat for i from 1 to 8:
+        If (bb % 2) is 1:
+            Set p to p xor aa.
+        Set bb to bb / 2.
+        Let hi be aa / 128.
+        Set aa to (aa * 2) % 256.
+        If hi is 1:
+            Set aa to aa xor 29.
+    Return p.
+
+## Note
+GF(2^8) exponentiation by square-and-multiply (exponent below 256).
+
+## To gf256Pow (a: Int) and (e: Int) -> Int:
+    Let mutable r be 1.
+    Let mutable base be a.
+    Let mutable ee be e.
+    Repeat for i from 1 to 8:
+        If (ee % 2) is 1:
+            Set r to gf256Mul(r, base).
+        Set base to gf256Mul(base, base).
+        Set ee to ee / 2.
+    Return r.
+
+## Note
+GF(2^8) inverse: a^254, since the multiplicative group has order 255.
+
+## To gf256Inv (a: Int) -> Int:
+    Return gf256Pow(a, 254).
+
+## Note
+Rainbow verification: evaluate each public quadratic map at the signature and compare to the message hash (1 if all match, else 0).
+
+Rainbow is broken: Beullens (2022) recovers a level-1 secret key from its public key in a weekend on a laptop, and NIST did not standardize it. These functions are for study; a signature is `mldsaSign`'s.
+
+## To rainbowVerify (pubq: Seq of Int) and (publin: Seq of Int) and (pubc: Seq of Int) and (x: Seq of Int) and (n: Int) and (m: Int) and (msg: Seq of Int) -> Int:
+    Let qper be n * (n + 1) / 2.
+    Let mutable ok be 1.
+    Repeat for k from 0 to m - 1:
+        Let mutable acc be 0.
+        Let mutable idx be 0.
+        Repeat for i from 0 to n - 1:
+            Repeat for j from i to n - 1:
+                Let coeff be item (k * qper + idx + 1) of pubq.
+                Let xij be gf256Mul(item (i + 1) of x, item (j + 1) of x).
+                Set acc to acc xor gf256Mul(coeff, xij).
+                Set idx to idx + 1.
+        Repeat for i from 0 to n - 1:
+            Set acc to acc xor gf256Mul(item (k * n + i + 1) of publin, item (i + 1) of x).
+        Set acc to acc xor (item (k + 1) of pubc).
+        Let diff be acc xor (item (k + 1) of msg).
+        If diff is greater than 0:
+            Set ok to 0.
+    Return ok.
+
+## Note
+The packed index of the quadratic coefficient for x_i*x_j (i <= j) over n variables.
+
+## To qidx (i: Int) and (j: Int) and (n: Int) -> Int:
+    Return i * n - (i * (i - 1)) / 2 + (j - i).
+
+## Note
+GF(2^8) matrix-vector product: a `rows`-by-`cols` row-major matrix times a `cols`-vector.
+
+## To gf256Matvec (matflat: Seq of Int) and (v: Seq of Int) and (rows: Int) and (cols: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for r from 0 to rows - 1:
+        Let mutable acc be 0.
+        Repeat for c from 0 to cols - 1:
+            Set acc to acc xor gf256Mul(item (r * cols + c + 1) of matflat, item (c + 1) of v).
+        Push acc to out.
+    Return out.
+
+## Note
+Solve a k-by-k GF(2^8) linear system A x = b (A row-major) by Gauss-Jordan elimination, assuming A is non-singular.
+
+## To gf256Solve (aflat: Seq of Int) and (b: Seq of Int) and (k: Int) -> Seq of Int:
+    Let wid be k + 1.
+    Let aug be a new Seq of Int.
+    Repeat for r from 0 to k - 1:
+        Repeat for c from 0 to k - 1:
+            Push item (r * k + c + 1) of aflat to aug.
+        Push item (r + 1) of b to aug.
+    Repeat for col from 0 to k - 1:
+        Let mutable piv be col.
+        Repeat for r from col to k - 1:
+            If (item (piv * wid + col + 1) of aug) is 0:
+                If (item (r * wid + col + 1) of aug) is greater than 0:
+                    Set piv to r.
+        If piv is greater than col:
+            Repeat for c from 0 to wid - 1:
+                Let tmp be item (col * wid + c + 1) of aug.
+                Set item (col * wid + c + 1) of aug to item (piv * wid + c + 1) of aug.
+                Set item (piv * wid + c + 1) of aug to tmp.
+        Let ipv be gf256Inv(item (col * wid + col + 1) of aug).
+        Repeat for c from 0 to wid - 1:
+            Set item (col * wid + c + 1) of aug to gf256Mul(item (col * wid + c + 1) of aug, ipv).
+        Repeat for r from 0 to k - 1:
+            Let mutable doit be 1.
+            If r is equal to col:
+                Set doit to 0.
+            If doit is 1:
+                Let f be item (r * wid + col + 1) of aug.
+                If f is greater than 0:
+                    Repeat for c from 0 to wid - 1:
+                        Set item (r * wid + c + 1) of aug to (item (r * wid + c + 1) of aug) xor gf256Mul(f, item (col * wid + c + 1) of aug).
+    Let out be a new Seq of Int.
+    Repeat for r from 0 to k - 1:
+        Push item (r * wid + k + 1) of aug to out.
+    Return out.
+
+## Note
+Rainbow signing: the Oil-and-Vinegar inversion of the central map with the given vinegars, then the two secret affine maps.
+
+Rainbow is broken (Beullens, 2022): its public key gives up its secret key, so a Rainbow signature proves nothing. For study; sign with `mldsaSign`.
+
+## To rainbowSign (cq: Seq of Int) and (cl: Seq of Int) and (cc: Seq of Int) and (sinv: Seq of Int) and (svec: Seq of Int) and (tinv: Seq of Int) and (tvec: Seq of Int) and (n: Int) and (m: Int) and (v1: Int) and (o1: Int) and (o2: Int) and (msg: Seq of Int) and (vinegars: Seq of Int) -> Seq of Int:
+    Let l1 be v1 + o1.
+    Let qper be n * (n + 1) / 2.
+    Let ds be a new Seq of Int.
+    Repeat for k from 0 to m - 1:
+        Push ((item (k + 1) of msg) xor (item (k + 1) of svec)) to ds.
+    Let u be gf256Matvec(sinv, ds, m, m).
+    Let w be a new Seq of Int.
+    Repeat for i from 1 to n:
+        Push 0 to w.
+    Repeat for i from 0 to v1 - 1:
+        Set item (i + 1) of w to item (i + 1) of vinegars.
+    Let a1 be a new Seq of Int.
+    Let b1 be a new Seq of Int.
+    Repeat for k from 0 to o1 - 1:
+        Repeat for c from 0 to o1 - 1:
+            Let ov be v1 + c.
+            Let mutable coefacc be item (k * n + ov + 1) of cl.
+            Repeat for i from 0 to v1 - 1:
+                Set coefacc to coefacc xor gf256Mul(item (k * qper + qidx(i, ov, n) + 1) of cq, item (i + 1) of w).
+            Push coefacc to a1.
+        Let mutable cst be item (k + 1) of cc.
+        Repeat for i from 0 to v1 - 1:
+            Set cst to cst xor gf256Mul(item (k * n + i + 1) of cl, item (i + 1) of w).
+            Repeat for j from i to v1 - 1:
+                Set cst to cst xor gf256Mul(item (k * qper + qidx(i, j, n) + 1) of cq, gf256Mul(item (i + 1) of w, item (j + 1) of w)).
+        Push ((item (k + 1) of u) xor cst) to b1.
+    Let sol1 be gf256Solve(a1, b1, o1).
+    Repeat for c from 0 to o1 - 1:
+        Set item (v1 + c + 1) of w to item (c + 1) of sol1.
+    Let a2 be a new Seq of Int.
+    Let b2 be a new Seq of Int.
+    Repeat for k from 0 to o2 - 1:
+        Let outk be o1 + k.
+        Repeat for c from 0 to o2 - 1:
+            Let ov be l1 + c.
+            Let mutable coefacc be item (outk * n + ov + 1) of cl.
+            Repeat for i from 0 to l1 - 1:
+                Set coefacc to coefacc xor gf256Mul(item (outk * qper + qidx(i, ov, n) + 1) of cq, item (i + 1) of w).
+            Push coefacc to a2.
+        Let mutable cst be item (outk + 1) of cc.
+        Repeat for i from 0 to l1 - 1:
+            Set cst to cst xor gf256Mul(item (outk * n + i + 1) of cl, item (i + 1) of w).
+            Repeat for j from i to l1 - 1:
+                Set cst to cst xor gf256Mul(item (outk * qper + qidx(i, j, n) + 1) of cq, gf256Mul(item (i + 1) of w, item (j + 1) of w)).
+        Push ((item (outk + 1) of u) xor cst) to b2.
+    Let sol2 be gf256Solve(a2, b2, o2).
+    Repeat for c from 0 to o2 - 1:
+        Set item (l1 + c + 1) of w to item (c + 1) of sol2.
+    Let dt be a new Seq of Int.
+    Repeat for i from 0 to n - 1:
+        Push ((item (i + 1) of w) xor (item (i + 1) of tvec)) to dt.
+    Return gf256Matvec(tinv, dt, n, n).
+
+## Note
+Rainbow key generation: compose the public map P = S o F o T from the affine maps and central map, packed as pubq then publin then pubc.
+
+Rainbow is broken (Beullens, 2022): the public key this returns gives up the secret maps. For study; an ML-DSA key pair is `mldsaKeypair`'s.
+
+## To rainbowKeygen (tmat: Seq of Int) and (tvec: Seq of Int) and (smat: Seq of Int) and (svec: Seq of Int) and (cq: Seq of Int) and (cl: Seq of Int) and (cc: Seq of Int) and (n: Int) and (m: Int) -> Seq of Int:
+    Let qper be n * (n + 1) / 2.
+    Let gwidth be qper + n + 1.
+    Let cidx be qper + n.
+    Let G be a new Seq of Int.
+    Repeat for l from 0 to m - 1:
+        Repeat for t from 1 to gwidth:
+            Push 0 to G.
+        Let base be l * gwidth.
+        Set item (base + cidx + 1) of G to (item (base + cidx + 1) of G) xor (item (l + 1) of cc).
+        Repeat for i from 0 to n - 1:
+            Let lco be item (l * n + i + 1) of cl.
+            If lco is greater than 0:
+                Repeat for a from 0 to n - 1:
+                    Set item (base + qper + a + 1) of G to (item (base + qper + a + 1) of G) xor gf256Mul(lco, item (i * n + a + 1) of tmat).
+                Set item (base + cidx + 1) of G to (item (base + cidx + 1) of G) xor gf256Mul(lco, item (i + 1) of tvec).
+        Repeat for i from 0 to n - 1:
+            Repeat for j from i to n - 1:
+                Let qco be item (l * qper + qidx(i, j, n) + 1) of cq.
+                If qco is greater than 0:
+                    Let ti be item (i + 1) of tvec.
+                    Let tj be item (j + 1) of tvec.
+                    Set item (base + cidx + 1) of G to (item (base + cidx + 1) of G) xor gf256Mul(qco, gf256Mul(ti, tj)).
+                    Repeat for a from 0 to n - 1:
+                        Let mia be item (i * n + a + 1) of tmat.
+                        Let mja be item (j * n + a + 1) of tmat.
+                        Let lterm be gf256Mul(qco, ((gf256Mul(tj, mia)) xor (gf256Mul(ti, mja)))).
+                        Set item (base + qper + a + 1) of G to (item (base + qper + a + 1) of G) xor lterm.
+                    Repeat for a from 0 to n - 1:
+                        Repeat for b from a to n - 1:
+                            Let qab be qidx(a, b, n).
+                            Let mutable pr be gf256Mul(item (i * n + a + 1) of tmat, item (j * n + b + 1) of tmat).
+                            If a is less than b:
+                                Set pr to pr xor gf256Mul(item (i * n + b + 1) of tmat, item (j * n + a + 1) of tmat).
+                            Set item (base + qab + 1) of G to (item (base + qab + 1) of G) xor gf256Mul(qco, pr).
+    Let P be a new Seq of Int.
+    Repeat for k from 0 to m - 1:
+        Repeat for t from 1 to gwidth:
+            Push 0 to P.
+        Let pbase be k * gwidth.
+        Repeat for l from 0 to m - 1:
+            Let sco be item (k * m + l + 1) of smat.
+            If sco is greater than 0:
+                Let gbase be l * gwidth.
+                Repeat for w from 0 to gwidth - 1:
+                    Set item (pbase + w + 1) of P to (item (pbase + w + 1) of P) xor gf256Mul(sco, item (gbase + w + 1) of G).
+        Set item (pbase + cidx + 1) of P to (item (pbase + cidx + 1) of P) xor (item (k + 1) of svec).
+    Let out be a new Seq of Int.
+    Repeat for k from 0 to m - 1:
+        Repeat for w from 0 to qper - 1:
+            Push item (k * gwidth + w + 1) of P to out.
+    Repeat for k from 0 to m - 1:
+        Repeat for w from 0 to n - 1:
+            Push item (k * gwidth + qper + w + 1) of P to out.
+    Repeat for k from 0 to m - 1:
+        Push item (k * gwidth + cidx + 1) of P to out.
+    Return out.
+
+## Note
+Rainbow verification against a public key packed as pubq, publin, pubc (the rainbowKeygen output).
+
+Rainbow is broken (Beullens, 2022): anyone holding the public key can forge, so a check that passes proves nothing. For study; verify with `mldsaVerify`.
+
+## To rainbowVerifyPacked (pubkey: Seq of Int) and (x: Seq of Int) and (n: Int) and (m: Int) and (msg: Seq of Int) -> Int:
+    Let qper be n * (n + 1) / 2.
+    Let lbase be m * qper.
+    Let cbase be m * qper + m * n.
+    Let mutable ok be 1.
+    Repeat for k from 0 to m - 1:
+        Let mutable acc be 0.
+        Let mutable idx be 0.
+        Repeat for i from 0 to n - 1:
+            Repeat for j from i to n - 1:
+                Let coeff be item (k * qper + idx + 1) of pubkey.
+                Set acc to acc xor gf256Mul(coeff, gf256Mul(item (i + 1) of x, item (j + 1) of x)).
+                Set idx to idx + 1.
+        Repeat for i from 0 to n - 1:
+            Set acc to acc xor gf256Mul(item (lbase + k * n + i + 1) of pubkey, item (i + 1) of x).
+        Set acc to acc xor (item (cbase + k + 1) of pubkey).
+        Let diff be acc xor (item (k + 1) of msg).
+        If diff is greater than 0:
+            Set ok to 0.
+    Return ok.
 
 ## Note
 Native ML-KEM-768 key generation from seeds d and z (FIPS 203).
@@ -746,6 +1301,57 @@ Native ML-DSA-65 signing with a context string (FIPS 204).
 Native ML-DSA-65 verification; 1 for a valid signature, else 0.
 
 ## To native mldsaVerify (pk: Seq of Int) and (msg: Seq of Int) and (ctx: Seq of Int) and (sig: Seq of Int) -> Int
+
+## Note
+Stops the program unless every item of `s` is a byte (0 to 255), naming the function, the argument and the first item that is not one: the report the native kernels give.
+
+## To cryptoRequireBytes (caller: Text) and (what: Text) and (s: Seq of Int):
+    Let mutable i be 0.
+    Repeat for x in s:
+        Set i to i + 1.
+        If x is less than 0:
+            Fail with caller + "(): the " + what + " must be bytes (0 to 255); item " + format(i) + " is " + format(x).
+        If x is greater than 255:
+            Fail with caller + "(): the " + what + " must be bytes (0 to 255); item " + format(i) + " is " + format(x).
+
+## Note
+Stops the program unless `s` is exactly `n` bytes.
+
+## To cryptoRequireByteString (caller: Text) and (what: Text) and (s: Seq of Int) and (n: Int):
+    cryptoRequireBytes(caller, what, s).
+    Let len be length of s.
+    If len is less than n:
+        Fail with caller + "(): the " + what + " is " + format(len) + " bytes; it must be " + format(n).
+    If len is greater than n:
+        Fail with caller + "(): the " + what + " is " + format(len) + " bytes; it must be " + format(n).
+
+## Note
+Stops the program when an output length is negative.
+
+## To cryptoRequireOutputLength (caller: Text) and (outlen: Int):
+    If outlen is less than 0:
+        Fail with caller + "(): the output length must not be negative; it is " + format(outlen).
+
+## Note
+1 when every item of `s` is a byte (0 to 255), else 0: how an input from the other side of a protocol is judged without stopping the program.
+
+## To cryptoAllBytes (s: Seq of Int) -> Int:
+    Repeat for x in s:
+        If x is less than 0:
+            Return 0.
+        If x is greater than 255:
+            Return 0.
+    Return 1.
+
+## Note
+1 when `s` is exactly `n` bytes, else 0.
+
+## To cryptoIsByteString (s: Seq of Int) and (n: Int) -> Int:
+    If (length of s) is less than n:
+        Return 0.
+    If (length of s) is greater than n:
+        Return 0.
+    Return cryptoAllBytes(s).
 
 ## Note
 Copies a length-len slice of a sequence starting at an offset.
@@ -779,6 +1385,7 @@ A PRF noise polynomial: SHAKE256(seed, nonce) fed through CBD.
 ML-KEM-768 key generation written in LOGOS (FIPS 203).
 
 ## To mlkem768Keygen (d: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("mlkem768Keygen", "seed d", d, 32).
     Let gin be a new Seq of Int.
     Repeat for x in d:
         Push x to gin.
@@ -834,9 +1441,29 @@ K-PKE encryption of a 32-byte message under an encapsulation key.
     Return c followed by byteEncodeW16(compressW16(v, 4), 4).
 
 ## Note
-ML-KEM-768 encapsulation written in LOGOS: ciphertext and shared secret.
+1 when `ek` passes FIPS 203's encapsulation-key checks (§7.2): 1184 bytes, and every 12-bit coefficient of t̂ below q.
+
+## To mlkemEncapsKeyValid (ek: Seq of Int) -> Int:
+    If cryptoIsByteString(ek, 1184) is equal to 0:
+        Return 0.
+    Repeat for t from 0 to 383:
+        Let b0 be item (3 * t + 1) of ek.
+        Let b1 be item (3 * t + 2) of ek.
+        Let b2 be item (3 * t + 3) of ek.
+        If b0 + 256 * (b1 % 16) is at least 3329:
+            Return 0.
+        If b1 / 16 + 16 * b2 is at least 3329:
+            Return 0.
+    Return 1.
+
+## Note
+ML-KEM-768 encapsulation written in LOGOS: ciphertext and shared secret. A peer's key that fails FIPS 203's checks is answered with an empty sequence.
 
 ## To mlkem768Encaps (ek: Seq of Int) and (m: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes("mlkem768Encaps", "encapsulation key", ek).
+    cryptoRequireByteString("mlkem768Encaps", "randomness m", m, 32).
+    If mlkemEncapsKeyValid(ek) is equal to 0:
+        Return a new Seq of Int.
     Let g be sha3_512(m followed by sha3_256(ek)).
     Let kk be mlkemSubseq(g, 0, 32).
     Let r be mlkemSubseq(g, 32, 32).
@@ -856,50 +1483,63 @@ K-PKE decryption of a ciphertext with the secret polynomial vector.
     Return byteEncodeW16(compressW16(w, 1), 1).
 
 ## Note
-Counts differing bytes between two sequences (constant-shape compare).
+Counts the positions where two byte sequences differ, without a branch on any byte: each position adds ⌈δ²/255²⌉, which is 1 exactly when its bytes differ.
 
 ## To mlkemDiffCount (a: Seq of Int) and (b: Seq of Int) -> Int:
     Let mutable d be 0.
     Let n be length of a.
     Repeat for i from 1 to n:
         Let delta be (item i of a) - (item i of b).
-        If delta * delta is at least 1:
-            Set d to d + 1.
+        Set d to d + (delta * delta + 65024) / 65025.
     Return d.
 
 ## Note
-ML-KEM-768 decapsulation written in LOGOS, with implicit rejection.
+ML-KEM-768 decapsulation written in LOGOS, choosing K′ or K̄ without a branch. A ciphertext of the wrong length gets an empty sequence; a key failing FIPS 203's checks stops the program.
 
 ## To mlkem768Decaps (dk: Seq of Int) and (c: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes("mlkem768Decaps", "decapsulation key", dk).
+    cryptoRequireBytes("mlkem768Decaps", "ciphertext", c).
+    Let dkLen be length of dk.
+    If dkLen is less than 2400:
+        Fail with "mlkem768Decaps(): the decapsulation key is " + format(dkLen) + " bytes; an ML-KEM-768 decapsulation key is 2400".
+    If dkLen is greater than 2400:
+        Fail with "mlkem768Decaps(): the decapsulation key is " + format(dkLen) + " bytes; an ML-KEM-768 decapsulation key is 2400".
     Let dkpke be mlkemSubseq(dk, 0, 1152).
     Let ek be mlkemSubseq(dk, 1152, 1184).
     Let h be mlkemSubseq(dk, 2336, 32).
     Let z be mlkemSubseq(dk, 2368, 32).
+    If mlkemDiffCount(sha3_256(ek), h) is at least 1:
+        Fail with "mlkem768Decaps(): the decapsulation key's H(ek) is not the hash of its ek (FIPS 203 hash check)".
+    If cryptoIsByteString(c, 1088) is equal to 0:
+        Return a new Seq of Int.
     Let mprime be mlkemDecrypt(dkpke, c).
     Let g be sha3_512(mprime followed by h).
-    Let mutable result be mlkemSubseq(g, 0, 32).
+    Let kprime be mlkemSubseq(g, 0, 32).
+    Let kbar be shake256(z followed by c, 32).
     Let cprime be mlkemEncrypt(ek, mprime, mlkemSubseq(g, 32, 32)).
-    If mlkemDiffCount(c, cprime) is at least 1:
-        Set result to shake256(z followed by c, 32).
+    Let differs be (mlkemDiffCount(c, cprime) + 1087) / 1088.
+    Let mutable result be a new Seq of Int.
+    Repeat for i from 1 to 32:
+        Push (item i of kprime) + differs * ((item i of kbar) - (item i of kprime)) to result.
     Return result.
 
 ## Note
-A post-quantum authenticated handshake transcript over ML-KEM and ML-DSA.
+A post-quantum authenticated handshake over ML-KEM and ML-DSA. Both transcripts are signed under `ctx`, a FIPS 204 context of at most 255 bytes.
 
 ## To pqAuthHandshake (idiPk: Seq of Int) and (idiSk: Seq of Int) and (idrPk: Seq of Int) and (idrSk: Seq of Int) and (kemD: Seq of Int) and (kemZ: Seq of Int) and (kemM: Seq of Int) and (ctx: Seq of Int) -> Seq of Int:
     Let kp be mlkemKeypair(kemD, kemZ).
     Let ek be mlkemSubseq(kp, 0, 1184).
     Let dk be mlkemSubseq(kp, 1184, 2400).
     Let ti be (idiPk followed by idrPk) followed by ek.
-    Let sigi be mldsaSignLogos(idiSk, ti).
-    If mldsaVerifyLogos(idiPk, ti, sigi) is at most 0:
+    Let sigi be mldsaSignCtxLogos(idiSk, ti, ctx).
+    If mldsaVerifyCtxLogos(idiPk, ti, ctx, sigi) is at most 0:
         Return a new Seq of Int.
     Let ctss be mlkemEncapsKem(ek, kemM).
     Let ct be mlkemSubseq(ctss, 0, 1088).
     Let ssR be mlkemSubseq(ctss, 1088, 32).
     Let tr be ((idiPk followed by idrPk) followed by ek) followed by ct.
-    Let sigr be mldsaSignLogos(idrSk, tr).
-    If mldsaVerifyLogos(idrPk, tr, sigr) is at most 0:
+    Let sigr be mldsaSignCtxLogos(idrSk, tr, ctx).
+    If mldsaVerifyCtxLogos(idrPk, tr, ctx, sigr) is at most 0:
         Return a new Seq of Int.
     Let ssI be mlkemDecapsKem(dk, ct).
     Return ssI followed by ssR.
@@ -941,9 +1581,13 @@ The AEAD MAC input: padded AAD, padded ciphertext, and both lengths.
     Return (withCt followed by le64(length of aad)) followed by le64(length of ct).
 
 ## Note
-ChaCha20-Poly1305 seal: encrypts and appends the 16-byte tag (RFC 8439).
+ChaCha20-Poly1305 seal: encrypts and appends the 16-byte tag (RFC 8439), under a 32-byte key and a 12-byte nonce.
 
 ## To aeadSeal (key: Seq of Int) and (nonce: Seq of Int) and (aad: Seq of Int) and (pt: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("aeadSeal", "key", key, 32).
+    cryptoRequireByteString("aeadSeal", "nonce", nonce, 12).
+    cryptoRequireBytes("aeadSeal", "associated data", aad).
+    cryptoRequireBytes("aeadSeal", "plaintext", pt).
     Let otkFull be chacha20Encrypt(key, nonce, 0, zerosBytes(32)).
     Let otk be mlkemSubseq(otkFull, 0, 32).
     Let ct be chacha20Encrypt(key, nonce, 1, pt).
@@ -951,9 +1595,14 @@ ChaCha20-Poly1305 seal: encrypts and appends the 16-byte tag (RFC 8439).
     Return ct followed by tag.
 
 ## Note
-ChaCha20-Poly1305 open: checks the tag, then decrypts; empty on failure.
+ChaCha20-Poly1305 open: checks the tag over every byte, then decrypts. A frame that does not authenticate, or holds a non-byte, opens to an empty sequence.
 
 ## To aeadOpen (key: Seq of Int) and (nonce: Seq of Int) and (aad: Seq of Int) and (sealed: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("aeadOpen", "key", key, 32).
+    cryptoRequireByteString("aeadOpen", "nonce", nonce, 12).
+    cryptoRequireBytes("aeadOpen", "associated data", aad).
+    If cryptoAllBytes(sealed) is equal to 0:
+        Return a new Seq of Int.
     Let total be length of sealed.
     If total is at most 15:
         Return a new Seq of Int.
@@ -963,12 +1612,7 @@ ChaCha20-Poly1305 open: checks the tag, then decrypts; empty on failure.
     Let otkFull be chacha20Encrypt(key, nonce, 0, zerosBytes(32)).
     Let otk be mlkemSubseq(otkFull, 0, 32).
     Let expected be poly1305Mac(otk, aeadMacData(aad, ct)).
-    Let mutable diff be 0.
-    Repeat for i from 1 to 16:
-        Let d be (item i of tag) - (item i of expected).
-        If d * d is at least 1:
-            Set diff to 1.
-    If diff is at least 1:
+    If mlkemDiffCount(tag, expected) is at least 1:
         Return a new Seq of Int.
     Return chacha20Encrypt(key, nonce, 1, ct).
 
@@ -1055,9 +1699,19 @@ Flattens 8-lane ChaCha20 blocks into a keystream word sequence.
     Return out.
 
 ## Note
-ChaCha20 stream encryption (RFC 8439); apply it again to decrypt.
+ChaCha20 stream encryption (RFC 8439); apply it again to decrypt. It takes a 32-byte key, a 12-byte nonce, and a 32-bit block counter the data stays within.
 
 ## To chacha20Encrypt (key: Seq of Int) and (nonce: Seq of Int) and (counter: Int) and (data: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("chacha20Encrypt", "key", key, 32).
+    cryptoRequireByteString("chacha20Encrypt", "nonce", nonce, 12).
+    If counter is less than 0:
+        Fail with "chacha20Encrypt(): the block counter must be from 0 to 4294967295; it is " + format(counter).
+    If counter is greater than 4294967295:
+        Fail with "chacha20Encrypt(): the block counter must be from 0 to 4294967295; it is " + format(counter).
+    cryptoRequireBytes("chacha20Encrypt", "data", data).
+    Let lastBlock be counter + (length of data + 63) / 64 - 1.
+    If lastBlock is greater than 4294967295:
+        Fail with "chacha20Encrypt(): the data runs the block counter from " + format(counter) + " to " + format(lastBlock) + ", past its 32 bits".
     Let keyWords be bytesToWords(key).
     Let nonceWords be bytesToWords(nonce).
     Let n be length of data.
@@ -1326,9 +1980,11 @@ Poly1305 finalization: full carry, conditional subtract, add s.
     Return tag.
 
 ## Note
-The Poly1305 one-time MAC of a message (RFC 8439).
+The Poly1305 one-time MAC of a message (RFC 8439), under a 32-byte one-time key.
 
 ## To poly1305Mac (key: Seq of Int) and (msg: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("poly1305Mac", "one-time key", key, 32).
+    cryptoRequireBytes("poly1305Mac", "message", msg).
     Let r1 be polyClamp(key).
     Let r2 be polyMul(r1, r1).
     Let r3 be polyMul(r2, r1).
@@ -2285,6 +2941,15 @@ Copies a length-len Word32 slice.
     Return r.
 
 ## Note
+Reduces every coefficient of a sum of pointwise products into [0, q), the inverse NTT's input range: a row of six products reaches 6(q − 1), past which the butterflies' 256-fold growth wraps 32 bits.
+
+## To mldsaReduceRow (acc: Seq of Word32) -> Seq of Word32:
+    Let mutable out be a new Seq of Word32.
+    Repeat for x in acc:
+        Push word32(mldsaFreezeI(mldsaToS32(x))) to out.
+    Return out.
+
+## Note
 Reads a Word32 as a signed centered integer.
 
 ## To mldsaToS32 (w: Word32) -> Int:
@@ -2355,9 +3020,45 @@ Checks that a packed hint encoding is canonical (FIPS 204).
     Return ok.
 
 ## Note
-ML-DSA-65 verification written in LOGOS; 1 for valid, else 0.
+The message representative of FIPS 204's pure interface: `M' = 0 ‖ |ctx| ‖ ctx ‖ M`.
+
+## To mldsaMessageRep (msg: Seq of Int) and (ctx: Seq of Int) -> Seq of Int:
+    Let mutable mp be a new Seq of Int.
+    Push 0 to mp.
+    Push (length of ctx) to mp.
+    Repeat for x in ctx:
+        Push x to mp.
+    Repeat for x in msg:
+        Push x to mp.
+    Return mp.
+
+## Note
+ML-DSA-65 verification written in LOGOS under the context `ctx`; 1 for valid, else 0. A malformed key, signature, message or context verifies nothing.
+
+## To mldsaVerifyCtxLogos (pk: Seq of Int) and (msg: Seq of Int) and (ctx: Seq of Int) and (sig: Seq of Int) -> Int:
+    If cryptoIsByteString(pk, 1952) is equal to 0:
+        Return 0.
+    If cryptoIsByteString(sig, 3309) is equal to 0:
+        Return 0.
+    If cryptoAllBytes(msg) is equal to 0:
+        Return 0.
+    If cryptoAllBytes(ctx) is equal to 0:
+        Return 0.
+    If (length of ctx) is greater than 255:
+        Return 0.
+    Return mldsaVerifyInternalLogos(pk, mldsaMessageRep(msg, ctx), sig).
+
+## Note
+ML-DSA-65 verification written in LOGOS under the empty context; 1 for valid, else 0.
 
 ## To mldsaVerifyLogos (pk: Seq of Int) and (msg: Seq of Int) and (sig: Seq of Int) -> Int:
+    Let empty be a new Seq of Int.
+    Return mldsaVerifyCtxLogos(pk, msg, empty, sig).
+
+## Note
+ML-DSA.Verify_internal (FIPS 204 Algorithm 8) over the message representative `mp` of a well-formed public key and signature; 1 for valid, else 0.
+
+## To mldsaVerifyInternalLogos (pk: Seq of Int) and (mp: Seq of Int) and (sig: Seq of Int) -> Int:
     Let rho be mldsaSubRange(pk, 0, 32).
     Let mutable hk be 0.
     Let mutable hintOk be 1.
@@ -2414,9 +3115,7 @@ ML-DSA-65 verification written in LOGOS; 1 for valid, else 0.
     Let mutable muIn be a new Seq of Int.
     Repeat for x in tr:
         Push x to muIn.
-    Push 0 to muIn.
-    Push 0 to muIn.
-    Repeat for x in msg:
+    Repeat for x in mp:
         Push x to muIn.
     Let mu be shake256(muIn, 64).
     Let cTilde be mldsaSubRange(sig, 0, 48).
@@ -2430,22 +3129,18 @@ ML-DSA-65 verification written in LOGOS; 1 for valid, else 0.
     Let mutable ctIn be a new Seq of Int.
     Repeat for x in mu:
         Push x to ctIn.
+    Let aMatrix be mldsaExpandAMatrix(rho, 6, 5).
     Repeat for i from 0 to 5:
         Let mutable acc be a new Seq of Word32.
         Repeat for k from 1 to 256:
             Push word32(0) to acc.
         Repeat for j from 0 to 4:
-            Let mutable seed be a new Seq of Int.
-            Repeat for x in rho:
-                Push x to seed.
-            Push j to seed.
-            Push i to seed.
-            Let aHatIJ be mldsaExpandAElem(seed).
+            Let aHatIJ be mldsaSubRange(aMatrix, ((i * 5) + j) * 256, 256).
             Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(aHatIJ), mldsaSubRangeW(zHatFlat, 256 * j, 256))).
         Let t1i be mldsaUnpackT1(mldsaSubRange(pk, 32 + 320 * i, 320)).
         Let t1dHat be mldsaNtt(mldsaScaleT1(t1i)).
         Set acc to mldsaPolySub(acc, pointwiseMontgomery(cHat, t1dHat)).
-        Let wp be mldsaInvNttToMont(acc).
+        Let wp be mldsaInvNttToMont(mldsaReduceRow(acc)).
         Let mutable w1 be a new Seq of Int.
         Repeat for c from 0 to 255:
             Let hc be item (i * 256 + c + 1) of hAll.
@@ -2624,9 +3319,50 @@ Centers a value into the symmetric range around zero.
     Return r.
 
 ## Note
-ML-DSA-65 signing written in LOGOS: the full rejection loop.
+Stops the program unless `sk` is an ML-DSA-65 secret key as FIPS 204's skDecode reads one: 4032 bytes, with every s1 and s2 coefficient in [-4, 4].
+
+## To mldsaRequireSecretKey (caller: Text) and (sk: Seq of Int):
+    Let len be length of sk.
+    If len is less than 4032:
+        Fail with caller + "(): the secret key is " + format(len) + " bytes; an ML-DSA-65 secret key is 4032".
+    If len is greater than 4032:
+        Fail with caller + "(): the secret key is " + format(len) + " bytes; an ML-DSA-65 secret key is 4032".
+    Repeat for i from 129 to 1536:
+        Let b be item i of sk.
+        If b % 16 is greater than 8:
+            Fail with caller + "(): the secret key holds an s1 or s2 coefficient outside [-4, 4]".
+        If b / 16 is greater than 8:
+            Fail with caller + "(): the secret key holds an s1 or s2 coefficient outside [-4, 4]".
+
+## Note
+The checks before signing, in the native kernel's order: every argument bytes, the context at most 255 bytes, then the secret key's shape.
+
+## To mldsaSignChecked (caller: Text) and (sk: Seq of Int) and (msg: Seq of Int) and (ctx: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes(caller, "secret key", sk).
+    cryptoRequireBytes(caller, "message", msg).
+    cryptoRequireBytes(caller, "context", ctx).
+    If (length of ctx) is greater than 255:
+        Fail with caller + "(): the context is " + format(length of ctx) + " bytes; FIPS 204 allows at most 255".
+    mldsaRequireSecretKey(caller, sk).
+    Return mldsaSignInternalLogos(sk, mldsaMessageRep(msg, ctx)).
+
+## Note
+ML-DSA-65 signing written in LOGOS (FIPS 204 ML-DSA.Sign, deterministic) under the context string `ctx`, at most 255 bytes.
+
+## To mldsaSignCtxLogos (sk: Seq of Int) and (msg: Seq of Int) and (ctx: Seq of Int) -> Seq of Int:
+    Return mldsaSignChecked("mldsaSignCtxLogos", sk, msg, ctx).
+
+## Note
+ML-DSA-65 signing written in LOGOS under the empty context.
 
 ## To mldsaSignLogos (sk: Seq of Int) and (msg: Seq of Int) -> Seq of Int:
+    Let empty be a new Seq of Int.
+    Return mldsaSignChecked("mldsaSignLogos", sk, msg, empty).
+
+## Note
+ML-DSA.Sign_internal (FIPS 204 Algorithm 7, rnd = 0) over the message representative `mp`: the full rejection loop.
+
+## To mldsaSignInternalLogos (sk: Seq of Int) and (mp: Seq of Int) -> Seq of Int:
     Let rho be mldsaSubRange(sk, 0, 32).
     Let kk be mldsaSubRange(sk, 32, 32).
     Let tr be mldsaSubRange(sk, 64, 64).
@@ -2645,9 +3381,7 @@ ML-DSA-65 signing written in LOGOS: the full rejection loop.
     Let mutable muIn be a new Seq of Int.
     Repeat for x in tr:
         Push x to muIn.
-    Push 0 to muIn.
-    Push 0 to muIn.
-    Repeat for x in msg:
+    Repeat for x in mp:
         Push x to muIn.
     Let mu be shake256(muIn, 64).
     Let mutable rpIn be a new Seq of Int.
@@ -2661,6 +3395,7 @@ ML-DSA-65 signing written in LOGOS: the full rejection loop.
     Let mutable kappa be 0.
     Let mutable done be 0.
     Let mutable sigOut be a new Seq of Int.
+    Let aMatrix be mldsaExpandAMatrix(rho, 6, 5).
     While done is equal to 0:
         Let mutable yFlat be a new Seq of Int.
         Let mutable yHatFlat be a new Seq of Word32.
@@ -2684,13 +3419,8 @@ ML-DSA-65 signing written in LOGOS: the full rejection loop.
             Repeat for kc from 1 to 256:
                 Push word32(0) to acc.
             Repeat for j from 0 to 4:
-                Let mutable seedA be a new Seq of Int.
-                Repeat for x in rho:
-                    Push x to seedA.
-                Push j to seedA.
-                Push i to seedA.
-                Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(mldsaExpandAElem(seedA)), mldsaSubRangeW(yHatFlat, 256 * j, 256))).
-            Let wi be mldsaInvNttToMont(acc).
+                Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(mldsaSubRange(aMatrix, ((i * 5) + j) * 256, 256)), mldsaSubRangeW(yHatFlat, 256 * j, 256))).
+            Let wi be mldsaInvNttToMont(mldsaReduceRow(acc)).
             Repeat for x in wi:
                 Push x to wFlat.
             Let mutable w1i be a new Seq of Int.
@@ -2764,6 +3494,7 @@ ML-DSA-65 signing written in LOGOS: the full rejection loop.
 ML-DSA-65 key generation written in LOGOS from a 32-byte seed.
 
 ## To mldsaKeygenLogos (seed: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("mldsaKeygenLogos", "seed", seed, 32).
     Let mutable hIn be a new Seq of Int.
     Repeat for x in seed:
         Push x to hIn.
@@ -2785,19 +3516,15 @@ ML-DSA-65 key generation written in LOGOS from a 32-byte seed.
     Let mutable pk be a new Seq of Int.
     Repeat for x in rho:
         Push x to pk.
+    Let aMatrix be mldsaExpandAMatrix(rho, 6, 5).
     Repeat for i from 0 to 5:
         Let mutable acc be a new Seq of Word32.
         Repeat for kc from 1 to 256:
             Push word32(0) to acc.
         Repeat for j from 0 to 4:
-            Let mutable seedA be a new Seq of Int.
-            Repeat for x in rho:
-                Push x to seedA.
-            Push j to seedA.
-            Push i to seedA.
-            Let aHatIJ be mldsaExpandAElem(seedA).
+            Let aHatIJ be mldsaSubRange(aMatrix, ((i * 5) + j) * 256, 256).
             Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(aHatIJ), mldsaSubRangeW(s1HatFlat, 256 * j, 256))).
-        Let ti be mldsaInvNttToMont(acc).
+        Let ti be mldsaInvNttToMont(mldsaReduceRow(acc)).
         Let mutable sd2 be a new Seq of Int.
         Repeat for x in rhoPrime:
             Push x to sd2.
@@ -2866,6 +3593,7 @@ Packs 13-bit t0 coefficients into secret-key bytes.
 ML-DSA-65 keypair written in LOGOS: public and secret key bytes.
 
 ## To mldsaKeypairLogos (seed: Seq of Int) -> Seq of Int:
+    cryptoRequireByteString("mldsaKeypairLogos", "seed", seed, 32).
     Let mutable hIn be a new Seq of Int.
     Repeat for x in seed:
         Push x to hIn.
@@ -2902,18 +3630,14 @@ ML-DSA-65 keypair written in LOGOS: public and secret key bytes.
     Repeat for x in rho:
         Push x to pk.
     Let mutable t0Flat be a new Seq of Int.
+    Let aMatrix be mldsaExpandAMatrix(rho, 6, 5).
     Repeat for i from 0 to 5:
         Let mutable acc be a new Seq of Word32.
         Repeat for kc from 1 to 256:
             Push word32(0) to acc.
         Repeat for j from 0 to 4:
-            Let mutable seedA be a new Seq of Int.
-            Repeat for x in rho:
-                Push x to seedA.
-            Push j to seedA.
-            Push i to seedA.
-            Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(mldsaExpandAElem(seedA)), mldsaSubRangeW(s1HatFlat, 256 * j, 256))).
-        Let ti be mldsaInvNttToMont(acc).
+            Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(mldsaSubRange(aMatrix, ((i * 5) + j) * 256, 256)), mldsaSubRangeW(s1HatFlat, 256 * j, 256))).
+        Let ti be mldsaInvNttToMont(mldsaReduceRow(acc)).
         Let mutable t1 be a new Seq of Int.
         Repeat for c from 0 to 255:
             Let tc be (mldsaToS32(item (c + 1) of ti)) + (item (256 * i + c + 1) of s2Flat).
@@ -2941,3 +3665,279 @@ ML-DSA-65 keypair written in LOGOS: public and secret key bytes.
         Repeat for x in mldsaPackT0(mldsaSubRange(t0Flat, 256 * i, 256)):
             Push x to out.
     Return out.
+
+## Note
+ChaCha20 stream cipher (RFC 8439): XORs the message bytes with the keystream from `chacha20Block` (64 bytes per block from `counter`). XOR is its own inverse, so `decrypt` is the same call.
+
+## To encrypt (key: Seq of Word32) and (nonce: Seq of Word32) and (message: Seq of Int) and (counter: Word32) -> Seq of Int:
+    Let msglen be length of message.
+    Let numBlocks be (msglen + 63) / 64.
+    Let mutable out be a new Seq of Int.
+    Repeat for blk from 0 to numBlocks - 1:
+        Let keystream be chacha20Block(key, counter + word32(blk), nonce).
+        Let base be blk * 64.
+        Repeat for wIdx from 1 to 16:
+            Let v be intOfWord32(item wIdx of keystream).
+            Let pos be base + (wIdx - 1) * 4.
+            If pos is less than msglen:
+                Push intOfWord32(word32(item (pos + 1) of message) xor word32(v % 256)) to out.
+            If (pos + 1) is less than msglen:
+                Push intOfWord32(word32(item (pos + 2) of message) xor word32((v / 256) % 256)) to out.
+            If (pos + 2) is less than msglen:
+                Push intOfWord32(word32(item (pos + 3) of message) xor word32((v / 65536) % 256)) to out.
+            If (pos + 3) is less than msglen:
+                Push intOfWord32(word32(item (pos + 4) of message) xor word32((v / 16777216) % 256)) to out.
+    Return out.
+
+## Note
+ChaCha20 stream decryption: re-runs `encrypt` on the ciphertext, since XOR with the keystream is its own inverse.
+
+## To decrypt (key: Seq of Word32) and (nonce: Seq of Word32) and (ciphertext: Seq of Int) and (counter: Word32) -> Seq of Int:
+    Return encrypt(key, nonce, ciphertext, counter).
+
+## Note
+The 64 SHA-256 round constants: the fractional parts of the cube roots of the first 64 primes (FIPS 180-4 §4.2.2).
+
+## To sha256Constants -> Seq of Word32:
+    Let mutable kk be a new Seq of Word32.
+    Push word32(1116352408) to kk.
+    Push word32(1899447441) to kk.
+    Push word32(3049323471) to kk.
+    Push word32(3921009573) to kk.
+    Push word32(961987163) to kk.
+    Push word32(1508970993) to kk.
+    Push word32(2453635748) to kk.
+    Push word32(2870763221) to kk.
+    Push word32(3624381080) to kk.
+    Push word32(310598401) to kk.
+    Push word32(607225278) to kk.
+    Push word32(1426881987) to kk.
+    Push word32(1925078388) to kk.
+    Push word32(2162078206) to kk.
+    Push word32(2614888103) to kk.
+    Push word32(3248222580) to kk.
+    Push word32(3835390401) to kk.
+    Push word32(4022224774) to kk.
+    Push word32(264347078) to kk.
+    Push word32(604807628) to kk.
+    Push word32(770255983) to kk.
+    Push word32(1249150122) to kk.
+    Push word32(1555081692) to kk.
+    Push word32(1996064986) to kk.
+    Push word32(2554220882) to kk.
+    Push word32(2821834349) to kk.
+    Push word32(2952996808) to kk.
+    Push word32(3210313671) to kk.
+    Push word32(3336571891) to kk.
+    Push word32(3584528711) to kk.
+    Push word32(113926993) to kk.
+    Push word32(338241895) to kk.
+    Push word32(666307205) to kk.
+    Push word32(773529912) to kk.
+    Push word32(1294757372) to kk.
+    Push word32(1396182291) to kk.
+    Push word32(1695183700) to kk.
+    Push word32(1986661051) to kk.
+    Push word32(2177026350) to kk.
+    Push word32(2456956037) to kk.
+    Push word32(2730485921) to kk.
+    Push word32(2820302411) to kk.
+    Push word32(3259730800) to kk.
+    Push word32(3345764771) to kk.
+    Push word32(3516065817) to kk.
+    Push word32(3600352804) to kk.
+    Push word32(4094571909) to kk.
+    Push word32(275423344) to kk.
+    Push word32(430227734) to kk.
+    Push word32(506948616) to kk.
+    Push word32(659060556) to kk.
+    Push word32(883997877) to kk.
+    Push word32(958139571) to kk.
+    Push word32(1322822218) to kk.
+    Push word32(1537002063) to kk.
+    Push word32(1747873779) to kk.
+    Push word32(1955562222) to kk.
+    Push word32(2024104815) to kk.
+    Push word32(2227730452) to kk.
+    Push word32(2361852424) to kk.
+    Push word32(2428436474) to kk.
+    Push word32(2756734187) to kk.
+    Push word32(3204031479) to kk.
+    Push word32(3329325298) to kk.
+    Return kk.
+
+## Note
+One SHA-256 block compression (FIPS 180-4 §6.2.2) over the 16-word block, into the chaining state.
+
+One SHA-256 compression (FIPS 180-4 §6.2.2): expand the 16-word block to a 64-word schedule with the σ mixers (ROTR written as `rotl` by 32−n, SHR as `word32Shr`), then 64 rounds of Ch/Maj/Σ mixing, then add into the chaining state.
+
+## To sha256Compress (h: Seq of Word32) and (m: Seq of Word32) and (kk: Seq of Word32) -> Seq of Word32:
+    Let mutable w be a new Seq of Word32.
+    Repeat for x in m:
+        Push x to w.
+    Repeat for i from 17 to 64:
+        Let w15 be item (i - 15) of w.
+        Let w2 be item (i - 2) of w.
+        Let s0 be rotl(w15, 25) xor rotl(w15, 14) xor word32Shr(w15, 3).
+        Let s1 be rotl(w2, 15) xor rotl(w2, 13) xor word32Shr(w2, 10).
+        Push (item (i - 16) of w) + s0 + (item (i - 7) of w) + s1 to w.
+    Let mutable a be item 1 of h.
+    Let mutable b be item 2 of h.
+    Let mutable c be item 3 of h.
+    Let mutable d be item 4 of h.
+    Let mutable e be item 5 of h.
+    Let mutable f be item 6 of h.
+    Let mutable g be item 7 of h.
+    Let mutable hh be item 8 of h.
+    Repeat for i from 1 to 64:
+        Let bigS1 be rotl(e, 26) xor rotl(e, 21) xor rotl(e, 7).
+        Let ch be word_and(e, f) xor word_and(word_not(e), g).
+        Let t1 be hh + bigS1 + ch + (item i of kk) + (item i of w).
+        Let bigS0 be rotl(a, 30) xor rotl(a, 19) xor rotl(a, 10).
+        Let maj be word_and(a, b) xor word_and(a, c) xor word_and(b, c).
+        Set hh to g.
+        Set g to f.
+        Set f to e.
+        Set e to d + t1.
+        Set d to c.
+        Set c to b.
+        Set b to a.
+        Set a to t1 + bigS0 + maj.
+    Let mutable out be a new Seq of Word32.
+    Push (item 1 of h) + a to out.
+    Push (item 2 of h) + b to out.
+    Push (item 3 of h) + c to out.
+    Push (item 4 of h) + d to out.
+    Push (item 5 of h) + e to out.
+    Push (item 6 of h) + f to out.
+    Push (item 7 of h) + g to out.
+    Push (item 8 of h) + hh to out.
+    Return out.
+
+## Note
+The SHA-256 digest (FIPS 180-4) of a byte sequence, as 32 digest bytes.
+
+The SHA-256 digest of a byte sequence (FIPS 180-4): pad to a 64-byte block boundary with 0x80, zeros, and the big-endian 64-bit bit length; pack each block big-endian; compress block by block; serialize the eight state words big-endian into the 32 digest bytes.
+
+## To sha256 (msg: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes("sha256", "message", msg).
+    Return sha256Of(msg).
+
+## Note
+The SHA-256 digest of a sequence its caller has already checked is bytes.
+
+## To sha256Of (msg: Seq of Int) -> Seq of Int:
+    Let ml be length of msg.
+    Let bitLen be ml * 8.
+    Let mutable padded be a new Seq of Int.
+    Repeat for b in msg:
+        Push b to padded.
+    Push 128 to padded.
+    Let rem be (ml + 1) % 64.
+    Let z be (120 - rem) % 64.
+    Repeat for i from 1 to z:
+        Push 0 to padded.
+    Let mutable bl be bitLen.
+    Let mutable lenBytes be a new Seq of Int.
+    Repeat for k from 1 to 8:
+        Push bl % 256 to lenBytes.
+        Set bl to bl / 256.
+    Repeat for k from 1 to 8:
+        Push item (9 - k) of lenBytes to padded.
+    Let mutable h be a new Seq of Word32.
+    Push word32(1779033703) to h.
+    Push word32(3144134277) to h.
+    Push word32(1013904242) to h.
+    Push word32(2773480762) to h.
+    Push word32(1359893119) to h.
+    Push word32(2600822924) to h.
+    Push word32(528734635) to h.
+    Push word32(1541459225) to h.
+    Let kk be sha256Constants().
+    Let numBlocks be (length of padded) / 64.
+    Repeat for blk from 0 to numBlocks - 1:
+        Let base be blk * 64.
+        Let mutable w be a new Seq of Word32.
+        Repeat for j from 0 to 15:
+            Let off be base + j * 4.
+            Let b0 be item (off + 1) of padded.
+            Let b1 be item (off + 2) of padded.
+            Let b2 be item (off + 3) of padded.
+            Let b3 be item (off + 4) of padded.
+            Push word32(b0 * 16777216 + b1 * 65536 + b2 * 256 + b3) to w.
+        Set h to sha256Compress(h, w, kk).
+    Let mutable out be a new Seq of Int.
+    Repeat for word in h:
+        Let v be intOfWord32(word).
+        Push (v / 16777216) % 256 to out.
+        Push (v / 65536) % 256 to out.
+        Push (v / 256) % 256 to out.
+        Push v % 256 to out.
+    Return out.
+
+## Note
+HMAC-SHA256 (RFC 2104 / RFC 4231) of `message` under `key`, as 32 bytes.
+
+HMAC-SHA256 (RFC 2104 / RFC 4231): a key longer than the 64-byte block is first hashed down to 32 bytes; the key is then zero-padded to the block and XORed with ipad 0x36 / opad 0x5c for the two nested sha256 calls.
+
+## To hmacSha256 (key: Seq of Int) and (msg: Seq of Int) -> Seq of Int:
+    cryptoRequireBytes("hmacSha256", "key", key).
+    cryptoRequireBytes("hmacSha256", "message", msg).
+    Return hmacSha256Of(key, msg).
+
+## Note
+HMAC-SHA256 of a key and a message its caller has already checked are bytes.
+
+## To hmacSha256Of (key: Seq of Int) and (msg: Seq of Int) -> Seq of Int:
+    Let mutable k be a new Seq of Int.
+    If (length of key) is greater than 64:
+        Set k to sha256Of(key).
+    If (length of key) is at most 64:
+        Repeat for b in key:
+            Push b to k.
+    While (length of k) is less than 64:
+        Push 0 to k.
+    Let mutable inner be a new Seq of Int.
+    Repeat for b in k:
+        Push (b xor 54) to inner.
+    Repeat for b in msg:
+        Push b to inner.
+    Let innerHash be sha256Of(inner).
+    Let mutable outer be a new Seq of Int.
+    Repeat for b in k:
+        Push (b xor 92) to outer.
+    Repeat for b in innerHash:
+        Push b to outer.
+    Return sha256Of(outer).
+
+## Note
+PBKDF2-HMAC-SHA256 with dkLen fixed at 32 — exactly SCRAM's Hi()
+
+(RFC 5802 / RFC 7677): one output block, so U1 = HMAC(password, salt then the
+big-endian block index 1) and the derived key is the running XOR of the U chain
+over `iters` iterations, from 1 to 4294967295.
+## To pbkdf2Sha256 (password: Seq of Int) and (salt: Seq of Int) and (iters: Int) -> Seq of Int:
+    cryptoRequireBytes("pbkdf2Sha256", "password", password).
+    cryptoRequireBytes("pbkdf2Sha256", "salt", salt).
+    If iters is less than 1:
+        Fail with "pbkdf2Sha256(): the iteration count must be from 1 to 4294967295; it is " + format(iters).
+    If iters is greater than 4294967295:
+        Fail with "pbkdf2Sha256(): the iteration count must be from 1 to 4294967295; it is " + format(iters).
+    Let mutable block1 be a new Seq of Int.
+    Repeat for b in salt:
+        Push b to block1.
+    Push 0 to block1.
+    Push 0 to block1.
+    Push 0 to block1.
+    Push 1 to block1.
+    Let mutable u be hmacSha256Of(password, block1).
+    Let mutable t be a new Seq of Int.
+    Repeat for b in u:
+        Push b to t.
+    Let mutable i be 2.
+    While i is at most iters:
+        Set u to hmacSha256Of(password, u).
+        Repeat for j from 1 to 32:
+            Set item j of t to (item j of t) xor (item j of u).
+        Set i to i + 1.
+    Return t.

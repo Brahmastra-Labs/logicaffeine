@@ -207,7 +207,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Verb Transitivity Features
     // -------------------------------------------------------------------------
-
     /// Verb requires a direct object (NP complement).
     ///
     /// Transitive verbs denote binary relations between an agent and a patient/theme.
@@ -235,7 +234,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Control Theory Features
     // -------------------------------------------------------------------------
-
     /// The subject of the matrix clause controls the PRO subject of the embedded clause.
     ///
     /// In "John promised Mary to leave", John (subject) is understood as the one leaving.
@@ -264,7 +262,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Semantic Features
     // -------------------------------------------------------------------------
-
     /// Creates an opaque (intensional) context blocking substitution of co-referential terms.
     ///
     /// In opaque contexts, Leibniz's Law fails: even if a=b, P(a) does not entail P(b).
@@ -370,7 +367,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Noun Features
     // -------------------------------------------------------------------------
-
     /// Noun can be counted; takes singular/plural marking and numerals directly.
     ///
     /// Count nouns denote atomic, individuated entities. They combine with numerals
@@ -401,7 +397,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Gender Features
     // -------------------------------------------------------------------------
-
     /// Grammatically masculine; triggers masculine agreement on dependents.
     ///
     /// In languages with grammatical gender, masculine nouns control agreement
@@ -430,7 +425,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Animacy Features
     // -------------------------------------------------------------------------
-
     /// Denotes an entity capable of self-initiated action or sentience.
     ///
     /// Animacy is a semantic feature affecting argument realization. Animate
@@ -451,7 +445,6 @@ pub enum Feature {
     // -------------------------------------------------------------------------
     // Adjective Features
     // -------------------------------------------------------------------------
-
     /// Adjective meaning combines by set intersection with noun meaning.
     ///
     /// For intersective adjectives, "A N" denotes things that are both A and N.
@@ -593,6 +586,29 @@ pub struct VerbEntry {
     /// The Vendler aspectual class (Aktionsart) of the verb.
     /// Determines compatibility with temporal adverbials and aspect markers.
     pub class: VerbClass,
+}
+
+/// A verb's third-person singular present, from its lemma by English spelling rules:
+/// "see" → "sees", "watch" → "watches", "carry" → "carries", "have" → "has", "be" → "is".
+pub fn present_3s_of(lemma: &str) -> String {
+    let lemma = lemma.to_lowercase();
+    match lemma.as_str() {
+        "be" => return "is".to_string(),
+        "have" => return "has".to_string(),
+        _ => {}
+    }
+    if lemma.ends_with('s')
+        || lemma.ends_with('x')
+        || lemma.ends_with("ch")
+        || lemma.ends_with("sh")
+        || lemma.ends_with('o')
+    {
+        format!("{lemma}es")
+    } else if lemma.ends_with('y') && !["ay", "ey", "oy", "uy"].iter().any(|v| lemma.ends_with(v)) {
+        format!("{}ies", &lemma[..lemma.len() - 1])
+    } else {
+        format!("{lemma}s")
+    }
 }
 
 /// Static verb metadata from the lexicon database.

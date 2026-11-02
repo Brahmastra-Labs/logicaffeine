@@ -1,0 +1,104 @@
+{
+  "tier": "t09_metaprogramming",
+  "test_binary": "lean_conformance_t09_metaprogramming",
+  "cases": [
+    {
+      "id": "T09-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_user_declared_notation_abbreviates_an_application_transparently",
+      "why": "Coining notation is what mathematicians do; Lean's `notation` is used on almost every page of Mathlib. LOGOS has exactly one infix table, hard-coded in the literate parser (`<= <= >= >= < > + - *` plus the words `equals` and `implies`), with fixed precedence and no extension point, and no vernacular command that adds to it. This is a plain gap, not a scope decision. CLOSED 2026-09-15, vernacular-surface wave: `Notation \"a ⊕ b\" := …` declares into a new SURFACE environment (`interface/surface.rs`) that sits beside the kernel context and never inside it, so a parser-extension command emits zero globals. Notation is a precedence-climbing layer in the term parser, hygienic by freshening the template's own binders before substituting."
+    },
+    {
+      "id": "T09-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "user_fixity_decides_whether_a_three_operand_spine_nests_left_or_right",
+      "why": "The built-in table has real fixity — `ring` proves `1 - 2 - 3 = (1 - 2) - 3` and refuses the right grouping, and `2 + 3 * 4 = 14` — but it is closed, so a user operator has no associativity or precedence to declare. `infixl` and `infixr` produce different terms with different values for the same character sequence; without a fixity surface neither can be written. CLOSED 2026-09-15, vernacular-surface wave: `Infixl`/`Infixr`/`Prefix`/`Postfix` declare a shape and an associativity, and a three-operand spine nests the way the fixity says. Residue recorded: the table reaches the Coq-style `Check`/`Eval` door; the literate `Statement:` grammar still has its own built-in operator chain."
+    },
+    {
+      "id": "T09-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_pattern_matching_term_macro_expands_recursively_and_later_blocks_win",
+      "why": "No term macro exists at any LOGOS surface. The tactic half of `macro_rules` IS answered by a different route in another crate — `logicaffeine_proof`'s `TacticEnv::define` registers user-defined tactic scripts, re-expanded in place, depth-bounded at MAX_TACTIC_DEPTH so recursion is refused rather than looped, composing with the primitives and the combinators and still kernel-certified. The kernel's own literate `Proof:` door has no such extension point: its fourteen tactic keywords are a closed set (an unknown name is refused, which the test pins), and there is no term-level macro anywhere. CLOSED 2026-09-15, vernacular-surface wave: `Macro`/`MacroRules` are a source-to-source pattern rewrite run to a fixpoint before the parse, so an alternative may invoke the macro it defines; a later block is tried first, a comma-separated rest may be empty so a recursive list macro reaches its base case, and a non-terminating rule fails at a stated step budget."
+    },
+    {
+      "id": "T09-004",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "a_custom_term_elaborator_is_refused_while_the_term_it_produced_still_checks",
+      "why": "An `elab` body is an arbitrary `MetaM` program with the environment, the local context, unification and IO in scope, so the same syntax elaborates differently in different positions; replaying it means embedding the Lean runtime, and running an opaque program inside the trusted core would hollow out the double-kernel re-check that is our whole soundness story. We refuse the metaprogram by name and translate what it emitted: the test pins that `elab`/`elab_rules`/`syntax` are refused with no phantom global, AND that the ordinary declarations an elaborator produced still check and compute."
+    },
+    {
+      "id": "T09-005",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "quotation_is_an_object_level_syntax_value_that_splices_and_evaluates",
+      "why": "Lean's quotation is a macro-authoring device: `Lean.Syntax` is an opaque runtime datatype, usable only inside a metaprogram and invisible to the logic. We do not have that surface and refuse it at the lexer — which matters, because both tempting encodings are silent corruptions (`$x`/`?h` as `Term::Var(\"?x\")` becomes an elaborator metavariable the unifier then SOLVES; a quotation as `Literal::Text` typechecks as a string nothing can traverse). What we have instead is deeper: `Syntax` is an INDUCTIVE IN THE THEORY, so `syn_quote` reifies a tree into the code that builds it, `syn_subst` splices into a de Bruijn hole (the antiquotation, at the object level), `syn_eval` runs the result under a fuel bound, and `syn_diag` is the diagonal — all computing inside kernel reduction, all provable about. That is what `phase87_reflection` through `phase95_incompleteness` build Goedel's First Incompleteness Theorem on. Lean's core supports none of it from inside Lean."
+    },
+    {
+      "id": "T09-006",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "a_deriving_clause_is_refused_rather_than_absorbed_into_a_constructor_type",
+      "why": "A `registerDerivingHandler` handler is an `Array Name -> CommandElabM Bool`: it reads the environment, emits several declarations, logs, and may decline so another handler runs. There is no handler registry, no attribute system and no hook that fires on an inductive's declaration, and no `Term` variant can carry a program — so the handler is out of scope, and the declarations it generates are ordinary and do translate (pinned). The status is Gap rather than Refused because today the clause is not refused, it is MIS-PARSED: `Inductive Colour := red : Colour deriving BEq.` is accepted and registers `red` at type `((Colour deriving) BEq)`, applying the inductive to two globals that are not in the context at all. An OUT case must refuse cleanly; this half-works, and that is the work the test names. CLOSED 2026-09-15, vernacular-surface wave: a `deriving` clause is REFUSED by name (`ParseError::Unsupported`) instead of being absorbed into the constructor's type. It no longer registers `red : ((Colour deriving) BEq)`, and a refused inductive leaves nothing behind."
+    },
+    {
+      "id": "T09-007",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "an_environment_extension_is_refused_and_no_state_survives_a_fresh_context",
+      "why": "`initialize` declares nothing: it runs IO at IMPORT time and mutates a persistent environment extension serialised into the .olean, which later elaboration reads. A `Context` is flat maps of terms built by a linear sequence of `add_*` calls, with no extension slot, no attribute map and no IO — and that absence is deliberate, not accidental. `recheck` rebuilds the trusted context itself from `StandardLibrary::register` rather than trusting one a certificate carries, so import-time state has nowhere to hide BY DESIGN, and that design is exactly what makes an artefact independently re-checkable. The positive form is pinned: our one attribute-like facility, `Attribute: hint.`, is context-local, and a fresh context has never heard of it."
+    },
+    {
+      "id": "T09-008",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "no_pragma_can_change_an_elaborated_term_because_no_pragma_is_accepted",
+      "why": "Most Lean options are cosmetic and a minority are not: `autoImplicit` decides whether an unbound identifier becomes an implicit binder, so it changes a declaration's ARITY, and `structureEta` changes which terms are definitionally equal — a declaration's meaning depends on ambient configuration, which is why Mathlib disables autoImplicit globally. LOGOS has no option surface at all, so every elaboration decision is a function of the source text alone and a term is the same term on every machine. The failure mode worth avoiding is not the missing pragma but a pragma ACCEPTED AND IGNORED — a file asking for `autoImplicit false` and silently getting implicits anyway — so we refuse it by name, and the test pins that the same source elaborates to the same type before and after a refused `set_option`. The one real cost is elsewhere and is not a setting: `normalize` carries a hard fuel and returns the partially-reduced term when it runs out, which is a missing ERROR, booked as T11-005."
+    },
+    {
+      "id": "T09-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "check_and_eval_answer_a_query_without_declaring_anything",
+      "why": "`Repl`'s `Check` and `Eval` are exactly the query commands this case is about: they answer and leave the context alone. The phantom-declaration trap is pinned (no name the source never declared may enter the flat namespace), `#print`'s information is reachable through the definition body, and the Lean `#`-spellings are refused by name rather than half-interpreted. The one piece with no analogue is `#print axioms` — the audit that reveals a sorryAx dependency — which is a reporting facility we should add and which belongs with T08-028."
+    },
+    {
+      "id": "T09-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_documented_declaration_survives_its_documentation",
+      "why": "Documentation is not semantic, so losing the prose would be a fair degradation — and the dangerous fix is pinned green: a docstring must never be emitted as a `Literal::Text` global, which would typecheck, occupy a flat name the source never declared, and be useless because there are no string operations. What actually fails is smaller and more embarrassing for a literate language: the vernacular door does not tolerate prose at all. `/-- ... -/`, `/-! ... -/` and even `-- ...` are refused as unknown commands, so a documented declaration cannot be fed through it. CLOSED 2026-09-15, vernacular-surface wave: `/-- … -/`, `/-! … -/`, nesting `/- … -/` and `-- …` parse to `Command::Comment`, a variant with NO payload — so a docstring cannot become a `Literal::Text` global even by accident. An unterminated block is an error rather than a swallowed remainder."
+    },
+    {
+      "id": "T09-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "every_name_the_declaration_door_accepts_a_term_can_spell",
+      "why": "Better than the audited snapshot suggests: the vernacular's identifier lexer is Unicode-aware, so Greek letters, double-struck capitals and subscripts round-trip through `Definition` and `Check` unmangled — pinned green. What fails is the PRIME (`h`, `h'`, `h''` is overwhelmingly common in Lean) and the guillemet name, and the way it fails is the finding: `Definition` takes its name as a raw text slice up to the first colon, so `Definition h' : Nat := Zero.`, `Definition «a name» : ...` and `Definition Inner.value : ...` all SUCCEED and key the context, while `Check h'.` fails in the lexer. Those are write-only globals — declarable, never referenceable. CLOSED 2026-09-15, vernacular-surface wave: one name grammar (`term_parser::scan_name`) now serves the declaration door and the term door, so primes (`h'`, `h''`) and «guillemet names» work in both directions and a name no term can spell (`Inner.value`) is refused at the declaration instead of keyed as a write-only global."
+    },
+    {
+      "id": "T09-012",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "an_elaboration_time_effect_is_refused_and_the_kernel_stays_pure",
+      "why": "An effect is not a value. `#eval (IO.println ...)` elaborates to an `IO Unit` term and then RUNS it, and `IO.FS.readFile` makes the elaborated environment depend on the filesystem, so the same source yields different declarations on different machines — a translator's output would stop being a function of its input. The kernel is pure by construction (the Milner invariant), with no `Monad`, no `Bind`, no `IO`, and `Term::Let` a pure zeta-transparent binding rather than a do-step, so there is not merely no representation for the effect: there is no place for it to exist. The test pins the refusal, that no monadic vocabulary exists to half-translate against, that the declaration a `run_cmd` produced is ordinary and still translates, and that `reduceBool` — the one evaluator wired into kernel reduction — stays pure and Bool-gated rather than becoming an escape hatch."
+    },
+    {
+      "id": "T09-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "notation_scope_decides_which_global_a_rebound_token_means",
+      "why": "Downstream of T09-001..003: with no surface-extension stage there is no expansion ordering to get wrong, and equally none to express. A mathematician rebinds a token per section, and a later `macro_rules` block must win — neither is sayable. The guard that already holds is pinned: a refused parser-extension command emits ZERO declarations, so a file full of notations cannot fill a flat namespace with phantoms that collide with real names. CLOSED 2026-09-15, vernacular-surface wave: `Section`/`End` scope the surface, a declaration lives in the innermost open section and dies with it, so one token means `op` in one section and `alt` in the next; and a later `MacroRules` block wins."
+    },
+    {
+      "id": "T09-014",
+      "verdict": "OUT",
+      "status": "Refused",
+      "test": "a_custom_binder_is_refused_while_the_bounded_quantifier_it_abbreviates_is_proved",
+      "why": "`binder_predicate` extends Lean's BINDER parser: it declares no constant, produces no term, and has no LOGOS counterpart — the only binders are `Pi` and `Lambda` over one named variable and one type, with three `ParamKind`s none of which encodes a bound. What must NOT be out is the mathematics it abbreviates, and that is where the test spends itself: `forall x > 0, p x` desugars to an ordinary Pi over an implication, the literate `Statement:` grammar states it as `(implies (lt 0 x) (lt 0 x))` because free variables are implicitly universally closed, and `intro. assumption.` proves it while the false variant is refused. One `intro` per desugared binder handles the telescope. We refuse the binder-parser extension, not the quantifier."
+    }
+  ]
+}

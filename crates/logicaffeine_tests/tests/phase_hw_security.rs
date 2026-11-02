@@ -2,32 +2,41 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::security::{check_non_interference, SecurityResult, SecurityLabel, TaintedSignal};
+use logicaffeine_verify::security::{
+    check_non_interference, SecurityLabel, SecurityResult, TaintedSignal,
+};
 use logicaffeine_verify::VerifyExpr;
 
 #[test]
 fn security_simple_noninterference() {
     // Public output independent of secret → NonInterference
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("output@1"),
-        VerifyExpr::var("input@0"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("output@1"), VerifyExpr::var("input@0"));
     let signals = vec![
-        TaintedSignal { name: "input".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
+        TaintedSignal {
+            name: "input".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "No secrets → non-interference. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "No secrets → non-interference. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn security_no_secret_signals() {
     // All public → trivially NonInterference
     let transition = VerifyExpr::bool(true);
-    let signals = vec![
-        TaintedSignal { name: "a".into(), label: SecurityLabel::Public },
-    ];
+    let signals = vec![TaintedSignal {
+        name: "a".into(),
+        label: SecurityLabel::Public,
+    }];
     let result = check_non_interference(&transition, &signals);
     assert!(matches!(result, SecurityResult::NonInterference));
 }
@@ -35,17 +44,23 @@ fn security_no_secret_signals() {
 #[test]
 fn security_direct_leak() {
     // output = secret XOR mask → InformationLeak
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("output@1"),
-        VerifyExpr::var("secret@0"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("output@1"), VerifyExpr::var("secret@0"));
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "Secret directly to output should leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "Secret directly to output should leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -56,13 +71,25 @@ fn security_taint_propagation() {
         VerifyExpr::iff(VerifyExpr::var("output@1"), VerifyExpr::var("mid@1")),
     );
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "mid".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "mid".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "Transitive taint should be detected. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "Transitive taint should be detected. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -72,20 +99,35 @@ fn security_constant_output_no_leak() {
     // the transition doesn't reference the secret at all
     let transition = VerifyExpr::bool(true); // constant transition
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "Constant transition should not leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "Constant transition should not leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn security_leak_path_reported() {
     let transition = VerifyExpr::iff(VerifyExpr::var("out@1"), VerifyExpr::var("key@0"));
     let signals = vec![
-        TaintedSignal { name: "out".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "key".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "out".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "key".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
     match result {
@@ -103,18 +145,27 @@ fn security_leak_path_reported() {
 #[test]
 fn security_constant_time_no_leak() {
     // Operations take same path regardless of secret
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("output@1"),
-        VerifyExpr::var("input@0"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("output@1"), VerifyExpr::var("input@0"));
     let signals = vec![
-        TaintedSignal { name: "input".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "input".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "Secret not used → no leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "Secret not used → no leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -125,13 +176,25 @@ fn security_multiple_secrets() {
         VerifyExpr::bool(true), // key2 not used
     );
     let signals = vec![
-        TaintedSignal { name: "out".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "key1".into(), label: SecurityLabel::Secret },
-        TaintedSignal { name: "key2".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "out".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "key1".into(),
+            label: SecurityLabel::Secret,
+        },
+        TaintedSignal {
+            name: "key2".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "Key1 leaks to out. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "Key1 leaks to out. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -142,24 +205,36 @@ fn security_mask_blocks_taint() {
         VerifyExpr::bool(false), // masked to 0
     );
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "Masked secret should not leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "Masked secret should not leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn security_two_public_no_secret() {
     // No secrets at all
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("b@1"),
-        VerifyExpr::var("a@0"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("b@1"), VerifyExpr::var("a@0"));
     let signals = vec![
-        TaintedSignal { name: "a".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "b".into(), label: SecurityLabel::Public },
+        TaintedSignal {
+            name: "a".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "b".into(),
+            label: SecurityLabel::Public,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
     assert!(matches!(result, SecurityResult::NonInterference));
@@ -169,28 +244,38 @@ fn security_two_public_no_secret() {
 fn security_all_secret_no_public() {
     // Only secrets, no public outputs → trivially non-interfering
     let transition = VerifyExpr::bool(true);
-    let signals = vec![
-        TaintedSignal { name: "key".into(), label: SecurityLabel::Secret },
-    ];
+    let signals = vec![TaintedSignal {
+        name: "key".into(),
+        label: SecurityLabel::Secret,
+    }];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "No public signals → no leak possible. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "No public signals → no leak possible. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn security_identity_preserves() {
     // Identity: output@1 = output@0 (no secret involvement)
-    let transition = VerifyExpr::iff(
-        VerifyExpr::var("output@1"),
-        VerifyExpr::var("output@0"),
-    );
+    let transition = VerifyExpr::iff(VerifyExpr::var("output@1"), VerifyExpr::var("output@0"));
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "Identity transition should not leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "Identity transition should not leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -201,13 +286,25 @@ fn security_and_gate_leak() {
         VerifyExpr::and(VerifyExpr::var("input@0"), VerifyExpr::var("secret@0")),
     );
     let signals = vec![
-        TaintedSignal { name: "input".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "input".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "AND with secret should leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "AND with secret should leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -218,28 +315,49 @@ fn security_or_gate_leak() {
         VerifyExpr::or(VerifyExpr::var("input@0"), VerifyExpr::var("secret@0")),
     );
     let signals = vec![
-        TaintedSignal { name: "input".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "input".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "OR with secret should leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "OR with secret should leak. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn security_empty_signals() {
     let result = check_non_interference(&VerifyExpr::bool(true), &[]);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "Empty signals → trivially safe. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "Empty signals → trivially safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
 fn security_deterministic() {
     let transition = VerifyExpr::iff(VerifyExpr::var("out@1"), VerifyExpr::var("key@0"));
     let signals = vec![
-        TaintedSignal { name: "out".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "key".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "out".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "key".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let r1 = check_non_interference(&transition, &signals);
     let r2 = check_non_interference(&transition, &signals);
@@ -256,12 +374,21 @@ fn security_not_gate_leak() {
         VerifyExpr::not(VerifyExpr::var("secret@0")),
     );
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "NOT of secret still leaks. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "NOT of secret still leaks. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -275,14 +402,29 @@ fn security_multi_stage_propagation() {
         ),
     );
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "a".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "b".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "a".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "b".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "Multi-stage secret propagation should be detected. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "Multi-stage secret propagation should be detected. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -293,13 +435,25 @@ fn security_implies_gate_safe() {
         VerifyExpr::implies(VerifyExpr::var("secret@0"), VerifyExpr::var("pub@0")),
     );
     let signals = vec![
-        TaintedSignal { name: "output".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "pub".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "secret".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "output".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "pub".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "secret".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::InformationLeak { .. }),
-        "Implication involving secret still leaks. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::InformationLeak { .. }),
+        "Implication involving secret still leaks. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -312,15 +466,39 @@ fn security_three_public_one_secret() {
         ),
     );
     let signals = vec![
-        TaintedSignal { name: "i1".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "i2".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "i3".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "o1".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "o2".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "o3".into(), label: SecurityLabel::Public },
-        TaintedSignal { name: "key".into(), label: SecurityLabel::Secret },
+        TaintedSignal {
+            name: "i1".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "i2".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "i3".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "o1".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "o2".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "o3".into(),
+            label: SecurityLabel::Public,
+        },
+        TaintedSignal {
+            name: "key".into(),
+            label: SecurityLabel::Secret,
+        },
     ];
     let result = check_non_interference(&transition, &signals);
-    assert!(matches!(result, SecurityResult::NonInterference),
-        "Secret key not used → no leak. Got: {:?}", result);
+    assert!(
+        matches!(result, SecurityResult::NonInterference),
+        "Secret key not used → no leak. Got: {:?}",
+        result
+    );
 }

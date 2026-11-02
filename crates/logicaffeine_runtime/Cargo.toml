@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Deterministic concurrency runtime (scheduler, channels, seed/trace) for the Logicaffeine interpreter and VM. Pure, WASM-safe, tokio-free — never linked into AOT-compiled binaries."
+license = "MIT"
+description = "Deterministic, replayable concurrency runtime for the LOGOS interpreter and VM: task scheduler, channels, Select, timers, seed and trace"
 readme = "README.md"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [features]
 # The cooperative M:1 driver and the work-stealing M:N driver are BOTH standard:

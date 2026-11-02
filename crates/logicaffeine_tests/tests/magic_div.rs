@@ -60,7 +60,13 @@ fn kernel_mod(n: i64, c: i64) -> i64 {
 /// ground truth the whole JIT is gated against).
 fn run_magic_op(n: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
     let ops = vec![
-        MicroOp::MagicDivU { dst: 1, lhs: 0, magic, more, mul_back },
+        MicroOp::MagicDivU {
+            dst: 1,
+            lhs: 0,
+            magic,
+            more,
+            mul_back,
+        },
         MicroOp::Return { src: 1 },
     ];
     // reference_eval is the portable interpreter the corpus differential trusts.
@@ -68,11 +74,14 @@ fn run_magic_op(n: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
     let reference = reference_eval(&ops, &mut rf, 1_000).expect("reference evaluates MagicDivU");
     // The native contiguous backend must produce the IDENTICAL value.
     let status = Arc::new(AtomicI64::new(0));
-    let chain = compile_region_regalloc(&ops, Some(status)).expect("MagicDivU compiles native");
+    let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("MagicDivU compiles native");
     let mut f = vec![n, 0i64];
     match chain.run_with_frame(&mut f) {
         ChainOutcome::Return(v) => {
-            assert_eq!(v, reference, "native regalloc MagicDivU != reference_eval (n={n})");
+            assert_eq!(
+                v, reference,
+                "native regalloc MagicDivU != reference_eval (n={n})"
+            );
             v
         }
         other => panic!("MagicDivU region did not return: {other:?} (n={n})"),
@@ -83,7 +92,10 @@ fn run_magic_op(n: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
 /// boundary that could expose an off-by-one in the magic constants, plus a
 /// dense band around many multiples of `c` and a large pseudo-random sweep.
 fn assert_magic_exact_for(c: i64) {
-    assert!(c > 0 && (c & (c - 1)) != 0, "test divisor must be a positive non-pow2");
+    assert!(
+        c > 0 && (c & (c - 1)) != 0,
+        "test divisor must be a positive non-pow2"
+    );
     let (magic, more) = magic_u64_gen(c as u64);
 
     let check = |n: i64| {
@@ -197,7 +209,11 @@ fn tally_ops(src: &str) -> OpTally {
         let oracle = logicaffeine_compile::optimize::oracle_analyze_with(stmts, interner);
         let program = Compiler::compile_with_oracle(stmts, interner, Some(types), Some(oracle))
             .expect("program compiles");
-        let mut t = OpTally { mods: 0, divs: 0, magics: 0 };
+        let mut t = OpTally {
+            mods: 0,
+            divs: 0,
+            magics: 0,
+        };
         for op in &program.code {
             match op {
                 Op::Mod { .. } => t.mods += 1,
@@ -240,7 +256,8 @@ fn magic_matrix_mod_rewrite_fires() {
         t.magics >= 1,
         "the proven-non-negative constant `% 1000000007` must become a MagicDivU \
          (found {} MagicDivU, {} Mod)",
-        t.magics, t.mods
+        t.magics,
+        t.mods
     );
 }
 
@@ -272,7 +289,10 @@ fn magic_histogram_tail_rewrite_fires() {
         "histogram's non-negative `% 1000` must become a MagicDivU (found {} MagicDivU)",
         t.magics
     );
-    assert_eq!(t.mods, 0, "no Mod should survive (the `% 2^k` become AND, `% 1000` magic)");
+    assert_eq!(
+        t.mods, 0,
+        "no Mod should survive (the `% 2^k` become AND, `% 1000` magic)"
+    );
 }
 
 /// Constant-divisor DIVISION on a non-negative dividend must also lower.
@@ -295,8 +315,14 @@ fn magic_nonneg_div_matches_oracle() {
 #[test]
 fn magic_nonneg_div_rewrite_fires() {
     let t = tally_ops(NONNEG_DIV_SHAPE);
-    assert_eq!(t.divs, 0, "the proven-non-negative `/ 1000` must NOT stay a Div");
-    assert!(t.magics >= 1, "the proven-non-negative constant `/ 1000` must become a MagicDivU");
+    assert_eq!(
+        t.divs, 0,
+        "the proven-non-negative `/ 1000` must NOT stay a Div"
+    );
+    assert!(
+        t.magics >= 1,
+        "the proven-non-negative constant `/ 1000` must become a MagicDivU"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +372,10 @@ Show acc.
 #[test]
 fn magic_non_constant_divisor_stays_idiv() {
     let t = tally_ops(NON_CONST_DIVISOR);
-    assert_eq!(t.magics, 0, "a non-constant divisor cannot lower to MagicDivU");
+    assert_eq!(
+        t.magics, 0,
+        "a non-constant divisor cannot lower to MagicDivU"
+    );
     assert!(t.mods >= 1, "the variable-divisor `%` must stay a Mod");
     assert_runpath_matches_raw(NON_CONST_DIVISOR, &[]);
 }
@@ -368,7 +397,10 @@ Show acc.
 #[test]
 fn magic_pow2_divisor_left_to_w5() {
     let t = tally_ops(POW2_DIVISOR);
-    assert_eq!(t.magics, 0, "powers of two are W5's AND/shift lever, not magic");
+    assert_eq!(
+        t.magics, 0,
+        "powers of two are W5's AND/shift lever, not magic"
+    );
     assert_runpath_matches_raw(POW2_DIVISOR, &[]);
 }
 
@@ -418,7 +450,8 @@ fn coins_elem_type_off_stays_idiv_and_matches() {
         t.mods >= 1,
         "with the lever OFF the array-element-sum `% 1000000007` must stay a Mod \
          (found {} Mod, {} MagicDivU)",
-        t.mods, t.magics
+        t.mods,
+        t.magics
     );
     assert_runpath_matches_raw(COINS_ELEM_SHAPE, &[]);
 }
@@ -433,7 +466,8 @@ fn coins_elem_type_on_fires_magic_and_matches() {
         t.magics >= 1,
         "with the lever ON the proven Int, non-negative array-element-sum \
          `% 1000000007` must become a MagicDivU (found {} MagicDivU, {} Mod)",
-        t.magics, t.mods
+        t.magics,
+        t.mods
     );
     // The optimized output must match the raw tree-walker (correctness).
     let tw = tw_outcome_with_args(COINS_ELEM_SHAPE, &[]);

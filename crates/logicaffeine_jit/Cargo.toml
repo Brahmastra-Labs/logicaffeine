@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "The LOGOS native tier — wires the copy-and-patch forge JIT into the bytecode VM (native only)."
+license = "MIT"
+description = "Native execution tier for the LOGOS bytecode VM: hot functions and loops tier up to x86-64 machine code"
 readme = "README.md"
+include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [lints]
 workspace = true

@@ -1,0 +1,116 @@
+# UI
+
+The arithmetic and the wording a list view needs.
+
+★ WHAT IS DELIBERATELY NOT HERE. A toast and a modal are a VIEW plus state plus a
+dismissal action — in this language that is a `## Component`, not a `## To`. Shipping
+them as functions would mean returning markup as `Text`, which is the one shape the
+framework spends its whole design avoiding: it is how a page starts concatenating HTML
+and how `{raw}` becomes routine. What belongs here is the part that genuinely is a
+function.
+
+★ AND THAT PART IS WHERE THE BUGS ARE. Pagination is off-by-one country: LOGOS sequences
+are 1-INDEXED, a page count is a ceiling division, an empty collection still has a page
+to show, and the last page is short. Each is one line, and each is wrong in somebody's
+shipped application right now.
+
+`examples/data_table` pages a filtered, sorted table with these functions: `clampPage`
+keeps the requested page inside the table, and `pageStart` to `pageEnd` is the 1-based
+run of rows that page shows, copied out with `item i of rows`. The UI section of
+`docs/lgx-stdlib.md` builds a pager the same way and uses the text helpers as filters.
+
+## Note
+How many pages `total` items make at `perPage` each.
+
+Never 0: an empty list still renders — it shows "nothing here" — and a count of 0 makes
+every page number clamp to 0, which indexes nothing and reads as a bug to whoever is
+looking at an empty screen wondering why.
+
+## To pageCount (total: Int) and (perPage: Int) -> Int:
+    If perPage is at most 0:
+        Return 1.
+    If total is at most 0:
+        Return 1.
+    Let whole be total / perPage.
+    If whole * perPage is equal to total:
+        Return whole.
+    Return whole + 1.
+
+## Note
+`page` brought inside `1` to `pageCount(total, perPage)`.
+
+## To clampPage (page: Int) and (total: Int) and (perPage: Int) -> Int:
+    Let last be pageCount(total, perPage).
+    If page is at most 1:
+        Return 1.
+    If page is greater than last:
+        Return last.
+    Return page.
+
+## Note
+The 1-based index of the first item on `page`.
+
+1-based because LOGOS sequences are. A module answering 0-based bounds would be correct
+in isolation and wrong at every call site, which is the worst kind of correct.
+
+## To pageStart (page: Int) and (perPage: Int) -> Int:
+    If page is at most 1:
+        Return 1.
+    Return (page - 1) * perPage + 1.
+
+## Note
+The 1-based index of the last item on `page`, never past `total`.
+
+For an empty collection this is 0 while `pageStart` is 1 — an EMPTY range, deliberately,
+so a caller's loop simply does not run rather than reading item 1 of nothing and trapping.
+
+## To pageEnd (page: Int) and (perPage: Int) and (total: Int) -> Int:
+    Let stop be pageStart(page, perPage) + perPage - 1.
+    If stop is greater than total:
+        Return total.
+    Return stop.
+
+## Note
+`t` cut to at most `n` characters, marked with `…` when anything was removed.
+
+A cut with no mark is a lie about the content: the reader cannot tell `Ada` from `Ada…`.
+The mark costs one of the `n`, so the answer is never longer than asked.
+
+## To truncate (t: Text) and (n: Int) -> Text:
+    If n is at most 0:
+        Return "".
+    If length of t is at most n:
+        Return t.
+    Let mutable out be "".
+    Let mutable i be 0.
+    For each c in t:
+        Set i to i + 1.
+        If i is less than n:
+            Set out to out + c.
+    Return out + "…".
+
+## Note
+`n` with the word that agrees with it: `1 item`, `2 items`, `0 items`.
+
+## To plural (n: Int) and (one: Text) and (many: Text) -> Text:
+    If n is equal to 1:
+        Return "{n} {one}".
+    Return "{n} {many}".
+
+## Note
+The first letter of each word of `name`, run together: `Ada Lovelace` is `AL`.
+
+Runs of whitespace are one separator and leading or trailing space contributes nothing,
+so a name a visitor typed with a stray space still reads correctly.
+
+## To initials (name: Text) -> Text:
+    Let mutable out be "".
+    Let mutable fresh be true.
+    For each c in name:
+        If c is equal to " ":
+            Set fresh to true.
+        Otherwise:
+            If fresh is equal to true:
+                Set out to out + c.
+                Set fresh to false.
+    Return out.

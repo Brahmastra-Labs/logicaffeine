@@ -1,0 +1,40 @@
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 1577 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.652914
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000           4185 Hz
+     20000           4067 Hz
+     30000           2710 Hz
+     40000           3197 Hz
+     50000           3170 Hz
+     60000           3140 Hz
+     70000           3239 Hz
+     80000           3678 Hz
+     90000           4540 Hz
+    100000           4658 Hz
+    110000           4756 Hz
+    120000           4493 Hz
+    130000           3621 Hz
+    140000           3931 Hz
+    150000           4662 Hz
+Simulation complete at cycle 153257
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 2.59747 GB/s
+Average DRAM Write Bandwidth: 0.240537 GB/s
+script Elapsed seconds: 42.925
+Exiting... 😊
+Destruct DRAM.
+gold: 
+result: 
+PASS: true (GDA)
+Complete Simulation
+Runtime:0:43.18

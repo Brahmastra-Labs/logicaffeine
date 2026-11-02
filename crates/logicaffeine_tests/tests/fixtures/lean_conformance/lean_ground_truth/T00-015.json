@@ -1,0 +1,82 @@
+{
+  "case": "T00-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_015.alphaA",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_015.alphaB",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_015.fiveDeep",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T00_015.generatedNameCollision",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_015.letShadowsLambda",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_015.loop",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((k : Nat) \u2192 motive k.succ) \u2192 motive x",
+      "name": "T00_015.loop.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_015.outerX",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_015.shadowInPiType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_015.threeX",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T00_015.lean:66:42: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T00_015.lean:66:51: warning: unused variable `x`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`\n/tmp/tmp.1kDTrbXKSc/T00_015.lean:74:45: warning: unused variable `n`\nnote: this linter can be disabled with `set_option linter.unusedVariables false`"
+}

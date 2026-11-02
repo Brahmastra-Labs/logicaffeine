@@ -1,0 +1,234 @@
+{
+  "case": "T11-018",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 28,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T11_018.NatList",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_018.NatList \u2192 Sort u} \u2192\n  (t : T11_018.NatList) \u2192 ((hd : Nat) \u2192 (tl : List Nat) \u2192 motive { hd := hd, tl := tl }) \u2192 motive t",
+      "name": "T11_018.NatList.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_018.NatList \u2192 Nat",
+      "name": "T11_018.NatList.hd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 List Nat \u2192 T11_018.NatList",
+      "name": "T11_018.NatList.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {hd : Nat} {tl : List Nat} {hd_1 : Nat} {tl_1 : List Nat},\n  { hd := hd, tl := tl } = { hd := hd_1, tl := tl_1 } \u2192 hd = hd_1 \u2227 tl = tl_1",
+      "name": "T11_018.NatList.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (hd : Nat) (tl : List Nat) (hd_1 : Nat) (tl_1 : List Nat),\n  ({ hd := hd, tl := tl } = { hd := hd_1, tl := tl_1 }) = (hd = hd_1 \u2227 tl = tl_1)",
+      "name": "T11_018.NatList.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (hd : Nat) (tl : List Nat), sizeOf { hd := hd, tl := tl } = 1 + sizeOf hd + sizeOf tl",
+      "name": "T11_018.NatList.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_018.NatList} \u2192 v1 = v2 \u2192 T11_018.NatList.noConfusionType P v1 v2",
+      "name": "T11_018.NatList.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_018.NatList \u2192 T11_018.NatList \u2192 Sort u",
+      "name": "T11_018.NatList.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_018.NatList \u2192 Sort u} \u2192\n  ((hd : Nat) \u2192 (tl : List Nat) \u2192 motive { hd := hd, tl := tl }) \u2192 (t : T11_018.NatList) \u2192 motive t",
+      "name": "T11_018.NatList.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_018.NatList \u2192 Sort u} \u2192\n  (t : T11_018.NatList) \u2192 ((hd : Nat) \u2192 (tl : List Nat) \u2192 motive { hd := hd, tl := tl }) \u2192 motive t",
+      "name": "T11_018.NatList.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_018.NatList \u2192 List Nat",
+      "name": "T11_018.NatList.tl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T11_018.countDown",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((n : Nat) \u2192 motive n.succ) \u2192 motive x",
+      "name": "T11_018.countDown.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T11_018.everyOther",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192\n    (Unit \u2192 motive []) \u2192\n      ((x : Nat) \u2192 motive [x]) \u2192 ((x head : Nat) \u2192 (rest : List Nat) \u2192 motive (x :: head :: rest)) \u2192 motive x",
+      "name": "T11_018.everyOther.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 List Nat",
+      "name": "T11_018.shrink",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 List Nat \u2192 Nat",
+      "name": "T11_018.sumAcc",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 List Nat \u2192 Sort u_1) \u2192\n  (x : Nat) \u2192\n    (x_1 : List Nat) \u2192\n      ((acc : Nat) \u2192 motive acc []) \u2192 ((acc x : Nat) \u2192 (xs : List Nat) \u2192 motive acc (x :: xs)) \u2192 motive x x_1",
+      "name": "T11_018.sumAcc.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 List Nat \u2192 Nat",
+      "name": "T11_018.sumFuel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 List Nat \u2192 Sort u_1) \u2192\n  (x : Nat) \u2192\n    (x_1 : List Nat) \u2192\n      ((x : List Nat) \u2192 motive 0 x) \u2192\n        ((n : Nat) \u2192 motive n.succ []) \u2192 ((f x : Nat) \u2192 (xs : List Nat) \u2192 motive f.succ (x :: xs)) \u2192 motive x x_1",
+      "name": "T11_018.sumFuel.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T11_018.sumTail",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((x : Nat) \u2192 (xs : List Nat) \u2192 motive (x :: xs)) \u2192 motive x",
+      "name": "T11_018.sumTail.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_018.NatList \u2192 Nat",
+      "name": "T11_018.sumViaProjection",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T11_018.underLet",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T11_018.viaHelper",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "WellFounded (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1",
+      "name": "T11_018.viaHelper.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat) (xs : List Nat),\n  (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1 (T11_018.shrink (x :: xs)) (x :: xs)",
+      "name": "T11_018.viaHelper.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

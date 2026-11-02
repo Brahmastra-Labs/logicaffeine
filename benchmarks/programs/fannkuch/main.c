@@ -5,21 +5,20 @@
 int main(int argc, char *argv[]) {
     if (argc < 2) return 1;
     int n = atoi(argv[1]);
-    int *perm = malloc(n * sizeof(int));
-    int *perm1 = malloc(n * sizeof(int));
-    int *count = malloc(n * sizeof(int));
-    int *tmp = malloc(n * sizeof(int));
+    long *perm = malloc(n * sizeof(long));
+    long *perm1 = malloc(n * sizeof(long));
+    long *count = malloc(n * sizeof(long));
     for (int i = 0; i < n; i++) perm1[i] = i;
-    int max_flips = 0, checksum = 0, perm_count = 0;
+    long max_flips = 0, checksum = 0, perm_count = 0;
     int r = n;
     while (1) {
         while (r > 1) { count[r - 1] = r; r--; }
-        memcpy(perm, perm1, n * sizeof(int));
-        int flips = 0;
+        memcpy(perm, perm1, n * sizeof(long));
+        long flips = 0;
         while (perm[0] != 0) {
-            int k = perm[0] + 1;
-            for (int i = 0; i < k / 2; i++) {
-                int t = perm[i]; perm[i] = perm[k - 1 - i]; perm[k - 1 - i] = t;
+            long k = perm[0] + 1;
+            for (long i = 0; i < k / 2; i++) {
+                long t = perm[i]; perm[i] = perm[k - 1 - i]; perm[k - 1 - i] = t;
             }
             flips++;
         }
@@ -28,7 +27,7 @@ int main(int argc, char *argv[]) {
         perm_count++;
         while (1) {
             if (r == n) goto done;
-            int perm0 = perm1[0];
+            long perm0 = perm1[0];
             for (int i = 0; i < r; i++) perm1[i] = perm1[i + 1];
             perm1[r] = perm0;
             count[r]--;
@@ -37,7 +36,7 @@ int main(int argc, char *argv[]) {
         }
     }
 done:
-    printf("%d\n%d\n", checksum, max_flips);
-    free(perm); free(perm1); free(count); free(tmp);
+    printf("%ld\n%ld\n", checksum, max_flips);
+    free(perm); free(perm1); free(count);
     return 0;
 }

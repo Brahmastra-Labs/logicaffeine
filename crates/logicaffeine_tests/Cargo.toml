@@ -2,17 +2,44 @@
 name = "logicaffeine-tests"
 version.workspace = true
 edition = "2021"
-license = "BUSL-1.1"
-description = "The logicaffeine integration suite: 600+ phase-organized tests across the NL→FOL pipeline, execution tiers, concurrency, wire codec, crypto oracles, and proofs."
+license = "MIT"
+description = "Every Logicaffeine test: the integration and differential suites, and the unit-test bodies of every workspace crate"
 readme = "README.md"
 publish = false
 
 [lib]
 path = "src/lib.rs"
 
+# The shipped `largo` binary, rebuilt from the same library entry so the CLI suites spawn exactly
+# what ships (`CARGO_BIN_EXE_*` exists only for the package that owns a binary, and two packages
+# emitting `largo` would collide in the target directory). `test_bin_shim_lock` pins the identity.
+[[bin]]
+name = "largo-under-test"
+path = "src/bin/largo-under-test.rs"
+
+[[bin]]
+name = "logos-sat-under-test"
+path = "src/bin/logos-sat-under-test.rs"
+
 [features]
-default = []
+# Every suite that moved here keeps the build condition it had in its own crate: a feature a suite
+# gates on is declared here, forwarded to the crate it names, and on by default exactly when it was
+# on at home (compile's `codegen` is a default feature; kernel `serde` came from the `lean` self
+# dev-dependency; system's http/persistence/concurrency and compile's `wasm-jit` came from workspace
+# feature unification). `unexpected_cfgs = "deny"` below turns any undeclared name into a build
+# error, so no suite can be compiled out by a feature the test crate does not know.
+default = ["codegen", "serde", "wasm-jit", "http", "persistence", "concurrency"]
+codegen = ["logicaffeine-compile/codegen"]
+wasm-jit = ["logicaffeine-compile/wasm-jit", "dep:wasmi"]
+serde = ["logicaffeine-kernel/serde"]
+nbe = ["logicaffeine-kernel/nbe"]
+http = ["logicaffeine-system/http"]
+persistence = ["logicaffeine-system/persistence"]
+concurrency = ["logicaffeine-system/concurrency"]
+io-uring = ["logicaffeine-system/io-uring"]
+capnproto = ["logicaffeine-wirebench/capnproto", "dep:capnp"]
 verification = [
+    "logicaffeine-cli/verification",
     "logicaffeine-compile/verification",
     "logicaffeine-proof/verification",
     "dep:logicaffeine-verify",
@@ -20,7 +47,11 @@ verification = [
     "dep:logicaffeine-synth",
 ]
 ffi-link-tests = []
-web-tests = ["dep:logicaffeine-web"]
+web-tests = ["dep:logicaffeine-web", "dep:dioxus", "dep:dioxus-ssr", "dep:dioxus-history"]
+# A ticket's RED tests, written and run RED before the ticket is handed to an agent, sit in the binary their suite
+# will have, under `#![cfg(feature = "handed-reds")]`: compiled out of every gate, run on purpose by
+# `scripts/run-handed-reds-tests.sh`. The agent that takes the ticket deletes that one line as it lands.
+handed-reds = []
 
 # Z3-backed crates are OPTIONAL (gated behind `verification`) so the default
 # test path needs no Z3 toolchain. They sit in [dependencies] rather than
@@ -28,30 +59,82 @@ web-tests = ["dep:logicaffeine-web"]
 # integration tests can use both sections.
 [dependencies]
 logicaffeine-web = { workspace = true, optional = true }
+dioxus = { version = "0.7", features = ["router"], optional = true }
+dioxus-ssr = { version = "0.7", optional = true }
+dioxus-history = { version = "0.7", optional = true }
+wasmi = { version = "0.31", optional = true }
+# The Cap'n Proto head-to-heads (bulk_cursor, superiority) build the competitor's messages with its runtime
+# crate directly; `capnproto` turns it on beside the wirebench schema.
+capnp = { version = "0.20", optional = true }
 logicaffeine-verify = { workspace = true, optional = true }
 logicaffeine-tv = { workspace = true, optional = true }
 logicaffeine-synth = { workspace = true, optional = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-logicaffeine-forge = { workspace = true }
+# The `*-under-test` binaries and the CLI suites that call the library directly.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+logicaffeine-cli = { path = "../../apps/logicaffeine_cli" }
+logicaffeine-proof = { workspace = true }
 logicaffeine-jit = { workspace = true }
 
+# The browser suites (wasm_relay, wasm_opfs, system_wasm_concurrency, wasm_interp_net,
+# compile_wasm_concurrency, wasm_simon_studio, wasm_jit_browser), exactly as their home crates built them.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+js-sys = "0.3"
+tokio = { version = "1", default-features = false, features = ["sync"] }
+logicaffeine-system = { workspace = true }
+
 [dev-dependencies]
-logicaffeine-base = { workspace = true }
-logicaffeine-kernel = { workspace = true, features = ["serde"] }
-logicaffeine-language = { workspace = true }
+# What the native and the wasm32 suites share. Everything native-only (the tokio runtime, the TLS
+# stack, the Postgres oracles, the LSP server, …) sits in the target table below, so a
+# `--target wasm32-unknown-unknown` build of a browser suite (`scripts/test-wasm-*.sh`) compiles
+# only what a browser can run.
 logicaffeine-compile = { workspace = true }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+logicaffeine-forge = { workspace = true }
+logicaffeine-base = { workspace = true }
+logicaffeine-kernel = { workspace = true, features = ["serde", "lean"] }
+logicaffeine-language = { workspace = true, features = ["lexicon-reference"] }
 logicaffeine-proof = { workspace = true }
 logicaffeine-data = { workspace = true }
 logicaffeine-system = { workspace = true, features = ["full"] }
 logicaffeine-lexicon = { workspace = true }
+logicaffeine-runtime = { workspace = true }
+logicaffeine-lsp = { path = "../logicaffeine_lsp" }
+logicaffeine-wirebench = { path = "../logicaffeine_wirebench" }
+wiki-trace = { path = "../../scripts/wiki_trace" }
+tower-lsp = "0.20"
+clap = { version = "4.4", features = ["derive"] }
+libc = "0.2"
+dirs = "5.0"
+rand = "0.8"
+postcard = { version = "1", features = ["use-std"] }
+rmp-serde = "1.3"
+# system's wire suites pin the 0.0.4 API (KeyGen/key_gen_internal); the bench suites use 0.1.
+ml-dsa-004 = { package = "ml-dsa", version = "0.0.4" }
 tempfile = "3"
+# A self-signed certificate for the in-process TLS server the socket tests stand up, so TLS is
+# proven hermetically rather than against the internet.
+rcgen = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 toml = "0.8"
-futures = "0.3"
+# A real Rust parser for the source-reading locks (`packaging_lock` walks every published crate's
+# module graph and macro token streams); already in the graph via proc-macro crates.
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+# A real WASM engine to VALIDATE a compiled page's module structurally (`wasmi::Module::new`) —
+# `compile_to_wasm` returning `Ok` only means the compiler's own encoding did not hit a known-
+# unsupported construct, not that the bytes are valid WebAssembly (gauntlet_findings_lock.rs).
+# Already in the workspace graph via `logicaffeine-compile`'s own `wasm-jit` feature.
+wasmi = "0.31"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 bincode = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 csv = "1"
 # Dev-only oracle for ML-KEM bit-exactness (FIPS 203). NEVER in the shipped graph — the
 # Logos-native crypto is validated *against* this, then ships on its own.
@@ -59,3 +142,18 @@ ml-kem = { version = "0.2", features = ["deterministic"] }
 libcrux-ml-kem = { version = "0.0.9", features = ["simd256", "mlkem768"] }
 libcrux-ml-dsa = { version = "0.0.9", features = ["simd256"] }
 ml-dsa = "0.1.1"
+# Dev-only oracles for the pure-LOGOS postgres.lg client. postgres-protocol is the
+# reference ENCODER (three-way startup/Query byte agreement with our locks), pgwire
+# hosts a real in-process server our client talks to, and postgresql_embedded
+# downloads a REAL PostgreSQL for the #[ignore]d live suite. None ship.
+postgres-protocol = "0.6"
+# postgres-protocol's backend bodies iterate via fallible-iterator — the G3 fuzz
+# differentials walk DataRow/RowDescription through the REFERENCE parser too.
+fallible-iterator = "0.2"
+bytes = "1"
+pgwire = "0.40"
+async-trait = "0.1"
+postgresql_embedded = "0.21"
+
+[lints.rust]
+unexpected_cfgs = "deny"

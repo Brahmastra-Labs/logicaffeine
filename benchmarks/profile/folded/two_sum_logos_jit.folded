@@ -1,0 +1,21 @@
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_has_i;indexmap::map::IndexMap<K,V,S>::get_index_of 51951846328
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;indexmap::map::IndexMap<K,V,S>::insert_full 30545459750
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_has_i;indexmap::map::IndexMap<K,V,S>::get_index_of;_ZN20logicaffeine_compile9semantics7compare18values_equal_depth17ha0fc9e5986795eb1E.llvm.12955600232241949419 24353136755
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;indexmap::map::IndexMap<K,V,S>::insert_full;hashbrown::raw::RawTable<T,A>::reserve_rehash 12631130023
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii 10972788786
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;indexmap::map::IndexMap<K,V,S>::insert_full;_ZN20logicaffeine_compile9semantics7compare18values_equal_depth17ha0fc9e5986795eb1E.llvm.12955600232241949419 9937075848
+logos::main::loop@13 [jit] 6421838492
+logos::main::loop@52 [jit] 2762087994
+_start;__libc_start_main_impl;__libc_start_call_main;main;_RNvNtCs75vJTIYSa2J_3std2rt19lang_start_internal;std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h51f0bc37981b2549;std::sys::backtrace::__rust_begin_short_backtrace;logos_jit_run::native::main;logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::into_lines;alloc::rc::Rc<T,A>::drop_slow;_ZN4core3ptr68drop_in_place$LT$logicaffeine_compile..interpreter..RuntimeValue$GT$17hf77be8722f365972E.llvm.7378992271653657997 2176456523
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;indexmap::map::IndexMap<K,V,S>::insert_full;_ZN84_$LT$logicaffeine_compile..interpreter..RuntimeValue$u20$as$u20$core..hash..Hash$GT$4hash17he1b176960ded185dE.llvm.18390672433374151416 882853597
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;indexmap::map::IndexMap<K,V,S>::insert_full;[unknown] 780941241
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_has_i;indexmap::map::IndexMap<K,V,S>::get_index_of;_ZN84_$LT$logicaffeine_compile..interpreter..RuntimeValue$u20$as$u20$core..hash..Hash$GT$4hash17he1b176960ded185dE.llvm.18390672433374151416 637223975
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_has_i;core::ptr::drop_in_place<logicaffeine_compile::interpreter::RuntimeValue> 557362333
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;indexmap::map::IndexMap<K,V,S>::insert_full;hashbrown::raw::RawTable<T,A>::reserve_rehash;[unknown] 415865916
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_has_i 277748840
+logos::main::loop@13 [jit];[unknown] 126893410
+__memset_avx2_unaligned_erms;[unknown] 96254988
+_start;__libc_start_main_impl;__libc_start_call_main;main;_RNvNtCs75vJTIYSa2J_3std2rt19lang_start_internal;std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h51f0bc37981b2549;std::sys::backtrace::__rust_begin_short_backtrace;logos_jit_run::native::main;logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::into_lines;alloc::rc::Rc<T,A>::drop_slow 80663351
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_has_i;indexmap::map::IndexMap<K,V,S>::get_index_of;<logicaffeine_compile::interpreter::RuntimeValue as core::cmp::PartialEq>::eq 20216405
+logos::main::loop@52 [jit];logicaffeine_jit::logos_rt_map_set_ii;core::ptr::drop_in_place<logicaffeine_compile::interpreter::RuntimeValue> 20035147
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_jit::adapt_region;logicaffeine_jit::match_memmem_nest 1760271

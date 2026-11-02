@@ -1,0 +1,40 @@
+Router 216
+	Output: 1 chan 865
+Router 217
+	Output: 1 chan 869
+Router 218
+	Output: 1 chan 873
+Router 240
+	Output: 3 chan 963
+Router 262
+	Output: 3 chan 1051
+Router 263
+	Output: 1 chan 1053
+Router 285
+	Output: 3 chan 1143
+Router 307
+	Output: 3 chan 1231
+Router 329
+	Output: 3 chan 1319
+../plastisim/final.place Elapsed seconds: 0.736336
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 5642 (DEADLOCK)
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.397022 GB/s
+Average DRAM Write Bandwidth: 46.463 GB/s
+script Elapsed seconds: 3.89397
+Exiting... 😊
+Destruct DRAM.
+out Result: 
+out Gold: 
+PASS: true (Logos_outer_256x256_ts64x32_ip16x16x1_op3x3)
+Complete Simulation
+Runtime:0:04.32

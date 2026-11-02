@@ -1,0 +1,10 @@
+{
+  "capability": "text.split_after",
+  "workload": "splitAfter(s,'0') \u2014 #parts",
+  "arg": "20000",
+  "expected": "8020000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

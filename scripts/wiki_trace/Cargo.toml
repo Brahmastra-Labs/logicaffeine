@@ -4,8 +4,8 @@ version = "0.0.0"
 publish = false
 edition.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Corpus-tracing harness: runs the logicaffeine compiler over large English corpora and triages what parses to FOL."
+license = "MIT"
+description = "Corpus-tracing harness: runs the LOGOS compiler over English corpora and triages what parses to FOL"
 readme = "README.md"
 
 [lib]

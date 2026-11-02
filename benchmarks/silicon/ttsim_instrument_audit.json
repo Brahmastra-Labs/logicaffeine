@@ -1,0 +1,645 @@
+{
+  "_what": "What ttsim's two instruments measure, derived from the committed simulator logs. This is the evidence that licenses the 2026-09-03 retraction of our Tenstorrent speed claims: neither instrument can support a head-to-head throughput number.",
+  "_generated_by": "python3 scripts/accel/audit-ttsim-instrument.py \u2014 never hand-edited",
+  "provenance": "derived_from_committed_simulator_logs",
+  "logs_parsed": 403,
+  "verdict_headline": "ttsim MEASURES NO TIME AND THREE KINDS OF WORK. Every clock on it \u2014 the bracket counter, the host wall clock's usability, and the device's own per-core cycle register \u2014 fails or cannot settle the K sweep. But the instrumented build's counters (Tensix instructions issued, NOC transactions, NOC bytes) rise with the work, and retired matmuls rise EXACTLY with it. So a SPEED claim is still unavailable without silicon, and an EFFICIENCY claim \u2014 same computation, less of the machine spent on it \u2014 is now measurable, checkable, and conserved.",
+  "verdict": "NO ttsim INSTRUMENT MEASURES SPEED. The bracket cycle counter does not track work (it is bit-identical across a wide sweep of the reduction depth at fixed configuration); the host wall clock does track work but is far too noisy on a shared machine to resolve a head-to-head margin; and the DEVICE-side per-core counter, which is the natural thing to reach for once the first two are ruled out, is flat in K on the simulator as well. This is a property of the measuring device, not of the emitted program. The device instrumentation is implemented and correct \u2014 it simply needs SILICON to mean anything, because ttsim is a functional model and does not simulate per-core timing. Until then the spatial speed claim lives on the Plasticine/RDU lane, whose Tungsten simulator is a cycle-accurate timing model.",
+  "instrument_1_cycle_counter": {
+    "tracks_work": false,
+    "controlled_k_sweeps": [
+      {
+        "held_fixed": {
+          "m": "1024",
+          "n": "1024",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0",
+          "mm_cfg": "strategy=blocked-split grid=8x8 per_core=4x4 out_block=4x4 in0_block_w=4 subblock=1x2 origin=\"compiler-emitted, all kernels generated\" mesh=8x9 sites=64"
+        },
+        "k_values": [
+          512,
+          1024,
+          2048
+        ],
+        "cycles_at_each_k": [
+          6205,
+          6205,
+          6205
+        ],
+        "k_range_x": 4.0,
+        "cycle_spread_pct": 0.0,
+        "wall_s_at_each_k": [
+          3.5,
+          6.7,
+          14.0
+        ]
+      },
+      {
+        "held_fixed": {
+          "m": "512",
+          "n": "512",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0",
+          "mm_cfg": "strategy=blocked-split grid=8x8 per_core=2x2 out_block=2x2 in0_block_w=2 subblock=1x2 origin=\"compiler-emitted, all kernels generated\" mesh=8x9 sites=64"
+        },
+        "k_values": [
+          512,
+          1024,
+          2048
+        ],
+        "cycles_at_each_k": [
+          4986,
+          5182,
+          5182
+        ],
+        "k_range_x": 4.0,
+        "cycle_spread_pct": 3.93,
+        "wall_s_at_each_k": [
+          1.0,
+          1.9,
+          3.5
+        ]
+      }
+    ],
+    "flat_sweeps_found": 2,
+    "conclusion": "a work meter must rise with the reduction depth; this one does not"
+  },
+  "instrument_2_host_wall_clock": {
+    "tracks_work": true,
+    "usable_for_head_to_head": false,
+    "rerun_noise": {
+      "groups": 74,
+      "runs_in_groups": 219,
+      "spread_pct_median": 58.9,
+      "spread_pct_worst": 211.1,
+      "worst_example": {
+        "shape": "640x640x640",
+        "origin": "logos_emitted",
+        "strategy": "blocked-split",
+        "knobs": "HiFi4-fp32_0-l1acc_0",
+        "cycles": 5681,
+        "wall_s_runs": [
+          1.8,
+          1.8,
+          1.9,
+          3.3,
+          3.6,
+          3.6,
+          3.8,
+          3.9,
+          4.0,
+          4.1,
+          4.1,
+          4.5,
+          4.5,
+          4.5,
+          4.5,
+          4.6,
+          4.6,
+          4.7,
+          4.7,
+          4.7,
+          4.8,
+          4.9,
+          4.9,
+          5.1,
+          5.2,
+          5.4,
+          5.6
+        ]
+      }
+    },
+    "conclusion": "re-running the SAME simulation moves this number by tens of percent, so it cannot resolve the margins we would want to quote"
+  },
+  "instrument_3_device_cycle_counter": {
+    "tracks_work": false,
+    "what_it_is": "LOGOS_MM_DEVICE_CYCLES \u2014 the emitted host reads buf_cycles back and reports the MAX over sites of each core's own cycle counter, so on hardware it is a real per-core work meter and is the right instrument for a head-to-head.",
+    "logs_with_the_instrument": 175,
+    "controlled_k_sweeps": [
+      {
+        "held_fixed": {
+          "m": "1024",
+          "n": "1024",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0",
+          "mm_cfg": "strategy=blocked-split grid=8x8 per_core=4x4 out_block=4x4 in0_block_w=4 subblock=1x2 origin=\"compiler-emitted, all kernels generated\" mesh=8x9 sites=64"
+        },
+        "k_values": [
+          512,
+          1024,
+          2048
+        ],
+        "device_cycles_at_each_k": [
+          831,
+          828,
+          830
+        ],
+        "k_range_x": 4.0,
+        "device_spread_pct": 0.36
+      },
+      {
+        "held_fixed": {
+          "m": "512",
+          "n": "512",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0",
+          "mm_cfg": "strategy=blocked-split grid=8x8 per_core=2x2 out_block=2x2 in0_block_w=2 subblock=1x2 origin=\"compiler-emitted, all kernels generated\" mesh=8x9 sites=64"
+        },
+        "k_values": [
+          512,
+          1024,
+          2048
+        ],
+        "device_cycles_at_each_k": [
+          372,
+          373,
+          373
+        ],
+        "k_range_x": 4.0,
+        "device_spread_pct": 0.27
+      }
+    ],
+    "flat_sweeps_found": 2,
+    "conclusion": "flat in K on ttsim exactly as the bracket counter is \u2014 4x the reduction depth at an IDENTICAL plan moves it by one cycle. ttsim is a functional simulator; it executes the kernels correctly but does not model per-core timing, so this counter cannot stand in for hardware. Do not quote it as a speed result."
+  },
+  "instrument_4_work_meter": {
+    "tracks_work": true,
+    "what_it_is": "ttsim (Apache-2.0) plus a counters-only patch \u2014 TTSIM_OP_STATS (matmul/elementwise issues, Tensix instructions, NOC transactions, NOC bytes), TTSIM_DONE (matmuls RETIRED, as opposed to issued-and-retried) and TTSIM_STALLS. Source at ~/ttsim; the harness sets it through scripts/tt-sim.sh.",
+    "timing_identical_to_stock": true,
+    "timing_identity_evidence": "matmul_single_core reports 330268 cycles under the stock release .so and under the instrumented build \u2014 the patch adds counters and moves no clock, so every number measured before it stays comparable.",
+    "logs_with_the_instrument": 173,
+    "controlled_k_sweeps": [
+      {
+        "held_fixed": {
+          "m": "128",
+          "n": "128",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0"
+        },
+        "k_values": [
+          128,
+          4096
+        ],
+        "k_range_x": 32.0,
+        "tensix_inst": [
+          5424,
+          127440
+        ],
+        "noc_txns": [
+          176,
+          4144
+        ],
+        "noc_bytes": [
+          295392,
+          8421856
+        ],
+        "tensix_inst_range_x": 23.496,
+        "noc_txns_range_x": 23.545,
+        "noc_bytes_range_x": 28.511
+      },
+      {
+        "held_fixed": {
+          "m": "1024",
+          "n": "1024",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0"
+        },
+        "k_values": [
+          512,
+          1024,
+          2048
+        ],
+        "k_range_x": 4.0,
+        "tensix_inst": [
+          285328,
+          606352,
+          1248400
+        ],
+        "noc_txns": [
+          9344,
+          17536,
+          33920
+        ],
+        "noc_bytes": [
+          18876288,
+          35653504,
+          69207936
+        ],
+        "tensix_inst_range_x": 4.375,
+        "noc_txns_range_x": 3.63,
+        "noc_bytes_range_x": 3.666
+      },
+      {
+        "held_fixed": {
+          "m": "512",
+          "n": "512",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0"
+        },
+        "k_values": [
+          512,
+          1024,
+          2048
+        ],
+        "k_range_x": 4.0,
+        "tensix_inst": [
+          140048,
+          282384,
+          567056
+        ],
+        "noc_txns": [
+          4480,
+          8576,
+          16768
+        ],
+        "noc_bytes": [
+          8914816,
+          17303424,
+          34080640
+        ],
+        "tensix_inst_range_x": 4.049,
+        "noc_txns_range_x": 3.743,
+        "noc_bytes_range_x": 3.823
+      },
+      {
+        "held_fixed": {
+          "m": "1024",
+          "n": "1024",
+          "origin": "ttnn_production",
+          "strategy": "vendor_default",
+          "knobs": "HiFi4-fp32_0-l1acc_0"
+        },
+        "k_values": [
+          1024,
+          2048
+        ],
+        "k_range_x": 2.0,
+        "tensix_inst": [
+          353040,
+          500496
+        ],
+        "noc_txns": [
+          4608,
+          7168
+        ],
+        "noc_bytes": [
+          14267392,
+          22656000
+        ],
+        "tensix_inst_range_x": 1.418,
+        "noc_txns_range_x": 1.556,
+        "noc_bytes_range_x": 1.588
+      },
+      {
+        "held_fixed": {
+          "m": "1024",
+          "n": "1024",
+          "origin": "ttnn_production",
+          "strategy": "vendor_our_config",
+          "knobs": "HiFi4-fp32_0-l1acc_0"
+        },
+        "k_values": [
+          1024,
+          2048
+        ],
+        "k_range_x": 2.0,
+        "tensix_inst": [
+          606352,
+          1248400
+        ],
+        "noc_txns": [
+          4608,
+          8192
+        ],
+        "noc_bytes": [
+          14267392,
+          26437632
+        ],
+        "tensix_inst_range_x": 2.059,
+        "noc_txns_range_x": 1.778,
+        "noc_bytes_range_x": 1.853
+      },
+      {
+        "held_fixed": {
+          "m": "640",
+          "n": "640",
+          "origin": "logos_emitted",
+          "strategy": "blocked-split",
+          "knobs": "HiFi4-fp32_0-l1acc_0"
+        },
+        "k_values": [
+          640,
+          1280
+        ],
+        "k_range_x": 2.0,
+        "tensix_inst": [
+          143245,
+          299995
+        ],
+        "noc_txns": [
+          4450,
+          8450
+        ],
+        "noc_bytes": [
+          9011950,
+          17203950
+        ],
+        "tensix_inst_range_x": 2.094,
+        "noc_txns_range_x": 1.899,
+        "noc_bytes_range_x": 1.909
+      }
+    ],
+    "sweeps_that_track_work": 6,
+    "conservation_law": [
+      {
+        "shape": "1024x1024x1024",
+        "distinct_programs": 4,
+        "retired": [
+          2097152
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=2097152",
+          "logos_emitted/multicast-split=2097152",
+          "ttnn_production/vendor_default=2097152",
+          "ttnn_production/vendor_our_config=2097152"
+        ]
+      },
+      {
+        "shape": "1024x1024x2048",
+        "distinct_programs": 3,
+        "retired": [
+          4194304
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=4194304",
+          "ttnn_production/vendor_default=4194304",
+          "ttnn_production/vendor_our_config=4194304"
+        ]
+      },
+      {
+        "shape": "1024x512x2048",
+        "distinct_programs": 3,
+        "retired": [
+          2097152
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=2097152",
+          "ttnn_production/vendor_default=2097152",
+          "ttnn_production/vendor_our_config=2097152"
+        ]
+      },
+      {
+        "shape": "128x128x128",
+        "distinct_programs": 2,
+        "retired": [
+          4096
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=4096",
+          "logos_emitted/multicast-split=4096"
+        ]
+      },
+      {
+        "shape": "1536x768x768",
+        "distinct_programs": 3,
+        "retired": [
+          1769472
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=1769472",
+          "ttnn_production/vendor_default=1769472",
+          "ttnn_production/vendor_our_config=1769472"
+        ]
+      },
+      {
+        "shape": "2048x1024x512",
+        "distinct_programs": 7,
+        "retired": [
+          2097152
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=2097152",
+          "logos_emitted/multicast-split=2097152",
+          "logos_emitted/multicast=2097152",
+          "logos_emitted/streamed=2097152",
+          "tt_metal_example/example=2097152",
+          "ttnn_production/vendor_default=2097152",
+          "ttnn_production/vendor_our_config=2097152"
+        ]
+      },
+      {
+        "shape": "2048x2048x512",
+        "distinct_programs": 3,
+        "retired": [
+          4194304
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=4194304",
+          "logos_emitted/multicast-split=4194304",
+          "logos_emitted/streamed=4194304"
+        ]
+      },
+      {
+        "shape": "2048x512x1024",
+        "distinct_programs": 3,
+        "retired": [
+          2097152
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=2097152",
+          "ttnn_production/vendor_default=2097152",
+          "ttnn_production/vendor_our_config=2097152"
+        ]
+      },
+      {
+        "shape": "256x2048x512",
+        "distinct_programs": 3,
+        "retired": [
+          524288
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=524288",
+          "ttnn_production/vendor_default=524288",
+          "ttnn_production/vendor_our_config=524288"
+        ]
+      },
+      {
+        "shape": "4096x4096x128",
+        "distinct_programs": 2,
+        "retired": [
+          4194304
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked=4194304",
+          "logos_emitted/multicast=4194304"
+        ]
+      },
+      {
+        "shape": "4096x4096x256",
+        "distinct_programs": 2,
+        "retired": [
+          8388608
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=8388608",
+          "logos_emitted/multicast-split=8388608"
+        ]
+      },
+      {
+        "shape": "512x512x512",
+        "distinct_programs": 6,
+        "retired": [
+          262144
+        ],
+        "conserved": true,
+        "programs": [
+          "logos_emitted/blocked-split=262144",
+          "logos_emitted/blocked=262144",
+          "logos_emitted/multicast-split=262144",
+          "logos_emitted/multicast=262144",
+          "ttnn_production/vendor_default=262144",
+          "ttnn_production/vendor_our_config=262144"
+        ]
+      },
+      {
+        "shape": "640x640x640",
+        "distinct_programs": 10,
+        "retired": [
+          128000,
+          256000,
+          282240,
+          512000,
+          564480
+        ],
+        "conserved": false,
+        "programs": [
+          "logos_emitted/blocked-split=256000",
+          "logos_emitted/blocked-split=512000",
+          "logos_emitted/multicast-split=512000",
+          "logos_emitted/streamed=512000",
+          "tt_metal_example/example=512000",
+          "ttnn_production/vendor_default=282240",
+          "ttnn_production/vendor_default=564480",
+          "ttnn_production/vendor_our_config=128000",
+          "ttnn_production/vendor_our_config=256000",
+          "ttnn_production/vendor_our_config=512000"
+        ]
+      }
+    ],
+    "conclusion": "these ARE functions of the program, so these \u2014 never a cycle count \u2014 are what a cost model may be fitted to and what a compiler comparison may be made on. `matmul` (issued) is NOT one of them: it counts the retry-spin an operand-starved core performs, so it is a stall meter wearing a work meter's name, and reading it as work is how a stall gets mistaken for a workload."
+  },
+  "what_the_counter_does_track": {
+    "_what": "cycles grouped by per-core OUTPUT TILE AREA \u2014 monotone here while flat in K, which is what identifies the counter as an output-movement meter",
+    "by_output_tiles": {
+      "1": {
+        "n": 29,
+        "cycles_min": 4672,
+        "cycles_max": 82942
+      },
+      "4": {
+        "n": 43,
+        "cycles_min": 4800,
+        "cycles_max": 7378
+      },
+      "6": {
+        "n": 4,
+        "cycles_min": 9735,
+        "cycles_max": 15224
+      },
+      "8": {
+        "n": 8,
+        "cycles_min": 5195,
+        "cycles_max": 7794
+      },
+      "12": {
+        "n": 2,
+        "cycles_min": 5587,
+        "cycles_max": 5734
+      },
+      "16": {
+        "n": 150,
+        "cycles_min": 5562,
+        "cycles_max": 30385
+      },
+      "18": {
+        "n": 2,
+        "cycles_min": 7462,
+        "cycles_max": 7462
+      },
+      "20": {
+        "n": 4,
+        "cycles_min": 5979,
+        "cycles_max": 6370
+      },
+      "24": {
+        "n": 2,
+        "cycles_min": 6428,
+        "cycles_max": 6595
+      },
+      "25": {
+        "n": 5,
+        "cycles_min": 6339,
+        "cycles_max": 8116
+      },
+      "28": {
+        "n": 2,
+        "cycles_min": 7975,
+        "cycles_max": 8143
+      },
+      "32": {
+        "n": 52,
+        "cycles_min": 6792,
+        "cycles_max": 16231
+      },
+      "36": {
+        "n": 2,
+        "cycles_min": 7293,
+        "cycles_max": 7446
+      },
+      "40": {
+        "n": 2,
+        "cycles_min": 8384,
+        "cycles_max": 9883
+      },
+      "50": {
+        "n": 3,
+        "cycles_min": 8998,
+        "cycles_max": 11932
+      },
+      "64": {
+        "n": 33,
+        "cycles_min": 5509,
+        "cycles_max": 13333
+      },
+      "128": {
+        "n": 2,
+        "cycles_min": 11874,
+        "cycles_max": 14622
+      },
+      "256": {
+        "n": 8,
+        "cycles_min": 25529,
+        "cycles_max": 31638
+      }
+    }
+  },
+  "what_ttsim_DOES_prove": "functional correctness and bring-up: the whole benchmark suite runs on the Tensix tier byte-for-byte equal to the reference VM, with no gaps, reached on the vendor's own simulator without owning a card. PCC is 1.0 throughout. That is a portability result, not a speed one."
+}

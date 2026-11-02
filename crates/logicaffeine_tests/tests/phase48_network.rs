@@ -37,7 +37,10 @@ fn test_chunk_with_variable_index() {
     Inside a zone called "Data" mapped from "test.bin":
         Let c be the chunk at i in "Data"."#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains(".get_chunk("), "Should call get_chunk with variable");
+    assert!(
+        rust.contains(".get_chunk("),
+        "Should call get_chunk with variable"
+    );
 }
 
 #[test]
@@ -51,7 +54,10 @@ A FileManifest is Portable and has:
 ## Main
     Let m be a new FileManifest."#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("Serialize"), "FileManifest should be Portable");
+    assert!(
+        rust.contains("Serialize"),
+        "FileManifest should be Portable"
+    );
 }
 
 // =============================================================================

@@ -1,0 +1,35 @@
+Allocate points of size 256 * 64 at 0x59a475ce1a00 (98562885949952)
+Allocate centroids of size 64 * 64 at 0x59a475cc31c0 (98562885824960)
+Run simulation with with 1339 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 1339 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.552979
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000           5212 Hz
+     20000           5885 Hz
+     30000           6286 Hz
+     40000           6336 Hz
+     50000           5730 Hz
+     60000           5643 Hz
+     70000           6239 Hz
+Simulation complete at cycle 71953
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 1.82163 GB/s
+Average DRAM Write Bandwidth: 0.227704 GB/s
+script Elapsed seconds: 14.7091
+Exiting... 😊
+Destruct DRAM.
+PASS: true (Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x1x2)
+Complete Simulation
+Runtime:0:15.01

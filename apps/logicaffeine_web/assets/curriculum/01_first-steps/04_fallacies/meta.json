@@ -2,5 +2,6 @@
   "id": "fallacies",
   "title": "Fallacies and Argumentation",
   "pedagogy": "Identify good arguments vs. fallacious reasoning. Learn informal fallacies, inconsistency, and techniques for constructing and analyzing arguments.",
-  "order": 4
+  "order": 4,
+  "summary": "Tell good arguments from fallacies, then build and analyze arguments well."
 }

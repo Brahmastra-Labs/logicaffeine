@@ -1,0 +1,11 @@
+{
+  "capability": "text.valid_utf8",
+  "workload": "validUtf8 over a 2000-byte all-valid buffer (1000x the 2-byte 'é'), count trues",
+  "arg": "200000",
+  "expected": "200000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ],
+  "note": "main.lg calls validUtf8() WITHOUT defining it — auto-imported from strings.lg. Go counterpart uses utf8.Valid over the same bytes; both accept the well-formed 0xC3 0xA9 sequences."
+}

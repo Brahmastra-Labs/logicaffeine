@@ -1,0 +1,20 @@
+# Full-CPU synthesis: the ENTIRE 113-op LOGOS soft-core -> a gate-level netlist.
+#
+# The monolith is an interpreter in one always-block; `regs`/`dmem` are written by computed index across
+# ~113 case arms, and the collection ops (list gather, set union, map scan) unroll per-element writes. Left
+# at full size this explodes yosys's proc/mem2reg. The fix (no logic change): the memory depths AND the
+# collection unroll bounds are PARAMETERS — simulation runs the full defaults (all 43 tb_soft_core_*.v pass),
+# synthesis overrides them to a small demo config here, so the per-cell address-decode stays bounded.
+#
+# After the single-write-port + microcode rewrite (regs + dmem each have ONE write port; multi-cell ops are
+# microcoded via the bld/drng/itr FSMs), the memories stay $mem RAMs. The COARSE result (proc+opt+memory,
+# ~21s): 3,122 cells, 13 $mem_v2 RAMs, only 63 DFFs — ~100x smaller than the old flop-heavy 341,889.
+# See soft_core_synth_stat.txt for the golden breakdown. (The final ABC LUT-mapping in `synth` is slow on the
+# case's mux cone — a tool runtime, not a size issue; the fit is proven by the coarse cell count.)
+#
+# Run the fast coarse/memory verification (proves the RAM inference): yosys this file with `synth ... -run :fine`.
+read_verilog soft_core.v alu.v
+chparam -set HEAP 64 -set FRAMES 4 -set MAXELT 8 -set MAXPAIR 4 -set MAXKEY 4 soft_core
+hierarchy -check -top soft_core
+proc; opt; memory_collect
+stat

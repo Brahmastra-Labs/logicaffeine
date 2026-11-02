@@ -1,0 +1,202 @@
+{
+  "case": "T04-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 24,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T04_002.TList",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T04_002.TList \u03b1 \u2192 Sort u} \u2192 T04_002.TList \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T04_002.TList.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : T04_002.TList \u03b1 \u2192 Prop} (t : T04_002.TList \u03b1),\n  (\u2200 (t : T04_002.TList \u03b1), T04_002.TList.ibelow t \u2192 motive t) \u2192 motive t",
+      "name": "T04_002.TList.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T04_002.TList \u03b1 \u2192 Sort u} \u2192\n    (t : T04_002.TList \u03b1) \u2192 ((t : T04_002.TList \u03b1) \u2192 T04_002.TList.below t \u2192 motive t) \u2192 motive t",
+      "name": "T04_002.TList.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T04_002.TList \u03b1 \u2192 Sort u} \u2192\n    (t : T04_002.TList \u03b1) \u2192\n      motive T04_002.TList.nil \u2192 ((a : \u03b1) \u2192 (a_1 : T04_002.TList \u03b1) \u2192 motive (T04_002.TList.cons a a_1)) \u2192 motive t",
+      "name": "T04_002.TList.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T04_002.TList \u03b1 \u2192 T04_002.TList \u03b1",
+      "name": "T04_002.TList.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {a_1 : T04_002.TList \u03b1} {a_2 : \u03b1} {a_3 : T04_002.TList \u03b1},\n  T04_002.TList.cons a a_1 = T04_002.TList.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T04_002.TList.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1) (a_1 : T04_002.TList \u03b1) (a_2 : \u03b1) (a_3 : T04_002.TList \u03b1),\n  (T04_002.TList.cons a a_1 = T04_002.TList.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T04_002.TList.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1) (a_1 : T04_002.TList \u03b1),\n  sizeOf (T04_002.TList.cons a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T04_002.TList.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T04_002.TList \u03b1 \u2192 Prop} \u2192 T04_002.TList \u03b1 \u2192 Prop",
+      "name": "T04_002.TList.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T04_002.TList \u03b1",
+      "name": "T04_002.TList.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T04_002.TList.nil = 1",
+      "name": "T04_002.TList.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T04_002.TList \u03b1} \u2192 v1 = v2 \u2192 T04_002.TList.noConfusionType P v1 v2",
+      "name": "T04_002.TList.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T04_002.TList \u03b1 \u2192 T04_002.TList \u03b1 \u2192 Sort u",
+      "name": "T04_002.TList.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T04_002.TList \u03b1 \u2192 Sort u} \u2192\n    motive T04_002.TList.nil \u2192\n      ((a : \u03b1) \u2192 (a_1 : T04_002.TList \u03b1) \u2192 motive a_1 \u2192 motive (T04_002.TList.cons a a_1)) \u2192\n        (t : T04_002.TList \u03b1) \u2192 motive t",
+      "name": "T04_002.TList.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T04_002.TList \u03b1 \u2192 Sort u} \u2192\n    (t : T04_002.TList \u03b1) \u2192\n      motive T04_002.TList.nil \u2192\n        ((a : \u03b1) \u2192 (a_1 : T04_002.TList \u03b1) \u2192 motive a_1 \u2192 motive (T04_002.TList.cons a a_1)) \u2192 motive t",
+      "name": "T04_002.TList.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T04_002.TList \u03b1 \u2192 T04_002.TList \u03b1 \u2192 T04_002.TList \u03b1",
+      "name": "T04_002.app",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T04_002.TList \u03b1 \u2192 T04_002.TList \u03b1 \u2192 Sort u_1) \u2192\n    (x x_1 : T04_002.TList \u03b1) \u2192\n      ((ys : T04_002.TList \u03b1) \u2192 motive T04_002.TList.nil ys) \u2192\n        ((x : \u03b1) \u2192 (xs ys : T04_002.TList \u03b1) \u2192 motive (T04_002.TList.cons x xs) ys) \u2192 motive x x_1",
+      "name": "T04_002.app.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T04_002.leanLen",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((head : Nat) \u2192 (t : List Nat) \u2192 motive (head :: t)) \u2192 motive x",
+      "name": "T04_002.leanLen.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T04_002.TList \u03b1 \u2192 Nat",
+      "name": "T04_002.len",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T04_002.TList \u03b1 \u2192 Sort u_1) \u2192\n    (x : T04_002.TList \u03b1) \u2192\n      (Unit \u2192 motive T04_002.TList.nil) \u2192 ((a : \u03b1) \u2192 (t : T04_002.TList \u03b1) \u2192 motive (T04_002.TList.cons a t)) \u2192 motive x",
+      "name": "T04_002.len.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T04_002.TList Nat \u2192 Nat",
+      "name": "T04_002.sumList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T04_002.TList Nat \u2192 Sort u_1) \u2192\n  (x : T04_002.TList Nat) \u2192\n    (Unit \u2192 motive T04_002.TList.nil) \u2192\n      ((x : Nat) \u2192 (t : T04_002.TList Nat) \u2192 motive (T04_002.TList.cons x t)) \u2192 motive x",
+      "name": "T04_002.sumList.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,7 @@
+[package]
+name = "login"
+version = "0.1.0"
+authors = []
+entry = "src/main.lg"
+
+[dependencies]

@@ -1,0 +1,337 @@
+{
+  "case": "T07-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 41,
+  "declarations": [
+    {
+      "type": "Type \u2192 outParam Type \u2192 Type",
+      "name": "T07_006.Decode",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T07_006.Decode \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T07_006.Decode \u03b1 \u03b2) \u2192 ((decode : \u03b1 \u2192 \u03b2) \u2192 motive { decode := decode }) \u2192 motive t",
+      "name": "T07_006.Decode.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : outParam Type} \u2192 [self : T07_006.Decode \u03b1 \u03b2] \u2192 \u03b1 \u2192 \u03b2",
+      "name": "T07_006.Decode.decode",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : outParam Type} \u2192 (\u03b1 \u2192 \u03b2) \u2192 T07_006.Decode \u03b1 \u03b2",
+      "name": "T07_006.Decode.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {\u03b2 : outParam Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_006.Decode \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T07_006.Decode.noConfusionType P v1 v2",
+      "name": "T07_006.Decode.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : outParam Type} \u2192 Sort u \u2192 T07_006.Decode \u03b1 \u03b2 \u2192 T07_006.Decode \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T07_006.Decode.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T07_006.Decode \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((decode : \u03b1 \u2192 \u03b2) \u2192 motive { decode := decode }) \u2192 (t : T07_006.Decode \u03b1 \u03b2) \u2192 motive t",
+      "name": "T07_006.Decode.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T07_006.Decode \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T07_006.Decode \u03b1 \u03b2) \u2192 ((decode : \u03b1 \u2192 \u03b2) \u2192 motive { decode := decode }) \u2192 motive t",
+      "name": "T07_006.Decode.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type \u2192 outParam Type \u2192 Type",
+      "name": "T07_006.HPlus",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 \u03b3 : Type} \u2192\n  {motive : T07_006.HPlus \u03b1 \u03b2 \u03b3 \u2192 Sort u} \u2192\n    (t : T07_006.HPlus \u03b1 \u03b2 \u03b3) \u2192 ((hPlus : \u03b1 \u2192 \u03b2 \u2192 \u03b3) \u2192 motive { hPlus := hPlus }) \u2192 motive t",
+      "name": "T07_006.HPlus.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {\u03b3 : outParam Type} \u2192 [self : T07_006.HPlus \u03b1 \u03b2 \u03b3] \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b3",
+      "name": "T07_006.HPlus.hPlus",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {\u03b3 : outParam Type} \u2192 (\u03b1 \u2192 \u03b2 \u2192 \u03b3) \u2192 T07_006.HPlus \u03b1 \u03b2 \u03b3",
+      "name": "T07_006.HPlus.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {\u03b3 : outParam Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_006.HPlus \u03b1 \u03b2 \u03b3} \u2192 v1 = v2 \u2192 T07_006.HPlus.noConfusionType P v1 v2",
+      "name": "T07_006.HPlus.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {\u03b3 : outParam Type} \u2192 Sort u \u2192 T07_006.HPlus \u03b1 \u03b2 \u03b3 \u2192 T07_006.HPlus \u03b1 \u03b2 \u03b3 \u2192 Sort u",
+      "name": "T07_006.HPlus.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 \u03b3 : Type} \u2192\n  {motive : T07_006.HPlus \u03b1 \u03b2 \u03b3 \u2192 Sort u} \u2192\n    ((hPlus : \u03b1 \u2192 \u03b2 \u2192 \u03b3) \u2192 motive { hPlus := hPlus }) \u2192 (t : T07_006.HPlus \u03b1 \u03b2 \u03b3) \u2192 motive t",
+      "name": "T07_006.HPlus.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 \u03b3 : Type} \u2192\n  {motive : T07_006.HPlus \u03b1 \u03b2 \u03b3 \u2192 Sort u} \u2192\n    (t : T07_006.HPlus \u03b1 \u03b2 \u03b3) \u2192 ((hPlus : \u03b1 \u2192 \u03b2 \u2192 \u03b3) \u2192 motive { hPlus := hPlus }) \u2192 motive t",
+      "name": "T07_006.HPlus.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 outParam Type \u2192 Type",
+      "name": "T07_006.Mem",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 coll : Type} \u2192\n  {motive : T07_006.Mem \u03b3 coll \u2192 Sort u} \u2192\n    (t : T07_006.Mem \u03b3 coll) \u2192 ((mem : coll \u2192 \u03b3 \u2192 Prop) \u2192 motive { mem := mem }) \u2192 motive t",
+      "name": "T07_006.Mem.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 : Type} \u2192 {coll : outParam Type} \u2192 [self : T07_006.Mem \u03b3 coll] \u2192 coll \u2192 \u03b3 \u2192 Prop",
+      "name": "T07_006.Mem.mem",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 : Type} \u2192 {coll : outParam Type} \u2192 (coll \u2192 \u03b3 \u2192 Prop) \u2192 T07_006.Mem \u03b3 coll",
+      "name": "T07_006.Mem.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 : Type} \u2192\n  {coll : outParam Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_006.Mem \u03b3 coll} \u2192 v1 = v2 \u2192 T07_006.Mem.noConfusionType P v1 v2",
+      "name": "T07_006.Mem.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 : Type} \u2192 {coll : outParam Type} \u2192 Sort u \u2192 T07_006.Mem \u03b3 coll \u2192 T07_006.Mem \u03b3 coll \u2192 Sort u",
+      "name": "T07_006.Mem.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 coll : Type} \u2192\n  {motive : T07_006.Mem \u03b3 coll \u2192 Sort u} \u2192\n    ((mem : coll \u2192 \u03b3 \u2192 Prop) \u2192 motive { mem := mem }) \u2192 (t : T07_006.Mem \u03b3 coll) \u2192 motive t",
+      "name": "T07_006.Mem.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b3 coll : Type} \u2192\n  {motive : T07_006.Mem \u03b3 coll \u2192 Sort u} \u2192\n    (t : T07_006.Mem \u03b3 coll) \u2192 ((mem : coll \u2192 \u03b3 \u2192 Prop) \u2192 motive { mem := mem }) \u2192 motive t",
+      "name": "T07_006.Mem.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 semiOutParam Type \u2192 Type",
+      "name": "T07_006.Rel",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T07_006.Rel \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T07_006.Rel \u03b1 \u03b2) \u2192 ((related : \u03b1 \u2192 \u03b2 \u2192 Prop) \u2192 motive { related := related }) \u2192 motive t",
+      "name": "T07_006.Rel.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : semiOutParam Type} \u2192 (\u03b1 \u2192 \u03b2 \u2192 Prop) \u2192 T07_006.Rel \u03b1 \u03b2",
+      "name": "T07_006.Rel.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {\u03b2 : semiOutParam Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_006.Rel \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T07_006.Rel.noConfusionType P v1 v2",
+      "name": "T07_006.Rel.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : semiOutParam Type} \u2192 Sort u \u2192 T07_006.Rel \u03b1 \u03b2 \u2192 T07_006.Rel \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T07_006.Rel.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T07_006.Rel \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((related : \u03b1 \u2192 \u03b2 \u2192 Prop) \u2192 motive { related := related }) \u2192 (t : T07_006.Rel \u03b1 \u03b2) \u2192 motive t",
+      "name": "T07_006.Rel.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T07_006.Rel \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T07_006.Rel \u03b1 \u03b2) \u2192 ((related : \u03b1 \u2192 \u03b2 \u2192 Prop) \u2192 motive { related := related }) \u2192 motive t",
+      "name": "T07_006.Rel.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : semiOutParam Type} \u2192 [self : T07_006.Rel \u03b1 \u03b2] \u2192 \u03b1 \u2192 \u03b2 \u2192 Prop",
+      "name": "T07_006.Rel.related",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_006.Decode Bool Nat",
+      "name": "T07_006.decodeToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_006.decoded",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_006.HPlus Nat Nat Nat",
+      "name": "T07_006.instHPlusNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_006.HPlus Nat Bool Nat",
+      "name": "T07_006.instHPlusNatBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_006.Mem Nat (List Nat)",
+      "name": "T07_006.instMemNatList",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_006.Rel Nat Nat",
+      "name": "T07_006.instRelNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 List Nat \u2192 Prop",
+      "name": "T07_006.isIn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_006.sum\u2081",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_006.sum\u2082",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

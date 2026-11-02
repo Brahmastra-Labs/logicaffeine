@@ -1,0 +1,324 @@
+{
+  "case": "T03-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 40,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T03_001.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Colour",
+      "name": "T03_001.Colour.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.Colour.blue = 1",
+      "name": "T03_001.Colour.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.Colour \u2192 Sort u} \u2192\n  (t : T03_001.Colour) \u2192 motive T03_001.Colour.red \u2192 motive T03_001.Colour.green \u2192 motive T03_001.Colour.blue \u2192 motive t",
+      "name": "T03_001.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Colour",
+      "name": "T03_001.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.Colour.green = 1",
+      "name": "T03_001.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T03_001.Colour} \u2192 x = y \u2192 T03_001.Colour.noConfusionType P x y",
+      "name": "T03_001.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.8"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T03_001.Colour \u2192 T03_001.Colour \u2192 Sort v\u271d",
+      "name": "T03_001.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.7"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.Colour \u2192 Sort u} \u2192\n  motive T03_001.Colour.red \u2192 motive T03_001.Colour.green \u2192 motive T03_001.Colour.blue \u2192 (t : T03_001.Colour) \u2192 motive t",
+      "name": "T03_001.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.Colour \u2192 Sort u} \u2192\n  (t : T03_001.Colour) \u2192 motive T03_001.Colour.red \u2192 motive T03_001.Colour.green \u2192 motive T03_001.Colour.blue \u2192 motive t",
+      "name": "T03_001.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Colour",
+      "name": "T03_001.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.Colour.red = 1",
+      "name": "T03_001.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Colour \u2192 Nat",
+      "name": "T03_001.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_001.OnlyOne",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.OnlyOne \u2192 Sort u} \u2192 (t : T03_001.OnlyOne) \u2192 motive T03_001.OnlyOne.sole \u2192 motive t",
+      "name": "T03_001.OnlyOne.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T03_001.OnlyOne} \u2192 x = y \u2192 T03_001.OnlyOne.noConfusionType P x y",
+      "name": "T03_001.OnlyOne.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.131"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T03_001.OnlyOne \u2192 T03_001.OnlyOne \u2192 Sort v\u271d",
+      "name": "T03_001.OnlyOne.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.130"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.OnlyOne \u2192 Sort u} \u2192 motive T03_001.OnlyOne.sole \u2192 (t : T03_001.OnlyOne) \u2192 motive t",
+      "name": "T03_001.OnlyOne.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.OnlyOne \u2192 Sort u} \u2192 (t : T03_001.OnlyOne) \u2192 motive T03_001.OnlyOne.sole \u2192 motive t",
+      "name": "T03_001.OnlyOne.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.OnlyOne",
+      "name": "T03_001.OnlyOne.sole",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.OnlyOne.sole = 1",
+      "name": "T03_001.OnlyOne.sole.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.OnlyOne \u2192 Nat",
+      "name": "T03_001.OnlyOne.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_001.Weekday",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.Weekday \u2192 Sort u} \u2192\n  (t : T03_001.Weekday) \u2192\n    motive T03_001.Weekday.wednesday \u2192 motive T03_001.Weekday.monday \u2192 motive T03_001.Weekday.friday \u2192 motive t",
+      "name": "T03_001.Weekday.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Weekday",
+      "name": "T03_001.Weekday.friday",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.Weekday.friday = 1",
+      "name": "T03_001.Weekday.friday.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Weekday",
+      "name": "T03_001.Weekday.monday",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.Weekday.monday = 1",
+      "name": "T03_001.Weekday.monday.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T03_001.Weekday} \u2192 x = y \u2192 T03_001.Weekday.noConfusionType P x y",
+      "name": "T03_001.Weekday.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.85"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T03_001.Weekday \u2192 T03_001.Weekday \u2192 Sort v\u271d",
+      "name": "T03_001.Weekday.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.84"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.Weekday \u2192 Sort u} \u2192\n  motive T03_001.Weekday.wednesday \u2192\n    motive T03_001.Weekday.monday \u2192 motive T03_001.Weekday.friday \u2192 (t : T03_001.Weekday) \u2192 motive t",
+      "name": "T03_001.Weekday.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_001.Weekday \u2192 Sort u} \u2192\n  (t : T03_001.Weekday) \u2192\n    motive T03_001.Weekday.wednesday \u2192 motive T03_001.Weekday.monday \u2192 motive T03_001.Weekday.friday \u2192 motive t",
+      "name": "T03_001.Weekday.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Weekday \u2192 Nat",
+      "name": "T03_001.Weekday.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Weekday",
+      "name": "T03_001.Weekday.wednesday",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T03_001.Weekday.wednesday = 1",
+      "name": "T03_001.Weekday.wednesday.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Colour \u2192 Nat",
+      "name": "T03_001.code",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_001.Colour \u2192 Sort u_1) \u2192\n  (x : T03_001.Colour) \u2192\n    (Unit \u2192 motive T03_001.Colour.red) \u2192\n      (Unit \u2192 motive T03_001.Colour.green) \u2192 (Unit \u2192 motive T03_001.Colour.blue) \u2192 motive x",
+      "name": "T03_001.code.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Weekday \u2192 Nat",
+      "name": "T03_001.dayIndex",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T03_001.Weekday \u2192 Sort u_1) \u2192\n  (x : T03_001.Weekday) \u2192\n    (Unit \u2192 motive T03_001.Weekday.wednesday) \u2192\n      (Unit \u2192 motive T03_001.Weekday.monday) \u2192 (Unit \u2192 motive T03_001.Weekday.friday) \u2192 motive x",
+      "name": "T03_001.dayIndex.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_001.Colour \u2192 Bool",
+      "name": "T03_001.isWarm",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

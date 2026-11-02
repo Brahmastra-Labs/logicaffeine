@@ -1,0 +1,246 @@
+{
+  "case": "T01-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 32,
+  "declarations": [
+    {
+      "type": "Type 1 \u2192 Type 1",
+      "name": "T01_009.Cell",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192\n  {motive : T01_009.Cell \u03b1 \u2192 Sort u} \u2192 (t : T01_009.Cell \u03b1) \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T01_009.Cell.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 \u03b1 \u2192 T01_009.Cell \u03b1",
+      "name": "T01_009.Cell.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type 1} {val val_1 : \u03b1}, { val := val } = { val := val_1 } \u2192 val = val_1",
+      "name": "T01_009.Cell.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type 1} (val val_1 : \u03b1), ({ val := val } = { val := val_1 }) = (val = val_1)",
+      "name": "T01_009.Cell.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type 1} [inst : SizeOf \u03b1] (val : \u03b1), sizeOf { val := val } = 1 + sizeOf val",
+      "name": "T01_009.Cell.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 {P : Sort u} \u2192 {v1 v2 : T01_009.Cell \u03b1} \u2192 v1 = v2 \u2192 T01_009.Cell.noConfusionType P v1 v2",
+      "name": "T01_009.Cell.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 Sort u \u2192 T01_009.Cell \u03b1 \u2192 T01_009.Cell \u03b1 \u2192 Sort u",
+      "name": "T01_009.Cell.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192\n  {motive : T01_009.Cell \u03b1 \u2192 Sort u} \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 (t : T01_009.Cell \u03b1) \u2192 motive t",
+      "name": "T01_009.Cell.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192\n  {motive : T01_009.Cell \u03b1 \u2192 Sort u} \u2192 (t : T01_009.Cell \u03b1) \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T01_009.Cell.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 T01_009.Cell \u03b1 \u2192 \u03b1",
+      "name": "T01_009.Cell.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_009.appliedViaLift",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1 \u2192 Type 1",
+      "name": "T01_009.big",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_009.Cell T01_009.liftedNat",
+      "name": "T01_009.cellOfLifted",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Type 1 \u2192 Nat) \u2192 Nat",
+      "name": "T01_009.consumesTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_009.covariantApplication",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T01_009.downNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1 \u2192 Type 1",
+      "name": "T01_009.idAtOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T01_009.idAtZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Type 1",
+      "name": "T01_009.liftedFamily",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_009.liftedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Type",
+      "name": "T01_009.liftedProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(p : Prop) \u2192 p \u2192 PLift p",
+      "name": "T01_009.propUp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Type",
+      "name": "T01_009.propViaLift",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1 \u2192 Nat",
+      "name": "T01_009.someTypeOneFn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_009.typeZeroInhabitsTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ULift Nat",
+      "name": "T01_009.upNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_009.usesOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_009.usesZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T01_009.variantApplication",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T01_009.wantsAType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Type 1) \u2192 Type 1",
+      "name": "T01_009.wantsTypeOneFamily",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

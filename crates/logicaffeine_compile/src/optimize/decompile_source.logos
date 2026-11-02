@@ -385,6 +385,9 @@
         When CMerge (target, other):
             Let os be decompileExpr(other).
             Return "{pad}Merge {os} into {target}.{nl}".
+        When CJoin (target, other):
+            Let os be decompileExpr(other).
+            Return "{pad}Converge {os} into {target}.{nl}".
         When CIncrease (target, amount):
             Let amtS be decompileExpr(amount).
             Return "{pad}Increase {target} by {amtS}.{nl}".

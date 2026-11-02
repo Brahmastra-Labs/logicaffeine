@@ -3,10 +3,10 @@
 //! Automatically extract candidate invariants from KG structure,
 //! verify them with Z3.
 
-use logicaffeine_verify::ir::VerifyExpr;
 use logicaffeine_language::semantics::knowledge_graph::{
-    HwKnowledgeGraph, KgRelation, HwEntityType, HwRelation,
+    HwEntityType, HwKnowledgeGraph, HwRelation, KgRelation,
 };
+use logicaffeine_verify::ir::VerifyExpr;
 
 /// Source of a discovered invariant.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,7 +57,7 @@ pub fn discover_invariants(kg: &HwKnowledgeGraph) -> Vec<CandidateInvariant> {
 
     // Pattern 3: Pipeline entity -> stage stability invariant
     for (_, entity) in &kg.entities {
-        if let HwEntityType::Pipeline { stages, .. } = entity {
+        if let HwEntityType::Pipeline { stages: _, .. } = entity {
             // Find typed edges that connect pipeline stages
             for typed_edge in &kg.typed_edges {
                 if matches!(typed_edge.2, HwRelation::Triggers { .. }) {

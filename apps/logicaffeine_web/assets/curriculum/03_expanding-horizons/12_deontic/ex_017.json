@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Steal only if you pray",
   "options": [
-    "$ (OS\\underline{u}\\supset Pu ) $",
-    "$ (Su\\supset Pu) $",
-    "$ (S\\underline{u}\\supset P\\underline{u}  ) $",
-    "$ (S\\underline{u}\\supset Pu ) $"
+    "O S(u̲) → P(u)",
+    "S(u) → P(u)",
+    "S(u̲) → P(u̲)",
+    "S(u̲) → P(u)"
   ],
   "correct": 3,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'A only if B' is A ⊃ B. The command S͟u ('you steal') is conditioned on Pu ('you pray'): (S͟u ⊃ Pu)."
+  "hint": "'A only if B' is A → B. Which part is the command?",
+  "explanation": "Stealing is commanded, so S(u̲), and praying is described, so P(u): S(u̲) → P(u).",
+  "section": "12.2"
 }

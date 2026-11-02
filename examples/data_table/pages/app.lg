@@ -1,0 +1,228 @@
+# Data table
+
+Sort, filter (by department) and paginate a table of employees, with
+`keyed by` so a row's identity survives being reordered.
+
+## Note
+
+The rows on screen are one derived field, `visibleRows`: the employees filtered by department,
+sorted by the chosen column and sliced to the current page. Every action changes only the field it
+owns — `dept`, `sortKey`, `ascending` or `page` — and the table follows.
+
+## An Employee has:
+    an id, which is Int.
+    a name, which is Text.
+    a department, which is Text.
+    a salaryCents, which is Int.
+
+## To seedEmployees () -> Seq of Employee:
+    Let mutable out be a new Seq of Employee.
+    Push (a new Employee with id 1 and name "Grace" and department "Engineering" and salaryCents 950000) to out.
+    Push (a new Employee with id 2 and name "Ada" and department "Engineering" and salaryCents 990000) to out.
+    Push (a new Employee with id 3 and name "Barbara" and department "Sales" and salaryCents 780000) to out.
+    Push (a new Employee with id 4 and name "Katherine" and department "Research" and salaryCents 860000) to out.
+    Push (a new Employee with id 5 and name "Hedy" and department "Research" and salaryCents 910000) to out.
+    Push (a new Employee with id 6 and name "Margaret" and department "Sales" and salaryCents 820000) to out.
+    Push (a new Employee with id 7 and name "Radia" and department "Engineering" and salaryCents 875000) to out.
+    Return out.
+
+## To matchesDept (e: Employee) and (dept: Text) -> Bool:
+    If dept is equal to "all":
+        Return true.
+    Return e's department is equal to dept.
+
+## To filterByDept (rows: Seq of Employee) and (dept: Text) -> Seq of Employee:
+    Let mutable out be a new Seq of Employee.
+    Repeat for e in rows:
+        If matchesDept(e, dept):
+            Push e to out.
+    Return out.
+
+## To isBefore (a: Employee) and (b: Employee) and (sortKey: Text) and (ascending: Bool) -> Bool:
+    Let mutable before be false.
+    If sortKey is equal to "id":
+        Set before to a's id is less than b's id.
+    Otherwise:
+        Set before to a's salaryCents is less than b's salaryCents.
+    If ascending:
+        Return before.
+    Return not before.
+
+## To sortRows (rows: Seq of Employee) and (sortKey: Text) and (ascending: Bool) -> Seq of Employee:
+    Let mutable out be a new Seq of Employee.
+    Repeat for e in rows:
+        Let mutable insertAt be length of out.
+        Let mutable i be 0.
+        While i is less than length of out:
+            If isBefore(e, item (i + 1) of out, sortKey, ascending):
+                Set insertAt to i.
+                Break.
+            Set i to i + 1.
+        Push e to out.
+        Let mutable j be length of out.
+        While j is greater than insertAt + 1:
+            Let tmp be item (j - 1) of out.
+            Set item (j - 1) of out to item j of out.
+            Set item j of out to tmp.
+            Set j to j - 1.
+    Return out.
+
+## To pageSlice (rows: Seq of Employee) and (pageNum: Int) and (perPage: Int) -> Seq of Employee:
+    Let total be length of rows.
+    Let clamped be clampPage(pageNum, total, perPage).
+    Let mutable out be a new Seq of Employee.
+    Let start be pageStart(clamped, perPage).
+    Let stop be pageEnd(clamped, perPage, total).
+    Let mutable i be start.
+    While i is at most stop:
+        Push item i of rows to out.
+        Set i to i + 1.
+    Return out.
+
+## To dollars (cents: Int) -> Text:
+    Return "${cents / 100}".
+
+## Page /
+
+State:
+    Let rows be a new Seq of Employee.
+    Let dept be "all".
+    Let sortKey be "id".
+    Let ascending be true.
+    Let page be 1.
+    Let perPage be 2.
+    Let visibleRows always be pageSlice(sortRows(filterByDept(rows, dept), sortKey, ascending), page, perPage).
+
+Actions:
+    When the page loads:
+        Set rows to seedEmployees().
+
+    To setDept (d: Text):
+        Set dept to d.
+        Set page to 1.
+
+    To sortById:
+        If sortKey is equal to "id":
+            Set ascending to not ascending.
+        Otherwise:
+            Set sortKey to "id".
+            Set ascending to true.
+
+    To sortBySalary:
+        If sortKey is equal to "salary":
+            Set ascending to not ascending.
+        Otherwise:
+            Set sortKey to "salary".
+            Set ascending to true.
+
+    To nextPage:
+        Set page to page + 1.
+
+    To prevPage:
+        Set page to page - 1.
+
+View:
+    <nav class="filters">
+        <button id="dept-all" class:active={dept is equal to "all"} on-click={setDept("all")}>All</button>
+        <button id="dept-eng" class:active={dept is equal to "Engineering"} on-click={setDept("Engineering")}>Engineering</button>
+        <button id="dept-sales" class:active={dept is equal to "Sales"} on-click={setDept("Sales")}>Sales</button>
+        <button id="dept-research" class:active={dept is equal to "Research"} on-click={setDept("Research")}>Research</button>
+    </nav>
+    <table>
+        <thead>
+            <tr>
+                <th><button id="sort-id" on-click={sortById}>#</button></th>
+                <th>Name</th>
+                <th>Department</th>
+                <th><button id="sort-salary" on-click={sortBySalary}>Salary</button></th>
+            </tr>
+        </thead>
+        <tbody>
+            {for each e in visibleRows, keyed by e's id:}
+                <tr id="row-{e's id}">
+                    <td class="name">{e's name}</td>
+                    <td class="dept">{e's department}</td>
+                    <td class="salary">{dollars(e's salaryCents)}</td>
+                </tr>
+            {else:}
+                <tr class="empty"><td colspan="3">No employees match.</td></tr>
+            {end}
+        </tbody>
+    </table>
+    <nav class="pager">
+        <button id="prev" on-click={prevPage}>Prev</button>
+        <span id="page-num">Page {page}</span>
+        <button id="next" on-click={nextPage}>Next</button>
+    </nav>
+
+Style:
+    .filters button.active, .pager button.active { font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .3rem .6rem; }
+
+## Test: the table shows the first page sorted by id
+
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-1 .name" is equal to "Grace".
+Expect that the text of "#row-2 .name" is equal to "Ada".
+Expect that the text of "#page-num" is equal to "Page 1".
+
+## Test: paging moves to the next set of rows, keyed rows keep their identity
+
+Click "#next".
+Expect that the text of "#page-num" is equal to "Page 2".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-3 .name" is equal to "Barbara".
+Expect that the text of "#row-4 .name" is equal to "Katherine".
+Click "#next".
+Expect that the text of "#page-num" is equal to "Page 3".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-5 .name" is equal to "Hedy".
+Expect that the text of "#row-6 .name" is equal to "Margaret".
+Click "#prev".
+Expect that the text of "#page-num" is equal to "Page 2".
+Expect that the text of "#row-3 .name" is equal to "Barbara".
+
+## Test: sorting by salary, descending on a second click
+
+Click "#sort-salary".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-3 .name" is equal to "Barbara".
+Expect that the text of "#row-6 .name" is equal to "Margaret".
+Click "#sort-salary".
+Expect that the text of "#row-2 .name" is equal to "Ada".
+Expect that the text of "#row-1 .name" is equal to "Grace".
+
+## Test: filtering by department narrows the rows and resets to page one
+
+Click "#dept-sales".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-3 .name" is equal to "Barbara".
+Expect that the text of "#row-6 .name" is equal to "Margaret".
+Expect that the text of "#page-num" is equal to "Page 1".
+
+## Test: sorting by id toggles direction, and filtering to Research then back to all
+
+Click "#sort-id".
+Expect that the text of "#row-7 .name" is equal to "Radia".
+Expect that the text of "#row-6 .name" is equal to "Margaret".
+Click "#sort-id".
+Expect that the text of "#row-1 .name" is equal to "Grace".
+Expect that the text of "#row-2 .name" is equal to "Ada".
+Click "#dept-research".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-4 .name" is equal to "Katherine".
+Expect that the text of "#row-5 .name" is equal to "Hedy".
+Click "#dept-all".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-1 .name" is equal to "Grace".
+
+## Test: a department with more rows than fit still paginates
+
+Click "#dept-eng".
+Expect that the count of "tbody tr" is equal to 2.
+Expect that the text of "#row-1 .name" is equal to "Grace".
+Expect that the text of "#row-2 .name" is equal to "Ada".
+Click "#next".
+Expect that the count of "tbody tr" is equal to 1.
+Expect that the text of "#row-7 .name" is equal to "Radia".

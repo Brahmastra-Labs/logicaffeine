@@ -5,7 +5,10 @@
   "prompt": "Translate this nested quantifier statement:",
   "template": "Every {Noun:Singular} {Verb:Present3s} some {Noun2:Singular}.",
   "constraints": {
-    "Verb": ["Transitive"]
+    "Verb": [
+      "Transitive"
+    ]
   },
-  "hint": "Nested quantifiers: ∀x(A(x) → ∃y(B(y) ∧ R(x,y))). Order matters! Every... some... = ∀∃"
+  "hint": "Every comes first, then some, then the event: ∀x(A(x) → ∃y(B(y) ∧ ∃e(Verb(e) ∧ Agent(e, x) ∧ Theme(e, y)))).",
+  "section": "8.4"
 }

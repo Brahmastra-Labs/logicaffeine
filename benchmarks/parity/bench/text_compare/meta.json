@@ -1,0 +1,10 @@
+{
+  "capability": "text.compare",
+  "workload": "compareText(s, base) -1/0/1",
+  "arg": "60000",
+  "expected": "-59400",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

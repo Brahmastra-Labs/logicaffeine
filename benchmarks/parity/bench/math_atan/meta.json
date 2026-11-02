@@ -1,0 +1,13 @@
+{
+  "capability": "math.atan",
+  "workload": "math.atan",
+  "arg": "1000000",
+  "expected": "1562888856219",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "This theorem reveals surprising facts about the sizes of models.",
   "explanation": "Löwenheim-Skolem: If a first-order theory has an infinite model, it has models of every infinite cardinality (both larger and smaller). This creates Skolem's Paradox: set theory, which talks about uncountable sets, has a countable model!",
-  "visual_concept": "FOL can't pin down the 'size' of infinite models. A theory might 'intend' to describe the real numbers but has models the size of the integers."
+  "visual_concept": "FOL can't pin down the 'size' of infinite models. A theory might 'intend' to describe the real numbers but has models the size of the integers.",
+  "section": "15.4"
 }

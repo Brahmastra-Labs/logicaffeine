@@ -1,0 +1,108 @@
+{
+  "case": "T04-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 11,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_005.binCount",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "WellFounded (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1",
+      "name": "T04_005.binCount.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), \u00acn \u2264 1 \u2192 (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1 (n / 2) n",
+      "name": "T04_005.binCount.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), \u00acn \u2264 1 \u2192 (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1 (n - 1) n",
+      "name": "T04_005.binCount.proof_3",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_005.downFrom",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "WellFounded (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1",
+      "name": "T04_005.downFrom.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), \u00acn = 0 \u2192 (invImage (fun x => x) instWellFoundedRelationOfSizeOf).1 (n - 1) n",
+      "name": "T04_005.downFrom.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_005.gcdSteps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u00d7 Nat \u2192 Nat",
+      "name": "T04_005.shrink",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "WellFounded (invImage (fun x => x.fst + x.snd) instWellFoundedRelationOfSizeOf).1",
+      "name": "T04_005.shrink.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u00d7 Nat),\n  \u00acp.fst + p.snd = 0 \u2192 (invImage (fun x => x.fst + x.snd) instWellFoundedRelationOfSizeOf).1 (p.fst / 2, p.snd / 2) p",
+      "name": "T04_005.shrink.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

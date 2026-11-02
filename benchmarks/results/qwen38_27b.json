@@ -1,0 +1,2406 @@
+{
+  "_what": "Qwen3.8-27B Q8_0 baseline measurements. llama.cpp numbers are the bar the LOGOS-authored implementation must beat; ours land here as the campaign progresses.",
+  "model": {
+    "repo": "bartowski/Qwen3.8-27B-GGUF",
+    "file": "Qwen3.8-27B-Q8_0.gguf",
+    "gguf_arch": "qwen35",
+    "size_gib": 27.11,
+    "params_b": 27.32,
+    "note": "64 model layers (48 Gated-DeltaNet + 16 gated attention) + 1 MTP block; see qwen38_arch.json"
+  },
+  "physics": {
+    "_method": "Batch-1 decode is bandwidth-bound. Per-token weight traffic = total Q8_0 weights minus the embedding table (one row read per token) ~= 26.7 GB. Ceiling = HBM bandwidth / traffic.",
+    "per_token_weight_traffic_gb": 26.7,
+    "a100_sxm4_80gb": {
+      "hbm_gb_s": 2039,
+      "ceiling_tok_s": 76.4
+    },
+    "h100_nvl_94gb": {
+      "hbm_gb_s": 3900,
+      "ceiling_tok_s": 146.1
+    }
+  },
+  "llama_cpp": {
+    "build": "427291b5b / b10813",
+    "note": "b10813 is well past ~b10450, which fixed a CUDA bug that made Gated-DeltaNet layers emit fluent garbage at full speed. Coherence verified before benchmarking (the model says 'Paris'), and ldd confirmed the freshly built libggml-cuda.so.0.23.0 was loaded, not the stale one in the build dir.",
+    "a100_sxm4_80gb": {
+      "coherence": "PASS (greedy continuation of 'The capital of France is' -> Paris)",
+      "tg128_fa1_tok_s": 42.09,
+      "tg128_fa1_stddev": 0.13,
+      "tg128_fa0_tok_s": 41.87,
+      "tg128_fa0_stddev": 0.09,
+      "best_tok_s": 42.09,
+      "best_config": "-fa 1",
+      "pct_of_bandwidth_ceiling": 55.1,
+      "observation": "42.09 tok/s is 55% of the 76.4 tok/s bandwidth ceiling -- llama.cpp leaves ~34 tok/s unclaimed. Contrast Qwen3-30B-A3B, where it already sat at the wall and parity was the ceiling. The likely cause is per-node kernel launch overhead across the 48 Gated-DeltaNet layers, each carrying a conv, two norms, two gates and a rank-1 state update -- exactly the shape that fusion plus one replayed CUDA graph collapses.",
+      "tg128_fa1_reps": 5,
+      "tg128_fa0_reps": 5,
+      "pp512_tok_s": 1253.49,
+      "pp512_stddev": 63.5,
+      "mtp_spec_decode_tok_s": 54.6,
+      "mtp_note": "llama-cli --spec-type draft-mtp, real streaming generation (not llama-bench, which does not speculate). +29.7% over plain tg128, in line with the +33-39% reported for this model. This is llama.cpp's headline number and the Phase 7 bar; the apples-to-apples bar is tg128 at 42.09.",
+      "correction": "An earlier 3-rep run read -fa 1 at 37.07 +- 7.03 and -fa 0 at 41.84 +- 0.08, suggesting -fa was a regression here. That was a warmup artifact: at 5 reps the two agree to within 0.5% and -fa 1 is marginally ahead. Three reps is not enough for this model."
+    }
+  },
+  "logos": {
+    "status": "GOLDEN \u2014 the LOGOS-authored forward reproduces llama.cpp token-for-token on CPU and on GPU",
+    "golden_prompt": "The capital of France is",
+    "golden_prompt_tokens": [
+      760,
+      6511,
+      314,
+      9338,
+      369
+    ],
+    "golden_tokens": [
+      11751,
+      13,
+      198,
+      760,
+      6511,
+      314,
+      9564,
+      369,
+      19241,
+      13,
+      198,
+      760,
+      6511
+    ],
+    "golden_text": " Paris.\nThe capital of Germany is Berlin.\nThe capital",
+    "cpu_reference": {
+      "tokens_match": true,
+      "golden_token_rank": 0,
+      "result_norm": [
+        2.9505,
+        -2.0928,
+        3.6824
+      ],
+      "llama_result_norm": [
+        2.9437,
+        -2.1045,
+        3.6637
+      ],
+      "logits": [
+        7.2511,
+        7.6641,
+        3.2456
+      ],
+      "llama_logits": [
+        7.3194,
+        7.6621,
+        3.2559
+      ]
+    },
+    "a100_sxm4_80gb": {
+      "precise_lane": {
+        "tokens_match": true,
+        "tg128_tok_s": 41.29,
+        "note": "byte-exact multi-pass attention; this is the golden lane"
+      },
+      "fast_lane": {
+        "tokens_match": false,
+        "tg128_tok_s": 41.47,
+        "note": "split-K flash attention reorders float adds and diverges from golden at token 3 -- the same tradeoff llama.cpp has with -fa on"
+      },
+      "llama_cpp_tg128_fa1": 42.17,
+      "llama_cpp_tg128_fa0": 41.94,
+      "pct_of_llama_cpp": 98.3
+    },
+    "bugs_fixed": [
+      "prompt token ids came from Qwen3-30B's tokenizer; Qwen3.8 has its own 248320 vocab",
+      "ssm_a already holds -exp(A_log); exponentiating again made the memory forget every token",
+      "Q and its output gate are interleaved per head in attn_q, not concatenated",
+      "the GDN output is RMSNorm'd THEN gated, not gated then normed",
+      "value head h reads key head h % NK (ggml_repeat tiles), not h / (NV/NK)",
+      "the 1/sqrt(D) GDN output scale does NOT cancel under the following RMSNorm: the recurrence output is tiny (RMS~0.015) so eps is comparable to the scaled variance. Observed a constant 1.25x ratio; the algebra s*sqrt(m+eps)/sqrt(s^2*m+eps) predicts 0.798 vs 0.796 measured."
+    ],
+    "root_cause": "implemented from Qwen3-Next documentation; this checkpoint is Qwen3.5 (gguf arch 'qwen35'). llama.cpp/src/models/qwen35.cpp and ggml/src/ggml-cuda/gated_delta_net.cu are the authority.",
+    "a100_speed_campaign_2026_09_05": {
+      "_what": "Second A100 session: win or tie llama.cpp on tok/s AND on logit accuracy.",
+      "instance": "RunPod A100-SXM4-80GB (a different unit from the 2026-09-04 run; llama.cpp measures 41.79 here vs 42.17 there, so only same-instance rows are comparable)",
+      "llama_cpp_tg128_fa1": 41.79,
+      "llama_cpp_tg128_fa1_stddev": 0.37,
+      "llama_cpp_tg128_fa0": 41.65,
+      "llama_cpp_tg128_fa0_stddev": 0.08,
+      "levers": {
+        "kernel_fusion": {
+          "launches_per_token": {
+            "before": 948,
+            "after_precise": 789,
+            "after_fast": 805
+          },
+          "measured_effect": "NEUTRAL on the A100 -- 41.29 before, 41.27 after. CUDA graphs already amortize dispatch, so 159 fewer launches at 24 ms/token is inside the noise. Kept anyway: it is bit-identical (locked), shrinks the graph, and the same overhead is twice the fraction of a token on a faster chip."
+        },
+        "half_block_scales": {
+          "bytes_per_weight": {
+            "before": 1.125,
+            "after": 1.0625
+          },
+          "traffic_reduction_pct": 5.6,
+          "accuracy_cost": "none, provably: gguf.rs::q8_0_matrix builds the scale with f16_to_f32, so every value in the .s file is exactly representable in f16 and __float2half round-trips it",
+          "measured_effect": "41.27 -> 42.28 tok/s on the golden lane"
+        }
+      },
+      "result": {
+        "ours_precise_tg128": 42.28,
+        "ours_precise_tokens_match": true,
+        "ours_fast_tg128": 42.48,
+        "ours_fast_tokens_match": false,
+        "verdict": "WIN on throughput WITH byte-exact output: our GOLDEN lane runs 42.28 tok/s against llama.cpp's best configuration at 41.79 (+1.2%), on the same instance, same Q8_0 checkpoint, same tg128 protocol. Our fast lane is 42.48 (+1.7%) but diverges from golden at token 3, exactly as llama.cpp's -fa 1 differs from its -fa 0 -- so the honest headline is the golden lane.",
+        "golden_tokens_reproduced": [
+          11751,
+          13,
+          198,
+          760,
+          6511,
+          314,
+          9564,
+          369,
+          19241,
+          13,
+          198,
+          760,
+          6511
+        ]
+      },
+      "lanes": {
+        "_protocol": "one A100-SXM4-80GB instance, same Q8_0 checkpoint, llama-bench tg128 protocol, accuracy = mean-centred relative L2 distance from an f64 CPU forward of the same weights",
+        "llama_cpp_fa1": {
+          "tg128": 41.79,
+          "rel_L2": 0.01475,
+          "max_abs": 0.6258
+        },
+        "llama_cpp_fa0": {
+          "tg128": 41.65,
+          "rel_L2": 0.01492,
+          "max_abs": 0.639
+        },
+        "ours_int8_act": {
+          "tg128": 42.28,
+          "rel_L2": 0.0198,
+          "max_abs": 0.2453,
+          "golden": true,
+          "note": "the throughput lane: single int8 activation word, dp4a"
+        },
+        "ours_int8_act_wideN": {
+          "tg128": 41.1,
+          "rel_L2": 0.0198,
+          "golden": true,
+          "note": "two output rows per warp -- bit-identical (locked) and SLOWER; halving the warp count costs more than the reuse buys"
+        },
+        "ours_two_pass_int8": {
+          "tg128": 38.3,
+          "rel_L2": 0.01428,
+          "max_abs": 0.2318,
+          "golden": true,
+          "note": "the accuracy lane: a ~= s*(qh + ql/127), 254x tighter, dp4a retained"
+        },
+        "ours_two_pass_wideN": {
+          "tg128": 37.05,
+          "rel_L2": 0.01428,
+          "golden": true
+        },
+        "ours_f32_act": {
+          "tg128": 32.27,
+          "rel_L2": 0.01427,
+          "max_abs": 0.2317,
+          "golden": true,
+          "note": "diagnostic only -- one int-to-float convert per weight is quarter rate"
+        },
+        "ours_int8_act_u2": {
+          "tg128": 41.94,
+          "rel_L2": 0.0198,
+          "golden": true,
+          "note": "K-unroll HURTS the single-word lane -- it is already memory-saturated"
+        },
+        "ours_two_pass_u2": {
+          "tg128": 40.29,
+          "rel_L2": 0.01428,
+          "golden": true,
+          "note": "THE UNIFIED LANE: two-pass activations + two K-blocks in flight. Best accuracy, 3.6% short on speed"
+        },
+        "ours_two_pass_u4": {
+          "tg128": 39.71,
+          "rel_L2": 0.01428,
+          "golden": true,
+          "note": "four blocks regresses -- register pressure. Two is the sweet spot"
+        }
+      },
+      "verdict_speed": "WIN: 42.28 vs llama.cpp's best 41.79 (+1.2%), with byte-exact golden tokens.",
+      "verdict_accuracy": "WIN: the two-pass lane lands 1.428e-2 from the f64 oracle against llama.cpp's 1.475e-2 -- and it also holds the better max_abs (2.318e-1 vs 6.258e-1) and the golden token stream. Both goals are met, but as of this A100 session they are met by DIFFERENT lanes: 42.28 tok/s at 1.980e-2, or 38.30 tok/s at 1.428e-2.",
+      "context": "llama.cpp's own -fa 1 and -fa 0 differ from EACH OTHER by 1.544e-2, more than either differs from the oracle. That ~1.5e-2 spread is the intrinsic noise of f32 arithmetic with int8 activations on this model, not one implementation being wrong.",
+      "final_a100": {
+        "speed_winner": {
+          "lane": "int8 activations",
+          "tg128": 42.28,
+          "vs_llama_best": "+1.2%",
+          "golden": true
+        },
+        "accuracy_winner": {
+          "lane": "two-pass int8 + K-unroll",
+          "rel_L2": 0.01428,
+          "vs_llama_best": "1.03x closer",
+          "tg128": 40.29,
+          "golden": true
+        },
+        "unified": "NOT achieved on A100. The best single lane that wins accuracy runs 40.29 against llama.cpp's 41.79 -- a 3.6% deficit. The arithmetic cost of the second dp4a is what stands in the way, and at ~1150 GB/s effective both implementations are already near this chip's practical bandwidth wall, so there is no bandwidth left to pay for it.",
+        "why_h100_is_a_different_bet": "H100 lifts bandwidth ~1.7x over A100 but int8 throughput closer to 3x, so the second dp4a should cost proportionally less there. Same lanes, different balance."
+      }
+    },
+    "h100_nvl_2026_09_05": {
+      "_what": "\u2605\u2605\u2605 BOTH GOALS IN ONE LANE \u2605\u2605\u2605 \u2014 on the H100 NVL the two-pass lane is FASTER than llama.cpp AND closer to the f64 oracle, with byte-exact golden tokens.",
+      "gpu": "NVIDIA H100 NVL, 95830 MiB, sm_90, RunPod $3.19/hr",
+      "protocol": "one instance, same Q8_0 checkpoint, llama-bench tg128, r=5; accuracy = mean-centred relative L2 from the same f64 CPU forward used on the A100 (chip-independent, self-checked to argmax 11751)",
+      "llama_cpp_tg128_fa1": 55.5,
+      "llama_cpp_tg128_fa1_stddev": 0.08,
+      "llama_cpp_tg128_fa0": 54.89,
+      "llama_cpp_tg128_fa0_stddev": 0.24,
+      "llama_cpp_rel_L2_fa1": 0.01499,
+      "llama_cpp_rel_L2_fa0": 0.01492,
+      "lanes": {
+        "ours_two_pass_u2": {
+          "tg128": 59.74,
+          "rel_L2": 0.01428,
+          "max_abs": 0.2318,
+          "golden": true,
+          "verdict": "WINS BOTH: +7.6% faster than llama.cpp's best AND 1.05x closer to the oracle"
+        },
+        "ours_int8_act_u2": {
+          "tg128": 65.25,
+          "rel_L2": 0.0198,
+          "max_abs": 0.2453,
+          "golden": true,
+          "verdict": "the pure-throughput lane: +17.6% over llama.cpp, at the coarser activation"
+        },
+        "ours_two_pass": {
+          "tg128": 55.61,
+          "rel_L2": 0.01428,
+          "golden": true,
+          "verdict": "rolled two-pass: already edges llama.cpp on both, before the unroll"
+        },
+        "ours_int8_act": {
+          "tg128": 63.71,
+          "rel_L2": 0.0198,
+          "max_abs": 0.2453,
+          "golden": true,
+          "note": "clean single-word lane, re-emitted after a stale file on the volume produced a mislabeled row"
+        }
+      },
+      "the_reversal": "The K-unroll's payoff changes between chips. On A100 it HURT the single-word lane (42.28 -> 41.94) and helped the two-pass one (38.30 -> 40.29, +5.2%); on H100 it helps both, but still asymmetrically \u2014 single-word +2.4% (63.71 -> 65.25), two-pass +7.4% (55.61 -> 59.74). The pattern is the same in both places: extra loads in flight pay only where there is arithmetic to hide behind them, and the two-pass lane is the one with arithmetic. What H100 changes is that its int8 throughput rises ~3x against ~1.7x of bandwidth, so the second dp4a stops being the thing that decides the token time.",
+      "scaling": "llama.cpp gains 1.33x from A100 to H100 (41.79 -> 55.50). Our two-pass lane gains 1.48x (40.29 -> 59.74) and our throughput lane 1.51x (42.28 -> 63.71, or 65.25 unrolled). The newer chip suits this design better than it suits theirs."
+    },
+    "mtp_2026_09_05": {
+      "_what": "Multi-token prediction: the checkpoint's own draft head (blk.64 = gated attention + FFN + the nextn adapter), measured for ACCEPT RATE before building the expensive two-token verify path.",
+      "measured_accept_rate": "10/12 = 0.833",
+      "projected_speedup": 1.714,
+      "projected_h100_tok_s": {
+        "golden_lane": 102.4,
+        "throughput_lane": 111.8
+      },
+      "draft_cost_pct_of_forward": 7.0,
+      "\u2605CAVEAT": "12 samples on ONE prompt, and a highly repetitive one: 'The capital of France is Paris. The capital of Germany is Berlin. The capital' is a pattern the draft head can copy. Treat 83% as an optimistic upper bound, not a general accept rate. llama.cpp reports +33-39% from MTP on ordinary text, which implies ~45-50% acceptance -- and even 50% is 1.40x, so the head is worth the verify path either way. A broader corpus measurement is owed before the number is quoted.",
+      "why_this_was_measured_first": "The real speedup needs a two-token VERIFY step (GEMVs batched over two positions while the GDN recurrence still advances sequentially) -- days of work whose entire payoff is (1+alpha). Measuring alpha with the draft head alone cost one pod run and no new machinery, because the golden continuation is already known.",
+      "bug_found_first": "An earlier run reported accept rate 0.000 with draft=0 at every step. That was a 7168-byte scratch overflow (buffers sized 2*d=10240 while the FFN hidden dff=17408 routed through them), not a property of the head. A broken draft is indistinguishable from a useless one unless the probe checks itself."
+    },
+    "batched_h100_2026_09_05": {
+      "_what": "Batched decode, ours vs llama.cpp, one H100 NVL, same Q8_0 checkpoint, same prompt, 128 decode steps, GPU model time only on both sides (host argmax excluded).",
+      "correctness": "OURS IS GOLDEN AT EVERY BATCH SIZE: all B sequences emit the golden 13-token stream and BATCH_AGREEMENT is perfect (32/32 at B=32). The batched kernels are bit-identical to the golden single-sequence ones (batched_equivalence_lock, 6/6).",
+      "ours_aggregate_tok_s": {
+        "1": 40.84,
+        "2": 73.18,
+        "4": 111.56,
+        "8": 135.8,
+        "16": 152.09,
+        "32": 157.7
+      },
+      "ours_best_lane_b1": 59.74,
+      "llama_aggregate_tok_s": {
+        "1": 56.68,
+        "2": 106.62,
+        "4": 167.35,
+        "8": 233.41,
+        "16": 442.23,
+        "32": 593.49
+      },
+      "verdict": "BATCH-1 IS OURS: 59.74 vs 56.68, and closer to the f64 oracle (1.428e-2 vs 1.499e-2), golden tokens. BATCH IS THEIRS, decisively and increasingly: llama.cpp is 1.5x ahead at B=2 and 3.76x ahead at B=32 (593.49 vs 157.70). We scale 3.9x from B=1 to B=32; they scale 10.5x.",
+      "root_cause": "Not bandwidth. At B=32 our step takes 202.9 ms to move 25.9 GB of weights = 128 GB/s, against ~3000 GB/s available -- we are COMPUTE bound. The batched GEMV keeps one warp per output row and loops BTG=8 sequences in registers, so per 512-weight block it issues ~64 dp4a and re-reads each sequence's activation slab through L2: roughly 16x more activation traffic than weight traffic. A GEMV shape running a GEMM problem.",
+      "known_fix": "int8 TENSOR-CORE GEMM. The 30B lane already has `bgk_gemm_mma` (Marlin-shaped, shared-memory staged), and batch_throughput.json records that tensor-core int8 is bit-identical (int32 exact) so the golden stream survives. The dp4a kernel was chosen deliberately to get correctness first; 157.70 is a placeholder kernel's number, not our ceiling.",
+      "ratio_llama_over_ours": {
+        "1": 1.39,
+        "2": 1.46,
+        "4": 1.5,
+        "8": 1.72,
+        "16": 2.91,
+        "32": 3.76
+      },
+      "scaling_b1_to_b32": {
+        "ours": 3.9,
+        "llama": 10.5
+      }
+    },
+    "tensor_core_attempt_2026_09_06": {
+      "result": "MEASURED LOSS. Tensor-core lowering at B=8: 43.43 tok/s aggregate (golden, 8/8 agreement) against our own GEMV lowering's 135.80 and llama.cpp's 233.41. 3x SLOWER than the kernel it was meant to replace.",
+      "why_it_lost": "Starved of parallelism at this batch. The M tile is 16, so B=8 fills half of ONE tile row: grid.y=1, and for N=16384 that is 256 blocks total against the GEMV lowering's 2048. A 132-SM H100 is not filled by 256 blocks of 256 threads.",
+      "\u2605MY PREMISE WAS WRONG": "I assumed llama.cpp switches to tensor cores at batch. It does not. ggml/src/ggml-cuda/mmq.cu:327 reads `!fp16_mma_hardware_available(cc) || ne11 < MMQ_DP4A_MAX_BATCH_SIZE` with MMQ_DP4A_MAX_BATCH_SIZE = 64 \u2014 llama.cpp uses DP4A MMQ for batch < 64 EVEN WHEN TENSOR CORES ARE AVAILABLE. At B=8/16/32, our entire measured range, they are not using tensor cores at all. Their advantage is a properly TILED dp4a kernel: shared-memory staged, 256-K steps, N tiled by 128.",
+      "what_this_corrects": "MMQ_ITER_K=256 was a real finding, but I applied it to an MMA path llama.cpp itself would not use at this batch size. The right target is our EXISTING dp4a GEMV given their staging structure \u2014 which also explains our plateau: we re-read every sequence's activation slab through L2 instead of staging it once in shared memory.",
+      "kept_because": "The MMA lowering is correct (golden at B=8) and locked equivalent to the GEMV lowering. It should win above batch 64, which is exactly where llama.cpp switches to it. It stays behind the shape rule with a raised threshold, not deleted."
+    },
+    "staged_gemv_attempt_2026_09_09": {
+      "_what": "Shared-memory staging of the batched GEMV activations, measured against the register-tiled kernel it was meant to replace. One H100 NVL, same checkpoint, same prompt, 128 decode steps, two-pass (golden) lane, staged and unstaged emitted from the same compiler run.",
+      "gpu": "NVIDIA H100 NVL, 95830 MiB, sm_90, RunPod $2.59/hr",
+      "date": "2026-09-09",
+      "measured": true,
+      "result": "MEASURED LOSS AT EVERY BATCH SIZE, worsening with B: 66.91 vs 73.52 at B=2 (-9.0%), 103.10 vs 133.67 at B=8 (-22.9%), 85.72 vs 157.87 at B=32 (-45.7%) aggregate tok/s. Every run emitted the golden 13-token stream; BATCH_AGREEMENT 32/32 at B=32.",
+      "aggregate_tok_s": {
+        "staged": {
+          "2": 66.91,
+          "8": 103.1,
+          "32": 85.72
+        },
+        "unstaged": {
+          "2": 73.52,
+          "8": 133.67,
+          "32": 157.87
+        }
+      },
+      "reproducibility": "The unstaged B=32 lane measured 157.87 here against 157.70 recorded on a different pod on 2026-09-05 \u2014 0.1% apart, so the harness and the chip both reproduce.",
+      "why_it_lost": "Staging does not remove the activation reads; it converts them into a cooperative shared-memory load amortised over the block's output rows. A block is 8 warps of one row each, so the amortisation is 8x \u2014 which the L2 already provided for free: the whole activation slab is 20-320 KB against a 50 MB L2. The staged form pays two barriers per 512-element K chunk and 34 KB of shared memory per block to buy nothing, and the cost grows with B, which is why the deficit widens.",
+      "\u2605THE ORIGINAL DIAGNOSIS WAS WRONG": "batched_h100_2026_09_05.root_cause reads 're-reads each sequence's activation slab through L2: roughly 16x more activation traffic than weight traffic'. That traffic is L2-resident, not HBM, so it was never the bandwidth cost it was written up as. Two levers derived from it were built and both measured slower.",
+      "what_the_probe_showed": {
+        "_what": "A standalone probe at the real projection shape (N=17408, K=5120) timing the one-word and two-pass GEMVs, correcting for the grid.y passes over the weights.",
+        "achieved_weight_gb_s": {
+          "B2": 2621,
+          "B8": 1311,
+          "B32": 1371
+        },
+        "reading": "At B=2 the kernel reaches 2621 GB/s of weight throughput, close to the HBM limit, so the shape is efficient where the batch is small. BTG=8 caps sequences per block, so at B=32 the weight matrix is streamed four times (grid.y=4)."
+      },
+      "btg_sweep": {
+        "_what": "Raising BTG so one pass covers the batch removes the 4x weight re-read. Measured at the real shape, two-pass lane, milliseconds per launch.",
+        "B32_ms": {
+          "BTG8": 0.335,
+          "BTG16": 0.795,
+          "BTG32": 1.386
+        },
+        "registers_per_thread": {
+          "BTG8": 40,
+          "BTG16": 119,
+          "BTG32": 178
+        },
+        "verdict": "WORSE, 2.6x at B=32. The unrolled per-sequence loop holds BTG activation registers and BTG accumulators, so register pressure collapses occupancy: 40 registers at BTG=8 (full occupancy) becomes 178 at BTG=32 (~18%). No spills \u2014 it is occupancy, not spilling."
+      },
+      "conclusion": "BTG=8 with no staging is a genuine local optimum for the one-warp-per-row shape: both available levers measure worse, for two different and now-quantified reasons. Closing the remaining gap to llama.cpp requires its structure rather than a parameter \u2014 shared-memory tiles for BOTH operands with register blocking, which decouples tile width from per-thread register count. That is a rewrite, not a tuning change.",
+      "kept": "Both staged kernels remain, locked bit-identical to the register-tiled originals (batched_equivalence_lock), behind LOGOS_Q38B_STAGED=1. They are correct and are the starting point for a properly tiled version; they are not the default because they are slower."
+    },
+    "mmq_tile_2026_09_09": {
+      "_what": "An MMQ-shaped lowering for the batched projection: both operands staged in shared memory with register blocking, replacing the one-warp-per-row register tile above a batch threshold. Measured on an isolated projection at the real shape (N=17408, K=5120) against the kernel it would replace, same data, same launch harness.",
+      "gpu": "NVIDIA H100 NVL, sm_90",
+      "date": "2026-09-09",
+      "measured": true,
+      "ms_per_launch": {
+        "register_tiled": {
+          "16": 0.184,
+          "32": 0.347,
+          "64": 0.673
+        },
+        "mmq_tile": {
+          "16": 0.193,
+          "32": 0.284,
+          "64": 0.484
+        },
+        "cp_async_pipe": {
+          "16": 0.199,
+          "32": 0.288
+        }
+      },
+      "speedup_vs_register_tiled": {
+        "16": 0.95,
+        "32": 1.22,
+        "64": 1.39
+      },
+      "result": "WIN ABOVE A THRESHOLD, growing with batch: 0.95x at B=16, 1.22x at B=32, 1.39x at B=64. Below the crossover a block stages a whole tile whether or not the batch fills it, so the lowering is selected by a shape rule at B>=32 rather than replacing the GEMV outright.",
+      "why_it_works": "The register tile reuses each weight element across all B sequences but each activation element across exactly one output row \u2014 64 activation loads per weight load at B=32. Neither escape exists inside a warp-register tile: the sequence tile must cover the batch or the weight matrix is re-streamed (4x at B=32), and rows-per-warp needs RI*BTG accumulators, measured 40 -> 63 -> 96 -> 178 registers. Shared memory decouples tile size from register count.",
+      "two_bugs_that_decided_it": {
+        "thread_map": "(TI/RI)*(TJ/RJ) must equal the block size or surplus threads recompute another thread's outputs \u2014 silently correct, 4x the work. Now a static_assert.",
+        "bank_conflicts": "Unpadded shared rows are KC bytes apart and shared memory repeats every 128 B, so every thread of a warp hit one bank: a 32-way conflict on every read of the inner loop. One int of padding took the kernel from 0.704 to 0.450 ms on the development card \u2014 the difference between losing and winning."
+      },
+      "negative_result_cp_async": "Double-buffering the tile with cp.async gave NO benefit: 1.20x against the plain tile's 1.22x at B=32. The +1-int padding that removes the bank conflicts also breaks the 16-byte alignment a wide cp.async needs, so the copies fall back to 4 bytes, and the second buffer costs 51 KB per block which halves occupancy. Not pursued.",
+      "parameters_confirmed_against_llama_cpp": "A sweep of the staged K chunk over 128/256/512 independently selected 256, which is llama.cpp's MMQ_ITER_K; 8 warps per block is what the thread budget wants. Accumulation in double is free on this part (fp64 half-rate; 1.22x with double against 1.25x with float) and 10x more accurate, but would be wrong on a consumer card where fp64 is 1/32 rate \u2014 so it is a knob.",
+      "status": "LANDED AND VERIFIED. The emitter's shape rule selects the tile at batch >= 32 and emits byte-identically the kernel that was measured. Locks green: batched_equivalence_lock 11/11 (including a new self-containment invariant), qwen38_authored_lock 6/6, qwen38_golden_lock 3/3, fused_launch_equivalence_lock 3/3, tensor_op_coverage_lock 8/8. STILL OWED: a same-session llama.cpp bar (llama-batched-bench dumps core on this checkpoint; the 593.49 comparison figure is from a prior session on the same chip class), and a full-suite run.",
+      "end_to_end_a100_2026_09_09": {
+        "_what": "The MMQ lowering measured on the WHOLE decode step, not an isolated projection: the same emitted program with every one of its 257 projection launches plus the output head switched to the tiled kernel, run against the unmodified program on one A100-SXM4-80GB.",
+        "gpu": "NVIDIA A100-SXM4-80GB",
+        "batch": 32,
+        "lane": "two-pass int8 (the golden lane)",
+        "measured": true,
+        "register_tiled": {
+          "aggregate_tok_s": 95.57,
+          "ms_per_step": 334.824
+        },
+        "mmq_tile": {
+          "aggregate_tok_s": 239.0,
+          "ms_per_step": 133.893
+        },
+        "speedup": 2.5,
+        "golden": "IDENTICAL. Both emit 11751 13 198 760 6511 314 9564 369 19241 13 198 760 6511 and report BATCH_AGREEMENT 32/32 with zero token mismatches. The lowering re-associates the K reduction and the token stream is unchanged.",
+        "why_it_is_larger_than_the_isolated_1.46x": "The isolated probe compares one projection; in the whole step the tiled kernel also removes the four passes over the weight matrix that BTG=8 forced (grid.y = B/BTG), so it saves traffic the probe still paid on both sides."
+      },
+      "ablation_where_the_step_goes_a100": {
+        "_what": "Each kernel class removed in turn from the emitted program; the step-time delta is that class's contribution. Output is meaningless once a class is removed, the timing is not.",
+        "gpu": "NVIDIA A100-SXM4-80GB",
+        "batch": 32,
+        "base_ms_per_step": 328.078,
+        "measured": true,
+        "share_of_step_pct": {
+          "projection_gemv": 93.6,
+          "gdn_recurrence": 2.2,
+          "elementwise_and_norms": 1.9,
+          "attention": 0.5
+        },
+        "reading": "The projection GEMV is effectively the entire step. The Gated-DeltaNet recurrence, which looks expensive because its state is 3.1 MB per sequence per layer, costs 2.2%. Any work not aimed at the projection lowering is aimed at 6% of the runtime."
+      },
+      "end_to_end_h100_2026_09_09": {
+        "_what": "The MMQ lowering on the whole decode step, H100 NVL \u2014 the chip the llama.cpp batched baseline was taken on, so this is the comparable number. Same emitted program, all 257 projection launches plus the output head switched to the tiled kernel.",
+        "gpu": "NVIDIA H100 NVL",
+        "batch": 32,
+        "lane": "two-pass int8 (the golden lane)",
+        "measured": true,
+        "register_tiled": {
+          "aggregate_tok_s": 157.59,
+          "ms_per_step": 203.059
+        },
+        "mmq_tile": {
+          "aggregate_tok_s": 340.91,
+          "ms_per_step": 93.865
+        },
+        "speedup": 2.16,
+        "golden": "IDENTICAL on both. 11751 13 198 760 6511 314 9564 369 19241 13 198 760 6511, BATCH_AGREEMENT 32/32, zero token mismatches.",
+        "harness_reproduces": "The register-tiled baseline measured 157.59 tok/s / 203.059 ms here against 157.70 / 202.9 recorded on a different pod on 2026-09-05 \u2014 0.2% apart, on a different rented instance, so the harness and the chip both reproduce.",
+        "gap_to_llama_cpp": "llama.cpp's recorded B=32 aggregate on this chip class is 593.49 tok/s. The deficit goes from 3.76x to 1.74x. Still behind; more than half the gap closed by one lowering."
+      },
+      "compiler_attribution_verified": {
+        "_what": "The end-to-end numbers were measured on a program built by splicing the compiler's kernel text into an already-emitted file, which proves the KERNEL and says nothing about the emitter's shape rule. This is that gap closed.",
+        "emitted_at_batch_32": "257 bq_gemm_mmq launches; zero bq_gemv_hl, bq_gemv_hl_smem or bq_gemm_mma. The shape rule fires and covers every projection site plus the output head.",
+        "kernel_sha256_first20": "1683f5b0a5c4d843bd6a \u2014 IDENTICAL between the emitter's output and the program that produced the 2.16x measurement (72 executable lines each).",
+        "launch_configs": "Identical in value. The emitter writes the tile symbolically as (256/(MMQ_TJ/MMQ_RJ))*MMQ_RI, which evaluates to 32, the literal the measured program used.",
+        "defines": "MMQ_TJ=32, MMQ_RI=2, MMQ_RJ=2, MMQ_KC=256, MMQ_ACC=double in both.",
+        "verdict": "The 2.16x on H100 and 2.50x on A100 are COMPILER results, not kernel results."
+      }
+    },
+    "tensor_core_tile_2026_09_09": {
+      "_what": "The batched projection lowered onto the TENSOR CORES: mma.sync.m16n8k32.s8 in place of __dp4a, on the same shared-memory staged tile. The instruction consumes exactly 32 K-elements, which is exactly one Q8_0 block, so the quantisation scale still lands on an instruction boundary and nothing about the numerics has to move.",
+      "gpu": "NVIDIA H100 NVL, sm_90",
+      "date": "2026-09-09",
+      "measured": true,
+      "lane": "two-pass int8 (the golden lane)",
+      "why_dp4a_could_not_get_there": "Ablation against the MMQ-tile step put the GEMM at 79.1 ms of a 93.4 ms step (84.7%). The work is 1.557e12 int8 MACs (two passes over 24.33 GB of weights at batch 32); against 132 SMs x 256 dp4a MAC/clk that is 26.3 ms at 100% efficiency, and the step budget that beats llama.cpp is 39.7 ms of GEMM. Measured efficiency was 39%, and no dp4a shape recovers the rest: raising operand reuse from 1.33 to 4.00 (RI=8, RJ=4) measured 0.96x, because the taller tile starves the machine of blocks faster than it saves shared-memory loads. The tensor cores run the same MACs at 1024/SM/clk.",
+      "levers_measured_separately": {
+        "mma_vs_dp4a": "1.5x-1.9x per shape at the same tile",
+        "KC_128_vs_256": "uniform win, +12% to +21%: a shallower staged chunk keeps more blocks resident",
+        "split_K": "the decisive one on narrow shapes -- N=5120 is 128 of the 257 launches and gives 40 blocks of the 128-row tile, leaving 70% of the SMs idle; splitting K is worth 2.5x there",
+        "weight_prefetch": "1.27x on the deep-K shape (K=17408); overlaps HBM latency with the mma",
+        "int32_scale_combine": "REJECTED -- predicted to halve the quarter-rate cvt.rn.f32.s32 count, measured 1-2% SLOWER at every shape and less faithful to the shipped arithmetic, so the two-cvt grouping was kept"
+      },
+      "split_rule": "split = clamp(ceil(1024 / (N/TI)), 1, 16) capped at half the staged chunks. Within 1% of a per-shape hand-tuned table (33.6 ms vs 33.2 ms of GEMM per step), so the rule is the artifact rather than the table.",
+      "aggregate_tok_s": {
+        "_note": "One H100 NVL, one session, same Q8_0 checkpoint, same prompt, 128 decode steps, GPU model time only on both sides. llama.cpp measured in the SAME session as ours, which closes the debt the mmq_tile entry recorded: its 590.81 at B=32 reproduces the 2026-09-05 figure of 593.49 to within 0.45%.",
+        "ours": {
+          "1": null,
+          "2": 82.42,
+          "4": 161.08,
+          "8": 293.3,
+          "16": 459.95,
+          "32": 616.55,
+          "64": 721.14
+        },
+        "ours_ms_per_step": {
+          "2": 24.267,
+          "4": 24.832,
+          "8": 27.276,
+          "16": 34.786,
+          "32": 51.902,
+          "64": 88.748
+        },
+        "llama_cpp": {
+          "1": 55.11,
+          "2": 103.95,
+          "4": 163.82,
+          "8": 235.66,
+          "16": 432.27,
+          "32": 590.81,
+          "64": 702.25
+        },
+        "llama_cpp_ms_per_step": {
+          "1": 18.146,
+          "2": 19.24,
+          "4": 24.418,
+          "8": 33.947,
+          "16": 37.014,
+          "32": 54.163,
+          "64": 91.136
+        },
+        "ratio_ours_over_llama": {
+          "1": null,
+          "2": 0.793,
+          "4": 0.983,
+          "8": 1.245,
+          "16": 1.064,
+          "32": 1.044,
+          "64": 1.027
+        },
+        "ours_b1_note": "B=1 is not a tile lane and was not re-measured this session: the tile's sequence dimension is 8 wide, so a single sequence would waste seven eighths of every mma. B=1 keeps the register-tiled GEMV, whose best lane measured 59.74 tok/s on this chip on 2026-09-05 against llama.cpp's 55.11 here."
+      },
+      "verdict": "WE WIN BATCHED. At the B=32 target: 616.55 vs 590.81 tok/s, +4.4%. Also ahead at B=8 (+24.5%), B=16 (+6.4%) and B=64 (+2.7%). Behind at B=2 (0.79x) and level at B=4 (0.98x). The prior position was 3.76x BEHIND at B=32; two lowerings closed it and passed it.",
+      "correctness": "Golden at every batch size. The token stream is byte-identical to the MMQ tile's and to the single-sequence golden lane, and BATCH_AGREEMENT is perfect at every size (8/8, 16/16, 32/32, 64/64, zero token mismatches).",
+      "progression_at_b32_one_chip": {
+        "register_tiled_gemv": 157.59,
+        "mmq_tile": 342.52,
+        "tensor_core_tile": 616.55,
+        "llama_cpp": 590.81,
+        "_note": "157.59 and 342.52 and 616.55 are all H100 NVL; 342.52 was re-measured in this session alongside the tensor-core figure rather than carried over."
+      },
+      "a_bug_the_self_check_caught": {
+        "what": "At batch 16 the program reported BATCH_AGREEMENT 0/16 with 96 token mismatches while sequence 0 stayed golden.",
+        "cause": "The split-K partial buffer is sized from a high-water mark recorded as the matmul sites are emitted, and Rust evaluates format! arguments in source order -- the output head was emitted after the allocation argument, so its partials were not counted. At batch 32 the head is 1940 blocks wide and the rule leaves it unsplit, so the defect was invisible; at batch 16 the tile is 256 rows, the head drops to 970 blocks, the rule splits it 2 ways, and 2 x 248320 overtook every projection. A 100 KB overrun.",
+        "fix": "The head is emitted into a local before the format!, and qwen38_authored_lock now asserts the PROPERTY -- buffer >= max(split x N) over every emitted launch, at every tile batch -- rather than the ordering, so a new site or a changed split rule is caught by arithmetic instead of by a rented GPU."
+      },
+      "compiler_attribution": {
+        "emitted_by": "emit_qwen38_generate_batched(Qwen38Cfg::real(), batch=32, hl=true)",
+        "launches": "257 bq_gemm_tc, 256 bq_sk_reduce (the head is the one site the rule leaves unsplit)",
+        "splits_chosen": {
+          "N=34816 K=5120": 4,
+          "N=16384 K=5120": 8,
+          "N=14336 K=5120": 10,
+          "N=5120 K=17408": 16,
+          "N=5120 K=6144": 16,
+          "head": 1
+        },
+        "kernel_sha256_20": "e4a1d18a0d9e1d8767cd",
+        "reproduces": "Re-emitting after every change produced a file byte-identical to the one measured."
+      },
+      "locks": "batched_equivalence_lock 12/12 (a new tensor-core equivalence test covers the m16n8k32 fragment map and the split reduction, unsplit and split, including a half-masked tile); qwen38_authored_lock 9/9 (two new ungated tests: every matmul site takes the tile, and the split buffer covers every launch at every tile batch).",
+      "ablation_where_the_mmq_step_goes_h100": {
+        "_what": "Where the step goes AFTER the MMQ tile. Re-measured rather than carried over: the earlier breakdown was taken against the 203 ms register-tiled step and the step is now 93.4 ms, so the old shares no longer describe the program being optimised. Each variant is the emitter's own output with one kernel class removed.",
+        "gpu": "NVIDIA H100 NVL",
+        "date": "2026-09-09",
+        "measured": true,
+        "batch": 32,
+        "ms_per_step": {
+          "base": 93.382,
+          "no_projection_gemm": 14.263,
+          "no_gdn_recurrence": 88.472,
+          "no_attention": 92.75,
+          "no_elementwise": 84.009
+        },
+        "share_of_step_pct": {
+          "projection_gemm": 84.7,
+          "elementwise": 10.0,
+          "gdn_recurrence": 5.3,
+          "attention": 0.7
+        },
+        "conclusion": "The projection GEMM is still 84.7% of the step, so it is still the only target worth attacking. What changed is the tail: elementwise work rose from 1.9% to 10.0% purely because the GEMM shrank around it."
+      }
+    },
+    "small_batch_campaign_2026_09_09": {
+      "_what": "Closing the batch sizes where llama.cpp still led. Three fixes, all the same defect: a kernel whose GRID WAS SIZED BY THE WRONG UNIT, so it could not fill the machine at small batch however fast its arithmetic was.",
+      "gpu": "NVIDIA H100 NVL, sm_90",
+      "date": "2026-09-09",
+      "measured": true,
+      "lane": "two-pass int8 (the golden lane), split-norm fast lane",
+      "how_llama_cpp_wins_at_small_batch": "Read from ggml/src/ggml-cuda/mmvq.cu rather than inferred. Every batch <= 8 goes to MMVQ, checked BEFORE MMQ in ggml_cuda_mul_mat (MMVQ_MAX_BATCH_SIZE). Their edge is not the instruction, it is REDUCTION WIDTH: calc_nwarps gives 4 warps at ncols_dst<=4 and 2 at <=8, with calc_rows_per_block = 2. So a whole BLOCK reduces one output row and two rows share each activation load. Ours gave one row to one warp -- 32 threads of loads in flight instead of 128.",
+      "what_we_did_about_it": {
+        "row_parallel_gemv": "bq_gemv_wide: their shape, generalised. nw = clamp(8/tj, 1, 4) reproduces both our measured optimum at every tile width AND the shape of their hand-written switch, without a table. Per-step GEMM 15.6 -> 9.6 ms at B=1, 18.7 -> 11.9 at B=2. Bit-identical to the shipped GEMV at MV_NW=1.",
+        "split_residual_norm": "bq_add_rmsnorm_part/apply: the norm took ONE BLOCK PER SEQUENCE because its sum of squares spans the model dimension -- 2 blocks of 132 SMs, 4.06 ms of a 21.5 ms step. Splitting the reduction measured 1.95x-2.02x. Costs ~1 ulp (2.4e-07) so it is a LANE, not a default.",
+        "swiglu_epilogue": "bq_silu_had_q8_hl gave one THREAD to each 32-wide quantisation block, so 544 of 17408 launched threads did the work -- 1.6%. One WARP per block instead: 1.14 ms -> ~0.2. BIT-IDENTICAL, because fmaxf is associative so the shuffle reduction yields the same amax, the same scale, the same quantisation.",
+        "gdn_f32_projection": "bq_gemv_f32w was one warp per row with only N=96 rows -- 192 warps on the whole part. F32W_NW=8 warps now share each row's reduction. 0.45 ms saved."
+      },
+      "a_negative_worth_keeping": "Copying llama.cpp's ARRANGEMENT directly LOST. Their quantiser (quantize_row_q8_1) is a separate grid-parallel kernel from their row-serial rms_norm_f32; doing that to ours measured 0.77x, SLOWER, because ours already fuses add + norm + f32 write + two-word quantiser into one pass, so splitting it reads the activation from global twice and doubles the launch count. Their arrangement is right for their kernel and wrong for ours. Read what they do; do not transcribe it.",
+      "aggregate_tok_s": {
+        "_note": "\u2605 SUPERSEDES the earlier figures in this block, which were UNFAIR TO llama.cpp and overstated every margin. The measurement script warmed our extracted .q/.s weights but never the 29 GB gguf, so every llama.cpp run paid a cold-read penalty ours did not. Re-measured 2026-09-10 on ONE H100 NVL, one boot, BOTH sides warmed, three ALTERNATING repeats per batch so neither side owns the warmer half of the window. Run-to-run spread is 0.13%-0.80%, so every verdict below except B=2's is far outside the noise.",
+        "before_this_campaign": {
+          "1": 40.84,
+          "2": 82.42,
+          "4": 161.08,
+          "8": 293.3,
+          "32": 616.55
+        },
+        "ours": {
+          "1": 64.2,
+          "2": 104.81,
+          "4": 180.02,
+          "8": 328.97,
+          "32": 655.2
+        },
+        "ours_ms_per_step": {
+          "1": 15.526,
+          "2": 19.082,
+          "4": 22.042,
+          "8": 24.107,
+          "32": 48.286
+        },
+        "llama_cpp": {
+          "1": 57.51,
+          "2": 108.73,
+          "4": 168.53,
+          "8": 238.73,
+          "32": 596.32
+        },
+        "ratio_ours_over_llama": {
+          "1": 1.116,
+          "2": 0.964,
+          "4": 1.068,
+          "8": 1.378,
+          "32": 1.099
+        },
+        "ours_runs": {
+          "1": [
+            64.27,
+            64.2,
+            64.13
+          ],
+          "2": [
+            104.84,
+            104.81,
+            104.6
+          ],
+          "4": [
+            180.16,
+            180.02,
+            179.69
+          ],
+          "8": [
+            329.3,
+            328.97,
+            328.86
+          ],
+          "32": [
+            659.25,
+            655.2,
+            653.99
+          ]
+        },
+        "llama_cpp_runs": {
+          "1": [
+            57.62,
+            57.43,
+            57.51
+          ],
+          "2": [
+            108.79,
+            108.42,
+            108.73
+          ],
+          "4": [
+            168.52,
+            168.53,
+            168.9
+          ],
+          "8": [
+            237.79,
+            238.73,
+            238.96
+          ],
+          "32": [
+            596.32,
+            595.36,
+            597.42
+          ]
+        },
+        "spread_pct": {
+          "1": {
+            "ours": 0.22,
+            "llama_cpp": 0.33
+          },
+          "2": {
+            "ours": 0.23,
+            "llama_cpp": 0.34
+          },
+          "4": {
+            "ours": 0.26,
+            "llama_cpp": 0.23
+          },
+          "8": {
+            "ours": 0.13,
+            "llama_cpp": 0.49
+          },
+          "32": {
+            "ours": 0.8,
+            "llama_cpp": 0.35
+          }
+        }
+      },
+      "verdict": "FOUR WINS AND ONE LOSS. B=1 1.116x, B=4 1.068x, B=8 1.378x, B=32 1.099x \u2014 and B=2 is a LOSS at 0.964x. B=32 went from 3.76x BEHIND to 1.10x ahead. B=2 is the one regime still theirs: at two sequences the whole 24.33 GB weight stream is paid for almost no arithmetic, which is where their tuning is hardest to beat.",
+      "correctness": "Golden at every batch size: BATCH_AGREEMENT 1/1, 4/4, 8/8, 32/32 with zero token mismatches, and the token stream byte-identical across every intermediate step of the campaign (exact norm vs split norm, before vs after the SwiGLU and f32w fixes).",
+      "accuracy_note": "Bit-exactness against our OWN kernel was never the bar; the bar is llama.cpp. Against the f64 CPU oracle our two-pass lane measures rel_L2 1.428e-2 and their -fa 1 measures 1.499e-2, and their own -fa 0 and -fa 1 differ from EACH OTHER by more than either differs from the oracle. The split norm's 2.4e-07 is five orders below that spread.",
+      "still_owed": "The locks have not run green since these three landed: two attempts died on ext4 htree ENOSPC in target/debug/deps (4.48M entries), which is disk, not code. Running now in a private CARGO_TARGET_DIR.",
+      "a_measurement_error_of_ours": "The first paired run reported B=2 as a 1.008x WIN and B=1/4/8/32 as 1.17x/1.11x/1.41x/1.12x. All five were inflated: the harness warmed one side's weights and not the other's. Caught only because five repeats at B=2 put llama.cpp at 108.5-109.2 against the 104.29 a single cold run had recorded. A single sample cannot separate a 4% effect from an I/O artifact; the fix is alternating repeats with both sides warmed, and it is now what the harness does."
+    },
+    "vllm_baseline_2026_09_19": {
+      "_what": "Phase 1 BASELINE: vLLM's best config against our existing static-batch lane, same chip, same boot. This session wrote no kernels -- it exists to measure the real gap before any optimisation is ranked.",
+      "gpu": "NVIDIA H100 NVL, sm_90",
+      "date": "2026-09-19",
+      "measured": true,
+      "workload": "512 prompt tokens, 128 generated, greedy; vLLM --dataset-name random with --ignore-eos, our w512_* lanes carry a 512-token prompt and n_gen=128",
+      "metric_definitions": "vLLM benchmarks/serve.py:748-751 -- output_throughput = sum(output_lens)/dur_s; tpot = (latency-ttft)/(output_len-1)",
+      "vllm": {
+        "version": "0.29.0",
+        "torch": "2.13.0+cu130",
+        "caveat": "VLLM_USE_FLASHINFER_SAMPLER=0 -- FlashInfer's sampling JIT could not be built in this image under either CUDA toolkit. It is vLLM's own supported fallback and touches only the argmax over 248320 logits, not the attention/GDN/GEMM kernels this comparison is about.",
+        "rows": [
+          {
+            "quant": "fp8",
+            "spec": "mtp",
+            "concurrency": 1,
+            "output_throughput": 72.49475556502009,
+            "request_throughput": 0.5663652778517194,
+            "median_ttft_ms": 115.35360710695386,
+            "median_tpot_ms": 13.010381042634643,
+            "median_itl_ms": 12.958181090652943,
+            "p99_ttft_ms": 126.50836107321084
+          },
+          {
+            "quant": "fp8",
+            "spec": "mtp",
+            "concurrency": 8,
+            "output_throughput": 425.9997295001034,
+            "request_throughput": 3.328122886719558,
+            "median_ttft_ms": 517.4126741476357,
+            "median_tpot_ms": 14.853431927553546,
+            "median_itl_ms": 14.797691255807877,
+            "p99_ttft_ms": 523.933351971209
+          },
+          {
+            "quant": "fp8",
+            "spec": "mtp",
+            "concurrency": 32,
+            "output_throughput": 829.1422136182566,
+            "request_throughput": 6.47767354389263,
+            "median_ttft_ms": 1785.5075504630804,
+            "median_tpot_ms": 24.0339764804528,
+            "median_itl_ms": 21.083801984786987,
+            "p99_ttft_ms": 2311.0042171087116
+          },
+          {
+            "quant": "fp8",
+            "spec": "mtp",
+            "concurrency": 64,
+            "output_throughput": 1029.057841751997,
+            "request_throughput": 8.039514388687477,
+            "median_ttft_ms": 2958.7742937728763,
+            "median_tpot_ms": 39.26936678192395,
+            "median_itl_ms": 27.24589966237545,
+            "p99_ttft_ms": 4550.142739452422
+          },
+          {
+            "quant": "fp8",
+            "spec": "off",
+            "concurrency": 1,
+            "output_throughput": 73.24257826324677,
+            "request_throughput": 0.5722076426816154,
+            "median_ttft_ms": 110.53934041410685,
+            "median_tpot_ms": 12.917906067913442,
+            "median_itl_ms": 12.867288663983345,
+            "p99_ttft_ms": 113.30830661579967
+          },
+          {
+            "quant": "fp8",
+            "spec": "off",
+            "concurrency": 8,
+            "output_throughput": 427.5590397147144,
+            "request_throughput": 3.3403049977712063,
+            "median_ttft_ms": 512.9872099496424,
+            "median_tpot_ms": 14.826950873798271,
+            "median_itl_ms": 14.74181329831481,
+            "p99_ttft_ms": 519.9124881532043
+          },
+          {
+            "quant": "fp8",
+            "spec": "off",
+            "concurrency": 32,
+            "output_throughput": 757.3567750561444,
+            "request_throughput": 5.9168498051261285,
+            "median_ttft_ms": 1933.4914246574044,
+            "median_tpot_ms": 23.06727181357427,
+            "median_itl_ms": 21.018909756094217,
+            "p99_ttft_ms": 6412.845994438976
+          },
+          {
+            "quant": "fp8",
+            "spec": "off",
+            "concurrency": 64,
+            "output_throughput": 1033.9800347670916,
+            "request_throughput": 8.077969021617903,
+            "median_ttft_ms": 2958.3631083369255,
+            "median_tpot_ms": 37.13997094488637,
+            "median_itl_ms": 27.214857283979654,
+            "p99_ttft_ms": 4574.447415620089
+          }
+        ],
+        "best": {
+          "quant": "fp8",
+          "spec": "off",
+          "concurrency": 64,
+          "output_throughput": 1033.9800347670916,
+          "request_throughput": 8.077969021617903,
+          "median_ttft_ms": 2958.3631083369255,
+          "median_tpot_ms": 37.13997094488637,
+          "median_itl_ms": 27.214857283979654,
+          "p99_ttft_ms": 4574.447415620089
+        }
+      },
+      "ours": {
+        "lane_note": "two-pass int8 (hl) is the golden lane; single-pass (fast) trades activation precision for GEMM work. Accuracy is reported separately and never assumed.",
+        "known_deficit": "prefill replays the T=1 decode graph once per prompt token, so TTFT at 512 input is ~512 forwards. PREFILL_MS/TTFT_MS make that a measured number.",
+        "rows": [
+          {
+            "lane": "w512_b1_fast",
+            "input_len": 512,
+            "concurrency": 1,
+            "precision": "fast",
+            "prefill_ms": 9034.221,
+            "ttft_ms": 9034.356,
+            "tok_s": 61.17,
+            "batch_agreement": "1/1",
+            "golden": true
+          },
+          {
+            "lane": "w512_b1_hl",
+            "input_len": 512,
+            "concurrency": 1,
+            "precision": "hl",
+            "prefill_ms": 9410.511,
+            "ttft_ms": 9410.652,
+            "tok_s": 58.43,
+            "batch_agreement": "1/1",
+            "golden": true
+          },
+          {
+            "lane": "w512_b8_fast",
+            "input_len": 512,
+            "concurrency": 8,
+            "precision": "fast",
+            "prefill_ms": 17374.55,
+            "ttft_ms": 17374.686,
+            "tok_s": 245.3,
+            "batch_agreement": "8/8",
+            "golden": true
+          },
+          {
+            "lane": "w512_b8_hl",
+            "input_len": 512,
+            "concurrency": 8,
+            "precision": "hl",
+            "prefill_ms": 13771.773,
+            "ttft_ms": 13771.895,
+            "tok_s": 313.84,
+            "batch_agreement": "8/8",
+            "golden": true
+          },
+          {
+            "lane": "w512_b32_fast",
+            "input_len": 512,
+            "concurrency": 32,
+            "precision": "fast",
+            "prefill_ms": 47513.952,
+            "ttft_ms": 47514.087,
+            "tok_s": 349.06,
+            "batch_agreement": "32/32",
+            "golden": true
+          },
+          {
+            "lane": "w512_b32_hl",
+            "input_len": 512,
+            "concurrency": 32,
+            "precision": "hl",
+            "prefill_ms": 26470.099,
+            "ttft_ms": 26470.245,
+            "tok_s": 637.55,
+            "batch_agreement": "32/32",
+            "golden": true
+          },
+          {
+            "lane": "w512_b64_fast",
+            "input_len": 512,
+            "concurrency": 64,
+            "precision": "fast",
+            "prefill_ms": 164393.014,
+            "ttft_ms": 164393.157
+          },
+          {
+            "lane": "w512_b64_hl",
+            "input_len": 512,
+            "concurrency": 64,
+            "precision": "hl",
+            "prefill_ms": 45924.033,
+            "ttft_ms": 45924.165,
+            "tok_s": 733.56,
+            "batch_agreement": "64/64",
+            "golden": true
+          }
+        ]
+      }
+    },
+    "h100_chunked_prefill_2026_09_21": {
+      "_what": "One H100 NVL, one boot, 2026-09-21. Our engine ONLY -- vLLM was NOT re-run in this boot, so every comparison below is against the recorded vllm_baseline_2026_09_19 figures from the same GPU model and is NOT a same-boot measurement. Stated that way on purpose: the 2026-09-10 llama.cpp correction exists because a cross-boot comparison was quoted as if it were one.",
+      "gpu": "NVIDIA H100 NVL",
+      "pod_cost_usd": 1.4,
+      "shape": "512 prompt tokens, 128 generated",
+      "lane": "single-pass int8 (bq_gemm_tc1); every lane BATCH_AGREEMENT n/n, first token 90659 on all",
+      "landed_this_session": [
+        "bq_gdn_chunk -- the GDN recurrence with its state resident in registers across the chunk",
+        "chunked prefill reachable (LOGOS_Q38B_PREFILL_T had one reader and NO writer in the tree)",
+        "TC_MINBLOCKS arch-conditional: 3 on Hopper, 2 on Ampere"
+      ],
+      "ours": {
+        "b1": {
+          "prefill_ms": 2460.9,
+          "decode_tok_s": 62.26,
+          "step_ms": 16.062
+        },
+        "b8": {
+          "prefill_ms": 3728.2,
+          "decode_tok_s": 330.57,
+          "step_ms": 24.201
+        },
+        "b32": {
+          "prefill_ms": 10509.9,
+          "decode_tok_s": 816.82,
+          "step_ms": 39.176
+        },
+        "b64": {
+          "prefill_ms": 20283.3,
+          "decode_tok_s": 1066.59,
+          "step_ms": 60.004
+        }
+      },
+      "chunked_prefill_ab_same_boot": {
+        "_what": "PT=1 control vs PT=32, same boot, same chip. Token streams identical.",
+        "single_pass_b32": {
+          "pt1_prefill_ms": 21201.4,
+          "pt32_prefill_ms": 10548.0,
+          "speedup": 2.01,
+          "pt1_decode_tok_s": 799.08,
+          "pt32_decode_tok_s": 801.8
+        },
+        "two_pass_b32": {
+          "pt1_prefill_ms": 23009.9,
+          "pt32_prefill_ms": 18430.3,
+          "speedup": 1.25,
+          "pt1_decode_tok_s": 733.48,
+          "pt32_decode_tok_s": 730.49
+        },
+        "note": "The two-pass lane barely moves while single-pass halves. Solving 23010 = G + D against 18430 = G + D/4.38 puts the GDN recurrence at 5.9 s of the 23 s -- that part landed as measured. The two-pass prefill penalty GREW from 1.8 s to 7.9 s under chunking, which is unexplained and is the next thing to look at if the two-pass lane is ever shipped."
+      },
+      "vs_vllm_recorded_not_same_boot": {
+        "_what": "Against vllm_baseline_2026_09_19 on the same GPU model. vLLM median_itl_ms IS its decode step.",
+        "decode_ours_over_theirs": {
+          "b1": 0.82,
+          "b8": 0.63,
+          "b32": 0.55,
+          "b64": 0.47
+        },
+        "full_serving_ours_over_theirs": {
+          "b32": 0.32,
+          "b64": 0.28
+        },
+        "honest_summary": "Still behind on both metrics. Decode they are ~1.8x-2.1x faster; end-to-end serving they are ~3.1x-3.5x faster, and that larger gap is TTFT. Progress is real -- B=32 decode 693.59 (baseline) -> 816.82, TTFT 23009 -> 10510 (2.19x) -- but it does not close the gap."
+      },
+      "microbenchmarks_on_h100": {
+        "decode_gemm_bq_gemm_tc1_gb_s": {
+          "_what": "K=17408 N=5120 B=32, GB/s of weights. TFLOPS is the wrong unit for this shape.",
+          "by_minblocks_at_split16": {
+            "1": 766,
+            "2": 1045,
+            "3": 1148,
+            "4": 1026,
+            "5": 912
+          },
+          "shipped_before_this_session": 766,
+          "now": 1148,
+          "gain": 1.5,
+          "ceiling": "1148 of H100's ~3350 GB/s = 34%"
+        },
+        "prefill_gemm_bq_gemm_tcm_tflops": {
+          "_what": "K=17408 N=5120 M=1024 (= B32 x PT32) int8.",
+          "h100": 119.1,
+          "h100_pct_of_dense_int8_peak": 0.12,
+          "rtx3060": 27.3,
+          "rtx3060_pct_of_dense_int8_peak": 0.53,
+          "reading": "THE wgmma NUMBER. The same Ampere-era mma.sync tile reaches 53% of peak on Ampere and 12% on Hopper. Prefill is now COMPUTE-bound (chunking removed the weight passes), so this 4x is the whole remaining TTFT gap and wgmma.mma_async is the instruction that closes it. chip.rs already selects sm_90a; the emitter has never emitted a Hopper instruction."
+        }
+      },
+      "occupancy_is_chip_dependent": {
+        "_what": "GB/s of weights at the decode shape, by __launch_bounds__ min-blocks-per-SM.",
+        "rtx3060": {
+          "1": 167,
+          "2": 199,
+          "3": 156
+        },
+        "h100": {
+          "1": 766,
+          "2": 1045,
+          "3": 1148,
+          "4": 1026,
+          "5": 912
+        },
+        "reading": "Ampere's third rung is a spill cliff (ptxas 130 -> 80 registers); Hopper has the register file to hold three blocks and 4.7x the bandwidth to saturate. The emitted program now picks by __CUDA_ARCH__. End-to-end the gain is only +1.9% (B=32) and +2.8% (B=64), and B=8 REGRESSED 2% -- the GEMM is not the whole step."
+      }
+    },
+    "wgmma_verified_and_rejected_2026_09_21": {
+      "_what": "Hopper warpgroup MMA built, VERIFIED CORRECT on H100 NVL silicon, and MEASURED SLOWER than the Ampere mma.sync tile it was built to replace. Recorded in full because the inference that led here -- 'the tile gets 53% of peak on Ampere and 12% on Hopper, so wgmma is the 4x' -- was WRONG, and the wrong version is the intuitive one.",
+      "gpu": "NVIDIA H100 NVL",
+      "pod_cost_usd": 0.54,
+      "shape": "K=17408 N=5120 M=1024 int8 (the prefill shape: B=32 x PT=32 rows)",
+      "correctness": {
+        "verified": true,
+        "worst_rel_vs_f32_oracle": 0.0003227,
+        "shapes": [
+          "K64 N64 M64",
+          "K128 N128 M128",
+          "K256 N192 M128",
+          "K1024 N128 M64"
+        ],
+        "measured_against_hardware_not_derived": {
+          "d_fragment_map": "0 of 4096 register slots disagree with BQ_WG_ROW/BQ_WG_COL",
+          "descriptor_convention": "both leading/stride orderings built; the GPU selected LBO=128, SBO=KB*128",
+          "k_order_in_core_matrices": "probed slot by slot, identity across all 32"
+        },
+        "oracle_bug_found": "The first four runs 'failed' with relative error 0.67 to 10.5 growing with K. The KERNEL was right: the oracle used float weight scales where the kernel reads __half, and with random +-127 operands the block sums cancel heavily, so a 5e-4 per-term difference amplifies exactly that way. Check the oracle before the kernel when the error GROWS WITH THE REDUCTION LENGTH."
+      },
+      "throughput_tflops": {
+        "pure_wgmma_m64n64k32_no_staging_no_epilogue": 1639.8,
+        "wgmma_tile_without_the_q8_rescale_epilogue": 120.3,
+        "wgmma_tile_as_written": 82.1,
+        "ampere_mma_sync_tile_it_would_replace": 119.1,
+        "progression_while_optimising": {
+          "naive_wait_group_0": 25.8,
+          "pipelined_double_buffered": 57.7,
+          "scales_staged_in_shared": 82.1
+        }
+      },
+      "why_it_loses": "The instruction sustains 1639.8 TOPS -- 13x what ANY tile here reaches -- so the MMA was never the limit. Removing the Q8_0 rescale epilogue entirely buys only 32% (82.1 -> 120.3) and still lands at the Ampere tile's number. Widening the output tile measured WORSE (MI 128 -> 256: 119.1 -> 94.0; NT 64 -> 128 at MI 128: 119.1 -> 110.4). Everything plateaus at ~120 TFLOPS regardless of instruction, tile shape, or whether the epilogue runs at all. What is left is operand DELIVERY, and closing it needs TMA plus warp specialisation -- producer warps feeding consumer warpgroups through mbarriers -- not a different MMA.",
+      "disposition": "Kept behind #ifdef BQ_ENABLE_WGMMA so a shipped program carries none of it, locked by qwen38_authored_lock::the_warpgroup_tile_still_builds_for_hopper_and_stays_unselected. NOT selected by the shape rule: the bar is golden AND faster on that chip, and it clears only the first."
+    },
+    "kc128_lane_gating_2026_09_21": {
+      "_what": "The unused two-pass wrapper was compiled beside the single-pass one in every program, and its 2x activation staging priced the 48 KB shared budget for a lane that never runs -- capping TC_KC at 64 for the lane that does. Emitting only the launched wrapper unlocks TC_KC=128, and that in turn makes the taller sub-tile at batch 64 a losing trade.",
+      "gpu": "NVIDIA H100 NVL",
+      "pod_cost_usd": 0.87,
+      "roofline_gb_s": {
+        "just_read_the_weight_set": 3180,
+        "_note": "95% of the 3350 spec; the number the tile should be judged against"
+      },
+      "decode_gemm_gb_s_reduce_included": {
+        "_what": "K=17408 N=5120 B=32, bq_sk_reduce INCLUDED -- every earlier sweep timed the tile alone",
+        "KC64_WM4_MB3_split16": 1077,
+        "KC128_WM4_MB3_split16": 1320,
+        "gain": 1.23,
+        "pct_of_roofline": 0.415
+      },
+      "ours_h100_single_pass_512in_128out": {
+        "b1": {
+          "decode_tok_s": 62.03,
+          "prefill_ms": 2436.3
+        },
+        "b8": {
+          "decode_tok_s": 329.39,
+          "prefill_ms": 3694.7
+        },
+        "b32": {
+          "decode_tok_s": 935.71,
+          "prefill_ms": 10299.6
+        },
+        "b64": {
+          "decode_tok_s": 1158.35,
+          "prefill_ms": 20035.1
+        },
+        "_all_golden": "BATCH_AGREEMENT n/n at every batch"
+      },
+      "session_deltas_at_b32": {
+        "decode_tok_s": [
+          816.82,
+          935.71
+        ],
+        "gain": 1.145
+      },
+      "session_deltas_at_b64": {
+        "decode_tok_s": [
+          1066.59,
+          1158.35
+        ],
+        "gain": 1.086,
+        "cause": "WM=8 + KC=64 -> WM=4 + KC=128; the taller tile's 2.2% win was measured under a constraint that has since moved"
+      },
+      "vs_vllm_recorded_not_same_boot": {
+        "decode_ours_over_theirs": {
+          "b1": 0.82,
+          "b8": 0.62,
+          "b32": 0.63,
+          "b64": 0.51
+        },
+        "full_serving_ours_over_theirs": {
+          "b1": 0.39,
+          "b8": 0.28,
+          "b32": 0.34,
+          "b64": 0.29
+        },
+        "was_this_morning": {
+          "b32_decode": 0.55,
+          "b64_decode": 0.47
+        },
+        "honest_summary": "Still behind. Decode improved 0.55 -> 0.63 at b32 and 0.47 -> 0.51 at b64."
+      },
+      "the_remaining_gap_is_quantified": {
+        "prefill": "Ours runs 1024-row chunks at ~90-120 TFLOPS int8. vLLM prefills 16384 tokens in ~1.9 s = ~466 TFLOPS, i.e. 24% of H100 fp8 dense peak against our 6%. That 4x is real and is what CUTLASS-class kernels get from TMA + WARP SPECIALISATION -- producer warps feeding consumer warpgroups through mbarriers. The wgmma work on 2026-09-21 established the instruction sustains 1639.8 TOPS, so the gap is operand delivery, and this is the build that closes it.",
+        "decode": "1320 GB/s of a 3180 GB/s measured roofline = 41.5%. vLLM's median ITL implies ~1250 GB/s effective across the whole step against our ~710."
+      }
+    },
+    "decode_step_ablation_2026_09_21": {
+      "_what": "Kernel-by-kernel ablation of the decode step on H100 NVL at B=32 -- measured, not modelled.",
+      "step_ms": 34.2,
+      "by_kernel_ms": {
+        "bq_gemm_tc1": 21.94,
+        "bq_gdn_chunk": 4.04,
+        "bq_sk_reduce": 1.39,
+        "bq_conv_silu_l2": 0.86,
+        "bq_gdn_gates": 0.26,
+        "bq_gemv_f32w": 0.2,
+        "bq_attn": 0.41,
+        "norms_elementwise_graph": 5.1
+      },
+      "gemm_effective_gb_s": 1109,
+      "microbenchmark_says": {
+        "ms": 19.7,
+        "gb_s": 1299,
+        "note": "~20% optimistic against the in-situ number"
+      },
+      "real_gemm_shape_mix": {
+        "6144x5120": 64,
+        "5120x34816": 64,
+        "17408x5120": 64,
+        "5120x16384": 48,
+        "5120x14336": 16,
+        "5120x248320": 1,
+        "note": "ffn gate/up alone is 45% of weight traffic; every earlier sweep used only 17408x5120"
+      },
+      "tile_height_does_not_transfer": {
+        "rtx3060_mix": {
+          "WM4": 212,
+          "WM2": 233
+        },
+        "h100_mix": {
+          "WM4": 1298,
+          "WM2": 1242
+        },
+        "note": "the 3060 prefers the shorter tile, the H100 the taller -- opposite conclusions from the same sweep"
+      },
+      "to_beat_vllm": "cut 12.6 ms of 34.20; 21.94 of it is in one kernel"
+    },
+    "speculative_decode_2026_09_21": {
+      "_what": "MTP speculative decode, built end to end and measured. \u2605 At ONE sequence this BEATS the recorded vLLM baseline on decode throughput. At 8 and 32 it does not help at all.",
+      "gpu": "NVIDIA H100 NVL",
+      "shape": "512 random prompt tokens / 128 generated (vLLM's benchmark shape)",
+      "b1": {
+        "greedy_tok_s": 61.92,
+        "speculative_tok_s": 79.17,
+        "speedup": 1.28,
+        "accept_rate": 0.924,
+        "repeats": [
+          79.65,
+          78.99,
+          78.88
+        ],
+        "spread_pct": 1.0,
+        "vllm_decode_tok_s": 75.47,
+        "ours_over_vllm": 1.049,
+        "vllm_own_mtp_at_c1": "NEGATIVE (72.49 vs 73.24) -- it cannot answer with speculation here"
+      },
+      "b8": {
+        "greedy_tok_s": 327.84,
+        "speculative_tok_s": 310.06,
+        "speedup": 0.95,
+        "accept_rate": 0.924
+      },
+      "b32": {
+        "greedy_tok_s": 930.08,
+        "speculative_tok_s": 893.42,
+        "speedup": 0.96,
+        "accept_rate": 1.0
+      },
+      "why_only_at_b1": "A verify is a 2-token chunk and costs more than one decode step; at 1 sequence the per-step fixed costs dominate and 1+accept tokens for ~1.16 steps of work pays, while at 8 and 32 the step is already amortised over sequences and the extra draft + verify outweighs the tokens gained.",
+      "measurement_honesty": [
+        "Timed from the REAL post-prefill state. An earlier in-program timer rewound positions to 0 and measured its accept rate against garbage state; that figure (89.47) is NOT the one here.",
+        "A host sync per step is INSIDE the timed region, so the number is conservative.",
+        "NOT same-boot against vLLM: compared to vllm_baseline_2026_09_19 on the same GPU model."
+      ],
+      "correctness": {
+        "gate": "a_chunked_forward_produces_the_same_tokens_as_stepping_one_at_a_time",
+        "proves": [
+          "a chunked forward at T=2 and T=4 gives the same token stream as sequential decode",
+          "the speculative lane gives the same token stream as greedy"
+        ],
+        "note": "This gate is the one the campaign plan demanded before ANY TTFT measurement and that had never been built. It found two real bugs: the draft conditioning on a stale hidden state exactly when accepted, and gemv_rows ignoring its row count in every lowering but the tensor-core one.",
+        "at_full_scale": "On the golden prompt the speculative stream matches greedy for 30 tokens then diverges. With the logic proven correct at small scale, that is float drift across 64 layers flipping a near-tie in a repetitive continuation -- the float-order fragility this campaign already documented -- not a defect."
+      }
+    },
+    "same_boot_head_to_head_2026_09_21": {
+      "_what": "\u2605 SAME BOOT, one H100 NVL, both engines, 2026-09-21. This is the comparison the campaign's own discipline requires -- the 2026-09-10 llama.cpp correction exists because a cross-boot number was quoted as if it were one. It confirms the B=1 win and bounds it.",
+      "gpu": "NVIDIA H100 NVL",
+      "shape": "512 random prompt tokens / 128 generated",
+      "vllm": {
+        "config": "fp8, no speculation, vllm bench serve --dataset-name random",
+        "c1": {
+          "median_itl_ms": 12.9,
+          "decode_tok_s": 77.52,
+          "output_throughput": 73.0
+        },
+        "c2": {
+          "median_itl_ms": 13.58,
+          "decode_tok_s": 147.3,
+          "output_throughput": 132.56
+        },
+        "c4": {
+          "median_itl_ms": 14.21,
+          "decode_tok_s": 281.5,
+          "output_throughput": 245.87
+        },
+        "c8": {
+          "median_itl_ms": 14.79,
+          "decode_tok_s": 540.9,
+          "output_throughput": 428.79
+        }
+      },
+      "ours_speculative": {
+        "b1": 78.93,
+        "b2": 129.83,
+        "b4": 250.34,
+        "accept_rate": 0.924,
+        "b1_repeats": [
+          79.03,
+          78.84,
+          78.92
+        ],
+        "b1_spread_pct": 0.2
+      },
+      "ours_greedy": {
+        "b1": 61.69,
+        "b2": 90.87,
+        "b4": 175.13
+      },
+      "decode_to_decode": {
+        "b1": 1.018,
+        "b2": 0.88,
+        "b4": 0.89
+      },
+      "verdict": "\u2605 WE BEAT vLLM AT ONE SEQUENCE, same boot: 78.93 vs 77.52 tok/s of decode (1.018x), three repeats at 0.2% spread. We do NOT beat it at 2 or 4 (0.88x, 0.89x) or above. Speculation is worth 1.28x over our own greedy lane at B=1 and nothing past B=4, because a verify is a two-token chunk costing more than one decode step and beyond one sequence the step is already amortised across sequences.",
+      "comparison_discipline": "ours is decode-only (timed from the real post-prefill state) and is compared to vLLM's MEDIAN ITL, which is also decode-only. Comparing it to vLLM's output_throughput would flatter us -- that figure carries prefill -- and would repeat the exact error the 2026-09-20 correction was written for. On that (wrong) basis b1 would read 1.08x and b4 1.02x.",
+      "warp_specialisation_priced_not_built": {
+        "_what": "The barrier was priced by deleting it in a timing-only build before committing to the rewrite.",
+        "tile_as_shipped_gb_s": 224,
+        "tile_with_all_syncthreads_removed_gb_s": 266,
+        "ceiling": 1.1875,
+        "reading": "+18.75% is the ABSOLUTE ceiling for warp specialisation and only if it removed synchronisation entirely, which it does not. On the decode step that is 930 -> ~1020 tok/s against vLLM's 1480: it does not win, and did not have to be built to find out. With barriers gone the tile is at 78% of the pure-read rate on a 3060 but only 41% on an H100, so what is short is per-SM memory-level parallelism -- which needs ncu, and ncu is permission-blocked in RunPod containers."
+      }
+    },
+    "decode_gemm_attribution_2026_09_21": {
+      "_what": "In-kernel stall attribution with clock64() -- ncu is permission-blocked in RunPod containers, so this is how the B=32 gap was finally named. The two chips are limited by DIFFERENT HALVES of the same kernel.",
+      "stall_split": {
+        "rtx3060": {
+          "issue": 0.0,
+          "wait_for_data": 0.67,
+          "mma_and_shared": 0.33
+        },
+        "h100_nvl": {
+          "issue": 0.0,
+          "wait_for_data": 0.47,
+          "mma_and_shared": 0.53
+        }
+      },
+      "reading": "Ampere waits on memory; Hopper spends more than half its time in the mma/shared phase. Every memory-side lever priced this session was therefore aimed at the smaller half on the chip that matters.",
+      "levers_priced_and_eliminated": {
+        "deeper_staging": "worse; wait stays 67-72% so depth buys nothing",
+        "dynamic_shared_memory": "enables depth and bigger tiles; every use of the extra room lost",
+        "bigger_tiles": "119 -> 94 TFLOPS",
+        "blocks_from_M_not_K": "224 -> 79 GB/s; re-reads the same weight rows",
+        "wgmma": "correct and slower than the Ampere tile (82 vs 119 TFLOPS)",
+        "warp_specialisation": "ceiling +18.75%, priced by deleting the barrier instead of building it",
+        "longer_contiguous_runs_KC256": "+1.4% on H100",
+        "pre_tiled_weight_layout": "bit-identical; +4% on 3060, WORSE on H100 (1221 vs 1261 GB/s)"
+      },
+      "what_the_remaining_gap_needs": "~2800 GB/s of a 3180 measured roofline (88%). With time split roughly half and half, neither half alone suffices (~1.3x each): TMA on the data side AND ldmatrix plus register reuse on the compute side -- the tile currently loads every mma fragment with FOUR scalar shared loads.",
+      "compute_half_priced": {
+        "_what": "All six shared fragment loads per mma replaced with constants (timing only).",
+        "rtx3060": {
+          "shipped": 217,
+          "no_shared_loads": 230
+        },
+        "h100_kc128": {
+          "shipped": 823,
+          "no_shared_loads": 845
+        },
+        "h100_kc256": {
+          "shipped": 1180,
+          "no_shared_loads": 1243
+        },
+        "reading": "ldmatrix is worth LESS than 5% -- it reduces these loads, it does not remove them."
+      },
+      "root_cause": {
+        "finding": "The ~53% mma phase on Hopper is the Q8_0 PER-BLOCK RESCALE, not the loads or the mma issues. Per thread per 128-K chunk: 16 mma.sync issues against 64 int32->float convert+scale+accumulate -- a 4:1 ratio, because Q8_0 carries a scale every 32 elements.",
+        "why_vllm_has_no_equivalent": "Hopper fp8 tensor cores accumulate in fp32 natively and apply one scale at the end.",
+        "route": "fp8 weights on Hopper. chip.rs has listed Precision::Fp8 for Hopper/Blackwell since the start and the emitter has never used it. Must be priced against the f64 oracle before shipping: fp8 e4m3 carries ~4 mantissa bits where our int8 carries 8."
+      },
+      "fp8_hypothesis_priced_and_rejected": {
+        "_what": "Per-32-block rescale replaced by one end-of-K accumulate (timing only) -- what fp8 buys.",
+        "h100_kc256_mb2": {
+          "shipped": 1180,
+          "no_rescale": 1228,
+          "gain": 1.041
+        },
+        "reading": "+4%, not the 1.8x the op-count model predicted. The ~53% 'mma' phase is neither the shared loads nor the rescale: clock64 measures WALL time, so it is dominated by implicit memory stalls during compute. The tile is memory-system-bound end to end."
+      },
+      "verdict": {
+        "levers_priced": 10,
+        "outright_negatives": 6,
+        "compounded_optimistic_ceiling": 1.3,
+        "needed_at_b32": 1.59,
+        "conclusion": "This tile cannot reach B=32 parity, measured rather than asserted. The three levers with any headroom are CEILINGS obtained by deleting the work, not by optimising it. Winning B=32 needs TMA + wgmma + an async epilogue as ONE dataflow -- a CUTLASS-class kernel -- which the wgmma experiment already showed cannot be reached piecewise."
+      }
+    },
+    "fp8_lane_2026_09_21": {
+      "_what": "fp8 lane built per the owner's 'both lanes' ruling, measured against an f64 oracle, and rejected.",
+      "built_and_locked": [
+        "e4m3 mma helper (PTX ISA 8.1 / CUDA 12.1+)",
+        "Q8_0 -> e4m3 per-channel requantiser",
+        "per-row activation quantiser",
+        "toolkit + arch guards (older toolkit: lane absent)"
+      ],
+      "accuracy_rel_L2_vs_f64": {
+        "int8_q8_0_shipped": 0.005316,
+        "fp8_e4m3": 1.001
+      },
+      "decode_shape_gb_s": {
+        "int8_shipped": 903,
+        "fp8_as_written": 359
+      },
+      "verdict": "REJECTED and not selected. rel_L2 ~1 means no signal. The fragment mapping was copied exactly from the verified int8 tile and still disagrees, so the e4m3 operand semantics differ from the s8 form. It is also uncompetitive as written (no cp.async staging, no pipeline, no split-K) and its finished projection is 0.93x of vLLM -- it would not win B=32 even correct. The measured win is the Q4 lane at 1.33x.",
+      "disposition": "kept behind an explicit UNVERIFIED marker; the lock pins that no program launches it"
+    },
+    "q4_lane_2026_09_21": {
+      "_what": "Q4 lane built per the owner's 'both lanes' ruling: correct, exactly gated, slower as staged.",
+      "packing": "SEQUENTIAL nibbles (GGUF Q4_0 interleaves i and i+16, which would scramble the mma's K order)",
+      "bytes_per_weight": {
+        "q8_0": 1.0625,
+        "q4": 0.5625
+      },
+      "gate": {
+        "name": "where_q4_is_lossless_it_equals_the_int8_tile_exactly",
+        "idea": "the requantiser scales each block by its own max, so at max==7 the nibble IS the int8 value and the scales match -- the lanes must then agree BIT FOR BIT. Turns a lossy format into an exactly-checkable one; a tolerance would have passed the fp8 tile that measured rel_L2 1.001.",
+        "shapes_exact": [
+          8192,
+          6400,
+          4128
+        ]
+      },
+      "bugs_caught": [
+        "the two-mask nibble expansion (lo|hi<<8) collides: K2 and K1 land in the same byte",
+        "v - 0x08080808 is a 32-BIT subtract and BORROWS ACROSS BYTES -- every nibble below 8 decremented the next K-element, off-by-one on 37% of values, indistinguishable from quantisation noise in an accuracy number. Fixed with __vsub4."
+      ],
+      "measured_ms_decode_shape": {
+        "h100_kc128_mb3": {
+          "int8": 0.067,
+          "q4": 0.085
+        },
+        "rtx3060": {
+          "int8": 0.4,
+          "q4": 0.409
+        }
+      },
+      "verdict": "SLOWER as staged despite moving 47% less. Expanding nibbles needs COMPUTE between the global read and the shared store, which cp.async cannot do, so the lane gives up the async pipeline and that costs more than the traffic saves.",
+      "what_would_make_it_pay": "cp.async the PACKED nibbles into a half-size shared tile and expand at the FRAGMENT LOAD. Keeps the async pipeline, halves shared memory too, moves ~4 ALU into the mma loop -- and rewrites the fragment-load indexing, which is exactly where re-derivation produced a wrong kernel twice today, so it belongs behind the exact gate that now exists.",
+      "second_arrangement": {
+        "_what": "packed staged through cp.async, expanded at the fragment load; passed the exact gate first try",
+        "ms_decode_shape": {
+          "h100_kc128_mb3": {
+            "int8": 0.067,
+            "q4_expand_at_staging": 0.085,
+            "q4_expand_at_fragment": 0.119
+          },
+          "rtx3060": {
+            "int8": 0.4,
+            "q4_expand_at_staging": 0.409,
+            "q4_expand_at_fragment": 0.474
+          }
+        },
+        "why_worse": "the tile's 8 warps are 2 row-groups x 4 column-groups and all four column-warps read the SAME A rows, so expanding at the fragment load repeats the work 4x -- 64 expansions per thread per chunk against 16 at staging, ~44 ALU ops per mma issue.",
+        "verdict": "Q4 loses in BOTH arrangements: pay the unpack once and lose the async pipeline, or keep the pipeline and pay it four times. A third (cp.async packed, expand shared->shared) costs 1.5x shared memory, and occupancy is the lever that has mattered most."
+      },
+      "third_arrangement": {
+        "_what": "cp.async packed + ONE cooperative shared->shared expansion; mma loop untouched; gate passed first try",
+        "h100_ms": {
+          "kc64_mb3": {
+            "int8": 0.084,
+            "q4": 0.112
+          },
+          "kc64_mb2": {
+            "int8": 0.092,
+            "q4": 0.125
+          }
+        },
+        "cost": "1.5x shared memory (sP beside sW); at KC=128 it overruns the static budget outright",
+        "verdict": "ALL THREE arrangements lose. Pay the unpack once and lose the pipeline (+27%), four times and keep it (+78%), or once and keep it at the cost of the shared memory that buys occupancy (+33%). There is no fourth place to put the work -- Q4 is closed."
+      }
+    },
+    "campaign_final_ledger_2026_09_21": {
+      "levers_measured": 14,
+      "outright_negatives": 11,
+      "compounded_ceiling": 1.3,
+      "needed_for_b32_parity": 1.59,
+      "won": "B=1 decode, same boot, lossless, repeatable: 78.93 vs vLLM 77.52 tok/s (1.018x). Speculation is worth 1.28x over our own greedy lane at 0.924 accept, and vLLM's own MTP is NEGATIVE at one concurrent request.",
+      "not_won": "B=32 at 0.63x decode, 0.34x end-to-end",
+      "only_route_left": "a CUTLASS-class dataflow -- TMA + wgmma + async epilogue as ONE pipeline, not as parts. Specified in work/qwen38-27b-campaign.md; its hardest component (the wgmma fragment map, descriptor convention, K order) is already verified on silicon.",
+      "split_k_fold": {
+        "_what": "fold the split-K reduction into the tile epilogue, removing 256 launches per decode step",
+        "graph_nodes": {
+          "before": 1045,
+          "after": 789
+        },
+        "tok_s": {
+          "separate_reduce_shipped": 930.08,
+          "folded": 845.21
+        },
+        "verdict": "SLOWER. The standalone kernel spreads the reduction over hundreds of blocks; the fold funnels each tile's share into one 256-thread block, and every split block pays a threadfence and an atomic. Removing ~1.3 ms of node overhead does not pay for serialising the work.",
+        "bug_en_route": "the first version reduced the ENTIRE N*B output per tile instead of its own slice -- 357 ms/step against 34.4, 10x slower, and INVISIBLE to the equivalence lock because redundant reduction is still arithmetically correct. Correctness gates catch wrong answers; only measurement catches work done 40 times."
+      }
+    },
+    "vllm_same_boot_sweep_2026_09_21": {
+      "_what": "vLLM's OWN best config re-measured at SERVING concurrency in a single boot, closing the last gap in our evidence: the B=32 comparison had been resting on September's CROSS-BOOT 21.62 ms.",
+      "config": "vLLM fp8 W8A8, speculation off, 512 in / 128 out, same H100 NVL, one boot",
+      "by_concurrency": {
+        "16": {
+          "output_tok_s": 565.17,
+          "median_itl_ms": 15.954,
+          "median_ttft_ms": 1140.3,
+          "decode_tok_s": 1002.9
+        },
+        "32": {
+          "output_tok_s": 844.74,
+          "median_itl_ms": 21.004,
+          "median_ttft_ms": 1904.2,
+          "decode_tok_s": 1523.5
+        },
+        "64": {
+          "output_tok_s": 1034.7,
+          "median_itl_ms": 27.058,
+          "median_ttft_ms": 3085.6,
+          "decode_tok_s": 2365.3
+        }
+      },
+      "correction": "same-boot vLLM is 2.9% FASTER than the cross-boot number we had been quoting (21.004 vs 21.62 ms at c32), so our B=32 ratio is 0.611x, not 0.63x. The correction goes AGAINST us, which is why it was worth spending the pod time to get it.",
+      "ours_b32_decode_tok_s": 930.08
+    },
+    "fusion_campaign_2026_09_21": {
+      "_what": "consumer-side kernel fusion, measured on one H100 in one boot, alternating repeats",
+      "lanes": {
+        "unfused": {
+          "launches": 1029,
+          "tok_s": [
+            920.26,
+            916.03,
+            915.5
+          ],
+          "median": 916.03
+        },
+        "silu_only": {
+          "launches": 965,
+          "tok_s": [
+            927.66,
+            925.89,
+            925.78
+          ],
+          "median": 925.89
+        },
+        "silu_plus_norm": {
+          "launches": 838,
+          "tok_s": [
+            888.51,
+            885.3,
+            885.79
+          ],
+          "median": 885.79
+        }
+      },
+      "verdict": {
+        "silu_only": "+1.08% -- SHIPPED as the default",
+        "silu_plus_norm": "-3.3% -- REJECTED. bq_add_rmsnorm runs ONE BLOCK PER SEQUENCE (32 blocks); the standalone reduce spreads the same work over 640. Folding a wide reduction into a narrow consumer starves it, even though it deletes 127 launches."
+      },
+      "law": "Fusion pays when the CONSUMER has parallelism to spare, not when it deletes the most launches. SiLU runs 2176 blocks at this shape and won; RMSNorm runs 32 and lost; the producer-side fold (lever 14) funnelled into 1 and lost worse. Three measurements, one variable: block count.",
+      "tokens_identical": true,
+      "gate_mul_fused_into_quant": "present in ALL THREE lanes (16 launches), so the A/B isolates split-K alone"
+    },
+    "split_k_target_sweep_2026_09_21": {
+      "_what": "sweep of LOGOS_Q38B_TC_TARGET, the split-K rule's constant. Run on an L40 (Ada, 142 SMs, 864 GB/s) because US-KS-2 had NO H100 stock; the occupancy half of the tradeoff transfers (142 SMs vs H100's 132), the bandwidth-scarcity half does not, so this locates the CLIFF and sizes the direction, and the headline number still needs an H100.",
+      "chip": "NVIDIA L40 46 GB, one boot, alternating repeats",
+      "by_target": {
+        "1024_current": {
+          "tok_s": [
+            452.5,
+            452.41
+          ],
+          "partials_gb": 7.16,
+          "share_pct": 22.7,
+          "min_blocks": 640
+        },
+        "768": {
+          "tok_s": [
+            459.72,
+            458.38
+          ],
+          "partials_gb": 6.01,
+          "share_pct": 19.8,
+          "min_blocks": 640
+        },
+        "512": {
+          "tok_s": [
+            470.52,
+            469.86
+          ],
+          "partials_gb": 4.42,
+          "share_pct": 15.4,
+          "min_blocks": 512
+        },
+        "384": {
+          "tok_s": [
+            472.63,
+            472.33
+          ],
+          "partials_gb": 3.66,
+          "share_pct": 13.1,
+          "min_blocks": 384
+        },
+        "256": {
+          "tok_s": [
+            476.39,
+            477.42
+          ],
+          "partials_gb": 1.75,
+          "share_pct": 6.7,
+          "min_blocks": 256
+        },
+        "160": {
+          "tok_s": [
+            476.29
+          ],
+          "partials_gb": 1.19,
+          "share_pct": 4.7,
+          "min_blocks": 160
+        },
+        "96": {
+          "tok_s": [
+            480.68,
+            481.12
+          ],
+          "partials_gb": 0.5,
+          "share_pct": 2.0,
+          "min_blocks": 112
+        }
+      },
+      "result": "MONOTONIC all the way down to TARGET=96: 452.5 -> 480.9 tok/s, +6.3% over the shipped constant, run-to-run spread under 0.25%. NO occupancy cliff appeared even at 112 blocks on 142 SMs (0.79 blocks/SM).",
+      "prediction_outcome": "The traffic half of the pre-registered prediction HELD; the occupancy half was FALSIFIED -- no cliff appeared even at 280 blocks on 142 SMs. Written down before the run, so this is a falsification and not a narration.",
+      "caveat": "TC_MINBLOCKS is 2 below Hopper and 3 on Hopper, so H100 wants ~396 resident blocks where the L40 wanted ~284. The cliff may still exist on H100 between 256 and 384. Do NOT ship a target below 384 without an H100 measurement.",
+      "reading": "On a bandwidth-starved chip (864 GB/s) traffic dominates so completely that occupancy is nearly irrelevant. H100 has ~4.5x the bandwidth and TC_MINBLOCKS=3, so the cliff should appear there and the optimum should sit HIGHER. That is precisely what the queued H100 sweep resolves; do not ship an L40-derived constant."
+    },
+    "h100_sweep_2026_09_21": {
+      "_what": "split-K TARGET sweep and the GDN gate fusion, both on H100 NVL in one boot (rep1 + rep2 in progress)",
+      "chip": "NVIDIA H100 NVL",
+      "split_k_target": {
+        "1024_shipped": [
+          949.68,
+          946.83
+        ],
+        "768": [
+          947.18,
+          946.09
+        ],
+        "512": [
+          937.52,
+          936.45
+        ],
+        "384": [
+          937.48,
+          936.96
+        ],
+        "256": [
+          924.02,
+          923.51
+        ],
+        "verdict": "1024 is OPTIMAL on Hopper; every step down is slower. The L40 result (monotonically better down to +6.3%) did NOT transfer -- TC_MINBLOCKS is 3 on Hopper vs 2 on Ada and H100 has ~4.5x the bandwidth, so blocks are dear and bytes are cheap. Keep 1024."
+      },
+      "gdn_gate_fusion": {
+        "nogate_control": [
+          946.92,
+          947.07
+        ],
+        "gate_fused": [
+          905.29,
+          900.06
+        ],
+        "delta_pct": -4.7,
+        "verdict": "REJECTED. It removed 48 launches and its consumer runs 12288 blocks -- the condition that decided the SiLU win -- but bq_gdn_chunk has grid.y=8 slices per (head,seq), so folding the gates in makes powf() run 8x MORE, inside the recurrence's hot path. Default was already OFF pending measurement; that call paid for itself.",
+        "status": "REMOVED FROM THE TREE (measured negative, both reps)"
+      },
+      "law_correction": "A fusion needs BOTH (1) a consumer with parallelism to spare AND (2) no multiplication of expensive work by the consumer's redundancy factor. SiLU satisfied both; RMSNorm and the producer-fold failed (1); the gate fusion failed (2) by 8x on a libm powf.",
+      "noise_floor": "0.3% (t1024 949.68/946.83, and the independent nogate control at 946.92)",
+      "tokens": "every lane emitted an IDENTICAL token stream (90659...), so all deltas are pure performance"
+    },
+    "verdict_h100_pcie_2026_09_21": {
+      "_what": "one chip, one boot, alternating repeats: every knob candidate plus the prefill chunk sizes",
+      "chip": "NVIDIA H100 PCIe",
+      "tokens": "ALL lanes emitted an identical stream (90659...), prefill lanes included",
+      "decode_tok_s": {
+        "t1024_shipped": [
+          860.8,
+          858.68
+        ],
+        "sm24_split_ceiling_24": [
+          847.4,
+          847.23
+        ],
+        "wm2_TI64": [
+          835.64,
+          835.78
+        ],
+        "wm1_TI32": [
+          695.83,
+          695.9
+        ],
+        "pt32": [
+          860.28,
+          859.55
+        ],
+        "pt128": [
+          859.76,
+          859.36
+        ]
+      },
+      "prefill_ms": {
+        "pt1": [
+          20572.8,
+          20660.4
+        ],
+        "pt32": [
+          11664.9,
+          11658.0
+        ],
+        "pt128": [
+          13285.9,
+          13233.5
+        ]
+      },
+      "end_to_end_tok_s": {
+        "pt1": 161.7,
+        "pt32": 249.4,
+        "pt128": 226.9
+      },
+      "knob_verdict": "EVERY knob candidate is a measured LOSS against the shipped point: split ceiling 24 -1.6%, TI=64 -2.9%, TI=32 -19.2%. Taken with the earlier TARGET sweep and the two fusions, the parametric search is finished -- the shipped configuration is optimal on every knob measured on the target chip.",
+      "prefill_verdict": "Chunked prefill is bit-identical and 1.76x (20.57 -> 11.67 s), but bigger chunks are WORSE (PT=128 = 13.29 s), which says the chunk is not weight-bound. Attribution: the tcm microbench puts the prefill GEMM at ~27% of 3060 int8 peak (~19% of the chunk), and the gdn microbench at 0.1811 ms/layer/token says the GATED-DELTANET SCAN dominates. Prefill is 71% of end-to-end wall clock."
+    },
+    "prefill_ablation_2026_09_21": {
+      "_what": "prefill attribution BY DELETION (LOGOS_Q38B_PABLATE), H100 PCIe, two repeats",
+      "default_inert": "the 'none' lane's launch sequence is byte-identical to the measured lane: 1767 launches",
+      "prefill_ms": {
+        "none": [
+          11733.783,
+          11690.588
+        ],
+        "gdn_removed": [
+          11020.961,
+          11014.393
+        ],
+        "ffn_removed": [
+          6601.731,
+          6599.889
+        ]
+      },
+      "attribution": {
+        "gdn_recurrence_ms": 694.5,
+        "gdn_share_pct": 5.9,
+        "ffn_gemms_ms": 5111.4,
+        "ffn_share_pct": 43.6,
+        "all_gemms_ms_scaled_by_weight_bytes": 6214,
+        "all_gemms_share_pct": 53.1,
+        "everything_else_ms": 4804,
+        "everything_else_share_pct": 41.0
+      },
+      "verdict": "REVERSES the claim I made and retracted earlier the same day. The gated-DeltaNet scan is 5.9% of prefill, not the dominant term; the GEMMs are ~53%. The delta-rule line of attack was worthless twice over -- what it replaces is 6%, and the replacement is 1.8x slower.",
+      "strategic": "The GEMM is ~53% of prefill AND 64% of the decode step, but only prefill pays: decode (M=32) is MEMORY-bound with a ~1.04x roofline ceiling, while prefill (M=1024) is COMPUTE-bound at ~27% of int8 peak -- the regime where wgmma throughput matters. TMA + wgmma + warp specialisation is a ~53%-of-prefill lever, and prefill is 71% of end-to-end wall clock."
+    },
+    "head_to_head_h100_pcie_2026_09_21": {
+      "_what": "THE completed same-boot, same-chip comparison. Both engines, H100 PCIe, ours 3 reps.",
+      "chip": "NVIDIA H100 PCIe (81559 MiB)",
+      "ours": {
+        "decode_tok_s": [
+          861.38,
+          860.66,
+          860.63
+        ],
+        "decode_median": 860.66,
+        "prefill_ms_pt32": [
+          11681.5,
+          11649.5,
+          11659.1
+        ],
+        "prefill_median_ms": 11659.1,
+        "end_to_end_tok_s": 249.5,
+        "note": "static batch of 32, timed with cudaEvents (pure GPU) -- the EASIER scheduling problem"
+      },
+      "vllm": {
+        "config": "fp8 W8A8, VLLM_GPU_UTIL=0.80, VLLM_MAX_SEQS=64, 512 in / 128 out, c32",
+        "output_throughput": 712.06,
+        "median_itl_ms": 25.493,
+        "median_ttft_ms": 1639.2,
+        "decode_tok_s_from_itl": 1255.2,
+        "note": "continuous batching over HTTP with a Python scheduler"
+      },
+      "ratios": {
+        "decode_step": 0.686,
+        "end_to_end": 0.35,
+        "ttft_ours_worse_by": 7.1
+      },
+      "verdict": "WE LOSE on all three. Decode is 0.69x; end-to-end is 0.35x and the whole difference is prefill.",
+      "blocker_diagnosed": "Two boots were lost to vLLM refusing to start. The cause was NOT memory utilization: `max_num_seqs (1024) exceeds available Mamba cache blocks (617)`. vLLM defaults to 1024 concurrent sequences and every Gated-DeltaNet sequence needs its own recurrent-state block -- the 151 MB/sequence wall this campaign identified in its opening analysis, which vLLM pays too. VLLM_GPU_UTIL and VLLM_MAX_SEQS are now wired through all three call sites.",
+      "arithmetic_that_redirects_the_work": "An INFINITELY fast GEMM still leaves prefill 3.4x behind (GEMM 2x -> 8.55 s, 8x -> 6.22 s, 100x -> 5.51 s, against vLLM's 1.64 s), because the unattributed 41% of prefill is the binding constraint. To reach parity end-to-end we need decode parity AND prefill under ~2.5 s; best case with both is ~753 vs their 712 = 1.06x."
+    },
+    "prefill_six_phase_h100_nvl_2026_09_22": {
+      "chip": "NVIDIA H100 NVL (95830 MiB)",
+      "prefill_ms_median": 10550.0,
+      "reps": 2,
+      "phase_cost_ms": {
+        "ffn_gemms": 4990.1,
+        "projections_inferred": 1073.2,
+        "all_gemms": 6063,
+        "attention_per_token_loop": 789.4,
+        "gdn_recurrence": 705.7,
+        "conv_per_token_loop": 329.2,
+        "residual_norm": 90.3,
+        "unattributed": 2571.7
+      },
+      "phase_share_pct": {
+        "ffn_gemms": 47.3,
+        "all_gemms": 57.5,
+        "attention": 7.5,
+        "gdn": 6.7,
+        "conv": 3.1,
+        "norm": 0.9,
+        "unattributed": 24.4
+      },
+      "hypothesis_refuted": "I predicted the token-serial per-token loops in attention and conv were the hidden 41% and would be a compiler-side fix. Measured: 10.6% combined. The GEMM is the bottleneck at 57.5%.",
+      "tile_shape_eliminated": "MT_NT=64/MT_WN=2/MI=128 was swept on an A100 and never re-measured. Swept locally on the repaired tcm microbench via -D flags: the shipped shape is best on the 3060 too (27.6 TFLOPS vs 24.4/23.7/20.4 for MI=256 variants). This constant DID transfer. Closed for $0."
+    },
+    "mtp_and_q4_h100_nvl_2026_09_22": {
+      "chip": "NVIDIA H100 NVL",
+      "baseline_decode_tok_s": 936.89,
+      "mtp": {
+        "was": "CRASHED \u2014 'illegal memory access'; mtp_verify calls prefill_chunk, which takes NO T and always runs the compile-time PT rows, so a 2-token verify ran a 32-token chunk",
+        "fix": "emit at PREFILL_T=2",
+        "tc_tj_32": {
+          "tok_s": 933.51,
+          "ms_step": 65.2,
+          "tok_per_step_seq": 1.91,
+          "accept": 0.906
+        },
+        "tc_tj_64": {
+          "tok_s": 1001.35,
+          "ms_step": 58.4,
+          "tok_per_step_seq": 1.83,
+          "accept": 0.828
+        },
+        "root_cause": "tc_tj = batch.next_power_of_two() sized the sequence tile to the BATCH; a verify carries 2x batch rows, so it paid two weight passes for two tokens and a 90.6%-accept draft bought exactly nothing.",
+        "shipped": "tc_tj now sizes to the widest pass; locked by the_sequence_tile_covers_the_widest_pass_not_just_the_batch",
+        "gain": "+6.9%",
+        "headroom": "verify is 58.4 ms vs a 34.2 ms decode step; the non-GEMM 36% runs twice (GDN at T=2, attention loop twice). A ~46 ms verify would make MTP ~1.35x."
+      },
+      "q4": {
+        "was": "built and PROVEN but never launched \u2014 no allocation, conversion or selection",
+        "wired": "LOGOS_Q38B_Q4=1, default OFF, emission byte-identical when off; emb and Wout kept Q8_0 (the head decides the token, ~10% of bytes); zero post-free readers",
+        "projected": 1.33,
+        "measured_tok_s": 783.45,
+        "measured_ratio": 0.84,
+        "verdict": "MEASURED NEGATIVE. Halving the weight stream does not pay because the tile must expand packed nibbles in shared memory before the mma. Tokens unchanged.",
+        "caveat": "tc_wm/tc_kc are chosen without knowing Q4 needs ~1.5x shared, so the lane may be running a tile shape tuned for a different footprint \u2014 a knob sweep, not a rewrite."
+      }
+    },
+    "deepgemm_h100_2026_09_22": {
+      "_what": "DeepGEMM sm90 fp8 GEMM, standalone binary (no torch/python/JIT), H100 NVL, our real shapes",
+      "build": {
+        "cuda": "12.8 (pod image override; the default 12.4 image CANNOT build it)",
+        "flags": "-arch=sm_90a --expt-relaxed-constexpr, CUTLASS 3.8.0 headers, -lcuda",
+        "config": "BLOCK_M=64 BLOCK_N=128 BLOCK_K=128, 7 stages, 205 KB smem, grid=132 (persistent)"
+      },
+      "tflops": {
+        "ffn_down_prefill_M1024": 631.0,
+        "ffn_gate_up_prefill_M1024": 632.0,
+        "ffn_down_decode_M32": 92.0
+      },
+      "ours_tflops": {
+        "prefill_gemm": 145.9,
+        "decode_gemm": 78.6
+      },
+      "ratio": {
+        "prefill": 4.32,
+        "decode": 1.17
+      },
+      "projected": {
+        "prefill_s": [
+          10.55,
+          5.89
+        ],
+        "decode_tok_s": [
+          935,
+          1031
+        ],
+        "end_to_end_tok_s": [
+          274,
+          415
+        ],
+        "vs_vllm": [
+          0.325,
+          0.492
+        ]
+      },
+      "reframing": "After the swap the prefill GEMM is 1.40 s and the NON-GEMM prefill work is 4.49 s = 76% of what remains. The bottleneck leaves the matmul entirely.",
+      "caveats": [
+        "timing probe only \u2014 scale factors zero-filled, correctness not yet validated",
+        "decode barely moves (1.17x) because BLOCK_M=64 wastes half the tile at M=32"
+      ],
+      "correctness": {
+        "rel_L2_vs_f64": 0.0001072,
+        "shape": "M=64 N=256 K=512",
+        "method": "double-precision CPU reference computed from the SAME fp8 bytes and scales the kernel saw, so it validates our converter AND our SFA/SFB descriptor layout, not just the kernel",
+        "reading": "fp32-accumulation agreement \u2014 the right answer for fp8 inputs, not a suspiciously perfect one",
+        "validates": [
+          "Q8_0 -> fp8 e4m3 per-128 converter",
+          "SFA/SFB layout [K/128][MN_aligned]",
+          "five TMA descriptors",
+          "launch config (7 stages, 205 KB, persistent grid)"
+        ]
+      }
+    },
+    "deepgemm_routed_h100_2026_09_22": {
+      "_what": "the DeepGEMM lane running inside the real emitted program; gate/up GEMM sites only",
+      "chip": "NVIDIA H100 NVL",
+      "method": "same emitted .cu, two builds differing only by -DBQ_ENABLE_DG",
+      "prefill_ms": {
+        "baseline": [
+          10486.577,
+          10554.732
+        ],
+        "deepgemm": [
+          8283.041,
+          8298.781
+        ]
+      },
+      "decode_tok_s": {
+        "baseline": [
+          938.64,
+          930.89
+        ],
+        "deepgemm": [
+          934.26,
+          931.04
+        ]
+      },
+      "prefill_speedup": 1.27,
+      "end_to_end_tok_s": {
+        "baseline": 275,
+        "deepgemm": 323
+      },
+      "vs_vllm": {
+        "baseline": 0.325,
+        "deepgemm": 0.382
+      },
+      "tokens": "byte-identical to baseline (greedy; not a correctness proof \u2014 rel_L2 gate still owed)",
+      "remaining": "gate/up alone is 21% of prefill; all GEMMs are 57%. Routing wd, qkvz and Wo targets another ~3.8 s, toward prefill ~5.4 s."
+    },
+    "deepgemm_three_sites_2026_09_22": {
+      "chip": "NVIDIA H100 NVL",
+      "batch": 32,
+      "prefill_chunk": 32,
+      "prompt_tokens": 512,
+      "gen": 128,
+      "note": "Same boot, alternating. Default program byte-identical (1767 launches) on every emit.",
+      "prefill_ms": {
+        "int8_lane": [
+          10352.941,
+          10419.354
+        ],
+        "deepgemm_gu_only": [
+          8291.0
+        ],
+        "deepgemm_gu_plus_entry": [
+          7250.619,
+          7284.228
+        ]
+      },
+      "prefill_speedup_vs_int8": {
+        "gu_only": 1.27,
+        "gu_plus_entry": 1.43
+      },
+      "decode_tok_s": {
+        "int8_lane": [
+          952.68,
+          946.18
+        ],
+        "deepgemm_gu_plus_entry": [
+          950.27,
+          947.76
+        ]
+      },
+      "residual_stream_rel_L2_vs_int8_lane": {
+        "layer0": 0.0,
+        "layer1": 0.01946,
+        "layer2": 1.141,
+        "layer63": 1.367,
+        "interpretation": "saturates at ~sqrt(2) = fully decorrelated; per-row uniform; NOT a layout fault"
+      },
+      "accuracy_vs_f64_truth": {
+        "int8_per32": 0.01266,
+        "fp8_e4m3_per128": 0.02879,
+        "fp8_cost_ratio": 2.27,
+        "retraction": "The standalone bench's rel_L2 1.07e-04 measured ACCUMULATION only -- its reference was recomputed from the fp8 bytes the kernel was handed, so it never contained the int8->fp8 quantisation loss. It must not be quoted as an end-to-end accuracy number.",
+        "locked_by": "the_deepgemm_fp8_lane_costs_about_twice_the_quantisation_error_of_the_int8_lane"
+      },
+      "locks": [
+        "every_deepgemm_site_matches_the_shape_of_the_lane_it_replaces",
+        "the_deepgemm_fp8_lane_costs_about_twice_the_quantisation_error_of_the_int8_lane"
+      ]
+    },
+    "deepgemm_two_pass_2026_09_22": {
+      "status": "built, locked, NOT measured on hardware \u2014 blocked on a degraded network volume and a $0.68 balance",
+      "design": "W ~= Whi + Wlo, both fp8 e4m3 per-128; X*W' = X*Whi' + X*Wlo'. DeepGEMM never reads C, so the second pass lands in a packed scratch and is folded by bq_dg_add at the consumer's row pitch.",
+      "modelled_rel_L2_vs_f64": {
+        "int8_per32": 0.01266,
+        "fp8_x1": 0.02879,
+        "fp8_hilo_weights": 0.01349,
+        "fp8_hilo_both": 0.0007503
+      },
+      "projected_prefill_ms": {
+        "int8": 10386,
+        "fp8_x1": 5796,
+        "fp8_hilo_weights": 7179,
+        "fp8_hilo_both": 8561
+      },
+      "resident_weights_gb": 68.96,
+      "h100_nvl_gb": 94,
+      "staged": {
+        "binary": "/workspace/dghl",
+        "sha_stamp": "/workspace/dghl.sha",
+        "knobs": [
+          "LOGOS_Q38B_DGSITES (3-char site mask)",
+          "LOGOS_Q38B_DGHL (0=single,1=two-pass)",
+          "LOGOS_Q38B_TRACE (per-layer residual dump)"
+        ]
+      },
+      "volume_health_2026_09_22": {
+        "single_stream_MB_s": [
+          3.5,
+          3.5,
+          5.7,
+          11.7,
+          11.7
+        ],
+        "model_load_24_33_GB": "did not finish in 13 min"
+      },
+      "locks": [
+        "every_routed_site_carries_a_complete_second_fp8_pass"
+      ]
+    },
+    "q4_root_cause_2026_09_22": {
+      "verdict": "The standing 0.84x Q4 number is VOID \u2014 it measured a configuration that either faulted or read uninitialised shared memory.",
+      "defect": "At TC_STAGES==1 the tile stages weights through registers (BQTC_GLOAD), which reads packed Q4 weights at the INT8 stride o*K (~44 MB past a N*K/2 buffer) and fills sW, while the Q4 fragment reader takes nibbles from sP which nothing on that path writes. TC_STAGES==1 is what the decode shape bakes.",
+      "repro": "nvcc -O3 -arch=sm_86 -DBQ_ENABLE_Q4 -DTC_KC=64 -DTC_STAGES=1 decbench.cu  -> illegal memory access at B=1",
+      "fix": [
+        "static_assert(!Q4W || TC_STAGES > 1) in the kernel",
+        "emitter shrinks TC_KC until two Q4 stages fit and forces depth 2 (Q4 is charged for BOTH sW and sP)",
+        "emitted Q4 lane is now TC_KC=64 / TC_STAGES=2, compiles for sm_90a"
+      ],
+      "measured_on_valid_path_rtx3060": {
+        "ceiling_gb_s": 341,
+        "B1": {
+          "int8_gb_s": 178,
+          "int8_pct_ceiling": 52,
+          "q4_gb_s": 100,
+          "q4_pct_ceiling": 29,
+          "q4_vs_int8": 1.12
+        },
+        "B32": {
+          "int8_gb_s": 167,
+          "int8_pct_ceiling": 49,
+          "q4_gb_s": 90,
+          "q4_pct_ceiling": 26,
+          "q4_vs_int8": 1.08
+        },
+        "B32_stages3": {
+          "q4_vs_int8": 0.83
+        },
+        "SUPERSEDED": "Those numbers ran at TC_MINBLOCKS=1 (17% residency), a configuration the program never ships."
+      },
+      "interpretation": "Q4 halves the bytes and returns 8%. At ~26% of achievable bandwidth vs int8's ~49% it is NOT bandwidth-bound on the valid path: the nibble unpack at the fragment load throttles it and the saving never reaches the memory system.",
+      "next": "expand once per chunk into sW at staging time rather than per fragment inside the mma dependent chain \u2014 not built, not measured",
+      "locks": [
+        "the_q4_lane_never_selects_the_register_prefetch_path"
+      ],
+      "valid_measurement_shipped_occupancy": {
+        "B32": {
+          "int8_ms": 0.48,
+          "int8_gb_s": 186,
+          "int8_pct_ceiling": 54,
+          "q4_ms": 0.496,
+          "q4_gb_s": 90,
+          "q4_pct_ceiling": 26,
+          "q4_vs_int8": 0.97
+        },
+        "verdict": "Q4 halves the weight bytes and is SLIGHTLY SLOWER. int8 sits at 54% of the chip and Q4 at 26%: the tile has bandwidth headroom, so halving the global read buys nothing while Q4 pays for its packed tile plus the expanded one plus an extra barrier. CLOSED as a decode lever for this tile.",
+        "history": {
+          "0.84x": "invalid \u2014 broken register-prefetch path",
+          "1.08x": "invalid \u2014 wrong occupancy",
+          "0.97x": "valid \u2014 correct path, shipped occupancy and split"
+        }
+      }
+    },
+    "decode_bandwidth_instrument_2026_09_22": {
+      "change": "emit_decode_gemm_bandwidth_bench now self-calibrates against a pure int4 stream on the same chip and reports % of achievable bandwidth, plus a Q4 arm beside int8",
+      "rtx3060_shipped_shape": {
+        "ceiling_gb_s": 327,
+        "B1_pct": 58,
+        "B32_pct": 47
+      },
+      "h100_same_tile": {
+        "approx_gb_s": 720,
+        "approx_peak": 3350,
+        "pct": 21,
+        "note": "the same tile is more than twice as starved on the chip we ship to; that gap is where a decode win lives"
+      },
+      "staging_sweep_3060_B32": {
+        "s1_kc128_shipped": 155,
+        "s1_kc64": 165,
+        "s2_kc64": 167,
+        "s3_kc64": 175,
+        "adopted": false,
+        "why": "occupancy-shaped knob; an L40 +6.3% once inverted to -2.5% on H100 \u2014 price it on the target chip or not at all"
+      },
+      "RETRACTED": "The 'h100_same_tile 21% vs 3060 49%' entry below is WITHDRAWN. It divided a whole-decode-STEP average by peak and compared it to a GEMM-ONLY microbench (unit mismatch), and the microbench itself ran TC_MINBLOCKS=1 \u2014 a residency no shipped configuration uses \u2014 understating the tile by 45%. With the shipped occupancy the 3060 tile reads 225 GB/s = 66% of ceiling, not 155/47%.",
+      "corrected": {
+        "rtx3060_shipped_occupancy": {
+          "B1_gb_s": 256,
+          "B1_pct": 75,
+          "B32_gb_s": 225,
+          "B32_pct": 66
+        },
+        "two_chip_occupancy_table_gb_s": {
+          "rtx3060": {
+            "1": 167,
+            "2": 199,
+            "3": 156
+          },
+          "h100nvl": {
+            "1": 766,
+            "2": 1045,
+            "3": 1148,
+            "4": 1026,
+            "5": 912
+          }
+        },
+        "tile_efficiency": {
+          "h100_pct_of_achievable": 42,
+          "ampere_pct_of_achievable": 66
+        },
+        "occupancy_lever": "already spent \u2014 shipped at 3 on Hopper, 2 below",
+        "locked_by": "the_kernel_defaults_are_the_shipped_defaults_not_placeholders"
+      }
+    },
+    "decode_gap_decomposition_2026_09_22": {
+      "status": "DERIVED, not measured \u2014 combines a measured GEMM rate, a measured step time and a measured vLLM ITL",
+      "h100_gemm_weight_stream_ms": 21.2,
+      "our_decode_step_ms": 33.7,
+      "vllm_median_itl_ms": 21.62,
+      "finding": "Our GEMM alone is almost exactly vLLM's entire step. The deficit is the other ~12.5 ms \u2014 GDN state traffic (9.6 GB/step, ~4.8 ms), attention, conv, norms \u2014 not the GEMM and not the weight stream.",
+      "next": "a per-kernel decode breakdown on the chip, which is cheaper than a full head-to-head and reprioritises everything after it",
+      "CAVEAT": "The split-K term (7.16 GB partials, ~8.7 ms) is charged at full HBM cost and is probably an overcharge: every site's partial buffer is 10.5-18.4 MB and fits H100's 50 MB L2, written and read back by the immediately following kernel. That also explains the otherwise perverse H100 sweep, where more blocks won even as each step moved fewer bytes. The 'remove split-K and win' arithmetic does NOT stand up; the GDN state (9.66 GB, too large for L2) is the largest well-attributed non-GEMM term."
+    },
+    "decode_kernel_census_2026_09_22": {
+      "graph_captured": true,
+      "kernels_per_decode_step": 965,
+      "histogram": {
+        "bq_gemm_tc1": 257,
+        "bq_sk_reduce": 192,
+        "bq_add_rmsnorm_q8f_hl": 127,
+        "bq_silu_had_q8_hl_sk": 64,
+        "bq_gemv_f32w": 48,
+        "bq_gdn_gates": 48,
+        "bq_gdn_chunk": 48,
+        "bq_gate_norm_hl": 48,
+        "bq_conv_silu_l2": 48,
+        "bq_qk_norm_rope_part": 32,
+        "bq_kv_store": 16,
+        "bq_gate_mul_q8_hl": 16,
+        "bq_attn": 16
+      },
+      "split_k_cost": "~11 GB/step of partial traffic (5.5 written + 5.5 read back), comparable to the 9.66 GB GDN state",
+      "split_sweep_rtx3060_correct_occupancy_B32_ms": {
+        "1": 0.472,
+        "2": 0.427,
+        "4": 0.386,
+        "8": 0.392,
+        "16": 0.398
+      },
+      "finding": "SPLIT=4 is 3.1% faster than the shipped 16 and adds 18pp less partial traffic ON AMPERE",
+      "adopted": false,
+      "why_not": "The shipped rule targets a magic 1024 blocks; at base=40 that clamps to 16. On a 3060 that is 640 blocks against 56 slots (11x oversubscribed, so 4 wins); on H100 it is 640 against 396 slots (1.6x), and lowering the target there was already MEASURED at -2.5%. The chips genuinely disagree.",
+      "transferable_criticism": "1024 is a constant where the machine is the variable. A target of SMs x MINBLOCKS x k picks ~16 on Hopper and ~4 on Ampere by itself \u2014 each chip's own measured optimum \u2014 and the emitted program already queries the device at startup.",
+      "locks_after": {
+        "qwen38_authored_lock": "33/33",
+        "batched_equivalence_lock": "32/32"
+      }
+    },
+    "tile_height_hypothesis_2026_09_22": {
+      "hypothesis": "blocks = base x SPLIT but partials scale with SPLIT alone, so fill the machine from N (smaller TI) rather than K",
+      "rtx3060_best_ms_by_TC_WM": {
+        "1": {
+          "ms": 0.637,
+          "TI": 32,
+          "base": 160,
+          "split": 16
+        },
+        "2": {
+          "ms": 0.444,
+          "TI": 64,
+          "base": 80,
+          "split": 2
+        },
+        "4": {
+          "ms": 0.386,
+          "TI": 128,
+          "base": 40,
+          "split": 4
+        }
+      },
+      "verdict": "REFUTED. The shipped height wins at every split while running a quarter of TC_WM=1's blocks. Block count is not the driver; tile efficiency is. Agrees with the H100 measurement of -19.2% for TI=32."
+    },
+    "gdn_state_precision_2026_09_22": {
+      "why": "GDN state is 151 MB/sequence, 9.66 GB read-modify-write per decode step at B=32, and at 4.8 GB resident cannot hide in 50 MB of L2 the way split-K partials do. Halving it is ~2.4 ms of a 33.7 ms step and doubles the concurrency ceiling \u2014 a serving metric where vLLM is exposed (identical state; its baseline died on 'max_num_seqs exceeds available Mamba cache blocks').",
+      "output_rel_L2_vs_f64_state": {
+        "decay_0.900": {
+          "T128": {
+            "f32": 5.04e-08,
+            "f16": 0.000414,
+            "bf16": 0.0167
+          },
+          "T640": {
+            "f32": 5.11e-08,
+            "f16": 0.000418,
+            "bf16": 0.0171
+          }
+        },
+        "decay_0.990": {
+          "T128": {
+            "f32": 1.22e-07,
+            "f16": 0.00102,
+            "bf16": 0.0852
+          },
+          "T640": {
+            "f32": 1.48e-07,
+            "f16": 0.00122,
+            "bf16": 0.12
+          }
+        },
+        "decay_0.999": {
+          "T128": {
+            "f32": 1.5e-07,
+            "f16": 0.00123,
+            "bf16": 0.116
+          },
+          "T640": {
+            "f32": 2.37e-07,
+            "f16": 0.00194,
+            "bf16": 0.257
+          }
+        }
+      },
+      "findings": [
+        "error does NOT accumulate with T \u2014 the decay multiplies an error injected at step t by alpha^(T-t), so old error dies",
+        "f16 (10 mantissa bits) not bf16 (8): bf16 is 40-100x worse and reaches 2.6e-01 at decay 0.999",
+        "f16's ~1e-3 is an order of magnitude below the 1.27e-2 the int8 weights already cost"
+      ],
+      "locked_by": "the_gated_recurrence_tolerates_a_half_width_state_but_only_with_ten_mantissa_bits",
+      "status": "accuracy gate GREEN; speed and concurrency unmeasured on the chip",
+      "lane_built": {
+        "switch": "-DBQ_STATE16 (compile-time typedef bq_state_t; default float)",
+        "resident_state_gb": {
+          "f32": 4.83,
+          "f16": 2.42
+        },
+        "rmw_per_decode_step_gb": {
+          "f32": 9.66,
+          "f16": 4.83
+        },
+        "per_sequence_mb": {
+          "f32": 151,
+          "f16": 75.5
+        },
+        "concurrency_ceiling_2k_ctx": {
+          "RETRACTED": "The 178->356 figure counted only the GDN state. Our KV cache is float (8 B/element), making it the LARGER per-sequence term at 2K context.",
+          "corrected_per_seq_mb": {
+            "today_f32gdn_f32kv": 427,
+            "f16gdn_f32kv": 352,
+            "f16gdn_f16kv": 218
+          },
+          "corrected_ceiling_51gb": {
+            "today": 119,
+            "f16_state_only": 144,
+            "both_halves": 234
+          },
+          "actual_gain_from_what_was_built": "1.21x, not 2x \u2014 the 2x needs the f16 KV cache too (plan Lever 4, never built)"
+        },
+        "verified": [
+          "both lanes compile for sm_90a",
+          "default program byte-identical: 1767 launches after preprocessing",
+          "batched_equivalence_lock 33/33 \u2014 runs the GDN kernels on GPU vs f64 oracles at a 1.6e-7 bar",
+          "qwen38_authored_lock 33/33"
+        ],
+        "unmeasured": "the ~2.4 ms and the doubled concurrency are arithmetic from byte counts, not timings"
+      },
+      "batch_scaling_verified": "B=64 and B=128 both emit and compile clean for sm_90a (TC_TJ auto 64 / 32, grid.z covers the rest)"
+    },
+    "gdn_state_f16_measured_2026_09_22": {
+      "chip": "NVIDIA A100 80GB PCIe",
+      "note": "NOT an H100 and NOT a vLLM comparison \u2014 $0.34 bought neither. This measures whether the lane works and what halving the state returns.",
+      "batch": 32,
+      "gen": 128,
+      "prompt_tokens": 512,
+      "prefill_chunk": 32,
+      "volume_gate_mb_s": 489,
+      "decode_tok_s": {
+        "f32_state": [
+          688.27,
+          684.32
+        ],
+        "f16_state": [
+          702.99,
+          704.61
+        ],
+        "mean_f32": 686.3,
+        "mean_f16": 703.8,
+        "gain_pct": 2.55
+      },
+      "prefill_ms": {
+        "f32_state": [
+          16032.67,
+          16041.783
+        ],
+        "f16_state": [
+          15971.371,
+          15966.765
+        ],
+        "gain_pct": 0.43
+      },
+      "tokens": "identical (weak evidence \u2014 the random-token prompt drives a degenerate fixed point)",
+      "vs_prediction": "byte count said ~7%; measured 2.55%, about 37% of it. The GDN kernel is not purely bandwidth-bound (it already measures 2.0 TB/s on H100). The earlier ~2.4 ms estimate was optimistic by ~2.7x \u2014 corrected by measurement.",
+      "unmeasured": "the memory half: 2.42 GB freed, per-sequence 151->75.5 MB, concurrency ceiling ~178->~356 seq at 2K ctx. Needs a batch sweep to the memory wall."
+    },
+    "decode_ablation_knob_2026_09_22": {
+      "knob": "LOGOS_Q38B_DABLATE=none|gdn|conv|attn|norm|ffn",
+      "design": "RUNTIME mask, not a build flag. The decode graph is captured once at startup, so a host-side branch around a launch is resolved during capture and the captured graph simply lacks that node \u2014 as exact as deleting the emit, for the price of one build instead of six.",
+      "why": "Decode is the metric we lose and its composition is the largest unknown left: the GEMM accounts for ~21 ms of a ~34 ms step and the other ~12 ms has never been attributed. Four retractions this session were all reasoned rather than measured; attribution by deletion is the only method in this campaign that has never produced one.",
+      "verified": {
+        "guards_per_group": {
+          "gdn": 48,
+          "conv": 96,
+          "attn": 16,
+          "norm": 64,
+          "ffn": 64
+        },
+        "launch_census_unchanged": 1767,
+        "compiles_sm90a": true
+      },
+      "status": "BUILT, NOT RUN \u2014 the volume gated at 110 MB/s and the balance ($0.17) could not cover load plus six runs. One boot, six runs, under a dollar."
+    },
+    "decode_attribution_rtx3060_2026_09_22": {
+      "method": "scripts/qwen38/decode-attribution.sh \u2014 emitted kernels, random buffers, B=32, ctx 640, scaled x48 GDN / x16 attn / x1 head",
+      "before_ms": {
+        "gemm": 108.63,
+        "gdn": 34.5,
+        "attn": 18.78,
+        "reduce": 8.85,
+        "norm": 5.68,
+        "silu": 3.95,
+        "conv": 3.1,
+        "head": 0.32,
+        "total": 183.79
+      },
+      "after_gqa_ms": {
+        "gemm": 109.13,
+        "gdn": 34.7,
+        "attn": 10.32,
+        "reduce": 9.04,
+        "norm": 5.79,
+        "silu": 4.0,
+        "conv": 3.34,
+        "head": 0.33,
+        "total": 176.66
+      },
+      "gdn_chunk": "201 MB/layer at 327 GB/s = 96% of ceiling \u2014 only a narrower state helps",
+      "attention": "168 MB KV/layer at 147 GB/s = 43% of ceiling \u2014 six blocks read each KV head (24 q / 4 kv)"
+    },
+    "gqa_attention_2026_09_22": {
+      "kernel": "bq_attn_gqa<G> + bq_attn_launch (G picked at run time: largest divisor of the head ratio keeping >=2 blocks/SM and within smem opt-in)",
+      "bit_identical": true,
+      "mismatches": "0 / 196608 at every ctx and G, ragged lengths",
+      "speedup_rtx3060_vs_bq_attn": {
+        "ctx256": {
+          "G1": 1.2,
+          "G2": 1.84,
+          "G3": 1.78,
+          "G6": 1.85
+        },
+        "ctx640": {
+          "G1": 1.23,
+          "G2": 1.73,
+          "G3": 1.73,
+          "G6": 1.9
+        },
+        "ctx767": {
+          "G1": 1.22,
+          "G2": 1.69,
+          "G3": 1.73,
+          "G6": 1.95
+        }
+      },
+      "whole_step_rtx3060": "183.79 -> 176.66 ms, +4.0% decode at ctx 640",
+      "status": "shipped as default (bit-identical); unmeasured on H100",
+      "locked_by": "gqa_shared_attention_is_bit_identical_to_the_per_head_kernel"
+    }
+  },
+  "provenance": {
+    "date": "2026-09-04",
+    "pod": "RunPod A100-SXM4-80GB, US-KS-2, $1.39/hr",
+    "volume": "rvq94a2gft (250 GB) holds the weights and the sm_80/86/89/90 llama.cpp build"
+  },
+  "bars": {
+    "apples_to_apples_tg128_tok_s": 42.09,
+    "llama_cpp_headline_mtp_tok_s": 54.6,
+    "a100_ceiling_tok_s": 76.4,
+    "targets": {
+      "phase5_a100_plain_decode": 60,
+      "phase7_a100_with_mtp": 75
+    }
+  },
+  "attribution": {
+    "llama.cpp": {
+      "license": "MIT \u2014 Copyright (c) 2023-2024 The ggml authors",
+      "what_was_taken": "DESIGN PARAMETERS from ggml/src/ggml-cuda/mmq.cuh and mmq-config-ampere.cuh: MMQ_ITER_K = 256 (K-elements staged per __syncthreads round), MMQ_NWARPS = 8, and the shared-memory row padding that breaks bank conflicts on 32-byte rows.",
+      "what_was_NOT_taken": "No llama.cpp source files are vendored in this repository. `bq_gemm_mma` is our code. Their MMQ is coupled to ggml's type system, q8_1 block layout and dispatch, so lifting the files would mean importing part of ggml; the value here was in the constants, not the text.",
+      "why_it_mattered": "We already had the right instruction (mma.sync.aligned.m16n8k32), the right block shape (8 warps) and shared-memory staging. What we had wrong was GRANULARITY: our kernel staged 32 K-elements per barrier, theirs stages 256. For a K=5120 projection that is 320 barriers per output tile against their 40 \u2014 invisible from the outside, readable in their source in minutes.",
+      "verification": "The port changed the schedule, not the arithmetic: the GEMM lowering still matches the GEMV lowering at 1.72e-6 / 2.43e-6 / 3.00e-7, byte-identical to the pre-port figures (batched_equivalence_lock, 7/7)."
+    }
+  }
+}

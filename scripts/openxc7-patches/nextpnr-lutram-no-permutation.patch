@@ -1,0 +1,40 @@
+--- a/xilinx/arch.h	2026-10-17 19:14:29.675939137 +0000
++++ b/xilinx/arch.h	2026-10-17 19:14:29.677939176 +0000
+@@ -1231,6 +1231,17 @@
+         return pip_to_net.find(pip) == pip_to_net.end() || pip_to_net.at(pip) == nullptr;
+     }
+ 
++    // Router2 asks this, not checkPipAvail: a pip hard-unavailable to every net (a LUT permutation of a LUT-RAM or a
++    // shift register, whose write address does not permute with its read pins) is unavailable to this one too.
++    bool checkPipAvailForNet(PipId pip, const NetInfo *net) const override
++    {
++        NPNR_ASSERT(pip != PipId());
++        if (usp_pip_hard_unavail(pip))
++            return false;
++        NetInfo *bound_net = getBoundPipNet(pip);
++        return bound_net == nullptr || bound_net == net;
++    }
++
+     NetInfo *getBoundPipNet(PipId pip) const
+     {
+         NPNR_ASSERT(pip != PipId());
+--- a/xilinx/arch_place.cc	2026-10-17 19:14:29.676939156 +0000
++++ b/xilinx/arch_place.cc	2026-10-17 19:14:29.677939176 +0000
+@@ -1030,7 +1030,7 @@
+                     auto &orig_attr = lut6->attrs[id("X_ORIG_PORT_" + p.str(this))].str;
+                     bool first = true;
+                     for (auto &nc : new_connections.at(p)) {
+-                        orig_attr += orig_ports_l6[nc] + (first ? "" : " ");
++                        orig_attr += (first ? "" : " ") + orig_ports_l6[nc];
+                         first = false;
+                     }
+                     if (orig_attr.empty())
+@@ -1046,7 +1046,7 @@
+                     auto &orig_attr = lut5->attrs[id("X_ORIG_PORT_" + p.str(this))].str;
+                     bool first = true;
+                     for (auto &nc : new_connections.at(p)) {
+-                        orig_attr += orig_ports_l5[nc] + (first ? "" : " ");
++                        orig_attr += (first ? "" : " ") + orig_ports_l5[nc];
+                         first = false;
+                     }
+                     if (orig_attr.empty())

@@ -1,0 +1,155 @@
+{
+ "demo": "LOGOS tick-to-trade: NASDAQ ITCH-lite -> price-ladder book -> microprice market-making -> pre-trade risk -> order, on the full LOGOS soft-core.",
+ "provenance": "Per-message cycles are the on-chip run-cycle counter in cycle-accurate RTL sim (tb_hft.v) of the SAME full core the bitstream routes; the Show/order stream is bit-exact to the LOGOS VM and to the Python reference (hft_model.py). The UART round-trip is the dev loom, not the trade path \u2014 the HFT-relevant number is the on-chip cycle count. Absolute ns is that measured cycle count / clock, per tier.",
+ "messages": 8,
+ "order_stream": [
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  2,
+  100,
+  10,
+  1,
+  101,
+  10,
+  2,
+  100,
+  10,
+  2,
+  100,
+  10,
+  2,
+  100,
+  10,
+  1,
+  101,
+  10
+ ],
+ "chip": {
+  "per_message_cycles_median": 866,
+  "per_message_cycles_band": [
+   850,
+   874
+  ],
+  "run_to_run_jitter_cycles": 0,
+  "note": "Deterministic silicon: identical input -> identical cycle count on EVERY run (zero jitter). The band is data-dependent work across message types, not jitter.",
+  "latency_by_tier": {
+   "Nexys A7 FPGA (shipped)": {
+    "mhz": 6.25,
+    "status": "measured",
+    "ns_per_msg": 138560.0
+   },
+   "Nexys A7 FPGA (routed Fmax)": {
+    "mhz": 27.38,
+    "status": "measured",
+    "ns_per_msg": 31628.9
+   },
+   "Sky130 tapeout": {
+    "mhz": 66.67,
+    "status": "projected",
+    "ns_per_msg": 12990.0
+   },
+   "ASIC roadmap": {
+    "mhz": 1000.0,
+    "status": "roadmap",
+    "ns_per_msg": 866.0
+   }
+  }
+ },
+ "x86_baseline": {
+  "impl": "tight -O2 C, identical pipeline (hft_baseline.c), per-message rdtscp timing",
+  "cpu": "Intel Core i9-14900K",
+  "cpu_max_ghz": 5.7,
+  "chip_ns_at_cpu_clock": 151.9,
+  "samples": 120000,
+  "p50_ns": 16.6,
+  "p99_ns": 18.5,
+  "p999_ns": 29.8,
+  "p9999_ns": 32.3,
+  "max_ns": 4119.7,
+  "stdev_ns": 16.7,
+  "tail_max_over_p50": 248.2,
+  "tail_curve": [
+   [
+    0.0,
+    11.0
+   ],
+   [
+    0.1,
+    12.9
+   ],
+   [
+    0.25,
+    16.0
+   ],
+   [
+    0.5,
+    16.6
+   ],
+   [
+    0.75,
+    17.3
+   ],
+   [
+    0.9,
+    17.6
+   ],
+   [
+    0.95,
+    17.9
+   ],
+   [
+    0.99,
+    18.5
+   ],
+   [
+    0.995,
+    23.5
+   ],
+   [
+    0.999,
+    29.8
+   ],
+   [
+    0.9995,
+    31.4
+   ],
+   [
+    0.9999,
+    32.3
+   ],
+   [
+    0.99995,
+    35.1
+   ],
+   [
+    0.99999,
+    2371.1
+   ],
+   [
+    1.0,
+    4119.7
+   ]
+  ],
+  "note": "A GHz CPU wins median latency vs a 6.25 MHz FPGA \u2014 but leaks in the TAIL (OS/cache/branch jitter), which is where HFT money leaks and which worsens under load.",
+  "under_load": [
+   {
+    "load_kb": 256,
+    "p50_ns": 19.8,
+    "p999_ns": 40.5,
+    "max_ns": 2412.2,
+    "stdev_ns": 10.3
+   },
+   {
+    "load_kb": 4096,
+    "p50_ns": 36.1,
+    "p999_ns": 134.6,
+    "max_ns": 6160.0,
+    "stdev_ns": 34.8
+   }
+  ]
+ }
+}

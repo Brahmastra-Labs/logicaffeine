@@ -1,0 +1,154 @@
+# String builder and byte reader
+
+Stateful accumulator and cursor objects — a StringBuilder (incremental string construction) and a
+ByteReader (positional read over a byte sequence) — modelled as LOGOS structs threaded functionally,
+so they run byte-identically on every tier. The counterpart of Go's strings.Builder / bytes.Reader.
+Auto-imported on reference.
+
+## Note
+A StringBuilder accumulates text as a `parts` sequence of Text fragments, joined only when the final string is materialized.
+
+## A StringBuilder has:
+    a parts, which is Seq of Text.
+
+## Note
+Creates an empty StringBuilder with a fresh, empty `parts` sequence.
+
+## To newBuilder () -> StringBuilder:
+    Return a new StringBuilder with parts (a new Seq of Text).
+
+## Note
+Appends text `s` to the builder by pushing it onto `parts`, returning the updated StringBuilder.
+
+## To builderWriteString (b: StringBuilder, s: Text) -> StringBuilder:
+    Let ps be b's parts.
+    Push s to ps.
+    Return a new StringBuilder with parts ps.
+
+## Note
+Materializes the accumulated text by concatenating every fragment in `parts` in order.
+
+## To builderString (b: StringBuilder) -> Text:
+    Let mutable out be "".
+    Repeat for s in (b's parts):
+        Set out to out combined with s.
+    Return out.
+
+## Note
+Returns the total length of the builder by summing the length of every fragment in `parts`.
+
+## To builderLen (b: StringBuilder) -> Int:
+    Let mutable total be 0.
+    Repeat for s in (b's parts):
+        Set total to total + (length of s).
+    Return total.
+
+## Note
+Clears the builder, returning a fresh StringBuilder with an empty `parts` sequence.
+
+## To builderReset (b: StringBuilder) -> StringBuilder:
+    Return a new StringBuilder with parts (a new Seq of Text).
+
+## Note
+A ByteReader holds a `data` byte sequence and a 1-based cursor `pos` marking the next byte to read.
+
+## A ByteReader has:
+    a data, which is Seq of Int.
+    a pos, which is Int.
+
+## Note
+Creates a ByteReader over byte sequence `xs` with the cursor positioned at the first byte (`pos` 1).
+
+## To newReader (xs: Seq of Int) -> ByteReader:
+    Return a new ByteReader with data xs and pos 1.
+
+## Note
+Returns the byte at the current cursor position without advancing the cursor.
+
+## To readerReadByte (r: ByteReader) -> Int:
+    Return item (r's pos) of (r's data).
+
+## Note
+Moves the cursor forward by one byte, returning an updated ByteReader over the same data.
+
+## To readerAdvance (r: ByteReader) -> ByteReader:
+    Return a new ByteReader with data (r's data) and pos (r's pos + 1).
+
+## Note
+Reports whether the cursor still points at a byte, i.e. `pos` is at most the data length.
+
+## To readerHasMore (r: ByteReader) -> Bool:
+    Return r's pos is at most (length of r's data).
+
+## Note
+Returns the number of bytes remaining from the cursor to the end of the data.
+
+## To readerLen (r: ByteReader) -> Int:
+    Return (length of r's data) - r's pos + 1.
+
+## Note
+Rewinds the cursor back to the first byte (`pos` 1) over the same data.
+
+## To readerReset (r: ByteReader) -> ByteReader:
+    Return a new ByteReader with data (r's data) and pos 1.
+
+## Note
+A no-op capacity hint that returns the builder unchanged, since `parts` grows on demand.
+
+## To builderGrow (b: StringBuilder, n: Int) -> StringBuilder:
+    Return b.
+
+## Note
+Moves the cursor to an absolute position `p` over the same data.
+
+## To readerSeek (r: ByteReader, p: Int) -> ByteReader:
+    Return a new ByteReader with data (r's data) and pos p.
+
+## Note
+Appends a single byte by converting code `c` to its character via `chr` and writing it as text.
+
+## To builderWriteByte (b: StringBuilder, c: Int) -> StringBuilder:
+    Return builderWriteString(b, chr(c)).
+
+## Note
+Returns the builder's accumulated text as a byte sequence via `text_bytes`.
+
+## To builderBytes (b: StringBuilder) -> Seq of Int:
+    Return text_bytes(builderString(b)).
+
+## Note
+Returns a new builder holding only the first `n` bytes of the accumulated text.
+
+## To builderTruncate (b: StringBuilder, n: Int) -> StringBuilder:
+    Let sb be text_bytes(builderString(b)).
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Push item i of sb to out.
+        Set i to i + 1.
+    Return builderWriteString(newBuilder(), text_from_bytes(out)).
+
+## Note
+Returns the total length of the underlying data, independent of the cursor position.
+
+## To readerSize (r: ByteReader) -> Int:
+    Return length of r's data.
+
+## Note
+Steps the cursor back by one byte, undoing a prior advance over the same data.
+
+## To readerUnreadByte (r: ByteReader) -> ByteReader:
+    Return a new ByteReader with data (r's data) and pos (r's pos - 1).
+
+## Note
+Returns up to `n` bytes starting at the cursor, stopping at the end of the data if fewer remain.
+
+## To readerNext (r: ByteReader, n: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable i be 0.
+    While i is less than n:
+        Let idx be r's pos + i.
+        If idx is at most (length of r's data):
+            Push item idx of (r's data) to out.
+        Set i to i + 1.
+    Return out.

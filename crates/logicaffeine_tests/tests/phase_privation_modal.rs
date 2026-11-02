@@ -8,7 +8,8 @@
 
 #[test]
 fn lacks_can_four_interpretations() {
-    let readings = logicaffeine_language::compile_forest("No user who lacks a key can enter the room.");
+    let readings =
+        logicaffeine_language::compile_forest("No user who lacks a key can enter the room.");
 
     // Full tier: 4 readings (2 modal × 2 scope)
     assert!(
@@ -30,18 +31,24 @@ fn lacks_can_four_interpretations() {
         r.contains("¬∃y((Key(")
     });
 
-    assert!(has_partial, "Missing Partial scope reading (∃y(Key(y) ∧ ¬Have))");
-    assert!(has_total, "Missing Total scope reading (¬∃y(Key(y) ∧ Have))");
+    assert!(
+        has_partial,
+        "Missing Partial scope reading (∃y(Key(y) ∧ ¬Have))"
+    );
+    assert!(
+        has_total,
+        "Missing Total scope reading (¬∃y(Key(y) ∧ Have))"
+    );
 
     // Check modal distribution
     // In Unicode format: ◇_{0.5} for Alethic, P_{0.5} for Deontic
     // In Kripke format: Accessible_Alethic / Accessible_Deontic
-    let has_alethic = readings.iter().any(|r| {
-        r.contains("◇_{") || r.contains("Accessible_Alethic")
-    });
-    let has_deontic = readings.iter().any(|r| {
-        r.contains("P_{") || r.contains("Accessible_Deontic")
-    });
+    let has_alethic = readings
+        .iter()
+        .any(|r| r.contains("◇_{") || r.contains("Accessible_Alethic"));
+    let has_deontic = readings
+        .iter()
+        .any(|r| r.contains("P_{") || r.contains("Accessible_Deontic"));
 
     assert!(has_alethic, "Missing Alethic modal reading (◇)");
     assert!(has_deontic, "Missing Deontic modal reading (P)");
@@ -50,7 +57,8 @@ fn lacks_can_four_interpretations() {
 #[test]
 fn all_readings_use_neo_davidsonian_for_have() {
     // Full resolution should use Neo-Davidsonian event syntax for ALL interpretations
-    let readings = logicaffeine_language::compile_forest("No user who lacks a key can enter the room.");
+    let readings =
+        logicaffeine_language::compile_forest("No user who lacks a key can enter the room.");
 
     for (i, reading) in readings.iter().enumerate() {
         // Simple Have looks like: Have(x, y) or Have(w, v)

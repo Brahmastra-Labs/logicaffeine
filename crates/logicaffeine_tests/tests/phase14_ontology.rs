@@ -10,7 +10,11 @@ fn test_bridging_forward_link() {
     let input = "I bought a car. The engine smoked.";
     let result = compile(input).expect("Should compile");
     println!("OUTPUT: {}", result);
-    assert!(result.contains("PartOf"), "Should detect part-whole relationship, got: {}", result);
+    assert!(
+        result.contains("PartOf"),
+        "Should detect part-whole relationship, got: {}",
+        result
+    );
 }
 
 #[test]
@@ -18,7 +22,11 @@ fn test_bridging_house_door() {
     let input = "John entered the house. The door was open.";
     let result = compile(input).expect("Should compile");
     println!("OUTPUT: {}", result);
-    assert!(result.contains("PartOf"), "Door should be linked to house, got: {}", result);
+    assert!(
+        result.contains("PartOf"),
+        "Door should be linked to house, got: {}",
+        result
+    );
 }
 
 #[test]
@@ -30,12 +38,16 @@ fn test_bridging_ambiguity_forest() {
 
     // At minimum, there should be at least one reading with bridging
     let has_any_link = readings.iter().any(|r| r.contains("PartOf"));
-    assert!(has_any_link, "Should have at least one reading with PartOf bridging");
+    assert!(
+        has_any_link,
+        "Should have at least one reading with PartOf bridging"
+    );
 
     // Check that it links to car OR bike (both are valid wholes for wheel)
-    let has_car_or_bike = readings.iter().any(|r|
-        r.contains("PartOf") && (r.contains("Car") || r.contains("Bike") || r.contains("C") || r.contains("B"))
-    );
+    let has_car_or_bike = readings.iter().any(|r| {
+        r.contains("PartOf")
+            && (r.contains("Car") || r.contains("Bike") || r.contains("C") || r.contains("B"))
+    });
     assert!(has_car_or_bike, "Bridging should link to Car or Bike");
 }
 
@@ -43,7 +55,10 @@ fn test_bridging_ambiguity_forest() {
 fn test_no_bridging_when_direct_antecedent() {
     let input = "The engine ran. The engine stopped.";
     let result = compile(input).expect("Should compile");
-    assert!(!result.contains("PartOf"), "Should not bridge when direct antecedent exists");
+    assert!(
+        !result.contains("PartOf"),
+        "Should not bridge when direct antecedent exists"
+    );
 }
 
 // ===== METAPHOR (SORT VIOLATIONS) =====
@@ -52,14 +67,20 @@ fn test_no_bridging_when_direct_antecedent() {
 fn test_metaphor_wrapper_adjective() {
     let input = "The rock was happy.";
     let result = compile(input).expect("Should compile");
-    assert!(result.contains("Metaphor"), "Should wrap sort violation in Metaphor");
+    assert!(
+        result.contains("Metaphor"),
+        "Should wrap sort violation in Metaphor"
+    );
 }
 
 #[test]
 fn test_metaphor_wrapper_verb() {
     let input = "The rock thinks.";
     let result = compile(input).expect("Should compile");
-    assert!(result.contains("Metaphor"), "Should wrap verb sort violation in Metaphor");
+    assert!(
+        result.contains("Metaphor"),
+        "Should wrap verb sort violation in Metaphor"
+    );
 }
 
 #[test]

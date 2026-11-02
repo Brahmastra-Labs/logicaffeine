@@ -76,7 +76,10 @@ fn ascii_char_scan_count_tiers_and_matches() {
     assert_eq!(err, None);
     // 4000 'a' chars (one per iteration).
     assert_eq!(out, "4000");
-    assert!(attempts >= 1, "the hot scan loop must be attempted as a region");
+    assert!(
+        attempts >= 1,
+        "the hot scan loop must be attempted as a region"
+    );
     assert!(
         successes >= 1,
         "the ASCII char-scan loop must tier with a TextBytes pin \
@@ -120,7 +123,10 @@ fn naive_substring_search_tiers_and_matches() {
     // "XXXXX" is appended 20 times (pos % 100 == 0 for pos in {0,100,...,1900}),
     // each occurrence found once by the naive search.
     assert_eq!(out, "20");
-    assert!(attempts >= 1, "the search loop must be attempted as a region");
+    assert!(
+        attempts >= 1,
+        "the search loop must be attempted as a region"
+    );
     assert!(
         successes >= 1,
         "the ASCII substring search loop must tier \

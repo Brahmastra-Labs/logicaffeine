@@ -10,6 +10,7 @@
     "all D is not R"
   ],
   "correct": 0,
-  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
-  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+  "hint": "If not all of them have the property, what is true of at least one?",
+  "explanation": "Not all of them are rough, so at least one is not: some D is not R.",
+  "section": "2.1"
 }

@@ -1,0 +1,39 @@
+# ════════════════════════════════════════════════════════════════════════════
+# .config/coverage/thresholds.toml — per-crate REGION-coverage floors.
+# MONOTONE: scripts/test/check-coverage-floors.sh fails if a crate drops below
+# its floor; a human RAISES a floor as coverage improves. Never lower a floor to go
+# green — fix the tests.
+#
+# Floors seeded ~1 point UNDER the measured level (headroom for benign churn), ratchet
+# upward. Measured 2026-07-12 by scripts/test/run-coverage.sh (cargo-llvm-cov), full
+# workspace, integration tests included, SAT/coNP research campaign excluded from the
+# denominator. Workspace TOTAL: 84.37% region / 84.12% line.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── Full-suite region floors (all tests, integration included) ──
+# The correctness core (base=crypto 94.9%, proof=certifier 91.4%, kernel 84.9%,
+# data=wire 77.9%) is strong. language (81.3%) and compile (83.4%) are well-covered by
+# integration tests — the audit's "weak in isolation" was only about UNIT tests.
+[floors]
+logicaffeine_base      = 94.0   # crypto primitives (sha_ops/hash) — measured 94.92
+logicaffeine_proof     = 90.0   # SAT/DRAT certifier (research campaign excluded) — 91.37
+logicaffeine_lsp       = 86.0   # 87.51
+logicaffeine_jit       = 84.0   # 85.28
+logicaffeine_kernel    = 84.0   # trusted CoC core — 84.85
+logicaffeine_runtime   = 83.0   # 84.79
+logicaffeine_compile   = 82.0   # 83.4
+logicaffeine_forge     = 82.0   # 82.99
+logicaffeine_tv        = 81.0   # 82.66
+logicaffeine_language  = 80.0   # 81.27
+logicaffeine_system    = 79.0   # 80.30
+logicaffeine_data      = 76.0   # wire codec — 77.92
+logicaffeine_verify    = 69.0   # 70.25 (Z3 wrapper; lower is acceptable)
+
+# ── Isolation floors (each crate by its OWN unit tests) ──
+# Surfaces the "under-tested in isolation" gap so it can't hide behind integration
+# coverage. Worst offender in the trusted core: kernel/src/reduction.rs = 12.4% region
+# in ISOLATION (75.75% with integration — see .config/coverage/BASELINE.md). Mutation of
+# reduction.rs (Wave 4) MUST run with the broader test set, or its mutants survive.
+[isolation_floors]
+# Filled from the per-crate isolation pass (scripts/test/run-coverage.sh writes
+# .config/coverage/isolation-<crate>.json).

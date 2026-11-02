@@ -2,17 +2,18 @@
   "id": "Q_3.48",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "A liberal is a permissive do-gooder who knows nothing.",
+  "prompt": "A lawyer is one of those smug professionals trained in law.",
   "options": [
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a liberal?",
-  "explanation": "'Permissive do-gooder who knows nothing' would fit many people who aren't liberals at all, so the definition is TOO BROAD — and it is steeped in a hostile EMOTIONAL TONE the neutral term lacks."
+  "correct": 5,
+  "hint": "Does the definition describe, or does it praise or sneer?",
+  "explanation": "'Smug' adds contempt to an otherwise accurate definition. The word 'lawyer' is neutral.",
+  "section": "3.2"
 }

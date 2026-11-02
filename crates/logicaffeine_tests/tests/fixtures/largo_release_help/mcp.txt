@@ -1,0 +1,29 @@
+Serve the LOGOS toolchain over the Model Context Protocol (stdio).
+
+Speaks JSON-RPC 2.0, one JSON object per line: check with structured diagnostics, sandboxed deterministic runs, English→FOL, kernel-certified proofs, code emission, and optimization reports — plus the quickguide and docs guides as MCP resources. Made for AI agents; humans want the plain subcommands.
+
+Usage: largo mcp [OPTIONS]
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo mcp
+  claude mcp add logos -- largo mcp

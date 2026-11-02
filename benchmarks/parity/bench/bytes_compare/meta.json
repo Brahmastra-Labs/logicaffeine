@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.compare",
+  "workload": "bytesCompare(xs,ys) \u2014 lexicographic -1/0/1",
+  "arg": "200000",
+  "expected": "-200000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -1,0 +1,1285 @@
+{
+  "examples": [
+    {
+      "file": "examples/logic/simple-sentences.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Sleep",
+          "Bark",
+          "Loudly",
+          "Love",
+          "Fail"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/quantifiers.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Student",
+          "Book",
+          "Professor",
+          "Exam",
+          "Cat"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/tense-aspect.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Run",
+          "Eat",
+          "Arrive",
+          "Sleep",
+          "Work"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/garden-path.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Horse",
+          "Race",
+          "Fall"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/events-adverbs.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Quickly",
+          "Carefully",
+          "Loudly"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/negation-polarity.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Dog",
+          "Bark",
+          "Error"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/plurals-collectives.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "σBoy",
+          "Gather",
+          "Love"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/comparatives.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Taller",
+          "2 inches",
+          "Higher"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/modality.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Student",
+          "FEW",
+          "Bird"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/donkey-anaphora.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Farmer",
+          "Donkey",
+          "Beat"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/intensionality.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "Seek",
+          "^Unicorn",
+          "Believe"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/counterfactuals.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "fol",
+        "needles": [
+          "□→",
+          "Study",
+          "Glass"
+        ]
+      }
+    },
+    {
+      "file": "examples/logic/prover-demo.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/simon.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/syllogism.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/disjunctive-syllogism.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/modus-tollens.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/leibniz-identity.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/neither-nor.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/equality-rewrite.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/presupposition.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/grid-starter.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/grid-question.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/tactic-script.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "proves"
+      }
+    },
+    {
+      "file": "examples/logic/barber-paradox.logic",
+      "mode": "logic",
+      "promise": {
+        "kind": "derivation_not_certified"
+      }
+    },
+    {
+      "file": "examples/code/hello-world.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Hello, LOGOS!\n10 + 20 = 30"
+      }
+    },
+    {
+      "file": "examples/code/basics/fizzbuzz.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz"
+      }
+    },
+    {
+      "file": "examples/code/basics/syntax-flavors.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "bound with the = sign\nLet and = both bind values: 20\nOtherwise If flavor: FizzBuzz\nelif flavor: FizzBuzz\nmut and mutable both work: 12\nsymbols and English agree: 15 is divisible by 5"
+      }
+    },
+    {
+      "file": "examples/code/basics/interpolation.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Ada is 36.\nNext year she will be 37.\npi to two places: 3.14\n|     socks|\n|socks     |\n|  socks   |\nthat will be $19.99\ndebugging: x=42\nliteral braces: {not a hole}"
+      }
+    },
+    {
+      "file": "examples/code/basics/numbers.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "2 to the 100th = 1267650600228229401496703205376\na third to 4 places: 0.3333\n0.1 + 0.2 is approximately 0.3 (floats drift)\nwith Decimal it is exactly 0.3"
+      }
+    },
+    {
+      "file": "examples/code/strings/text-basics.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "LOGOS has 5 letters.\nIt starts with L.\nThere is GO in LOGOS.\nHello, world!\nReversed: SOGOL"
+      }
+    },
+    {
+      "file": "examples/code/strings/formatting.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "item          cost\napples        1.25\nbread          3.5\ntotal: $4.75"
+      }
+    },
+    {
+      "file": "examples/code/strings/find-and-count.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "the letter t appears 5 times\nthe sentence has 6 words"
+      }
+    },
+    {
+      "file": "examples/code/collections/slicing.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "middle three: [70, 85, 90]\nedited copy: [100, 70, 85, 90, 60]\noriginal untouched: [55, 70, 85, 90, 60]"
+      }
+    },
+    {
+      "file": "examples/code/collections/tuples.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "x = 10, y = 20\nBerlin has 3600000 people\nthe tuple has 3 slots\nBerlin is the capital of Germany\nParis is the capital of France"
+      }
+    },
+    {
+      "file": "examples/code/collections/filter-transform.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "evens: [2, 4, 6]\ntheir squares: [4, 16, 36]\nsum of squares: 56"
+      }
+    },
+    {
+      "file": "examples/code/time-and-money/dates.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "liftoff day: 2026-05-20\nprep starts: 2026-05-17\nreview lands: 2026-07-20\nsprint length: 17 days\ndaily standup: 09:30:00\nkickoff moment: 2026-05-20 16:00\n9am is before noon"
+      }
+    },
+    {
+      "file": "examples/code/time-and-money/money.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "subtotal: $7.75\ntwo rounds: $15.50\nwith tip: $17.05\n0.1 + 0.2 = 0.3 exactly (no float drift)"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/fibonacci.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "The first 10 Fibonacci numbers:\n1\n1\n2\n3\n5\n8\n13\n21\n34\n55"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/primes.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Checking 2 through 30:\n2 is prime\n3 is prime\n5 is prime\n7 is prime\n11 is prime\n13 is prime\n17 is prime\n19 is prime\n23 is prime\n29 is prime"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/bubble-sort.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Before: [64, 34, 25, 12, 22, 11, 90]\nAfter: [11, 12, 22, 25, 34, 64, 90]"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/sieve.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "25 primes at or below 100\nthe largest is 97"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/binary-search.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "found 42 at position 5\n50 is not present"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/merge-sort.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "before: [38, 27, 43, 3, 9, 82, 10]\nafter: [3, 9, 10, 27, 38, 43, 82]"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/gcd.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "gcd(48, 18) = 6\ngcd(17, 5) = 1\ngcd(100, 75) = 25"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/two-sum.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "11 + 3 = 14"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/bfs.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "shortest path from 1 to 6: 3 hops"
+      }
+    },
+    {
+      "file": "examples/code/algorithms/collatz.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "27 takes 111 steps to reach 1"
+      }
+    },
+    {
+      "file": "examples/code/collections/lists.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Numbers: [10, 20, 30, 40, 50]\nAfter pushing 60: [10, 20, 30, 40, 50, 60]\nThe list now holds 6 items.\nFirst: 10, last: 60.\nSum of all items: 210\nPopped 60; 5 items remain."
+      }
+    },
+    {
+      "file": "examples/code/functions/recursion.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "factorial(5) = 120\nfactorial(10) = 3628800\nfib(10) = 55"
+      }
+    },
+    {
+      "file": "examples/code/functions/defining.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "a 12 x 10 room covers 120 square feet\nbalance after withdrawing 40 from 100: 60\nWelcome, Ada!"
+      }
+    },
+    {
+      "file": "examples/code/functions/closures.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "double(21) = 42\n42 with the captured bonus of 100: 142\n7 is odd"
+      }
+    },
+    {
+      "file": "examples/code/functions/ufcs.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "function style: double(5) = 10\nmethod style: (5).double() = 10\nchained: (5).double().plus(3).double() = 26"
+      }
+    },
+    {
+      "file": "examples/code/types/bytes-and-words.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "4294967295 + 1 wraps to 0\n1 shifted left by 4 = 16\n16 shifted right by 2 = 4\ncount_ones(255) = 8\n255 AND 170 = 170\n85 OR 170 = 255\n255 XOR 85 = 170\na Char literal: A"
+      }
+    },
+    {
+      "file": "examples/code/types/exact-numbers.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "1/3 + 1/6 = 1/2\n19.99 * 3 = 59.97 (no float drift)\ni * i = -1"
+      }
+    },
+    {
+      "file": "examples/code/types/structs.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Alice is 30.\nBob is 25.\nAfter a birthday, Alice is 31."
+      }
+    },
+    {
+      "file": "examples/code/types/enums.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "It's red!\nnot red"
+      }
+    },
+    {
+      "file": "examples/code/types/generics.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "The Int box holds 42.\nThe Text box holds hello.\nPair: score = 97."
+      }
+    },
+    {
+      "file": "examples/code/collections/sets.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "After 4 adds (one duplicate): 3 members.\nBob is in the set.\nAfter removing Bob: 2 members.\nunion: {2, 4, 1}\nintersection: {2}\ndifference: {4}"
+      }
+    },
+    {
+      "file": "examples/code/collections/maps.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "iron count: 50\nafter restock: 100\nFull inventory:\n  iron: 100\n  copper: 30\n  gold: 10"
+      }
+    },
+    {
+      "file": "examples/code/functions/higher-order.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "double(21) = 42\ntwice(double, 5) = 20\nmakeAdder(10) applied to 32 = 42"
+      }
+    },
+    {
+      "file": "examples/code/distributed/counters.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Total points: 18"
+      }
+    },
+    {
+      "file": "examples/code/security/policies.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Admin check passed: Root is admin.\nCapability check passed: Alice can edit her own document."
+      }
+    },
+    {
+      "file": "examples/code/memory/zones.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Sum in zone: 100\nValue in the 1 MB zone: 100\nZones cleaned up!"
+      }
+    },
+    {
+      "file": "examples/code/concurrency/tasks.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "worker done\nmain continues\nHello from a task\nworker done\nsecond worker stopped"
+      }
+    },
+    {
+      "file": "examples/code/concurrency/pipes.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "received: 42\ntry-receive got: 7"
+      }
+    },
+    {
+      "file": "examples/code/concurrency/select.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "first arrival: 99\ntimed out waiting on the quiet pipe"
+      }
+    },
+    {
+      "file": "examples/code/distributed/last-write-wins.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "status: online\nstatus now: away"
+      }
+    },
+    {
+      "file": "examples/code/distributed/divergent.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "title: Draft\nresolved title: Final"
+      }
+    },
+    {
+      "file": "examples/code/distributed/shared-set.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Bob survives: concurrent add wins\nteam size: 2"
+      }
+    },
+    {
+      "file": "examples/code/distributed/shared-sequence.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "entries after merge: 3"
+      }
+    },
+    {
+      "file": "examples/code/distributed/shared-map.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "50"
+      }
+    },
+    {
+      "file": "examples/code/distributed/sync.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "local clicks: 3"
+      }
+    },
+    {
+      "file": "examples/code/basics/variables.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Alice is 25, active: true\nticket price: $19.99\ncount doubled: 200"
+      }
+    },
+    {
+      "file": "examples/code/basics/operators.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "10 + 3 = 13\n10 - 3 = 7\n10 * 3 = 30\n10 / 3 = 3\n10 % 3 = 1\n10 is greater than 3\n10 is between 1 and 100 (chained comparison)\n10 is between 5 and 15\n10 is even\n3 is odd\n10 is divisible by 5\nsunny and warm: false\nsunny or warm: true\nnot sunny: false"
+      }
+    },
+    {
+      "file": "examples/code/basics/control-flow.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Grade: B\nCountdown:\n3\n2\n1\nBlastoff!\nFirst multiple of 7 above 20:\n21"
+      }
+    },
+    {
+      "file": "examples/code/types/enum-payloads.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Circle with radius 5, area about 75\nRectangle 4 x 6, area 24"
+      }
+    },
+    {
+      "file": "examples/code/memory/ownership.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Viewing: User Profile Data\nStill usable after lending: User Profile Data\nConsumed: User Profile Data\nOriginal intact: User Profile Data"
+      }
+    },
+    {
+      "file": "examples/code/concurrency/parallel.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "25^2 = 625, 9^3 = 729\nproduct: 455625\nx + y = 30"
+      }
+    },
+    {
+      "file": "examples/code/distributed/tally.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "after +100: 100\nafter -30: 70\nfinal: 80"
+      }
+    },
+    {
+      "file": "examples/code/distributed/merge.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "local views: 100\nremote views: 50\nafter merge: 150"
+      }
+    },
+    {
+      "file": "examples/code/networking/server.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "native_only",
+        "needs": "Live networking"
+      }
+    },
+    {
+      "file": "examples/code/networking/client.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "native_only",
+        "needs": "Live networking"
+      }
+    },
+    {
+      "file": "examples/code/types/option-result.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "10 / 2 = 5\nerror: cannot divide 5 by zero"
+      }
+    },
+    {
+      "file": "examples/code/verification/refinement.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "positive: 5\npercentage: 85\ndice roll: 4"
+      }
+    },
+    {
+      "file": "examples/code/verification/assertions.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "withdrew 50 from 100, leaving 50\nprocess(5) = 10"
+      }
+    },
+    {
+      "file": "examples/code/verification/termination.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "1024 halves to 1 in 10 steps\n1000000 halves to 1 in 19 steps"
+      }
+    },
+    {
+      "file": "examples/code/security/check-gate.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "gate passed: the account is open\nwithdrawal of 40 approved for Ada"
+      }
+    },
+    {
+      "file": "examples/code/crypto/hashes.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "sha1 of abc: first bytes 169, 153\nmd5 of abc: first byte 144\ndigest lengths: sha1 20 bytes, md5 16 bytes"
+      }
+    },
+    {
+      "file": "examples/code/crypto/chacha20.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "a = 3928658676\nb = 3407673550\nc = 1166100270\nd = 1484899515"
+      }
+    },
+    {
+      "file": "examples/code/crypto/ml-kem.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "encapsulation key: 1184 bytes\nciphertext: 1088 bytes, shared secret: 32 bytes"
+      }
+    },
+    {
+      "file": "examples/code/crypto/uuid.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "v5 of example.com: 2ed6657d-e927-568b-95e1-2665a8aea6a2\nv4 from fixed bytes: 0b16212c-3742-4d58-a36e-79848f9aa5b0"
+      }
+    },
+    {
+      "file": "examples/code/projects/todo-list.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "TODO:\n  [ ] buy milk\n  [x] write examples\n  [ ] water plants\n2 remaining"
+      }
+    },
+    {
+      "file": "examples/code/projects/inventory.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "Inventory report:\n  planks: 28\n  nails: 350\n  hinges: 2  LOW - reorder\n  varnish: 2  LOW - reorder"
+      }
+    },
+    {
+      "file": "examples/code/projects/dice-game.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "round 1: you rolled 4, rival rolled 1\nround 2: you rolled 6, rival rolled 5\nround 3: you rolled 6, rival rolled 3\nfinal score - you: 16, rival: 9\nyou win!"
+      }
+    },
+    {
+      "file": "examples/code/projects/temperature-stats.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "week of readings: [18, 21, 25, 24, 19, 16, 22]\nlow 16, high 25, average 20 (rounded down)\nchart:\n  18 ###\n  21 ######\n  25 ##########\n  24 #########\n  19 ####\n  16 #\n  22 #######"
+      }
+    },
+    {
+      "file": "examples/code/projects/bank-ledger.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "opening balance: $250.00\ndeposit $75.50 -> $325.50\ndeposit $12.25 -> $337.75\nwithdrew $40.00 -> $297.75\nclosing balance: $297.75"
+      }
+    },
+    {
+      "file": "examples/code/projects/caesar-cipher.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "encoded: khoor zruog\ndecoded: hello world"
+      }
+    },
+    {
+      "file": "examples/code/projects/word-count.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "text: the quick brown fox jumps over the lazy dog\n43 characters\n9 words"
+      }
+    },
+    {
+      "file": "examples/code/projects/matrix-ops.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "A x B = [[19, 22], [43, 50]]"
+      }
+    },
+    {
+      "file": "examples/code/projects/event-scheduler.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "kickoff: 2026-06-01 09:00\nstandup: 2026-06-01 09:30\nreview: 2026-06-01 16:00\nstandup comes before review\neach focus block runs 2h"
+      }
+    },
+    {
+      "file": "examples/code/projects/vending-machine.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "credit: 75 cents\ndispensing soda\nchange: 10 cents\nmachine reset"
+      }
+    },
+    {
+      "file": "examples/code/projects/text-adventure.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "> north\nYou are in a quiet library. A key glints on the desk.\n> take key\nYou found the key!\n> south\nYou are in a dusty hall. Doors lead north and east.\n> east\nYou are in a dark cellar. The exit door is locked.\nThe key turns. You escape the cellar!"
+      }
+    },
+    {
+      "file": "examples/code/projects/chat-simulation.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "<alice> message 101\n<alice> message 102\n<bob> message 201\nroom quiet - closing"
+      }
+    },
+    {
+      "file": "examples/code/projects/leaderboard.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "standings after merge:\n  alice: 19\n  bob: 16\nalice leads"
+      }
+    },
+    {
+      "file": "examples/code/projects/password-hasher.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "stored digest: 20 bytes\ncorrect password accepted\nwrong password rejected"
+      }
+    },
+    {
+      "file": "examples/code/time-and-money/durations.logos",
+      "mode": "code",
+      "promise": {
+        "kind": "output_exact",
+        "output": "blink 50ns, tick 100μs, pause 500ms, breath 1s\n500ms + 500ms = 1s\n500ms is less than 1s\nSleeping 200ms...\nAwake!"
+      }
+    },
+    {
+      "file": "examples/code/web/counter.logos",
+      "mode": "web",
+      "promise": {
+        "kind": "web_app"
+      }
+    },
+    {
+      "file": "examples/code/web/todo-list.logos",
+      "mode": "web",
+      "promise": {
+        "kind": "web_app"
+      }
+    },
+    {
+      "file": "examples/code/web/form.logos",
+      "mode": "web",
+      "promise": {
+        "kind": "web_app"
+      }
+    },
+    {
+      "file": "examples/code/web/website.logos",
+      "mode": "web",
+      "promise": {
+        "kind": "web_app"
+      }
+    },
+    {
+      "file": "examples/math/prelude-tour.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/big-arithmetic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/termination-wall.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_admits",
+        "marker": "collatz_len"
+      }
+    },
+    {
+      "file": "examples/math/tarski-geometry.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "theory_verified"
+      }
+    },
+    {
+      "file": "examples/math/natural-numbers.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/boolean-logic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/godel-sentence.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/incompleteness.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/prop-logic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/functions.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/list-ops.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/pairs.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/logic-gates.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/proven-property.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/collatz.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/godel-literate.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/incompleteness-literate.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/ring-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/lia-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/cc-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/simp-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/omega-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/auto-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/induction-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/hints.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/inversion-tactic.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/operator-tactics.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/math/tacticals.logos",
+      "mode": "math",
+      "promise": {
+        "kind": "kernel_ok"
+      }
+    },
+    {
+      "file": "examples/hardware/handshake.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "sva"
+      }
+    },
+    {
+      "file": "examples/hardware/only-if.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "sva"
+      }
+    },
+    {
+      "file": "examples/hardware/next-cycle.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "sva"
+      }
+    },
+    {
+      "file": "examples/hardware/mutex.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "sva"
+      }
+    },
+    {
+      "file": "examples/hardware/intersection-design.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "signal_plan"
+      }
+    },
+    {
+      "file": "examples/hardware/t-junction.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "signal_plan"
+      }
+    },
+    {
+      "file": "examples/hardware/arbiter.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/bad-arbiter.v",
+      "mode": "hardware",
+      "promise": {
+        "fixed": "examples/hardware/arbiter.v",
+        "kind": "rtl_refuted"
+      }
+    },
+    {
+      "file": "examples/hardware/fifo.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/onehot.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/reset-mirror.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/traffic-safe.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/traffic-crash.v",
+      "mode": "hardware",
+      "promise": {
+        "fixed": "examples/hardware/traffic-safe.v",
+        "kind": "rtl_refuted"
+      }
+    },
+    {
+      "file": "examples/hardware/queue-jam.v",
+      "mode": "hardware",
+      "promise": {
+        "fixed": "examples/hardware/queue-stable.v",
+        "kind": "rtl_refuted"
+      }
+    },
+    {
+      "file": "examples/hardware/queue-stable.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/datapath-identity.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/door-interlock.v",
+      "mode": "hardware",
+      "promise": {
+        "kind": "rtl_proven"
+      }
+    },
+    {
+      "file": "examples/hardware/door-interlock-bug.v",
+      "mode": "hardware",
+      "promise": {
+        "fixed": "examples/hardware/door-interlock.v",
+        "kind": "rtl_refuted"
+      }
+    },
+    {
+      "file": "examples/hardware/register-alloc-fits.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "regalloc_fits"
+      }
+    },
+    {
+      "file": "examples/hardware/register-alloc-spill.hw",
+      "mode": "hardware",
+      "promise": {
+        "fixed": "examples/hardware/register-alloc-fits.hw",
+        "kind": "regalloc_spills"
+      }
+    },
+    {
+      "file": "examples/hardware/pigeonhole.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "unsat_certified"
+      }
+    },
+    {
+      "file": "examples/hardware/pigeonhole-12.hw",
+      "mode": "hardware",
+      "promise": {
+        "kind": "unsat_certified"
+      }
+    }
+  ]
+}

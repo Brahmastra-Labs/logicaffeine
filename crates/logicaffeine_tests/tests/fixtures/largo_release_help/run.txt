@@ -1,0 +1,71 @@
+Build and run the current project.
+
+Equivalent to `largo build` followed by executing the resulting binary. The exit code of the built program is propagated.
+
+With `--interpret`, skips the Rust build and runs the program in-process on the bytecode VM, with JIT tier-up on x86-64 Linux and macOS, for fast feedback during development. A concurrent or asynchronous program, or a construct the VM compiler does not take, runs on the tree-walking interpreter instead.
+
+# Example
+
+```bash largo run              # Debug mode (compile to Rust) largo run --release    # Release mode largo run --interpret  # Run in-process on the VM (no Rust build) ```
+
+Usage: largo run [OPTIONS] [ARGS]...
+
+Arguments:
+  [ARGS]...
+          Arguments to pass to the program
+
+Options:
+  -r, --release
+          Build with optimizations enabled
+
+  -i, --interpret
+          Run in-process on the bytecode VM (JIT where available) instead of building Rust. Gives fast feedback but lacks full compiled-Rust performance
+
+      --emit <EMIT>
+          `wasm` compiles straight to a `.wasm` (built-in backend, no rustc) and runs it via the emitted host shim (node). `wasm-linked` links the real `BigInt` runtime first (exact arbitrary-precision integers; needs the Rust toolchain). Compile-and-run in one step
+
+      --engine <ENGINE>
+          In-process execution tier. Valid only with `--interpret`
+
+          Possible values:
+          - jit:  Optimized bytecode VM with native JIT tier-up
+          - vm:   Optimized bytecode VM without native tier-up
+          - tree: Optimized tree-walking interpreter
+
+      --max-steps <N>
+          Stop after the engine executes N steps (`--interpret` only) — deterministic, the same op on every run. Exhaustion exits 122 with the partial output delivered
+
+      --timeout <DURATION>
+          Kill the run after this wall clock (`500ms`, `10s`, `2m`). Expiry exits 124 (the GNU timeout convention)
+
+      --seed <SEED>
+          Scheduler seed for deterministic concurrent runs (sets LOGOS_SEED for this run and any compiled child)
+
+      --json
+          Print one `logos-run/1` JSON envelope on stdout (`--interpret` only): outcome, output lines, error, steps used
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo run
+  largo run --release
+  largo run --interpret
+  largo run --emit wasm
+  largo run -- input.txt --program-flag

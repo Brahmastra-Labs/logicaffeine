@@ -25,6 +25,28 @@ export Z3_SYS_Z3_HEADER="${Z3_SYS_Z3_HEADER:-/usr/include/z3.h}"
 # Make cargo available in non-login/background shells.
 command -v cargo >/dev/null 2>&1 || source "$HOME/.cargo/env"
 
+# --- one heavy non-cargo job at a time ---------------------------------------
+# A baseline taken beside place-and-route, synthesis or emulation fails load-sensitive tests that pass in
+# isolation, and the result cannot be told apart from a real regression. `scripts/test/heavy-jobs.sh` names
+# every such job, paused containers and frozen processes excepted (`heavy_jobs_lock`).
+if ! heavy="$("$REPO_ROOT/scripts/test/heavy-jobs.sh")"; then
+  echo "ERROR: a heavy non-cargo job is running and would contend with the suite:" >&2
+  echo "$heavy" >&2
+  echo "Refusing to start: wait for it, or stop it deliberately." >&2
+  exit 1
+fi
+
+# --- and room on its disks ---------------------------------------------------
+# A full run writes tens of gigabytes of test scratch into $TMPDIR (the cargo projects, e2e caches and
+# per-process lane directories the tests build) and rebuilds into its target directory. A run that fills
+# its disk fails every test after the first "No space left on device" for a reason that is not the
+# test's own, and every other build on that disk with it, so a run without room is refused before it
+# builds anything.
+if ! "$REPO_ROOT/scripts/test/disk-headroom.sh" 150 "${TMPDIR:-/tmp}" "${CARGO_TARGET_DIR:-$REPO_ROOT/target}"; then
+  echo "Refusing to start: free space on that disk first." >&2
+  exit 1
+fi
+
 # --- log file ----------------------------------------------------------------
 LOG_DIR="$REPO_ROOT/logs"
 mkdir -p "$LOG_DIR"

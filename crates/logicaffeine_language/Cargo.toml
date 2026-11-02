@@ -8,9 +8,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Natural language to first-order logic pipeline"
+license = "MIT"
+description = "The LOGOS front end: English sentences to first-order logic, and the parser for LOGOS programs and LGX pages"
 readme = "README.md"
+include = ["src/**", "/build.rs", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 build = "build.rs"
 
 [dependencies]
@@ -25,10 +26,17 @@ bumpalo = "3.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
+# The type registry, iterated in registration order
+indexmap = "2"
+
 [build-dependencies]
+logicaffeine-lexicon = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [features]
 default = []
 dynamic-lexicon = ["logicaffeine-lexicon/dynamic-lexicon"]
+# `lexicon::reference`: every word table's linear `match`, the oracle the word-table differential
+# checks the generated tables against. Test-only, never on by default.
+lexicon-reference = []

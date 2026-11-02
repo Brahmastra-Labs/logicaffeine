@@ -18,7 +18,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 mod common;
-use common::{assert_compiled_equals_interpreted, assert_compiled_equals_interpreted_eq, compile_to_rust};
+use common::{
+    assert_compiled_equals_interpreted, assert_compiled_equals_interpreted_eq, compile_to_rust,
+};
 
 /// CONSTANT capacity, keys provably in range, and every queried key provably
 /// inserted (the insert loop fully covers `1..21` with unit stride): the `collect`

@@ -3,8 +3,8 @@
 //! CDC bugs are among the hardest to find in simulation. Metastability,
 //! data coherence, and synchronizer correctness require formal analysis.
 
-use super::{SvaProperty, SvaAssertionKind};
 use super::rtl_extract::RtlModule;
+use super::{SvaAssertionKind, SvaProperty};
 
 /// A clock domain for CDC analysis.
 #[derive(Debug, Clone)]
@@ -16,10 +16,21 @@ pub struct CdcClockDomain {
 /// CDC synchronization pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CdcPattern {
-    TwoFlopSync { source_domain: String, dest_domain: String },
-    ThreeFlopSync { source_domain: String, dest_domain: String },
-    GrayCode { width: u32 },
-    HandshakeCdc { req: String, ack: String },
+    TwoFlopSync {
+        source_domain: String,
+        dest_domain: String,
+    },
+    ThreeFlopSync {
+        source_domain: String,
+        dest_domain: String,
+    },
+    GrayCode {
+        width: u32,
+    },
+    HandshakeCdc {
+        req: String,
+        ack: String,
+    },
     PulseSynchronizer,
     AsyncFifo,
 }
@@ -62,16 +73,17 @@ pub struct CdcReport {
 }
 
 /// Analyze an RTL module for clock domain crossing issues.
-pub fn analyze_cdc(
-    rtl: &RtlModule,
-    domains: &[CdcClockDomain],
-) -> CdcReport {
+pub fn analyze_cdc(rtl: &RtlModule, domains: &[CdcClockDomain]) -> CdcReport {
     let mut crossings = Vec::new();
     let mut violations = Vec::new();
     let mut patterns = Vec::new();
 
     if domains.len() < 2 {
-        return CdcReport { crossings, violations, patterns };
+        return CdcReport {
+            crossings,
+            violations,
+            patterns,
+        };
     }
 
     // For each signal, determine which domain it belongs to
@@ -141,7 +153,11 @@ pub fn analyze_cdc(
         }
     }
 
-    CdcReport { crossings, violations, patterns }
+    CdcReport {
+        crossings,
+        violations,
+        patterns,
+    }
 }
 
 /// Generate SVA properties for CDC verification.
@@ -149,14 +165,14 @@ pub fn cdc_sva_properties(report: &CdcReport) -> Vec<SvaProperty> {
     let mut props = Vec::new();
 
     for crossing in &report.crossings {
-        if let Some(CdcPattern::TwoFlopSync { ref dest_domain, .. }) = crossing.pattern {
+        if let Some(CdcPattern::TwoFlopSync {
+            ref dest_domain, ..
+        }) = crossing.pattern
+        {
             props.push(SvaProperty {
                 name: format!("cdc_2flop_{}", crossing.signal),
                 clock: format!("clk_{}", dest_domain),
-                body: format!(
-                    "{sig}_sync1 |=> {sig}_sync2",
-                    sig = crossing.signal
-                ),
+                body: format!("{sig}_sync1 |=> {sig}_sync2", sig = crossing.signal),
                 kind: SvaAssertionKind::Assert,
             });
         }

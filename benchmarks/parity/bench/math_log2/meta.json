@@ -1,0 +1,13 @@
+{
+  "capability": "math.log2",
+  "workload": "math.log2",
+  "arg": "1000000",
+  "expected": "18488884319302",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "go",
+    "rust"
+  ]
+}

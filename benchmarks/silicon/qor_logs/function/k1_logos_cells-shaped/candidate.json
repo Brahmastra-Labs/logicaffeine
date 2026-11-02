@@ -1,0 +1,157 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [
+   {
+    "contract": "micro100",
+    "dut": "in0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "fair100",
+    "dut": "in1",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "edge100",
+    "dut": "in2",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "base_size",
+    "dut": "in3",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "max_order",
+    "dut": "in4",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "inventory",
+    "dut": "in5",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "pos_cap",
+    "dut": "in6",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "book_ok",
+    "dut": "in7",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K1",
+  "mems": [],
+  "name": "k1_logos_cells",
+  "outputs": [
+   {
+    "contract": "order",
+    "dut": "result",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in2"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in3"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in4"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in5"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in6"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "in7"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "result"
+   }
+  ],
+  "protocol": {
+   "Registered": {
+    "latency": 3
+   }
+  },
+  "reset": null,
+  "top": "fabric_hft_cells"
+ },
+ "files": [
+  "fabric_hft_cells.v"
+ ],
+ "golden_signature": "4037c5435df41446",
+ "harness": "qorbist_k1_logos_cells.v",
+ "harness_top": "qorbist_k1_logos_cells",
+ "kernel": "K1",
+ "kernel_name": "decide",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "registered, latency 3",
+ "source_kind": "compiled-from-lg",
+ "testbench": "tb_qor.v"
+}

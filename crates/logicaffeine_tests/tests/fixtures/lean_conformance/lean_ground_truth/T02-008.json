@@ -1,0 +1,56 @@
+{
+  "case": "T02-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2",
+      "name": "T02_008.coerceAnything",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "lcProof"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_008.diverge",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_008.fastIdImpl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_008.safeId",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T02_008.safeId n = n",
+      "name": "T02_008.safeId_eq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Bool",
+      "name": "T02_008.useCoerce",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "lcProof"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

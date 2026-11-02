@@ -1,0 +1,9 @@
+// K2 horner for Calyx through Dahlia: ((2x+5)x-3)x+100 over 64-bit values, x read from and y written to
+// one-word memories (Dahlia's calling convention).
+decl x: bit<64>[1];
+decl y: bit<64>[1];
+let i: ubit<1> = (0 as ubit<1>);
+---
+let v: bit<64> = x[i];
+---
+y[i] := (((2 as bit<64>) * v + (5 as bit<64>)) * v - (3 as bit<64>)) * v + (100 as bit<64>);

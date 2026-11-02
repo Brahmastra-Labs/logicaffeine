@@ -92,11 +92,7 @@ impl WorldTranslation {
 
     fn cf_relation(&mut self, antecedent: &ProofExpr) -> String {
         let key = format!("{}", antecedent);
-        let idx = match self
-            .cf_antecedents
-            .iter()
-            .position(|(k, _)| *k == key)
-        {
+        let idx = match self.cf_antecedents.iter().position(|(k, _)| *k == key) {
             Some(i) => i,
             None => {
                 self.cf_antecedents.push((key, antecedent.clone()));
@@ -112,17 +108,13 @@ impl WorldTranslation {
     pub(crate) fn translate(&mut self, expr: &ProofExpr, w: &str) -> Option<VerifyExpr> {
         match expr {
             // A propositional atom is a unary world predicate.
-            ProofExpr::Atom(name) => {
-                Some(VerifyExpr::apply(name, vec![VerifyExpr::var(w)]))
-            }
+            ProofExpr::Atom(name) => Some(VerifyExpr::apply(name, vec![VerifyExpr::var(w)])),
 
             ProofExpr::Predicate { name, args, .. } => {
                 // Arithmetic comparisons are world-invariant.
                 if args.len() == 2 {
-                    let builtin = matches!(
-                        name.as_str(),
-                        "Gt" | "Lt" | "Gte" | "Lte" | "Eq" | "Neq"
-                    );
+                    let builtin =
+                        matches!(name.as_str(), "Gt" | "Lt" | "Gte" | "Lte" | "Eq" | "Neq");
                     if builtin {
                         let left = proof_term_to_verify_expr(&args[0])?;
                         let right = proof_term_to_verify_expr(&args[1])?;
@@ -155,10 +147,9 @@ impl WorldTranslation {
                 self.translate(l, w)?,
                 self.translate(r, w)?,
             )),
-            ProofExpr::Or(l, r) => Some(VerifyExpr::or(
-                self.translate(l, w)?,
-                self.translate(r, w)?,
-            )),
+            ProofExpr::Or(l, r) => {
+                Some(VerifyExpr::or(self.translate(l, w)?, self.translate(r, w)?))
+            }
             ProofExpr::Implies(l, r) => Some(VerifyExpr::implies(
                 self.translate(l, w)?,
                 self.translate(r, w)?,
@@ -190,13 +181,10 @@ impl WorldTranslation {
                 body,
             } => {
                 let relation = format!("Acc_{}_{}", domain, flavor);
-                self.used_relations
-                    .insert((domain.clone(), flavor.clone()));
+                self.used_relations.insert((domain.clone(), flavor.clone()));
                 let w2 = self.fresh_world();
-                let access = VerifyExpr::apply(
-                    &relation,
-                    vec![VerifyExpr::var(w), VerifyExpr::var(&w2)],
-                );
+                let access =
+                    VerifyExpr::apply(&relation, vec![VerifyExpr::var(w), VerifyExpr::var(&w2)]);
                 let body_v = self.translate(body, &w2)?;
                 // Same force split as the Kripke display lowering.
                 Some(if *force > 0.5 {
@@ -205,10 +193,7 @@ impl WorldTranslation {
                         VerifyExpr::implies(access, body_v),
                     )
                 } else {
-                    VerifyExpr::exists(
-                        vec![(w2, VerifyType::Int)],
-                        VerifyExpr::and(access, body_v),
-                    )
+                    VerifyExpr::exists(vec![(w2, VerifyType::Int)], VerifyExpr::and(access, body_v))
                 })
             }
 
@@ -219,10 +204,8 @@ impl WorldTranslation {
             } => {
                 let relation = self.cf_relation(antecedent);
                 let w2 = self.fresh_world();
-                let access = VerifyExpr::apply(
-                    &relation,
-                    vec![VerifyExpr::var(w), VerifyExpr::var(&w2)],
-                );
+                let access =
+                    VerifyExpr::apply(&relation, vec![VerifyExpr::var(w), VerifyExpr::var(&w2)]);
                 let body_v = self.translate(consequent, &w2)?;
                 Some(VerifyExpr::forall(
                     vec![(w2, VerifyType::Int)],
@@ -236,10 +219,8 @@ impl WorldTranslation {
                 let relation = format!("Time_{}", operator);
                 self.used_temporal.insert(operator.clone());
                 let w2 = self.fresh_world();
-                let access = VerifyExpr::apply(
-                    &relation,
-                    vec![VerifyExpr::var(w), VerifyExpr::var(&w2)],
-                );
+                let access =
+                    VerifyExpr::apply(&relation, vec![VerifyExpr::var(w), VerifyExpr::var(&w2)]);
                 let body_v = self.translate(body, &w2)?;
                 Some(if operator == "Always" {
                     VerifyExpr::forall(
@@ -247,10 +228,7 @@ impl WorldTranslation {
                         VerifyExpr::implies(access, body_v),
                     )
                 } else {
-                    VerifyExpr::exists(
-                        vec![(w2, VerifyType::Int)],
-                        VerifyExpr::and(access, body_v),
-                    )
+                    VerifyExpr::exists(vec![(w2, VerifyType::Int)], VerifyExpr::and(access, body_v))
                 })
             }
 
@@ -263,10 +241,8 @@ impl WorldTranslation {
                 let relation = format!("Time_{}", operator);
                 self.used_temporal.insert(operator.clone());
                 let w2 = self.fresh_world();
-                let access = VerifyExpr::apply(
-                    &relation,
-                    vec![VerifyExpr::var(w), VerifyExpr::var(&w2)],
-                );
+                let access =
+                    VerifyExpr::apply(&relation, vec![VerifyExpr::var(w), VerifyExpr::var(&w2)]);
                 let l = self.translate(left, &w2)?;
                 let r = self.translate(right, &w2)?;
                 Some(VerifyExpr::exists(
@@ -281,10 +257,8 @@ impl WorldTranslation {
                 verb,
                 roles,
             } => {
-                let mut body = VerifyExpr::apply(
-                    verb,
-                    vec![VerifyExpr::var(event_var), VerifyExpr::var(w)],
-                );
+                let mut body =
+                    VerifyExpr::apply(verb, vec![VerifyExpr::var(event_var), VerifyExpr::var(w)]);
                 for (role, term) in roles {
                     let t = proof_term_to_verify_expr(term)?;
                     body = VerifyExpr::and(

@@ -1,0 +1,11 @@
+{
+  "capability": "math.max",
+  "workload": "sum of max(i, n-i) over 1..n",
+  "arg": "20000000",
+  "expected": "300000000000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "rust"
+  ]
+}

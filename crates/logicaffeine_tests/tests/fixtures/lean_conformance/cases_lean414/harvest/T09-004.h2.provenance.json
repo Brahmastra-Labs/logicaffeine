@@ -1,0 +1,56 @@
+{
+  "case": "T09-004",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t09_metaprogramming/T09-004_syntax_elab.lean",
+  "source_sha256": "2edb6739ba66657279a1bfdd8838ec185ba81178a348e63e495547f13f6c98e3",
+  "ledger_sha256": "cd854ed5ebdf27441dfab033df17377804e190474474846b1a693347ceb1b80f",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T09_004.tacticCloseWithRfl",
+    "T09_004.termDoubleIfEven_",
+    "T09_004.termEnvIsNonEmpty",
+    "T09_004.termTheAnswer"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "85505fa6bd2dbaf70b27814de5809bb21779088989dcdcebadc37e534ba38c8d",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 6142,
+  "harvest": {
+    "roots": [
+      "T09_004.tacticCloseWithRfl",
+      "T09_004.termDoubleIfEven_",
+      "T09_004.termEnvIsNonEmpty",
+      "T09_004.termTheAnswer"
+    ],
+    "probe_binary_sha256": "4371ed6a4134b1ea2a3d40b667a7708d4b393fa61cd9514404c16d0c50ed1c17",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:84eb79d5e5af5535ea4312146cc4481e763c515070097cacb5e2d0240abbad48",
+    "joint_export": true
+  }
+}

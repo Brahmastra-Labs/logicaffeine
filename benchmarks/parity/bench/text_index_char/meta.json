@@ -1,0 +1,10 @@
+{
+  "capability": "text.index_char",
+  "workload": "indexChar(s, 48='0') 1-based/0",
+  "arg": "120000",
+  "expected": "6780000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

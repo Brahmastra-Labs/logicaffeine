@@ -1,0 +1,9 @@
+main { max-width: 20rem; margin: 3rem auto; text-align: center; }
+.board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; margin: 1.5rem 0; }
+.cell {
+  aspect-ratio: 1; font-size: 2rem; font-weight: 700;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); cursor: pointer;
+}
+.cell:hover { border-color: var(--accent); }
+#again { padding: 0.5rem 1rem; }

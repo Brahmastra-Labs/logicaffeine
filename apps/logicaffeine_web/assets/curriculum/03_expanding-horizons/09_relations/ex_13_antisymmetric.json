@@ -11,5 +11,6 @@
   ],
   "correct": 1,
   "hint": "Antisymmetry forbids two DISTINCT things from relating both ways.",
-  "explanation": "Antisymmetry: ∀x∀y((Rxy ∧ Ryx) → x = y). The only way both Rxy and Ryx can hold is if x and y are the same thing. '≤' is antisymmetric: if a ≤ b and b ≤ a, then a = b. (Option 1 describes symmetry, the opposite idea.)"
+  "explanation": "Antisymmetry: ∀x∀y((Rxy ∧ Ryx) → x = y). The only way both Rxy and Ryx can hold is if x and y are the same thing. '≤' is antisymmetric: if a ≤ b and b ≤ a, then a = b. (Option 1 describes symmetry, the opposite idea.)",
+  "section": "9.3"
 }

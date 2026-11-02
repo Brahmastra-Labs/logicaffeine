@@ -7,7 +7,7 @@
 //! ⇒ an exact replay). The ready-selection discipline is the configured
 //! [`SchedulePolicy`]; determinism holds under all of them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::channel::{Chan, ChanId};
 use crate::config::{SchedulePolicy, SchedulerConfig};
@@ -23,7 +23,7 @@ pub enum RunOutcome {
     /// Tasks remain but all are blocked with no timer to fire — a deadlock.
     Deadlock,
     /// Tasks remain, none ready and no timer to fire, but at least one is parked on
-    /// external async I/O ([`TaskState::BlockedIo`]) — not a deadlock. The scheduler has no
+    /// external async I/O (`TaskState::BlockedIo`) — not a deadlock. The scheduler has no
     /// reactor; the async drive loop must yield to the host reactor, then [`Scheduler::wake_io`]
     /// to re-poll the parked tasks. The synchronous `run()` cannot make progress here.
     WaitingForIo,
@@ -41,7 +41,7 @@ enum TaskState {
 }
 
 /// A public, read-only projection of a task's scheduling state — what the Studio's
-/// Tasks/Channels strip renders. Mirrors the private [`TaskState`] without exposing the
+/// Tasks/Channels strip renders. Mirrors the private `TaskState` without exposing the
 /// task body or any mutable handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStateKind {
@@ -104,6 +104,55 @@ pub struct SchedSnapshot {
     pub tasks: Vec<TaskView>,
     /// Every channel, sorted by id.
     pub channels: Vec<ChanView>,
+}
+
+/// Narrate a deadlock as English prose: the cooperative deterministic runtime has PERFECT information, so the
+/// explanation is a proof, not a heuristic — who waits, on what, and how full
+/// each channel is. Fed the snapshot taken when the scheduler proved the
+/// deadlock.
+pub fn narrate_deadlock(snap: &SchedSnapshot) -> String {
+    let mut lines = vec![format!(
+        "Deadlock at tick {} — every remaining task is blocked, and no timer can fire.",
+        snap.clock
+    )];
+    lines.push("  The blocked tasks:".to_string());
+    for t in &snap.tasks {
+        let why = match t.kind {
+            TaskStateKind::BlockedRecv => "waiting to RECEIVE from a channel",
+            TaskStateKind::BlockedSend => "waiting to SEND into a full channel",
+            TaskStateKind::BlockedSelect => "waiting in a select with no ready arm",
+            TaskStateKind::BlockedAwait => "waiting on a peer that never answers",
+            TaskStateKind::BlockedTimer => "waiting on a timer that never fires",
+            TaskStateKind::BlockedIo => "waiting on I/O that never completes",
+            // Ready and Done tasks are not part of the blocked cycle.
+            TaskStateKind::Ready | TaskStateKind::Done => continue,
+        };
+        lines.push(format!(
+            "    task {} ({}) is {}",
+            t.id.0,
+            if t.is_main { "main" } else { "spawned" },
+            why
+        ));
+    }
+    if !snap.channels.is_empty() {
+        lines.push("  The channels:".to_string());
+        for c in &snap.channels {
+            let cap = c
+                .capacity
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "∞".to_string());
+            lines.push(format!(
+                "    channel {} — {}/{} full, {} blocked sender(s), {} blocked receiver(s){}",
+                c.id.0,
+                c.depth,
+                cap,
+                c.blocked_senders,
+                c.blocked_receivers,
+                if c.closed { " (closed)" } else { "" }
+            ));
+        }
+    }
+    lines.join("\n")
 }
 
 /// How a finished task finished — delivered to anyone awaiting it.
@@ -295,7 +344,10 @@ impl<'t> Scheduler<'t> {
             self.advance_timers();
             None
         } else {
-            let all_done = self.tasks.values().all(|s| matches!(s.state, TaskState::Done));
+            let all_done = self
+                .tasks
+                .values()
+                .all(|s| matches!(s.state, TaskState::Done));
             let any_io = self
                 .tasks
                 .values()
@@ -323,7 +375,7 @@ impl<'t> Scheduler<'t> {
         None
     }
 
-    /// Re-ready every task parked on external I/O ([`TaskState::BlockedIo`]), in ascending
+    /// Re-ready every task parked on external I/O (`TaskState::BlockedIo`), in ascending
     /// id order (deterministic). The async drive loop calls this after yielding to the host
     /// reactor so the parked tasks re-poll their network futures. Returns whether any task was
     /// woken. Channel/timer tasks are untouched, so a non-networking program never sees this.
@@ -350,7 +402,11 @@ impl<'t> Scheduler<'t> {
         let mut tasks: Vec<TaskView> = self
             .tasks
             .iter()
-            .map(|(id, slot)| TaskView { id: *id, kind: slot.state.kind(), is_main: slot.is_main })
+            .map(|(id, slot)| TaskView {
+                id: *id,
+                kind: slot.state.kind(),
+                is_main: slot.is_main,
+            })
             .collect();
         tasks.sort_by_key(|t| t.id.0);
         let mut channels: Vec<ChanView> = self
@@ -366,7 +422,12 @@ impl<'t> Scheduler<'t> {
             })
             .collect();
         channels.sort_by_key(|c| c.id.0);
-        SchedSnapshot { clock: self.clock, ready_len: self.ready.len(), tasks, channels }
+        SchedSnapshot {
+            clock: self.clock,
+            ready_len: self.ready.len(),
+            tasks,
+            channels,
+        }
     }
 
     // ─── Work-stealing coordinator hooks (native-only) ──────────────────────
@@ -407,7 +468,9 @@ impl<'t> Scheduler<'t> {
     /// Every task finished?
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn ws_all_done(&self) -> bool {
-        self.tasks.values().all(|s| matches!(s.state, TaskState::Done))
+        self.tasks
+            .values()
+            .all(|s| matches!(s.state, TaskState::Done))
     }
 
     /// Are there pending timers (advance the logical clock when no task is ready)?
@@ -480,7 +543,9 @@ impl<'t> Scheduler<'t> {
             // serviced by the coordinator (which builds the child worker-side),
             // never the inline `process_step`.
             TaskStep::SpawnDesc { .. } => {
-                unreachable!("SpawnDesc is serviced by the work-stealing coordinator, not process_step")
+                unreachable!(
+                    "SpawnDesc is serviced by the work-stealing coordinator, not process_step"
+                )
             }
             TaskStep::NewChan(cap) => {
                 let capacity = Some(cap.unwrap_or(self.config.default_channel_capacity));
@@ -493,7 +558,11 @@ impl<'t> Scheduler<'t> {
             TaskStep::Recv(ch) => self.do_recv(tid, ch),
             TaskStep::TryRecv(ch) => self.do_try_recv(tid, ch),
             TaskStep::Sleep(d) => {
-                self.timers.push(TimerEntry { fire_at: self.clock + d, tid, arm: None });
+                self.timers.push(TimerEntry {
+                    fire_at: self.clock + d,
+                    tid,
+                    arm: None,
+                });
                 self.tasks.get_mut(&tid).unwrap().state = TaskState::BlockedTimer;
             }
             TaskStep::Select(arms) => self.do_select(tid, arms),
@@ -513,7 +582,12 @@ impl<'t> Scheduler<'t> {
     }
 
     fn do_send(&mut self, tid: TaskId, ch: ChanId, payload: RtPayload) {
-        let waiting_receiver = self.chans.get_mut(&ch).unwrap().blocked_receivers.pop_front();
+        let waiting_receiver = self
+            .chans
+            .get_mut(&ch)
+            .unwrap()
+            .blocked_receivers
+            .pop_front();
         if let Some(rid) = waiting_receiver {
             self.deliver_to_receiver(rid, ch, payload);
             self.mark_ready(tid, RtPayload::Nothing);
@@ -523,7 +597,11 @@ impl<'t> Scheduler<'t> {
             self.chans.get_mut(&ch).unwrap().queue.push_back(payload);
             self.mark_ready(tid, RtPayload::Nothing);
         } else {
-            self.chans.get_mut(&ch).unwrap().blocked_senders.push_back((tid, payload));
+            self.chans
+                .get_mut(&ch)
+                .unwrap()
+                .blocked_senders
+                .push_back((tid, payload));
             self.tasks.get_mut(&tid).unwrap().state = TaskState::BlockedSend;
         }
     }
@@ -545,12 +623,21 @@ impl<'t> Scheduler<'t> {
             self.mark_ready(tid, RtPayload::Nothing);
             return;
         }
-        self.chans.get_mut(&ch).unwrap().blocked_receivers.push_back(tid);
+        self.chans
+            .get_mut(&ch)
+            .unwrap()
+            .blocked_receivers
+            .push_back(tid);
         self.tasks.get_mut(&tid).unwrap().state = TaskState::BlockedRecv;
     }
 
     fn do_try_send(&mut self, tid: TaskId, ch: ChanId, payload: RtPayload) {
-        let waiting_receiver = self.chans.get_mut(&ch).unwrap().blocked_receivers.pop_front();
+        let waiting_receiver = self
+            .chans
+            .get_mut(&ch)
+            .unwrap()
+            .blocked_receivers
+            .pop_front();
         if let Some(rid) = waiting_receiver {
             self.deliver_to_receiver(rid, ch, payload);
             self.mark_ready(tid, RtPayload::Bool(true));
@@ -611,17 +698,16 @@ impl<'t> Scheduler<'t> {
                 slot.state = TaskState::Ready;
             }
             self.ready.push(rid);
-            self.cancel_select_registrations(rid, Some(ch));
+            self.cancel_select_registrations(rid);
         } else {
             self.mark_ready(rid, value);
         }
     }
 
-    fn cancel_select_registrations(&mut self, rid: TaskId, except: Option<ChanId>) {
-        for (cid, chan) in self.chans.iter_mut() {
-            if Some(*cid) == except {
-                continue;
-            }
+    /// Withdraw every registration a woken select made — on every pipe, the one that woke it too,
+    /// since a select naming one pipe in two arms waits on it twice — and its timeouts.
+    fn cancel_select_registrations(&mut self, rid: TaskId) {
+        for chan in self.chans.values_mut() {
             chan.blocked_receivers.retain(|t| *t != rid);
         }
         self.timers.retain(|t| t.tid != rid);
@@ -641,7 +727,8 @@ impl<'t> Scheduler<'t> {
             let w = if ready_arms.len() == 1 {
                 0
             } else {
-                self.chooser.decide(ChoiceKind::SelectWinner, ready_arms.len())
+                self.chooser
+                    .decide(ChoiceKind::SelectWinner, ready_arms.len())
             };
             let arm_idx = ready_arms[w];
             let ch = match &arms[arm_idx] {
@@ -660,10 +747,18 @@ impl<'t> Scheduler<'t> {
             for (i, a) in arms.iter().enumerate() {
                 match a {
                     SelectArm::Recv(ch) => {
-                        self.chans.get_mut(ch).unwrap().blocked_receivers.push_back(tid);
+                        self.chans
+                            .get_mut(ch)
+                            .unwrap()
+                            .blocked_receivers
+                            .push_back(tid);
                     }
                     SelectArm::Timeout(d) => {
-                        self.timers.push(TimerEntry { fire_at: self.clock + *d, tid, arm: Some(i) });
+                        self.timers.push(TimerEntry {
+                            fire_at: self.clock + *d,
+                            tid,
+                            arm: Some(i),
+                        });
                     }
                 }
             }
@@ -742,7 +837,7 @@ impl<'t> Scheduler<'t> {
                 }
                 self.ready.push(tid);
                 if had.is_some() {
-                    self.cancel_select_registrations(tid, None);
+                    self.cancel_select_registrations(tid);
                 }
             }
             None => self.mark_ready(tid, RtPayload::Nothing),
@@ -800,8 +895,12 @@ impl<'t> Scheduler<'t> {
             chan.closed = true;
             chan.blocked_receivers.drain(..).collect()
         };
+        // A select naming this pipe in two arms is registered twice, and wakes once.
+        let mut woken = HashSet::new();
         for rid in waiters {
-            self.wake_closed_receiver(rid, ch);
+            if woken.insert(rid) {
+                self.wake_closed_receiver(rid, ch);
+            }
         }
     }
 
@@ -819,7 +918,7 @@ impl<'t> Scheduler<'t> {
                 slot.state = TaskState::Ready;
             }
             self.ready.push(rid);
-            self.cancel_select_registrations(rid, Some(ch));
+            self.cancel_select_registrations(rid);
         } else {
             self.mark_ready(rid, RtPayload::Nothing);
         }
@@ -828,7 +927,11 @@ impl<'t> Scheduler<'t> {
 
 /// Run `setup` (which spawns tasks and creates channels) under a fresh recording
 /// scheduler seeded by `seed`, returning the outcome and the scheduling trace.
-pub fn run_with_seed<'t, F>(config: SchedulerConfig, seed: SchedSeed, setup: F) -> (RunOutcome, SchedTrace)
+pub fn run_with_seed<'t, F>(
+    config: SchedulerConfig,
+    seed: SchedSeed,
+    setup: F,
+) -> (RunOutcome, SchedTrace)
 where
     F: FnOnce(&mut Scheduler<'t>),
 {
@@ -847,3 +950,7 @@ where
     setup(&mut sched);
     sched.run()
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_runtime/scheduler/deadlock_narration_tests.rs"]
+mod deadlock_narration_tests;

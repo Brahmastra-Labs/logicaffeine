@@ -44,6 +44,6 @@ While end is greater than 0:
 Let mutable checksum be 0.
 Set i to 1.
 While i is at most n:
-    Set checksum to (checksum + item i of arr) % 1000000007.
+    Set checksum to (checksum * 31 + item i of arr) & 268435455.
     Set i to i + 1.
 Show "" + item 1 of arr + " " + item n of arr + " " + checksum.

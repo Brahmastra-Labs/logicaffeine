@@ -1,0 +1,1 @@
+{"code":"infrastructure","declaration":null,"line":null,"message":"cannot run the Lean toolchain /nonexistent/logos-no-such-lean (reporting its version): No such file or directory (os error 2)","stage":"lean_accepted"}

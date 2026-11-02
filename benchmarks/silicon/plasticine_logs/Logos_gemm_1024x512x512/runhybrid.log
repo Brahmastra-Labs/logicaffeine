@@ -1,0 +1,40 @@
+  16490000          99731 Hz
+  16500000          99644 Hz
+  16510000         101882 Hz
+  16520000          98141 Hz
+  16530000         101657 Hz
+  16540000          99705 Hz
+  16550000          99618 Hz
+  16560000         101811 Hz
+  16570000          99527 Hz
+  16580000         101906 Hz
+  16590000          99719 Hz
+  16600000          99312 Hz
+  16610000         101684 Hz
+  16620000          99559 Hz
+  16630000         101836 Hz
+  16640000          99482 Hz
+  16650000          98111 Hz
+  16660000         101460 Hz
+  16670000          99413 Hz
+  16680000          99376 Hz
+  16690000         101447 Hz
+  16700000          99277 Hz
+  16710000         100894 Hz
+  16720000          99388 Hz
+  16730000         100579 Hz
+  16740000         101667 Hz
+  16750000         102399 Hz
+  16760000         104710 Hz
+  16770000         103851 Hz
+Simulation complete at cycle 16778302
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 1.99987 GB/s
+Average DRAM Write Bandwidth: 0.124992 GB/s
+script Elapsed seconds: 359.296
+Exiting... 😊
+Destruct DRAM.
+PASS: true (Logos_gemm_1024x512x512)
+Complete Simulation
+Runtime:6:00.45

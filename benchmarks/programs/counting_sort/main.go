@@ -23,6 +23,6 @@ func main() {
 		}
 	}
 	checksum := int64(0)
-	for _, v := range sorted { checksum = (checksum + v) % 1000000007 }
+	for _, v := range sorted { checksum = (checksum*31 + v) & 268435455 }
 	fmt.Printf("%d %d %d\n", sorted[0], sorted[n-1], checksum)
 }

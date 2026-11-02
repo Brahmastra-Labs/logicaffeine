@@ -55,7 +55,11 @@ pub enum TaskStep<'t> {
     /// the work-stealing driver uses this `Send` form so any worker can build the
     /// child locally from the descriptor. (The cooperative driver builds inline and
     /// keeps using `Spawn`.)
-    SpawnDesc { func: u16, args: Vec<RtPayload>, want_handle: bool },
+    SpawnDesc {
+        func: u16,
+        args: Vec<RtPayload>,
+        want_handle: bool,
+    },
     /// Block until task `TaskId` finishes; resume with its result payload
     /// (`Nothing` if that task was aborted). Backs awaiting a task handle.
     Await(TaskId),

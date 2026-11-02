@@ -1,0 +1,111 @@
+{
+  "case": "T02-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 13,
+  "declarations": [
+    {
+      "type": "T02_012.Weight Bool",
+      "name": "T02_012.Scoped.scopedWeightBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T02_012.Weight",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T02_012.Weight \u03b1 \u2192 Sort u} \u2192 (t : T02_012.Weight \u03b1) \u2192 ((w : \u03b1 \u2192 Nat) \u2192 motive { w := w }) \u2192 motive t",
+      "name": "T02_012.Weight.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T02_012.Weight \u03b1",
+      "name": "T02_012.Weight.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T02_012.Weight \u03b1} \u2192 v1 = v2 \u2192 T02_012.Weight.noConfusionType P v1 v2",
+      "name": "T02_012.Weight.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T02_012.Weight \u03b1 \u2192 T02_012.Weight \u03b1 \u2192 Sort u",
+      "name": "T02_012.Weight.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T02_012.Weight \u03b1 \u2192 Sort u} \u2192 ((w : \u03b1 \u2192 Nat) \u2192 motive { w := w }) \u2192 (t : T02_012.Weight \u03b1) \u2192 motive t",
+      "name": "T02_012.Weight.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T02_012.Weight \u03b1 \u2192 Sort u} \u2192 (t : T02_012.Weight \u03b1) \u2192 ((w : \u03b1 \u2192 Nat) \u2192 motive { w := w }) \u2192 motive t",
+      "name": "T02_012.Weight.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T02_012.Weight \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T02_012.Weight.w",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_012.Weight Nat",
+      "name": "T02_012.defaultWeight",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_012.Weight Nat",
+      "name": "T02_012.overrideWeight",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_012.protectedThing",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_012.publicUser",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

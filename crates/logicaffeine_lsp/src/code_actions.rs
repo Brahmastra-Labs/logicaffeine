@@ -1,11 +1,12 @@
-use tower_lsp::lsp_types::{
-    CodeAction, CodeActionKind, CodeActionOrCommand, Range, TextEdit, WorkspaceEdit,
+use lsp_types::{
+    CodeAction, CodeActionKind, CodeActionOrCommand, Position, Range, TextEdit, Url, WorkspaceEdit,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use logicaffeine_language::suggest::{find_similar, KNOWN_WORDS};
 
 use crate::document::DocumentState;
+use crate::workspace::WorkspaceView;
 
 /// Handle code action request.
 ///
@@ -13,7 +14,7 @@ use crate::document::DocumentState;
 pub fn code_actions(
     doc: &DocumentState,
     range: Range,
-    uri: &tower_lsp::lsp_types::Url,
+    uri: &lsp_types::Url,
 ) -> Vec<CodeActionOrCommand> {
     let mut actions = Vec::new();
 
@@ -35,35 +36,40 @@ pub fn code_actions(
         // moved `x` is noise, and `undefined-variable` has its own
         // definition-aware suggester below.
         if diagnostic.code.is_none() && word.chars().count() >= 2 {
-        if let Some(suggestion) = find_similar(word, KNOWN_WORDS, 2) {
-            let mut changes = HashMap::new();
-            changes.insert(
-                uri.clone(),
-                vec![TextEdit {
-                    range: diagnostic.range,
-                    new_text: suggestion.to_string(),
-                }],
-            );
+            if let Some(suggestion) = find_similar(word, KNOWN_WORDS, 2) {
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri.clone(),
+                    vec![TextEdit {
+                        range: diagnostic.range,
+                        new_text: suggestion.to_string(),
+                    }],
+                );
 
-            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                title: format!("Did you mean '{}'?", suggestion),
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: Some(vec![diagnostic.clone()]),
-                edit: Some(WorkspaceEdit {
-                    changes: Some(changes),
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: format!("Did you mean '{}'?", suggestion),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diagnostic.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            }));
-        }
+                }));
+            }
         }
 
         // "x is y" → "x equals y" fix
-        let is_value_eq = diagnostic.code.as_ref().map_or(false, |c| {
-            matches!(c, tower_lsp::lsp_types::NumberOrString::String(s) if s == "is-value-equality")
-        });
+        let is_value_eq = diagnostic.code.as_ref().map_or(
+            false,
+            |c| matches!(c, lsp_types::NumberOrString::String(s) if s == "is-value-equality"),
+        );
         if is_value_eq {
-            if let Some(is_pos) = doc.source.get(start_offset..end_offset).and_then(|s| s.find(" is ")) {
+            if let Some(is_pos) = doc
+                .source
+                .get(start_offset..end_offset)
+                .and_then(|s| s.find(" is "))
+            {
                 let abs_pos = start_offset + is_pos;
                 let is_range = Range {
                     start: doc.line_index.position(abs_pos),
@@ -96,9 +102,10 @@ pub fn code_actions(
         // variable ("Cannot use 'x' …"); the range can sit on statement
         // punctuation on the parse path, so the edit retargets to the
         // variable's own occurrence.
-        let is_use_after_move = diagnostic.code.as_ref().map_or(false, |c| {
-            matches!(c, tower_lsp::lsp_types::NumberOrString::String(s) if s == "use-after-move")
-        });
+        let is_use_after_move = diagnostic.code.as_ref().map_or(
+            false,
+            |c| matches!(c, lsp_types::NumberOrString::String(s) if s == "use-after-move"),
+        );
         if is_use_after_move {
             let variable = ownership_variable(&diagnostic.message, word);
             let target = if variable == word {
@@ -129,7 +136,11 @@ pub fn code_actions(
 
         // Escape errors → suggest copying before return/assignment
         let diag_code_str = diagnostic.code.as_ref().and_then(|c| {
-            if let tower_lsp::lsp_types::NumberOrString::String(s) = c { Some(s.as_str()) } else { None }
+            if let lsp_types::NumberOrString::String(s) = c {
+                Some(s.as_str())
+            } else {
+                None
+            }
         });
 
         if matches!(diag_code_str, Some("escape-return")) {
@@ -268,7 +279,10 @@ pub fn code_actions(
 
         // UndefinedVariable → suggest closest match from definitions
         if matches!(diag_code_str, Some("undefined-variable")) && !word.is_empty() {
-            let def_names: Vec<&str> = doc.symbol_index.definitions.iter()
+            let def_names: Vec<&str> = doc
+                .symbol_index
+                .definitions
+                .iter()
                 .map(|d| d.name.as_str())
                 .collect();
             if let Some(suggestion) = find_similar(word, &def_names, 2) {
@@ -304,15 +318,203 @@ fn ranges_overlap(a: &Range, b: &Range) -> bool {
         || (b.end.line == a.start.line && b.end.character < a.start.character))
 }
 
+/// AUTO-IMPORT quickfixes: for each unresolved reference in `range` that some
+/// project module publicly exports but this file does NOT import, offer an
+/// `Import <Module>.` action whose single edit inserts the statement in the right
+/// place (after existing imports, else before the first `## ` block). An ambiguous
+/// name (exported by several modules) offers one action per module. THE lever —
+/// the compiler error becomes a one-click fix before a build is ever run.
+pub fn import_code_actions(
+    doc: &DocumentState,
+    range: Range,
+    uri: &Url,
+    ws: &dyn WorkspaceView,
+) -> Vec<CodeActionOrCommand> {
+    let mut actions = Vec::new();
+    let is_default_range = range == Range::default();
+    let (insert_pos, blank_after) = import_insertion(&doc.source);
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+
+    for reference in &doc.symbol_index.references {
+        // Only names the file can't already resolve locally.
+        if reference.definition_idx.is_some() {
+            continue;
+        }
+        let ref_range = Range {
+            start: doc.line_index.position(reference.span.start),
+            end: doc.line_index.position(reference.span.end),
+        };
+        if !is_default_range && !ranges_overlap(&ref_range, &range) {
+            continue;
+        }
+        let name = &reference.name;
+        if ws.is_imported(uri, name) {
+            continue;
+        }
+        for export in ws.module_exporting(name) {
+            if !seen.insert((name.clone(), export.module_name.clone())) {
+                continue;
+            }
+            let new_text = if blank_after {
+                format!("Import {}.\n\n", export.module_name)
+            } else {
+                format!("Import {}.\n", export.module_name)
+            };
+            let mut changes = HashMap::new();
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range: Range {
+                        start: insert_pos,
+                        end: insert_pos,
+                    },
+                    new_text,
+                }],
+            );
+            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                title: format!("Import {}", export.module_name),
+                kind: Some(CodeActionKind::QUICKFIX),
+                edit: Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }));
+        }
+    }
+    actions
+}
+
+/// Where to insert a new `Import` statement, and whether to follow it with a blank
+/// line: after the last existing import if there is one, else immediately before
+/// the first `## ` block (with a blank line), else after the title. The position
+/// always lands inside the region the dependency scanner reads.
+fn import_insertion(source: &str) -> (Position, bool) {
+    let mut last_import: Option<u32> = None;
+    let mut first_block: Option<u32> = None;
+    for (i, line) in source.lines().enumerate() {
+        let t = line.trim();
+        if t.starts_with("## ") {
+            first_block = Some(i as u32);
+            break;
+        }
+        if t.starts_with("Import ") {
+            last_import = Some(i as u32);
+        }
+    }
+    if let Some(i) = last_import {
+        return (
+            Position {
+                line: i + 1,
+                character: 0,
+            },
+            false,
+        );
+    }
+    if let Some(i) = first_block {
+        return (
+            Position {
+                line: i,
+                character: 0,
+            },
+            true,
+        );
+    }
+    let after_title = source
+        .lines()
+        .next()
+        .is_some_and(|l| l.trim_start().starts_with('#'));
+    (
+        Position {
+            line: if after_title { 1 } else { 0 },
+            character: 0,
+        },
+        false,
+    )
+}
+
+/// "Remove unused import" quickfixes: an `Import X.` whose module's names are
+/// never referenced in this file. The editor complement of the `largo check`
+/// unused-import warning — a one-click removal.
+pub fn unused_import_actions(
+    doc: &DocumentState,
+    range: Range,
+    uri: &Url,
+    ws: &dyn WorkspaceView,
+) -> Vec<CodeActionOrCommand> {
+    let referenced: HashSet<&str> = doc
+        .symbol_index
+        .references
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect();
+    let module_urls: HashMap<String, Url> = ws.module_names().into_iter().collect();
+    let is_default_range = range == Range::default();
+    let mut actions = Vec::new();
+
+    for dep in logicaffeine_language::analysis::scan_dependencies(&doc.source) {
+        let start = doc.line_index.position(dep.start);
+        let end = doc.line_index.position(dep.end);
+        if !is_default_range && !ranges_overlap(&Range { start, end }, &range) {
+            continue;
+        }
+        // Resolve the module and the names this import brings.
+        let Some(module_url) = module_urls.get(&dep.alias) else {
+            continue;
+        };
+        let exports = ws.exports_of(module_url);
+        if exports.is_empty() {
+            continue; // unknown module — never guess "unused"
+        }
+        let names: Vec<String> = match &dep.selection {
+            Some(sel) => sel
+                .iter()
+                .map(|s| s.alias.clone().unwrap_or_else(|| s.name.clone()))
+                .collect(),
+            None => exports,
+        };
+        if names.iter().any(|n| referenced.contains(n.as_str())) {
+            continue; // used — keep it
+        }
+        // Unused → remove the whole import line (through its trailing newline).
+        let del = Range {
+            start: Position {
+                line: start.line,
+                character: 0,
+            },
+            end: Position {
+                line: start.line + 1,
+                character: 0,
+            },
+        };
+        let mut changes = HashMap::new();
+        changes.insert(
+            uri.clone(),
+            vec![TextEdit {
+                range: del,
+                new_text: String::new(),
+            }],
+        );
+        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+            title: format!("Remove unused import `{}`", dep.alias),
+            kind: Some(CodeActionKind::QUICKFIX),
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
+    }
+    actions
+}
+
 /// The variable an ownership diagnostic is about: the first 'quoted' name in
 /// its socratic message (the text always names it), else the range's text.
 fn ownership_variable<'a>(message: &'a str, range_word: &'a str) -> &'a str {
     message
         .split('\'')
         .nth(1)
-        .filter(|name| {
-            !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
-        })
+        .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_'))
         .unwrap_or(range_word)
 }
 
@@ -342,184 +544,5 @@ fn last_word_range(doc: &DocumentState, name: &str, before: usize) -> Option<Ran
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::document::DocumentState;
-
-    fn make_doc(source: &str) -> DocumentState {
-        DocumentState::new(source.to_string(), 1)
-    }
-
-    fn test_uri() -> tower_lsp::lsp_types::Url {
-        tower_lsp::lsp_types::Url::parse("file:///test.logos").unwrap()
-    }
-
-    #[test]
-    fn code_actions_returns_empty_for_valid_code() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let range = Range::default();
-        let actions = code_actions(&doc, range, &test_uri());
-        assert!(doc.diagnostics.is_empty(), "Valid code should have no diagnostics");
-        assert!(actions.is_empty(), "No diagnostics → no actions");
-    }
-
-    #[test]
-    fn code_actions_no_crash_on_syntax_error() {
-        let doc = make_doc("## Main\n    Let be.\n");
-        let range = Range::default();
-        let actions = code_actions(&doc, range, &test_uri());
-        // Should not panic on syntax errors — actions may or may not be produced
-        assert!(actions.len() < 100, "Unreasonable number of actions for a tiny doc");
-    }
-
-    #[test]
-    fn code_actions_empty_for_empty_doc() {
-        let doc = make_doc("");
-        let range = Range::default();
-        let actions = code_actions(&doc, range, &test_uri());
-        assert!(actions.is_empty(), "Empty doc should have no actions");
-    }
-
-    fn make_doc_with_diagnostic(source: &str, diag_code: &str, range: Range) -> DocumentState {
-        use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString};
-        let mut doc = DocumentState::new(source.to_string(), 1);
-        doc.diagnostics.push(Diagnostic {
-            range,
-            severity: Some(DiagnosticSeverity::ERROR),
-            code: Some(NumberOrString::String(diag_code.to_string())),
-            source: Some("logicaffeine".to_string()),
-            message: format!("Test diagnostic: {}", diag_code),
-            ..Default::default()
-        });
-        doc
-    }
-
-    fn make_range(line: u32, start: u32, end: u32) -> Range {
-        Range {
-            start: tower_lsp::lsp_types::Position { line, character: start },
-            end: tower_lsp::lsp_types::Position { line, character: end },
-        }
-    }
-
-    #[test]
-    fn code_action_for_escape_return_suggests_copy() {
-        let source = "## Main\n    Return x.\n";
-        let r = make_range(1, 11, 12); // "x" at position
-        let doc = make_doc_with_diagnostic(source, "escape-return", r);
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        let escape_actions: Vec<_> = actions.iter()
-            .filter(|a| match a {
-                CodeActionOrCommand::CodeAction(ca) => ca.title.contains("Copy before returning"),
-                _ => false,
-            })
-            .collect();
-        assert!(
-            !escape_actions.is_empty(),
-            "Should have 'Copy before returning' action. Got: {:?}",
-            actions.iter().map(|a| match a {
-                CodeActionOrCommand::CodeAction(ca) => ca.title.clone(),
-                _ => "command".to_string(),
-            }).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn code_action_for_zero_index_suggests_one() {
-        let source = "## Main\n    Let x be items at 0.\n";
-        let r = make_range(1, 29, 30); // "0"
-        let doc = make_doc_with_diagnostic(source, "zero-index", r);
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        let zero_actions: Vec<_> = actions.iter()
-            .filter(|a| match a {
-                CodeActionOrCommand::CodeAction(ca) => ca.title == "Use 1-based indexing",
-                _ => false,
-            })
-            .collect();
-        assert!(!zero_actions.is_empty(), "Should have 'Use 1-based indexing' action");
-    }
-
-    #[test]
-    fn use_after_move_fix_names_the_moved_variable_not_the_span_text() {
-        // Real pipeline: the parse-path diagnostic's range can sit on the
-        // statement's period — the fix must still name and target 'x'.
-        let doc = make_doc("## Main\nLet x be 5.\nLet a be 0.\nGive x to a.\nShow x.\n");
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        let copy_fix = actions
-            .iter()
-            .find_map(|a| match a {
-                CodeActionOrCommand::CodeAction(ca) if ca.title.contains("copy of") => Some(ca),
-                _ => None,
-            })
-            .expect("use-after-move offers the copy fix");
-        assert_eq!(copy_fix.title, "Use 'a copy of x' instead");
-
-        let edits = copy_fix
-            .edit
-            .as_ref()
-            .and_then(|e| e.changes.as_ref())
-            .and_then(|c| c.values().next())
-            .expect("the fix edits the document");
-        assert_eq!(edits[0].new_text, "a copy of x");
-        let start = doc.line_index.offset(edits[0].range.start);
-        let end = doc.line_index.offset(edits[0].range.end);
-        assert_eq!(
-            &doc.source[start..end],
-            "x",
-            "the edit must replace the variable, never stray punctuation"
-        );
-    }
-
-    #[test]
-    fn spelling_suggestions_never_fire_on_coded_diagnostics() {
-        // A moved `x` must not draw "Did you mean 'a'?" — coded diagnostics
-        // are about semantics, not spelling.
-        let doc = make_doc("## Main\nLet x be 5.\nLet a be 0.\nGive x to a.\nShow x.\n");
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        for action in &actions {
-            if let CodeActionOrCommand::CodeAction(ca) = action {
-                assert!(
-                    !ca.title.starts_with("Did you mean"),
-                    "spelling noise on a coded diagnostic: {}",
-                    ca.title
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn code_action_for_double_move_suggests_copy() {
-        let source = "## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Give x to y.\n";
-        let r = make_range(4, 9, 10); // second "x"
-        let doc = make_doc_with_diagnostic(source, "double-move", r);
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        let dm_actions: Vec<_> = actions.iter()
-            .filter(|a| match a {
-                CodeActionOrCommand::CodeAction(ca) => ca.title.contains("copy of"),
-                _ => false,
-            })
-            .collect();
-        assert!(!dm_actions.is_empty(), "Should have 'Give a copy of' action");
-    }
-
-    #[test]
-    fn code_action_escape_assignment_suggests_copy() {
-        let source = "## Main\n    Set outer to x.\n";
-        let r = make_range(1, 18, 19); // "x"
-        let doc = make_doc_with_diagnostic(source, "escape-assignment", r);
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        let ea_actions: Vec<_> = actions.iter()
-            .filter(|a| match a {
-                CodeActionOrCommand::CodeAction(ca) => ca.title == "Copy before assignment",
-                _ => false,
-            })
-            .collect();
-        assert!(!ea_actions.is_empty(), "Should have 'Copy before assignment' action");
-    }
-
-    #[test]
-    fn no_code_action_for_valid_code() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let actions = code_actions(&doc, Range::default(), &test_uri());
-        assert!(actions.is_empty(), "Valid code should produce no code actions");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/code_actions/tests.rs"]
+mod tests;

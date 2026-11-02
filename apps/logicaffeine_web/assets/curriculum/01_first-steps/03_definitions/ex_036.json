@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of a genuine this that this definition would wrongly EXCLUDE?",
-  "explanation": "Not stealing is only one sliver of honesty: a fluent liar who never steals still isn't honest, yet this definition would count them as honest. Because the definiens ('doesn't steal') is satisfied by people who aren't honest, the definition is TOO BROAD."
+  "hint": "Can you think of something that fits this definition but is not an honest person?",
+  "explanation": "A liar who never steals is not honest, yet fits the definition.",
+  "section": "3.2"
 }

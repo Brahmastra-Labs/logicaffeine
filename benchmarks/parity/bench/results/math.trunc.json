@@ -1,0 +1,21 @@
+{
+  "capability": "math.trunc",
+  "arg": "1000000",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "means_ms": {
+    "logos": 6.55,
+    "c": 6.351,
+    "rust": 4.358,
+    "go": 2.793,
+    "python": 70.995
+  },
+  "logos_ms": 6.55,
+  "speedups_vs_logos": {
+    "c": 0.97,
+    "rust": 0.665,
+    "go": 0.426,
+    "python": 10.839
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.426
+}

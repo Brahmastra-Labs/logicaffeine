@@ -154,13 +154,11 @@ impl Verifier {
 
         match solver.check() {
             SatResult::Unsat => Ok(()),
-            SatResult::Sat => {
-                Err(VerificationError::bounds_violation(
-                    "value",
-                    format!("> {}", bound),
-                    format!("{}", value),
-                ))
-            }
+            SatResult::Sat => Err(VerificationError::bounds_violation(
+                "value",
+                format!("> {}", bound),
+                format!("{}", value),
+            )),
             SatResult::Unknown => Err(VerificationError::solver_unknown()),
         }
     }
@@ -317,12 +315,10 @@ impl VerificationContext {
 
         let result = match solver.check() {
             SatResult::Unsat => Ok(()),
-            SatResult::Sat => {
-                Err(VerificationError::contradiction(
-                    "Assertion is not valid",
-                    None,
-                ))
-            }
+            SatResult::Sat => Err(VerificationError::contradiction(
+                "Assertion is not valid",
+                None,
+            )),
             SatResult::Unknown => Err(VerificationError::solver_unknown()),
         };
 
@@ -491,10 +487,7 @@ impl VerificationSession {
         }
 
         // Add the binding: var_name == value
-        let binding = VerifyExpr::eq(
-            VerifyExpr::var(var_name),
-            value.clone(),
-        );
+        let binding = VerifyExpr::eq(VerifyExpr::var(var_name), value.clone());
         let binding_ast = encoder.encode(&binding);
         if let Some(b) = binding_ast.as_bool() {
             solver.assert(&b);
@@ -559,9 +552,9 @@ impl VerificationSession {
 
         // Encode the assertion we want to verify
         let ast = encoder.encode(expr);
-        let assertion = ast.as_bool().ok_or_else(|| {
-            VerificationError::solver_error("Assertion must be boolean")
-        })?;
+        let assertion = ast
+            .as_bool()
+            .ok_or_else(|| VerificationError::solver_error("Assertion must be boolean"))?;
 
         // To prove P is valid: check if NOT(P) is UNSAT
         solver.push();
@@ -569,12 +562,10 @@ impl VerificationSession {
 
         let result = match solver.check() {
             SatResult::Unsat => Ok(()),
-            SatResult::Sat => {
-                Err(VerificationError::contradiction(
-                    "Assertion cannot be proven valid",
-                    None,
-                ))
-            }
+            SatResult::Sat => Err(VerificationError::contradiction(
+                "Assertion cannot be proven valid",
+                None,
+            )),
             SatResult::Unknown => Err(VerificationError::solver_unknown()),
         };
 
@@ -686,12 +677,15 @@ impl VerificationSession {
 /// Rename a variable in a VerifyExpr (simple textual substitution).
 /// Recursively traverses ALL variants — no silent drops.
 pub fn rename_var_in_expr(expr: &VerifyExpr, from: &str, to: &str) -> VerifyExpr {
-    
     let r = |e: &VerifyExpr| rename_var_in_expr(e, from, to);
     match expr {
         // Leaf: variable — rename if matches
         VerifyExpr::Var(name) => {
-            if name == from { VerifyExpr::Var(to.to_string()) } else { expr.clone() }
+            if name == from {
+                VerifyExpr::Var(to.to_string())
+            } else {
+                expr.clone()
+            }
         }
         // Leaves: literals — no variables to rename
         VerifyExpr::Int(_) | VerifyExpr::Bool(_) | VerifyExpr::BitVecConst { .. } => expr.clone(),
@@ -732,17 +726,24 @@ pub fn rename_var_in_expr(expr: &VerifyExpr, from: &str, to: &str) -> VerifyExpr
             right: Box::new(r(right)),
         },
         VerifyExpr::BitVecExtract { high, low, operand } => VerifyExpr::BitVecExtract {
-            high: *high, low: *low,
+            high: *high,
+            low: *low,
             operand: Box::new(r(operand)),
         },
-        VerifyExpr::BitVecConcat(l, ri) => VerifyExpr::BitVecConcat(Box::new(r(l)), Box::new(r(ri))),
+        VerifyExpr::BitVecConcat(l, ri) => {
+            VerifyExpr::BitVecConcat(Box::new(r(l)), Box::new(r(ri)))
+        }
 
         // Array: recurse all sub-expressions
         VerifyExpr::Select { array, index } => VerifyExpr::Select {
             array: Box::new(r(array)),
             index: Box::new(r(index)),
         },
-        VerifyExpr::Store { array, index, value } => VerifyExpr::Store {
+        VerifyExpr::Store {
+            array,
+            index,
+            value,
+        } => VerifyExpr::Store {
             array: Box::new(r(array)),
             index: Box::new(r(index)),
             value: Box::new(r(value)),
@@ -795,19 +796,19 @@ impl<'a> Encoder<'a> {
                 match ty {
                     VerifyType::Int => Dynamic::from_ast(&Int::new_const(name.as_str())),
                     VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(name.as_str())),
-                    VerifyType::Object => {
-                        Dynamic::from_ast(&Int::new_const(name.as_str()))
-                    }
-                    VerifyType::Real => {
-                        Dynamic::from_ast(&z3::ast::Real::new_const(name.as_str()))
-                    }
+                    VerifyType::Object => Dynamic::from_ast(&Int::new_const(name.as_str())),
+                    VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(name.as_str())),
                     VerifyType::BitVector(width) => {
                         Dynamic::from_ast(&z3::ast::BV::new_const(name.as_str(), width))
                     }
                     VerifyType::Array(ref idx_ty, ref elem_ty) => {
                         let idx_sort = self.type_to_sort(idx_ty);
                         let elem_sort = self.type_to_sort(elem_ty);
-                        Dynamic::from_ast(&z3::ast::Array::new_const(name.as_str(), &idx_sort, &elem_sort))
+                        Dynamic::from_ast(&z3::ast::Array::new_const(
+                            name.as_str(),
+                            &idx_sort,
+                            &elem_sort,
+                        ))
                     }
                 }
             }
@@ -827,18 +828,14 @@ impl<'a> Encoder<'a> {
                 }
             }
 
-            VerifyExpr::Apply { name, args } => {
-                self.encode_apply(name, args)
-            }
+            VerifyExpr::Apply { name, args } => self.encode_apply(name, args),
 
             VerifyExpr::ApplyInt { name, args } => {
                 let int_sort = Sort::int();
                 let domain: Vec<&Sort> = args.iter().map(|_| &int_sort).collect();
                 let func_decl = FuncDecl::new(name.as_str(), &domain, &int_sort);
-                let encoded_args: Vec<Dynamic> =
-                    args.iter().map(|a| self.encode(a)).collect();
-                let arg_refs: Vec<&dyn Ast> =
-                    encoded_args.iter().map(|a| a as &dyn Ast).collect();
+                let encoded_args: Vec<Dynamic> = args.iter().map(|a| self.encode(a)).collect();
+                let arg_refs: Vec<&dyn Ast> = encoded_args.iter().map(|a| a as &dyn Ast).collect();
                 Dynamic::from_ast(&func_decl.apply(&arg_refs))
             }
 
@@ -850,10 +847,12 @@ impl<'a> Encoder<'a> {
                     let b = self.encode(body);
                     b.as_bool().unwrap_or_else(|| Bool::from_bool(true))
                 };
-                let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
-                    self.make_quantifier_var(name, ty)
-                }).collect();
-                let bound_refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+                let bound_consts: Vec<Dynamic> = vars
+                    .iter()
+                    .map(|(name, ty)| self.make_quantifier_var(name, ty))
+                    .collect();
+                let bound_refs: Vec<&dyn Ast> =
+                    bound_consts.iter().map(|d| d as &dyn Ast).collect();
                 Dynamic::from_ast(&z3::ast::forall_const(&bound_refs, &[], &body_encoded))
             }
 
@@ -865,15 +864,16 @@ impl<'a> Encoder<'a> {
                     let b = self.encode(body);
                     b.as_bool().unwrap_or_else(|| Bool::from_bool(true))
                 };
-                let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
-                    self.make_quantifier_var(name, ty)
-                }).collect();
-                let bound_refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+                let bound_consts: Vec<Dynamic> = vars
+                    .iter()
+                    .map(|(name, ty)| self.make_quantifier_var(name, ty))
+                    .collect();
+                let bound_refs: Vec<&dyn Ast> =
+                    bound_consts.iter().map(|d| d as &dyn Ast).collect();
                 Dynamic::from_ast(&z3::ast::exists_const(&bound_refs, &[], &body_encoded))
             }
 
             // ---- Bitvector operations ----
-
             VerifyExpr::BitVecConst { width, value } => {
                 Dynamic::from_ast(&z3::ast::BV::from_u64(*value, *width))
             }
@@ -904,7 +904,6 @@ impl<'a> Encoder<'a> {
             }
 
             // ---- Array theory ----
-
             VerifyExpr::Select { array, index } => {
                 let a = self.encode(array);
                 let i = self.encode(index);
@@ -915,7 +914,11 @@ impl<'a> Encoder<'a> {
                 }
             }
 
-            VerifyExpr::Store { array, index, value } => {
+            VerifyExpr::Store {
+                array,
+                index,
+                value,
+            } => {
                 let a = self.encode(array);
                 let i = self.encode(index);
                 let v = self.encode(value);
@@ -927,7 +930,6 @@ impl<'a> Encoder<'a> {
             }
 
             // ---- Temporal (BMC) ----
-
             VerifyExpr::AtState { state: _, expr } => {
                 // For now, just encode the expression (state context handled by variable naming)
                 self.encode(expr)
@@ -945,7 +947,6 @@ impl<'a> Encoder<'a> {
             }
 
             // ---- Biconditional ----
-
             VerifyExpr::Iff(left, right) => {
                 let l = self.encode(left);
                 let r = self.encode(right);
@@ -1131,206 +1132,5 @@ impl<'a> Encoder<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tautology() {
-        let verifier = Verifier::new();
-        assert!(verifier.check_bool(true).is_ok());
-    }
-
-    #[test]
-    fn test_contradiction() {
-        let verifier = Verifier::new();
-        assert!(verifier.check_bool(false).is_err());
-    }
-
-    #[test]
-    fn test_int_greater_than_valid() {
-        let verifier = Verifier::new();
-        assert!(verifier.check_int_greater_than(10, 5).is_ok());
-    }
-
-    #[test]
-    fn test_int_greater_than_invalid() {
-        let verifier = Verifier::new();
-        assert!(verifier.check_int_greater_than(3, 5).is_err());
-    }
-
-    #[test]
-    fn test_int_equals_valid() {
-        let verifier = Verifier::new();
-        assert!(verifier.check_int_equals(42, 42).is_ok());
-    }
-
-    #[test]
-    fn test_int_equals_invalid() {
-        let verifier = Verifier::new();
-        assert!(verifier.check_int_equals(1, 2).is_err());
-    }
-
-    #[test]
-    fn test_context_api() {
-        let verifier = Verifier::new();
-        let vctx = verifier.context();
-        let solver = vctx.solver();
-
-        // P ∨ ¬P is a tautology
-        let p = vctx.bool_var("p");
-        let tautology = Bool::or(&[&p, &p.not()]);
-
-        assert!(vctx.check_valid(&solver, &tautology).is_ok());
-    }
-
-    #[test]
-    fn test_context_contradiction() {
-        let verifier = Verifier::new();
-        let vctx = verifier.context();
-        let solver = vctx.solver();
-
-        // P ∧ ¬P is a contradiction (not valid)
-        let p = vctx.bool_var("p");
-        let contradiction = Bool::and(&[&p, &p.not()]);
-
-        assert!(vctx.check_valid(&solver, &contradiction).is_err());
-    }
-
-    // ============================================================
-    // VerificationSession Tests
-    // ============================================================
-
-    #[test]
-    fn test_session_integer_bounds() {
-        let mut session = VerificationSession::new();
-
-        // Declare x as Int
-        session.declare("x", VerifyType::Int);
-
-        // Assume: x = 10
-        session.assume(&VerifyExpr::eq(
-            VerifyExpr::var("x"),
-            VerifyExpr::int(10),
-        ));
-
-        // Verify: x > 5 (should pass)
-        let result = session.verify(&VerifyExpr::gt(
-            VerifyExpr::var("x"),
-            VerifyExpr::int(5),
-        ));
-        assert!(result.is_ok(), "10 > 5 should be provable");
-    }
-
-    #[test]
-    fn test_session_integer_contradiction() {
-        let mut session = VerificationSession::new();
-
-        // Declare x as Int
-        session.declare("x", VerifyType::Int);
-
-        // Assume: x = 10
-        session.assume(&VerifyExpr::eq(
-            VerifyExpr::var("x"),
-            VerifyExpr::int(10),
-        ));
-
-        // Verify: x < 5 (should FAIL)
-        let result = session.verify(&VerifyExpr::lt(
-            VerifyExpr::var("x"),
-            VerifyExpr::int(5),
-        ));
-        assert!(result.is_err(), "10 < 5 should not be provable");
-    }
-
-    #[test]
-    fn test_session_uninterpreted_functions() {
-        let mut session = VerificationSession::new();
-
-        // Declare x as Object
-        session.declare("x", VerifyType::Object);
-
-        // Assume: Mortal(x) -> Human(x)
-        session.assume(&VerifyExpr::implies(
-            VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]),
-            VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]),
-        ));
-
-        // Assume: Mortal(x)
-        session.assume(&VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]));
-
-        // Verify: Human(x) - Z3 should deduce this structurally
-        let result = session.verify(&VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]));
-        assert!(result.is_ok(), "Should deduce Human(x) from Mortal(x) and Mortal(x)->Human(x)");
-    }
-
-    #[test]
-    fn test_session_modal_structural_reasoning() {
-        let mut session = VerificationSession::new();
-
-        // Declare A and B as Objects (representing propositions)
-        session.declare("A", VerifyType::Object);
-        session.declare("B", VerifyType::Object);
-
-        // Assume: Possible(A) -> Possible(B)
-        session.assume(&VerifyExpr::implies(
-            VerifyExpr::apply("Possible", vec![VerifyExpr::var("A")]),
-            VerifyExpr::apply("Possible", vec![VerifyExpr::var("B")]),
-        ));
-
-        // Assume: Possible(A)
-        session.assume(&VerifyExpr::apply("Possible", vec![VerifyExpr::var("A")]));
-
-        // Verify: Possible(B)
-        let result = session.verify(&VerifyExpr::apply("Possible", vec![VerifyExpr::var("B")]));
-        assert!(result.is_ok(), "Should deduce Possible(B) from modus ponens");
-    }
-
-    #[test]
-    fn test_session_arithmetic() {
-        let mut session = VerificationSession::new();
-
-        // Declare x and y
-        session.declare("x", VerifyType::Int);
-        session.declare("y", VerifyType::Int);
-
-        // Assume: x = 5, y = 3
-        session.assume(&VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5)));
-        session.assume(&VerifyExpr::eq(VerifyExpr::var("y"), VerifyExpr::int(3)));
-
-        // Verify: x + y > 7 (5 + 3 = 8 > 7)
-        let sum = VerifyExpr::binary(
-            VerifyOp::Add,
-            VerifyExpr::var("x"),
-            VerifyExpr::var("y"),
-        );
-        let result = session.verify(&VerifyExpr::gt(sum, VerifyExpr::int(7)));
-        assert!(result.is_ok(), "5 + 3 > 7 should be provable");
-    }
-
-    #[test]
-    fn test_session_logic_and_or() {
-        let mut session = VerificationSession::new();
-
-        // Declare p and q as Bool
-        session.declare("p", VerifyType::Bool);
-        session.declare("q", VerifyType::Bool);
-
-        // Assume: p = true, q = false
-        session.assume(&VerifyExpr::eq(VerifyExpr::var("p"), VerifyExpr::bool(true)));
-        session.assume(&VerifyExpr::eq(VerifyExpr::var("q"), VerifyExpr::bool(false)));
-
-        // Verify: p || q (true || false = true)
-        let result = session.verify(&VerifyExpr::or(
-            VerifyExpr::var("p"),
-            VerifyExpr::var("q"),
-        ));
-        assert!(result.is_ok(), "true || false should be provable");
-
-        // Verify: !(p && q) (!(true && false) = true)
-        let result = session.verify(&VerifyExpr::not(VerifyExpr::and(
-            VerifyExpr::var("p"),
-            VerifyExpr::var("q"),
-        )));
-        assert!(result.is_ok(), "!(true && false) should be provable");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_verify/solver/tests.rs"]
+mod tests;

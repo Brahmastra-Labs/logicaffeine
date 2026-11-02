@@ -1,0 +1,46 @@
+{
+  "id": "8.2",
+  "title": "All and Some",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "'All A are B' becomes ∀x(A(x) → B(x)). It says nothing about things that are not A, so it uses →."
+    },
+    {
+      "type": "paragraph",
+      "text": "'Some A are B' becomes ∃x(A(x) ∧ B(x)). It claims there is something that is both, so it uses ∧."
+    },
+    {
+      "type": "paragraph",
+      "text": "Mixing these up is the most common mistake: ∀ goes with →, and ∃ goes with ∧."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "All men are mortal.",
+      "formula": "∀x((Man(x) → Mortal(x)))",
+      "note": "If anything is a man, it is mortal."
+    },
+    {
+      "type": "formula",
+      "sentence": "Some men are happy.",
+      "formula": "∃x((Man(x) ∧ Happy(x)))",
+      "note": "Something is a man and is happy."
+    },
+    {
+      "type": "formula",
+      "sentence": "Some students are not happy.",
+      "formula": "∃x((Student(x) ∧ ¬Happy(x)))",
+      "note": "Something is a student and is not happy."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Some philosophers are wise.",
+    "answer": "∃x((Philosopher(x) ∧ Wise(x)))",
+    "hint": "'Some' calls for ∃. Which connective joins the two properties?",
+    "explanation": "There is something that is a philosopher and is wise, so ∃x with ∧."
+  }
+}

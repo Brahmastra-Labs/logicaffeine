@@ -1,0 +1,10 @@
+{
+  "capability": "math.dim",
+  "workload": "math.dim",
+  "arg": "1000000",
+  "expected": "125000249834226",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

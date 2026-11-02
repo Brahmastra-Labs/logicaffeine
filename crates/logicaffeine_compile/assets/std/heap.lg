@@ -1,0 +1,238 @@
+# Heap
+
+A binary min-heap over a 1-indexed `Seq of Int`, written in pure LOGOS and compiled through every
+execution tier. `heapPush`/`heapPeek`/`heapPopRest` are the priority-queue primitives; `heapifySeq`
+builds a heap in O(n) and `heapSortSeq` drains it in ascending order. The smallest element always
+sits at position 1, so `heapPeek` and the popped value are `item 1`. Auto-imported on reference.
+
+## Note
+Restores the min-heap property downward from `root` over the first `n` items, swapping each node with its smaller child until it settles.
+
+## To siftDown (h: Seq of Int) and (root: Int) and (n: Int) -> Seq of Int:
+    Let mutable a be h.
+    Let mutable i be root.
+    Let mutable sifting be true.
+    While sifting is equal to true:
+        Let left be 2 * i.
+        Let right be left + 1.
+        Let mutable smallest be i.
+        If left is at most n:
+            If item left of a is less than item smallest of a:
+                Set smallest to left.
+        If right is at most n:
+            If item right of a is less than item smallest of a:
+                Set smallest to right.
+        If smallest is equal to i:
+            Set sifting to false.
+        Otherwise:
+            Let tmp be item i of a.
+            Set item i of a to item smallest of a.
+            Set item smallest of a to tmp.
+            Set i to smallest.
+    Return a.
+
+## Note
+Restores the min-heap property upward from `start`, swapping each node with its parent while the parent is larger.
+
+## To siftUp (h: Seq of Int) and (start: Int) -> Seq of Int:
+    Let mutable a be h.
+    Let mutable i be start.
+    Let mutable sifting be true.
+    While sifting is equal to true:
+        If i is at most 1:
+            Set sifting to false.
+        Otherwise:
+            Let parent be i / 2.
+            If item parent of a is greater than item i of a:
+                Let tmp be item parent of a.
+                Set item parent of a to item i of a.
+                Set item i of a to tmp.
+                Set i to parent.
+            Otherwise:
+                Set sifting to false.
+    Return a.
+
+## Note
+Returns a new empty heap.
+
+## To heapNew () -> Seq of Int:
+    Return a new Seq of Int.
+
+## Note
+Returns the number of elements in the heap.
+
+## To heapLen (h: Seq of Int) -> Int:
+    Return length of h.
+
+## Note
+True when the heap has no elements.
+
+## To heapIsEmpty (h: Seq of Int) -> Bool:
+    Return length of h is equal to 0.
+
+## Note
+Returns the smallest element without removing it (the root at position 1).
+
+## To heapPeek (h: Seq of Int) -> Int:
+    Return item 1 of h.
+
+## Note
+Appends `x` to the heap and sifts it up to restore the min-heap property.
+
+## To heapPush (h: Seq of Int) and (x: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in h:
+        Push v to out.
+    Push x to out.
+    Return siftUp(out, length of out).
+
+## Note
+Builds a min-heap from `xs` in O(n) by sifting down every internal node from the middle to the root.
+
+## To heapifySeq (xs: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Repeat for v in xs:
+        Push v to out.
+    Let n be length of out.
+    Let mutable start be n / 2.
+    While start is at least 1:
+        Set out to siftDown(out, start, n).
+        Set start to start - 1.
+    Return out.
+
+## Note
+Removes the smallest element by moving the last item to the root and sifting it down, returning the remaining heap.
+
+## To heapPopRest (h: Seq of Int) -> Seq of Int:
+    Let n be length of h.
+    Let out be a new Seq of Int.
+    If n is at most 1:
+        Return out.
+    Push item n of h to out.
+    Let mutable i be 2.
+    While i is less than n:
+        Push item i of h to out.
+        Set i to i + 1.
+    Return siftDown(out, 1, length of out).
+
+## Note
+Pop-then-push: replaces the root with `x` and sifts down, returning the smallest element to the caller in one step.
+
+## To heapReplace (h: Seq of Int) and (x: Int) -> Seq of Int:
+    Let n be length of h.
+    Let out be a new Seq of Int.
+    Push x to out.
+    Let mutable i be 2.
+    While i is at most n:
+        Push item i of h to out.
+        Set i to i + 1.
+    Return siftDown(out, 1, length of out).
+
+## Note
+Push-then-pop: if `x` is larger than the current root it replaces the root via `heapReplace`, otherwise the heap is unchanged.
+
+## To heapPushPop (h: Seq of Int) and (x: Int) -> Seq of Int:
+    Let n be length of h.
+    If n is at least 1:
+        If item 1 of h is less than x:
+            Return heapReplace(h, x).
+    Return h.
+
+## Note
+Heapsort: heapifies `xs` then repeatedly pops the smallest, yielding the elements in ascending order.
+
+## To heapSortSeq (xs: Seq of Int) -> Seq of Int:
+    Let mutable h be heapifySeq(xs).
+    Let out be a new Seq of Int.
+    While length of h is at least 1:
+        Push item 1 of h to out.
+        Set h to heapPopRest(h).
+    Return out.
+
+## Note
+The `k` smallest elements of `xs` in ascending order (fewer if `xs` has fewer than `k`).
+
+## To nSmallest (k: Int) and (xs: Seq of Int) -> Seq of Int:
+    Let s be heapSortSeq(xs).
+    Let total be length of s.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most k:
+        If i is at most total:
+            Push item i of s to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+The `k` largest elements of `xs` in descending order, read from the tail of the sorted sequence.
+
+## To nLargest (k: Int) and (xs: Seq of Int) -> Seq of Int:
+    Let s be heapSortSeq(xs).
+    Let total be length of s.
+    Let out be a new Seq of Int.
+    Let mutable count be 0.
+    Let mutable i be total.
+    While count is less than k:
+        If i is at least 1:
+            Push item i of s to out.
+            Set i to i - 1.
+            Set count to count + 1.
+        Otherwise:
+            Set count to k.
+    Return out.
+
+## Note
+Merges two ascending-sorted sequences into one ascending-sorted sequence.
+
+## To heapMerge (xs: Seq of Int) and (ys: Seq of Int) -> Seq of Int:
+    Let nx be length of xs.
+    Let ny be length of ys.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable j be 1.
+    Let mutable merging be true.
+    While merging is equal to true:
+        If i is greater than nx:
+            Set merging to false.
+        Otherwise:
+            If j is greater than ny:
+                Set merging to false.
+            Otherwise:
+                If item i of xs is at most item j of ys:
+                    Push item i of xs to out.
+                    Set i to i + 1.
+                Otherwise:
+                    Push item j of ys to out.
+                    Set j to j + 1.
+    While i is at most nx:
+        Push item i of xs to out.
+        Set i to i + 1.
+    While j is at most ny:
+        Push item j of ys to out.
+        Set j to j + 1.
+    Return out.
+
+## Note
+Restores the heap property around `pos` after its value changed by sifting down then up.
+
+## To heapFix (h: Seq of Int) and (pos: Int) -> Seq of Int:
+    Let n be length of h.
+    Let down be siftDown(h, pos, n).
+    Return siftUp(down, pos).
+
+## Note
+Removes the element at `pos` by moving the last item into its place and re-fixing the heap.
+
+## To heapRemove (h: Seq of Int) and (pos: Int) -> Seq of Int:
+    Let n be length of h.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is less than n:
+        If i is equal to pos:
+            Push item n of h to out.
+        Otherwise:
+            Push item i of h to out.
+        Set i to i + 1.
+    If pos is at most length of out:
+        Return heapFix(out, pos).
+    Return out.

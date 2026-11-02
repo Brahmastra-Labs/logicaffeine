@@ -1,0 +1,47 @@
+{
+  "id": "17.4",
+  "title": "Relevance Logic",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In classical logic, 'if the moon is cheese, then 2 + 2 = 4' is true, because the then part is true. **Relevance logic** asks for a real connection."
+    },
+    {
+      "type": "paragraph",
+      "text": "Alan Anderson and Nuel Belnap required that A and B share content before A → B can be valid."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Classical but irrelevant",
+      "lines": [
+        "P → (Q → P)",
+        "(P ∧ ¬P) → Q"
+      ],
+      "note": "Both are valid classically, though Q has nothing to do with P."
+    },
+    {
+      "type": "worked",
+      "title": "Sharing content",
+      "lines": [
+        "(P ∧ Q) → P"
+      ],
+      "note": "Here the then part is part of the if part, so the link is real."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What do relevance logics require for A → B to be valid?",
+    "options": [
+      "A must be true",
+      "B must be true",
+      "A must be relevant to B",
+      "A and B must be identical"
+    ],
+    "correct": 2,
+    "hint": "Recall the moon made of cheese.",
+    "explanation": "Relevance logics require a real connection, such as shared content, between the if part and the then part."
+  }
+}

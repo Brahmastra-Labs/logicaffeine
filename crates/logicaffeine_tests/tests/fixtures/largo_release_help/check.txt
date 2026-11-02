@@ -1,0 +1,47 @@
+Check the project for errors without producing a binary.
+
+Parses and type-checks the LOGOS source without invoking the full build pipeline. Useful for quick validation during development.
+
+# Example
+
+```bash largo check ```
+
+Usage: largo check [OPTIONS] [FILE]
+
+Arguments:
+  [FILE]
+          A LOGOS kernel-vernacular document to check (with `--kernel`) instead of the project
+
+Options:
+      --kernel
+          Check FILE as a LOGOS kernel-vernacular literate document through the kernel's own document door (`Repl::execute_document`): every block, in order, stopping at the first that does not check
+
+      --deep
+          Also run rustc's analysis over the generated code (the same deep pass the IDE's flycheck uses) and translate its findings to LOGOS
+
+      --json
+          Print one `logos-check/1` JSON envelope on stdout (diagnostics with stable codes, spans, and Socratic explanations). Prose stays on stderr; exit codes are unchanged
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo check
+  largo check --quiet
+  largo check --kernel Demo.andSwap.lg

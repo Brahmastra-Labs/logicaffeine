@@ -1,0 +1,10 @@
+{
+  "capability": "convert.to_binary",
+  "workload": "len toBinary(i)",
+  "arg": "2000000",
+  "expected": "39902870",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

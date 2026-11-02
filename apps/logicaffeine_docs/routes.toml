@@ -1,0 +1,408 @@
+# "Start here" routes for docs.logicaffeine.com: where each kind of work begins. They open
+# /llms.txt for agents and appear on the landing page and the 404 page for people.
+#
+# `target` is the rustdoc file a route leads to, relative to the site root. site.py refuses the
+# build when a target is not a page the site ships, and docs_site_lock.rs checks that every target
+# names a curated crate and a module with source — so a route can go stale only loudly.
+
+# ---- Logic ---------------------------------------------------------------------------------
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Turn an English sentence into first-order logic"
+target = "logicaffeine_language/compile/fn.compile.html"
+note = "The one-call entry point, default options; the `compile_*` functions beside it add output formats, discourse, ambiguity and scope."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Get every quantifier-scope reading of a sentence"
+target = "logicaffeine_language/compile/fn.compile_all_scopes.html"
+note = "One formula per scope permutation when a sentence has several quantifiers."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Get every parse of an ambiguous sentence"
+target = "logicaffeine_language/compile/fn.compile_forest.html"
+note = "All valid readings, lexical (noun/verb) and structural."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Carry pronouns and tense across sentences"
+target = "logicaffeine_language/compile/fn.compile_discourse.html"
+note = "Compiles a discourse, tracking temporal order; `compile_with_discourse` shares state across calls."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Lower modal operators to possible worlds"
+target = "logicaffeine_language/compile/fn.compile_kripke.html"
+note = "Kripke semantics: necessity and possibility become explicit quantification over worlds."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Add conversational implicatures"
+target = "logicaffeine_language/compile/fn.compile_pragmatic.html"
+note = "Scalar implicature enrichment on top of the literal reading."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Render a formula in another notation"
+target = "logicaffeine_language/formatter/index.html"
+note = "The output formatters for logical expressions."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Parse English into a syntax tree"
+target = "logicaffeine_language/parser/index.html"
+note = "The recursive-descent parser for natural language; the tree it builds is in `ast`."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Resolve anaphora and scope"
+target = "logicaffeine_language/drs/index.html"
+note = "Discourse Representation Structures."
+
+[[route]]
+section = "Logic: English in, first-order logic out"
+task = "Look up how a word behaves"
+target = "logicaffeine_lexicon/types/index.html"
+note = "The lexicon's grammatical and semantic categories: verb classes, transitivity, animacy, gender, number."
+
+# ---- Proof ---------------------------------------------------------------------------------
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Prove a goal from premises and get a kernel-checked proof"
+target = "logicaffeine_proof/verify/fn.prove_certify_check.html"
+note = "Backward-chaining search, certification into a kernel term, and a kernel type-check in one call."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Prove a theorem written in English"
+target = "logicaffeine_language/compile/fn.compile_theorem.html"
+note = "Compiles and proves a theorem block."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Find out whether premises contradict each other"
+target = "logicaffeine_proof/verify/fn.detect_conflict.html"
+note = "Returns a kernel-checked proof of False and the clashing premises."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Prove a library of theorems in citation order"
+target = "logicaffeine_proof/verify/fn.prove_library.html"
+note = "Each theorem proved from its premises plus the conclusions it cites."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Type-check a term in the Calculus of Constructions"
+target = "logicaffeine_kernel/fn.infer_type.html"
+note = "The kernel itself: `Term`, `Context`, `normalize` and the universe hierarchy sit beside it."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Talk to the kernel in its vernacular"
+target = "logicaffeine_kernel/interface/index.html"
+note = "The command language, its term parser and the REPL."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Re-check a proof term independently"
+target = "logicaffeine_kernel/recheck/index.html"
+note = "A second checker, the de Bruijn criterion taken seriously; re-checkable certificates are in `certificate`."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Decide ring equalities"
+target = "logicaffeine_kernel/ring/index.html"
+note = "Polynomial equality by normalization."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Decide integer arithmetic"
+target = "logicaffeine_kernel/omega/index.html"
+note = "The Omega test; Fourier–Motzkin linear arithmetic is in `lia`."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Simplify and close goals by rewriting"
+target = "logicaffeine_kernel/simp/index.html"
+note = "The simplifier tactic; congruence closure is in `cc`."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Prove interactively with tactics"
+target = "logicaffeine_proof/tactic/index.html"
+note = "A tactic framework with a first-class goal state."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Write a proof as a script"
+target = "logicaffeine_proof/tactic_script/index.html"
+note = "Proofs as text over the tactic combinators, the way a Lean or Coq proof reads."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Search a named lemma library"
+target = "logicaffeine_proof/lemma_index/index.html"
+note = "`exact?`, `apply?` and premise selection over certified lemmas."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Get a counterexample when a goal is false"
+target = "logicaffeine_proof/counterexample/index.html"
+note = "Exhibits a model instead of failing silently."
+
+[[route]]
+section = "Proof: every theorem checked by a small kernel"
+task = "Read formal first-order logic text"
+target = "logicaffeine_proof/formula/index.html"
+note = "A parser from formal FOL surface syntax into the prover's expressions."
+
+# ---- Solving -------------------------------------------------------------------------------
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Decide a CNF formula"
+target = "logicaffeine_proof/solve/fn.solve_structured.html"
+note = "Routes through every cheap specialist before CDCL; `solve_comprehensive` runs the full arsenal."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Use the CDCL SAT core directly"
+target = "logicaffeine_proof/cdcl/index.html"
+note = "Conflict-driven clause learning."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Read and write DIMACS CNF"
+target = "logicaffeine_proof/dimacs/index.html"
+note = "The SAT-competition interchange format."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Emit a refutation other checkers accept"
+target = "logicaffeine_proof/proof_emit/index.html"
+note = "DRAT, LRAT and DPR traces."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Check a refutation"
+target = "logicaffeine_proof/rup/index.html"
+note = "Reverse unit propagation; propagation-redundancy checking is in `pr`."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Break symmetry, with a certificate"
+target = "logicaffeine_proof/sym_certify/index.html"
+note = "Lex-leader symmetry-breaking predicates that come with a proof."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Count models, weighted and up to symmetry"
+target = "logicaffeine_proof/solve/fn.weighted_model_count.html"
+note = "The partition function, one solve per model orbit."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Reason with cardinality and pseudo-Boolean constraints"
+target = "logicaffeine_proof/pseudo_boolean/index.html"
+note = "Cutting planes, a proof system stronger than resolution."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Reason about parity"
+target = "logicaffeine_proof/xorsat/index.html"
+note = "XOR-SAT by Gaussian elimination over GF(2)."
+
+[[route]]
+section = "Solving: SAT and certified refutations"
+task = "Model-check without Z3"
+target = "logicaffeine_proof/bmc/index.html"
+note = "Bounded model checking, k-induction and vacuity, certified and browser-ready."
+
+# ---- Mathematics ---------------------------------------------------------------------------
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Solve linear systems exactly over the rationals"
+target = "logicaffeine_proof/linalg/index.html"
+note = "Exact linear algebra over ℚ."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Turn an exact solve into a kernel-checked proof"
+target = "logicaffeine_proof/linalg_certify/index.html"
+note = "Kernel-certified linear algebra."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Do linear algebra modulo a prime or a composite"
+target = "logicaffeine_proof/modp/index.html"
+note = "GF(p); composite moduli by the Chinese Remainder Theorem are in `modm`."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Refute with polynomials"
+target = "logicaffeine_proof/polycalc/index.html"
+note = "Polynomial calculus and the Nullstellensatz over GF(2); other fields and rings are in `polycalc_gfp` and `polycalc_zm`."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Refute with sums of squares"
+target = "logicaffeine_proof/sos/index.html"
+note = "Positivstellensatz refutations over ℚ, kept exact."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Reduce a lattice"
+target = "logicaffeine_proof/lattice/index.html"
+note = "LLL lattice reduction."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Compute on elliptic curves"
+target = "logicaffeine_proof/elliptic/index.html"
+note = "Elliptic-curve primitives over ℤ/N."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Walk isogeny graphs"
+target = "logicaffeine_proof/isogeny/index.html"
+note = "Certified isogeny torsion-image witnesses; 𝔽_{p²} arithmetic and the supersingular graph are in `fp2`."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Work with permutation groups"
+target = "logicaffeine_proof/permgroup/index.html"
+note = "Schreier–Sims: a base and strong generating set."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Hold a homotopy type as an object"
+target = "logicaffeine_proof/eilenberg_maclane/index.html"
+note = "Eilenberg–MacLane spaces K(A, n); Kan complexes are in `kan_complex`."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Attack a multivariate quadratic system"
+target = "logicaffeine_proof/xl/index.html"
+note = "XL algebraic cryptanalysis by linearization."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Compute with arbitrary-precision integers"
+target = "logicaffeine_base/numeric/index.html"
+note = "The numeric tower's foundation."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Carry physical units through a computation"
+target = "logicaffeine_base/quantity/index.html"
+note = "Exact magnitudes with a physical dimension and a unit."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Count money exactly"
+target = "logicaffeine_base/money/index.html"
+note = "An exact amount in a specific currency; exact calendar time is in `temporal`."
+
+[[route]]
+section = "Mathematics: exact, and certified where it counts"
+task = "Compute in finite fields and wrapping rings"
+target = "logicaffeine_base/gf256/index.html"
+note = "GF(2⁸); the wrapping integer rings ℤ/2ᵏ are in `word`."
+
+# ---- Verification --------------------------------------------------------------------------
+
+[[route]]
+section = "Verification: specifications against implementations"
+task = "Prove two programs or specifications equivalent"
+target = "logicaffeine_verify/equivalence/index.html"
+note = "Z3-backed semantic equivalence; the verify crate needs Z3 and a Pro-or-higher license."
+
+[[route]]
+section = "Verification: specifications against implementations"
+task = "Prove unbounded safety"
+target = "logicaffeine_verify/ic3/index.html"
+note = "IC3/PDR; k-induction and interpolation are in `kinduction` and `interpolation`."
+
+[[route]]
+section = "Verification: specifications against implementations"
+task = "Synthesize a controller from temporal logic"
+target = "logicaffeine_verify/synthesis/index.html"
+note = "Reactive synthesis from LTL."
+
+[[route]]
+section = "Verification: specifications against implementations"
+task = "Prove the compiled Rust matches the LOGOS source"
+target = "logicaffeine_tv/index.html"
+note = "SMT translation validation."
+
+[[route]]
+section = "Verification: specifications against implementations"
+task = "Turn English hardware specs into assertions"
+target = "logicaffeine_compile/codegen_sva/index.html"
+note = "SVA and PSL generation for hardware verification."
+
+# ---- Programs ------------------------------------------------------------------------------
+
+[[route]]
+section = "Programs: running English code"
+task = "Compile a LOGOS program"
+target = "logicaffeine_compile/compile/index.html"
+note = "The compilation pipeline."
+
+[[route]]
+section = "Programs: running English code"
+task = "Run a program on the tree-walking interpreter"
+target = "logicaffeine_compile/interpreter/index.html"
+note = "The tree-walking interpreter for imperative LOGOS."
+
+[[route]]
+section = "Programs: running English code"
+task = "Run a program on the bytecode VM"
+target = "logicaffeine_compile/vm/index.html"
+note = "The register VM the JIT tiers up from."
+
+[[route]]
+section = "Programs: running English code"
+task = "Generate Rust from LOGOS"
+target = "logicaffeine_compile/codegen/index.html"
+note = "Code generation from the LOGOS AST to Rust source."
+
+[[route]]
+section = "Programs: running English code"
+task = "Extract a program from a proof"
+target = "logicaffeine_compile/extraction/index.html"
+note = "Program extraction from kernel terms to Rust."
+
+[[route]]
+section = "Programs: running English code"
+task = "Run concurrent programs deterministically"
+target = "logicaffeine_runtime/index.html"
+note = "The scheduler, channels, seeds and choice traces behind reproducible concurrency."
+
+[[route]]
+section = "Programs: running English code"
+task = "Replicate data without conflicts"
+target = "logicaffeine_data/crdt/index.html"
+note = "Conflict-free replicated data types."
+
+[[route]]
+section = "Programs: running English code"
+task = "Reach files, storage and the network"
+target = "logicaffeine_system/index.html"
+note = "Platform IO, persistence, HTTP and post-quantum crypto kernels."
+
+[[route]]
+section = "Programs: running English code"
+task = "Drive the toolchain from the command line"
+target = "logicaffeine_cli/cli/index.html"
+note = "largo: new, build, run, check, verify, publish."
+
+[[route]]
+section = "Programs: running English code"
+task = "Serve LOGOS to an editor"
+target = "logicaffeine_lsp/index.html"
+note = "The language server."

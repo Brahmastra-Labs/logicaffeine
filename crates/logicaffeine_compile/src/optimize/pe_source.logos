@@ -2540,6 +2540,9 @@
             When CMerge (mergeTarget, mergeOther):
                 Let peMergeOther be peExpr(mergeOther, state).
                 Push (a new CMerge with target mergeTarget and other peMergeOther) to blockResult.
+            When CJoin (joinTarget, joinOther):
+                Let peJoinOther be peExpr(joinOther, state).
+                Push (a new CJoin with target joinTarget and other peJoinOther) to blockResult.
             When CIncrease (incTarget, incAmount):
                 Let peIncAmount be peExpr(incAmount, state).
                 Push (a new CIncrease with target incTarget and amount peIncAmount) to blockResult.

@@ -10,6 +10,7 @@
     "φ is consistent"
   ],
   "correct": 1,
-  "hint": "⊨ is the SEMANTIC turnstile; ⊢ is the SYNTACTIC (provability) one.",
-  "explanation": "⊨ φ is the semantic turnstile: φ is true under every interpretation/model — i.e. φ is valid. Contrast ⊢ φ (the syntactic turnstile), which means φ is provable from the axioms and rules. Soundness and completeness are precisely the claims that these two coincide."
+  "hint": "⊨ is about truth in models. ⊢ is about proofs.",
+  "explanation": "⊨ φ says φ is true in every interpretation, so φ is valid. ⊢ φ says φ is provable. Soundness and completeness say the two agree.",
+  "section": "15.3"
 }

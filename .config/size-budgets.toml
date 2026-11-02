@@ -1,0 +1,122 @@
+# Size budgets for everything we ship, in bytes: the size measured when the budget was last set,
+# plus 3% headroom. Lower a budget when a measured shrink lands; raising one is a deliberate,
+# reviewed edit. Read by scripts/check-packaging.sh ([crates]) and scripts/check-binary-sizes.sh
+# ([binaries], [web]); size_budget_lock keeps every published crate and shipped binary listed.
+# Each entry is `key = <integer>` on its own line (the scripts read it with a flat line reader).
+#
+# Measured 2026-09-25, after every test left the published crates (tarballs 10.31 MB -> 8.28 MB)
+# and the shipped binaries moved to [profile.dist] (largo 53.50 MB -> 37.24 MB, logicaffeine-lsp
+# 25.49 MB -> 16.27 MB; x86_64 Linux).
+#
+# Raised 2026-09-27 (approval A24): cli, compile, language and system to their measured tarballs + 3% — the growth
+# since 09-25 is product code (the LGX framework, the C-family scheduler, the full-stack web surface).
+#
+# Raised 2026-09-29 (KL52C-1): logicaffeine-kernel by its measured tarball growth, +18306 bytes (1265813 -> 1284119) —
+# the independent kernel's own division certificate (recheck_division.rs) and its per-check conversion evidence
+# (recheck_conversion_memo.rs).
+# Raised 2026-09-29 (KL52I-1): logicaffeine-kernel by its measured tarball growth, +1692 bytes (1285670 -> 1287362) —
+# the importer's DAG sharing (interface/lean/dag.rs +1144 compressed), the quarantine and sharing path
+# (interface/lean/mod.rs +192) and the per-node payload envelope of bounded constructions (recursor_bounded.rs +265).
+# Raised 2026-09-29 (KL52-5): logicaffeine-kernel by its measured tarball growth, +795 bytes (1287362 -> 1288157) —
+# CHANGELOG.md, the only packaged kernel file it changed: the entries for Quot_rec as a definition, conversion without
+# normalization, kept lets in deep imports and per-node construction charges.
+# Raised 2026-09-29 (KL52NB-1): logicaffeine-kernel by its measured tarball growth, +3661 bytes (1288146 -> 1291807) —
+# the dag checker's mode-keyed, proof-stamped refutation memo (dag/tc.rs +798 compressed) and the NbE engine's
+# matching memo, argument order and step count (dag/nbe/value.rs +1172, mod.rs +586, conv.rs +502, check.rs +194,
+# eval.rs +108, quote.rs +38, types.rs +7).
+# Raised 2026-09-29 (KL52DV + KL52A-1): logicaffeine-kernel by its measured tarball growth, +12727 bytes
+# (1291807 -> 1304534) — KL52DV's CHANGELOG lines for KL52NB (+624, measured 1292431 after it), then KL52A-1's
+# Term::Annotated carrier (+12103): annotation.rs +5603 compressed (new), context.rs +1041, interface/term_parser.rs
+# +977, elaborate.rs +785, term.rs +758, CHANGELOG.md +652, interface/printer.rs +372, reduction.rs +309,
+# type_checker.rs +291, certificate.rs +187, term_store.rs +165, interface/surface.rs +157, recheck.rs +148,
+# termination.rs +109, interface/literate_parser.rs +108, interface/lean/emit_terms.rs +99, and 19 files under +75.
+
+# Raised 2026-09-29 by measured growth only (no new headroom): each by its tarball growth since the 09-27 22:24
+# check-packaging measurement — cli +42,211 B (the agent pack's docs (cli.md, imperative-mode.md, proof-and-
+# verification.md, execution-and-performance.md, concurrency.md, frontend.md, web.md), its CHANGELOG and README,
+# the browser tier); data +1,870 B (CHANGELOG, src/types.rs, README); lsp +2,599 B (CHANGELOG, src/diagnostics.rs,
+# README, pipeline/index/completion); runtime +1,062 B (README, CHANGELOG); tv +564 B (README, CHANGELOG).
+
+# Raised 2026-10-04 (CPE-PACKAGING, Tristen's ruling) by measured growth only (no new headroom): each by its tarball
+# growth between 98627b94d and 3e084779f, both packaged as check-packaging.sh packages them; every byte is source or
+# shipped docs, no test or fixture. By file (uncompressed growth): compile +478,262 B (codegen_c/from_program.rs
+# +244,006, codegen_c/emit.rs +181,090, codegen_riscv/emit.rs +130,745, vm/wasm/module.rs +93,742); kernel +135,528
+# (tactics.rs +139,754, dag/logos_tc.rs +50,229, observational.rs +46,720, dag/logos_env.rs +39,682); jit +32,394
+# (lib.rs +107,452, inductive.rs +28,068); language +22,844 (parser/mod.rs +82,994, parser/lgx_lower/sweep.rs +11,727);
+# cli +18,002 (the agent pack's getting-started.md +7,659, project/build_c.rs +7,448, commands/opts.rs +5,400);
+# data +5,255 (failure.rs +7,672, indexing.rs +6,893); forge +5,235 (jit.rs +13,434, regalloc.rs +9,602); system
+# +4,108 (io.rs +3,978, http/server.rs +1,669, failure.rs +1,461); base +3,664 (quantity.rs +5,000, numeric.rs +3,744).
+#
+# Raised 2026-10-14 (Tristen's approval) to the measured tarballs, no new headroom, each packaged with its workspace
+# siblings as check-packaging.sh does: system 214,355 -> 218,712 B, `stack.rs` (Main's own stack, switched to on the
+# starting thread) with its README and CHANGELOG lines; data 67,544 B, of which 362 B had already landed past the
+# 67,008 budget in 9496eeb3f (ops.rs, indexing.rs, failure.rs and the CHANGELOG: exact bit operations,
+# `logos_item_front`, `INT_TOO_WIDE`) and 174 B is `failure::CALL_DEPTH_EXCEEDED`.
+
+# Raised 2026-11-02 (Tristen's approval) by measured growth only (no new headroom): each by what shipping the MIT
+# text, LICENSE.md, adds to its .crate (the tarball repacked with and without that entry): base +672, cli +633,
+# compile +266, data +821, forge +639, jit +666, kernel +636, language +688, lexicon +692, lsp +645, proof +815,
+# runtime +677, system +611, tv +632, verify +704 bytes. Twelve crates were over their budgets before it, from growth
+# since these were set (base 376,877 bytes against 143,725), and this raise does not cover that.
+
+# Raised 2026-11-02 for v0.11.0 (Tristen's approval) to the measured tarballs, no new headroom, each packaged with its
+# workspace siblings by check-packaging.sh on the release tree: the source this cycle added since these budgets were
+# set (src/ against v0.10.1: base +118%, cli +292%, compile +239%, kernel +490%, language +95%, data +48%, jit +45%,
+# system +30%) and the folded CHANGELOGs; no test or fixture ships (check-packaging step 4). base 144,397 -> 377,775,
+# cli 417,796 -> 426,662, compile 4,909,440 -> 6,834,224, data 68,365 -> 99,292, jit 141,808 -> 142,268, kernel
+# 1,440,725 -> 1,443,468, language 1,063,540 -> 1,088,934, lsp 113,966 -> 115,638, proof 812,343 -> 876,410,
+# runtime 28,439 -> 28,836, system 219,323 -> 226,072 bytes.
+
+# The .crate tarball `cargo package` produces.
+[crates]
+logicaffeine-base = 377775
+logicaffeine-cli = 426662
+logicaffeine-compile = 6834224
+logicaffeine-data = 99292
+logicaffeine-forge = 164240
+logicaffeine-jit = 142268
+logicaffeine-kernel = 1443468
+logicaffeine-language = 1088934
+logicaffeine-lexicon = 44316
+logicaffeine-lsp = 115638
+logicaffeine-proof = 876410
+logicaffeine-runtime = 28836
+logicaffeine-system = 226072
+logicaffeine-tv = 28747
+logicaffeine-verify = 77284
+
+# `--profile dist` builds for x86_64-unknown-linux-gnu (release.yml checks the lean build).
+# Raised 2026-09-30 (CS-1) by measured growth only (no new headroom): each by its stripped dist growth between
+# 9124709cf, the commit that set these budgets, and 98627b94d (Release 0.11.0), both built as check-binary-sizes.sh
+# builds them — largo +4,610,128 B (37,560,224 -> 42,170,352), logicaffeine-lsp +1,696,552 B (16,370,280 ->
+# 18,066,832). By crate (`.text`, cargo bloat --crates): largo — logicaffeine_compile +976,040 (the spatial/RDU passes,
+# the codegen program body, the wasm runtime functions), std +460,426, logicaffeine_kernel +350,126 (the quotient
+# prelude and its recursor), the form `pattern=` engine semantics::dom uses (fancy_regex, regex_automata,
+# regex_syntax and aho_corasick, all new, +742,453), logicaffeine_language +159,309, logicaffeine_cli +148,535;
+# logicaffeine-lsp — logicaffeine_kernel +189,190, logicaffeine_language +180,335, logicaffeine_compile +165,032,
+# std +76,861. No test- or dev-only crate is linked; the embedded payloads grew by vdom.lg, the C scheduler runtime
+# and the agent pack's docs.
+# Raised 2026-10-04 (CPE-CUT) by measured growth only (no new headroom): each by its stripped dist growth between
+# 98627b94d, the commit that set these budgets, and 38af68a03, both built as check-binary-sizes.sh builds them —
+# largo +2,963,216 B (42,170,352 -> 45,133,568), logicaffeine-lsp +507,656 B (18,066,832 -> 18,574,488). No crate is
+# new in either binary. By crate (`.text`, cargo bloat --crates): largo — logicaffeine_compile +1,405,285 (the C,
+# WASM and stepped backends' exact integers, the bytecode-C word entry, the spatial planner's work model),
+# logicaffeine_kernel +469,489 (LOGOS's calculus on the dag core, observational equality, the tactics), std +284,954,
+# logicaffeine_jit +78,720, logicaffeine_cli +66,627; logicaffeine-lsp — logicaffeine_kernel +294,041,
+# logicaffeine_compile +158,029, std +42,136. Report: logs/cpe/binsize/report.md.
+[binaries]
+largo = 45926284
+logicaffeine-lsp = 18963297
+
+# The WASM the frontend deploys (deploy-frontend.yml: `dx build -p logicaffeine-web --release --ssg --fullstack`,
+# wasm-split off): `wasm` is the eager bundle every visitor downloads before anything is interactive, `wasm_total`
+# every .wasm the build emits. Checked by scripts/web/wasm-size-gate.sh on every deploy and by
+# `check-binary-sizes.sh --web`. Raised 2026-09-27 to the measured 22016282 bytes + 3% (0.10.1 shipped 12630929):
+# the Studio runs the VM, the codegen backends and optimizer registry, codegen_sva and the kernel, all in the eager
+# bundle until route splitting returns. On the wire that is ~6.7 MB brotli, 7.1 MB gzip (0.10.1: 3.9 MB, 4.1 MB).
+# Raised 2026-10-01 (the user's approval) to the measured 23200085 bytes + 3%. Of the growth since 2026-09-27, the
+# merge with the checkpoint branch and the work around it brought the tree to 23062300 bytes before the new pricing
+# page; the pricing page adds 137785 bytes (measured by building the same tree with its component emptied).
+[web]
+wasm = 23896087
+wasm_total = 23896087

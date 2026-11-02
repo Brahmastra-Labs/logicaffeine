@@ -8,13 +8,12 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "English vocabulary types and compile-time lexicon lookup for logicaffeine"
+license = "MIT"
+description = "The English vocabulary behind LOGOS: verb, noun and adjective metadata for build-time lookup tables, plus an optional runtime JSON index"
 readme = "README.md"
+include = ["src/**", "assets/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [dependencies]
-logicaffeine-base = { workspace = true }
-
 # For dynamic-lexicon feature (runtime JSON loading)
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }

@@ -1,0 +1,50 @@
+{
+ "bus_span": 202079,
+ "candidate": "k7_logos_ddr2_ctrl",
+ "commands": {
+  "activate": 8192,
+  "precharge": 8192,
+  "read": 4096,
+  "refresh": 129,
+  "write": 4096
+ },
+ "data_cycles": 32768,
+ "pattern": "probe",
+ "payload_cycles": 4096,
+ "read_bus": {
+  "max": 77,
+  "mean": 50.880859375,
+  "min": 50,
+  "n": 1024,
+  "p50": 50,
+  "p99": 77
+ },
+ "read_latency": {
+  "max": 4,
+  "mean": 4.0,
+  "min": 4,
+  "n": 4096,
+  "p50": 4,
+  "p99": 4
+ },
+ "read_service": {
+  "max": 75,
+  "mean": 48.880859375,
+  "min": 48,
+  "n": 1024,
+  "p50": 48,
+  "p99": 75
+ },
+ "requests": 8192,
+ "row_hits": 0,
+ "stream_cycles": 202078,
+ "words": 1024,
+ "write_latency": {
+  "max": 4,
+  "mean": 4.0,
+  "min": 4,
+  "n": 4096,
+  "p50": 4,
+  "p99": 4
+ }
+}

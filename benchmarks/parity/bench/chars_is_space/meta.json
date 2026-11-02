@@ -1,0 +1,11 @@
+{
+  "capability": "chars.is_space",
+  "workload": "count codepoints (i%128) where is_space",
+  "arg": "20000000",
+  "expected": "937500",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go"
+  ]
+}

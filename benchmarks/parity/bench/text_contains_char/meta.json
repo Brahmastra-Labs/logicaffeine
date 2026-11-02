@@ -1,0 +1,10 @@
+{
+  "capability": "text.contains_char",
+  "workload": "containsChar(s, 88='X') \u2014 absent",
+  "arg": "120000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

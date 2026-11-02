@@ -12,5 +12,6 @@
   "correct": 2,
   "hint": "We temporarily assume the antecedent and show the consequent follows.",
   "explanation": "Conditional Proof (CP): To prove (P → Q), assume P (in a subproof), derive Q, then discharge the assumption to conclude (P → Q). This mirrors the definition of implication: IF P is true, THEN Q follows.",
-  "visual_concept": "Building a bridge: Assume you're at point P. Show you can reach Q from there. The bridge (P → Q) is now built."
+  "visual_concept": "Building a bridge: Assume you're at point P. Show you can reach Q from there. The bridge (P → Q) is now built.",
+  "section": "7.3"
 }

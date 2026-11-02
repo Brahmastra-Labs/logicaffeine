@@ -3,7 +3,7 @@
 //! [`VmTask`] wraps one resumable [`Vm`] as a scheduler [`Task`]. On each `poll`
 //! it delivers the scheduler's resume value into the VM's reserved register, runs
 //! the VM until its next concurrency op (`run_until_block`), drains any output the
-//! slice produced into a shared sink, and maps the VM's [`VmBlock`] request to a
+//! slice produced into a shared sink, and maps the VM's `VmBlock` request to a
 //! scheduler [`TaskStep`]. It mirrors the tree-walker's
 //! [`super::driver::InterpreterTask`].
 
@@ -41,14 +41,22 @@ pub struct VmTask<'p> {
 impl<'p> VmTask<'p> {
     /// A cooperative task draining into the shared `output` sink.
     pub fn new(vm: Vm<'p>, output: Rc<RefCell<Vec<String>>>, err_sink: Option<ErrSink>) -> Self {
-        VmTask { vm, output: OutputMode::Shared(output), err_sink }
+        VmTask {
+            vm,
+            output: OutputMode::Shared(output),
+            err_sink,
+        }
     }
 
     /// A work-stealing task: output buffers locally (reported via `take_output`),
     /// and a spawn forwards a `SpawnDesc` the worker rebuilds — never a boxed body
     /// (which is `!Send` and could not cross a worker boundary anyway).
     pub fn work_stealing(vm: Vm<'p>, err_sink: Option<ErrSink>) -> Self {
-        VmTask { vm, output: OutputMode::Buffered(Vec::new()), err_sink }
+        VmTask {
+            vm,
+            output: OutputMode::Buffered(Vec::new()),
+            err_sink,
+        }
     }
 
     fn block_to_step(&self, req: VmBlock) -> TaskStep<'p> {
@@ -59,7 +67,11 @@ impl<'p> VmTask<'p> {
             VmBlock::TrySend(ch, p) => TaskStep::TrySend(ch, p),
             VmBlock::TryRecv(ch) => TaskStep::TryRecv(ch),
             VmBlock::Close(ch) => TaskStep::Close(ch),
-            VmBlock::SpawnDesc { func, args, want_handle } => match &self.output {
+            VmBlock::SpawnDesc {
+                func,
+                args,
+                want_handle,
+            } => match &self.output {
                 // Cooperative: build the child VM inline over the shared program +
                 // sink, and hand the scheduler the boxed body.
                 OutputMode::Shared(sink) => {
@@ -69,7 +81,11 @@ impl<'p> VmTask<'p> {
                 }
                 // Work-stealing: forward the `Send` descriptor; the receiving
                 // worker builds the child locally over its own program borrow.
-                OutputMode::Buffered(_) => TaskStep::SpawnDesc { func, args, want_handle },
+                OutputMode::Buffered(_) => TaskStep::SpawnDesc {
+                    func,
+                    args,
+                    want_handle,
+                },
             },
             VmBlock::Await(t) => TaskStep::Await(t),
             VmBlock::Abort(t) => TaskStep::Abort(t),
@@ -84,7 +100,9 @@ impl<'p> VmTask<'p> {
             | VmBlock::NetStream(_, _)
             | VmBlock::NetAwait(_, _)
             | VmBlock::NetMakePeer(_)
-            | VmBlock::NetSync(_, _) => TaskStep::IoPending,
+            | VmBlock::NetSync(_, _)
+            | VmBlock::Tcp(_, _)
+            | VmBlock::Serve(_, _) => TaskStep::IoPending,
         }
     }
 }
@@ -97,7 +115,8 @@ impl<'p> Task<'p> for VmTask<'p> {
         // value into the reserved register.
         if let Some(arm) = ctx.selected_arm.take() {
             let payload = std::mem::replace(&mut ctx.resumed_with, RtPayload::Nothing);
-            self.vm.deliver_select(arm, Value::from_runtime(marshal::rebuild(payload)));
+            self.vm
+                .deliver_select(arm, Value::from_runtime(marshal::rebuild(payload)));
         } else {
             let resume = ctx_to_value(ctx);
             self.vm.deliver_resume(resume);
@@ -129,7 +148,9 @@ impl<'p> Task<'p> for VmTask<'p> {
                 self.block_to_step(req)
             }
             Ok(VmStep::Paused) => {
-                unreachable!("the driver uses run_until_block; the debug stepper is never driven here")
+                unreachable!(
+                    "the driver uses run_until_block; the debug stepper is never driven here"
+                )
             }
             Err(e) => {
                 if let Some(sink) = &self.err_sink {

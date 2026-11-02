@@ -1,0 +1,11 @@
+{
+  "capability": "iter.find",
+  "workload": "findSeq(v>500, xs) over a 0..999 seq, sum the 1-based indices",
+  "arg": "100000",
+  "expected": "50200000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ],
+  "note": "main.lg calls findSeq() WITHOUT defining it \u2014 auto-imported from iter.lg (1-based index of first match, 0 if none). Rust counterpart uses Iterator::position (+1) so both scan to the first hit."
+}

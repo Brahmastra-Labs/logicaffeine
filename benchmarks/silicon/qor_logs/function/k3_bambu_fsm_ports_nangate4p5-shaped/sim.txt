@@ -1,0 +1,2 @@
+QOR first cycles 4
+QOR TIMEOUT idle 100000 cycles ops 1 cycle 100004

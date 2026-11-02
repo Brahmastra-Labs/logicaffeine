@@ -286,49 +286,52 @@ struct AdjectiveDbEntry {
 // ═══════════════════════════════════════════════════════════════════
 
 fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let json_path = Path::new(&manifest_dir).join("assets/lexicon.json");
+    // The lexicon arrives through the build-dependency, so a change to it rebuilds and reruns this
+    // script; nothing else in the package feeds the generated tables.
+    println!("cargo:rerun-if-changed=build.rs");
 
-    println!("cargo:rerun-if-changed=assets/lexicon.json");
-
-    let json_content = fs::read_to_string(&json_path)
-        .unwrap_or_else(|_| panic!("Failed to read {}", json_path.display()));
-
-    let data: RefactoredLexiconData = serde_json::from_str(&json_content)
-        .unwrap_or_else(|e| panic!("Failed to parse refactored_lexicon.json: {}", e));
+    let data: RefactoredLexiconData = serde_json::from_str(logicaffeine_lexicon::LEXICON_JSON)
+        .unwrap_or_else(|e| panic!("Failed to parse logicaffeine_lexicon::LEXICON_JSON: {}", e));
 
     let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("lexicon_data.rs");
-    let mut file = fs::File::create(&dest_path).unwrap();
+    let out = Path::new(&out_dir);
+    let mut lexicon = WordTables::new(
+        fs::File::create(out.join("lexicon_data.rs")).unwrap(),
+        "crate::lexicon",
+    );
 
     // Generate unchanged lookup functions
-    generate_lookup_keyword(&mut file, &data.keywords);
-    generate_lookup_pronoun(&mut file, &data.pronouns);
-    generate_lookup_article(&mut file, &data.articles);
-    generate_lookup_auxiliary(&mut file, &data.auxiliaries);
-    generate_lookup_presup_trigger(&mut file, &data.presupposition_triggers);
-    generate_word_to_number(&mut file, &data.number_words);
+    generate_lookup_keyword(&mut lexicon, &data.keywords);
+    generate_lookup_pronoun(&mut lexicon, &data.pronouns);
+    generate_lookup_article(&mut lexicon, &data.articles);
+    generate_lookup_auxiliary(&mut lexicon, &data.auxiliaries);
+    generate_lookup_presup_trigger(&mut lexicon, &data.presupposition_triggers);
+    generate_word_to_number(&mut lexicon, &data.number_words);
 
     // Expand verbs into irregular verb entries and generate lookup
     let irregular_verbs = expand_verbs_to_entries(&data.verbs);
-    generate_lookup_irregular_verb(&mut file, &irregular_verbs);
+    generate_lookup_irregular_verb(&mut lexicon, &irregular_verbs);
 
     // Generate singularize from noun forms
     let irregular_plurals = derive_irregular_plurals(&data.nouns);
-    generate_singularize(&mut file, &irregular_plurals);
+    generate_singularize(&mut lexicon, &irregular_plurals);
 
     // Generate closed class checks
-    generate_is_check(&mut file, "is_preposition", &data.prepositions);
-    generate_is_check(&mut file, "is_noun_pattern", &data.noun_patterns);
-    generate_is_check(&mut file, "is_scopal_adverb", &data.scopal_adverbs);
-    generate_is_check(&mut file, "is_temporal_adverb", &data.temporal_adverbs);
-    generate_is_check(&mut file, "is_degree_adverb", &data.degree_adverbs);
+    generate_is_check(&mut lexicon, "is_preposition", &data.prepositions);
+    generate_is_check(&mut lexicon, "is_noun_pattern", &data.noun_patterns);
+    generate_is_check(&mut lexicon, "is_scopal_adverb", &data.scopal_adverbs);
+    generate_is_check(&mut lexicon, "is_temporal_adverb", &data.temporal_adverbs);
+    generate_is_check(&mut lexicon, "is_degree_adverb", &data.degree_adverbs);
     generate_is_check(
-        &mut file,
+        &mut lexicon,
         "is_quantificational_adverb",
         &data.quantificational_adverbs,
     );
-    generate_is_check(&mut file, "is_institution_metonym", &data.institution_metonyms);
+    generate_is_check(
+        &mut lexicon,
+        "is_institution_metonym",
+        &data.institution_metonyms,
+    );
     // Perception verbs (see, hear, …): take an event small-clause complement (§3.2).
     let perception_verbs: Vec<String> = data
         .verbs
@@ -336,7 +339,7 @@ fn main() {
         .filter(|v| v.features.iter().any(|f| f == "Perception"))
         .map(|v| v.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_perception_verb", &perception_verbs);
+    generate_is_check(&mut lexicon, "is_perception_verb", &perception_verbs);
     // Transitive verbs (find, make, source, …): take a direct object and so can
     // passivize. A past participle of a transitive verb followed by a PP and no
     // object ("the medicine sourced from a fig") is an unambiguous PASSIVE reduced
@@ -348,7 +351,7 @@ fn main() {
         .filter(|v| v.features.iter().any(|f| f == "Transitive"))
         .map(|v| v.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_transitive_verb", &transitive_verbs);
+    generate_is_check(&mut lexicon, "is_transitive_verb", &transitive_verbs);
     // Intransitive verbs: the MARKED exceptions to the transitive-capable default.
     // English verbs are overwhelmingly transitive-capable, so transitivity is best
     // modeled by marking the EXCEPTIONS — pure-intransitive verbs that can never take
@@ -367,7 +370,7 @@ fn main() {
         })
         .map(|v| v.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_intransitive_verb", &intransitive_verbs);
+    generate_is_check(&mut lexicon, "is_intransitive_verb", &intransitive_verbs);
     // Distinct past-participle forms (participle ≠ past: "grown"≠"grew",
     // "taken"≠"took", "written"≠"wrote", "cut through"…). Unlike a regular "-ed"
     // (past == participle, ambiguous with the finite past tense), a DISTINCT
@@ -385,7 +388,11 @@ fn main() {
             }
         }
     }
-    generate_is_check(&mut file, "is_distinct_past_participle", &distinct_participles);
+    generate_is_check(
+        &mut lexicon,
+        "is_distinct_past_participle",
+        &distinct_participles,
+    );
     // Relevance/biscuit-conditional trigger verbs (want, need, …) (§4.2).
     let relevance_verbs: Vec<String> = data
         .verbs
@@ -393,18 +400,26 @@ fn main() {
         .filter(|v| v.features.iter().any(|f| f == "Relevance"))
         .map(|v| v.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_relevance_verb", &relevance_verbs);
-    generate_is_check(&mut file, "is_particle", &data.particles);
-    generate_is_check(&mut file, "is_month", &data.months);
-    generate_is_check(&mut file, "is_adverb", &data.adverbs);
-    generate_is_check(&mut file, "is_not_adverb", &data.not_adverbs);
-    generate_is_check(&mut file, "is_abbreviation", &data.abbreviations);
-    generate_is_check(&mut file, "is_disambiguation_not_verb", &data.disambiguation_not_verbs);
-    generate_is_check(&mut file, "needs_e_ing", &data.morphology.needs_e_ing);
-    generate_is_check(&mut file, "needs_e_ed", &data.morphology.needs_e_ed);
-    generate_is_check(&mut file, "is_stemming_exception", &data.morphology.stemming_exceptions);
+    generate_is_check(&mut lexicon, "is_relevance_verb", &relevance_verbs);
+    generate_is_check(&mut lexicon, "is_particle", &data.particles);
+    generate_is_check(&mut lexicon, "is_month", &data.months);
+    generate_is_check(&mut lexicon, "is_adverb", &data.adverbs);
+    generate_is_check(&mut lexicon, "is_not_adverb", &data.not_adverbs);
+    generate_is_check(&mut lexicon, "is_abbreviation", &data.abbreviations);
     generate_is_check(
-        &mut file,
+        &mut lexicon,
+        "is_disambiguation_not_verb",
+        &data.disambiguation_not_verbs,
+    );
+    generate_is_check(&mut lexicon, "needs_e_ing", &data.morphology.needs_e_ing);
+    generate_is_check(&mut lexicon, "needs_e_ed", &data.morphology.needs_e_ed);
+    generate_is_check(
+        &mut lexicon,
+        "is_stemming_exception",
+        &data.morphology.stemming_exceptions,
+    );
+    generate_is_check(
+        &mut lexicon,
         "is_irregular_plural",
         &irregular_plurals.keys().cloned().collect::<Vec<_>>(),
     );
@@ -423,16 +438,28 @@ fn main() {
         intensional_predicates,
     ) = derive_verb_feature_lists(&data.verbs);
 
-    generate_is_check(&mut file, "is_ditransitive_verb", &ditransitive_verbs);
-    generate_is_check(&mut file, "is_subject_control_verb", &subject_control_verbs);
-    generate_is_check(&mut file, "is_object_control_verb", &object_control_verbs);
-    generate_is_check(&mut file, "is_raising_verb", &raising_verbs);
-    generate_is_check(&mut file, "is_opaque_verb", &opaque_verbs);
-    generate_is_check(&mut file, "is_collective_verb", &collective_verbs);
-    generate_is_check(&mut file, "is_performative", &performatives);
-    generate_is_check(&mut file, "is_mixed_verb", &mixed_verbs);
-    generate_is_check(&mut file, "is_distributive_verb", &distributive_verbs);
-    generate_is_check(&mut file, "is_intensional_predicate", &intensional_predicates);
+    generate_is_check(&mut lexicon, "is_ditransitive_verb", &ditransitive_verbs);
+    generate_is_check(
+        &mut lexicon,
+        "is_subject_control_verb",
+        &subject_control_verbs,
+    );
+    generate_is_check(
+        &mut lexicon,
+        "is_object_control_verb",
+        &object_control_verbs,
+    );
+    generate_is_check(&mut lexicon, "is_raising_verb", &raising_verbs);
+    generate_is_check(&mut lexicon, "is_opaque_verb", &opaque_verbs);
+    generate_is_check(&mut lexicon, "is_collective_verb", &collective_verbs);
+    generate_is_check(&mut lexicon, "is_performative", &performatives);
+    generate_is_check(&mut lexicon, "is_mixed_verb", &mixed_verbs);
+    generate_is_check(&mut lexicon, "is_distributive_verb", &distributive_verbs);
+    generate_is_check(
+        &mut lexicon,
+        "is_intensional_predicate",
+        &intensional_predicates,
+    );
 
     // Resultative verbs (paint, dye, …): a post-object AP is the object's RESULTING
     // state (§3.3). Lexicon-tagged, not hardcoded in the parser.
@@ -442,21 +469,26 @@ fn main() {
         .filter(|v| v.features.iter().any(|f| f == "Resultative"))
         .map(|v| v.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_resultative_verb", &resultative_verbs);
+    generate_is_check(&mut lexicon, "is_resultative_verb", &resultative_verbs);
 
     // Generate base verb list from all verb lemmas
     let base_verbs: Vec<String> = data.verbs.iter().map(|v| v.lemma.to_lowercase()).collect();
-    generate_is_check(&mut file, "is_base_verb", &base_verbs);
-    generate_is_check(&mut file, "is_base_verb_early", &base_verbs[..base_verbs.len().min(30)].to_vec());
-    generate_is_check(&mut file, "is_infinitive_verb", &base_verbs);
+    generate_is_check(&mut lexicon, "is_base_verb", &base_verbs);
+    generate_is_check(
+        &mut lexicon,
+        "is_base_verb_early",
+        &base_verbs[..base_verbs.len().min(30)].to_vec(),
+    );
+    generate_is_check(&mut lexicon, "is_infinitive_verb", &base_verbs);
 
     // Derive adjective lists from features
-    let (adjectives, non_intersective, subsective, gradable, event_modifier) = derive_adjective_lists(&data.adjectives);
-    generate_is_check(&mut file, "is_adjective", &adjectives);
-    generate_is_check(&mut file, "is_non_intersective", &non_intersective);
-    generate_is_check(&mut file, "is_subsective", &subsective);
-    generate_is_check(&mut file, "is_gradable_adjective", &gradable);
-    generate_is_check(&mut file, "is_event_modifier_adjective", &event_modifier);
+    let (adjectives, non_intersective, subsective, gradable, event_modifier) =
+        derive_adjective_lists(&data.adjectives);
+    generate_is_check(&mut lexicon, "is_adjective", &adjectives);
+    generate_is_check(&mut lexicon, "is_non_intersective", &non_intersective);
+    generate_is_check(&mut lexicon, "is_subsective", &subsective);
+    generate_is_check(&mut lexicon, "is_gradable_adjective", &gradable);
+    generate_is_check(&mut lexicon, "is_event_modifier_adjective", &event_modifier);
 
     // Vague adjectives (bald, tall, …): a penumbra around the threshold (§8.5).
     let vague_adjectives: Vec<String> = data
@@ -465,7 +497,7 @@ fn main() {
         .filter(|a| a.features.iter().any(|f| f == "Vague"))
         .map(|a| a.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_vague_adjective", &vague_adjectives);
+    generate_is_check(&mut lexicon, "is_vague_adjective", &vague_adjectives);
 
     // Decreasing (negative-pole) gradable adjectives (narrow, short, light, …):
     // the comparative denotes a SMALLER value on the canonical measured scale, so
@@ -477,17 +509,21 @@ fn main() {
         .filter(|a| a.features.iter().any(|f| f == "Decreasing"))
         .map(|a| a.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_decreasing_adjective", &decreasing_adjectives);
+    generate_is_check(
+        &mut lexicon,
+        "is_decreasing_adjective",
+        &decreasing_adjectives,
+    );
 
     // Derive noun lists from features
     let (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns) =
         derive_noun_lists(&data.nouns);
-    generate_is_check(&mut file, "is_common_noun", &common_nouns);
-    generate_is_check(&mut file, "is_male_name", &male_names);
-    generate_is_check(&mut file, "is_female_name", &female_names);
-    generate_is_check(&mut file, "is_male_noun", &male_nouns);
-    generate_is_check(&mut file, "is_female_noun", &female_nouns);
-    generate_is_check(&mut file, "is_neuter_noun", &neuter_nouns);
+    generate_is_check(&mut lexicon, "is_common_noun", &common_nouns);
+    generate_is_check(&mut lexicon, "is_male_name", &male_names);
+    generate_is_check(&mut lexicon, "is_female_name", &female_names);
+    generate_is_check(&mut lexicon, "is_male_noun", &male_nouns);
+    generate_is_check(&mut lexicon, "is_female_noun", &female_nouns);
+    generate_is_check(&mut lexicon, "is_neuter_noun", &neuter_nouns);
 
     // Mass nouns (water, gold, …): denote non-atomic stuff (Link lattice §6.2).
     let mass_nouns: Vec<String> = data
@@ -496,13 +532,13 @@ fn main() {
         .filter(|n| n.features.iter().any(|f| f == "Mass"))
         .map(|n| n.lemma.to_lowercase())
         .collect();
-    generate_is_check(&mut file, "is_mass_noun", &mass_nouns);
+    generate_is_check(&mut lexicon, "is_mass_noun", &mass_nouns);
 
     // Generate verb class lookup from verb definitions
     let (state_verbs, activity_verbs, accomplishment_verbs, achievement_verbs, semelfactive_verbs) =
         derive_verb_class_lists(&data.verbs);
     generate_lookup_verb_class(
-        &mut file,
+        &mut lexicon,
         &state_verbs,
         &activity_verbs,
         &accomplishment_verbs,
@@ -512,52 +548,60 @@ fn main() {
 
     // Generate feature-based metadata databases
     let verb_db_entries = expand_verbs_to_db_entries(&data.verbs);
-    generate_lookup_verb_db(&mut file, &verb_db_entries);
+    generate_lookup_verb_db(&mut lexicon, &verb_db_entries);
 
     let noun_db_entries = expand_nouns_to_db_entries(&data.nouns);
-    generate_lookup_noun_db(&mut file, &noun_db_entries);
+    generate_lookup_noun_db(&mut lexicon, &noun_db_entries);
 
     let adjective_db_entries = expand_adjectives_to_db_entries(&data.adjectives);
-    generate_lookup_adjective_db(&mut file, &adjective_db_entries);
+    generate_lookup_adjective_db(&mut lexicon, &adjective_db_entries);
 
     // Generate unit dimension lookup for degree semantics
-    generate_lookup_unit_dimension(&mut file, &data.units);
+    generate_lookup_unit_dimension(&mut lexicon, &data.units);
 
     // Generate negative n't-contraction expansion lookup
-    generate_lookup_negative_contraction(&mut file, &data.negative_contractions);
+    generate_lookup_negative_contraction(&mut lexicon, &data.negative_contractions);
 
     // Generate phrasal verb lookup for particle movement
-    generate_lookup_phrasal_verb(&mut file, &data.phrasal_verbs);
+    generate_lookup_phrasal_verb(&mut lexicon, &data.phrasal_verbs);
 
     // Generate sort lookup for semantic type system
-    generate_lookup_sort(&mut file, &data.nouns);
+    generate_lookup_sort(&mut lexicon, &data.nouns);
 
     // Generate MWE trie initialization
-    let mwe_path = Path::new(&out_dir).join("mwe_data.rs");
-    let mut mwe_file = fs::File::create(&mwe_path).unwrap();
+    let mut mwe_file = fs::File::create(out.join("mwe_data.rs")).unwrap();
     generate_mwe_trie_init(&mut mwe_file, &data.multi_word_expressions);
 
-    // Generate ontology lookup functions
-    let ontology_path = Path::new(&out_dir).join("ontology_data.rs");
-    let mut ontology_file = fs::File::create(&ontology_path).unwrap();
-    generate_ontology_data(&mut ontology_file, &data.ontology);
-
-    // Generate axiom lookup functions
-    let axiom_path = Path::new(&out_dir).join("axiom_data.rs");
-    let mut axiom_file = fs::File::create(&axiom_path).unwrap();
-    generate_axiom_data(&mut axiom_file, &data.axioms);
-
     // Generate canonical mapping lookup for synonyms/antonyms
-    generate_canonical_mapping(&mut file, &data.verbs);
+    generate_canonical_mapping(&mut lexicon, &data.verbs);
 
     // Generate morphological rules for derivational morphology
-    generate_morphological_rules(&mut file, &data.morphological_rules);
+    generate_morphological_rules(&mut lexicon, &data.morphological_rules);
 
     // Generate noun derivation lookups (replaces agentive_nouns)
-    generate_lookup_noun_derivation(&mut file, &data.nouns);
+    generate_lookup_noun_derivation(&mut lexicon, &data.nouns);
 
     // Generate relational/pertainymic adjective lookups (mirrors noun derivation)
-    generate_lookup_relational_adjective(&mut file, &data.adjectives);
+    generate_lookup_relational_adjective(&mut lexicon, &data.adjectives);
+    let mut reference = lexicon.finish();
+
+    let mut ontology = WordTables::new(
+        fs::File::create(out.join("ontology_data.rs")).unwrap(),
+        "crate::ontology",
+    );
+    generate_ontology_data(&mut ontology, &data.ontology);
+    reference.absorb(ontology.finish());
+
+    let mut axioms = WordTables::new(
+        fs::File::create(out.join("axiom_data.rs")).unwrap(),
+        "crate::semantics",
+    );
+    generate_axiom_data(&mut axioms, &data.axioms);
+    reference.absorb(axioms.finish());
+
+    if env::var_os("CARGO_FEATURE_LEXICON_REFERENCE").is_some() {
+        reference.write(fs::File::create(out.join("word_table_reference.rs")).unwrap());
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -673,7 +717,7 @@ fn derive_verb_feature_lists(
                     opaque.push(lower.clone());
                     opaque.push(format!("{}s", lower)); // third person singular
                     opaque.push(format!("{}ed", lower)); // past tense (regular)
-                    // Also include irregular forms if present
+                                                         // Also include irregular forms if present
                     if let Some(forms) = &verb.forms {
                         if let Some(past) = &forms.past {
                             opaque.push(past.to_lowercase());
@@ -693,7 +737,7 @@ fn derive_verb_feature_lists(
                     intensional_predicate.push(format!("{}s", lower)); // third person singular
                     intensional_predicate.push(format!("{}ed", lower)); // past tense (regular)
                     intensional_predicate.push(format!("{}ing", lower)); // gerund (regular)
-                    // Handle verbs ending in 'e' (change -> changing, not changeing)
+                                                                         // Handle verbs ending in 'e' (change -> changing, not changeing)
                     if lower.ends_with('e') {
                         let stem = &lower[..lower.len() - 1];
                         intensional_predicate.push(format!("{}ing", stem));
@@ -732,7 +776,13 @@ fn derive_verb_feature_lists(
 
 fn derive_verb_class_lists(
     verbs: &[VerbDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+) {
     let mut state = Vec::new();
     let mut activity = Vec::new();
     let mut accomplishment = Vec::new();
@@ -756,7 +806,13 @@ fn derive_verb_class_lists(
 
 fn derive_adjective_lists(
     adjectives: &[AdjectiveDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+) {
     let mut all_adj = Vec::new();
     let mut non_intersective = Vec::new();
     let mut subsective = Vec::new();
@@ -778,12 +834,25 @@ fn derive_adjective_lists(
         }
     }
 
-    (all_adj, non_intersective, subsective, gradable, event_modifier)
+    (
+        all_adj,
+        non_intersective,
+        subsective,
+        gradable,
+        event_modifier,
+    )
 }
 
 fn derive_noun_lists(
     nouns: &[NounDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+) {
     let mut common_nouns = Vec::new();
     let mut male_names = Vec::new();
     let mut female_names = Vec::new();
@@ -819,7 +888,14 @@ fn derive_noun_lists(
         }
     }
 
-    (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns)
+    (
+        common_nouns,
+        male_names,
+        female_names,
+        male_nouns,
+        female_nouns,
+        neuter_nouns,
+    )
 }
 
 fn derive_irregular_plurals(nouns: &[NounDefinition]) -> HashMap<String, String> {
@@ -838,14 +914,304 @@ fn derive_irregular_plurals(nouns: &[NounDefinition]) -> HashMap<String, String>
 // Code Generation Functions
 // ═══════════════════════════════════════════════════════════════════
 
-fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "pub fn lookup_keyword(s: &str) -> Option<crate::token::TokenType> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
+// ═══════════════════════════════════════════════════════════════════
+// Word tables: one emitter for every lookup a word answers
+// ═══════════════════════════════════════════════════════════════════
 
+/// How a word table reads the text it is asked about.
+enum KeyOf {
+    /// The parameter, lowercased — the lexicon's own case folding.
+    Lowered(&'static str),
+    /// The parameter exactly as given.
+    Verbatim(&'static str),
+    /// Two parameters, each lowercased, joined with `_` — a phrasal verb's verb and particle.
+    LoweredPair(&'static str, &'static str),
+}
+
+/// One generated lookup: `signature` answers each key with the expression written for it — the
+/// first written for a key, as the `match` the table replaces decided — and `default` for any other
+/// text.
+struct WordTable {
+    name: &'static str,
+    docs: Vec<String>,
+    signature: String,
+    key: KeyOf,
+    arms: Vec<(String, String)>,
+    default: String,
+}
+
+impl WordTable {
+    fn new(name: &'static str, signature: String, key: KeyOf, default: &str) -> Self {
+        WordTable {
+            name,
+            docs: Vec::new(),
+            signature,
+            key,
+            arms: Vec::new(),
+            default: default.to_string(),
+        }
+    }
+
+    fn doc(mut self, line: &str) -> Self {
+        self.docs.push(line.to_string());
+        self
+    }
+
+    fn arm(&mut self, key: impl Into<String>, answer: impl Into<String>) {
+        self.arms.push((key.into(), answer.into()));
+    }
+}
+
+/// What the linear reference of every word table needs: each table rendered the way the tables
+/// were written before — a `match` over the lowercased word, arm by arm, first written wins — and
+/// the list the generated `differences` compares against the tables themselves.
+#[derive(Default)]
+struct Reference {
+    fns: String,
+    singles: Vec<(&'static str, &'static str)>,
+    pairs: Vec<(&'static str, &'static str)>,
+}
+
+/// The word tables of one generated module: each table as a sorted, duplicate-free key list searched
+/// by `binary_search`, answering through an integer `match` over the arm expressions; the one case
+/// fold they all share; `WORD_TABLES`, the registry the census reads; and `WORD_TABLE_CONFLICTS`,
+/// every key written twice with two different answers — the first is the one kept, as the `match`
+/// kept it, and the census reports each.
+struct WordTables {
+    file: fs::File,
+    module: &'static str,
+    registry: Vec<String>,
+    conflicts: Vec<String>,
+    folds: bool,
+    longest_key: usize,
+    reference: Reference,
+}
+
+impl WordTables {
+    fn new(file: fs::File, module: &'static str) -> Self {
+        WordTables {
+            file,
+            module,
+            registry: Vec::new(),
+            conflicts: Vec::new(),
+            folds: false,
+            longest_key: 0,
+            reference: Reference::default(),
+        }
+    }
+
+    /// The case fold every lowercasing table here shares, bounded by the longest key.
+    fn write_word_key(&mut self) {
+        writeln!(
+            self.file,
+            "/// `s` as a word table looks it up: lowercased. An ASCII word folds into `buf`; one longer than\n\
+             /// every key of every table here answers `None` — no key could equal it; anything else folds\n\
+             /// through `str::to_lowercase`, so a table answers exactly what the lowercased word would.\n\
+             #[inline]\n\
+             fn word_key<'b>(s: &'b str, buf: &'b mut [u8; WORD_KEY_BYTES]) -> Option<std::borrow::Cow<'b, str>> {{\n\
+             \x20   if !s.is_ascii() {{\n\
+             \x20       return Some(std::borrow::Cow::Owned(s.to_lowercase()));\n\
+             \x20   }}\n\
+             \x20   if !s.bytes().any(|b| b.is_ascii_uppercase()) {{\n\
+             \x20       return (s.len() <= WORD_KEY_BYTES).then_some(std::borrow::Cow::Borrowed(s));\n\
+             \x20   }}\n\
+             \x20   let folded = buf.get_mut(..s.len())?;\n\
+             \x20   folded.copy_from_slice(s.as_bytes());\n\
+             \x20   folded.make_ascii_lowercase();\n\
+             \x20   std::str::from_utf8(folded).ok().map(std::borrow::Cow::Borrowed)\n\
+             }}\n\n\
+             const WORD_KEY_BYTES: usize = {};\n",
+            self.longest_key.max(1)
+        )
+        .unwrap();
+    }
+
+    /// Emit `table` here, and its linear reference.
+    fn emit(&mut self, table: WordTable) {
+        let mut first: HashMap<String, String> = HashMap::new();
+        let mut keyed: Vec<(String, String)> = Vec::new();
+        for (key, answer) in &table.arms {
+            match first.get(key) {
+                None => {
+                    first.insert(key.clone(), answer.clone());
+                    keyed.push((key.clone(), answer.clone()));
+                }
+                Some(kept) if kept != answer => {
+                    self.conflicts.push(format!(
+                        "({:?}, {:?}, {:?}, {:?})",
+                        table.name, key, kept, answer
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        keyed.sort_by(|a, b| a.0.cmp(&b.0));
+        self.longest_key = keyed
+            .iter()
+            .map(|(k, _)| k.len())
+            .fold(self.longest_key, usize::max);
+        let keys_name = format!("{}_KEYS", table.name.to_ascii_uppercase());
+        let keys: Vec<String> = keyed.iter().map(|(k, _)| format!("{:?}", k)).collect();
+        writeln!(
+            self.file,
+            "static {}: [&str; {}] = [{}];",
+            keys_name,
+            keys.len(),
+            keys.join(", ")
+        )
+        .unwrap();
+        for line in &table.docs {
+            writeln!(self.file, "/// {}", line).unwrap();
+        }
+        writeln!(self.file, "{} {{", table.signature).unwrap();
+        let default = &table.default;
+        let found = match &table.key {
+            KeyOf::Lowered(param) => {
+                self.folds = true;
+                writeln!(self.file, "    let mut buf = [0u8; WORD_KEY_BYTES];").unwrap();
+                writeln!(
+                    self.file,
+                    "    let Some(key) = word_key({}, &mut buf) else {{ return {} }};",
+                    param, default
+                )
+                .unwrap();
+                format!("{}.binary_search(&&*key)", keys_name)
+            }
+            KeyOf::Verbatim(param) => format!("{}.binary_search(&{})", keys_name, param),
+            KeyOf::LoweredPair(first, second) => {
+                writeln!(
+                    self.file,
+                    "    let key = format!(\"{{}}_{{}}\", {}.to_lowercase(), {}.to_lowercase());",
+                    first, second
+                )
+                .unwrap();
+                format!("{}.binary_search(&key.as_str())", keys_name)
+            }
+        };
+        let one_answer = keyed
+            .iter()
+            .all(|(_, a)| Some(a) == keyed.first().map(|(_, a)| a));
+        if one_answer {
+            let answer = keyed.first().map_or(default.as_str(), |(_, a)| a.as_str());
+            writeln!(
+                self.file,
+                "    if {}.is_ok() {{ {} }} else {{ {} }}",
+                found, answer, default
+            )
+            .unwrap();
+        } else {
+            writeln!(self.file, "    match {} {{", found).unwrap();
+            for (i, (_, answer)) in keyed.iter().enumerate() {
+                writeln!(self.file, "        Ok({}) => {},", i, answer).unwrap();
+            }
+            writeln!(self.file, "        _ => {},", default).unwrap();
+            writeln!(self.file, "    }}").unwrap();
+        }
+        writeln!(self.file, "}}\n").unwrap();
+        self.registry
+            .push(format!("(\"{}\", &{})", table.name, keys_name));
+
+        let scrutinee = match &table.key {
+            KeyOf::Lowered(param) => format!("{}.to_lowercase().as_str()", param),
+            KeyOf::Verbatim(param) => param.to_string(),
+            KeyOf::LoweredPair(first, second) => {
+                format!(
+                    "format!(\"{{}}_{{}}\", {}.to_lowercase(), {}.to_lowercase()).as_str()",
+                    first, second
+                )
+            }
+        };
+        let reference = &mut self.reference;
+        reference.fns.push_str(&format!(
+            "#[allow(unreachable_patterns)]\n{} {{\n    match {} {{\n",
+            table.signature, scrutinee
+        ));
+        for (key, answer) in &table.arms {
+            reference
+                .fns
+                .push_str(&format!("        {:?} => {},\n", key, answer));
+        }
+        reference
+            .fns
+            .push_str(&format!("        _ => {},\n    }}\n}}\n\n", default));
+        let list = if matches!(table.key, KeyOf::LoweredPair(..)) {
+            &mut reference.pairs
+        } else {
+            &mut reference.singles
+        };
+        list.push((self.module, table.name));
+    }
+
+    /// The case fold's bound, the registry and the conflicts, once every table is written; the
+    /// module's linear references, for the reference file.
+    fn finish(mut self) -> Reference {
+        if self.folds {
+            self.write_word_key();
+        }
+        writeln!(
+            self.file,
+            "/// Every word table this module generates, by name, with its sorted, duplicate-free keys.\n\
+             pub static WORD_TABLES: &[(&str, &[&str])] = &[{}];\n\n\
+             /// Every key a table was written with twice, answering differently: `(table, key, kept,\n\
+             /// dropped)` — the first answer is the one the table gives.\n\
+             pub static WORD_TABLE_CONFLICTS: &[(&str, &str, &str, &str)] = &[{}];\n",
+            self.registry.join(", "),
+            self.conflicts.join(", ")
+        )
+        .unwrap();
+        self.reference
+    }
+}
+
+impl Reference {
+    fn absorb(&mut self, other: Reference) {
+        self.fns.push_str(&other.fns);
+        self.singles.extend(other.singles);
+        self.pairs.extend(other.pairs);
+    }
+
+    /// The reference tables and the comparison of each generated table against its reference.
+    fn write(&self, mut file: fs::File) {
+        writeln!(file, "use super::*;\n").unwrap();
+        file.write_all(self.fns.as_bytes()).unwrap();
+        writeln!(
+            file,
+            "/// The word tables whose answer for `word` is not their linear reference's.\n\
+             pub fn differences(word: &str) -> Vec<&'static str> {{\n    let mut differ = Vec::new();"
+        )
+        .unwrap();
+        for (module, name) in &self.singles {
+            writeln!(
+                file,
+                "    if format!(\"{{:?}}\", {module}::{name}(word)) != format!(\"{{:?}}\", {name}(word)) {{ differ.push(\"{name}\"); }}"
+            )
+            .unwrap();
+        }
+        writeln!(file, "    differ\n}}\n").unwrap();
+        writeln!(
+            file,
+            "/// The two-word tables whose answer for `(first, second)` is not their linear reference's.\n\
+             pub fn pair_differences(first: &str, second: &str) -> Vec<&'static str> {{\n    let mut differ = Vec::new();"
+        )
+        .unwrap();
+        for (module, name) in &self.pairs {
+            writeln!(
+                file,
+                "    if format!(\"{{:?}}\", {module}::{name}(first, second)) != format!(\"{{:?}}\", {name}(first, second)) {{ differ.push(\"{name}\"); }}"
+            )
+            .unwrap();
+        }
+        writeln!(file, "    differ\n}}").unwrap();
+    }
+}
+
+fn generate_lookup_keyword(tables: &mut WordTables, keywords: &HashMap<String, String>) {
+    let mut table = WordTable::new(
+        "lookup_keyword",
+        "pub fn lookup_keyword(s: &str) -> Option<crate::token::TokenType>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     for (word, token_type) in keywords {
         let token_expr = match token_type.as_str() {
             "All" => "crate::token::TokenType::All",
@@ -905,12 +1271,9 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "WeakUntil" => "crate::token::TokenType::WeakUntil",
             _ => continue,
         };
-        writeln!(file, "        \"{}\" => Some({}),", word, token_expr).unwrap();
+        table.arm(word.clone(), format!("Some({})", token_expr));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
 fn format_pronoun_token(p: &PronounEntry) -> String {
@@ -935,16 +1298,15 @@ fn format_pronoun_token(p: &PronounEntry) -> String {
     )
 }
 
-fn generate_lookup_pronoun(file: &mut fs::File, pronouns: &[PronounEntry]) {
+fn generate_lookup_pronoun(tables: &mut WordTables, pronouns: &[PronounEntry]) {
     use std::collections::BTreeMap;
 
-    writeln!(
-        file,
-        "pub fn lookup_pronoun(s: &str) -> Option<crate::token::TokenType> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+    let mut table = WordTable::new(
+        "lookup_pronoun",
+        "pub fn lookup_pronoun(s: &str) -> Option<crate::token::TokenType>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     let mut map: BTreeMap<String, Vec<&PronounEntry>> = BTreeMap::new();
     for p in pronouns {
         map.entry(p.word.to_lowercase()).or_default().push(p);
@@ -952,37 +1314,33 @@ fn generate_lookup_pronoun(file: &mut fs::File, pronouns: &[PronounEntry]) {
 
     for (word, entries) in map {
         if entries.len() == 1 {
-            let code = format_pronoun_token(entries[0]);
-            writeln!(file, "        \"{}\" => Some({}),", word, code).unwrap();
+            table.arm(word, format!("Some({})", format_pronoun_token(entries[0])));
         } else {
             let primary_code = format_pronoun_token(entries[0]);
-            let mut alt_codes = Vec::new();
-            for p in &entries[1..] {
-                alt_codes.push(format_pronoun_token(p));
-            }
-            let alts_str = alt_codes.join(", ");
-
-            writeln!(
-                file,
-                "        \"{}\" => Some(crate::token::TokenType::Ambiguous {{ primary: Box::new({}), alternatives: vec![{}] }}),",
-                word, primary_code, alts_str
-            ).unwrap();
+            let alts_str = entries[1..]
+                .iter()
+                .map(|p| format_pronoun_token(p))
+                .collect::<Vec<_>>()
+                .join(", ");
+            table.arm(
+                word,
+                format!(
+                    "Some(crate::token::TokenType::Ambiguous {{ primary: Box::new({}), alternatives: vec![{}] }})",
+                    primary_code, alts_str
+                ),
+            );
         }
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_article(file: &mut fs::File, articles: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "pub fn lookup_article(s: &str) -> Option<crate::lexicon::Definiteness> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+fn generate_lookup_article(tables: &mut WordTables, articles: &HashMap<String, String>) {
+    let mut table = WordTable::new(
+        "lookup_article",
+        "pub fn lookup_article(s: &str) -> Option<crate::lexicon::Definiteness>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     for (word, def) in articles {
         let def_expr = match def.as_str() {
             "Definite" => "crate::lexicon::Definiteness::Definite",
@@ -990,22 +1348,18 @@ fn generate_lookup_article(file: &mut fs::File, articles: &HashMap<String, Strin
             "Distal" => "crate::lexicon::Definiteness::Distal",
             _ => "crate::lexicon::Definiteness::Indefinite",
         };
-        writeln!(file, "        \"{}\" => Some({}),", word, def_expr).unwrap();
+        table.arm(word.clone(), format!("Some({})", def_expr));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_auxiliary(file: &mut fs::File, auxiliaries: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "pub fn lookup_auxiliary(s: &str) -> Option<crate::lexicon::Time> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+fn generate_lookup_auxiliary(tables: &mut WordTables, auxiliaries: &HashMap<String, String>) {
+    let mut table = WordTable::new(
+        "lookup_auxiliary",
+        "pub fn lookup_auxiliary(s: &str) -> Option<crate::lexicon::Time>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     for (word, time) in auxiliaries {
         let time_expr = match time.as_str() {
             "Future" => "crate::lexicon::Time::Future",
@@ -1013,24 +1367,20 @@ fn generate_lookup_auxiliary(file: &mut fs::File, auxiliaries: &HashMap<String, 
             "Present" => "crate::lexicon::Time::Present",
             _ => "crate::lexicon::Time::None",
         };
-        writeln!(file, "        \"{}\" => Some({}),", word, time_expr).unwrap();
+        table.arm(word.clone(), format!("Some({})", time_expr));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_irregular_verb(file: &mut fs::File, verbs: &[IrregularVerbEntry]) {
+fn generate_lookup_irregular_verb(tables: &mut WordTables, verbs: &[IrregularVerbEntry]) {
     use std::collections::BTreeMap;
 
-    writeln!(
-        file,
-        "pub fn lookup_irregular_verb(s: &str) -> Option<crate::lexicon::VerbEntry> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+    let mut table = WordTable::new(
+        "lookup_irregular_verb",
+        "pub fn lookup_irregular_verb(s: &str) -> Option<crate::lexicon::VerbEntry>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     let mut seen: BTreeMap<String, &IrregularVerbEntry> = BTreeMap::new();
     for v in verbs {
         seen.entry(v.word.to_lowercase()).or_insert(v);
@@ -1057,27 +1407,24 @@ fn generate_lookup_irregular_verb(file: &mut fs::File, verbs: &[IrregularVerbEnt
             _ => "crate::lexicon::VerbClass::Activity",
         };
 
-        writeln!(
-            file,
-            "        \"{}\" => Some(crate::lexicon::VerbEntry {{ lemma: \"{}\".to_string(), time: {}, aspect: {}, class: {} }}),",
-            word, v.lemma, time_expr, aspect_expr, class_expr
-        )
-        .unwrap();
+        table.arm(
+            word,
+            format!(
+                "Some(crate::lexicon::VerbEntry {{ lemma: \"{}\".to_string(), time: {}, aspect: {}, class: {} }})",
+                v.lemma, time_expr, aspect_expr, class_expr
+            ),
+        );
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_presup_trigger(file: &mut fs::File, triggers: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "pub fn lookup_presup_trigger(s: &str) -> Option<crate::token::PresupKind> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+fn generate_lookup_presup_trigger(tables: &mut WordTables, triggers: &HashMap<String, String>) {
+    let mut table = WordTable::new(
+        "lookup_presup_trigger",
+        "pub fn lookup_presup_trigger(s: &str) -> Option<crate::token::PresupKind>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     for (word, kind) in triggers {
         let kind_expr = match kind.as_str() {
             "Stop" => "crate::token::PresupKind::Stop",
@@ -1088,66 +1435,55 @@ fn generate_lookup_presup_trigger(file: &mut fs::File, triggers: &HashMap<String
             "Know" => "crate::token::PresupKind::Know",
             _ => continue,
         };
-        writeln!(file, "        \"{}\" => Some({}),", word, kind_expr).unwrap();
+        table.arm(word.clone(), format!("Some({})", kind_expr));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_singularize(file: &mut fs::File, plurals: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "pub fn singularize(s: &str) -> Option<&'static str> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+fn generate_singularize(tables: &mut WordTables, plurals: &HashMap<String, String>) {
+    let mut table = WordTable::new(
+        "singularize",
+        "pub fn singularize(s: &str) -> Option<&'static str>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     for (plural, singular) in plurals {
-        writeln!(file, "        \"{}\" => Some(\"{}\"),", plural, singular).unwrap();
+        table.arm(plural.clone(), format!("Some(\"{}\")", singular));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_word_to_number(file: &mut fs::File, numbers: &HashMap<String, u32>) {
-    writeln!(
-        file,
-        "pub fn word_to_number(s: &str) -> Option<u32> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+fn generate_word_to_number(tables: &mut WordTables, numbers: &HashMap<String, u32>) {
+    let mut table = WordTable::new(
+        "word_to_number",
+        "pub fn word_to_number(s: &str) -> Option<u32>".to_string(),
+        KeyOf::Lowered("s"),
+        "None",
+    );
     for (word, num) in numbers {
-        writeln!(file, "        \"{}\" => Some({}),", word, num).unwrap();
+        table.arm(word.clone(), format!("Some({})", num));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_is_check(file: &mut fs::File, fn_name: &str, words: &[String]) {
+fn generate_is_check(tables: &mut WordTables, fn_name: &'static str, words: &[String]) {
     use std::collections::BTreeSet;
 
-    writeln!(file, "pub fn {}(s: &str) -> bool {{", fn_name).unwrap();
-    writeln!(file, "    match s.to_lowercase().as_str() {{").unwrap();
-
+    let mut table = WordTable::new(
+        fn_name,
+        format!("pub fn {}(s: &str) -> bool", fn_name),
+        KeyOf::Lowered("s"),
+        "false",
+    );
     let unique_words: BTreeSet<String> = words.iter().map(|w| w.to_lowercase()).collect();
     for word in unique_words {
-        writeln!(file, "        \"{}\" => true,", word).unwrap();
+        table.arm(word, "true");
     }
-
-    writeln!(file, "        _ => false,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
 fn generate_lookup_verb_class(
-    file: &mut fs::File,
+    tables: &mut WordTables,
     state_verbs: &[String],
     activity_verbs: &[String],
     accomplishment_verbs: &[String],
@@ -1156,28 +1492,35 @@ fn generate_lookup_verb_class(
 ) {
     use std::collections::BTreeMap;
 
-    writeln!(
-        file,
-        "pub fn lookup_verb_class(lemma: &str) -> crate::lexicon::VerbClass {{"
-    )
-    .unwrap();
-    writeln!(file, "    match lemma.to_lowercase().as_str() {{").unwrap();
-
+    let mut table = WordTable::new(
+        "lookup_verb_class",
+        "pub fn lookup_verb_class(lemma: &str) -> crate::lexicon::VerbClass".to_string(),
+        KeyOf::Lowered("lemma"),
+        "crate::lexicon::VerbClass::Activity",
+    );
     let mut verb_classes: BTreeMap<String, &str> = BTreeMap::new();
     for verb in state_verbs {
         verb_classes.insert(verb.to_lowercase(), "State");
     }
     for verb in activity_verbs {
-        verb_classes.entry(verb.to_lowercase()).or_insert("Activity");
+        verb_classes
+            .entry(verb.to_lowercase())
+            .or_insert("Activity");
     }
     for verb in accomplishment_verbs {
-        verb_classes.entry(verb.to_lowercase()).or_insert("Accomplishment");
+        verb_classes
+            .entry(verb.to_lowercase())
+            .or_insert("Accomplishment");
     }
     for verb in achievement_verbs {
-        verb_classes.entry(verb.to_lowercase()).or_insert("Achievement");
+        verb_classes
+            .entry(verb.to_lowercase())
+            .or_insert("Achievement");
     }
     for verb in semelfactive_verbs {
-        verb_classes.entry(verb.to_lowercase()).or_insert("Semelfactive");
+        verb_classes
+            .entry(verb.to_lowercase())
+            .or_insert("Semelfactive");
     }
 
     for (verb, class) in verb_classes {
@@ -1189,12 +1532,9 @@ fn generate_lookup_verb_class(
             "Semelfactive" => "crate::lexicon::VerbClass::Semelfactive",
             _ => "crate::lexicon::VerbClass::Activity",
         };
-        writeln!(file, "        \"{}\" => {},", verb, class_expr).unwrap();
+        table.arm(verb, class_expr);
     }
-
-    writeln!(file, "        _ => crate::lexicon::VerbClass::Activity,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1331,15 +1671,15 @@ fn format_features(features: &[String]) -> String {
     format!("&[{}]", feature_strs.join(", "))
 }
 
-fn generate_lookup_verb_db(file: &mut fs::File, entries: &[VerbDbEntry]) {
+fn generate_lookup_verb_db(tables: &mut WordTables, entries: &[VerbDbEntry]) {
     use std::collections::BTreeMap;
 
-    writeln!(
-        file,
-        "pub fn lookup_verb_db(word: &str) -> Option<crate::lexicon::VerbMetadata> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+    let mut table = WordTable::new(
+        "lookup_verb_db",
+        "pub fn lookup_verb_db(word: &str) -> Option<crate::lexicon::VerbMetadata>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    );
 
     let mut seen: BTreeMap<String, &VerbDbEntry> = BTreeMap::new();
     for entry in entries {
@@ -1368,28 +1708,26 @@ fn generate_lookup_verb_db(file: &mut fs::File, entries: &[VerbDbEntry]) {
         };
         let features_expr = format_features(&entry.features);
 
-        writeln!(
-            file,
-            "        \"{}\" => Some(crate::lexicon::VerbMetadata {{ lemma: \"{}\", class: {}, time: {}, aspect: {}, features: {} }}),",
-            word, entry.lemma, class_expr, time_expr, aspect_expr, features_expr
-        )
-        .unwrap();
+        table.arm(
+            word,
+            format!(
+                "Some(crate::lexicon::VerbMetadata {{ lemma: \"{}\", class: {}, time: {}, aspect: {}, features: {} }})",
+                entry.lemma, class_expr, time_expr, aspect_expr, features_expr
+            ),
+        );
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_noun_db(file: &mut fs::File, entries: &[NounDbEntry]) {
+fn generate_lookup_noun_db(tables: &mut WordTables, entries: &[NounDbEntry]) {
     use std::collections::BTreeMap;
 
-    writeln!(
-        file,
-        "pub fn lookup_noun_db(word: &str) -> Option<crate::lexicon::NounMetadata> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+    let mut table = WordTable::new(
+        "lookup_noun_db",
+        "pub fn lookup_noun_db(word: &str) -> Option<crate::lexicon::NounMetadata>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    );
 
     let mut seen: BTreeMap<String, &NounDbEntry> = BTreeMap::new();
     for entry in entries {
@@ -1403,28 +1741,27 @@ fn generate_lookup_noun_db(file: &mut fs::File, entries: &[NounDbEntry]) {
         };
         let features_expr = format_features(&entry.features);
 
-        writeln!(
-            file,
-            "        \"{}\" => Some(crate::lexicon::NounMetadata {{ lemma: \"{}\", number: {}, features: {} }}),",
-            word, entry.lemma, number_expr, features_expr
-        )
-        .unwrap();
+        table.arm(
+            word,
+            format!(
+                "Some(crate::lexicon::NounMetadata {{ lemma: \"{}\", number: {}, features: {} }})",
+                entry.lemma, number_expr, features_expr
+            ),
+        );
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_adjective_db(file: &mut fs::File, entries: &[AdjectiveDbEntry]) {
+fn generate_lookup_adjective_db(tables: &mut WordTables, entries: &[AdjectiveDbEntry]) {
     use std::collections::BTreeMap;
 
-    writeln!(
-        file,
-        "pub fn lookup_adjective_db(word: &str) -> Option<crate::lexicon::AdjectiveMetadata> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+    let mut table = WordTable::new(
+        "lookup_adjective_db",
+        "pub fn lookup_adjective_db(word: &str) -> Option<crate::lexicon::AdjectiveMetadata>"
+            .to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    );
 
     let mut seen: BTreeMap<String, &AdjectiveDbEntry> = BTreeMap::new();
     for entry in entries {
@@ -1434,52 +1771,42 @@ fn generate_lookup_adjective_db(file: &mut fs::File, entries: &[AdjectiveDbEntry
     for (word, entry) in seen {
         let features_expr = format_features(&entry.features);
 
-        writeln!(
-            file,
-            "        \"{}\" => Some(crate::lexicon::AdjectiveMetadata {{ lemma: \"{}\", features: {} }}),",
-            word, entry.lemma, features_expr
-        )
-        .unwrap();
+        table.arm(
+            word,
+            format!(
+                "Some(crate::lexicon::AdjectiveMetadata {{ lemma: \"{}\", features: {} }})",
+                entry.lemma, features_expr
+            ),
+        );
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
 fn generate_lookup_negative_contraction(
-    file: &mut fs::File,
+    tables: &mut WordTables,
     contractions: &HashMap<String, String>,
 ) {
-    writeln!(
-        file,
-        "/// The lexicon's expansion for a negative n't-contraction stem"
+    let mut table = WordTable::new(
+        "lookup_negative_contraction",
+        "pub fn lookup_negative_contraction(stem: &str) -> Option<&'static str>".to_string(),
+        KeyOf::Verbatim("stem"),
+        "None",
     )
-    .unwrap();
-    writeln!(file, "/// (\"isn\" → \"is not\", \"can\" → \"cannot\").").unwrap();
-    writeln!(
-        file,
-        "pub fn lookup_negative_contraction(stem: &str) -> Option<&'static str> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match stem {{").unwrap();
-    let mut entries: Vec<_> = contractions.iter().collect();
-    entries.sort();
-    for (stem, expansion) in entries {
-        writeln!(file, "        \"{}\" => Some(\"{}\"),", stem, expansion).unwrap();
+    .doc("The lexicon's expansion for a negative n't-contraction stem")
+    .doc("(\"isn\" → \"is not\", \"can\" → \"cannot\").");
+    for (stem, expansion) in contractions {
+        table.arm(stem.clone(), format!("Some(\"{}\")", expansion));
     }
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_unit_dimension(file: &mut fs::File, units: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "pub fn lookup_unit_dimension(word: &str) -> Option<crate::ast::Dimension> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+fn generate_lookup_unit_dimension(tables: &mut WordTables, units: &HashMap<String, String>) {
+    let mut table = WordTable::new(
+        "lookup_unit_dimension",
+        "pub fn lookup_unit_dimension(word: &str) -> Option<crate::ast::Dimension>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    );
 
     for (word, dimension) in units {
         let dim_expr = match dimension.as_str() {
@@ -1490,22 +1817,22 @@ fn generate_lookup_unit_dimension(file: &mut fs::File, units: &HashMap<String, S
             "Cardinality" => "crate::ast::Dimension::Cardinality",
             _ => continue,
         };
-        writeln!(file, "        \"{}\" => Some({}),", word, dim_expr).unwrap();
+        table.arm(word.clone(), format!("Some({})", dim_expr));
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_phrasal_verb(file: &mut fs::File, phrasal_verbs: &HashMap<String, PhrasalVerbEntry>) {
-    writeln!(
-        file,
-        "pub fn lookup_phrasal_verb(verb: &str, particle: &str) -> Option<(&'static str, crate::lexicon::VerbClass)> {{"
-    )
-    .unwrap();
-    writeln!(file, "    let key = format!(\"{{}}_{{}}\", verb.to_lowercase(), particle.to_lowercase());").unwrap();
-    writeln!(file, "    match key.as_str() {{").unwrap();
+fn generate_lookup_phrasal_verb(
+    tables: &mut WordTables,
+    phrasal_verbs: &HashMap<String, PhrasalVerbEntry>,
+) {
+    let mut table = WordTable::new(
+        "lookup_phrasal_verb",
+        "pub fn lookup_phrasal_verb(verb: &str, particle: &str) -> Option<(&'static str, crate::lexicon::VerbClass)>"
+            .to_string(),
+        KeyOf::LoweredPair("verb", "particle"),
+        "None",
+    );
 
     for (key, entry) in phrasal_verbs {
         let class_expr = match entry.class.as_str() {
@@ -1516,26 +1843,21 @@ fn generate_lookup_phrasal_verb(file: &mut fs::File, phrasal_verbs: &HashMap<Str
             "Semelfactive" => "crate::lexicon::VerbClass::Semelfactive",
             _ => "crate::lexicon::VerbClass::Activity",
         };
-        writeln!(
-            file,
-            "        \"{}\" => Some((\"{}\", {})),",
-            key, entry.lemma, class_expr
-        )
-        .unwrap();
+        table.arm(
+            key.clone(),
+            format!("Some((\"{}\", {}))", entry.lemma, class_expr),
+        );
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
-fn generate_lookup_sort(file: &mut fs::File, nouns: &[NounDefinition]) {
-    writeln!(
-        file,
-        "pub fn lookup_sort(word: &str) -> Option<crate::lexicon::Sort> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+fn generate_lookup_sort(tables: &mut WordTables, nouns: &[NounDefinition]) {
+    let mut table = WordTable::new(
+        "lookup_sort",
+        "pub fn lookup_sort(word: &str) -> Option<crate::lexicon::Sort>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    );
 
     for noun in nouns {
         if let Some(sort) = &noun.sort {
@@ -1556,19 +1878,10 @@ fn generate_lookup_sort(file: &mut fs::File, nouns: &[NounDefinition]) {
                 "Group" => "crate::lexicon::Sort::Group",
                 _ => continue,
             };
-            writeln!(
-                file,
-                "        \"{}\" => Some({}),",
-                noun.lemma.to_lowercase(),
-                sort_expr
-            )
-            .unwrap();
+            table.arm(noun.lemma.to_lowercase(), format!("Some({})", sort_expr));
         }
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
+    tables.emit(table);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1605,11 +1918,10 @@ fn generate_mwe_trie_init(file: &mut fs::File, mwes: &[MweEntry]) {
     writeln!(file, "}}").unwrap();
 }
 
-fn generate_ontology_data(file: &mut fs::File, ontology: &Option<OntologyData>) {
+fn generate_ontology_data(tables: &mut WordTables, ontology: &Option<OntologyData>) {
     let default_ontology = OntologyData::default();
     let ontology = ontology.as_ref().unwrap_or(&default_ontology);
 
-    // Build reverse mapping: part -> list of wholes
     let mut part_to_wholes: HashMap<String, Vec<String>> = HashMap::new();
     for entry in &ontology.part_whole {
         for part in &entry.parts {
@@ -1620,105 +1932,124 @@ fn generate_ontology_data(file: &mut fs::File, ontology: &Option<OntologyData>) 
         }
     }
 
-    // Generate get_possible_wholes function
-    writeln!(file, "/// Get possible whole objects for a given part noun.").unwrap();
-    writeln!(file, "pub fn get_possible_wholes(part: &str) -> &'static [&'static str] {{").unwrap();
-    writeln!(file, "    match part {{").unwrap();
-    for (part, wholes) in &part_to_wholes {
-        let wholes_str: Vec<String> = wholes.iter().map(|w| format!("\"{}\"", w)).collect();
-        writeln!(file, "        \"{}\" => &[{}],", part, wholes_str.join(", ")).unwrap();
+    let mut wholes = WordTable::new(
+        "get_possible_wholes",
+        "pub fn get_possible_wholes(part: &str) -> &'static [&'static str]".to_string(),
+        KeyOf::Verbatim("part"),
+        "&[]",
+    )
+    .doc("Get possible whole objects for a given part noun.");
+    for (part, whole_names) in &part_to_wholes {
+        let wholes_str: Vec<String> = whole_names.iter().map(|w| format!("\"{}\"", w)).collect();
+        wholes.arm(part.clone(), format!("&[{}]", wholes_str.join(", ")));
     }
-    writeln!(file, "        _ => &[],").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
+    tables.emit(wholes);
 
-    // Generate get_predicate_sort function
-    writeln!(file, "/// Get the required sort for a predicate (adjective or verb).").unwrap();
-    writeln!(file, "pub fn get_predicate_sort(predicate: &str) -> Option<crate::lexicon::Sort> {{").unwrap();
-    writeln!(file, "    match predicate {{").unwrap();
+    let mut sorts = WordTable::new(
+        "get_predicate_sort",
+        "pub fn get_predicate_sort(predicate: &str) -> Option<crate::lexicon::Sort>".to_string(),
+        KeyOf::Verbatim("predicate"),
+        "None",
+    )
+    .doc("Get the required sort for a predicate (adjective or verb).");
     for (predicate, sort) in &ontology.predicate_sorts {
-        writeln!(file, "        \"{}\" => Some(crate::lexicon::Sort::{}),", predicate.to_lowercase(), sort).unwrap();
+        sorts.arm(
+            predicate.to_lowercase(),
+            format!("Some(crate::lexicon::Sort::{})", sort),
+        );
     }
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
+    tables.emit(sorts);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Axiom (Meaning Postulate) Generation
 // ═══════════════════════════════════════════════════════════════════
 
-fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
+fn generate_axiom_data(tables: &mut WordTables, axioms: &Option<AxiomData>) {
     let default_axioms = AxiomData::default();
     let axioms = axioms.as_ref().unwrap_or(&default_axioms);
 
-    // Generate lookup_noun_entailments
-    writeln!(file, "/// Get entailment predicates for a noun (e.g., bachelor -> [Unmarried, Male]).").unwrap();
-    writeln!(file, "pub fn lookup_noun_entailments(noun: &str) -> &'static [&'static str] {{").unwrap();
-    writeln!(file, "    match noun.to_lowercase().as_str() {{").unwrap();
+    let mut entailments = WordTable::new(
+        "lookup_noun_entailments",
+        "pub fn lookup_noun_entailments(noun: &str) -> &'static [&'static str]".to_string(),
+        KeyOf::Lowered("noun"),
+        "&[]",
+    )
+    .doc("Get entailment predicates for a noun (e.g., bachelor -> [Unmarried, Male]).");
     for (noun, axiom) in &axioms.nouns {
         if !axiom.entails.is_empty() {
-            let entails_str: Vec<String> = axiom.entails.iter().map(|e| format!("\"{}\"", e)).collect();
-            writeln!(file, "        \"{}\" => &[{}],", noun, entails_str.join(", ")).unwrap();
+            let entails_str: Vec<String> =
+                axiom.entails.iter().map(|e| format!("\"{}\"", e)).collect();
+            entailments.arm(noun.clone(), format!("&[{}]", entails_str.join(", ")));
         }
     }
-    writeln!(file, "        _ => &[],").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
+    tables.emit(entailments);
 
-    // Generate lookup_noun_hypernyms
-    writeln!(file, "/// Get hypernym predicates for a noun (e.g., dog -> [Animal, Mammal]).").unwrap();
-    writeln!(file, "pub fn lookup_noun_hypernyms(noun: &str) -> &'static [&'static str] {{").unwrap();
-    writeln!(file, "    match noun.to_lowercase().as_str() {{").unwrap();
+    let mut hypernyms = WordTable::new(
+        "lookup_noun_hypernyms",
+        "pub fn lookup_noun_hypernyms(noun: &str) -> &'static [&'static str]".to_string(),
+        KeyOf::Lowered("noun"),
+        "&[]",
+    )
+    .doc("Get hypernym predicates for a noun (e.g., dog -> [Animal, Mammal]).");
     for (noun, axiom) in &axioms.nouns {
         if !axiom.hypernyms.is_empty() {
-            let hypernyms_str: Vec<String> = axiom.hypernyms.iter().map(|h| format!("\"{}\"", h)).collect();
-            writeln!(file, "        \"{}\" => &[{}],", noun, hypernyms_str.join(", ")).unwrap();
+            let hypernyms_str: Vec<String> = axiom
+                .hypernyms
+                .iter()
+                .map(|h| format!("\"{}\"", h))
+                .collect();
+            hypernyms.arm(noun.clone(), format!("&[{}]", hypernyms_str.join(", ")));
         }
     }
-    writeln!(file, "        _ => &[],").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
+    tables.emit(hypernyms);
 
-    // Generate is_privative_adjective
-    writeln!(file, "/// Check if an adjective is privative (e.g., fake, counterfeit).").unwrap();
-    writeln!(file, "pub fn is_privative_adjective(adj: &str) -> bool {{").unwrap();
-    writeln!(file, "    match adj.to_lowercase().as_str() {{").unwrap();
+    let mut privative = WordTable::new(
+        "is_privative_adjective",
+        "pub fn is_privative_adjective(adj: &str) -> bool".to_string(),
+        KeyOf::Lowered("adj"),
+        "false",
+    )
+    .doc("Check if an adjective is privative (e.g., fake, counterfeit).");
     for (adj, axiom) in &axioms.adjectives {
         if axiom.axiom_type == "Privative" {
-            writeln!(file, "        \"{}\" => true,", adj).unwrap();
+            privative.arm(adj.clone(), "true");
         }
     }
-    writeln!(file, "        _ => false,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
+    tables.emit(privative);
 
-    // Generate lookup_verb_entailment
-    writeln!(file, "/// Get verb entailment (e.g., murder -> (Kill, \\[Intentional\\])).").unwrap();
-    writeln!(file, "pub fn lookup_verb_entailment(verb: &str) -> Option<(&'static str, &'static [&'static str])> {{").unwrap();
-    writeln!(file, "    match verb.to_lowercase().as_str() {{").unwrap();
+    let mut verb_entailments = WordTable::new(
+        "lookup_verb_entailment",
+        "pub fn lookup_verb_entailment(verb: &str) -> Option<(&'static str, &'static [&'static str])>".to_string(),
+        KeyOf::Lowered("verb"),
+        "None",
+    )
+    .doc("Get verb entailment (e.g., murder -> (Kill, \\[Intentional\\])).");
     for (verb, axiom) in &axioms.verbs {
         if let Some(entails) = &axiom.entails {
-            let manner_str: Vec<String> = axiom.manner.iter().map(|m| format!("\"{}\"", m)).collect();
-            writeln!(file, "        \"{}\" => Some((\"{}\", &[{}])),", verb, entails, manner_str.join(", ")).unwrap();
+            let manner_str: Vec<String> =
+                axiom.manner.iter().map(|m| format!("\"{}\"", m)).collect();
+            verb_entailments.arm(
+                verb.clone(),
+                format!("Some((\"{}\", &[{}]))", entails, manner_str.join(", ")),
+            );
         }
     }
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
+    tables.emit(verb_entailments);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Canonical Mapping Generation (Synonyms/Antonyms)
 // ═══════════════════════════════════════════════════════════════════
 
-fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
+fn generate_canonical_mapping(tables: &mut WordTables, verbs: &[VerbDefinition]) {
+    let file = &mut tables.file;
     // Generate Polarity enum
-    writeln!(file, "/// Polarity for canonical mapping (positive = synonym, negative = antonym).").unwrap();
+    writeln!(
+        file,
+        "/// Polarity for canonical mapping (positive = synonym, negative = antonym)."
+    )
+    .unwrap();
     writeln!(file, "#[derive(Debug, Clone, Copy, PartialEq, Eq)]").unwrap();
     writeln!(file, "pub enum Polarity {{").unwrap();
     writeln!(file, "    Positive,").unwrap();
@@ -1735,46 +2066,44 @@ fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
     writeln!(file, "}}").unwrap();
     writeln!(file).unwrap();
 
-    // Generate lookup_canonical function
-    writeln!(file, "/// Look up canonical form for a word (synonym/antonym normalization).").unwrap();
-    writeln!(file, "/// Returns the canonical lemma and polarity (Negative for antonyms).").unwrap();
-    writeln!(file, "pub fn lookup_canonical(word: &str) -> Option<CanonicalMapping> {{").unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
+    let mut table = WordTable::new(
+        "lookup_canonical",
+        "pub fn lookup_canonical(word: &str) -> Option<CanonicalMapping>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    )
+    .doc("Look up canonical form for a word (synonym/antonym normalization).")
+    .doc("Returns the canonical lemma and polarity (Negative for antonyms).");
     for verb in verbs {
         let lemma = &verb.lemma;
-
-        // Map synonyms -> Positive polarity
         for syn in &verb.synonyms {
-            writeln!(
-                file,
-                "        \"{}\" => Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Positive }}),",
+            table.arm(
                 syn.to_lowercase(),
-                lemma
-            ).unwrap();
+                format!(
+                    "Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Positive }})",
+                    lemma
+                ),
+            );
         }
-
-        // Map antonyms -> Negative polarity
         for ant in &verb.antonyms {
-            writeln!(
-                file,
-                "        \"{}\" => Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Negative }}),",
+            table.arm(
                 ant.to_lowercase(),
-                lemma
-            ).unwrap();
+                format!(
+                    "Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Negative }})",
+                    lemma
+                ),
+            );
         }
     }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
+    tables.emit(table);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Morphological Rules Generation
 // ═══════════════════════════════════════════════════════════════════
 
-fn generate_morphological_rules(file: &mut fs::File, rules: &[MorphologicalRule]) {
+fn generate_morphological_rules(tables: &mut WordTables, rules: &[MorphologicalRule]) {
+    let file = &mut tables.file;
     // Generate MorphRule struct
     writeln!(file, "/// Morphological derivation rule from lexicon.").unwrap();
     writeln!(file, "#[derive(Debug, Clone, Copy)]").unwrap();
@@ -1787,7 +2116,11 @@ fn generate_morphological_rules(file: &mut fs::File, rules: &[MorphologicalRule]
 
     // Generate get_morphological_rules function
     writeln!(file, "/// Get morphological derivation rules from lexicon.").unwrap();
-    writeln!(file, "pub fn get_morphological_rules() -> &'static [MorphRule] {{").unwrap();
+    writeln!(
+        file,
+        "pub fn get_morphological_rules() -> &'static [MorphRule] {{"
+    )
+    .unwrap();
     writeln!(file, "    &[").unwrap();
 
     for rule in rules {
@@ -1807,97 +2140,88 @@ fn generate_morphological_rules(file: &mut fs::File, rules: &[MorphologicalRule]
 // Noun Derivation Lookup Generation
 // ═══════════════════════════════════════════════════════════════════
 
-fn generate_lookup_relational_adjective(file: &mut fs::File, adjectives: &[AdjectiveDefinition]) {
-    writeln!(file, "/// Lookup relational-adjective metadata (e.g., dental -> (Tooth, Pertains, Kind)).").unwrap();
-    writeln!(file, "/// Returns (base, relation, level) where level is \"Kind\" or \"Instance\".").unwrap();
-    writeln!(file, "pub fn lookup_relational_adjective(word: &str) -> Option<(&'static str, &'static str, &'static str)> {{").unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
+fn generate_lookup_relational_adjective(
+    tables: &mut WordTables,
+    adjectives: &[AdjectiveDefinition],
+) {
+    let mut table = WordTable::new(
+        "lookup_relational_adjective",
+        "pub fn lookup_relational_adjective(word: &str) -> Option<(&'static str, &'static str, &'static str)>"
+            .to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    )
+    .doc("Lookup relational-adjective metadata (e.g., dental -> (Tooth, Pertains, Kind)).")
+    .doc("Returns (base, relation, level) where level is \"Kind\" or \"Instance\".");
     for adj in adjectives {
         if let Some(ref rel) = adj.relational {
-            writeln!(
-                file,
-                "        \"{}\" => Some((\"{}\", \"{}\", \"{}\")),",
+            table.arm(
                 adj.lemma.to_lowercase(),
-                rel.base,
-                rel.relation,
-                rel.level
-            )
-            .unwrap();
+                format!(
+                    "Some((\"{}\", \"{}\", \"{}\"))",
+                    rel.base, rel.relation, rel.level
+                ),
+            );
         }
     }
+    tables.emit(table);
 
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
-
-    // Simple boolean check mirroring the other is_* generators.
-    writeln!(file, "/// Check whether an adjective is relational/pertainymic.").unwrap();
-    writeln!(file, "pub fn is_relational_adjective(word: &str) -> bool {{").unwrap();
+    let file = &mut tables.file;
+    writeln!(
+        file,
+        "/// Check whether an adjective is relational/pertainymic."
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "pub fn is_relational_adjective(word: &str) -> bool {{"
+    )
+    .unwrap();
     writeln!(file, "    lookup_relational_adjective(word).is_some()").unwrap();
     writeln!(file, "}}").unwrap();
     writeln!(file).unwrap();
 }
 
-fn generate_lookup_noun_derivation(file: &mut fs::File, nouns: &[NounDefinition]) {
-    writeln!(file, "/// Lookup the derivation info for a noun (e.g., dancer -> (Dance, Verb, Agent))").unwrap();
-    writeln!(file, "/// Returns (root, pos, relation) if the noun has a derivation.").unwrap();
-    writeln!(file, "pub fn lookup_noun_derivation(word: &str) -> Option<(&'static str, &'static str, &'static str)> {{").unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
+fn generate_lookup_noun_derivation(tables: &mut WordTables, nouns: &[NounDefinition]) {
+    let mut derivations = WordTable::new(
+        "lookup_noun_derivation",
+        "pub fn lookup_noun_derivation(word: &str) -> Option<(&'static str, &'static str, &'static str)>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    )
+    .doc("Lookup the derivation info for a noun (e.g., dancer -> (Dance, Verb, Agent))")
+    .doc("Returns (root, pos, relation) if the noun has a derivation.");
+    let mut agentive = WordTable::new(
+        "is_agentive_noun",
+        "pub fn is_agentive_noun(word: &str) -> bool".to_string(),
+        KeyOf::Lowered("word"),
+        "false",
+    )
+    .doc("Check if a noun is agentive (derived from a verb with Agent relation).");
+    let mut agentive_roots = WordTable::new(
+        "lookup_agentive_noun",
+        "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str>".to_string(),
+        KeyOf::Lowered("word"),
+        "None",
+    )
+    .doc("Lookup the base verb for an agentive noun (e.g., dancer -> Dance).");
     for noun in nouns {
         if let Some(ref deriv) = noun.derivation {
-            writeln!(
-                file,
-                "        \"{}\" => Some((\"{}\", \"{}\", \"{}\")),",
-                noun.lemma.to_lowercase(),
-                deriv.root,
-                deriv.pos,
-                deriv.relation
-            )
-            .unwrap();
-        }
-    }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
-
-    // Also generate a simple check for whether a noun is agentive (derived from a verb)
-    writeln!(file, "/// Check if a noun is agentive (derived from a verb with Agent relation).").unwrap();
-    writeln!(file, "pub fn is_agentive_noun(word: &str) -> bool {{").unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
-    for noun in nouns {
-        if let Some(ref deriv) = noun.derivation {
+            let lemma = noun.lemma.to_lowercase();
+            derivations.arm(
+                lemma.clone(),
+                format!(
+                    "Some((\"{}\", \"{}\", \"{}\"))",
+                    deriv.root, deriv.pos, deriv.relation
+                ),
+            );
             if deriv.pos == "Verb" && deriv.relation == "Agent" {
-                writeln!(file, "        \"{}\" => true,", noun.lemma.to_lowercase()).unwrap();
+                agentive.arm(lemma.clone(), "true");
+                agentive_roots.arm(lemma, format!("Some(\"{}\")", deriv.root));
             }
         }
     }
-
-    writeln!(file, "        _ => false,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
-    writeln!(file).unwrap();
-
-    // Generate lookup_agentive_noun for backward compatibility
-    writeln!(file, "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance).").unwrap();
-    writeln!(file, "/// This is for backward compatibility with existing code.").unwrap();
-    writeln!(file, "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{").unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
-    for noun in nouns {
-        if let Some(ref deriv) = noun.derivation {
-            if deriv.pos == "Verb" && deriv.relation == "Agent" {
-                writeln!(file, "        \"{}\" => Some(\"{}\"),", noun.lemma.to_lowercase(), deriv.root).unwrap();
-            }
-        }
-    }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}").unwrap();
+    tables.emit(derivations);
+    tables.emit(agentive);
+    tables.emit(agentive_roots);
 }

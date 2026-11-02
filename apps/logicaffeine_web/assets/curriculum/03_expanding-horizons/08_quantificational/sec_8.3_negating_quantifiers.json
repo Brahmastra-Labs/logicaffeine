@@ -1,0 +1,36 @@
+{
+  "id": "8.3",
+  "title": "Negating Quantifiers",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Denying a quantifier flips it. 'Not every A is B' means some A is not B: ¬∀x φ is equivalent to ∃x ¬φ."
+    },
+    {
+      "type": "paragraph",
+      "text": "'No A is B' means every A is not B: ∀x(A(x) → ¬B(x)). That is equivalent to ¬∃x(A(x) ∧ B(x))."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "No student is lazy.",
+      "formula": "∀x((Student(x) → ¬Lazy(x)))",
+      "note": "Every student is not lazy."
+    },
+    {
+      "type": "formula",
+      "sentence": "Not every student is lazy.",
+      "formula": "¬∀x((Student(x) → Lazy(x)))",
+      "note": "It is not true that all students are lazy. So some student is not."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "No philosopher is rich.",
+    "answer": "∀x((Philosopher(x) → ¬Rich(x)))",
+    "hint": "'No A is B' says every A is not B.",
+    "explanation": "For every x, if x is a philosopher, then x is not rich."
+  }
+}

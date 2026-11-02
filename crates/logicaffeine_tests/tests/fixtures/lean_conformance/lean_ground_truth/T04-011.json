@@ -1,0 +1,221 @@
+{
+  "case": "T04-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 27,
+  "declarations": [
+    {
+      "type": "Bool \u2192 Type",
+      "name": "T04_011.Carrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Bool \u2192 Sort u_1) \u2192 (x : Bool) \u2192 (Unit \u2192 motive true) \u2192 (Unit \u2192 motive false) \u2192 motive x",
+      "name": "T04_011.Carrier.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Nat \u2192 Type",
+      "name": "T04_011.Vect",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Sort u} \u2192 {a : Nat} \u2192 T04_011.Vect \u03b1 a \u2192 Sort (max 1 u)",
+      "name": "T04_011.Vect.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Prop} {a : Nat} (t : T04_011.Vect \u03b1 a),\n  (\u2200 (a : Nat) (t : T04_011.Vect \u03b1 a), T04_011.Vect.ibelow t \u2192 motive a t) \u2192 motive a t",
+      "name": "T04_011.Vect.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T04_011.Vect \u03b1 a) \u2192 ((a : Nat) \u2192 (t : T04_011.Vect \u03b1 a) \u2192 T04_011.Vect.below t \u2192 motive a t) \u2192 motive a t",
+      "name": "T04_011.Vect.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T04_011.Vect \u03b1 a) \u2192\n        motive 0 T04_011.Vect.nil \u2192\n          ((a : \u03b1) \u2192 {n : Nat} \u2192 (a_1 : T04_011.Vect \u03b1 n) \u2192 motive (n + 1) (T04_011.Vect.cons a a_1)) \u2192 motive a t",
+      "name": "T04_011.Vect.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 {n : Nat} \u2192 T04_011.Vect \u03b1 n \u2192 T04_011.Vect \u03b1 (n + 1)",
+      "name": "T04_011.Vect.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {n : Nat} {a_1 : T04_011.Vect \u03b1 n} {a_2 : \u03b1} {a_3 : T04_011.Vect \u03b1 n},\n  T04_011.Vect.cons a a_1 = T04_011.Vect.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T04_011.Vect.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1) {n : Nat} (a_1 : T04_011.Vect \u03b1 n) (a_2 : \u03b1) (a_3 : T04_011.Vect \u03b1 n),\n  (T04_011.Vect.cons a a_1 = T04_011.Vect.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T04_011.Vect.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1) {n : Nat} (a_1 : T04_011.Vect \u03b1 n),\n  sizeOf (T04_011.Vect.cons a a_1) = 1 + sizeOf a + sizeOf n + sizeOf a_1",
+      "name": "T04_011.Vect.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Prop} \u2192 {a : Nat} \u2192 T04_011.Vect \u03b1 a \u2192 Prop",
+      "name": "T04_011.Vect.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T04_011.Vect \u03b1 0",
+      "name": "T04_011.Vect.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T04_011.Vect.nil = 1",
+      "name": "T04_011.Vect.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T04_011.Vect \u03b1 a} \u2192 v1 = v2 \u2192 T04_011.Vect.noConfusionType P v1 v2",
+      "name": "T04_011.Vect.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 Sort u \u2192 T04_011.Vect \u03b1 a \u2192 T04_011.Vect \u03b1 a \u2192 Sort u",
+      "name": "T04_011.Vect.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    motive 0 T04_011.Vect.nil \u2192\n      ((a : \u03b1) \u2192 {n : Nat} \u2192 (a_1 : T04_011.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T04_011.Vect.cons a a_1)) \u2192\n        {a : Nat} \u2192 (t : T04_011.Vect \u03b1 a) \u2192 motive a t",
+      "name": "T04_011.Vect.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : (a : Nat) \u2192 T04_011.Vect \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T04_011.Vect \u03b1 a) \u2192\n        motive 0 T04_011.Vect.nil \u2192\n          ((a : \u03b1) \u2192 {n : Nat} \u2192 (a_1 : T04_011.Vect \u03b1 n) \u2192 motive n a_1 \u2192 motive (n + 1) (T04_011.Vect.cons a a_1)) \u2192\n            motive a t",
+      "name": "T04_011.Vect.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(b : Bool) \u2192 T04_011.Carrier b",
+      "name": "T04_011.mkCarrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(b : Bool) \u2192 T04_011.Carrier b",
+      "name": "T04_011.mkCarrier'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(f : Nat \u2192 Bool) \u2192 (n : Nat) \u2192 T04_011.Carrier (f n)",
+      "name": "T04_011.notVar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a b : Nat} \u2192 a = b \u2192 Nat \u2192 Nat",
+      "name": "T04_011.transportNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{a : Nat} \u2192 (motive : (b : Nat) \u2192 a = b \u2192 Sort u_1) \u2192 (b : Nat) \u2192 (h : a = b) \u2192 (Unit \u2192 motive a \u22ef) \u2192 motive b h",
+      "name": "T04_011.transportNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {n : Nat} \u2192 T04_011.Vect \u03b1 n \u2192 T04_011.Vect \u03b1 n",
+      "name": "T04_011.vreverseStep",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : (x : Nat) \u2192 T04_011.Vect \u03b1 x \u2192 Sort u_1) \u2192\n    (x : Nat) \u2192\n      (x_1 : T04_011.Vect \u03b1 x) \u2192\n        (Unit \u2192 motive 0 T04_011.Vect.nil) \u2192\n          ((a : \u03b1) \u2192 (n : Nat) \u2192 (t : T04_011.Vect \u03b1 n) \u2192 motive (n + 1) (T04_011.Vect.cons a t)) \u2192 motive x x_1",
+      "name": "T04_011.vreverseStep.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = 0 \u2228 0 < n",
+      "name": "T04_011.zeroOrPos",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (motive : Nat \u2192 Prop) (x : Nat), (Unit \u2192 motive 0) \u2192 (\u2200 (n : Nat), motive n.succ) \u2192 motive x",
+      "name": "T04_011.zeroOrPos.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

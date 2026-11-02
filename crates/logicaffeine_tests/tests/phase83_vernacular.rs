@@ -26,7 +26,10 @@ fn test_definition_without_type() {
 
     // Definition with inferred type
     let result = repl.execute("Definition two := Succ (Succ Zero).");
-    assert!(result.is_ok(), "Definition without type annotation should work");
+    assert!(
+        result.is_ok(),
+        "Definition without type annotation should work"
+    );
 }
 
 // =============================================================================
@@ -45,7 +48,9 @@ fn test_check_constructor() {
 fn test_check_application() {
     let mut repl = Repl::new();
 
-    let output = repl.execute("Check (Succ Zero).").expect("Check should work");
+    let output = repl
+        .execute("Check (Succ Zero).")
+        .expect("Check should work");
     assert_eq!(output, "(Succ Zero) : Nat");
 }
 
@@ -74,7 +79,8 @@ fn test_eval_constructor() {
 fn test_eval_definition() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition two : Nat := Succ (Succ Zero).").unwrap();
+    repl.execute("Definition two : Nat := Succ (Succ Zero).")
+        .unwrap();
     let output = repl.execute("Eval two.").expect("Eval should work");
     // Definition unfolds via delta reduction
     assert_eq!(output, "(Succ (Succ Zero))");
@@ -100,7 +106,11 @@ fn test_definition_with_lambda() {
 
     // Define increment function
     let result = repl.execute("Definition inc : Nat -> Nat := fun n : Nat => Succ n.");
-    assert!(result.is_ok(), "Lambda definition should parse: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Lambda definition should parse: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -162,7 +172,10 @@ fn test_inductive_with_arguments() {
 
     // Define custom Nat (separate from StandardLibrary)
     let cmd = "Inductive MyNat := MZero : MyNat | MSucc : MyNat -> MyNat.";
-    assert!(repl.execute(cmd).is_ok(), "Inductive with args should parse");
+    assert!(
+        repl.execute(cmd).is_ok(),
+        "Inductive with args should parse"
+    );
 
     // Check constructor types
     let zero_out = repl.execute("Check MZero.").expect("Check MZero");

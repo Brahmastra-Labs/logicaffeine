@@ -1,0 +1,11 @@
+{
+  "capability": "text.valid_rune",
+  "workload": "count valid runes in [0,n) \u2014 exercises range + surrogate rejection",
+  "arg": "2000000",
+  "expected": "1112064",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ],
+  "note": "main.lg calls validRune() WITHOUT defining it \u2014 auto-imported from strings.lg. Go counterpart uses utf8.ValidRune; both reject <0, >0x10FFFF, and the surrogate block."
+}

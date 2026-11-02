@@ -1,0 +1,55 @@
+{
+  "case": "T02-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "\u2200 (P : Prop), \u00ac\u00acP \u2192 P",
+      "name": "T02_003.choiceLike",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T02_003.choiceLike"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T02_003.mysteryNat",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T02_003.mysteryNat"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_003.separateName",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T02_003.separateName"
+      ]
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (P : \u03b1 \u2192 Prop) (a b : \u03b1), a = b \u2192 P a \u2192 P b",
+      "name": "T02_003.transportLike",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T02_003.transportLike"
+      ]
+    },
+    {
+      "type": "T02_003.mysteryNat = T02_003.mysteryNat",
+      "name": "T02_003.usesAxiom",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T02_003.mysteryNat"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

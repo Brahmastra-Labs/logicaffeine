@@ -1,0 +1,8 @@
+# Tic tac toe
+
+This project is a pure frontend: everything lives in `pages/`. There is no server to
+run, so this entry does nothing but name the project.
+
+## Main
+
+Show "tic tac toe".

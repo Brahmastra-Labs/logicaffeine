@@ -87,7 +87,11 @@ pub fn parse_development(body: &str) -> Result<Development, FormulaError> {
         }
     }
 
-    Ok(Development { axioms, theorems, simp_tagged })
+    Ok(Development {
+        axioms,
+        theorems,
+        simp_tagged,
+    })
 }
 
 /// Parse a `## Theory` body and discharge every theorem against the development's axioms
@@ -207,10 +211,17 @@ fn parse_theorem_decl(stmt: &str) -> Result<(LibraryTheorem, bool), FormulaError
         }
     }
 
-    let goal = goal.ok_or_else(|| {
-        FormulaError::new(format!("theorem '{name}' has no 'prove' clause"))
-    })?;
-    Ok((LibraryTheorem { name, premises, goal, cites }, simp))
+    let goal =
+        goal.ok_or_else(|| FormulaError::new(format!("theorem '{name}' has no 'prove' clause")))?;
+    Ok((
+        LibraryTheorem {
+            name,
+            premises,
+            goal,
+            cites,
+        },
+        simp,
+    ))
 }
 
 // ---------------------------------------------------------------------------

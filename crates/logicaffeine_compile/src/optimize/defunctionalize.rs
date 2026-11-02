@@ -52,7 +52,12 @@ pub fn defunctionalize_stmts<'a>(
 ) -> Vec<Stmt<'a>> {
     let mut fn_returns: HashMap<Symbol, &'a TypeExpr<'a>> = HashMap::new();
     for s in &stmts {
-        if let Stmt::FunctionDef { name, return_type: Some(ty), .. } = s {
+        if let Stmt::FunctionDef {
+            name,
+            return_type: Some(ty),
+            ..
+        } = s
+        {
             fn_returns.insert(*name, ty);
         }
     }
@@ -85,9 +90,12 @@ impl<'a> Cx<'a, '_> {
         let mut iter = stmts.into_iter();
         while let Some(s) = iter.next() {
             match s {
-                Stmt::Let { var, ty, value, mutable: false }
-                    if matches!(value, Expr::Closure { .. }) =>
-                {
+                Stmt::Let {
+                    var,
+                    ty,
+                    value,
+                    mutable: false,
+                } if matches!(value, Expr::Closure { .. }) => {
                     // The remaining statements of THIS block are the
                     // closure's visible region.
                     let rest: Vec<Stmt<'a>> = iter.clone().collect();
@@ -97,9 +105,7 @@ impl<'a> Cx<'a, '_> {
                             out.push(Stmt::Let {
                                 var: *snap,
                                 ty: None,
-                                value: self
-                                    .expr_arena
-                                    .alloc(Expr::Identifier(*orig)),
+                                value: self.expr_arena.alloc(Expr::Identifier(*orig)),
                                 mutable: false,
                             });
                         }
@@ -107,11 +113,7 @@ impl<'a> Cx<'a, '_> {
                             var,
                             Lifted {
                                 fn_name: plan.fn_name,
-                                snapshots: plan
-                                    .snapshot_pairs
-                                    .iter()
-                                    .map(|(_, s)| *s)
-                                    .collect(),
+                                snapshots: plan.snapshot_pairs.iter().map(|(_, s)| *s).collect(),
                                 arity: plan.arity,
                             },
                         );
@@ -128,7 +130,12 @@ impl<'a> Cx<'a, '_> {
                     } else {
                         tyenv.remove(&var);
                     }
-                    out.push(Stmt::Let { var, ty, value, mutable: false });
+                    out.push(Stmt::Let {
+                        var,
+                        ty,
+                        value,
+                        mutable: false,
+                    });
                 }
                 other => {
                     let rewritten = self.rewrite_stmt(other, &mut env, &mut tyenv);
@@ -146,7 +153,12 @@ impl<'a> Cx<'a, '_> {
         tyenv: &mut HashMap<Symbol, &'a TypeExpr<'a>>,
     ) -> Stmt<'a> {
         match s {
-            Stmt::Let { var, ty, value, mutable } => {
+            Stmt::Let {
+                var,
+                ty,
+                value,
+                mutable,
+            } => {
                 let value = self.rewrite_expr(value, env);
                 // The new binding shadows any same-named lifted closure.
                 env.remove(&var);
@@ -165,7 +177,12 @@ impl<'a> Cx<'a, '_> {
                 } else {
                     tyenv.remove(&var);
                 }
-                Stmt::Let { var, ty, value, mutable }
+                Stmt::Let {
+                    var,
+                    ty,
+                    value,
+                    mutable,
+                }
             }
             Stmt::Set { target, value } => {
                 let value = self.rewrite_expr(value, env);
@@ -179,43 +196,85 @@ impl<'a> Cx<'a, '_> {
             Stmt::Return { value } => Stmt::Return {
                 value: value.map(|v| self.rewrite_expr(v, env)),
             },
-            Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
+            Stmt::RuntimeAssert {
+                condition,
+                hard,
+                dim,
+                reason,
+            } => Stmt::RuntimeAssert {
                 condition: self.rewrite_expr(condition, env),
                 hard,
+                dim,
+                reason: reason.map(|r| self.rewrite_expr(r, env)),
             },
             Stmt::Push { value, collection } => Stmt::Push {
                 value: self.rewrite_expr(value, env),
                 collection: self.rewrite_expr(collection, env),
             },
-            Stmt::SetIndex { collection, index, value } => Stmt::SetIndex {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => Stmt::SetIndex {
                 collection: self.rewrite_expr(collection, env),
                 index: self.rewrite_expr(index, env),
                 value: self.rewrite_expr(value, env),
             },
-            Stmt::SetField { object, field, value } => Stmt::SetField {
+            Stmt::SetField {
+                object,
+                field,
+                value,
+            } => Stmt::SetField {
                 object: self.rewrite_expr(object, env),
                 field,
                 value: self.rewrite_expr(value, env),
             },
             Stmt::Call { function, args } => Stmt::Call {
                 function,
-                args: args.into_iter().map(|a| self.rewrite_expr(a, env)).collect(),
+                args: args
+                    .into_iter()
+                    .map(|a| self.rewrite_expr(a, env))
+                    .collect(),
             },
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 let cond = self.rewrite_expr(cond, env);
                 let tb = self.rewrite_nested(then_block, env, tyenv);
                 let eb = else_block.map(|b| self.rewrite_nested(b, env, tyenv));
-                Stmt::If { cond, then_block: tb, else_block: eb }
+                Stmt::If {
+                    cond,
+                    then_block: tb,
+                    else_block: eb,
+                }
             }
-            Stmt::While { cond, body, decreasing } => {
+            Stmt::While {
+                cond,
+                body,
+                decreasing,
+            } => {
                 let cond = self.rewrite_expr(cond, env);
                 let body = self.rewrite_nested(body, env, tyenv);
-                Stmt::While { cond, body, decreasing }
+                Stmt::While {
+                    cond,
+                    body,
+                    decreasing,
+                }
             }
-            Stmt::Repeat { pattern, iterable, body } => {
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
                 let iterable = self.rewrite_expr(iterable, env);
                 let body = self.rewrite_nested(body, env, tyenv);
-                Stmt::Repeat { pattern, iterable, body }
+                Stmt::Repeat {
+                    pattern,
+                    iterable,
+                    body,
+                }
             }
             Stmt::FunctionDef {
                 name,
@@ -236,8 +295,7 @@ impl<'a> Cx<'a, '_> {
                 for (p, t) in &params {
                     inner_ty.insert(*p, t);
                 }
-                let body_vec =
-                    self.rewrite_block(body.to_vec(), &inner_env, &inner_ty);
+                let body_vec = self.rewrite_block(body.to_vec(), &inner_env, &inner_ty);
                 Stmt::FunctionDef {
                     name,
                     generics,
@@ -265,11 +323,7 @@ impl<'a> Cx<'a, '_> {
         self.stmt_arena.alloc_slice(walked)
     }
 
-    fn rewrite_expr(
-        &mut self,
-        e: &'a Expr<'a>,
-        env: &HashMap<Symbol, Lifted>,
-    ) -> &'a Expr<'a> {
+    fn rewrite_expr(&mut self, e: &'a Expr<'a>, env: &HashMap<Symbol, Lifted>) -> &'a Expr<'a> {
         match e {
             Expr::CallExpr { callee, args } => {
                 if let Expr::Identifier(f) = callee {
@@ -278,9 +332,7 @@ impl<'a> Cx<'a, '_> {
                             let mut call_args: Vec<&'a Expr<'a>> = l
                                 .snapshots
                                 .iter()
-                                .map(|s| {
-                                    &*self.expr_arena.alloc(Expr::Identifier(*s))
-                                })
+                                .map(|s| &*self.expr_arena.alloc(Expr::Identifier(*s)))
                                 .collect();
                             for a in args {
                                 call_args.push(self.rewrite_expr(a, env));
@@ -303,7 +355,11 @@ impl<'a> Cx<'a, '_> {
                 if std::ptr::eq(l, *left) && std::ptr::eq(r, *right) {
                     e
                 } else {
-                    self.expr_arena.alloc(Expr::BinaryOp { op: *op, left: l, right: r })
+                    self.expr_arena.alloc(Expr::BinaryOp {
+                        op: *op,
+                        left: l,
+                        right: r,
+                    })
                 }
             }
             Expr::Not { operand } => {
@@ -329,17 +385,23 @@ impl<'a> Cx<'a, '_> {
                         for a in args {
                             call_args.push(self.rewrite_expr(a, env));
                         }
-                        return self
-                            .expr_arena
-                            .alloc(Expr::Call { function: fn_name, args: call_args });
+                        return self.expr_arena.alloc(Expr::Call {
+                            function: fn_name,
+                            args: call_args,
+                        });
                     }
                 }
                 let new_args: Vec<&'a Expr<'a>> =
                     args.iter().map(|a| self.rewrite_expr(a, env)).collect();
-                let changed =
-                    new_args.iter().zip(args.iter()).any(|(n, o)| !std::ptr::eq(*n, *o));
+                let changed = new_args
+                    .iter()
+                    .zip(args.iter())
+                    .any(|(n, o)| !std::ptr::eq(*n, *o));
                 if changed {
-                    self.expr_arena.alloc(Expr::Call { function: *function, args: new_args })
+                    self.expr_arena.alloc(Expr::Call {
+                        function: *function,
+                        args: new_args,
+                    })
                 } else {
                     e
                 }
@@ -350,7 +412,10 @@ impl<'a> Cx<'a, '_> {
                 if std::ptr::eq(c, *collection) && std::ptr::eq(i, *index) {
                     e
                 } else {
-                    self.expr_arena.alloc(Expr::Index { collection: c, index: i })
+                    self.expr_arena.alloc(Expr::Index {
+                        collection: c,
+                        index: i,
+                    })
                 }
             }
             Expr::Length { collection } => {
@@ -377,7 +442,12 @@ impl<'a> Cx<'a, '_> {
         tyenv: &HashMap<Symbol, &'a TypeExpr<'a>>,
         rest: &[Stmt<'a>],
     ) -> Option<Plan> {
-        let Expr::Closure { params, body, return_type } = closure else {
+        let Expr::Closure {
+            params,
+            body,
+            return_type,
+        } = closure
+        else {
             return None;
         };
         // Every visible use must be a direct, arity-matching call.
@@ -417,6 +487,7 @@ impl<'a> Cx<'a, '_> {
             let var_s = self.interner.resolve(var).to_string();
             self.interner.intern(&format!("__defunc{id}_{var_s}"))
         };
+        super::mark_lifted_closure(fn_name);
         let body_stmts: Vec<Stmt<'a>> = match body {
             ClosureBody::Expression(e) => vec![Stmt::Return { value: Some(e) }],
             ClosureBody::Block(b) => b.to_vec(),
@@ -441,7 +512,11 @@ impl<'a> Cx<'a, '_> {
             export_target: None,
             opt_flags: Default::default(),
         });
-        Some(Plan { fn_name, snapshot_pairs, arity: params.len() })
+        Some(Plan {
+            fn_name,
+            snapshot_pairs,
+            arity: params.len(),
+        })
     }
 }
 
@@ -510,7 +585,11 @@ fn stmt_uses_ok(s: &Stmt, var: Symbol, arity: usize, shadowed: &mut bool) -> boo
         Stmt::Push { value, collection } => {
             expr_uses_ok(value, var, arity) && expr_uses_ok(collection, var, arity)
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             expr_uses_ok(collection, var, arity)
                 && expr_uses_ok(index, var, arity)
                 && expr_uses_ok(value, var, arity)
@@ -519,10 +598,16 @@ fn stmt_uses_ok(s: &Stmt, var: Symbol, arity: usize, shadowed: &mut bool) -> boo
             expr_uses_ok(object, var, arity) && expr_uses_ok(value, var, arity)
         }
         Stmt::Call { args, .. } => args.iter().all(|a| expr_uses_ok(a, var, arity)),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_uses_ok(cond, var, arity)
                 && block_uses_ok(then_block, var, arity)
-                && else_block.map(|b| block_uses_ok(b, var, arity)).unwrap_or(true)
+                && else_block
+                    .map(|b| block_uses_ok(b, var, arity))
+                    .unwrap_or(true)
         }
         Stmt::While { cond, body, .. } => {
             expr_uses_ok(cond, var, arity) && block_uses_ok(body, var, arity)
@@ -564,7 +649,11 @@ fn expr_uses_ok(e: &Expr, var: Symbol, arity: usize) -> bool {
         Expr::Index { collection, index } => {
             expr_uses_ok(collection, var, arity) && expr_uses_ok(index, var, arity)
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             expr_uses_ok(collection, var, arity)
                 && expr_uses_ok(start, var, arity)
                 && expr_uses_ok(end, var, arity)
@@ -574,9 +663,7 @@ fn expr_uses_ok(e: &Expr, var: Symbol, arity: usize) -> bool {
         Expr::Contains { collection, value } => {
             expr_uses_ok(collection, var, arity) && expr_uses_ok(value, var, arity)
         }
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().all(|i| expr_uses_ok(i, var, arity))
-        }
+        Expr::List(items) | Expr::Tuple(items) => items.iter().all(|i| expr_uses_ok(i, var, arity)),
         Expr::Range { start, end, .. } => {
             expr_uses_ok(start, var, arity) && expr_uses_ok(end, var, arity)
         }
@@ -611,9 +698,7 @@ fn expr_mentions(e: &Expr, var: Symbol) -> bool {
     match e {
         Expr::Identifier(s) => *s == var,
         Expr::Literal(_) | Expr::OptionNone => false,
-        Expr::BinaryOp { left, right, .. } => {
-            expr_mentions(left, var) || expr_mentions(right, var)
-        }
+        Expr::BinaryOp { left, right, .. } => expr_mentions(left, var) || expr_mentions(right, var),
         Expr::Not { operand } => expr_mentions(operand, var),
         Expr::Call { args, .. } => args.iter().any(|a| expr_mentions(a, var)),
         Expr::CallExpr { callee, args } => {
@@ -622,20 +707,18 @@ fn expr_mentions(e: &Expr, var: Symbol) -> bool {
         Expr::Index { collection, index } => {
             expr_mentions(collection, var) || expr_mentions(index, var)
         }
-        Expr::Slice { collection, start, end } => {
-            expr_mentions(collection, var)
-                || expr_mentions(start, var)
-                || expr_mentions(end, var)
-        }
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => expr_mentions(collection, var) || expr_mentions(start, var) || expr_mentions(end, var),
         Expr::Copy { expr } => expr_mentions(expr, var),
         Expr::Length { collection } => expr_mentions(collection, var),
         Expr::Contains { collection, value } => {
             expr_mentions(collection, var) || expr_mentions(value, var)
         }
         Expr::List(items) | Expr::Tuple(items) => items.iter().any(|i| expr_mentions(i, var)),
-        Expr::Range { start, end, .. } => {
-            expr_mentions(start, var) || expr_mentions(end, var)
-        }
+        Expr::Range { start, end, .. } => expr_mentions(start, var) || expr_mentions(end, var),
         Expr::FieldAccess { object, .. } => expr_mentions(object, var),
         Expr::OptionSome { value } => expr_mentions(value, var),
         Expr::Give { value } => expr_mentions(value, var),
@@ -664,16 +747,22 @@ fn stmt_mentions(s: &Stmt, var: Symbol) -> bool {
         Stmt::Push { value, collection } => {
             expr_mentions(value, var) || expr_mentions(collection, var)
         }
-        Stmt::SetIndex { collection, index, value } => {
-            expr_mentions(collection, var)
-                || expr_mentions(index, var)
-                || expr_mentions(value, var)
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
+            expr_mentions(collection, var) || expr_mentions(index, var) || expr_mentions(value, var)
         }
         Stmt::SetField { object, value, .. } => {
             expr_mentions(object, var) || expr_mentions(value, var)
         }
         Stmt::Call { args, .. } => args.iter().any(|a| expr_mentions(a, var)),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_mentions(cond, var)
                 || then_block.iter().any(|b| stmt_mentions(b, var))
                 || else_block
@@ -749,10 +838,14 @@ fn free_vars_block(
                 bound.contains(target) && free_vars_expr(value, bound, free)
             }
             Stmt::Show { object, .. } => free_vars_expr(object, bound, free),
-            Stmt::Return { value } => {
-                value.map(|v| free_vars_expr(v, bound, free)).unwrap_or(true)
-            }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::Return { value } => value
+                .map(|v| free_vars_expr(v, bound, free))
+                .unwrap_or(true),
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 free_vars_expr(cond, bound, free)
                     && free_vars_block(then_block, bound, free)
                     && else_block

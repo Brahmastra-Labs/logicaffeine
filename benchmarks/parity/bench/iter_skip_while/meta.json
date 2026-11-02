@@ -1,0 +1,11 @@
+{
+  "capability": "iter.skip_while",
+  "workload": "dropWhileSeq((n)->n<0, xs) \u2014 length",
+  "arg": "60000",
+  "expected": "245760000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "python"
+  ]
+}

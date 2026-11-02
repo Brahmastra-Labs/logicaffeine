@@ -30,10 +30,7 @@ fn test_certify_universal_intro_trivial() {
     StandardLibrary::register(&mut ctx);
 
     // Inner proof: I proves True
-    let i_proof = DerivationTree::leaf(
-        ProofExpr::Atom("I".to_string()),
-        InferenceRule::Axiom,
-    );
+    let i_proof = DerivationTree::leaf(ProofExpr::Atom("I".to_string()), InferenceRule::Axiom);
 
     // Outer: ∀x:Nat. True via UniversalIntro
     let tree = DerivationTree::new(
@@ -56,7 +53,11 @@ fn test_certify_universal_intro_trivial() {
 
     // term should be: λ(x:Nat). I
     match &term {
-        Term::Lambda { param, param_type, body } => {
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => {
             assert_eq!(param, "x");
             assert!(
                 matches!(param_type.as_ref(), Term::Global(n) if n == "Nat"),
@@ -77,7 +78,11 @@ fn test_certify_universal_intro_trivial() {
     println!("Inferred type: {}", inferred);
 
     match &inferred {
-        Term::Pi { param, param_type, body_type } => {
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => {
             assert_eq!(param, "x");
             assert!(
                 matches!(param_type.as_ref(), Term::Global(n) if n == "Nat"),

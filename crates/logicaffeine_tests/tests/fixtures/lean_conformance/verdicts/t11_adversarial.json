@@ -1,0 +1,160 @@
+{
+  "tier": "t11_adversarial",
+  "test_binary": "lean_conformance_t11_adversarial",
+  "cases": [
+    {
+      "id": "T11-001",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "cumulativity_admits_the_sort_judgements_lean_refuses",
+      "why": "Lean 4 has NO cumulativity: Type 0 and Type 1 are unrelated and Prop is not Type 0. LOGOS admits Prop <= Type i <= Type j plus Pi variance (contravariant domain, covariant codomain) \u2014 Coq-style, strictly more permissive, and deliberate. It is defensible because the leniency is BOUNDED and the boundary is pinned by the test: is_subtype_normalized has arms only for Sort/Sort and Pi and delegates every other shape to def_eq, so a type ARGUMENT stays invariant and TList Prop is not a subtype of TList (Type 0). The cost is real and it belongs to a translator rather than to us: our acceptance set is strictly larger than Lean's in exactly the dimension a universe bug lives in, so the LOGOS kernel accepting a term is not evidence that the term is the Lean one. That is the corpus's tier-11 thesis, and it is why every other case in this tier is a MUST rather than a second divergence."
+    },
+    {
+      "id": "T11-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::succ_and_the_level_model_are_one_algebra",
+      "why": ""
+    },
+    {
+      "id": "T11-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::every_prelude_name_means_the_same_thing_to_typing_and_to_reduction",
+      "why": ""
+    },
+    {
+      "id": "T11-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_hole_turns_the_type_check_into_a_no_op_at_its_position",
+      "why": ""
+    },
+    {
+      "id": "T11-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::normalize_must_not_hand_back_an_unfinished_reduction_as_a_normal_form",
+      "why": ""
+    },
+    {
+      "id": "T11-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects_proof::rewrite_does_not_capture_the_replacements_free_variable_under_a_binder",
+      "why": ""
+    },
+    {
+      "id": "T11-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "substituting_one_argument_into_a_telescope_copies_it_per_binder",
+      "why": ""
+    },
+    {
+      "id": "T11-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_nat_literal_peano_bridge_holds_and_refuses_a_negative_count",
+      "why": ""
+    },
+    {
+      "id": "T11-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "proof_irrelevance_is_a_one_way_last_resort_rule",
+      "why": ""
+    },
+    {
+      "id": "T11-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::an_indexed_match_on_bvec_typechecks_and_computes",
+      "why": ""
+    },
+    {
+      "id": "T11-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_mutual_block_with_unequal_parameter_counts_registers_anyway",
+      "why": ""
+    },
+    {
+      "id": "T11-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "nesting_through_a_container_with_an_extra_field_is_refused",
+      "why": ""
+    },
+    {
+      "id": "T11-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::add_definition_rejects_a_mistyped_body",
+      "why": ""
+    },
+    {
+      "id": "T11-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_sorry_axiom_is_certified_by_both_kernels_with_no_audit_trail",
+      "why": ""
+    },
+    {
+      "id": "T11-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "trusted_base_drift_surfaces_only_as_an_unbound_variable",
+      "why": ""
+    },
+    {
+      "id": "T11-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "int_is_an_opaque_carrier_whose_ring_laws_are_assumptions",
+      "why": ""
+    },
+    {
+      "id": "T11-017",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "reduce_bool_admits_the_evaluator_into_both_kernels_conversion",
+      "why": "reduceBool/ofReduceBool are exactly Lean's Lean.reduceBool/Lean.ofReduceBool, so the shape is faithful and this is not a capability gap \u2014 we have native_decide. What differs is the trusted component behind it, and ours is the SMALLER commitment. Lean's native_decide trusts the Lean compiler and its runtime (Lean.trustCompiler): a compiled artefact no independent re-checker can see into. Ours trusts crate::eval, an in-repo CBV interpreter, hooked identically into reduction.rs's reduce_step and into recheck.rs's whnf \u2014 so the second, independently-written de Bruijn kernel still corroborates every term whose typing depends on the hook, which the test pins with a DoubleCheck::Agreed. The honest hazard is shared rather than ours alone: neither system checks that reduceBool's argument is the decide of the proposition being proved, and the test pins that too, on an ordinary definition with no decide in sight."
+    },
+    {
+      "id": "T11-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_gimenez_guard_refuses_a_let_aliased_smaller_variable",
+      "why": ""
+    },
+    {
+      "id": "T11-019",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_type_one_inductive_gets_a_recursor_pinned_to_type_zero",
+      "why": ""
+    },
+    {
+      "id": "T11-020",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "lean_conformance_defects::large_elimination_admits_exactly_the_propositional_and_indexed_constructor_fields",
+      "why": ""
+    },
+    {
+      "id": "T11-021",
+      "verdict": "MUST",
+      "status": "Refused",
+      "test": "automation_extra::a_dead_inference_rule_is_refused_deliberately_and_names_itself",
+      "why": ""
+    },
+    {
+      "id": "T11-022",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_document_with_two_theorem_blocks_proves_only_the_first",
+      "why": "CLOSED 2026-09-15, vernacular-surface wave: `Repl::execute` is a SINGLE-command door and refuses a prefix (`ParseError::TrailingInput`), so a second `## Theorem` block can no longer be discarded in silence; `Repl::execute_document` is the document door and is fail-EARLY, so a false block anywhere refuses the document and nothing after it is registered. Concatenation no longer walks around the `concludes` gate."
+    }
+  ]
+}

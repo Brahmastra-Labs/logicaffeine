@@ -1,0 +1,880 @@
+# Encoding
+
+Byte encodings in pure LOGOS, compiled through every execution tier. Hexadecimal today
+(lowercase). Auto-imported on first reference.
+
+## Note
+Maps a nibble value 0-15 to its lowercase hex character byte: `0`-`9` for 0-9, `a`-`f` for 10-15.
+
+## To hexDigit (v: Int) -> Int:
+    If v is less than 10:
+        Return 48 + v.
+    Return 97 + (v - 10).
+
+## Note
+Maps a hex character byte back to its value 0-15, accepting digits `0`-`9`, lowercase `a`-`f`, and uppercase `A`-`F`; returns 0 for anything else.
+
+## To hexVal (ch: Int) -> Int:
+    If ch is at least 48:
+        If ch is at most 57:
+            Return ch - 48.
+    If ch is at least 97:
+        If ch is at most 102:
+            Return 10 + (ch - 97).
+    If ch is at least 65:
+        If ch is at most 70:
+            Return 10 + (ch - 65).
+    Return 0.
+
+## Note
+Encodes each input byte as two lowercase hex characters (high nibble then low), producing a hex string.
+
+## To toHex (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for bt in sb:
+        Push hexDigit(bt / 16) to out.
+        Push hexDigit(bt % 16) to out.
+    Return text_from_bytes(out).
+
+## Note
+Decodes a hex string, combining each pair of hex characters back into one byte.
+
+## To fromHex (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most (n - 1):
+        Let hi be hexVal(item i of sb).
+        Let lo be hexVal(item (i + 1) of sb).
+        Push (hi * 16 + lo) to out.
+        Set i to i + 2.
+    Return text_from_bytes(out).
+
+## Note
+Maps a 6-bit value 0-63 to its standard base64 alphabet character: `A`-`Z`, `a`-`z`, `0`-`9`, then `+` (62) and `/` (63).
+
+## To b64Char (v: Int) -> Int:
+    If v is less than 26:
+        Return 65 + v.
+    If v is less than 52:
+        Return 97 + (v - 26).
+    If v is less than 62:
+        Return 48 + (v - 52).
+    If v is equal to 62:
+        Return 43.
+    Return 47.
+
+## Note
+Encodes bytes to standard base64, processing 3-byte groups into 4 characters and padding short final groups with `=`.
+
+## To base64Encode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of sb.
+        Let mutable b1 be 0.
+        Let mutable b2 be 0.
+        Let mutable have be 1.
+        If i + 1 is at most n:
+            Set b1 to item (i + 1) of sb.
+            Set have to 2.
+        If i + 2 is at most n:
+            Set b2 to item (i + 2) of sb.
+            Set have to 3.
+        Let triple be (b0 shifted left by 16) | (b1 shifted left by 8) | b2.
+        Push b64Char((triple shifted right by 18) & 63) to out.
+        Push b64Char((triple shifted right by 12) & 63) to out.
+        If have is at least 2:
+            Push b64Char((triple shifted right by 6) & 63) to out.
+        Otherwise:
+            Push 61 to out.
+        If have is at least 3:
+            Push b64Char(triple & 63) to out.
+        Otherwise:
+            Push 61 to out.
+        Set i to i + 3.
+    Return text_from_bytes(out).
+
+## Note
+Maps a standard base64 character byte back to its 6-bit value 0-63 (`A`-`Z`, `a`-`z`, `0`-`9`, `+`), defaulting to 63 (`/`).
+
+## To b64Val (ch: Int) -> Int:
+    If ch is at least 65:
+        If ch is at most 90:
+            Return ch - 65.
+    If ch is at least 97:
+        If ch is at most 122:
+            Return ch - 97 + 26.
+    If ch is at least 48:
+        If ch is at most 57:
+            Return ch - 48 + 52.
+    If ch is equal to 43:
+        Return 62.
+    Return 63.
+
+## Note
+Decodes standard base64, reading 4-character groups into 3 bytes and stopping early on `=` padding.
+
+## To base64Decode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i + 3 is at most n:
+        Let c0 be item i of sb.
+        Let c1 be item (i + 1) of sb.
+        Let c2 be item (i + 2) of sb.
+        Let c3 be item (i + 3) of sb.
+        Let triple be (b64Val(c0) shifted left by 18) | (b64Val(c1) shifted left by 12) | (b64Val(c2) shifted left by 6) | b64Val(c3).
+        Push (triple shifted right by 16) & 255 to out.
+        If c2 is equal to 61:
+            Set i to n + 1.
+        Otherwise:
+            Push (triple shifted right by 8) & 255 to out.
+            If c3 is equal to 61:
+                Set i to n + 1.
+            Otherwise:
+                Push triple & 255 to out.
+                Set i to i + 4.
+    Return text_from_bytes(out).
+
+## Note
+Base64-encodes `s` with a newline every 76 output characters and a trailing newline (Python's `base64.encodebytes`).
+
+## To base64Encodebytes (s: Text) -> Text:
+    Let enc be base64Encode(s).
+    Let eb be text_bytes(enc).
+    Let n be length of eb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    Let mutable col be 0.
+    While i is at most n:
+        Push item i of eb to out.
+        Set col to col + 1.
+        If col is equal to 76:
+            Push 10 to out.
+            Set col to 0.
+        Set i to i + 1.
+    If col is greater than 0:
+        Push 10 to out.
+    Return text_from_bytes(out).
+
+## Note
+Decodes base64 `s`, ignoring embedded newlines (Python's `base64.decodebytes`).
+
+## To base64Decodebytes (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let clean be a new Seq of Int.
+    Repeat for b in sb:
+        Let mutable keep be true.
+        If b is equal to 10:
+            Set keep to false.
+        If b is equal to 13:
+            Set keep to false.
+        If keep is equal to true:
+            Push b to clean.
+    Return base64Decode(text_from_bytes(clean)).
+
+## Note
+Base64-encodes `s` on a single line with a trailing newline, no line wrapping (`binascii.b2a_base64`).
+
+## To base64B2a (s: Text) -> Text:
+    Let eb be text_bytes(base64Encode(s)).
+    Let out be a new Seq of Int.
+    Repeat for b in eb:
+        Push b to out.
+    Push 10 to out.
+    Return text_from_bytes(out).
+
+## Note
+Uuencodes one line of `data` (up to 45 bytes): a length byte then four six-bit characters per three bytes, ending in a newline (`binascii.b2a_uu`).
+
+## To b2a_uu (data: Seq of Int) -> Text:
+    Let n be length of data.
+    Let out be a new Seq of Int.
+    Push (n + 32) to out.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of data.
+        Let mutable b1 be 0.
+        Let mutable b2 be 0.
+        If (i + 1) is at most n:
+            Set b1 to item (i + 1) of data.
+        If (i + 2) is at most n:
+            Set b2 to item (i + 2) of data.
+        Push (((b0 shifted right by 2) & 63) + 32) to out.
+        Push ((((b0 shifted left by 4) | (b1 shifted right by 4)) & 63) + 32) to out.
+        Push ((((b1 shifted left by 2) | (b2 shifted right by 6)) & 63) + 32) to out.
+        Push ((b2 & 63) + 32) to out.
+        Set i to i + 3.
+    Push 10 to out.
+    Return text_from_bytes(out).
+
+## Note
+Decodes one uuencoded line back to its bytes, using the leading length byte (`binascii.a2b_uu`).
+
+## To a2b_uu (s: Text) -> Seq of Int:
+    Let sb be text_bytes(s).
+    Let ns be length of sb.
+    Let out be a new Seq of Int.
+    If ns is equal to 0:
+        Return out.
+    Let dn be (item 1 of sb) - 32.
+    Let mutable i be 2.
+    Let mutable more be true.
+    While more is equal to true:
+        If (length of out) is at least dn:
+            Set more to false.
+        Otherwise:
+            Let c0 be ((item i of sb) - 32) & 63.
+            Let c1 be ((item (i + 1) of sb) - 32) & 63.
+            Let c2 be ((item (i + 2) of sb) - 32) & 63.
+            Let c3 be ((item (i + 3) of sb) - 32) & 63.
+            Push (((c0 shifted left by 2) | (c1 shifted right by 4)) & 255) to out.
+            If (length of out) is less than dn:
+                Push (((c1 shifted left by 4) | (c2 shifted right by 2)) & 255) to out.
+            If (length of out) is less than dn:
+                Push (((c2 shifted left by 6) | c3) & 255) to out.
+            Set i to i + 4.
+    Return out.
+
+## Note
+True when byte `b` is emitted as-is by quoted-printable: a tab, a space, or a printable ASCII byte other than `=`.
+
+## To qpKeep (b: Int) -> Bool:
+    If b is equal to 9:
+        Return true.
+    If b is equal to 32:
+        Return true.
+    If b is equal to 61:
+        Return false.
+    If b is less than 33:
+        Return false.
+    If b is greater than 126:
+        Return false.
+    Return true.
+
+## Note
+Quoted-printable encodes `data`: printable bytes and spaces/tabs pass through, everything else becomes `=XX` uppercase hex (`binascii.b2a_qp`).
+
+## To b2a_qp (data: Seq of Int) -> Text:
+    Let out be a new Seq of Int.
+    Repeat for b in data:
+        If qpKeep(b):
+            Push b to out.
+        Otherwise:
+            Push 61 to out.
+            Push hexDigitUpper(b shifted right by 4) to out.
+            Push hexDigitUpper(b & 15) to out.
+    Return text_from_bytes(out).
+
+## Note
+Decodes quoted-printable `s`: each `=XX` becomes the byte with that hex value, other bytes pass through (`binascii.a2b_qp`).
+
+## To a2b_qp (s: Text) -> Seq of Int:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let c be item i of sb.
+        If c is equal to 61:
+            If (i + 2) is at most n:
+                Let hi be hexVal(item (i + 1) of sb).
+                Let lo be hexVal(item (i + 2) of sb).
+                Push ((hi shifted left by 4) | lo) to out.
+                Set i to i + 3.
+            Otherwise:
+                Set i to i + 1.
+        Otherwise:
+            Push c to out.
+            Set i to i + 1.
+    Return out.
+
+## Note
+Maps a 5-bit value 0-31 to its RFC 4648 base32 character: `A`-`Z` for 0-25 and `2`-`7` for 26-31.
+
+## To b32Char (v: Int) -> Int:
+    If v is less than 26:
+        Return 65 + v.
+    Return 50 + (v - 26).
+
+## Note
+Encodes bytes to RFC 4648 base32, processing 5-byte groups into 8 characters and padding short final groups with `=`.
+
+## To base32Encode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of sb.
+        Let mutable b1 be 0.
+        Let mutable b2 be 0.
+        Let mutable b3 be 0.
+        Let mutable b4 be 0.
+        Let mutable have be 1.
+        If i + 1 is at most n:
+            Set b1 to item (i + 1) of sb.
+            Set have to 2.
+        If i + 2 is at most n:
+            Set b2 to item (i + 2) of sb.
+            Set have to 3.
+        If i + 3 is at most n:
+            Set b3 to item (i + 3) of sb.
+            Set have to 4.
+        If i + 4 is at most n:
+            Set b4 to item (i + 4) of sb.
+            Set have to 5.
+        Let acc be (b0 shifted left by 32) | (b1 shifted left by 24) | (b2 shifted left by 16) | (b3 shifted left by 8) | b4.
+        Push b32Char((acc shifted right by 35) & 31) to out.
+        Push b32Char((acc shifted right by 30) & 31) to out.
+        If have is at least 2:
+            Push b32Char((acc shifted right by 25) & 31) to out.
+            Push b32Char((acc shifted right by 20) & 31) to out.
+        Otherwise:
+            Push 61 to out.
+            Push 61 to out.
+        If have is at least 3:
+            Push b32Char((acc shifted right by 15) & 31) to out.
+        Otherwise:
+            Push 61 to out.
+        If have is at least 4:
+            Push b32Char((acc shifted right by 10) & 31) to out.
+            Push b32Char((acc shifted right by 5) & 31) to out.
+        Otherwise:
+            Push 61 to out.
+            Push 61 to out.
+        If have is at least 5:
+            Push b32Char(acc & 31) to out.
+        Otherwise:
+            Push 61 to out.
+        Set i to i + 5.
+    Return text_from_bytes(out).
+
+## Note
+Maps an RFC 4648 base32 character byte back to its 5-bit value: `A`-`Z` to 0-25 and `2`-`7` to 26-31; returns 0 otherwise.
+
+## To b32Val (ch: Int) -> Int:
+    If ch is at least 65:
+        If ch is at most 90:
+            Return ch - 65.
+    If ch is at least 50:
+        If ch is at most 55:
+            Return 26 + (ch - 50).
+    Return 0.
+
+## Note
+Decodes RFC 4648 base32, reading 8-character groups into up to 5 bytes and using `=` padding to determine the byte count.
+
+## To base32Decode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i + 7 is at most n:
+        Let c0 be item i of sb.
+        Let c1 be item (i + 1) of sb.
+        Let c2 be item (i + 2) of sb.
+        Let c3 be item (i + 3) of sb.
+        Let c4 be item (i + 4) of sb.
+        Let c5 be item (i + 5) of sb.
+        Let c6 be item (i + 6) of sb.
+        Let c7 be item (i + 7) of sb.
+        Let acc be (b32Val(c0) shifted left by 35) | (b32Val(c1) shifted left by 30) | (b32Val(c2) shifted left by 25) | (b32Val(c3) shifted left by 20) | (b32Val(c4) shifted left by 15) | (b32Val(c5) shifted left by 10) | (b32Val(c6) shifted left by 5) | b32Val(c7).
+        Let mutable nbytes be 5.
+        If c2 is equal to 61:
+            Set nbytes to 1.
+        Otherwise:
+            If c4 is equal to 61:
+                Set nbytes to 2.
+            Otherwise:
+                If c5 is equal to 61:
+                    Set nbytes to 3.
+                Otherwise:
+                    If c7 is equal to 61:
+                        Set nbytes to 4.
+        Push (acc shifted right by 32) & 255 to out.
+        If nbytes is at least 2:
+            Push (acc shifted right by 24) & 255 to out.
+        If nbytes is at least 3:
+            Push (acc shifted right by 16) & 255 to out.
+        If nbytes is at least 4:
+            Push (acc shifted right by 8) & 255 to out.
+        If nbytes is at least 5:
+            Push acc & 255 to out.
+        Set i to i + 8.
+    Return text_from_bytes(out).
+
+## Note
+Encodes bytes to ascii85, turning each 4-byte group into 5 characters starting at `!`, and abbreviating an all-zero group as `z`.
+
+## To ascii85Encode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of sb.
+        Let mutable b1 be 0.
+        Let mutable b2 be 0.
+        Let mutable b3 be 0.
+        Let mutable have be 1.
+        If i + 1 is at most n:
+            Set b1 to item (i + 1) of sb.
+            Set have to 2.
+        If i + 2 is at most n:
+            Set b2 to item (i + 2) of sb.
+            Set have to 3.
+        If i + 3 is at most n:
+            Set b3 to item (i + 3) of sb.
+            Set have to 4.
+        Let acc be (b0 shifted left by 24) | (b1 shifted left by 16) | (b2 shifted left by 8) | b3.
+        Let mutable didz be 0.
+        If have is equal to 4:
+            If acc is equal to 0:
+                Push 122 to out.
+                Set didz to 1.
+        If didz is equal to 0:
+            Let d0 be (acc / 52200625) % 85.
+            Let d1 be (acc / 614125) % 85.
+            Let d2 be (acc / 7225) % 85.
+            Let d3 be (acc / 85) % 85.
+            Let d4 be acc % 85.
+            Push 33 + d0 to out.
+            Push 33 + d1 to out.
+            If have is at least 2:
+                Push 33 + d2 to out.
+            If have is at least 3:
+                Push 33 + d3 to out.
+            If have is at least 4:
+                Push 33 + d4 to out.
+        Set i to i + 4.
+    Return text_from_bytes(out).
+
+## Note
+Decodes ascii85, expanding each `z` to five zero digits and converting each 5-character group back into up to 4 bytes.
+
+## To ascii85Decode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let norm be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let ch be item i of sb.
+        If ch is equal to 122:
+            Push 0 to norm.
+            Push 0 to norm.
+            Push 0 to norm.
+            Push 0 to norm.
+            Push 0 to norm.
+        Otherwise:
+            Push (ch - 33) to norm.
+        Set i to i + 1.
+    Let m be length of norm.
+    Let out be a new Seq of Int.
+    Let mutable j be 1.
+    While j is at most m:
+        Let v0 be item j of norm.
+        Let mutable v1 be 84.
+        Let mutable v2 be 84.
+        Let mutable v3 be 84.
+        Let mutable v4 be 84.
+        Let mutable have be 1.
+        If j + 1 is at most m:
+            Set v1 to item (j + 1) of norm.
+            Set have to 2.
+        If j + 2 is at most m:
+            Set v2 to item (j + 2) of norm.
+            Set have to 3.
+        If j + 3 is at most m:
+            Set v3 to item (j + 3) of norm.
+            Set have to 4.
+        If j + 4 is at most m:
+            Set v4 to item (j + 4) of norm.
+            Set have to 5.
+        Let acc be v0 * 52200625 + v1 * 614125 + v2 * 7225 + v3 * 85 + v4.
+        Push (acc shifted right by 24) & 255 to out.
+        If have is at least 3:
+            Push (acc shifted right by 16) & 255 to out.
+        If have is at least 4:
+            Push (acc shifted right by 8) & 255 to out.
+        If have is at least 5:
+            Push acc & 255 to out.
+        Set j to j + 5.
+    Return text_from_bytes(out).
+
+## Note
+Maps a nibble value 0-15 to its uppercase hex character byte: `0`-`9` for 0-9, `A`-`F` for 10-15.
+
+## To hexDigitUpper (v: Int) -> Int:
+    If v is less than 10:
+        Return 48 + v.
+    Return 65 + (v - 10).
+
+## Note
+Encodes each input byte as two uppercase hex characters (RFC 4648 base16).
+
+## To base16Encode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let out be a new Seq of Int.
+    Repeat for bt in sb:
+        Push hexDigitUpper(bt / 16) to out.
+        Push hexDigitUpper(bt % 16) to out.
+    Return text_from_bytes(out).
+
+## Note
+Encodes with `base64Encode`, then remaps `+` to `-` and `/` to `_` to produce the URL-safe base64 variant (padding kept).
+
+## To base64UrlEncode (s: Text) -> Text:
+    Let sb be text_bytes(base64Encode(s)).
+    Let out be a new Seq of Int.
+    Repeat for bt in sb:
+        If bt is equal to 43:
+            Push 45 to out.
+        Otherwise:
+            If bt is equal to 47:
+                Push 95 to out.
+            Otherwise:
+                Push bt to out.
+    Return text_from_bytes(out).
+
+## Note
+Remaps the URL-safe `-` to `+` and `_` to `/`, then decodes with `base64Decode`.
+
+## To base64UrlDecode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let mapped be a new Seq of Int.
+    Repeat for bt in sb:
+        If bt is equal to 45:
+            Push 43 to mapped.
+        Otherwise:
+            If bt is equal to 95:
+                Push 47 to mapped.
+            Otherwise:
+                Push bt to mapped.
+    Return base64Decode(text_from_bytes(mapped)).
+
+## Note
+Returns the 85-character Z85-style alphabet as byte values: `0`-`9`, `A`-`Z`, `a`-`z`, then a fixed set of punctuation symbols.
+
+## To b85Alphabet () -> Seq of Int:
+    Return [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 33, 35, 36, 37, 38, 40, 41, 42, 43, 45, 59, 60, 61, 62, 63, 64, 94, 95, 96, 123, 124, 125, 126].
+
+## Note
+Encodes bytes to base85 using the `b85Alphabet` characters, turning each 4-byte group into 5 digits via successive division by 85.
+
+## To base85Encode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let alphabet be b85Alphabet().
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of sb.
+        Let mutable b1 be 0.
+        Let mutable b2 be 0.
+        Let mutable b3 be 0.
+        Let mutable have be 1.
+        If i + 1 is at most n:
+            Set b1 to item (i + 1) of sb.
+            Set have to 2.
+        If i + 2 is at most n:
+            Set b2 to item (i + 2) of sb.
+            Set have to 3.
+        If i + 3 is at most n:
+            Set b3 to item (i + 3) of sb.
+            Set have to 4.
+        Let acc be (b0 shifted left by 24) | (b1 shifted left by 16) | (b2 shifted left by 8) | b3.
+        Let d0 be (acc / 52200625) % 85.
+        Let d1 be (acc / 614125) % 85.
+        Let d2 be (acc / 7225) % 85.
+        Let d3 be (acc / 85) % 85.
+        Let d4 be acc % 85.
+        Push item (d0 + 1) of alphabet to out.
+        Push item (d1 + 1) of alphabet to out.
+        If have is at least 2:
+            Push item (d2 + 1) of alphabet to out.
+        If have is at least 3:
+            Push item (d3 + 1) of alphabet to out.
+        If have is at least 4:
+            Push item (d4 + 1) of alphabet to out.
+        Set i to i + 4.
+    Return text_from_bytes(out).
+
+## Note
+Maps a base85 character byte back to its value 0-84 by linear search through `b85Alphabet`; returns 0 if not found.
+
+## To b85Val (ch: Int) -> Int:
+    Let alphabet be b85Alphabet().
+    Let mutable k be 1.
+    While k is at most 85:
+        If item k of alphabet is equal to ch:
+            Return k - 1.
+        Set k to k + 1.
+    Return 0.
+
+## Note
+Decodes base85 via `b85Val`, converting each group of up to 5 digits back into up to 4 bytes (short groups padded with 84).
+
+## To base85Decode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let v0 be b85Val(item i of sb).
+        Let mutable v1 be 84.
+        Let mutable v2 be 84.
+        Let mutable v3 be 84.
+        Let mutable v4 be 84.
+        Let mutable have be 1.
+        If i + 1 is at most n:
+            Set v1 to b85Val(item (i + 1) of sb).
+            Set have to 2.
+        If i + 2 is at most n:
+            Set v2 to b85Val(item (i + 2) of sb).
+            Set have to 3.
+        If i + 3 is at most n:
+            Set v3 to b85Val(item (i + 3) of sb).
+            Set have to 4.
+        If i + 4 is at most n:
+            Set v4 to b85Val(item (i + 4) of sb).
+            Set have to 5.
+        Let acc be v0 * 52200625 + v1 * 614125 + v2 * 7225 + v3 * 85 + v4.
+        Push (acc shifted right by 24) & 255 to out.
+        If have is at least 3:
+            Push (acc shifted right by 16) & 255 to out.
+        If have is at least 4:
+            Push (acc shifted right by 8) & 255 to out.
+        If have is at least 5:
+            Push acc & 255 to out.
+        Set i to i + 5.
+    Return text_from_bytes(out).
+
+## Note
+Maps a 5-bit value 0-31 to its base32hex (extended-hex) character: `0`-`9` for 0-9 and `A`-`V` for 10-31.
+
+## To b32hexChar (v: Int) -> Int:
+    If v is less than 10:
+        Return 48 + v.
+    Return 65 + (v - 10).
+
+## Note
+Encodes bytes to RFC 4648 base32hex using the extended-hex alphabet, 5-byte groups into 8 characters with `=` padding.
+
+## To base32hexEncode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b0 be item i of sb.
+        Let mutable b1 be 0.
+        Let mutable b2 be 0.
+        Let mutable b3 be 0.
+        Let mutable b4 be 0.
+        Let mutable have be 1.
+        If i + 1 is at most n:
+            Set b1 to item (i + 1) of sb.
+            Set have to 2.
+        If i + 2 is at most n:
+            Set b2 to item (i + 2) of sb.
+            Set have to 3.
+        If i + 3 is at most n:
+            Set b3 to item (i + 3) of sb.
+            Set have to 4.
+        If i + 4 is at most n:
+            Set b4 to item (i + 4) of sb.
+            Set have to 5.
+        Let acc be (b0 shifted left by 32) | (b1 shifted left by 24) | (b2 shifted left by 16) | (b3 shifted left by 8) | b4.
+        Push b32hexChar((acc shifted right by 35) & 31) to out.
+        Push b32hexChar((acc shifted right by 30) & 31) to out.
+        If have is at least 2:
+            Push b32hexChar((acc shifted right by 25) & 31) to out.
+            Push b32hexChar((acc shifted right by 20) & 31) to out.
+        Otherwise:
+            Push 61 to out.
+            Push 61 to out.
+        If have is at least 3:
+            Push b32hexChar((acc shifted right by 15) & 31) to out.
+        Otherwise:
+            Push 61 to out.
+        If have is at least 4:
+            Push b32hexChar((acc shifted right by 10) & 31) to out.
+            Push b32hexChar((acc shifted right by 5) & 31) to out.
+        Otherwise:
+            Push 61 to out.
+            Push 61 to out.
+        If have is at least 5:
+            Push b32hexChar(acc & 31) to out.
+        Otherwise:
+            Push 61 to out.
+        Set i to i + 5.
+    Return text_from_bytes(out).
+
+## Note
+Maps a base32hex (extended-hex) character byte back to its 5-bit value: `0`-`9` to 0-9 and `A`-`V` to 10-31; returns 0 otherwise.
+
+## To b32hexVal (ch: Int) -> Int:
+    If ch is at least 48:
+        If ch is at most 57:
+            Return ch - 48.
+    If ch is at least 65:
+        If ch is at most 86:
+            Return 10 + (ch - 65).
+    Return 0.
+
+## Note
+Decodes RFC 4648 base32hex, reading 8-character groups into up to 5 bytes and using `=` padding to determine the byte count.
+
+## To base32hexDecode (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i + 7 is at most n:
+        Let c0 be item i of sb.
+        Let c1 be item (i + 1) of sb.
+        Let c2 be item (i + 2) of sb.
+        Let c3 be item (i + 3) of sb.
+        Let c4 be item (i + 4) of sb.
+        Let c5 be item (i + 5) of sb.
+        Let c6 be item (i + 6) of sb.
+        Let c7 be item (i + 7) of sb.
+        Let acc be (b32hexVal(c0) shifted left by 35) | (b32hexVal(c1) shifted left by 30) | (b32hexVal(c2) shifted left by 25) | (b32hexVal(c3) shifted left by 20) | (b32hexVal(c4) shifted left by 15) | (b32hexVal(c5) shifted left by 10) | (b32hexVal(c6) shifted left by 5) | b32hexVal(c7).
+        Let mutable nbytes be 5.
+        If c2 is equal to 61:
+            Set nbytes to 1.
+        Otherwise:
+            If c4 is equal to 61:
+                Set nbytes to 2.
+            Otherwise:
+                If c5 is equal to 61:
+                    Set nbytes to 3.
+                Otherwise:
+                    If c7 is equal to 61:
+                        Set nbytes to 4.
+        Push (acc shifted right by 32) & 255 to out.
+        If nbytes is at least 2:
+            Push (acc shifted right by 24) & 255 to out.
+        If nbytes is at least 3:
+            Push (acc shifted right by 16) & 255 to out.
+        If nbytes is at least 4:
+            Push (acc shifted right by 8) & 255 to out.
+        If nbytes is at least 5:
+            Push acc & 255 to out.
+        Set i to i + 8.
+    Return text_from_bytes(out).
+
+## Note
+Length in bytes of the base64 (padded, standard) encoding of `n` input bytes (`base64.EncodedLen`): every 3 input bytes become 4 output bytes, rounded up.
+
+## To base64EncodedLen (n: Int) -> Int:
+    Return ((n + 2) / 3) * 4.
+
+## Note
+Maximum length in bytes decoded from `n` base64 (padded) bytes (`base64.DecodedLen`): every 4 input bytes yield 3 output bytes.
+
+## To base64DecodedLen (n: Int) -> Int:
+    Return (n / 4) * 3.
+
+## Note
+Length in bytes of the hex encoding of `n` input bytes (`hex.EncodedLen`): two hex characters per byte.
+
+## To hexEncodedLen (n: Int) -> Int:
+    Return n * 2.
+
+## Note
+Length in bytes decoded from `n` hex characters (`hex.DecodedLen`): one byte per two characters.
+
+## To hexDecodedLen (n: Int) -> Int:
+    Return n / 2.
+
+## Note
+Removes trailing `=` padding characters from `t` (used by the raw/unpadded base64 encoders).
+
+## To stripTrailingEquals (t: Text) -> Text:
+    Let tb be text_bytes(t).
+    Let mutable n be length of tb.
+    Let mutable scanning be true.
+    While scanning is equal to true:
+        If n is at most 0:
+            Set scanning to false.
+        Otherwise:
+            If item n of tb is equal to 61:
+                Set n to n - 1.
+            Otherwise:
+                Set scanning to false.
+    Let mutable out be a new Seq of Int.
+    Let mutable k be 1.
+    While k is at most n:
+        Push item k of tb to out.
+        Set k to k + 1.
+    Return text_from_bytes(out).
+
+## Note
+Standard base64 without `=` padding (`base64.RawStdEncoding`).
+
+## To base64RawEncode (s: Text) -> Text:
+    Return stripTrailingEquals(base64Encode(s)).
+
+## Note
+URL-safe base64 without `=` padding (`base64.RawURLEncoding`).
+
+## To base64RawUrlEncode (s: Text) -> Text:
+    Return stripTrailingEquals(base64UrlEncode(s)).
+
+## Note
+A `hexdump -C` style dump of `data`, like Go's `encoding/hex.Dump`.
+
+Each line is an 8-digit hex offset, up to 16 space-separated hex byte values (an extra space after the 8th), then the printable-ASCII gutter (`.` for non-printable) between `|` bars, ending in a newline.
+## To hexDump (data: Seq of Int) -> Text:
+    Let out be a new Seq of Int.
+    Let n be length of data.
+    Let mutable i be 0.
+    While i is less than n:
+        Let mutable d be 7.
+        While d is at least 0:
+            Push hexDigit((i shifted right by (4 * d)) & 15) to out.
+            Set d to d - 1.
+        Push 32 to out.
+        Push 32 to out.
+        Let mutable j be 0.
+        While j is less than 16:
+            Let pos be i + j.
+            If pos is less than n:
+                Let b be item (pos + 1) of data.
+                Push hexDigit(b / 16) to out.
+                Push hexDigit(b % 16) to out.
+                Push 32 to out.
+            Otherwise:
+                Push 32 to out.
+                Push 32 to out.
+                Push 32 to out.
+            If j is equal to 7:
+                Push 32 to out.
+            Set j to j + 1.
+        Push 32 to out.
+        Push 124 to out.
+        Let mutable k be 0.
+        While k is less than 16:
+            Let pos be i + k.
+            If pos is less than n:
+                Let b be item (pos + 1) of data.
+                If b is at least 32:
+                    If b is at most 126:
+                        Push b to out.
+                    Otherwise:
+                        Push 46 to out.
+                Otherwise:
+                    Push 46 to out.
+            Set k to k + 1.
+        Push 124 to out.
+        Push 10 to out.
+        Set i to i + 16.
+    Return text_from_bytes(out).

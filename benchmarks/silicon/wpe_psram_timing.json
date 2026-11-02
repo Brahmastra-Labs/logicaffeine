@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "check": "the PSRAM read window through the hardened macro (scripts/check-wpe-psram-timing.sh): SIO data constrained to arrive the harness + board + tACLK round trip after SCLK's latest arrival at its port, captured at the edge the half SCLK period puts it on (codegen_sva::wpe_caravel::wpe_psram_read_sta_tcl)"
+  },
+  "run": "tools/OpenLane/designs/logos_wpe_upm/runs/RUN_2026.09.28_20.20.58",
+  "gds_bytes": 759856194,
+  "corner_lib": "sky130_fd_sc_hd__ss_100C_1v60.lib",
+  "spef": "wpe_user_project.max.spef",
+  "sclk_arrival_ns": 7.406,
+  "sio_capture_slack_ns": 21.946,
+  "read_window_closed": true
+}

@@ -4,8 +4,8 @@
 //! maintaining variable bindings and ownership states across nested scopes.
 //! Used primarily in LOGOS mode for imperative code generation.
 
-use std::collections::HashMap;
 use crate::drs::OwnershipState;
+use std::collections::HashMap;
 
 /// A single variable binding in a scope.
 #[derive(Debug, Clone)]

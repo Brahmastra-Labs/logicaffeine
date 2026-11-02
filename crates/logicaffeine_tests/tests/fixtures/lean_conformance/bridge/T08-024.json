@@ -1,0 +1,88 @@
+{
+  "case": "T08-024",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T08_024.aesopMixed",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q : Prop), p ∨ q → (p → q) → q",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.aesopMixed imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T08_024.aesopViaSimp",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (n : Nat), n + 0 = 3 → n = 3",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.aesopViaSimp imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T08_024.classicalTauto",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p : Prop), p ∨ ¬p",
+      "lean_axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.classicalTauto imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T08_024.hardForAuto",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q r : Prop), (p → q) → (q → r) → (r → p) → p → p ∧ q ∧ r",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.hardForAuto imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T08_024.irrelevantHypothesis",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q r : Prop), p → r → (p → q) → q",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.irrelevantHypothesis imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T08_024.orTauto",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q : Prop), p ∨ q → q ∨ p",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.orTauto imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T08_024.propTauto",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q : Prop), p → q → p ∧ q",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t08_024_1",
+      "logos": "Checked LOGOS Context artifact for T08_024.propTauto imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T08-024.ndjson (export sha256 f68314f7fd7e6a7f0c44c292e835a6b258f11b767666caa4abee9543bd478869); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 5e1a6e2d384c9920a083da211b38577dd7d6e09c9b6eee3b4db451f0e382fc38), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    }
+  ]
+}

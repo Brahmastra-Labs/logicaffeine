@@ -1,0 +1,38 @@
+Explain a diagnostic code or a language construct, offline.
+
+Looks the topic up in the error catalog first (`largo explain zero-index` — every code from `check --json` and the MCP tools), then in the teach lessons (`largo explain Let`). No project or network needed.
+
+Usage: largo explain [OPTIONS] <TOPIC>
+
+Arguments:
+  <TOPIC>
+          An error code (kebab-case) or a construct name
+
+Options:
+      --json
+          Print the entry as one `logos-explain/1` JSON document
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo explain zero-index
+  largo explain use-after-move
+  largo explain Let
+  largo explain zero-index --json

@@ -1,0 +1,15 @@
+ PASS 1/2 — cargo nextest run (unit + integration, ignored included)
+        PASS [   0.012s] (    1/3) logicaffeine-base numeric::tests::a
+        PASS [   0.012s] (    2/3) logicaffeine-base numeric::tests::b
+        PASS [   0.012s] (    3/3) logicaffeine-base numeric::tests::c
+     Summary [   1.000s] 3 tests run: 3 passed, 0 skipped
+
+ PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile, --features wasm-jit)
+     Summary [   0.500s] 1 tests run: 1 passed, 10 skipped
+
+ PASS 2/2 — cargo test --doc (doctests)
+   Doc-tests logicaffeine_base
+running 1 test
+test crates/logicaffeine_base/src/lib.rs - (line 12) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s

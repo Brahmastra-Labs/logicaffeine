@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 3,
-  "hint": "Would an average person understand all the words in this definition?",
-  "explanation": "'The cognizance of a reality by an intellect' is more obscure than the word 'knowledge' it is meant to clarify. Explaining the plain with the pompous USES POORLY UNDERSTOOD TERMS."
+  "hint": "Are the words in the definition harder to understand than the word itself?",
+  "explanation": "'The cognizance of a reality by an intellect' is harder to understand than 'knowledge'.",
+  "section": "3.2"
 }

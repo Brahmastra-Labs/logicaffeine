@@ -9,7 +9,8 @@
     "some C is b",
     "C is B"
   ],
-  "correct": 2,
-  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
-  "explanation": "\"Some\" indicates an existential statement about at least one member. \"C\" refers to a class of things, so use uppercase. The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+  "correct": 1,
+  "hint": "Is this about all of them, or at least one? Which letters do kinds get?",
+  "explanation": "At least one vicious criminal is boring, and both terms are kinds: some C is B.",
+  "section": "2.1"
 }

@@ -29,8 +29,11 @@ fn cegar_safe_property() {
     );
     let property = VerifyExpr::gte(VerifyExpr::var("c@t"), VerifyExpr::int(0));
     let result = cegar_verify(&init, &transition, &property, &[], 5);
-    assert!(matches!(result, AbstractionResult::Safe),
-        "Counter >= 0 should be safe. Got: {:?}", result);
+    assert!(
+        matches!(result, AbstractionResult::Safe),
+        "Counter >= 0 should be safe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -42,8 +45,11 @@ fn cegar_unsafe_property() {
     );
     let property = VerifyExpr::lt(VerifyExpr::var("c@t"), VerifyExpr::int(3));
     let result = cegar_verify(&init, &transition, &property, &[property.clone()], 5);
-    assert!(matches!(result, AbstractionResult::Unsafe { .. }),
-        "Counter < 3 should be unsafe. Got: {:?}", result);
+    assert!(
+        matches!(result, AbstractionResult::Unsafe { .. }),
+        "Counter < 3 should be unsafe. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -53,8 +59,14 @@ fn cegar_spurious_detected() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::var("p@t");
     let result = cegar_verify(&init, &transition, &property, &[], 3);
-    assert!(matches!(result, AbstractionResult::SpuriousRefined { .. } | AbstractionResult::Unsafe { .. }),
-        "Should detect counterexample. Got: {:?}", result);
+    assert!(
+        matches!(
+            result,
+            AbstractionResult::SpuriousRefined { .. } | AbstractionResult::Unsafe { .. }
+        ),
+        "Should detect counterexample. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -63,8 +75,11 @@ fn cegar_max_refinements_respected() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::bool(true); // trivially true
     let result = cegar_verify(&init, &transition, &property, &[], 0);
-    assert!(matches!(result, AbstractionResult::Unknown | AbstractionResult::Safe),
-        "Max refinements 0 should be handled. Got: {:?}", result);
+    assert!(
+        matches!(result, AbstractionResult::Unknown | AbstractionResult::Safe),
+        "Max refinements 0 should be handled. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -106,7 +121,8 @@ fn cegar_uses_abstract_model() {
     let result = cegar_verify(&init, &transition, &property, &[pred], 5);
     assert!(
         matches!(result, AbstractionResult::Safe),
-        "Counter >= 0 should be safe via abstract model. Got: {:?}", result
+        "Counter >= 0 should be safe via abstract model. Got: {:?}",
+        result
     );
 }
 
@@ -172,7 +188,11 @@ fn abstract_transition_not_trivial() {
         ),
         VerifyExpr::eq(
             VerifyExpr::var("y@t1"),
-            VerifyExpr::binary(VerifyOp::Add, VerifyExpr::var("y@t"), VerifyExpr::var("x@t")),
+            VerifyExpr::binary(
+                VerifyOp::Add,
+                VerifyExpr::var("y@t"),
+                VerifyExpr::var("x@t"),
+            ),
         ),
     );
     let predicates = vec![

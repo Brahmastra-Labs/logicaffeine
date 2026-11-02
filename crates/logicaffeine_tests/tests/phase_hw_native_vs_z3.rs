@@ -44,8 +44,14 @@ fn equivalent_pairs() -> Vec<(&'static str, String)> {
 /// `(spec, sva)` pairs that are NOT equivalent — a deliberately different property.
 fn nonequivalent_pairs() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("Always, if request is high, then acknowledge is high.", "!(grant_a && grant_b)"),
-        ("Always, if enable is high, then ready is high.", "grant_a |-> grant_b"),
+        (
+            "Always, if request is high, then acknowledge is high.",
+            "!(grant_a && grant_b)",
+        ),
+        (
+            "Always, if enable is high, then ready is high.",
+            "grant_a |-> grant_b",
+        ),
     ]
 }
 
@@ -70,7 +76,12 @@ fn build_obligations() -> Vec<Obligation> {
                 signals.push(sig);
             }
         }
-        out.push(Obligation { fol: fol.expr, sva: s.expr, signals, expect_equivalent });
+        out.push(Obligation {
+            fol: fol.expr,
+            sva: s.expr,
+            signals,
+            expect_equivalent,
+        });
     };
     for (spec, sva) in equivalent_pairs() {
         push(spec, &sva, true);
@@ -87,7 +98,10 @@ fn native_matches_z3_on_corpus() {
     for (spec, sva) in equivalent_pairs() {
         let ours = prove_spec_sva_equivalence(spec, &sva, BOUND).unwrap();
         let z3 = check_z3_equivalence(spec, &sva, BOUND).unwrap();
-        assert!(ours.equivalent, "ours: [{spec}] vs synthesized SVA should be equivalent");
+        assert!(
+            ours.equivalent,
+            "ours: [{spec}] vs synthesized SVA should be equivalent"
+        );
         assert!(
             matches!(z3, Z3Result::Equivalent),
             "z3 disagrees on [{spec}]: {z3:?}"
@@ -96,7 +110,10 @@ fn native_matches_z3_on_corpus() {
     for (spec, sva) in nonequivalent_pairs() {
         let ours = prove_spec_sva_equivalence(spec, sva, BOUND).unwrap();
         let z3 = check_z3_equivalence(spec, sva, BOUND).unwrap();
-        assert!(!ours.equivalent, "ours: [{spec}] vs [{sva}] should NOT be equivalent");
+        assert!(
+            !ours.equivalent,
+            "ours: [{spec}] vs [{sva}] should NOT be equivalent"
+        );
         assert!(
             matches!(z3, Z3Result::NotEquivalent { .. }),
             "z3 disagrees on [{spec}] vs [{sva}]: {z3:?}"
@@ -116,9 +133,15 @@ fn native_and_z3_agree_on_bounded_obligations() {
             &o.signals,
             BOUND as usize,
         );
-        assert_eq!(ours.equivalent, o.expect_equivalent, "ours wrong on a bounded obligation");
+        assert_eq!(
+            ours.equivalent, o.expect_equivalent,
+            "ours wrong on a bounded obligation"
+        );
         let z3_equiv = matches!(z3, Z3Result::Equivalent);
-        assert_eq!(z3_equiv, o.expect_equivalent, "z3 wrong on a bounded obligation: {z3:?}");
+        assert_eq!(
+            z3_equiv, o.expect_equivalent,
+            "z3 wrong on a bounded obligation: {z3:?}"
+        );
         assert_eq!(ours.equivalent, z3_equiv, "our verdict diverged from Z3");
     }
 }
@@ -182,7 +205,11 @@ fn bvvar(n: &str) -> BoundedExpr {
     BoundedExpr::BitVecVar(n.to_string(), 8)
 }
 fn bvbin(op: BitVecBoundedOp, a: BoundedExpr, b: BoundedExpr) -> BoundedExpr {
-    BoundedExpr::BitVecBinary { op, left: Box::new(a), right: Box::new(b) }
+    BoundedExpr::BitVecBinary {
+        op,
+        left: Box::new(a),
+        right: Box::new(b),
+    }
 }
 fn bvnot(a: BoundedExpr) -> BoundedExpr {
     BoundedExpr::BitVecBinary {
@@ -194,7 +221,11 @@ fn bvnot(a: BoundedExpr) -> BoundedExpr {
 /// Bitvector-native equality (maps to Z3's `bveq`; the boolean `BoundedExpr::Eq` variant is
 /// for Booleans and trips the Z3 binding when handed bitvector operands).
 fn eq(a: BoundedExpr, b: BoundedExpr) -> BoundedExpr {
-    BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Eq, left: Box::new(a), right: Box::new(b) }
+    BoundedExpr::BitVecBinary {
+        op: BitVecBoundedOp::Eq,
+        left: Box::new(a),
+        right: Box::new(b),
+    }
 }
 
 /// `(name, property A, property B, expected-equivalent)` over 8-bit bitvectors. Each pair is
@@ -206,9 +237,24 @@ fn bv_corpus() -> Vec<(&'static str, BoundedExpr, BoundedExpr, bool)> {
     use BitVecBoundedOp::*;
     vec![
         // Commutativity of +, &, ^ — equivalent.
-        ("add-comm", eq(bvbin(Add, x(), y()), s()), eq(bvbin(Add, y(), x()), s()), true),
-        ("and-comm", eq(bvbin(And, x(), y()), s()), eq(bvbin(And, y(), x()), s()), true),
-        ("xor-comm", eq(bvbin(Xor, x(), y()), s()), eq(bvbin(Xor, y(), x()), s()), true),
+        (
+            "add-comm",
+            eq(bvbin(Add, x(), y()), s()),
+            eq(bvbin(Add, y(), x()), s()),
+            true,
+        ),
+        (
+            "and-comm",
+            eq(bvbin(And, x(), y()), s()),
+            eq(bvbin(And, y(), x()), s()),
+            true,
+        ),
+        (
+            "xor-comm",
+            eq(bvbin(Xor, x(), y()), s()),
+            eq(bvbin(Xor, y(), x()), s()),
+            true,
+        ),
         // De Morgan over bitvectors — equivalent.
         (
             "demorgan",
@@ -224,9 +270,19 @@ fn bv_corpus() -> Vec<(&'static str, BoundedExpr, BoundedExpr, bool)> {
             true,
         ),
         // x + y vs x — NOT equivalent (differs whenever y ≠ 0).
-        ("add-vs-x", eq(bvbin(Add, x(), y()), s()), eq(x(), s()), false),
+        (
+            "add-vs-x",
+            eq(bvbin(Add, x(), y()), s()),
+            eq(x(), s()),
+            false,
+        ),
         // unsigned ULt is irreflexive-ish: x <u y  vs  y <u x — NOT equivalent.
-        ("ult-asym", bvbin(ULt, x(), y()), bvbin(ULt, y(), x()), false),
+        (
+            "ult-asym",
+            bvbin(ULt, x(), y()),
+            bvbin(ULt, y(), x()),
+            false,
+        ),
     ]
 }
 
@@ -241,7 +297,10 @@ fn bitvector_native_matches_z3() {
         let z3_equiv = matches!(z3, Z3Result::Equivalent);
         assert_eq!(ours.equivalent, expect, "[{name}] our verdict wrong");
         assert_eq!(z3_equiv, expect, "[{name}] z3 verdict wrong: {z3:?}");
-        assert_eq!(ours.equivalent, z3_equiv, "[{name}] our bit-blaster diverged from Z3");
+        assert_eq!(
+            ours.equivalent, z3_equiv,
+            "[{name}] our bit-blaster diverged from Z3"
+        );
     }
 }
 
@@ -302,8 +361,14 @@ fn large_bv_corpus() -> Vec<(String, BoundedExpr, BoundedExpr, bool)> {
         // (x + y) + z  ≡  x + (y + z)  — addition is associative.
         v.push((
             format!("add-assoc-{w}"),
-            eq(bvbin(Add, bvbin(Add, x.clone(), y.clone()), z.clone()), s.clone()),
-            eq(bvbin(Add, x.clone(), bvbin(Add, y.clone(), z.clone())), s.clone()),
+            eq(
+                bvbin(Add, bvbin(Add, x.clone(), y.clone()), z.clone()),
+                s.clone(),
+            ),
+            eq(
+                bvbin(Add, x.clone(), bvbin(Add, y.clone(), z.clone())),
+                s.clone(),
+            ),
             true,
         ));
         // x + x  ≡  x << 1
@@ -316,7 +381,10 @@ fn large_bv_corpus() -> Vec<(String, BoundedExpr, BoundedExpr, bool)> {
         // (x - y) + y  ≡  x
         v.push((
             format!("sub-add-inverse-{w}"),
-            eq(bvbin(Add, bvbin(Sub, x.clone(), y.clone()), y.clone()), s.clone()),
+            eq(
+                bvbin(Add, bvbin(Sub, x.clone(), y.clone()), y.clone()),
+                s.clone(),
+            ),
             eq(x.clone(), s.clone()),
             true,
         ));

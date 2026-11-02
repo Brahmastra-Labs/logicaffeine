@@ -289,29 +289,16 @@ impl<T: Clone + PartialEq> Default for YATA<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Owned iteration visits the elements in their convergent order.
+impl<T: Clone + PartialEq> IntoIterator for YATA<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
 
-    #[test]
-    fn test_yata_append() {
-        let mut seq: YATA<char> = YATA::new(1);
-        seq.append('a');
-        seq.append('b');
-        assert_eq!(seq.to_vec(), vec!['a', 'b']);
-    }
-
-    #[test]
-    fn test_yata_concurrent() {
-        let mut a: YATA<char> = YATA::new(1);
-        let mut b: YATA<char> = YATA::new(2);
-
-        a.append('A');
-        b.append('B');
-
-        a.merge(&b);
-        b.merge(&a);
-
-        assert_eq!(a.to_vec(), b.to_vec());
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_data/crdt/sequence/yata/tests.rs"]
+mod tests;

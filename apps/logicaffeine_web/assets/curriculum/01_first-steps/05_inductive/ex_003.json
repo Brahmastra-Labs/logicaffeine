@@ -11,6 +11,7 @@
   ],
   "correct": 0,
   "hint": "We're applying a statistical generalization to a specific case.",
-  "explanation": "This is a statistical syllogism - applying a statistical generalization (90% who study pass) to a particular case (Sarah). The conclusion is probable, not certain. Sarah is likely but not guaranteed to pass.",
-  "visual_concept": "Statistical Syllogism: A pie chart showing 90% green and 10% red. Sarah is placed randomly - she'll probably land in green, but might land in red."
+  "explanation": "This applies a statistic to one case, so it is a statistical syllogism. Sarah will probably pass, but not certainly.",
+  "visual_concept": "Statistical Syllogism: A pie chart showing 90% green and 10% red. Sarah is placed randomly - she'll probably land in green, but might land in red.",
+  "section": "5.1"
 }

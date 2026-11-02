@@ -1,0 +1,11 @@
+{
+  "capability": "heap.heapify",
+  "workload": "heapPeek(heapifySeq(xs)) = min",
+  "arg": "30000",
+  "expected": "335521560",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

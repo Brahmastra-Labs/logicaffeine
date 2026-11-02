@@ -1,0 +1,11 @@
+{
+  "name": "vm",
+  "lang": "logos_c",
+  "n": "660000000",
+  "samples_weight": 5491917233,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

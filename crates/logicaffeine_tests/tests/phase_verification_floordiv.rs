@@ -57,8 +57,18 @@ fn floordiv_diverges_from_euclidean_div_on_a_negative_divisor() {
     let session = VerificationSession::new();
     let fd = floordiv(VerifyExpr::int(7), VerifyExpr::int(-2));
     let ed = VerifyExpr::binary(VerifyOp::Div, VerifyExpr::int(7), VerifyExpr::int(-2));
-    assert!(session.verify(&VerifyExpr::eq(fd, VerifyExpr::int(-4))).is_ok(), "7 // -2 == -4");
-    assert!(session.verify(&VerifyExpr::eq(ed, VerifyExpr::int(-3))).is_ok(), "7 div -2 == -3 (Euclidean)");
+    assert!(
+        session
+            .verify(&VerifyExpr::eq(fd, VerifyExpr::int(-4)))
+            .is_ok(),
+        "7 // -2 == -4"
+    );
+    assert!(
+        session
+            .verify(&VerifyExpr::eq(ed, VerifyExpr::int(-3)))
+            .is_ok(),
+        "7 div -2 == -3 (Euclidean)"
+    );
 }
 
 #[test]
@@ -72,13 +82,17 @@ fn floordiv_defining_identity_holds_symbolically() {
     let qb = VerifyExpr::binary(VerifyOp::Mul, q, VerifyExpr::int(4));
     // (a // 4) * 4 <= a
     assert!(
-        session.verify(&VerifyExpr::lte(qb.clone(), VerifyExpr::var("a"))).is_ok(),
+        session
+            .verify(&VerifyExpr::lte(qb.clone(), VerifyExpr::var("a")))
+            .is_ok(),
         "floor bracket lower bound: (a // 4) * 4 <= a"
     );
     // a < (a // 4) * 4 + 4
     let qb_plus_4 = VerifyExpr::binary(VerifyOp::Add, qb, VerifyExpr::int(4));
     assert!(
-        session.verify(&VerifyExpr::lt(VerifyExpr::var("a"), qb_plus_4)).is_ok(),
+        session
+            .verify(&VerifyExpr::lt(VerifyExpr::var("a"), qb_plus_4))
+            .is_ok(),
         "floor bracket upper bound: a < (a // 4) * 4 + 4"
     );
 }

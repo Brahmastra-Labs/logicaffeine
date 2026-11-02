@@ -1,0 +1,119 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "a",
+    "dut": "a",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "b",
+    "dut": "b",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   },
+   {
+    "contract": "zeta",
+    "dut": "zeta",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K5",
+  "mems": [],
+  "name": "k5_bambu_fsm_c_nangate4p5",
+  "outputs": [
+   {
+    "contract": "hi",
+    "dut": "return_port",
+    "dut_lsb": 16,
+    "lsb": 0,
+    "valid": null,
+    "width": 16
+   },
+   {
+    "contract": "lo",
+    "dut": "return_port",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 16
+   }
+  ],
+  "ports": [
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "a"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "b"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "return_port"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   },
+   {
+    "bits": 16,
+    "dir": "In",
+    "name": "zeta"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "ntt_bfly"
+ },
+ "files": [
+  "ntt_bfly.v"
+ ],
+ "golden_signature": "c351c4a41e4c3e03",
+ "harness": "qorbist_k5_bambu_fsm_c_nangate4p5.v",
+ "harness_top": "qorbist_k5_bambu_fsm_c_nangate4p5",
+ "kernel": "K5",
+ "kernel_name": "ntt_bfly",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

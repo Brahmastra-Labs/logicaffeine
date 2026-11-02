@@ -12,7 +12,10 @@
 //! the pending messages without blocking, which keeps the tree-walker's linear
 //! execution model intact (no background task mutating the environment).
 
-#![cfg(any(all(not(target_arch = "wasm32"), feature = "relay"), target_arch = "wasm32"))]
+#![cfg(any(
+    all(not(target_arch = "wasm32"), feature = "relay"),
+    target_arch = "wasm32"
+))]
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "relay"))]
 mod imp {
@@ -25,7 +28,9 @@ mod imp {
 
     impl Net {
         pub async fn connect(url: &str) -> Result<Net, String> {
-            Ok(Net { client: RelayClient::connect(url).await? })
+            Ok(Net {
+                client: RelayClient::connect(url).await?,
+            })
         }
 
         pub async fn subscribe(&mut self, topic: &str) -> Result<(), String> {
@@ -77,18 +82,24 @@ mod imp {
             )
             .map_err(|e| format!("relay connect failed: {e:?}"))?;
 
-            open_rx.await.map_err(|_| "socket closed before it opened".to_string())?;
+            open_rx
+                .await
+                .map_err(|_| "socket closed before it opened".to_string())?;
             Ok(Net { client, events })
         }
 
         pub async fn subscribe(&mut self, topic: &str) -> Result<(), String> {
             // The browser socket is ordered, so a following publish cannot race
             // the subscribe; no SubAck round-trip is needed.
-            self.client.subscribe(topic).map_err(|e| format!("subscribe failed: {e:?}"))
+            self.client
+                .subscribe(topic)
+                .map_err(|e| format!("subscribe failed: {e:?}"))
         }
 
         pub fn publish(&self, topic: &str, data: Vec<u8>) -> Result<(), String> {
-            self.client.publish(topic, data).map_err(|e| format!("publish failed: {e:?}"))
+            self.client
+                .publish(topic, data)
+                .map_err(|e| format!("publish failed: {e:?}"))
         }
 
         pub fn drain(&mut self) -> Vec<(String, Vec<u8>)> {

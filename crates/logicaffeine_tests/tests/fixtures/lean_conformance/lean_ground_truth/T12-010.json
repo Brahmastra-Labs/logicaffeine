@@ -1,0 +1,151 @@
+{
+  "case": "T12-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 18,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T12_010.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T12_010.Colour",
+      "name": "T12_010.Colour.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T12_010.Colour.blue = 1",
+      "name": "T12_010.Colour.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T12_010.Colour \u2192 Sort u} \u2192\n  (t : T12_010.Colour) \u2192 motive T12_010.Colour.red \u2192 motive T12_010.Colour.green \u2192 motive T12_010.Colour.blue \u2192 motive t",
+      "name": "T12_010.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T12_010.Colour",
+      "name": "T12_010.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T12_010.Colour.green = 1",
+      "name": "T12_010.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T12_010.Colour} \u2192 x = y \u2192 T12_010.Colour.noConfusionType P x y",
+      "name": "T12_010.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.128"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T12_010.Colour \u2192 T12_010.Colour \u2192 Sort v\u271d",
+      "name": "T12_010.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.127"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T12_010.Colour \u2192 Sort u} \u2192\n  motive T12_010.Colour.red \u2192 motive T12_010.Colour.green \u2192 motive T12_010.Colour.blue \u2192 (t : T12_010.Colour) \u2192 motive t",
+      "name": "T12_010.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T12_010.Colour \u2192 Sort u} \u2192\n  (t : T12_010.Colour) \u2192 motive T12_010.Colour.red \u2192 motive T12_010.Colour.green \u2192 motive T12_010.Colour.blue \u2192 motive t",
+      "name": "T12_010.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T12_010.Colour",
+      "name": "T12_010.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T12_010.Colour.red = 1",
+      "name": "T12_010.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T12_010.Colour \u2192 Nat",
+      "name": "T12_010.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (xs : List \u03b1), xs ++ [] = xs",
+      "name": "T12_010.appendNilRight",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (P : T12_010.Colour \u2192 Prop),\n  P T12_010.Colour.red \u2192 P T12_010.Colour.green \u2192 P T12_010.Colour.blue \u2192 \u2200 (c : T12_010.Colour), P c",
+      "name": "T12_010.colourInduction",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (m n : Nat), m + n = n + m",
+      "name": "T12_010.inductOnSecond",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type) (P : List \u03b1 \u2192 Prop), P [] \u2192 (\u2200 (h : \u03b1) (t : List \u03b1), P t \u2192 P (h :: t)) \u2192 \u2200 (xs : List \u03b1), P xs",
+      "name": "T12_010.listInduction",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), P 0 \u2192 (\u2200 (k : Nat), P k \u2192 P (k + 1)) \u2192 \u2200 (n : Nat), P n",
+      "name": "T12_010.natSumFormula",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

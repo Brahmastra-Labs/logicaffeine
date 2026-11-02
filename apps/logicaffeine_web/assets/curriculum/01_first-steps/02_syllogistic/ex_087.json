@@ -10,6 +10,7 @@
     "C is not H"
   ],
   "correct": 2,
-  "hint": "Is this saying 'not all' or 'not any at all'?",
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+  "hint": "Read 'not A unless B' as 'if A, then B'. What does that say about everyone who is A?",
+  "explanation": "Not clean unless humorous means every clean person is humorous: all C is H.",
+  "section": "2.1"
 }

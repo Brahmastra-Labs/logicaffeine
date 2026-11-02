@@ -35,5 +35,9 @@ fn main() {
     for i in 0..n {
         if dist[i] >= 0 { reachable += 1; total_dist += dist[i]; }
     }
-    println!("{} {}", reachable, total_dist);
+    let mut h: i64 = 0;
+    for i in 0..n {
+        h = (h * 31 + dist[i] + 1) & 268435455;
+    }
+    println!("{} {} {}", reachable, total_dist, h);
 }

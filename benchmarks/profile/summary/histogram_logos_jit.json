@@ -1,0 +1,11 @@
+{
+  "name": "histogram",
+  "lang": "logos_jit",
+  "n": "2386643440",
+  "samples_weight": 33415881762,
+  "alloc_pct": 0.002,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.998
+}

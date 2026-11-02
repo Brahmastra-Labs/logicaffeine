@@ -6,9 +6,7 @@ use std::io::{self, Write};
 use crate::commands::require_project_root;
 use crate::project::credentials::{get_token, Credentials};
 use crate::project::manifest::Manifest;
-use crate::project::registry::{
-    create_tarball, is_git_dirty, PublishMetadata, RegistryClient,
-};
+use crate::project::registry::{create_tarball, is_git_dirty, PublishMetadata, RegistryClient};
 
 /// Handle `largo publish`: tarball the project and upload it to the registry.
 pub(crate) fn cmd_publish(
@@ -38,20 +36,13 @@ pub(crate) fn cmd_publish(
     })?;
 
     // Verify the package
-    let entry_path = project_root.join(&manifest.package.entry);
-    if !entry_path.exists() {
-        return Err(format!(
-            "Entry point '{}' not found",
-            manifest.package.entry
-        ).into());
-    }
+    crate::commands::resolve_entry_path(&project_root, &manifest)?;
 
     // Check for uncommitted changes
     if !allow_dirty && is_git_dirty(&project_root) {
-        return Err(
-            "Working directory has uncommitted changes.\n\
-             Use --allow-dirty to publish anyway.".into()
-        );
+        return Err("Working directory has uncommitted changes.\n\
+             Use --allow-dirty to publish anyway."
+            .into());
     }
 
     // Create tarball

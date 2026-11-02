@@ -14,10 +14,33 @@ use logicaffeine_language::teach::extract_literate_docs;
 pub struct StdlibDoc {
     /// The full `##` header (or `## Definition` body type line), verbatim.
     pub signature: String,
-    /// The `## Note` prose directly above the definition.
+    /// The SUMMARY of the `## Note` directly above the definition: its first paragraph — one or
+    /// two short sentences, the line hover and completion lead with (the rustdoc convention).
+    /// `stdlib_teach_lock` holds every summary to ≤ 200 chars of plain prose.
     pub doc: Option<String>,
+    /// The rest of the `## Note` (every paragraph after the first), rendered under the summary in
+    /// hover — the protocol tables, edge cases, and citations that make a note long.
+    pub details: Option<String>,
     /// True for type definitions (`## A … has/is`), false for functions.
     pub is_type: bool,
+}
+
+/// Split a `## Note` body into its summary paragraph and the remaining paragraphs.
+fn split_summary(note: Option<String>) -> (Option<String>, Option<String>) {
+    let Some(note) = note else {
+        return (None, None);
+    };
+    let note = note.trim();
+    match note.find("\n\n") {
+        Some(cut) => {
+            let details = note[cut..].trim();
+            (
+                Some(note[..cut].trim().to_string()),
+                (!details.is_empty()).then(|| details.to_string()),
+            )
+        }
+        None => (Some(note.to_string()), None),
+    }
 }
 
 fn registry() -> &'static HashMap<String, StdlibDoc> {
@@ -27,12 +50,63 @@ fn registry() -> &'static HashMap<String, StdlibDoc> {
         for src in logicaffeine_compile::loader::prelude_module_sources() {
             for lit in extract_literate_docs(src) {
                 let is_type = !lit.signature.contains("## To");
+                let (doc, details) = split_summary(lit.doc);
                 map.entry(lit.name).or_insert(StdlibDoc {
                     signature: lit.signature,
-                    doc: lit.doc,
+                    doc,
+                    details,
                     is_type,
                 });
             }
+        }
+        // Enum VARIANTS teach through their enum: hovering `Ok` shows the
+        // variant's own line as the signature and Result's note as the prose.
+        let mut variants: Vec<(String, StdlibDoc)> = Vec::new();
+        for src in logicaffeine_compile::loader::prelude_module_sources() {
+            let mut current_enum: Option<String> = None;
+            for line in src.lines() {
+                let t = line.trim();
+                let article = t.strip_prefix("A ").or_else(|| t.strip_prefix("An "));
+                if !line.starts_with(' ') {
+                    // An enum header may carry a markdown `## ` prefix (`## A Json is either:`) or be
+                    // bare (`A Result … is either:`); both name the enum whose indented variants follow.
+                    let header = t.trim_start_matches('#').trim_start();
+                    let header_article = header
+                        .strip_prefix("A ")
+                        .or_else(|| header.strip_prefix("An "));
+                    current_enum = match header_article {
+                        Some(rest) if header.ends_with("is either:") => {
+                            rest.split_whitespace().next().map(|w| w.to_string())
+                        }
+                        _ => None,
+                    };
+                    continue;
+                }
+                if let (Some(enum_name), Some(rest)) = (&current_enum, article) {
+                    if let Some(name) = rest
+                        .split(|c: char| c == '(' || c == '.' || c.is_whitespace())
+                        .next()
+                        .filter(|w| w.chars().next().is_some_and(|c| c.is_ascii_uppercase()))
+                    {
+                        let (doc, details) = map
+                            .get(enum_name.as_str())
+                            .map(|d: &StdlibDoc| (d.doc.clone(), d.details.clone()))
+                            .unwrap_or((None, None));
+                        variants.push((
+                            name.to_string(),
+                            StdlibDoc {
+                                signature: t.to_string(),
+                                doc,
+                                details,
+                                is_type: true,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        for (name, doc) in variants {
+            map.entry(name).or_insert(doc);
         }
         map
     })
@@ -45,8 +119,10 @@ pub fn stdlib_doc(name: &str) -> Option<&'static StdlibDoc> {
 
 /// Every stdlib name with its doc, name-sorted (completion feed).
 pub fn all() -> Vec<(&'static str, &'static StdlibDoc)> {
-    let mut entries: Vec<(&'static str, &'static StdlibDoc)> =
-        registry().iter().map(|(name, doc)| (name.as_str(), doc)).collect();
+    let mut entries: Vec<(&'static str, &'static StdlibDoc)> = registry()
+        .iter()
+        .map(|(name, doc)| (name.as_str(), doc))
+        .collect();
     entries.sort_by_key(|(name, _)| *name);
     entries
 }
@@ -61,48 +137,13 @@ pub fn hover_md(name: &str, entry: &StdlibDoc) -> String {
         md.push_str("\n\n");
         md.push_str(doc);
     }
+    if let Some(details) = &entry.details {
+        md.push_str("\n\n");
+        md.push_str(details);
+    }
     md
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_registry_covers_the_prelude_vocabulary() {
-        for name in logicaffeine_compile::loader::prelude_vocabulary() {
-            assert!(
-                stdlib_doc(&name).is_some(),
-                "{name}: in prelude_vocabulary but missing from the stdlib docs registry"
-            );
-        }
-    }
-
-    #[test]
-    fn md5_teaches_from_its_literate_note() {
-        let entry = stdlib_doc("md5").expect("md5 is stdlib");
-        assert!(entry.signature.contains("md5"), "{}", entry.signature);
-        assert!(
-            entry.doc.as_deref().is_some_and(|d| d.contains("MD5")),
-            "md5's Note must teach: {:?}",
-            entry.doc
-        );
-        assert!(!entry.is_type);
-    }
-
-    #[test]
-    fn definition_body_types_are_typed_entries() {
-        let entry = stdlib_doc("Message").expect("net.md defines Message");
-        assert!(entry.is_type);
-        assert!(entry.doc.is_some(), "the Definition block's Note documents Message");
-    }
-
-    #[test]
-    fn hover_md_carries_signature_and_prose() {
-        let entry = stdlib_doc("read").expect("file.lg defines read");
-        let md = hover_md("read", entry);
-        assert!(md.contains("standard library"), "{md}");
-        assert!(md.contains("## To native read"), "{md}");
-        assert!(md.contains("Reads a whole file"), "{md}");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/stdlib_docs/tests.rs"]
+mod tests;

@@ -16,7 +16,7 @@ public class Main {
         for (int i = 0; i < n; i++) { seed = (seed*1103515245+12345)%2147483648L; arr[i] = (seed>>16)&0x7fff; }
         qs(arr, 0, n-1);
         long checksum = 0;
-        for (long v : arr) checksum = (checksum + v) % 1000000007;
+        for (long v : arr) checksum = (checksum * 31 + v) & 268435455;
         System.out.println(arr[0] + " " + arr[n-1] + " " + checksum);
     }
 }

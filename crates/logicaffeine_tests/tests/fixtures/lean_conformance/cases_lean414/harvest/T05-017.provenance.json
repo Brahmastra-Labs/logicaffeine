@@ -1,0 +1,84 @@
+{
+  "case": "T05-017",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t05_elaboration/T05-017_of_nat_literal.lean",
+  "source_sha256": "32f386faabe5f60bf66f539d11f1976551b84228ff033dd4396285227c97e5c4",
+  "ledger_sha256": "660d7b50665e40df705d241f69e13f0a95ea0d54501e7fd9ae72ae80c3e5b775",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T05_017.MyNum",
+    "T05_017.MyNum.mk",
+    "T05_017.MyNum.v",
+    "T05_017.WrapNat",
+    "T05_017.WrapNat.mk",
+    "T05_017.WrapNat.unwrap",
+    "T05_017.atInt",
+    "T05_017.atMyNum",
+    "T05_017.atMyNum7",
+    "T05_017.atNat",
+    "T05_017.bare",
+    "T05_017.huge",
+    "T05_017.instAllNums",
+    "T05_017.instOfNatMyNumOfNatNat",
+    "T05_017.instOfNatWrapNat",
+    "T05_017.negFive",
+    "T05_017.takesInt",
+    "T05_017.wrapped"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "de334f825ec909e5046713bc944bda06cb0bd479a3be2e1d5f1409687a82a05e",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1342,
+  "harvest": {
+    "roots": [
+      "T05_017.MyNum",
+      "T05_017.MyNum.mk",
+      "T05_017.MyNum.v",
+      "T05_017.WrapNat",
+      "T05_017.WrapNat.mk",
+      "T05_017.WrapNat.unwrap",
+      "T05_017.atInt",
+      "T05_017.atMyNum",
+      "T05_017.atMyNum7",
+      "T05_017.atNat",
+      "T05_017.bare",
+      "T05_017.huge",
+      "T05_017.instAllNums",
+      "T05_017.instOfNatMyNumOfNatNat",
+      "T05_017.instOfNatWrapNat",
+      "T05_017.negFive",
+      "T05_017.takesInt",
+      "T05_017.wrapped"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "case": "T06-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (p q : Prop), (\u00acp \u2192 q) \u2192 \u00acq \u2192 p",
+      "name": "T06_008.byContra",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 (\u00acp \u2192 q) \u2192 q",
+      "name": "T06_008.cases",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p q : Prop), \u00ac(p \u2227 q) \u2192 \u00acp \u2228 \u00acq",
+      "name": "T06_008.deMorgan",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), \u00ac\u00acp \u2192 p",
+      "name": "T06_008.dne",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), ((p \u2192 False) \u2192 False) \u2192 p",
+      "name": "T06_008.dneUnfolded",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 \u00ac\u00acp",
+      "name": "T06_008.dni",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2228 \u00acp",
+      "name": "T06_008.em",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), \u00ac\u00acp \u2194 p",
+      "name": "T06_008.notNotIff",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice",
+        "propext",
+        "Quot.sound"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

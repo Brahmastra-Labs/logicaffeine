@@ -32,4 +32,8 @@ reachable = 0; total_dist = 0
 n.times{|i|
   if dist[i] >= 0; reachable += 1; total_dist += dist[i]; end
 }
-puts "#{reachable} #{total_dist}"
+h = 0
+n.times{|i|
+  h = (h * 31 + dist[i] + 1) & 268435455
+}
+puts "#{reachable} #{total_dist} #{h}"

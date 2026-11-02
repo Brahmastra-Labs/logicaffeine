@@ -10,4 +10,6 @@ while lo < hi
   arr[lo], arr[hi] = arr[hi], arr[lo]
   lo += 1; hi -= 1
 end
-puts "#{arr[0]} #{arr[-1]} #{arr[n / 2]}"
+checksum = 0
+arr.each { |v| checksum = (checksum * 31 + v) & 268435455 }
+puts "#{arr[0]} #{arr[-1]} #{checksum}"

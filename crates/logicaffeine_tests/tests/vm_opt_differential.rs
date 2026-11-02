@@ -8,8 +8,8 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use logicaffeine_compile::compile::tw_outcome_with_args;
-use logicaffeine_compile::ui_bridge::with_optimized_program;
 use logicaffeine_compile::optimization::REGISTRY;
+use logicaffeine_compile::ui_bridge::with_optimized_program;
 use logicaffeine_compile::vm::NativeTier;
 use logicaffeine_jit::ForgeTier;
 
@@ -150,11 +150,26 @@ fn corpus_optimized_vm_matches_raw_treewalker() {
 #[test]
 fn clean_disable_paths_preserve_output() {
     const FUZZ_CORPUS: &[(&str, &str)] = &[
-        ("fib", "8"), ("ackermann", "2"), ("binary_trees", "4"), ("bubble_sort", "20"),
-        ("mergesort", "30"), ("quicksort", "30"), ("nbody", "3"), ("mandelbrot", "5"),
-        ("knapsack", "10"), ("two_sum", "30"), ("graph_bfs", "20"), ("histogram", "50"),
-        ("nqueens", "5"), ("collatz", "30"), ("primes", "50"), ("gcd", "20"),
-        ("matrix_mult", "4"), ("string_search", "20"), ("collect", "30"), ("pi_leibniz", "200"),
+        ("fib", "8"),
+        ("ackermann", "2"),
+        ("binary_trees", "4"),
+        ("bubble_sort", "20"),
+        ("mergesort", "30"),
+        ("quicksort", "30"),
+        ("nbody", "3"),
+        ("mandelbrot", "5"),
+        ("knapsack", "10"),
+        ("two_sum", "30"),
+        ("graph_bfs", "20"),
+        ("histogram", "50"),
+        ("nqueens", "5"),
+        ("collatz", "30"),
+        ("primes", "50"),
+        ("gcd", "20"),
+        ("matrix_mult", "4"),
+        ("string_search", "20"),
+        ("collect", "30"),
+        ("pi_leibniz", "200"),
     ];
     const SEED: u64 = 0x5EED_C0FFEE;
     std::thread::Builder::new()
@@ -192,7 +207,11 @@ fn clean_disable_paths_preserve_output() {
                     std::env::set_var("LOGOS_OPT", "off");
                     let (out, err) = optimized_vm_outcome(&src, &argv);
                     std::env::remove_var("LOGOS_OPT");
-                    assert_eq!(&(norm(&out), err), &oracle, "all-off (LOGOS_OPT=off) changed output for '{name}'");
+                    assert_eq!(
+                        &(norm(&out), err),
+                        &oracle,
+                        "all-off (LOGOS_OPT=off) changed output for '{name}'"
+                    );
                 }
                 // (b) leave-one-out: disable exactly ONE optimization, the rest ON.
                 for m in REGISTRY {
@@ -203,7 +222,11 @@ fn clean_disable_paths_preserve_output() {
                     std::env::set_var("LOGOS_OPT_PROFILE", prof);
                     let (out, err) = optimized_vm_outcome(&src, &argv);
                     std::env::remove_var("LOGOS_OPT_PROFILE");
-                    assert_eq!(&(norm(&out), err), &oracle, "profile '{prof}' changed output for '{name}'");
+                    assert_eq!(
+                        &(norm(&out), err),
+                        &oracle,
+                        "profile '{prof}' changed output for '{name}'"
+                    );
                 }
                 // (d) seeded-random subsets: disable a random ~half, the rest ON.
                 for _ in 0..6 {
@@ -284,7 +307,11 @@ fn optimizer_inlines_tiny_pure_helpers() {
                 expr_calls(cond, name, interner)
                     || body.iter().any(|b| stmt_calls(b, name, interner))
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 expr_calls(cond, name, interner)
                     || then_block.iter().any(|b| stmt_calls(b, name, interner))
                     || else_block
@@ -294,14 +321,18 @@ fn optimizer_inlines_tiny_pure_helpers() {
             _ => false,
         }
     }
-    let survived = logicaffeine_compile::ui_bridge::with_optimized_program(src, |parsed, interner| {
-        let (stmts, _types, _policies) = parsed.expect("parse");
-        stmts
-            .iter()
-            .filter(|s| !matches!(s, Stmt::FunctionDef { .. }))
-            .any(|s| stmt_calls(s, "aVal", interner))
-    });
-    assert!(!survived, "aVal must inline at its call site on the run path");
+    let survived =
+        logicaffeine_compile::ui_bridge::with_optimized_program(src, |parsed, interner| {
+            let (stmts, _types, _policies) = parsed.expect("parse");
+            stmts
+                .iter()
+                .filter(|s| !matches!(s, Stmt::FunctionDef { .. }))
+                .any(|s| stmt_calls(s, "aVal", interner))
+        });
+    assert!(
+        !survived,
+        "aVal must inline at its call site on the run path"
+    );
 }
 
 /// Inlining must REFUSE what it cannot prove: recursion, effectful bodies
@@ -498,12 +529,20 @@ fn nbody_force_loop_scalarizes_and_stays_bit_exact() {
     fn block_reads(stmts: &[Stmt], coll: Symbol, idx: Symbol) -> bool {
         stmts.iter().any(|s| match s {
             Stmt::Let { value, .. } | Stmt::Set { value, .. } => reads_item_of(value, coll, idx),
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 reads_item_of(collection, coll, idx)
                     || reads_item_of(index, coll, idx)
                     || reads_item_of(value, coll, idx)
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 reads_item_of(cond, coll, idx)
                     || block_reads(then_block, coll, idx)
                     || else_block.map_or(false, |eb| block_reads(eb, coll, idx))
@@ -531,14 +570,21 @@ fn nbody_force_loop_scalarizes_and_stays_bit_exact() {
                     if matches!(cond, Expr::BinaryOp { left, .. }
                         if matches!(&**left, Expr::Identifier(x) if *x == j_sym)) =>
                 {
-                    return Some((block_reads(body, coll, i_sym), block_reads(body, coll, j_sym)));
+                    return Some((
+                        block_reads(body, coll, i_sym),
+                        block_reads(body, coll, j_sym),
+                    ));
                 }
                 Stmt::While { body, .. } => {
                     if let Some(r) = inner_loop_reads(body, coll, i_sym, j_sym) {
                         return Some(r);
                     }
                 }
-                Stmt::If { then_block, else_block, .. } => {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     if let Some(r) = inner_loop_reads(then_block, coll, i_sym, j_sym) {
                         return Some(r);
                     }

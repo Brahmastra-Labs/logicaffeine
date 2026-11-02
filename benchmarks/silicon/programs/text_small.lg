@@ -1,0 +1,5 @@
+## Main
+    Let s be "ab".
+    Show s + "c".
+    Show s equals "ab".
+    Show length of s.

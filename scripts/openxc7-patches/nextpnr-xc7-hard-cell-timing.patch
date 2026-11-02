@@ -1,0 +1,728 @@
+--- a/common/kernel/command.cc
++++ b/common/kernel/command.cc
+@@ -328,11 +328,15 @@
+     if (vm.count("no-tmdriv"))
+         ctx->settings[ctx->id("timing_driven")] = false;
+ 
+-    if (vm.count("placer-heap-alpha"))
++    if (vm.count("placer-heap-alpha")) {
+         ctx->settings[ctx->id("placerHeap/alpha")] = std::to_string(vm["placer-heap-alpha"].as<float>());
++        ctx->settings[ctx->id("placerHeap/alpha/given")] = 1;
++    }
+ 
+-    if (vm.count("placer-heap-beta"))
++    if (vm.count("placer-heap-beta")) {
+         ctx->settings[ctx->id("placerHeap/beta")] = std::to_string(vm["placer-heap-beta"].as<float>());
++        ctx->settings[ctx->id("placerHeap/beta/given")] = 1;
++    }
+ 
+     if (vm.count("placer-heap-critexp"))
+         ctx->settings[ctx->id("placerHeap/criticalityExponent")] = std::to_string(vm["placer-heap-critexp"].as<int>());
+--- a/xilinx/arch.cc
++++ b/xilinx/arch.cc
+@@ -691,6 +691,25 @@
+ {
+     std::string placer = str_or_default(settings, id_placer, defaultPlacer);
+ 
++    // With NEXTPNR_XC7_PLACE_HARD_TIMING=0 the placer sees the timing model the chipdb gives, and routing and every
++    // timing report after placement see the hard cells. HeAP weights each net by its criticality whatever the timing
++    // switch says, and once DSP, block RAM and LUT-RAM paths are timed they hold the criticality: MEASURED on the S1
++    // decode step on an XC7A100T, the placement grew from 1.68M to 1.96-1.98M wirelength at every timing weight and
++    // router2 stalled near 7k overused wires, where the chipdb's model placed it in 1.68M and routed.
++    struct PlaceTiming
++    {
++        bool &on, saved;
++        PlaceTiming(bool &on) : on(on), saved(on)
++        {
++            const char *v = std::getenv("NEXTPNR_XC7_PLACE_HARD_TIMING");
++            if (on && v != nullptr && std::string(v) == "0") {
++                on = false;
++                log_info("Placing with the chipdb's timing model; the hard cells are timed from routing on.\n");
++            }
++        }
++        ~PlaceTiming() { on = saved; }
++    } place_timing(hard_timing_on);
++
+     if (placer == "heap") {
+         PlacerHeapCfg cfg(getCtx());
+         cfg.criticalityExponent = 7;
+@@ -698,8 +717,12 @@
+         cfg.ioBufTypes.insert(id_IOB_OUTBUF);
+         cfg.ioBufTypes.insert(id_PSEUDO_GND);
+         cfg.ioBufTypes.insert(id_PSEUDO_VCC);
+-        cfg.alpha = 0.08;
+-        cfg.beta = 0.4;
++        // The architecture's spreading, where the command line names none: a --placer-heap-alpha or --placer-heap-beta
++        // the user gave would otherwise be overwritten here without a word.
++        if (!settings.count(getCtx()->id("placerHeap/alpha/given")))
++            cfg.alpha = 0.08;
++        if (!settings.count(getCtx()->id("placerHeap/beta/given")))
++            cfg.beta = 0.4;
+         cfg.placeAllAtOnce = true;
+         cfg.hpwl_scale_x = 1;
+         cfg.hpwl_scale_y = 2;
+@@ -1217,6 +1240,16 @@
+ 
+ bool Arch::getCellDelay(const CellInfo *cell, IdString fromPort, IdString toPort, DelayQuad &delay) const
+ {
++    if (hard_timing_on && hard_cell(cell)) {
++        auto found = hard_timing.find(cell->name);
++        if (found == hard_timing.end())
++            return false;
++        auto arc = found->second.comb.find(std::make_pair(fromPort, toPort));
++        if (arc == found->second.comb.end())
++            return false;
++        delay = DelayQuad(arc->second);
++        return true;
++    }
+     int tt_id = -1, inst_id = -1;
+     if (cell->bel != BelId()) {
+         tt_id = locInfo(cell->bel).timing_index;
+@@ -1266,6 +1299,42 @@
+ 
+ TimingPortClass Arch::getPortTimingClass(const CellInfo *cell, IdString port, int &clockInfoCount) const
+ {
++    if (hard_timing_on) {
++        if (hard_cell(cell)) {
++            auto found = hard_timing.find(cell->name);
++            if (found == hard_timing.end())
++                return TMG_IGNORE;
++            const HardCellTiming &h = found->second;
++            if (h.clocks.count(port))
++                return TMG_CLOCK_INPUT;
++            if (h.checks.count(port)) {
++                clockInfoCount = 1;
++                return TMG_REGISTER_INPUT;
++            }
++            if (h.clock_to_out.count(port)) {
++                clockInfoCount = 1;
++                return TMG_REGISTER_OUTPUT;
++            }
++            if (h.comb_in.count(port))
++                return TMG_COMB_INPUT;
++            if (h.comb_out.count(port))
++                return TMG_COMB_OUTPUT;
++            return TMG_IGNORE;
++        }
++        if (cell->type == id_SLICE_LUTX && (cell->lutInfo.is_memory || cell->lutInfo.is_srl)) {
++            if (port == id_CLK)
++                return TMG_CLOCK_INPUT;
++            const auto &checks = cell->lutInfo.is_srl ? srl_checks : lram_checks;
++            if (checks.count(port)) {
++                clockInfoCount = 1;
++                return TMG_REGISTER_INPUT;
++            }
++            if (cell->lutInfo.is_srl && !srl_driven.count(cell->name) && port.in(id_O5, id_O6, id_MC31)) {
++                clockInfoCount = 1;
++                return TMG_REGISTER_OUTPUT;
++            }
++        }
++    }
+     if (cell->type == id_SLICE_LUTX) {
+         if (cell->getPort(id_O5) == nullptr && cell->getPort(id_O6) == nullptr)
+             return TMG_IGNORE;
+@@ -1308,6 +1377,47 @@
+ TimingClockingInfo Arch::getPortClockingInfo(const CellInfo *cell, IdString port, int index) const
+ {
+     TimingClockingInfo info;
++    if (hard_timing_on) {
++        auto check = [&](const PortCheck &c) {
++            info.clock_port = c.clock;
++            info.edge = RISING_EDGE;
++            info.setup = DelayPair(c.setup);
++            info.hold = DelayPair(c.hold);
++            info.clockToQ = DelayQuad(0);
++            return info;
++        };
++        auto clocked = [&](IdString clock, delay_t d) {
++            info.clock_port = clock;
++            info.edge = RISING_EDGE;
++            info.setup = DelayPair(0);
++            info.hold = DelayPair(0);
++            info.clockToQ = DelayQuad(d);
++            return info;
++        };
++        if (hard_cell(cell)) {
++            const HardCellTiming &h = hard_timing.at(cell->name);
++            auto c = h.checks.find(port);
++            if (c != h.checks.end())
++                return check(c->second);
++            auto q = h.clock_to_out.find(port);
++            if (q != h.clock_to_out.end())
++                return clocked(q->second.first, q->second.second);
++        } else if (cell->type == id_SLICE_LUTX && (cell->lutInfo.is_memory || cell->lutInfo.is_srl)) {
++            const auto &checks = cell->lutInfo.is_srl ? srl_checks : lram_checks;
++            auto c = checks.find(port);
++            if (c != checks.end())
++                return check(c->second);
++            if (cell->lutInfo.is_srl && !srl_driven.count(cell->name))
++                return clocked(id_CLK, srl_clk_to_q);
++        } else if (cell->type == id_SLICE_FFX) {
++            if (port == id_Q)
++                return clocked(xc7 ? id_CK : id_CLK, ff_clk_to_q);
++            const PortCheck &c = port == id_CE ? ff_ce : port == id_SR ? ff_sr : ff_d;
++            check(c);
++            info.clock_port = xc7 ? id_CK : id_CLK;
++            return info;
++        }
++    }
+     info.setup = DelayPair(getDelayFromNS(0.1));
+     info.hold = DelayPair(getDelayFromNS(0.1));
+     info.clockToQ = DelayQuad(getDelayFromNS(0.1));
+--- a/xilinx/arch.h
++++ b/xilinx/arch.h
+@@ -25,6 +25,8 @@
+ #include <boost/iostreams/device/mapped_file.hpp>
+ 
+ #include <iostream>
++#include <map>
++#include <tuple>
+ #include "base_arch.h"
+ 
+ NEXTPNR_NAMESPACE_BEGIN
+@@ -1611,6 +1613,42 @@
+     void assignArchInfo();
+     void assignCellInfo(CellInfo *cell);
+ 
++    // -------------------------------------------------
++    // Hard-cell timing (hard_timing.cc): the checks and arcs of the cells the generic port classes leave untimed,
++    // read from prjxray's SDF files when NEXTPNR_XC7_TIMINGS names their directory.
++    struct SdfCell
++    {
++        std::vector<std::tuple<std::string, std::string, double>> paths;               // from, to, largest ns
++        std::vector<std::tuple<std::string, std::string, std::string, double>> checks; // kind, pin, clock, largest ns
++    };
++    // Tile type → instance → cell type.
++    std::map<std::string, std::map<std::string, std::map<std::string, SdfCell>>> sdf_cells;
++    struct PortCheck
++    {
++        IdString clock;
++        delay_t setup = 0, hold = 0;
++    };
++    struct HardCellTiming
++    {
++        dict<std::pair<IdString, IdString>, delay_t> comb;
++        pool<IdString> comb_in, comb_out, clocks;
++        dict<IdString, PortCheck> checks;
++        dict<IdString, std::pair<IdString, delay_t>> clock_to_out;
++    };
++    dict<IdString, HardCellTiming> hard_timing; // by cell name
++    bool hard_timing_on = false;
++    PortCheck ff_d, ff_ce, ff_sr;
++    delay_t ff_clk_to_q = 0;
++    dict<IdString, PortCheck> lram_checks, srl_checks; // by the packed LUT's port
++    delay_t srl_clk_to_q = 0, lram_clk_to_out = 0, residual = 0;
++    pool<IdString> srl_driven; // shift registers whose address logic drives: timed by their address
++    void load_timing_sdf(const std::string &dir, const std::string &tile_type);
++    void build_hard_timing();
++    bool hard_cell(const CellInfo *cell) const
++    {
++        return cell->type.in(id_DSP48E1_DSP48E1, id_RAMB18E1_RAMB18E1, id_RAMB36E1_RAMB36E1);
++    }
++
+     void fixupPlacement();
+     void fixupRouting();
+ 
+--- a/xilinx/pack.cc
++++ b/xilinx/pack.cc
+@@ -1011,6 +1011,7 @@
+     for (auto &cell : cells) {
+         assignCellInfo(cell.second.get());
+     }
++    build_hard_timing();
+ }
+ 
+ NEXTPNR_NAMESPACE_END
+--- /dev/null
++++ b/xilinx/hard_timing.cc
+@@ -0,0 +1,490 @@
++/*
++ *  nextpnr -- Next Generation Place and Route
++ *
++ *  Timing for the xc7 cells whose ports the arch's generic classes leave untimed, read from prjxray's SDF files
++ *  (prjxray-db/<family>/timings/<tile type>.sdf: Vivado's models at speed grade -1). The chipdb carries their
++ *  delays but none of their checks — its SDF reader keeps only SETUPHOLD, and these files write SETUP, HOLD,
++ *  RECOVERY and REMOVAL — so this reads the files themselves, named by NEXTPNR_XC7_TIMINGS:
++ *
++ *   - a flip-flop's setup and hold for D and CE, its recovery and removal for SR, and its clock-to-out;
++ *   - a LUT-RAM's write address, write enable and data, set up to its clock;
++ *   - a shift register's data and enable, set up to its clock, and its clock-to-out;
++ *   - a DSP48E1 by its register configuration: every SDF variant whose parameters the cell's equal gives its arcs;
++ *   - a block RAM bounded over every configuration: each port's largest setup and clock-to-out.
++ *
++ *  Every value is the largest the SDF gives an arc, over rise and fall and both corners.
++ */
++
++#include <algorithm>
++#include <cctype>
++#include <cstdlib>
++#include <fstream>
++#include <sstream>
++#include "log.h"
++#include "nextpnr.h"
++#include "util.h"
++
++NEXTPNR_NAMESPACE_BEGIN
++
++namespace {
++
++struct SExpr
++{
++    bool is_list = false;
++    std::string atom;
++    std::vector<SExpr> items;
++};
++
++void skip_space(const std::string &s, size_t &i)
++{
++    while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i])))
++        i++;
++}
++
++SExpr parse_item(const std::string &s, size_t &i);
++
++SExpr parse_list(const std::string &s, size_t &i)
++{
++    SExpr l;
++    l.is_list = true;
++    i++;
++    while (true) {
++        skip_space(s, i);
++        if (i >= s.size())
++            break;
++        if (s[i] == ')') {
++            i++;
++            break;
++        }
++        l.items.push_back(parse_item(s, i));
++    }
++    return l;
++}
++
++SExpr parse_item(const std::string &s, size_t &i)
++{
++    skip_space(s, i);
++    if (i < s.size() && s[i] == '(')
++        return parse_list(s, i);
++    SExpr a;
++    if (i < s.size() && s[i] == '"') {
++        size_t end = s.find('"', i + 1);
++        a.atom = s.substr(i + 1, end - i - 1);
++        i = end + 1;
++        return a;
++    }
++    size_t start = i;
++    while (i < s.size() && !std::isspace(static_cast<unsigned char>(s[i])) && s[i] != '(' && s[i] != ')')
++        i++;
++    a.atom = s.substr(start, i - start);
++    return a;
++}
++
++// The largest number of a value `(a::b)` or `(a:b:c)`.
++bool largest_of(const SExpr &v, double &out, bool &any)
++{
++    auto take = [&](const std::string &atom) {
++        std::stringstream ss(atom);
++        std::string part;
++        while (std::getline(ss, part, ':')) {
++            if (part.empty())
++                continue;
++            double x = std::stod(part);
++            if (!any || x > out)
++                out = x;
++            any = true;
++        }
++    };
++    if (v.is_list) {
++        for (auto &it : v.items)
++            if (!it.is_list)
++                take(it.atom);
++    } else {
++        take(v.atom);
++    }
++    return any;
++}
++
++// A port's SDF pin: a bus port's bits share their bus's name.
++std::string dsp_pin(const std::string &port)
++{
++    static const std::vector<std::string> buses = {"A",     "B",     "C",       "D",      "P",      "ACIN",
++                                                   "ACOUT", "BCIN",  "BCOUT",   "PCIN",   "PCOUT",  "ALUMODE",
++                                                   "INMODE", "OPMODE", "CARRYINSEL", "CARRYOUT"};
++    size_t end = port.size();
++    while (end > 0 && std::isdigit(static_cast<unsigned char>(port[end - 1])))
++        end--;
++    if (end < port.size()) {
++        std::string base = port.substr(0, end);
++        for (auto &b : buses)
++            if (b == base)
++                return base;
++    }
++    return port;
++}
++
++// The DSP48E1 parameters the SDF's variant names condition on, with their defaults (UG479).
++const std::vector<std::pair<std::string, std::string>> &dsp_params()
++{
++    static const std::vector<std::pair<std::string, std::string>> params = {
++            {"USE_PATTERN_DETECT", "NO_PATDET"},
++            {"CARRYINSELREG", "1"},
++            {"ALUMODEREG", "1"},
++            {"CARRYINREG", "1"},
++            {"INMODEREG", "1"},
++            {"OPMODEREG", "1"},
++            {"ACASCREG", "1"},
++            {"BCASCREG", "1"},
++            {"USE_DPORT", "FALSE"},
++            {"USE_MULT", "MULTIPLY"},
++            {"A_INPUT", "DIRECT"},
++            {"B_INPUT", "DIRECT"},
++            {"ADREG", "1"},
++            {"AREG", "1"},
++            {"BREG", "1"},
++            {"CREG", "1"},
++            {"DREG", "1"},
++            {"MREG", "1"},
++            {"PREG", "1"},
++    };
++    return params;
++}
++
++// A variant name's conditions: `AREG_0_A_INPUT_DIRECT_MREG_1` is AREG = 0, A_INPUT = DIRECT, MREG = 1. The
++// parameter names, longest first, delimit the values, some of which hold underscores (`NO_PATDET`).
++std::vector<std::pair<std::string, std::string>> dsp_conditions(const std::string &variant)
++{
++    std::vector<std::pair<std::string, std::string>> out;
++    const std::string prefix = "DSP48E1";
++    std::string rest = variant.substr(prefix.size());
++    if (!rest.empty() && rest[0] == '_')
++        rest = rest.substr(1);
++    std::vector<std::string> names;
++    for (auto &p : dsp_params())
++        names.push_back(p.first);
++    std::sort(names.begin(), names.end(), [](const std::string &a, const std::string &b) { return a.size() > b.size(); });
++    while (!rest.empty()) {
++        std::string name;
++        for (auto &n : names)
++            if (rest.compare(0, n.size() + 1, n + "_") == 0) {
++                name = n;
++                break;
++            }
++        if (name.empty())
++            log_error("hard-cell timing: DSP variant %s has a condition no DSP48E1 parameter names\n", variant.c_str());
++        rest = rest.substr(name.size() + 1);
++        size_t cut = rest.size();
++        for (auto &n : names) {
++            size_t at = rest.find("_" + n + "_");
++            if (at != std::string::npos && at < cut)
++                cut = at;
++        }
++        out.emplace_back(name, rest.substr(0, cut));
++        rest = cut < rest.size() ? rest.substr(cut + 1) : "";
++    }
++    return out;
++}
++
++bool starts_with(const std::string &s, const std::string &p) { return s.compare(0, p.size(), p) == 0; }
++
++} // namespace
++
++void Arch::load_timing_sdf(const std::string &dir, const std::string &tile_type)
++{
++    std::ifstream f(dir + "/" + tile_type + ".sdf");
++    if (!f)
++        log_error("hard-cell timing: no %s/%s.sdf\n", dir.c_str(), tile_type.c_str());
++    std::stringstream buf;
++    buf << f.rdbuf();
++    std::string text = buf.str();
++    size_t i = 0;
++    skip_space(text, i);
++    SExpr file = parse_item(text, i);
++    auto &by_instance = sdf_cells[tile_type];
++    for (auto &cell : file.items) {
++        if (!cell.is_list || cell.items.empty() || cell.items[0].atom != "CELL")
++            continue;
++        std::string celltype, instance;
++        for (auto &e : cell.items) {
++            if (!e.is_list || e.items.size() < 2)
++                continue;
++            if (e.items[0].atom == "CELLTYPE")
++                celltype = e.items[1].atom;
++            else if (e.items[0].atom == "INSTANCE")
++                instance = e.items[1].atom;
++        }
++        SdfCell &out = by_instance[instance][celltype];
++        for (auto &e : cell.items) {
++            if (!e.is_list || e.items.empty())
++                continue;
++            if (e.items[0].atom == "DELAY") {
++                for (auto &abs : e.items)
++                    if (abs.is_list && !abs.items.empty() && abs.items[0].atom == "ABSOLUTE")
++                        for (auto &path : abs.items)
++                            if (path.is_list && path.items.size() >= 4 && path.items[0].atom == "IOPATH") {
++                                double v = 0;
++                                bool any = false;
++                                for (size_t k = 3; k < path.items.size(); k++)
++                                    largest_of(path.items[k], v, any);
++                                if (any)
++                                    out.paths.push_back({path.items[1].atom, path.items[2].atom, v});
++                            }
++            } else if (e.items[0].atom == "TIMINGCHECK") {
++                for (auto &chk : e.items) {
++                    if (!chk.is_list || chk.items.size() < 4)
++                        continue;
++                    const std::string &kind = chk.items[0].atom;
++                    if (kind != "SETUP" && kind != "HOLD" && kind != "RECOVERY" && kind != "REMOVAL")
++                        continue;
++                    const SExpr &clk = chk.items[2];
++                    std::string clock = clk.is_list && clk.items.size() >= 2 ? clk.items[1].atom : clk.atom;
++                    double v = 0;
++                    bool any = false;
++                    if (largest_of(chk.items[3], v, any))
++                        out.checks.push_back({kind, chk.items[1].atom, clock, v});
++                }
++            }
++        }
++    }
++}
++
++void Arch::build_hard_timing()
++{
++    hard_timing.clear();
++    hard_timing_on = false;
++    const char *dir = std::getenv("NEXTPNR_XC7_TIMINGS");
++    if (dir == nullptr || !xc7) {
++        log_info("Hard-cell timing off (NEXTPNR_XC7_TIMINGS unset): DSP48E1, block RAM, the write ports of LUT-RAM "
++                 "and shift registers, and a shift register's clock-to-out are not timed.\n");
++        return;
++    }
++    // Cell info is assigned before packing too; the cells timed here exist only once the design is packed.
++    bool packed = false;
++    for (auto &cell : cells)
++        if (cell.second->type.in(id_SLICE_LUTX, id_SLICE_FFX)) {
++            packed = true;
++            break;
++        }
++    if (!packed)
++        return;
++    sdf_cells.clear();
++    for (auto tt : {"CLBLL_L", "CLBLL_R", "CLBLM_L", "CLBLM_R", "DSP_L", "DSP_R", "BRAM_L", "BRAM_R"})
++        load_timing_sdf(dir, tt);
++    hard_timing_on = true;
++
++    auto ns = [&](double v) { return getDelayFromNS(v); };
++    auto grow = [](delay_t &slot, delay_t v) { slot = std::max(slot, v); };
++
++    // Flip-flops and the slice LUT memories, the largest over both slice types, both tile sides and every LUT.
++    ff_d = ff_ce = ff_sr = PortCheck{};
++    ff_clk_to_q = 0;
++    lram_checks.clear();
++    srl_checks.clear();
++    srl_clk_to_q = lram_clk_to_out = residual = 0;
++    for (auto tt : {"CLBLL_L", "CLBLL_R", "CLBLM_L", "CLBLM_R"}) {
++        for (auto &inst : sdf_cells[tt]) {
++            for (auto &ct : inst.second) {
++                const std::string &name = ct.first;
++                const SdfCell &c = ct.second;
++                if (starts_with(name, "FF_INIT") || starts_with(name, "REG_INIT_FF")) {
++                    for (auto &p : c.paths)
++                        if (std::get<0>(p) == "CLK" && std::get<1>(p) == "Q")
++                            grow(ff_clk_to_q, ns(std::get<2>(p)));
++                    for (auto &k : c.checks) {
++                        const std::string &kind = std::get<0>(k), &pin = std::get<1>(k);
++                        delay_t v = ns(std::get<3>(k));
++                        PortCheck *slot = pin == "DIN" ? &ff_d : pin == "CE" ? &ff_ce : pin == "SR" ? &ff_sr : nullptr;
++                        if (slot == nullptr)
++                            continue;
++                        if (kind == "SETUP" || kind == "RECOVERY")
++                            grow(slot->setup, v);
++                        else
++                            grow(slot->hold, v);
++                    }
++                }
++                bool lram = name == "LUT_OR_MEM5LRAM" || name == "LUT_OR_MEM6LRAM";
++                bool srl = name == "LUT_OR_MEM5SHFREG" || name == "LUT_OR_MEM6SHFREG";
++                if (!lram && !srl)
++                    continue;
++                auto &checks = lram ? lram_checks : srl_checks;
++                for (auto &k : c.checks) {
++                    IdString pin = id(std::get<1>(k));
++                    delay_t v = ns(std::get<3>(k));
++                    PortCheck &slot = checks[pin];
++                    slot.clock = id_CLK;
++                    if (std::get<0>(k) == "SETUP" || std::get<0>(k) == "RECOVERY")
++                        grow(slot.setup, v);
++                    else
++                        grow(slot.hold, v);
++                }
++                for (auto &p : c.paths)
++                    if (std::get<0>(p) == "CLK" && (std::get<1>(p) == "O6" || std::get<1>(p) == "O5"))
++                        grow(srl ? srl_clk_to_q : lram_clk_to_out, ns(std::get<2>(p)));
++            }
++        }
++    }
++
++    // DSP48E1: the variants of both tile sides, each with its conditions.
++    std::vector<std::pair<std::vector<std::pair<std::string, std::string>>, const SdfCell *>> dsp_variants;
++    for (auto tt : {"DSP_L", "DSP_R"})
++        for (auto &inst : sdf_cells[tt])
++            for (auto &ct : inst.second)
++                if (starts_with(ct.first, "DSP48E1"))
++                    dsp_variants.emplace_back(dsp_conditions(ct.first), &ct.second);
++
++    // Block RAM: each port class's largest setup and hold and its outputs' largest clock-to-out, over every variant.
++    struct Bound
++    {
++        delay_t setup = 0, hold = 0;
++    };
++    dict<std::string, Bound> bram_in;
++    delay_t bram_out = 0;
++    static const std::vector<std::string> bram_inputs = {"ADDRA", "ADDRB", "ENARDEN", "ENBWREN", "REGCEA", "REGCEB",
++                                                         "RSTRAMA", "RSTRAMB", "RSTREGA", "RSTREGB", "WEA", "WEB",
++                                                         "DIADI", "DIBDI", "DIPADIP", "DIPBDIP"};
++    for (auto tt : {"BRAM_L", "BRAM_R"})
++        for (auto &inst : sdf_cells[tt])
++            for (auto &ct : inst.second) {
++                for (auto &k : ct.second.checks)
++                    for (auto &cls : bram_inputs)
++                        if (starts_with(std::get<1>(k), cls)) {
++                            delay_t v = ns(std::get<3>(k));
++                            if (std::get<0>(k) == "SETUP" || std::get<0>(k) == "RECOVERY")
++                                grow(bram_in[cls].setup, v);
++                            else
++                                grow(bram_in[cls].hold, v);
++                        }
++                for (auto &p : ct.second.paths)
++                    if (starts_with(std::get<0>(p), "CLK") || starts_with(std::get<0>(p), "REGCLK"))
++                        if (starts_with(std::get<1>(p), "DO"))
++                            grow(bram_out, ns(std::get<2>(p)));
++            }
++
++    int dsps = 0, brams = 0, lrams = 0, srls = 0;
++    srl_driven.clear();
++    for (auto &cell : cells) {
++        CellInfo *ci = cell.second.get();
++        if (ci->type == id_SLICE_LUTX) {
++            if (ci->lutInfo.is_srl) {
++                srls++;
++                for (auto a : {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6}) {
++                    NetInfo *n = ci->getPort(a);
++                    if (n != nullptr && n->driver.cell != nullptr && !n->driver.cell->type.in(id_GND, id_VCC) &&
++                        n->name != id("$PACKER_GND_NET") && n->name != id("$PACKER_VCC_NET")) {
++                        srl_driven.insert(ci->name);
++                        break;
++                    }
++                }
++            } else if (ci->lutInfo.is_memory) {
++                lrams++;
++            }
++            continue;
++        }
++        if (ci->type == id_DSP48E1_DSP48E1) {
++            dsps++;
++            dict<std::string, std::string> config;
++            for (auto &p : dsp_params()) {
++                auto found = ci->params.find(id(p.first));
++                if (found == ci->params.end())
++                    config[p.first] = p.second;
++                else
++                    config[p.first] = found->second.is_string ? found->second.as_string()
++                                                              : std::to_string(found->second.as_int64());
++            }
++            HardCellTiming &h = hard_timing[ci->name];
++            dict<std::string, std::vector<IdString>> ports_of_pin;
++            for (auto &port : ci->ports)
++                ports_of_pin[dsp_pin(port.first.str(this))].push_back(port.first);
++            for (auto &port : ports_of_pin["CLK"])
++                h.clocks.insert(port);
++            for (auto &v : dsp_variants) {
++                bool holds = true;
++                for (auto &cond : v.first)
++                    if (config.at(cond.first) != cond.second) {
++                        holds = false;
++                        break;
++                    }
++                if (!holds)
++                    continue;
++                for (auto &k : v.second->checks) {
++                    for (auto &port : ports_of_pin[std::get<1>(k)]) {
++                        PortCheck &slot = h.checks[port];
++                        slot.clock = id_CLK;
++                        delay_t d = ns(std::get<3>(k));
++                        if (std::get<0>(k) == "SETUP" || std::get<0>(k) == "RECOVERY")
++                            grow(slot.setup, d);
++                        else
++                            grow(slot.hold, d);
++                    }
++                }
++                for (auto &p : v.second->paths) {
++                    const std::string &from = std::get<0>(p), &to = std::get<1>(p);
++                    delay_t d = ns(std::get<2>(p));
++                    if (from == "CLK") {
++                        for (auto &port : ports_of_pin[to]) {
++                            auto &slot = h.clock_to_out[port];
++                            slot.first = id_CLK;
++                            grow(slot.second, d);
++                        }
++                        continue;
++                    }
++                    for (auto &fp : ports_of_pin[from])
++                        for (auto &tp : ports_of_pin[to]) {
++                            grow(h.comb[std::make_pair(fp, tp)], d);
++                            h.comb_in.insert(fp);
++                            h.comb_out.insert(tp);
++                        }
++                }
++            }
++            continue;
++        }
++        if (ci->type.in(id_RAMB18E1_RAMB18E1, id_RAMB36E1_RAMB36E1)) {
++            brams++;
++            HardCellTiming &h = hard_timing[ci->name];
++            bool sdp = str_or_default(ci->params, id("RAM_MODE"), "TDP") == "SDP";
++            for (auto &port : ci->ports) {
++                std::string n = port.first.str(this);
++                if (starts_with(n, "CLK") || starts_with(n, "REGCLK")) {
++                    h.clocks.insert(port.first);
++                    continue;
++                }
++                if (starts_with(n, "DO")) {
++                    // In simple dual port, both output buses carry the read port's data.
++                    bool a = starts_with(n, "DOADO") || starts_with(n, "DOPADOP") || sdp;
++                    h.clock_to_out[port.first] = {a ? id_CLKARDCLK : id_CLKBWRCLK, bram_out};
++                    continue;
++                }
++                std::string cls;
++                for (auto &c : bram_inputs)
++                    if (starts_with(n, c) && c.size() > cls.size())
++                        cls = c;
++                if (cls.empty())
++                    continue;
++                // In simple dual port, every data input is written by the write port's clock.
++                bool a_side = starts_with(cls, "ADDRA") || cls == "ENARDEN" || cls == "REGCEA" ||
++                              starts_with(cls, "RSTRAMA") || starts_with(cls, "RSTREGA") || cls == "WEA" ||
++                              ((cls == "DIADI" || cls == "DIPADIP") && !sdp);
++                PortCheck &slot = h.checks[port.first];
++                slot.clock = a_side ? id_CLKARDCLK : id_CLKBWRCLK;
++                slot.setup = bram_in[cls].setup;
++                slot.hold = bram_in[cls].hold;
++            }
++        }
++    }
++    // What the analysis cannot hold beside a combinational read: a LUT-RAM's write-through and a driven-address shift
++    // register's clock-to-out. Each feeds the logic its timed read feeds, so it is at most its own delay longer than a
++    // path the analysis covers.
++    residual = lrams > 0 ? lram_clk_to_out : 0;
++    if (!srl_driven.empty())
++        residual = std::max(residual, srl_clk_to_q);
++    log_info("Hard-cell timing from %s: %d DSP48E1 by their register configuration, %d block RAMs bounded over "
++             "every configuration, %d LUT-RAMs' write ports, %d shift registers' write ports and clock-to-out (%d "
++             "by their address instead), and every flip-flop's checks and clock-to-out.\n",
++             dir, dsps, brams, lrams, srls, int(srl_driven.size()));
++    log_info("Hard-cell timing residual: %.3f ns. A LUT-RAM's write-through and a driven-address shift register's "
++             "clock-to-out are not in the reported maximum frequency; each path through one is at most this much "
++             "longer than a path that is.\n",
++             getDelayNS(residual));
++}
++
++NEXTPNR_NAMESPACE_END

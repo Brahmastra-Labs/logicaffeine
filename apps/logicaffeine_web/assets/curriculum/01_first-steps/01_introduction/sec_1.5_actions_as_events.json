@@ -1,0 +1,42 @@
+{
+  "id": "1.5",
+  "title": "Actions as Events",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "LOGOS writes an action as an **event**. ∃e says there is an event e. Run(e) says that e is a running, and Agent(e, John) says that John does it."
+    },
+    {
+      "type": "paragraph",
+      "text": "Past(e) puts the event in the past. ∧ means and: every part describes the same event e."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "John ran.",
+      "formula": "∃e(Run(e) ∧ Agent(e, John) ∧ Past(e))",
+      "note": "There was a running, John did it, and it is in the past."
+    },
+    {
+      "type": "formula",
+      "sentence": "John loves Mary.",
+      "formula": "∃e(Love(e) ∧ Agent(e, John) ∧ Theme(e, Mary))",
+      "note": "The Theme is who or what the action is directed at. Here it is Mary."
+    },
+    {
+      "type": "formula",
+      "sentence": "Mary sleeps.",
+      "formula": "HAB(∃e(Sleep(e) ∧ Agent(e, Mary)))",
+      "note": "HAB marks a habit: Mary sleeps, as a rule. LOGOS reads many present tense verbs this way."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Mary slept.",
+    "answer": "∃e(Sleep(e) ∧ Agent(e, Mary) ∧ Past(e))",
+    "hint": "Start with ∃e. Say what kind of event e is, who did it, and that it is past.",
+    "explanation": "Sleep(e) names the event, Agent(e, Mary) says Mary did it, and Past(e) puts it in the past."
+  }
+}

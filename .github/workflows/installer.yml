@@ -6,13 +6,13 @@ on:
     paths:
       - 'apps/logicaffeine_web/public/install.sh'
       - 'apps/logicaffeine_web/public/install.ps1'
-      - 'scripts/test-installers.sh'
+      - 'scripts/release/test-installers.sh'
       - '.github/workflows/installer.yml'
   pull_request:
     paths:
       - 'apps/logicaffeine_web/public/install.sh'
       - 'apps/logicaffeine_web/public/install.ps1'
-      - 'scripts/test-installers.sh'
+      - 'scripts/release/test-installers.sh'
       - '.github/workflows/installer.yml'
   workflow_dispatch:
 
@@ -25,7 +25,7 @@ jobs:
       - name: shellcheck install.sh (POSIX sh)
         run: shellcheck -s sh apps/logicaffeine_web/public/install.sh
       - name: shellcheck test harness
-        run: shellcheck -s bash scripts/test-installers.sh
+        run: shellcheck -s bash scripts/release/test-installers.sh
 
   sh-smoke:
     name: harness (${{ matrix.os }})
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
       # dash is preinstalled on ubuntu; absent on macOS (the harness skips it there).
       - name: Run the offline installer harness
-        run: ./scripts/test-installers.sh
+        run: ./scripts/release/test-installers.sh
 
   ps1-smoke:
     name: install.ps1 smoke (windows)

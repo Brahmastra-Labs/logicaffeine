@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It's necessary that S is possible",
   "options": [
-    "$ \\square S $",
-    "$ (\\square \\lozenge S) $",
-    "$ \\square \\lozenge S $",
-    "$ \\square(\\lozenge S) $"
+    "□S",
+    "◇□S",
+    "□◇S",
+    "◇S"
   ],
   "correct": 2,
-  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "Two operators nest here: it is NECESSARY (□) that S is POSSIBLE (◇), giving □◇S — in every possible world, S remains possible. Order matters: □◇S is weaker than □S."
+  "hint": "There are two modal words. Which one comes first?",
+  "explanation": "It is necessary that S is possible, so □ comes first, then ◇: □◇S.",
+  "section": "10.2"
 }

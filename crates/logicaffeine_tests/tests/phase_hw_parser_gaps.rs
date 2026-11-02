@@ -31,8 +31,11 @@ fn gap2_shall_parses_as_modal() {
 fn gap2_shall_produces_deontic_operator() {
     let fol = compile("The receiver shall acknowledge every request.").unwrap();
     assert!(
-        fol.contains("□") || fol.contains("O_") || fol.contains("◇")
-            || fol.contains("Deontic") || fol.contains("Shall"),
+        fol.contains("□")
+            || fol.contains("O_")
+            || fol.contains("◇")
+            || fol.contains("Deontic")
+            || fol.contains("Shall"),
         "\"shall\" should produce deontic modal operator. Got: {}",
         fol
     );
@@ -186,8 +189,11 @@ fn gap3_is_always_active_still_works() {
 fn gap3_is_always_produces_temporal_wrapper() {
     let fol = compile("The output is always high.").unwrap();
     assert!(
-        fol.contains("G(") || fol.contains("∀w") || fol.contains("Always")
-            || fol.contains("Accessible") || fol.contains("HAB"),
+        fol.contains("G(")
+            || fol.contains("∀w")
+            || fol.contains("Always")
+            || fol.contains("Accessible")
+            || fol.contains("HAB"),
         "\"is always\" should produce temporal invariant G(P). Got: {}",
         fol
     );
@@ -214,8 +220,11 @@ fn gap4_after_produces_temporal_ordering() {
     let fol = compile("After reset, the output is zero.").unwrap();
     // Should produce temporal sequence or implication, not just a bare preposition
     assert!(
-        fol.contains("→") || fol.contains("->") || fol.contains("|->")
-            || fol.contains("Implies") || fol.contains("After")
+        fol.contains("→")
+            || fol.contains("->")
+            || fol.contains("|->")
+            || fol.contains("Implies")
+            || fol.contains("After")
             || fol.contains("Response"),
         "\"After X, Y\" should produce temporal ordering. Got: {}",
         fol

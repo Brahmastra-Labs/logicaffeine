@@ -1,0 +1,14 @@
+## Main
+    Let mutable xs be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most 20:
+        Push i * i to xs.
+        Set i to i + 1.
+    Show the length of xs.
+    Show item 5 of xs.
+    Let mutable total be 0.
+    Let mutable j be 1.
+    While j is at most 20:
+        Set total to total + item j of xs.
+        Set j to j + 1.
+    Show total.

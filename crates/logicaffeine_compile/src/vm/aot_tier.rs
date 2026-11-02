@@ -24,6 +24,9 @@ use super::native_tier::{NativeFn, NativeOutcome, NativeRet, SlotKind};
 /// because the address is immutable and the code is read-only once loaded.
 pub struct AotNativeFn {
     addr: usize,
+    /// `logos_native_<fn>__failed` — reports (and clears) whether the last call stopped with a
+    /// failure the shim caught.
+    failed: usize,
     arity: usize,
     _lib: Arc<libloading::Library>,
     calls: Arc<AtomicU64>,
@@ -53,7 +56,9 @@ impl NativeFn for AotNativeFn {
             match self.arity {
                 0 => std::mem::transmute::<usize, extern "C" fn() -> i64>(a)(),
                 1 => std::mem::transmute::<usize, extern "C" fn(i64) -> i64>(a)(args[0]),
-                2 => std::mem::transmute::<usize, extern "C" fn(i64, i64) -> i64>(a)(args[0], args[1]),
+                2 => std::mem::transmute::<usize, extern "C" fn(i64, i64) -> i64>(a)(
+                    args[0], args[1],
+                ),
                 3 => std::mem::transmute::<usize, extern "C" fn(i64, i64, i64) -> i64>(a)(
                     args[0], args[1], args[2],
                 ),
@@ -64,6 +69,15 @@ impl NativeFn for AotNativeFn {
                 _ => return NativeOutcome::Deopt,
             }
         };
+        // SAFETY: `failed` is the `extern "C" fn() -> i64` companion the shim exports.
+        let stopped =
+            unsafe { std::mem::transmute::<usize, extern "C" fn() -> i64>(self.failed)() } != 0;
+        if stopped {
+            // The native body stopped partway (a broken contract, `Fail with`, a zero divisor). Only
+            // effect-free functions are compiled native, so re-running the call on bytecode repeats
+            // nothing observable and raises the exact error at the exact point.
+            return NativeOutcome::Deopt;
+        }
         NativeOutcome::Return(r)
     }
 
@@ -97,12 +111,21 @@ pub fn load_aot_native(
     let lib = unsafe { libloading::Library::new(path).ok()? };
     // Probe the symbol exists (typed as a fn so resolution is a function lookup).
     let addr = unsafe {
-        let sym: libloading::Symbol<'_, extern "C" fn() -> i64> = lib.get(symbol.as_bytes()).ok()?;
+        let sym: libloading::Symbol<'_, extern "C" fn() -> i64> =
+            lib.get(symbol.as_bytes()).ok()?;
+        (*sym) as usize
+    };
+    // The failure companion is part of the contract: a library without it could abort the host on
+    // a failure, so it is not loaded at all.
+    let failed = unsafe {
+        let sym: libloading::Symbol<'_, extern "C" fn() -> i64> =
+            lib.get(format!("{symbol}__failed").as_bytes()).ok()?;
         (*sym) as usize
     };
     let calls = Arc::new(AtomicU64::new(0));
     let nf = AotNativeFn {
         addr,
+        failed,
         arity,
         _lib: Arc::new(lib),
         calls: calls.clone(),

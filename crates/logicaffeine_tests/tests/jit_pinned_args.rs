@@ -227,7 +227,10 @@ fn kill_switch_restores_move_staging_same_result() {
     assert_eq!(err_fused, None);
     assert_eq!(out_fused, "46368");
     assert!(fn_fused >= 1);
-    assert!(pinned_fused >= 1, "the default path must fuse (got {pinned_fused})");
+    assert!(
+        pinned_fused >= 1,
+        "the default path must fuse (got {pinned_fused})"
+    );
 
     // Kill switch: same tiering, same result, NO fused self-calls.
     let src2 = src.to_string();
@@ -243,12 +246,26 @@ fn kill_switch_restores_move_staging_same_result() {
             "kill-switch path diverged from the tree-walker"
         );
         let (_, fn_ok) = tier.function_counts();
-        (norm(&vm.output), vm.error, fn_ok, tier.pinned_self_call_count())
+        (
+            norm(&vm.output),
+            vm.error,
+            fn_ok,
+            tier.pinned_self_call_count(),
+        )
     });
     assert_eq!(err_off, None);
-    assert_eq!(out_off, "46368", "kill switch must produce the identical result");
-    assert!(fn_off >= 1, "fib must still tier with the kill switch (got {fn_off})");
-    assert_eq!(pinned_off, 0, "the kill switch must restore Move staging (got {pinned_off})");
+    assert_eq!(
+        out_off, "46368",
+        "kill switch must produce the identical result"
+    );
+    assert!(
+        fn_off >= 1,
+        "fib must still tier with the kill switch (got {fn_off})"
+    );
+    assert_eq!(
+        pinned_off, 0,
+        "the kill switch must restore Move staging (got {pinned_off})"
+    );
 }
 
 /// Depth-limit parity must survive the fused ABI: deep non-tail recursion
@@ -303,7 +320,10 @@ fn pinned_self_call_preserves_deopt_replay() {
             (norm(&tw.output), &tw.error),
             "fused-ABI recursive deopt replay diverged"
         );
-        assert!(vm.error.is_some(), "division by zero at the base case must error");
+        assert!(
+            vm.error.is_some(),
+            "division by zero at the base case must error"
+        );
         assert_eq!(norm(&vm.output), "1");
     });
 }

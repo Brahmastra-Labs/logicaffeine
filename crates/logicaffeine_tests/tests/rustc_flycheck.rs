@@ -78,11 +78,12 @@ fn mapped_lines_point_at_their_logos_statements() {
 fn var_origins_carry_move_roles() {
     let art = artifacts(GIVE_PROGRAM);
 
-    let a = art
-        .source_map
-        .get_var_origin("a")
-        .expect("a is tracked");
-    assert_eq!(a.role, OwnershipRole::GiveObject, "a is what got given away");
+    let a = art.source_map.get_var_origin("a").expect("a is tracked");
+    assert_eq!(
+        a.role,
+        OwnershipRole::GiveObject,
+        "a is what got given away"
+    );
     assert!(
         GIVE_PROGRAM[a.span.start..a.span.end].starts_with("Give a"),
         "a's origin span is the Give statement: {:?}",
@@ -110,7 +111,11 @@ Show 2.
 ";
     let art = artifacts(source);
     let t = art.source_map.get_var_origin("t").expect("t is tracked");
-    assert_eq!(t.role, OwnershipRole::ZoneLocal, "zone-allocated Lets are ZoneLocal");
+    assert_eq!(
+        t.role,
+        OwnershipRole::ZoneLocal,
+        "zone-allocated Lets are ZoneLocal"
+    );
 }
 
 #[test]
@@ -121,7 +126,9 @@ fn bridge_translates_e0382_onto_the_give_statement() {
     // A real-shape rustc diagnostic pointing at the generated Give line.
     let diag = RustcDiagnostic {
         message: "use of moved value: `a`".to_string(),
-        code: Some(RustcCode { code: "E0382".to_string() }),
+        code: Some(RustcCode {
+            code: "E0382".to_string(),
+        }),
         level: "error".to_string(),
         spans: vec![RustcSpan {
             file_name: "src/main.rs".to_string(),
@@ -144,7 +151,9 @@ fn bridge_translates_e0382_onto_the_give_statement() {
         "speaks English: {}",
         error.title
     );
-    let span = error.logos_span.expect("a REAL sourcemap yields a LOGOS span");
+    let span = error
+        .logos_span
+        .expect("a REAL sourcemap yields a LOGOS span");
     assert!(
         GIVE_PROGRAM[span.start..span.end].contains("Give a"),
         "the span lands on the Give statement, got: {:?}",

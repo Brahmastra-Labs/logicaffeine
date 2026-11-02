@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're bright if you're mediocre",
   "options": [
-    "$ (M \\supset B) $",
-    "$ (B \\equiv M) $",
-    "$ (B \\supset M) $",
-    "$ B \\supset M $"
+    "M → B",
+    "B ↔ M",
+    "B → M",
+    "M ∧ B"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A if B' means B → A: the part after 'if' is the if part.",
+  "explanation": "The part after 'if' is the condition, so the formula is M → B.",
+  "section": "6.2"
 }

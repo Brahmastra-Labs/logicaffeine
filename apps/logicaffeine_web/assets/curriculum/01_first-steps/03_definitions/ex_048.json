@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "'Tall' is relative and vague — tall for a jockey is not tall for a basketball player, and someone an inch under the line isn't suddenly 'short'. A fixed 6-foot cutoff is more precise than the word, so it fails to MATCH THE VAGUENESS."
+  "hint": "Is the word vague while the definition draws a sharp line?",
+  "explanation": "'Tall' is vague and relative. A sharp 6 foot line is more precise than the word.",
+  "section": "3.2"
 }

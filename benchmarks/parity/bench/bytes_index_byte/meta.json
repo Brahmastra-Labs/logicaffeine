@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.index_byte",
+  "workload": "bytesIndexByte(xs,c) 1-based/0",
+  "arg": "100000",
+  "expected": "12842320",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

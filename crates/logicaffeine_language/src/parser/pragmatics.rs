@@ -83,8 +83,10 @@ pub trait PragmaticsParsing<'a, 'ctx, 'int> {
     /// Handles verb phrases with optional objects and focus-marked objects
     /// like "eats only rice". Used as a helper for focus and other pragmatic
     /// constructions.
-    fn parse_predicate_for_subject(&mut self, subject: &NounPhrase<'a>)
-        -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_predicate_for_subject(
+        &mut self,
+        subject: &NounPhrase<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>>;
 
     /// Parses a scopal adverb construction: "always runs", "never sleeps".
     ///
@@ -322,7 +324,6 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         presup_kind: PresupKind,
         negated: bool,
     ) -> ParseResult<&'a LogicExpr<'a>> {
-
         let unknown = self.interner.intern("?");
         let complement_verb = if self.check_verb() {
             Some(self.consume_verb())
@@ -345,17 +346,22 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             Some(verb) => {
                 use crate::ast::logic::NeoEventData;
                 use crate::ast::ThematicRole;
-                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var: self.interner.intern("e"),
-                    verb,
-                    roles: self
-                        .ctx
-                        .roles
-                        .alloc_slice(vec![(ThematicRole::Agent, subject_term)]),
-                    modifiers: self.ctx.syms.alloc_slice(vec![self.interner.intern("Past")]),
-                    suppress_existential: false,
-                    world: None,
-                })))
+                self.ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var: self.interner.intern("e"),
+                        verb,
+                        roles: self
+                            .ctx
+                            .roles
+                            .alloc_slice(vec![(ThematicRole::Agent, subject_term)]),
+                        modifiers: self
+                            .ctx
+                            .syms
+                            .alloc_slice(vec![self.interner.intern("Past")]),
+                        suppress_existential: false,
+                        world: None,
+                    })))
             }
             None => self.ctx.exprs.alloc(LogicExpr::Temporal {
                 operator: TemporalOperator::Past,
@@ -459,10 +465,10 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
-                    args: self.ctx.terms.alloc_slice([
-                        Term::Constant(subject.noun),
-                        object_term.clone(),
-                    ]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Constant(subject.noun), object_term.clone()]),
                     world: None,
                 });
 
@@ -493,10 +499,13 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 self.advance();
             }
             let predicate = match self.advance().kind.clone() {
-                TokenType::Adjective(sym)
-                | TokenType::Noun(sym)
-                | TokenType::ProperName(sym) => sym,
-                TokenType::Ambiguous { primary, alternatives } => {
+                TokenType::Adjective(sym) | TokenType::Noun(sym) | TokenType::ProperName(sym) => {
+                    sym
+                }
+                TokenType::Ambiguous {
+                    primary,
+                    alternatives,
+                } => {
                     let as_predicate = |t: &TokenType| match t {
                         TokenType::Adjective(sym)
                         | TokenType::Noun(sym)
@@ -509,9 +518,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Some(sym) => sym,
                         None => {
                             return Err(ParseError {
-                                kind: ParseErrorKind::ExpectedContentWord {
-                                    found: *primary,
-                                },
+                                kind: ParseErrorKind::ExpectedContentWord { found: *primary },
                                 span: self.current_span(),
                             });
                         }
@@ -679,10 +686,14 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             } else {
                 unreachable!()
             };
-            let num_str = self.interner.resolve(num_sym);
-            let num_val = num_str.parse::<i64>().unwrap_or(0);
+            // The COMPARISON TARGET goes through the one numeral rule, like every other
+            // numeral on this surface. It used to be `parse::<i64>().unwrap_or(0)`, which
+            // turned `taller than 99999999999999999999` into `taller than 0` — the same
+            // silent renumbering as the measure phrase, in the one position where the
+            // renumbered value feeds ORDER reasoning directly.
+            let kind = parse_number_kind(self.interner.resolve(num_sym), num_sym);
             self.ctx.terms.alloc(Term::Value {
-                kind: crate::ast::logic::NumberKind::Integer(num_val),
+                kind,
                 unit: None,
                 dimension: None,
             })
@@ -706,7 +717,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 self.peek().kind,
                 TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
             ) {
-                let save = self.current;
+                let save = self.backtrack_point();
                 self.advance(); // copula
                 if let TokenType::Adjective(adj2) = self.peek().kind {
                     self.advance();
@@ -766,7 +777,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 if self.at_clause_boundary() {
                     // copula consumed; comparison proceeds as phrasal
                 } else {
-                    self.current = save;
+                    self.backtrack_to(&save);
                 }
             }
 
@@ -780,7 +791,11 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let subj_is_desc = !subject.adjectives.is_empty()
                 || subject.possessor.is_some()
                 || !subject.pps.is_empty();
-            let subj_var = if subj_is_desc { Some(self.next_var_name()) } else { None };
+            let subj_var = if subj_is_desc {
+                Some(self.next_var_name())
+            } else {
+                None
+            };
             let subj_term = match subj_var {
                 Some(sv) => Term::Variable(sv),
                 None => Term::Constant(subject.noun),
@@ -875,7 +890,11 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 }
                 None => self.wrap_with_definiteness(subject.definiteness, subject.noun, result)?,
             };
-            return self.wrap_with_definiteness_for_object(object.definiteness, object.noun, result);
+            return self.wrap_with_definiteness_for_object(
+                object.definiteness,
+                object.noun,
+                result,
+            );
         };
 
         // For number comparisons, create a simple Comparative expression
@@ -891,12 +910,9 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     /// Parses the equative frame "X is as ADJ as Y" → an at-least (`≥`) degree
     /// comparison. The parser is positioned at the first "as"; the subject's
     /// definiteness wrapping is applied by the caller.
-    fn parse_equative(
-        &mut self,
-        subject: &NounPhrase<'a>,
-    ) -> ParseResult<&'a LogicExpr<'a>> {
+    fn parse_equative(&mut self, subject: &NounPhrase<'a>) -> ParseResult<&'a LogicExpr<'a>> {
         self.advance(); // consume the first "as"
-        // The gradable dimension (an adjective).
+                        // The gradable dimension (an adjective).
         let adj = match self.advance().kind.clone() {
             TokenType::Adjective(a) => a,
             TokenType::Comparative(a) => a,
@@ -905,12 +921,17 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 if let TokenType::Noun(a) = other {
                     a
                 } else {
-                    self.interner.intern(&self.interner.resolve(self.previous().lexeme).to_string())
+                    self.interner
+                        .intern(&self.interner.resolve(self.previous().lexeme).to_string())
                 }
             }
         };
         // Second "as".
-        if self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("as") {
+        if self
+            .interner
+            .resolve(self.peek().lexeme)
+            .eq_ignore_ascii_case("as")
+        {
             self.advance();
         }
         let object = self.parse_noun_phrase(false)?;
@@ -942,7 +963,10 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         // day's timeline) tagged with a `ClockTime` dimension, so "is at 9:30am"
         // and "the 8:15 pm event" compare numerically. (TODO: timezone-aware times
         // — carry an offset/zone on the value — when the corpus needs them.)
-        if let TokenType::TimeLiteral { nanos_from_midnight } = self.peek().kind {
+        if let TokenType::TimeLiteral {
+            nanos_from_midnight,
+        } = self.peek().kind
+        {
             self.advance();
             let minutes = (nanos_from_midnight / 60_000_000_000) as i64;
             return Ok(self.ctx.terms.alloc(Term::Value {
@@ -993,7 +1017,11 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             (None, None)
         };
 
-        Ok(self.ctx.terms.alloc(Term::Value { kind, unit, dimension }))
+        Ok(self.ctx.terms.alloc(Term::Value {
+            kind,
+            unit,
+            dimension,
+        }))
     }
 
     fn counting_np_lookahead(&self) -> Option<u32> {
@@ -1026,7 +1054,10 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             // precede a finite verb, so the head is nominal. The object-NP path
             // recovers it as the head (via nominal_np_context).
             Some(TokenType::Verb { .. }) => true,
-            Some(TokenType::Ambiguous { primary, alternatives }) => {
+            Some(TokenType::Ambiguous {
+                primary,
+                alternatives,
+            }) => {
                 matches!(**primary, TokenType::Noun(_) | TokenType::Verb { .. })
                     || alternatives
                         .iter()
@@ -1038,12 +1069,26 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     }
 }
 
-fn parse_number_kind(s: &str, sym: crate::intern::Symbol) -> NumberKind {
-    if s.contains('.') {
-        NumberKind::Real(s.parse().unwrap_or(0.0))
-    } else if s.chars().all(|c| c.is_ascii_digit() || c == '-') {
-        NumberKind::Integer(s.parse().unwrap_or(0))
-    } else {
-        NumberKind::Symbolic(sym)
+/// The measure phrase's numeral, as the value it denotes — or, when it denotes no value we
+/// can hold, as the SYMBOL it was written with.
+///
+/// `unwrap_or` was the bug. `s.parse::<i64>().unwrap_or(0)` turned `99999999999999999999
+/// dollars` into **zero** dollars, and `s.parse::<f64>().unwrap_or(0.0)` turned a malformed
+/// decimal into `0.0`, and the renumbered value travelled through
+/// `proof_convert::term_to_proof_term` to `ProofTerm::Constant` as if it were what the author
+/// wrote. Zero is the worst possible default here: it is a legal measure, it compares, and it
+/// makes a premise about a huge price agree with a goal about no price at all.
+///
+/// A number this surface cannot VALUE stays SYMBOLIC and keeps its lexeme, which is what
+/// `verb.rs`'s measure-offset reader already does. The lexeme is the identity.
+pub(super) fn parse_number_kind(s: &str, sym: crate::intern::Symbol) -> NumberKind {
+    if let Ok(n) = s.parse::<i64>() {
+        return NumberKind::Integer(n);
     }
+    if s.contains('.') {
+        if let Ok(f) = s.parse::<f64>() {
+            return NumberKind::Real(f);
+        }
+    }
+    NumberKind::Symbolic(sym)
 }

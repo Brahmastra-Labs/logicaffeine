@@ -1,0 +1,10 @@
+## Main
+    Let mutable n be 27.
+    Let mutable steps be 0.
+    While n is greater than 1:
+        If n % 2 is equal to 0:
+            Set n to n / 2.
+        Otherwise:
+            Set n to 3 * n + 1.
+        Set steps to steps + 1.
+    Show steps.

@@ -1,0 +1,10 @@
+{
+  "capability": "math.sign",
+  "workload": "sum of sign(i - 10000000) over 1..n",
+  "arg": "20000000",
+  "expected": "1",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

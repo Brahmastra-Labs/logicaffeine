@@ -1,0 +1,11 @@
+{
+  "capability": "iter.union",
+  "workload": "seqUnion(xs,ys) \u2014 distinct count",
+  "arg": "20000",
+  "expected": "81840153",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "python"
+  ]
+}

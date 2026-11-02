@@ -1,0 +1,40 @@
+   2310000          11559 Hz
+   2320000          11216 Hz
+   2330000          10475 Hz
+   2340000          11310 Hz
+   2350000          11546 Hz
+   2360000          11352 Hz
+   2370000          11048 Hz
+   2380000          10753 Hz
+   2390000          11380 Hz
+   2400000          11393 Hz
+   2410000          11480 Hz
+   2420000          10753 Hz
+   2430000          11283 Hz
+   2440000          11302 Hz
+   2450000          11272 Hz
+   2460000          11364 Hz
+   2470000          10870 Hz
+   2480000          11674 Hz
+   2490000          12018 Hz
+   2500000          11742 Hz
+   2510000          10704 Hz
+   2520000          11303 Hz
+   2530000          11396 Hz
+   2540000          11597 Hz
+   2550000          11729 Hz
+   2560000          11742 Hz
+Simulation complete at cycle 2563253
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 3.19594 GB/s
+Average DRAM Write Bandwidth: 0.00159797 GB/s
+script Elapsed seconds: 242.834
+Exiting... 😊
+Destruct DRAM.
+Original Points:
+Correct Centers:
+Result Centers:
+PASS: true (Kmeans)
+Complete Simulation
+Runtime:4:03.28

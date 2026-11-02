@@ -1,0 +1,6 @@
+[dependencies]
+
+[package]
+authors = []
+name = "fetch_dashboard"
+version = "0.1.0"

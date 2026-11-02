@@ -1,15 +1,18 @@
 //! Interactive code block component for the Programmer's Guide.
 //!
 //! Features:
-//! - Editable code area
-//! - Run button (Logic mode: FOL output, Imperative mode: interpreter)
+//! - The Studio's editor with the language server: highlighting, hovers, squiggles
+//! - Run button (Logic mode: FOL output, Imperative mode: interpreter, Web mode: the page
+//!   compiled to WebAssembly and shown live in a sandboxed frame)
 //! - Copy button
 //! - Reset button
 //! - Output panel
 
+use super::inline_editor::{InlineEditor, InlineEditorStyle};
+use crate::ui::pages::guide::content::{ExampleMode, Runnability};
+use crate::ui::pages::guide::theorem_verdict;
 use dioxus::prelude::*;
-use crate::ui::pages::guide::content::ExampleMode;
-use logicaffeine_compile::{compile_for_ui, interpret_for_ui};
+use logicaffeine_compile::{compile_for_ui, compile_theorem_for_ui, interpret_for_ui};
 
 const CODE_BLOCK_STYLE: &str = r#"
 .guide-code-block {
@@ -23,8 +26,10 @@ const CODE_BLOCK_STYLE: &str = r#"
 
 .guide-code-header {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
+    gap: 10px;
     padding: 12px 16px;
     background: rgba(255,255,255,0.04);
     border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -32,8 +37,9 @@ const CODE_BLOCK_STYLE: &str = r#"
 
 .guide-code-label {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 6px 10px;
 }
 
 .guide-code-title {
@@ -65,6 +71,7 @@ const CODE_BLOCK_STYLE: &str = r#"
 
 .guide-code-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -112,25 +119,6 @@ const CODE_BLOCK_STYLE: &str = r#"
     position: relative;
 }
 
-.guide-code-textarea {
-    width: 100%;
-    min-height: 80px;
-    padding: 16px;
-    background: transparent;
-    border: none;
-    color: rgba(229,231,235,0.95);
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
-    font-size: 14px;
-    line-height: 1.7;
-    resize: vertical;
-    outline: none;
-    tab-size: 4;
-}
-
-.guide-code-textarea::placeholder {
-    color: rgba(229,231,235,0.3);
-}
-
 .guide-code-output {
     border-top: 1px solid rgba(255,255,255,0.08);
     background: rgba(0,0,0,0.25);
@@ -170,6 +158,20 @@ const CODE_BLOCK_STYLE: &str = r#"
     color: rgba(229,231,235,0.7);
 }
 
+.guide-code-mode.web {
+    background: rgba(52,211,153,0.15);
+    color: #34d399;
+    border: 1px solid rgba(52,211,153,0.3);
+}
+
+.guide-code-preview {
+    display: block;
+    width: 100%;
+    height: 320px;
+    border: 0;
+    background: #faf9f5;
+}
+
 .guide-code-copied {
     position: absolute;
     top: 50%;
@@ -198,6 +200,20 @@ const CODE_BLOCK_STYLE: &str = r#"
     color: rgba(229,231,235,0.4);
     font-size: 13px;
 }
+
+.guide-code-compiled-pill {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: rgba(251,191,36,0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(251,191,36,0.3);
+    cursor: help;
+    white-space: nowrap;
+}
 "#;
 
 #[derive(Props, Clone, PartialEq)]
@@ -205,6 +221,11 @@ pub struct GuideCodeBlockProps {
     pub id: String,
     pub label: String,
     pub mode: ExampleMode,
+    pub runnability: Runnability,
+    pub expected_output: Option<String>,
+    /// Predict-first (Muller/POE): start with the locked expectation HIDDEN
+    /// and ask the reader to commit to a prediction before revealing.
+    pub predict: bool,
     pub initial_code: String,
 }
 
@@ -216,6 +237,8 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
     let mut is_running = use_signal(|| false);
     let mut show_copied = use_signal(|| false);
     let mut has_run = use_signal(|| false);
+    let mut predict_hidden = use_signal(|| props.predict);
+    let mut preview = use_signal(String::new);
 
     let initial_code = props.initial_code.clone();
     let mode = props.mode;
@@ -242,6 +265,37 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                     output.set("No output".to_string());
                     output_type.set("info".to_string());
                 }
+            }
+            ExampleMode::Theorem => {
+                // The proof engine + CoC kernel run in-process — the verdict
+                // is the output.
+                let result = compile_theorem_for_ui(&current_code);
+                match theorem_verdict(&result) {
+                    Ok(verdict) => {
+                        output.set(verdict);
+                        output_type.set("success".to_string());
+                    }
+                    Err(err) => {
+                        output.set(err);
+                        output_type.set("error".to_string());
+                    }
+                }
+            }
+            ExampleMode::Web => {
+                // The Studio's Web preview: the page compiled to WebAssembly here, in the browser,
+                // and handed to a sandboxed frame as its whole document. A build error becomes the
+                // themed overlay with the offending line, in the same frame.
+                let doc = match logicaffeine_compile::web_host::assemble_preview(&current_code) {
+                    Ok(srcdoc) => {
+                        output_type.set("success".to_string());
+                        srcdoc
+                    }
+                    Err(pe) => {
+                        output_type.set("error".to_string());
+                        logicaffeine_compile::web_host::error_overlay_html(&pe, &current_code, "")
+                    }
+                };
+                preview.set(doc);
             }
             ExampleMode::Imperative => {
                 // Phase 55: interpret_for_ui is now async for VFS support
@@ -298,26 +352,51 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
         move |_| {
             code.set(initial.clone());
             output.set(String::new());
+            preview.set(String::new());
             has_run.set(false);
         }
     };
 
     let mode_class = match mode {
-        ExampleMode::Logic => "logic",
+        ExampleMode::Logic | ExampleMode::Theorem => "logic",
         ExampleMode::Imperative => "imperative",
+        ExampleMode::Web => "web",
     };
 
     let mode_label = match mode {
         ExampleMode::Logic => "Logic",
+        ExampleMode::Theorem => "Prove",
         ExampleMode::Imperative => "Run",
+        ExampleMode::Web => "Open page",
     };
 
-    // Calculate rows based on code line count for textarea auto-sizing
-    let line_count = code.read().lines().count();
-    let rows = (line_count + 2).max(4) as i64; // minimum 4 rows, +2 for editing room
+    // The runnability declaration drives the affordance: a CompiledOnly example
+    // gets a pill carrying its reason instead of a Run button that would fail.
+    let compiled_reason: Option<&'static str> = match props.runnability {
+        Runnability::CompiledOnly { reason } => Some(reason),
+        _ => None,
+    };
+
+    // Before the first run, an example with locked content shows it up front:
+    // the expected output (Playground) or the expected diagnostic (ExpectedError).
+    let prepopulated: Option<(&'static str, String, &'static str)> = if *has_run.read() {
+        None
+    } else {
+        match props.runnability {
+            Runnability::Playground => props
+                .expected_output
+                .clone()
+                .map(|text| ("Expected output", text, "info")),
+            Runnability::ExpectedError { message } => {
+                Some(("Expected error", message.to_string(), "error"))
+            }
+            Runnability::CompiledOnly { .. } => None,
+        }
+    };
 
     rsx! {
         style { "{CODE_BLOCK_STYLE}" }
+        InlineEditorStyle {}
 
         div {
             class: "guide-code-block",
@@ -330,20 +409,31 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                     span { class: "guide-code-mode {mode_class}",
                         match mode {
                             ExampleMode::Logic => "Logic Mode",
+                            ExampleMode::Theorem => "Theorem",
                             ExampleMode::Imperative => "Imperative",
+                            ExampleMode::Web => "Web page",
                         }
                     }
                 }
 
                 div { class: "guide-code-actions",
-                    button {
-                        class: if *is_running.read() { "guide-code-btn primary running" } else { "guide-code-btn primary" },
-                        onclick: handle_run,
-                        disabled: *is_running.read(),
-                        if *is_running.read() {
-                            "Running..."
-                        } else {
-                            "{mode_label}"
+                    if let Some(reason) = compiled_reason {
+                        a {
+                            class: "guide-code-compiled-pill",
+                            title: "{reason}",
+                            href: "/guide#appendix-runnability",
+                            "Compiled — run with largo"
+                        }
+                    } else {
+                        button {
+                            class: if *is_running.read() { "guide-code-btn primary running" } else { "guide-code-btn primary" },
+                            onclick: handle_run,
+                            disabled: *is_running.read(),
+                            if *is_running.read() {
+                                "Running..."
+                            } else {
+                                "{mode_label}"
+                            }
                         }
                     }
                     button {
@@ -361,14 +451,10 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
 
             // Editor
             div { class: "guide-code-editor",
-                textarea {
-                    class: "guide-code-textarea",
-                    rows: rows,
-                    value: "{code}",
-                    oninput: move |evt| code.set(evt.value()),
-                    spellcheck: "false",
-                    autocomplete: "off",
-                    autocapitalize: "off",
+                InlineEditor {
+                    value: code.read().clone(),
+                    on_change: move |v| code.set(v),
+                    language: mode.language(),
                 }
 
                 if *show_copied.read() {
@@ -376,8 +462,20 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                 }
             }
 
-            // Output (only show if has run)
-            if *has_run.read() {
+            // Output: the live page for a web example; the actual output after a run; the locked
+            // expectation before it.
+            if *has_run.read() && mode == ExampleMode::Web {
+                div { class: "guide-code-output",
+                    div { class: "guide-code-output-header",
+                        span { "Page" }
+                    }
+                    iframe {
+                        class: "guide-code-preview",
+                        srcdoc: "{preview}",
+                        "sandbox": "allow-scripts",
+                    }
+                }
+            } else if *has_run.read() {
                 div { class: "guide-code-output",
                     div { class: "guide-code-output-header",
                         span { "Output" }
@@ -385,6 +483,39 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                     div {
                         class: "guide-code-output-content {output_type}",
                         "{output}"
+                    }
+                }
+            } else if let Some((header, text, kind)) = prepopulated {
+                div { class: "guide-code-output",
+                    div { class: "guide-code-output-header",
+                        // While hidden, the header asks for a committed
+                        // prediction instead of naming the answer's category.
+                        if *predict_hidden.read() {
+                            span {
+                                match (props.runnability, mode) {
+                                    (Runnability::ExpectedError { .. }, _) => "What error do you expect?",
+                                    (_, ExampleMode::Logic) => "What FOL does this produce?",
+                                    (_, ExampleMode::Theorem) => "What verdict do you expect?",
+                                    (_, ExampleMode::Imperative) => "What will this print?",
+                                    (_, ExampleMode::Web) => "What will this page show?",
+                                }
+                            }
+                        } else {
+                            span { "{header}" }
+                        }
+                        // Predict-the-output: hide the answer, guess, reveal.
+                        button {
+                            class: "guide-predict-toggle",
+                            style: "background: none; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: rgba(229,231,235,0.6); font-size: 10px; padding: 2px 8px; cursor: pointer; text-transform: none; letter-spacing: 0;",
+                            onclick: move |_| { let v = *predict_hidden.read(); predict_hidden.set(!v); },
+                            if *predict_hidden.read() { "Reveal" } else { "Hide & predict" }
+                        }
+                    }
+                    if !*predict_hidden.read() {
+                        div {
+                            class: "guide-code-output-content {kind}",
+                            "{text}"
+                        }
                     }
                 }
             }

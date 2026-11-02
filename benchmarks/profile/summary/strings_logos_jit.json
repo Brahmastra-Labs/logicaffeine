@@ -1,0 +1,11 @@
+{
+  "name": "strings",
+  "lang": "logos_jit",
+  "n": "125882141",
+  "samples_weight": 305734631276,
+  "alloc_pct": 1.094,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 98.906
+}

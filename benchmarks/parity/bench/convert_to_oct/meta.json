@@ -1,0 +1,10 @@
+{
+  "capability": "convert.to_oct",
+  "workload": "len toOct(i)",
+  "arg": "2000000",
+  "expected": "13700414",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "case": "T09-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 18,
+  "declarations": [
+    {
+      "type": "1 \u22c4 2 \u22c4 3 \u2260 1 \u25b7 2 \u25b7 3",
+      "name": "T09_002.assocDiffers",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat), a \u22c4 b \u22c4 c = a \u22c4 b \u22c4 c",
+      "name": "T09_002.assocLeft",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat), a \u25b7 b \u25b7 c = a \u25b7 b \u25b7 c",
+      "name": "T09_002.assocRight",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_002.bang",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_002.f",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_002.g",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T09_002.h",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat), (a \u2299 b) \u2299 c = (a \u2299 b) \u2299 c",
+      "name": "T09_002.infixNonAssoc",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), a \u22c4 b = a \u22c4 b",
+      "name": "T09_002.localFixity",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b c : Nat), a \u2299 b \u22c4 c = a \u2299 b \u22c4 c",
+      "name": "T09_002.mixedPrecedence",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_002.neg",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n\u203c = n\u203c",
+      "name": "T09_002.postfixExpands",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), \u223dn = \u223dn",
+      "name": "T09_002.prefixExpands",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_002.\u00abterm_\u203c\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_002.\u00abterm_\u2299_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_002.\u00abterm_\u22c4_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "TrailingParserDescr",
+      "name": "T09_002.\u00abterm_\u25b7_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_002.\u00abterm\u223d_\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

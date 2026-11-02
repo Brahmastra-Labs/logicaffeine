@@ -1,0 +1,218 @@
+{
+  "case": "T02-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 26,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T02_013.Box",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_013.Box \u2192 Sort u} \u2192 (t : T02_013.Box) \u2192 ((val : Nat) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T02_013.Box.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {a b : T02_013.Box}, a.val = b.val \u2192 a = b",
+      "name": "T02_013.Box.ext'",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {a b : T02_013.Box}, a = b \u2194 a.val = b.val",
+      "name": "T02_013.Box.ext'_iff",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Nat \u2192 T02_013.Box",
+      "name": "T02_013.Box.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {val val_1 : Nat}, { val := val } = { val := val_1 } \u2192 val = val_1",
+      "name": "T02_013.Box.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (val val_1 : Nat), ({ val := val } = { val := val_1 }) = (val = val_1)",
+      "name": "T02_013.Box.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (val : Nat), sizeOf { val := val } = 1 + sizeOf val",
+      "name": "T02_013.Box.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T02_013.Box} \u2192 v1 = v2 \u2192 T02_013.Box.noConfusionType P v1 v2",
+      "name": "T02_013.Box.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T02_013.Box \u2192 T02_013.Box \u2192 Sort u",
+      "name": "T02_013.Box.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_013.Box \u2192 Sort u} \u2192 ((val : Nat) \u2192 motive { val := val }) \u2192 (t : T02_013.Box) \u2192 motive t",
+      "name": "T02_013.Box.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T02_013.Box \u2192 Sort u} \u2192 (t : T02_013.Box) \u2192 ((val : Nat) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T02_013.Box.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T02_013.Box \u2192 Nat",
+      "name": "T02_013.Box.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T02_013.Marked",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T02_013.Marked \u03b1 \u2192 Sort u} \u2192 (t : T02_013.Marked \u03b1) \u2192 ((tag : Nat) \u2192 motive { tag := tag }) \u2192 motive t",
+      "name": "T02_013.Marked.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Nat \u2192 T02_013.Marked \u03b1",
+      "name": "T02_013.Marked.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T02_013.Marked \u03b1} \u2192 v1 = v2 \u2192 T02_013.Marked.noConfusionType P v1 v2",
+      "name": "T02_013.Marked.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T02_013.Marked \u03b1 \u2192 T02_013.Marked \u03b1 \u2192 Sort u",
+      "name": "T02_013.Marked.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T02_013.Marked \u03b1 \u2192 Sort u} \u2192 ((tag : Nat) \u2192 motive { tag := tag }) \u2192 (t : T02_013.Marked \u03b1) \u2192 motive t",
+      "name": "T02_013.Marked.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T02_013.Marked \u03b1 \u2192 Sort u} \u2192 (t : T02_013.Marked \u03b1) \u2192 ((tag : Nat) \u2192 motive { tag := tag }) \u2192 motive t",
+      "name": "T02_013.Marked.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [self : T02_013.Marked \u03b1] \u2192 Nat",
+      "name": "T02_013.Marked.tag",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T02_013.fastAdd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), T02_013.fastAdd a b = a + b",
+      "name": "T02_013.fastAdd_eq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T02_013.Marked Nat",
+      "name": "T02_013.markedNatImpl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_013.size",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T02_013.size n = n",
+      "name": "T02_013.size_eq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

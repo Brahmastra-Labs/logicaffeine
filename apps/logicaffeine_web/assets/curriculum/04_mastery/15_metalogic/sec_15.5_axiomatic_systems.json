@@ -1,0 +1,48 @@
+{
+  "id": "15.5",
+  "title": "Axiomatic Systems",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "An **axiomatic system** starts from a few formulas accepted without proof, the axioms, and derives everything else by rules of inference."
+    },
+    {
+      "type": "paragraph",
+      "text": "Logicians prefer few, independent axioms: none should follow from the others."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Three axiom schemas",
+      "lines": [
+        "A1: φ → (ψ → φ)",
+        "A2: (φ → (ψ → χ)) → ((φ → ψ) → (φ → χ))",
+        "A3: (¬φ → ¬ψ) → (ψ → φ)"
+      ],
+      "note": "With modus ponens, these prove every tautology built from → and ¬."
+    },
+    {
+      "type": "worked",
+      "title": "One step",
+      "lines": [
+        "From φ and φ → ψ, modus ponens gives ψ."
+      ],
+      "note": "Every theorem comes from the axioms by steps like this one."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What is an axiom?",
+    "options": [
+      "A formula that must be proved first",
+      "A formula accepted without proof",
+      "The conclusion of every argument",
+      "A contradiction"
+    ],
+    "correct": 1,
+    "hint": "Where does a system start?",
+    "explanation": "Axioms are the starting points: formulas accepted without proof. Every theorem is derived from them."
+  }
+}

@@ -173,10 +173,11 @@ fn test_ormap_serialization() {
 
 #[test]
 fn test_ormap_with_mvregister() {
-    use logicaffeine_data::crdt::{MVRegister, Merge, ORMap};
+    use logicaffeine_data::crdt::{MVRegister, ORMap};
 
     let mut map: ORMap<String, MVRegister<String>> = ORMap::new(1);
-    map.get_or_insert("title".to_string()).set("Hello".to_string());
+    map.get_or_insert("title".to_string())
+        .set("Hello".to_string());
 
     assert!(map.contains_key(&"title".to_string()));
 }

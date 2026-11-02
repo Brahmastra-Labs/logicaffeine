@@ -36,8 +36,21 @@ Show sum.
 /// The optimizations `optimize_for_run_tiered` actually gates — the ones a `## Tier`
 /// pin can suppress (the rest fire on the AOT/VM-compile paths, not the run optimizer).
 const GATED: &[&str] = &[
-    "inline", "specialize", "comptime", "loopcse", "floatstrength", "cse", "affine",
-    "unroll", "scalarize", "loophoist", "closedform", "fuse", "oracle", "deadcode", "unfold",
+    "inline",
+    "specialize",
+    "comptime",
+    "loopcse",
+    "floatstrength",
+    "cse",
+    "affine",
+    "unroll",
+    "scalarize",
+    "loophoist",
+    "closedform",
+    "fuse",
+    "oracle",
+    "deadcode",
+    "unfold",
 ];
 
 /// The first run-path-gated optimization that fires on `PROG` — the victim to pin.
@@ -77,5 +90,8 @@ fn tier_pin_preserves_output() {
         (tw.output.trim(), &tw.error),
         "pinned program diverged from the oracle"
     );
-    assert!(!vm.output.trim().is_empty(), "pinned program produced no output");
+    assert!(
+        !vm.output.trim().is_empty(),
+        "pinned program produced no output"
+    );
 }

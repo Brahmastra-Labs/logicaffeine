@@ -10,7 +10,9 @@ int main(int argc, char *argv[]) {
     for (int c = 0; c < 6; c++)
         for (long j = coins[c]; j <= n; j++)
             dp[j] = (dp[j] + dp[j - coins[c]]) % MOD;
-    printf("%ld\n", dp[n]);
+    long checksum = 0;
+    for (long j = 0; j <= n; j++) checksum = (checksum * 31 + dp[j]) & 268435455;
+    printf("%ld %ld\n", dp[n], checksum);
     delete[] dp;
     return 0;
 }

@@ -1,0 +1,20 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let m be 1000.
+Let mutable xs be a new Seq of Int.
+Let mutable k be 0.
+While k is less than m:
+    Push k to xs.
+    Set k to k + 1.
+Let mutable sum be 0.
+Let mutable r be 0.
+While r is less than n:
+    Let x be r % (m + 1).
+    Let s2 be insort(xs, x).
+    Set sum to (sum + length of s2) % 1000000007.
+    Set r to r + 1.
+Show sum.

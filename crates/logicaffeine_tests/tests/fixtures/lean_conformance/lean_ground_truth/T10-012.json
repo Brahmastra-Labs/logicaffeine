@@ -1,0 +1,84 @@
+{
+  "case": "T10-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "{\u03b1 : Type} \u2192 List \u03b1 \u2192 List \u03b1 \u2192 List \u03b1",
+      "name": "T10_012.append'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : List \u03b1 \u2192 List \u03b1 \u2192 Sort u_1) \u2192\n    (x x_1 : List \u03b1) \u2192\n      ((ys : List \u03b1) \u2192 motive [] ys) \u2192 ((x : \u03b1) \u2192 (xs ys : List \u03b1) \u2192 motive (x :: xs) ys) \u2192 motive x x_1",
+      "name": "T10_012.append'.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T10_012.length'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((head : Nat) \u2192 (rest : List Nat) \u2192 motive (head :: rest)) \u2192 motive x",
+      "name": "T10_012.length'.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Prop",
+      "name": "T10_012.listOfProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Type",
+      "name": "T10_012.listOfTypes",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List (List Nat)",
+      "name": "T10_012.nested",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List (List Type)",
+      "name": "T10_012.nestedAtTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat",
+      "name": "T10_012.small",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T10_012.sumViaRec",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

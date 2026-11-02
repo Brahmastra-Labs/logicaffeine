@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Would that someone sing",
   "options": [
-    "$ O(\\exists x)S\\underline{x} $",
-    "$ (\\exists x)Sx $",
-    "$ (\\exists x)S\\underline{x} $",
-    "$ O(\\exists x)Sx $"
+    "O∃x S(x̲)",
+    "∃x S(x)",
+    "∃x S(x̲)",
+    "O∃x S(x)"
   ],
   "correct": 2,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "An optative for an indefinite agent. 'Someone' is the existential (∃x): (∃x)S͟x — would that some person sing."
+  "hint": "This is a wish about someone. Who would act?",
+  "explanation": "A wish that someone sing: ∃x S(x̲), with the singer underlined as the one who would act.",
+  "section": "12.2"
 }

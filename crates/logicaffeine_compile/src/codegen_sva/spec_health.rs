@@ -3,12 +3,12 @@
 //! Orchestrates the English → FOL → VerifyExpr → Z3 consistency pipeline.
 //! Detects contradictions, vacuity, and redundancy in English hardware specs.
 
-use logicaffeine_verify::consistency::{
-    check_spec_consistency, ConsistencyConfig, ConsistencyReport, LabeledFormula,
-};
 use super::fol_to_verify::FolTranslator;
 use super::hw_pipeline::HwError;
 use super::sva_to_verify::bounded_to_verify;
+use logicaffeine_verify::consistency::{
+    check_spec_consistency, ConsistencyConfig, ConsistencyReport, LabeledFormula,
+};
 
 /// Check consistency of an English hardware specification.
 ///
@@ -34,7 +34,7 @@ pub fn check_english_spec(
             let result = translator.translate_property(ast);
             bounded_to_verify(&result.expr)
         })
-        .map_err(|e| HwError::ParseError(format!("{:?}", e)))?;
+        .map_err(|e| HwError::ParseError(crate::compile::describe_parse_error(&e)))?;
 
         labeled_formulas.push(LabeledFormula {
             index: i,
@@ -68,9 +68,8 @@ fn split_sentences(spec: &str) -> Vec<&str> {
             // Check if this is a sentence boundary:
             // ". " followed by uppercase, or "." at end of string
             let at_end = i + 1 >= len || (i + 2 >= len && bytes[i + 1] == b' ');
-            let followed_by_space_upper = i + 2 < len
-                && bytes[i + 1] == b' '
-                && bytes[i + 2].is_ascii_uppercase();
+            let followed_by_space_upper =
+                i + 2 < len && bytes[i + 1] == b' ' && bytes[i + 2].is_ascii_uppercase();
 
             if at_end || followed_by_space_upper {
                 let sentence = spec[start..=i].trim();
@@ -100,47 +99,5 @@ fn split_sentences(spec: &str) -> Vec<&str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn split_single_sentence() {
-        assert_eq!(split_sentences("Req is valid."), vec!["Req is valid."]);
-    }
-
-    #[test]
-    fn split_two_sentences() {
-        assert_eq!(
-            split_sentences("Req is valid. Ack is valid."),
-            vec!["Req is valid.", "Ack is valid."]
-        );
-    }
-
-    #[test]
-    fn split_three_sentences() {
-        assert_eq!(
-            split_sentences("Req is valid. Ack is valid. Data is valid."),
-            vec!["Req is valid.", "Ack is valid.", "Data is valid."]
-        );
-    }
-
-    #[test]
-    fn split_empty() {
-        assert!(split_sentences("").is_empty());
-        assert!(split_sentences("   ").is_empty());
-    }
-
-    #[test]
-    fn split_no_period() {
-        assert_eq!(split_sentences("Req is valid"), vec!["Req is valid"]);
-    }
-
-    #[test]
-    fn split_preserves_internal_periods() {
-        // "e.g." should not be split
-        assert_eq!(
-            split_sentences("If req is valid. Then ack follows."),
-            vec!["If req is valid.", "Then ack follows."]
-        );
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen_sva/spec_health/tests.rs"]
+mod tests;

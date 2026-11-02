@@ -11,6 +11,7 @@
   ],
   "correct": 2,
   "hint": "This argument claims that one small step will inevitably lead to extreme consequences.",
-  "explanation": "This is a Slippery Slope fallacy - assuming that one action will trigger a chain of events leading to an extreme outcome, without providing evidence for why each step necessarily follows. Allowing one redo doesn't automatically lead to eliminating all work.",
-  "visual_concept": "Slippery Slope: Standing at the top of a slide, claiming if you take one step you'll slide all the way down (ignoring friction, handrails, and choice)."
+  "explanation": "This is a slippery slope. It claims one redo leads to no work at all, with no evidence for each step.",
+  "visual_concept": "Slippery Slope: Standing at the top of a slide, claiming if you take one step you'll slide all the way down (ignoring friction, handrails, and choice).",
+  "section": "4.2"
 }

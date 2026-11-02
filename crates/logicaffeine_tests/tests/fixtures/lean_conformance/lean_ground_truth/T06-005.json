@@ -1,0 +1,122 @@
+{
+  "case": "T06-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 16,
+  "declarations": [
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T06_005.andBoth",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 p",
+      "name": "T06_005.andLeft",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 q",
+      "name": "T06_005.andRight",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2192 False) \u2192 \u00acp",
+      "name": "T06_005.arrowIsNot",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), False \u2192 p",
+      "name": "T06_005.exFalso",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "False \u2192 Nat",
+      "name": "T06_005.exFalsoLarge",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2194 q) \u2192 (p \u2192 q) \u2227 (q \u2192 p)",
+      "name": "T06_005.iffAsAnd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 (q \u2192 p) \u2192 (p \u2194 q)",
+      "name": "T06_005.iffIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2194 q) \u2192 p \u2192 q",
+      "name": "T06_005.iffMp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2194 q) \u2192 q \u2192 p",
+      "name": "T06_005.iffMpr",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), p \u2227 q \u2228 \u00acr \u2192 r \u2192 p \u2228 True",
+      "name": "T06_005.mixed",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), \u00acp \u2192 p \u2192 False",
+      "name": "T06_005.notIsArrow",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), p \u2228 q \u2192 (p \u2192 r) \u2192 (q \u2192 r) \u2192 r",
+      "name": "T06_005.orElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 p \u2228 q",
+      "name": "T06_005.orIntroL",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), q \u2192 p \u2228 q",
+      "name": "T06_005.orIntroR",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "True",
+      "name": "T06_005.trueIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

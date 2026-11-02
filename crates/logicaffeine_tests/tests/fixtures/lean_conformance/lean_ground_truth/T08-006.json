@@ -1,0 +1,155 @@
+{
+  "case": "T08-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T08_006.Both",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_006.Both \u2192 Sort u} \u2192 (t : T08_006.Both) \u2192 ((l r : Nat) \u2192 motive { l := l, r := r }) \u2192 motive t",
+      "name": "T08_006.Both.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T08_006.Both \u2192 Nat",
+      "name": "T08_006.Both.l",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T08_006.Both",
+      "name": "T08_006.Both.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {l r l_1 r_1 : Nat}, { l := l, r := r } = { l := l_1, r := r_1 } \u2192 l = l_1 \u2227 r = r_1",
+      "name": "T08_006.Both.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (l r l_1 r_1 : Nat), ({ l := l, r := r } = { l := l_1, r := r_1 }) = (l = l_1 \u2227 r = r_1)",
+      "name": "T08_006.Both.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (l r : Nat), sizeOf { l := l, r := r } = 1 + sizeOf l + sizeOf r",
+      "name": "T08_006.Both.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T08_006.Both} \u2192 v1 = v2 \u2192 T08_006.Both.noConfusionType P v1 v2",
+      "name": "T08_006.Both.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T08_006.Both \u2192 T08_006.Both \u2192 Sort u",
+      "name": "T08_006.Both.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T08_006.Both \u2192 Nat",
+      "name": "T08_006.Both.r",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_006.Both \u2192 Sort u} \u2192 ((l r : Nat) \u2192 motive { l := l, r := r }) \u2192 (t : T08_006.Both) \u2192 motive t",
+      "name": "T08_006.Both.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_006.Both \u2192 Sort u} \u2192 (t : T08_006.Both) \u2192 ((l r : Nat) \u2192 motive { l := l, r := r }) \u2192 motive t",
+      "name": "T08_006.Both.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_006.andIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 q \u2192 p \u2227 q",
+      "name": "T08_006.anonCtor",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n = 0",
+      "name": "T08_006.existsIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2194 p",
+      "name": "T08_006.iffIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2192 p \u2228 q",
+      "name": "T08_006.orIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T08_006.Both",
+      "name": "T08_006.structIntro",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2227 p",
+      "name": "T08_006.symmetricAnd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

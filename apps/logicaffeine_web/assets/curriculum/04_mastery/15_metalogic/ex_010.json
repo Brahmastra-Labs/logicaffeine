@@ -11,5 +11,6 @@
   ],
   "correct": 1,
   "hint": "It lets you pass from 'every finite piece is satisfiable' to 'the whole infinite set is satisfiable'.",
-  "explanation": "Compactness: a (possibly infinite) set of first-order sentences has a model if and only if every finite subset has a model. It's a cornerstone of model theory — used, for example, to build non-standard models of arithmetic by adding 'n is larger than every numeral' for all n."
+  "explanation": "Compactness: a set of first-order sentences has a model if every finite subset has one. Model theory uses it, for example, to build nonstandard models of arithmetic.",
+  "section": "15.4"
 }

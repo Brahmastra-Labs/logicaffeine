@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If C is necessary then S is necessary",
   "options": [
-    "$ \\square (C \\supset S) $",
-    "$ \\square (C \\supset \\square S) $",
-    "$ \\square C \\supset \\square S $",
-    "$ (\\square C \\supset \\square S) $"
+    "□(C → S)",
+    "□(C → □S)",
+    "C → □S",
+    "□C → □S"
   ],
   "correct": 3,
-  "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessity claims?",
-  "explanation": "This connects two necessity statements with a regular conditional: 'IF (\u25a1A) THEN (\u25a1B)'. Each \u25a1 wraps its own proposition. Compare to \u25a1(A \u2283 B) which would make the implication itself necessary."
+  "hint": "Is the if then itself necessary, or does it join two claims of necessity?",
+  "explanation": "Two necessity claims joined by an ordinary if then: □C → □S.",
+  "section": "10.2"
 }

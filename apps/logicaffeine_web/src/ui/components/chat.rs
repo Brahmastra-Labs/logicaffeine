@@ -7,8 +7,8 @@
 //!
 //! - `messages` - List of chat messages to display
 
-use dioxus::prelude::*;
 use crate::ui::state::{ChatMessage, Role};
+use dioxus::prelude::*;
 
 #[component]
 pub fn ChatDisplay(messages: Vec<ChatMessage>) -> Element {

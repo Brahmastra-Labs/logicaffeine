@@ -11,5 +11,6 @@
   ],
   "correct": 0,
   "hint": "A conditional A → B is automatically true whenever A is false. What does that do to ∃x(Dog(x) → ...)?",
-  "explanation": "A conditional is true whenever its antecedent is false, so ∃x(Dog(x) → Barks(x)) is satisfied by ANY non-dog — it's even true in a world with zero dogs. It never guarantees that an actual dog barks. 'Some dogs bark' needs conjunction: ∃x(Dog(x) ∧ Barks(x)). This is the mirror image of the 'all' mistake: ∃ goes with ∧, ∀ goes with →."
+  "explanation": "A conditional is true when its if part is false, so ∃x(Dog(x) → Barks(x)) is made true by anything that is not a dog, even in a world with no dogs. 'Some dogs bark' needs ∃x(Dog(x) ∧ Barks(x)).",
+  "section": "8.2"
 }

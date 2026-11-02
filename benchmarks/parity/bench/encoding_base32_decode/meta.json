@@ -1,0 +1,11 @@
+{
+  "capability": "encoding.base32_decode",
+  "workload": "base32Decode(base32Encode(s)) round-trip",
+  "arg": "30000",
+  "expected": "121485000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

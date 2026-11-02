@@ -1,0 +1,4034 @@
+{
+  "generated_by": "scripts/accel/gen-pareto-frontier.py",
+  "status": "SIM \u2014 cycle-accurate ttsim numbers present; power still pending_hardware.",
+  "axes": {
+    "x": "price_usd",
+    "y": "peak_tops",
+    "efficiency": "tops_per_dollar"
+  },
+  "peak_frontier": [
+    {
+      "id": "i9_14900k",
+      "label": "Intel Core i9-14900K",
+      "kind": "cpu",
+      "price_usd": 589,
+      "tdp_w": 253,
+      "peak_tops": 1.3,
+      "peak_precision": "fp32",
+      "tops_per_dollar": 0.002207130730050934,
+      "tops_per_watt": 0.005138339920948616,
+      "measured": false,
+      "published": true,
+      "source": "AVX2 FP32 estimate: 8 P-cores x 32 FLOP/cycle x ~5.0 GHz all-core ~= 1.28 TFLOPS; TDP = PL2 253 W (Intel ARK); price = launch MSRP $589. A CPU has no dense low-precision matrix unit, so this is its FP32 peak.",
+      "pareto_optimal": true
+    },
+    {
+      "id": "wormhole_n150",
+      "label": "Tenstorrent Wormhole n150",
+      "kind": "accelerator",
+      "price_usd": 999,
+      "tdp_w": 160,
+      "peak_tops": 262.0,
+      "peak_precision": "fp8",
+      "tops_per_dollar": 0.26226226226226224,
+      "tops_per_watt": 1.6375,
+      "measured": false,
+      "published": true,
+      "source": "Tenstorrent published: 262 FP8 TFLOPS @ 1 GHz, 72 Tensix cores, 108 MB SRAM, 12 GB GDDR6 @ 288 GB/s, 160 W TDP; price $999.",
+      "pareto_optimal": true
+    },
+    {
+      "id": "wormhole_n300",
+      "label": "Tenstorrent Wormhole n300",
+      "kind": "accelerator",
+      "price_usd": 1399,
+      "tdp_w": 300,
+      "peak_tops": 466.0,
+      "peak_precision": "fp8",
+      "tops_per_dollar": 0.3330950679056469,
+      "tops_per_watt": 1.5533333333333332,
+      "measured": false,
+      "published": true,
+      "source": "Tenstorrent published: 466 FP8 TFLOPS, 128 Tensix cores, 192 MB SRAM, 24 GB GDDR6 @ 576 GB/s, 300 W TDP; price $1399.",
+      "pareto_optimal": true
+    }
+  ],
+  "headline": {
+    "best_tops_per_dollar": "wormhole_n300",
+    "best_tops_per_dollar_label": "Tenstorrent Wormhole n300",
+    "tt_vs_cpu_tops_per_dollar_ratio": 150.91768845878923,
+    "cpu_id": "i9_14900k"
+  },
+  "workload_projection": {
+    "metric": "benchmark completions/sec (LOGOS, geomean over the \u2261VM benchmark suite)",
+    "note": "i9 is MEASURED; every Tenstorrent number here is PROJECTED from the stated model \u2014 replaced by MEASURED once a card runs the emitted kernels.",
+    "model": {
+      "_comment": "PROJECTED single-Tensix-baby-core throughput for the SCALAR LOGOS benchmark suite, from the measured i9 LOGOS throughput. Every parameter is stated; these are not measurements. The MEASURED layer replaces this once a card runs the emitted kernels.",
+      "baby_core_clock_ghz": 1.0,
+      "i9_pcore_clock_ghz": 5.7,
+      "ipc_ratio_babycore_vs_i9": 0.3,
+      "ipc_ratio_basis": "in-order single-issue Tensix baby RISC-V vs the i9's wide OoO P-core (conservative 0.30x IPC).",
+      "compute_baby_cores_per_card": {
+        "wormhole_n150": 72,
+        "wormhole_n300": 128
+      },
+      "compute_baby_cores_basis": "one general-compute baby core per Tensix used for the scalar suite (the other RISC-Vs are data-movement/unpack/pack); a card runs that many independent benchmark instances in parallel.",
+      "single_core_scale": "T_babycore = T_i9_singlethread * (baby_core_clock/i9_pcore_clock) * ipc_ratio",
+      "card_scale": "T_card = T_babycore * compute_baby_cores_per_card"
+    },
+    "available": true,
+    "benchmarks_counted": 35,
+    "i9_measured": {
+      "throughput": 14.0367863451599,
+      "measured": true,
+      "source": "benchmarks/results/latest.json logos_release"
+    },
+    "tt_babycore_projected": {
+      "throughput": 0.7387782286926263,
+      "projected": true
+    },
+    "tt_wormhole_n150_card_projected": {
+      "throughput": 53.1920324658691,
+      "baby_cores": 72,
+      "projected": true,
+      "speedup_vs_i9": 3.7894736842105265
+    },
+    "tt_wormhole_n300_card_projected": {
+      "throughput": 94.56361327265617,
+      "baby_cores": 128,
+      "projected": true,
+      "speedup_vs_i9": 6.736842105263158
+    }
+  },
+  "sim_workload": {
+    "available": true,
+    "provenance": "sim_functional_not_timed",
+    "device": "wormhole_b0",
+    "clock_ghz": 1.0,
+    "kernels": [
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_1/2026-09-10T23:11:04Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 268435456,
+        "cycles": 7282,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 36862875034331.23,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/blocked-split/LoFi-fp32_0-l1acc_0/2026-09-10T23:11:14Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "LoFi",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 6654,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 40341968139464.984,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x1024/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:11:28Z",
+        "shape": [
+          512,
+          512,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 5182,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 103603032033963.73,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x2048/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:12:38Z",
+        "shape": [
+          512,
+          512,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1073741824,
+        "cycles": 5182,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 207206064067927.47,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/640x640x320/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:15:36Z",
+        "shape": [
+          640,
+          640,
+          320
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 262144000,
+        "cycles": 5810,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 45119449225473.32,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/blocked-split/HiFi2-fp32_0-l1acc_1/2026-09-10T23:16:23Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 5935,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 88338331929233.36,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_1-l1acc_0/2026-09-10T23:25:12Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 8007,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 65478706132134.38,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/640x640x1280/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:33:17Z",
+        "shape": [
+          640,
+          640,
+          1280
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1048576000,
+        "cycles": 5681,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 184575954937511.0,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/768x2304x384/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:45:03Z",
+        "shape": [
+          768,
+          2304,
+          384
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1358954496,
+        "cycles": 7446,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 182507990330378.72,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/1024x512x2048/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:46:30Z",
+        "shape": [
+          1024,
+          512,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 5814,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 369364232542139.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/1024x1024x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-10T23:50:25Z",
+        "shape": [
+          1024,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1073741824,
+        "cycles": 6409,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 167536561710095.2,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/1024x1024x1024/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:04:40Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 6403,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 335387107293456.2,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/1024x1024x2048/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:08:03Z",
+        "shape": [
+          1024,
+          1024,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 6410,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 670041699843993.8,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/1536x768x768/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:15:56Z",
+        "shape": [
+          1536,
+          768,
+          768
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1811939328,
+        "cycles": 6595,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 274744401516300.22,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/1792x896x448/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:17:14Z",
+        "shape": [
+          1792,
+          896,
+          448
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1438646272,
+        "cycles": 8143,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 176672758442834.34,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x512x1024/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:18:05Z",
+        "shape": [
+          2048,
+          512,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 6926,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 310061167773606.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:21:04Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 8039,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 267133181739022.25,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_1/2026-09-11T00:26:35Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 8218,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 261314632270625.47,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_1-l1acc_0/2026-09-11T00:27:17Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 11287,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 190261685833259.5,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:31:01Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 11228,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 382522915568222.3,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_1-l1acc_0/2026-09-11T00:37:12Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 13333,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 322130600465011.6,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/4096x256x256/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:39:50Z",
+        "shape": [
+          4096,
+          256,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 6991,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 76794580460592.19,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/4096x4096x256/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T00:41:16Z",
+        "shape": [
+          4096,
+          4096,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 8589934592,
+        "cycles": 31638,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 271506877552310.53,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/4096x4096x256/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T02:41:58Z",
+        "shape": [
+          4096,
+          4096,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 8589934592,
+        "cycles": 31326,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 274211025729426.06,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/128x128x128/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:31:07Z",
+        "shape": [
+          128,
+          128,
+          128
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4194304,
+        "cycles": 4772,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 878940486169.321,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/128x128x4096/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:31:24Z",
+        "shape": [
+          128,
+          128,
+          4096
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 134217728,
+        "cycles": 9648,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 13911456053067.994,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/256x256x256/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:31:32Z",
+        "shape": [
+          256,
+          256,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 33554432,
+        "cycles": 5108,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 6568996084573.219,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/256x2048x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:43:04Z",
+        "shape": [
+          256,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 6267,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 85666333492899.31,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/320x320x320/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:43:54Z",
+        "shape": [
+          320,
+          320,
+          320
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 65536000,
+        "cycles": 4929,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 13296003246094.543,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/384x1536x1024/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:44:37Z",
+        "shape": [
+          384,
+          1536,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1207959552,
+        "cycles": 5734,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 210666123474014.66,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/blocked-split/HiFi2-fp32_0-l1acc_0/2026-09-11T03:45:07Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 5799,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 46289956199344.72,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/blocked-split/HiFi3-fp32_0-l1acc_0/2026-09-11T03:45:33Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi3",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 5178,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 51841532638084.2,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T03:46:04Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 5180,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 51821516602316.6,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/blocked/HiFi4-fp32_0-l1acc_0/2026-09-11T03:46:24Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 7290,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 36822421947873.805,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked",
+        "row": "wormhole_b0/128x128x128/logos_emitted/logos_spatial/blocked/HiFi4-fp32_0-l1acc_0/2026-09-11T06:38:03Z",
+        "shape": [
+          128,
+          128,
+          128
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "single_core",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4194304,
+        "cycles": 6716,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 624524121500.8934,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/128x128x128/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T06:38:26Z",
+        "shape": [
+          128,
+          128,
+          128
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4194304,
+        "cycles": 4713,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 889943560364.9481,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/256x2048x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T06:39:53Z",
+        "shape": [
+          256,
+          2048,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 6968,
+        "correct": true,
+        "pcc": 0.9999311,
+        "throughput_ops_s": 77048064293915.05,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/256x2048x512/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T06:40:02Z",
+        "shape": [
+          256,
+          2048,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 6998,
+        "correct": true,
+        "pcc": 0.9999311,
+        "throughput_ops_s": 76717763932552.16,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T06:58:24Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 6081,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 44143308008551.23,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast/HiFi4-fp32_0-l1acc_0/2026-09-11T06:58:49Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 7378,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 36383227975060.99,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/512x512x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T06:58:52Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 5986,
+        "correct": true,
+        "pcc": 0.999931,
+        "throughput_ops_s": 44843878382893.42,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/512x512x512/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T06:58:55Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 5552,
+        "correct": true,
+        "pcc": 0.999931,
+        "throughput_ops_s": 48349325648414.984,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_1/2026-09-11T06:59:20Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 268435456,
+        "cycles": 7612,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 35264773515501.836,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/512x512x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_1/2026-09-11T06:59:22Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 268435456,
+        "cycles": 6014,
+        "correct": true,
+        "pcc": 0.9999736,
+        "throughput_ops_s": 44635094113734.62,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_default/HiFi2-fp32_0-l1acc_0/2026-09-11T07:00:10Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 7941,
+        "correct": true,
+        "pcc": 0.9999104,
+        "throughput_ops_s": 66022919027830.24,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_our_config/HiFi2-fp32_0-l1acc_0/2026-09-11T07:00:12Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 6201,
+        "correct": true,
+        "pcc": 0.9999104,
+        "throughput_ops_s": 84548943718755.05,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_default/HiFi2-fp32_0-l1acc_1/2026-09-11T07:00:24Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 7145,
+        "correct": true,
+        "pcc": 0.9999727,
+        "throughput_ops_s": 73378306508047.58,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_our_config/HiFi2-fp32_0-l1acc_1/2026-09-11T07:00:27Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6101,
+        "correct": true,
+        "pcc": 0.9999599,
+        "throughput_ops_s": 85934764792656.95,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/streamed",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/streamed/HiFi4-fp32_0-l1acc_0/2026-09-11T07:01:15Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_streamed",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 9959,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 52644643036449.44,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "matmul_multi_core/example",
+        "row": "wormhole_b0/640x640x640/tt_metal_example/matmul_multi_core/example/HiFi4-fp32_0-l1acc_0/2026-09-11T07:01:19Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "tt_metal_example",
+        "program_origin": "tt-metal programming example matmul_multi_core",
+        "layout": "multi_core_example",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 9735,
+        "correct": true,
+        "pcc": 0.9998412,
+        "throughput_ops_s": 53855983564458.13,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "matmul_multicore_reuse/example",
+        "row": "wormhole_b0/640x640x640/tt_metal_example/matmul_multicore_reuse/example/HiFi4-fp32_0-l1acc_0/2026-09-11T07:01:22Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "tt_metal_example",
+        "program_origin": "tt-metal programming example matmul_multicore_reuse",
+        "layout": "multi_core_example",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 18294,
+        "correct": true,
+        "pcc": 0.99930096,
+        "throughput_ops_s": 28659013884333.66,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "matmul_single_core/example",
+        "row": "wormhole_b0/640x640x640/tt_metal_example/matmul_single_core/example/HiFi4-fp32_0-l1acc_0/2026-09-11T07:01:26Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "tt_metal_example",
+        "program_origin": "tt-metal programming example matmul_single_core",
+        "layout": "single_core",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 330268,
+        "correct": true,
+        "pcc": 0.98083013,
+        "throughput_ops_s": 1587462303341.5288,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:01:30Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 7554,
+        "correct": true,
+        "pcc": 0.9999103,
+        "throughput_ops_s": 69405348159915.27,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:01:33Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 6202,
+        "correct": true,
+        "pcc": 0.9999103,
+        "throughput_ops_s": 84535311189938.73,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_1/2026-09-11T07:02:36Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 7098,
+        "correct": true,
+        "pcc": 0.9999732,
+        "throughput_ops_s": 73864187094956.33,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_1/2026-09-11T07:02:39Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 7583,
+        "correct": true,
+        "pcc": 0.9999732,
+        "throughput_ops_s": 69139918238164.31,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/streamed",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/streamed/HiFi4-fp32_1-l1acc_0/2026-09-11T07:08:02Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_streamed",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 9958,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 52649929704759.99,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/640x640x640/ttnn_production/ttnn_matmul/vendor_our_config/LoFi-fp32_0-l1acc_1/2026-09-11T07:08:08Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "LoFi",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6502,
+        "correct": true,
+        "pcc": 0.9999018,
+        "throughput_ops_s": 80634881574900.03,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/1024x512x2048/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:12:50Z",
+        "shape": [
+          1024,
+          512,
+          2048
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 7699,
+        "correct": true,
+        "pcc": 0.9996209,
+        "throughput_ops_s": 278930204961683.3,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/1024x512x2048/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:13:00Z",
+        "shape": [
+          1024,
+          512,
+          2048
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 7794,
+        "correct": true,
+        "pcc": 0.9996209,
+        "throughput_ops_s": 275530362843212.72,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x1024x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T07:13:49Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 10891,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 197179657331741.8,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/1024x1024x1024/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:13:59Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 8043,
+        "correct": true,
+        "pcc": 0.9998416,
+        "throughput_ops_s": 267000329230386.66,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/1024x1024x1024/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:14:09Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 7290,
+        "correct": true,
+        "pcc": 0.9998416,
+        "throughput_ops_s": 294579375582990.44,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/1024x1024x1024/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_1/2026-09-11T07:14:20Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 7595,
+        "correct": true,
+        "pcc": 0.999957,
+        "throughput_ops_s": 282749657406188.25,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/1024x1024x1024/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_1/2026-09-11T07:14:30Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 7077,
+        "correct": true,
+        "pcc": 0.999957,
+        "throughput_ops_s": 303445478027412.75,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/1024x1024x2048/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:15:24Z",
+        "shape": [
+          1024,
+          1024,
+          2048
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 8686,
+        "correct": true,
+        "pcc": 0.9996219,
+        "throughput_ops_s": 494470100851945.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/1024x1024x2048/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:15:42Z",
+        "shape": [
+          1024,
+          1024,
+          2048
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 8461,
+        "correct": true,
+        "pcc": 0.9996219,
+        "throughput_ops_s": 507619347122089.56,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/1536x768x768/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:17:11Z",
+        "shape": [
+          1536,
+          768,
+          768
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1811939328,
+        "cycles": 8397,
+        "correct": true,
+        "pcc": 0.9998884,
+        "throughput_ops_s": 215784128617363.38,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/1536x768x768/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:17:20Z",
+        "shape": [
+          1536,
+          768,
+          768
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1811939328,
+        "cycles": 7462,
+        "correct": true,
+        "pcc": 0.9998884,
+        "throughput_ops_s": 242822209595282.78,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/2048x512x1024/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:18:08Z",
+        "shape": [
+          2048,
+          512,
+          1024
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 8722,
+        "correct": true,
+        "pcc": 0.9998412,
+        "throughput_ops_s": 246214589314377.4,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/2048x512x1024/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:18:18Z",
+        "shape": [
+          2048,
+          512,
+          1024
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 8170,
+        "correct": true,
+        "pcc": 0.9998412,
+        "throughput_ops_s": 262849895716034.28,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/blocked/HiFi4-fp32_0-l1acc_0/2026-09-11T07:18:42Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 91294,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 23522724910727.977,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T07:19:06Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 10215,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 210228453059226.62,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/multicast/HiFi4-fp32_0-l1acc_0/2026-09-11T07:19:33Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 13507,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 158990423336047.97,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "matmul_multicore_reuse_mcast/example",
+        "row": "wormhole_b0/2048x1024x512/tt_metal_example/matmul_multicore_reuse_mcast/example/HiFi4-fp32_0-l1acc_0/2026-09-11T07:19:55Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "tt_metal_example",
+        "program_origin": "tt-metal programming example matmul_multicore_reuse_mcast",
+        "layout": "multi_core_example",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 25180,
+        "correct": true,
+        "pcc": 0.99988306,
+        "throughput_ops_s": 85285291818903.89,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/2048x1024x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-11T07:20:14Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 10282,
+        "correct": true,
+        "pcc": 0.9999307,
+        "throughput_ops_s": 208858553588795.94,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/2048x1024x512/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_0/2026-09-11T07:20:30Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 8486,
+        "correct": true,
+        "pcc": 0.9999307,
+        "throughput_ops_s": 253061942964883.34,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/2048x1024x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_1/2026-09-11T07:21:18Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 8831,
+        "correct": true,
+        "pcc": 0.9999736,
+        "throughput_ops_s": 243175591439248.1,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_our_config",
+        "row": "wormhole_b0/2048x1024x512/ttnn_production/ttnn_matmul/vendor_our_config/HiFi4-fp32_0-l1acc_1/2026-09-11T07:21:44Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul with LOGOS program config",
+        "layout": "multi_core_vendor_our_config",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 9254,
+        "correct": true,
+        "pcc": 0.9999761,
+        "throughput_ops_s": 232060044089042.6,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/streamed",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/streamed/HiFi4-fp32_1-l1acc_0/2026-09-11T07:25:25Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_streamed",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 25587,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 83928700042990.58,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/blocked/HiFi4-fp32_0-l1acc_0/2026-09-11T07:27:15Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 93380,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 45994509488113.086,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T07:28:38Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 14043,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 305844000284839.44,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/streamed",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/streamed/HiFi4-fp32_1-l1acc_0/2026-09-11T07:30:08Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_streamed",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 45877,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 93619183817599.23,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked",
+        "row": "wormhole_b0/4096x4096x128/logos_emitted/logos_spatial/blocked/HiFi4-fp32_0-l1acc_0/2026-09-11T07:32:24Z",
+        "shape": [
+          4096,
+          4096,
+          128
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 25728,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 166937472636815.9,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast",
+        "row": "wormhole_b0/4096x4096x128/logos_emitted/logos_spatial/multicast/HiFi4-fp32_0-l1acc_0/2026-09-11T07:32:59Z",
+        "shape": [
+          4096,
+          4096,
+          128
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 26383,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 162792983966948.4,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked",
+        "row": "wormhole_b0/4096x4096x256/logos_emitted/logos_spatial/blocked/HiFi4-fp32_0-l1acc_0/2026-09-11T07:34:05Z",
+        "shape": [
+          4096,
+          4096,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 8589934592,
+        "cycles": 60794,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 141295762608152.12,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast",
+        "row": "wormhole_b0/4096x4096x256/logos_emitted/logos_spatial/multicast/HiFi4-fp32_0-l1acc_0/2026-09-11T07:35:20Z",
+        "shape": [
+          4096,
+          4096,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 8589934592,
+        "cycles": 27434,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 313112728439163.1,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x1024x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T15:42:12Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 11216,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 191466088445078.44,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x1024x2048/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T15:46:54Z",
+        "shape": [
+          1024,
+          1024,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 11964,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 358990914075560.06,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/320x320x320/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:05:52Z",
+        "shape": [
+          320,
+          320,
+          320
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 65536000,
+        "cycles": 5713,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 11471381060738.666,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/384x1536x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:06:35Z",
+        "shape": [
+          384,
+          1536,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1207959552,
+        "cycles": 13238,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 91249399607191.42,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:07:01Z",
+        "shape": [
+          512,
+          512,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 7894,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 68009996453002.29,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x2048/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:07:18Z",
+        "shape": [
+          512,
+          512,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1073741824,
+        "cycles": 10772,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 99678966208689.2,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/HiFi2-fp32_0-l1acc_0/2026-09-11T16:07:52Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 6513,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 41215331797942.58,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/HiFi3-fp32_0-l1acc_0/2026-09-11T16:08:04Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi3",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 6513,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 41215331797942.58,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:08:15Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 6513,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 41215331797942.58,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/LoFi-fp32_0-l1acc_0/2026-09-11T16:08:26Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "LoFi",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 268435456,
+        "cycles": 6513,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 41215331797942.58,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/768x2304x384/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:10:27Z",
+        "shape": [
+          768,
+          2304,
+          384
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1358954496,
+        "cycles": 10903,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 124640419700999.72,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x1024x4096/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:12:04Z",
+        "shape": [
+          1024,
+          1024,
+          4096
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 8589934592,
+        "cycles": 12362,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 694866088982365.4,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:12:19Z",
+        "shape": [
+          1024,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1073741824,
+        "cycles": 8628,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 124448519239684.75,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x512x2048/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:12:39Z",
+        "shape": [
+          1024,
+          512,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 11078,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 193851204910633.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/128x128x4096/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:12:48Z",
+        "shape": [
+          128,
+          128,
+          4096
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 134217728,
+        "cycles": 9607,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 13970826272509.629,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1792x896x448/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:13:23Z",
+        "shape": [
+          1792,
+          896,
+          448
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1438646272,
+        "cycles": 10407,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 138238327279715.56,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/256x2048x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:14:27Z",
+        "shape": [
+          256,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 10745,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 49964719590507.21,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/256x256x256/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T16:14:35Z",
+        "shape": [
+          256,
+          256,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 33554432,
+        "cycles": 5072,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 6615621451104.102,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_0/2026-09-11T22:01:37Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 48308,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 10853026413844.498,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T22:02:03Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 8912,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 58829443447037.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_0-l1acc_1/2026-09-11T22:02:19Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 10030,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 52271984047856.43,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_1/2026-09-11T22:02:30Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6838,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 76672711319099.16,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/512x512x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_1/2026-09-12T01:06:18Z",
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 268435456,
+        "cycles": 5924,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 45313209993247.805,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1024x1024x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_1/2026-09-12T01:10:44Z",
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 8110,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 264794531196054.25,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "matmul_single_core/example",
+        "row": "blackhole/640x640x640/tt_metal_example/matmul_single_core/example/HiFi4-fp32_0-l1acc_0/2026-09-13T04:25:13Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "tt_metal_example",
+        "program_origin": "tt-metal programming example matmul_single_core",
+        "layout": "single_core",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 309062,
+        "correct": true,
+        "pcc": 0.9805661,
+        "throughput_ops_s": 1696384544201.4873,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "blackhole/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-13T04:36:56Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 9472,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 55351351351351.35,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "blackhole/640x640x640/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-13T05:52:39Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 9670,
+        "correct": true,
+        "pcc": 0.9999103,
+        "throughput_ops_s": 54217993795243.016,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "blackhole/640x640x640/ttnn_production/ttnn_matmul/vendor_default/HiFi2-fp32_0-l1acc_0/2026-09-13T06:07:34Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 9669,
+        "correct": true,
+        "pcc": 0.9999104,
+        "throughput_ops_s": 54223601199710.414,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "blackhole/2048x1024x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-13T08:08:37Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 11485,
+        "correct": true,
+        "pcc": 0.9999307,
+        "throughput_ops_s": 186981597562037.44,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "blackhole/2048x2048x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-13T21:27:25Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 14271,
+        "correct": true,
+        "pcc": 0.9999309,
+        "throughput_ops_s": 300957697148062.5,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "ttnn_matmul/vendor_default",
+        "row": "wormhole_b0/2048x2048x512/ttnn_production/ttnn_matmul/vendor_default/HiFi4-fp32_0-l1acc_0/2026-09-25T09:30:12Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "ttnn",
+        "program_origin": "ttnn.matmul default heuristic",
+        "layout": "multi_core_vendor_default",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 14896,
+        "correct": true,
+        "pcc": 0.9999309,
+        "throughput_ops_s": 288330242749731.5,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-25T10:38:06Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 14331,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 299697669108924.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi2-fp32_0-l1acc_0/2026-09-27T22:03:59Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 8912,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 58829443447037.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi2-fp32_0-l1acc_1/2026-09-27T22:04:08Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi2",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6845,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 76594302410518.62,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_1/2026-09-27T22:04:28Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6838,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 76672711319099.16,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/LoFi-fp32_0-l1acc_1/2026-09-27T22:04:36Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "LoFi",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6834,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 76717588527948.48,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x1280/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-27T22:04:59Z",
+        "shape": [
+          640,
+          640,
+          1280
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1048576000,
+        "cycles": 12624,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 83062103929024.08,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x320/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-27T22:05:08Z",
+        "shape": [
+          640,
+          640,
+          320
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 262144000,
+        "cycles": 6956,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 37686026451983.9,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/4096x256x256/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-27T22:05:18Z",
+        "shape": [
+          4096,
+          256,
+          256
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 536870912,
+        "cycles": 11175,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 48042139776286.35,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "blackhole/2048x2048x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-27T22:06:12Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 16494,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 260395737601552.06,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-28T02:59:03Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 8912,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 58829443447037.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_0/2026-09-28T02:59:26Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 11948,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 179735825912286.6,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/blocked-split",
+        "row": "wormhole_b0/2048x2048x1024/logos_emitted/logos_spatial/blocked-split/HiFi4-fp32_1-l1acc_0/2026-09-28T03:00:27Z",
+        "shape": [
+          2048,
+          2048,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_blocked-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 8589934592,
+        "cycles": 31481,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 272860919030526.34,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_0/2026-09-28T03:01:00Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 4294967296,
+        "cycles": 14165,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 303209833815743.0,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_0/2026-09-28T03:01:16Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": false,
+        "ops_flop": 524288000,
+        "cycles": 8707,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 60214540025267.03,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x512x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-10-02T22:29:11Z",
+        "shape": [
+          2048,
+          512,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 16308,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 131682833455972.53,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/1536x768x768/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-10-02T22:29:45Z",
+        "shape": [
+          1536,
+          768,
+          768
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 1811939328,
+        "cycles": 12032,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 150593361702127.66,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-10-02T22:30:23Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 12102,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 177448657081474.12,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "blackhole/2048x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-10-02T22:30:47Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": false,
+        "ops_flop": 2147483648,
+        "cycles": 14131,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 151969687070978.7,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_1/2026-10-03T13:25:42Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": false,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 9192,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 233625288076588.34,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x2048x1024/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_1/2026-10-03T13:27:41Z",
+        "shape": [
+          2048,
+          2048,
+          1024
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": true,
+        "ops_flop": 8589934592,
+        "cycles": 14552,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 590292371632765.2,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x2048x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_1/2026-10-03T13:28:47Z",
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": true,
+        "ops_flop": 4294967296,
+        "cycles": 11770,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 364908011554800.3,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x1024x512/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_1/2026-10-03T13:29:27Z",
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": true,
+        "ops_flop": 2147483648,
+        "cycles": 9697,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 221458559142002.66,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_1/2026-10-03T13:29:45Z",
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": true,
+        "ops_flop": 524288000,
+        "cycles": 6940,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 75545821325648.42,
+        "provenance": "sim_functional_not_timed"
+      },
+      {
+        "name": "logos_spatial/multicast-split",
+        "row": "wormhole_b0/2048x2048x2048/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_1-l1acc_1/2026-10-03T13:33:32Z",
+        "shape": [
+          2048,
+          2048,
+          2048
+        ],
+        "stack": "logos",
+        "program_origin": "compiler-emitted, all kernels generated",
+        "layout": "multi_core_multicast-split",
+        "precision": "bf16",
+        "fidelity": "HiFi4",
+        "fp32_dest_acc": true,
+        "packer_l1_acc": true,
+        "ops_flop": 17179869184,
+        "cycles": 14733,
+        "correct": true,
+        "pcc": 1.0,
+        "throughput_ops_s": 1166080851421978.0,
+        "provenance": "sim_functional_not_timed"
+      }
+    ],
+    "logos_vs_baseline": [
+      {
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 14131,
+        "baseline_cycles": 11485,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 1.230387461906835
+      },
+      {
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 16494,
+        "baseline_cycles": 14271,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 1.1557704435568636
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 9472,
+        "baseline_cycles": 9670,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.9795243019648397
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 9472,
+        "baseline_cycles": 309062,
+        "baseline_stack": "tt_metal_example",
+        "baseline_program": "matmul_single_core",
+        "baseline_origin": "tt-metal programming example matmul_single_core",
+        "logos_over_baseline": 0.030647572331765148
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6403,
+        "baseline_cycles": 8043,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7960959840855403
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6403,
+        "baseline_cycles": 7290,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.8783264746227709
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8110,
+        "baseline_cycles": 7595,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 1.0678077682685978
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1024
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8110,
+        "baseline_cycles": 7077,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 1.1459658047195138
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          2048
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6410,
+        "baseline_cycles": 8686,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7379691457517845
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          2048
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6410,
+        "baseline_cycles": 8461,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.7575936650514123
+      },
+      {
+        "shape": [
+          1024,
+          512,
+          2048
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5814,
+        "baseline_cycles": 7699,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7551630081828808
+      },
+      {
+        "shape": [
+          1024,
+          512,
+          2048
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5814,
+        "baseline_cycles": 7794,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.745958429561201
+      },
+      {
+        "shape": [
+          1536,
+          768,
+          768
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6595,
+        "baseline_cycles": 8397,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7853995474574252
+      },
+      {
+        "shape": [
+          1536,
+          768,
+          768
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6595,
+        "baseline_cycles": 7462,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.8838113106405789
+      },
+      {
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8039,
+        "baseline_cycles": 10282,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7818517798093756
+      },
+      {
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8039,
+        "baseline_cycles": 8486,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.9473250058920575
+      },
+      {
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8039,
+        "baseline_cycles": 25180,
+        "baseline_stack": "tt_metal_example",
+        "baseline_program": "matmul_multicore_reuse_mcast",
+        "baseline_origin": "tt-metal programming example matmul_multicore_reuse_mcast",
+        "logos_over_baseline": 0.3192613185067514
+      },
+      {
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8218,
+        "baseline_cycles": 8831,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.9305854376627789
+      },
+      {
+        "shape": [
+          2048,
+          1024,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8218,
+        "baseline_cycles": 9254,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.8880484114977307
+      },
+      {
+        "shape": [
+          2048,
+          2048,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 11228,
+        "baseline_cycles": 14896,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7537593984962406
+      },
+      {
+        "shape": [
+          2048,
+          512,
+          1024
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6926,
+        "baseline_cycles": 8722,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.7940839257051135
+      },
+      {
+        "shape": [
+          2048,
+          512,
+          1024
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6926,
+        "baseline_cycles": 8170,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.847735618115055
+      },
+      {
+        "shape": [
+          256,
+          2048,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6267,
+        "baseline_cycles": 6968,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.8993972445464983
+      },
+      {
+        "shape": [
+          256,
+          2048,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6267,
+        "baseline_cycles": 6998,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.895541583309517
+      },
+      {
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5180,
+        "baseline_cycles": 5986,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.8653524891413298
+      },
+      {
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5180,
+        "baseline_cycles": 5552,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.9329971181556196
+      },
+      {
+        "shape": [
+          512,
+          512,
+          512
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5924,
+        "baseline_cycles": 6014,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.9850349185234453
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi2",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 7941,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 1.1222767913361038
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi2",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 6201,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 1.4371875503950975
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi2",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5935,
+        "baseline_cycles": 7145,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.8306508047585724
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi2",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 5935,
+        "baseline_cycles": 6101,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.9727913456810359
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 7554,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 1.179772306063013
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 6202,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 1.436955820702999
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 9735,
+        "baseline_stack": "tt_metal_example",
+        "baseline_program": "matmul_multi_core",
+        "baseline_origin": "tt-metal programming example matmul_multi_core",
+        "logos_over_baseline": 0.9154596815613765
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 18294,
+        "baseline_stack": "tt_metal_example",
+        "baseline_program": "matmul_multicore_reuse",
+        "baseline_origin": "tt-metal programming example matmul_multicore_reuse",
+        "logos_over_baseline": 0.487154258226741
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": false,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 8912,
+        "baseline_cycles": 330268,
+        "baseline_stack": "tt_metal_example",
+        "baseline_program": "matmul_single_core",
+        "baseline_origin": "tt-metal programming example matmul_single_core",
+        "logos_over_baseline": 0.026984146208533677
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6838,
+        "baseline_cycles": 7098,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_default",
+        "baseline_origin": "ttnn.matmul default heuristic",
+        "logos_over_baseline": 0.9633699633699634
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "HiFi4",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6838,
+        "baseline_cycles": 7583,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 0.9017539232493736
+      },
+      {
+        "shape": [
+          640,
+          640,
+          640
+        ],
+        "knobs": {
+          "fidelity": "LoFi",
+          "fp32_dest_acc": false,
+          "packer_l1_acc": true,
+          "math_approx_mode": false
+        },
+        "matched_numerics": true,
+        "logos_cycles": 6834,
+        "baseline_cycles": 6502,
+        "baseline_stack": "ttnn",
+        "baseline_program": "ttnn_production_our_config",
+        "baseline_origin": "ttnn.matmul with LOGOS program config",
+        "logos_over_baseline": 1.0510612119347893
+      }
+    ],
+    "headline": {
+      "comparison": "wormhole_b0/640x640x640/HiFi4-fp32_0-l1acc_0",
+      "subject": "wormhole_b0/640x640x640/logos_emitted/logos_spatial/multicast-split/HiFi4-fp32_0-l1acc_0/2026-09-11T22:02:03Z"
+    },
+    "unmatched_pairs": 106
+  },
+  "power": {
+    "provenance": "pending_hardware",
+    "note": "ttsim reports cycles, not watts \u2014 measured power needs a card or Tenstorrent Cloud (tt-smi)",
+    "projected_upper_bound": {
+      "provenance": "projected_tdp_upper_bound",
+      "basis": "n150 TDP (published) x the REAL ttsim kernel-time \u2014 real matmul power is LOWER, so these bound the truth",
+      "energy_joules": 0.00142592,
+      "energy_pj_per_flop": 2.7197265625,
+      "tflops_per_watt_lower_bound": 0.36768402154398566,
+      "note": "perf/watt LOWER bound (TDP is an over-estimate of matmul power); replaced by measured_hw on a Koyeb tt-smi run"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "capability": "iter.dedup",
+  "arg": "30000",
+  "timing_n": "90647",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 296.112,
+    "rust": 80.148,
+    "go": 87.008
+  },
+  "wall_ms": {
+    "logos": 296.609,
+    "rust": 80.543,
+    "go": 87.655
+  },
+  "logos_ms": 296.112,
+  "speedups_vs_logos": {
+    "rust": 0.271,
+    "go": 0.294
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.271
+}

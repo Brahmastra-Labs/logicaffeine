@@ -1,0 +1,13 @@
+{
+  "capability": "convert.parse_int",
+  "workload": "parseInt(numText(i))",
+  "arg": "2000000",
+  "expected": "2000001000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

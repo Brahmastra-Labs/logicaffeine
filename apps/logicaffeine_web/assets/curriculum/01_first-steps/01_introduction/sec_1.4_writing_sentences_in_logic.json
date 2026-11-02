@@ -1,0 +1,42 @@
+{
+  "id": "1.4",
+  "title": "Writing Sentences in Logic",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "LOGOS writes an English sentence as a formula. A **predicate** names a property or a kind. A **constant** names one individual."
+    },
+    {
+      "type": "paragraph",
+      "text": "The predicate comes first, with a capital letter, and the constant goes in parentheses after it: Happy(Alice) says that Alice is happy."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "Socrates is a man.",
+      "formula": "Man(Socrates)",
+      "note": "The noun after 'is a' becomes the predicate."
+    },
+    {
+      "type": "formula",
+      "sentence": "Alice is happy.",
+      "formula": "Happy(Alice)",
+      "note": "An adjective becomes the predicate too."
+    },
+    {
+      "type": "formula",
+      "sentence": "Bob is not tall.",
+      "formula": "¬Tall(Bob)",
+      "note": "¬ means not. It goes in front of what it denies."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Mary is tall.",
+    "answer": "Tall(Mary)",
+    "hint": "Write the adjective as the predicate, then the name in parentheses.",
+    "explanation": "Tall is the predicate and Mary is the constant, so the formula is Tall(Mary)."
+  }
+}

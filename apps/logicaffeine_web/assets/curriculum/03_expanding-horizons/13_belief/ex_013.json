@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You want everyone to boast",
   "options": [
-    "$ u:(x)B\\underline{x} $",
-    "$ u:(x)Bx $",
-    "$ (x)x:B\\underline{u} $",
-    "$ \\underline{u} :(x)B\\underline{x} $"
+    "u:∀x B(x̲)",
+    "u:∀x B(x)",
+    "∀x x:B(u̲)",
+    "u̲:∀x B(x̲)"
   ],
   "correct": 0,
-  "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
-  "explanation": "When 'everyone' is inside the desire, we write u:(\u2200x)Px \u2014 you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
+  "hint": "Is 'everyone' inside what you want? Who would act?",
+  "explanation": "You want it to be that everyone boasts: u:∀x B(x̲).",
+  "section": "13.2"
 }

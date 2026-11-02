@@ -2,10 +2,14 @@
   "id": "I_1.4",
   "type": "translation",
   "difficulty": 1,
-  "prompt": "Translate this action:",
+  "prompt": "Write this sentence in logic.",
   "template": "{ProperName} {Verb:Present3s}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Verb": [
+      "Intransitive"
+    ]
   },
-  "hint": "An action verb becomes an event whose Agent is the subject: ∃e(Verb(e) ∧ Agent(e, subject)). (The engine uses event semantics, so a verb is never a bare one-place predicate.)"
+  "hint": "A present tense action is usually a habit: HAB(∃e(Verb(e) ∧ Agent(e, name))).",
+  "explanation": "LOGOS writes the action as an event with the subject as its Agent, wrapped in HAB because it is a habit.",
+  "section": "1.5"
 }

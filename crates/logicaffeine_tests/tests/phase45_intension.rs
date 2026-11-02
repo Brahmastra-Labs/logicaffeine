@@ -176,9 +176,15 @@ fn sleeping_is_not_intensional_predicate() {
 fn opaque_and_intensional_are_distinct() {
     // Opaque verbs: de re/de dicto ambiguity on NP complement
     assert!(Lexer::is_opaque_verb("seek"), "seek is opaque");
-    assert!(!Lexer::is_intensional_predicate("seek"), "seek is NOT intensional predicate");
+    assert!(
+        !Lexer::is_intensional_predicate("seek"),
+        "seek is NOT intensional predicate"
+    );
 
     // Intensional predicates: inherently require intension as subject
-    assert!(Lexer::is_intensional_predicate("rise"), "rise is intensional predicate");
+    assert!(
+        Lexer::is_intensional_predicate("rise"),
+        "rise is intensional predicate"
+    );
     assert!(!Lexer::is_opaque_verb("rise"), "rise is NOT opaque");
 }

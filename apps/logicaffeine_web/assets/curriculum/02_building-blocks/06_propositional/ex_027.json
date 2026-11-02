@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Not either not W or C",
   "options": [
-    "$ \\sim\\sim W \\vee C $",
-    "$ W \\vee C $",
-    "$ (W \\vee C) $",
-    "$ \\sim(\\sim W \\vee C) $"
+    "¬¬W ∨ C",
+    "W ∨ ¬C",
+    "¬W ∨ C",
+    "¬(¬W ∨ C)"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Does the 'not' deny a single letter, or the whole compound after it?",
+  "explanation": "The denial covers the whole compound, so ¬ goes outside the parentheses: ¬(¬W ∨ C).",
+  "section": "6.2"
 }

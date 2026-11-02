@@ -15,8 +15,8 @@
 //! This is implemented via `Eq_rec` in type theory:
 //! Eq_rec : Π(A:Type) (x:A) (P:A→Type) (p:P x) (y:A) (e:Eq A x y) . P y
 
-use logicaffeine_kernel::{infer_type, Term};
 use logicaffeine_compile::verify_theorem;
+use logicaffeine_kernel::infer_type;
 
 // =============================================================================
 // PART 1: LEIBNIZ REWRITE (The Core Test)
@@ -74,7 +74,10 @@ Proof: Auto.
         println!("Concrete rewrite failed: {:?}", e);
     }
 
-    assert!(result.is_ok(), "Failed to verify concrete equality rewrite!");
+    assert!(
+        result.is_ok(),
+        "Failed to verify concrete equality rewrite!"
+    );
 }
 
 // =============================================================================
@@ -178,5 +181,8 @@ Proof: Auto.
     let result = verify_theorem(input);
 
     // This should FAIL - we have no connection between Alice and Bob
-    assert!(result.is_err(), "Should fail - no equality between Alice and Bob!");
+    assert!(
+        result.is_err(),
+        "Should fail - no equality between Alice and Bob!"
+    );
 }

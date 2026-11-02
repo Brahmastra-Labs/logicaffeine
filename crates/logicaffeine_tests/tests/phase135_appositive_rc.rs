@@ -1,4 +1,4 @@
-//! Phase 135 — §3.1 Non-restrictive (appositive) relative clauses (work/MISSING_ENGLISH.md).
+//! Phase 135 — Non-restrictive (appositive) relative clauses.
 //!
 //! A comma-delimited relative clause on a referential head is a SIDE-ASSERTION, not
 //! a restriction:
@@ -11,12 +11,18 @@ use logicaffeine_language::compile;
 fn appositive_rc_is_a_side_assertion() {
     let out = compile("John, who loves Mary, left.").unwrap();
     eprintln!("appositive: {out}");
-    assert!(out.contains("Leave") || out.contains("Left"), "the main clause: {out}");
+    assert!(
+        out.contains("Leave") || out.contains("Left"),
+        "the main clause: {out}"
+    );
     assert!(out.contains("Love"), "the appositive RC predication: {out}");
     assert!(out.contains("Mary"), "the RC object: {out}");
     // Both predicated of John directly (referential head, no restriction variable).
-    assert!(out.matches("John").count() >= 2 || (out.contains("Agent(e, John)") && out.contains("Love")),
-        "both clauses are about John: {out}");
+    assert!(
+        out.matches("John").count() >= 2
+            || (out.contains("Agent(e, John)") && out.contains("Love")),
+        "both clauses are about John: {out}"
+    );
 }
 
 #[test]
@@ -25,5 +31,8 @@ fn restrictive_rc_still_restricts() {
     let out = compile("The man who loves Mary left.").unwrap();
     eprintln!("restrictive: {out}");
     assert!(out.contains("Man"), "the restricted noun: {out}");
-    assert!(out.contains('∃') || out.contains('∀'), "a bound restriction variable: {out}");
+    assert!(
+        out.contains('∃') || out.contains('∀'),
+        "a bound restriction variable: {out}"
+    );
 }

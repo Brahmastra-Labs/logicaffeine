@@ -1,0 +1,72 @@
+LOGOS_TT_ENV chip=wormhole_b0 so=libttsim.so so_sha256=afdc51f5b85aa4140e366e81688768eb4d8f9859ea5e6f950454381c45512a10 ttsim_version=v1.10.2 tt_metal_sha=9aa797dec5ed247251aa142deb3cea0af2df4321
+== ttsim (wormhole_b0) : $TT_METAL_HOME/build/programming_examples/metal_example_logos_spatial ==
+2026-09-10 19:09:01.542 | info     |           Metal | Disabling multi-erisc mode with simulator/emule target device (rtoptions.cpp:377)
+2026-09-10 19:09:01.543 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-09-10 19:09:01.543 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-09-10 19:09:01.543 | warning  |             UMD | Chip 0 has inconsistent Tensix harvesting information between harvest mask and number of harvested. Board n150 expects 1 units, but harvest mask indicates 0 units. (cluster_descriptor.cpp:1299)
+2026-09-10 19:09:01.544 | info     |             UMD | Creating Simulation device (cluster.cpp:266)
+2026-09-10 19:09:01.546 | info     | EmulationDriver | TTSimTTDevice chip_id=0 PCI vendor_id=0x1e52 device_id=0x401e (tt_sim_tt_device.cpp:138)
+2026-09-10 19:09:01.546 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-09-10 19:09:01.546 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-09-10 19:09:01.546 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-09-10 19:09:01.946 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-10 19:09:01.946 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-10 19:09:01.946 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-09-10 19:09:01.946 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+2026-09-10 19:09:01.967 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+2026-09-10 19:09:01.969 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+LOGOS_GRID device=8x9 placed=8x8
+LOGOS_MM_CFG strategy=multicast-split grid=8x8 per_core=2x2 out_block=2x2 in0_block_w=16 subblock=2x2 origin="compiler-emitted, all kernels generated" mesh=8x9 sites=64
+LOGOS_CHECKSUM 27 golden 27
+LOGOS spatial-IR matmul (wormhole_b0) -- PCC = 1
+LOGOS_MM_PASS fidelity=HiFi4 fp32=0 l1acc=0 pcc=1 floor=0.99
+LOGOS_MM_DEVICE_CYCLES=1792
+2026-09-10 19:09:02.765 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+2026-09-10 19:09:02.767 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+2026-09-10 19:09:02.767 | info     |    BuildKernels | JIT cache stats: 17/17 hits (100.0%) [17 cached, 0 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-09-10 19:09:02.767 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-09-10 19:09:02.769 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-09-10 19:09:02.769 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-09-10 19:09:02.769 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-09-10 19:09:02.769 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-09-10 19:09:02.769 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)
+2026-09-10 19:09:02.769 | info     | EmulationDriver | Sending exit signal to remote... (tt_sim_communicator.cpp:289)
+[6513] TTSIM_OP_STATS matmul=371475 elw=0 tensix_inst=35536 noc_txns=1096 noc_bytes=3095224 clock=6513
+[6513] TTSIM_MIX op=0x01 n=5376
+[6513] TTSIM_MIX op=0x02 n=336
+[6513] TTSIM_MIX op=0x04 n=128
+[6513] TTSIM_MIX op=0x10 n=208
+[6513] TTSIM_MIX op=0x11 n=64
+[6513] TTSIM_MIX op=0x26 n=1024
+[6513] TTSIM_MIX op=0x36 n=2048
+[6513] TTSIM_MIX op=0x37 n=3136
+[6513] TTSIM_MIX op=0x41 n=256
+[6513] TTSIM_MIX op=0x42 n=2176
+[6513] TTSIM_MIX op=0x45 n=4352
+[6513] TTSIM_MIX op=0x48 n=1792
+[6513] TTSIM_MIX op=0x50 n=256
+[6513] TTSIM_MIX op=0x51 n=128
+[6513] TTSIM_MIX op=0x54 n=192
+[6513] TTSIM_MIX op=0x58 n=128
+[6513] TTSIM_MIX op=0x5e n=192
+[6513] TTSIM_MIX op=0x60 n=1280
+[6513] TTSIM_MIX op=0x67 n=192
+[6513] TTSIM_MIX op=0x71 n=80
+[6513] TTSIM_MIX op=0x8a n=80
+[6513] TTSIM_MIX op=0x91 n=80
+[6513] TTSIM_MIX op=0xa0 n=128
+[6513] TTSIM_MIX op=0xa1 n=128
+[6513] TTSIM_MIX op=0xa2 n=1600
+[6513] TTSIM_MIX op=0xa3 n=384
+[6513] TTSIM_MIX op=0xa4 n=64
+[6513] TTSIM_MIX op=0xa5 n=1088
+[6513] TTSIM_MIX op=0xa6 n=128
+[6513] TTSIM_MIX op=0xb0 n=256
+[6513] TTSIM_MIX op=0xb1 n=128
+[6513] TTSIM_MIX op=0xb2 n=6976
+[6513] TTSIM_MIX op=0xb3 n=256
+[6513] TTSIM_MIX op=0xb4 n=384
+[6513] TTSIM_MIX op=0xb5 n=256
+[6513] TTSIM_MIX op=0xb6 n=256
+[6513] TTSIM_STALLS srca=384 srcb=0 both=108947
+[6513] 1.0 seconds (6.4 KHz)

@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
+use super::writes::{CalleeGlobals, WriteSet};
 use crate::analysis::DiscoveryPass;
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
@@ -103,9 +104,7 @@ pub fn analyze_expr(expr: &Expr, division: &Division) -> BindingTime {
     match expr {
         Expr::Literal(lit) => BindingTime::Static(lit.clone()),
 
-        Expr::Identifier(sym) => {
-            division.get(sym).cloned().unwrap_or(BindingTime::Dynamic)
-        }
+        Expr::Identifier(sym) => division.get(sym).cloned().unwrap_or(BindingTime::Dynamic),
 
         Expr::BinaryOp { op, left, right } => {
             let bt_left = analyze_expr(left, division);
@@ -121,14 +120,10 @@ pub fn analyze_expr(expr: &Expr, division: &Division) -> BindingTime {
             }
         }
 
-        Expr::Not { operand } => {
-            match analyze_expr(operand, division) {
-                BindingTime::Static(Literal::Boolean(b)) => {
-                    BindingTime::Static(Literal::Boolean(!b))
-                }
-                _ => BindingTime::Dynamic,
-            }
-        }
+        Expr::Not { operand } => match analyze_expr(operand, division) {
+            BindingTime::Static(Literal::Boolean(b)) => BindingTime::Static(Literal::Boolean(!b)),
+            _ => BindingTime::Dynamic,
+        },
 
         Expr::Length { .. } => BindingTime::Dynamic,
         Expr::Index { .. } => BindingTime::Dynamic,
@@ -163,21 +158,15 @@ fn eval_literal_binop(op: BinaryOpKind, left: &Literal, right: &Literal) -> Opti
         (BinaryOpKind::NotEq, Literal::Number(a), Literal::Number(b)) => {
             Some(Literal::Boolean(a != b))
         }
-        (BinaryOpKind::Lt, Literal::Number(a), Literal::Number(b)) => {
-            Some(Literal::Boolean(a < b))
-        }
-        (BinaryOpKind::Gt, Literal::Number(a), Literal::Number(b)) => {
-            Some(Literal::Boolean(a > b))
-        }
+        (BinaryOpKind::Lt, Literal::Number(a), Literal::Number(b)) => Some(Literal::Boolean(a < b)),
+        (BinaryOpKind::Gt, Literal::Number(a), Literal::Number(b)) => Some(Literal::Boolean(a > b)),
         (BinaryOpKind::LtEq, Literal::Number(a), Literal::Number(b)) => {
             Some(Literal::Boolean(a <= b))
         }
         (BinaryOpKind::GtEq, Literal::Number(a), Literal::Number(b)) => {
             Some(Literal::Boolean(a >= b))
         }
-        (BinaryOpKind::Add, Literal::Float(a), Literal::Float(b)) => {
-            Some(Literal::Float(a + b))
-        }
+        (BinaryOpKind::Add, Literal::Float(a), Literal::Float(b)) => Some(Literal::Float(a + b)),
         (BinaryOpKind::Subtract, Literal::Float(a), Literal::Float(b)) => {
             Some(Literal::Float(a - b))
         }
@@ -201,15 +190,35 @@ fn eval_literal_binop(op: BinaryOpKind, left: &Literal, right: &Literal) -> Opti
 // Statement / Block Analysis
 // =============================================================================
 
+/// Every global a call may assign becomes Dynamic — every binding does, if some callee holds raw
+/// foreign code.
+fn clobber_callee_globals(division: &mut Division, globals: &CalleeGlobals) {
+    if globals.opaque {
+        for bt in division.values_mut() {
+            *bt = BindingTime::Dynamic;
+        }
+        return;
+    }
+    for g in &globals.symbols {
+        division.insert(*g, BindingTime::Dynamic);
+    }
+}
+
+/// Evaluating `expr` may run a call: the callee-written globals are no longer static afterwards.
+fn clobber_call_effects(expr: &Expr, division: &mut Division, globals: &CalleeGlobals) {
+    if WriteSet::of_expr(expr).has_calls() {
+        clobber_callee_globals(division, globals);
+    }
+}
+
 fn analyze_block<'a>(
     stmts: &[Stmt<'a>],
     division: &mut Division,
-    funcs: &HashMap<Symbol, FuncDef<'a>>,
-    cache: &mut BtaCache,
+    globals: &CalleeGlobals,
 ) -> BindingTime {
     let mut return_bt = BindingTime::Dynamic;
     for stmt in stmts {
-        if let Some(bt) = analyze_stmt(stmt, division, funcs, cache) {
+        if let Some(bt) = analyze_stmt(stmt, division, globals) {
             return_bt = bt;
         }
     }
@@ -219,39 +228,59 @@ fn analyze_block<'a>(
 fn analyze_stmt<'a>(
     stmt: &Stmt<'a>,
     division: &mut Division,
-    funcs: &HashMap<Symbol, FuncDef<'a>>,
-    cache: &mut BtaCache,
+    globals: &CalleeGlobals,
 ) -> Option<BindingTime> {
     match stmt {
         Stmt::Let { var, value, .. } => {
+            clobber_call_effects(value, division, globals);
             let bt = analyze_expr(value, division);
             division.insert(*var, bt);
             None
         }
         Stmt::Set { target, value } => {
+            clobber_call_effects(value, division, globals);
             let bt = analyze_expr(value, division);
             division.insert(*target, bt);
             None
         }
         Stmt::Return { value } => {
             let bt = match value {
-                Some(expr) => analyze_expr(expr, division),
+                Some(expr) => {
+                    clobber_call_effects(expr, division, globals);
+                    analyze_expr(expr, division)
+                }
                 None => BindingTime::Static(Literal::Nothing),
             };
             Some(bt)
         }
-        Stmt::Show { .. } => None,
-        Stmt::Call { function, args } => {
+        Stmt::Show { object, .. } => {
+            clobber_call_effects(object, division, globals);
+            None
+        }
+        Stmt::Call { args, .. } => {
             for arg in args {
                 analyze_expr(arg, division);
             }
+            clobber_callee_globals(division, globals);
             None
         }
         other => {
-            // A variable rebound from a runtime source (channel receive, Mount, console
-            // read, peer message, …) is Dynamic regardless of any prior static binding.
-            for var in effectful_bound_vars(other) {
-                division.insert(var, BindingTime::Dynamic);
+            // Every name the statement may write — a variable rebound from a runtime source (channel
+            // receive, Mount, console read, peer message, …), a `Swap`, a nested block's `Set`, a
+            // global its calls reach — is Dynamic regardless of any prior static binding.
+            let effects = WriteSet::of_stmt(other).with_callee_globals(globals);
+            if effects.is_opaque() {
+                clobber_callee_globals(
+                    division,
+                    &CalleeGlobals {
+                        symbols: HashSet::new(),
+                        opaque: true,
+                    },
+                );
+            } else {
+                for var in effects.symbols() {
+                    division.insert(var, BindingTime::Dynamic);
+                }
             }
             None
         }
@@ -272,8 +301,8 @@ pub fn analyze_function_bt<'a>(
     params: &[(Symbol, &'a TypeExpr<'a>)],
     body: &[Stmt<'a>],
     arg_bts: &[BindingTime],
-    funcs: &HashMap<Symbol, FuncDef<'a>>,
     cache: &mut BtaCache,
+    globals: &CalleeGlobals,
 ) -> BtaResult {
     let cache_key = (func_name, arg_bts.to_vec());
     if let Some(cached) = cache.get(&cache_key) {
@@ -289,7 +318,7 @@ pub fn analyze_function_bt<'a>(
         }
     }
 
-    let return_bt = analyze_block(body, &mut division, funcs, cache);
+    let return_bt = analyze_block(body, &mut division, globals);
 
     let result = BtaResult {
         division,
@@ -303,22 +332,33 @@ pub fn analyze_function_bt<'a>(
 // SCC-Ordered Analysis
 // =============================================================================
 
-pub fn analyze_with_sccs<'a>(
-    stmts: &[Stmt<'a>],
-    interner: &Interner,
-) -> BtaCache {
+pub fn analyze_with_sccs<'a>(stmts: &[Stmt<'a>], interner: &Interner) -> BtaCache {
     use crate::analysis::callgraph::CallGraph;
 
     let cg = CallGraph::build(stmts, interner);
 
     let mut funcs: HashMap<Symbol, FuncDef<'a>> = HashMap::new();
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, is_native: false, .. } = stmt {
-            funcs.insert(*name, FuncDef { params: params.clone(), body });
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            is_native: false,
+            ..
+        } = stmt
+        {
+            funcs.insert(
+                *name,
+                FuncDef {
+                    params: params.clone(),
+                    body,
+                },
+            );
         }
     }
 
     let mut cache = BtaCache::new();
+    let globals = CalleeGlobals::of_program(stmts);
 
     // Process SCCs in topological order (sccs are already in reverse topo order from Kosaraju)
     for scc in cg.sccs.iter().rev() {
@@ -326,10 +366,19 @@ pub fn analyze_with_sccs<'a>(
             // Non-recursive (or self-recursive): analyze once
             let sym = scc[0];
             if let Some(func_def) = funcs.get(&sym) {
-                let arg_bts: Vec<BindingTime> = func_def.params.iter()
+                let arg_bts: Vec<BindingTime> = func_def
+                    .params
+                    .iter()
                     .map(|_| BindingTime::Dynamic)
                     .collect();
-                analyze_function_bt(sym, &func_def.params, func_def.body, &arg_bts, &funcs, &mut cache);
+                analyze_function_bt(
+                    sym,
+                    &func_def.params,
+                    func_def.body,
+                    &arg_bts,
+                    &mut cache,
+                    &globals,
+                );
             }
         } else {
             // Mutually recursive SCC: iterate to fixed point
@@ -337,12 +386,21 @@ pub fn analyze_with_sccs<'a>(
                 let mut changed = false;
                 for &sym in scc {
                     if let Some(func_def) = funcs.get(&sym) {
-                        let arg_bts: Vec<BindingTime> = func_def.params.iter()
+                        let arg_bts: Vec<BindingTime> = func_def
+                            .params
+                            .iter()
                             .map(|_| BindingTime::Dynamic)
                             .collect();
                         let key = (sym, arg_bts.clone());
                         let old = cache.get(&key).cloned();
-                        let result = analyze_function_bt(sym, &func_def.params, func_def.body, &arg_bts, &funcs, &mut cache);
+                        let result = analyze_function_bt(
+                            sym,
+                            &func_def.params,
+                            func_def.body,
+                            &arg_bts,
+                            &mut cache,
+                            &globals,
+                        );
                         if old.as_ref() != Some(&result) {
                             changed = true;
                         }
@@ -366,6 +424,7 @@ pub struct BtaEnv {
     interner: Interner,
     main_stmts: Vec<BtaStmt>,
     functions: Vec<BtaFunc>,
+    callee_globals: CalleeGlobals,
 }
 
 #[derive(Clone)]
@@ -375,17 +434,38 @@ struct BtaStmt {
 
 #[derive(Clone)]
 enum BtaStmtKind {
-    Let { var: Symbol, value: BtaExpr },
-    Set { target: Symbol, value: BtaExpr },
-    Return { value: Option<BtaExpr> },
+    Let {
+        var: Symbol,
+        value: BtaExpr,
+    },
+    Set {
+        target: Symbol,
+        value: BtaExpr,
+    },
+    Return {
+        value: Option<BtaExpr>,
+    },
     Show,
-    Call { function: Symbol, args: Vec<BtaExpr> },
-    If { cond: BtaExpr, then_block: Vec<BtaStmt>, else_block: Option<Vec<BtaStmt>> },
-    While { cond: BtaExpr, body: Vec<BtaStmt> },
+    Call {
+        args: Vec<BtaExpr>,
+    },
+    If {
+        cond: BtaExpr,
+        then_block: Vec<BtaStmt>,
+        else_block: Option<Vec<BtaStmt>>,
+    },
+    While {
+        cond: BtaExpr,
+        body: Vec<BtaStmt>,
+    },
     /// A statement that binds one or more variables to a *runtime* value (a channel
     /// receive, Mount, console read, peer message, …). Each named variable becomes
     /// Dynamic, overwriting any prior static binding.
-    ClobberDynamic { vars: Vec<Symbol> },
+    ClobberDynamic {
+        vars: Vec<Symbol>,
+    },
+    /// Raw foreign code ran: every binding is Dynamic afterwards.
+    ClobberAll,
     Other,
 }
 
@@ -393,12 +473,43 @@ enum BtaStmtKind {
 enum BtaExpr {
     Literal(Literal),
     Identifier(Symbol),
-    BinaryOp { op: BinaryOpKind, left: Box<BtaExpr>, right: Box<BtaExpr> },
-    Not { operand: Box<BtaExpr> },
-    Length { collection: Box<BtaExpr> },
-    Index { collection: Box<BtaExpr>, index: Box<BtaExpr> },
-    Call { function: Symbol, args: Vec<BtaExpr> },
+    BinaryOp {
+        op: BinaryOpKind,
+        left: Box<BtaExpr>,
+        right: Box<BtaExpr>,
+    },
+    Not {
+        operand: Box<BtaExpr>,
+    },
+    Length {
+        collection: Box<BtaExpr>,
+    },
+    Index {
+        collection: Box<BtaExpr>,
+        index: Box<BtaExpr>,
+    },
+    Call {
+        function: Symbol,
+        args: Vec<BtaExpr>,
+    },
+    /// An expression this analysis does not model that runs a call (a closure call, a call nested
+    /// in a constructor, …): Dynamic, and its callee may have written the program's globals.
+    OtherCall,
     Other,
+}
+
+impl BtaExpr {
+    fn has_call(&self) -> bool {
+        match self {
+            BtaExpr::Call { .. } | BtaExpr::OtherCall => true,
+            BtaExpr::Literal(_) | BtaExpr::Identifier(_) => false,
+            BtaExpr::BinaryOp { left, right, .. } => left.has_call() || right.has_call(),
+            BtaExpr::Not { operand } => operand.has_call(),
+            BtaExpr::Length { collection } => collection.has_call(),
+            BtaExpr::Index { collection, index } => collection.has_call() || index.has_call(),
+            BtaExpr::Other => false,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -411,6 +522,7 @@ struct BtaFunc {
 struct BtaContext {
     cache: BtaCache,
     on_stack: HashSet<(Symbol, Vec<BindingTime>)>,
+    callee_globals: CalleeGlobals,
 }
 
 fn convert_expr(expr: &Expr) -> BtaExpr {
@@ -436,33 +548,17 @@ fn convert_expr(expr: &Expr) -> BtaExpr {
             function: *function,
             args: args.iter().map(|a| convert_expr(a)).collect(),
         },
-        _ => BtaExpr::Other,
+        _ => {
+            if WriteSet::of_expr(expr).has_calls() {
+                BtaExpr::OtherCall
+            } else {
+                BtaExpr::Other
+            }
+        }
     }
 }
 
-/// The variables a statement binds to a runtime value. These must be clobbered to
-/// Dynamic in any binding-time division — a prior `Static` binding is stale once the
-/// variable is rebound from a channel, the filesystem, the console, or a peer.
-fn effectful_bound_vars(stmt: &Stmt) -> Vec<Symbol> {
-    match stmt {
-        Stmt::ReceivePipe { var, .. }
-        | Stmt::TryReceivePipe { var, .. }
-        | Stmt::ReadFrom { var, .. }
-        | Stmt::Mount { var, .. }
-        | Stmt::CreatePipe { var, .. }
-        | Stmt::LetPeerAgent { var, .. } => vec![*var],
-        Stmt::AwaitMessage { into, .. } => vec![*into],
-        Stmt::LaunchTaskWithHandle { handle, .. } => vec![*handle],
-        Stmt::Spawn { name, .. } => vec![*name],
-        _ => Vec::new(),
-    }
-}
-
-fn convert_stmt(stmt: &Stmt) -> BtaStmt {
-    let clobbered = effectful_bound_vars(stmt);
-    if !clobbered.is_empty() {
-        return BtaStmt { kind: BtaStmtKind::ClobberDynamic { vars: clobbered } };
-    }
+fn convert_stmt(stmt: &Stmt, globals: &CalleeGlobals) -> BtaStmt {
     let kind = match stmt {
         Stmt::Let { var, value, .. } => BtaStmtKind::Let {
             var: *var,
@@ -475,27 +571,51 @@ fn convert_stmt(stmt: &Stmt) -> BtaStmt {
         Stmt::Return { value } => BtaStmtKind::Return {
             value: value.map(|v| convert_expr(v)),
         },
-        Stmt::Show { .. } => BtaStmtKind::Show,
-        Stmt::Call { function, args } => BtaStmtKind::Call {
-            function: *function,
+        Stmt::Call { args, .. } => BtaStmtKind::Call {
             args: args.iter().map(|a| convert_expr(a)).collect(),
         },
-        Stmt::If { cond, then_block, else_block } => BtaStmtKind::If {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => BtaStmtKind::If {
             cond: convert_expr(cond),
-            then_block: then_block.iter().map(|s| convert_stmt(s)).collect(),
-            else_block: else_block.map(|eb| eb.iter().map(|s| convert_stmt(s)).collect()),
+            then_block: then_block
+                .iter()
+                .map(|s| convert_stmt(s, globals))
+                .collect(),
+            else_block: else_block.map(|eb| eb.iter().map(|s| convert_stmt(s, globals)).collect()),
         },
         Stmt::While { cond, body, .. } => BtaStmtKind::While {
             cond: convert_expr(cond),
-            body: body.iter().map(|s| convert_stmt(s)).collect(),
+            body: body.iter().map(|s| convert_stmt(s, globals)).collect(),
         },
-        _ => BtaStmtKind::Other,
+        // Every other statement: whatever it may write — a variable rebound from a runtime source
+        // (channel receive, Mount, console read, peer message, …), a `Swap`, a nested block's `Set`,
+        // a global its calls reach — is Dynamic afterwards; a `Show` writes nothing unless it calls.
+        other => {
+            let effects = WriteSet::of_stmt(other).with_callee_globals(globals);
+            if effects.is_opaque() {
+                BtaStmtKind::ClobberAll
+            } else {
+                let vars: Vec<Symbol> = effects.symbols().collect();
+                if vars.is_empty() {
+                    if matches!(other, Stmt::Show { .. }) {
+                        BtaStmtKind::Show
+                    } else {
+                        BtaStmtKind::Other
+                    }
+                } else {
+                    BtaStmtKind::ClobberDynamic { vars }
+                }
+            }
+        }
     };
     BtaStmt { kind }
 }
 
-fn convert_block(block: &[Stmt]) -> Vec<BtaStmt> {
-    block.iter().map(|s| convert_stmt(s)).collect()
+fn convert_block(block: &[Stmt], globals: &CalleeGlobals) -> Vec<BtaStmt> {
+    block.iter().map(|s| convert_stmt(s, globals)).collect()
 }
 
 fn is_collection_type(ty: &TypeExpr) -> bool {
@@ -513,9 +633,7 @@ fn analyze_bta_expr(
 ) -> BindingTime {
     match expr {
         BtaExpr::Literal(lit) => BindingTime::Static(lit.clone()),
-        BtaExpr::Identifier(sym) => {
-            division.get(sym).cloned().unwrap_or(BindingTime::Dynamic)
-        }
+        BtaExpr::Identifier(sym) => division.get(sym).cloned().unwrap_or(BindingTime::Dynamic),
         BtaExpr::BinaryOp { op, left, right } => {
             let bt_left = analyze_bta_expr(left, division, functions, ctx);
             let bt_right = analyze_bta_expr(right, division, functions, ctx);
@@ -529,18 +647,15 @@ fn analyze_bta_expr(
                 _ => BindingTime::Dynamic,
             }
         }
-        BtaExpr::Not { operand } => {
-            match analyze_bta_expr(operand, division, functions, ctx) {
-                BindingTime::Static(Literal::Boolean(b)) => {
-                    BindingTime::Static(Literal::Boolean(!b))
-                }
-                _ => BindingTime::Dynamic,
-            }
-        }
+        BtaExpr::Not { operand } => match analyze_bta_expr(operand, division, functions, ctx) {
+            BindingTime::Static(Literal::Boolean(b)) => BindingTime::Static(Literal::Boolean(!b)),
+            _ => BindingTime::Dynamic,
+        },
         BtaExpr::Length { .. } => BindingTime::Dynamic,
         BtaExpr::Index { .. } => BindingTime::Dynamic,
         BtaExpr::Call { function, args } => {
-            let arg_bts: Vec<BindingTime> = args.iter()
+            let arg_bts: Vec<BindingTime> = args
+                .iter()
                 .map(|a| analyze_bta_expr(a, division, functions, ctx))
                 .collect();
 
@@ -584,7 +699,7 @@ fn analyze_bta_expr(
 
             return_bt
         }
-        BtaExpr::Other => BindingTime::Dynamic,
+        BtaExpr::Other | BtaExpr::OtherCall => BindingTime::Dynamic,
     }
 }
 
@@ -594,8 +709,7 @@ fn analyze_bta_block(
     functions: &[BtaFunc],
     ctx: &mut BtaContext,
 ) -> BindingTime {
-    analyze_bta_block_opt(stmts, division, functions, ctx)
-        .unwrap_or(BindingTime::Dynamic)
+    analyze_bta_block_opt(stmts, division, functions, ctx).unwrap_or(BindingTime::Dynamic)
 }
 
 fn analyze_bta_block_opt(
@@ -655,25 +769,55 @@ fn analyze_bta_stmt(
 ) -> Option<BindingTime> {
     match &stmt.kind {
         BtaStmtKind::Let { var, value } => {
+            if value.has_call() {
+                clobber_callee_globals(division, &ctx.callee_globals);
+            }
             let bt = analyze_bta_expr(value, division, functions, ctx);
             division.insert(*var, bt);
             None
         }
         BtaStmtKind::Set { target, value } => {
+            if value.has_call() {
+                clobber_callee_globals(division, &ctx.callee_globals);
+            }
             let bt = analyze_bta_expr(value, division, functions, ctx);
             division.insert(*target, bt);
             None
         }
         BtaStmtKind::Return { value } => {
             let bt = match value {
-                Some(expr) => analyze_bta_expr(expr, division, functions, ctx),
+                Some(expr) => {
+                    if expr.has_call() {
+                        clobber_callee_globals(division, &ctx.callee_globals);
+                    }
+                    analyze_bta_expr(expr, division, functions, ctx)
+                }
                 None => BindingTime::Static(Literal::Nothing),
             };
             Some(bt)
         }
         BtaStmtKind::Show => None,
-        BtaStmtKind::Call { .. } => None,
-        BtaStmtKind::If { cond, then_block, else_block } => {
+        BtaStmtKind::Call { args } => {
+            for a in args {
+                analyze_bta_expr(a, division, functions, ctx);
+            }
+            clobber_callee_globals(division, &ctx.callee_globals);
+            None
+        }
+        BtaStmtKind::ClobberAll => {
+            for bt in division.values_mut() {
+                *bt = BindingTime::Dynamic;
+            }
+            None
+        }
+        BtaStmtKind::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            if cond.has_call() {
+                clobber_callee_globals(division, &ctx.callee_globals);
+            }
             let cond_bt = analyze_bta_expr(cond, division, functions, ctx);
             match cond_bt {
                 BindingTime::Static(Literal::Boolean(true)) => {
@@ -711,6 +855,9 @@ fn analyze_bta_stmt(
         BtaStmtKind::While { cond, body } => {
             let max_iterations = 256;
             for _ in 0..max_iterations {
+                if cond.has_call() {
+                    clobber_callee_globals(division, &ctx.callee_globals);
+                }
                 let cond_bt = analyze_bta_expr(cond, division, functions, ctx);
 
                 match cond_bt {
@@ -765,6 +912,7 @@ impl BtaEnv {
         let role_arena = Arena::new();
         let pp_arena = Arena::new();
         let stmt_arena = Arena::new();
+        let _compile_facts = super::facts::scope();
         let imperative_expr_arena = Arena::new();
         let type_expr_arena = Arena::new();
 
@@ -780,28 +928,42 @@ impl BtaEnv {
             &type_expr_arena,
         );
 
-        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::new(
+            tokens,
+            &mut world_state,
+            &mut interner,
+            ast_ctx,
+            type_registry,
+        );
         let stmts = parser.parse_program()?;
 
+        let callee_globals = CalleeGlobals::of_program(&stmts);
         let mut main_stmts = Vec::new();
         let mut functions = Vec::new();
 
         for stmt in &stmts {
             match stmt {
-                Stmt::FunctionDef { name, params, body, is_native, .. } => {
+                Stmt::FunctionDef {
+                    name,
+                    params,
+                    body,
+                    is_native,
+                    ..
+                } => {
                     if !is_native {
-                        let param_info: Vec<(Symbol, bool)> = params.iter().map(|(sym, ty)| {
-                            (*sym, is_collection_type(ty))
-                        }).collect();
+                        let param_info: Vec<(Symbol, bool)> = params
+                            .iter()
+                            .map(|(sym, ty)| (*sym, is_collection_type(ty)))
+                            .collect();
                         functions.push(BtaFunc {
                             name: *name,
                             params: param_info,
-                            body: convert_block(body),
+                            body: convert_block(body, &callee_globals),
                         });
                     }
                 }
                 _ => {
-                    main_stmts.push(convert_stmt(stmt));
+                    main_stmts.push(convert_stmt(stmt, &callee_globals));
                 }
             }
         }
@@ -810,6 +972,7 @@ impl BtaEnv {
             interner,
             main_stmts,
             functions,
+            callee_globals,
         })
     }
 
@@ -818,16 +981,25 @@ impl BtaEnv {
         let mut ctx = BtaContext {
             cache: BtaCache::new(),
             on_stack: HashSet::new(),
+            callee_globals: self.callee_globals.clone(),
         };
-        let return_bt = analyze_bta_block(&self.main_stmts, &mut division, &self.functions, &mut ctx);
-        BtaResult { division, return_bt }
+        let return_bt =
+            analyze_bta_block(&self.main_stmts, &mut division, &self.functions, &mut ctx);
+        BtaResult {
+            division,
+            return_bt,
+        }
     }
 
     pub fn analyze_function(&mut self, func_name: &str, arg_bts: Vec<BindingTime>) -> BtaResult {
-        let func_sym = self.interner.lookup(func_name)
+        let func_sym = self
+            .interner
+            .lookup(func_name)
             .unwrap_or_else(|| panic!("Function '{}' not found in interner", func_name));
 
-        let func = self.functions.iter()
+        let func = self
+            .functions
+            .iter()
             .find(|f| f.name == func_sym)
             .unwrap_or_else(|| panic!("Function '{}' not found", func_name))
             .clone();
@@ -846,9 +1018,13 @@ impl BtaEnv {
         let mut ctx = BtaContext {
             cache: BtaCache::new(),
             on_stack: HashSet::new(),
+            callee_globals: self.callee_globals.clone(),
         };
         let return_bt = analyze_bta_block(&func.body, &mut division, &self.functions, &mut ctx);
-        BtaResult { division, return_bt }
+        BtaResult {
+            division,
+            return_bt,
+        }
     }
 
     pub fn lookup(&self, name: &str) -> Option<Symbol> {

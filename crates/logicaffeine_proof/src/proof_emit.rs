@@ -30,7 +30,7 @@ use core::fmt::Write as _;
 
 use crate::cdcl::Lit;
 use crate::proof::{ProofStep, Witness};
-use crate::rup::{lit_val, set_true};
+use crate::rup::{clause_state, lit_val, set_true, ClauseState};
 
 /// Why a proof could not be emitted in a requested standard format.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,7 +74,11 @@ pub struct SizeSink {
 impl SizeSink {
     /// A sink that counts up to `cap` bytes before it starts refusing writes.
     pub fn new(cap: u64) -> Self {
-        Self { bytes: 0, cap, overflowed: false }
+        Self {
+            bytes: 0,
+            cap,
+            overflowed: false,
+        }
     }
     /// Bytes streamed through so far (the serialized proof size when emission ran to completion).
     pub fn bytes(&self) -> u64 {
@@ -137,7 +141,10 @@ fn wput<W: core::fmt::Write>(w: &mut W, l: Lit) -> Result<(), EmitError> {
 
 /// The canonical multiset key of a clause, for matching deletions against the database.
 fn canon(c: &[Lit]) -> Vec<u32> {
-    let mut k: Vec<u32> = c.iter().map(|l| l.var() * 2 + u32::from(!l.is_positive())).collect();
+    let mut k: Vec<u32> = c
+        .iter()
+        .map(|l| l.var() * 2 + u32::from(!l.is_positive()))
+        .collect();
     k.sort_unstable();
     k.dedup();
     k
@@ -162,7 +169,8 @@ pub fn try_assignment_witness(
     clause: &[Lit],
     witness: &Witness,
 ) -> Option<Vec<Lit>> {
-    let accept = |w: &[Lit]| crate::pr::is_pr(num_vars, db, clause, &Witness::Assignment(w.to_vec()));
+    let accept =
+        |w: &[Lit]| crate::pr::is_pr(num_vars, db, clause, &Witness::Assignment(w.to_vec()));
     match witness {
         Witness::Assignment(w) => {
             if accept(w) {
@@ -202,7 +210,11 @@ pub fn try_assignment_witness(
 /// Emit a **DRAT** proof (additions + deletions, no hints, no witnesses). Returns
 /// [`EmitError::PrInRupOnlyFormat`] if any step is a `Pr` step — DRAT cannot carry a PR witness;
 /// use [`emit_dpr`] for those. The trailing empty clause is appended iff it is RUP.
-pub fn emit_drat(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) -> Result<String, EmitError> {
+pub fn emit_drat(
+    num_vars: usize,
+    original: &[Vec<Lit>],
+    steps: &[ProofStep],
+) -> Result<String, EmitError> {
     let mut db: Vec<Vec<Lit>> = original.to_vec();
     let mut out = String::new();
     for (i, step) in steps.iter().enumerate() {
@@ -241,7 +253,11 @@ pub fn emit_drat(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) ->
 /// Emit a **DPR** proof: RUP additions as bare clauses, PR additions as `C 0 ω 0` (witness `ω`
 /// re-verified and laid out pivot-first per the `dpr-trim` convention), deletions as `d C 0`. A
 /// `Pr` step whose witness is irreducibly SR yields [`EmitError::RequiresSubstitutionRedundancy`].
-pub fn emit_dpr(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) -> Result<String, EmitError> {
+pub fn emit_dpr(
+    num_vars: usize,
+    original: &[Vec<Lit>],
+    steps: &[ProofStep],
+) -> Result<String, EmitError> {
     let mut db: Vec<Vec<Lit>> = original.to_vec();
     let mut out = String::new();
     for (i, step) in steps.iter().enumerate() {
@@ -319,7 +335,11 @@ pub fn emit_dpr(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) -> 
 /// variables fixed) carries the rest. This keeps the pivot out of the permutation entirely, which is
 /// what makes the expansion check: **verified end-to-end through `sr2drat`→`drat-trim` for PHP(n) up to
 /// n=18 (a 591k-line DRAT proof)**, the marquee symmetry refutations Kissat and CaDiCaL time out on.
-pub fn emit_sr(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) -> Result<String, EmitError> {
+pub fn emit_sr(
+    num_vars: usize,
+    original: &[Vec<Lit>],
+    steps: &[ProofStep],
+) -> Result<String, EmitError> {
     let mut out = String::new();
     write_sr(&mut out, num_vars, original, steps)?;
     Ok(out)
@@ -471,14 +491,19 @@ pub fn parse_dpr(text: &str) -> Result<Vec<ProofStep>, String> {
         let mut has_witness = false;
         for tok in toks.by_ref() {
             has_witness = true;
-            let n: i64 = tok.parse().map_err(|_| format!("bad witness token {tok:?}"))?;
+            let n: i64 = tok
+                .parse()
+                .map_err(|_| format!("bad witness token {tok:?}"))?;
             if n == 0 {
                 break;
             }
             witness.push(Lit::new((n.unsigned_abs() - 1) as u32, n > 0));
         }
         if has_witness {
-            steps.push(ProofStep::Pr { clause, witness: Witness::Assignment(witness) });
+            steps.push(ProofStep::Pr {
+                clause,
+                witness: Witness::Assignment(witness),
+            });
         } else {
             steps.push(ProofStep::Rup(clause));
         }
@@ -515,39 +540,18 @@ fn rup_hints(num_vars: usize, db: &[(u64, Vec<Lit>)], c: &[Lit]) -> Option<Vec<u
     loop {
         let mut changed = false;
         for (id, clause) in db {
-            let mut satisfied = false;
-            let mut unset: Vec<Lit> = Vec::new();
-            for &l in clause {
-                match lit_val(&assign, l) {
-                    Some(true) => {
-                        satisfied = true;
-                        break;
-                    }
-                    Some(false) => {}
-                    None => {
-                        if unset.contains(&l.negated()) {
-                            satisfied = true;
-                            break;
-                        }
-                        if !unset.contains(&l) {
-                            unset.push(l);
-                        }
-                    }
+            match clause_state(clause, &assign) {
+                ClauseState::Conflict => {
+                    return Some(build_chain(db, &reason, &trail_pos, clause, *id));
                 }
-            }
-            if satisfied {
-                continue;
-            }
-            if unset.is_empty() {
-                return Some(build_chain(db, &reason, &trail_pos, clause, *id));
-            }
-            if unset.len() == 1 {
-                let u = unset[0];
-                assign[u.var() as usize] = Some(u.is_positive());
-                reason[u.var() as usize] = Some(*id);
-                trail_pos[u.var() as usize] = Some(next_pos);
-                next_pos += 1;
-                changed = true;
+                ClauseState::Unit(u) => {
+                    assign[u.var() as usize] = Some(u.is_positive());
+                    reason[u.var() as usize] = Some(*id);
+                    trail_pos[u.var() as usize] = Some(next_pos);
+                    next_pos += 1;
+                    changed = true;
+                }
+                ClauseState::Quiet => {}
             }
         }
         if !changed {
@@ -596,15 +600,23 @@ fn build_chain(
 /// Emit an **LRAT** proof: each RUP addition as `<id> <clause> 0 <hints> 0`, deletions as
 /// `<id> d <deleted-id> 0`, and a final empty-clause line. Returns
 /// [`EmitError::PrInRupOnlyFormat`] for any `Pr` step (LRAT proper carries no PR witness).
-pub fn emit_lrat(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) -> Result<String, EmitError> {
-    let mut db: Vec<(u64, Vec<Lit>)> =
-        original.iter().enumerate().map(|(i, c)| (i as u64 + 1, c.clone())).collect();
+pub fn emit_lrat(
+    num_vars: usize,
+    original: &[Vec<Lit>],
+    steps: &[ProofStep],
+) -> Result<String, EmitError> {
+    let mut db: Vec<(u64, Vec<Lit>)> = original
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (i as u64 + 1, c.clone()))
+        .collect();
     let mut next_id = original.len() as u64 + 1;
     let mut out = String::new();
     for (i, step) in steps.iter().enumerate() {
         match step {
             ProofStep::Rup(c) => {
-                let hints = rup_hints(num_vars, &db, c).ok_or(EmitError::StepNotRup { index: i })?;
+                let hints =
+                    rup_hints(num_vars, &db, c).ok_or(EmitError::StepNotRup { index: i })?;
                 let id = next_id;
                 next_id += 1;
                 out.push_str(&id.to_string());
@@ -649,8 +661,11 @@ pub fn emit_lrat(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) ->
 /// at its turn, the last must conflict) and accepts iff a line derives the empty clause. Rejects a
 /// corrupted hint, a dangling id, or a chain that fails to conflict.
 pub fn check_lrat(num_vars: usize, original: &[Vec<Lit>], lrat: &str) -> bool {
-    let mut db: std::collections::HashMap<u64, Vec<Lit>> =
-        original.iter().enumerate().map(|(i, c)| (i as u64 + 1, c.clone())).collect();
+    let mut db: std::collections::HashMap<u64, Vec<Lit>> = original
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (i as u64 + 1, c.clone()))
+        .collect();
     for raw in lrat.lines() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('c') {
@@ -658,7 +673,9 @@ pub fn check_lrat(num_vars: usize, original: &[Vec<Lit>], lrat: &str) -> bool {
         }
         let mut toks = line.split_whitespace();
         let Some(id_tok) = toks.next() else { continue };
-        let Ok(id) = id_tok.parse::<u64>() else { return false };
+        let Ok(id) = id_tok.parse::<u64>() else {
+            return false;
+        };
         let rest: Vec<&str> = toks.collect();
         if rest.first() == Some(&"d") {
             for t in &rest[1..] {
@@ -674,7 +691,9 @@ pub fn check_lrat(num_vars: usize, original: &[Vec<Lit>], lrat: &str) -> bool {
         let mut clause = Vec::new();
         let mut k = 0usize;
         while k < rest.len() {
-            let Ok(n) = rest[k].parse::<i64>() else { return false };
+            let Ok(n) = rest[k].parse::<i64>() else {
+                return false;
+            };
             k += 1;
             if n == 0 {
                 break;
@@ -683,7 +702,9 @@ pub fn check_lrat(num_vars: usize, original: &[Vec<Lit>], lrat: &str) -> bool {
         }
         let mut hints = Vec::new();
         while k < rest.len() {
-            let Ok(n) = rest[k].parse::<i64>() else { return false };
+            let Ok(n) = rest[k].parse::<i64>() else {
+                return false;
+            };
             k += 1;
             if n == 0 {
                 break;
@@ -717,363 +738,17 @@ fn verify_rup_step(
     }
     for (i, &h) in hints.iter().enumerate() {
         let Some(cl) = db.get(&h) else { return false };
-        let mut satisfied = false;
-        let mut unset: Vec<Lit> = Vec::new();
-        for &l in cl {
-            match lit_val(&assign, l) {
-                Some(true) => {
-                    satisfied = true;
-                    break;
-                }
-                Some(false) => {}
-                None => {
-                    if unset.contains(&l.negated()) {
-                        satisfied = true;
-                        break;
-                    }
-                    if !unset.contains(&l) {
-                        unset.push(l);
-                    }
-                }
+        match clause_state(cl, &assign) {
+            ClauseState::Conflict => return i == hints.len() - 1, // conflict — must be the final hint
+            ClauseState::Unit(u) => {
+                set_true(&mut assign, u);
             }
-        }
-        if satisfied {
-            return false; // a satisfied clause is never a valid unit/conflict hint
-        }
-        if unset.is_empty() {
-            return i == hints.len() - 1; // conflict — must be the final hint
-        }
-        if unset.len() == 1 {
-            set_true(&mut assign, unset[0]);
-        } else {
-            return false; // not unit, not conflict ⇒ a bogus hint
+            ClauseState::Quiet => return false, // satisfied, or not unit: never a valid hint
         }
     }
     false
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cdcl::Lit;
-    use crate::proof::Perm;
-    use crate::pr::check_pr_refutation;
-
-    fn p(v: u32) -> Lit {
-        Lit::pos(v)
-    }
-    fn n(v: u32) -> Lit {
-        Lit::neg(v)
-    }
-
-    /// The canonical 2-variable all-clauses UNSAT instance, refuted by the resolvents `p`, `¬p`.
-    fn pq_unsat() -> (usize, Vec<Vec<Lit>>, Vec<ProofStep>) {
-        let f = vec![vec![p(0), p(1)], vec![p(0), n(1)], vec![n(0), p(1)], vec![n(0), n(1)]];
-        let steps = vec![ProofStep::Rup(vec![p(0)]), ProofStep::Rup(vec![n(0)])];
-        (2, f, steps)
-    }
-
-    #[test]
-    fn drat_round_trips_through_our_checker() {
-        let (nv, f, steps) = pq_unsat();
-        let text = emit_drat(nv, &f, &steps).expect("emits");
-        let parsed = parse_dpr(&text).expect("parses");
-        assert!(check_pr_refutation(nv, &f, &parsed), "round-tripped DRAT must still refute");
-    }
-
-    #[test]
-    fn drat_rejects_a_corrupted_addition() {
-        // Over a SATISFIABLE base `(a ∨ b)`, a bolted-on unit `¬a` is not entailed (assuming `a`
-        // satisfies the clause with no propagation), so it is not RUP — the parsed-back "proof"
-        // must fail to verify. (In the full 4-clause UNSAT formula every clause is RUP, so the
-        // base must be satisfiable for the corruption to bite.)
-        let f = vec![vec![p(0), p(1)]];
-        let bogus = parse_dpr("-1 0\n").expect("parses"); // the un-entailed unit `¬a`
-        assert!(!check_pr_refutation(2, &f, &bogus));
-    }
-
-    #[test]
-    fn lrat_hints_validate_and_reject_corruption() {
-        let (nv, f, steps) = pq_unsat();
-        let lrat = emit_lrat(nv, &f, &steps).expect("emits LRAT");
-        assert!(check_lrat(nv, &f, &lrat), "our own LRAT checker accepts our hints");
-
-        // Corrupt a hint id → the chain no longer conflicts where claimed → rejected.
-        let mangled = lrat.replace(" 0\n", " 999 0\n");
-        assert!(!check_lrat(nv, &f, &mangled), "a corrupted hint chain must be rejected");
-    }
-
-    #[test]
-    fn lrat_checker_rejects_a_proof_with_no_empty_clause() {
-        let (nv, f, _) = pq_unsat();
-        // A single learned unit `p` with a valid hint, but never closing to the empty clause.
-        let db: Vec<(u64, Vec<Lit>)> =
-            f.iter().enumerate().map(|(i, c)| (i as u64 + 1, c.clone())).collect();
-        let hints = rup_hints(nv, &db, &[p(0)]).expect("p is RUP");
-        let mut line = String::from("5 1 ");
-        for h in hints {
-            line.push_str(&h.to_string());
-            line.push(' ');
-        }
-        line.push_str("0\n");
-        assert!(!check_lrat(nv, &f, &line), "no empty-clause line ⇒ not a refutation");
-    }
-
-    #[test]
-    fn dpr_assignment_witness_line_round_trips_and_reverifies() {
-        // The textbook model-removing PR clause: F=(a∨b), C=(¬a∨b) with ω={¬a,b}. Emit it as a
-        // DPR witness line, parse it back, and confirm the parsed clause+witness still PR-checks.
-        let (a, b) = (0u32, 1u32);
-        let f = vec![vec![p(a), p(b)]];
-        let c = vec![n(a), p(b)];
-        let omega = vec![n(a), p(b)];
-        let witness = Witness::Assignment(omega);
-        assert!(crate::pr::is_pr(2, &f, &c, &witness));
-
-        // emit_dpr requires a full refutation; here we test just the witness-line machinery, so
-        // hand-format one line and parse it back.
-        let w = try_assignment_witness(2, &f, &c, &witness).expect("reduces");
-        let pivot = c.iter().copied().find(|l| w.contains(l)).unwrap();
-        let mut out = String::new();
-        let mut c_ord = vec![pivot];
-        c_ord.extend(c.iter().copied().filter(|&l| l != pivot));
-        push_clause(&mut out, &c_ord);
-        out.push(' ');
-        let mut w_ord = vec![pivot];
-        w_ord.extend(w.iter().copied().filter(|&l| l != pivot));
-        for &l in &w_ord {
-            out.push_str(&dimacs(l).to_string());
-            out.push(' ');
-        }
-        out.push_str("0\n");
-
-        let parsed = parse_dpr(&out).expect("parses");
-        match &parsed[0] {
-            ProofStep::Pr { clause, witness } => {
-                assert!(crate::pr::is_pr(2, &f, clause, witness), "parsed DPR line re-verifies");
-            }
-            other => panic!("expected a PR step, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn lrat_certifies_a_real_cdcl_refutation_of_php() {
-        // Not a hand-built trace: the actual learned clauses from our CDCL solver refuting PHP(3),
-        // emitted as LRAT and replayed by our independent (cake_lpr-style) checker.
-        use crate::cdcl::{SolveResult, Solver};
-        let (cnf, _) = crate::families::php(3);
-        let nv = cnf.num_vars;
-        let mut solver = Solver::new(nv);
-        for c in &cnf.clauses {
-            solver.add_clause(c.clone());
-        }
-        let steps: Vec<ProofStep> = match solver.solve() {
-            SolveResult::Unsat => {
-                solver.learned().iter().map(|c| ProofStep::Rup(c.lits.clone())).collect()
-            }
-            SolveResult::Sat(_) => panic!("PHP(3) is UNSAT"),
-        };
-        let lrat = emit_lrat(nv, &cnf.clauses, &steps).expect("a real CDCL refutation is RUP → LRAT");
-        assert!(check_lrat(nv, &cnf.clauses, &lrat), "LRAT replay of a real CDCL refutation validates");
-
-        // The same trace also round-trips as DRAT through our checker.
-        let drat = emit_drat(nv, &cnf.clauses, &steps).expect("emits DRAT");
-        let parsed = parse_dpr(&drat).expect("parses");
-        assert!(check_pr_refutation(nv, &cnf.clauses, &parsed));
-    }
-
-    #[test]
-    fn the_universal_lrat_guarantee_via_plain_cdcl() {
-        // The fail-closed fallback is pure RUP, so EVERY UNSAT instance we close carries a
-        // cake_lpr-checkable LRAT proof — independent of any symmetry/PR machinery.
-        let (cnf, _) = crate::families::php(4);
-        let nv = cnf.num_vars;
-        let steps = crate::sdcl::plain_cdcl_refutation(nv, &cnf.clauses);
-        let lrat = emit_lrat(nv, &cnf.clauses, &steps).expect("plain CDCL ⇒ RUP ⇒ LRAT");
-        assert!(check_lrat(nv, &cnf.clauses, &lrat), "universal LRAT certificate validates");
-    }
-
-    #[test]
-    fn external_sr2drat_drat_trim_certifies_our_php_symmetry_proof() {
-        // The marquee cross-check: our *substitution-redundancy* refutation of PHP(n) — the symmetry
-        // proof Kissat/CaDiCaL time out on — emitted as `.sr`, expanded by Marijn Heule's `sr2drat`,
-        // and VERIFIED by the community's `drat-trim`. Independent of our solver and our SR checker.
-        // Gated on `$SR2DRAT` + `$DRAT_TRIM` so the default suite stays green when the binaries are
-        // absent (mirrors the Z3-optional pattern).
-        let (Ok(sr2drat), Ok(drat_trim)) = (std::env::var("SR2DRAT"), std::env::var("DRAT_TRIM")) else {
-            eprintln!("SR2DRAT/DRAT_TRIM unset — skipping external sr2drat→drat-trim cross-check");
-            return;
-        };
-        for n in [4usize, 8] {
-            let (cnf, _) = crate::families::php(n);
-            let cert = crate::sym_certify::heule_php_refutation(n);
-            assert!(cert.refuted, "PHP({n}) symmetry proof closes internally");
-            let sr = emit_sr(cnf.num_vars, &cnf.clauses, &cert.steps).expect("emits .sr");
-            let cnf_path = temp_write(&format!("logos_sr_php{n}.cnf"), &crate::dimacs::print(&cnf));
-            let sr_path = temp_write(&format!("logos_sr_php{n}.sr"), &sr);
-            let drat_path = cnf_path.with_extension("drat");
-            // sr2drat expands the .sr into a plain DRAT proof (stdout → file).
-            let drat = std::process::Command::new(&sr2drat)
-                .arg(&cnf_path)
-                .arg(&sr_path)
-                .output()
-                .expect("run sr2drat");
-            std::fs::write(&drat_path, &drat.stdout).expect("write expanded DRAT");
-            // drat-trim independently verifies the expansion against the original CNF.
-            let out = std::process::Command::new(&drat_trim)
-                .arg(&cnf_path)
-                .arg(&drat_path)
-                .output()
-                .expect("run drat-trim");
-            let s = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-            assert!(
-                s.contains("VERIFIED") && !s.contains("NOT VERIFIED"),
-                "sr2drat→drat-trim must VERIFY our PHP({n}) SR proof; got:\n{s}"
-            );
-        }
-    }
-
-    #[test]
-    fn size_sink_measures_the_sr_proof_lazily_and_matches_the_string_length() {
-        // The benchmarks page reports our OWN proof size. It must be measured by streaming the SR
-        // proof through a byte counter — never materializing a giant String — so the streamed count
-        // equals the real serialized length exactly, and a tight cap aborts emission early
-        // (fail-closed) instead of running to completion: the memory-safety guarantee for a
-        // pathologically large proof.
-        let (cnf, _) = crate::families::php(4);
-        let cert = crate::sym_certify::heule_php_refutation(4);
-        assert!(cert.refuted, "PHP(4) symmetry proof closes internally");
-        let full = emit_sr(cnf.num_vars, &cnf.clauses, &cert.steps).expect("emits .sr");
-        assert!(full.len() > 8, "the SR proof is more than a handful of bytes");
-
-        let mut sink = SizeSink::new(64 << 20);
-        write_sr(&mut sink, cnf.num_vars, &cnf.clauses, &cert.steps).expect("streams .sr");
-        assert!(!sink.overflowed());
-        assert_eq!(sink.bytes(), full.len() as u64, "streamed byte count = serialized length");
-
-        let mut capped = SizeSink::new(8);
-        let err = write_sr(&mut capped, cnf.num_vars, &cnf.clauses, &cert.steps);
-        assert_eq!(err, Err(EmitError::SizeCapExceeded), "a tight cap aborts emission early");
-        assert!(capped.overflowed());
-        assert!(capped.bytes() >= 8, "counted up to the cap before bailing");
-    }
-
-    #[test]
-    fn dpr_emits_or_honestly_declines_the_sdcl_proof() {
-        // The SaDiCaL-grade path: solve a symmetric UNSAT instance with the certified SDCL solver
-        // and export the proof as DPR. Either it is fully PR (a dpr-trim-checkable proof that
-        // round-trips), or a step is irreducibly SR and the emitter declines honestly — never a
-        // bogus line. In both cases the internal certificate holds.
-        use crate::sdcl::{solve_certified, CertifiedOutcome};
-        let (cnf, _) = crate::families::php(3);
-        let nv = cnf.num_vars;
-        match solve_certified(nv, &cnf.clauses) {
-            CertifiedOutcome::Unsat { steps, .. } => {
-                assert!(check_pr_refutation(nv, &cnf.clauses, &steps), "the SDCL proof self-checks");
-                match emit_dpr(nv, &cnf.clauses, &steps) {
-                    Ok(text) => {
-                        let parsed = parse_dpr(&text).expect("parses");
-                        assert!(check_pr_refutation(nv, &cnf.clauses, &parsed), "round-tripped DPR refutes");
-                    }
-                    Err(EmitError::RequiresSubstitutionRedundancy { .. }) => {}
-                    Err(e) => panic!("unexpected emit error: {e:?}"),
-                }
-            }
-            CertifiedOutcome::Sat(_) => panic!("PHP(3) is UNSAT"),
-        }
-    }
-
-    /// Write `text` to a uniquely-named temp file and return its path.
-    fn temp_write(name: &str, text: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(name);
-        std::fs::write(&path, text).expect("write temp file");
-        path
-    }
-
-    #[test]
-    fn external_drat_trim_accepts_our_drat_proof() {
-        // Gold-standard cross-check: the SAT community's own `drat-trim` must accept the DRAT we
-        // emit for a real CDCL refutation of PHP(5). Gated on `$DRAT_TRIM` so the default suite
-        // stays green when the binary is absent (mirrors the Z3-optional pattern).
-        let Ok(bin) = std::env::var("DRAT_TRIM") else {
-            eprintln!("DRAT_TRIM unset — skipping external drat-trim cross-check");
-            return;
-        };
-        let (cnf, _) = crate::families::php(5);
-        let nv = cnf.num_vars;
-        let steps = crate::sdcl::plain_cdcl_refutation(nv, &cnf.clauses);
-        let drat = emit_drat(nv, &cnf.clauses, &steps).expect("emits DRAT");
-        let cnf_path = temp_write("logos_drat_php5.cnf", &crate::dimacs::print(&cnf));
-        let drat_path = temp_write("logos_drat_php5.drat", &drat);
-        let out = std::process::Command::new(&bin)
-            .arg(&cnf_path)
-            .arg(&drat_path)
-            .output()
-            .expect("run drat-trim");
-        let s = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-        assert!(s.contains("VERIFIED") && !s.contains("NOT VERIFIED"), "drat-trim must VERIFY our DRAT; got:\n{s}");
-    }
-
-    #[test]
-    fn external_lrat_check_accepts_our_lrat_proof() {
-        // The formally-verified-style checker `lrat-check` must accept the hint-carrying LRAT we
-        // synthesise for a real CDCL refutation of PHP(5). Gated on `$LRAT_CHECK`.
-        let Ok(bin) = std::env::var("LRAT_CHECK") else {
-            eprintln!("LRAT_CHECK unset — skipping external lrat-check cross-check");
-            return;
-        };
-        let (cnf, _) = crate::families::php(5);
-        let nv = cnf.num_vars;
-        let steps = crate::sdcl::plain_cdcl_refutation(nv, &cnf.clauses);
-        let lrat = emit_lrat(nv, &cnf.clauses, &steps).expect("emits LRAT");
-        let cnf_path = temp_write("logos_lrat_php5.cnf", &crate::dimacs::print(&cnf));
-        let lrat_path = temp_write("logos_lrat_php5.lrat", &lrat);
-        let out = std::process::Command::new(&bin)
-            .arg(&cnf_path)
-            .arg(&lrat_path)
-            .output()
-            .expect("run lrat-check");
-        let s = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-        assert!(s.contains("VERIFIED") && !s.contains("NOT VERIFIED"), "lrat-check must accept our LRAT; got:\n{s}");
-    }
-
-    #[test]
-    fn try_assignment_witness_is_sound_on_php_substitutions() {
-        // Over the real PHP crusher's substitution steps: whenever the reducer hands back an
-        // assignment witness, pr::is_pr must independently bless it (the reducer never invents an
-        // unsound witness). We also report how many genuinely reduce vs. stay irreducibly SR.
-        let cr = crate::sym_certify::heule_php_refutation(4);
-        let (cnf, _) = crate::families::php(4);
-        let nv = cnf.num_vars;
-        let mut db = cnf.clauses.clone();
-        let mut reduced = 0usize;
-        let mut sr_only = 0usize;
-        for step in &cr.steps {
-            match step {
-                ProofStep::Pr { clause, witness } => {
-                    if let Some(w) = try_assignment_witness(nv, &db, clause, witness) {
-                        assert!(
-                            crate::pr::is_pr(nv, &db, clause, &Witness::Assignment(w)),
-                            "the reducer returned an unsound assignment witness"
-                        );
-                        reduced += 1;
-                    } else {
-                        sr_only += 1;
-                    }
-                    db.push(clause.clone());
-                }
-                ProofStep::Rup(c) => db.push(c.clone()),
-                ProofStep::Delete(c) => {
-                    let key = canon(c);
-                    if let Some(pos) = db.iter().position(|d| canon(d) == key) {
-                        db.swap_remove(pos);
-                    }
-                }
-            }
-        }
-        // The honest classification: PHP's swap clauses are SR. The test's contract is soundness
-        // of the reducer, not that everything reduces — but it must have actually run on PR steps.
-        assert!(reduced + sr_only > 0, "the PHP refutation must contain PR steps to classify");
-        eprintln!("PHP(4): {reduced} steps reduced to PR, {sr_only} remained irreducibly SR");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/proof_emit/tests.rs"]
+mod tests;

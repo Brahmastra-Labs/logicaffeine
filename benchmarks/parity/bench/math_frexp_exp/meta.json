@@ -1,0 +1,10 @@
+{
+  "capability": "math.frexp",
+  "workload": "math.frexp (exponent)",
+  "arg": "1000000",
+  "expected": "8976019",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

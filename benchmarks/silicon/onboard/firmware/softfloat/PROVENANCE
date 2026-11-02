@@ -1,0 +1,3 @@
+Berkeley SoftFloat Release 3e, from https://github.com/ucb-bar/berkeley-softfloat-3 (master, tarball sha256
+d3447e0bd140e9bae0ecb013ba7d91255ce63651f55c9756d4c8293d7098b8dd), under COPYING.txt. Only the files the shim links are kept:
+the single- and double-precision operations, their internals, and the RISC-V specialization.

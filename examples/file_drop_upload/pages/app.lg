@@ -1,0 +1,74 @@
+# File drop
+
+Drag a file onto the zone and its name, size and type appear immediately.
+
+## Note
+
+This page stops at the drop half of "drop, then upload": it detects the drop
+and reads the file's name, size and type. The upload half is blocked on the
+file's content. `Upload body to url as T, then action.` sends `body` as the text
+of one `multipart/form-data` part, and a dropped `File` carries its content in
+`bytes`, which a compiled page cannot yet read as usable data
+(`docs/frontend.md`'s Triggers section) — so no documented sentence turns a
+drop into an upload of the file itself, and `Upload file's name to …` would send
+the dropped file's name, not the file.
+
+The handler declares `(file: File)` and binds the whole record: `file's name`,
+`file's size` (its content's length, in bytes) and `file's type` (its MIME
+type). Each test drives its drop with the sentence `docs/frontend.md` gives for
+one, declaring the whole file:
+`Raise "filedropped" on "#zone" with a new File with name … and type … and bytes [ … ].`
+
+## Page /
+
+State:
+    Let dropCount be 0.
+    Let lastName be "".
+    Let lastSize be 0.
+    Let lastType be "".
+
+Actions:
+    When a file is dropped on "#zone" (file: File):
+        Set dropCount to dropCount + 1.
+        Set lastName to file's name.
+        Set lastSize to file's size.
+        Set lastType to file's type.
+
+View:
+    <main class="card">
+      <h1>Drop a file</h1>
+      <div id="zone" class="dropzone">Drop a file here</div>
+      <p id="count">{dropCount} file(s) dropped</p>
+      {if dropCount is greater than 0:}
+        <dl id="last">
+          <dt>Name</dt><dd id="name">{lastName}</dd>
+          <dt>Size</dt><dd id="size">{lastSize | plural "byte" "bytes"}</dd>
+          <dt>Type</dt><dd id="type">{lastType}</dd>
+        </dl>
+      {end}
+    </main>
+
+Style:
+    .dropzone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 3rem; text-align: center; color: var(--muted); }
+
+## Test: the zone starts empty
+
+Expect that the text of "#count" is equal to "0 file(s) dropped".
+Expect that "#last" is hidden.
+
+## Test: dropping a file shows its name, size and type, and counts it
+
+Raise "filedropped" on "#zone" with a new File with name "receipt.pdf" and type "application/pdf" and bytes [37, 80, 68, 70, 45].
+Expect that the text of "#count" is equal to "1 file(s) dropped".
+Expect that the text of "#name" is equal to "receipt.pdf".
+Expect that the text of "#size" is equal to "5 bytes".
+Expect that the text of "#type" is equal to "application/pdf".
+
+## Test: a second drop replaces the details and keeps counting
+
+Raise "filedropped" on "#zone" with a new File with name "receipt.pdf" and type "application/pdf" and bytes [37, 80, 68, 70, 45].
+Raise "filedropped" on "#zone" with a new File with name "photo.png" and type "image/png" and bytes [137, 80, 78, 71].
+Expect that the text of "#count" is equal to "2 file(s) dropped".
+Expect that the text of "#name" is equal to "photo.png".
+Expect that the text of "#size" is equal to "4 bytes".
+Expect that the text of "#type" is equal to "image/png".

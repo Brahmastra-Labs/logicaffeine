@@ -1,0 +1,12 @@
+{
+  "capability": "iter.enumerate",
+  "workload": "enumerateSeq(xs) then fold (first+second) over the pairs, mod 1e9+7",
+  "arg": "100000",
+  "expected": "999999307",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ],
+  "note": "main.lg calls enumerateSeq() WITHOUT defining it \u2014 auto-imported from iter.lg. enumerateSeq is 1-based; the Python/Rust counterparts start their index at 1 to match. Consuming both pair fields forces Rust's lazy iterator to materialize."
+}

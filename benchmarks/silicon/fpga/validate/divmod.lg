@@ -1,0 +1,11 @@
+## Main
+    Show 1000000 / 7.
+    Show 1000000 % 7.
+    Show 987654 / 321.
+    Show 987654 % 321.
+    Let mutable s be 0.
+    Let mutable n be 1.
+    While n is at most 1000:
+        Set s to s + (n % 13).
+        Set n to n + 1.
+    Show s.

@@ -1,0 +1,102 @@
+{
+  "case": "T03-012",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-012_structure_sort_pinned.lean",
+  "source_sha256": "9d39c3a39b911358c9923a1c06c9e9eda0c60352976d330a82b1d6b457fd70b1",
+  "ledger_sha256": "cf72e8caf9d5c36ff3f818939cf39277137a0836dcb8a319bce88df759f61cf8",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_012.Bounded",
+    "T03_012.Bounded.mk",
+    "T03_012.Bounded.proof",
+    "T03_012.Bounded.value",
+    "T03_012.Bundle",
+    "T03_012.Bundle.base",
+    "T03_012.Bundle.fibre",
+    "T03_012.Bundle.mk",
+    "T03_012.Carrier",
+    "T03_012.Carrier.mk",
+    "T03_012.Carrier.point",
+    "T03_012.Carrier.ty",
+    "T03_012.Conj",
+    "T03_012.Conj.left",
+    "T03_012.Conj.mk",
+    "T03_012.Conj.right",
+    "T03_012.Disj",
+    "T03_012.Disj.inl",
+    "T03_012.Disj.inr",
+    "T03_012.Point",
+    "T03_012.Point.mk",
+    "T03_012.Point.x",
+    "T03_012.Point.y",
+    "T03_012.boolBundle",
+    "T03_012.conjSwap",
+    "T03_012.disjSwap",
+    "T03_012.natCarrier"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "c599d494279545d299d7ef8e7fe9b05ea3bf490b6483c2a549be60cd806f49da",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 694,
+  "harvest": {
+    "roots": [
+      "T03_012.Bounded",
+      "T03_012.Bounded.mk",
+      "T03_012.Bounded.proof",
+      "T03_012.Bounded.value",
+      "T03_012.Bundle",
+      "T03_012.Bundle.base",
+      "T03_012.Bundle.fibre",
+      "T03_012.Bundle.mk",
+      "T03_012.Carrier",
+      "T03_012.Carrier.mk",
+      "T03_012.Carrier.point",
+      "T03_012.Carrier.ty",
+      "T03_012.Conj",
+      "T03_012.Conj.left",
+      "T03_012.Conj.mk",
+      "T03_012.Conj.right",
+      "T03_012.Disj",
+      "T03_012.Disj.inl",
+      "T03_012.Disj.inr",
+      "T03_012.Point",
+      "T03_012.Point.mk",
+      "T03_012.Point.x",
+      "T03_012.Point.y",
+      "T03_012.boolBundle",
+      "T03_012.conjSwap",
+      "T03_012.disjSwap",
+      "T03_012.natCarrier"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

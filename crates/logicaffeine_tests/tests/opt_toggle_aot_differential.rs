@@ -79,15 +79,30 @@ fn aot_codegen_clean_disable_preserves_output() {
     // The codegen-relevant optimizations (plus a couple of shared ones). Disabling
     // any one — or all of them — must keep the compiled output identical and valid.
     let opts = [
-        "unbox", "interleave", "narrow", "unchecked", "scalarize", "densemap",
-        "narrowmap", "oracle", "oraclehints", "cse", "unroll", "fastdiv", "deadcode",
+        "unbox",
+        "interleave",
+        "narrow",
+        "unchecked",
+        "scalarize",
+        "densemap",
+        "narrowmap",
+        "oracle",
+        "oraclehints",
+        "cse",
+        "unroll",
+        "fastdiv",
+        "deadcode",
     ];
 
     for &(name, src) in TRIGGERS {
         std::env::remove_var("LOGOS_OPT_OFF");
         std::env::remove_var("LOGOS_OPT");
         let base = run_logos(src);
-        assert!(base.success, "{name}: must compile+run at all-on:\n{}", base.stderr);
+        assert!(
+            base.success,
+            "{name}: must compile+run at all-on:\n{}",
+            base.stderr
+        );
 
         // Leave-one-out: disable exactly one codegen optimization, the rest on.
         for kw in opts {
@@ -110,7 +125,14 @@ fn aot_codegen_clean_disable_preserves_output() {
         std::env::set_var("LOGOS_OPT", "off");
         let off = run_logos(src);
         std::env::remove_var("LOGOS_OPT");
-        assert!(off.success, "{name}: all-off (boring) build failed:\n{}", off.stderr);
-        assert_eq!(off.stdout, base.stdout, "{name}: all-off changed the compiled output");
+        assert!(
+            off.success,
+            "{name}: all-off (boring) build failed:\n{}",
+            off.stderr
+        );
+        assert_eq!(
+            off.stdout, base.stdout,
+            "{name}: all-off changed the compiled output"
+        );
     }
 }

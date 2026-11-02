@@ -39,6 +39,7 @@
 
 use std::collections::HashMap;
 
+use super::writes::{count_writes_of, CalleeGlobals};
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, Stmt};
 use crate::intern::Symbol;
@@ -57,7 +58,14 @@ pub fn bound_version_stmts<'a>(
     // arena-owned) so the map never borrows the statement vector.
     let mut helpers: Helpers = HashMap::new();
     for s in &stmts {
-        if let Stmt::FunctionDef { name, params, body, is_native: false, .. } = s {
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            is_native: false,
+            ..
+        } = s
+        {
             if let [Stmt::Return { value: Some(e) }] = body {
                 if pure_fragment(e) {
                     helpers.insert(*name, (params.iter().map(|(p, _)| *p).collect(), e));
@@ -65,7 +73,8 @@ pub fn bound_version_stmts<'a>(
             }
         }
     }
-    version_block(stmts, &helpers, ea, sa)
+    let globals = CalleeGlobals::of_program(&stmts);
+    version_block(stmts, &helpers, ea, sa, &globals)
 }
 
 type Helpers<'a> = HashMap<Symbol, (Vec<Symbol>, &'a Expr<'a>)>;
@@ -75,6 +84,7 @@ fn version_block<'a>(
     helpers: &Helpers<'a>,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
+    globals: &CalleeGlobals,
 ) -> Vec<Stmt<'a>> {
     let mut result: Vec<Stmt<'a>> = Vec::with_capacity(stmts.len());
     let mut i = 0;
@@ -84,9 +94,9 @@ fn version_block<'a>(
                 (&stmts[i], &stmts[i + 1])
             {
                 if let Some(versioned) =
-                    try_version_nest(init, &stmts[i + 1], helpers, ea, sa)
+                    try_version_nest(init, &stmts[i + 1], helpers, ea, sa, globals)
                 {
-                    result.push(versioned);
+                    result.extend(versioned);
                     i += 2;
                     continue;
                 }
@@ -96,22 +106,52 @@ fn version_block<'a>(
         // branches are seen.
         let s = match stmts[i].clone() {
             Stmt::FunctionDef {
-                name, generics, params, body, return_type,
-                is_native, native_path, is_exported, export_target, opt_flags,
+                name,
+                generics,
+                params,
+                body,
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
             } => Stmt::FunctionDef {
-                name, generics, params,
-                body: sa.alloc_slice(version_block(body.to_vec(), helpers, ea, sa)),
-                return_type, is_native, native_path, is_exported, export_target, opt_flags,
+                name,
+                generics,
+                params,
+                body: sa.alloc_slice(version_block(body.to_vec(), helpers, ea, sa, globals)),
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
             },
-            Stmt::If { cond, then_block, else_block } => Stmt::If {
+            Stmt::If {
                 cond,
-                then_block: sa.alloc_slice(version_block(then_block.to_vec(), helpers, ea, sa)),
-                else_block: else_block
-                    .map(|eb| -> Block<'a> { sa.alloc_slice(version_block(eb.to_vec(), helpers, ea, sa)) }),
+                then_block,
+                else_block,
+            } => Stmt::If {
+                cond,
+                then_block: sa.alloc_slice(version_block(
+                    then_block.to_vec(),
+                    helpers,
+                    ea,
+                    sa,
+                    globals,
+                )),
+                else_block: else_block.map(|eb| -> Block<'a> {
+                    sa.alloc_slice(version_block(eb.to_vec(), helpers, ea, sa, globals))
+                }),
             },
-            Stmt::While { cond, body, decreasing } => Stmt::While {
+            Stmt::While {
                 cond,
-                body: sa.alloc_slice(version_block(body.to_vec(), helpers, ea, sa)),
+                body,
+                decreasing,
+            } => Stmt::While {
+                cond,
+                body: sa.alloc_slice(version_block(body.to_vec(), helpers, ea, sa, globals)),
                 decreasing,
             },
             other => other,
@@ -128,7 +168,7 @@ struct Level<'a> {
     bound: &'a Expr<'a>,
 }
 
-fn counted_level<'a>(init: &Stmt<'a>, w: &Stmt<'a>) -> Option<Level<'a>> {
+fn counted_level<'a>(init: &Stmt<'a>, w: &Stmt<'a>, globals: &CalleeGlobals) -> Option<Level<'a>> {
     let (iv, start) = match init {
         Stmt::Let { var, value, .. } => (*var, *value),
         Stmt::Set { target, value } => (*target, *value),
@@ -137,32 +177,48 @@ fn counted_level<'a>(init: &Stmt<'a>, w: &Stmt<'a>) -> Option<Level<'a>> {
     if !matches!(start, Expr::Literal(Literal::Number(n)) if *n >= 0) {
         return None;
     }
-    let Stmt::While { cond, body, .. } = w else { return None };
-    let Expr::BinaryOp { op: BinaryOpKind::Lt | BinaryOpKind::LtEq, left, right } = cond else {
+    let Stmt::While { cond, body, .. } = w else {
+        return None;
+    };
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Lt | BinaryOpKind::LtEq,
+        left,
+        right,
+    } = cond
+    else {
         return None;
     };
     if !matches!(left, Expr::Identifier(s) if *s == iv) {
         return None;
     }
     // Sole IV write: the trailing `Set iv to iv + 1`.
-    let Some(Stmt::Set { target, value }) = body.last() else { return None };
+    let Some(Stmt::Set { target, value }) = body.last() else {
+        return None;
+    };
     if *target != iv {
         return None;
     }
-    let Expr::BinaryOp { op: BinaryOpKind::Add, left: il, right: ir } = value else { return None };
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: il,
+        right: ir,
+    } = value
+    else {
+        return None;
+    };
     if !matches!(il, Expr::Identifier(s) if *s == iv)
         || !matches!(ir, Expr::Literal(Literal::Number(1)))
     {
         return None;
     }
-    if count_writes(body, iv) != 1 {
+    if count_writes_of(body, iv, globals) != 1 {
         return None;
     }
     // The bound must be a plain invariant identifier (never written in the
     // body) or a literal — the guard reuses it verbatim.
     match right {
         Expr::Identifier(b) => {
-            if count_writes(body, *b) != 0 {
+            if count_writes_of(body, *b, globals) != 0 {
                 return None;
             }
         }
@@ -172,40 +228,24 @@ fn counted_level<'a>(init: &Stmt<'a>, w: &Stmt<'a>) -> Option<Level<'a>> {
     Some(Level { iv, bound: right })
 }
 
-fn count_writes(stmts: &[Stmt], sym: Symbol) -> usize {
-    let mut n = 0;
-    for s in stmts {
-        match s {
-            Stmt::Set { target, .. } if *target == sym => n += 1,
-            Stmt::Let { var, .. } if *var == sym => n += 1,
-            Stmt::If { then_block, else_block, .. } => {
-                n += count_writes(then_block, sym);
-                if let Some(eb) = else_block {
-                    n += count_writes(eb, sym);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => n += count_writes(body, sym),
-            _ => {}
-        }
-    }
-    n
-}
-
 fn try_version_nest<'a>(
     init: &Stmt<'a>,
     w: &Stmt<'a>,
     helpers: &Helpers<'a>,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
-) -> Option<Stmt<'a>> {
-    let outer = counted_level(init, w)?;
-    let Stmt::While { body, .. } = w else { return None };
+    globals: &CalleeGlobals,
+) -> Option<Vec<Stmt<'a>>> {
+    let outer = counted_level(init, w, globals)?;
+    let Stmt::While { body, .. } = w else {
+        return None;
+    };
 
     // Collect the nest's IVs and bounds: this level plus every directly
     // nested counted level (any depth).
     let mut ivs = vec![outer.iv];
     let mut bounds: Vec<&Expr> = vec![outer.bound];
-    collect_nested_levels(body, &mut ivs, &mut bounds);
+    collect_nested_levels(body, &mut ivs, &mut bounds, globals);
 
     // Find qualifying chains (direct + through helper calls) and solve the
     // shared leaf bound B.
@@ -216,17 +256,19 @@ fn try_version_nest<'a>(
     }
     // Only worth versioning when some chain would otherwise be CHECKED: its
     // magnitude with unbounded i64 leaves escapes i64.
-    if !chains.iter().any(|c| {
-        chain_magnitude(c, &ivs, 1u128 << 63).is_none_or(|m| m > i64::MAX as u128)
-    }) {
+    if !chains
+        .iter()
+        .any(|c| chain_magnitude(c, &ivs, 1u128 << 63).is_none_or(|m| m > i64::MAX as u128))
+    {
         return None;
     }
     let mut bound_b: u128 = 0;
     for exp in (16..=62).rev() {
         let b = 1u128 << exp;
-        if chains.iter().all(|c| {
-            chain_magnitude(c, &ivs, b).is_some_and(|m| m <= i64::MAX as u128)
-        }) {
+        if chains
+            .iter()
+            .all(|c| chain_magnitude(c, &ivs, b).is_some_and(|m| m <= i64::MAX as u128))
+        {
             bound_b = b;
             break;
         }
@@ -252,42 +294,86 @@ fn try_version_nest<'a>(
             continue;
         }
         seen.push(v);
-        let term = ea.alloc(Expr::BinaryOp { op: BinaryOpKind::LtEq, left: v, right: b_lit });
+        let term = ea.alloc(Expr::BinaryOp {
+            op: BinaryOpKind::LtEq,
+            left: v,
+            right: b_lit,
+        });
         guard = Some(match guard {
             None => term,
-            Some(g) => ea.alloc(Expr::BinaryOp { op: BinaryOpKind::And, left: g, right: term }),
+            Some(g) => ea.alloc(Expr::BinaryOp {
+                op: BinaryOpKind::And,
+                left: g,
+                right: term,
+            }),
         });
     }
     let guard = guard?;
 
-    let then_block = sa.alloc_slice(vec![fast_init, fast_loop]);
-    let else_block = sa.alloc_slice(vec![init.clone(), w.clone()]);
     super::mark_fired(crate::optimization::Opt::LoopSplit);
-    Some(Stmt::If { cond: guard, then_block, else_block: Some(else_block) })
+
+    // When `init` DECLARES the loop variable (`Let`), the declaration must stay in
+    // the enclosing scope: a counted index like `i` is routinely reused after the
+    // versioned nest (`Set i to 0` before a later loop), so a `Let` cloned into the
+    // guard branches would scope it to the branch — harmless in the VM (no block
+    // scoping) but an `undeclared` error under C/CUDA codegen. Hoist the declaration
+    // before the guard; the branches read the already-initialized variable (both
+    // paths start it at the same non-negative literal `counted_level` requires).
+    match init {
+        Stmt::Let { .. } => {
+            let then_block = sa.alloc_slice(vec![fast_loop]);
+            let else_block = sa.alloc_slice(vec![w.clone()]);
+            let guarded = Stmt::If {
+                cond: guard,
+                then_block,
+                else_block: Some(else_block),
+            };
+            Some(vec![init.clone(), guarded])
+        }
+        _ => {
+            let then_block = sa.alloc_slice(vec![fast_init, fast_loop]);
+            let else_block = sa.alloc_slice(vec![init.clone(), w.clone()]);
+            Some(vec![Stmt::If {
+                cond: guard,
+                then_block,
+                else_block: Some(else_block),
+            }])
+        }
+    }
 }
 
-fn collect_nested_levels<'a>(body: Block<'a>, ivs: &mut Vec<Symbol>, bounds: &mut Vec<&'a Expr<'a>>) {
+fn collect_nested_levels<'a>(
+    body: Block<'a>,
+    ivs: &mut Vec<Symbol>,
+    bounds: &mut Vec<&'a Expr<'a>>,
+    globals: &CalleeGlobals,
+) {
     let mut i = 0;
     while i < body.len() {
         if i + 1 < body.len() {
             if let (init @ (Stmt::Let { .. } | Stmt::Set { .. }), w @ Stmt::While { .. }) =
                 (&body[i], &body[i + 1])
             {
-                if let Some(l) = counted_level(init, w) {
+                if let Some(l) = counted_level(init, w, globals) {
                     ivs.push(l.iv);
                     bounds.push(l.bound);
                     if let Stmt::While { body: inner, .. } = w {
-                        collect_nested_levels(inner, ivs, bounds);
+                        collect_nested_levels(inner, ivs, bounds, globals);
                     }
                     i += 2;
                     continue;
                 }
             }
         }
-        if let Stmt::If { then_block, else_block, .. } = &body[i] {
-            collect_nested_levels(then_block, ivs, bounds);
+        if let Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } = &body[i]
+        {
+            collect_nested_levels(then_block, ivs, bounds, globals);
             if let Some(eb) = else_block {
-                collect_nested_levels(eb, ivs, bounds);
+                collect_nested_levels(eb, ivs, bounds, globals);
             }
         }
         i += 1;
@@ -412,7 +498,11 @@ fn collect_chains_block<'a>(
             // case versions on a SCALAR accumulator (`Set total to total + f(iv)`,
             // handled above), never a store, so excluding stores leaves it intact.
             Stmt::SetIndex { .. } | Stmt::Push { .. } => {}
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 collect_chains_expr(cond, ivs, helpers, ea, out);
                 collect_chains_block(then_block, ivs, helpers, ea, out);
                 if let Some(eb) = else_block {
@@ -489,7 +579,9 @@ fn subst_expr<'a>(
             left: subst_expr(left, bind, ea),
             right: subst_expr(right, bind, ea),
         }),
-        Expr::Not { operand } => ea.alloc(Expr::Not { operand: subst_expr(operand, bind, ea) }),
+        Expr::Not { operand } => ea.alloc(Expr::Not {
+            operand: subst_expr(operand, bind, ea),
+        }),
         _ => e,
     }
 }
@@ -506,7 +598,12 @@ fn copy_stmt<'a>(
     sa: &'a Arena<Stmt<'a>>,
 ) -> Option<Stmt<'a>> {
     Some(match s {
-        Stmt::Let { var, ty, value, mutable } => Stmt::Let {
+        Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        } => Stmt::Let {
             var: *var,
             ty: *ty,
             value: copy_expr(value, ivs, helpers, ea)?,
@@ -516,7 +613,11 @@ fn copy_stmt<'a>(
             target: *target,
             value: copy_expr(value, ivs, helpers, ea)?,
         },
-        Stmt::SetIndex { collection, index, value } => Stmt::SetIndex {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => Stmt::SetIndex {
             collection: copy_expr(collection, ivs, helpers, ea)?,
             index: copy_expr(index, ivs, helpers, ea)?,
             value: copy_expr(value, ivs, helpers, ea)?,
@@ -525,7 +626,11 @@ fn copy_stmt<'a>(
             collection: copy_expr(collection, ivs, helpers, ea)?,
             value: copy_expr(value, ivs, helpers, ea)?,
         },
-        Stmt::If { cond, then_block, else_block } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => Stmt::If {
             cond: copy_expr(cond, ivs, helpers, ea)?,
             then_block: copy_block(then_block, ivs, helpers, ea, sa)?,
             else_block: match else_block {
@@ -533,7 +638,11 @@ fn copy_stmt<'a>(
                 Some(eb) => Some(copy_block(eb, ivs, helpers, ea, sa)?),
             },
         },
-        Stmt::While { cond, body, decreasing } => Stmt::While {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => Stmt::While {
             cond: copy_expr(cond, ivs, helpers, ea)?,
             body: copy_block(body, ivs, helpers, ea, sa)?,
             decreasing: *decreasing,
@@ -572,7 +681,9 @@ fn copy_expr<'a>(
             left: copy_expr(left, ivs, helpers, ea)?,
             right: copy_expr(right, ivs, helpers, ea)?,
         }),
-        Expr::Not { operand } => ea.alloc(Expr::Not { operand: copy_expr(operand, ivs, helpers, ea)? }),
+        Expr::Not { operand } => ea.alloc(Expr::Not {
+            operand: copy_expr(operand, ivs, helpers, ea)?,
+        }),
         Expr::Index { collection, index } => ea.alloc(Expr::Index {
             collection: copy_expr(collection, ivs, helpers, ea)?,
             index: copy_expr(index, ivs, helpers, ea)?,
@@ -596,7 +707,10 @@ fn copy_expr<'a>(
             for a in args {
                 new_args.push(copy_expr(a, ivs, helpers, ea)?);
             }
-            ea.alloc(Expr::Call { function: *function, args: new_args })
+            ea.alloc(Expr::Call {
+                function: *function,
+                args: new_args,
+            })
         }
         _ => return None,
     })
@@ -610,7 +724,11 @@ fn mark_chains_stmt<'a>(s: &Stmt<'a>, ivs: &[Symbol], ea: &'a Arena<Expr<'a>>) {
     let _ = ea;
     match s {
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => mark_chains_expr(value, ivs),
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             mark_chains_expr(collection, ivs);
             mark_chains_expr(index, ivs);
             mark_chains_expr(value, ivs);
@@ -619,7 +737,11 @@ fn mark_chains_stmt<'a>(s: &Stmt<'a>, ivs: &[Symbol], ea: &'a Arena<Expr<'a>>) {
             mark_chains_expr(collection, ivs);
             mark_chains_expr(value, ivs);
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             mark_chains_expr(cond, ivs);
             for t in *then_block {
                 mark_chains_stmt(t, ivs, ea);
@@ -669,7 +791,7 @@ fn mark_chains_expr(e: &Expr, ivs: &[Symbol]) {
 
 fn mark_all_ops(e: &Expr) {
     if let Expr::BinaryOp { left, right, .. } = e {
-        super::mark_proven_raw_int_op(e);
+        super::facts::mark_expr(super::facts::Fact::RawIntOp, e);
         mark_all_ops(left);
         mark_all_ops(right);
     }

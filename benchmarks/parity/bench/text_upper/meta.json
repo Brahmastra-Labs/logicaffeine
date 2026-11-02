@@ -1,0 +1,12 @@
+{
+  "capability": "text.upper",
+  "workload": "upper(s), length fold on varying-length s",
+  "arg": "20000",
+  "expected": "80990000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

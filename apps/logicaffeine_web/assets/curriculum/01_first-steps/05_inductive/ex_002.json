@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "We're going from specific observations to a general conclusion.",
-  "explanation": "This is inductive generalization - drawing a general conclusion from specific observations. Note: This was a famous example of how induction can fail! Black swans were eventually discovered in Australia, proving the conclusion wrong despite many observations.",
-  "visual_concept": "Inductive Generalization: Seeing many white dots and concluding ALL dots must be white, even those you haven't seen yet."
+  "explanation": "This is an inductive generalization, from the swans seen so far to all swans. Black swans in Australia later proved the conclusion false.",
+  "visual_concept": "Inductive Generalization: Seeing many white dots and concluding ALL dots must be white, even those you haven't seen yet.",
+  "section": "5.4"
 }

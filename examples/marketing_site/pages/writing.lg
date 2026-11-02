@@ -1,0 +1,29 @@
+# Writing
+
+Import Layout.
+
+## Page /writing
+
+Head:
+    <title>Writing — Acme</title>
+    <meta name="description" content="Notes on tools, shipping and doing less.">
+
+State:
+    Let posts be ["On doing less", "Shipping is a habit", "Tools that vanish"].
+
+View:
+    {extends Site}
+    {block content:}
+      <h1>Writing</h1>
+      <ul class="posts">
+        {for each post in posts:}<li>{post}</li>{end}
+      </ul>
+    {end}
+
+## Test: the writing index lists every post and marks Writing active
+
+Expect that the count of ".posts li" is equal to 3.
+Expect that the text of ".posts li" is equal to "On doing less".
+Expect that the count of "nav a" is equal to 4.
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "Writing".

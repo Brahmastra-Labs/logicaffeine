@@ -1,0 +1,122 @@
+{
+  "case": "T03-013",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-013_structure_extends.lean",
+  "source_sha256": "c825daef3d7b17e7802257363de56a2d92811fac93250484264bb444ef268ea6",
+  "ledger_sha256": "44ce05cde259e1245d60e03b7c126757a1742c9390964abc1a7a1535693bfce2",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_013.Base",
+    "T03_013.Base.mk",
+    "T03_013.Base.x",
+    "T03_013.Base.y",
+    "T03_013.Checked",
+    "T03_013.Checked.mk",
+    "T03_013.Checked.ok",
+    "T03_013.Checked.toBase",
+    "T03_013.Diamond",
+    "T03_013.Diamond.mk",
+    "T03_013.Diamond.r",
+    "T03_013.Diamond.toLeftArm",
+    "T03_013.Diamond.toRightArm",
+    "T03_013.Extended",
+    "T03_013.Extended.mk",
+    "T03_013.Extended.toBase",
+    "T03_013.Extended.z",
+    "T03_013.LeftArm",
+    "T03_013.LeftArm.l",
+    "T03_013.LeftArm.mk",
+    "T03_013.LeftArm.toBase",
+    "T03_013.PBase",
+    "T03_013.PBase.mk",
+    "T03_013.PBase.val",
+    "T03_013.PExt",
+    "T03_013.PExt.count",
+    "T03_013.PExt.mk",
+    "T03_013.PExt.toPBase",
+    "T03_013.RightArm",
+    "T03_013.RightArm.mk",
+    "T03_013.RightArm.r",
+    "T03_013.RightArm.toBase",
+    "T03_013.baseSum",
+    "T03_013.c1",
+    "T03_013.d",
+    "T03_013.e",
+    "T03_013.pe"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "02ae2015bfd8801597bc3dd77d8469b5af9041564ebab622bdf0f17529a352d1",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 3932,
+  "harvest": {
+    "roots": [
+      "T03_013.Base",
+      "T03_013.Base.mk",
+      "T03_013.Base.x",
+      "T03_013.Base.y",
+      "T03_013.Checked",
+      "T03_013.Checked.mk",
+      "T03_013.Checked.ok",
+      "T03_013.Checked.toBase",
+      "T03_013.Diamond",
+      "T03_013.Diamond.mk",
+      "T03_013.Diamond.r",
+      "T03_013.Diamond.toLeftArm",
+      "T03_013.Diamond.toRightArm",
+      "T03_013.Extended",
+      "T03_013.Extended.mk",
+      "T03_013.Extended.toBase",
+      "T03_013.Extended.z",
+      "T03_013.LeftArm",
+      "T03_013.LeftArm.l",
+      "T03_013.LeftArm.mk",
+      "T03_013.LeftArm.toBase",
+      "T03_013.PBase",
+      "T03_013.PBase.mk",
+      "T03_013.PBase.val",
+      "T03_013.PExt",
+      "T03_013.PExt.count",
+      "T03_013.PExt.mk",
+      "T03_013.PExt.toPBase",
+      "T03_013.RightArm",
+      "T03_013.RightArm.mk",
+      "T03_013.RightArm.r",
+      "T03_013.RightArm.toBase",
+      "T03_013.baseSum",
+      "T03_013.c1",
+      "T03_013.d",
+      "T03_013.e",
+      "T03_013.pe"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

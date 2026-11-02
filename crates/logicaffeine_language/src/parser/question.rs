@@ -85,10 +85,10 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
         ) {
             self.advance(); // copula
-            // "Who is in Maine?" / "What is on the table?" — a PP complement →
-            // Question{x, In(x, Maine)}: the answer is the entity standing in that
-            // relation. The locative question a logic grid asks ("who is in <state>",
-            // "who is in <year>").
+                            // "Who is in Maine?" / "What is on the table?" — a PP complement →
+                            // Question{x, In(x, Maine)}: the answer is the entity standing in that
+                            // relation. The locative question a logic grid asks ("who is in <state>",
+                            // "who is in <year>").
             if self.check_preposition() && !self.check_by_preposition() {
                 let prep_sym = match self.advance().kind {
                     TokenType::Preposition(s) => s,
@@ -150,7 +150,10 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
-                args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), var_term]),
+                args: self
+                    .ctx
+                    .terms
+                    .alloc_slice([Term::Constant(subject.noun), var_term]),
                 world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
@@ -185,8 +188,19 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
     fn parse_yes_no_question(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let aux_token = self.advance().kind.clone();
 
-        let is_modal = matches!(aux_token, TokenType::Can | TokenType::Could | TokenType::Would | TokenType::May | TokenType::Must | TokenType::Should);
-        let is_copula = matches!(aux_token, TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were);
+        let is_modal = matches!(
+            aux_token,
+            TokenType::Can
+                | TokenType::Could
+                | TokenType::Would
+                | TokenType::May
+                | TokenType::Must
+                | TokenType::Should
+        );
+        let is_copula = matches!(
+            aux_token,
+            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+        );
         let copula_time = if matches!(aux_token, TokenType::Was | TokenType::Were) {
             Time::Past
         } else {
@@ -205,7 +219,10 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             } else {
                 quantified
             };
-            return Ok(self.ctx.exprs.alloc(LogicExpr::YesNoQuestion { body: wrapped }));
+            return Ok(self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::YesNoQuestion { body: wrapped }));
         }
 
         let subject_symbol = if self.check_pronoun() {
@@ -217,7 +234,8 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 } else {
                     let resolved = self.resolve_pronoun(gender, number)?;
                     match resolved {
-                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                        super::ResolvedPronoun::Variable(s)
+                        | super::ResolvedPronoun::Constant(s) => s,
                     }
                 }
             } else {
@@ -279,7 +297,10 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             body
         };
 
-        Ok(self.ctx.exprs.alloc(LogicExpr::YesNoQuestion { body: wrapped_body }))
+        Ok(self
+            .ctx
+            .exprs
+            .alloc(LogicExpr::YesNoQuestion { body: wrapped_body }))
     }
 
     fn aux_token_to_modal_vector(&self, token: &TokenType) -> ModalVector {
@@ -289,43 +310,59 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.4,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.6,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
             // Epistemic modals (wide scope)
             TokenType::May => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.5,
-                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Epistemic,
+                modal_base: None,
+                ordering_source: None,
             },
             TokenType::Might => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.3,
-                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Epistemic,
+                modal_base: None,
+                ordering_source: None,
             },
             _ => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
+                flavor: ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
             },
         }
     }

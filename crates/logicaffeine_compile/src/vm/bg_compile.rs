@@ -18,7 +18,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use super::instruction::{Constant, Op};
+use super::instruction::{Constant, EnumTypeDef, Op};
 use super::native_tier::{CalleeSig, NativeCtx, NativeFn, NativeTier, ParamKind, SlotKind};
 
 /// A function to compile, fully owned so it can cross to the worker thread. Every
@@ -29,9 +29,11 @@ pub(crate) struct FunctionRequest {
     pub code: Vec<Op>,
     pub entry_pc: usize,
     pub constants: Arc<[Constant]>,
+    pub enums: Arc<[EnumTypeDef]>,
     pub param_count: u16,
     pub register_count: u16,
     pub param_kinds: Vec<Option<ParamKind>>,
+    pub cow_exempt_regs: Vec<u16>,
     pub ret_kind: Option<SlotKind>,
     pub callees: Vec<CalleeSig>,
     pub ctx: NativeCtx,
@@ -81,10 +83,12 @@ impl BgCompiler {
                             &f.code,
                             f.entry_pc,
                             &f.constants,
+                            &f.enums,
                             f.param_count,
                             f.register_count,
                             f.fi as u16,
                             &f.param_kinds,
+                            &f.cow_exempt_regs,
                             f.ret_kind,
                             &f.ctx,
                             &f.callees,
@@ -100,7 +104,12 @@ impl BgCompiler {
                 }
             }
         });
-        BgCompiler { req_tx, res_rx, inflight: 0, _worker: worker }
+        BgCompiler {
+            req_tx,
+            res_rx,
+            inflight: 0,
+            _worker: worker,
+        }
     }
 
     /// Queue a unit for compilation. Non-blocking; the interpreter keeps running the
@@ -121,11 +130,6 @@ impl BgCompiler {
             }
             Err(_) => None,
         }
-    }
-
-    /// Whether any submitted compile is still outstanding.
-    pub(crate) fn is_idle(&self) -> bool {
-        self.inflight == 0
     }
 
     /// Block until every outstanding compile has come back, returning them all — the

@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "date": "2026-07-26T08:37:42Z",
+    "yosys": "Yosys 0.33 (git sha1 2584903a060)",
+    "board": "Nexys A7-100T",
+    "part": "xc7a100t-1csg324c",
+    "flow": "yosys synth_xilinx -family xc7 (P&R+bitstream in Vivado)",
+    "config": "full default (HEAP 256, FRAMES 16, MAXELT 16, MAXPAIR 8, MAXKEY 8)"
+  },
+  "budget": {
+    "lut6": 63400,
+    "ff": 126800,
+    "dsp48": 240,
+    "bram36": 135
+  },
+  "soft_core_full": {
+    "lut6": 42424,
+    "ff": 3334,
+    "dsp48": 3,
+    "carry4": 13283,
+    "bram36": 1,
+    "lut6_pct": 66.9,
+    "ff_pct": 2.6,
+    "fits": true
+  }
+}

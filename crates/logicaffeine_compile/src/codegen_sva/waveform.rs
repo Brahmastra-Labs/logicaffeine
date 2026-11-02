@@ -3,7 +3,7 @@
 //! When Z3 finds a spec-SVA divergence, renders the counterexample
 //! as VCD (Value Change Dump) or ASCII timing diagrams.
 
-use logicaffeine_verify::equivalence::{Trace, CycleState, SignalValue};
+use logicaffeine_verify::equivalence::{SignalValue, Trace};
 use std::collections::HashMap;
 
 /// Generate a VCD (Value Change Dump) file from a counterexample trace.
@@ -23,7 +23,8 @@ pub fn trace_to_vcd(trace: &Trace, signal_names: &[String]) -> String {
 
     // Declare signals (use single-char identifiers)
     let id_chars: Vec<char> = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        .chars().collect();
+        .chars()
+        .collect();
     let mut signal_ids: HashMap<String, char> = HashMap::new();
     for (i, name) in signal_names.iter().enumerate() {
         let id = id_chars.get(i).copied().unwrap_or('?');
@@ -40,9 +41,27 @@ pub fn trace_to_vcd(trace: &Trace, signal_names: &[String]) -> String {
         for name in signal_names {
             if let Some(&id) = signal_ids.get(name) {
                 let value = match cycle.signals.get(name) {
-                    Some(SignalValue::Bool(b)) => if *b { '1' } else { '0' },
-                    Some(SignalValue::Int(n)) => if *n != 0 { '1' } else { '0' },
-                    Some(SignalValue::BitVec { value, .. }) => if *value != 0 { '1' } else { '0' },
+                    Some(SignalValue::Bool(b)) => {
+                        if *b {
+                            '1'
+                        } else {
+                            '0'
+                        }
+                    }
+                    Some(SignalValue::Int(n)) => {
+                        if *n != 0 {
+                            '1'
+                        } else {
+                            '0'
+                        }
+                    }
+                    Some(SignalValue::BitVec { value, .. }) => {
+                        if *value != 0 {
+                            '1'
+                        } else {
+                            '0'
+                        }
+                    }
                     _ => '0',
                 };
                 vcd.push_str(&format!("{}{}\n", value, id));
@@ -87,9 +106,27 @@ pub fn trace_to_ascii_waveform(trace: &Trace) -> String {
         output.push_str(&format!("{:>width$} |", sig_name, width = max_name_len));
         for cycle in &trace.cycles {
             let ch = match cycle.signals.get(sig_name) {
-                Some(SignalValue::Bool(b)) => if *b { " ^ " } else { " _ " },
-                Some(SignalValue::Int(n)) => if *n != 0 { " ^ " } else { " _ " },
-                Some(SignalValue::BitVec { value, .. }) => if *value != 0 { " ^ " } else { " _ " },
+                Some(SignalValue::Bool(b)) => {
+                    if *b {
+                        " ^ "
+                    } else {
+                        " _ "
+                    }
+                }
+                Some(SignalValue::Int(n)) => {
+                    if *n != 0 {
+                        " ^ "
+                    } else {
+                        " _ "
+                    }
+                }
+                Some(SignalValue::BitVec { value, .. }) => {
+                    if *value != 0 {
+                        " ^ "
+                    } else {
+                        " _ "
+                    }
+                }
                 _ => " _ ",
             };
             output.push_str(&format!("{}|", ch));

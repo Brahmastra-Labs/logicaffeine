@@ -9,7 +9,7 @@
 //! - `selected_path` - Currently selected file path
 //! - `on_select` - Callback when a file is selected
 //! - `on_toggle_dir` - Callback when a directory is expanded/collapsed
-//! - `on_new_file` - Callback for new file button
+//! - `on_new_file` - New file, where the host keeps the reader's files; without it the header offers none
 //!
 //! # File Icons
 //!
@@ -19,9 +19,10 @@
 //! - `.math` files: π (pi symbol)
 //! - Other files: document icon
 
-use dioxus::prelude::*;
+use crate::ui::components::icon::{Icon, IconSize, IconVariant};
+use crate::ui::components::tree::{Tree, TreeNode};
 use crate::ui::state::FileNode;
-use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+use dioxus::prelude::*;
 
 const FILE_BROWSER_STYLE: &str = r#"
 .file-browser {
@@ -29,7 +30,7 @@ const FILE_BROWSER_STYLE: &str = r#"
     flex-direction: column;
     height: 100%;
     width: 100%;
-    background: #12161c;
+    background: var(--studio-surface, #12161c);
     overflow: hidden;
 }
 
@@ -44,12 +45,21 @@ const FILE_BROWSER_STYLE: &str = r#"
     flex-shrink: 0;
 }
 
-.file-browser-title {
+.file-browser-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+/* A fact about the files beside their title, in the theme's secondary text. */
+.file-browser-note {
     font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
+    color: var(--studio-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .file-browser-actions {
@@ -68,94 +78,40 @@ const FILE_BROWSER_STYLE: &str = r#"
     transition: all 0.15s ease;
 }
 
-.file-browser-btn:hover {
+.file-browser-btn:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.9);
 }
 
-.file-browser-btn.coming-soon {
-    position: relative;
+/* New file waits while the reader's files load: it keeps its place, dimmed, and says why. */
+.file-browser-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
-.coming-soon-toast {
-    position: fixed;
-    top: 80px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: linear-gradient(135deg, #00d4ff 0%, #818cf8 100%);
-    color: white;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
-    z-index: 1000;
-    animation: toast-fade 2.5s ease-out forwards;
-}
-
-@keyframes toast-fade {
-    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-    10% { opacity: 1; transform: translateX(-50%) translateY(0); }
-    80% { opacity: 1; }
-    100% { opacity: 0; }
-}
-
+/* The file tree is the Studio's tree (`components::tree`): it takes the sidebar's room and scrolls. */
 .file-tree {
     flex: 1;
     overflow: auto;
-    padding: 8px 0;
-}
-
-.file-tree-node {
-    -webkit-user-select: none;
-    user-select: none;
-}
-
-.file-tree-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    cursor: pointer;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 13px;
-    transition: background 0.1s ease;
-}
-
-.file-tree-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-.file-tree-item.selected {
-    background: rgba(0, 212, 255, 0.12);
-    color: #00d4ff;
 }
 
 .file-tree-item .icon {
-    font-size: 14px;
+    flex: none;
+    width: 16px;
+    margin-right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
     opacity: 0.7;
-    flex-shrink: 0;
 }
 
 .file-tree-item .name {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.file-tree-item .chevron {
-    font-size: 10px;
-    opacity: 0.5;
-    transition: transform 0.15s ease;
-}
-
-.file-tree-item .chevron.expanded {
-    transform: rotate(90deg);
-}
-
-.file-tree-children {
-    padding-left: 16px;
 }
 
 .file-tree-empty {
@@ -196,63 +152,61 @@ pub fn FileBrowser(
     selected_path: Option<String>,
     on_select: EventHandler<String>,
     on_toggle_dir: EventHandler<String>,
-    on_new_file: EventHandler<()>,
+    /// New file, where the host keeps the reader's files. A host that keeps none (a frame on another
+    /// page) gives none, and the header offers no New file.
+    #[props(default)]
+    on_new_file: Option<EventHandler<()>>,
     #[props(default = false)] show_private_mode: bool,
+    /// Why New file cannot make a file yet, such as the reader's files still loading. While there
+    /// is a reason, the button stays in place, disabled, and its tooltip gives the reason.
+    #[props(default)]
+    new_file_waits: Option<String>,
 ) -> Element {
-    let mut show_toast = use_signal(|| false);
-    let mut toast_key = use_signal(|| 0u32);
-
     rsx! {
         style { "{FILE_BROWSER_STYLE}" }
-
-        // Coming Soon toast notification
-        if *show_toast.read() {
-            div {
-                key: "{toast_key}",
-                class: "coming-soon-toast",
-                "Coming Soon!"
-            }
-        }
 
         aside { class: "file-browser",
             // Header
             div { class: "file-browser-header",
-                span { class: "file-browser-title", "Files" }
+                div { class: "file-browser-heading",
+                    span { class: "file-browser-title panel-title", "Files" }
+                    // Without OPFS the files live in IndexedDB for this session only.
+                    if show_private_mode {
+                        span {
+                            class: "file-browser-note",
+                            title: "Temporary storage: files last for this browser session",
+                            "Private mode"
+                        }
+                    }
+                }
                 div { class: "file-browser-actions",
-                    button {
-                        class: "file-browser-btn coming-soon",
-                        onclick: move |_| {
-                            // Increment key to restart animation if clicked again
-                            toast_key.set(toast_key() + 1);
-                            show_toast.set(true);
-                        },
-                        title: "New file (Coming Soon)",
-                        "+"
+                    if let Some(new_file) = on_new_file {
+                        button {
+                            class: "file-browser-btn",
+                            disabled: new_file_waits.is_some(),
+                            onclick: move |_| new_file.call(()),
+                            title: new_file_waits.clone().unwrap_or_else(|| "New file".to_string()),
+                            "+"
+                        }
                     }
                 }
             }
 
-            // Private mode notice (shown when using IndexedDB fallback)
-            if show_private_mode {
-                div {
-                    style: "background: rgba(37, 99, 235, 0.12); color: rgba(147, 197, 253, 0.85); padding: 5px 14px; font-size: 10px; border-bottom: 1px solid rgba(37, 99, 235, 0.2); flex-shrink: 0;",
-                    "⚡ Private mode – temporary storage"
-                }
-            }
-
             // File tree
-            div { class: "file-tree",
+            Tree { kind: "file-tree", label: "Files",
                 if tree.children.is_empty() {
                     div { class: "file-tree-empty",
                         "No files yet"
                     }
                 } else {
-                    for child in tree.children.iter() {
+                    for (i, child) in tree.children.iter().enumerate() {
                         FileTreeNode {
                             key: "{child.path}",
                             node: child.clone(),
                             selected_path: selected_path.clone(),
                             depth: 0,
+                            last: i + 1 == tree.children.len(),
+                            stop: i == 0 && !selected_path.as_deref().is_some_and(|path| draws(&tree, path)),
                             on_select: on_select.clone(),
                             on_toggle_dir: on_toggle_dir.clone(),
                         }
@@ -263,23 +217,30 @@ pub fn FileBrowser(
     }
 }
 
+/// Whether the tree draws the row of `path`: a node of it whose folders are all open.
+fn draws(node: &FileNode, path: &str) -> bool {
+    node.children.iter().any(|child| child.path == path || (child.is_directory && child.expanded && draws(child, path)))
+}
+
 #[component]
 fn FileTreeNode(
     node: FileNode,
     selected_path: Option<String>,
     depth: usize,
+    /// The last of its siblings: its tree line stops at its own branch.
+    last: bool,
+    /// The tree's tab stop, since the tree draws no selected row.
+    #[props(default)]
+    stop: bool,
     on_select: EventHandler<String>,
     on_toggle_dir: EventHandler<String>,
 ) -> Element {
-    let is_selected = selected_path.as_ref() == Some(&node.path);
-    let item_class = if is_selected {
-        "file-tree-item selected"
-    } else {
-        "file-tree-item"
-    };
-
     let icon_variant = if node.is_directory {
-        if node.expanded { IconVariant::FolderOpen } else { IconVariant::Folder }
+        if node.expanded {
+            IconVariant::FolderOpen
+        } else {
+            IconVariant::Folder
+        }
     } else {
         IconVariant::File
     };
@@ -296,33 +257,27 @@ fn FileTreeNode(
         None
     };
 
-    let chevron_class = if node.expanded {
-        "chevron expanded"
-    } else {
-        "chevron"
-    };
-
     let path = node.path.clone();
-    let path_for_toggle = node.path.clone();
+    let is_directory = node.is_directory;
+    let count = node.children.len();
 
     rsx! {
-        div { class: "file-tree-node",
-            div {
-                class: "{item_class}",
-                style: "padding-left: {14 + depth * 16}px;",
-                onclick: move |_| {
-                    if node.is_directory {
-                        on_toggle_dir.call(path_for_toggle.clone());
-                    } else {
-                        on_select.call(path.clone());
-                    }
-                },
-
-                // Chevron for directories
-                if node.is_directory {
-                    span { class: "{chevron_class}", "\u{276F}" }
+        TreeNode {
+            depth,
+            last,
+            expandable: is_directory,
+            open: node.expanded,
+            selected: selected_path.as_ref() == Some(&node.path),
+            stop,
+            title: node.path.clone(),
+            on_press: Some(EventHandler::new(move |_| {
+                if is_directory {
+                    on_toggle_dir.call(path.clone());
+                } else {
+                    on_select.call(path.clone());
                 }
-
+            })),
+            row: rsx! {
                 span { class: "icon",
                     if let Some(sym) = file_symbol {
                         span { "{sym}" }
@@ -331,21 +286,16 @@ fn FileTreeNode(
                     }
                 }
                 span { class: "name", "{node.name}" }
-            }
-
-            // Children (if directory is expanded)
-            if node.is_directory && node.expanded {
-                div { class: "file-tree-children",
-                    for child in node.children.iter() {
-                        FileTreeNode {
-                            key: "{child.path}",
-                            node: child.clone(),
-                            selected_path: selected_path.clone(),
-                            depth: depth + 1,
-                            on_select: on_select.clone(),
-                            on_toggle_dir: on_toggle_dir.clone(),
-                        }
-                    }
+            },
+            for (i, child) in node.children.iter().enumerate() {
+                FileTreeNode {
+                    key: "{child.path}",
+                    node: child.clone(),
+                    selected_path: selected_path.clone(),
+                    depth: depth + 1,
+                    last: i + 1 == count,
+                    on_select: on_select.clone(),
+                    on_toggle_dir: on_toggle_dir.clone(),
                 }
             }
         }

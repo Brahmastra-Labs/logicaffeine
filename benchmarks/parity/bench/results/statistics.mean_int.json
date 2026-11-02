@@ -1,0 +1,15 @@
+{
+  "capability": "statistics.mean_int",
+  "arg": "20000",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "means_ms": {
+    "logos": 13.48,
+    "python": 192.452
+  },
+  "logos_ms": 13.48,
+  "speedups_vs_logos": {
+    "python": 14.277
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 14.277
+}

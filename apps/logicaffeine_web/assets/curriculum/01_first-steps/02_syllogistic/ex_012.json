@@ -10,6 +10,7 @@
     "all j is A"
   ],
   "correct": 1,
-  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"J\" refers to a class of things, so use uppercase. The predicate \"A\" refers to a class/property, so use uppercase."
+  "hint": "The sentence is about every one of the judges. What does it say they are?",
+  "explanation": "It says every judge is one who appreciates tactful people. Both are kinds: all J is A.",
+  "section": "2.1"
 }

@@ -18,10 +18,9 @@ use super::pragmatics::PragmaticsParsing;
 use super::{ParseResult, Parser};
 use crate::ast::{LogicExpr, NounPhrase, Term};
 use crate::drs::{Case, Gender, Number};
-use logicaffeine_base::SymbolEq;
 use crate::lexicon::Definiteness;
 use crate::token::TokenType;
-use crate::transpile::capitalize_first;
+use logicaffeine_base::SymbolEq;
 
 /// The preposition a declared CATEGORY contributes to a definite-description
 /// label, so the label un-fuses to the SAME relation the prepositional-phrase
@@ -36,10 +35,10 @@ use crate::transpile::capitalize_first;
 /// dimension (e.g. "vegetable") returns `None` and the label stays fused.
 fn category_preposition(category_lemma_lower: &str) -> Option<&'static str> {
     const TEMPORAL: &[&str] = &["year", "month", "day", "date", "week", "decade", "century"];
-    const LOCATIVE: &[&str] =
-        &["state", "city", "country", "province", "region", "town", "place"];
-    const PERSONAL: &[&str] =
-        &["friend", "person", "man", "woman", "colleague", "companion"];
+    const LOCATIVE: &[&str] = &[
+        "state", "city", "country", "province", "region", "town", "place",
+    ];
+    const PERSONAL: &[&str] = &["friend", "person", "man", "woman", "colleague", "companion"];
 
     if TEMPORAL.contains(&category_lemma_lower) || LOCATIVE.contains(&category_lemma_lower) {
         return Some("In");
@@ -71,6 +70,9 @@ pub trait NounParsing<'a, 'ctx, 'int> {
     fn check_of_preposition(&self) -> bool;
     /// Checks for proper name or label (capitalized).
     fn check_proper_name_or_label(&self) -> bool;
+    /// Whether a token of this kind is a proper name or a label — a word the noun-phrase
+    /// parser compounds into a multi-word name.
+    fn is_proper_name_or_label(&self, kind: &TokenType) -> bool;
     /// Whether the cursor opens an object-gap reduced relative (subject + transitive
     /// verb + empty object slot), e.g. "Tara won" in "the prize Tara won".
     fn peek_reduced_object_relative(&self) -> bool;
@@ -122,8 +124,10 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if let TokenType::Number(sym) = self.peek().kind {
             let number_modifies_head = matches!(
                 self.tokens.get(self.current + 1).map(|t| &t.kind),
-                Some(TokenType::Noun(_)) | Some(TokenType::ProperName(_))
-                    | Some(TokenType::Adjective(_)) | Some(TokenType::Verb { .. })
+                Some(TokenType::Noun(_))
+                    | Some(TokenType::ProperName(_))
+                    | Some(TokenType::Adjective(_))
+                    | Some(TokenType::Verb { .. })
                     | Some(TokenType::Ambiguous { .. })
             );
             if !number_modifies_head {
@@ -142,15 +146,32 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check_possessive_pronoun() {
             let token = self.advance().clone();
             let (gender, number) = match &token.kind {
-                TokenType::Pronoun { gender, number, case: Case::Possessive } => (*gender, *number),
-                TokenType::Ambiguous { primary, alternatives } => {
+                TokenType::Pronoun {
+                    gender,
+                    number,
+                    case: Case::Possessive,
+                } => (*gender, *number),
+                TokenType::Ambiguous {
+                    primary,
+                    alternatives,
+                } => {
                     let mut found = None;
-                    if let TokenType::Pronoun { gender, number, case: Case::Possessive } = **primary {
+                    if let TokenType::Pronoun {
+                        gender,
+                        number,
+                        case: Case::Possessive,
+                    } = **primary
+                    {
                         found = Some((gender, number));
                     }
                     if found.is_none() {
                         for alt in alternatives {
-                            if let TokenType::Pronoun { gender, number, case: Case::Possessive } = alt {
+                            if let TokenType::Pronoun {
+                                gender,
+                                number,
+                                case: Case::Possessive,
+                            } = alt
+                            {
                                 found = Some((*gender, *number));
                                 break;
                             }
@@ -191,19 +212,24 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         // b" keep the variable reading.
                         let gerund_premodifier = matches!(
                             next.kind,
-                            TokenType::Verb { aspect: crate::lexicon::Aspect::Progressive, .. }
+                            TokenType::Verb {
+                                aspect: crate::lexicon::Aspect::Progressive,
+                                ..
+                            }
                         ) && matches!(
                             self.tokens.get(self.current + 2).map(|t| &t.kind),
                             Some(TokenType::Noun(_)) | Some(TokenType::Ambiguous { .. })
                         );
-                        !gerund_premodifier && matches!(next.kind,
-                            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were | // Copula
+                        !gerund_premodifier
+                            && matches!(
+                                next.kind,
+                                TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were | // Copula
                             TokenType::Verb { .. } | // Main verb
                             TokenType::Auxiliary(_) | // will, did
                             TokenType::Must | TokenType::Can | TokenType::Should | TokenType::May | // Modals
                             TokenType::Could | TokenType::Would | TokenType::Shall | TokenType::Might |
                             TokenType::Identity | TokenType::Equals // "a = b"
-                        )
+                            )
                     } else {
                         false
                     }
@@ -331,9 +357,17 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         | Some(TokenType::Ambiguous { .. })
                 );
             if color_compound {
-                let n = if let TokenType::Noun(n) = self.peek().kind { n } else { unreachable!() };
+                let n = if let TokenType::Noun(n) = self.peek().kind {
+                    n
+                } else {
+                    unreachable!()
+                };
                 self.advance(); // the noun modifier
-                let a = if let TokenType::Adjective(a) = self.peek().kind { a } else { unreachable!() };
+                let a = if let TokenType::Adjective(a) = self.peek().kind {
+                    a
+                } else {
+                    unreachable!()
+                };
                 self.advance(); // the adjective
                 let compound = self.interner.intern(&format!(
                     "{}_{}",
@@ -372,7 +406,11 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                 &self.interner.resolve(t.lexeme).to_lowercase()).is_some())
                 });
                 let adj_after = self.tokens.get(self.current + 2).and_then(|t| {
-                    if let TokenType::Adjective(a) = t.kind { Some(a) } else { None }
+                    if let TokenType::Adjective(a) = t.kind {
+                        Some(a)
+                    } else {
+                        None
+                    }
                 });
                 if unit_is_measure {
                     if let Some(adj) = adj_after {
@@ -381,7 +419,11 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         self.advance(); // unit
                         self.advance(); // gradable adjective
                         let placeholder = self.interner.intern("_PP_SELF_");
-                        let value = Term::Value { kind, unit: Some(unit_sym), dimension: None };
+                        let value = Term::Value {
+                            kind,
+                            unit: Some(unit_sym),
+                            dimension: None,
+                        };
                         let pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: adj,
                             args: self
@@ -430,12 +472,17 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // "the 8:15 pm event" / "the 9:30am outing" — a clock time names the head
         // noun; compound the minutes-from-midnight into the symbol so the entity is
         // identified by its time ("1215_event"), distinct from "570_outing".
-        let base_noun = if let TokenType::TimeLiteral { nanos_from_midnight } = self.peek().kind {
+        let base_noun = if let TokenType::TimeLiteral {
+            nanos_from_midnight,
+        } = self.peek().kind
+        {
             let minutes = nanos_from_midnight / 60_000_000_000;
             let next_is_head = matches!(
                 self.tokens.get(self.current + 1).map(|t| &t.kind),
-                Some(TokenType::Noun(_)) | Some(TokenType::ProperName(_))
-                    | Some(TokenType::Adjective(_)) | Some(TokenType::Verb { .. })
+                Some(TokenType::Noun(_))
+                    | Some(TokenType::ProperName(_))
+                    | Some(TokenType::Adjective(_))
+                    | Some(TokenType::Verb { .. })
                     | Some(TokenType::Ambiguous { .. })
             );
             if next_is_head {
@@ -453,8 +500,8 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // The head after a count/label cardinal can tokenize as a noun, a
             // proper name, an adjective, or — for words that are also verbs
             // ("dances", "places") — a verb / ambiguous token.
-            let next_is_content = self.tokens.get(self.current + 1)
-                .map_or(false, |t| matches!(
+            let next_is_content = self.tokens.get(self.current + 1).map_or(false, |t| {
+                matches!(
                     t.kind,
                     TokenType::Noun(_)
                         | TokenType::ProperName(_)
@@ -465,7 +512,8 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         // item"); the lexer keeps them as keyword tokens.
                         | TokenType::Item
                         | TokenType::Items
-                ));
+                )
+            });
             if next_is_content {
                 self.advance(); // consume the cardinal
                 let head = self.consume_label_head_noun_first()?;
@@ -570,7 +618,11 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             if state_abbr && head_is_proper {
                 self.advance(); // consume the comma
                 let st = self.consume_content_word()?;
-                let compound = format!("{}_{}", self.interner.resolve(noun), self.interner.resolve(st));
+                let compound = format!(
+                    "{}_{}",
+                    self.interner.resolve(noun),
+                    self.interner.resolve(st)
+                );
                 self.interner.intern(&compound)
             } else {
                 noun
@@ -592,18 +644,28 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // complement ("has Al Acosta AS its mayor"). Stop the compound here so
             // the "as"-phrase is left for the verb path, not bundled into the head.
             if matches!(self.peek().kind, TokenType::Noun(_))
-                && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("as")
+                && self
+                    .interner
+                    .resolve(self.peek().lexeme)
+                    .eq_ignore_ascii_case("as")
             {
                 break;
             }
             let next = match &self.peek().kind {
                 TokenType::Noun(next) => *next,
-                TokenType::Ambiguous { primary, alternatives } => {
+                TokenType::Ambiguous {
+                    primary,
+                    alternatives,
+                } => {
                     let noun_reading = if let TokenType::Noun(n) = &**primary {
                         Some(*n)
                     } else {
                         alternatives.iter().find_map(|t| {
-                            if let TokenType::Noun(n) = t { Some(*n) } else { None }
+                            if let TokenType::Noun(n) = t {
+                                Some(*n)
+                            } else {
+                                None
+                            }
                         })
                     };
                     let copula_after = matches!(
@@ -682,7 +744,8 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         let h = self.interner.resolve(noun);
                         !h.is_empty()
                             && h.chars().any(|c| c.is_ascii_digit())
-                            && h.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ',')
+                            && h.chars()
+                                .all(|c| c.is_ascii_digit() || c == '.' || c == ',')
                     };
                     let is_base_form = self
                         .interner
@@ -728,14 +791,24 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     // ("John" + idiom lemma "Die" → must stay John kicked-the-bucket,
                     // not John_Die). Both sides capitalized + a clause boundary after.
                     let proper_name_part = self.interner.resolve(noun).contains('_')
-                        && self.interner.resolve(noun).chars().next()
+                        && self
+                            .interner
+                            .resolve(noun)
+                            .chars()
+                            .next()
                             .map_or(false, |c| c.is_ascii_uppercase())
-                        && self.interner.resolve(self.peek().lexeme).chars().next()
+                        && self
+                            .interner
+                            .resolve(self.peek().lexeme)
+                            .chars()
+                            .next()
                             .map_or(false, |c| c.is_ascii_uppercase())
                         && matches!(
                             self.tokens.get(self.current + 1).map(|t| &t.kind),
-                            None | Some(TokenType::Period) | Some(TokenType::EOF)
-                                | Some(TokenType::Comma) | Some(TokenType::And)
+                            None | Some(TokenType::Period)
+                                | Some(TokenType::EOF)
+                                | Some(TokenType::Comma)
+                                | Some(TokenType::And)
                                 | Some(TokenType::Or)
                         );
                     // A BASE-FORM verb-word in an OBJECT/complement NP (!greedy:
@@ -764,7 +837,12 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             .to_lowercase()
                             .ends_with("ing")
                         && next_ends_np;
-                    if (head_is_numeric && is_base_form) || copula_after || nominal_compound || proper_name_part || object_boundary {
+                    if (head_is_numeric && is_base_form)
+                        || copula_after
+                        || nominal_compound
+                        || proper_name_part
+                        || object_boundary
+                    {
                         *lemma
                     } else if gerund_compound {
                         self.peek().lexeme
@@ -799,16 +877,19 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         };
         if let Some(value) = label_value {
             let number_starts_measure = match self.tokens.get(self.current + 1) {
-                Some(t) => matches!(t.kind, TokenType::CalendarUnit(_))
-                    || crate::lexicon::lookup_unit_dimension(
-                        &self.interner.resolve(t.lexeme).to_lowercase(),
-                    )
-                    .is_some(),
+                Some(t) => {
+                    matches!(t.kind, TokenType::CalendarUnit(_))
+                        || crate::lexicon::lookup_unit_dimension(
+                            &self.interner.resolve(t.lexeme).to_lowercase(),
+                        )
+                        .is_some()
+                }
                 None => false,
             };
             let head_str = self.interner.resolve(noun).to_string();
             // A numeric head ("1850") is not a label base; only a real word is.
-            let head_is_word = !head_str.is_empty() && !head_str.chars().all(|c| c.is_ascii_digit());
+            let head_is_word =
+                !head_str.is_empty() && !head_str.chars().all(|c| c.is_ascii_digit());
             // A MONTH head ("April 15") is a date, handled by the month+day rule
             // just below — never an instance label.
             let head_is_month = crate::lexicon::is_month(&head_str.to_lowercase());
@@ -922,14 +1003,16 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             };
             let placeholder_var = self.interner.intern("_PP_SELF_");
             let measure = self.parse_measure_phrase()?;
-            pps.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: of_sym,
-                args: self
-                    .ctx
-                    .terms
-                    .alloc_slice([Term::Variable(placeholder_var), *measure]),
-                world: None,
-            }));
+            pps.push(
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: of_sym,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(placeholder_var), *measure]),
+                    world: None,
+                }),
+            );
         }
 
         // Postposed measure-adjective "worth <measure>" ("the magnate WORTH $27
@@ -957,14 +1040,16 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let placeholder = self.interner.intern("_PP_SELF_");
             // Push directly to `pps` — the measure_restrictors → pps merge already ran
             // above (this is the post-head section).
-            pps.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: worth_sym,
-                args: self
-                    .ctx
-                    .terms
-                    .alloc_slice([Term::Variable(placeholder), *measure]),
-                world: None,
-            }));
+            pps.push(
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: worth_sym,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(placeholder), *measure]),
+                    world: None,
+                }),
+            );
         }
 
         if should_attach_pps {
@@ -980,7 +1065,9 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         Some(TokenType::Number(_)) | Some(TokenType::Cardinal(_))
                     )
             };
-            while self.check_preposition() && (!self.check_of_preposition() || of_measure_follows(self)) {
+            while self.check_preposition()
+                && (!self.check_of_preposition() || of_measure_follows(self))
+            {
                 let prep_token = self.advance().clone();
                 let prep_name = if let TokenType::Preposition(sym) = prep_token.kind {
                     sym
@@ -1097,7 +1184,10 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 // table still gates it (keeping "The team won in 1989" a main clause).
                 let transitive_passive = matches!(
                     self.peek().kind,
-                    TokenType::Verb { time: crate::lexicon::Time::Past, .. }
+                    TokenType::Verb {
+                        time: crate::lexicon::Time::Past,
+                        ..
+                    }
                 ) && matches!(
                     self.tokens.get(self.current + 1).map(|t| &t.kind),
                     Some(TokenType::Preposition(_))
@@ -1181,14 +1271,16 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             // 1992", "sent in 1976", "donated in 2010" — keep the
                             // year/amount, else it strands.
                             let measure = self.parse_measure_phrase()?;
-                            pps.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                name: prep,
-                                args: self.ctx.terms.alloc_slice([
-                                    Term::Variable(placeholder),
-                                    *measure,
-                                ]),
-                                world: None,
-                            }));
+                            pps.push(
+                                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                    name: prep,
+                                    args: self
+                                        .ctx
+                                        .terms
+                                        .alloc_slice([Term::Variable(placeholder), *measure]),
+                                    world: None,
+                                }),
+                            );
                         } else if self.check_content_word()
                             || matches!(self.peek().kind, TokenType::Article(_))
                         {
@@ -1237,21 +1329,6 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // If generic type, fall through to regular noun phrase handling.
             // The "of [Type]" will be left unparsed for now.
             // Future: Parse as GenericType { base: noun, params: [...] }
-        }
-
-        // Register ALL noun phrases as discourse entities, not just definite ones.
-        // This is needed for bridging anaphora: "I bought a car. The engine smoked."
-        // The indefinite "a car" must be in discourse history for "the engine" to link to it.
-        let noun_str = self.interner.resolve(noun);
-        let first_char = noun_str.chars().next().unwrap_or('X');
-        if first_char.is_alphabetic() {
-            // Use full noun name as symbol for consistent output in Full mode
-            let symbol = capitalize_first(noun_str);
-            let number = if noun_str.ends_with('s') && !noun_str.ends_with("ss") {
-                Number::Plural
-            } else {
-                Number::Singular
-            };
         }
 
         Ok(NounPhrase {
@@ -1380,7 +1457,11 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn consume_label_head_noun_first(&mut self) -> ParseResult<crate::intern::Symbol> {
-        let noun_sym = if let TokenType::Ambiguous { primary, alternatives } = &self.peek().kind {
+        let noun_sym = if let TokenType::Ambiguous {
+            primary,
+            alternatives,
+        } = &self.peek().kind
+        {
             let from_primary = match **primary {
                 TokenType::Noun(s) | TokenType::Adjective(s) => Some(s),
                 _ => None,
@@ -1414,29 +1495,30 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     /// (an overt object "the dancer Tara won THE PRIZE" is apposition, not a gap).
     /// The caller additionally requires a determiner-headed NP.
     fn peek_reduced_object_relative(&self) -> bool {
-        if !matches!(self.peek().kind, TokenType::ProperName(_) | TokenType::Pronoun { .. }) {
+        if !matches!(
+            self.peek().kind,
+            TokenType::ProperName(_) | TokenType::Pronoun { .. }
+        ) {
             return false;
         }
         // A token that would START a direct/prepositional object — its presence after
         // the verb means the slot is filled (apposition), so there is no gap.
         let starts_object = |kind: Option<&TokenType>| {
-            matches!(
-                kind,
-                Some(TokenType::Article(_))
-                    | Some(TokenType::Noun(_))
-                    | Some(TokenType::ProperName(_))
-                    | Some(TokenType::Number(_))
-                    | Some(TokenType::Cardinal(_))
-                    | Some(TokenType::Possessive)
-                    | Some(TokenType::Pronoun { .. })
-                    | Some(TokenType::All)
-                    | Some(TokenType::Some)
-                    | Some(TokenType::No)
-                    | Some(TokenType::Any)
-                    | Some(TokenType::Most)
-                    | Some(TokenType::Few)
-                    | Some(TokenType::Many)
-            )
+            kind.is_some_and(|t| t.is_generalized_quantifier())
+                || matches!(
+                    kind,
+                    Some(TokenType::Article(_))
+                        | Some(TokenType::Noun(_))
+                        | Some(TokenType::ProperName(_))
+                        | Some(TokenType::Number(_))
+                        | Some(TokenType::Cardinal(_))
+                        | Some(TokenType::Possessive)
+                        | Some(TokenType::Pronoun { .. })
+                        | Some(TokenType::All)
+                        | Some(TokenType::Some)
+                        | Some(TokenType::No)
+                        | Some(TokenType::Any)
+                )
         };
         // Assume transitive-CAPABLE by default (English verbs overwhelmingly are);
         // only a verb marked pure-intransitive has no DIRECT object slot to fill.
@@ -1514,23 +1596,21 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // head: "the waterfall Derrick photographed"). A filled slot after the verb
         // is apposition, not a gap.
         let starts_object = |kind: Option<&TokenType>| {
-            matches!(
-                kind,
-                Some(TokenType::Article(_))
-                    | Some(TokenType::Noun(_))
-                    | Some(TokenType::ProperName(_))
-                    | Some(TokenType::Number(_))
-                    | Some(TokenType::Cardinal(_))
-                    | Some(TokenType::Possessive)
-                    | Some(TokenType::Pronoun { .. })
-                    | Some(TokenType::All)
-                    | Some(TokenType::Some)
-                    | Some(TokenType::No)
-                    | Some(TokenType::Any)
-                    | Some(TokenType::Most)
-                    | Some(TokenType::Few)
-                    | Some(TokenType::Many)
-            )
+            kind.is_some_and(|t| t.is_generalized_quantifier())
+                || matches!(
+                    kind,
+                    Some(TokenType::Article(_))
+                        | Some(TokenType::Noun(_))
+                        | Some(TokenType::ProperName(_))
+                        | Some(TokenType::Number(_))
+                        | Some(TokenType::Cardinal(_))
+                        | Some(TokenType::Possessive)
+                        | Some(TokenType::Pronoun { .. })
+                        | Some(TokenType::All)
+                        | Some(TokenType::Some)
+                        | Some(TokenType::No)
+                        | Some(TokenType::Any)
+                )
         };
         let after_verb = self.tokens.get(vp + 1).map(|t| &t.kind);
         if matches!(after_verb, Some(TokenType::Preposition(_)))
@@ -1558,7 +1638,11 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn check_proper_name_or_label(&self) -> bool {
-        match &self.peek().kind {
+        self.is_proper_name_or_label(&self.peek().kind)
+    }
+
+    fn is_proper_name_or_label(&self, kind: &TokenType) -> bool {
+        match kind {
             TokenType::ProperName(_) => true,
             TokenType::Noun(s) => {
                 let str_val = self.interner.resolve(*s);
@@ -1570,13 +1654,28 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
     fn check_possessive_pronoun(&self) -> bool {
         match &self.peek().kind {
-            TokenType::Pronoun { case: Case::Possessive, .. } => true,
-            TokenType::Ambiguous { primary, alternatives } => {
+            TokenType::Pronoun {
+                case: Case::Possessive,
+                ..
+            } => true,
+            TokenType::Ambiguous {
+                primary,
+                alternatives,
+            } => {
                 let is_possessive = matches!(
                     **primary,
-                    TokenType::Pronoun { case: Case::Possessive, .. }
+                    TokenType::Pronoun {
+                        case: Case::Possessive,
+                        ..
+                    }
                 ) || alternatives.iter().any(|alt| {
-                    matches!(alt, TokenType::Pronoun { case: Case::Possessive, .. })
+                    matches!(
+                        alt,
+                        TokenType::Pronoun {
+                            case: Case::Possessive,
+                            ..
+                        }
+                    )
                 });
                 if !is_possessive {
                     return false;

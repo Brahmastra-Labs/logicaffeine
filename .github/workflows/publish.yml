@@ -7,93 +7,74 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  Z3_SYS_Z3_HEADER: /usr/include/z3.h
   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
 jobs:
   publish:
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # A standard runner keeps ~14 GB free; building every tarball and every docs.rs feature set needs more,
+      # so the toolchains this job never uses go first.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # The publish set and its dependency order are derived from cargo metadata,
-      # so a new workspace member (or a new internal dependency edge) can never
-      # silently fall out of sync with a hand-maintained list. Members with
-      # `publish = false` are excluded automatically.
-      #
-      # Each crate is published with an explicit exit-status check — a failure
-      # stops the job loudly. The one tolerated failure is "already uploaded",
-      # which makes re-runs safe after a partial publish. No sleeps are needed:
-      # cargo blocks until each published crate is live in the index.
-      - name: Publish workspace crates in dependency order
+      # logicaffeine-verify links the system Z3 (bindgen reads its header through libclang), and
+      # every published crate is now built from its tarball before anything uploads.
+      - name: Install Z3 and clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev clang
+
+      # Nothing uploads unless every published crate builds from exactly the tarball crates.io
+      # will receive, every docs.rs feature set builds, and every tarball fits the upload cap.
+      - name: Preflight — every published crate builds from its own tarball
+        run: ./scripts/check-packaging.sh
+
+      # A crate whose shipped code differs from its last crates.io release must say what changed: its
+      # release section needs a bullet beyond the roll's "Synced to workspace version" line.
+      - name: Preflight — every changed crate's CHANGELOG says what changed
+        run: python3 scripts/release/check-changelogs.py
+
+      # cargo publishes the set natively: it verifies every tarball against a local overlay of its
+      # siblings, uploads in dependency order, and waits for each crate to reach the index before
+      # publishing what depends on it. The set is every workspace member without a `publish` key
+      # (the rule check-packaging.sh and packaging_lock share), minus crates already on crates.io at
+      # their version, so a re-run after a partial publish finishes the job. An index answer other
+      # than found / not found stops the job rather than guessing.
+      - name: Publish the crates not yet on crates.io
         shell: bash
         run: |
           set -euo pipefail
-
-          ORDER=$(cargo metadata --format-version 1 --no-deps | python3 -c '
+          PENDING=()
+          while IFS=$'\t' read -r name version; do
+            index="https://index.crates.io/${name:0:2}/${name:2:2}/${name}"
+            status=$(curl -sS -o /tmp/index-entry -w '%{http_code}' "$index")
+            case "$status" in
+              200)
+                if grep -q "\"vers\":\"${version}\"" /tmp/index-entry; then
+                  echo "${name} ${version} is already on crates.io — skipping"
+                  continue
+                fi
+                ;;
+              404) ;;
+              *) echo "::error::the crates.io index answered HTTP ${status} for ${name}"; exit 1 ;;
+            esac
+            PENDING+=(-p "$name")
+          done < <(cargo metadata --format-version 1 --no-deps | python3 -c '
           import json, sys
-
-          meta = json.load(sys.stdin)
-          packages = {p["name"]: p for p in meta["packages"]}
-          publishable = {n: p for n, p in packages.items() if p["publish"] is None}
-          deps = {
-              n: sorted({d["name"] for d in p["dependencies"]
-                         if d["name"] in publishable and d["kind"] is None})
-              for n, p in publishable.items()
-          }
-
-          order, seen = [], set()
-          def visit(name):
-              if name in seen:
-                  return
-              seen.add(name)
-              for dep in deps[name]:
-                  visit(dep)
-              order.append(name)
-
-          for name in sorted(publishable):
-              visit(name)
-          print("\n".join(order))
+          for p in sorted(json.load(sys.stdin)["packages"], key=lambda p: p["name"]):
+              if p["publish"] is None:
+                  print(p["name"], p["version"], sep="\t")
           ')
-
-          echo "Publish order:"
-          echo "$ORDER"
-
-          # Retry only the ONE transient class that can occur in a correct
-          # in-order publish: a just-published dependency has not yet propagated
-          # into the sparse index when the next crate uploads. cargo already
-          # blocks on that after each publish, but its wait can time out under
-          # index lag — so on a version-resolution error we back off and retry
-          # rather than dying and forcing a manual (safe) re-run. Every other
-          # failure is a real error and still stops the job loudly; an
-          # already-uploaded crate is skipped so re-runs stay idempotent.
-          for crate in $ORDER; do
-            echo "::group::Publish $crate"
-            attempt=1
-            max_attempts=5
-            while :; do
-              set +e
-              cargo publish -p "$crate" --no-verify 2>&1 | tee /tmp/pub.log
-              status="${PIPESTATUS[0]}"
-              set -e
-              if [ "$status" -eq 0 ]; then
-                echo "$crate published"
-                break
-              elif grep -qi 'already uploaded\|already exists' /tmp/pub.log; then
-                echo "$crate already published at this version — skipping"
-                break
-              elif grep -qiE 'failed to select a version|no matching package|not yet (available|in the index)|unable to get packages from source' /tmp/pub.log \
-                   && [ "$attempt" -lt "$max_attempts" ]; then
-                echo "::warning::$crate: a dependency is not yet visible in the index (attempt $attempt/$max_attempts) — waiting 30s for propagation"
-                attempt=$((attempt + 1))
-                sleep 30
-                continue
-              else
-                echo "::error::cargo publish failed for $crate (exit $status)"
-                exit 1
-              fi
-            done
-            echo "::endgroup::"
-          done
+          if [ "${#PENDING[@]}" -eq 0 ]; then
+            echo "every published crate is already on crates.io at its version"
+            exit 0
+          fi
+          echo "publishing: ${PENDING[*]}"
+          cargo publish "${PENDING[@]}"

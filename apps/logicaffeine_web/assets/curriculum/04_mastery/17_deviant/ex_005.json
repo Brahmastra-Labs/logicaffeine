@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Łukasiewicz introduced this to handle future contingents.",
-  "explanation": "Three-valued logics (like Łukasiewicz's) add a third value, often interpreted as 'unknown' or 'indeterminate'. This addresses puzzles like future contingents: 'There will be a sea battle tomorrow' is neither true nor false now - it's indeterminate until tomorrow arrives.",
-  "visual_concept": "True, False, and...? The third value captures statements that aren't yet determined or knowable."
+  "explanation": "Łukasiewicz added a third value, indeterminate, for statements about the future like 'there will be a sea battle tomorrow', which seem neither true nor false yet.",
+  "visual_concept": "True, False, and...? The third value captures statements that aren't yet determined or knowable.",
+  "section": "17.1"
 }

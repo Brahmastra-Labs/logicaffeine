@@ -1,0 +1,157 @@
+{
+  "case": "T10-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 19,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T10_014.Mod7",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T10_014.Mod7 \u2192 Sort u} \u2192 (t : T10_014.Mod7) \u2192 ((rep : Nat) \u2192 motive { rep := rep }) \u2192 motive t",
+      "name": "T10_014.Mod7.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T10_014.Mod7",
+      "name": "T10_014.Mod7.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {rep rep_1 : Nat}, { rep := rep } = { rep := rep_1 } \u2192 rep = rep_1",
+      "name": "T10_014.Mod7.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (rep rep_1 : Nat), ({ rep := rep } = { rep := rep_1 }) = (rep = rep_1)",
+      "name": "T10_014.Mod7.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (rep : Nat), sizeOf { rep := rep } = 1 + sizeOf rep",
+      "name": "T10_014.Mod7.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T10_014.Mod7} \u2192 v1 = v2 \u2192 T10_014.Mod7.noConfusionType P v1 v2",
+      "name": "T10_014.Mod7.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T10_014.Mod7 \u2192 T10_014.Mod7 \u2192 Sort u",
+      "name": "T10_014.Mod7.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T10_014.Mod7 \u2192 Sort u} \u2192 ((rep : Nat) \u2192 motive { rep := rep }) \u2192 (t : T10_014.Mod7) \u2192 motive t",
+      "name": "T10_014.Mod7.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T10_014.Mod7 \u2192 Sort u} \u2192 (t : T10_014.Mod7) \u2192 ((rep : Nat) \u2192 motive { rep := rep }) \u2192 motive t",
+      "name": "T10_014.Mod7.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T10_014.Mod7 \u2192 Nat",
+      "name": "T10_014.Mod7.rep",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Float",
+      "name": "T10_014.asFloat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Int",
+      "name": "T10_014.asInt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T10_014.asNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T10_014.bare",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T10_014.Mod7",
+      "name": "T10_014.instDecidableEqMod7",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 OfNat T10_014.Mod7 n",
+      "name": "T10_014.instOfNatMod7",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int",
+      "name": "T10_014.negInt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : OfNat \u03b1 2] \u2192 [inst : Add \u03b1] \u2192 \u03b1",
+      "name": "T10_014.twiceLit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,108 @@
+{
+  "case": "T02-008",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T02_008.coerceAnything",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "{α β : Type} → α → β",
+      "lean_axioms": [
+        "lcProof"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t02_008_coerce_anything",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T02_008.coerceAnything names lcProof, resting on the trust escape lcProof. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T02-008.coerceAnything.ndjson (sha256 59fc01a831dcef489059868d97088bde2bda802582e0c3c4a8e1175a9e8797e2; source sha256 c07212ca26bc646b8bfb205addcf2442148e9c629404dae9c07dad30a0c45f67, unchanged) the pipeline constructs a closed conditional judgment with unsafe dependencies made explicit as local assumptions, and the primary kernel and the independent re-checker both check that conditional judgment; unsafe globals remain quarantined and the original target cannot be imported; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T02_008.coerceAnything → unsafeCast → unsafeCast.proof_1 → lcProof; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "lcProof"
+        ],
+        "taint": [
+          [
+            "T02_008.coerceAnything",
+            "unsafeCast",
+            "unsafeCast.proof_1",
+            "lcProof"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T02_008.diverge",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Nat",
+      "lean_axioms": [],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T02_008.fastIdImpl",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Nat",
+      "lean_axioms": [],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T02_008.safeId",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t02_008_1",
+      "logos": "Checked LOGOS Context artifact for T02_008.safeId imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T02-008.ndjson (export sha256 48cb63660c0ae0d461a32be4da66ebdc980f7b169eba6e1f120ebc56478341c8); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 c07212ca26bc646b8bfb205addcf2442148e9c629404dae9c07dad30a0c45f67), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T02_008.safeId_eq",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (n : Nat), T02_008.safeId n = n",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t02_008_1",
+      "logos": "Checked LOGOS Context artifact for T02_008.safeId_eq imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T02-008.ndjson (export sha256 48cb63660c0ae0d461a32be4da66ebdc980f7b169eba6e1f120ebc56478341c8); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 c07212ca26bc646b8bfb205addcf2442148e9c629404dae9c07dad30a0c45f67), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T02_008.useCoerce",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Bool",
+      "lean_axioms": [
+        "lcProof"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t02_008_use_coerce",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T02_008.useCoerce names lcProof, resting on the trust escape lcProof. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T02-008.useCoerce.ndjson (sha256 95ca80b190c0d21e18e1ac3178b337e864d58cc6703f4ec8eaf391859cb05643; source sha256 c07212ca26bc646b8bfb205addcf2442148e9c629404dae9c07dad30a0c45f67, unchanged) the pipeline constructs a closed conditional judgment with unsafe dependencies made explicit as local assumptions, and the primary kernel and the independent re-checker both check that conditional judgment; unsafe globals remain quarantined and the original target cannot be imported; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T02_008.useCoerce → T02_008.coerceAnything → unsafeCast → unsafeCast.proof_1 → lcProof; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "lcProof"
+        ],
+        "taint": [
+          [
+            "T02_008.useCoerce",
+            "T02_008.coerceAnything",
+            "unsafeCast",
+            "unsafeCast.proof_1",
+            "lcProof"
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,290 @@
+# Random
+
+Deterministic, seeded pseudo-random generation in pure LOGOS — bit-identical across every
+execution tier under a given seed (the campaign's determinism policy; native entropy only
+seeds the default). A Lehmer/LCG step over the 2147483647 prime. Auto-imported on reference.
+
+## Note
+One LCG step from `seed` mapped into the inclusive range `[lo, hi]`; deterministic in the seed, no state threaded out.
+
+## To randInt (seed: Int) and (lo: Int) and (hi: Int) -> Int:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let span be hi - lo + 1.
+    Return lo + (h % span).
+
+## Note
+Fisher-Yates shuffle of `xs` driven by an LCG state started from `seed`, advanced once per swap; returns a new sequence.
+
+## To shuffleSeq (seed: Int) and (xs: Seq of Int) -> Seq of Int:
+    Let mutable out be xs.
+    Let n be length of out.
+    Let mutable state be seed.
+    Let mutable i be n.
+    While i is at least 2:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let j be 1 + (state % i).
+        Let tmp be item i of out.
+        Set item i of out to item j of out.
+        Set item j of out to tmp.
+        Set i to i - 1.
+    Return out.
+
+## Note
+A deterministic pseudo-random Real in `[0, 1)` from `seed`, one LCG step scaled by the modulus (`random.random`).
+
+## To randFloat (seed: Int) -> Real:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Return (h * 1.0) / 2147483647.0.
+
+## Note
+A deterministic pseudo-random Int in the half-open range `[start, stop)` from `seed` (`random.randrange`).
+
+## To randRange (seed: Int, start: Int, stop: Int) -> Int:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let span be stop - start.
+    Return start + (h % span).
+
+## Note
+A deterministic pseudo-random element of `xs`, selected from `seed` (`random.choice`).
+
+## To randChoice (seed: Int, xs: Seq of Int) -> Int:
+    Let n be length of xs.
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Return item (1 + (h % n)) of xs.
+
+## Note
+A deterministic pseudo-random Real in `[lo, hi)` from `seed`, uniform over the interval (`random.uniform`).
+
+## To randUniform (seed: Int, lo: Real, hi: Real) -> Real:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let f be (h * 1.0) / 2147483647.0.
+    Return lo + (f * (hi - lo)).
+
+## Note
+A deterministic pseudo-random non-negative Int with `k` random bits from `seed` (`random.getrandbits`).
+
+## To randBits (seed: Int, k: Int) -> Int:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let m be (1 shifted left by k).
+    Return h % m.
+
+## Note
+A deterministic sequence of `n` pseudo-random bytes (0-255) from `seed`, advancing the LCG once per byte (`random.randbytes`).
+
+## To randBytes (seed: Int, n: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable state be seed.
+    Let mutable i be 1.
+    While i is at most n:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Push (state % 256) to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+`k` distinct elements of `xs`, deterministically sampled from `seed` (a shuffle prefix) (`random.sample`).
+
+## To randSample (seed: Int, xs: Seq of Int, k: Int) -> Seq of Int:
+    Let sh be shuffleSeq(seed, xs).
+    Let out be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most k:
+        Push item i of sh to out.
+        Set i to i + 1.
+    Return out.
+
+## Note
+A deterministic pseudo-random Real from the normal distribution with mean `mu` and standard deviation `sigma`, via Box-Muller (`random.gauss`).
+
+## To randGauss (seed: Int, mu: Real, sigma: Real) -> Real:
+    Let s1 be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let s2 be (s1 * 2654435761 + 1013904223) % 2147483647.
+    Let u1 be (s1 * 1.0) / 2147483647.0.
+    Let u2 be (s2 * 1.0) / 2147483647.0.
+    Let r be sqrt(0.0 - (2.0 * ln(u1))).
+    Let z be r * cos((2.0 * 3.141592653589793) * u2).
+    Return mu + (sigma * z).
+
+## Note
+A deterministic pseudo-random Real from the exponential distribution with rate `lambd` (`random.expovariate`).
+
+## To randExpo (seed: Int, lambd: Real) -> Real:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let u be (h * 1.0) / 2147483647.0.
+    Return (0.0 - ln(1.0 - u)) / lambd.
+
+## Note
+A deterministic pseudo-random Real from the Pareto distribution with shape `alpha` (`random.paretovariate`).
+
+## To randPareto (seed: Int, alpha: Real) -> Real:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let u be (h * 1.0) / 2147483647.0.
+    Return exp((0.0 - (1.0 / alpha)) * ln(1.0 - u)).
+
+## Note
+A deterministic pseudo-random Real from the Weibull distribution with scale `alpha` and shape `beta` (`random.weibullvariate`).
+
+## To randWeibull (seed: Int, alpha: Real, beta: Real) -> Real:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let u be (h * 1.0) / 2147483647.0.
+    Let base be 0.0 - ln(1.0 - u).
+    Return alpha * exp((1.0 / beta) * ln(base)).
+
+## Note
+A deterministic pseudo-random Real from the log-normal distribution, `exp` of a normal sample (`random.lognormvariate`).
+
+## To randLogNorm (seed: Int, mu: Real, sigma: Real) -> Real:
+    Return exp(randGauss(seed, mu, sigma)).
+
+## Note
+A deterministic pseudo-random Real from the triangular distribution over `[low, high]` peaking at `mode` (`random.triangular`).
+
+## To randTriangular (seed: Int, low: Real, high: Real, mode: Real) -> Real:
+    Let h be (seed * 2654435761 + 1013904223) % 2147483647.
+    Let mutable u be (h * 1.0) / 2147483647.0.
+    Let mutable lo be low.
+    Let mutable hi be high.
+    Let mutable c be (mode - low) / (high - low).
+    If u is greater than c:
+        Set u to 1.0 - u.
+        Set c to 1.0 - c.
+        Set lo to high.
+        Set hi to low.
+    Return lo + ((hi - lo) * sqrt(u * c)).
+
+## Note
+A deterministic count of successes in `n` Bernoulli trials each with probability `p`, advancing the LCG once per trial (`random.binomialvariate`).
+
+## To randBinomial (seed: Int, n: Int, p: Real) -> Int:
+    Let mutable count be 0.
+    Let mutable state be seed.
+    Let mutable i be 1.
+    While i is at most n:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let u be (state * 1.0) / 2147483647.0.
+        If u is less than p:
+            Set count to count + 1.
+        Set i to i + 1.
+    Return count.
+
+## Note
+`k` deterministic weighted draws (with replacement) from `xs`, each weighted by its integer weight in `weights`.
+
+The LCG advances once per draw (Python's `random.choices` with integer weights).
+## To randChoices (seed: Int, xs: Seq of Int, weights: Seq of Int, k: Int) -> Seq of Int:
+    Let n be length of xs.
+    Let mutable total be 0.
+    Let mutable wi be 1.
+    While wi is at most n:
+        Set total to total + item wi of weights.
+        Set wi to wi + 1.
+    Let out be a new Seq of Int.
+    Let mutable state be seed.
+    Let mutable d be 1.
+    While d is at most k:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let r be state % total.
+        Let mutable acc be 0.
+        Let mutable picked be item 1 of xs.
+        Let mutable found be false.
+        Let mutable j be 1.
+        While j is at most n:
+            If found is equal to false:
+                Set acc to acc + item j of weights.
+                If r is less than acc:
+                    Set picked to item j of xs.
+                    Set found to true.
+            Set j to j + 1.
+        Push picked to out.
+        Set d to d + 1.
+    Return out.
+
+## Note
+A deterministic pseudo-random Real from the gamma distribution with shape `alpha` and scale `beta`.
+
+The mean is `alpha * beta`. Drawn by the Marsaglia-Tsang rejection method over LCG uniforms (Python's `random.gammavariate`); `alpha` must be positive.
+## To randGamma (seed: Int, alpha: Real, beta: Real) -> Real:
+    Let mutable state be seed.
+    Let mutable boost be 1.0.
+    Let mutable a be alpha.
+    If alpha is less than 1.0:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let ub be (state * 1.0) / 2147483647.0.
+        Set boost to exp((1.0 / alpha) * ln(ub)).
+        Set a to alpha + 1.0.
+    Let d be a - (1.0 / 3.0).
+    Let c be 1.0 / sqrt(9.0 * d).
+    Let mutable result be 0.0.
+    Let mutable go be true.
+    While go is equal to true:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let u1 be (state * 1.0) / 2147483647.0.
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let u2 be (state * 1.0) / 2147483647.0.
+        Let x be sqrt(0.0 - (2.0 * ln(u1))) * cos((2.0 * 3.141592653589793) * u2).
+        Let t be 1.0 + (c * x).
+        Let v be t * t * t.
+        If v is greater than 0.0:
+            Set state to (state * 2654435761 + 1013904223) % 2147483647.
+            Let u be (state * 1.0) / 2147483647.0.
+            Let x2 be x * x.
+            If u is less than (1.0 - (0.0331 * x2 * x2)):
+                Set result to (d * v) * boost.
+                Set go to false.
+            Otherwise:
+                If ln(u) is less than ((0.5 * x2) + (d * ((1.0 - v) + ln(v)))):
+                    Set result to (d * v) * boost.
+                    Set go to false.
+    Return beta * result.
+
+## Note
+A deterministic pseudo-random Real from the beta distribution with shape parameters `alpha` and `beta`, formed as `y1 / (y1 + y2)` from two independent gamma samples (`random.betavariate`).
+
+## To randBeta (seed: Int, alpha: Real, beta: Real) -> Real:
+    Let y1 be randGamma(seed, alpha, 1.0).
+    Let y2 be randGamma(seed + 7919, beta, 1.0).
+    Return y1 / (y1 + y2).
+
+## Note
+A deterministic pseudo-random angle in `[0, 2π)` from the von Mises distribution with mean `mu` and concentration `kappa`.
+
+Drawn by the Best-Fisher rejection method (Python's `random.vonmisesvariate`); `kappa` near zero returns a uniform angle.
+## To randVonmises (seed: Int, mu: Real, kappa: Real) -> Real:
+    Let mutable state be seed.
+    Let tau be 2.0 * 3.141592653589793.
+    If kappa is at most 0.000001:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let u0 be (state * 1.0) / 2147483647.0.
+        Return tau * u0.
+    Let s be 0.5 / kappa.
+    Let r be s + sqrt(1.0 + (s * s)).
+    Let mutable zz be 0.0.
+    Let mutable go be true.
+    While go is equal to true:
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let u1 be (state * 1.0) / 2147483647.0.
+        Let z be cos(3.141592653589793 * u1).
+        Let d be z / (r + z).
+        Set state to (state * 2654435761 + 1013904223) % 2147483647.
+        Let u2 be (state * 1.0) / 2147483647.0.
+        If u2 is less than (1.0 - (d * d)):
+            Set zz to z.
+            Set go to false.
+        Otherwise:
+            If u2 is at most ((1.0 - d) * exp(d)):
+                Set zz to z.
+                Set go to false.
+    Let q be 1.0 / r.
+    Let f be (q + zz) / (1.0 + (q * zz)).
+    Set state to (state * 2654435761 + 1013904223) % 2147483647.
+    Let u3 be (state * 1.0) / 2147483647.0.
+    Let mutable theta be 0.0.
+    If u3 is greater than 0.5:
+        Set theta to mu + acos(f).
+    Otherwise:
+        Set theta to mu - acos(f).
+    If theta is less than 0.0:
+        Set theta to theta + tau.
+    If theta is at least tau:
+        Set theta to theta - tau.
+    Return theta.

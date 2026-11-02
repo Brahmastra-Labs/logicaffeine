@@ -39,23 +39,49 @@
 //! - [`PolicyRegistry`], [`PredicateDef`], [`CapabilityDef`] - Security policies
 //! - [`DiscoveryPass`] - Token-level type discovery
 
+pub mod assemble;
 pub mod callgraph;
 pub mod check;
+pub mod defined_real;
 pub mod dimension_check;
+mod discovery;
 pub mod escape;
+pub(crate) mod absence;
+pub(crate) mod exactness;
+pub mod import_hygiene;
+pub mod known_calls;
 pub mod liveness;
+pub(crate) mod numbers;
 pub mod ownership;
+pub mod pipes;
 pub mod readonly;
+pub mod relay;
+pub mod tower;
 pub mod types;
 pub mod unify;
-mod discovery;
 
+pub use assemble::{
+    assemble_project, assemble_project_with_deps, check_scopes, AssembledProgram, DefKind, DefSite,
+    Located, Provenance, ScopeInfo, Segment, SourceMap,
+};
+pub use check::{
+    check_program, check_program_collect, check_program_located, infer_instantiations,
+    root_binding_types, CallInstance, IndexedTypeError, Instantiations, LocatedTypeError, Site,
+};
 pub use dimension_check::{DimensionChecker, DimensionError};
-pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
-pub use ownership::{OwnershipChecker, OwnershipError, OwnershipErrorKind, OwnershipFinding, VarState};
 pub use discovery::discover_with_imports;
-pub use types::{LogosType, TypeEnv, FnSig, RustNames};
-pub use check::{check_program, check_program_collect, IndexedTypeError};
+pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
+pub use import_hygiene::{
+    lint_imports, lint_imports_with_deps, ImportLint, ImportLintKind, LintSeverity,
+};
+pub use known_calls::{
+    check_unknown_calls, check_unknown_calls_with_exports, proven_module_exports,
+    refuse_retired_calls,
+};
+pub use ownership::{
+    MaybeGivenIn, OwnershipChecker, OwnershipError, OwnershipErrorKind, OwnershipFinding, VarState,
+};
+pub use types::{FnSig, LogosType, RustNames, TypeEnv};
 
 // Re-export language analysis types with submodule aliases
 pub mod registry {
@@ -71,8 +97,7 @@ pub mod dependencies {
 }
 
 pub use logicaffeine_language::analysis::{
-    TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef,
-    DiscoveryPass, DiscoveryResult,
-    PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition,
-    scan_dependencies, Dependency,
+    first_section_header, misplaced_imports, scan_dependencies, CapabilityDef, Dependency,
+    DiscoveryPass, DiscoveryResult, FieldDef, FieldType, PolicyCondition, PolicyRegistry,
+    PredicateDef, TypeDef, TypeRegistry, VariantDef,
 };

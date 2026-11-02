@@ -1,0 +1,12 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let reps be parseInt(item 2 of arguments).
+Let mutable b be newBuilder().
+Let mutable i be 0.
+While i is less than reps:
+    Set b to builderWriteString(b, "abcdefgh").
+    Set i to i + 1.
+Show builderLen(b).

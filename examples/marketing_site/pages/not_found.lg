@@ -1,0 +1,10 @@
+# Not found
+
+## Error page 404
+
+View:
+    <main>
+      <h1>Nothing here</h1>
+      <p>That page has moved, or never existed.</p>
+      <a href="/">Back to Acme</a>
+    </main>

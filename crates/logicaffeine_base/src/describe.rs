@@ -220,7 +220,13 @@ pub enum GenExpr {
     Mul(Box<GenExpr>, Box<GenExpr>),
     Div(Box<GenExpr>, Box<GenExpr>),
     Mod(Box<GenExpr>, Box<GenExpr>),
-    Select { op: GenCmp, lhs: Box<GenExpr>, rhs: Box<GenExpr>, then: Box<GenExpr>, els: Box<GenExpr> },
+    Select {
+        op: GenCmp,
+        lhs: Box<GenExpr>,
+        rhs: Box<GenExpr>,
+        then: Box<GenExpr>,
+        els: Box<GenExpr>,
+    },
 }
 
 /// Evaluate a generator at index `i`. TOTAL: div/mod by zero is 0; all arithmetic wraps.
@@ -233,13 +239,27 @@ pub fn gen_eval(e: &GenExpr, i: i64) -> i64 {
         GenExpr::Mul(a, b) => gen_eval(a, i).wrapping_mul(gen_eval(b, i)),
         GenExpr::Div(a, b) => {
             let d = gen_eval(b, i);
-            if d == 0 { 0 } else { gen_eval(a, i).wrapping_div(d) }
+            if d == 0 {
+                0
+            } else {
+                gen_eval(a, i).wrapping_div(d)
+            }
         }
         GenExpr::Mod(a, b) => {
             let d = gen_eval(b, i);
-            if d == 0 { 0 } else { gen_eval(a, i).wrapping_rem(d) }
+            if d == 0 {
+                0
+            } else {
+                gen_eval(a, i).wrapping_rem(d)
+            }
         }
-        GenExpr::Select { op, lhs, rhs, then, els } => {
+        GenExpr::Select {
+            op,
+            lhs,
+            rhs,
+            then,
+            els,
+        } => {
             let (l, r) = (gen_eval(lhs, i), gen_eval(rhs, i));
             let c = match op {
                 GenCmp::Eq => l == r,
@@ -249,7 +269,11 @@ pub fn gen_eval(e: &GenExpr, i: i64) -> i64 {
                 GenCmp::Gt => l > r,
                 GenCmp::Ge => l >= r,
             };
-            if c { gen_eval(then, i) } else { gen_eval(els, i) }
+            if c {
+                gen_eval(then, i)
+            } else {
+                gen_eval(els, i)
+            }
         }
     }
 }
@@ -262,12 +286,38 @@ pub fn serialize_gen(e: &GenExpr, out: &mut Vec<u8>) {
             out.push(1);
             write_uvarint(zigzag(*c), out);
         }
-        GenExpr::Add(a, b) => { out.push(2); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Sub(a, b) => { out.push(3); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Mul(a, b) => { out.push(4); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Div(a, b) => { out.push(5); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Mod(a, b) => { out.push(6); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Select { op, lhs, rhs, then, els } => {
+        GenExpr::Add(a, b) => {
+            out.push(2);
+            serialize_gen(a, out);
+            serialize_gen(b, out);
+        }
+        GenExpr::Sub(a, b) => {
+            out.push(3);
+            serialize_gen(a, out);
+            serialize_gen(b, out);
+        }
+        GenExpr::Mul(a, b) => {
+            out.push(4);
+            serialize_gen(a, out);
+            serialize_gen(b, out);
+        }
+        GenExpr::Div(a, b) => {
+            out.push(5);
+            serialize_gen(a, out);
+            serialize_gen(b, out);
+        }
+        GenExpr::Mod(a, b) => {
+            out.push(6);
+            serialize_gen(a, out);
+            serialize_gen(b, out);
+        }
+        GenExpr::Select {
+            op,
+            lhs,
+            rhs,
+            then,
+            els,
+        } => {
             out.push(7);
             out.push(*op as u8);
             serialize_gen(lhs, out);
@@ -279,7 +329,12 @@ pub fn serialize_gen(e: &GenExpr, out: &mut Vec<u8>) {
 }
 
 /// Parse a generator under a node `budget` and `depth` cap — a garbage/hostile tree returns `None`.
-pub fn deserialize_gen(buf: &[u8], pos: &mut usize, budget: &mut u32, depth: u32) -> Option<GenExpr> {
+pub fn deserialize_gen(
+    buf: &[u8],
+    pos: &mut usize,
+    budget: &mut u32,
+    depth: u32,
+) -> Option<GenExpr> {
     if depth > MAX_GEN_DEPTH || *budget == 0 {
         return None;
     }
@@ -315,7 +370,13 @@ pub fn deserialize_gen(buf: &[u8], pos: &mut usize, budget: &mut u32, depth: u32
             let rhs = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
             let then = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
             let els = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            GenExpr::Select { op, lhs, rhs, then, els }
+            GenExpr::Select {
+                op,
+                lhs,
+                rhs,
+                then,
+                els,
+            }
         }
         _ => return None,
     })
@@ -403,8 +464,12 @@ pub fn detect_sparse(v: &[i64]) -> Option<(i64, Vec<(usize, i64)>)> {
     if v.len() - occ > v.len() / 4 {
         return None; // not dominant enough — the exception list wouldn't beat the menu
     }
-    let exceptions: Vec<(usize, i64)> =
-        v.iter().enumerate().filter(|(_, &x)| x != cand).map(|(i, &x)| (i, x)).collect();
+    let exceptions: Vec<(usize, i64)> = v
+        .iter()
+        .enumerate()
+        .filter(|(_, &x)| x != cand)
+        .map(|(i, &x)| (i, x))
+        .collect();
     Some((cand, exceptions))
 }
 
@@ -512,14 +577,21 @@ fn det_i128(m: &[Vec<i128>]) -> Option<i128> {
     let k = m.len();
     match k {
         1 => Some(m[0][0]),
-        2 => m[0][0].checked_mul(m[1][1])?.checked_sub(m[0][1].checked_mul(m[1][0])?),
+        2 => m[0][0]
+            .checked_mul(m[1][1])?
+            .checked_sub(m[0][1].checked_mul(m[1][0])?),
         _ => {
             let mut acc: i128 = 0;
             for j in 0..k {
-                let minor: Vec<Vec<i128>> =
-                    (1..k).map(|r| (0..k).filter(|&c| c != j).map(|c| m[r][c]).collect()).collect();
+                let minor: Vec<Vec<i128>> = (1..k)
+                    .map(|r| (0..k).filter(|&c| c != j).map(|c| m[r][c]).collect())
+                    .collect();
                 let cof = m[0][j].checked_mul(det_i128(&minor)?)?;
-                acc = if j % 2 == 0 { acc.checked_add(cof)? } else { acc.checked_sub(cof)? };
+                acc = if j % 2 == 0 {
+                    acc.checked_add(cof)?
+                } else {
+                    acc.checked_sub(cof)?
+                };
             }
             Some(acc)
         }
@@ -571,12 +643,24 @@ pub trait FieldElem: Copy + PartialEq {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Gf2(pub bool);
 impl FieldElem for Gf2 {
-    fn zero() -> Self { Gf2(false) }
-    fn one() -> Self { Gf2(true) }
-    fn add(self, o: Self) -> Self { Gf2(self.0 ^ o.0) }
-    fn sub(self, o: Self) -> Self { Gf2(self.0 ^ o.0) }
-    fn mul(self, o: Self) -> Self { Gf2(self.0 && o.0) }
-    fn inv(self) -> Self { self } // 1⁻¹ = 1 (the only nonzero element)
+    fn zero() -> Self {
+        Gf2(false)
+    }
+    fn one() -> Self {
+        Gf2(true)
+    }
+    fn add(self, o: Self) -> Self {
+        Gf2(self.0 ^ o.0)
+    }
+    fn sub(self, o: Self) -> Self {
+        Gf2(self.0 ^ o.0)
+    }
+    fn mul(self, o: Self) -> Self {
+        Gf2(self.0 && o.0)
+    }
+    fn inv(self) -> Self {
+        self
+    } // 1⁻¹ = 1 (the only nonzero element)
 }
 
 /// GF(2⁸) — the Rijndael/AES field (reduction polynomial `x⁸+x⁴+x³+x²+1`), one byte per element.
@@ -606,10 +690,18 @@ fn gf256_tables() -> &'static (Vec<u8>, Vec<u8>) {
     })
 }
 impl FieldElem for Gf256 {
-    fn zero() -> Self { Gf256(0) }
-    fn one() -> Self { Gf256(1) }
-    fn add(self, o: Self) -> Self { Gf256(self.0 ^ o.0) }
-    fn sub(self, o: Self) -> Self { Gf256(self.0 ^ o.0) }
+    fn zero() -> Self {
+        Gf256(0)
+    }
+    fn one() -> Self {
+        Gf256(1)
+    }
+    fn add(self, o: Self) -> Self {
+        Gf256(self.0 ^ o.0)
+    }
+    fn sub(self, o: Self) -> Self {
+        Gf256(self.0 ^ o.0)
+    }
     fn mul(self, o: Self) -> Self {
         if self.0 == 0 || o.0 == 0 {
             return Gf256(0);
@@ -659,7 +751,11 @@ pub fn berlekamp_massey_field<F: FieldElem>(s: &[F]) -> (usize, Vec<F>) {
             }
         }
     }
-    let taps = if l == 0 { Vec::new() } else { c[1..=l].to_vec() };
+    let taps = if l == 0 {
+        Vec::new()
+    } else {
+        c[1..=l].to_vec()
+    };
     (l, taps)
 }
 
@@ -691,7 +787,10 @@ pub fn berlekamp_massey_gf2(s: &[bool]) -> (usize, Vec<bool>) {
 pub fn lfsr_generate(taps: &[bool], seed: &[bool], total: usize) -> Vec<bool> {
     let t: Vec<Gf2> = taps.iter().map(|&b| Gf2(b)).collect();
     let sd: Vec<Gf2> = seed.iter().map(|&b| Gf2(b)).collect();
-    lfsr_generate_field(&t, &sd, total).into_iter().map(|g| g.0).collect()
+    lfsr_generate_field(&t, &sd, total)
+        .into_iter()
+        .map(|g| g.0)
+        .collect()
 }
 
 /// If a byte column is a GF(2) LFSR keystream — its `8·n`-bit expansion has linear complexity `L` and
@@ -748,10 +847,16 @@ pub fn bits_to_bytes(bits: &[bool]) -> Vec<i64> {
 // reconstruction over the integers — recovers `p/q` and its *2-adic complexity* `≈ log₂ max(|p|,|q|)`.
 
 /// gcd of `|a|`, `|b|` by the Euclidean algorithm over `BigInt`.
-fn bigint_gcd_local(a: &crate::numeric::BigInt, b: &crate::numeric::BigInt) -> crate::numeric::BigInt {
+fn bigint_gcd_local(
+    a: &crate::numeric::BigInt,
+    b: &crate::numeric::BigInt,
+) -> crate::numeric::BigInt {
     let (mut a, mut b) = (a.abs(), b.abs());
     while !b.is_zero() {
-        let r = a.div_rem(&b).map(|(_, r)| r).unwrap_or_else(crate::numeric::BigInt::zero);
+        let r = a
+            .div_rem(&b)
+            .map(|(_, r)| r)
+            .unwrap_or_else(crate::numeric::BigInt::zero);
         a = b;
         b = r;
     }
@@ -772,7 +877,9 @@ fn bigint_bitlen(x: &crate::numeric::BigInt) -> usize {
 /// **Rational reconstruction of a bit sequence as a 2-adic number.** Returns `(p, q)` with `q` odd and
 /// positive and `p/q ≡ Σ sᵢ2ⁱ (mod 2ⁿ)` — the shortest FCSR generating the sequence. `None` when no
 /// odd-denominator rational fits (an algorithmically-random sequence has no small FCSR).
-pub fn two_adic_reconstruct(bits: &[bool]) -> Option<(crate::numeric::BigInt, crate::numeric::BigInt)> {
+pub fn two_adic_reconstruct(
+    bits: &[bool],
+) -> Option<(crate::numeric::BigInt, crate::numeric::BigInt)> {
     use crate::numeric::BigInt;
     let n = bits.len();
     if n == 0 {
@@ -789,7 +896,7 @@ pub fn two_adic_reconstruct(bits: &[bool]) -> Option<(crate::numeric::BigInt, cr
         pow2 = pow2.mul(&two);
     }
     let n_big = pow2; // 2ⁿ
-    // Extended Euclid keeping rᵢ ≡ tᵢ·α (mod N); stop at the first rᵢ with rᵢ² ≤ N.
+                      // Extended Euclid keeping rᵢ ≡ tᵢ·α (mod N); stop at the first rᵢ with rᵢ² ≤ N.
     let (mut r0, mut t0) = (n_big.clone(), BigInt::zero());
     let (mut r1, mut t1) = (alpha, BigInt::from_i64(1));
     while !r1.is_zero() && r1.mul(&r1) > n_big {
@@ -824,7 +931,11 @@ pub fn two_adic_reconstruct(bits: &[bool]) -> Option<(crate::numeric::BigInt, cr
 
 /// Generate `n` bits of the FCSR keystream for `p/q` (`q` odd) — the 2-adic expansion, by repeated
 /// 2-adic division. The inverse of [`two_adic_reconstruct`].
-pub fn fcsr_generate(p: &crate::numeric::BigInt, q: &crate::numeric::BigInt, n: usize) -> Vec<bool> {
+pub fn fcsr_generate(
+    p: &crate::numeric::BigInt,
+    q: &crate::numeric::BigInt,
+    n: usize,
+) -> Vec<bool> {
     use crate::numeric::BigInt;
     let two = BigInt::from_i64(2);
     let mut r = p.clone();
@@ -836,7 +947,10 @@ pub fn fcsr_generate(p: &crate::numeric::BigInt, q: &crate::numeric::BigInt, n: 
             r = r.sub(q);
         }
         // r ← r/2 (exact: r − bit·q is even because q is odd).
-        r = r.div_rem(&two).map(|(quot, _)| quot).unwrap_or_else(BigInt::zero);
+        r = r
+            .div_rem(&two)
+            .map(|(quot, _)| quot)
+            .unwrap_or_else(BigInt::zero);
     }
     bits
 }
@@ -956,7 +1070,10 @@ fn solve_gf2_system(rows: &[(Vec<u64>, bool)], ncols: usize) -> Option<Vec<bool>
         r += 1;
     }
     // A row that reduced to `0 = 1` proves the system inconsistent.
-    if mat.iter().any(|(coeff, rhs)| *rhs && coeff.iter().all(|&w| w == 0)) {
+    if mat
+        .iter()
+        .any(|(coeff, rhs)| *rhs && coeff.iter().all(|&w| w == 0))
+    {
         return None;
     }
     // Free variables are `0`; each pivot variable equals its row's rhs (that row now has only its own
@@ -971,7 +1088,7 @@ fn solve_gf2_system(rows: &[(Vec<u64>, bool)], ncols: usize) -> Option<Vec<bool>
 }
 
 /// Recover the **algebraic normal form** of a degree-`≤ d`, order-`l` nonlinear feedback: the ANF
-/// coefficient vector over [`monomials`]`(l, d)` such that replaying `s[i] = ⊕ₘ cₘ · monomialₘ(window)`
+/// coefficient vector over `monomials(l, d)` such that replaying `s[i] = ⊕ₘ cₘ · monomialₘ(window)`
 /// reproduces `bits` exactly. Returns `None` if no such low-degree feedback fits (the GF(2) system is
 /// inconsistent, or the recovered coefficients fail to regenerate the sequence). This is the degree-`d`
 /// generalization of [`berlekamp_massey_gf2`] (which is the `d = 1` case): it compresses low-degree
@@ -1003,9 +1120,15 @@ pub fn detect_algebraic_recurrence(bits: &[bool], l: usize, d: usize) -> Option<
 }
 
 /// Replay a degree-`d`, order-`l` algebraic feedback register from ANF coefficients over
-/// [`monomials`]`(l, d)` and an `l`-bit seed: `s[i] = ⊕ₘ coeffsₘ · monomialₘ(s[i-1],…,s[i-l])`. The
+/// `monomials(l, d)` and an `l`-bit seed: `s[i] = ⊕ₘ coeffsₘ · monomialₘ(s[i-1],…,s[i-l])`. The
 /// inverse of [`detect_algebraic_recurrence`].
-pub fn algebraic_generate(l: usize, d: usize, coeffs: &[bool], seed: &[bool], total: usize) -> Vec<bool> {
+pub fn algebraic_generate(
+    l: usize,
+    d: usize,
+    coeffs: &[bool],
+    seed: &[bool],
+    total: usize,
+) -> Vec<bool> {
     let monos = monomials(l, d);
     let mut out: Vec<bool> = seed.iter().take(l).copied().collect();
     for i in l..total {
@@ -1124,7 +1247,10 @@ pub fn spurious_bias_floor(register_len: usize, samples: usize) -> f64 {
 /// `a[w]` becomes `Σₓ a[x]·(−1)^{⟨w,x⟩}`.
 pub fn fast_walsh_hadamard(a: &mut [i64]) {
     let n = a.len();
-    debug_assert!(n.is_power_of_two(), "Walsh–Hadamard length must be a power of two");
+    debug_assert!(
+        n.is_power_of_two(),
+        "Walsh–Hadamard length must be a power of two"
+    );
     let mut len = 1;
     while len < n {
         let mut i = 0;
@@ -1222,7 +1348,14 @@ pub fn anf(truth: &[bool]) -> Option<Vec<bool>> {
 /// its ANF (0 for a constant, 1 for affine, up to `n`). `None` for a malformed table.
 pub fn algebraic_degree(truth: &[bool]) -> Option<usize> {
     let a = anf(truth)?;
-    Some(a.iter().enumerate().filter(|(_, &c)| c).map(|(m, _)| (m as u64).count_ones() as usize).max().unwrap_or(0))
+    Some(
+        a.iter()
+            .enumerate()
+            .filter(|(_, &c)| c)
+            .map(|(m, _)| (m as u64).count_ones() as usize)
+            .max()
+            .unwrap_or(0),
+    )
 }
 
 /// The autocorrelation spectrum of a Boolean function: `r_f(a) = Σ_x (−1)^{f(x) ⊕ f(x⊕a)}`, the correlation
@@ -1257,7 +1390,7 @@ pub fn autocorrelation(truth: &[bool]) -> Option<Vec<i64>> {
 // Ceiling: a maximal-AI filter (`AI ≈ n/2`) leaves no low-degree relation — the algebraic-incompressible
 // residue.
 
-/// A re-checkable annihilator witness: `coeffs` is the ANF (over [`monomials`]`(n_vars, degree)`) of a
+/// A re-checkable annihilator witness: `coeffs` is the ANF (over `monomials(n_vars, degree)`) of a
 /// nonzero `g` of degree `degree` that vanishes on `C`'s support (`annihilates_complement = false`) or on
 /// `C`'s zero-set (`= true`, i.e. `g` annihilates `C ⊕ 1`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1353,10 +1486,26 @@ pub fn algebraic_immunity(truth: &[bool]) -> Option<(usize, AnnihilatorWitness)>
     let zeros: Vec<usize> = (0..truth.len()).filter(|&x| !truth[x]).collect();
     for d in 0..=n {
         if let Some(g) = annihilator(n, d, &support) {
-            return Some((d, AnnihilatorWitness { n_vars: n, degree: d, coeffs: g, annihilates_complement: false }));
+            return Some((
+                d,
+                AnnihilatorWitness {
+                    n_vars: n,
+                    degree: d,
+                    coeffs: g,
+                    annihilates_complement: false,
+                },
+            ));
         }
         if let Some(g) = annihilator(n, d, &zeros) {
-            return Some((d, AnnihilatorWitness { n_vars: n, degree: d, coeffs: g, annihilates_complement: true }));
+            return Some((
+                d,
+                AnnihilatorWitness {
+                    n_vars: n,
+                    degree: d,
+                    coeffs: g,
+                    annihilates_complement: true,
+                },
+            ));
         }
     }
     None
@@ -1380,7 +1529,11 @@ pub fn verify_annihilator(truth: &[bool], w: &AnnihilatorWitness) -> bool {
         return false;
     }
     (0..truth.len()).all(|x| {
-        let must_vanish = if w.annihilates_complement { !truth[x] } else { truth[x] };
+        let must_vanish = if w.annihilates_complement {
+            !truth[x]
+        } else {
+            truth[x]
+        };
         !must_vanish || !eval_anf(&w.coeffs, w.n_vars, w.degree, x)
     })
 }
@@ -1392,7 +1545,11 @@ pub fn verify_annihilator(truth: &[bool], w: &AnnihilatorWitness) -> bool {
 /// equation in the initial state `s₀`; expanding over `s₀`-monomials of degree `≤ AI` and solving the
 /// GF(2) system recovers `s₀`. Returns the `l`-bit initial state (verified by regeneration), or `None` if
 /// there is no low-AI annihilator, the system is underdetermined, or `l > 64`.
-pub fn algebraic_filter_attack(keystream: &[bool], taps: &[bool], filter_truth: &[bool]) -> Option<Vec<bool>> {
+pub fn algebraic_filter_attack(
+    keystream: &[bool],
+    taps: &[bool],
+    filter_truth: &[bool],
+) -> Option<Vec<bool>> {
     let l = taps.len();
     let n = keystream.len();
     if l == 0 || l > 64 || !filter_truth.len().is_power_of_two() {
@@ -1410,8 +1567,12 @@ pub fn algebraic_filter_attack(keystream: &[bool], taps: &[bool], filter_truth: 
     // The whole annihilator space at degree AI, from BOTH sides: functions vanishing on the filter's
     // support (applied where the keystream is 1) and on its zero-set (applied where it is 0). A single
     // annihilator underdetermines the linearized system; the full basis makes it full rank.
-    let support: Vec<usize> = (0..filter_truth.len()).filter(|&x| filter_truth[x]).collect();
-    let zeros: Vec<usize> = (0..filter_truth.len()).filter(|&x| !filter_truth[x]).collect();
+    let support: Vec<usize> = (0..filter_truth.len())
+        .filter(|&x| filter_truth[x])
+        .collect();
+    let zeros: Vec<usize> = (0..filter_truth.len())
+        .filter(|&x| !filter_truth[x])
+        .collect();
     let ann_when_one = annihilator_basis(m, ai, &support);
     let ann_when_zero = annihilator_basis(m, ai, &zeros);
 
@@ -1491,7 +1652,11 @@ pub fn algebraic_filter_attack(keystream: &[bool], taps: &[bool], filter_truth: 
     rows.push((pin, true)); // pin the constant monomial to 1
 
     for t in 0..n.saturating_sub(m - 1) {
-        let anns = if keystream[t] { &ann_when_one } else { &ann_when_zero };
+        let anns = if keystream[t] {
+            &ann_when_one
+        } else {
+            &ann_when_zero
+        };
         for g in anns {
             rows.push(expand(g, t)?);
         }
@@ -1535,7 +1700,11 @@ pub fn algebraic_filter_attack(keystream: &[bool], taps: &[bool], filter_truth: 
 /// Frobenius squares generate. Returns the recovered `L`-bit initial state when decoding converges to a
 /// valid LFSR output that agrees with the keystream noticeably better than chance, else `None` (too much
 /// noise or too few low-weight checks — the register resists). Polynomial in `L` — no `2^L` search.
-pub fn fast_correlation_attack(keystream: &[bool], taps: &[bool], max_iters: usize) -> Option<Vec<bool>> {
+pub fn fast_correlation_attack(
+    keystream: &[bool],
+    taps: &[bool],
+    max_iters: usize,
+) -> Option<Vec<bool>> {
     let (n, l) = (keystream.len(), taps.len());
     if l == 0 || n <= 2 * l {
         return None;
@@ -1740,7 +1909,10 @@ pub enum PolySolveResult {
 
 /// All monomials of degree `≤ deg` over `n` variables, as bitmasks (`≤ 64` variables).
 fn monomial_masks(n: usize, deg: usize) -> Vec<u64> {
-    monomials(n, deg).iter().map(|mono| mono.iter().fold(0u64, |b, &v| b | (1u64 << v))).collect()
+    monomials(n, deg)
+        .iter()
+        .map(|mono| mono.iter().fold(0u64, |b, &v| b | (1u64 << v)))
+        .collect()
 }
 
 /// Evaluate a monomial (bitmask; `0` = the constant `1`) at an assignment.
@@ -1756,7 +1928,8 @@ fn eval_mask(mask: u64, x: &[bool]) -> bool {
 
 /// Does `x` satisfy every equation (each an XOR of monomials that must be `0`)?
 fn verify_poly_system(eqs: &[Vec<u64>], x: &[bool]) -> bool {
-    eqs.iter().all(|eq| !eq.iter().fold(false, |a, &m| a ^ eval_mask(m, x)))
+    eqs.iter()
+        .all(|eq| !eq.iter().fold(false, |a, &m| a ^ eval_mask(m, x)))
 }
 
 /// Solve a Boolean polynomial system over GF(2) by **XL** (eXtended Linearization). Each equation is an
@@ -1770,7 +1943,11 @@ fn verify_poly_system(eqs: &[Vec<u64>], x: &[bool]) -> bool {
 ///
 /// [`Refuted`]: PolySolveResult::Refuted
 /// [`Solved`]: PolySolveResult::Solved
-pub fn solve_polynomial_system_gf2(eqs: &[Vec<u64>], n_vars: usize, max_degree: usize) -> PolySolveResult {
+pub fn solve_polynomial_system_gf2(
+    eqs: &[Vec<u64>],
+    n_vars: usize,
+    max_degree: usize,
+) -> PolySolveResult {
     for d in 1..=max_degree {
         let cols = monomial_masks(n_vars, d);
         let col_of: std::collections::HashMap<u64, usize> =
@@ -1786,7 +1963,11 @@ pub fn solve_polynomial_system_gf2(eqs: &[Vec<u64>], n_vars: usize, max_degree: 
         rows.push((pin, true));
 
         for eq in eqs {
-            let deg_eq = eq.iter().map(|m| m.count_ones() as usize).max().unwrap_or(0);
+            let deg_eq = eq
+                .iter()
+                .map(|m| m.count_ones() as usize)
+                .max()
+                .unwrap_or(0);
             if deg_eq > d {
                 continue; // cannot be represented at this operating degree yet
             }
@@ -1878,7 +2059,10 @@ pub fn detect_modular_affine(v: &[i64]) -> Option<GenExpr> {
                 Box::new(GenExpr::Const(a)),
                 Box::new(GenExpr::Mul(
                     Box::new(GenExpr::Const(b)),
-                    Box::new(GenExpr::Mod(Box::new(GenExpr::Index), Box::new(GenExpr::Const(p as i64)))),
+                    Box::new(GenExpr::Mod(
+                        Box::new(GenExpr::Index),
+                        Box::new(GenExpr::Const(p as i64)),
+                    )),
                 )),
             ));
         }
@@ -1938,10 +2122,17 @@ pub fn for_encode(out: &mut Vec<u8>, v: &[i64]) {
     }
     let max = v.iter().copied().max().unwrap();
     let range = (max as u64).wrapping_sub(min as u64);
-    let width = if range == 0 { 0 } else { (64 - range.leading_zeros()) as u8 };
+    let width = if range == 0 {
+        0
+    } else {
+        (64 - range.leading_zeros()) as u8
+    };
     out.push(width);
     if width > 0 {
-        let residuals: Vec<u64> = v.iter().map(|&x| (x as u64).wrapping_sub(min as u64)).collect();
+        let residuals: Vec<u64> = v
+            .iter()
+            .map(|&x| (x as u64).wrapping_sub(min as u64))
+            .collect();
         out.extend_from_slice(&bitpack(&residuals, width));
     }
 }
@@ -1982,7 +2173,11 @@ pub fn dict_encode(v: &[i64]) -> Vec<u8> {
         write_uvarint(zigzag(d), &mut out);
     }
     write_uvarint(v.len() as u64, &mut out);
-    let iw = if dict.len() <= 1 { 0 } else { (64 - ((dict.len() - 1) as u64).leading_zeros()) as u8 };
+    let iw = if dict.len() <= 1 {
+        0
+    } else {
+        (64 - ((dict.len() - 1) as u64).leading_zeros()) as u8
+    };
     out.push(iw);
     if iw > 0 {
         out.extend_from_slice(&bitpack(&indices, iw));
@@ -2153,6 +2348,28 @@ fn bounded(n: u64, max_elements: usize) -> Option<usize> {
     (n <= max_elements).then_some(n)
 }
 
+thread_local! {
+    /// A shared, per-column-tree WORK budget for the generator columns. `max_elements` bounds the
+    /// element COUNT, but the generators differ in per-element cost by orders of magnitude — an
+    /// affine `wrapping_add` is one op, an FCSR bit is a 2-adic **bignum** step, an LFSR bit is an
+    /// `O(L)` tap fold, a `T_GEN` element re-evaluates the whole expression tree — so a count-bound
+    /// cannot bound wall-time. Each expensive generator charges its TRUE work (`produced ·
+    /// per-element-cost`) here; once one column tree's running total exceeds `max_elements`
+    /// work-units the decode is refused (clean `None`) BEFORE the (multi-minute) expansion runs.
+    /// This is the small-descriptor / huge-work DoS gate the byte and count budgets cannot express.
+    static DECODE_WORK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Charge `units` of generation work against [`DECODE_WORK`]; `None` once the budget
+/// (`max_elements` work-units) is spent. Saturating, so a crafted huge `units` cannot wrap.
+#[inline]
+fn charge_work(units: u64, max_elements: usize) -> Option<()> {
+    DECODE_WORK.with(|c| {
+        let used = c.get().saturating_add(units);
+        (used <= max_elements as u64).then(|| c.set(used))
+    })
+}
+
 /// Decode one int column whose tag byte has already been read as `tag`. The inverse of
 /// [`emit_best_int_column`]; returns `None` for a non-int tag or a corrupt/hostile body.
 /// `max_elements` caps generator expansion; `depth` bounds the periodic-block recursion.
@@ -2163,6 +2380,10 @@ pub fn decode_int_column_body(
     max_elements: usize,
     depth: u32,
 ) -> Option<Vec<i64>> {
+    // A fresh column tree starts with a full work budget; nested blocks (periodic) share it.
+    if depth == 0 {
+        DECODE_WORK.with(|c| c.set(0));
+    }
     Some(match tag {
         // Adaptive sign: the count's low bit says whether the column was zig-zag encoded.
         T_INTS => {
@@ -2275,13 +2496,25 @@ pub fn decode_int_column_body(
             if l > total_bits {
                 return None;
             }
+            // Clocking the register is O(total_bits · L) — charge it so a huge keystream from a
+            // tiny header is refused before the O(n²)-in-the-worst-case replay ever starts.
+            charge_work(
+                (total_bits as u64).saturating_mul(l.max(1) as u64),
+                max_elements,
+            )?;
             let nbytes = l.div_ceil(8);
             let tap_bytes = buf.get(*pos..pos.checked_add(nbytes)?)?;
             *pos += nbytes;
-            let taps: Vec<bool> = bitunpack(tap_bytes, l, 1)?.into_iter().map(|x| x == 1).collect();
+            let taps: Vec<bool> = bitunpack(tap_bytes, l, 1)?
+                .into_iter()
+                .map(|x| x == 1)
+                .collect();
             let seed_bytes = buf.get(*pos..pos.checked_add(nbytes)?)?;
             *pos += nbytes;
-            let seed: Vec<bool> = bitunpack(seed_bytes, l, 1)?.into_iter().map(|x| x == 1).collect();
+            let seed: Vec<bool> = bitunpack(seed_bytes, l, 1)?
+                .into_iter()
+                .map(|x| x == 1)
+                .collect();
             bits_to_bytes(&lfsr_generate(&taps, &seed, total_bits))
         }
         // FCSR keystream: read the byte count and the rational p/q, then replay the 2-adic expansion.
@@ -2293,6 +2526,11 @@ pub fn decode_int_column_body(
                 return None; // an FCSR connection integer must be odd
             }
             let total_bits = n.checked_mul(8)?;
+            // Each 2-adic step is a bignum sub+halve on operands of ~max(|p|,|q|) limbs — charge
+            // `total_bits · limbs` so a 10^8-bit keystream from a ~10-byte descriptor is refused
+            // before the multi-minute expansion runs.
+            let limbs = (bigint_bitlen(&p).max(bigint_bitlen(&q)) / 64 + 1) as u64;
+            charge_work((total_bits as u64).saturating_mul(limbs), max_elements)?;
             bits_to_bytes(&fcsr_generate(&p, &q, total_bits))
         }
         // General generator: parse the bounded `GenExpr`, evaluate it at 0..n in the sandbox.
@@ -2300,6 +2538,10 @@ pub fn decode_int_column_body(
             let mut budget = MAX_GEN_NODES;
             let expr = deserialize_gen(buf, pos, &mut budget, 0)?;
             let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
+            // Every element re-evaluates the whole expression tree — charge `n · nodes` so a wide
+            // column over a big expression is refused before the eval loop.
+            let nodes = (MAX_GEN_NODES - budget).max(1) as u64;
+            charge_work((n as u64).saturating_mul(nodes), max_elements)?;
             let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
             for i in 0..n {
                 v.push(gen_eval(&expr, i as i64));
@@ -2429,715 +2671,5 @@ pub fn decode_int_seq(bytes: &[u8]) -> Option<Vec<i64>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn roundtrips(v: &[i64]) {
-        let enc = describe_int_seq(v);
-        let dec = decode_int_seq(&enc);
-        assert_eq!(dec.as_deref(), Some(v), "round-trip failed for {v:?} (enc {enc:?})");
-    }
-
-    #[test]
-    fn affine_round_trips_and_beats_varint() {
-        let v: Vec<i64> = (0..1000).map(|i| 10 + 7 * i).collect();
-        roundtrips(&v);
-        // The generator (3 numbers) must be far smaller than 1000 varints.
-        assert!(describe_int_seq(&v).len() < 20, "affine must ship as a generator, not data");
-    }
-
-    #[test]
-    fn geometric_round_trips() {
-        let v: Vec<i64> = (0..40).map(|i| 3i64.wrapping_mul(2i64.wrapping_pow(i))).collect();
-        roundtrips(&v);
-    }
-
-    #[test]
-    fn polynomial_round_trips() {
-        let v: Vec<i64> = (0..500).map(|i| i * i - 3 * i + 5).collect();
-        roundtrips(&v);
-        assert!(describe_int_seq(&v).len() < 30, "poly must ship as finite-difference seeds");
-    }
-
-    #[test]
-    fn linear_recurrence_ships_the_generator() {
-        // Fibonacci — order-2 recurrence, NOT polynomial (its finite differences never settle), so
-        // ONLY the recurrence detector catches it: 60 terms collapse to a handful of numbers.
-        let mut fib = vec![0i64, 1];
-        while fib.len() < 60 {
-            let n = fib.len();
-            fib.push(fib[n - 1].wrapping_add(fib[n - 2]));
-        }
-        roundtrips(&fib);
-        assert!(describe_int_seq(&fib).len() < 15, "Fibonacci ships as (order, coeffs, seeds), not data");
-
-        // Lucas (same recurrence, different seeds).
-        let mut lucas = vec![2i64, 1];
-        while lucas.len() < 60 {
-            let n = lucas.len();
-            lucas.push(lucas[n - 1].wrapping_add(lucas[n - 2]));
-        }
-        roundtrips(&lucas);
-        assert!(describe_int_seq(&lucas).len() < 15);
-
-        // Pell: c = [2, 1].
-        let mut pell = vec![0i64, 1];
-        while pell.len() < 50 {
-            let n = pell.len();
-            pell.push(2i64.wrapping_mul(pell[n - 1]).wrapping_add(pell[n - 2]));
-        }
-        roundtrips(&pell);
-        assert!(describe_int_seq(&pell).len() < 15);
-
-        // A general order-3 recurrence v[i] = v[i-1] + v[i-2] − v[i-3].
-        let mut r3 = vec![1i64, 2, 3];
-        while r3.len() < 40 {
-            let n = r3.len();
-            r3.push(r3[n - 1].wrapping_add(r3[n - 2]).wrapping_sub(r3[n - 3]));
-        }
-        roundtrips(&r3);
-        assert!(describe_int_seq(&r3).len() < 18);
-    }
-
-    #[test]
-    fn berlekamp_massey_recovers_the_shortest_lfsr() {
-        // Connection polynomial 1 + x + x³ → taps [1,0,1] (s[i] = s[i-1] ⊕ s[i-3]); linear complexity 3.
-        let taps = vec![true, false, true];
-        let seed = vec![true, false, false];
-        let seq = lfsr_generate(&taps, &seed, 40);
-        let (l, recovered) = berlekamp_massey_gf2(&seq);
-        assert_eq!(l, 3, "a length-3 LFSR has linear complexity 3");
-        // The recovered LFSR regenerates the whole sequence from its first L bits (the attack).
-        assert_eq!(lfsr_generate(&recovered, &seq[..l], seq.len()), seq);
-        // A well-mixed random bit sequence has linear complexity ≈ n/2 — incompressible as an LFSR.
-        // (splitmix64's nonlinear finalizer; a plain xorshift low bit is deliberately NOT used — BM
-        // correctly reports its ~64 linear complexity, exposing that generator's linear weakness.)
-        let mut st = 0x1234_5678u64;
-        let rnd: Vec<bool> = (0..200)
-            .map(|_| {
-                st = st.wrapping_add(0x9E37_79B9_7F4A_7C15);
-                let mut z = st;
-                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-                z ^= z >> 31;
-                z & 1 == 1
-            })
-            .collect();
-        let (lr, _) = berlekamp_massey_gf2(&rnd);
-        assert!((80..=120).contains(&lr), "high-quality random complexity ≈ n/2, got {lr}");
-        // Bit ↔ byte conversions round-trip.
-        let bytes = vec![0x41i64, 0x00, 0xFF, 0x7E];
-        assert_eq!(bits_to_bytes(&bytes_to_bits(&bytes)), bytes);
-    }
-
-    #[test]
-    fn lfsr_keystream_bytes_compress_to_the_register() {
-        // A maximal length-7 LFSR (x⁷+x³+1, bit-period 127) — its 200-byte keystream has byte-period
-        // 127, beyond the periodic detector's n/2 reach, and looks random to every arithmetic generator.
-        // Berlekamp–Massey recovers the 7-bit register and the whole column collapses to a handful of
-        // bytes — the classic stream-cipher attack, here as a compressor.
-        let taps = vec![false, false, true, false, false, false, true]; // c₃ = c₇ = 1
-        let seed = vec![true, false, true, true, false, false, true];
-        let bits = lfsr_generate(&taps, &seed, 200 * 8);
-        let bytes = bits_to_bytes(&bits);
-        roundtrips(&bytes);
-        let enc = describe_int_seq(&bytes);
-        assert_eq!(enc[0], T_INTS_LFSR, "the keystream ships as its LFSR register (tag), got {}", enc[0]);
-        assert!(enc.len() < 20, "200 bytes collapse to the 7-bit register, got {} bytes", enc.len());
-    }
-
-    #[test]
-    fn berlekamp_massey_over_gf256_recovers_a_word_lfsr() {
-        // GF(2⁸) field sanity: 3⁵¹ ≠ 1 but 3²⁵⁵ = 1 (generator), and inv is a true inverse.
-        assert_eq!(Gf256(0x53).mul(Gf256(0xCA)), Gf256(0x53).mul(Gf256(0xCA)));
-        assert_eq!(Gf256(0x53).mul(Gf256(0x53).inv()), Gf256::one());
-        assert_eq!(Gf256(0xFF).mul(Gf256(0xFF).inv()), Gf256::one());
-        // An order-3 word-LFSR over GF(256): s[i] = c₁·s[i-1] + c₂·s[i-2] + c₃·s[i-3] with field
-        // coefficients. Berlekamp–Massey over GF(256) recovers order 3 directly — exercising the
-        // b_disc bookkeeping the GF(2) path never touches.
-        let taps = vec![Gf256(0x02), Gf256(0x8d), Gf256(0x1f)];
-        let seed = vec![Gf256(0x41), Gf256(0x9c), Gf256(0x07)];
-        let seq = lfsr_generate_field(&taps, &seed, 60);
-        let (l, recovered) = berlekamp_massey_field(&seq);
-        assert_eq!(l, 3, "order-3 word-LFSR has GF(256) linear complexity 3, got {l}");
-        assert_eq!(lfsr_generate_field(&recovered, &seq[..l], seq.len()), seq, "recovered register regenerates it");
-    }
-
-    #[test]
-    fn two_adic_complexity_detects_fcsr_keystreams() {
-        use crate::numeric::BigInt;
-        // FCSR: connection integer q = 19 (odd), numerator p = 3. Its 2-adic expansion is an FCSR
-        // keystream — the carry makes it nonlinear over GF(2), so no field-BM sees its structure.
-        let bits = fcsr_generate(&BigInt::from_i64(3), &BigInt::from_i64(19), 120);
-        let (rp, rq) = two_adic_reconstruct(&bits).expect("a clean 2-adic rational");
-        assert_eq!(fcsr_generate(&rp, &rq, bits.len()), bits, "the recovered FCSR regenerates the keystream");
-        let tac = two_adic_complexity(&bits);
-        assert!(tac < 12, "a small FCSR has low 2-adic complexity, got {tac}");
-        // The carry makes it MORE complex to a LINEAR view than to a 2-adic one — BM sees more.
-        assert!(berlekamp_massey_gf2(&bits).0 > tac, "the FCSR is simpler 2-adically than linearly");
-        // A well-mixed random sequence has 2-adic complexity ≈ n/2.
-        let mut st = 0xABCD_1234u64;
-        let rnd: Vec<bool> = (0..200)
-            .map(|_| {
-                st = st.wrapping_add(0x9E37_79B9_7F4A_7C15);
-                let mut z = st;
-                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-                z ^= z >> 31;
-                z & 1 == 1
-            })
-            .collect();
-        assert!(two_adic_complexity(&rnd) > 60, "random ≈ n/2 2-adic complexity, got {}", two_adic_complexity(&rnd));
-    }
-
-    #[test]
-    fn fcsr_keystream_bytes_compress_to_the_rational() {
-        use crate::numeric::BigInt;
-        // A large connection integer q = 1000003: long period (not periodic), HIGH linear complexity
-        // (fools the LFSR compressor), tiny 2-adic complexity. Only the FCSR generator collapses it.
-        let bits = fcsr_generate(&BigInt::from_i64(7), &BigInt::from_i64(1_000_003), 100 * 8);
-        let bytes = bits_to_bytes(&bits);
-        roundtrips(&bytes);
-        let enc = describe_int_seq(&bytes);
-        assert_eq!(enc[0], T_INTS_FCSR, "the FCSR keystream ships as its rational p/q (tag), got {}", enc[0]);
-        assert!(enc.len() < 20, "100 bytes collapse to a small rational, got {} bytes", enc.len());
-    }
-
-    #[test]
-    fn maximal_order_complexity_catches_nonlinear_feedback() {
-        // A De Bruijn sequence of order L=6: generated by a NONLINEAR order-6 feedback (prefer-one),
-        // full period 2⁶=64, every 6-window appearing exactly once. Its linear complexity is ~2⁵ and its
-        // 2-adic complexity is high (both tools see it as complex), but its maximal order complexity is
-        // exactly the register order 6 — the nonlinear rung sees the short register the linear rungs cannot.
-        let order = 6;
-        let period = 1usize << order;
-        let mut db: Vec<bool> = vec![false; order];
-        let mut seen: std::collections::HashSet<Vec<bool>> = std::collections::HashSet::new();
-        seen.insert(db[..order].to_vec());
-        while db.len() < period {
-            let mut w: Vec<bool> = db[db.len() - (order - 1)..].to_vec();
-            w.push(true);
-            if seen.contains(&w) {
-                w.pop();
-                w.push(false);
-            }
-            seen.insert(w.clone());
-            db.push(*w.last().unwrap());
-        }
-        let bits: Vec<bool> = [db.as_slice(), db.as_slice(), db.as_slice()].concat(); // 3 cyclic copies
-        let moc = maximal_order_complexity(&bits);
-        let lin = berlekamp_massey_gf2(&bits).0;
-        assert!((5..=7).contains(&moc), "the order-6 De Bruijn register has MOC ≈ 6, got {moc}");
-        // The SAME sequence fools the LINEAR tools — they see far higher complexity than its true order.
-        assert!(lin > moc, "nonlinear feedback fools linear complexity (BM {lin} > MOC {moc})");
-        assert!(two_adic_complexity(&bits) > moc, "nonlinear feedback fools 2-adic complexity too");
-        // MOC ≤ linear complexity for EVERYTHING (it is the shorter, more general register).
-        let mut st = 0x2468_ace0_1357_9bdfu64;
-        let rnd: Vec<bool> = (0..300)
-            .map(|_| {
-                st = st.wrapping_add(0x9E37_79B9_7F4A_7C15);
-                let mut z = st;
-                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-                z ^= z >> 31;
-                z & 1 == 1
-            })
-            .collect();
-        assert!(maximal_order_complexity(&rnd) <= berlekamp_massey_gf2(&rnd).0, "MOC ≤ linear complexity");
-    }
-
-    #[test]
-    fn algebraic_recurrence_recovers_low_degree_nonlinear_feedback() {
-        // A QUADRATIC (degree-2) order-8 nonlinear feedback register:
-        //   s[i] = s[i-1] ⊕ s[i-5] ⊕ s[i-6] ⊕ s[i-8] ⊕ (s[i-1] AND s[i-6]).
-        // Its linear complexity is 246 (the linear rung is fooled — Berlekamp–Massey needs a 246-stage
-        // LFSR), its 2-adic complexity is high, and maximal order complexity would diagnose "order 8"
-        // only as a 2⁸=256-entry truth table. The ALGEBRAIC recovery returns the sparse degree-2 ANF
-        // that regenerates it — 37 coefficients — compressing a nonlinear generator every earlier rung
-        // can only measure.
-        let seed: Vec<bool> = (0..8).map(|k| (0x9E37u64 >> k) & 1 == 1).collect();
-        let mut bits = seed.clone();
-        while bits.len() < 600 {
-            let i = bits.len();
-            let s = |k: usize| bits[i - k];
-            bits.push(s(1) ^ s(5) ^ s(6) ^ s(8) ^ (s(1) & s(6)));
-        }
-
-        let coeffs = detect_algebraic_recurrence(&bits, 8, 2).expect("recovers the degree-2 feedback");
-        assert_eq!(
-            algebraic_generate(8, 2, &coeffs, &bits[..8], bits.len()),
-            bits,
-            "the recovered ANF regenerates the whole nonlinear sequence"
-        );
-
-        // The description is the sparse ANF: M = 1 + C(8,1) + C(8,2) = 37 monomials, versus the 2⁸ = 256
-        // truth-table entries maximal order complexity would need for the same register.
-        assert_eq!(coeffs.len(), 37, "degree-2 ANF over 8 vars has 37 monomials");
-        assert!(coeffs.len() < (1usize << 8), "the ANF is far sparser than the full truth table");
-
-        // The quadratic term genuinely fools the LINEAR rung — Berlekamp–Massey reports complexity far
-        // above the true register order — so nothing below this rung could have compressed it.
-        let lin = berlekamp_massey_gf2(&bits).0;
-        assert!(lin > 200, "the nonlinear term drives linear complexity to 246, got {lin}");
-        assert!(two_adic_complexity(&bits) > 8, "and 2-adic complexity is high too — carry tools miss it");
-
-        // A degree-1 (purely affine) fit CANNOT reproduce it — the compression is genuinely nonlinear.
-        assert!(detect_algebraic_recurrence(&bits, 8, 1).is_none(), "no affine order-8 recurrence fits");
-
-        // `algebraic_complexity` finds the same short register at degree 2 with its true coefficient count.
-        let (l, m) = algebraic_complexity(&bits, 2).expect("degree-2 algebraic complexity exists");
-        assert!(l <= 8, "the algebraic recovery finds an order-≤8 register, got {l}");
-        assert!(m <= 37, "and describes it in at most its 37 ANF coefficients, got {m}");
-    }
-
-    #[test]
-    fn algebraic_recovery_is_a_strict_generalization_of_berlekamp_massey() {
-        // At degree 1 the algebraic recovery IS Berlekamp–Massey: a pure GF(2) LFSR keystream must be
-        // recovered by the degree-1 solve and regenerate identically. (The affine ANF is not unique when
-        // the constant column is dependent on the taps over the sample, so we assert regeneration — the
-        // real correctness witness — not a specific coefficient vector.)
-        let taps = vec![true, false, false, true, false, true]; // an order-6 LFSR
-        let seed = vec![true, false, true, true, false, false];
-        let bits = lfsr_generate(&taps, &seed, 200);
-        let coeffs = detect_algebraic_recurrence(&bits, 6, 1).expect("degree-1 recovery = Berlekamp–Massey");
-        assert_eq!(
-            algebraic_generate(6, 1, &coeffs, &bits[..6], bits.len()),
-            bits,
-            "the degree-1 ANF regenerates the linear keystream"
-        );
-        // The linear rung already handles this one — Berlekamp–Massey finds the same short register.
-        assert!(berlekamp_massey_gf2(&bits).0 <= 6, "an LFSR keystream has linear complexity ≤ its order");
-    }
-
-    #[test]
-    fn correlation_attack_breaks_the_geffe_combiner_register_by_register() {
-        // The Geffe generator: three LFSRs feed a multiplexer z[i] = x2[i] ? x1[i] : x3[i]. Its output
-        // is a function of the HIDDEN register outputs, not of its own past — so every feedback-recovery
-        // rung (linear, word, carry, maximal-order, algebraic) is blind to it. But Geffe leaks: z agrees
-        // with x1 and with x3 three-quarters of the time (Pr[z=x1]=Pr[z=x3]=¾), while x2 is invisible
-        // (Pr[z=x2]=½). The correlation attack recovers x1 and x3 ALONE — divide-and-conquer.
-        let n = 2000;
-        let taps1 = [false, false, true, false, false, false, true]; // L=7, period 127
-        let taps2 = [false, false, true, false, true]; // L=5, period 31 (the protected middle)
-        let taps3 = [false, false, false, false, true, false, false, false, true]; // L=9, period 511
-        let seed1 = [true, false, true, true, false, false, true];
-        let seed2 = [true, true, false, false, true];
-        let seed3 = [true, false, false, true, false, true, true, false, true];
-        let x1 = lfsr_generate(&taps1, &seed1, n);
-        let x2 = lfsr_generate(&taps2, &seed2, n);
-        let x3 = lfsr_generate(&taps3, &seed3, n);
-        let z: Vec<bool> = (0..n).map(|i| if x2[i] { x1[i] } else { x3[i] }).collect();
-
-        // Attack x1's register alone (2⁷ = 128 states): the correct initial state pops out at ¾ agreement.
-        let a1 = correlation_attack(&z, &taps1).expect("x1 register attackable");
-        assert_eq!(a1.init_state, seed1.to_vec(), "recovers x1's exact initial state");
-        assert!((a1.agreement - 0.75).abs() < 0.05, "x1 leaks at ~¾ agreement, got {}", a1.agreement);
-        assert!(a1.bias > 3.0 * spurious_bias_floor(7, n), "x1's correlation clears the spurious floor");
-        // The recovered state is a re-checkable witness — regenerate it and it IS x1.
-        assert_eq!(lfsr_generate(&taps1, &a1.init_state, n), x1, "the witness regenerates the x1 register");
-
-        // Attack x3's register alone (2⁹ = 512 states) — independently of x1 and x2.
-        let a3 = correlation_attack(&z, &taps3).expect("x3 register attackable");
-        assert_eq!(a3.init_state, seed3.to_vec(), "recovers x3's exact initial state");
-        assert!((a3.agreement - 0.75).abs() < 0.05, "x3 leaks at ~¾ agreement, got {}", a3.agreement);
-        assert!(a3.bias > 3.0 * spurious_bias_floor(9, n), "x3's correlation clears the spurious floor");
-        assert_eq!(lfsr_generate(&taps3, &a3.init_state, n), x3, "the witness regenerates the x3 register");
-
-        // x2 is the CORRELATION-IMMUNE middle: its best state sits at the spurious floor, no real leak.
-        let a2 = correlation_attack(&z, &taps2).expect("x2 register scanned");
-        assert!(a2.bias < 3.0 * spurious_bias_floor(5, n), "x2 does not measurably leak, bias {}", a2.bias);
-        assert!(a1.bias > 3.0 * a2.bias, "the leaking registers are starkly separated from the protected one");
-    }
-
-    #[test]
-    fn walsh_spectrum_sees_the_linear_approximation_correlation_is_blind_to() {
-        // f(x1,x2,x3,x4) = x1 ⊕ x2 ⊕ (x3 ∧ x4). It is FIRST-ORDER correlation-immune: every weight-1
-        // Walsh coefficient vanishes, so Rung E's single-input attack sees Pr[z=xⱼ]=½ and finds nothing.
-        // But the full Walsh spectrum reveals a WEIGHT-2 approximation z ≈ x1⊕x2 with bias ¼ — the
-        // multi-register leak E structurally cannot express (it only reads weight-1 masks).
-        let f: Vec<bool> = (0..16)
-            .map(|x| {
-                let b = |i: usize| (x >> i) & 1 == 1;
-                b(0) ^ b(1) ^ (b(2) & b(3))
-            })
-            .collect();
-        let spec = walsh_spectrum(&f).expect("well-formed truth table");
-        for m in [1usize, 2, 4, 8] {
-            assert_eq!(spec[m], 0, "weight-1 mask {m} vanishes — Rung E is blind here");
-        }
-        assert_eq!(correlation_immunity_order(&f), Some(1), "f is first-order correlation-immune");
-        let (mask, bias) = best_linear_approximation(&f, true).expect("a best approximation exists");
-        assert_eq!(bias, 0.25, "the exploitable approximation has bias ¼");
-        assert!(mask.count_ones() >= 2, "and it lives at weight ≥ 2 — beyond E's single-register view");
-        assert_eq!(nonlinearity(&f), Some(4), "nonlinearity 2³ − 8/2 = 4");
-
-        // THE CEILING — a bent function g = x1x2 ⊕ x3x4 has a FLAT spectrum: every |Ŵ| = 2^{n/2} = 4, so
-        // no linear approximation beats bias 1/8. Maximal nonlinearity, the linear-incompressible residue.
-        let g: Vec<bool> = (0..16)
-            .map(|x| {
-                let b = |i: usize| (x >> i) & 1 == 1;
-                (b(0) & b(1)) ^ (b(2) & b(3))
-            })
-            .collect();
-        let spec_g = walsh_spectrum(&g).expect("well-formed");
-        assert!(spec_g.iter().all(|&c| c.unsigned_abs() == 4), "bent ⇒ perfectly flat spectrum");
-        assert_eq!(nonlinearity(&g), Some(6), "bent nonlinearity 2³ − 2¹ = 6 (maximal for n=4)");
-        assert_eq!(best_linear_approximation(&g, true).unwrap().1, 0.125, "no approximation beats 1/8");
-    }
-
-    #[test]
-    fn anf_is_its_own_inverse_and_reads_the_degree() {
-        // The Möbius transform is an involution over GF(2): anf(anf(f)) == f, for every function.
-        for n in 1..=5usize {
-            for seed in 0..8u64 {
-                let f: Vec<bool> = (0..1u64 << n)
-                    .map(|i| {
-                        let mut z = 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(i.wrapping_add(seed * 131 + 1));
-                        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                        (z ^ (z >> 27)) & 1 == 1
-                    })
-                    .collect();
-                let a = anf(&f).expect("well-formed");
-                assert_eq!(anf(&a).as_deref(), Some(&f[..]), "anf∘anf = identity (n={n}, seed={seed})");
-            }
-        }
-        // Known ANFs: constant (degree 0), parity (degree 1), the inner-product bent (degree 2).
-        let n = 4;
-        let parity: Vec<bool> = (0..1usize << n).map(|x| (x as u32).count_ones() % 2 == 1).collect();
-        assert_eq!(algebraic_degree(&parity), Some(1), "parity is affine");
-        let bent: Vec<bool> = (0..1usize << n)
-            .map(|x| {
-                let b = |i: usize| x & (1 << i) != 0;
-                (b(0) && b(1)) ^ (b(2) && b(3))
-            })
-            .collect();
-        assert_eq!(algebraic_degree(&bent), Some(2), "x0x1 ⊕ x2x3 is quadratic");
-        assert_eq!(algebraic_degree(&vec![true; 8]), Some(0), "a constant has degree 0");
-    }
-
-    #[test]
-    fn autocorrelation_reads_the_derivative_symmetry() {
-        let n = 4;
-        // A linear function has EVERY direction as a linear structure: |r(a)| = 2ⁿ for all a.
-        let parity: Vec<bool> = (0..1usize << n).map(|x| (x as u32).count_ones() % 2 == 1).collect();
-        let rp = autocorrelation(&parity).expect("well-formed");
-        assert_eq!(rp[0], 16, "r(0) = 2ⁿ always");
-        assert!(rp.iter().all(|&c| c.unsigned_abs() == 16), "a linear function is flat: |r(a)| = 2ⁿ ∀a");
-
-        // A bent function is PERFECTLY nonlinear: r(a) = 0 for every a ≠ 0 — no linear structure at all.
-        let bent: Vec<bool> = (0..1usize << n)
-            .map(|x| {
-                let b = |i: usize| x & (1 << i) != 0;
-                (b(0) && b(1)) ^ (b(2) && b(3))
-            })
-            .collect();
-        let rb = autocorrelation(&bent).expect("well-formed");
-        assert_eq!(rb[0], 16);
-        assert!(rb[1..].iter().all(|&c| c == 0), "bent ⇒ no nonzero linear structure");
-
-        // f(x) = g(x0,x1,x2) ⊕ x3 has the complement structure a = e3: flipping x3 always flips f.
-        let f: Vec<bool> = (0..1usize << n)
-            .map(|x| {
-                let b = |i: usize| x & (1 << i) != 0;
-                ((b(0) && b(1)) ^ b(2)) ^ b(3)
-            })
-            .collect();
-        let rf = autocorrelation(&f).expect("well-formed");
-        assert_eq!(rf[1 << 3], -16, "flipping x3 always flips f ⇒ r(e3) = −2ⁿ (a linear structure)");
-    }
-
-    #[test]
-    fn walsh_found_approximation_breaks_a_correlation_immune_combiner() {
-        // Four LFSRs feed the CI(1) combiner z = a1 ⊕ a2 ⊕ (a3 ∧ a4). Because it is first-order
-        // correlation-immune, Rung E sees each single register at ½ — invisible. The Walsh-found weight-2
-        // approximation z ≈ a1⊕a2 is the break: the COMBINED register leaks at ¾.
-        let n = 4000;
-        let taps1 = [false, false, true, false, false, false, true]; // L=7
-        let taps2 = [false, false, true, false, true]; // L=5
-        let taps3 = [false, false, false, false, true, false, false, false, true]; // L=9
-        let taps4 = [false, false, false, false, false, false, false, false, true, false, true]; // L=11
-        let a1 = lfsr_generate(&taps1, &[true, false, true, true, false, false, true], n);
-        let a2 = lfsr_generate(&taps2, &[true, true, false, false, true], n);
-        let a3 = lfsr_generate(&taps3, &[true, false, false, true, false, true, true, false, true], n);
-        let a4 = lfsr_generate(&taps4, &[true, false, true, false, false, true, true, false, false, true, false], n);
-        let z: Vec<bool> = (0..n).map(|i| a1[i] ^ a2[i] ^ (a3[i] & a4[i])).collect();
-
-        // E's view — the keystream against each single register: flat, no leak (correlation-immune).
-        let agree1 = z.iter().zip(&a1).filter(|(x, y)| x == y).count() as f64 / n as f64;
-        assert!((agree1 - 0.5).abs() < 0.04, "single register a1 is invisible to first-order correlation, {agree1}");
-
-        // F's view — the keystream against the COMBINED register a1⊕a2 (the weight-2 mask Walsh found).
-        let combined: Vec<bool> = (0..n).map(|i| a1[i] ^ a2[i]).collect();
-        let agree_r = z.iter().zip(&combined).filter(|(x, y)| x == y).count() as f64 / n as f64;
-        assert!((agree_r - 0.75).abs() < 0.04, "the weight-2 approximation leaks at ¾ — E could not see it, {agree_r}");
-    }
-
-    #[test]
-    fn fast_correlation_attack_decodes_a_noisy_lfsr_without_exhaustive_search() {
-        // Primitive trinomial x¹⁷+x³+1: a[i] = a[i-14] ⊕ a[i-17], weight-3 parity checks — ideal for fast
-        // correlation. Rung E would search 2¹⁷ states; the decoder recovers the state in polynomial time.
-        let mut taps = vec![false; 17];
-        taps[13] = true; // a[i-14]
-        taps[16] = true; // a[i-17]
-        let seed: Vec<bool> = (0..17).map(|k| (0xACE1u64 >> k) & 1 == 1).collect();
-        let n = 4000;
-        let a = lfsr_generate(&taps, &seed, n);
-
-        // Transmit through a binary symmetric channel: flip ~12% of the bits.
-        let mut st = 0x1234_5678_9abc_def0u64;
-        let z: Vec<bool> = a
-            .iter()
-            .map(|&bit| {
-                st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                bit ^ ((st >> 40) % 100 < 12)
-            })
-            .collect();
-        let agree = a.iter().zip(&z).filter(|(x, y)| x == y).count() as f64 / n as f64;
-        assert!((agree - 0.88).abs() < 0.04, "the channel is genuinely ~12% noisy, got {agree}");
-
-        let state = fast_correlation_attack(&z, &taps, 400).expect("the decoder recovers the register");
-        assert_eq!(state, seed, "fast correlation recovers the exact initial state — no 2¹⁷ search");
-
-        // Ceiling: pure noise (no correlation) decodes to nothing significant.
-        let mut st2 = 0xdead_beef_0bad_c0deu64;
-        let pure: Vec<bool> = (0..n)
-            .map(|_| {
-                st2 = st2.wrapping_mul(6364136223846793005).wrapping_add(1);
-                (st2 >> 40) & 1 == 1
-            })
-            .collect();
-        assert!(fast_correlation_attack(&pure, &taps, 400).is_none(), "pure noise leaks no register — the ceiling");
-    }
-
-    #[test]
-    fn shrinking_generator_falls_to_a_clock_guess_the_linear_rungs_cannot_touch() {
-        // Clock register A (L=7) gates data register S (L=9). The output is a data-dependent decimation
-        // of S — not a fixed function of any register's own past — so its linear complexity is enormous
-        // and every feedback/correlation/algebraic/linear rung is blind. The attack guesses A's 2⁷ states
-        // (divide-and-conquer on the CLOCK alone) and linear-solves S.
-        let a_taps = [false, false, true, false, false, false, true]; // L=7
-        let s_taps = [false, false, false, false, true, false, false, false, true]; // L=9
-        let a_seed = [true, false, true, true, false, false, true];
-        let s_seed = [true, true, false, true, false, true, true, false, true];
-        let m = 300;
-        let output = shrinking_generator(&a_taps, &a_seed, &s_taps, &s_seed, m);
-
-        // The linear rung is blind: the output's linear complexity is far above the data register order.
-        assert!(
-            berlekamp_massey_gf2(&output).0 > 40,
-            "the shrinking generator's output has high linear complexity, got {}",
-            berlekamp_massey_gf2(&output).0
-        );
-
-        let (a_rec, s_rec) = attack_shrinking_generator(&output, &a_taps, &s_taps).expect("the generator falls");
-        // The shrinking generator has key-equivalences (distinct register states yielding the same
-        // keystream), so the break is keystream-equivalence, not literal state equality: the recovered
-        // pair reproduces the output — and keeps reproducing it far past the 300 bits the attack used
-        // (1000 bits), proving a full recovery of the generator, not a short coincidence.
-        assert_eq!(
-            shrinking_generator(&a_taps, &a_rec, &s_taps, &s_rec, m),
-            output,
-            "the recovered pair regenerates the keystream — the certified break"
-        );
-        assert_eq!(
-            shrinking_generator(&a_taps, &a_rec, &s_taps, &s_rec, 1000),
-            shrinking_generator(&a_taps, &a_seed, &s_taps, &s_seed, 1000),
-            "and stays identical to the true generator well past the attacked length — a full break"
-        );
-    }
-
-    #[test]
-    fn xl_solves_a_quadratic_system_by_degree_escalation() {
-        // A quadratic system over GF(2) in x0..x3 with the unique solution [1,0,1,0]. Each equation is an
-        // XOR of monomial bitmasks that must be 0 (bit i = variable i; mask 0 = the constant 1).
-        let eqs: Vec<Vec<u64>> = vec![
-            vec![0b0011],           // x0·x1 = 0
-            vec![0b0101, 0b0000],   // x0·x2 = 1
-            vec![0b0110],           // x1·x2 = 0
-            vec![0b1100],           // x2·x3 = 0
-            vec![0b0001, 0b0100],   // x0 ⊕ x2 = 0
-            vec![0b0010, 0b1000],   // x1 ⊕ x3 = 0
-        ];
-        // At operating degree 1 the quadratic constraints cannot even be represented — only the two
-        // linear relations survive, and the system is underdetermined.
-        assert_eq!(
-            solve_polynomial_system_gf2(&eqs, 4, 1),
-            PolySolveResult::Undetermined,
-            "degree 1 cannot represent the quadratic constraints"
-        );
-        // XL at degree 2 multiplies the equations, linking the products back to the variables, and the
-        // unique root falls out — verified against the original nonlinear system.
-        assert_eq!(
-            solve_polynomial_system_gf2(&eqs, 4, 2),
-            PolySolveResult::Solved(vec![true, false, true, false]),
-            "XL recovers the unique root"
-        );
-    }
-
-    #[test]
-    fn xl_refutes_an_unsatisfiable_system_linearization_misses() {
-        // x0·x1 = 1 and x0 = 0 is contradictory (x0=0 forces x0·x1=0≠1), but a degree-1 linearization
-        // cannot even represent x0·x1. XL multiplies x0=0 by x1 to derive x0·x1=0, colliding with
-        // x0·x1=1 → 0=1, a certified refutation.
-        // Over 2 variables (x0 = bit 0, x1 = bit 1), x0·x1 has mask 0b11.
-        let eqs: Vec<Vec<u64>> = vec![
-            vec![0b11, 0b00], // x0·x1 ⊕ 1 = 0
-            vec![0b01],       // x0 = 0
-        ];
-        assert_eq!(
-            solve_polynomial_system_gf2(&eqs, 2, 1),
-            PolySolveResult::Undetermined,
-            "at degree 1 the quadratic contradiction is invisible"
-        );
-        assert_eq!(
-            solve_polynomial_system_gf2(&eqs, 2, 2),
-            PolySolveResult::Refuted,
-            "XL manufactures x0·x1 = 0, refuting the system"
-        );
-    }
-
-    #[test]
-    fn algebraic_immunity_computes_and_verifies_known_values() {
-        let b = |x: usize, i: usize| (x >> i) & 1 == 1;
-
-        // An affine function has algebraic immunity 1: g = C ⊕ 1 annihilates it (degree 1).
-        let affine: Vec<bool> = (0..8).map(|x| b(x, 0) ^ b(x, 1) ^ b(x, 2)).collect();
-        let (ai, w) = algebraic_immunity(&affine).expect("well-formed");
-        assert_eq!(ai, 1, "affine functions have AI 1");
-        assert!(verify_annihilator(&affine, &w), "the affine annihilator re-checks");
-
-        // Majority-of-3 has algebraic immunity 2 — no affine annihilator exists on either side.
-        let maj3: Vec<bool> = (0..8).map(|x| (x as u32).count_ones() >= 2).collect();
-        let (ai, w) = algebraic_immunity(&maj3).expect("well-formed");
-        assert_eq!(ai, 2, "majority-3 has AI 2 (the maximum for n=3)");
-        assert!(verify_annihilator(&maj3, &w), "the degree-2 annihilator re-checks");
-
-        // A product term x1∧x2∧x3 has AI 1 (x1 ⊕ 1 vanishes on its lone support point 111).
-        let and3: Vec<bool> = (0..8).map(|x| b(x, 0) & b(x, 1) & b(x, 2)).collect();
-        assert_eq!(algebraic_immunity(&and3).unwrap().0, 1, "a single product term has AI 1");
-
-        // Tamper cases: an all-zero witness is not an annihilator, and flipping the side breaks vanishing.
-        let (_, w) = algebraic_immunity(&maj3).unwrap();
-        let mut zeroed = w.clone();
-        zeroed.coeffs = vec![false; zeroed.coeffs.len()];
-        assert!(!verify_annihilator(&maj3, &zeroed), "the zero function is not a valid annihilator");
-        let mut flipped = w.clone();
-        flipped.annihilates_complement = !flipped.annihilates_complement;
-        assert!(!verify_annihilator(&maj3, &flipped), "a nonzero g cannot vanish on both sides");
-    }
-
-    #[test]
-    fn algebraic_immunity_never_exceeds_half_n() {
-        // AI(C) ≤ ⌈n/2⌉ for every Boolean function — a theorem; re-checked here on pseudo-random tables.
-        let mut st = 0x00C0_FFEE_1234_5678u64;
-        for _ in 0..24 {
-            let truth: Vec<bool> = (0..16)
-                .map(|_| {
-                    st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    (st >> 33) & 1 == 1
-                })
-                .collect();
-            let (ai, w) = algebraic_immunity(&truth).expect("well-formed");
-            assert!(ai <= 2, "AI ≤ ⌈4/2⌉ = 2, got {ai}");
-            assert!(verify_annihilator(&truth, &w), "every witness re-checks");
-        }
-    }
-
-    #[test]
-    fn algebraic_filter_attack_recovers_the_filter_generator_state() {
-        // A filter generator: a length-10 maximal LFSR (x¹⁰+x³+1, period 1023) filtered by majority-of-3
-        // over three consecutive state bits. Correlation/Walsh see only statistical leaks; the algebraic
-        // attack is exact — maj3 has AI 2, so each keystream bit is a degree-2 equation in the initial
-        // state, and linearizing over the 56 monomials recovers all 10 secret bits at once.
-        let taps = [false, false, false, false, false, false, true, false, false, true]; // s[i]=s[i-7]⊕s[i-10]
-        let s0 = [true, false, true, true, false, false, true, false, true, true];
-        let filter_truth: Vec<bool> = (0..8).map(|x| (x as u32).count_ones() >= 2).collect(); // maj3
-        let m = 3;
-        let n = 400;
-        let seq = lfsr_generate(&taps, &s0, n + m);
-        let keystream: Vec<bool> = (0..n)
-            .map(|t| {
-                let idx = (0..m).fold(0usize, |a, i| a | (usize::from(seq[t + i]) << i));
-                filter_truth[idx]
-            })
-            .collect();
-
-        let recovered = algebraic_filter_attack(&keystream, &taps, &filter_truth)
-            .expect("the algebraic attack recovers the state");
-        assert_eq!(recovered, s0.to_vec(), "the recovered initial state IS the secret key");
-    }
-
-    #[test]
-    fn periodic_round_trips() {
-        let block = [4i64, 1, 1, 5, 9, 2, 6];
-        let v: Vec<i64> = (0..300).map(|i| block[i % block.len()]).collect();
-        roundtrips(&v);
-    }
-
-    #[test]
-    fn modular_affine_round_trips() {
-        let v: Vec<i64> = (0..200).map(|i| 100 + 3 * ((i % 8) as i64)).collect();
-        roundtrips(&v);
-    }
-
-    #[test]
-    fn sparse_round_trips() {
-        let mut v = vec![42i64; 500];
-        v[17] = -1;
-        v[300] = 999;
-        v[499] = 7;
-        roundtrips(&v);
-    }
-
-    #[test]
-    fn delta_and_dod_shapes_round_trip() {
-        let monotone: Vec<i64> = (0..200).map(|i| i * i / 7 + i).collect();
-        roundtrips(&monotone);
-        let jittered: Vec<i64> = (0..200).map(|i| 1_000_000 + 60 * i + (i % 3)).collect();
-        roundtrips(&jittered);
-    }
-
-    #[test]
-    fn runs_and_low_cardinality_round_trip() {
-        let mut runs = vec![5i64; 100];
-        runs.extend(std::iter::repeat(9).take(80));
-        runs.extend(std::iter::repeat(-2).take(120));
-        roundtrips(&runs);
-        let categorical: Vec<i64> = (0..600).map(|i| [10, 20, 30][i % 3]).collect();
-        roundtrips(&categorical);
-    }
-
-    #[test]
-    fn byte_column_round_trips() {
-        let v: Vec<i64> = (0..500).map(|i| ((i * 37) % 256) as i64).collect();
-        roundtrips(&v);
-    }
-
-    #[test]
-    fn edge_cases_round_trip() {
-        roundtrips(&[]);
-        roundtrips(&[42]);
-        roundtrips(&[-1]);
-        roundtrips(&[i64::MIN, i64::MAX, 0, -1, 1]);
-        roundtrips(&[7, 7, 7, 7]);
-    }
-
-    #[test]
-    fn pseudorandom_round_trips_and_is_never_larger_than_varint() {
-        // A pseeded pseudo-random column has no generator structure; the varint baseline must win
-        // and the round-trip must still be exact.
-        let mut state = 0x1234_5678_9abc_def0u64;
-        let v: Vec<i64> = (0..400)
-            .map(|_| {
-                state ^= state << 13;
-                state ^= state >> 7;
-                state ^= state << 17;
-                (state >> 1) as i64
-            })
-            .collect();
-        roundtrips(&v);
-        let mut baseline = vec![T_INTS];
-        leb128_encode(&mut baseline, v.iter().copied(), v.len());
-        assert!(describe_int_seq(&v).len() <= baseline.len(), "never worse than the varint baseline");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/describe/tests.rs"]
+mod tests;

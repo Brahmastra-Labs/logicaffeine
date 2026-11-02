@@ -3,8 +3,8 @@
 //! RED tests for hardware vocabulary, ## Hardware/Property block types,
 //! and temporal keyword disambiguation.
 
-use logicaffeine_language::{compile, compile_kripke, Lexer, Interner};
 use logicaffeine_language::token::TokenType;
+use logicaffeine_language::{compile, Interner, Lexer};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BLOCK TYPE RECOGNITION (lexer level)
@@ -57,7 +57,11 @@ fn always_outside_property_block_remains_adverb() {
 fn clock_noun_parses_and_appears_in_fol() {
     let input = "The clock rises.";
     let result = compile(input);
-    assert!(result.is_ok(), "Clock noun should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Clock noun should parse: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert!(
         output.contains("Clock") || output.contains("clock") || output.contains("Rise"),
@@ -70,7 +74,11 @@ fn clock_noun_parses_and_appears_in_fol() {
 fn high_adjective_parses_and_appears_in_fol() {
     let input = "The signal is high.";
     let result = compile(input);
-    assert!(result.is_ok(), "High adjective should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "High adjective should parse: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert!(
         output.contains("High") || output.contains("high"),
@@ -83,7 +91,11 @@ fn high_adjective_parses_and_appears_in_fol() {
 fn low_adjective_parses_and_appears_in_fol() {
     let input = "The signal is low.";
     let result = compile(input);
-    assert!(result.is_ok(), "Low adjective should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Low adjective should parse: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert!(
         output.contains("Low") || output.contains("low"),
@@ -96,7 +108,11 @@ fn low_adjective_parses_and_appears_in_fol() {
 fn toggle_verb_parses_and_appears_in_fol() {
     let input = "The signal toggles.";
     let result = compile(input);
-    assert!(result.is_ok(), "Toggle verb should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Toggle verb should parse: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert!(
         output.contains("Toggle") || output.contains("toggle"),
@@ -113,7 +129,11 @@ fn toggle_verb_parses_and_appears_in_fol() {
 #[test]
 fn bit_parsed_as_noun_not_verb_bite() {
     let result = compile("The start bit is low.");
-    assert!(result.is_ok(), "\"The start bit is low\" should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "\"The start bit is low\" should parse: {:?}",
+        result.err()
+    );
     let fol = result.unwrap();
     assert!(
         !fol.contains("Bite"),
@@ -126,8 +146,11 @@ fn bit_parsed_as_noun_not_verb_bite() {
 fn bit_appears_as_noun_in_fol() {
     let fol = compile("The start bit is low.").unwrap();
     assert!(
-        fol.contains("Bit") || fol.contains("bit") || fol.contains("Low")
-            || fol.contains("Start") || fol.contains("start"),
+        fol.contains("Bit")
+            || fol.contains("bit")
+            || fol.contains("Low")
+            || fol.contains("Start")
+            || fol.contains("start"),
         "FOL should reference the bit noun phrase. Got: {}",
         fol
     );
@@ -141,7 +164,11 @@ fn bit_appears_as_noun_in_fol() {
 #[test]
 fn stop_bit_parses_with_high_predicate() {
     let result = compile("The stop bit is high.");
-    assert!(result.is_ok(), "UART2: \"The stop bit is high\" should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "UART2: \"The stop bit is high\" should parse: {:?}",
+        result.err()
+    );
     let fol = result.unwrap();
     assert!(
         !fol.contains("Bite"),
@@ -151,8 +178,11 @@ fn stop_bit_parses_with_high_predicate() {
     // High predicate depends on Gap 3 (copula + adjective consistency)
     // For now, assert the noun phrase parsed correctly
     assert!(
-        fol.contains("Stop") || fol.contains("stop") || fol.contains("Bit")
-            || fol.contains("High") || fol.contains("high"),
+        fol.contains("Stop")
+            || fol.contains("stop")
+            || fol.contains("Bit")
+            || fol.contains("High")
+            || fol.contains("high"),
         "Should contain stop/bit noun or High predicate. Got: {}",
         fol
     );
@@ -161,7 +191,11 @@ fn stop_bit_parses_with_high_predicate() {
 #[test]
 fn data_bits_plural_parsed_as_noun() {
     let result = compile("The data bits follow the start bit.");
-    assert!(result.is_ok(), "H1: plural \"bits\" should parse as noun: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "H1: plural \"bits\" should parse as noun: {:?}",
+        result.err()
+    );
     let fol = result.unwrap();
     assert!(
         !fol.contains("Bite"),
@@ -174,7 +208,11 @@ fn data_bits_plural_parsed_as_noun() {
 fn bit_with_universal_quantifier() {
     // "Every bit is valid" — simpler form that avoids the either/or gap
     let result = compile("Every bit is valid.");
-    assert!(result.is_ok(), "Count noun \"bit\" with universal quantifier should parse: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Count noun \"bit\" with universal quantifier should parse: {:?}",
+        result.err()
+    );
     let fol = result.unwrap();
     assert!(
         fol.contains("∀") || fol.contains("Bit") || fol.contains("bit"),
@@ -217,7 +255,11 @@ fn request_is_high_parses() {
 #[test]
 fn grant_parses_as_noun() {
     let result = compile("The grant signal is active.");
-    assert!(result.is_ok(), "\"grant\" should parse as noun: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "\"grant\" should parse as noun: {:?}",
+        result.err()
+    );
     let fol = result.unwrap();
     assert!(
         fol.contains("Grant") || fol.contains("grant") || fol.contains("Active"),

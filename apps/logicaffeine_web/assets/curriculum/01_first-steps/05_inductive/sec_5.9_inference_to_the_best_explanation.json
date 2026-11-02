@@ -1,0 +1,50 @@
+{
+  "id": "5.9",
+  "title": "Inference to the Best Explanation",
+  "order": 9,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Sometimes we accept a hypothesis because it explains the evidence better than its rivals. This is **inference to the best explanation**."
+    },
+    {
+      "type": "definition",
+      "term": "A good explanation",
+      "definition": "Is simple, explains a lot, fits what we already know, and predicts new things."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Wet ground",
+      "lines": [
+        "The ground is wet this morning.",
+        "Rain overnight explains it better than a burst pipe or a sprinkler."
+      ],
+      "conclusion": "So it probably rained."
+    },
+    {
+      "type": "worked",
+      "title": "Evolution",
+      "lines": [
+        "Fossils appear in a fixed order through the rock layers.",
+        "Related species cluster by region.",
+        "DNA shows patterns of descent."
+      ],
+      "conclusion": "Evolution explains all of this best."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "By Occam's razor, which explanation should you prefer?",
+    "options": [
+      "The most detailed one",
+      "The one with the fewest assumptions",
+      "The most surprising one",
+      "The most popular one"
+    ],
+    "correct": 1,
+    "hint": "Occam's razor cuts away whatever is not needed.",
+    "explanation": "Occam's razor says not to multiply assumptions beyond need. Of two explanations that fit the evidence, prefer the simpler."
+  }
+}

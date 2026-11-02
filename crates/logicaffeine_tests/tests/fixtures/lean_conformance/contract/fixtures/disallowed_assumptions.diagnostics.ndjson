@@ -1,0 +1,1 @@
+{"code":"disallowed_assumption","declaration":"Gap.viaHole","line":null,"message":"the proof rests on an admission — /s:\"sorryAx\" — reached through the transitive closure of its statement and proof (opaque theorems and definitions included); an admitted step proves anything and is never a solution","stage":"assumption_policy"}

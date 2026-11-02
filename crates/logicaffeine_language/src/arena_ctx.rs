@@ -11,10 +11,13 @@
 //! - Symbols, thematic roles, and prepositional phrases
 //! - Imperative statements (optional, for LOGOS mode)
 
-use logicaffeine_base::Arena;
-use crate::ast::{AspectOperator, LogicExpr, ModalVector, NounPhrase, QuantifierKind, TemporalOperator, VoiceOperator, Term, ThematicRole, Stmt, Expr, TypeExpr};
-use logicaffeine_base::Symbol;
+use crate::ast::{
+    AspectOperator, Expr, LogicExpr, ModalVector, NounPhrase, QuantifierKind, Stmt,
+    TemporalOperator, Term, ThematicRole, TypeExpr, VoiceOperator,
+};
 use crate::token::TokenType;
+use logicaffeine_base::Arena;
+use logicaffeine_base::Symbol;
 
 /// Collection of typed arenas for AST allocation during parsing.
 ///
@@ -59,7 +62,17 @@ impl<'a> AstContext<'a> {
         roles: &'a Arena<(ThematicRole, Term<'a>)>,
         pps: &'a Arena<&'a LogicExpr<'a>>,
     ) -> Self {
-        AstContext { exprs, terms, nps, syms, roles, pps, stmts: None, imperative_exprs: None, type_exprs: None }
+        AstContext {
+            exprs,
+            terms,
+            nps,
+            syms,
+            roles,
+            pps,
+            stmts: None,
+            imperative_exprs: None,
+            type_exprs: None,
+        }
     }
 
     /// Creates a context with imperative statement arenas for LOGOS programs.
@@ -73,7 +86,17 @@ impl<'a> AstContext<'a> {
         stmts: &'a Arena<Stmt<'a>>,
         imperative_exprs: &'a Arena<Expr<'a>>,
     ) -> Self {
-        AstContext { exprs, terms, nps, syms, roles, pps, stmts: Some(stmts), imperative_exprs: Some(imperative_exprs), type_exprs: None }
+        AstContext {
+            exprs,
+            terms,
+            nps,
+            syms,
+            roles,
+            pps,
+            stmts: Some(stmts),
+            imperative_exprs: Some(imperative_exprs),
+            type_exprs: None,
+        }
     }
 
     /// Creates a context with type expression arena for typed LOGOS programs.
@@ -89,7 +112,12 @@ impl<'a> AstContext<'a> {
         type_exprs: &'a Arena<TypeExpr<'a>>,
     ) -> Self {
         AstContext {
-            exprs, terms, nps, syms, roles, pps,
+            exprs,
+            terms,
+            nps,
+            syms,
+            roles,
+            pps,
             stmts: Some(stmts),
             imperative_exprs: Some(imperative_exprs),
             type_exprs: Some(type_exprs),
@@ -101,7 +129,9 @@ impl<'a> AstContext<'a> {
     /// # Panics
     /// Panics if imperative arenas were not initialized.
     pub fn alloc_stmt(&self, stmt: Stmt<'a>) -> &'a Stmt<'a> {
-        self.stmts.expect("imperative arenas not initialized").alloc(stmt)
+        self.stmts
+            .expect("imperative arenas not initialized")
+            .alloc(stmt)
     }
 
     /// Allocates an imperative expression.
@@ -109,7 +139,9 @@ impl<'a> AstContext<'a> {
     /// # Panics
     /// Panics if imperative arenas were not initialized.
     pub fn alloc_imperative_expr(&self, expr: Expr<'a>) -> &'a Expr<'a> {
-        self.imperative_exprs.expect("imperative arenas not initialized").alloc(expr)
+        self.imperative_exprs
+            .expect("imperative arenas not initialized")
+            .alloc(expr)
     }
 
     /// Allocates a type expression.
@@ -117,7 +149,9 @@ impl<'a> AstContext<'a> {
     /// # Panics
     /// Panics if type expression arena was not initialized.
     pub fn alloc_type_expr(&self, ty: TypeExpr<'a>) -> &'a TypeExpr<'a> {
-        self.type_exprs.expect("type_exprs arena not initialized").alloc(ty)
+        self.type_exprs
+            .expect("type_exprs arena not initialized")
+            .alloc(ty)
     }
 
     /// Allocates a slice of type expressions.
@@ -129,7 +163,9 @@ impl<'a> AstContext<'a> {
         I: IntoIterator<Item = TypeExpr<'a>>,
         I::IntoIter: ExactSizeIterator,
     {
-        self.type_exprs.expect("type_exprs arena not initialized").alloc_slice(types)
+        self.type_exprs
+            .expect("type_exprs arena not initialized")
+            .alloc_slice(types)
     }
 
     /// Allocates a logical expression.
@@ -185,12 +221,21 @@ impl<'a> AstContext<'a> {
 
     /// Creates an atomic predicate: `P(t1, t2, ...)`.
     pub fn predicate(&self, name: Symbol, args: &'a [Term<'a>]) -> &'a LogicExpr<'a> {
-        self.exprs.alloc(LogicExpr::Predicate { name, args, world: None })
+        self.exprs.alloc(LogicExpr::Predicate {
+            name,
+            args,
+            world: None,
+        })
     }
 
     /// Creates a binary operation: `left op right`.
     #[inline(always)]
-    pub fn binary(&self, left: &'a LogicExpr<'a>, op: TokenType, right: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+    pub fn binary(
+        &self,
+        left: &'a LogicExpr<'a>,
+        op: TokenType,
+        right: &'a LogicExpr<'a>,
+    ) -> &'a LogicExpr<'a> {
         self.exprs.alloc(LogicExpr::BinaryOp { left, op, right })
     }
 
@@ -202,19 +247,38 @@ impl<'a> AstContext<'a> {
 
     /// Creates a quantified formula: `∀x.body` or `∃x.body`.
     #[inline(always)]
-    pub fn quantifier(&self, kind: QuantifierKind, variable: Symbol, body: &'a LogicExpr<'a>, island_id: u32) -> &'a LogicExpr<'a> {
-        self.exprs.alloc(LogicExpr::Quantifier { kind, variable, body, island_id })
+    pub fn quantifier(
+        &self,
+        kind: QuantifierKind,
+        variable: Symbol,
+        body: &'a LogicExpr<'a>,
+        island_id: u32,
+    ) -> &'a LogicExpr<'a> {
+        self.exprs.alloc(LogicExpr::Quantifier {
+            kind,
+            variable,
+            body,
+            island_id,
+        })
     }
 
     /// Creates a temporal operator: `PAST(body)` or `FUTURE(body)`.
     #[inline(always)]
-    pub fn temporal(&self, operator: TemporalOperator, body: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+    pub fn temporal(
+        &self,
+        operator: TemporalOperator,
+        body: &'a LogicExpr<'a>,
+    ) -> &'a LogicExpr<'a> {
         self.exprs.alloc(LogicExpr::Temporal { operator, body })
     }
 
     /// Creates an aspectual operator: `PROG(body)`, `PERF(body)`, etc.
     #[inline(always)]
-    pub fn aspectual(&self, operator: AspectOperator, body: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+    pub fn aspectual(
+        &self,
+        operator: AspectOperator,
+        body: &'a LogicExpr<'a>,
+    ) -> &'a LogicExpr<'a> {
         self.exprs.alloc(LogicExpr::Aspectual { operator, body })
     }
 
@@ -232,133 +296,5 @@ impl<'a> AstContext<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::{QuantifierKind, TemporalOperator, AspectOperator, ModalVector, ModalDomain};
-    use logicaffeine_base::Interner;
-    use crate::token::TokenType;
-
-    fn setup<'a>(
-        expr_arena: &'a Arena<LogicExpr<'a>>,
-        term_arena: &'a Arena<Term<'a>>,
-        np_arena: &'a Arena<NounPhrase<'a>>,
-        sym_arena: &'a Arena<Symbol>,
-        role_arena: &'a Arena<(ThematicRole, Term<'a>)>,
-        pp_arena: &'a Arena<&'a LogicExpr<'a>>,
-    ) -> AstContext<'a> {
-        AstContext::new(expr_arena, term_arena, np_arena, sym_arena, role_arena, pp_arena)
-    }
-
-    #[test]
-    fn binary_builder_creates_binary_op() {
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let np_arena: Arena<NounPhrase> = Arena::new();
-        let sym_arena: Arena<Symbol> = Arena::new();
-        let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
-        let pp_arena: Arena<&LogicExpr> = Arena::new();
-        let ctx = setup(&expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena);
-
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let q = interner.intern("Q");
-
-        let left = ctx.alloc_expr(LogicExpr::Atom(p));
-        let right = ctx.alloc_expr(LogicExpr::Atom(q));
-        let result = ctx.binary(left, TokenType::And, right);
-
-        assert!(matches!(result, LogicExpr::BinaryOp { op: TokenType::And, .. }));
-    }
-
-    #[test]
-    fn unary_builder_creates_unary_op() {
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let np_arena: Arena<NounPhrase> = Arena::new();
-        let sym_arena: Arena<Symbol> = Arena::new();
-        let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
-        let pp_arena: Arena<&LogicExpr> = Arena::new();
-        let ctx = setup(&expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena);
-
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let operand = ctx.alloc_expr(LogicExpr::Atom(p));
-        let result = ctx.unary(TokenType::Not, operand);
-
-        assert!(matches!(result, LogicExpr::UnaryOp { op: TokenType::Not, .. }));
-    }
-
-    #[test]
-    fn quantifier_builder_creates_quantifier() {
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let np_arena: Arena<NounPhrase> = Arena::new();
-        let sym_arena: Arena<Symbol> = Arena::new();
-        let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
-        let pp_arena: Arena<&LogicExpr> = Arena::new();
-        let ctx = setup(&expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena);
-
-        let mut interner = Interner::new();
-        let x = interner.intern("x");
-        let p = interner.intern("P");
-        let body = ctx.alloc_expr(LogicExpr::Atom(p));
-        let result = ctx.quantifier(QuantifierKind::Universal, x, body, 0);
-
-        assert!(matches!(result, LogicExpr::Quantifier { kind: QuantifierKind::Universal, .. }));
-    }
-
-    #[test]
-    fn temporal_builder_creates_temporal() {
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let np_arena: Arena<NounPhrase> = Arena::new();
-        let sym_arena: Arena<Symbol> = Arena::new();
-        let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
-        let pp_arena: Arena<&LogicExpr> = Arena::new();
-        let ctx = setup(&expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena);
-
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let body = ctx.alloc_expr(LogicExpr::Atom(p));
-        let result = ctx.temporal(TemporalOperator::Past, body);
-
-        assert!(matches!(result, LogicExpr::Temporal { operator: TemporalOperator::Past, .. }));
-    }
-
-    #[test]
-    fn aspectual_builder_creates_aspectual() {
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let np_arena: Arena<NounPhrase> = Arena::new();
-        let sym_arena: Arena<Symbol> = Arena::new();
-        let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
-        let pp_arena: Arena<&LogicExpr> = Arena::new();
-        let ctx = setup(&expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena);
-
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let body = ctx.alloc_expr(LogicExpr::Atom(p));
-        let result = ctx.aspectual(AspectOperator::Progressive, body);
-
-        assert!(matches!(result, LogicExpr::Aspectual { operator: AspectOperator::Progressive, .. }));
-    }
-
-    #[test]
-    fn modal_builder_creates_modal() {
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let np_arena: Arena<NounPhrase> = Arena::new();
-        let sym_arena: Arena<Symbol> = Arena::new();
-        let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
-        let pp_arena: Arena<&LogicExpr> = Arena::new();
-        let ctx = setup(&expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena);
-
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let operand = ctx.alloc_expr(LogicExpr::Atom(p));
-        let vector = ModalVector { domain: ModalDomain::Alethic, force: 1.0, flavor: crate::ast::ModalFlavor::Root, modal_base: None, ordering_source: None };
-        let result = ctx.modal(vector, operand);
-
-        assert!(matches!(result, LogicExpr::Modal { .. }));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/arena_ctx/tests.rs"]
+mod tests;

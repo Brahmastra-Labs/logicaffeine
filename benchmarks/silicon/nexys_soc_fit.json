@@ -1,0 +1,19 @@
+{
+  "note": "Fit of nexys_soc — the board-runnable full 113-op LOGOS SoC (soft_core + UART load/run/readback) — on the Nexys A7-100T (Artix-7 XC7A100T). Reproduce: yosys -p 'read_verilog nexys_soc.v soft_core.v alu.v shared_divider.v; synth_xilinx -family xc7 -flatten -top nexys_soc; stat'. Verified end-to-end in sim by tb_nexys_soc.v (3 programs loaded over UART, run, results read back). The final .bit is a Vivado place-and-route (build_nexys_soc via nexys_soc.xdc); no open 7-series bitstream tool exists.",
+  "meta": {
+    "board": "Nexys A7-100T",
+    "part": "xc7a100t-1csg324c",
+    "flow": "yosys synth_xilinx -family xc7 -flatten (Vivado for P&R + bitstream)",
+    "flatten_note": "flattened, so imem/show_mem map to LUTs/FFs not BRAM; Vivado infers block RAM and reduces both counts. These are the conservative (upper-bound) numbers."
+  },
+  "budget": { "lut6": 63400, "ff": 126800, "dsp48": 240, "bram36": 135 },
+  "nexys_soc": {
+    "lut6": 53186,
+    "ff": 11712,
+    "dsp48": 138,
+    "lut6_pct": 83.9,
+    "ff_pct": 9.2,
+    "dsp48_pct": 57.5,
+    "fits": true
+  }
+}

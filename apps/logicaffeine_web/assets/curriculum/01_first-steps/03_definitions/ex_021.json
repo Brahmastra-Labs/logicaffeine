@@ -2,17 +2,18 @@
   "id": "Q_3.22",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "A teacher is one who instructs children.",
+  "prompt": "A teacher is someone who teaches in a high school.",
   "options": [
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 1,
-  "hint": "Can you think of a genuine teacher that this definition would wrongly EXCLUDE?",
-  "explanation": "Teachers also instruct teenagers and adults — professors and instructors are teachers too. Limiting it to children leaves out many genuine teachers, so the definition is TOO NARROW."
+  "hint": "Can you think of a teacher that this definition leaves out?",
+  "explanation": "Teachers also work in primary schools and universities, so many are left out.",
+  "section": "3.2"
 }

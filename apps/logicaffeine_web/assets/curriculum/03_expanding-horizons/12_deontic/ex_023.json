@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Would that everyone boast",
   "options": [
-    "$ O(x)B\\underline{x} $",
-    "$ (x)Bx $",
-    "$ (\\underline{x} )Bx $",
-    "$ (x)B\\underline{x} $"
+    "O∀x B(x̲)",
+    "∀x B(x)",
+    "∀x̲ B(x)",
+    "∀x B(x̲)"
   ],
   "correct": 3,
-  "hint": "When everyone must do something, does each person become an agent?",
-  "explanation": "Universal obligations use quantifiers: 'Everyone ought to X' becomes (\u2200x)OX_x \u2014 for all x, x is obligated to X. Each person is an agent of their own obligation."
+  "hint": "This is a wish about everyone. Who would act?",
+  "explanation": "A wish that everyone boast: ∀x B(x̲), with each boaster underlined. There is no ought here, only a wish.",
+  "section": "12.2"
 }

@@ -1,19 +1,16 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use crate::analysis::registry::TypeRegistry;
 use crate::analysis::types::RustNames;
 use crate::ast::stmt::{Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 
-use super::context::{RefinementContext, analyze_variable_capabilities, replace_word};
-use super::detection::{is_result_type, collect_mutable_vars};
+use super::context::{analyze_variable_capabilities, replace_word, RefinementContext};
+use super::detection::{collect_mutable_vars, is_result_type};
 use super::types::codegen_type_expr;
 use super::{
-    CAbiClass, classify_type_for_c_abi,
-    codegen_assertion, codegen_stmt,
-    try_emit_vec_fill_pattern, try_emit_for_range_pattern, try_emit_swap_pattern,
-    try_emit_prefix_reverse,
+    classify_type_for_c_abi, codegen_assertion, codegen_stmt, try_emit_for_range_pattern,
+    try_emit_prefix_reverse, try_emit_swap_pattern, try_emit_vec_fill_pattern, CAbiClass,
 };
 
 pub(super) fn is_text_type(ty: &TypeExpr, interner: &Interner) -> bool {
@@ -31,25 +28,9 @@ pub(super) fn is_text_type(ty: &TypeExpr, interner: &Interner) -> bool {
 /// `char` — an out-of-range `u32` from C materialized as a `char` is UB.
 pub(super) fn is_char_type(ty: &TypeExpr, interner: &Interner) -> bool {
     match ty {
-        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-            interner.resolve(*sym) == "Char"
-        }
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => interner.resolve(*sym) == "Char",
         TypeExpr::Refinement { base, .. } => is_char_type(base, interner),
         _ => false,
-    }
-}
-
-/// FFI: Map a TypeExpr to its C ABI representation.
-/// Primitives pass through; Text becomes raw pointer.
-pub(super) fn map_type_to_c_abi(ty: &TypeExpr, interner: &Interner, is_return: bool) -> String {
-    if is_text_type(ty, interner) {
-        if is_return {
-            "*mut std::os::raw::c_char".to_string()
-        } else {
-            "*const std::os::raw::c_char".to_string()
-        }
-    } else {
-        codegen_type_expr(ty, interner)
     }
 }
 
@@ -70,11 +51,11 @@ pub(super) fn is_native_scalar(ty: &TypeExpr, interner: &Interner) -> bool {
 /// Emit the AOT-native export shim (HOTSWAP §Axis-3): a thin `#[no_mangle] extern "C"`
 /// calling-convention wrapper over the inner Rust fn that crosses our ACTUAL values —
 /// scalars BY VALUE — with NO `CString`/handle marshaling (unlike
-/// [`codegen_c_export_with_marshaling`]). The interpreter marshals VM `Value`s to these
+/// `codegen_c_export_with_marshaling`). The interpreter marshals VM `Value`s to these
 /// scalar args, calls the loaded symbol, and re-boxes the scalar result.
 ///
 /// Returns `None` unless every param AND the return are in the sound scalar subset
-/// ([`is_native_scalar`]): the caller then falls through to VM+JIT, so a function the
+/// (`is_native_scalar`): the caller then falls through to VM+JIT, so a function the
 /// shim cannot represent simply isn't AOT-native — no gap at the seam.
 pub fn codegen_native_tier_export(
     name: Symbol,
@@ -95,7 +76,13 @@ pub fn codegen_native_tier_export(
     let export = format!("logos_native_{}", names.raw(name));
     let params_sig = params
         .iter()
-        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+        .map(|(p, t)| {
+            format!(
+                "{}: {}",
+                interner.resolve(*p),
+                codegen_type_expr(t, interner)
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let args = params
@@ -106,11 +93,50 @@ pub fn codegen_native_tier_export(
     let ret = return_type
         .map(|t| codegen_type_expr(t, interner))
         .unwrap_or_else(|| "()".to_string());
-    let ret_sig = if ret == "()" { String::new() } else { format!(" -> {ret}") };
+    let ret_sig = if ret == "()" {
+        String::new()
+    } else {
+        format!(" -> {ret}")
+    };
+    // A failure inside the function (a broken contract, `Fail with`, a zero divisor) must never abort
+    // the host: the shim catches it silently, records it in `{export}__failed`, and returns a
+    // placeholder the caller discards — the VM re-runs the call on bytecode (see `aot_tier`), where
+    // the exact error is raised at the exact point.
     let mut out = String::new();
+    let _ = writeln!(out, "static {export}__FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);");
     let _ = writeln!(out, "#[no_mangle]");
-    let _ = writeln!(out, "pub extern \"C\" fn {export}({params_sig}){ret_sig} {{");
-    let _ = writeln!(out, "    {inner}({args})");
+    let _ = writeln!(out, "pub extern \"C\" fn {export}__failed() -> i64 {{");
+    let _ = writeln!(
+        out,
+        "    {export}__FAILED.swap(false, std::sync::atomic::Ordering::Relaxed) as i64"
+    );
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out, "#[no_mangle]");
+    let _ = writeln!(
+        out,
+        "pub extern \"C\" fn {export}({params_sig}){ret_sig} {{"
+    );
+    let _ = writeln!(
+        out,
+        "    static SILENT: std::sync::Once = std::sync::Once::new();"
+    );
+    let _ = writeln!(
+        out,
+        "    SILENT.call_once(|| std::panic::set_hook(::std::boxed::Box::new(|_| {{}})));"
+    );
+    let _ = writeln!(
+        out,
+        "    match std::panic::catch_unwind(|| {inner}({args})) {{"
+    );
+    let _ = writeln!(out, "        Ok(v) => v,");
+    let _ = writeln!(out, "        Err(_) => {{");
+    let _ = writeln!(
+        out,
+        "            {export}__FAILED.store(true, std::sync::atomic::Ordering::Relaxed);"
+    );
+    let _ = writeln!(out, "            Default::default()");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
     Some(out)
 }
@@ -157,13 +183,22 @@ pub(super) fn codegen_c_export_with_marshaling(
     // Status code is needed when the return value requires an out-parameter (ref/text/result)
     // or when refinement parameters need validation error paths.
     // Ref-type parameters do NOT force status code — catch_unwind handles invalid handle panics.
-    let uses_status_code = has_ref_return || has_result_return || has_text_return
-        || params.iter().any(|(_, ty)| matches!(ty, TypeExpr::Refinement { .. }));
+    let uses_status_code = has_ref_return
+        || has_result_return
+        || has_text_return
+        || params
+            .iter()
+            .any(|(_, ty)| matches!(ty, TypeExpr::Refinement { .. }));
 
     // 1) Emit the inner function with normal Rust types
-    let inner_params: Vec<String> = params.iter()
+    let inner_params: Vec<String> = params
+        .iter()
         .map(|(pname, ptype)| {
-            format!("{}: {}", interner.resolve(*pname), codegen_type_expr(ptype, interner))
+            format!(
+                "{}: {}",
+                interner.resolve(*pname),
+                codegen_type_expr(ptype, interner)
+            )
         })
         .collect();
     let inner_ret = return_type.map(|t| codegen_type_expr(t, interner));
@@ -192,27 +227,69 @@ pub(super) fn codegen_c_export_with_marshaling(
         let stmt_refs: Vec<&Stmt> = body.iter().collect();
         let mut si = 0;
         while si < stmt_refs.len() {
-            if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
+            if let Some((code, skip)) =
+                try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1, &mut func_ctx)
+            {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
             }
-            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+            if let Some((code, skip)) = try_emit_for_range_pattern(
+                &stmt_refs,
+                si,
+                interner,
+                1,
+                &func_mutable_vars,
+                &mut func_ctx,
+                lww_fields,
+                mv_fields,
+                &mut func_synced_vars,
+                &func_var_caps,
+                async_functions,
+                &func_pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            ) {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
             }
-            if let Some((code, skip)) = try_emit_prefix_reverse(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+            if let Some((code, skip)) =
+                try_emit_prefix_reverse(&stmt_refs, si, interner, 1, func_ctx.get_variable_types())
+            {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
             }
-            if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types(), func_ctx.oracle()) {
+            if let Some((code, skip)) = try_emit_swap_pattern(
+                &stmt_refs,
+                si,
+                interner,
+                1,
+                func_ctx.get_variable_types(),
+                func_ctx.oracle(),
+            ) {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
             }
-            output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
+            output.push_str(&codegen_stmt(
+                stmt_refs[si],
+                interner,
+                1,
+                &func_mutable_vars,
+                &mut func_ctx,
+                lww_fields,
+                mv_fields,
+                &mut func_synced_vars,
+                &func_var_caps,
+                async_functions,
+                &func_pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            ));
             si += 1;
         }
     }
@@ -240,10 +317,16 @@ pub(super) fn codegen_c_export_with_marshaling(
         if let Some(ret_ty) = return_type {
             if has_result_return {
                 // Result<T, E>: out param for the Ok(T) type
-                if let TypeExpr::Generic { params: ref rparams, .. } = ret_ty {
+                if let TypeExpr::Generic {
+                    params: ref rparams,
+                    ..
+                } = ret_ty
+                {
                     if !rparams.is_empty() {
                         let ok_ty = &rparams[0];
-                        if classify_type_for_c_abi(ok_ty, interner, registry) == CAbiClass::ReferenceType {
+                        if classify_type_for_c_abi(ok_ty, interner, registry)
+                            == CAbiClass::ReferenceType
+                        {
                             c_params.push("out: *mut LogosHandle".to_string());
                         } else if is_text_type(ok_ty, interner) {
                             c_params.push("out: *mut *mut std::os::raw::c_char".to_string());
@@ -263,9 +346,17 @@ pub(super) fn codegen_c_export_with_marshaling(
 
     // Build the wrapper signature
     let c_sig = if uses_status_code {
-        format!("pub extern \"C\" fn {}({}) -> LogosStatus", func_name, c_params.join(", "))
+        format!(
+            "pub extern \"C\" fn {}({}) -> LogosStatus",
+            func_name,
+            c_params.join(", ")
+        )
     } else if has_text_return {
-        format!("pub extern \"C\" fn {}({}) -> *mut std::os::raw::c_char", func_name, c_params.join(", "))
+        format!(
+            "pub extern \"C\" fn {}({}) -> *mut std::os::raw::c_char",
+            func_name,
+            c_params.join(", ")
+        )
     } else if let Some(ret_ty) = return_type {
         // Char returns cross the ABI as uint32_t (see is_char_type).
         let ret_str = if is_char_type(ret_ty, interner) {
@@ -274,7 +365,12 @@ pub(super) fn codegen_c_export_with_marshaling(
             codegen_type_expr(ret_ty, interner)
         };
         if ret_str != "()" {
-            format!("pub extern \"C\" fn {}({}) -> {}", func_name, c_params.join(", "), ret_str)
+            format!(
+                "pub extern \"C\" fn {}({}) -> {}",
+                func_name,
+                c_params.join(", "),
+                ret_str
+            )
         } else {
             format!("pub extern \"C\" fn {}({})", func_name, c_params.join(", "))
         }
@@ -335,7 +431,12 @@ pub(super) fn codegen_c_export_with_marshaling(
 
     // 4) Emit refinement guards for parameters
     for (pname, ptype) in params.iter() {
-        if let TypeExpr::Refinement { base: _, var, predicate } = ptype {
+        if let TypeExpr::Refinement {
+            base: _,
+            var,
+            predicate,
+        } = ptype
+        {
             let pname_str = interner.resolve(*pname);
             let bound = interner.resolve(*var);
             let assertion = codegen_assertion(predicate, interner);
@@ -369,29 +470,63 @@ pub(super) fn codegen_c_export_with_marshaling(
     };
 
     // 6) Open catch_unwind panic boundary
-    writeln!(output, "    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {{").unwrap();
+    writeln!(
+        output,
+        "    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {{"
+    )
+    .unwrap();
 
     // 7) Call inner and marshal return (inside catch_unwind closure)
     if uses_status_code {
         if has_result_return {
             // Result<T, E>: match on Ok/Err
-            writeln!(output, "    match {}({}) {{", inner_name, call_args.join(", ")).unwrap();
+            writeln!(
+                output,
+                "    match {}({}) {{",
+                inner_name,
+                call_args.join(", ")
+            )
+            .unwrap();
             writeln!(output, "        Ok(val) => {{").unwrap();
 
-            if let Some(TypeExpr::Generic { params: ref rparams, .. }) = return_type {
+            if let Some(TypeExpr::Generic {
+                params: ref rparams,
+                ..
+            }) = return_type
+            {
                 if !rparams.is_empty() {
                     let ok_ty = &rparams[0];
-                    if classify_type_for_c_abi(ok_ty, interner, registry) == CAbiClass::ReferenceType {
-                        writeln!(output, "            let __ptr = Box::into_raw(Box::new(val)) as usize;").unwrap();
+                    if classify_type_for_c_abi(ok_ty, interner, registry)
+                        == CAbiClass::ReferenceType
+                    {
+                        writeln!(
+                            output,
+                            "            let __ptr = Box::into_raw(Box::new(val)) as usize;"
+                        )
+                        .unwrap();
                         writeln!(output, "            let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
-                        writeln!(output, "            let (__id, _) = __reg.register(__ptr);").unwrap();
-                        writeln!(output, "            unsafe {{ *out = __id as LogosHandle; }}").unwrap();
+                        writeln!(output, "            let (__id, _) = __reg.register(__ptr);")
+                            .unwrap();
+                        writeln!(
+                            output,
+                            "            unsafe {{ *out = __id as LogosHandle; }}"
+                        )
+                        .unwrap();
                     } else if is_text_type(ok_ty, interner) {
-                        writeln!(output, "            match std::ffi::CString::new(val) {{").unwrap();
-                        writeln!(output, "                Ok(cstr) => unsafe {{ *out = cstr.into_raw(); }},").unwrap();
+                        writeln!(output, "            match std::ffi::CString::new(val) {{")
+                            .unwrap();
+                        writeln!(
+                            output,
+                            "                Ok(cstr) => unsafe {{ *out = cstr.into_raw(); }},"
+                        )
+                        .unwrap();
                         writeln!(output, "                Err(_) => {{").unwrap();
                         writeln!(output, "                    logos_set_last_error(\"Return value contains null byte\".to_string());").unwrap();
-                        writeln!(output, "                    return LogosStatus::ContainsNullByte;").unwrap();
+                        writeln!(
+                            output,
+                            "                    return LogosStatus::ContainsNullByte;"
+                        )
+                        .unwrap();
                         writeln!(output, "                }}").unwrap();
                         writeln!(output, "            }}").unwrap();
                     } else {
@@ -403,21 +538,41 @@ pub(super) fn codegen_c_export_with_marshaling(
             writeln!(output, "            LogosStatus::Ok").unwrap();
             writeln!(output, "        }}").unwrap();
             writeln!(output, "        Err(e) => {{").unwrap();
-            writeln!(output, "            logos_set_last_error(format!(\"{{}}\", e));").unwrap();
+            writeln!(
+                output,
+                "            logos_set_last_error(format!(\"{{}}\", e));"
+            )
+            .unwrap();
             writeln!(output, "            LogosStatus::Error").unwrap();
             writeln!(output, "        }}").unwrap();
             writeln!(output, "    }}").unwrap();
         } else if has_ref_return {
             // Reference type return -> box, register in handle registry, and write to out-parameter
-            writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
-            writeln!(output, "    let __ptr = Box::into_raw(Box::new(result)) as usize;").unwrap();
+            writeln!(
+                output,
+                "    let result = {}({});",
+                inner_name,
+                call_args.join(", ")
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "    let __ptr = Box::into_raw(Box::new(result)) as usize;"
+            )
+            .unwrap();
             writeln!(output, "    let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
             writeln!(output, "    let (__id, _) = __reg.register(__ptr);").unwrap();
             writeln!(output, "    unsafe {{ *out = __id as LogosHandle; }}").unwrap();
             writeln!(output, "    LogosStatus::Ok").unwrap();
         } else if has_text_return {
             // Text return with status code -> write to out-parameter
-            writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
+            writeln!(
+                output,
+                "    let result = {}({});",
+                inner_name,
+                call_args.join(", ")
+            )
+            .unwrap();
             writeln!(output, "    match std::ffi::CString::new(result) {{").unwrap();
             writeln!(output, "        Ok(cstr) => {{").unwrap();
             writeln!(output, "            unsafe {{ *out = cstr.into_raw(); }}").unwrap();
@@ -435,7 +590,13 @@ pub(super) fn codegen_c_export_with_marshaling(
         }
     } else if has_text_return {
         // Text-only marshaling (legacy path, no status code)
-        writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
+        writeln!(
+            output,
+            "    let result = {}({});",
+            inner_name,
+            call_args.join(", ")
+        )
+        .unwrap();
         writeln!(output, "    match std::ffi::CString::new(result) {{").unwrap();
         writeln!(output, "        Ok(cstr) => cstr.into_raw(),").unwrap();
         writeln!(output, "        Err(_) => {{ logos_set_last_error(\"Return value contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
@@ -443,7 +604,13 @@ pub(super) fn codegen_c_export_with_marshaling(
     } else if let Some(ret_ty) = return_type {
         // A Char return crosses the ABI as uint32_t.
         if is_char_type(ret_ty, interner) {
-            writeln!(output, "    {}({}) as u32", inner_name, call_args.join(", ")).unwrap();
+            writeln!(
+                output,
+                "    {}({}) as u32",
+                inner_name,
+                call_args.join(", ")
+            )
+            .unwrap();
         } else {
             writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
         }

@@ -1,4 +1,4 @@
-//! Phase 5b (work/FINISH_INTERPRETER.md) — concurrency on the bytecode VM tier.
+//! Concurrency on the bytecode VM tier.
 //!
 //! These run Go-like concurrency programs through `run_vm_concurrent`, which
 //! compiles to the T10 opcodes and drives the resumable VM (`run_until_block`)
@@ -22,7 +22,11 @@ fn vm_pipe_producer_consumer() {
         \x20   Show first.\n\
         \x20   Show second.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(
         result.lines,
         vec!["1".to_string(), "2".to_string()],
@@ -39,10 +43,22 @@ fn vm_launch_fire_and_forget() {
         \x20   Launch a task to worker.\n\
         \x20   Show \"main ran\".\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     let joined = result.lines.join("\n");
-    assert!(joined.contains("worker ran"), "worker output missing: {:?}", result.lines);
-    assert!(joined.contains("main ran"), "main output missing: {:?}", result.lines);
+    assert!(
+        joined.contains("worker ran"),
+        "worker output missing: {:?}",
+        result.lines
+    );
+    assert!(
+        joined.contains("main ran"),
+        "main output missing: {:?}",
+        result.lines
+    );
 }
 
 #[test]
@@ -54,8 +70,16 @@ fn vm_try_receive_empty_is_nothing() {
         \x20   Try to receive x from ch.\n\
         \x20   Show x.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["nothing".to_string()], "try-receive on empty yields Nothing");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["nothing".to_string()],
+        "try-receive on empty yields Nothing"
+    );
 }
 
 #[test]
@@ -69,7 +93,11 @@ fn vm_stop_task_aborts() {
         \x20   Stop handle.\n\
         \x20   Show \"stopped\".\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert!(
         result.lines.contains(&"stopped".to_string()),
         "main reaches its Stop + Show on the VM: {:?}",
@@ -97,7 +125,11 @@ fn vm_hot_loop_inside_task_tiers_and_is_correct() {
         \x20   Receive result from ch.\n\
         \x20   Show result.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(
         result.lines,
         vec!["4999950000".to_string()],
@@ -128,8 +160,16 @@ fn vm_loop_containing_channel_op_runs_correctly() {
         \x20       Set k to k + 1.\n\
         \x20   Show total.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["15".to_string()], "summed 1..5 received in a loop");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["15".to_string()],
+        "summed 1..5 received in a loop"
+    );
 }
 
 #[test]
@@ -141,8 +181,16 @@ fn vm_select_timeout_only() {
         \x20       After 1 seconds:\n\
         \x20           Show \"timeout\".\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["timeout".to_string()], "the timeout arm fires on the VM");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["timeout".to_string()],
+        "the timeout arm fires on the VM"
+    );
 }
 
 #[test]
@@ -161,8 +209,16 @@ fn vm_select_receive_wins_over_timeout() {
         \x20       After 1 seconds:\n\
         \x20           Show \"timeout\".\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["7".to_string()], "the ready recv arm wins on the VM");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["7".to_string()],
+        "the ready recv arm wins on the VM"
+    );
 }
 
 #[test]
@@ -180,8 +236,16 @@ fn vm_concurrent_block_runs_all() {
         \x20   Show a.\n\
         \x20   Show b.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["10".to_string(), "20".to_string()], "both concurrent branches ran");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["10".to_string(), "20".to_string()],
+        "both concurrent branches ran"
+    );
 }
 
 #[test]
@@ -197,8 +261,16 @@ fn vm_parallel_block_runs_all() {
         \x20   Show a.\n\
         \x20   Show b.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["30".to_string(), "40".to_string()], "both parallel branches ran");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["30".to_string(), "40".to_string()],
+        "both parallel branches ran"
+    );
 }
 
 #[test]
@@ -223,8 +295,16 @@ fn vm_bounded_pipe_backpressure() {
         \x20       Set k to k + 1.\n\
         \x20   Show total.\n";
     let result = run_vm_concurrent(src);
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["820".to_string()], "sum(1..40) delivered under backpressure");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["820".to_string()],
+        "sum(1..40) delivered under backpressure"
+    );
 }
 
 #[test]
@@ -236,9 +316,15 @@ fn vm_deadlock_detected() {
         \x20   Receive x from ch.\n\
         \x20   Show x.\n";
     let result = run_vm_concurrent(src);
-    let err = result.error.expect("a no-sender receive must deadlock on the VM");
+    let err = result
+        .error
+        .expect("a no-sender receive must deadlock on the VM");
     assert!(err.contains("deadlock"), "deadlock is reported: {err}");
-    assert!(result.lines.is_empty(), "the unreachable Show never ran: {:?}", result.lines);
+    assert!(
+        result.lines.is_empty(),
+        "the unreachable Show never ran: {:?}",
+        result.lines
+    );
 }
 
 /// A `Sleep` inside a VM task must route through the scheduler's virtual timer, not block
@@ -259,7 +345,11 @@ fn vm_task_sleep_uses_virtual_timer() {
     let start = std::time::Instant::now();
     let result = run_vm_concurrent(src);
     let elapsed = start.elapsed();
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
     assert_eq!(result.lines, vec!["42".to_string()]);
     assert!(
         elapsed < std::time::Duration::from_millis(500),

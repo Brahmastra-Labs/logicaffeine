@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Let someone sleep",
   "options": [
-    "$ (\\exists x)Sx $",
-    "$ O(\\exists x)S\\underline{x} $",
-    "$ (\\exists \\underline{x} )Sx $",
-    "$ (\\exists x)S\\underline{x} $"
+    "∃x S(x)",
+    "O∃x S(x̲)",
+    "∃x̲ S(x)",
+    "∃x S(x̲)"
   ],
   "correct": 3,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'Let someone sleep' is an optative with an indefinite agent: (∃x)S͟x — some person sleeps."
+  "hint": "This is a wish about someone. Who would act?",
+  "explanation": "'Let someone sleep' wishes that someone sleep: ∃x S(x̲).",
+  "section": "12.2"
 }

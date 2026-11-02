@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "These logics challenge fundamental assumptions like the law of excluded middle.",
-  "explanation": "Deviant logics reject or modify core classical principles like bivalence, excluded middle, or non-contradiction. They aren't 'wrong' - they explore what happens when we change fundamental assumptions, often better modeling certain domains like vagueness or quantum phenomena.",
-  "visual_concept": "Classical logic: every statement is true or false, period. Deviant logics ask: what if that's not always the case?"
+  "explanation": "A deviant logic rejects or changes a core classical principle, such as bivalence or excluded middle. It explores what follows when that assumption changes.",
+  "visual_concept": "Classical logic: every statement is true or false, period. Deviant logics ask: what if that's not always the case?",
+  "section": "17.1"
 }

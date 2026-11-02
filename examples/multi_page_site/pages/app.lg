@@ -1,0 +1,23 @@
+# Home
+
+Import Layout.
+
+## Page /
+
+Head:
+    <title>Home — Acme</title>
+    <meta name="description" content="Acme's home page.">
+
+View:
+    {extends Site}
+    {block content:}
+      <h1 id="title">Home</h1>
+      <p id="body">Welcome to Acme.</p>
+    {end}
+
+## Test: the layout wraps the page and marks Home active
+
+Expect that the text of "#title" is equal to "Home".
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "Home".
+Expect that the text of "footer" is equal to "© Acme".

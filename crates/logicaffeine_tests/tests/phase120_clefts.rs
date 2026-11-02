@@ -1,4 +1,4 @@
-//! Phase 120 — §8.3 Clefts & pseudo-clefts (work/MISSING_ENGLISH.md).
+//! Phase 120 — Clefts & pseudo-clefts.
 //!
 //! An it-cleft focuses a constituent and adds EXHAUSTIVITY + an existence
 //! presupposition:
@@ -13,11 +13,19 @@ fn it_cleft_adds_exhaustivity() {
     let out = compile("It was John who broke the vase.").unwrap();
     eprintln!("cleft: {out}");
     // The core predication survives.
-    assert!(out.contains("Break") || out.contains("Broke"), "the cleft predicate: {out}");
-    assert!(out.contains("John") || out.contains('J'), "the focused constituent: {out}");
+    assert!(
+        out.contains("Break") || out.contains("Broke"),
+        "the cleft predicate: {out}"
+    );
+    assert!(
+        out.contains("John") || out.contains('J'),
+        "the focused constituent: {out}"
+    );
     // Exhaustivity: no one other than John broke the vase (uniqueness / ∀x→x=john).
     assert!(
-        out.contains("∃!") || out.contains("exhaustive") || out.contains("Exhaustive")
+        out.contains("∃!")
+            || out.contains("exhaustive")
+            || out.contains("Exhaustive")
             || (out.contains('∀') && out.contains('=')),
         "cleft contributes exhaustivity (only John): {out}"
     );
@@ -29,7 +37,10 @@ fn it_cleft_distinct_from_plain_predication() {
     let plain = compile("John broke the vase.").unwrap();
     eprintln!("cleft: {cleft}\nplain: {plain}");
     // The cleft is richer than the plain sentence (adds exhaustivity), so they differ.
-    assert!(cleft != plain, "cleft ≠ plain predication: {cleft} vs {plain}");
+    assert!(
+        cleft != plain,
+        "cleft ≠ plain predication: {cleft} vs {plain}"
+    );
 }
 
 // ============================================================================

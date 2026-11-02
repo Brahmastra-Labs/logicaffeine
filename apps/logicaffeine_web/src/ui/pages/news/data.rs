@@ -51,16 +51,336 @@ pub fn get_all_tags() -> Vec<&'static str> {
 
 /// Get articles filtered by tag
 pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
-    let mut articles: Vec<&'static Article> = ARTICLES
-        .iter()
-        .filter(|a| a.tags.contains(&tag))
-        .collect();
+    let mut articles: Vec<&'static Article> =
+        ARTICLES.iter().filter(|a| a.tags.contains(&tag)).collect();
     articles.sort_by(|a, b| b.date.cmp(a.date));
     articles
 }
 
 /// All news articles
 static ARTICLES: &[Article] = &[
+    Article {
+        slug: "release-0-11-0-lgx-full-stack-web-apps",
+        title: "v0.11.0 — LGX: Full-Stack Web Apps in LOGOS, Tested on Every Tier",
+        date: "2026-11-02",
+        summary: "LGX arrives: full-stack web applications written in LOGOS, with pages, components, stores, typed routes, signed sessions, CSRF enforcement and a web standard library, lowered to one implementation that the tree-walker, the bytecode VM and the browser's WebAssembly all run and that largo test checks on each, headless Chrome included. Also new since 0.10.1: tests, observation, replay and reverse debugging in the language; a standard library written in LOGOS; multi-file programs and a stricter checker; C as a general backend beside new RISC-V and CUDA tiers, sharing one scheduler; a kernel whose integers are Lean's, and Lean 4 import; an agent-facing toolchain; native HTTP and TLS; compilation to Tenstorrent, FPGAs and sky130, a language model's decode step on two FPGA boards and a decode engine for the Intel PAC D5005; and infinitesimals, hyperreals and supertasks computed exactly.",
+        content: r#"
+I have built web apps the usual way for a long time: a front end in one language, a back end in another, a build pipeline between them, and a test suite that mostly checks the seams. This release is the version of that I wanted. A page and its server are both LOGOS, the page your browser runs is the same program the interpreter and the VM run, and `largo test` checks it on all three, so a test that passes has passed on the thing you ship. The rest of the cycle filled in what a real application leans on: tests and replay in the language, a standard library written in itself, and backends from C to CUDA.
+
+v0.11.0 follows 0.10.1 (2026-07-11). Its headline is LGX: a LOGOS program can now be a web application, pages and server both, and the page a browser runs is the same lowered LOGOS the tree-walker and the bytecode VM run, checked against both by `largo test`. Around it, the language gains tests, observation and replay as statements, a standard library written in itself, multi-file programs with the type checker run on every join; C becomes a general backend beside new RISC-V and CUDA tiers; the kernel's integers become Lean's and Lean 4 developments import; and the toolchain grows interfaces built for agents. The compiler also lowers a language model's decode step to FPGAs, from a tiny int8 transformer generating on two Artix-7 boards to a Qwen3.8-27B decode engine for the Intel PAC D5005 held bit for bit from its arithmetic to its Verilog, and exact numbers reach past the reals: infinitesimals, hyperreals and supertasks that end in their exact state. The release's section of `CHANGELOG.md` is the complete record, with a lock for every claim; the breaking changes are summarized at the end.
+
+## LGX: full-stack web applications in LOGOS
+
+A `## Page /path` file is a page, a `## Route` is a typed HTTP endpoint, and one project serves itself in development, exports a static site and builds into a single binary; none of this existed in 0.10.1. A page lowers to ordinary LOGOS, and that lowered program is the only implementation: the tree-walker runs it as the reference, the VM runs it, and the browser runs the WebAssembly it compiles to, with a small host (`crates/logicaffeine_compile/assets/web/runtime.js`) that applies the page's patch stream and routes events. `docs/frontend.md` teaches the framework in the order an app is built, `docs/web.md` teaches the server half, and `docs/lgx-reference.md` lists every construct.
+
+### Pages and components
+
+`## Page /todos/:id (id: Int)` binds typed path segments, and a page file with no header is routed by its name. A page is sections of one file: `State:` is a record of `Let` fields, `Actions:` holds the only code that changes it, `View:` is strict HTML, and `Style:` is CSS scoped to its component by a real tokenizer. Templates have filters (`{x | f}`), conditionals, keyed loops (`{for each x in xs, keyed by k, at index i:}`), `{inspect}`, layouts (`{extends Site}`, `{block}`) and `{children}`; every element closes, `<script>` and `<style>` are refused, holes are escaped, and another template language's spelling (`elif`, `endfor`) is refused with the LGX one. `Head:` merges a page's head over the defaults, `## Directive` gives an attribute behavior on the real element, and `## Error page 404` answers an unmatched URL. `## Component Name (props)` is placed as `<Name prop={x}/>`: props are read-only, a `fn(T) -> Unit` prop runs the parent's action as the parent's turn, every placement is its own instance, and a missing, extra or mistyped prop is refused (`component_model_lock`, `lgx_template_lock`).
+
+### Turns, stores, triggers and events
+
+One event is one turn: the action runs, derived fields recompute, and the page repaints once. A turn is a transaction: a failing action rolls back every field it touched and reaches the page's `When an action fails` handler, naming the component it came from, and the page keeps answering (`turn_rollback_fuzz`). `## Store Cart` shares state and actions across components; `preserved across reloads` keeps it for the tab and `persisted as "cart"` in local storage. `## Store S shared on "topic"` replicates a store to every page and tab on the topic through the relay, its `Tally`, `ConvergentCount`, `SharedSet` and `SharedSequence` fields CRDTs their author reads as plain values (`shared_store_crdt_lock`), and `Publish m on "topic".` reaches every `When a message arrives on "topic"` handler once. `When <Store>'s <field> changes:` wakes each component that uses the store once per commit, and a chain of wakes past 16 is refused by name; a component placing itself is refused past a depth of 32; `When this component appears:` runs after the paint that drew it; and timers run on the page's own clock against absolute due times. Event modifiers (`.prevent`, `.stop`, `.once`, `.capture`, `.passive`) behave the same on every tier, and an unknown one is refused with the nearest spelling.
+
+### Data, forms and navigation
+
+`Get "/api/todos" as Seq of Todo, then loaded.`, and its `Post`, `Put`, `Patch`, `Delete` and multipart `Upload` siblings, hand the action a `Result of T and HttpError`: a status outside 200–299, a body that does not decode and a refused connection are each an `Err`, and a typed fetch completes in-process on the tree-walker and the VM as it does in a browser. `bind={field}` connects a form control to a field both ways and keeps focus and caret across repaints, and `required`, `pattern` and `min`/`max` block a submit on every tier as the browser does. `Navigate to` a path the page's own route serves stays in the page, Back included (`typed_fetch_lock`, `forms_lock`).
+
+### Typed routes, sessions and CSRF
+
+`## Route GET /posts/:id (id: Int) -> Text:` declares one path, and the answer type picks the content type: `Text`, `View` as HTML, a record as JSON through a derived codec, or `Response` for status, headers and cookies. A segment typed `Int` that is not one is answered `400`. `Serve on port 8080.` answers every request concurrently from the route table; `route`, `routeStatus` and `routeHeader` answer a request with no socket, so a server is tested with `Expect`; and `## Before each request` and `## Redirect /old -> /new.` cover guards and moved URLs. `## Session` declares the visitor's fields, carried in one HMAC-SHA-256-signed cookie. With a session declared, a state-changing request without the visitor's token is answered `403` before the route runs, a state-changing `<form>` without `_csrf` does not compile, and a page's own scripted requests carry the token, which `largo serve` and a built binary place in each page document. A `## To` function that reads or writes a `## Main` binding builds on AOT-Rust and C, the bindings becoming one record lent to it, so a session site ships as a binary (`session_lock`, `csrf_lock`, `aot_program_record_lock`).
+
+### The web standard library
+
+The server half is LOGOS source under `crates/logicaffeine_compile/assets/std/`: `http.lg` builds responses and cookies (`HttpOnly; SameSite=Lax; Secure` by default, refusing a value that would split the header); `web.lg` escapes and reads queries, form bodies and multipart uploads; `static.lg` is the one MIME table `largo serve` and `largo build` both read, and `staticUnder` refuses any `..` segment before touching disk; `session.lg`, `forms.lg` and `ui.lg` hold signed sessions, validation and pagination (`docs/lgx-stdlib.md`); and `json.lg` parses RFC 8259 with exact decimals. `tcp.lg` opens sockets and certificate-verified TLS connections, and `postgres.lg` speaks the PostgreSQL v3 protocol with SCRAM-SHA-256 authentication, parameterized and prepared statements, transactions, cancellation and `pgConnectSecure`, which is TLS or a refusal (`postgres_protocol` pins every frame byte for byte).
+
+### One implementation, one renderer
+
+`crates/logicaffeine_compile/assets/std/vdom.lg` is the reconciler, written in LOGOS. A commit diffs the new tape against the screen with keyed matching and minimal moves (reversing five keyed rows is four moves), and a paint that fails half-drawn sends nothing. A pre-rendered page is adopted rather than redrawn, so focus, caret and text typed before the module loaded survive, and markup a browser's parser would rewrite (`<tr>` outside `<tbody>`) is linted at build time. A server draws with the same walk onto the same tape, so the markup a server sends and the page a browser paints come from one renderer; `one_lgx_implementation_lock` reads the compiler's source for any second implementation's entry points.
+
+A page's module carries only the reconciler paths it reaches: the one-button counter page ships 29,439 bytes gzipped (`vdom_size_lock`). Collection and text accesses compile to calls into shared helpers outside loops and keep their inline fast path inside them, which made one program's gzipped module 42% smaller at the same hot-loop speed. A turn's garbage is freed at the safepoint after the turn, and a repainting page costs 0 bytes per turn at 2,000 turns and at 20,000 (`wasm_memory_bound_lock`); a page that genuinely runs out of memory fails with a named `OutOfMemory` rather than corrupting.
+
+### Tested where it runs, a real browser included
+
+A page's `## Test` starts from a freshly mounted page and fails if it asserts nothing. It clicks, types, submits, presses keys, reloads, advances the page clock, answers fetches (`Given that GET "/api/todos" answers 200 with "…".`) or serves them from the program's own routes, and asks `the text of`, `the count of`, `is visible`, `is focused` and `the URL`; a selector the engine does not evaluate is refused by name instead of matching nothing. `largo test` drives every page test through one driver (`page_host`) on the tree-walker and the VM and reports a divergence as the first statement at which the documents differ; `largo test --browser` adds headless Chrome, driven over its DevTools pipe with a paused virtual clock and trusted input. Known divergences sit in a shrink-only ledger: an unlisted divergence fails, and so does a listed one that has started to agree (`browser_tier_lock`). Every name a view uses is resolved where it is written, with a did-you-mean; `largo check` adds accessibility warnings (an image without `alt`, a nameless button, an unlabelled control); and every refusal, lint and runtime failure carries `file:line:col` to the terminal, the dev overlay, `largo check --json` and the language server.
+
+### Shipping a site
+
+`largo new <name> --web` scaffolds routes, `pages/` and `static/`, and `--site` a site with no backend. `largo serve` serves a site, a full-stack site or a backend as the project requires, rebuilds and reloads on save, and shows a page's compile error at its line in place of the page. `largo build --static` writes a `dist/` of pre-rendered pages, content-addressed modules, static assets, `robots.txt`, `sitemap.xml`, `_headers`, `_redirects` and `404.html` for any static host; beside a `Serve` entry, `largo build` embeds the pages and assets in the binary, so development and production answer the same bytes (`dev_prod_parity_lock`). Modules are cached immutably by content hash, assets are compressed once at build time and answered `304` on a matching `ETag`, and `real_website_lock` serves a four-page site both as static files and as one binary over a non-loopback address.
+
+### Eighteen example projects
+
+`examples/` is new: `counter`, `todo`, `tic_tac_toe`, `task_board`, `signup_form`, `fetch_dashboard`, `multi_page_site`, `modal_toast`, `stopwatch`, `shopping_cart`, `chat`, `data_table`, `file_drop_upload`, `infinite_scroll`, `marketing_site`, `login`, `guestbook` (server-rendered, no JavaScript) and `fullstack_todo`, each with a README stating its limits. `examples_lock` requires every project to test each action, handler, trigger and binding it declares, to pass on every tier, to export its site and to build into a binary, and every browser snippet in the guides is mounted, compiled and tested, so a guide cannot teach a second way of writing an app (`canonical_teaching_lock`).
+
+## Tests, observation, replay and reverse debugging
+
+`## Test: <prose>` names a test by its sentence. Its body is ordinary LOGOS plus `Expect that <condition>.`, which records a failure and continues, rendering the condition back to English with the value of each named part; `Expect this to fail`, `Expect output:` snapshots, `Advance time by <duration>.` and `Given a file … containing …` round it out. A test declares the real resources it may use and its step budget (`This test may run up to N steps.`, so a runaway fails at the identical op every run), and otherwise runs against a virtual clock, an in-memory filesystem, seeded randomness and no network (`hermeticity_redteam`). `For each of these cases:` over a pipe table runs one sub-test per row, and `For all integers a and b where …:` samples 256 seeded cases and shrinks a counterexample.
+
+`largo test`, a reserved stub in 0.10.1, discovers every test in the entry's import closure and in `pages/`, reports byte-identically across runs, and fails on a failure, on zero executed tests, on a filter that matches nothing or on more skips than the project's budget. `--prove` exhausts finite domains, `--tiers all` re-runs each passing test on the VM and compares byte for byte, and `--json` prints a claim inventory. A run ends in an earned rank: UNTRIED, FAILING, GREEN, HARDENED (a `For all` property held) or PROVEN (a property proved by exhaustion) (`test_runner_lock`, `rank_lock`).
+
+`Note that …`, `Warn that …` and `Record that …` emit structured developer, operator and audit events on a channel separate from program output, with deterministic per-site sampling, and `During <gerund>:` opens a span that closes on every exit path. The tree-walker, the VM, compiled Rust and WebAssembly emit the same stream, serialized as `.logosobs` (`obs_tier_differential`), and a release build erases every observation statement, so the compiled program is byte-identical to the program without them (`obs_zero_cost_codegen_lock`).
+
+A failing `largo run --interpret` writes a self-contained `.replay` bundle (source, scheduler seed and decision trace, arguments, and the failure's kind, message and cursor), and `largo replay <bundle> --verify` reports the failure reproduced byte-identically, no longer firing, or diverged. `largo dap` speaks the Debug Adapter Protocol with `stepBack` and `reverseContinue`, and the VS Code extension adds a `logos` debug type that runs it. Reverse steps rest on the bytecode VM recording only what each op destroys onto a history tape and replaying it backward to the exact prior state, tasks, pipes and `Select` included (`replay_lock`, `dap_lock`, `reverse_op_lock`).
+
+## The language: its library, its modules, its checker
+
+### A standard library written in LOGOS
+
+Thirty-five new modules are written in LOGOS and auto-imported when a program uses them: text (`strings`, `regex`, `encoding`, `json`, `unicode`), numbers (`math` with 157 functions, `statistics`, a seeded `rng` bit-identical on every tier), collections (`iter`, `heap`, `sort`, `collections`), linear algebra (`blas`, and `lapack` with 53 routines from Cholesky to SVD and matrix functions), `calendar`, `compress`, `vision` and the web modules above. `crypto.lg` adds SHA-256, HMAC and PBKDF2 pinned to their FIPS and RFC vectors and ChaCha20, and SHA-3 and SHAKE moved from a Rust binding into LOGOS, byte-identical. `benchmarks/parity/PARITY_LEDGER.md` holds the library to a deduplicated superset of the C, Python, Rust, Go and Java standard libraries: 548 of 548 in-scope capabilities correct on every claimed tier and 38 of 520 performance-gated capabilities benchmarked faster, both ratcheted by `parity_catalog_lock`. Every position a module takes or returns is 1-based. A program's own `## To trim` wins at the program's call sites while the library keeps calling its own, and the compiled tiers carry only the library functions a program reaches.
+
+### Programs span files
+
+The `Import` sentence is new (`Import Geometry.`, `Import G from "shapes/geometry.lg".`, `Import G as Geo.`, `Import double as dbl from Util.`), and 0.10.1's Markdown link still counts. A name resolves beside the importer, as a directory module, under `src/`, at the `Largo.toml` root or in a declared `path` or `git` dependency. The modules assemble into one source every tier compiles, so imported functions reach every backend, where 0.10.1 carried only imported types; functions are callable bare or as `Util::double(…)`, each file sees only what it imports, and `## To private f` stays in its module. A rustc error in generated code is reported at the LOGOS `file:line:col` with a caret (`project_module_lock`, `sourcemap_remap`).
+
+### The type checker runs on every program
+
+`check_program` checks every statement kind with no wildcard arm. A call to a name defined nowhere is refused at check time with the runtime's words (`Unknown function: <name>`), even inside a branch that never runs; so are a wrong arity or argument type, a mistyped field or element write, and a type nothing declares. Generic records and enums carry their arguments, so `Box of Int` and `Box of Text` are different types. A type error names the function its author wrote, or the construct a compiler-written function came from, such as the `add` action of `## Component Counter`. Of the 32 programs in the ill-typed corpus, 18 are refused, and the 14 still accepted are an exact-set ledger (`type_checker_rejects_lock`).
+
+### New statements and values
+
+`Fail with <reason>.` stops a program with its reason, and `Assert`, `Require` and the new `Assume` take `, otherwise <reason>`, reading identically on the tree-walker, the VM, AOT-Rust, C and WebAssembly; range contracts carry units (`Assume v is between 0.2 volts and 0.7 volts.`). Also new: `Swap x and y.`; `Reversibly:`, whose in-place additive and xor updates lower to reversible VM opcodes; `Close ch.`; `Await h into r.`; `Converge remote into local.`, the idempotent CRDT join; tuples and named records (`Let (q, r) be divide(a, b).`); `Let open be every t in todos where not t's done.` and `Remove every t from todos where t's done.`; and `is approximately X within eps`. Every word-keyword is contextual, so `Let at be 1. Show at.` runs. New values and builtins: a floating complex, `Word8`, compression that picks the smallest of deflate, lz4 and zstd, authenticated sealing (compress, then ChaCha20-Poly1305, the tag verified before any byte is returned) and erasure coding over the new `logicaffeine_base::gf256`.
+
+## Numbers past the reals
+
+`Let dt be an infinitesimal.` declares the program's infinitesimal, with what is known of its reciprocal (`whose reciprocal is even`, `divisible by 3`, …), and `Let dx be an infinitesimal much smaller than dt.` declares another below every value made from `dt`, so a program holds several in the order it states. Their values are exact. The hyperreals compute in their field and take roots: `sqrt(dt)` is `√dt`, and the square root of any positive hyperreal is an algebraic Puiseux series in `dt`. A function of a hyperreal is known by its series with exact coefficients, so `exp(dt)` is `1 + dt + O(dt^2)` and `ln(1 + dt)` is `dt - (1/2)·dt^2 + O(dt^3)`. `the standard part of x`, `x is infinitesimal`, `x is limited` and `x is infinitely close to y` read them, and every comparison between them is decided (`hyperreal_closure`, `hyperreal_functions`, `hyperreal_scales`).
+
+A loop whose clock steps by `dt` is a supertask: it runs `⌈1/dt⌉` times and ends in its exact state. An affine update ends in its closed form (Thomson's lamp at `0 when ⌈1/dt⌉ is even, 1 when it is odd`); a polynomial map whose monomials close under it ends exactly, so `Σ t²·dt` is `1/3 - (1/2)·dt + (1/6)·dt^2`; an Euler step of a differential equation ends infinitely close to the solution, which is its standard part (`e` for `Set x to x + x * dt.`, certified digits for a polynomial field); and a bouncing ball's Zeno tail ends at the sum of its series. A supertask may run inside each pass of another, nested to any depth. Imamura's Lemma 1 runs as he wrote it, a `While` that counts toward a value that may be infinite ending on each residue class of `⌈1/dt⌉` its guard reads, and so do his Propositions 3 and 6: `the real number whose digits in base k are f` is an `ExactReal` that calls the program's `f` only as far as a comparison, a floor or a printed digit asks (`supertask_strategies`, `supertask_hybrid`, `supertask_imamura_paper`, `defined_reals`).
+
+Where a program declares `Rational`, `Algebraic`, `ExactReal` or `Hyperreal`, `sqrt`, `exp`, `ln`, `pi` and `e` are exact: `Let r: Algebraic be sqrt(2).` is `√2`, and `r * r` is `2`. Code that declares none of them keeps its meaning (`exact_by_context`). Every value the extension reaches is bit-identical on the tree-walker, the VM, AOT-Rust, both C backends, linked WebAssembly and RISC-V, where the compiled backends link one value runtime built from the Rust the interpreter runs; a device tier refuses such a program by name.
+
+## Execution tiers
+
+### C is a general backend
+
+In 0.10.1 `largo emit c` was a benchmark subset with no concurrency, big integers, exact or dated values, bounds checks or `Show` for collections. `compile_to_c` now splices the standard library, keeps only the functions a program reaches, monomorphizes generics, and carries the exact numeric tower (an `Int` promotes to a big integer on provable overflow, and `7 / 2` stays the exact `7/2`), money, quantities, UUIDs, Words, every temporal value, tuples, nested collections, insertion-ordered maps and sets, closures, CRDT counters and policy checks. Values render as the interpreter renders them, and an out-of-range index, an absent map key, an unmatched `Inspect` and a zero divisor fail with the interpreter's words and exit status 1. A value C cannot type is refused by name; where the interpreter promotes an `Int` past 64 bits on operands C cannot prove bounded, C still wraps, a divergence ledgered in `crates/logicaffeine_tests/tests/gauntlet/c_known_divergences.txt`. `compile_to_c_via_bytecode` also lowers the optimized bytecode the VM runs to C (`c_numeric_tower_lock`, `type_tier_coverage_lock`).
+
+### One scheduler for the C family
+
+Host C, RISC-V, the GPU and the bytecode-to-C walker run one C port of `logicaffeine_runtime`'s `process_step` (`crates/logicaffeine_compile/src/codegen_c/sched_core.c`): host C and RISC-V run tasks as coroutines, and the stepped tier runs them as step functions over heap frames, the lowering the CUDA tier and the walker take. Every concurrency operation is a scheduling point; `Sleep`, closed pipes, timer ties, `Stop` and `Await` behave as on the interpreter; a failing task fails alone; and each binary draws its choices from `LOGOS_SEED`. `c_family_scheduler_conformance_lock` holds 36 programs at six seeds on all of them against the tree-walker and the VM. Deterministic Rust builds (`compile_to_rust_deterministic`) now replay the interpreter's whole schedule on a port of the same scheduler, where 0.10.1 fixed only how a `Select` picked its winner (`replay_executor_port_lock`).
+
+### RISC-V and CUDA
+
+`largo emit riscv` lowers the register bytecode to RV64GC assembly with a C runtime and prints the gcc and qemu command. It lowers 115 of the 117 ISA ops (`Tcp` and `Serve` need host sockets and are refused by name), and `riscv_aot_lock` runs the corpus, the concurrency and network oracles and the benchmark programs under `qemu-riscv64` against the VM. `largo emit cuda` writes one `.cu` that runs a whole program on one GPU thread, with a host launcher, a `Makefile` and the C tier's oracle; the runtime slice a program reaches is lifted to the device, with a float formatter byte-identical to the host's and a failure path that flushes device `printf` and traps. It lifts 112 of the 117 ops, and concurrent programs schedule through the stepped tier (`cuda_aot_lock`).
+
+### WebAssembly and AOT-Rust
+
+`compile_to_wasm`, behind `largo emit wasm` and every page module, monomorphizes generics as the C tier does, so the generics corpus runs apart from one program. Values display as the VM displays them, records, maps and nested collections lower, sets and maps keep insertion order through removals, Text appends in amortized time, and a function with more than 64 basic blocks no longer traps (`wasm_large_function_lock`); the `$` currency format spec is still refused there. AOT-Rust builds what the interpreter runs: generics stay Rust generics, tuples may hold records, a field may be named with any Rust keyword, a binding keeps the exact value type its right-hand side produces, format specs give every kind the interpreter's text, and a value past 64 bits reaches every statement kind. A compiled runtime error prints its LOGOS message alone and exits 1 (`semantic_probes_lock`, `format_spec_all_tiers`). An `Int` that outgrows a machine word is exact on WebAssembly as on every other tier: the module carries a tagged word, the integer while it fits and a handle to the host's integer when not, record fields and `mutable` parameters keep it exact, and a program whose integers all fit a word compiles to the module it did before (`exact_int_every_tier_lock`). A Real shows on both WebAssembly hosts as `fmt_f64` defines, the shortest digits that read back to the same bits, where 0.10.1 printed six fixed decimals and `1.0 / 3.0` read `0.333333` (`wasm_float_display_lock`). On AOT-Rust, `Simultaneously:` binds every task's value where 0.10.1 threw away the results of three or more tasks (`e2e_concurrency`), and an `Int` only literals decide is an `i64` where rustc defaulted it to `i32` (`int_representation_lock`).
+
+A shown line costs no system call. 0.10.1's compiled Rust and `largo run --interpret` made one `write(2)` per `Show`, because Rust's standard output is line-buffered whatever it is connected to; both now buffer 64 KiB on a pipe or a file and write a line at a time to a terminal, as the C tier's stdio does, and output keeps its place before a failure's reason, before input is read and at exit (`show_buffering_lock`).
+
+### The native tier
+
+The JIT compiles 27 builtins to native code where 0.10.1 lowered `sqrt` alone: `abs`, `min` and `max` on `Int`, the bit counts, `floor`, `ceil` and `round` to an `Int`, `pow` with a constant exponent up to 32 (unrolled checked multiplies that deopt to the big-integer path), the `word32`/`word64`/`word16` family with its logical operations, shifts and rotations, and `chr`. Words ride unboxed in native registers, so a SHA-256 round and FNV-1a run natively, byte-identical to the tree-walker, and `forge_numeric_perf_lock` requires a hot native region to beat the VM by at least 3× on x86_64. An op whose instruction the CPU lacks declines to the VM, and `forge_builtin_compliance_ratchet` classifies all 234 builtins. List typing in the native tier is flow-sensitive per instruction, every reachable instruction has a deopt row, and a store into a list that may be a caller's copies it first, as the VM does (`jit_forge_random_fuzz`). Swaps of scalars and word rotates run natively too (`jit_scalar_swap_lock`, `jit_native_rotate_lock`).
+
+## An optimizer a program can hold to account
+
+`## Require <opt>` fails compilation, naming the optimization, when it did not fire; `largo build`, `largo emit` and the verified path honor it through one decorator seam, which also stops `largo build` and `largo emit` dropping a file's `## No` (`decorator_through_largo`). The registry grows from 40 to 65 optimizations, each switchable by keyword. New in both pipelines: sparse conditional constant propagation, integer induction strength reduction, register promotion, loop interchange, run-path memoization and comptime table-ization; AOT-Rust adds overflow-guard elision for bounded accumulators, helper specialization, div-mod fusion, an AVX2 reduction of transcendental accumulator loops and native bit intrinsics, and closed forms extend to sums of squares and cubes. Against compiled C, Rust and Go in the parity catalog, `math.abs` moves from 0.41× to 1.05× and `math.divmod` from 0.73× to 1.05×. RISC-V, WebAssembly and the fabric lowering first run `vm::peephole`, which shrinks 25 of the 35 benchmarks and which `peephole_soundness_lock` holds outcome-preserving over the corpus, every benchmark and a 400-program fuzzer. The passes that move code now read one exhaustive write model and one capture module, closing a family of wrong answers such as a binding a called function assigns being folded to its pre-call value (`optimizer_write_effects_lock`, `optimizer_name_capture_lock`).
+
+## The kernel is Lean's
+
+`Int` in the kernel is Lean's two-constructor inductive (`Int_ofNat | Int_negSucc`), and `add`, `sub`, `mul`, `div`, `mod` and `le` are checked definitions over it that bottom out in checked `Nat` arithmetic. The integer ring and order laws 0.10.1 assumed as axioms are proof terms both kernels check with empty axiom closures, and `dne`, also an axiom in 0.10.1, is a checked definition. The prelude gains `HEq`, `Setoid` and `Quotient` with Lean's universe-polymorphic quotient primitives, and defined `Option`, `Prod`, `Sum`, `Sigma`, `Subtype`, `Fin`, `List`, `Array`, `Char`, `String` and `Decidable` instances. The trusted base is inventoried, assumption by assumption, in `crates/logicaffeine_kernel/TCB.md`, held to the live prelude by `tcb_ledger_lock`, and `#print axioms` is kernel API (`Print Axioms name.` in the vernacular).
+
+Conversion follows Lean's algorithm in both kernels (lazy δ-reduction by definitional height, K-like ι-reduction, structure η, proof irrelevance), and literal fast paths compute only after the kernel proves the program's defining equations, so a rebound constant loses the acceleration instead of computing a wrong value. Registration refuses what 0.10.1 inserted: an unchecked `Context::add_definition`, a redefinition under a dependent theorem, a constructor added after exhaustive elimination and a definitional alias around strict positivity each produced a closed proof of `False`, and each is refused now (`registration_soundness`, `stable_meaning`). The kernel vernacular holds a Lean development: theorems, opaque constants, mutual and universe-polymorphic inductive blocks, quotients, structures, namespaces, notation, hygienic macros, Lean's binder kinds and implicit, named, default and auto arguments, with Lean's auxiliaries (`casesOn`, `noConfusion`, `brecOn`, `decEq`) derived as checked definitions and a printer that is the parser's exact inverse up to α (`vernacular_roundtrip`). A kernel term can carry how it was written (a binder kind, a source position, a Lean `mdata` entry) without changing what it means: every checking door erases the annotation before it measures or checks anything, and certificates carry none (`term_annotation_transparency_lock`).
+
+### Lean 4 proofs import into LOGOS
+
+`largo lean import --project DIR --target Name --out DIR` compiles a Lean project with the pinned Lean 4.14.0 and lean4export and checks every declaration of the target's closure twice: with the LOGOS kernel under Lean's exact, non-cumulative conversion, and with the independent re-checker. A reference translator that shares no code with the importer binds the statement to the Lean source, assumptions are held to Lean's `propext`, `Quot.sound` and `Classical.choice`, and the closure is written as a literate `.lg` document that re-parses to the identical declarations. The package (a manifest with SHA-256 digests and a trusted-base disclosure, the document, an environment certificate and the source export) is replayed by a fresh process before it lands in `--out`, and `largo lean replay DIR` re-verifies it from its bytes alone. Refusals carry typed diagnostic codes and exit statuses, and `unsafe` and `partial` declarations are quarantined (`lean_package_replay`, `lean_cli_e2e`).
+
+### A Lean Kernel Arena checker
+
+`logicaffeine_kernel::dag` checks Lean 4 export streams directly over a hash-consed DAG with two independently written engines, a complete decision procedure for universe levels, kernel-derived recursors (an export's own are admitted only when identical), and `Nat` and `String` literal extensions enabled only after the environment's definitions are validated against Lean-elaborated reference terms, which regenerate byte-identically under Lean 4.29.1 and 4.34.1. `arena_corpus_lock` holds it to the expected verdict on each of the 221 cases of the Arena corpus at lean-kernel-arena `66c354d6`, whose tests are exported with Lean v4.34.1; a decline never counts as a pass, and the heaviest inputs are in the ignored set. A value-engine probe spends its budget on every δ-unfolding it takes, so the `navier-stokes-euler` test no longer unfolds without limit inside abandoned probes (`dag_sem_probe`), and checking a ladder of redexes infers each body once (`dag_sem_bounds`). The `logos-kernel` and `logos-dual` entries in `crates/logicaffeine_kernel/arena/` are pinned to that revision (`arena_entry_lock`), prepared, and not yet submitted.
+
+### LOGOS's calculus on the Arena core
+
+The hash-consed core that checks Lean exports now also decides LOGOS's own calculus (`Theory::Logos`). Indexed `match` with motive validation and coverage over the constructors the indices allow, `fix` and mutual `fix` under the termination guard, cumulative inductives, the K-like rule, the `Int` literal bridge and the elimination restrictions run beside Lean's rules on one engine, and `Theory::Lean` keeps every Arena verdict. The core admits every declaration of the standard library and refuses each paradox of `kernel_paradox_corpus` by the rule the `Term` kernel refuses it by (`theory_logos_parity`). A `Context` keeps an admission log, and `dag::mirror` brings a core up to any context, admitting only what is new. Under the `shadow` feature the context's mirrored core decides every checked door's verdict a second time, and a disagreement panics with both verdicts (`dag_mirror`).
+
+Observational equality (`observational::register`) adds `Obs A a b : SProp`, which computes on the type it compares at. At a function type it compares pointwise, so function extensionality holds by conversion. At a proposition it is logical equivalence, so propositional extensionality holds too. At an inductive family it compares by constructors, and at a quotient by the equivalence closure, so `Quot_sound` is a theorem. `Obs_cast` carries a value along an equality of types and computes, so a closed numeral it carries is a numeral. Both kernels and the core compute these rules, and only for the certified constants (`kernel_observational`, `dag_observational`). Every certified quotient computes in the core, including the one a kernel installs for Lean content, and both kernels admit Lean's `funext`, proved through it.
+
+A proof can be a tactic script over the kernel's own goals. `GoalState` holds each goal as a metavariable with its hypotheses and target. Every tactic builds a proof term: `intro`, `exact`, `apply`, `refine`, `rewrite`, `induction`, `cases` with index unification, `subst`, `injection`, `calc`, `cc`, `decide`, `simp` and the rest. `qed` hands the closed term to the kernel, so no tactic is trusted (`kernel_tactics`). The vernacular takes a script as a theorem's proof (`Theorem t : P := by intro x; exact h.`). `StandardLibrary::context()` registers the standard library once per process. A context of one's own is a copy-on-write clone of it, and the certificates take their trusted base from it (`prelude_registered_once_lock`).
+
+We closed every soundness hole the paradox corpus found after 0.10.1 (`kernel_paradox_corpus`):
+- a universe-polymorphic family that may be a proposition no longer eliminates into data;
+- a bare reference to a polymorphic declaration stands at that declaration's own levels, where an implicit level had let a proposition and its data copy be used apart;
+- a universe level is never `SProp`;
+- the termination guard's refutation refinement needs a closed decision;
+- a declared type, and an axiom's type, are checked to be types;
+- a `Nat` literal reads as `Zero` or `Succ` only while those are `Nat`'s constructors.
+Each admitted a closed proof of `False`, a definition that never terminates, or an ill-typed registration; each is refused now. The reflection algebra's seven operations are checked structural recursions instead of assumptions (`tcb_ledger_lock`).
+
+## The proof surface
+
+A `Proof:` line takes Lean-style steps with real term arguments (`exact (hpq hp)`, `use (n + 1)`, `refine` with `?_` holes, `have`, `apply`, `intro`, `cases … with`, positional `rewrite … at`, `simp only`, `calc`, `by_contra`, `ring`, `linarith`, `induction`, `all_goals`, `focus`), and every step still ends in one kernel-certified derivation. A `Proof:` line is now a sketch: the obligations it leaves are discharged by the certified automation and reported, and a step that fails is never swept. Arithmetic can be stated in English: `Prove: For all n, n plus 0 equals n.` certifies through the same kernel path as the formal surface, and `Proof: By induction on n.` inducts. The ring oracle keeps big-integer coefficients and rests on no axiom now that the ring laws are proved in the prelude, and integer literals past `i64` are numbers in every proof layer. `VerifiedProof::axiom_footprint()` is `#print axioms` for a certified proof, `largo prove --certificate` prints an independently re-checkable kernel certificate for every kernel-proved `## Theorem` (`proof_certificate_lock`), and `lapack_provable_lock` proves the standard library's `gesv` solve with exact linear algebra over ℚ.
+
+## A toolchain for people and agents
+
+`largo serve`, `replay`, `explain`, `expand`, `mcp`, `dap` and `lean` are new commands, and `largo test` runs tests. Every command reads one project model: `project::shape` classifies a project as a site, a full-stack site, a backend or a program; every command compiles the same import closure; `path` and `rev`-pinned `git` dependencies link everywhere; and a build's binary is its own even under a shared `CARGO_TARGET_DIR` (`project_shape_lock`, `build_identity_lock`). `largo emit` reaches eleven targets, from `rust`, `c` and `wasm` to `riscv`, `cuda`, `tenstorrent`, `rdu` and `analog`, every target but `rust` compiling the full closure and reporting a refusal at `file:line:col`. `largo expand <file>` prints the ordinary LOGOS a page or route lowers to, and `largo explain <topic>` answers a diagnostic code, construct or type offline.
+
+`largo mcp` serves the toolchain over the Model Context Protocol: six tools (`logos_check`, `logos_run`, `logos_logic`, `logos_prove`, `logos_emit`, `logos_opts`), a `write-logos` prompt and sixteen resources embedded in the binary. `logos_run` never executes inside the server: it re-spawns a worker under a wall clock and an optional step budget, and a program the requested engine cannot run is a typed refusal, never a silent run on another engine. Every project `largo new` writes carries an `AGENTS.md` whose every `largo` line re-parses against the real CLI. `largo check --json` prints `logos-diagnostic/1` objects with a stable code, span, explanation and quickfix, every parse error's code is catalogued in `docs/ERROR_CATALOG.md`, and `largo run` gains `--max-steps N` (a runaway stops at the identical op and exits 122 with its partial output), `--timeout` (exit 124), `--seed N` and `--json` (`diagnostic_schema_lock`, `mcp_e2e`).
+
+`largo verify` now verifies. In 0.10.1 it asked Z3 whether `true` is valid and reported success; it now runs the Z3 static-verification pass, escape analysis and the type checker over the assembled project, and `largo build --verify` takes the same path (`feature_forwarding_lock`). An installed `largo` also builds native binaries outside a repository checkout, taking the runtime crates from crates.io at its own exact version.
+
+The language server understands LGX: go-to-definition, hover, rename and references inside `View:`; completion of the page's own names in `View:`, `Head:` and `Style:`; templates painted as HTML; and template lints published with stable codes locked equal to those of `largo check --json` and `largo mcp`. Across files, an unresolved name a project module exports gets an `Import <Module>.` quickfix. The VS Code extension highlights `View:` as HTML and `Style:` as CSS, reads a template tag's first word (`{if …:}`, `{for each …:}`, `{children}`, `{extends Layout}`) as a keyword and `Use`, `Navigate to` and `Go back` as statements, ships LGX snippets and adds the `logos` debug type (`lgx_editor_lock`, `vscode_grammar_lock`). In the Studio, a file that declares a `## Page` opens in a fifth mode, Web, which compiles it to WebAssembly in the browser and renders it live in a sandboxed frame; the Studio ships 160 examples (89 in 0.10.1), and the Syntax Guide grows from 25 to 43 sections with graded exercises, predict-first examples, misconception callouts and recall cards that `/review` schedules alongside Learn's (`guide_pedagogy`).
+
+## logicaffeine-system serves HTTP and opens verified TLS
+
+The new `http` feature carries an HTTP/1.1 core (keep-alive and pipelining, an 8 MiB body cap and a 64 KiB header cap, chunked bodies refused, no `Date` header so a response depends only on its handler) whose `400`, `413` and `500` answers are byte-identical on the tree-walker, the VM and both native engines; a handler panic answers `500` and the server keeps serving. A production lifecycle reaches every tier through the environment (`LOGOS_MAX_INFLIGHT`, `LOGOS_REQUEST_TIMEOUT_MS`, `LOGOS_DRAIN_MS`, readiness and liveness paths, and more) with no change to code generation, and `SIGTERM` or `SIGINT` stops advertising readiness, finishes in-flight work within the drain deadline and releases the port (`http_lifecycle_parity`). With the opt-in `io-uring` feature on Linux, a thread-per-core io_uring engine is the default wherever a probe ring initializes, falling back to tokio and naming why. TLS verifies against the bundled Mozilla roots plus a PEM named by `LOGOS_TLS_EXTRA_ROOT`, and every native build links it (`tcp_tls_lock`).
+
+## Silicon and accelerators
+
+### Tenstorrent, and one spatial IR for every dataflow chip
+
+`largo emit tenstorrent` writes a TT-Metalium bundle that runs a program's compute body on one Tensix core, with `Show` routed to DPRINT and the C tier's oracle beside it; channels, tasks and sockets are refused by name against a shrink-only ledger, and a recognized GEMM, elementwise, pipe, fan-out or select program lowers to multi-core Tensix kernels. Tensor programs lower once into one spatial IR (`spatial::ir::SpatialProgram`: stages over bounded buffers joined by typed handshakes) on a described mesh (Wormhole, Blackhole, SN40L, SN50, RTX 3060), and every verified program carries a `ChoreographyCertificate` (liveness, buffer bounds, the numerics claim) whose `recheck` trusts only the PR/RUP checker and integer arithmetic. From that one IR come Tensix kernels, a persistent CUDA kernel, synthesizable Verilog with a matching cycle model, and an RDU placement with Spatial source. At 640³ on Tenstorrent's Wormhole simulator the compiler's own plan moves 4,096,440 bytes against `ttnn.matmul`'s 4,097,000 and spends no more NOC transactions or Tensix instructions (`benchmarks/silicon/tenstorrent_gemm.json`; simulator counts, not silicon). The planner prices every candidate at what the compiler emits: its closed form equals the built choreography count for count on all six presets (`spatial_work_model_lock`), and each matrix engine states the sub-block API it runs, so on the sky130 fabric's cycle-exact twin it picks the fastest plan it is offered at every shape the twin times (`spatial_fabric_plan_lock`). Every target states its roofs, each cited to the vendor document it is read from, and `roofline_invariant_lock` holds every metered and every planned GEMM to them. An exact GEMM on Wormhole or Blackhole whose partial sums are provably exact integers splits its reduction and finishes in the output's own page, reading each operand once: on the simulator a 2048 × 2048 × 1024 GEMM takes 5,966 device cycles where holding the reduction in one block takes 22,895 (`spatial_exact_in_place_lock`).
+
+### Transformers written in LOGOS, and the GPU kernels under them
+
+Tensor sugar (`Let C be A matmul B.`, `softmax of X`, `rmsnorm of X with weight W`, `attention of Q over K and V with H heads G groups up to P`, `moe of X with router … choosing K of E`) is shape-checked at parse time and desugars to ordinary loops every tier runs; `tensor_recognize` lifts it back into typed operations the CUDA, Tenstorrent and spatial front ends share. Qwen3.8-27B's hybrid forward (48 Gated DeltaNet and 16 gated-attention layers) is generated as a LOGOS program and lowered to CUDA, and its precise lane reproduces llama.cpp's greedy continuation token for token on the CPU reference and on an A100, recorded at 41.29 tok/s against llama.cpp's 42.17 (`benchmarks/results/qwen38_27b.json`). Recognized matmuls lower to DP4A int8, WMMA, `cp.async` or `mma.sync` kernels chosen from a legality-checked tiling lattice for the RTX 3060 or the B200, and the persistent CUDA GEMM proves before printing that no shared ring overfills, running at 17,994 GOPS at 2048³ bf16 on an RTX 3060 (`benchmarks/results/cuda_spatial_persistent.json`).
+
+### RDU and Plasticine lanes, modeled
+
+`largo emit rdu` lowers a program onto the SN40L or SN50 descriptor and writes a certified placement, its certificate and a modeled report, and an SDK bridge refuses any artifact whose certificate does not recheck; `--model qwen38` lowers the whole model into decode, batched-decode, tensor-parallel and prefill bundles whose layer-by-layer execution emits the VM's token. Every chip number is labeled published or modeled, and nothing ran on an RDU. `largo emit plasticine` turns a counted loop or a tiled fp32 GEMM into Spatial source; under the public Plasticine toolchain the compiler's emitted loops calibrated the PCU model to within 5.2% across the simulated apps, and every report row says `modeled`.
+
+### FPGAs: a soft core, programs as circuits, a whole-program engine
+
+`largo build --emit isa` prints a program as the Silicon ISA listing, and `vm::binisa` frames a compiled program as a checksummed `LGB1` stream. A soft-core interpreter executes the whole ISA, and programs stream over a UART to it on a Nexys A7-100T built with the open yosys and nextpnr-xilinx flow, every `Show` compared with the VM. All 35 programs of the benchmark suite, `strings` included, run on the soft core's width-64 model at a fixed input with every `Show` equal to the VM's (`soft_core_width_parity`). The last to join was `text_bytes`, chip opcode 237: its UTF-8 range encoder equals the standard library's on every Unicode scalar value, and `soft_core.v` decodes it, held to the model under iverilog. The board hosts run unchanged from macOS. `scripts/lib/ftdi_ports.py` finds each board's FT2232 channels by FTDI serial and USB interface on Linux and macOS alike, and runs the loader under `sudo` only where the OS needs it. `logos-chip.py kit` exports a board kit — the host scripts, the images and their build recipes, each program's stream with its VM golden, and the protocol table as `chip_host --table` prints it — that drives both boards with no Rust toolchain (`board_host_portability_lock`, `logos_chip_lock`). `codegen_sva::fabric_rtl` lowers a program to a fetch-free dataflow circuit computing the VM's result modulo 2^64, with 118 of its 120 ops realized, each compute op proven equal to the VM by a witness or a corpus program that exercises it (`fabric_coverage_lock`). The whole-program engine is one universal netlist that receives any fitting program over a UART and runs recursion, heap collections, binary64 floats, text and `Word32`; the core algorithms of all 35 benchmarks run identically to the VM on its model, and `scripts/logos-chip.py run` streams a `## Main` program to it on a Nexys A7-100T or Nexys Video and compares every `Show` with the VM. Coprocessor and memory RTL (a big-integer datapath, Keccak-f[1600], the ML-KEM NTT butterfly, a weight-stationary GEMM tile, a DRAM command scheduler with an independent legality checker) is held to its software oracle under iverilog.
+
+### A language model decodes on two FPGA boards
+
+`spatial::int8_model` writes a tiny int8 transformer's decode step as a LOGOS program, its requantizing shifts, saturating clamps and table-driven attention (`lut attention of Q over K and V …`) forms of the language that desugar to loops every tier runs. The spatial fabric lowering prints it for the Nexys Video and the Nexys A7 as a board image: a host port on the serial line, the autoregressive loop on the chip, and a core clock at the fastest period the routed design's timing allows. Each board generates the golden trace token for token, each step in the cycles the twin predicts, at 27.7 µs a token on the Nexys Video and 43.3 µs on the Nexys A7; split tensor-parallel across both boards, each chip takes under 20 µs a step on chip and the two still generate the golden trace (`decode_images_lock`, `decode_split_images_lock`). The fabric engine under it banks its memories, runs a vector unit beside the matrix array, pipelines every body a register a node, and narrows every word to the width an interval analysis proves; `fabric_postsynth_lock` simulates the synthesized netlist at gate level. The same program runs on the GPU from the same IR. The flow is the open one, yosys and nextpnr-xilinx patched where the router wrote LUT-RAM contents as zero and left the hard cells untimed, and every recorded image re-derives byte for byte from the repository (`xc7_image_flow_lock`).
+
+### A Qwen3.8-27B decode engine for the Intel PAC D5005
+
+A decode engine for Qwen3.8-27B on one Intel PAC D5005, a Stratix 10 SX 2800 with four DDR4-2400 channels, is written down layer by layer, each layer held bit for bit to the one above it. `spatial::serving` prices a pass that streams the weights once through every sequence the card holds, over its DDR4, its PCIe link, its integer array, its vector units and its block-scale lanes, from the checkpoints' own headers: Q4_K_M with every trick reaches 562 tokens/s on 2k contexts (`benchmarks/silicon/d5005/roofline.json`). The engine's arithmetic is every number it computes, as exact integer and IEEE f32 operations quantized the way llama.cpp's CPU path quantizes, and on Qwen3.5-0.8B its fastest point parts from the f32 run within two standard errors of llama.cpp's own build. A checkpoint's step is a program of unit commands the model interprets; the machine lays every byte of a step in the card's memory; and the engine in Verilog runs a whole step of a tiny model under Verilator, leaving every logit, state and cache exactly as the machine does (`d5005_numerics_lock`, `d5005_program_lock`, `d5005_machine_lock`, `d5005_engine_rtl_lock`). Each DDR4 channel is modeled from the shell's own EMIF configuration and held to JESD79-4, and the weight image lays a checkpoint over the four channels in the order a step reads it: Qwen3.8-27B Q4_K_M is 17.2 GB over 522,132 tiles, each ending in its CRC-32C. The OFS build tree, the stream engine, the loader and the bring-up receipt run unchanged against the RTL in co-simulation (`d5005_flow_lock`, `d5005_image_stream_lock`).
+
+### sky130 and Caravel
+
+A process is a value in the compiler (`codegen_sva::pdk_target`: `SKY130A`, `GF180MCUC`), and a block's OpenLane configuration is derived with the measurement behind each number. Hardened blocks, among them soft cores, fabric SoCs, systolic tiles, a SIMT engine and a coprocessor core, are recorded signoff-clean with every sky130 corner closed in the `benchmarks/silicon/*signoff*.json` ledgers. The certified DRAM command player is a Caravel user macro inside the unmodified `user_project_wrapper`; macro and wrapper are signoff-clean, and the assembled submission passes all 19 `mpw_precheck` checks (`benchmarks/silicon/mpw_precheck.json`). The whole-program engine is prepared as a second Caravel user project, with its heap, call-frame stack and configuration image in an off-die QSPI PSRAM, trapping `0xE1` on a call past the frame stack and `0xE2` on a heap access past its region; 24 of the 35 suite programs run on its shipped profile, and its macro and its wrapper harden signoff-clean at every corner, slew included, and pass the foundry's golden DRC deck; its assembled submission passes all 19 `mpw_precheck` checks, LVS included (`benchmarks/silicon/caravel_macro_signoff.json`, `benchmarks/silicon/caravel_signoff_wpe.json`, `benchmarks/silicon/mpw_precheck_wpe.json`). Every setting `scripts/openlane-run.sh` accepts reaches the flow or stops the run with its reason, and a block's power-strap pitch and hold-repair margin are compiler levers (`ClosureSettings::pdn_vpitch_um`, `hold_slack_margin_ns`). The antenna repair reaches an upper-layer run beside a diode site with a stacked jog. The jog router refuses a bridge that would join its own net through a corner or a short edge, the shape the shuttle's maximal-rule deck flags and Magic does not. Clock-tree synthesis, a diode-aware split of dioded nets and the post-route diode ECO each work to the SDC's fanout limit with every antenna diode counted as a load, and the post-diode upsize re-checks slew on the route the flow makes after antenna repair. The OpenLane every block is hardened with is reproducible from the repository (`scripts/openlane-overlay/`).
+
+Hardened blocks are re-signed at the period every corner meets under delay-oriented synthesis, each built under the strategy its period was measured with: the DRAM command player at 5.0 ns, the HFT decision fabric at 4.4 ns, the CGRA at 6.4 ns, the memory subsystem at 8.1 ns and the GEMM array at 9.4 ns. The whole-program engine runs on `user_clock2` at 21 ns (47.62 MHz), the period its slow corner meets, with its float units staged a carry chain or a shift a stage and its stall taken from registers. Global routing's effort is a compiler lever, and clock-tree synthesis takes the largest cost exponent a core's size allows, so a large core builds its clock tree in minutes.
+
+### A comparative-synthesis bench
+
+Seven kernels, a trading decision, a Horner polynomial and a SIMT shader compiled from LOGOS, and a GEMM tile, Keccak-f[1600], an NTT butterfly and a DDR2 controller from LOGOS's RTL generators, are measured against Bambu, Calyx, Gemmini, Vortex, Spatial and LiteDRAM on one bench: a shared functional harness, Artix-7 place-and-route over five seeds, sky130 signoff at each candidate's minimum period and at the kernel's iso period, gate-level power, and a DDR2 traffic gate held to JEDEC. Every printed number is re-derived from its tool reports (`comparative_synthesis_lock`).
+
+### Analog, with the tolerance as a compiler output
+
+`largo emit analog` lowers a float function whose inputs carry `Assume x is between A and B.` ranges onto analog tiles and writes the tile netlist, a gain schedule, a range certificate that `logicaffeine_proof::interval_replay` replays, an itemized error budget whose `recheck` re-derives its total, and a behavioral ngspice netlist, so the tolerance of an analog result is a compiler output an independent checker replays. An integer region is claimed exact only when its budget proves the error below half a grid step, and `codegen_mx::partition` binds a function to the analog plane only when its certificate admits it. Every physical constant is sourced or labeled modeled, and no analog silicon exists (`analog_range_certificate_lock`, `analog_error_budget_lock`).
+
+## Packaging
+
+Every published crate builds from its own crates.io tarball: each manifest carries an anchored `include` allowlist, every file a crate embeds lives in that crate, and `scripts/check-packaging.sh` builds every tarball against its siblings and each docs.rs feature set and holds each `.crate` under 8 MiB, per push and as the release preflight (`packaging_lock`). `rust-version` said 1.75 while published code needed 1.82 and the locked dependency graph 1.88; it is now 1.88, and a CI `msrv` job checks it. The released binaries build with a whole-program-LTO `dist` profile, which on x86_64 Linux takes `largo` from 53.5 MB to 37.2 MB and `logicaffeine-lsp` from 25.5 MB to 16.3 MB (`dist_profile_lock`). Every test now lives in the `logicaffeine-tests` crate, so no published crate ships test code.
+
+## Also in this release
+
+- `ConvergentCount` and `Tally` merge per replica and idempotently, so a redelivered state never double-counts, and `SharedMap from K to V`, which compiled to Rust that did not build in 0.10.1, builds, runs and converges on the tree-walker, the VM and a compiled binary (`shared_map_all_tiers`).
+- A `mutable` parameter is the caller's variable on both C tiers and on WebAssembly, a lent element or field is stored back through the keys it was lent with, C evaluates operands in the order LOGOS does, and a function that changes a program variable is pure on no path, so memoization and compile-time evaluation leave it alone on every backend (`in_out_lock`, `c_operand_order_lock`, `purity_lock`).
+- ML-KEM and ML-DSA run on the tree-walker and the VM, where 0.10.1 returned `Nothing`, from one table of native kernels shared with AOT-Rust (`native_kernel_lock`).
+- A launched task's failure fails the run on the tree-walker as on the VM, `Launch a task to f with x and y` passes two arguments, and a `Select` naming one pipe in two arms no longer takes that pipe's next value.
+- The VM runs file statements against the tree-walker's sandboxed filesystem, the tree-walker recurses as deep as the VM, and nested writes (`Push 5 to a's b's c`) land where the sentence says on the tree-walker and the VM.
+- Every decompressor stops at 256 MiB, and an untrusted field count no longer preallocates beyond the remaining input (`never_panic_lock`).
+- `analytics`, `vm` and `sha256` join the cross-language benchmark suite in all eleven languages (32 programs to 35), and `benchmarks/PROFILE.md` profiles every benchmark for LOGOS and C.
+- Every legal-entity surface names Datacenter.Dev as the licensor; the GitHub URLs are unchanged.
+- A rational is the VM's exact number on every backend that compiles a program, C, C bytecode, RISC-V, linked WebAssembly and Rust, through lists, records, parameters and results (`rational_number_lock`).
+- A linked WebAssembly module carries none of its runtime's debug information, so a program of eight functions links to 272 KB (`emit_wasm`).
+- A PostgreSQL cancel request waits for the postmaster to close its connection, as libpq's `PQcancel` does, so it never lands on the statement after it (`postgres_protocol`).
+
+## Breaking changes
+
+Some programs and invocations that 0.10.1 accepted are refused or behave differently. The Breaking changes section of `CHANGELOG.md` gives each item's lock and full migration, and every Rust API change.
+
+- **New header words.** `Test`, `Component`, `Page`, `Route`, `Store`, `Directive` and `Redirect` head code blocks: one without its shape (`## Page layout`) is a parse error, and a prose heading within two edits of one (`## Tests`, `## Usage`, `## Next steps`) is refused as a probable typo. Start such a heading with a word three or more edits from every header word (`## Notes on pages`).
+- **The checker refuses more.** A wrong arity or argument type, a call to a function defined nowhere, a mistyped field or element write, a type nothing declares and a bare variant name two enums declare are refused. Fix the call, declare or `Import` the type, and name the variant's enum (`a new Failure from Outcome`).
+- **Lending is exclusive.** `h(a, a)` and `h(a, popLast(a))`, where `h` takes a `mutable` parameter, are refused; evaluate the other use first, or pass `copy of a`.
+- **A declared function wins over a statement word.** `show(3).` calls a program's own `show`; write `Show 3.` where the statement was meant.
+- **Modules are scoped per file, and loading is fail-closed.** A name only a transitively linked module defines is refused, as is a module outside the project, `Largo.toml` and dependency roots; import it directly, or declare it as a dependency.
+- **Interpolation holes are read whole, and raw strings are verbatim.** A hole that does not fully parse is refused instead of printing its prefix, and `r"{x}"` shows `{x}`; write literal braces as `{{` and `}}`.
+- **`the weekday of` is ISO 8601.** Sunday is 7, not 0; `(the weekday of d) mod 7` gives the old numbering.
+- **More than 16 nested parentheses is `AstTooDeep`.** Raise `LOGOS_MAX_AST_DEPTH` or flatten the expression.
+- **A compiled binary exits 1 with the LOGOS message** on a runtime error, where 0.10.1 printed a Rust panic report and exited 101, and AOT `text_from_bytes` refuses invalid UTF-8 as the interpreters do.
+- **`Option` is a tagged value, `word16` is a `Word16`, and `args()` names the program.** `some 0` differs from `none`, Words of different widths do not compare, and `args()` starts with the program's name on an in-process engine.
+- **`largo emit c` output follows the interpreter.** A record shows as `Point { x: 10, y: 20 }`, and an absent map key, an out-of-range index, an unmatched `Inspect` and a zero divisor exit 1.
+- **A project with `pages/` or `static/` is a site.** If its entry never `Serve`s, a plain `largo build` exports `dist/`; `largo run` still runs the entry, and `--target`, `--lib`, `--emit` or `--native-functions` take the program path.
+- **Dependencies are resolved, not ignored.** A `git` dependency needs a 40-hex `rev`, and a `path` that does not exist is refused.
+- **The built binary moved** to the project's `target/<mode>/<name>`.
+- **`largo verify`, `check`, `fmt --check`, `prove`, `test` and `run --interpret` refuse more,** and `largo verify` no longer passes unconditionally.
+- **Proof certificates from 0.10.1 are refused.** Re-run `largo prove --certificate`.
+- **Kernel semantics follow Lean.** Integer division is Euclidean (`div (-7) 3` is `-3`), `Prop` lives in `Type 0`, and instances resolve by priority, then the later declaration.
+- **Kernel registration refuses what it used to insert.** An ill-typed `Context::add_definition` body is recorded as refused, a name something depends on cannot be redeclared with a different meaning, and `Repl::execute` refuses trailing input.
+- **`linarith` no longer means `omega`.** It reasons over the rationals; write `omega` for integer goals.
+- **A theorem block is read as written.** A `Given:` below `Prove:`, and two premises citable by one name, are refused.
+- **Seven research modules left `logicaffeine-proof`:** `category_collapse`, `census`, `cofactor`, `res_width`, `orbit_stability`, `polycalc_gfp` and `polycalc_zm`. Pin `logicaffeine-proof = "=0.10.1"` for them.
+- **Rust API.** Public enums gained variants and none is non-exhaustive, some structs gained fields, and some signatures changed; `codegen::with_seeded_select` is `codegen::with_deterministic_replay`.
+- **The lexicon JSON moved** to `crates/logicaffeine_lexicon/assets/lexicon.json`, exported as `logicaffeine_lexicon::LEXICON_JSON`, content unchanged.
+- **Published tarballs carry no tests, examples or fixtures.** Run them from a checkout.
+- **Web app links moved.** The Syntax Guide's advanced-features anchor is gone, and the Studio's Code examples moved into topic folders.
+
+## Install it
+
+```bash
+curl -fsSL https://logicaffeine.com/install.sh | sh
+```
+
+On Windows:
+
+```powershell
+irm https://logicaffeine.com/install.ps1 | iex
+```
+
+Prebuilt `largo` binaries for Linux and macOS (x64 and arm64) and Windows x64, SHA-256-verified, with no toolchain and no sudo. Piping to `sh -s -- --full` instead installs the flavor with Z3 static verification bundled.
+"#,
+        tags: &["release", "web", "language", "testing", "compiler", "kernel", "proof", "tools", "hardware"],
+        author: "Tristen Harr",
+    },
+    Article {
+        slug: "write-it-in-english-ship-it-anywhere",
+        title: "Write It in English. Ship It Anywhere.",
+        date: "2026-09-25",
+        summary: "Since v0.10: websites written in LOGOS can go live on any host, three new examples show you how, largo runs your code the moment it's installed, and the Learn page, Syntax Guide and Studio all got friendlier.",
+        content: r#"
+We've been busy since v0.10 landed in July. Here's the short version.
+
+## Your English-language website, live
+
+LOGOS could always build a website. Now it can ship one.
+
+- **Deploy anywhere.** `largo build --static` produces a folder of ready-to-serve pages for any static host. Need a backend? Your project builds into a single binary that runs in a container or on Fly, Render or Kubernetes.
+- **Production-ready serving.** Graceful shutdown, health checks, request timeouts and overload protection, configured with environment variables instead of code.
+- **Faster first visits.** Your site's app now downloads compressed.
+- **Pages that look good when shared.** Each page sets its own title and social preview card, and your 404 page ships with the site.
+
+## Three new examples to learn from
+
+- **Tic-tac-toe:** a complete game with no server at all.
+- **Guestbook:** a site with zero JavaScript that rejects forged form submissions for you.
+- **Marketing site:** four pages, ready for a CDN, sitemap included.
+
+## Install and go
+
+`largo build` and `largo run` now work the moment you install, at full native speed. Before, the native build needed a copy of our source code.
+
+```bash
+curl -fsSL https://logicaffeine.com/install.sh | sh
+largo new hello && cd hello && largo run
+```
+
+The Linux build with Z3 verification bundled now runs on standard Linux distributions too.
+
+## Learning, smoother
+
+- **[Learn Logic](/learn), rebuilt from the inside.** Lessons load reliably, exercises come in order, tests hold back answers until you submit, and your progress survives a refresh. It fits your phone, too.
+- **A [Syntax Guide](/guide) that talks back.** Every example sits in the same editor as the Studio: hover a word to see what it means, and mistakes are underlined as you type.
+- **A calmer [Studio](/studio).** Open a file and it picks the right mode on its own, and panels drag and resize smoothly.
+
+## Under the hood
+
+- Leaner code for WebAssembly, RISC-V and hardware targets, with fewer instructions in hot loops.
+- Large functions now run in the browser instead of crashing.
+- `who`, `what`, `whom` and `item` work as ordinary names, and putting a number where a page element belongs is caught before you run.
+- For hardware folks: `largo emit plasticine` turns a LOGOS loop into code for reconfigurable dataflow chips.
+
+Jump into the [Studio](/studio) and try it.
+"#,
+        tags: &["announcement", "web", "education", "studio", "tools"],
+        author: "LOGICAFFEINE Team",
+    },
     Article {
         slug: "solver-vs-the-field-pigeonhole",
         title: "Pigeonhole vs the Field: Z3, Kissat, and SaDiCaL",
@@ -99,6 +419,44 @@ Random 3-SAT is the control: no structure to exploit, ours tracks Kissat within 
 The proof engine is pure Rust and compiles to WASM unchanged — Z3, Kissat and SaDiCaL are only the comparison oracles in the native benchmark. The Studio's Hardware mode ships a live pigeonhole demo: type `pigeons: 6`, watch the last pigeon find no home, and read the certified verdict computed in the browser. The benchmark and the demo are the same prover.
 "#,
         tags: &["benchmarks", "solver", "verification", "proof", "studio"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
+        slug: "release-0-10-1-full-binaries-on-stock-glibc",
+        title: "v0.10.1 — The Full Linux Binaries Run on Stock glibc",
+        date: "2026-07-11",
+        summary: "A patch release for one defect: v0.10.0's Z3-bundled `largo-full` Linux binaries exited at startup on stock Ubuntu 22.04 and older with `GLIBCXX_3.4.31 not found`. They now carry libstdc++ statically and start wherever the standard binaries do.",
+        content: r#"
+## What broke
+
+The `--full` flavor of `largo` bundles Z3 for static verification. Z3 4.16 needs C++20's
+`std::format`, so the full binaries are built with gcc-13 — and gcc-13's libstdc++ tags its
+symbols `GLIBCXX_3.4.31`, a version stock Ubuntu 22.04 and older do not ship. v0.10.0's
+`largo-full-linux-x64` and `largo-full-linux-arm64` linked libstdc++ dynamically, asked the
+system for that version, and died at startup with `GLIBCXX_3.4.31 not found`.
+
+The standard binaries, which carry no Z3, were not affected.
+
+## The fix
+
+The full Linux builds now link libstdc++ statically. `z3-sys` emits a plain `-lstdc++`; the
+build hands the linker a library-search directory that holds only `libstdc++.a`, so that
+flag resolves to the static archive and the binary no longer depends on the system's
+libstdc++ at all.
+
+## Get it
+
+```bash
+curl -fsSL https://logicaffeine.com/install.sh | sh -s -- --full
+```
+
+Or, without Z3:
+
+```bash
+curl -fsSL https://logicaffeine.com/install.sh | sh
+```
+"#,
+        tags: &["release", "tools"],
         author: "LOGICAFFEINE Team",
     },
     Article {

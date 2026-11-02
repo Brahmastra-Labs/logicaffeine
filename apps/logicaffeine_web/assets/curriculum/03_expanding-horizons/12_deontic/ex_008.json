@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Don't appoint Donna",
   "options": [
-    "$ \\sim A\\underline{d} $",
-    "$ \\sim Aud $",
-    "$ \\sim A\\underline{u} d $",
-    "$ O\\sim A\\underline{u} d $"
+    "¬A(d̲)",
+    "¬A(u, d)",
+    "¬A(u̲, d)",
+    "O¬A(u̲, d)"
   ],
   "correct": 2,
-  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
-  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
+  "hint": "Who is told not to act? Underline that person's letter.",
+  "explanation": "A command to you not to appoint Donna: ¬A(u̲, d). You are the one told, so u is underlined.",
+  "section": "12.2"
 }

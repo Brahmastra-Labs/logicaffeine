@@ -1,0 +1,495 @@
+# Compress
+
+DEFLATE / zlib / gzip (RFC 1951 / RFC 1950 / RFC 1952) plus the CRC-32 (IEEE 802.3) and Adler-32 checksums that frame them, all pure
+LOGOS over `Seq of Int` bytes (0–255). Everything is byte-identical across every
+tier and interoperates with real zlib/gzip.
+
+## Note
+`crc32(data)` — the CRC-32 of `data` used by gzip, PNG, and ZIP (IEEE 802.3, reflected polynomial `0xEDB88320`), returned as a 32-bit unsigned integer.
+
+Bit-serial per byte: XOR the byte in, then fold eight times through the
+polynomial; the running CRC starts and ends inverted.
+## To crc32 (data: Seq of Int) -> Int:
+    Let mutable crc be word32(4294967295).
+    Repeat for b in data:
+        Set crc to crc xor word32(b).
+        Repeat for bit from 1 to 8:
+            If intOfWord32(word_and(crc, word32(1))) is equal to 1:
+                Set crc to (word32Shr(crc, 1)) xor word32(3988292384).
+            Otherwise:
+                Set crc to word32Shr(crc, 1).
+    Return intOfWord32(word_not(crc)).
+
+## Note
+`adler32(data)` — the Adler-32 checksum used by zlib (RFC 1950): two rolling sums mod 65521, packed as
+`(b << 16) | a`. `a` starts at 1, `b` at 0; each byte advances `a` then folds it into `b`.
+
+## To adler32 (data: Seq of Int) -> Int:
+    Let mutable a be 1.
+    Let mutable b be 0.
+    Repeat for byte in data:
+        Set a to (a + byte) mod 65521.
+        Set b to (b + a) mod 65521.
+    Return (b * 65536) + a.
+
+## Note
+CRC-CCITT (XMODEM, poly 0x1021) 16-bit checksum of `data`, continuing from `init` (`binascii.crc_hqx`).
+
+## To crcHqx (data: Seq of Int, init: Int) -> Int:
+    Let mutable c be word32(init).
+    Repeat for b in data:
+        Set c to word_and(c xor word32(b * 256), word32(65535)).
+        Repeat for i from 1 to 8:
+            Let hibit be intOfWord32(word_and(c, word32(32768))).
+            Let shifted be word_and(word32(intOfWord32(c) * 2), word32(65535)).
+            If hibit is greater than 0:
+                Set c to shifted xor word32(4129).
+            Otherwise:
+                Set c to shifted.
+    Return intOfWord32(word_and(c, word32(65535))).
+
+## Note
+Reads `n` bits LSB-first from `data` starting at 1-based byte `bytePos`, bit `bitPos`, returning a three-element sequence `[value, newBytePos, newBitPos]` (the DEFLATE bit-reader primitive).
+
+## To zlibReadBits (data: Seq of Int) and (bytePos: Int) and (bitPos: Int) and (n: Int) -> Seq of Int:
+    Let mutable bp be bytePos.
+    Let mutable bit be bitPos.
+    Let mutable val be 0.
+    Let mutable k be 0.
+    While k is less than n:
+        Let b be ((item bp of data) shifted right by bit) & 1.
+        Set val to val | (b shifted left by k).
+        Set bit to bit + 1.
+        If bit is equal to 8:
+            Set bit to 0.
+            Set bp to bp + 1.
+        Set k to k + 1.
+    Let out be a new Seq of Int.
+    Push val to out.
+    Push bp to out.
+    Push bit to out.
+    Return out.
+
+## Note
+Inflates the raw DEFLATE stream in `data` beginning at 1-based byte `startByte`, currently handling stored (uncompressed) blocks; returns the decompressed bytes.
+
+## To inflateStored (data: Seq of Int) and (startByte: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable bp be startByte.
+    Let mutable bit be 0.
+    Let mutable final be 0.
+    While final is equal to 0:
+        Let h be zlibReadBits(data, bp, bit, 3).
+        Let hv be item 1 of h.
+        Set bp to item 2 of h.
+        Set bit to item 3 of h.
+        Set final to hv & 1.
+        Let btype be (hv shifted right by 1) & 3.
+        If btype is equal to 0:
+            If bit is greater than 0:
+                Set bit to 0.
+                Set bp to bp + 1.
+            Let len be (item bp of data) + ((item (bp + 1) of data) * 256).
+            Set bp to bp + 4.
+            Let mutable k be 0.
+            While k is less than len:
+                Push item (bp + k) of data to out.
+                Set k to k + 1.
+            Set bp to bp + len.
+        Otherwise:
+            Set final to 1.
+    Return out.
+
+## Note
+The `[base, extraBits]` for a DEFLATE length symbol (257-285).
+
+## To zlibLengthInfo (sym: Int) -> Seq of Int:
+    Let bases be [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258].
+    Let extras be [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0].
+    Let out be a new Seq of Int.
+    Push item (sym - 256) of bases to out.
+    Push item (sym - 256) of extras to out.
+    Return out.
+
+## Note
+The `[base, extraBits]` for a DEFLATE distance code (0-29).
+
+## To zlibDistInfo (dcode: Int) -> Seq of Int:
+    Let bases be [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577].
+    Let extras be [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13].
+    Let out be a new Seq of Int.
+    Push item (dcode + 1) of bases to out.
+    Push item (dcode + 1) of extras to out.
+    Return out.
+
+## Note
+Decodes one fixed-Huffman literal/length symbol from the DEFLATE stream, returning `[symbol, newBytePos, newBitPos]`.
+
+## To zlibDecodeFixedSym (data: Seq of Int) and (bytePos: Int) and (bitPos: Int) -> Seq of Int:
+    Let mutable bp be bytePos.
+    Let mutable bit be bitPos.
+    Let mutable code be 0.
+    Let mutable c be 0.
+    While c is less than 7:
+        Let r be zlibReadBits(data, bp, bit, 1).
+        Set code to (code shifted left by 1) | (item 1 of r).
+        Set bp to item 2 of r.
+        Set bit to item 3 of r.
+        Set c to c + 1.
+    Let mutable sym be 0 - 1.
+    If code is at most 23:
+        Set sym to 256 + code.
+    Otherwise:
+        Let r8 be zlibReadBits(data, bp, bit, 1).
+        Set code to (code shifted left by 1) | (item 1 of r8).
+        Set bp to item 2 of r8.
+        Set bit to item 3 of r8.
+        If code is at least 48:
+            If code is at most 191:
+                Set sym to code - 48.
+        If code is at least 192:
+            If code is at most 199:
+                Set sym to 280 + (code - 192).
+        If sym is less than 0:
+            Let r9 be zlibReadBits(data, bp, bit, 1).
+            Set code to (code shifted left by 1) | (item 1 of r9).
+            Set bp to item 2 of r9.
+            Set bit to item 3 of r9.
+            Set sym to 144 + (code - 400).
+    Let out be a new Seq of Int.
+    Push sym to out.
+    Push bp to out.
+    Push bit to out.
+    Return out.
+
+## Note
+Reads a 5-bit fixed-Huffman distance code (MSB-first) from the DEFLATE stream, returning `[dcode, newBytePos, newBitPos]`.
+
+## To zlibDecodeFixedDist (data: Seq of Int) and (bytePos: Int) and (bitPos: Int) -> Seq of Int:
+    Let mutable bp be bytePos.
+    Let mutable bit be bitPos.
+    Let mutable code be 0.
+    Let mutable c be 0.
+    While c is less than 5:
+        Let r be zlibReadBits(data, bp, bit, 1).
+        Set code to (code shifted left by 1) | (item 1 of r).
+        Set bp to item 2 of r.
+        Set bit to item 3 of r.
+        Set c to c + 1.
+    Let out be a new Seq of Int.
+    Push code to out.
+    Push bp to out.
+    Push bit to out.
+    Return out.
+
+## Note
+Inflates the DEFLATE stream in `data` from 1-based `startByte`, handling stored and fixed-Huffman blocks (LZ77 back-references included); returns the decompressed bytes.
+
+## To zlibInflate (data: Seq of Int) and (startByte: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable bp be startByte.
+    Let mutable bit be 0.
+    Let mutable final be 0.
+    While final is equal to 0:
+        Let h be zlibReadBits(data, bp, bit, 3).
+        Let hv be item 1 of h.
+        Set bp to item 2 of h.
+        Set bit to item 3 of h.
+        Set final to hv & 1.
+        Let btype be (hv shifted right by 1) & 3.
+        If btype is equal to 0:
+            If bit is greater than 0:
+                Set bit to 0.
+                Set bp to bp + 1.
+            Let len be (item bp of data) + ((item (bp + 1) of data) * 256).
+            Set bp to bp + 4.
+            Let mutable k be 0.
+            While k is less than len:
+                Push item (bp + k) of data to out.
+                Set k to k + 1.
+            Set bp to bp + len.
+        Otherwise:
+            If btype is equal to 1:
+                Let mutable done be false.
+                While done is equal to false:
+                    Let sr be zlibDecodeFixedSym(data, bp, bit).
+                    Let sym be item 1 of sr.
+                    Set bp to item 2 of sr.
+                    Set bit to item 3 of sr.
+                    If sym is less than 256:
+                        Push sym to out.
+                    Otherwise:
+                        If sym is equal to 256:
+                            Set done to true.
+                        Otherwise:
+                            Let li be zlibLengthInfo(sym).
+                            Let mutable matchLen be item 1 of li.
+                            Let lex be item 2 of li.
+                            If lex is greater than 0:
+                                Let er be zlibReadBits(data, bp, bit, lex).
+                                Set matchLen to matchLen + (item 1 of er).
+                                Set bp to item 2 of er.
+                                Set bit to item 3 of er.
+                            Let dr be zlibDecodeFixedDist(data, bp, bit).
+                            Let dcode be item 1 of dr.
+                            Set bp to item 2 of dr.
+                            Set bit to item 3 of dr.
+                            Let di be zlibDistInfo(dcode).
+                            Let mutable dist be item 1 of di.
+                            Let dex be item 2 of di.
+                            If dex is greater than 0:
+                                Let der be zlibReadBits(data, bp, bit, dex).
+                                Set dist to dist + (item 1 of der).
+                                Set bp to item 2 of der.
+                                Set bit to item 3 of der.
+                            Let startPos be ((length of out) - dist) + 1.
+                            Let mutable j be 0.
+                            While j is less than matchLen:
+                                Push item (startPos + j) of out to out.
+                                Set j to j + 1.
+            Otherwise:
+                Let hlr be zlibReadBits(data, bp, bit, 5).
+                Let hlit be (item 1 of hlr) + 257.
+                Set bp to item 2 of hlr.
+                Set bit to item 3 of hlr.
+                Let hdr be zlibReadBits(data, bp, bit, 5).
+                Let hdist be (item 1 of hdr) + 1.
+                Set bp to item 2 of hdr.
+                Set bit to item 3 of hdr.
+                Let hcr be zlibReadBits(data, bp, bit, 4).
+                Let hclen be (item 1 of hcr) + 4.
+                Set bp to item 2 of hcr.
+                Set bit to item 3 of hcr.
+                Let order be [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15].
+                Let mutable clLengths be a new Seq of Int.
+                Let mutable ii be 0.
+                While ii is less than 19:
+                    Push 0 to clLengths.
+                    Set ii to ii + 1.
+                Let mutable ci be 0.
+                While ci is less than hclen:
+                    Let clr be zlibReadBits(data, bp, bit, 3).
+                    Let ord be item (ci + 1) of order.
+                    Set item (ord + 1) of clLengths to item 1 of clr.
+                    Set bp to item 2 of clr.
+                    Set bit to item 3 of clr.
+                    Set ci to ci + 1.
+                Let clCounts be zlibBuildCounts(clLengths).
+                Let clSymbols be zlibBuildSymbols(clLengths).
+                Let allLen be a new Seq of Int.
+                Let mutable prev be 0.
+                Let total be hlit + hdist.
+                Let mutable more be true.
+                While more is equal to true:
+                    If (length of allLen) is at least total:
+                        Set more to false.
+                    Otherwise:
+                        Let cr be zlibDecodeSym(data, bp, bit, clCounts, clSymbols).
+                        Let clsym be item 1 of cr.
+                        Set bp to item 2 of cr.
+                        Set bit to item 3 of cr.
+                        If clsym is less than 16:
+                            Push clsym to allLen.
+                            Set prev to clsym.
+                        Otherwise:
+                            If clsym is equal to 16:
+                                Let rr be zlibReadBits(data, bp, bit, 2).
+                                Let rep be (item 1 of rr) + 3.
+                                Set bp to item 2 of rr.
+                                Set bit to item 3 of rr.
+                                Let mutable rk be 0.
+                                While rk is less than rep:
+                                    Push prev to allLen.
+                                    Set rk to rk + 1.
+                            Otherwise:
+                                If clsym is equal to 17:
+                                    Let rr be zlibReadBits(data, bp, bit, 3).
+                                    Let rep be (item 1 of rr) + 3.
+                                    Set bp to item 2 of rr.
+                                    Set bit to item 3 of rr.
+                                    Let mutable rk be 0.
+                                    While rk is less than rep:
+                                        Push 0 to allLen.
+                                        Set rk to rk + 1.
+                                    Set prev to 0.
+                                Otherwise:
+                                    Let rr be zlibReadBits(data, bp, bit, 7).
+                                    Let rep be (item 1 of rr) + 11.
+                                    Set bp to item 2 of rr.
+                                    Set bit to item 3 of rr.
+                                    Let mutable rk be 0.
+                                    While rk is less than rep:
+                                        Push 0 to allLen.
+                                        Set rk to rk + 1.
+                                    Set prev to 0.
+                Let litLengths be a new Seq of Int.
+                Let distLengths be a new Seq of Int.
+                Let mutable m be 1.
+                While m is at most hlit:
+                    Push item m of allLen to litLengths.
+                    Set m to m + 1.
+                While m is at most total:
+                    Push item m of allLen to distLengths.
+                    Set m to m + 1.
+                Let litCounts be zlibBuildCounts(litLengths).
+                Let litSymbols be zlibBuildSymbols(litLengths).
+                Let distCounts be zlibBuildCounts(distLengths).
+                Let distSymbols be zlibBuildSymbols(distLengths).
+                Let mutable done2 be false.
+                While done2 is equal to false:
+                    Let sr be zlibDecodeSym(data, bp, bit, litCounts, litSymbols).
+                    Let sym be item 1 of sr.
+                    Set bp to item 2 of sr.
+                    Set bit to item 3 of sr.
+                    If sym is less than 256:
+                        Push sym to out.
+                    Otherwise:
+                        If sym is equal to 256:
+                            Set done2 to true.
+                        Otherwise:
+                            Let li be zlibLengthInfo(sym).
+                            Let mutable matchLen2 be item 1 of li.
+                            Let lex be item 2 of li.
+                            If lex is greater than 0:
+                                Let er be zlibReadBits(data, bp, bit, lex).
+                                Set matchLen2 to matchLen2 + (item 1 of er).
+                                Set bp to item 2 of er.
+                                Set bit to item 3 of er.
+                            Let dsr be zlibDecodeSym(data, bp, bit, distCounts, distSymbols).
+                            Let dcode be item 1 of dsr.
+                            Set bp to item 2 of dsr.
+                            Set bit to item 3 of dsr.
+                            Let di be zlibDistInfo(dcode).
+                            Let mutable dist2 be item 1 of di.
+                            Let dex be item 2 of di.
+                            If dex is greater than 0:
+                                Let der be zlibReadBits(data, bp, bit, dex).
+                                Set dist2 to dist2 + (item 1 of der).
+                                Set bp to item 2 of der.
+                                Set bit to item 3 of der.
+                            Let startPos2 be ((length of out) - dist2) + 1.
+                            Let mutable j2 be 0.
+                            While j2 is less than matchLen2:
+                                Push item (startPos2 + j2) of out to out.
+                                Set j2 to j2 + 1.
+    Return out.
+
+## Note
+Decompresses a zlib stream (`zlib.decompress`): skips the 2-byte zlib header and inflates the DEFLATE payload (stored and fixed-Huffman blocks). Returns the decompressed bytes.
+
+## To zlibDecompress (data: Seq of Int) -> Seq of Int:
+    Return zlibInflate(data, 3).
+
+## Note
+Counts how many DEFLATE code lengths equal each value 0-15 (`counts[len]` at 1-based index `len+1`), for canonical Huffman construction.
+
+## To zlibBuildCounts (lengths: Seq of Int) -> Seq of Int:
+    Let mutable counts be a new Seq of Int.
+    Let mutable i be 0.
+    While i is at most 15:
+        Push 0 to counts.
+        Set i to i + 1.
+    Repeat for symLen in lengths:
+        Set item (symLen + 1) of counts to (item (symLen + 1) of counts) + 1.
+    Return counts.
+
+## Note
+The symbols sorted into canonical Huffman order (by code length, then symbol) from their code `lengths`, used with `zlibBuildCounts` to decode.
+
+## To zlibBuildSymbols (lengths: Seq of Int) -> Seq of Int:
+    Let counts be zlibBuildCounts(lengths).
+    Let mutable offs be a new Seq of Int.
+    Let mutable i be 0.
+    While i is at most 16:
+        Push 0 to offs.
+        Set i to i + 1.
+    Let mutable len be 1.
+    While len is at most 15:
+        Set item (len + 2) of offs to (item (len + 1) of offs) + (item (len + 1) of counts).
+        Set len to len + 1.
+    Let n be length of lengths.
+    Let mutable symbols be a new Seq of Int.
+    Let mutable z be 0.
+    While z is less than n:
+        Push 0 to symbols.
+        Set z to z + 1.
+    Let mutable sym be 0.
+    While sym is less than n:
+        Let symLen be item (sym + 1) of lengths.
+        If symLen is greater than 0:
+            Let pos be item (symLen + 1) of offs.
+            Set item (pos + 1) of symbols to sym.
+            Set item (symLen + 1) of offs to pos + 1.
+        Set sym to sym + 1.
+    Return symbols.
+
+## Note
+Decodes one canonical-Huffman symbol from the DEFLATE stream given its `counts` and `symbols` tables, returning `[symbol, newBytePos, newBitPos]` (the puff-style count/first/index walk).
+
+## To zlibDecodeSym (data: Seq of Int) and (bytePos: Int) and (bitPos: Int) and (counts: Seq of Int) and (symbols: Seq of Int) -> Seq of Int:
+    Let mutable bp be bytePos.
+    Let mutable bit be bitPos.
+    Let mutable code be 0.
+    Let mutable first be 0.
+    Let mutable index be 0.
+    Let mutable result be 0 - 1.
+    Let mutable len be 1.
+    While len is at most 15:
+        If result is less than 0:
+            Let r be zlibReadBits(data, bp, bit, 1).
+            Set code to code | (item 1 of r).
+            Set bp to item 2 of r.
+            Set bit to item 3 of r.
+            Let cnt be item (len + 1) of counts.
+            If code is less than (first + cnt):
+                Set result to item ((index + (code - first)) + 1) of symbols.
+            Otherwise:
+                Set index to index + cnt.
+                Set first to (first + cnt) shifted left by 1.
+                Set code to code shifted left by 1.
+                Set len to len + 1.
+        Otherwise:
+            Set len to 16.
+    Let out be a new Seq of Int.
+    Push result to out.
+    Push bp to out.
+    Push bit to out.
+    Return out.
+
+## Note
+Compresses `data` into a valid zlib stream of stored (uncompressed) DEFLATE blocks, like `zlib.compress` at level 0.
+
+The stream is a 2-byte header, one or more stored blocks (each up to 65535 bytes), and the big-endian Adler-32 trailer. Any zlib decompressor round-trips it.
+## To zlibCompress (data: Seq of Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    Push 120 to out.
+    Push 1 to out.
+    Let n be length of data.
+    Let mutable pos be 0.
+    Let mutable more be true.
+    While more is equal to true:
+        Let rmn be n - pos.
+        Let mutable chk be rmn.
+        If chk is greater than 65535:
+            Set chk to 65535.
+        If (pos + chk) is greater than (n - 1):
+            Push 1 to out.
+            Set more to false.
+        Otherwise:
+            Push 0 to out.
+        Push (chk & 255) to out.
+        Push ((chk shifted right by 8) & 255) to out.
+        Let nlen be (chk xor 65535).
+        Push (nlen & 255) to out.
+        Push ((nlen shifted right by 8) & 255) to out.
+        Let mutable k be 0.
+        While k is less than chk:
+            Push item (pos + k + 1) of data to out.
+            Set k to k + 1.
+        Set pos to pos + chk.
+    Let a be adler32(data).
+    Push ((a shifted right by 24) & 255) to out.
+    Push ((a shifted right by 16) & 255) to out.
+    Push ((a shifted right by 8) & 255) to out.
+    Push (a & 255) to out.
+    Return out.

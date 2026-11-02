@@ -39,7 +39,9 @@ fn dedup_ships_a_shared_subtree_once_and_rebuilds_the_sharing() {
     );
 
     let (_f, back) = message_from_wire(&deduped).expect("deduped message decodes");
-    let RuntimeValue::List(l) = back else { panic!("expected a List") };
+    let RuntimeValue::List(l) = back else {
+        panic!("expected a List")
+    };
     let items = match &*l.borrow() {
         ListRepr::Boxed(v) => v.clone(),
         other => panic!("expected Boxed, got {other:?}"),
@@ -60,7 +62,10 @@ fn dedup_ships_a_shared_subtree_once_and_rebuilds_the_sharing() {
     else {
         panic!("expected three Lists");
     };
-    assert!(Rc::ptr_eq(ra, rb) && Rc::ptr_eq(rb, rc), "dedup rebuilt the aliasing into ONE Rc");
+    assert!(
+        Rc::ptr_eq(ra, rb) && Rc::ptr_eq(rb, rc),
+        "dedup rebuilt the aliasing into ONE Rc"
+    );
 }
 
 #[test]
@@ -74,8 +79,14 @@ fn dedup_is_byte_identical_when_there_is_no_sharing() {
     ]))));
     let plain = enc(&outer);
     let deduped = with_dedup(true, || enc(&outer));
-    assert_eq!(deduped, plain, "no sharing → dedup changes nothing on the wire");
-    assert!(message_from_wire(&deduped).is_some(), "and it still round-trips");
+    assert_eq!(
+        deduped, plain,
+        "no sharing → dedup changes nothing on the wire"
+    );
+    assert!(
+        message_from_wire(&deduped).is_some(),
+        "and it still round-trips"
+    );
 }
 
 #[test]
@@ -101,7 +112,9 @@ fn dedup_shares_a_repeated_value_in_a_heterogeneous_list() {
         plain.len()
     );
     let (_f, back) = message_from_wire(&deduped).expect("decodes");
-    let RuntimeValue::List(l) = back else { panic!("expected List") };
+    let RuntimeValue::List(l) = back else {
+        panic!("expected List")
+    };
     let items = match &*l.borrow() {
         ListRepr::Boxed(v) => v.clone(),
         other => panic!("expected Boxed, got {other:?}"),
@@ -180,7 +193,9 @@ fn best_and_auto_fold_in_dedup_when_sharing_is_present() {
         plain.len()
     );
     let (_f, back) = message_from_wire(&nbytes).expect("decodes");
-    let RuntimeValue::List(l) = back else { panic!("expected List") };
+    let RuntimeValue::List(l) = back else {
+        panic!("expected List")
+    };
     let items = match &*l.borrow() {
         ListRepr::Boxed(v) => v.clone(),
         other => panic!("expected Boxed, got {other:?}"),
@@ -188,5 +203,8 @@ fn best_and_auto_fold_in_dedup_when_sharing_is_present() {
     let (RuntimeValue::List(a), RuntimeValue::List(b)) = (&items[0], &items[7]) else {
         panic!("expected Lists");
     };
-    assert!(Rc::ptr_eq(a, b), "best auto-dedup rebuilt the aliasing under no compression");
+    assert!(
+        Rc::ptr_eq(a, b),
+        "best auto-dedup rebuilt the aliasing under no compression"
+    );
 }

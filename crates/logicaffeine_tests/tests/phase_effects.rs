@@ -1,7 +1,5 @@
 mod common;
 
-use common::compile_to_rust;
-
 // =============================================================================
 // Phase 1: Core Data Structures + Pure/Read/Write
 // =============================================================================
@@ -80,19 +78,28 @@ fn effect_unknown_escape() {
 #[test]
 fn effect_length_is_read() {
     let effects = analyze("Let items: Seq of Int be [1, 2].\nLet n be length of items.");
-    assert!(effects.reads("n", "items"), "length of items should read items");
+    assert!(
+        effects.reads("n", "items"),
+        "length of items should read items"
+    );
 }
 
 #[test]
 fn effect_index_is_read() {
     let effects = analyze("Let items: Seq of Int be [1, 2].\nLet x be item 1 of items.");
-    assert!(effects.reads("x", "items"), "item 1 of items should read items");
+    assert!(
+        effects.reads("x", "items"),
+        "item 1 of items should read items"
+    );
 }
 
 #[test]
 fn effect_contains_is_read() {
     let effects = analyze("Let items: Seq of Int be [1, 2].\nLet x be items contains 5.");
-    assert!(effects.reads("x", "items"), "items contains 5 should read items");
+    assert!(
+        effects.reads("x", "items"),
+        "items contains 5 should read items"
+    );
 }
 
 // =============================================================================
@@ -116,7 +123,10 @@ fn effect_transitive_pure() {
     let effects = analyze_fn(
         "## To double (x: Int) -> Int:\n    Return x * 2.\n\n## To quad (x: Int) -> Int:\n    Return double(double(x))."
     );
-    assert!(effects.fn_is_pure("quad"), "quad calling pure double should be Pure");
+    assert!(
+        effects.fn_is_pure("quad"),
+        "quad calling pure double should be Pure"
+    );
 }
 
 #[test]
@@ -124,7 +134,10 @@ fn effect_transitive_io() {
     let effects = analyze_fn(
         "## To greet (msg: Text):\n    Show msg.\n\n## To greetAll (msg: Text):\n    Call greet with msg."
     );
-    assert!(effects.fn_has_io("greetAll"), "greetAll calling greet should have IO");
+    assert!(
+        effects.fn_has_io("greetAll"),
+        "greetAll calling greet should have IO"
+    );
 }
 
 // =============================================================================
@@ -135,7 +148,10 @@ fn effect_transitive_io() {
 fn effect_check_never_eliminated() {
     // SecurityCheck is non-eliminable
     let effects = analyze_stmt("Check that user is admin.");
-    assert!(effects.has_security_check(), "Check should be SecurityCheck");
+    assert!(
+        effects.has_security_check(),
+        "Check should be SecurityCheck"
+    );
 }
 
 // =============================================================================
@@ -146,9 +162,12 @@ fn effect_check_never_eliminated() {
 fn effect_if_conservative() {
     // If branches joined conservatively
     let effects = analyze_stmt(
-        "Let mutable x be 0.\nIf true:\n    Set x to 1.\n    Show x.\nOtherwise:\n    Set x to 2."
+        "Let mutable x be 0.\nIf true:\n    Set x to 1.\n    Show x.\nOtherwise:\n    Set x to 2.",
     );
-    assert!(effects.has_io(), "If with Show in one branch should have IO (conservative join)");
+    assert!(
+        effects.has_io(),
+        "If with Show in one branch should have IO (conservative join)"
+    );
 }
 
 #[test]
@@ -161,7 +180,7 @@ fn effect_while_may_diverge() {
 // Test Infrastructure
 // =============================================================================
 
-use logicaffeine_compile::optimize::effects::{EffectEnv, EffectSet};
+use logicaffeine_compile::optimize::effects::EffectEnv;
 
 struct TestEffects {
     env: EffectEnv,

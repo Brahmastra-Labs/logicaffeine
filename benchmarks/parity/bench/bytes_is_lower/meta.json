@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.is_lower",
+  "workload": "bytesIsLower(xs) \u2014 all cased lower + >=1 cased",
+  "arg": "80000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

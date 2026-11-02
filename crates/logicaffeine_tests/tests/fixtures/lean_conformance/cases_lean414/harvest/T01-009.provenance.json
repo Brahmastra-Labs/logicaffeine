@@ -1,0 +1,96 @@
+{
+  "case": "T01-009",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t01_universes/T01-009_cumulativity_mismatch.lean",
+  "source_sha256": "5937ed3c16ad6bc147dfe18bb115b7efde63f49ab051700053507012e7727f75",
+  "ledger_sha256": "46baf6d74f586fd92d5a0fa3f41c2d37373245deec482b136f26b7381b2b085c",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T01_009.Cell",
+    "T01_009.Cell.mk",
+    "T01_009.Cell.val",
+    "T01_009.appliedViaLift",
+    "T01_009.big",
+    "T01_009.cellOfLifted",
+    "T01_009.consumesTypeOne",
+    "T01_009.covariantApplication",
+    "T01_009.downNat",
+    "T01_009.idAtOne",
+    "T01_009.idAtZero",
+    "T01_009.liftedFamily",
+    "T01_009.liftedNat",
+    "T01_009.liftedProp",
+    "T01_009.propUp",
+    "T01_009.propViaLift",
+    "T01_009.someTypeOneFn",
+    "T01_009.typeZeroInhabitsTypeOne",
+    "T01_009.upNat",
+    "T01_009.usesOne",
+    "T01_009.usesZero",
+    "T01_009.variantApplication",
+    "T01_009.wantsAType",
+    "T01_009.wantsTypeOneFamily"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "1084039f528794651f89a3696aca92375f006261c6da9c14994597e90364e798",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 349,
+  "harvest": {
+    "roots": [
+      "T01_009.Cell",
+      "T01_009.Cell.mk",
+      "T01_009.Cell.val",
+      "T01_009.appliedViaLift",
+      "T01_009.big",
+      "T01_009.cellOfLifted",
+      "T01_009.consumesTypeOne",
+      "T01_009.covariantApplication",
+      "T01_009.downNat",
+      "T01_009.idAtOne",
+      "T01_009.idAtZero",
+      "T01_009.liftedFamily",
+      "T01_009.liftedNat",
+      "T01_009.liftedProp",
+      "T01_009.propUp",
+      "T01_009.propViaLift",
+      "T01_009.someTypeOneFn",
+      "T01_009.typeZeroInhabitsTypeOne",
+      "T01_009.upNat",
+      "T01_009.usesOne",
+      "T01_009.usesZero",
+      "T01_009.variantApplication",
+      "T01_009.wantsAType",
+      "T01_009.wantsTypeOneFamily"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

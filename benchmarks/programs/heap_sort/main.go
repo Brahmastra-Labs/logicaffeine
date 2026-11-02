@@ -33,6 +33,6 @@ func main() {
 		siftDown(arr, 0, end-1)
 	}
 	checksum := int64(0)
-	for _, v := range arr { checksum = (checksum + v) % 1000000007 }
+	for _, v := range arr { checksum = (checksum*31 + v) & 268435455 }
 	fmt.Printf("%d %d %d\n", arr[0], arr[n-1], checksum)
 }

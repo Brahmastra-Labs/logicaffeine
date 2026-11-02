@@ -1,0 +1,148 @@
+{
+  "case": "T11-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 18,
+  "declarations": [
+    {
+      "type": "Type 1",
+      "name": "T11_001.Holder",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_001.Holder \u2192 Sort u} \u2192 (t : T11_001.Holder) \u2192 ((fld : Type) \u2192 motive { fld := fld }) \u2192 motive t",
+      "name": "T11_001.Holder.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_001.Holder \u2192 Type",
+      "name": "T11_001.Holder.fld",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T11_001.Holder",
+      "name": "T11_001.Holder.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {fld fld_1 : Type}, { fld := fld } = { fld := fld_1 } \u2192 fld = fld_1",
+      "name": "T11_001.Holder.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (fld fld_1 : Type), ({ fld := fld } = { fld := fld_1 }) = (fld = fld_1)",
+      "name": "T11_001.Holder.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (fld : Type), sizeOf { fld := fld } = 1 + sizeOf fld",
+      "name": "T11_001.Holder.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_001.Holder} \u2192 v1 = v2 \u2192 T11_001.Holder.noConfusionType P v1 v2",
+      "name": "T11_001.Holder.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_001.Holder \u2192 T11_001.Holder \u2192 Sort u",
+      "name": "T11_001.Holder.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_001.Holder \u2192 Sort u} \u2192 ((fld : Type) \u2192 motive { fld := fld }) \u2192 (t : T11_001.Holder) \u2192 motive t",
+      "name": "T11_001.Holder.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_001.Holder \u2192 Sort u} \u2192 (t : T11_001.Holder) \u2192 ((fld : Type) \u2192 motive { fld := fld }) \u2192 motive t",
+      "name": "T11_001.Holder.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T11_001.applyToType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_001.Holder",
+      "name": "T11_001.holdType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T11_001.idT",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Prop",
+      "name": "T11_001.listOfProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T11_001.natAtItsOwnLevel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T11_001.propAtProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Type) \u2192 Nat \u2192 Type",
+      "name": "T11_001.sameLevel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

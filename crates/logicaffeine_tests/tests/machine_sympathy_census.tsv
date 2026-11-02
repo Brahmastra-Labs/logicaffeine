@@ -1,0 +1,46 @@
+kernel	path	fired
+branch_sum	aot	elemtype,hoistborrows,strengthreducepow2,unbox
+branch_sum	run	
+branch_sum	vm	elemtype,unbox
+chain_vs_lanes_int	aot	elemtype,hoistborrows,strengthreducepow2
+chain_vs_lanes_int	run	
+chain_vs_lanes_int	vm	elemtype,fastdiv
+chain_vs_lanes_real	aot	borrow,oraclehints,strengthreducepow2,unbox
+chain_vs_lanes_real	run	inline
+chain_vs_lanes_real	vm	inline
+counters_simultaneously	aot	
+counters_simultaneously	run	
+counters_simultaneously	vm	
+first_touch_fill	aot	
+first_touch_fill	run	
+first_touch_fill	vm	
+gemm_real	aot	unbox
+gemm_real	run	
+gemm_real	vm	unbox
+horner_map	aot	unbox
+horner_map	run	
+horner_map	vm	unbox
+particles_field_sum	aot	unbox
+particles_field_sum	run	
+particles_field_sum	vm	unbox
+pointer_chase	aot	hoistborrows,peephole,strengthreducepow2,unbox
+pointer_chase	run	
+pointer_chase	vm	unbox
+saxpy	aot	unbox
+saxpy	run	
+saxpy	vm	unbox
+saxpy_in_place	aot	borrow,unbox
+saxpy_in_place	run	
+saxpy_in_place	vm	
+show_many_lines	aot	
+show_many_lines	run	
+show_many_lines	vm	
+stencil7	aot	hoistborrows,strengthreducepow2,unbox
+stencil7	run	
+stencil7	vm	unbox
+stream_triad	aot	unbox
+stream_triad	run	
+stream_triad	vm	unbox
+unused_result	aot	
+unused_result	run	
+unused_result	vm	

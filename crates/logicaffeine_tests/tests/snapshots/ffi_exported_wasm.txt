@@ -11,10 +11,15 @@ pub fn greet() -> i64 {
 }
 
 fn main() {
-    std::thread::Builder::new()
-        .stack_size(67_108_864)
-        .spawn(_logos_main)
-        .unwrap().join().unwrap();
+    std::panic::set_hook(::std::boxed::Box::new(|_logos_info| {
+        logicaffeine_system::io::flush_stdout();
+        let _logos_msg = _logos_info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| _logos_info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "LOGOS runtime error".to_string());
+        eprintln!("{}", _logos_msg);
+        if !logicaffeine_system::failure::is_caught() { std::process::exit(1); }
+    }));
+    logicaffeine_system::stack::run_main(_logos_main);
 }
 fn _logos_main() {
     show(&42);

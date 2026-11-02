@@ -1,0 +1,11 @@
+{
+  "name": "nqueens",
+  "lang": "logos_cbc",
+  "n": "14",
+  "samples_weight": 322561687,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

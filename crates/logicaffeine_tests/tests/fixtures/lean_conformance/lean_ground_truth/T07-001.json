@@ -1,0 +1,389 @@
+{
+  "case": "T07-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 47,
+  "declarations": [
+    {
+      "type": "Type 1 \u2192 Type 1",
+      "name": "T07_001.BigClass",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192\n  {motive : T07_001.BigClass \u03b1 \u2192 Sort u} \u2192 (t : T07_001.BigClass \u03b1) \u2192 ((pick : \u03b1) \u2192 motive { pick := pick }) \u2192 motive t",
+      "name": "T07_001.BigClass.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 \u03b1 \u2192 T07_001.BigClass \u03b1",
+      "name": "T07_001.BigClass.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_001.BigClass \u03b1} \u2192 v1 = v2 \u2192 T07_001.BigClass.noConfusionType P v1 v2",
+      "name": "T07_001.BigClass.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 Sort u \u2192 T07_001.BigClass \u03b1 \u2192 T07_001.BigClass \u03b1 \u2192 Sort u",
+      "name": "T07_001.BigClass.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192 [self : T07_001.BigClass \u03b1] \u2192 \u03b1",
+      "name": "T07_001.BigClass.pick",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192\n  {motive : T07_001.BigClass \u03b1 \u2192 Sort u} \u2192 ((pick : \u03b1) \u2192 motive { pick := pick }) \u2192 (t : T07_001.BigClass \u03b1) \u2192 motive t",
+      "name": "T07_001.BigClass.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type 1} \u2192\n  {motive : T07_001.BigClass \u03b1 \u2192 Sort u} \u2192 (t : T07_001.BigClass \u03b1) \u2192 ((pick : \u03b1) \u2192 motive { pick := pick }) \u2192 motive t",
+      "name": "T07_001.BigClass.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_001.Lonely",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Lonely \u03b1 \u2192 Sort u} \u2192\n    (t : T07_001.Lonely \u03b1) \u2192 ((witness : \u03b1 \u2192 \u03b1) \u2192 motive { witness := witness }) \u2192 motive t",
+      "name": "T07_001.Lonely.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 \u03b1) \u2192 T07_001.Lonely \u03b1",
+      "name": "T07_001.Lonely.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_001.Lonely \u03b1} \u2192 v1 = v2 \u2192 T07_001.Lonely.noConfusionType P v1 v2",
+      "name": "T07_001.Lonely.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_001.Lonely \u03b1 \u2192 T07_001.Lonely \u03b1 \u2192 Sort u",
+      "name": "T07_001.Lonely.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Lonely \u03b1 \u2192 Sort u} \u2192\n    ((witness : \u03b1 \u2192 \u03b1) \u2192 motive { witness := witness }) \u2192 (t : T07_001.Lonely \u03b1) \u2192 motive t",
+      "name": "T07_001.Lonely.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Lonely \u03b1 \u2192 Sort u} \u2192\n    (t : T07_001.Lonely \u03b1) \u2192 ((witness : \u03b1 \u2192 \u03b1) \u2192 motive { witness := witness }) \u2192 motive t",
+      "name": "T07_001.Lonely.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_001.Lonely \u03b1] \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_001.Lonely.witness",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_001.Magma",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Magma \u03b1 \u2192 Sort u} \u2192\n    (t : T07_001.Magma \u03b1) \u2192 ((op : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 (unit : \u03b1) \u2192 motive { op := op, unit := unit }) \u2192 motive t",
+      "name": "T07_001.Magma.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 \u03b1 \u2192 T07_001.Magma \u03b1",
+      "name": "T07_001.Magma.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_001.Magma \u03b1} \u2192 v1 = v2 \u2192 T07_001.Magma.noConfusionType P v1 v2",
+      "name": "T07_001.Magma.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_001.Magma \u03b1 \u2192 T07_001.Magma \u03b1 \u2192 Sort u",
+      "name": "T07_001.Magma.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_001.Magma \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_001.Magma.op",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Magma \u03b1 \u2192 Sort u} \u2192\n    ((op : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 (unit : \u03b1) \u2192 motive { op := op, unit := unit }) \u2192 (t : T07_001.Magma \u03b1) \u2192 motive t",
+      "name": "T07_001.Magma.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Magma \u03b1 \u2192 Sort u} \u2192\n    (t : T07_001.Magma \u03b1) \u2192 ((op : \u03b1 \u2192 \u03b1 \u2192 \u03b1) \u2192 (unit : \u03b1) \u2192 motive { op := op, unit := unit }) \u2192 motive t",
+      "name": "T07_001.Magma.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_001.Magma \u03b1] \u2192 \u03b1",
+      "name": "T07_001.Magma.unit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_001.Pointed",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T07_001.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T07_001.Pointed.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_001.Pointed \u03b1",
+      "name": "T07_001.Pointed.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_001.Pointed \u03b1} \u2192 v1 = v2 \u2192 T07_001.Pointed.noConfusionType P v1 v2",
+      "name": "T07_001.Pointed.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_001.Pointed \u03b1 \u2192 T07_001.Pointed \u03b1 \u2192 Sort u",
+      "name": "T07_001.Pointed.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_001.Pointed \u03b1] \u2192 \u03b1",
+      "name": "T07_001.Pointed.point",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Pointed \u03b1 \u2192 Sort u} \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 (t : T07_001.Pointed \u03b1) \u2192 motive t",
+      "name": "T07_001.Pointed.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.Pointed \u03b1 \u2192 Sort u} \u2192 (t : T07_001.Pointed \u03b1) \u2192 ((point : \u03b1) \u2192 motive { point := point }) \u2192 motive t",
+      "name": "T07_001.Pointed.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Prop",
+      "name": "T07_001.PropClass",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.PropClass \u03b1 \u2192 Sort u} \u2192\n    (t : T07_001.PropClass \u03b1) \u2192 ((holds : \u2200 (a : \u03b1), a = a) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T07_001.PropClass.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [self : T07_001.PropClass \u03b1] (a : \u03b1), a = a",
+      "name": "T07_001.PropClass.holds",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type}, (\u2200 (a : \u03b1), a = a) \u2192 T07_001.PropClass \u03b1",
+      "name": "T07_001.PropClass.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_001.PropClass \u03b1} \u2192 v1 = v2 \u2192 T07_001.PropClass.noConfusionType P v1 v2",
+      "name": "T07_001.PropClass.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_001.PropClass \u03b1 \u2192 T07_001.PropClass \u03b1 \u2192 Sort u",
+      "name": "T07_001.PropClass.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.PropClass \u03b1 \u2192 Sort u} \u2192\n    ((holds : \u2200 (a : \u03b1), a = a) \u2192 motive \u22ef) \u2192 (t : T07_001.PropClass \u03b1) \u2192 motive t",
+      "name": "T07_001.PropClass.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_001.PropClass \u03b1 \u2192 Sort u} \u2192\n    (t : T07_001.PropClass \u03b1) \u2192 ((holds : \u2200 (a : \u03b1), a = a) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T07_001.PropClass.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_001.Magma \u03b1] \u2192 \u03b1 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_001.combine",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_001.Pointed \u03b1] \u2192 \u03b1",
+      "name": "T07_001.getPoint",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_001.Magma Nat",
+      "name": "T07_001.instMagmaNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_001.Pointed Nat",
+      "name": "T07_001.instPointedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_001.PropClass Nat",
+      "name": "T07_001.instPropClassNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_001.Lonely \u03b1] \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T07_001.useLonely",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

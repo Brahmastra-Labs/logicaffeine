@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're frightened unless you're slow",
   "options": [
-    "$ (F \\equiv S) $",
-    "$ (F \\supset \\, \\sim S) $",
-    "$ F \\equiv S $",
-    "$ (F \\vee S) $"
+    "F ↔ S",
+    "F → ¬S",
+    "F ∧ S",
+    "F ∨ S"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A unless B' means A ∨ B.",
+  "explanation": "'Unless' is read as or, so the formula is F ∨ S.",
+  "section": "6.2"
 }

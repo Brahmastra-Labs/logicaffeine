@@ -10,6 +10,7 @@
     "all P is R"
   ],
   "correct": 2,
-  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
-  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+  "hint": "If not even one of them has the property, which form says so?",
+  "explanation": "Denying that even one of the professors is rich says that none is: no P is R.",
+  "section": "2.1"
 }

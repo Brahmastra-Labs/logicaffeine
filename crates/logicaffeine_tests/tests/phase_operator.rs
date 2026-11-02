@@ -169,11 +169,7 @@ fn test_rewrite_non_equality_errors() {
 fn test_try_rewrite_rev_exists() {
     let mut repl = Repl::new();
     let result = repl.execute("Check try_rewrite_rev.");
-    assert!(
-        result.is_ok(),
-        "try_rewrite_rev should exist: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "try_rewrite_rev should exist: {:?}", result);
 }
 
 #[test]
@@ -231,12 +227,16 @@ fn test_destruct_bool_generates_two_cases() {
 
     // Destruct Bool: should generate cases for true and false
     // Motive: P : Bool -> Prop
-    repl.execute("Definition motive : Syntax := SLam (SName \"Bool\") (SApp (SName \"P\") (SVar 0)).")
-        .unwrap();
+    repl.execute(
+        "Definition motive : Syntax := SLam (SName \"Bool\") (SApp (SName \"P\") (SVar 0)).",
+    )
+    .unwrap();
 
     // Case proofs: P(true) and P(false)
-    repl.execute("Definition case_true : Derivation := DAxiom (SApp (SName \"P\") (SName \"true\")).")
-        .unwrap();
+    repl.execute(
+        "Definition case_true : Derivation := DAxiom (SApp (SName \"P\") (SName \"true\")).",
+    )
+    .unwrap();
     repl.execute(
         "Definition case_false : Derivation := DAxiom (SApp (SName \"P\") (SName \"false\")).",
     )
@@ -245,10 +245,8 @@ fn test_destruct_bool_generates_two_cases() {
     repl.execute("Definition cases : Derivation := DCase case_true (DCase case_false DCaseEnd).")
         .unwrap();
 
-    repl.execute(
-        "Definition proof : Derivation := try_destruct (SName \"Bool\") motive cases.",
-    )
-    .unwrap();
+    repl.execute("Definition proof : Derivation := try_destruct (SName \"Bool\") motive cases.")
+        .unwrap();
 
     let result = repl.execute("Eval (concludes proof).").unwrap();
     // Should conclude: forall b:Bool. P(b)
@@ -267,12 +265,16 @@ fn test_destruct_nat_no_induction_hypothesis() {
     // Zero case: P(Zero)
     // Succ case: forall k:Nat. P(Succ k)  <- NO P(k) -> P(Succ k)
 
-    repl.execute("Definition motive : Syntax := SLam (SName \"Nat\") (SApp (SName \"P\") (SVar 0)).")
-        .unwrap();
+    repl.execute(
+        "Definition motive : Syntax := SLam (SName \"Nat\") (SApp (SName \"P\") (SVar 0)).",
+    )
+    .unwrap();
 
     // Zero case: just P(Zero)
-    repl.execute("Definition case_zero : Derivation := DAxiom (SApp (SName \"P\") (SName \"Zero\")).")
-        .unwrap();
+    repl.execute(
+        "Definition case_zero : Derivation := DAxiom (SApp (SName \"P\") (SName \"Zero\")).",
+    )
+    .unwrap();
 
     // Succ case: forall k. P(Succ k) - NOT forall k. P(k) -> P(Succ k)
     repl.execute(

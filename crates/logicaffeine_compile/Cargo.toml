@@ -8,9 +8,11 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "LOGOS compilation pipeline - codegen and interpreter"
+license = "MIT"
+description = "The LOGOS compiler: type checking, the optimizer, the interpreter and bytecode VM, and the Rust, C, WASM, RISC-V, CUDA and hardware backends"
 readme = "README.md"
+include = ["src/**", "assets/**", "/build.rs", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
+build = "build.rs"
 
 [features]
 default = ["codegen"]
@@ -21,7 +23,7 @@ verification = ["dep:logicaffeine-verify", "logicaffeine-proof/verification"]
 # NaN-boxed `Narrow` (vm/nanbox.rs) instead of the 16-byte `RuntimeValue`. Off
 # by default — the default build is the unchanged `Value(RuntimeValue)` path.
 narrow-value = []
-# WS6 (FINISH_INTERPRETER Phase 13): the browser WASM-JIT backend — a second JIT codegen
+# The browser WASM-JIT backend — a second JIT codegen
 # that emits a WebAssembly module per hot region from VM bytecode. Off by default; the
 # native x86 copy-and-patch JIT (logicaffeine_forge) is unchanged. Lives here, not in forge,
 # because forge is `#![cfg(not(wasm32))]` and this backend must build for and run on wasm32.
@@ -34,9 +36,11 @@ wasm-jit = ["dep:wasmi"]
 # `WebAssembly` via js-sys — a perf refinement, not a correctness change.)
 wasmi = { version = "0.31", optional = true }
 indexmap = { version = "2", features = ["serde"] }
+# Arena allocation for the optimizer's AST rewriting (`optimize/accum_bound.rs`).
+bumpalo = { workspace = true }
 logicaffeine-base = { workspace = true }
 logicaffeine-language = { workspace = true }
-logicaffeine-kernel = { workspace = true }
+logicaffeine-kernel = { workspace = true, features = ["serde"] }
 logicaffeine-data = { workspace = true }
 logicaffeine-system = { workspace = true, features = ["persistence"] }
 logicaffeine-proof = { workspace = true }
@@ -59,8 +63,9 @@ miniz_oxide = "0.8"
 lz4_flex = "0.11"
 ruzstd = "0.7"
 
-# Standard library
-include_dir = "0.7"
+# A form control's `pattern=` is an ECMAScript regular expression, lookaround and backreferences
+# included; the in-process hosts check it with a backtracking engine (`semantics::dom::pattern_matches`).
+fancy-regex = { workspace = true }
 
 # WASM async sleep support
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -75,6 +80,9 @@ wasm-bindgen = "0.2"
 # AOT-native tier (HOTSWAP Axis-3): dlopen the rustc-built cdylib. Native-only — a
 # browser can't load native libraries (it uses pre-bundled wasm instead).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Serialize the build-to-snapshot window of a runtime library (the linked WASM runtime, the C value
+# runtime) across the processes that link against it.
+fs2 = "0.4.3"
 libloading = "0.8"
 # zstd's C encoder+decoder — native only. It cannot build for wasm32-unknown-unknown
 # (no libc), so the browser uses the pure-Rust ruzstd decoder and falls back to lz4
@@ -82,14 +90,24 @@ libloading = "0.8"
 zstd = "0.13"
 # The thin relay (tokio-tungstenite, NO libp2p) so the interpreter can network
 # over the relay. wasm uses the browser WebSocket client, which needs no feature.
-logicaffeine-system = { workspace = true, features = ["relay"] }
+# `http` adds the native HTTP server the `Serve` statement runs on (tokio, no hyper).
+logicaffeine-system = { workspace = true, features = ["relay", "http"] }
 
 [dev-dependencies]
 tempfile = "3.10"
 memmap2 = "0.9"
 
-# Headless-browser test for the interpreter's networking (run via `wasm-pack test
-# --headless --test wasm_interp_net` against a native relay host).
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3"
-futures = "0.3"
+
+
+
+
+
+
+
+
+
+
+
+
+
+

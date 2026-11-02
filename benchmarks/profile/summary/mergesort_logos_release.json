@@ -1,0 +1,11 @@
+{
+  "name": "mergesort",
+  "lang": "logos_release",
+  "n": "55386315",
+  "samples_weight": 26133234569,
+  "alloc_pct": 16.659,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 83.341
+}

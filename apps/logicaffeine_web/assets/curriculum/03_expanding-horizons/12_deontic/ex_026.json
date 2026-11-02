@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're selling, then cheer",
   "options": [
-    "$ (Su\\supset OC\\underline{u} ) $",
-    "$ (Su\\supset Cu) $",
-    "$ (S\\underline{u}\\supset C\\underline{u}  ) $",
-    "$ (Su\\supset C\\underline{u} ) $"
+    "S(u) → O C(u̲)",
+    "S(u) → C(u)",
+    "S(u̲) → C(u̲)",
+    "S(u) → C(u̲)"
   ],
   "correct": 3,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'If A then B' is A ⊃ B. The antecedent Su ('you're selling') is descriptive; the consequent C͟u ('cheer') is the command: (Su ⊃ C͟u)."
+  "hint": "Which part describes, and which part commands?",
+  "explanation": "'You're selling' describes, so S(u). 'Cheer' commands, so C(u̲): S(u) → C(u̲).",
+  "section": "12.2"
 }

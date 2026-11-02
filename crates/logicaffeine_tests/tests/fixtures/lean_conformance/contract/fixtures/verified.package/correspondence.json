@@ -1,0 +1,165 @@
+{
+  "schema": "logos-lean-correspondence/1",
+  "target": "/s:\"T06_002\"/s:\"transport\"",
+  "rows": [
+    {
+      "lean": "Eq",
+      "kernel": "/s:\"Eq\"",
+      "logos": "Lean.Eq",
+      "kind": "inductive",
+      "origin": "authored",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [
+        [
+          "/s:\"u_1\"",
+          "u_1"
+        ]
+      ],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "Eq.refl",
+      "kernel": "/s:\"Eq\"/s:\"refl\"",
+      "logos": "Lean.Eq.refl",
+      "kind": "constructor",
+      "origin": "authored",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [
+        [
+          "/s:\"u_1\"",
+          "u_1"
+        ]
+      ],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "Eq.rec",
+      "kernel": "/s:\"Eq\"/s:\"rec\"",
+      "logos": "Lean.Eq.rec",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [
+        [
+          "/s:\"u\"",
+          "u"
+        ],
+        [
+          "/s:\"u_1\"",
+          "u_1"
+        ]
+      ],
+      "lines": [
+        27,
+        27
+      ]
+    },
+    {
+      "lean": "T06_002.transport",
+      "kernel": "/s:\"T06_002\"/s:\"transport\"",
+      "logos": "T06_002.transport",
+      "kind": "theorem",
+      "origin": "authored",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        32,
+        32
+      ]
+    },
+    {
+      "lean": "",
+      "kernel": "",
+      "logos": "Lean.Eq_casesOn",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "",
+      "kernel": "",
+      "logos": "Lean.Eq_casesOn_eq_def",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "",
+      "kernel": "",
+      "logos": "Lean.Eq_rec",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "",
+      "kernel": "",
+      "logos": "Lean.Eq_recOn",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "",
+      "kernel": "",
+      "logos": "Lean.Eq_recOn_eq_def",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        22,
+        22
+      ]
+    },
+    {
+      "lean": "",
+      "kernel": "",
+      "logos": "Lean.Eq_rec_eq_def",
+      "kind": "definition",
+      "origin": "synthesized",
+      "helper_of": null,
+      "form": "vernacular",
+      "levels": [],
+      "lines": [
+        22,
+        22
+      ]
+    }
+  ]
+}

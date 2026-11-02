@@ -1,0 +1,12 @@
+/* counter - static assets are served at the site root (this file is /style.css). */
+.counter {
+  max-width: 24rem;
+  margin: 3rem auto;
+  padding: 1.5rem 1.75rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.counter h1 { color: var(--accent); }
+.counter button { font-size: 1.25rem; margin: 0 .25rem; }

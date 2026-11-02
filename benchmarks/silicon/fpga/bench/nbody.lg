@@ -1,0 +1,61 @@
+## Main
+Let n be 50.
+
+Let mutable bx be a new Seq of Float.
+Let mutable posY be a new Seq of Float.
+Let mutable bz be a new Seq of Float.
+Let mutable bvx be a new Seq of Float.
+Let mutable bvy be a new Seq of Float.
+Let mutable bvz be a new Seq of Float.
+Let mutable bm be a new Seq of Float.
+
+Push 0.0 to bx. Push 4.841431442464721 to bx.
+Push 0.0 to posY. Push -1.1603200440274284 to posY.
+Push 0.0 to bz. Push -0.10362204447112311 to bz.
+Push 0.0 to bvx. Push 0.606326392995832 to bvx.
+Push 0.0 to bvy. Push 2.81198684491626 to bvy.
+Push 0.0 to bvz. Push -0.02521836165988763 to bvz.
+Push 39.47841760435743 to bm. Push 0.03769367487038949 to bm.
+
+Let dt be 0.01.
+Let mutable i be 1.
+Let mutable step be 0.
+While step is less than n:
+    Set i to 1.
+    While i is at most 2:
+        Let mutable j be i + 1.
+        While j is at most 2:
+            Let dx be item i of bx - item j of bx.
+            Let dy be item i of posY - item j of posY.
+            Let dz be item i of bz - item j of bz.
+            Let dist be sqrt(dx * dx + dy * dy + dz * dz).
+            Let mag be dt / (dist * dist * dist).
+            Set item i of bvx to item i of bvx - dx * item j of bm * mag.
+            Set item i of bvy to item i of bvy - dy * item j of bm * mag.
+            Set item i of bvz to item i of bvz - dz * item j of bm * mag.
+            Set item j of bvx to item j of bvx + dx * item i of bm * mag.
+            Set item j of bvy to item j of bvy + dy * item i of bm * mag.
+            Set item j of bvz to item j of bvz + dz * item i of bm * mag.
+            Set j to j + 1.
+        Set i to i + 1.
+    Set i to 1.
+    While i is at most 2:
+        Set item i of bx to item i of bx + dt * item i of bvx.
+        Set item i of posY to item i of posY + dt * item i of bvy.
+        Set item i of bz to item i of bz + dt * item i of bvz.
+        Set i to i + 1.
+    Set step to step + 1.
+
+Let mutable e be 0.0.
+Set i to 1.
+While i is at most 2:
+    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).
+    Let mutable j be i + 1.
+    While j is at most 2:
+        Let dx be item i of bx - item j of bx.
+        Let dy be item i of posY - item j of posY.
+        Let dz be item i of bz - item j of bz.
+        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).
+        Set j to j + 1.
+    Set i to i + 1.
+Show e.

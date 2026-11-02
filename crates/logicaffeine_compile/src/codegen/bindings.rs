@@ -1,9 +1,9 @@
 use std::fmt::Write;
 
+use super::ffi::{classify_type_for_c_abi, CAbiClass};
 use crate::analysis::registry::TypeRegistry;
 use crate::ast::stmt::{Stmt, TypeExpr};
 use crate::intern::Interner;
-use super::ffi::{CAbiClass, classify_type_for_c_abi};
 
 /// Generate Python ctypes bindings for all C-exported functions.
 pub fn generate_python_bindings(
@@ -14,7 +14,12 @@ pub fn generate_python_bindings(
 ) -> String {
     let mut out = String::new();
 
-    writeln!(out, "\"\"\"Auto-generated Python bindings for {}.\"\"\"", module_name).unwrap();
+    writeln!(
+        out,
+        "\"\"\"Auto-generated Python bindings for {}.\"\"\"",
+        module_name
+    )
+    .unwrap();
     writeln!(out, "import ctypes").unwrap();
     writeln!(out, "from ctypes import c_int64, c_uint64, c_double, c_bool, c_char_p, c_void_p, c_size_t, POINTER").unwrap();
     writeln!(out, "import os").unwrap();
@@ -34,7 +39,12 @@ pub fn generate_python_bindings(
     writeln!(out, "    else:").unwrap();
     writeln!(out, "        return \".so\"\n").unwrap();
 
-    let class_name = module_name.chars().next().unwrap_or('M').to_uppercase().to_string()
+    let class_name = module_name
+        .chars()
+        .next()
+        .unwrap_or('M')
+        .to_uppercase()
+        .to_string()
         + &module_name[1..];
 
     writeln!(out, "class {}:", class_name).unwrap();
@@ -46,14 +56,23 @@ pub fn generate_python_bindings(
 
     writeln!(out, "    def __init__(self, path=None):").unwrap();
     writeln!(out, "        if path is None:").unwrap();
-    writeln!(out, "            path = os.path.join(os.path.dirname(__file__), \"lib{}\" + _lib_ext())", module_name).unwrap();
+    writeln!(
+        out,
+        "            path = os.path.join(os.path.dirname(__file__), \"lib{}\" + _lib_ext())",
+        module_name
+    )
+    .unwrap();
     writeln!(out, "        self._lib = ctypes.CDLL(path)").unwrap();
     writeln!(out, "        self._setup()\n").unwrap();
 
     writeln!(out, "    def _check(self, status):").unwrap();
     writeln!(out, "        if status != self.OK:").unwrap();
     writeln!(out, "            err = self._lib.logos_get_last_error()").unwrap();
-    writeln!(out, "            msg = err.decode(\"utf-8\") if err else \"Unknown error\"").unwrap();
+    writeln!(
+        out,
+        "            msg = err.decode(\"utf-8\") if err else \"Unknown error\""
+    )
+    .unwrap();
     writeln!(out, "            self._lib.logos_clear_error()").unwrap();
     writeln!(out, "            if status == self.REFINEMENT_VIOLATION:").unwrap();
     writeln!(out, "                raise LogosRefinementError(msg)").unwrap();
@@ -61,19 +80,37 @@ pub fn generate_python_bindings(
 
     // _setup method
     writeln!(out, "    def _setup(self):").unwrap();
-    writeln!(out, "        self._lib.logos_get_last_error.restype = c_char_p").unwrap();
+    writeln!(
+        out,
+        "        self._lib.logos_get_last_error.restype = c_char_p"
+    )
+    .unwrap();
     writeln!(out, "        self._lib.logos_clear_error.restype = None").unwrap();
-    writeln!(out, "        self._lib.logos_free_string.argtypes = [c_char_p]").unwrap();
+    writeln!(
+        out,
+        "        self._lib.logos_free_string.argtypes = [c_char_p]"
+    )
+    .unwrap();
     writeln!(out, "        self._lib.logos_free_string.restype = None").unwrap();
 
     // Per-function setup
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            is_exported: true,
+            export_target,
+            params,
+            return_type,
+            ..
+        } = stmt
+        {
             let is_c = match export_target {
                 None => true,
                 Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
             };
-            if !is_c { continue; }
+            if !is_c {
+                continue;
+            }
 
             let func_name = format!("logos_{}", interner.resolve(*name));
             let mut argtypes = Vec::new();
@@ -84,7 +121,13 @@ pub fn generate_python_bindings(
                 .map(|ty| python_ctypes_type(ty, interner, registry))
                 .unwrap_or_else(|| "None".to_string());
 
-            writeln!(out, "        self._lib.{}.argtypes = [{}]", func_name, argtypes.join(", ")).unwrap();
+            writeln!(
+                out,
+                "        self._lib.{}.argtypes = [{}]",
+                func_name,
+                argtypes.join(", ")
+            )
+            .unwrap();
             writeln!(out, "        self._lib.{}.restype = {}", func_name, restype).unwrap();
         }
     }
@@ -92,21 +135,37 @@ pub fn generate_python_bindings(
 
     // Per-function wrapper methods
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            is_exported: true,
+            export_target,
+            params,
+            return_type,
+            ..
+        } = stmt
+        {
             let is_c = match export_target {
                 None => true,
                 Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
             };
-            if !is_c { continue; }
+            if !is_c {
+                continue;
+            }
 
             let raw_name = interner.resolve(*name);
             let c_func_name = format!("logos_{}", raw_name);
-            let param_names: Vec<String> = params.iter()
+            let param_names: Vec<String> = params
+                .iter()
                 .map(|(pname, _)| interner.resolve(*pname).to_string())
                 .collect();
-            let type_hints: Vec<String> = params.iter()
+            let type_hints: Vec<String> = params
+                .iter()
                 .map(|(pname, ptype)| {
-                    format!("{}: {}", interner.resolve(*pname), python_type_hint(ptype, interner))
+                    format!(
+                        "{}: {}",
+                        interner.resolve(*pname),
+                        python_type_hint(ptype, interner)
+                    )
                 })
                 .collect();
             let ret_hint = return_type
@@ -114,8 +173,21 @@ pub fn generate_python_bindings(
                 .unwrap_or_default();
 
             // Python method uses the raw name for ergonomic API; delegates to prefixed C symbol
-            writeln!(out, "    def {}(self, {}){}:", raw_name, type_hints.join(", "), ret_hint).unwrap();
-            writeln!(out, "        return self._lib.{}({})", c_func_name, param_names.join(", ")).unwrap();
+            writeln!(
+                out,
+                "    def {}(self, {}){}:",
+                raw_name,
+                type_hints.join(", "),
+                ret_hint
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "        return self._lib.{}({})",
+                c_func_name,
+                param_names.join(", ")
+            )
+            .unwrap();
             writeln!(out).unwrap();
         }
     }
@@ -126,22 +198,20 @@ pub fn generate_python_bindings(
 fn python_ctypes_type(ty: &TypeExpr, interner: &Interner, registry: &TypeRegistry) -> String {
     match classify_type_for_c_abi(ty, interner, registry) {
         CAbiClass::ReferenceType => "c_void_p".to_string(),
-        CAbiClass::ValueType => {
-            match ty {
-                TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-                    let name = interner.resolve(*sym);
-                    match name {
-                        "Int" => "c_int64".to_string(),
-                        "Nat" => "c_uint64".to_string(),
-                        "Real" | "Float" => "c_double".to_string(),
-                        "Bool" | "Boolean" => "c_bool".to_string(),
-                        "Text" | "String" => "c_char_p".to_string(),
-                        _ => "c_void_p".to_string(),
-                    }
+        CAbiClass::ValueType => match ty {
+            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                let name = interner.resolve(*sym);
+                match name {
+                    "Int" => "c_int64".to_string(),
+                    "Nat" => "c_uint64".to_string(),
+                    "Real" | "Float" => "c_double".to_string(),
+                    "Bool" | "Boolean" => "c_bool".to_string(),
+                    "Text" | "String" => "c_char_p".to_string(),
+                    _ => "c_void_p".to_string(),
                 }
-                _ => "c_void_p".to_string(),
             }
-        }
+            _ => "c_void_p".to_string(),
+        },
     }
 }
 
@@ -172,29 +242,59 @@ pub fn generate_typescript_bindings(
     let mut js = String::new();
 
     // .d.ts
-    writeln!(dts, "// Auto-generated TypeScript definitions for {}", module_name).unwrap();
+    writeln!(
+        dts,
+        "// Auto-generated TypeScript definitions for {}",
+        module_name
+    )
+    .unwrap();
     let mut ffi_entries = Vec::new();
 
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            is_exported: true,
+            export_target,
+            params,
+            return_type,
+            ..
+        } = stmt
+        {
             let is_c = match export_target {
                 None => true,
                 Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
             };
-            if !is_c { continue; }
+            if !is_c {
+                continue;
+            }
 
             let raw_name = interner.resolve(*name);
             let c_symbol = format!("logos_{}", raw_name);
-            let ts_params: Vec<String> = params.iter()
-                .map(|(pname, ptype)| format!("{}: {}", interner.resolve(*pname), typescript_type(ptype, interner)))
+            let ts_params: Vec<String> = params
+                .iter()
+                .map(|(pname, ptype)| {
+                    format!(
+                        "{}: {}",
+                        interner.resolve(*pname),
+                        typescript_type(ptype, interner)
+                    )
+                })
                 .collect();
             let ts_ret = return_type
                 .map(|ty| typescript_type(ty, interner))
                 .unwrap_or_else(|| "void".to_string());
-            writeln!(dts, "export declare function {}({}): {};", raw_name, ts_params.join(", "), ts_ret).unwrap();
+            writeln!(
+                dts,
+                "export declare function {}({}): {};",
+                raw_name,
+                ts_params.join(", "),
+                ts_ret
+            )
+            .unwrap();
 
             // Collect FFI entries for .js (raw_name for JS API, c_symbol for C FFI)
-            let ffi_params: Vec<String> = params.iter()
+            let ffi_params: Vec<String> = params
+                .iter()
                 .map(|(_, ptype)| ffi_napi_type(ptype, interner, registry))
                 .collect();
             let ffi_ret = return_type
@@ -207,35 +307,71 @@ pub fn generate_typescript_bindings(
     // .js — uses koffi (pure JS, no native deps)
     writeln!(js, "const koffi = require('koffi');").unwrap();
     writeln!(js, "const path = require('path');\n").unwrap();
-    writeln!(js, "const libPath = path.join(__dirname, 'lib{}');", module_name).unwrap();
+    writeln!(
+        js,
+        "const libPath = path.join(__dirname, 'lib{}');",
+        module_name
+    )
+    .unwrap();
     writeln!(js, "const lib = koffi.load(libPath);\n").unwrap();
 
     // Declare runtime functions
-    writeln!(js, "const logos_get_last_error = lib.func('const char* logos_get_last_error()');").unwrap();
-    writeln!(js, "const logos_clear_error = lib.func('void logos_clear_error()');").unwrap();
-    writeln!(js, "const logos_free_string = lib.func('void logos_free_string(void* ptr)');\n").unwrap();
+    writeln!(
+        js,
+        "const logos_get_last_error = lib.func('const char* logos_get_last_error()');"
+    )
+    .unwrap();
+    writeln!(
+        js,
+        "const logos_clear_error = lib.func('void logos_clear_error()');"
+    )
+    .unwrap();
+    writeln!(
+        js,
+        "const logos_free_string = lib.func('void logos_free_string(void* ptr)');\n"
+    )
+    .unwrap();
 
     // Declare user-exported functions (C symbols use logos_ prefix)
     for (raw_name, c_symbol, ffi_ret, ffi_params) in &ffi_entries {
         let koffi_ret = ffi_napi_to_koffi(ffi_ret);
-        let koffi_params: Vec<String> = ffi_params.iter()
+        let koffi_params: Vec<String> = ffi_params
+            .iter()
             .enumerate()
             .map(|(i, p)| format!("{} arg{}", ffi_napi_to_koffi(p), i))
             .collect();
-        writeln!(js, "const _{} = lib.func('{} {}({})');\n", raw_name, koffi_ret, c_symbol, koffi_params.join(", ")).unwrap();
+        writeln!(
+            js,
+            "const _{} = lib.func('{} {}({})');\n",
+            raw_name,
+            koffi_ret,
+            c_symbol,
+            koffi_params.join(", ")
+        )
+        .unwrap();
     }
 
     writeln!(js, "function checkStatus(status) {{").unwrap();
     writeln!(js, "  if (status !== 0) {{").unwrap();
     writeln!(js, "    const err = logos_get_last_error();").unwrap();
     writeln!(js, "    logos_clear_error();").unwrap();
-    writeln!(js, "    throw new Error(err || 'Unknown LogicAffeine error');").unwrap();
+    writeln!(
+        js,
+        "    throw new Error(err || 'Unknown LogicAffeine error');"
+    )
+    .unwrap();
     writeln!(js, "  }}").unwrap();
     writeln!(js, "}}\n").unwrap();
 
     for (raw_name, _, _, _) in &ffi_entries {
         let params_from_stmts = stmts.iter().find_map(|s| {
-            if let Stmt::FunctionDef { name, is_exported: true, params, .. } = s {
+            if let Stmt::FunctionDef {
+                name,
+                is_exported: true,
+                params,
+                ..
+            } = s
+            {
                 if interner.resolve(*name) == raw_name.as_str() {
                     Some(params)
                 } else {
@@ -246,10 +382,19 @@ pub fn generate_typescript_bindings(
             }
         });
         if let Some(params) = params_from_stmts {
-            let param_names: Vec<String> = params.iter()
+            let param_names: Vec<String> = params
+                .iter()
                 .map(|(pname, _)| interner.resolve(*pname).to_string())
                 .collect();
-            writeln!(js, "module.exports.{} = ({}) => _{}({});", raw_name, param_names.join(", "), raw_name, param_names.join(", ")).unwrap();
+            writeln!(
+                js,
+                "module.exports.{} = ({}) => _{}({});",
+                raw_name,
+                param_names.join(", "),
+                raw_name,
+                param_names.join(", ")
+            )
+            .unwrap();
         }
     }
 
@@ -301,21 +446,19 @@ fn ffi_napi_to_koffi(ffi_type: &str) -> &str {
 fn ffi_napi_type(ty: &TypeExpr, interner: &Interner, registry: &TypeRegistry) -> String {
     match classify_type_for_c_abi(ty, interner, registry) {
         CAbiClass::ReferenceType => "'pointer'".to_string(),
-        CAbiClass::ValueType => {
-            match ty {
-                TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-                    let name = interner.resolve(*sym);
-                    match name {
-                        "Int" => "'int64'".to_string(),
-                        "Nat" => "'uint64'".to_string(),
-                        "Real" | "Float" => "'double'".to_string(),
-                        "Bool" | "Boolean" => "'bool'".to_string(),
-                        "Text" | "String" => "'string'".to_string(),
-                        _ => "'pointer'".to_string(),
-                    }
+        CAbiClass::ValueType => match ty {
+            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                let name = interner.resolve(*sym);
+                match name {
+                    "Int" => "'int64'".to_string(),
+                    "Nat" => "'uint64'".to_string(),
+                    "Real" | "Float" => "'double'".to_string(),
+                    "Bool" | "Boolean" => "'bool'".to_string(),
+                    "Text" | "String" => "'string'".to_string(),
+                    _ => "'pointer'".to_string(),
                 }
-                _ => "'pointer'".to_string(),
             }
-        }
+            _ => "'pointer'".to_string(),
+        },
     }
 }

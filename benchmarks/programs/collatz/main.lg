@@ -4,10 +4,10 @@
 ## Main
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
-Let mutable total be 0.
-Let mutable i be 1.
+Let total be 0.
+Let i be 1.
 While i is at most n:
-    Let mutable k be i.
+    Let k be i.
     While k is not 1:
         If k % 2 equals 0:
             Set k to k / 2.

@@ -1,0 +1,10 @@
+{
+  "capability": "text.index_func",
+  "workload": "indexFuncText((c)->c==48, s) 1-based/0",
+  "arg": "60000",
+  "expected": "3390000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

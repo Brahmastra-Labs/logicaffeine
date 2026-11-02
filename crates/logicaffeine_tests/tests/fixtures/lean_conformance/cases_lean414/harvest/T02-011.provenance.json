@@ -1,0 +1,65 @@
+{
+  "case": "T02-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t02_declarations/T02-011_namespaces.lean",
+  "source_sha256": "1e319aab939d9f509694c4bcd512b474f456cd6540c98cc15f2f75c21f8c178e",
+  "ledger_sha256": "622dedf3e0c43d6c12dccd65b86c7f3adb9bc6caa940e6aa49f5109f6367f2de",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T02_011.Outer.Inner.usesInner",
+    "T02_011.Outer.Inner.usesOuter",
+    "T02_011.Outer.Inner.value",
+    "T02_011.Outer.value",
+    "T02_011.Outer_Inner_value",
+    "T02_011.Outer_value",
+    "T02_011.Shadow.Nat",
+    "T02_011.\u00abodd name.with dots\u00bb"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "9301aae8eb0597659ff15a0003b1e4aae08a23c0735bf9ea48617ebd6293bdae",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 187,
+  "harvest": {
+    "roots": [
+      "T02_011.Outer.Inner.usesInner",
+      "T02_011.Outer.Inner.usesOuter",
+      "T02_011.Outer.Inner.value",
+      "T02_011.Outer.value",
+      "T02_011.Outer_Inner_value",
+      "T02_011.Outer_value",
+      "T02_011.Shadow.Nat",
+      "T02_011.\u00abodd name.with dots\u00bb"
+    ],
+    "probe_binary_sha256": "6ca1af61853dd5d735b85ac57713db5f3b27cc9216e559ed56decd8d5a9626c4",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:db465174cea3801ca8328fc866024df9097756e82faa1548ae87b36eb9468321",
+    "joint_export": true,
+    "restored": "re-exported byte-identically (same sha256) after an overwrite; the quoted-name root is included now that audit names are compared component-wise"
+  }
+}

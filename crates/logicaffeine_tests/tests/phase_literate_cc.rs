@@ -19,22 +19,16 @@ use logicaffeine_kernel::interface::Repl;
 #[test]
 fn test_literate_cc_reflexive() {
     let mut repl = Repl::new();
-    let result = repl.execute(
-        "## Theorem: FxEqFx\n    Statement: (Eq (f x) (f x)).\n    Proof: cc.",
-    );
-    assert!(
-        result.is_ok(),
-        "CC should prove f(x) = f(x): {:?}",
-        result
-    );
+    let result =
+        repl.execute("## Theorem: FxEqFx\n    Statement: (Eq (f x) (f x)).\n    Proof: cc.");
+    assert!(result.is_ok(), "CC should prove f(x) = f(x): {:?}", result);
 }
 
 #[test]
 fn test_literate_cc_nested() {
     let mut repl = Repl::new();
-    let result = repl.execute(
-        "## Theorem: Nested\n    Statement: (Eq (f (g x)) (f (g x))).\n    Proof: cc.",
-    );
+    let result = repl
+        .execute("## Theorem: Nested\n    Statement: (Eq (f (g x)) (f (g x))).\n    Proof: cc.");
     assert!(
         result.is_ok(),
         "CC should prove f(g(x)) = f(g(x)): {:?}",
@@ -95,9 +89,8 @@ fn test_literate_cc_binary_congruence() {
 #[test]
 fn test_literate_cc_fails_diff_func() {
     let mut repl = Repl::new();
-    let result = repl.execute(
-        "## Theorem: Wrong\n    Statement: (Eq (f x) (g x)).\n    Proof: cc.",
-    );
+    let result =
+        repl.execute("## Theorem: Wrong\n    Statement: (Eq (f x) (g x)).\n    Proof: cc.");
     // Parser should handle cc on invalid equality
     assert!(
         result.is_err() || result.is_ok(),

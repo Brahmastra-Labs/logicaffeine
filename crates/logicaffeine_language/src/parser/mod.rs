@@ -52,8 +52,13 @@
 //! ```
 
 mod clause;
-mod common;
+mod component;
+mod exclusivity;
+pub mod lgx_lower;
+mod lgx_resolve;
+mod math;
 mod modal;
+mod nonstandard;
 mod noun;
 mod pragmatics;
 mod quantifier;
@@ -61,6 +66,7 @@ mod question;
 mod verb;
 
 #[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_language/parser/tests.rs"]
 mod tests;
 
 pub use clause::ClauseParsing;
@@ -69,25 +75,99 @@ pub use noun::NounParsing;
 pub use pragmatics::PragmaticsParsing;
 pub use quantifier::QuantifierParsing;
 pub use question::QuestionParsing;
-pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
+pub use verb::{ImperativeVerbParsing, LogicVerbParsing};
 
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, CompressionCodec, SendLayout, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
-use crate::optimization::{by_keyword, pin_from_str, OptimizationConfig, PinSet};
-use crate::ast::stmt::{ReadSource, Pattern};
-use std::collections::HashSet;
+use crate::ast::stmt::{Pattern, ReadSource, StmtId};
+use crate::ast::{
+    AspectOperator, BinaryOpKind, CompressionCodec, Expr, Literal, LogicExpr, MatchArm,
+    NeoEventData, NumberKind, QuantifierKind, SendLayout, Stmt, TemporalOperator, Term,
+    ThematicRole, TypeExpr,
+};
 use crate::drs::{Case, Gender, Number, ReferentSource};
-use crate::drs::{Drs, BoxType, WorldState};
+use crate::drs::{Drs, DrsMark, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
-use logicaffeine_base::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
 use crate::lexicon::{self, Aspect, Definiteness, Time, VerbClass};
+use crate::optimization::{by_keyword, pin_from_str, Opt, OptimizationConfig, PinSet};
 use crate::token::{BlockType, FocusKind, Span, Token, TokenType};
+use logicaffeine_base::{Interner, Symbol, SymbolEq};
+use std::collections::HashSet;
 
 pub(super) type ParseResult<T> = Result<T, ParseError>;
 
 use std::ops::{Deref, DerefMut};
+
+/// Where each statement read inside a block sits in the source — a function's
+/// body, a loop's, a branch's — by [`StmtId`]. Top-level statements are in
+/// [`Parser::stmt_spans`] instead: they live in the returned `Vec`, whose buffer
+/// may be freed and reused, while a block lives in the arena for as long as the
+/// AST does. A statement the parser wrote itself (a desugaring's) has no entry,
+/// so a finding in it falls back to the statement the author wrote around it.
+#[derive(Debug, Clone, Default)]
+pub struct NestedStmtSpans(std::collections::HashMap<StmtId, Span>);
+
+impl NestedStmtSpans {
+    pub fn get(&self, stmt: StmtId) -> Option<Span> {
+        self.0.get(&stmt).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// The statements gathered for one block, each with the source it was read
+/// from — `None` for one the parser wrote itself (a desugaring's). A
+/// statement's identity only exists once its block is allocated, so the spans
+/// travel with the statements until [`Parser::alloc_read_block`] registers them.
+#[derive(Default)]
+pub(super) struct StmtList<'a> {
+    stmts: Vec<Stmt<'a>>,
+    spans: Vec<Option<Span>>,
+}
+
+impl<'a> StmtList<'a> {
+    /// A statement from the source, spelled by `span`.
+    pub(super) fn read(&mut self, stmt: Stmt<'a>, span: Span) {
+        self.carry(stmt, Some(span));
+    }
+
+    /// A statement the parser writes itself; it claims no source.
+    pub(super) fn wrote(&mut self, stmt: Stmt<'a>) {
+        self.carry(stmt, None);
+    }
+
+    /// A statement moved from another list or block, keeping the span it had.
+    pub(super) fn carry(&mut self, stmt: Stmt<'a>, span: Option<Span>) {
+        self.stmts.push(stmt);
+        self.spans.push(span);
+    }
+
+    /// Every statement of `rest`, after these.
+    pub(super) fn append(&mut self, rest: StmtList<'a>) {
+        self.stmts.extend(rest.stmts);
+        self.spans.extend(rest.spans);
+    }
+
+    pub(super) fn last(&self) -> Option<&Stmt<'a>> {
+        self.stmts.last()
+    }
+}
+
+impl<'a> IntoIterator for StmtList<'a> {
+    type Item = (Stmt<'a>, Option<Span>);
+    type IntoIter = std::iter::Zip<std::vec::IntoIter<Stmt<'a>>, std::vec::IntoIter<Option<Span>>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.stmts.into_iter().zip(self.spans)
+    }
+}
 
 /// Determines how the parser interprets sentences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -143,6 +223,22 @@ pub enum ModalPreference {
 /// Result of pronoun resolution during parsing.
 ///
 /// Determines whether a pronoun refers to a bound variable (anaphoric) or
+/// Where an indefinite introduced at a point of the parse lives, which decides both its DRS
+/// source and whether it takes an existential of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum IndefiniteScope {
+    /// Under a "No" quantifier or a negation: existential inside the negation, inaccessible
+    /// outside it, never universally bound ("If John does not own a donkey, …" denies one).
+    Negated,
+    /// In a conditional antecedent: the DRS binds it universally over the whole conditional
+    /// ("If a farmer owns A DONKEY, he beats it" is every donkey he owns), so it contributes
+    /// its condition alone — an existential of its own would bind it apart from the
+    /// consequent's pronouns.
+    Antecedent,
+    /// Anywhere else: existential where it stands.
+    Local,
+}
+
 /// a deictic constant (referring to an entity outside the discourse).
 #[derive(Debug, Clone, Copy)]
 pub enum ResolvedPronoun {
@@ -150,6 +246,16 @@ pub enum ResolvedPronoun {
     Variable(Symbol),
     /// Constant (deictic or proper name) (use [`Term::Constant`]).
     Constant(Symbol),
+}
+
+/// Where a speculative parse started: its token position and the DRS as it stood. Returning
+/// here abandons everything the attempt read, the referents it registered included, while the
+/// variable numbering runs on — unlike a full [`ParserCheckpoint`], whose rewind would renumber
+/// the variables a later reading prints.
+#[derive(Clone)]
+struct Backtrack {
+    pos: usize,
+    drs: DrsMark,
 }
 
 #[derive(Clone)]
@@ -160,6 +266,7 @@ struct ParserCheckpoint {
     island: u32,
     time: Option<Time>,
     negative_depth: u32,
+    drs: DrsMark,
 }
 
 /// RAII guard for speculative parsing with automatic rollback.
@@ -245,6 +352,69 @@ pub struct EventTemplate<'a> {
     pub modifiers: Vec<Symbol>,
 }
 
+/// A mixture's gated activation: SwiGLU, or gpt-oss's SwiGLU with the gate clamped to at most `limit` and the up to
+/// `[−limit, limit]`, its sigmoid sharpened by `slope`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MoeAct {
+    Swiglu,
+    ClampedSwiglu { limit: f64, slope: f64 },
+}
+
+/// How a mixture scores its experts: a softmax over every router logit, or each logit's own sigmoid (`by sigmoid`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MoeScore {
+    Softmax,
+    Sigmoid,
+}
+
+/// The options a mixture's sugar takes beyond its weights: the router's bias, the experts' gate, up and down biases,
+/// how the experts are scored, the selection bias that chooses but never weighs (`biased by B`), the group limit
+/// (`within the top G of N groups`, as `(G, N)`), whether the kept experts' weights are renormalized to sum to one,
+/// the routed scale every kept weight is multiplied by (`scaled by S`), whether a kept expert's weight scales the input
+/// it reads rather than the output it adds (`weighting the inputs`), and the activation.
+#[derive(Clone, Copy, Debug)]
+struct MoeOptions {
+    router_bias: Option<Symbol>,
+    biases: [Option<Symbol>; 3],
+    score: MoeScore,
+    selection_bias: Option<Symbol>,
+    groups: Option<(i64, i64)>,
+    renormalize: bool,
+    scale: Option<f64>,
+    weigh_inputs: bool,
+    act: MoeAct,
+}
+
+/// An attention's dimensions: `h` query heads over `kv` key/value heads, keys `hd` and values `vd` wide per head, a
+/// cache of `l` positions, `rows` query rows.
+#[derive(Clone, Copy, Debug)]
+struct AttentionShape {
+    h: i64,
+    kv: i64,
+    hd: i64,
+    vd: i64,
+    l: i64,
+    rows: i64,
+}
+
+/// The positions a query attending `n` keeps: the last `W` of them (`within a window of W`), or those of its own chunk
+/// of `C`, `⌊(n − 1)/C⌋·C + 1 ..= n` (`within chunks of C`, Llama 4's chunked-local attention).
+#[derive(Clone, Copy, Debug)]
+enum Window {
+    Sliding(i64),
+    Chunked(i64),
+}
+
+/// The clauses an attention takes after its length: `within a window of W` or `within chunks of C`, `scaled by S`,
+/// `capped at C`, `with sinks S`.
+#[derive(Clone, Copy, Debug)]
+struct AttentionOptions {
+    window: Option<Window>,
+    scale: Option<f64>,
+    cap: Option<f64>,
+    sinks: Option<Symbol>,
+}
+
 /// Recursive descent parser for natural language to first-order logic.
 ///
 /// The parser transforms a token stream (from [`Lexer`]) into logical expressions
@@ -261,6 +431,78 @@ pub struct EventTemplate<'a> {
 /// - `'a`: Arena lifetime for allocated AST nodes
 /// - `'ctx`: WorldState lifetime for discourse tracking
 /// - `'int`: Interner lifetime for symbol management
+/// The elementwise map an integer model's tensor forms apply, each `Y[p] = map(X[p])` in one loop.
+#[derive(Clone, Copy)]
+enum TensorElemMap {
+    /// `X times M shifted right by S` — the requant `(x · M) >> S`, an arithmetic shift of the exact product.
+    Requant { m: i64, s: i64 },
+    /// `X clamped between LO and HI` — saturation, `min(max(x, LO), HI)`.
+    Clamp { lo: i64, hi: i64 },
+    /// `relu of X` — `max(x, 0)` in the tensor's element kind.
+    Relu,
+}
+
+/// The tensor binary operators the Phase-2 sugar recognizes: `matmul` (contraction) and the elementwise
+/// `plus` / `hadamard`. Each is a distinct word, so `Let C be A <op> B` reads plainly.
+#[derive(Clone, Copy)]
+enum TensorBinop {
+    Matmul,
+    Add,
+    Hadamard,
+}
+
+impl TensorBinop {
+    fn word(self) -> &'static str {
+        match self {
+            TensorBinop::Matmul => "matmul",
+            TensorBinop::Add => "plus",
+            TensorBinop::Hadamard => "hadamard",
+        }
+    }
+}
+
+/// The unary float reduction tensor ops: `softmax of X`, `rmsnorm of X`, and `layernorm of X`.
+#[derive(Clone, Copy)]
+enum ReductionKind {
+    Softmax,
+    Rmsnorm,
+    Layernorm,
+}
+
+impl ReductionKind {
+    fn word(self) -> &'static str {
+        match self {
+            ReductionKind::Softmax => "softmax",
+            ReductionKind::Rmsnorm => "rmsnorm",
+            ReductionKind::Layernorm => "layernorm",
+        }
+    }
+}
+
+/// What a construction site's `<base> [from <qualifier>]` resolves to — see
+/// `Parser::resolve_construction_target`.
+enum ConstructionTarget {
+    /// A specific enum's variant, named directly (`from <Enum>`) or the sole unambiguous
+    /// candidate the registry knows for a bare `<base>`.
+    Variant { enum_name: Symbol, variant: Symbol },
+    /// Not a variant construction: the type name for the ordinary generic/struct-init/`Expr::New`
+    /// path — the bare name, or `Module::Base` when `from` named an import module (Phase 36).
+    Type(Symbol),
+}
+
+/// One UI `Mount <Name> [at "<target>"]` sentence, as written.
+#[derive(Clone, Debug)]
+pub(super) struct MountSite {
+    pub(super) name: Symbol,
+    /// The component name's span.
+    pub(super) span: Span,
+    /// Whether this mount says where the PROGRAM begins. A mount inside a `## Test:` drives a
+    /// scenario, and must not suppress a page's own mount.
+    pub(super) is_root: bool,
+    /// The literal `at "<target>"`, when one was written.
+    pub(super) target: Option<String>,
+}
+
 pub struct Parser<'a, 'ctx, 'int> {
     /// Token stream from lexer.
     pub(super) tokens: Vec<Token>,
@@ -274,6 +516,10 @@ pub struct Parser<'a, 'ctx, 'int> {
     /// (HOTSWAP §8): each pins one optimization to a hotness tier (or `eager`/`never`).
     /// Program-wide; read after `parse_program` via [`Parser::program_tier_pins`].
     pub(super) program_tier_pins: PinSet,
+    /// Optimizations DEMANDED via a file-level `## Require <opt>` decorator — the
+    /// inverse of `## No`. After compile, each must have fired or the compile
+    /// fails. Read via [`Parser::required_optimizations`].
+    pub(super) required_opts: Vec<Opt>,
     /// Counter for generating fresh variables.
     pub(super) var_counter: usize,
     /// Every name the program BINDS (`Let`, function params) — an
@@ -281,6 +527,214 @@ pub struct Parser<'a, 'ctx, 'int> {
     /// to user variables of the same name (ambiguity-preserving: a bound
     /// name is never shadowed by a literal reading).
     pub(super) user_bound: std::collections::HashSet<Symbol>,
+    /// Static shapes of names bound to a `Tensor` (`Let A be a R by C tensor of Int`).
+    /// A `Tensor` is a compile-time concept — a `(rows, cols)` shape over a flat, row-major
+    /// backing `Seq` — so `Let C be A matmul B` looks the operands' shapes up here to check
+    /// the contraction and bake the loop bounds. Grows monotonically like `user_bound`.
+    pub(super) tensor_shapes: std::collections::HashMap<Symbol, (i64, i64)>,
+    /// The tensors whose elements are `Int` (a declared `tensor of Int`, or a `matmul`/elementwise result);
+    /// every other tensor holds `Real`. Kept beside `tensor_shapes` and written ONLY through `bind_tensor`, so
+    /// a name re-bound as a different kind of tensor can never keep a stale element kind.
+    pub(super) tensor_int: std::collections::HashSet<Symbol>,
+    /// Names declared by a `## Component <Name>` block. A reference to one in a
+    /// view position (`Counter`) is composed — rendered through the component
+    /// runtime — rather than treated as an HTML tag. Grows monotonically (all
+    /// components are visible program-wide).
+    pub(super) components: std::collections::HashSet<Symbol>,
+    /// Names declared by a `## To <name> […]:` header, pre-scanned from the raw token stream the
+    /// same way `components` is (`declare_function_names`) — so `Call <name>.`'s callee position
+    /// (`parse_call_statement`) can accept ANY word a `## To` header accepts as a name, whatever
+    /// lexical class the word happens to carry (a speech-act verb, a focus particle, …), instead
+    /// of guessing from a fixed, narrower set of token kinds.
+    pub(super) declared_function_names: std::collections::HashSet<Symbol>,
+    /// Names declared by a `## Directive <name> (…)` block: used as a plain attribute in a
+    /// view (`tooltip={text}`), it runs against that element instead of being set on it.
+    pub(super) directives: std::collections::HashSet<Symbol>,
+    /// The subset of `components` declared in the LGX component model (`## Component Name`
+    /// with sections) — `Mount` mounts them as the page's lowered components (`__mount_<C>`), not
+    /// through a synthesized `render`.
+    pub(super) lgx_components: std::collections::HashSet<Symbol>,
+    /// Every declared `## Store`, with the actions it declares — the table the end-of-parse
+    /// resolution pass checks `Call <Store>'s <action>` against.
+    pub(super) lgx_stores: std::collections::HashMap<Symbol, Vec<Symbol>>,
+    /// Whether the program declared `## Session`. Distinct from the `Session` record existing in
+    /// the registry — a program may define a record of that name without asking for a session.
+    pub(super) session_declared: bool,
+    /// The `keyed by` value to stamp on the NEXT element the LGX render walk creates.
+    ///
+    /// ★ `keyed by` REACHED NOTHING THAT RENDERS BEFORE THIS. The loop's key was read for the
+    /// per-item component SCOPE key and the render walk destructured `ViewNode::Each` without it,
+    /// so no browser node ever carried one — and the reconciler's entire keyed path (match a row
+    /// by key, reuse THAT node) was dead code, with every row matched positionally instead. A
+    /// reorder then looked correct, because each row's text is patched in place, while the row's
+    /// identity silently stayed put: what you typed into row one appeared in row two.
+    ///
+    /// Carried on the parser rather than in `LowerTrail` because the trail is lifetime-free and a
+    /// key is an arena expression; taken (not read) by the first element, so it lands on the row's
+    /// own node and never on its children.
+    pub(super) lgx_pending_key: Option<&'a Expr<'a>>,
+    /// The render function's own `reuse` parameter (0 on a first render, else the id of THIS
+    /// instance's own root element from its last render), consumed by the first element the view
+    /// walk creates — the same element `lgx_pending_key` stamps an identity onto. That element
+    /// becomes `el` by reusing the given id when nonzero rather than creating a fresh one, so a
+    /// component's own repaint can clear and rebuild ITS OWN root without touching the parent it
+    /// was placed in (`repaint_target`/`repaint_def`).
+    pub(super) lgx_pending_reuse: Option<Symbol>,
+    /// The state fields of the component whose `Actions:` are being lowered, by name and declared
+    /// type — set around each component's walk and empty otherwise.
+    ///
+    /// `Load "draft" into note.` names the field it writes, and browser storage holds only Text, so
+    /// the lowering has to know what `note` IS to give the field back what `Save` was handed.
+    pub(super) lgx_state_types: Vec<(Symbol, Option<Symbol>)>,
+    /// The component's `When a fetch fails …:` handler, as `(handler index, url binding, why
+    /// binding)` — what a typed fetch's error paths call, and the names they bind.
+    pub(super) lgx_fetch_fails: Option<(usize, Symbol, Symbol)>,
+    /// `(component, handler index)` for every component declaring `When this component
+    /// disappears:` — the ones whose seen-map a paint has to sweep. Declaration order, so the
+    /// emitted sweep is deterministic.
+    pub(super) lgx_sweeps: Vec<(Symbol, usize)>,
+    /// `(component, handler index, repeating, name)` for every `Every …:` / `After …:` in the
+    /// program — what `__lgx_tick` walks. A period is read per instance when it is drawn
+    /// (`__PERIOD_<C>_<i>`), so none is kept here.
+    pub(super) lgx_timers: Vec<(Symbol, usize, bool, Option<Symbol>)>,
+    /// `(component, handler index)` for every `When an action fails …:` — what `__lgx_on_failure`
+    /// dispatches over, and the order that assigns each component its id.
+    pub(super) lgx_fail_handlers: Vec<(Symbol, usize)>,
+    /// `(selector, event, value)` an in-flight turn asked to deliver — emitted AFTER its
+    /// write-back, so a delivery's own turn reads what this turn committed.
+    ///
+    /// ★ ALL THREE ARE EXPRESSIONS, which is what lets one queue serve every deferred delivery.
+    /// It carried a `&'static str` event and no value while the only members were the element
+    /// commands, whose event is known at compile time and carries nothing. `Publish M on "t"`
+    /// needs both halves computed — the topic may be a value and the message certainly is — and
+    /// the choice was a second queue or this one shaped like the dispatcher it feeds. A deferred
+    /// delivery is a dispatch that has not happened yet, so it should hold a dispatch's arguments.
+    pub(super) lgx_pending_events: Vec<(&'a Expr<'a>, &'a Expr<'a>, &'a Expr<'a>)>,
+    /// Whether the turn being lowered asked to reload — emitted after its write-back, and it
+    /// suppresses the paint, because a reload leaves nothing to paint.
+    pub(super) lgx_pending_reload: bool,
+    /// How many wrapper placements the server emitter has drawn children for — the counter that
+    /// keeps each placement's `__lgx_kidsN` local its own, so a wrapper inside a wrapper's
+    /// children does not overwrite the markup still being built around it.
+    pub(super) lgx_html_slots: usize,
+    /// The components whose view has a `{children}` hole — the ones that cannot repaint alone.
+    pub(super) lgx_wrappers: Vec<Symbol>,
+    /// Whether `__LGX_PASS` has been declared — it is one counter for the whole program, declared
+    /// beside the first live-instance registry that needs it.
+    pub(super) lgx_declared_pass: bool,
+    /// `(component, store, field, handler index)` — every `When <Store>'s <field> changes:` of a
+    /// lowered component: which fields a store action flags when it moves them, and what
+    /// `__lgx_wake_stores` runs for each.
+    pub(super) lgx_store_watchers: Vec<(Symbol, Symbol, Symbol, usize)>,
+    /// Which instance `key_expr` names, when it is not the one whose code is being written —
+    /// a wrapper's turn repainting the PAGE reads the page's own key, not the wrapper's.
+    pub(super) lgx_key_override: Option<Symbol>,
+    /// Every component PLACED by some other component's view — the placement graph's edges.
+    pub(super) lgx_placed: Vec<Symbol>,
+    /// The components some view places INSIDE a `{for each}`. They share one mount point with
+    /// their siblings, so a repaint of one must not be scoped to it — see `repaint_target`.
+    pub(super) lgx_loop_placed: Vec<Symbol>,
+    /// The component nobody places: the page a wrapper's repaint has to go through.
+    pub(super) lgx_paint_root: Option<Symbol>,
+    /// Every declared component, so a repaint can find the page's root.
+    pub(super) lgx_all_components: Vec<crate::ast::component::ComponentDef<'a>>,
+    /// Every `Call <Store>'s <action>` site, recorded WHERE IT IS PARSED so no nesting can hide
+    /// one from the check (a walker over finished statements could).
+    pub(super) store_calls: Vec<(Symbol, Symbol, Span)>,
+    /// Every `Use <Store>.` site, recorded WHERE IT IS PARSED — `ComponentDef.uses` keeps only the
+    /// name, so a `Use` that names no declared store is checked here, at the sentence.
+    pub(super) use_sites: Vec<(Symbol, Span)>,
+    /// Every write's root name and where it was written, for the WHOLE program — unlike
+    /// `component_writes` (reset per component, checked against that component's own props),
+    /// this survives to end of parse, where a write whose root names a declared `## Store` is
+    /// refused: `Call <Store>'s <action>.` is the only way to change one.
+    pub(super) all_writes: Vec<(Symbol, Span, component::WriteVerb)>,
+    /// Every action name written in `the journal shows A then B` or `Replay these actions: …`,
+    /// with where it was written — checked once the whole program's actions are known, so an
+    /// action declared below the test that names it still counts.
+    pub(super) journal_action_sites: Vec<(Symbol, Span)>,
+    /// Every UI `Mount <Name>` site, recorded WHERE IT IS PARSED — the legacy dialect DESUGARS a
+    /// mount into a synthesized `render` function the moment it is read, so by the end of the
+    /// file the sentence the author wrote is no longer in the tree to check. Checked at
+    /// end-of-parse against every component the file declares.
+    pub(super) mount_sites: Vec<MountSite>,
+    /// Every `Stop the timer <name>` and `Start the timer <name>` site in the component being
+    /// parsed, checked against the timers that component declares when its sections close.
+    pub(super) timer_stops: Vec<(Symbol, Span)>,
+    /// Every `Set <name> to …` target in the component being parsed, checked against that
+    /// component's PROPS when its sections close: a prop is what the parent said, not a cell.
+    pub(super) component_writes: Vec<component::ComponentWrite>,
+    /// Whether the cursor is inside an LGX component definition, where `State:` /
+    /// `Actions:` / `View:` / `Style:` are sections rather than a mistake.
+    pub(super) in_component: bool,
+    /// Whether this parse is a single `##` block re-parsed on its own (the editor's per-block
+    /// recovery, L11), rather than a whole file. `pub`, not `pub(super)`: `logicaffeine_lsp` sets
+    /// it before calling [`Parser::parse_program`] on tokens that are only one block — false for
+    /// every other caller (a whole file), which is the default a fresh `Parser` starts with.
+    ///
+    /// Gates exactly the four checks in `parse_program` that only mean something once every `##`
+    /// block in the file has been seen (`Mount` names something real, a page mounts itself, and
+    /// the LGX resolution pass that synthesizes render/router functions for the whole program) —
+    /// a single re-parsed block has no OTHER block to check `Mount`/routes against, so running
+    /// them against ONLY this block's own statements would report false refusals for names the
+    /// REST of the file declares.
+    ///
+    /// ★ THIS DOES NOT YET MAKE CROSS-BLOCK LGX CHECKS (`resolve_store_calls`, `check_wire_
+    /// contract`, …) CORRECT INSIDE A FRAGMENT — it makes them ABSENT there instead of WRONG,
+    /// which is the fix this session's grant covers. Giving them the whole program's name tables
+    /// from inside a fragment reparse needs each one retrofitted to read persistent, incrementally
+    /// -updated tables instead of the `statements` slice handed to `resolve_lgx` — `resolve_lgx`'s
+    /// OWN twelve sub-passes are cross-block-dependent throughout, not only in this file's four
+    /// gated calls, and doing that safely is real, separate work this grant did not scope. A
+    /// fragment reparse gets its full, correct LGX resolution from the next WHOLE-file reparse
+    /// (on save, or whatever the editor's own debounce already does) — this flag only stops a
+    /// fragment reparse from reporting a WRONG error about the rest of the file in the meantime.
+    pub fragment_mode: bool,
+    /// A monotonic parse-time counter minting a unique, render-stable scope key for
+    /// each composed component instance (`Counter#0`, `Counter#1`, …), so sibling
+    /// components keep independent scope-keyed signal state across re-renders.
+    pub(super) component_occurrence: usize,
+    /// Top-level functions synthesized while parsing a statement (the reactive
+    /// `render` entry a `Mount <Component> at "#sel"` needs). A statement can only
+    /// return one `Stmt`, but the VM/wasm backends collect functions from the
+    /// top-level list only — so these are PREPENDED to the program by `parse_program`,
+    /// making them visible (and registered before Main runs) on every tier.
+    pub(super) deferred_functions: Vec<Stmt<'a>>,
+    /// Every listener the lowering attached, in registration order — its INDEX is the id recorded
+    /// in `__LISTENER_FN`, and the dispatcher switches on it. Built during the render lowering and
+    /// read once when the dispatcher is emitted, so the two cannot disagree about what id 3 means.
+    pub(super) lgx_listeners: Vec<crate::parser::lgx_lower::ListenerSite>,
+    /// Every distinct event name any listener registered against; its INDEX is that event's code.
+    /// The dispatcher turns the runtime event name back into a code with a chain over exactly these.
+    pub(super) lgx_listener_events: Vec<Symbol>,
+    /// A page program's `-> View` templates and what the walk knows of View values
+    /// (`lgx_lower::views`).
+    pub(super) lgx_views: crate::parser::lgx_lower::ViewLowering<'a>,
+    /// Every component in the file that carries a `Style:` block, so a paint can reset their
+    /// "already emitted this pass" flags.
+    pub(super) styled_components: Vec<Symbol>,
+    /// Every view tree this parse produced, in source order — the LGX view IR
+    /// ([`crate::ast::view::ViewDef`]) that `Render:` / `Render into` / a component's
+    /// `View:` parse INTO before lowering. Read by tooling (`largo expand`, the LSP)
+    /// and by `view_ir_lock`; the lowering consumes it in place.
+    pub(super) views: Vec<crate::ast::view::ViewDef<'a>>,
+    /// Records whose derived JSON encoder a synthesized lowering CALLS — the route dispatcher
+    /// wraps a record-answering route in `toJson_<T>`, and that call is written by the compiler
+    /// rather than by the author, so the derive's reachability scan of the source cannot see it.
+    pub(super) json_encoders_needed: Vec<Symbol>,
+    /// Records a DECODER is wanted for — the program named one, or a typed fetch asks for one.
+    /// Separate from the encoder list because answering JSON is not reading it.
+    pub(super) json_decoders_needed: Vec<Symbol>,
+    /// Template findings this parse collected — the WARNINGS only, since an Error stops the
+    /// parse where it is found. Exposed for the LSP and `largo check`; see [`Parser::lgx_findings`].
+    pub(super) lgx_findings: Vec<crate::lgx::check::Finding>,
+    /// The value-semantics copy lint's own findings — see [`Parser::value_copy_findings`].
+    pub(super) value_copy_findings: Vec<crate::lint::Finding>,
+    /// The copy-lint scope for whichever function/action body is currently being parsed, if
+    /// any — `None` outside one. `parse_statement` feeds every statement it returns into
+    /// whichever scope is open; the function-body parser opens one on entry and drains it
+    /// (`CopyLintScope::finish`) into `value_copy_findings` on exit.
+    pub(super) copy_lint_scope: Option<crate::lint::CopyLintScope>,
     /// Pending tense from temporal adverbs.
     pub(super) pending_time: Option<Time>,
     /// Donkey bindings: (noun, var, is_donkey_used, wide_scope_negation).
@@ -320,6 +774,16 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) mode: ParserMode,
     /// Type registry for LOGOS mode.
     pub(super) type_registry: Option<TypeRegistry>,
+    /// The stack of constructors currently being parsed, outermost first: `(type_name, enum
+    /// hint, fields assigned so far)`. `parse_constructor_fields` pushes its own frame on entry
+    /// and truncates back to it on every exit — it is what lets a NESTED constructor
+    /// decide whether a field name it has already assigned, seen again, is a genuine
+    /// duplicate (no enclosing frame still wants that name) or belongs to one of the
+    /// constructors enclosing it (an ancestor frame's own declared fields still needs it). The
+    /// enum hint is the enum a qualified (`from <Enum>`) or unambiguous variant construction
+    /// already settled on, so `any_enclosing_frame_wants` reads an ancestor's OWN field list
+    /// rather than an arbitrary same-named variant of a different enum.
+    pub(super) constructor_frames: Vec<(Symbol, Option<Symbol>, Vec<Symbol>)>,
     /// Whether to produce event readings.
     pub(super) event_reading_mode: bool,
     /// Internal DRS for sentence-level scope tracking.
@@ -360,11 +824,56 @@ pub struct Parser<'a, 'ctx, 'int> {
     /// <Name> into <var>` statement desugars to `Let <var> be run_accepted(<f>, <arg>, lo, hi)`,
     /// inlining the named contract's bounds — no new AST node, no runtime contract registry.
     pub(super) contracts: std::collections::HashMap<String, (i64, i64)>,
+    /// True while parsing a `## Test` body — gates the test-only statements
+    /// (`Expect`, `Advance time`, `Given a file`) that are refused elsewhere.
+    pub(super) in_test_block: bool,
+    /// Every `## Test` prose name seen so far — duplicates are a parse error
+    /// (a test's name is its identity: filter key, report line, artifact name).
+    pub(super) test_names: std::collections::HashSet<String>,
     /// One source span per top-level statement `parse_program` returned, in
     /// push order — the side-table that gives typechecker diagnostics,
     /// ownership cause-links, and the rustc sourcemap real spans without a
     /// span field on every `Stmt` variant. Read via [`Parser::stmt_spans`].
+    ///
+    /// ★ PARSE-TIME ONLY, AND TOP-LEVEL ONLY — which is exactly what [`Stmt::Site`]/
+    /// [`Parser::failure_sites`] exist to cover instead. This table is gone by the time a COMPILED
+    /// program (bytecode, wasm, C) traps at runtime — nothing about it survives compilation — and
+    /// it was never built for anything nested inside an action's own body to begin with. The two
+    /// mechanisms answer different questions: this one is "where did the PARSER see statement i of
+    /// the top-level program", read by tools that still have the parse tree in hand; `failure_sites`
+    /// is "where did the RUNNING PROGRAM last pass through", read by whatever reports a trap.
     pub(super) stmt_spans: Vec<Span>,
+    /// The span of each call the author wrote — `f(a, b)`, `a.f(b)`, `Call f with a` — keyed by the
+    /// arena address of its FIRST argument, the one node every call that can break the law of
+    /// exclusivity is sure to have: a call lends only through an argument. Read by
+    /// [`Parser::check_lends_are_exclusive`] to refuse an overlapping lend at the call itself.
+    pub(super) call_spans: std::collections::HashMap<usize, Span>,
+    /// `Some((component, action))` while parsing the BODY of an `Actions:`/event-handler sentence
+    /// list — the ambient context [`Parser::parse_indented_block`] reads to decide whether (and
+    /// under what name) to insert a [`Stmt::Site`] marker before each sentence it assembles. `None`
+    /// everywhere else (a `## Route`'s own body, a `## Directive`'s, a top-level `## Main` sentence)
+    /// — Wave 3 scopes this to action/handler sentences specifically, where a `Call`/`Fetch`/store
+    /// write can trap at runtime for reasons no static check catches. Set and restored around
+    /// exactly the two body-parsing calls in `parse_actions_section`, the same save/restore shape
+    /// `in_component` and `lgx_key_override` already use for their own ambient context — so a
+    /// NESTED `{if}`/`{repeat}` inside an action's body still sees it (the recursive
+    /// `parse_indented_block` call inherits whatever `self` already holds), and a sibling section
+    /// parsed afterward does not inherit a stale value.
+    pub(super) site_tracking: Option<(Symbol, Symbol)>,
+    /// Every [`Stmt::Site`] marker inserted so far, in the id order `Stmt::Site(id)` names — `id`
+    /// is this vector's own index at insertion, so `failure_sites[id]` is the marker's answer.
+    /// Read via [`Parser::failure_sites`] once parsing finishes; nothing removes an entry once
+    /// pushed; a program that discards a would-be dead branch (`{if}` in a component this tier
+    /// refuses to lower, say) simply leaves that entry unreferenced by any `Stmt::Site` the final
+    /// program actually keeps — harmless, not a leak in any sense that matters at these sizes.
+    pub(super) failure_sites: Vec<crate::ast::stmt::FailureSite>,
+    /// The span of every statement read inside a block, by identity — the
+    /// nested half of `stmt_spans`. Read via [`Parser::nested_stmt_spans`].
+    pub(super) nested_stmt_spans: NestedStmtSpans,
+    /// The moves `Give` statements have made so far, each with the ownership
+    /// it replaced, oldest first — so the moves made inside a block can be
+    /// undone when the block ends. See [`Parser::release_moves_since`].
+    pub(super) moves: Vec<(Symbol, crate::drs::OwnershipState)>,
     /// Live recursion depth of the imperative descent (parenthesized
     /// expressions, nested blocks). Checked against
     /// [`crate::ast_depth::max_ast_depth`] so a parenthesis tower or block
@@ -397,10 +906,62 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             tokens,
             current: 0,
             contracts: std::collections::HashMap::new(),
+            in_test_block: false,
+            test_names: std::collections::HashSet::new(),
             program_opt_flags: OptimizationConfig::all_on(),
             program_tier_pins: PinSet::none(),
+            required_opts: Vec::new(),
             var_counter: 0,
             user_bound: std::collections::HashSet::new(),
+            tensor_shapes: std::collections::HashMap::new(),
+            tensor_int: std::collections::HashSet::new(),
+            components: std::collections::HashSet::new(),
+            declared_function_names: std::collections::HashSet::new(),
+            directives: std::collections::HashSet::new(),
+            lgx_components: std::collections::HashSet::new(),
+            lgx_stores: std::collections::HashMap::new(),
+            session_declared: false,
+            lgx_pending_key: None,
+            lgx_pending_reuse: None,
+            lgx_state_types: Vec::new(),
+            lgx_fetch_fails: None,
+            lgx_sweeps: Vec::new(),
+            lgx_timers: Vec::new(),
+            lgx_fail_handlers: Vec::new(),
+            lgx_pending_events: Vec::new(),
+            lgx_declared_pass: false,
+            lgx_pending_reload: false,
+            lgx_html_slots: 0,
+            lgx_wrappers: Vec::new(),
+            lgx_store_watchers: Vec::new(),
+            lgx_key_override: None,
+            lgx_placed: Vec::new(),
+            lgx_loop_placed: Vec::new(),
+            lgx_paint_root: None,
+            lgx_all_components: Vec::new(),
+            store_calls: Vec::new(),
+            use_sites: Vec::new(),
+            all_writes: Vec::new(),
+            journal_action_sites: Vec::new(),
+            mount_sites: Vec::new(),
+            timer_stops: Vec::new(),
+            component_writes: Vec::new(),
+            in_component: false,
+            fragment_mode: false,
+            site_tracking: None,
+            failure_sites: Vec::new(),
+            component_occurrence: 0,
+            views: Vec::new(),
+            lgx_findings: Vec::new(),
+            value_copy_findings: Vec::new(),
+            copy_lint_scope: None,
+            json_encoders_needed: Vec::new(),
+            json_decoders_needed: Vec::new(),
+            deferred_functions: Vec::new(),
+            styled_components: Vec::new(),
+            lgx_listeners: Vec::new(),
+            lgx_listener_events: Vec::new(),
+            lgx_views: Default::default(),
             pending_time: None,
             donkey_bindings: Vec::new(),
             interner,
@@ -418,6 +979,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: Some(types),
+            constructor_frames: Vec::new(),
             event_reading_mode: false,
             drs: Drs::new(), // Internal DRS for sentence-level scope tracking
             negative_scope_mode: NegativeScopeMode::default(),
@@ -428,7 +990,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             in_negative_quantifier: false,
             pending_partitive: None,
             stmt_spans: Vec::new(),
+            call_spans: std::collections::HashMap::new(),
+            nested_stmt_spans: NestedStmtSpans::default(),
+            moves: Vec::new(),
             recursion_depth: 0,
+        }
+    }
+
+    /// Record the span of the call whose arguments are `args`, from token `start_tok` through the
+    /// last one consumed ([`Parser::call_spans`]).
+    fn record_call_span(&mut self, args: &[&'a Expr<'a>], start_tok: usize) {
+        if let Some(first) = args.first() {
+            let span = self.span_from(start_tok);
+            self.call_spans.insert(*first as *const Expr as usize, span);
         }
     }
 
@@ -438,10 +1012,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         &self.stmt_spans
     }
 
-    /// Record the span for the statement just pushed: from the first token of
-    /// `start_tok` through the last consumed token (terminating period or
-    /// dedent included). `parse_program` asserts 1:1 alignment on return.
-    fn record_stmt_span(&mut self, start_tok: usize) {
+    /// The span of every statement read inside a block — a function's body, a
+    /// loop's, a branch's — from the last `parse_program` call.
+    pub fn nested_stmt_spans(&self) -> &NestedStmtSpans {
+        &self.nested_stmt_spans
+    }
+
+    /// Every `Stmt::Site` marker's own `(component, action, span)`, indexed by the `id` a
+    /// `Stmt::Site(id)` in the returned program names — `failure_sites()[id]` answers what a
+    /// runtime failure at that site means. See [`crate::ast::stmt::FailureSite`]'s own doc comment
+    /// for why a single "current site" is enough, with no call stack, to answer "where did this
+    /// trap happen".
+    pub fn failure_sites(&self) -> &[crate::ast::stmt::FailureSite] {
+        &self.failure_sites
+    }
+
+    /// The span from the first token of `start_tok` through the last CONSUMED token (a
+    /// terminating period or dedent already advanced past, included) — the shared computation
+    /// [`Parser::record_stmt_span`] and a [`Stmt::Site`] marker's own span both need.
+    fn span_from(&self, start_tok: usize) -> Span {
         let start = self
             .tokens
             .get(start_tok)
@@ -452,7 +1041,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             .get(self.current.saturating_sub(1))
             .map(|t| t.span.end)
             .unwrap_or(start);
-        self.stmt_spans.push(Span::new(start, end));
+        Span::new(start, end)
+    }
+
+    /// Record the span for the statement just pushed: from the first token of
+    /// `start_tok` through the last consumed token (terminating period or
+    /// dedent included). `parse_program` asserts 1:1 alignment on return.
+    fn record_stmt_span(&mut self, start_tok: usize) {
+        let span = self.span_from(start_tok);
+        self.stmt_spans.push(span);
+    }
+
+    /// What a construct parsed since `start_tok` spells: from that token's
+    /// start through the last consumed token that is text rather than layout,
+    /// so a block's span stops at its last full stop, not at the next line's
+    /// indentation where its closing `Dedent` sits.
+    fn span_since(&self, start_tok: usize) -> Span {
+        let start = self
+            .tokens
+            .get(start_tok)
+            .map(|t| t.span.start)
+            .unwrap_or(0);
+        let end = self
+            .tokens
+            .get(start_tok..self.current)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .find(|t| {
+                !matches!(
+                    t.kind,
+                    TokenType::Indent | TokenType::Dedent | TokenType::Newline
+                )
+            })
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+        Span::new(start, end.max(start))
     }
 
     pub fn set_discourse_event_var(&mut self, var: Symbol) {
@@ -509,16 +1133,271 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.type_registry.as_ref().and_then(|r| {
             match r.get(sym) {
                 Some(TypeDef::Generic { param_count }) => Some(*param_count),
+                // A user's own `A Box of [T] has: …`/`An Outcome of [S] and [E] is either: …`
+                // registers as `Struct`/`Enum` with a non-empty `generics` list, never as
+                // `Generic` (that shape is for a BUILT-IN parametric type only) — the same two
+                // arms `TypeRegistry::is_generic` already reads, so a type this function says IS
+                // generic must answer how many parameters it takes, not fall through to `None`.
+                Some(TypeDef::Struct { generics, .. }) | Some(TypeDef::Enum { generics, .. })
+                    if !generics.is_empty() =>
+                {
+                    Some(generics.len())
+                }
                 _ => None,
             }
         })
     }
 
     /// Phase 33: Check if a symbol is a known enum variant and return the enum name.
-    fn find_variant(&self, sym: Symbol) -> Option<Symbol> {
+    ///
+    /// A bare construction (`a new Failure with …`, `North`) has no context to prefer one
+    /// enum over another the way an `Inspect` arm can (`resolve_arm_variant` — an established
+    /// enum from an earlier arm, or the scrutinee), so when
+    /// `TypeRegistry::find_distinct_variant_candidates` reports MORE than one enum declaring this
+    /// variant name (an imported enum and the bare twin the assembler spliced beside it count once),
+    /// this refuses at `span` rather than silently (if now at least
+    /// deterministically) picking one — a construction whose meaning depends on which of two
+    /// declared types the author had in mind is not something a compiler should guess at. The
+    /// refusal teaches `<Variant> from <Enum>` (see `resolve_construction_target`), the
+    /// qualification that names one of the candidates directly instead.
+    /// `Ok(None)` means `sym` is not a variant of anything, so the caller reads it as an
+    /// ordinary type, struct, or identifier instead.
+    fn find_variant(&self, sym: Symbol, span: Span) -> ParseResult<Option<Symbol>> {
+        let Some(registry) = self.type_registry.as_ref() else {
+            return Ok(None);
+        };
+        let candidates = registry.find_distinct_variant_candidates(sym, self.interner);
+        match candidates.len() {
+            0 => Ok(None),
+            1 => Ok(Some(candidates[0].0)),
+            _ => {
+                let variant_str = self.interner.resolve(sym);
+                let mut enum_names: Vec<&str> = candidates
+                    .iter()
+                    .map(|(e, _)| self.interner.resolve(*e))
+                    .collect();
+                enum_names.sort_unstable();
+                enum_names.dedup();
+                let named = match enum_names.split_last() {
+                    Some((last, [])) => (*last).to_string(),
+                    Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+                    None => String::new(),
+                };
+                let forms: Vec<String> = enum_names
+                    .iter()
+                    .map(|e| format!("`a new {variant_str} from {e}`"))
+                    .collect();
+                let taught = match forms.split_last() {
+                    Some((last, [])) => last.clone(),
+                    Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+                    None => String::new(),
+                };
+                Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "'{variant_str}' is declared by more than one type here: {named}. 'a \
+                        new {variant_str}' cannot say which one is meant: write {taught} to name \
+                        the one you want. (An `Inspect` arm matching a value already known to be \
+                        one of them has no such ambiguity and needs no `from`.)"
+                    )),
+                    span,
+                })
+            }
+        }
+    }
+
+    /// What `<base_type_name> [from <qualifier>]` resolves to at a construction site (`a new
+    /// <Base>`, `new <Base>`, or a bare variant word) — the current token is just past
+    /// `<base_type_name>` when this is called, so an optional `from <qualifier>` is still
+    /// there to consume.
+    ///
+    /// Two axes share the `from` preposition and must never be confused with each other: Phase
+    /// 36's `<Type> from <Module>` (an import namespace — the module itself owns no entry in the
+    /// type registry; only the qualified `Module::Type` names it brings in do) and this
+    /// construction's `<Variant> from <Enum>` (an enum is a namespace of its OWN variants,
+    /// resolved directly by name — no import involved). Checked in this order so neither axis
+    /// can silently shadow the other:
+    ///
+    /// 1. `<qualifier>::<base>` is itself a real registered type (the Phase 36 shape) AND
+    ///    `<qualifier>` is ALSO an enum declaring `<base>` as a variant: both readings are live
+    ///    at once and nothing here can tell which was meant — refused.
+    /// 2. `<qualifier>::<base>` is a real registered type and that clash does not hold: Phase 36
+    ///    module qualification, exactly as before.
+    /// 3. `<qualifier>` is a real enum declaring `<base>` as a variant: the qualified variant
+    ///    construction this adds — deterministic by construction, whether or not `<base>` is
+    ///    ALSO declared by some other enum entirely.
+    /// 4. `<qualifier>` is a real enum, just not one declaring `<base>`: refused, naming the
+    ///    enum actually asked for and suggesting its nearest-spelled variant.
+    /// 5. `<base>` is a variant of at least one enum somewhere (so `from` reads as an attempted
+    ///    variant qualification) but `<qualifier>` names no enum at all: refused, naming every
+    ///    enum that DOES declare `<base>` so the message teaches a form that would work.
+    /// 6. Otherwise `<base>` is not a variant of anything anywhere: `from` was always Phase 36
+    ///    module qualification of a name today's registry does not (yet) know — `type_name` is
+    ///    the qualified symbol, deferred to whatever check reports an unknown type.
+    ///
+    /// With no `from` at all, this is exactly the old bare `find_variant` call: the sole
+    /// candidate, or `None` read as an ordinary type/struct/identifier — untouched by anything
+    /// above.
+    fn resolve_construction_target(
+        &mut self,
+        base_type_name: Symbol,
+        base_span: Span,
+    ) -> ParseResult<ConstructionTarget> {
+        if !self.check(&TokenType::From) {
+            return Ok(match self.find_variant(base_type_name, base_span)? {
+                Some(enum_name) => ConstructionTarget::Variant {
+                    enum_name,
+                    variant: base_type_name,
+                },
+                None => ConstructionTarget::Type(base_type_name),
+            });
+        }
+        self.advance(); // consume "from"
+        let qualifier_span = self.current_span();
+        let qualifier = self.expect_identifier()?;
+        let qualified = {
+            let joined = format!(
+                "{}::{}",
+                self.interner.resolve(qualifier),
+                self.interner.resolve(base_type_name)
+            );
+            self.interner.intern(&joined)
+        };
+
+        use crate::analysis::TypeDef;
+        let registry = self.type_registry.as_ref();
+        let qualified_is_real_type = registry.is_some_and(|r| r.is_type(qualified));
+        let is_declared_variant =
+            registry.is_some_and(|r| r.variant_in(qualifier, base_type_name).is_some());
+        let qualifier_is_enum =
+            registry.is_some_and(|r| matches!(r.get(qualifier), Some(TypeDef::Enum { .. })));
+
+        if qualified_is_real_type && is_declared_variant {
+            let base_str = self.interner.resolve(base_type_name);
+            let qualifier_str = self.interner.resolve(qualifier);
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "'{qualifier_str}' names both an enum declaring the variant '{base_str}' \
+                    and an imported module whose own '{qualifier_str}::{base_str}' is a type — \
+                    'a new {base_str} from {qualifier_str}' cannot say which is meant. Rename \
+                    one of the two so 'from' has only one reading here."
+                )),
+                span: qualifier_span,
+            });
+        }
+        if qualified_is_real_type {
+            return Ok(ConstructionTarget::Type(qualified));
+        }
+        if is_declared_variant {
+            return Ok(ConstructionTarget::Variant {
+                enum_name: qualifier,
+                variant: base_type_name,
+            });
+        }
+        if qualifier_is_enum {
+            let base_str = self.interner.resolve(base_type_name).to_string();
+            let qualifier_str = self.interner.resolve(qualifier).to_string();
+            let names = self
+                .type_registry
+                .as_ref()
+                .and_then(|r| r.variant_names_of(qualifier));
+            let suggestion = names.and_then(|names| {
+                let owned: Vec<String> = names
+                    .iter()
+                    .map(|n| self.interner.resolve(*n).to_string())
+                    .collect();
+                let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+                crate::suggest::find_similar(&base_str, &refs, 2).map(str::to_string)
+            });
+            let hint = suggestion
+                .map(|s| format!(" Did you mean '{s}'?"))
+                .unwrap_or_default();
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "'{base_str}' is not a variant of '{qualifier_str}'.{hint}"
+                )),
+                span: qualifier_span,
+            });
+        }
+        let candidates = self
+            .type_registry
+            .as_ref()
+            .map(|r| r.find_distinct_variant_candidates(base_type_name, self.interner))
+            .unwrap_or_default();
+        if !candidates.is_empty() {
+            let base_str = self.interner.resolve(base_type_name).to_string();
+            let qualifier_str = self.interner.resolve(qualifier).to_string();
+            let mut enum_names: Vec<&str> = candidates
+                .iter()
+                .map(|(e, _)| self.interner.resolve(*e))
+                .collect();
+            enum_names.sort_unstable();
+            enum_names.dedup();
+            let forms: Vec<String> = enum_names
+                .iter()
+                .map(|e| format!("`a new {base_str} from {e}`"))
+                .collect();
+            let taught = match forms.split_last() {
+                Some((last, [])) => last.clone(),
+                Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+                None => String::new(),
+            };
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "'{qualifier_str}' is not an enum, so 'a new {base_str} from {qualifier_str}' \
+                    cannot build a variant from it. '{base_str}' is a variant of: write {taught}."
+                )),
+                span: qualifier_span,
+            });
+        }
+        Ok(ConstructionTarget::Type(qualified))
+    }
+
+    /// Whether a `from` sitting right after a BARE identifier `sym` (no `new`/`a new` — Phase
+    /// 33's zero-keyword variant word, `resolve_construction_target`'s third construction site)
+    /// is this construction's own qualifier, as opposed to an unrelated statement's OWN
+    /// separator that merely happens to sit where a bare identifier's expression parse would
+    /// otherwise reach for it first: `Remove k from m.`, `Pop x from xs.` and `Take n from xs.`
+    /// all parse their own operand (`k`/`x`/`n`) through this exact bare-word path before their
+    /// own statement parser ever gets to consume `from` itself — and `k`/`x`/`n` are ordinary
+    /// variables, never variants, in the overwhelming common case. Called with the current token
+    /// AT `from` (not yet consumed); consumes nothing either way.
+    ///
+    /// `sym from <qualifier>` is only ever THIS qualifier when BOTH hold: `sym` is a declared
+    /// variant of SOME enum (so nothing else this sentence could mean survives the check), and
+    /// `<qualifier>` itself resolves to a real enum or names a real module-qualified
+    /// `<qualifier>::<sym>` type — exactly `resolve_construction_target`'s own two positive
+    /// branches, checked here first so an enclosing statement's unrelated `from` is never
+    /// consumed by mistake.
+    fn bare_word_from_is_a_qualifier(&mut self, sym: Symbol) -> bool {
+        let sym_is_a_variant_somewhere = self
+            .type_registry
+            .as_ref()
+            .is_some_and(|r| !r.find_variant_candidates(sym).is_empty());
+        if !sym_is_a_variant_somewhere {
+            return false;
+        }
+        let Some(qualifier_sym) = self.peek_field_name_at(1) else {
+            return false;
+        };
+        use crate::analysis::TypeDef;
+        let qualifier_is_enum = self
+            .type_registry
+            .as_ref()
+            .is_some_and(|r| matches!(r.get(qualifier_sym), Some(TypeDef::Enum { .. })));
+        if qualifier_is_enum {
+            return true;
+        }
+        let qualified = {
+            let joined = format!(
+                "{}::{}",
+                self.interner.resolve(qualifier_sym),
+                self.interner.resolve(sym)
+            );
+            self.interner.intern(&joined)
+        };
         self.type_registry
             .as_ref()
-            .and_then(|r| r.find_variant(sym).map(|(enum_name, _)| enum_name))
+            .is_some_and(|r| r.is_type(qualified))
     }
 
     /// Consume a type name token (doesn't check entity registration).
@@ -538,6 +1417,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Divergent => Ok(self.interner.intern("Divergent")),
             // Type parameter names (e.g. T, U) can be tokenized as articles by the English lexer
             TokenType::Article(_) => Ok(t.lexeme),
+            // ★ IDENTIFIER FREEDOM, BY THE SAME RULE `expect_identifier` USES — not by a list.
+            //
+            // LOGOS keywords are CONTEXTUAL, never reserved: `Note that …` opens an observation and
+            // `Note` is also an ordinary noun, so `## A Note has:` names a record and `(n: Note)`
+            // types a parameter with it. Both are unambiguous, because a keyword only means
+            // something at the start of a block or a sentence.
+            //
+            // This arm used to be a HAND-MAINTAINED LIST of freed tokens, and `expect_identifier`
+            // holds a second one. They drifted, exactly as two lists of the same thing always do:
+            // `Note`, `Record`, `Warn`, `During`, `Swap`, `Read`, `Write`, `Merge`, `Add`,
+            // `Remove`, `First`, `Both`, `Either`, `Some`, `All` and the rest could all NAME a
+            // parameter and none of them could TYPE one. So `## A Note has:` declared cleanly and
+            // `## To titleOf (n: Note)` was refused — told that its noun was not a noun, with
+            // nothing anywhere pointing at the collision.
+            //
+            // A fix that lands in one naming position and not the others is how a language ends up
+            // with an arbitrary list of words you cannot use. So the question is asked ONCE, of the
+            // predicate that decides it: is this token's lexeme a plain identifier word? The
+            // canonical-name arms above stay because they intern a SPELLING (`Tally`), which is a
+            // different fact from "this may be a name".
+            _ if self.token_is_word_identifier(&t) => Ok(t.lexeme),
             other => Err(ParseError {
                 kind: ParseErrorKind::ExpectedContentWord { found: other },
                 span: self.current_span(),
@@ -571,7 +1471,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                     if !self.check(&TokenType::RParen) {
                         return Err(ParseError {
-                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: ")".to_string(),
+                            },
                             span: self.current_span(),
                         });
                     }
@@ -580,7 +1482,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Expect ->
                     if !self.check(&TokenType::Arrow) {
                         return Err(ParseError {
-                            kind: ParseErrorKind::ExpectedKeyword { keyword: "->".to_string() },
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: "->".to_string(),
+                            },
                             span: self.current_span(),
                         });
                     }
@@ -589,18 +1493,83 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let output = self.parse_type_expression()?;
                     let output_ref = self.ctx.alloc_type_expr(output);
                     let inputs_ref = self.ctx.alloc_type_exprs(inputs);
-                    return Ok(TypeExpr::Function { inputs: inputs_ref, output: output_ref });
+                    return Ok(TypeExpr::Function {
+                        inputs: inputs_ref,
+                        output: output_ref,
+                    });
                 }
             }
         }
 
-        // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
+        // Parenthesized type: a NAMED RECORD (`(quotient: Int, remainder: Int)` — a colon follows the first
+        // name), an ANONYMOUS TUPLE (`(Int, Int)` — comma-separated), or GROUPING (`Seq of (Seq of Int)`).
         if self.check(&TokenType::LParen) {
             self.advance(); // consume "("
+                            // A colon right after the first name marks a named record.
+            if self.current + 1 < self.tokens.len()
+                && matches!(self.tokens[self.current + 1].kind, TokenType::Colon)
+            {
+                let mut names = Vec::new();
+                let mut types = Vec::new();
+                loop {
+                    names.push(self.consume_type_name()?); // field name
+                    if !self.check(&TokenType::Colon) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: ":".to_string(),
+                            },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ":"
+                    types.push(self.parse_type_expression()?);
+                    if self.check(&TokenType::Comma) {
+                        self.advance(); // consume ","
+                        continue;
+                    }
+                    break;
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ")".to_string(),
+                        },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+                let field_names = self.ctx.alloc_syms(names);
+                let field_types = self.ctx.alloc_type_exprs(types);
+                return Ok(TypeExpr::Record {
+                    field_names,
+                    field_types,
+                });
+            }
             let inner = self.parse_type_expression()?;
+            if self.check(&TokenType::Comma) {
+                // Anonymous tuple type: collect the remaining comma-separated element types.
+                let mut elems = vec![inner];
+                while self.check(&TokenType::Comma) {
+                    self.advance(); // consume ","
+                    elems.push(self.parse_type_expression()?);
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ")".to_string(),
+                        },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+                let params = self.ctx.alloc_type_exprs(elems);
+                return Ok(TypeExpr::Tuple(params));
+            }
             if !self.check(&TokenType::RParen) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ")".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -629,12 +1598,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     base = self.interner.intern("SharedSet_RemoveWins");
                 } else if self.check(&TokenType::AddWins) {
                     self.advance(); // consume "AddWins"
-                    // AddWins is default, but we can be explicit
+                                    // AddWins is default, but we can be explicit
                     base = self.interner.intern("SharedSet_AddWins");
                 }
                 if !self.check(&TokenType::RParen) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ")".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -653,7 +1624,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 if !self.check(&TokenType::RParen) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ")".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -677,32 +1650,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // with a keyword token); capture the predicate as a Copy bool so the `base_name` borrow
             // does not span the `self.advance()` calls in the parameter loop below.
             let base_is_quantity = base_name == "Quantity";
-            let param_count = self.get_generic_param_count(base)
-                .or_else(|| match base_name {
-                    // Built-in generic types for Phase 38 std library
-                    "Result" => Some(2),    // Result of T and E
-                    "Option" | "Maybe" => Some(1),    // Option of T / Maybe T
-                    "Seq" | "List" | "Vec" => Some(1),  // Seq of T
-                    "Set" | "HashSet" => Some(1), // Set of T
-                    "Map" | "HashMap" => Some(2), // Map of K and V
-                    "Pair" => Some(2),      // Pair of A and B
-                    "Triple" => Some(3),    // Triple of A and B and C
-                    // Phase 49b: CRDT generic types
-                    "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" => Some(1),
-                    "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => Some(1),
-                    "SharedMap" | "ORMap" => Some(2),      // SharedMap from K to V
-                    "Divergent" | "MVRegister" => Some(1), // Divergent T
-                    _ => None,
-                });
+            let param_count = self
+                .get_generic_param_count(base)
+                // The built-in arities live in ONE table the field parsers read too, so a
+                // `Result of Int and E` cannot mean two parameters here and one there.
+                .or_else(|| crate::analysis::registry::builtin_generic_param_count(base_name));
 
             // Check if it's a known generic type with parameters
             if let Some(count) = param_count {
-                let has_preposition = self.check_of_preposition() || self.check_preposition_is("from");
+                let has_preposition =
+                    self.check_of_preposition() || self.check_preposition_is("from");
                 // Maybe supports direct syntax without "of": "Maybe Int", "Maybe Text"
-                let maybe_direct = !has_preposition && base_name == "Maybe" && matches!(
-                    self.peek().kind,
-                    TokenType::Noun(_) | TokenType::Adjective(_) | TokenType::ProperName(_) | TokenType::Verb { .. }
-                );
+                let maybe_direct = !has_preposition
+                    && base_name == "Maybe"
+                    && matches!(
+                        self.peek().kind,
+                        TokenType::Noun(_)
+                            | TokenType::Adjective(_)
+                            | TokenType::ProperName(_)
+                            | TokenType::Verb { .. }
+                    );
                 if has_preposition || maybe_direct {
                     if has_preposition {
                         self.advance(); // consume "of" or "from"
@@ -712,7 +1679,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     for i in 0..count {
                         if i > 0 {
                             // Expect separator for params > 1: "and", "to", or ","
-                            if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
+                            if self.check(&TokenType::And)
+                                || self.check_to_preposition()
+                                || self.check(&TokenType::Comma)
+                            {
                                 self.advance();
                             }
                         }
@@ -730,16 +1700,36 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
 
                     let params_slice = self.ctx.alloc_type_exprs(params);
-                    TypeExpr::Generic { base, params: params_slice }
+                    TypeExpr::Generic {
+                        base,
+                        params: params_slice,
+                    }
                 } else {
                     // Generic type without parameters - treat as primitive or named
-                    let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+                    let is_primitive = self
+                        .type_registry
+                        .as_ref()
+                        .map(|r| r.is_type(base))
+                        .unwrap_or(false)
                         || matches!(
-                        base_name,
-                        "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit"
-                            | "Word8" | "Word16" | "Word32" | "Word64" | "Lanes8Word32"
-                            | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16"
-                    );
+                            base_name,
+                            "Int"
+                                | "Nat"
+                                | "Text"
+                                | "Bool"
+                                | "Boolean"
+                                | "Real"
+                                | "Unit"
+                                | "Word8"
+                                | "Word16"
+                                | "Word32"
+                                | "Word64"
+                                | "Lanes8Word32"
+                                | "Lanes4Word32"
+                                | "Lanes16Word8"
+                                | "Lanes4Word64"
+                                | "Lanes16Word16"
+                        );
                     if is_primitive {
                         TypeExpr::Primitive(base)
                     } else {
@@ -748,12 +1738,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             } else {
                 // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
-                let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+                let is_primitive = self
+                    .type_registry
+                    .as_ref()
+                    .map(|r| r.is_type(base))
+                    .unwrap_or(false)
                     || matches!(
                         base_name,
-                        "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit"
-                            | "Word8" | "Word16" | "Word32" | "Word64" | "Lanes8Word32"
-                            | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16"
+                        "Int"
+                            | "Nat"
+                            | "Text"
+                            | "Bool"
+                            | "Boolean"
+                            | "Real"
+                            | "Unit"
+                            | "Word8"
+                            | "Word16"
+                            | "Word32"
+                            | "Word64"
+                            | "Lanes8Word32"
+                            | "Lanes4Word32"
+                            | "Lanes16Word8"
+                            | "Lanes4Word64"
+                            | "Lanes16Word16"
                     );
                 if is_primitive {
                     TypeExpr::Primitive(base)
@@ -772,11 +1779,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let predicate_expr = self.parse_condition()?;
 
             // Extract bound variable from the left side of the expression
-            let bound_var = self.extract_bound_var(&predicate_expr)
+            let bound_var = self
+                .extract_bound_var(&predicate_expr)
                 .unwrap_or_else(|| self.interner.intern("it"));
 
             // Convert imperative Expr to logic LogicExpr
-            let predicate = self.expr_to_logic_predicate(&predicate_expr, bound_var)
+            let predicate = self
+                .expr_to_logic_predicate(&predicate_expr, bound_var)
                 .ok_or_else(|| ParseError {
                     kind: ParseErrorKind::InvalidRefinementPredicate,
                     span: self.peek().span,
@@ -785,7 +1794,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Allocate the base type
             let base_alloc = self.ctx.alloc_type_expr(base_type);
 
-            return Ok(TypeExpr::Refinement { base: base_alloc, var: bound_var, predicate });
+            return Ok(TypeExpr::Refinement {
+                base: base_alloc,
+                var: bound_var,
+                predicate,
+            });
         }
 
         Ok(base_type)
@@ -802,7 +1815,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Converts an imperative comparison Expr to a Logic Kernel LogicExpr.
     /// Used for refinement type predicates: `Int where x > 0`
-    fn expr_to_logic_predicate(&mut self, expr: &Expr<'a>, bound_var: Symbol) -> Option<&'a LogicExpr<'a>> {
+    fn expr_to_logic_predicate(
+        &mut self,
+        expr: &Expr<'a>,
+        bound_var: Symbol,
+    ) -> Option<&'a LogicExpr<'a>> {
         match expr {
             Expr::BinaryOp { op, left, right } => {
                 // Map BinaryOpKind to predicate name
@@ -841,7 +1858,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let right_term = self.expr_to_term(right)?;
 
                 let args = self.ctx.terms.alloc_slice([left_term, right_term]);
-                Some(self.ctx.exprs.alloc(LogicExpr::Predicate { name: pred_sym, args, world: None }))
+                Some(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: pred_sym,
+                    args,
+                    world: None,
+                }))
             }
             _ => None,
         }
@@ -875,13 +1896,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         while self.current < self.tokens.len() {
             if let TokenType::BlockHeader { block_type } = &self.tokens[self.current].kind {
                 self.mode = match block_type {
-                    BlockType::Main | BlockType::Function => ParserMode::Imperative,
-                    BlockType::Theorem | BlockType::Definition | BlockType::Define | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
-                    BlockType::Policy | BlockType::Requires | BlockType::Axiom | BlockType::Theory |
-                    BlockType::Hardware | BlockType::Property
+                    BlockType::Main
+                    | BlockType::Function
+                    | BlockType::Component
+                    | BlockType::Test { .. }
+                    | BlockType::Page { .. }
+                    | BlockType::Store
+                    | BlockType::Session
+                    | BlockType::Directive
+                    | BlockType::Route { .. }
+                    | BlockType::Middleware
+                    | BlockType::Redirect { .. }
+                    | BlockType::ErrorPage { .. } => ParserMode::Imperative,
+                    BlockType::Theorem
+                    | BlockType::Definition
+                    | BlockType::Define
+                    | BlockType::Proof
+                    | BlockType::Example
+                    | BlockType::Logic
+                    | BlockType::Note
+                    | BlockType::TypeDef
+                    | BlockType::Policy
+                    | BlockType::Requires
+                    | BlockType::Axiom
+                    | BlockType::Theory
+                    | BlockType::Hardware
+                    | BlockType::Property
                     | BlockType::SuspectedTypo { .. } => ParserMode::Declarative,
-                    BlockType::No | BlockType::Tier => self.mode, // Annotation — keep current mode
+                    BlockType::No | BlockType::Tier | BlockType::Require => self.mode, // Annotation — keep current mode
                 };
                 self.current += 1;
             } else {
@@ -890,16 +1932,59 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    pub fn get_event_var(&mut self) -> Symbol {
-        self.discourse_event_var.unwrap_or_else(|| self.interner.intern("e"))
+    /// An event and the conditions on it — its PPs, `In(e, Park)` — as one formula. The
+    /// conditions are about THIS event, so they go under its own ∃e; an if-clause's event is
+    /// bound outside (`suppress_existential`), and its conditions simply join it.
+    pub(super) fn event_with_conditions(
+        &mut self,
+        event: NeoEventData<'a>,
+        conditions: Vec<&'a LogicExpr<'a>>,
+    ) -> &'a LogicExpr<'a> {
+        let binds_its_conditions = !event.suppress_existential && !conditions.is_empty();
+        let event_var = event.event_var;
+        let mut combined = self
+            .ctx
+            .exprs
+            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                suppress_existential: event.suppress_existential || binds_its_conditions,
+                ..event
+            })));
+        for condition in conditions {
+            combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: combined,
+                op: TokenType::And,
+                right: condition,
+            });
+        }
+        if binds_its_conditions {
+            combined = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Existential,
+                variable: event_var,
+                body: combined,
+                island_id: self.current_island,
+            });
+        }
+        combined
     }
 
-    pub fn capture_event_template(&mut self, verb: Symbol, roles: &[(ThematicRole, Term<'a>)], modifiers: &[Symbol]) {
-        let non_agent_roles: Vec<_> = roles.iter()
+    pub fn get_event_var(&mut self) -> Symbol {
+        self.discourse_event_var
+            .unwrap_or_else(|| self.interner.intern("e"))
+    }
+
+    pub fn capture_event_template(
+        &mut self,
+        verb: Symbol,
+        roles: &[(ThematicRole, Term<'a>)],
+        modifiers: &[Symbol],
+    ) {
+        let non_agent_roles: Vec<_> = roles
+            .iter()
             .filter(|(role, _)| *role != ThematicRole::Agent)
             .cloned()
             .collect();
-        let agent = roles.iter()
+        let agent = roles
+            .iter()
             .find(|(role, _)| *role == ThematicRole::Agent)
             .map(|(_, t)| t.clone());
         self.last_event_template = Some(EventTemplate {
@@ -919,7 +2004,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// King", "the team WHOSE final score was 739"). The possessed NP belongs to the
     /// head `gap_var`; introduce it as a fresh entity m with Noun(m) ∧ Possesses(gap,
     /// m), then predicate the clause's VP over m, all under ∃m.
-    pub(super) fn parse_whose_relative(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+    pub(super) fn parse_whose_relative(
+        &mut self,
+        gap_var: Symbol,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
         self.advance(); // "whose"
         let possessed = self.parse_noun_phrase(false)?;
         let m = self.next_var_name();
@@ -968,11 +2056,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }))
     }
 
-    pub(super) fn parse_where_relative(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+    pub(super) fn parse_where_relative(
+        &mut self,
+        gap_var: Symbol,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
         self.advance(); // "where"
-        // The embedded clause's own subject: a pronoun ("they"), a definite NP ("the
-        // survivor"), or a proper name. A pronoun is not parsed by parse_noun_phrase,
-        // so take its (capitalized) lexeme as the agent constant.
+                        // The embedded clause's own subject: a pronoun ("they"), a definite NP ("the
+                        // survivor"), or a proper name. A pronoun is not parsed by parse_noun_phrase,
+                        // so take its (capitalized) lexeme as the agent constant.
         let subj_sym = if self.check_pronoun() {
             let lex = self.interner.resolve(self.peek().lexeme).to_string();
             self.advance();
@@ -1001,16 +2092,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         break;
                     }
                     TokenType::And | TokenType::Or
-                        if matches!(
-                            self.tokens.get(k + 1).map(|t| &t.kind),
-                            Some(TokenType::Article(_))
-                                | Some(TokenType::ProperName(_))
-                                | Some(TokenType::All)
-                                | Some(TokenType::Some)
-                                | Some(TokenType::Any)
-                                | Some(TokenType::No)
-                                | Some(TokenType::Most)
-                        ) =>
+                        if self
+                            .tokens
+                            .get(k + 1)
+                            .is_some_and(|t| t.kind.is_generalized_quantifier())
+                            || matches!(
+                                self.tokens.get(k + 1).map(|t| &t.kind),
+                                Some(TokenType::Article(_))
+                                    | Some(TokenType::ProperName(_))
+                                    | Some(TokenType::All)
+                                    | Some(TokenType::Some)
+                                    | Some(TokenType::Any)
+                                    | Some(TokenType::No)
+                            ) =>
                     {
                         found = Some(k);
                         break;
@@ -1029,11 +2123,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let saved_boundary = boundary.map(|i| (i, self.tokens[i].clone()));
         if let Some(i) = boundary {
             let span = self.tokens[i].span;
-            self.tokens[i] = crate::token::Token::new(
-                TokenType::Period,
-                self.interner.intern("."),
-                span,
-            );
+            self.tokens[i] =
+                crate::token::Token::new(TokenType::Period, self.interner.intern("."), span);
         }
         let inner_result = self.parse_predicate_with_subject(subj_sym);
         if let Some((i, tok)) = saved_boundary {
@@ -1080,10 +2171,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let verb = self.consume_verb();
                 let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
-                    args: self.ctx.terms.alloc_slice([
-                        Term::Constant(subject.noun),
-                        var_term,
-                    ]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Constant(subject.noun), var_term]),
                     world: None,
                 });
                 return Ok(body);
@@ -1140,6 +2231,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             island: self.current_island,
             time: self.pending_time,
             negative_depth: self.negative_depth,
+            drs: self.drs.mark(),
         }
     }
 
@@ -1150,10 +2242,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.current_island = cp.island;
         self.pending_time = cp.time;
         self.negative_depth = cp.negative_depth;
+        self.drs.rewind(&cp.drs);
+    }
+
+    /// Where a speculative parse starts, to return to if it does not pan out.
+    fn backtrack_point(&self) -> Backtrack {
+        Backtrack {
+            pos: self.current,
+            drs: self.drs.mark(),
+        }
+    }
+
+    /// Return to `point`: the token position, and the DRS as it stood — a referent the
+    /// abandoned attempt registered does not outlive it.
+    fn backtrack_to(&mut self, point: &Backtrack) {
+        self.current = point.pos;
+        self.drs.rewind(&point.drs);
     }
 
     fn is_negative_context(&self) -> bool {
         self.negative_depth % 2 == 1
+    }
+
+    /// Where an indefinite introduced here lives — see [`IndefiniteScope`].
+    pub(super) fn indefinite_scope(&self) -> IndefiniteScope {
+        if self.in_negative_quantifier || self.is_negative_context() {
+            IndefiniteScope::Negated
+        } else if self.drs.in_conditional_antecedent() {
+            IndefiniteScope::Antecedent
+        } else {
+            IndefiniteScope::Local
+        }
+    }
+
+    /// Register an indefinite's referent in the DRS as its scope decides.
+    pub(super) fn introduce_indefinite(
+        &mut self,
+        var: Symbol,
+        noun: Symbol,
+        gender: Gender,
+        number: Number,
+    ) -> IndefiniteScope {
+        let scope = self.indefinite_scope();
+        if scope == IndefiniteScope::Negated {
+            self.drs.introduce_referent_with_source(
+                var,
+                noun,
+                gender,
+                number,
+                ReferentSource::NegationScope,
+            );
+        } else {
+            self.drs.introduce_referent(var, noun, gender, number);
+        }
+        scope
     }
 
     pub fn guard(&mut self) -> ParserGuard<'_, 'a, 'ctx, 'int> {
@@ -1192,7 +2334,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Modal barrier blocked telescope resolution - pronoun can't access hypothetical entities
             // from the prior modal sentence. Check if there are ANY telescope candidates that
             // were blocked due to modal scope. If so, this is a modal barrier error.
-            let blocked_candidates: Vec<_> = self.world_state.telescope_candidates()
+            let blocked_candidates: Vec<_> = self
+                .world_state
+                .telescope_candidates()
                 .iter()
                 .filter(|c| c.in_modal_scope)
                 .collect();
@@ -1203,7 +2347,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if has_upcoming_modal {
                     // Modal subordination detected - allow access to the first matching candidate
                     if let Some(candidate) = blocked_candidates.into_iter().find(|c| {
-                        c.gender == gender || gender == Gender::Unknown || c.gender == Gender::Unknown
+                        c.gender == gender
+                            || gender == Gender::Unknown
+                            || c.gender == Gender::Unknown
                     }) {
                         return Ok(ResolvedPronoun::Variable(candidate.variable));
                     }
@@ -1232,7 +2378,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     ResolvedPronoun::Variable(sym)
                 });
             }
-            Err(crate::drs::ScopeError::InaccessibleReferent { gender: g, reason, .. }) => {
+            Err(crate::drs::ScopeError::InaccessibleReferent {
+                gender: g, reason, ..
+            }) => {
                 // Referent exists but is trapped in inaccessible scope.
                 // In multi-sentence discourse, try telescoping first - the referent
                 // from a previous sentence's conditional may be in telescope candidates.
@@ -1247,7 +2395,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     span: self.current_span(),
                 });
             }
-            Err(crate::drs::ScopeError::NoMatchingReferent { gender: g, number: n }) => {
+            Err(crate::drs::ScopeError::NoMatchingReferent {
+                gender: g,
+                number: n,
+            }) => {
                 // Try telescoping across sentence boundaries (if not already tried above)
                 if !self.world_state.has_prior_modal_context() {
                     if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
@@ -1360,7 +2511,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-
     /// Builds the agent term for a subject, applying metonymic coercion (§8.6):
     /// a place that conventionally denotes an institution ("the White House") is
     /// coerced to that institution when it acts — `GovernmentOf(white_house)`.
@@ -1466,11 +2616,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             Err(())
         };
-        let parsed = if let Some(hex) = clean.strip_prefix("0x").or_else(|| clean.strip_prefix("0X")) {
+        let parsed = if let Some(hex) = clean
+            .strip_prefix("0x")
+            .or_else(|| clean.strip_prefix("0X"))
+        {
             radix(hex, 16)
-        } else if let Some(bin) = clean.strip_prefix("0b").or_else(|| clean.strip_prefix("0B")) {
+        } else if let Some(bin) = clean
+            .strip_prefix("0b")
+            .or_else(|| clean.strip_prefix("0B"))
+        {
             radix(bin, 2)
-        } else if let Some(oct) = clean.strip_prefix("0o").or_else(|| clean.strip_prefix("0O")) {
+        } else if let Some(oct) = clean
+            .strip_prefix("0o")
+            .or_else(|| clean.strip_prefix("0O"))
+        {
             radix(oct, 8)
         } else {
             format!("{}{}", sign, clean).parse::<i64>().map_err(|_| ())
@@ -1535,6 +2694,49 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.interner.intern(&format!("__{}_{}", tag, idx))
     }
 
+    /// Capture a mutation target's item keys from its root outward. The rebuilt
+    /// place contains only saved keys, so both its read and write-back use the
+    /// same path without evaluating an ancestor a second time.
+    fn capture_place_indices(
+        &mut self,
+        place: &'a Expr<'a>,
+        prefix: &mut Vec<Stmt<'a>>,
+    ) -> &'a Expr<'a> {
+        match place {
+            Expr::Identifier(_) => place,
+            Expr::FieldAccess { object, field } => {
+                let object = self.capture_place_indices(object, prefix);
+                self.ctx.alloc_imperative_expr(Expr::FieldAccess {
+                    object,
+                    field: *field,
+                })
+            }
+            Expr::Index { collection, index } => {
+                let collection = self.capture_place_indices(collection, prefix);
+                let key = self.fresh_desugar_temp("place_key");
+                prefix.push(Stmt::Let {
+                    var: key,
+                    ty: None,
+                    value: index,
+                    mutable: false,
+                });
+                let index = self.ctx.alloc_imperative_expr(Expr::Identifier(key));
+                self.ctx
+                    .alloc_imperative_expr(Expr::Index { collection, index })
+            }
+            _ => {
+                let root = self.fresh_desugar_temp("place_root");
+                prefix.push(Stmt::Let {
+                    var: root,
+                    ty: None,
+                    value: place,
+                    mutable: true,
+                });
+                self.ctx.alloc_imperative_expr(Expr::Identifier(root))
+            }
+        }
+    }
+
     /// Lower a write into a NESTED index place — `Set item j of (item i of
     /// grid) to v` — into read → element write → write-back:
     ///
@@ -1558,8 +2760,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         value: &'a Expr<'a>,
     ) -> Stmt<'a> {
         let (base, key) = match collection {
-            Expr::Index { collection: base, index: key } => (*base, *key),
-            _ => return Stmt::SetIndex { collection, index, value },
+            Expr::Index {
+                collection: base,
+                index: key,
+            } => (*base, *key),
+            _ => {
+                return Stmt::SetIndex {
+                    collection,
+                    index,
+                    value,
+                }
+            }
         };
         let t_idx = self.fresh_desugar_temp("place_i");
         let t_val = self.fresh_desugar_temp("place_v");
@@ -1569,18 +2780,47 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let val_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_val));
         let key_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_key));
         let inner_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_inner));
-        let read = self.ctx.alloc_imperative_expr(Expr::Index { collection: base, index: key_ref });
-        let write_back = self.desugar_place_set_index(base, key_ref, inner_ref);
-        let body = [
-            Stmt::Let { var: t_idx, ty: None, value: index, mutable: false },
-            Stmt::Let { var: t_val, ty: None, value, mutable: false },
-            Stmt::Let { var: t_key, ty: None, value: key, mutable: false },
-            Stmt::Let { var: t_inner, ty: None, value: read, mutable: true },
-            Stmt::SetIndex { collection: inner_ref, index: idx_ref, value: val_ref },
-            write_back,
+        let mut body = vec![
+            Stmt::Let {
+                var: t_idx,
+                ty: None,
+                value: index,
+                mutable: false,
+            },
+            Stmt::Let {
+                var: t_val,
+                ty: None,
+                value,
+                mutable: false,
+            },
         ];
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body.into_iter());
+        let base = self.capture_place_indices(base, &mut body);
+        let read = self.ctx.alloc_imperative_expr(Expr::Index {
+            collection: base,
+            index: key_ref,
+        });
+        let write_back = self.desugar_place_set_index(base, key_ref, inner_ref);
+        body.extend([
+            Stmt::Let {
+                var: t_key,
+                ty: None,
+                value: key,
+                mutable: false,
+            },
+            Stmt::Let {
+                var: t_inner,
+                ty: None,
+                value: read,
+                mutable: true,
+            },
+            Stmt::SetIndex {
+                collection: inner_ref,
+                index: idx_ref,
+                value: val_ref,
+            },
+            write_back,
+        ]);
+        let body = self.alloc_block(body);
         Stmt::Splice { body }
     }
 
@@ -1588,7 +2828,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// binding → write-back). See [`Self::desugar_place_set_index`].
     fn desugar_place_push(&mut self, value: &'a Expr<'a>, collection: &'a Expr<'a>) -> Stmt<'a> {
         let (base, key) = match collection {
-            Expr::Index { collection: base, index: key } => (*base, *key),
+            Expr::Index {
+                collection: base,
+                index: key,
+            } => (*base, *key),
             _ => return Stmt::Push { value, collection },
         };
         let t_val = self.fresh_desugar_temp("place_v");
@@ -1597,18 +2840,7777 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let val_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_val));
         let key_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_key));
         let inner_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_inner));
-        let read = self.ctx.alloc_imperative_expr(Expr::Index { collection: base, index: key_ref });
+        let mut body = vec![Stmt::Let {
+            var: t_val,
+            ty: None,
+            value,
+            mutable: false,
+        }];
+        let base = self.capture_place_indices(base, &mut body);
+        let read = self.ctx.alloc_imperative_expr(Expr::Index {
+            collection: base,
+            index: key_ref,
+        });
         let write_back = self.desugar_place_set_index(base, key_ref, inner_ref);
-        let body = [
-            Stmt::Let { var: t_val, ty: None, value, mutable: false },
-            Stmt::Let { var: t_key, ty: None, value: key, mutable: false },
-            Stmt::Let { var: t_inner, ty: None, value: read, mutable: true },
-            Stmt::Push { value: val_ref, collection: inner_ref },
+        body.extend([
+            Stmt::Let {
+                var: t_key,
+                ty: None,
+                value: key,
+                mutable: false,
+            },
+            Stmt::Let {
+                var: t_inner,
+                ty: None,
+                value: read,
+                mutable: true,
+            },
+            Stmt::Push {
+                value: val_ref,
+                collection: inner_ref,
+            },
             write_back,
-        ];
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body.into_iter());
+        ]);
+        let body = self.alloc_block(body);
         Stmt::Splice { body }
+    }
+
+    /// `every <x> in <list> where <condition>` at the value of a `Let` or `Set`: the name, the list
+    /// and the condition — or `None`, nothing consumed, when the value is anything else.
+    fn try_parse_every_where(
+        &mut self,
+    ) -> ParseResult<Option<(Symbol, &'a Expr<'a>, &'a Expr<'a>)>> {
+        if !self.check_word("every") {
+            return Ok(None);
+        }
+        let saved = self.backtrack_point();
+        self.advance(); // every
+        if !self.check_word_at(self.current + 1, "in") {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        let Ok(binder) = self.expect_identifier() else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        self.advance(); // in
+        let list = self.parse_imperative_expr()?;
+        self.expect_keyword("where")?;
+        let condition = self.parse_condition()?;
+        Ok(Some((binder, list, condition)))
+    }
+
+    /// The items of `list` for which `condition` holds (`keep`) or does not (`!keep`), in order,
+    /// gathered into a fresh mutable binding that answers them: a copy of `list` — so it has the
+    /// list's own element kind on every tier, with no type to name — emptied, then refilled by
+    /// walking `list`. `binder` names each item as the walk's own loop variable, so it belongs to
+    /// the condition alone — it neither shadows a name in scope nor outlives the statement — and an
+    /// error the condition raises names it as the author wrote it.
+    fn desugar_keep_where(
+        &mut self,
+        binder: Symbol,
+        list: &'a Expr<'a>,
+        condition: &'a Expr<'a>,
+        keep: bool,
+    ) -> (Symbol, Vec<Stmt<'a>>) {
+        let kept = self.fresh_desugar_temp("where_k");
+        let test = if keep {
+            condition
+        } else {
+            self.ctx
+                .alloc_imperative_expr(Expr::Not { operand: condition })
+        };
+        let kept_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(kept));
+        let item_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(binder));
+        let length = self.ctx.alloc_imperative_expr(Expr::Length {
+            collection: kept_ref,
+        });
+        let zero = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Number(0)));
+        let not_empty = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op: BinaryOpKind::Gt,
+            left: length,
+            right: zero,
+        });
+        let pop = self.alloc_block(vec![Stmt::Pop {
+            collection: kept_ref,
+            into: None,
+        }]);
+        let push = self.alloc_block(vec![Stmt::Push {
+            value: item_ref,
+            collection: kept_ref,
+        }]);
+        let per_item = self.alloc_block(vec![Stmt::If {
+            cond: test,
+            then_block: push,
+            else_block: None,
+        }]);
+        let body = vec![
+            Stmt::Let {
+                var: kept,
+                ty: None,
+                value: list,
+                mutable: true,
+            },
+            Stmt::While {
+                cond: not_empty,
+                body: pop,
+                decreasing: None,
+            },
+            Stmt::Repeat {
+                pattern: Pattern::Identifier(binder),
+                iterable: list,
+                body: per_item,
+            },
+        ];
+        (kept, body)
+    }
+
+    // ---- Tensor sugar (Phase 2) --------------------------------------------------------------------------
+    // A `Tensor` in LOGOS is a COMPILE-TIME concept: a `(rows, cols)` shape over a flat, row-major backing
+    // `Seq`. The two sugars below desugar to ordinary `Seq` + loop statements (a transparent `Stmt::Splice`),
+    // so every execution tier runs them ≡ the VM, and `Let C be A matmul B` emits the exact i-k-j triple-loop
+    // idiom `recognize_matmul` lifts into the optimized accelerator backends. Shapes are looked up in
+    // `self.tensor_shapes`; the operands must be tensors declared earlier in the same scope.
+
+    #[inline]
+    fn te_int(&self, n: i64) -> &'a Expr<'a> {
+        self.ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Number(n)))
+    }
+    #[inline]
+    fn te_float(&self, v: f64) -> &'a Expr<'a> {
+        self.ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Float(v)))
+    }
+    #[inline]
+    fn te_call(&self, function: Symbol, args: Vec<&'a Expr<'a>>) -> &'a Expr<'a> {
+        self.ctx
+            .alloc_imperative_expr(Expr::Call { function, args })
+    }
+    #[inline]
+    fn te_id(&self, s: Symbol) -> &'a Expr<'a> {
+        self.ctx.alloc_imperative_expr(Expr::Identifier(s))
+    }
+    #[inline]
+    fn te_bin(&self, op: BinaryOpKind, left: &'a Expr<'a>, right: &'a Expr<'a>) -> &'a Expr<'a> {
+        self.ctx
+            .alloc_imperative_expr(Expr::BinaryOp { op, left, right })
+    }
+    #[inline]
+    fn te_index(&self, collection: &'a Expr<'a>, index: &'a Expr<'a>) -> &'a Expr<'a> {
+        self.ctx
+            .alloc_imperative_expr(Expr::Index { collection, index })
+    }
+    #[inline]
+    fn te_block(&self, stmts: Vec<Stmt<'a>>) -> &'a [Stmt<'a>] {
+        self.alloc_block(stmts)
+    }
+
+    /// Read the current token as a positive integer literal, advancing past it; `None` (no advance) otherwise.
+    fn take_int_literal(&mut self) -> Option<i64> {
+        if let TokenType::Number(sym) = &self.peek().kind {
+            let sym = *sym;
+            let s = self.interner.resolve(sym).to_string();
+            if let Ok(n) = self.parse_i64_numeral_signed(&s, false) {
+                self.advance();
+                return Some(n);
+            }
+        }
+        None
+    }
+
+    /// A norm's optional `with epsilon E` clause after its operands: `E` a positive number, 1e-6 when the clause is
+    /// absent — the epsilon the norm divides by `sqrt(… + E)` with.
+    fn take_epsilon(&mut self, norm: &str) -> ParseResult<f64> {
+        if !(self.check_word("with") && self.check_word_at(self.current + 1, "epsilon")) {
+            return Ok(1e-6);
+        }
+        self.advance();
+        self.advance();
+        let value = match self.peek().kind {
+            TokenType::Number(sym) => self.interner.resolve(sym).replace('_', "").parse::<f64>().ok(),
+            _ => None,
+        };
+        match value {
+            Some(eps) if eps.is_finite() && eps > 0.0 => {
+                self.advance();
+                Ok(eps)
+            }
+            _ => Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`{norm} … with epsilon E` — E must be a positive number."
+                )),
+                span: self.current_span(),
+            }),
+        }
+    }
+
+    /// An attention's optional window clause after its attended length: `within a window of W`, the positions a query
+    /// keeps its own and the `W − 1` before it; or `within chunks of C`, the positions of its own chunk of `C`. `W` and
+    /// `C` are positive whole numbers.
+    fn take_window(&mut self) -> ParseResult<Option<Window>> {
+        if !self.check_word("within") {
+            return Ok(None);
+        }
+        self.advance();
+        let (words, form): (&[&str], &str) = if self.check_word("chunks") {
+            (&["chunks", "of"], "within chunks of C")
+        } else {
+            (&["a", "window", "of"], "within a window of W")
+        };
+        for w in words {
+            if !self.check_word(w) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("`attention … {form}` — expected `{w}`.")),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+        }
+        match self.take_int_literal() {
+            Some(n) if n > 0 && words[0] == "chunks" => Ok(Some(Window::Chunked(n))),
+            Some(n) if n > 0 => Ok(Some(Window::Sliding(n))),
+            _ => Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`attention … {form}` — {} must be a positive whole number of positions.",
+                    &form[form.len() - 1..]
+                )),
+                span: self.current_span(),
+            }),
+        }
+    }
+
+    /// An attention's optional `with sinks S` clause, last: `S` one row of a logit per query head (`heads` of them), each
+    /// joining its head's softmax and taking no value.
+    fn take_sinks(&mut self, heads: i64) -> ParseResult<Option<Symbol>> {
+        if !(self.check_word("with") && self.check_word_at(self.current + 1, "sinks")) {
+            return Ok(None);
+        }
+        self.advance();
+        self.advance();
+        let sym = self.peek().lexeme;
+        let Some(&(r, c)) = self.tensor_shapes.get(&sym) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`attention … with sinks S` — S must be a declared tensor of a logit per query head.".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        };
+        if (r, c) != (1, heads) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`attention … with sinks S` — S must be 1×{heads} (a logit per query head), and `{}` is {r}×{c}.",
+                    self.interner.resolve(sym)
+                )),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        Ok(Some(sym))
+    }
+
+    /// An attention's optional `scaled by S` clause, after its window: `S` a positive number, the factor every score
+    /// takes in place of `1/√HD`.
+    fn take_attention_scale(&mut self) -> ParseResult<Option<f64>> {
+        if !self.check_word("scaled") {
+            return Ok(None);
+        }
+        self.advance();
+        if !self.check_word("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom("`attention … scaled by S` — expected `by` after `scaled`.".to_string()),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        let v = match self.peek().kind {
+            TokenType::Number(sym) => self.interner.resolve(sym).replace('_', "").parse::<f64>().ok(),
+            _ => None,
+        };
+        match v.filter(|v| v.is_finite() && *v > 0.0) {
+            Some(v) => {
+                self.advance();
+                Ok(Some(v))
+            }
+            None => Err(ParseError {
+                kind: ParseErrorKind::Custom("`attention … scaled by S` — S must be a positive number.".to_string()),
+                span: self.current_span(),
+            }),
+        }
+    }
+
+    /// An optional `capped at C` clause, `C` a positive number written out: after an attention's scale, every score `s`
+    /// taken as `C·tanh(s/C)` before its softmax; after a tensor, every element. `what` names the sugar in a refusal.
+    fn take_cap(&mut self, what: &str) -> ParseResult<Option<f64>> {
+        if !self.check_word("capped") {
+            return Ok(None);
+        }
+        self.advance();
+        if !self.check_word("at") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`{what} capped at C` — expected `at` after `capped`.")),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        let v = match self.peek().kind {
+            TokenType::Number(sym) => self.interner.resolve(sym).replace('_', "").parse::<f64>().ok(),
+            _ => None,
+        };
+        match v.filter(|v| v.is_finite() && *v > 0.0) {
+            Some(v) => {
+                self.advance();
+                Ok(Some(v))
+            }
+            None => Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`{what} capped at C` — C must be a positive number.")),
+                span: self.current_span(),
+            }),
+        }
+    }
+
+    /// An optional `across H heads` clause, `H` a positive whole number; `what` names the sugar in a refusal.
+    fn take_across_heads(&mut self, what: &str) -> ParseResult<Option<i64>> {
+        if !self.check_word("across") {
+            return Ok(None);
+        }
+        self.advance();
+        let h = self.take_int_literal().filter(|h| *h > 0);
+        if h.is_none() || !self.check_word("heads") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`{what} across H heads` — H must be a positive whole number of heads.")),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        Ok(h)
+    }
+
+    /// A mixture's optional `using a swiglu clamped at L with slope A` clause, after `choosing K of E`: the gate clamped
+    /// to at most `L` and the up to `[−L, L]`, `min(g, L)·σ(A·min(g, L))·(clamp(u) + 1)` — gpt-oss's SwiGLU.
+    fn take_moe_activation(&mut self) -> ParseResult<MoeAct> {
+        if !self.check_word("using") {
+            return Ok(MoeAct::Swiglu);
+        }
+        self.advance();
+        let clause = "`moe … using a swiglu clamped at L with slope A`";
+        let want = |s: &mut Self, w: &str| -> ParseResult<()> {
+            if !s.check_word(w) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("{clause} — expected `{w}`.")),
+                    span: s.current_span(),
+                });
+            }
+            s.advance();
+            Ok(())
+        };
+        let number = |s: &mut Self, what: &str| -> ParseResult<f64> {
+            let v = match s.peek().kind {
+                TokenType::Number(sym) => s.interner.resolve(sym).replace('_', "").parse::<f64>().ok(),
+                _ => None,
+            };
+            match v.filter(|v| v.is_finite() && *v > 0.0) {
+                Some(v) => {
+                    s.advance();
+                    Ok(v)
+                }
+                None => Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("{clause} — {what} must be a positive number.")),
+                    span: s.current_span(),
+                }),
+            }
+        };
+        for w in ["a", "swiglu", "clamped", "at"] {
+            want(self, w)?;
+        }
+        let limit = number(self, "L")?;
+        want(self, "with")?;
+        want(self, "slope")?;
+        let slope = number(self, "A")?;
+        Ok(MoeAct::ClampedSwiglu { limit, slope })
+    }
+
+    /// A fresh zero-filled backing `Seq` of length `rows*cols` bound to `var` (mutable). Emitted as the body
+    /// of a transparent `Stmt::Splice` so `var` leaks into the enclosing scope for later element writes.
+    /// Record `var` as a `rows × cols` tensor whose elements are `Int` (`int`) or `Real`. The one writer of
+    /// `tensor_shapes` and `tensor_int`.
+    fn bind_tensor(&mut self, var: Symbol, shape: (i64, i64), int: bool) {
+        self.tensor_shapes.insert(var, shape);
+        if int {
+            self.tensor_int.insert(var);
+        } else {
+            self.tensor_int.remove(&var);
+        }
+    }
+
+    /// A fresh `Seq of Int` or `Seq of Real` — a tensor's backing store, in its element kind.
+    fn new_tensor_seq(&mut self, int: bool) -> &'a Expr<'a> {
+        let seq_sym = self.interner.intern("Seq");
+        let elem_sym = self.interner.intern(if int { "Int" } else { "Real" });
+        self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(elem_sym)],
+            init_fields: vec![],
+        })
+    }
+
+    /// The zero of a tensor's element kind: `0` or `0.0`.
+    fn tensor_zero(&mut self, int: bool) -> &'a Expr<'a> {
+        if int {
+            self.te_int(0)
+        } else {
+            self.ctx
+                .alloc_imperative_expr(Expr::Literal(Literal::Float(0.0)))
+        }
+    }
+
+    fn desugar_tensor_new(
+        &mut self,
+        var: Symbol,
+        rows: i64,
+        cols: i64,
+        is_float: bool,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(!is_float);
+        let zero = self.tensor_zero(!is_float);
+        let ctr = self.fresh_desugar_temp("tfill");
+        let fill_body = self.te_block(vec![
+            Stmt::Push {
+                value: zero,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: ctr,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(ctr), self.te_int(1)),
+            },
+        ]);
+        let fill_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(ctr), self.te_int(rows * cols)),
+            body: fill_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: ctr,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            fill_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let C be A matmul B` → a zero-filled `m×n` backing `Seq` for `C`, then the i-k-j triple loop
+    /// `C[i*n+j+1] += A[i*k+kk+1] * B[kk*n+j+1]` (1-based flat, row-major) — verbatim the shape
+    /// `recognize_matmul` accepts. `m,k,n` come from the operands' recorded shapes; `int` is the result's element
+    /// kind, which the backing `Seq` is declared in — a typed tier stores exactly what it is told to.
+    fn desugar_tensor_matmul(
+        &mut self,
+        var: Symbol,
+        a: Symbol,
+        b: Symbol,
+        m: i64,
+        k: i64,
+        n: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(int);
+        let zero = self.tensor_zero(int);
+        let fctr = self.fresh_desugar_temp("cfill");
+        let (vi, vk, vj) = (
+            self.fresh_desugar_temp("mm_i"),
+            self.fresh_desugar_temp("mm_k"),
+            self.fresh_desugar_temp("mm_j"),
+        );
+        // zero-fill C with m*n entries
+        let fill_body = self.te_block(vec![
+            Stmt::Push {
+                value: zero,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: fctr,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(fctr), self.te_int(1)),
+            },
+        ]);
+        let fill_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(fctr), self.te_int(m * n)),
+            body: fill_body,
+            decreasing: None,
+        };
+        // 1-based flat indices, row-major
+        let cidx = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(BinaryOpKind::Multiply, self.te_id(vi), self.te_int(n)),
+                self.te_id(vj),
+            ),
+            self.te_int(1),
+        );
+        let aidx = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(BinaryOpKind::Multiply, self.te_id(vi), self.te_int(k)),
+                self.te_id(vk),
+            ),
+            self.te_int(1),
+        );
+        let bidx = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(BinaryOpKind::Multiply, self.te_id(vk), self.te_int(n)),
+                self.te_id(vj),
+            ),
+            self.te_int(1),
+        );
+        let prod = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(a), aidx),
+            self.te_index(self.te_id(b), bidx),
+        );
+        let acc = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_index(self.te_id(var), cidx),
+            prod,
+        );
+        let set_c = Stmt::SetIndex {
+            collection: self.te_id(var),
+            index: cidx,
+            value: acc,
+        };
+        // innermost j-loop
+        let j_body = self.te_block(vec![
+            set_c,
+            Stmt::Set {
+                target: vj,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(vj), self.te_int(1)),
+            },
+        ]);
+        let j_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(vj), self.te_int(n)),
+            body: j_body,
+            decreasing: None,
+        };
+        // k-loop: reset j, run j-loop, k++
+        let k_body = self.te_block(vec![
+            Stmt::Let {
+                var: vj,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            j_loop,
+            Stmt::Set {
+                target: vk,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(vk), self.te_int(1)),
+            },
+        ]);
+        let k_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(vk), self.te_int(k)),
+            body: k_body,
+            decreasing: None,
+        };
+        // i-loop: reset k, run k-loop, i++
+        let i_body = self.te_block(vec![
+            Stmt::Let {
+                var: vk,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            k_loop,
+            Stmt::Set {
+                target: vi,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(vi), self.te_int(1)),
+            },
+        ]);
+        let i_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(vi), self.te_int(m)),
+            body: i_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: fctr,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            fill_loop,
+            Stmt::Let {
+                var: vi,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            i_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let C be A plus B` / `Let C be A hadamard B` → a fresh backing `Seq` filled by ONE element loop
+    /// `C[p] = A[p] ⊕ B[p]` (1-based, `p` in `1..=total`). The operands share the shape, or `B` is one `row` as wide
+    /// as A's rows and is read at each element's column (checked by the caller), so a single flat pass suffices — no
+    /// nesting. `op` is `Add` or `Multiply`.
+    fn desugar_tensor_elementwise(
+        &mut self,
+        var: Symbol,
+        a: Symbol,
+        b: Symbol,
+        total: i64,
+        op: BinaryOpKind,
+        int: bool,
+        row: Option<i64>,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(int);
+        let p = self.fresh_desugar_temp("ew_p");
+        // A row `B` is read at the column element `p` falls in: `((p − 1) mod W) + 1`.
+        let b_at = match row {
+            Some(w) => self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(
+                    BinaryOpKind::Modulo,
+                    self.te_bin(BinaryOpKind::Subtract, self.te_id(p), self.te_int(1)),
+                    self.te_int(w),
+                ),
+                self.te_int(1),
+            ),
+            None => self.te_id(p),
+        };
+        let elem = self.te_bin(
+            op,
+            self.te_index(self.te_id(a), self.te_id(p)),
+            self.te_index(self.te_id(b), b_at),
+        );
+        let loop_body = self.te_block(vec![
+            Stmt::Push {
+                value: elem,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: p,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)),
+            },
+        ]);
+        let loop_stmt = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)),
+            body: loop_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_stmt,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be X scaled by C` → `Y[p] = X[p] · C` into a fresh `Seq of Real`, one loop.
+    fn desugar_tensor_scale(&mut self, var: Symbol, x: Symbol, total: i64, factor: f64) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(false);
+        let p = self.fresh_desugar_temp("sc_p");
+        let elem = self.te_bin(BinaryOpKind::Multiply, self.te_index(self.te_id(x), self.te_id(p)), self.te_float(factor));
+        let loop_body = self.te_block(vec![
+            Stmt::Push {
+                value: elem,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: p,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)),
+            },
+        ]);
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)),
+                body: loop_body,
+                decreasing: None,
+            },
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `x` soft-capped at `c`: `c·tanh(x/c)` as `c·(1 − 2/(e^(x·(2/c)) + 1))`, one exponential that reaches `±c` in
+    /// both tails (`e^(+∞)` makes the fraction 0, `e^(−∞)` makes it 2) where `(t − 1)/(t + 1)` would be `∞/∞`.
+    fn capped(&self, x: &'a Expr<'a>, c: f64) -> &'a Expr<'a> {
+        let e = self.te_bin(BinaryOpKind::Pow, self.te_float(std::f64::consts::E), self.te_bin(BinaryOpKind::Multiply, x, self.te_float(2.0 / c)));
+        let fraction = self.te_bin(BinaryOpKind::Divide, self.te_float(2.0), self.te_bin(BinaryOpKind::Add, e, self.te_float(1.0)));
+        self.te_bin(BinaryOpKind::Multiply, self.te_float(c), self.te_bin(BinaryOpKind::Subtract, self.te_float(1.0), fraction))
+    }
+
+    /// `Let Y be X capped at C` → `Y ← C·tanh(X[p]/C)` for every element, in [`Self::capped`]'s form.
+    fn desugar_tensor_cap(&mut self, var: Symbol, x: Symbol, total: i64, cap: f64) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(false);
+        let p = self.fresh_desugar_temp("cp_p");
+        let elem = self.capped(self.te_index(self.te_id(x), self.te_id(p)), cap);
+        let loop_body = self.te_block(vec![
+            Stmt::Push { value: elem, collection: self.te_id(var) },
+            Stmt::Set { target: p, value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)) },
+        ]);
+        let body = self.te_block(vec![
+            Stmt::Let { var, ty: None, value: new_seq, mutable: true },
+            Stmt::Let { var: p, ty: None, value: self.te_int(1), mutable: true },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)),
+                body: loop_body,
+                decreasing: None,
+            },
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let iv be 1. While iv ≤ width: Push <read(iv)> to var. Set iv to iv + 1.` — one part's copy, the shape every
+    /// head slice and join pushes its parts with.
+    fn part_copy(&mut self, var: Symbol, width: i64, read: impl Fn(&Self, Symbol) -> &'a Expr<'a>) -> [Stmt<'a>; 2] {
+        let iv = self.fresh_desugar_temp("pc_i");
+        let body = self.te_block(vec![
+            Stmt::Push { value: read(self, iv), collection: self.te_id(var) },
+            Stmt::Set { target: iv, value: self.te_bin(BinaryOpKind::Add, self.te_id(iv), self.te_int(1)) },
+        ]);
+        [
+            Stmt::Let { var: iv, ty: None, value: self.te_int(1), mutable: true },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(iv), self.te_int(width)),
+                body,
+                decreasing: None,
+            },
+        ]
+    }
+
+    /// `Let iv be 0. While iv < bound: <body>. Set iv to iv + 1.` — a zero-based counted loop.
+    fn counted(&self, iv: Symbol, bound: i64, mut body: Vec<Stmt<'a>>) -> [Stmt<'a>; 2] {
+        body.push(Stmt::Set { target: iv, value: self.te_bin(BinaryOpKind::Add, self.te_id(iv), self.te_int(1)) });
+        [
+            Stmt::Let { var: iv, ty: None, value: self.te_int(0), mutable: true },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::Lt, self.te_id(iv), self.te_int(bound)),
+                body: self.te_block(body),
+                decreasing: None,
+            },
+        ]
+    }
+
+    /// `Let P be the first K of every N of X` / `the last K of every N of X` → for each of the `groups` groups `g` of `N`
+    /// consecutive elements of `X`, push its `K` elements from offset `from`: `P ← X[(g·N + i) + from]`, `i` in `1..=K`.
+    fn desugar_tensor_head_slice(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        groups: i64,
+        every: i64,
+        from: i64,
+        width: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(int);
+        let g = self.fresh_desugar_temp("hs_g");
+        let copy = self.part_copy(var, width, |s, iv| {
+            let at = s.te_bin(BinaryOpKind::Add, s.te_bin(BinaryOpKind::Multiply, s.te_id(g), s.te_int(every)), s.te_id(iv));
+            s.te_index(s.te_id(x), s.te_bin(BinaryOpKind::Add, at, s.te_int(from)))
+        });
+        let mut stmts = vec![Stmt::Let { var, ty: None, value: new_seq, mutable: true }];
+        stmts.extend(self.counted(g, groups, Vec::from(copy)));
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let J be A joined with B across H heads` → for each row `r` and head `h`, push the head's `ha` elements of `A`
+    /// then its `hb` elements of `B`: `J ← A[(r·(H·ha) + h·ha) + i]`, then `J ← B[(r·(H·hb) + h·hb) + i]`. One head is the
+    /// join of the rows.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_join(
+        &mut self,
+        var: Symbol,
+        a: Symbol,
+        b: Symbol,
+        rows: i64,
+        heads: i64,
+        ha: i64,
+        hb: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(int);
+        let (r, h) = (self.fresh_desugar_temp("jn_r"), self.fresh_desugar_temp("jn_h"));
+        let part = |s: &Self, t: Symbol, width: i64, iv: Symbol| {
+            let row = s.te_bin(BinaryOpKind::Multiply, s.te_id(r), s.te_int(heads * width));
+            let head = s.te_bin(BinaryOpKind::Multiply, s.te_id(h), s.te_int(width));
+            s.te_index(s.te_id(t), s.te_bin(BinaryOpKind::Add, s.te_bin(BinaryOpKind::Add, row, head), s.te_id(iv)))
+        };
+        let mut per_head = Vec::from(self.part_copy(var, ha, |s, iv| part(s, a, ha, iv)));
+        per_head.extend(self.part_copy(var, hb, |s, iv| part(s, b, hb, iv)));
+        let per_row = Vec::from(self.counted(h, heads, per_head));
+        let mut stmts = vec![Stmt::Let { var, ty: None, value: new_seq, mutable: true }];
+        stmts.extend(self.counted(r, rows, per_row));
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let Y be X matmul W across H heads` → a zero-filled `m × (H·b)` result, then the matmul's nest with a head loop
+    /// between the row loop and the contraction:
+    /// `Y[t·(H·b) + h·b + r + 1] += X[t·(H·a) + h·a + e + 1] · W[(h·a + e)·b + r + 1]` — the loops `t`, `h`, `e`, `r` over
+    /// `m`, `H`, `a`, `b`, the shape `recognize_head_matmul` accepts.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_head_matmul(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        w: Symbol,
+        m: i64,
+        heads: i64,
+        a: i64,
+        b: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(int);
+        let zero = self.tensor_zero(int);
+        let fill = self.fresh_desugar_temp("hm_fill");
+        let (t, h, e, r) = (
+            self.fresh_desugar_temp("hm_t"),
+            self.fresh_desugar_temp("hm_h"),
+            self.fresh_desugar_temp("hm_e"),
+            self.fresh_desugar_temp("hm_r"),
+        );
+        let id = |s: Symbol| self.te_id(s);
+        let it = |n: i64| self.te_int(n);
+        let add = |l: &'a Expr<'a>, r: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, l, r);
+        let mul = |l: &'a Expr<'a>, r: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, l, r);
+        let y_at = add(add(add(mul(id(t), it(heads * b)), mul(id(h), it(b))), id(r)), it(1));
+        let x_at = add(add(add(mul(id(t), it(heads * a)), mul(id(h), it(a))), id(e)), it(1));
+        let w_at = add(add(mul(add(mul(id(h), it(a)), id(e)), it(b)), id(r)), it(1));
+        let acc = add(
+            self.te_index(id(var), y_at),
+            mul(self.te_index(id(x), x_at), self.te_index(id(w), w_at)),
+        );
+        let set = Stmt::SetIndex { collection: id(var), index: y_at, value: acc };
+        let per_r = Vec::from(self.counted(r, b, vec![set]));
+        let per_e = Vec::from(self.counted(e, a, per_r));
+        let per_h = Vec::from(self.counted(h, heads, per_e));
+        let nest = self.counted(t, m, per_h);
+        let filled = self.counted(fill, m * heads * b, vec![Stmt::Push { value: zero, collection: id(var) }]);
+        let mut stmts = vec![Stmt::Let { var, ty: None, value: new_seq, mutable: true }];
+        stmts.extend(filled);
+        stmts.extend(nest);
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Y[p] = map(X[p])` for `p` in `1..=total`, into a fresh backing `Seq` of the result's element kind:
+    /// `(X[p] * m) shifted right by s` for a requant, `min(max(X[p], lo), hi)` for a clamp, `max(X[p], 0)` for a
+    /// ReLU. One flat loop with one push — the shape `recognize_elem_map` lifts.
+    fn desugar_tensor_map(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        total: i64,
+        map: TensorElemMap,
+        int: bool,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(int);
+        let p = self.fresh_desugar_temp("em_p");
+        let xp = self.te_index(self.te_id(x), self.te_id(p));
+        let elem = match map {
+            TensorElemMap::Requant { m, s } => self.te_bin(
+                BinaryOpKind::Shr,
+                self.te_bin(BinaryOpKind::Multiply, xp, self.te_int(m)),
+                self.te_int(s),
+            ),
+            TensorElemMap::Clamp { lo, hi } => {
+                let (min_sym, max_sym) = (self.interner.intern("min"), self.interner.intern("max"));
+                let lower = self.te_call(max_sym, vec![xp, self.te_int(lo)]);
+                self.te_call(min_sym, vec![lower, self.te_int(hi)])
+            }
+            TensorElemMap::Relu => {
+                let max_sym = self.interner.intern("max");
+                let zero = self.tensor_zero(int);
+                self.te_call(max_sym, vec![xp, zero])
+            }
+        };
+        let loop_body = self.te_block(vec![
+            Stmt::Push {
+                value: elem,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: p,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)),
+            },
+        ]);
+        let loop_stmt = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)),
+            body: loop_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_stmt,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be rmsnorm of X` → `Y[i] = X[i] / sqrt(mean(X²) + eps)` (`eps` the program's, 1e-6 by default). Desugars
+    /// to a sum-of-squares loop, a `sqrt` of the mean, and a normalize loop into a fresh `Seq of Real`.
+    fn desugar_tensor_rmsnorm(&mut self, var: Symbol, x: Symbol, total: i64, eps: f64) -> Stmt<'a> {
+        let sqrt_sym = self.interner.intern("sqrt");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let ss = self.fresh_desugar_temp("rn_ss");
+        let p = self.fresh_desugar_temp("rn_p");
+        let denom = self.fresh_desugar_temp("rn_d");
+        let q = self.fresh_desugar_temp("rn_q");
+        // Σ X[p]²
+        let sq = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(x), self.te_id(p)),
+            self.te_index(self.te_id(x), self.te_id(p)),
+        );
+        let ss_body = self.te_block(vec![
+            Stmt::Set {
+                target: ss,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(ss), sq),
+            },
+            Stmt::Set {
+                target: p,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)),
+            },
+        ]);
+        let ss_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)),
+            body: ss_body,
+            decreasing: None,
+        };
+        // denom = sqrt(ss / total + eps)
+        let mean = self.te_bin(
+            BinaryOpKind::Divide,
+            self.te_id(ss),
+            self.te_float(total as f64),
+        );
+        let mean_eps = self.te_bin(BinaryOpKind::Add, mean, self.te_float(eps));
+        let denom_expr = self.te_call(sqrt_sym, vec![mean_eps]);
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        // Y[q] = X[q] / denom
+        let norm = self.te_bin(
+            BinaryOpKind::Divide,
+            self.te_index(self.te_id(x), self.te_id(q)),
+            self.te_id(denom),
+        );
+        let n_body = self.te_block(vec![
+            Stmt::Push {
+                value: norm,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: q,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(q), self.te_int(1)),
+            },
+        ]);
+        let n_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(q), self.te_int(total)),
+            body: n_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var: ss,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            ss_loop,
+            Stmt::Let {
+                var: denom,
+                ty: None,
+                value: denom_expr,
+                mutable: false,
+            },
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: q,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            n_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be rmsnorm of X [plus R] with weight W` → PER-ROW (optionally fused-add) weighted RMSNorm over an
+    /// `R by C` tensor `X`, an optional same-shape residual `R`, and a length-`C` weight `W`:
+    /// `Y[r,i] = (X[r,i] + R[r,i]) / sqrt(mean_i((X[r,·]+R[r,·])²) + eps) * W[i]` (`eps` the program's, 1e-6 by default;
+    /// residual omitted when `None`) — the FIB `001_fused_add_rmsnorm` shape. Desugars to a row loop with a per-row
+    /// sum-of-squares reduction and a weighted normalize loop into a fresh `Seq of Real` (row-major). With
+    /// `weight_rows` above 1 the weight holds that many rows of `C`, and row `r` takes its row `(r − 1) mod weight_rows`
+    /// — the lanes of a hyper-connected residual, each normed by its own weight (`in L lanes`).
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_rmsnorm_weighted(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        residual: Option<Symbol>,
+        weight: Symbol,
+        rows: i64,
+        cols: i64,
+        eps: f64,
+        weight_rows: i64,
+    ) -> Stmt<'a> {
+        let sqrt_sym = self.interner.intern("sqrt");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let r = self.fresh_desugar_temp("wr_r");
+        let ss = self.fresh_desugar_temp("wr_ss");
+        let i = self.fresh_desugar_temp("wr_i");
+        let denom = self.fresh_desugar_temp("wr_d");
+        let j = self.fresh_desugar_temp("wr_j");
+        // idx(inner) = (r-1)*cols + inner — the 1-based row-major flat index of X[row r, column `inner`].
+        let idx = |s: &Self, inner: Symbol| {
+            s.te_bin(
+                BinaryOpKind::Add,
+                s.te_bin(
+                    BinaryOpKind::Multiply,
+                    s.te_bin(BinaryOpKind::Subtract, s.te_id(r), s.te_int(1)),
+                    s.te_int(cols),
+                ),
+                s.te_id(inner),
+            )
+        };
+        // elem(inner) = X[idx]  (plain)  OR  X[idx] + R[idx]  (fused residual add).
+        let elem = |s: &Self, inner: Symbol| {
+            let xe = s.te_index(s.te_id(x), idx(s, inner));
+            match residual {
+                Some(rz) => s.te_bin(
+                    BinaryOpKind::Add,
+                    xe,
+                    s.te_index(s.te_id(rz), idx(s, inner)),
+                ),
+                None => xe,
+            }
+        };
+        // inner: Σ elem² over columns
+        let xi = elem(self, i);
+        let xi2 = elem(self, i);
+        let ss_body = self.te_block(vec![
+            Stmt::Set {
+                target: ss,
+                value: self.te_bin(
+                    BinaryOpKind::Add,
+                    self.te_id(ss),
+                    self.te_bin(BinaryOpKind::Multiply, xi, xi2),
+                ),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let ss_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(cols)),
+            body: ss_body,
+            decreasing: None,
+        };
+        // denom = sqrt(ss/cols + eps)
+        let mean = self.te_bin(
+            BinaryOpKind::Divide,
+            self.te_id(ss),
+            self.te_float(cols as f64),
+        );
+        let mean_eps = self.te_bin(BinaryOpKind::Add, mean, self.te_float(eps));
+        let denom_expr = self.te_call(sqrt_sym, vec![mean_eps]);
+        // inner: Push (elem / denom) * W[j], or W[((r − 1) mod weight_rows)·cols + j] for a weight of several rows
+        let xj = elem(self, j);
+        let normed = self.te_bin(BinaryOpKind::Divide, xj, self.te_id(denom));
+        let w_at = if weight_rows > 1 {
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(
+                    BinaryOpKind::Multiply,
+                    self.te_bin(
+                        BinaryOpKind::Modulo,
+                        self.te_bin(BinaryOpKind::Subtract, self.te_id(r), self.te_int(1)),
+                        self.te_int(weight_rows),
+                    ),
+                    self.te_int(cols),
+                ),
+                self.te_id(j),
+            )
+        } else {
+            self.te_id(j)
+        };
+        let weighted = self.te_bin(
+            BinaryOpKind::Multiply,
+            normed,
+            self.te_index(self.te_id(weight), w_at),
+        );
+        let n_body = self.te_block(vec![
+            Stmt::Push {
+                value: weighted,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(j), self.te_int(1)),
+            },
+        ]);
+        let n_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(j), self.te_int(cols)),
+            body: n_body,
+            decreasing: None,
+        };
+        // per-row body: reset accumulators, reduce, compute denom, weighted-normalize
+        let row_body = self.te_block(vec![
+            Stmt::Set {
+                target: ss,
+                value: self.te_float(0.0),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_int(1),
+            },
+            ss_loop,
+            Stmt::Set {
+                target: denom,
+                value: denom_expr,
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_int(1),
+            },
+            n_loop,
+            Stmt::Set {
+                target: r,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(r), self.te_int(1)),
+            },
+        ]);
+        let row_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(r), self.te_int(rows)),
+            body: row_body,
+            decreasing: None,
+        };
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: r,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: ss,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: denom,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: j,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            row_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be layernorm of X with weight W and bias B` → PER-ROW LayerNorm over an `R by C` tensor `X` with
+    /// length-`C` `W`/`B`: `Y[r,i] = (X[r,i] - mean_i) / sqrt(var_i + eps) * W[i] + B[i]` (`eps` the program's, 1e-6 by
+    /// default), for each
+    /// row. Desugars to a two-pass per-row reduction (mean, then variance) and a scale+shift normalize loop.
+    fn desugar_tensor_layernorm(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        weight: Symbol,
+        bias: Symbol,
+        rows: i64,
+        cols: i64,
+        eps: f64,
+    ) -> Stmt<'a> {
+        let sqrt_sym = self.interner.intern("sqrt");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let r = self.fresh_desugar_temp("ln_r");
+        let sm = self.fresh_desugar_temp("ln_sm");
+        let mean = self.fresh_desugar_temp("ln_mean");
+        let vs = self.fresh_desugar_temp("ln_vs");
+        let denom = self.fresh_desugar_temp("ln_d");
+        let i = self.fresh_desugar_temp("ln_i");
+        let j = self.fresh_desugar_temp("ln_j");
+        let idx = |s: &Self, inner: Symbol| {
+            s.te_bin(
+                BinaryOpKind::Add,
+                s.te_bin(
+                    BinaryOpKind::Multiply,
+                    s.te_bin(BinaryOpKind::Subtract, s.te_id(r), s.te_int(1)),
+                    s.te_int(cols),
+                ),
+                s.te_id(inner),
+            )
+        };
+        // pass 1: sm += X[idx(i)]  →  mean = sm / cols
+        let sum_body = self.te_block(vec![
+            Stmt::Set {
+                target: sm,
+                value: self.te_bin(
+                    BinaryOpKind::Add,
+                    self.te_id(sm),
+                    self.te_index(self.te_id(x), idx(self, i)),
+                ),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let sum_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(cols)),
+            body: sum_body,
+            decreasing: None,
+        };
+        let mean_expr = self.te_bin(
+            BinaryOpKind::Divide,
+            self.te_id(sm),
+            self.te_float(cols as f64),
+        );
+        // pass 2: vs += (X[idx(i)] - mean)²  →  denom = sqrt(vs/cols + eps)
+        let d1 = self.te_bin(
+            BinaryOpKind::Subtract,
+            self.te_index(self.te_id(x), idx(self, i)),
+            self.te_id(mean),
+        );
+        let d2 = self.te_bin(
+            BinaryOpKind::Subtract,
+            self.te_index(self.te_id(x), idx(self, i)),
+            self.te_id(mean),
+        );
+        let var_body = self.te_block(vec![
+            Stmt::Set {
+                target: vs,
+                value: self.te_bin(
+                    BinaryOpKind::Add,
+                    self.te_id(vs),
+                    self.te_bin(BinaryOpKind::Multiply, d1, d2),
+                ),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let var_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(cols)),
+            body: var_body,
+            decreasing: None,
+        };
+        let var_mean = self.te_bin(
+            BinaryOpKind::Divide,
+            self.te_id(vs),
+            self.te_float(cols as f64),
+        );
+        let var_eps = self.te_bin(BinaryOpKind::Add, var_mean, self.te_float(eps));
+        let denom_expr = self.te_call(sqrt_sym, vec![var_eps]);
+        // normalize: Push (X[idx(j)] - mean) / denom * W[j] + B[j]
+        let centered = self.te_bin(
+            BinaryOpKind::Subtract,
+            self.te_index(self.te_id(x), idx(self, j)),
+            self.te_id(mean),
+        );
+        let normed = self.te_bin(BinaryOpKind::Divide, centered, self.te_id(denom));
+        let scaled = self.te_bin(
+            BinaryOpKind::Multiply,
+            normed,
+            self.te_index(self.te_id(weight), self.te_id(j)),
+        );
+        let shifted = self.te_bin(
+            BinaryOpKind::Add,
+            scaled,
+            self.te_index(self.te_id(bias), self.te_id(j)),
+        );
+        let n_body = self.te_block(vec![
+            Stmt::Push {
+                value: shifted,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(j), self.te_int(1)),
+            },
+        ]);
+        let n_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(j), self.te_int(cols)),
+            body: n_body,
+            decreasing: None,
+        };
+        let row_body = self.te_block(vec![
+            Stmt::Set {
+                target: sm,
+                value: self.te_float(0.0),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_int(1),
+            },
+            sum_loop,
+            Stmt::Set {
+                target: mean,
+                value: mean_expr,
+            },
+            Stmt::Set {
+                target: vs,
+                value: self.te_float(0.0),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_int(1),
+            },
+            var_loop,
+            Stmt::Set {
+                target: denom,
+                value: denom_expr,
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_int(1),
+            },
+            n_loop,
+            Stmt::Set {
+                target: r,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(r), self.te_int(1)),
+            },
+        ]);
+        let row_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(r), self.te_int(rows)),
+            body: row_body,
+            decreasing: None,
+        };
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: r,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: sm,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: mean,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: vs,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: denom,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: j,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            row_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be softmax of X` → `Y[i] = e^(X[i]-max) / Σ e^(X[j]-max)`. Desugars to a `max` reduction, a
+    /// sum-of-exponentials loop (`e` via `E ** (X[i]-max)`, powf), and a normalize loop into a `Seq of Real`.
+    fn desugar_tensor_softmax(&mut self, var: Symbol, x: Symbol, total: i64) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        let max_sym = self.interner.intern("max");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let m = self.fresh_desugar_temp("sm_m");
+        let p = self.fresh_desugar_temp("sm_p");
+        let s = self.fresh_desugar_temp("sm_s");
+        let p2 = self.fresh_desugar_temp("sm_p2");
+        let q = self.fresh_desugar_temp("sm_q");
+        // max reduction: m = X[1]; for p in 2..=total: m = max(m, X[p])
+        let max_body = self.te_block(vec![
+            Stmt::Set {
+                target: m,
+                value: self.te_call(
+                    max_sym,
+                    vec![self.te_id(m), self.te_index(self.te_id(x), self.te_id(p))],
+                ),
+            },
+            Stmt::Set {
+                target: p,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)),
+            },
+        ]);
+        let max_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)),
+            body: max_body,
+            decreasing: None,
+        };
+        // e^(X[i]-m)
+        let expo = |s2: &Self, idx: Symbol| {
+            s2.te_bin(
+                BinaryOpKind::Pow,
+                s2.te_float(E),
+                s2.te_bin(
+                    BinaryOpKind::Subtract,
+                    s2.te_index(s2.te_id(x), s2.te_id(idx)),
+                    s2.te_id(m),
+                ),
+            )
+        };
+        // Σ e^(X[p2]-m)
+        let s_body = self.te_block(vec![
+            Stmt::Set {
+                target: s,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(s), expo(self, p2)),
+            },
+            Stmt::Set {
+                target: p2,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p2), self.te_int(1)),
+            },
+        ]);
+        let s_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p2), self.te_int(total)),
+            body: s_body,
+            decreasing: None,
+        };
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        // Y[q] = e^(X[q]-m) / s
+        let norm = self.te_bin(BinaryOpKind::Divide, expo(self, q), self.te_id(s));
+        let n_body = self.te_block(vec![
+            Stmt::Push {
+                value: norm,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: q,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(q), self.te_int(1)),
+            },
+        ]);
+        let n_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(q), self.te_int(total)),
+            body: n_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var: m,
+                ty: None,
+                value: self.te_index(self.te_id(x), self.te_int(1)),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(2),
+                mutable: true,
+            },
+            max_loop,
+            Stmt::Let {
+                var: s,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p2,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            s_loop,
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: q,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            n_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be softmax of X` where `X` is a `rows × cols` tensor — a PER-ROW softmax, which is what the
+    /// transformer shape means and what `FusedRowSpec` documents ("one output row per input row, each
+    /// normalized independently over its `cols` entries").
+    ///
+    /// ★ The flat [`desugar_tensor_softmax`] is the `rows == 1` case. Applying it to a 2-D tensor
+    /// normalises across the WHOLE matrix, which for attention scores is silently wrong — every existing
+    /// test escaped it only by using single-token attention, where the score matrix has one row. It also
+    /// made the spatial backend refuse any real 2-D softmax, because a flattened `32 × 64` asks for 64
+    /// accumulator tiles against 4.
+    ///
+    /// Emitted as an outer row loop over an inner `cols` loop, so the accelerator recovers `rows`/`cols`
+    /// from the loop bounds exactly as the weighted-RMSNorm shape does.
+    fn desugar_tensor_softmax_rows(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        rows: i64,
+        cols: i64,
+    ) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        let max_sym = self.interner.intern("max");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let rr = self.fresh_desugar_temp("smr_r");
+        let m = self.fresh_desugar_temp("smr_m");
+        let p = self.fresh_desugar_temp("smr_p");
+        let s = self.fresh_desugar_temp("smr_s");
+        let p2 = self.fresh_desugar_temp("smr_p2");
+        let q = self.fresh_desugar_temp("smr_q");
+        // X[(r-1)*cols + i] in 1-based `item` terms.
+        let xi = |s2: &Self, i: Symbol| {
+            let base = s2.te_bin(
+                BinaryOpKind::Multiply,
+                s2.te_bin(BinaryOpKind::Subtract, s2.te_id(rr), s2.te_int(1)),
+                s2.te_int(cols),
+            );
+            s2.te_index(s2.te_id(x), s2.te_bin(BinaryOpKind::Add, base, s2.te_id(i)))
+        };
+        let expo = |s2: &Self, i: Symbol| {
+            s2.te_bin(
+                BinaryOpKind::Pow,
+                s2.te_float(E),
+                s2.te_bin(BinaryOpKind::Subtract, xi(s2, i), s2.te_id(m)),
+            )
+        };
+        let bump = |s2: &Self, v: Symbol| Stmt::Set {
+            target: v,
+            value: s2.te_bin(BinaryOpKind::Add, s2.te_id(v), s2.te_int(1)),
+        };
+        let max_body = self.te_block(vec![
+            Stmt::Set {
+                target: m,
+                value: self.te_call(max_sym, vec![self.te_id(m), xi(self, p)]),
+            },
+            bump(self, p),
+        ]);
+        let max_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(cols)),
+            body: max_body,
+            decreasing: None,
+        };
+        let s_body = self.te_block(vec![
+            Stmt::Set {
+                target: s,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(s), expo(self, p2)),
+            },
+            bump(self, p2),
+        ]);
+        let s_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p2), self.te_int(cols)),
+            body: s_body,
+            decreasing: None,
+        };
+        let n_body = self.te_block(vec![
+            Stmt::Push {
+                value: self.te_bin(BinaryOpKind::Divide, expo(self, q), self.te_id(s)),
+                collection: self.te_id(var),
+            },
+            bump(self, q),
+        ]);
+        let n_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(q), self.te_int(cols)),
+            body: n_body,
+            decreasing: None,
+        };
+        // m starts at the row's FIRST element: X[(r-1)*cols + 1].
+        let first = {
+            let base = self.te_bin(
+                BinaryOpKind::Multiply,
+                self.te_bin(BinaryOpKind::Subtract, self.te_id(rr), self.te_int(1)),
+                self.te_int(cols),
+            );
+            self.te_index(
+                self.te_id(x),
+                self.te_bin(BinaryOpKind::Add, base, self.te_int(1)),
+            )
+        };
+        let row_body = self.te_block(vec![
+            Stmt::Let {
+                var: m,
+                ty: None,
+                value: first,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(2),
+                mutable: true,
+            },
+            max_loop,
+            Stmt::Let {
+                var: s,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p2,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            s_loop,
+            Stmt::Let {
+                var: q,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            n_loop,
+            bump(self, rr),
+        ]);
+        let row_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(rr), self.te_int(rows)),
+            body: row_body,
+            decreasing: None,
+        };
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: rr,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            row_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be silu of X` — elementwise SiLU `Y[i] = X[i] / (1 + e^(0 - X[i]))` over all `total` entries.
+    /// `Let Qr be rope of Q with cos RC and sin RS` — RoPE-NEOX per head. `H` (outer) and `half` (inner) are
+    /// the loop bounds (so the accelerator recovers `hd = 2·half` from them). Per head `rh`, push the `half`
+    /// rotated first-half entries, then the `half` rotated second-half entries — row-major so
+    /// `Qr[rh*hd + i] = Q[rh*hd+i]·cos[i] − Q[rh*hd+i+half]·sin[i]`, `Qr[rh*hd + half + i] = Q[..i]·sin[i] +
+    /// Q[..i+half]·cos[i]`. The heads of every row of `Q` run in turn; with `per_row` heads to a row and a table
+    /// row per row of `Q`, head `rh` reads table row `rh / per_row`. `from = (P, cache rows)`: the tables are a cache of
+    /// angles per position, head `rh` reading row `P + rh / per_row` (1-based) — behind the check that the block's rows
+    /// `P … P + R − 1` all lie among the cache's.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_rope(
+        &mut self,
+        var: Symbol,
+        q: Symbol,
+        rc: Symbol,
+        rs: Symbol,
+        d_total: i64,
+        half: i64,
+        hd: i64,
+        per_row: Option<i64>,
+        from: Option<(&'a Expr<'a>, i64)>,
+    ) -> Stmt<'a> {
+        let h_count = if hd > 0 { d_total / hd } else { 0 };
+        let block = h_count / per_row.unwrap_or(h_count).max(1);
+        let checked = from.map(|(p, cache)| {
+            if block == 1 {
+                self.checked_row_index(p, rc, cache)
+            } else {
+                self.checked_row_block(p, rc, cache, block)
+            }
+        });
+        let at = checked.as_ref().map(|(at, _)| *at);
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let rh = self.fresh_desugar_temp("rp_h");
+        let ri = self.fresh_desugar_temp("rp_i");
+        let rp = self.fresh_desugar_temp("rp_pt");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        // index builders (1-based `item`): a = rh*hd+ri+1, b = rh*hd+ri+half+1, i = ri+1 — or, a table row per row
+        // of Q, i = (rh/per_row)*half + (ri+1) — or, reading a cache from position `at`, i = ((at−1) + rh/per_row)*half + (ri+1)
+        let idx_a = |s: &mut Self| {
+            s.te_bin(
+                BinaryOpKind::Add,
+                s.te_bin(
+                    BinaryOpKind::Add,
+                    s.te_bin(BinaryOpKind::Multiply, s.te_id(rh), s.te_int(hd)),
+                    s.te_id(ri),
+                ),
+                s.te_int(1),
+            )
+        };
+        let idx_b = |s: &mut Self| {
+            s.te_bin(
+                BinaryOpKind::Add,
+                s.te_bin(
+                    BinaryOpKind::Add,
+                    s.te_bin(
+                        BinaryOpKind::Add,
+                        s.te_bin(BinaryOpKind::Multiply, s.te_id(rh), s.te_int(hd)),
+                        s.te_id(ri),
+                    ),
+                    s.te_int(half),
+                ),
+                s.te_int(1),
+            )
+        };
+        let idx_i = |s: &mut Self| {
+            let within = s.te_bin(BinaryOpKind::Add, s.te_id(ri), s.te_int(1));
+            match (per_row, at) {
+                (None, _) => within,
+                (Some(hpr), None) => s.te_bin(
+                    BinaryOpKind::Add,
+                    s.te_bin(
+                        BinaryOpKind::Multiply,
+                        s.te_bin(BinaryOpKind::Divide, s.te_id(rh), s.te_int(hpr)),
+                        s.te_int(half),
+                    ),
+                    within,
+                ),
+                (Some(hpr), Some(at)) => {
+                    let row = s.te_bin(
+                        BinaryOpKind::Add,
+                        s.te_bin(BinaryOpKind::Subtract, s.te_id(at), s.te_int(1)),
+                        s.te_bin(BinaryOpKind::Divide, s.te_id(rh), s.te_int(hpr)),
+                    );
+                    s.te_bin(
+                        BinaryOpKind::Add,
+                        s.te_bin(BinaryOpKind::Multiply, row, s.te_int(half)),
+                        within,
+                    )
+                }
+            }
+        };
+        // push1 = Q[a]*RC[i] - Q[b]*RS[i]
+        let qa1 = idx_a(self);
+        let ii1 = idx_i(self);
+        let qb1 = idx_b(self);
+        let ii2 = idx_i(self);
+        let m1 = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(q), qa1),
+            self.te_index(self.te_id(rc), ii1),
+        );
+        let m2 = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(q), qb1),
+            self.te_index(self.te_id(rs), ii2),
+        );
+        let push1 = self.te_bin(BinaryOpKind::Subtract, m1, m2);
+        let inner1 = self.te_block(vec![
+            Stmt::Push {
+                value: push1,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: ri,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(ri), self.te_int(1)),
+            },
+        ]);
+        let loop1 = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(ri), self.te_int(half)),
+            body: inner1,
+            decreasing: None,
+        };
+        // push2 = Q[a]*RS[i] + Q[b]*RC[i]
+        let qa2 = idx_a(self);
+        let ii3 = idx_i(self);
+        let qb2 = idx_b(self);
+        let ii4 = idx_i(self);
+        let n1 = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(q), qa2),
+            self.te_index(self.te_id(rs), ii3),
+        );
+        let n2 = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(q), qb2),
+            self.te_index(self.te_id(rc), ii4),
+        );
+        let push2 = self.te_bin(BinaryOpKind::Add, n1, n2);
+        let inner2 = self.te_block(vec![
+            Stmt::Push {
+                value: push2,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: ri,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(ri), self.te_int(1)),
+            },
+        ]);
+        let loop2 = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(ri), self.te_int(half)),
+            body: inner2,
+            decreasing: None,
+        };
+        // PASS-THROUGH tail: Qwen3.8 rotates only `2·half` of each head's `hd` dims (64 of 256) and copies the
+        // rest through untouched. When `hd == 2·half` (full rotary, the classic form) this loop is empty, so
+        // the generalization costs the existing callers nothing.
+        let pt_idx = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(BinaryOpKind::Multiply, self.te_id(rh), self.te_int(hd)),
+                self.te_id(rp),
+            ),
+            self.te_int(1),
+        );
+        let inner3 = self.te_block(vec![
+            Stmt::Push {
+                value: self.te_index(self.te_id(q), pt_idx),
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: rp,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(rp), self.te_int(1)),
+            },
+        ]);
+        let loop3 = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(rp), self.te_int(hd)),
+            body: inner3,
+            decreasing: None,
+        };
+        let outer_body = self.te_block(vec![
+            Stmt::Let {
+                var: ri,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            loop1,
+            Stmt::Set {
+                target: ri,
+                value: self.te_int(0),
+            },
+            loop2,
+            Stmt::Let {
+                var: rp,
+                ty: None,
+                value: self.te_int(2 * half),
+                mutable: true,
+            },
+            loop3,
+            Stmt::Set {
+                target: rh,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(rh), self.te_int(1)),
+            },
+        ]);
+        let outer = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(rh), self.te_int(h_count)),
+            body: outer_body,
+            decreasing: None,
+        };
+        let mut stmts: Vec<Stmt<'a>> = checked
+            .map(|(_, check)| check.into_iter().collect())
+            .unwrap_or_default();
+        stmts.extend([
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: rh,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            outer,
+        ]);
+        let body = self.te_block(stmts);
+        Stmt::Splice { body }
+    }
+
+    fn desugar_tensor_silu(&mut self, var: Symbol, x: Symbol, total: i64) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let i = self.fresh_desugar_temp("sl_i");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let xi_num = self.te_index(self.te_id(x), self.te_id(i));
+        let xi_den = self.te_index(self.te_id(x), self.te_id(i));
+        let neg = self.te_bin(BinaryOpKind::Subtract, self.te_float(0.0), xi_den);
+        let ex = self.te_bin(BinaryOpKind::Pow, self.te_float(E), neg);
+        let denom = self.te_bin(BinaryOpKind::Add, self.te_float(1.0), ex);
+        let y = self.te_bin(BinaryOpKind::Divide, xi_num, denom);
+        let body = self.te_block(vec![
+            Stmt::Push {
+                value: y,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let loop_ = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(total)),
+            body,
+            decreasing: None,
+        };
+        let outer = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_,
+        ]);
+        Stmt::Splice { body: outer }
+    }
+
+    /// `Let Y be sigmoid of X` → elementwise `Y[i] = 1/(1 + e^-x)`. Qwen3.8 needs it twice: the gated
+    /// attention block multiplies its context by `sigmoid` of a gate projection, and Gated DeltaNet's
+    /// delta strength is `beta = sigmoid(b)`.
+    fn desugar_tensor_sigmoid(&mut self, var: Symbol, x: Symbol, total: i64) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let i = self.fresh_desugar_temp("sg_i");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let neg = self.te_bin(
+            BinaryOpKind::Subtract,
+            self.te_float(0.0),
+            self.te_index(self.te_id(x), self.te_id(i)),
+        );
+        let ex = self.te_bin(BinaryOpKind::Pow, self.te_float(E), neg);
+        let denom = self.te_bin(BinaryOpKind::Add, self.te_float(1.0), ex);
+        let y = self.te_bin(BinaryOpKind::Divide, self.te_float(1.0), denom);
+        let body = self.te_block(vec![
+            Stmt::Push {
+                value: y,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let loop_ = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(total)),
+            body,
+            decreasing: None,
+        };
+        let outer = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_,
+        ]);
+        Stmt::Splice { body: outer }
+    }
+
+    /// `Let Y be gelu of X` → elementwise GELU, the **tanh approximation** ggml uses — so a vision tower
+    /// authored here matches llama.cpp's `mmproj` numerically rather than approximately.
+    ///
+    /// The textbook form is `0.5·x·(1 + tanh(z))` with `z = √(2/π)·(x + 0.044715·x³)`. Expanding `tanh` as
+    /// `(e^2z − 1)/(e^2z + 1)` collapses the whole thing to `x / (1 + e^-2z)` — algebraically identical, one
+    /// exponential instead of three ops, and it is the numerically SAFE arrangement in both tails: as `x → +∞`
+    /// the exponent goes to `-∞` so `e^-2z → 0` and `y → x`, and as `x → -∞` it goes to `+∞` so `y → 0`. The
+    /// direct `(t−1)/(t+1)` form instead evaluates `∞/∞ = NaN` for large positive `x`.
+    fn desugar_tensor_gelu(&mut self, var: Symbol, x: Symbol, total: i64) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        const SQRT_2_OVER_PI: f64 = 0.797_884_560_802_865_4;
+        const K: f64 = 0.044_715;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let i = self.fresh_desugar_temp("gl_i");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        // z = √(2/π)·(x + 0.044715·x³)
+        let x3 = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_index(self.te_id(x), self.te_id(i)),
+            self.te_bin(
+                BinaryOpKind::Multiply,
+                self.te_index(self.te_id(x), self.te_id(i)),
+                self.te_index(self.te_id(x), self.te_id(i)),
+            ),
+        );
+        let inner = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_index(self.te_id(x), self.te_id(i)),
+            self.te_bin(BinaryOpKind::Multiply, self.te_float(K), x3),
+        );
+        let z = self.te_bin(BinaryOpKind::Multiply, self.te_float(SQRT_2_OVER_PI), inner);
+        // y = x / (1 + e^(0 - 2z))
+        let neg2z = self.te_bin(
+            BinaryOpKind::Subtract,
+            self.te_float(0.0),
+            self.te_bin(BinaryOpKind::Multiply, self.te_float(2.0), z),
+        );
+        let ex = self.te_bin(BinaryOpKind::Pow, self.te_float(E), neg2z);
+        let denom = self.te_bin(BinaryOpKind::Add, self.te_float(1.0), ex);
+        let y = self.te_bin(
+            BinaryOpKind::Divide,
+            self.te_index(self.te_id(x), self.te_id(i)),
+            denom,
+        );
+        let body = self.te_block(vec![
+            Stmt::Push {
+                value: y,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let loop_ = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(total)),
+            body,
+            decreasing: None,
+        };
+        let outer = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_,
+        ]);
+        Stmt::Splice { body: outer }
+    }
+
+    /// `Let A be decay of Ar with bias Dt rate R` → Gated DeltaNet's per-head **forget gate**,
+    /// `A[i] = (1 + e^(Ar[i] + Dt[i]))^(R[i])`, where `R` is the (negative) decay rate.
+    ///
+    /// The paper writes this as `exp(R · softplus(Ar + dt))`, which needs a logarithm — and the desugar layer
+    /// has only `Pow` and `sqrt`, no `ln`. But softplus is `ln(1 + e^u)`, so the logarithm cancels against the
+    /// outer exponential exactly:
+    ///
+    /// ```text
+    ///   exp(R · ln(1 + e^u)) = (1 + e^u)^R
+    /// ```
+    ///
+    /// Same value, one fewer transcendental, and expressible in the primitives every backend already has.
+    /// That identity is why `softplus` never became an op. `R` is used AS STORED: Qwen3.8's `ssm_a` already
+    /// holds `−exp(A_log)`, so exponentiating it again would shorten the memory by an order of magnitude.
+    ///
+    /// Over a block of rows (`heads < total`) every row decays by the same per-head bias and rate: a row loop around
+    /// the head loop, `Ar` read at `(row − 1)·heads + i`. One row is the single decay, statement for statement.
+    fn desugar_tensor_decay(
+        &mut self,
+        var: Symbol,
+        ar: Symbol,
+        dt: Symbol,
+        alog: Symbol,
+        total: i64,
+        heads: i64,
+    ) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let i = self.fresh_desugar_temp("dc_i");
+        let row = (heads < total).then(|| self.fresh_desugar_temp("dc_row"));
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let at = match row {
+            None => self.te_id(i),
+            Some(r) => self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(
+                    BinaryOpKind::Multiply,
+                    self.te_bin(BinaryOpKind::Subtract, self.te_id(r), self.te_int(1)),
+                    self.te_int(heads),
+                ),
+                self.te_id(i),
+            ),
+        };
+        // u = Ar[at] + Dt[i];  base = 1 + e^u;  A = e^(Alog[i]);  Y = base^(0 - A)
+        let u = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_index(self.te_id(ar), at),
+            self.te_index(self.te_id(dt), self.te_id(i)),
+        );
+        let base = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_float(1.0),
+            self.te_bin(BinaryOpKind::Pow, self.te_float(E), u),
+        );
+        let rate = self.te_index(self.te_id(alog), self.te_id(i));
+        let y = self.te_bin(BinaryOpKind::Pow, base, rate);
+        let body = self.te_block(vec![
+            Stmt::Push {
+                value: y,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let loop_ = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(heads)),
+            body,
+            decreasing: None,
+        };
+        let outer = match row {
+            None => vec![
+                Stmt::Let {
+                    var,
+                    ty: None,
+                    value: new_seq,
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: i,
+                    ty: None,
+                    value: self.te_int(1),
+                    mutable: true,
+                },
+                loop_,
+            ],
+            Some(r) => {
+                let row_body = self.te_block(vec![
+                    Stmt::Let {
+                        var: i,
+                        ty: None,
+                        value: self.te_int(1),
+                        mutable: true,
+                    },
+                    loop_,
+                    Stmt::Set {
+                        target: r,
+                        value: self.te_bin(BinaryOpKind::Add, self.te_id(r), self.te_int(1)),
+                    },
+                ]);
+                vec![
+                    Stmt::Let {
+                        var,
+                        ty: None,
+                        value: new_seq,
+                        mutable: true,
+                    },
+                    Stmt::Let {
+                        var: r,
+                        ty: None,
+                        value: self.te_int(1),
+                        mutable: true,
+                    },
+                    Stmt::While {
+                        cond: self.te_bin(
+                            BinaryOpKind::LtEq,
+                            self.te_id(r),
+                            self.te_int(total / heads),
+                        ),
+                        body: row_body,
+                        decreasing: None,
+                    },
+                ]
+            }
+        };
+        let outer = self.te_block(outer);
+        Stmt::Splice { body: outer }
+    }
+
+    /// `Let Y be l2norm of X` → PER-ROW L2 normalization `Y[r,i] = X[r,i] / sqrt(Σ_i X[r,i]² + eps)` over an
+    /// `R by C` tensor (`eps` the program's, 1e-6 by default). Per-row is what makes it useful: declare a tensor as `heads by head_dim`
+    /// and one `l2norm` normalizes every head independently — which is exactly what Gated DeltaNet does to
+    /// `q` and `k` before the delta update. (Distinct from `rmsnorm`, which divides by the root *mean* square.)
+    fn desugar_tensor_l2norm(&mut self, var: Symbol, x: Symbol, rows: i64, cols: i64, eps: f64) -> Stmt<'a> {
+        let sqrt_sym = self.interner.intern("sqrt");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let r = self.fresh_desugar_temp("l2_r");
+        let base = self.fresh_desugar_temp("l2_b");
+        let ss = self.fresh_desugar_temp("l2_ss");
+        let p = self.fresh_desugar_temp("l2_p");
+        let denom = self.fresh_desugar_temp("l2_d");
+        let q = self.fresh_desugar_temp("l2_q");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        // Σ_i X[base+i]²  for this row
+        let xp = self.te_index(
+            self.te_id(x),
+            self.te_bin(BinaryOpKind::Add, self.te_id(base), self.te_id(p)),
+        );
+        let sq = self.te_bin(BinaryOpKind::Multiply, xp, xp);
+        let ss_body = self.te_block(vec![
+            Stmt::Set {
+                target: ss,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(ss), sq),
+            },
+            Stmt::Set {
+                target: p,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)),
+            },
+        ]);
+        let ss_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(cols)),
+            body: ss_body,
+            decreasing: None,
+        };
+        let denom_expr = self.te_call(
+            sqrt_sym,
+            vec![self.te_bin(BinaryOpKind::Add, self.te_id(ss), self.te_float(eps))],
+        );
+        let xq = self.te_index(
+            self.te_id(x),
+            self.te_bin(BinaryOpKind::Add, self.te_id(base), self.te_id(q)),
+        );
+        let n_body = self.te_block(vec![
+            Stmt::Push {
+                value: self.te_bin(BinaryOpKind::Divide, xq, self.te_id(denom)),
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: q,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(q), self.te_int(1)),
+            },
+        ]);
+        let n_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(q), self.te_int(cols)),
+            body: n_body,
+            decreasing: None,
+        };
+        let row_body = self.te_block(vec![
+            Stmt::Let {
+                var: base,
+                ty: None,
+                value: self.te_bin(
+                    BinaryOpKind::Multiply,
+                    self.te_bin(BinaryOpKind::Subtract, self.te_id(r), self.te_int(1)),
+                    self.te_int(cols),
+                ),
+                mutable: false,
+            },
+            Stmt::Let {
+                var: ss,
+                ty: None,
+                value: self.te_float(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: p,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            ss_loop,
+            Stmt::Let {
+                var: denom,
+                ty: None,
+                value: denom_expr,
+                mutable: false,
+            },
+            Stmt::Let {
+                var: q,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            n_loop,
+            Stmt::Set {
+                target: r,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(r), self.te_int(1)),
+            },
+        ]);
+        let row_loop = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(r), self.te_int(rows)),
+            body: row_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: r,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            row_loop,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be swiglu of Gate and Up` → elementwise `Y[i] = silu(Gate[i]) * Up[i]`, `silu(g) = g/(1 + e^-g)`,
+    /// over all `total` entries — the gated MLP activation.
+    fn desugar_tensor_swiglu(
+        &mut self,
+        var: Symbol,
+        gate: Symbol,
+        up: Symbol,
+        total: i64,
+    ) -> Stmt<'a> {
+        const E: f64 = std::f64::consts::E;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let i = self.fresh_desugar_temp("sg_i");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        // silu(Gate[i]) = Gate[i] / (1 + e^(0 - Gate[i]))
+        let g_num = self.te_index(self.te_id(gate), self.te_id(i));
+        let g_den = self.te_index(self.te_id(gate), self.te_id(i));
+        let neg = self.te_bin(BinaryOpKind::Subtract, self.te_float(0.0), g_den);
+        let ex = self.te_bin(BinaryOpKind::Pow, self.te_float(E), neg);
+        let denom = self.te_bin(BinaryOpKind::Add, self.te_float(1.0), ex);
+        let silu = self.te_bin(BinaryOpKind::Divide, g_num, denom);
+        let y = self.te_bin(
+            BinaryOpKind::Multiply,
+            silu,
+            self.te_index(self.te_id(up), self.te_id(i)),
+        );
+        let body = self.te_block(vec![
+            Stmt::Push {
+                value: y,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let loop_ = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(total)),
+            body,
+            decreasing: None,
+        };
+        let outer = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_,
+        ]);
+        Stmt::Splice { body: outer }
+    }
+
+    /// `Let Y be causal conv of X with weight WC state CS over T taps` — the **depthwise causal conv1d** that
+    /// Gated DeltaNet runs over its `q|k|v` projection (kernel 4 in Qwen3.8-27B).
+    ///
+    /// `X` is `1×C` (this token's channels), `WC` is `T×C` (an independent T-tap filter per channel — depthwise,
+    /// so no cross-channel mixing), and `CS` is the `T×C` decode ring holding the last `T` inputs. Each step
+    /// shifts `CS` up one row, writes `X` into the last row, and reduces `Y[c] = Σ_t CS[t,c]·WC[t,c]`. `CS` is
+    /// read AND written — it is the layer's carried state, exactly like a KV cache but bounded at `T` rows.
+    ///
+    /// An `X` of `rows` rows (a prefill chunk's) is those steps row after row: row `r` enters the ring after rows
+    /// `1 … r − 1` and its output is row `r` of `Y`. One row is the single step, statement for statement.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_causal_conv(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        wc: Symbol,
+        cs: Symbol,
+        taps: i64,
+        chan: i64,
+        rows: i64,
+    ) -> Stmt<'a> {
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let (t1, c1, c2, c3, t2) = (
+            self.fresh_desugar_temp("cv_t1"),
+            self.fresh_desugar_temp("cv_c1"),
+            self.fresh_desugar_temp("cv_c2"),
+            self.fresh_desugar_temp("cv_c3"),
+            self.fresh_desugar_temp("cv_t2"),
+        );
+        let (acc, zi) = (
+            self.fresh_desugar_temp("cv_acc"),
+            self.fresh_desugar_temp("cv_zi"),
+        );
+        let row = (rows > 1).then(|| self.fresh_desugar_temp("cv_row"));
+        let id = |sy: Symbol| self.te_id(sy);
+        let fl = |v: f64| self.te_float(v);
+        let it = |n: i64| self.te_int(n);
+        let add = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, a, b);
+        let sub = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Subtract, a, b);
+        let mul = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, a, b);
+        let item = |coll: Symbol, ix: &'a Expr<'a>| self.te_index(self.te_id(coll), ix);
+        let nseq = || {
+            self.ctx.alloc_imperative_expr(Expr::New {
+                type_name: seq_sym,
+                type_args: vec![TypeExpr::Named(real_sym)],
+                init_fields: vec![],
+            })
+        };
+        let incr = |sy: Symbol| Stmt::Set {
+            target: sy,
+            value: add(id(sy), it(1)),
+        };
+        let while_le = |vv: Symbol, bound: i64, body: Vec<Stmt<'a>>| Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_int(bound)),
+            body: self.te_block(body),
+            decreasing: None,
+        };
+        // 1. shift the ring up one row: CS[t-1] <- CS[t] for t = 1..T-1
+        let shift = while_le(
+            t1,
+            taps - 1,
+            vec![
+                Stmt::Let {
+                    var: c1,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    c1,
+                    chan,
+                    vec![
+                        Stmt::SetIndex {
+                            collection: id(cs),
+                            index: add(mul(sub(id(t1), it(1)), it(chan)), id(c1)),
+                            value: item(cs, add(mul(id(t1), it(chan)), id(c1))),
+                        },
+                        incr(c1),
+                    ],
+                ),
+                incr(t1),
+            ],
+        );
+        // The block's row `r` sits at `(r − 1)·chan` of `X` and of `Y`.
+        let in_row = |c: Symbol| match row {
+            None => id(c),
+            Some(r) => add(mul(sub(id(r), it(1)), it(chan)), id(c)),
+        };
+        // 2. this token becomes the newest row
+        let append = while_le(
+            c2,
+            chan,
+            vec![
+                Stmt::SetIndex {
+                    collection: id(cs),
+                    index: add(it((taps - 1) * chan), id(c2)),
+                    value: item(x, in_row(c2)),
+                },
+                incr(c2),
+            ],
+        );
+        // 3. Y[c] = Σ_t CS[t,c]·WC[t,c]
+        let reduce = while_le(
+            c3,
+            chan,
+            vec![
+                Stmt::Let {
+                    var: acc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: t2,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    t2,
+                    taps,
+                    vec![
+                        Stmt::Set {
+                            target: acc,
+                            value: add(
+                                id(acc),
+                                mul(
+                                    item(cs, add(mul(sub(id(t2), it(1)), it(chan)), id(c3))),
+                                    item(wc, add(mul(sub(id(t2), it(1)), it(chan)), id(c3))),
+                                ),
+                            ),
+                        },
+                        incr(t2),
+                    ],
+                ),
+                Stmt::SetIndex {
+                    collection: id(var),
+                    index: in_row(c3),
+                    value: id(acc),
+                },
+                incr(c3),
+            ],
+        );
+        let step = vec![
+            Stmt::Let {
+                var: t1,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            shift,
+            Stmt::Let {
+                var: c2,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            append,
+            Stmt::Let {
+                var: c3,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            reduce,
+        ];
+        let mut body = vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: zi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            while_le(
+                zi,
+                chan * rows,
+                vec![
+                    Stmt::Push {
+                        value: fl(0.0),
+                        collection: id(var),
+                    },
+                    incr(zi),
+                ],
+            ),
+        ];
+        match row {
+            None => body.extend(step),
+            Some(r) => {
+                body.push(Stmt::Let {
+                    var: r,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                });
+                body.push(while_le(
+                    r,
+                    rows,
+                    step.into_iter().chain(std::iter::once(incr(r))).collect(),
+                ));
+            }
+        }
+        let body = self.te_block(body);
+        Stmt::Splice { body }
+    }
+
+    /// `Let C be full attention of Q over K and V with H heads` — **bidirectional** multi-head self-attention
+    /// over `T` positions, the vision tower's block. `Q`/`K`/`V` are `T×(H·HD)` and `C` takes their shape.
+    ///
+    /// Distinct from `attention`, which is single-query decode against a growing KV cache: here every position
+    /// attends to every other with no causal mask, which is what an image encoder needs. Softmax subtracts the
+    /// row max before exponentiating, same as `attention`, so the two agree on shared shapes.
+    fn desugar_tensor_full_attention(
+        &mut self,
+        var: Symbol,
+        q: Symbol,
+        k: Symbol,
+        v: Symbol,
+        h: i64,
+        hd: i64,
+        t: i64,
+    ) -> Stmt<'a> {
+        const EU: f64 = std::f64::consts::E;
+        let scale = 1.0f64 / (hd as f64).sqrt();
+        let width = h * hd;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let max_sym = self.interner.intern("max");
+        let (row, head, scores, ozi) = (
+            self.fresh_desugar_temp("fa_row"),
+            self.fresh_desugar_temp("fa_head"),
+            self.fresh_desugar_temp("fa_sc"),
+            self.fresh_desugar_temp("fa_ozi"),
+        );
+        let (j_sc, e_sc, acc_sc) = (
+            self.fresh_desugar_temp("fa_jsc"),
+            self.fresh_desugar_temp("fa_esc"),
+            self.fresh_desugar_temp("fa_asc"),
+        );
+        let (mx, si_mx, si_dn, den) = (
+            self.fresh_desugar_temp("fa_mx"),
+            self.fresh_desugar_temp("fa_simx"),
+            self.fresh_desugar_temp("fa_sidn"),
+            self.fresh_desugar_temp("fa_den"),
+        );
+        let (e_wv, j_wv, acc_wv) = (
+            self.fresh_desugar_temp("fa_ewv"),
+            self.fresh_desugar_temp("fa_jwv"),
+            self.fresh_desugar_temp("fa_awv"),
+        );
+        let id = |sy: Symbol| self.te_id(sy);
+        let fl = |val: f64| self.te_float(val);
+        let it = |n: i64| self.te_int(n);
+        let add = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, a, b);
+        let sub = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Subtract, a, b);
+        let mul = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, a, b);
+        let dv = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Divide, a, b);
+        let item = |coll: Symbol, ix: &'a Expr<'a>| self.te_index(self.te_id(coll), ix);
+        let nseq = || {
+            self.ctx.alloc_imperative_expr(Expr::New {
+                type_name: seq_sym,
+                type_args: vec![TypeExpr::Named(real_sym)],
+                init_fields: vec![],
+            })
+        };
+        let expo = |arg: &'a Expr<'a>| self.te_bin(BinaryOpKind::Pow, self.te_float(EU), arg);
+        let incr = |sy: Symbol| Stmt::Set {
+            target: sy,
+            value: add(id(sy), it(1)),
+        };
+        let while_le = |vv: Symbol, bound: i64, body: Vec<Stmt<'a>>| Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_int(bound)),
+            body: self.te_block(body),
+            decreasing: None,
+        };
+        // row-major 1-based indices into a T×(H·HD) tensor
+        let hbase = mul(sub(id(head), it(1)), it(hd));
+        let q_read = add(add(mul(sub(id(row), it(1)), it(width)), hbase), id(e_sc));
+        let k_read = add(
+            add(
+                mul(sub(id(j_sc), it(1)), it(width)),
+                mul(sub(id(head), it(1)), it(hd)),
+            ),
+            id(e_sc),
+        );
+        let v_read = add(
+            add(
+                mul(sub(id(j_wv), it(1)), it(width)),
+                mul(sub(id(head), it(1)), it(hd)),
+            ),
+            id(e_wv),
+        );
+        let c_write = add(
+            add(
+                mul(sub(id(row), it(1)), it(width)),
+                mul(sub(id(head), it(1)), it(hd)),
+            ),
+            id(e_wv),
+        );
+        let score_loop = while_le(
+            j_sc,
+            t,
+            vec![
+                Stmt::Let {
+                    var: acc_sc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: e_sc,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    e_sc,
+                    hd,
+                    vec![
+                        Stmt::Set {
+                            target: acc_sc,
+                            value: add(id(acc_sc), mul(item(q, q_read), item(k, k_read))),
+                        },
+                        incr(e_sc),
+                    ],
+                ),
+                Stmt::Push {
+                    value: mul(id(acc_sc), fl(scale)),
+                    collection: id(scores),
+                },
+                incr(j_sc),
+            ],
+        );
+        let max_loop = while_le(
+            si_mx,
+            t,
+            vec![
+                Stmt::Set {
+                    target: mx,
+                    value: self.te_call(max_sym, vec![id(mx), item(scores, id(si_mx))]),
+                },
+                incr(si_mx),
+            ],
+        );
+        let den_loop = while_le(
+            si_dn,
+            t,
+            vec![
+                Stmt::Set {
+                    target: den,
+                    value: add(id(den), expo(sub(item(scores, id(si_dn)), id(mx)))),
+                },
+                incr(si_dn),
+            ],
+        );
+        let wv_loop = while_le(
+            e_wv,
+            hd,
+            vec![
+                Stmt::Let {
+                    var: acc_wv,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: j_wv,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    j_wv,
+                    t,
+                    vec![
+                        Stmt::Set {
+                            target: acc_wv,
+                            value: add(
+                                id(acc_wv),
+                                mul(
+                                    dv(expo(sub(item(scores, id(j_wv)), id(mx))), id(den)),
+                                    item(v, v_read),
+                                ),
+                            ),
+                        },
+                        incr(j_wv),
+                    ],
+                ),
+                Stmt::SetIndex {
+                    collection: id(var),
+                    index: c_write,
+                    value: id(acc_wv),
+                },
+                incr(e_wv),
+            ],
+        );
+        let head_loop = while_le(
+            head,
+            h,
+            vec![
+                Stmt::Let {
+                    var: scores,
+                    ty: None,
+                    value: nseq(),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: j_sc,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                score_loop,
+                Stmt::Let {
+                    var: mx,
+                    ty: None,
+                    value: item(scores, it(1)),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: si_mx,
+                    ty: None,
+                    value: it(2),
+                    mutable: true,
+                },
+                max_loop,
+                Stmt::Let {
+                    var: den,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: si_dn,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                den_loop,
+                Stmt::Let {
+                    var: e_wv,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                wv_loop,
+                incr(head),
+            ],
+        );
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: ozi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            while_le(
+                ozi,
+                t * width,
+                vec![
+                    Stmt::Push {
+                        value: fl(0.0),
+                        collection: id(var),
+                    },
+                    incr(ozi),
+                ],
+            ),
+            Stmt::Let {
+                var: row,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            while_le(
+                row,
+                t,
+                vec![
+                    Stmt::Let {
+                        var: head,
+                        ty: None,
+                        value: it(1),
+                        mutable: true,
+                    },
+                    head_loop,
+                    incr(row),
+                ],
+            ),
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let O be gated delta of Q over K and V with gate Z beta B decay A state S norm GN with HV heads HK groups`
+    /// — the **Gated DeltaNet** step, the mechanism behind 48 of Qwen3.8-27B's 64 layers.
+    ///
+    /// Linear attention with a *delta rule*: instead of a KV cache that grows with the sequence, each value head
+    /// carries a fixed `D×D` associative memory `S` and updates it in place. Per value head `h` (reading key
+    /// head `h mod HK` — the keys are TILED across the value heads, not repeat-interleaved), with decay
+    /// `α = A[h]` and write strength `β = B[h]`:
+    ///
+    /// ```text
+    ///   u = S·k                       what the memory currently predicts for this key
+    ///   S = α·S + β·(v − α·u)·kᵀ      decay, then correct by the prediction error (the delta rule)
+    ///   o = S·q                       read the UPDATED memory
+    /// ```
+    ///
+    /// Then the head is RMSNorm'd and scaled by `GN`, and only THEN gated by `silu(z)` — the order
+    /// llama.cpp's `build_norm_gated` uses for this architecture. (Gating first gives different numbers; HF's
+    /// Qwen3-Next does gate first, but Qwen3.5 — which this checkpoint is — does not.) `with sigmoid gate Z` gates by
+    /// `σ(z)` instead, as Qwen3.8-Flash-Next does.
+    ///
+    /// Shapes: `Q`,`K` are `1×(HK·D)`; `V`,`Z` are `1×(HV·D)`; `B`,`A` are `1×HV`; `GN` is `1×D`; and `S` is
+    /// `(HV·D)×D`, head `h`'s memory living in rows `(h-1)·D+1 ..= h·D`. `O` is `1×(HV·D)`.
+    ///
+    /// `S` is read AND written, which is the whole point: decode cost is constant in sequence length, and this
+    /// is why Qwen3.8 caches only 16 of its 64 layers. Desugars to plain LOGOS loops, so every tier runs it and
+    /// the accelerators recognize the block to emit one fused kernel that loads the memory once.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_gated_delta(
+        &mut self,
+        var: Symbol,
+        q: Symbol,
+        k: Symbol,
+        v: Symbol,
+        z: Symbol,
+        b: Symbol,
+        a: Symbol,
+        st: Symbol,
+        gn: Symbol,
+        hv: i64,
+        hk: i64,
+        d: i64,
+        rows: i64,
+        eps: f64,
+        sigmoid_gate: bool,
+    ) -> Stmt<'a> {
+        const EU: f64 = std::f64::consts::E;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let sqrt_sym = self.interner.intern("sqrt");
+        let (head, kb, vb, sb, alpha, beta) = (
+            self.fresh_desugar_temp("gd_h"),
+            self.fresh_desugar_temp("gd_kb"),
+            self.fresh_desugar_temp("gd_vb"),
+            self.fresh_desugar_temp("gd_sb"),
+            self.fresh_desugar_temp("gd_al"),
+            self.fresh_desugar_temp("gd_be"),
+        );
+        let (uvec, ua, ub, uacc) = (
+            self.fresh_desugar_temp("gd_U"),
+            self.fresh_desugar_temp("gd_ua"),
+            self.fresh_desugar_temp("gd_ub"),
+            self.fresh_desugar_temp("gd_uacc"),
+        );
+        let (sa, sbi, coef) = (
+            self.fresh_desugar_temp("gd_sa"),
+            self.fresh_desugar_temp("gd_sbi"),
+            self.fresh_desugar_temp("gd_coef"),
+        );
+        let (ovec, oa, ob, oacc) = (
+            self.fresh_desugar_temp("gd_O"),
+            self.fresh_desugar_temp("gd_oa"),
+            self.fresh_desugar_temp("gd_ob"),
+            self.fresh_desugar_temp("gd_oacc"),
+        );
+        let (ga, ssq, den, na, zi) = (
+            self.fresh_desugar_temp("gd_ga"),
+            self.fresh_desugar_temp("gd_ssq"),
+            self.fresh_desugar_temp("gd_den"),
+            self.fresh_desugar_temp("gd_na"),
+            self.fresh_desugar_temp("gd_zi"),
+        );
+        // A block of rows runs the step row after row: row `r`'s token sits at `(r − 1)·HK·D` of `Q` and `K`,
+        // `(r − 1)·HV·D` of `V`, `Z` and `O`, and `(r − 1)·HV` of `B` and `A`; the memory is the one they all update.
+        let row = (rows > 1).then(|| {
+            (
+                self.fresh_desugar_temp("gd_row"),
+                self.fresh_desugar_temp("gd_rq"),
+                self.fresh_desugar_temp("gd_rv"),
+                self.fresh_desugar_temp("gd_rh"),
+            )
+        });
+        let id = |sy: Symbol| self.te_id(sy);
+        let fl = |val: f64| self.te_float(val);
+        let it = |n: i64| self.te_int(n);
+        let add = |x: &'a Expr<'a>, y: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, x, y);
+        let sub = |x: &'a Expr<'a>, y: &'a Expr<'a>| self.te_bin(BinaryOpKind::Subtract, x, y);
+        let mul = |x: &'a Expr<'a>, y: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, x, y);
+        let dv = |x: &'a Expr<'a>, y: &'a Expr<'a>| self.te_bin(BinaryOpKind::Divide, x, y);
+        let item = |coll: Symbol, ix: &'a Expr<'a>| self.te_index(self.te_id(coll), ix);
+        let nseq = || {
+            self.ctx.alloc_imperative_expr(Expr::New {
+                type_name: seq_sym,
+                type_args: vec![TypeExpr::Named(real_sym)],
+                init_fields: vec![],
+            })
+        };
+        let expo = |arg: &'a Expr<'a>| self.te_bin(BinaryOpKind::Pow, self.te_float(EU), arg);
+        let gate = |g: &'a Expr<'a>| dv(if sigmoid_gate { fl(1.0) } else { g }, add(fl(1.0), expo(sub(fl(0.0), g))));
+        let incr = |sy: Symbol| Stmt::Set {
+            target: sy,
+            value: add(id(sy), it(1)),
+        };
+        let while_le = |vv: Symbol, bound: i64, body: Vec<Stmt<'a>>| Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_int(bound)),
+            body: self.te_block(body),
+            decreasing: None,
+        };
+        // S[h][r][c] is flat item  sb + (r-1)·D + c,  where sb = (h-1)·D·D.
+        let s_at =
+            |r: &'a Expr<'a>, c: &'a Expr<'a>| add(add(id(sb), mul(sub(r, it(1)), it(d))), c);
+
+        // 1. u = S·k, read from the memory BEFORE it is updated.
+        let u_loop = while_le(
+            ua,
+            d,
+            vec![
+                Stmt::Let {
+                    var: uacc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: ub,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    ub,
+                    d,
+                    vec![
+                        Stmt::Set {
+                            target: uacc,
+                            value: add(
+                                id(uacc),
+                                mul(item(st, s_at(id(ua), id(ub))), item(k, add(id(kb), id(ub)))),
+                            ),
+                        },
+                        incr(ub),
+                    ],
+                ),
+                Stmt::Push {
+                    value: id(uacc),
+                    collection: id(uvec),
+                },
+                incr(ua),
+            ],
+        );
+        // 2. S = α·S + β·(v − α·u)·kᵀ — a decay plus a rank-1 correction by the prediction error.
+        let s_loop = while_le(
+            sa,
+            d,
+            vec![
+                Stmt::Let {
+                    var: coef,
+                    ty: None,
+                    value: mul(
+                        id(beta),
+                        sub(
+                            item(v, add(id(vb), id(sa))),
+                            mul(id(alpha), item(uvec, id(sa))),
+                        ),
+                    ),
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: sbi,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    sbi,
+                    d,
+                    vec![
+                        Stmt::SetIndex {
+                            collection: id(st),
+                            index: s_at(id(sa), id(sbi)),
+                            value: add(
+                                mul(id(alpha), item(st, s_at(id(sa), id(sbi)))),
+                                mul(id(coef), item(k, add(id(kb), id(sbi)))),
+                            ),
+                        },
+                        incr(sbi),
+                    ],
+                ),
+                incr(sa),
+            ],
+        );
+        // 3. o = S·q, read from the memory AFTER the update.
+        let o_loop = while_le(
+            oa,
+            d,
+            vec![
+                Stmt::Let {
+                    var: oacc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: ob,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    ob,
+                    d,
+                    vec![
+                        Stmt::Set {
+                            target: oacc,
+                            value: add(
+                                id(oacc),
+                                mul(item(st, s_at(id(oa), id(ob))), item(q, add(id(kb), id(ob)))),
+                            ),
+                        },
+                        incr(ob),
+                    ],
+                ),
+                Stmt::Push {
+                    value: mul(id(oacc), fl(1.0 / (d as f64).sqrt())),
+                    collection: id(ovec),
+                },
+                incr(oa),
+            ],
+        );
+        // 4. sum of squares of the UNGATED head — the norm is taken before the gate …
+        let gate_loop = while_le(
+            ga,
+            d,
+            vec![
+                Stmt::Set {
+                    target: ssq,
+                    value: add(id(ssq), mul(item(ovec, id(ga)), item(ovec, id(ga)))),
+                },
+                incr(ga),
+            ],
+        );
+        // … then RMSNorm, scale by the shared per-dim weight, and gate by silu(z) (or σ(z)).
+        let norm_loop = while_le(
+            na,
+            d,
+            vec![
+                Stmt::SetIndex {
+                    collection: id(var),
+                    index: add(id(vb), id(na)),
+                    value: mul(
+                        mul(item(gn, id(na)), dv(item(ovec, id(na)), id(den))),
+                        gate(item(z, add(id(vb), id(na)))),
+                    ),
+                },
+                incr(na),
+            ],
+        );
+        let key_base = mul(
+            self.te_bin(BinaryOpKind::Modulo, sub(id(head), it(1)), it(hk)),
+            it(d),
+        );
+        let value_base = mul(sub(id(head), it(1)), it(d));
+        let (key_base, value_base, head_at) = match row {
+            None => (key_base, value_base, id(head)),
+            Some((_, rq, rv, rh)) => (
+                add(id(rq), key_base),
+                add(id(rv), value_base),
+                add(id(rh), id(head)),
+            ),
+        };
+        let head_loop = while_le(
+            head,
+            hv,
+            vec![
+                Stmt::Let {
+                    var: kb,
+                    ty: None,
+                    value: key_base,
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: vb,
+                    ty: None,
+                    value: value_base,
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: sb,
+                    ty: None,
+                    value: mul(sub(id(head), it(1)), it(d * d)),
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: alpha,
+                    ty: None,
+                    value: item(a, head_at),
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: beta,
+                    ty: None,
+                    value: item(b, head_at),
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: uvec,
+                    ty: None,
+                    value: nseq(),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: ua,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                u_loop,
+                Stmt::Let {
+                    var: sa,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                s_loop,
+                Stmt::Let {
+                    var: ovec,
+                    ty: None,
+                    value: nseq(),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: oa,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                o_loop,
+                Stmt::Let {
+                    var: ssq,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: ga,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                gate_loop,
+                Stmt::Let {
+                    var: den,
+                    ty: None,
+                    value: self.te_call(sqrt_sym, vec![add(dv(id(ssq), fl(d as f64)), fl(eps))]),
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: na,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                norm_loop,
+                incr(head),
+            ],
+        );
+        let mut body = vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: zi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            while_le(
+                zi,
+                hv * d * rows,
+                vec![
+                    Stmt::Push {
+                        value: fl(0.0),
+                        collection: id(var),
+                    },
+                    incr(zi),
+                ],
+            ),
+        ];
+        match row {
+            None => body.extend([
+                Stmt::Let {
+                    var: head,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                head_loop,
+            ]),
+            Some((r, rq, rv, rh)) => {
+                let offset = |per: i64| mul(sub(id(r), it(1)), it(per));
+                body.push(Stmt::Let {
+                    var: r,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                });
+                body.push(while_le(
+                    r,
+                    rows,
+                    vec![
+                        Stmt::Let {
+                            var: rq,
+                            ty: None,
+                            value: offset(hk * d),
+                            mutable: false,
+                        },
+                        Stmt::Let {
+                            var: rv,
+                            ty: None,
+                            value: offset(hv * d),
+                            mutable: false,
+                        },
+                        Stmt::Let {
+                            var: rh,
+                            ty: None,
+                            value: offset(hv),
+                            mutable: false,
+                        },
+                        Stmt::Let {
+                            var: head,
+                            ty: None,
+                            value: it(1),
+                            mutable: true,
+                        },
+                        head_loop,
+                        incr(r),
+                    ],
+                ));
+            }
+        }
+        let body = self.te_block(body);
+        Stmt::Splice { body }
+    }
+
+    /// `Let H be moe of X with router Wr gate Wg up Wu down Wd choosing K of E` — a **Mixture-of-Experts FFN**,
+    /// the Qwen3-30B-A3B block. `X` is `1×d`; `Wr` is the router `d×E` (logits per expert); `Wg`/`Wu` are the
+    /// `E` experts' gate/up weights STACKED row-major (`(E·dff)×d`, expert `e`'s rows at `e·dff`); `Wd` is the
+    /// `E` down weights stacked (`(E·d)×dff`). The block routes `X` to its top-`K` experts — softmax over the
+    /// router logits, keep the `K` largest, renormalize — runs each selected expert's SwiGLU
+    /// (`down·(silu(gate·x) ⊙ up·x)`) and combines by the renormalized router weight. `by sigmoid` scores each expert
+    /// by its logit's sigmoid in place of the softmax; `biased by B` chooses by each score plus `B[e]` and still weighs
+    /// by the score; `within the top G of N groups` scores each of `N` groups of `E/N` experts by its two best selection
+    /// scores and chooses only among the top `G` groups' experts; the renormalizing sum is clamped at 2⁻¹⁴, as
+    /// llama.cpp's `build_moe_ffn` clamps it (a softmax's kept weights sum past `K/E`, so only a sigmoid's can reach
+    /// it); `scaled by S` multiplies every kept weight by `S` after; `weighting the inputs` scales each kept expert's
+    /// input by its weight — its gate and up are the weight times its unweighted products — and adds its output
+    /// unweighted, a selection `S[e]` (one for a kept expert, zero for the rest) in the weight's place. GENERAL in
+    /// `d, dff, E, K`
+    /// and in the weight SIZE (the experts are indexed, not unrolled). Desugars to plain LOGOS loops so the VM
+    /// runs it directly, the whole-program fabric engine lowers the same routing as data-dependent dataflow,
+    /// and the CUDA orchestrator recognizes the block to emit grouped-expert kernels. (Every expert is computed
+    /// and weighted by its router weight — `0` for the non-selected — so the routing is a data-dependent mask;
+    /// the sparse top-`K` gather is the throughput specialization the emitters apply.)
+    fn desugar_tensor_moe(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        wr: Symbol,
+        wg: Symbol,
+        wu: Symbol,
+        wd: Symbol,
+        d: i64,
+        dff: i64,
+        ne: i64,
+        k: i64,
+        opts: MoeOptions,
+    ) -> Stmt<'a> {
+        const EU: f64 = std::f64::consts::E;
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let max_sym = self.interner.intern("max");
+        let min_sym = self.interner.intern("min");
+        // ── loop vars + accumulators (allocated once; each `Let` below is fresh per its scope) ──
+        let (l_seq, p_seq, pm_seq, w_seq) = (
+            self.fresh_desugar_temp("mo_L"),
+            self.fresh_desugar_temp("mo_P"),
+            self.fresh_desugar_temp("mo_Pm"),
+            self.fresh_desugar_temp("mo_W"),
+        );
+        let (er, accr, tr) = (
+            self.fresh_desugar_temp("mo_er"),
+            self.fresh_desugar_temp("mo_accr"),
+            self.fresh_desugar_temp("mo_tr"),
+        );
+        let (smm, smi1, sms, smi2, smi3) = (
+            self.fresh_desugar_temp("mo_m"),
+            self.fresh_desugar_temp("mo_mi"),
+            self.fresh_desugar_temp("mo_s"),
+            self.fresh_desugar_temp("mo_si"),
+            self.fresh_desugar_temp("mo_ni"),
+        );
+        // Minted only when the clause asks for it: every other mixture keeps its temporaries' names.
+        let s_seq = opts.weigh_inputs.then(|| self.fresh_desugar_temp("mo_S"));
+        let group_temps = opts.groups.map(|_| {
+            [
+                "mo_Ps", "mo_Gs", "mo_gi", "mo_gj", "mo_t1", "mo_t2", "mo_gv", "mo_pi", "mo_gr", "mo_gbv", "mo_gbi", "mo_gsi",
+                "mo_gk",
+            ]
+            .map(|tag| self.fresh_desugar_temp(tag))
+        });
+        let scale_i = opts.scale.map(|_| self.fresh_desugar_temp("mo_sc"));
+        let (pci, wzi, wsum, kk, bv, bi, sci, rni) = (
+            self.fresh_desugar_temp("mo_pci"),
+            self.fresh_desugar_temp("mo_wzi"),
+            self.fresh_desugar_temp("mo_wsum"),
+            self.fresh_desugar_temp("mo_kk"),
+            self.fresh_desugar_temp("mo_bv"),
+            self.fresh_desugar_temp("mo_bi"),
+            self.fresh_desugar_temp("mo_sci"),
+            self.fresh_desugar_temp("mo_rni"),
+        );
+        let (ozi, ee, gate, up) = (
+            self.fresh_desugar_temp("mo_ozi"),
+            self.fresh_desugar_temp("mo_ee"),
+            self.fresh_desugar_temp("mo_gate"),
+            self.fresh_desugar_temp("mo_up"),
+        );
+        let (gig, trg, gacc, giu, tru, uacc) = (
+            self.fresh_desugar_temp("mo_gig"),
+            self.fresh_desugar_temp("mo_trg"),
+            self.fresh_desugar_temp("mo_gacc"),
+            self.fresh_desugar_temp("mo_giu"),
+            self.fresh_desugar_temp("mo_tru"),
+            self.fresh_desugar_temp("mo_uacc"),
+        );
+        let (oo, di, dacc) = (
+            self.fresh_desugar_temp("mo_oo"),
+            self.fresh_desugar_temp("mo_di"),
+            self.fresh_desugar_temp("mo_dacc"),
+        );
+
+        // ── expression builders (all &self / arena-allocating; freely composable) ──
+        let id = |s: Symbol| self.te_id(s);
+        let fl = |v: f64| self.te_float(v);
+        let it = |n: i64| self.te_int(n);
+        let add = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, a, b);
+        let sub = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Subtract, a, b);
+        let mul = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, a, b);
+        let dv = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Divide, a, b);
+        let item = |coll: Symbol, ix: &'a Expr<'a>| self.te_index(self.te_id(coll), ix);
+        let nseq = || {
+            self.ctx.alloc_imperative_expr(Expr::New {
+                type_name: seq_sym,
+                type_args: vec![TypeExpr::Named(real_sym)],
+                init_fields: vec![],
+            })
+        };
+        let expo = |arg: &'a Expr<'a>| self.te_bin(BinaryOpKind::Pow, self.te_float(EU), arg);
+        // silu(g) = g / (1 + e^(0 - g))
+        let silu = |g: &'a Expr<'a>| dv(g, add(fl(1.0), expo(sub(fl(0.0), g))));
+        let incr = |s: Symbol| Stmt::Set {
+            target: s,
+            value: add(id(s), it(1)),
+        };
+        let while_le = |vv: Symbol, bound: i64, body: Vec<Stmt<'a>>| Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_int(bound)),
+            body: self.te_block(body),
+            decreasing: None,
+        };
+
+        // ── 1. Router logits: L[e] = Σ_{t=1..d} X[t]·Wr[(t-1)·E + e] ──
+        let wr_ix = add(mul(sub(id(tr), it(1)), it(ne)), id(er)); // (tr-1)*E + er
+        let router_inner = while_le(
+            tr,
+            d,
+            vec![
+                Stmt::Set {
+                    target: accr,
+                    value: add(id(accr), mul(item(x, id(tr)), item(wr, wr_ix))),
+                },
+                incr(tr),
+            ],
+        );
+        let router_loop = while_le(
+            er,
+            ne,
+            vec![
+                Stmt::Let {
+                    var: accr,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: tr,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                router_inner,
+                Stmt::Push {
+                    value: match opts.router_bias {
+                        Some(br) => add(id(accr), item(br, id(er))),
+                        None => id(accr),
+                    },
+                    collection: id(l_seq),
+                },
+                incr(er),
+            ],
+        );
+
+        // ── 2. Softmax over the E router logits → P ──
+        let max_loop = while_le(
+            smi1,
+            ne,
+            vec![
+                Stmt::Set {
+                    target: smm,
+                    value: self.te_call(max_sym, vec![id(smm), item(l_seq, id(smi1))]),
+                },
+                incr(smi1),
+            ],
+        );
+        let sum_loop = while_le(
+            smi2,
+            ne,
+            vec![
+                Stmt::Set {
+                    target: sms,
+                    value: add(id(sms), expo(sub(item(l_seq, id(smi2)), id(smm)))),
+                },
+                incr(smi2),
+            ],
+        );
+        let norm_loop = while_le(
+            smi3,
+            ne,
+            vec![
+                Stmt::Push {
+                    value: match opts.score {
+                        MoeScore::Softmax => dv(expo(sub(item(l_seq, id(smi3)), id(smm))), id(sms)),
+                        // σ(L[e]) = 1 / (1 + e^(0 − L[e]))
+                        MoeScore::Sigmoid => dv(fl(1.0), add(fl(1.0), expo(sub(fl(0.0), item(l_seq, id(smi3)))))),
+                    },
+                    collection: id(p_seq),
+                },
+                incr(smi3),
+            ],
+        );
+
+        // ── 3. Top-K: the selection scores P (+ B) → Pm, zero W, then K rounds of masked argmax; renormalize the kept
+        //    weights over their sum clamped at 2⁻¹⁴, then scale them ──
+        let sel_seq = group_temps.map_or(pm_seq, |t| t[0]);
+        let pm_copy = while_le(
+            pci,
+            ne,
+            vec![
+                Stmt::Push {
+                    value: match opts.selection_bias {
+                        Some(b) => add(item(p_seq, id(pci)), item(b, id(pci))),
+                        None => item(p_seq, id(pci)),
+                    },
+                    collection: id(sel_seq),
+                },
+                incr(pci),
+            ],
+        );
+        // ── 3a. The group limit: each group's score is the sum of its two best selection scores; `G` rounds choose the
+        //    best group left (marked −2e30, below the scan's −1e30 seed, so never chosen twice) and copy its experts'
+        //    selection scores into Pm, which starts at −1e30 — an expert of a group not chosen is never picked ──
+        let group_block = group_temps.map(|[ps, gs, gi, gj, t1, t2, gv, pi, gr, gbv, gbi, gsi, gk]| {
+            let (kept, count) = opts.groups.expect("the group temporaries are minted for a group limit");
+            let per = ne / count;
+            let at = |g: Symbol, j: Symbol| add(mul(sub(id(g), it(1)), it(per)), id(j));
+            let two_best = while_le(
+                gj,
+                per,
+                vec![
+                    Stmt::Let {
+                        var: gv,
+                        ty: None,
+                        value: item(ps, at(gi, gj)),
+                        mutable: false,
+                    },
+                    Stmt::If {
+                        cond: self.te_bin(BinaryOpKind::Gt, id(gv), id(t1)),
+                        then_block: self.te_block(vec![
+                            Stmt::Set { target: t2, value: id(t1) },
+                            Stmt::Set { target: t1, value: id(gv) },
+                        ]),
+                        else_block: Some(self.te_block(vec![Stmt::If {
+                            cond: self.te_bin(BinaryOpKind::Gt, id(gv), id(t2)),
+                            then_block: self.te_block(vec![Stmt::Set { target: t2, value: id(gv) }]),
+                            else_block: None,
+                        }])),
+                    },
+                    incr(gj),
+                ],
+            );
+            let scores = while_le(
+                gi,
+                count,
+                vec![
+                    Stmt::Let { var: t1, ty: None, value: fl(-1.0e30), mutable: true },
+                    Stmt::Let { var: t2, ty: None, value: fl(-1.0e30), mutable: true },
+                    Stmt::Let { var: gj, ty: None, value: it(1), mutable: true },
+                    two_best,
+                    // A group of one expert is scored by that expert alone.
+                    Stmt::Push { value: if per > 1 { add(id(t1), id(t2)) } else { id(t1) }, collection: id(gs) },
+                    incr(gi),
+                ],
+            );
+            let masked = while_le(
+                pi,
+                ne,
+                vec![Stmt::Push { value: fl(-1.0e30), collection: id(pm_seq) }, incr(pi)],
+            );
+            let scan = while_le(
+                gsi,
+                count,
+                vec![
+                    Stmt::If {
+                        cond: self.te_bin(BinaryOpKind::Gt, item(gs, id(gsi)), id(gbv)),
+                        then_block: self.te_block(vec![
+                            Stmt::Set { target: gbv, value: item(gs, id(gsi)) },
+                            Stmt::Set { target: gbi, value: id(gsi) },
+                        ]),
+                        else_block: None,
+                    },
+                    incr(gsi),
+                ],
+            );
+            let copy = while_le(
+                gk,
+                per,
+                vec![
+                    Stmt::SetIndex { collection: id(pm_seq), index: at(gbi, gk), value: item(ps, at(gbi, gk)) },
+                    incr(gk),
+                ],
+            );
+            let rounds = while_le(
+                gr,
+                kept,
+                vec![
+                    Stmt::Let { var: gbv, ty: None, value: fl(-1.0e30), mutable: true },
+                    Stmt::Let { var: gbi, ty: None, value: it(1), mutable: true },
+                    Stmt::Let { var: gsi, ty: None, value: it(1), mutable: true },
+                    scan,
+                    Stmt::Let { var: gk, ty: None, value: it(1), mutable: true },
+                    copy,
+                    Stmt::SetIndex { collection: id(gs), index: id(gbi), value: fl(-2.0e30) },
+                    incr(gr),
+                ],
+            );
+            vec![
+                Stmt::Let { var: gs, ty: None, value: nseq(), mutable: true },
+                Stmt::Let { var: gi, ty: None, value: it(1), mutable: true },
+                scores,
+                Stmt::Let { var: pi, ty: None, value: it(1), mutable: true },
+                masked,
+                Stmt::Let { var: gr, ty: None, value: it(1), mutable: true },
+                rounds,
+            ]
+        });
+        let mut zeros = vec![Stmt::Push {
+            value: fl(0.0),
+            collection: id(w_seq),
+        }];
+        if let Some(s_seq) = s_seq {
+            zeros.push(Stmt::Push {
+                value: fl(0.0),
+                collection: id(s_seq),
+            });
+        }
+        zeros.push(incr(wzi));
+        let w_zero = while_le(wzi, ne, zeros);
+        let scan = while_le(
+            sci,
+            ne,
+            vec![
+                Stmt::If {
+                    cond: self.te_bin(BinaryOpKind::Gt, item(pm_seq, id(sci)), id(bv)),
+                    then_block: self.te_block(vec![
+                        Stmt::Set {
+                            target: bv,
+                            value: item(pm_seq, id(sci)),
+                        },
+                        Stmt::Set {
+                            target: bi,
+                            value: id(sci),
+                        },
+                    ]),
+                    else_block: None,
+                },
+                incr(sci),
+            ],
+        );
+        let mut round = vec![
+            Stmt::Let {
+                var: bv,
+                ty: None,
+                value: fl(-1.0e30),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: bi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: sci,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            scan,
+            Stmt::Set {
+                target: wsum,
+                value: add(id(wsum), item(p_seq, id(bi))),
+            },
+            Stmt::SetIndex {
+                collection: id(w_seq),
+                index: id(bi),
+                value: item(p_seq, id(bi)),
+            },
+        ];
+        if let Some(s_seq) = s_seq {
+            round.push(Stmt::SetIndex {
+                collection: id(s_seq),
+                index: id(bi),
+                value: fl(1.0),
+            });
+        }
+        round.extend([
+            Stmt::SetIndex {
+                collection: id(pm_seq),
+                index: id(bi),
+                value: fl(-1.0e30),
+            },
+            incr(kk),
+        ]);
+        let round_loop = while_le(kk, k, round);
+        let renorm = while_le(
+            rni,
+            ne,
+            vec![
+                Stmt::SetIndex {
+                    collection: id(w_seq),
+                    index: id(rni),
+                    value: dv(item(w_seq, id(rni)), id(wsum)),
+                },
+                incr(rni),
+            ],
+        );
+
+        // ── 4. Experts: OUT (= var) starts at d zeros; each expert e adds W[e]·down(silu(gate·x)⊙up·x) ──
+        let out_zero = while_le(
+            ozi,
+            d,
+            vec![
+                Stmt::Push {
+                    value: fl(0.0),
+                    collection: id(var),
+                },
+                incr(ozi),
+            ],
+        );
+        // gate[o] = Σ_t X[t]·Wg[((e-1)·dff + (o-1))·d + t] ; up likewise with Wu
+        let wg_ix = add(
+            mul(
+                add(mul(sub(id(ee), it(1)), it(dff)), sub(id(gig), it(1))),
+                it(d),
+            ),
+            id(trg),
+        );
+        let gate_inner = while_le(
+            trg,
+            d,
+            vec![
+                Stmt::Set {
+                    target: gacc,
+                    value: add(id(gacc), mul(item(x, id(trg)), item(wg, wg_ix))),
+                },
+                incr(trg),
+            ],
+        );
+        let gate_loop = while_le(
+            gig,
+            dff,
+            vec![
+                Stmt::Let {
+                    var: gacc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: trg,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                gate_inner,
+                Stmt::Push {
+                    value: {
+                        // The input scaled by the expert's weight: its product is the weight times the unscaled one.
+                        let product = if opts.weigh_inputs { mul(item(w_seq, id(ee)), id(gacc)) } else { id(gacc) };
+                        match opts.biases[0] {
+                            Some(bg) => add(product, item(bg, add(mul(sub(id(ee), it(1)), it(dff)), id(gig)))),
+                            None => product,
+                        }
+                    },
+                    collection: id(gate),
+                },
+                incr(gig),
+            ],
+        );
+        let wu_ix = add(
+            mul(
+                add(mul(sub(id(ee), it(1)), it(dff)), sub(id(giu), it(1))),
+                it(d),
+            ),
+            id(tru),
+        );
+        let up_inner = while_le(
+            tru,
+            d,
+            vec![
+                Stmt::Set {
+                    target: uacc,
+                    value: add(id(uacc), mul(item(x, id(tru)), item(wu, wu_ix))),
+                },
+                incr(tru),
+            ],
+        );
+        let up_loop = while_le(
+            giu,
+            dff,
+            vec![
+                Stmt::Let {
+                    var: uacc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: tru,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                up_inner,
+                Stmt::Push {
+                    value: {
+                        // The input scaled by the expert's weight: its product is the weight times the unscaled one.
+                        let product = if opts.weigh_inputs { mul(item(w_seq, id(ee)), id(uacc)) } else { id(uacc) };
+                        match opts.biases[1] {
+                            Some(bu) => add(product, item(bu, add(mul(sub(id(ee), it(1)), it(dff)), id(giu)))),
+                            None => product,
+                        }
+                    },
+                    collection: id(up),
+                },
+                incr(giu),
+            ],
+        );
+        // out[o] += W[e] · Σ_t (silu(gate[t])·up[t]) · Wd[((e-1)·d + (o-1))·dff + t]
+        let wd_ix = add(
+            mul(
+                add(mul(sub(id(ee), it(1)), it(d)), sub(id(oo), it(1))),
+                it(dff),
+            ),
+            id(di),
+        );
+        let he_t = match opts.act {
+            MoeAct::Swiglu => mul(silu(item(gate, id(di))), item(up, id(di))),
+            // min(g, L) / (1 + e^(0 − A·min(g, L))) · (max(min(u, L), −L) + 1)
+            MoeAct::ClampedSwiglu { limit, slope } => {
+                let gc = self.te_call(min_sym, vec![item(gate, id(di)), fl(limit)]);
+                let uc = self.te_call(max_sym, vec![self.te_call(min_sym, vec![item(up, id(di)), fl(limit)]), fl(-limit)]);
+                mul(dv(gc, add(fl(1.0), expo(sub(fl(0.0), mul(fl(slope), gc))))), add(uc, fl(1.0)))
+            }
+        };
+        let down_inner = while_le(
+            di,
+            dff,
+            vec![
+                Stmt::Set {
+                    target: dacc,
+                    value: add(id(dacc), mul(he_t, item(wd, wd_ix))),
+                },
+                incr(di),
+            ],
+        );
+        let down_loop = while_le(
+            oo,
+            d,
+            vec![
+                Stmt::Let {
+                    var: dacc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: di,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                down_inner,
+                Stmt::SetIndex {
+                    collection: id(var),
+                    index: id(oo),
+                    value: add(
+                        item(var, id(oo)),
+                        mul(
+                            item(s_seq.unwrap_or(w_seq), id(ee)),
+                            match opts.biases[2] {
+                                Some(bd) => add(id(dacc), item(bd, add(mul(sub(id(ee), it(1)), it(d)), id(oo)))),
+                                None => id(dacc),
+                            },
+                        ),
+                    ),
+                },
+                incr(oo),
+            ],
+        );
+        let expert_loop = while_le(
+            ee,
+            ne,
+            vec![
+                Stmt::Let {
+                    var: gate,
+                    ty: None,
+                    value: nseq(),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: gig,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                gate_loop,
+                Stmt::Let {
+                    var: up,
+                    ty: None,
+                    value: nseq(),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: giu,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                up_loop,
+                Stmt::Let {
+                    var: oo,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                down_loop,
+                incr(ee),
+            ],
+        );
+
+        let mut body = vec![
+            // router
+            Stmt::Let {
+                var: l_seq,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: er,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            router_loop,
+        ];
+        // softmax → P: the largest logit and the sum of the exponentials first; a sigmoid scores each logit alone.
+        if opts.score == MoeScore::Softmax {
+            body.extend([
+                Stmt::Let {
+                    var: smm,
+                    ty: None,
+                    value: item(l_seq, it(1)),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: smi1,
+                    ty: None,
+                    value: it(2),
+                    mutable: true,
+                },
+                max_loop,
+                Stmt::Let {
+                    var: sms,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: smi2,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                sum_loop,
+            ]);
+        }
+        body.extend([
+            Stmt::Let {
+                var: p_seq,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: smi3,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            norm_loop,
+            // top-K
+            Stmt::Let {
+                var: pm_seq,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+        ]);
+        if sel_seq != pm_seq {
+            body.push(Stmt::Let {
+                var: sel_seq,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            });
+        }
+        body.extend([
+            Stmt::Let {
+                var: pci,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            pm_copy,
+        ]);
+        body.extend(group_block.into_iter().flatten());
+        body.push(Stmt::Let {
+            var: w_seq,
+            ty: None,
+            value: nseq(),
+            mutable: true,
+        });
+        if let Some(s_seq) = s_seq {
+            body.push(Stmt::Let {
+                var: s_seq,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            });
+        }
+        body.extend([
+            Stmt::Let {
+                var: wzi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            w_zero,
+            Stmt::Let {
+                var: wsum,
+                ty: None,
+                value: fl(0.0),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: kk,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            round_loop,
+        ]);
+        if opts.renormalize {
+            body.extend([
+                Stmt::Set {
+                    target: wsum,
+                    value: self.te_call(max_sym, vec![id(wsum), fl(6.103515625e-5)]),
+                },
+                Stmt::Let {
+                    var: rni,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                renorm,
+            ]);
+        }
+        if let (Some(scale), Some(sc)) = (opts.scale, scale_i) {
+            body.extend([
+                Stmt::Let {
+                    var: sc,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    sc,
+                    ne,
+                    vec![
+                        Stmt::SetIndex {
+                            collection: id(w_seq),
+                            index: id(sc),
+                            value: mul(item(w_seq, id(sc)), fl(scale)),
+                        },
+                        incr(sc),
+                    ],
+                ),
+            ]);
+        }
+        body.extend([
+            // experts + weighted combine
+            Stmt::Let {
+                var,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: ozi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            out_zero,
+            Stmt::Let {
+                var: ee,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            expert_loop,
+        ]);
+        let body = self.te_block(body);
+        Stmt::Splice { body }
+    }
+
+    /// `Let C be attention of Q over K and V with H heads KV groups` — single-query multi-head GQA attention.
+    /// `Q` is `1×(H·HD)`, `K` is `L×(KV·HD)` and `V` `L×(KV·VD)` (the cache). Query head `g` (1-based) attends to kv
+    /// head `(g-1)/(H/KV)` over all `L` cached keys: `scores[j] = (Q_g·K_j)·s` (`s` the given scale, `1/√HD` by
+    /// default), softmax, `C_g = Σ_j p_j·V_j`, `VD` wide.
+    /// Desugars to plain loops so the VM runs it directly; the CUDA emitter recognizes the block to emit ONE
+    /// parallel `attn_decode` kernel (block per query head). With a sliding `window` of `W` a query attending `n`
+    /// positions keeps the last `W` of them, `max(1, n − W + 1) ..= n`; with chunks of `C`, those of its own chunk,
+    /// `⌊(n − 1)/C⌋·C + 1 ..= n`; and the loops run over those alone. With `sinks` head `g`'s
+    /// sink `S_g` joins the softmax's maximum and its denominator (`+ e^(S_g − max)`) and takes no value.
+    fn desugar_tensor_attention(
+        &mut self,
+        var: Symbol,
+        q: Symbol,
+        kc: Symbol,
+        vc: Symbol,
+        shape: AttentionShape,
+        upto: Option<&'a Expr<'a>>,
+        options: AttentionOptions,
+    ) -> Stmt<'a> {
+        self.desugar_tensor_attention_block(var, q, kc, vc, shape, upto, options)
+    }
+
+    /// [`Self::desugar_tensor_attention`] over a BLOCK of `rows` query rows — `causal attention of Q … from P`: row `r`
+    /// (1-based) is the query at position `P + r − 1` and attends the cache's first `P + r − 1` positions, its query read
+    /// offset by `(r − 1)·H·HD` and its output write by `(r − 1)·H·VD`. One row is the single-query form, statement for
+    /// statement.
+    fn desugar_tensor_attention_block(
+        &mut self,
+        var: Symbol,
+        q: Symbol,
+        kc: Symbol,
+        vc: Symbol,
+        shape: AttentionShape,
+        upto: Option<&'a Expr<'a>>,
+        options: AttentionOptions,
+    ) -> Stmt<'a> {
+        let AttentionShape { h, kv, hd, vd, l, rows } = shape;
+        let AttentionOptions { window, scale, cap, sinks } = options;
+        let group = if kv > 0 { h / kv } else { 1 };
+        let scale = scale.unwrap_or(1.0f64 / (hd as f64).sqrt());
+        const EU: f64 = std::f64::consts::E;
+        let real_sym = self.interner.intern("Real");
+        let seq_sym = self.interner.intern("Seq");
+        let max_sym = self.interner.intern("max");
+        // distinct temps per loop var (no re-Let of the same symbol in a scope)
+        let (head, kvh, scores, ozi) = (
+            self.fresh_desugar_temp("at_head"),
+            self.fresh_desugar_temp("at_kvh"),
+            self.fresh_desugar_temp("at_sc"),
+            self.fresh_desugar_temp("at_ozi"),
+        );
+        let (j_sc, e_sc, acc_sc) = (
+            self.fresh_desugar_temp("at_jsc"),
+            self.fresh_desugar_temp("at_esc"),
+            self.fresh_desugar_temp("at_asc"),
+        );
+        let (mx, si_mx, si_dn, den) = (
+            self.fresh_desugar_temp("at_mx"),
+            self.fresh_desugar_temp("at_simx"),
+            self.fresh_desugar_temp("at_sidn"),
+            self.fresh_desugar_temp("at_den"),
+        );
+        let (e_wv, j_wv, acc_wv) = (
+            self.fresh_desugar_temp("at_ewv"),
+            self.fresh_desugar_temp("at_jwv"),
+            self.fresh_desugar_temp("at_awv"),
+        );
+        // A window's first position and the scores it keeps, bound per head.
+        let windowed = window.map(|w| (w, self.fresh_desugar_temp("at_lo"), self.fresh_desugar_temp("at_cnt")));
+        // The positions attended: all `L`, or the first `P` — bound once, and checked to be in `1..=L`. A block's first
+        // row is at `P`, its last at `P + rows − 1`, and the whole span is checked; each row then binds its own length.
+        let block = rows > 1;
+        let (len, len_check) = match upto {
+            Some(p) if block => {
+                let (from, check) = self.checked_attention_block(p, kc, l, rows);
+                (Some(from), Some(check))
+            }
+            Some(p) => {
+                let (len, check) = self.checked_attention_length(p, kc, l);
+                (Some(len), Some(check))
+            }
+            None => (None, None),
+        };
+        let (row, row_len) = if block {
+            (
+                Some(self.fresh_desugar_temp("at_row")),
+                Some(self.fresh_desugar_temp("at_rlen")),
+            )
+        } else {
+            (None, None)
+        };
+        let bound = if block { row_len } else { len };
+        let id = |s: Symbol| self.te_id(s);
+        let fl = |v: f64| self.te_float(v);
+        let it = |n: i64| self.te_int(n);
+        let add = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, a, b);
+        let sub = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Subtract, a, b);
+        let mul = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, a, b);
+        let dv = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Divide, a, b);
+        let item = |coll: Symbol, ix: &'a Expr<'a>| self.te_index(self.te_id(coll), ix);
+        let nseq = || {
+            self.ctx.alloc_imperative_expr(Expr::New {
+                type_name: seq_sym,
+                type_args: vec![TypeExpr::Named(real_sym)],
+                init_fields: vec![],
+            })
+        };
+        let expo = |arg: &'a Expr<'a>| self.te_bin(BinaryOpKind::Pow, self.te_float(EU), arg);
+        let incr = |s: Symbol| Stmt::Set {
+            target: s,
+            value: add(id(s), it(1)),
+        };
+        let while_le = |vv: Symbol, bound: i64, body: Vec<Stmt<'a>>| Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_int(bound)),
+            body: self.te_block(body),
+            decreasing: None,
+        };
+        let over_cache = |vv: Symbol, body: Vec<Stmt<'a>>| match bound {
+            Some(n) => Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_id(n)),
+                body: self.te_block(body),
+                decreasing: None,
+            },
+            None => while_le(vv, l, body),
+        };
+        // The positions a query attends: `n` of them, or a window's last `W`; the scores hold one per position kept.
+        let attended = match bound {
+            Some(n) => id(n),
+            None => it(l),
+        };
+        let first = match windowed {
+            Some((_, lo, _)) => id(lo),
+            None => it(1),
+        };
+        let over_scores = |vv: Symbol, body: Vec<Stmt<'a>>| match windowed {
+            Some((_, _, cnt)) => Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_id(cnt)),
+                body: self.te_block(body),
+                decreasing: None,
+            },
+            None => over_cache(vv, body),
+        };
+        let score_of = |j: Symbol| match windowed {
+            Some((_, lo, _)) => item(scores, add(sub(id(j), id(lo)), it(1))),
+            None => item(scores, id(j)),
+        };
+        // A block row's query sits `(row−1)·H·HD` into the block, and its output `(row−1)·H·VD`.
+        let in_row = |at: &'a Expr<'a>, width: i64| match row {
+            Some(r) => add(mul(sub(id(r), it(1)), it(h * width)), at),
+            None => at,
+        };
+        // 1-based item indices. Q read = (head-1)·HD + e, ctx write = (head-1)·VD + e. K read = (j-1)·(KV·HD) + kvh·HD
+        // + e, V read = (j-1)·(KV·VD) + kvh·VD + e.
+        let q_read = in_row(add(mul(sub(id(head), it(1)), it(hd)), id(e_sc)), hd);
+        let k_read = add(
+            add(mul(sub(id(j_sc), it(1)), it(kv * hd)), mul(id(kvh), it(hd))),
+            id(e_sc),
+        );
+        let v_read = add(
+            add(mul(sub(id(j_wv), it(1)), it(kv * vd)), mul(id(kvh), it(vd))),
+            id(e_wv),
+        );
+        let ctx_write = in_row(add(mul(sub(id(head), it(1)), it(vd)), id(e_wv)), vd);
+        // scores[j] = scale · Σ_e Q·K
+        let score_inner = while_le(
+            e_sc,
+            hd,
+            vec![
+                Stmt::Set {
+                    target: acc_sc,
+                    value: add(id(acc_sc), mul(item(q, q_read), item(kc, k_read))),
+                },
+                incr(e_sc),
+            ],
+        );
+        let score_loop = over_cache(
+            j_sc,
+            vec![
+                Stmt::Let {
+                    var: acc_sc,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: e_sc,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                score_inner,
+                Stmt::Push {
+                    value: match cap {
+                        Some(c) => self.capped(mul(id(acc_sc), fl(scale)), c),
+                        None => mul(id(acc_sc), fl(scale)),
+                    },
+                    collection: id(scores),
+                },
+                incr(j_sc),
+            ],
+        );
+        // softmax max + denominator
+        let max_loop = over_scores(
+            si_mx,
+            vec![
+                Stmt::Set {
+                    target: mx,
+                    value: self.te_call(max_sym, vec![id(mx), item(scores, id(si_mx))]),
+                },
+                incr(si_mx),
+            ],
+        );
+        let den_loop = over_scores(
+            si_dn,
+            vec![
+                Stmt::Set {
+                    target: den,
+                    value: add(id(den), expo(sub(item(scores, id(si_dn)), id(mx)))),
+                },
+                incr(si_dn),
+            ],
+        );
+        // ctx[(head-1)·HD+e] = Σ_j (exp(scores[j]-mx)/den) · V
+        let wv_inner = over_cache(
+            j_wv,
+            vec![
+                Stmt::Set {
+                    target: acc_wv,
+                    value: add(
+                        id(acc_wv),
+                        mul(
+                            dv(expo(sub(score_of(j_wv), id(mx))), id(den)),
+                            item(vc, v_read),
+                        ),
+                    ),
+                },
+                incr(j_wv),
+            ],
+        );
+        let wv_loop = while_le(
+            e_wv,
+            vd,
+            vec![
+                Stmt::Let {
+                    var: acc_wv,
+                    ty: None,
+                    value: fl(0.0),
+                    mutable: true,
+                },
+                Stmt::Let {
+                    var: j_wv,
+                    ty: None,
+                    value: first,
+                    mutable: true,
+                },
+                wv_inner,
+                Stmt::SetIndex {
+                    collection: id(var),
+                    index: ctx_write,
+                    value: id(acc_wv),
+                },
+                incr(e_wv),
+            ],
+        );
+        let mut head_body = vec![
+            Stmt::Let {
+                var: kvh,
+                ty: None,
+                value: dv(sub(id(head), it(1)), it(group)),
+                mutable: false,
+            },
+            Stmt::Let {
+                var: scores,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+        ];
+        if let Some((w, lo, cnt)) = windowed {
+            head_body.extend([
+                Stmt::Let {
+                    var: lo,
+                    ty: None,
+                    value: match w {
+                        Window::Sliding(w) => self.te_call(max_sym, vec![it(1), sub(attended, it(w - 1))]),
+                        Window::Chunked(c) => add(mul(dv(sub(attended, it(1)), it(c)), it(c)), it(1)),
+                    },
+                    mutable: false,
+                },
+                Stmt::Let {
+                    var: cnt,
+                    ty: None,
+                    value: add(sub(attended, id(lo)), it(1)),
+                    mutable: false,
+                },
+            ]);
+        }
+        head_body.extend([
+            Stmt::Let {
+                var: j_sc,
+                ty: None,
+                value: first,
+                mutable: true,
+            },
+            score_loop,
+            Stmt::Let {
+                var: mx,
+                ty: None,
+                value: match sinks {
+                    Some(sk) => self.te_call(max_sym, vec![item(scores, it(1)), item(sk, id(head))]),
+                    None => item(scores, it(1)),
+                },
+                mutable: true,
+            },
+            Stmt::Let {
+                var: si_mx,
+                ty: None,
+                value: it(2),
+                mutable: true,
+            },
+            max_loop,
+            Stmt::Let {
+                var: den,
+                ty: None,
+                value: match sinks {
+                    Some(sk) => expo(sub(item(sk, id(head)), id(mx))),
+                    None => fl(0.0),
+                },
+                mutable: true,
+            },
+            Stmt::Let {
+                var: si_dn,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            den_loop,
+            Stmt::Let {
+                var: e_wv,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            wv_loop,
+            incr(head),
+        ]);
+        let head_loop = while_le(head, h, head_body);
+        let out_zero = while_le(
+            ozi,
+            rows * h * vd,
+            vec![
+                Stmt::Push {
+                    value: fl(0.0),
+                    collection: id(var),
+                },
+                incr(ozi),
+            ],
+        );
+        let mut stmts: Vec<Stmt<'a>> = len_check.map(Vec::from).unwrap_or_default();
+        stmts.extend([
+            Stmt::Let {
+                var,
+                ty: None,
+                value: nseq(),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: ozi,
+                ty: None,
+                value: it(1),
+                mutable: true,
+            },
+            out_zero,
+        ]);
+        match (row, row_len, len) {
+            // Each row: its length `P + row − 1`, then every head of it.
+            (Some(r), Some(rl), Some(from)) => stmts.extend([
+                Stmt::Let {
+                    var: r,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                while_le(
+                    r,
+                    rows,
+                    vec![
+                        Stmt::Let {
+                            var: rl,
+                            ty: None,
+                            value: sub(add(id(from), id(r)), it(1)),
+                            mutable: false,
+                        },
+                        Stmt::Let {
+                            var: head,
+                            ty: None,
+                            value: it(1),
+                            mutable: true,
+                        },
+                        head_loop,
+                        incr(r),
+                    ],
+                ),
+            ]),
+            _ => stmts.extend([
+                Stmt::Let {
+                    var: head,
+                    ty: None,
+                    value: it(1),
+                    mutable: true,
+                },
+                head_loop,
+            ]),
+        }
+        let body = self.te_block(stmts);
+        Stmt::Splice { body }
+    }
+
+    /// `Let C be lut attention of Q over K and V with H heads KV groups [up to P] with table E and scale M shifted right
+    /// by S` — an int8 model's single-query attention, every tensor of Int. Per query head `g` (kv head
+    /// `(g − 1) / (H / KV)`), over the first `P` cached positions (all `L` without `up to`):
+    ///
+    /// ```text
+    /// s_j = Σ_e Q[g, e] · K[j, kvh, e]
+    /// mx  = max_j s_j
+    /// w_j = E[min(max(((mx − s_j) · M) >> S, 0), n − 1)]
+    /// C[g, e] = (Σ_j w_j · V[j, kvh, e]) // (Σ_j w_j)          (floor division, toward −∞)
+    /// ```
+    ///
+    /// Integer sums are exact, so the order they run in is not part of the meaning.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_lut_attention(
+        &mut self,
+        var: Symbol,
+        q: Symbol,
+        kc: Symbol,
+        vc: Symbol,
+        table: Symbol,
+        (h, kv, hd, l, n): (i64, i64, i64, i64, i64),
+        upto: Option<&'a Expr<'a>>,
+        (m, s): (i64, i64),
+    ) -> Stmt<'a> {
+        let group = h / kv;
+        let max_sym = self.interner.intern("max");
+        let min_sym = self.interner.intern("min");
+        let seq_sym = self.interner.intern("Seq");
+        let int_sym = self.interner.intern("Int");
+        let (head, kvh, scores, wts, ozi) = (
+            self.fresh_desugar_temp("la_head"),
+            self.fresh_desugar_temp("la_kvh"),
+            self.fresh_desugar_temp("la_sc"),
+            self.fresh_desugar_temp("la_w"),
+            self.fresh_desugar_temp("la_ozi"),
+        );
+        let (j_sc, e_sc, acc_sc) = (
+            self.fresh_desugar_temp("la_jsc"),
+            self.fresh_desugar_temp("la_esc"),
+            self.fresh_desugar_temp("la_asc"),
+        );
+        let (mx, si_mx, j_w, w, den) = (
+            self.fresh_desugar_temp("la_mx"),
+            self.fresh_desugar_temp("la_simx"),
+            self.fresh_desugar_temp("la_jw"),
+            self.fresh_desugar_temp("la_wt"),
+            self.fresh_desugar_temp("la_den"),
+        );
+        let (e_wv, j_wv, num) = (
+            self.fresh_desugar_temp("la_ewv"),
+            self.fresh_desugar_temp("la_jwv"),
+            self.fresh_desugar_temp("la_num"),
+        );
+        let (len, len_check) = match upto {
+            Some(p) => {
+                let (len, check) = self.checked_attention_length(p, kc, l);
+                (Some(len), Some(check))
+            }
+            None => (None, None),
+        };
+        let id = |s: Symbol| self.te_id(s);
+        let it = |v: i64| self.te_int(v);
+        let add = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Add, a, b);
+        let sub = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Subtract, a, b);
+        let mul = |a: &'a Expr<'a>, b: &'a Expr<'a>| self.te_bin(BinaryOpKind::Multiply, a, b);
+        let item = |coll: Symbol, ix: &'a Expr<'a>| self.te_index(self.te_id(coll), ix);
+        let int_seq = || {
+            self.ctx.alloc_imperative_expr(Expr::New {
+                type_name: seq_sym,
+                type_args: vec![TypeExpr::Named(int_sym)],
+                init_fields: vec![],
+            })
+        };
+        let incr = |v: Symbol| Stmt::Set {
+            target: v,
+            value: add(id(v), it(1)),
+        };
+        let let_mut = |v: Symbol, value: &'a Expr<'a>| Stmt::Let {
+            var: v,
+            ty: None,
+            value,
+            mutable: true,
+        };
+        let while_le = |vv: Symbol, bound: i64, body: Vec<Stmt<'a>>| Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_int(bound)),
+            body: self.te_block(body),
+            decreasing: None,
+        };
+        let over_cache = |vv: Symbol, body: Vec<Stmt<'a>>| match len {
+            Some(p) => Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_id(p)),
+                body: self.te_block(body),
+                decreasing: None,
+            },
+            None => while_le(vv, l, body),
+        };
+        // 1-based items. Q read / C write = (head−1)·HD + e. K/V read = (j−1)·(KV·HD) + kvh·HD + e.
+        let q_read = add(mul(sub(id(head), it(1)), it(hd)), id(e_sc));
+        let k_read = add(
+            add(mul(sub(id(j_sc), it(1)), it(kv * hd)), mul(id(kvh), it(hd))),
+            id(e_sc),
+        );
+        let v_read = add(
+            add(mul(sub(id(j_wv), it(1)), it(kv * hd)), mul(id(kvh), it(hd))),
+            id(e_wv),
+        );
+        let c_write = add(mul(sub(id(head), it(1)), it(hd)), id(e_wv));
+        let score_loop = over_cache(
+            j_sc,
+            vec![
+                let_mut(acc_sc, it(0)),
+                let_mut(e_sc, it(1)),
+                while_le(
+                    e_sc,
+                    hd,
+                    vec![
+                        Stmt::Set {
+                            target: acc_sc,
+                            value: add(id(acc_sc), mul(item(q, q_read), item(kc, k_read))),
+                        },
+                        incr(e_sc),
+                    ],
+                ),
+                Stmt::Push {
+                    value: id(acc_sc),
+                    collection: id(scores),
+                },
+                incr(j_sc),
+            ],
+        );
+        let max_loop = over_cache(
+            si_mx,
+            vec![
+                Stmt::Set {
+                    target: mx,
+                    value: self.te_call(max_sym, vec![id(mx), item(scores, id(si_mx))]),
+                },
+                incr(si_mx),
+            ],
+        );
+        // w_j = E[min(max(((mx − s_j)·M) >> S, 0), n − 1) + 1] — the table read 1-based.
+        let lut_index = self.te_call(
+            min_sym,
+            vec![
+                self.te_call(
+                    max_sym,
+                    vec![
+                        self.te_bin(
+                            BinaryOpKind::Shr,
+                            mul(sub(id(mx), item(scores, id(j_w))), it(m)),
+                            it(s),
+                        ),
+                        it(0),
+                    ],
+                ),
+                it(n - 1),
+            ],
+        );
+        let weight_loop = over_cache(
+            j_w,
+            vec![
+                Stmt::Let {
+                    var: w,
+                    ty: None,
+                    value: item(table, add(lut_index, it(1))),
+                    mutable: false,
+                },
+                Stmt::Push {
+                    value: id(w),
+                    collection: id(wts),
+                },
+                Stmt::Set {
+                    target: den,
+                    value: add(id(den), id(w)),
+                },
+                incr(j_w),
+            ],
+        );
+        let ctx_loop = while_le(
+            e_wv,
+            hd,
+            vec![
+                let_mut(num, it(0)),
+                let_mut(j_wv, it(1)),
+                over_cache(
+                    j_wv,
+                    vec![
+                        Stmt::Set {
+                            target: num,
+                            value: add(id(num), mul(item(wts, id(j_wv)), item(vc, v_read))),
+                        },
+                        incr(j_wv),
+                    ],
+                ),
+                Stmt::SetIndex {
+                    collection: id(var),
+                    index: c_write,
+                    value: self.te_bin(BinaryOpKind::FloorDivide, id(num), id(den)),
+                },
+                incr(e_wv),
+            ],
+        );
+        let head_loop = while_le(
+            head,
+            h,
+            vec![
+                Stmt::Let {
+                    var: kvh,
+                    ty: None,
+                    value: self.te_bin(BinaryOpKind::Divide, sub(id(head), it(1)), it(group)),
+                    mutable: false,
+                },
+                let_mut(scores, int_seq()),
+                let_mut(j_sc, it(1)),
+                score_loop,
+                let_mut(mx, item(scores, it(1))),
+                let_mut(si_mx, it(2)),
+                max_loop,
+                let_mut(wts, int_seq()),
+                let_mut(den, it(0)),
+                let_mut(j_w, it(1)),
+                weight_loop,
+                let_mut(e_wv, it(1)),
+                ctx_loop,
+                incr(head),
+            ],
+        );
+        let mut stmts: Vec<Stmt<'a>> = len_check.map(Vec::from).unwrap_or_default();
+        stmts.extend([
+            let_mut(var, int_seq()),
+            let_mut(ozi, it(1)),
+            while_le(
+                ozi,
+                h * hd,
+                vec![
+                    Stmt::Push {
+                        value: it(0),
+                        collection: id(var),
+                    },
+                    incr(ozi),
+                ],
+            ),
+            let_mut(head, it(1)),
+            head_loop,
+        ]);
+        let body = self.te_block(stmts);
+        Stmt::Splice { body }
+    }
+
+    /// Bind an attention's `up to P` bound to a fresh temp and check it, once: `1 ≤ P ≤ L`, with one message on
+    /// every tier. Zero positions has no softmax, and past `L` there is no cache.
+    fn checked_attention_length(
+        &mut self,
+        bound: &'a Expr<'a>,
+        cache: Symbol,
+        rows: i64,
+    ) -> (Symbol, [Stmt<'a>; 2]) {
+        let len = self.fresh_desugar_temp("at_len");
+        let in_range = self.te_bin(
+            BinaryOpKind::And,
+            self.te_bin(BinaryOpKind::GtEq, self.te_id(len), self.te_int(1)),
+            self.te_bin(BinaryOpKind::LtEq, self.te_id(len), self.te_int(rows)),
+        );
+        let message = format!("attention length out of range: {} has {rows} positions, and attention needs at least 1", self.interner.resolve(cache));
+        let message = self.interner.intern(&message);
+        let reason = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(message)));
+        (
+            len,
+            [
+                Stmt::Let {
+                    var: len,
+                    ty: None,
+                    value: bound,
+                    mutable: false,
+                },
+                Stmt::RuntimeAssert {
+                    condition: in_range,
+                    hard: true,
+                    dim: None,
+                    reason: Some(reason),
+                },
+            ],
+        )
+    }
+
+    /// Bind a block attention's first position `P` to a fresh temp and check the whole block, once: `P ≥ 1` and its last
+    /// row's `P + rows − 1 ≤ L`.
+    fn checked_attention_block(
+        &mut self,
+        from: &'a Expr<'a>,
+        cache: Symbol,
+        l: i64,
+        rows: i64,
+    ) -> (Symbol, [Stmt<'a>; 2]) {
+        let first = self.fresh_desugar_temp("at_from");
+        let last = self.te_bin(BinaryOpKind::Add, self.te_id(first), self.te_int(rows - 1));
+        let in_range = self.te_bin(
+            BinaryOpKind::And,
+            self.te_bin(BinaryOpKind::GtEq, self.te_id(first), self.te_int(1)),
+            self.te_bin(BinaryOpKind::LtEq, last, self.te_int(l)),
+        );
+        let message = format!(
+            "attention length out of range: {} has {l} positions, and a block of {rows} rows from P needs P ≥ 1 and P + {} ≤ {l}",
+            self.interner.resolve(cache),
+            rows - 1
+        );
+        let message = self.interner.intern(&message);
+        let reason = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(message)));
+        (
+            first,
+            [
+                Stmt::Let {
+                    var: first,
+                    ty: None,
+                    value: from,
+                    mutable: false,
+                },
+                Stmt::RuntimeAssert {
+                    condition: in_range,
+                    hard: true,
+                    dim: None,
+                    reason: Some(reason),
+                },
+            ],
+        )
+    }
+
+    /// `Let Kt be transpose of X` for an `R by C` tensor `X`: build the `C by R` result row-major so
+    /// `Kt[j*R + i] = X[i*C + j]` — the outer loop is the new rows (`j` over `C`), the inner the new cols
+    /// (`i` over `R`).
+    /// The index of a row sugar, in the forms `item` accepts before `of`: an integer literal (a `-` sign
+    /// allowed — it is range-checked at run time like any index), a name, or a parenthesized expression.
+    /// `None` (nothing consumed) when none of those is next.
+    fn parse_row_index(&mut self) -> ParseResult<Option<&'a Expr<'a>>> {
+        if let TokenType::Number(sym) = self.peek().kind {
+            self.advance();
+            let text = self.interner.resolve(sym).to_string();
+            return match self.parse_i64_numeral_signed(&text, false) {
+                Ok(n) => Ok(Some(self.te_int(n))),
+                Err(_) => Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "a row index is a whole number — got `{text}`."
+                    )),
+                    span: self.current_span(),
+                }),
+            };
+        }
+        if self.check(&TokenType::Minus)
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Number(_))
+            )
+        {
+            self.advance();
+            let TokenType::Number(sym) = self.peek().kind else {
+                unreachable!()
+            };
+            self.advance();
+            let text = self.interner.resolve(sym).to_string();
+            let n = self
+                .parse_i64_numeral_signed(&text, true)
+                .map_err(|_| ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "a row index is a whole number — got `-{text}`."
+                    )),
+                    span: self.current_span(),
+                })?;
+            return Ok(Some(self.te_int(n)));
+        }
+        if self.check(&TokenType::LParen) {
+            self.advance();
+            let inner = self.parse_imperative_expr()?;
+            if !self.check(&TokenType::RParen) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ")".to_string(),
+                    },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            return Ok(Some(inner));
+        }
+        if self.check_preposition_is("of") || self.is_at_end() {
+            return Ok(None);
+        }
+        let sym = self.peek().lexeme;
+        self.advance();
+        Ok(Some(self.te_id(sym)))
+    }
+
+    /// `row <index> of <T>` where `T` is a declared tensor: `(index, T, rows, cols)`. Consumes nothing and
+    /// returns `None` unless the WHOLE shape is there — `row` stays an ordinary name everywhere else.
+    fn try_parse_row_of(&mut self) -> ParseResult<Option<(&'a Expr<'a>, Symbol, i64, i64)>> {
+        if !self.check_word("row") {
+            return Ok(None);
+        }
+        let saved = self.backtrack_point();
+        self.advance();
+        let index = match self.parse_row_index() {
+            Ok(Some(e)) => e,
+            _ => {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+        };
+        if !self.check_preposition_is("of") {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance();
+        let table = self.peek().lexeme;
+        let Some(&(rows, cols)) = self.tensor_shapes.get(&table) else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        self.advance();
+        Ok(Some((index, table, rows, cols)))
+    }
+
+    /// `rows I of T` — `I` a declared Int tensor of row indices, `T` a declared table: `X` binds `|I|` rows of `T`'s
+    /// width, row `k` being row `I[k]` of `T`. Consumes nothing and returns `None` unless `rows <name> of <name>` is
+    /// there; past that the shape is committed and indices that are not Int, or a table not declared, are refused.
+    fn try_parse_tensor_rows(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        if !(self.check_word("rows")
+            && matches!(self.tokens.get(self.current + 2).map(|t| &t.kind), Some(TokenType::Preposition(sym)) if self.interner.resolve(*sym) == "of"))
+        {
+            return Ok(None);
+        }
+        let idx = self.tokens[self.current + 1].lexeme;
+        let Some(&(ir, ic)) = self.tensor_shapes.get(&idx) else {
+            return Ok(None);
+        };
+        self.advance();
+        self.advance();
+        self.advance();
+        let idx_name = self.interner.resolve(idx).to_string();
+        let table = self.peek().lexeme;
+        let table_name = self.interner.resolve(table).to_string();
+        let Some(&(rows, cols)) = self.tensor_shapes.get(&table) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`rows {idx_name} of {table_name}` — {table_name} must be a declared tensor."
+                )),
+                span: self.current_span(),
+            });
+        };
+        if !self.tensor_int.contains(&idx) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`rows I of T` — the row indices {idx_name} must be a tensor of Int."
+                )),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        let int = self.tensor_int.contains(&table);
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (ir * ic, cols), int);
+        Ok(Some(self.desugar_tensor_rows(
+            var,
+            idx,
+            ir * ic,
+            table,
+            rows,
+            cols,
+            int,
+        )))
+    }
+
+    fn try_parse_tensor_row(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let Some((index, table, rows, cols)) = self.try_parse_row_of()? else {
+            return Ok(None);
+        };
+        let int = self.tensor_int.contains(&table);
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (1, cols), int);
+        Ok(Some(
+            self.desugar_tensor_row(var, index, table, rows, cols, int),
+        ))
+    }
+
+    /// `Set rows from <P> of <T> to <X>.` — the block append: `X`'s `R` rows written at rows `P … P + R − 1` of `T`, as
+    /// a prefill chunk appends its keys and values to a cache. `None` (nothing consumed) unless `rows from <P> of
+    /// <declared tensor>` is there; past that point the shape is committed and a wrong source is a parse error.
+    fn try_parse_set_rows(&mut self) -> ParseResult<Option<Stmt<'a>>> {
+        if !(self.check_word("rows") && self.peek_word_at(1, "from")) {
+            return Ok(None);
+        }
+        let saved = self.backtrack_point();
+        self.advance();
+        self.advance();
+        let index = match self.parse_row_index() {
+            Ok(Some(e)) => e,
+            _ => {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+        };
+        if !self.check_preposition_is("of") {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance();
+        let table = self.peek().lexeme;
+        let Some(&(rows, cols)) = self.tensor_shapes.get(&table) else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        self.advance();
+        let is_to = self.check(&TokenType::To)
+            || matches!(&self.peek().kind, TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to");
+        if !is_to {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance();
+        let source = self.peek().lexeme;
+        let table_name = self.interner.resolve(table).to_string();
+        let Some(&(sr, sc)) = self.tensor_shapes.get(&source) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`Set rows from … of {table_name} to X` — X must be a declared tensor whose rows are {cols} wide.")),
+                span: self.current_span(),
+            });
+        };
+        let source_name = self.interner.resolve(source).to_string();
+        if sc != cols {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`Set rows from … of {table_name} to {source_name}` — a row of {table_name} holds {cols} elements, and a row of {source_name} holds {sc}.")),
+                span: self.current_span(),
+            });
+        }
+        if sr < 1 || sr > rows {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`Set rows from … of {table_name} to {source_name}` — a block of {sr} rows cannot lie among {table_name}'s {rows}.")),
+                span: self.current_span(),
+            });
+        }
+        let (table_int, source_int) = (
+            self.tensor_int.contains(&table),
+            self.tensor_int.contains(&source),
+        );
+        if table_int != source_int {
+            let kind = |int: bool| if int { "Int" } else { "Real" };
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`Set rows from … of {table_name} to {source_name}` — {table_name} holds {} and {source_name} holds {}.", kind(table_int), kind(source_int))),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        Ok(Some(self.desugar_tensor_set_row(
+            table, index, source, rows, cols, sr,
+        )))
+    }
+
+    /// `Set row <index> of <T> to <V>.` — `None` (nothing consumed) unless `row <index> of <declared tensor>`
+    /// is there; past that point the shape is committed and a wrong source is a parse error. `Set rows from …` is
+    /// the block form, [`Self::try_parse_set_rows`].
+    fn try_parse_set_row(&mut self) -> ParseResult<Option<Stmt<'a>>> {
+        if let Some(block) = self.try_parse_set_rows()? {
+            return Ok(Some(block));
+        }
+        let saved = self.backtrack_point();
+        let Some((index, table, rows, cols)) = self.try_parse_row_of()? else {
+            return Ok(None);
+        };
+        let is_to = self.check(&TokenType::To)
+            || matches!(&self.peek().kind, TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to");
+        if !is_to {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance();
+        let source = self.peek().lexeme;
+        let table_name = self.interner.resolve(table).to_string();
+        let Some(&(sr, sc)) = self.tensor_shapes.get(&source) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`Set row … of {table_name} to X` — X must be a declared tensor of {cols} elements.")),
+                span: self.current_span(),
+            });
+        };
+        let source_name = self.interner.resolve(source).to_string();
+        if sr * sc != cols {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`Set row … of {table_name} to {source_name}` — a row of {table_name} holds {cols} elements, and {source_name} has {}.",
+                    sr * sc
+                )),
+                span: self.current_span(),
+            });
+        }
+        let (table_int, source_int) = (
+            self.tensor_int.contains(&table),
+            self.tensor_int.contains(&source),
+        );
+        if table_int != source_int {
+            let kind = |int: bool| if int { "Int" } else { "Real" };
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`Set row … of {table_name} to {source_name}` — {table_name} holds {} and {source_name} holds {}.",
+                    kind(table_int),
+                    kind(source_int)
+                )),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        Ok(Some(self.desugar_tensor_set_row(
+            table, index, source, rows, cols, 1,
+        )))
+    }
+
+    /// Evaluate a row index ONCE into a fresh name, then require `1 ≤ index ≤ rows`. A LOGOS index below 1
+    /// is END-RELATIVE, so an unchecked `(index − 1)·cols + j + 1` would silently read or write the table's
+    /// last row for `index = 0`; the check makes every tier fail with the same message instead.
+    fn checked_row_index(
+        &mut self,
+        index: &'a Expr<'a>,
+        table: Symbol,
+        rows: i64,
+    ) -> (Symbol, [Stmt<'a>; 2]) {
+        let message = format!(
+            "row index out of range: {} has {rows} rows, numbered from 1",
+            self.interner.resolve(table)
+        );
+        self.checked_first_row(index, rows, &message)
+    }
+
+    /// [`Self::checked_row_index`] for a block of `count` consecutive rows from `index`: `1 ≤ index ≤ rows − count + 1`,
+    /// so every row of the block is one of the table's.
+    fn checked_row_block(
+        &mut self,
+        index: &'a Expr<'a>,
+        table: Symbol,
+        rows: i64,
+        count: i64,
+    ) -> (Symbol, [Stmt<'a>; 2]) {
+        let message = format!("row block out of range: {} has {rows} rows, numbered from 1, and a block of {count} rows must lie among them", self.interner.resolve(table));
+        self.checked_first_row(index, rows - count + 1, &message)
+    }
+
+    /// `Let at be index` and the check `1 ≤ at ≤ last`, failing with `message`.
+    fn checked_first_row(
+        &mut self,
+        index: &'a Expr<'a>,
+        last: i64,
+        message: &str,
+    ) -> (Symbol, [Stmt<'a>; 2]) {
+        let at = self.fresh_desugar_temp("row_at");
+        let in_range = self.te_bin(
+            BinaryOpKind::And,
+            self.te_bin(BinaryOpKind::GtEq, self.te_id(at), self.te_int(1)),
+            self.te_bin(BinaryOpKind::LtEq, self.te_id(at), self.te_int(last)),
+        );
+        let message = self.interner.intern(message);
+        let reason = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(message)));
+        (
+            at,
+            [
+                Stmt::Let {
+                    var: at,
+                    ty: None,
+                    value: index,
+                    mutable: false,
+                },
+                Stmt::RuntimeAssert {
+                    condition: in_range,
+                    hard: true,
+                    dim: None,
+                    reason: Some(reason),
+                },
+            ],
+        )
+    }
+
+    /// The flat 1-based item of element `j` (0-based) of row `at` (1-based) in a table `cols` wide.
+    fn row_item(&self, at: Symbol, cols: i64, j: &'a Expr<'a>) -> &'a Expr<'a> {
+        let row_base = self.te_bin(
+            BinaryOpKind::Multiply,
+            self.te_bin(BinaryOpKind::Subtract, self.te_id(at), self.te_int(1)),
+            self.te_int(cols),
+        );
+        self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(BinaryOpKind::Add, row_base, j),
+            self.te_int(1),
+        )
+    }
+
+    /// `Let x be row at of T` → check `at`, then push `T[(at−1)·cols + j + 1]` for `j < cols` into a fresh
+    /// `Seq` of `T`'s element kind — a copy, not a view.
+    fn desugar_tensor_row(
+        &mut self,
+        var: Symbol,
+        index: &'a Expr<'a>,
+        table: Symbol,
+        rows: i64,
+        cols: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let (at, check) = self.checked_row_index(index, table, rows);
+        let seq_sym = self.interner.intern("Seq");
+        let elem_sym = self.interner.intern(if int { "Int" } else { "Real" });
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(elem_sym)],
+            init_fields: vec![],
+        });
+        let j = self.fresh_desugar_temp("row_j");
+        let item = self.row_item(at, cols, self.te_id(j));
+        let loop_body = self.te_block(vec![
+            Stmt::Push {
+                value: self.te_index(self.te_id(table), item),
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(j), self.te_int(1)),
+            },
+        ]);
+        let [bind_at, assert_at] = check;
+        let body = self.te_block(vec![
+            bind_at,
+            assert_at,
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: j,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::Lt, self.te_id(j), self.te_int(cols)),
+                body: loop_body,
+                decreasing: None,
+            },
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let X be rows I of T` → for each of `I`'s `n` indices in turn, `at = I[k]`: check `at` as a row of `T`, then push
+    /// `T[(at−1)·cols + j + 1]` for `j < cols` into one fresh `Seq` of `T`'s element kind — row `k` of `X` is row `I[k]`.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_rows(
+        &mut self,
+        var: Symbol,
+        idx: Symbol,
+        n: i64,
+        table: Symbol,
+        rows: i64,
+        cols: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let seq_sym = self.interner.intern("Seq");
+        let elem_sym = self.interner.intern(if int { "Int" } else { "Real" });
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(elem_sym)],
+            init_fields: vec![],
+        });
+        let k = self.fresh_desugar_temp("rows_k");
+        let index = self.te_index(self.te_id(idx), self.te_id(k));
+        let (at, check) = self.checked_row_index(index, table, rows);
+        let j = self.fresh_desugar_temp("row_j");
+        let item = self.row_item(at, cols, self.te_id(j));
+        let copy = self.te_block(vec![
+            Stmt::Push {
+                value: self.te_index(self.te_id(table), item),
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(j), self.te_int(1)),
+            },
+        ]);
+        let [bind_at, assert_at] = check;
+        let per_row = self.te_block(vec![
+            bind_at,
+            assert_at,
+            Stmt::Let {
+                var: j,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::Lt, self.te_id(j), self.te_int(cols)),
+                body: copy,
+                decreasing: None,
+            },
+            Stmt::Set {
+                target: k,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(k), self.te_int(1)),
+            },
+        ]);
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: k,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(k), self.te_int(n)),
+                body: per_row,
+                decreasing: None,
+            },
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Set row at of T to V` → check `at`, then `T[(at−1)·cols + j + 1] = V[j + 1]` for `j < cols`. A block of `count`
+    /// rows (`Set rows from at of T to V`) is the same write over `count·cols` elements — the block's rows are
+    /// contiguous in `T` from row `at` on — behind the check that its last row is one of `T`'s.
+    fn desugar_tensor_set_row(
+        &mut self,
+        table: Symbol,
+        index: &'a Expr<'a>,
+        source: Symbol,
+        rows: i64,
+        cols: i64,
+        count: i64,
+    ) -> Stmt<'a> {
+        let (at, check) = if count == 1 {
+            self.checked_row_index(index, table, rows)
+        } else {
+            self.checked_row_block(index, table, rows, count)
+        };
+        let j = self.fresh_desugar_temp("row_j");
+        let item = self.row_item(at, cols, self.te_id(j));
+        let loop_body = self.te_block(vec![
+            Stmt::SetIndex {
+                collection: self.te_id(table),
+                index: item,
+                value: self.te_index(
+                    self.te_id(source),
+                    self.te_bin(BinaryOpKind::Add, self.te_id(j), self.te_int(1)),
+                ),
+            },
+            Stmt::Set {
+                target: j,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(j), self.te_int(1)),
+            },
+        ]);
+        let [bind_at, assert_at] = check;
+        let body = self.te_block(vec![
+            bind_at,
+            assert_at,
+            Stmt::Let {
+                var: j,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::Lt, self.te_id(j), self.te_int(cols * count)),
+                body: loop_body,
+                decreasing: None,
+            },
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let t be argmax of X` → scan `X` keeping the best value and its 1-based index, replacing only on a
+    /// STRICTLY greater element (so the first of equal maxima wins), then bind `t` to that index.
+    fn desugar_tensor_argmax(&mut self, var: Symbol, x: Symbol, total: i64) -> Stmt<'a> {
+        let best = self.fresh_desugar_temp("am_best");
+        let at = self.fresh_desugar_temp("am_at");
+        let i = self.fresh_desugar_temp("am_i");
+        let then_block = self.te_block(vec![
+            Stmt::Set {
+                target: best,
+                value: self.te_index(self.te_id(x), self.te_id(i)),
+            },
+            Stmt::Set {
+                target: at,
+                value: self.te_id(i),
+            },
+        ]);
+        let loop_body = self.te_block(vec![
+            Stmt::If {
+                cond: self.te_bin(
+                    BinaryOpKind::Gt,
+                    self.te_index(self.te_id(x), self.te_id(i)),
+                    self.te_id(best),
+                ),
+                then_block,
+                else_block: None,
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var: best,
+                ty: None,
+                value: self.te_index(self.te_id(x), self.te_int(1)),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: at,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(2),
+                mutable: true,
+            },
+            Stmt::While {
+                cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(total)),
+                body: loop_body,
+                decreasing: None,
+            },
+            Stmt::Let {
+                var,
+                ty: None,
+                value: self.te_id(at),
+                mutable: false,
+            },
+        ]);
+        Stmt::Splice { body }
+    }
+
+    fn desugar_tensor_transpose(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        rows: i64,
+        cols: i64,
+        int: bool,
+    ) -> Stmt<'a> {
+        let tj = self.fresh_desugar_temp("tp_j");
+        let ti = self.fresh_desugar_temp("tp_i");
+        let new_seq = self.new_tensor_seq(int);
+        // X[ti*cols + tj + 1] (1-based item)
+        let idx = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(BinaryOpKind::Multiply, self.te_id(ti), self.te_int(cols)),
+                self.te_id(tj),
+            ),
+            self.te_int(1),
+        );
+        let inner_body = self.te_block(vec![
+            Stmt::Push {
+                value: self.te_index(self.te_id(x), idx),
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: ti,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(ti), self.te_int(1)),
+            },
+        ]);
+        let inner = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(ti), self.te_int(rows)),
+            body: inner_body,
+            decreasing: None,
+        };
+        let outer_body = self.te_block(vec![
+            Stmt::Let {
+                var: ti,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            inner,
+            Stmt::Set {
+                target: tj,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(tj), self.te_int(1)),
+            },
+        ]);
+        let outer = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::Lt, self.te_id(tj), self.te_int(cols)),
+            body: outer_body,
+            decreasing: None,
+        };
+        let body = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: tj,
+                ty: None,
+                value: self.te_int(0),
+                mutable: true,
+            },
+            outer,
+        ]);
+        Stmt::Splice { body }
+    }
+
+    /// `Let Y be softmax/rmsnorm of X` in value position. `X` must be a tensor declared earlier; `Y` takes its
+    /// shape. `None` if the value isn't a reduction op.
+    fn try_parse_tensor_unary(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        // `Let H be moe of X with router Wr gate Wg up Wu down Wd choosing K of E` — a Mixture-of-Experts FFN.
+        // X is `1×d`, Wr the router `d×E`, Wg/Wu the E experts' gate/up stacked `(E·dff)×d`, Wd the down
+        // stacked `(E·d)×dff`. Routes X to its top-K experts and combines their SwiGLU by the renormalized
+        // router weight (the Qwen3-30B-A3B block, general in d/dff/E/K).
+        if self.check_word("moe") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let want = |s: &mut Self, w: &str| -> ParseResult<()> {
+                if !s.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`moe of X with router Wr gate Wg up Wu down Wd choosing K of E` — expected `{w}`."
+                        )),
+                        span: s.current_span(),
+                    });
+                }
+                s.advance();
+                Ok(())
+            };
+            let operand = |s: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = s.peek().lexeme;
+                let Some(&(r, c)) = s.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`moe` {role} must be a declared tensor."
+                        )),
+                        span: s.current_span(),
+                    });
+                };
+                s.advance();
+                Ok((sym, r, c))
+            };
+            // `plus B` after a weight: its bias, of the shape the weight's outputs take.
+            let bias = |s: &mut Self, role: &str, shape: (i64, i64)| -> ParseResult<Option<Symbol>> {
+                if !s.check_word("plus") {
+                    return Ok(None);
+                }
+                s.advance();
+                let (b, r, c) = operand(s, role)?;
+                if (r, c) != shape {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`moe … {role} plus B` — B must be {}×{}, and `{}` is {r}×{c}.",
+                            shape.0,
+                            shape.1,
+                            s.interner.resolve(b)
+                        )),
+                        span: s.current_span(),
+                    });
+                }
+                Ok(Some(b))
+            };
+            let (x, _xr, d) = operand(self, "input X")?;
+            want(self, "with")?;
+            want(self, "router")?;
+            let (wr, _wrr, ne) = operand(self, "router Wr")?; // Wr is d×E → cols = E
+            let router_bias = bias(self, "router Wr", (1, ne))?;
+            want(self, "gate")?;
+            let (wg, wgr, _wgc) = operand(self, "gate Wg")?; // Wg is (E·dff)×d → rows = E·dff
+            let fd = if ne > 0 { wgr / ne } else { 0 };
+            let gate_bias = bias(self, "gate Wg", (ne, fd))?;
+            want(self, "up")?;
+            let (wu, _wur, _wuc) = operand(self, "up Wu")?;
+            let up_bias = bias(self, "up Wu", (ne, fd))?;
+            want(self, "down")?;
+            let (wd, _wdr, _wdc) = operand(self, "down Wd")?;
+            let down_bias = bias(self, "down Wd", (ne, d))?;
+            want(self, "choosing")?;
+            let k = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`moe … choosing K of E` — K must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            if !self.check_preposition_is("of") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`moe … choosing K of E` — expected `of E`.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            let ne_lit = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`moe … choosing K of E` — E must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            // `by sigmoid`: each expert scored by its own logit's sigmoid (Llama 4), not a softmax over every expert.
+            let score = if self.check_word("by") {
+                self.advance();
+                if !self.check_word("sigmoid") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`moe … choosing K of E by sigmoid` — expected `sigmoid` after `by`.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                MoeScore::Sigmoid
+            } else {
+                MoeScore::Softmax
+            };
+            // `biased by B`: each expert chosen by its score plus `B[e]`, and weighed by its score alone (DeepSeek-V3).
+            let selection_bias = if self.check_word("biased") {
+                self.advance();
+                if !self.check_word("by") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom("`moe … biased by B` — expected `by` after `biased`.".to_string()),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                let (b, r, c) = operand(self, "selection bias B of `biased by B`")?;
+                if (r, c) != (1, ne_lit) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`moe … biased by B` — B must be 1×{ne_lit}, and `{}` is {r}×{c}.",
+                            self.interner.resolve(b)
+                        )),
+                        span: self.current_span(),
+                    });
+                }
+                Some(b)
+            } else {
+                None
+            };
+            // `within the top G of N groups`: the experts in `N` groups, chosen only among the top `G` (DeepSeek-V3).
+            let groups = if self.check_word("within") {
+                self.advance();
+                let clause = "`moe … within the top G of N groups`";
+                for w in ["the", "top"] {
+                    if !self.check_word(w) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom(format!("{clause} — expected `{w}`.")),
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance();
+                }
+                let kept = self.take_int_literal().ok_or_else(|| ParseError {
+                    kind: ParseErrorKind::Custom(format!("{clause} — G must be an integer literal.")),
+                    span: self.current_span(),
+                })?;
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("{clause} — expected `of N groups`.")),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                let count = self.take_int_literal().ok_or_else(|| ParseError {
+                    kind: ParseErrorKind::Custom(format!("{clause} — N must be an integer literal.")),
+                    span: self.current_span(),
+                })?;
+                if !self.check_word("groups") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("{clause} — expected `groups`.")),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                Some((kept, count))
+            } else {
+                None
+            };
+            // `without renormalizing`: each kept expert weighs its softmax over every expert (DeepSeek-V2).
+            let renormalize = !self.check_word("without");
+            if !renormalize {
+                self.advance();
+                if !self.check_word("renormalizing") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`moe … choosing K of E without renormalizing` — expected `renormalizing` after `without`.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+            }
+            // `scaled by S`: every kept weight times `S`, after the renormalization (DeepSeek-V3's routed scale).
+            let scale = if self.check_word("scaled") {
+                self.advance();
+                if !self.check_word("by") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom("`moe … scaled by S` — expected `by` after `scaled`.".to_string()),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                let v = match self.peek().kind {
+                    TokenType::Number(sym) => self.interner.resolve(sym).replace('_', "").parse::<f64>().ok(),
+                    _ => None,
+                };
+                match v.filter(|v| v.is_finite() && *v > 0.0) {
+                    Some(v) => {
+                        self.advance();
+                        Some(v)
+                    }
+                    None => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom("`moe … scaled by S` — S must be a positive number.".to_string()),
+                            span: self.current_span(),
+                        })
+                    }
+                }
+            } else {
+                None
+            };
+            // `weighting the inputs`: a kept expert's weight scales the input it reads (Llama 4).
+            let weigh_inputs = self.check_word("weighting");
+            if weigh_inputs {
+                self.advance();
+                for w in ["the", "inputs"] {
+                    if !self.check_word(w) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom(format!(
+                                "`moe … weighting the inputs` — expected `{w}`."
+                            )),
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance();
+                }
+            }
+            let act = self.take_moe_activation()?;
+            if !(self.check(&TokenType::Period) || self.check(&TokenType::EOF)) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`moe … choosing K of E` — `{}` is no clause here; the clauses come in this order: `by sigmoid`, \
+                         `biased by B`, `within the top G of N groups`, `without renormalizing`, `scaled by S`, \
+                         `weighting the inputs`, `using a swiglu clamped at L with slope A`.",
+                        self.interner.resolve(self.peek().lexeme)
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if ne_lit != ne {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`moe … of {ne_lit}` disagrees with the router Wr's {ne} columns."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if ne == 0 || wgr % ne != 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`moe` gate Wg rows ({wgr}) must be E·dff (a multiple of E={ne})."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            let dff = wgr / ne;
+            if !(1..=ne).contains(&k) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`moe … choosing {k} of {ne}` — K must be in 1..=E."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if let Some((kept, count)) = groups {
+                let why = if count < 1 || ne % count != 0 {
+                    Some(format!("N must divide the {ne} experts into groups of one size"))
+                } else if !(1..=count).contains(&kept) {
+                    Some("G must be in 1..=N".to_string())
+                } else if k > kept * (ne / count) {
+                    Some(format!("the top {kept} groups hold {} experts, fewer than the {k} chosen", kept * (ne / count)))
+                } else {
+                    None
+                };
+                if let Some(why) = why {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`moe … within the top {kept} of {count} groups` — {why}.")),
+                        span: self.current_span(),
+                    });
+                }
+            }
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (1, d), false);
+            return Ok(Some(self.desugar_tensor_moe(
+                var,
+                x,
+                wr,
+                wg,
+                wu,
+                wd,
+                d,
+                dff,
+                ne,
+                k,
+                MoeOptions {
+                    router_bias,
+                    biases: [gate_bias, up_bias, down_bias],
+                    score,
+                    selection_bias,
+                    groups,
+                    renormalize,
+                    scale,
+                    weigh_inputs,
+                    act,
+                },
+            )));
+        }
+        // `Let C be causal attention of Q over K and V with H heads KV groups from P` — a BLOCK of query rows against
+        // a cache: Q is `T×(H·HD)`, K and V `L×(KV·HD)`, and row r (1-based) is the query at position `P + r − 1`,
+        // attending the first `P + r − 1` cached positions — a prefill chunk whose rows appended their keys and values
+        // first. Checked once at run time: `P ≥ 1` and `P + T − 1 ≤ L`. C is `T×(H·HD)`.
+        if self.check_word("causal") && self.peek_word_at(1, "attention") {
+            self.advance();
+            self.advance();
+            let want = |s: &mut Self, w: &str| -> ParseResult<()> {
+                if !s.check_word(w) && !s.check_preposition_is(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`causal attention of Q over K and V with H heads KV groups from P` — expected `{w}`.")),
+                        span: s.current_span(),
+                    });
+                }
+                s.advance();
+                Ok(())
+            };
+            let operand = |s: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = s.peek().lexeme;
+                let Some(&(r, c)) = s.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`causal attention` {role} must be a declared tensor."
+                        )),
+                        span: s.current_span(),
+                    });
+                };
+                s.advance();
+                Ok((sym, r, c))
+            };
+            want(self, "of")?;
+            let (q, qr, qc) = operand(self, "query block Q")?;
+            want(self, "over")?;
+            let (kc, kcr, kcc) = operand(self, "keys K")?;
+            want(self, "and")?;
+            let (vc, vr, vcc) = operand(self, "values V")?;
+            want(self, "with")?;
+            let h = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`causal attention … with H heads` — H must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "heads")?;
+            let kv = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`causal attention … KV groups` — KV must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "groups")?;
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError { kind: ParseErrorKind::Custom("`causal attention … from P` — expected `from` and the first row's position.".to_string()), span: self.current_span() });
+            }
+            self.advance();
+            let from = self.parse_row_index()?.ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom("`causal attention … from P` — P is a whole number, a name or a parenthesized expression.".to_string()),
+                span: self.current_span(),
+            })?;
+            let window = self.take_window()?;
+            let scale = self.take_attention_scale()?;
+            let cap = self.take_cap("attention …")?;
+            let sinks = self.take_sinks(h)?;
+            if h <= 0 || qc % h != 0 {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`causal attention` query Q cols ({qc}) must be H·HD (a multiple of H={h}).")), span: self.current_span() });
+            }
+            let hd = qc / h;
+            if kv <= 0 || h % kv != 0 || kcc != kv * hd || vr != kcr || vcc % kv != 0 || vcc == 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("`causal attention` keys K must be L×(KV·HD) = L×{kv}·{hd} with KV dividing H={h}, and values V L×(KV·VD) — got {kcr}×{kcc} and {vr}×{vcc}.")),
+                    span: self.current_span(),
+                });
+            }
+            let vd = vcc / kv;
+            if qr < 1 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`causal attention` query block Q has no rows.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (qr, h * vd), false);
+            return Ok(Some(self.desugar_tensor_attention_block(
+                var,
+                q,
+                kc,
+                vc,
+                AttentionShape { h, kv, hd, vd, l: kcr, rows: qr },
+                Some(from),
+                AttentionOptions { window, scale, cap, sinks },
+            )));
+        }
+        // `Let Y be causal conv of X with weight WC state CS over T taps` — depthwise causal conv1d with a
+        // carried decode ring. X is 1×C, WC and CS are T×C.
+        if self.check_word("causal") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_word("conv") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let want = |sf: &mut Self, w: &str| -> ParseResult<()> {
+                if !sf.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`causal conv of X with weight WC state CS over T taps` — expected `{w}`.")),
+                        span: sf.current_span(),
+                    });
+                }
+                sf.advance();
+                Ok(())
+            };
+            let operand = |sf: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = sf.peek().lexeme;
+                let Some(&(r, c)) = sf.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`causal conv` {role} must be a declared tensor."
+                        )),
+                        span: sf.current_span(),
+                    });
+                };
+                sf.advance();
+                Ok((sym, r, c))
+            };
+            let (x, rows, chan) = operand(self, "input X")?;
+            want(self, "with")?;
+            want(self, "weight")?;
+            let (wc, wcr, wcc) = operand(self, "weight WC")?;
+            want(self, "state")?;
+            let (cs, csr, csc) = operand(self, "state CS")?;
+            want(self, "over")?;
+            let taps = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`causal conv … over T taps` — T must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "taps")?;
+            if taps <= 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`causal conv … over {taps} taps` — T must be positive."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if (wcr, wcc) != (taps, chan) {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`causal conv` weight WC must be {taps} by {chan} (taps by channels) — got {wcr} by {wcc}.")), span: self.current_span() });
+            }
+            if (csr, csc) != (taps, chan) {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`causal conv` state CS must be {taps} by {chan} (the ring of the last {taps} inputs) — got {csr} by {csc}.")), span: self.current_span() });
+            }
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (rows, chan), false);
+            return Ok(Some(
+                self.desugar_tensor_causal_conv(var, x, wc, cs, taps, chan, rows),
+            ));
+        }
+        // `Let C be full attention of Q over K and V with H heads` — BIDIRECTIONAL T×T self-attention (the
+        // vision tower). Q/K/V are T×(H·HD); no causal mask, no KV cache.
+        if self.check_word("full") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_word("attention") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let want = |sf: &mut Self, w: &str| -> ParseResult<()> {
+                if !sf.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`full attention of Q over K and V with H heads` — expected `{w}`."
+                        )),
+                        span: sf.current_span(),
+                    });
+                }
+                sf.advance();
+                Ok(())
+            };
+            let operand = |sf: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = sf.peek().lexeme;
+                let Some(&(r, c)) = sf.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`full attention` {role} must be a declared tensor."
+                        )),
+                        span: sf.current_span(),
+                    });
+                };
+                sf.advance();
+                Ok((sym, r, c))
+            };
+            let (q, qr, qc) = operand(self, "query Q")?;
+            want(self, "over")?;
+            let (kk, kr, kc) = operand(self, "keys K")?;
+            want(self, "and")?;
+            let (vv, vr, vc) = operand(self, "values V")?;
+            want(self, "with")?;
+            let h = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`full attention … with H heads` — H must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "heads")?;
+            if h <= 0 || qc % h != 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`full attention` Q's {qc} columns must be H·HD (a multiple of H={h})."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if (kr, kc) != (qr, qc) || (vr, vc) != (qr, qc) {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`full attention` K and V must match Q's shape {qr} by {qc} — got {kr} by {kc} and {vr} by {vc}.")), span: self.current_span() });
+            }
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (qr, qc), false);
+            return Ok(Some(self.desugar_tensor_full_attention(
+                var,
+                q,
+                kk,
+                vv,
+                h,
+                qc / h,
+                qr,
+            )));
+        }
+        // `Let O be gated delta of Q over K and V with gate Z beta B decay A state S norm GN with HV heads
+        // HK groups` — the Gated DeltaNet step (48 of Qwen3.8-27B's 64 layers).
+        if self.check_word("gated") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_word("delta") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let want = |sf: &mut Self, w: &str| -> ParseResult<()> {
+                if !sf.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`gated delta of Q over K and V with gate Z beta B decay A state S norm GN with HV heads HK groups` — expected `{w}`."
+                        )),
+                        span: sf.current_span(),
+                    });
+                }
+                sf.advance();
+                Ok(())
+            };
+            let operand = |sf: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = sf.peek().lexeme;
+                let Some(&(r, c)) = sf.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`gated delta` {role} must be a declared tensor."
+                        )),
+                        span: sf.current_span(),
+                    });
+                };
+                sf.advance();
+                Ok((sym, r, c))
+            };
+            let (q, qr, qc) = operand(self, "query Q")?;
+            want(self, "over")?;
+            let (kk, kr, kc) = operand(self, "keys K")?;
+            want(self, "and")?;
+            let (vv, vr, vc) = operand(self, "values V")?;
+            want(self, "with")?;
+            let sigmoid_gate = self.check_word("sigmoid");
+            if sigmoid_gate {
+                self.advance();
+            }
+            want(self, "gate")?;
+            let (zz, zr, zc) = operand(self, "gate Z")?;
+            want(self, "beta")?;
+            let (bb, br, bc) = operand(self, "beta B")?;
+            want(self, "decay")?;
+            let (aa, ar, ac) = operand(self, "decay A")?;
+            // A block of rows runs the recurrence row after row, so every per-token operand has the block's rows.
+            if [kr, vr, zr, br, ar].iter().any(|r| *r != qr) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("`gated delta` Q, K, V, gate Z, beta B and decay A must have the same rows (one per token) — got {qr}, {kr}, {vr}, {zr}, {br} and {ar}.")),
+                    span: self.current_span(),
+                });
+            }
+            want(self, "state")?;
+            let (ss, sr, sc) = operand(self, "state S")?;
+            want(self, "norm")?;
+            let (gg, _gr, gc) = operand(self, "norm GN")?;
+            want(self, "with")?;
+            let hv = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`gated delta … with HV heads` — HV must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "heads")?;
+            let hk = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`gated delta … HK groups` — HK must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "groups")?;
+            if hk <= 0 || qc % hk != 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`gated delta` Q's {qc} columns must be HK·D (a multiple of HK={hk})."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            let d = qc / hk;
+            if hv <= 0 || hv % hk != 0 {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`gated delta … {hv} heads {hk} groups` — HV must be a positive multiple of HK.")), span: self.current_span() });
+            }
+            if kc != qc {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`gated delta` keys K must match Q's {qc} columns — got {kc}."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if vc != hv * d || zc != hv * d {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`gated delta` V and gate Z must be HV·D = {}·{d} = {} columns — got {vc} and {zc}.", hv, hv * d)), span: self.current_span() });
+            }
+            if bc != hv || ac != hv {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`gated delta` beta B and decay A must be one value per head (HV={hv}) — got {bc} and {ac}.")), span: self.current_span() });
+            }
+            if (sr, sc) != (hv * d, d) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`gated delta` state S must be HV·D by D = {} by {d} — got {sr} by {sc}.",
+                        hv * d
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if gc != d {
+                return Err(ParseError { kind: ParseErrorKind::Custom(format!("`gated delta` norm GN must have D={d} columns (shared across heads) — got {gc}.")), span: self.current_span() });
+            }
+            let eps = self.take_epsilon("gated delta")?;
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (qr, hv * d), false);
+            return Ok(Some(self.desugar_tensor_gated_delta(
+                var, q, kk, vv, zz, bb, aa, ss, gg, hv, hk, d, qr, eps, sigmoid_gate,
+            )));
+        }
+        // `Let C be lut attention of Q over K and V with H heads KV groups [up to P] with table E and scale M shifted
+        // right by S` — an int8 model's single-query attention, its softmax an exp LUT: the weights are `E` at the
+        // index `clamp(((max − s_j)·M) >> S, 0, len(E) − 1)` and the context their weighted mean, floored. Every tensor
+        // is a tensor of Int; the shapes are the float form's.
+        if self.check_word("lut") && self.peek_word_at(1, "attention") {
+            self.advance();
+            self.advance();
+            let form = "`lut attention of Q over K and V with H heads KV groups up to P with table E and scale M shifted right by S`";
+            let refuse = |s: &Self, why: String| ParseError {
+                kind: ParseErrorKind::Custom(format!("{form} — {why}")),
+                span: s.current_span(),
+            };
+            let want = |s: &mut Self, w: &str| -> ParseResult<()> {
+                if !s.check_word(w) {
+                    return Err(refuse(s, format!("expected `{w}`.")));
+                }
+                s.advance();
+                Ok(())
+            };
+            let operand = |s: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = s.peek().lexeme;
+                let Some(&(r, c)) = s.tensor_shapes.get(&sym) else {
+                    return Err(refuse(s, format!("{role} must be a declared tensor.")));
+                };
+                if !s.tensor_int.contains(&sym) {
+                    return Err(refuse(s, format!("{role} must be a tensor of Int.")));
+                }
+                s.advance();
+                Ok((sym, r, c))
+            };
+            want(self, "of")?;
+            let (q, qr, qc) = operand(self, "the query Q")?;
+            want(self, "over")?;
+            let (kc, kcr, kcc) = operand(self, "the keys K")?;
+            want(self, "and")?;
+            let (vc, vcr, vcc) = operand(self, "the values V")?;
+            want(self, "with")?;
+            let h = self
+                .take_int_literal()
+                .ok_or_else(|| refuse(self, "H must be an integer literal.".into()))?;
+            want(self, "heads")?;
+            let kv = self
+                .take_int_literal()
+                .ok_or_else(|| refuse(self, "KV must be an integer literal.".into()))?;
+            want(self, "groups")?;
+            let upto = if self.check_word("up") {
+                self.advance();
+                let is_to = self.check(&TokenType::To)
+                    || matches!(&self.peek().kind, TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to");
+                if !is_to {
+                    return Err(refuse(self, "expected `to` after `up`.".into()));
+                }
+                self.advance();
+                Some(self.parse_row_index()?.ok_or_else(|| {
+                    refuse(self, "P is a whole number, a name or a parenthesized expression.".into())
+                })?)
+            } else {
+                None
+            };
+            want(self, "with")?;
+            want(self, "table")?;
+            let (table, tr, n) = operand(self, "the table E")?;
+            want(self, "and")?;
+            want(self, "scale")?;
+            let m = self
+                .take_signed_int_literal()
+                .ok_or_else(|| refuse(self, "M must be an integer literal.".into()))?;
+            want(self, "shifted")?;
+            want(self, "right")?;
+            want(self, "by")?;
+            let s = self
+                .take_int_literal()
+                .filter(|s| (0..=63).contains(s))
+                .ok_or_else(|| refuse(self, "S must be a whole number from 0 to 63.".into()))?;
+            if qr != 1 {
+                return Err(refuse(self, format!("Q is one query row, and it has {qr} rows.")));
+            }
+            if h <= 0 || qc % h != 0 {
+                return Err(refuse(self, format!("Q's {qc} columns must be H·HD, a multiple of H = {h}.")));
+            }
+            let hd = qc / h;
+            if kv <= 0 || h % kv != 0 || kcc != kv * hd {
+                return Err(refuse(
+                    self,
+                    format!("K's {kcc} columns must be KV·HD = {kv}·{hd}, and H = {h} a multiple of KV."),
+                ));
+            }
+            if (vcr, vcc) != (kcr, kcc) {
+                return Err(refuse(self, format!("V is {vcr} by {vcc}, and K is {kcr} by {kcc}.")));
+            }
+            if tr != 1 || n < 1 {
+                return Err(refuse(self, format!("the table E is one row of entries, and it is {tr} by {n}.")));
+            }
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (1, qc), true);
+            return Ok(Some(self.desugar_tensor_lut_attention(
+                var,
+                q,
+                kc,
+                vc,
+                table,
+                (h, kv, hd, kcr, n),
+                upto,
+                (m, s),
+            )));
+        }
+        // `Let C be attention of Q over K and V with H heads KV groups` — single-query multi-head GQA attention.
+        // Q is `1×(H·HD)`, K/V are `L×(KV·HD)` (the decode KV cache). Query head g attends to kv head (g-1)/(H/KV)
+        // over all L cached keys. Lowers to one parallel `attn_decode` kernel (block per query head).
+        // `… up to P` attends over the first P cached positions only — a decode step's cache holds every position
+        // it will ever hold, and only the first P are written yet. P is checked, once, to be in `1..=L`.
+        if self.check_word("attention") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let want = |s: &mut Self, w: &str| -> ParseResult<()> {
+                if !s.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`attention of Q over K and V with H heads KV groups` — expected `{w}`.")),
+                        span: s.current_span(),
+                    });
+                }
+                s.advance();
+                Ok(())
+            };
+            let operand = |s: &mut Self, role: &str| -> ParseResult<(Symbol, i64, i64)> {
+                let sym = s.peek().lexeme;
+                let Some(&(r, c)) = s.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`attention` {role} must be a declared tensor."
+                        )),
+                        span: s.current_span(),
+                    });
+                };
+                s.advance();
+                Ok((sym, r, c))
+            };
+            let (q, qr, qc) = operand(self, "query Q")?; // Q is 1×(H·HD)
+            if qr != 1 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`attention of Q …` is one query row, and Q has {qr} rows — a block of query rows, each attending up to its own position, is `causal attention of Q over K and V with H heads KV groups from P`."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            want(self, "over")?;
+            let (kc, kcr, kcc) = operand(self, "keys K")?; // K is L×(KV·HD)
+            want(self, "and")?;
+            let (vc, vr, vcc) = operand(self, "values V")?;
+            want(self, "with")?;
+            let h = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`attention … with H heads` — H must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "heads")?;
+            let kv = self.take_int_literal().ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`attention … KV groups` — KV must be an integer literal.".to_string(),
+                ),
+                span: self.current_span(),
+            })?;
+            want(self, "groups")?;
+            let upto = if self.check_word("up") {
+                self.advance();
+                let is_to = self.check(&TokenType::To)
+                    || matches!(&self.peek().kind, TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to");
+                if !is_to {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`attention … up to P` — expected `to` after `up`.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                Some(self.parse_row_index()?.ok_or_else(|| ParseError {
+                    kind: ParseErrorKind::Custom("`attention … up to P` — P is a whole number, a name or a parenthesized expression.".to_string()),
+                    span: self.current_span(),
+                })?)
+            } else {
+                None
+            };
+            let window = self.take_window()?;
+            let scale = self.take_attention_scale()?;
+            let cap = self.take_cap("attention …")?;
+            let sinks = self.take_sinks(h)?;
+            if h <= 0 || qc % h != 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`attention` query Q cols ({qc}) must be H·HD (a multiple of H={h})."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            let hd = qc / h;
+            if kv <= 0 || kcc != kv * hd {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`attention` keys K cols ({kcc}) must be KV·HD = {kv}·{hd}."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if vr != kcr || vcc == 0 || vcc % kv != 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`attention` values V must be L×(KV·VD) — K's {kcr} rows, and columns a multiple of KV={kv} — got {vr}×{vcc}."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            let vd = vcc / kv;
+            let l = kcr; // cache length = K's rows
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (1, h * vd), false);
+            return Ok(Some(self.desugar_tensor_attention(
+                var,
+                q,
+                kc,
+                vc,
+                AttentionShape { h, kv, hd, vd, l, rows: 1 },
+                upto,
+                AttentionOptions { window, scale, cap, sinks },
+            )));
+        }
+        // `Let x be row tok of Emb` — the embedding lookup: row `tok` (1-based) of a declared tensor, as a
+        // `1 × cols` tensor of the table's element kind.
+        if let Some(stmt) = self.try_parse_tensor_row(var)? {
+            return Ok(Some(stmt));
+        }
+        // `Let X be rows toks of Emb` — the block of them: row `k` of `X` is row `toks[k]` of the table.
+        if let Some(stmt) = self.try_parse_tensor_rows(var)? {
+            return Ok(Some(stmt));
+        }
+        // `Let t be argmax of X` — the 1-based index of the FIRST maximal element of a declared tensor.
+        if self.check_word("argmax") && self.peek_word_at(1, "of") {
+            let saved = self.backtrack_point();
+            self.advance();
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            return Ok(Some(self.desugar_tensor_argmax(var, x, r * c)));
+        }
+        // `Let Kt be transpose of K` — the matrix transpose (an `R by C` tensor becomes `C by R`), needed for
+        // attention's `Q · Kᵀ`. Kt[j][i] = K[i][j].
+        if self.check_word("transpose") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`transpose of X` needs a declared tensor X.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            // A transpose moves elements without computing on them: the result keeps X's element kind.
+            let int = self.tensor_int.contains(&x);
+            self.bind_tensor(var, (c, r), int);
+            return Ok(Some(self.desugar_tensor_transpose(var, x, r, c, int)));
+        }
+        // `Let Qr be rope of Q with cos RC and sin RS` — RoPE-NEOX: rotate each head's pairs `(i, i+half)`
+        // by the precomputed `(cos, sin)` at its row's position. `Q` is `R × (H·hd)`; `RC`/`RS` are `R × half`
+        // (row `r` of `Q` turns by row `r` of the tables), `1 × half` (every row turns by the same angles), or — with
+        // `from position P` — a cache of angles per position, row `r` turning by row `P + r − 1`;
+        // `hd = 2·half`, `H = cols(Q)/hd`.
+        if self.check_word("rope") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let q = self.peek().lexeme;
+            let Some(&(qr, qc)) = self.tensor_shapes.get(&q) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope of Q` needs a declared tensor Q.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            if !self.check_word("with") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope of Q with cos RC and sin RS`: expected `with`.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            if !self.check_word("cos") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope … with cos RC …`: expected `cos`.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            let rc = self.peek().lexeme;
+            let Some(&(rcr, half)) = self.tensor_shapes.get(&rc) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope … with cos RC`: RC must be a declared `R by half` tensor."
+                            .to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            if !self.check_word("and") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope … cos RC and sin RS`: expected `and`.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            if !self.check_word("sin") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope … and sin RS`: expected `sin`.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            let rs = self.peek().lexeme;
+            let Some(&rs_shape) = self.tensor_shapes.get(&rs) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`rope … and sin RS`: RS must be a declared tensor of RC's shape."
+                            .to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            let (q_name, rc_name, rs_name) = (
+                self.interner.resolve(q).to_string(),
+                self.interner.resolve(rc).to_string(),
+                self.interner.resolve(rs).to_string(),
+            );
+            if rs_shape != (rcr, half) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("`rope … cos {rc_name} and sin {rs_name}` — {rs_name} must have {rc_name}'s shape ({rcr} by {half}), not {} by {}.", rs_shape.0, rs_shape.1)),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            // Optional `from position P` — the tables are a CACHE of angles per position: row `r` of Q turns by row
+            // `P + r − 1`, and the block's rows must all lie among the cache's. Without it the tables hold one row of
+            // angles per row of Q, or one row for every row.
+            let from = if self.check_word("from") && self.peek_word_at(1, "position") {
+                self.advance();
+                self.advance();
+                let Some(p) = self.parse_row_index()? else {
+                    return Err(ParseError { kind: ParseErrorKind::Custom(format!("`rope of {q_name} … from position P` — P must be a whole number, a name or a parenthesized expression.")), span: self.current_span() });
+                };
+                if rcr < qr {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`rope of {q_name} … from position` — a cache of {rcr} rows cannot hold the {qr} rows of {q_name}; {rc_name} has {rcr} rows.")),
+                        span: self.current_span(),
+                    });
+                }
+                Some((p, rcr as i64))
+            } else {
+                if rcr != 1 && rcr != qr {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`rope of {q_name}` — the tables hold one row of angles per row of {q_name} ({qr} rows) or one row for every row; {rc_name} has {rcr} rows.")),
+                        span: self.current_span(),
+                    });
+                }
+                None
+            };
+            // Optional `across H heads` — a PARTIAL rotary slice. Without it, head_dim is `2·half` (classic
+            // full rotary, every dim rotated). With it, head_dim is `|Q|/H` and only the leading `2·half` dims
+            // of each head rotate; the rest pass through. Qwen3.8-27B rotates 64 of each head's 256 dims, so
+            // the cos/sin table width no longer determines head_dim and has to be stated.
+            let hd = if self.check_word("across") {
+                let saved_a = self.backtrack_point();
+                self.advance();
+                let Some(hcount) = self.take_int_literal() else {
+                    self.backtrack_to(&saved_a);
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`rope … across H heads` — H must be an integer literal.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                };
+                if !self.check_word("heads") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`rope … across H heads`: expected `heads`.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                if hcount <= 0 || qc % hcount != 0 {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`rope … across {hcount} heads` — Q's {qc} columns must divide by H."
+                        )),
+                        span: self.current_span(),
+                    });
+                }
+                let hd = qc / hcount;
+                if 2 * half > hd {
+                    return Err(ParseError { kind: ParseErrorKind::Custom(format!("`rope … across {hcount} heads` — the rotary slice is {} dims but head_dim is only {hd}.", 2 * half)), span: self.current_span() });
+                }
+                hd
+            } else {
+                if half <= 0 || qc % (2 * half) != 0 {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`rope of {q_name}` — without `across H heads` a head is the tables' 2·{half} dims, and {q_name}'s {qc} columns are not whole heads.")),
+                        span: self.current_span(),
+                    });
+                }
+                2 * half
+            };
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (qr, qc), false);
+            let per_row = (rcr > 1 || from.is_some()).then_some(qc / hd);
+            return Ok(Some(self.desugar_tensor_rope(
+                var,
+                q,
+                rc,
+                rs,
+                qr * qc,
+                half,
+                hd,
+                per_row,
+                from,
+            )));
+        }
+        // `Let Y be relu of X` — `max(x, 0)`, elementwise, in X's element kind: an int8 model's FFN activation.
+        if self.check_word("relu") && self.peek_word_at(1, "of") {
+            self.advance();
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`relu of X` needs a declared tensor X.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            let int = self.tensor_int.contains(&x);
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), int);
+            return Ok(Some(self.desugar_tensor_map(
+                var,
+                x,
+                r * c,
+                TensorElemMap::Relu,
+                int,
+            )));
+        }
+        // `Let Y be silu of X` — the SwiGLU gate activation `x·σ(x) = x / (1 + e^-x)`, elementwise.
+        if self.check_word("silu") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`silu of X` needs a declared tensor X.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(self.desugar_tensor_silu(var, x, r * c)));
+        }
+        // `Let Y be sigmoid of X` — `1/(1+e^-x)`, elementwise. The gated-attention output gate.
+        if self.check_word("sigmoid") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`sigmoid of X` needs a declared tensor X.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(self.desugar_tensor_sigmoid(var, x, r * c)));
+        }
+        // `Let Y be gelu of X` — GELU (ggml's tanh approximation), elementwise. The vision tower's MLP.
+        if self.check_word("gelu") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`gelu of X` needs a declared tensor X.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(self.desugar_tensor_gelu(var, x, r * c)));
+        }
+        // `Let A be decay of Ar with bias Dt rate Alog` — Gated DeltaNet's per-head forget gate.
+        if self.check_word("decay") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let want = |sf: &mut Self, w: &str| -> ParseResult<()> {
+                if !sf.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`decay of Ar with bias Dt rate Alog` — expected `{w}`."
+                        )),
+                        span: sf.current_span(),
+                    });
+                }
+                sf.advance();
+                Ok(())
+            };
+            let operand = |sf: &mut Self, role: &str| -> ParseResult<(Symbol, i64)> {
+                let sym = sf.peek().lexeme;
+                let Some(&(r, c)) = sf.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`decay` {role} must be a declared tensor."
+                        )),
+                        span: sf.current_span(),
+                    });
+                };
+                sf.advance();
+                Ok((sym, r * c))
+            };
+            let ar_shape = self.tensor_shapes.get(&self.peek().lexeme).copied();
+            let (ar, n) = operand(self, "input Ar")?;
+            want(self, "with")?;
+            want(self, "bias")?;
+            let (dt, dn) = operand(self, "bias Dt")?;
+            want(self, "rate")?;
+            let (alog, an) = operand(self, "rate Alog")?;
+            // One bias and one rate per element of `Ar`, or — over a block of rows — one per head, a row being the heads.
+            let heads = match ar_shape {
+                Some((rows, cols)) if rows > 1 && dn == cols && an == cols => cols,
+                _ => n,
+            };
+            if dn != heads || an != heads {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!("`decay` bias and rate must be one value per head ({heads}) — got {dn} and {an}.")),
+                    span: self.current_span(),
+                });
+            }
+            self.user_bound.insert(var);
+            self.bind_tensor(var, ar_shape.filter(|_| heads < n).unwrap_or((1, n)), false);
+            return Ok(Some(self.desugar_tensor_decay(var, ar, dt, alog, n, heads)));
+        }
+        // `Let Y be l2norm of X` — per-row `X/‖X‖`. Declare X as `heads by head_dim` to normalize each head.
+        if self.check_word("l2norm") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`l2norm of X` needs a declared tensor X.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            // `across H heads` — normalize each head independently. GDN L2-normalizes q and k per head, and
+            // they arrive as a flat `1 by (H·D)` row, so the head count has to be stated rather than inferred.
+            let (nr, nc) = if self.check_word("across") {
+                self.advance();
+                let Some(h) = self.take_int_literal() else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`l2norm … across H heads` — H must be an integer literal.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                };
+                if !self.check_word("heads") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`l2norm … across H heads`: expected `heads`.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                if h <= 0 || (r * c) % h != 0 {
+                    return Err(ParseError { kind: ParseErrorKind::Custom(format!("`l2norm … across {h} heads` — the tensor's {} entries must divide by H.", r * c)), span: self.current_span() });
+                }
+                (h, (r * c) / h)
+            } else {
+                (r, c)
+            };
+            let eps = self.take_epsilon("l2norm")?;
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(self.desugar_tensor_l2norm(var, x, nr, nc, eps)));
+        }
+        // `Let Y be swiglu of Gate and Up` — gated MLP activation `silu(Gate) * Up`, elementwise (same shape).
+        if self.check_word("swiglu") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let gate = self.peek().lexeme;
+            let Some(&(gr, gc)) = self.tensor_shapes.get(&gate) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`swiglu of Gate and Up` needs a declared tensor Gate.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            self.advance(); // Gate
+            if !self.check_word("and") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "expected `and Up` in `swiglu of Gate and Up`.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // "and"
+            let up = self.peek().lexeme;
+            let Some(&(ur, uc)) = self.tensor_shapes.get(&up) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`swiglu of Gate and Up` needs a declared tensor Up.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            };
+            if (ur, uc) != (gr, gc) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "swiglu Up must match Gate's shape {gr} by {gc} — got {ur} by {uc}."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // Up
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (gr, gc), false);
+            return Ok(Some(self.desugar_tensor_swiglu(var, gate, up, gr * gc)));
+        }
+        let kind = if self.check_word("softmax") {
+            ReductionKind::Softmax
+        } else if self.check_word("rmsnorm") {
+            ReductionKind::Rmsnorm
+        } else if self.check_word("layernorm") {
+            ReductionKind::Layernorm
+        } else {
+            return Ok(None);
+        };
+        let saved = self.backtrack_point();
+        self.advance(); // the op word
+        if !self.check_preposition_is("of") {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance(); // "of"
+        let x = self.peek().lexeme;
+        let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`{}` needs a declared tensor — `Let Y be {} of X` where X is a tensor.",
+                    kind.word(),
+                    kind.word()
+                )),
+                span: self.current_span(),
+            });
+        };
+        self.advance(); // consume X
+                        // `layernorm of X with weight W and bias B` — per-row mean/variance normalize, then scale + shift.
+        if matches!(kind, ReductionKind::Layernorm) {
+            let want = |s: &mut Self, word: &str| -> ParseResult<()> {
+                if !s.check_word(word) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("layernorm needs `layernorm of X with weight W and bias B` — expected `{word}`.")),
+                        span: s.current_span(),
+                    });
+                }
+                s.advance();
+                Ok(())
+            };
+            let vec_operand = |s: &mut Self, role: &str| -> ParseResult<Symbol> {
+                let sym = s.peek().lexeme;
+                let Some(&(vr, vc)) = s.tensor_shapes.get(&sym) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "layernorm {role} must be a declared length-{c} vector."
+                        )),
+                        span: s.current_span(),
+                    });
+                };
+                if vr * vc != c {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "layernorm {role} length must equal the column count {c} — got {}.",
+                            vr * vc
+                        )),
+                        span: s.current_span(),
+                    });
+                }
+                s.advance();
+                Ok(sym)
+            };
+            want(self, "with")?;
+            want(self, "weight")?;
+            let w = vec_operand(self, "weight")?;
+            want(self, "and")?;
+            want(self, "bias")?;
+            let b = vec_operand(self, "bias")?;
+            let eps = self.take_epsilon("layernorm")?;
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(self.desugar_tensor_layernorm(var, x, w, b, r, c, eps)));
+        }
+        // Optional fused residual `plus R` and per-column `with weight W` — the (fused-add) weighted RMSNorm
+        // shape (`Y = rmsnorm(X + R) * W`, FIB `001_fused_add_rmsnorm`). softmax takes neither.
+        if matches!(kind, ReductionKind::Rmsnorm)
+            && (self.check_word("plus")
+                || (self.check_word("with") && !self.check_word_at(self.current + 1, "epsilon")))
+        {
+            // `plus R` — a fused residual add, if present. R must share X's shape.
+            let residual = if self.check_word("plus") {
+                self.advance(); // "plus"
+                let rz = self.peek().lexeme;
+                let Some(&(rr, rc)) = self.tensor_shapes.get(&rz) else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom("`rmsnorm of X plus R` needs a declared residual tensor R with X's shape.".to_string()),
+                        span: self.current_span(),
+                    });
+                };
+                if (rr, rc) != (r, c) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("fused-add residual R must match X's shape {r} by {c} — got {rr} by {rc}.")),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume R
+                Some(rz)
+            } else {
+                None
+            };
+            // `with weight W` — required here (transformer RMSNorm always carries a weight; FIB 001 does).
+            if !self.check_word("with") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "rmsnorm here needs a weight: `rmsnorm of X [plus R] with weight W`."
+                            .to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // "with"
+            if !self.check_word("weight") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "expected `weight` after `with` in `rmsnorm of X with weight W`."
+                            .to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // "weight"
+            let w = self.peek().lexeme;
+            let Some(&(wr, wc)) = self.tensor_shapes.get(&w) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`rmsnorm ... with weight W` needs a declared tensor W (a length-C weight vector).".to_string()),
+                    span: self.current_span(),
+                });
+            };
+            self.advance(); // consume W
+                            // `across H heads` — PER-HEAD RMSNorm. Qwen3.8's QK-norm normalizes each of the 24 (or 4) heads
+                            // independently with one shared `head_dim`-length weight, so the weight is C/H long, not C. The
+                            // desugar already normalizes per ROW, so an `H by C/H` view is exactly per-head.
+            // `in L lanes` — each of a hyper-connected residual's `L` lanes of every row normed on its own, each by its
+            // own row of the weight (`L` rows of `C/L`): the per-row norm over an `L·R by C/L` reading.
+            let mut weight_rows = 1;
+            let (nr, nc) = if self.check_word("in") && self.peek_word_at(2, "lanes") {
+                self.advance();
+                let Some(l) = self.take_int_literal() else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom("`rmsnorm … in L lanes` — L must be an integer literal.".to_string()),
+                        span: self.current_span(),
+                    });
+                };
+                self.advance(); // "lanes"
+                if l <= 0 || c % l != 0 {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`rmsnorm … in {l} lanes` — the tensor's {c} columns must divide by L.")),
+                        span: self.current_span(),
+                    });
+                }
+                if wr * wc != c {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`rmsnorm … in {l} lanes` — the weight holds every lane's: {c} values, got {}.", wr * wc)),
+                        span: self.current_span(),
+                    });
+                }
+                weight_rows = l;
+                (r * l, c / l)
+            } else if self.check_word("across") {
+                let saved_h = self.backtrack_point();
+                self.advance();
+                let Some(h) = self.take_int_literal() else {
+                    self.backtrack_to(&saved_h);
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`rmsnorm … across H heads` — H must be an integer literal."
+                                .to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                };
+                if !self.check_word("heads") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "`rmsnorm … across H heads`: expected `heads`.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+                if h <= 0 || (r * c) % h != 0 {
+                    return Err(ParseError { kind: ParseErrorKind::Custom(format!("`rmsnorm … across {h} heads` — the tensor's {} entries must divide by H.", r * c)), span: self.current_span() });
+                }
+                (h, (r * c) / h)
+            } else {
+                (r, c)
+            };
+            if weight_rows == 1 && wr * wc != nc {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "rmsnorm weight length must be {nc} (the per-head width) — got {}.",
+                        wr * wc
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            let eps = self.take_epsilon("rmsnorm")?;
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(
+                self.desugar_tensor_rmsnorm_weighted(var, x, residual, w, nr, nc, eps, weight_rows),
+            ));
+        }
+        let total = r * c;
+        let eps = if matches!(kind, ReductionKind::Rmsnorm) { self.take_epsilon("rmsnorm")? } else { 1e-6 };
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (r, c), false);
+        Ok(Some(match kind {
+            ReductionKind::Rmsnorm => self.desugar_tensor_rmsnorm(var, x, total, eps),
+            // A 2-D tensor gets the PER-ROW form; `rows == 1` keeps the flat path byte for byte.
+            ReductionKind::Softmax if r > 1 => self.desugar_tensor_softmax_rows(var, x, r, c),
+            ReductionKind::Softmax => self.desugar_tensor_softmax(var, x, total),
+            ReductionKind::Layernorm => {
+                unreachable!("layernorm is handled above (it requires weight + bias)")
+            }
+        }))
+    }
+
+    /// `Let A be a R by C tensor of <Type>` in value position (article not yet consumed). Records the shape
+    /// and returns the desugared declaration, or `None` (position restored) if the value isn't a tensor.
+    fn try_parse_tensor_new(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        if !self.check_article() {
+            return Ok(None);
+        }
+        let saved = self.backtrack_point();
+        self.advance(); // article
+        let Some(rows) = self.take_int_literal() else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        if !(self.check_word("by") || self.check_preposition_is("by")) {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance(); // "by"
+        let Some(cols) = self.take_int_literal() else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        if !self.check_word("tensor") {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance(); // "tensor"
+        if !self.check_preposition_is("of") {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        }
+        self.advance(); // "of"
+        let elem = self.interner.resolve(self.peek().lexeme).to_string();
+        self.advance(); // element type name
+        if rows <= 0 || cols <= 0 {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "A tensor's dimensions must be positive — got {rows} by {cols}."
+                )),
+                span: self.current_span(),
+            });
+        }
+        let is_float = matches!(elem.as_str(), "Real" | "Float");
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (rows, cols), !is_float);
+        Ok(Some(self.desugar_tensor_new(var, rows, cols, is_float)))
+    }
+
+    /// `Let P be the first K of every N of X` / `the last K of every N of X` — the `K` elements at the start (or the end)
+    /// of every group of `N` consecutive elements of `X`, in order: one part of every head of a row of heads. `X` is
+    /// `R × C` with `N` dividing `C`, and `P` is `R × (C/N)·K`. Consumes nothing unless `the first|last K of every` is
+    /// there.
+    fn try_parse_tensor_head_slice(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let last = self.peek_word_at(1, "last");
+        if !(self.check_article()
+            && (self.peek_word_at(1, "first") || last)
+            && matches!(self.tokens.get(self.current + 2).map(|t| &t.kind), Some(TokenType::Number(_)))
+            && self.peek_word_at(3, "of")
+            && self.peek_word_at(4, "every"))
+        {
+            return Ok(None);
+        }
+        let which = if last { "last" } else { "first" };
+        self.advance();
+        self.advance();
+        let k = self.take_int_literal().unwrap_or(0);
+        self.advance();
+        self.advance();
+        let Some(n) = self.take_int_literal() else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`the {which} K of every N of X` — N must be a whole number.")),
+                span: self.current_span(),
+            });
+        };
+        if !self.check_preposition_is("of") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`the {which} {k} of every {n} of X` — expected `of X`.")),
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+        let x = self.peek().lexeme;
+        let Some(&(rows, cols)) = self.tensor_shapes.get(&x) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("`the {which} {k} of every {n} of X` — X must be a declared tensor.")),
+                span: self.current_span(),
+            });
+        };
+        self.advance();
+        if k < 1 || n < 1 || k > n {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`the {which} {k} of every {n} of {}` — a part of {k} must fit in a group of {n}.",
+                    self.interner.resolve(x)
+                )),
+                span: self.current_span(),
+            });
+        }
+        if cols % n != 0 {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`the {which} {k} of every {n} of {}` — its {cols} columns are not whole groups of every {n}.",
+                    self.interner.resolve(x)
+                )),
+                span: self.current_span(),
+            });
+        }
+        let int = self.tensor_int.contains(&x);
+        let from = if last { n - k } else { 0 };
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (rows, cols / n * k), int);
+        Ok(Some(self.desugar_tensor_head_slice(var, x, rows * cols / n, n, from, k, int)))
+    }
+
+    /// An integer literal, negative when a `-` precedes it.
+    fn take_signed_int_literal(&mut self) -> Option<i64> {
+        if let Some(n) = self.take_int_literal() {
+            return Some(n);
+        }
+        if self.check(&TokenType::Minus) {
+            let saved = self.backtrack_point();
+            self.advance();
+            if let Some(n) = self.take_int_literal() {
+                return Some(-n);
+            }
+            self.backtrack_to(&saved);
+        }
+        None
+    }
+
+    /// `Let Y be X times M shifted right by S` — an int8 model's requant `(x · M) >> S`, an arithmetic shift, so a
+    /// negative accumulator rounds toward −∞ — and `Let Y be X clamped between LO and HI`, its saturation, over a
+    /// declared `tensor of Int`, elementwise into a fresh `tensor of Int` of `X`'s shape. `None`, with nothing
+    /// consumed, when the value is not one of them.
+    fn try_parse_tensor_int_map(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let x = self.peek().lexeme;
+        let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+            return Ok(None);
+        };
+        let clamp = if self.peek_word_at(1, "times") {
+            false
+        } else if self.peek_word_at(1, "clamped") {
+            true
+        } else {
+            return Ok(None);
+        };
+        let name = self.interner.resolve(x).to_string();
+        let form = if clamp {
+            "clamped between LO and HI"
+        } else {
+            "times M shifted right by S"
+        };
+        let refuse = |s: &Self, why: String| ParseError {
+            kind: ParseErrorKind::Custom(why),
+            span: s.current_span(),
+        };
+        if !self.tensor_int.contains(&x) {
+            return Err(refuse(
+                self,
+                format!("`{name} {form}` is an integer form: `{name}` must be a tensor of Int."),
+            ));
+        }
+        self.advance(); // X
+        self.advance(); // `times` / `clamped`
+        let want = |s: &mut Self, w: &str| -> ParseResult<()> {
+            if !s.check_word(w) {
+                return Err(refuse(s, format!("`{name} {form}` — expected `{w}`.")));
+            }
+            s.advance();
+            Ok(())
+        };
+        let map = if clamp {
+            want(self, "between")?;
+            let lo = self.take_signed_int_literal().ok_or_else(|| {
+                refuse(self, format!("`{name} {form}` — LO must be an integer literal."))
+            })?;
+            want(self, "and")?;
+            let hi = self.take_signed_int_literal().ok_or_else(|| {
+                refuse(self, format!("`{name} {form}` — HI must be an integer literal."))
+            })?;
+            if lo > hi {
+                return Err(refuse(
+                    self,
+                    format!(
+                        "`{name} clamped between {lo} and {hi}` — nothing lies between {lo} and {hi}; the lower bound comes first."
+                    ),
+                ));
+            }
+            TensorElemMap::Clamp { lo, hi }
+        } else {
+            let m = self.take_signed_int_literal().ok_or_else(|| {
+                refuse(self, format!("`{name} {form}` — M must be an integer literal."))
+            })?;
+            want(self, "shifted")?;
+            want(self, "right")?;
+            want(self, "by")?;
+            let s = self
+                .take_int_literal()
+                .filter(|s| (0..=63).contains(s))
+                .ok_or_else(|| {
+                    refuse(self, format!("`{name} {form}` — S must be a whole number from 0 to 63."))
+                })?;
+            TensorElemMap::Requant { m, s }
+        };
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (r, c), true);
+        Ok(Some(self.desugar_tensor_map(var, x, r * c, map, true)))
+    }
+
+    /// `Let C be A matmul B` in value position. Both operands must be tensors declared earlier; their shapes
+    /// are checked (inner dims must agree) and `C`'s shape recorded. `None` (restored) if not a `matmul`.
+    fn try_parse_tensor_binop(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        // Cheap guard: only a value that STARTS with a known tensor name can be a tensor binop.
+        if !self.tensor_shapes.contains_key(&self.peek().lexeme) {
+            return Ok(None);
+        }
+        let saved = self.backtrack_point();
+        let Ok(lhs) = self.parse_primary_expr() else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        // `Let Y be X scaled by C` — every element of `X` times the number `C`, a tensor of Reals of `X`'s shape.
+        if self.check_word("scaled") {
+            let Some((x, (rows, cols))) = (match lhs {
+                Expr::Identifier(x) => self.tensor_shapes.get(x).map(|&shape| (*x, shape)),
+                _ => None,
+            }) else {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            };
+            self.advance();
+            if !self.check_word("by") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`X scaled by C` — expected `by` after `scaled`.".to_string()),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            let negative = self.check(&TokenType::Minus);
+            if negative {
+                self.advance();
+            }
+            let factor = match self.peek().kind {
+                TokenType::Number(sym) => {
+                    self.interner.resolve(sym).replace('_', "").parse::<f64>().ok().map(|c| if negative { -c } else { c })
+                }
+                _ => None,
+            };
+            let Some(factor) = factor.filter(|c| c.is_finite()) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`X scaled by C` — C must be a number written out.".to_string()),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (rows, cols), false);
+            return Ok(Some(self.desugar_tensor_scale(var, x, rows * cols, factor)));
+        }
+        // `Let Y be X capped at C` — every element `x` of `X` as `C·tanh(x/C)`, a tensor of Reals of `X`'s shape.
+        if self.check_word("capped") {
+            let Some((x, (rows, cols))) = (match lhs {
+                Expr::Identifier(x) => self.tensor_shapes.get(x).map(|&shape| (*x, shape)),
+                _ => None,
+            }) else {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            };
+            let cap = self.take_cap("X")?.expect("`capped` was seen");
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (rows, cols), false);
+            return Ok(Some(self.desugar_tensor_cap(var, x, rows * cols, cap)));
+        }
+        // `Let J be A joined with B [across H heads]` — every row of `A` then the same row of `B`; across `H` heads, every
+        // head's part of `A` then its part of `B`.
+        if self.check_word("joined") {
+            let Some((a, (ra, ca))) = (match lhs {
+                Expr::Identifier(a) => self.tensor_shapes.get(a).map(|&shape| (*a, shape)),
+                _ => None,
+            }) else {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            };
+            self.advance();
+            if !self.check_word("with") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`A joined with B` — expected `with` after `joined`.".to_string()),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            let b = self.peek().lexeme;
+            let Some(&(rb, cb)) = self.tensor_shapes.get(&b) else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`A joined with B` — B must be a declared tensor.".to_string()),
+                    span: self.current_span(),
+                });
+            };
+            self.advance();
+            let heads = self.take_across_heads("A joined with B")?.unwrap_or(1);
+            if ra != rb {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`A joined with B` — A and B must have the same rows, and `{}` is {ra}×{ca} and `{}` {rb}×{cb}.",
+                        self.interner.resolve(a),
+                        self.interner.resolve(b)
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            if ca % heads != 0 || cb % heads != 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`A joined with B across {heads} heads` — A's {ca} columns and B's {cb} must each divide among the {heads} heads."
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            let int = self.tensor_int.contains(&a) && self.tensor_int.contains(&b);
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (ra, ca + cb), int);
+            return Ok(Some(self.desugar_tensor_join(var, a, b, ra, heads, ca / heads, cb / heads, int)));
+        }
+        let op = if self.check_word("matmul") {
+            TensorBinop::Matmul
+        } else if self.check_word("plus") {
+            TensorBinop::Add
+        } else if self.check_word("hadamard") {
+            TensorBinop::Hadamard
+        } else {
+            self.backtrack_to(&saved);
+            return Ok(None);
+        };
+        self.advance(); // the operator word
+        let rhs = self.parse_primary_expr()?;
+        // `X matmul W across H heads` — each head's slice of `X`'s rows times its own block of `W`'s rows.
+        let heads = match op {
+            TensorBinop::Matmul => self.take_across_heads("X matmul W")?,
+            _ => None,
+        };
+        let (Expr::Identifier(a), Expr::Identifier(b)) = (lhs, rhs) else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`{op}` takes two tensor variables — `Let C be A {op} B`.",
+                    op = op.word()
+                )),
+                span: self.current_span(),
+            });
+        };
+        let (a, b) = (*a, *b);
+        // The result holds Int exactly when both operands do; one Real operand makes every element Real.
+        let int = self.tensor_int.contains(&a) && self.tensor_int.contains(&b);
+        let (m, ka) = *self.tensor_shapes.get(&a).ok_or_else(|| ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "`{}`'s left operand `{}` is not a declared tensor.",
+                op.word(),
+                self.interner.resolve(a)
+            )),
+            span: self.current_span(),
+        })?;
+        let (kb, n) = *self.tensor_shapes.get(&b).ok_or_else(|| ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "`{}`'s right operand `{}` is not a declared tensor.",
+                op.word(),
+                self.interner.resolve(b)
+            )),
+            span: self.current_span(),
+        })?;
+        match op {
+            TensorBinop::Matmul if heads.is_some_and(|h| h > 1) => {
+                let h = heads.unwrap_or(1);
+                if ka % h != 0 || kb != ka {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "`X matmul W across {h} heads` — X's {ka} columns must divide among the {h} heads, and W must \
+                             have a row for each of them; W is {kb}×{n}."
+                        )),
+                        span: self.current_span(),
+                    });
+                }
+                self.user_bound.insert(var);
+                self.bind_tensor(var, (m, h * n), int);
+                Ok(Some(self.desugar_tensor_head_matmul(var, a, b, m, h, ka / h, n, int)))
+            }
+            TensorBinop::Matmul => {
+                if ka != kb {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "Shape mismatch in `matmul`: the left tensor is {m}×{ka} and the right is {kb}×{n} — \
+                             the inner dimensions ({ka} and {kb}) must agree."
+                        )),
+                        span: self.current_span(),
+                    });
+                }
+                self.user_bound.insert(var);
+                self.bind_tensor(var, (m, n), int);
+                Ok(Some(self.desugar_tensor_matmul(var, a, b, m, ka, n, int)))
+            }
+            TensorBinop::Add | TensorBinop::Hadamard => {
+                // `B` of A's shape, or one row as wide as A's rows — combined with every row of `A`.
+                let row = (kb == 1 && n == ka && m > 1).then_some(ka);
+                if (m, ka) != (kb, n) && row.is_none() {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!(
+                            "Shape mismatch in `{}`: the tensors are {m}×{ka} and {kb}×{n} — an elementwise op \
+                             needs identical shapes, or a right operand of one row as wide as the left's rows.",
+                            op.word()
+                        )),
+                        span: self.current_span(),
+                    });
+                }
+                let kind = if matches!(op, TensorBinop::Add) {
+                    BinaryOpKind::Add
+                } else {
+                    BinaryOpKind::Multiply
+                };
+                self.user_bound.insert(var);
+                self.bind_tensor(var, (m, ka), int);
+                Ok(Some(self.desugar_tensor_elementwise(
+                    var,
+                    a,
+                    b,
+                    m * ka,
+                    kind,
+                    int,
+                    row,
+                )))
+            }
+        }
     }
 
     /// Parses the token stream into a logical expression.
@@ -1676,11 +10678,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             && self
                 .tokens
                 .get(self.current + 2)
-                .map(|t| {
-                    self.interner
-                        .resolve(t.lexeme)
-                        .eq_ignore_ascii_case("time")
-                })
+                .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("time"))
                 .unwrap_or(false)
         {
             // "… at any time."
@@ -1689,11 +10687,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             && self
                 .tokens
                 .get(self.current + 1)
-                .map(|t| {
-                    self.interner
-                        .resolve(t.lexeme)
-                        .eq_ignore_ascii_case("time")
-                })
+                .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("time"))
                 .unwrap_or(false)
         {
             // The clause parse consumed the bare "at" as a dangling PP head;
@@ -1813,9 +10807,158 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// - **Policy**: Security predicates and capability rules
     /// - **Procedure**: Executable code blocks
     /// - **Theorem**: Logical propositions with proof strategies
+    /// The view IR trees this parse built, in source order (see `views` field).
+    pub fn views(&self) -> &[crate::ast::view::ViewDef<'a>] {
+        &self.views
+    }
+
+    /// Move the view IR trees out of the parser (they borrow only the AST arenas, never
+    /// the parser), so a caller can release the parser's interner borrow and keep them.
+    pub fn take_views(&mut self) -> Vec<crate::ast::view::ViewDef<'a>> {
+        std::mem::take(&mut self.views)
+    }
+
+    /// The type registry as this parse left it: every type the discovery pass read off the tokens,
+    /// plus every record the parse itself declared — a `## Store`'s record (`lgx_lower::stores`),
+    /// typed by the rule that builds it. An engine lays a record out from this registry, the one
+    /// that holds what the parse declared, and from no copy taken before the parse ran.
+    pub fn into_type_registry(self) -> TypeRegistry {
+        self.type_registry.unwrap_or_default()
+    }
+
+    /// The template WARNINGS this parse collected, in source order — accessibility lint and
+    /// anything else worth saying that must not stop a page from running. Errors never appear
+    /// here: they stop the parse at the point they are found, which is what makes them errors.
+    pub fn lgx_findings(&self) -> &[crate::lgx::check::Finding] {
+        &self.lgx_findings
+    }
+
+    /// The value-semantics copy lint's own WARNINGS this parse collected, in source order — see
+    /// [`crate::lint`].
+    pub fn value_copy_findings(&self) -> &[crate::lint::Finding] {
+        &self.value_copy_findings
+    }
+
+    /// `Given that METHOD "/url" answers STATUS with BODY.`
+    ///
+    /// `None` when the words after `Given that` are not a stub, so an ordinary sentence starting
+    /// "Given that …" keeps whatever meaning it had.
+    fn parse_given_fetch(&mut self) -> ParseResult<Option<Stmt<'a>>> {
+        const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
+        let Some(method_word) = self
+            .tokens
+            .get(self.current + 2)
+            .map(|t| self.interner.resolve(t.lexeme).to_ascii_uppercase())
+        else {
+            return Ok(None);
+        };
+        if !METHODS.contains(&method_word.as_str()) {
+            return Ok(None);
+        }
+        self.advance(); // "Given"
+        self.advance(); // "that"
+        let method = self.interner.intern(&method_word);
+        self.advance(); // the method
+        let url = self.parse_imperative_expr()?;
+        if !self.check_word("answers") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Given that METHOD \"/url\" answers STATUS with BODY.` — say what the \
+                     request answers with, so the page has something to read."
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // "answers"
+        let status = self.parse_imperative_expr()?;
+        if !self.check_word("with") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Given that METHOD \"/url\" answers STATUS with BODY.` — the status needs a \
+                     body after `with` (write `with \"\"` for an empty one)."
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // "with"
+        let body = self.parse_imperative_expr()?;
+        Ok(Some(Stmt::GivenFetch {
+            method,
+            url,
+            status,
+            body,
+        }))
+    }
+
+    /// One action name in `the journal shows A then B` or `Replay these actions: …`.
+    ///
+    /// Written BARE, the way the plan's examples read (`the journal shows loaded then failed`) —
+    /// an action is named, not quoted, everywhere else in LGX (`on-click={loaded}`), so quoting
+    /// it here would be the odd one out. A text literal is accepted too, for a name that is not
+    /// a legal identifier.
+    ///
+    /// ★ ONE NAME RULE. A bare name is read by the very rule an `Actions:` header's `To <name>:`
+    /// declares it with ([`Self::expect_identifier`]), so every word that can declare an action — a
+    /// keyword (`add`, `push`, `show`), an adjective (`double`), a particle (`up`), `no` — names it
+    /// here too, as the same symbol.
+    fn parse_journal_action_name(&mut self) -> ParseResult<Symbol> {
+        let span = self.current_span();
+        if let TokenType::StringLiteral(sym) = self.peek().kind {
+            self.advance();
+            self.journal_action_sites.push((sym, span));
+            return Ok(sym);
+        }
+        match self.expect_identifier() {
+            Ok(sym) => {
+                self.journal_action_sites.push((sym, span));
+                Ok(sym)
+            }
+            Err(_) => Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "An action is named here the way its `To <name>:` declares it — \
+                     `Replay these actions: add, remove.`, `the journal shows loaded then \
+                     failed`."
+                        .to_string(),
+                ),
+                span,
+            }),
+        }
+    }
+
+    /// A `##` header's own line may end in an optional, meaningless `:` — the one habit the
+    /// retired reactive dialect left behind (`## Component Name:`). ONE rule for every
+    /// `BlockType`: `self.current` names the `BlockHeader` token; if the token immediately
+    /// before the `Newline` ending its line is a bare `Colon`, it is excised from the token
+    /// stream before any header-specific parsing runs, so `## Component Counter:` is simply
+    /// `## Component Counter`. Never touches a colon that is not the LAST token of the line —
+    /// a header whose own grammar legitimately uses one mid-line (`## Page /post/:id`) keeps it.
+    fn skip_optional_header_colon(&mut self) {
+        let mut i = self.current;
+        while let Some(tok) = self.tokens.get(i) {
+            if matches!(tok.kind, TokenType::Newline) {
+                break;
+            }
+            i += 1;
+        }
+        if i > self.current
+            && matches!(
+                self.tokens.get(i.wrapping_sub(1)).map(|t| &t.kind),
+                Some(TokenType::Colon)
+            )
+        {
+            self.tokens.remove(i - 1);
+        }
+    }
+
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
         self.stmt_spans.clear();
+        self.nested_stmt_spans = NestedStmtSpans::default();
+        self.moves.clear();
+        self.declare_component_names();
+        self.declare_function_names();
         let mut in_definition_block = false;
         let mut pending_opt_flags = OptimizationConfig::all_on();
 
@@ -1827,9 +10970,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         while !self.is_at_end() {
+            // A new block is a new scope: a move made in the one before does not reach it.
+            if matches!(self.peek().kind, TokenType::BlockHeader { .. }) {
+                self.release_moves_since(0);
+            }
             // Handle block headers
-            if let Some(Token { kind: TokenType::BlockHeader { block_type }, .. }) = self.tokens.get(self.current) {
-                match block_type {
+            if let Some(Token {
+                kind: TokenType::BlockHeader { block_type },
+                ..
+            }) = self.tokens.get(self.current)
+            {
+                let block_type = *block_type;
+                self.skip_optional_header_colon();
+                match &block_type {
                     BlockType::SuspectedTypo { found, suggestion } => {
                         let found = self.interner.resolve(*found).to_string();
                         let suggestion_str = self.interner.resolve(*suggestion);
@@ -1856,8 +11009,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Main => {
                         // A `## No <X>` before `## Main` (not attached to a function)
                         // is a FILE-LEVEL decorator: fold it into the program config.
-                        self.program_opt_flags =
-                            self.program_opt_flags.merged(&pending_opt_flags);
+                        self.program_opt_flags = self.program_opt_flags.merged(&pending_opt_flags);
                         pending_opt_flags = OptimizationConfig::all_on();
                         in_definition_block = false;
                         self.mode = ParserMode::Imperative;
@@ -1867,7 +11019,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::No => {
                         // Optimization annotation: `## No <Keyword>` clears that
                         // optimization for the following function; `## No Optimize`
-                        // clears all of them. Keywords come from the registry.
+                        // clears all of them. A `## No` immediately before `## Main`
+                        // (not attached to a function) is program-wide — folded into
+                        // `program_opt_flags` at the Main block. Keywords come from the
+                        // registry.
                         self.advance(); // consume the `## No` header
                         if let Some(token) = self.tokens.get(self.current) {
                             let word = self.interner.resolve(token.lexeme).to_lowercase();
@@ -1878,6 +11033,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             }
                             // Unknown annotation — ignore silently.
                             self.advance(); // consume the flag word
+                        }
+                        while self.check(&TokenType::Newline) {
+                            self.advance();
+                        }
+                        continue;
+                    }
+                    BlockType::Require => {
+                        // Optimization DEMAND: `## Require <Keyword>` records that the
+                        // named optimization must fire for this program, or the compile
+                        // fails (the inverse of `## No`). Program-wide, collected
+                        // directly. Answers Ray Myers' wish to declare a dependence on
+                        // an optimization so a missing one becomes an error.
+                        self.advance(); // consume the `## Require` header
+                        if let Some(token) = self.tokens.get(self.current) {
+                            let word = self.interner.resolve(token.lexeme).to_lowercase();
+                            if let Some(opt) = by_keyword(&word) {
+                                self.required_opts.push(opt);
+                            }
+                            // Unknown keyword — ignore silently, like `## No`.
+                            self.advance(); // consume the keyword
                         }
                         while self.check(&TokenType::Newline) {
                             self.advance();
@@ -1927,6 +11102,83 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.record_stmt_span(header_tok);
                         continue;
                     }
+                    BlockType::Component => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        self.advance();
+                        let comp_def = self.parse_lgx_component_block()?;
+                        statements.push(comp_def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Page { path } => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let path = *path;
+                        let def = self.parse_page_block(path)?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Store => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let def = self.parse_store_block()?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Directive => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let def = self.parse_directive_block()?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Route { method, path } => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let (method, path) = (*method, *path);
+                        let def = self.parse_route_block(method, path)?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Middleware => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let def = self.parse_middleware_block()?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Redirect { from, to } => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let (from, to) = (*from, *to);
+                        let def = self.parse_redirect_block(from, to)?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::ErrorPage { status } => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        let status = *status;
+                        let def = self.parse_error_page_block(status)?;
+                        statements.push(def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
                     BlockType::TypeDef => {
                         // Type definitions are handled by DiscoveryPass
                         // Skip content until next block header
@@ -1934,10 +11186,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.skip_type_def_content();
                         continue;
                     }
+                    BlockType::Session => {
+                        // ★ THE FIELDS ARE READ ONCE, BY THE DISCOVERY PASS, which registers them
+                        // as the record `Session` — the same route `## Store` takes, and for the
+                        // same reason: the registry is cloned before parsing, so a type
+                        // synthesized later reaches the statement list and never the passes that
+                        // resolve a field to a static slot. The parser only has to remember that
+                        // a session was DECLARED, because a program that happens to define a
+                        // record called `Session` has not asked for one.
+                        self.advance();
+                        self.session_declared = true;
+                        self.skip_type_def_content();
+                        continue;
+                    }
                     BlockType::Policy => {
                         // Phase 50: Policy definitions are handled by DiscoveryPass
                         // Skip content until next block header
-                        in_definition_block = true;  // Reuse flag to skip content
+                        in_definition_block = true; // Reuse flag to skip content
                         self.mode = ParserMode::Declarative;
                         self.advance();
                         continue;
@@ -2006,6 +11271,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         statements.extend(deps);
                         continue;
                     }
+                    BlockType::Test { name } => {
+                        // `## Test: <prose>` — an independent test entry point
+                        // with an imperative body (the in-language test
+                        // framework).
+                        let name = *name;
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
+                        self.advance();
+                        let test_def = self.parse_test_block(name)?;
+                        statements.push(test_def);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
                     _ => {
                         // Skip other declarative blocks (Proof, Example, Logic, Note)
                         in_definition_block = false;
@@ -2023,7 +11302,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Skip indent/dedent/newline tokens at program level
-            if self.check(&TokenType::Indent) || self.check(&TokenType::Dedent) || self.check(&TokenType::Newline) {
+            if self.check(&TokenType::Indent)
+                || self.check(&TokenType::Dedent)
+                || self.check(&TokenType::Newline)
+            {
                 self.advance();
                 continue;
             }
@@ -2038,7 +11320,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     continue;
                 }
                 let start_tok = self.current;
-                let stmt = self.parse_statement()?;
+                let stmt = self.parse_moving_statement()?;
                 statements.push(stmt);
 
                 if self.check(&TokenType::Period) {
@@ -2054,6 +11336,71 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Any decorators not consumed by a function (trailing, or a library with
         // no `## Main`) are file-level.
         self.program_opt_flags = self.program_opt_flags.merged(&pending_opt_flags);
+
+        // ★ FOUR CHECKS THAT ONLY MEAN SOMETHING ONCE EVERY `##` BLOCK IN THE FILE HAS BEEN SEEN
+        // (L11). A single re-parsed block (`self.fragment_mode`, set by the editor's per-block
+        // recovery reparse — see the field's own doc comment) has no OTHER block to check `Mount`/
+        // routes/stores against: running these against only this block's own statements would
+        // report false refusals for names the rest of the file declares. Skipped rather than run
+        // partially — see `fragment_mode`'s doc comment for exactly what a fragment reparse still
+        // does not get from this, and why.
+        if !self.fragment_mode {
+            // ★ A `Mount` NAMES SOMETHING THAT EXISTS. The legacy dialect desugars an unknown name
+            // into a call to `__render_<Name>` — a symbol the author never wrote — so `Mount App.`
+            // beside a page compiled clean, built clean, and failed in the BROWSER as
+            // "Unknown function: __render_App". Checked here, at end-of-parse, because a `## Main`
+            // may sit above the `## Component` it mounts.
+            self.check_mounts_name_something()?;
+            self.check_mounted_components_need_no_props(&statements)?;
+
+            // ★ A PAGE MOUNTS ITSELF. `## Page /about` owns a URL and is the root of that URL's
+            // document — there is nothing else for it to be, and no sentence its author could write
+            // instead: its component is interned as `__page__about`, a name nowhere in the source.
+            // Without this, a page parsed, decided its URL, served a 200, and the document was empty.
+            self.mount_the_declared_page(&mut statements)?;
+
+            // The whole-file LGX resolution, BEFORE the synthesized functions are folded in: every
+            // `Call <Store>'s <action>` names a store that exists and an action it declares, every
+            // attribute whose name is a declared `## Directive` becomes one, every `When "<sel>"`
+            // names an element some view renders, and every renderable component gains the
+            // `__render_<Name>` function the bytecode tier compiles. Done at PARSE time, so every
+            // tier and every tool inherits it — and done here, because the lowering ADDS to the
+            // deferred list the block below consumes.
+            self.resolve_lgx(&mut statements)?;
+
+            // A `shared on` store's replicas join their topic on first access, publish what they
+            // move and merge what other pages publish (`lgx_lower::shared`): a pass over the whole
+            // lowered program, so it runs once every lowered function exists.
+            self.lower_shared_stores(&mut statements);
+        }
+
+        // Prepend any functions synthesized during statement parsing (the reactive
+        // `render` entry a `Mount <Component>` needs). They must be top-level (the
+        // VM/wasm backends collect functions only from this list) and precede Main (the
+        // interpreter registers functions as it walks, so `render` must be defined
+        // before Main calls it). Spans stay 1:1 with a synthetic span each.
+        if !self.deferred_functions.is_empty() {
+            let deferred = std::mem::take(&mut self.deferred_functions);
+            let span = self
+                .stmt_spans
+                .first()
+                .copied()
+                .unwrap_or_else(|| self.current_span());
+            let mut combined = deferred;
+            for _ in 0..combined.len() {
+                self.stmt_spans.insert(0, span);
+            }
+            combined.extend(statements);
+            statements = combined;
+        }
+
+        // ★ THE LAW OF EXCLUSIVITY, over the whole file as every tier will run it — the author's
+        // statements and everything the parse lowered them into: a binding lent to a `mutable`
+        // parameter is the callee's alone until the call returns.
+        if !self.fragment_mode {
+            self.check_lends_are_exclusive(&statements)?;
+        }
+
         debug_assert_eq!(
             self.stmt_spans.len(),
             statements.len(),
@@ -2066,10 +11413,73 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // recursion (parenthesis towers) is caught by `recursion_depth`.
         crate::ast_depth::validate_program_depth(
             &statements,
-            self.stmt_spans.first().copied().unwrap_or_else(|| self.current_span()),
+            self.stmt_spans
+                .first()
+                .copied()
+                .unwrap_or_else(|| self.current_span()),
         )?;
 
         Ok(statements)
+    }
+
+    /// Record every `## Component <Name>` header in the token stream before any statement is
+    /// read, so a sentence that names a component (`Mount App.`, a legacy view's `Counter`)
+    /// resolves it wherever in the file it is declared. `## Component Name:` (a colon after the
+    /// name) is the legacy dialect; `## Component Name (props)` is LGX — the same rule the header
+    /// dispatch in `parse_program` applies.
+    fn declare_component_names(&mut self) {
+        for (i, token) in self.tokens.iter().enumerate() {
+            if !matches!(
+                token.kind,
+                TokenType::BlockHeader {
+                    block_type: BlockType::Component
+                }
+            ) {
+                continue;
+            }
+            let Some(name) = self.tokens.get(i + 1) else {
+                continue;
+            };
+            let legacy = self
+                .tokens
+                .get(i + 2)
+                .is_some_and(|t| matches!(t.kind, TokenType::Colon));
+            self.components.insert(name.lexeme);
+            if !legacy {
+                self.lgx_components.insert(name.lexeme);
+            }
+        }
+    }
+
+    /// Record every `## To <name> […]:` header's OWN name in the token stream before any
+    /// statement is read — the same pre-scan `declare_component_names` runs, so `Call <name>.`
+    /// (`parse_call_statement`) can recognize a declared function's name whatever lexical class
+    /// the word carries, matching what `## To` itself already accepts (`expect_identifier`, which
+    /// takes any word-like token). Skips an optional `native` modifier the same way
+    /// `parse_function_def_with_flags` does, so `## To native <name> …` is covered too.
+    fn declare_function_names(&mut self) {
+        for (i, token) in self.tokens.iter().enumerate() {
+            if !matches!(
+                token.kind,
+                TokenType::BlockHeader {
+                    block_type: BlockType::Function
+                }
+            ) {
+                continue;
+            }
+            let mut j = i + 1;
+            if self
+                .tokens
+                .get(j)
+                .is_some_and(|t| matches!(t.kind, TokenType::Native))
+            {
+                j += 1;
+            }
+            let Some(name) = self.tokens.get(j) else {
+                continue;
+            };
+            self.declared_function_names.insert(name.lexeme);
+        }
     }
 
     /// Enter one level of imperative parse recursion, erroring gracefully at
@@ -2081,7 +11491,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.recursion_depth > limit {
             self.recursion_depth -= 1;
             return Err(ParseError {
-                kind: ParseErrorKind::AstTooDeep { depth: limit + 1, max_depth: limit },
+                kind: ParseErrorKind::AstTooDeep {
+                    depth: limit + 1,
+                    max_depth: limit,
+                },
                 span: self.current_span(),
             });
         }
@@ -2107,18 +11520,157 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.program_tier_pins
     }
 
+    /// Optimizations demanded via `## Require <opt>` — each must have fired for
+    /// the compile, or it fails. Read after `parse_program`.
+    pub fn required_optimizations(&self) -> Vec<Opt> {
+        self.required_opts.clone()
+    }
+
+    /// Every tensor the program binds — declared or computed by a sugar — as `(rows, cols)`, by symbol. The
+    /// desugared statements carry only flat lengths; this is where a tensor's two dimensions survive parsing.
+    pub fn tensor_shapes(&self) -> &std::collections::HashMap<Symbol, (i64, i64)> {
+        &self.tensor_shapes
+    }
+
     /// Depth-guarded wrapper: every nested construct (If/While/Repeat/Zone
     /// bodies, however each parses its block) recurses through here, so one
     /// guard covers all statement nesting. Flat statement lists enter and
     /// leave pairwise — sequential code never accumulates depth.
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.enter_recursion()?;
+        let start_tok = self.current;
         let result = self.parse_statement_inner();
         self.leave_recursion();
+        if let Ok(stmt) = &result {
+            if self.copy_lint_scope.is_some() {
+                let span = self.span_from(start_tok);
+                let Self {
+                    copy_lint_scope,
+                    interner,
+                    ..
+                } = self;
+                copy_lint_scope
+                    .as_mut()
+                    .unwrap()
+                    .observe(span, stmt, &**interner);
+            }
+        }
         result
     }
 
     fn parse_statement_inner(&mut self) -> ParseResult<Stmt<'a>> {
+        // ★ A FUNCTION THE PROGRAM DECLARES IS CALLED BY ITS NAME, WHATEVER WORD THE NAME IS. A
+        // `## To` header accepts any word as a name, so `note(3).` calls `## To note` before
+        // `Note` can begin an observation, `show(3).` before `Show` a display, and so for every
+        // statement word below.
+        if self.declared_function_names.contains(&self.peek().lexeme)
+            && self.next_is_argument_list()
+        {
+            return self.parse_bare_call_statement();
+        }
+        // `Render:` / `Render into <el>:` was the retired reactive dialect's own view section —
+        // a view is `View:` inside a `## Page` or `## Component` now, so name that rather than
+        // failing on whatever token happened to follow the colon.
+        if self.lexeme_is(0, "Render")
+            && (matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Colon)
+            ) || self.lexeme_is(1, "into"))
+        {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Render:` is retired — a view is a `View:` section of a `## Page` or \
+                     `## Component`, with `State:`/`Actions:`/`Style:` beside it."
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        // `State:` / `Actions:` / `View:` / `Style:` are the sections of a component. Outside
+        // one they are a misplaced section, not a statement — say so instead of failing on
+        // whatever the next token happens to be.
+        if !self.in_component && self.next_is_section_header() {
+            let word = self.interner.resolve(self.peek().lexeme).to_string();
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`{word}:` is a component section, but there is no component here. Start one with \
+                     `## Component <Name>`, `## Page /<path>` or `## Store <Name>`, then its `State:`, \
+                     `Actions:`, `View:` and `Style:` sections follow."
+                )),
+                span: self.current_span(),
+            });
+        }
+        // Inside a component, the action vocabulary (`Focus …`, `Navigate to …`, `Get … as …,
+        // then …`) is offered BEFORE the ordinary statement forms; outside one it is not
+        // offered at all, so an existing program's sentences keep their meaning.
+        // `Click …` / `Type … into …` drive a mounted component from a program or a test, and
+        // `Reload the page.` restarts one, so those are available anywhere; the rest of the
+        // vocabulary is component-only.
+        let reloads_the_page =
+            self.lexeme_is(0, "Reload") && self.lexeme_is(1, "the") && self.lexeme_is(2, "page");
+        // Outside a component, UI verbs are allowed BY NAME rather than wholesale: `Save`,
+        // `Focus`, `Load` and friends are ordinary English, and an ordinary program that starts a
+        // sentence with one must keep whatever meaning it had. The names below are the DRIVING
+        // verbs — the ones a `## Test` needs to work a page — and each is specific enough that no
+        // ordinary sentence begins with it by accident. `Check` is deliberately NOT here: it is
+        // already the policy statement `Check … can/is …`.
+        // The openers come from ONE table — see `UI_STATEMENT_OPENERS`. This gate and the verb
+        // parser were two hand-written lists of the same thing and had drifted in both directions.
+        // `Press` and `Type` keep their own line because both are ordinary English at the start of
+        // a sentence and need the "not followed by a colon" guard.
+        if self.in_component
+            || reloads_the_page
+            || crate::parser::component::UI_STATEMENT_OPENERS
+                .iter()
+                .any(|w| self.lexeme_is(0, w))
+            || (self.lexeme_is(0, "Press") && !self.next_is_colon_like())
+            || (self.lexeme_is(0, "Type") && !self.next_is_colon_like())
+        {
+            if let Some(stmt) = self.parse_ui_statement()? {
+                return Ok(stmt);
+            }
+        }
+        // `Given that METHOD "/url" answers STATUS with BODY.` — how a test answers a fetch
+        // without a network. Recognised by the WHOLE SHAPE rather than by its first word, since
+        // "given" is ordinary English; `Given that GET …` is not a sentence anyone writes by
+        // accident.
+        // `Replay these actions: a, b, c.` — recognised by the whole shape; "replay" on its own
+        // is ordinary English.
+        if self.lexeme_is(0, "Replay") && self.lexeme_is(1, "these") && self.lexeme_is(2, "actions")
+        {
+            for _ in 0..3 {
+                self.advance();
+            }
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+            let mut actions = vec![self.parse_journal_action_name()?];
+            while self.check(&TokenType::Comma) || self.check_word("and") {
+                self.advance();
+                actions.push(self.parse_journal_action_name()?);
+            }
+            return Ok(Stmt::Replay { actions });
+        }
+        // `Serve fetches with routes.` — recognised by the whole shape, since `Serve` already
+        // starts the server statement (`Serve on port 8080.`) and must keep that meaning.
+        if self.lexeme_is(0, "Serve")
+            && self.lexeme_is(1, "fetches")
+            && self.lexeme_is(2, "with")
+            && self.lexeme_is(3, "routes")
+        {
+            for _ in 0..4 {
+                self.advance();
+            }
+            return Ok(Stmt::ServeFetches);
+        }
+        if self.lexeme_is(0, "Given") && self.lexeme_is(1, "that") {
+            if let Some(stmt) = self.parse_given_fetch()? {
+                return Ok(stmt);
+            }
+        }
+        if self.at_limit_rule() {
+            return self.parse_limit_rule();
+        }
         // Phase 32: Function definitions can appear inside Main block
         // Handle both TokenType::To and Preposition("to")
         if self.check(&TokenType::To) || self.check_preposition_is("to") {
@@ -2127,6 +11679,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Let) {
             return self.parse_let_statement();
         }
+        // The declarative view DSL: `Render:` + an indented element tree. Checked
+        // before the `x: Type = value` assignment path (which would otherwise grab
+        // `Render:`); the `Colon` + `Indent` lookahead keeps a variable named
+        // `Render` free for ordinary use.
         // Phase 23b: Equals-style assignment with explicit `mut` keyword
         // Syntax: `mut x = 5` or `mut x: Int = 5`
         if self.check(&TokenType::Mut) {
@@ -2144,6 +11700,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Set) {
             return self.parse_set_statement();
         }
+        // Statement-level async event handler: `On <event> from <source>:` — the media/peer
+        // event form (`On chunk from encoder:`, `On track from peer:`). Gated on the `from`
+        // two tokens ahead (`On` <event> `from`) so a stray `On` identifier is left untouched.
+        if self.check_word("On")
+            && self
+                .tokens
+                .get(self.current + 2)
+                .is_some_and(|t| matches!(t.kind, TokenType::From))
+        {
+            return self.parse_on_statement();
+        }
         if self.check(&TokenType::Return) {
             return self.parse_return_statement();
         }
@@ -2159,9 +11726,53 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Require) {
             return self.parse_require_statement();
         }
+        if self.check_word("Assume") {
+            return self.parse_assume_statement();
+        }
+        if self.check_word("Fail") && self.check_word_at(self.current + 1, "with") {
+            return self.parse_fail_statement();
+        }
+        if self.check_word("Solve") {
+            return self.parse_solve_statement();
+        }
+        if self.check_word("Minimize") {
+            return self.parse_minimize_statement();
+        }
         // Phase 35: Trust statement
         if self.check(&TokenType::Trust) {
             return self.parse_trust_statement();
+        }
+        // The test framework's statement family — each parser gates itself to `## Test` bodies with a teaching error.
+        if self.check(&TokenType::Expect) {
+            return self.parse_expect_statement();
+        }
+        if self.check(&TokenType::Note) {
+            return self.parse_observe_statement(crate::ast::stmt::ObsCategory::Note);
+        }
+        if self.check(&TokenType::Warn) {
+            return self.parse_observe_statement(crate::ast::stmt::ObsCategory::Warn);
+        }
+        if self.check(&TokenType::Record) {
+            return self.parse_observe_statement(crate::ast::stmt::ObsCategory::Record);
+        }
+        if self.check(&TokenType::During) {
+            return self.parse_during_statement();
+        }
+        if self.check(&TokenType::Advance) {
+            return self.parse_advance_time_statement();
+        }
+        if self.check(&TokenType::Given) && self.mode == ParserMode::Imperative {
+            return self.parse_given_file_statement();
+        }
+        if self.check(&TokenType::Skip) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Skip this test because \"…\".` belongs in a test's leading \
+                     paragraph, before any other statement"
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
         }
         // Phase 50: Security Check statement
         if self.check(&TokenType::Check) {
@@ -2170,6 +11781,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 51: P2P Networking statements
         if self.check(&TokenType::Listen) {
             return self.parse_listen_statement();
+        }
+        // HTTP server: `Serve on port <expr> with <handler>.`
+        if self.check_word("Serve") {
+            return self.parse_serve_statement();
         }
         if self.check(&TokenType::NetConnect) {
             return self.parse_connect_statement();
@@ -2195,6 +11810,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Repeat) {
             return self.parse_repeat_statement();
+        }
+        // `For all <domain> <vars>:` inside a test block is a PROPERTY
+        // (constitution §1.6), distinct from the `For x in xs:` loop.
+        if self.check(&TokenType::For)
+            && self.in_test_block
+            && self.peek_lexeme_lower(1).as_deref() == Some("all")
+        {
+            return self.parse_forall_statement();
         }
         // Phase 30b: Allow "for" without "Repeat" keyword
         if self.check(&TokenType::For) {
@@ -2242,6 +11865,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_parallel_block();
         }
 
+        // Reversible / uncompute block: `Reversibly:` (alias `Uncompute:`) — an
+        // output-transparent body whose in-place abelian scalar updates lower to
+        // the zero-garbage reversible ISA (`Op::RevAdd`/`RevSub`/`RevXor`/`RevNeg`).
+        if self.check_word("Reversibly") || self.check_word("Uncompute") {
+            return self.parse_reversibly_block();
+        }
+
         // Phase 10: IO statements
         if self.check(&TokenType::Read) {
             return self.parse_read_statement();
@@ -2269,12 +11899,31 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if self.lookahead_is_first_of() {
                 return self.parse_select_statement();
             }
+            // Task-handle join: `Await h` / `Await h into r` (no `response`/`view`/`stream`
+            // knob and no `from`) — distinct from the relay `Await response from … into …`.
+            if self.lookahead_is_task_await() {
+                return self.parse_task_await_statement();
+            }
             return self.parse_await_statement();
+        }
+        // Task-handle join spelled `Wait for h` (+ optional `into r`).
+        if self.check_word("Wait") {
+            return self.parse_wait_statement();
+        }
+        // Close a channel (pipe): `Close ch` / `Close the pipe ch`.
+        if self.check_word("Close") {
+            return self.parse_close_statement();
         }
 
         // Phase 49: CRDT statements
         if self.check(&TokenType::Merge) {
             return self.parse_merge_statement();
+        }
+        if self.check(&TokenType::Converge) {
+            return self.parse_converge_statement();
+        }
+        if self.check(&TokenType::Swap) {
+            return self.parse_swap_statement();
         }
         if self.check(&TokenType::Increase) {
             return self.parse_increase_statement();
@@ -2311,20 +11960,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Expression-statement: function call without "Call" keyword
         // e.g., `greet("Alice").` instead of `Call greet with "Alice".`
-        // Check if next token is LParen (indicating a function call)
-        if self.tokens.get(self.current + 1)
-            .map(|t| matches!(t.kind, TokenType::LParen))
-            .unwrap_or(false)
-        {
-            // Get the function name from current token
-            let function = self.peek().lexeme;
-            self.advance(); // consume function name
-
-            // Parse the call expression (starts from LParen)
-            let expr = self.parse_call_expr(function)?;
-            if let Expr::Call { function, args } = expr {
-                return Ok(Stmt::Call { function: *function, args: args.clone() });
-            }
+        if self.next_is_argument_list() {
+            return self.parse_bare_call_statement();
         }
 
         // `x is 5.` at statement position: value comparison spelled with the
@@ -2372,10 +12009,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
+        self.parse_if_branches(cond)
+    }
+
+    /// Parse an elif clause as an if statement.
+    /// Called after "elif" has been consumed - parses condition and body directly.
+    fn parse_elif_as_if(&mut self) -> ParseResult<Stmt<'a>> {
+        // Parse condition expression (elif is already consumed)
+        let cond = self.parse_condition()?;
+        self.parse_if_branches(cond)
+    }
+
+    /// The rest of an `If` once its condition is read: the colon, the then
+    /// body, and the else clause — `Otherwise:`, an `Otherwise If` / `Else If`
+    /// / `elif` chain, or none.
+    fn parse_if_branches(&mut self, cond: &'a Expr<'a>) -> ParseResult<Stmt<'a>> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -2383,30 +12037,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Parse the then body — an indented block, OR (inline guard) a single
         // statement on the same line: `If c: Return 1.`
-        let mut then_stmts = Vec::new();
-        if self.check(&TokenType::Indent) {
-            self.advance(); // consume Indent
-            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                let stmt = self.parse_statement()?;
-                then_stmts.push(stmt);
-                if self.check(&TokenType::Period) {
-                    self.advance();
-                }
-            }
-            if self.check(&TokenType::Dedent) {
-                self.advance();
-            }
-        } else {
-            let stmt = self.parse_statement()?;
-            then_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        // Allocate then_block in arena
-        let then_block = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(then_stmts.into_iter());
+        let then_block = self.read_branch_body()?;
 
         // Check for else clause: Otherwise/Else/Otherwise If/Else If/elif
         let else_block = if self.check(&TokenType::Otherwise) || self.check(&TokenType::Else) {
@@ -2415,157 +12046,31 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Check for "Otherwise If" / "Else If" chain
             if self.check(&TokenType::If) {
                 // Parse as else-if: create single-statement else block containing nested If
+                let link_tok = self.current;
                 let nested_if = self.parse_if_statement()?;
-                let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
-                    .alloc_slice(std::iter::once(nested_if));
-                Some(nested_slice)
+                Some(self.read_link_block(nested_if, link_tok))
             } else {
                 // Regular else block - expect colon and indent
                 if !self.check(&TokenType::Colon) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ":".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
                 self.advance(); // consume ":"
 
                 // Indented block OR inline: `Otherwise: Show "x".`
-                let mut else_stmts = Vec::new();
-                if self.check(&TokenType::Indent) {
-                    self.advance(); // consume Indent
-                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                        let stmt = self.parse_statement()?;
-                        else_stmts.push(stmt);
-                        if self.check(&TokenType::Period) {
-                            self.advance();
-                        }
-                    }
-                    if self.check(&TokenType::Dedent) {
-                        self.advance();
-                    }
-                } else {
-                    let stmt = self.parse_statement()?;
-                    else_stmts.push(stmt);
-                    if self.check(&TokenType::Period) {
-                        self.advance();
-                    }
-                }
-
-                Some(self.ctx.stmts.expect("imperative arenas not initialized")
-                    .alloc_slice(else_stmts.into_iter()))
+                Some(self.read_branch_body()?)
             }
         } else if self.check(&TokenType::Elif) {
             // Python-style elif: equivalent to "Else If"
+            let link_tok = self.current;
             self.advance(); // consume "elif"
-            // Parse the condition and body directly (elif acts like "Else If" without the separate If token)
+                            // Parse the condition and body directly (elif acts like "Else If" without the separate If token)
             let nested_if = self.parse_elif_as_if()?;
-            let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(std::iter::once(nested_if));
-            Some(nested_slice)
-        } else {
-            None
-        };
-
-        Ok(Stmt::If {
-            cond,
-            then_block,
-            else_block,
-        })
-    }
-
-    /// Parse an elif clause as an if statement.
-    /// Called after "elif" has been consumed - parses condition and body directly.
-    fn parse_elif_as_if(&mut self) -> ParseResult<Stmt<'a>> {
-        // Parse condition expression (elif is already consumed)
-        let cond = self.parse_condition()?;
-
-        // Expect colon
-        if !self.check(&TokenType::Colon) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume ":"
-
-        // Parse the then body — an indented block, OR (inline guard) a single
-        // statement on the same line: `If c: Return 1.`
-        let mut then_stmts = Vec::new();
-        if self.check(&TokenType::Indent) {
-            self.advance(); // consume Indent
-            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                let stmt = self.parse_statement()?;
-                then_stmts.push(stmt);
-                if self.check(&TokenType::Period) {
-                    self.advance();
-                }
-            }
-            if self.check(&TokenType::Dedent) {
-                self.advance();
-            }
-        } else {
-            let stmt = self.parse_statement()?;
-            then_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        // Allocate then_block in arena
-        let then_block = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(then_stmts.into_iter());
-
-        // Check for else clause: Otherwise/Else/Otherwise If/Else If/elif
-        let else_block = if self.check(&TokenType::Otherwise) || self.check(&TokenType::Else) {
-            self.advance(); // consume "Otherwise" or "Else"
-
-            // Check for "Otherwise If" / "Else If" chain
-            if self.check(&TokenType::If) {
-                let nested_if = self.parse_if_statement()?;
-                let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
-                    .alloc_slice(std::iter::once(nested_if));
-                Some(nested_slice)
-            } else {
-                // Regular else block
-                if !self.check(&TokenType::Colon) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume ":"
-
-                // Indented block OR inline: `Otherwise: Show "x".`
-                let mut else_stmts = Vec::new();
-                if self.check(&TokenType::Indent) {
-                    self.advance(); // consume Indent
-                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                        let stmt = self.parse_statement()?;
-                        else_stmts.push(stmt);
-                        if self.check(&TokenType::Period) {
-                            self.advance();
-                        }
-                    }
-                    if self.check(&TokenType::Dedent) {
-                        self.advance();
-                    }
-                } else {
-                    let stmt = self.parse_statement()?;
-                    else_stmts.push(stmt);
-                    if self.check(&TokenType::Period) {
-                        self.advance();
-                    }
-                }
-
-                Some(self.ctx.stmts.expect("imperative arenas not initialized")
-                    .alloc_slice(else_stmts.into_iter()))
-            }
-        } else if self.check(&TokenType::Elif) {
-            self.advance(); // consume "elif"
-            let nested_if = self.parse_elif_as_if()?;
-            let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(std::iter::once(nested_if));
-            Some(nested_slice)
+            Some(self.read_link_block(nested_if, link_tok))
         } else {
             None
         };
@@ -2589,7 +12094,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "decreasing" keyword
             if !self.check_word("decreasing") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "decreasing".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "decreasing".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -2599,7 +12106,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             if !self.check(&TokenType::RParen) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ")".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -2612,37 +12121,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ":"
 
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume Indent
+        let body = self.read_indented_block()?;
 
-        let mut body_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            body_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
-
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
-
-        Ok(Stmt::While { cond, body, decreasing })
+        Ok(Stmt::While {
+            cond,
+            body,
+            decreasing,
+        })
     }
 
     /// Parse a loop pattern: single identifier or tuple destructuring.
@@ -2670,7 +12163,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect closing paren
             if !self.check(&TokenType::RParen) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ")".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -2691,29 +12186,37 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check_word("forever") {
             self.advance(); // consume "forever"
             if !self.check(&TokenType::Colon) {
-                return Err(ParseError { kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() }, span: self.current_span() });
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ":".to_string(),
+                    },
+                    span: self.current_span(),
+                });
             }
             self.advance(); // consume ":"
-            if !self.check(&TokenType::Indent) {
-                return Err(ParseError { kind: ParseErrorKind::ExpectedStatement, span: self.current_span() });
-            }
-            self.advance(); // consume Indent
-            let mut body_stmts = Vec::new();
-            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                let stmt = self.parse_statement()?;
-                body_stmts.push(stmt);
-                if self.check(&TokenType::Period) { self.advance(); }
-            }
-            if self.check(&TokenType::Dedent) { self.advance(); }
-            let body = self.ctx.stmts.expect("imperative arenas not initialized").alloc_slice(body_stmts.into_iter());
-            let cond = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Boolean(true)));
-            return Ok(Stmt::While { cond, body, decreasing: None });
+            let body = self.read_indented_block()?;
+            let cond = self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Boolean(true)));
+            return Ok(Stmt::While {
+                cond,
+                body,
+                decreasing: None,
+            });
         }
 
         // Optional "for"
         if self.check(&TokenType::For) {
             self.advance();
         }
+        // Optional "each" — `Repeat for each t in xs` reads exactly like the view's
+        // `for each …`, so the statement and view loop surfaces stay consistent.
+        if self.check_word("each") {
+            self.advance();
+        }
+        if let Some(stmt) = self.try_parse_every_natural_loop()? {
+            return Ok(stmt);
+        }
 
         // Parse loop pattern: single identifier or tuple destructuring
         let pattern = self.parse_loop_pattern()?;
@@ -2726,7 +12229,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "to" (can be keyword or preposition)
             if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "to".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -2739,7 +12244,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.parse_imperative_expr()?
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "in or from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "in or from".to_string(),
+                },
                 span: self.current_span(),
             });
         };
@@ -2747,45 +12254,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance();
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance();
+        let body = self.read_indented_block()?;
 
-        // Parse body statements
-        let mut body_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            body_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
-
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
-
-        Ok(Stmt::Repeat { pattern, iterable, body })
+        Ok(Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        })
     }
 
     /// Parse a for-loop without the "Repeat" keyword prefix.
-    /// Syntax: `for <var> from <start> to <end>:` or `for <var> in <collection>:`
+    /// Syntax: `for <var> from <start> to <end>:` or `for [each] <var> in <collection>:`
     fn parse_for_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "for"
+                        // Optional "each" — keeps `for each t in xs` consistent with the view + `Repeat` forms.
+        if self.check_word("each") {
+            self.advance();
+        }
+        if let Some(stmt) = self.try_parse_every_natural_loop()? {
+            return Ok(stmt);
+        }
 
         // Parse loop pattern: single identifier or tuple destructuring
         let pattern = self.parse_loop_pattern()?;
@@ -2798,7 +12294,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "to" (can be keyword or preposition)
             if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "to".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -2811,7 +12309,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.parse_imperative_expr()?
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "in or from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "in or from".to_string(),
+                },
                 span: self.current_span(),
             });
         };
@@ -2819,64 +12319,59 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance();
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance();
+        let body = self.read_indented_block()?;
 
-        // Parse body statements
-        let mut body_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            body_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
-
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
-
-        Ok(Stmt::Repeat { pattern, iterable, body })
+        Ok(Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        })
     }
 
     fn parse_call_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_tok = self.current;
         self.advance(); // consume "Call"
 
-        // Parse function name (identifier)
-        // Function names can be nouns, adjectives, or verbs (e.g., "work", "process")
-        // Use the token's lexeme to match function definition casing
-        let function = match &self.peek().kind {
-            TokenType::Noun(sym) | TokenType::Adjective(sym) => {
-                let s = *sym;
-                self.advance();
-                s
-            }
-            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
-                // Use lexeme (actual text) not lemma to preserve casing
-                let s = self.peek().lexeme;
-                self.advance();
-                s
-            }
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedIdentifier,
-                    span: self.current_span(),
-                });
+        // The callee accepts any word this program's own `## To` declared, whatever lexical
+        // class the lexer gave it (a speech-act verb like `announce`, a focus particle like
+        // `only`, …) — `declared_function_names` is pre-scanned once, before any statement is
+        // read, the same way `declare_component_names` covers `Mount <Component>.`. A name this
+        // program never declared (never reached by that pre-scan — an imported/native binding
+        // outside this file's own token stream, say) falls back to the original, narrower token-
+        // kind match instead of refusing outright.
+        let function = if self.declared_function_names.contains(&self.peek().lexeme) {
+            let s = self.peek().lexeme;
+            self.advance();
+            s
+        } else {
+            // Function names can be nouns, adjectives, or verbs (e.g., "work", "process").
+            // Use the token's lexeme to match function definition casing.
+            match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                    // Use lexeme (actual text) not lemma to preserve casing
+                    let s = self.peek().lexeme;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedIdentifier,
+                        span: self.current_span(),
+                    });
+                }
             }
         };
 
@@ -2888,6 +12383,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Vec::new()
         };
 
+        self.record_call_span(&args, start_tok);
         Ok(Stmt::Call { function, args })
     }
 
@@ -2901,7 +12397,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse additional arguments separated by "and" or ","
         while self.check(&TokenType::And) || self.check(&TokenType::Comma) {
             self.advance(); // consume "and" or ","
-            // A trailing comma (`f(1, 2,)`) ends the argument list.
+                            // A trailing comma (`f(1, 2,)`) ends the argument list.
             if self.check(&TokenType::RParen) {
                 break;
             }
@@ -2925,6 +12421,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_comparison()
     }
 
+    /// The operand of a page query: a selector string, or a name with its field-access chain.
+    ///
+    /// Deliberately NOT the general expression parser. This is reached from
+    /// `parse_primary_expr_inner`, and calling back into that descent makes the two mutually
+    /// recursive — stack the parse-recursion budget is measured against, spent on every
+    /// expression rather than only on page queries. A page query's operand is a selector or a
+    /// name, so parsing exactly that is both cheaper and truer to the form.
+    #[inline(never)]
+    fn parse_page_query_operand(&mut self) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::{Expr, Literal};
+        // `the count of the journal` — the operand is another page question, not a selector or a
+        // binding. `the count of <collection>` has always meant its length, and the journal is a
+        // collection; without this the operand parser demands an identifier and the sentence
+        // fails to parse at all.
+        if self.check_word("the") && self.peek_word_at(1, "journal") {
+            self.advance(); // "the"
+            self.advance(); // "journal"
+            return Ok(self
+                .ctx
+                .alloc_imperative_expr(Expr::Dom(crate::ast::stmt::DomQuery::Journal)));
+        }
+        match self.peek().kind {
+            TokenType::StringLiteral(sym) => {
+                self.advance();
+                Ok(self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(Literal::Text(sym))))
+            }
+            _ => {
+                let name = self.expect_identifier()?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(name));
+                self.parse_field_access_chain(base)
+            }
+        }
+    }
+
     fn parse_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
         // Grand Challenge: Parse compound conditions with "and" and "or"
         // "or" has lower precedence than "and"
@@ -2944,30 +12476,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if let Some(zone_sym) = zone_sym {
                 self.advance(); // "in"
                 self.advance(); // the zone string
-                let zone = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(zone_sym)));
-                let func = self.interner.intern("in_zone");
-                return Ok(self
+                let zone = self
                     .ctx
-                    .alloc_imperative_expr(Expr::Call { function: func, args: vec![expr, zone] }));
+                    .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(zone_sym)));
+                let func = self.interner.intern("in_zone");
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Call {
+                    function: func,
+                    args: vec![expr, zone],
+                }));
             }
             let unit_lexeme = self.tokens.get(self.current + 1).and_then(|t| {
-                if matches!(t.kind, TokenType::Identifier | TokenType::Noun(_) | TokenType::Adjective(_)) {
+                if matches!(
+                    t.kind,
+                    TokenType::Identifier | TokenType::Noun(_) | TokenType::Adjective(_)
+                ) {
                     Some(t.lexeme)
                 } else {
                     None
                 }
             });
             if let Some(unit_lexeme) = unit_lexeme {
-                if logicaffeine_base::quantity::units::by_name(self.interner.resolve(unit_lexeme)).is_some() {
+                if logicaffeine_base::quantity::units::by_name(self.interner.resolve(unit_lexeme))
+                    .is_some()
+                {
                     self.advance(); // consume "in"
                     self.advance(); // consume the unit word
-                    let unit_expr = self
-                        .ctx
-                        .alloc_imperative_expr(crate::ast::Expr::Literal(crate::ast::Literal::Text(unit_lexeme)));
+                    let unit_expr = self.ctx.alloc_imperative_expr(crate::ast::Expr::Literal(
+                        crate::ast::Literal::Text(unit_lexeme),
+                    ));
                     let func = self.interner.intern("convert");
-                    return Ok(self
-                        .ctx
-                        .alloc_imperative_expr(crate::ast::Expr::Call { function: func, args: vec![expr, unit_expr] }));
+                    return Ok(self.ctx.alloc_imperative_expr(crate::ast::Expr::Call {
+                        function: func,
+                        args: vec![expr, unit_expr],
+                    }));
                 }
             }
             // Currency conversion: `<money> in EUR` → `to_currency(money, "EUR")` via the ambient
@@ -2976,7 +12517,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let code_lexeme = self.tokens.get(self.current + 1).and_then(|t| {
                 if matches!(
                     t.kind,
-                    TokenType::Identifier | TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_)
+                    TokenType::Identifier
+                        | TokenType::Noun(_)
+                        | TokenType::ProperName(_)
+                        | TokenType::Adjective(_)
                 ) {
                     Some(t.lexeme)
                 } else {
@@ -2984,16 +12528,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             });
             if let Some(code_lexeme) = code_lexeme {
-                if logicaffeine_base::money::currency::by_code(self.interner.resolve(code_lexeme)).is_some() {
+                if logicaffeine_base::money::currency::by_code(self.interner.resolve(code_lexeme))
+                    .is_some()
+                {
                     self.advance(); // consume "in"
                     self.advance(); // consume the currency code
-                    let code_expr = self
-                        .ctx
-                        .alloc_imperative_expr(crate::ast::Expr::Literal(crate::ast::Literal::Text(code_lexeme)));
+                    let code_expr = self.ctx.alloc_imperative_expr(crate::ast::Expr::Literal(
+                        crate::ast::Literal::Text(code_lexeme),
+                    ));
                     let func = self.interner.intern("to_currency");
-                    return Ok(self
-                        .ctx
-                        .alloc_imperative_expr(crate::ast::Expr::Call { function: func, args: vec![expr, code_expr] }));
+                    return Ok(self.ctx.alloc_imperative_expr(crate::ast::Expr::Call {
+                        function: func,
+                        args: vec![expr, code_expr],
+                    }));
                 }
             }
         }
@@ -3042,7 +12589,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match self.tokens.get(self.current + 1) {
             Some(t) => match &t.kind {
                 TokenType::StringLiteral(_) => true,
-                TokenType::Identifier | TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_) => {
+                TokenType::Identifier
+                | TokenType::Noun(_)
+                | TokenType::ProperName(_)
+                | TokenType::Adjective(_) => {
                     // A declared variable shadows a unit/currency abbreviation (declarer-wins):
                     // `20 in s`, where `s` is a bound set, is membership — NOT "convert 20 to
                     // seconds" (`s` = the seconds unit). A real conversion (`… in feet`, `… in USD`)
@@ -3083,7 +12633,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::In) && !self.in_introduces_conversion() {
             self.advance(); // consume "in"
             let collection = self.parse_xor_expr()?;
-            return Ok(self.ctx.alloc_imperative_expr(Expr::Contains { collection, value: left }));
+            return Ok(self.ctx.alloc_imperative_expr(Expr::Contains {
+                collection,
+                value: left,
+            }));
         }
         if (self.check(&TokenType::Not) || self.check_word("not"))
             && matches!(
@@ -3094,8 +12647,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance(); // consume "not"
             self.advance(); // consume "in"
             let collection = self.parse_xor_expr()?;
-            let contains = self.ctx.alloc_imperative_expr(Expr::Contains { collection, value: left });
-            return Ok(self.ctx.alloc_imperative_expr(Expr::Not { operand: contains }));
+            let contains = self.ctx.alloc_imperative_expr(Expr::Contains {
+                collection,
+                value: left,
+            });
+            return Ok(self
+                .ctx
+                .alloc_imperative_expr(Expr::Not { operand: contains }));
         }
 
         // Check for comparison operators
@@ -3108,7 +12666,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Some(BinaryOpKind::Eq)
         } else if self.check_word("is") {
             // Peek ahead to determine which comparison
-            let saved_pos = self.current;
+            let saved_pos = self.backtrack_point();
             self.advance(); // consume "is"
 
             // Number predicates desugar to a complete modulo test (no right
@@ -3118,16 +12676,119 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if self.check_word("even") || self.check_word("odd") {
                 let is_odd = self.check_word("odd");
                 self.advance(); // consume "even"/"odd"
-                let two = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(2)));
+                let two = self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(2)));
                 let rem = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                    op: BinaryOpKind::Modulo, left, right: two,
+                    op: BinaryOpKind::Modulo,
+                    left,
+                    right: two,
                 });
-                let want = self.ctx.alloc_imperative_expr(Expr::Literal(
-                    crate::ast::Literal::Number(if is_odd { 1 } else { 0 }),
-                ));
+                let want =
+                    self.ctx
+                        .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(
+                            if is_odd { 1 } else { 0 },
+                        )));
                 return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                    op: BinaryOpKind::Eq, left: rem, right: want,
+                    op: BinaryOpKind::Eq,
+                    left: rem,
+                    right: want,
                 }));
+            }
+            if let Some(predicate) = self.try_parse_nonstandard_predicate(left)? {
+                return Ok(predicate);
+            }
+            // ★ `x is none` / `x is not none` — the plainest way to ask whether an optional
+            // value is there, and the spelling this project's own design docs use
+            // (`currentUser(request) is none`). It did not parse AT ALL: the only forms were
+            // `is equal to none` and an `Inspect` with a `When None:` arm, and what an author got
+            // for the natural sentence was "This construction needs the word ':' here" — an error
+            // about punctuation for a phrase that was never a form, which sends the reader
+            // hunting for a missing colon that is not missing.
+            //
+            // A live user binding wins, exactly as it does for the `none` LITERAL: a program that
+            // wrote `Let none be a new Seq of Int.` means its own variable, and `x is none` there
+            // is the ordinary equality it has always been.
+            {
+                let negated = self.check_word("not");
+                let none_at = if negated {
+                    self.current + 1
+                } else {
+                    self.current
+                };
+                let is_none_word = self.tokens.get(none_at).is_some_and(|t| {
+                    self.interner.resolve(t.lexeme).eq_ignore_ascii_case("none")
+                        && !self.user_bound.contains(&t.lexeme)
+                });
+                if is_none_word {
+                    if negated {
+                        self.advance(); // consume "not"
+                    }
+                    self.advance(); // consume "none"
+                    let none_lit = self.ctx.alloc_imperative_expr(Expr::OptionNone);
+                    let eq = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Eq,
+                        left,
+                        right: none_lit,
+                    });
+                    return Ok(if negated {
+                        self.ctx.alloc_imperative_expr(Expr::Not { operand: eq })
+                    } else {
+                        eq
+                    });
+                }
+            }
+            // ELEMENT-STATE page questions: `"#b" is disabled`, `"#c" is checked`, and the
+            // visible/hidden/focused trio — and their negation, `"#b" is not disabled` (mirrors
+            // the `is none`/`is not none` peek just above: look one word past a leading "not"
+            // before matching, so the SAME list drives both the plain and the negated reading —
+            // a new adjective added here can never be missing its own negation, since there is
+            // only ever the one recognition path). They read as adjectives, and `visible`,
+            // `hidden`, `checked` and `focused` are ordinary English words a program may well
+            // hold a Bool under — so they fire ONLY on a LITERAL selector, and `mode is visible`
+            // remains the equality it has always been. That is the whole disambiguation, and it
+            // costs nothing: a page question is always asked of a selector written out.
+            if matches!(left, Expr::Literal(crate::ast::Literal::Text(_))) {
+                let negated = self.check_word("not");
+                let at = usize::from(negated);
+                let state = if self.peek_word_at(at, "visible") {
+                    Some(0)
+                } else if self.peek_word_at(at, "hidden") {
+                    Some(1)
+                } else if self.peek_word_at(at, "disabled") {
+                    Some(2)
+                } else if self.peek_word_at(at, "checked") {
+                    Some(3)
+                } else if self.peek_word_at(at, "focused") {
+                    Some(4)
+                } else {
+                    None
+                };
+                if let Some(state) = state {
+                    if negated {
+                        self.advance(); // consume "not"
+                    }
+                    self.advance(); // the adjective
+                                    // The `"<sel>" is …` questions take a selector too — see
+                                    // `check_selector_literal`. A check that landed on `the count of` alone would
+                                    // be the arbitrary-list failure this codebase keeps finding.
+                    self.check_selector_literal(left)?;
+                    use crate::ast::stmt::DomQuery;
+                    let query = match state {
+                        0 => DomQuery::Visible { selector: left },
+                        1 => DomQuery::Hidden { selector: left },
+                        2 => DomQuery::Disabled { selector: left },
+                        3 => DomQuery::Checked { selector: left },
+                        _ => DomQuery::Focused { selector: left },
+                    };
+                    let dom_expr = self.ctx.alloc_imperative_expr(Expr::Dom(query));
+                    return Ok(if negated {
+                        self.ctx
+                            .alloc_imperative_expr(Expr::Not { operand: dom_expr })
+                    } else {
+                        dom_expr
+                    });
+                }
             }
             if self.check_word("divisible") {
                 self.advance(); // consume "divisible"
@@ -3135,14 +12796,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume "by"
                     let divisor = self.parse_xor_expr()?;
                     let rem = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                        op: BinaryOpKind::Modulo, left, right: divisor,
+                        op: BinaryOpKind::Modulo,
+                        left,
+                        right: divisor,
                     });
-                    let zero = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(0)));
+                    let zero = self
+                        .ctx
+                        .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(0)));
                     return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                        op: BinaryOpKind::Eq, left: rem, right: zero,
+                        op: BinaryOpKind::Eq,
+                        left: rem,
+                        right: zero,
                     }));
                 }
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
                 return Ok(left);
             }
             // `x is between lo and hi` → `lo <= x and x <= hi` (inclusive).
@@ -3153,16 +12820,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume "and"
                     let hi = self.parse_xor_expr()?;
                     let lower = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                        op: BinaryOpKind::LtEq, left: lo, right: left,
+                        op: BinaryOpKind::LtEq,
+                        left: lo,
+                        right: left,
                     });
                     let upper = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                        op: BinaryOpKind::LtEq, left, right: hi,
+                        op: BinaryOpKind::LtEq,
+                        left,
+                        right: hi,
                     });
                     return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                        op: BinaryOpKind::And, left: lower, right: upper,
+                        op: BinaryOpKind::And,
+                        left: lower,
+                        right: upper,
                     }));
                 }
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
                 return Ok(left);
             }
 
@@ -3170,18 +12843,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance(); // consume "greater"
                 if self.check_word("than") || self.check_preposition_is("than") {
                     self.advance(); // consume "than"
-                    Some(BinaryOpKind::Gt)
+                                    // "greater than or equal to X" → GtEq (the inclusive comparison, ≥); a bare
+                                    // "greater than X" stays the strict Gt. The `or equal to` tail is optional.
+                    if self.consume_or_equal_to() {
+                        Some(BinaryOpKind::GtEq)
+                    } else {
+                        Some(BinaryOpKind::Gt)
+                    }
                 } else {
-                    self.current = saved_pos;
+                    self.backtrack_to(&saved_pos);
                     None
                 }
             } else if self.check_word("less") {
                 self.advance(); // consume "less"
                 if self.check_word("than") || self.check_preposition_is("than") {
                     self.advance(); // consume "than"
-                    Some(BinaryOpKind::Lt)
+                                    // "less than or equal to X" → LtEq (≤); a bare "less than X" stays the strict Lt.
+                    if self.consume_or_equal_to() {
+                        Some(BinaryOpKind::LtEq)
+                    } else {
+                        Some(BinaryOpKind::Lt)
+                    }
                 } else {
-                    self.current = saved_pos;
+                    self.backtrack_to(&saved_pos);
                     None
                 }
             } else if self.check_word("at") {
@@ -3193,7 +12877,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume "most"
                     Some(BinaryOpKind::LtEq)
                 } else {
-                    self.current = saved_pos;
+                    self.backtrack_to(&saved_pos);
                     None
                 }
             } else if self.check_word("before") {
@@ -3207,6 +12891,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else if self.check_word("not") || self.check(&TokenType::Not) {
                 // "is not X" → NotEq
                 self.advance(); // consume "not"
+                                // ★ AND `is not equal to X`, the plain negation of `is equal to X`. It did not
+                                // parse, and what an author got instead was "this construction needs the word
+                                // ':'" — an error about punctuation, for the most natural way there is to write
+                                // the opposite of a form the language already has. Whoever wrote it goes looking
+                                // for a missing colon that was never missing.
+                if self.check_word("equal") {
+                    let before_equal = self.backtrack_point();
+                    self.advance(); // consume "equal"
+                    if self.check_preposition_is("to") || self.check_word("to") {
+                        self.advance(); // consume "to"
+                    } else {
+                        // `is not equal` on its own is not a comparison — leave the word alone.
+                        self.backtrack_to(&before_equal);
+                    }
+                }
                 Some(BinaryOpKind::NotEq)
             } else if self.check_word("equal") {
                 // "is equal to X" → Eq
@@ -3215,7 +12914,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume "to"
                     Some(BinaryOpKind::Eq)
                 } else {
-                    self.current = saved_pos;
+                    self.backtrack_to(&saved_pos);
                     None
                 }
             } else if self.check_word("approximately") {
@@ -3229,10 +12928,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.advance(); // consume "to"
                     }
                 }
+                // `is approximately X within eps` → (X - eps) <= v AND v <= (X + eps)
+                // — the explicit-tolerance form (the float-equality footgun's
+                // grammar-level answer; the tolerance is never a hidden global).
+                let target_probe = self.backtrack_point();
+                // The probe REWINDS on failure (the shared right-operand
+                // parse accepts forms this level does not — the probe must
+                // never knock an `is approximately X` program out).
+                let target = match self.parse_xor_expr() {
+                    Ok(t) => Some(t),
+                    Err(_) => {
+                        self.backtrack_to(&target_probe);
+                        None
+                    }
+                };
+                if let Some(target) = target {
+                    if self.check_word("within") {
+                        self.advance(); // consume "within"
+                        let eps = self.parse_xor_expr()?;
+                        let lo = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                            op: BinaryOpKind::Subtract,
+                            left: target,
+                            right: eps,
+                        });
+                        let hi = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                            op: BinaryOpKind::Add,
+                            left: target,
+                            right: eps,
+                        });
+                        let lower = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                            op: BinaryOpKind::LtEq,
+                            left: lo,
+                            right: left,
+                        });
+                        let upper = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                            op: BinaryOpKind::LtEq,
+                            left,
+                            right: hi,
+                        });
+                        return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                            op: BinaryOpKind::And,
+                            left: lower,
+                            right: upper,
+                        }));
+                    }
+                    // No `within`: rewind and let the shared right-operand
+                    // parse build the plain tolerant comparison.
+                    self.backtrack_to(&target_probe);
+                }
                 Some(BinaryOpKind::ApproxEq)
             } else if matches!(self.peek().kind, TokenType::Number(_))
                 || (self.check(&TokenType::Minus)
-                    && self.tokens.get(self.current + 1)
+                    && self
+                        .tokens
+                        .get(self.current + 1)
                         .is_some_and(|t| matches!(t.kind, TokenType::Number(_))))
             {
                 // Bare `x is <number>` is equality (`x is equal to <number>` → `x == <number>`).
@@ -3241,8 +12990,37 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // untouched — nothing but a numeral reaches here. The numeral is left for the
                 // right-operand parse below.
                 Some(BinaryOpKind::Eq)
+            } else if matches!(self.peek().kind, TokenType::StringLiteral(_)) {
+                // Bare `x is "text"` is equality, exactly like `x is 5`: a text literal is never a
+                // predicate adjective, so there is nothing here to disambiguate.
+                Some(BinaryOpKind::Eq)
+            } else if matches!(
+                self.peek().kind,
+                TokenType::Identifier
+                    | TokenType::Noun(_)
+                    | TokenType::Adjective(_)
+                    | TokenType::ProperName(_)
+                    | TokenType::Verb { .. }
+                    | TokenType::Particle(_)
+                    | TokenType::Ambiguous { .. }
+                    | TokenType::Pronoun { .. }
+            ) && (self.user_bound.contains(&self.peek().lexeme)
+                || self
+                    .type_registry
+                    .as_ref()
+                    .is_some_and(|r| r.is_variant(self.peek().lexeme)))
+            {
+                // Declarer-wins: bare `x is <bound name>` is equality with that variable (`a plus b
+                // is total`, where `total` is a case-table column or Let-bound name, whatever word
+                // class the lexer gave it — a binding named `limited` or `closed` is a participle to
+                // the lexer and a value to the program); the same for a declared enum VARIANT
+                // (`c is Red`) — neither is ever a predicate adjective, so nothing is lost by taking
+                // them as values. Articles are deliberately excluded so
+                // `is a <Type>` keeps its type-check reading; unbound, non-variant words keep their
+                // predicate reading (`x is red`).
+                Some(BinaryOpKind::Eq)
             } else {
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
                 None
             }
         } else if self.check(&TokenType::Lt) {
@@ -3269,17 +13047,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if let Some(op) = op {
             let right = self.parse_xor_expr()?;
-            let first = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right });
+            let first = self
+                .ctx
+                .alloc_imperative_expr(Expr::BinaryOp { op, left, right });
             // Chained comparison: `lo <= x <= hi` → `(lo <= x) and (x <= hi)`
             // (math / Python reading). Only the SYMBOLIC operators chain; the
             // worded forms don't. `right` is the shared middle operand.
             if let Some(op2) = self.try_symbolic_comparison_op() {
                 let hi = self.parse_xor_expr()?;
                 let second = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                    op: op2, left: right, right: hi,
+                    op: op2,
+                    left: right,
+                    right: hi,
                 });
                 return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                    op: BinaryOpKind::And, left: first, right: second,
+                    op: BinaryOpKind::And,
+                    left: first,
+                    right: second,
                 }));
             }
             Ok(first)
@@ -3311,6 +13095,68 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Some(op)
     }
 
+    /// `Let (a, b, …) be <expr>` — positional destructuring. Binds a fresh temporary to `<expr>`, then each
+    /// name to `item <i+1> of <temp>` (1-based, reusing tuple index access). Emitted as a `Stmt::Splice`, so
+    /// no `Stmt::Let` AST change and it works on every tier that already indexes tuples.
+    fn parse_destructuring_let(&mut self, mutable: bool) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "("
+        let mut binders = Vec::new();
+        loop {
+            binders.push(self.expect_identifier()?);
+            if self.check(&TokenType::Comma) {
+                self.advance(); // consume ","
+                continue;
+            }
+            break;
+        }
+        if !self.check(&TokenType::RParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ")".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ")"
+        if !self.check(&TokenType::Be) && !self.check(&TokenType::Assign) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "be or =".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "be" / "="
+        let value = self.parse_imperative_expr()?;
+
+        let tmp = self.fresh_desugar_temp("destructure");
+        let tmp_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(tmp));
+        let mut body: Vec<Stmt<'a>> = Vec::with_capacity(binders.len() + 1);
+        body.push(Stmt::Let {
+            var: tmp,
+            ty: None,
+            value,
+            mutable: false,
+        });
+        for (i, binder) in binders.iter().enumerate() {
+            let idx = self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number((i + 1) as i64)));
+            let read = self.ctx.alloc_imperative_expr(Expr::Index {
+                collection: tmp_ref,
+                index: idx,
+            });
+            body.push(Stmt::Let {
+                var: *binder,
+                ty: None,
+                value: read,
+                mutable,
+            });
+        }
+        let body = self.alloc_block(body);
+        Ok(Stmt::Splice { body })
+    }
+
     fn parse_let_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Let"
 
@@ -3321,6 +13167,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else {
             false
         };
+
+        // Destructuring bind: `Let (a, b) be <expr>` binds each name positionally. Desugars to a fresh
+        // temporary plus one `Let <name> be item <i+1> of <temp>` per binder — so it reuses tuple index
+        // access on every tier with no `Stmt::Let` AST change.
+        if self.check(&TokenType::LParen) {
+            return self.parse_destructuring_let(mutable);
+        }
 
         // Get identifier
         let var = self.expect_identifier()?;
@@ -3337,18 +13190,56 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "be" or "="
         if !self.check(&TokenType::Be) && !self.check(&TokenType::Assign) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "be or =".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "be or =".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume "be" or "="
+
+        // Tensor sugar (Phase 2): `Let A be a R by C tensor of Int` (a shaped, flat-backed tensor) and
+        // `Let C be A matmul B` (the shape-checked product). Both desugar to ordinary Seq + loop statements
+        // (a transparent `Stmt::Splice`) so every tier runs them ≡ the VM; the matmul is the exact idiom
+        // `recognize_matmul` lifts to the optimized backends. Guarded + backtracking → zero effect otherwise.
+        if let Some(stmt) = self.try_parse_tensor_new(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_int_map(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_binop(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_head_slice(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_unary(var)? {
+            return Ok(stmt);
+        }
+        // `Let <name> be every <x> in <list> where <condition>.` — the items the condition holds
+        // for, in order, as a new list; `<list>` is untouched.
+        if let Some((binder, list, condition)) = self.try_parse_every_where()? {
+            let (kept, mut body) = self.desugar_keep_where(binder, list, condition, true);
+            let value = self.ctx.alloc_imperative_expr(Expr::Identifier(kept));
+            body.push(Stmt::Let {
+                var,
+                ty,
+                value,
+                mutable,
+            });
+            let body = self.alloc_block(body);
+            return Ok(Stmt::Splice { body });
+        }
 
         // Phase 53: Check for "mounted at [path]" pattern (for Persistent types)
         if self.check_word("mounted") {
             self.advance(); // consume "mounted"
             if !self.check(&TokenType::At) && !self.check_preposition_is("at") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "at".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -3359,7 +13250,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Phase 51: Check for "a PeerAgent at [addr]" pattern
         if self.check_article() {
-            let saved_pos = self.current;
+            let saved_pos = self.backtrack_point();
             self.advance(); // consume article
 
             // Check if next word is "PeerAgent" (case insensitive)
@@ -3380,14 +13271,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
             // Not a PeerAgent, backtrack
-            self.current = saved_pos;
+            self.backtrack_to(&saved_pos);
         }
 
         // Phase 54: Check for "a [new] Pipe of Type" pattern. The optional `new`
         // matches the `a new X` idiom every other collection construction uses
         // (`a new Map`, `a new Set`); the guide writes `a new Pipe of Int`.
         if self.check_article() {
-            let saved_pos = self.current;
+            let saved_pos = self.backtrack_point();
             self.advance(); // consume article
             if self.check(&TokenType::New) {
                 self.advance(); // consume optional "new"
@@ -3399,7 +13290,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Expect "of"
                 if !self.check_word("of") {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: "of".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -3410,20 +13303,33 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 // Variable registration now handled by DRS
 
-                return Ok(Stmt::CreatePipe { var, element_type, capacity: None });
+                return Ok(Stmt::CreatePipe {
+                    var,
+                    element_type,
+                    capacity: None,
+                });
             }
             // Not a Pipe, backtrack
-            self.current = saved_pos;
+            self.backtrack_to(&saved_pos);
         }
 
-        // Phase 54: Check for "Launch a task to..." pattern (for task handles)
-        if self.check(&TokenType::Launch) {
+        // Phase 54: Check for "Launch a task to..." pattern (for task handles).
+        // The article lookahead keeps a VARIABLE named `launch` usable as a Let
+        // value (`Let x be launch + 1.`) — only `launch a/an …` is the statement.
+        if self.check(&TokenType::Launch)
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Article(_))
+            )
+        {
             self.advance(); // consume "Launch"
 
             // Expect "a"
             if !self.check_article() {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "a".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -3432,7 +13338,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "task"
             if !self.check(&TokenType::Task) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "task".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -3441,14 +13349,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "to"
             if !self.check(&TokenType::To) && !self.check_word("to") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "to".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
             self.advance();
 
-            // Parse function name
-            let function = self.expect_identifier()?;
+            let function = self.parse_task_function()?;
 
             // Parse optional arguments: "with arg1, arg2"
             let args = if self.check_word("with") {
@@ -3458,43 +13367,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 vec![]
             };
 
-            return Ok(Stmt::LaunchTaskWithHandle { handle: var, function, args });
+            return Ok(Stmt::LaunchTaskWithHandle {
+                handle: var,
+                function,
+                args,
+            });
         }
 
-        // Parse expression value (simple: just a number for now)
-        let value = self.parse_imperative_expr()?;
+        let value_tok = self.current;
+        let value = match self.try_parse_infinitesimal(var)? {
+            Some(value) => value,
+            None => self.parse_imperative_expr()?,
+        };
 
-        // Phase 43B: Type check - verify declared type matches value type
-        if let Some(declared_ty) = &ty {
-            if let Some(inferred) = self.infer_literal_type(value) {
-                if !self.check_type_compatibility(declared_ty, inferred) {
-                    let expected = match declared_ty {
-                        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-                            self.interner.resolve(*sym).to_string()
-                        }
-                        _ => "unknown".to_string(),
-                    };
-                    return Err(ParseError {
-                        kind: ParseErrorKind::TypeMismatch {
-                            expected,
-                            found: inferred.to_string(),
-                        },
-                        span: self.current_span(),
-                    });
-                }
+        // A declared type must agree with the value beside it — and, for a Real slot given a
+        // whole number, the declaration decides what is stored.
+        let value = match &ty {
+            Some(declared_ty) => {
+                self.check_declared_type(declared_ty, value, self.span_since(value_tok))?;
+                self.widen_literal_to_declared(declared_ty, value)
             }
-        }
+            None => value,
+        };
 
         // Check for optional "with capacity <expr>" — wraps value in Expr::WithCapacity
         let value = if self.check_word("with") {
-            let saved = self.current;
+            let saved = self.backtrack_point();
             self.advance(); // consume "with"
             if self.check_word("capacity") {
                 self.advance(); // consume "capacity"
                 let cap_expr = self.parse_imperative_expr()?;
-                self.ctx.alloc_imperative_expr(Expr::WithCapacity { value, capacity: cap_expr })
+                self.ctx.alloc_imperative_expr(Expr::WithCapacity {
+                    value,
+                    capacity: cap_expr,
+                })
             } else {
-                self.current = saved; // backtrack — "with" belongs to something else
+                self.backtrack_to(&saved); // backtrack — "with" belongs to something else
                 value
             }
         } else {
@@ -3502,10 +13410,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         // Register variable in WorldState's DRS with Owned state for ownership tracking
-        self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
+        self.world_state.drs.introduce_referent(
+            var,
+            var,
+            crate::drs::Gender::Unknown,
+            crate::drs::Number::Singular,
+        );
 
         self.user_bound.insert(var);
-        Ok(Stmt::Let { var, ty, value, mutable })
+        Ok(Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        })
     }
 
     fn check_mutable_keyword(&self) -> bool {
@@ -3523,6 +13441,69 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Phase 43B: Infer the type of a literal expression
+    /// A declared type must agree with the value beside it — the ONE check, shared by every place
+    /// a declaration meets an initializer.
+    ///
+    /// `Let` had it inline, which meant an LGX `State:` field did not: `Let rate: Real be 3.` was
+    /// refused at the top level and SILENTLY ACCEPTED inside a component, where the annotation was
+    /// then ignored and the field behaved as an Int. A declared type that is quietly disregarded
+    /// is worse than no annotation at all, because the author has been told their intent was
+    /// understood. Sharing the check is also what keeps ONE message: a second copy would drift.
+    /// A `Float`/`Real` slot holds a whole-number initializer AS A REAL.
+    ///
+    /// Accepting `Let r: Float be 1.` and then storing an Int is the annotation being ignored in
+    /// a quieter way: the slot parses, and `r / 2` is 0 instead of 0.5 because the division is
+    /// integer division. The declaration says what the slot HOLDS, so it is the declaration that
+    /// decides — the literal is widened here, once, where both the type and the value are in hand.
+    pub(super) fn widen_literal_to_declared(
+        &self,
+        declared: &TypeExpr<'_>,
+        value: &'a Expr<'a>,
+    ) -> &'a Expr<'a> {
+        let (TypeExpr::Primitive(sym) | TypeExpr::Named(sym)) = declared else {
+            return value;
+        };
+        let name = self.interner.resolve(*sym);
+        if !name.eq_ignore_ascii_case("Float") && !name.eq_ignore_ascii_case("Real") {
+            return value;
+        }
+        match value {
+            Expr::Literal(Literal::Number(n)) => self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(Literal::Float(*n as f64))),
+            _ => value,
+        }
+    }
+
+    /// A declared type agrees with the literal value beside it; a mismatch
+    /// points at `value_span`, the value that disagrees.
+    pub(super) fn check_declared_type(
+        &self,
+        declared: &TypeExpr<'_>,
+        value: &Expr<'_>,
+        value_span: Span,
+    ) -> ParseResult<()> {
+        let Some(inferred) = self.infer_literal_type(value) else {
+            return Ok(());
+        };
+        if self.check_type_compatibility(declared, inferred) {
+            return Ok(());
+        }
+        let expected = match declared {
+            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                self.interner.resolve(*sym).to_string()
+            }
+            _ => "unknown".to_string(),
+        };
+        Err(ParseError {
+            kind: ParseErrorKind::TypeMismatch {
+                expected,
+                found: inferred.to_string(),
+            },
+            span: value_span,
+        })
+    }
+
     fn infer_literal_type(&self, expr: &Expr<'_>) -> Option<&'static str> {
         match expr {
             Expr::Literal(lit) => match lit {
@@ -3548,11 +13529,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 let declared_name = self.interner.resolve(*sym);
                 // Nat and Byte are compatible with Int literals; an integer literal is
-                // also a valid Rational (`Let x: Rational be 5` → exact 5/1).
+                // also a valid Rational (`Let x: Rational be 5` → exact 5/1). `Float`
+                // is the same type as `Real` — a decimal literal satisfies both names.
                 declared_name.eq_ignore_ascii_case(inferred)
                     || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
                     || (declared_name.eq_ignore_ascii_case("Byte") && inferred == "Int")
                     || (declared_name.eq_ignore_ascii_case("Rational") && inferred == "Int")
+                    || (declared_name.eq_ignore_ascii_case("Float") && inferred == "Real")
+                    // An integer literal is a perfectly good Real: `Let r: Float be 1.` is the
+                    // canonical explicit annotation, and `Let ratio: Float be 1.` is written that
+                    // way in the fixtures. It is the SAME widening already allowed for Rational
+                    // (`Let x: Rational be 5` → exact 5/1) — the annotation says which type the
+                    // slot holds, and a whole number is a value that type has.
+                    || (declared_name.eq_ignore_ascii_case("Float") && inferred == "Int")
+                    || (declared_name.eq_ignore_ascii_case("Real") && inferred == "Int")
+                    // The exact number types take a whole number as the exact value it is, as
+                    // `Rational` does; a decimal literal is refused there too, since `0.1` written
+                    // into an exact slot would have to mean either the double or the tenth.
+                    || (inferred == "Int"
+                        && ["Algebraic", "ExactReal", "Hyperreal", "Hypernatural", "Ordinal"]
+                            .iter()
+                            .any(|t| declared_name.eq_ignore_ascii_case(t)))
             }
             _ => true, // For generics/functions, skip check for now
         }
@@ -3571,9 +13568,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn peek_compound_assignment(&self) -> bool {
         let is_identifier = matches!(
             self.peek().kind,
-            TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Identifier
-                | TokenType::Adjective(_) | TokenType::Verb { .. }
-                | TokenType::Particle(_) | TokenType::Ambiguous { .. }
+            TokenType::Noun(_)
+                | TokenType::ProperName(_)
+                | TokenType::Identifier
+                | TokenType::Adjective(_)
+                | TokenType::Verb { .. }
+                | TokenType::Particle(_)
+                | TokenType::Ambiguous { .. }
                 | TokenType::Pronoun { .. }
         );
         if !is_identifier {
@@ -3599,7 +13600,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// expression — it stops cleanly at the compound-op token.
     fn parse_compound_assignment(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::ast::Expr;
+        let target_from = self.current;
         let target = self.parse_imperative_expr()?;
+        self.note_write(
+            target,
+            target_from,
+            self.current,
+            component::WriteVerb::Compound,
+        );
         let op = match self.peek().kind {
             TokenType::PlusEq => BinaryOpKind::Add,
             TokenType::MinusEq => BinaryOpKind::Subtract,
@@ -3608,21 +13616,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::PercentEq => BinaryOpKind::Modulo,
             _ => {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "+= -= *= /= %=".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "+= -= *= /= %=".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
         };
         self.advance(); // consume the compound op
         let rhs = self.parse_imperative_expr()?;
-        let combined = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left: target, right: rhs });
+        let combined = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op,
+            left: target,
+            right: rhs,
+        });
         // Desugar by target shape (mirrors `Set`): identifier → Set (auto-mutable
         // via collect_mutable_vars), field → SetField, index → the place desugar.
         match target {
-            Expr::Identifier(sym) => Ok(Stmt::Set { target: *sym, value: combined }),
-            Expr::FieldAccess { object, field } => {
-                Ok(Stmt::SetField { object, field: *field, value: combined })
-            }
+            Expr::Identifier(sym) => Ok(Stmt::Set {
+                target: *sym,
+                value: combined,
+            }),
+            Expr::FieldAccess { object, field } => Ok(Stmt::SetField {
+                object,
+                field: *field,
+                value: combined,
+            }),
             Expr::Index { collection, index } => {
                 Ok(self.desugar_place_set_index(collection, index, combined))
             }
@@ -3639,10 +13658,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Verbs, Particles, and Ambiguous can also be variable names
         let is_identifier = matches!(
             self.peek().kind,
-            TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Identifier
-            | TokenType::Adjective(_) | TokenType::Verb { .. }
-            | TokenType::Particle(_) | TokenType::Ambiguous { .. }
-            | TokenType::Pronoun { .. }
+            TokenType::Noun(_)
+                | TokenType::ProperName(_)
+                | TokenType::Identifier
+                | TokenType::Adjective(_)
+                | TokenType::Verb { .. }
+                | TokenType::Particle(_)
+                | TokenType::Ambiguous { .. }
+                | TokenType::Pronoun { .. }
         );
         if !is_identifier {
             return false;
@@ -3701,7 +13724,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect '='
         if !self.check(&TokenType::Assign) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "=".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "=".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -3712,14 +13737,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Check for optional "with capacity <expr>" — wraps value in Expr::WithCapacity
         let value = if self.check_word("with") {
-            let saved = self.current;
+            let saved = self.backtrack_point();
             self.advance(); // consume "with"
             if self.check_word("capacity") {
                 self.advance(); // consume "capacity"
                 let cap_expr = self.parse_imperative_expr()?;
-                self.ctx.alloc_imperative_expr(Expr::WithCapacity { value, capacity: cap_expr })
+                self.ctx.alloc_imperative_expr(Expr::WithCapacity {
+                    value,
+                    capacity: cap_expr,
+                })
             } else {
-                self.current = saved; // backtrack
+                self.backtrack_to(&saved); // backtrack
                 value
             }
         } else {
@@ -3736,61 +13764,158 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         // Register variable in WorldState's DRS
-        self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
+        self.world_state.drs.introduce_referent(
+            var,
+            var,
+            crate::drs::Gender::Unknown,
+            crate::drs::Number::Singular,
+        );
 
         self.user_bound.insert(var);
-        Ok(Stmt::Let { var, ty, value, mutable: explicit_mutable })
+        Ok(Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable: explicit_mutable,
+        })
     }
 
     fn parse_set_statement(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::ast::Expr;
         self.advance(); // consume "Set"
 
+        // `Set the todo's id to 9.` — the article in front of the ASSIGNED possessive. The target
+        // is not parsed through `parse_primary_expr`, so the skip is needed here too; see
+        // `eat_article_before_possessive`. It runs after the DOM sugar below, which claims its own
+        // `the` (`the text of …`) and is told apart by the same two-token lookahead.
+        self.eat_article_before_possessive();
+
+        // `Set row p of Kc to kp.` — the KV-cache append: row `p` of a declared tensor overwritten by a
+        // tensor of exactly its row width and element kind. Backtracks unless the whole shape is there, so
+        // a variable named `row` is still assignable.
+        if let Some(stmt) = self.try_parse_set_row()? {
+            return Ok(stmt);
+        }
+
+        // DOM sugar: `Set the text of <element> to <value>.` → `setText(element, value)`.
+        if self.check_word("the") && self.peek_word_at(1, "text") && self.peek_word_at(2, "of") {
+            self.advance(); // the
+            self.advance(); // text
+            self.advance(); // of
+            let element = self.parse_imperative_expr()?;
+            let is_to = self.check(&TokenType::To)
+                || matches!(&self.peek().kind, TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to");
+            if !is_to {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "to".to_string(),
+                    },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "to"
+            let value = self.parse_imperative_expr()?;
+            let function = self.interner.intern("setText");
+            return Ok(Stmt::Call {
+                function,
+                args: vec![element, value],
+            });
+        }
+
         // Parse target - can be identifier or field access expression
+        let target_from = self.current;
         let target_expr = self.parse_imperative_expr()?;
+        let target_to = self.current;
 
         // Support "Set X at KEY to VALUE" syntax for map insertion
         let target_expr = if self.check(&TokenType::At) {
             self.advance(); // consume "at"
             let key = self.parse_imperative_expr()?;
-            self.ctx.alloc_imperative_expr(Expr::Index { collection: target_expr, index: key })
+            self.ctx.alloc_imperative_expr(Expr::Index {
+                collection: target_expr,
+                index: key,
+            })
         } else {
             target_expr
         };
 
         // Expect "to" - can be TokenType::To or Preposition("to")
-        let is_to = self.check(&TokenType::To) || matches!(
-            &self.peek().kind,
-            TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to"
-        );
+        let is_to = self.check(&TokenType::To)
+            || matches!(
+                &self.peek().kind,
+                TokenType::Preposition(sym) if self.interner.resolve(*sym) == "to"
+            );
         if !is_to {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume "to"
 
-        // Parse expression value
-        let value = self.parse_imperative_expr()?;
+        // Parse expression value — or `every <x> in <list> where <condition>`, the kept items
+        // gathered first and assigned as one list.
+        let (gathered, value) = match self.try_parse_every_where()? {
+            Some((binder, list, condition)) => {
+                let (kept, body) = self.desugar_keep_where(binder, list, condition, true);
+                (body, self.ctx.alloc_imperative_expr(Expr::Identifier(kept)))
+            }
+            None => (Vec::new(), self.parse_imperative_expr()?),
+        };
 
         // Phase 31: Handle field access targets
         // Also handle index targets: Set item N of X to Y
-        match target_expr {
+        let assign = match target_expr {
             Expr::FieldAccess { object, field } => {
-                Ok(Stmt::SetField { object: *object, field: *field, value })
+                self.note_write(
+                    target_expr,
+                    target_from,
+                    target_to,
+                    component::WriteVerb::SetField,
+                );
+                Stmt::SetField {
+                    object: *object,
+                    field: *field,
+                    value,
+                }
             }
             Expr::Identifier(target) => {
-                Ok(Stmt::Set { target: *target, value })
+                self.note_write(
+                    target_expr,
+                    target_from,
+                    target_to,
+                    component::WriteVerb::Set,
+                );
+                Stmt::Set {
+                    target: *target,
+                    value,
+                }
             }
             Expr::Index { collection, index } => {
-                Ok(self.desugar_place_set_index(*collection, *index, value))
+                self.note_write(
+                    target_expr,
+                    target_from,
+                    target_to,
+                    component::WriteVerb::SetItem,
+                );
+                self.desugar_place_set_index(*collection, *index, value)
             }
-            _ => Err(ParseError {
-                kind: ParseErrorKind::ExpectedIdentifier,
-                span: self.current_span(),
-            })
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedIdentifier,
+                    span: self.current_span(),
+                })
+            }
+        };
+        if gathered.is_empty() {
+            return Ok(assign);
         }
+        let mut body = gathered;
+        body.push(assign);
+        let body = self.alloc_block(body);
+        Ok(Stmt::Splice { body })
     }
 
     fn parse_return_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -3810,9 +13935,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance(); // consume "if"
             let cond = self.parse_condition()?;
             let ret = Stmt::Return { value: Some(value) };
-            let then_block = self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(std::iter::once(ret));
-            return Ok(Stmt::If { cond, then_block, else_block: None });
+            let then_block = self.alloc_block(vec![ret]);
+            return Ok(Stmt::If {
+                cond,
+                then_block,
+                else_block: None,
+            });
         }
         Ok(Stmt::Return { value: Some(value) })
     }
@@ -3826,15 +13954,47 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Assert"
 
         // Optionally consume "that" (may be tokenized as That or Article(Distal))
-        if self.check(&TokenType::That) || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
+        if self.check(&TokenType::That)
+            || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal))
+        {
             self.advance();
         }
 
         // Parse condition using imperative expression parser
         // This allows syntax like "Assert that b is not 0."
         let condition = self.parse_condition()?;
+        let reason = self.parse_contract_reason()?;
 
-        Ok(Stmt::RuntimeAssert { condition, hard: false })
+        Ok(Stmt::RuntimeAssert {
+            condition,
+            hard: false,
+            dim: None,
+            reason,
+        })
+    }
+
+    /// The optional `, otherwise <reason>` clause of `Assert`/`Require`/`Assume`: the text the
+    /// program stops with when the contract breaks. Evaluated only on failure.
+    fn parse_contract_reason(&mut self) -> ParseResult<Option<&'a Expr<'a>>> {
+        if self.check(&TokenType::Comma)
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Otherwise)
+            )
+        {
+            self.advance();
+            self.advance();
+            return Ok(Some(self.parse_imperative_expr()?));
+        }
+        Ok(None)
+    }
+
+    /// `Fail with <reason>.` — raise an error.
+    fn parse_fail_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Fail"
+        self.advance(); // consume "with"
+        let reason = self.parse_imperative_expr()?;
+        Ok(Stmt::Fail { reason })
     }
 
     /// `Require that <cond>.` — an ENFORCED runtime invariant lowering to a hard
@@ -3844,12 +14004,355 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Require"
 
         // Optionally consume "that" (may be tokenized as That or Article(Distal)).
-        if self.check(&TokenType::That) || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
+        if self.check(&TokenType::That)
+            || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal))
+        {
             self.advance();
         }
 
         let condition = self.parse_condition()?;
-        Ok(Stmt::RuntimeAssert { condition, hard: true })
+        let (condition, dim) = self.fold_contract_dimension(condition)?;
+        let reason = self.parse_contract_reason()?;
+        Ok(Stmt::RuntimeAssert {
+            condition,
+            hard: true,
+            dim,
+            reason,
+        })
+    }
+
+    /// `Assume [that] <cond>.` — a declared INPUT CONTRACT: the same enforced runtime invariant as
+    /// `Require that` (a hard `RuntimeAssert`), spelled as an assumption. The canonical form is a
+    /// range declaration (`Assume x is between -1.0 and 1.0.`, via the existing `between` desugar),
+    /// which static consumers — the analog lane's gain scaling — recover from the produced shape.
+    fn parse_assume_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Assume"
+
+        // Optionally consume "that" (may be tokenized as That or Article(Distal)).
+        if self.check(&TokenType::That)
+            || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal))
+        {
+            self.advance();
+        }
+
+        let condition = self.parse_condition()?;
+        let (condition, dim) = self.fold_contract_dimension(condition)?;
+        let reason = self.parse_contract_reason()?;
+        Ok(Stmt::RuntimeAssert {
+            condition,
+            hard: true,
+            dim,
+            reason,
+        })
+    }
+
+    /// `Solve M times x equals v for x.` — the four-fabric equation statement (R4). The
+    /// DIGITAL semantics are exact (`Let x be solveLinear(M, v).`, pure stdlib LOGOS, every
+    /// tier for free); the relaxation fabric's settling solver is the certificate-gated
+    /// accelerator for the same equation. The unknown must appear as the right factor of the
+    /// product and match the `for` binder — anything else is refused with the shape named.
+    fn parse_solve_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Solve"
+        let err = |msg: &str| ParseError {
+            kind: ParseErrorKind::Custom(msg.to_string()),
+            span: Span::default(),
+        };
+        let lhs = self.parse_xor_expr()?;
+        if !self.check_word("equals") {
+            return Err(err(
+                "a Solve statement reads `Solve M times x equals v for x.` — I expected                  `equals` after the product",
+            ));
+        }
+        self.advance(); // consume "equals"
+        let rhs = self.parse_xor_expr()?;
+        if !self.check_word("for") && !matches!(self.peek().kind, TokenType::Preposition(_)) {
+            return Err(err("a Solve statement ends `… for x.` — name the unknown"));
+        }
+        self.advance(); // consume "for"
+        let binder = match self.peek().kind {
+            TokenType::Identifier | TokenType::Noun(_) => {
+                let sym = self.peek().lexeme;
+                self.advance();
+                sym
+            }
+            _ => return Err(err("a Solve statement ends `… for x.` — name the unknown")),
+        };
+        // The product must be `matrix × unknown`, with the unknown matching the binder.
+        let Expr::BinaryOp {
+            op: BinaryOpKind::Multiply,
+            left: matrix,
+            right: unknown,
+        } = lhs
+        else {
+            return Err(err(
+                "a Solve statement reads `Solve M times x equals v for x.` — the left side                  must be the product `M times x`",
+            ));
+        };
+        let Expr::Identifier(x) = unknown else {
+            return Err(err("the unknown in `M times x` must be a plain name"));
+        };
+        if *x != binder {
+            return Err(err(
+                "the unknown in `M times x` and the `for` binder must be the SAME name",
+            ));
+        }
+        let func = self.interner.intern("solveLinear");
+        let call = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: func,
+            args: vec![matrix, rhs],
+        });
+        Ok(Stmt::Let {
+            var: binder,
+            ty: None,
+            value: call,
+            mutable: false,
+        })
+    }
+
+    /// `Minimize the quadratic Q with linear b over x.` — the relaxation-fabric statement
+    /// (R4). Digital semantics: the strongly convex quadratic's gradient vanishes at
+    /// `Q·x = −b`, so the exact minimizer is `Let x be minimizeQuadratic(Q, b).` (stdlib
+    /// LOGOS). The settling/soft-spin fabrics accelerate with Candidate semantics.
+    fn parse_minimize_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Minimize"
+        let err = |msg: &str| ParseError {
+            kind: ParseErrorKind::Custom(msg.to_string()),
+            span: Span::default(),
+        };
+        if matches!(self.peek().kind, TokenType::Article(_)) {
+            self.advance(); // optional "the"
+        }
+        if !self.check_word("quadratic") {
+            return Err(err(
+                "a Minimize statement reads `Minimize the quadratic Q with linear b over x.`",
+            ));
+        }
+        self.advance(); // consume "quadratic"
+        let q = self.parse_xor_expr()?;
+        if !self.check_word("with") && !matches!(self.peek().kind, TokenType::Preposition(_)) {
+            return Err(err("I expected `with linear b` after the quadratic"));
+        }
+        self.advance(); // consume "with"
+        if !self.check_word("linear") {
+            return Err(err("I expected `with linear b` after the quadratic"));
+        }
+        self.advance(); // consume "linear"
+        let b = self.parse_xor_expr()?;
+        if !self.check_word("over") && !matches!(self.peek().kind, TokenType::Preposition(_)) {
+            return Err(err(
+                "a Minimize statement ends `… over x.` — name the unknown",
+            ));
+        }
+        self.advance(); // consume "over"
+        let binder = match self.peek().kind {
+            TokenType::Identifier | TokenType::Noun(_) => {
+                let sym = self.peek().lexeme;
+                self.advance();
+                sym
+            }
+            _ => {
+                return Err(err(
+                    "a Minimize statement ends `… over x.` — name the unknown",
+                ))
+            }
+        };
+        let func = self.interner.intern("minimizeQuadratic");
+        let call = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: func,
+            args: vec![q, b],
+        });
+        Ok(Stmt::Let {
+            var: binder,
+            ty: None,
+            value: call,
+            mutable: false,
+        })
+    }
+
+    /// The `Assume`/`Require` range-contract post-pass: literal QUANTITY bounds in the
+    /// `between` desugar shape (`lo <= x and x <= hi`) fold to their exact SI magnitudes —
+    /// exact-rational unit conversion, then the one nearest-f64 the bare-float twin would
+    /// carry — so the runtime condition compares plain floats on every tier, and the
+    /// contract's physical dimension is returned for the statement to carry as metadata.
+    ///
+    /// A unit stated on one bound distributes over the coordination (`between 200 and 700
+    /// millivolts`). Two stated units must agree in dimension — a voltage bounded by seconds
+    /// is analytically meaningless and is refused HERE, at parse, before anything runs. A
+    /// dimensioned contract with a non-literal bound is likewise refused (the fold cannot
+    /// preserve its meaning). Conditions in any other shape, and unit-free ranges, pass
+    /// through untouched — in particular, Quantity↔Quantity comparisons in general `If`/
+    /// `While` conditions never reach this pass.
+    fn fold_contract_dimension(
+        &mut self,
+        condition: &'a Expr<'a>,
+    ) -> ParseResult<(
+        &'a Expr<'a>,
+        Option<logicaffeine_base::dimension::Dimension>,
+    )> {
+        use logicaffeine_base::numeric::{rational_from_f64_exact, Decimal, Rational};
+        use logicaffeine_base::quantity::{units, Unit};
+
+        enum CBound {
+            Bare(Rational),
+            Stated(Rational, Unit, String),
+            Opaque,
+        }
+
+        let Expr::BinaryOp {
+            op: BinaryOpKind::And,
+            left: lower,
+            right: upper,
+        } = condition
+        else {
+            return Ok((condition, None));
+        };
+        let Expr::BinaryOp {
+            op: BinaryOpKind::LtEq,
+            left: lo,
+            right: v1,
+        } = lower
+        else {
+            return Ok((condition, None));
+        };
+        let Expr::BinaryOp {
+            op: BinaryOpKind::LtEq,
+            left: v2,
+            right: hi,
+        } = upper
+        else {
+            return Ok((condition, None));
+        };
+        let (Expr::Identifier(a), Expr::Identifier(b)) = (v1, v2) else {
+            return Ok((condition, None));
+        };
+        if a != b {
+            return Ok((condition, None));
+        }
+
+        let classify = |parser: &Self, e: &Expr<'a>| -> CBound {
+            // One level of the zero-minus-literal negation spelling.
+            let (neg, e) = match e {
+                Expr::BinaryOp {
+                    op: BinaryOpKind::Subtract,
+                    left,
+                    right,
+                } => match left {
+                    Expr::Literal(Literal::Number(0)) => (true, *right),
+                    Expr::Literal(Literal::Float(z)) if *z == 0.0 => (true, *right),
+                    _ => (false, e),
+                },
+                _ => (false, e),
+            };
+            let signed = |r: Rational| if neg { r.negated() } else { r };
+            match e {
+                Expr::Literal(Literal::Number(n)) => CBound::Bare(signed(Rational::from_i64(*n))),
+                Expr::Literal(Literal::Float(f)) => match rational_from_f64_exact(*f) {
+                    Some(r) => CBound::Bare(signed(r)),
+                    None => CBound::Opaque,
+                },
+                Expr::Call { function, args }
+                    if parser.interner.resolve(*function) == "quantity" && args.len() == 2 =>
+                {
+                    let Expr::Literal(Literal::Text(unit_sym)) = args[1] else {
+                        return CBound::Opaque;
+                    };
+                    let word = parser.interner.resolve(*unit_sym).to_string();
+                    let Some(unit) = units::by_name(&word) else {
+                        return CBound::Opaque;
+                    };
+                    let mag = match args[0] {
+                        Expr::Literal(Literal::Number(n)) => Some(Rational::from_i64(*n)),
+                        Expr::Call {
+                            function: df,
+                            args: dargs,
+                        } if parser.interner.resolve(*df) == "decimal" && dargs.len() == 1 => {
+                            match dargs[0] {
+                                Expr::Literal(Literal::Text(t)) => {
+                                    Decimal::parse(parser.interner.resolve(*t))
+                                        .map(|d| d.to_rational())
+                                }
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    match mag {
+                        Some(m) => CBound::Stated(signed(m), unit, word),
+                        None => CBound::Opaque,
+                    }
+                }
+                _ => CBound::Opaque,
+            }
+        };
+
+        let (blo, bhi) = (classify(self, lo), classify(self, hi));
+        // No unit anywhere → not a dimensioned contract; leave every bit untouched.
+        if !matches!(blo, CBound::Stated(..)) && !matches!(bhi, CBound::Stated(..)) {
+            return Ok((condition, None));
+        }
+        let err = |msg: String| ParseError {
+            kind: ParseErrorKind::Custom(msg),
+            span: Span::default(),
+        };
+        let dim_err = |wl: &str, wh: &str| {
+            err(format!(
+                "this contract bounds one variable with `{wl}` and `{wh}` — two different \
+                 dimensions in one range is analytically meaningless"
+            ))
+        };
+        let (si_lo, si_hi, unit) = match (blo, bhi) {
+            (CBound::Stated(ml, ul, wl), CBound::Stated(mh, uh, wh)) => {
+                if ul.dimension != uh.dimension {
+                    return Err(dim_err(&wl, &wh));
+                }
+                let l = ml.mul(&ul.scale).add(&ul.offset);
+                let h = mh.mul(&uh.scale).add(&uh.offset);
+                (l, h, ul)
+            }
+            // The stated unit distributes over the coordination onto the bare bound.
+            (CBound::Bare(ml), CBound::Stated(mh, uh, _)) => {
+                let l = ml.mul(&uh.scale).add(&uh.offset);
+                let h = mh.mul(&uh.scale).add(&uh.offset);
+                (l, h, uh)
+            }
+            (CBound::Stated(ml, ul, _), CBound::Bare(mh)) => {
+                let l = ml.mul(&ul.scale).add(&ul.offset);
+                let h = mh.mul(&ul.scale).add(&ul.offset);
+                (l, h, ul)
+            }
+            (CBound::Opaque, _) | (_, CBound::Opaque) => {
+                return Err(err(
+                    "a dimensioned range contract needs literal bounds — the unit fold cannot \
+                     preserve a computed bound"
+                        .to_string(),
+                ));
+            }
+            (CBound::Bare(_), CBound::Bare(_)) => unreachable!("guarded above"),
+        };
+        let var = self.ctx.alloc_imperative_expr(Expr::Identifier(*a));
+        let var2 = self.ctx.alloc_imperative_expr(Expr::Identifier(*a));
+        let flo = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Float(si_lo.to_f64())));
+        let fhi = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Float(si_hi.to_f64())));
+        let lower = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op: BinaryOpKind::LtEq,
+            left: flo,
+            right: var,
+        });
+        let upper = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op: BinaryOpKind::LtEq,
+            left: var2,
+            right: fhi,
+        });
+        let folded = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op: BinaryOpKind::And,
+            left: lower,
+            right: upper,
+        });
+        Ok((folded, Some(unit.dimension)))
     }
 
     /// Phase 35: Parse Trust statement
@@ -3858,7 +14361,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Trust"
 
         // Optionally consume "that" (may be tokenized as That or Article(Distal))
-        if self.check(&TokenType::That) || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
+        if self.check(&TokenType::That)
+            || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal))
+        {
             self.advance();
         }
 
@@ -3904,7 +14409,869 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         };
 
-        Ok(Stmt::Trust { proposition, justification })
+        Ok(Stmt::Trust {
+            proposition,
+            justification,
+        })
+    }
+
+    /// The lowercased lexeme `k` tokens ahead, for multi-word lookahead
+    /// (test-metadata sentences like `This test may use the real filesystem.`).
+    fn peek_lexeme_lower(&self, k: usize) -> Option<String> {
+        self.tokens
+            .get(self.current + k)
+            .map(|t| self.interner.resolve(t.lexeme).to_lowercase())
+    }
+
+    /// Parse a `## Test: <prose sentence>` block. The header token (which
+    /// carries the RAW prose name, captured at the lexer) is already consumed.
+    /// Shape:
+    ///
+    /// - the prose name is the test's identity (duplicates in a module are a
+    ///   parse error);
+    /// - leading metadata sentences: `Skip this test because "…".`, capability
+    ///   grants (`This test may use the real filesystem.`), and the op-budget
+    ///   escalation (`This test may run up to N steps.`);
+    /// - the rest is an ordinary imperative body, in which the test-only
+    ///   statements (`Expect …`, `Advance time`, `Given a file`) are legal.
+    fn parse_test_block(&mut self, name: Symbol) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::TestCapabilities;
+
+        let name_str = self.interner.resolve(name).to_string();
+        if name_str.is_empty() {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "a test needs a prose name: `## Test: <what this test shows>`".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        if !self.test_names.insert(name_str.clone()) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "duplicate test name \"{name_str}\" — a test's prose name is its identity; \
+                     give each ## Test its own sentence"
+                )),
+                span: self.current_span(),
+            });
+        }
+
+        // ── metadata sentences (leading paragraph only) ──
+        let mut skip: Option<Symbol> = None;
+        let mut capabilities = TestCapabilities::default();
+        let mut budget: Option<u64> = None;
+        loop {
+            if self.check(&TokenType::Newline) || self.check(&TokenType::Indent) {
+                self.advance();
+                continue;
+            }
+            // `Skip this test because "<reason>".`
+            if self.check(&TokenType::Skip) {
+                self.advance(); // Skip
+                                // "this test because" — accept the words loosely, require "because"
+                while self
+                    .peek_lexeme_lower(0)
+                    .is_some_and(|w| w == "this" || w == "test")
+                {
+                    self.advance();
+                }
+                if !self.check(&TokenType::Because)
+                    && self.peek_lexeme_lower(0).as_deref() != Some("because")
+                {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "a skip needs its reason: `Skip this test because \"<why>\".` \
+                             — an unexplained skip is a silent debt"
+                                .to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // because
+                let TokenType::StringLiteral(reason) = self.peek().kind else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "the skip reason is a quoted sentence: \
+                             `Skip this test because \"the flag has not shipped\".`"
+                                .to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                };
+                self.advance();
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+                skip = Some(reason);
+                continue;
+            }
+            // `This test may use the real <resource>.` / `This test may run up to <N> steps.`
+            if self.peek_lexeme_lower(0).as_deref() == Some("this")
+                && self.peek_lexeme_lower(1).as_deref() == Some("test")
+                && self.peek_lexeme_lower(2).as_deref() == Some("may")
+            {
+                self.advance(); // this
+                self.advance(); // test
+                self.advance(); // may
+                match self.peek_lexeme_lower(0).as_deref() {
+                    Some("use") => {
+                        self.advance(); // use
+                                        // "the real <resource>"
+                        while self
+                            .peek_lexeme_lower(0)
+                            .is_some_and(|w| w == "the" || w == "real")
+                        {
+                            self.advance();
+                        }
+                        match self.peek_lexeme_lower(0).as_deref() {
+                            Some("filesystem") => capabilities.filesystem = true,
+                            Some("network") => capabilities.network = true,
+                            Some("environment") => capabilities.environment = true,
+                            Some("clock") => capabilities.clock = true,
+                            other => {
+                                return Err(ParseError {
+                                    kind: ParseErrorKind::Custom(format!(
+                                        "unknown capability {:?} — a test may use the real \
+                                         filesystem, network, environment, or clock",
+                                        other.unwrap_or_default()
+                                    )),
+                                    span: self.current_span(),
+                                });
+                            }
+                        }
+                        self.advance(); // the resource word
+                    }
+                    Some("run") => {
+                        self.advance(); // run
+                                        // "up to <N> steps"
+                        while self
+                            .peek_lexeme_lower(0)
+                            .is_some_and(|w| w == "up" || w == "to")
+                        {
+                            self.advance();
+                        }
+                        let lexeme = self
+                            .peek_lexeme_lower(0)
+                            .unwrap_or_default()
+                            .replace('_', "");
+                        let Ok(steps) = lexeme.parse::<u64>() else {
+                            return Err(ParseError {
+                                kind: ParseErrorKind::Custom(
+                                    "the op budget is a number: \
+                                     `This test may run up to 5000000 steps.`"
+                                        .to_string(),
+                                ),
+                                span: self.current_span(),
+                            });
+                        };
+                        self.advance(); // the number
+                        if self.peek_lexeme_lower(0).as_deref() == Some("steps") {
+                            self.advance();
+                        }
+                        budget = Some(steps);
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom(
+                                "a test grant is `This test may use the real <resource>.` \
+                                 or `This test may run up to <N> steps.`"
+                                    .to_string(),
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+                }
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+                continue;
+            }
+            break;
+        }
+
+        // ── the body: ordinary imperative statements, test-only surface armed ──
+        let saved_in_test = self.in_test_block;
+        self.in_test_block = true;
+        let mut body_stmts = StmtList::default();
+        let mut cases: Option<crate::ast::stmt::CaseTable<'a>> = None;
+        let result = (|| -> ParseResult<()> {
+            while !self.is_at_end() {
+                if self.check(&TokenType::Newline)
+                    || self.check(&TokenType::Indent)
+                    || self.check(&TokenType::Dedent)
+                {
+                    self.advance();
+                    continue;
+                }
+                if matches!(self.peek().kind, TokenType::BlockHeader { .. }) {
+                    break;
+                }
+                // `For each of these cases:` + a markdown pipe table — the
+                // test's case fixture (columns bind names; each row is a
+                // named sub-test).
+                if self.peek_lexeme_lower(0).as_deref() == Some("for")
+                    && self.peek_lexeme_lower(1).as_deref() == Some("each")
+                    && self.peek_lexeme_lower(2).as_deref() == Some("of")
+                {
+                    if cases.is_some() {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom(
+                                "a test carries one case table — merge the rows".to_string(),
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+                    cases = Some(self.parse_case_table()?);
+                    continue;
+                }
+                self.read_block_statement(&mut body_stmts)?;
+            }
+            Ok(())
+        })();
+        self.in_test_block = saved_in_test;
+        result?;
+
+        let body = self.alloc_read_block(body_stmts);
+        Ok(Stmt::TestDef {
+            name,
+            skip,
+            capabilities,
+            budget,
+            cases,
+            body,
+        })
+    }
+
+    /// Is this token a table-line boundary?
+    fn at_table_line_end(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenType::Newline | TokenType::Indent | TokenType::Dedent | TokenType::EOF
+        ) || matches!(self.peek().kind, TokenType::BlockHeader { .. })
+    }
+
+    /// Parse `For each of these cases:` + a markdown pipe table into the
+    /// test's case fixture. Row 1 is the header (column names), an optional
+    /// all-dashes separator row is skipped, and every following `|`-led row is
+    /// one data row of expressions (a named sub-test).
+    fn parse_case_table(&mut self) -> ParseResult<crate::ast::stmt::CaseTable<'a>> {
+        use crate::ast::stmt::CaseTable;
+
+        // consume "For each of these cases:"
+        for expected in ["for", "each", "of", "these", "cases"] {
+            if self.peek_lexeme_lower(0).as_deref() == Some(expected) {
+                self.advance();
+            }
+        }
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+        // layout to the first table line
+        while matches!(
+            self.peek().kind,
+            TokenType::Newline | TokenType::Indent | TokenType::Dedent
+        ) {
+            self.advance();
+        }
+        if !self.check(&TokenType::VBar) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "a case table follows: a markdown table whose header row names \
+                     the columns (`| a | b | total |`)"
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+
+        // ── header row: column names as raw words ──
+        let mut columns: Vec<Symbol> = Vec::new();
+        self.advance(); // leading VBar
+        while !self.at_table_line_end() {
+            let mut cell_words: Vec<String> = Vec::new();
+            while !self.check(&TokenType::VBar) && !self.at_table_line_end() {
+                cell_words.push(self.interner.resolve(self.peek().lexeme).to_string());
+                self.advance();
+            }
+            if !cell_words.is_empty() {
+                columns.push(self.interner.intern(&cell_words.join(" ")));
+            }
+            if self.check(&TokenType::VBar) {
+                self.advance();
+            }
+        }
+        if columns.is_empty() {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "the case table's header row names its columns: `| a | b | total |`"
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        // Columns BIND names in the test body's scope (each row runs the body
+        // with its cells bound) — seed them exactly as `Let` and function
+        // params do, so `a`/`b` resolve as variables, not articles.
+        for column in &columns {
+            self.user_bound.insert(*column);
+        }
+
+        // ── rows: optional all-dashes separator, then expression rows ──
+        let mut rows: Vec<Vec<&'a Expr<'a>>> = Vec::new();
+        let mut separator_checked = false;
+        loop {
+            while matches!(
+                self.peek().kind,
+                TokenType::Newline | TokenType::Indent | TokenType::Dedent
+            ) {
+                self.advance();
+            }
+            if !self.check(&TokenType::VBar) {
+                break; // the table ends at the first non-`|` line
+            }
+            // The conventional `|---|---|` separator sits right under the
+            // header: a line of nothing but dashes and pipes. Scan ahead once.
+            if !separator_checked {
+                separator_checked = true;
+                let mut k = 0;
+                let mut only_dashes = true;
+                loop {
+                    let Some(tok) = self.tokens.get(self.current + k) else {
+                        break;
+                    };
+                    match &tok.kind {
+                        TokenType::VBar | TokenType::Minus => k += 1,
+                        TokenType::Newline
+                        | TokenType::Indent
+                        | TokenType::Dedent
+                        | TokenType::EOF => break,
+                        _ => {
+                            // A dashes-only word (`----`) is still separator ink.
+                            let lex = self.interner.resolve(tok.lexeme);
+                            if !lex.is_empty() && lex.chars().all(|c| c == '-') {
+                                k += 1;
+                            } else {
+                                only_dashes = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if only_dashes {
+                    for _ in 0..k {
+                        self.advance();
+                    }
+                    continue;
+                }
+            }
+            // one data row: `| <expr> | <expr> | … |`. Cells parse one
+            // precedence level BELOW bitwise-or — `|` is the cell delimiter
+            // here, never the operator (parenthesize a bitwise-or cell).
+            self.advance(); // leading VBar
+            let mut row: Vec<&'a Expr<'a>> = Vec::new();
+            while !self.at_table_line_end() {
+                let cell = self.parse_bitxor_expr()?;
+                row.push(cell);
+                if self.check(&TokenType::VBar) {
+                    self.advance();
+                }
+            }
+            if row.len() != columns.len() {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "this case row has {} cells but the header names {} columns",
+                        row.len(),
+                        columns.len()
+                    )),
+                    span: self.current_span(),
+                });
+            }
+            rows.push(row);
+        }
+        if rows.is_empty() {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "the case table needs at least one data row under the header".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        Ok(CaseTable { columns, rows })
+    }
+
+    /// The `Expect` statement family (test-only; parse dispatch on
+    /// [`TokenType::Expect`]):
+    ///
+    /// - `Expect that <condition>.` → records-and-continues assertion;
+    /// - `Expect this to fail [with "<message>"]:` + indented body;
+    /// - `Expect output:` + indented snapshot, or `Expect output as in "<file>".`
+    fn parse_expect_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::ExpectedOutput;
+
+        let gate_span = self.current_span();
+        self.advance(); // consume "Expect"
+        if !self.in_test_block {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Expect` lives in `## Test` blocks — for a runtime guard in ordinary \
+                     code, use `Require that <condition>.`"
+                        .to_string(),
+                ),
+                span: gate_span,
+            });
+        }
+
+        // `Expect output:` / `Expect output as in "<file>".`
+        if self.peek_lexeme_lower(0).as_deref() == Some("output") {
+            self.advance(); // output
+            if self.peek_lexeme_lower(0).as_deref() == Some("as") {
+                self.advance(); // as
+                if self.peek_lexeme_lower(0).as_deref() == Some("in") {
+                    self.advance(); // in
+                }
+                let TokenType::StringLiteral(path) = self.peek().kind else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "the golden file is a quoted path: \
+                             `Expect output as in \"golden/report.txt\".`"
+                                .to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                };
+                self.advance();
+                return Ok(Stmt::ExpectOutput {
+                    expected: ExpectedOutput::File(path),
+                });
+            }
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+            // Capture the indented snapshot: lexemes joined per line, lines
+            // joined with newlines, until the indent closes.
+            while self.check(&TokenType::Newline) {
+                self.advance();
+            }
+            let mut depth = 0usize;
+            while self.check(&TokenType::Indent) {
+                depth += 1;
+                self.advance();
+            }
+            let mut lines: Vec<String> = Vec::new();
+            let mut line: Vec<String> = Vec::new();
+            while depth > 0 && !self.is_at_end() {
+                match self.peek().kind {
+                    TokenType::Indent => {
+                        depth += 1;
+                        self.advance();
+                    }
+                    TokenType::Dedent => {
+                        depth -= 1;
+                        self.advance();
+                    }
+                    TokenType::Newline => {
+                        if !line.is_empty() {
+                            lines.push(line.join(" "));
+                            line.clear();
+                        }
+                        self.advance();
+                    }
+                    TokenType::EOF => break,
+                    _ => {
+                        line.push(self.interner.resolve(self.peek().lexeme).to_string());
+                        self.advance();
+                    }
+                }
+            }
+            if !line.is_empty() {
+                lines.push(line.join(" "));
+            }
+            let text = self.interner.intern(&lines.join("\n"));
+            return Ok(Stmt::ExpectOutput {
+                expected: ExpectedOutput::Inline(text),
+            });
+        }
+
+        // `Expect this to fail [with "<message>"]:` + indented body.
+        if self.peek_lexeme_lower(0).as_deref() == Some("this") {
+            self.advance(); // this
+            while self
+                .peek_lexeme_lower(0)
+                .is_some_and(|w| w == "to" || w == "fail")
+            {
+                self.advance();
+            }
+            let mut message: Option<Symbol> = None;
+            if self.peek_lexeme_lower(0).as_deref() == Some("with") {
+                self.advance(); // with
+                let TokenType::StringLiteral(msg) = self.peek().kind else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "the expected failure is a quoted message: \
+                             `Expect this to fail with \"Division by zero\":`"
+                                .to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                };
+                self.advance();
+                message = Some(msg);
+            }
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+            let body = self.parse_indented_block()?;
+            return Ok(Stmt::ExpectFail { message, body });
+        }
+
+        // `Expect that <condition>.`
+        if self.check(&TokenType::That)
+            || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal))
+        {
+            self.advance();
+        }
+        let condition = self.parse_condition()?;
+        Ok(Stmt::Expect { condition })
+    }
+
+    /// `Advance time by <n> <unit>.` — moves the sealed world's virtual clock
+    /// (test-only; execution lands with the sealed world, Wave 4).
+    fn parse_advance_time_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let gate_span = self.current_span();
+        self.advance(); // consume "Advance"
+        if !self.in_test_block {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Advance time` moves a test's virtual clock — it lives in \
+                     `## Test` blocks only"
+                        .to_string(),
+                ),
+                span: gate_span,
+            });
+        }
+        if self.peek_lexeme_lower(0).as_deref() == Some("time") {
+            self.advance();
+        }
+        if self.peek_lexeme_lower(0).as_deref() == Some("by") {
+            self.advance();
+        }
+        let amount = self.parse_xor_expr()?;
+        let unit_ms: i64 = match self.peek_lexeme_lower(0).as_deref() {
+            Some("millisecond") | Some("milliseconds") | Some("ms") => {
+                self.advance();
+                1
+            }
+            Some("second") | Some("seconds") => {
+                self.advance();
+                1000
+            }
+            Some("minute") | Some("minutes") => {
+                self.advance();
+                60_000
+            }
+            _ => 1, // bare number = milliseconds
+        };
+        let millis = if unit_ms == 1 {
+            // ★ `25 seconds` LEXES AS ONE DURATION TOKEN, so the unit is already inside the value
+            // and no factor is applied — which left a Duration in a field documented as "the
+            // advance in MILLISECONDS". The interpreter converted it at run time and the bytecode
+            // tier did not, so a page with a timer ran on one tier and answered
+            // "Cannot compare Duration and Int" on the other: a TIER DIVERGENCE produced by an
+            // AST node that did not hold what its own field said it held.
+            //
+            // Folded here, where the value is known, so every consumer downstream gets the
+            // milliseconds it was promised and none of them has to know that a duration literal
+            // exists. A Duration that arrives as a VARIABLE is still converted by the readers.
+            match amount {
+                Expr::Literal(Literal::Duration(ns)) => {
+                    self.ctx
+                        .alloc_imperative_expr(Expr::Literal(Literal::Number(
+                            (*ns).max(0) / 1_000_000,
+                        )))
+                }
+                other => other,
+            }
+        } else {
+            let factor = self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(Literal::Number(unit_ms)));
+            self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Multiply,
+                left: amount,
+                right: factor,
+            })
+        };
+        Ok(Stmt::AdvanceTime { millis })
+    }
+
+    /// `Given a file "<path>" containing "<content>".` — pre-seeds the sealed
+    /// world's in-memory filesystem (test-only; execution lands in Wave 4).
+    fn parse_given_file_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let gate_span = self.current_span();
+        self.advance(); // consume "Given"
+        if !self.in_test_block {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "`Given a file …` seeds a test's sealed filesystem — it lives in \
+                     `## Test` blocks only"
+                        .to_string(),
+                ),
+                span: gate_span,
+            });
+        }
+        while self
+            .peek_lexeme_lower(0)
+            .is_some_and(|w| w == "a" || w == "an" || w == "file")
+        {
+            self.advance();
+        }
+        let TokenType::StringLiteral(path) = self.peek().kind else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "the fixture path is a quoted string: \
+                     `Given a file \"data.txt\" containing \"hello\".`"
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        };
+        self.advance();
+        if self.peek_lexeme_lower(0).as_deref() == Some("containing") {
+            self.advance();
+        }
+        let TokenType::StringLiteral(content) = self.peek().kind else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "the fixture content is a quoted string: \
+                     `Given a file \"data.txt\" containing \"hello\".`"
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        };
+        self.advance();
+        Ok(Stmt::GivenFile { path, content })
+    }
+
+    /// Whether the token after the current one opens an argument list: the current word is called.
+    fn next_is_argument_list(&self) -> bool {
+        self.tokens
+            .get(self.current + 1)
+            .is_some_and(|t| matches!(t.kind, TokenType::LParen))
+    }
+
+    /// `name(args).` — a call standing as a statement.
+    fn parse_bare_call_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let function = self.peek().lexeme;
+        self.advance();
+        let expr = self.parse_call_expr(function)?;
+        if let Expr::Call { function, args } = expr {
+            return Ok(Stmt::Call {
+                function: *function,
+                args: args.clone(),
+            });
+        }
+        // A bare call carrying a trailing *field* access (`f(x)'s g.`) is a no-op the language
+        // does not model as a statement (a UFCS chain like `f(x).m(y)` still lowers to a `Call`
+        // above). The tokens are already consumed, so diagnose rather than fall through on a
+        // stale position.
+        Err(ParseError {
+            kind: ParseErrorKind::ExpectedStatement,
+            span: self.current_span(),
+        })
+    }
+
+    /// `Note/Warn/Record that <clause> [with <payload> and <payload>]`.
+    /// The that-clause becomes
+    /// the event message; prepositional payloads travel as named values.
+    fn parse_observe_statement(
+        &mut self,
+        category: crate::ast::stmt::ObsCategory,
+    ) -> ParseResult<Stmt<'a>> {
+        self.advance(); // Note / Warn / Record
+
+        // Optional sampling: `once in every <N> times`.
+        let mut sample: Option<u64> = None;
+        if self.peek_lexeme_lower(0).as_deref() == Some("once") {
+            self.advance(); // once
+            while self
+                .peek_lexeme_lower(0)
+                .is_some_and(|w| w == "in" || w == "every")
+            {
+                self.advance();
+            }
+            let n = self
+                .peek_lexeme_lower(0)
+                .unwrap_or_default()
+                .replace('_', "");
+            if let Ok(rate) = n.parse::<u64>() {
+                self.advance(); // the number
+                if self.peek_lexeme_lower(0).as_deref() == Some("times") {
+                    self.advance();
+                }
+                sample = Some(rate.max(1));
+            }
+        }
+
+        if self.check(&TokenType::That)
+            || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal))
+        {
+            self.advance();
+        }
+        // The that-clause: words up to `with`, the period, or end of line.
+        let mut words: Vec<String> = Vec::new();
+        while let Some(tok) = self.tokens.get(self.current) {
+            if self.peek_lexeme_lower(0).as_deref() == Some("with") {
+                break;
+            }
+            match tok.kind {
+                TokenType::Period
+                | TokenType::Newline
+                | TokenType::Indent
+                | TokenType::Dedent
+                | TokenType::Colon
+                | TokenType::EOF
+                | TokenType::BlockHeader { .. } => break,
+                _ => {
+                    words.push(self.interner.resolve(tok.lexeme).to_string());
+                    self.advance();
+                }
+            }
+        }
+        let message = self.interner.intern(words.join(" ").trim());
+
+        // Prepositional payloads: `with <expr> and <expr> …`.
+        let mut payloads: Vec<(Symbol, &'a Expr<'a>)> = Vec::new();
+        if self.peek_lexeme_lower(0).as_deref() == Some("with") {
+            self.advance(); // with
+            loop {
+                let expr = self.parse_xor_expr()?;
+                let name = match expr {
+                    Expr::Identifier(s) => *s,
+                    other => self
+                        .interner
+                        .intern(&crate::printer::render_expr(other, self.interner)),
+                };
+                payloads.push((name, expr));
+                if self.check_word("and") || self.check(&TokenType::And) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+        }
+        Ok(Stmt::Observe {
+            category,
+            message,
+            payloads,
+            sample,
+        })
+    }
+
+    /// `During <gerund>:` — a lexical trace span whose body is ordinary code.
+    fn parse_during_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // During
+        let mut words: Vec<String> = Vec::new();
+        while let Some(tok) = self.tokens.get(self.current) {
+            match tok.kind {
+                TokenType::Colon | TokenType::Newline | TokenType::Indent | TokenType::EOF => break,
+                TokenType::StringLiteral(s) => {
+                    words.push(self.interner.resolve(s).to_string());
+                    self.advance();
+                }
+                _ => {
+                    words.push(self.interner.resolve(tok.lexeme).to_string());
+                    self.advance();
+                }
+            }
+        }
+        let label = self.interner.intern(words.join(" ").trim());
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+        // Skip the newline(s) between the header line and the indented body.
+        while self.check(&TokenType::Newline) {
+            self.advance();
+        }
+        let body = self.parse_indented_block()?;
+        Ok(Stmt::During { label, body })
+    }
+
+    /// `For all <domain> <vars> [where <cond>]:` — a property test
+    /// (constitution §1.6). The domain word names the value space; the vars are
+    /// bound fresh per generated case in the runner.
+    fn parse_forall_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::PropDomain;
+        self.advance(); // For
+        self.advance(); // all
+
+        // The domain: integers / naturals / booleans (singular or plural).
+        let domain = match self.peek_lexeme_lower(0).as_deref() {
+            Some("integers") | Some("integer") => PropDomain::Integers,
+            Some("naturals") | Some("natural") => PropDomain::Naturals,
+            Some("booleans") | Some("boolean") | Some("bools") | Some("bool") => {
+                PropDomain::Booleans
+            }
+            other => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "a property quantifies over a domain — `integers`, `naturals`, or \
+                         `booleans` (got {:?})",
+                        other.unwrap_or_default()
+                    )),
+                    span: self.current_span(),
+                });
+            }
+        };
+        self.advance(); // the domain word
+
+        // The bound variables: `a and b` / `a, b` / `n`. Each becomes a
+        // user-bound name for the body's scope.
+        let mut vars: Vec<Symbol> = Vec::new();
+        loop {
+            let name = self.expect_identifier()?;
+            self.user_bound.insert(name);
+            vars.push(name);
+            if self.check_word("and")
+                || self.check(&TokenType::And)
+                || self.check(&TokenType::Comma)
+            {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        if vars.is_empty() {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "a property needs at least one bound variable: `For all integers n:`"
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+
+        // Optional refinement filter.
+        let constraint = if self.check_word("where") {
+            self.advance(); // where
+            Some(self.parse_condition()?)
+        } else {
+            None
+        };
+
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+        while self.check(&TokenType::Newline) {
+            self.advance();
+        }
+        let body = self.parse_indented_block()?;
+        Ok(Stmt::ForAll {
+            vars,
+            domain,
+            constraint,
+            body,
+        })
     }
 
     /// Phase 50: Parse Check statement - mandatory security guard
@@ -4012,7 +15379,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             object = Some(obj);
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "is/can".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "is/can".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4064,10 +15433,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if let TokenType::Number(sym) = &self.peek().kind {
             let sym = *sym;
             self.advance();
-            self.interner.resolve(sym).parse::<i64>().map_err(|_| ParseError {
-                kind: ParseErrorKind::Custom("expected an integer bound".to_string()),
-                span: self.current_span(),
-            })
+            self.interner
+                .resolve(sym)
+                .parse::<i64>()
+                .map_err(|_| ParseError {
+                    kind: ParseErrorKind::Custom("expected an integer bound".to_string()),
+                    span: self.current_span(),
+                })
         } else {
             Err(ParseError {
                 kind: ParseErrorKind::Custom("expected an integer bound".to_string()),
@@ -4097,7 +15469,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::Custom("expected `to` between the contract bounds".to_string()),
+                kind: ParseErrorKind::Custom(
+                    "expected `to` between the contract bounds".to_string(),
+                ),
                 span: self.current_span(),
             });
         }
@@ -4128,13 +15502,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.expect_keyword("into")?;
         let var = self.peek().lexeme;
         self.advance();
-        let lo_e = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(lo)));
-        let hi_e = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(hi)));
-        let run_sym = self.interner.intern("run_accepted");
-        let call = self
+        let lo_e = self
             .ctx
-            .alloc_imperative_expr(Expr::Call { function: run_sym, args: vec![f_expr, arg_expr, lo_e, hi_e] });
-        Ok(Stmt::Let { var, ty: None, value: call, mutable: false })
+            .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(lo)));
+        let hi_e = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(hi)));
+        let run_sym = self.interner.intern("run_accepted");
+        let call = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: run_sym,
+            args: vec![f_expr, arg_expr, lo_e, hi_e],
+        });
+        Ok(Stmt::Let {
+            var,
+            ty: None,
+            value: call,
+            mutable: false,
+        })
     }
 
     /// Phase 51: Parse Listen statement - bind to network address
@@ -4145,7 +15529,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "on" preposition
         if !self.check_preposition_is("on") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "on".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4158,6 +15544,132 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Listen { address, secure })
     }
 
+    /// Parse an HTTP `Serve` statement.
+    /// Syntax: `Serve on port <expr> with <handler>.`
+    fn parse_serve_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Serve"
+
+        // Expect "on".
+        if !self.check_preposition_is("on") && !self.check_word("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "on".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Expect "port".
+        if !self.check_word("port") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "port".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "port"
+
+        // The port expression (an Int literal or variable).
+        let port = self.parse_imperative_expr()?;
+
+        // ★ `with <handler>` IS OPTIONAL. A file that declares `## Route` blocks has already
+        // said everything a request needs — which function answers, with what status, and what
+        // the answer is — so `Serve on port 8080.` serves the table. Making the author then
+        // hand-write a `Request -> Response` that calls `route(…)` is ceremony whose only
+        // possible outcome is getting it subtly wrong: a forgotten content type shows JSON as
+        // text, a forgotten `Location` makes a redirect a dead end.
+        //
+        // `with` stays for the programs that want the whole request in their own hands.
+        if !self.check_preposition_is("with") && !self.check_word("with") {
+            let handler = self.ctx.alloc_imperative_expr(Expr::Identifier(
+                self.interner
+                    .intern(crate::parser::lgx_lower::ROUTE_HANDLER),
+            ));
+            return Ok(Stmt::Serve { port, handler });
+        }
+        self.advance(); // consume "with"
+
+        // The handler function (a `Request -> Response`), named or first-class.
+        let handler = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Serve { port, handler })
+    }
+
+    /// `On <event> from <source>:` — the statement-level async event handler. Unlike the
+    /// view-child `on <event>:` (which attaches to the enclosing element), this takes an
+    /// EXPLICIT source, the shape media/peer orchestration needs (`On chunk from encoder:`,
+    /// `On track from peer:`). It desugars to the same lowering the view handler uses:
+    /// `addEventListener(source, "<event>", (event: Int) ->: <block>)`.
+    fn parse_on_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::ClosureBody;
+        use crate::ast::{Expr, Literal, TypeExpr};
+
+        self.advance(); // consume "On"
+        let event_sym = self.peek().lexeme;
+        self.advance(); // consume the event name
+
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "from".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        let source = self.parse_imperative_expr()?;
+
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ':'
+
+        // Inline `On e from s: <one statement>` or an indented block.
+        let mut block_stmts = StmtList::default();
+        if !self.check(&TokenType::Indent) {
+            self.read_block_statement(&mut block_stmts)?;
+        } else {
+            self.advance(); // consume Indent
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                if self.check(&TokenType::Newline) {
+                    self.advance();
+                    continue;
+                }
+                self.read_block_statement(&mut block_stmts)?;
+            }
+            if self.check(&TokenType::Dedent) {
+                self.advance();
+            }
+        }
+        let block = self.alloc_read_block(block_stmts);
+        // `(event: Int) ->: <block>` — Event is the Int host-handle alias, as in the view handler.
+        let int_ty = self
+            .ctx
+            .alloc_type_expr(TypeExpr::Primitive(self.interner.intern("Int")));
+        let param = self.interner.intern("event");
+        let closure = self.ctx.alloc_imperative_expr(Expr::Closure {
+            params: vec![(param, int_ty)],
+            body: ClosureBody::Block(block),
+            return_type: None,
+        });
+        let event_name = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(event_sym)));
+        let add_listener = self.interner.intern("addEventListener");
+        Ok(Stmt::Call {
+            function: add_listener,
+            args: vec![source, event_name, closure],
+        })
+    }
+
     /// Phase 51: Parse Connect statement - dial remote peer
     /// Syntax: Connect to [address].
     fn parse_connect_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -4166,7 +15678,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" (can be TokenType::To or preposition)
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4192,7 +15706,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let pad = self.parse_imperative_expr()?;
         if !self.check_word("as") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "as".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "as".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4205,7 +15721,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             crate::ast::SecureRole::Responder
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "initiator or responder".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "initiator or responder".to_string(),
+                },
                 span: self.current_span(),
             });
         };
@@ -4243,7 +15761,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             _ => {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "variable name".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -4252,7 +15772,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "on" preposition
         if !self.check_preposition_is("on") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "on".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4270,6 +15792,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_mount_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Mount"
 
+        // A UI mount and the CRDT-journal `Mount <var> at "path"` share a sentence; the SHAPE
+        // decides. It is a UI mount when the name is a declared component (every `## Component`
+        // in the file is known before the first statement is read), when the name is capitalised
+        // (components are; journal variables are not), when there is no `at` (a journal always
+        // names a path), or when the target reads as a selector (`#root`, `.app`, `main`).
+        // Whether the component EXISTS is checked at end-of-parse, with the names the file has.
+        let name = self.tokens[self.current].lexeme;
+        let capitalised = self
+            .interner
+            .resolve(name)
+            .chars()
+            .next()
+            .is_some_and(char::is_uppercase);
+        let no_target = matches!(
+            self.tokens.get(self.current + 1).map(|t| &t.kind),
+            Some(TokenType::Period)
+        );
+        let selector_target = matches!(
+            self.tokens.get(self.current + 1).map(|t| &t.kind),
+            Some(TokenType::At)
+        ) && matches!(
+            self.tokens.get(self.current + 2).map(|t| &t.kind),
+            Some(TokenType::StringLiteral(s)) if crate::lgx::html::is_selector_shaped(self.interner.resolve(*s))
+        );
+        if self.components.contains(&name) || capitalised || no_target || selector_target {
+            return self.parse_ui_mount_statement();
+        }
+
         // Parse variable name (must be an identifier)
         // Phase 49: Also handle Verb and Ambiguous tokens
         let var = match &self.tokens[self.current].kind {
@@ -4285,7 +15835,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             _ => {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "variable name".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -4294,7 +15846,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "at" keyword (TokenType::At in imperative mode)
         if !self.check(&TokenType::At) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "at".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4304,6 +15858,204 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let path = self.parse_imperative_expr()?;
 
         Ok(Stmt::Mount { var, path })
+    }
+
+    /// `Mount <Component> at "#sel"` — the ceremony killer. Desugars to the reactive
+    /// root ceremony: a synthesized top-level `render` function (`beginRender`, clear
+    /// the root, `enterComponent`/`__render_<Component>`/`exitComponent`) that the
+    /// wasm backend exports as `__logos_render` for the settle loop, plus a mount
+    /// statement that finds-or-creates the `#sel` element and does the initial render.
+    fn parse_ui_mount_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::{BinaryOpKind, Expr, Literal};
+
+        let comp_sym = self.tokens[self.current].lexeme;
+        let target = match (
+            self.tokens.get(self.current + 1).map(|t| &t.kind),
+            self.tokens.get(self.current + 2).map(|t| &t.kind),
+        ) {
+            (Some(TokenType::At), Some(TokenType::StringLiteral(s))) => {
+                Some(self.interner.resolve(*s).to_string())
+            }
+            _ => None,
+        };
+        self.mount_sites.push(MountSite {
+            name: comp_sym,
+            span: self.current_span(),
+            is_root: !self.in_test_block,
+            target,
+        });
+        self.advance(); // consume the component name
+                        // An LGX component mounts through the first-class runtime: the component model owns
+                        // instance creation, `When the page loads`, and rendering.
+        if self.lgx_components.contains(&comp_sym) {
+            let selector = if self.check(&TokenType::At) {
+                self.advance();
+                Some(self.parse_imperative_expr()?)
+            } else {
+                None
+            };
+            return Ok(Stmt::Ui(crate::ast::stmt::UiStmt::Mount {
+                component: comp_sym,
+                selector,
+            }));
+        }
+        // `Mount App` — the least-ceremony form — defaults to the `#root` mount point.
+        // `Mount App at "#sel"` names an explicit one (a string literal, whose `#id`
+        // is the mount point created if absent).
+        let sel_str = if self.check(&TokenType::At) {
+            self.advance(); // consume "at"
+            let sel_expr = self.parse_imperative_expr()?;
+            match sel_expr {
+                Expr::Literal(Literal::Text(s)) => self.interner.resolve(*s).to_string(),
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "Mount's selector must be a string literal, e.g. `Mount App at \"#sidebar\"` \
+                             — or just `Mount App` for the default `#root`."
+                                .to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+            }
+        } else {
+            "#root".to_string()
+        };
+        let id_str = sel_str.strip_prefix('#').unwrap_or(&sel_str).to_string();
+
+        let render_entry = self.interner.intern("render");
+        let render_name = self
+            .interner
+            .intern(&format!("__render_{}", self.interner.resolve(comp_sym)));
+        let query = self.interner.intern("querySelector");
+        let sel_sym = self.interner.intern(&sel_str);
+
+        // ---- the synthesized top-level `render` function ----
+        let mut render_body: Vec<Stmt<'a>> = Vec::new();
+        let begin = self.interner.intern("beginRender");
+        render_body.push(Stmt::Call {
+            function: begin,
+            args: vec![],
+        });
+        let root_sym = self.interner.intern("__root");
+        let sel_lit = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(sel_sym)));
+        let qs_call = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: query,
+            args: vec![sel_lit],
+        });
+        render_body.push(Stmt::Let {
+            var: root_sym,
+            ty: None,
+            value: qs_call,
+            mutable: false,
+        });
+        let root_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(root_sym));
+        let clear = self.interner.intern("clearChildren");
+        render_body.push(Stmt::Call {
+            function: clear,
+            args: vec![root_ref],
+        });
+        let enter = self.interner.intern("enterComponent");
+        let key_lit = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(comp_sym)));
+        render_body.push(Stmt::Call {
+            function: enter,
+            args: vec![key_lit],
+        });
+        render_body.push(Stmt::Call {
+            function: render_name,
+            args: vec![root_ref],
+        });
+        let exit = self.interner.intern("exitComponent");
+        render_body.push(Stmt::Call {
+            function: exit,
+            args: vec![],
+        });
+        let render_block = self.alloc_block(render_body);
+        self.deferred_functions.push(Stmt::FunctionDef {
+            name: render_entry,
+            generics: Vec::new(),
+            params: Vec::new(),
+            body: render_block,
+            return_type: None,
+            is_native: false,
+            native_path: None,
+            is_exported: false,
+            export_target: None,
+            opt_flags: OptimizationConfig::all_on(),
+        });
+
+        // ---- the mount statement returned into Main: find-or-create #sel, then render ----
+        let mut mount_body: Vec<Stmt<'a>> = Vec::new();
+        // `If querySelector("#sel") is less than 0:` — create the mount point when absent.
+        let sel_lit2 = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(sel_sym)));
+        let qs_call2 = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: query,
+            args: vec![sel_lit2],
+        });
+        let zero = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Number(0)));
+        let cond = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op: BinaryOpKind::Lt,
+            left: qs_call2,
+            right: zero,
+        });
+        let mut then_body: Vec<Stmt<'a>> = Vec::new();
+        let create = self.interner.intern("createElement");
+        let div_lit = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(self.interner.intern("div"))));
+        let create_call = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: create,
+            args: vec![div_lit],
+        });
+        let mount_sym = self.interner.intern("__mount");
+        then_body.push(Stmt::Let {
+            var: mount_sym,
+            ty: None,
+            value: create_call,
+            mutable: false,
+        });
+        let mount_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(mount_sym));
+        let set_attr = self.interner.intern("setAttribute");
+        let id_key = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(self.interner.intern("id"))));
+        let id_val = self
+            .ctx
+            .alloc_imperative_expr(Expr::Literal(Literal::Text(self.interner.intern(&id_str))));
+        then_body.push(Stmt::Call {
+            function: set_attr,
+            args: vec![mount_ref, id_key, id_val],
+        });
+        let body_fn = self.interner.intern("body");
+        let body_call = self.ctx.alloc_imperative_expr(Expr::Call {
+            function: body_fn,
+            args: vec![],
+        });
+        let append = self.interner.intern("appendChild");
+        then_body.push(Stmt::Call {
+            function: append,
+            args: vec![body_call, mount_ref],
+        });
+        let then_block = self.alloc_block(then_body);
+        mount_body.push(Stmt::If {
+            cond,
+            then_block,
+            else_block: None,
+        });
+        mount_body.push(Stmt::Call {
+            function: render_entry,
+            args: vec![],
+        });
+        let mount_block = self.alloc_block(mount_body);
+        Ok(Stmt::Splice { body: mount_block })
     }
 
     // =========================================================================
@@ -4325,7 +16077,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Check for "Await the first of:"
         self.current + 3 < self.tokens.len()
             && matches!(self.tokens.get(self.current + 1), Some(t) if matches!(t.kind, TokenType::Article(_)))
-            && self.tokens.get(self.current + 2)
+            && self
+                .tokens
+                .get(self.current + 2)
                 .map(|t| self.interner.resolve(t.lexeme).to_lowercase() == "first")
                 .unwrap_or(false)
     }
@@ -4338,7 +16092,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "a"
         if !self.check_article() {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "a".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4347,7 +16103,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "task"
         if !self.check(&TokenType::Task) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "task".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4356,53 +16114,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to"
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance();
 
-        // Parse function name
-        // Phase 49: Also handle Verb and Ambiguous tokens (e.g., "greet" can be a verb)
-        let function = match &self.tokens[self.current].kind {
-            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
-                let s = *sym;
-                self.advance();
-                s
-            }
-            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
-                let s = self.tokens[self.current].lexeme;
-                self.advance();
-                s
-            }
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "function name".to_string() },
-                    span: self.current_span(),
-                });
-            }
-        };
+        let function = self.parse_task_function()?;
 
         // Optional arguments in parentheses or with "with" keyword
         let args = if self.check(&TokenType::LParen) {
             self.parse_call_arguments()?
         } else if self.check_word("with") {
             self.advance(); // consume "with"
-            let mut args = Vec::new();
-            let arg = self.parse_imperative_expr()?;
-            args.push(arg);
-            // Handle additional args separated by "and"
-            while self.check(&TokenType::And) {
-                self.advance();
-                let arg = self.parse_imperative_expr()?;
-                args.push(arg);
-            }
-            args
+            self.parse_call_arguments()?
         } else {
             Vec::new()
         };
 
         Ok(Stmt::LaunchTask { function, args })
+    }
+
+    /// A launched task's function: any name this program's own `## To` declared, whatever lexical
+    /// class the lexer gave it — the rule `Call` follows — else any identifier. Both launch forms
+    /// read it here, and read the arguments after `with` as `Call` does, so `and` separates them.
+    fn parse_task_function(&mut self) -> ParseResult<Symbol> {
+        if self.declared_function_names.contains(&self.peek().lexeme) {
+            let name = self.peek().lexeme;
+            self.advance();
+            return Ok(name);
+        }
+        self.expect_identifier()
     }
 
     /// Phase 54: Parse Send into pipe statement
@@ -4416,7 +16160,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "into"
         if !self.check(&TokenType::Into) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "into".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4439,7 +16185,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "from"
         if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "from".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4459,7 +16207,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to"
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4472,14 +16222,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             if !self.check(&TokenType::Into) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "into".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
             self.advance();
 
             let pipe = self.parse_imperative_expr()?;
-            Ok(Stmt::TrySendPipe { value, pipe, result: None })
+            Ok(Stmt::TrySendPipe {
+                value,
+                pipe,
+                result: None,
+            })
         } else if self.check(&TokenType::Receive) {
             self.advance(); // consume "Receive"
 
@@ -4487,7 +16243,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "from".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -4497,7 +16255,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Ok(Stmt::TryReceivePipe { var, pipe })
         } else {
             Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "send or receive".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "send or receive".to_string(),
+                },
                 span: self.current_span(),
             })
         }
@@ -4505,7 +16265,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Shared helper: consume `Escape to <Language>: Indent EscapeBlock Dedent`.
     /// Returns (language, code, span).
-    fn parse_escape_body(&mut self) -> ParseResult<(crate::intern::Symbol, crate::intern::Symbol, crate::token::Span)> {
+    fn parse_escape_body(
+        &mut self,
+    ) -> ParseResult<(
+        crate::intern::Symbol,
+        crate::intern::Symbol,
+        crate::token::Span,
+    )> {
         let start_span = self.current_span();
         self.advance(); // consume "Escape"
 
@@ -4513,7 +16279,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
                 kind: ParseErrorKind::Custom(
-                    "Expected 'to' after 'Escape'. Syntax: Escape to Rust:".to_string()
+                    "Expected 'to' after 'Escape'. Syntax: Escape to Rust:".to_string(),
                 ),
                 span: self.current_span(),
             });
@@ -4546,9 +16312,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if !language.is(self.interner, "Rust") {
             let lang_str = self.interner.resolve(language);
             return Err(ParseError {
-                kind: ParseErrorKind::Custom(
-                    format!("Unsupported escape target '{}'. Only 'Rust' is supported.", lang_str)
-                ),
+                kind: ParseErrorKind::Custom(format!(
+                    "Unsupported escape target '{}'. Only 'Rust' is supported.",
+                    lang_str
+                )),
                 span: self.current_span(),
             });
         }
@@ -4557,7 +16324,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
                 kind: ParseErrorKind::Custom(
-                    "Expected ':' after 'Escape to Rust'. Syntax: Escape to Rust:".to_string()
+                    "Expected ':' after 'Escape to Rust'. Syntax: Escape to Rust:".to_string(),
                 ),
                 span: self.current_span(),
             });
@@ -4568,7 +16335,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if !self.check(&TokenType::Indent) {
             return Err(ParseError {
                 kind: ParseErrorKind::Custom(
-                    "Expected indented block after 'Escape to Rust:'.".to_string()
+                    "Expected indented block after 'Escape to Rust:'.".to_string(),
                 ),
                 span: self.current_span(),
             });
@@ -4585,7 +16352,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::Custom(
-                        "Escape block body is empty or malformed.".to_string()
+                        "Escape block body is empty or malformed.".to_string(),
                     ),
                     span: self.current_span(),
                 });
@@ -4598,20 +16365,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         let end_span = self.previous().span;
-        Ok((language, code, crate::token::Span::new(start_span.start, end_span.end)))
+        Ok((
+            language,
+            code,
+            crate::token::Span::new(start_span.start, end_span.end),
+        ))
     }
 
     /// Parse an escape hatch block: `Escape to Rust: <indented raw code>`
     fn parse_escape_statement(&mut self) -> ParseResult<Stmt<'a>> {
         let (language, code, span) = self.parse_escape_body()?;
-        Ok(Stmt::Escape { language, code, span })
+        Ok(Stmt::Escape {
+            language,
+            code,
+            span,
+        })
     }
 
     /// Parse an escape hatch expression: `Escape to Rust: <indented raw code>`
     /// Used in expression position: `Let x: Int be Escape to Rust:`
     fn parse_escape_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let (language, code, _span) = self.parse_escape_body()?;
-        Ok(self.ctx.alloc_imperative_expr(Expr::Escape { language, code }))
+        Ok(self
+            .ctx
+            .alloc_imperative_expr(Expr::Escape { language, code }))
     }
 
     /// Parse a `## Requires` block into a list of `Stmt::Require` nodes.
@@ -4766,7 +16543,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Optional: "for <description...>" — consume until period
         if self.check(&TokenType::For) {
             self.advance(); // consume "for"
-            while !self.check(&TokenType::Period) && !self.check(&TokenType::EOF)
+            while !self.check(&TokenType::Period)
+                && !self.check(&TokenType::EOF)
                 && !self.check(&TokenType::Newline)
                 && !matches!(self.peek().kind, TokenType::BlockHeader { .. })
             {
@@ -4799,6 +16577,84 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::StopTask { handle })
     }
 
+    /// Is this `Await` a task-handle join (`Await h` / `Await h into r`) rather than the relay
+    /// receive (`Await response|view|stream … from …`) or a select (`Await the first of:`)?
+    /// A task join is the bare form: no receive knob word right after `Await`, and no `from`
+    /// clause (a relay receive always names its `from` source).
+    fn lookahead_is_task_await(&self) -> bool {
+        // A knob word (`response`/`view`/`viewed`/`stream`) or an article (`the first of`)
+        // means this is NOT a bare handle join.
+        if self.check_word_at(self.current + 1, "response")
+            || self.check_word_at(self.current + 1, "view")
+            || self.check_word_at(self.current + 1, "viewed")
+            || self.check_word_at(self.current + 1, "stream")
+        {
+            return false;
+        }
+        // A `from` anywhere in the immediate window marks a relay receive.
+        for i in (self.current + 1)..std::cmp::min(self.current + 5, self.tokens.len()) {
+            let t = &self.tokens[i];
+            if matches!(t.kind, TokenType::From)
+                || self.interner.resolve(t.lexeme).eq_ignore_ascii_case("from")
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Helper: case-insensitive lexeme check at an absolute token index.
+    fn check_word_at(&self, idx: usize, word: &str) -> bool {
+        self.tokens
+            .get(idx)
+            .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case(word))
+            .unwrap_or(false)
+    }
+
+    /// Parse the task-handle join spelled with `Await`: `Await h.` / `Await h into r.`
+    fn parse_task_await_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Await"
+        self.finish_task_await()
+    }
+
+    /// Parse the task-handle join spelled with `Wait`: `Wait for h.` / `Wait for h into r.`
+    /// The `for` is optional (`Wait h` also joins).
+    fn parse_wait_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Wait"
+        if self.check(&TokenType::For) || self.check_preposition_is("for") || self.check_word("for")
+        {
+            self.advance(); // consume optional "for"
+        }
+        self.finish_task_await()
+    }
+
+    /// Shared tail for `Await h`/`Wait for h`: the handle expression plus an optional
+    /// `into r` result binding.
+    fn finish_task_await(&mut self) -> ParseResult<Stmt<'a>> {
+        let handle = self.parse_imperative_expr()?;
+        let result = if self.check(&TokenType::Into) || self.check_word("into") {
+            self.advance(); // consume "into"
+            Some(self.expect_identifier()?)
+        } else {
+            None
+        };
+        Ok(Stmt::AwaitTask { handle, result })
+    }
+
+    /// Parse a channel-close statement: `Close ch.` or `Close the pipe ch.`
+    fn parse_close_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Close"
+                        // Optional `the`/`a` article and the `pipe` noun: `Close the pipe ch`.
+        if self.check_article() {
+            self.advance();
+        }
+        if self.check(&TokenType::Pipe) || self.check_word("channel") {
+            self.advance();
+        }
+        let channel = self.parse_imperative_expr()?;
+        Ok(Stmt::CloseChannel { channel })
+    }
+
     /// Phase 54: Parse Select statement
     /// Syntax:
     /// Await the first of:
@@ -4814,7 +16670,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "the"
         if !self.check_article() {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "the".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4823,7 +16681,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "first"
         if !self.check_word("first") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "first".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "first".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4832,7 +16692,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "of"
         if !self.check_preposition_is("of") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "of".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4841,7 +16703,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -4886,7 +16750,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 _ => {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: "variable name".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -4894,7 +16760,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "from".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -4905,7 +16773,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect colon
             if !self.check(&TokenType::Colon) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ":".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -4928,7 +16798,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect colon
             if !self.check(&TokenType::Colon) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ":".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -4940,7 +16812,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Ok(SelectBranch::Timeout { milliseconds, body })
         } else {
             Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "Receive or After".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "Receive or After".to_string(),
+                },
                 span: self.current_span(),
             })
         }
@@ -4966,24 +16840,40 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance();
 
-        let mut stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
+        let list = self.read_scoped(|parser| {
+            let mut stmts = StmtList::default();
+            while !parser.check(&TokenType::Dedent) && !parser.is_at_end() {
+                let start_tok = parser.current;
+                let mut read = StmtList::default();
+                parser.read_block_statement(&mut read)?;
+                // ★ A FAILURE-SITE MARKER, ONE PER SENTENCE, ONLY WHILE PARSING AN ACTION/HANDLER'S
+                // OWN BODY (`site_tracking`, set by `parse_actions_section` around exactly the two
+                // body-parsing calls it makes). Inserted BEFORE the sentence it marks, in spliced
+                // coordinates, sized to include the terminating period just consumed — the same span
+                // shape `record_stmt_span` uses. A nested `{if}`/`{repeat}` inside an action's body
+                // recurses back into this same function while `site_tracking` is still set, so its own
+                // sentences get marked too, at no extra wiring.
+                if let Some((component, action)) = parser.site_tracking {
+                    let span = parser.span_from(start_tok);
+                    let id = parser.failure_sites.len() as u32;
+                    parser.failure_sites.push(crate::ast::stmt::FailureSite {
+                        span,
+                        component,
+                        action,
+                    });
+                    stmts.wrote(Stmt::Site(id));
+                }
+                stmts.append(read);
             }
-        }
 
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
+            // Consume dedent
+            if parser.check(&TokenType::Dedent) {
+                parser.advance();
+            }
+            Ok(stmts)
+        })?;
 
-        let block = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(stmts.into_iter());
-
-        Ok(block)
+        Ok(self.alloc_read_block(list))
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -4995,7 +16885,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" preposition (can be TokenType::To when followed by verb-like word)
         if !self.check_to_preposition() {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5004,11 +16896,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the recipient: "processor" or "the console"
         let recipient = self.parse_imperative_expr()?;
 
-        // Mark variable as Moved after Give
-        if let Expr::Identifier(sym) = object {
-            self.world_state.set_ownership_by_var(*sym, crate::drs::OwnershipState::Moved);
-        }
-
+        // The move itself is settled by the block reading this statement
+        // (`parse_moving_statement`): it lasts for the rest of that block.
         Ok(Stmt::Give { object, recipient })
     }
 
@@ -5046,7 +16935,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Mark variable as Borrowed after Show
         if let Expr::Identifier(sym) = object {
-            self.world_state.set_ownership_by_var(*sym, crate::drs::OwnershipState::Borrowed);
+            self.world_state
+                .set_ownership_by_var(*sym, crate::drs::OwnershipState::Borrowed);
         }
 
         Ok(Stmt::Show { object, recipient })
@@ -5068,14 +16958,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" (can be keyword or preposition)
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume "to"
 
         // Parse the collection
+        let collection_from = self.current;
         let collection = self.parse_imperative_expr()?;
+        self.note_write(
+            collection,
+            collection_from,
+            self.current,
+            component::WriteVerb::Push,
+        );
 
         if values.len() == 1 {
             Ok(self.desugar_place_push(values[0], collection))
@@ -5084,8 +16983,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             for value in values {
                 pushes.push(self.desugar_place_push(value, collection));
             }
-            let body = self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(pushes.into_iter());
+            let body = self.alloc_block(pushes);
             Ok(Stmt::Splice { body })
         }
     }
@@ -5098,14 +16996,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "from" - can be keyword token or preposition
         if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "from".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume "from"
 
         // Parse the collection
+        let collection_from = self.current;
         let collection = self.parse_imperative_expr()?;
+        self.note_write(
+            collection,
+            collection_from,
+            self.current,
+            component::WriteVerb::Pop,
+        );
 
         // Check for optional "into" binding (can be Into keyword or preposition)
         let into = if self.check(&TokenType::Into) || self.check_preposition_is("into") {
@@ -5145,14 +17052,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" preposition
         if !self.check_preposition_is("to") && !self.check(&TokenType::To) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume "to"
 
         // Parse the collection expression
+        let collection_from = self.current;
         let collection = self.parse_imperative_expr()?;
+        self.note_write(
+            collection,
+            collection_from,
+            self.current,
+            component::WriteVerb::Add,
+        );
 
         Ok(Stmt::Add { value, collection })
     }
@@ -5162,20 +17078,75 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_remove_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Remove"
 
+        // `Remove every <x> from <list> where <condition>.` — every item the condition holds for
+        // leaves the list, the rest keep their order: the kept items gathered into a copy
+        // (`desugar_keep_where`), written back through the same place a `Set` of `<list>` writes.
+        if self.check_word("every") && self.check_word_at(self.current + 2, "from") {
+            let saved = self.backtrack_point();
+            self.advance(); // every
+            if let Ok(binder) = self.expect_identifier() {
+                self.advance(); // from
+                let list_from = self.current;
+                let list = self.parse_imperative_expr()?;
+                let list_to = self.current;
+                self.expect_keyword("where")?;
+                let condition = self.parse_condition()?;
+                let (kept, mut body) = self.desugar_keep_where(binder, list, condition, false);
+                let kept_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(kept));
+                let write_back = match list {
+                    Expr::Identifier(target) => {
+                        self.note_write(list, list_from, list_to, component::WriteVerb::Remove);
+                        Stmt::Set { target: *target, value: kept_ref }
+                    }
+                    Expr::FieldAccess { object, field } => {
+                        self.note_write(list, list_from, list_to, component::WriteVerb::Remove);
+                        Stmt::SetField { object: *object, field: *field, value: kept_ref }
+                    }
+                    Expr::Index { collection, index } => {
+                        self.note_write(list, list_from, list_to, component::WriteVerb::Remove);
+                        self.desugar_place_set_index(*collection, *index, kept_ref)
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom(
+                                "`Remove every … from` takes items out of a list it can write back to — \
+                                 a name, a field (`the cart's items`) or an item (`item 2 of lists`)."
+                                    .to_string(),
+                            ),
+                            span: self.tokens[list_from].span,
+                        })
+                    }
+                };
+                body.push(write_back);
+                let body = self.alloc_block(body);
+                return Ok(Stmt::Splice { body });
+            }
+            self.backtrack_to(&saved);
+        }
+
         // Parse the value to remove
         let value = self.parse_imperative_expr()?;
 
         // Expect "from" preposition
         if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "from".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume "from"
 
         // Parse the collection expression
+        let collection_from = self.current;
         let collection = self.parse_imperative_expr()?;
+        self.note_write(
+            collection,
+            collection_from,
+            self.current,
+            component::WriteVerb::Remove,
+        );
 
         Ok(Stmt::Remove { value, collection })
     }
@@ -5192,7 +17163,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "from" preposition
         if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "from".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5213,7 +17186,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             ReadSource::File(path)
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "console or file".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "console or file".to_string(),
+                },
                 span: self.current_span(),
             });
         };
@@ -5232,7 +17207,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" (can be keyword or preposition)
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5241,7 +17218,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "file" keyword
         if !self.check(&TokenType::File) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "file".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "file".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5274,7 +17253,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "zone"
         if !self.check(&TokenType::Zone) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "zone".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "zone".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5283,7 +17264,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "called"
         if !self.check(&TokenType::Called) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "called".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5319,7 +17302,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "from"
             if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "from".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -5343,7 +17328,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "size"
             if !self.check(&TokenType::Size) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "size".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "size".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -5378,40 +17365,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ":"
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume Indent
+        let body = self.read_indented_block()?;
 
-        // Parse body statements
-        let mut body_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            body_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
-
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
-
-        Ok(Stmt::Zone { name, capacity, source_file, body })
+        Ok(Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body,
+        })
     }
 
     /// Parse size unit (B, KB, MB, GB) and return multiplier
@@ -5448,7 +17417,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "all"
         if !self.check(&TokenType::All) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "all".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "all".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5457,7 +17428,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "of" (preposition)
         if !self.check_of_preposition() {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "of".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5466,7 +17439,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "the"
         if !self.check_article() {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "the".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5475,7 +17450,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "following"
         if !self.check(&TokenType::Following) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "following".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "following".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5484,38 +17461,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ":"
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume Indent
-
-        // Parse body statements
-        let mut task_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            task_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
-
-        let tasks = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(task_stmts.into_iter());
+        let tasks = self.read_indented_block()?;
 
         Ok(Stmt::Concurrent { tasks })
     }
@@ -5534,40 +17488,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ":"
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
+        let tasks = self.read_indented_block()?;
+
+        Ok(Stmt::Parallel { tasks })
+    }
+
+    /// Parse a reversible / uncompute block.
+    ///
+    /// Syntax:
+    /// ```logos
+    /// Reversibly:
+    ///     Add 3 to x.
+    ///     Set x to x xor mask.
+    /// ```
+    /// (`Uncompute:` is an accepted alias.) The body runs in the enclosing scope and produces
+    /// byte-identical OUTPUT to the same statements written outside the block — only the LOWERING
+    /// of the in-place abelian scalar updates changes (to `Op::RevAdd`/`RevSub`/`RevXor`/`RevNeg`).
+    fn parse_reversibly_block(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Reversibly" / "Uncompute"
+
+        // Expect colon.
+        if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
-        self.advance(); // consume Indent
+        self.advance(); // consume ":"
 
-        // Parse body statements
-        let mut task_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            task_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
+        // Skip the newline(s) between the header line and the indented body.
+        while self.check(&TokenType::Newline) {
             self.advance();
         }
 
-        let tasks = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(task_stmts.into_iter());
+        let body = self.read_indented_block()?;
 
-        Ok(Stmt::Parallel { tasks })
+        Ok(Stmt::Reversibly { body })
     }
 
     /// Phase 33: Parse Inspect statement for pattern matching
@@ -5585,7 +17551,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5602,6 +17570,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         let mut arms = Vec::new();
         let mut has_otherwise = false;
+        let mut established_enum: Option<(Symbol, Symbol)> = None;
 
         // Parse match arms until dedent
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
@@ -5611,51 +17580,38 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 if !self.check(&TokenType::Colon) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ":".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
                 self.advance(); // consume ":"
 
                 // Handle both inline (Otherwise: stmt.) and block body
-                let body_stmts = if self.check(&TokenType::Indent) {
-                    self.advance(); // consume Indent
-                    let mut stmts = Vec::new();
-                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                        let stmt = self.parse_statement()?;
-                        stmts.push(stmt);
-                        if self.check(&TokenType::Period) {
-                            self.advance();
-                        }
-                    }
-                    if self.check(&TokenType::Dedent) {
-                        self.advance();
-                    }
-                    stmts
-                } else {
-                    // Inline body: "Otherwise: Show x."
-                    let stmt = self.parse_statement()?;
-                    if self.check(&TokenType::Period) {
-                        self.advance();
-                    }
-                    vec![stmt]
-                };
+                let body = self.read_branch_body()?;
 
-                let body = self.ctx.stmts.expect("imperative arenas not initialized")
-                    .alloc_slice(body_stmts.into_iter());
-
-                arms.push(MatchArm { enum_name: None, variant: None, bindings: vec![], body });
+                arms.push(MatchArm {
+                    enum_name: None,
+                    variant: None,
+                    bindings: vec![],
+                    body,
+                });
                 has_otherwise = true;
                 break;
             }
 
             if self.check(&TokenType::If) {
                 // Parse "If it is a VariantName [(bindings)]:"
-                let arm = self.parse_match_arm()?;
+                let arm_span = self.peek().span;
+                let arm = self.parse_match_arm(established_enum.map(|(e, _)| e))?;
+                self.check_inspect_arm_enum(&arm, arm_span, &mut established_enum)?;
                 arms.push(arm);
             } else if self.check(&TokenType::When) || self.check_word("When") {
                 // Parse "When Variant [(bindings)]:" (concise syntax)
-                let arm = self.parse_when_arm()?;
+                let arm_span = self.peek().span;
+                let arm = self.parse_when_arm(established_enum.map(|(e, _)| e))?;
+                self.check_inspect_arm_enum(&arm, arm_span, &mut established_enum)?;
                 arms.push(arm);
             } else if self.check(&TokenType::Newline) {
                 // Skip newlines between arms
@@ -5671,17 +17627,140 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        Ok(Stmt::Inspect { target, arms, has_otherwise })
+        Ok(Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        })
+    }
+
+    /// An `Inspect`'s arms must all name variants of ONE enum — whatever the target's real type
+    /// is, only one type's variants can ever be the right thing to match against it. `established`
+    /// records the enum (and the variant that first named it) the FIRST arm with a resolvable
+    /// `enum_name` settled on.
+    ///
+    /// By the time an arm reaches this check, `resolve_arm_variant` has ALREADY resolved its
+    /// variant preferring the established enum over the registry's own arbitrary order — so a
+    /// name two enums both declare (a user type shadowing a stdlib variant, or two user types
+    /// sharing a name) reads through the established enum correctly and never reaches here as a
+    /// false mismatch. What this still catches: a variant the established enum genuinely does NOT
+    /// have — belonging to some OTHER real enum, or resolving to NO enum at all. The latter is the
+    /// easiest way to reach this mistake in practice: `Option`/`Result`'s own `Some`/`None`/`Ok`/
+    /// `Err` are engine-owned markers the registry never resolves to an enum (they are
+    /// `TypeDef::Generic`, not `TypeDef::Enum`), so a stray `Err` beside a domain type's own
+    /// `JOk`/`JErr` looks exactly like an unresolved name — and a plain "unknown variant" message
+    /// would not point at the enum it should have named instead. Both are refused here, at the
+    /// offending arm, naming the established enum and suggesting its own nearest-spelled variant.
+    /// An Inspect whose EVERY arm is unresolved (a legitimate `Some`/`None` or `Ok`/`Err` match, or
+    /// the FIRST arm of any Inspect) never establishes anything and is untouched — there is
+    /// nothing yet to be inconsistent with.
+    fn check_inspect_arm_enum(
+        &self,
+        arm: &MatchArm<'a>,
+        arm_span: Span,
+        established: &mut Option<(Symbol, Symbol)>,
+    ) -> ParseResult<()> {
+        let Some(variant) = arm.variant else {
+            return Ok(());
+        };
+        let (expected_enum, first_variant) = match (*established, arm.enum_name) {
+            (None, None) => return Ok(()),
+            (None, Some(found_enum)) => {
+                *established = Some((found_enum, variant));
+                return Ok(());
+            }
+            (Some((expected_enum, _)), Some(found_enum)) if expected_enum == found_enum => {
+                return Ok(())
+            }
+            (Some(pair), _) => pair,
+        };
+        let expected_str = self.interner.resolve(expected_enum).to_string();
+        let variant_str = self.interner.resolve(variant).to_string();
+        let first_variant_str = self.interner.resolve(first_variant).to_string();
+        let suggestion = self
+            .type_registry
+            .as_ref()
+            .and_then(|r| match r.get(expected_enum) {
+                Some(crate::analysis::TypeDef::Enum { variants, .. }) => {
+                    let names: Vec<&str> = variants
+                        .iter()
+                        .map(|v| self.interner.resolve(v.name))
+                        .collect();
+                    crate::suggest::find_similar(&variant_str, &names, 2)
+                }
+                _ => None,
+            });
+        let hint = suggestion
+            .map(|s| format!(" Did you mean '{s}'?"))
+            .unwrap_or_default();
+        let belongs_to = match arm.enum_name {
+            Some(found_enum) => format!(
+                "is a variant of '{}', not",
+                self.interner.resolve(found_enum)
+            ),
+            None => "is not a variant of".to_string(),
+        };
+        Err(ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "'{variant_str}' {belongs_to} '{expected_str}' — every arm of this Inspect must \
+                match variants of the SAME type ('{expected_str}', established by its \
+                '{first_variant_str}' arm).{hint}"
+            )),
+            span: arm_span,
+        })
+    }
+
+    /// Resolve a `When`/`If it is a` arm's variant to its enum and field names.
+    /// `established` — the enum an enclosing `Inspect` has already committed to, from an
+    /// earlier arm, if any — is checked FIRST: a variant name can be declared by more than
+    /// one enum (a user's own type shadowing a same-named stdlib variant, or two user types
+    /// sharing a name), and once an Inspect has settled on a real enum, every later arm must
+    /// read its own name against THAT enum before anything else — never fall through to an
+    /// unrelated enum's same-named variant merely because the registry's own internal map
+    /// happened to iterate it first. Only when `established` has no such variant (including
+    /// the arm that DOES the establishing, where nothing is settled yet) does this fall back
+    /// to the registry's global, unordered search.
+    fn resolve_arm_variant(
+        &self,
+        variant: Symbol,
+        established: Option<Symbol>,
+    ) -> (Option<Symbol>, Vec<Symbol>) {
+        use crate::analysis::TypeDef;
+        if let Some(enum_name) = established {
+            if let Some(TypeDef::Enum { variants, .. }) =
+                self.type_registry.as_ref().and_then(|r| r.get(enum_name))
+            {
+                if let Some(vdef) = variants.iter().find(|v| v.name == variant) {
+                    return (
+                        Some(enum_name),
+                        vdef.fields.iter().map(|f| f.name).collect(),
+                    );
+                }
+            }
+        }
+        self.type_registry
+            .as_ref()
+            .and_then(|r| {
+                r.find_variant(variant).map(|(enum_name, vdef)| {
+                    (
+                        Some(enum_name),
+                        vdef.fields.iter().map(|f| f.name).collect(),
+                    )
+                })
+            })
+            .unwrap_or((None, vec![]))
     }
 
     /// Parse a single match arm: "If it is a Variant [(field: binding)]:"
-    fn parse_match_arm(&mut self) -> ParseResult<MatchArm<'a>> {
+    fn parse_match_arm(&mut self, established: Option<Symbol>) -> ParseResult<MatchArm<'a>> {
         self.advance(); // consume "If"
 
         // Expect "it"
         if !self.check_word("it") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "it".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "it".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5690,7 +17769,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "is"
         if !self.check(&TokenType::Is) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "is".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "is".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5701,11 +17782,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        // Get variant name
-        let variant = self.expect_identifier()?;
+        // Get variant name — by RAW spelling: under the dynamic lexicon a
+        // capitalized variant like `Ok` classifies as a common word whose
+        // canonical symbol is the lowercased lemma, which would miss the
+        // enum registry silently.
+        let variant_raw = self.peek().lexeme;
+        self.expect_identifier()?;
+        let variant = variant_raw;
 
-        // Look up the enum name for this variant
-        let enum_name = self.find_variant(variant);
+        // Look up the enum name for this variant — established first (see `resolve_arm_variant`).
+        let (enum_name, _fields) = self.resolve_arm_variant(variant, established);
 
         // Optional: "(field)" or "(field: binding)" or "(f1, f2: b2)"
         let bindings = if self.check(&TokenType::LParen) {
@@ -5717,66 +17803,51 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ":"
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume Indent
+        let body = self.read_indented_block()?;
 
-        // Parse body statements
-        let mut body_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            body_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-        }
-
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
-            self.advance();
-        }
-
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
-
-        Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
+        Ok(MatchArm {
+            enum_name,
+            variant: Some(variant),
+            bindings,
+            body,
+        })
     }
 
     /// Parse a concise match arm: "When Variant [(bindings)]:" or "When Variant: stmt."
-    fn parse_when_arm(&mut self) -> ParseResult<MatchArm<'a>> {
+    fn parse_when_arm(&mut self, established: Option<Symbol>) -> ParseResult<MatchArm<'a>> {
         self.advance(); // consume "When"
 
-        // Get variant name
-        let variant = self.expect_identifier()?;
+        // Get variant name — by RAW spelling (see parse_match_arm: the
+        // dynamic lexicon lemma-lowercases common words like `Ok`).
+        let variant_raw = self.peek().lexeme;
+        self.expect_identifier()?;
+        let variant = variant_raw;
 
-        // Look up the enum name and variant definition for this variant
-        let (enum_name, variant_fields) = self.type_registry
-            .as_ref()
-            .and_then(|r| r.find_variant(variant).map(|(enum_name, vdef)| {
-                let fields: Vec<_> = vdef.fields.iter().map(|f| f.name).collect();
-                (Some(enum_name), fields)
-            }))
-            .unwrap_or((None, vec![]));
+        // Look up the enum name and variant definition for this variant — established
+        // first (see `resolve_arm_variant`), so this arm's positional bindings are built
+        // from the SAME enum's own field list, not a same-named variant of a different one.
+        let (enum_name, variant_fields) = self.resolve_arm_variant(variant, established);
 
         // Optional: "(binding)" or "(b1, b2)" - positional bindings
         let bindings = if self.check(&TokenType::LParen) {
             let raw_bindings = self.parse_when_bindings()?;
             // Map positional bindings to actual field names
-            raw_bindings.into_iter().enumerate().map(|(i, binding)| {
-                let field = variant_fields.get(i).copied().unwrap_or(binding);
-                (field, binding)
-            }).collect()
+            raw_bindings
+                .into_iter()
+                .enumerate()
+                .map(|(i, binding)| {
+                    let field = variant_fields.get(i).copied().unwrap_or(binding);
+                    (field, binding)
+                })
+                .collect()
         } else {
             vec![]
         };
@@ -5784,40 +17855,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ":"
 
         // Handle both inline body (When Variant: stmt.) and block body
-        let body_stmts = if self.check(&TokenType::Indent) {
-            self.advance(); // consume Indent
-            let mut stmts = Vec::new();
-            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                let stmt = self.parse_statement()?;
-                stmts.push(stmt);
-                if self.check(&TokenType::Period) {
-                    self.advance();
-                }
-            }
-            if self.check(&TokenType::Dedent) {
-                self.advance();
-            }
-            stmts
-        } else {
-            // Inline body: "When Red: Show x."
-            let stmt = self.parse_statement()?;
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
-            vec![stmt]
-        };
+        let body = self.read_branch_body()?;
 
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
-
-        Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
+        Ok(MatchArm {
+            enum_name,
+            variant: Some(variant),
+            bindings,
+            body,
+        })
     }
 
     /// Parse concise When bindings: "(r)" or "(w, h)" - just binding variable names
@@ -5837,7 +17891,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if !self.check(&TokenType::RParen) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ")".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5869,7 +17925,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if !self.check(&TokenType::RParen) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ")".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -5878,45 +17936,280 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(bindings)
     }
 
+    /// The declared field names of `type_name`'s own constructor, and whether it names a
+    /// VARIANT (`true`) or a plain struct (`false`). `None` when the registry has nothing
+    /// for it (an unresolved or built-in-wrapped name like `Some`/`None`) — the caller then
+    /// falls back to the old permissive reading rather than refuse a construction it has no
+    /// field list to check against.
+    ///
+    /// The distinction matters beyond the boundary check: a struct field left out of a
+    /// construction is a documented, working feature — it defaults from its declared type
+    /// (`interpreter.rs::default_for_declared_type`, `LOGOS_QUICKGUIDE.md`'s `a new Point`
+    /// row) — while a variant's payload has no such default (an `Inspect` binding for a
+    /// field never given would read nothing), so only a variant's missing fields are ever
+    /// refused.
+    ///
+    /// `enum_hint` is the enum a construction site has ALREADY settled on (`from <Enum>`, or
+    /// the sole candidate `resolve_construction_target` found) — checked first, so the field
+    /// list is the one belonging to THAT enum's own variant rather than
+    /// `TypeRegistry::find_variant`'s arbitrary-but-deterministic first candidate, which could
+    /// be a same-named variant of a DIFFERENT enum with a different field shape entirely.
+    fn constructor_field_names(
+        &self,
+        type_name: Symbol,
+        enum_hint: Option<Symbol>,
+    ) -> Option<(Vec<Symbol>, bool)> {
+        use crate::analysis::TypeDef;
+        let registry = self.type_registry.as_ref()?;
+        if let Some(enum_name) = enum_hint {
+            if let Some(vdef) = registry.variant_in(enum_name, type_name) {
+                return Some((vdef.fields.iter().map(|f| f.name).collect(), true));
+            }
+        }
+        if let Some((_, vdef)) = registry.find_variant(type_name) {
+            return Some((vdef.fields.iter().map(|f| f.name).collect(), true));
+        }
+        match registry.get(type_name) {
+            Some(TypeDef::Struct { fields, .. }) => {
+                Some((fields.iter().map(|f| f.name).collect(), false))
+            }
+            _ => None,
+        }
+    }
+
+    /// The lexeme `offset` tokens ahead, when that token could plausibly name a field
+    /// (never a string/char literal, matching `check_word`'s own exclusion) — lets a
+    /// caller look one word past an `and` without consuming it.
+    fn peek_field_name_at(&self, offset: usize) -> Option<Symbol> {
+        let token = self.tokens.get(self.current + offset)?;
+        if matches!(
+            token.kind,
+            TokenType::StringLiteral(_) | TokenType::CharLiteral(_)
+        ) {
+            return None;
+        }
+        Some(token.lexeme)
+    }
+
+    /// When `value` is itself a nested `a new …` constructor whose OWN declared
+    /// fields include `field`, the type it constructs — the hint a missing-field
+    /// refusal uses to explain that an inner constructor may have consumed the
+    /// `and <field> …` clause the outer one needed.
+    fn nested_constructor_naming(&self, value: &Expr<'a>, field: Symbol) -> Option<Symbol> {
+        use crate::ast::Expr;
+        let (inner_type, enum_hint) = match value {
+            Expr::New { type_name, .. } => (*type_name, None),
+            Expr::NewVariant {
+                enum_name, variant, ..
+            } => (*variant, Some(*enum_name)),
+            _ => return None,
+        };
+        self.constructor_field_names(inner_type, enum_hint)?
+            .0
+            .contains(&field)
+            .then_some(inner_type)
+    }
+
+    /// Whether an ANCESTOR constructor — one enclosing the frame at `frame_index`, i.e.
+    /// `self.constructor_frames[..frame_index]` — still has an unassigned field named
+    /// `field`. Consulted only when the CURRENT constructor has already assigned `field`
+    /// itself and sees it named again: if some ancestor still wants it, that repetition is
+    /// this constructor's own closing boundary (stop, don't consume, let it bubble up); if
+    /// no ancestor could ever claim it, it is unclaimable by anyone else and is treated as
+    /// a duplicate at THIS level instead of an inscrutable dangling `and` further out.
+    fn any_enclosing_frame_wants(&self, frame_index: usize, field: Symbol) -> bool {
+        self.constructor_frames[..frame_index]
+            .iter()
+            .any(|(ty, enum_hint, assigned)| {
+                self.constructor_field_names(*ty, *enum_hint)
+                    .is_some_and(|(names, _)| names.contains(&field) && !assigned.contains(&field))
+            })
+    }
+
     /// Parse constructor fields: "with field1 value1 [and field2 value2]..."
     /// Example: "with radius 10" or "with x 10 and y 20"
-    /// Used for both variant constructors and struct initialization
-    fn parse_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
-        use crate::ast::Expr;
-        let mut fields = Vec::new();
+    /// Used for both variant constructors and struct initialization.
+    ///
+    /// `type_name` is the constructor's own type. Its declared field set (via
+    /// `constructor_field_names`) is what lets this tell "one more field of THIS
+    /// constructor" apart from "the enclosing constructor's own next field" at every
+    /// `and`: a nested `a new …` value parses its own fields the same way, so it stops
+    /// consuming `and`s at its own type's boundary instead of reading past it into
+    /// fields the ENCLOSING constructor still needs. A frame recording this call's own
+    /// type and its fields assigned so far is pushed onto `self.constructor_frames` for
+    /// the duration — see `any_enclosing_frame_wants`.
+    fn parse_constructor_fields(
+        &mut self,
+        type_name: Symbol,
+        enum_hint: Option<Symbol>,
+    ) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        let with_span = self.peek().span;
+        self.advance(); // consume "with"
 
-        // Consume "with"
-        self.advance();
+        let frame_index = self.constructor_frames.len();
+        self.constructor_frames
+            .push((type_name, enum_hint, Vec::new()));
+        let result =
+            self.parse_constructor_fields_body(type_name, enum_hint, with_span, frame_index);
+        self.constructor_frames.truncate(frame_index);
+        result
+    }
+
+    fn parse_constructor_fields_body(
+        &mut self,
+        type_name: Symbol,
+        enum_hint: Option<Symbol>,
+        with_span: Span,
+        frame_index: usize,
+    ) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        use crate::ast::Expr;
+        let mut fields: Vec<(Symbol, &'a Expr<'a>)> = Vec::new();
+        let declared = self.constructor_field_names(type_name, enum_hint);
 
         loop {
-            // Parse field name
+            let field_span = self.peek().span;
             let field_name = self.expect_identifier()?;
+
+            if fields.iter().any(|(n, _)| *n == field_name) {
+                let field_str = self.interner.resolve(field_name);
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "'{}' names the field '{field_str}' twice in the same construction — a \
+                        field is assigned once. Remove one of the two '{field_str}' clauses.",
+                        self.interner.resolve(type_name)
+                    )),
+                    span: field_span,
+                });
+            }
 
             // Parse field value expression — use parse_comparison to stop before
             // "and"/"or" which serve as field separators in constructor syntax
             let value = self.parse_comparison()?;
 
             fields.push((field_name, value));
+            self.constructor_frames[frame_index].2.push(field_name);
 
-            // Check for "and" to continue
+            // Check for "and" to continue — only consumed when the word right after it
+            // names a field THIS constructor still needs, OR repeats a field it already
+            // has that no ENCLOSING constructor could still want (a genuine duplicate,
+            // best caught here with a named error rather than left dangling for whatever
+            // called this constructor). Otherwise it belongs to whatever constructor is
+            // enclosing this one. Applies equally to a struct and a variant.
             if self.check(&TokenType::And) {
-                self.advance(); // consume "and"
-                continue;
+                let continues_this_constructor = match &declared {
+                    Some((names, _)) => self.peek_field_name_at(1).is_some_and(|next| {
+                        if !names.contains(&next) {
+                            return false;
+                        }
+                        let already_assigned = fields.iter().any(|(n, _)| *n == next);
+                        !already_assigned || !self.any_enclosing_frame_wants(frame_index, next)
+                    }),
+                    None => true,
+                };
+                if continues_this_constructor {
+                    self.advance(); // consume "and"
+                    continue;
+                }
             }
             break;
+        }
+
+        // A missing field is only ever refused for a VARIANT — a struct field left out
+        // defaults from its declared type (see `constructor_field_names`'s doc comment).
+        if let Some((names, true)) = &declared {
+            let missing: Vec<Symbol> = names
+                .iter()
+                .copied()
+                .filter(|f| !fields.iter().any(|(n, _)| n == f))
+                .collect();
+            if !missing.is_empty() {
+                let type_str = self.interner.resolve(type_name);
+                let parts: Vec<String> = missing
+                    .iter()
+                    .map(|f| {
+                        let field_str = self.interner.resolve(*f);
+                        match fields.iter().find_map(|(_, v)| self.nested_constructor_naming(v, *f)) {
+                            Some(inner_type) => {
+                                let inner_str = self.interner.resolve(inner_type);
+                                format!(
+                                    "'{field_str}' — a nested 'a new {inner_str}' assigned to another \
+                                    field above also declares a field named '{field_str}' and may have \
+                                    consumed the 'and {field_str} …' meant for '{type_str}' here; wrap \
+                                    it in parentheses, '(a new {inner_str} with …)', to keep the two apart"
+                                )
+                            }
+                            None => format!("'{field_str}'"),
+                        }
+                    })
+                    .collect();
+                let plural = if missing.len() == 1 {
+                    "field"
+                } else {
+                    "fields"
+                };
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "'{type_str}' needs a value for its {plural}: {}. Every field a constructor \
+                        declares must be given one, here and at every other 'a new {type_str}'.",
+                        parts.join("; ")
+                    )),
+                    span: with_span,
+                });
+            }
         }
 
         Ok(fields)
     }
 
-    /// Alias for variant constructors (backwards compat)
-    fn parse_variant_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
-        self.parse_constructor_fields()
+    /// For variant constructors: "with radius 10" fields on `a new Circle with …`.
+    /// `enum_hint` is the enum this variant construction already settled on (`from <Enum>`, or
+    /// the sole candidate) — see `constructor_field_names`.
+    fn parse_variant_constructor_fields(
+        &mut self,
+        type_name: Symbol,
+        enum_hint: Option<Symbol>,
+    ) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        self.parse_constructor_fields(type_name, enum_hint)
     }
 
     /// Alias for struct initialization
-    fn parse_struct_init_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
-        self.parse_constructor_fields()
+    /// `a new Some with value <e>` / `a new None` as the Option they mean, or `None` when this is
+    /// an ordinary record construction.
+    ///
+    /// The two surface forms of a present Option must be ONE value — see the call site for what
+    /// went wrong while they were two. The match is deliberately exact: `Some` with a single field
+    /// named `value`, or `None` with no fields at all. A user record that merely shares the name
+    /// but not the shape keeps reading as a record, and a generic argument (`a new Some of Int`)
+    /// is left alone because the payload type is carried by the value, not by an annotation.
+    fn option_form_of(
+        &self,
+        type_name: Symbol,
+        type_args: &[TypeExpr],
+        init_fields: &[(Symbol, &'a Expr<'a>)],
+    ) -> Option<Expr<'a>> {
+        if !type_args.is_empty() {
+            return None;
+        }
+        match self.interner.resolve(type_name) {
+            "Some"
+                if init_fields.len() == 1 && self.interner.resolve(init_fields[0].0) == "value" =>
+            {
+                Some(Expr::OptionSome {
+                    value: init_fields[0].1,
+                })
+            }
+            "None" if init_fields.is_empty() => Some(Expr::OptionNone),
+            _ => None,
+        }
+    }
+
+    /// For struct initialization: "with x 10 and y 20" fields on `a new Point with …`. A struct
+    /// is never enum-qualified, so this always parses with no enum hint.
+    fn parse_struct_init_fields(
+        &mut self,
+        type_name: Symbol,
+    ) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        self.parse_constructor_fields(type_name, None)
     }
 
     /// Phase 34: Parse generic type arguments for constructor instantiation
@@ -5930,7 +18223,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Expect "of" preposition
         if !self.check_preposition_is("of") {
-            return Ok(vec![]);  // Generic type without arguments - will use defaults
+            return Ok(vec![]); // Generic type without arguments - will use defaults
         }
         self.advance(); // consume "of"
 
@@ -5959,7 +18252,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Stop at next block header
             if matches!(
                 self.tokens.get(self.current),
-                Some(Token { kind: TokenType::BlockHeader { .. }, .. })
+                Some(Token {
+                    kind: TokenType::BlockHeader { .. },
+                    ..
+                })
             ) {
                 break;
             }
@@ -5975,7 +18271,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     ///   Prove: Goal.
     ///   Proof: Auto.
     fn parse_theorem_block(&mut self) -> ParseResult<Stmt<'a>> {
-        use crate::ast::theorem::{TheoremBlock, ProofStrategy};
+        use crate::ast::theorem::{ProofStrategy, TheoremBlock};
 
         // Skip newlines and indentation
         self.skip_whitespace_tokens();
@@ -6005,7 +18301,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 _ => {
                     // Use the lexeme directly for unrecognized tokens
                     let lexeme = self.interner.resolve(token.lexeme);
-                    if !lexeme.is_empty() && lexeme.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false) {
+                    if !lexeme.is_empty()
+                        && lexeme
+                            .chars()
+                            .next()
+                            .map(|c| c.is_alphanumeric())
+                            .unwrap_or(false)
+                    {
                         let name = lexeme.to_string();
                         self.advance();
                         name
@@ -6099,6 +18401,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.skip_whitespace_tokens();
         }
 
+        // Every premise must be citable by exactly one name, and the positional namespace is
+        // the system's — see `premise_label_conflict`.
+        if let Some(conflict) = premise_label_conflict(&premise_names) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(conflict),
+                span: self.current_span(),
+            });
+        }
+
         // Parse goal (Prove: statement)
         let goal = if self.check(&TokenType::Prove) {
             self.advance(); // consume "Prove"
@@ -6123,21 +18434,49 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             goal_expr
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "Prove".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "Prove".to_string(),
+                },
                 span: self.current_span(),
             });
         };
 
         self.skip_whitespace_tokens();
 
+        // ★ A `Given:` written BELOW the goal is not a premise, and it used to be NOTHING.
+        // The premise loop above stops at the first token that is not `Given`, so a `Given:`
+        // line after `Prove:` is left behind for the PROGRAM parser to read as an ordinary
+        // sentence. The theorem is then built with one premise fewer, fails to prove, and
+        // reports `Premises: 0` — which sends the author to the prover for a defect that is
+        // in their LAYOUT. The premise did not fail to help; it was never there.
+        //
+        // The guard tests for the premise line's COLON, not for the word: `Given` is ordinary
+        // English and a sentence that merely opens with it is prose. It also stops at the
+        // `Proof:` line, so a tactic script may say whatever it likes.
+        if self.stray_premise_after_goal() {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "a `Given:` line appears BELOW the `Prove:` line. A theorem's premises \
+                     are read above its goal, so a `Given:` written after `Prove:` is not a \
+                     premise at all — the theorem would be built without it and then fail to \
+                     prove, which reads as a defect in the proof rather than in the layout. \
+                     Move every `Given:` line above the `Prove:` line."
+                        .to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+
         // Parse proof strategy (`Proof: Auto.` or `Proof: <tactic script>`). The word
         // `Proof` may lex as a real `Proof` block header OR — inline, after `Prove:` —
         // as an ordinary capitalized name; accept both so the `Proof:` line is found.
-        let at_proof = self
-            .check(&TokenType::BlockHeader { block_type: crate::token::BlockType::Proof })
-            || self.tokens.get(self.current).is_some_and(|t| {
-                self.interner.resolve(t.lexeme).eq_ignore_ascii_case("proof")
-            });
+        let at_proof = self.check(&TokenType::BlockHeader {
+            block_type: crate::token::BlockType::Proof,
+        }) || self.tokens.get(self.current).is_some_and(|t| {
+            self.interner
+                .resolve(t.lexeme)
+                .eq_ignore_ascii_case("proof")
+        });
         let strategy = if at_proof {
             self.advance();
             self.skip_whitespace_tokens();
@@ -6159,7 +18498,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // punctuation as step separators. So a prose proof flows straight in.
                 let mut parts: Vec<String> = Vec::new();
                 while !self.is_at_end()
-                    && !matches!(self.tokens[self.current].kind, TokenType::BlockHeader { .. })
+                    && !matches!(
+                        self.tokens[self.current].kind,
+                        TokenType::BlockHeader { .. }
+                    )
                     && !self.check(&TokenType::Dedent)
                 {
                     let lexeme = self.tokens[self.current].lexeme;
@@ -6169,8 +18511,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let script = parts.join(" ");
                 if script.trim().is_empty() {
                     ProofStrategy::Auto
+                } else if let Some(variable) = proof_line_is_induction_on(&parts) {
+                    ProofStrategy::Induction(variable)
+                } else if let Some(rule) = proof_line_names_one_rule(&parts) {
+                    ProofStrategy::ByRule(rule)
                 } else {
-                    ProofStrategy::Script(script)
+                    ProofStrategy::Script(lower_rule_applications(&parts).unwrap_or(script))
                 }
             }
         } else {
@@ -6236,7 +18582,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Split at the top-level biconditional.
         let (definiendum, definiens) = match sentence {
-            LogicExpr::BinaryOp { left, op: TokenType::Iff, right } => (*left, *right),
+            LogicExpr::BinaryOp {
+                left,
+                op: TokenType::Iff,
+                right,
+            } => (*left, *right),
             _ => {
                 return Err(ParseError {
                     kind: ParseErrorKind::Custom(
@@ -6342,7 +18692,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn collect_block_text(&mut self) -> String {
         let mut parts: Vec<String> = Vec::new();
         while !self.is_at_end()
-            && !matches!(self.tokens[self.current].kind, TokenType::BlockHeader { .. })
+            && !matches!(
+                self.tokens[self.current].kind,
+                TokenType::BlockHeader { .. }
+            )
         {
             match &self.tokens[self.current].kind {
                 TokenType::Newline | TokenType::Indent | TokenType::Dedent => {}
@@ -6357,8 +18710,68 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Skip whitespace tokens (newlines, indentation)
+    /// Is there a `Given …:` PREMISE LINE between here (just past the goal) and the proof?
+    ///
+    /// Scans forward to the end of the theorem block, stopping at the `Proof:` line so a
+    /// tactic script's prose is never read as a premise, and requires the line's own
+    /// punctuation — an optional `(name)` and then `:` — so an ordinary English sentence
+    /// opening with the word `Given` is not mistaken for one.
+    fn stray_premise_after_goal(&self) -> bool {
+        let mut index = self.current;
+        while let Some(token) = self.tokens.get(index) {
+            match &token.kind {
+                TokenType::BlockHeader { .. } | TokenType::EOF => return false,
+                TokenType::Given if self.premise_colon_follows(index + 1) => return true,
+                _ => {}
+            }
+            if self
+                .interner
+                .resolve(token.lexeme)
+                .eq_ignore_ascii_case("proof")
+            {
+                return false;
+            }
+            index += 1;
+        }
+        false
+    }
+
+    /// Does a premise line's punctuation — an optional parenthesized name, then `:` —
+    /// begin at `start`?
+    fn premise_colon_follows(&self, start: usize) -> bool {
+        let mut index = start;
+        let skip_layout = |index: &mut usize| {
+            while matches!(
+                self.tokens.get(*index).map(|t| &t.kind),
+                Some(TokenType::Newline) | Some(TokenType::Indent) | Some(TokenType::Dedent)
+            ) {
+                *index += 1;
+            }
+        };
+        skip_layout(&mut index);
+        if matches!(
+            self.tokens.get(index).map(|t| &t.kind),
+            Some(TokenType::LParen)
+        ) {
+            while let Some(token) = self.tokens.get(index) {
+                index += 1;
+                if matches!(token.kind, TokenType::RParen) {
+                    break;
+                }
+            }
+            skip_layout(&mut index);
+        }
+        matches!(
+            self.tokens.get(index).map(|t| &t.kind),
+            Some(TokenType::Colon)
+        )
+    }
+
     fn skip_whitespace_tokens(&mut self) {
-        while self.check(&TokenType::Newline) || self.check(&TokenType::Indent) || self.check(&TokenType::Dedent) {
+        while self.check(&TokenType::Newline)
+            || self.check(&TokenType::Indent)
+            || self.check(&TokenType::Dedent)
+        {
             self.advance();
         }
     }
@@ -6369,38 +18782,46 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// `Zone`). `Concurrent`/`Parallel` are intentionally left as leaves: their
     /// returns are swallowed (they don't exit the function), so a postcondition must
     /// NOT be inserted there. The fallthrough exit is handled by the caller.
+    /// The author's statements keep their spans through the rebuild; the
+    /// asserts are the parser's own and claim none.
     fn insert_ensures_before_returns(
-        &self,
-        stmts: &[Stmt<'a>],
+        &mut self,
+        stmts: StmtList<'a>,
         checks: &[&'a Expr<'a>],
-    ) -> Vec<Stmt<'a>> {
-        let mut out: Vec<Stmt<'a>> = Vec::new();
-        for s in stmts {
+    ) -> StmtList<'a> {
+        let mut out = StmtList::default();
+        for (mut s, span) in stmts {
             if matches!(s, Stmt::Return { .. }) {
                 for &c in checks {
-                    out.push(Stmt::RuntimeAssert { condition: c, hard: true });
+                    out.wrote(Stmt::RuntimeAssert {
+                        condition: c,
+                        hard: true,
+                        dim: None,
+                        reason: None,
+                    });
                 }
-                out.push(s.clone());
+                out.carry(s, span);
                 continue;
             }
-            // Clone, then rewrite only the child blocks (via `..` patterns) — no need
-            // to re-spell every field of every block-bearing variant.
-            let mut c = s.clone();
-            match &mut c {
-                Stmt::If { then_block, else_block, .. } => {
-                    *then_block = self.alloc_block(self.insert_ensures_before_returns(then_block, checks));
+            // Rewrite only the child blocks (via `..` patterns) — no need to
+            // re-spell every field of every block-bearing variant.
+            match &mut s {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    *then_block = self.guard_returns_in(then_block, checks);
                     if let Some(eb) = else_block {
-                        *eb = self.alloc_block(self.insert_ensures_before_returns(eb, checks));
+                        *eb = self.guard_returns_in(eb, checks);
                     }
                 }
-                Stmt::While { body, .. }
-                | Stmt::Repeat { body, .. }
-                | Stmt::Zone { body, .. } => {
-                    *body = self.alloc_block(self.insert_ensures_before_returns(body, checks));
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+                    *body = self.guard_returns_in(body, checks);
                 }
                 Stmt::Inspect { arms, .. } => {
                     for arm in arms.iter_mut() {
-                        arm.body = self.alloc_block(self.insert_ensures_before_returns(arm.body, checks));
+                        arm.body = self.guard_returns_in(arm.body, checks);
                     }
                 }
                 Stmt::Select { branches } => {
@@ -6410,7 +18831,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         match br {
                             crate::ast::stmt::SelectBranch::Receive { body, .. }
                             | crate::ast::stmt::SelectBranch::Timeout { body, .. } => {
-                                *body = self.alloc_block(self.insert_ensures_before_returns(body, checks));
+                                *body = self.guard_returns_in(body, checks);
                             }
                         }
                     }
@@ -6419,14 +18840,162 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // function), so the postcondition must NOT be inserted there.
                 _ => {}
             }
-            out.push(c);
+            out.carry(s, span);
         }
         out
     }
 
-    /// Allocate a freshly-built statement list in the imperative arena.
+    /// An allocated child block rebuilt with `checks` before each of its returns.
+    fn guard_returns_in(&mut self, block: &[Stmt<'a>], checks: &[&'a Expr<'a>]) -> &'a [Stmt<'a>] {
+        let list = self.carried(block);
+        let guarded = self.insert_ensures_before_returns(list, checks);
+        self.alloc_read_block(guarded)
+    }
+
+    /// Allocate a block of statements the parser wrote itself — a lowering's,
+    /// a desugaring's. They claim no source; a block read from the source goes
+    /// through [`Parser::alloc_read_block`].
     fn alloc_block(&self, stmts: Vec<Stmt<'a>>) -> &'a [Stmt<'a>] {
-        self.ctx.stmts.expect("imperative arenas not initialized").alloc_slice(stmts.into_iter())
+        self.ctx
+            .stmts
+            .expect("imperative arenas not initialized")
+            .alloc_slice(stmts.into_iter())
+    }
+
+    /// Allocate a block read from the source, registering each statement's
+    /// span under its final identity in [`NestedStmtSpans`].
+    fn alloc_read_block(&mut self, list: StmtList<'a>) -> &'a [Stmt<'a>] {
+        let StmtList { stmts, spans } = list;
+        let block = self.alloc_block(stmts);
+        for (stmt, span) in block.iter().zip(spans) {
+            if let Some(span) = span {
+                self.nested_stmt_spans.0.insert(StmtId::of(stmt), span);
+            }
+        }
+        block
+    }
+
+    /// Read one statement of a block and the full stop that ends it into
+    /// `into`, with the span it was read from. Every statement a block reads
+    /// comes through here, so each is findable by identity once allocated.
+    fn read_block_statement(&mut self, into: &mut StmtList<'a>) -> ParseResult<()> {
+        let start = self.current;
+        let stmt = self.parse_moving_statement()?;
+        if self.check(&TokenType::Period) {
+            self.advance();
+        }
+        into.read(stmt, self.span_since(start));
+        Ok(())
+    }
+
+    /// Parse one statement of a block, then settle what it moved: a move made
+    /// inside its own nested blocks ended with them, and its own `Give` moves
+    /// the value for the rest of the block it is written in.
+    fn parse_moving_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let mark = self.moves.len();
+        let stmt = self.parse_statement()?;
+        self.release_moves_since(mark);
+        if let Stmt::Give {
+            object: Expr::Identifier(sym),
+            ..
+        } = &stmt
+        {
+            let prior = self
+                .world_state
+                .get_ownership_by_var(*sym)
+                .unwrap_or_default();
+            self.moves.push((*sym, prior));
+            self.world_state
+                .set_ownership_by_var(*sym, crate::drs::OwnershipState::Moved);
+        }
+        Ok(stmt)
+    }
+
+    /// Undo the moves made since `mark`, newest first. A move is certain only
+    /// for the rest of its own block: once a branch, a loop body or a function
+    /// ends, whether the value is still there is flow analysis — the ownership
+    /// checker's, which reports it as a maybe-move rather than a definite one.
+    fn release_moves_since(&mut self, mark: usize) {
+        while self.moves.len() > mark {
+            let (sym, prior) = self.moves.pop().expect("more moves than the mark");
+            self.world_state.set_ownership_by_var(sym, prior);
+        }
+    }
+
+    /// Read one block's statements with `read`, then end the moves made in
+    /// them: a `Give` moves its value for the rest of the block it is written
+    /// in and no further — not past the block's end, and not into a sibling
+    /// branch or arm read after it, which runs only when this block did not.
+    fn read_scoped<T>(&mut self, read: impl FnOnce(&mut Self) -> ParseResult<T>) -> ParseResult<T> {
+        let mark = self.moves.len();
+        let block = read(self);
+        self.release_moves_since(mark);
+        block
+    }
+
+    /// An indented block: its `Indent`, its statements, its closing `Dedent`.
+    /// Not depth-guarded — the statements inside recurse through
+    /// `parse_statement`, which is; [`Parser::parse_indented_block`] guards a
+    /// block entered from elsewhere.
+    fn read_indented_block(&mut self) -> ParseResult<&'a [Stmt<'a>]> {
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+        let list = self.read_indented_statements()?;
+        Ok(self.alloc_read_block(list))
+    }
+
+    /// Read the statements of an indented block whose `Indent` was just
+    /// consumed, through its closing `Dedent`.
+    fn read_indented_statements(&mut self) -> ParseResult<StmtList<'a>> {
+        self.read_scoped(|parser| {
+            let mut list = StmtList::default();
+            while !parser.check(&TokenType::Dedent) && !parser.is_at_end() {
+                parser.read_block_statement(&mut list)?;
+            }
+            if parser.check(&TokenType::Dedent) {
+                parser.advance();
+            }
+            Ok(list)
+        })
+    }
+
+    /// A branch's body: an indented block, or (an inline guard) one statement
+    /// on the same line — `If c: Return 1.`, `Otherwise: Show "x".`
+    fn read_branch_body(&mut self) -> ParseResult<&'a [Stmt<'a>]> {
+        let list = if self.check(&TokenType::Indent) {
+            self.advance(); // consume Indent
+            self.read_indented_statements()?
+        } else {
+            self.read_scoped(|parser| {
+                let mut one = StmtList::default();
+                parser.read_block_statement(&mut one)?;
+                Ok(one)
+            })?
+        };
+        Ok(self.alloc_read_block(list))
+    }
+
+    /// A one-statement block holding a statement read from `start_tok` — an
+    /// `Otherwise If` link, which is its own `If` inside the chain's else.
+    fn read_link_block(&mut self, stmt: Stmt<'a>, start_tok: usize) -> &'a [Stmt<'a>] {
+        let mut link = StmtList::default();
+        link.read(stmt, self.span_since(start_tok));
+        self.alloc_read_block(link)
+    }
+
+    /// An allocated block's statements as a list to rebuild from, each
+    /// carrying the span it was registered with.
+    fn carried(&self, block: &[Stmt<'a>]) -> StmtList<'a> {
+        let mut list = StmtList::default();
+        for stmt in block {
+            list.carry(stmt.clone(), self.nested_stmt_spans.get(StmtId::of(stmt)));
+        }
+        list
     }
 
     /// Phase 32: Parse function definition after `## To` header
@@ -6438,7 +19007,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse function definition with optimization annotation flags.
-    fn parse_function_def_with_flags(&mut self, opt_flags: OptimizationConfig) -> ParseResult<Stmt<'a>> {
+    fn parse_function_def_with_flags(
+        &mut self,
+        opt_flags: OptimizationConfig,
+    ) -> ParseResult<Stmt<'a>> {
         // Consume "To" if present (when called from parse_statement)
         if self.check(&TokenType::To) || self.check_preposition_is("to") {
             self.advance();
@@ -6462,7 +19034,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             loop {
                 if !self.check(&TokenType::LBracket) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::Custom("Expected '[TypeParam]' after 'of' in generic function".to_string()),
+                        kind: ParseErrorKind::Custom(
+                            "Expected '[TypeParam]' after 'of' in generic function".to_string(),
+                        ),
                         span: self.current_span(),
                     });
                 }
@@ -6471,7 +19045,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 parsed_generics.push(type_param);
                 if !self.check(&TokenType::RBracket) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::Custom("Expected ']' after type parameter name".to_string()),
+                        kind: ParseErrorKind::Custom(
+                            "Expected ']' after type parameter name".to_string(),
+                        ),
                         span: self.current_span(),
                     });
                 }
@@ -6502,7 +19078,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Expect colon
                 if !self.check(&TokenType::Colon) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ":".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -6520,7 +19098,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let param_type_expr = self.parse_type_expression()?;
                 let param_type_inner = self.ctx.alloc_type_expr(param_type_expr);
                 let param_type = if param_is_mutable {
-                    self.ctx.alloc_type_expr(TypeExpr::Mutable { inner: param_type_inner })
+                    self.ctx.alloc_type_expr(TypeExpr::Mutable {
+                        inner: param_type_inner,
+                    })
                 } else {
                     param_type_inner
                 };
@@ -6538,7 +19118,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect )
             if !self.check(&TokenType::RParen) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ")".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -6588,7 +19170,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 is_exported = true;
                 if self.check_word("for") {
                     self.advance(); // consume "for"
-                    // "native" lexes as a keyword token, not an identifier.
+                                    // "native" lexes as a keyword token, not an identifier.
                     let target_sym = if self.check(&TokenType::Native) {
                         self.advance();
                         self.interner.intern("native")
@@ -6623,8 +19205,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Return with empty body
-            let empty_body = self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(std::iter::empty());
+            let empty_body = self.alloc_block(Vec::new());
 
             return Ok(Stmt::FunctionDef {
                 name,
@@ -6643,11 +19224,38 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Non-native: expect colon after parameter list / return type
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ":".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume :
+
+        // `## To badge (label: Text) -> View:` — a MACRO: the body is a template, and what the
+        // function returns is the view it renders. Nothing else about it is special; it is an
+        // ordinary function whose value happens to be a `View`, so it composes with props,
+        // collections and `Show` like any other.
+        if self.returns_a_view(return_type) {
+            if let Some(raw) = self.consume_view_body() {
+                let span = self.current_span();
+                let view = self.view_from_raw(raw, None, span)?;
+                let value = self.ctx.alloc_imperative_expr(Expr::View(Box::new(view)));
+                let body = self.alloc_block(vec![Stmt::Return { value: Some(value) }]);
+                return Ok(Stmt::FunctionDef {
+                    name,
+                    generics: parsed_generics,
+                    params,
+                    body,
+                    return_type,
+                    is_native: false,
+                    native_path: None,
+                    is_exported: false,
+                    export_target: None,
+                    opt_flags,
+                });
+            }
+        }
 
         // Expect indent for function body
         if !self.check(&TokenType::Indent) {
@@ -6668,8 +19276,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.user_bound.insert(*param_name);
         }
 
+        // The value-semantics copy lint tracks one function body at a time; saved/restored the
+        // same way as `user_bound` above, so a nested body (a closure literal parsed inside this
+        // one) can never leak its own tracking into the outer function's.
+        let outer_copy_lint_scope = self
+            .copy_lint_scope
+            .replace(crate::lint::CopyLintScope::new());
+
         // Parse body statements
-        let mut body_stmts = Vec::new();
+        let mut body_stmts = StmtList::default();
         // Contract clauses: `Requires <cond>.` (precondition, checked at entry) and
         // `Ensures <cond>.` (postcondition, checked before every return). Collected
         // here and desugared into enforced (hard) asserts below — NOT emitted as
@@ -6689,20 +19304,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if self.check(&TokenType::Requires) {
                 self.advance(); // consume "Requires"
                 requires_checks.push(self.parse_condition()?);
-                if self.check(&TokenType::Period) { self.advance(); }
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
                 continue;
             }
             if self.check(&TokenType::Ensures) {
                 self.advance(); // consume "Ensures"
                 ensures_checks.push(self.parse_condition()?);
-                if self.check(&TokenType::Period) { self.advance(); }
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
                 continue;
             }
-            let stmt = self.parse_statement()?;
-            body_stmts.push(stmt);
-            if self.check(&TokenType::Period) {
-                self.advance();
-            }
+            self.read_block_statement(&mut body_stmts)?;
         }
 
         // Consume dedent if present
@@ -6712,30 +19327,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Leave the function scope: the outer bound-set regains control.
         self.user_bound = saved_user_bound;
+        if let Some(scope) = std::mem::replace(&mut self.copy_lint_scope, outer_copy_lint_scope) {
+            self.value_copy_findings.extend(scope.finish(self.interner));
+        }
 
         // Desugar postconditions: a hard assert before EVERY return path (recursing
         // into nested control flow) and at fallthrough — so no exit escapes the check.
         if !ensures_checks.is_empty() {
-            body_stmts = self.insert_ensures_before_returns(&body_stmts, &ensures_checks);
+            body_stmts = self.insert_ensures_before_returns(body_stmts, &ensures_checks);
             if !matches!(body_stmts.last(), Some(Stmt::Return { .. })) {
                 for &c in &ensures_checks {
-                    body_stmts.push(Stmt::RuntimeAssert { condition: c, hard: true });
+                    body_stmts.wrote(Stmt::RuntimeAssert {
+                        condition: c,
+                        hard: true,
+                        dim: None,
+                        reason: None,
+                    });
                 }
             }
         }
         // Desugar preconditions: hard asserts at function entry.
         if !requires_checks.is_empty() {
-            let mut prefixed: Vec<Stmt<'a>> = requires_checks
-                .iter()
-                .map(|&c| Stmt::RuntimeAssert { condition: c, hard: true })
-                .collect();
-            prefixed.extend(body_stmts);
+            let mut prefixed = StmtList::default();
+            for &c in &requires_checks {
+                prefixed.wrote(Stmt::RuntimeAssert {
+                    condition: c,
+                    hard: true,
+                    dim: None,
+                    reason: None,
+                });
+            }
+            prefixed.append(body_stmts);
             body_stmts = prefixed;
         }
 
         // Allocate body in arena
-        let body = self.ctx.stmts.expect("imperative arenas not initialized")
-            .alloc_slice(body_stmts.into_iter());
+        let body = self.alloc_read_block(body_stmts);
 
         Ok(Stmt::FunctionDef {
             name,
@@ -6758,19 +19385,134 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// would-be parser stack overflow into a graceful `AstTooDeep`.
     fn parse_primary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         self.enter_recursion()?;
+        self.eat_article_before_possessive();
         let result = self.parse_primary_expr_inner();
         self.leave_recursion();
         result
     }
 
+    /// Refuse a page-query selector the engine cannot evaluate.
+    ///
+    /// ★ REFUSED WHERE IT IS WRITTEN, because the alternative is not an error — it is the ANSWER
+    /// `0`. `lgx/selector.rs` reads a descendant chain of tag / `#id` / `.class` / `[attr]`
+    /// compounds and nothing else, and its `compound()` takes the leading run as a TAG NAME, so
+    /// `ul > li` parsed as a tag called `>` and matched nothing. That is indistinguishable from a
+    /// page which genuinely has no matches, so `Expect the count of "ul > li" to be 0.` passed and
+    /// would have passed with five hundred items on the page.
+    ///
+    /// Only a LITERAL is checked, which is every selector anybody writes; a computed one cannot be
+    /// read here and is not accused.
+    fn check_selector_literal(&mut self, selector: &'a Expr<'a>) -> ParseResult<()> {
+        let Expr::Literal(Literal::Text(sym)) = selector else {
+            return Ok(());
+        };
+        let text = self.interner.resolve(*sym).to_string();
+        match crate::lgx::selector::unsupported(&text) {
+            Some(why) => Err(ParseError {
+                kind: ParseErrorKind::Custom(why),
+                span: self.current_span(),
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Consume a leading `the` when it introduces a POSSESSIVE — `the todo's id`.
+    ///
+    /// LOGOS reads as English everywhere else, and English puts an article in front of a possessed
+    /// noun. Only `todo's id` parsed, so the sentence a person actually writes was refused while
+    /// the terser one was accepted — a position nobody had covered rather than a decision anybody
+    /// made, and the refusal ("I expected a statement here") never mentioned the article, so the
+    /// fix was the one thing the author would not think to try.
+    ///
+    /// ★ THE LOOKAHEAD IS TWO TOKENS DEEP, AND HAS TO BE. `the count of xs` is an existing form
+    /// whose `the` belongs to the form itself, so an article cannot be skipped wherever one
+    /// appears. What tells them apart is the token after the noun — `of` there, `'s` here — so
+    /// this fires only for `the <name>'s`, which no other form claims. Deliberately NARROW:
+    /// `the x` on its own stays refused, because widening the article rule to every expression is
+    /// a separate decision with its own ambiguities and taking it silently here would be an
+    /// unrequested change.
+    fn eat_article_before_possessive(&mut self) {
+        if self.check_word("the")
+            && self
+                .tokens
+                .get(self.current + 2)
+                .is_some_and(|t| matches!(t.kind, TokenType::Possessive))
+        {
+            self.advance();
+        }
+    }
+
     fn parse_primary_expr_inner(&mut self) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::{Expr, Literal};
+
+        // `count of xs` has no meaning of its own: the size of a collection is `length of xs`, and
+        // `the count of "li"` asks how many page elements match a selector. Refused with both.
+        if self.check_word("count") && self.peek_word_at(1, "of") {
+            let start = self.current_span().start;
+            let end = self.tokens[self.current + 1].span.end;
+            let operand = self
+                .tokens
+                .get(self.current + 2)
+                .map(|t| self.interner.resolve(t.lexeme).to_string())
+                .filter(|w| {
+                    w.chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic() || c == '_')
+                })
+                .unwrap_or_else(|| "xs".to_string());
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`count of {operand}` is not an expression — did you mean `length of {operand}`? \
+                     The number of items a collection holds is its `length of`; `the count of \
+                     \".row\"` (with `the`, and a selector) asks how many page elements match."
+                )),
+                span: Span::new(start, end),
+            });
+        }
 
         // English prefix arithmetic: `the sum/product/difference/quotient/remainder of A and B`
         // → the matching binary op. Unambiguous (the distinctive `the <op-noun> of` prefix), so it
         // never shadows a plain variable. `A`/`B` are full sub-expressions; the `and` delimiter is
         // consumed here (it binds tighter than the boolean `and`, which lives far above additive).
         if self.check_word("the") && self.peek_word_at(2, "of") {
+            // Questions about the rendered page share the shape `the <noun> of <x>` already used
+            // for `the sum of a and b`, so they are answered HERE rather than in a branch of
+            // their own: `parse_primary_expr_inner` is the fattest frame in the parser's descent
+            // (the parse-recursion budget is measured against it), and one more early-return
+            // path in it costs stack on every expression in every program.
+            let page = if self.peek_word_at(1, "text") {
+                Some("text")
+            } else if self.peek_word_at(1, "count") {
+                Some("count")
+            } else if self.peek_word_at(1, "value") {
+                Some("value")
+            } else {
+                None
+            };
+            if let Some(noun) = page {
+                self.advance(); // "the"
+                self.advance(); // the noun
+                self.advance(); // "of"
+                let selector = self.parse_page_query_operand()?;
+                self.check_selector_literal(selector)?;
+                // `the count of` spells two forms: how many page elements match a selector, and
+                // how many items a collection holds (`count_of_collection_lock`). The operand
+                // decides: a selector is written as a string (`.todo`, `#save`), and `the journal`
+                // is the one non-literal a page query takes; anything else is a value, and its
+                // count is its length.
+                let is_page = matches!(selector, Expr::Literal(Literal::Text(_)) | Expr::Dom(_));
+                if noun == "count" && !is_page {
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Length {
+                        collection: selector,
+                    }));
+                }
+                let query = match noun {
+                    "text" => crate::ast::stmt::DomQuery::Text { selector },
+                    "count" => crate::ast::stmt::DomQuery::Count { selector },
+                    _ => crate::ast::stmt::DomQuery::Value { selector },
+                };
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Dom(query)));
+            }
             let op = if self.peek_word_at(1, "sum") {
                 Some(BinaryOpKind::Add)
             } else if self.peek_word_at(1, "product") {
@@ -6793,12 +19535,84 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // "and"
                 } else {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: "and".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: "and".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
                 let b = self.parse_additive_expr()?;
-                return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left: a, right: b }));
+                return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                    op,
+                    left: a,
+                    right: b,
+                }));
+            }
+        }
+        // `html of <Component>` — the component's view as SERVER-RENDERED markup. Reads as a
+        // value, so `Show html of App.` and `Expect output of html of App:` both work with the
+        // forms LOGOS already has.
+        if self.check_word("html") && self.peek_word_at(1, "of") {
+            self.advance(); // "html"
+            self.advance(); // "of"
+            let name = self.expect_identifier()?;
+            let f = self
+                .interner
+                .intern(&crate::parser::lgx_lower::html_fn_name(
+                    self.interner.resolve(name),
+                ));
+            return Ok(self.ctx.alloc_imperative_expr(Expr::Call {
+                function: f,
+                args: Vec::new(),
+            }));
+        }
+        if self.check_word("the")
+            && self.peek_word_at(1, "standard")
+            && self.peek_word_at(2, "part")
+            && self.peek_word_at(3, "of")
+        {
+            return self.parse_standard_part();
+        }
+        if let Some(real) = self.try_parse_defined_real()? {
+            return Ok(real);
+        }
+        // The page questions with no selector operand.
+        if self.check_word("the") {
+            // `the journal shows A then B` — the ORDERING question, which is the one thing a
+            // sequence operation cannot ask about the journal without an index-of. It has to be
+            // recognised BEFORE bare `the journal`, or the `shows` clause would be left dangling
+            // as a statement nobody can parse.
+            if self.peek_word_at(1, "journal") && self.peek_word_at(2, "shows") {
+                self.advance(); // "the"
+                self.advance(); // "journal"
+                self.advance(); // "shows"
+                let first = self.parse_journal_action_name()?;
+                if !self.check_word("then") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: "then".to_string(),
+                        },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // "then"
+                let second = self.parse_journal_action_name()?;
+                let query = crate::ast::stmt::DomQuery::JournalShows { first, second };
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Dom(query)));
+            }
+            let bare = if self.peek_word_at(1, "title") {
+                Some(crate::ast::stmt::DomQuery::Title)
+            } else if self.peek_word_at(1, "URL") {
+                Some(crate::ast::stmt::DomQuery::Url)
+            } else if self.peek_word_at(1, "journal") {
+                Some(crate::ast::stmt::DomQuery::Journal)
+            } else {
+                None
+            };
+            if let Some(query) = bare {
+                self.advance(); // "the"
+                self.advance(); // the noun
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Dom(query)));
             }
         }
 
@@ -6807,7 +19621,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // identifier `timestamp` is immediately followed by a string, so a variable named
         // `timestamp` used on its own is unaffected.
         if matches!(self.peek().kind, TokenType::Identifier | TokenType::Noun(_))
-            && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("timestamp")
+            && self
+                .interner
+                .resolve(self.peek().lexeme)
+                .eq_ignore_ascii_case("timestamp")
         {
             let str_sym = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
                 Some(TokenType::StringLiteral(s)) => Some(*s),
@@ -6816,9 +19633,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if let Some(s) = str_sym {
                 self.advance(); // "timestamp"
                 self.advance(); // the string
-                let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(s)));
+                let text = self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(Literal::Text(s)));
                 let func = self.interner.intern("parse_timestamp");
-                return Ok(self.ctx.alloc_imperative_expr(Expr::Call { function: func, args: vec![text] }));
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Call {
+                    function: func,
+                    args: vec![text],
+                }));
             }
         }
 
@@ -6826,7 +19648,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // value; lowers to the invisible `uuid(text)` builtin. Only fires when the identifier `uuid`
         // is immediately followed by a string, so a variable named `uuid` is unaffected.
         if matches!(self.peek().kind, TokenType::Identifier | TokenType::Noun(_))
-            && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("uuid")
+            && self
+                .interner
+                .resolve(self.peek().lexeme)
+                .eq_ignore_ascii_case("uuid")
         {
             let str_sym = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
                 Some(TokenType::StringLiteral(s)) => Some(*s),
@@ -6835,9 +19660,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if let Some(s) = str_sym {
                 self.advance(); // "uuid"
                 self.advance(); // the string
-                let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(s)));
+                let text = self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(Literal::Text(s)));
                 let func = self.interner.intern("uuid");
-                return Ok(self.ctx.alloc_imperative_expr(Expr::Call { function: func, args: vec![text] }));
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Call {
+                    function: func,
+                    args: vec![text],
+                }));
             }
         }
 
@@ -6847,36 +19677,54 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 33: Extended for variant constructors "new Circle with radius 10"
             // Phase 34: Extended for generic instantiation "new Box of Int"
             TokenType::New => {
-                self.advance(); // consume "new"
-                let base_type_name = self.expect_identifier()?;
-
-                // Phase 36: Check for "from Module" qualification
-                let type_name = if self.check(&TokenType::From) {
-                    self.advance(); // consume "from"
-                    let module_name = self.expect_identifier()?;
-                    let module_str = self.interner.resolve(module_name);
-                    let base_str = self.interner.resolve(base_type_name);
-                    let qualified = format!("{}::{}", module_str, base_str);
-                    self.interner.intern(&qualified)
-                } else {
-                    base_type_name
-                };
-
-                // Phase 33: Check if this is a variant constructor
-                if let Some(enum_name) = self.find_variant(type_name) {
-                    // Parse optional "with field value" pairs
-                    let fields = if self.check_word("with") {
-                        self.parse_variant_constructor_fields()?
-                    } else {
-                        vec![]
-                    };
-                    let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
-                        enum_name,
-                        variant: type_name,
-                        fields,
-                    });
+                // Identifier freedom: `new` names a variable when nothing that can
+                // start a type name follows (`{new}`, `new * 2`, `new(3)`).
+                let next_starts_type = matches!(
+                    self.tokens.get(self.current + 1).map(|t| &t.kind),
+                    Some(TokenType::Noun(_)
+                        | TokenType::ProperName(_)
+                        | TokenType::Adjective(_)
+                        | TokenType::Identifier
+                        | TokenType::Verb { .. }
+                        | TokenType::Tally
+                        | TokenType::SharedSet
+                        | TokenType::SharedSequence
+                        | TokenType::CollaborativeSequence
+                        | TokenType::Pipe
+                        | TokenType::Task)
+                );
+                if !next_starts_type {
+                    let sym = token.lexeme;
+                    self.advance();
+                    if self.check(&TokenType::LParen) {
+                        return self.parse_call_expr(sym);
+                    }
+                    self.verify_identifier_access(sym, token.span)?;
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                     return self.parse_field_access_chain(base);
                 }
+                self.advance(); // consume "new"
+                let type_name_span = self.current_span();
+                let base_type_name = self.expect_identifier()?;
+
+                // Phase 33/36/qualified-variant: "from" is either an enum naming its own
+                // variant, or Phase 36 module qualification — see `resolve_construction_target`.
+                let type_name = match self.resolve_construction_target(base_type_name, type_name_span)? {
+                    ConstructionTarget::Variant { enum_name, variant } => {
+                        let fields = if self.check_word("with") {
+                            self.parse_variant_constructor_fields(variant, Some(enum_name))?
+                        } else {
+                            vec![]
+                        };
+                        let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                            enum_name,
+                            variant,
+                            fields,
+                        });
+                        return self.parse_field_access_chain(base);
+                    }
+                    ConstructionTarget::Type(type_name) => type_name,
+                };
 
                 // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
                 let type_args = self.parse_generic_type_args(type_name)?;
@@ -6884,10 +19732,31 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Parse optional "with field value" pairs for struct initialization
                 // But NOT "with capacity" — that's a pre-allocation hint handled by parse_let_statement
                 let init_fields = if self.check_word("with") && !self.peek_word_at(1, "capacity") {
-                    self.parse_struct_init_fields()?
+                    self.parse_struct_init_fields(type_name)?
                 } else {
                     vec![]
                 };
+
+                // ★ THE TWO SURFACE FORMS OF AN OPTION CONVERGE HERE, at the AST, so that no
+                // tier below ever has to guess which one it is holding.
+                //
+                // `Option` is registered as a `TypeDef::Generic` rather than an enum, so
+                // `find_variant("Some")` misses and `a new Some with value x` used to fall through
+                // to `Expr::New` — a RECORD named "Some". The two tiers then disagreed about what
+                // that record was: the tree-walker's `Some` arm looked for a field to bind and
+                // errored `Undefined variable: n`, while the VM's `SOME_BINDING_MARKER` bound the
+                // whole struct and printed `Some { value: 7 }`. Two tiers, two different wrong
+                // answers, for a form `stdlib_result_interp` calls equivalent to `some x`
+                // ("One Option, one shape") — and untested across tiers, which is why it survived.
+                //
+                // `Some`/`None` are already engine-owned names: `loader.rs`'s `builtin_backed`
+                // lists them beside `List`/`Map` and strips any declaration of them out of the
+                // prelude. Matching the exact Option shape (one `value` field, or none at all)
+                // keeps a differently-shaped user record reading as a record.
+                if let Some(expr) = self.option_form_of(type_name, &type_args, &init_fields) {
+                    let base = self.ctx.alloc_imperative_expr(expr);
+                    return self.parse_field_access_chain(base);
+                }
 
                 let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args, init_fields });
                 return self.parse_field_access_chain(base);
@@ -7027,35 +19896,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if matches!(next.kind, TokenType::New) {
                         self.advance(); // consume article "a"/"an"
                         self.advance(); // consume "new"
+                        let type_name_span = self.current_span();
                         let base_type_name = self.expect_identifier()?;
 
-                        // Phase 36: Check for "from Module" qualification
-                        let type_name = if self.check(&TokenType::From) {
-                            self.advance(); // consume "from"
-                            let module_name = self.expect_identifier()?;
-                            let module_str = self.interner.resolve(module_name);
-                            let base_str = self.interner.resolve(base_type_name);
-                            let qualified = format!("{}::{}", module_str, base_str);
-                            self.interner.intern(&qualified)
-                        } else {
-                            base_type_name
+                        // Phase 33/36/qualified-variant: see `resolve_construction_target`.
+                        let type_name = match self.resolve_construction_target(base_type_name, type_name_span)? {
+                            ConstructionTarget::Variant { enum_name, variant } => {
+                                let fields = if self.check_word("with") {
+                                    self.parse_variant_constructor_fields(variant, Some(enum_name))?
+                                } else {
+                                    vec![]
+                                };
+                                let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                                    enum_name,
+                                    variant,
+                                    fields,
+                                });
+                                return self.parse_field_access_chain(base);
+                            }
+                            ConstructionTarget::Type(type_name) => type_name,
                         };
-
-                        // Phase 33: Check if this is a variant constructor
-                        if let Some(enum_name) = self.find_variant(type_name) {
-                            // Parse optional "with field value" pairs
-                            let fields = if self.check_word("with") {
-                                self.parse_variant_constructor_fields()?
-                            } else {
-                                vec![]
-                            };
-                            let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
-                                enum_name,
-                                variant: type_name,
-                                fields,
-                            });
-                            return self.parse_field_access_chain(base);
-                        }
 
                         // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
                         let type_args = self.parse_generic_type_args(type_name)?;
@@ -7063,10 +19923,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         // Parse optional "with field value" pairs for struct initialization
                         // But NOT "with capacity" — that's a pre-allocation hint handled by parse_let_statement
                         let init_fields = if self.check_word("with") && !self.peek_word_at(1, "capacity") {
-                            self.parse_struct_init_fields()?
+                            self.parse_struct_init_fields(type_name)?
                         } else {
                             vec![]
                         };
+
+                        // The Option forms converge here too — see `option_form_of`. This is the
+                        // `a new <Type>` path reached through the single-letter/qualified branch;
+                        // a fix applied to only one of the two construction sites is the shape
+                        // this repository keeps paying for.
+                        if let Some(expr) = self.option_form_of(type_name, &type_args, &init_fields) {
+                            let base = self.ctx.alloc_imperative_expr(expr);
+                            return self.parse_field_access_chain(base);
+                        }
 
                         let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args, init_fields });
                         return self.parse_field_access_chain(base);
@@ -7079,7 +19948,47 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 return self.parse_field_access_chain(base);
             }
 
-            // Index access: "item N of collection" or "item i of collection"
+            // Identifier freedom: `swap` in EXPRESSION position names a user
+            // function or variable (`Show swap(1, 2)`) — the reversible-Swap
+            // keyword only leads statements. The `New`-arm pattern.
+            TokenType::Swap => {
+                let sym = token.lexeme;
+                self.advance();
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                return self.parse_field_access_chain(base);
+            }
+
+            // Declarer-wins: a BOUND name whose word happens to classify as an
+            // adjective (`total`, `left`) is still that variable in expression
+            // position — the same rescue single-letter articles get above.
+            // Unbound adjectives keep their predicate reading (`x is red`),
+            // and a following `(` yields to the CALL machinery (`outer(5)` —
+            // a bound closure named by an adjective-word stays callable).
+            TokenType::Adjective(_)
+                if self.user_bound.contains(&token.lexeme)
+                    && !matches!(
+                        self.tokens.get(self.current + 1).map(|t| &t.kind),
+                        Some(TokenType::LParen)
+                    ) => {
+                let sym = token.lexeme;
+                self.advance();
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                return self.parse_field_access_chain(base);
+            }
+
+            // Index access: "item N of collection" or "item i of collection".
+            // `item` is ALSO a perfectly ordinary variable name (`for each item in items`), so
+            // it only opens the indexing form when an index actually follows; standing alone —
+            // at the end of a clause, or as an argument — it is that variable.
+            TokenType::Item if !self.item_opens_an_index() => {
+                let sym = self.peek().lexeme;
+                self.advance();
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                return self.parse_field_access_chain(base);
+            }
             TokenType::Item => {
                 self.advance(); // consume "item"
 
@@ -7196,13 +20105,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Slice access: "items N through M of collection"
             // OR variable named "items" - disambiguate by checking if next token starts an expression
             TokenType::Items => {
-                // Peek ahead to determine if this is slice syntax or variable usage
-                // Slice syntax: "items" followed by number or paren (clear indicators of index)
-                // Variable: "items" followed by something else (operator, dot, etc.)
-                let is_slice_syntax = if let Some(next) = self.tokens.get(self.current + 1) {
-                    matches!(next.kind, TokenType::Number(_) | TokenType::LParen)
-                } else {
-                    false
+                // Peek ahead to determine if this is slice syntax or variable usage. A slice's start is a
+                // number, a parenthesized expression, `length of …`, or a single word followed by
+                // `through` (`items lo through hi of xs`); anything else after `items` (an operator, a
+                // dot, the end of the sentence) makes it a variable.
+                let is_slice_syntax = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                    Some(TokenType::Number(_) | TokenType::LParen | TokenType::Length) => true,
+                    Some(_) => self.peek_word_at(2, "through"),
+                    None => false,
                 };
 
                 if !is_slice_syntax {
@@ -7584,8 +20494,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // String interpolation: "Hello, {name}!"
             TokenType::InterpolatedString(sym) => {
                 let raw = self.interner.resolve(*sym).to_string();
-                self.advance();
-                let parts = self.parse_interpolation_parts(&raw)?;
+                let span = self.advance().span;
+                let parts = self.parse_interpolation_parts(&raw, span)?;
                 Ok(self.ctx.alloc_imperative_expr(Expr::InterpolatedString(parts)))
             }
 
@@ -7640,14 +20550,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Time(nanos))))
             }
 
-            // Handle 'nothing' literal
+            // Handle 'nothing' literal. A live user binding wins over the
+            // literal reading (`Let nothing be 5. Show nothing + 2.`) — the
+            // infinity/nan precedent: value-literal words defer to user_bound.
             TokenType::Nothing => {
+                if self.user_bound.contains(&token.lexeme) {
+                    return self.shadowed_literal_word_expr(token.lexeme);
+                }
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
             }
 
-            // Option constructors: "some <expr>" → Some(expr), "none" → None
+            // Option constructors: "some <expr>" → Some(expr), "none" → None.
+            // A live user binding wins over the constructor reading
+            // (`Let some be 5. Show some + 1.`); `expect_identifier` already
+            // accepts `some` in name position, so the read side must too.
             TokenType::Some => {
+                if self.user_bound.contains(&token.lexeme) {
+                    return self.shadowed_literal_word_expr(token.lexeme);
+                }
                 self.advance(); // consume "some"
                 let value = self.parse_imperative_expr()?;
                 Ok(self.ctx.alloc_imperative_expr(Expr::OptionSome { value }))
@@ -7657,13 +20578,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Length => {
                 let func_name = self.peek().lexeme;
 
-                // Check for function call syntax: length(x)
+                // `length(x)` is `length of x` (QUICKGUIDE §5.2): one meaning, one expression,
+                // so no tier or analysis ever sees a call to the builtin named `length`. A
+                // program that declares its own `length` calls it, and any other argument count
+                // stays a call, for the builtin's arity error.
                 if self.tokens.get(self.current + 1)
                     .map(|t| matches!(t.kind, TokenType::LParen))
                     .unwrap_or(false)
                 {
+                    let builtin = !self.declared_function_names.contains(&func_name);
                     self.advance(); // consume "length"
-                    return self.parse_call_expr(func_name);
+                    let call = self.parse_call_expr(func_name)?;
+                    if let Expr::Call { args, .. } = call {
+                        if let (true, [collection]) = (builtin, args.as_slice()) {
+                            return Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection: *collection }));
+                        }
+                    }
+                    return Ok(call);
                 }
 
                 self.advance(); // consume "length"
@@ -7687,13 +20618,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Copy => {
                 let func_name = self.peek().lexeme;
 
-                // Check for function call syntax: copy(x)
+                // `copy(x)` is `copy of x` (QUICKGUIDE §5.2), as `length(x)` is `length of x`,
+                // unless the program declares its own `copy`, which the call then reaches.
                 if self.tokens.get(self.current + 1)
                     .map(|t| matches!(t.kind, TokenType::LParen))
                     .unwrap_or(false)
                 {
+                    let builtin = !self.declared_function_names.contains(&func_name);
                     self.advance(); // consume "copy"
-                    return self.parse_call_expr(func_name);
+                    let call = self.parse_call_expr(func_name)?;
+                    if let Expr::Call { args, .. } = call {
+                        if let (true, [expr]) = (builtin, args.as_slice()) {
+                            return Ok(self.ctx.alloc_imperative_expr(Expr::Copy { expr: *expr }));
+                        }
+                    }
+                    return Ok(call);
                 }
 
                 self.advance(); // consume "copy"
@@ -7767,7 +20706,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // - Other verbs can be function names (e.g., read, write)
             TokenType::Verb { lemma, .. } => {
                 let word = self.interner.resolve(*lemma).to_lowercase();
-                if word == "empty" {
+                if word == "empty" && !self.user_bound.contains(&token.lexeme) {
                     self.advance();
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
@@ -7778,7 +20717,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_call_expr(sym);
                 }
                 // Treat as identifier reference
-                self.verify_identifier_access(sym)?;
+                self.verify_identifier_access(sym, token.span)?;
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
@@ -7791,22 +20730,47 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_call_expr(sym);
                 }
                 // Treat as identifier reference (e.g., "Let t be now.")
-                self.verify_identifier_access(sym)?;
+                self.verify_identifier_access(sym, token.span)?;
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
 
             // Phase 10: IO keywords as function calls (e.g., "read", "write", "file")
             // Phase 57: Add/Remove keywords as function calls
+            // Identifier freedom: every keyword accepted by `expect_identifier` must
+            // also be REFERENCEABLE — a name you can bind but never read back is a
+            // trap. These tokens have no expression-head meaning of their own (their
+            // keyword roles are statement-initial, infix, or postfix), so a bare
+            // occurrence here can only be a variable or function name.
             TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console |
-            TokenType::Add | TokenType::Remove => {
+            TokenType::Add | TokenType::Remove |
+            TokenType::Size | TokenType::Zone | TokenType::Inside | TokenType::Called |
+            TokenType::Launch | TokenType::Task | TokenType::Pipe | TokenType::Stop |
+            TokenType::Receive | TokenType::Send | TokenType::Spawn | TokenType::Await |
+            TokenType::Attempt | TokenType::Following | TokenType::Listen |
+            TokenType::NetConnect | TokenType::Sync | TokenType::Mount |
+            TokenType::Shifted | TokenType::Union | TokenType::Intersection |
+            TokenType::Contains | TokenType::Through | TokenType::Into |
+            TokenType::Push | TokenType::Pop | TokenType::Try | TokenType::Inspect |
+            TokenType::Check | TokenType::Superlative(_) | TokenType::Comparative(_) |
+            TokenType::Performative(_) |
+            // The test-framework (Wave 2) and observation (Wave 6) keywords and
+            // `Sleep` are all bindable via `expect_identifier`; they must be
+            // referenceable here too (`Show record`, `Let x be note`), or binding
+            // them would be the "name you can never read back" trap this arm exists
+            // to close. Their keyword roles are all statement-initial, so a bare
+            // occurrence in expression head position can only be a name.
+            TokenType::Expect | TokenType::Advance | TokenType::Skip | TokenType::Given |
+            TokenType::Note | TokenType::Warn | TokenType::Record | TokenType::During |
+            TokenType::Sleep |
+            TokenType::Focus(_) | TokenType::Particle(_) | TokenType::CalendarUnit(_) => {
                 let sym = token.lexeme;
                 self.advance();
                 if self.check(&TokenType::LParen) {
                     return self.parse_call_expr(sym);
                 }
                 // Treat as identifier reference
-                self.verify_identifier_access(sym)?;
+                self.verify_identifier_access(sym, token.span)?;
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
@@ -7838,18 +20802,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
 
                 // Check for 'empty' - treat as unit value for collections
-                if word == "empty" {
+                // (a live user binding wins — the infinity/nan precedent)
+                if word == "empty" && !self.user_bound.contains(&sym) {
                     self.advance();
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
 
-                // Option None literal: "none" → None
-                if word == "none" {
+                // Option None literal: "none" → None. A live user binding wins
+                // (`Let none be a new Seq of Int. Push 1 to none.`), so the
+                // word falls through to the ordinary identifier path below.
+                if word == "none" && !self.user_bound.contains(&sym) {
                     self.advance();
                     return Ok(self.ctx.alloc_imperative_expr(Expr::OptionNone));
                 }
 
                 // Don't verify as variable - might be a function call or enum variant
+                let sym_span = self.current_span();
                 self.advance();
 
                 // Phase 32: Check for function call: identifier(args)
@@ -7857,26 +20825,45 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_call_expr(sym);
                 }
 
-                // Phase 33: Check if this is a bare enum variant (e.g., "North" for Direction)
-                if let Some(enum_name) = self.find_variant(sym) {
-                    let fields = if self.check_word("with") {
-                        self.parse_variant_constructor_fields()?
-                    } else {
-                        vec![]
-                    };
-                    let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
-                        enum_name,
-                        variant: sym,
-                        fields,
-                    });
+                // A bare identifier's own expression parse is also where `Remove k from m.`,
+                // `Pop x from xs.` and `Take n from xs.` parse THEIR operand (`k`/`x`/`n`) — an
+                // ordinary variable, never a variant, in the overwhelming common case — before
+                // their own statement parser ever gets to see `from` as ITS separator. Only when
+                // `sym` could not otherwise mean anything BUT a qualified variant (it is a
+                // declared variant of some enum, and the word after `from` really does name that
+                // qualifier) does this `from` belong here; otherwise it is left completely
+                // untouched for whatever statement is calling this.
+                if self.check(&TokenType::From) && !self.bare_word_from_is_a_qualifier(sym) {
+                    self.verify_identifier_access(sym, sym_span)?;
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                     return self.parse_field_access_chain(base);
                 }
 
-                // Centralized verification for undefined/moved checks (only for variables)
-                self.verify_identifier_access(sym)?;
-                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
-                // Phase 31: Check for field access via possessive
-                self.parse_field_access_chain(base)
+                // Phase 33/qualified-variant: a bare enum variant (e.g., "North" for Direction),
+                // optionally naming its own enum ("Failure from Outcome") the same way `a new
+                // <Variant> from <Enum>` does — see `resolve_construction_target`.
+                match self.resolve_construction_target(sym, sym_span)? {
+                    ConstructionTarget::Variant { enum_name, variant } => {
+                        let fields = if self.check_word("with") {
+                            self.parse_variant_constructor_fields(variant, Some(enum_name))?
+                        } else {
+                            vec![]
+                        };
+                        let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                            enum_name,
+                            variant,
+                            fields,
+                        });
+                        return self.parse_field_access_chain(base);
+                    }
+                    ConstructionTarget::Type(name) => {
+                        // Centralized verification for undefined/moved checks (only for variables)
+                        self.verify_identifier_access(name, sym_span)?;
+                        let base = self.ctx.alloc_imperative_expr(Expr::Identifier(name));
+                        // Phase 31: Check for field access via possessive
+                        self.parse_field_access_chain(base)
+                    }
+                }
             }
 
             // Pronouns can be variable names in code context ("i", "it")
@@ -7923,7 +20910,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if self.check(&TokenType::LParen) {
                     return self.parse_call_expr(sym);
                 }
-                self.verify_identifier_access(sym)?;
+                self.verify_identifier_access(sym, token.span)?;
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
@@ -7937,7 +20924,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Combined |  // string concat: "combined with"
             TokenType::Followed |  // seq concat: "followed by" (also a valid variable name)
             TokenType::Shared |    // CRDT modifier
-            TokenType::Particle(_) |  // phrasal verb particles: out, up, down, etc.
             TokenType::Preposition(_) |  // prepositions: from, into, etc.
             TokenType::All => {    // quantifier in FOL, but valid variable name in imperative code
                 let sym = token.lexeme;
@@ -7948,7 +20934,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_call_expr(sym);
                 }
 
-                self.verify_identifier_access(sym)?;
+                self.verify_identifier_access(sym, token.span)?;
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
@@ -7977,7 +20963,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         return self.parse_call_expr(sym);
                     }
 
-                    self.verify_identifier_access(sym)?;
+                    self.verify_identifier_access(sym, token.span)?;
                     let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                     // Phase 31: Check for field access via possessive
                     self.parse_field_access_chain(base)
@@ -8037,6 +21023,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // "Call funcName with args" as an expression
             TokenType::Call => {
+                let start_tok = self.current;
                 self.advance(); // consume "Call"
                 let function = match &self.peek().kind {
                     TokenType::Noun(sym) | TokenType::Adjective(sym) => {
@@ -8062,7 +21049,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else {
                     Vec::new()
                 };
+                self.record_call_span(&args, start_tok);
                 Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
+            }
+
+            // Universal identifier freedom (reference position). Any remaining word-keyword
+            // used where a value is expected is a variable reference — the counterpart of the
+            // catch-all in `expect_identifier` (binding position). Together they guarantee a
+            // keyword can name a thing AND be read back: `Let at be 1. Show at.` So a newly
+            // added keyword never steals a name in either position.
+            _ if self.token_is_word_identifier(&token) => {
+                let sym = token.lexeme;
+                self.advance();
+                // Mirror the Noun arm: `name(args)` is a call, bare `name` is a reference.
+                if self.check(&TokenType::LParen) {
+                    self.parse_call_expr(sym)
+                } else {
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)))
+                }
             }
 
             _ => {
@@ -8095,7 +21099,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let name = self.expect_identifier()?;
             if !self.check(&TokenType::Colon) {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: ":".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -8110,7 +21116,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let name = self.expect_identifier()?;
                 if !self.check(&TokenType::Colon) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: ":".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -8124,7 +21132,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect ')'
         if !self.check(&TokenType::RParen) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ")".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -8133,7 +21143,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect '->'
         if !self.check(&TokenType::Arrow) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "->".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "->".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -8142,30 +21154,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Check for block body (->:) vs expression body (-> expr)
         let body = if self.check(&TokenType::Colon) {
             self.advance(); // consume ':'
-            // Parse indented block
-            if !self.check(&TokenType::Indent) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedStatement,
-                    span: self.current_span(),
-                });
-            }
-            self.advance(); // consume Indent
-
-            let mut block_stmts = Vec::new();
-            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                let stmt = self.parse_statement()?;
-                block_stmts.push(stmt);
-                if self.check(&TokenType::Period) {
-                    self.advance();
-                }
-            }
-            if self.check(&TokenType::Dedent) {
-                self.advance(); // consume Dedent
-            }
-
-            let block = self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(block_stmts.into_iter());
-            ClosureBody::Block(block)
+            ClosureBody::Block(self.read_indented_block()?)
         } else {
             // Single expression body — use parse_condition to support comparisons and boolean ops
             let expr = self.parse_condition()?;
@@ -8266,10 +21255,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Phase 53: "combined with" for string concatenation
                 TokenType::Combined => {
                     self.advance(); // consume "combined"
-                    // Expect "with" (preposition)
+                                    // Expect "with" (preposition)
                     if !self.check_preposition_is("with") {
                         return Err(ParseError {
-                            kind: ParseErrorKind::ExpectedKeyword { keyword: "with".to_string() },
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: "with".to_string(),
+                            },
                             span: self.current_span(),
                         });
                     }
@@ -8286,7 +21277,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume "followed"
                     if !self.check_preposition_is("by") {
                         return Err(ParseError {
-                            kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: "by".to_string(),
+                            },
                             span: self.current_span(),
                         });
                     }
@@ -8302,18 +21295,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Union => {
                     self.advance(); // consume "union"
                     let right = self.parse_shift_expr()?;
-                    left = self.ctx.alloc_imperative_expr(Expr::Union {
-                        left,
-                        right,
-                    });
+                    left = self.ctx.alloc_imperative_expr(Expr::Union { left, right });
                 }
                 TokenType::Intersection => {
                     self.advance(); // consume "intersection"
                     let right = self.parse_shift_expr()?;
-                    left = self.ctx.alloc_imperative_expr(Expr::Intersection {
-                        left,
-                        right,
-                    });
+                    left = self
+                        .ctx
+                        .alloc_imperative_expr(Expr::Intersection { left, right });
                 }
                 // Set membership: "set contains value"
                 TokenType::Contains => {
@@ -8355,12 +21344,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 _ if self.check_op_word("plus") => {
                     self.advance(); // consume "plus"
                     let right = self.parse_shift_expr()?;
-                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op: BinaryOpKind::Add, left, right });
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Add,
+                        left,
+                        right,
+                    });
                 }
                 _ if self.check_op_word("minus") => {
                     self.advance(); // consume "minus"
                     let right = self.parse_shift_expr()?;
-                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right });
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Subtract,
+                        left,
+                        right,
+                    });
                 }
                 _ => break,
             }
@@ -8387,7 +21384,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance(); // consume "right"
             } else {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "left or right".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "left or right".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -8395,15 +21394,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Expect "by"
             if !self.check_preposition_is("by") && !self.check_word("by") {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "by".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
             self.advance(); // consume "by"
 
             let right = self.parse_multiplicative_expr()?;
-            let op = if is_left { BinaryOpKind::Shl } else { BinaryOpKind::Shr };
-            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right });
+            let op = if is_left {
+                BinaryOpKind::Shl
+            } else {
+                BinaryOpKind::Shr
+            };
+            left = self
+                .ctx
+                .alloc_imperative_expr(Expr::BinaryOp { op, left, right });
         }
 
         Ok(left)
@@ -8418,7 +21425,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let operand = self.parse_unary_expr()?;
             // `~x` IS `x ^ -1` in two's complement — reuse the existing
             // BitXor path end to end (no new op anywhere downstream).
-            let neg_one = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(-1)));
+            let neg_one = self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(Literal::Number(-1)));
             return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op: BinaryOpKind::BitXor,
                 left: operand,
@@ -8439,23 +21448,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if !Self::is_radix_numeral(&num_str)
                     && (num_str.contains('.') || num_str.contains('e') || num_str.contains('E'))
                 {
-                    let f = num_str.replace('_', "").parse::<f64>().map_err(|_| ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword {
-                            keyword: format!("a Float literal (got `-{}`)", num_str),
-                        },
-                        span: self.current_span(),
-                    })?;
-                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(-f))));
+                    let f = num_str
+                        .replace('_', "")
+                        .parse::<f64>()
+                        .map_err(|_| ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: format!("a Float literal (got `-{}`)", num_str),
+                            },
+                            span: self.current_span(),
+                        })?;
+                    return Ok(self
+                        .ctx
+                        .alloc_imperative_expr(Expr::Literal(Literal::Float(-f))));
                 }
                 let n = self.parse_i64_numeral_signed(&num_str, true)?;
-                return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(n))));
+                return Ok(self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(Literal::Number(n))));
             }
-            if self
-                .tokens
-                .get(self.current + 1)
-                .is_some_and(|t| self.interner.resolve(t.lexeme) == "infinity"
-                    && !self.user_bound.contains(&t.lexeme))
-            {
+            if self.tokens.get(self.current + 1).is_some_and(|t| {
+                self.interner.resolve(t.lexeme) == "infinity"
+                    && !self.user_bound.contains(&t.lexeme)
+            }) {
                 self.advance(); // consume '-'
                 self.advance(); // consume "infinity"
                 return Ok(self
@@ -8464,10 +21478,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume '-'
             let operand = self.parse_unary_expr()?; // recursive for --5
-            // Implement as 0 - operand (no UnaryOp variant in Expr)
+                                                    // Implement as 0 - operand (no UnaryOp variant in Expr)
             return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op: BinaryOpKind::Subtract,
-                left: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(0))),
+                left: self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(Literal::Number(0))),
                 right: operand,
             }));
         }
@@ -8545,11 +21561,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 _ => break,
             };
             let right = self.parse_power_expr()?;
-            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op,
-                left,
-                right,
-            });
+            left = self
+                .ctx
+                .alloc_imperative_expr(Expr::BinaryOp { op, left, right });
         }
 
         Ok(left)
@@ -8578,13 +21592,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    /// Parse a Span literal starting from a number that was already consumed.
-    /// Handles patterns like: "3 days", "2 months", "1 year and 3 days"
     /// Parse the contents of an interpolated string into a sequence of literal/expression parts.
     ///
     /// Input is the raw string content (without quotes), e.g., `Hello, {name}! Value: {x:.2}`
-    /// `{{` and `}}` are escape sequences for literal braces.
-    fn parse_interpolation_parts(&mut self, raw: &str) -> ParseResult<Vec<crate::ast::stmt::StringPart<'a>>> {
+    /// `{{` and `}}` are escape sequences for literal braces. Every error found in here —
+    /// including one from inside a hole, whose own tokens count from the hole — points at
+    /// `span`, the string literal it was written in.
+    fn parse_interpolation_parts(
+        &mut self,
+        raw: &str,
+        span: Span,
+    ) -> ParseResult<Vec<crate::ast::stmt::StringPart<'a>>> {
         use crate::ast::stmt::StringPart;
 
         let mut parts = Vec::new();
@@ -8612,16 +21630,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let mut depth = 1;
                     let mut j = start;
                     while j < chars.len() && depth > 0 {
-                        if chars[j] == '{' { depth += 1; }
-                        if chars[j] == '}' { depth -= 1; }
-                        if depth > 0 { j += 1; }
+                        if chars[j] == '{' {
+                            depth += 1;
+                        }
+                        if chars[j] == '}' {
+                            depth -= 1;
+                        }
+                        if depth > 0 {
+                            j += 1;
+                        }
                     }
                     if depth != 0 {
                         return Err(ParseError {
                             kind: crate::error::ParseErrorKind::Custom(
-                                "Unclosed interpolation brace in string".to_string()
+                                "Unclosed interpolation brace in string — a `{` opens a hole that \
+                                 nothing closes. Add the `}`, or, if you meant the character \
+                                 itself, double it: `{{{{` prints `{{`."
+                                    .to_string(),
                             ),
-                            span: self.current_span(),
+                            span,
                         });
                     }
 
@@ -8636,13 +21663,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let before_eq = hole_content[..eq_pos].trim();
                             // Only treat as debug if the part before = is a simple identifier
                             // and the `=` is not part of `==`, `<=`, `>=`, `!=`
-                            let is_double_eq = eq_pos > 0 && hole_content.as_bytes().get(eq_pos - 1) == Some(&b'=');
-                            let is_preceded_by_comparison = eq_pos > 0 && matches!(hole_content.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>'));
-                            if !is_double_eq && !is_preceded_by_comparison
+                            let is_double_eq = eq_pos > 0
+                                && hole_content.as_bytes().get(eq_pos - 1) == Some(&b'=');
+                            let is_preceded_by_comparison = eq_pos > 0
+                                && matches!(
+                                    hole_content.as_bytes().get(eq_pos - 1),
+                                    Some(b'!' | b'<' | b'>')
+                                );
+                            if !is_double_eq
+                                && !is_preceded_by_comparison
                                 && !before_eq.is_empty()
                                 && before_eq.chars().all(|c| c.is_alphanumeric() || c == '_')
                             {
-                                (hole_content[..eq_pos].to_string() + &hole_content[eq_pos + 1..], true)
+                                (
+                                    hole_content[..eq_pos].to_string()
+                                        + &hole_content[eq_pos + 1..],
+                                    true,
+                                )
                             } else {
                                 (hole_content.clone(), false)
                             }
@@ -8652,68 +21689,163 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     };
 
                     // Split on `:` for format specifier (but not `::`)
-                    let (expr_str, format_spec) = if let Some(colon_pos) = hole_after_debug.rfind(':') {
-                        let before = &hole_after_debug[..colon_pos];
-                        let after = &hole_after_debug[colon_pos + 1..];
-                        // Only treat as format spec if the part after `:` looks like a format spec
-                        // (starts with `.`, `<`, `>`, `^`, `$`, or a digit, or is a known specifier letter)
-                        if !after.is_empty() && (after.starts_with('.') || after.starts_with('<') || after.starts_with('>') || after.starts_with('^') || after == "$" || after.chars().next().map_or(false, |c| c.is_ascii_digit())) {
-                            // Validate the format spec matches a known pattern
-                            let valid = if after == "$" {
-                                true
-                            } else if after.starts_with('.') {
-                                after[1..].parse::<usize>().is_ok()
-                            } else if after.starts_with('<') || after.starts_with('>') || after.starts_with('^') {
-                                after[1..].parse::<usize>().is_ok()
+                    let (expr_str, format_spec) =
+                        if let Some(colon_pos) = hole_after_debug.rfind(':') {
+                            let before = &hole_after_debug[..colon_pos];
+                            let after = &hole_after_debug[colon_pos + 1..];
+                            // Only treat as format spec if the part after `:` looks like a format spec
+                            // (starts with `.`, `<`, `>`, `^`, `$`, or a digit, or is a known specifier letter)
+                            if !after.is_empty()
+                                && (after.starts_with('.')
+                                    || after.starts_with('<')
+                                    || after.starts_with('>')
+                                    || after.starts_with('^')
+                                    || after == "$"
+                                    || after.chars().next().map_or(false, |c| c.is_ascii_digit()))
+                            {
+                                // Validate the format spec matches a known pattern
+                                let valid = if after == "$" {
+                                    true
+                                } else if after.starts_with('.') {
+                                    after[1..].parse::<usize>().is_ok()
+                                } else if after.starts_with('<')
+                                    || after.starts_with('>')
+                                    || after.starts_with('^')
+                                {
+                                    after[1..].parse::<usize>().is_ok()
+                                } else {
+                                    after.parse::<usize>().is_ok()
+                                };
+                                if !valid {
+                                    return Err(ParseError {
+                                        kind: crate::error::ParseErrorKind::Custom(format!(
+                                            "Invalid format specifier `{}` in interpolation hole",
+                                            after
+                                        )),
+                                        span,
+                                    });
+                                }
+                                (before.to_string(), Some(after.to_string()))
                             } else {
-                                after.parse::<usize>().is_ok()
-                            };
-                            if !valid {
-                                return Err(ParseError {
-                                    kind: crate::error::ParseErrorKind::Custom(
-                                        format!("Invalid format specifier `{}` in interpolation hole", after)
-                                    ),
-                                    span: self.current_span(),
-                                });
+                                (hole_after_debug.clone(), None)
                             }
-                            (before.to_string(), Some(after.to_string()))
                         } else {
                             (hole_after_debug.clone(), None)
-                        }
-                    } else {
-                        (hole_after_debug.clone(), None)
-                    };
+                        };
 
                     // Parse the expression through a sub-parser
                     let expr_source = expr_str.trim().to_string();
                     if expr_source.is_empty() {
                         return Err(ParseError {
                             kind: crate::error::ParseErrorKind::Custom(
-                                "Empty interpolation hole in string".to_string()
+                                "Empty interpolation hole in string — `{}` asks me to print a \
+                                 value and names none. Put the value inside the braces, or, if you \
+                                 meant the two characters themselves (an empty JSON object, a CSS \
+                                 rule), double them: write `{{{{}}}}` to get `{}`."
+                                    .to_string(),
                             ),
-                            span: self.current_span(),
+                            span,
                         });
                     }
 
                     // Lex + parse the expression fragment by temporarily swapping
                     // the parser's token stream
                     let sub_expr = {
-                        let mut sub_lexer = crate::lexer::Lexer::new(&expr_source, self.interner);
+                        // ★ A HOLE SPEAKS THE LANGUAGE IT IS WRITTEN IN. This was a bare
+                        // `Lexer::new`, which is DECLARATIVE mode — while every string that can
+                        // hold a hole lives inside imperative code. So the whole imperative
+                        // vocabulary was invisible in here: `length`, `copy`, `sum` and every
+                        // other word the imperative lexer promotes to a keyword arrived as a bare
+                        // identifier, and `"{length of tasks}"` failed with `Undefined variable:
+                        // length` — naming a variable the author never wrote, for a phrase that is
+                        // correct LOGOS three characters to the left of the quote.
+                        //
+                        // The fragment is part of the surrounding program, so it is read with the
+                        // surrounding program's vocabulary. `parse_expr_snippet` in `component.rs`
+                        // already re-lexes this way; this site is now the same shape.
+                        let mut sub_lexer = match self.mode {
+                            ParserMode::Imperative => {
+                                crate::lexer::Lexer::new_imperative(&expr_source, self.interner)
+                            }
+                            ParserMode::Declarative => {
+                                crate::lexer::Lexer::new(&expr_source, self.interner)
+                            }
+                        };
                         let sub_tokens = sub_lexer.tokenize();
 
                         // Save and swap parser state
                         let saved_tokens = std::mem::replace(&mut self.tokens, sub_tokens);
-                        let saved_current = self.current;
+                        let saved_current = self.backtrack_point();
                         self.current = 0;
 
                         let result = self.parse_primary_or_binary_expr();
 
+                        // ★ THE HOLE MUST BE READ WHOLE. The sub-parser stops at the first thing
+                        // it cannot fold into an expression, and its leftover tokens used to be
+                        // DISCARDED here without anybody looking at them — so a hole that was not
+                        // entirely an expression rendered the prefix that happened to parse and
+                        // silently threw the rest away. `"x{5 garbage here}y"` printed `x5y`, and
+                        // `"{"a":1}"` — an ordinary JSON object, the most common thing a web
+                        // author ever types in a string — printed `a`.
+                        //
+                        // Refusing is right rather than treating unparseable braces as literal,
+                        // because a literal brace ALREADY has a spelling: `{{` and `}}`, as in
+                        // `format!`. Silently rendering half a hole is the only option of the
+                        // three that leaves the page looking like it worked.
+                        let unread = match &result {
+                            Ok(_) if !self.is_at_end() => {
+                                let at = self.peek().span.start.min(expr_source.len());
+                                let read = expr_source.get(..at).unwrap_or("").trim().to_string();
+                                let rest = expr_source.get(at..).unwrap_or("").trim().to_string();
+                                Some((read, rest))
+                            }
+                            _ => None,
+                        };
+
                         // Restore parser state
                         self.tokens = saved_tokens;
-                        self.current = saved_current;
+                        self.backtrack_to(&saved_current);
 
-                        result?
+                        if let Some((read, rest)) = unread {
+                            return Err(ParseError {
+                                kind: crate::error::ParseErrorKind::Custom(format!(
+                                    "I read `{read}` in this interpolation hole and then found \
+                                     `{rest}`, which is not part of it. A hole holds ONE value, so \
+                                     everything between the braces has to be that one value. If \
+                                     you meant the braces themselves — a JSON object, a CSS rule — \
+                                     double them: `{{{{` and `}}}}` print `{{` and `}}`."
+                                )),
+                                span,
+                            });
+                        }
+
+                        result.map_err(|e| ParseError { span, ..e })?
                     };
+
+                    // ★ A WIDTH SPECIFIER ON A TEXT LITERAL IS ALWAYS A MISTAKE — and it is the
+                    // one that silently eats JSON. `{"a":1}` splits at the colon into the literal
+                    // `"a"` and the width `1`, so an ordinary JSON object printed `a` on every
+                    // tier, with no error. Padding a LITERAL to a width is something the author
+                    // can simply type out, so refusing it costs nothing, while `{n:5}` and
+                    // `{3.14:2}` — a width on a value that varies, which is the entire point of
+                    // the feature — are untouched.
+                    //
+                    // This is the second half of "a hole is read whole". The first half caught a
+                    // hole whose tokens were not all consumed; this catches one where they WERE,
+                    // by a reading no author ever intends.
+                    if format_spec.is_some() && matches!(sub_expr, Expr::Literal(Literal::Text(_)))
+                    {
+                        return Err(ParseError {
+                            kind: crate::error::ParseErrorKind::Custom(format!(
+                                "`{{{hole_after_debug}}}` reads as a text literal padded to a \
+                                 width — a value you could write out directly, so this is almost \
+                                 always a `:` that was meant literally. If you meant a JSON \
+                                 object, a CSS rule, or anything else containing braces, double \
+                                 them: `{{{{` and `}}}}` print `{{` and `}}`."
+                            )),
+                            span,
+                        });
+                    }
 
                     let format_sym = format_spec.map(|s| self.interner.intern(&s));
                     parts.push(StringPart::Expr {
@@ -8750,6 +21882,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_imperative_expr()
     }
 
+    /// Parse a Span literal starting from a number that was already consumed.
+    /// Handles patterns like: "3 days", "2 months", "1 year and 3 days"
     fn parse_span_literal_from_num(&mut self, first_num_str: &str) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Literal;
         use crate::token::CalendarUnit;
@@ -8761,7 +21895,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::CalendarUnit(u) => u,
             _ => {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "calendar unit (day, week, month, year)".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "calendar unit (day, week, month, year)".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -8817,11 +21953,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     *nanos += n * 1_000_000_000;
                     *clk = true;
                 }
+                CalendarUnit::Millisecond => {
+                    *nanos += n * 1_000_000;
+                    *clk = true;
+                }
+                CalendarUnit::Microsecond => {
+                    *nanos += n * 1_000;
+                    *clk = true;
+                }
+                CalendarUnit::Nanosecond => {
+                    *nanos += n;
+                    *clk = true;
+                }
             }
         }
         apply(
-            unit, first_num, &mut total_months, &mut total_days, &mut total_nanos,
-            &mut saw_calendar, &mut saw_clock,
+            unit,
+            first_num,
+            &mut total_months,
+            &mut total_days,
+            &mut total_nanos,
+            &mut saw_calendar,
+            &mut saw_clock,
         );
 
         // Check for "and" followed by more Number + CalendarUnit
@@ -8848,13 +22001,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             };
 
             apply(
-                next_unit, next_num, &mut total_months, &mut total_days, &mut total_nanos,
-                &mut saw_calendar, &mut saw_clock,
+                next_unit,
+                next_num,
+                &mut total_months,
+                &mut total_days,
+                &mut total_nanos,
+                &mut saw_calendar,
+                &mut saw_clock,
             );
         }
 
         if saw_clock && !saw_calendar {
-            Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Duration(total_nanos))))
+            Ok(self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(Literal::Duration(total_nanos))))
         } else {
             Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Span {
                 months: total_months as i32,
@@ -8863,10 +22023,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// A value-literal word (`some`, `nothing`) whose spelling a live user
+    /// binding shadows: read it as an ordinary identifier — call, reference,
+    /// or field chain. Kept OUT of `parse_primary_expr`'s body (and never
+    /// inlined back) so the deeply-recursing primary frame stays within the
+    /// AST depth gate's measured per-level stack budget.
+    #[inline(never)]
+    fn shadowed_literal_word_expr(&mut self, sym: Symbol) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::Expr;
+        let span = self.advance().span;
+        if self.check(&TokenType::LParen) {
+            return self.parse_call_expr(sym);
+        }
+        self.verify_identifier_access(sym, span)?;
+        let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+        self.parse_field_access_chain(base)
+    }
+
     /// Phase 32: Parse function call expression: f(x, y, ...)
     fn parse_call_expr(&mut self, function: Symbol) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Expr;
 
+        // Every caller has consumed the function's name: the call begins one token back.
+        let start_tok = self.current.saturating_sub(1);
         self.advance(); // consume '('
 
         let mut args = Vec::new();
@@ -8882,13 +22061,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if !self.check(&TokenType::RParen) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: ")".to_string(),
+                },
                 span: self.current_span(),
             });
         }
         self.advance(); // consume ')'
 
-        Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
+        // Chain any trailing `'s field` / `.field` / `[i]` onto the call so
+        // `handle(x)'s field` and `getValue(input).length` parse. A terminating
+        // sentence `Period` is not a `Dot`, so a bare call is left untouched.
+        self.record_call_span(&args, start_tok);
+        let call = self
+            .ctx
+            .alloc_imperative_expr(Expr::Call { function, args });
+        self.parse_field_access_chain(call)
     }
 
     /// Phase 31: Parse field access chain via possessive ('s) and bracket indexing
@@ -8906,6 +22094,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // argument, so every method spelling lowers to a plain call and
                 // all engines get it free).
                 self.advance(); // consume "."
+                let start_tok = self.current;
                 let name = self.expect_identifier()?;
                 if self.check(&TokenType::LParen) {
                     self.advance(); // consume "("
@@ -8921,12 +22110,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     if !self.check(&TokenType::RParen) {
                         return Err(ParseError {
-                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: ")".to_string(),
+                            },
                             span: self.current_span(),
                         });
                     }
                     self.advance(); // consume ")"
-                    result = self.ctx.alloc_imperative_expr(Expr::Call { function: name, args });
+                    self.record_call_span(&args, start_tok);
+                    result = self.ctx.alloc_imperative_expr(Expr::Call {
+                        function: name,
+                        args,
+                    });
                 } else {
                     result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
                         object: result,
@@ -8948,7 +22143,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 if !self.check(&TokenType::RBracket) {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: "]".to_string() },
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: "]".to_string(),
+                        },
                         span: self.current_span(),
                     });
                 }
@@ -8967,19 +22164,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Centralized verification for identifier access in imperative mode.
-    /// Checks for use-after-move errors on known variables.
-    fn verify_identifier_access(&self, sym: Symbol) -> ParseResult<()> {
+    /// Checks for use-after-move errors on known variables; `span` is the
+    /// name's own token, so the error points at the use itself.
+    fn verify_identifier_access(&self, sym: Symbol, span: crate::token::Span) -> ParseResult<()> {
         if self.mode != ParserMode::Imperative {
             return Ok(());
         }
 
         // Check if variable has been moved
-        if let Some(crate::drs::OwnershipState::Moved) = self.world_state.get_ownership_by_var(sym) {
+        if let Some(crate::drs::OwnershipState::Moved) = self.world_state.get_ownership_by_var(sym)
+        {
             return Err(ParseError {
                 kind: ParseErrorKind::UseAfterMove {
-                    name: self.interner.resolve(sym).to_string()
+                    name: self.interner.resolve(sym).to_string(),
                 },
-                span: self.current_span(),
+                span,
             });
         }
 
@@ -9029,6 +22228,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 51: "sleep" leads the Sleep statement but also names a native
             // (`## To native sleep`) — in name position the declarer wins.
             TokenType::Sleep |
+            // Test-framework keywords (constitution Wave 2) lead statements but
+            // remain legal names in name position — the declarer wins, exactly
+            // like Sleep/Read/Write.
+            TokenType::Expect |
+            TokenType::Advance |
+            TokenType::Skip |
+            TokenType::Given |
+            // Observation keywords lead statements but also name functions and
+            // variables (`## To record …`, `Let note be …`) — declarer wins.
+            TokenType::Note |
+            TokenType::Warn |
+            TokenType::Record |
+            TokenType::During |
+            // "swap" leads the reversible Swap statement but also names user
+            // functions (`## To swap …`) — the declarer wins (the Sleep lesson).
+            TokenType::Swap |
             // Phase 49b: CRDT type keywords can be type names
             TokenType::Tally |
             TokenType::SharedSet |
@@ -9046,6 +22261,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Followed |        // "followed" (seq concat: followed by; also a variable name)
             TokenType::Shared |          // "shared" (CRDT type modifier)
             TokenType::All |             // "all" (FOL quantifier, valid variable name in imperative)
+            TokenType::Some |            // "some" (FOL quantifier / option literal; also the prelude
+                                         // Option's variant — `When Some (v):`, `a new Some …` — the
+                                         // declarer wins in name position, exactly like All/Sleep)
             // Calendar units can be type/variable names (Day, Week, Month, Year)
             TokenType::CalendarUnit(_) |
             // Phase 103: Focus particles can be variant names (Just, Only, Even)
@@ -9054,6 +22272,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Particle(_) |
             // Prepositions can be variable names in code context (from, into, etc.)
             TokenType::Preposition(_) |
+            // Identifier freedom (identifier_freedom.rs): everyday words that other
+            // constructs keywordize must still name variables, fields, and params —
+            // in name position the user wins, exactly like Sleep/Read/Write above.
+            TokenType::Size |            // "size" (zone syntax: of size 1 MB)
+            TokenType::Zone |            // "zone" (Inside a zone ...)
+            TokenType::Inside |          // "inside"
+            TokenType::Called |          // "called"
+            TokenType::Launch |          // "launch" (Launch a task ...)
+            TokenType::Task |            // "task"
+            TokenType::Pipe |            // "pipe" (a Pipe of T)
+            TokenType::Stop |            // "stop" (Stop handle.)
+            TokenType::Receive |         // "receive" (Receive x from ch.)
+            TokenType::Send |            // "send" (Send v into ch.)
+            TokenType::Spawn |           // "spawn"
+            TokenType::Await |           // "await" (Await the first of:)
+            TokenType::Attempt |         // "attempt" (Attempt all of ...)
+            TokenType::Following |       // "following"
+            TokenType::Listen |          // "listen" (Listen on "addr".)
+            TokenType::NetConnect |      // "connect" (Connect to "addr".)
+            TokenType::Sync |            // "sync" (Sync x on "topic".)
+            TokenType::Mount |           // "mount" (Mount x at "path".)
+            TokenType::Shifted |         // "shifted" (x shifted left by n)
+            TokenType::Union |           // "union" (a union b)
+            TokenType::Intersection |    // "intersection" (a intersection b)
+            TokenType::Contains |        // "contains" (xs contains v)
+            TokenType::Through |         // "through" (items 2 through 4)
+            TokenType::Into |            // "into" (Send v into ch.)
+            TokenType::Push |            // "push" (Push v to xs.)
+            TokenType::Pop |             // "pop" (Pop from xs.)
+            TokenType::Try |             // "try" (Try to send ...)
+            TokenType::New |             // "new" (a new T) — in name position the user wins
+            TokenType::Inspect |         // "inspect" (Inspect x:)
+            TokenType::Check |           // "check" (Check that ...)
+            TokenType::Superlative(_) |  // "lowest", "highest", ... (degree morphology)
+            TokenType::Comparative(_) |  // "lower", "higher", "greater", ... (degree; declarer wins)
+            TokenType::Performative(_) | // "command", "order", ... (speech-act verbs)
             // Escape hatch keyword can be a variable name
             TokenType::Escape => {
                 // Use the raw lexeme (interned string) as the symbol
@@ -9068,10 +22322,49 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 Ok(sym)
             }
+            // Universal identifier freedom (LOGOS is imperative: keywords are contextual, never
+            // reserved). Any REMAINING word-keyword — one whose lexeme is a plain identifier word
+            // — legally names a variable/parameter/field/function in this name position. Only
+            // value literals and structural/operator/layout tokens fall through to the error.
+            // This is the PERMANENT catch-all so a newly added keyword (`at`, `most`, `than`, …)
+            // can never again silently steal a name; the explicit fast-paths above remain only for
+            // casing/lemma nuances and readability.
+            _ if self.token_is_word_identifier(&token) => {
+                let sym = token.lexeme;
+                self.advance();
+                Ok(sym)
+            }
             _ => Err(ParseError {
                 kind: ParseErrorKind::ExpectedIdentifier,
                 span: self.current_span(),
             }),
+        }
+    }
+
+    /// Whether `token` is a word-keyword usable as an identifier in a name position — the basis
+    /// of universal identifier freedom. True iff the token is neither a value literal nor a
+    /// layout token AND its lexeme is a plain identifier word (leading letter/underscore, then
+    /// word characters). Operator/punctuation tokens have non-word lexemes and are excluded by
+    /// the word check itself, so they need no explicit listing.
+    fn token_is_word_identifier(&self, token: &crate::token::Token) -> bool {
+        match &token.kind {
+            // Value literals carry their CONTENT as the lexeme — never an identifier.
+            TokenType::Number(_)
+            | TokenType::StringLiteral(_)
+            | TokenType::InterpolatedString(_)
+            | TokenType::CharLiteral(_)
+            // Layout / end tokens.
+            | TokenType::EOF
+            | TokenType::Colon
+            | TokenType::Indent
+            | TokenType::Dedent
+            | TokenType::Newline => false,
+            _ => {
+                let s = self.interner.resolve(token.lexeme);
+                let mut chars = s.chars();
+                matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+                    && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            }
         }
     }
 
@@ -9114,7 +22407,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Noun(_) => return true,
                 // A noun READING suffices ("its value" — "value" lexes
                 // Ambiguous{Verb|Noun}); the NP parse commits it to noun.
-                TokenType::Ambiguous { primary, alternatives } => {
+                TokenType::Ambiguous {
+                    primary,
+                    alternatives,
+                } => {
                     return matches!(**primary, TokenType::Noun(_))
                         || alternatives.iter().any(|t| matches!(t, TokenType::Noun(_)));
                 }
@@ -9144,9 +22440,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 true
             }
-            TokenType::Ambiguous { primary, alternatives } => {
-                let has_possessive = matches!(**primary, TokenType::Pronoun { case: Case::Possessive, .. })
-                    || alternatives.iter().any(|t| matches!(t, TokenType::Pronoun { case: Case::Possessive, .. }));
+            TokenType::Ambiguous {
+                primary,
+                alternatives,
+            } => {
+                let has_possessive = matches!(
+                    **primary,
+                    TokenType::Pronoun {
+                        case: Case::Possessive,
+                        ..
+                    }
+                ) || alternatives.iter().any(|t| {
+                    matches!(
+                        t,
+                        TokenType::Pronoun {
+                            case: Case::Possessive,
+                            ..
+                        }
+                    )
+                });
                 // In noun_priority_mode, if there's a possessive alternative, prefer noun path
                 if self.noun_priority_mode && has_possessive {
                     return false;
@@ -9158,7 +22470,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return false;
                 }
                 matches!(**primary, TokenType::Pronoun { .. })
-                    || alternatives.iter().any(|t| matches!(t, TokenType::Pronoun { .. }))
+                    || alternatives
+                        .iter()
+                        .any(|t| matches!(t, TokenType::Pronoun { .. }))
             }
             _ => false,
         }
@@ -9344,7 +22658,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let possesses = self.interner.intern("Possesses");
                 let pr = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: possesses,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(poss.noun), term]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Constant(poss.noun), term]),
                     world: None,
                 });
                 r = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -9566,7 +22883,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             && self
                 .tokens
                 .get(self.current + 1)
-                .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("different"))
+                .map(|t| {
+                    self.interner
+                        .resolve(t.lexeme)
+                        .eq_ignore_ascii_case("different")
+                })
                 .unwrap_or(false)
         {
             self.advance();
@@ -9583,7 +22904,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             .eq_ignore_ascii_case("different");
         if is_different {
             self.advance(); // "different"
-            // Optional type noun ("animals"): predicate it of each member entity.
+                            // Optional type noun ("animals"): predicate it of each member entity.
             if self.check_content_word() {
                 let type_noun = self.consume_content_word()?;
                 for t in &member_terms {
@@ -9663,7 +22984,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Some(result))
     }
 
+    /// Parse a logic atom. Depth-guarded wrapper: `parse_atom` is the re-entry
+    /// point of the LOGIC descent — a parenthesized sentence `( … )` recurses back
+    /// through here once per level (`parse_atom` → `parse_sentence` → … →
+    /// `parse_atom`), so a parenthesis tower becomes a graceful `AstTooDeep`
+    /// instead of a parser stack overflow. Mirrors `parse_primary_expr` on the
+    /// imperative side; both share the `recursion_depth` counter and the
+    /// `max_parse_recursion` limit.
     fn parse_atom(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        self.enter_recursion()?;
+        let result = self.parse_atom_inner();
+        self.leave_recursion();
+        result
+    }
+
+    fn parse_atom_inner(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         // A fresh clause starts with no stashed subject restriction — guard
         // against a prior clause leaking one that its copula branch never
         // consumed.
@@ -9715,17 +23050,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 };
 
                 let event_var = self.get_event_var();
-                let activity = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var,
-                    verb: lemma,
-                    roles: self
-                        .ctx
-                        .roles
-                        .alloc_slice(vec![(ThematicRole::Theme, Term::Constant(noun_sym))]),
-                    modifiers: self.ctx.syms.alloc_slice(vec![]),
-                    suppress_existential: false,
-                    world: None,
-                })));
+                let activity = self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb: lemma,
+                        roles: self
+                            .ctx
+                            .roles
+                            .alloc_slice(vec![(ThematicRole::Theme, Term::Constant(noun_sym))]),
+                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                        suppress_existential: false,
+                        world: None,
+                    })));
 
                 let modal_tok = if matches!(
                     self.peek().kind,
@@ -9741,7 +23079,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     None
                 };
                 // Copula: bare "be" under a modal, or finite "is"/"are".
-                if matches!(self.peek().kind, TokenType::Is | TokenType::Are | TokenType::Be) {
+                if matches!(
+                    self.peek().kind,
+                    TokenType::Is | TokenType::Are | TokenType::Be
+                ) {
                     self.advance();
                 } else if matches!(self.peek().kind, TokenType::Verb { .. })
                     && self
@@ -9813,17 +23154,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let token = self.advance().clone();
             let (gender, number) = match &token.kind {
                 TokenType::Pronoun { gender, number, .. } => (*gender, *number),
-                TokenType::Ambiguous { primary, alternatives } => {
+                TokenType::Ambiguous {
+                    primary,
+                    alternatives,
+                } => {
                     if let TokenType::Pronoun { gender, number, .. } = **primary {
                         (gender, number)
                     } else {
-                        alternatives.iter().find_map(|t| {
-                            if let TokenType::Pronoun { gender, number, .. } = t {
-                                Some((*gender, *number))
-                            } else {
-                                None
-                            }
-                        }).unwrap_or((Gender::Unknown, Number::Singular))
+                        alternatives
+                            .iter()
+                            .find_map(|t| {
+                                if let TokenType::Pronoun { gender, number, .. } = t {
+                                    Some((*gender, *number))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or((Gender::Unknown, Number::Singular))
                     }
                 }
                 _ => (Gender::Unknown, Number::Singular),
@@ -9845,16 +23192,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                            self.drs.introduce_event_referent(event_var, event_class);
                         }
-                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var,
-                            verb,
-                            roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
-                            modifiers: self.ctx.syms.alloc_slice(vec![]),
-                            suppress_existential,
-                            world: None,
-                        })));
+                        let neo_event =
+                            self.ctx
+                                .exprs
+                                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
+                                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                    suppress_existential,
+                                    world: None,
+                                })));
 
                         return Ok(match verb_time {
                             Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -9908,8 +23258,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             // (e.g. "call" → TokenType::Call), so take the lexeme
                             // directly as the predicate name rather than requiring a
                             // content-word token.
-                            let lexeme =
-                                self.interner.resolve(self.peek().lexeme).to_string();
+                            let lexeme = self.interner.resolve(self.peek().lexeme).to_string();
                             let verb_name = lexeme
                                 .chars()
                                 .next()
@@ -9991,7 +23340,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Consume it so the (plural definite) subject's distributive reading applies.
         if self.check(&TokenType::All)
             || self.check(&TokenType::Both)
-            || self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("each")
+            || self
+                .interner
+                .resolve(self.peek().lexeme)
+                .eq_ignore_ascii_case("each")
         {
             self.advance();
             self.collective_mode = false; // force the distributive (per-member) reading
@@ -10004,7 +23356,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // NOTE: Definite NPs are NOT introduced here - they go through wrap_with_definiteness
         // where bridging anaphora can link them to prior wholes (e.g., "I bought a car. The engine smoked.")
         if subject.definiteness == Some(Definiteness::Indefinite)
-            || subject.definiteness == Some(Definiteness::Distal) {
+            || subject.definiteness == Some(Definiteness::Distal)
+        {
             let gender = Self::infer_noun_gender(self.interner.resolve(subject.noun));
             let number = if Self::is_plural_noun(self.interner.resolve(subject.noun)) {
                 Number::Plural
@@ -10012,14 +23365,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Number::Singular
             };
             // Use noun as variable so pronoun resolution returns the noun name
-            self.drs.introduce_referent(subject.noun, subject.noun, gender, number);
+            self.drs
+                .introduce_referent(subject.noun, subject.noun, gender, number);
         }
 
         // Handle plural subjects: "John and Mary verb"
         if self.check(&TokenType::And) {
             match self.try_parse_plural_subject(&subject) {
                 Ok(Some(result)) => return Ok(result),
-                Ok(None) => {} // Not a plural subject, continue
+                Ok(None) => {}           // Not a plural subject, continue
                 Err(e) => return Err(e), // Semantic error (e.g., respectively mismatch)
             }
         }
@@ -10040,7 +23394,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         {
             self.advance(); // comma
             self.advance(); // who / which / that
-            // The RC predication, with the head referent filling the gap.
+                            // The RC predication, with the head referent filling the gap.
             let rc = self.parse_relative_clause(subject.noun)?;
             if self.check(&TokenType::Comma) {
                 self.advance(); // closing comma
@@ -10086,7 +23440,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Handle topicalization: "The cake, John ate." - first NP is object, not subject
         if self.check(&TokenType::Comma) {
-            let saved_pos = self.current;
+            let saved_pos = self.backtrack_point();
             self.advance(); // consume comma
 
             // Check if followed by pronoun subject (e.g., "The book, he read.")
@@ -10095,7 +23449,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let token = p.peek().clone();
                     let pronoun_features = match &token.kind {
                         TokenType::Pronoun { gender, number, .. } => Some((*gender, *number)),
-                        TokenType::Ambiguous { primary, alternatives } => {
+                        TokenType::Ambiguous {
+                            primary,
+                            alternatives,
+                        } => {
                             if let TokenType::Pronoun { gender, number, .. } = **primary {
                                 Some((gender, number))
                             } else {
@@ -10123,16 +23480,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let verb = p.consume_verb();
                             let predicate = p.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: verb,
-                                args: p.ctx.terms.alloc_slice([
-                                    resolved_term,
-                                    Term::Constant(subject.noun),
-                                ]),
+                                args: p
+                                    .ctx
+                                    .terms
+                                    .alloc_slice([resolved_term, Term::Constant(subject.noun)]),
                                 world: None,
                             });
                             p.wrap_with_definiteness_full(&subject, predicate)
                         } else {
                             Err(ParseError {
-                                kind: ParseErrorKind::ExpectedVerb { found: p.peek().kind.clone() },
+                                kind: ParseErrorKind::ExpectedVerb {
+                                    found: p.peek().kind.clone(),
+                                },
                                 span: p.current_span(),
                             })
                         }
@@ -10166,7 +23525,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         p.wrap_with_definiteness_full(&subject, predicate)
                     } else {
                         Err(ParseError {
-                            kind: ParseErrorKind::ExpectedVerb { found: p.peek().kind.clone() },
+                            kind: ParseErrorKind::ExpectedVerb {
+                                found: p.peek().kind.clone(),
+                            },
                             span: p.current_span(),
                         })
                     }
@@ -10178,7 +23539,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Restore position if topicalization didn't match
-            self.current = saved_pos;
+            self.backtrack_to(&saved_pos);
         }
 
         // Handle relative clause after subject: "The cat that the dog chased ran."
@@ -10198,7 +23559,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let var_name = self.next_var_name();
             let rel_pred = self.parse_where_relative(var_name)?;
             relative_clause = Some((var_name, rel_pred));
-        } else if matches!(self.peek().kind, TokenType::Article(_)) && self.is_contact_clause_pattern() {
+        } else if matches!(self.peek().kind, TokenType::Article(_))
+            && self.is_contact_clause_pattern()
+        {
             // Contact clause (reduced relative): "The cat the dog chased ran."
             // NP + NP + Verb pattern indicates embedded relative without explicit "that"
             let var_name = self.next_var_name();
@@ -10217,8 +23580,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 && self.is_followed_by_gerund()
             {
                 let presup_kind = self.consume_presup_trigger();
-                let main_pred =
-                    self.parse_presupposition_for_term(Term::Variable(var_name), presup_kind, false)?;
+                let main_pred = self.parse_presupposition_for_term(
+                    Term::Variable(var_name),
+                    presup_kind,
+                    false,
+                )?;
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
@@ -10255,16 +23621,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if verb_time == Time::Past {
                         modifiers.push(self.interner.intern("Past"));
                     }
-                    &*self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var,
-                        verb,
-                        roles: self.ctx.roles.alloc_slice(vec![
-                            (ThematicRole::Agent, var_term),
-                        ]),
-                        modifiers: self.ctx.syms.alloc_slice(modifiers),
-                        suppress_existential,
-                        world: None,
-                    })))
+                    &*self
+                        .ctx
+                        .exprs
+                        .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                            event_var,
+                            verb,
+                            roles: self
+                                .ctx
+                                .roles
+                                .alloc_slice(vec![(ThematicRole::Agent, var_term)]),
+                            modifiers: self.ctx.syms.alloc_slice(modifiers),
+                            suppress_existential,
+                            world: None,
+                        })))
                 } else {
                     self.current -= 1; // hand the verb back to the VP parser
                     self.parse_predicate_with_subject_as_var(var_name)?
@@ -10505,10 +23875,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj = p.parse_noun_phrase(true)?;
                         preds.push(p.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep,
-                            args: p
-                                .ctx
-                                .terms
-                                .alloc_slice([Term::Variable(placeholder), Term::Constant(obj.noun)]),
+                            args: p.ctx.terms.alloc_slice([
+                                Term::Variable(placeholder),
+                                Term::Constant(obj.noun),
+                            ]),
                             world: None,
                         }));
                     } else {
@@ -10597,12 +23967,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     _ => self.consume_content_word()?,
                 };
-                let mut nucleus: &'a LogicExpr<'a> =
-                    self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: pred_name,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
-                        world: None,
-                    });
+                let mut nucleus: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: pred_name,
+                    args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
+                });
                 if negated {
                     nucleus = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
@@ -10629,8 +23998,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // it instead of silently dropping it. The copula branches all key their
         // predicate on Constant(subject.noun), so the fold unifies cleanly.
         if let Some((rc_var, rc_pred)) = relative_clause {
-            if self.check(&TokenType::Is) || self.check(&TokenType::Are)
-                || self.check(&TokenType::Was) || self.check(&TokenType::Were)
+            if self.check(&TokenType::Is)
+                || self.check(&TokenType::Are)
+                || self.check(&TokenType::Was)
+                || self.check(&TokenType::Were)
             {
                 let restr =
                     self.substitute_variable_with_constant(rc_pred, rc_var, subject.noun)?;
@@ -10638,8 +24009,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        if self.check(&TokenType::Is) || self.check(&TokenType::Are)
-            || self.check(&TokenType::Was) || self.check(&TokenType::Were)
+        if self.check(&TokenType::Is)
+            || self.check(&TokenType::Are)
+            || self.check(&TokenType::Was)
+            || self.check(&TokenType::Were)
         {
             let copula_time = if self.check(&TokenType::Was) || self.check(&TokenType::Were) {
                 Time::Past
@@ -10660,7 +24033,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if self.check(&TokenType::Never) {
                     self.advance();
                     copula_temporal = Some(CopulaTemporal::Never);
-                } else if let TokenType::Adverb(sym) | TokenType::ScopalAdverb(sym) | TokenType::TemporalAdverb(sym) = &self.peek().kind {
+                } else if let TokenType::Adverb(sym)
+                | TokenType::ScopalAdverb(sym)
+                | TokenType::TemporalAdverb(sym) = &self.peek().kind
+                {
                     let resolved = self.interner.resolve(*sym).to_string();
                     if resolved == "Always" || resolved == "always" {
                         self.advance();
@@ -10744,10 +24120,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let adj = self.consume_content_word()?;
                     let result = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
-                        args: self.ctx.terms.alloc_slice([
-                            Term::Constant(subject.noun),
-                            *measure,
-                        ]),
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Constant(subject.noun), *measure]),
                         world: None,
                     });
                     return self.wrap_with_definiteness_full(&subject, result);
@@ -10778,7 +24154,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Check for equative: "is as tall as Y" → an at-least (≥) comparison.
-            if self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("as") {
+            if self
+                .interner
+                .resolve(self.peek().lexeme)
+                .eq_ignore_ascii_case("as")
+            {
                 return self.parse_equative(&subject);
             }
 
@@ -10804,12 +24184,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Check for superlative: "is the tallest man"
             if self.check(&TokenType::Article(Definiteness::Definite)) {
-                let saved_pos = self.current;
+                let saved_pos = self.backtrack_point();
                 self.advance();
                 if self.check_superlative() {
                     return self.parse_superlative(&subject);
                 }
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
             }
 
             // Check for predicate NP: "Juliet is the sun" or "John is a man"
@@ -10916,10 +24296,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 if let (Some(s_sort), Some(p_sort)) = (subject_sort, predicate_sort) {
                     if !s_sort.is_compatible_with(p_sort) && !p_sort.is_compatible_with(s_sort) {
-                        let metaphor: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Metaphor {
-                            tenor: self.ctx.terms.alloc(Term::Constant(subject.noun)),
-                            vehicle: self.ctx.terms.alloc(Term::Constant(predicate_noun)),
-                        });
+                        let metaphor: &'a LogicExpr<'a> =
+                            self.ctx.exprs.alloc(LogicExpr::Metaphor {
+                                tenor: self.ctx.terms.alloc(Term::Constant(subject.noun)),
+                                vehicle: self.ctx.terms.alloc(Term::Constant(predicate_noun)),
+                            });
                         let metaphor = if is_negated {
                             &*self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                                 op: TokenType::Not,
@@ -11017,16 +24398,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if !self.check(&TokenType::And) {
                         break;
                     }
-                    let save = self.current;
+                    let save = self.backtrack_point();
                     self.advance(); // "and"
-                    // A bare predicate word (adjective, or a noun the lexicon
-                    // didn't mark adjectival like "wealthy") is a shared predicate;
-                    // a noun is only taken when a clause boundary / "and" follows,
-                    // so "… and Bob runs" / "… and cats sleep" stay separate clauses.
+                                    // A bare predicate word (adjective, or a noun the lexicon
+                                    // didn't mark adjectival like "wealthy") is a shared predicate;
+                                    // a noun is only taken when a clause boundary / "and" follows,
+                                    // so "… and Bob runs" / "… and cats sleep" stay separate clauses.
                     let next_is_boundary = matches!(
                         self.tokens.get(self.current + 1).map(|t| &t.kind),
-                        Some(TokenType::Period) | Some(TokenType::Comma) | Some(TokenType::And)
-                            | Some(TokenType::EOF) | Some(TokenType::Exclamation) | None
+                        Some(TokenType::Period)
+                            | Some(TokenType::Comma)
+                            | Some(TokenType::And)
+                            | Some(TokenType::EOF)
+                            | Some(TokenType::Exclamation)
+                            | None
                     );
                     let conjunct: Option<&'a LogicExpr<'a>> = match self.peek().kind {
                         TokenType::Adjective(a) | TokenType::NonIntersectiveAdjective(a) => {
@@ -11062,7 +24447,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             });
                         }
                         None => {
-                            self.current = save;
+                            self.backtrack_to(&save);
                             break;
                         }
                     }
@@ -11088,13 +24473,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // After copula, prefer Adjective over simple-aspect Verb for ambiguous tokens
             // "is open" (Adj: state) is standard; "is open" (Verb: habitual) is ungrammatical here
-            let prefer_adjective = if let TokenType::Ambiguous { primary, alternatives } = &self.peek().kind {
+            let prefer_adjective = if let TokenType::Ambiguous {
+                primary,
+                alternatives,
+            } = &self.peek().kind
+            {
                 let is_simple_verb = if let TokenType::Verb { aspect, .. } = **primary {
                     aspect == Aspect::Simple
                 } else {
                     false
                 };
-                let has_adj_alt = alternatives.iter().any(|t| matches!(t, TokenType::Adjective(_)));
+                let has_adj_alt = alternatives
+                    .iter()
+                    .any(|t| matches!(t, TokenType::Adjective(_)));
                 is_simple_verb && has_adj_alt
             } else {
                 false
@@ -11168,17 +24559,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         || (n.ends_with('s')
                             && lexicon::lookup_noun_db(&n[..n.len() - 1]).is_some())
                 };
-                if copula_time == Time::Past && verb_aspect == Aspect::Simple
+                if copula_time == Time::Past
+                    && verb_aspect == Aspect::Simple
                     && subject.definiteness != Some(Definiteness::Definite)
-                    && subject_is_common_noun {
+                    && subject_is_common_noun
+                {
                     // Indefinite agentless passive - treat as existential over implicit agent
                     let var_name = self.next_var_name();
                     let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
-                        args: self.ctx.terms.alloc_slice([
-                            Term::Variable(var_name),
-                            Term::Constant(subject.noun),
-                        ]),
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Variable(var_name), Term::Constant(subject.noun)]),
                         world: None,
                     });
 
@@ -11275,7 +24668,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj = self.parse_noun_phrase(true)?;
                         self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep,
-                            args: self.ctx.terms.alloc_slice([subject_term, Term::Constant(obj.noun)]),
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([subject_term, Term::Constant(obj.noun)]),
                             world: None,
                         })
                     } else {
@@ -11302,7 +24698,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // A bare temporal ordering ("was taken sometime before the photo of
                 // the red panda", "was bought sometime before Faye's pet") relates
                 // the theme to a distinct standard by time.
-                else if let Some(constraint) = self.parse_bare_temporal_constraint(subject_term)? {
+                else if let Some(constraint) =
+                    self.parse_bare_temporal_constraint(subject_term)?
+                {
                     predicate = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: predicate,
                         op: TokenType::And,
@@ -11435,7 +24833,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj = self.parse_noun_phrase(true)?;
                         self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep_sym,
-                            args: self.ctx.terms.alloc_slice([var_term, Term::Constant(obj.noun)]),
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([var_term, Term::Constant(obj.noun)]),
                             world: None,
                         })
                     }
@@ -11552,9 +24953,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // This enables Leibniz's Law: if Clark = Superman and mortal(Clark), then mortal(Superman)
             if let TokenType::ProperName(predicate_name) = self.peek().kind {
                 self.advance(); // consume the proper name
-                // Absorb subsequent capitalized words into one multi-word proper
-                // name ("Porcher Place", "Highland Drive") so the identity does
-                // not strand the second word.
+                                // Absorb subsequent capitalized words into one multi-word proper
+                                // name ("Porcher Place", "Highland Drive") so the identity does
+                                // not strand the second word.
                 let predicate_name = self.absorb_multiword_proper_name(predicate_name);
 
                 // Enumerated identity whose FIRST member is a proper name: "The four
@@ -11626,9 +25027,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // "The dancer is either Tara or Bessie" → Tara(dancer) ∨ Bessie(dancer)
             if self.check(&TokenType::Either) {
                 self.advance(); // consume "either"
-                // Parse one disjunct: an NP optionally restricted by a relative
-                // clause predicated of the subject ("the player who wore number
-                // 29" → Player(Frank) ∧ ∃e(Wore(e) ∧ Agent(e, Frank) ∧ …)).
+                                // Parse one disjunct: an NP optionally restricted by a relative
+                                // clause predicated of the subject ("the player who wore number
+                                // 29" → Player(Frank) ∧ ∃e(Wore(e) ∧ Agent(e, Frank) ∧ …)).
                 let parse_disjunct = |p: &mut Self| -> ParseResult<&'a LogicExpr<'a>> {
                     // The copula is consumed, so a verb-word in the disjunct NP is a
                     // deverbal noun head ("either Leroy's PACK or the silver PACK").
@@ -11654,7 +25055,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // A reduced relative on the disjunct ("either the mountain FIRST
                     // CLIMBED in 1845 or …") restricts the subject — the disjunct NP
                     // cannot be a main clause here.
-                    if let Some(rr) = p.try_consume_reduced_relative(Term::Constant(subject.noun))? {
+                    if let Some(rr) =
+                        p.try_consume_reduced_relative(Term::Constant(subject.noun))?
+                    {
                         pred = p.ctx.exprs.alloc(LogicExpr::BinaryOp {
                             left: pred,
                             op: TokenType::And,
@@ -11709,7 +25112,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let m = self.parse_measure_phrase()?;
                     self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: prep_sym,
-                        args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), *m]),
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Constant(subject.noun), *m]),
                         world: None,
                     })
                 } else {
@@ -11764,10 +25170,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let disj_obj = disj_obj_res?;
                     let disj_pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: disj_prep,
-                        args: self
-                            .ctx
-                            .terms
-                            .alloc_slice([Term::Constant(subject.noun), Term::Constant(disj_obj.noun)]),
+                        args: self.ctx.terms.alloc_slice([
+                            Term::Constant(subject.noun),
+                            Term::Constant(disj_obj.noun),
+                        ]),
                         world: None,
                     });
                     let disj_pred = self.attach_pp_object_modifiers(disj_pred, &disj_obj);
@@ -11844,8 +25250,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         // adjective ("is black AND red.") coordinates.
                         if matches!(
                             self.tokens.get(self.current + 1).map(|t| &t.kind),
-                            Some(TokenType::Is) | Some(TokenType::Are)
-                                | Some(TokenType::Was) | Some(TokenType::Were)
+                            Some(TokenType::Is)
+                                | Some(TokenType::Are)
+                                | Some(TokenType::Was)
+                                | Some(TokenType::Were)
                                 | Some(TokenType::Verb { .. })
                         ) {
                             self.restore(cp);
@@ -11877,7 +25285,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
                     let conj = if is_negated {
-                        self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: conj })
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: conj,
+                        })
                     } else {
                         conj
                     };
@@ -11902,11 +25313,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let measure = self.parse_measure_phrase()?;
                 let pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate_name,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), *measure]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Constant(subject.noun), *measure]),
                     world: None,
                 });
                 let pred = if is_negated {
-                    self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pred })
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: pred,
+                    })
                 } else {
                     pred
                 };
@@ -11939,7 +25356,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Check copular NP predicate sort compatibility (for "Time is money")
             let predicate_sort = lexicon::lookup_sort(predicate_str);
             if let (Some(s_sort), Some(p_sort)) = (subject_sort, predicate_sort) {
-                if s_sort != p_sort && !s_sort.is_compatible_with(p_sort) && !p_sort.is_compatible_with(s_sort) {
+                if s_sort != p_sort
+                    && !s_sort.is_compatible_with(p_sort)
+                    && !p_sort.is_compatible_with(s_sort)
+                {
                     let metaphor = self.ctx.exprs.alloc(LogicExpr::Metaphor {
                         tenor: self.ctx.terms.alloc(Term::Constant(subject.noun)),
                         vehicle: self.ctx.terms.alloc(Term::Constant(predicate_name)),
@@ -12020,12 +25440,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Apply temporal wrapper for "is always Y" → G(Y(X)) or "is never Y" → G(¬Y(X))
             let result = match copula_temporal {
-                Some(CopulaTemporal::Always) => {
-                    self.ctx.exprs.alloc(LogicExpr::Temporal {
-                        operator: TemporalOperator::Always,
-                        body: result,
-                    })
-                }
+                Some(CopulaTemporal::Always) => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Always,
+                    body: result,
+                }),
                 Some(CopulaTemporal::Never) => {
                     let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
@@ -12036,12 +25454,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         body: negated,
                     })
                 }
-                Some(CopulaTemporal::Eventually) => {
-                    self.ctx.exprs.alloc(LogicExpr::Temporal {
-                        operator: TemporalOperator::Eventually,
-                        body: result,
-                    })
-                }
+                Some(CopulaTemporal::Eventually) => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Eventually,
+                    body: result,
+                }),
                 None => result,
             };
 
@@ -12110,18 +25526,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 // Check for verb or "do" (TokenType::Do is separate from TokenType::Verb)
                 if self.check_verb() || self.check(&TokenType::Do) {
-                    let (verb, verb_time, verb_aspect, verb_class) =
-                        if self.check(&TokenType::Do) {
-                            self.advance(); // consume "do"
-                            (
-                                self.interner.intern("Do"),
-                                Time::None,
-                                Aspect::Simple,
-                                crate::lexicon::VerbClass::Activity,
-                            )
-                        } else {
-                            self.consume_verb_with_metadata()
-                        };
+                    let (verb, verb_time, verb_aspect, verb_class) = if self.check(&TokenType::Do) {
+                        self.advance(); // consume "do"
+                        (
+                            self.interner.intern("Do"),
+                            Time::None,
+                            Aspect::Simple,
+                            crate::lexicon::VerbClass::Activity,
+                        )
+                    } else {
+                        self.consume_verb_with_metadata()
+                    };
                     let subject_term = self.noun_phrase_to_term(&subject);
 
                     // Check for NPI object first: "John did not see anything"
@@ -12144,7 +25559,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
-                            args: self.ctx.terms.alloc_slice([subject_term.clone(), Term::Variable(obj_var)]),
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([subject_term.clone(), Term::Variable(obj_var)]),
                             world: None,
                         });
 
@@ -12195,64 +25613,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
-                            args: self.ctx.terms.alloc_slice([subject_term.clone(), Term::Variable(obj_var)]),
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([subject_term.clone(), Term::Variable(obj_var)]),
                             world: None,
                         });
 
-                        let (kind, body) = match quantifier_token {
-                            TokenType::Any => {
-                                if self.is_negative_context() {
-                                    (
-                                        QuantifierKind::Existential,
-                                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                            left: obj_restriction,
-                                            op: TokenType::And,
-                                            right: verb_pred,
-                                        }),
-                                    )
-                                } else {
-                                    (
-                                        QuantifierKind::Universal,
-                                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                            left: obj_restriction,
-                                            op: TokenType::Implies,
-                                            right: verb_pred,
-                                        }),
-                                    )
-                                }
-                            }
-                            TokenType::Some => (
-                                QuantifierKind::Existential,
-                                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                    left: obj_restriction,
-                                    op: TokenType::And,
-                                    right: verb_pred,
-                                }),
-                            ),
-                            TokenType::All => (
-                                QuantifierKind::Universal,
-                                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                    left: obj_restriction,
-                                    op: TokenType::Implies,
-                                    right: verb_pred,
-                                }),
-                            ),
-                            _ => (
-                                QuantifierKind::Existential,
-                                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                    left: obj_restriction,
-                                    op: TokenType::And,
-                                    right: verb_pred,
-                                }),
-                            ),
-                        };
-
-                        let quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                            kind,
-                            variable: obj_var,
-                            body,
-                            island_id: self.current_island,
-                        });
+                        let quantified =
+                            self.quantify_argument(&quantifier_token, obj_var, obj_restriction, verb_pred);
 
                         let effective_time = self.pending_time.take().unwrap_or(Time::None);
                         let with_time = match effective_time {
@@ -12295,16 +25664,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         }
                         let event_var = self.get_event_var();
                         let suppress_existential = self.drs.in_conditional_antecedent();
-                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(
-                            NeoEventData {
-                                event_var,
-                                verb,
-                                roles: self.ctx.roles.alloc_slice(roles),
-                                modifiers: self.ctx.syms.alloc_slice(modifiers),
-                                suppress_existential,
-                                world: None,
-                            },
-                        )));
+                        let neo_event =
+                            self.ctx
+                                .exprs
+                                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(roles),
+                                    modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                    suppress_existential,
+                                    world: None,
+                                })));
                         self.negative_depth -= 1;
                         return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                             op: TokenType::Not,
@@ -12345,7 +25715,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // "John knows that..." → presupposition, "John knows Mary" → regular verb
         // Only trigger presupposition if followed by a gerund (e.g., "stopped smoking")
         // "John stopped." alone should parse as intransitive verb, not presupposition
-        if self.check_presup_trigger() && !self.is_followed_by_np_object() && self.is_followed_by_gerund() {
+        if self.check_presup_trigger()
+            && !self.is_followed_by_np_object()
+            && self.is_followed_by_gerund()
+        {
             let presup_kind = self.consume_presup_trigger();
             return self.parse_presupposition(&subject, presup_kind, false);
         }
@@ -12390,17 +25763,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 world: None,
             });
             let event_var = self.get_event_var();
-            let verb_pred = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb,
-                roles: self
-                    .ctx
-                    .roles
-                    .alloc_slice(vec![(ThematicRole::Agent, Term::Variable(var_name))]),
-                modifiers: self.ctx.syms.alloc_slice(vec![]),
-                suppress_existential: false,
-                world: None,
-            })));
+            let verb_pred = self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self
+                        .ctx
+                        .roles
+                        .alloc_slice(vec![(ThematicRole::Agent, Term::Variable(var_name))]),
+                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential: false,
+                    world: None,
+                })));
             let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                 op: TokenType::Not,
                 operand: verb_pred,
@@ -12443,14 +25819,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let manner_adverbs = self.collect_adverbs();
 
             let event_var = self.get_event_var();
-            let verb_pred = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb,
-                roles: self.ctx.roles.alloc_slice(roles),
-                modifiers: self.ctx.syms.alloc_slice(manner_adverbs),
-                suppress_existential: false,
-                world: None,
-            })));
+            let verb_pred = self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self.ctx.roles.alloc_slice(roles),
+                    modifiers: self.ctx.syms.alloc_slice(manner_adverbs),
+                    suppress_existential: false,
+                    world: None,
+                })));
 
             let effective_time = self.pending_time.take().unwrap_or(verb_time);
             let with_time = match effective_time {
@@ -12504,8 +25883,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             if self.check_verb() {
-                let (verb, verb_time, verb_aspect, verb_class) =
-                    self.consume_verb_with_metadata();
+                let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
                 let verb_lemma = self.interner.resolve(verb).to_lowercase();
 
                 // Check for embedded wh-clause with negation: "I don't know who"
@@ -12514,9 +25892,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let is_who = matches!(wh_token, TokenType::Who);
                     let is_what = matches!(wh_token, TokenType::What);
 
-                    let is_sluicing = self.is_at_end() ||
-                        self.check(&TokenType::Period) ||
-                        self.check(&TokenType::Comma);
+                    let is_sluicing = self.is_at_end()
+                        || self.check(&TokenType::Period)
+                        || self.check(&TokenType::Comma);
 
                     if is_sluicing {
                         if let Some(template) = self.last_event_template.clone() {
@@ -12542,16 +25920,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let suppress_existential = self.drs.in_conditional_antecedent();
                             if suppress_existential {
                                 let event_class = self.interner.intern("Event");
-                                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                                self.drs.introduce_event_referent(event_var, event_class);
                             }
-                            let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                event_var,
-                                verb: template.verb,
-                                roles: self.ctx.roles.alloc_slice(roles),
-                                modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
-                                suppress_existential,
-                                world: None,
-                            })));
+                            let reconstructed =
+                                self.ctx
+                                    .exprs
+                                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                        event_var,
+                                        verb: template.verb,
+                                        roles: self.ctx.roles.alloc_slice(roles),
+                                        modifiers: self
+                                            .ctx
+                                            .syms
+                                            .alloc_slice(template.modifiers.clone()),
+                                        suppress_existential,
+                                        world: None,
+                                    })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
                                 wh_variable: wh_var,
@@ -12562,19 +25946,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let suppress_existential2 = self.drs.in_conditional_antecedent();
                             if suppress_existential2 {
                                 let event_class = self.interner.intern("Event");
-                                self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
+                                self.drs
+                                    .introduce_event_referent(know_event_var, event_class);
                             }
-                            let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                event_var: know_event_var,
-                                verb,
-                                roles: self.ctx.roles.alloc_slice(vec![
-                                    (ThematicRole::Agent, subject_term),
-                                    (ThematicRole::Theme, Term::Proposition(question)),
-                                ]),
-                                modifiers: self.ctx.syms.alloc_slice(vec![]),
-                                suppress_existential: suppress_existential2,
-                                world: None,
-                            })));
+                            let know_event =
+                                self.ctx
+                                    .exprs
+                                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                        event_var: know_event_var,
+                                        verb,
+                                        roles: self.ctx.roles.alloc_slice(vec![
+                                            (ThematicRole::Agent, subject_term),
+                                            (ThematicRole::Theme, Term::Proposition(question)),
+                                        ]),
+                                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                        suppress_existential: suppress_existential2,
+                                        world: None,
+                                    })));
 
                             let result = if is_negated {
                                 self.ctx.exprs.alloc(LogicExpr::UnaryOp {
@@ -12627,16 +26015,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                        self.drs.introduce_event_referent(event_var, event_class);
                     }
-                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var,
-                        verb,
-                        roles: self.ctx.roles.alloc_slice(roles),
-                        modifiers: self.ctx.syms.alloc_slice(modifiers),
-                        suppress_existential,
-                        world: None,
-                    })));
+                    let neo_event =
+                        self.ctx
+                            .exprs
+                            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                event_var,
+                                verb,
+                                roles: self.ctx.roles.alloc_slice(roles),
+                                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                suppress_existential,
+                                world: None,
+                            })));
 
                     let result = if is_negated {
                         self.ctx.exprs.alloc(LogicExpr::UnaryOp {
@@ -12673,11 +26064,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let object_np = self.parse_noun_phrase(false)?;
                     let obj_var = self.next_var_name();
 
-                    let mut type_pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: object_np.noun,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
-                        world: None,
-                    });
+                    let mut type_pred: &'a LogicExpr<'a> =
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: object_np.noun,
+                            args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
+                        });
                     // A quantified object's adjectives and PP restrictors ("has a
                     // RED book", "has a maximum range OF 475 ft") are part of the
                     // object's description — dropping them is a meaning-loss parse.
@@ -12699,23 +26091,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
 
                     // Check for relative clause on object
-                    let obj_restriction = if self.check(&TokenType::That) || self.check(&TokenType::Who) {
-                        self.advance();
-                        let rel_clause = self.parse_relative_clause(obj_var)?;
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: type_pred,
-                            op: TokenType::And,
-                            right: rel_clause,
-                        })
-                    } else {
-                        type_pred
-                    };
+                    let obj_restriction =
+                        if self.check(&TokenType::That) || self.check(&TokenType::Who) {
+                            self.advance();
+                            let rel_clause = self.parse_relative_clause(obj_var)?;
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: type_pred,
+                                op: TokenType::And,
+                                right: rel_clause,
+                            })
+                        } else {
+                            type_pred
+                        };
 
                     let event_var = self.get_event_var();
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                        self.drs.introduce_event_referent(event_var, event_class);
                     }
 
                     let roles = vec![
@@ -12723,55 +26116,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         (ThematicRole::Theme, Term::Variable(obj_var)),
                     ];
 
-                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var,
-                        verb,
-                        roles: self.ctx.roles.alloc_slice(roles),
-                        modifiers: self.ctx.syms.alloc_slice(modifiers),
-                        suppress_existential,
-                        world: None,
-                    })));
+                    let neo_event =
+                        self.ctx
+                            .exprs
+                            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                event_var,
+                                verb,
+                                roles: self.ctx.roles.alloc_slice(roles),
+                                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                suppress_existential,
+                                world: None,
+                            })));
 
-                    // Build quantified expression
-                    // For "does not shave any man" with negation + any:
-                    // ¬∃x(Man(x) ∧ Shave(barber, x)) = "there is no man the barber shaves"
-                    let quantifier_kind = match &obj_quantifier {
-                        Some(TokenType::Any) if is_negated => QuantifierKind::Existential,
-                        Some(TokenType::All) => QuantifierKind::Universal,
-                        Some(TokenType::No) => QuantifierKind::Universal,
-                        _ => QuantifierKind::Existential,
-                    };
-
-                    let obj_body = match &obj_quantifier {
-                        Some(TokenType::All) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: obj_restriction,
-                            op: TokenType::Implies,
-                            right: neo_event,
-                        }),
-                        Some(TokenType::No) => {
-                            let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                                op: TokenType::Not,
-                                operand: neo_event,
-                            });
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: obj_restriction,
-                                op: TokenType::Implies,
-                                right: neg,
-                            })
-                        }
-                        _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: obj_restriction,
-                            op: TokenType::And,
-                            right: neo_event,
-                        }),
-                    };
-
-                    let obj_quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                        kind: quantifier_kind,
-                        variable: obj_var,
-                        body: obj_body,
-                        island_id: self.current_island,
-                    });
+                    // `any` reads as an indefinite under the clause's negation: "does not shave
+                    // any man" is ¬∃x(Man(x) ∧ Shave(barber, x)).
+                    let obj_determiner = obj_quantifier.clone().unwrap_or(TokenType::Some);
+                    let obj_quantified =
+                        self.quantify_argument(&obj_determiner, obj_var, obj_restriction, neo_event);
 
                     // Apply negation at sentence level for "does not ... any"
                     let result = if is_negated && matches!(obj_quantifier, Some(TokenType::Any)) {
@@ -12839,8 +26200,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else {
             false
         };
-        if subject.definiteness == Some(Definiteness::Definite) && self.check_verb() && self.pending_time.is_none() && !is_perfect_aux {
-            let saved_pos = self.current;
+        if subject.definiteness == Some(Definiteness::Definite)
+            && self.check_verb()
+            && self.pending_time.is_none()
+            && !is_perfect_aux
+        {
+            let saved_pos = self.backtrack_point();
 
             // Try parsing as reduced relative: first verb is modifier, look for main verb after
             if let Some(garden_path_result) = self.try_parse(|p| {
@@ -12858,7 +26223,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let pp_obj = p.parse_noun_phrase(false)?;
                         let pp_pred = p.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep,
-                            args: p.ctx.terms.alloc_slice([Term::Variable(p.interner.intern("x")), Term::Constant(pp_obj.noun)]),
+                            args: p.ctx.terms.alloc_slice([
+                                Term::Variable(p.interner.intern("x")),
+                                Term::Constant(pp_obj.noun),
+                            ]),
                             world: None,
                         });
                         pp_mods.push(pp_pred);
@@ -12868,7 +26236,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Now check if there's ANOTHER verb (the real main verb)
                 if !p.check_verb() {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedVerb { found: p.peek().kind.clone() },
+                        kind: ParseErrorKind::ExpectedVerb {
+                            found: p.peek().kind.clone(),
+                        },
                         span: p.current_span(),
                     });
                 }
@@ -12973,7 +26343,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Restore position if garden path didn't work
-            self.current = saved_pos;
+            self.backtrack_to(&saved_pos);
         }
 
         if self.check_modal() {
@@ -12987,10 +26357,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Lookahead to distinguish perfect aspect ("has eaten") from possession ("has 3 children")
                 let is_perfect_aspect = if self.current + 1 < self.tokens.len() {
                     let next_token = &self.tokens[self.current + 1].kind;
-                    matches!(
-                        next_token,
-                        TokenType::Verb { .. } | TokenType::Not
-                    ) && !matches!(next_token, TokenType::Number(_))
+                    matches!(next_token, TokenType::Verb { .. } | TokenType::Not)
+                        && !matches!(next_token, TokenType::Number(_))
                 } else {
                     false
                 };
@@ -13076,14 +26444,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let modifiers = self.collect_adverbs();
             let event_var = self.get_event_var();
             let suppress_existential = self.drs.in_conditional_antecedent();
-            let event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb,
-                roles: self.ctx.roles.alloc_slice(roles),
-                modifiers: self.ctx.syms.alloc_slice(modifiers),
-                suppress_existential,
-                world: None,
-            })));
+            let event = self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self.ctx.roles.alloc_slice(roles),
+                    modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
+                    world: None,
+                })));
             let mut result = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                 op: TokenType::Not,
                 operand: event,
@@ -13211,7 +26582,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else if self.check_content_word() {
                     self.parse_predicate_with_subject(subject.noun)?
                 } else {
-                    self.ctx.exprs.alloc(LogicExpr::Atom(self.interner.intern("?")))
+                    self.ctx
+                        .exprs
+                        .alloc(LogicExpr::Atom(self.interner.intern("?")))
                 };
                 let evidential = self.ctx.exprs.alloc(LogicExpr::Modal {
                     vector: crate::ast::ModalVector::new(
@@ -13234,18 +26607,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if crate::lexicon::is_perception_verb(&self.interner.resolve(verb).to_lowercase()) {
                 let is_verb_capable = |kind: &TokenType| match kind {
                     TokenType::Verb { .. } => true,
-                    TokenType::Ambiguous { primary, alternatives } => {
+                    TokenType::Ambiguous {
+                        primary,
+                        alternatives,
+                    } => {
                         matches!(**primary, TokenType::Verb { .. })
-                            || alternatives.iter().any(|t| matches!(t, TokenType::Verb { .. }))
+                            || alternatives
+                                .iter()
+                                .any(|t| matches!(t, TokenType::Verb { .. }))
                     }
                     _ => false,
                 };
                 let mut vp_idx = None;
                 let mut i = self.current;
                 while i < self.tokens.len() {
+                    // A small clause ends where its sentence does, or at a coordinator:
+                    // in "sees Mary and Bill runs" Bill's running is a clause of its own.
                     if matches!(
                         self.tokens[i].kind,
-                        TokenType::Period | TokenType::EOF | TokenType::Comma
+                        TokenType::Period
+                            | TokenType::EOF
+                            | TokenType::Comma
+                            | TokenType::And
+                            | TokenType::Or
                     ) {
                         break;
                     }
@@ -13297,7 +26681,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             }
                         };
                         if let Some(psubj) = psubj {
-                            let vlex = self.interner.resolve(self.tokens[vp_i].lexeme).to_lowercase();
+                            let vlex = self
+                                .interner
+                                .resolve(self.tokens[vp_i].lexeme)
+                                .to_lowercase();
                             let vname = vlex
                                 .chars()
                                 .next()
@@ -13333,14 +26720,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 _ => {}
                             }
                             let neo =
-                                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                    event_var,
-                                    verb,
-                                    roles: self.ctx.roles.alloc_slice(roles),
-                                    modifiers: self.ctx.syms.alloc_slice(modifiers),
-                                    suppress_existential: false,
-                                    world: None,
-                                })));
+                                self.ctx
+                                    .exprs
+                                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                        event_var,
+                                        verb,
+                                        roles: self.ctx.roles.alloc_slice(roles),
+                                        modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                        suppress_existential: false,
+                                        world: None,
+                                    })));
                             return self.wrap_with_definiteness_full(&subject, neo);
                         }
                     }
@@ -13356,9 +26745,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // "to" — its object comes first ("persuaded Mary to be examined").
             if self.is_control_verb(verb)
                 && (self.check_to()
-                    || lexicon::is_object_control_verb(
-                        &self.interner.resolve(verb).to_lowercase(),
-                    ))
+                    || lexicon::is_object_control_verb(&self.interner.resolve(verb).to_lowercase()))
             {
                 return self.parse_control_structure(&subject, verb, verb_time);
             }
@@ -13433,9 +26820,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let is_what = matches!(wh_token, TokenType::What);
 
                 // Check for sluicing: wh-word followed by terminator
-                let is_sluicing = self.is_at_end() ||
-                    self.check(&TokenType::Period) ||
-                    self.check(&TokenType::Comma);
+                let is_sluicing = self.is_at_end()
+                    || self.check(&TokenType::Period)
+                    || self.check(&TokenType::Comma);
 
                 if is_sluicing {
                     // Reconstruct from template
@@ -13465,16 +26852,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                            self.drs.introduce_event_referent(event_var, event_class);
                         }
-                        let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var,
-                            verb: template.verb,
-                            roles: self.ctx.roles.alloc_slice(roles),
-                            modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
-                            suppress_existential,
-                            world: None,
-                        })));
+                        let reconstructed =
+                            self.ctx
+                                .exprs
+                                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var,
+                                    verb: template.verb,
+                                    roles: self.ctx.roles.alloc_slice(roles),
+                                    modifiers: self
+                                        .ctx
+                                        .syms
+                                        .alloc_slice(template.modifiers.clone()),
+                                    suppress_existential,
+                                    world: None,
+                                })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
                             wh_variable: wh_var,
@@ -13486,19 +26879,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential2 = self.drs.in_conditional_antecedent();
                         if suppress_existential2 {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
+                            self.drs
+                                .introduce_event_referent(know_event_var, event_class);
                         }
-                        let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var: know_event_var,
-                            verb,
-                            roles: self.ctx.roles.alloc_slice(vec![
-                                (ThematicRole::Agent, subject_term),
-                                (ThematicRole::Theme, Term::Proposition(question)),
-                            ]),
-                            modifiers: self.ctx.syms.alloc_slice(vec![]),
-                            suppress_existential: suppress_existential2,
-                            world: None,
-                        })));
+                        let know_event =
+                            self.ctx
+                                .exprs
+                                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var: know_event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(vec![
+                                        (ThematicRole::Agent, subject_term),
+                                        (ThematicRole::Theme, Term::Proposition(question)),
+                                    ]),
+                                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                    suppress_existential: suppress_existential2,
+                                    world: None,
+                                })));
 
                         return self.wrap_with_definiteness_full(&subject, know_event);
                     }
@@ -13516,19 +26913,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
+                    self.drs
+                        .introduce_event_referent(know_event_var, event_class);
                 }
-                let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var: know_event_var,
-                    verb,
-                    roles: self.ctx.roles.alloc_slice(vec![
-                        (ThematicRole::Agent, subject_term),
-                        (ThematicRole::Theme, Term::Proposition(question)),
-                    ]),
-                    modifiers: self.ctx.syms.alloc_slice(vec![]),
-                    suppress_existential,
-                    world: None,
-                })));
+                let know_event =
+                    self.ctx
+                        .exprs
+                        .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                            event_var: know_event_var,
+                            verb,
+                            roles: self.ctx.roles.alloc_slice(vec![
+                                (ThematicRole::Agent, subject_term),
+                                (ThematicRole::Theme, Term::Proposition(question)),
+                            ]),
+                            modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential,
+                            world: None,
+                        })));
 
                 return self.wrap_with_definiteness_full(&subject, know_event);
             }
@@ -13640,7 +27041,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if let TokenType::Particle(particle_sym) = self.peek().kind {
                     let verb_str = self.interner.resolve(verb).to_lowercase();
                     let particle_str = self.interner.resolve(particle_sym).to_lowercase();
-                    if let Some((phrasal_lemma, _class)) = crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str) {
+                    if let Some((phrasal_lemma, _class)) =
+                        crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str)
+                    {
                         self.advance();
                         verb = self.interner.intern(phrasal_lemma);
                     }
@@ -13673,48 +27076,50 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         args.push(term);
                         // fall past the resolve-pronoun handling below
                     } else {
-                    let resolved = self.resolve_pronoun(gender, number)?;
-                    let resolved_sym = match resolved {
-                        ResolvedPronoun::Variable(s) | ResolvedPronoun::Constant(s) => s,
-                    };
-                    // Binding Principle B: a plain (non-reflexive) object pronoun is
-                    // free in its local clause — it must not corefer with the local
-                    // subject. "John saw him." ⇒ him ≠ John. If resolution picked the
-                    // subject, use a fresh distinct individual instead.
-                    let term = if resolved_sym == subject.noun {
-                        let deictic = match (gender, number) {
-                            (Gender::Male, Number::Singular) => "Him",
-                            (Gender::Female, Number::Singular) => "Her",
-                            (Gender::Neuter, Number::Singular) => "It",
-                            _ => "Them",
+                        let resolved = self.resolve_pronoun(gender, number)?;
+                        let resolved_sym = match resolved {
+                            ResolvedPronoun::Variable(s) | ResolvedPronoun::Constant(s) => s,
                         };
-                        let sym = self.interner.intern(deictic);
-                        self.drs.introduce_referent_with_source(
-                            sym,
-                            sym,
-                            gender,
-                            number,
-                            crate::drs::ReferentSource::ProperName,
-                        );
-                        Term::Constant(sym)
-                    } else {
-                        match resolved {
-                            ResolvedPronoun::Variable(s) => Term::Variable(s),
-                            ResolvedPronoun::Constant(s) => Term::Constant(s),
-                        }
-                    };
-                    object_term = Some(term.clone());
-                    args.push(term);
+                        // Binding Principle B: a plain (non-reflexive) object pronoun is
+                        // free in its local clause — it must not corefer with the local
+                        // subject. "John saw him." ⇒ him ≠ John. If resolution picked the
+                        // subject, use a fresh distinct individual instead.
+                        let term = if resolved_sym == subject.noun {
+                            let deictic = match (gender, number) {
+                                (Gender::Male, Number::Singular) => "Him",
+                                (Gender::Female, Number::Singular) => "Her",
+                                (Gender::Neuter, Number::Singular) => "It",
+                                _ => "Them",
+                            };
+                            let sym = self.interner.intern(deictic);
+                            self.drs.introduce_referent_with_source(
+                                sym,
+                                sym,
+                                gender,
+                                number,
+                                crate::drs::ReferentSource::ProperName,
+                            );
+                            Term::Constant(sym)
+                        } else {
+                            match resolved {
+                                ResolvedPronoun::Variable(s) => Term::Variable(s),
+                                ResolvedPronoun::Constant(s) => Term::Constant(s),
+                            }
+                        };
+                        object_term = Some(term.clone());
+                        args.push(term);
 
-                    // Check for distanced phrasal verb particle: "gave it up"
-                    if let TokenType::Particle(particle_sym) = self.peek().kind {
-                        let verb_str = self.interner.resolve(verb).to_lowercase();
-                        let particle_str = self.interner.resolve(particle_sym).to_lowercase();
-                        if let Some((phrasal_lemma, _class)) = crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str) {
-                            self.advance();
-                            verb = self.interner.intern(phrasal_lemma);
+                        // Check for distanced phrasal verb particle: "gave it up"
+                        if let TokenType::Particle(particle_sym) = self.peek().kind {
+                            let verb_str = self.interner.resolve(verb).to_lowercase();
+                            let particle_str = self.interner.resolve(particle_sym).to_lowercase();
+                            if let Some((phrasal_lemma, _class)) =
+                                crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str)
+                            {
+                                self.advance();
+                                verb = self.interner.intern(phrasal_lemma);
+                            }
                         }
-                    }
                     } // end non-deictic pronoun branch
                 }
             } else if self.check(&TokenType::Either) {
@@ -13735,43 +27140,58 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let mut mods1 = vec![];
                     let mut mods2 = vec![];
                     match effective_time {
-                        Time::Past => { mods1.push(past_sym); mods2.push(past_sym); }
-                        Time::Future => { mods1.push(future_sym); mods2.push(future_sym); }
+                        Time::Past => {
+                            mods1.push(past_sym);
+                            mods2.push(past_sym);
+                        }
+                        Time::Future => {
+                            mods1.push(future_sym);
+                            mods2.push(future_sym);
+                        }
                         _ => {}
                     }
 
                     let event_var1 = self.get_event_var();
                     let event_var2 = self.get_event_var();
 
-                    let neo1 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var: event_var1,
-                        verb,
-                        roles: self.ctx.roles.alloc_slice(vec![
-                            (ThematicRole::Agent, subject_term1),
-                            (ThematicRole::Theme, Term::Constant(np1.noun)),
-                        ]),
-                        modifiers: self.ctx.syms.alloc_slice(mods1),
-                        suppress_existential,
-                        world: None,
-                    })));
-                    let neo2 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var: event_var2,
-                        verb,
-                        roles: self.ctx.roles.alloc_slice(vec![
-                            (ThematicRole::Agent, subject_term2),
-                            (ThematicRole::Theme, Term::Constant(np2.noun)),
-                        ]),
-                        modifiers: self.ctx.syms.alloc_slice(mods2),
-                        suppress_existential,
-                        world: None,
-                    })));
+                    let neo1 = self
+                        .ctx
+                        .exprs
+                        .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                            event_var: event_var1,
+                            verb,
+                            roles: self.ctx.roles.alloc_slice(vec![
+                                (ThematicRole::Agent, subject_term1),
+                                (ThematicRole::Theme, Term::Constant(np1.noun)),
+                            ]),
+                            modifiers: self.ctx.syms.alloc_slice(mods1),
+                            suppress_existential,
+                            world: None,
+                        })));
+                    let neo2 = self
+                        .ctx
+                        .exprs
+                        .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                            event_var: event_var2,
+                            verb,
+                            roles: self.ctx.roles.alloc_slice(vec![
+                                (ThematicRole::Agent, subject_term2),
+                                (ThematicRole::Theme, Term::Constant(np2.noun)),
+                            ]),
+                            modifiers: self.ctx.syms.alloc_slice(mods2),
+                            suppress_existential,
+                            world: None,
+                        })));
 
                     // Keep each disjunct object NP's possessor and PPs — "either
                     // the hustle from Spain or …" must not drop "from Spain";
                     // "either Tara's routine or …" must not drop the possessor.
                     let placeholder = self.interner.intern("_PP_SELF_");
                     let possesses = self.interner.intern("Possesses");
-                    let mut augment = |p: &mut Self, neo: &'a LogicExpr<'a>, np: &crate::ast::NounPhrase<'a>| -> &'a LogicExpr<'a> {
+                    let mut augment = |p: &mut Self,
+                                       neo: &'a LogicExpr<'a>,
+                                       np: &crate::ast::NounPhrase<'a>|
+                     -> &'a LogicExpr<'a> {
                         let obj = Term::Constant(np.noun);
                         let mut e = neo;
                         if let Some(possessor) = np.possessor {
@@ -13837,35 +27257,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 || self.check_possessive_pronoun()
             {
                 // Quantified object: "John loves every woman" or "John saw a dog"
-                let (obj_quantifier, was_definite_article) = if let Some(n) =
-                    self.counting_np_lookahead()
-                {
-                    // A digit-led counting NP object ("saw 6 brown manatees"):
-                    // consume the integer and quantify the remaining
-                    // "(adjective)+ noun" as ∃=n, reusing the canonical
-                    // quantified-object construction below. Without this the
-                    // adjective is mis-read as a measure unit (→ a bogus
-                    // Recipient role and a dropped count).
-                    self.advance();
-                    (Some(TokenType::Cardinal(n)), false)
-                } else if self.check_possessive_pronoun() {
-                    // Possessive NP object ("her dog"): parse_noun_phrase
-                    // consumes the possessor; semantically definite.
-                    (None, true)
-                } else if self.check_quantifier() {
-                    (Some(self.advance().kind.clone()), false)
-                } else {
-                    let art = self.advance().kind.clone();
-                    if let TokenType::Article(def) = art {
-                        if def == Definiteness::Indefinite {
-                            (Some(TokenType::Some), false)
-                        } else {
-                            (None, true)  // Was a definite article
-                        }
+                let (obj_quantifier, was_definite_article) =
+                    if let Some(n) = self.counting_np_lookahead() {
+                        // A digit-led counting NP object ("saw 6 brown manatees"):
+                        // consume the integer and quantify the remaining
+                        // "(adjective)+ noun" as ∃=n, reusing the canonical
+                        // quantified-object construction below. Without this the
+                        // adjective is mis-read as a measure unit (→ a bogus
+                        // Recipient role and a dropped count).
+                        self.advance();
+                        (Some(TokenType::Cardinal(n)), false)
+                    } else if self.check_possessive_pronoun() {
+                        // Possessive NP object ("her dog"): parse_noun_phrase
+                        // consumes the possessor; semantically definite.
+                        (None, true)
+                    } else if self.check_quantifier() {
+                        (Some(self.advance().kind.clone()), false)
                     } else {
-                        (None, false)
-                    }
-                };
+                        let art = self.advance().kind.clone();
+                        if let TokenType::Article(def) = art {
+                            if def == Definiteness::Indefinite {
+                                (Some(TokenType::Some), false)
+                            } else {
+                                (None, true) // Was a definite article
+                            }
+                        } else {
+                            (None, false)
+                        }
+                    };
 
                 // The quantifier/article/cardinal just established this as an NP,
                 // so a verb-word head after an adjective is a deverbal noun.
@@ -13889,7 +27308,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if let TokenType::Particle(particle_sym) = self.peek().kind {
                     let verb_str = self.interner.resolve(verb).to_lowercase();
                     let particle_str = self.interner.resolve(particle_sym).to_lowercase();
-                    if let Some((phrasal_lemma, _class)) = crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str) {
+                    if let Some((phrasal_lemma, _class)) =
+                        crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str)
+                    {
                         self.advance(); // consume the particle
                         verb = self.interner.intern(phrasal_lemma);
                     }
@@ -13915,28 +27336,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             world: None,
                         });
                         let emb_vp = self.parse_predicate_with_subject_as_var(emb_var)?;
-                        let (emb_kind, emb_op) = match obj_q {
-                            TokenType::All => (QuantifierKind::Universal, TokenType::Implies),
-                            _ => (QuantifierKind::Existential, TokenType::And),
-                        };
-                        let emb_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: emb_restriction,
-                            op: emb_op,
-                            right: emb_vp,
-                        });
-                        let embedded = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                            kind: emb_kind,
-                            variable: emb_var,
-                            body: emb_body,
-                            island_id: self.current_island,
-                        });
+                        let embedded =
+                            self.quantify_argument(&obj_q, emb_var, emb_restriction, emb_vp);
                         let subject_term_for_event = self.coerce_agent(&subject);
                         let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
-                            args: self.ctx.terms.alloc_slice([
-                                subject_term_for_event,
-                                Term::Proposition(embedded),
-                            ]),
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([subject_term_for_event, Term::Proposition(embedded)]),
                             world: None,
                         });
                         let effective_time = self.pending_time.take().unwrap_or(verb_time);
@@ -13973,16 +27381,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                            self.drs.introduce_event_referent(event_var, event_class);
                         }
-                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var,
-                            verb,
-                            roles: self.ctx.roles.alloc_slice(roles),
-                            modifiers: self.ctx.syms.alloc_slice(modifiers),
-                            suppress_existential,
-                            world: None,
-                        })));
+                        let neo_event =
+                            self.ctx
+                                .exprs
+                                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(roles),
+                                    modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                    suppress_existential,
+                                    world: None,
+                                })));
 
                         return self.wrap_with_definiteness_full(&subject, neo_event);
                     }
@@ -13991,29 +27402,44 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                     // Introduce object referent in DRS for cross-sentence anaphora
                     let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
-                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun))
+                    {
                         Number::Plural
                     } else {
                         Number::Singular
                     };
                     // Definite descriptions presuppose existence, so they should be globally accessible
                     if object_np.definiteness == Some(Definiteness::Definite) {
-                        self.drs.introduce_referent_with_source(obj_var, object_np.noun, obj_gender, obj_number, ReferentSource::MainClause);
+                        self.drs.introduce_referent_with_source(
+                            obj_var,
+                            object_np.noun,
+                            obj_gender,
+                            obj_number,
+                            ReferentSource::MainClause,
+                        );
                     } else {
-                        self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+                        self.drs.introduce_referent(
+                            obj_var,
+                            object_np.noun,
+                            obj_gender,
+                            obj_number,
+                        );
                     }
 
-                    let mut type_pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: object_np.noun,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
-                        world: None,
-                    });
+                    let mut type_pred: &'a LogicExpr<'a> =
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: object_np.noun,
+                            args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
+                        });
 
                     // Mass→count coercion (§6.2): a count determiner on a mass noun
                     // ("a water", "two waters") introduces a PORTION of the stuff:
                     // ∃x(Portion(x) ∧ Water(x) ∧ …). The mass noun itself stays
                     // non-atomic; the portion is the atom the determiner counts.
-                    if crate::lexicon::is_mass_noun(&self.interner.resolve(object_np.noun).to_lowercase()) {
+                    if crate::lexicon::is_mass_noun(
+                        &self.interner.resolve(object_np.noun).to_lowercase(),
+                    ) {
                         let portion_sym = self.interner.intern("Portion");
                         let portion_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: portion_sym,
@@ -14047,17 +27473,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
 
-                    let obj_restriction = if self.check(&TokenType::That) || self.check(&TokenType::Who) {
-                        self.advance();
-                        let rel_clause = self.parse_relative_clause(obj_var)?;
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: type_pred,
-                            op: TokenType::And,
-                            right: rel_clause,
-                        })
-                    } else {
-                        type_pred
-                    };
+                    let obj_restriction =
+                        if self.check(&TokenType::That) || self.check(&TokenType::Who) {
+                            self.advance();
+                            let rel_clause = self.parse_relative_clause(obj_var)?;
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: type_pred,
+                                op: TokenType::And,
+                                right: rel_clause,
+                            })
+                        } else {
+                            type_pred
+                        };
 
                     // Continuations inside the object quantifier's scope: a
                     // recipient ("gave a book to Mary") or an object-control
@@ -14144,91 +27571,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                        self.drs.introduce_event_referent(event_var, event_class);
                     }
-                    let neo_event = if let Some(inf) = control_infinitive {
-                        let inf_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                            name: inf,
-                            args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
-                            world: None,
-                        });
-                        let control = self.ctx.exprs.alloc(LogicExpr::Control {
-                            verb,
-                            subject: self.ctx.terms.alloc(subject_term_for_event),
-                            object: Some(&*self.ctx.terms.alloc(Term::Variable(obj_var))),
-                            infinitive: inf_pred,
-                        });
-                        match effective_time {
-                            Time::Past => &*self.ctx.exprs.alloc(LogicExpr::Temporal {
-                                operator: TemporalOperator::Past,
-                                body: control,
-                            }),
-                            Time::Future => &*self.ctx.exprs.alloc(LogicExpr::Temporal {
-                                operator: TemporalOperator::Future,
-                                body: control,
-                            }),
-                            _ => control,
-                        }
-                    } else {
-                        let plain = &*self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var,
-                            verb,
-                            roles: self.ctx.roles.alloc_slice(roles),
-                            modifiers: self.ctx.syms.alloc_slice(modifiers),
-                            suppress_existential,
-                            world: None,
-                        })));
-                        // Trailing event-PP adjuncts ("takes a holiday WITH a friend
-                        // TO some location") attach to the event INSIDE the object's
-                        // existential scope — the definite-object path consumes these
-                        // inline; without this they strand after an indefinite object.
-                        self.attach_trailing_event_pps(plain, event_var)?
-                    };
-
-                    let obj_kind = match obj_q {
-                        TokenType::All => QuantifierKind::Universal,
-                        TokenType::Some => QuantifierKind::Existential,
-                        TokenType::No => QuantifierKind::Universal,
-                        TokenType::Most => QuantifierKind::Most,
-                        TokenType::Few => QuantifierKind::Few,
-                        TokenType::Many => QuantifierKind::Many,
-                        TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
-                        TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
-                        TokenType::AtMost(n) => QuantifierKind::AtMost(n),
-                        _ => QuantifierKind::Existential,
-                    };
-
-                    let obj_body = match obj_q {
-                        TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: obj_restriction,
-                            op: TokenType::Implies,
-                            right: neo_event,
-                        }),
-                        TokenType::No => {
-                            let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                                op: TokenType::Not,
-                                operand: neo_event,
+                    let neo_event =
+                        if let Some(inf) = control_infinitive {
+                            let inf_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: inf,
+                                args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                                world: None,
                             });
-                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                left: obj_restriction,
-                                op: TokenType::Implies,
-                                right: neg,
-                            })
-                        }
-                        _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: obj_restriction,
-                            op: TokenType::And,
-                            right: neo_event,
-                        }),
-                    };
+                            let control = self.ctx.exprs.alloc(LogicExpr::Control {
+                                verb,
+                                subject: self.ctx.terms.alloc(subject_term_for_event),
+                                object: Some(&*self.ctx.terms.alloc(Term::Variable(obj_var))),
+                                infinitive: inf_pred,
+                            });
+                            match effective_time {
+                                Time::Past => &*self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                    operator: TemporalOperator::Past,
+                                    body: control,
+                                }),
+                                Time::Future => &*self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                    operator: TemporalOperator::Future,
+                                    body: control,
+                                }),
+                                _ => control,
+                            }
+                        } else {
+                            let plain = &*self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(
+                                NeoEventData {
+                                    event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(roles),
+                                    modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                    suppress_existential,
+                                    world: None,
+                                },
+                            )));
+                            // Trailing event-PP adjuncts ("takes a holiday WITH a friend
+                            // TO some location") attach to the event INSIDE the object's
+                            // existential scope — the definite-object path consumes these
+                            // inline; without this they strand after an indefinite object.
+                            self.attach_trailing_event_pps(plain, event_var)?
+                        };
 
-                    // Wrap object with its quantifier
-                    let obj_quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                        kind: obj_kind,
-                        variable: obj_var,
-                        body: obj_body,
-                        island_id: self.current_island,
-                    });
+                    let obj_quantified =
+                        self.quantify_argument(&obj_q, obj_var, obj_restriction, neo_event);
 
                     // A trailing temporal offset after an INDEFINITE/quantified
                     // object ("has a birthday 4 days before Rosemarie") — the
@@ -14265,14 +27653,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // E.g., "John entered the house. The door was open." - door bridges to house
                     // Note: was_definite_article is true because the article was consumed before parse_noun_phrase
                     if was_definite_article {
-                        let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
-                        let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
-                            Number::Plural
-                        } else {
-                            Number::Singular
-                        };
+                        let obj_gender =
+                            Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                        let obj_number =
+                            if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                                Number::Plural
+                            } else {
+                                Number::Singular
+                            };
                         // Definite descriptions presuppose existence, so they should be globally accessible
-                        self.drs.introduce_referent_with_source(object_np.noun, object_np.noun, obj_gender, obj_number, ReferentSource::MainClause);
+                        self.drs.introduce_referent_with_source(
+                            object_np.noun,
+                            object_np.noun,
+                            obj_gender,
+                            obj_number,
+                            ReferentSource::MainClause,
+                        );
                     }
 
                     let term = self.noun_phrase_to_term(&object_np);
@@ -14329,20 +27725,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                        self.drs.introduce_event_referent(event_var, event_class);
                     }
-                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var,
-                        verb,
-                        roles: self.ctx.roles.alloc_slice(roles),
-                        modifiers: self.ctx.syms.alloc_slice(modifiers),
-                        suppress_existential,
-                        world: None,
-                    })));
+                    let neo_event =
+                        self.ctx
+                            .exprs
+                            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                event_var,
+                                verb,
+                                roles: self.ctx.roles.alloc_slice(roles),
+                                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                suppress_existential,
+                                world: None,
+                            })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: prep_name,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var), pp_obj_term]),
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Variable(event_var), pp_obj_term]),
                         world: None,
                     });
 
@@ -14372,16 +27774,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                    self.drs.introduce_event_referent(event_var, event_class);
                 }
-                let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var,
-                    verb,
-                    roles: self.ctx.roles.alloc_slice(roles),
-                    modifiers: self.ctx.syms.alloc_slice(modifiers),
-                    suppress_existential,
-                    world: None,
-                })));
+                let neo_event = self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(roles),
+                        modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
+                        world: None,
+                    })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Focus {
@@ -14415,66 +27820,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     object_superlative = Some((adj, object.noun));
                 }
 
-                // Collect all objects for potential "respectively" handling
-                let mut all_objects: Vec<Symbol> = vec![object.noun];
-
-                // Check for coordinated objects: "Tom and Jerry and Bob"
-                while self.check(&TokenType::And) {
-                    let saved = self.current;
-                    self.advance(); // consume "and"
-                    if self.check_content_word() || self.check_article() {
-                        let next_obj = match self.parse_noun_phrase(false) {
-                            Ok(np) => np,
-                            Err(_) => {
-                                self.current = saved;
-                                break;
-                            }
-                        };
-                        all_objects.push(next_obj.noun);
-                    } else {
-                        self.current = saved;
-                        break;
-                    }
-                }
-
-                // Check for "respectively" with single subject
+                // A single subject and a single object pair trivially ("… respectively"). A
+                // list of objects is coordinated at the clause, where each gets the verb
+                // inside the subject's scope (`try_coordinated_objects`).
                 if self.check(&TokenType::Respectively) {
-                    let respectively_span = self.peek().span;
-                    // Single subject with multiple objects + respectively = error
-                    if all_objects.len() > 1 {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::RespectivelyLengthMismatch {
-                                subject_count: 1,
-                                object_count: all_objects.len(),
-                            },
-                            span: respectively_span,
-                        });
-                    }
-                    // Single subject, single object + respectively is valid (trivially pairwise)
                     self.advance(); // consume "respectively"
                 }
 
-                // Use the first object (or only object) for normal processing
                 let term = self.noun_phrase_to_term(&object);
                 object_term = Some(term.clone());
                 args.push(term.clone());
-
-                // For multiple objects without "respectively", use group semantics
-                if all_objects.len() > 1 {
-                    let obj_members: Vec<Term<'a>> = all_objects.iter()
-                        .map(|o| Term::Constant(*o))
-                        .collect();
-                    let obj_group = Term::Group(self.ctx.terms.alloc_slice(obj_members));
-                    // Replace the single object with the group
-                    args.pop();
-                    args.push(obj_group);
-                }
 
                 // Check for distanced phrasal verb particle: "gave the book up"
                 if let TokenType::Particle(particle_sym) = self.peek().kind {
                     let verb_str = self.interner.resolve(verb).to_lowercase();
                     let particle_str = self.interner.resolve(particle_sym).to_lowercase();
-                    if let Some((phrasal_lemma, _class)) = crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str) {
+                    if let Some((phrasal_lemma, _class)) =
+                        crate::lexicon::lookup_phrasal_verb(&verb_str, &particle_str)
+                    {
                         self.advance(); // consume the particle
                         verb = self.interner.intern(phrasal_lemma);
                     }
@@ -14489,7 +27852,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Check for ditransitive: "John gave Mary a book"
                 else {
                     let verb_str = self.interner.resolve(verb);
-                    if Lexer::is_ditransitive_verb(verb_str) && (self.check_content_word() || self.check_article()) {
+                    if Lexer::is_ditransitive_verb(verb_str)
+                        && (self.check_content_word() || self.check_article())
+                    {
                         let second_np = self.parse_noun_phrase(false)?;
                         let second_term = self.noun_phrase_to_term(&second_np);
                         second_object_term = Some(second_term.clone());
@@ -14539,8 +27904,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             while self.check_preposition() || self.check_to() {
                 // "within N cycles" is a temporal bound, not a PP
-                if self.check_preposition_is("within") && self.current + 1 < self.tokens.len()
-                    && matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+                if self.check_preposition_is("within")
+                    && self.current + 1 < self.tokens.len()
+                    && matches!(
+                        self.tokens[self.current + 1].kind,
+                        TokenType::Cardinal(_) | TokenType::Number(_)
+                    )
                 {
                     break;
                 }
@@ -14574,9 +27943,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Numeric PP object ("sold for $105", "sell for $2.60").
                     *self.parse_measure_phrase()?
                 } else if self.at_clause_boundary()
-                    && crate::lexicon::is_particle(
-                        &self.interner.resolve(prep_name).to_lowercase(),
-                    )
+                    && crate::lexicon::is_particle(&self.interner.resolve(prep_name).to_lowercase())
                 {
                     // A clause-final object-less PARTICLE preposition is an
                     // intransitive directional ("walked in", "sat down") — a
@@ -14613,7 +27980,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let event_sym = self.get_event_var();
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: prep_name,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(event_sym), pp_obj_term]),
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Variable(event_sym), pp_obj_term]),
                         world: None,
                     });
                     pp_predicates.push(pp_pred);
@@ -14685,7 +28055,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Check if verb is unaccusative (intransitive subject is Theme, not Agent)
             let verb_str_for_check = self.interner.resolve(verb).to_lowercase();
             let is_unaccusative = crate::lexicon::lookup_verb_db(&verb_str_for_check)
-                .map(|meta| meta.features.contains(&crate::lexicon::Feature::Unaccusative))
+                .map(|meta| {
+                    meta.features
+                        .contains(&crate::lexicon::Feature::Unaccusative)
+                })
                 .unwrap_or(false);
 
             // Unaccusative verbs used intransitively: subject is Theme
@@ -14730,31 +28103,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let suppress_existential = self.drs.in_conditional_antecedent();
             if suppress_existential {
                 let event_class = self.interner.intern("Event");
-                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                self.drs.introduce_event_referent(event_var, event_class);
             }
-            let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb,
-                roles: self.ctx.roles.alloc_slice(roles),
-                modifiers: self.ctx.syms.alloc_slice(modifiers),
-                suppress_existential,
-                world: None,
-            })));
-
-            // Combine with PP predicates if any
-            let with_pps = if pp_predicates.is_empty() {
-                neo_event
-            } else {
-                let mut combined = neo_event;
-                for pp in pp_predicates {
-                    combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: combined,
-                        op: TokenType::And,
-                        right: pp,
-                    });
-                }
-                combined
-            };
+            let with_pps = self.event_with_conditions(
+                NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self.ctx.roles.alloc_slice(roles),
+                    modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
+                    world: None,
+                },
+                pp_predicates,
+            );
 
             // Predicate a definite/constant object's adjectives + PP restrictors
             // of it ("ate the RED apple" → Red(Apple); "is the frat ON Holly
@@ -14894,13 +28255,91 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// The optional inclusive-comparison tail `or equal to` after `greater than` / `less than`
+    /// (`x is greater than or equal to y` → `≥`, `x is less than or equal to y` → `≤`). Consumes the
+    /// three words ATOMICALLY and returns `true` iff the full `or equal to` follows (matched by lexeme,
+    /// so the `Or` token, the `equal` word, and the `to` preposition all read); otherwise consumes
+    /// nothing and returns `false`, leaving a bare `greater than` / `less than` as the strict operator.
+    fn consume_or_equal_to(&mut self) -> bool {
+        if self.peek_word_at(0, "or") && self.peek_word_at(1, "equal") && self.peek_word_at(2, "to")
+        {
+            self.advance(); // "or"
+            self.advance(); // "equal"
+            self.advance(); // "to"
+            true
+        } else {
+            false
+        }
+    }
+
     /// Check if current token is a word (noun/adj/verb lexeme) matching the given string
+    /// Whether the token after the cursor ends a clause — used to tell the `Type …` verb from
+    /// an ordinary word that happens to be spelled "type".
+    fn next_is_colon_like(&self) -> bool {
+        self.tokens.get(self.current + 1).is_some_and(|t| {
+            matches!(
+                t.kind,
+                TokenType::Colon | TokenType::Period | TokenType::Newline
+            )
+        })
+    }
+
+    /// Whether the `item` at the cursor opens the `item <index> of <collection>` form. It does
+    /// when an index-shaped token follows; a closing bracket, separator, operator or end of
+    /// clause means the word is being used as a variable.
+    fn item_opens_an_index(&self) -> bool {
+        // The form always reaches an `of` before the clause ends. Looking for it — rather than
+        // guessing at the index's shape — keeps every index expression working (`item 2 of xs`,
+        // `item i of xs`, `item (i + 1) of xs`) while a bare `item` stays a variable.
+        let mut i = self.current + 1;
+        let end = (self.current + 24).min(self.tokens.len());
+        let mut depth = 0i32;
+        while i < end {
+            let tok = &self.tokens[i];
+            match tok.kind {
+                TokenType::LParen | TokenType::LBracket => depth += 1,
+                TokenType::RParen | TokenType::RBracket => {
+                    // A closing bracket that is not ours ends the surrounding expression, so the
+                    // `item` was an argument, not an index.
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                }
+                // Only a clause end at the TOP level rules the index form out — a comma or colon
+                // inside the index expression (`item f(a, b) of xs`) is part of it.
+                TokenType::Period | TokenType::Newline if depth == 0 => return false,
+                TokenType::Comma | TokenType::Colon if depth == 0 => return false,
+                _ if depth == 0 && self.interner.resolve(tok.lexeme).eq_ignore_ascii_case("of") => {
+                    return true
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
+    /// Whether the cursor sits on a `State:` / `Actions:` / `View:` / `Style:` section header.
+    fn next_is_section_header(&self) -> bool {
+        component::SECTION_WORDS
+            .iter()
+            .any(|w| self.lexeme_is(0, w))
+            && self
+                .tokens
+                .get(self.current + 1)
+                .is_some_and(|t| matches!(t.kind, TokenType::Colon))
+    }
+
     fn check_word(&self, word: &str) -> bool {
         let token = self.peek();
         // A string/char LITERAL is a value, never a keyword — a `"not"` literal
         // must not be mistaken for the `not` operator (which the lexeme match
         // would otherwise do, breaking `Show "not".`).
-        if matches!(token.kind, TokenType::StringLiteral(_) | TokenType::CharLiteral(_)) {
+        if matches!(
+            token.kind,
+            TokenType::StringLiteral(_) | TokenType::CharLiteral(_)
+        ) {
             return false;
         }
         let lexeme = self.interner.resolve(token.lexeme);
@@ -14920,7 +28359,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return false;
         }
         let token = &self.tokens[self.current + offset];
-        if matches!(token.kind, TokenType::StringLiteral(_) | TokenType::CharLiteral(_)) {
+        if matches!(
+            token.kind,
+            TokenType::StringLiteral(_) | TokenType::CharLiteral(_)
+        ) {
             return false;
         }
         let lexeme = self.interner.resolve(token.lexeme);
@@ -14990,7 +28432,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return expr;
         }
         let has_number = if self.current + 1 < self.tokens.len() {
-            matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+            matches!(
+                self.tokens[self.current + 1].kind,
+                TokenType::Cardinal(_) | TokenType::Number(_)
+            )
         } else {
             false
         };
@@ -15053,11 +28498,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// "…grant is high next cycle." — and wrap in Temporal::Next.
     pub(super) fn try_wrap_next_cycle(&mut self, expr: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
         // Bare "next cycle" (no preposition): "next" immediately followed by "cycle".
-        let bare_next_cycle = self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("next")
+        let bare_next_cycle = self
+            .interner
+            .resolve(self.peek().lexeme)
+            .eq_ignore_ascii_case("next")
             && self
                 .tokens
                 .get(self.current + 1)
-                .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("cycle"))
+                .map(|t| {
+                    self.interner
+                        .resolve(t.lexeme)
+                        .eq_ignore_ascii_case("cycle")
+                })
                 .unwrap_or(false);
         if bare_next_cycle {
             self.advance(); // next
@@ -15072,7 +28524,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         // Lookahead: "in" (the)? next cycle — bail untouched otherwise.
         let mut i = self.current + 1;
-        if matches!(self.tokens.get(i).map(|t| &t.kind), Some(TokenType::Article(_))) {
+        if matches!(
+            self.tokens.get(i).map(|t| &t.kind),
+            Some(TokenType::Article(_))
+        ) {
             i += 1;
         }
         let next_matches = self
@@ -15083,7 +28538,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let cycle_matches = self
             .tokens
             .get(i + 1)
-            .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("cycle"))
+            .map(|t| {
+                self.interner
+                    .resolve(t.lexeme)
+                    .eq_ignore_ascii_case("cycle")
+            })
             .unwrap_or(false);
         if !next_matches || !cycle_matches {
             return expr;
@@ -15108,12 +28567,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn kind_is_verb(&self, kind: &TokenType) -> bool {
         match kind {
             TokenType::Verb { .. } => true,
-            TokenType::Ambiguous { primary, alternatives } => {
+            TokenType::Ambiguous {
+                primary,
+                alternatives,
+            } => {
                 if self.noun_priority_mode {
                     return false;
                 }
                 matches!(**primary, TokenType::Verb { .. })
-                    || alternatives.iter().any(|t| matches!(t, TokenType::Verb { .. }))
+                    || alternatives
+                        .iter()
+                        .any(|t| matches!(t, TokenType::Verb { .. }))
             }
             _ => false,
         }
@@ -15358,17 +28822,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             modifiers.push(self.interner.intern("Future"));
         }
 
-        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-            event_var,
-            verb,
-            roles: self.ctx.roles.alloc_slice(vec![
-                (ThematicRole::Agent, subject_term),
-                (ThematicRole::Theme, object_term),
-            ]),
-            modifiers: self.ctx.syms.alloc_slice(modifiers),
-            suppress_existential,
-            world: None,
-        })));
+        let neo_event = self
+            .ctx
+            .exprs
+            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                event_var,
+                verb,
+                roles: self.ctx.roles.alloc_slice(vec![
+                    (ThematicRole::Agent, subject_term),
+                    (ThematicRole::Theme, object_term),
+                ]),
+                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                suppress_existential,
+                world: None,
+            })));
 
         // A counting-NP object binds the event as ∃=n ("did 49 previous jumps"
         // → ∃=49 j(Jump(j) ∧ Previous(j) ∧ Do-event(…, j))).
@@ -15434,9 +28901,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn consume_verb_with_metadata(&mut self) -> (Symbol, Time, Aspect, VerbClass) {
         let t = self.advance().clone();
         match t.kind {
-            TokenType::Verb { lemma, time, aspect, class } => (lemma, time, aspect, class),
+            TokenType::Verb {
+                lemma,
+                time,
+                aspect,
+                class,
+            } => (lemma, time, aspect, class),
             TokenType::Ambiguous { primary, .. } => match *primary {
-                TokenType::Verb { lemma, time, aspect, class } => (lemma, time, aspect, class),
+                TokenType::Verb {
+                    lemma,
+                    time,
+                    aspect,
+                    class,
+                } => (lemma, time, aspect, class),
                 _ => panic!("Expected verb in Ambiguous primary, got {:?}", primary),
             },
             _ => panic!("Expected verb, got {:?}", t.kind),
@@ -15454,19 +28931,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn check_quantifier(&self) -> bool {
-        matches!(
-            self.peek().kind,
-            TokenType::All
-                | TokenType::No
-                | TokenType::Some
-                | TokenType::Any
-                | TokenType::Most
-                | TokenType::Few
-                | TokenType::Many
-                | TokenType::Cardinal(_)
-                | TokenType::AtLeast(_)
-                | TokenType::AtMost(_)
-        )
+        matches!(self.peek().kind, TokenType::Any)
+            || QuantifierKind::of_determiner(&self.peek().kind).is_some()
     }
 
     fn check_npi_quantifier(&self) -> bool {
@@ -15477,17 +28943,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn check_npi_object(&self) -> bool {
-        matches!(
-            self.peek().kind,
-            TokenType::Anything | TokenType::Anyone
-        )
+        matches!(self.peek().kind, TokenType::Anything | TokenType::Anyone)
     }
 
     fn check_temporal_npi(&self) -> bool {
-        matches!(
-            self.peek().kind,
-            TokenType::Ever | TokenType::Never
-        )
+        matches!(self.peek().kind, TokenType::Ever | TokenType::Never)
     }
 
     fn parse_npi_quantified(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
@@ -15530,7 +28990,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
-                args: self.ctx.terms.alloc_slice([Term::Variable(var_name), Term::Variable(obj_var)]),
+                args: self
+                    .ctx
+                    .terms
+                    .alloc_slice([Term::Variable(var_name), Term::Variable(obj_var)]),
                 world: None,
             });
 
@@ -15664,13 +29127,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Phase 35: Check if the next token (after current) is a string literal.
     /// Used to distinguish causal `because` from Trust's `because "reason"`.
     fn peek_next_is_string_literal(&self) -> bool {
-        self.tokens.get(self.current + 1)
+        self.tokens
+            .get(self.current + 1)
             .map(|t| matches!(t.kind, TokenType::StringLiteral(_)))
             .unwrap_or(false)
     }
 
     fn previous(&self) -> &Token {
-        &self.tokens[self.current - 1]
+        // Clamp at the start of the stream: asking for the token before position
+        // 0 (only reachable on malformed input, e.g. a lookahead that never
+        // consumed) reads the first token instead of underflowing `current - 1`
+        // into a panic. Mirrors `peek`'s EOF clamp — the parser never crashes on
+        // adversarial input, it produces a structured error.
+        let idx = self.current.saturating_sub(1);
+        self.tokens
+            .get(idx)
+            .unwrap_or_else(|| self.tokens.last().expect("stream ends with EOF"))
     }
 
     fn current_span(&self) -> crate::token::Span {
@@ -15729,7 +29201,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn consume_content_word(&mut self) -> ParseResult<Symbol> {
         let t = self.advance().clone();
         match t.kind {
-            TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
+            TokenType::Noun(s)
+            | TokenType::Adjective(s)
+            | TokenType::NonIntersectiveAdjective(s) => Ok(s),
             // "item"/"items" are LOGOS index keywords but ordinary nouns in
             // declarative NL — read them as the noun via their (capitalized) lexeme.
             TokenType::Item | TokenType::Items if self.mode == ParserMode::Declarative => {
@@ -15768,6 +29242,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     crate::token::CalendarUnit::Week => "Week",
                     crate::token::CalendarUnit::Month => "Month",
                     crate::token::CalendarUnit::Year => "Year",
+                    crate::token::CalendarUnit::Millisecond => "Millisecond",
+                    crate::token::CalendarUnit::Microsecond => "Microsecond",
+                    crate::token::CalendarUnit::Nanosecond => "Nanosecond",
                 };
                 Ok(self.interner.intern(lemma))
             }
@@ -15777,7 +29254,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if !self.drs.has_referent_by_variable(s) {
                         return Err(ParseError {
                             kind: ParseErrorKind::UndefinedVariable {
-                                name: self.interner.resolve(s).to_string()
+                                name: self.interner.resolve(s).to_string(),
                             },
                             span: t.span,
                         });
@@ -15798,7 +29275,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Performative(s) => Ok(s),
             TokenType::Ambiguous { primary, .. } => {
                 match *primary {
-                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
+                    TokenType::Noun(s)
+                    | TokenType::Adjective(s)
+                    | TokenType::NonIntersectiveAdjective(s) => Ok(s),
                     TokenType::Verb { lemma, .. } => Ok(lemma),
                     TokenType::Performative(s) => Ok(s),
                     TokenType::ProperName(s) => {
@@ -15807,7 +29286,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             if !self.drs.has_referent_by_variable(s) {
                                 return Err(ParseError {
                                     kind: ParseErrorKind::UndefinedVariable {
-                                        name: self.interner.resolve(s).to_string()
+                                        name: self.interner.resolve(s).to_string(),
                                     },
                                     span: t.span,
                                 });
@@ -15834,7 +29313,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn consume_copula(&mut self) -> ParseResult<()> {
-        if self.match_token(&[TokenType::Is, TokenType::Are, TokenType::Was, TokenType::Were]) {
+        if self.match_token(&[
+            TokenType::Is,
+            TokenType::Are,
+            TokenType::Was,
+            TokenType::Were,
+        ]) {
             Ok(())
         } else {
             Err(ParseError {
@@ -15866,14 +29350,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         // Must have noun/proper name (embedded subject)
-        if pos < self.tokens.len() && matches!(self.tokens[pos].kind, TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_)) {
+        if pos < self.tokens.len()
+            && matches!(
+                self.tokens[pos].kind,
+                TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_)
+            )
+        {
             pos += 1;
         } else {
             return false;
         }
 
         // Must have verb OR another article (nested contact clause) after
-        pos < self.tokens.len() && matches!(self.tokens[pos].kind, TokenType::Verb { .. } | TokenType::Article(_))
+        pos < self.tokens.len()
+            && matches!(
+                self.tokens[pos].kind,
+                TokenType::Verb { .. } | TokenType::Article(_)
+            )
     }
 
     fn check_superlative(&self) -> bool {
@@ -15938,17 +29431,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return false;
         }
         let next = &self.tokens[self.current + 1].kind;
-        matches!(next,
-            TokenType::ProperName(_) |
-            TokenType::Article(_) |
-            TokenType::Noun(_) |
-            TokenType::Pronoun { .. } |
-            TokenType::Reflexive |
-            TokenType::Who |
-            TokenType::What |
-            TokenType::Where |
-            TokenType::When |
-            TokenType::Why
+        matches!(
+            next,
+            TokenType::ProperName(_)
+                | TokenType::Article(_)
+                | TokenType::Noun(_)
+                | TokenType::Pronoun { .. }
+                | TokenType::Reflexive
+                | TokenType::Who
+                | TokenType::What
+                | TokenType::Where
+                | TokenType::When
+                | TokenType::Why
         )
     }
 
@@ -15970,7 +29464,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect article (a/an)
         if !self.check_article() {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "a/an".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "a/an".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -15985,7 +29481,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             _ => {
                 return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "agent type".to_string() },
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "agent type".to_string(),
+                    },
                     span: self.current_span(),
                 });
             }
@@ -15994,7 +29492,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "called"
         if !self.check(&TokenType::Called) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "called".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16007,7 +29507,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             s
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "agent name".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "agent name".to_string(),
+                },
                 span: self.current_span(),
             });
         };
@@ -16029,6 +29531,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let mut computed = false;
         let mut indexed = false;
         let mut deduped = false;
+        let mut unreliable = false;
         loop {
             if !cached && self.check_word("cached") {
                 self.advance();
@@ -16048,26 +29551,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else if !unchecked && self.check_word("unchecked") {
                 self.advance();
                 unchecked = true;
-            } else if layout.is_none()
-                && (self.check_word("fast") || self.check_word("quickly"))
-            {
+            } else if !unreliable && self.check_word("unreliably") {
+                self.advance();
+                unreliable = true;
+            } else if layout.is_none() && (self.check_word("fast") || self.check_word("quickly")) {
                 self.advance();
                 layout = Some(SendLayout::Fast);
-            } else if layout.is_none()
-                && (self.check_word("compact") || self.check_word("small"))
-            {
+            } else if layout.is_none() && (self.check_word("compact") || self.check_word("small")) {
                 self.advance();
                 layout = Some(SendLayout::Compact);
             } else if layout.is_none() && self.check_word("packed") {
                 self.advance();
                 layout = Some(SendLayout::Packed);
-            } else if layout.is_none()
-                && (self.check_word("smallest") || self.check_word("best"))
-            {
+            } else if layout.is_none() && (self.check_word("smallest") || self.check_word("best")) {
                 self.advance();
                 layout = Some(SendLayout::Smallest);
-            } else if layout.is_none()
-                && (self.check_word("redundant") || self.check_word("tough"))
+            } else if layout.is_none() && (self.check_word("redundant") || self.check_word("tough"))
             {
                 self.advance();
                 layout = Some(SendLayout::Redundant);
@@ -16075,7 +29574,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 let codec = if self.check_word("with") {
                     self.advance();
-                    let name = self.interner.resolve(self.peek().lexeme).to_ascii_lowercase();
+                    let name = self
+                        .interner
+                        .resolve(self.peek().lexeme)
+                        .to_ascii_lowercase();
                     let c = match name.as_str() {
                         "deflate" => CompressionCodec::Deflate,
                         "lz4" => CompressionCodec::Lz4,
@@ -16106,7 +29608,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to"
         if !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16126,6 +29630,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             computed,
             indexed,
             deduped,
+            unreliable,
         })
     }
 
@@ -16154,7 +29659,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "from" (can be keyword or preposition)
         if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "from".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16166,7 +29673,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "into"
         if !self.check_word("into") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "into".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16178,7 +29687,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // binding (`expect_identifier`).
         let into = self.expect_identifier()?;
 
-        Ok(Stmt::AwaitMessage { source, into, view, stream })
+        Ok(Stmt::AwaitMessage {
+            source,
+            into,
+            view,
+            stream,
+        })
     }
 
     /// Parse a batch stream send. The transport is the one-word knob, exactly as `Send` chooses:
@@ -16193,16 +29707,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Into) || self.check_word("into") {
             self.advance();
             let pipe = self.parse_imperative_expr()?;
-            return Ok(Stmt::SendPipe { value: values, pipe });
+            return Ok(Stmt::SendPipe {
+                value: values,
+                pipe,
+            });
         }
         // `to` <peer>: the relay network transport.
         if self.check(&TokenType::To) || self.check_preposition_is("to") || self.check_word("to") {
             self.advance();
             let destination = self.parse_imperative_expr()?;
-            return Ok(Stmt::StreamMessage { values, destination });
+            return Ok(Stmt::StreamMessage {
+                values,
+                destination,
+            });
         }
         Err(ParseError {
-            kind: ParseErrorKind::ExpectedKeyword { keyword: "to (relay) or into (pipe)".to_string() },
+            kind: ParseErrorKind::ExpectedKeyword {
+                keyword: "to (relay) or into (pipe)".to_string(),
+            },
             span: self.current_span(),
         })
     }
@@ -16213,7 +29735,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Parse merge statement: "Merge remote into local." or "Merge remote's field into local's field."
     fn parse_merge_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        self.advance(); // consume "Merge"
+        self.parse_crdt_join_like(false)
+    }
+
+    /// Parse converge statement: "Converge remote into local." — the IDEMPOTENT sibling of `Merge`
+    /// (`Stmt::JoinCrdt`); a bare-`Int` field takes per-field MAX instead of ADD.
+    fn parse_converge_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.parse_crdt_join_like(true)
+    }
+
+    /// The shared `<verb> source into target` body for `Merge`/`Converge`. `is_join` selects the
+    /// idempotent lattice join (`Stmt::JoinCrdt`) over the plain field-wise merge (`Stmt::MergeCrdt`).
+    fn parse_crdt_join_like(&mut self, is_join: bool) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Merge" / "Converge"
 
         // Parse source expression
         let source = self.parse_imperative_expr()?;
@@ -16221,7 +29755,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "into"
         if !self.check_word("into") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "into".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16230,71 +29766,126 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse target expression
         let target = self.parse_imperative_expr()?;
 
-        Ok(Stmt::MergeCrdt { source, target })
+        Ok(if is_join {
+            Stmt::JoinCrdt { source, target }
+        } else {
+            Stmt::MergeCrdt { source, target }
+        })
     }
 
-    /// Parse increase statement: "Increase local's points by 10."
+    /// Parse a reversible swap: "Swap x and y." — exchanges the two variables' values with zero
+    /// history-tape cost (`Op::RevSwap`, the canonical zero-garbage reversible primitive).
+    fn parse_swap_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Swap"
+        let a_span = self.current_span();
+        let a = self.expect_identifier()?;
+        self.note_write_at(a, a_span, component::WriteVerb::Swap);
+        if !self.check(&TokenType::And) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "and".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "and"
+        let b_span = self.current_span();
+        let b = self.expect_identifier()?;
+        self.note_write_at(b, b_span, component::WriteVerb::Swap);
+        Ok(Stmt::Swap { a, b })
+    }
+
+    /// `Increase x by n.` / `Decrease x by n.` — one walk for both directions. Two readings,
+    /// decided by what follows the verb:
+    ///
+    ///   * a FIELD access → `Increase c's points by 10.`, the CRDT counter increment
+    ///   * a PLAIN NAME   → ordinary assignment: `Increase n by 3.` IS `Set n to n + 3.`
+    fn parse_step_statement(&mut self, increase: bool) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Increase" / "Decrease"
+
+        let target_from = self.current;
+        let expr = self.parse_imperative_expr()?;
+        self.note_write(
+            expr,
+            target_from,
+            self.current,
+            if increase {
+                component::WriteVerb::Increase
+            } else {
+                component::WriteVerb::Decrease
+            },
+        );
+
+        // Classified BEFORE `by` is consumed so the refusal below points at what was actually
+        // written rather than at the middle of the sentence.
+        let field_target = match expr {
+            Expr::FieldAccess { object, field } => Some((*object, *field)),
+            Expr::Identifier(_) => None,
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword {
+                        keyword: "a name or a field access (e.g., 'count' or 'x's count')"
+                            .to_string(),
+                    },
+                    span: self.current_span(),
+                })
+            }
+        };
+
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "by".to_string(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        let amount = self.parse_imperative_expr()?;
+
+        if let Some((object, field)) = field_target {
+            return Ok(if increase {
+                Stmt::IncreaseCrdt {
+                    object,
+                    field,
+                    amount,
+                }
+            } else {
+                Stmt::DecreaseCrdt {
+                    object,
+                    field,
+                    amount,
+                }
+            });
+        }
+
+        let Expr::Identifier(target) = expr else {
+            unreachable!("classified as a plain name above")
+        };
+        let left = self.ctx.alloc_imperative_expr(Expr::Identifier(*target));
+        let op = if increase {
+            BinaryOpKind::Add
+        } else {
+            BinaryOpKind::Subtract
+        };
+        let value = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+            op,
+            left,
+            right: amount,
+        });
+        Ok(Stmt::Set {
+            target: *target,
+            value,
+        })
+    }
+
     fn parse_increase_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        self.advance(); // consume "Increase"
-
-        // Parse object with field access (e.g., "local's points")
-        let expr = self.parse_imperative_expr()?;
-
-        // Must be a field access
-        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
-            (object, field)
-        } else {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
-                span: self.current_span(),
-            });
-        };
-
-        // Expect "by"
-        if !self.check_preposition_is("by") {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume "by"
-
-        // Parse amount
-        let amount = self.parse_imperative_expr()?;
-
-        Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
+        self.parse_step_statement(true)
     }
 
-    /// Parse decrease statement: "Decrease game's score by 5."
     fn parse_decrease_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        self.advance(); // consume "Decrease"
-
-        // Parse object with field access (e.g., "game's score")
-        let expr = self.parse_imperative_expr()?;
-
-        // Must be a field access
-        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
-            (object, field)
-        } else {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
-                span: self.current_span(),
-            });
-        };
-
-        // Expect "by"
-        if !self.check_preposition_is("by") {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume "by"
-
-        // Parse amount
-        let amount = self.parse_imperative_expr()?;
-
-        Ok(Stmt::DecreaseCrdt { object, field: *field, amount })
+        self.parse_step_statement(false)
     }
 
     /// Parse append statement: "Append value to sequence."
@@ -16307,7 +29898,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" (can be TokenType::To or a preposition)
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16331,7 +29924,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             (object, field)
         } else {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's title')".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "field access (e.g., 'x's title')".to_string(),
+                },
                 span: self.current_span(),
             });
         };
@@ -16339,7 +29934,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Expect "to" (can be TokenType::To or a preposition)
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "to".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -16348,8 +29945,213 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse value
         let value = self.parse_imperative_expr()?;
 
-        Ok(Stmt::ResolveConflict { object, field: *field, value })
+        Ok(Stmt::ResolveConflict {
+            object,
+            field: *field,
+            value,
+        })
     }
-
 }
 
+/// A `Proof:` line that is ONE word — plus the sentence period — names a SINGLE proof step
+/// rather than a script of them, and that is what
+/// [`ProofStrategy::ByRule`](crate::ast::theorem::ProofStrategy::ByRule) classifies. Its own
+/// documented example is `Proof: ModusPonens.`
+///
+/// The classification is purely SHAPE-based, so it never drifts against the inference-rule
+/// enum or the tactic table: LOGOS has exactly one proof-step namespace (the tactics), and a
+/// one-word line names one step in it. When the word is not a step — an inference-rule name
+/// like `ModusPonens`, which belongs to the kernel's vocabulary and not to the vernacular —
+/// the driver says so loudly and names the spelling that DOES apply a rule
+/// ([`lower_rule_applications`]), rather than searching for a proof the author did not write.
+///
+/// Returns `None` for a multi-word line (`Induction on n .`, `Assume h . By assumption .`),
+/// which stays a [`ProofStrategy::Script`](crate::ast::theorem::ProofStrategy::Script).
+fn proof_line_names_one_rule(parts: &[String]) -> Option<String> {
+    let mut words = parts.iter().filter(|p| !p.trim().is_empty());
+    let head = words.next()?;
+    match (words.next(), words.next()) {
+        (None, _) => {}
+        (Some(p), None) if p == "." => {}
+        _ => return None,
+    }
+    let mut chars = head.chars();
+    if !chars.next().is_some_and(|c| c.is_alphabetic() || c == '_') {
+        return None;
+    }
+    if !chars.all(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some(head.clone())
+}
+
+/// The premise namespace a `Proof:` script actually cites, and the one rule that keeps a
+/// citation from being a silent choice.
+///
+/// `ProofState::start_with_names` names premise `i` by its `Given (label):` when it has one and
+/// by the positional `hp{i}` otherwise; a script's citation is then resolved against the FIRST
+/// hypothesis carrying that name. So two premises under one name is not shadowing, it is a
+/// coin flip the block gives its reader no way to see: `Given (h): A.` plus `Given (h): B.`
+/// plus `exact h` proves `A` and says nothing whatever about `B`.
+///
+/// Lean cannot reach that state, twice over. `LocalContext.findFromUserName?` resolves a user
+/// name with `findSomeRev?`, so the LAST binding wins rather than the first
+/// (`Lean/LocalContext.lean:273`), and `getUnusedNameAux` guarantees a GENERATED name is never
+/// one already in use (`Lean/LocalContext.lean:282`). Lean's generated names are also
+/// inaccessible (`h✝`), so the second guarantee costs it nothing. OURS ARE CITABLE — `hp0` is
+/// the documented way to cite an unnamed premise — so the same guarantee has to be stated
+/// here, on the surface, instead of being a property of the elaborator.
+///
+/// Refusing rather than shadowing is a deliberate divergence from Lean, and the argument is
+/// the surface: a `Given (h):` label is written in parentheses on purpose, and this surface
+/// has no rendering for a shadowed premise, so a reader could never tell which `h` a script
+/// meant. A block that cannot be read unambiguously is refused where it is written.
+///
+/// Returns the diagnostic, or `None` when every premise is citable by exactly one name.
+fn premise_label_conflict(names: &[Option<String>]) -> Option<String> {
+    // (1) `hp<digits>` is the system's namespace. A label may enter it only at its own index,
+    //     where it renames a premise to the name it already had.
+    for (i, label) in names.iter().enumerate() {
+        let Some(label) = label else { continue };
+        let positional = label.len() > 2
+            && label.starts_with("hp")
+            && label[2..].bytes().all(|b| b.is_ascii_digit());
+        if positional && *label != format!("hp{i}") {
+            return Some(format!(
+                "premise {i} is labelled `{label}`, and `hp<n>` is the POSITIONAL name every \
+                 `Proof:` script already has for premise n — so `{label}` would cite THIS \
+                 premise while naming another. Choose a label outside the `hp<n>` namespace, \
+                 or write `hp{i}`, which is what this premise is called"
+            ));
+        }
+    }
+    // (2) Whatever the labels, the names the tactic state will carry must be distinct.
+    let effective: Vec<String> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| n.clone().unwrap_or_else(|| format!("hp{i}")))
+        .collect();
+    for (i, name) in effective.iter().enumerate() {
+        if let Some(j) = effective[..i].iter().position(|earlier| earlier == name) {
+            return Some(format!(
+                "premises {j} and {i} are both named `{name}` — a `Proof:` script citing \
+                 `{name}` would silently take premise {j} and never see premise {i}. Give \
+                 them different `Given (<label>):` names"
+            ));
+        }
+    }
+    None
+}
+
+/// Is `word` a step in the TACTIC namespace?
+///
+/// The tactic table is ASKED rather than copied: a script of one word either compiles, or
+/// fails for a reason that still proves the word is a tactic (`cases` wants an argument), or
+/// fails with `unknown tactic`, which is the one answer that means the namespace does not
+/// carry it. A word list duplicated here would drift against `tactic_script::canonical` the
+/// first time an alias was added there, and the drift would be silent.
+fn names_a_tactic(word: &str) -> bool {
+    match logicaffeine_proof::tactic_script::parse_script(word) {
+        Ok(_) => true,
+        Err(e) => !e.to_string().contains("unknown tactic"),
+    }
+}
+
+/// A mathematical NAME: a leading letter or `_`, then letters, digits, `_` or `'`.
+fn is_proof_word(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
+}
+
+/// The English `By <Rule>` step, lowered to the tactic namespace's own `by_rule <Rule>` atom.
+///
+/// A kernel INFERENCE RULE is not a tactic, so a bare `ModusPonens` is (rightly) an unknown
+/// tactic — exactly as Lean refuses `by modus_ponens` and wants `apply`. What was missing is
+/// the spelling that DOES apply one, and `ProofState::by_rule` is now that door: it applies
+/// the named rule to the facts in scope and CERTIFIES the node before reporting success, so
+/// this lowering can never hand `qed` a tree the kernel would refuse.
+///
+/// # The tactic namespace always wins
+///
+/// The rewrite fires only for a word the tactic table does NOT carry, which is why
+/// `By contradiction.` still means `by_contra`, `By reflexivity.` still means `rfl` and
+/// `By cases on h.` is untouched — even though `Contradiction` and `Reflexivity` are also
+/// rule names. One word, one meaning, and the vernacular's own vocabulary has priority over
+/// the kernel's. [`names_a_tactic`] asks the tactic table itself, so that precedence cannot
+/// rot.
+///
+/// The rewrite is anchored at a STEP boundary (the line's start, or just after a `.`/`;`), so
+/// a `by` that is prose inside a step — `have h by …` — is left alone.
+///
+/// Returns `None` when nothing was rewritten, so the overwhelmingly common line keeps its
+/// VERBATIM lexeme join and no allocation is spent on it.
+fn lower_rule_applications(parts: &[String]) -> Option<String> {
+    let mut out: Vec<String> = Vec::with_capacity(parts.len());
+    let mut changed = false;
+    let mut at_step_start = true;
+    let mut i = 0;
+    while i < parts.len() {
+        let word = parts[i].trim();
+        if word.is_empty() {
+            out.push(parts[i].clone());
+            i += 1;
+            continue;
+        }
+        if at_step_start && word.eq_ignore_ascii_case("by") {
+            if let Some(j) = (i + 1..parts.len()).find(|k| !parts[*k].trim().is_empty()) {
+                let rule = parts[j].trim();
+                if logicaffeine_proof::InferenceRule::from_name(rule).is_some()
+                    && !names_a_tactic(rule)
+                {
+                    out.push("by_rule".to_string());
+                    out.push(rule.to_string());
+                    changed = true;
+                    at_step_start = false;
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        at_step_start = word == "." || word == ";";
+        out.push(parts[i].clone());
+        i += 1;
+    }
+    changed.then(|| out.join(" "))
+}
+
+/// `Proof: By induction on n.` — the whole line naming a METHOD and the variable it runs on,
+/// and that is what
+/// [`ProofStrategy::Induction`](crate::ast::theorem::ProofStrategy::Induction) classifies.
+///
+/// It is the same proof either way: both drivers lower the variant to the script `induction
+/// <variable>`, which is what the bare `Proof: Induction on n.` spelling reaches through
+/// [`ProofStrategy::Script`](crate::ast::theorem::ProofStrategy::Script). What the structured
+/// variant adds is that the METHOD and its ARGUMENT are readable without re-parsing prose —
+/// a UI can say "induction on n" instead of echoing a script — and that the public four-way
+/// classification is honest: every variant has a construction site and a driver arm.
+///
+/// Anything longer stays a script, because a script is what it is: `By induction on n.
+/// Automatically.` is two steps, and collapsing it would discard the second.
+fn proof_line_is_induction_on(parts: &[String]) -> Option<String> {
+    let mut words = parts.iter().map(|p| p.trim()).filter(|p| !p.is_empty());
+    if !words.next()?.eq_ignore_ascii_case("by") {
+        return None;
+    }
+    if !words.next()?.eq_ignore_ascii_case("induction") {
+        return None;
+    }
+    if !words.next()?.eq_ignore_ascii_case("on") {
+        return None;
+    }
+    let variable = words.next()?;
+    if !is_proof_word(variable) {
+        return None;
+    }
+    match (words.next(), words.next()) {
+        (None, _) => {}
+        (Some("."), None) => {}
+        _ => return None,
+    }
+    Some(variable.to_string())
+}

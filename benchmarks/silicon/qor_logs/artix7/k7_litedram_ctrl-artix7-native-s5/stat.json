@@ -1,0 +1,86 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\litedram_ctrl": {
+         "num_wires":         1667,
+         "num_wire_bits":     6807,
+         "num_pub_wires":     688,
+         "num_pub_wire_bits": 3972,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         2062,
+         "num_cells_by_type": {
+            "CARRY4": 49,
+            "FDRE": 583,
+            "FDSE": 12,
+            "INV": 106,
+            "LUT1": 12,
+            "LUT2": 273,
+            "LUT3": 112,
+            "LUT4": 134,
+            "LUT5": 68,
+            "LUT6": 458,
+            "MUXF7": 169,
+            "MUXF8": 54,
+            "RAM32M": 32
+         }
+      },
+      "\\qorsyn_k7_litedram_ctrl": {
+         "num_wires":         342,
+         "num_wire_bits":     3031,
+         "num_pub_wires":     87,
+         "num_pub_wire_bits": 2621,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         626,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 206,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 61,
+            "LUT2": 14,
+            "LUT3": 22,
+            "LUT4": 25,
+            "LUT5": 13,
+            "LUT6": 143,
+            "MUXF7": 62,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "litedram_ctrl": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         2009,
+         "num_wire_bits":     9838,
+         "num_pub_wires":     775,
+         "num_pub_wire_bits": 6593,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         2687,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 49,
+            "FDRE": 789,
+            "FDSE": 45,
+            "IBUF": 2,
+            "INV": 167,
+            "LUT1": 12,
+            "LUT2": 287,
+            "LUT3": 134,
+            "LUT4": 159,
+            "LUT5": 81,
+            "LUT6": 601,
+            "MUXF7": 231,
+            "MUXF8": 81,
+            "OBUF": 16,
+            "RAM32M": 32
+         }
+      }
+}
+

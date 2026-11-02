@@ -10,7 +10,7 @@ pub fn main() !void {
     const n_str = args.next() orelse return;
     const n: usize = @intCast(try std.fmt.parseInt(i64, n_str, 10));
 
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.smp_allocator;
     const adj = try allocator.alloc(usize, n * MAX_EDGES);
     defer allocator.free(adj);
     const adj_count = try allocator.alloc(usize, n);
@@ -60,6 +60,10 @@ pub fn main() !void {
             total_dist += dist[i];
         }
     }
-    try stdout.interface.print("{d} {d}\n", .{ reachable, total_dist });
+    var h: i64 = 0;
+    for (0..n) |i| {
+        h = (h * 31 + dist[i] + 1) & 268435455;
+    }
+    try stdout.interface.print("{d} {d} {d}\n", .{ reachable, total_dist, h });
     try stdout.interface.flush();
 }

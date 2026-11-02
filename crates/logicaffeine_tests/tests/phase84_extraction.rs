@@ -8,6 +8,20 @@
 use logicaffeine_compile::extraction::{extract_program, extract_programs};
 use logicaffeine_kernel::interface::Repl;
 
+/// Peano addition by structural recursion on its first argument, defined under `name`. The
+/// prelude's own `add` is Lean's `Int.add`, with the integer laws resting on it, and a declared
+/// name never changes meaning under what depends on it. So the fixture's function gets a name of
+/// its own, and `test_extract_add_function` checks that redefining `add` is refused.
+fn peano_add_def(name: &str) -> String {
+    format!(
+        "Definition {name} : Nat -> Nat -> Nat := \
+         fix rec => fun n : Nat => fun m : Nat => \
+         match n return (fun _ : Nat => Nat) with \
+         | Zero => m \
+         | Succ k => Succ (rec k m)."
+    )
+}
+
 // =============================================================================
 // BASIC EXTRACTION TESTS
 // =============================================================================
@@ -27,7 +41,10 @@ fn test_extract_nat_enum() {
         rust_code.contains("enum MyNat {"),
         "Should have enum declaration"
     );
-    assert!(rust_code.contains("MZero,"), "Should have MZero constructor");
+    assert!(
+        rust_code.contains("MZero,"),
+        "Should have MZero constructor"
+    );
     assert!(
         rust_code.contains("MSucc(Box<MyNat>)"),
         "Should have MSucc with Box"
@@ -62,52 +79,66 @@ fn test_extract_simple_definition() {
 fn test_extract_add_function() {
     let mut repl = Repl::new();
 
-    // Define add using fix + nested lambdas
+    // Define my_add using fix + nested lambdas
     // Note: motive must be a function (fun _ : Nat => ReturnType)
-    let add_def = "Definition add : Nat -> Nat -> Nat := \
-        fix rec => fun n : Nat => fun m : Nat => \
-        match n return (fun _ : Nat => Nat) with \
-        | Zero => m \
-        | Succ k => Succ (rec k m).";
-    repl.execute(add_def).expect("Define add");
+    let add_def = peano_add_def("my_add");
+    repl.execute(&add_def).expect("Define my_add");
 
-    let rust_code = extract_program(repl.context(), "add").expect("Extract add");
+    let rust_code = extract_program(repl.context(), "my_add").expect("Extract my_add");
 
     println!("Generated Rust:\n{}", rust_code);
 
     // Should have Nat enum
     assert!(rust_code.contains("enum Nat {"), "Should include Nat");
 
-    // Should have add function
-    assert!(rust_code.contains("fn add("), "Should have fn add");
+    // Should have my_add function
+    assert!(rust_code.contains("fn my_add("), "Should have fn my_add");
 
     // Should have match
     assert!(rust_code.contains("match"), "Should have match expression");
     assert!(rust_code.contains("Nat::Zero"), "Should match Zero");
     assert!(rust_code.contains("Nat::Succ"), "Should match Succ");
+
+    // The same definition under the prelude's name is not silently dropped: `add` has the
+    // integer laws resting on it and keeps its meaning, and the document's `add` is registered
+    // under a fresh identity the written name now denotes (ruling of 2026-09-24).
+    let mut shadowing = Repl::new();
+    shadowing
+        .execute(&peano_add_def("add"))
+        .expect("the document's `add` shadows the prelude's");
+    assert!(
+        shadowing
+            .shadows()
+            .iter()
+            .any(|(written, _)| written == "add"),
+        "the written `add` denotes the document's declaration: {:?}",
+        shadowing.shadows()
+    );
+    let pristine = Repl::new();
+    assert_eq!(
+        shadowing.context().get_global("add"),
+        pristine.context().get_global("add"),
+        "…and `add` is still the prelude's Int addition"
+    );
 }
 
 #[test]
 fn test_extract_double_function() {
     let mut repl = Repl::new();
 
-    // add must be defined first
-    let add_def = "Definition add : Nat -> Nat -> Nat := \
-        fix rec => fun n : Nat => fun m : Nat => \
-        match n return (fun _ : Nat => Nat) with \
-        | Zero => m \
-        | Succ k => Succ (rec k m).";
-    repl.execute(add_def).expect("Define add");
+    // my_add must be defined first
+    let add_def = peano_add_def("my_add");
+    repl.execute(&add_def).expect("Define my_add");
 
-    // double uses add
-    let double_def = "Definition double : Nat -> Nat := fun n : Nat => add n n.";
+    // double uses my_add
+    let double_def = "Definition double : Nat -> Nat := fun n : Nat => my_add n n.";
     repl.execute(double_def).expect("Define double");
 
     let rust_code = extract_program(repl.context(), "double").expect("Extract double");
 
     // Should have all dependencies
     assert!(rust_code.contains("enum Nat {"), "Should include Nat");
-    assert!(rust_code.contains("fn add("), "Should include add");
+    assert!(rust_code.contains("fn my_add("), "Should include my_add");
     assert!(rust_code.contains("fn double("), "Should have double");
 }
 
@@ -119,16 +150,12 @@ fn test_extract_double_function() {
 fn test_transitive_dependencies() {
     let mut repl = Repl::new();
 
-    // Build a chain: triple -> double -> add -> Nat
-    let add_def = "Definition add : Nat -> Nat -> Nat := \
-        fix rec => fun n : Nat => fun m : Nat => \
-        match n return (fun _ : Nat => Nat) with \
-        | Zero => m \
-        | Succ k => Succ (rec k m).";
-    let double_def = "Definition double : Nat -> Nat := fun n : Nat => add n n.";
-    let triple_def = "Definition triple : Nat -> Nat := fun n : Nat => add n (double n).";
+    // Build a chain: triple -> double -> my_add -> Nat
+    let add_def = peano_add_def("my_add");
+    let double_def = "Definition double : Nat -> Nat := fun n : Nat => my_add n n.";
+    let triple_def = "Definition triple : Nat -> Nat := fun n : Nat => my_add n (double n).";
 
-    repl.execute(add_def).expect("Define add");
+    repl.execute(&add_def).expect("Define my_add");
     repl.execute(double_def).expect("Define double");
     repl.execute(triple_def).expect("Define triple");
 
@@ -136,7 +163,7 @@ fn test_transitive_dependencies() {
 
     // Should have all transitive dependencies
     assert!(rust_code.contains("enum Nat {"), "Should include Nat");
-    assert!(rust_code.contains("fn add("), "Should include add");
+    assert!(rust_code.contains("fn my_add("), "Should include my_add");
     assert!(rust_code.contains("fn double("), "Should include double");
     assert!(rust_code.contains("fn triple("), "Should have triple");
 }
@@ -210,20 +237,16 @@ fn test_extract_inductive_is_extractable() {
 fn test_extract_programs_multiple_entries_dedup_shared_deps() {
     let mut repl = Repl::new();
 
-    let add_def = "Definition add : Nat -> Nat -> Nat := \
-        fix rec => fun n : Nat => fun m : Nat => \
-        match n return (fun _ : Nat => Nat) with \
-        | Zero => m \
-        | Succ k => Succ (rec k m).";
-    let double_def = "Definition double : Nat -> Nat := fun n : Nat => add n n.";
-    repl.execute(add_def).expect("Define add");
+    let add_def = peano_add_def("my_add");
+    let double_def = "Definition double : Nat -> Nat := fun n : Nat => my_add n n.";
+    repl.execute(&add_def).expect("Define my_add");
     repl.execute(double_def).expect("Define double");
 
     let rust_code =
-        extract_programs(repl.context(), &["add", "double"]).expect("Extract add + double");
+        extract_programs(repl.context(), &["my_add", "double"]).expect("Extract my_add + double");
 
     // Both functions present.
-    assert!(rust_code.contains("fn add("), "Should have fn add");
+    assert!(rust_code.contains("fn my_add("), "Should have fn my_add");
     assert!(rust_code.contains("fn double("), "Should have fn double");
 
     // Shared dependencies emitted exactly once (CodeGen dedup across entries).
@@ -233,9 +256,9 @@ fn test_extract_programs_multiple_entries_dedup_shared_deps() {
         "Nat should be emitted exactly once across both entries"
     );
     assert_eq!(
-        rust_code.matches("fn add(").count(),
+        rust_code.matches("fn my_add(").count(),
         1,
-        "add should be emitted exactly once (double depends on it)"
+        "my_add should be emitted exactly once (double depends on it)"
     );
 }
 
@@ -248,7 +271,10 @@ fn test_extract_program_delegates_to_extract_programs() {
     let single = extract_program(repl.context(), "MyNat").expect("single");
     let multi = extract_programs(repl.context(), &["MyNat"]).expect("multi");
 
-    assert_eq!(single, multi, "extract_program must equal extract_programs of one entry");
+    assert_eq!(
+        single, multi,
+        "extract_program must equal extract_programs of one entry"
+    );
 }
 
 #[test]
@@ -265,19 +291,15 @@ fn test_extract_programs_unknown_entry_errors() {
 #[test]
 fn test_extract_math_rust_emits_user_defs_pulls_deps_once() {
     let mut repl = Repl::new();
-    let add_def = "Definition add : Nat -> Nat -> Nat := \
-        fix rec => fun n : Nat => fun m : Nat => \
-        match n return (fun _ : Nat => Nat) with \
-        | Zero => m \
-        | Succ k => Succ (rec k m).";
-    let double_def = "Definition double : Nat -> Nat := fun n : Nat => add n n.";
-    repl.execute(add_def).expect("Define add");
+    let add_def = peano_add_def("my_add");
+    let double_def = "Definition double : Nat -> Nat := fun n : Nat => my_add n n.";
+    repl.execute(&add_def).expect("Define my_add");
     repl.execute(double_def).expect("Define double");
 
-    let rust = logicaffeine_compile::extract_math_rust(repl.context())
-        .expect("extract_math_rust ok");
+    let rust =
+        logicaffeine_compile::extract_math_rust(repl.context()).expect("extract_math_rust ok");
 
-    assert!(rust.contains("fn add("), "user def add present");
+    assert!(rust.contains("fn my_add("), "user def my_add present");
     assert!(rust.contains("fn double("), "user def double present");
     // Nat is a StandardLibrary inductive pulled in transitively — exactly once.
     assert_eq!(
@@ -291,8 +313,8 @@ fn test_extract_math_rust_emits_user_defs_pulls_deps_once() {
 fn test_extract_math_rust_empty_when_nothing_defined() {
     // A fresh REPL has only StandardLibrary — extracting must NOT dump it.
     let repl = Repl::new();
-    let rust = logicaffeine_compile::extract_math_rust(repl.context())
-        .expect("extract_math_rust ok");
+    let rust =
+        logicaffeine_compile::extract_math_rust(repl.context()).expect("extract_math_rust ok");
     assert!(
         rust.contains("nothing defined yet"),
         "no user defs => honest note, not a stdlib dump; got: {rust}"
@@ -320,12 +342,21 @@ fn test_extract_logic_rust_emits_usable_world_library() {
     // `World` with an ergonomic builder, a public `holds`, doc comments echoing
     // the English, and a real event relation (not a `true` stub).
     let rust = logicaffeine_compile::extract_logic_rust("Every dog chased some cat.").expect("ok");
-    assert!(rust.contains("pub struct World"), "usable World type:\n{rust}");
+    assert!(
+        rust.contains("pub struct World"),
+        "usable World type:\n{rust}"
+    );
     assert!(rust.contains("pub fn fact("), "ergonomic builder:\n{rust}");
     assert!(rust.contains("pub fn holds("), "public rule fn:\n{rust}");
-    assert!(rust.contains("// English:"), "doc comment echoes English:\n{rust}");
+    assert!(
+        rust.contains("// English:"),
+        "doc comment echoes English:\n{rust}"
+    );
     assert!(rust.contains(".any("), "event existential emitted:\n{rust}");
-    assert!(!rust.contains("unsupported: event"), "event must not be dropped:\n{rust}");
+    assert!(
+        !rust.contains("unsupported: event"),
+        "event must not be dropped:\n{rust}"
+    );
 }
 
 #[test]
@@ -359,7 +390,10 @@ fn test_extract_definition_over_int_does_not_choke() {
 
     assert!(rust.contains("fn ident_int("), "function emitted");
     assert!(rust.contains("i64"), "Int maps to i64 at the type level");
-    assert!(!rust.contains("enum Int"), "opaque Int must not be emitted as an enum");
+    assert!(
+        !rust.contains("enum Int"),
+        "opaque Int must not be emitted as an enum"
+    );
 }
 
 #[test]
@@ -398,14 +432,26 @@ fn test_extract_polymorphic_list_is_generic_enum() {
 
     let rust = extract_program(repl.context(), "MyList").expect("extract MyList");
 
-    assert!(rust.contains("enum MyList<A>"), "generic enum header; got:\n{rust}");
-    assert!(rust.contains("MyNil,"), "MyNil must be field-less; got:\n{rust}");
+    assert!(
+        rust.contains("enum MyList<A>"),
+        "generic enum header; got:\n{rust}"
+    );
+    assert!(
+        rust.contains("MyNil,"),
+        "MyNil must be field-less; got:\n{rust}"
+    );
     assert!(
         rust.contains("MyCons(A, Box<MyList<A>>)"),
         "MyCons must hold (A, Box<MyList<A>>); got:\n{rust}"
     );
-    assert!(!rust.contains("MyNil(("), "no unit-field garbage; got:\n{rust}");
-    assert!(!rust.contains("MyList<()>"), "no erased-to-unit generic; got:\n{rust}");
+    assert!(
+        !rust.contains("MyNil(("),
+        "no unit-field garbage; got:\n{rust}"
+    );
+    assert!(
+        !rust.contains("MyList<()>"),
+        "no erased-to-unit generic; got:\n{rust}"
+    );
 }
 
 #[test]
@@ -416,7 +462,10 @@ fn test_extract_polymorphic_pair_two_params() {
 
     let rust = extract_program(repl.context(), "MyPair").expect("extract MyPair");
 
-    assert!(rust.contains("enum MyPair<A, B>"), "two type params; got:\n{rust}");
+    assert!(
+        rust.contains("enum MyPair<A, B>"),
+        "two type params; got:\n{rust}"
+    );
     assert!(rust.contains("MkPair(A, B)"), "fields A, B; got:\n{rust}");
 }
 
@@ -426,8 +475,8 @@ fn test_extract_math_rust_over_int_definition() {
     repl.execute("Definition ident_int : Int -> Int := fun n : Int => n.")
         .expect("define ident_int");
 
-    let rust = logicaffeine_compile::extract_math_rust(repl.context())
-        .expect("extract_math_rust ok");
+    let rust =
+        logicaffeine_compile::extract_math_rust(repl.context()).expect("extract_math_rust ok");
 
     assert!(rust.contains("fn ident_int("), "user def present");
     assert!(

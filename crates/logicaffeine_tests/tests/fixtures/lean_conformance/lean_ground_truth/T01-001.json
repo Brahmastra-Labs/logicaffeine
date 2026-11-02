@@ -1,0 +1,181 @@
+{
+  "case": "T01-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 23,
+  "declarations": [
+    {
+      "type": "Prop \u2192 Prop \u2192 Prop",
+      "name": "T01_001.Both",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192\n  {motive : T01_001.Both p q \u2192 Sort u} \u2192 (t : T01_001.Both p q) \u2192 ((a : p) \u2192 (a_1 : q) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T01_001.Both.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop}, p \u2192 q \u2192 T01_001.Both p q",
+      "name": "T01_001.Both.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192 {P : Sort u} \u2192 {v1 v2 : T01_001.Both p q} \u2192 v1 = v2 \u2192 T01_001.Both.noConfusionType P v1 v2",
+      "name": "T01_001.Both.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192 Sort u \u2192 T01_001.Both p q \u2192 T01_001.Both p q \u2192 Sort u",
+      "name": "T01_001.Both.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192\n  {motive : T01_001.Both p q \u2192 Sort u} \u2192 ((a : p) \u2192 (a_1 : q) \u2192 motive \u22ef) \u2192 (t : T01_001.Both p q) \u2192 motive t",
+      "name": "T01_001.Both.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{p q : Prop} \u2192\n  {motive : T01_001.Both p q \u2192 Sort u} \u2192 (t : T01_001.Both p q) \u2192 ((a : p) \u2192 (a_1 : q) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T01_001.Both.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop \u2192 Prop",
+      "name": "T01_001.Choice",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} {motive : T01_001.Choice p q \u2192 Prop} (t : T01_001.Choice p q),\n  (\u2200 (a : p), motive \u22ef) \u2192 (\u2200 (a : q), motive \u22ef) \u2192 motive t",
+      "name": "T01_001.Choice.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop}, p \u2192 T01_001.Choice p q",
+      "name": "T01_001.Choice.left",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} {motive : T01_001.Choice p q \u2192 Prop},\n  (\u2200 (a : p), motive \u22ef) \u2192 (\u2200 (a : q), motive \u22ef) \u2192 \u2200 (t : T01_001.Choice p q), motive t",
+      "name": "T01_001.Choice.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} {motive : T01_001.Choice p q \u2192 Prop} (t : T01_001.Choice p q),\n  (\u2200 (a : p), motive \u22ef) \u2192 (\u2200 (a : q), motive \u22ef) \u2192 motive t",
+      "name": "T01_001.Choice.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop}, q \u2192 T01_001.Choice p q",
+      "name": "T01_001.Choice.right",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), T01_001.Choice p q \u2192 T01_001.Choice q p",
+      "name": "T01_001.choiceComm",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop) (motive : T01_001.Choice p q \u2192 Prop) (h : T01_001.Choice p q),\n  (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hq : q), motive \u22ef) \u2192 motive h",
+      "name": "T01_001.choiceComm.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_001.impredicativeForall",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_001.impredicativeForallAtTypeOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_001.predicativeForall",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T01_001.propFamily",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_001.propSort",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_001.quantifiesOverProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_001.simpleProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_001.sortZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

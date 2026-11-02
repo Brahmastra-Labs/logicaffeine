@@ -1,0 +1,10 @@
+{
+  "capability": "math.perm",
+  "workload": "perm(n,3)",
+  "arg": "3000000",
+  "expected": "11380500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

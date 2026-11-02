@@ -235,7 +235,11 @@ fn test_dotcontext_many_out_of_order() {
 
     // All should be seen
     for i in 1..=1000 {
-        assert!(ctx.has_seen(&Dot::new(base, i)), "Should have seen dot {}", i);
+        assert!(
+            ctx.has_seen(&Dot::new(base, i)),
+            "Should have seen dot {}",
+            i
+        );
     }
 
     // Next dot for this replica should be 1001

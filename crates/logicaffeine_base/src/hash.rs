@@ -15,20 +15,22 @@
 pub fn md5(data: &[u8]) -> [u8; 16] {
     // Per-round left-rotation amounts (RFC 1321 §3.4).
     const S: [u32; 64] = [
-        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
-        14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
-        21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5,
+        9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10,
+        15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
     ];
     // K[i] = floor(2^32 · |sin(i+1)|) — the additive constants (RFC 1321 §3.4).
     const K: [u32; 64] = [
-        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
-        0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
-        0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
-        0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
-        0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
-        0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
-        0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
-        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613,
+        0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193,
+        0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d,
+        0x02441453, 0xd8a1e681, 0xe7d3fbc8, 0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+        0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122,
+        0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa,
+        0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665, 0xf4292244,
+        0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb,
+        0xeb86d391,
     ];
 
     // The rotation amounts are baked into the unrolled steps below as literals; the linear `S` table
@@ -41,44 +43,125 @@ pub fn md5(data: &[u8]) -> [u8; 16] {
     fn compress(state: &mut [u32; 4], block: &[u8; 64]) {
         let mut m = [0u32; 16];
         for (i, w) in m.iter_mut().enumerate() {
-            *w = u32::from_le_bytes([block[4 * i], block[4 * i + 1], block[4 * i + 2], block[4 * i + 3]]);
+            *w = u32::from_le_bytes([
+                block[4 * i],
+                block[4 * i + 1],
+                block[4 * i + 2],
+                block[4 * i + 3],
+            ]);
         }
         let (mut a, mut b, mut c, mut d) = (state[0], state[1], state[2], state[3]);
         // Fully-unrolled rotating-variable form (RFC 1321): instead of moving a=d;d=c;c=b each step,
         // the OUTPUT variable cycles a→d→c→b, so the 192 register-shuffle moves vanish and every
         // g/s/K is a compile-time constant. `op(a,b,c,d,x,s,t): a = b + rotl(a + f(b,c,d) + x + t, s)`.
-        macro_rules! ff { ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
-            $a = $b.wrapping_add(($a.wrapping_add(($b & $c) | (!$b & $d)).wrapping_add(m[$g]).wrapping_add($t)).rotate_left($s));
-        }}
-        macro_rules! gg { ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
-            $a = $b.wrapping_add(($a.wrapping_add(($b & $d) | ($c & !$d)).wrapping_add(m[$g]).wrapping_add($t)).rotate_left($s));
-        }}
-        macro_rules! hh { ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
-            $a = $b.wrapping_add(($a.wrapping_add($b ^ $c ^ $d).wrapping_add(m[$g]).wrapping_add($t)).rotate_left($s));
-        }}
-        macro_rules! ii { ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
-            $a = $b.wrapping_add(($a.wrapping_add($c ^ ($b | !$d)).wrapping_add(m[$g]).wrapping_add($t)).rotate_left($s));
-        }}
+        macro_rules! ff {
+            ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
+                $a = $b.wrapping_add(
+                    ($a.wrapping_add(($b & $c) | (!$b & $d))
+                        .wrapping_add(m[$g])
+                        .wrapping_add($t))
+                    .rotate_left($s),
+                );
+            };
+        }
+        macro_rules! gg {
+            ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
+                $a = $b.wrapping_add(
+                    ($a.wrapping_add(($b & $d) | ($c & !$d))
+                        .wrapping_add(m[$g])
+                        .wrapping_add($t))
+                    .rotate_left($s),
+                );
+            };
+        }
+        macro_rules! hh {
+            ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
+                $a = $b.wrapping_add(
+                    ($a.wrapping_add($b ^ $c ^ $d)
+                        .wrapping_add(m[$g])
+                        .wrapping_add($t))
+                    .rotate_left($s),
+                );
+            };
+        }
+        macro_rules! ii {
+            ($a:ident,$b:ident,$c:ident,$d:ident,$g:expr,$s:expr,$t:expr) => {
+                $a = $b.wrapping_add(
+                    ($a.wrapping_add($c ^ ($b | !$d))
+                        .wrapping_add(m[$g])
+                        .wrapping_add($t))
+                    .rotate_left($s),
+                );
+            };
+        }
         // Round 1 — g = i.
-        ff!(a, b, c, d, 0, 7, K[0]); ff!(d, a, b, c, 1, 12, K[1]); ff!(c, d, a, b, 2, 17, K[2]); ff!(b, c, d, a, 3, 22, K[3]);
-        ff!(a, b, c, d, 4, 7, K[4]); ff!(d, a, b, c, 5, 12, K[5]); ff!(c, d, a, b, 6, 17, K[6]); ff!(b, c, d, a, 7, 22, K[7]);
-        ff!(a, b, c, d, 8, 7, K[8]); ff!(d, a, b, c, 9, 12, K[9]); ff!(c, d, a, b, 10, 17, K[10]); ff!(b, c, d, a, 11, 22, K[11]);
-        ff!(a, b, c, d, 12, 7, K[12]); ff!(d, a, b, c, 13, 12, K[13]); ff!(c, d, a, b, 14, 17, K[14]); ff!(b, c, d, a, 15, 22, K[15]);
+        ff!(a, b, c, d, 0, 7, K[0]);
+        ff!(d, a, b, c, 1, 12, K[1]);
+        ff!(c, d, a, b, 2, 17, K[2]);
+        ff!(b, c, d, a, 3, 22, K[3]);
+        ff!(a, b, c, d, 4, 7, K[4]);
+        ff!(d, a, b, c, 5, 12, K[5]);
+        ff!(c, d, a, b, 6, 17, K[6]);
+        ff!(b, c, d, a, 7, 22, K[7]);
+        ff!(a, b, c, d, 8, 7, K[8]);
+        ff!(d, a, b, c, 9, 12, K[9]);
+        ff!(c, d, a, b, 10, 17, K[10]);
+        ff!(b, c, d, a, 11, 22, K[11]);
+        ff!(a, b, c, d, 12, 7, K[12]);
+        ff!(d, a, b, c, 13, 12, K[13]);
+        ff!(c, d, a, b, 14, 17, K[14]);
+        ff!(b, c, d, a, 15, 22, K[15]);
         // Round 2 — g = (5i+1) mod 16.
-        gg!(a, b, c, d, 1, 5, K[16]); gg!(d, a, b, c, 6, 9, K[17]); gg!(c, d, a, b, 11, 14, K[18]); gg!(b, c, d, a, 0, 20, K[19]);
-        gg!(a, b, c, d, 5, 5, K[20]); gg!(d, a, b, c, 10, 9, K[21]); gg!(c, d, a, b, 15, 14, K[22]); gg!(b, c, d, a, 4, 20, K[23]);
-        gg!(a, b, c, d, 9, 5, K[24]); gg!(d, a, b, c, 14, 9, K[25]); gg!(c, d, a, b, 3, 14, K[26]); gg!(b, c, d, a, 8, 20, K[27]);
-        gg!(a, b, c, d, 13, 5, K[28]); gg!(d, a, b, c, 2, 9, K[29]); gg!(c, d, a, b, 7, 14, K[30]); gg!(b, c, d, a, 12, 20, K[31]);
+        gg!(a, b, c, d, 1, 5, K[16]);
+        gg!(d, a, b, c, 6, 9, K[17]);
+        gg!(c, d, a, b, 11, 14, K[18]);
+        gg!(b, c, d, a, 0, 20, K[19]);
+        gg!(a, b, c, d, 5, 5, K[20]);
+        gg!(d, a, b, c, 10, 9, K[21]);
+        gg!(c, d, a, b, 15, 14, K[22]);
+        gg!(b, c, d, a, 4, 20, K[23]);
+        gg!(a, b, c, d, 9, 5, K[24]);
+        gg!(d, a, b, c, 14, 9, K[25]);
+        gg!(c, d, a, b, 3, 14, K[26]);
+        gg!(b, c, d, a, 8, 20, K[27]);
+        gg!(a, b, c, d, 13, 5, K[28]);
+        gg!(d, a, b, c, 2, 9, K[29]);
+        gg!(c, d, a, b, 7, 14, K[30]);
+        gg!(b, c, d, a, 12, 20, K[31]);
         // Round 3 — g = (3i+5) mod 16.
-        hh!(a, b, c, d, 5, 4, K[32]); hh!(d, a, b, c, 8, 11, K[33]); hh!(c, d, a, b, 11, 16, K[34]); hh!(b, c, d, a, 14, 23, K[35]);
-        hh!(a, b, c, d, 1, 4, K[36]); hh!(d, a, b, c, 4, 11, K[37]); hh!(c, d, a, b, 7, 16, K[38]); hh!(b, c, d, a, 10, 23, K[39]);
-        hh!(a, b, c, d, 13, 4, K[40]); hh!(d, a, b, c, 0, 11, K[41]); hh!(c, d, a, b, 3, 16, K[42]); hh!(b, c, d, a, 6, 23, K[43]);
-        hh!(a, b, c, d, 9, 4, K[44]); hh!(d, a, b, c, 12, 11, K[45]); hh!(c, d, a, b, 15, 16, K[46]); hh!(b, c, d, a, 2, 23, K[47]);
+        hh!(a, b, c, d, 5, 4, K[32]);
+        hh!(d, a, b, c, 8, 11, K[33]);
+        hh!(c, d, a, b, 11, 16, K[34]);
+        hh!(b, c, d, a, 14, 23, K[35]);
+        hh!(a, b, c, d, 1, 4, K[36]);
+        hh!(d, a, b, c, 4, 11, K[37]);
+        hh!(c, d, a, b, 7, 16, K[38]);
+        hh!(b, c, d, a, 10, 23, K[39]);
+        hh!(a, b, c, d, 13, 4, K[40]);
+        hh!(d, a, b, c, 0, 11, K[41]);
+        hh!(c, d, a, b, 3, 16, K[42]);
+        hh!(b, c, d, a, 6, 23, K[43]);
+        hh!(a, b, c, d, 9, 4, K[44]);
+        hh!(d, a, b, c, 12, 11, K[45]);
+        hh!(c, d, a, b, 15, 16, K[46]);
+        hh!(b, c, d, a, 2, 23, K[47]);
         // Round 4 — g = 7i mod 16.
-        ii!(a, b, c, d, 0, 6, K[48]); ii!(d, a, b, c, 7, 10, K[49]); ii!(c, d, a, b, 14, 15, K[50]); ii!(b, c, d, a, 5, 21, K[51]);
-        ii!(a, b, c, d, 12, 6, K[52]); ii!(d, a, b, c, 3, 10, K[53]); ii!(c, d, a, b, 10, 15, K[54]); ii!(b, c, d, a, 1, 21, K[55]);
-        ii!(a, b, c, d, 8, 6, K[56]); ii!(d, a, b, c, 15, 10, K[57]); ii!(c, d, a, b, 6, 15, K[58]); ii!(b, c, d, a, 13, 21, K[59]);
-        ii!(a, b, c, d, 4, 6, K[60]); ii!(d, a, b, c, 11, 10, K[61]); ii!(c, d, a, b, 2, 15, K[62]); ii!(b, c, d, a, 9, 21, K[63]);
+        ii!(a, b, c, d, 0, 6, K[48]);
+        ii!(d, a, b, c, 7, 10, K[49]);
+        ii!(c, d, a, b, 14, 15, K[50]);
+        ii!(b, c, d, a, 5, 21, K[51]);
+        ii!(a, b, c, d, 12, 6, K[52]);
+        ii!(d, a, b, c, 3, 10, K[53]);
+        ii!(c, d, a, b, 10, 15, K[54]);
+        ii!(b, c, d, a, 1, 21, K[55]);
+        ii!(a, b, c, d, 8, 6, K[56]);
+        ii!(d, a, b, c, 15, 10, K[57]);
+        ii!(c, d, a, b, 6, 15, K[58]);
+        ii!(b, c, d, a, 13, 21, K[59]);
+        ii!(a, b, c, d, 4, 6, K[60]);
+        ii!(d, a, b, c, 11, 10, K[61]);
+        ii!(c, d, a, b, 2, 15, K[62]);
+        ii!(b, c, d, a, 9, 21, K[63]);
         state[0] = state[0].wrapping_add(a);
         state[1] = state[1].wrapping_add(b);
         state[2] = state[2].wrapping_add(c);
@@ -107,9 +190,9 @@ const MD5_K: [u32; 64] = [
     0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 ];
 const MD5_S: [u32; 64] = [
-    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14,
-    20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6,
-    10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
+    14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15,
+    21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
 ];
 
 /// MD5 of FOUR equal-length messages at once — 4-way SSE2 multi-buffer, the high-throughput path for
@@ -119,13 +202,22 @@ const MD5_S: [u32; 64] = [
 #[cfg(target_arch = "x86_64")]
 pub fn md5_x4(msgs: [&[u8]; 4]) -> [[u8; 16]; 4] {
     let len = msgs[0].len();
-    assert!(msgs.iter().all(|m| m.len() == len), "md5_x4 requires equal-length inputs");
+    assert!(
+        msgs.iter().all(|m| m.len() == len),
+        "md5_x4 requires equal-length inputs"
+    );
     if std::is_x86_feature_detected!("sse2") {
         // SAFETY: guarded by the sse2 feature detection just above.
         unsafe { md5_x4_sse2(msgs, len) }
     } else {
-        [md5(msgs[0]), md5(msgs[1]), md5(msgs[2]), md5(msgs[3])]
+        md5_x4_scalar(msgs)
     }
+}
+
+/// The portable 4-lane MD5 fallback (four scalar hashes). `pub(crate)` so tests exercise it even
+/// where `md5_x4` dispatches to SSE2.
+pub(crate) fn md5_x4_scalar(msgs: [&[u8]; 4]) -> [[u8; 16]; 4] {
+    [md5(msgs[0]), md5(msgs[1]), md5(msgs[2]), md5(msgs[3])]
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -147,7 +239,12 @@ unsafe fn md5_x4_sse2(msgs: [&[u8]; 4], len: usize) -> [[u8; 16]; 4] {
         }
         md5_x4_run([&pad[0][..], &pad[1][..], &pad[2][..], &pad[3][..]], nb)
     } else {
-        let mut pad = [vec![0u8; total], vec![0u8; total], vec![0u8; total], vec![0u8; total]];
+        let mut pad = [
+            vec![0u8; total],
+            vec![0u8; total],
+            vec![0u8; total],
+            vec![0u8; total],
+        ];
         for (j, p) in pad.iter_mut().enumerate() {
             p[..len].copy_from_slice(msgs[j]);
             p[len] = 0x80;
@@ -189,9 +286,15 @@ unsafe fn md5_x4_run(pad: [&[u8]; 4], nb: usize) -> [[u8; 16]; 4] {
         for i in 0..64 {
             let (f, g) = match i / 16 {
                 0 => (_mm_or_si128(_mm_and_si128(b, c), _mm_andnot_si128(b, d)), i),
-                1 => (_mm_or_si128(_mm_and_si128(b, d), _mm_andnot_si128(d, c)), (5 * i + 1) % 16),
+                1 => (
+                    _mm_or_si128(_mm_and_si128(b, d), _mm_andnot_si128(d, c)),
+                    (5 * i + 1) % 16,
+                ),
                 2 => (_mm_xor_si128(_mm_xor_si128(b, c), d), (3 * i + 5) % 16),
-                _ => (_mm_xor_si128(c, _mm_or_si128(b, _mm_xor_si128(d, ones))), (7 * i) % 16),
+                _ => (
+                    _mm_xor_si128(c, _mm_or_si128(b, _mm_xor_si128(d, ones))),
+                    (7 * i) % 16,
+                ),
             };
             let t = _mm_add_epi32(
                 _mm_add_epi32(a, f),
@@ -233,15 +336,24 @@ unsafe fn md5_x4_run(pad: [&[u8]; 4], nb: usize) -> [[u8; 16]; 4] {
 #[cfg(target_arch = "x86_64")]
 pub fn md5_x8(msgs: [&[u8]; 8]) -> [[u8; 16]; 8] {
     let len = msgs[0].len();
-    assert!(msgs.iter().all(|m| m.len() == len), "md5_x8 requires equal-length inputs");
+    assert!(
+        msgs.iter().all(|m| m.len() == len),
+        "md5_x8 requires equal-length inputs"
+    );
     if std::is_x86_feature_detected!("avx2") {
         // SAFETY: guarded by the avx2 feature detection just above.
         unsafe { md5_x8_avx2(msgs, len) }
     } else {
-        let a = md5_x4([msgs[0], msgs[1], msgs[2], msgs[3]]);
-        let b = md5_x4([msgs[4], msgs[5], msgs[6], msgs[7]]);
-        [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]]
+        md5_x8_scalar(msgs)
     }
+}
+
+/// The portable 8-lane MD5 fallback (two scalar 4-lane hashes). `pub(crate)` so tests exercise it
+/// even where `md5_x8` dispatches to AVX2.
+pub(crate) fn md5_x8_scalar(msgs: [&[u8]; 8]) -> [[u8; 16]; 8] {
+    let a = md5_x4_scalar([msgs[0], msgs[1], msgs[2], msgs[3]]);
+    let b = md5_x4_scalar([msgs[4], msgs[5], msgs[6], msgs[7]]);
+    [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]]
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -258,8 +370,9 @@ unsafe fn md5_x8_avx2(msgs: [&[u8]; 8], len: usize) -> [[u8; 16]; 8] {
             p[len] = 0x80;
             p[total - 8..total].copy_from_slice(&bitlen.to_le_bytes());
         }
-        let s: [&[u8]; 8] =
-            [&pad[0], &pad[1], &pad[2], &pad[3], &pad[4], &pad[5], &pad[6], &pad[7]];
+        let s: [&[u8]; 8] = [
+            &pad[0], &pad[1], &pad[2], &pad[3], &pad[4], &pad[5], &pad[6], &pad[7],
+        ];
         md5_x8_run(s, nb)
     } else {
         let mut pad: Vec<Vec<u8>> = (0..8).map(|_| vec![0u8; total]).collect();
@@ -332,14 +445,27 @@ unsafe fn md5_x8_run(pad: [&[u8]; 8], nb: usize) -> [[u8; 16]; 8] {
         // Register transpose: load each lane's block as two rows (words 0–7 and 8–15) and transpose
         // the 8×8 so `mw[g]` = word `g` of all eight messages — SIMD shuffles, not 128 scalar loads.
         let base = bi * 64;
-        let ld = |p: &[u8], off: usize| _mm256_loadu_si256(p.as_ptr().add(base + off) as *const __m256i);
+        let ld =
+            |p: &[u8], off: usize| _mm256_loadu_si256(p.as_ptr().add(base + off) as *const __m256i);
         let lo = transpose8x8([
-            ld(pad[0], 0), ld(pad[1], 0), ld(pad[2], 0), ld(pad[3], 0),
-            ld(pad[4], 0), ld(pad[5], 0), ld(pad[6], 0), ld(pad[7], 0),
+            ld(pad[0], 0),
+            ld(pad[1], 0),
+            ld(pad[2], 0),
+            ld(pad[3], 0),
+            ld(pad[4], 0),
+            ld(pad[5], 0),
+            ld(pad[6], 0),
+            ld(pad[7], 0),
         ]);
         let hi = transpose8x8([
-            ld(pad[0], 32), ld(pad[1], 32), ld(pad[2], 32), ld(pad[3], 32),
-            ld(pad[4], 32), ld(pad[5], 32), ld(pad[6], 32), ld(pad[7], 32),
+            ld(pad[0], 32),
+            ld(pad[1], 32),
+            ld(pad[2], 32),
+            ld(pad[3], 32),
+            ld(pad[4], 32),
+            ld(pad[5], 32),
+            ld(pad[6], 32),
+            ld(pad[7], 32),
         ]);
         let mut mw = [_mm256_setzero_si256(); 16];
         mw[..8].copy_from_slice(&lo);
@@ -347,10 +473,22 @@ unsafe fn md5_x8_run(pad: [&[u8]; 8], nb: usize) -> [[u8; 16]; 8] {
         let (mut a, mut b, mut c, mut d) = (sa, sb, sc, sd);
         for i in 0..64 {
             let (f, g) = match i / 16 {
-                0 => (_mm256_or_si256(_mm256_and_si256(b, c), _mm256_andnot_si256(b, d)), i),
-                1 => (_mm256_or_si256(_mm256_and_si256(b, d), _mm256_andnot_si256(d, c)), (5 * i + 1) % 16),
-                2 => (_mm256_xor_si256(_mm256_xor_si256(b, c), d), (3 * i + 5) % 16),
-                _ => (_mm256_xor_si256(c, _mm256_or_si256(b, _mm256_xor_si256(d, ones))), (7 * i) % 16),
+                0 => (
+                    _mm256_or_si256(_mm256_and_si256(b, c), _mm256_andnot_si256(b, d)),
+                    i,
+                ),
+                1 => (
+                    _mm256_or_si256(_mm256_and_si256(b, d), _mm256_andnot_si256(d, c)),
+                    (5 * i + 1) % 16,
+                ),
+                2 => (
+                    _mm256_xor_si256(_mm256_xor_si256(b, c), d),
+                    (3 * i + 5) % 16,
+                ),
+                _ => (
+                    _mm256_xor_si256(c, _mm256_or_si256(b, _mm256_xor_si256(d, ones))),
+                    (7 * i) % 16,
+                ),
             };
             let t = _mm256_add_epi32(
                 _mm256_add_epi32(a, f),
@@ -387,6 +525,30 @@ unsafe fn md5_x8_run(pad: [&[u8]; 8], nb: usize) -> [[u8; 16]; 8] {
 
 /// SHA-1 digest of `data` (RFC 3174) — 20 bytes.
 pub fn sha1(data: &[u8]) -> [u8; 20] {
+    // Fast path: SHA-NI hardware instructions (≈ an order of magnitude faster than scalar). Gated on
+    // a one-shot runtime CPU-feature check; falls back to `sha1_scalar` everywhere else.
+    #[cfg(target_arch = "x86_64")]
+    {
+        if x86_sha::available() {
+            let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+            // SAFETY: guarded by the `sha`/`ssse3`/`sse4.1` feature detection just checked.
+            unsafe { x86_sha::sha1_blocks(data, &mut h) };
+            let mut out = [0u8; 20];
+            for (i, hi) in h.iter().enumerate() {
+                out[4 * i..4 * i + 4].copy_from_slice(&hi.to_be_bytes());
+            }
+            return out;
+        }
+    }
+
+    sha1_scalar(data)
+}
+
+/// Portable scalar SHA-1 — the fallback taken on any target without the SHA-NI fast path (non-x86,
+/// or x86 lacking the `sha` extension). It is `pub(crate)` so the tests exercise it DIRECTLY even on
+/// hardware where [`sha1`] dispatches to SHA-NI; otherwise this whole path would ship untested to
+/// every non-SHA-NI machine.
+pub(crate) fn sha1_scalar(data: &[u8]) -> [u8; 20] {
     let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
 
     #[inline(always)]
@@ -394,7 +556,12 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
         // Decode and extend the message schedule to 80 big-endian words.
         let mut w = [0u32; 80];
         for (i, word) in w.iter_mut().take(16).enumerate() {
-            *word = u32::from_be_bytes([block[4 * i], block[4 * i + 1], block[4 * i + 2], block[4 * i + 3]]);
+            *word = u32::from_be_bytes([
+                block[4 * i],
+                block[4 * i + 1],
+                block[4 * i + 2],
+                block[4 * i + 3],
+            ]);
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
@@ -424,21 +591,6 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
         h[2] = h[2].wrapping_add(c);
         h[3] = h[3].wrapping_add(d);
         h[4] = h[4].wrapping_add(e);
-    }
-
-    // Fast path: SHA-NI hardware instructions (≈ an order of magnitude faster than scalar). Gated on
-    // a one-shot runtime CPU-feature check; falls back to the scalar `compress` everywhere else.
-    #[cfg(target_arch = "x86_64")]
-    {
-        if x86_sha::available() {
-            // SAFETY: guarded by the `sha`/`ssse3`/`sse4.1` feature detection just checked.
-            unsafe { x86_sha::sha1_blocks(data, &mut h) };
-            let mut out = [0u8; 20];
-            for (i, hi) in h.iter().enumerate() {
-                out[4 * i..4 * i + 4].copy_from_slice(&hi.to_be_bytes());
-            }
-            return out;
-        }
     }
 
     each_padded_block(data, Endian::Big, |block| compress(&mut h, block));
@@ -690,130 +842,5 @@ mod x86_sha {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn md5_known_rfc_vectors() {
-        assert_eq!(to_hex(&md5(b"")), "d41d8cd98f00b204e9800998ecf8427e");
-        assert_eq!(to_hex(&md5(b"a")), "0cc175b9c0f1b6a831c399e269772661");
-        assert_eq!(to_hex(&md5(b"abc")), "900150983cd24fb0d6963f7d28e17f72");
-        assert_eq!(to_hex(&md5(b"message digest")), "f96b697d7cb7938d525a2f31aaf161d0");
-        assert_eq!(
-            to_hex(&md5(b"abcdefghijklmnopqrstuvwxyz")),
-            "c3fcd3d76192e4007dfb496cca67e13b"
-        );
-        assert_eq!(
-            to_hex(&md5(b"The quick brown fox jumps over the lazy dog")),
-            "9e107d9d372bb6826bd81d3542a419d6"
-        );
-    }
-
-    #[test]
-    fn sha1_known_rfc_vectors() {
-        assert_eq!(to_hex(&sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-        assert_eq!(to_hex(&sha1(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
-        assert_eq!(
-            to_hex(&sha1(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
-            "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
-        );
-        assert_eq!(
-            to_hex(&sha1(b"The quick brown fox jumps over the lazy dog")),
-            "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"
-        );
-    }
-
-    #[test]
-    fn md5_block_boundaries_are_exact() {
-        // Lengths straddling the 55/56/64/119/120-byte padding edges — the cases padding bugs hide in.
-        for n in [0usize, 1, 54, 55, 56, 57, 63, 64, 65, 119, 120, 127, 128, 256, 1000] {
-            let data = vec![0xABu8; n];
-            let mut oracle = <md5::Md5 as md5::Digest>::new();
-            md5::Digest::update(&mut oracle, &data);
-            let want: [u8; 16] = md5::Digest::finalize(oracle).into();
-            assert_eq!(md5(&data), want, "md5 mismatch at len {n}");
-        }
-    }
-
-    #[test]
-    #[cfg(target_arch = "x86_64")]
-    fn md5_x4_matches_scalar_over_lengths() {
-        // The 4-way SIMD multi-buffer MD5 must equal the scalar MD5 on every lane, across lengths that
-        // straddle the block and one/two-block padding edges (55/56/57, 63/64/65, 119/120).
-        for len in [0usize, 1, 3, 16, 32, 55, 56, 57, 63, 64, 65, 119, 120, 128, 200] {
-            let mut msgs = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-            let mut st = 0x1234_5678u64.wrapping_add(len as u64);
-            for m in msgs.iter_mut() {
-                for _ in 0..len {
-                    st = st.wrapping_mul(6364136223846793005).wrapping_add(1);
-                    m.push((st >> 56) as u8);
-                }
-            }
-            let refs: [&[u8]; 4] = [&msgs[0], &msgs[1], &msgs[2], &msgs[3]];
-            let x4 = md5_x4(refs);
-            for (j, m) in msgs.iter().enumerate() {
-                assert_eq!(x4[j], md5(m), "md5_x4 lane {j} differs at len {len}");
-            }
-        }
-    }
-
-    #[test]
-    #[cfg(target_arch = "x86_64")]
-    fn md5_x8_matches_scalar_over_lengths() {
-        // The 8-way AVX2 multi-buffer MD5 must equal the scalar MD5 on every lane, across the same
-        // block/padding edges the 4-way is checked at.
-        for len in [0usize, 1, 3, 16, 32, 55, 56, 57, 63, 64, 65, 119, 120, 128, 200] {
-            let mut msgs: Vec<Vec<u8>> = (0..8).map(|_| Vec::new()).collect();
-            let mut st = 0x9e37_79b9u64.wrapping_add(len as u64);
-            for m in msgs.iter_mut() {
-                for _ in 0..len {
-                    st = st.wrapping_mul(6364136223846793005).wrapping_add(1);
-                    m.push((st >> 56) as u8);
-                }
-            }
-            let refs: [&[u8]; 8] = [
-                &msgs[0], &msgs[1], &msgs[2], &msgs[3], &msgs[4], &msgs[5], &msgs[6], &msgs[7],
-            ];
-            let x8 = md5_x8(refs);
-            for (j, m) in msgs.iter().enumerate() {
-                assert_eq!(x8[j], md5(m), "md5_x8 lane {j} differs at len {len}");
-            }
-        }
-    }
-
-    #[test]
-    fn sha1_block_boundaries_are_exact() {
-        for n in [0usize, 1, 54, 55, 56, 57, 63, 64, 65, 119, 120, 127, 128, 256, 1000] {
-            let data = vec![0x5Au8; n];
-            let mut oracle = <sha1::Sha1 as sha1::Digest>::new();
-            sha1::Digest::update(&mut oracle, &data);
-            let want: [u8; 20] = sha1::Digest::finalize(oracle).into();
-            assert_eq!(sha1(&data), want, "sha1 mismatch at len {n}");
-        }
-    }
-
-    #[test]
-    fn differential_fuzz_against_the_reference_crates() {
-        // A cheap deterministic LCG drives 5000 random-length, random-content inputs; both digests
-        // must agree with the reference crates bit-for-bit. (No external RNG — reproducible.)
-        let mut state: u64 = 0x1234_5678_9abc_def0;
-        let mut next = || {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            (state >> 33) as u32
-        };
-        for _ in 0..5000 {
-            let len = (next() % 600) as usize;
-            let data: Vec<u8> = (0..len).map(|_| (next() & 0xff) as u8).collect();
-
-            let mut m = <md5::Md5 as md5::Digest>::new();
-            md5::Digest::update(&mut m, &data);
-            let m_want: [u8; 16] = md5::Digest::finalize(m).into();
-            assert_eq!(md5(&data), m_want, "md5 differs at len {len}");
-
-            let mut s = <sha1::Sha1 as sha1::Digest>::new();
-            sha1::Digest::update(&mut s, &data);
-            let s_want: [u8; 20] = sha1::Digest::finalize(s).into();
-            assert_eq!(sha1(&data), s_want, "sha1 differs at len {len}");
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/hash/tests.rs"]
+mod tests;

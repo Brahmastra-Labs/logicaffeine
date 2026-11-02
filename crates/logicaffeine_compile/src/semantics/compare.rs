@@ -20,6 +20,35 @@ use crate::interpreter::RuntimeValue;
 ///   cyclic values.
 /// - Decimal/Complex/Modular keep their documented within-type equality
 ///   (they have no cross-type ordering, so there is no coherence to break).
+/// `left = right` (or `≠` when `negate`) as a program asks it: decided exactly where a theorem
+/// decides it, residue-dependent where the answer depends on `⌈1/dt⌉`, and a loud error where two
+/// computable reals agree to the budget and nothing decides them. Every other value compares by
+/// [`values_equal`].
+pub fn equality(left: &RuntimeValue, right: &RuntimeValue, negate: bool) -> Result<RuntimeValue, String> {
+    let rel = if negate { super::exact::Rel::NotEq } else { super::exact::Rel::Eq };
+    if let Some(r) = super::exact::relation(rel, left, right, &exact_relation_recurse) {
+        return r;
+    }
+    Ok(RuntimeValue::Bool(values_equal(left, right) != negate))
+}
+
+/// The relational entry the exact types re-enter to lift a comparison over residue branches.
+fn exact_relation_recurse(
+    rel: super::exact::Rel,
+    a: RuntimeValue,
+    b: RuntimeValue,
+) -> Result<RuntimeValue, String> {
+    use super::exact::Rel;
+    match rel {
+        Rel::Eq => equality(&a, &b, false),
+        Rel::NotEq => equality(&a, &b, true),
+        Rel::Lt => compare(BinaryOpKind::Lt, &a, &b),
+        Rel::Gt => compare(BinaryOpKind::Gt, &a, &b),
+        Rel::LtEq => compare(BinaryOpKind::LtEq, &a, &b),
+        Rel::GtEq => compare(BinaryOpKind::GtEq, &a, &b),
+    }
+}
+
 pub fn values_equal(left: &RuntimeValue, right: &RuntimeValue) -> bool {
     values_equal_depth(left, right, 0)
 }
@@ -28,10 +57,25 @@ pub fn values_equal(left: &RuntimeValue, right: &RuntimeValue) -> bool {
 /// overflowing the stack; 256 levels is far beyond any real data shape.
 const EQ_MAX_DEPTH: usize = 256;
 
+/// A CRDT counter (`ConvergentCount`/`Tally`) reads as its integer value everywhere a scalar is
+/// expected — comparison and equality see the number, not the CRDT wrapper. Non-counter CRDTs
+/// (sets/sequences/registers) return `None` and keep their own structural comparison.
+fn counter_as_int(v: &RuntimeValue) -> Option<RuntimeValue> {
+    match v {
+        RuntimeValue::Crdt(c) => c.borrow().counter_value().map(RuntimeValue::Int),
+        _ => None,
+    }
+}
+
 fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -> bool {
     if depth > EQ_MAX_DEPTH {
         return false;
     }
+    if let Some(same) = super::exact::structurally_equal(left, right) {
+        return same;
+    }
+    let (lc, rc) = (counter_as_int(left), counter_as_int(right));
+    let (left, right) = (lc.as_ref().unwrap_or(left), rc.as_ref().unwrap_or(right));
     match (left, right) {
         (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
         // BigInt holds only out-of-i64 values, so a BigInt never equals an Int; two
@@ -46,6 +90,9 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
         // Complex equality is exact and structural; complex numbers have no ordering, so
         // `compare` (`< > …`) deliberately falls through to a type error.
         (RuntimeValue::Complex(a), RuntimeValue::Complex(b)) => a == b,
+        // Floating-point complex: IEEE equality on both parts (like `Float`; NaN parts unequal).
+        // Also unordered, so `compare` falls through to a type error.
+        (RuntimeValue::ComplexF(a), RuntimeValue::ComplexF(b)) => a == b,
         // Modular equality is per-ring (same residue AND modulus); ℤ/nℤ has no total order,
         // so `compare` falls through to a type error.
         (RuntimeValue::Modular(a), RuntimeValue::Modular(b)) => a == b,
@@ -68,12 +115,29 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
         (RuntimeValue::Text(a), RuntimeValue::Text(b)) => **a == **b,
         (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
         (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+        // ★ R2 — ABSENCE IS ONE THING, however it was spelled.
+        //
+        // `nothing` and `none` are different AST nodes (`Literal::Nothing` vs `Expr::OptionNone`)
+        // and, now that an Option carries a real tag, different runtime values. They must still
+        // compare equal: `x is equal to nothing` is the spelling every `Try to receive`, `Pop` and
+        // `storageGet` result is tested with, and the wasm tier compiles it to a handle test. A
+        // present Option is never equal to `nothing` — that is the whole point of the change.
+        (RuntimeValue::Nothing, RuntimeValue::Inductive(i))
+        | (RuntimeValue::Inductive(i), RuntimeValue::Nothing) => {
+            i.inductive_type == "Option" && i.constructor == "None"
+        }
         (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => a == b,
         (RuntimeValue::Date(a), RuntimeValue::Date(b)) => a == b,
         (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => a == b,
         (
-            RuntimeValue::Span { months: m1, days: d1 },
-            RuntimeValue::Span { months: m2, days: d2 },
+            RuntimeValue::Span {
+                months: m1,
+                days: d1,
+            },
+            RuntimeValue::Span {
+                months: m2,
+                days: d2,
+            },
         ) => m1 == m2 && d1 == d2,
         (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
         // Words are equal only at the same width and value (`WordVal`'s derived `Eq`).
@@ -87,7 +151,10 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
             a.inductive_type == b.inductive_type
                 && a.constructor == b.constructor
                 && a.args.len() == b.args.len()
-                && a.args.iter().zip(b.args.iter()).all(|(x, y)| values_equal_depth(x, y, depth + 1))
+                && a.args
+                    .iter()
+                    .zip(b.args.iter())
+                    .all(|(x, y)| values_equal_depth(x, y, depth + 1))
         }
         // ── Structural equality ─────────────────────────────────────────
         (RuntimeValue::List(a), RuntimeValue::List(b)) => {
@@ -103,7 +170,9 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
         }
         (RuntimeValue::Tuple(a), RuntimeValue::Tuple(b)) => {
             a.len() == b.len()
-                && a.iter().zip(b.iter()).all(|(x, y)| values_equal_depth(x, y, depth + 1))
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|(x, y)| values_equal_depth(x, y, depth + 1))
         }
         // Sets compare by CONTENT, order-insensitive (both sides are deduped,
         // so equal length + one-sided containment is a bijection).
@@ -113,7 +182,8 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
             }
             let (a, b) = (a.borrow(), b.borrow());
             a.len() == b.len()
-                && a.iter().all(|x| b.iter().any(|y| values_equal_depth(x, y, depth + 1)))
+                && a.iter()
+                    .all(|x| b.iter().any(|y| values_equal_depth(x, y, depth + 1)))
         }
         // Maps compare by CONTENT, insertion order ignored (like Python dicts).
         (RuntimeValue::Map(a), RuntimeValue::Map(b)) => {
@@ -123,14 +193,17 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
             let (a, b) = (a.borrow(), b.borrow());
             a.len() == b.len()
                 && a.iter().all(|(k, va)| {
-                    b.get(k).is_some_and(|vb| values_equal_depth(va, vb, depth + 1))
+                    b.get(k)
+                        .is_some_and(|vb| values_equal_depth(va, vb, depth + 1))
                 })
         }
         (RuntimeValue::Struct(a), RuntimeValue::Struct(b)) => {
             a.type_name == b.type_name
                 && a.fields.len() == b.fields.len()
                 && a.fields.iter().all(|(name, va)| {
-                    b.fields.get(name).is_some_and(|vb| values_equal_depth(va, vb, depth + 1))
+                    b.fields
+                        .get(name)
+                        .is_some_and(|vb| values_equal_depth(va, vb, depth + 1))
                 })
         }
         // ── Identity-style values (moved from the old `PartialEq` impl so
@@ -164,6 +237,23 @@ pub fn compare(
 ) -> Result<RuntimeValue, String> {
     use std::cmp::Ordering;
 
+    let rel = match op {
+        BinaryOpKind::Lt => Some(super::exact::Rel::Lt),
+        BinaryOpKind::Gt => Some(super::exact::Rel::Gt),
+        BinaryOpKind::LtEq => Some(super::exact::Rel::LtEq),
+        BinaryOpKind::GtEq => Some(super::exact::Rel::GtEq),
+        _ => None,
+    };
+    if let Some(rel) = rel {
+        if let Some(r) = super::exact::relation(rel, left, right, &exact_relation_recurse) {
+            return r;
+        }
+    }
+
+    // A counter compares by its integer value (the CRDT wrapper is transparent to `< > <= >=`).
+    let (lc, rc) = (counter_as_int(left), counter_as_int(right));
+    let (left, right) = (lc.as_ref().unwrap_or(left), rc.as_ref().unwrap_or(right));
+
     // Map an `Ordering` (or `None` for an unordered/NaN pair) to the operator.
     let rel = |ord: Option<Ordering>| -> bool {
         match ord {
@@ -185,52 +275,52 @@ pub fn compare(
         (RuntimeValue::BigInt(a), RuntimeValue::BigInt(b)) => {
             Ok(RuntimeValue::Bool(rel(Some((**a).cmp(b)))))
         }
-        (RuntimeValue::BigInt(a), RuntimeValue::Int(b)) => {
-            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(&BigInt::from_i64(*b))))))
-        }
+        (RuntimeValue::BigInt(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(rel(Some(
+            (**a).cmp(&BigInt::from_i64(*b)),
+        )))),
         (RuntimeValue::Int(a), RuntimeValue::BigInt(b)) => {
             Ok(RuntimeValue::Bool(rel(Some(BigInt::from_i64(*a).cmp(b)))))
         }
         // Cross-type numeric ordering is EXACT — mathematical values, never a
         // lossy as-f64 view (which rounds above 2^53). NaN stays unordered.
-        (RuntimeValue::BigInt(a), RuntimeValue::Float(b)) => {
-            Ok(RuntimeValue::Bool(rel(numeric::cmp_bigint_f64_exact(a, *b))))
-        }
-        (RuntimeValue::Float(a), RuntimeValue::BigInt(b)) => {
-            Ok(RuntimeValue::Bool(rel(numeric::cmp_bigint_f64_exact(b, *a).map(std::cmp::Ordering::reverse))))
-        }
+        (RuntimeValue::BigInt(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(rel(
+            numeric::cmp_bigint_f64_exact(a, *b),
+        ))),
+        (RuntimeValue::Float(a), RuntimeValue::BigInt(b)) => Ok(RuntimeValue::Bool(rel(
+            numeric::cmp_bigint_f64_exact(b, *a).map(std::cmp::Ordering::reverse),
+        ))),
         // Exact rational ordering (cross-multiply, no rounding) including the
         // narrow/wide boundary; vs Float uses IEEE partial order on the f64 view.
         (RuntimeValue::Rational(a), RuntimeValue::Rational(b)) => {
             Ok(RuntimeValue::Bool(rel(Some((**a).cmp(b)))))
         }
-        (RuntimeValue::Rational(a), RuntimeValue::Int(b)) => {
-            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(&Rational::from_i64(*b))))))
-        }
+        (RuntimeValue::Rational(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(rel(Some(
+            (**a).cmp(&Rational::from_i64(*b)),
+        )))),
         (RuntimeValue::Int(a), RuntimeValue::Rational(b)) => {
             Ok(RuntimeValue::Bool(rel(Some(Rational::from_i64(*a).cmp(b)))))
         }
-        (RuntimeValue::Rational(a), RuntimeValue::BigInt(b)) => {
-            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(&Rational::from_bigint((**b).clone()))))))
-        }
-        (RuntimeValue::BigInt(a), RuntimeValue::Rational(b)) => {
-            Ok(RuntimeValue::Bool(rel(Some(Rational::from_bigint((**a).clone()).cmp(b)))))
-        }
-        (RuntimeValue::Rational(a), RuntimeValue::Float(b)) => {
-            Ok(RuntimeValue::Bool(rel(numeric::cmp_rational_f64_exact(a, *b))))
-        }
-        (RuntimeValue::Float(a), RuntimeValue::Rational(b)) => {
-            Ok(RuntimeValue::Bool(rel(numeric::cmp_rational_f64_exact(b, *a).map(std::cmp::Ordering::reverse))))
-        }
+        (RuntimeValue::Rational(a), RuntimeValue::BigInt(b)) => Ok(RuntimeValue::Bool(rel(Some(
+            (**a).cmp(&Rational::from_bigint((**b).clone())),
+        )))),
+        (RuntimeValue::BigInt(a), RuntimeValue::Rational(b)) => Ok(RuntimeValue::Bool(rel(Some(
+            Rational::from_bigint((**a).clone()).cmp(b),
+        )))),
+        (RuntimeValue::Rational(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Bool(rel(
+            numeric::cmp_rational_f64_exact(a, *b),
+        ))),
+        (RuntimeValue::Float(a), RuntimeValue::Rational(b)) => Ok(RuntimeValue::Bool(rel(
+            numeric::cmp_rational_f64_exact(b, *a).map(std::cmp::Ordering::reverse),
+        ))),
         (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
             Ok(RuntimeValue::Bool(rel(a.partial_cmp(b))))
         }
         (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
             Ok(RuntimeValue::Bool(rel(numeric::cmp_i64_f64_exact(*a, *b))))
         }
-        (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
-            Ok(RuntimeValue::Bool(rel(numeric::cmp_i64_f64_exact(*b, *a).map(std::cmp::Ordering::reverse))))
-        }
+        (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(rel(
+            numeric::cmp_i64_f64_exact(*b, *a).map(std::cmp::Ordering::reverse),
+        ))),
         (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => {
             Ok(RuntimeValue::Bool(int_rel(*a, *b)))
         }
@@ -257,21 +347,23 @@ pub fn compare(
         // (cross-dimension → `None` → not orderable). `==`/`!=` go through value equality elsewhere.
         (RuntimeValue::Quantity(a), RuntimeValue::Quantity(b)) => {
             if a.q.dimension() != b.q.dimension() {
-                return Err(format!(
-                    "Cannot compare quantities of different dimensions ({} vs {})",
+                return Err(logicaffeine_data::failure::quantities_uncomparable(
                     a.q.dimension(),
-                    b.q.dimension()
+                    b.q.dimension(),
                 ));
             }
-            Ok(RuntimeValue::Bool(rel(Some(a.q.magnitude_si().cmp(b.q.magnitude_si())))))
+            Ok(RuntimeValue::Bool(rel(Some(
+                a.q.magnitude_si().cmp(b.q.magnitude_si()),
+            ))))
         }
         // Money orders by amount within the SAME currency; ordering across currencies is meaningless
         // without a rate context, so it is a typed error (the dimension-mismatch precedent).
         (RuntimeValue::Money(a), RuntimeValue::Money(b)) => {
             if a.currency != b.currency {
-                return Err(format!(
-                    "cannot compare money of different currencies ({} vs {})",
-                    a.currency.code, b.currency.code
+                return Err(logicaffeine_data::failure::currencies_differ(
+                    "compare",
+                    a.currency.code,
+                    b.currency.code,
                 ));
             }
             Ok(RuntimeValue::Bool(rel(Some(
@@ -279,10 +371,27 @@ pub fn compare(
             ))))
         }
         // UUIDs order by their 128 bits — so v6/v7 (time-ordered) ids sort chronologically.
-        (RuntimeValue::Uuid(a), RuntimeValue::Uuid(b)) => Ok(RuntimeValue::Bool(rel(Some(a.cmp(b))))),
+        (RuntimeValue::Uuid(a), RuntimeValue::Uuid(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some(a.cmp(b)))))
+        }
+        // Machine words order by UNSIGNED magnitude when their widths match — exactly the
+        // AOT newtype's `u32`/`u64` `PartialOrd`. Mixing widths (Word32 vs Word64) is a typed
+        // error, mirroring Word arithmetic (`Word32 + Word64` errors, never silently coerces).
+        (RuntimeValue::Word(a), RuntimeValue::Word(b)) => {
+            if a.width() != b.width() {
+                return Err(format!(
+                    "cannot compare Word{} and Word{} — width mismatch",
+                    a.width(),
+                    b.width()
+                ));
+            }
+            Ok(RuntimeValue::Bool(rel(Some(a.to_u64().cmp(&b.to_u64())))))
+        }
         // A Decimal orders by EXACT value against any exact number (Int/BigInt/Rational/
         // Decimal); against a Float it compares on the f64 view (IEEE partial order).
-        (l, r) if matches!(l, RuntimeValue::Decimal(_)) || matches!(r, RuntimeValue::Decimal(_)) => {
+        (l, r)
+            if matches!(l, RuntimeValue::Decimal(_)) || matches!(r, RuntimeValue::Decimal(_)) =>
+        {
             let rat_view = |v: &RuntimeValue| -> Option<Rational> {
                 match v {
                     RuntimeValue::Int(n) => Some(Rational::from_i64(*n)),
@@ -303,7 +412,11 @@ pub fn compare(
                 };
                 match (f64_view(l), f64_view(r)) {
                     (Some(a), Some(b)) => Ok(RuntimeValue::Bool(rel(a.partial_cmp(&b)))),
-                    _ => Err(format!("Cannot compare {} and {}", l.type_name(), r.type_name())),
+                    _ => Err(format!(
+                        "Cannot compare {} and {}",
+                        l.type_name(),
+                        r.type_name()
+                    )),
                 }
             }
         }
@@ -316,68 +429,5 @@ pub fn compare(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn float_equality_is_ieee_and_nan_unequal() {
-        // IEEE bit equality — the float artifact is REAL and visible
-        // (`is approximately` is the tolerant spelling), identical to what
-        // the compiled backend emits.
-        let sum = RuntimeValue::Float(0.1 + 0.2);
-        assert!(!values_equal(&sum, &RuntimeValue::Float(0.3)));
-        assert!(values_equal(&sum, &RuntimeValue::Float(0.30000000000000004)));
-        assert!(!values_equal(&RuntimeValue::Float(f64::NAN), &RuntimeValue::Float(f64::NAN)));
-        // Cross-type numeric equality is EXACT: `1 == 1.0` …
-        assert!(values_equal(&RuntimeValue::Int(1), &RuntimeValue::Float(1.0)));
-        // … but never a lossy cast: 2^53 + 1 is NOT the float 2^53.
-        assert!(!values_equal(
-            &RuntimeValue::Int(9_007_199_254_740_993),
-            &RuntimeValue::Float(9_007_199_254_740_992.0)
-        ));
-    }
-
-    #[test]
-    fn collections_compare_structurally() {
-        use std::cell::RefCell;
-        use std::rc::Rc;
-        let list = |vals: Vec<i64>| {
-            RuntimeValue::List(Rc::new(RefCell::new(
-                crate::interpreter::ListRepr::from_values(
-                    vals.into_iter().map(RuntimeValue::Int).collect(),
-                ),
-            )))
-        };
-        // Same contents ⇒ equal (the audited `[1,2,3] == [1,2,3]` row).
-        assert!(values_equal(&list(vec![1, 2, 3]), &list(vec![1, 2, 3])));
-        // Different contents or length ⇒ unequal.
-        assert!(!values_equal(&list(vec![1, 2, 3]), &list(vec![1, 2, 4])));
-        assert!(!values_equal(&list(vec![1, 2]), &list(vec![1, 2, 3])));
-    }
-
-    #[test]
-    fn nan_relational_comparisons_are_false_not_errors() {
-        let nan = RuntimeValue::Float(f64::NAN);
-        for op in [BinaryOpKind::Lt, BinaryOpKind::Gt, BinaryOpKind::LtEq, BinaryOpKind::GtEq] {
-            let r = compare(op, &nan, &RuntimeValue::Float(1.0)).unwrap();
-            assert!(matches!(r, RuntimeValue::Bool(false)));
-        }
-    }
-
-    #[test]
-    fn moment_compares_to_time_by_time_of_day() {
-        let nanos_per_day = 86_400_000_000_000i64;
-        // A moment at 10:00 into some day vs a time of 11:00.
-        let m = RuntimeValue::Moment(3 * nanos_per_day + 10 * 3_600_000_000_000);
-        let t = RuntimeValue::Time(11 * 3_600_000_000_000);
-        assert!(matches!(compare(BinaryOpKind::Lt, &m, &t).unwrap(), RuntimeValue::Bool(true)));
-        assert!(matches!(compare(BinaryOpKind::Gt, &t, &m).unwrap(), RuntimeValue::Bool(true)));
-    }
-
-    #[test]
-    fn comparison_type_error_message() {
-        let e = compare(BinaryOpKind::Lt, &RuntimeValue::Bool(true), &RuntimeValue::Int(1))
-            .unwrap_err();
-        assert_eq!(e, "Cannot compare Bool and Int");
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/semantics/compare/tests.rs"]
+mod tests;

@@ -1,0 +1,10 @@
+{
+  "capability": "operator.eq",
+  "workload": "count i where opEq(i,1500000) over 1..n",
+  "arg": "3000000",
+  "expected": "1",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

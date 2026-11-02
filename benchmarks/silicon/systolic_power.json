@@ -1,0 +1,36 @@
+{
+ "design": "systolic_tile_realbist",
+ "note": "8x8 weight-stationary systolic GEMM tile, signoff-clean Sky130 VCD power at its signoff clock",
+ "run": "tools/OpenLane/designs/logos_systolic_tile_realbist/runs/RUN_2026.10.15_17.21.09",
+ "gds_bytes": 28819816,
+ "clock_period_ns": 21.0,
+ "simulated_cycles": 4000,
+ "signature_port": "sig",
+ "signature": "0",
+ "signature_changes": 1940,
+ "signature_trajectory_sha256": "029721caf89a71d90e337e0dc39bd16095bc985b68709a05462ba5e9718f79bc",
+ "rtl_signature": "0",
+ "rtl_signature_trajectory_sha256": "029721caf89a71d90e337e0dc39bd16095bc985b68709a05462ba5e9718f79bc",
+ "die_mm2": 0.3689,
+ "std_cells": 42868,
+ "signoff_clean": true,
+ "clock_mhz": 47.619,
+ "fmax_mhz": 54.4,
+ "macs_per_clock": 64,
+ "power_mw": {
+  "default_activity": 22.3,
+  "vcd_measured": 13.2
+ },
+ "energy_per_mac_pJ": {
+  "default_activity": 7.32,
+  "vcd_measured": 4.33
+ },
+ "reproduce": "python3 scripts/measure-silicon-power.py systolic_tile_realbist",
+ "vs_reduction_lane": {
+  "reduction_design": "gemm_mac_realbist",
+  "reduction_pJ_per_mac": 16.33,
+  "energy_per_mac_improvement_x": 3.77,
+  "throughput_x": 8,
+  "area_per_mac_improvement_x": 7.0
+ }
+}

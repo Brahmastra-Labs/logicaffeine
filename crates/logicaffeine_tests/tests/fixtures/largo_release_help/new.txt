@@ -1,0 +1,52 @@
+Create a new LOGOS project in a new directory.
+
+Scaffolds a complete project structure including: - `Largo.toml` manifest file - `src/main.lg` entry point with a "Hello, world!" example - `.gitignore` configured for LOGOS projects
+
+# Example
+
+```bash largo new my_project cd my_project largo run ```
+
+Usage: largo new [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          The project name, used for the directory and package name
+
+Options:
+      --web
+          Scaffold a full-stack website: a backend of `## Route`s ending in `Serve on port 8080.` (`src/main.lg`), pages compiled to WASM (`pages/`), and static assets (`static/`) — all served by one `largo serve`. Pure convention: no extra manifest keys
+
+      --site
+          Scaffold a site: pages compiled to WASM (`pages/`) and static assets (`static/`), and no backend and no entry program — a `## Page` mounts itself. `largo serve` shows it; `largo build` exports it to `dist/` for any static host
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo new hello
+  cd hello
+  largo run
+
+  largo new mysite --site
+  cd mysite
+  largo serve
+
+  largo new myapp --web
+  cd myapp
+  largo serve

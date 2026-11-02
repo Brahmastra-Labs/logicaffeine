@@ -45,10 +45,7 @@ fn zero() -> Term {
 }
 
 fn succ(n: Term) -> Term {
-    Term::App(
-        Box::new(Term::Global("Succ".to_string())),
-        Box::new(n),
-    )
+    Term::App(Box::new(Term::Global("Succ".to_string())), Box::new(n))
 }
 
 fn church_numeral(n: u32) -> Term {

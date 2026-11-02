@@ -1,0 +1,12 @@
+{
+  "capability": "text.repeat",
+  "workload": "repeatText(s, 2) \u2014 length fold",
+  "arg": "20000",
+  "expected": "161980000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

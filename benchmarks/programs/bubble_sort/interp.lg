@@ -18,4 +18,9 @@ While i is less than n - 1:
             Set item (j + 1) of arr to a.
         Set j to j + 1.
     Set i to i + 1.
-Show item 1 of arr.
+Let mutable checksum be 0.
+Set i to 1.
+While i is at most n:
+    Set checksum to (checksum * 31 + item i of arr) & 268435455.
+    Set i to i + 1.
+Show "" + item 1 of arr + " " + item n of arr + " " + checksum.

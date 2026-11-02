@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.replace_byte",
+  "workload": "bytesReplaceByte(xs,65,90), positional fold",
+  "arg": "40000",
+  "expected": "5097756",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -2,8 +2,8 @@
 //!
 //! Automatically selects the best verification algorithm based on property structure.
 
-use crate::ir::VerifyExpr;
 use crate::equivalence::Trace;
+use crate::ir::VerifyExpr;
 use crate::kinduction::{self, KInductionResult, SignalDecl};
 
 /// Verification strategy.
@@ -14,14 +14,22 @@ pub enum Strategy {
     Ic3,
     Interpolation(u32),
     LivenessToSafety,
-    Portfolio { strategies: Vec<Strategy>, timeout_each_ms: u64 },
+    Portfolio {
+        strategies: Vec<Strategy>,
+        timeout_each_ms: u64,
+    },
 }
 
 /// Unified verification result from auto-selection.
 #[derive(Debug)]
 pub enum VerificationResult {
-    Safe { strategy_used: Strategy },
-    Unsafe { trace: Trace, strategy_used: Strategy },
+    Safe {
+        strategy_used: Strategy,
+    },
+    Unsafe {
+        trace: Trace,
+        strategy_used: Strategy,
+    },
     Unknown,
 }
 
@@ -73,10 +81,12 @@ pub fn verify_auto(
                 crate::liveness::LivenessResult::Live => VerificationResult::Safe {
                     strategy_used: strategy,
                 },
-                crate::liveness::LivenessResult::NotLive { trace, .. } => VerificationResult::Unsafe {
-                    trace,
-                    strategy_used: strategy,
-                },
+                crate::liveness::LivenessResult::NotLive { trace, .. } => {
+                    VerificationResult::Unsafe {
+                        trace,
+                        strategy_used: strategy,
+                    }
+                }
                 _ => VerificationResult::Unknown,
             }
         }
@@ -85,10 +95,15 @@ pub fn verify_auto(
             match result {
                 crate::interpolation::InterpolationResult::Safe
                 | crate::interpolation::InterpolationResult::Fixpoint { .. } => {
-                    VerificationResult::Safe { strategy_used: strategy }
+                    VerificationResult::Safe {
+                        strategy_used: strategy,
+                    }
                 }
                 crate::interpolation::InterpolationResult::Unsafe { trace } => {
-                    VerificationResult::Unsafe { trace, strategy_used: strategy }
+                    VerificationResult::Unsafe {
+                        trace,
+                        strategy_used: strategy,
+                    }
                 }
                 _ => VerificationResult::Unknown,
             }
@@ -111,7 +126,9 @@ pub fn verify_auto(
             for s in strategies {
                 let result = verify_with_strategy(init, transition, property, signals, s);
                 match &result {
-                    VerificationResult::Safe { .. } | VerificationResult::Unsafe { .. } => return result,
+                    VerificationResult::Safe { .. } | VerificationResult::Unsafe { .. } => {
+                        return result
+                    }
                     VerificationResult::Unknown => continue,
                 }
             }
@@ -120,7 +137,11 @@ pub fn verify_auto(
     }
 }
 
-fn try_ic3(init: &VerifyExpr, transition: &VerifyExpr, property: &VerifyExpr) -> VerificationResult {
+fn try_ic3(
+    init: &VerifyExpr,
+    transition: &VerifyExpr,
+    property: &VerifyExpr,
+) -> VerificationResult {
     let result = crate::ic3::ic3(init, transition, property, 20);
     match result {
         crate::ic3::Ic3Result::Safe { .. } => VerificationResult::Safe {
@@ -180,12 +201,18 @@ fn expr_size(expr: &VerifyExpr) -> usize {
         VerifyExpr::Not(inner) => 1 + expr_size(inner),
         VerifyExpr::Iff(l, r) => 1 + expr_size(l) + expr_size(r),
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => 1 + expr_size(body),
-        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
+            1 + args.iter().map(expr_size).sum::<usize>()
+        }
         VerifyExpr::BitVecBinary { left, right, .. } => 1 + expr_size(left) + expr_size(right),
         VerifyExpr::BitVecExtract { operand, .. } => 1 + expr_size(operand),
         VerifyExpr::BitVecConcat(l, r) => 1 + expr_size(l) + expr_size(r),
         VerifyExpr::Select { array, index } => 1 + expr_size(array) + expr_size(index),
-        VerifyExpr::Store { array, index, value } => 1 + expr_size(array) + expr_size(index) + expr_size(value),
+        VerifyExpr::Store {
+            array,
+            index,
+            value,
+        } => 1 + expr_size(array) + expr_size(index) + expr_size(value),
         VerifyExpr::AtState { state, expr } => 1 + expr_size(state) + expr_size(expr),
         VerifyExpr::Transition { from, to } => 1 + expr_size(from) + expr_size(to),
     }

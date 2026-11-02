@@ -13,7 +13,12 @@ use logicaffeine_language::Lexer;
 /// Lex to a comparable fingerprint: kind discriminants + lexemes.
 /// Indent/Dedent/Newline are INCLUDED — a formatter that changes nesting
 /// or line structure is changing the program.
-fn fingerprint(source: &str) -> Vec<(std::mem::Discriminant<logicaffeine_language::TokenType>, String)> {
+fn fingerprint(
+    source: &str,
+) -> Vec<(
+    std::mem::Discriminant<logicaffeine_language::TokenType>,
+    String,
+)> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(source, &mut interner);
     lexer
@@ -71,7 +76,7 @@ fn formatting_preserves_semantics_across_the_corpus() {
         include_str!("../../../editors/vscode/logicaffeine/test/grammar/corpus/theorem.lg"),
         include_str!("../../../editors/vscode/logicaffeine/test/grammar/corpus/types_and_crdt.lg"),
         include_str!("../../../editors/vscode/logicaffeine/test/grammar/corpus/prose_note.lg"),
-        include_str!("../../../assets/std/file.lg"),
+        include_str!("../../logicaffeine_compile/assets/std/file.lg"),
     ];
     for (i, source) in corpus.iter().enumerate() {
         assert_semantics_preserved(source, &format!("corpus[{i}]"));

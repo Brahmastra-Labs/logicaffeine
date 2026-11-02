@@ -14,7 +14,7 @@
 //! - comment-only lines keep their author indent (tabs still normalize),
 //! - the presence or absence of a final newline is preserved.
 //!
-//! The prime directive, locked by `formatter_locks.rs` in the test suite:
+//! The invariant every rule above keeps, locked by `formatter_locks.rs` in the test suite:
 //! **formatting never changes the token stream** — and it is a fixed point
 //! (`format_source(format_source(s)) == format_source(s)`).
 
@@ -68,20 +68,22 @@ pub fn format_source(source: &str) -> String {
     let mut out: String = source
         .lines()
         .enumerate()
-        .map(|(i, line)| match plans.get(i).copied().unwrap_or(LinePlan::Plain) {
-            LinePlan::Raw => line.to_string(),
-            LinePlan::Plain => format_line(line),
-            LinePlan::Code(depth) => {
-                let content = line.trim_start().trim_end();
-                if content.is_empty() {
-                    String::new()
-                } else {
-                    let mut formatted = " ".repeat(depth * 4);
-                    formatted.push_str(content);
-                    formatted
+        .map(
+            |(i, line)| match plans.get(i).copied().unwrap_or(LinePlan::Plain) {
+                LinePlan::Raw => line.to_string(),
+                LinePlan::Plain => format_line(line),
+                LinePlan::Code(depth) => {
+                    let content = line.trim_start().trim_end();
+                    if content.is_empty() {
+                        String::new()
+                    } else {
+                        let mut formatted = " ".repeat(depth * 4);
+                        formatted.push_str(content);
+                        formatted
+                    }
                 }
-            }
-        })
+            },
+        )
         .collect::<Vec<_>>()
         .join("\n");
     if source.ends_with('\n') {
@@ -146,7 +148,7 @@ fn line_plans(source: &str) -> Vec<LinePlan> {
     // to the author — raw from the line after the header to the next block.
     let mut in_prose = false;
     let mut prose_from = 0usize;
-    let mut mark_prose = |plans: &mut Vec<LinePlan>, from: usize, to: usize| {
+    let mark_prose = |plans: &mut Vec<LinePlan>, from: usize, to: usize| {
         for plan in plans.iter_mut().take(to).skip(from) {
             *plan = LinePlan::Raw;
         }

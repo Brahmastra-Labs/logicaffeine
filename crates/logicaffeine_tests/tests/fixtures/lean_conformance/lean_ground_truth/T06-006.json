@@ -1,0 +1,66 @@
+{
+  "case": "T06-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2203 \u03b1, \u03b1 = Nat",
+      "name": "T06_006.bigDomain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n + 1 = 4",
+      "name": "T06_006.existsAnon",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), (\u2203 n, P n) \u2192 \u2200 (Q : Prop), (\u2200 (n : Nat), P n \u2192 Q) \u2192 Q",
+      "name": "T06_006.existsElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 n, n = 3",
+      "name": "T06_006.existsNat",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 m n, m + n = 5",
+      "name": "T06_006.existsNested",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f : Nat \u2192 Nat), f 0 = 7 \u2192 \u2203 n, f n = 7",
+      "name": "T06_006.existsWithEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), \u2203 m, m = n + 1",
+      "name": "T06_006.forallExists",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2203 p, p",
+      "name": "T06_006.propDomain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

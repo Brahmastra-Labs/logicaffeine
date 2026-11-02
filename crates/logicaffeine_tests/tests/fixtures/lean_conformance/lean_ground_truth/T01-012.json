@@ -1,0 +1,140 @@
+{
+  "case": "T01-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 17,
+  "declarations": [
+    {
+      "type": "Prop",
+      "name": "T01_012.ambiguousAtProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_012.ambiguousAtType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u_1 \u2192 Sort u_1",
+      "name": "T01_012.ambiguousInIsolation",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u_1 \u2192 Type u_1",
+      "name": "T01_012.autoBoundNotSolved",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 {\u03b2 : Sort v} \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b1",
+      "name": "T01_012.constFn",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T01_012.interdependent",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_012.levelByUnificationAtOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "True",
+      "name": "T01_012.levelByUnificationAtProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T01_012.levelByUnificationAtZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_012.levelPinnedByAscription",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T01_012.nestedLevelSolving",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_012.polyId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Sort u_1) \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_012.solvedFromLaterArg",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T01_012.solvedFromResult",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "True",
+      "name": "T01_012.usesAtProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T01_012.usesAtType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_012.usesSolvedFromResult",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

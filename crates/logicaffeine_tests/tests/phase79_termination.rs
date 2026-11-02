@@ -275,36 +275,44 @@ fn test_reject_negative_inductive() {
 
 #[test]
 fn test_accept_positive_inductive_list() {
-    // Inductive List := Nil : List | Cons : Nat -> List -> List
-    // List always appears RIGHT of arrows = POSITIVE = ACCEPT
+    // Inductive PList := Nil : PList | Cons : Nat -> PList -> PList
+    // PList always appears RIGHT of arrows = POSITIVE = ACCEPT
 
     let mut ctx = Context::new();
     StandardLibrary::register(&mut ctx);
 
-    // Declare the List inductive type
-    ctx.add_inductive("List", Term::Sort(Universe::Type(0)));
+    // Declare the PList inductive type
+    ctx.add_inductive("PList", Term::Sort(Universe::Type(0)));
 
-    // Nil : List
-    let nil_type = Term::Global("List".to_string());
+    // Nil : PList
+    let nil_type = Term::Global("PList".to_string());
 
-    // Cons : Nat -> List -> List
+    // Cons : Nat -> PList -> PList
     let cons_type = Term::Pi {
         param: "_".to_string(),
         param_type: Box::new(Term::Global("Nat".to_string())),
         body_type: Box::new(Term::Pi {
             param: "_".to_string(),
-            param_type: Box::new(Term::Global("List".to_string())), // positive
-            body_type: Box::new(Term::Global("List".to_string())),  // positive (result)
+            param_type: Box::new(Term::Global("PList".to_string())), // positive
+            body_type: Box::new(Term::Global("PList".to_string())),  // positive (result)
         }),
     };
 
-    let nil_result = ctx.add_constructor_checked("Nil", "List", nil_type);
-    let cons_result = ctx.add_constructor_checked("Cons", "List", cons_type);
+    let nil_result = ctx.add_constructor_checked("Nil", "PList", nil_type);
+    let cons_result = ctx.add_constructor_checked("Cons", "PList", cons_type);
 
-    assert!(nil_result.is_ok(), "Valid Nil constructor rejected: {:?}", nil_result);
-    assert!(cons_result.is_ok(), "Valid Cons constructor rejected: {:?}", cons_result);
+    assert!(
+        nil_result.is_ok(),
+        "Valid Nil constructor rejected: {:?}",
+        nil_result
+    );
+    assert!(
+        cons_result.is_ok(),
+        "Valid Cons constructor rejected: {:?}",
+        cons_result
+    );
 
-    println!("List inductive accepted (strictly positive)");
+    println!("PList inductive accepted (strictly positive)");
 }
 
 #[test]

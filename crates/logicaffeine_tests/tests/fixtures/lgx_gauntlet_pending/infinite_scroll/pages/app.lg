@@ -1,0 +1,101 @@
+# Infinite scroll
+
+Loads a page of todos, then loads the next page automatically whenever the
+visitor scrolls to the bottom, until the server says there is nothing more.
+
+## Note
+
+`docs/frontend.md`'s Testing reference documents no drive verb for `When
+the user scrolls to the bottom:` at all. The only way this lane found to
+drive it is the UNDOCUMENTED `Raise "scrolledtobottom".` — found only by
+reading `crates/logicaffeine_tests/tests/lgx_vm_parity_lock.rs`'s own
+`scrolling_to_the_bottom_reaches_its_handler_on_both_tiers` — the same class
+of gap as `examples/file_drop_upload`'s G25 for a file drop's own
+undocumented drive verb. Recorded as finding G26,
+`work/lgx-ease/gauntlet2.md` (a documentation gap, no RED test needed: the
+mechanism works once found, unlike G25's `(file: File)`).
+
+## A Todo has:
+    an id, which is Int.
+    a text, which is Text.
+    a done, which is Bool.
+
+## To countLoaded (todos: Seq of Todo) -> Int:
+    Return length of todos.
+
+## Page /
+
+State:
+    Let todos be a new Seq of Todo.
+    Let error be "".
+    Let pageNum be 1.
+    Let exhausted be false.
+    Let loadedCount always be countLoaded(todos).
+
+Actions:
+    When the page loads:
+        Get "/api/todos" as Seq of Todo, then loaded.
+
+    To loaded (answer: Result of Seq of Todo and HttpError):
+        Inspect answer:
+            When Ok (list):
+                Let mutable merged be todos.
+                Repeat for t in list:
+                    Push t to merged.
+                Set todos to merged.
+                Set error to "".
+                If length of list is equal to 0:
+                    Set exhausted to true.
+            When Err (e):
+                Set error to e's message.
+                Set exhausted to true.
+
+    When the user scrolls to the bottom:
+        If exhausted is equal to false:
+            Set pageNum to pageNum + 1.
+            Get "/api/todos2" as Seq of Todo, then loaded.
+
+View:
+    <main>
+      <h1>Todos <small id="count">({loadedCount})</small></h1>
+      {if error is not "":}<p class="error" role="alert">{error}</p>{end}
+      <ul class="todos">
+        {for each t in todos:}
+          <li>{t's text}</li>
+        {else:}
+          <li class="empty">Nothing to do.</li>
+        {end}
+      </ul>
+      <p id="status">{if exhausted:}no more todos{end}</p>
+    </main>
+
+Style:
+    main { max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+    h1 { display: flex; align-items: baseline; gap: .6rem; }
+    h1 small { font-size: .85rem; font-weight: 400; color: var(--muted); }
+    .error { color: var(--danger); font-weight: 600; }
+    .todos { list-style: none; padding: 0; margin: 0; }
+    .empty { color: var(--muted); padding: .45rem 0; }
+
+## Test: the first page loads on mount
+
+Given that GET "/api/todos" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Expect that the count of ".todos li" is equal to 1.
+Expect that the text of "#count" is equal to "(1)".
+
+## Test: scrolling to the bottom loads the next page and appends it
+
+Given that GET "/api/todos" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Given that GET "/api/todos2" answers 200 with "[{{\"id\": 2, \"text\": \"bread\", \"done\": false}}]".
+Raise "scrolledtobottom".
+Expect that the count of ".todos li" is equal to 2.
+Expect that the text of "#count" is equal to "(2)".
+
+## Test: an empty page marks the feed exhausted and stops further loads
+
+Given that GET "/api/todos" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Given that GET "/api/todos2" answers 200 with "[]".
+Raise "scrolledtobottom".
+Expect that the text of "#status" is equal to "no more todos".
+Expect that the count of ".todos li" is equal to 1.
+

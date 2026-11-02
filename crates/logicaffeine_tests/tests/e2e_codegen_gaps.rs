@@ -866,8 +866,7 @@ Escape to Rust:
     assert!(
         result.success,
         "Escape block should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "from rust", "Got: {}", result.stdout);
 }
@@ -884,8 +883,7 @@ Escape to Rust:
     assert!(
         result.success,
         "Escape reading var should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
@@ -903,8 +901,7 @@ Escape to Rust:
     assert!(
         result.success,
         "Escape writing derived value should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "15", "Got: {}", result.stdout);
 }
@@ -921,8 +918,7 @@ Show "after".
     assert!(
         result.success,
         "Empty escape block should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "after", "Got: {}", result.stdout);
 }
@@ -1012,5 +1008,28 @@ Pop from words into last.
 Show last.
 "#,
         "world",
+    );
+}
+
+/// A mutable Text that only ever holds single-character literals may compile to
+/// a `u8` (the single-char optimization) — but INTERPOLATING it must still
+/// print the character, never its byte code. The interpreter prints `n`/`y`;
+/// the compiled tier once printed `110`/`121` here (the optimization's usage
+/// scan skipped interpolation sites).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_single_char_text_interpolates_as_text() {
+    assert_exact_output(
+        r#"## Main
+Let mutable miss be "n".
+Show "a={miss}".
+Set miss to "y".
+Show "b={miss}".
+Show miss.
+Let mutable tail be "!".
+Let line be "end{tail}".
+Show line.
+"#,
+        "a=n\nb=y\ny\nend!",
     );
 }

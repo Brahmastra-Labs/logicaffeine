@@ -17,10 +17,10 @@
 
 mod common;
 
-use logicaffeine_compile::optimize::{oracle_analyze_with, OracleFacts};
-use logicaffeine_compile::ui_bridge::with_parsed_program;
 use logicaffeine_compile::ast::stmt::Stmt;
 use logicaffeine_compile::intern::{Interner, Symbol};
+use logicaffeine_compile::optimize::{oracle_analyze_with, OracleFacts};
+use logicaffeine_compile::ui_bridge::with_parsed_program;
 
 /// Parse, analyze, and hand the facts + AST + interner to the assertion body.
 fn with_alias_facts<T>(
@@ -53,7 +53,11 @@ fn collect_loops<'a>(stmts: &'a [Stmt<'a>], out: &mut Vec<&'a Stmt<'a>>) {
                 out.push(s);
                 collect_loops(body, out);
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_loops(then_block, out);
                 if let Some(eb) = else_block {
                     collect_loops(eb, out);

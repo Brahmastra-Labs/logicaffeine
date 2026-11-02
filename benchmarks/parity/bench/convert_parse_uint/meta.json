@@ -1,0 +1,10 @@
+{
+  "capability": "convert.parse_uint",
+  "workload": "parseUint(numText(i))",
+  "arg": "2000000",
+  "expected": "2000001000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

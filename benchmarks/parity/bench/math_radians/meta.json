@@ -1,0 +1,11 @@
+{
+  "capability": "math.radians",
+  "workload": "math.radians",
+  "arg": "1000000",
+  "expected": "8726654486629",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

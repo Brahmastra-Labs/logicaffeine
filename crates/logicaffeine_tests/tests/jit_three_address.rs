@@ -12,7 +12,7 @@
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
-use logicaffeine_forge::jit::{compile_straightline, ChainOutcome, MicroOp, reference_eval};
+use logicaffeine_forge::jit::{compile_straightline, reference_eval, ChainOutcome, MicroOp};
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
@@ -54,10 +54,15 @@ fn random_alu_programs_match_reference() {
                 3 => MicroOp::Lt { dst, lhs, rhs },
                 4 => MicroOp::Eq { dst, lhs, rhs },
                 5 => MicroOp::Move { dst, src: lhs },
-                _ => MicroOp::LoadConst { dst, value: (rng.next() as i64) % 1000 },
+                _ => MicroOp::LoadConst {
+                    dst,
+                    value: (rng.next() as i64) % 1000,
+                },
             });
         }
-        ops.push(MicroOp::Return { src: (seed % nslots as u64) as u16 });
+        ops.push(MicroOp::Return {
+            src: (seed % nslots as u64) as u16,
+        });
 
         let chain = compile_straightline(&ops).expect("compile");
         let mut jit_frame: Vec<i64> = (0..nslots as i64 + 2).map(|i| i * 7 - 3).collect();
@@ -76,7 +81,11 @@ fn random_alu_programs_match_reference() {
 fn fused_chain_code_size_reflects_single_piece_per_op() {
     let mut ops: Vec<MicroOp> = Vec::new();
     for i in 0..40u16 {
-        ops.push(MicroOp::Add { dst: 2 + (i % 3), lhs: 0, rhs: 1 });
+        ops.push(MicroOp::Add {
+            dst: 2 + (i % 3),
+            lhs: 0,
+            rhs: 1,
+        });
     }
     ops.push(MicroOp::Return { src: 2 });
     let chain = compile_straightline(&ops).expect("compile");
@@ -90,12 +99,24 @@ fn fused_chain_code_size_reflects_single_piece_per_op() {
     );
     // And a checked op adds exactly the one shared deopt terminal.
     let ops2 = [
-        MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
-        MicroOp::Mod { dst: 3, lhs: 0, rhs: 1 },
+        MicroOp::Div {
+            dst: 2,
+            lhs: 0,
+            rhs: 1,
+        },
+        MicroOp::Mod {
+            dst: 3,
+            lhs: 0,
+            rhs: 1,
+        },
         MicroOp::Return { src: 2 },
     ];
     let chain2 = compile_straightline(&ops2).expect("compile");
-    assert_eq!(chain2.piece_count(), ops2.len() + 1, "one shared deopt terminal");
+    assert_eq!(
+        chain2.piece_count(),
+        ops2.len() + 1,
+        "one shared deopt terminal"
+    );
 }
 
 /// Value-producing LtEq/GtEq/NotEq lower directly (no scratch-slot pair),
@@ -107,9 +128,21 @@ fn direct_comparison_values_match_reference() {
         for &a in &EDGES {
             for &b in &EDGES {
                 let op = match cmp {
-                    0 => MicroOp::LtEq { dst: 2, lhs: 0, rhs: 1 },
-                    1 => MicroOp::GtEq { dst: 2, lhs: 0, rhs: 1 },
-                    _ => MicroOp::Neq { dst: 2, lhs: 0, rhs: 1 },
+                    0 => MicroOp::LtEq {
+                        dst: 2,
+                        lhs: 0,
+                        rhs: 1,
+                    },
+                    1 => MicroOp::GtEq {
+                        dst: 2,
+                        lhs: 0,
+                        rhs: 1,
+                    },
+                    _ => MicroOp::Neq {
+                        dst: 2,
+                        lhs: 0,
+                        rhs: 1,
+                    },
                 };
                 let ops = [op, MicroOp::Return { src: 2 }];
                 let chain = compile_straightline(&ops).expect("compile");

@@ -1,0 +1,190 @@
+{
+  "case": "T08-028",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T08_028.bareAdmit",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p : Prop), p",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_bare_admit",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.bareAdmit names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.bareAdmit.ndjson (sha256 cd18848fc3add7ccdc97895d201a65a303563b19df49c699d821f2dfd1a4901a; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.bareAdmit → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.bareAdmit",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T08_028.bareSorry",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p : Prop), p",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_bare_sorry",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.bareSorry names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.bareSorry.ndjson (sha256 3cbb6e1fa5b40be32ae94dbffa7c0a5e896b4cc8d4a2d93122f6b857ae93c4fa; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.bareSorry → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.bareSorry",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T08_028.dependsOnSorry",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q : Prop), q → p ∧ q",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_depends_on_sorry",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.dependsOnSorry names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.dependsOnSorry.ndjson (sha256 69be739c068a9b47a6cca402fc10d9de6fe15a795c7b9b3ebd1a4c15bd3ba9a5; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.dependsOnSorry → T08_028.bareSorry → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.dependsOnSorry",
+            "T08_028.bareSorry",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T08_028.partialSorry",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p q : Prop), p → p ∧ q",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_partial_sorry",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.partialSorry names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.partialSorry.ndjson (sha256 a122dc4474f177c8a3511321cfc8dfb6a4b3d5dd67c03032de61aba4ff0472c9; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.partialSorry → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.partialSorry",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T08_028.sorryUnderBinder",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p : Nat → Prop) (n : Nat), p n",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_sorry_under_binder",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.sorryUnderBinder names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.sorryUnderBinder.ndjson (sha256 41119a1b0b46229460fb08613f24e16c5b44b0831590cd5d5b6185762a9ec6f4; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.sorryUnderBinder → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.sorryUnderBinder",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T08_028.stubbedFunction",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat → Nat",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_stubbed_function",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.stubbedFunction names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.stubbedFunction.ndjson (sha256 c4dd3841ee542a9410ec84467a45d9729d40783e4064de050fe3697b6a3a296d; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.stubbedFunction → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.stubbedFunction",
+            "sorryAx"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T08_028.termSorry",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (p : Prop), p",
+      "lean_axioms": [
+        "sorryAx"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t08_028_term_sorry",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T08_028.termSorry names sorryAx, resting on the trust escape sorryAx. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T08-028.termSorry.ndjson (sha256 05921801a08b9527ae705b41516b081b4017721ac9e82ba1b8953c94d8e44c49; source sha256 5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T08_028.termSorry → sorryAx; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "sorryAx"
+        ],
+        "taint": [
+          [
+            "T08_028.termSorry",
+            "sorryAx"
+          ]
+        ]
+      }
+    }
+  ]
+}

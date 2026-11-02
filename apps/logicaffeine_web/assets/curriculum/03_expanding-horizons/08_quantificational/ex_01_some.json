@@ -3,9 +3,12 @@
   "type": "translation",
   "difficulty": 3,
   "prompt": "Translate this existential claim:",
-  "template": "Some {Noun} {Verb}.",
+  "template": "Some {Noun} {Verb:Present3s}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Verb": [
+      "Intransitive"
+    ]
   },
-  "hint": "Existential joined by ∧: ∃x(Noun(x) ∧ ∃e(Verb(e) ∧ Agent(e, x))). The verb itself becomes an event. Use ∧, not →."
+  "hint": "Some joins with ∧. The verb becomes an event with x as its Agent: ∃x(Noun(x) ∧ ∃e(Verb(e) ∧ Agent(e, x))).",
+  "section": "8.2"
 }

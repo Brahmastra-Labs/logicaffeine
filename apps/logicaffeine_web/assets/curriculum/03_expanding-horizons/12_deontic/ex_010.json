@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Invest only if you look",
   "options": [
-    "$ (Iu\\supset Lu) $",
-    "$ (Ol\\underline{u}\\supset Lu) $",
-    "$ (I\\underline{u}\\supset Lu ) $",
-    "$ (I\\underline{u} \\supset L\\underline{u} ) $"
+    "I(u) → L(u)",
+    "O I(u̲) → L(u)",
+    "I(u̲) → L(u)",
+    "I(u̲) → L(u̲)"
   ],
   "correct": 2,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'A only if B' is A ⊃ B. The commanded action I͟u ('you invest', agent underlined) holds only if the descriptive Lu ('you look'): (I͟u ⊃ Lu)."
+  "hint": "'A only if B' is A → B. Which part is the command?",
+  "explanation": "'A only if B' is A → B. Investing is commanded, so I(u̲), and looking is described, so L(u): I(u̲) → L(u).",
+  "section": "12.2"
 }

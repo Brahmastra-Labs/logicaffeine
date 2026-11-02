@@ -1,0 +1,21 @@
+{
+  "capability": "iter.range",
+  "arg": "100000",
+  "timing_n": "697895",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated, contention-robust: op-time = MIN-wall(timing_n) - MIN-wall(1) over 15 runs, timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 249.294,
+    "python": 3163.436
+  },
+  "wall_ms": {
+    "logos": 249.672,
+    "python": 3172.031
+  },
+  "logos_ms": 249.294,
+  "speedups_vs_logos": {
+    "python": 12.69
+  },
+  "logos_strictly_fastest": true,
+  "min_speedup": 12.69
+}

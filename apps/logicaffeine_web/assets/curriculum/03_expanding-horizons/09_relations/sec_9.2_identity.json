@@ -1,0 +1,42 @@
+{
+  "id": "9.2",
+  "title": "Identity",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Identity** says that two names pick out the same individual. LOGOS writes it with =."
+    },
+    {
+      "type": "paragraph",
+      "text": "Identity also lets logic count: 'exactly one' means there is one, and anything else like it is that same one."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "Clark is Superman.",
+      "formula": "Clark = Superman",
+      "note": "Two names, one person."
+    },
+    {
+      "type": "formula",
+      "sentence": "Clark is not Superman.",
+      "formula": "¬Clark = Superman",
+      "note": "LOGOS puts ¬ in front. It denies the whole identity."
+    },
+    {
+      "type": "formula",
+      "sentence": "Mary is Mary.",
+      "formula": "Mary = Mary",
+      "note": "Everything is identical to itself."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Tully is Cicero.",
+    "answer": "Tully = Cicero",
+    "hint": "Put the identity sign between the two names.",
+    "explanation": "Tully and Cicero are two names for one Roman orator, so Tully = Cicero."
+  }
+}

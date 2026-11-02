@@ -1,0 +1,28 @@
+# RMSNorm — Y = rmsnorm of X with weight W over the tensor sugar (2×4 rows, a 1×4 weight).
+#
+# RDU lane: tensor. The fused-row sugar desugars to the row reduction + broadcast rescale the recognizer
+# reads; `largo emit rdu` lifts it to the spatial IR (a RowReduce/Generic chain), runs the pinned passes on
+# the SN50 descriptor, and emits the certified neutral placement. The RDU's witnessed float precision is
+# bf16, so the placement's numerics claim says so.
+
+## Main
+
+Let X be a 2 by 4 tensor of Real.
+Set item 1 of X to 1.0.
+Set item 2 of X to 2.0.
+Set item 3 of X to 3.0.
+Set item 4 of X to 4.0.
+Set item 5 of X to -1.5.
+Set item 6 of X to 0.5.
+Set item 7 of X to 2.5.
+Set item 8 of X to -3.0.
+Let W be a 1 by 4 tensor of Real.
+Set item 1 of W to 0.5.
+Set item 2 of W to 1.0.
+Set item 3 of W to 2.0.
+Set item 4 of W to 1.5.
+Let Y be rmsnorm of X with weight W.
+Show round(item 1 of Y * 1000000).
+Show round(item 4 of Y * 1000000).
+Show round(item 5 of Y * 1000000).
+Show round(item 8 of Y * 1000000).

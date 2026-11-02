@@ -1,0 +1,37 @@
+This directory holds changes to OpenLane (https://github.com/The-OpenROAD-Project/OpenLane),
+Copyright 2020-2022 Efabless Corporation and its contributors, licensed under the Apache License,
+Version 2.0 (LICENSE in this directory). apply.sh lays them over OpenLane at commit
+ff5509f65b17bfa4068d5336495ab1718987ff69 (BASE).
+
+Modified from that commit, each marked as modified at its head:
+  scripts/klayout/xor.drc
+  scripts/odbpy/diodes.py
+  scripts/openroad/cts.tcl
+  scripts/openroad/resizer_routing_design.tcl
+  scripts/openroad/resizer_routing_timing.tcl
+  scripts/tcl_commands/cts.tcl
+  scripts/tcl_commands/routing.tcl
+  scripts/utils/utils.tcl
+
+Added by the LOGOS project, not present upstream, and covered by this repository's license:
+  scripts/odbpy/ant_probe.tcl
+  scripts/odbpy/magic_antenna_eco.py
+  scripts/odbpy/sat_antenna_jog.py
+  scripts/odbpy/tests/test_cell_geometry_guard.py
+  scripts/odbpy/tests/test_met1_tie.py
+  scripts/odbpy/tests/test_net_index.py
+  scripts/odbpy/tests/test_notch_guard.py
+  scripts/odbpy/tests/test_rect_roundtrip.py
+  scripts/odbpy/tests/test_sliver_guard.py
+  scripts/odbpy/tests/test_stack_drop.py
+  scripts/openroad/logos_clock_fanout.tcl
+  scripts/openroad/logos_cts.py
+  scripts/openroad/logos_cts_kmeans.tcl
+  scripts/openroad/logos_diode_fanout.tcl
+  scripts/openroad/logos_diode_fanout_core.tcl
+  scripts/openroad/logos_diode_fanout_lib.tcl
+  scripts/openroad/logos_fanout_limit.tcl
+  scripts/openroad/logos_global_route.tcl
+  scripts/openroad/logos_post_diode_upsize.tcl
+  scripts/openroad/tests/test_cts_kmeans.tcl
+  scripts/openroad/tests/test_diode_fanout_core.tcl

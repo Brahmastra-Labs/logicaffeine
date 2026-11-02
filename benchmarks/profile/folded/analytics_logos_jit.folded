@@ -1,0 +1,8 @@
+logos::main::loop@23 [jit] 32640363020
+logos::main::loop@23 [jit];[unknown] 8138353
+logos::main::loop@76 [jit] 4070232
+_start;__libc_start_main_impl;__libc_start_call_main;main;_RNvNtCs75vJTIYSa2J_3std2rt19lang_start_internal;std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h51f0bc37981b2549;std::sys::backtrace::__rust_begin_short_backtrace;logos_jit_run::native::main;logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198 837307
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;logicaffeine_compile::vm::machine::Vm::region_mutation_escapes 615653
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela 438533
+[unknown];__libc_start_main_impl;__libc_start_call_main;[unknown];[unknown];[unknown];[unknown];[unknown];[unknown];[unknown];[unknown] 340831
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela;elf_machine_rela 340831

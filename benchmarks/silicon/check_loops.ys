@@ -1,0 +1,6 @@
+read_verilog soft_core.v alu.v
+chparam -set HEAP 64 -set FRAMES 4 -set MAXELT 8 -set MAXPAIR 4 -set MAXKEY 4 soft_core
+hierarchy -check -top soft_core
+proc
+opt
+check

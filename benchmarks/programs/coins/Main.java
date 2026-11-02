@@ -5,6 +5,8 @@ public class Main {
         long[] dp = new long[n + 1];
         dp[0] = 1;
         for (int c : coins) for (int j = c; j <= n; j++) dp[j] = (dp[j] + dp[j - c]) % 1000000007;
-        System.out.println(dp[n]);
+        long checksum = 0;
+        for (long v : dp) checksum = (checksum * 31 + v) & 268435455;
+        System.out.println(dp[n] + " " + checksum);
     }
 }

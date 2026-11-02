@@ -1,0 +1,33 @@
+{
+  "case": "T11-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 3,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), 0 \u2264 Int.ofNat n",
+      "name": "T11_016.nonNegOfNat",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Int \u2192 Int",
+      "name": "T11_016.sign",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Int \u2192 Sort u_1) \u2192\n  (x : Int) \u2192\n    (Unit \u2192 motive (Int.ofNat 0)) \u2192\n      ((n : Nat) \u2192 motive (Int.ofNat n.succ)) \u2192 ((a : Nat) \u2192 motive (Int.negSucc a)) \u2192 motive x",
+      "name": "T11_016.sign.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

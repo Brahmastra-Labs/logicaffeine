@@ -1,0 +1,10 @@
+{
+  "capability": "convert.quote_rune",
+  "workload": "len quoteRune(65+i%26)",
+  "arg": "3000000",
+  "expected": "9000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

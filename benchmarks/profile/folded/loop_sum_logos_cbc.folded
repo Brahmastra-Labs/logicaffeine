@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 3289070963
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__posix_memalign;__posix_memalign;_mid_memalign;_int_memalign;_int_malloc;sysmalloc_mmap;[unknown] 225940

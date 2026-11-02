@@ -1,0 +1,75 @@
+{
+  "case": "T04-019",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_019.clamp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 Nat",
+      "name": "T04_019.countOdds",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 Sort u_1) \u2192\n  (x : List Nat) \u2192 (Unit \u2192 motive []) \u2192 ((x : Nat) \u2192 (t : List Nat) \u2192 motive (x :: t)) \u2192 motive x",
+      "name": "T04_019.countOdds.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_019.isZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_019.pickB",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_019.pickCond",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(p : Prop) \u2192 [inst : Decidable p] \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_019.pickExplicit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_019.pickNotB",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_019.sign3",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

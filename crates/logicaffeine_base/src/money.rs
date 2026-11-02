@@ -93,7 +93,10 @@ impl Money {
     /// Build money, quantising the amount to the currency's minor unit with banker's rounding —
     /// `5 USD` is stored as `5.00`, `19.999 USD` rounds to `20.00`, `100 JPY` stays `100`.
     pub fn of(amount: Decimal, currency: Currency) -> Money {
-        Money { amount: amount.rescale(currency.scale, RoundingMode::HalfEven), currency }
+        Money {
+            amount: amount.rescale(currency.scale, RoundingMode::HalfEven),
+            currency,
+        }
     }
 
     /// Sum of two amounts in the **same** currency; `None` across currencies (no common meaning).
@@ -101,7 +104,10 @@ impl Money {
         if self.currency != other.currency {
             return None;
         }
-        Some(Money { amount: self.amount.add(&other.amount), currency: self.currency })
+        Some(Money {
+            amount: self.amount.add(&other.amount),
+            currency: self.currency,
+        })
     }
 
     /// Difference of two amounts in the **same** currency; `None` across currencies.
@@ -109,7 +115,10 @@ impl Money {
         if self.currency != other.currency {
             return None;
         }
-        Some(Money { amount: self.amount.sub(&other.amount), currency: self.currency })
+        Some(Money {
+            amount: self.amount.sub(&other.amount),
+            currency: self.currency,
+        })
     }
 
     /// Scale an amount by a plain integer (`19.99 USD × 3 = 59.97 USD`), re-quantised to the currency.
@@ -162,7 +171,9 @@ pub struct RateTable {
 
 impl RateTable {
     pub fn new() -> Self {
-        RateTable { rates: std::collections::HashMap::new() }
+        RateTable {
+            rates: std::collections::HashMap::new(),
+        }
     }
 
     /// Record that `1 <code> = rate` reference units (case-insensitive code).
@@ -182,7 +193,10 @@ impl RateTable {
         let to_rate = self.rate(to.code)?;
         let value_in_reference = m.amount.to_rational().mul(from_rate);
         let amount_in_to = value_in_reference.div(to_rate)?;
-        Some(Money::of(Decimal::from_rational(&amount_in_to, to.scale, RoundingMode::HalfEven), to))
+        Some(Money::of(
+            Decimal::from_rational(&amount_in_to, to.scale, RoundingMode::HalfEven),
+            to,
+        ))
     }
 }
 
@@ -202,7 +216,11 @@ pub fn set_ambient_rates(table: RateTable) {
 /// Add or replace one rate in the ambient table (`1 <code> = rate` reference units), creating the
 /// table if none is in scope yet.
 pub fn set_ambient_rate(code: &str, rate: Rational) {
-    AMBIENT_RATES.with(|r| r.borrow_mut().get_or_insert_with(RateTable::new).set(code, rate));
+    AMBIENT_RATES.with(|r| {
+        r.borrow_mut()
+            .get_or_insert_with(RateTable::new)
+            .set(code, rate)
+    });
 }
 
 /// Drop the ambient rate table (back to "no rates in scope").
@@ -222,84 +240,5 @@ pub fn ambient_convert(m: &Money, to: Currency) -> Option<Money> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn money(s: &str, code: &str) -> Money {
-        Money::of(Decimal::parse(s).unwrap(), currency::by_code(code).unwrap())
-    }
-
-    #[test]
-    fn currency_catalog_resolves_codes_with_their_iso_scales() {
-        assert_eq!(currency::by_code("USD").unwrap().scale, 2);
-        assert_eq!(currency::by_code("usd").unwrap().scale, 2); // case-insensitive
-        assert_eq!(currency::by_code("JPY").unwrap().scale, 0); // zero-decimal
-        assert_eq!(currency::by_code("BHD").unwrap().scale, 3); // three-decimal
-        assert_eq!(currency::by_code("KWD").unwrap().scale, 3);
-        assert_eq!(currency::by_code("XYZ"), None);
-    }
-
-    #[test]
-    fn money_quantises_to_the_currency_minor_unit() {
-        assert_eq!(money("19.99", "USD").to_string(), "19.99 USD");
-        assert_eq!(money("5", "USD").to_string(), "5.00 USD"); // padded to 2dp
-        assert_eq!(money("100", "JPY").to_string(), "100 JPY"); // no decimals
-        assert_eq!(money("1.5", "BHD").to_string(), "1.500 BHD"); // 3dp
-        // Banker's rounding to the minor unit.
-        assert_eq!(money("19.999", "USD").to_string(), "20.00 USD");
-        assert_eq!(money("2.345", "USD").to_string(), "2.34 USD"); // HalfEven: 4 is even
-    }
-
-    #[test]
-    fn same_currency_add_sub_are_exact_and_keep_the_currency() {
-        // The "JSON numbers ruin lives" footgun, gone: 0.10 + 0.20 is EXACTLY 0.30.
-        assert_eq!(money("0.10", "USD").add(&money("0.20", "USD")).unwrap().to_string(), "0.30 USD");
-        assert_eq!(money("19.99", "USD").add(&money("5.00", "USD")).unwrap().to_string(), "24.99 USD");
-        assert_eq!(money("24.99", "USD").sub(&money("5.00", "USD")).unwrap().to_string(), "19.99 USD");
-        assert_eq!(money("100", "JPY").add(&money("50", "JPY")).unwrap().to_string(), "150 JPY");
-    }
-
-    #[test]
-    fn cross_currency_arithmetic_is_forbidden() {
-        // A dollar plus a euro has no answer — like meter + gram.
-        assert_eq!(money("5.00", "USD").add(&money("1.00", "EUR")), None);
-        assert_eq!(money("5.00", "USD").sub(&money("1.00", "EUR")), None);
-        assert_eq!(money("5.00", "USD").ratio(&money("1.00", "EUR")), None);
-    }
-
-    #[test]
-    fn scaling_and_ratio() {
-        assert_eq!(money("19.99", "USD").scale_int(3).to_string(), "59.97 USD");
-        assert_eq!(money("30.00", "USD").ratio(&money("10.00", "USD")).unwrap(), Rational::from_i64(3));
-        assert_eq!(money("1.00", "USD").ratio(&money("0.00", "USD")), None); // divide by zero
-    }
-
-    #[test]
-    fn universal_money_amount_converts_exactly_via_a_rate_table() {
-        // Reference = USD. 1 EUR = 1.10 USD, 1 GBP = 1.25 USD.
-        let mut rates = RateTable::new();
-        rates.set("USD", Rational::from_i64(1));
-        rates.set("EUR", Rational::from_ratio_i64(11, 10).unwrap());
-        rates.set("GBP", Rational::from_ratio_i64(5, 4).unwrap());
-        let usd = currency::by_code("USD").unwrap();
-        let eur = currency::by_code("EUR").unwrap();
-        let gbp = currency::by_code("GBP").unwrap();
-
-        // 10 EUR → USD = 11.00 USD; and back to EUR = exactly 10.00 (lossless round-trip).
-        assert_eq!(rates.convert(&money("10.00", "EUR"), usd).unwrap().to_string(), "11.00 USD");
-        assert_eq!(rates.convert(&money("11.00", "USD"), eur).unwrap().to_string(), "10.00 EUR");
-        // Converting to the same currency is the identity.
-        assert_eq!(rates.convert(&money("42.00", "USD"), usd).unwrap().to_string(), "42.00 USD");
-        // Cross-rate via the reference: 10 GBP = 12.50 USD = 12.50/1.10 EUR ≈ 11.36 EUR.
-        assert_eq!(rates.convert(&money("10.00", "GBP"), eur).unwrap().to_string(), "11.36 EUR");
-        // An unknown currency yields None, never a wrong number.
-        assert_eq!(rates.convert(&money("1.00", "USD"), currency::by_code("JPY").unwrap()), None);
-    }
-
-    #[test]
-    fn value_equality() {
-        assert_eq!(money("5", "USD"), money("5.00", "USD")); // value-equal across input forms
-        assert_ne!(money("5.00", "USD"), money("5.00", "EUR")); // currency matters
-        assert_ne!(money("5.00", "USD"), money("6.00", "USD"));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/money/tests.rs"]
+mod tests;

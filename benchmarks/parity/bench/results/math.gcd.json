@@ -1,0 +1,12 @@
+{
+  "capability": "math.gcd",
+  "timing_n": "6646",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "rust": 1.14,
+    "c": 1.253,
+    "go": 1.295
+  },
+  "min_speedup": 1.14
+}

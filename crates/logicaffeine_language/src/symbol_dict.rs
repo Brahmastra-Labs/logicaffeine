@@ -17,6 +17,7 @@ pub enum SymbolKind {
     Identity,
     Punctuation,
     Temporal,
+    Role,
 }
 
 impl SymbolKind {
@@ -31,6 +32,7 @@ impl SymbolKind {
             SymbolKind::Identity => "Identity",
             SymbolKind::Punctuation => "Punctuation",
             SymbolKind::Temporal => "Temporal",
+            SymbolKind::Role => "Role",
         }
     }
 }
@@ -40,205 +42,337 @@ impl SymbolKind {
 pub struct SymbolEntry {
     pub symbol: String,
     pub kind: SymbolKind,
+    /// What the symbol means, in words — never the symbol said again.
     pub description: String,
+    /// The symbol as the formula writes it: `Dog(x)`, `See(John, x)`, `∀`.
+    pub usage: String,
 }
 
-/// Extract symbols from a FOL logic string
+/// Extract symbols from a FOL logic string as the Unicode (Full) view prints it.
 pub fn extract_symbols(logic: &str) -> Vec<SymbolEntry> {
+    extract_symbols_for(logic, &crate::formatter::UnicodeFormatter)
+}
+
+/// Extract symbols from `logic` as `view` printed it: each view writes its symbols its own way
+/// (`∀` or `ForAll`, `P` or `Past`), and the dictionary reads them in that notation.
+pub fn extract_symbols_for(logic: &str, view: &impl crate::formatter::LogicFormatter) -> Vec<SymbolEntry> {
+    let notation = Notation::of(view);
     let mut entries = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-
-    // Quantifiers
-    if logic.contains("∀") && seen.insert("∀".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "∀".to_string(),
-            kind: SymbolKind::Quantifier,
-            description: "Universal quantifier: \"for all\"".to_string(),
-        });
-    }
-    if logic.contains("∃") && seen.insert("∃".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "∃".to_string(),
-            kind: SymbolKind::Quantifier,
-            description: "Existential quantifier: \"there exists\"".to_string(),
-        });
-    }
-    if logic.contains("∃!") && seen.insert("∃!".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "∃!".to_string(),
-            kind: SymbolKind::Quantifier,
-            description: "Unique existence: \"there exists exactly one\"".to_string(),
-        });
-    }
-    if logic.contains("MOST") && seen.insert("MOST".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "MOST".to_string(),
-            kind: SymbolKind::Quantifier,
-            description: "Generalized quantifier: \"most\"".to_string(),
-        });
-    }
-    if logic.contains("FEW") && seen.insert("FEW".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "FEW".to_string(),
-            kind: SymbolKind::Quantifier,
-            description: "Generalized quantifier: \"few\"".to_string(),
-        });
-    }
-
-    // Connectives
-    if logic.contains("∧") && seen.insert("∧".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "∧".to_string(),
-            kind: SymbolKind::Connective,
-            description: "Conjunction: \"and\"".to_string(),
-        });
-    }
-    if logic.contains("∨") && seen.insert("∨".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "∨".to_string(),
-            kind: SymbolKind::Connective,
-            description: "Disjunction: \"or\"".to_string(),
-        });
-    }
-    if logic.contains("→") && seen.insert("→".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "→".to_string(),
-            kind: SymbolKind::Connective,
-            description: "Implication: \"if...then\"".to_string(),
-        });
-    }
-    if logic.contains("↔") && seen.insert("↔".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "↔".to_string(),
-            kind: SymbolKind::Connective,
-            description: "Biconditional: \"if and only if\"".to_string(),
-        });
-    }
-    if logic.contains("¬") && seen.insert("¬".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "¬".to_string(),
-            kind: SymbolKind::Connective,
-            description: "Negation: \"not\"".to_string(),
-        });
-    }
-
-    // Modal operators
-    if logic.contains("□") && seen.insert("□".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "□".to_string(),
-            kind: SymbolKind::Modal,
-            description: "Necessity: \"it is necessary that\"".to_string(),
-        });
-    }
-    if logic.contains("◇") && seen.insert("◇".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "◇".to_string(),
-            kind: SymbolKind::Modal,
-            description: "Possibility: \"it is possible that\"".to_string(),
-        });
-    }
-    if logic.contains("O_") && seen.insert("O".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "O".to_string(),
-            kind: SymbolKind::Modal,
-            description: "Deontic obligation: \"it ought to be that\"".to_string(),
-        });
-    }
-
-    // Identity
-    if logic.contains(" = ") && seen.insert("=".to_string()) {
-        entries.push(SymbolEntry {
-            symbol: "=".to_string(),
-            kind: SymbolKind::Identity,
-            description: "Identity: \"is identical to\"".to_string(),
-        });
-    }
-
-    // Extract predicates (uppercase letters followed by parenthesis)
-    extract_predicates(logic, &mut entries, &mut seen);
-
-    // Extract variables (lowercase x, y, z, etc.)
-    extract_variables(logic, &mut entries, &mut seen);
-
-    // Extract constants (uppercase single letters not followed by parenthesis)
-    extract_constants(logic, &mut entries, &mut seen);
-
+    extract_fixed_symbols(logic, &notation, &mut entries, &mut seen);
+    extract_applications(logic, &notation, &mut entries, &mut seen);
+    extract_variables(logic, &notation, &mut entries, &mut seen);
+    extract_constants(logic, &notation, &mut entries, &mut seen);
     entries
 }
 
-fn extract_predicates(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
-    // Match patterns like "Dog(", "Mortal(", "Loves("
+/// Identity, with what it means.
+const IDENTITY: (&str, &str) = ("=", "… is the same individual as …");
+/// The deontic operator LOGOS prints for "ought" and "should", with what it means.
+const OUGHT: (&str, &str) = ("O", "it ought to be that …");
+
+/// The symbols LOGOS writes with a fixed spelling, as the Unicode view prints them, each with what
+/// it means: the quantifiers, the connectives, the modals, identity, and the deontic O.
+pub fn notation() -> Vec<SymbolEntry> {
+    let notation = Notation::of(&crate::formatter::UnicodeFormatter);
+    let entry = |symbol: &str, kind: SymbolKind, meaning: &str| SymbolEntry {
+        usage: symbol.to_string(),
+        symbol: symbol.to_string(),
+        kind,
+        description: meaning.to_string(),
+    };
+    notation
+        .fixed
+        .iter()
+        .filter(|(symbol, _, _)| !symbol.is_empty())
+        .map(|(symbol, kind, meaning)| entry(symbol, *kind, meaning))
+        .chain([entry(IDENTITY.0, SymbolKind::Identity, IDENTITY.1), entry(OUGHT.0, SymbolKind::Modal, OUGHT.1)])
+        .collect()
+}
+
+/// How one view writes the symbols with a fixed spelling, each with what it means.
+struct Notation {
+    /// Quantifiers, connectives and modals: the view's spelling, its kind, its meaning.
+    fixed: Vec<(String, SymbolKind, &'static str)>,
+    /// The quantifier spellings that bind a variable, and which quantifier each is.
+    binders: Vec<(String, &'static str)>,
+    /// Tense and aspect operators: the view's name, what it means wrapped around a formula, and
+    /// what it says applied to an event (`Past(e)`: "e lies in the past").
+    operators: Vec<(&'static str, &'static str, &'static str)>,
+}
+
+impl Notation {
+    fn of(view: &impl crate::formatter::LogicFormatter) -> Notation {
+        let spelled = |s: &str| s.trim().to_string();
+        let (every, some) = (spelled(&view.universal()), spelled(&view.existential()));
+        Notation {
+            fixed: vec![
+                (every.clone(), SymbolKind::Quantifier, "for every …"),
+                (some.clone(), SymbolKind::Quantifier, "there is at least one …"),
+                ("∃!".to_string(), SymbolKind::Quantifier, "there is exactly one …"),
+                ("MOST".to_string(), SymbolKind::Quantifier, "most …"),
+                ("FEW".to_string(), SymbolKind::Quantifier, "few …"),
+                (spelled(view.and()), SymbolKind::Connective, "… and …"),
+                (spelled(view.or()), SymbolKind::Connective, "… or …"),
+                (spelled(view.implies()), SymbolKind::Connective, "if … then …"),
+                (spelled(view.iff()), SymbolKind::Connective, "… exactly when …"),
+                (spelled(view.not()), SymbolKind::Connective, "it is not the case that …"),
+                (spelled(view.necessity()), SymbolKind::Modal, "necessarily …"),
+                (spelled(view.possibility()), SymbolKind::Modal, "possibly …"),
+            ],
+            binders: vec![(every, "∀"), (some, "∃")],
+            operators: vec![
+                (view.past(), "past tense — it was the case that …", "lies in the past"),
+                (view.future(), "future tense — it will be the case that …", "lies in the future"),
+                (view.progressive(), "progressive — … is going on", "is going on"),
+                (view.perfect(), "perfect — … has been completed", "has been completed"),
+                (view.habitual(), "habitual — … happens as a habit", "happens as a habit"),
+                (view.iterative(), "iterative — … happens again and again", "happens again and again"),
+            ],
+        }
+    }
+
+    /// Whether `name` is one of the view's fixed symbols spelled as a word (`Box`, `Not`).
+    fn is_fixed_word(&self, name: &str) -> bool {
+        self.fixed.iter().any(|(symbol, _, _)| symbol == name)
+    }
+}
+
+/// Whether `logic` writes `symbol`: anywhere for a sign (`∀`), only as a whole word for a word
+/// (`And`, so that `Android` is no conjunction).
+fn mentions(logic: &str, symbol: &str) -> bool {
+    if !symbol.chars().any(char::is_alphabetic) {
+        return logic.contains(symbol);
+    }
+    logic.match_indices(symbol).any(|(at, _)| {
+        let before = logic[..at].chars().next_back();
+        let after = logic[at + symbol.len()..].chars().next();
+        !before.is_some_and(|c| c.is_alphanumeric()) && !after.is_some_and(|c| c.is_alphanumeric())
+    })
+}
+
+/// The symbols with a fixed spelling: quantifiers, connectives, modals, identity.
+fn extract_fixed_symbols(logic: &str, notation: &Notation, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    let mut add = |symbol: &str, kind: SymbolKind, description: &str| {
+        if seen.insert(symbol.to_string()) {
+            entries.push(SymbolEntry { usage: symbol.to_string(), symbol: symbol.to_string(), kind, description: description.to_string() });
+        }
+    };
+    for (symbol, kind, meaning) in &notation.fixed {
+        if !symbol.is_empty() && mentions(logic, symbol) {
+            add(symbol, *kind, meaning);
+        }
+    }
+    if logic.contains("O_") {
+        add(OUGHT.0, SymbolKind::Modal, OUGHT.1);
+    }
+    if logic.contains(" = ") {
+        add(IDENTITY.0, SymbolKind::Identity, IDENTITY.1);
+    }
+}
+
+/// Whether the argument list opening at `chars[open]` begins with a formula (a quantifier, a
+/// connective, a modal, or a predicate applied to arguments) rather than a term.
+fn wraps_formula(chars: &[char], open: usize, notation: &Notation) -> bool {
+    let mut i = open + 1;
+    while i < chars.len() && chars[i] == ' ' {
+        i += 1;
+    }
+    let rest: String = chars[i..].iter().take(16).collect();
+    if rest.starts_with('(') || notation.fixed.iter().any(|(symbol, kind, _)| {
+        !symbol.is_empty() && *kind != SymbolKind::Connective && rest.starts_with(symbol.as_str())
+    }) || rest.starts_with('¬') || rest.starts_with("Not ") {
+        return true;
+    }
+    match chars.get(i) {
+        Some(c) if c.is_ascii_uppercase() => {
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            chars.get(i) == Some(&'(')
+        }
+        _ => false,
+    }
+}
+
+/// The arguments of the list opening at `chars[open]`, as written, and the index just past it.
+fn arguments(chars: &[char], open: usize) -> (Vec<String>, usize) {
+    let mut depth = 0;
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut i = open;
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            '(' => {
+                depth += 1;
+                if depth > 1 {
+                    current.push(c);
+                }
+            }
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    args.push(current.trim().to_string());
+                    return (args, i + 1);
+                }
+                current.push(c);
+            }
+            ',' if depth == 1 => args.push(std::mem::take(&mut current).trim().to_string()),
+            _ => current.push(c),
+        }
+        i += 1;
+    }
+    (args, i)
+}
+
+/// A variable that names an event: `e`, `e1`, `e2`.
+fn is_event(term: &str) -> bool {
+    term.starts_with('e') && term[1..].chars().all(|c| c.is_ascii_digit())
+}
+
+/// A possible world the Deep view evaluates in: `w0`, `w1`. It says where, not who.
+fn is_world(term: &str) -> bool {
+    term.len() > 1 && term.starts_with('w') && term[1..].chars().all(|c| c.is_ascii_digit())
+}
+
+fn article(noun: &str) -> &'static str {
+    if noun.starts_with(|c: char| "aeiou".contains(c)) { "an" } else { "a" }
+}
+
+/// What `Name(args)` says, in words, as the lexicon reads the name: "x is a dog", "John sees x",
+/// "x is red", "e happens quickly". A name the lexicon does not know reads as a noun, as a
+/// restrictor usually is.
+fn reading(name: &str, args: &[String]) -> String {
+    use crate::lexicon::{analyze_word, LexiconTrait, StaticLexicon, WordAnalysis};
+    let lower = name.to_lowercase();
+    let noun = || match analyze_word(&lower) {
+        Some(WordAnalysis::Noun(meta)) => Some(meta.lemma.to_lowercase()),
+        Some(WordAnalysis::DerivedNoun { lemma, .. }) => Some(lemma.to_lowercase()),
+        None => None,
+    };
+    let verb = StaticLexicon.lookup_verb(&lower).map(|meta| meta.lemma.to_lowercase());
+    match (args, verb) {
+        ([], _) => format!("the proposition {name}"),
+        ([e], Some(verb)) if is_event(e) => format!("{e} is a {verb} event"),
+        ([a], Some(verb)) => format!("{a} {}", logicaffeine_lexicon::present_3s_of(&verb)),
+        ([a, rest @ ..], Some(verb)) => format!("{a} {} {}", logicaffeine_lexicon::present_3s_of(&verb), rest.join(" ")),
+        ([a], None) if StaticLexicon.lookup_adjective(&lower).is_some() => format!("{a} is {lower}"),
+        // A manner adverb (`Quickly`) says how the event goes, of the event or, once the Simple
+        // view has flattened it, of whoever does it.
+        ([e], None) if lower.ends_with("ly") && noun().is_none() && is_event(e) => format!("{e} happens {lower}"),
+        ([a], None) if lower.ends_with("ly") && noun().is_none() => format!("{a} does it {lower}"),
+        ([a], None) => {
+            let noun = noun().unwrap_or(lower);
+            format!("{a} is {} {noun}", article(&noun))
+        }
+        (args, None) => format!("{} stand in the relation {name}", args.join(", ")),
+    }
+}
+
+/// Every `Name(…)` in `logic`: a tense or aspect wrapped around a formula, a thematic role relating
+/// an event to a participant, or else a predicate — each with how the formula writes it and what
+/// it means.
+fn extract_applications(logic: &str, notation: &Notation, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    use crate::ast::ThematicRole;
     let chars: Vec<char> = logic.chars().collect();
     let mut i = 0;
-
     while i < chars.len() {
-        if chars[i].is_ascii_uppercase() {
+        if chars[i].is_ascii_uppercase() && (i == 0 || !chars[i - 1].is_ascii_alphanumeric()) {
             let start = i;
             while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
                 i += 1;
             }
             if i < chars.len() && chars[i] == '(' {
-                let predicate: String = chars[start..i].iter().collect();
-                if seen.insert(format!("pred_{}", predicate)) {
-                    entries.push(SymbolEntry {
-                        symbol: predicate.clone(),
-                        kind: SymbolKind::Predicate,
-                        description: format!("Predicate: {}", predicate),
-                    });
+                let name: String = chars[start..i].iter().collect();
+                if notation.is_fixed_word(&name) {
+                    continue;
                 }
+                let (written, _) = arguments(&chars, i);
+                let args: Vec<String> = written.iter().filter(|a| !is_world(a)).cloned().collect();
+                let operator = notation.operators.iter().find(|(op, _, _)| *op == name);
+                let role = ThematicRole::ALL.iter().any(|r| r.name() == name) && args.len() >= 2;
+                // An event's tense is the parser's `Past`/`Future` modifier in every view.
+                let of_event = operator.map(|(_, _, of_event)| *of_event).or(match name.as_str() {
+                    "Past" => Some("lies in the past"),
+                    "Future" => Some("lies in the future"),
+                    _ => None,
+                });
+                let placed = match (of_event, args.as_slice()) {
+                    (Some(of_event), [e]) if is_event(e) => Some(format!("{e} {of_event}")),
+                    _ => None,
+                };
+                let (kind, usage, description) = match (operator.filter(|_| wraps_formula(&chars, i, notation)), placed, role) {
+                    (Some((_, meaning, _)), _, _) => (SymbolKind::Temporal, format!("{name}(…)"), meaning.to_string()),
+                    (None, Some(placed), _) => (SymbolKind::Temporal, format!("{name}({})", written.join(", ")), placed),
+                    (None, None, true) => (
+                        SymbolKind::Role,
+                        format!("{name}({})", written.join(", ")),
+                        format!("{} is the {} of {}", args[1..].join(", "), name.to_lowercase(), args[0]),
+                    ),
+                    (None, None, false) => (SymbolKind::Predicate, format!("{name}({})", written.join(", ")), reading(&name, &args)),
+                };
+                if seen.insert(format!("{kind:?}_{name}")) {
+                    entries.push(SymbolEntry { usage, symbol: name, kind, description });
+                }
+                continue;
             }
+            continue;
         }
         i += 1;
     }
 }
 
-fn extract_variables(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
-    // Variables are lowercase letters typically x, y, z, w
-    for var in ['x', 'y', 'z', 'w', 'e'] {
-        let var_str = var.to_string();
-        // Check if variable appears in context (not as part of a word)
-        if logic.contains(&format!("({})", var))
-            || logic.contains(&format!("({},", var))
-            || logic.contains(&format!(", {})", var))
-            || logic.contains(&format!("{}.", var))
-            || logic.contains(&format!(" {}", var))
-        {
-            if seen.insert(format!("var_{}", var)) {
-                entries.push(SymbolEntry {
-                    symbol: var_str,
-                    kind: SymbolKind::Variable,
-                    description: "Bound variable".to_string(),
-                });
+fn extract_variables(logic: &str, notation: &Notation, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // A variable is introduced by its binder — `∀x`, `ForAll x`, `∃e` — and means what that binder
+    // says of it.
+    for (binder, quantifier) in &notation.binders {
+        for (at, _) in logic.match_indices(binder.as_str()) {
+            let after = logic[at + binder.len()..].trim_start_matches(|c: char| c == ' ' || c == '!' || c == '=' || c == '≥' || c == '≤' || c.is_ascii_digit());
+            let var: String = after
+                .chars()
+                .take(1)
+                .filter(char::is_ascii_lowercase)
+                .chain(after.chars().skip(1).take_while(char::is_ascii_digit))
+                .collect();
+            if var.is_empty() || after.chars().nth(var.len()).is_some_and(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            let description = match (is_event(&var), *quantifier) {
+                (true, _) => format!("an event, bound by {binder}"),
+                (false, "∀") => format!("any individual, bound by {binder}"),
+                (false, _) => format!("some individual, bound by {binder}"),
+            };
+            if seen.insert(format!("var_{var}")) {
+                entries.push(SymbolEntry { usage: var.clone(), symbol: var, kind: SymbolKind::Variable, description });
             }
         }
     }
 }
 
-fn extract_constants(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
-    // Constants are uppercase letters like J (John), M (Mary), etc.
-    // But not predicates (followed by parenthesis)
+fn extract_constants(logic: &str, notation: &Notation, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Constants are capitalised names standing as terms: John, Mary, J2 — never applied to
+    // arguments (a predicate or operator), and never a generalized quantifier's keyword.
     let chars: Vec<char> = logic.chars().collect();
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i].is_ascii_uppercase() {
+        if chars[i].is_ascii_uppercase() && (i == 0 || !chars[i - 1].is_ascii_alphanumeric()) {
             let start = i;
-            // Collect the full name (may have numbers like J2)
             while i < chars.len() && (chars[i].is_ascii_alphanumeric()) {
                 i += 1;
             }
-            // Check if NOT followed by parenthesis (would be predicate)
-            if i >= chars.len() || chars[i] != '(' {
+            if i >= chars.len() || (chars[i] != '(' && chars[i] != '_') {
                 let constant: String = chars[start..i].iter().collect();
-                // Skip very long names (likely predicates) and known quantifiers
-                if constant.len() <= 3
-                    && !["MOST", "FEW", "ALL", "THE"].contains(&constant.as_str())
+                if !["MOST", "FEW", "ALL", "THE"].contains(&constant.as_str())
+                    && !notation.is_fixed_word(&constant)
                     && seen.insert(format!("const_{}", constant))
                 {
                     entries.push(SymbolEntry {
+                        usage: constant.clone(),
                         symbol: constant.clone(),
                         kind: SymbolKind::Constant,
-                        description: format!("Constant: {}", constant),
+                        description: "a particular individual".to_string(),
                     });
                 }
             }
@@ -253,8 +387,10 @@ pub fn group_symbols_by_kind(entries: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&S
         SymbolKind::Quantifier,
         SymbolKind::Connective,
         SymbolKind::Modal,
+        SymbolKind::Temporal,
         SymbolKind::Identity,
         SymbolKind::Predicate,
+        SymbolKind::Role,
         SymbolKind::Variable,
         SymbolKind::Constant,
     ];
@@ -273,94 +409,6 @@ pub fn group_symbols_by_kind(entries: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&S
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/symbol_dict/tests.rs"]
+mod tests;
 
-    #[test]
-    fn test_extract_quantifier_symbols() {
-        let logic = "∀x(Dog(x) → Mortal(x))";
-        let symbols = extract_symbols(logic);
-
-        let quantifiers: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Quantifier).collect();
-        assert!(quantifiers.iter().any(|s| s.symbol == "∀"), "Should find universal quantifier");
-    }
-
-    #[test]
-    fn test_extract_existential() {
-        let logic = "∃x(Cat(x) ∧ Black(x))";
-        let symbols = extract_symbols(logic);
-
-        assert!(symbols.iter().any(|s| s.symbol == "∃"), "Should find existential quantifier");
-    }
-
-    #[test]
-    fn test_extract_connective_symbols() {
-        let logic = "∀x(Dog(x) → (Loyal(x) ∧ Friendly(x)))";
-        let symbols = extract_symbols(logic);
-
-        let connectives: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Connective).collect();
-        assert!(connectives.iter().any(|s| s.symbol == "∧"), "Should find conjunction");
-        assert!(connectives.iter().any(|s| s.symbol == "→"), "Should find implication");
-    }
-
-    #[test]
-    fn test_extract_predicate_names() {
-        let logic = "∀x(Dog(x) → Mammal(x))";
-        let symbols = extract_symbols(logic);
-
-        let predicates: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Predicate).collect();
-        assert!(predicates.iter().any(|s| s.symbol == "Dog"), "Should find Dog predicate");
-        assert!(predicates.iter().any(|s| s.symbol == "Mammal"), "Should find Mammal predicate");
-    }
-
-    #[test]
-    fn test_extract_variable_names() {
-        let logic = "∀x∃y(Loves(x, y))";
-        let symbols = extract_symbols(logic);
-
-        let variables: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Variable).collect();
-        assert!(variables.iter().any(|s| s.symbol == "x"), "Should find variable x");
-        assert!(variables.iter().any(|s| s.symbol == "y"), "Should find variable y");
-    }
-
-    #[test]
-    fn test_no_duplicate_symbols() {
-        let logic = "∀x(Dog(x) → Dog(x))";
-        let symbols = extract_symbols(logic);
-
-        let dog_count = symbols.iter().filter(|s| s.symbol == "Dog").count();
-        assert_eq!(dog_count, 1, "Should not have duplicate predicates");
-    }
-
-    #[test]
-    fn test_symbol_has_description() {
-        let logic = "∀x(P(x))";
-        let symbols = extract_symbols(logic);
-
-        for symbol in &symbols {
-            assert!(!symbol.description.is_empty(), "Every symbol should have a description");
-        }
-    }
-
-    #[test]
-    fn test_modal_symbols() {
-        let logic = "□(P(x)) ∧ ◇(Q(y))";
-        let symbols = extract_symbols(logic);
-
-        assert!(symbols.iter().any(|s| s.symbol == "□"), "Should find necessity operator");
-        assert!(symbols.iter().any(|s| s.symbol == "◇"), "Should find possibility operator");
-    }
-
-    #[test]
-    fn test_group_symbols_by_kind() {
-        let logic = "∀x(Dog(x) → ∃y(Loves(x, y)))";
-        let symbols = extract_symbols(logic);
-        let grouped = group_symbols_by_kind(&symbols);
-
-        // Should have multiple groups
-        assert!(!grouped.is_empty(), "Should have grouped symbols");
-
-        // Check quantifiers group exists
-        assert!(grouped.iter().any(|(k, _)| *k == SymbolKind::Quantifier), "Should have quantifier group");
-    }
-}

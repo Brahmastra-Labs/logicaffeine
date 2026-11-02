@@ -1,0 +1,22 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable input be a new Seq of Float.
+Let mutable output be a new Seq of Float.
+Repeat for i from 1 to n:
+    Push ((i * 5 + 3) % 8) / 8.0 to input.
+    Push 0.0 to output.
+Let t1 be 0.125.
+Let t2 be 0.25.
+Let t3 be 0.5.
+Let t4 be 1.0.
+Let mutable i be 4.
+While i + 3 is at most n:
+    Set item i of output to t1 * item (i - 3) of input + t2 * item (i - 2) of input + t3 * item (i - 1) of input + t4 * item i of input + t3 * item (i + 1) of input + t2 * item (i + 2) of input + t1 * item (i + 3) of input.
+    Set i to i + 1.
+Let mutable checksum be 0.0.
+Repeat for v in output:
+    Set checksum to checksum + v.
+Show checksum.

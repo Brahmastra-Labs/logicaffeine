@@ -1,0 +1,11 @@
+{
+  "name": "prefix_sum",
+  "lang": "c",
+  "n": "606011441",
+  "samples_weight": 17308345872,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

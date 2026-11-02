@@ -1,0 +1,12 @@
+{
+  "capability": "text.trim_end",
+  "workload": "trimEnd(s), length fold",
+  "arg": "20000",
+  "expected": "80970000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

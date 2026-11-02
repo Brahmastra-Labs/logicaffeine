@@ -1,0 +1,27 @@
+{
+  "capability": "math.copysign",
+  "arg": "1000000",
+  "timing_n": "81781975",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 160.024,
+    "c": 67.141,
+    "rust": 88.882,
+    "go": 72.019
+  },
+  "wall_ms": {
+    "logos": 163.737,
+    "c": 69.677,
+    "rust": 92.009,
+    "go": 76.206
+  },
+  "logos_ms": 160.024,
+  "speedups_vs_logos": {
+    "c": 0.42,
+    "rust": 0.555,
+    "go": 0.45
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.42
+}

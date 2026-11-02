@@ -1,0 +1,21 @@
+{
+  "language": "c",
+  "standard": "C23 (WG14 N3220)",
+  "note": "Curated standard-library function surface grouped by header. Verified present in the box's glibc headers by scripts/fetch-parity-snapshots.sh (header-verification.txt). Macros (isnan, assert, va_start) are listed as functions since they are the standard's callable surface.",
+  "headers": {
+    "ctype.h": ["isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph", "islower", "isprint", "ispunct", "isspace", "isupper", "isxdigit", "tolower", "toupper"],
+    "string.h": ["memcpy", "memmove", "memset", "memcmp", "memchr", "strcpy", "strncpy", "strcat", "strncat", "strcmp", "strncmp", "strcoll", "strxfrm", "strchr", "strrchr", "strcspn", "strspn", "strpbrk", "strstr", "strtok", "strlen", "strerror"],
+    "stdlib.h": ["atof", "atoi", "atol", "atoll", "strtol", "strtoll", "strtoul", "strtoull", "strtof", "strtod", "strtold", "rand", "srand", "malloc", "calloc", "realloc", "free", "aligned_alloc", "abort", "exit", "quick_exit", "_Exit", "atexit", "at_quick_exit", "getenv", "system", "bsearch", "qsort", "abs", "labs", "llabs", "div", "ldiv", "lldiv", "mblen", "mbtowc", "wctomb", "mbstowcs", "wcstombs"],
+    "math.h": ["fabs", "fmod", "remainder", "remquo", "fma", "fmax", "fmin", "fdim", "exp", "exp2", "expm1", "log", "log10", "log2", "log1p", "pow", "sqrt", "cbrt", "hypot", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "erf", "erfc", "tgamma", "lgamma", "ceil", "floor", "trunc", "round", "lround", "llround", "nearbyint", "rint", "lrint", "frexp", "ldexp", "modf", "scalbn", "ilogb", "logb", "nextafter", "copysign", "nan", "fpclassify", "isfinite", "isinf", "isnan", "isnormal", "signbit", "fmax", "fmin"],
+    "time.h": ["clock", "difftime", "mktime", "time", "timespec_get", "asctime", "ctime", "gmtime", "localtime", "strftime"],
+    "stdio.h": ["fopen", "freopen", "fclose", "fflush", "setbuf", "setvbuf", "fread", "fwrite", "fgetc", "fgets", "fputc", "fputs", "getc", "getchar", "putc", "putchar", "puts", "ungetc", "scanf", "fscanf", "sscanf", "printf", "fprintf", "sprintf", "snprintf", "fseek", "ftell", "rewind", "fgetpos", "fsetpos", "clearerr", "feof", "ferror", "perror", "remove", "rename", "tmpfile", "tmpnam"],
+    "inttypes.h": ["strtoimax", "strtoumax", "imaxabs", "imaxdiv"],
+    "wctype.h": ["iswalnum", "iswalpha", "iswdigit", "iswspace", "iswupper", "iswlower", "towlower", "towupper"],
+    "assert.h": ["assert"],
+    "setjmp.h": ["setjmp", "longjmp"],
+    "signal.h": ["signal", "raise"],
+    "stdarg.h": ["va_start", "va_arg", "va_end", "va_copy"],
+    "threads.h": ["thrd_create", "thrd_join", "thrd_sleep", "mtx_init", "mtx_lock", "mtx_unlock", "cnd_init", "cnd_wait", "cnd_signal"],
+    "stdbit.h": ["stdc_leading_zeros", "stdc_trailing_zeros", "stdc_count_ones", "stdc_bit_width", "stdc_bit_ceil", "stdc_bit_floor"]
+  }
+}

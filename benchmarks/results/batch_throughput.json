@@ -1,0 +1,239 @@
+{
+  "what": "PRINCIPLE DEMO ONLY -- a SINGLE matrix-multiply, batched. This is NOT the Qwen3-30B model and its numbers are NOT model tokens/sec. It illustrates one fact: batching a GEMM amortizes its DRAM weight read, so aggregate throughput on that one matmul scales with batch until compute-bound. Used to reason about batched serving; it is not a model result.",
+  "NOT_A_MODEL_RESULT": "The real Qwen3-30B decode is 170 tok/s at batch-1 on the A100 (see generation_golden_and_faster in qwen30b_a100.json). The numbers below are for ONE synthetic 134 MB int8 GEMM on an RTX 3060 -- do not confuse them with model throughput.",
+  "provenance": {
+    "gpu": "NVIDIA RTX 3060 (local)",
+    "date": "2026-08-31",
+    "matmul": "K=4096 x N=32768 int8 = 134 MB weight (>> L2, DRAM-bound). ONE matmul, not a model.",
+    "batch1_kernel": "our shipped warp-per-row uint4 dp4a GEMV",
+    "batched_kernel": "cuBLAS int8 tensor-core GEMM (CUDA_R_8I, COMPUTE_32I), verified BIT-EXACT vs CPU",
+    "measured": true,
+    "artifact": "crates/logicaffeine_compile/cuda/batch_throughput.cu"
+  },
+  "single_matmul_scaling": [
+    {
+      "B": 1,
+      "us": 395.1,
+      "x": 1.0,
+      "gbps": 340,
+      "regime": "memory-bound (GEMV)"
+    },
+    {
+      "B": 8,
+      "us": 414.6,
+      "x": 7.6,
+      "gbps": 324,
+      "regime": "memory-bound"
+    },
+    {
+      "B": 16,
+      "us": 409.0,
+      "x": 15.5,
+      "gbps": 328,
+      "regime": "memory-bound"
+    },
+    {
+      "B": 64,
+      "us": 435.6,
+      "x": 58.0,
+      "gbps": 308,
+      "regime": "memory-bound"
+    },
+    {
+      "B": 128,
+      "us": 597.8,
+      "x": 84.6,
+      "gbps": 225,
+      "regime": "transitioning"
+    },
+    {
+      "B": 256,
+      "us": 877.8,
+      "x": 115.2,
+      "gbps": 153,
+      "regime": "compute-bound (tensor cores)"
+    }
+  ],
+  "takeaway": "For ONE dense matmul, batching gives up to ~115x aggregate throughput on the 3060 -- the same weight read serves B tokens.",
+  "why_the_30B_wont_do_this": "The real 30B is dominated (~52%) by the MoE stage, which batches POORLY: each token needs its own top-8 of 128 experts, so at batch-16 you already touch all 128 experts and per-token weight traffic barely drops until batch is very large (B~128 -> ~8x expert reuse). Dense stages (Q/K/V/O proj, LM head) batch like the demo above; MoE does not. A realistic batched-30B estimate is ~5-15x aggregate at large batch (~1,000-2,500 tok/s AGGREGATE across concurrent requests) -- a genuine win, but UNMEASURED, and an order of magnitude below the single-matmul ceiling. Building + measuring the batched MoE decode is the next step; it needs a pod.",
+  "status": "single-GEMM principle demoed (115x, not golden) AND golden-preserving batched dp4a validated (7.5x, bit-identical). Full batched 30B decode: NOT YET assembled/measured end-to-end.",
+  "golden_preserving_batched_dp4a": {
+    "what": "The GOLDEN-safe batched GEMM: our shipped warp-per-row dp4a GEMV with a token loop. The int8 weight row is read once and reused across B tokens; each token's dp4a accumulation order is IDENTICAL to batch-1, so every batched row is BIT-IDENTICAL to the batch-1 GEMV -> the golden sentence is preserved exactly.",
+    "gpu": "NVIDIA H100 PCIe",
+    "weight": "K=4096 N=32768 int8 = 134 MB (DRAM-bound, > H100 50MB L2)",
+    "golden_check": "0 mismatches over 32 tokens x 32768 outputs = BIT-IDENTICAL to batch-1",
+    "scaling": [
+      {
+        "B": 1,
+        "tok_s": 13411,
+        "x": 1.0
+      },
+      {
+        "B": 8,
+        "tok_s": 74114,
+        "x": 5.5
+      },
+      {
+        "B": 16,
+        "tok_s": 100790,
+        "x": 7.5
+      },
+      {
+        "B": 64,
+        "tok_s": 100081,
+        "x": 7.5
+      },
+      {
+        "B": 256,
+        "tok_s": 101645,
+        "x": 7.6
+      }
+    ],
+    "ceiling": "~7.5x is the ceiling of OUR HAND dp4a kernel (compute-bound), NOT the golden ceiling. Tensor-core int8 (cuBLAS/CUTLASS) is ALSO bit-identical (int32 exact) and hits ~100x -> use tensor cores for the batched decode, golden preserved.",
+    "vs_cublas_int8": "CORRECTED: cuBLAS int8 tensor cores are BIT-IDENTICAL to dp4a (verified 0/512). Both preserve golden. Tensor cores give ~100x vs our hand kernel's 7.5x.",
+    "artifact": "crates/logicaffeine_compile/cuda/batched_dp4a_gemm.cu",
+    "for_the_30B": "dense projections/LM-head batch ~7.5x; MoE batches less (per-token top-8-of-128 expert fragmentation); realistic overall ~3-6x -> ~500-1000 tok/s aggregate, GOLDEN. To be emitted from qwen30b.lg by the compiler under a batched lowering (not hand-written)."
+  },
+  "head_to_head_batched_30B_H100": {
+    "gpu": "NVIDIA H100 PCIe",
+    "model": "Qwen3-30B-A3B Q8_0",
+    "date": "2026-08-31",
+    "batch1_measured": {
+      "ours_golden_tg128": 191.0,
+      "llama_tg128": 205.48,
+      "note": "roughly comparable at batch-1; llama ~7% ahead on H100 (our flash kernels are tuned for sm_80, not yet sm_90)"
+    },
+    "llama_batched_MEASURED": {
+      "tool": "llama-batched-bench -fa on, aggregate generation t/s (S_TG) across B parallel sequences",
+      "rows": [
+        {
+          "B": 4,
+          "agg_tok_s": 429
+        },
+        {
+          "B": 8,
+          "agg_tok_s": 617
+        },
+        {
+          "B": 16,
+          "agg_tok_s": 876
+        },
+        {
+          "B": 32,
+          "agg_tok_s": 1334
+        }
+      ],
+      "note": "B=1/2 rows were startup-contaminated; llama batched scales to ~1334 t/s at B=32 (~6.5x its batch-1) -- this is the target to beat"
+    },
+    "ours_batched_MEASURED": "NOT YET -- the full batched 30B decode (batched dense GEMMs + per-sequence attention + grouped MoE) is not yet assembled/measured. Only the golden-preserving batched dp4a GEMM building block is measured (7.5x on the dense projections, bit-identical). Full assembly is the next build; will emit from qwen30b.lg.",
+    "honest_status": "llama batched = MEASURED (1334@B32). ours batched = NOT MEASURED (building block validated at 7.5x golden; full model assembly pending). Do NOT present an ours-batched-30B number until it is built and measured end-to-end."
+  },
+  "CORRECTION_tensor_cores_are_golden": {
+    "finding": "int8 GEMM accumulates in int32, which is EXACT (integer addition is associative, no rounding). Verified on H100: cuBLAS int8 tensor-core GEMM == our dp4a GEMV, 0/512 mismatches, BIT-IDENTICAL.",
+    "implication": "The earlier claim that cuBLAS/tensor-cores 'break golden' was WRONG -- it conflated the int8 GEMM (exact) with the float attention softmax (the actually-fragile part). So the batched decode CAN use tensor-core int8 GEMMs -> ~115x GEMM scaling AND byte-exact golden. The golden-preserving ceiling is NOT 7.5x (that was our hand dp4a kernel being compute-bound); with tensor cores it is the ~100x cuBLAS/CUTLASS ceiling.",
+    "what_stays_fragile": "only the attention softmax (float, split-K order-dependent) -- handled per-sequence identical to batch-1.",
+    "verified": "crates/logicaffeine_compile/cuda/batch_throughput.cu (cuBLAS vs CPU abs err 0) + direct cuBLAS-vs-dp4a bit compare 0/512"
+  },
+  "grouped_moe_gate_probe": {
+    "gpu": "H100",
+    "golden": "BIT-IDENTICAL (0 mismatches)",
+    "scaling": [
+      {
+        "B": 32,
+        "x": 3.6,
+        "tokens_per_expert": 2
+      },
+      {
+        "B": 128,
+        "x": 6.6,
+        "tokens_per_expert": 8
+      },
+      {
+        "B": 256,
+        "x": 7.4,
+        "tokens_per_expert": 16
+      }
+    ],
+    "note": "our HAND dp4a grouped kernel; tensor-core grouped GEMM would scale further, still golden (int32 exact)",
+    "artifact": "crates/logicaffeine_compile/cuda/grouped_moe.cu"
+  },
+  "Q8_0_per_block_scale_catch": {
+    "finding": "Q8_0 weights carry a per-32-block float scale. The real GEMM is: for each 32-block of K, int32-accumulate int8*int8, multiply by that block's scale, sum in float. Plain cuBLAS int8 (one int32 dot over all K) CANNOT do this -- the 115x raw-int8 number is NOT the real Q8_0 GEMM.",
+    "consequences": {
+      "our_dp4a_kernel": "correctly applies per-block scales -> golden-exact, but compute-bound at ~7.5x batched (dp4a, no tensor cores).",
+      "to_use_tensor_cores": "needs a Marlin-class kernel: tensor-core int8 mma with per-block dequant scaling folded into the mainloop/epilogue. This is what TensorRT-LLM/Marlin/Machete do for weight-only-quant serving. Golden-safe (per-block int32 is exact) AND tensor-core-fast (~100x)."
+    },
+    "honest_position": "CORRECTNESS is fully de-risked (int8 GEMM exact, grouped MoE exact, dense batched exact -- all bit-identical/golden). PERFORMANCE to BEAT llama batched requires a Marlin-class tensor-core Q8_0 GEMM. Our dp4a batched (~7.5x -> ~1400 tok/s at large B) is competitive but llama's batched scales better at moderate B (its 1334@B32 = 6.5x its batch-1). Beating it needs the Marlin-class kernel -- a real, focused kernel-engineering build, EMITTED by the compiler with epilogue fusion (the world's-greatest-fusing-compiler deliverable).",
+    "llama_measured_target": "1334 tok/s @ B=32 (H100), 876 @ B=16"
+  },
+  "marlin_class_journey": {
+    "goal": "tensor-core Q8_0 GEMM (per-block scale) that beats dp4a's 7.5x wall while staying golden -> the kernel that beats llama batched.",
+    "gpu": "NVIDIA H100 PCIe",
+    "dims": "K=4096 N=32768 (134 MB int8 weight)",
+    "golden": "all versions ~1e-7 (layout validated vs dp4a); bit-exact lock is M4",
+    "progression": [
+      {
+        "ver": "v1 WMMA + shared-roundtrip dequant",
+        "x_at_B512": 7.5,
+        "note": "per-block dequant via shared store = overhead-bound"
+      },
+      {
+        "ver": "v2 mma.sync.m16n8k32 register-dequant, 1 mma/warp",
+        "x_at_B512": 6.5,
+        "note": "latency-bound (no ILP)"
+      },
+      {
+        "ver": "v3 mma.sync register-dequant, 4 mma/warp ILP",
+        "x_at_B512": 12.3,
+        "x_at_B32": 8.5,
+        "note": "broke the 7.5x wall; ILP hides mma latency; still climbing"
+      }
+    ],
+    "headroom": "v3@B512 = 146K tok/s = ~2% of H100 int8 tensor-core peak (~2000 TOPS). Full M2 (cp.async double-buffered weight loads + wider tiles + warp specialization) climbs toward the ceiling.",
+    "status": "M1 DONE (register-dequant kernel, golden layout validated). M2 IN PROGRESS (12.3x, path to ceiling clear). M3 (SAT-cert), M4 (bit-exact golden lock), M5 (emit from .lg), M6 (assemble+beat-llama) ahead.",
+    "artifacts": [
+      "crates/logicaffeine_compile/cuda/marlin_v2.cu",
+      "crates/logicaffeine_compile/cuda/marlin_v3.cu"
+    ]
+  },
+  "M4_golden_lock": {
+    "claim": "The Marlin-class tensor-core GEMM is ARITHMETICALLY EQUIVALENT to our dp4a GEMV up to float summation order. Proof structure: (1) int8*int8 products are exact; (2) each 32-block int32 accumulation is EXACT and bit-identical to dp4a (integer, no rounding) -- SAT-certified no-overflow in M3; (3) the ONLY divergence is the f32 order of summing the KB=128 per-block scaled partials -> reassociation error only, ZERO extra quantization loss.",
+    "measured_bound": "max abs diff vs dp4a = 4.2e-7 (H100), << any logit margin; bounded by KB*eps.",
+    "enforcement": "marlin_autotune.cu golden-gate tightened to 1e-5: the auto-tuner only PICKS a config that passes the bound (won't ship a kernel that corrupts the weights).",
+    "byte_exact_note": "the byte-EXACT golden lock remains the precise lane (the_logos_30b_generation_matches_llama_token_for_token). The Marlin batched lane is golden-to-4.2e-7 (coherent); end-to-end token-identity of the Marlin decode is verified in M6.",
+    "status": "M4 bound established + enforced. End-to-end golden-sentence check deferred to M6 (needs the assembled decode)."
+  },
+  "M6_batched_decode_headtohead": {
+    "gpu": "NVIDIA H100 PCIe",
+    "model": "Qwen3-30B-A3B Q8_0",
+    "llama_MEASURED": {
+      "batch1_tg128": 205.48,
+      "batched_agg_tok_s": {
+        "B16": 876,
+        "B32": 1334
+      }
+    },
+    "ours_MEASURED_components": {
+      "batch1_golden": 191.0,
+      "marlin_dense_GEMM": {
+        "B16": "79K",
+        "B32": "101K",
+        "B256": "136K tok/s",
+        "x_at_B256": 11.4,
+        "golden": "<=4.2e-7",
+        "certified": "SAT bijection+alignment+no-overflow"
+      },
+      "grouped_MoE_dp4a": {
+        "x_at_B32": 3.6,
+        "x_at_B128": 6.6,
+        "x_at_B256": 7.4,
+        "golden": "bit-identical"
+      }
+    },
+    "honest_projection_NOT_end_to_end": "Composing the MEASURED components (dense Marlin ~8.5x@B32 rising to 11x; grouped MoE 3.6x@B32 rising to 7.4x@B256) over the 48%/52% dense/MoE split projects ~5x@B32 (~955 tok/s) to ~8x@B128 (~1500 tok/s) golden. Competitive with llama's 1334@B32; MoE-limited at small batch (the grouped MoE currently uses dp4a 7.4x; a grouped-MARLIN MoE would lift it further). This is a COMPONENT-MEASURED PROJECTION, not a full end-to-end run.",
+    "status": "M1-M5 DONE + measured + certified (the Marlin kernel: auto-tuned, SAT-proof-carrying, golden-bounded, compiler-emitted). M6: all components measured/golden/certified; the FULL 48-layer batched-decode ASSEMBLY + end-to-end golden-sentence + aggregate-tok/s run is the final integration build. NOT faking an end-to-end number.",
+    "the_novel_claim_that_holds": "A tensor-core Q8_0 GEMM that is (a) auto-tuned by the compiler per shape, (b) SAT-certified correct-by-construction (fragment bijection, scale-block alignment, no overflow), (c) golden-bounded to 4.2e-7, (d) EMITTED by the compiler from the recognized matmul op. Marlin/llama.cpp have (d) hand-written and none of (a)-(c). That is the world's-smartest-compiler differentiator, real and measured."
+  },
+  "MISREAD_WARNING": "This file is repeatedly misremembered as '1400 tok/s batched on the 30B'. It is not. Its measured rows are a SINGLE GEMM (13411 -> 100790 rows/s, 7.5x), not model tokens/sec, and no batched 30B DECODE has ever been measured end-to-end. The only 30B batched model figure here is the estimate '~1,000-2,500 tok/s AGGREGATE', which this file already labels UNMEASURED. Quote the estimate as an estimate or do not quote it.",
+  "dense_vs_moe_batching": "Qwen3-30B-A3B is MoE with ~3B ACTIVE parameters per token; Qwen3.8-27B is DENSE, so every token reads all ~27.3 GB. That is the whole reason their batch-1 numbers differ (171 vs 59.7 tok/s) and it is architecture, not regression. It also cuts the other way for BATCHING: MoE batches poorly (each token needs its own top-8 of 128 experts, so by B=16 you touch all 128 and per-token traffic barely falls), while dense stages batch cleanly. The dense 27B should batch BETTER than the MoE 30B."
+}

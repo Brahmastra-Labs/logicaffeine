@@ -116,9 +116,7 @@ pub fn oracle_entails_with_theory(
     goal: &ProofExpr,
     theory: &SmtTheory,
 ) -> SmtVerdict {
-    if contains_inductive_constructs(goal)
-        || premises.iter().any(contains_inductive_constructs)
-    {
+    if contains_inductive_constructs(goal) || premises.iter().any(contains_inductive_constructs) {
         return SmtVerdict::Unknown;
     }
     let mut session = VerificationSession::new();
@@ -146,10 +144,7 @@ pub fn oracle_consistent(premises: &[ProofExpr]) -> SmtConsistency {
 }
 
 /// [`oracle_consistent`] with lexicon-derived theory (mass/cumulative tags).
-pub fn oracle_consistent_with_theory(
-    premises: &[ProofExpr],
-    theory: &SmtTheory,
-) -> SmtConsistency {
+pub fn oracle_consistent_with_theory(premises: &[ProofExpr], theory: &SmtTheory) -> SmtConsistency {
     if premises.iter().any(contains_inductive_constructs) {
         return SmtConsistency::Unknown;
     }
@@ -169,9 +164,7 @@ pub fn oracle_consistent_with_theory(
 fn contains_sum_term(expr: &ProofExpr) -> bool {
     fn in_term(term: &ProofTerm) -> bool {
         match term {
-            ProofTerm::Function(name, args) => {
-                name == "sum" || args.iter().any(in_term)
-            }
+            ProofTerm::Function(name, args) => name == "sum" || args.iter().any(in_term),
             ProofTerm::Group(terms) => terms.len() > 1 || terms.iter().any(in_term),
             _ => false,
         }
@@ -183,9 +176,7 @@ fn contains_sum_term(expr: &ProofExpr) -> bool {
         match expr {
             ProofExpr::Predicate { args, .. } => *found = args.iter().any(in_term),
             ProofExpr::Identity(l, r) => *found = in_term(l) || in_term(r),
-            ProofExpr::NeoEvent { roles, .. } => {
-                *found = roles.iter().any(|(_, t)| in_term(t))
-            }
+            ProofExpr::NeoEvent { roles, .. } => *found = roles.iter().any(|(_, t)| in_term(t)),
             ProofExpr::And(l, r)
             | ProofExpr::Or(l, r)
             | ProofExpr::Implies(l, r)
@@ -194,12 +185,8 @@ fn contains_sum_term(expr: &ProofExpr) -> bool {
                 walk(r, found);
             }
             ProofExpr::Not(i) => walk(i, found),
-            ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
-                walk(body, found)
-            }
-            ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => {
-                walk(body, found)
-            }
+            ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => walk(body, found),
+            ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => walk(body, found),
             ProofExpr::Counterfactual {
                 antecedent,
                 consequent,
@@ -348,10 +335,7 @@ fn ground_sum_universe(
         walk(g, theory, &mut terms);
     }
     terms.truncate(6);
-    terms
-        .iter()
-        .filter_map(proof_term_to_verify_expr)
-        .collect()
+    terms.iter().filter_map(proof_term_to_verify_expr).collect()
 }
 
 /// The Link-lattice axiom pack, emitted demand-driven: the core ⊕ axioms
@@ -363,8 +347,8 @@ fn lattice_axioms(
     theory: &SmtTheory,
 ) -> Vec<VerifyExpr> {
     let mut axioms = Vec::new();
-    let has_sum = premises.iter().any(contains_sum_term)
-        || goal.map(contains_sum_term).unwrap_or(false);
+    let has_sum =
+        premises.iter().any(contains_sum_term) || goal.map(contains_sum_term).unwrap_or(false);
 
     let mut mentioned = std::collections::BTreeSet::new();
     for premise in premises {
@@ -450,15 +434,9 @@ fn lattice_axioms(
             VerifyExpr::implies(
                 VerifyExpr::and(
                     VerifyExpr::apply(mass, vec![VerifyExpr::var("lx")]),
-                    VerifyExpr::apply(
-                        "Theme",
-                        vec![VerifyExpr::var("le"), VerifyExpr::var("lx")],
-                    ),
+                    VerifyExpr::apply("Theme", vec![VerifyExpr::var("le"), VerifyExpr::var("lx")]),
                 ),
-                VerifyExpr::apply(
-                    "Theme",
-                    vec![VerifyExpr::var("le"), VerifyExpr::var(&kind)],
-                ),
+                VerifyExpr::apply("Theme", vec![VerifyExpr::var("le"), VerifyExpr::var(&kind)]),
             ),
         ));
     }
@@ -567,10 +545,10 @@ fn contains_inductive_constructs(expr: &ProofExpr) -> bool {
         ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => {
             contains_inductive_constructs(body)
         }
-        ProofExpr::Counterfactual { antecedent, consequent } => {
-            contains_inductive_constructs(antecedent)
-                || contains_inductive_constructs(consequent)
-        }
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => contains_inductive_constructs(antecedent) || contains_inductive_constructs(consequent),
         ProofExpr::TemporalBinary { left, right, .. } => {
             contains_inductive_constructs(left) || contains_inductive_constructs(right)
         }
@@ -582,9 +560,7 @@ fn contains_inductive_constructs(expr: &ProofExpr) -> bool {
             contains_inductive_constructs_term(l) || contains_inductive_constructs_term(r)
         }
 
-        ProofExpr::Predicate { args, .. } => {
-            args.iter().any(contains_inductive_constructs_term)
-        }
+        ProofExpr::Predicate { args, .. } => args.iter().any(contains_inductive_constructs_term),
 
         // Other expressions are fine
         _ => false,
@@ -887,10 +863,8 @@ pub fn proof_expr_to_verify_expr(expr: &ProofExpr) -> Option<VerifyExpr> {
             }
 
             // General predicate → uninterpreted function
-            let verify_args: Vec<VerifyExpr> = args
-                .iter()
-                .filter_map(proof_term_to_verify_expr)
-                .collect();
+            let verify_args: Vec<VerifyExpr> =
+                args.iter().filter_map(proof_term_to_verify_expr).collect();
             Some(VerifyExpr::apply(name, verify_args))
         }
 
@@ -1031,28 +1005,18 @@ pub fn proof_term_to_verify_expr(term: &ProofTerm) -> Option<VerifyExpr> {
                 let right = proof_term_to_verify_expr(&args[1])?;
 
                 match name.as_str() {
-                    "Add" => {
-                        return Some(VerifyExpr::binary(VerifyOp::Add, left, right))
-                    }
-                    "Sub" => {
-                        return Some(VerifyExpr::binary(VerifyOp::Sub, left, right))
-                    }
-                    "Mul" => {
-                        return Some(VerifyExpr::binary(VerifyOp::Mul, left, right))
-                    }
-                    "Div" => {
-                        return Some(VerifyExpr::binary(VerifyOp::Div, left, right))
-                    }
+                    "Add" => return Some(VerifyExpr::binary(VerifyOp::Add, left, right)),
+                    "Sub" => return Some(VerifyExpr::binary(VerifyOp::Sub, left, right)),
+                    "Mul" => return Some(VerifyExpr::binary(VerifyOp::Mul, left, right)),
+                    "Div" => return Some(VerifyExpr::binary(VerifyOp::Div, left, right)),
                     _ => {}
                 }
             }
 
             // General function in TERM position → Int-valued uninterpreted
             // function (Bool-ranged Apply would be ill-sorted here).
-            let verify_args: Vec<VerifyExpr> = args
-                .iter()
-                .filter_map(proof_term_to_verify_expr)
-                .collect();
+            let verify_args: Vec<VerifyExpr> =
+                args.iter().filter_map(proof_term_to_verify_expr).collect();
             Some(VerifyExpr::apply_int(name, verify_args))
         }
 
@@ -1061,76 +1025,11 @@ pub fn proof_term_to_verify_expr(term: &ProofTerm) -> Option<VerifyExpr> {
             // [a, b, c] ↦ sum(a, sum(b, c)).
             let mut converted = terms.iter().filter_map(proof_term_to_verify_expr);
             let first = converted.next()?;
-            Some(converted.fold(first, |acc, t| {
-                VerifyExpr::apply_int("sum", vec![acc, t])
-            }))
+            Some(converted.fold(first, |acc, t| VerifyExpr::apply_int("sum", vec![acc, t])))
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_convert_atom() {
-        let expr = ProofExpr::Atom("P".into());
-        let result = proof_expr_to_verify_expr(&expr);
-        assert!(matches!(result, Some(VerifyExpr::Var(s)) if s == "P"));
-    }
-
-    #[test]
-    fn test_convert_gt_predicate() {
-        let expr = ProofExpr::Predicate {
-            name: "Gt".into(),
-            args: vec![
-                ProofTerm::Variable("x".into()),
-                ProofTerm::Constant("10".into()),
-            ],
-            world: None,
-        };
-        let result = proof_expr_to_verify_expr(&expr);
-        assert!(matches!(
-            result,
-            Some(VerifyExpr::Binary {
-                op: VerifyOp::Gt,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn test_convert_implication() {
-        let expr = ProofExpr::Implies(
-            Box::new(ProofExpr::Atom("P".into())),
-            Box::new(ProofExpr::Atom("Q".into())),
-        );
-        let result = proof_expr_to_verify_expr(&expr);
-        assert!(matches!(
-            result,
-            Some(VerifyExpr::Binary {
-                op: VerifyOp::Implies,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn test_convert_arithmetic_function() {
-        let term = ProofTerm::Function(
-            "Add".into(),
-            vec![
-                ProofTerm::Variable("x".into()),
-                ProofTerm::Constant("5".into()),
-            ],
-        );
-        let result = proof_term_to_verify_expr(&term);
-        assert!(matches!(
-            result,
-            Some(VerifyExpr::Binary {
-                op: VerifyOp::Add,
-                ..
-            })
-        ));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/oracle/tests.rs"]
+mod tests;

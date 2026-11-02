@@ -1,0 +1,40 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## A Particle has:
+    A px: Float.
+    A py: Float.
+    A pz: Float.
+    A vx: Float.
+    A vy: Float.
+    A vz: Float.
+    A mass: Float.
+    A charge: Float.
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable particles be a new Seq of Particle.
+Let mutable masses be a new Seq of Float.
+Let mutable charges be a new Seq of Float.
+Repeat for i from 1 to n:
+    Let m be ((i * 5) % 8) / 8.0 + 1.0.
+    Let q be ((i * 3) % 8) / 8.0 - 0.5.
+    Push a new Particle with px (i + 0.0) and py 0.25 and pz 0.5 and vx 0.0 and vy 1.0 and vz 2.0 and mass m and charge q to particles.
+    Push m to masses.
+    Push q to charges.
+Let mutable aosMass be 0.0.
+Repeat for p in particles:
+    Set aosMass to aosMass + p's mass.
+Let mutable soaMass be 0.0.
+Repeat for m in masses:
+    Set soaMass to soaMass + m.
+Let mutable aosMoment be 0.0.
+Repeat for p in particles:
+    Set aosMoment to aosMoment + p's mass * p's charge.
+Let mutable soaMoment be 0.0.
+Repeat for i from 1 to n:
+    Set soaMoment to soaMoment + item i of masses * item i of charges.
+Show aosMass.
+Show soaMass.
+Show aosMoment.
+Show soaMoment.

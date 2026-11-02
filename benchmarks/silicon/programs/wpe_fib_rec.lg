@@ -1,0 +1,4 @@
+## To f (n: Int) -> Int:
+    If n is less than 2:
+        Return n.
+    Return f(n - 1) + f(n - 2).

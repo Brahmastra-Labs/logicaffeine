@@ -10,7 +10,10 @@ use crate::kinduction;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SecurityLabel { Public, Secret }
+pub enum SecurityLabel {
+    Public,
+    Secret,
+}
 
 #[derive(Debug, Clone)]
 pub struct TaintedSignal {
@@ -31,11 +34,12 @@ pub fn check_non_interference(
     transition: &VerifyExpr,
     signals: &[TaintedSignal],
 ) -> SecurityResult {
-
-    let public_inputs: Vec<&TaintedSignal> = signals.iter()
+    let public_inputs: Vec<&TaintedSignal> = signals
+        .iter()
         .filter(|s| s.label == SecurityLabel::Public)
         .collect();
-    let secret_inputs: Vec<&TaintedSignal> = signals.iter()
+    let secret_inputs: Vec<&TaintedSignal> = signals
+        .iter()
         .filter(|s| s.label == SecurityLabel::Secret)
         .collect();
 
@@ -84,7 +88,10 @@ pub fn check_non_interference(
         if transition_vars.contains(&step1_name) {
             let o1_1 = format!("{}@1_copy1", sig.name);
             let o2_1 = format!("{}@1_copy2", sig.name);
-            let diff_1 = VerifyExpr::not(VerifyExpr::iff(VerifyExpr::var(&o1_1), VerifyExpr::var(&o2_1)));
+            let diff_1 = VerifyExpr::not(VerifyExpr::iff(
+                VerifyExpr::var(&o1_1),
+                VerifyExpr::var(&o2_1),
+            ));
             output_diffs.push(diff_1);
         }
     }
@@ -134,9 +141,9 @@ fn rename_copy(expr: &VerifyExpr, suffix: &str) -> VerifyExpr {
             // Insert suffix before @ if present: "sig@0" → "sig@0_copy1"
             VerifyExpr::Var(format!("{}_{}", name, suffix))
         }
-        VerifyExpr::Binary { op, left, right } => VerifyExpr::binary(
-            *op, rename_copy(left, suffix), rename_copy(right, suffix),
-        ),
+        VerifyExpr::Binary { op, left, right } => {
+            VerifyExpr::binary(*op, rename_copy(left, suffix), rename_copy(right, suffix))
+        }
         VerifyExpr::Not(inner) => VerifyExpr::not(rename_copy(inner, suffix)),
         VerifyExpr::Bool(b) => VerifyExpr::Bool(*b),
         VerifyExpr::Int(n) => VerifyExpr::Int(*n),

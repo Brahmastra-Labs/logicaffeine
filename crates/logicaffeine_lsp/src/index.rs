@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use crate::pipeline::OwnedStmt;
 use logicaffeine_base::Interner;
 use logicaffeine_language::{
     analysis::TypeRegistry,
-    token::{Token, TokenType, BlockType, Span},
+    token::{BlockType, Span, Token, TokenType},
 };
-use crate::pipeline::OwnedStmt;
+use std::collections::HashMap;
 
 /// Scope context for a definition — which block contains it and at what depth.
 #[derive(Debug, Clone, Default)]
@@ -32,6 +32,12 @@ pub struct Definition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DefinitionKind {
+    /// `## Component App` / `## Page /todos` — the thing an LGX file is made of.
+    Component,
+    /// A field of a component's `State:`, or one of its props.
+    StateField,
+    /// A `To …` inside a component's `Actions:`.
+    Action,
     Variable,
     Function,
     Struct,
@@ -75,6 +81,9 @@ pub struct SymbolIndex {
     pub statement_spans: Vec<(String, Span)>,
     /// Function call sites (`f(…)` and `Call f …`), caller-resolved.
     pub call_sites: Vec<CallSite>,
+    /// Names mentioned inside a `View:`, collected while walking definitions and resolved once
+    /// every definition exists — a template can name a component declared further down the file.
+    template_mentions: Vec<(String, Span)>,
 }
 
 impl SymbolIndex {
@@ -103,6 +112,17 @@ impl SymbolIndex {
 
         // Phase 4: Index identifier references (scope-aware)
         index.index_references(tokens, interner);
+
+        // Phase 4.25: Reads inside interpolated text. `"The first {n} numbers"` is one string
+        // token, so the walk above never sees `n` — and an unused-variable hint then told the
+        // author a variable they print is never used.
+        index.index_interpolation_reads(tokens, source);
+
+        // Phase 4.5: The references a token walk CANNOT see. A `View:` body is one `RawBlock`
+        // token, so `{count}` is invisible to the walk above; the parser recorded the names and
+        // their file spans on the way past, and they are resolved HERE because a template may
+        // name something declared further down the file.
+        index.index_template_mentions();
 
         // Phase 5: Compute scope info for each definition
         index.compute_scopes();
@@ -133,8 +153,7 @@ impl SymbolIndex {
                 .next()
                 .is_some_and(|l| l.trim_start().starts_with("## "));
             if is_header_line {
-                def.doc =
-                    logicaffeine_language::teach::doc_for_header_at(source, line_start);
+                def.doc = logicaffeine_language::teach::doc_for_header_at(source, line_start);
             }
         }
     }
@@ -158,7 +177,10 @@ impl SymbolIndex {
                 if matches!(candidate.kind, TokenType::Be | TokenType::Colon) {
                     break;
                 }
-                if resolve_token_name(candidate, interner).map(|n| n == name).unwrap_or(false) {
+                if resolve_token_name(candidate, interner)
+                    .map(|n| n == name)
+                    .unwrap_or(false)
+                {
                     taken.insert(i);
                     return Some(candidate.span);
                 }
@@ -181,9 +203,13 @@ impl SymbolIndex {
         let mut taken_lets: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for stmt in stmts {
             match stmt {
-                OwnedStmt::FunctionDef { name, params, return_type } => {
-                    let span = find_token_span_for_name(tokens, name, interner)
-                        .unwrap_or(Span::default());
+                OwnedStmt::FunctionDef {
+                    name,
+                    params,
+                    return_type,
+                } => {
+                    let span =
+                        find_token_span_for_name(tokens, name, interner).unwrap_or(Span::default());
                     let detail = {
                         let param_str: Vec<String> = params
                             .iter()
@@ -206,8 +232,12 @@ impl SymbolIndex {
                     let mut search_after = span.end;
                     for (param_name, param_type) in params {
                         let param_span = find_token_span_for_name_after(
-                            tokens, param_name, interner, search_after,
-                        ).unwrap_or(span);
+                            tokens,
+                            param_name,
+                            interner,
+                            search_after,
+                        )
+                        .unwrap_or(span);
                         if param_span != span {
                             search_after = param_span.end;
                         }
@@ -222,9 +252,77 @@ impl SymbolIndex {
                         });
                     }
                 }
+                // ★ A COMPONENT AND ITS PARTS, spans carried rather than hunted. Everything the
+                // editor can answer about a page — the outline, hover, go-to-definition, rename —
+                // reads this index, and until a component put anything IN it the answer to every
+                // one of those questions inside a `## Component` was nothing at all.
+                OwnedStmt::ComponentDef {
+                    name,
+                    kind,
+                    name_span,
+                    state,
+                    props,
+                    actions,
+                    mentions,
+                } => {
+                    self.add_definition(Definition {
+                        name: name.clone(),
+                        kind: DefinitionKind::Component,
+                        span: *name_span,
+                        detail: Some(format!("{name} ({kind})")),
+                        scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
+                    });
+                    for (field, ty, derived, span) in state {
+                        let shown = ty.clone().unwrap_or_else(|| "?".to_string());
+                        self.add_definition(Definition {
+                            name: field.clone(),
+                            kind: DefinitionKind::StateField,
+                            span: *span,
+                            detail: Some(if *derived {
+                                format!("{field}: {shown} (derived)")
+                            } else {
+                                format!("{field}: {shown}")
+                            }),
+                            scope: ScopeInfo::default(),
+                            // A derived field is recomputed, never assigned — the same distinction
+                            // `Set` enforces, surfaced where the editor can warn before the
+                            // compiler has to.
+                            mutable: Some(!*derived),
+                            doc: None,
+                        });
+                    }
+                    for (prop, ty, span) in props {
+                        self.add_definition(Definition {
+                            name: prop.clone(),
+                            kind: DefinitionKind::StateField,
+                            span: *span,
+                            detail: Some(format!("{prop}: {ty} (prop)")),
+                            scope: ScopeInfo::default(),
+                            mutable: Some(false),
+                            doc: None,
+                        });
+                    }
+                    self.template_mentions
+                        .extend(mentions.iter().map(|(n, sp)| (n.clone(), *sp)));
+                    for (action, params, span) in actions {
+                        let shown: Vec<String> =
+                            params.iter().map(|(n, t)| format!("{n}: {t}")).collect();
+                        self.add_definition(Definition {
+                            name: action.clone(),
+                            kind: DefinitionKind::Action,
+                            span: *span,
+                            detail: Some(format!("To {action}({})", shown.join(", "))),
+                            scope: ScopeInfo::default(),
+                            mutable: None,
+                            doc: None,
+                        });
+                    }
+                }
                 OwnedStmt::StructDef { name, fields } => {
-                    let span = find_token_span_for_name(tokens, name, interner)
-                        .unwrap_or(Span::default());
+                    let span =
+                        find_token_span_for_name(tokens, name, interner).unwrap_or(Span::default());
                     self.add_definition(Definition {
                         name: name.clone(),
                         kind: DefinitionKind::Struct,
@@ -237,8 +335,12 @@ impl SymbolIndex {
                     let mut field_search_after = span.end;
                     for (field_name, field_type) in fields {
                         let field_span = find_token_span_for_name_after(
-                            tokens, field_name, interner, field_search_after,
-                        ).unwrap_or(span);
+                            tokens,
+                            field_name,
+                            interner,
+                            field_search_after,
+                        )
+                        .unwrap_or(span);
                         if field_span != span {
                             field_search_after = field_span.end;
                         }
@@ -253,7 +355,12 @@ impl SymbolIndex {
                         });
                     }
                 }
-                OwnedStmt::Let { name, ty, inferred_type, mutable } => {
+                OwnedStmt::Let {
+                    name,
+                    ty,
+                    inferred_type,
+                    mutable,
+                } => {
                     // Each re-Let of the same name anchors on its OWN
                     // binding token (the name right after its `Let`), never
                     // the first occurrence — shadow warnings and renames
@@ -280,8 +387,8 @@ impl SymbolIndex {
                     });
                 }
                 OwnedStmt::Theorem { name } => {
-                    let span = find_token_span_for_name(tokens, name, interner)
-                        .unwrap_or(Span::default());
+                    let span =
+                        find_token_span_for_name(tokens, name, interner).unwrap_or(Span::default());
                     self.add_definition(Definition {
                         name: name.clone(),
                         kind: DefinitionKind::Theorem,
@@ -325,8 +432,16 @@ impl SymbolIndex {
                 continue;
             }
 
-            let span = find_token_span_for_name(tokens, &name, interner)
-                .unwrap_or(Span::default());
+            let found = find_token_span_for_name(tokens, &name, interner);
+            // A compiler-registered builtin (`HttpError`, `File`) is in EVERY registry whether
+            // this program ever names it or not — indexing it unconditionally would crowd every
+            // completion and hover with two structs (and their fields) most pages never touch.
+            // Index it only when the program's own tokens actually name it; an author-declared
+            // struct still gets its default span when the search comes up empty, as before.
+            if type_registry.is_builtin_struct(*sym) && found.is_none() {
+                continue;
+            }
+            let span = found.unwrap_or(Span::default());
 
             match typedef {
                 logicaffeine_language::analysis::TypeDef::Struct { fields, .. } => {
@@ -346,7 +461,10 @@ impl SymbolIndex {
                         // header's span would collide in every span-keyed
                         // map (highlighting painted struct names as fields).
                         let field_span = find_token_span_for_name_after(
-                            tokens, &field_name, interner, field_search_after,
+                            tokens,
+                            &field_name,
+                            interner,
+                            field_search_after,
                         )
                         .unwrap_or(span);
                         if field_span != span {
@@ -375,8 +493,9 @@ impl SymbolIndex {
                     });
                     for variant in variants {
                         let variant_name = interner.resolve(variant.name).to_string();
-                        let variant_span = find_token_span_for_name(tokens, &variant_name, interner)
-                            .unwrap_or(span);
+                        let variant_span =
+                            find_token_span_for_name(tokens, &variant_name, interner)
+                                .unwrap_or(span);
                         self.add_definition(Definition {
                             name: variant_name.clone(),
                             kind: DefinitionKind::Variant,
@@ -408,12 +527,32 @@ impl SymbolIndex {
                         }
                     }
 
-                    let name = interner.resolve(tokens[i].lexeme).to_string();
-                    self.block_spans.push((
-                        name,
-                        *block_type,
-                        Span::new(start, end),
-                    ));
+                    // An LGX header's IDENTITY lives in its block type, not its lexeme: a route
+                    // is its METHOD and PATH together (`GET /api/todos` and `POST /api/todos`
+                    // are different routes), a page is its path, a redirect is the pair. Taking
+                    // the lexeme gave the outline a name that said none of it.
+                    let name = match block_type {
+                        BlockType::Route { method, path } => {
+                            format!("{} {}", interner.resolve(*method), interner.resolve(*path))
+                        }
+                        BlockType::Page { path } => interner.resolve(*path).to_string(),
+                        BlockType::Redirect { from, to } => {
+                            format!("{} -> {}", interner.resolve(*from), interner.resolve(*to))
+                        }
+                        BlockType::ErrorPage { status } => format!("Error page {status}"),
+                        // `## Component Card` / `## Store Session` / `## Directive tip` carry
+                        // their name in the NEXT token, not in the block type — the lexeme is
+                        // the header word itself, so the outline showed `##Component` for every
+                        // component in the file.
+                        BlockType::Component | BlockType::Store | BlockType::Directive => tokens
+                            .get(i + 1)
+                            .map(|t| interner.resolve(t.lexeme).to_string())
+                            .filter(|n| !n.is_empty() && !n.starts_with('#'))
+                            .unwrap_or_else(|| interner.resolve(tokens[i].lexeme).to_string()),
+                        _ => interner.resolve(tokens[i].lexeme).to_string(),
+                    };
+                    self.block_spans
+                        .push((name, *block_type, Span::new(start, end)));
                 }
                 _ => {}
             }
@@ -455,6 +594,7 @@ impl SymbolIndex {
                     | TokenType::Await
                     | TokenType::Sleep
                     | TokenType::Merge
+                    | TokenType::Converge
                     | TokenType::Increase
                     | TokenType::Decrease
                     | TokenType::Listen
@@ -481,6 +621,23 @@ impl SymbolIndex {
         }
     }
 
+    fn index_template_mentions(&mut self) {
+        for (name, span) in std::mem::take(&mut self.template_mentions) {
+            // Unresolved mentions are dropped rather than recorded: the scan that produced them
+            // is deliberately loose (it also sees filter names and bare words), and a reference
+            // to nothing helps nobody — it would only make "find all references" answer with
+            // places that mean something else.
+            let Some(def_idx) = self.nearest_def(&name, None) else {
+                continue;
+            };
+            self.references.push(Reference {
+                name,
+                span,
+                definition_idx: Some(def_idx),
+            });
+        }
+    }
+
     fn index_references(&mut self, tokens: &[Token], interner: &Interner) {
         for token in tokens {
             if let Some(resolved) = resolve_token_name(token, interner) {
@@ -501,34 +658,76 @@ impl SymbolIndex {
         }
     }
 
+    /// Record each name read inside an interpolated string's `{…}` holes (`{{` is a literal
+    /// brace, holes nest), at its own span in the file. Only names that resolve to a
+    /// definition count — a hole may also hold format specs and built-in words.
+    fn index_interpolation_reads(&mut self, tokens: &[Token], source: &str) {
+        for token in tokens {
+            if !matches!(token.kind, TokenType::InterpolatedString(_)) {
+                continue;
+            }
+            let Some(raw) = source.get(token.span.start..token.span.end) else {
+                continue;
+            };
+            for hole in interpolation_holes(raw) {
+                let text = &raw[hole.clone()];
+                let mut at = 0;
+                while at < text.len() {
+                    let rest = &text[at..];
+                    let Some(first) = rest
+                        .char_indices()
+                        .find(|(_, c)| c.is_alphabetic() || *c == '_')
+                    else {
+                        break;
+                    };
+                    let word_start = at + first.0;
+                    let len = text[word_start..]
+                        .char_indices()
+                        .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
+                        .map_or(text.len() - word_start, |(i, _)| i);
+                    let word = &text[word_start..word_start + len];
+                    let offset = token.span.start + hole.start + word_start;
+                    let block = self.block_for_offset(offset);
+                    if let Some(def_idx) = self.nearest_def(word, block) {
+                        self.references.push(Reference {
+                            name: word.to_string(),
+                            span: Span::new(offset, offset + len),
+                            definition_idx: Some(def_idx),
+                        });
+                    }
+                    at = word_start + len;
+                }
+            }
+        }
+    }
+
     /// Record every `f(…)` and `Call f …` site whose name resolves to a
     /// function definition. The definition's own header (`## To f (…)`) also
     /// puts the name before a paren — excluded by span identity.
     fn index_call_sites(&mut self, tokens: &[Token], interner: &Interner) {
         for (i, token) in tokens.iter().enumerate() {
-            let Some(name) = resolve_token_name(token, interner) else { continue };
+            let Some(name) = resolve_token_name(token, interner) else {
+                continue;
+            };
 
-            let is_call_form = matches!(
-                tokens.get(i + 1).map(|t| &t.kind),
-                Some(TokenType::LParen)
-            ) || matches!(
-                i.checked_sub(1).and_then(|p| tokens.get(p)).map(|t| &t.kind),
-                Some(TokenType::Call)
-            );
+            let is_call_form =
+                matches!(tokens.get(i + 1).map(|t| &t.kind), Some(TokenType::LParen))
+                    || matches!(
+                        i.checked_sub(1)
+                            .and_then(|p| tokens.get(p))
+                            .map(|t| &t.kind),
+                        Some(TokenType::Call)
+                    );
             if !is_call_form {
                 continue;
             }
 
-            let Some(callee) = self
-                .name_to_defs
-                .get(name)
-                .and_then(|indices| {
-                    indices
-                        .iter()
-                        .copied()
-                        .find(|&ix| self.definitions[ix].kind == DefinitionKind::Function)
-                })
-            else {
+            let Some(callee) = self.name_to_defs.get(name).and_then(|indices| {
+                indices
+                    .iter()
+                    .copied()
+                    .find(|&ix| self.definitions[ix].kind == DefinitionKind::Function)
+            }) else {
                 continue;
             };
             if self.definitions[callee].span == token.span {
@@ -648,10 +847,7 @@ impl SymbolIndex {
 
     /// Find all references to the definition with the given name.
     pub fn references_to(&self, name: &str) -> Vec<&Reference> {
-        self.references
-            .iter()
-            .filter(|r| r.name == name)
-            .collect()
+        self.references.iter().filter(|r| r.name == name).collect()
     }
 
     /// Find references to `name` that are in the same scope as the definition at `def_offset`.
@@ -684,187 +880,15 @@ impl SymbolIndex {
 
     /// Get the block name for a block index.
     pub fn block_name(&self, block_idx: usize) -> Option<&str> {
-        self.block_spans.get(block_idx).map(|(name, _, _)| name.as_str())
+        self.block_spans
+            .get(block_idx)
+            .map(|(name, _, _)| name.as_str())
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pipeline::analyze;
-
-    #[test]
-    fn let_binding_has_nondefault_span() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let defs = result.symbol_index.definitions_of("x");
-        assert_eq!(defs.len(), 1, "Expected 1 def for 'x', got {:?}", defs);
-        assert_ne!(defs[0].span, Span::default(),
-            "Definition span should not be default after fix");
-    }
-
-    #[test]
-    fn let_binding_span_points_to_source() {
-        let source = "## Main\n    Let x be 5.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let defs = result.symbol_index.definitions_of("x");
-        assert_eq!(defs.len(), 1);
-        let span = defs[0].span;
-        let text = &source[span.start..span.end];
-        assert_eq!(text, "x", "Span should point to 'x' in source, got '{}'", text);
-    }
-
-    #[test]
-    fn definition_at_finds_variable() {
-        let source = "## Main\n    Let x be 5.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let defs = result.symbol_index.definitions_of("x");
-        assert!(!defs.is_empty());
-        let span = defs[0].span;
-        let def = result.symbol_index.definition_at(span.start);
-        assert!(def.is_some(), "definition_at should find 'x' at its span");
-        assert_eq!(def.unwrap().name, "x");
-    }
-
-    #[test]
-    fn definitions_of_returns_correct_kind() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let defs = result.symbol_index.definitions_of("x");
-        assert_eq!(defs[0].kind, DefinitionKind::Variable);
-    }
-
-    #[test]
-    fn definitions_of_unknown_returns_empty() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        let defs = result.symbol_index.definitions_of("nonexistent");
-        assert!(defs.is_empty());
-    }
-
-    #[test]
-    fn references_to_finds_usages() {
-        let result = analyze("## Main\n    Let x be 5.\n    Show x.\n");
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let refs = result.symbol_index.references_to("x");
-        assert!(refs.len() >= 1, "Expected refs to 'x', got {}", refs.len());
-    }
-
-    #[test]
-    fn reference_linked_to_definition() {
-        let result = analyze("## Main\n    Let x be 5.\n    Show x.\n");
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let refs = result.symbol_index.references_to("x");
-        let linked: Vec<_> = refs.iter().filter(|r| r.definition_idx.is_some()).collect();
-        assert!(!linked.is_empty(), "At least one reference should link to a definition");
-    }
-
-    #[test]
-    fn let_binding_has_detail() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let defs = result.symbol_index.definitions_of("x");
-        assert!(defs[0].detail.is_some(), "Definition should have detail");
-        assert!(defs[0].detail.as_ref().unwrap().contains("Let"),
-            "Detail should mention Let: {:?}", defs[0].detail);
-    }
-
-    #[test]
-    fn block_spans_populated() {
-        let result = analyze("## Main\n    Let x be 5.\n");
-        assert!(!result.symbol_index.block_spans.is_empty(),
-            "block_spans should have at least one entry");
-    }
-
-    #[test]
-    fn multiple_variables_indexed() {
-        let result = analyze("## Main\n    Let a be 1.\n    Let b be 2.\n    Let c be 3.\n");
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        assert_eq!(result.symbol_index.definitions_of("a").len(), 1);
-        assert_eq!(result.symbol_index.definitions_of("b").len(), 1);
-        assert_eq!(result.symbol_index.definitions_of("c").len(), 1);
-    }
-
-    #[test]
-    fn definition_at_whitespace_returns_none() {
-        let source = "## Main\n    Let x be 5.\n";
-        let result = analyze(source);
-        // Offset 0 is at '#' in "## Main" — there IS a BlockHeader token there
-        // But offset somewhere in pure whitespace between tokens should be None
-        // The space between "Let" and "x" is at byte 12
-        // Let's use an offset that's clearly in trailing whitespace
-        let past_end = source.len() + 5;
-        let def = result.symbol_index.definition_at(past_end);
-        assert!(def.is_none(), "definition_at beyond source should return None");
-    }
-
-    #[test]
-    fn references_to_exact_count() {
-        let source = "## Main\n    Let x be 5.\n    Show x.\n    Set x to x + 1.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-        let refs = result.symbol_index.references_to("x");
-        // "x" appears in: "Let x" (def+ref), "Show x" (ref), "Set x" (ref), "x + 1" (ref)
-        // The exact count depends on tokenization, but there should be at least 3 references
-        assert!(refs.len() >= 3,
-            "Expected at least 3 references to 'x', got {}: {:?}",
-            refs.len(),
-            refs.iter().map(|r| (r.span.start, r.span.end)).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn definitions_of_function() {
-        let source = "## To greet (name: Text):\n    Show name.\n## Main\n    Call greet with \"Alice\".\n";
-        let result = analyze(source);
-        let defs = result.symbol_index.definitions_of("greet");
-        let func_defs: Vec<_> = defs.iter().filter(|d| d.kind == DefinitionKind::Function).collect();
-        assert!(!func_defs.is_empty(), "Expected a Function definition for 'greet', got defs: {:?}", defs);
-        assert_eq!(func_defs[0].kind, DefinitionKind::Function);
-    }
-
-    #[test]
-    fn parameter_has_own_span() {
-        let source = "## To greet (name: Text):\n    Show name.\n";
-        let result = analyze(source);
-        assert!(result.errors.is_empty(), "Errors: {:?}", result.errors);
-
-        let func_defs = result.symbol_index.definitions_of("greet");
-        let param_defs = result.symbol_index.definitions_of("name");
-
-        assert!(!func_defs.is_empty(), "Should have function def for 'greet'");
-        assert!(!param_defs.is_empty(), "Should have param def for 'name'");
-
-        let func_span = func_defs.iter()
-            .find(|d| d.kind == DefinitionKind::Function)
-            .map(|d| d.span);
-        let param_span = param_defs.iter()
-            .find(|d| d.kind == DefinitionKind::Parameter)
-            .map(|d| d.span);
-
-        if let (Some(fs), Some(ps)) = (func_span, param_span) {
-            if fs != Span::default() && ps != Span::default() {
-                assert_ne!(fs, ps,
-                    "Parameter 'name' span {:?} should differ from function 'greet' span {:?}",
-                    ps, fs);
-                let param_text = &source[ps.start..ps.end];
-                assert_eq!(param_text, "name",
-                    "Parameter span should point to 'name' in source, got '{}'", param_text);
-            }
-        }
-    }
-
-    #[test]
-    fn second_occurrence_found() {
-        let source = "## Main\n    Let x be 5.\n    Let x be 10.\n";
-        let result = analyze(source);
-        // Even if there are parse errors due to redefinition, we should get definitions
-        let defs = result.symbol_index.definitions_of("x");
-        // There should be at least one definition
-        assert!(!defs.is_empty(), "Expected at least one definition for 'x'");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/index/tests.rs"]
+mod tests;
 
 /// Resolve the user-visible name from a token, if it carries one.
 pub fn resolve_token_name<'a>(token: &Token, interner: &'a Interner) -> Option<&'a str> {
@@ -892,7 +916,11 @@ fn find_token_span_for_name(tokens: &[Token], name: &str, interner: &Interner) -
 }
 
 /// Public version of `find_token_span_for_name` for use by other LSP modules.
-pub fn find_token_span_for_name_pub(tokens: &[Token], name: &str, interner: &Interner) -> Option<Span> {
+pub fn find_token_span_for_name_pub(
+    tokens: &[Token],
+    name: &str,
+    interner: &Interner,
+) -> Option<Span> {
     find_token_span_for_name(tokens, name, interner)
 }
 
@@ -909,7 +937,9 @@ pub fn find_last_token_span_for_name(
         .rev()
         .find(|t| {
             !matches!(t.kind, TokenType::BlockHeader { .. })
-                && resolve_token_name(t, interner).map(|n| n == name).unwrap_or(false)
+                && resolve_token_name(t, interner)
+                    .map(|n| n == name)
+                    .unwrap_or(false)
         })
         .map(|t| t.span)
 }
@@ -979,3 +1009,43 @@ pub fn find_cause_keyword_span(
     }
     best
 }
+
+/// The byte ranges of the `{…}` holes in an interpolated string's source text — the text
+/// between each hole's braces. `{{` is a literal brace, and holes nest (`{f({x})}`), the same
+/// rules the parser reads them by.
+fn interpolation_holes(raw: &str) -> Vec<std::ops::Range<usize>> {
+    let bytes = raw.as_bytes();
+    let mut holes = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' if bytes.get(i + 1) == Some(&b'{') => i += 2,
+            b'}' if bytes.get(i + 1) == Some(&b'}') => i += 2,
+            b'{' => {
+                let mut depth = 1;
+                let mut j = i + 1;
+                while j < bytes.len() && depth > 0 {
+                    match bytes[j] {
+                        b'{' => depth += 1,
+                        b'}' => depth -= 1,
+                        _ => {}
+                    }
+                    if depth > 0 {
+                        j += 1;
+                    }
+                }
+                if depth != 0 {
+                    break;
+                }
+                holes.push(i + 1..j);
+                i = j + 1;
+            }
+            _ => i += 1,
+        }
+    }
+    holes
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/index/interpolation_hole_tests.rs"]
+mod interpolation_hole_tests;

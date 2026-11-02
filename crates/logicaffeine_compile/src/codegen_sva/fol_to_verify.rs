@@ -4,13 +4,15 @@
 //! World variables (w0, w1, ...) become timestep indices.
 //! Temporal accessibility predicates control the unrolling.
 
-use logicaffeine_language::ast::logic::{LogicExpr, QuantifierKind, TemporalOperator, BinaryTemporalOp, Term, ThematicRole};
-use logicaffeine_language::Interner;
-use logicaffeine_language::token::TokenType;
-use super::sva_to_verify::BoundedExpr;
 use super::hw_pipeline::SignalMap;
-use std::collections::{HashMap, HashSet};
+use super::sva_to_verify::BoundedExpr;
 use logicaffeine_base::Symbol;
+use logicaffeine_language::ast::logic::{
+    BinaryTemporalOp, LogicExpr, QuantifierKind, TemporalOperator, Term, ThematicRole,
+};
+use logicaffeine_language::token::TokenType;
+use logicaffeine_language::Interner;
+use std::collections::{HashMap, HashSet};
 
 /// Translator from Kripke-lowered FOL to bounded timestep model.
 pub struct FolTranslator<'a> {
@@ -60,11 +62,18 @@ impl<'a> FolTranslator<'a> {
     ) -> Option<(Symbol, &'b LogicExpr<'b>, bool)> {
         if let LogicExpr::BinaryOp { left, op, right } = body {
             if matches!(op, TokenType::And) {
-                if let LogicExpr::Predicate { name, args, world: None } = *left {
+                if let LogicExpr::Predicate {
+                    name,
+                    args,
+                    world: None,
+                } = *left
+                {
                     let pred_name = self.interner.resolve(*name);
                     if pred_name == "Reachable_Temporal" || pred_name == "Accessible_Temporal" {
                         if args.len() >= 2 {
-                            if let (Term::Variable(source), Term::Variable(target)) = (&args[0], &args[1]) {
+                            if let (Term::Variable(source), Term::Variable(target)) =
+                                (&args[0], &args[1])
+                            {
                                 if *target == quantified_var {
                                     let strictly_future = pred_name == "Reachable_Temporal";
                                     return Some((*source, right, strictly_future));
@@ -89,14 +98,21 @@ impl<'a> FolTranslator<'a> {
     ) -> Option<(Symbol, &'b LogicExpr<'b>, &'a str)> {
         if let LogicExpr::BinaryOp { left, op, right } = body {
             if matches!(op, TokenType::If | TokenType::Implies) {
-                if let LogicExpr::Predicate { name, args, world: None } = *left {
+                if let LogicExpr::Predicate {
+                    name,
+                    args,
+                    world: None,
+                } = *left
+                {
                     let pred_name = self.interner.resolve(*name);
                     if pred_name == "Accessible_Temporal"
                         || pred_name == "Reachable_Temporal"
                         || pred_name == "Next_Temporal"
                     {
                         if args.len() >= 2 {
-                            if let (Term::Variable(source), Term::Variable(target)) = (&args[0], &args[1]) {
+                            if let (Term::Variable(source), Term::Variable(target)) =
+                                (&args[0], &args[1])
+                            {
                                 if *target == quantified_var {
                                     return Some((*source, right, pred_name));
                                 }
@@ -123,7 +139,9 @@ impl<'a> FolTranslator<'a> {
                 {
                     // Extract source and target world timesteps from args
                     if args.len() >= 2 {
-                        if let (Term::Variable(source), Term::Variable(target)) = (&args[0], &args[1]) {
+                        if let (Term::Variable(source), Term::Variable(target)) =
+                            (&args[0], &args[1])
+                        {
                             let source_t = self.world_map.get(source).copied().unwrap_or(0);
                             let target_t = self.world_map.get(target).copied().unwrap_or(0);
 
@@ -184,7 +202,12 @@ impl<'a> FolTranslator<'a> {
             }
 
             // Universal quantifier over worlds → conjunction over timesteps
-            LogicExpr::Quantifier { kind: QuantifierKind::Universal, variable, body, .. } => {
+            LogicExpr::Quantifier {
+                kind: QuantifierKind::Universal,
+                variable,
+                body,
+                ..
+            } => {
                 let var_name = self.interner.resolve(*variable).to_string();
                 if var_name.starts_with('w') {
                     // Check for accessibility predicate pattern in body
@@ -263,7 +286,12 @@ impl<'a> FolTranslator<'a> {
             }
 
             // Existential quantifier over worlds → disjunction over timesteps
-            LogicExpr::Quantifier { kind: QuantifierKind::Existential, variable, body, .. } => {
+            LogicExpr::Quantifier {
+                kind: QuantifierKind::Existential,
+                variable,
+                body,
+                ..
+            } => {
                 let var_name = self.interner.resolve(*variable).to_string();
                 if var_name.starts_with('w') {
                     // Check for accessibility predicate pattern in body
@@ -271,7 +299,11 @@ impl<'a> FolTranslator<'a> {
                         self.extract_accessibility_from_existential(body, *variable)
                     {
                         let source_t = self.world_map.get(&source_world).copied().unwrap_or(0);
-                        let start = if strictly_future { source_t + 1 } else { source_t };
+                        let start = if strictly_future {
+                            source_t + 1
+                        } else {
+                            source_t
+                        };
                         let end = start + self.bound;
 
                         let mut result: Option<BoundedExpr> = None;
@@ -309,14 +341,9 @@ impl<'a> FolTranslator<'a> {
                 let l = self.translate(left);
                 let r = self.translate(right);
                 match op {
-                    TokenType::And => {
-                        BoundedExpr::And(Box::new(l), Box::new(r))
-                    }
-                    TokenType::Or => {
-                        BoundedExpr::Or(Box::new(l), Box::new(r))
-                    }
-                    TokenType::If
-                    | TokenType::Implies => {
+                    TokenType::And => BoundedExpr::And(Box::new(l), Box::new(r)),
+                    TokenType::Or => BoundedExpr::Or(Box::new(l), Box::new(r)),
+                    TokenType::If | TokenType::Implies => {
                         BoundedExpr::Implies(Box::new(l), Box::new(r))
                     }
                     _ => {
@@ -364,16 +391,16 @@ impl<'a> FolTranslator<'a> {
             }
 
             // Binary temporal operators — each has distinct bounded semantics
-            LogicExpr::TemporalBinary { operator, left, right } => {
+            LogicExpr::TemporalBinary {
+                operator,
+                left,
+                right,
+            } => {
                 let l = self.translate(left);
                 let r = self.translate(right);
                 match operator {
-                    BinaryTemporalOp::Until => {
-                        self.unroll_until(&l, &r, 0)
-                    }
-                    BinaryTemporalOp::Release => {
-                        self.unroll_release(&l, &r, 0)
-                    }
+                    BinaryTemporalOp::Until => self.unroll_until(&l, &r, 0),
+                    BinaryTemporalOp::Release => self.unroll_release(&l, &r, 0),
                     BinaryTemporalOp::WeakUntil => {
                         let until = self.unroll_until(&l, &r, 0);
                         let always = self.unroll_always(&l, 0);
@@ -392,12 +419,15 @@ impl<'a> FolTranslator<'a> {
             // Neo-Davidsonian event: extract verb + agent as signal name
             LogicExpr::NeoEvent(data) => {
                 let verb_name = self.interner.resolve(data.verb).to_string();
-                let timestep = data.world
+                let timestep = data
+                    .world
                     .and_then(|w| self.world_map.get(&w).copied())
                     .unwrap_or(0);
 
                 // Extract agent from roles for signal naming
-                let agent_name = data.roles.iter()
+                let agent_name = data
+                    .roles
+                    .iter()
                     .find(|(role, _)| matches!(role, ThematicRole::Agent))
                     .map(|(_, term)| self.term_to_string(term));
 
@@ -432,9 +462,7 @@ impl<'a> FolTranslator<'a> {
             }
 
             // Modal: unwrap
-            LogicExpr::Modal { operand, .. } => {
-                self.translate(operand)
-            }
+            LogicExpr::Modal { operand, .. } => self.translate(operand),
 
             // Catch-all: fail closed (false, not true) for unhandled constructs.
             // Unsupported constructs must NOT silently become vacuously true.
@@ -443,7 +471,10 @@ impl<'a> FolTranslator<'a> {
     }
 
     /// Translate a full Kripke-lowered expression as a property (for all timesteps).
-    pub fn translate_property(&mut self, expr: &LogicExpr<'_>) -> super::sva_to_verify::TranslateResult {
+    pub fn translate_property(
+        &mut self,
+        expr: &LogicExpr<'_>,
+    ) -> super::sva_to_verify::TranslateResult {
         let expr_result = self.translate(expr);
         let declarations: Vec<String> = self.declarations.iter().cloned().collect();
         super::sva_to_verify::TranslateResult {
@@ -460,10 +491,7 @@ impl<'a> FolTranslator<'a> {
             let rest = self.unroll_until(phi, psi, depth + 1);
             BoundedExpr::Or(
                 Box::new(psi.clone()),
-                Box::new(BoundedExpr::And(
-                    Box::new(phi.clone()),
-                    Box::new(rest),
-                )),
+                Box::new(BoundedExpr::And(Box::new(phi.clone()), Box::new(rest))),
             )
         }
     }
@@ -476,10 +504,7 @@ impl<'a> FolTranslator<'a> {
             let rest = self.unroll_release(phi, psi, depth + 1);
             BoundedExpr::And(
                 Box::new(psi.clone()),
-                Box::new(BoundedExpr::Or(
-                    Box::new(phi.clone()),
-                    Box::new(rest),
-                )),
+                Box::new(BoundedExpr::Or(Box::new(phi.clone()), Box::new(rest))),
             )
         }
     }
@@ -532,9 +557,7 @@ impl<'a> FolTranslator<'a> {
 
     fn term_to_string(&self, term: &Term<'_>) -> String {
         match term {
-            Term::Constant(sym) | Term::Variable(sym) => {
-                self.interner.resolve(*sym).to_string()
-            }
+            Term::Constant(sym) | Term::Variable(sym) => self.interner.resolve(*sym).to_string(),
             Term::Function(sym, _) => self.interner.resolve(*sym).to_string(),
             _ => "unknown".to_string(),
         }
@@ -552,8 +575,17 @@ impl<'a> FolTranslator<'a> {
 /// truth predicates should be elided (the signal itself carries the boolean).
 fn is_truth_predicate(name: &str) -> bool {
     let lower = name.to_lowercase();
-    matches!(lower.as_str(),
-        "hold" | "holds" | "have" | "has" | "had"
-        | "valid" | "active" | "true" | "assert" | "asserted"
+    matches!(
+        lower.as_str(),
+        "hold"
+            | "holds"
+            | "have"
+            | "has"
+            | "had"
+            | "valid"
+            | "active"
+            | "true"
+            | "assert"
+            | "asserted"
     )
 }

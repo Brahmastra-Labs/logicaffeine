@@ -50,7 +50,9 @@ fn background_aot_builds_installs_and_executes() {
         assert_eq!(results.len(), 1, "exactly one build result");
         let result = results.into_iter().next().unwrap();
         assert_eq!(result.fi, fi);
-        let nf = result.nf.expect("background AOT build produced a native function");
+        let nf = result
+            .nf
+            .expect("background AOT build produced a native function");
 
         // Install the background-built native fn and run.
         let forge = ForgeTier::new();

@@ -10,9 +10,9 @@
 mod common;
 
 use logicaffeine_language::ast::AspectOperator;
+use logicaffeine_language::compile;
 use logicaffeine_language::lexicon::{Lexicon, VerbClass};
 use logicaffeine_language::view::ExprView;
-use logicaffeine_language::compile;
 
 fn has_modifier(modifiers: &[&str], name: &str) -> bool {
     modifiers.iter().any(|m| m.eq_ignore_ascii_case(name))
@@ -169,7 +169,10 @@ fn activity_present_produces_habitual() {
         ExprView::Aspectual { operator, .. } => {
             assert_eq!(operator, AspectOperator::Habitual);
         }
-        _ => panic!("Activity + Present should produce Aspectual(Habitual), got {:?}", view),
+        _ => panic!(
+            "Activity + Present should produce Aspectual(Habitual), got {:?}",
+            view
+        ),
     }
 }
 
@@ -183,7 +186,10 @@ fn activity_progressive_produces_progressive() {
         ExprView::NeoEvent { modifiers, .. } => {
             assert!(has_modifier(&modifiers, "Progressive"));
         }
-        _ => panic!("Activity + Progressive should produce Progressive, got {:?}", view),
+        _ => panic!(
+            "Activity + Progressive should produce Progressive, got {:?}",
+            view
+        ),
     }
 }
 
@@ -191,10 +197,14 @@ fn activity_progressive_produces_progressive() {
 fn state_present_produces_simple_predication() {
     let view = common::parse_to_view("John knows Mary.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Know");
-            assert!(!has_modifier(&modifiers, "Habitual"),
-                "State verbs should NOT have Habitual modifier");
+            assert!(
+                !has_modifier(&modifiers, "Habitual"),
+                "State verbs should NOT have Habitual modifier"
+            );
         }
         _ => panic!("State + Present should be simple NeoEvent, got {:?}", view),
     }
@@ -207,7 +217,10 @@ fn semelfactive_progressive_produces_iterative() {
         ExprView::Aspectual { operator, .. } => {
             assert_eq!(operator, AspectOperator::Iterative);
         }
-        _ => panic!("Semelfactive + Progressive should produce Aspectual(Iterative), got {:?}", view),
+        _ => panic!(
+            "Semelfactive + Progressive should produce Aspectual(Iterative), got {:?}",
+            view
+        ),
     }
 }
 
@@ -218,17 +231,18 @@ fn accomplishment_present_produces_habitual() {
         ExprView::Aspectual { operator, .. } => {
             assert_eq!(operator, AspectOperator::Habitual);
         }
-        ExprView::Quantifier { body, .. } => {
-            match *body {
-                ExprView::BinaryOp { right, .. } => {
-                    if let ExprView::Aspectual { operator, .. } = *right {
-                        assert_eq!(operator, AspectOperator::Habitual);
-                    }
+        ExprView::Quantifier { body, .. } => match *body {
+            ExprView::BinaryOp { right, .. } => {
+                if let ExprView::Aspectual { operator, .. } = *right {
+                    assert_eq!(operator, AspectOperator::Habitual);
                 }
-                _ => {}
             }
-        }
-        _ => panic!("Accomplishment + Present should produce Habitual, got {:?}", view),
+            _ => {}
+        },
+        _ => panic!(
+            "Accomplishment + Present should produce Habitual, got {:?}",
+            view
+        ),
     }
 }
 
@@ -239,17 +253,18 @@ fn achievement_present_produces_habitual() {
         ExprView::Aspectual { operator, .. } => {
             assert_eq!(operator, AspectOperator::Habitual);
         }
-        ExprView::Quantifier { body, .. } => {
-            match *body {
-                ExprView::BinaryOp { right, .. } => {
-                    if let ExprView::Aspectual { operator, .. } = *right {
-                        assert_eq!(operator, AspectOperator::Habitual);
-                    }
+        ExprView::Quantifier { body, .. } => match *body {
+            ExprView::BinaryOp { right, .. } => {
+                if let ExprView::Aspectual { operator, .. } = *right {
+                    assert_eq!(operator, AspectOperator::Habitual);
                 }
-                _ => {}
             }
-        }
-        _ => panic!("Achievement + Present should produce Habitual, got {:?}", view),
+            _ => {}
+        },
+        _ => panic!(
+            "Achievement + Present should produce Habitual, got {:?}",
+            view
+        ),
     }
 }
 
@@ -264,21 +279,30 @@ fn state_progressive_is_rejected() {
     let err = result.unwrap_err();
     let err_msg = format!("{:?}", err);
     assert!(
-        err_msg.contains("stative") || err_msg.contains("Stative") || err_msg.contains("progressive"),
-        "Error should mention stative/progressive conflict, got: {}", err_msg
+        err_msg.contains("stative")
+            || err_msg.contains("Stative")
+            || err_msg.contains("progressive"),
+        "Error should mention stative/progressive conflict, got: {}",
+        err_msg
     );
 }
 
 #[test]
 fn state_progressive_love_is_rejected() {
     let result = compile("John is loving Mary.");
-    assert!(result.is_err(), "State(love) + Progressive should be rejected");
+    assert!(
+        result.is_err(),
+        "State(love) + Progressive should be rejected"
+    );
 }
 
 #[test]
 fn state_progressive_hate_is_rejected() {
     let result = compile("John is hating Mary.");
-    assert!(result.is_err(), "State(hate) + Progressive should be rejected");
+    assert!(
+        result.is_err(),
+        "State(hate) + Progressive should be rejected"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -289,12 +313,23 @@ fn state_progressive_hate_is_rejected() {
 fn state_past_produces_temporal_past() {
     let view = common::parse_to_view("John knew Mary.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Know");
-            assert!(has_modifier(&modifiers, "Past"), "State past should have Past modifier");
-            assert!(!has_modifier(&modifiers, "Habitual"), "State past should NOT be Habitual");
+            assert!(
+                has_modifier(&modifiers, "Past"),
+                "State past should have Past modifier"
+            );
+            assert!(
+                !has_modifier(&modifiers, "Habitual"),
+                "State past should NOT be Habitual"
+            );
         }
-        _ => panic!("State + Past should be NeoEvent with Past modifier, got {:?}", view),
+        _ => panic!(
+            "State + Past should be NeoEvent with Past modifier, got {:?}",
+            view
+        ),
     }
 }
 
@@ -302,11 +337,19 @@ fn state_past_produces_temporal_past() {
 fn activity_past_produces_temporal_past_without_habitual() {
     let view = common::parse_to_view("John ran.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Run");
-            assert!(has_modifier(&modifiers, "Past"), "Activity past should have Past modifier");
+            assert!(
+                has_modifier(&modifiers, "Past"),
+                "Activity past should have Past modifier"
+            );
         }
-        _ => panic!("Activity + Past should produce NeoEvent with Past, got {:?}", view),
+        _ => panic!(
+            "Activity + Past should produce NeoEvent with Past, got {:?}",
+            view
+        ),
     }
 }
 
@@ -314,11 +357,16 @@ fn activity_past_produces_temporal_past_without_habitual() {
 fn achievement_past_produces_temporal_past() {
     let view = common::parse_to_view("John won.");
     match view {
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Win");
             assert!(has_modifier(&modifiers, "Past"));
         }
-        _ => panic!("Achievement + Past should produce NeoEvent with Past, got {:?}", view),
+        _ => panic!(
+            "Achievement + Past should produce NeoEvent with Past, got {:?}",
+            view
+        ),
     }
 }
 
@@ -338,9 +386,15 @@ fn debug_verb_class_for_knowing() {
     let entry = lex.lookup_verb("knowing");
     match entry {
         Some(e) => {
-            println!("Verb entry for 'knowing': lemma={}, time={:?}, aspect={:?}, class={:?}", 
-                e.lemma, e.time, e.aspect, e.class);
-            assert!(e.class.is_stative(), "know should be stative, got {:?}", e.class);
+            println!(
+                "Verb entry for 'knowing': lemma={}, time={:?}, aspect={:?}, class={:?}",
+                e.lemma, e.time, e.aspect, e.class
+            );
+            assert!(
+                e.class.is_stative(),
+                "know should be stative, got {:?}",
+                e.class
+            );
         }
         None => panic!("Should find 'knowing' as a verb"),
     }
@@ -352,9 +406,15 @@ fn debug_hating_lookup() {
     let entry = lex.lookup_verb("hating");
     match entry {
         Some(e) => {
-            println!("Verb entry for 'hating': lemma={}, time={:?}, aspect={:?}, class={:?}", 
-                e.lemma, e.time, e.aspect, e.class);
-            assert!(e.class.is_stative(), "hate should be stative, got {:?}", e.class);
+            println!(
+                "Verb entry for 'hating': lemma={}, time={:?}, aspect={:?}, class={:?}",
+                e.lemma, e.time, e.aspect, e.class
+            );
+            assert!(
+                e.class.is_stative(),
+                "hate should be stative, got {:?}",
+                e.class
+            );
         }
         None => panic!("Should find 'hating' as a verb"),
     }

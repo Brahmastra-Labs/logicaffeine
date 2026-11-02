@@ -22,8 +22,8 @@
 //! assert!(!args.is_empty());
 //! ```
 
-use std::env as std_env;
 use logicaffeine_data::LogosSeq;
+use std::env as std_env;
 
 /// Returns the value of an environment variable.
 ///
@@ -43,6 +43,9 @@ use logicaffeine_data::LogosSeq;
 /// let path = env::get("PATH".to_string());
 /// ```
 pub fn get(key: String) -> Option<String> {
+    if let Some(sealed) = crate::testworld::intercept_env_get(&key) {
+        return sealed;
+    }
     std_env::var(&key).ok()
 }
 

@@ -1,0 +1,40 @@
+Allocate sigma of size 128 * 128 at 0x55c71276ca00 (94313496627712)
+Run simulation with with 681 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 681 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.0907143
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          27759 Hz
+     20000          28072 Hz
+     30000          27804 Hz
+     40000          27804 Hz
+     50000          27901 Hz
+     60000          27917 Hz
+     70000          27959 Hz
+     80000          28558 Hz
+     90000          28807 Hz
+    100000          29007 Hz
+    110000          29009 Hz
+    120000          29274 Hz
+    130000          29698 Hz
+Simulation complete at cycle 136578
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0.974681 GB/s
+Average DRAM Write Bandwidth: 0.479843 GB/s
+script Elapsed seconds: 6.158
+Exiting... 😊
+Destruct DRAM.
+PASS: true (Logos_gda_256x128_ts128_op1_mp2x2_ip16)
+Complete Simulation
+Runtime:0:06.28

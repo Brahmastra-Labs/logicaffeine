@@ -1,0 +1,5 @@
+05000007  // LoadConst r0, 7
+0501002a  // LoadConst r1, 42
+59000000  // Show r0   (source reg is the a-byte, bits 8..11)
+59000100  // Show r1
+2b000000  // Halt

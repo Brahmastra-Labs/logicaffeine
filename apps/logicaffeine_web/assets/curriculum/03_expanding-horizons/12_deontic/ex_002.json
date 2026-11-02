@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Sing, Tom",
   "options": [
-    "$ OS\\underline{t} $",
-    "$ S\\underline{t} $",
-    "$ St $",
-    "$ S\\underline{u}t $"
+    "O S(t̲)",
+    "S(t̲)",
+    "S(t)",
+    "S(u̲, t)"
   ],
   "correct": 1,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "A command addressed to Tom: he is the agent, so his letter is underlined — S͟t ('Tom, sing'). The verb is intransitive, so only the agent appears, with no deontic operator (a direct order just IS the action)."
+  "hint": "Who is told to act? Underline that person's letter.",
+  "explanation": "A command to Tom to sing: Tom is underlined and there is no operator, since a command is the act itself: S(t̲).",
+  "section": "12.2"
 }

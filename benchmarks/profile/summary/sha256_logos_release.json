@@ -1,0 +1,11 @@
+{
+  "name": "sha256",
+  "lang": "logos_release",
+  "n": "33000000",
+  "samples_weight": 30243217911,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

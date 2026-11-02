@@ -184,10 +184,7 @@ fn test_simp_chained_hypotheses() {
 
     let concluded = repl.execute("Eval result.").unwrap();
     let original = repl.execute("Eval goal.").unwrap();
-    assert_eq!(
-        concluded, original,
-        "simp should prove x=1 -> y=2 -> x+y=3"
-    );
+    assert_eq!(concluded, original, "simp should prove x=1 -> y=2 -> x+y=3");
 }
 
 // =============================================================================

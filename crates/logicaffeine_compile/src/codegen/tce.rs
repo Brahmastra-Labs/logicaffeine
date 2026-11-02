@@ -1,16 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use crate::ast::stmt::{BinaryOpKind, Expr, Stmt, TypeExpr};
 use crate::analysis::registry::TypeRegistry;
 use crate::analysis::types::RustNames;
+use crate::ast::stmt::{BinaryOpKind, Expr, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 
 use super::context::{RefinementContext, VariableCapabilities};
-use super::{codegen_stmt, codegen_expr_with_async};
-use super::types::codegen_type_expr;
 use super::detection::{collect_mutable_vars, expr_contains_self_call};
-use crate::tail_call::{detect_accumulator_pattern, AccumulatorInfo, NonRecSide};
+use super::types::{codegen_type_expr, logos_return_type_to_rust};
+use super::{codegen_expr_with_async, codegen_stmt};
+use crate::tail_call::{AccumulatorInfo, NonRecSide};
 
 // =============================================================================
 // Tail Call Elimination (TCE) Detection
@@ -37,8 +37,13 @@ pub(super) fn has_tail_call_in_stmt(func_name: Symbol, stmt: &Stmt) -> bool {
             }
             false
         }
-        Stmt::If { then_block, else_block, .. } => {
-            let then_tail = then_block.last()
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            let then_tail = then_block
+                .last()
                 .map_or(false, |s| has_tail_call_in_stmt(func_name, s));
             let else_tail = else_block
                 .and_then(|block| block.last())
@@ -62,9 +67,8 @@ pub(super) fn body_has_top_level_tail_pair(
     body: &[Stmt],
     param_count: usize,
 ) -> bool {
-    body.windows(2).any(|w| {
-        crate::tail_call::tail_pair_args(&w[0], &w[1], func_name, param_count).is_some()
-    })
+    body.windows(2)
+        .any(|w| crate::tail_call::tail_pair_args(&w[0], &w[1], func_name, param_count).is_some())
 }
 
 /// Emit the TCE loop-back for a self-tail-call: evaluate the call's args into
@@ -85,7 +89,7 @@ pub(super) fn codegen_tce_loopback<'a>(
     let mut output = String::new();
     writeln!(output, "{}{{", indent_str).unwrap();
     for (i, arg) in args.iter().enumerate() {
-        let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+        let arg_str = loopback_argument(arg, param_names.get(i), interner, ctx, synced_vars, async_functions);
         writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
     }
     for (i, param_sym) in param_names.iter().enumerate() {
@@ -95,6 +99,27 @@ pub(super) fn codegen_tce_loopback<'a>(
     writeln!(output, "{}    continue;", indent_str).unwrap();
     writeln!(output, "{}}}", indent_str).unwrap();
     output
+}
+
+/// The value a tail call passes to `param` on the way back round the loop: converted to the
+/// exact extension's value model when the parameter holds one.
+fn loopback_argument(
+    arg: &Expr,
+    param: Option<&Symbol>,
+    interner: &Interner,
+    ctx: &RefinementContext,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+) -> String {
+    let reached = param.is_some_and(|p| {
+        ctx.get_variable_types()
+            .get(p)
+            .is_some_and(|t| t == super::tower::VALUE)
+    });
+    if reached {
+        return super::tower::bare_value(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+    }
+    codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types())
 }
 
 // Accumulator-introduction DETECTION (`detect_accumulator_pattern`,
@@ -145,18 +170,64 @@ pub(super) fn codegen_stmt_acc<'a>(
                 if let Expr::Call { args, .. } = call_expr {
                     let mut output = String::new();
                     writeln!(output, "{}{{", indent_str).unwrap();
-                    let non_rec_str = codegen_expr_with_async(non_rec_expr, interner, synced_vars, async_functions, ctx.get_variable_types());
-                    writeln!(output, "{}    let __acc_expr = {};", indent_str, non_rec_str).unwrap();
-                    writeln!(output, "{}    __acc = __acc {} __acc_expr;", indent_str, op_str).unwrap();
+                    let exact = super::tower::emitting_a_reached_function();
+                    let non_rec_str = if exact {
+                        super::tower::bare_value(
+                            non_rec_expr,
+                            interner,
+                            synced_vars,
+                            async_functions,
+                            ctx.get_variable_types(),
+                        )
+                    } else {
+                        codegen_expr_with_async(
+                            non_rec_expr,
+                            interner,
+                            synced_vars,
+                            async_functions,
+                            ctx.get_variable_types(),
+                        )
+                    };
+                    writeln!(
+                        output,
+                        "{}    let __acc_expr = {};",
+                        indent_str, non_rec_str
+                    )
+                    .unwrap();
+                    if exact {
+                        writeln!(
+                            output,
+                            "{}    __acc = {};",
+                            indent_str,
+                            super::tower::accumulate("__acc", acc_info.op, "__acc_expr")
+                        )
+                        .unwrap();
+                    } else {
+                        writeln!(
+                            output,
+                            "{}    __acc = __acc {} __acc_expr;",
+                            indent_str, op_str
+                        )
+                        .unwrap();
+                    }
                     // Evaluate args into temporaries
                     for (i, arg) in args.iter().enumerate() {
-                        let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
-                        writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                        let arg_str = loopback_argument(
+                            arg,
+                            param_names.get(i),
+                            interner,
+                            ctx,
+                            synced_vars,
+                            async_functions,
+                        );
+                        writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str)
+                            .unwrap();
                     }
                     // Assign temporaries to params
                     for (i, param_sym) in param_names.iter().enumerate() {
                         let param_name = interner.resolve(*param_sym);
-                        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i)
+                            .unwrap();
                     }
                     writeln!(output, "{}    continue;", indent_str).unwrap();
                     writeln!(output, "{}}}", indent_str).unwrap();
@@ -164,12 +235,47 @@ pub(super) fn codegen_stmt_acc<'a>(
                 }
             }
             // Fallback
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
+            codegen_stmt(
+                stmt,
+                interner,
+                indent,
+                mutable_vars,
+                ctx,
+                lww_fields,
+                mv_fields,
+                synced_vars,
+                var_caps,
+                async_functions,
+                pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            )
         }
 
         // Base return: no self-call
         Stmt::Return { value: Some(expr) } => {
-            let val_str = codegen_expr_with_async(expr, interner, synced_vars, async_functions, ctx.get_variable_types());
+            if super::tower::emitting_a_reached_function() {
+                let val_str = super::tower::bare_value(
+                    expr,
+                    interner,
+                    synced_vars,
+                    async_functions,
+                    ctx.get_variable_types(),
+                );
+                return format!(
+                    "{}return {};\n",
+                    indent_str,
+                    super::tower::accumulate("__acc", acc_info.op, &val_str)
+                );
+            }
+            let val_str = codegen_expr_with_async(
+                expr,
+                interner,
+                synced_vars,
+                async_functions,
+                ctx.get_variable_types(),
+            );
             format!("{}return __acc {} {};\n", indent_str, op_str, val_str)
         }
 
@@ -178,20 +284,67 @@ pub(super) fn codegen_stmt_acc<'a>(
         }
 
         // If: recurse into branches
-        Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let cond_str = codegen_expr_with_async(
+                cond,
+                interner,
+                synced_vars,
+                async_functions,
+                ctx.get_variable_types(),
+            );
+            let cond_str = super::stmt::truthy_cond_wrap(cond, cond_str, interner, ctx.get_variable_types());
             let mut output = String::new();
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for s in *then_block {
-                output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                output.push_str(&codegen_stmt_acc(
+                    s,
+                    func_name,
+                    param_names,
+                    acc_info,
+                    interner,
+                    indent + 1,
+                    mutable_vars,
+                    ctx,
+                    lww_fields,
+                    mv_fields,
+                    synced_vars,
+                    var_caps,
+                    async_functions,
+                    pipe_vars,
+                    boxed_fields,
+                    registry,
+                    type_env,
+                ));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for s in *else_stmts {
-                    output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                    output.push_str(&codegen_stmt_acc(
+                        s,
+                        func_name,
+                        param_names,
+                        acc_info,
+                        interner,
+                        indent + 1,
+                        mutable_vars,
+                        ctx,
+                        lww_fields,
+                        mv_fields,
+                        synced_vars,
+                        var_caps,
+                        async_functions,
+                        pipe_vars,
+                        boxed_fields,
+                        registry,
+                        type_env,
+                    ));
                 }
                 ctx.pop_scope();
             }
@@ -200,7 +353,22 @@ pub(super) fn codegen_stmt_acc<'a>(
         }
 
         // Everything else: delegate
-        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env),
+        _ => codegen_stmt(
+            stmt,
+            interner,
+            indent,
+            mutable_vars,
+            ctx,
+            lww_fields,
+            mv_fields,
+            synced_vars,
+            var_caps,
+            async_functions,
+            pipe_vars,
+            boxed_fields,
+            registry,
+            type_env,
+        ),
     }
 }
 
@@ -218,12 +386,18 @@ pub(super) fn find_tail_call_targets(func_name: Symbol, body: &[Stmt]) -> HashSe
 
 pub(super) fn collect_tail_targets(func_name: Symbol, stmt: &Stmt, targets: &mut HashSet<Symbol>) {
     match stmt {
-        Stmt::Return { value: Some(Expr::Call { function, .. }) } => {
+        Stmt::Return {
+            value: Some(Expr::Call { function, .. }),
+        } => {
             if *function != func_name {
                 targets.insert(*function);
             }
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             if let Some(last) = then_block.last() {
                 collect_tail_targets(func_name, last, targets);
             }
@@ -237,13 +411,45 @@ pub(super) fn collect_tail_targets(func_name: Symbol, stmt: &Stmt, targets: &mut
     }
 }
 
-pub(super) fn detect_mutual_tce_pairs<'a>(stmts: &'a [Stmt<'a>], interner: &Interner) -> Vec<(Symbol, Symbol)> {
+pub(super) fn detect_mutual_tce_pairs<'a>(
+    stmts: &'a [Stmt<'a>],
+    interner: &Interner,
+) -> Vec<(Symbol, Symbol)> {
     // Collect function definitions
-    let mut func_defs: HashMap<Symbol, (&[(Symbol, &TypeExpr)], &[Stmt], Option<&TypeExpr>, bool, bool, bool)> = HashMap::new();
+    let mut func_defs: HashMap<
+        Symbol,
+        (
+            &[(Symbol, &TypeExpr)],
+            &[Stmt],
+            Option<&TypeExpr>,
+            bool,
+            bool,
+            bool,
+        ),
+    > = HashMap::new();
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, return_type, is_native, is_exported, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            return_type,
+            is_native,
+            is_exported,
+            ..
+        } = stmt
+        {
             let is_async_fn = false; // Will be checked properly later
-            func_defs.insert(*name, (params, body, return_type.as_ref().copied(), *is_native, *is_exported, is_async_fn));
+            func_defs.insert(
+                *name,
+                (
+                    params,
+                    body,
+                    return_type.as_ref().copied(),
+                    *is_native,
+                    *is_exported,
+                    is_async_fn,
+                ),
+            );
         }
     }
 
@@ -282,15 +488,27 @@ pub(super) fn detect_mutual_tce_pairs<'a>(stmts: &'a [Stmt<'a>], interner: &Inte
                 continue;
             }
 
+            // Neither may hold a value of the exact extension: the merged loop types every
+            // parameter and the result as declared.
+            let reached = |f: Symbol, ps: &[(Symbol, &TypeExpr)]| {
+                super::tower::returns(f) || ps.iter().any(|(p, _)| super::tower::param(f, *p))
+            };
+            if reached(a, a_params) || reached(b, b_params) {
+                continue;
+            }
+
             // Same number of params
             if a_params.len() != b_params.len() {
                 continue;
             }
 
             // Same param types
-            let same_params = a_params.iter().zip(b_params.iter()).all(|((_, t1), (_, t2))| {
-                codegen_type_expr(t1, interner) == codegen_type_expr(t2, interner)
-            });
+            let same_params = a_params
+                .iter()
+                .zip(b_params.iter())
+                .all(|((_, t1), (_, t2))| {
+                    codegen_type_expr(t1, interner) == codegen_type_expr(t2, interner)
+                });
             if !same_params {
                 continue;
             }
@@ -333,7 +551,14 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     let mut a_def = None;
     let mut b_def = None;
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, return_type, .. } = stmt {
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            return_type,
+            ..
+        } = stmt
+        {
             if *name == func_a {
                 a_def = Some((params.as_slice(), *body, return_type.as_ref().copied()));
             } else if *name == func_b {
@@ -350,23 +575,51 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     let merged_name = format!("__mutual_{}_{}", a_name, b_name);
 
     // Build param list (using func_a's param names, since types match)
-    let params_str: Vec<String> = a_params.iter()
-        .map(|(p, t)| format!("mut {}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+    let params_str: Vec<String> = a_params
+        .iter()
+        .map(|(p, t)| {
+            format!(
+                "mut {}: {}",
+                interner.resolve(*p),
+                codegen_type_expr(t, interner)
+            )
+        })
         .collect();
 
-    let ret_str = a_ret.map(|t| codegen_type_expr(t, interner));
+    // An omitted return type on a mutually-recursive pair: fall back to the
+    // checker's inferred return type (the pair shares one type) so the merged
+    // `__mutual_*` function is not left `()`-returning while its body returns a
+    // value.
+    let ret_str = a_ret.map(|t| codegen_type_expr(t, interner)).or_else(|| {
+        type_env
+            .lookup_fn(func_a)
+            .and_then(|sig| logos_return_type_to_rust(&sig.return_type, interner))
+    });
 
     let mut output = String::new();
 
     // Merged function
     let sig = if let Some(ref r) = ret_str {
         if r != "()" {
-            format!("fn {}(mut __tag: u8, {}) -> {}", merged_name, params_str.join(", "), r)
+            format!(
+                "fn {}(mut __tag: u8, {}) -> {}",
+                merged_name,
+                params_str.join(", "),
+                r
+            )
         } else {
-            format!("fn {}(mut __tag: u8, {})", merged_name, params_str.join(", "))
+            format!(
+                "fn {}(mut __tag: u8, {})",
+                merged_name,
+                params_str.join(", ")
+            )
         }
     } else {
-        format!("fn {}(mut __tag: u8, {})", merged_name, params_str.join(", "))
+        format!(
+            "fn {}(mut __tag: u8, {})",
+            merged_name,
+            params_str.join(", ")
+        )
     };
 
     writeln!(output, "{} {{", sig).unwrap();
@@ -382,7 +635,27 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     let a_pipes = HashSet::new();
     let a_param_syms: Vec<Symbol> = a_params.iter().map(|(s, _)| *s).collect();
     for s in a_body {
-        output.push_str(&codegen_stmt_mutual_tce(s, func_a, func_b, &a_param_syms, 0, 1, interner, 4, &a_mutable, &mut a_ctx, lww_fields, mv_fields, &mut a_synced, &a_caps, async_functions, &a_pipes, boxed_fields, registry, type_env));
+        output.push_str(&codegen_stmt_mutual_tce(
+            s,
+            func_a,
+            func_b,
+            &a_param_syms,
+            0,
+            1,
+            interner,
+            4,
+            &a_mutable,
+            &mut a_ctx,
+            lww_fields,
+            mv_fields,
+            &mut a_synced,
+            &a_caps,
+            async_functions,
+            &a_pipes,
+            boxed_fields,
+            registry,
+            type_env,
+        ));
     }
     writeln!(output, "            }}").unwrap();
 
@@ -396,7 +669,27 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     let b_param_syms: Vec<Symbol> = b_params.iter().map(|(s, _)| *s).collect();
     // Map b's param names to a's param names for assignment
     for s in b_body {
-        output.push_str(&codegen_stmt_mutual_tce(s, func_b, func_a, &b_param_syms, 1, 0, interner, 4, &b_mutable, &mut b_ctx, lww_fields, mv_fields, &mut b_synced, &b_caps, async_functions, &b_pipes, boxed_fields, registry, type_env));
+        output.push_str(&codegen_stmt_mutual_tce(
+            s,
+            func_b,
+            func_a,
+            &b_param_syms,
+            1,
+            0,
+            interner,
+            4,
+            &b_mutable,
+            &mut b_ctx,
+            lww_fields,
+            mv_fields,
+            &mut b_synced,
+            &b_caps,
+            async_functions,
+            &b_pipes,
+            boxed_fields,
+            registry,
+            type_env,
+        ));
     }
     writeln!(output, "            }}").unwrap();
 
@@ -406,39 +699,105 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     writeln!(output, "}}\n").unwrap();
 
     // Wrapper for func_a
-    let wrapper_params_a: Vec<String> = a_params.iter()
-        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+    let wrapper_params_a: Vec<String> = a_params
+        .iter()
+        .map(|(p, t)| {
+            format!(
+                "{}: {}",
+                interner.resolve(*p),
+                codegen_type_expr(t, interner)
+            )
+        })
         .collect();
-    let wrapper_args_a: Vec<String> = a_params.iter()
+    let wrapper_args_a: Vec<String> = a_params
+        .iter()
         .map(|(p, _)| interner.resolve(*p).to_string())
         .collect();
     writeln!(output, "#[inline]").unwrap();
     if let Some(ref r) = ret_str {
         if r != "()" {
-            writeln!(output, "fn {}({}) -> {} {{ {}(0, {}) }}\n", a_name, wrapper_params_a.join(", "), r, merged_name, wrapper_args_a.join(", ")).unwrap();
+            writeln!(
+                output,
+                "fn {}({}) -> {} {{ {}(0, {}) }}\n",
+                a_name,
+                wrapper_params_a.join(", "),
+                r,
+                merged_name,
+                wrapper_args_a.join(", ")
+            )
+            .unwrap();
         } else {
-            writeln!(output, "fn {}({}) {{ {}(0, {}) }}\n", a_name, wrapper_params_a.join(", "), merged_name, wrapper_args_a.join(", ")).unwrap();
+            writeln!(
+                output,
+                "fn {}({}) {{ {}(0, {}) }}\n",
+                a_name,
+                wrapper_params_a.join(", "),
+                merged_name,
+                wrapper_args_a.join(", ")
+            )
+            .unwrap();
         }
     } else {
-        writeln!(output, "fn {}({}) {{ {}(0, {}) }}\n", a_name, wrapper_params_a.join(", "), merged_name, wrapper_args_a.join(", ")).unwrap();
+        writeln!(
+            output,
+            "fn {}({}) {{ {}(0, {}) }}\n",
+            a_name,
+            wrapper_params_a.join(", "),
+            merged_name,
+            wrapper_args_a.join(", ")
+        )
+        .unwrap();
     }
 
     // Wrapper for func_b
-    let wrapper_params_b: Vec<String> = b_params.iter()
-        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+    let wrapper_params_b: Vec<String> = b_params
+        .iter()
+        .map(|(p, t)| {
+            format!(
+                "{}: {}",
+                interner.resolve(*p),
+                codegen_type_expr(t, interner)
+            )
+        })
         .collect();
-    let wrapper_args_b: Vec<String> = b_params.iter()
+    let wrapper_args_b: Vec<String> = b_params
+        .iter()
         .map(|(p, _)| interner.resolve(*p).to_string())
         .collect();
     writeln!(output, "#[inline]").unwrap();
     if let Some(ref r) = ret_str {
         if r != "()" {
-            writeln!(output, "fn {}({}) -> {} {{ {}(1, {}) }}\n", b_name, wrapper_params_b.join(", "), r, merged_name, wrapper_args_b.join(", ")).unwrap();
+            writeln!(
+                output,
+                "fn {}({}) -> {} {{ {}(1, {}) }}\n",
+                b_name,
+                wrapper_params_b.join(", "),
+                r,
+                merged_name,
+                wrapper_args_b.join(", ")
+            )
+            .unwrap();
         } else {
-            writeln!(output, "fn {}({}) {{ {}(1, {}) }}\n", b_name, wrapper_params_b.join(", "), merged_name, wrapper_args_b.join(", ")).unwrap();
+            writeln!(
+                output,
+                "fn {}({}) {{ {}(1, {}) }}\n",
+                b_name,
+                wrapper_params_b.join(", "),
+                merged_name,
+                wrapper_args_b.join(", ")
+            )
+            .unwrap();
         }
     } else {
-        writeln!(output, "fn {}({}) {{ {}(1, {}) }}\n", b_name, wrapper_params_b.join(", "), merged_name, wrapper_args_b.join(", ")).unwrap();
+        writeln!(
+            output,
+            "fn {}({}) {{ {}(1, {}) }}\n",
+            b_name,
+            wrapper_params_b.join(", "),
+            merged_name,
+            wrapper_args_b.join(", ")
+        )
+        .unwrap();
     }
 
     output
@@ -474,7 +833,13 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
                 let mut output = String::new();
                 writeln!(output, "{}{{", indent_str).unwrap();
                 for (i, arg) in args.iter().enumerate() {
-                    let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    let arg_str = codegen_expr_with_async(
+                        arg,
+                        interner,
+                        synced_vars,
+                        async_functions,
+                        ctx.get_variable_types(),
+                    );
                     writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
                 }
                 for (i, param_sym) in param_names.iter().enumerate() {
@@ -486,7 +851,22 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
                 writeln!(output, "{}}}", indent_str).unwrap();
                 return output;
             }
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
+            codegen_stmt(
+                stmt,
+                interner,
+                indent,
+                mutable_vars,
+                ctx,
+                lww_fields,
+                mv_fields,
+                synced_vars,
+                var_caps,
+                async_functions,
+                pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            )
         }
 
         // Return with a call to self → standard self-TCE
@@ -495,7 +875,13 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
                 let mut output = String::new();
                 writeln!(output, "{}{{", indent_str).unwrap();
                 for (i, arg) in args.iter().enumerate() {
-                    let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    let arg_str = codegen_expr_with_async(
+                        arg,
+                        interner,
+                        synced_vars,
+                        async_functions,
+                        ctx.get_variable_types(),
+                    );
                     writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
                 }
                 for (i, param_sym) in param_names.iter().enumerate() {
@@ -506,24 +892,90 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
                 writeln!(output, "{}}}", indent_str).unwrap();
                 return output;
             }
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
+            codegen_stmt(
+                stmt,
+                interner,
+                indent,
+                mutable_vars,
+                ctx,
+                lww_fields,
+                mv_fields,
+                synced_vars,
+                var_caps,
+                async_functions,
+                pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            )
         }
 
         // If: recurse into branches
-        Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let cond_str = codegen_expr_with_async(
+                cond,
+                interner,
+                synced_vars,
+                async_functions,
+                ctx.get_variable_types(),
+            );
+            let cond_str = super::stmt::truthy_cond_wrap(cond, cond_str, interner, ctx.get_variable_types());
             let mut output = String::new();
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for s in *then_block {
-                output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                output.push_str(&codegen_stmt_mutual_tce(
+                    s,
+                    self_name,
+                    partner_name,
+                    param_names,
+                    self_tag,
+                    partner_tag,
+                    interner,
+                    indent + 1,
+                    mutable_vars,
+                    ctx,
+                    lww_fields,
+                    mv_fields,
+                    synced_vars,
+                    var_caps,
+                    async_functions,
+                    pipe_vars,
+                    boxed_fields,
+                    registry,
+                    type_env,
+                ));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for s in *else_stmts {
-                    output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                    output.push_str(&codegen_stmt_mutual_tce(
+                        s,
+                        self_name,
+                        partner_name,
+                        param_names,
+                        self_tag,
+                        partner_tag,
+                        interner,
+                        indent + 1,
+                        mutable_vars,
+                        ctx,
+                        lww_fields,
+                        mv_fields,
+                        synced_vars,
+                        var_caps,
+                        async_functions,
+                        pipe_vars,
+                        boxed_fields,
+                        registry,
+                        type_env,
+                    ));
                 }
                 ctx.pop_scope();
             }
@@ -532,7 +984,22 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
         }
 
         // Everything else: delegate
-        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env),
+        _ => codegen_stmt(
+            stmt,
+            interner,
+            indent,
+            mutable_vars,
+            ctx,
+            lww_fields,
+            mv_fields,
+            synced_vars,
+            var_caps,
+            async_functions,
+            pipe_vars,
+            boxed_fields,
+            registry,
+            type_env,
+        ),
     }
 }
 
@@ -568,10 +1035,33 @@ pub(super) fn codegen_stmt_tce<'a>(
         // Case 1 & 2: Return with a self-call in tail position
         Stmt::Return { value: Some(expr) } if expr_is_self_call(func_name, expr) => {
             if let Expr::Call { args, .. } = expr {
-                return codegen_tce_loopback(args, param_names, interner, indent, ctx, synced_vars, async_functions);
+                return codegen_tce_loopback(
+                    args,
+                    param_names,
+                    interner,
+                    indent,
+                    ctx,
+                    synced_vars,
+                    async_functions,
+                );
             }
             // Shouldn't reach here, but fall through to default
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
+            codegen_stmt(
+                stmt,
+                interner,
+                indent,
+                mutable_vars,
+                ctx,
+                lww_fields,
+                mv_fields,
+                synced_vars,
+                var_caps,
+                async_functions,
+                pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            )
         }
 
         // Case 2: Return with outer self-call that has a nested self-call arg (Ackermann pattern)
@@ -585,17 +1075,32 @@ pub(super) fn codegen_stmt_tce<'a>(
                     for (i, arg) in args.iter().enumerate() {
                         if expr_is_self_call(func_name, arg) {
                             // Inner self-call: evaluate as normal recursive call
-                            let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
-                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                            let arg_str = codegen_expr_with_async(
+                                arg,
+                                interner,
+                                synced_vars,
+                                async_functions,
+                                ctx.get_variable_types(),
+                            );
+                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str)
+                                .unwrap();
                         } else {
-                            let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
-                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                            let arg_str = codegen_expr_with_async(
+                                arg,
+                                interner,
+                                synced_vars,
+                                async_functions,
+                                ctx.get_variable_types(),
+                            );
+                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str)
+                                .unwrap();
                         }
                     }
                     // Assign temporaries to params
                     for (i, param_sym) in param_names.iter().enumerate() {
                         let param_name = interner.resolve(*param_sym);
-                        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i)
+                            .unwrap();
                     }
                     writeln!(output, "{}    continue;", indent_str).unwrap();
                     writeln!(output, "{}}}", indent_str).unwrap();
@@ -603,24 +1108,84 @@ pub(super) fn codegen_stmt_tce<'a>(
                 }
             }
             // Not a self-call — delegate to normal codegen
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
+            codegen_stmt(
+                stmt,
+                interner,
+                indent,
+                mutable_vars,
+                ctx,
+                lww_fields,
+                mv_fields,
+                synced_vars,
+                var_caps,
+                async_functions,
+                pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            )
         }
 
         // Case 3: If statement — recurse into branches
-        Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let cond_str = codegen_expr_with_async(
+                cond,
+                interner,
+                synced_vars,
+                async_functions,
+                ctx.get_variable_types(),
+            );
+            let cond_str = super::stmt::truthy_cond_wrap(cond, cond_str, interner, ctx.get_variable_types());
             let mut output = String::new();
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for s in *then_block {
-                output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                output.push_str(&codegen_stmt_tce(
+                    s,
+                    func_name,
+                    param_names,
+                    interner,
+                    indent + 1,
+                    mutable_vars,
+                    ctx,
+                    lww_fields,
+                    mv_fields,
+                    synced_vars,
+                    var_caps,
+                    async_functions,
+                    pipe_vars,
+                    boxed_fields,
+                    registry,
+                    type_env,
+                ));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for s in *else_stmts {
-                    output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                    output.push_str(&codegen_stmt_tce(
+                        s,
+                        func_name,
+                        param_names,
+                        interner,
+                        indent + 1,
+                        mutable_vars,
+                        ctx,
+                        lww_fields,
+                        mv_fields,
+                        synced_vars,
+                        var_caps,
+                        async_functions,
+                        pipe_vars,
+                        boxed_fields,
+                        registry,
+                        type_env,
+                    ));
                 }
                 ctx.pop_scope();
             }
@@ -629,6 +1194,21 @@ pub(super) fn codegen_stmt_tce<'a>(
         }
 
         // Case 4: Everything else — delegate
-        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env),
+        _ => codegen_stmt(
+            stmt,
+            interner,
+            indent,
+            mutable_vars,
+            ctx,
+            lww_fields,
+            mv_fields,
+            synced_vars,
+            var_caps,
+            async_functions,
+            pipe_vars,
+            boxed_fields,
+            registry,
+            type_env,
+        ),
     }
 }

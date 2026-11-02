@@ -1,0 +1,11 @@
+{
+  "capability": "bits.pack_uint_be",
+  "workload": "packUintBE(r,6) then position-weighted byte fold mod 1e9+7",
+  "arg": "2000000",
+  "expected": "912581234",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "main.lg calls packUintBE() WITHOUT defining it \u2014 auto-imported from bits.lg. Python counterpart uses int.to_bytes(6,'big'); the position weight makes the fold order-sensitive (distinguishes BE from LE)."
+}

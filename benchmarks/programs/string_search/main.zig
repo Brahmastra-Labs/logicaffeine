@@ -8,32 +8,35 @@ pub fn main() !void {
     const n_str = args.next() orelse return;
     const n: usize = @intCast(try std.fmt.parseInt(i64, n_str, 10));
 
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.smp_allocator;
     const text = try allocator.alloc(u8, n);
     defer allocator.free(text);
 
-    var pos: usize = 0;
-    while (pos < n) {
-        if (pos > 0 and pos % 1000 == 0 and pos + 5 <= n) {
-            text[pos] = 'X';
-            text[pos + 1] = 'X';
-            text[pos + 2] = 'X';
-            text[pos + 3] = 'X';
-            text[pos + 4] = 'X';
-            pos += 5;
-        } else {
-            text[pos] = @intCast(@as(usize, 'a') + pos % 5);
-            pos += 1;
-        }
+    var seed: i64 = 42;
+    for (0..n) |pos| {
+        seed = @rem(seed *% 1103515245 + 12345, 2147483648);
+        text[pos] = @intCast('a' + @rem(seed >> 16, 5));
     }
-    const needle = "XXXXX";
+    const needle = "cabed";
     var count: i64 = 0;
+    var positions: std.ArrayList(i64) = .empty;
+    defer positions.deinit(allocator);
     var i: usize = 0;
     while (i + needle.len <= n) : (i += 1) {
-        if (std.mem.eql(u8, text[i..][0..needle.len], needle)) {
+        var matched = true;
+        for (0..needle.len) |j| {
+            if (text[i + j] != needle[j]) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
             count += 1;
+            try positions.append(allocator, @intCast(i));
         }
     }
-    try stdout.interface.print("{d}\n", .{count});
+    var checksum: i64 = 0;
+    for (positions.items) |p| checksum = (checksum * 31 + p) & 268435455;
+    try stdout.interface.print("{d} {d}\n", .{ count, checksum });
     try stdout.interface.flush();
 }

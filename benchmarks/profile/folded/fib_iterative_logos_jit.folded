@@ -1,0 +1,5 @@
+logos::main::loop@12 [jit] 19358478150
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela 713995
+[unknown];<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;__memcpy_avx_unaligned_erms 533755
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela;elf_machine_rela;resolve_map;_dl_lookup_symbol_x;do_lookup_x 232736
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_map_object_deps;__GI__dl_catch_exception;openaux;_dl_map_object;__GI___tunable_get_val 232736

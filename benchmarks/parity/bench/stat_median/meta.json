@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.median",
+  "workload": "statistics.median",
+  "arg": "20000",
+  "expected": "987992100",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

@@ -24,7 +24,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_exact_output, assert_runs, run_logos, assert_panics};
+use common::{assert_exact_output, assert_panics, run_logos};
 
 // =============================================================================
 // TIER 1: Recursive Enums with Boxed Fields
@@ -171,8 +171,7 @@ Show pi.
     assert!(
         result.success,
         "Float literal should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "3.14", "Got: {}", result.stdout);
 }
@@ -189,8 +188,7 @@ Show a + b.
     assert!(
         result.success,
         "Float addition should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "4", "Got: {}", result.stdout);
 }
@@ -207,8 +205,7 @@ Show area.
     assert!(
         result.success,
         "Float multiplication should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "12.56", "Got: {}", result.stdout);
 }
@@ -225,8 +222,7 @@ Show x / y.
     assert!(
         result.success,
         "Float division should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "2.5", "Got: {}", result.stdout);
 }
@@ -245,8 +241,7 @@ Show result.
     assert!(
         result.success,
         "Float in function should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "7", "Got: {}", result.stdout);
 }
@@ -267,8 +262,7 @@ Show x.
     assert!(
         result.success,
         "Trust statement should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "10", "Got: {}", result.stdout);
 }
@@ -286,8 +280,7 @@ Show n.
     assert!(
         result.success,
         "Trust with reason should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "3", "Got: {}", result.stdout);
 }
@@ -308,8 +301,7 @@ Show "passed".
     assert!(
         result.success,
         "Assert should pass.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "passed", "Got: {}", result.stdout);
 }
@@ -322,7 +314,7 @@ Let x be 3.
 Assert that x is greater than 10.
 Show "passed".
 "#;
-    assert_panics(source, "assertion");
+    assert_panics(source, "Assertion failed");
 }
 
 // =============================================================================
@@ -340,8 +332,7 @@ Show d.
     assert!(
         result.success,
         "Duration variable should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "100ms", "Got: {}", result.stdout);
 }
@@ -360,8 +351,7 @@ Show t.
     assert!(
         result.success,
         "Duration in function should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "500ms", "Got: {}", result.stdout);
 }
@@ -387,8 +377,7 @@ fn e2e_concurrent_independent_vars() {
     assert!(
         result.success,
         "Concurrent independent should run.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+        result.rust_code, result.stderr
     );
     assert_eq!(result.stdout.trim(), "30", "Got: {}", result.stdout);
 }

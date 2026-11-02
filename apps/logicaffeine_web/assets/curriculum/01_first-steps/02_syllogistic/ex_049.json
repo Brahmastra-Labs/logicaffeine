@@ -10,6 +10,7 @@
     "no B is C"
   ],
   "correct": 3,
-  "hint": "Reread the sentence carefully: WHO is being talked about? Is it biologists, or non-biologists? What is being said about them?",
-  "explanation": "This is tricky! The sentence says 'People who AREN'T biologists aren't clean.' It's making a claim about NON-biologists (let's call them B for short — the class of non-biologists). The claim: none of them are clean. So: 'no B is C'. Watch out for double negatives in English — they can flip meaning!"
+  "hint": "Is this saying 'not all', or 'not any at all'?",
+  "explanation": "It says none of the biologists is clean: no B is C.",
+  "section": "2.1"
 }

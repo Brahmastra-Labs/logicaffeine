@@ -1,0 +1,67 @@
+Build the current project.
+
+A program or a backend: compiles the LOGOS source to Rust, then invokes `cargo build` on the generated code; the binary is published at `target/debug/<name>` or `target/release/<name>`. A full-stack site's binary carries its pages and assets inside it. A site (pages, no `Serve` backend) has no program to compile, so it is exported to `dist/` — the same as `--static`.
+
+# Verification
+
+When `--verify` is passed, the build process includes Z3 static verification of logical constraints. This requires the `verification` feature enabled at build time (the full build).
+
+# Example
+
+```bash largo build              # Debug build largo build --release    # Release build with optimizations largo build --verify     # Build with Z3 verification ```
+
+Usage: largo build [OPTIONS]
+
+Options:
+  -r, --release
+          Build with optimizations enabled
+
+      --verify
+          Run Z3 static verification after compilation (the full build)
+
+      --lib
+          Build as a library instead of an executable. Generates `lib.rs` with `crate-type = ["cdylib"]` instead of a binary
+
+      --target <TARGET>
+          Target triple for cross-compilation. Use "wasm" as shorthand for "wasm32-unknown-unknown"
+
+      --native-functions
+          Pre-build every `is exported for native` function into the AOT-native tier bundle (a cached cdylib per function) under `.logos-native/`
+
+      --emit <EMIT>
+          Emit target: `c`, `c-bytecode`, `wasm`, `wasm-linked`, `isa` or `riscv`. `c` and `c-bytecode` build native executables from the optimized AST and bytecode respectively. `wasm` compiles the project straight to a self-contained `.wasm` module via the built-in backend (no rustc, cargo or wasm-bindgen), written to `target/<name>.wasm` beside a Node.js host shim. `wasm-linked` additionally links the real `logicaffeine_base::BigInt` runtime (via `rust-lld`) so overflowing integer arithmetic computes the exact big number instead of wrapping; it needs the Rust toolchain and a wasm32 `base` build. `isa` writes LOGOS Silicon ISA assembly beside the entry as `<entry>.isa`. `riscv` (also `risc-v`) writes RV64GC assembly beside the entry as `<entry>.s`, with the `logos_rt.c` runtime shim next to it. Omit for the default rustc-based Rust build
+
+      --json
+          Print one `logos-check/1` JSON envelope on stdout: a parse error reports as a structured diagnostic, a cargo failure as one `build-failure` diagnostic carrying the raw output
+
+      --manifest
+          Print the machine-readable build manifest (JSON) instead of building: the local package identity, feature selection, the resolved `path`/`git` dependencies, and the transitive closure (every linked `.lg` file tagged with its source dependency). No cargo/rustc runs
+
+      --static
+          Export the site to `dist/` as plain files instead of building a binary — pre-rendered HTML, the content-addressed module and shim, `static/**`, `robots.txt`, `sitemap.xml` and a `_headers` file carrying the same cache rules the binary sends. Deployable to any static host (Pages, Netlify, Cloudflare, S3). No cargo, no rustc, and no backend required. What a plain `largo build` does for a site; ask for it on a full-stack site to export its pages without the backend
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo build
+  largo build --release
+  largo build --static        # export pages/ and static/ to dist/
+  largo build --emit wasm
+  largo build --lib --target aarch64-unknown-linux-gnu

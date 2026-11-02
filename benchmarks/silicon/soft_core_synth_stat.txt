@@ -1,0 +1,19 @@
+# Golden synthesis result — the FULL 113-op LOGOS soft-core, AFTER the single-write-port + microcode rewrite.
+# Reproduce the memory/coarse phase: yosys benchmarks/silicon/synth_soft_core_full.ys
+# Config: HEAP=64 FRAMES=4 MAXELT=8 MAXPAIR=4 MAXKEY=4 (sim uses the full defaults).
+#
+# BEFORE (flop-heavy interpreter): 341,889 cells, 3,237 DFFs, 0 memories (all mem2reg'd), proc timed out (300s+).
+# AFTER  (single write port for regs+dmem + microcode FSM): the memories stay $mem RAMs, ~100x smaller:
+#
+#   Number of cells:      3,122       (was 341,889)
+#     $mem_v2               13        <- dmem, regs, globals, savedregs, iterators, inbox = REAL RAMs (BRAM-mappable)
+#     $dffe                 63        (was 3,237 flops)
+#     $mux               2,023
+#     $add                 224
+#     $eq                  230
+#     $sub                  16
+#   proc+opt+memory: 21s   (was 300s+ timeout)
+#   NO "Replacing memory \dmem" / "\regs"  -> the mem2reg explosion is GONE.
+#
+# This fits the ULX3S ECP5-85K comfortably (~2-3k LUT4 + a few BRAM). All 43 tb_soft_core_*.v sims pass at the
+# full default sizes; the Rust run_soft_core model + the VM differential are unchanged and green.

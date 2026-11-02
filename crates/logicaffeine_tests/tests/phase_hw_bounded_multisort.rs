@@ -7,10 +7,9 @@
 #![cfg(feature = "verification")]
 
 use logicaffeine_compile::codegen_sva::sva_to_verify::{
-    BoundedExpr, BitVecBoundedOp, ArithBoundedOp, CmpBoundedOp, BoundedSort,
-    bounded_to_verify,
+    bounded_to_verify, ArithBoundedOp, BitVecBoundedOp, BoundedExpr, BoundedSort, CmpBoundedOp,
 };
-use logicaffeine_verify::{VerifyExpr, VerifyOp, VerifyType, BitVecOp};
+use logicaffeine_verify::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BITVECTOR BOUNDED EXPRESSIONS
@@ -18,7 +17,10 @@ use logicaffeine_verify::{VerifyExpr, VerifyOp, VerifyType, BitVecOp};
 
 #[test]
 fn bounded_bitvec_const() {
-    let b = BoundedExpr::BitVecConst { width: 8, value: 255 };
+    let b = BoundedExpr::BitVecConst {
+        width: 8,
+        value: 255,
+    };
     let v = bounded_to_verify(&b);
     assert_eq!(v, VerifyExpr::bv_const(8, 255));
 }
@@ -37,15 +39,24 @@ fn bounded_bitvec_var() {
 fn bounded_bitvec_binary_and() {
     let b = BoundedExpr::BitVecBinary {
         op: BitVecBoundedOp::And,
-        left: Box::new(BoundedExpr::BitVecConst { width: 8, value: 0xFF }),
-        right: Box::new(BoundedExpr::BitVecConst { width: 8, value: 0x0F }),
+        left: Box::new(BoundedExpr::BitVecConst {
+            width: 8,
+            value: 0xFF,
+        }),
+        right: Box::new(BoundedExpr::BitVecConst {
+            width: 8,
+            value: 0x0F,
+        }),
     };
     let v = bounded_to_verify(&b);
-    assert_eq!(v, VerifyExpr::bv_binary(
-        BitVecOp::And,
-        VerifyExpr::bv_const(8, 0xFF),
-        VerifyExpr::bv_const(8, 0x0F),
-    ));
+    assert_eq!(
+        v,
+        VerifyExpr::bv_binary(
+            BitVecOp::And,
+            VerifyExpr::bv_const(8, 0xFF),
+            VerifyExpr::bv_const(8, 0x0F),
+        )
+    );
 }
 
 #[test]
@@ -66,8 +77,11 @@ fn bounded_bitvec_to_verify_all_ops() {
             right: Box::new(BoundedExpr::BitVecConst { width: 8, value: 2 }),
         };
         let v = bounded_to_verify(&b);
-        assert!(matches!(v, VerifyExpr::BitVecBinary { .. }),
-            "Failed for op {:?}", bop);
+        assert!(
+            matches!(v, VerifyExpr::BitVecBinary { .. }),
+            "Failed for op {:?}",
+            bop
+        );
     }
 }
 
@@ -76,7 +90,10 @@ fn bounded_bitvec_extract() {
     let b = BoundedExpr::BitVecExtract {
         high: 7,
         low: 0,
-        operand: Box::new(BoundedExpr::BitVecConst { width: 16, value: 0x1234 }),
+        operand: Box::new(BoundedExpr::BitVecConst {
+            width: 16,
+            value: 0x1234,
+        }),
     };
     let v = bounded_to_verify(&b);
     match v {
@@ -91,8 +108,14 @@ fn bounded_bitvec_extract() {
 #[test]
 fn bounded_bitvec_concat() {
     let b = BoundedExpr::BitVecConcat(
-        Box::new(BoundedExpr::BitVecConst { width: 8, value: 0x12 }),
-        Box::new(BoundedExpr::BitVecConst { width: 8, value: 0x34 }),
+        Box::new(BoundedExpr::BitVecConst {
+            width: 8,
+            value: 0x12,
+        }),
+        Box::new(BoundedExpr::BitVecConst {
+            width: 8,
+            value: 0x34,
+        }),
     );
     let v = bounded_to_verify(&b);
     assert!(matches!(v, VerifyExpr::BitVecConcat(_, _)));
@@ -156,7 +179,13 @@ fn bounded_int_arithmetic() {
         right: Box::new(BoundedExpr::Int(5)),
     };
     let v = bounded_to_verify(&b);
-    assert!(matches!(v, VerifyExpr::Binary { op: VerifyOp::Add, .. }));
+    assert!(matches!(
+        v,
+        VerifyExpr::Binary {
+            op: VerifyOp::Add,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -167,7 +196,13 @@ fn bounded_comparison() {
         right: Box::new(BoundedExpr::Int(5)),
     };
     let v = bounded_to_verify(&b);
-    assert!(matches!(v, VerifyExpr::Binary { op: VerifyOp::Gt, .. }));
+    assert!(matches!(
+        v,
+        VerifyExpr::Binary {
+            op: VerifyOp::Gt,
+            ..
+        }
+    ));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -223,7 +258,13 @@ fn bounded_regression_boolean() {
         Box::new(BoundedExpr::Not(Box::new(BoundedExpr::Var("q@0".into())))),
     );
     let v = bounded_to_verify(&b);
-    assert!(matches!(v, VerifyExpr::Binary { op: VerifyOp::And, .. }));
+    assert!(matches!(
+        v,
+        VerifyExpr::Binary {
+            op: VerifyOp::And,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -236,7 +277,10 @@ fn bounded_nested_bitvec_ops() {
     let outer = BoundedExpr::BitVecBinary {
         op: BitVecBoundedOp::And,
         left: Box::new(inner),
-        right: Box::new(BoundedExpr::BitVecConst { width: 8, value: 0xFF }),
+        right: Box::new(BoundedExpr::BitVecConst {
+            width: 8,
+            value: 0xFF,
+        }),
     };
     let v = bounded_to_verify(&outer);
     assert!(matches!(v, VerifyExpr::BitVecBinary { .. }));
@@ -254,5 +298,11 @@ fn bounded_mixed_sort_formula() {
         }),
     );
     let v = bounded_to_verify(&formula);
-    assert!(matches!(v, VerifyExpr::Binary { op: VerifyOp::And, .. }));
+    assert!(matches!(
+        v,
+        VerifyExpr::Binary {
+            op: VerifyOp::And,
+            ..
+        }
+    ));
 }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>{app_title}</title>
 
     <!-- Site-wide invariants only. Per-page tags (title/description, Open Graph,
@@ -60,33 +60,6 @@
                 });
             };
         })();
-
-        // Audio feedback system
-        const audioCache = {};
-        window.playSound = function(effect) {
-            const sounds = {
-                'xp_gain': 'assets/sounds/xp.mp3',
-                'critical': 'assets/sounds/crit.mp3',
-                'combo_up': 'assets/sounds/combo.mp3',
-                'combo_break': 'assets/sounds/break.mp3',
-                'achievement': 'assets/sounds/achievement.mp3',
-                'level_up': 'assets/sounds/levelup.mp3',
-                'streak_saved': 'assets/sounds/shield.mp3',
-                'streak_lost': 'assets/sounds/lost.mp3',
-                'correct': 'assets/sounds/correct.mp3',
-                'incorrect': 'assets/sounds/incorrect.mp3'
-            };
-            const path = sounds[effect];
-            if (!path) return;
-            try {
-                if (!audioCache[effect]) {
-                    audioCache[effect] = new Audio(path);
-                    audioCache[effect].volume = 0.5;
-                }
-                audioCache[effect].currentTime = 0;
-                audioCache[effect].play().catch(() => {});
-            } catch (e) {}
-        };
     </script>
 
     <style>
@@ -107,23 +80,32 @@
     <script>
         // CSR takeover as a maintained INVARIANT, not a one-shot swap: the user
         // always sees either the live app (#app) or the prerendered copy (#main),
-        // never a blank frame. A rAF watchdog keeps #main hidden only while
-        // #app-root is genuinely live (a child element AND real text); if the app
-        // ever goes empty — a boot crash, a failed lazy chunk, any render
-        // regression — it RESTORES #main so the static prerendered page (readable,
-        // nav links work) shows instead of a blank screen. #main is only removed
-        // after the app has been durably live; if that never happens we leave the
-        // prerendered copy up. Because it is rAF-driven it also cures the
-        // "blank until you tab back" case: rAF is throttled while hidden and
-        // resumes on foreground, re-asserting the invariant the moment you return.
+        // never a blank frame. A poll keeps #main hidden only while the app root
+        // is genuinely live (a child element and real text); if the app ever goes
+        // empty — a boot crash, a failed lazy chunk, any render regression — it
+        // RESTORES #main so the static prerendered page (readable, nav links
+        // work) shows instead of a blank screen. #main is only removed after the
+        // app has been durably live; if that never happens we leave the
+        // prerendered copy up. A timer drives the poll rather than
+        // requestAnimationFrame: rAF needs an active compositor and never fires
+        // for a hidden tab or a headless one-shot render, both of which still
+        // need the invariant enforced — a timer runs (throttled, not stopped)
+        // in either case and resumes at full rate the moment the tab is visible.
         (function () {
-            var MIN = 24, STABLE_MS = 1500, GIVE_UP_MS = 20000;
+            var MIN = 24, STABLE_MS = 1500, GIVE_UP_MS = 20000, POLL_MS = 50;
             function live() {
-                var r = document.getElementById('app-root');
-                return !!(r && r.firstElementChild && (r.innerText || '').trim().length >= MIN);
+                var app = document.getElementById('app');
+                return !!(app && app.firstElementChild && (app.innerText || '').trim().length >= MIN);
             }
             var stableSince = 0, t0 = 0, removed = false;
-            function tick(now) {
+            function park() {
+                var app = document.getElementById('app');
+                if (!app) return;
+                var wake = new MutationObserver(function () { wake.disconnect(); requestAnimationFrame(tick); });
+                wake.observe(app, { childList: true, subtree: true, characterData: true });
+            }
+            function tick() {
+                var now = performance.now();
                 var main = document.getElementById('main');
                 if (removed || !main) return;
                 if (!t0) t0 = now;
@@ -134,11 +116,11 @@
                 } else {
                     main.style.display = '';
                     stableSince = 0;
+                    if (now - t0 > GIVE_UP_MS) { t0 = 0; park(); return; }
                 }
-                if (now - t0 > GIVE_UP_MS) { main.style.display = ''; return; }
-                requestAnimationFrame(tick);
+                setTimeout(tick, POLL_MS);
             }
-            function start() { if (document.getElementById('main')) requestAnimationFrame(tick); }
+            function start() { if (document.getElementById('main')) setTimeout(tick, POLL_MS); }
             if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start);
             else start();
         })();
@@ -148,7 +130,7 @@
         // on downloading that chunk. Once the first page is idle we quietly warm
         // ALL of them — network + compile in one primitive — so later navigation
         // is instant. `chunks.json` (its content-hashed URLs) is written at build
-        // time by scripts/gen-prefetch-manifest.sh; if it's absent (dev, no split)
+        // time by scripts/web/gen-prefetch-manifest.sh; if it's absent (dev, no split)
         // or the connection is constrained, this is a no-op.
         (function () {
             if (window.__wasmPrefetchStarted) return;

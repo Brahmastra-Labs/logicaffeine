@@ -24,9 +24,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod common;
 
-use logicaffeine_language::{compile, compile_all_scopes, compile_theorem};
 use logicaffeine_language::ast::{QuantifierKind, TemporalOperator};
 use logicaffeine_language::view::ExprView;
+use logicaffeine_language::{compile, compile_all_scopes, compile_theorem};
 
 // ============================================================
 // Parse-Tree Validation (Logic Mode)
@@ -39,9 +39,18 @@ use logicaffeine_language::view::ExprView;
 fn parse_tree_every_cat_sleeps() {
     let view = common::parse_to_view("Every cat sleeps.");
     match view {
-        ExprView::Quantifier { kind, variable, body, .. } => {
-            assert_eq!(kind, QuantifierKind::Universal,
-                "Expected Universal quantifier, got {:?}", kind);
+        ExprView::Quantifier {
+            kind,
+            variable,
+            body,
+            ..
+        } => {
+            assert_eq!(
+                kind,
+                QuantifierKind::Universal,
+                "Expected Universal quantifier, got {:?}",
+                kind
+            );
             assert!(!variable.is_empty(), "Should bind a variable");
             // Body should be an implication: Cat(x) -> Sleep(x)
             match *body {
@@ -51,7 +60,10 @@ fn parse_tree_every_cat_sleeps() {
                 _ => panic!("Expected BinaryOp (implication) in body, got {:?}", body),
             }
         }
-        _ => panic!("Expected Quantifier variant for 'Every cat sleeps', got {:?}", view),
+        _ => panic!(
+            "Expected Quantifier variant for 'Every cat sleeps', got {:?}",
+            view
+        ),
     }
 }
 
@@ -62,11 +74,18 @@ fn parse_tree_some_dogs_bark() {
     let view = common::parse_to_view("Some dogs bark loudly.");
     match view {
         ExprView::Quantifier { kind, variable, .. } => {
-            assert_eq!(kind, QuantifierKind::Existential,
-                "Expected Existential quantifier, got {:?}", kind);
+            assert_eq!(
+                kind,
+                QuantifierKind::Existential,
+                "Expected Existential quantifier, got {:?}",
+                kind
+            );
             assert!(!variable.is_empty(), "Should bind a variable");
         }
-        _ => panic!("Expected Quantifier variant for 'Some dogs bark loudly', got {:?}", view),
+        _ => panic!(
+            "Expected Quantifier variant for 'Some dogs bark loudly', got {:?}",
+            view
+        ),
     }
 }
 
@@ -78,9 +97,15 @@ fn parse_tree_john_loves_mary() {
     match view {
         ExprView::NeoEvent { verb, roles, .. } => {
             assert_eq!(verb, "Love", "Expected verb 'Love', got '{}'", verb);
-            assert!(roles.len() >= 2, "Should have at least 2 roles (agent, theme)");
+            assert!(
+                roles.len() >= 2,
+                "Should have at least 2 roles (agent, theme)"
+            );
         }
-        _ => panic!("Expected NeoEvent variant for 'John loves Mary', got {:?}", view),
+        _ => panic!(
+            "Expected NeoEvent variant for 'John loves Mary', got {:?}",
+            view
+        ),
     }
 }
 
@@ -98,7 +123,10 @@ fn parse_tree_quick_brown_fox() {
         ExprView::Quantifier { .. } => {
             // Definite descriptions can be analyzed as quantifiers
         }
-        _ => panic!("Expected NeoEvent or Quantifier for 'The quick brown fox jumps', got {:?}", view),
+        _ => panic!(
+            "Expected NeoEvent or Quantifier for 'The quick brown fox jumps', got {:?}",
+            view
+        ),
     }
 }
 
@@ -110,8 +138,12 @@ fn parse_tree_no_student_failed() {
     match view {
         ExprView::Quantifier { kind, body, .. } => {
             // "No" is typically Universal with negated body: ∀x(Student(x) → ¬Failed(x))
-            assert_eq!(kind, QuantifierKind::Universal,
-                "Expected Universal quantifier for 'No', got {:?}", kind);
+            assert_eq!(
+                kind,
+                QuantifierKind::Universal,
+                "Expected Universal quantifier for 'No', got {:?}",
+                kind
+            );
             // Body should contain negation
             match *body {
                 ExprView::BinaryOp { .. } => {
@@ -123,7 +155,10 @@ fn parse_tree_no_student_failed() {
                 _ => {}
             }
         }
-        _ => panic!("Expected Quantifier variant for 'No student failed', got {:?}", view),
+        _ => panic!(
+            "Expected Quantifier variant for 'No student failed', got {:?}",
+            view
+        ),
     }
 }
 
@@ -135,8 +170,11 @@ fn parse_tree_quantifier_scope() {
     // Should have at least 2 readings due to scope ambiguity
     // 1. Surface scope: ∀x(Student(x) → ∃y(Book(y) ∧ Read(x,y)))
     // 2. Inverse scope: ∃y(Book(y) ∧ ∀x(Student(x) → Read(x,y)))
-    assert!(readings.len() >= 1,
-        "Should have at least one reading for scope ambiguity. Got {} readings", readings.len());
+    assert!(
+        readings.len() >= 1,
+        "Should have at least one reading for scope ambiguity. Got {} readings",
+        readings.len()
+    );
 }
 
 /// Validate: "John was running." (past progressive)
@@ -147,20 +185,30 @@ fn parse_tree_past_progressive() {
     match view {
         ExprView::Temporal { operator, body } => {
             // Past tense wrapping progressive aspect
-            assert_eq!(operator, TemporalOperator::Past,
-                "Expected Past temporal operator, got {:?}", operator);
+            assert_eq!(
+                operator,
+                TemporalOperator::Past,
+                "Expected Past temporal operator, got {:?}",
+                operator
+            );
             match *body {
                 ExprView::Aspectual { .. } | ExprView::NeoEvent { .. } => {
                     // Progressive aspect confirmed
                 }
-                _ => panic!("Expected Aspectual or NeoEvent in temporal body, got {:?}", body),
+                _ => panic!(
+                    "Expected Aspectual or NeoEvent in temporal body, got {:?}",
+                    body
+                ),
             }
         }
         ExprView::NeoEvent { modifiers, .. } => {
             // Alternative: modifiers contain tense/aspect info
             assert!(!modifiers.is_empty(), "Should have temporal modifiers");
         }
-        _ => panic!("Expected Temporal or NeoEvent for 'John was running', got {:?}", view),
+        _ => panic!(
+            "Expected Temporal or NeoEvent for 'John was running', got {:?}",
+            view
+        ),
     }
 }
 
@@ -173,12 +221,20 @@ fn parse_tree_perfect_aspect() {
         ExprView::Aspectual { .. } => {
             // Perfect aspect confirmed
         }
-        ExprView::NeoEvent { modifiers, verb, .. } => {
+        ExprView::NeoEvent {
+            modifiers, verb, ..
+        } => {
             assert_eq!(verb, "Eat", "Expected verb 'Eat', got '{}'", verb);
             // Modifiers should contain perfect aspect info
-            assert!(!modifiers.is_empty(), "Modifiers should contain aspect info");
+            assert!(
+                !modifiers.is_empty(),
+                "Modifiers should contain aspect info"
+            );
         }
-        _ => panic!("Expected Aspectual or NeoEvent for 'Mary has eaten', got {:?}", view),
+        _ => panic!(
+            "Expected Aspectual or NeoEvent for 'Mary has eaten', got {:?}",
+            view
+        ),
     }
 }
 
@@ -192,34 +248,48 @@ fn parse_tree_future_tense() {
     match view {
         ExprView::Quantifier { kind, body, .. } => {
             // "The" creates an existential with uniqueness condition
-            assert_eq!(kind, QuantifierKind::Existential,
-                "Expected Existential for 'the', got {:?}", kind);
+            assert_eq!(
+                kind,
+                QuantifierKind::Existential,
+                "Expected Existential for 'the', got {:?}",
+                kind
+            );
             // Search for NeoEvent with "Arrive" verb and "Future" modifier inside the body
             fn contains_arrive_future(expr: &ExprView) -> bool {
                 match expr {
-                    ExprView::NeoEvent { verb, modifiers, .. } => {
-                        *verb == "Arrive" && modifiers.contains(&"Future")
-                    }
+                    ExprView::NeoEvent {
+                        verb, modifiers, ..
+                    } => *verb == "Arrive" && modifiers.contains(&"Future"),
                     ExprView::BinaryOp { left, right, .. } => {
                         contains_arrive_future(left) || contains_arrive_future(right)
                     }
                     ExprView::Quantifier { body, .. } => contains_arrive_future(body),
-                    _ => false
+                    _ => false,
                 }
             }
-            assert!(contains_arrive_future(&body),
-                "Should contain NeoEvent with Arrive and Future modifier");
+            assert!(
+                contains_arrive_future(&body),
+                "Should contain NeoEvent with Arrive and Future modifier"
+            );
         }
         ExprView::Temporal { operator, .. } => {
             // Alternative: direct temporal operator
-            assert_eq!(operator, TemporalOperator::Future,
-                "Expected Future temporal operator");
+            assert_eq!(
+                operator,
+                TemporalOperator::Future,
+                "Expected Future temporal operator"
+            );
         }
-        ExprView::NeoEvent { verb, modifiers, .. } => {
+        ExprView::NeoEvent {
+            verb, modifiers, ..
+        } => {
             assert_eq!(verb, "Arrive", "Expected verb 'Arrive', got '{}'", verb);
             assert!(modifiers.contains(&"Future"), "Should have Future modifier");
         }
-        _ => panic!("Unexpected parse tree structure for 'The train will arrive': {:?}", view),
+        _ => panic!(
+            "Unexpected parse tree structure for 'The train will arrive': {:?}",
+            view
+        ),
     }
 }
 
@@ -239,17 +309,26 @@ fn logic_multi_sentence_numbered_output() {
     let output = compile("Every cat sleeps. Some dogs bark.").unwrap();
 
     // Should contain numbered formulas (1, 2)
-    assert!(output.contains("1)"),
-        "Output should contain '1)' for first sentence. Got: {}", output);
-    assert!(output.contains("2)"),
-        "Output should contain '2)' for second sentence. Got: {}", output);
+    assert!(
+        output.contains("1)"),
+        "Output should contain '1)' for first sentence. Got: {}",
+        output
+    );
+    assert!(
+        output.contains("2)"),
+        "Output should contain '2)' for second sentence. Got: {}",
+        output
+    );
 
     // Should NOT contain top-level AND conjunction
     // (The old behavior was: (∀x... ∧ ∃y...) which is wrong)
     // The new behavior is: 1) ∀x...\n2) ∃y...
     let has_top_level_and = output.starts_with("(") && output.contains(" ∧ ");
-    assert!(!has_top_level_and,
-        "Should NOT have top-level AND conjunction. Got: {}", output);
+    assert!(
+        !has_top_level_and,
+        "Should NOT have top-level AND conjunction. Got: {}",
+        output
+    );
 }
 
 /// A single sentence has no numbering.
@@ -258,8 +337,11 @@ fn logic_single_sentence_no_numbering() {
     let output = compile("Every cat sleeps.").unwrap();
 
     // Single sentence should NOT have "1)" prefix
-    assert!(!output.starts_with("1)"),
-        "Single sentence should not be numbered. Got: {}", output);
+    assert!(
+        !output.starts_with("1)"),
+        "Single sentence should not be numbered. Got: {}",
+        output
+    );
 }
 
 // ============================================================
@@ -282,9 +364,17 @@ Prove: Socrates is mortal.
 Proof: By automation.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "scripted theorem should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "scripted theorem should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "scripted proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "scripted proof should kernel-verify: {}",
+        output
+    );
 }
 
 /// An EXPLICIT prose proof using `intro` over an implication goal — exercises the
@@ -297,9 +387,17 @@ Prove: If Bob is sad then Bob is happy.
 Proof: Assume h. By assumption.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "scripted implication should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "scripted implication should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "intro proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "intro proof should kernel-verify: {}",
+        output
+    );
 }
 
 /// An EXPLICIT prose proof using `cases` over a disjunction premise — ∨-commutativity
@@ -312,9 +410,17 @@ Prove: Bob is sad or Bob is happy.
 Proof: By cases on hp0. Right, by assumption. Left, by assumption.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "scripted disjunction should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "scripted disjunction should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "cases proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "cases proof should kernel-verify: {}",
+        output
+    );
 }
 
 /// An EXPLICIT prose proof using `cases` to DESTRUCTURE a conjunction premise
@@ -327,9 +433,17 @@ Prove: Bob is tall and Bob is happy.
 Proof: By cases on hp0. Split, by assumption, by assumption.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "scripted conjunction should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "scripted conjunction should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "∧-destructure proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "∧-destructure proof should kernel-verify: {}",
+        output
+    );
 }
 
 /// A NAMED premise (`Given (h): …`) referenced by the prose proof as `cases h` — the
@@ -342,9 +456,17 @@ Prove: Bob is sad or Bob is happy.
 Proof: By cases on h. Right, by assumption. Left, by assumption.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "named-premise theorem should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "named-premise theorem should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "named-premise proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "named-premise proof should kernel-verify: {}",
+        output
+    );
 }
 
 /// ∀-introduction over an English universal goal: `Introduce x` opens the `∀`, then
@@ -356,9 +478,17 @@ Prove: All men are men.
 Proof: Introduce x. Assume h. By assumption.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "universal theorem should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "universal theorem should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "∀-intro proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "∀-intro proof should kernel-verify: {}",
+        output
+    );
 }
 
 /// ∃-cases over an English existential premise: `cases h` opens the witness, then
@@ -371,7 +501,15 @@ Prove: Some mortal is a man.
 Proof: By cases on h. By automation.
 "#;
     let result = compile_theorem(source);
-    assert!(result.is_ok(), "existential theorem should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "existential theorem should compile: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
-    assert!(output.contains("Proved"), "∃-cases proof should kernel-verify: {}", output);
+    assert!(
+        output.contains("Proved"),
+        "∃-cases proof should kernel-verify: {}",
+        output
+    );
 }

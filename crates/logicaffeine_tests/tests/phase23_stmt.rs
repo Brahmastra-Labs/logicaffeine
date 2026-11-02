@@ -1,6 +1,6 @@
-use logicaffeine_language::ast::{Stmt, Expr, Literal, Block};
 use logicaffeine_base::Symbol;
 use logicaffeine_compile::compile::compile_to_rust;
+use logicaffeine_language::ast::{Block, Expr, Literal, Stmt};
 
 #[test]
 fn stmt_let_variant_exists() {
@@ -99,7 +99,7 @@ x = 42.
 Return x.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("let x = 42"), "Generated: {}", rust);
+    assert!(rust.contains("let x: i64 = 42"), "Generated: {}", rust);
 }
 
 #[test]
@@ -131,7 +131,11 @@ Set counter to 1.
 Return counter.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("let mut counter = 0"), "Generated: {}", rust);
+    assert!(
+        rust.contains("let mut counter: i64 = 0"),
+        "Generated: {}",
+        rust
+    );
 }
 
 #[test]
@@ -163,8 +167,8 @@ Let mutable y be 10.
 Return x.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("let x = 5"), "Generated: {}", rust);
-    assert!(rust.contains("let mut y = 10"), "Generated: {}", rust);
+    assert!(rust.contains("let x: i64 = 5"), "Generated: {}", rust);
+    assert!(rust.contains("let mut y: i64 = 10"), "Generated: {}", rust);
 }
 
 #[test]
@@ -177,6 +181,14 @@ mut new_mut = 4.
 Return old_style.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("let old_style = 1"), "Generated: {}", rust);
-    assert!(rust.contains("let new_style = 2"), "Generated: {}", rust);
+    assert!(
+        rust.contains("let old_style: i64 = 1"),
+        "Generated: {}",
+        rust
+    );
+    assert!(
+        rust.contains("let new_style: i64 = 2"),
+        "Generated: {}",
+        rust
+    );
 }

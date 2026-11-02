@@ -1,0 +1,36 @@
+{
+  "id": "9.1",
+  "title": "Relations",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **relation** links two or more individuals. Taller(John, Bill) says that John is taller than Bill. The order of the arguments matters."
+    },
+    {
+      "type": "paragraph",
+      "text": "A quantifier can fill one place of a relation and leave the other to a name."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "John is taller than Bill.",
+      "formula": "Taller(John, Bill)",
+      "note": "The first argument is the taller one."
+    },
+    {
+      "type": "formula",
+      "sentence": "Every student is taller than John.",
+      "formula": "∀x((Student(x) → Taller(x, John)))",
+      "note": "x fills the first place, so each student is the taller one."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Mary is taller than Bill.",
+    "answer": "Taller(Mary, Bill)",
+    "hint": "The relation comes first, then the two names in order, with a comma between them.",
+    "explanation": "Taller takes two arguments. Mary is the taller one, so she comes first."
+  }
+}

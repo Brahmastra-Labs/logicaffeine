@@ -47,9 +47,9 @@
 //! # }
 //! ```
 
-use logicaffeine_data::crdt::Merge;
-use crate::fs::{Vfs, VfsResult, VfsError};
+use crate::fs::{Vfs, VfsError, VfsResult};
 use async_lock::Mutex;
+use logicaffeine_data::crdt::Merge;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -111,9 +111,10 @@ where
         let actual_checksum = crc32fast::hash(payload);
 
         if actual_checksum != expected_checksum {
-            return Err(VfsError::JournalCorrupted(
-                format!("Entry {} checksum mismatch", entry_count)
-            ));
+            return Err(VfsError::JournalCorrupted(format!(
+                "Entry {} checksum mismatch",
+                entry_count
+            )));
         }
 
         let op: JournalOp<T> = bincode::deserialize(payload)
@@ -325,8 +326,8 @@ where
     /// Append state as delta to journal.
     async fn append_to_journal(&self, state: &T) -> VfsResult<()> {
         let op = JournalOp::Delta(state.clone());
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -352,8 +353,8 @@ where
     /// Write snapshot and reset journal.
     async fn do_compact(&self, snapshot: &T) -> VfsResult<()> {
         let op = JournalOp::Snapshot(snapshot.clone());
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -401,7 +402,7 @@ where
     pub async fn mount(
         vfs: Arc<dyn Vfs>,
         path: &str,
-        _topic: Option<String>,  // Ignored on WASM
+        _topic: Option<String>, // Ignored on WASM
     ) -> VfsResult<Self> {
         let (state, entry_count) = if vfs.exists(path).await.unwrap_or(false) {
             let data = vfs.read(path).await?;
@@ -455,8 +456,8 @@ where
 
     async fn append_to_journal(&self, state: &T) -> VfsResult<()> {
         let op = JournalOp::Delta(state.clone());
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -480,8 +481,8 @@ where
 
     async fn do_compact(&self, snapshot: &T) -> VfsResult<()> {
         let op = JournalOp::Snapshot(snapshot.clone());
-        let payload = bincode::serialize(&op)
-            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+        let payload =
+            bincode::serialize(&op).map_err(|e| VfsError::SerializationError(e.to_string()))?;
 
         let header = JournalHeader::encode(&payload);
         let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
@@ -503,75 +504,5 @@ where
 // =============================================================================
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_data::crdt::GCounter;
-    use tempfile::TempDir;
-
-    #[tokio::test]
-    async fn test_distributed_mount_empty() {
-        let temp = TempDir::new().unwrap();
-        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
-
-        let counter = Distributed::<GCounter>::mount(vfs, "counter.lsf", None).await.unwrap();
-
-        assert_eq!(counter.get().await.value(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_distributed_mutate() {
-        let temp = TempDir::new().unwrap();
-        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
-
-        let counter = Distributed::<GCounter>::mount(vfs, "counter.lsf", None).await.unwrap();
-
-        counter.mutate(|c| c.increment(5)).await.unwrap();
-        counter.mutate(|c| c.increment(3)).await.unwrap();
-
-        assert_eq!(counter.get().await.value(), 8);
-    }
-
-    #[tokio::test]
-    async fn test_distributed_persist_and_reload() {
-        let temp = TempDir::new().unwrap();
-        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
-
-        // Create and mutate
-        {
-            let counter = Distributed::<GCounter>::mount(vfs.clone(), "counter.lsf", None).await.unwrap();
-            counter.mutate(|c| c.increment(10)).await.unwrap();
-            assert_eq!(counter.get().await.value(), 10);
-        }
-
-        // Reload and verify
-        {
-            let counter = Distributed::<GCounter>::mount(vfs.clone(), "counter.lsf", None).await.unwrap();
-            assert_eq!(counter.get().await.value(), 10);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_distributed_compaction() {
-        let temp = TempDir::new().unwrap();
-        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
-
-        let counter = Distributed::<GCounter>::mount(vfs.clone(), "counter.lsf", None).await.unwrap();
-
-        // Mutate multiple times
-        for _ in 0..5 {
-            counter.mutate(|c| c.increment(1)).await.unwrap();
-        }
-        assert_eq!(counter.entry_count().await, 5);
-
-        // Compact
-        counter.compact().await.unwrap();
-        assert_eq!(counter.entry_count().await, 1);
-
-        // Value should be preserved
-        assert_eq!(counter.get().await.value(), 5);
-
-        // Reload should still work
-        let counter2 = Distributed::<GCounter>::mount(vfs, "counter.lsf", None).await.unwrap();
-        assert_eq!(counter2.get().await.value(), 5);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_system/distributed/tests.rs"]
+mod tests;

@@ -7,7 +7,7 @@ const DAYS_PER_YEAR: f64 = 365.24;
 #[derive(Clone)]
 struct Body { x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64 }
 
-fn offset_momentum(bodies: &mut [Body]) {
+fn offset_momentum(bodies: &mut [Body; 5]) {
     let (px, py, pz) = bodies.iter().fold((0.0, 0.0, 0.0), |(px, py, pz), b| {
         (px + b.vx * b.mass, py + b.vy * b.mass, pz + b.vz * b.mass)
     });
@@ -16,7 +16,7 @@ fn offset_momentum(bodies: &mut [Body]) {
     bodies[0].vz = -pz / SOLAR_MASS;
 }
 
-fn energy(bodies: &[Body]) -> f64 {
+fn energy(bodies: &[Body; 5]) -> f64 {
     let mut e = 0.0;
     for i in 0..bodies.len() {
         e += 0.5 * bodies[i].mass * (bodies[i].vx*bodies[i].vx + bodies[i].vy*bodies[i].vy + bodies[i].vz*bodies[i].vz);
@@ -30,7 +30,7 @@ fn energy(bodies: &[Body]) -> f64 {
     e
 }
 
-fn advance(bodies: &mut [Body], dt: f64) {
+fn advance(bodies: &mut [Body; 5], dt: f64) {
     let n = bodies.len();
     for i in 0..n {
         for j in (i+1)..n {
@@ -56,7 +56,7 @@ fn advance(bodies: &mut [Body], dt: f64) {
 
 fn main() {
     let n: i64 = env::args().nth(1).unwrap().parse().unwrap();
-    let mut bodies = vec![
+    let mut bodies: [Body; 5] = [
         Body { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: SOLAR_MASS },
         Body { x: 4.84143144246472090e+00, y: -1.16032004402742839e+00, z: -1.03622044471123109e-01,
                vx: 1.66007664274403694e-03*DAYS_PER_YEAR, vy: 7.69901118419740425e-03*DAYS_PER_YEAR,

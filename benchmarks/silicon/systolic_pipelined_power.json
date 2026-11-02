@@ -1,0 +1,38 @@
+{
+ "design": "systolic_pipe8_realbist",
+ "note": "8x8 PIPELINED (register-staged, TPU-MXU microarchitecture) weight-stationary systolic GEMM tile, int32 accumulator, signoff-clean Sky130 VCD power. The only combinational path between flip-flops is one 8x8 multiply + one add, so the critical path is K-INDEPENDENT (see systolic_pipe16 for the flat 8->16 proof). Honest tradeoff vs the combinational tile: FASTER Fmax + K-independent, but every PE register toggles each cycle so energy/MAC is HIGHER. This is a characterized toggle, not a strict dominator (pipelined_systolic_lock::pipelined_is_a_characterized_toggle_not_a_dominator).",
+ "run": "tools/OpenLane/designs/logos_systolic_pipe8_realbist/runs/RUN_2026.10.15_17.27.18",
+ "gds_bytes": 64859084,
+ "clock_period_ns": 15.0,
+ "simulated_cycles": 4000,
+ "signature_port": "sig",
+ "signature": "0",
+ "signature_changes": 1932,
+ "signature_trajectory_sha256": "a78c3cc8a7c5ab32acc9df415c1135861402648431fe044780ccc01f85bab310",
+ "rtl_signature": "0",
+ "rtl_signature_trajectory_sha256": "a78c3cc8a7c5ab32acc9df415c1135861402648431fe044780ccc01f85bab310",
+ "die_mm2": 1.1404,
+ "std_cells": 133795,
+ "signoff_clean": true,
+ "clock_mhz": 66.667,
+ "fmax_mhz": 68.2,
+ "macs_per_clock": 64,
+ "power_mw": {
+  "default_activity": 34.8,
+  "vcd_measured": 42.8
+ },
+ "energy_per_mac_pJ": {
+  "default_activity": 8.16,
+  "vcd_measured": 10.03
+ },
+ "reproduce": "python3 scripts/measure-silicon-power.py systolic_pipe8_realbist",
+ "vs_combinational_tile": {
+  "combinational_fmax_mhz": 54.4,
+  "pipelined_fmax_mhz": 68.2,
+  "fmax_improvement_x": 1.25,
+  "combinational_energy_pJ_per_mac": 4.33,
+  "pipelined_energy_pJ_per_mac": 10.03,
+  "energy_per_mac_cost_x": 2.32,
+  "verdict": "pipelined trades ~2.3x energy/MAC + fill latency (K+N-1) + area for K-INDEPENDENT Fmax; both stay proven, characterized toggles"
+ }
+}

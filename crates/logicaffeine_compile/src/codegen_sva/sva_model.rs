@@ -160,22 +160,43 @@ pub enum SvaExpr {
     Always(Box<SvaExpr>),
     /// Weak bounded always: `always [m:n] p` (IEEE 16.12.11)
     /// max=None means $ (weak allows $).
-    AlwaysBounded { body: Box<SvaExpr>, min: u32, max: Option<u32> },
+    AlwaysBounded {
+        body: Box<SvaExpr>,
+        min: u32,
+        max: Option<u32>,
+    },
     /// Strong bounded always: `s_always [m:n] p` (IEEE 16.12.11)
     /// All ticks must exist. NO $ allowed.
-    SAlwaysBounded { body: Box<SvaExpr>, min: u32, max: u32 },
+    SAlwaysBounded {
+        body: Box<SvaExpr>,
+        min: u32,
+        max: u32,
+    },
     /// Weak bounded eventually: `eventually [m:n] p` (IEEE 16.12.13)
     /// Range must be bounded (no $).
-    EventuallyBounded { body: Box<SvaExpr>, min: u32, max: u32 },
+    EventuallyBounded {
+        body: Box<SvaExpr>,
+        min: u32,
+        max: u32,
+    },
     /// Strong bounded eventually: `s_eventually [m:n] p` (IEEE 16.12.13)
     /// CAN use $ (max=None means $).
-    SEventuallyBounded { body: Box<SvaExpr>, min: u32, max: Option<u32> },
+    SEventuallyBounded {
+        body: Box<SvaExpr>,
+        min: u32,
+        max: Option<u32>,
+    },
     /// Until operator with 4 variants (IEEE 16.12.12):
     /// `p until q` (weak, non-overlapping)
     /// `p s_until q` (strong, non-overlapping)
     /// `p until_with q` (weak, overlapping)
     /// `p s_until_with q` (strong, overlapping)
-    Until { lhs: Box<SvaExpr>, rhs: Box<SvaExpr>, strong: bool, inclusive: bool },
+    Until {
+        lhs: Box<SvaExpr>,
+        rhs: Box<SvaExpr>,
+        strong: bool,
+        inclusive: bool,
+    },
     // ── Strong/Weak, Advanced Temporal & Sync Abort (Sprint 3, IEEE 16.12.2, 16.12.9-10, 16.12.14, 16.12.16) ──
     /// Strong sequence: `strong(seq)` (IEEE 16.12.2) — match must exist within bound
     Strong(Box<SvaExpr>),
@@ -184,13 +205,27 @@ pub enum SvaExpr {
     /// Strong nexttime: `s_nexttime(body)` or `s_nexttime[N](body)` (IEEE 16.12.10)
     SNexttime(Box<SvaExpr>, u32),
     /// Followed-by: `seq #-# prop` (overlapping) or `seq #=# prop` (non-overlapping) (IEEE 16.12.9)
-    FollowedBy { antecedent: Box<SvaExpr>, consequent: Box<SvaExpr>, overlapping: bool },
+    FollowedBy {
+        antecedent: Box<SvaExpr>,
+        consequent: Box<SvaExpr>,
+        overlapping: bool,
+    },
     /// Property case: `case(expr) val: prop; ... default: prop; endcase` (IEEE 16.12.16)
-    PropertyCase { expression: Box<SvaExpr>, items: Vec<(Vec<SvaExpr>, Box<SvaExpr>)>, default: Option<Box<SvaExpr>> },
+    PropertyCase {
+        expression: Box<SvaExpr>,
+        items: Vec<(Vec<SvaExpr>, Box<SvaExpr>)>,
+        default: Option<Box<SvaExpr>>,
+    },
     /// Synchronous accept abort: `sync_accept_on(cond) body` (IEEE 16.12.14)
-    SyncAcceptOn { condition: Box<SvaExpr>, body: Box<SvaExpr> },
+    SyncAcceptOn {
+        condition: Box<SvaExpr>,
+        body: Box<SvaExpr>,
+    },
     /// Synchronous reject abort: `sync_reject_on(cond) body` (IEEE 16.12.14)
-    SyncRejectOn { condition: Box<SvaExpr>, body: Box<SvaExpr> },
+    SyncRejectOn {
+        condition: Box<SvaExpr>,
+        body: Box<SvaExpr>,
+    },
     // ── Sequence-Level AND & OR (Sprint 5, IEEE 16.9.5, 16.9.7) ──
     /// Sequence AND: both operands match, composite ends at whichever finishes last
     SequenceAnd(Box<SvaExpr>, Box<SvaExpr>),
@@ -204,9 +239,15 @@ pub enum SvaExpr {
     },
     // ── Complex Data Types (Sprint 13, IEEE 16.6, 20.9) ──
     /// Field access: `req.addr` or `req.header.id`
-    FieldAccess { signal: Box<SvaExpr>, field: String },
+    FieldAccess {
+        signal: Box<SvaExpr>,
+        field: String,
+    },
     /// Enum literal: `ST_READ` or `state_t::READ`
-    EnumLiteral { type_name: Option<String>, value: String },
+    EnumLiteral {
+        type_name: Option<String>,
+        value: String,
+    },
     // ── Endpoint Methods (Sprint 14, IEEE 16.9.11) ──
     /// Triggered endpoint: `seq_name.triggered`
     Triggered(String),
@@ -220,8 +261,15 @@ pub enum SvaExpr {
     ReductionAnd(Box<SvaExpr>),
     ReductionOr(Box<SvaExpr>),
     ReductionXor(Box<SvaExpr>),
-    BitSelect { signal: Box<SvaExpr>, index: Box<SvaExpr> },
-    PartSelect { signal: Box<SvaExpr>, high: u32, low: u32 },
+    BitSelect {
+        signal: Box<SvaExpr>,
+        index: Box<SvaExpr>,
+    },
+    PartSelect {
+        signal: Box<SvaExpr>,
+        high: u32,
+        low: u32,
+    },
     Concat(Vec<SvaExpr>),
     // ── Local Variables (Sprint 10, IEEE 16.10) ──
     /// Sequence match with local variable assignments:
@@ -237,10 +285,18 @@ pub enum SvaExpr {
     ConstCast(Box<SvaExpr>),
     // ── Multi-Clock (Sprint 12, IEEE 16.13) ──
     /// Clocked expression: `@(posedge clk) body` — preserves clock annotation for multi-clock
-    Clocked { clock: String, edge: ClockEdge, body: Box<SvaExpr> },
+    Clocked {
+        clock: String,
+        edge: ClockEdge,
+        body: Box<SvaExpr>,
+    },
     // ── IEEE 1800-2023 Additions (Sprint 23) ──
     /// Array map method: `A.map(x) with (expr)` (IEEE 7.12, 2023)
-    ArrayMap { array: Box<SvaExpr>, iterator: String, with_expr: Box<SvaExpr> },
+    ArrayMap {
+        array: Box<SvaExpr>,
+        iterator: String,
+        with_expr: Box<SvaExpr>,
+    },
     /// Type operator: `type(this)` (IEEE 6.23, 2023)
     TypeThis,
     /// Real literal constant: `1.5`, `1.2E3` (IEEE 5.7.2, 2023)
@@ -377,9 +433,12 @@ pub fn resolve_sequence_instance(
     name: &str,
     args: &[SvaExpr],
 ) -> Result<SvaExpr, SvaParseError> {
-    let decl = decls.iter().find(|d| d.name == name).ok_or_else(|| SvaParseError {
-        message: format!("undeclared sequence: '{}'", name),
-    })?;
+    let decl = decls
+        .iter()
+        .find(|d| d.name == name)
+        .ok_or_else(|| SvaParseError {
+            message: format!("undeclared sequence: '{}'", name),
+        })?;
 
     let expected = decl.ports.len();
     let provided = args.len();
@@ -402,7 +461,10 @@ pub fn resolve_sequence_instance(
             default.clone()
         } else {
             return Err(SvaParseError {
-                message: format!("missing argument for port '{}' in sequence '{}'", port.name, name),
+                message: format!(
+                    "missing argument for port '{}' in sequence '{}'",
+                    port.name, name
+                ),
             });
         };
         result = substitute_signal(&result, &port.name, &actual);
@@ -414,7 +476,11 @@ pub fn resolve_sequence_instance(
 /// Handles all 78 SvaExpr variants recursively.
 fn substitute_signal(expr: &SvaExpr, name: &str, replacement: &SvaExpr) -> SvaExpr {
     let sub = |e: &SvaExpr| Box::new(substitute_signal(e, name, replacement));
-    let sub_vec = |v: &[SvaExpr]| v.iter().map(|e| substitute_signal(e, name, replacement)).collect::<Vec<_>>();
+    let sub_vec = |v: &[SvaExpr]| {
+        v.iter()
+            .map(|e| substitute_signal(e, name, replacement))
+            .collect::<Vec<_>>()
+    };
 
     match expr {
         // ── Terminals ──
@@ -425,7 +491,8 @@ fn substitute_signal(expr: &SvaExpr, name: &str, replacement: &SvaExpr) -> SvaEx
         SvaExpr::Triggered(s) => SvaExpr::Triggered(s.clone()),
         SvaExpr::Matched(s) => SvaExpr::Matched(s.clone()),
         SvaExpr::EnumLiteral { type_name, value } => SvaExpr::EnumLiteral {
-            type_name: type_name.clone(), value: value.clone(),
+            type_name: type_name.clone(),
+            value: value.clone(),
         },
 
         // ── Unary wrappers ──
@@ -461,7 +528,8 @@ fn substitute_signal(expr: &SvaExpr, name: &str, replacement: &SvaExpr) -> SvaEx
         SvaExpr::SNexttime(inner, n) => SvaExpr::SNexttime(sub(inner), *n),
         SvaExpr::CountBits(inner, chars) => SvaExpr::CountBits(sub(inner), chars.clone()),
         SvaExpr::GotoRepetition { body, count } => SvaExpr::GotoRepetition {
-            body: sub(body), count: *count,
+            body: sub(body),
+            count: *count,
         },
 
         // ── Binary ──
@@ -482,102 +550,177 @@ fn substitute_signal(expr: &SvaExpr, name: &str, replacement: &SvaExpr) -> SvaEx
         SvaExpr::BitXor(l, r) => SvaExpr::BitXor(sub(l), sub(r)),
 
         // ── Struct-like with named fields ──
-        SvaExpr::Implication { antecedent, consequent, overlapping } => SvaExpr::Implication {
-            antecedent: sub(antecedent), consequent: sub(consequent), overlapping: *overlapping,
+        SvaExpr::Implication {
+            antecedent,
+            consequent,
+            overlapping,
+        } => SvaExpr::Implication {
+            antecedent: sub(antecedent),
+            consequent: sub(consequent),
+            overlapping: *overlapping,
         },
         SvaExpr::Delay { body, min, max } => SvaExpr::Delay {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::Repetition { body, min, max } => SvaExpr::Repetition {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::NonConsecRepetition { body, min, max } => SvaExpr::NonConsecRepetition {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::DisableIff { condition, body } => SvaExpr::DisableIff {
-            condition: sub(condition), body: sub(body),
+            condition: sub(condition),
+            body: sub(body),
         },
-        SvaExpr::IfElse { condition, then_expr, else_expr } => SvaExpr::IfElse {
-            condition: sub(condition), then_expr: sub(then_expr), else_expr: sub(else_expr),
+        SvaExpr::IfElse {
+            condition,
+            then_expr,
+            else_expr,
+        } => SvaExpr::IfElse {
+            condition: sub(condition),
+            then_expr: sub(then_expr),
+            else_expr: sub(else_expr),
         },
-        SvaExpr::Ternary { condition, then_expr, else_expr } => SvaExpr::Ternary {
-            condition: sub(condition), then_expr: sub(then_expr), else_expr: sub(else_expr),
+        SvaExpr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => SvaExpr::Ternary {
+            condition: sub(condition),
+            then_expr: sub(then_expr),
+            else_expr: sub(else_expr),
         },
         SvaExpr::Throughout { signal, sequence } => SvaExpr::Throughout {
-            signal: sub(signal), sequence: sub(sequence),
+            signal: sub(signal),
+            sequence: sub(sequence),
         },
         SvaExpr::Within { inner, outer } => SvaExpr::Within {
-            inner: sub(inner), outer: sub(outer),
+            inner: sub(inner),
+            outer: sub(outer),
         },
         SvaExpr::Intersect { left, right } => SvaExpr::Intersect {
-            left: sub(left), right: sub(right),
+            left: sub(left),
+            right: sub(right),
         },
         SvaExpr::AcceptOn { condition, body } => SvaExpr::AcceptOn {
-            condition: sub(condition), body: sub(body),
+            condition: sub(condition),
+            body: sub(body),
         },
         SvaExpr::RejectOn { condition, body } => SvaExpr::RejectOn {
-            condition: sub(condition), body: sub(body),
+            condition: sub(condition),
+            body: sub(body),
         },
         SvaExpr::SyncAcceptOn { condition, body } => SvaExpr::SyncAcceptOn {
-            condition: sub(condition), body: sub(body),
+            condition: sub(condition),
+            body: sub(body),
         },
         SvaExpr::SyncRejectOn { condition, body } => SvaExpr::SyncRejectOn {
-            condition: sub(condition), body: sub(body),
+            condition: sub(condition),
+            body: sub(body),
         },
-        SvaExpr::FollowedBy { antecedent, consequent, overlapping } => SvaExpr::FollowedBy {
-            antecedent: sub(antecedent), consequent: sub(consequent), overlapping: *overlapping,
+        SvaExpr::FollowedBy {
+            antecedent,
+            consequent,
+            overlapping,
+        } => SvaExpr::FollowedBy {
+            antecedent: sub(antecedent),
+            consequent: sub(consequent),
+            overlapping: *overlapping,
         },
-        SvaExpr::Until { lhs, rhs, strong, inclusive } => SvaExpr::Until {
-            lhs: sub(lhs), rhs: sub(rhs), strong: *strong, inclusive: *inclusive,
+        SvaExpr::Until {
+            lhs,
+            rhs,
+            strong,
+            inclusive,
+        } => SvaExpr::Until {
+            lhs: sub(lhs),
+            rhs: sub(rhs),
+            strong: *strong,
+            inclusive: *inclusive,
         },
         SvaExpr::AlwaysBounded { body, min, max } => SvaExpr::AlwaysBounded {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::SAlwaysBounded { body, min, max } => SvaExpr::SAlwaysBounded {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::EventuallyBounded { body, min, max } => SvaExpr::EventuallyBounded {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::SEventuallyBounded { body, min, max } => SvaExpr::SEventuallyBounded {
-            body: sub(body), min: *min, max: *max,
+            body: sub(body),
+            min: *min,
+            max: *max,
         },
         SvaExpr::FieldAccess { signal, field } => SvaExpr::FieldAccess {
-            signal: sub(signal), field: field.clone(),
+            signal: sub(signal),
+            field: field.clone(),
         },
         SvaExpr::BitSelect { signal, index } => SvaExpr::BitSelect {
-            signal: sub(signal), index: sub(index),
+            signal: sub(signal),
+            index: sub(index),
         },
         SvaExpr::PartSelect { signal, high, low } => SvaExpr::PartSelect {
-            signal: sub(signal), high: *high, low: *low,
+            signal: sub(signal),
+            high: *high,
+            low: *low,
         },
-        SvaExpr::ImmediateAssert { expression, deferred } => SvaExpr::ImmediateAssert {
-            expression: sub(expression), deferred: deferred.clone(),
+        SvaExpr::ImmediateAssert {
+            expression,
+            deferred,
+        } => SvaExpr::ImmediateAssert {
+            expression: sub(expression),
+            deferred: deferred.clone(),
         },
 
         // ── Vec children ──
         SvaExpr::Concat(items) => SvaExpr::Concat(sub_vec(items)),
 
         // ── Complex structures ──
-        SvaExpr::PropertyCase { expression, items, default } => SvaExpr::PropertyCase {
+        SvaExpr::PropertyCase {
+            expression,
+            items,
+            default,
+        } => SvaExpr::PropertyCase {
             expression: sub(expression),
-            items: items.iter().map(|(vals, prop)| {
-                (sub_vec(vals), sub(prop))
-            }).collect(),
+            items: items
+                .iter()
+                .map(|(vals, prop)| (sub_vec(vals), sub(prop)))
+                .collect(),
             default: default.as_ref().map(|d| sub(d)),
         },
-        SvaExpr::SequenceAction { expression, assignments } => SvaExpr::SequenceAction {
+        SvaExpr::SequenceAction {
+            expression,
+            assignments,
+        } => SvaExpr::SequenceAction {
             expression: sub(expression),
-            assignments: assignments.iter().map(|(var_name, rhs)| {
-                (var_name.clone(), sub(rhs))
-            }).collect(),
+            assignments: assignments
+                .iter()
+                .map(|(var_name, rhs)| (var_name.clone(), sub(rhs)))
+                .collect(),
         },
         SvaExpr::Clocked { clock, edge, body } => SvaExpr::Clocked {
             clock: clock.clone(),
             edge: edge.clone(),
             body: sub(body),
         },
-        SvaExpr::ArrayMap { array, iterator, with_expr } => SvaExpr::ArrayMap {
+        SvaExpr::ArrayMap {
+            array,
+            iterator,
+            with_expr,
+        } => SvaExpr::ArrayMap {
             array: sub(array),
             iterator: iterator.clone(),
             with_expr: sub(with_expr),
@@ -614,13 +757,18 @@ pub fn parse_sva_directive(input: &str) -> Result<SvaDirective, SvaParseError> {
         let potential_label = input[..colon_pos].trim();
         // Only treat as label if it's a simple identifier (no spaces, no keywords)
         if !potential_label.is_empty()
-            && potential_label.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && potential_label
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_')
             && !potential_label.starts_with("assert")
             && !potential_label.starts_with("assume")
             && !potential_label.starts_with("cover")
             && !potential_label.starts_with("restrict")
         {
-            (Some(potential_label.to_string()), input[colon_pos + 1..].trim())
+            (
+                Some(potential_label.to_string()),
+                input[colon_pos + 1..].trim(),
+            )
         } else {
             (None, input)
         }
@@ -630,15 +778,30 @@ pub fn parse_sva_directive(input: &str) -> Result<SvaDirective, SvaParseError> {
 
     // Determine directive kind
     let (kind, after_kind) = if rest.starts_with("assert property") {
-        (SvaDirectiveKind::Assert, rest["assert property".len()..].trim())
+        (
+            SvaDirectiveKind::Assert,
+            rest["assert property".len()..].trim(),
+        )
     } else if rest.starts_with("assume property") {
-        (SvaDirectiveKind::Assume, rest["assume property".len()..].trim())
+        (
+            SvaDirectiveKind::Assume,
+            rest["assume property".len()..].trim(),
+        )
     } else if rest.starts_with("cover sequence") {
-        (SvaDirectiveKind::CoverSequence, rest["cover sequence".len()..].trim())
+        (
+            SvaDirectiveKind::CoverSequence,
+            rest["cover sequence".len()..].trim(),
+        )
     } else if rest.starts_with("cover property") {
-        (SvaDirectiveKind::Cover, rest["cover property".len()..].trim())
+        (
+            SvaDirectiveKind::Cover,
+            rest["cover property".len()..].trim(),
+        )
     } else if rest.starts_with("restrict property") {
-        (SvaDirectiveKind::Restrict, rest["restrict property".len()..].trim())
+        (
+            SvaDirectiveKind::Restrict,
+            rest["restrict property".len()..].trim(),
+        )
     } else {
         return Err(SvaParseError {
             message: format!("expected assertion directive, got: '{}'", rest),
@@ -648,7 +811,10 @@ pub fn parse_sva_directive(input: &str) -> Result<SvaDirective, SvaParseError> {
     // Parse the property expression in parentheses
     if !after_kind.starts_with('(') {
         return Err(SvaParseError {
-            message: format!("expected '(' after directive keyword, got: '{}'", after_kind),
+            message: format!(
+                "expected '(' after directive keyword, got: '{}'",
+                after_kind
+            ),
         });
     }
     let close = find_balanced_close(after_kind, 0).ok_or_else(|| SvaParseError {
@@ -774,7 +940,8 @@ fn parse_toplevel(input: &str) -> Result<SvaExpr, SvaParseError> {
     let input = input.trim();
 
     // Immediate assertions: assert(expr), assert #0(expr), assert final(expr) (Sprint 7)
-    if input.starts_with("assert ") || input.starts_with("assert(") || input.starts_with("assert#") {
+    if input.starts_with("assert ") || input.starts_with("assert(") || input.starts_with("assert#")
+    {
         let rest = input["assert".len()..].trim();
         if rest.starts_with("#0") {
             let body = rest[2..].trim();
@@ -1122,7 +1289,8 @@ fn find_keyword_at_depth_0(input: &str, keyword: &str) -> Option<usize> {
                 if &input[i..i + klen] == keyword {
                     // Check word boundaries
                     let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
-                    let after_ok = i + klen >= input.len() || !bytes[i + klen].is_ascii_alphanumeric();
+                    let after_ok =
+                        i + klen >= input.len() || !bytes[i + klen].is_ascii_alphanumeric();
                     if before_ok && after_ok {
                         return Some(i);
                     }
@@ -1167,14 +1335,22 @@ fn parse_sequence(input: &str) -> Result<SvaExpr, SvaParseError> {
     // Start from i=0 to track parens, but only match ## when i > 0
     for i in 0..input.len().saturating_sub(1) {
         match bytes[i] {
-            b'(' => { depth += 1; continue; }
-            b')' => { depth -= 1; continue; }
+            b'(' => {
+                depth += 1;
+                continue;
+            }
+            b')' => {
+                depth -= 1;
+                continue;
+            }
             b'#' if depth == 0 && i > 0 && i + 1 < input.len() && bytes[i + 1] == b'#' => {
                 // Found `##` not at start — this is infix sequence concatenation
                 let lhs = input[..i].trim();
-                if lhs.is_empty() { continue; }
+                if lhs.is_empty() {
+                    continue;
+                }
                 let delay_and_rhs = &input[i..]; // starts with "##..."
-                // Parse the delay part: ##N or ##[min:max]
+                                                 // Parse the delay part: ##N or ##[min:max]
                 let rest = &delay_and_rhs[2..];
                 if rest.starts_with('[') {
                     // ##[min:max] rhs
@@ -1205,7 +1381,11 @@ fn parse_sequence(input: &str) -> Result<SvaExpr, SvaParseError> {
                     // ##N rhs — exact delay
                     let mut num_end = 0;
                     for c in rest.chars() {
-                        if c.is_ascii_digit() { num_end += 1; } else { break; }
+                        if c.is_ascii_digit() {
+                            num_end += 1;
+                        } else {
+                            break;
+                        }
                     }
                     if num_end > 0 {
                         let n = rest[..num_end].parse::<u32>().unwrap_or(0);
@@ -1333,12 +1513,16 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
     // strong(seq) — sequence must complete within bound (Sprint 3)
     if let Some(result) = try_parse_function_call(input, "strong", |inner| {
         Ok(SvaExpr::Strong(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // weak(seq) — sequence may not complete (Sprint 3)
     if let Some(result) = try_parse_function_call(input, "weak", |inner| {
         Ok(SvaExpr::Weak(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // s_nexttime[N](body) — with explicit count (Sprint 3)
     if input.starts_with("s_nexttime[") {
@@ -1362,7 +1546,9 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
     // s_nexttime(body) — default count = 1 (Sprint 3)
     if let Some(result) = try_parse_function_call(input, "s_nexttime", |inner| {
         Ok(SvaExpr::SNexttime(Box::new(parse_implication(inner)?), 1))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // Property negation: `not expr` (IEEE 16.12.3)
     // Must be before `!` check. `not` is a keyword (word boundary checked).
@@ -1455,7 +1641,8 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
                     let max_str = parts[1].trim();
                     if max_str == "$" {
                         return Err(SvaParseError {
-                            message: "weak eventually range must be bounded ($ not allowed)".to_string(),
+                            message: "weak eventually range must be bounded ($ not allowed)"
+                                .to_string(),
                         });
                     }
                     let max = max_str.parse::<u32>().map_err(|_| SvaParseError {
@@ -1582,31 +1769,45 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
     // IEEE 1800 system functions — $onehot0 BEFORE $onehot (prefix clarity)
     if let Some(result) = try_parse_function_call(input, "$onehot0", |inner| {
         Ok(SvaExpr::OneHot0(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$onehot", |inner| {
         Ok(SvaExpr::OneHot(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$countones", |inner| {
         Ok(SvaExpr::CountOnes(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$isunknown", |inner| {
         Ok(SvaExpr::IsUnknown(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$sampled", |inner| {
         Ok(SvaExpr::Sampled(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$bits", |inner| {
         Ok(SvaExpr::Bits(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$clog2", |inner| {
         Ok(SvaExpr::Clog2(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // $countbits(sig, '0', '1', ...) — generalized bit counting (IEEE 20.9)
     if input.starts_with("$countbits(") {
@@ -1631,33 +1832,47 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
     // $isunbounded(param) — parameter bound check (IEEE 20.9)
     if let Some(result) = try_parse_function_call(input, "$isunbounded", |inner| {
         Ok(SvaExpr::IsUnbounded(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // $rose(...), $fell(...), $stable(...), $changed(...), s_eventually(...), $nexttime(...)
     // Use balanced paren matching so "$fell(sda) && scl" correctly parses $fell(sda) only
     if let Some(result) = try_parse_function_call(input, "$rose", |inner| {
         Ok(SvaExpr::Rose(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$fell", |inner| {
         Ok(SvaExpr::Fell(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$stable", |inner| {
         Ok(SvaExpr::Stable(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$changed", |inner| {
         Ok(SvaExpr::Changed(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "s_eventually", |inner| {
         Ok(SvaExpr::SEventually(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "s_always", |inner| {
         Ok(SvaExpr::SAlways(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // nexttime[N](body) — with explicit count
     if input.starts_with("nexttime[") {
@@ -1681,15 +1896,21 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
     // nexttime(body) — default count = 1
     if let Some(result) = try_parse_function_call(input, "nexttime", |inner| {
         Ok(SvaExpr::Nexttime(Box::new(parse_implication(inner)?), 1))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$nexttime", |inner| {
         Ok(SvaExpr::Nexttime(Box::new(parse_implication(inner)?), 1))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "first_match", |inner| {
         Ok(SvaExpr::FirstMatch(Box::new(parse_implication(inner)?)))
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     if let Some(result) = try_parse_function_call(input, "$past", |inner| {
         // $past(sig, n) — parse the signal and count
@@ -1701,7 +1922,9 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
         } else {
             Ok(SvaExpr::Past(Box::new(parse_atom(inner)?), 1))
         }
-    })? { return Ok(result); }
+    })? {
+        return Ok(result);
+    }
 
     // Parenthesized expression
     if input.starts_with('(') && input.ends_with(')') {
@@ -1725,7 +1948,11 @@ fn find_else_outside_strings(input: &str) -> Option<usize> {
             while i < len {
                 if bytes[i] == b'\\' && i + 1 < len {
                     i += 2; // skip escape sequence
-                } else if i + 2 < len && bytes[i] == b'"' && bytes[i + 1] == b'"' && bytes[i + 2] == b'"' {
+                } else if i + 2 < len
+                    && bytes[i] == b'"'
+                    && bytes[i + 1] == b'"'
+                    && bytes[i + 2] == b'"'
+                {
                     i += 3; // skip closing """
                     break;
                 } else {
@@ -1939,9 +2166,15 @@ fn parse_atom(input: &str) -> Result<SvaExpr, SvaParseError> {
             let range_str = &rep_part[..close_bracket];
             let body = parse_atom(signal_part)?;
             if let Some(colon) = range_str.find(':') {
-                let min = range_str[..colon].trim().parse::<u32>().map_err(|_| SvaParseError {
-                    message: format!("invalid non-consec repetition min: '{}'", &range_str[..colon]),
-                })?;
+                let min = range_str[..colon]
+                    .trim()
+                    .parse::<u32>()
+                    .map_err(|_| SvaParseError {
+                        message: format!(
+                            "invalid non-consec repetition min: '{}'",
+                            &range_str[..colon]
+                        ),
+                    })?;
                 let max_str = range_str[colon + 1..].trim();
                 let max = if max_str == "$" {
                     None
@@ -2013,14 +2246,19 @@ fn parse_atom(input: &str) -> Result<SvaExpr, SvaParseError> {
     if let Some(dot_map_pos) = input.find(".map(") {
         let array_part = &input[..dot_map_pos].trim();
         let after_map = &input[dot_map_pos + 5..]; // skip ".map("
-        // Find closing paren for iterator args
+                                                   // Find closing paren for iterator args
         if let Some(iter_close) = after_map.find(')') {
             let iter_part = after_map[..iter_close].trim();
             let iterator = if iter_part.is_empty() {
                 "item".to_string() // default iterator name per IEEE 7.12
             } else {
                 // May have iterator and optional index arg: "x" or "x, i"
-                iter_part.split(',').next().unwrap_or("item").trim().to_string()
+                iter_part
+                    .split(',')
+                    .next()
+                    .unwrap_or("item")
+                    .trim()
+                    .to_string()
             };
             let after_iter_close = after_map[iter_close + 1..].trim();
             // Expect `with (expr)`
@@ -2039,10 +2277,7 @@ fn parse_atom(input: &str) -> Result<SvaExpr, SvaParseError> {
     }
 
     // Must be a signal name
-    if input
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '_')
-    {
+    if input.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Ok(SvaExpr::Signal(input.to_string()));
     }
 
@@ -2061,14 +2296,26 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
         SvaExpr::Fell(inner) => format!("$fell({})", sva_expr_to_string(inner)),
         SvaExpr::Past(inner, n) => format!("$past({}, {})", sva_expr_to_string(inner), n),
         SvaExpr::And(left, right) => {
-            format!("({} && {})", sva_expr_to_string(left), sva_expr_to_string(right))
+            format!(
+                "({} && {})",
+                sva_expr_to_string(left),
+                sva_expr_to_string(right)
+            )
         }
         SvaExpr::Or(left, right) => {
-            format!("({} || {})", sva_expr_to_string(left), sva_expr_to_string(right))
+            format!(
+                "({} || {})",
+                sva_expr_to_string(left),
+                sva_expr_to_string(right)
+            )
         }
         SvaExpr::Not(inner) => format!("!({})", sva_expr_to_string(inner)),
         SvaExpr::Eq(left, right) => {
-            format!("({} == {})", sva_expr_to_string(left), sva_expr_to_string(right))
+            format!(
+                "({} == {})",
+                sva_expr_to_string(left),
+                sva_expr_to_string(right)
+            )
         }
         SvaExpr::Implication {
             antecedent,
@@ -2088,7 +2335,9 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
             (0, None) => format!("##[*] {}", sva_expr_to_string(body)),
             (1, None) => format!("##[+] {}", sva_expr_to_string(body)),
             (_, None) => format!("##[{}:$] {}", min, sva_expr_to_string(body)),
-            (_, Some(max_val)) if min == max_val => format!("##{} {}", min, sva_expr_to_string(body)),
+            (_, Some(max_val)) if min == max_val => {
+                format!("##{} {}", min, sva_expr_to_string(body))
+            }
             (_, Some(max_val)) => format!("##[{}:{}] {}", min, max_val, sva_expr_to_string(body)),
         },
         SvaExpr::Repetition { body, min, max } => {
@@ -2113,9 +2362,17 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
             }
         }
         SvaExpr::DisableIff { condition, body } => {
-            format!("disable iff ({}) {}", sva_expr_to_string(condition), sva_expr_to_string(body))
+            format!(
+                "disable iff ({}) {}",
+                sva_expr_to_string(condition),
+                sva_expr_to_string(body)
+            )
         }
-        SvaExpr::IfElse { condition, then_expr, else_expr } => {
+        SvaExpr::IfElse {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
             format!(
                 "if ({}) {} else {}",
                 sva_expr_to_string(condition),
@@ -2125,32 +2382,48 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
         }
         // IEEE 1800 extended (Sprint 1B)
         SvaExpr::NotEq(l, r) => format!("({} != {})", sva_expr_to_string(l), sva_expr_to_string(r)),
-        SvaExpr::LessThan(l, r) => format!("({} < {})", sva_expr_to_string(l), sva_expr_to_string(r)),
-        SvaExpr::GreaterThan(l, r) => format!("({} > {})", sva_expr_to_string(l), sva_expr_to_string(r)),
-        SvaExpr::LessEqual(l, r) => format!("({} <= {})", sva_expr_to_string(l), sva_expr_to_string(r)),
-        SvaExpr::GreaterEqual(l, r) => format!("({} >= {})", sva_expr_to_string(l), sva_expr_to_string(r)),
-        SvaExpr::Ternary { condition, then_expr, else_expr } => {
-            format!("{} ? {} : {}",
+        SvaExpr::LessThan(l, r) => {
+            format!("({} < {})", sva_expr_to_string(l), sva_expr_to_string(r))
+        }
+        SvaExpr::GreaterThan(l, r) => {
+            format!("({} > {})", sva_expr_to_string(l), sva_expr_to_string(r))
+        }
+        SvaExpr::LessEqual(l, r) => {
+            format!("({} <= {})", sva_expr_to_string(l), sva_expr_to_string(r))
+        }
+        SvaExpr::GreaterEqual(l, r) => {
+            format!("({} >= {})", sva_expr_to_string(l), sva_expr_to_string(r))
+        }
+        SvaExpr::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            format!(
+                "{} ? {} : {}",
                 sva_expr_to_string(condition),
                 sva_expr_to_string(then_expr),
                 sva_expr_to_string(else_expr),
             )
         }
         SvaExpr::Throughout { signal, sequence } => {
-            format!("{} throughout ({})",
+            format!(
+                "{} throughout ({})",
                 sva_expr_to_string(signal),
                 sva_expr_to_string(sequence),
             )
         }
         SvaExpr::Within { inner, outer } => {
-            format!("({}) within ({})",
+            format!(
+                "({}) within ({})",
                 sva_expr_to_string(inner),
                 sva_expr_to_string(outer),
             )
         }
         SvaExpr::FirstMatch(inner) => format!("first_match({})", sva_expr_to_string(inner)),
         SvaExpr::Intersect { left, right } => {
-            format!("({}) intersect ({})",
+            format!(
+                "({}) intersect ({})",
                 sva_expr_to_string(left),
                 sva_expr_to_string(right),
             )
@@ -2165,7 +2438,11 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
         SvaExpr::Clog2(inner) => format!("$clog2({})", sva_expr_to_string(inner)),
         SvaExpr::CountBits(inner, chars) => {
             let char_args: Vec<String> = chars.iter().map(|c| format!("'{}'", c)).collect();
-            format!("$countbits({}, {})", sva_expr_to_string(inner), char_args.join(", "))
+            format!(
+                "$countbits({}, {})",
+                sva_expr_to_string(inner),
+                char_args.join(", ")
+            )
         }
         SvaExpr::IsUnbounded(inner) => format!("$isunbounded({})", sva_expr_to_string(inner)),
         // Advanced sequences (Audit)
@@ -2182,15 +2459,27 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
         }
         // Property abort operators (Audit)
         SvaExpr::AcceptOn { condition, body } => {
-            format!("accept_on({}) {}", sva_expr_to_string(condition), sva_expr_to_string(body))
+            format!(
+                "accept_on({}) {}",
+                sva_expr_to_string(condition),
+                sva_expr_to_string(body)
+            )
         }
         SvaExpr::RejectOn { condition, body } => {
-            format!("reject_on({}) {}", sva_expr_to_string(condition), sva_expr_to_string(body))
+            format!(
+                "reject_on({}) {}",
+                sva_expr_to_string(condition),
+                sva_expr_to_string(body)
+            )
         }
         // Property connectives (Sprint 1, IEEE 16.12.3-8)
         SvaExpr::PropertyNot(inner) => format!("not {}", sva_expr_to_string(inner)),
         SvaExpr::PropertyImplies(l, r) => {
-            format!("{} implies {}", sva_expr_to_string(l), sva_expr_to_string(r))
+            format!(
+                "{} implies {}",
+                sva_expr_to_string(l),
+                sva_expr_to_string(r)
+            )
         }
         SvaExpr::PropertyIff(l, r) => {
             format!("{} iff {}", sva_expr_to_string(l), sva_expr_to_string(r))
@@ -2211,14 +2500,24 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
             Some(m) => format!("s_eventually [{}:{}] {}", min, m, sva_expr_to_string(body)),
             None => format!("s_eventually [{}:$] {}", min, sva_expr_to_string(body)),
         },
-        SvaExpr::Until { lhs, rhs, strong, inclusive } => {
+        SvaExpr::Until {
+            lhs,
+            rhs,
+            strong,
+            inclusive,
+        } => {
             let op = match (strong, inclusive) {
                 (false, false) => "until",
                 (true, false) => "s_until",
                 (false, true) => "until_with",
                 (true, true) => "s_until_with",
             };
-            format!("{} {} {}", sva_expr_to_string(lhs), op, sva_expr_to_string(rhs))
+            format!(
+                "{} {} {}",
+                sva_expr_to_string(lhs),
+                op,
+                sva_expr_to_string(rhs)
+            )
         }
         // Sprint 3
         SvaExpr::Strong(inner) => format!("strong({})", sva_expr_to_string(inner)),
@@ -2230,15 +2529,32 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
                 format!("s_nexttime[{}]({})", n, sva_expr_to_string(inner))
             }
         }
-        SvaExpr::FollowedBy { antecedent, consequent, overlapping } => {
+        SvaExpr::FollowedBy {
+            antecedent,
+            consequent,
+            overlapping,
+        } => {
             let op = if *overlapping { "#-#" } else { "#=#" };
-            format!("{} {} {}", sva_expr_to_string(antecedent), op, sva_expr_to_string(consequent))
+            format!(
+                "{} {} {}",
+                sva_expr_to_string(antecedent),
+                op,
+                sva_expr_to_string(consequent)
+            )
         }
-        SvaExpr::PropertyCase { expression, items, default } => {
+        SvaExpr::PropertyCase {
+            expression,
+            items,
+            default,
+        } => {
             let mut s = format!("case({})", sva_expr_to_string(expression));
             for (vals, prop) in items {
                 let vs: Vec<String> = vals.iter().map(sva_expr_to_string).collect();
-                s.push_str(&format!(" {}: {};", vs.join(", "), sva_expr_to_string(prop)));
+                s.push_str(&format!(
+                    " {}: {};",
+                    vs.join(", "),
+                    sva_expr_to_string(prop)
+                ));
             }
             if let Some(d) = default {
                 s.push_str(&format!(" default: {};", sva_expr_to_string(d)));
@@ -2247,30 +2563,55 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
             s
         }
         SvaExpr::SyncAcceptOn { condition, body } => {
-            format!("sync_accept_on({}) {}", sva_expr_to_string(condition), sva_expr_to_string(body))
+            format!(
+                "sync_accept_on({}) {}",
+                sva_expr_to_string(condition),
+                sva_expr_to_string(body)
+            )
         }
         SvaExpr::SyncRejectOn { condition, body } => {
-            format!("sync_reject_on({}) {}", sva_expr_to_string(condition), sva_expr_to_string(body))
+            format!(
+                "sync_reject_on({}) {}",
+                sva_expr_to_string(condition),
+                sva_expr_to_string(body)
+            )
         }
         // Sprint 5
         SvaExpr::SequenceAnd(l, r) => {
-            format!("({}) and ({})", sva_expr_to_string(l), sva_expr_to_string(r))
+            format!(
+                "({}) and ({})",
+                sva_expr_to_string(l),
+                sva_expr_to_string(r)
+            )
         }
         SvaExpr::SequenceOr(l, r) => {
             format!("({}) or ({})", sva_expr_to_string(l), sva_expr_to_string(r))
         }
         // Sprint 7
-        SvaExpr::ImmediateAssert { expression, deferred } => {
-            match deferred {
-                None => format!("assert({})", sva_expr_to_string(expression)),
-                Some(ImmediateDeferred::Observed) => format!("assert #0({})", sva_expr_to_string(expression)),
-                Some(ImmediateDeferred::Final) => format!("assert final({})", sva_expr_to_string(expression)),
+        SvaExpr::ImmediateAssert {
+            expression,
+            deferred,
+        } => match deferred {
+            None => format!("assert({})", sva_expr_to_string(expression)),
+            Some(ImmediateDeferred::Observed) => {
+                format!("assert #0({})", sva_expr_to_string(expression))
             }
-        }
+            Some(ImmediateDeferred::Final) => {
+                format!("assert final({})", sva_expr_to_string(expression))
+            }
+        },
         // Sprint 13
-        SvaExpr::FieldAccess { signal, field } => format!("{}.{}", sva_expr_to_string(signal), field),
-        SvaExpr::EnumLiteral { type_name: Some(t), value } => format!("{}::{}", t, value),
-        SvaExpr::EnumLiteral { type_name: None, value } => value.clone(),
+        SvaExpr::FieldAccess { signal, field } => {
+            format!("{}.{}", sva_expr_to_string(signal), field)
+        }
+        SvaExpr::EnumLiteral {
+            type_name: Some(t),
+            value,
+        } => format!("{}::{}", t, value),
+        SvaExpr::EnumLiteral {
+            type_name: None,
+            value,
+        } => value.clone(),
         // Sprint 14
         SvaExpr::Triggered(name) => format!("{}.triggered", name),
         SvaExpr::Matched(name) => format!("{}.matched", name),
@@ -2282,18 +2623,32 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
         SvaExpr::ReductionAnd(inner) => format!("&{}", sva_expr_to_string(inner)),
         SvaExpr::ReductionOr(inner) => format!("|{}", sva_expr_to_string(inner)),
         SvaExpr::ReductionXor(inner) => format!("^{}", sva_expr_to_string(inner)),
-        SvaExpr::BitSelect { signal, index } => format!("{}[{}]", sva_expr_to_string(signal), sva_expr_to_string(index)),
-        SvaExpr::PartSelect { signal, high, low } => format!("{}[{}:{}]", sva_expr_to_string(signal), high, low),
+        SvaExpr::BitSelect { signal, index } => format!(
+            "{}[{}]",
+            sva_expr_to_string(signal),
+            sva_expr_to_string(index)
+        ),
+        SvaExpr::PartSelect { signal, high, low } => {
+            format!("{}[{}:{}]", sva_expr_to_string(signal), high, low)
+        }
         SvaExpr::Concat(items) => {
             let parts: Vec<String> = items.iter().map(sva_expr_to_string).collect();
             format!("{{{}}}", parts.join(", "))
         }
         // Sprint 18
-        SvaExpr::SequenceAction { expression, assignments } => {
-            let assigns: Vec<String> = assignments.iter()
+        SvaExpr::SequenceAction {
+            expression,
+            assignments,
+        } => {
+            let assigns: Vec<String> = assignments
+                .iter()
                 .map(|(name, rhs)| format!("{} = {}", name, sva_expr_to_string(rhs)))
                 .collect();
-            format!("({}, {})", sva_expr_to_string(expression), assigns.join(", "))
+            format!(
+                "({}, {})",
+                sva_expr_to_string(expression),
+                assigns.join(", ")
+            )
         }
         SvaExpr::LocalVar(name) => name.clone(),
         SvaExpr::ConstCast(inner) => format!("const'({})", sva_expr_to_string(inner)),
@@ -2306,8 +2661,17 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
             format!("@({} {}) {}", edge_str, clock, sva_expr_to_string(body))
         }
         // Sprint 23 (IEEE 1800-2023)
-        SvaExpr::ArrayMap { array, iterator, with_expr } => {
-            format!("{}.map({}) with ({})", sva_expr_to_string(array), iterator, sva_expr_to_string(with_expr))
+        SvaExpr::ArrayMap {
+            array,
+            iterator,
+            with_expr,
+        } => {
+            format!(
+                "{}.map({}) with ({})",
+                sva_expr_to_string(array),
+                iterator,
+                sva_expr_to_string(with_expr)
+            )
         }
         SvaExpr::TypeThis => "type(this)".to_string(),
         SvaExpr::RealConst(v) => format!("{}", v),
@@ -2334,17 +2698,14 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
             na == nb && sva_exprs_structurally_equivalent(ia, ib)
         }
         (SvaExpr::And(la, ra), SvaExpr::And(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (SvaExpr::Or(la, ra), SvaExpr::Or(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (SvaExpr::Not(ia), SvaExpr::Not(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::Eq(la, ra), SvaExpr::Eq(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (
             SvaExpr::Implication {
@@ -2375,30 +2736,47 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
             },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::Repetition { body: ba, min: mna, max: mxa },
-            SvaExpr::Repetition { body: bb, min: mnb, max: mxb },
+            SvaExpr::Repetition {
+                body: ba,
+                min: mna,
+                max: mxa,
+            },
+            SvaExpr::Repetition {
+                body: bb,
+                min: mnb,
+                max: mxb,
+            },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         (SvaExpr::SEventually(ia), SvaExpr::SEventually(ib)) => {
             sva_exprs_structurally_equivalent(ia, ib)
         }
-        (SvaExpr::SAlways(ia), SvaExpr::SAlways(ib)) => {
-            sva_exprs_structurally_equivalent(ia, ib)
-        }
+        (SvaExpr::SAlways(ia), SvaExpr::SAlways(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::Stable(ia), SvaExpr::Stable(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::Changed(ia), SvaExpr::Changed(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::Nexttime(ia, na), SvaExpr::Nexttime(ib, nb)) => {
             na == nb && sva_exprs_structurally_equivalent(ia, ib)
         }
         (
-            SvaExpr::DisableIff { condition: ca, body: ba },
-            SvaExpr::DisableIff { condition: cb, body: bb },
-        ) => {
-            sva_exprs_structurally_equivalent(ca, cb)
-                && sva_exprs_structurally_equivalent(ba, bb)
-        }
+            SvaExpr::DisableIff {
+                condition: ca,
+                body: ba,
+            },
+            SvaExpr::DisableIff {
+                condition: cb,
+                body: bb,
+            },
+        ) => sva_exprs_structurally_equivalent(ca, cb) && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::IfElse { condition: ca, then_expr: ta, else_expr: ea },
-            SvaExpr::IfElse { condition: cb, then_expr: tb, else_expr: eb },
+            SvaExpr::IfElse {
+                condition: ca,
+                then_expr: ta,
+                else_expr: ea,
+            },
+            SvaExpr::IfElse {
+                condition: cb,
+                then_expr: tb,
+                else_expr: eb,
+            },
         ) => {
             sva_exprs_structurally_equivalent(ca, cb)
                 && sva_exprs_structurally_equivalent(ta, tb)
@@ -2421,104 +2799,192 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
             sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (
-            SvaExpr::Ternary { condition: ca, then_expr: ta, else_expr: ea },
-            SvaExpr::Ternary { condition: cb, then_expr: tb, else_expr: eb },
+            SvaExpr::Ternary {
+                condition: ca,
+                then_expr: ta,
+                else_expr: ea,
+            },
+            SvaExpr::Ternary {
+                condition: cb,
+                then_expr: tb,
+                else_expr: eb,
+            },
         ) => {
             sva_exprs_structurally_equivalent(ca, cb)
                 && sva_exprs_structurally_equivalent(ta, tb)
                 && sva_exprs_structurally_equivalent(ea, eb)
         }
         (
-            SvaExpr::Throughout { signal: sa, sequence: qa },
-            SvaExpr::Throughout { signal: sb, sequence: qb },
-        ) => {
-            sva_exprs_structurally_equivalent(sa, sb) && sva_exprs_structurally_equivalent(qa, qb)
-        }
+            SvaExpr::Throughout {
+                signal: sa,
+                sequence: qa,
+            },
+            SvaExpr::Throughout {
+                signal: sb,
+                sequence: qb,
+            },
+        ) => sva_exprs_structurally_equivalent(sa, sb) && sva_exprs_structurally_equivalent(qa, qb),
         (
-            SvaExpr::Within { inner: ia, outer: oa },
-            SvaExpr::Within { inner: ib, outer: ob },
-        ) => {
-            sva_exprs_structurally_equivalent(ia, ib) && sva_exprs_structurally_equivalent(oa, ob)
-        }
+            SvaExpr::Within {
+                inner: ia,
+                outer: oa,
+            },
+            SvaExpr::Within {
+                inner: ib,
+                outer: ob,
+            },
+        ) => sva_exprs_structurally_equivalent(ia, ib) && sva_exprs_structurally_equivalent(oa, ob),
         (SvaExpr::FirstMatch(ia), SvaExpr::FirstMatch(ib)) => {
             sva_exprs_structurally_equivalent(ia, ib)
         }
         (
-            SvaExpr::Intersect { left: la, right: ra },
-            SvaExpr::Intersect { left: lb, right: rb },
-        ) => {
-            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
-        }
+            SvaExpr::Intersect {
+                left: la,
+                right: ra,
+            },
+            SvaExpr::Intersect {
+                left: lb,
+                right: rb,
+            },
+        ) => sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb),
         // IEEE 1800 system functions (Audit)
         (SvaExpr::OneHot0(ia), SvaExpr::OneHot0(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::OneHot(ia), SvaExpr::OneHot(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::CountOnes(ia), SvaExpr::CountOnes(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::IsUnknown(ia), SvaExpr::IsUnknown(ib)) => sva_exprs_structurally_equivalent(ia, ib),
+        (SvaExpr::CountOnes(ia), SvaExpr::CountOnes(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
+        }
+        (SvaExpr::IsUnknown(ia), SvaExpr::IsUnknown(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
+        }
         (SvaExpr::Sampled(ia), SvaExpr::Sampled(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::Bits(ia), SvaExpr::Bits(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (SvaExpr::Clog2(ia), SvaExpr::Clog2(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::CountBits(ia, ca), SvaExpr::CountBits(ib, cb)) =>
-            ca == cb && sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::IsUnbounded(ia), SvaExpr::IsUnbounded(ib)) => sva_exprs_structurally_equivalent(ia, ib),
+        (SvaExpr::CountBits(ia, ca), SvaExpr::CountBits(ib, cb)) => {
+            ca == cb && sva_exprs_structurally_equivalent(ia, ib)
+        }
+        (SvaExpr::IsUnbounded(ia), SvaExpr::IsUnbounded(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
+        }
         // Advanced sequences (Audit)
         (
-            SvaExpr::GotoRepetition { body: ba, count: ca },
-            SvaExpr::GotoRepetition { body: bb, count: cb },
+            SvaExpr::GotoRepetition {
+                body: ba,
+                count: ca,
+            },
+            SvaExpr::GotoRepetition {
+                body: bb,
+                count: cb,
+            },
         ) => ca == cb && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::NonConsecRepetition { body: ba, min: mna, max: mxa },
-            SvaExpr::NonConsecRepetition { body: bb, min: mnb, max: mxb },
+            SvaExpr::NonConsecRepetition {
+                body: ba,
+                min: mna,
+                max: mxa,
+            },
+            SvaExpr::NonConsecRepetition {
+                body: bb,
+                min: mnb,
+                max: mxb,
+            },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         // Property abort operators (Audit)
         (
-            SvaExpr::AcceptOn { condition: ca, body: ba },
-            SvaExpr::AcceptOn { condition: cb, body: bb },
-        ) => {
-            sva_exprs_structurally_equivalent(ca, cb)
-                && sva_exprs_structurally_equivalent(ba, bb)
-        }
+            SvaExpr::AcceptOn {
+                condition: ca,
+                body: ba,
+            },
+            SvaExpr::AcceptOn {
+                condition: cb,
+                body: bb,
+            },
+        ) => sva_exprs_structurally_equivalent(ca, cb) && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::RejectOn { condition: ca, body: ba },
-            SvaExpr::RejectOn { condition: cb, body: bb },
-        ) => {
-            sva_exprs_structurally_equivalent(ca, cb)
-                && sva_exprs_structurally_equivalent(ba, bb)
-        }
+            SvaExpr::RejectOn {
+                condition: ca,
+                body: ba,
+            },
+            SvaExpr::RejectOn {
+                condition: cb,
+                body: bb,
+            },
+        ) => sva_exprs_structurally_equivalent(ca, cb) && sva_exprs_structurally_equivalent(ba, bb),
         // Property connectives (Sprint 1)
         (SvaExpr::PropertyNot(ia), SvaExpr::PropertyNot(ib)) => {
             sva_exprs_structurally_equivalent(ia, ib)
         }
         (SvaExpr::PropertyImplies(la, ra), SvaExpr::PropertyImplies(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (SvaExpr::PropertyIff(la, ra), SvaExpr::PropertyIff(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         // LTL temporal operators (Sprint 2)
         (SvaExpr::Always(ia), SvaExpr::Always(ib)) => sva_exprs_structurally_equivalent(ia, ib),
         (
-            SvaExpr::AlwaysBounded { body: ba, min: mna, max: mxa },
-            SvaExpr::AlwaysBounded { body: bb, min: mnb, max: mxb },
+            SvaExpr::AlwaysBounded {
+                body: ba,
+                min: mna,
+                max: mxa,
+            },
+            SvaExpr::AlwaysBounded {
+                body: bb,
+                min: mnb,
+                max: mxb,
+            },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::SAlwaysBounded { body: ba, min: mna, max: mxa },
-            SvaExpr::SAlwaysBounded { body: bb, min: mnb, max: mxb },
+            SvaExpr::SAlwaysBounded {
+                body: ba,
+                min: mna,
+                max: mxa,
+            },
+            SvaExpr::SAlwaysBounded {
+                body: bb,
+                min: mnb,
+                max: mxb,
+            },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::EventuallyBounded { body: ba, min: mna, max: mxa },
-            SvaExpr::EventuallyBounded { body: bb, min: mnb, max: mxb },
+            SvaExpr::EventuallyBounded {
+                body: ba,
+                min: mna,
+                max: mxa,
+            },
+            SvaExpr::EventuallyBounded {
+                body: bb,
+                min: mnb,
+                max: mxb,
+            },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::SEventuallyBounded { body: ba, min: mna, max: mxa },
-            SvaExpr::SEventuallyBounded { body: bb, min: mnb, max: mxb },
+            SvaExpr::SEventuallyBounded {
+                body: ba,
+                min: mna,
+                max: mxa,
+            },
+            SvaExpr::SEventuallyBounded {
+                body: bb,
+                min: mnb,
+                max: mxb,
+            },
         ) => mna == mnb && mxa == mxb && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::Until { lhs: la, rhs: ra, strong: sa, inclusive: ia },
-            SvaExpr::Until { lhs: lb, rhs: rb, strong: sb, inclusive: ib },
+            SvaExpr::Until {
+                lhs: la,
+                rhs: ra,
+                strong: sa,
+                inclusive: ia,
+            },
+            SvaExpr::Until {
+                lhs: lb,
+                rhs: rb,
+                strong: sb,
+                inclusive: ib,
+            },
         ) => {
-            sa == sb && ia == ib
+            sa == sb
+                && ia == ib
                 && sva_exprs_structurally_equivalent(la, lb)
                 && sva_exprs_structurally_equivalent(ra, rb)
         }
@@ -2529,22 +2995,41 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
             na == nb && sva_exprs_structurally_equivalent(ia, ib)
         }
         (
-            SvaExpr::FollowedBy { antecedent: aa, consequent: ca, overlapping: oa },
-            SvaExpr::FollowedBy { antecedent: ab, consequent: cb, overlapping: ob },
+            SvaExpr::FollowedBy {
+                antecedent: aa,
+                consequent: ca,
+                overlapping: oa,
+            },
+            SvaExpr::FollowedBy {
+                antecedent: ab,
+                consequent: cb,
+                overlapping: ob,
+            },
         ) => {
             oa == ob
                 && sva_exprs_structurally_equivalent(aa, ab)
                 && sva_exprs_structurally_equivalent(ca, cb)
         }
         (
-            SvaExpr::PropertyCase { expression: ea, items: ia, default: da },
-            SvaExpr::PropertyCase { expression: eb, items: ib, default: db },
+            SvaExpr::PropertyCase {
+                expression: ea,
+                items: ia,
+                default: da,
+            },
+            SvaExpr::PropertyCase {
+                expression: eb,
+                items: ib,
+                default: db,
+            },
         ) => {
             sva_exprs_structurally_equivalent(ea, eb)
                 && ia.len() == ib.len()
                 && ia.iter().zip(ib.iter()).all(|((va, pa), (vb, pb))| {
                     va.len() == vb.len()
-                        && va.iter().zip(vb.iter()).all(|(a, b)| sva_exprs_structurally_equivalent(a, b))
+                        && va
+                            .iter()
+                            .zip(vb.iter())
+                            .all(|(a, b)| sva_exprs_structurally_equivalent(a, b))
                         && sva_exprs_structurally_equivalent(pa, pb)
                 })
                 && match (da, db) {
@@ -2554,40 +3039,64 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
                 }
         }
         (
-            SvaExpr::SyncAcceptOn { condition: ca, body: ba },
-            SvaExpr::SyncAcceptOn { condition: cb, body: bb },
-        ) => {
-            sva_exprs_structurally_equivalent(ca, cb)
-                && sva_exprs_structurally_equivalent(ba, bb)
-        }
+            SvaExpr::SyncAcceptOn {
+                condition: ca,
+                body: ba,
+            },
+            SvaExpr::SyncAcceptOn {
+                condition: cb,
+                body: bb,
+            },
+        ) => sva_exprs_structurally_equivalent(ca, cb) && sva_exprs_structurally_equivalent(ba, bb),
         (
-            SvaExpr::SyncRejectOn { condition: ca, body: ba },
-            SvaExpr::SyncRejectOn { condition: cb, body: bb },
-        ) => {
-            sva_exprs_structurally_equivalent(ca, cb)
-                && sva_exprs_structurally_equivalent(ba, bb)
-        }
+            SvaExpr::SyncRejectOn {
+                condition: ca,
+                body: ba,
+            },
+            SvaExpr::SyncRejectOn {
+                condition: cb,
+                body: bb,
+            },
+        ) => sva_exprs_structurally_equivalent(ca, cb) && sva_exprs_structurally_equivalent(ba, bb),
         // Sprint 5
         (SvaExpr::SequenceAnd(la, ra), SvaExpr::SequenceAnd(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (SvaExpr::SequenceOr(la, ra), SvaExpr::SequenceOr(lb, rb)) => {
-            sva_exprs_structurally_equivalent(la, lb)
-                && sva_exprs_structurally_equivalent(ra, rb)
+            sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         // Sprint 7
         (
-            SvaExpr::ImmediateAssert { expression: ea, deferred: da },
-            SvaExpr::ImmediateAssert { expression: eb, deferred: db },
+            SvaExpr::ImmediateAssert {
+                expression: ea,
+                deferred: da,
+            },
+            SvaExpr::ImmediateAssert {
+                expression: eb,
+                deferred: db,
+            },
         ) => da == db && sva_exprs_structurally_equivalent(ea, eb),
         // Sprint 13
-        (SvaExpr::FieldAccess { signal: sa, field: fa }, SvaExpr::FieldAccess { signal: sb, field: fb }) => {
-            fa == fb && sva_exprs_structurally_equivalent(sa, sb)
-        }
-        (SvaExpr::EnumLiteral { type_name: ta, value: va }, SvaExpr::EnumLiteral { type_name: tb, value: vb }) => {
-            ta == tb && va == vb
-        }
+        (
+            SvaExpr::FieldAccess {
+                signal: sa,
+                field: fa,
+            },
+            SvaExpr::FieldAccess {
+                signal: sb,
+                field: fb,
+            },
+        ) => fa == fb && sva_exprs_structurally_equivalent(sa, sb),
+        (
+            SvaExpr::EnumLiteral {
+                type_name: ta,
+                value: va,
+            },
+            SvaExpr::EnumLiteral {
+                type_name: tb,
+                value: vb,
+            },
+        ) => ta == tb && va == vb,
         // Sprint 14
         (SvaExpr::Triggered(a), SvaExpr::Triggered(b)) => a == b,
         (SvaExpr::Matched(a), SvaExpr::Matched(b)) => a == b,
@@ -2602,36 +3111,93 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
             sva_exprs_structurally_equivalent(la, lb) && sva_exprs_structurally_equivalent(ra, rb)
         }
         (SvaExpr::BitNot(ia), SvaExpr::BitNot(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::ReductionAnd(ia), SvaExpr::ReductionAnd(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::ReductionOr(ia), SvaExpr::ReductionOr(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::ReductionXor(ia), SvaExpr::ReductionXor(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::BitSelect { signal: sa, index: ia }, SvaExpr::BitSelect { signal: sb, index: ib }) => {
-            sva_exprs_structurally_equivalent(sa, sb) && sva_exprs_structurally_equivalent(ia, ib)
+        (SvaExpr::ReductionAnd(ia), SvaExpr::ReductionAnd(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
         }
-        (SvaExpr::PartSelect { signal: sa, high: ha, low: la }, SvaExpr::PartSelect { signal: sb, high: hb, low: lb }) => {
-            ha == hb && la == lb && sva_exprs_structurally_equivalent(sa, sb)
+        (SvaExpr::ReductionOr(ia), SvaExpr::ReductionOr(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
         }
+        (SvaExpr::ReductionXor(ia), SvaExpr::ReductionXor(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
+        }
+        (
+            SvaExpr::BitSelect {
+                signal: sa,
+                index: ia,
+            },
+            SvaExpr::BitSelect {
+                signal: sb,
+                index: ib,
+            },
+        ) => sva_exprs_structurally_equivalent(sa, sb) && sva_exprs_structurally_equivalent(ia, ib),
+        (
+            SvaExpr::PartSelect {
+                signal: sa,
+                high: ha,
+                low: la,
+            },
+            SvaExpr::PartSelect {
+                signal: sb,
+                high: hb,
+                low: lb,
+            },
+        ) => ha == hb && la == lb && sva_exprs_structurally_equivalent(sa, sb),
         (SvaExpr::Concat(ia), SvaExpr::Concat(ib)) => {
-            ia.len() == ib.len() && ia.iter().zip(ib.iter()).all(|(a, b)| sva_exprs_structurally_equivalent(a, b))
+            ia.len() == ib.len()
+                && ia
+                    .iter()
+                    .zip(ib.iter())
+                    .all(|(a, b)| sva_exprs_structurally_equivalent(a, b))
         }
         // Sprint 18
-        (SvaExpr::SequenceAction { expression: ea, assignments: aa },
-         SvaExpr::SequenceAction { expression: eb, assignments: ab }) => {
+        (
+            SvaExpr::SequenceAction {
+                expression: ea,
+                assignments: aa,
+            },
+            SvaExpr::SequenceAction {
+                expression: eb,
+                assignments: ab,
+            },
+        ) => {
             sva_exprs_structurally_equivalent(ea, eb)
                 && aa.len() == ab.len()
-                && aa.iter().zip(ab.iter()).all(|((na, ra), (nb, rb))|
-                    na == nb && sva_exprs_structurally_equivalent(ra, rb))
+                && aa.iter().zip(ab.iter()).all(|((na, ra), (nb, rb))| {
+                    na == nb && sva_exprs_structurally_equivalent(ra, rb)
+                })
         }
         (SvaExpr::LocalVar(a), SvaExpr::LocalVar(b)) => a == b,
-        (SvaExpr::ConstCast(ia), SvaExpr::ConstCast(ib)) => sva_exprs_structurally_equivalent(ia, ib),
-        (SvaExpr::Clocked { clock: ca, edge: ea, body: ba },
-         SvaExpr::Clocked { clock: cb, edge: eb, body: bb }) => {
-            ca == cb && ea == eb && sva_exprs_structurally_equivalent(ba, bb)
+        (SvaExpr::ConstCast(ia), SvaExpr::ConstCast(ib)) => {
+            sva_exprs_structurally_equivalent(ia, ib)
         }
+        (
+            SvaExpr::Clocked {
+                clock: ca,
+                edge: ea,
+                body: ba,
+            },
+            SvaExpr::Clocked {
+                clock: cb,
+                edge: eb,
+                body: bb,
+            },
+        ) => ca == cb && ea == eb && sva_exprs_structurally_equivalent(ba, bb),
         // Sprint 23 (IEEE 1800-2023)
-        (SvaExpr::ArrayMap { array: aa, iterator: ia, with_expr: wa },
-         SvaExpr::ArrayMap { array: ab, iterator: ib, with_expr: wb }) => {
-            ia == ib && sva_exprs_structurally_equivalent(aa, ab) && sva_exprs_structurally_equivalent(wa, wb)
+        (
+            SvaExpr::ArrayMap {
+                array: aa,
+                iterator: ia,
+                with_expr: wa,
+            },
+            SvaExpr::ArrayMap {
+                array: ab,
+                iterator: ib,
+                with_expr: wb,
+            },
+        ) => {
+            ia == ib
+                && sva_exprs_structurally_equivalent(aa, ab)
+                && sva_exprs_structurally_equivalent(wa, wb)
         }
         (SvaExpr::TypeThis, SvaExpr::TypeThis) => true,
         (SvaExpr::RealConst(a), SvaExpr::RealConst(b)) => a.to_bits() == b.to_bits(),
@@ -2664,25 +3230,28 @@ pub fn elaborate_directives(
     directives: &[SvaDirective],
     ctx: &ElaborationContext,
 ) -> Vec<SvaDirective> {
-    directives.iter().map(|d| {
-        let mut elaborated = d.clone();
+    directives
+        .iter()
+        .map(|d| {
+            let mut elaborated = d.clone();
 
-        // Apply default clock if missing
-        if elaborated.clock.is_none() {
-            if let Some(ref default_clk) = ctx.default_clocking {
-                elaborated.clock = Some(default_clk.clone());
+            // Apply default clock if missing
+            if elaborated.clock.is_none() {
+                if let Some(ref default_clk) = ctx.default_clocking {
+                    elaborated.clock = Some(default_clk.clone());
+                }
             }
-        }
 
-        // Apply default disable iff if missing
-        if elaborated.disable_iff.is_none() {
-            if let Some(ref default_dis) = ctx.default_disable_iff {
-                elaborated.disable_iff = Some(default_dis.clone());
+            // Apply default disable iff if missing
+            if elaborated.disable_iff.is_none() {
+                if let Some(ref default_dis) = ctx.default_disable_iff {
+                    elaborated.disable_iff = Some(default_dis.clone());
+                }
             }
-        }
 
-        elaborated
-    }).collect()
+            elaborated
+        })
+        .collect()
 }
 
 /// Resolve `let` declarations by inlining expression substitution.
@@ -2692,16 +3261,22 @@ pub fn resolve_let_instance(
     name: &str,
     args: &[SvaExpr],
 ) -> Result<SvaExpr, SvaParseError> {
-    let decl = decls.iter().find(|d| d.name == name).ok_or_else(|| SvaParseError {
-        message: format!("undeclared let: '{}'", name),
-    })?;
+    let decl = decls
+        .iter()
+        .find(|d| d.name == name)
+        .ok_or_else(|| SvaParseError {
+            message: format!("undeclared let: '{}'", name),
+        })?;
 
     let required_count = decl.ports.iter().filter(|p| p.default.is_none()).count();
     if args.len() < required_count || args.len() > decl.ports.len() {
         return Err(SvaParseError {
             message: format!(
                 "let '{}' expects {} to {} arguments, got {}",
-                name, required_count, decl.ports.len(), args.len()
+                name,
+                required_count,
+                decl.ports.len(),
+                args.len()
             ),
         });
     }
@@ -2712,7 +3287,10 @@ pub fn resolve_let_instance(
             args[i].clone()
         } else {
             port.default.clone().ok_or_else(|| SvaParseError {
-                message: format!("missing required argument '{}' for let '{}'", port.name, name),
+                message: format!(
+                    "missing required argument '{}' for let '{}'",
+                    port.name, name
+                ),
             })?
         };
         result = substitute_signal(&result, &port.name, &actual);
@@ -2723,16 +3301,21 @@ pub fn resolve_let_instance(
 /// Translate dist items into range constraints for formal verification.
 /// IEEE 16.14.2: In formal mode, `dist` ≡ `inside` (range restriction only).
 pub fn translate_dist_to_ranges(items: &[DistItem]) -> Vec<(u64, u64)> {
-    items.iter().map(|item| {
-        let max = item.max.unwrap_or(item.min);
-        (item.min, max)
-    }).collect()
+    items
+        .iter()
+        .map(|item| {
+            let max = item.max.unwrap_or(item.min);
+            (item.min, max)
+        })
+        .collect()
 }
 
 /// Validate dist list is non-empty.
 pub fn validate_dist(items: &[DistItem]) -> Result<(), SvaParseError> {
     if items.is_empty() {
-        return Err(SvaParseError { message: "empty dist list".to_string() });
+        return Err(SvaParseError {
+            message: "empty dist list".to_string(),
+        });
     }
     Ok(())
 }
@@ -2742,21 +3325,25 @@ pub fn resolve_checker(
     checker: &CheckerDecl,
     port_bindings: &[(String, SvaExpr)],
 ) -> Result<Vec<SvaDirective>, SvaParseError> {
-    checker.assertions.iter().map(|directive| {
-        let mut resolved_prop = directive.property.clone();
-        for (port_name, actual) in port_bindings {
-            resolved_prop = substitute_signal(&resolved_prop, port_name, actual);
-        }
-        Ok(SvaDirective {
-            kind: directive.kind.clone(),
-            property: resolved_prop,
-            label: directive.label.clone(),
-            clock: directive.clock.clone(),
-            disable_iff: directive.disable_iff.clone(),
-            action_pass: directive.action_pass.clone(),
-            action_fail: directive.action_fail.clone(),
+    checker
+        .assertions
+        .iter()
+        .map(|directive| {
+            let mut resolved_prop = directive.property.clone();
+            for (port_name, actual) in port_bindings {
+                resolved_prop = substitute_signal(&resolved_prop, port_name, actual);
+            }
+            Ok(SvaDirective {
+                kind: directive.kind.clone(),
+                property: resolved_prop,
+                label: directive.label.clone(),
+                clock: directive.clock.clone(),
+                disable_iff: directive.disable_iff.clone(),
+                action_pass: directive.action_pass.clone(),
+                action_fail: directive.action_fail.clone(),
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// Get checker's random variable quantifier structure.

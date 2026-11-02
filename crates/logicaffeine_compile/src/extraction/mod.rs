@@ -23,13 +23,13 @@ mod error;
 pub mod fol_model;
 pub mod verilog;
 
-pub use codegen::{emit_property_check, emit_value, primitive_rust_type};
+pub use codegen::{emit_property_check, emit_value, primitive_rust_type, rust_global};
 pub use collector::{is_extractable, is_logical_type};
 pub use error::ExtractError;
 
-use logicaffeine_kernel::Context;
 use codegen::CodeGen;
 use collector::collect_dependencies;
+use logicaffeine_kernel::Context;
 use std::collections::HashSet;
 
 /// Extract a program rooted at the given entry point.
@@ -52,7 +52,7 @@ pub fn extract_program(ctx: &Context, entry: &str) -> Result<String, ExtractErro
 ///
 /// Returns Rust source code as a string. The transitive dependencies of every
 /// entry are unioned, topologically sorted once, and emitted through a single
-/// [`CodeGen`], so shared dependencies (e.g. a `Nat` enum used by both `add` and
+/// `CodeGen`, so shared dependencies (e.g. a `Nat` enum used by both `add` and
 /// `double`) are emitted exactly once.
 ///
 /// # Arguments
@@ -80,15 +80,27 @@ pub fn extract_programs(ctx: &Context, entries: &[&str]) -> Result<String, Extra
     let mut codegen = CodeGen::new(ctx);
     for name in &sorted {
         if ctx.is_inductive(name) {
-            // Opaque/primitive inductives (Int, Float, Text, Bool, Duration, …)
-            // are declared with NO constructors; they have no enum form and are
-            // mapped to Rust types at use sites, so skip them rather than
-            // erroring with `NotFound`.
-            if !ctx.get_constructors(name).is_empty() {
+            // A PRIMITIVE has no enum form: `Int`, `Float`, `Text`, `Bool`, … are represented
+            // directly by their Rust counterparts (`primitive_rust_type`) at every use site,
+            // so emitting a declaration for one would be a second, incompatible spelling of a
+            // type the output already has. The test used to be "declared with no
+            // constructors", which was true of `Int` only while it was opaque; once it became
+            // a real inductive, extraction started emitting `enum Int { Int_ofNat(Nat), … }`
+            // beside the `i64` it maps `Int` to at every use.
+            if primitive_rust_type(name).is_none() && !ctx.get_constructors(name).is_empty() {
                 codegen.emit_inductive(name)?;
             }
         } else if ctx.is_definition(name) {
-            codegen.emit_definition(name)?;
+            // The prelude's arithmetic is OPAQUE to extraction: `add`/`sub`/… at
+            // `Int -> Int -> Int` lower to a Rust OPERATOR at every use site, so there is
+            // nothing to emit for them — and emitting one anyway produces
+            // `pub fn add() -> … { Int_add }`, a nullary function returning a name from the
+            // structural integer tower that is deliberately not emitted beside it. They only
+            // became emittable at all when `Int` turned into a real inductive and these names
+            // stopped being bodyless declarations.
+            if codegen::arith_builtin_operator(ctx, name).is_none() {
+                codegen.emit_definition(name)?;
+            }
         }
         // Skip constructors (emitted with their inductive)
     }

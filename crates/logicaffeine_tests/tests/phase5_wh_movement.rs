@@ -45,7 +45,9 @@ fn wh_embedded_clause() {
 
     // The gap variable x should be argument of Love
     assert!(
-        output.contains("Theme(e, x)") || output.contains("Love(M, x)") || output.contains("L(M, x)"),
+        output.contains("Theme(e, x)")
+            || output.contains("Love(M, x)")
+            || output.contains("L(M, x)"),
         "Gap should fill object of embedded 'loves': got '{}'",
         output
     );
@@ -64,9 +66,12 @@ fn wh_embedded_clause() {
 
     // Say should have two arguments: subject and the embedded clause
     assert!(
-        output.contains("S(J, ") || output.contains("Say(J, ") ||
-        output.contains("Say(J, [") || output.contains("S(J, [") ||
-        output.contains("Say(John, ") || output.contains("Say(John, ["),
+        output.contains("S(J, ")
+            || output.contains("Say(J, ")
+            || output.contains("Say(J, [")
+            || output.contains("S(J, [")
+            || output.contains("Say(John, ")
+            || output.contains("Say(John, ["),
         "Say should have embedded clause as second argument: got '{}'",
         output
     );

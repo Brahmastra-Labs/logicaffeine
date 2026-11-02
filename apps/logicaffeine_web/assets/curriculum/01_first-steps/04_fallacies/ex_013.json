@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "The argument tries to discredit a position by associating it with a disliked person.",
-  "explanation": "This is Guilt by Association (a form of Ad Hominem) - attempting to discredit an idea by associating it with a negative figure. The quality of an argument doesn't depend on who else held similar views. Even bad people can occasionally have reasonable positions.",
-  "visual_concept": "Guilt by Association: 'Hitler also drank water, so drinking water must be evil!' The connection is irrelevant."
+  "explanation": "This is guilt by association. Who else held a view does not show that the view is wrong.",
+  "visual_concept": "Guilt by Association: 'Hitler also drank water, so drinking water must be evil!' The connection is irrelevant.",
+  "section": "4.2"
 }

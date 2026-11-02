@@ -1,0 +1,76 @@
+{
+  "case": "T08-014",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t08_tactics/T08-014_decide.lean",
+  "source_sha256": "4be5482a822bdf8f09f8067eefd726a4e76745326e7088f7a81025aa7560ec94",
+  "ledger_sha256": "7a95018eb54ae715574517d7c42706f188cbc8cf9d89d5896ca7f7c5b6061e7b",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T08_014.Colour",
+    "T08_014.Colour.blue",
+    "T08_014.Colour.green",
+    "T08_014.Colour.ofNat_toCtorIdx",
+    "T08_014.Colour.red",
+    "T08_014.bigNumeral",
+    "T08_014.boundedForall",
+    "T08_014.enumEq",
+    "T08_014.groundArith",
+    "T08_014.groundBool",
+    "T08_014.groundComparison",
+    "T08_014.instDecidableEqColour",
+    "T08_014.listDecidable",
+    "T08_014.propStructure"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "cc64229d21a403cc4661094efc5cd9f85d61b8fd884b34cf4e755630f5fbf3ef",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 9183,
+  "harvest": {
+    "roots": [
+      "T08_014.Colour",
+      "T08_014.Colour.blue",
+      "T08_014.Colour.green",
+      "T08_014.Colour.ofNat_toCtorIdx",
+      "T08_014.Colour.red",
+      "T08_014.bigNumeral",
+      "T08_014.boundedForall",
+      "T08_014.enumEq",
+      "T08_014.groundArith",
+      "T08_014.groundBool",
+      "T08_014.groundComparison",
+      "T08_014.instDecidableEqColour",
+      "T08_014.listDecidable",
+      "T08_014.propStructure"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

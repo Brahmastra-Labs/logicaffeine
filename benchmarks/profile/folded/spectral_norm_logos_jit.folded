@@ -1,0 +1,8 @@
+logos::main::loop@127 [jit] 69683087939
+logos::main::loop@86 [jit] 69633427035
+logos::main::loop@134 [jit] 34667248
+logos::main::loop@93 [jit] 19985562
+__memcpy_avx_unaligned_erms 17427014
+[unknown];<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_forge::regalloc::compile_region_regalloc;logicaffeine_forge::regalloc::compile_impl;core::slice::sort::stable::driftsort_main;core::slice::sort::stable::drift::sort;core::slice::sort::stable::quicksort::quicksort 13564118
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region 1866699
+[unknown];logicaffeine_compile::vm::machine::Vm::try_region;__GI___libc_free;_int_free;get_max_fast 1285053

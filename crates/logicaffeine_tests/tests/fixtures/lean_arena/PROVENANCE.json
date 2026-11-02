@@ -1,0 +1,311 @@
+{
+  "upstream": "https://github.com/leanprover/lean-kernel-arena",
+  "revision": "a538455e201c1be48a11963cb83058649a36dc0e",
+  "download": "https://arena.lean-lang.org/lean-arena-tests.tar.gz",
+  "fixtures": [
+    {
+      "source": "good/tutorial/036_empty.ndjson",
+      "sha256": "030852937308e66cb90de3b8de7cd336f3d825e81c87c5be5cc1fe33c6d54356"
+    },
+    {
+      "source": "good/tutorial/037_boolType.ndjson",
+      "sha256": "02053d077abf5a63594d1025f9ef2f90dfff65f331503aa3b7486bbbb997b3e8"
+    },
+    {
+      "source": "good/tutorial/039_andType.ndjson",
+      "sha256": "d81009480e131d451da9e625fe9a90fff92fbee08d324aefd6fde3c3b89979e1"
+    },
+    {
+      "source": "good/tutorial/044_natDef.ndjson",
+      "sha256": "95d33f871f126e234740e05d9291a1cedcc6a2d01522aedc3122b25aab17ab95"
+    },
+    {
+      "source": "good/tutorial/062_emptyRec.ndjson",
+      "sha256": "13190ea3d49b78a7ab755381e7867862262bae35f54c9f8e9f588b495957d7ff"
+    },
+    {
+      "source": "good/tutorial/063_boolRec.ndjson",
+      "sha256": "2e760d8bfe1ccbb4e0d5139bb26ad0fed2fab02ea7612a2b246fec201f58d4a1"
+    },
+    {
+      "source": "bad/tutorial/073_BogusRecursor.ndjson",
+      "sha256": "7f166e26d8b79ca496b066644bbe199faefa4c5fb3c6ded01e35ff4ec628a309"
+    },
+    {
+      "source": "good/tutorial/077_sortElimProp2Rec.ndjson",
+      "sha256": "a70294fd3579d1cc5dabaa0a47579820a6e6dbd83e165e9f60362112abf2ebbe"
+    },
+    {
+      "source": "bad/tutorial/135_misnamed_rec_user.ndjson",
+      "sha256": "c8c5e111f5b41c34237cafb1ead3d43fae8e51d72d4a62eb61a8c0e71a09a048"
+    },
+    {
+      "source": "bad/tutorial/136_dup_rec_def2.ndjson",
+      "sha256": "d45f500e2a803ec48ea904f9b82e8eee77e2abaca64b2ddd06d29c39bb481033"
+    },
+    {
+      "source": "good/tutorial/055_reduceCtorParam.mk.ndjson",
+      "sha256": "16d146c5ef39743b6a95f21043a43b890e22d72792fd9436e37396765124a7a2"
+    },
+    {
+      "source": "good/tutorial/118_reduceCtorParamRefl.mk.ndjson",
+      "sha256": "0289b5264d284c7c2b61033465d39461ddce70a0cdd909ee658d85bf10f544ee"
+    },
+    {
+      "source": "good/tutorial/119_reduceCtorParamRefl2.mk.ndjson",
+      "sha256": "8997c0d3a515185fb3518393dbe78e44471455f622ac7bf9e82c68bff51bb2cd"
+    },
+    {
+      "source": "good/tutorial/040_prodType.ndjson",
+      "sha256": "a74e83890dce34014ef7dc8f1f6e7baf56d481df2a776d886462c789c529741d"
+    },
+    {
+      "source": "good/tutorial/041_pprodType.ndjson",
+      "sha256": "9f2f275784ba923bc3a050c5f1856ad0d18c83d31ff107a5cd663d4cceaec98a"
+    },
+    {
+      "source": "good/tutorial/042_pUnitType.ndjson",
+      "sha256": "acc7a70c97888e02e2b92e583b370803db0bdac1ddc38f9ff036831459d3a891"
+    },
+    {
+      "source": "good/tutorial/045_rbTreeDef.ndjson",
+      "sha256": "d9781f44fcb7e46ff06da1c8a273a4fec4ae989e4114d6668720bd5b87c20b79"
+    },
+    {
+      "source": "good/tutorial/060_typeWithTypeFieldPoly.ndjson",
+      "sha256": "a1bb69e5739372ba607b2ed8766cda7373c71a4286788e87ccb07c0749c257be"
+    },
+    {
+      "source": "good/tutorial/066_prodRec.ndjson",
+      "sha256": "0b53e85fe97b23530b00b05ba89c1c860bf4519a0ef41f314e84114dd5df2cea"
+    },
+    {
+      "source": "good/tutorial/067_pprodRec.ndjson",
+      "sha256": "894d4388fcf6a58cad8c4047493abde7edbfd04facb8aeffbbc9673604a2e13e"
+    },
+    {
+      "source": "good/tutorial/068_punitRec.ndjson",
+      "sha256": "331c4d8a6de6accecf264219290e102544368dffd5eec64e3587716e3b4880ea"
+    },
+    {
+      "source": "good/tutorial/071_rbTreeRef.ndjson",
+      "sha256": "d3695868bbbea387aacddf4af324f467fc36c606051415308aa8e0d03f6c650c"
+    },
+    {
+      "source": "good/tutorial/043_eqType.ndjson",
+      "sha256": "d45ed54cc74be3d7d92aae6bacc040420ba33f23fa034b4497edb389e089afdc"
+    },
+    {
+      "source": "good/tutorial/069_eqRec.ndjson",
+      "sha256": "693007cd24f0763cc6c7776840bdc05539645a0e35897af2688bde984f2551e2"
+    },
+    {
+      "source": "good/tutorial/099_ruleK.ndjson",
+      "sha256": "9c06a9ca2b5d6dadc1575796a858d5285695d4401cceaaf77d9c26fbc426f1da"
+    },
+    {
+      "source": "bad/tutorial/100_ruleKbad.ndjson",
+      "sha256": "cf80eb3fa8d1cffc0a17c46730b20166688ea8346e299b19e3036cfc6462c4cf"
+    },
+    {
+      "source": "bad/tutorial/101_ruleKAcc.ndjson",
+      "sha256": "0a053ed771c6f0c171d231137f8000efe5f48f8d5d30cfd9863fe44e55a1d4d2"
+    },
+    {
+      "source": "bad/rec-k-lie.ndjson",
+      "sha256": "baf41fbd040f172ad06afa78f9994b4501ebcd91e46c4a13e79227ccd246a188"
+    },
+    {
+      "source": "bad/nat-rec-k-lie.ndjson",
+      "sha256": "5a49d132bb0c7dca091baa481333f5e97e390fde72c8ec18c6124a690ec47d7c"
+    },
+    {
+      "source": "bad/k-rec-conv.ndjson",
+      "sha256": "32570fea94f7a2655de489427200c35f2e1ffa7ec9d46b82c531195eaacd5ef3"
+    },
+    {
+      "source": "good/tutorial/089_projProp1.ndjson",
+      "sha256": "9102fd7c60e2796c11b8ecaa208363c3095ac324d3cf3f3c29ec82c67bfa401e"
+    },
+    {
+      "source": "good/tutorial/098_projRed.ndjson",
+      "sha256": "ee406aec30851a1bd7f8a491c13ccb54712f198f2951ed518b47de95cbf42d70"
+    },
+    {
+      "source": "bad/tutorial/087_projOutOfRange.ndjson",
+      "sha256": "5db4d2e7e00fe46443daade14664b6227b8e55e8dca58791d7d551242caf5b86"
+    },
+    {
+      "source": "bad/tutorial/088_projNotStruct.ndjson",
+      "sha256": "2ddb5f53a6f8b459b7dd6c2daa9bb794613295dccec07999573b2c99cc9cb076"
+    },
+    {
+      "source": "bad/tutorial/090_projProp2.ndjson",
+      "sha256": "44b31dd5644566e41670210e8584792b2819f9b64bb8d356948cdee674e82906"
+    },
+    {
+      "source": "bad/proj-of-prop.ndjson",
+      "sha256": "7ec1cb24885cae045ccb842f1fc786869ed708a19fa289f92b410297a299f5d5"
+    },
+    {
+      "source": "bad/proj-non-structure.ndjson",
+      "sha256": "d67fc8c67eb839ec41b5caa7744ba38c0866872a1e5a3e3cad55700e403340cf"
+    },
+    {
+      "source": "good/tutorial/091_projProp3.ndjson",
+      "sha256": "e32c2399717e657b1f24296ee1a5e78a9592d8f90ca84a6a6a104395ef06ddf1"
+    },
+    {
+      "source": "bad/tutorial/092_projProp4.ndjson",
+      "sha256": "1dbc013754ba41dae8c0449252708027e7f59fd8523d0896f2c8aae65d942b29"
+    },
+    {
+      "source": "bad/tutorial/093_projProp5.ndjson",
+      "sha256": "9ca0433a35a24516035c5be845c2f0c0fbc78231b1e2625797ee01da9271b2d0"
+    },
+    {
+      "source": "bad/tutorial/094_projProp6.ndjson",
+      "sha256": "38567094775dea24a0742cc4fceec671ef17a3825574326d1290bafa02166f84"
+    },
+    {
+      "source": "good/tutorial/075_typeSingletonRecReduction.ndjson",
+      "sha256": "7407a2ceb9d10d9ea28583eaa808b54b3f4fdd2c5cc8d5568424e32f27571d65"
+    },
+    {
+      "source": "good/tutorial/107_unitEta1.ndjson",
+      "sha256": "eb25dbed39c8c19e6c1ea7b7c0332941e0249c96154bff155f8805d04151da78"
+    },
+    {
+      "source": "good/tutorial/108_unitEta2.ndjson",
+      "sha256": "0102ea0fac3148dfcd800dcccd53237b3dd196186659a3d811761da4bedbc91f"
+    },
+    {
+      "source": "good/tutorial/109_unitEta3.ndjson",
+      "sha256": "22a713f36ca06b000c93140a92e9a5e2c85abb769924764b3f1e764cb199be0b"
+    },
+    {
+      "source": "bad/tutorial/110_indexedUnitEta.ndjson",
+      "sha256": "f1b07164d2f71bbeb2de6af4e9163c4b1bcceb4751e89b4b0dc2e0faa40c5d1d"
+    },
+    {
+      "source": "good/tutorial/111_structEta.ndjson",
+      "sha256": "e47bd6975be97f3218b31e85071af1e0cec4279f5a6478abb12e3e1c574c35c2"
+    },
+    {
+      "source": "bad/tutorial/112_indexedStructEta.ndjson",
+      "sha256": "0962411896c8365fc85581c7e64f3f4ece34399be025be408b43003d71a0400d"
+    },
+    {
+      "source": "bad/proj-of-stuck-prop.ndjson",
+      "sha256": "a2fc30b56ba4b26e7e5fccc53c6b63a73e083761b3b7f4caa4d462fde84ee711"
+    },
+    {
+      "source": "bad/proj-of-subst-prop.ndjson",
+      "sha256": "1c9d8a266c198b7d4a1cfbe3fffd2de2d2b75e603fb3cedfa5d5309f7b295b9d"
+    },
+    {
+      "source": "bad/rec-missing-ih.ndjson",
+      "sha256": "8a240552317ba17d44d175c10531e5f988f55569db5eff734701735ce598fa73"
+    },
+    {
+      "source": "bad/rec-of-subst-prop.ndjson",
+      "sha256": "fa498cf880a5390e65c3990e8361829a5012de4fae133dbfcd6a81af26f74ca8"
+    },
+    {
+      "source": "good/perf/irrelevance-before-evaluation.ndjson",
+      "sha256": "f79e283acead6adf345f3139e3c15d754867efe27ffafc1c8dedc7035b9ca04d"
+    },
+    {
+      "source": "bad/perf/refute-cheap-first.ndjson",
+      "sha256": "a1f15a2ccfc57c1475e5a3d98034017f9297d355a8452ebe3ef3cfb4b293ad36"
+    },
+    {
+      "source": "bad/perf/refute-cheap-last.ndjson",
+      "sha256": "c0bd59565940fc41816942f6d32a9612af85290a41f8595ba900ac916b4ea9eb"
+    },
+    {
+      "source": "good/perf/church-numerals.ndjson",
+      "sha256": "1234703fc7082cdf99eaf7ecd18fe09f1e11191c9c5b4ffcc5c159c50595927a"
+    },
+    {
+      "source": "good/init-prelude.ndjson",
+      "sha256": "fc440bd35aa4ecb244836eef0c2e31c578ac4460f42665f4e8305cbc2cd2104d"
+    },
+    {
+      "source": "good/perf/discarded-argument.ndjson",
+      "sha256": "8d3448f9d00a00f40b34b11ec17d5abe230f76c2578c37fd735dfaf914707bd2"
+    },
+    {
+      "source": "good/perf/discarded-argument-match.ndjson",
+      "sha256": "b57411e156c572e2b0e4bd25033fb0f689198d684715600ac7f855cccca1edca"
+    },
+    {
+      "source": "good/perf/magma-list-pair-n7.ndjson",
+      "sha256": "c3894b9ba91947cd23c7e6263813868a31dc8092123bbc5962379732ef99e906"
+    },
+    {
+      "source": "good/tutorial/126_quotIndType.ndjson",
+      "sha256": "997935987ef6b1920cc0065465ccb50eb1668bf69159eebbd58dd88b6dc2e2fb"
+    },
+    {
+      "source": "good/tutorial/129_quotLiftReduction.ndjson",
+      "sha256": "ae980cf502f90c84131b1705850c1acf18a969fdc1fe511b9b8eb769adbd79c8"
+    },
+    {
+      "source": "good/tutorial/127_quotLiftType.ndjson",
+      "sha256": "317a04eff4dabf9edf601736e243d2788aeaa2d7972099dff4bb777b4f51fc3f"
+    },
+    {
+      "source": "good/tutorial/128_quotSoundType.ndjson",
+      "sha256": "38c9bdfaaf1e3cd494a7725a4eb9bc231d5ce61f097a5b98e38c469799f7400f"
+    },
+    {
+      "source": "good/tutorial/125_quotMkType.ndjson",
+      "sha256": "b160ff5b97509ad3029f1895bfe1153f9e03f1a33c99ec50ee1bb87d3406f69d"
+    },
+    {
+      "source": "good/tutorial/130_quotIndReduction.ndjson",
+      "sha256": "0053779f82af2dfc35cd6c866a66be4496008589b11c22e6b80e91835957bedd"
+    },
+    {
+      "source": "good/perf/args-before-unfold.ndjson",
+      "sha256": "11844c0ce9aa3ac50be0ae85c0138b1efeb909b913108b532573433254e89b0d"
+    },
+    {
+      "source": "good/perf/folded-constant-first.ndjson",
+      "sha256": "22cd194a4e1142b0790776f01292108301b078d9e6b7a20a6a9227e55b61715c"
+    },
+    {
+      "source": "good/perf/folded-constant-last.ndjson",
+      "sha256": "2e7b6fc088f09ed018066a524894258498c7e57fbcde04852920c18838386854"
+    },
+    {
+      "source": "good/perf/shared-subterm.ndjson",
+      "sha256": "2df9f9fbfb7167bb9e0d004ff25afd99fa434113fc343f130eb459661f40e29b"
+    },
+    {
+      "source": "good/perf/unroll-versus-evaluate.ndjson",
+      "sha256": "815d75fa70b6c06f4164e86ff77050b9679162f3be939c6757bd66f73f432203"
+    },
+    {
+      "source": "bad/tutorial/050_inductWrongCtorParams.ndjson",
+      "sha256": "20214ec1a31221884548d3e91b689b9569fd7588af2fb0e219754b683041ac10"
+    },
+    {
+      "source": "bad/tutorial/051_inductWrongCtorResParams.ndjson",
+      "sha256": "5506566449cc2f3c83f417007bf15a7a0101c458c450d77a23cfd4c2423910c4"
+    },
+    {
+      "source": "bad/tutorial/052_inductWrongCtorResLevel.ndjson",
+      "sha256": "3f29bd3a753caa056cc45c20cd8aeb734bc44cfc6b3828a6c6ec855737f596f3"
+    },
+    {
+      "source": "bad/extra-rec.ndjson",
+      "sha256": "eab650028a71177bd4d9fcb6a84b4e92dd91cf4e7af67023af458d18729be0e2"
+    },
+    {
+      "source": "bad/orphan-rec.ndjson",
+      "sha256": "738f28bc1175d70faf09f4b45ae7ca92e8b8d397f6c5d0183240cd695f6d7bc4"
+    }
+  ]
+}

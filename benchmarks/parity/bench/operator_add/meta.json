@@ -1,0 +1,10 @@
+{
+  "capability": "operator.add",
+  "workload": "sum of opAdd(i, 7) over 1..n",
+  "arg": "3000000",
+  "expected": "4500022500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

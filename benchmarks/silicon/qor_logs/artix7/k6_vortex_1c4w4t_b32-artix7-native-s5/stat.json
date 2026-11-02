@@ -1,0 +1,95 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\Vortex": {
+         "num_wires":         112422,
+         "num_wire_bits":     1109474,
+         "num_pub_wires":     15260,
+         "num_pub_wire_bits": 807612,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         214605,
+         "num_cells_by_type": {
+            "CARRY4": 2162,
+            "DSP48E1": 4,
+            "FDRE": 48790,
+            "FDSE": 300,
+            "INV": 1281,
+            "LUT1": 5764,
+            "LUT2": 14649,
+            "LUT3": 36004,
+            "LUT4": 10365,
+            "LUT5": 22349,
+            "LUT6": 47032,
+            "MUXF7": 18076,
+            "MUXF8": 5316,
+            "RAM128X1S": 1024,
+            "RAM32M": 1416,
+            "RAM64M": 53,
+            "RAMB18E1": 16,
+            "RAMB36E1": 4
+         }
+      },
+      "\\qorsyn_k6_vortex_1c4w4t_b32": {
+         "num_wires":         594,
+         "num_wire_bits":     7048,
+         "num_pub_wires":     54,
+         "num_pub_wire_bits": 4409,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         947,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 223,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 64,
+            "LUT2": 135,
+            "LUT3": 10,
+            "LUT5": 59,
+            "LUT6": 300,
+            "MUXF7": 73,
+            "MUXF8": 30,
+            "OBUF": 16,
+            "Vortex": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         113016,
+         "num_wire_bits":     1116522,
+         "num_pub_wires":     15314,
+         "num_pub_wire_bits": 812021,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         215551,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 2162,
+            "DSP48E1": 4,
+            "FDRE": 49013,
+            "FDSE": 333,
+            "IBUF": 2,
+            "INV": 1345,
+            "LUT1": 5764,
+            "LUT2": 14784,
+            "LUT3": 36014,
+            "LUT4": 10365,
+            "LUT5": 22408,
+            "LUT6": 47332,
+            "MUXF7": 18149,
+            "MUXF8": 5346,
+            "OBUF": 16,
+            "RAM128X1S": 1024,
+            "RAM32M": 1416,
+            "RAM64M": 53,
+            "RAMB18E1": 16,
+            "RAMB36E1": 4
+         }
+      }
+}
+

@@ -1,0 +1,60 @@
+The LOGOS build tool
+
+Usage: largo [OPTIONS] <COMMAND>
+
+Commands:
+  new          Create a new LOGOS project in a new directory
+  init         Initialize a LOGOS project in the current directory
+  build        Build the current project
+  verify       Run Z3 static verification without building
+  run          Build and run the current project
+  serve        Serve the project over HTTP
+  check        Check the project for errors without producing a binary
+  opts         Report which optimizations actually fire when compiling a LOGOS file
+  publish      Publish the package to the LOGOS registry
+  login        Authenticate with the package registry
+  logout       Remove stored credentials for a registry
+  doctor       Diagnose the environment largo runs in
+  repl         Start the interactive LOGOS REPL
+  sat          Solve a DIMACS CNF with the certified SAT engine
+  prove        Prove the theorems in a LOGOS source file (kernel-certified)
+  logic        Translate English to First-Order Logic
+  doc          Generate documentation from the project's `##` blocks
+  add          Add a dependency to Largo.toml
+  remove       Remove a dependency from Largo.toml
+  fmt          Format LOGOS source files
+  emit         Emit compiled code without building a binary
+  bringup      Bring a model up on every chip from its one program
+  expand       Show what an LGX page became: the ordinary LOGOS its constructs lower to
+  clean        Remove build artifacts
+  completions  Generate shell completions for largo
+  replay       Re-execute a `.replay` failure artifact
+  explain      Explain a diagnostic code or a language construct, offline
+  mcp          Serve the LOGOS toolchain over the Model Context Protocol (stdio)
+  test         Run the project's `## Test` blocks
+  dap          Debug a LOGOS program over the Debug Adapter Protocol (stdio)
+  lean         Lean 4 → LOGOS: import a Lean declaration as a checked LOGOS package
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

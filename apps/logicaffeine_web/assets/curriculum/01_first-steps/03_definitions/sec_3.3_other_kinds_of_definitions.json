@@ -1,0 +1,57 @@
+{
+  "id": "3.3",
+  "title": "Other Kinds of Definitions",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Not every definition reports how a word is used."
+    },
+    {
+      "type": "definition",
+      "term": "Stipulative",
+      "definition": "Gives a new word, or a new meaning, for a discussion. It is neither true nor false."
+    },
+    {
+      "type": "definition",
+      "term": "Precising",
+      "definition": "Makes a vague word exact for one purpose, such as a law or a study."
+    },
+    {
+      "type": "definition",
+      "term": "Persuasive",
+      "definition": "Builds a disputed view into a definition, to win an argument."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Stipulative",
+      "lines": [
+        "Let 'gorp' mean a mix of nuts and raisins."
+      ],
+      "note": "A new word for our talk. It cannot be wrong, only useful or not."
+    },
+    {
+      "type": "worked",
+      "title": "Persuasive",
+      "lines": [
+        "'Taxation' means 'theft by the government'."
+      ],
+      "note": "This packs a disputed claim into a definition. Watch for definitions built to win an argument."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "For tax purposes, a 'dependent' is someone who gets more than half their support from you. What kind of definition is this?",
+    "options": [
+      "Lexical",
+      "Stipulative",
+      "Precising",
+      "Persuasive"
+    ],
+    "correct": 2,
+    "hint": "Is 'dependent' a new word, or an everyday word made exact for one purpose?",
+    "explanation": "'Dependent' is a vague everyday word. The tax rule makes it exact for one purpose, so this is a precising definition."
+  }
+}

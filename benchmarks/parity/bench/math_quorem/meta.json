@@ -1,0 +1,10 @@
+{
+  "capability": "math.quorem",
+  "workload": "quoRemQ+quoRemR by 7",
+  "arg": "2000000",
+  "expected": "285719571426",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "matrix_mult",
+  "lang": "logos_jit",
+  "n": "1930",
+  "samples_weight": 78954645855,
+  "alloc_pct": 0.001,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.999
+}

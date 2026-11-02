@@ -1,0 +1,161 @@
+# Stopwatch and pomodoro
+
+Two timers built the same way: a component-owned `Every 1 second as tick:`
+that never itself stops, guarded by a `running` field so "pause" and
+"resume" are just that field. `Stop the timer tick.` and `Start the timer
+tick.` would pause and resume the timer itself; the field keeps the timer
+untouched and the state in one place a test can read.
+
+## To pad2 (n: Int) -> Text:
+    If n is less than 10:
+        Return "0{n}".
+    Return "{n}".
+
+## To formatTime (totalSeconds: Int) -> Text:
+    Let minutes be totalSeconds / 60.
+    Let secs be totalSeconds % 60.
+    Return "{pad2(minutes)}:{pad2(secs)}".
+
+## Component Stopwatch
+
+State:
+    Let seconds be 0.
+    Let running be false.
+
+Actions:
+    Every 1 second as tick:
+        If running:
+            Set seconds to seconds + 1.
+
+    To start:
+        Set running to true.
+
+    To pause:
+        Set running to false.
+
+    To reset:
+        Set running to false.
+        Set seconds to 0.
+
+View:
+    <div class="stopwatch card">
+      <p id="sw-time">{formatTime(seconds)}</p>
+      <button id="sw-start" on-click={start}>Start</button>
+      <button id="sw-pause" on-click={pause}>Pause</button>
+      <button id="sw-reset" on-click={reset}>Reset</button>
+    </div>
+
+## Note
+
+The pomodoro counts down from 5 seconds rather than the traditional 25
+minutes, so `Advance time by ... seconds.` can drive a whole session
+deterministically in a test — the mechanics (start, pause, reach zero, the
+`done` flag) are identical at any length.
+
+## Component Pomodoro
+
+State:
+    Let remaining be 5.
+    Let running be false.
+    Let done be false.
+
+Actions:
+    Every 1 second as tick:
+        If running:
+            If remaining is greater than 0:
+                Set remaining to remaining - 1.
+                If remaining is equal to 0:
+                    Set running to false.
+                    Set done to true.
+
+    To start:
+        Set running to true.
+        Set done to false.
+
+    To pause:
+        Set running to false.
+
+    To reset:
+        Set running to false.
+        Set done to false.
+        Set remaining to 5.
+
+View:
+    <div class="pomodoro">
+      <p id="pd-time">{formatTime(remaining)}</p>
+      <button id="pd-start" on-click={start}>Start</button>
+      <button id="pd-pause" on-click={pause}>Pause</button>
+      <button id="pd-reset" on-click={reset}>Reset</button>
+      {if done:}<p id="pd-done">Time's up!</p>{end}
+    </div>
+
+## Page /
+
+View:
+    <main class="timers">
+      <h1>Stopwatch</h1>
+      <Stopwatch/>
+      <h1>Pomodoro</h1>
+      <Pomodoro/>
+    </main>
+
+Style:
+    .timers p { font-variant-numeric: tabular-nums; font-size: 2rem; }
+
+## Test: the stopwatch starts at zero and does not move on its own
+
+Expect that the text of "#sw-time" is equal to "00:00".
+Advance time by 3 seconds.
+Expect that the text of "#sw-time" is equal to "00:00".
+
+## Test: starting the stopwatch counts seconds, pausing holds them
+
+Click "#sw-start".
+Advance time by 3 seconds.
+Expect that the text of "#sw-time" is equal to "00:03".
+Click "#sw-pause".
+Advance time by 5 seconds.
+Expect that the text of "#sw-time" is equal to "00:03".
+
+## Test: resuming continues from where it paused
+
+Click "#sw-start".
+Advance time by 2 seconds.
+Click "#sw-pause".
+Click "#sw-start".
+Advance time by 2 seconds.
+Expect that the text of "#sw-time" is equal to "00:04".
+
+## Test: resetting the stopwatch stops it and zeroes the display
+
+Click "#sw-start".
+Advance time by 4 seconds.
+Click "#sw-reset".
+Expect that the text of "#sw-time" is equal to "00:00".
+Advance time by 4 seconds.
+Expect that the text of "#sw-time" is equal to "00:00".
+
+## Test: the pomodoro counts down and announces when it finishes
+
+Expect that the text of "#pd-time" is equal to "00:05".
+Click "#pd-start".
+Advance time by 5 seconds.
+Expect that the text of "#pd-time" is equal to "00:00".
+Expect that the text of "#pd-done" is equal to "Time's up!".
+
+## Test: pausing the pomodoro holds the remaining time
+
+Click "#pd-start".
+Advance time by 2 seconds.
+Click "#pd-pause".
+Advance time by 5 seconds.
+Expect that the text of "#pd-time" is equal to "00:03".
+Expect that "#pd-done" is hidden.
+
+## Test: resetting the pomodoro returns to the full duration
+
+Click "#pd-start".
+Advance time by 5 seconds.
+Click "#pd-reset".
+Expect that the text of "#pd-time" is equal to "00:05".
+Expect that "#pd-done" is hidden.

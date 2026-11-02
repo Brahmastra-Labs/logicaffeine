@@ -1,0 +1,48 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_semantics/LK_MutualStructEta.lean",
+  "source_sha256": "f3613e6acf9b1f7e5280ce4d906bad6926148d8f90988159b012b40c19b28bf3",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b"
+  },
+  "exporter_olean_sha256": "49d73051495cae9b48b65442e84d7b1a76a78d66ad694720a80cf2d463c24add",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LK_MSE.NA",
+    "LK_MSE.NA.get",
+    "LK_MSE.naEta",
+    "LK_MSE.MA",
+    "LK_MSE.MB.get"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "32c64411784f96570b44bd8dbc2e8756d866ec8f383736fa565ce05550dd2319",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 371,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated",
+  "compile_log": "mbEta: kernel REJECTED: (kernel) declaration type mismatch, 'LK_MSE.mbEta' has type\n  ∀ (b : LK_MSE.MB), b = b\nbut it is expected to have type\n  ∀ (b : LK_MSE.MB), b = LK_MSE.MB.mk b.get\n",
+  "kernel_controls": {
+    "LK_MSE.mbEta": "REJECTED (declaration type mismatch): MB has one constructor and no indices, but its block is recursive (MA.mk takes an MB), so MB is not structure-like and the kernel refuses η by rfl"
+  }
+}

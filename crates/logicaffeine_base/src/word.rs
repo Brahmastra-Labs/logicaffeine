@@ -173,23 +173,58 @@ impl_word!(Word16, u16, "16");
 impl_word!(Word32, u32, "32");
 impl_word!(Word64, u64, "64");
 
-/// A fixed-width wrapping integer of either supported width — the single runtime carrier for
-/// `Word32`/`Word64` across the interpreter, VM, and wire, so the rest of the system matches on
-/// one `Word` value rather than a variant per width. Binary ops require matching widths; a
-/// width mismatch is a type error the caller reports (the ops return `None`).
+/// A fixed-width wrapping integer of any supported width — the single runtime carrier for
+/// `Word8`/`Word16`/`Word32`/`Word64` across the interpreter, VM, and wire, so the rest of the system
+/// matches on one `Word` value rather than a type per width. Each width is its own ring: a `Word16`
+/// wraps at 2¹⁶ exactly as the compiled tier's `Word16` newtype does. Binary ops require matching
+/// widths; a width mismatch is a type error the caller reports (the ops return `None`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum WordVal {
+    /// An 8-bit wrapping value.
+    W8(Word8),
+    /// A 16-bit wrapping value.
+    W16(Word16),
     /// A 32-bit wrapping value.
     W32(Word32),
     /// A 64-bit wrapping value.
     W64(Word64),
 }
 
+/// Apply one width-generic binary expression to two words of the SAME width.
+macro_rules! word_zip {
+    ($x:expr, $y:expr, |$a:ident, $b:ident| $e:expr) => {
+        match ($x, $y) {
+            (WordVal::W8($a), WordVal::W8($b)) => Some(WordVal::W8($e)),
+            (WordVal::W16($a), WordVal::W16($b)) => Some(WordVal::W16($e)),
+            (WordVal::W32($a), WordVal::W32($b)) => Some(WordVal::W32($e)),
+            (WordVal::W64($a), WordVal::W64($b)) => Some(WordVal::W64($e)),
+            _ => None,
+        }
+    };
+}
+
+/// Apply one width-generic unary expression, preserving the width.
+macro_rules! word_map {
+    ($x:expr, |$a:ident| $e:expr) => {
+        match $x {
+            WordVal::W8($a) => WordVal::W8($e),
+            WordVal::W16($a) => WordVal::W16($e),
+            WordVal::W32($a) => WordVal::W32($e),
+            WordVal::W64($a) => WordVal::W64($e),
+        }
+    };
+}
+
 impl WordVal {
-    /// Bit width, 32 or 64.
+    /// Every width a word can have, narrowest first.
+    pub const WIDTHS: [u32; 4] = [8, 16, 32, 64];
+
+    /// Bit width: 8, 16, 32, or 64.
     #[inline]
     pub const fn width(self) -> u32 {
         match self {
+            WordVal::W8(_) => 8,
+            WordVal::W16(_) => 16,
             WordVal::W32(_) => 32,
             WordVal::W64(_) => 64,
         }
@@ -200,105 +235,104 @@ impl WordVal {
     #[inline]
     pub const fn to_u64(self) -> u64 {
         match self {
+            WordVal::W8(w) => w.0 as u64,
+            WordVal::W16(w) => w.0 as u64,
             WordVal::W32(w) => w.0 as u64,
             WordVal::W64(w) => w.0,
         }
     }
 
-    /// Build a word of the given `width` from the low bits of `bits` (32 → truncates to `u32`).
+    /// Build a word of the given `width` from the low bits of `bits` (the value is reduced into the
+    /// width's ring); `None` for a width that is not 8, 16, 32, or 64.
     #[inline]
     pub const fn from_u64(width: u32, bits: u64) -> Option<Self> {
         match width {
+            8 => Some(WordVal::W8(Word8(bits as u8))),
+            16 => Some(WordVal::W16(Word16(bits as u16))),
             32 => Some(WordVal::W32(Word32(bits as u32))),
             64 => Some(WordVal::W64(Word64(bits))),
             _ => None,
         }
     }
 
+    /// The type name (`Word8` … `Word64`) — what errors and `type_name` report.
     #[inline]
-    fn zip(
-        self,
-        o: Self,
-        f32: impl FnOnce(Word32, Word32) -> Word32,
-        f64: impl FnOnce(Word64, Word64) -> Word64,
-    ) -> Option<Self> {
-        match (self, o) {
-            (WordVal::W32(a), WordVal::W32(b)) => Some(WordVal::W32(f32(a, b))),
-            (WordVal::W64(a), WordVal::W64(b)) => Some(WordVal::W64(f64(a, b))),
-            _ => None,
+    pub const fn type_name(self) -> &'static str {
+        match self {
+            WordVal::W8(_) => "Word8",
+            WordVal::W16(_) => "Word16",
+            WordVal::W32(_) => "Word32",
+            WordVal::W64(_) => "Word64",
         }
     }
 
     /// Wrapping addition; `None` on a width mismatch.
     #[inline]
     pub fn add(self, o: Self) -> Option<Self> {
-        self.zip(o, Word32::add, Word64::add)
+        word_zip!(self, o, |a, b| a.add(b))
     }
     /// Wrapping subtraction; `None` on a width mismatch.
     #[inline]
     pub fn sub(self, o: Self) -> Option<Self> {
-        self.zip(o, Word32::sub, Word64::sub)
+        word_zip!(self, o, |a, b| a.sub(b))
     }
     /// Wrapping multiplication; `None` on a width mismatch.
     #[inline]
     pub fn mul(self, o: Self) -> Option<Self> {
-        self.zip(o, Word32::mul, Word64::mul)
+        word_zip!(self, o, |a, b| a.mul(b))
+    }
+    /// Truncating unsigned division; `None` on a width mismatch. The caller must ensure a
+    /// non-zero divisor — the concrete `/` panics on zero, exactly as the AOT `Word` newtype
+    /// (and the native unsigned integers) do.
+    #[inline]
+    pub fn div(self, o: Self) -> Option<Self> {
+        word_zip!(self, o, |a, b| a / b)
+    }
+    /// Unsigned remainder; `None` on a width mismatch. The caller must ensure a non-zero divisor.
+    #[inline]
+    pub fn rem(self, o: Self) -> Option<Self> {
+        word_zip!(self, o, |a, b| a % b)
     }
     /// Bitwise AND; `None` on a width mismatch.
     #[inline]
     pub fn bitand(self, o: Self) -> Option<Self> {
-        self.zip(o, Word32::bitand, Word64::bitand)
+        word_zip!(self, o, |a, b| a.bitand(b))
     }
     /// Bitwise OR; `None` on a width mismatch.
     #[inline]
     pub fn bitor(self, o: Self) -> Option<Self> {
-        self.zip(o, Word32::bitor, Word64::bitor)
+        word_zip!(self, o, |a, b| a.bitor(b))
     }
     /// Bitwise XOR; `None` on a width mismatch.
     #[inline]
     pub fn bitxor(self, o: Self) -> Option<Self> {
-        self.zip(o, Word32::bitxor, Word64::bitxor)
+        word_zip!(self, o, |a, b| a.bitxor(b))
     }
 
     /// Bitwise complement (width-preserving).
     #[inline]
     pub const fn not(self) -> Self {
-        match self {
-            WordVal::W32(w) => WordVal::W32(w.not()),
-            WordVal::W64(w) => WordVal::W64(w.not()),
-        }
+        word_map!(self, |w| w.not())
     }
-    /// Logical left shift by `n` (width-preserving).
+    /// Logical left shift by `n` (width-preserving; the count is taken modulo the width).
     #[inline]
     pub const fn shl(self, n: u32) -> Self {
-        match self {
-            WordVal::W32(w) => WordVal::W32(w.shl(n)),
-            WordVal::W64(w) => WordVal::W64(w.shl(n)),
-        }
+        word_map!(self, |w| w.shl(n))
     }
-    /// Logical right shift by `n` (width-preserving).
+    /// Logical right shift by `n` (width-preserving; the count is taken modulo the width).
     #[inline]
     pub const fn shr(self, n: u32) -> Self {
-        match self {
-            WordVal::W32(w) => WordVal::W32(w.shr(n)),
-            WordVal::W64(w) => WordVal::W64(w.shr(n)),
-        }
+        word_map!(self, |w| w.shr(n))
     }
     /// Left rotation by `n` (width-preserving) — the bit-permutation crypto needs.
     #[inline]
     pub const fn rotl(self, n: u32) -> Self {
-        match self {
-            WordVal::W32(w) => WordVal::W32(w.rotl(n)),
-            WordVal::W64(w) => WordVal::W64(w.rotl(n)),
-        }
+        word_map!(self, |w| w.rotl(n))
     }
     /// Right rotation by `n` (width-preserving).
     #[inline]
     pub const fn rotr(self, n: u32) -> Self {
-        match self {
-            WordVal::W32(w) => WordVal::W32(w.rotr(n)),
-            WordVal::W64(w) => WordVal::W64(w.rotr(n)),
-        }
+        word_map!(self, |w| w.rotr(n))
     }
 }
 
@@ -573,7 +607,9 @@ impl Lanes8Word32 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self(core::array::from_fn(|i| self.0[(i / (2 * h)) * (2 * h) + (i % (2 * h)) % h]))
+        Self(core::array::from_fn(|i| {
+            self.0[(i / (2 * h)) * (2 * h) + (i % (2 * h)) % h]
+        }))
     }
 
     /// Broadcast each `2h`-block's high `h` lanes into both halves. `h=4`→`vperm2i128(0x11)`;
@@ -595,7 +631,9 @@ impl Lanes8Word32 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self(core::array::from_fn(|i| self.0[(i / (2 * h)) * (2 * h) + h + (i % (2 * h)) % h]))
+        Self(core::array::from_fn(|i| {
+            self.0[(i / (2 * h)) * (2 * h) + h + (i % (2 * h)) % h]
+        }))
     }
 
     /// Recombine the `+`/`−` halves: each `2h`-block's low `h` from `self`, high `h` from `o`.
@@ -618,7 +656,13 @@ impl Lanes8Word32 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self(core::array::from_fn(|i| if (i % (2 * h)) < h { self.0[i] } else { o.0[i] }))
+        Self(core::array::from_fn(|i| {
+            if (i % (2 * h)) < h {
+                self.0[i]
+            } else {
+                o.0[i]
+            }
+        }))
     }
 }
 
@@ -950,7 +994,11 @@ impl Lanes16Word8 {
             let mut r = [0u8; 16];
             for i in 0..16 {
                 let x = idx.0[i];
-                r[i] = if x & 0x80 != 0 { 0 } else { self.0[(x & 0x0f) as usize] };
+                r[i] = if x & 0x80 != 0 {
+                    0
+                } else {
+                    self.0[(x & 0x0f) as usize]
+                };
             }
             Self(r)
         }
@@ -1216,7 +1264,12 @@ impl Lanes4Word64 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self([self.0[0] ^ o.0[0], self.0[1] ^ o.0[1], self.0[2] ^ o.0[2], self.0[3] ^ o.0[3]])
+        Self([
+            self.0[0] ^ o.0[0],
+            self.0[1] ^ o.0[1],
+            self.0[2] ^ o.0[2],
+            self.0[3] ^ o.0[3],
+        ])
     }
 
     /// Lane-wise AND (`vpand`).
@@ -1232,7 +1285,12 @@ impl Lanes4Word64 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self([self.0[0] & o.0[0], self.0[1] & o.0[1], self.0[2] & o.0[2], self.0[3] & o.0[3]])
+        Self([
+            self.0[0] & o.0[0],
+            self.0[1] & o.0[1],
+            self.0[2] & o.0[2],
+            self.0[3] & o.0[3],
+        ])
     }
 
     /// Lane-wise AND-NOT `(¬self) & o` (`vpandn`) — Keccak's χ nonlinearity `¬bᵢ₊₁ ∧ bᵢ₊₂` in one op.
@@ -1248,7 +1306,12 @@ impl Lanes4Word64 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self([!self.0[0] & o.0[0], !self.0[1] & o.0[1], !self.0[2] & o.0[2], !self.0[3] & o.0[3]])
+        Self([
+            !self.0[0] & o.0[0],
+            !self.0[1] & o.0[1],
+            !self.0[2] & o.0[2],
+            !self.0[3] & o.0[3],
+        ])
     }
 
     /// Lane-wise left rotation by `n` (mod 64) — Keccak's ρ offsets and θ's D term. `(x<<n)|(x>>(64−n))`
@@ -1447,7 +1510,9 @@ impl Lanes16Word16 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self(core::array::from_fn(|i| self.0[(i / (2 * h)) * (2 * h) + (i % (2 * h)) % h]))
+        Self(core::array::from_fn(|i| {
+            self.0[(i / (2 * h)) * (2 * h) + (i % (2 * h)) % h]
+        }))
     }
 
     /// Broadcast each `2h`-block's high `h` lanes into both of its halves — the source-high
@@ -1471,7 +1536,9 @@ impl Lanes16Word16 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self(core::array::from_fn(|i| self.0[(i / (2 * h)) * (2 * h) + h + (i % (2 * h)) % h]))
+        Self(core::array::from_fn(|i| {
+            self.0[(i / (2 * h)) * (2 * h) + h + (i % (2 * h)) % h]
+        }))
     }
 
     /// Recombine the `+`/`−` halves of the within-vector butterfly: each `2h`-block's low `h` lanes
@@ -1497,7 +1564,13 @@ impl Lanes16Word16 {
             return Self(r);
         }
         #[allow(unreachable_code)]
-        Self(core::array::from_fn(|i| if (i % (2 * h)) < h { self.0[i] } else { o.0[i] }))
+        Self(core::array::from_fn(|i| {
+            if (i % (2 * h)) < h {
+                self.0[i]
+            } else {
+                o.0[i]
+            }
+        }))
     }
 
     /// Shared add/sub/mullo/mulhi dispatcher. `#[inline(always)]` + compile-time
@@ -1701,6 +1774,7 @@ impl LanesVal {
     pub fn bitxor(self, o: Self) -> Option<Self> {
         match (self, o) {
             (LanesVal::L8W32(a), LanesVal::L8W32(b)) => Some(LanesVal::L8W32(a.bitxor(b))),
+            (LanesVal::L4W64(a), LanesVal::L4W64(b)) => Some(LanesVal::L4W64(a.bitxor(b))),
             (LanesVal::L4W32(a), LanesVal::L4W32(b)) => Some(LanesVal::L4W32(a.bitxor(b))),
             _ => None,
         }
@@ -1811,6 +1885,7 @@ impl LanesVal {
     pub fn rotl(self, n: u32) -> Option<Self> {
         match self {
             LanesVal::L8W32(a) => Some(LanesVal::L8W32(a.rotl(n))),
+            LanesVal::L4W64(a) => Some(LanesVal::L4W64(a.rotl(n))),
             _ => None,
         }
     }
@@ -1850,229 +1925,5 @@ impl LanesVal {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn word32_add_wraps_not_promotes() {
-        // The whole point vs BigInt: MAX + 1 wraps to 0, it never grows.
-        assert_eq!(Word32::MAX.add(Word32::ONE), Word32::ZERO);
-        assert_eq!(Word32(0xFFFF_FFFF).add(Word32(2)), Word32(1));
-    }
-
-    #[test]
-    fn word64_add_wraps_not_promotes() {
-        assert_eq!(Word64::MAX.add(Word64::ONE), Word64::ZERO);
-        assert_eq!(Word64(u64::MAX).add(Word64(5)), Word64(4));
-    }
-
-    #[test]
-    fn div_rem_shl_shr_operators_are_unsigned_primitive() {
-        use core::ops::{Div, Rem, Shl, Shr};
-        // `% 2^k` is a mask, `/ 2^k` a shift — the crypto reduction primitives, unsigned.
-        assert_eq!(Word32(0x1234_5678).rem(Word32(65536)), Word32(0x5678), "% 2^16 masks the low bits");
-        assert_eq!(Word32(0x1234_5678).div(Word32(65536)), Word32(0x1234), "/ 2^16 shifts right 16");
-        assert_eq!(Word32(7).div(Word32(2)), Word32(3), "unsigned truncating division");
-        assert_eq!(Word32(7).rem(Word32(3)), Word32(1), "unsigned remainder");
-        assert_eq!(Word32(1).shl(31), Word32(0x8000_0000), "<< 31 sets the top bit");
-        assert_eq!(Word32(0x8000_0000).shr(31), Word32(1), ">> 31 is a logical (unsigned) shift");
-        assert_eq!(Word64(1).shl(63).shr(63), Word64(1), "Word64 logical shift round-trips the top bit");
-        assert_eq!(Word8(200).div(Word8(8)), Word8(25), "Word8 unsigned division (200 ÷ 8)");
-    }
-
-    #[test]
-    fn rotl_is_cyclic_and_inverse_of_rotr() {
-        let x = Word32(0x1234_5678);
-        assert_eq!(x.rotl(8), Word32(0x3456_7812), "rotl by 8 is the documented permutation");
-        assert_eq!(x.rotl(0), x, "rotate by 0 is identity");
-        assert_eq!(x.rotl(32), x, "a full rotation is identity");
-        for n in 0..Word32::BITS {
-            assert_eq!(x.rotl(n).rotr(n), x, "rotr undoes rotl by {n}");
-        }
-    }
-
-    #[test]
-    fn agrees_with_native_wrapping_ops_over_fuzz() {
-        // Cross-check every op against the primitive's own wrapping arithmetic — the oracle.
-        let mut s = 0xDEAD_BEEF_CAFE_F00Du64;
-        let mut next = || {
-            s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-            s
-        };
-        for _ in 0..5000 {
-            let a = next() as u32;
-            let b = next() as u32;
-            let n = (next() % 32) as u32;
-            assert_eq!(Word32(a).add(Word32(b)).get(), a.wrapping_add(b), "add");
-            assert_eq!(Word32(a).sub(Word32(b)).get(), a.wrapping_sub(b), "sub");
-            assert_eq!(Word32(a).mul(Word32(b)).get(), a.wrapping_mul(b), "mul");
-            assert_eq!(Word32(a).bitxor(Word32(b)).get(), a ^ b, "xor");
-            assert_eq!(Word32(a).bitand(Word32(b)).get(), a & b, "and");
-            assert_eq!(Word32(a).bitor(Word32(b)).get(), a | b, "or");
-            assert_eq!(Word32(a).not().get(), !a, "not");
-            assert_eq!(Word32(a).shl(n).get(), a.wrapping_shl(n), "shl");
-            assert_eq!(Word32(a).shr(n).get(), a.wrapping_shr(n), "shr");
-            assert_eq!(Word32(a).rotl(n).get(), a.rotate_left(n), "rotl");
-            assert_eq!(Word32(a).rotr(n).get(), a.rotate_right(n), "rotr");
-        }
-    }
-
-    #[test]
-    fn lanes8word32_avx2_xor_equals_scalar_lanes() {
-        // The SIMD-correctness proof at the base level: the AVX2 lowering of lane-wise XOR must be
-        // byte-identical to the scalar lanes (the spec). Fuzz the dispatching `bitxor` AND the raw
-        // scalar path so both are exercised regardless of the host's feature set.
-        let mut s = 0x0BAD_F00D_1234_5678u64;
-        let mut next = || {
-            s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            s
-        };
-        for _ in 0..2000 {
-            let a = Lanes8Word32(core::array::from_fn(|_| next() as u32));
-            let b = Lanes8Word32(core::array::from_fn(|_| next() as u32));
-            let n = (next() % 64) as u32; // exercises the n ≥ 32 reduction too
-            // XOR.
-            let xor_exp = Lanes8Word32(core::array::from_fn(|i| a.0[i] ^ b.0[i]));
-            assert_eq!(a.bitxor_scalar(b), xor_exp, "scalar lane xor is the spec");
-            assert_eq!(a.bitxor(b), xor_exp, "dispatched (AVX2) xor == spec");
-            // Wrapping add.
-            let add_exp = Lanes8Word32(core::array::from_fn(|i| a.0[i].wrapping_add(b.0[i])));
-            assert_eq!(a.add_scalar(b), add_exp, "scalar lane add is the spec");
-            assert_eq!(a.add(b), add_exp, "dispatched (AVX2) add == spec");
-            // Left rotation (the ChaCha diffusion op).
-            let rot_exp = Lanes8Word32(core::array::from_fn(|i| a.0[i].rotate_left(n % 32)));
-            assert_eq!(a.rotl_scalar(n % 32), rot_exp, "scalar lane rotl is the spec");
-            assert_eq!(a.rotl(n), rot_exp, "dispatched (AVX2) rotl == spec (n mod 32)");
-            // Wrapping subtract (the i32 NTT butterfly difference).
-            let sub_exp = Lanes8Word32(core::array::from_fn(|i| a.0[i].wrapping_sub(b.0[i])));
-            assert_eq!(a.sub_scalar(b), sub_exp, "scalar lane sub32 is the spec");
-            assert_eq!(a.sub(b), sub_exp, "dispatched (AVX2) sub32 == spec");
-            // The signed i32 Montgomery multiply (ML-DSA q=8380417): AVX2 vpmuldq path == scalar.
-            const Q: i32 = 8_380_417;
-            const QINV: i32 = 58_728_449;
-            let qv = Lanes8Word32::splat(Q as u32);
-            let qiv = Lanes8Word32::splat(QINV as u32);
-            // Inputs in [−q, q] (the NTT's working range) so the i64 product stays well within range.
-            let ar = Lanes8Word32(core::array::from_fn(|i| (a.0[i] as i32 % Q) as u32));
-            let br = Lanes8Word32(core::array::from_fn(|i| (b.0[i] as i32 % Q) as u32));
-            let mont_exp = Lanes8Word32(core::array::from_fn(|i| {
-                let p = (ar.0[i] as i32 as i64) * (br.0[i] as i32 as i64);
-                let t = (p as i32).wrapping_mul(QINV) as i64;
-                (((p - t * Q as i64) >> 32) as i32) as u32
-            }));
-            assert_eq!(ar.montmul32_scalar(br, qv, qiv), mont_exp, "scalar montmul32 is the spec");
-            assert_eq!(ar.montmul32(br, qv, qiv), mont_exp, "dispatched (AVX2) montmul32 == spec");
-            // The i32 within-vector-NTT permutes at every stride (h=4 vperm2i128, h=2/1 vpshufd/vpblendd).
-            for &h in &[4usize, 2, 1] {
-                let bl = Lanes8Word32(core::array::from_fn(|i| a.0[(i / (2 * h)) * (2 * h) + (i % (2 * h)) % h]));
-                let bh = Lanes8Word32(core::array::from_fn(|i| a.0[(i / (2 * h)) * (2 * h) + h + (i % (2 * h)) % h]));
-                let bd = Lanes8Word32(core::array::from_fn(|i| if (i % (2 * h)) < h { a.0[i] } else { b.0[i] }));
-                assert_eq!(a.ntt_bcast_lo(h), bl, "i32 ntt_bcast_lo({h}) (AVX2) == scalar gather");
-                assert_eq!(a.ntt_bcast_hi(h), bh, "i32 ntt_bcast_hi({h}) (AVX2) == scalar gather");
-                assert_eq!(a.ntt_blend(b, h), bd, "i32 ntt_blend({h}) (AVX2) == scalar gather");
-            }
-        }
-        // splat / lane / pack / unpack round-trip.
-        let v = Lanes8Word32::splat(0xABCD_1234);
-        assert_eq!(v.lane(3), Word32(0xABCD_1234));
-        assert_eq!(v.to_words()[7], Word32(0xABCD_1234));
-        let packed = Lanes8Word32::from_words(&[Word32(1), Word32(2), Word32(3)]);
-        assert_eq!(packed.0, [1, 2, 3, 0, 0, 0, 0, 0], "short slice zero-fills");
-    }
-
-    #[test]
-    fn lanes4word64_avx2_add_and_widemul_equal_scalar_lanes() {
-        // The SIMD-correctness proof for the Poly1305 lane config: AVX2 add (`vpaddq`) and the
-        // widening low-32 multiply (`vpmuludq`) must be byte-identical to the scalar lanes.
-        let mut s = 0x1357_9bdf_2468_ace0u64;
-        let mut next = || {
-            s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            s
-        };
-        for _ in 0..2000 {
-            let a = Lanes4Word64(core::array::from_fn(|_| next()));
-            let b = Lanes4Word64(core::array::from_fn(|_| next()));
-            let add_exp = Lanes4Word64(core::array::from_fn(|i| a.0[i].wrapping_add(b.0[i])));
-            assert_eq!(a.add_scalar(b), add_exp, "scalar lane add64 is the spec");
-            assert_eq!(a.add(b), add_exp, "dispatched (AVX2) add64 == spec");
-            let mul_exp =
-                Lanes4Word64(core::array::from_fn(|i| (a.0[i] & 0xffff_ffff) * (b.0[i] & 0xffff_ffff)));
-            assert_eq!(a.mul_lo32_wide_scalar(b), mul_exp, "scalar widening mul is the spec");
-            assert_eq!(a.mul_lo32_wide(b), mul_exp, "dispatched (AVX2) vpmuludq == spec");
-            // Horizontal sum.
-            let hs = a.0[0].wrapping_add(a.0[1]).wrapping_add(a.0[2]).wrapping_add(a.0[3]);
-            assert_eq!(a.hsum(), hs, "horizontal sum");
-        }
-        let v = Lanes4Word64::from_words(&[Word64(5), Word64(9)]);
-        assert_eq!(v.0, [5, 9, 0, 0], "short slice zero-fills");
-        assert_eq!(v.lane(1), Word64(9));
-        assert_eq!(LanesVal::L4W64(v).hsum(), 14, "5 + 9 + 0 + 0");
-        assert_eq!(LanesVal::L4W64(v).type_name(), "Lanes4Word64");
-    }
-
-    #[test]
-    fn lanes16word16_avx2_ntt_ops_equal_scalar_lanes() {
-        // The SIMD-correctness proof for the NTT lane config: AVX2 add/sub (`vpaddw`/`vpsubw`),
-        // low-16 multiply (`vpmullw`), and SIGNED high-16 multiply (`vpmulhw`) must be byte-identical
-        // to the scalar lanes (the latter is the Montgomery butterfly's `mulhi`).
-        let mut s = 0x2468_ace0_1357_9bdfu64;
-        let mut next = || {
-            s = s.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            (s >> 40) as u16
-        };
-        for _ in 0..3000 {
-            let a = Lanes16Word16(core::array::from_fn(|_| next()));
-            let b = Lanes16Word16(core::array::from_fn(|_| next()));
-            let add_exp = Lanes16Word16(core::array::from_fn(|i| a.0[i].wrapping_add(b.0[i])));
-            let sub_exp = Lanes16Word16(core::array::from_fn(|i| a.0[i].wrapping_sub(b.0[i])));
-            let lo_exp = Lanes16Word16(core::array::from_fn(|i| a.0[i].wrapping_mul(b.0[i])));
-            let hi_exp = Lanes16Word16(core::array::from_fn(|i| {
-                (((a.0[i] as i16 as i32) * (b.0[i] as i16 as i32)) >> 16) as u16
-            }));
-            assert_eq!(a.add(b), add_exp, "lane add16 == spec");
-            assert_eq!(a.sub(b), sub_exp, "lane sub16 == spec");
-            assert_eq!(a.mullo(b), lo_exp, "lane mullo16 == spec");
-            assert_eq!(a.mulhi(b), hi_exp, "lane (signed) mulhi16 == spec");
-            // The within-vector-NTT lane permutes at every stride (h=8 `vperm2i128`, h=4/2
-            // `vpshufd`/`vpblendd`): the dispatched (AVX2) path must equal the scalar gather.
-            for &h in &[8usize, 4, 2] {
-                let bl = Lanes16Word16(core::array::from_fn(|i| a.0[(i / (2 * h)) * (2 * h) + (i % (2 * h)) % h]));
-                let bh = Lanes16Word16(core::array::from_fn(|i| a.0[(i / (2 * h)) * (2 * h) + h + (i % (2 * h)) % h]));
-                let bd = Lanes16Word16(core::array::from_fn(|i| if (i % (2 * h)) < h { a.0[i] } else { b.0[i] }));
-                assert_eq!(a.ntt_bcast_lo(h), bl, "ntt_bcast_lo({h}) (AVX2) == scalar gather");
-                assert_eq!(a.ntt_bcast_hi(h), bh, "ntt_bcast_hi({h}) (AVX2) == scalar gather");
-                assert_eq!(a.ntt_blend(b, h), bd, "ntt_blend({h}) (AVX2) == scalar gather");
-            }
-        }
-        assert_eq!(Lanes16Word16::splat(7).lane(9), Word16(7));
-        let p = Lanes16Word16::from_words(&[Word16(3), Word16(5)]);
-        assert_eq!(p.0[0..3], [3, 5, 0], "short slice zero-fills");
-        assert_eq!(LanesVal::L16W16(p).type_name(), "Lanes16Word16");
-        assert_eq!(LanesVal::L16W16(p).lanes(), 16);
-    }
-
-    #[test]
-    fn wordval_dispatches_by_width_and_rejects_mismatch() {
-        let a = WordVal::W32(Word32(0xFFFF_FFFF));
-        let b = WordVal::W32(Word32(1));
-        assert_eq!(a.add(b), Some(WordVal::W32(Word32(0))), "same-width add wraps");
-        assert_eq!(a.width(), 32);
-        assert_eq!(a.to_u64(), 0xFFFF_FFFF);
-
-        let c = WordVal::W64(Word64(1));
-        assert_eq!(a.add(c), None, "mixed-width add is a type error");
-        assert_eq!(a.bitxor(c), None, "mixed-width xor is a type error");
-
-        // Unary ops preserve width.
-        assert_eq!(WordVal::W64(Word64(0)).not(), WordVal::W64(Word64(u64::MAX)));
-        assert_eq!(WordVal::W32(Word32(0x1234_5678)).rotl(8), WordVal::W32(Word32(0x3456_7812)));
-
-        // from_u64 / width round-trip.
-        assert_eq!(WordVal::from_u64(32, 0x1_0000_0005), Some(WordVal::W32(Word32(5))), "32 truncates");
-        assert_eq!(WordVal::from_u64(64, 5), Some(WordVal::W64(Word64(5))));
-        assert_eq!(WordVal::from_u64(16, 5), None, "only 32/64 are valid widths");
-
-        // Display is the unsigned decimal value.
-        assert_eq!(WordVal::W32(Word32(42)).to_string(), "42");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/word/tests.rs"]
+mod tests;

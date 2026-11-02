@@ -15,14 +15,11 @@
 //! The reflexive case is also a semantic identity, so the kernel must certify
 //! "John saw himself ⊢ John saw John".
 
-use logicaffeine_language::compile;
 use logicaffeine_compile::verify_theorem;
+use logicaffeine_language::compile;
 
 fn theorem(premises: &[&str], goal: &str) -> String {
-    let givens: String = premises
-        .iter()
-        .map(|p| format!("Given: {p}\n"))
-        .collect();
+    let givens: String = premises.iter().map(|p| format!("Given: {p}\n")).collect();
     format!("## Theorem: Phase143\n{givens}Prove: {goal}\nProof: Auto.\n")
 }
 
@@ -41,8 +38,7 @@ fn embedded_reflexive_binds_embedded_subject() {
         "embedded reflexive binds the embedded subject Mary: {out}"
     );
     assert!(
-        !out
-            .lines()
+        !out.lines()
             .any(|l| l.contains("See") && l.contains("Theme(e, John)")),
         "embedded reflexive must NOT skip to the matrix subject: {out}"
     );
@@ -68,8 +64,7 @@ fn embedded_pronoun_excludes_embedded_subject() {
     let out = compile("John said that Mary saw him.").unwrap();
     eprintln!("embedded-B: {out}");
     assert!(
-        !out
-            .lines()
+        !out.lines()
             .any(|l| l.contains("See") && l.contains("Theme(e, Mary)")),
         "Principle B: 'him' must NOT be the local subject Mary: {out}"
     );
@@ -104,7 +99,10 @@ fn feminine_object_pronoun_resolves() {
     // the possessive/accusative ambiguity of "her". Binding must handle it.
     let out = compile("Mary saw her.").unwrap();
     eprintln!("her-object: {out}");
-    assert!(out.contains("Theme"), "the object 'her' must survive: {out}");
+    assert!(
+        out.contains("Theme"),
+        "the object 'her' must survive: {out}"
+    );
     assert!(
         !out.contains("Theme(e, Mary)"),
         "Principle B: 'her' must NOT be Mary: {out}"

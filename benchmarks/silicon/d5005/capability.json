@@ -1,0 +1,78 @@
+[
+  {
+    "checkpoint": "gemma-3-1b-it-q8_0",
+    "verdict": {
+      "Refused": [
+        "attention with a sliding window (layers 0–4, 6–10, 12–16, 18–22, 24–25)",
+        "a feed-forward block of GELU (every layer)",
+        "a norm on the mixer's output (every layer)",
+        "a norm on the feed-forward output (every layer)",
+        "a scaled token embedding"
+      ]
+    }
+  },
+  {
+    "checkpoint": "llama-2-70b-chat-q4_k_m",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "llama-3.1-70b-instruct-q4_k_m",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "llama-3.1-8b-instruct-q8_0",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "llama-3.2-1b-instruct-q8_0",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3-30b-a3b-q8_0",
+    "verdict": {
+      "Refused": [
+        "a feed-forward block of experts (every layer)"
+      ]
+    }
+  },
+  {
+    "checkpoint": "qwen3-8b-q8_0",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.5-0.8b-q8_0",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-iq4_xs",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q3_k_m",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q4_0",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q4_k_m",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q4_k_s",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q5_k_m",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q6_k",
+    "verdict": "Admitted"
+  },
+  {
+    "checkpoint": "qwen3.8-27b-q8_0",
+    "verdict": "Admitted"
+  }
+]

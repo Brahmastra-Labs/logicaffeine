@@ -1,277 +1,229 @@
-//! Interactive AST (Abstract Syntax Tree) visualization.
+//! The Syntax Tree: how a sentence parses, drawn with the Studio's tree.
 //!
-//! Renders a collapsible tree view of parsed expressions with syntax-highlighted
-//! node types. Useful for understanding sentence structure and debugging.
-//!
-//! # Props
-//!
-//! - `ast` - Optional AST node to display (shows placeholder if None)
-//!
-//! # Node Types
-//!
-//! Different node types are color-coded:
-//! - Quantifiers (purple): ∀, ∃
-//! - Predicates (green): Property names
-//! - Binary operators (purple): ∧, ∨, →, ↔
-//! - Variables (blue): x, y, z
-//! - Constants (yellow): Named entities
+//! The top row is the whole sentence as parsed, and each row below splits its phrase into its
+//! parts. A row is a node's label — the formula piece it stands for, in the notation the Logic
+//! Output prints — then a pill naming its kind, in the reader's word and the colour of the one
+//! syntax palette (`--syntax-*`). A short note above the tree says how to read it, with a legend
+//! of the pill colours. Every level opens as the tree opens; a node's row folds its parts away.
 
-use dioxus::prelude::*;
+use crate::ui::components::tree::{Tree, TreeNode};
 use crate::AstNode;
+use dioxus::prelude::*;
 
-const TREE_STYLE: &str = r#"
-.ast-tree-container {
+const SYNTAX_TREE_STYLE: &str = r#"
+/* How to read the tree, quietly above it: a line of prose, then the pill colours. */
+.syntax-tree-guide {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    overflow: auto;
-    padding: 16px;
-    -webkit-overflow-scrolling: touch;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--studio-text-secondary);
 }
 
-.ast-tree-empty {
-    color: #666;
-    font-style: italic;
-    text-align: center;
-    padding: 40px 20px;
+.syntax-tree-note {
+    margin: 0;
 }
 
-.ast-node {
-    margin-left: 16px;
-    position: relative;
-}
-
-.ast-node:before {
-    content: '';
-    position: absolute;
-    left: -12px;
-    top: 0;
-    height: 100%;
-    width: 1px;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.ast-node:last-child:before {
-    height: 12px;
-}
-
-.ast-node-label {
+.syntax-tree-legend {
     display: flex;
-    align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.15s ease;
-    position: relative;
-    -webkit-tap-highlight-color: transparent;
 }
 
-.ast-node-label:hover {
-    background: rgba(255, 255, 255, 0.05);
+/* The tree runs the column's whole width, so its first line stands one step from the column's
+   edge, and a tree wider than the column scrolls sideways across it. */
+.syntax-tree {
+    --tree-pad-top: 12px;
+    --tree-pad-bottom: 0px;
+    margin: 0 calc(-1 * var(--studio-inset, 20px));
+    overflow-x: auto;
 }
 
-.ast-node-label:before {
-    content: '';
-    position: absolute;
-    left: -12px;
-    top: 50%;
-    width: 8px;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.ast-node-toggle {
-    width: 16px;
-    height: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    color: #666;
-    transition: transform 0.15s ease;
-}
-
-.ast-node-toggle.expanded {
-    transform: rotate(90deg);
-}
-
-.ast-node-text {
+.syntax-label {
+    flex: none;
+    margin-right: 8px;
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     font-size: 13px;
-}
-
-.ast-node-type {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.08);
-    color: #888;
+    color: var(--studio-text);
     white-space: nowrap;
 }
 
-.ast-node-type.quantifier { background: rgba(198, 120, 221, 0.2); color: #c678dd; }
-.ast-node-type.predicate { background: rgba(152, 195, 121, 0.2); color: #98c379; }
-.ast-node-type.binary_op { background: rgba(198, 120, 221, 0.2); color: #c678dd; }
-.ast-node-type.unary_op { background: rgba(224, 108, 117, 0.2); color: #e06c75; }
-.ast-node-type.constant { background: rgba(229, 192, 123, 0.2); color: #e5c07b; }
-.ast-node-type.variable { background: rgba(97, 175, 239, 0.2); color: #61afef; }
-.ast-node-type.modal { background: rgba(86, 182, 194, 0.2); color: #56b6c2; }
-.ast-node-type.lambda { background: rgba(224, 108, 117, 0.2); color: #e06c75; }
-
-.ast-children {
-    display: none;
+/* A kind's pill: its word in its swatch, on a tint of the same. */
+.syntax-kind {
+    flex: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 16px;
+    white-space: nowrap;
+    color: var(--kind, var(--studio-text-secondary));
+    background: color-mix(in srgb, var(--kind, var(--studio-text-secondary)) 18%, transparent);
 }
 
-.ast-children.expanded {
-    display: block;
-}
-
-.ast-root {
-    margin-left: 0;
-}
-
-.ast-root:before {
-    display: none;
-}
-
-.ast-root > .ast-node-label:before {
-    display: none;
-}
-
-/* Mobile optimizations */
-@media (max-width: 768px) {
-    .ast-tree-container {
-        padding: 12px;
-    }
-
-    .ast-tree-empty {
-        padding: 30px 16px;
-        font-size: 14px;
-    }
-
-    /* Larger touch targets for tree nodes */
-    .ast-node {
-        margin-left: 14px;
-    }
-
-    .ast-node-label {
-        padding: 8px 10px;
-        gap: 8px;
-        min-height: 40px;
-        border-radius: 6px;
-    }
-
-    .ast-node-label:active {
-        background: rgba(255, 255, 255, 0.1);
-    }
-
-    .ast-node-toggle {
-        width: 24px;
-        height: 24px;
-        font-size: 12px;
-    }
-
-    .ast-node-text {
-        font-size: 14px;
-        word-break: break-word;
-    }
-
-    .ast-node-type {
-        font-size: 11px;
-        padding: 3px 8px;
-        border-radius: 4px;
-    }
-
-    .ast-node:before {
-        left: -10px;
-    }
-
-    .ast-node-label:before {
-        left: -10px;
-        width: 6px;
-    }
-}
-
-/* Extra small screens */
-@media (max-width: 480px) {
-    .ast-tree-container {
-        padding: 10px;
-    }
-
-    .ast-node {
-        margin-left: 12px;
-    }
-
-    .ast-node-label {
-        padding: 6px 8px;
-        min-height: 36px;
-    }
-
-    .ast-node-text {
-        font-size: 13px;
-    }
-
-    .ast-node-type {
-        font-size: 10px;
-        padding: 2px 6px;
-    }
-}
+.syntax-kind.quantifier { --kind: var(--syntax-quantifier); }
+.syntax-kind.connective { --kind: var(--syntax-connective); }
+.syntax-kind.predicate { --kind: var(--syntax-predicate); }
+.syntax-kind.individual { --kind: var(--syntax-individual); }
+.syntax-kind.role { --kind: var(--syntax-role); }
+.syntax-kind.variable { --kind: var(--syntax-variable); }
+.syntax-kind.modal { --kind: var(--syntax-modal); }
+.syntax-kind.tense { --kind: var(--syntax-tense); }
 "#;
 
-#[component]
-pub fn AstTree(ast: Option<AstNode>) -> Element {
-    rsx! {
-        style { "{TREE_STYLE}" }
+/// A swatch of the one syntax palette (`--syntax-*` in the Studio's tokens).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Swatch {
+    Quantifier,
+    Connective,
+    Predicate,
+    Individual,
+    Role,
+    Variable,
+    Modal,
+    Tense,
+}
 
-        div { class: "ast-tree-container",
-            if let Some(node) = ast {
-                AstNodeView { node: node, is_root: true }
+impl Swatch {
+    /// Its name in the palette: the pill's class and its token, `--syntax-{name}`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Swatch::Quantifier => "quantifier",
+            Swatch::Connective => "connective",
+            Swatch::Predicate => "predicate",
+            Swatch::Individual => "individual",
+            Swatch::Role => "role",
+            Swatch::Variable => "variable",
+            Swatch::Modal => "modal",
+            Swatch::Tense => "tense",
+        }
+    }
+}
+
+/// A node kind as a reader sees it: the word its pill says and the swatch it wears.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KindLook {
+    pub word: &'static str,
+    pub swatch: Swatch,
+}
+
+/// The look of each kind the compiler names a node (`ui_bridge::expr_to_ast_node`), in the words
+/// the Symbol Dictionary uses where it has one.
+pub fn kind_look(node_type: &str) -> Option<KindLook> {
+    use Swatch::*;
+    let (word, swatch) = match node_type {
+        "quantifier" => ("quantifier", Quantifier),
+        "question" => ("question", Quantifier),
+        "binary_op" | "unary_op" => ("connective", Connective),
+        "identity" => ("identity", Connective),
+        "conditional" => ("conditional", Connective),
+        "causal" => ("causal", Connective),
+        "concessive" => ("concessive", Connective),
+        "lambda" => ("lambda", Connective),
+        "application" => ("application", Connective),
+        "speech_act" => ("speech act", Connective),
+        "implicature" => ("implicature", Connective),
+        "presupposition" => ("presupposition", Connective),
+        "focus" => ("focus", Connective),
+        "scopal" => ("scopal", Connective),
+        "distributive" => ("distributive", Connective),
+        "predicate" => ("predicate", Predicate),
+        "event" => ("event", Predicate),
+        "relation" => ("relation", Predicate),
+        "atom" => ("atom", Predicate),
+        "categorical" => ("categorical", Predicate),
+        "comparative" => ("comparative", Predicate),
+        "superlative" => ("superlative", Predicate),
+        "metaphor" => ("metaphor", Predicate),
+        "modifier" => ("modifier", Predicate),
+        "control" => ("control", Predicate),
+        "constant" => ("individual", Individual),
+        "term" => ("term", Individual),
+        "function" => ("function", Individual),
+        "group" => ("group", Individual),
+        "proposition" => ("proposition", Individual),
+        "role" => ("role", Role),
+        "variable" => ("variable", Variable),
+        "modal" => ("modal", Modal),
+        "intensional" => ("intensional", Modal),
+        "temporal" => ("tense", Tense),
+        "aspect" => ("aspect", Tense),
+        "voice" => ("voice", Tense),
+        _ => return None,
+    };
+    Some(KindLook { word, swatch })
+}
+
+/// The legend's groups: the kinds each pill colour marks, and the swatches that wear it. The
+/// swatches of one group share a colour in the palette.
+pub const LEGEND: &[(&str, &[Swatch])] = &[
+    (
+        "quantifier · connective",
+        &[Swatch::Quantifier, Swatch::Connective],
+    ),
+    ("predicate · event", &[Swatch::Predicate]),
+    ("individual · role", &[Swatch::Individual, Swatch::Role]),
+    ("variable", &[Swatch::Variable]),
+    ("modal · tense", &[Swatch::Modal, Swatch::Tense]),
+];
+
+#[component]
+pub fn AstTree(ast: AstNode) -> Element {
+    rsx! {
+        style { "{SYNTAX_TREE_STYLE}" }
+        div { class: "syntax-tree-guide",
+            p { class: "syntax-tree-note",
+                "Read it from the top: the first row is the whole sentence as parsed, and each row below splits its phrase into its parts. Press a row with a chevron to fold its parts away."
+            }
+            div { class: "syntax-tree-legend",
+                for (label, swatches) in LEGEND.iter() {
+                    span { key: "{label}", class: "syntax-kind {swatches[0].name()}", "{label}" }
+                }
+            }
+        }
+        Tree { kind: "syntax-tree", label: "Syntax Tree",
+            SyntaxNode { node: ast, depth: 0, last: true }
+        }
+    }
+}
+
+/// One node of the sentence and its parts. Every level opens as the tree opens.
+#[component]
+fn SyntaxNode(node: AstNode, depth: usize, last: bool) -> Element {
+    let mut open = use_signal(|| true);
+    let expandable = !node.children.is_empty();
+    let (word, swatch) = match kind_look(&node.node_type) {
+        Some(look) => (look.word.to_string(), look.swatch.name()),
+        None => (node.node_type.replace('_', " "), ""),
+    };
+    let count = node.children.len();
+
+    rsx! {
+        TreeNode {
+            depth,
+            last,
+            expandable,
+            open: open(),
+            stop: depth == 0,
+            on_press: if expandable {
+                Some(EventHandler::new(move |_| {
+                    let now = open();
+                    open.set(!now);
+                }))
             } else {
-                div { class: "ast-tree-empty",
-                    "Parse a sentence to see its AST..."
-                }
+                None
+            },
+            row: rsx! {
+                span { class: "syntax-label", "{node.label}" }
+                span { class: "syntax-kind {swatch}", "{word}" }
+            },
+            for (i, child) in node.children.iter().enumerate() {
+                SyntaxNode { key: "{i}", node: child.clone(), depth: depth + 1, last: i + 1 == count }
             }
         }
     }
 }
 
-#[component]
-fn AstNodeView(node: AstNode, is_root: bool) -> Element {
-    let mut expanded = use_signal(|| true);
-    let has_children = !node.children.is_empty();
-
-    let node_class = if is_root { "ast-node ast-root" } else { "ast-node" };
-    let toggle_class = if *expanded.read() { "ast-node-toggle expanded" } else { "ast-node-toggle" };
-    let children_class = if *expanded.read() { "ast-children expanded" } else { "ast-children" };
-    let type_class = format!("ast-node-type {}", node.node_type);
-
-    rsx! {
-        div { class: "{node_class}",
-            div {
-                class: "ast-node-label",
-                onclick: move |_| {
-                    if has_children {
-                        let current = *expanded.read();
-                        expanded.set(!current);
-                    }
-                },
-                if has_children {
-                    span { class: "{toggle_class}", "\u{25B6}" }
-                } else {
-                    span { class: "ast-node-toggle", "\u{2022}" }
-                }
-                span { class: "ast-node-text", "{node.label}" }
-                span { class: "{type_class}", "{node.node_type}" }
-            }
-
-            if has_children {
-                div { class: "{children_class}",
-                    for child in node.children.iter() {
-                        AstNodeView { node: child.clone(), is_root: false }
-                    }
-                }
-            }
-        }
-    }
-}
+#[cfg(test)]
+#[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/components/ast_tree/tests.rs"]
+mod tests;

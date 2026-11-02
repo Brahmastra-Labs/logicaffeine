@@ -1,0 +1,45 @@
+{
+  "case": "T05-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "\u2983\u03b1 : Type\u2984 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_002.memOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2983\u03b1 : Type\u2984 \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_002.memOf'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2983\u03b1 \u03b2 : Type\u2984 \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b1",
+      "name": "T05_002.memPair",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u2983\u03b2 : Type\u2984 \u2192 (\u03b1 \u2192 \u03b2) \u2192 \u03b1 \u2192 \u03b2",
+      "name": "T05_002.mixed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2983\u03b1 : Type\u2984 \u2192 List \u03b1",
+      "name": "T05_002.nilOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

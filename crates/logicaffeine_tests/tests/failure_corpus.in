@@ -1,0 +1,20 @@
+// The failure corpus: programs that STOP WITH A REASON, each with the exact output printed before it
+// stopped and the exact reason it stopped with. Shared by every backend's test (tree-walker, VM,
+// AOT-Rust, C, WASM, …): a backend runs a program here identically or refuses it loudly — never a
+// different reason, never a silent success.
+&[
+    ("fail_literal", "## Main\nFail with \"boom\".\n", "", "boom"),
+    ("fail_computed", "## Main\nLet n be 7.\nFail with \"bad value: \" + format(n).\n", "", "bad value: 7"),
+    ("fail_after_output", "## Main\nShow \"before\".\nFail with \"stop\".\nShow \"after\".\n", "before", "stop"),
+    ("fail_in_function", "## To checked (n: Int) -> Int:\n    If n is less than 0:\n        Fail with \"negative: \" + format(n).\n    Return n.\n\n## Main\nShow checked(3).\nShow checked(0 - 2).\n", "3", "negative: -2"),
+    ("fail_in_loop", "## Main\nLet mutable i be 0.\nWhile i is less than 10:\n    If i equals 3:\n        Fail with \"stopped at \" + format(i).\n    Show i.\n    Set i to i + 1.\n", "0\n1\n2", "stopped at 3"),
+    ("fail_with_int", "## Main\nFail with 42.\n", "", "42"),
+    ("fail_with_bool", "## Main\nFail with false.\n", "", "false"),
+    ("assert_reason", "## Main\nLet x be 0 - 1.\nAssert that x is greater than 0, otherwise \"x must be positive\".\n", "", "x must be positive"),
+    ("require_reason", "## Main\nLet size be 0.\nRequire that size is greater than 0, otherwise \"size must be positive\".\n", "", "size must be positive"),
+    ("assume_reason", "## Main\nLet t be 200.\nAssume t is at most 100, otherwise \"t out of range: \" + format(t).\n", "", "t out of range: 200"),
+    ("reason_from_parameters", "## To withdraw (balance: Int, amount: Int) -> Int:\n    Require that amount is at most balance, otherwise \"cannot withdraw \" + format(amount) + \" from \" + format(balance).\n    Return balance - amount.\n\n## Main\nShow withdraw(10, 3).\nShow withdraw(10, 30).\n", "7", "cannot withdraw 30 from 10"),
+    ("contract_without_reason", "## Main\nShow 1.\nRequire that 1 equals 2.\n", "1", "Assertion failed"),
+    ("holding_contract_is_silent", "## Main\nRequire that 1 is less than 2, otherwise \"never\".\nShow \"ok\".\n", "ok", ""),
+    ("reason_must_be_text", "## Main\nRequire that 1 equals 2, otherwise 42.\n", "", "The reason after `otherwise` must be Text, but it was Int."),
+]

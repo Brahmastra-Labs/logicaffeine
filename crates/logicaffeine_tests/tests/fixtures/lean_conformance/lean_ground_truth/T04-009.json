@@ -1,0 +1,74 @@
+{
+  "case": "T04-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "Option Nat \u2192 Nat",
+      "name": "T04_009.both",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Option Nat \u2192 Sort u_1) \u2192\n  (x : Option Nat) \u2192 (Unit \u2192 motive none) \u2192 (Unit \u2192 motive (some 0)) \u2192 ((val : Nat) \u2192 motive (some val)) \u2192 motive x",
+      "name": "T04_009.both.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_009.bucket",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 (Unit \u2192 motive 1) \u2192 ((x : Nat) \u2192 motive x) \u2192 motive x",
+      "name": "T04_009.bucket.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Nat \u2192 List Nat \u2192 Nat",
+      "name": "T04_009.collapse",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Nat \u2192 List Nat \u2192 Sort u_1) \u2192\n  (x x_1 : List Nat) \u2192\n    ((x : List Nat) \u2192 motive [] x) \u2192\n      ((x : List Nat) \u2192 motive x []) \u2192\n        ((head : Nat) \u2192 (xs : List Nat) \u2192 (head_1 : Nat) \u2192 (ys : List Nat) \u2192 motive (head :: xs) (head_1 :: ys)) \u2192\n          motive x x_1",
+      "name": "T04_009.collapse.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_009.pick",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Nat \u2192 Sort u_1) \u2192\n  (x x_1 : Nat) \u2192 ((x : Nat) \u2192 motive 0 x) \u2192 ((x : Nat) \u2192 motive x 0) \u2192 ((x x_2 : Nat) \u2192 motive x x_2) \u2192 motive x x_1",
+      "name": "T04_009.pick.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

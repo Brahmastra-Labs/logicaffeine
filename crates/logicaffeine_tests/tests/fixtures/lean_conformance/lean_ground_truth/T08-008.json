@@ -1,0 +1,66 @@
+{
+  "case": "T08-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 q \u2227 p",
+      "name": "T08_008.andElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 p",
+      "name": "T08_008.andElimWith",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 p \u2227 q",
+      "name": "T08_008.clearingDiffers",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T08_008.describe",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop) (q : Prop), (\u2203 n, p n) \u2192 (\u2200 (n : Nat), p n \u2192 q) \u2192 p 0 \u2192 (\u2200 (k : Nat), p k \u2192 p (k + 1)) \u2192 q",
+      "name": "T08_008.existsAfterInduction",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop) (q : Prop), (\u2203 n, p n) \u2192 (\u2200 (n : Nat), p n \u2192 q) \u2192 q",
+      "name": "T08_008.existsElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), (p \u2227 q) \u2227 r \u2192 p \u2227 r",
+      "name": "T08_008.nestedAnd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), p \u2228 q \u2192 (p \u2192 r) \u2192 (q \u2192 r) \u2192 r",
+      "name": "T08_008.orElim",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

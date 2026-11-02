@@ -1,0 +1,12 @@
+{
+  "capability": "bits.popcount",
+  "workload": "sum of popcount(i) over 1<=i<=n \u2014 a bit-population stress loop",
+  "arg": "5000000",
+  "expected": "54717320",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

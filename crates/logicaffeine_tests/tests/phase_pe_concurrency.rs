@@ -135,8 +135,16 @@ fn pe_concurrent_program_output_unchanged() {
         "concurrent program must still compile and run after PE.\nGenerated:\n{}\nstderr: {}",
         result.rust_code, result.stderr
     );
-    assert!(result.stdout.contains('1'), "expected 1 in output: {}", result.stdout);
-    assert!(result.stdout.contains('2'), "expected 2 in output: {}", result.stdout);
+    assert!(
+        result.stdout.contains('1'),
+        "expected 1 in output: {}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains('2'),
+        "expected 2 in output: {}",
+        result.stdout
+    );
 }
 
 // =============================================================================
@@ -169,8 +177,16 @@ fn pe_specializes_pure_call_inside_concurrent_block() {
     );
     let result = run_logos(source);
     assert!(result.success, "must still run.\nstderr: {}", result.stderr);
-    assert!(result.stdout.contains("21"), "scale(3,7)=21 expected: {}", result.stdout);
-    assert!(result.stdout.contains("28"), "scale(4,7)=28 expected: {}", result.stdout);
+    assert!(
+        result.stdout.contains("21"),
+        "scale(3,7)=21 expected: {}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("28"),
+        "scale(4,7)=28 expected: {}",
+        result.stdout
+    );
 }
 
 /// A pure call inside a `Select` branch body is specialized.

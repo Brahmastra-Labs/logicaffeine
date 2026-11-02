@@ -3,7 +3,7 @@
 Language support for **LOGOS** — the English programming language. Programs
 are literate Markdown; sentences are statements; the grammar *is* the syntax.
 This extension bundles the LOGOS language server for your platform and turns
-VSCode into a full IDE for `.lg` files.
+VS Code into a full IDE for `.lg` files.
 
 ```logos
 ## To double (n: Int) -> Int:
@@ -32,11 +32,23 @@ Show "The answer is {answer}.".
 - **Run and prove from the editor.** Code lenses run `## Main` (interpreter
   by default — sub-second feedback) and prove `## Theorem` blocks with
   kernel-certified derivations. `Ctrl+Alt+R` runs, `Ctrl+Alt+V` verifies.
-- **The full LSP surface.** Completion, hover, go-to-definition (across
-  files), find references, rename, workspace symbols, document outline,
-  folding, inlay hints (inferred types + ownership states), formatting
-  (identical rules to `largo fmt`), semantic tokens with range + delta
-  requests, and unused-code fading.
+- **The full LSP surface.** Completion, hover, go-to-definition, find
+  references and rename (all across files), workspace symbols, document
+  outline, folding, inlay hints (inferred types + ownership states),
+  formatting (identical rules to `largo fmt`), semantic tokens with range +
+  delta requests, and unused-code fading.
+- **Modules.** After `Import`, completion offers the project's modules; in
+  code it offers the names your imports bring in. An unresolved name another
+  module exports gets an `Import <Module>.` quick fix, an unused `Import` gets
+  a removal fix, and hover says which module defines a name.
+- **Web pages (LGX).** Snippets scaffold `## Page`, `## Component`,
+  `## Store`, `## Route`, `## Session` and `## Error page` blocks. A `View:` or
+  `Head:` body highlights as HTML with each `{…}` hole as LOGOS, and a `Style:`
+  body as CSS. Inside a template, completion offers the page's state, props,
+  actions and components; hover resolves a name in a hole; the template
+  checker's findings and the browser build's refusals appear as diagnostics.
+- **A debugger that steps backward.** The `logos` debug type runs
+  `largo dap` (see [Debugging](#debugging)).
 
 ## Getting started
 
@@ -64,12 +76,34 @@ same steps interactively.
 ## Commands
 
 `LOGOS: Run Project`, `Prove Theorems`, `Check Proof`, `Verify Project
-(preview)`, `Set Verification License Key`, `Restart Language Server`,
-`Show Language Server Log`.
+(preview)`, `Restart Language Server`, `Show Language Server Log`.
 
-Verification (preview) is license-gated (Pro and up — see
-[logicaffeine.com/pricing](https://logicaffeine.com/pricing)); keys are held
-in VSCode's secret storage, never in settings files.
+Verify Project (preview) runs `largo verify`, which needs the full build of
+`largo` (installed with `--full`), the one that carries Z3 static
+verification.
+
+## Debugging
+
+The extension contributes the `logos` debug type, served by `largo dap` over
+the Debug Adapter Protocol (so `largo` must be installed). Its launch
+configuration takes `program` (the `.lg` file, default `${file}`) or `source`
+(inline LOGOS, which overrides `program`):
+
+```json
+{
+  "type": "logos",
+  "request": "launch",
+  "name": "Debug LOGOS file",
+  "program": "${file}"
+}
+```
+
+Step over, in and out, continue, and step backward in time (`stepBack`,
+`reverseContinue`): the adapter keeps the run's snapshot history, so stepping
+back restores an earlier state rather than re-running. The call stack,
+variables and hover evaluation come from the same debug session the web
+Studio's debugger uses. Source-line breakpoints are accepted but not yet
+mapped to the bytecode, so they do not stop a run.
 
 ## Literate `.md` modules
 
@@ -77,7 +111,7 @@ Fenced ```` ```logos ```` blocks highlight inside any Markdown file. To edit
 a literate module with full language support, associate it per workspace:
 
 ```json
-"files.associations": { "assets/std/*.md": "logicaffeine" }
+"files.associations": { "src/**/*.md": "logicaffeine" }
 ```
 
 ## Troubleshooting
@@ -98,4 +132,4 @@ a literate module with full language support, associate it per workspace:
 - [Repository](https://github.com/Brahmastra-Labs/logicaffeine) ·
   [logicaffeine.com](https://logicaffeine.com)
 
-License: BUSL-1.1 — see LICENSE.md.
+License: MIT — see LICENSE.md.

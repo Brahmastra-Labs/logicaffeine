@@ -1,0 +1,146 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K6",
+  "mems": [],
+  "name": "k6_logos_streamed",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "rst"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "load"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "din"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "go"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "raddr"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "dout"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   }
+  ],
+  "protocol": {
+   "LoadGoRead": {
+    "din": "din",
+    "done": "done",
+    "dout": "dout",
+    "go": "go",
+    "load": "load",
+    "load_slots": [
+     {
+      "contract": "a",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "b",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "mask",
+      "lsb": 0,
+      "width": 4
+     },
+     {
+      "contract": "x0",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "x1",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "x2",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "x3",
+      "lsb": 0,
+      "width": 64
+     }
+    ],
+    "raddr": "raddr",
+    "read_slots": [
+     {
+      "contract": "y0",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "y1",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "y2",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "y3",
+      "lsb": 0,
+      "width": 64
+     },
+     {
+      "contract": "sum",
+      "lsb": 0,
+      "width": 64
+     }
+    ],
+    "reset_each_op": true
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "rst"
+  },
+  "top": "gpu_qor_k6_streamed"
+ },
+ "files": [
+  "gpu_qor_k6_streamed.v"
+ ],
+ "golden_signature": "5f02efb454ab968e",
+ "harness": "qorbist_k6_logos_streamed.v",
+ "harness_top": "qorbist_k6_logos_streamed",
+ "kernel": "K6",
+ "kernel_name": "simt_axpb_sum",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "register file: 7 loads, go/done, 5 reads, reset before each operation",
+ "source_kind": "compiled-from-lg",
+ "testbench": "tb_qor.v"
+}

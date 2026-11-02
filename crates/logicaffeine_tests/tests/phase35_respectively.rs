@@ -206,8 +206,7 @@ fn without_respectively_not_pairwise() {
 #[test]
 fn respectively_comma_separated_subjects() {
     // "John, Mary, and Sue saw Tom, Jerry, and Bob respectively"
-    let output =
-        compile("John and Mary and Sue saw Tom and Jerry and Bob respectively.").unwrap();
+    let output = compile("John and Mary and Sue saw Tom and Jerry and Bob respectively.").unwrap();
     eprintln!("DEBUG respectively_comma: {}", output);
 
     // Should produce: See(J,T) ∧ See(M,J) ∧ See(S,B)

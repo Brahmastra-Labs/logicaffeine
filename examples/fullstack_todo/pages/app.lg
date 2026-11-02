@@ -1,0 +1,134 @@
+# App
+
+The whole frontend: what the page knows, what it does, and what it looks like.
+
+`## Page /` says where it serves, and a page mounts itself. `State:` is what it
+knows, `Actions:` is what it does, `View:` is real HTML with `{…}` holes, and
+`Style:` is real CSS scoped to it. One click is one turn — the action runs, the
+page paints once, and if the action fails the state goes back to what it was.
+
+Nothing here parses a response by hand. `Get "/api/todos" as Seq of Todo` decodes
+through the codec DERIVED from `## A Todo has:`, the same one the server encodes
+with — so the two halves cannot drift.
+
+Import Shared.
+
+## Note
+How many todos are still to do — a plain function, so the derived field below can
+say what it means instead of counting inline.
+
+## To countUndone (todos: Seq of Todo) -> Int:
+    Let mutable n be 0.
+    Repeat for t in todos:
+        If t's done is equal to false:
+            Set n to n + 1.
+    Return n.
+
+## Note
+The glyph a row's tick button shows. A done todo is ticked; an open one is not.
+
+## To tickMark (done: Bool) -> Text:
+    If done:
+        Return "[x]".
+    Return "[ ]".
+
+## Component TodoRow (todo: Todo) and (toggle: fn(Int) -> Unit) and (remove: fn(Int) -> Unit)
+
+View:
+    <li class:done={todo's done}>
+      <button class="tick" on-click={toggle(todo's id)} aria-label="toggle {todo's text}">{tickMark(todo's done)}</button>
+      <span class="text">{todo's text}</span>
+      <button class="del" on-click={remove(todo's id)} aria-label="delete {todo's text}">delete</button>
+    </li>
+
+Style:
+    li { display: flex; align-items: center; gap: .6rem; padding: .45rem 0; border-bottom: 1px solid var(--border); }
+    .text { flex: 1; }
+    .done .text { text-decoration: line-through; opacity: .55; }
+    .del { background: transparent; color: var(--danger); padding: .3rem .5rem; }
+
+## Page /
+
+State:
+    Let todos be a new Seq of Todo.
+    Let draft be "".
+    Let error be "".
+    Let left always be countUndone(todos).
+
+Actions:
+    When the page loads:
+        Get "/api/todos" as Seq of Todo, then loaded.
+
+    To loaded (answer: Result of Seq of Todo and HttpError):
+        Inspect answer:
+            When Ok (list):
+                Set todos to list.
+                Set error to "".
+            When Err (e):
+                Set error to e's message.
+
+    To add:
+        If draft is not equal to "":
+            Post "text=" + urlEncode(draft) to "/api/todos" as Seq of Todo, then loaded.
+            Set draft to "".
+
+    To toggle (id: Int):
+        Post "" to "/api/todos/toggle/{id}" as Seq of Todo, then loaded.
+
+    To remove (id: Int):
+        Post "" to "/api/todos/delete/{id}" as Seq of Todo, then loaded.
+
+View:
+    <main>
+      <h1>Todos <small id="left">{left} left</small></h1>
+      <form id="add" on-submit.prevent={add}>
+        <input id="draft" type="text" placeholder="What needs doing?" bind={draft}>
+        <button type="submit">Add</button>
+      </form>
+      {if error is not "":}<p class="error" role="alert">{error}</p>{end}
+      <ul class="todos">
+        {for each t in todos:}
+          <TodoRow todo={t} toggle={toggle} remove={remove}/>
+        {else:}
+          <li class="empty">Nothing to do.</li>
+        {end}
+      </ul>
+    </main>
+
+Style:
+    main { max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+    h1 { display: flex; align-items: baseline; gap: .6rem; }
+    h1 small { font-size: .85rem; font-weight: 400; color: var(--muted); }
+    form { display: flex; gap: .5rem; margin: 1rem 0; }
+    input { flex: 1; }
+    .error { color: var(--danger); font-weight: 600; }
+    .todos { list-style: none; padding: 0; margin: 0; }
+    .empty { color: var(--muted); padding: .45rem 0; }
+
+## Test: a todo typed into the form is added
+
+Given that POST "/api/todos" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Type "milk" into "#draft".
+Submit "#add".
+Expect that the text of ".text" is equal to "milk".
+Expect that the text of "#left" is equal to "1 left".
+Expect that the value of "#draft" is equal to "".
+
+## Test: a todo is ticked, then deleted
+
+Given that POST "/api/todos" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": false}}]".
+Given that POST "/api/todos/toggle/1" answers 200 with "[{{\"id\": 1, \"text\": \"milk\", \"done\": true}}]".
+Given that POST "/api/todos/delete/1" answers 200 with "[]".
+Type "milk" into "#draft".
+Submit "#add".
+Click ".tick".
+Expect that the text of "#left" is equal to "0 left".
+Expect that the count of "li.done" is equal to 1.
+Click ".del".
+Expect that the text of ".empty" is equal to "Nothing to do.".
+
+## Test: an empty draft adds nothing
+
+Submit "#add".
+Expect that the text of ".empty" is equal to "Nothing to do.".
+Expect that the text of "#left" is equal to "0 left".

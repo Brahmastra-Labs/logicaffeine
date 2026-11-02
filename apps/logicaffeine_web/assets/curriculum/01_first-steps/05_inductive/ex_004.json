@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "For independent events, multiply the probabilities.",
   "explanation": "For independent events, P(A and B) = P(A) × P(B) = 0.3 × 0.4 = 0.12. Events are independent when the occurrence of one doesn't affect the probability of the other.",
-  "visual_concept": "Think of overlapping circles in a Venn diagram. The overlap (A AND B) is the product of the individual probabilities."
+  "visual_concept": "Think of overlapping circles in a Venn diagram. The overlap (A AND B) is the product of the individual probabilities.",
+  "section": "5.2"
 }

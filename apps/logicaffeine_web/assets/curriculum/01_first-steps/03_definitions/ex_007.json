@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "'Obnoxious hair-splitter' loads the definition with contempt that the neutral word 'logician' simply doesn't have. The EMOTIONAL TONE is wrong, even if some logicians really are precise."
+  "hint": "Does the definition describe, or does it praise or sneer?",
+  "explanation": "'Obnoxious hair-splitter' is an insult. The neutral word 'logician' carries no such contempt.",
+  "section": "3.2"
 }

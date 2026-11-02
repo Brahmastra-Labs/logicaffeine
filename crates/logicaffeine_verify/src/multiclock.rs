@@ -8,8 +8,8 @@
 //! On global steps where a domain does NOT fire, a frame condition holds its
 //! state variables unchanged.
 
-use crate::ir::VerifyExpr;
 use crate::equivalence::Trace;
+use crate::ir::VerifyExpr;
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
 
@@ -36,11 +36,19 @@ pub enum MultiClockResult {
 }
 
 fn gcd(a: u32, b: u32) -> u32 {
-    if b == 0 { a } else { gcd(b, a % b) }
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
 }
 
 fn lcm(a: u32, b: u32) -> u32 {
-    if a == 0 || b == 0 { 1 } else { a / gcd(a, b) * b }
+    if a == 0 || b == 0 {
+        1
+    } else {
+        a / gcd(a, b) * b
+    }
 }
 
 /// Compute the interleaved firing schedule for a set of clock domains.
@@ -60,9 +68,7 @@ pub fn compute_schedule(domains: &[ClockDomain]) -> Vec<Vec<bool>> {
         return vec![vec![]];
     }
 
-    let rates: Vec<(u32, u32)> = domains.iter().map(|d| {
-        d.ratio.unwrap_or((1, 1))
-    }).collect();
+    let rates: Vec<(u32, u32)> = domains.iter().map(|d| d.ratio.unwrap_or((1, 1))).collect();
 
     // Normalize rates to a common denominator, then the period is the max
     // scaled numerator. Each domain fires scaled_rate times in period steps.
@@ -114,18 +120,24 @@ fn extract_next_state_vars(expr: &VerifyExpr) -> HashSet<String> {
 /// `var@t1 <=> var@t` for each variable in the domain's transition.
 fn build_frame_condition(transition: &VerifyExpr) -> VerifyExpr {
     let bases = extract_next_state_vars(transition);
-    let mut conditions: Vec<VerifyExpr> = bases.into_iter().map(|base| {
-        VerifyExpr::iff(
-            VerifyExpr::var(format!("{}@t1", base)),
-            VerifyExpr::var(format!("{}@t", base)),
-        )
-    }).collect();
+    let mut conditions: Vec<VerifyExpr> = bases
+        .into_iter()
+        .map(|base| {
+            VerifyExpr::iff(
+                VerifyExpr::var(format!("{}@t1", base)),
+                VerifyExpr::var(format!("{}@t", base)),
+            )
+        })
+        .collect();
     // Sort for determinism
     conditions.sort_by(|a, b| format!("{:?}", a).cmp(&format!("{:?}", b)));
     if conditions.is_empty() {
         VerifyExpr::bool(true)
     } else {
-        conditions.into_iter().reduce(|a, b| VerifyExpr::and(a, b)).unwrap()
+        conditions
+            .into_iter()
+            .reduce(|a, b| VerifyExpr::and(a, b))
+            .unwrap()
     }
 }
 
@@ -137,13 +149,18 @@ fn build_frame_condition(transition: &VerifyExpr) -> VerifyExpr {
 /// fire steps and a frame condition (state held) on non-fire steps.
 pub fn verify_multiclock(model: &MultiClockModel, bound: u32) -> MultiClockResult {
     if model.domains.len() <= 1 {
-        let transition = model.transitions.values().next()
+        let transition = model
+            .transitions
+            .values()
+            .next()
             .cloned()
             .unwrap_or(VerifyExpr::bool(true));
         let result = kinduction::k_induction(&model.init, &transition, &model.property, &[], bound);
         match result {
             kinduction::KInductionResult::Proven { .. } => MultiClockResult::Safe,
-            kinduction::KInductionResult::Counterexample { trace, .. } => MultiClockResult::Unsafe { trace },
+            kinduction::KInductionResult::Counterexample { trace, .. } => {
+                MultiClockResult::Unsafe { trace }
+            }
             _ => MultiClockResult::Unknown,
         }
     } else {
@@ -180,7 +197,8 @@ fn verify_multiclock_interleaved(model: &MultiClockModel, bound: u32) -> MultiCl
     for step_idx in 0..period as usize {
         let mut parts: Vec<VerifyExpr> = Vec::new();
         for (domain_idx, domain) in model.domains.iter().enumerate() {
-            let fires = schedule.get(step_idx)
+            let fires = schedule
+                .get(step_idx)
                 .and_then(|s| s.get(domain_idx))
                 .copied()
                 .unwrap_or(true);
@@ -197,7 +215,10 @@ fn verify_multiclock_interleaved(model: &MultiClockModel, bound: u32) -> MultiCl
         let combined = if parts.is_empty() {
             VerifyExpr::bool(true)
         } else {
-            parts.into_iter().reduce(|a, b| VerifyExpr::and(a, b)).unwrap()
+            parts
+                .into_iter()
+                .reduce(|a, b| VerifyExpr::and(a, b))
+                .unwrap()
         };
         step_transitions.push(combined);
     }
@@ -205,12 +226,7 @@ fn verify_multiclock_interleaved(model: &MultiClockModel, bound: u32) -> MultiCl
     // Now run k-induction where each step uses the schedule-appropriate transition.
     // We pass the schedule-aware transitions to a custom k-induction loop that
     // cycles through the schedule period.
-    k_induction_with_schedule(
-        &model.init,
-        &step_transitions,
-        &model.property,
-        bound,
-    )
+    k_induction_with_schedule(&model.init, &step_transitions, &model.property, bound)
 }
 
 /// K-induction that cycles through a vector of transitions (one per schedule step).
@@ -223,13 +239,12 @@ fn k_induction_with_schedule(
     property: &VerifyExpr,
     max_k: u32,
 ) -> MultiClockResult {
-    use z3::{SatResult, ast::Bool};
+    use z3::{ast::Bool, SatResult};
 
     let period = step_transitions.len() as u32;
     if period == 0 {
         return MultiClockResult::Safe;
     }
-
 
     for k in 1..=max_k {
         // ---- Base case ----

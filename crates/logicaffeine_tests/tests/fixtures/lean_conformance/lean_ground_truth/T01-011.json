@@ -1,0 +1,355 @@
+{
+  "case": "T01-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 38,
+  "declarations": [
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_011.AutoBox",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_011.AutoBox \u03b1 \u2192 Sort u_1} \u2192\n    (t : T01_011.AutoBox \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_011.AutoBox.mk a)) \u2192 motive t",
+      "name": "T01_011.AutoBox.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 T01_011.AutoBox \u03b1",
+      "name": "T01_011.AutoBox.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {a a_1 : \u03b1}, T01_011.AutoBox.mk a = T01_011.AutoBox.mk a_1 \u2192 a = a_1",
+      "name": "T01_011.AutoBox.mk.inj",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} (a a_1 : \u03b1), (T01_011.AutoBox.mk a = T01_011.AutoBox.mk a_1) = (a = a_1)",
+      "name": "T01_011.AutoBox.mk.injEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T01_011.AutoBox.mk a) = 1 + sizeOf a",
+      "name": "T01_011.AutoBox.mk.sizeOf_spec",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T01_011.AutoBox \u03b1} \u2192 v1 = v2 \u2192 T01_011.AutoBox.noConfusionType P v1 v2",
+      "name": "T01_011.AutoBox.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T01_011.AutoBox \u03b1 \u2192 T01_011.AutoBox \u03b1 \u2192 Sort u_1",
+      "name": "T01_011.AutoBox.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_011.AutoBox \u03b1 \u2192 Sort u_1} \u2192\n    ((a : \u03b1) \u2192 motive (T01_011.AutoBox.mk a)) \u2192 (t : T01_011.AutoBox \u03b1) \u2192 motive t",
+      "name": "T01_011.AutoBox.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_011.AutoBox \u03b1 \u2192 Sort u_1} \u2192\n    (t : T01_011.AutoBox \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_011.AutoBox.mk a)) \u2192 motive t",
+      "name": "T01_011.AutoBox.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_011.AutoCell",
+      "levels": [
+        "u"
+      ],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_011.AutoCell \u03b1 \u2192 Sort u_1} \u2192 (t : T01_011.AutoCell \u03b1) \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T01_011.AutoCell.casesOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 T01_011.AutoCell \u03b1",
+      "name": "T01_011.AutoCell.mk",
+      "levels": [
+        "u"
+      ],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} {val val_1 : \u03b1}, { val := val } = { val := val_1 } \u2192 val = val_1",
+      "name": "T01_011.AutoCell.mk.inj",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} (val val_1 : \u03b1), ({ val := val } = { val := val_1 }) = (val = val_1)",
+      "name": "T01_011.AutoCell.mk.injEq",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type u} [inst : SizeOf \u03b1] (val : \u03b1), sizeOf { val := val } = 1 + sizeOf val",
+      "name": "T01_011.AutoCell.mk.sizeOf_spec",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 {P : Sort u_1} \u2192 {v1 v2 : T01_011.AutoCell \u03b1} \u2192 v1 = v2 \u2192 T01_011.AutoCell.noConfusionType P v1 v2",
+      "name": "T01_011.AutoCell.noConfusion",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 Sort u_1 \u2192 T01_011.AutoCell \u03b1 \u2192 T01_011.AutoCell \u03b1 \u2192 Sort u_1",
+      "name": "T01_011.AutoCell.noConfusionType",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_011.AutoCell \u03b1 \u2192 Sort u_1} \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 (t : T01_011.AutoCell \u03b1) \u2192 motive t",
+      "name": "T01_011.AutoCell.rec",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192\n  {motive : T01_011.AutoCell \u03b1 \u2192 Sort u_1} \u2192 (t : T01_011.AutoCell \u03b1) \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T01_011.AutoCell.recOn",
+      "levels": [
+        "u_1",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 T01_011.AutoCell \u03b1 \u2192 \u03b1",
+      "name": "T01_011.AutoCell.val",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "True \u2192 True",
+      "name": "T01_011.autoAtProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T01_011.autoAtType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type u} \u2192 \u03b1 \u2192 Prop",
+      "name": "T01_011.autoAxiom",
+      "levels": [
+        "u"
+      ],
+      "kind": "axiom",
+      "axioms": [
+        "T01_011.autoAxiom"
+      ]
+    },
+    {
+      "type": "T01_011.AutoBox Nat",
+      "name": "T01_011.autoBoxNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_011.AutoBox Type",
+      "name": "T01_011.autoBoxType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_011.AutoCell Nat",
+      "name": "T01_011.autoCellNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type u",
+      "name": "T01_011.autoId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type (max u v)",
+      "name": "T01_011.autoPair",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u \u2192 Type v \u2192 Type v",
+      "name": "T01_011.autoSecond",
+      "levels": [
+        "u",
+        "v"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_011.autoSecondAt01",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_011.autoSecondAt10",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_011.autoSortId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type v \u2192 Type u \u2192 Type (max (u + 1) (v + 1))",
+      "name": "T01_011.occurrenceOrder",
+      "levels": [
+        "v",
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Sort u_1) \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_011.solvedLevel",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type u_1 \u2192 Type u_1",
+      "name": "T01_011.underscoreLevel",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_011.usesAutoAxiom",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "T01_011.autoAxiom"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T01_011.usesSolvedLevel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

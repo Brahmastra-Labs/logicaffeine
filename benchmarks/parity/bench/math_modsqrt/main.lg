@@ -1,0 +1,14 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 1.
+While i is at most n:
+    Let a be (i * i) % 1000003.
+    Let rr be modSqrt(a, 1000003).
+    Set sum to sum + min(rr, 1000003 - rr).
+    Set i to i + 1.
+Show sum.

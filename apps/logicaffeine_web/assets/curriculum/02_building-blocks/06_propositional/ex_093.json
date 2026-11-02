@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you aren't mean then you aren't careful",
   "options": [
-    "$ (\\sim M \\supset C) $",
-    "$ (\\sim M \\supset \\, \\sim C) $",
-    "$ \\sim(M \\supset \\, \\sim C) $",
-    "$ \\sim M \\supset \\, \\sim C $"
+    "¬M → C",
+    "¬M → ¬C",
+    "¬(M → ¬C)",
+    "¬M ∧ ¬C"
   ],
   "correct": 1,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part ¬M to the then part ¬C: ¬M → ¬C.",
+  "section": "6.2"
 }

@@ -1,0 +1,110 @@
+{
+  "fixture": "W05 proof-package fixtures (lane LD)",
+  "created": "2026-09-22",
+  "source": "W05_package.lean",
+  "source_sha256": "3db4f96a60bad182de16fbc22d8497c933517c4bea93b37312b5e3745f776091",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "lean_version_output": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+  "compile_command": "ELAN_TOOLCHAIN=leanprover/lean4:v4.14.0 LEAN_PATH=<exporter lib>:. lean -o W05_package.olean W05_package.lean",
+  "export_command": "ELAN_TOOLCHAIN=leanprover/lean4:v4.14.0 LEAN_PATH=<exporter lib>:. lean --run <exporter>/Main.lean -- --export-mdata --export-unsafe W05_package -- W05.<root>",
+  "compiler_exit": 0,
+  "compiler_warnings": [
+    "W05_package.lean:22:8: warning: declaration uses 'sorry'"
+  ],
+  "exporter": "reference-kernels/lean4export (revision 20c4a64aa1b76f7c79a6db15d089084359f8c3dc, the scripts/lean/export-conformance.py pin), with that script's structural expression-key patch",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "print_axioms_source": "#print axioms W05.<root>, run by the same toolchain over the compiled module",
+  "exports": {
+    "clean": {
+      "declaration": "W05.clean",
+      "file": "W05.clean.ndjson",
+      "sha256": "87b2a9cfcafe8a0979a6063bdb00b9f3df7381cb9112f58d9c94eda42c0dbbc3",
+      "records": 157,
+      "exporter_exit": 0,
+      "lean_print_axioms": []
+    },
+    "tainted": {
+      "declaration": "W05.tainted",
+      "file": "W05.tainted.ndjson",
+      "sha256": "433156d8498e8893cda45c8348c11d45ff98815bd4ac75912d49ba7c22911d47",
+      "records": 138,
+      "exporter_exit": 0,
+      "lean_print_axioms": [
+        "sorryAx"
+      ]
+    },
+    "byGoalAxiom": {
+      "declaration": "W05.byGoalAxiom",
+      "file": "W05.byGoalAxiom.ndjson",
+      "sha256": "224c5679b3fa4b6ea5dcf22580a10a898391110069176221c3fd7ee4729a6ac3",
+      "records": 84,
+      "exporter_exit": 0,
+      "lean_print_axioms": [
+        "W05.goalAx"
+      ]
+    },
+    "usesPropext": {
+      "declaration": "W05.usesPropext",
+      "file": "W05.usesPropext.ndjson",
+      "sha256": "030f94eda889405daa170a7e216892fc001532e8624d7d9c9a0b7ceaae892925",
+      "records": 142,
+      "exporter_exit": 0,
+      "lean_print_axioms": [
+        "propext"
+      ]
+    },
+    "usesFunext": {
+      "declaration": "W05.usesFunext",
+      "file": "W05.usesFunext.ndjson",
+      "sha256": "5eb25ea9480ed6af35373e5d99d0ce0e76b1737fb16da56042948f0a5d96b0e5",
+      "records": 419,
+      "exporter_exit": 0,
+      "lean_print_axioms": [
+        "Quot.sound"
+      ]
+    },
+    "usesChoice": {
+      "declaration": "W05.usesChoice",
+      "file": "W05.usesChoice.ndjson",
+      "sha256": "e51dcfb50bdc05edf36e24fd0539639e78b665e45a804387632e04f5b7d45380",
+      "records": 188,
+      "exporter_exit": 0,
+      "lean_print_axioms": [
+        "Classical.choice"
+      ]
+    },
+    "restatesPropext": {
+      "declaration": "W05.restatesPropext",
+      "file": "W05.restatesPropext.ndjson",
+      "sha256": "06f23c0cfeb59121533437aea148b77243420160a0087dffb8d62ee6be1e045c",
+      "records": 145,
+      "exporter_exit": 0,
+      "lean_print_axioms": [
+        "propext"
+      ]
+    }
+  }
+}

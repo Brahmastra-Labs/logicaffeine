@@ -1,0 +1,46 @@
+{
+  "id": "16.3",
+  "title": "Enlightenment Logic",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Gottfried Leibniz** (1646 to 1716) dreamed of a symbolic language in which reasoning would become calculation."
+    },
+    {
+      "type": "paragraph",
+      "text": "Immanuel Kant thought logic was finished. Within a century, George Boole made it algebra, and Gottlob Frege remade it entirely."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Leibniz's dream",
+      "lines": [
+        "When people disagree, they would say: Let us calculate."
+      ],
+      "note": "His idea points ahead to symbolic logic and to computers."
+    },
+    {
+      "type": "worked",
+      "title": "Kant and Boole",
+      "lines": [
+        "Kant, 1787: logic has not been able to advance a single step since Aristotle.",
+        "Boole, 1854: The Laws of Thought treats reasoning as algebra."
+      ]
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What was Leibniz's vision for logic?",
+    "options": [
+      "Keep logic out of science",
+      "Turn reasoning into calculation",
+      "Prove that logic is impossible",
+      "Replace symbols with words"
+    ],
+    "correct": 1,
+    "hint": "Recall his motto: let us calculate.",
+    "explanation": "Leibniz hoped for a symbolic language in which disputes could be settled by calculating."
+  }
+}

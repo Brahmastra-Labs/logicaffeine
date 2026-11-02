@@ -25,7 +25,7 @@ pub struct WitnessReport {
     pub inputs_checked: usize,
 }
 
-/// The adversarial corner battery — every rim the int kernel has.
+/// The adversarial corner battery — every rim the semantics core's `Int` arithmetic has.
 const CORNERS: &[i64] = &[
     i64::MIN,
     i64::MIN + 1,
@@ -70,7 +70,10 @@ fn spec_value(spec: &OpSpec, a: i64, b: i64) -> Option<i64> {
     let simplified = r.simplify();
     // as_u64 then reinterpret: z3's signed accessor refuses the MIN bit
     // pattern; the u64 road is total and bit-exact.
-    simplified.as_u64().map(|u| u as i64).or_else(|| simplified.as_i64())
+    simplified
+        .as_u64()
+        .map(|u| u as i64)
+        .or_else(|| simplified.as_i64())
 }
 
 /// Check one input through all three evaluators.
@@ -134,15 +137,16 @@ fn solver_witnesses(spec: &OpSpec, n: usize) -> Vec<(i64, i64)> {
         };
         out.push((av, bv));
         // Exclude this model so the next check yields a fresh witness.
-        solver.assert(
-            &(a.eq(&BV::from_i64(av, 64)) & b.eq(&BV::from_i64(bv, 64))).not(),
-        );
+        solver.assert(&(a.eq(&BV::from_i64(av, 64)) & b.eq(&BV::from_i64(bv, 64))).not());
     }
     out
 }
 
 /// Run the full witness battery for one spec.
-pub fn check_spec_with_witnesses(spec: &OpSpec, solver_models: usize) -> Result<WitnessReport, String> {
+pub fn check_spec_with_witnesses(
+    spec: &OpSpec,
+    solver_models: usize,
+) -> Result<WitnessReport, String> {
     let op = (spec.build)();
     let mut checked = 0usize;
     for (a, b) in solver_witnesses(spec, solver_models) {
@@ -155,5 +159,8 @@ pub fn check_spec_with_witnesses(spec: &OpSpec, solver_models: usize) -> Result<
             checked += 1;
         }
     }
-    Ok(WitnessReport { spec: spec.name, inputs_checked: checked })
+    Ok(WitnessReport {
+        spec: spec.name,
+        inputs_checked: checked,
+    })
 }

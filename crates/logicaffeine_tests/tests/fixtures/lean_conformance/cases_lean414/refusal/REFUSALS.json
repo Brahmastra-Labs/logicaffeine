@@ -1,0 +1,359 @@
+{
+  "schema": "logos-bridge-refusal/1",
+  "rows": {
+    "T02_008.coerceAnything": {
+      "case": "T02-008",
+      "fixture": "T02-008.coerceAnything",
+      "kind": "def",
+      "axioms": [
+        "lcProof"
+      ],
+      "taint": [
+        [
+          "T02_008.coerceAnything",
+          "unsafeCast",
+          "unsafeCast.proof_1",
+          "lcProof"
+        ]
+      ],
+      "export_sha256": "59fc01a831dcef489059868d97088bde2bda802582e0c3c4a8e1175a9e8797e2"
+    },
+    "T02_008.useCoerce": {
+      "case": "T02-008",
+      "fixture": "T02-008.useCoerce",
+      "kind": "def",
+      "axioms": [
+        "lcProof"
+      ],
+      "taint": [
+        [
+          "T02_008.useCoerce",
+          "T02_008.coerceAnything",
+          "unsafeCast",
+          "unsafeCast.proof_1",
+          "lcProof"
+        ]
+      ],
+      "export_sha256": "95ca80b190c0d21e18e1ac3178b337e864d58cc6703f4ec8eaf391859cb05643"
+    },
+    "T06_014.bridgeShape": {
+      "case": "T06-014",
+      "fixture": "T06-014.bridgeShape",
+      "kind": "theorem",
+      "axioms": [
+        "Lean.trustCompiler",
+        "Lean.ofReduceBool"
+      ],
+      "taint": [
+        [
+          "T06_014.bridgeShape",
+          "Lean.reduceBool",
+          "Lean.trustCompiler"
+        ],
+        [
+          "T06_014.bridgeShape",
+          "Lean.ofReduceBool"
+        ]
+      ],
+      "export_sha256": "82077f90eaac9318c45ec26a61ba3a77a30ee7858efa5447e02933102fe1ef2c"
+    },
+    "T06_014.theBridgeAxiom": {
+      "case": "T06-014",
+      "fixture": "T06-014.theBridgeAxiom",
+      "kind": "def",
+      "axioms": [
+        "Lean.trustCompiler",
+        "Lean.ofReduceBool"
+      ],
+      "taint": [
+        [
+          "T06_014.theBridgeAxiom",
+          "Lean.reduceBool",
+          "Lean.trustCompiler"
+        ],
+        [
+          "T06_014.theBridgeAxiom",
+          "Lean.ofReduceBool"
+        ]
+      ],
+      "export_sha256": "2fff5bef02b443bd45468c715b1669b6c1024a6ff184524335f43f0c2913fcef"
+    },
+    "T06_014.theEvaluatorAxiom": {
+      "case": "T06-014",
+      "fixture": "T06-014.theEvaluatorAxiom",
+      "kind": "def",
+      "axioms": [
+        "Lean.trustCompiler"
+      ],
+      "taint": [
+        [
+          "T06_014.theEvaluatorAxiom",
+          "Lean.reduceBool",
+          "Lean.trustCompiler"
+        ]
+      ],
+      "export_sha256": "c9766c010e75663592219f7bc0acdc42ff87371c5174afbe0bbc3819b5342243"
+    },
+    "T06_017.dataSorry": {
+      "case": "T06-017",
+      "fixture": "T06-017.dataSorry",
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T06_017.dataSorry",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "6b3c71baeb7ac8ea559a67ec71cfd610a95f4d5c6bd6b16b197b21e81641af26"
+    },
+    "T06_017.tacticSorry": {
+      "case": "T06-017",
+      "fixture": "T06-017.tacticSorry",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T06_017.tacticSorry",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "868d6cdb37dfbb229fc51862dc06e83a9f3b763ec2c2de68fd13cd9118fe2a7f"
+    },
+    "T06_017.taintedLemma": {
+      "case": "T06-017",
+      "fixture": "T06-017.taintedLemma",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T06_017.taintedLemma",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "7fd166b7133c3427be9583954e7090c1f975e72df9b98958e9afcd48979b3a6f"
+    },
+    "T06_017.taintedUser": {
+      "case": "T06-017",
+      "fixture": "T06-017.taintedUser",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T06_017.taintedUser",
+          "T06_017.taintedLemma",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "a5d1e22fd31ce5cf74d1c156ab6b86ef9131a13bf4b47bacc0a3e5f10f1fbb2b"
+    },
+    "T08_028.bareAdmit": {
+      "case": "T08-028",
+      "fixture": "T08-028.bareAdmit",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.bareAdmit",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "cd18848fc3add7ccdc97895d201a65a303563b19df49c699d821f2dfd1a4901a"
+    },
+    "T08_028.bareSorry": {
+      "case": "T08-028",
+      "fixture": "T08-028.bareSorry",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.bareSorry",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "3cbb6e1fa5b40be32ae94dbffa7c0a5e896b4cc8d4a2d93122f6b857ae93c4fa"
+    },
+    "T08_028.dependsOnSorry": {
+      "case": "T08-028",
+      "fixture": "T08-028.dependsOnSorry",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.dependsOnSorry",
+          "T08_028.bareSorry",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "69be739c068a9b47a6cca402fc10d9de6fe15a795c7b9b3ebd1a4c15bd3ba9a5"
+    },
+    "T08_028.partialSorry": {
+      "case": "T08-028",
+      "fixture": "T08-028.partialSorry",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.partialSorry",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "a122dc4474f177c8a3511321cfc8dfb6a4b3d5dd67c03032de61aba4ff0472c9"
+    },
+    "T08_028.sorryUnderBinder": {
+      "case": "T08-028",
+      "fixture": "T08-028.sorryUnderBinder",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.sorryUnderBinder",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "41119a1b0b46229460fb08613f24e16c5b44b0831590cd5d5b6185762a9ec6f4"
+    },
+    "T08_028.stubbedFunction": {
+      "case": "T08-028",
+      "fixture": "T08-028.stubbedFunction",
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.stubbedFunction",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "c4dd3841ee542a9410ec84467a45d9729d40783e4064de050fe3697b6a3a296d"
+    },
+    "T08_028.termSorry": {
+      "case": "T08-028",
+      "fixture": "T08-028.termSorry",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T08_028.termSorry",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "05921801a08b9527ae705b41516b081b4017721ac9e82ba1b8953c94d8e44c49"
+    },
+    "T11_014.alsoUnproved": {
+      "case": "T11-014",
+      "fixture": "T11-014.alsoUnproved",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T11_014.alsoUnproved",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "3356f5b0b4f76c42062c2330490e917b9c6837b3cfcfc490bd442c8a14d5e5cb"
+    },
+    "T11_014.dependsOnIt": {
+      "case": "T11-014",
+      "fixture": "T11-014.dependsOnIt",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T11_014.dependsOnIt",
+          "T11_014.obviouslyUnproved",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "e7a6e0accd8a9e74876561a137fb39ec4f1afe4ab705025f161bb7938189e8b5"
+    },
+    "T11_014.dependsTransitively": {
+      "case": "T11-014",
+      "fixture": "T11-014.dependsTransitively",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T11_014.dependsTransitively",
+          "T11_014.dependsOnIt",
+          "T11_014.obviouslyUnproved",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "75641a54283606a8a45cbfcbd045a7f9b006336dc81ffd568af6012d55c31bc5"
+    },
+    "T11_014.instTrivial'Nat": {
+      "case": "T11-014",
+      "fixture": "T11-014.instTrivial_Nat",
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T11_014.instTrivial'Nat",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "457918edccf25b3b3ceb5b2ffc992d1f9debc43bc51d923c0704904135e0aeac"
+    },
+    "T11_014.obviouslyUnproved": {
+      "case": "T11-014",
+      "fixture": "T11-014.obviouslyUnproved",
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T11_014.obviouslyUnproved",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "2b58c7ed74007eaa35f30a0fa389602471a662752d40223f1daba11b571f5dfe"
+    },
+    "T11_014.sorryNat": {
+      "case": "T11-014",
+      "fixture": "T11-014.sorryNat",
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ],
+      "taint": [
+        [
+          "T11_014.sorryNat",
+          "sorryAx"
+        ]
+      ],
+      "export_sha256": "1424c312ee6dd784cc0b50fcadc710278c09d255f3a07ab1537a7f8038c169a8"
+    }
+  },
+  "stamp": "20260924-203417"
+}

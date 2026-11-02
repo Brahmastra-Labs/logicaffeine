@@ -42,7 +42,11 @@ fn collect_witnesses_stmt(stmt: &Stmt, out: &mut Vec<NondetWitness>) {
     direct_nondet_witnesses(stmt, out);
     // Descend into every nested block.
     match stmt {
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             for s in *then_block {
                 collect_witnesses_stmt(s, out);
             }
@@ -172,7 +176,9 @@ fn collect_concurrent_print(stmts: &[Stmt], out: &mut Vec<NondetWitness>) {
     }
 
     if printers >= 2 {
-        out.push(NondetWitness { kind: NondetKind::ConcurrentPrint });
+        out.push(NondetWitness {
+            kind: NondetKind::ConcurrentPrint,
+        });
     }
 }
 
@@ -181,7 +187,11 @@ fn for_each_stmt<'a>(stmts: &'a [Stmt<'a>], f: &mut impl FnMut(&'a Stmt<'a>)) {
     for s in stmts {
         f(s);
         match s {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 for_each_stmt(then_block, f);
                 if let Some(eb) = else_block {
                     for_each_stmt(eb, f);
@@ -221,7 +231,11 @@ fn block_directly_shows(stmts: &[Stmt]) -> bool {
 fn stmt_directly_shows(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Show { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             block_directly_shows(then_block)
                 || else_block.map_or(false, |eb| block_directly_shows(eb))
         }
@@ -325,12 +339,18 @@ impl BranchInfo {
                 self.writes.insert(*target);
                 self.scan_expr(value);
             }
-            Stmt::Push { collection, value } | Stmt::Add { collection, value } | Stmt::Remove { collection, value } => {
+            Stmt::Push { collection, value }
+            | Stmt::Add { collection, value }
+            | Stmt::Remove { collection, value } => {
                 self.note_mutated(collection);
                 self.scan_expr(value);
             }
             Stmt::Pop { collection, .. } => self.note_mutated(collection),
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 self.note_mutated(collection);
                 self.scan_expr(index);
                 self.scan_expr(value);
@@ -358,7 +378,11 @@ impl BranchInfo {
             Stmt::ReceivePipe { pipe, .. } | Stmt::TryReceivePipe { pipe, .. } => {
                 self.note_pipe(pipe);
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 self.scan_expr(cond);
                 for s in *then_block {
                     self.scan_stmt(s);

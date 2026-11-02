@@ -15,7 +15,11 @@ While x > 0 (decreasing x):
     Set x to x - 1.
 "#;
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Valid decreasing loop should compile: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Valid decreasing loop should compile: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -29,8 +33,11 @@ While x > 0 (decreasing x):
     let result = compile_to_rust_verified(source);
     assert!(result.is_err(), "Incrementing loop variant should fail");
     let err = format!("{:?}", result.unwrap_err());
-    assert!(err.contains("terminat") || err.contains("decreas") || err.contains("Terminat"),
-            "Error should mention termination: {}", err);
+    assert!(
+        err.contains("terminat") || err.contains("decreas") || err.contains("Terminat"),
+        "Error should mention termination: {}",
+        err
+    );
 }
 
 #[test]
@@ -54,7 +61,11 @@ While x > 0 (decreasing x):
     Set x to x - 10.
 "#;
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Decrementing by 10 should be valid: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Decrementing by 10 should be valid: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -68,7 +79,11 @@ While x > 0:
 "#;
     let result = compile_to_rust_verified(source);
     // Should compile (no termination checking without decreasing clause)
-    assert!(result.is_ok(), "Loop without decreasing clause should not be checked: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Loop without decreasing clause should not be checked: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -81,5 +96,9 @@ While x > 0 (decreasing x):
     Set x to temp.
 "#;
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Compound body with net decrease should pass: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Compound body with net decrease should pass: {:?}",
+        result.err()
+    );
 }

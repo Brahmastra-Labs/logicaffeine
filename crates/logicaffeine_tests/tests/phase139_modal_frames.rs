@@ -26,9 +26,7 @@
 //! `VerifiedProof.verified`).
 
 use logicaffeine_compile::{check_theorem_premises_consistent, check_theorem_smt};
-use logicaffeine_proof::oracle::{
-    oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict,
-};
+use logicaffeine_proof::oracle::{oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict};
 use logicaffeine_proof::{ProofExpr, ProofTerm};
 
 fn atom(p: &str) -> ProofExpr {
@@ -363,7 +361,10 @@ fn no_spurious_four_axiom() {
         "□P is consistent"
     );
     assert_eq!(
-        oracle_entails(&premises, &nec("Alethic", "Root", nec("Alethic", "Root", atom("P")))),
+        oracle_entails(
+            &premises,
+            &nec("Alethic", "Root", nec("Alethic", "Root", atom("P")))
+        ),
         SmtVerdict::NotEntailed,
         "□P must NOT entail □□P without a 4 axiom"
     );
@@ -394,10 +395,7 @@ fn negation_inside_modal_is_respected() {
 const CF_PREMISE: &str = "If John had studied, he would have passed.";
 
 fn theorem(premises: &[&str], goal: &str) -> String {
-    let givens: String = premises
-        .iter()
-        .map(|p| format!("Given: {p}\n"))
-        .collect();
+    let givens: String = premises.iter().map(|p| format!("Given: {p}\n")).collect();
     format!("## Theorem: Phase139\n{givens}Prove: {goal}\nProof: Auto.\n")
 }
 

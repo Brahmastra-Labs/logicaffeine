@@ -113,7 +113,11 @@ fn has_count_ones(block: Block, c: logicaffeine_base::Symbol) -> bool {
     block.iter().any(|s| match s {
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => in_expr(value, c),
         Stmt::Return { value } => value.map_or(false, |e| in_expr(e, c)),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             in_expr(cond, c)
                 || has_count_ones(then_block, c)
                 || else_block.map_or(false, |b| has_count_ones(b, c))
@@ -131,8 +135,13 @@ fn nqueens_solve_gets_a_popcount_fast_path() {
         let count_ones = interner
             .lookup("count_ones")
             .expect("count_ones interned once the pass fired");
-        let fired = stmts.iter().any(|s| matches!(s,
-            Stmt::FunctionDef { body, .. } if has_count_ones(body, count_ones)));
-        assert!(fired, "popcount-leaf did not insert a count_ones fast path into any function");
+        let fired = stmts.iter().any(|s| {
+            matches!(s,
+            Stmt::FunctionDef { body, .. } if has_count_ones(body, count_ones))
+        });
+        assert!(
+            fired,
+            "popcount-leaf did not insert a count_ones fast path into any function"
+        );
     });
 }

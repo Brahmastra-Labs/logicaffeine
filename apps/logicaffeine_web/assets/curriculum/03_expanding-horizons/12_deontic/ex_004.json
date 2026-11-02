@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Don't disturb Tom",
   "options": [
-    "$ \\sim D\\underline{t} $",
-    "$ \\sim Dut $",
-    "$ \\sim D\\underline{u} t $",
-    "$ O\\sim D\\underline{u} t $"
+    "¬D(t̲)",
+    "¬D(u, t)",
+    "¬D(u̲, t)",
+    "O¬D(u̲, t)"
   ],
   "correct": 2,
-  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
-  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
+  "hint": "Who is told not to act? Underline that person's letter.",
+  "explanation": "A command to you not to disturb Tom: ¬D(u̲, t). The underline goes under you, the one told, not under Tom.",
+  "section": "12.2"
 }

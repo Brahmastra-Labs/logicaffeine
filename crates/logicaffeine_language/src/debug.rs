@@ -23,10 +23,10 @@ use std::fmt;
 
 use crate::ast::{
     AspectOperator, BinaryTemporalOp, LogicExpr, NounPhrase, QuantifierKind, TemporalOperator,
-    VoiceOperator, Term,
+    Term, VoiceOperator,
 };
-use logicaffeine_base::{Interner, Symbol};
 use crate::token::TokenType;
+use logicaffeine_base::{Interner, Symbol};
 
 /// Trait for formatting types that require an interner for symbol resolution.
 pub trait DisplayWith {
@@ -93,7 +93,10 @@ impl<'a> DisplayWith for Term<'a> {
                 }
                 write!(f, "]")
             }
-            Term::Possessed { possessor, possessed } => {
+            Term::Possessed {
+                possessor,
+                possessed,
+            } => {
                 possessor.fmt_with(interner, f)?;
                 write!(f, ".{}", interner.resolve(*possessed))
             }
@@ -107,9 +110,13 @@ impl<'a> DisplayWith for Term<'a> {
                 write!(f, "^{}", interner.resolve(*kind))
             }
             Term::Proposition(expr) => {
-                write!(f, "[{:?}]", expr)
+                write!(f, "[{}]", expr.with(interner))
             }
-            Term::Value { kind, unit, dimension } => {
+            Term::Value {
+                kind,
+                unit,
+                dimension,
+            } => {
                 use crate::ast::NumberKind;
                 match kind {
                     NumberKind::Real(r) => write!(f, "{}", r)?,
@@ -140,6 +147,100 @@ impl<'a> DisplayWith for NounPhrase<'a> {
     }
 }
 
+// The notation's operator symbols — one table, read by every renderer (this Display, the
+// Studio's syntax tree), so the two never spell one operator two ways.
+
+/// A quantifier's symbol, with its count for the numeric ones (`∃=2`, `∃≥3`).
+pub fn quantifier_symbol(kind: &QuantifierKind) -> String {
+    match kind {
+        QuantifierKind::Universal => "∀".to_string(),
+        QuantifierKind::Existential => "∃".to_string(),
+        QuantifierKind::Most => "MOST".to_string(),
+        QuantifierKind::Few => "FEW".to_string(),
+        QuantifierKind::Many => "MANY".to_string(),
+        QuantifierKind::Generic => "Gen".to_string(),
+        QuantifierKind::InfinitelyMany => "∃^∞".to_string(),
+        QuantifierKind::FinitelyMany => "∃^<∞".to_string(),
+        QuantifierKind::AllButFinitelyMany => "∀^∞".to_string(),
+        QuantifierKind::Cardinal(n) => format!("∃={n}"),
+        QuantifierKind::AtLeast(n) => format!("∃≥{n}"),
+        QuantifierKind::AtMost(n) => format!("∃≤{n}"),
+    }
+}
+
+/// A connective's symbol, from the one mapping every printer shares ([`Connective::of`](crate::formatter::Connective::of)).
+pub fn connective_symbol(op: &TokenType) -> &'static str {
+    use crate::formatter::Connective;
+    match Connective::of(op) {
+        Some(Connective::And) => "∧",
+        Some(Connective::Or) => "∨",
+        Some(Connective::Implies) => "→",
+        Some(Connective::Iff) => "↔",
+        Some(Connective::Not) => "¬",
+        None => "?",
+    }
+}
+
+/// A modal's operator. The boundary must match the formatter (formatter.rs) and the Kripke
+/// lowering (semantics/kripke.rs): force == 0.5 (ability/epistemic can/could/may) is the
+/// weak/possibility side (◇), not necessity.
+pub fn modal_symbol(vector: &crate::ast::ModalVector) -> &'static str {
+    match (vector.domain, vector.force > 0.5) {
+        (crate::ast::ModalDomain::Alethic, true) => "□",
+        (crate::ast::ModalDomain::Alethic, false) => "◇",
+        (crate::ast::ModalDomain::Deontic, true) => "O",
+        (crate::ast::ModalDomain::Deontic, false) => "P",
+        (crate::ast::ModalDomain::Temporal, _) => "Temporal",
+    }
+}
+
+/// A tense operator: `P` past, `F` future or eventually, `G` always, `X` next.
+pub fn temporal_symbol(op: &TemporalOperator) -> &'static str {
+    match op {
+        TemporalOperator::Past => "P",
+        TemporalOperator::Future => "F",
+        TemporalOperator::Always => "G",
+        TemporalOperator::Eventually | TemporalOperator::BoundedEventually(_) => "F",
+        TemporalOperator::Next => "X",
+    }
+}
+
+/// A binary temporal operator: until, release, weak until.
+pub fn binary_temporal_symbol(op: &BinaryTemporalOp) -> &'static str {
+    match op {
+        BinaryTemporalOp::Until => "U",
+        BinaryTemporalOp::Release => "R",
+        BinaryTemporalOp::WeakUntil => "W",
+    }
+}
+
+/// An aspect operator.
+pub fn aspect_symbol(op: &AspectOperator) -> &'static str {
+    match op {
+        AspectOperator::Progressive => "PROG",
+        AspectOperator::Perfect => "PERF",
+        AspectOperator::Habitual => "HAB",
+        AspectOperator::Iterative => "ITER",
+    }
+}
+
+/// A voice operator.
+pub fn voice_symbol(op: &VoiceOperator) -> &'static str {
+    match op {
+        VoiceOperator::Passive => "PASS",
+    }
+}
+
+/// A focus particle.
+pub fn focus_symbol(kind: &crate::token::FocusKind) -> &'static str {
+    match kind {
+        crate::token::FocusKind::Only => "ONLY",
+        crate::token::FocusKind::Even => "EVEN",
+        crate::token::FocusKind::Just => "JUST",
+        crate::token::FocusKind::Cleft => "CLEFT",
+    }
+}
+
 impl<'a> DisplayWith for LogicExpr<'a> {
     fn fmt_with(&self, interner: &Interner, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -165,19 +266,19 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 vehicle.fmt_with(interner, f)?;
                 write!(f, ")")
             }
-            LogicExpr::Quantifier { kind, variable, body, .. } => {
-                let q = match kind {
-                    QuantifierKind::Universal => "∀",
-                    QuantifierKind::Existential => "∃",
-                    QuantifierKind::Most => "MOST",
-                    QuantifierKind::Few => "FEW",
-                    QuantifierKind::Many => "MANY",
-                    QuantifierKind::Generic => "Gen",
-                    QuantifierKind::Cardinal(n) => return write!(f, "∃={}{}.{}", n, interner.resolve(*variable), body.with(interner)),
-                    QuantifierKind::AtLeast(n) => return write!(f, "∃≥{}{}.{}", n, interner.resolve(*variable), body.with(interner)),
-                    QuantifierKind::AtMost(n) => return write!(f, "∃≤{}{}.{}", n, interner.resolve(*variable), body.with(interner)),
-                };
-                write!(f, "{}{}.{}", q, interner.resolve(*variable), body.with(interner))
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                ..
+            } => {
+                write!(
+                    f,
+                    "{}{}.{}",
+                    quantifier_symbol(kind),
+                    interner.resolve(*variable),
+                    body.with(interner)
+                )
             }
             LogicExpr::Categorical(data) => {
                 let q = match &data.quantifier {
@@ -186,83 +287,88 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                     TokenType::No => "No",
                     _ => "?",
                 };
-                let cop = if data.copula_negative { "are not" } else { "are" };
-                write!(f, "{} {} {} {}", q, data.subject.with(interner), cop, data.predicate.with(interner))
+                let cop = if data.copula_negative {
+                    "are not"
+                } else {
+                    "are"
+                };
+                write!(
+                    f,
+                    "{} {} {} {}",
+                    q,
+                    data.subject.with(interner),
+                    cop,
+                    data.predicate.with(interner)
+                )
             }
             LogicExpr::Relation(data) => {
-                write!(f, "{}({}, {})", interner.resolve(data.verb), data.subject.with(interner), data.object.with(interner))
+                write!(
+                    f,
+                    "{}({}, {})",
+                    interner.resolve(data.verb),
+                    data.subject.with(interner),
+                    data.object.with(interner)
+                )
             }
             LogicExpr::Modal { vector, operand } => {
-                // Boundary must match the formatter (formatter.rs) and the Kripke
-                // lowering (semantics/kripke.rs): force == 0.5 (ability/epistemic
-                // can/could/may) is the weak/possibility side (◇), not necessity.
-                let op = match (vector.domain, vector.force > 0.5) {
-                    (crate::ast::ModalDomain::Alethic, true) => "□",
-                    (crate::ast::ModalDomain::Alethic, false) => "◇",
-                    (crate::ast::ModalDomain::Deontic, true) => "O",
-                    (crate::ast::ModalDomain::Deontic, false) => "P",
-                    (crate::ast::ModalDomain::Temporal, _) => "Temporal",
-                };
-                write!(f, "{}({})", op, operand.with(interner))
+                write!(f, "{}({})", modal_symbol(vector), operand.with(interner))
             }
             LogicExpr::Temporal { operator, body } => {
-                let op = match operator {
-                    TemporalOperator::Past => "P",
-                    TemporalOperator::Future => "F",
-                    TemporalOperator::Always => "G",
-                    TemporalOperator::Eventually
-                    | TemporalOperator::BoundedEventually(_) => "F",
-                    TemporalOperator::Next => "X",
-                };
-                write!(f, "{}({})", op, body.with(interner))
+                write!(f, "{}({})", temporal_symbol(operator), body.with(interner))
             }
             LogicExpr::Aspectual { operator, body } => {
-                let op = match operator {
-                    AspectOperator::Progressive => "PROG",
-                    AspectOperator::Perfect => "PERF",
-                    AspectOperator::Habitual => "HAB",
-                    AspectOperator::Iterative => "ITER",
-                };
-                write!(f, "{}({})", op, body.with(interner))
+                write!(f, "{}({})", aspect_symbol(operator), body.with(interner))
             }
             LogicExpr::Voice { operator, body } => {
-                let op = match operator {
-                    VoiceOperator::Passive => "PASS",
-                };
-                write!(f, "{}({})", op, body.with(interner))
+                write!(f, "{}({})", voice_symbol(operator), body.with(interner))
             }
             LogicExpr::BinaryOp { left, op, right } => {
-                let sym = match op {
-                    TokenType::And => "∧",
-                    TokenType::Or => "∨",
-                    TokenType::If => "→",
-                    TokenType::Iff => "↔",
-                    _ => "?",
-                };
-                write!(f, "({} {} {})", left.with(interner), sym, right.with(interner))
+                write!(
+                    f,
+                    "({} {} {})",
+                    left.with(interner),
+                    connective_symbol(op),
+                    right.with(interner)
+                )
             }
             LogicExpr::UnaryOp { op, operand } => {
-                let sym = match op {
-                    TokenType::Not => "¬",
-                    _ => "?",
-                };
-                write!(f, "{}({})", sym, operand.with(interner))
+                write!(f, "{}({})", connective_symbol(op), operand.with(interner))
             }
             LogicExpr::Question { wh_variable, body } => {
-                write!(f, "?{}.{}", interner.resolve(*wh_variable), body.with(interner))
+                write!(
+                    f,
+                    "?{}.{}",
+                    interner.resolve(*wh_variable),
+                    body.with(interner)
+                )
             }
             LogicExpr::YesNoQuestion { body } => {
                 write!(f, "?{}", body.with(interner))
             }
             LogicExpr::Atom(s) => write!(f, "{}", interner.resolve(*s)),
             LogicExpr::Lambda { variable, body } => {
-                write!(f, "λ{}.{}", interner.resolve(*variable), body.with(interner))
+                write!(
+                    f,
+                    "λ{}.{}",
+                    interner.resolve(*variable),
+                    body.with(interner)
+                )
             }
             LogicExpr::App { function, argument } => {
-                write!(f, "({})({})", function.with(interner), argument.with(interner))
+                write!(
+                    f,
+                    "({})({})",
+                    function.with(interner),
+                    argument.with(interner)
+                )
             }
             LogicExpr::Intensional { operator, content } => {
-                write!(f, "{}({})", interner.resolve(*operator), content.with(interner))
+                write!(
+                    f,
+                    "{}({})",
+                    interner.resolve(*operator),
+                    content.with(interner)
+                )
             }
             LogicExpr::Event { predicate, adverbs } => {
                 predicate.fmt_with(interner, f)?;
@@ -272,12 +378,29 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 Ok(())
             }
             LogicExpr::NeoEvent(data) => {
-                write!(f, "∃{}({}({})", interner.resolve(data.event_var), interner.resolve(data.verb), interner.resolve(data.event_var))?;
+                write!(
+                    f,
+                    "∃{}({}({})",
+                    interner.resolve(data.event_var),
+                    interner.resolve(data.verb),
+                    interner.resolve(data.event_var)
+                )?;
                 for (role, term) in data.roles.iter() {
-                    write!(f, " ∧ {:?}({}, {})", role, interner.resolve(data.event_var), term.with(interner))?;
+                    write!(
+                        f,
+                        " ∧ {:?}({}, {})",
+                        role,
+                        interner.resolve(data.event_var),
+                        term.with(interner)
+                    )?;
                 }
                 for mod_sym in data.modifiers.iter() {
-                    write!(f, " ∧ {}({})", interner.resolve(*mod_sym), interner.resolve(data.event_var))?;
+                    write!(
+                        f,
+                        " ∧ {}({})",
+                        interner.resolve(*mod_sym),
+                        interner.resolve(data.event_var)
+                    )?;
                 }
                 write!(f, ")")
             }
@@ -285,41 +408,121 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 write!(f, "!({})", action.with(interner))
             }
             LogicExpr::Exclamative { degree_var, body } => {
-                write!(f, "Exclaim(∃{}({} ∧ {} ≫ θ))",
-                    interner.resolve(*degree_var), body.with(interner), interner.resolve(*degree_var))
+                write!(
+                    f,
+                    "Exclaim(∃{}({} ∧ {} ≫ θ))",
+                    interner.resolve(*degree_var),
+                    body.with(interner),
+                    interner.resolve(*degree_var)
+                )
             }
             LogicExpr::Optative { wish } => {
                 write!(f, "Wish(Speaker, ⟨{}⟩)", wish.with(interner))
             }
-            LogicExpr::Implicature { assertion, implicature } => {
-                write!(f, "{} +> Implicature({})", assertion.with(interner), implicature.with(interner))
+            LogicExpr::Implicature {
+                assertion,
+                implicature,
+            } => {
+                write!(
+                    f,
+                    "{} +> Implicature({})",
+                    assertion.with(interner),
+                    implicature.with(interner)
+                )
             }
-            LogicExpr::SpeechAct { performer, act_type, content } => {
-                write!(f, "{}:{}({})", interner.resolve(*performer), interner.resolve(*act_type), content.with(interner))
+            LogicExpr::SpeechAct {
+                performer,
+                act_type,
+                content,
+            } => {
+                write!(
+                    f,
+                    "{}:{}({})",
+                    interner.resolve(*performer),
+                    interner.resolve(*act_type),
+                    content.with(interner)
+                )
             }
-            LogicExpr::Counterfactual { antecedent, consequent } => {
-                write!(f, "({} □→ {})", antecedent.with(interner), consequent.with(interner))
+            LogicExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => {
+                write!(
+                    f,
+                    "({} □→ {})",
+                    antecedent.with(interner),
+                    consequent.with(interner)
+                )
             }
             LogicExpr::Causal { effect, cause } => {
-                write!(f, "Cause({}, {})", cause.with(interner), effect.with(interner))
+                write!(
+                    f,
+                    "Cause({}, {})",
+                    cause.with(interner),
+                    effect.with(interner)
+                )
             }
             LogicExpr::Concessive { main, concession } => {
-                write!(f, "{} ∧ Concessive({})", main.with(interner), concession.with(interner))
+                write!(
+                    f,
+                    "{} ∧ Concessive({})",
+                    main.with(interner),
+                    concession.with(interner)
+                )
             }
-            LogicExpr::Comparative { adjective, subject, object, difference, .. } => {
+            LogicExpr::Comparative {
+                adjective,
+                subject,
+                object,
+                difference,
+                ..
+            } => {
                 if let Some(diff) = difference {
-                    write!(f, "{}({}, {}, by: {})", interner.resolve(*adjective), subject.with(interner), object.with(interner), diff.with(interner))
+                    write!(
+                        f,
+                        "{}({}, {}, by: {})",
+                        interner.resolve(*adjective),
+                        subject.with(interner),
+                        object.with(interner),
+                        diff.with(interner)
+                    )
                 } else {
-                    write!(f, "{}({}, {})", interner.resolve(*adjective), subject.with(interner), object.with(interner))
+                    write!(
+                        f,
+                        "{}({}, {})",
+                        interner.resolve(*adjective),
+                        subject.with(interner),
+                        object.with(interner)
+                    )
                 }
             }
-            LogicExpr::Superlative { adjective, subject, domain } => {
-                write!(f, "MOST-{}({}, {})", interner.resolve(*adjective), subject.with(interner), interner.resolve(*domain))
+            LogicExpr::Superlative {
+                adjective,
+                subject,
+                domain,
+            } => {
+                write!(
+                    f,
+                    "MOST-{}({}, {})",
+                    interner.resolve(*adjective),
+                    subject.with(interner),
+                    interner.resolve(*domain)
+                )
             }
             LogicExpr::Scopal { operator, body } => {
-                write!(f, "{}({})", interner.resolve(*operator), body.with(interner))
+                write!(
+                    f,
+                    "{}({})",
+                    interner.resolve(*operator),
+                    body.with(interner)
+                )
             }
-            LogicExpr::Control { verb, subject, object, infinitive } => {
+            LogicExpr::Control {
+                verb,
+                subject,
+                object,
+                infinitive,
+            } => {
                 write!(f, "{}(", interner.resolve(*verb))?;
                 subject.fmt_with(interner, f)?;
                 if let Some(obj) = object {
@@ -328,17 +531,23 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 }
                 write!(f, ", {})", infinitive.with(interner))
             }
-            LogicExpr::Presupposition { assertion, presupposition } => {
-                write!(f, "[{} | {}]", assertion.with(interner), presupposition.with(interner))
+            LogicExpr::Presupposition {
+                assertion,
+                presupposition,
+            } => {
+                write!(
+                    f,
+                    "[{} | {}]",
+                    assertion.with(interner),
+                    presupposition.with(interner)
+                )
             }
-            LogicExpr::Focus { kind, focused, scope } => {
-                let k = match kind {
-                    crate::token::FocusKind::Only => "ONLY",
-                    crate::token::FocusKind::Even => "EVEN",
-                    crate::token::FocusKind::Just => "JUST",
-                    crate::token::FocusKind::Cleft => "CLEFT",
-                };
-                write!(f, "{}[", k)?;
+            LogicExpr::Focus {
+                kind,
+                focused,
+                scope,
+            } => {
+                write!(f, "{}[", focus_symbol(kind))?;
                 focused.fmt_with(interner, f)?;
                 write!(f, "]({})", scope.with(interner))
             }
@@ -349,7 +558,13 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 write!(f, "*")?;
                 predicate.fmt_with(interner, f)
             }
-            LogicExpr::GroupQuantifier { group_var, count, member_var, restriction, body } => {
+            LogicExpr::GroupQuantifier {
+                group_var,
+                count,
+                member_var,
+                restriction,
+                body,
+            } => {
                 write!(
                     f,
                     "∃{}(Group({}) ∧ Count({}, {}) ∧ ∀{}(Member({}, {}) → ",
@@ -366,210 +581,27 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 body.fmt_with(interner, f)?;
                 write!(f, ")")
             }
-            LogicExpr::TemporalBinary { operator, left, right } => {
-                let op = match operator {
-                    BinaryTemporalOp::Until => "U",
-                    BinaryTemporalOp::Release => "R",
-                    BinaryTemporalOp::WeakUntil => "W",
-                };
-                write!(f, "({} {} {})", left.with(interner), op, right.with(interner))
+            LogicExpr::TemporalBinary {
+                operator,
+                left,
+                right,
+            } => {
+                write!(
+                    f,
+                    "({} {} {})",
+                    left.with(interner),
+                    binary_temporal_symbol(operator),
+                    right.with(interner)
+                )
             }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_base::Arena;
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/debug/tests.rs"]
+mod tests;
 
-    #[test]
-    fn symbol_display_with_interner() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("Socrates");
-        assert_eq!(sym.with(&interner).to_string(), "Socrates");
-    }
-
-    #[test]
-    fn symbol_empty_displays_empty() {
-        let interner = Interner::new();
-        assert_eq!(Symbol::EMPTY.with(&interner).to_string(), "");
-    }
-
-    #[test]
-    fn term_constant_display() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("John");
-        let term = Term::Constant(sym);
-        assert_eq!(term.with(&interner).to_string(), "John");
-    }
-
-    #[test]
-    fn term_variable_display() {
-        let mut interner = Interner::new();
-        let x = interner.intern("x");
-        let term = Term::Variable(x);
-        assert_eq!(term.with(&interner).to_string(), "x");
-    }
-
-    #[test]
-    fn term_function_display() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let f = interner.intern("father");
-        let j = interner.intern("John");
-        let term = Term::Function(f, term_arena.alloc_slice([Term::Constant(j)]));
-        assert_eq!(term.with(&interner).to_string(), "father(John)");
-    }
-
-    #[test]
-    fn term_group_display() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let j = interner.intern("John");
-        let m = interner.intern("Mary");
-        let term = Term::Group(term_arena.alloc_slice([Term::Constant(j), Term::Constant(m)]));
-        assert_eq!(term.with(&interner).to_string(), "[John ⊕ Mary]");
-    }
-
-    #[test]
-    fn term_possessed_display() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let j = interner.intern("John");
-        let dog = interner.intern("dog");
-        let term = Term::Possessed {
-            possessor: term_arena.alloc(Term::Constant(j)),
-            possessed: dog,
-        };
-        assert_eq!(term.with(&interner).to_string(), "John.dog");
-    }
-
-    #[test]
-    fn expr_predicate_display() {
-        let mut interner = Interner::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let mortal = interner.intern("Mortal");
-        let x = interner.intern("x");
-        let expr = LogicExpr::Predicate {
-            name: mortal,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        };
-        assert_eq!(expr.with(&interner).to_string(), "Mortal(x)");
-    }
-
-    #[test]
-    fn expr_quantifier_display() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let term_arena: Arena<Term> = Arena::new();
-        let x = interner.intern("x");
-        let mortal = interner.intern("Mortal");
-        let body = expr_arena.alloc(LogicExpr::Predicate {
-            name: mortal,
-            args: term_arena.alloc_slice([Term::Variable(x)]),
-            world: None,
-        });
-        let expr = LogicExpr::Quantifier {
-            kind: QuantifierKind::Universal,
-            variable: x,
-            body,
-            island_id: 0,
-        };
-        assert_eq!(expr.with(&interner).to_string(), "∀x.Mortal(x)");
-    }
-
-    #[test]
-    fn expr_atom_display() {
-        let mut interner = Interner::new();
-        let p = interner.intern("P");
-        let expr = LogicExpr::Atom(p);
-        assert_eq!(expr.with(&interner).to_string(), "P");
-    }
-
-    #[test]
-    fn expr_binary_op_display() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let p = interner.intern("P");
-        let q = interner.intern("Q");
-        let expr = LogicExpr::BinaryOp {
-            left: expr_arena.alloc(LogicExpr::Atom(p)),
-            op: TokenType::And,
-            right: expr_arena.alloc(LogicExpr::Atom(q)),
-        };
-        assert_eq!(expr.with(&interner).to_string(), "(P ∧ Q)");
-    }
-
-    #[test]
-    fn expr_lambda_display() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let x = interner.intern("x");
-        let p = interner.intern("P");
-        let expr = LogicExpr::Lambda {
-            variable: x,
-            body: expr_arena.alloc(LogicExpr::Atom(p)),
-        };
-        assert_eq!(expr.with(&interner).to_string(), "λx.P");
-    }
-
-    #[test]
-    fn debug_world_works_with_dbg_pattern() {
-        let mut interner = Interner::new();
-        let sym = interner.intern("test");
-        let term = Term::Constant(sym);
-        let debug_str = format!("{:?}", DebugWorld { target: &term, interner: &interner });
-        assert!(debug_str.contains("test"));
-    }
-
-    #[test]
-    fn expr_temporal_display() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let p = interner.intern("Run");
-        let expr = LogicExpr::Temporal {
-            operator: TemporalOperator::Past,
-            body: expr_arena.alloc(LogicExpr::Atom(p)),
-        };
-        assert_eq!(expr.with(&interner).to_string(), "P(Run)");
-    }
-
-    #[test]
-    fn expr_modal_display() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let p = interner.intern("Rain");
-        let expr = LogicExpr::Modal {
-            vector: crate::ast::ModalVector {
-                domain: crate::ast::ModalDomain::Alethic,
-                force: 1.0,
-                flavor: crate::ast::ModalFlavor::Root, modal_base: None, ordering_source: None
-            },
-            operand: expr_arena.alloc(LogicExpr::Atom(p)),
-        };
-        assert_eq!(expr.with(&interner).to_string(), "□(Rain)");
-    }
-
-    /// BUG-033: force == 0.5 (ability/epistemic can/could/may) is the
-    /// possibility side (◇), as the formatter and Kripke lowering both treat it.
-    /// The debug display must agree, not render □.
-    #[test]
-    fn expr_modal_display_force_half_is_possibility_not_necessity() {
-        let mut interner = Interner::new();
-        let expr_arena: Arena<LogicExpr> = Arena::new();
-        let fly = interner.intern("Fly");
-        let expr = LogicExpr::Modal {
-            vector: crate::ast::ModalVector {
-                domain: crate::ast::ModalDomain::Alethic,
-                force: 0.5,
-                flavor: crate::ast::ModalFlavor::Root,
-                modal_base: None,
-                ordering_source: None,
-            },
-            operand: expr_arena.alloc(LogicExpr::Atom(fly)),
-        };
-        assert_eq!(expr.with(&interner).to_string(), "◇(Fly)");
-    }
-}
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/debug/connective_symbol_tests.rs"]
+mod connective_symbol_tests;

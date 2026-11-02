@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you aren't tall then you aren't frightened",
   "options": [
-    "$ (\\sim T \\supset \\sim F) $",
-    "$ \\sim(T \\supset \\sim F) $",
-    "$ \\sim T \\supset \\sim F $",
-    "$ (\\sim T \\supset F) $"
+    "¬T → ¬F",
+    "¬(T → ¬F)",
+    "¬T → F",
+    "¬T ∧ ¬F"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part ¬T to the then part ¬F: ¬T → ¬F.",
+  "section": "6.2"
 }

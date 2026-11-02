@@ -101,7 +101,9 @@ fn otherwise_token_recognized() {
     let tokens = lexer.tokenize();
 
     assert!(
-        tokens.iter().any(|t| matches!(t.kind, TokenType::Otherwise)),
+        tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::Otherwise)),
         "Should have Otherwise token: {:?}",
         tokens
     );

@@ -1,0 +1,10 @@
+{
+  "capability": "convert.append_bool",
+  "workload": "len appendBool('x',b)",
+  "arg": "3000000",
+  "expected": "16500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

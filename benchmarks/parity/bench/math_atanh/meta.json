@@ -1,0 +1,12 @@
+{
+  "capability": "math.atanh",
+  "workload": "math.atanh",
+  "arg": "1000000",
+  "expected": "688345519",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

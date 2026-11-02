@@ -1,0 +1,84 @@
+{
+  "case": "T00-001",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_001.binderNamedLikeAGlobal",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Bool \u2192 Bool",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.binderNamedLikeAGlobal produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    },
+    {
+      "lean": "T00_001.identityNat",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.identityNat produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    },
+    {
+      "lean": "T00_001.innerTypeMentionsOuter",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Type",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.innerTypeMentionsOuter produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    },
+    {
+      "lean": "T00_001.pickOuter",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.pickOuter produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    },
+    {
+      "lean": "T00_001.shadowedInnermost",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.shadowedInnermost produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    },
+    {
+      "lean": "T00_001.shadowedOutermost",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.shadowedOutermost produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    },
+    {
+      "lean": "T00_001.usesSectionVar",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Nat \u2192 Nat",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_de_bruijn_bridge.rs::original_t00_001_all_seven_declarations_preserve_binding_types_and_axioms",
+      "logos": "Checked LOGOS Context artifact for T00_001.usesSectionVar produced by import_audited from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-001.ndjson; type and body obtained independently from Lean4.14 export, checked by both kernels with exact type conversion, hygiene/no-hole oracle and empty axiom audit.",
+      "why": ""
+    }
+  ]
+}

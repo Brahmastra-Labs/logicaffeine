@@ -1,0 +1,133 @@
+{
+  "case": "T03-024",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 17,
+  "declarations": [
+    {
+      "type": "Type 1",
+      "name": "T03_024.BigQuot",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_024.Parity",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_024.ParityQ",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T03_024.PropQuot",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type \u2192 Prop",
+      "name": "T03_024.bigRel",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T03_024.BigQuot",
+      "name": "T03_024.mkBig",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T03_024.Parity",
+      "name": "T03_024.mkParity",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T03_024.ParityQ",
+      "name": "T03_024.mkParityQ",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P : Prop}, P \u2192 T03_024.PropQuot P",
+      "name": "T03_024.mkPropQuot",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_024.Parity \u2192 Nat",
+      "name": "T03_024.parityBit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_024.ParityQ \u2192 Nat",
+      "name": "T03_024.parityBitQ",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_024.Parity \u2192 Bool",
+      "name": "T03_024.parityIsEven",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x x_1 : Nat), T03_024.sameParity x x_1 \u2192 (x % 2 == 0) = (x_1 % 2 == 0)",
+      "name": "T03_024.parityIsEven.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Setoid Nat",
+      "name": "T03_024.paritySetoid",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Equivalence T03_024.sameParity",
+      "name": "T03_024.paritySetoid.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Prop",
+      "name": "T03_024.sameParity",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), T03_024.sameParity a b = (a % 2 = b % 2)",
+      "name": "T03_024.sameParity.eq_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

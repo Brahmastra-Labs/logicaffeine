@@ -36,8 +36,14 @@ fn some_every_enumerate_both_scopes() {
     let rs = compile_all_scopes("Some student read every book.").unwrap();
     eprintln!("some-every: {rs:?}");
     assert!(rs.len() >= 2, "both scope readings enumerated: {rs:?}");
-    assert!(rs.iter().any(|r| r.trim_start().starts_with('∃')), "surface ∃ > ∀: {rs:?}");
-    assert!(rs.iter().any(|r| r.trim_start().starts_with('∀')), "inverse ∀ > ∃: {rs:?}");
+    assert!(
+        rs.iter().any(|r| r.trim_start().starts_with('∃')),
+        "surface ∃ > ∀: {rs:?}"
+    );
+    assert!(
+        rs.iter().any(|r| r.trim_start().starts_with('∀')),
+        "inverse ∀ > ∃: {rs:?}"
+    );
 }
 
 #[test]
@@ -47,7 +53,10 @@ fn island_constraint_limits_permutation() {
     // the enumeration is finite/well-formed (no crash, at least one reading).
     let rs = compile_all_scopes("Every student who read a book passed.").unwrap();
     eprintln!("island: {rs:?}");
-    assert!(!rs.is_empty(), "island sentence still yields a reading: {rs:?}");
+    assert!(
+        !rs.is_empty(),
+        "island sentence still yields a reading: {rs:?}"
+    );
     assert!(
         rs.iter().any(|r| r.contains("Book") && r.contains("Pass")),
         "the reading preserves both the island predicate and the matrix: {rs:?}"

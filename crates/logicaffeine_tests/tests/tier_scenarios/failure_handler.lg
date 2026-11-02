@@ -1,0 +1,18 @@
+# A page that handles its own action failures
+
+## Component App
+State:
+    Let why be "none".
+Actions:
+    When an action fails (e: Text):
+        Set why to e.
+    To boom:
+        Set why to "ran".
+        Let bad be item 9 of [1, 2].
+View:
+    <p id="w">{why}</p><button id="b" on-click={boom}>b</button>
+
+## Test: a failure reaches the page's handler
+    Mount App.
+    Click "#b".
+    Expect that the text of "#w" is not equal to "none".

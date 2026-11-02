@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Who studies in the library at 2am? Are they representative of all students?",
-  "explanation": "This is selection bias - your sample isn't representative. Students at the library at 2am are probably more studious, more stressed about exams, or have different schedules than average students. A good sample should represent the whole population you're studying.",
-  "visual_concept": "Sampling: Trying to learn about fish in a pond but only fishing at the surface. You'll miss all the bottom-dwellers!"
+  "explanation": "This is selection bias. Students in the library at 2am are likely more studious than students in general.",
+  "visual_concept": "Sampling: Trying to learn about fish in a pond but only fishing at the surface. You'll miss all the bottom-dwellers!",
+  "section": "5.4"
 }

@@ -5,7 +5,10 @@
   "prompt": "Translate this negative universal claim:",
   "template": "No {Noun:Plural} are {Adjective}.",
   "constraints": {
-    "Adjective": ["Intersective"]
+    "Adjective": [
+      "Intersective"
+    ]
   },
-  "hint": "\"No A are B\" = \"All A are not-B\" = ∀x(A(x) → ¬B(x)). Universal with negated consequent."
+  "hint": "\"No A are B\" = \"All A are not-B\" = ∀x(A(x) → ¬B(x)). Universal with negated consequent.",
+  "section": "8.3"
 }

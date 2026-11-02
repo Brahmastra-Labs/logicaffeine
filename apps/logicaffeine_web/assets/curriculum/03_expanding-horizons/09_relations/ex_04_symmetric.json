@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Symmetric means if R(x,y) then R(y,x): ∀x∀y(R(x,y) → R(y,x))",
-  "explanation": "A relation R is symmetric if whenever x relates to y, y also relates to x. 'Is married to' is symmetric - if A is married to B, then B is married to A. 'Child of', 'greater than', and 'admires' are all asymmetric.",
-  "visual_concept": "Symmetric: If there's an arrow from A to B, there's also one from B to A. Like a two-way street."
+  "explanation": "A relation is symmetric when x bearing it to y means y bears it to x. If A is married to B, then B is married to A. The others can hold one way only.",
+  "visual_concept": "Symmetric: If there's an arrow from A to B, there's also one from B to A. Like a two-way street.",
+  "section": "9.3"
 }

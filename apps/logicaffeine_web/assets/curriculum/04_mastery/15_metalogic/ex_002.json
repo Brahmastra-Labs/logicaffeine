@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "Completeness is about the proof system being able to prove all true things.",
-  "explanation": "Completeness: If ⊨ φ (φ is valid) then ⊢ φ (φ is provable). Every truth can be proven. Complete systems miss nothing - if it's true, you can prove it. First-order logic is complete (Gödel 1929).",
-  "visual_concept": "Completeness: Everything inside the 'true' circle is also inside the 'provable' circle. No truths escape our proof system."
+  "explanation": "Completeness: if ⊨ φ, then ⊢ φ. Every valid formula can be proved. First-order logic is complete, as Gödel proved in 1929.",
+  "visual_concept": "Completeness: Everything inside the 'true' circle is also inside the 'provable' circle. No truths escape our proof system.",
+  "section": "15.4"
 }

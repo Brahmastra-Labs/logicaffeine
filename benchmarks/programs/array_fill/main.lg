@@ -4,14 +4,14 @@
 ## Main
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
-Let mutable arr be a new Seq of Int.
-Let mutable i be 0.
+Let arr be a new Seq of Int.
+Let i be 0.
 While i is less than n:
     Push (i * 7 + 3) % 1000000 to arr.
     Set i to i + 1.
-Let mutable sum be 0.
+Let h be 0.
 Set i to 1.
 While i is at most n:
-    Set sum to (sum + item i of arr) % 1000000007.
+    Set h to (h * 31 + item i of arr) & 268435455.
     Set i to i + 1.
-Show sum.
+Show h.

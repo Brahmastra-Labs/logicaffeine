@@ -4,10 +4,12 @@
 #
 # A peer-to-peer benchmark: the LOGOS interpreter (largo run --interpret — a
 # bytecode VM with copy-and-patch JIT tier-up) against Node.js (V8). Both are
-# dynamically typed, both run a bytecode VM + JIT, and both run the SAME naive
-# algorithm from each benchmark's main.lg / main.js — so this is a clean engine
-# head-to-head, not the apples-to-oranges trap of comparing against the LOGOS
-# native compiler (which optimizes recursion the interpreter runs naively).
+# dynamically typed, both run a bytecode VM + JIT, and both start from the same
+# program (each benchmark's main.lg / main.js). The LOGOS engine runs the product
+# default, so where its optimizer changes the algorithm — memoizing fib, the
+# closed forms in ackermann and loop_sum (the collapse notes in lib/benchmarks.tsv)
+# — the two no longer run the same algorithm; the page keeps those benchmarks out
+# of the engine comparison's geometric mean and says why on each one.
 #
 # Sizes come from calibrate-interp.sh (the N at which the LOGOS interpreter — the
 # slower peer — runs for ~CALIBRATION_TARGET ms); run that first. Calibrating the
@@ -40,18 +42,8 @@ PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
 RAW_DIR="$RESULTS_DIR/raw-interp-vs-js"
 
-BENCHMARKS=(
-    fib ackermann nqueens
-    bubble_sort mergesort quicksort counting_sort heap_sort
-    nbody mandelbrot spectral_norm pi_leibniz
-    gcd collatz primes
-    sieve matrix_mult prefix_sum array_reverse array_fill
-    collect two_sum histogram
-    knapsack coins
-    fannkuch
-    strings binary_trees
-    loop_sum fib_iterative graph_bfs string_search
-)
+# The benchmark list is the suite registry (benchmarks/lib/benchmarks.tsv), loaded here with the rest of it.
+. "$SCRIPT_DIR/lib/suite.sh"
 
 WARMUP="${WARMUP:-2}"
 RUNS="${RUNS:-10}"
@@ -137,23 +129,7 @@ min_size() { cat "$PROGRAMS_DIR/$1/sizes.txt" | tr ' ' '\n' | head -1; }
 # Interpreter-scale fallback sizes — only used when neither SIZE_<bench> nor the
 # calibrated file pins one. Kept small so the interpreter stays sub-second.
 fallback_size() {
-    case "$1" in
-        fib) echo 31 ;; ackermann) echo 8 ;; nqueens) echo 9 ;;
-        bubble_sort) echo 800 ;; mergesort) echo 50000 ;; quicksort) echo 50000 ;;
-        counting_sort) echo 200000 ;; heap_sort) echo 50000 ;;
-        nbody) echo 1000 ;; mandelbrot) echo 100 ;; spectral_norm) echo 100 ;;
-        pi_leibniz) echo 1000000 ;;
-        gcd) echo 300 ;; collatz) echo 100000 ;; primes) echo 10000 ;;
-        sieve) echo 1000000 ;; matrix_mult) echo 50 ;; prefix_sum) echo 500000 ;;
-        array_reverse) echo 500000 ;; array_fill) echo 500000 ;;
-        collect) echo 200000 ;; two_sum) echo 1000 ;; histogram) echo 1000000 ;;
-        knapsack) echo 300 ;; coins) echo 100000 ;;
-        fannkuch) echo 7 ;;
-        strings) echo 50000 ;; binary_trees) echo 16 ;;
-        loop_sum) echo 1000000 ;; fib_iterative) echo 1000000 ;;
-        graph_bfs) echo 1000 ;; string_search) echo 500000 ;;
-        *) min_size "$1" ;;
-    esac
+    echo "${BENCH_INTERP_SIZE[$1]}"
 }
 
 # Per-benchmark hard ceiling on N (mirrors calibrate-interp.sh). ackermann(3, n)
@@ -195,12 +171,8 @@ info "Phase 1: Building largo (release), setting up interpret projects, checking
 if ! command -v node &>/dev/null; then fail "node not found on PATH"; exit 1; fi
 ok "node $(node --version)"
 
-cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$LOGOS_TARGET_DIR/release/largo"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/largo"
-if [ ! -f "$LARGO" ]; then fail "Could not find largo binary"; exit 1; fi
+. "$SCRIPT_DIR/lib/largo.sh"
+largo_build || exit 1
 ok "largo built"
 
 TMP_BASE=$(mktemp -d)
@@ -229,17 +201,30 @@ for bench in "${BENCHMARKS[@]}"; do
 done
 ok "Phase 1 complete"
 
-# Engine probe: which LOGOS interpreter engine runs each program (chosen at
-# compile time, so a tiny N=1 run reports it regardless of runtime outcome).
-declare -A ENGINE
+# Engine probe: which LOGOS interpreter engine runs each program, plus the
+# native tier's compile coverage, explicit declines, optimizations, and runtime
+# counters at the exact size represented by the benchmark artifact.
+declare -A ENGINE NATIVE_COVERAGE NATIVE_DECLINES NATIVE_OPTS NATIVE_RUNTIME
 detect_engine() {
-    local bench="$1" proj="${PROJ[$bench]:-}"
+    local bench="$1" size="${2:-$(bench_size "$1")}" proj="${PROJ[$bench]:-}"
     [ -n "$proj" ] || { ENGINE[$bench]="?"; return 0; }
-    local line
-    line=$( cd "$proj" && LOGOS_ENGINE_TRACE=1 run_timeout 30 "$LARGO" run --interpret 1 2>&1 >/dev/null \
-            | grep -m1 'logos-engine:' ) || true
-    ENGINE[$bench]="${line#logos-engine: }"
+    local trace line
+    trace=$( cd "$proj" && LOGOS_ENGINE_TRACE=1 run_timeout 30 "$LARGO" run --interpret "$size" 2>&1 >/dev/null ) || true
+    line=$(printf '%s\n' "$trace" | sed -n '/^logos-engine: \(vm+jit\|vm (baseline)\|treewalker\)/{s/^logos-engine: //;p;q;}')
+    ENGINE[$bench]="$line"
+    NATIVE_COVERAGE[$bench]=$(printf '%s\n' "$trace" | sed -n '/^logos-engine: native-tier [^:]*: /{s///;p;q;}')
+    NATIVE_DECLINES[$bench]=$(printf '%s\n' "$trace" | sed -n '/^logos-engine: native-declines [^:]*: /{s///;p;q;}')
+    NATIVE_OPTS[$bench]=$(printf '%s\n' "$trace" | sed -n '/^logos-engine: native-opts [^:]*: /{s///;p;q;}')
+    NATIVE_RUNTIME[$bench]=$(printf '%s\n' "$trace" | sed -n '/^logos-engine: native-runtime [^:]*: /{s///;p;q;}')
     if [ -z "${ENGINE[$bench]}" ]; then ENGINE[$bench]="?"; fi
+    if [[ "${ENGINE[$bench]}" == vm+jit* ]] && [ -z "${NATIVE_COVERAGE[$bench]}" ]; then
+        fail "  $bench: vm+jit emitted no native-tier coverage trace at n=$size"
+        return 1
+    fi
+    if [[ "${NATIVE_DECLINES[$bench]}" == *unclassified* ]]; then
+        fail "  $bench: JIT emitted an unclassified native decline at n=$size: ${NATIVE_DECLINES[$bench]}"
+        return 1
+    fi
     return 0
 }
 
@@ -264,7 +249,7 @@ for bench in "${BENCHMARKS[@]}"; do
     if interp_skip "$bench"; then warn "Excluding $bench from interpreter comparison (compiled-only)"; SKIP[$bench]=1; continue; fi
     [ -n "${PROJ[$bench]:-}" ] || { warn "No interpret project for $bench — skipping"; SKIP[$bench]=1; continue; }
     size="$(bench_size "$bench")"
-    detect_engine "$bench"
+    detect_engine "$bench" "$size"
     info "Verifying $bench (n=$size, interp engine: ${ENGINE[$bench]})..."
 
     # Back off on failure: if the interpreter can't run this size (e.g. ackermann
@@ -304,7 +289,7 @@ SKIPPED="${!SKIP[*]}"
 fi
 
 if [ "${VERIFY:-1}" = "0" ]; then
-    for bench in "${BENCHMARKS[@]}"; do detect_engine "$bench"; done
+    for bench in "${BENCHMARKS[@]}"; do detect_engine "$bench" "$(bench_size "$bench")"; done
 fi
 
 # ===========================================================================
@@ -338,7 +323,7 @@ try_bench() {
     fi
     local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
     local rc=0
-    run_timeout "$HYPERFINE_TIMEOUT" hyperfine $extra \
+    run_timeout "$HYPERFINE_TIMEOUT" taskset -c "$(suite_cpus)" hyperfine $extra \
         --warmup "$WARMUP" --runs "$RUNS" \
         --export-json "$pf" --time-unit millisecond \
         -n "$label" "$cmd" || rc=$?
@@ -397,6 +382,10 @@ for bench in "${BENCHMARKS[@]}"; do
         break
     done
     ACTUAL_SIZE[$bench]="$size"
+    # Re-probe at the exact size whose timings are published. This makes native
+    # coverage and decline metadata part of the benchmark artifact, not a stale
+    # best-effort diagnostic from a pre-timeout calibration size.
+    detect_engine "$bench" "$size"
 
     if [ ${#MERGE_FILES[@]} -gt 0 ]; then
         merge_hyperfine_results "$RAW_DIR/${bench}_${size}.json" "${MERGE_FILES[@]}"
@@ -462,22 +451,7 @@ lang_id() {
 }
 
 bench_name() {
-    case "$1" in
-        fib) echo "Recursive Fibonacci" ;; ackermann) echo "Ackermann Function" ;; nqueens) echo "N-Queens" ;;
-        bubble_sort) echo "Bubble Sort" ;; mergesort) echo "Merge Sort" ;; quicksort) echo "Quicksort" ;;
-        counting_sort) echo "Counting Sort" ;; heap_sort) echo "Heap Sort" ;;
-        nbody) echo "N-Body Simulation" ;; mandelbrot) echo "Mandelbrot Set" ;;
-        spectral_norm) echo "Spectral Norm" ;; pi_leibniz) echo "Pi (Leibniz Series)" ;;
-        gcd) echo "GCD Sum" ;; collatz) echo "Collatz Conjecture" ;; primes) echo "Primes (Trial Division)" ;;
-        sieve) echo "Sieve of Eratosthenes" ;; matrix_mult) echo "Matrix Multiply" ;;
-        prefix_sum) echo "Prefix Sum" ;; array_reverse) echo "Array Reverse" ;; array_fill) echo "Array Fill & Sum" ;;
-        collect) echo "Collection Operations" ;; two_sum) echo "Two Sum" ;; histogram) echo "Histogram" ;;
-        knapsack) echo "0/1 Knapsack" ;; coins) echo "Coin Change" ;;
-        fannkuch) echo "Fannkuch Redux" ;;
-        strings) echo "String Assembly" ;; binary_trees) echo "Binary Trees" ;;
-        loop_sum) echo "Loop Sum" ;; fib_iterative) echo "Iterative Fibonacci" ;;
-        graph_bfs) echo "Graph BFS" ;; string_search) echo "Naive String Search" ;;
-    esac
+    echo "${BENCH_NAME[$1]}"
 }
 
 extract_name() { echo "$1" | jq -r '.command' 2>/dev/null; }
@@ -536,12 +510,22 @@ assemble_benchmark() {
     jq -n \
         --arg id "$bench" --arg name "$(bench_name "$bench")" \
         --arg ref "$size" --arg engine "${ENGINE[$bench]:-?}" \
+        --arg native_coverage "${NATIVE_COVERAGE[$bench]:-}" \
+        --arg native_declines "${NATIVE_DECLINES[$bench]:-}" \
+        --arg native_opts "${NATIVE_OPTS[$bench]:-}" \
+        --arg native_runtime "${NATIVE_RUNTIME[$bench]:-}" \
         --arg logos_src "$logos_src" --arg js_src "$js_src" \
         --arg sizes_str "$(cat "$PROGRAMS_DIR/$bench/sizes.txt")" \
         --argjson scaling "$scaling" \
         '{
             id: $id, name: $name, reference_size: $ref,
             interpreter_engine: $engine,
+            native_trace: (if ($native_coverage == "" and $native_declines == "" and $native_opts == "" and $native_runtime == "") then null else {
+                coverage: $native_coverage,
+                declines: $native_declines,
+                optimizations: $native_opts,
+                runtime: $native_runtime
+            } end),
             sizes: ($sizes_str | split(" ")),
             logos_source: $logos_src, js_source: $js_src,
             scaling: $scaling, compilation: {}, timeouts: {}

@@ -1,0 +1,59 @@
+Serve the project over HTTP.
+
+What is served is decided from the project itself. A SITE — `pages/` or `static/` and no `Serve` backend — gets the dev server: largo owns the public port, serves the built pages and assets with hot reload, and answers anything else 404 as a static host would. A FULL-STACK site adds its `Serve` backend as a child on `LOGOS_PORT`, proxied for everything the pages do not answer. A BACKEND — a `Serve` program alone — is interpreted directly and binds its own port. Any other program is built to WebAssembly and served as a bundle.
+
+# Example
+
+```bash largo serve ```
+
+Usage: largo serve [OPTIONS] [ARGS]...
+
+Arguments:
+  [ARGS]...
+          Arguments to pass to the program (readable via `args()`)
+
+Options:
+      --timeout <DURATION>
+          Kill the server after this wall clock (`500ms`, `10s`, `2m`)
+
+      --seed <SEED>
+          Scheduler seed for deterministic runs (sets LOGOS_SEED)
+
+      --watch
+          Serve a program's WebAssembly bundle, rebuilding and live-reloading the browser on every source save. (A site always watches.)
+
+      --open
+          Open the served site in your default browser (best-effort)
+
+      --host <ADDR>
+          Bind address for a site. Default `127.0.0.1` (this machine only); pass `0.0.0.0` to serve the whole local network, so a phone or a tablet on the same wifi can open the site
+
+      --port <PORT>
+          The public port for a site or a bundle (falls forward to the next free port if taken). Default 8080
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo serve                  # site, full-stack site, or backend — decided by the project
+  largo serve --port 3000
+  largo serve --open           # …and open it in your browser
+  largo serve --host 0.0.0.0   # reachable from a phone on the same network
+  largo serve --timeout 30s
+  largo serve --watch          # a program's bundle, rebuilt + live-reloaded on save

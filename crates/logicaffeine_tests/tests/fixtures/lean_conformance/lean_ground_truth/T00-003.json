@@ -1,0 +1,171 @@
+{
+  "case": "T00-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 21,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_003.Flag",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_003.Flag \u2192 Sort u} \u2192 (t : T00_003.Flag) \u2192 motive T00_003.Flag.on \u2192 motive T00_003.Flag.off \u2192 motive t",
+      "name": "T00_003.Flag.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T00_003.Flag} \u2192 x = y \u2192 T00_003.Flag.noConfusionType P x y",
+      "name": "T00_003.Flag.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.33"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T00_003.Flag \u2192 T00_003.Flag \u2192 Sort v\u271d",
+      "name": "T00_003.Flag.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.32"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_003.Flag",
+      "name": "T00_003.Flag.off",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T00_003.Flag.off = 1",
+      "name": "T00_003.Flag.off.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T00_003.Flag",
+      "name": "T00_003.Flag.on",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T00_003.Flag.on = 1",
+      "name": "T00_003.Flag.on.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_003.Flag \u2192 Sort u} \u2192 motive T00_003.Flag.on \u2192 motive T00_003.Flag.off \u2192 (t : T00_003.Flag) \u2192 motive t",
+      "name": "T00_003.Flag.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T00_003.Flag \u2192 Sort u} \u2192 (t : T00_003.Flag) \u2192 motive T00_003.Flag.on \u2192 motive T00_003.Flag.off \u2192 motive t",
+      "name": "T00_003.Flag.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_003.Flag \u2192 Nat",
+      "name": "T00_003.Flag.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_003.FlagCount",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_003.base",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_003.monoInstanceOfPolyConst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_003.opaqueNat",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T00_003.opaqueNat"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_003.refersToAxiom",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "T00_003.opaqueNat"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T00_003.refersToBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_003.refersToConstructor",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_003.Flag",
+      "name": "T00_003.refersToFlagCtor",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_003.refersToFlagType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_003.refersToInductive",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

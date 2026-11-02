@@ -1,0 +1,27 @@
+## Main
+Let n be 1000.
+Let target be n.
+Let mutable arr be a new Seq of Int.
+Let mutable seed be 42.
+Let mutable i be 0.
+While i is less than n:
+    Set seed to (seed * 25173 + 13849) % 65536.
+    Push ((seed / 2) % 32768) % n to arr.
+    Set i to i + 1.
+Let mutable seen be a new Seq of Int.
+Set i to 0.
+While i is less than n:
+    Push 0 to seen.
+    Set i to i + 1.
+Let mutable count be 0.
+Set i to 1.
+While i is at most n:
+    Let x be item i of arr.
+    Let complement be target - x.
+    If complement is at least 0:
+        If complement is less than n:
+            If item (complement + 1) of seen is equal to 1:
+                Set count to count + 1.
+    Set item (x + 1) of seen to 1.
+    Set i to i + 1.
+Show count.

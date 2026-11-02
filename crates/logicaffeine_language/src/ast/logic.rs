@@ -12,10 +12,10 @@
 //!
 //! All types use arena allocation with the `'a` lifetime parameter.
 
-use logicaffeine_base::Arena;
-use logicaffeine_base::Symbol;
 use crate::lexicon::Definiteness;
 use crate::token::TokenType;
+use logicaffeine_base::Arena;
+use logicaffeine_base::Symbol;
 
 // ═══════════════════════════════════════════════════════════════════
 // Semantic Types (Montague Grammar)
@@ -92,7 +92,10 @@ pub enum Term<'a> {
     /// Plural group for collective readings (e.g., `john ⊕ mary`).
     Group(&'a [Term<'a>]),
     /// Possessive construction: `john's book` → `Poss(john, book)`.
-    Possessed { possessor: &'a Term<'a>, possessed: Symbol },
+    Possessed {
+        possessor: &'a Term<'a>,
+        possessed: Symbol,
+    },
     /// Definite description σ-term: `σx.P(x)` ("the unique x such that P").
     Sigma(Symbol),
     /// Intensional term (Montague up-arrow `^P`) for de dicto readings.
@@ -148,6 +151,43 @@ pub enum QuantifierKind {
     AtMost(u32),
     /// Generic: "cats meow" (characterizing generalization).
     Generic,
+    /// Infinitely many: ∃^∞x φ — φ holds of infinitely many x.
+    InfinitelyMany,
+    /// Finitely many: ∃^<∞x φ — φ holds of only finitely many x.
+    FinitelyMany,
+    /// All but finitely many: ∀^∞x φ — φ fails of only finitely many x.
+    AllButFinitelyMany,
+}
+
+impl QuantifierKind {
+    /// The quantifier a determiner binds by itself; `None` for `any`, which reads universally or
+    /// existentially by polarity, and for every token that is no determiner.
+    pub fn of_determiner(token: &TokenType) -> Option<QuantifierKind> {
+        Some(match token {
+            TokenType::All | TokenType::No => QuantifierKind::Universal,
+            TokenType::Some => QuantifierKind::Existential,
+            TokenType::Most => QuantifierKind::Most,
+            TokenType::Few => QuantifierKind::Few,
+            TokenType::Many => QuantifierKind::Many,
+            TokenType::Cardinal(n) => QuantifierKind::Cardinal(*n),
+            TokenType::AtLeast(n) => QuantifierKind::AtLeast(*n),
+            TokenType::AtMost(n) => QuantifierKind::AtMost(*n),
+            TokenType::InfinitelyMany => QuantifierKind::InfinitelyMany,
+            TokenType::FinitelyMany => QuantifierKind::FinitelyMany,
+            TokenType::AllButFinitelyMany => QuantifierKind::AllButFinitelyMany,
+            _ => return None,
+        })
+    }
+
+    /// Whether the restrictor implies the scope (`∀x(R → S)`) rather than conjoining with it
+    /// (`∃x(R ∧ S)`): a quantifier that speaks of every restrictor element, or of all but finitely
+    /// many of them.
+    pub fn restricts_by_implication(&self) -> bool {
+        matches!(
+            self,
+            QuantifierKind::Universal | QuantifierKind::AllButFinitelyMany
+        )
+    }
 }
 
 /// Binary logical connectives.
@@ -247,6 +287,65 @@ pub enum ThematicRole {
     /// (e.g., "raw" in "ate the meat raw"): `Depictive(e, Raw(meat))`.
     Depictive,
 }
+
+impl ThematicRole {
+    /// Every role, in declaration order.
+    pub const ALL: [ThematicRole; 12] = [
+        ThematicRole::Agent,
+        ThematicRole::Patient,
+        ThematicRole::Theme,
+        ThematicRole::Recipient,
+        ThematicRole::Goal,
+        ThematicRole::Source,
+        ThematicRole::Instrument,
+        ThematicRole::Location,
+        ThematicRole::Time,
+        ThematicRole::Manner,
+        ThematicRole::Result,
+        ThematicRole::Depictive,
+    ];
+
+    /// The role's name as the formulas print it: `Agent(e, John)`.
+    pub fn name(self) -> &'static str {
+        match self {
+            ThematicRole::Agent => "Agent",
+            ThematicRole::Patient => "Patient",
+            ThematicRole::Theme => "Theme",
+            ThematicRole::Recipient => "Recipient",
+            ThematicRole::Goal => "Goal",
+            ThematicRole::Source => "Source",
+            ThematicRole::Instrument => "Instrument",
+            ThematicRole::Location => "Location",
+            ThematicRole::Time => "Time",
+            ThematicRole::Manner => "Manner",
+            ThematicRole::Result => "Result",
+            ThematicRole::Depictive => "Depictive",
+        }
+    }
+
+    /// The position of the role in [`ThematicRole::ALL`]. A new role does not compile until it
+    /// has one, and the `role_tests` then fail until `ALL` lists it.
+    pub fn index(self) -> usize {
+        match self {
+            ThematicRole::Agent => 0,
+            ThematicRole::Patient => 1,
+            ThematicRole::Theme => 2,
+            ThematicRole::Recipient => 3,
+            ThematicRole::Goal => 4,
+            ThematicRole::Source => 5,
+            ThematicRole::Instrument => 6,
+            ThematicRole::Location => 7,
+            ThematicRole::Time => 8,
+            ThematicRole::Manner => 9,
+            ThematicRole::Result => 10,
+            ThematicRole::Depictive => 11,
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_language/ast/logic/role_tests.rs"]
+mod role_tests;
 
 /// Grammatical aspect operators for event structure.
 ///
@@ -596,9 +695,7 @@ pub enum LogicExpr<'a> {
     },
 
     /// Yes/no question: ?φ (is φ true?).
-    YesNoQuestion {
-        body: &'a LogicExpr<'a>,
-    },
+    YesNoQuestion { body: &'a LogicExpr<'a> },
 
     /// Atomic symbol (variable or constant in lambda context).
     Atom(Symbol),
@@ -631,9 +728,7 @@ pub enum LogicExpr<'a> {
     NeoEvent(Box<NeoEventData<'a>>),
 
     /// Imperative command: !φ.
-    Imperative {
-        action: &'a LogicExpr<'a>,
-    },
+    Imperative { action: &'a LogicExpr<'a> },
 
     /// Exclamative: affective stance toward a surprisingly-high degree, with no
     /// subject-aux inversion ("How tall she is!", "What a fool he is!"). Asserts
@@ -646,9 +741,7 @@ pub enum LogicExpr<'a> {
     /// Optative: a wish with no asserted truth ("May you prosper!", "Long live the
     /// king!", "If only it were Friday!"). → `Wish(speaker, ⟨wish⟩)`; the complement
     /// is NOT entailed.
-    Optative {
-        wish: &'a LogicExpr<'a>,
-    },
+    Optative { wish: &'a LogicExpr<'a> },
 
     /// Scalar implicature (§8.7): a weak scalar item asserts `assertion` and
     /// DEFEASIBLY implicates `implicature` (the negation of a stronger Horn
@@ -738,9 +831,7 @@ pub enum LogicExpr<'a> {
     },
 
     /// Distributive operator: *P distributes P over group members.
-    Distributive {
-        predicate: &'a LogicExpr<'a>,
-    },
+    Distributive { predicate: &'a LogicExpr<'a> },
 
     /// Group quantifier for collective cardinal readings.
     /// `∃g(Group(g) ∧ Count(g,n) ∧ ∀x(Member(x,g) → Restriction(x)) ∧ Body(g))`
@@ -754,14 +845,22 @@ pub enum LogicExpr<'a> {
 }
 
 impl<'a> LogicExpr<'a> {
-    pub fn lambda(var: Symbol, body: &'a LogicExpr<'a>, arena: &'a Arena<LogicExpr<'a>>) -> &'a LogicExpr<'a> {
+    pub fn lambda(
+        var: Symbol,
+        body: &'a LogicExpr<'a>,
+        arena: &'a Arena<LogicExpr<'a>>,
+    ) -> &'a LogicExpr<'a> {
         arena.alloc(LogicExpr::Lambda {
             variable: var,
             body,
         })
     }
 
-    pub fn app(func: &'a LogicExpr<'a>, arg: &'a LogicExpr<'a>, arena: &'a Arena<LogicExpr<'a>>) -> &'a LogicExpr<'a> {
+    pub fn app(
+        func: &'a LogicExpr<'a>,
+        arg: &'a LogicExpr<'a>,
+        arena: &'a Arena<LogicExpr<'a>>,
+    ) -> &'a LogicExpr<'a> {
         arena.alloc(LogicExpr::App {
             function: func,
             argument: arg,
@@ -770,25 +869,5 @@ impl<'a> LogicExpr<'a> {
 }
 
 #[cfg(test)]
-mod size_tests {
-    use super::*;
-    use std::mem::size_of;
-
-    #[test]
-    fn test_ast_node_sizes() {
-        println!("LogicExpr size: {} bytes", size_of::<LogicExpr>());
-        println!("Term size: {} bytes", size_of::<Term>());
-        println!("NounPhrase size: {} bytes", size_of::<NounPhrase>());
-
-        assert!(
-            size_of::<LogicExpr>() <= 48,
-            "LogicExpr is {} bytes - consider boxing large variants",
-            size_of::<LogicExpr>()
-        );
-        assert!(
-            size_of::<Term>() <= 32,
-            "Term is {} bytes",
-            size_of::<Term>()
-        );
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_language/ast/logic/size_tests.rs"]
+mod size_tests;

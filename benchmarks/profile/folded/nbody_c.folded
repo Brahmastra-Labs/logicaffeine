@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 23116752506
+_start;__libc_start_main_impl;__libc_start_call_main;main;___printf_chk;__vfprintf_internal;__printf_buffer;__printf_fp_spec;__printf_fp_l_buffer;__printf_fp_buffer_1;__mpn_mul_1 224932

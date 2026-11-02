@@ -1,0 +1,10 @@
+LOGOS_TT_ENV chip=wormhole_b0 so=libttsim_wh.so so_sha256=590f6d38aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4194 ttsim_version=v1.10.2 tt_metal_sha=9aa797dec5ed247251aa142deb3cea0af2df4321
+== ttsim (wormhole_b0) : /home/x/tt-metal/build_Release/programming_examples/metal_example_logos_matmul ==
+[0] ttsim v1.10.2 starting
+                 Metal | INFO     | Initializing device 0. Program cache is NOT enabled
+LOGOS_MM_CFG strategy=Simple grid=5x5 per_core=4x4 out_block=4x4 in0_block_w=20 subblock=2x4
+LOGOS compiler-generated matmul (wormhole_b0, Simple) -- PCC = 0.99929
+LOGOS_MM_PASS fidelity=HiFi2 fp32=0 l1acc=0 pcc=0.99929 floor=0.99
+                 Metal | INFO     | Closing device 0
+                 BuildKernels | JIT cache stats: 13/13 hits (100.0%) [13 cached, 0 build-once dedup] (build_cache_telemetry.cpp:207)
+[9735] 12.3 seconds (0.8 KHz)

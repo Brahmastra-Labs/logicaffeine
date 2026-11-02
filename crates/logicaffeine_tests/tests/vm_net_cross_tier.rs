@@ -24,7 +24,10 @@ use logicaffeine_system::addr::canonical_topic;
 use logicaffeine_system::relay::{serve, RelayClient};
 
 /// Run `program` on one tier — the VM net driver or the tree-walker — under a hang guard.
-async fn run_tier(program: &str, use_vm: bool) -> logicaffeine_compile::interpreter::InterpreterResult {
+async fn run_tier(
+    program: &str,
+    use_vm: bool,
+) -> logicaffeine_compile::interpreter::InterpreterResult {
     let fut = async {
         if use_vm {
             run_vm_net_async(program).await
@@ -57,14 +60,23 @@ async fn await_stream_first_element(use_vm: bool) -> Vec<String> {
         tokio::time::sleep(Duration::from_millis(300)).await;
         let blob = frame_stream_message(
             &canonical_topic("sensor"),
-            &[RuntimeValue::Int(11), RuntimeValue::Int(22), RuntimeValue::Int(33)],
+            &[
+                RuntimeValue::Int(11),
+                RuntimeValue::Int(22),
+                RuntimeValue::Int(33),
+            ],
         )
         .unwrap();
-        peer.publish(&canonical_topic("me"), blob).expect("peer injects the batch");
+        peer.publish(&canonical_topic("me"), blob)
+            .expect("peer injects the batch");
     };
 
     let (result, ()) = tokio::join!(run, inject);
-    assert!(result.error.is_none(), "tier (vm={use_vm}) Await errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier (vm={use_vm}) Await errored: {:?}",
+        result.error
+    );
     result.lines
 }
 
@@ -73,7 +85,9 @@ async fn stream_batch_to_peer(use_vm: bool) -> Vec<RuntimeValue> {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe(&canonical_topic("sink")).await.expect("peer subscribes");
+    peer.subscribe(&canonical_topic("sink"))
+        .await
+        .expect("peer subscribes");
 
     let program = format!(
         "## Main\n\
@@ -93,7 +107,11 @@ async fn stream_batch_to_peer(use_vm: bool) -> Vec<RuntimeValue> {
     };
 
     let (result, data) = tokio::join!(run, recv);
-    assert!(result.error.is_none(), "tier (vm={use_vm}) Stream errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier (vm={use_vm}) Stream errored: {:?}",
+        result.error
+    );
     deframe_stream_message(&data).expect("the peer deframed the batch")
 }
 
@@ -102,7 +120,9 @@ async fn send_scalar_to_peer(use_vm: bool) -> Option<(String, RuntimeValue)> {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe(&canonical_topic("sink")).await.expect("peer subscribes");
+    peer.subscribe(&canonical_topic("sink"))
+        .await
+        .expect("peer subscribes");
 
     let program = format!(
         "## Main\n\
@@ -121,7 +141,11 @@ async fn send_scalar_to_peer(use_vm: bool) -> Option<(String, RuntimeValue)> {
     };
 
     let (result, data) = tokio::join!(run, recv);
-    assert!(result.error.is_none(), "tier (vm={use_vm}) Send errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier (vm={use_vm}) Send errored: {:?}",
+        result.error
+    );
     message_from_wire(&data)
 }
 
@@ -131,7 +155,9 @@ async fn send_via_peeragent(use_vm: bool) -> Option<(String, RuntimeValue)> {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe(&canonical_topic("sink")).await.expect("peer subscribes");
+    peer.subscribe(&canonical_topic("sink"))
+        .await
+        .expect("peer subscribes");
 
     let program = format!(
         "## Main\n\
@@ -151,7 +177,11 @@ async fn send_via_peeragent(use_vm: bool) -> Option<(String, RuntimeValue)> {
     };
 
     let (result, data) = tokio::join!(run, recv);
-    assert!(result.error.is_none(), "tier (vm={use_vm}) PeerAgent Send errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier (vm={use_vm}) PeerAgent Send errored: {:?}",
+        result.error
+    );
     message_from_wire(&data)
 }
 
@@ -172,7 +202,11 @@ async fn sync_counter_output(use_vm: bool) -> Vec<String> {
     );
 
     let result = run_tier(&program, use_vm).await;
-    assert!(result.error.is_none(), "tier (vm={use_vm}) Sync errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier (vm={use_vm}) Sync errored: {:?}",
+        result.error
+    );
     result.lines
 }
 
@@ -202,7 +236,11 @@ async fn vm_stream_send_is_byte_identical_to_treewalker() {
     );
     assert_eq!(
         vm,
-        vec![RuntimeValue::Int(11), RuntimeValue::Int(22), RuntimeValue::Int(33)],
+        vec![
+            RuntimeValue::Int(11),
+            RuntimeValue::Int(22),
+            RuntimeValue::Int(33)
+        ],
         "the VM streamed exactly the values the program built"
     );
 }
@@ -259,13 +297,18 @@ async fn vm_sync_is_byte_identical_to_treewalker() {
 /// (that separation is exactly why the byte-identical data locks above still hold).
 async fn handshake_advertised_to_peer(
     use_vm: bool,
-) -> Option<(String, logicaffeine_compile::concurrency::marshal::PeerProfile)> {
+) -> Option<(
+    String,
+    logicaffeine_compile::concurrency::marshal::PeerProfile,
+)> {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
     let peer_data = canonical_topic("peer");
     let peer_hs = format!("{peer_data}#hs");
-    peer.subscribe(&peer_data).await.expect("peer subscribes data");
+    peer.subscribe(&peer_data)
+        .await
+        .expect("peer subscribes data");
     peer.subscribe(&peer_hs).await.expect("peer subscribes hs");
 
     let program = format!(
@@ -281,7 +324,8 @@ async fn handshake_advertised_to_peer(
         for _ in 0..2 {
             match tokio::time::timeout(Duration::from_secs(5), peer.next_event()).await {
                 Ok(Some((topic, data))) if topic == peer_hs => {
-                    found = logicaffeine_compile::concurrency::marshal::parse_handshake_frame(&data);
+                    found =
+                        logicaffeine_compile::concurrency::marshal::parse_handshake_frame(&data);
                 }
                 Ok(Some(_)) => {}
                 _ => break,
@@ -290,7 +334,11 @@ async fn handshake_advertised_to_peer(
         found
     };
     let (result, found) = tokio::join!(run, recv);
-    assert!(result.error.is_none(), "tier(vm={use_vm}) Send errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier(vm={use_vm}) Send errored: {:?}",
+        result.error
+    );
     found
 }
 
@@ -298,11 +346,17 @@ async fn handshake_advertised_to_peer(
 async fn program_advertises_its_profile_on_first_contact_on_both_tiers() {
     use logicaffeine_compile::concurrency::marshal::PeerProfile;
     for use_vm in [false, true] {
-        let (from, profile) = handshake_advertised_to_peer(use_vm).await.unwrap_or_else(|| {
-            panic!("tier(vm={use_vm}) must advertise a handshake on the peer's #hs topic")
-        });
+        let (from, profile) = handshake_advertised_to_peer(use_vm)
+            .await
+            .unwrap_or_else(|| {
+                panic!("tier(vm={use_vm}) must advertise a handshake on the peer's #hs topic")
+            });
         assert_eq!(from, canonical_topic("me"), "advertises our inbox identity");
-        assert_eq!(profile, PeerProfile::default(), "advertises our full capability profile");
+        assert_eq!(
+            profile,
+            PeerProfile::default(),
+            "advertises our full capability profile"
+        );
     }
 }
 
@@ -329,7 +383,9 @@ async fn typeid_elided_struct_sends(use_vm: bool) -> (Vec<u8>, Vec<u8>) {
     let peer_data = canonical_topic("peer");
     let peer_hs = format!("{peer_data}#hs");
     let me_data = canonical_topic("me");
-    peer.subscribe(&peer_data).await.expect("peer subscribes data");
+    peer.subscribe(&peer_data)
+        .await
+        .expect("peer subscribes data");
     peer.subscribe(&peer_hs).await.expect("peer subscribes hs");
 
     let program = format!(
@@ -364,14 +420,21 @@ async fn typeid_elided_struct_sends(use_vm: bool) -> (Vec<u8>, Vec<u8>) {
             }
         }
         let epoch = program_epoch.expect("the program advertised a registry epoch");
-        assert_ne!(epoch, 0, "a program with a struct type advertises a NON-zero registry epoch");
+        assert_ne!(
+            epoch, 0,
+            "a program with a struct type advertises a NON-zero registry epoch"
+        );
 
         // Phase 2 — mirror that exact epoch back (a second peer running the same program), then unblock
         // the Await. BOTH frames go to OUR data topic in order: the handshake is absorbed (never
         // delivered as data), the stream frame unblocks the Await — so by the time the program's SECOND
         // send runs it has negotiated type-id against our matching, advertised surface.
-        let mirror = PeerProfile { registry_epoch: epoch, ..PeerProfile::default() };
-        peer.publish(&me_data, make_handshake_frame(&peer_data, &mirror)).expect("mirror handshake");
+        let mirror = PeerProfile {
+            registry_epoch: epoch,
+            ..PeerProfile::default()
+        };
+        peer.publish(&me_data, make_handshake_frame(&peer_data, &mirror))
+            .expect("mirror handshake");
         let unblock = frame_stream_message(&peer_data, &[RuntimeValue::Int(1)]).unwrap();
         peer.publish(&me_data, unblock).expect("unblock the Await");
 
@@ -389,7 +452,11 @@ async fn typeid_elided_struct_sends(use_vm: bool) -> (Vec<u8>, Vec<u8>) {
     };
 
     let (result, pair) = tokio::join!(run, drive);
-    assert!(result.error.is_none(), "tier(vm={use_vm}) type-id program errored: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "tier(vm={use_vm}) type-id program errored: {:?}",
+        result.error
+    );
     pair
 }
 
@@ -442,11 +509,14 @@ async fn typeid_name_elision_fires_end_to_end_on_both_tiers() {
         "Record".to_string(),
         vec!["alpha".to_string(), "beta".to_string()],
     )]);
-    let (_from, value) =
-        with_type_registry(reg, || message_from_wire(&tw_second)).expect("decodes with the shared registry");
+    let (_from, value) = with_type_registry(reg, || message_from_wire(&tw_second))
+        .expect("decodes with the shared registry");
     match value {
         RuntimeValue::Struct(s) => {
-            assert_eq!(s.type_name, "Record", "the shared registry recovers the type name");
+            assert_eq!(
+                s.type_name, "Record",
+                "the shared registry recovers the type name"
+            );
             assert_eq!(s.fields.get("alpha"), Some(&RuntimeValue::Int(1)));
             assert_eq!(s.fields.get("beta"), Some(&RuntimeValue::Int(2)));
         }

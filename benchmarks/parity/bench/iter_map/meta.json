@@ -1,0 +1,11 @@
+{
+  "capability": "iter.map",
+  "workload": "mapSeq((n)->(n*3+1)%2^20, xs), positional fold",
+  "arg": "40000",
+  "expected": "2399980000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

@@ -102,11 +102,7 @@ pub(crate) fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
                             if let Term::Global(ctor2) = sapp_inner.as_ref() {
                                 if ctor2 == "SApp" {
                                     if let Some(op) = extract_sname(op_term) {
-                                        return Some((
-                                            op,
-                                            a.as_ref().clone(),
-                                            b.as_ref().clone(),
-                                        ));
+                                        return Some((op, a.as_ref().clone(), b.as_ref().clone()));
                                     }
                                 }
                             }
@@ -120,26 +116,5 @@ pub(crate) fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn interner_distinct_names_distinct_indices() {
-        let mut it = VarInterner::new();
-        let a = it.intern("Aa");
-        let b = it.intern("BB");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn interner_same_name_same_index() {
-        let mut it = VarInterner::new();
-        assert_eq!(it.intern("x"), it.intern("x"));
-    }
-
-    #[test]
-    fn interner_indices_negative_below_svar_range() {
-        let mut it = VarInterner::new();
-        assert!(it.intern("x") <= -1_000_000);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_kernel/reify/tests.rs"]
+mod tests;

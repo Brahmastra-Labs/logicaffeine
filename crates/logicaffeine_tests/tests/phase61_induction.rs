@@ -10,10 +10,7 @@
 // - If n is a Nat, then Succ(n) is a Nat
 // - To prove ∀n:Nat. P(n), prove P(Zero) and ∀k:Nat. P(k) → P(Succ(k))
 
-use logicaffeine_proof::{
-    BackwardChainer, DerivationTree, InferenceRule, MatchArm, ProofExpr, ProofTerm,
-};
-use logicaffeine_proof::error::ProofError;
+use logicaffeine_proof::{BackwardChainer, InferenceRule, MatchArm, ProofExpr, ProofTerm};
 
 // =============================================================================
 // HELPER FUNCTIONS - Peano Number Construction
@@ -62,15 +59,10 @@ fn expr_to_term(expr: ProofExpr) -> ProofTerm {
     match expr {
         ProofExpr::Atom(s) => ProofTerm::Variable(s),
         ProofExpr::Ctor { name, args } => {
-            ProofTerm::Function(
-                name,
-                args.into_iter().map(expr_to_term).collect(),
-            )
+            ProofTerm::Function(name, args.into_iter().map(expr_to_term).collect())
         }
         // Predicate used as a function application (e.g., Add(x, y))
-        ProofExpr::Predicate { name, args, .. } => {
-            ProofTerm::Function(name, args)
-        }
+        ProofExpr::Predicate { name, args, .. } => ProofTerm::Function(name, args),
         // Preserve type annotation in variable name for induction detection
         ProofExpr::TypedVar { name, typename } => {
             ProofTerm::Variable(format!("{}:{}", name, typename))
@@ -180,10 +172,7 @@ fn test_induction_base_case_axiom_exists() {
     let mut engine = BackwardChainer::new();
 
     // Axiom: Add(Zero, m) = m
-    let add_zero_m = eq(
-        app("Add", vec![zero(), var("m")]),
-        var("m"),
-    );
+    let add_zero_m = eq(app("Add", vec![zero(), var("m")]), var("m"));
     engine.add_axiom(add_zero_m.clone());
 
     // For now, just verify direct match on the exact axiom works
@@ -221,10 +210,7 @@ fn test_induction_nat_theorem_proved_by_induction() {
     engine.set_max_depth(20);
 
     // Axiom 1: Add(Zero, m) = m (base definition)
-    engine.add_axiom(eq(
-        app("Add", vec![zero(), var("m")]),
-        var("m"),
-    ));
+    engine.add_axiom(eq(app("Add", vec![zero(), var("m")]), var("m")));
 
     // Axiom 2: Add(Succ(k), m) = Succ(Add(k, m)) (step definition)
     engine.add_axiom(eq(
@@ -233,10 +219,7 @@ fn test_induction_nat_theorem_proved_by_induction() {
     ));
 
     // Goal: ∀n:Nat. Add(n, Zero) = n
-    let goal = eq(
-        app("Add", vec![nat_var("n"), zero()]),
-        nat_var("n"),
-    );
+    let goal = eq(app("Add", vec![nat_var("n"), zero()]), nat_var("n"));
 
     let result = engine.prove(goal);
 
@@ -261,23 +244,23 @@ fn test_induction_on_list_fails_without_induction() {
     //
     // Same pattern - needs structural induction
 
-    let nil = ProofExpr::Ctor { name: "Nil".into(), args: vec![] };
-    let list_var = ProofExpr::TypedVar { name: "xs".into(), typename: "List".into() };
+    let nil = ProofExpr::Ctor {
+        name: "Nil".into(),
+        args: vec![],
+    };
+    let list_var = ProofExpr::TypedVar {
+        name: "xs".into(),
+        typename: "List".into(),
+    };
 
     let mut engine = BackwardChainer::new();
     engine.set_max_depth(20);
 
     // Axiom: Append(Nil, ys) = ys
-    engine.add_axiom(eq(
-        app("Append", vec![nil.clone(), var("ys")]),
-        var("ys"),
-    ));
+    engine.add_axiom(eq(app("Append", vec![nil.clone(), var("ys")]), var("ys")));
 
     // Goal: Append(xs:List, Nil) = xs:List
-    let goal = eq(
-        app("Append", vec![list_var.clone(), nil]),
-        list_var,
-    );
+    let goal = eq(app("Append", vec![list_var.clone(), nil]), list_var);
 
     let result = engine.prove(goal);
 
@@ -299,20 +282,14 @@ fn test_induction_full_theorem_succeeds_with_induction() {
     let mut engine = BackwardChainer::new();
 
     // Define Add recursively
-    engine.add_axiom(eq(
-        app("Add", vec![zero(), var("m")]),
-        var("m"),
-    ));
+    engine.add_axiom(eq(app("Add", vec![zero(), var("m")]), var("m")));
     engine.add_axiom(eq(
         app("Add", vec![succ(var("k")), var("m")]),
         succ(app("Add", vec![var("k"), var("m")])),
     ));
 
     // Goal: ∀n:Nat. Add(n, Zero) = n
-    let goal = eq(
-        app("Add", vec![nat_var("n"), zero()]),
-        nat_var("n"),
-    );
+    let goal = eq(app("Add", vec![nat_var("n"), zero()]), nat_var("n"));
 
     let result = engine.prove(goal);
 
@@ -328,7 +305,11 @@ fn test_induction_full_theorem_succeeds_with_induction() {
     );
 
     // Should have 2 premises: base case and step case
-    assert_eq!(proof.premises.len(), 2, "Induction needs base and step cases");
+    assert_eq!(
+        proof.premises.len(),
+        2,
+        "Induction needs base and step cases"
+    );
 
     println!("Proof of Add(n, 0) = n:");
     println!("{}", proof.display_tree());

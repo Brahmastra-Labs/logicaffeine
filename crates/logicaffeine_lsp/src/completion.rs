@@ -1,12 +1,13 @@
-use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemTag, CompletionResponse, Position,
+use lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionItemTag, CompletionResponse, Position, Url,
 };
 
 use logicaffeine_compile::analysis::VarState;
-use logicaffeine_language::token::TokenType;
+use logicaffeine_language::token::{RawKind, TokenType};
 
 use crate::document::DocumentState;
 use crate::index::DefinitionKind;
+use crate::workspace::WorkspaceView;
 
 /// Handle completion request.
 ///
@@ -14,39 +15,70 @@ use crate::index::DefinitionKind;
 pub fn completions(doc: &DocumentState, position: Position) -> Option<CompletionResponse> {
     let offset = doc.line_index.offset(position);
 
-    // Find the preceding token to determine context
-    let prev_token = doc
-        .tokens
-        .iter()
-        .rev()
-        .find(|t| t.span.end <= offset)?;
+    // The preceding token sets the context. NONE (empty document, or the cursor
+    // before the first token) is not a dead end — it gets identifiers, keywords, and (below)
+    // stdlib names alike, so a fresh file still completes.
+    let prev_token = doc.tokens.iter().rev().find(|t| t.span.end <= offset);
 
     let mut items = Vec::new();
 
-    match &prev_token.kind {
-        // After period or at start of line → statement keywords
-        TokenType::Period | TokenType::Indent | TokenType::Newline => {
+    // ★ A TEMPLATE HOLE HAS ITS OWN, SMALL VOCABULARY — and it used to be handed the whole stdlib.
+    //
+    // Completion dispatches on the PREVIOUS TOKEN, and a `View:` body is one `RawBlock`, so a
+    // cursor inside a template fell through to the general fallback: every function the prelude
+    // declares, about a thousand of them. Typing `{co` offered `cConj`, `cCosh`, `commonRunLen`
+    // and never `count`. **Useless suggestions are not a neutral default** — they bury the two
+    // names that were wanted, and an author who is shown a thousand irrelevant entries once stops
+    // reading the list at all.
+    //
+    // What a hole can hold is knowable: this page's state, props and actions, the components it
+    // can place, and the template tags. That is a few dozen entries, all of them plausible.
+    //
+    // A `Style:` body is CSS, and its vocabulary is knowable too: a scoped stylesheet matches
+    // only what its own component renders.
+    match raw_section_at(doc, offset) {
+        Some(RawKind::View | RawKind::Head) => {
+            add_template_completions(doc, &mut items);
+            return Some(CompletionResponse::Array(items));
+        }
+        Some(RawKind::Style) => {
+            add_style_completions(doc, offset, &mut items);
+            return Some(CompletionResponse::Array(items));
+        }
+        None => {}
+    }
+
+    match prev_token.map(|t| &t.kind) {
+        // After period, at start of line, or before the first token → statement keywords. A
+        // token-less cursor must not depend on `add_identifier_completions` coming back empty to
+        // reach this: a compiler-registered built-in type (`HttpError`, `File`) can populate
+        // `items` even for an otherwise-empty document, and a statement start still needs its
+        // keywords regardless of whatever else is offered alongside them.
+        None | Some(TokenType::Period | TokenType::Indent | TokenType::Newline) => {
             add_statement_keywords(&mut items);
+            if prev_token.is_none() {
+                add_identifier_completions(doc, &mut items);
+            }
         }
 
         // After "Let x be" or similar → expression completions
-        TokenType::Be => {
+        Some(TokenType::Be) => {
             add_expression_completions(doc, &mut items);
         }
 
         // After ":" → type completions
-        TokenType::Colon => {
+        Some(TokenType::Colon) => {
             add_type_completions(doc, &mut items);
         }
 
         // After possessive ('s) → field completions
-        TokenType::Possessive => {
+        Some(TokenType::Possessive) => {
             // Look back to find the object before possessive
             add_field_completions(doc, offset, &mut items);
         }
 
         // After "Inspect x:" → variant completions
-        TokenType::Inspect => {
+        Some(TokenType::Inspect) => {
             add_variant_completions(doc, &mut items);
         }
 
@@ -69,6 +101,61 @@ pub fn completions(doc: &DocumentState, position: Position) -> Option<Completion
     Some(CompletionResponse::Array(items))
 }
 
+/// [`completions`] enriched with cross-module knowledge from the workspace: after
+/// `Import `, the available module NAMES; in code, the public SYMBOLS of the
+/// modules this file imports (each labelled `from <Module>`). Additive — never
+/// displaces the local + stdlib completions.
+pub fn completions_with_workspace(
+    doc: &DocumentState,
+    position: Position,
+    ws: &dyn WorkspaceView,
+    uri: &Url,
+) -> Option<CompletionResponse> {
+    let mut items = match completions(doc, position) {
+        Some(CompletionResponse::Array(v)) => v,
+        Some(CompletionResponse::List(list)) => list.items,
+        None => Vec::new(),
+    };
+
+    let offset = doc.line_index.offset(position);
+    // A stylesheet names selectors, never code, so no module's symbols belong in it.
+    if raw_section_at(doc, offset) == Some(RawKind::Style) {
+        return Some(CompletionResponse::Array(items));
+    }
+    let line_start = doc.source[..offset.min(doc.source.len())]
+        .rfind('\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let line_prefix = &doc.source[line_start..offset.min(doc.source.len())];
+
+    if line_prefix.trim_start().starts_with("Import") {
+        // Import-statement context → complete module names not already on the line.
+        for (alias, _url) in ws.module_names() {
+            if line_prefix.contains(&alias) {
+                continue;
+            }
+            items.push(CompletionItem {
+                label: alias,
+                kind: Some(CompletionItemKind::MODULE),
+                ..Default::default()
+            });
+        }
+    } else {
+        // Code context → exactly the names this file's imports bring into scope
+        // (a selective import narrows to its selected names, not the whole module).
+        for (label, alias) in ws.imported_symbols(uri) {
+            items.push(CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("from {alias}")),
+                ..Default::default()
+            });
+        }
+    }
+
+    Some(CompletionResponse::Array(items))
+}
+
 fn add_statement_keywords(items: &mut Vec<CompletionItem>) {
     // Snippet skeletons are editing mechanics and live here; the teaching
     // text (detail + documentation) comes from the shared lesson table, so
@@ -78,13 +165,19 @@ fn add_statement_keywords(items: &mut Vec<CompletionItem>) {
         (TokenType::Set, "Set ${1:name} to ${2:value}."),
         (TokenType::If, "If ${1:condition}:\n    ${2:body}"),
         (TokenType::While, "While ${1:condition}:\n    ${2:body}"),
-        (TokenType::Repeat, "Repeat for ${1:item} in ${2:collection}:\n    ${3:body}"),
+        (
+            TokenType::Repeat,
+            "Repeat for ${1:item} in ${2:collection}:\n    ${3:body}",
+        ),
         (TokenType::Return, "Return ${1:value}."),
         (TokenType::Show, "Show ${1:value}."),
         (TokenType::Give, "Give ${1:value} to ${2:target}."),
         (TokenType::Push, "Push ${1:value} to ${2:list}."),
         (TokenType::Call, "Call ${1:function} with ${2:args}."),
-        (TokenType::Inspect, "Inspect ${1:value}:\n    ${2:pattern}:\n        ${3:body}"),
+        (
+            TokenType::Inspect,
+            "Inspect ${1:value}:\n    ${2:pattern}:\n        ${3:body}",
+        ),
     ];
 
     for (kind, snippet) in keywords {
@@ -96,7 +189,174 @@ fn add_statement_keywords(items: &mut Vec<CompletionItem>) {
             detail: Some(lesson.what.to_string()),
             documentation: Some(crate::teach_md::completion_docs(lesson)),
             insert_text: Some(snippet.to_string()),
-            insert_text_format: Some(tower_lsp::lsp_types::InsertTextFormat::SNIPPET),
+            insert_text_format: Some(lsp_types::InsertTextFormat::SNIPPET),
+            ..Default::default()
+        });
+    }
+}
+
+/// The raw section (`View:`, `Style:`, `Head:` body — one `RawBlock` token to the lexer) the
+/// cursor is inside, if any.
+fn raw_section_at(doc: &DocumentState, offset: usize) -> Option<RawKind> {
+    doc.tokens.iter().find_map(|t| match t.kind {
+        TokenType::RawBlock { kind, .. } if offset > t.span.start && offset <= t.span.end => {
+            Some(kind)
+        }
+        _ => None,
+    })
+}
+
+/// What a scoped stylesheet can match: the element names, classes (static `class="…"` words and
+/// `class:name` toggles) and ids the `View:` of the SAME `##` block renders, plus `:global(…)` —
+/// the way out of the scope.
+fn add_style_completions(doc: &DocumentState, offset: usize, items: &mut Vec<CompletionItem>) {
+    use logicaffeine_language::lgx::html::{self, AttrPart, AttrValue, HtmlToken};
+    use std::collections::BTreeSet;
+
+    // The `##` block holding the cursor: from the header before it to the header after it.
+    let block_start = doc
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.kind, TokenType::BlockHeader { .. }) && t.span.start <= offset)
+        .map(|t| t.span.start)
+        .last()
+        .unwrap_or(0);
+    let block_end = doc
+        .tokens
+        .iter()
+        .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }) && t.span.start > offset)
+        .map_or(doc.source.len(), |t| t.span.start);
+
+    let mut tags = BTreeSet::new();
+    let mut classes = BTreeSet::new();
+    let mut ids = BTreeSet::new();
+    let views = doc.tokens.iter().filter(|t| {
+        matches!(
+            t.kind,
+            TokenType::RawBlock {
+                kind: RawKind::View,
+                ..
+            }
+        ) && t.span.start >= block_start
+            && t.span.end <= block_end
+    });
+    for view in views {
+        let Some(body) = doc.source.get(view.span.start..view.span.end) else {
+            continue;
+        };
+        let Ok(tokens) = html::tokenize(body) else {
+            continue;
+        };
+        for token in tokens {
+            let HtmlToken::StartTag { name, attrs, .. } = token else {
+                continue;
+            };
+            if !html::is_component_name(&name) {
+                tags.insert(name.to_ascii_lowercase());
+            }
+            for attr in attrs {
+                if let Some(toggled) = attr.name.strip_prefix("class:") {
+                    classes.insert(toggled.to_string());
+                    continue;
+                }
+                let words = match &attr.value {
+                    Some(AttrValue::Static(v)) => vec![v.clone()],
+                    // A word touching a `{…}` is only part of a class name; the whole words of the
+                    // text between holes are real ones.
+                    Some(AttrValue::Parts(parts)) => parts
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, p)| match p {
+                            AttrPart::Text(t) => {
+                                let mut words: Vec<&str> = t.split_whitespace().collect();
+                                if i > 0 && !t.starts_with(char::is_whitespace) && !words.is_empty()
+                                {
+                                    words.remove(0);
+                                }
+                                if i + 1 < parts.len() && !t.ends_with(char::is_whitespace) {
+                                    words.pop();
+                                }
+                                Some(words.join(" "))
+                            }
+                            AttrPart::Brace { .. } => None,
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+                let target = match attr.name.as_str() {
+                    "class" => &mut classes,
+                    "id" => &mut ids,
+                    _ => continue,
+                };
+                for w in words.iter().flat_map(|v| v.split_whitespace()) {
+                    target.insert(w.to_string());
+                }
+            }
+        }
+    }
+
+    let mut push = |label: String, kind: CompletionItemKind, detail: &str| {
+        items.push(CompletionItem {
+            label,
+            kind: Some(kind),
+            detail: Some(detail.to_string()),
+            ..Default::default()
+        });
+    };
+    for c in classes {
+        push(
+            format!(".{c}"),
+            CompletionItemKind::CLASS,
+            "a class this component's view renders",
+        );
+    }
+    for id in ids {
+        push(
+            format!("#{id}"),
+            CompletionItemKind::REFERENCE,
+            "an id this component's view renders",
+        );
+    }
+    for t in tags {
+        push(
+            t,
+            CompletionItemKind::KEYWORD,
+            "an element this component's view renders",
+        );
+    }
+    items.push(CompletionItem {
+        label: ":global(…)".to_string(),
+        kind: Some(CompletionItemKind::SNIPPET),
+        detail: Some("match outside this component — the one way out of the scope".to_string()),
+        insert_text: Some(":global(${1:selector})".to_string()),
+        insert_text_format: Some(lsp_types::InsertTextFormat::SNIPPET),
+        ..Default::default()
+    });
+}
+
+/// What a template hole can name: the page's own vocabulary, and the tags.
+fn add_template_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) {
+    for def in &doc.symbol_index.definitions {
+        let kind = match def.kind {
+            DefinitionKind::StateField => CompletionItemKind::PROPERTY,
+            DefinitionKind::Action => CompletionItemKind::METHOD,
+            DefinitionKind::Component => CompletionItemKind::CLASS,
+            _ => continue,
+        };
+        items.push(CompletionItem {
+            label: def.name.clone(),
+            kind: Some(kind),
+            detail: def.detail.clone(),
+            ..Default::default()
+        });
+    }
+    // The tags, from the editor's one tag table (`crate::template::TAGS`), which is held against
+    // the template parser's own tag words.
+    for (label, detail) in crate::template::TAGS.iter().copied() {
+        items.push(CompletionItem {
+            label: label.to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            detail: Some(detail.to_string()),
             ..Default::default()
         });
     }
@@ -109,7 +369,10 @@ fn add_expression_completions(doc: &DocumentState, items: &mut Vec<CompletionIte
     // Add "a new Type" constructor
     for (name, typedef) in doc.type_registry.iter_types() {
         let type_name = doc.interner.resolve(*name);
-        if matches!(typedef, logicaffeine_language::analysis::TypeDef::Struct { .. }) {
+        if matches!(
+            typedef,
+            logicaffeine_language::analysis::TypeDef::Struct { .. }
+        ) {
             items.push(CompletionItem {
                 label: format!("a new {}", type_name),
                 kind: Some(CompletionItemKind::CONSTRUCTOR),
@@ -122,7 +385,9 @@ fn add_expression_completions(doc: &DocumentState, items: &mut Vec<CompletionIte
 
 fn add_type_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) {
     // Primitive types — each teaches from the shared lesson table.
-    let primitives = ["Int", "Nat", "Text", "Bool", "Float", "Unit", "Char", "Byte"];
+    let primitives = [
+        "Int", "Nat", "Text", "Bool", "Float", "Unit", "Char", "Byte",
+    ];
     for prim in primitives {
         let lesson = logicaffeine_language::teach::doc_for_primitive(prim)
             .expect("every offered primitive is taught");
@@ -176,7 +441,11 @@ fn add_field_completions(doc: &DocumentState, offset: usize, items: &mut Vec<Com
                     items.push(CompletionItem {
                         label: field_name.to_string(),
                         kind: Some(CompletionItemKind::FIELD),
-                        detail: Some(format!("{}: {}", field_name, crate::hover::format_field_type(&field.ty, &doc.interner))),
+                        detail: Some(format!(
+                            "{}: {}",
+                            field_name,
+                            crate::hover::format_field_type(&field.ty, &doc.interner)
+                        )),
                         ..Default::default()
                     });
                 }
@@ -185,7 +454,10 @@ fn add_field_completions(doc: &DocumentState, offset: usize, items: &mut Vec<Com
     }
 
     // Fall back: if no fields were added, show all fields from all structs
-    if items.iter().all(|i| i.kind != Some(CompletionItemKind::FIELD)) {
+    if items
+        .iter()
+        .all(|i| i.kind != Some(CompletionItemKind::FIELD))
+    {
         for (_name, typedef) in doc.type_registry.iter_types() {
             if let logicaffeine_language::analysis::TypeDef::Struct { fields, .. } = typedef {
                 for field in fields {
@@ -247,273 +519,8 @@ fn add_variant_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::document::DocumentState;
-
-    fn make_doc(source: &str) -> DocumentState {
-        DocumentState::new(source.to_string(), 1)
-    }
-
-    #[test]
-    fn completion_returns_items() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position after the period (end of line 1)
-        let pos = Position { line: 1, character: 18 };
-        let result = completions(&doc, pos);
-        assert!(result.is_some(), "Expected completion response");
-        if let Some(CompletionResponse::Array(items)) = result {
-            assert!(!items.is_empty(), "Expected non-empty completions");
-        }
-    }
-
-    #[test]
-    fn completion_includes_keywords_after_period() {
-        // Position right after the period on line 1
-        // The previous token should be Period, which triggers keyword completions
-        let doc = make_doc("## Main\n    Let x be 5.\n    ");
-        // Position at start of empty line 2 (after Newline/Indent)
-        let pos = Position { line: 2, character: 4 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-            // After Newline/Indent, should get keywords OR at least fallback with keywords
-            let has_keywords = labels.contains(&"Let") || labels.contains(&"Show");
-            let has_identifiers = labels.contains(&"x");
-            assert!(
-                has_keywords || has_identifiers,
-                "Should include keywords or identifiers: {:?}",
-                labels
-            );
-        }
-    }
-
-    #[test]
-    fn completion_includes_variables_in_default_context() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        // Position right after "Show" (the "x" token) - the previous token is Show
-        // which triggers the default _ path → add_identifier_completions
-        let pos = Position { line: 2, character: 9 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-            assert!(labels.contains(&"x"), "Should include variable 'x': {:?}", labels);
-        }
-    }
-
-    #[test]
-    fn completion_no_crash_empty_doc() {
-        let doc = make_doc("");
-        let pos = Position { line: 0, character: 0 };
-        let result = completions(&doc, pos);
-        // Empty doc has no prev_token, so completions returns None
-        // OR if lexer emits an EOF token, it will still return keywords via fallback
-        // Either way, should not panic
-        match result {
-            None => {} // OK
-            Some(CompletionResponse::Array(items)) => {
-                // Keywords are always valid as a fallback
-                assert!(!items.is_empty(), "If result is Some, it should have items");
-            }
-            _ => panic!("Unexpected response type"),
-        }
-    }
-
-    #[test]
-    fn completion_after_colon_type_completions() {
-        let doc = make_doc("## Main\n    Let x: Int be 5.\n");
-        // Position after the colon — find the colon's position
-        // "Let x:" → colon at character 9, so after it at character 10
-        let pos = Position { line: 1, character: 10 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-            let has_types = labels.contains(&"Int") || labels.contains(&"Text") || labels.contains(&"Bool");
-            assert!(has_types, "After colon should include type completions: {:?}", labels);
-        }
-    }
-
-    #[test]
-    fn completion_items_have_correct_kind() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    ");
-        let pos = Position { line: 2, character: 4 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let keyword_items: Vec<_> = items.iter()
-                .filter(|i| i.label == "Let" || i.label == "Show")
-                .collect();
-            for item in &keyword_items {
-                assert_eq!(item.kind, Some(CompletionItemKind::KEYWORD),
-                    "'{}' should have KEYWORD kind", item.label);
-            }
-        }
-    }
-
-    #[test]
-    fn completion_snippets_have_snippet_format() {
-        let doc = make_doc("## Main\n    ");
-        let pos = Position { line: 1, character: 4 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let keyword_items: Vec<_> = items.iter()
-                .filter(|i| i.label == "Let" || i.label == "If")
-                .collect();
-            for item in &keyword_items {
-                assert_eq!(item.insert_text_format,
-                    Some(tower_lsp::lsp_types::InsertTextFormat::SNIPPET),
-                    "'{}' should have SNIPPET format", item.label);
-            }
-        }
-    }
-
-    #[test]
-    fn keyword_completions_teach_with_detail_and_documentation() {
-        let doc = make_doc("## Main\n    ");
-        let pos = Position { line: 1, character: 4 };
-        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
-            panic!("expected completions after indent");
-        };
-        for label in [
-            "Let", "Set", "If", "While", "Repeat", "Return", "Show", "Give", "Push", "Call",
-            "Inspect",
-        ] {
-            let item = items
-                .iter()
-                .find(|i| i.label == label && i.kind == Some(CompletionItemKind::KEYWORD))
-                .unwrap_or_else(|| panic!("keyword completion for {label}"));
-            let lesson = logicaffeine_language::teach::doc_for_word(label)
-                .unwrap_or_else(|| panic!("{label} must be taught"));
-            assert_eq!(
-                item.detail.as_deref(),
-                Some(lesson.what),
-                "{label}: completion detail must be the lesson's one-liner"
-            );
-            assert!(
-                item.documentation.is_some(),
-                "{label}: completion must carry teaching documentation"
-            );
-        }
-    }
-
-    #[test]
-    fn primitive_type_completions_teach_from_the_lesson_table() {
-        let doc = make_doc("## Main\n    Let x: Int be 5.\n");
-        // Position right after the colon.
-        let pos = Position { line: 1, character: 10 };
-        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
-            panic!("expected type completions after colon");
-        };
-        let int_item = items
-            .iter()
-            .find(|i| i.label == "Int")
-            .expect("Int must be offered after a colon");
-        let lesson = logicaffeine_language::teach::doc_for_primitive("Int").unwrap();
-        assert_eq!(
-            int_item.detail.as_deref(),
-            Some(lesson.what),
-            "Int detail must come from the lesson table, not a generic placeholder"
-        );
-        assert!(
-            int_item.documentation.is_some(),
-            "Int completion must carry teaching documentation"
-        );
-    }
-
-    #[test]
-    fn documented_function_completion_carries_its_prose() {
-        let doc = make_doc(
-            "## Note\nDoubles a number.\n\n## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nShow x.\n",
-        );
-        // Default context after "Show".
-        let pos = Position { line: 7, character: 5 };
-        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
-            panic!("expected completions");
-        };
-        let item = items
-            .iter()
-            .find(|i| i.label == "double")
-            .expect("double completes");
-        let Some(tower_lsp::lsp_types::Documentation::MarkupContent(content)) =
-            &item.documentation
-        else {
-            panic!("documented function must carry markdown docs");
-        };
-        assert!(content.value.contains("Doubles a number."), "{}", content.value);
-    }
-
-    #[test]
-    fn stdlib_names_complete_with_their_documentation() {
-        let doc = make_doc("## Main\n    Show x.\n");
-        let pos = Position { line: 1, character: 9 };
-        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
-            panic!("expected completions");
-        };
-        let md5 = items.iter().find(|i| i.label == "md5").expect("md5 offered from stdlib");
-        assert_eq!(md5.kind, Some(CompletionItemKind::FUNCTION));
-        assert!(
-            md5.detail.as_deref().is_some_and(|d| d.contains("md5")),
-            "{:?}",
-            md5.detail
-        );
-        assert!(md5.documentation.is_some(), "stdlib completion teaches");
-    }
-
-    #[test]
-    fn variant_completion_no_crash_with_inspect() {
-        // After "Inspect" keyword, should not crash even without a defined enum
-        let doc = make_doc("## Main\n    Let x be 5.\n    Inspect x:\n");
-        let pos = Position { line: 2, character: 14 };
-        let result = completions(&doc, pos);
-        // Should return something (even if empty or keywords) but not panic
-        assert!(result.is_some(), "Should return some completions after Inspect");
-    }
-
-    #[test]
-    fn completion_moved_variable_has_deprecated_tag() {
-        use logicaffeine_compile::analysis::VarState;
-        let mut doc = make_doc("## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n    Show x.\n");
-        // Ensure x is marked as Moved
-        doc.ownership_states.insert("x".to_string(), VarState::Moved);
-        // Find completions in some context
-        let pos = Position { line: 4, character: 9 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let x_items: Vec<_> = items.iter().filter(|i| i.label == "x").collect();
-            if !x_items.is_empty() {
-                assert_eq!(
-                    x_items[0].deprecated,
-                    Some(true),
-                    "Moved variable 'x' should be marked deprecated"
-                );
-                assert!(
-                    x_items[0].tags.as_ref().map_or(false, |t| t.contains(&CompletionItemTag::DEPRECATED)),
-                    "Moved variable should have DEPRECATED tag"
-                );
-                assert!(
-                    x_items[0].detail.as_ref().map_or(false, |d| d.contains("(moved)")),
-                    "Moved variable detail should indicate moved: {:?}",
-                    x_items[0].detail
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn completion_owned_variable_no_tag() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = completions(&doc, pos);
-        if let Some(CompletionResponse::Array(items)) = result {
-            let x_items: Vec<_> = items.iter().filter(|i| i.label == "x").collect();
-            if !x_items.is_empty() {
-                assert!(
-                    x_items[0].deprecated.is_none() || x_items[0].deprecated == Some(false),
-                    "Owned variable should not be deprecated"
-                );
-            }
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/completion/tests.rs"]
+mod tests;
 
 fn add_identifier_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) {
     for def in &doc.symbol_index.definitions {
@@ -527,11 +534,14 @@ fn add_identifier_completions(doc: &DocumentState, items: &mut Vec<CompletionIte
             DefinitionKind::Block => CompletionItemKind::MODULE,
             DefinitionKind::Variant => CompletionItemKind::ENUM_MEMBER,
             DefinitionKind::Theorem => CompletionItemKind::CLASS,
+            DefinitionKind::Component => CompletionItemKind::CLASS,
+            DefinitionKind::Action => CompletionItemKind::METHOD,
+            DefinitionKind::StateField => CompletionItemKind::PROPERTY,
         };
 
         // Check ownership state for moved variables
         let is_moved = doc.ownership_states.get(&def.name).map_or(false, |state| {
-            matches!(state, VarState::Moved | VarState::MaybeMoved)
+            matches!(state, VarState::Moved | VarState::MaybeMoved(_))
         });
 
         let mut detail = def.detail.clone();
@@ -574,9 +584,9 @@ fn add_stdlib_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) 
                 CompletionItemKind::FUNCTION
             }),
             detail: Some(entry.signature.trim_start_matches("## ").to_string()),
-            documentation: Some(tower_lsp::lsp_types::Documentation::MarkupContent(
-                tower_lsp::lsp_types::MarkupContent {
-                    kind: tower_lsp::lsp_types::MarkupKind::Markdown,
+            documentation: Some(lsp_types::Documentation::MarkupContent(
+                lsp_types::MarkupContent {
+                    kind: lsp_types::MarkupKind::Markdown,
                     value: crate::stdlib_docs::hover_md(name, entry),
                 },
             )),
@@ -586,9 +596,9 @@ fn add_stdlib_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) 
 }
 
 /// Plain prose as markdown completion documentation.
-fn markdown_docs(value: String) -> tower_lsp::lsp_types::Documentation {
-    tower_lsp::lsp_types::Documentation::MarkupContent(tower_lsp::lsp_types::MarkupContent {
-        kind: tower_lsp::lsp_types::MarkupKind::Markdown,
+fn markdown_docs(value: String) -> lsp_types::Documentation {
+    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+        kind: lsp_types::MarkupKind::Markdown,
         value,
     })
 }

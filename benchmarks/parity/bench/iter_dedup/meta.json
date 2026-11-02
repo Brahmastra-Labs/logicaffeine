@@ -1,0 +1,11 @@
+{
+  "capability": "iter.dedup",
+  "workload": "dedupSeq(xs) consecutive \u2014 length fold",
+  "arg": "30000",
+  "expected": "122880000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "go"
+  ]
+}

@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define MOD 1000000007L
 
 void merge_sort(long *arr, long n) {
     if (n < 2) return;
@@ -34,7 +33,7 @@ int main(int argc, char *argv[]) {
     }
     merge_sort(arr, n);
     long checksum = 0;
-    for (long i = 0; i < n; i++) checksum = (checksum + arr[i]) % MOD;
+    for (long i = 0; i < n; i++) checksum = (checksum * 31 + arr[i]) & 268435455;
     printf("%ld %ld %ld\n", arr[0], arr[n-1], checksum);
     free(arr);
     return 0;

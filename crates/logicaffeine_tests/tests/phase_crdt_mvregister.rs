@@ -41,7 +41,7 @@ fn test_mvregister_set_overwrites() {
 
 #[test]
 fn test_mvregister_concurrent_values() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
 
@@ -63,7 +63,7 @@ fn test_mvregister_concurrent_values() {
 
 #[test]
 fn test_mvregister_sequential_overwrites() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
 
@@ -82,7 +82,7 @@ fn test_mvregister_sequential_overwrites() {
 
 #[test]
 fn test_mvregister_three_way_concurrent() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
     let mut c: MVRegister<String> = MVRegister::new(3);
@@ -104,7 +104,7 @@ fn test_mvregister_three_way_concurrent() {
 
 #[test]
 fn test_mvregister_resolve() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
 
@@ -125,7 +125,7 @@ fn test_mvregister_resolve() {
 
 #[test]
 fn test_mvregister_resolve_propagates() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
 
@@ -147,7 +147,7 @@ fn test_mvregister_resolve_propagates() {
 
 #[test]
 fn test_mvregister_merge_commutative() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
 
@@ -169,7 +169,7 @@ fn test_mvregister_merge_commutative() {
 
 #[test]
 fn test_mvregister_merge_idempotent() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut reg: MVRegister<String> = MVRegister::new(1);
     reg.set("value".to_string());
 
@@ -197,7 +197,7 @@ fn test_mvregister_serialization() {
 
 #[test]
 fn test_mvregister_serialization_with_conflict() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
 
     let mut a: MVRegister<String> = MVRegister::new(1);
     let mut b: MVRegister<String> = MVRegister::new(2);
@@ -215,7 +215,7 @@ fn test_mvregister_serialization_with_conflict() {
 
 #[test]
 fn test_mvregister_with_integers() {
-    use logicaffeine_data::crdt::{Merge, MVRegister};
+    use logicaffeine_data::crdt::{MVRegister, Merge};
     let mut a: MVRegister<i64> = MVRegister::new(1);
     let mut b: MVRegister<i64> = MVRegister::new(2);
 

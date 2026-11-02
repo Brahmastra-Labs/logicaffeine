@@ -218,8 +218,10 @@ fn test_eval_church_application() {
         "Definition church1 : Syntax := SLam (SSort UProp) (SLam (SSort UProp) (SApp (SVar 1) (SVar 0))).",
     )
     .expect("Define");
-    repl.execute("Definition g : Syntax := SVar 10.").expect("Define");
-    repl.execute("Definition a : Syntax := SVar 20.").expect("Define");
+    repl.execute("Definition g : Syntax := SVar 10.")
+        .expect("Define");
+    repl.execute("Definition a : Syntax := SVar 20.")
+        .expect("Define");
     repl.execute("Definition app : Syntax := SApp (SApp church1 g) a.")
         .expect("Define");
     repl.execute("Definition result : Syntax := syn_eval 100 app.")
@@ -243,10 +245,8 @@ fn test_eval_sufficient_fuel() {
     let mut repl = Repl::new();
 
     // 100 fuel is enough for a simple identity application
-    repl.execute(
-        "Definition redex : Syntax := SApp (SLam (SSort UProp) (SVar 0)) (SSort UProp).",
-    )
-    .expect("Define");
+    repl.execute("Definition redex : Syntax := SApp (SLam (SSort UProp) (SVar 0)) (SSort UProp).")
+        .expect("Define");
     repl.execute("Definition result : Syntax := syn_eval 100 redex.")
         .expect("Define");
 

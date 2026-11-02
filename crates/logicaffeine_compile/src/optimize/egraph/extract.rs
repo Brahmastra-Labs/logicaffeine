@@ -23,9 +23,8 @@ fn op_cost(node: &CompilerENode) -> u64 {
         // Opaque subtrees re-emit the original expression; bias against
         // duplicating them when a modeled form exists.
         Opaque(_) => 4,
-        Add(..) | Sub(..) | Shl(..) | Shr(..) | BitXor(..) | BitAnd(..) | BitOr(..)
-        | And(..) | Or(..) | Not(..)
-        | Eq(..) | Ne(..) | Lt(..) | Le(..) | Gt(..) | Ge(..) => 1,
+        Add(..) | Sub(..) | Shl(..) | Shr(..) | BitXor(..) | BitAnd(..) | BitOr(..) | And(..)
+        | Or(..) | Not(..) | Eq(..) | Ne(..) | Lt(..) | Le(..) | Gt(..) | Ge(..) => 1,
         Len(..) => 2,
         Index(..) => 3,
         Mul(..) => 4,
@@ -103,8 +102,7 @@ fn build_tree(
 /// The cheapest finite tree representing `root`'s class.
 pub fn best_tree(eg: &mut CompilerEGraph, root: NodeId) -> ExtractTree {
     let best = best_costs(eg, &|_| true);
-    build_tree(eg, &best, root)
-        .unwrap_or_else(|| panic!("class has no finite-cost representative"))
+    build_tree(eg, &best, root).unwrap_or_else(|| panic!("class has no finite-cost representative"))
 }
 
 /// The cheapest finite tree whose every node passes `admissible`, or None

@@ -27,10 +27,12 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     for i in 1..=m {
         curr[0] = i;
         for j in 1..=n {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1)
-                .min(curr[j - 1] + 1)
-                .min(prev[j - 1] + cost);
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -38,7 +40,11 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     prev[n]
 }
 
-pub fn find_similar<'a>(word: &str, candidates: &[&'a str], max_distance: usize) -> Option<&'a str> {
+pub fn find_similar<'a>(
+    word: &str,
+    candidates: &[&'a str],
+    max_distance: usize,
+) -> Option<&'a str> {
     let word_lower = word.to_lowercase();
     let mut best: Option<(&str, usize)> = None;
 
@@ -56,73 +62,141 @@ pub fn find_similar<'a>(word: &str, candidates: &[&'a str], max_distance: usize)
     best.map(|(s, _)| s)
 }
 
+/// The candidate an author most likely meant by `word` — the nearest by edit distance, compared
+/// case-insensitively, when it is within a third of the word's length (at least one edit). The
+/// first of equally near candidates wins, so a caller that lists candidates in a stable order gets
+/// a stable answer. `word` itself never counts as a suggestion for itself.
+///
+/// The one did-you-mean rule every LGX refusal uses: a misspelt event qualifier, an unknown
+/// component, an unresolved name in a template, a prop a placement does not declare.
+pub fn did_you_mean<'c>(
+    word: &str,
+    candidates: impl IntoIterator<Item = &'c str>,
+) -> Option<&'c str> {
+    let lower = word.to_lowercase();
+    let budget = (lower.chars().count() / 3).max(1);
+    let mut best: Option<(usize, &'c str)> = None;
+    for candidate in candidates {
+        if candidate == word {
+            continue;
+        }
+        let distance = typo_distance(&lower, &candidate.to_lowercase());
+        if distance <= budget && best.map_or(true, |(d, _)| distance < d) {
+            best = Some((distance, candidate));
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
+/// Edit distance where swapping two adjacent characters is one edit (the optimal string alignment
+/// distance) — the typo a fast typist makes most (`doen` for `done`), which plain Levenshtein
+/// counts as two.
+pub fn typo_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut d = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for j in 0..=n {
+        d[0][j] = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            d[i][j] = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    d[m][n]
+}
+
 pub const KNOWN_WORDS: &[&str] = &[
-    "all", "some", "no", "most", "few", "every",
-    "the", "a", "an", "this", "that",
-    "is", "are", "was", "were", "be",
-    "and", "or", "if", "then", "not",
-    "must", "can", "may", "should", "would", "could",
-    "who", "what", "where", "when", "why", "how",
-    "man", "men", "woman", "women", "dog", "cat", "bird",
-    "mortal", "happy", "sad", "tall", "fast", "slow",
-    "loves", "runs", "sees", "knows", "thinks",
-    "logic", "reason", "truth", "false",
-    "John", "Mary", "Socrates", "Aristotle",
-    "to", "by", "with", "from", "for", "in", "on", "at",
-    "himself", "herself", "itself", "themselves",
-    "he", "she", "it", "they", "him", "her", "them",
+    "all",
+    "some",
+    "no",
+    "most",
+    "few",
+    "every",
+    "the",
+    "a",
+    "an",
+    "this",
+    "that",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "and",
+    "or",
+    "if",
+    "then",
+    "not",
+    "must",
+    "can",
+    "may",
+    "should",
+    "would",
+    "could",
+    "who",
+    "what",
+    "where",
+    "when",
+    "why",
+    "how",
+    "man",
+    "men",
+    "woman",
+    "women",
+    "dog",
+    "cat",
+    "bird",
+    "mortal",
+    "happy",
+    "sad",
+    "tall",
+    "fast",
+    "slow",
+    "loves",
+    "runs",
+    "sees",
+    "knows",
+    "thinks",
+    "logic",
+    "reason",
+    "truth",
+    "false",
+    "John",
+    "Mary",
+    "Socrates",
+    "Aristotle",
+    "to",
+    "by",
+    "with",
+    "from",
+    "for",
+    "in",
+    "on",
+    "at",
+    "himself",
+    "herself",
+    "itself",
+    "themselves",
+    "he",
+    "she",
+    "it",
+    "they",
+    "him",
+    "her",
+    "them",
 ];
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn levenshtein_identical() {
-        assert_eq!(levenshtein("hello", "hello"), 0);
-    }
-
-    #[test]
-    fn levenshtein_one_char_diff() {
-        assert_eq!(levenshtein("hello", "hallo"), 1);
-    }
-
-    #[test]
-    fn levenshtein_insertion() {
-        assert_eq!(levenshtein("hello", "helllo"), 1);
-    }
-
-    #[test]
-    fn levenshtein_deletion() {
-        assert_eq!(levenshtein("hello", "helo"), 1);
-    }
-
-    #[test]
-    fn levenshtein_empty() {
-        assert_eq!(levenshtein("", "abc"), 3);
-        assert_eq!(levenshtein("abc", ""), 3);
-    }
-
-    #[test]
-    fn levenshtein_transposition() {
-        assert_eq!(levenshtein("ab", "ba"), 2);
-    }
-
-    #[test]
-    fn find_similar_typo() {
-        let result = find_similar("logoc", KNOWN_WORDS, 2);
-        assert_eq!(result, Some("logic"));
-    }
-
-    #[test]
-    fn find_similar_no_match() {
-        let result = find_similar("xyzzy", KNOWN_WORDS, 2);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn find_similar_case_insensitive() {
-        let result = find_similar("LOGIC", KNOWN_WORDS, 2);
-        assert_eq!(result, Some("logic"));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/suggest/tests.rs"]
+mod tests;

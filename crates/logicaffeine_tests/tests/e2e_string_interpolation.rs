@@ -7,7 +7,10 @@
 //!   - `assert_interpreter_output` (interpreter path)
 
 mod common;
-use common::{assert_exact_output, assert_interpreter_output, assert_c_output, assert_compile_fails, assert_interpreter_fails};
+use common::{
+    assert_c_output, assert_compile_fails, assert_exact_output, assert_interpreter_fails,
+    assert_interpreter_output,
+};
 
 // =============================================================================
 // Scientific Notation — Codegen
@@ -15,34 +18,22 @@ use common::{assert_exact_output, assert_interpreter_output, assert_c_output, as
 
 #[test]
 fn e2e_scientific_notation_basic() {
-    assert_exact_output(
-        "## Main\nLet x be 1.5e3.\nShow x.",
-        "1500",
-    );
+    assert_exact_output("## Main\nLet x be 1.5e3.\nShow x.", "1500");
 }
 
 #[test]
 fn e2e_scientific_notation_negative_exp() {
-    assert_exact_output(
-        "## Main\nLet x be 2.5e-2.\nShow x.",
-        "0.025",
-    );
+    assert_exact_output("## Main\nLet x be 2.5e-2.\nShow x.", "0.025");
 }
 
 #[test]
 fn e2e_scientific_notation_positive_sign() {
-    assert_exact_output(
-        "## Main\nLet x be 3.0e+2.\nShow x.",
-        "300",
-    );
+    assert_exact_output("## Main\nLet x be 3.0e+2.\nShow x.", "300");
 }
 
 #[test]
 fn e2e_scientific_notation_no_decimal() {
-    assert_exact_output(
-        "## Main\nLet x be 1e5.\nShow x.",
-        "100000",
-    );
+    assert_exact_output("## Main\nLet x be 1e5.\nShow x.", "100000");
 }
 
 // =============================================================================
@@ -51,18 +42,12 @@ fn e2e_scientific_notation_no_decimal() {
 
 #[test]
 fn e2e_scientific_notation_basic_interp() {
-    assert_interpreter_output(
-        "## Main\nLet x be 1.5e3.\nShow x.",
-        "1500",
-    );
+    assert_interpreter_output("## Main\nLet x be 1.5e3.\nShow x.", "1500");
 }
 
 #[test]
 fn e2e_scientific_notation_negative_exp_interp() {
-    assert_interpreter_output(
-        "## Main\nLet x be 2.5e-2.\nShow x.",
-        "0.025",
-    );
+    assert_interpreter_output("## Main\nLet x be 2.5e-2.\nShow x.", "0.025");
 }
 
 // =============================================================================
@@ -637,10 +622,7 @@ Show "Use {{braces}}."."#,
 
 #[test]
 fn e2e_c_scientific_notation() {
-    assert_c_output(
-        "## Main\nLet x be 1.5e3.\nShow x.",
-        "1500",
-    );
+    assert_c_output("## Main\nLet x be 1.5e3.\nShow x.", "1500");
 }
 
 // =============================================================================

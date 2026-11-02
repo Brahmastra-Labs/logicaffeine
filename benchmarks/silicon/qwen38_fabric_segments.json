@@ -1,0 +1,382 @@
+{
+  "chain": "Spatial -> PIR -> plastiroute -> Tungsten (scripts/plasticine/gate.sh)",
+  "program": "Qwen3.8 tiny decode step (token 5 at position 3, KV cache 6), composed for sn50-rdu, printed per segment by spatial_lang (Fabric flavor)",
+  "provenance": "simulated_tungsten",
+  "rel_tol": 0.02,
+  "schema": "logos.qwen38_fabric_segments",
+  "segment_sections": 4,
+  "segments": [
+    {
+      "app_sha256": "6cfdf77cfeb877e85f4e50416bf6cb883c3fe8a6055d6c6c516d16d95f3654ab",
+      "class": "Logos_next_121_sections_s0_4",
+      "ideal": {
+        "checks": [
+          "check 0 x: max deviation 0.000417 tolerance 3.829125e-3 ok true",
+          "check 1 xn0: max deviation 0.000846 tolerance 2.891625e-3 ok true",
+          "check 2 qr0: max deviation 0.000247 tolerance 8.909307250976562e-4 ok true",
+          "check 3 kr0: max deviation 0.000212 tolerance 5.184756050109863e-4 ok true"
+        ],
+        "cycles": 18431,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "row_gather",
+        "rmsnorm",
+        "matmul",
+        "matmul"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s0_4.log",
+      "pir_resources": "Tst Logos_next_121_sections_s0_4 PCU:7 PMU:19 DAG:40 MC:12 VPCU:47 VPMU:19 genpir gentst [40s] make [2:11.54] p2p cycle:18431 [0:03.69] proute vc:0 [4:17.82] hybrid cycle:18731 [0:03.99]",
+      "routed": {
+        "checks": [
+          "check 0 x: max deviation 0.000417 tolerance 3.829125e-3 ok true",
+          "check 1 xn0: max deviation 0.000846 tolerance 2.891625e-3 ok true",
+          "check 2 qr0: max deviation 0.000247 tolerance 8.909307250976562e-4 ok true",
+          "check 3 kr0: max deviation 0.000212 tolerance 5.184756050109863e-4 ok true"
+        ],
+        "cycles": 18731,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        0,
+        4
+      ]
+    },
+    {
+      "app_sha256": "d3235e5b38771636c4f18231cce04a39d39890718b528a8be30868fdd3b33492",
+      "class": "Logos_next_121_sections_s8_12",
+      "ideal": {
+        "checks": [
+          "check 0 Csq0: max deviation 0.000453 tolerance 3.49709375e-3 ok true",
+          "check 1 Csk0: max deviation 0.000449 tolerance 3.751e-3 ok true",
+          "check 2 Csv0: max deviation 0.000449 tolerance 3.751e-3 ok true",
+          "check 3 bt0: max deviation 0.000649 tolerance 1.0235375e-2 ok true"
+        ],
+        "cycles": 2167,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "conv_ring",
+        "conv_ring",
+        "conv_ring",
+        "sigmoid"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s8_12.log",
+      "pir_resources": "Tst Logos_next_121_sections_s8_12 PCU:1 PMU:11 DAG:39 MC:11 VPCU:40 VPMU:11 genpir gentst [13s] make [0:48.21] p2p cycle:2167 [0:02.23] proute vc:0 [2:04.77] hybrid cycle:2310 [0:02.31]",
+      "routed": {
+        "checks": [
+          "check 0 Csq0: max deviation 0.000453 tolerance 3.49709375e-3 ok true",
+          "check 1 Csk0: max deviation 0.000449 tolerance 3.751e-3 ok true",
+          "check 2 Csv0: max deviation 0.000449 tolerance 3.751e-3 ok true",
+          "check 3 bt0: max deviation 0.000649 tolerance 1.0235375e-2 ok true"
+        ],
+        "cycles": 2310,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        8,
+        12
+      ]
+    },
+    {
+      "app_sha256": "f1ea117d569e5e00eca961325928e6b3fb43fc7b7e60c8525638160f911b21f4",
+      "class": "Logos_next_121_sections_s12_16",
+      "ideal": {
+        "checks": [
+          "check 0 dy0: max deviation 0.001331 tolerance 1.828225e-2 ok true",
+          "check 1 qc0: max deviation 0.000070 tolerance 6.040273437500001e-4 ok true",
+          "check 2 kc0: max deviation 0.000076 tolerance 9.433828125e-4 ok true",
+          "check 3 vc0: max deviation 0.000190 tolerance 1.514671875e-3 ok true"
+        ],
+        "cycles": 2462,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "decay",
+        "conv_taps",
+        "conv_taps",
+        "conv_taps"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s12_16.log",
+      "pir_resources": "Tst Logos_next_121_sections_s12_16 PCU:1 PMU:13 DAG:34 MC:13 VPCU:35 VPMU:13 genpir gentst [9s] make [0:52.92] p2p cycle:2462 [0:02.24] proute vc:0 [2:16.36] hybrid cycle:2515 [0:02.28]",
+      "routed": {
+        "checks": [
+          "check 0 dy0: max deviation 0.001331 tolerance 1.828225e-2 ok true",
+          "check 1 qc0: max deviation 0.000070 tolerance 6.040273437500001e-4 ok true",
+          "check 2 kc0: max deviation 0.000076 tolerance 9.433828125e-4 ok true",
+          "check 3 vc0: max deviation 0.000190 tolerance 1.514671875e-3 ok true"
+        ],
+        "cycles": 2515,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        12,
+        16
+      ]
+    },
+    {
+      "app_sha256": "0be616f6512e5c00e520d3b81ee6991c95bf05d53839b64ba482ede5f20fc6d0",
+      "class": "Logos_next_121_sections_s16_20",
+      "ideal": {
+        "checks": [
+          "check 0 qs0: max deviation 0.000030 tolerance 2.9763085937500004e-4 ok true",
+          "check 1 ks0: max deviation 0.000055 tolerance 4.5998437500000005e-4 ok true",
+          "check 2 vs0: max deviation 0.000053 tolerance 7.285390625e-4 ok true",
+          "check 3 qn0: max deviation 0.002009 tolerance 1.1641625e-2 ok true"
+        ],
+        "cycles": 4337,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "silu",
+        "silu",
+        "silu",
+        "l2norm"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s16_20.log",
+      "pir_resources": "Tst Logos_next_121_sections_s16_20 PCU:6 PMU:12 DAG:22 MC:8 VPCU:28 VPMU:12 genpir gentst [10s] make [1:07.86] p2p cycle:4337 [0:02.60] proute vc:0 [1:26.05] hybrid cycle:4515 [0:02.50]",
+      "routed": {
+        "checks": [
+          "check 0 qs0: max deviation 0.000030 tolerance 2.9763085937500004e-4 ok true",
+          "check 1 ks0: max deviation 0.000055 tolerance 4.5998437500000005e-4 ok true",
+          "check 2 vs0: max deviation 0.000053 tolerance 7.285390625e-4 ok true",
+          "check 3 qn0: max deviation 0.002009 tolerance 1.1641625e-2 ok true"
+        ],
+        "cycles": 4515,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        16,
+        20
+      ]
+    },
+    {
+      "app_sha256": "f50c96aa9389b60614fa83885445fd0775bb004bf027b7a221323770c6a745a7",
+      "class": "Logos_next_121_sections_s20_24",
+      "ideal": {
+        "checks": [
+          "check 0 kn0: max deviation 0.001761 tolerance 1.3282249999999999e-2 ok true",
+          "check 1 St0: max deviation 0.000682 tolerance 3.49709375e-3 ok true",
+          "check 2 od0_u: max deviation 0.001257 tolerance 3.4385e-3 ok true",
+          "check 3 od0: max deviation 0.000016 tolerance 1.212392578125e-4 ok true"
+        ],
+        "cycles": 9465,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "l2norm",
+        "gd_predict",
+        "gd_update",
+        "gd_read"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s20_24.log",
+      "pir_resources": "Tst Logos_next_121_sections_s20_24 PCU:58 PMU:34 DAG:40 MC:17 VPCU:98 VPMU:34 genpir gentst [85s] make [3:57.21] p2p cycle:9465 [0:04.50] proute vc:3 [8:42.78] hybrid: Caught exception on cycle 28: /DUT/Top/net/router89: no route for packet 516 [0:04.97]",
+      "routed": {
+        "checks": [
+          "check 0 kn0: max deviation 0.664062 tolerance 1.3282249999999999e-2 ok false",
+          "check 1 St0: max deviation 0.081836 tolerance 3.49709375e-3 ok false",
+          "check 2 od0_u: max deviation 0.171875 tolerance 3.4385e-3 ok false",
+          "check 3 od0: max deviation 0.006012 tolerance 1.212392578125e-4 ok false"
+        ],
+        "cycles": null,
+        "fault": "Caught exception on cycle 28: /DUT/Top/net/router89: no route for packet 516",
+        "pass": false
+      },
+      "sections": [
+        20,
+        24
+      ]
+    },
+    {
+      "app_sha256": "16d49c76a9ccb120f8761cafdc97059baa5e2469738490eedab1250df90618c2",
+      "class": "Logos_next_121_sections_s28_32",
+      "ideal": {
+        "checks": [
+          "check 0 up0: max deviation 0.000181 tolerance 1.0681395063400268e-3 ok true",
+          "check 1 hh0: max deviation 0.000010 tolerance 2.8618408203125e-5 ok true",
+          "check 2 dn0: max deviation 0.000003 tolerance 4.134654834866524e-6 ok true",
+          "check 3 xo0: max deviation 0.000160 tolerance 3.829125e-3 ok true"
+        ],
+        "cycles": 14581,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "matmul",
+        "swiglu",
+        "matmul",
+        "elementwise_+"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s28_32.log",
+      "pir_resources": "Tst Logos_next_121_sections_s28_32 PCU:4 PMU:12 DAG:26 MC:12 VPCU:30 VPMU:12 genpir gentst [8s] make [1:09.15] p2p cycle:14581 [0:02.35] proute vc:0 [1:41.93] hybrid cycle:14800 [0:02.27]",
+      "routed": {
+        "checks": [
+          "check 0 up0: max deviation 0.000181 tolerance 1.0681395063400268e-3 ok true",
+          "check 1 hh0: max deviation 0.000010 tolerance 2.8618408203125e-5 ok true",
+          "check 2 dn0: max deviation 0.000003 tolerance 4.134654834866524e-6 ok true",
+          "check 3 xo0: max deviation 0.000160 tolerance 3.829125e-3 ok true"
+        ],
+        "cycles": 14800,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        28,
+        32
+      ]
+    },
+    {
+      "app_sha256": "4e4e6874e3cf628bf48f98dfed4e3ac0b7cf8ddfab03d9f580834ab820fdaaaa",
+      "class": "Logos_next_121_sections_s96_100",
+      "ideal": {
+        "checks": [
+          "check 0 gr3: max deviation 0.000077 tolerance 1.0235966572761535e-3 ok true",
+          "check 1 kr3: max deviation 0.000071 tolerance 1.3890485296249389e-3 ok true",
+          "check 2 vr3: max deviation 0.000071 tolerance 1.4400242099761962e-3 ok true",
+          "check 3 qm3: max deviation 0.000804 tolerance 4.59084375e-3 ok true"
+        ],
+        "cycles": 4209,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "matmul",
+        "matmul",
+        "matmul",
+        "rmsnorm_flat"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s96_100.log",
+      "pir_resources": "Tst Logos_next_121_sections_s96_100 PCU:8 PMU:17 DAG:40 MC:12 VPCU:48 VPMU:17 genpir gentst [14s] make [1:44.41] p2p cycle:4209 [0:02.32] proute vc:1 [2:31.15] hybrid: Caught exception on cycle 29: /DUT/Top/net/router110: no route for packet 255 [0:02.51]",
+      "routed": {
+        "checks": [
+          "check 0 gr3: max deviation 0.051130 tolerance 1.0235966572761535e-3 ok false",
+          "check 1 kr3: max deviation 0.069402 tolerance 1.3890485296249389e-3 ok false",
+          "check 2 vr3: max deviation 0.071951 tolerance 1.4400242099761962e-3 ok false",
+          "check 3 qm3: max deviation 0.229492 tolerance 4.59084375e-3 ok false"
+        ],
+        "cycles": null,
+        "fault": "Caught exception on cycle 29: /DUT/Top/net/router110: no route for packet 255",
+        "pass": false
+      },
+      "sections": [
+        96,
+        100
+      ]
+    },
+    {
+      "app_sha256": "ea261331f7db9bd175f1a52a325163ab91f738afd59f15f69a0724ae4378f2e1",
+      "class": "Logos_next_121_sections_s104_108",
+      "ideal": {
+        "checks": [
+          "check 0 kp3: max deviation 0.000014 tolerance 2.1299062500000003e-3 ok true",
+          "check 1 Kc3: max deviation 0.000417 tolerance 4.00490625e-3 ok true",
+          "check 2 ct3_scores: max deviation 255536695121042241803517952.000000 tolerance 2.0005111034851745e28 ok true",
+          "check 3 ct3_probs: max deviation 0.000896 tolerance 6.797875e-3 ok true"
+        ],
+        "cycles": 9263,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "rope_half",
+        "set_row",
+        "attn_scores",
+        "attn_softmax"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s104_108.log",
+      "pir_resources": "Tst Logos_next_121_sections_s104_108 PCU:60 PMU:37 DAG:40 MC:15 VPCU:99 VPMU:37 genpir gentst [77s] make [3:04.66] p2p cycle:9263 [0:08.14] proute vc:3 [7:20.52] hybrid: Caught exception on cycle 15: /DUT/Top/net/router87: no route for packet 707 [0:04.66]",
+      "routed": {
+        "checks": [
+          "check 0 kp3: max deviation 0.106445 tolerance 2.1299062500000003e-3 ok false",
+          "check 1 Kc3: max deviation 0.105883 tolerance 4.00490625e-3 ok false",
+          "check 2 ct3_scores: max deviation 1000255551742587262118492372992.000000 tolerance 2.0005111034851745e28 ok false",
+          "check 3 ct3_probs: max deviation 0.339844 tolerance 6.797875e-3 ok false"
+        ],
+        "cycles": null,
+        "fault": "Caught exception on cycle 15: /DUT/Top/net/router87: no route for packet 707",
+        "pass": false
+      },
+      "sections": [
+        104,
+        108
+      ]
+    },
+    {
+      "app_sha256": "3b9056fd5cf81b7fc2fefb4d65a40fa746de7f927127c94b7960278018a22cb0",
+      "class": "Logos_next_121_sections_s108_112",
+      "ideal": {
+        "checks": [
+          "check 0 ct3: max deviation 0.000105 tolerance 1.1582265625e-3 ok true",
+          "check 1 cg3: max deviation 0.000052 tolerance 5.7961328125e-4 ok true",
+          "check 2 ao3: max deviation 0.000034 tolerance 7.094843482971191e-5 ok true",
+          "check 3 xr3: max deviation 0.000443 tolerance 3.9463125e-3 ok true"
+        ],
+        "cycles": 12825,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "attn_wv",
+        "elementwise_*",
+        "matmul",
+        "elementwise_+"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s108_112.log",
+      "pir_resources": "Tst Logos_next_121_sections_s108_112 PCU:6 PMU:13 DAG:31 MC:12 VPCU:37 VPMU:13 genpir gentst [11s] make [0:53.40] p2p cycle:12825 [0:02.29] proute vc:0 [1:52.58] hybrid cycle:13041 [0:02.29]",
+      "routed": {
+        "checks": [
+          "check 0 ct3: max deviation 0.000105 tolerance 1.1582265625e-3 ok true",
+          "check 1 cg3: max deviation 0.000052 tolerance 5.7961328125e-4 ok true",
+          "check 2 ao3: max deviation 0.000034 tolerance 7.094843482971191e-5 ok true",
+          "check 3 xr3: max deviation 0.000443 tolerance 3.9463125e-3 ok true"
+        ],
+        "cycles": 13041,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        108,
+        112
+      ]
+    },
+    {
+      "app_sha256": "e81c8c2828fca2e0da41d2238bc103aef41d1da556f0888d931c393be6099fd9",
+      "class": "Logos_next_121_sections_s120_121",
+      "ideal": {
+        "checks": [
+          "check 0 next: exact ok true"
+        ],
+        "cycles": 2241,
+        "fault": null,
+        "pass": true
+      },
+      "kinds": [
+        "argmax"
+      ],
+      "log": "target/plasticine-gate-logs/Logos_next_121_sections_s120_121.log",
+      "pir_resources": "Tst Logos_next_121_sections_s120_121 PCU:3 PMU:5 DAG:7 MC:2 VPCU:10 VPMU:5 genpir gentst [4s] make [0:29.94] p2p cycle:2241 [0:02.17] proute vc:0 [0:25.35] hybrid cycle:2305 [0:02.19]",
+      "routed": {
+        "checks": [
+          "check 0 next: exact ok true"
+        ],
+        "cycles": 2305,
+        "fault": null,
+        "pass": true
+      },
+      "sections": [
+        120,
+        121
+      ]
+    }
+  ],
+  "version": 1
+}

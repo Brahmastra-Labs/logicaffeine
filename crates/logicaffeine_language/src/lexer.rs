@@ -34,9 +34,11 @@
 //! Output: [Quantifier("every"), Noun("cat"), Verb("sleeps"), Period]
 //! ```
 
-use logicaffeine_base::Interner;
 use crate::lexicon::{self, Aspect, Definiteness, Lexicon, Time};
-use crate::token::{BlockType, CalendarUnit, FocusKind, MeasureKind, Span, Token, TokenType};
+use crate::token::{
+    BlockType, CalendarUnit, FocusKind, MeasureKind, RawKind, Span, Token, TokenType,
+};
+use logicaffeine_base::Interner;
 
 // ============================================================================
 // Stage 1: Line Lexer (Spec §2.5.2)
@@ -54,7 +56,11 @@ pub enum LineToken {
     /// Logical newline (statement boundary) - reserved for future use
     Newline,
     /// Content to be further tokenized (line content, trimmed)
-    Content { text: String, start: usize, end: usize },
+    Content {
+        text: String,
+        start: usize,
+        end: usize,
+    },
 }
 
 /// Stage 1 Lexer: Handles only lines, indentation, and structural tokens.
@@ -115,7 +121,9 @@ impl<'a> LineLexer<'a> {
 
     /// Check if a byte position falls within an escape body range.
     fn is_in_escape_body(&self, pos: usize) -> bool {
-        self.escape_body_ranges.iter().any(|(start, end)| pos >= *start && pos < *end)
+        self.escape_body_ranges
+            .iter()
+            .any(|(start, end)| pos >= *start && pos < *end)
     }
 
     /// Calculate indentation level at current position (at start of line).
@@ -152,7 +160,9 @@ impl<'a> LineLexer<'a> {
         }
 
         let content_end = pos;
-        let text = self.source[content_start..content_end].trim_end().to_string();
+        let text = self.source[content_start..content_end]
+            .trim_end()
+            .to_string();
 
         // Move past newline if present
         let next_line_start = if pos < self.bytes.len() && self.bytes[pos] == b'\n' {
@@ -328,7 +338,7 @@ impl<'a> Iterator for LineLexer<'a> {
 pub enum LexerMode {
     #[default]
     Declarative, // Logic, Theorems, Definitions
-    Imperative,  // Main, Functions, Code
+    Imperative, // Main, Functions, Code
 }
 
 pub struct Lexer<'a> {
@@ -377,11 +387,13 @@ impl<'a> Lexer<'a> {
     /// assert_eq!(tokens.len(), 5); // Quantifier, Noun, Verb, Period, EOI
     /// ```
     pub fn new(input: &str, interner: &'a mut Interner) -> Self {
-        let escape_ranges = Self::find_escape_block_ranges(input);
-        let escape_body_ranges: Vec<(usize, usize)> = escape_ranges.iter()
-            .map(|(_, end, content_start, _)| (*content_start, *end))
+        let input = Self::blank_optional_header_colons(input);
+        let escape_ranges = Self::find_escape_block_ranges(&input);
+        let escape_body_ranges: Vec<(usize, usize)> = escape_ranges
+            .iter()
+            .map(|(_, end, content_start, _, _, _)| (*content_start, *end))
             .collect();
-        let words = Self::split_into_words(input, &escape_ranges);
+        let words = Self::split_into_words(&input, &escape_ranges);
         let input_len = input.len();
 
         Lexer {
@@ -392,16 +404,70 @@ impl<'a> Lexer<'a> {
             input_len,
             in_let_context: false,
             mode: LexerMode::Declarative,
-            source: input.to_string(),
+            source: input,
             escape_body_ranges,
         }
+    }
+
+    /// Every `## <Header>` whose own grammar does not already read a trailing `:`
+    /// (`BlockType::accepts_optional_trailing_colon`: `Main`, `Component`, `Store`, `Page`,
+    /// `Error page` — never the ones that already require one, like `Directive`/`Route`, or
+    /// `Test`, whose colon has a different, load-bearing job) accepts one anyway, silently: a
+    /// habitual trailing `:` at the end of exactly one of these header lines is blanked to a
+    /// space BEFORE tokenizing, so it never becomes a `Colon` token at all.
+    ///
+    /// Done here, on the raw source, rather than as a token-stream pass: LOGOS does not emit a
+    /// `Newline` token between two ordinary statements at the same indentation (only `Indent`/
+    /// `Dedent` mark structure, and a table row gets its own explicit one) — `## Main:\nShow
+    /// "hi".` tokenizes as `BlockHeader, Colon, Show, …` with NO token between the colon and
+    /// `Show` to search up to. The source string, in contrast, always has the `\n` that ends the
+    /// header's own line, so "the header's own line" is unambiguous here and nowhere else. A
+    /// byte-for-byte blank (never a delete) keeps every later span exactly where it already was.
+    fn blank_optional_header_colons(input: &str) -> String {
+        const ACCEPTING: &[&str] = &["main", "component", "store", "page", "error"];
+        let mut out = input.as_bytes().to_vec();
+        let mut line_start = 0usize;
+        for line_end in input
+            .match_indices('\n')
+            .map(|(i, _)| i)
+            .chain(std::iter::once(input.len()))
+        {
+            let line = &input[line_start..line_end];
+            let trimmed_start = line.trim_start();
+            if let Some(after_hashes) = trimmed_start.strip_prefix("##") {
+                let first_word = after_hashes
+                    .trim_start()
+                    .split(|c: char| c.is_whitespace() || c == ':')
+                    .next()
+                    .unwrap_or("");
+                if ACCEPTING.contains(&first_word.to_ascii_lowercase().as_str()) {
+                    let trimmed_end = line.trim_end();
+                    if let Some(':') = trimmed_end.chars().next_back() {
+                        let colon_offset = line_start + trimmed_end.len() - 1;
+                        out[colon_offset] = b' ';
+                    }
+                }
+            }
+            line_start = line_end + 1;
+        }
+        String::from_utf8(out).expect("blanking a `:` to a space cannot break UTF-8")
+    }
+
+    /// A lexer for a fragment that is CODE, not prose — an LGX template hole, a directive
+    /// value, a filter argument. Ordinary [`Lexer::new`] starts in declarative mode and only
+    /// switches on a `## Main` / `## To` / `## Component` header, which a bare fragment has
+    /// none of; a hole like `todo's id` or `a . b` must tokenize the imperative way.
+    pub fn new_imperative(input: &str, interner: &'a mut Interner) -> Self {
+        let mut lexer = Self::new(input, interner);
+        lexer.mode = LexerMode::Imperative;
+        lexer
     }
 
     /// Pre-scan source text for escape block bodies.
     /// Returns (skip_start_byte, skip_end_byte, content_start_byte, raw_code) tuples.
     /// `skip_start` is the line start (for byte skipping in split_into_words).
     /// `content_start` is after leading whitespace (for token span alignment with Indent events).
-    fn find_escape_block_ranges(source: &str) -> Vec<(usize, usize, usize, String)> {
+    fn find_escape_block_ranges(source: &str) -> Vec<(usize, usize, usize, String, char, usize)> {
         let mut ranges = Vec::new();
         let lines: Vec<&str> = source.split('\n').collect();
         let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
@@ -418,10 +484,27 @@ impl<'a> Lexer<'a> {
             // Matches both statement position (whole line) and expression position
             // (e.g., "Let x: Int be Escape to Rust:")
             let lower = trimmed.to_lowercase();
-            if lower == "escape to rust:" ||
-               lower.ends_with(" escape to rust:") ||
-               (lower.starts_with("escape to ") && lower.ends_with(':'))
+            // An `Escape to <Language>:` header, an LGX `View:` / `Style:` section, or a
+            // `## To … -> View:` template function — each opens a body captured verbatim.
+            let raw_kind: Option<char> = if lower == "escape to rust:"
+                || lower.ends_with(" escape to rust:")
+                || (lower.starts_with("escape to ") && lower.ends_with(':'))
             {
+                Some('E')
+            } else if trimmed == "Style:" {
+                Some('S')
+            } else if trimmed == "Head:" {
+                // A `Head:` body is ALWAYS markup — there is no legacy indentation
+                // dialect for it — so it needs none of the `View:` fallback below.
+                Some('H')
+            } else if trimmed == "View:"
+                || (trimmed.starts_with("## ") && trimmed.ends_with("-> View:"))
+            {
+                Some('V')
+            } else {
+                None
+            };
+            if let Some(kind) = raw_kind {
                 // Find the body: subsequent lines with deeper indentation
                 let header_indent = Self::measure_indent_static(lines[i]);
                 i += 1;
@@ -441,6 +524,16 @@ impl<'a> Lexer<'a> {
                 if base_indent <= header_indent {
                     // No indented body
                     continue;
+                }
+                // A view body is captured raw only when it IS markup: the legacy indentation DSL's
+                // bodies begin with an element word (`div [class="x"]:`), and a `-> View:` function
+                // or route may answer through statements (`Return answer(who).`) — neither begins
+                // with `<` or `{`.
+                if kind == 'V' {
+                    let first = lines[body_start_line].trim_start();
+                    if !(first.starts_with('<') || first.starts_with('{')) {
+                        continue;
+                    }
                 }
 
                 // Capture all lines at base_indent or deeper
@@ -481,9 +574,17 @@ impl<'a> Lexer<'a> {
                         source.len()
                     };
                     // Compute content start (after leading whitespace of first body line)
-                    let content_start = body_byte_start + Self::leading_whitespace_bytes(lines[body_start_line]);
+                    let content_start =
+                        body_byte_start + Self::leading_whitespace_bytes(lines[body_start_line]);
                     let raw_code = code_lines.join("\n");
-                    ranges.push((body_byte_start, body_byte_end, content_start, raw_code));
+                    ranges.push((
+                        body_byte_start,
+                        body_byte_end,
+                        content_start,
+                        raw_code,
+                        kind,
+                        base_indent,
+                    ));
                 }
 
                 i = j;
@@ -493,6 +594,105 @@ impl<'a> Lexer<'a> {
         }
 
         ranges
+    }
+
+    /// The whitespace-delimited words after the current `## Header` word on its line,
+    /// read verbatim from the source (a URL path must not be split into LOGOS
+    /// punctuation), each with the byte offset just past it. A peek: consumes nothing.
+    fn header_line_words(&self) -> Vec<(String, usize)> {
+        let hdr_end = self.words[self.pos].end;
+        let line_end = self.source[hdr_end..]
+            .find('\n')
+            .map(|k| hdr_end + k)
+            .unwrap_or(self.source.len());
+        let mut out = Vec::new();
+        let mut cursor = hdr_end;
+        while cursor < line_end {
+            let rest = &self.source[cursor..line_end];
+            let skip = rest.len() - rest.trim_start().len();
+            let start = cursor + skip;
+            if start >= line_end {
+                break;
+            }
+            let len = self.source[start..line_end]
+                .find(char::is_whitespace)
+                .unwrap_or(line_end - start);
+            out.push((self.source[start..start + len].to_string(), start + len));
+            cursor = start + len;
+        }
+        out
+    }
+
+    /// Advance `pos` past every split word that ends at or before `end` (the tokenize
+    /// loop's own advance then steps past the last one), like the `## Test:` capture.
+    fn consume_header_through(&mut self, end: usize) {
+        while self.pos + 1 < self.words.len() && self.words[self.pos + 1].start < end {
+            self.pos += 1;
+        }
+    }
+
+    /// Recognize an LGX header by the SHAPE of its line, not its first word alone, so a
+    /// prose heading (`## Error Propagation`, `## Before you begin`) stays prose:
+    /// `## Page /path`, `## Route METHOD /path`, `## Store Name`, `## Directive name (…)`,
+    /// `## Before each request`, `## Redirect /a -> /b`, `## Error page 404`. The raw path
+    /// words are interned and consumed; everything after them lexes normally.
+    fn try_lgx_header(&mut self, lowered: &str) -> Option<BlockType> {
+        let words = self.header_line_words();
+        let word = |i: usize| words.get(i).map(|(w, _)| w.as_str()).unwrap_or("");
+        let end_of = |i: usize| words.get(i).map(|(_, e)| *e).unwrap_or(0);
+        let is_path = |w: &str| w.starts_with('/');
+        let is_method = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_uppercase());
+        match lowered {
+            "page" if is_path(word(0)) => {
+                let path = self.interner.intern(word(0).trim_end_matches('.'));
+                self.consume_header_through(end_of(0));
+                Some(BlockType::Page { path })
+            }
+            "route" if is_method(word(0)) && is_path(word(1)) => {
+                let method = self.interner.intern(word(0));
+                let path = self.interner.intern(word(1).trim_end_matches('.'));
+                self.consume_header_through(end_of(1));
+                Some(BlockType::Route { method, path })
+            }
+            "store"
+                if word(0)
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_uppercase()) =>
+            {
+                Some(BlockType::Store)
+            }
+            // `## Session` takes no name: a program has one session, the way it has one router.
+            // The guard keeps `## Session Something` out — that is a typo or a misunderstanding,
+            // and falling through to prose would silently discard the block.
+            "session" if word(0).is_empty() => Some(BlockType::Session),
+            "directive"
+                if !word(0).is_empty()
+                    && word(0)
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_lowercase())
+                    && words.iter().any(|(w, _)| w.contains('(')) =>
+            {
+                Some(BlockType::Directive)
+            }
+            "before" if word(0) == "each" && word(1).trim_end_matches(':') == "request" => {
+                self.consume_header_through(end_of(1));
+                Some(BlockType::Middleware)
+            }
+            "redirect" if is_path(word(0)) && word(1) == "->" && is_path(word(2)) => {
+                let from = self.interner.intern(word(0));
+                let to = self.interner.intern(word(2).trim_end_matches('.'));
+                self.consume_header_through(end_of(2));
+                Some(BlockType::Redirect { from, to })
+            }
+            "error" if word(0) == "page" => {
+                let status = word(1).trim_end_matches('.').parse::<u16>().ok()?;
+                self.consume_header_through(end_of(1));
+                Some(BlockType::ErrorPage { status })
+            }
+            _ => None,
+        }
     }
 
     /// Count leading whitespace bytes in a line.
@@ -530,9 +730,18 @@ impl<'a> Lexer<'a> {
                 break;
             }
             match c {
-                ' ' => { stripped += 1; byte_pos = i + 1; }
-                '\t' => { stripped += 4; byte_pos = i + 1; }
-                _ => { byte_pos = i; break; }
+                ' ' => {
+                    stripped += 1;
+                    byte_pos = i + 1;
+                }
+                '\t' => {
+                    stripped += 4;
+                    byte_pos = i + 1;
+                }
+                _ => {
+                    byte_pos = i;
+                    break;
+                }
             }
         }
         if stripped < count {
@@ -541,7 +750,10 @@ impl<'a> Lexer<'a> {
         line[byte_pos..].to_string()
     }
 
-    fn split_into_words(input: &str, escape_ranges: &[(usize, usize, usize, String)]) -> Vec<WordItem> {
+    fn split_into_words(
+        input: &str,
+        escape_ranges: &[(usize, usize, usize, String, char, usize)],
+    ) -> Vec<WordItem> {
         let mut items = Vec::new();
         let mut current_word = String::new();
         let mut word_start = 0;
@@ -572,7 +784,9 @@ impl<'a> Lexer<'a> {
                 word_start = i;
             }
             // Check if this byte position starts an escape block body
-            if let Some((_, end, content_start, raw_code)) = escape_ranges.iter().find(|(s, _, _, _)| i == *s) {
+            if let Some((_, end, content_start, raw_code, kind, indent)) =
+                escape_ranges.iter().find(|(s, _, _, _, _, _)| i == *s)
+            {
                 // Flush any pending word
                 if !current_word.is_empty() {
                     items.push(WordItem {
@@ -586,7 +800,14 @@ impl<'a> Lexer<'a> {
                 // Emit the entire block as a single \x00ESC: marker
                 // Use content_start (after whitespace) for span alignment with Indent events
                 items.push(WordItem {
-                    word: format!("\x00ESC:{}", raw_code),
+                    word: match kind {
+                        'E' => format!("\x00ESC:{}", raw_code),
+                        // `\x00LGX:<kind>:<content_start>:<indent>:<body>` — decoded in
+                        // `tokenize` (`\x00RAW:` is the raw STRING literal marker, a different
+                        // thing). `indent` is what was stripped from each body line, so a byte
+                        // offset inside the body maps back to its place in the file.
+                        k => format!("\x00LGX:{k}:{content_start}:{indent}:{raw_code}"),
+                    },
                     trailing_punct: None,
                     start: *content_start,
                     end: *end,
@@ -620,9 +841,12 @@ impl<'a> Lexer<'a> {
                 '.' => {
                     // Check if this is a decimal point (digit before and after)
                     let prev_is_digit = !current_word.is_empty()
-                        && current_word.chars().last().map_or(false, |ch| ch.is_ascii_digit());
-                    let next_is_digit = char_idx + 1 < chars.len()
-                        && chars[char_idx + 1].is_ascii_digit();
+                        && current_word
+                            .chars()
+                            .last()
+                            .map_or(false, |ch| ch.is_ascii_digit());
+                    let next_is_digit =
+                        char_idx + 1 < chars.len() && chars[char_idx + 1].is_ascii_digit();
 
                     // Field-access / UFCS DOT: an identifier char (letter/`_`) or a
                     // closing `)`/`]` immediately before, and an identifier-start
@@ -765,17 +989,24 @@ impl<'a> Lexer<'a> {
                     }
 
                     // Check for triple-quote: """
-                    if char_idx + 2 < chars.len() && chars[char_idx + 1] == '"' && chars[char_idx + 2] == '"' {
+                    if char_idx + 2 < chars.len()
+                        && chars[char_idx + 1] == '"'
+                        && chars[char_idx + 2] == '"'
+                    {
                         let string_start = i;
                         let mut j = char_idx + 3; // skip opening """
-                        // Skip optional newline after opening """
+                                                  // Skip optional newline after opening """
                         if j < chars.len() && chars[j] == '\n' {
                             j += 1;
                         }
                         let mut raw_content = String::new();
                         // Scan until closing """
                         while j < chars.len() {
-                            if j + 2 < chars.len() && chars[j] == '"' && chars[j + 1] == '"' && chars[j + 2] == '"' {
+                            if j + 2 < chars.len()
+                                && chars[j] == '"'
+                                && chars[j + 1] == '"'
+                                && chars[j + 2] == '"'
+                            {
                                 break;
                             }
                             raw_content.push(chars[j]);
@@ -787,7 +1018,11 @@ impl<'a> Lexer<'a> {
                         }
                         // Dedent: find minimum common indentation and strip it
                         let dedented = Self::dedent_triple_quote(&raw_content);
-                        let end_pos = if j + 2 < chars.len() { j + 3 } else { chars.len() };
+                        let end_pos = if j + 2 < chars.len() {
+                            j + 3
+                        } else {
+                            chars.len()
+                        };
                         items.push(WordItem {
                             word: format!("\x00STR:{}", dedented),
                             trailing_punct: None,
@@ -828,7 +1063,10 @@ impl<'a> Lexer<'a> {
                                             hex.push(chars[k]);
                                             k += 1;
                                         }
-                                        match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                                        match u32::from_str_radix(&hex, 16)
+                                            .ok()
+                                            .and_then(char::from_u32)
+                                        {
                                             Some(c) if k < chars.len() => {
                                                 string_content.push(c);
                                                 j = k;
@@ -861,9 +1099,16 @@ impl<'a> Lexer<'a> {
                         // underflows downstream on multibyte input.
                         let end_char = if j < chars.len() { j + 1 } else { j };
                         let end_byte = string_start
-                            + chars[char_idx..end_char].iter().map(|c| c.len_utf8()).sum::<usize>();
+                            + chars[char_idx..end_char]
+                                .iter()
+                                .map(|c| c.len_utf8())
+                                .sum::<usize>();
+                        // `r"..."` is VERBATIM: braces are literal, never an
+                        // interpolation hole — the `\x00RAW:` marker tells Stage 2
+                        // to skip both the hole scan and the `{{`→`{` collapse.
+                        let marker = if raw_string { "\x00RAW:" } else { "\x00STR:" };
                         items.push(WordItem {
-                            word: format!("\x00STR:{}", string_content),
+                            word: format!("{marker}{string_content}"),
                             trailing_punct: None,
                             start: string_start,
                             end: end_byte,
@@ -929,7 +1174,11 @@ impl<'a> Lexer<'a> {
                         word: format!("\x00CHAR:{}", char_content),
                         trailing_punct: None,
                         start: char_start,
-                        end: if j <= chars.len() { char_start + (j - char_idx) } else { char_start + 1 },
+                        end: if j <= chars.len() {
+                            char_start + (j - char_idx)
+                        } else {
+                            char_start + 1
+                        },
                         punct_pos: None,
                     });
 
@@ -1055,13 +1304,25 @@ impl<'a> Lexer<'a> {
                     // This colon is part of a time, include it in the word
                     current_word.push(c);
                 }
+                // Namespaced type reference `Alias::Type` (no intervening spaces):
+                // the `::` glues an identifier segment on each side into ONE word, so
+                // the interned token text is exactly the cross-module registry name
+                // (`Geometry::Point`) that construction and type annotations consume.
+                // A lone `:` (a block colon `xs[1]:`, a `label:`) stays punctuation —
+                // only a `::` between identifier characters is the path separator.
+                ':' if Self::is_namespace_colon(&current_word, &chars, char_idx) => {
+                    current_word.push(c);
+                    current_word.push(chars[char_idx + 1]);
+                    skip_count = 1;
+                }
                 // Hyphenated compounds ("weak-until", "highest-priority"):
                 // a hyphen BETWEEN letters is part of the word, never the
                 // arithmetic minus (which is space- or digit-adjacent).
                 '-' if char_idx > 0
                     && chars[char_idx - 1].is_alphabetic()
                     && char_idx + 1 < chars.len()
-                    && chars[char_idx + 1].is_alphabetic() => {
+                    && chars[char_idx + 1].is_alphabetic() =>
+                {
                     current_word.push(c);
                 }
                 // Scientific notation: 4.84e+00, 1.66E-03, 2.5e-2
@@ -1078,7 +1339,8 @@ impl<'a> Lexer<'a> {
                     && char_idx + 1 < chars.len()
                     && chars[char_idx + 1].is_ascii_digit()
                     && !current_word.is_empty()
-                    && current_word.chars().all(|ch| ch.is_ascii_uppercase()) => {
+                    && current_word.chars().all(|ch| ch.is_ascii_uppercase()) =>
+                {
                     current_word.push(c);
                 }
                 // Letter grades ("B+", "A+"): a '+' directly after an
@@ -1087,8 +1349,8 @@ impl<'a> Lexer<'a> {
                 // before the '+', so only the glued grade form is caught.
                 '+' if !current_word.is_empty()
                     && current_word.chars().all(|ch| ch.is_ascii_uppercase())
-                    && (char_idx + 1 >= chars.len()
-                        || !chars[char_idx + 1].is_ascii_digit()) => {
+                    && (char_idx + 1 >= chars.len() || !chars[char_idx + 1].is_ascii_digit()) =>
+                {
                     current_word.push(c);
                 }
                 // Thousands separator inside a number: "125,000", "1,234,567".
@@ -1101,7 +1363,11 @@ impl<'a> Lexer<'a> {
                     && char_idx + 1 < chars.len()
                     && chars[char_idx + 1].is_ascii_digit()
                     && (bracket_depth == 0
-                        || current_word.chars().next().map_or(false, Self::is_currency_symbol)) => {
+                        || current_word
+                            .chars()
+                            .next()
+                            .map_or(false, Self::is_currency_symbol)) =>
+                {
                     current_word.push(c);
                 }
                 // Date separator inside a numeral: "04/2024", "12/25", "04/2024"
@@ -1110,7 +1376,8 @@ impl<'a> Lexer<'a> {
                 '/' if char_idx > 0
                     && chars[char_idx - 1].is_ascii_digit()
                     && char_idx + 1 < chars.len()
-                    && chars[char_idx + 1].is_ascii_digit() => {
+                    && chars[char_idx + 1].is_ascii_digit() =>
+                {
                     current_word.push(c);
                 }
                 // "28-inch", "6-year-old", "12-year-old" — a hyphen with a DIGIT
@@ -1122,7 +1389,8 @@ impl<'a> Lexer<'a> {
                 '-' if char_idx > 0
                     && chars[char_idx - 1].is_ascii_digit()
                     && char_idx + 1 < chars.len()
-                    && chars[char_idx + 1].is_alphabetic() => {
+                    && chars[char_idx + 1].is_alphabetic() =>
+                {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -1205,7 +1473,8 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | '{' | '}' | '|' | '~' | '^' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
+                '(' | ')' | '[' | ']' | '{' | '}' | '|' | '~' | '^' | ',' | '?' | '!' | ':'
+                | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     match c {
                         // `{…}` literals are bracket contexts for the comma
                         // rule too: `{1,2}` is a two-element set, not `{12}`.
@@ -1237,10 +1506,37 @@ impl<'a> Lexer<'a> {
                     let remaining: String = chars[char_idx + 1..].iter().collect();
                     let remaining_lower = remaining.to_lowercase();
 
-                    if remaining_lower.starts_with("t ") || remaining_lower.starts_with("t.") ||
-                       remaining_lower.starts_with("t,") || remaining_lower == "t" ||
-                       (char_idx + 1 < chars.len() && chars[char_idx + 1] == 't' &&
-                        (char_idx + 2 >= chars.len() || !chars[char_idx + 2].is_alphabetic())) {
+                    // Possessive on a bracketed sub-expression: `foo(x)'s field`,
+                    // `items[0]'s value`. The receiver was already flushed by its
+                    // closing `)`/`]`, so `current_word` is empty here — mirror the
+                    // `(e).m` dot rule (`prev_close`) and emit a possessive marker,
+                    // consuming the clitic `s`. Field access after a value is always
+                    // the genitive, never the `is`-clitic (that attaches only to
+                    // pronouns / wh-words, which never end in `)`/`]`).
+                    let prev_close = current_word.is_empty()
+                        && char_idx > 0
+                        && matches!(chars[char_idx - 1], ')' | ']');
+                    let clitic_s = matches!(chars.get(char_idx + 1), Some('s' | 'S'))
+                        && chars.get(char_idx + 2).map_or(true, |c| !c.is_alphabetic());
+                    if prev_close && clitic_s {
+                        items.push(WordItem {
+                            word: "\x00POSS".to_string(),
+                            trailing_punct: None,
+                            start: i,
+                            end: next_pos + 1,
+                            punct_pos: None,
+                        });
+                        word_start = next_pos + 1;
+                        skip_count = 1;
+                    } else if remaining_lower.starts_with("t ")
+                        || remaining_lower.starts_with("t.")
+                        || remaining_lower.starts_with("t,")
+                        || remaining_lower == "t"
+                        || (char_idx + 1 < chars.len()
+                            && chars[char_idx + 1] == 't'
+                            && (char_idx + 2 >= chars.len()
+                                || !chars[char_idx + 2].is_alphabetic()))
+                    {
                         // The splitter broke the word at the apostrophe, so
                         // `current_word` is the n't-contraction STEM ("isn",
                         // "won"). Which stems contract — and what they expand
@@ -1298,7 +1594,8 @@ impl<'a> Lexer<'a> {
                 // (`$ each`) still falls through to the default arm and is dropped, as before.
                 c if Self::is_currency_symbol(c)
                     && char_idx + 1 < chars.len()
-                    && chars[char_idx + 1].is_ascii_digit() => {
+                    && chars[char_idx + 1].is_ascii_digit() =>
+                {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -1311,7 +1608,13 @@ impl<'a> Lexer<'a> {
                     word_start = i;
                     current_word.push(c);
                 }
-                c if c.is_alphabetic() || c.is_ascii_digit() || (c == '.' && !current_word.is_empty() && current_word.chars().all(|ch| ch.is_ascii_digit())) || c == '_' => {
+                c if c.is_alphabetic()
+                    || c.is_ascii_digit()
+                    || (c == '.'
+                        && !current_word.is_empty()
+                        && current_word.chars().all(|ch| ch.is_ascii_digit()))
+                    || c == '_' =>
+                {
                     if current_word.is_empty() {
                         word_start = i;
                     }
@@ -1377,10 +1680,14 @@ impl<'a> Lexer<'a> {
 
     /// Check if the previous word is a determiner (every, each, some, all, any, no, the, a, an).
     fn prev_token_is_determiner(&self) -> bool {
-        if self.pos == 0 { return false; }
+        if self.pos == 0 {
+            return false;
+        }
         if let Some(prev) = self.words.get(self.pos - 1) {
-            matches!(prev.word.to_lowercase().as_str(),
-                "every" | "each" | "some" | "all" | "any" | "no" | "the" | "a" | "an")
+            matches!(
+                prev.word.to_lowercase().as_str(),
+                "every" | "each" | "some" | "all" | "any" | "no" | "the" | "a" | "an"
+            )
         } else {
             false
         }
@@ -1404,7 +1711,9 @@ impl<'a> Lexer<'a> {
     /// used to disambiguate the singular clock units "second"/"minute" (which are
     /// also an ordinal and an adjective) — they are time units only after a count.
     fn prev_word_is_numeric(&self) -> bool {
-        if self.pos == 0 { return false; }
+        if self.pos == 0 {
+            return false;
+        }
         self.words
             .get(self.pos - 1)
             .map(|p| {
@@ -1448,6 +1757,13 @@ impl<'a> Lexer<'a> {
     /// typically `TokenType::Eof`.
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
+        // Markdown-table row tracking: a table row is a LINE construct, but the
+        // word stream erases line breaks. While lexing a `|`-led line, the
+        // first item past a real newline gets an explicit Newline token so the
+        // parser can see where a row ends (case tables, the in-language test
+        // framework).
+        let mut prev_item_end: Option<usize> = None;
+        let mut in_table_line = false;
 
         while self.pos < self.words.len() {
             let item = &self.words[self.pos];
@@ -1456,6 +1772,30 @@ impl<'a> Lexer<'a> {
             let word_start = item.start;
             let word_end = item.end;
             let punct_pos = item.punct_pos;
+
+            if matches!(self.mode, LexerMode::Imperative) {
+                let gap_has_newline = prev_item_end
+                    .map(|pe| {
+                        self.source
+                            .get(pe..word_start)
+                            .is_some_and(|gap| gap.contains('\n'))
+                    })
+                    .unwrap_or(false);
+                if in_table_line && gap_has_newline {
+                    let sym = self.interner.intern("");
+                    tokens.push(Token::new(
+                        TokenType::Newline,
+                        sym,
+                        Span::new(word_start, word_start),
+                    ));
+                    in_table_line = false;
+                }
+                let is_pipe = word.is_empty() && trailing_punct == Some('|');
+                if is_pipe && !in_table_line && (gap_has_newline || prev_item_end.is_none()) {
+                    in_table_line = true;
+                }
+            }
+            prev_item_end = Some(word_end);
 
             if word.is_empty() {
                 if let Some(punct) = trailing_punct {
@@ -1497,11 +1837,24 @@ impl<'a> Lexer<'a> {
                     // followed by the sentence period ("Dorsey Assoc.." → "Assoc"
                     // + one Period). The extra "." would otherwise strand the parse.
                     let dup_period = kind == TokenType::Period
-                        && tokens.last().map_or(false, |t: &Token| t.kind == TokenType::Period);
+                        && tokens
+                            .last()
+                            .map_or(false, |t: &Token| t.kind == TokenType::Period);
                     if !dup_period {
                         tokens.push(Token::new(kind, lexeme, span));
                     }
                 }
+                self.pos += 1;
+                continue;
+            }
+
+            // Raw string literal (`r"..."`): verbatim — braces are literal, so
+            // neither the interpolation scan nor the `{{`→`{` collapse applies.
+            if word.starts_with("\x00RAW:") {
+                let content = &word[5..];
+                let span = Span::new(word_start, word_end);
+                let sym = self.interner.intern(content);
+                tokens.push(Token::new(TokenType::StringLiteral(sym), sym, span));
                 self.pos += 1;
                 continue;
             }
@@ -1533,6 +1886,34 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            // An LGX raw section (pre-captured `View:` / `Style:` body): `\x00LGX:<kind>:<offset>:<body>`.
+            if let Some(rest) = word.strip_prefix("\x00LGX:") {
+                let mut parts = rest.splitn(4, ':');
+                let kind = match parts.next() {
+                    Some("S") => RawKind::Style,
+                    Some("H") => RawKind::Head,
+                    _ => RawKind::View,
+                };
+                let content_start: usize = parts
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or(word_start);
+                let indent: usize = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                let body = parts.next().unwrap_or("");
+                let sym = self.interner.intern(body);
+                tokens.push(Token::new(
+                    TokenType::RawBlock {
+                        kind,
+                        body: sym,
+                        content_start,
+                        indent,
+                    },
+                    sym,
+                    Span::new(word_start, word_end),
+                ));
+                self.pos += 1;
+                continue;
+            }
             // Check for escape block marker (pre-captured raw foreign code)
             if word.starts_with("\x00ESC:") {
                 let content = &word[5..]; // Skip the "\x00ESC:" prefix
@@ -1560,7 +1941,24 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            let first_word = self.pos;
             let kind = self.classify_with_lookahead(&word);
+            // A token read from several words ("at least three", "all but finitely many") covers
+            // its whole phrase: its lexeme and span run to its last word, and the punctuation
+            // after that word follows it. A block header's further words are its data (a route's
+            // method and path, a test's name), not part of its phrase.
+            let multi_word = self.pos > first_word && !matches!(kind, TokenType::BlockHeader { .. });
+            let (word, trailing_punct, word_end, punct_pos) = if multi_word {
+                let last = &self.words[self.pos];
+                let phrase = self
+                    .source
+                    .get(word_start..last.end)
+                    .unwrap_or(&word)
+                    .to_string();
+                (phrase, last.trailing_punct, last.end, last.punct_pos)
+            } else {
+                (word, trailing_punct, word_end, punct_pos)
+            };
             // A subject pronoun or WH-relativizer takes the copula clitic "'s" = "is"
             // ("who's going", "he's …"), never the possessive 's (their genitive is the
             // dedicated form whose / its / his). Captured from the host's lexical
@@ -1568,8 +1966,10 @@ impl<'a> Lexer<'a> {
             // below is data-driven, not a word list.
             let host_takes_copula_clitic = matches!(
                 kind,
-                TokenType::Pronoun { case: crate::lexicon::Case::Subject, .. }
-                    | TokenType::Who
+                TokenType::Pronoun {
+                    case: crate::lexicon::Case::Subject,
+                    ..
+                } | TokenType::Who
                     | TokenType::That
                     | TokenType::What
                     | TokenType::Where
@@ -1594,15 +1994,20 @@ impl<'a> Lexer<'a> {
                                 .map(|a| a.word.to_lowercase())
                                 .and_then(|w| self.lexicon.lookup_verb(&w))
                                 .map_or(false, |v| v.aspect != crate::lexicon::Aspect::Progressive);
-                            let (poss_kind, poss_text) = if host_takes_copula_clitic && !next_is_past_verb {
-                                (TokenType::Is, "is")
-                            } else {
-                                (TokenType::Possessive, "'s")
-                            };
+                            let (poss_kind, poss_text) =
+                                if host_takes_copula_clitic && !next_is_past_verb {
+                                    (TokenType::Is, "is")
+                                } else {
+                                    (TokenType::Possessive, "'s")
+                                };
                             let poss_lexeme = self.interner.intern(poss_text);
                             let poss_start = punct_pos.unwrap_or(word_end);
                             let poss_end = next_item.end;
-                            tokens.push(Token::new(poss_kind, poss_lexeme, Span::new(poss_start, poss_end)));
+                            tokens.push(Token::new(
+                                poss_kind,
+                                poss_lexeme,
+                                Span::new(poss_start, poss_end),
+                            ));
                             self.pos += 1;
                             if let Some(s_punct) = next_item.trailing_punct {
                                 let kind = match s_punct {
@@ -1612,9 +2017,15 @@ impl<'a> Lexer<'a> {
                                     ']' => TokenType::RBracket,
                                     '{' => TokenType::LBrace,
                                     '}' => TokenType::RBrace,
-                                    '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
-                                    '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
-                                    '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
+                                    '|' if matches!(self.mode, LexerMode::Imperative) => {
+                                        TokenType::VBar
+                                    }
+                                    '~' if matches!(self.mode, LexerMode::Imperative) => {
+                                        TokenType::Tilde
+                                    }
+                                    '^' if matches!(self.mode, LexerMode::Imperative) => {
+                                        TokenType::Caret
+                                    }
                                     ',' => TokenType::Comma,
                                     ':' => TokenType::Colon,
                                     '.' | '?' => TokenType::Period,
@@ -1634,7 +2045,11 @@ impl<'a> Lexer<'a> {
                                 };
                                 let s_punct_pos = next_item.punct_pos.unwrap_or(next_item.end);
                                 let lexeme = self.interner.intern(&s_punct.to_string());
-                                tokens.push(Token::new(kind, lexeme, Span::new(s_punct_pos, s_punct_pos + 1)));
+                                tokens.push(Token::new(
+                                    kind,
+                                    lexeme,
+                                    Span::new(s_punct_pos, s_punct_pos + 1),
+                                ));
                             }
                             self.pos += 1;
                             continue;
@@ -1649,7 +2064,10 @@ impl<'a> Lexer<'a> {
                 // strands the rest of the clause. Which words abbreviate is lexical
                 // (lexicon `abbreviations`); suppress the dot only mid-clue, so a
                 // genuine clue-final abbreviation ("…on Main St.") keeps its terminator.
+                // Prose only: in code every word is an identifier and a full stop ends
+                // its statement — `Return m.` is a sentence about a variable named `m`.
                 if punct == '.'
+                    && self.mode != LexerMode::Imperative
                     && lexicon::is_abbreviation(&word.to_lowercase())
                     && self.words.get(self.pos + 1).is_some()
                 {
@@ -1774,14 +2192,22 @@ impl<'a> Lexer<'a> {
         // Triple-quote strings span multiple lines; their internal indentation
         // must not generate Indent/Dedent tokens.
         {
-            let string_spans: Vec<(usize, usize)> = tokens.iter()
-                .filter(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)))
+            let string_spans: Vec<(usize, usize)> = tokens
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t.kind,
+                        TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)
+                    )
+                })
                 .filter(|t| t.span.end.saturating_sub(t.span.start) > 6) // only multi-line strings (""" adds >=6 chars)
                 .map(|t| (t.span.start, t.span.end))
                 .collect();
             if !string_spans.is_empty() {
                 structural_events.retain(|&(pos, _)| {
-                    !string_spans.iter().any(|(start, end)| pos > *start && pos < *end)
+                    !string_spans
+                        .iter()
+                        .any(|(start, end)| pos > *start && pos < *end)
                 });
             }
         }
@@ -1810,7 +2236,9 @@ impl<'a> Lexer<'a> {
             }
             if !bracket_ranges.is_empty() {
                 structural_events.retain(|&(pos, _)| {
-                    !bracket_ranges.iter().any(|(start, end)| pos > *start && pos < *end)
+                    !bracket_ranges
+                        .iter()
+                        .any(|(start, end)| pos > *start && pos < *end)
                 });
             }
         }
@@ -1843,11 +2271,18 @@ impl<'a> Lexer<'a> {
                 if event_pos <= token_start {
                     let span = if is_indent {
                         // Indent is inserted after the preceding Colon
-                        Span::new(last_colon_pos.unwrap_or(event_pos), last_colon_pos.unwrap_or(event_pos))
+                        Span::new(
+                            last_colon_pos.unwrap_or(event_pos),
+                            last_colon_pos.unwrap_or(event_pos),
+                        )
                     } else {
                         Span::new(event_pos, event_pos)
                     };
-                    let kind = if is_indent { TokenType::Indent } else { TokenType::Dedent };
+                    let kind = if is_indent {
+                        TokenType::Indent
+                    } else {
+                        TokenType::Dedent
+                    };
                     result.push(Token::new(kind, empty_sym, span));
                     event_idx += 1;
                 } else {
@@ -1867,7 +2302,11 @@ impl<'a> Lexer<'a> {
         while event_idx < structural_events.len() {
             let (event_pos, is_indent) = structural_events[event_idx];
             let span = Span::new(event_pos, event_pos);
-            let kind = if is_indent { TokenType::Indent } else { TokenType::Dedent };
+            let kind = if is_indent {
+                TokenType::Indent
+            } else {
+                TokenType::Dedent
+            };
             result.push(Token::new(kind, empty_sym, span));
             event_idx += 1;
         }
@@ -1969,8 +2408,8 @@ impl<'a> Lexer<'a> {
                 && chars[char_idx + 2].is_ascii_digit()
             {
                 // Make sure we're not followed by more digits (would be a longer number)
-                let next_not_digit = char_idx + 3 >= chars.len()
-                    || !chars[char_idx + 3].is_ascii_digit();
+                let next_not_digit =
+                    char_idx + 3 >= chars.len() || !chars[char_idx + 3].is_ascii_digit();
                 if next_not_digit {
                     return true;
                 }
@@ -2010,8 +2449,7 @@ impl<'a> Lexer<'a> {
                 let next_two: String = chars[suffix_start..suffix_start + 2].iter().collect();
                 let lower = next_two.to_lowercase();
                 if (lower == "am" || lower == "pm")
-                    && (suffix_start + 2 >= chars.len()
-                        || !chars[suffix_start + 2].is_alphabetic())
+                    && (suffix_start + 2 >= chars.len() || !chars[suffix_start + 2].is_alphabetic())
                 {
                     return true;
                 }
@@ -2019,6 +2457,32 @@ impl<'a> Lexer<'a> {
         }
 
         false
+    }
+
+    /// Whether the `:` at `char_idx` opens a `::` namespace separator inside a
+    /// qualified type reference (`Geometry::Point`, `A::B::C`). True only when the
+    /// colon is doubled and sits between identifier characters — an identifier
+    /// character (letter/digit/underscore) immediately precedes the first colon and
+    /// an identifier START (letter/underscore) immediately follows the second. This
+    /// keeps a lone `:` a block/label colon; only the glued `Ident::Ident` form is a
+    /// path, and the same rule chains across each `::` in a multi-segment path.
+    fn is_namespace_colon(current_word: &str, chars: &[char], char_idx: usize) -> bool {
+        // The previous emitted character must be part of the left identifier segment.
+        let prev_is_ident = current_word
+            .chars()
+            .next_back()
+            .map_or(false, |c| c.is_alphanumeric() || c == '_');
+        if !prev_is_ident {
+            return false;
+        }
+        // Doubled colon.
+        if chars.get(char_idx + 1) != Some(&':') {
+            return false;
+        }
+        // The character after `::` must begin an identifier segment.
+        chars
+            .get(char_idx + 2)
+            .map_or(false, |c| c.is_alphabetic() || *c == '_')
     }
 
     /// Whether a space separates a `H:MM` clock time from a trailing "am"/"pm"
@@ -2094,13 +2558,15 @@ impl<'a> Lexer<'a> {
             return String::new();
         }
         // Find minimum indentation of non-empty lines
-        let min_indent = lines.iter()
+        let min_indent = lines
+            .iter()
             .filter(|l| !l.trim().is_empty())
             .map(|l| l.len() - l.trim_start().len())
             .min()
             .unwrap_or(0);
         // Strip that indentation and join with actual newlines
-        lines.iter()
+        lines
+            .iter()
             .map(|l| {
                 if l.len() >= min_indent {
                     &l[min_indent..]
@@ -2219,7 +2685,13 @@ impl<'a> Lexer<'a> {
         let max_day = match month {
             1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
             4 | 6 | 9 | 11 => 30,
-            2 => if is_leap { 29 } else { 28 },
+            2 => {
+                if is_leap {
+                    29
+                } else {
+                    28
+                }
+            }
             _ => return None,
         };
         if day > max_day {
@@ -2289,9 +2761,17 @@ impl<'a> Lexer<'a> {
 
         // Convert to 24-hour format
         let hour_24 = if is_am {
-            if hour == 12 { 0 } else { hour }  // 12am = midnight = 0
+            if hour == 12 {
+                0
+            } else {
+                hour
+            } // 12am = midnight = 0
         } else {
-            if hour == 12 { 12 } else { hour + 12 }  // 12pm = noon = 12, 4pm = 16
+            if hour == 12 {
+                12
+            } else {
+                hour + 12
+            } // 12pm = noon = 12, 4pm = 16
         };
 
         // Convert to nanoseconds from midnight
@@ -2336,58 +2816,118 @@ impl<'a> Lexer<'a> {
                 TokenType::Period
             };
         }
+        if word == "\x00POSS" {
+            // The genitive clitic on a bracketed receiver (`foo(x)'s field`),
+            // emitted by the splitter's `prev_close` possessive rule.
+            return TokenType::Possessive;
+        }
         // Handle block headers (##Theorem, ##Main, etc.)
         if word.starts_with("##") {
             let block_name = &word[2..];
-            let block_type = match block_name.to_lowercase().as_str() {
-                "theorem" => BlockType::Theorem,
-                "main" => BlockType::Main,
-                "definition" => BlockType::Definition,
-                "define" => BlockType::Define,  // Vernacular-logic predicate definition (Rung 0a)
-                "axiom" => BlockType::Axiom,    // Formal first-order axiom (the seam for Tarski)
-                "theory" => BlockType::Theory,  // Named development grouping axioms + theorems
-                "proof" => BlockType::Proof,
-                "example" => BlockType::Example,
-                "logic" => BlockType::Logic,
-                "note" => BlockType::Note,
-                "to" => BlockType::Function,  // Function definition block
-                "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
-                "policy" => BlockType::Policy,  // Security policy definitions
-                "requires" => BlockType::Requires,  // External crate dependencies
-                "hardware" => BlockType::Hardware,  // Signal declarations
-                "property" => BlockType::Property,  // Temporal assertions
-                "no" => BlockType::No,  // Optimization annotation: ## No Memo, ## No TCO, etc.
-                "tier" => BlockType::Tier,  // Tiered-optimizer pin: ## Tier specialize eager, etc.
-                other => {
-                    // A near-miss of a CONSEQUENTIAL header is a probable
-                    // typo — `## Mian` silently becoming prose is the bug
-                    // class where a whole program runs to empty output.
-                    // Prose-type names (note/example/logic) and the short
-                    // forms are excluded, so ordinary literate headings
-                    // (`## Notes`, `## Design`) keep working.
-                    const CONSEQUENTIAL: &[&str] = &[
-                        "main", "theorem", "definition", "define", "axiom",
-                        "theory", "proof", "policy", "requires", "hardware",
-                        "property", "tier",
-                    ];
-                    if let Some(similar) =
-                        crate::suggest::find_similar(other, CONSEQUENTIAL, 2)
-                    {
-                        let found = self.interner.intern(block_name);
-                        let suggestion = self.interner.intern(similar);
-                        BlockType::SuspectedTypo { found, suggestion }
-                    } else {
-                        BlockType::Note // Unknown block types stay literate prose
+            let lowered = block_name.to_lowercase();
+            let lgx_header = self.try_lgx_header(&lowered);
+            let block_type = if let Some(bt) = lgx_header {
+                bt
+            } else {
+                match lowered.as_str() {
+                    "theorem" => BlockType::Theorem,
+                    "main" => BlockType::Main,
+                    "definition" => BlockType::Definition,
+                    "define" => BlockType::Define, // Vernacular-logic predicate definition (Rung 0a)
+                    "axiom" => BlockType::Axiom,   // Formal first-order axiom (the seam for Tarski)
+                    "theory" => BlockType::Theory, // Named development grouping axioms + theorems
+                    "proof" => BlockType::Proof,
+                    "example" => BlockType::Example,
+                    "logic" => BlockType::Logic,
+                    "note" => BlockType::Note,
+                    "to" => BlockType::Function, // Function definition block
+                    "component" => BlockType::Component, // Reactive UI component block
+                    "a" | "an" => BlockType::TypeDef, // Inline type definitions: ## A Point has:
+                    "policy" => BlockType::Policy, // Security policy definitions
+                    "requires" => BlockType::Requires, // External crate dependencies
+                    "hardware" => BlockType::Hardware, // Signal declarations
+                    "property" => BlockType::Property, // Temporal assertions
+                    "no" => BlockType::No, // Optimization annotation: ## No Memo, ## No TCO, etc.
+                    "tier" => BlockType::Tier, // Tiered-optimizer pin: ## Tier specialize eager, etc.
+                    "require" => BlockType::Require, // Optimization demand: ## Require memo, ## Require closedform
+
+                    "test" => {
+                        // `## Test: <prose>` — the prose after the colon is the
+                        // test's NAME: raw prose, never tokenized as code. Capture
+                        // the rest of the source line verbatim and skip its words.
+                        let hdr_end = self.words[self.pos].end;
+                        let line_end = self.source[hdr_end..]
+                            .find('\n')
+                            .map(|k| hdr_end + k)
+                            .unwrap_or(self.source.len());
+                        let raw = self.source[hdr_end..line_end]
+                            .trim()
+                            .trim_start_matches(':')
+                            .trim();
+                        let name = self.interner.intern(raw);
+                        // Leave `pos` on the line's last word; the tokenize loop's
+                        // own advance steps past it.
+                        while self.pos + 1 < self.words.len()
+                            && self.words[self.pos + 1].start < line_end
+                        {
+                            self.pos += 1;
+                        }
+                        BlockType::Test { name }
+                    }
+                    other => {
+                        // A near-miss of a CONSEQUENTIAL header is a probable
+                        // typo — `## Mian` silently becoming prose is the bug
+                        // class where a whole program runs to empty output.
+                        // Prose-type names (note/example/logic) and the short
+                        // forms are excluded, so ordinary literate headings
+                        // (`## Notes`, `## Design`) keep working.
+                        const CONSEQUENTIAL: &[&str] = &[
+                            "main",
+                            "theorem",
+                            "definition",
+                            "define",
+                            "axiom",
+                            "theory",
+                            "proof",
+                            "policy",
+                            "requires",
+                            "hardware",
+                            "property",
+                            "tier",
+                            "test",
+                            "component",
+                            "page",
+                            "route",
+                            "store",
+                            "directive",
+                            "redirect",
+                        ];
+                        if let Some(similar) = crate::suggest::find_similar(other, CONSEQUENTIAL, 2)
+                        {
+                            let found = self.interner.intern(block_name);
+                            let suggestion = self.interner.intern(similar);
+                            BlockType::SuspectedTypo { found, suggestion }
+                        } else {
+                            BlockType::Note // Unknown block types stay literate prose
+                        }
                     }
                 }
             };
 
             // Update lexer mode based on block type
             self.mode = match block_type {
-                BlockType::Main | BlockType::Function => LexerMode::Imperative,
+                BlockType::Main
+                | BlockType::Function
+                | BlockType::Component
+                | BlockType::Test { .. }
+                | BlockType::Page { .. }
+                | BlockType::Store
+                | BlockType::Directive
+                | BlockType::Route { .. }
+                | BlockType::Middleware
+                | BlockType::ErrorPage { .. } => LexerMode::Imperative,
                 _ => LexerMode::Declarative,
             };
-
 
             return TokenType::BlockHeader { block_type };
         }
@@ -2397,6 +2937,36 @@ impl<'a> Lexer<'a> {
         if lower == "each" && self.peek_sequence(&["other"]) {
             self.consume_words(1);
             return TokenType::Reciprocal;
+        }
+
+        // The infinitary determiners, `infinitely often` and `infinitely close to` are one token
+        // each, as `at least n` is.
+        match lower.as_str() {
+            "infinitely" if self.peek_sequence(&["many"]) => {
+                self.consume_words(1);
+                return TokenType::InfinitelyMany;
+            }
+            "infinitely" if self.peek_sequence(&["often"]) => {
+                self.consume_words(1);
+                return TokenType::InfinitelyOften;
+            }
+            "infinitely" if self.peek_sequence(&["close", "to"]) => {
+                self.consume_words(2);
+                return TokenType::Preposition(self.interner.intern("InfinitelyClose"));
+            }
+            "finitely" if self.peek_sequence(&["many"]) => {
+                self.consume_words(1);
+                return TokenType::FinitelyMany;
+            }
+            "only" if self.peek_sequence(&["finitely", "many"]) => {
+                self.consume_words(2);
+                return TokenType::FinitelyMany;
+            }
+            "all" if self.peek_sequence(&["but", "finitely", "many"]) => {
+                self.consume_words(3);
+                return TokenType::AllButFinitelyMany;
+            }
+            _ => {}
         }
 
         if lower == "to" {
@@ -2461,7 +3031,9 @@ impl<'a> Lexer<'a> {
 
         // Check for time-of-day literal (e.g., "4pm", "9:30am", "noon", "midnight")
         if let Some(nanos_from_midnight) = Self::parse_time_literal(word) {
-            return TokenType::TimeLiteral { nanos_from_midnight };
+            return TokenType::TimeLiteral {
+                nanos_from_midnight,
+            };
         }
 
         // Currency-symbol money literal: `$19.99`, `€5`, `£10`, `¥100`, `$1,250.50`. The symbol
@@ -2473,8 +3045,11 @@ impl<'a> Lexer<'a> {
         if self.mode == LexerMode::Imperative {
             if let Some(first) = word.chars().next() {
                 if let Some(code) = Self::currency_for_symbol(first) {
-                    let cleaned: String =
-                        word.chars().skip(1).filter(|c| c.is_ascii_digit() || *c == '.').collect();
+                    let cleaned: String = word
+                        .chars()
+                        .skip(1)
+                        .filter(|c| c.is_ascii_digit() || *c == '.')
+                        .collect();
                     if cleaned.starts_with(|c: char| c.is_ascii_digit()) {
                         let amount = self.interner.intern(&cleaned);
                         let currency = self.interner.intern(code);
@@ -2526,7 +3101,11 @@ impl<'a> Lexer<'a> {
             // Heuristic: articles are followed by nouns/adjectives, not verbs or keywords
             if let Some(next) = self.peek_word(1) {
                 let next_lower = next.to_lowercase();
-                let next_starts_lowercase = next.chars().next().map(|c| c.is_lowercase()).unwrap_or(false);
+                let next_starts_lowercase = next
+                    .chars()
+                    .next()
+                    .map(|c| c.is_lowercase())
+                    .unwrap_or(false);
 
                 // If followed by logical keyword, treat as proper name (propositional variable)
                 if matches!(next_lower.as_str(), "if" | "and" | "or" | "implies" | "iff") {
@@ -2541,7 +3120,8 @@ impl<'a> Lexer<'a> {
                 let is_verb = self.lexicon.lookup_verb(&next_lower).is_some()
                     && !lexicon::is_disambiguation_not_verb(&next_lower);
                 let is_gerund = next_lower.ends_with("ing");
-                let is_also_noun_or_adj = self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
+                let is_also_noun_or_adj =
+                    self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
                 if is_verb && !is_gerund && !is_also_noun_or_adj {
                     let sym = self.interner.intern(word);
                     return TokenType::ProperName(sym);
@@ -2560,7 +3140,8 @@ impl<'a> Lexer<'a> {
                 // It's an article if next word is:
                 // - A known noun or adjective, or
                 // - Lowercase (likely a common word we don't recognize)
-                let is_content_word = self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
+                let is_content_word =
+                    self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
                 if is_content_word || next_starts_lowercase {
                     return TokenType::Article(Definiteness::Indefinite);
                 }
@@ -2747,6 +3328,13 @@ impl<'a> Lexer<'a> {
             return TokenType::Preposition(sym);
         }
 
+        // `During <gerund>:` is a trace-span statement in imperative code — it
+        // must win over the preposition reading (constitution Part 2). Prose
+        // keeps `during` a preposition (declarative mode).
+        if lower == "during" && self.mode == LexerMode::Imperative {
+            return TokenType::During;
+        }
+
         // A word that is BOTH a verb and a preposition ("like") stays
         // ambiguous — the dual-class block below emits the alternatives.
         // Lexicon-disambiguated NON-verbs ("during") are pure prepositions
@@ -2791,7 +3379,10 @@ impl<'a> Lexer<'a> {
             "set" => {
                 // Check if "set" is used as a type (followed by "of") - "Set of Int"
                 // This takes priority over the assignment keyword
-                if self.peek_word(1).map_or(false, |w| w.to_lowercase() == "of") {
+                if self
+                    .peek_word(1)
+                    .map_or(false, |w| w.to_lowercase() == "of")
+                {
                     // It's a type like "Set of Int" - don't return keyword, let it be a noun
                 } else if self.mode == LexerMode::Imperative {
                     // In Imperative mode, treat "set" as the assignment keyword
@@ -2800,7 +3391,10 @@ impl<'a> Lexer<'a> {
                     // In Declarative mode, check positions 2-5 for "to"
                     // (handles field access like "set p's x to")
                     for offset in 2..=5 {
-                        if self.peek_word(offset).map_or(false, |w| w.to_lowercase() == "to") {
+                        if self
+                            .peek_word(offset)
+                            .map_or(false, |w| w.to_lowercase() == "to")
+                        {
                             return TokenType::Set;
                         }
                     }
@@ -2823,8 +3417,22 @@ impl<'a> Lexer<'a> {
             "requires" if self.mode == LexerMode::Imperative => return TokenType::Requires,
             "ensures" if self.mode == LexerMode::Imperative => return TokenType::Ensures,
             "check" => return TokenType::Check,
-            // Theorem keywords (Declarative mode - for theorem blocks)
-            "given" if self.mode == LexerMode::Declarative => return TokenType::Given,
+            // Theorem keywords (Declarative mode - for theorem blocks).
+            // In IMPERATIVE mode `given` is the test-fixture keyword
+            // (`Given a file "…" containing "…".`) — same token, both modes.
+            "given" => return TokenType::Given,
+            // Test-framework keywords (Imperative mode only — `## Test` bodies).
+            // Declarative prose
+            // keeps them as ordinary verbs.
+            "expect" if self.mode == LexerMode::Imperative => return TokenType::Expect,
+            "advance" if self.mode == LexerMode::Imperative => return TokenType::Advance,
+            "skip" if self.mode == LexerMode::Imperative => return TokenType::Skip,
+            // Observation statements (constitution Part 2), imperative-only —
+            // declarative prose keeps them as ordinary verbs/prepositions.
+            "note" if self.mode == LexerMode::Imperative => return TokenType::Note,
+            "warn" if self.mode == LexerMode::Imperative => return TokenType::Warn,
+            "record" if self.mode == LexerMode::Imperative => return TokenType::Record,
+            // ("during" is handled before the is_preposition check above.)
             "prove" if self.mode == LexerMode::Declarative => return TokenType::Prove,
             "auto" if self.mode == LexerMode::Declarative => return TokenType::Auto,
             // P2P Networking keywords (Imperative mode only)
@@ -2835,7 +3443,7 @@ impl<'a> Lexer<'a> {
             "sync" if self.mode == LexerMode::Imperative => return TokenType::Sync,
             // Persistence keywords
             "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
-            "persistent" => return TokenType::Persistent,  // Works in type expressions
+            "persistent" => return TokenType::Persistent, // Works in type expressions
             "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
             "followed" if self.mode == LexerMode::Imperative => return TokenType::Followed,
             // Go-like Concurrency keywords (Imperative mode only)
@@ -2887,7 +3495,9 @@ impl<'a> Lexer<'a> {
             // Structured Concurrency keywords (Imperative mode only)
             "attempt" if self.mode == LexerMode::Imperative => return TokenType::Attempt,
             "following" if self.mode == LexerMode::Imperative => return TokenType::Following,
-            "simultaneously" if self.mode == LexerMode::Imperative => return TokenType::Simultaneously,
+            "simultaneously" if self.mode == LexerMode::Imperative => {
+                return TokenType::Simultaneously
+            }
             // IO keywords (Imperative mode only)
             "read" if self.mode == LexerMode::Imperative => return TokenType::Read,
             "write" if self.mode == LexerMode::Imperative => return TokenType::Write,
@@ -2903,8 +3513,10 @@ impl<'a> Lexer<'a> {
             "manifest" if self.mode == LexerMode::Imperative => return TokenType::Manifest,
             "chunk" if self.mode == LexerMode::Imperative => return TokenType::Chunk,
             // CRDT keywords
-            "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
+            "shared" => return TokenType::Shared, // Works in Definition blocks like Portable
             "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
+            "converge" if self.mode == LexerMode::Imperative => return TokenType::Converge,
+            "swap" if self.mode == LexerMode::Imperative => return TokenType::Swap,
             "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
             // Extended CRDT keywords
             "decrease" if self.mode == LexerMode::Imperative => return TokenType::Decrease,
@@ -2938,15 +3550,34 @@ impl<'a> Lexer<'a> {
             "week" | "weeks" => return TokenType::CalendarUnit(CalendarUnit::Week),
             "month" | "months" => return TokenType::CalendarUnit(CalendarUnit::Month),
             "year" | "years" => return TokenType::CalendarUnit(CalendarUnit::Year),
+            // Sub-second clock units: unlike bare "second"/"minute", these compound words have
+            // no other common English reading, so they need no preceding-number guard — the
+            // English-word spelling of the same durations the compact `100ms`/`50ns` literals
+            // already cover (LOGOS_QUICKGUIDE.md's Duration row).
+            "millisecond" | "milliseconds" => {
+                return TokenType::CalendarUnit(CalendarUnit::Millisecond)
+            }
+            "microsecond" | "microseconds" => {
+                return TokenType::CalendarUnit(CalendarUnit::Microsecond)
+            }
+            "nanosecond" | "nanoseconds" => {
+                return TokenType::CalendarUnit(CalendarUnit::Nanosecond)
+            }
             // Span-related keywords (note: "before" is handled earlier to avoid preposition conflict)
             "ago" => return TokenType::Ago,
             "hence" => return TokenType::Hence,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
-            "just" if self.peek_word(1).map_or(false, |w| {
-                !self.is_verb_like(w) || w.to_lowercase() == "john" || w.chars().next().map_or(false, |c| c.is_uppercase())
-            }) => return TokenType::Focus(FocusKind::Just),
+            "just"
+                if self.peek_word(1).map_or(false, |w| {
+                    !self.is_verb_like(w)
+                        || w.to_lowercase() == "john"
+                        || w.chars().next().map_or(false, |c| c.is_uppercase())
+                }) =>
+            {
+                return TokenType::Focus(FocusKind::Just)
+            }
             "much" => return TokenType::Measure(MeasureKind::Much),
             "little" => return TokenType::Measure(MeasureKind::Little),
             _ => {}
@@ -2981,11 +3612,20 @@ impl<'a> Lexer<'a> {
                     "he" | "she" | "it" | "they" | "we" | "i" | "you" | "who"
                 )
             });
+        // A capital letter ANYWHERE past the first character (`bOnly`, `isEmpty`) is camelCase —
+        // never a natural English word, however its tail happens to be spelled. No real adverb is
+        // written this way, so a chosen code identifier that merely ends the same way as one
+        // ("bOnly" ends in the same four letters as "only") must never be mistaken for it; without
+        // this guard `bOnly`/`aOnly` classified as `Adverb` while the plain `onlyB` (which never
+        // reaches this "-ly" check at all) classified as an ordinary identifier — the same word
+        // choice landing on two different token kinds by accident of which end the suffix fell on.
+        let has_internal_capital = word.chars().skip(1).any(|c| c.is_uppercase());
         if lower.ends_with("ly")
             && !lexicon::is_not_adverb(&lower)
             && !lexicon::is_common_noun(&lower)
             && lower.len() > 4
             && !cap_ly_is_name
+            && !has_internal_capital
         {
             let sym = self.interner.intern(&Self::capitalize(&lower));
             return TokenType::Adverb(sym);
@@ -3106,18 +3746,26 @@ impl<'a> Lexer<'a> {
                 let next_lower = next.to_lowercase();
                 // If next word is a verb, this capitalized word is likely a subject noun
                 let is_followed_by_verb = self.lexicon.lookup_verb(&next_lower).is_some()
-                    || matches!(next_lower.as_str(), "is" | "are" | "was" | "were" | "has" | "have" | "had");
+                    || matches!(
+                        next_lower.as_str(),
+                        "is" | "are" | "was" | "were" | "has" | "have" | "had"
+                    );
 
                 if is_followed_by_verb {
                     // Check if lowercase version is a derivable common noun
                     if let Some(analysis) = lexicon::analyze_word(&lower) {
                         match analysis {
-                            lexicon::WordAnalysis::Noun(meta) if meta.number == lexicon::Number::Plural => {
+                            lexicon::WordAnalysis::Noun(meta)
+                                if meta.number == lexicon::Number::Plural =>
+                            {
                                 // It's a plural noun - definitely a common noun
                                 let sym = self.interner.intern(&lower);
                                 return TokenType::Noun(sym);
                             }
-                            lexicon::WordAnalysis::DerivedNoun { number: lexicon::Number::Plural, .. } => {
+                            lexicon::WordAnalysis::DerivedNoun {
+                                number: lexicon::Number::Plural,
+                                ..
+                            } => {
                                 // Derived plural agentive noun (e.g., "Bloggers")
                                 let sym = self.interner.intern(&lower);
                                 return TokenType::Noun(sym);
@@ -3354,12 +4002,16 @@ impl<'a> Lexer<'a> {
 
         let base = &word[..word.len() - 3];
 
-        if base.len() >= 2 {
-            let chars: Vec<char> = base.chars().collect();
+        // Guard on the CHARACTER count, not the byte length: a single multibyte code point
+        // (e.g. `ߑ`, 2 bytes / 1 char) passes a `base.len() >= 2` byte check but has only one
+        // char, making `chars[chars.len() - 2]` underflow `usize`. Slice by the last char's
+        // UTF-8 width so a doubled multibyte letter never cuts a code point mid-way.
+        let chars: Vec<char> = base.chars().collect();
+        if chars.len() >= 2 {
             let last = chars[chars.len() - 1];
             let second_last = chars[chars.len() - 2];
             if last == second_last && !"aeiou".contains(last) {
-                let stem = &base[..base.len() - 1];
+                let stem = &base[..base.len() - last.len_utf8()];
                 if lexicon::is_gradable_adjective(stem) {
                     return Some(Self::capitalize(stem));
                 }
@@ -3387,12 +4039,15 @@ impl<'a> Lexer<'a> {
 
         let base = &word[..word.len() - 2];
 
-        if base.len() >= 2 {
-            let chars: Vec<char> = base.chars().collect();
+        // Same byte-vs-char hazard as try_parse_superlative: a single multibyte code point is
+        // >= 2 bytes but only 1 char, so a `base.len() >= 2` byte guard lets `chars.len() - 2`
+        // underflow. Guard on the char count; slice by the last char's UTF-8 width.
+        let chars: Vec<char> = base.chars().collect();
+        if chars.len() >= 2 {
             let last = chars[chars.len() - 1];
             let second_last = chars[chars.len() - 2];
             if last == second_last && !"aeiou".contains(last) {
-                let stem = &base[..base.len() - 1];
+                let stem = &base[..base.len() - last.len_utf8()];
                 if lexicon::is_gradable_adjective(stem) {
                     return Some(Self::capitalize(stem));
                 }
@@ -3422,340 +4077,5 @@ impl<'a> Lexer<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lexer_handles_apostrophe() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("it's raining", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(!tokens.is_empty());
-    }
-
-    #[test]
-    fn lexer_handles_question_mark() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("Is it raining?", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(!tokens.is_empty());
-    }
-
-    #[test]
-    fn ring_is_not_verb() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("ring", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(matches!(tokens[0].kind, TokenType::Noun(_)));
-    }
-
-    /// Rung 0a, Stride 0: `## Define` introduces a vernacular-logic predicate
-    /// definition. It must lex to its OWN block type — never collapse into the
-    /// pre-existing `## Definition` (which `DiscoveryPass` consumes for type
-    /// defs). This pins both: `## Define` → `Define`, `## Definition` unchanged.
-    #[test]
-    fn define_block_header_is_distinct_from_definition() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("## Define\n", &mut interner);
-        let tokens = lexer.tokenize();
-        let header = tokens
-            .iter()
-            .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }))
-            .expect("## Define should produce a block header token");
-        assert!(
-            matches!(
-                header.kind,
-                TokenType::BlockHeader { block_type: BlockType::Define }
-            ),
-            "## Define must tokenize to BlockType::Define, got {:?}",
-            header.kind
-        );
-
-        // Regression guard: the long-standing `## Definition` block stays itself.
-        let mut interner2 = Interner::new();
-        let mut lexer2 = Lexer::new("## Definition\n", &mut interner2);
-        let tokens2 = lexer2.tokenize();
-        let header2 = tokens2
-            .iter()
-            .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }))
-            .expect("## Definition should produce a block header token");
-        assert!(
-            matches!(
-                header2.kind,
-                TokenType::BlockHeader { block_type: BlockType::Definition }
-            ),
-            "## Definition must still tokenize to BlockType::Definition, got {:?}",
-            header2.kind
-        );
-    }
-
-    #[test]
-    fn debug_that_token() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("The cat that runs", &mut interner);
-        let tokens = lexer.tokenize();
-        for (i, t) in tokens.iter().enumerate() {
-            let lex = interner.resolve(t.lexeme);
-            eprintln!("Token[{}]: {:?} -> {:?}", i, lex, t.kind);
-        }
-        let that_token = tokens.iter().find(|t| interner.resolve(t.lexeme) == "that");
-        if let Some(t) = that_token {
-            // Verify discriminant comparison works
-            let check = std::mem::discriminant(&t.kind) == std::mem::discriminant(&TokenType::That);
-            eprintln!("Discriminant check for That: {}", check);
-            assert!(matches!(t.kind, TokenType::That), "'that' should be TokenType::That, got {:?}", t.kind);
-        } else {
-            panic!("No 'that' token found");
-        }
-    }
-
-    #[test]
-    fn bus_is_not_verb() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("bus", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(matches!(tokens[0].kind, TokenType::Noun(_)));
-    }
-
-    #[test]
-    fn lowercase_a_is_article() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("a car", &mut interner);
-        let tokens = lexer.tokenize();
-        for (i, t) in tokens.iter().enumerate() {
-            let lex = interner.resolve(t.lexeme);
-            eprintln!("Token[{}]: {:?} -> {:?}", i, lex, t.kind);
-        }
-        assert_eq!(tokens[0].kind, TokenType::Article(Definiteness::Indefinite));
-        assert!(matches!(tokens[1].kind, TokenType::Noun(_)), "Expected Noun, got {:?}", tokens[1].kind);
-    }
-
-    #[test]
-    fn open_is_ambiguous() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("open", &mut interner);
-        let tokens = lexer.tokenize();
-
-        if let TokenType::Ambiguous { primary, alternatives } = &tokens[0].kind {
-            assert!(matches!(**primary, TokenType::Verb { .. }), "Primary should be Verb");
-            assert!(alternatives.iter().any(|t| matches!(t, TokenType::Adjective(_))),
-                "Should have Adjective alternative");
-        } else {
-            panic!("Expected Ambiguous token for 'open', got {:?}", tokens[0].kind);
-        }
-    }
-
-    #[test]
-    fn basic_tokenization() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("All men are mortal.", &mut interner);
-        let tokens = lexer.tokenize();
-        assert_eq!(tokens[0].kind, TokenType::All);
-        assert!(matches!(tokens[1].kind, TokenType::Noun(_)));
-        assert_eq!(tokens[2].kind, TokenType::Are);
-    }
-
-    #[test]
-    fn iff_tokenizes_as_single_token() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("A if and only if B", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::Iff),
-            "should contain Iff token: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn is_equal_to_tokenizes_as_identity() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("Socrates is equal to Socrates", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::Identity),
-            "should contain Identity token: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn is_identical_to_tokenizes_as_identity() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("Clark is identical to Superman", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::Identity),
-            "should contain Identity token: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn itself_tokenizes_as_reflexive() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("John loves itself", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::Reflexive),
-            "should contain Reflexive token: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn himself_tokenizes_as_reflexive() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("John sees himself", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::Reflexive),
-            "should contain Reflexive token: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn to_stay_tokenizes_correctly() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("to stay", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::To),
-            "should contain To token: got {:?}",
-            tokens
-        );
-        assert!(
-            tokens.iter().any(|t| matches!(t.kind, TokenType::Verb { .. })),
-            "should contain Verb token for stay: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn possessive_apostrophe_s() {
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("John's dog", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| t.kind == TokenType::Possessive),
-            "should contain Possessive token: got {:?}",
-            tokens
-        );
-        assert!(
-            tokens.iter().any(|t| matches!(&t.kind, TokenType::ProperName(_))),
-            "should have John as proper name: got {:?}",
-            tokens
-        );
-    }
-
-    #[test]
-    fn lexer_produces_valid_spans() {
-        let input = "All men are mortal.";
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new(input, &mut interner);
-        let tokens = lexer.tokenize();
-
-        // "All" at 0..3
-        assert_eq!(tokens[0].span.start, 0);
-        assert_eq!(tokens[0].span.end, 3);
-        assert_eq!(&input[tokens[0].span.start..tokens[0].span.end], "All");
-
-        // "men" at 4..7
-        assert_eq!(tokens[1].span.start, 4);
-        assert_eq!(tokens[1].span.end, 7);
-        assert_eq!(&input[tokens[1].span.start..tokens[1].span.end], "men");
-
-        // "are" at 8..11
-        assert_eq!(tokens[2].span.start, 8);
-        assert_eq!(tokens[2].span.end, 11);
-        assert_eq!(&input[tokens[2].span.start..tokens[2].span.end], "are");
-
-        // "mortal" at 12..18
-        assert_eq!(tokens[3].span.start, 12);
-        assert_eq!(tokens[3].span.end, 18);
-        assert_eq!(&input[tokens[3].span.start..tokens[3].span.end], "mortal");
-
-        // "." at 18..19
-        assert_eq!(tokens[4].span.start, 18);
-        assert_eq!(tokens[4].span.end, 19);
-
-        // EOF at end
-        assert_eq!(tokens[5].span.start, input.len());
-        assert_eq!(tokens[5].kind, TokenType::EOF);
-    }
-
-    #[test]
-    fn triple_quote_produces_string_token() {
-        let mut interner = Interner::new();
-        let source = "## Main\nLet msg be \"\"\"\n    Hello\n    World\n\"\"\".\nShow msg.";
-        let mut lexer = Lexer::new(source, &mut interner);
-        let tokens = lexer.tokenize();
-        // Dump all tokens for debugging
-        for (i, t) in tokens.iter().enumerate() {
-            let lex = interner.resolve(t.lexeme);
-            eprintln!("Token[{}]: {:?} lex={:?} span={}..{}", i, t.kind, lex, t.span.start, t.span.end);
-        }
-        // Find the string token
-        let str_token = tokens.iter().find(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)));
-        assert!(str_token.is_some(), "Should have a string token. Tokens: {:?}", tokens.iter().map(|t| format!("{:?}", t.kind)).collect::<Vec<_>>());
-        if let Some(tok) = str_token {
-            let content = interner.resolve(tok.lexeme);
-            eprintln!("Triple-quote content: {:?}", content);
-            assert!(content.contains("Hello"), "Should contain Hello, got: {:?}", content);
-        }
-    }
-
-    /// BUG-015: a string-literal span must stay BYTE-indexed even when multibyte
-    /// text precedes it; a byte-start / char-end span underflows in
-    /// `insert_indentation_tokens` and panics on valid Unicode input.
-    #[test]
-    fn string_literal_span_stays_byte_indexed_after_leading_multibyte_text() {
-        // 7 leading 2-byte Greek letters, a space, then a quoted string.
-        let src = "\u{3b1}\u{3b1}\u{3b1}\u{3b1}\u{3b1}\u{3b1}\u{3b1} \"x\"";
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new(src, &mut interner);
-        let tokens = lexer.tokenize(); // previously panicked: 'attempt to subtract with overflow'
-
-        let s = tokens
-            .iter()
-            .find(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)))
-            .expect("should produce a string literal token");
-
-        assert!(s.span.end >= s.span.start, "span end {} must be >= start {}", s.span.end, s.span.start);
-        assert!(
-            src.is_char_boundary(s.span.start) && src.is_char_boundary(s.span.end),
-            "span [{}, {}) must lie on char boundaries",
-            s.span.start, s.span.end
-        );
-        assert_eq!(&src[s.span.start..s.span.end], "\"x\"");
-    }
-
-    /// BUG-030: calendar-impossible dates (Feb 30, Apr 31, Feb 29 in a non-leap
-    /// year) must NOT tokenize to a DateLiteral — they would otherwise silently
-    /// map onto a real, different day.
-    #[test]
-    fn date_literal_rejects_impossible_day_of_month() {
-        let impossible = [
-            "2026-02-30", "2026-02-31", "2026-02-29", // 2026 is not a leap year
-            "2026-04-31", "2026-06-31", "2026-09-31", "2026-11-31",
-        ];
-        for input in impossible {
-            let mut interner = Interner::new();
-            let mut lexer = Lexer::new(input, &mut interner);
-            let tokens = lexer.tokenize();
-            assert!(
-                !tokens.iter().any(|t| matches!(t.kind, TokenType::DateLiteral { .. })),
-                "{input} is not a real calendar date and must not become a DateLiteral; got {tokens:?}"
-            );
-        }
-        // Control: a real leap-day must still tokenize.
-        let mut interner = Interner::new();
-        let mut lexer = Lexer::new("2024-02-29", &mut interner);
-        let tokens = lexer.tokenize();
-        assert!(
-            tokens.iter().any(|t| matches!(t.kind, TokenType::DateLiteral { .. })),
-            "2024-02-29 is a valid leap-day and must still tokenize; got {tokens:?}"
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/lexer/tests.rs"]
+mod tests;

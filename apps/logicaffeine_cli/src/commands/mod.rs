@@ -4,6 +4,7 @@
 //! parses arguments and dispatches into these modules; each handler owns the
 //! full behavior of its command and returns `Result<(), Box<dyn Error>>`.
 
+pub(crate) mod bringup;
 pub(crate) mod build;
 pub(crate) mod check;
 pub(crate) mod clean;
@@ -12,15 +13,25 @@ pub(crate) mod deps;
 pub(crate) mod doc;
 pub(crate) mod doctor;
 pub(crate) mod emit;
+pub(crate) mod expand;
+pub(crate) mod explain;
 pub(crate) mod fmt;
+pub(crate) mod kernel_document;
+pub(crate) mod lean;
 pub(crate) mod logic;
 pub(crate) mod new;
 pub(crate) mod opts;
 pub(crate) mod prove;
 pub(crate) mod publish;
+pub(crate) mod replay;
 pub(crate) mod run;
 pub(crate) mod sat;
+pub(crate) mod serve;
+pub(crate) mod serve_dom;
+pub(crate) mod serve_web;
+pub(crate) mod test;
 pub(crate) mod verify;
+pub(crate) mod web_bundle;
 
 use crate::ui::CliError;
 
@@ -40,73 +51,20 @@ pub(crate) fn require_project_root() -> Result<std::path::PathBuf, CliError> {
     })
 }
 
-/// Resolve a project's entry file with the same `.md` fallback the cargo
-/// build path applies: the manifest's `entry`, else the sibling `.md`.
-/// Errors name both candidates instead of a bare file-not-found.
+/// Resolve a project's entry program: the manifest's `entry`, else its `.md` sibling — for the
+/// commands that are about a program. A site that has none is told so by name, with what to run
+/// instead, rather than handed a missing-file error about a file it was never meant to have.
 ///
-/// The entry is confined to the project: absolute paths and `..` escapes
-/// are rejected, so a distributed manifest can never point commands at
-/// arbitrary files on the machine.
+/// The entry is confined to the project: absolute paths and `..` escapes are rejected, so a
+/// distributed manifest can never point commands at arbitrary files on the machine.
 pub(crate) fn resolve_entry_path(
     project_root: &std::path::Path,
     manifest: &crate::project::manifest::Manifest,
 ) -> Result<std::path::PathBuf, CliError> {
-    let declared = std::path::Path::new(&manifest.package.entry);
-    if declared.is_absolute()
-        || declared
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return Err(CliError::with_hint(
-            format!(
-                "the manifest entry {:?} escapes the project directory",
-                manifest.package.entry
-            ),
-            "`entry` must be a relative path inside the project (like `src/main.lg`)",
-        ));
-    }
-    let entry = project_root.join(declared);
-    if entry.exists() {
-        return Ok(entry);
-    }
-    let md = entry.with_extension("md");
-    if md.exists() {
-        return Ok(md);
-    }
-    Err(CliError::with_hint(
-        format!("entry point not found: {} (also tried {})", entry.display(), md.display()),
-        "check the `entry` field in Largo.toml",
-    ))
+    crate::project::shape::entry_file(project_root, manifest)?
+        .ok_or_else(|| crate::project::shape::site_without_entry(project_root))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::project::manifest::Manifest;
-
-    fn manifest_with_entry(entry: &str) -> Manifest {
-        let mut m = Manifest::new("probe");
-        m.package.entry = entry.to_string();
-        m
-    }
-
-    #[test]
-    fn entry_escaping_the_project_is_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        for bad in ["../outside.lg", "src/../../x.lg", "/etc/hostname"] {
-            let err = resolve_entry_path(dir.path(), &manifest_with_entry(bad))
-                .expect_err(&format!("{bad} must be rejected"));
-            assert!(err.message.contains("escapes"), "{bad}: {}", err.message);
-        }
-    }
-
-    #[test]
-    fn relative_entry_resolves_with_md_fallback() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/main.md"), "## Main\nShow 1.\n").unwrap();
-        let path = resolve_entry_path(dir.path(), &manifest_with_entry("src/main.lg"))
-            .expect("md fallback");
-        assert!(path.ends_with("src/main.md"));
-    }
-}
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_cli/commands/tests.rs"]
+mod tests;

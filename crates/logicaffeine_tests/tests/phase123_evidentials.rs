@@ -1,4 +1,4 @@
-//! Phase 123 — §4.3 Evidentials / perspectival predicates (work/MISSING_ENGLISH.md).
+//! Phase 123 — Evidentials / perspectival predicates.
 //!
 //! Raising verbs seem/appear/look mark an evidence source; the complement is NOT
 //! asserted:
@@ -12,7 +12,10 @@ fn seem_wraps_complement_without_asserting() {
     let out = compile("John seems happy.").unwrap();
     eprintln!("seem: {out}");
     assert!(out.contains("Seem"), "the evidential predicate: {out}");
-    assert!(out.contains("Happy") || out.contains("happy"), "the complement state: {out}");
+    assert!(
+        out.contains("Happy") || out.contains("happy"),
+        "the complement state: {out}"
+    );
     // The complement is embedded under Seem (evidential), NOT a bare assertion
     // "Happy(John)" sitting at top level.
     assert!(
@@ -26,7 +29,10 @@ fn appear_is_evidential() {
     let out = compile("Mary appears tired.").unwrap();
     eprintln!("appear: {out}");
     assert!(out.contains("Appear"), "the evidential predicate: {out}");
-    assert!(out.contains("Tired") || out.contains("tired"), "the complement: {out}");
+    assert!(
+        out.contains("Tired") || out.contains("tired"),
+        "the complement: {out}"
+    );
 }
 
 #[test]
@@ -34,7 +40,10 @@ fn plain_copula_still_asserts() {
     // Regression: an ordinary copular predication DOES assert its predicate.
     let out = compile("John is happy.").unwrap();
     eprintln!("plain: {out}");
-    assert!(out.contains("Happy"), "plain copula asserts the predicate: {out}");
+    assert!(
+        out.contains("Happy"),
+        "plain copula asserts the predicate: {out}"
+    );
     assert!(!out.contains("Seem"), "no spurious evidential: {out}");
 }
 

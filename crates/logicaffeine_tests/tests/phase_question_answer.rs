@@ -24,5 +24,8 @@ fn answers_who_is_a_lawyer() {
          Proof: Auto.\n",
     )
     .expect("a question should be answerable");
-    assert!(ans.contains(&"Bob".to_string()), "the lawyer is Bob; got: {ans:?}");
+    assert!(
+        ans.contains(&"Bob".to_string()),
+        "the lawyer is Bob; got: {ans:?}"
+    );
 }

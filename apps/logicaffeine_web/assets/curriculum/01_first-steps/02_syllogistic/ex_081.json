@@ -10,6 +10,7 @@
     "all P is not D"
   ],
   "correct": 2,
-  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
-  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+  "hint": "Is this about one person, or about everyone who fits a description?",
+  "explanation": "No one who is powerful is dishonest: no P is D.",
+  "section": "2.1"
 }

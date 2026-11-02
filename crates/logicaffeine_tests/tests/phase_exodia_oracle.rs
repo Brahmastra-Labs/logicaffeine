@@ -11,7 +11,10 @@
 use logicaffeine_compile::optimize::{oracle_analyze_with, OracleFacts, ScalarKind};
 use logicaffeine_compile::ui_bridge::with_parsed_program;
 
-fn with_facts<T>(src: &str, f: impl FnOnce(&OracleFacts, &[&logicaffeine_compile::ast::stmt::Stmt]) -> T) -> T {
+fn with_facts<T>(
+    src: &str,
+    f: impl FnOnce(&OracleFacts, &[&logicaffeine_compile::ast::stmt::Stmt]) -> T,
+) -> T {
     with_parsed_program(src, |parsed, interner| {
         let (stmts, _types, _policies) = parsed.expect("parse");
         let facts = oracle_analyze_with(stmts, interner);
@@ -82,7 +85,9 @@ fn loop_fixpoint_bounds_the_counter() {
                     _ => None,
                 })
                 .expect("the counter update");
-            let (lo, hi) = facts.expr_int_range(counter_update).expect("a finite range");
+            let (lo, hi) = facts
+                .expr_int_range(counter_update)
+                .expect("a finite range");
             assert!(lo >= 1, "i + 1 with i ≥ 0 must be ≥ 1, got {lo}");
             assert!(hi <= 10, "i + 1 under i < 10 must be ≤ 10, got {hi}");
         },
@@ -181,7 +186,7 @@ fn alias_mutation_defeats_bounds_proof() {
          Push 4 to ys.\n\
          Show item 1 of xs.\n",
         |facts, stmts| {
-            use logicaffeine_compile::ast::stmt::{Expr, Stmt};
+            use logicaffeine_compile::ast::stmt::Expr;
             let show = last_show_expr(stmts);
             if let Expr::Index { collection, index } = show {
                 // Index 1 of a list whose length grew through an alias IS
@@ -228,5 +233,90 @@ fn oracle_does_not_panic_on_min_mod_neg_one() {
     with_parsed_program(src, |parsed, interner| {
         let (stmts, _types, _policies) = parsed.expect("parse");
         let _facts = oracle_analyze_with(stmts, interner);
+    });
+}
+
+/// Whether the oracle's interval for `e` holds `v`: no interval (unbounded) holds every value.
+fn range_holds(facts: &OracleFacts, e: &logicaffeine_compile::ast::stmt::Expr, v: i64) -> bool {
+    facts.expr_int_range(e).map_or(true, |(lo, hi)| lo <= v && v <= hi)
+}
+
+/// A loop that pushes onto a list grows its length every iteration, so the loop's fixpoint is reached only once the
+/// length is widened past every value it takes: a length still growing is not a converged loop. After a counted loop
+/// of 200 pushes, and a conditioned loop of 500, the length the oracle records holds the length the program reaches.
+#[test]
+fn a_list_a_loop_pushes_onto_keeps_every_length_it_reaches() {
+    let counted = "## Main\n    Let mutable xs be a new Seq of Int.\n    Repeat for x from 1 to 200:\n        Push x to xs.\n    Show length of xs.\n";
+    with_facts(counted, |facts, stmts| {
+        let len = last_show_expr(stmts);
+        assert!(
+            range_holds(facts, len, 200),
+            "after 200 pushes the length reaches 200; the oracle records {:?}",
+            facts.expr_int_range(len)
+        );
+    });
+    let conditioned = "## Main\n    Let mutable xs be a new Seq of Int.\n    Let mutable i be 0.\n    While i is less than 500:\n        Push i to xs.\n        Set i to i + 1.\n    Show length of xs.\n";
+    with_facts(conditioned, |facts, stmts| {
+        let len = last_show_expr(stmts);
+        assert!(
+            range_holds(facts, len, 500),
+            "after 500 pushes the length reaches 500; the oracle records {:?}",
+            facts.expr_int_range(len)
+        );
+    });
+}
+
+/// A loop's condition is evaluated at entry and again after every iteration, so the interval recorded for each of its
+/// operands holds what the body leaves as well as the entry value: the padding loop's `length of padded` is 201 on
+/// entry and 272 when the condition last reads it.
+#[test]
+fn a_loop_condition_holds_every_value_its_operands_take() {
+    let grown = "## Main\n    Let mutable padded be a new Seq of Int.\n    Repeat for x from 1 to 200:\n        Push x to padded.\n    Push 6 to padded.\n    While ((length of padded) % 136) is greater than 0:\n        Push 0 to padded.\n    Show length of padded.\n";
+    with_facts(grown, |facts, stmts| {
+        use logicaffeine_compile::ast::stmt::{Expr, Stmt};
+        let cond = stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::While { cond, .. } => Some(*cond),
+                _ => None,
+            })
+            .expect("the padding loop");
+        let Expr::BinaryOp { left: rem, .. } = cond else {
+            panic!("a comparison")
+        };
+        let Expr::BinaryOp { left: len, .. } = rem else {
+            panic!("a remainder")
+        };
+        for v in [201, 272] {
+            assert!(
+                range_holds(facts, len, v),
+                "the condition reads a length of {v}; the oracle records {:?}",
+                facts.expr_int_range(len)
+            );
+        }
+    });
+    let exact = "## Main\n    Let mutable xs be a new Seq of Int.\n    Push 1 to xs.\n    Push 2 to xs.\n    While ((length of xs) % 4) is greater than 0:\n        Push 0 to xs.\n    Show length of xs.\n";
+    with_facts(exact, |facts, stmts| {
+        use logicaffeine_compile::ast::stmt::{Expr, Stmt};
+        let cond = stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::While { cond, .. } => Some(*cond),
+                _ => None,
+            })
+            .expect("the padding loop");
+        let Expr::BinaryOp { left: rem, .. } = cond else {
+            panic!("a comparison")
+        };
+        let Expr::BinaryOp { left: len, .. } = rem else {
+            panic!("a remainder")
+        };
+        for v in [2, 4] {
+            assert!(
+                range_holds(facts, len, v),
+                "the condition reads a length of {v} (exactly 2 on entry); the oracle records {:?}",
+                facts.expr_int_range(len)
+            );
+        }
     });
 }

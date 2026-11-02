@@ -1,0 +1,49 @@
+{
+  "id": "15.2",
+  "title": "Formal Languages",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **formal language** is fixed by its syntax: exact rules for which strings of symbols count as formulas."
+    },
+    {
+      "type": "definition",
+      "term": "Well formed formula",
+      "definition": "A string that follows the syntax rules. Whether it is true is a separate question."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Well formed",
+      "lines": [
+        "P → Q",
+        "¬(P ∧ Q)"
+      ],
+      "note": "Each follows the rules for building formulas."
+    },
+    {
+      "type": "worked",
+      "title": "Not well formed",
+      "lines": [
+        "→ P Q →",
+        "P ∧ ∧ Q"
+      ],
+      "note": "These break the rules, so they are not formulas at all."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What makes a formula well formed?",
+    "options": [
+      "It is true",
+      "It follows the syntax rules of the language",
+      "People can read it",
+      "It has no variables"
+    ],
+    "correct": 1,
+    "hint": "Is it about truth, or about form?",
+    "explanation": "A well formed formula follows the grammar of the formal language. Its truth is a separate matter."
+  }
+}

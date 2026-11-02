@@ -16,12 +16,14 @@
 //! 3. Parser receives populated [`TypeRegistry`] and [`PolicyRegistry`]
 //! 4. Code generator uses registries for type-aware output
 
-pub mod registry;
-pub mod discovery;
 pub mod dependencies;
+pub mod discovery;
 pub mod policy;
+pub mod registry;
 
-pub use registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+pub use dependencies::{
+    first_section_header, misplaced_imports, scan_dependencies, Dependency, SelectedName,
+};
 pub use discovery::{DiscoveryPass, DiscoveryResult};
-pub use dependencies::{scan_dependencies, Dependency};
-pub use policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
+pub use policy::{CapabilityDef, PolicyCondition, PolicyRegistry, PredicateDef};
+pub use registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};

@@ -1,0 +1,132 @@
+{
+  "tier": "t06_propositions",
+  "test_binary": "lean_conformance_t06_propositions",
+  "cases": [
+    {
+      "id": "T06-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_equation_is_stateable_at_every_carrier_lean_allows_not_only_type_zero",
+      "why": ""
+    },
+    {
+      "id": "T06-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_derived_j_eliminator_carries_a_motive_into_any_sort",
+      "why": ""
+    },
+    {
+      "id": "T06-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "congruence_lemmas_derive_from_j_and_reuse_the_prelude_symm_and_trans",
+      "why": ""
+    },
+    {
+      "id": "T06-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "two_proofs_of_one_proposition_are_definitionally_equal_at_every_shape",
+      "why": ""
+    },
+    {
+      "id": "T06-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_five_connectives_and_the_biconditional_are_all_in_the_prelude",
+      "why": "Iff is registered as a DEFINITION unfolding to And (p -> q) (q -> p), so a Lean biconditional lands on the conjunction and .mp/.mpr are its projections rather than methods of a fresh opaque proposition. Not an axiom and not an inductive: the trusted base is unchanged at 89."
+    },
+    {
+      "id": "T06-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_existential_quantifies_over_every_domain_lean_allows",
+      "why": ""
+    },
+    {
+      "id": "T06-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "universal_quantification_is_pi_and_its_sort_comes_from_imax",
+      "why": ""
+    },
+    {
+      "id": "T06-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "excluded_middle_is_derived_from_dne_and_not_axiomatised",
+      "why": ""
+    },
+    {
+      "id": "T06-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "choice_is_a_tracked_axiom_not_an_untracked_context_edit",
+      "why": ""
+    },
+    {
+      "id": "T06-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "propositional_extensionality_is_stateable_and_tracked",
+      "why": ""
+    },
+    {
+      "id": "T06-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "function_extensionality_is_available_where_normalisation_cannot_reach",
+      "why": ""
+    },
+    {
+      "id": "T06-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_quotient_computes_lifts_data_and_carries_a_setoid_wrapper",
+      "why": ""
+    },
+    {
+      "id": "T06-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "decidable_equality_resolves_as_an_instance_for_nat_bool_and_user_types",
+      "why": ""
+    },
+    {
+      "id": "T06-014",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "native_decide_runs_the_kernels_own_evaluator_under_two_declared_axioms",
+      "why": "The capability matches Lean exactly — the same two axioms, `reduceBool : Bool -> Bool` and `ofReduceBool : Pi(a b:Bool). reduceBool a = b -> a = b`, with identical types, and the whole bridge term kernel-checks in BOTH de Bruijn kernels. What differs is what stands behind them, and ours is the defensible side. Lean's `native_decide` trusts the Lean compiler, its C code generator, the emitted native object code, and the compiled form of the `Decidable` instance; none of that is re-run when someone independently re-checks the proof, so the artefact is believed rather than re-verified. LOGOS's `reduceBool` is discharged by `eval_bool`, a CBV evaluator living inside `logicaffeine_kernel` itself — which is exactly the crate a standalone re-check already trusts (the `examples/recheck` binary trusts this crate, `logicaffeine_base`, and a JSON parser, nothing else). Because `certificate::recheck` rebuilds the context from `StandardLibrary::register` and re-normalizes, an independent re-check RE-RUNS the evaluation instead of taking a compiled artefact's word for it; the test asserts exactly that. The trusted base for this feature is therefore smaller and auditable in one crate. The cost is real and is recorded rather than hidden: a proposition asserted by Lean's evaluator is not thereby asserted by ours, so a `native_decide` proof is not portable between the two systems on its own terms, and nothing in the certificate today distinguishes a theorem that used these two axioms from one that did not (that tracking gap is T06-017's work item, not a reason to call this case a gap)."
+    },
+    {
+      "id": "T06-015",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "subsingleton_is_a_class_with_instances_and_squash_truncates_into_type",
+      "why": ""
+    },
+    {
+      "id": "T06-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "heterogeneous_equality_exists_and_bridges_to_eq_at_a_common_carrier",
+      "why": ""
+    },
+    {
+      "id": "T06-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_admitted_proof_taints_every_theorem_that_transitively_cites_it",
+      "why": ""
+    },
+    {
+      "id": "T06-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "classical_reasoning_past_dne_is_available_and_never_smuggled_in",
+      "why": ""
+    }
+  ]
+}

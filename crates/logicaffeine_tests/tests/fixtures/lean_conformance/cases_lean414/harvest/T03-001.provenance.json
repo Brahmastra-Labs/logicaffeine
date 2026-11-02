@@ -1,0 +1,74 @@
+{
+  "case": "T03-001",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-001_simple_enum_inductive.lean",
+  "source_sha256": "19eef766246ea8c9c0b2e514b6a7158ae6918119f65aa7042e2a9b6f5f69cf80",
+  "ledger_sha256": "b54b65f2787f3bd8a80b3f121f44792073edbd02188f5d938be8cc4973d378e1",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_001.Colour",
+    "T03_001.Colour.blue",
+    "T03_001.Colour.green",
+    "T03_001.Colour.red",
+    "T03_001.OnlyOne",
+    "T03_001.OnlyOne.sole",
+    "T03_001.Weekday",
+    "T03_001.Weekday.friday",
+    "T03_001.Weekday.monday",
+    "T03_001.Weekday.wednesday",
+    "T03_001.code",
+    "T03_001.dayIndex",
+    "T03_001.isWarm"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "ef5418b0dd75c721c394d6fcec4ad2dddced65d25f2d392a8def34647c958776",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 420,
+  "harvest": {
+    "roots": [
+      "T03_001.Colour",
+      "T03_001.Colour.blue",
+      "T03_001.Colour.green",
+      "T03_001.Colour.red",
+      "T03_001.OnlyOne",
+      "T03_001.OnlyOne.sole",
+      "T03_001.Weekday",
+      "T03_001.Weekday.friday",
+      "T03_001.Weekday.monday",
+      "T03_001.Weekday.wednesday",
+      "T03_001.code",
+      "T03_001.dayIndex",
+      "T03_001.isWarm"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

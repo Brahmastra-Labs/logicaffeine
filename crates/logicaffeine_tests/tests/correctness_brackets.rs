@@ -21,7 +21,10 @@ fn set_trailing_comma() {
 
 #[test]
 fn map_trailing_comma() {
-    eq("## Main\nLet m be {\"a\": 1, \"b\": 2,}.\nShow m.\n", "{a: 1, b: 2}");
+    eq(
+        "## Main\nLet m be {\"a\": 1, \"b\": 2,}.\nShow m.\n",
+        "{a: 1, b: 2}",
+    );
 }
 
 // ---- Indented multi-line literals (the block style) ----
@@ -68,7 +71,11 @@ fn nested_indented_literals() {
 fn indented_blocks_still_structure_correctly() {
     let src = "## Main\nLet total be 0.\nRepeat for i from 1 to 3:\n    Set total to total + i.\n    Set total to total + 1.\nShow total.\n";
     let r = run_interpreter(src);
-    assert!(r.success, "an indented loop body must still parse: {}", r.error);
+    assert!(
+        r.success,
+        "an indented loop body must still parse: {}",
+        r.error
+    );
     // 1+1 + 2+1 + 3+1 = 9
     assert_eq!(r.output.trim(), "9");
 }

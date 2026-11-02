@@ -2,6 +2,7 @@
   "name": "logicaffeine-gate-stub",
   "publisher": "brahmastra-labs",
   "version": "0.0.0",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"
   },

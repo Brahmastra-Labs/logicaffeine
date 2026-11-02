@@ -1,13 +1,16 @@
 //! News index page - displays list of all articles.
 
+use super::data::{format_tag, get_all_tags, get_articles, get_articles_by_tag};
+use crate::ui::components::footer::Footer;
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::router::Route;
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, BreadcrumbItem, JsonLdMultiple,
+    PageHead,
+};
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
-use crate::ui::router::Route;
-use super::data::{get_articles, get_all_tags, get_articles_by_tag, format_tag};
 
 const NEWS_STYLES: &str = r#"
 .news-page {
@@ -426,7 +429,10 @@ pub fn News(tag: Option<String>) -> Element {
                 } else {
                     article.title.to_lowercase().contains(&query)
                         || article.summary.to_lowercase().contains(&query)
-                        || article.tags.iter().any(|t| t.to_lowercase().contains(&query))
+                        || article
+                            .tags
+                            .iter()
+                            .any(|t| t.to_lowercase().contains(&query))
                 };
 
                 tag_match && search_match
@@ -435,14 +441,17 @@ pub fn News(tag: Option<String>) -> Element {
     };
 
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "News", path: "/news" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "News",
+            path: "/news",
+        },
     ];
 
-    let schemas = vec![
-        organization_schema(),
-        breadcrumb_schema(&breadcrumbs),
-    ];
+    let schemas = vec![organization_schema(), breadcrumb_schema(&breadcrumbs)];
 
     rsx! {
         PageHead {

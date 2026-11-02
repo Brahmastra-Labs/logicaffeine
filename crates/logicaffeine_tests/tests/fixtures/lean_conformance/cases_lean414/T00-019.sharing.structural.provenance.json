@@ -1,0 +1,46 @@
+{
+  "case": "T00-019",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-019_have_term_mode_letfun.lean",
+  "source_sha256": "f88021661bb506a2bc6813bce6c20750bc5a0167ca0240ab53a237544cea4329",
+  "ledger_sha256": "4663c692079a62e7a9a839a36afff3035bdcfec5a592567f1807cdc9342c9dfd",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T00_019.letValueVisible",
+    "T00_019.nestedHaves",
+    "T00_019.sharedProof",
+    "T00_019.viaHave",
+    "T00_019.viaLet"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "6a8035b9d51753f7d1a9614fa940bd196cc137687d1cf399d8dd817e2b8674c2",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 815
+}

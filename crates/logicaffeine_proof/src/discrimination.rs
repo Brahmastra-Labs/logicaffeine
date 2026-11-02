@@ -46,7 +46,10 @@ struct Node<T> {
 
 impl<T> Default for Node<T> {
     fn default() -> Self {
-        Node { children: BTreeMap::new(), values: Vec::new() }
+        Node {
+            children: BTreeMap::new(),
+            values: Vec::new(),
+        }
     }
 }
 
@@ -66,7 +69,9 @@ impl<T> Default for DiscTree<T> {
 
 impl<T> DiscTree<T> {
     pub fn new() -> Self {
-        DiscTree { root: Node::default() }
+        DiscTree {
+            root: Node::default(),
+        }
     }
 
     /// Index a term pattern (its `Variable`s are the wildcard positions).

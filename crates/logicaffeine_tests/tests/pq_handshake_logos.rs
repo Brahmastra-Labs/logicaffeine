@@ -60,7 +60,12 @@ fn logos_authenticated_pq_handshake_agrees_and_defeats_mitm() {
         "AOT compile+run of the Logos PQ handshake failed:\n--- stderr ---\n{}\n--- rust ---\n{}",
         aot.stderr, aot.rust_code
     );
-    let out: Vec<&str> = aot.stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let out: Vec<&str> = aot
+        .stdout
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
     assert_eq!(
         out,
         vec!["64", "1", "0"],

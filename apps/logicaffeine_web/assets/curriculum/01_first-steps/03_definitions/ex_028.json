@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Knowledge?",
-  "explanation": "A lucky guess that happens to be correct is a true belief but not knowledge. Because 'true belief' admits such cases, the definition is TOO BROAD — the famous gap Gettier exploited."
+  "hint": "Can you think of something that fits this definition but is not knowledge?",
+  "explanation": "A lucky guess can be a true belief without being knowledge.",
+  "section": "3.2"
 }

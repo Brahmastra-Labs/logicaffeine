@@ -1,0 +1,18 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let e10 be 10000000000.
+Let e15 be 1000000000000000.
+Let base be (e15 * e15) + 7.
+Let modulus be ((e10 * e10) * (e10 * e10)) + 9.
+Let mutable acc be 0.
+Let mutable t be 0.
+Let mutable i be 1.
+While i is at most n:
+    Set t to acc + (base + i).
+    Set acc to t mod modulus.
+    Set i to i + 1.
+Show acc.

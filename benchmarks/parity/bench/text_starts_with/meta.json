@@ -1,0 +1,12 @@
+{
+  "capability": "text.starts_with",
+  "workload": "startsWith(s,'aa')",
+  "arg": "60000",
+  "expected": "59400",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

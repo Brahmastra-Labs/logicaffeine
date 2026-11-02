@@ -1,0 +1,4 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 749486516
+_start;__libc_start_main_impl;__libc_start_call_main;main;__memcpy_avx_unaligned_erms 88396595
+_start;__libc_start_main_impl;__libc_start_call_main;main;memmove@plt 8409128
+_start;__libc_start_main_impl;__libc_start_call_main;[unknown] 5965319

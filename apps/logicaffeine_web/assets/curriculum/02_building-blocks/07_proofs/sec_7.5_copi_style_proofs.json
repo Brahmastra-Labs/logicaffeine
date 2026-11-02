@@ -1,0 +1,54 @@
+{
+  "id": "7.5",
+  "title": "Copi-Style Proofs",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Irving Copi's system has two kinds of rules."
+    },
+    {
+      "type": "definition",
+      "term": "Rules of inference",
+      "definition": "Work one way, on whole lines. Modus tollens: from P → Q and ¬Q, infer ¬P."
+    },
+    {
+      "type": "definition",
+      "term": "Rules of replacement",
+      "definition": "Swap equivalent forms in either direction, even inside a line. De Morgan: ¬(P ∧ Q) becomes ¬P ∨ ¬Q."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Rules of inference",
+      "lines": [
+        "Modus tollens: P → Q, ¬Q, so ¬P",
+        "Hypothetical syllogism: P → Q, Q → R, so P → R",
+        "Disjunctive syllogism: P ∨ Q, ¬P, so Q"
+      ]
+    },
+    {
+      "type": "worked",
+      "title": "Rules of replacement",
+      "lines": [
+        "De Morgan: ¬(P ∧ Q) is equivalent to ¬P ∨ ¬Q",
+        "Double negation: ¬¬P is equivalent to P",
+        "Contraposition: P → Q is equivalent to ¬Q → ¬P"
+      ]
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "How do rules of replacement differ from rules of inference?",
+    "options": [
+      "Rules of replacement are invalid",
+      "They swap equivalent forms either way, even inside a line",
+      "They apply only to numbers",
+      "There is no difference"
+    ],
+    "correct": 1,
+    "hint": "Can you apply modus ponens to part of a line?",
+    "explanation": "Rules of inference apply one way to whole lines. Rules of replacement swap equivalent forms in either direction, anywhere in a line."
+  }
+}

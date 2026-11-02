@@ -1,0 +1,7 @@
+{
+  "name": "logicaffeine-wasm-node-test-deps",
+  "private": true,
+  "license": "MIT",
+  "description": "WebSocket polyfill so the relay/interpreter wasm-bindgen tests run under node (no browser).",
+  "dependencies": { "ws": "^8" }
+}

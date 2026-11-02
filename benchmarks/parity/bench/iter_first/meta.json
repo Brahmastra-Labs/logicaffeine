@@ -1,0 +1,10 @@
+{
+  "capability": "iter.first",
+  "workload": "firstOf(xs)",
+  "arg": "400000",
+  "expected": "79182692352",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "case": "T08-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T08_001.anonymousIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (r : Nat \u2192 Nat \u2192 Prop) (m : Nat), (\u2200 (k : Nat), r k m) \u2192 \u2200 (n : Nat), r n m",
+      "name": "T08_001.captureHazard",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2200 (n : Nat), p n) \u2192 \u2200 (n : Nat), p n",
+      "name": "T08_001.forallIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), q \u2192 p \u2192 q",
+      "name": "T08_001.impIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2192 False) \u2192 \u00acp",
+      "name": "T08_001.introOnNot",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2200 (n : Nat), p n) \u2192 \u2200 (n : Nat), p 0 \u2192 p n",
+      "name": "T08_001.mixedIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), r \u2192 p \u2192 q \u2192 r",
+      "name": "T08_001.multiIntro",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

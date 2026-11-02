@@ -11,7 +11,11 @@ use logicaffeine_compile::compile::compile_to_rust_verified;
 fn test_refinement_valid_literal() {
     let source = "## Main\nLet x: Int where it > 0 be 10.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Should allow 10 where it > 0: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should allow 10 where it > 0: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -34,7 +38,11 @@ fn test_refinement_invalid_literal() {
 fn test_refinement_valid_variable() {
     let source = "## Main\nLet a be 5.\nLet b: Int where it > 0 be a.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Should allow a=5 where it > 0: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should allow a=5 where it > 0: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -50,7 +58,11 @@ fn test_refinement_invalid_variable() {
 fn test_refinement_compound_and() {
     let source = "## Main\nLet x: Int where it > 0 and it < 100 be 50.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Should allow 50 where it > 0 and it < 100: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should allow 50 where it > 0 and it < 100: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -58,7 +70,10 @@ fn test_refinement_compound_and() {
 fn test_refinement_compound_violation() {
     let source = "## Main\nLet x: Int where it > 0 and it < 100 be 150.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_err(), "Should reject 150 where it > 0 and it < 100");
+    assert!(
+        result.is_err(),
+        "Should reject 150 where it > 0 and it < 100"
+    );
 }
 
 #[test]
@@ -67,7 +82,11 @@ fn test_refinement_zero_boundary() {
     // Edge case: exactly at boundary
     let source = "## Main\nLet x: Int where it >= 0 be 0.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Should allow 0 where it >= 0: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should allow 0 where it >= 0: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -75,7 +94,11 @@ fn test_refinement_zero_boundary() {
 fn test_refinement_less_than() {
     let source = "## Main\nLet x: Int where it < 10 be 5.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Should allow 5 where it < 10: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should allow 5 where it < 10: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -91,7 +114,11 @@ fn test_refinement_less_than_violation() {
 fn test_refinement_equality() {
     let source = "## Main\nLet x: Int where it == 42 be 42.";
     let result = compile_to_rust_verified(source);
-    assert!(result.is_ok(), "Should allow 42 where it == 42: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Should allow 42 where it == 42: {:?}",
+        result.err()
+    );
 }
 
 #[test]

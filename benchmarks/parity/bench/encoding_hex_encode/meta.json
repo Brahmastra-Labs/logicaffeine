@@ -1,0 +1,11 @@
+{
+  "capability": "encoding.hex_encode",
+  "workload": "toHex(s) length fold",
+  "arg": "30000",
+  "expected": "242970000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

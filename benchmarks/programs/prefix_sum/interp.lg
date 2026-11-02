@@ -11,4 +11,7 @@ Set i to 2.
 While i is at most n:
     Set item i of arr to (item i of arr + item (i - 1) of arr) % 1000000007.
     Set i to i + 1.
-Show item n of arr.
+Let mutable h be 0.
+Repeat for v in arr:
+    Set h to (h * 31 + v) & 268435455.
+Show "" + item n of arr + " " + h.

@@ -1,6 +1,6 @@
 mod common;
 
-use common::{compile_to_rust, assert_exact_output, run_logos};
+use common::{assert_exact_output, compile_to_rust, run_logos};
 
 // =============================================================================
 // Sprint 2.1 — Specialization Mechanics (8 tests)
@@ -39,7 +39,8 @@ Let y be multiply(3, n).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let specialized = rust.lines()
+    let specialized = rust
+        .lines()
         .find(|line| line.contains("multiply_s0") && line.contains("fn "));
     assert!(
         specialized.is_some(),
@@ -47,7 +48,12 @@ Show y.
         rust
     );
     let sig = specialized.unwrap();
-    let param_count = sig.matches(',').count() + if sig.contains('(') && !sig.contains("()") { 1 } else { 0 };
+    let param_count = sig.matches(',').count()
+        + if sig.contains('(') && !sig.contains("()") {
+            1
+        } else {
+            0
+        };
     assert_eq!(
         param_count, 1,
         "Specialized multiply_s0_* should have ONE parameter (b), not two.\nSignature: {}",
@@ -68,7 +74,8 @@ Let y be multiply(3, n).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let in_specialized = rust.lines()
+    let in_specialized = rust
+        .lines()
         .skip_while(|line| !line.contains("multiply_s0"))
         .take(5)
         .collect::<Vec<_>>()
@@ -76,8 +83,10 @@ Show y.
     // The static param a=3 is inlined into the residual multiply. Under the exact-arithmetic
     // ruling that multiply lowers to `logos_mul_exact(3, <dyn>)`.
     assert!(
-        in_specialized.contains("3 *") || in_specialized.contains("3i64 *")
-            || in_specialized.contains("(3)") || in_specialized.contains("logos_mul_exact(3")
+        in_specialized.contains("3 *")
+            || in_specialized.contains("3i64 *")
+            || in_specialized.contains("(3)")
+            || in_specialized.contains("logos_mul_exact(3")
             || in_specialized.contains("logos_mul_i64(3"),
         "Specialized body should contain literal 3 from static param a.\nSpecialized region:\n{}",
         in_specialized
@@ -117,7 +126,8 @@ Let y be multiply(3, n).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let main_section = rust.lines()
+    let main_section = rust
+        .lines()
         .skip_while(|line| !line.contains("fn main"))
         .collect::<Vec<_>>()
         .join("\n");
@@ -142,7 +152,8 @@ Let y be f(4, n).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let specialized = rust.lines()
+    let specialized = rust
+        .lines()
         .skip_while(|line| !line.contains("f_s0"))
         .take(10)
         .collect::<Vec<_>>()
@@ -175,7 +186,8 @@ Let y be select(true, x, z).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let specialized = rust.lines()
+    let specialized = rust
+        .lines()
         .skip_while(|line| !line.contains("select_s0"))
         .take(10)
         .collect::<Vec<_>>()
@@ -237,7 +249,8 @@ Let r2 be f(3, y).
 Show r1 + r2.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let def_count = rust.lines()
+    let def_count = rust
+        .lines()
         .filter(|line| line.contains("fn f_s0") && line.contains("("))
         .count();
     assert_eq!(
@@ -245,7 +258,8 @@ Show r1 + r2.
         "Same key f(3, _) called twice should reuse ONE specialized function.\nGot:\n{}",
         rust
     );
-    let call_count = rust.lines()
+    let call_count = rust
+        .lines()
         .filter(|line| line.contains("f_s0") && !line.contains("fn f_s0"))
         .count();
     assert!(
@@ -303,13 +317,15 @@ Let r10 be scale(10, n).
 Show r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + r9 + r10.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let variant_count = rust.lines()
+    let variant_count = rust
+        .lines()
         .filter(|line| line.contains("fn scale_s0") && line.contains("("))
         .count();
     assert!(
         variant_count <= 8,
         "At most 8 specialized variants allowed. Got {}.\nCode:\n{}",
-        variant_count, rust
+        variant_count,
+        rust
     );
     assert!(
         rust.contains("scale(") || rust.contains("scale ("),
@@ -362,7 +378,8 @@ Show y.
         "Specialized function name should be properly interned and appear in output.\nGot:\n{}",
         rust
     );
-    let specialized_fn = rust.lines()
+    let specialized_fn = rust
+        .lines()
         .find(|line| line.contains("fn multiply_s0") && line.contains("("));
     assert!(
         specialized_fn.is_some(),
@@ -390,7 +407,8 @@ Let r2 be f(3, y).
 Show r1 + r2.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let def_count = rust.lines()
+    let def_count = rust
+        .lines()
         .filter(|line| line.contains("fn f_s0") && line.contains("("))
         .count();
     assert_eq!(
@@ -480,7 +498,8 @@ Show result.
         "inner should be specialized (cascading from outer's body).\nGot:\n{}",
         rust
     );
-    let inner_def_count = rust.lines()
+    let inner_def_count = rust
+        .lines()
         .filter(|line| line.contains("fn inner_s0") && line.contains("("))
         .count();
     assert_eq!(
@@ -503,7 +522,8 @@ Let result be f(2, n, 7).
 Show result.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let specialized = rust.lines()
+    let specialized = rust
+        .lines()
         .find(|line| line.contains("fn f_s0") && line.contains("("));
     assert!(
         specialized.is_some(),
@@ -511,13 +531,19 @@ Show result.
         rust
     );
     let sig = specialized.unwrap();
-    let param_count = sig.matches(',').count() + if sig.contains('(') && !sig.contains("()") { 1 } else { 0 };
+    let param_count = sig.matches(',').count()
+        + if sig.contains('(') && !sig.contains("()") {
+            1
+        } else {
+            0
+        };
     assert_eq!(
         param_count, 1,
         "Specialized f should have ONE param (b), with a=2 and c=7 substituted.\nSignature: {}",
         sig
     );
-    let body_region = rust.lines()
+    let body_region = rust
+        .lines()
         .skip_while(|line| !line.contains("fn f_s0"))
         .take(5)
         .collect::<Vec<_>>()
@@ -590,7 +616,8 @@ Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
     if rust.contains("sumFirst_s0") {
-        let specialized = rust.lines()
+        let specialized = rust
+            .lines()
             .find(|line| line.contains("fn sumFirst_s0") || line.contains("fn sum_first_s0"));
         if let Some(sig) = specialized {
             assert!(
@@ -617,7 +644,8 @@ Let y be f(3, n).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let variant_count = rust.lines()
+    let variant_count = rust
+        .lines()
         .filter(|line| line.contains("fn f_s0") && line.contains("("))
         .count();
     assert_eq!(
@@ -743,7 +771,8 @@ Let y be f(4, n).
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    let specialized = rust.lines()
+    let specialized = rust
+        .lines()
         .skip_while(|line| !line.contains("f_s0"))
         .take(5)
         .collect::<Vec<_>>()
@@ -751,8 +780,10 @@ Show y.
     // After a=4, the fold collapses (4+1)*b to 5*b, inlining the literal 5 into the residual
     // multiply — `logos_mul_exact(5, <dyn>)` under the exact-arith ruling.
     assert!(
-        specialized.contains("5 *") || specialized.contains("5i64 *")
-            || specialized.contains("(5)") || specialized.contains("logos_mul_exact(5")
+        specialized.contains("5 *")
+            || specialized.contains("5i64 *")
+            || specialized.contains("(5)")
+            || specialized.contains("logos_mul_exact(5")
             || specialized.contains("logos_mul_i64(5"),
         "After substitution a=4, fold should simplify (4+1)*b → 5*b.\nSpecialized:\n{}",
         specialized
@@ -851,7 +882,8 @@ Show r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + r9 + r10.
         result.stdout.trim(),
         "55",
         "scale(1,1)+scale(2,1)+...+scale(10,1) = 55.\nGot: '{}'\n\nGenerated Rust:\n{}",
-        result.stdout.trim(), result.rust_code
+        result.stdout.trim(),
+        result.rust_code
     );
 }
 
@@ -1021,8 +1053,8 @@ fn pe_effect_env_check_is_not_io() {
     // but body_has_io() incorrectly treats it as IO and blocks specialization.
     // With EffectEnv wired in using !function_has_io(), this function
     // should be specializable since Check is security_check, not IO.
-    let source = r#"## Record User:
-    role: Text.
+    let source = r#"## A User has:
+    A role: Text.
 
 ## Policy
 A User is admin if the user's role equals "admin".
@@ -1053,8 +1085,8 @@ Show result.
 fn pe_effect_env_check_plus_show_still_blocked() {
     // A function with both Check AND Show should NOT be specialized,
     // because Show IS io even though Check is only security_check.
-    let source = r#"## Record User:
-    role: Text.
+    let source = r#"## A User has:
+    A role: Text.
 
 ## Policy
 A User is admin if the user's role equals "admin".
@@ -1111,4 +1143,65 @@ Show result.
          specialized when EffectEnv propagates IO through call graph.\nGot:\n{}",
         rust
     );
+}
+
+// =============================================================================
+// A folded argument reaches every place it is read, or nothing is folded (2 tests)
+// =============================================================================
+
+#[test]
+fn pe_a_static_argument_read_only_inside_a_resolved_supertask_is_folded_into_it() {
+    // `k` is read only by the counting loop, which the supertask engine has already rewritten into a
+    // block of its own; a specialization on `k = 3` must fold `3` into that block.
+    let source = r#"## To nextMultiple (x: Hyperreal) and (k: Int) -> Hyperreal:
+    Let n be 0.
+    While n < x or n % k != 0:
+        Set n to n + 1.
+    Return n.
+
+## Main
+Let dt be an infinitesimal.
+Show nextMultiple(10, 4).
+Show nextMultiple(1 / dt, 3).
+"#;
+    let result = run_logos(source);
+    assert!(result.success, "stderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("fn nextMultiple_s1_3("),
+        "the call with `k = 3` is specialized on it.\n\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+    assert_eq!(
+        result.stdout.trim(),
+        "12\n1/dt when ⌈1/dt⌉ ≡ 0 (mod 3), 1/dt + 2 when ⌈1/dt⌉ ≡ 1 (mod 3), 1/dt + 1 when ⌈1/dt⌉ ≡ 2 (mod 3)",
+        "\n\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn pe_a_static_argument_a_closure_captures_is_never_dropped_from_the_signature() {
+    // `If k > 100` folds away once `k` is 3, which pays for a specialization; the closure still reads
+    // `k`, so the folded body must carry the constant into it or keep `k` as a parameter.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## To scaleAll (k: Int) and (x: Int) -> Int:
+    Let f be (y: Int) -> y * k.
+    If k > 100:
+        Let a be x + 1.
+        Let b be a + 2.
+        Let c be b + 3.
+        Let d be c + 4.
+        Let e be d + 5.
+        Return e.
+    Return f(x).
+
+## Main
+Let n be parseInt("5").
+Show scaleAll(3, n).
+Show scaleAll(4, n).
+"#;
+    let result = run_logos(source);
+    assert!(result.success, "stderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert_eq!(result.stdout.trim(), "15\n20", "\n\nGenerated Rust:\n{}", result.rust_code);
 }

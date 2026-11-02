@@ -1,15 +1,16 @@
 n = ARGV[0].to_i
 perm1 = (0...n).to_a
+perm = Array.new(n, 0)
 count = Array.new(n, 0)
 max_flips = checksum = perm_count = 0
 r = n
 loop do
   while r > 1; count[r-1] = r; r -= 1; end
-  perm = perm1.dup
+  perm.replace(perm1)
   flips = 0
   while perm[0] != 0
     k = perm[0] + 1
-    perm[0, k] = perm[0, k].reverse
+    (k / 2).times { |i| t = perm[i]; perm[i] = perm[k-1-i]; perm[k-1-i] = t }
     flips += 1
   end
   max_flips = flips if flips > max_flips

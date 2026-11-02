@@ -49,8 +49,11 @@ proc advance(dt: float64) =
   for i in 0..4:
     bodies[i].x+=dt*bodies[i].vx; bodies[i].y+=dt*bodies[i].vy; bodies[i].z+=dt*bodies[i].vz
 
-let n = parseInt(paramStr(1))
-offsetMomentum()
-echo formatFloat(energy(), ffDecimal, 9)
-for i in 0..<n: advance(0.01)
-echo formatFloat(energy(), ffDecimal, 9)
+proc main() =
+  let n = parseInt(paramStr(1))
+  offsetMomentum()
+  echo formatFloat(energy(), ffDecimal, 9)
+  for i in 0..<n: advance(0.01)
+  echo formatFloat(energy(), ffDecimal, 9)
+
+main()

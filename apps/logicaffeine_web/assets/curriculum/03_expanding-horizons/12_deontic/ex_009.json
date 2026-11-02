@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Would that no one cheat",
   "options": [
-    "$ \\sim (\\exists x)C\\underline{x} $",
-    "$ O\\sim (\\exists x)C\\underline{x} $",
-    "$ (\\exists\\underline{x}) Cx $",
-    "$ \\sim (\\exists x)Cx $"
+    "¬∃x C(x̲)",
+    "O¬∃x C(x̲)",
+    "∃x̲ C(x)",
+    "¬∃x C(x)"
   ],
   "correct": 0,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'Would that no one cheat' is an optative wish that nobody cheats: ∼(∃x)C͟x — there is no person x (underlined as the agent) who cheats."
+  "hint": "This is a wish about everyone. Who would act?",
+  "explanation": "'Would that no one cheat' wishes that there is no one who cheats, with the cheater underlined as the one who would act: ¬∃x C(x̲).",
+  "section": "12.2"
 }

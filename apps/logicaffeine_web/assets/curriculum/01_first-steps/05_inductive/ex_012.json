@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "Hume questioned how we can justify believing the future will resemble the past.",
   "explanation": "Hume's problem: We can't justify induction deductively (the conclusion doesn't follow necessarily), and we can't justify it inductively without circularity (using induction to justify induction). Yet we rely on induction constantly! This remains a deep philosophical puzzle.",
-  "visual_concept": "The sun rose every day for billions of years. Will it rise tomorrow? 'It always has' is an inductive answer - using induction to justify induction!"
+  "visual_concept": "The sun rose every day for billions of years. Will it rise tomorrow? 'It always has' is an inductive answer - using induction to justify induction!",
+  "section": "5.10"
 }

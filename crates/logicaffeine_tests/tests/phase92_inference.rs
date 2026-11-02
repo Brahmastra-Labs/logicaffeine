@@ -27,8 +27,13 @@ fn test_daxiom_constructor() {
 #[test]
 fn test_dmodusponens_constructor() {
     let mut repl = Repl::new();
-    let result = repl.execute("Check DModusPonens.").expect("Check DModusPonens");
-    assert_eq!(result, "DModusPonens : Derivation -> Derivation -> Derivation");
+    let result = repl
+        .execute("Check DModusPonens.")
+        .expect("Check DModusPonens");
+    assert_eq!(
+        result,
+        "DModusPonens : Derivation -> Derivation -> Derivation"
+    );
 }
 
 #[test]

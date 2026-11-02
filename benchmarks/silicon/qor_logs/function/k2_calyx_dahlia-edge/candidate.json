@@ -1,0 +1,154 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K2",
+  "mems": [
+   {
+    "contract": [
+     "x"
+    ],
+    "kind": "SeqMem",
+    "prefix": "x",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "y"
+    ],
+    "kind": "SeqMem",
+    "prefix": "y",
+    "words_per_port": 1
+   }
+  ],
+  "name": "k2_calyx_dahlia",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "go"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "x_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "x_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "x_write_en"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_addr0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_clk"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_content_en"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "y_done"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "y_read_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "y_write_data"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "y_write_en"
+   }
+  ],
+  "protocol": {
+   "GoDone": {
+    "done": "done",
+    "go": "go"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "main"
+ },
+ "files": [
+  "k2_calyx_dahlia.sv"
+ ],
+ "golden_signature": "f4d6a9ba1686c68b",
+ "harness": "qorbist_k2_calyx_dahlia.v",
+ "harness_top": "qorbist_k2_calyx_dahlia",
+ "kernel": "K2",
+ "kernel_name": "horner",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "go/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

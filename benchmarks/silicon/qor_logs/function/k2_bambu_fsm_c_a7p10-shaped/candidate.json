@@ -1,0 +1,85 @@
+{
+ "candidate": {
+  "batch": 1,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "x",
+    "dut": "x",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 0
+   }
+  ],
+  "kernel": "K2",
+  "mems": [],
+  "name": "k2_bambu_fsm_c_a7p10",
+  "outputs": [
+   {
+    "contract": "y",
+    "dut": "return_port",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "return_port"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "x"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "poly"
+ },
+ "files": [
+  "poly.v"
+ ],
+ "golden_signature": "9b0a9173359cb692",
+ "harness": "qorbist_k2_bambu_fsm_c_a7p10.v",
+ "harness_top": "qorbist_k2_bambu_fsm_c_a7p10",
+ "kernel": "K2",
+ "kernel_name": "horner",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

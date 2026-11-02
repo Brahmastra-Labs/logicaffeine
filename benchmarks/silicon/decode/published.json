@@ -1,0 +1,57 @@
+{
+ "_what": "Vendor-published per-user decode rates of SRAM-resident machines, each quoted from its page. spatial_decode_lock prices the published model on the fewest chips that hold it (the strictest floor any deployment of it has, since collective latencies are undeclared) and requires the published rate never to beat that floor. The shapes come from a GGUF header of the same model; bytes_per_weight is the published weight precision.",
+ "rows": [
+  {
+   "label": "Cerebras Inference, Llama 3.1 8B, launch (2024-08-27)",
+   "machine": "cerebras-wse3",
+   "header": "llama-3.1-8b-instruct-q8_0",
+   "ctx": 1024,
+   "bytes_per_weight": 2.0,
+   "tok_s": 1800.0,
+   "source": {
+    "url": "https://www.cerebras.ai/blog/introducing-cerebras-inference-ai-at-instant-speed",
+    "quote": "1,800 tokens per second for Llama3.1 8B and 450 tokens per second for Llama3.1 70B",
+    "precision": "the original 16-bit weights released by Meta"
+   }
+  },
+  {
+   "label": "Cerebras Inference, Llama 3.1 70B, launch (2024-08-27)",
+   "machine": "cerebras-wse3",
+   "header": "llama-3.1-70b-instruct-q4_k_m",
+   "ctx": 1024,
+   "bytes_per_weight": 2.0,
+   "tok_s": 450.0,
+   "source": {
+    "url": "https://www.cerebras.ai/blog/introducing-cerebras-inference-ai-at-instant-speed",
+    "quote": "1,800 tokens per second for Llama3.1 8B and 450 tokens per second for Llama3.1 70B",
+    "precision": "the original 16-bit weights released by Meta"
+   }
+  },
+  {
+   "label": "Cerebras Inference, Llama 3.1 70B (2024-10-24)",
+   "machine": "cerebras-wse3",
+   "header": "llama-3.1-70b-instruct-q4_k_m",
+   "ctx": 1024,
+   "bytes_per_weight": 2.0,
+   "tok_s": 2100.0,
+   "source": {
+    "url": "https://www.cerebras.ai/blog/cerebras-inference-3x-faster",
+    "quote": "Llama 3.1-70B at an astounding 2,100 tokens per second",
+    "precision": "all models continue to use 16-bit original weights"
+   }
+  },
+  {
+   "label": "Groq LPU, Llama-2 70B (2023-11-07)",
+   "machine": "groq-lpu-v1",
+   "header": "llama-2-70b-chat-q4_k_m",
+   "ctx": 1024,
+   "bytes_per_weight": 2.0,
+   "tok_s": 300.0,
+   "source": {
+    "url": "https://www.prnewswire.com/news-releases/groq-sets-new-large-language-model-performance-record-of-300-tokens-per-second-per-user-on-meta-ai-foundational-llm-llama-2-70b-301980280.html",
+    "quote": "more than 300 tokens per second per user on Meta AI's industry-leading LLM, Llama-2 70B",
+    "precision": "not published; priced at 16-bit, the strictest floor of the INT8 and FP16 the GroqChip spec sheet names"
+   }
+  }
+ ]
+}

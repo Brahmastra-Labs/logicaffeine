@@ -9,8 +9,8 @@ use logicaffeine_compile::compile::compile_to_rust;
 /// Test that arrow -> is tokenized correctly.
 #[test]
 fn test_arrow_tokenization() {
-    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_base::Interner;
+    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_language::token::TokenType;
 
     let mut interner = Interner::new();
@@ -19,14 +19,18 @@ fn test_arrow_tokenization() {
 
     // Check that Arrow token is present
     let has_arrow = tokens.iter().any(|t| matches!(t.kind, TokenType::Arrow));
-    assert!(has_arrow, "Should tokenize -> as Arrow. Tokens: {:?}", tokens.iter().map(|t| &t.kind).collect::<Vec<_>>());
+    assert!(
+        has_arrow,
+        "Should tokenize -> as Arrow. Tokens: {:?}",
+        tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
+    );
 }
 
 /// Debug test for "now" tokenization
 #[test]
 fn test_now_tokenization() {
-    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_base::Interner;
+    use logicaffeine_language::lexer::Lexer;
     use logicaffeine_language::token::TokenType;
 
     let mut interner = Interner::new();
@@ -36,16 +40,24 @@ fn test_now_tokenization() {
     // Print all tokens
     for t in &tokens {
         let lexeme = interner.resolve(t.lexeme);
-        eprintln!("Token: {:?}, lexeme: {:?}, span: {:?}", t.kind, lexeme, t.span);
+        eprintln!(
+            "Token: {:?}, lexeme: {:?}, span: {:?}",
+            t.kind, lexeme, t.span
+        );
     }
 
     // Check that "now" can be used as an identifier (noun, proper name, adjective, or adverb)
     let now_is_identifier = tokens.iter().any(|t| {
         let lexeme = interner.resolve(t.lexeme);
-        matches!(t.kind,
-            TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_) |
-            TokenType::TemporalAdverb(_) | TokenType::ScopalAdverb(_) | TokenType::Adverb(_))
-            && lexeme == "now"
+        matches!(
+            t.kind,
+            TokenType::Noun(_)
+                | TokenType::ProperName(_)
+                | TokenType::Adjective(_)
+                | TokenType::TemporalAdverb(_)
+                | TokenType::ScopalAdverb(_)
+                | TokenType::Adverb(_)
+        ) && lexeme == "now"
     });
     assert!(now_is_identifier, "now should be usable as an identifier");
 }
@@ -105,7 +117,10 @@ Let content be read("data.txt").
     // Should generate wrapper function
     assert!(rust.contains("fn read"), "Should generate read function");
     // Should delegate to logicaffeine_system
-    assert!(rust.contains("logicaffeine_system::file::read"), "Should call logicaffeine_system::file::read");
+    assert!(
+        rust.contains("logicaffeine_system::file::read"),
+        "Should call logicaffeine_system::file::read"
+    );
 }
 
 /// Test time module native functions.
@@ -121,7 +136,10 @@ Let timestamp be now.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(rust.contains("fn now"), "Should generate now function");
-    assert!(rust.contains("logicaffeine_system::time::now"), "Should call logicaffeine_system::time::now");
+    assert!(
+        rust.contains("logicaffeine_system::time::now"),
+        "Should call logicaffeine_system::time::now"
+    );
 }
 
 /// Test random module native functions.
@@ -136,8 +154,14 @@ fn test_random_int_codegen() {
 Let n be randomInt(1, 100).
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn randomInt"), "Should generate randomInt function");
-    assert!(rust.contains("logicaffeine_system::random::randomInt"), "Should call logicaffeine_system::random::randomInt");
+    assert!(
+        rust.contains("fn randomInt"),
+        "Should generate randomInt function"
+    );
+    assert!(
+        rust.contains("logicaffeine_system::random::randomInt"),
+        "Should call logicaffeine_system::random::randomInt"
+    );
 }
 
 /// Test env module native functions.
@@ -153,7 +177,10 @@ Let arguments be args.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(rust.contains("fn args"), "Should generate args function");
-    assert!(rust.contains("logicaffeine_system::env::args"), "Should call logicaffeine_system::env::args");
+    assert!(
+        rust.contains("logicaffeine_system::env::args"),
+        "Should call logicaffeine_system::env::args"
+    );
 }
 
 /// Test Result type mapping.
@@ -225,7 +252,10 @@ fn test_native_nullary_function() {
 Let t be now.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn now() -> u64"), "Should generate nullary function with return type");
+    assert!(
+        rust.contains("fn now() -> u64"),
+        "Should generate nullary function with return type"
+    );
 }
 
 /// Test parseInt generates codegen call to logicaffeine_system::text::parseInt.
@@ -241,8 +271,14 @@ Let n be parseInt("42").
 Show n.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn parseInt"), "Should generate parseInt function");
-    assert!(rust.contains("logicaffeine_system::text::parseInt"), "Should call logicaffeine_system::text::parseInt");
+    assert!(
+        rust.contains("fn parseInt"),
+        "Should generate parseInt function"
+    );
+    assert!(
+        rust.contains("logicaffeine_system::text::parseInt"),
+        "Should call logicaffeine_system::text::parseInt"
+    );
 }
 
 /// Test parseFloat generates codegen call to logicaffeine_system::text::parseFloat.
@@ -258,8 +294,14 @@ Let f be parseFloat("3.14").
 Show f.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn parseFloat"), "Should generate parseFloat function");
-    assert!(rust.contains("logicaffeine_system::text::parseFloat"), "Should call logicaffeine_system::text::parseFloat");
+    assert!(
+        rust.contains("fn parseFloat"),
+        "Should generate parseFloat function"
+    );
+    assert!(
+        rust.contains("logicaffeine_system::text::parseFloat"),
+        "Should call logicaffeine_system::text::parseFloat"
+    );
 }
 
 /// Test format generates codegen call to logicaffeine_system::fmt::format.
@@ -275,15 +317,21 @@ Let s be format(42).
 Show s.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("fn format"), "Should generate format function");
-    assert!(rust.contains("logicaffeine_system::fmt::format"), "Should call logicaffeine_system::fmt::format");
+    assert!(
+        rust.contains("fn format"),
+        "Should generate format function"
+    );
+    assert!(
+        rust.contains("logicaffeine_system::fmt::format"),
+        "Should call logicaffeine_system::fmt::format"
+    );
 }
 
 /// Test parseInt works in the interpreter.
 #[test]
 fn test_parseInt_interpreter() {
-    use logicaffeine_compile::interpret_for_ui;
     use futures::executor::block_on;
+    use logicaffeine_compile::interpret_for_ui;
 
     let source = r#"
 ## Main
@@ -298,8 +346,8 @@ Show n.
 /// Test parseFloat works in the interpreter.
 #[test]
 fn test_parseFloat_interpreter() {
-    use logicaffeine_compile::interpret_for_ui;
     use futures::executor::block_on;
+    use logicaffeine_compile::interpret_for_ui;
 
     let source = r#"
 ## Main
@@ -327,7 +375,11 @@ Let n be parseInt("10").
 Show fib(n).
 "#;
     let result = common::run_logos(source);
-    assert!(result.success, "fib benchmark should compile and run.\nstderr: {}\nrust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "fib benchmark should compile and run.\nstderr: {}\nrust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert_eq!(result.stdout.trim(), "55");
 }
 
@@ -349,7 +401,11 @@ Let n be parseInt("6").
 Show ackermann(3, n).
 "#;
     let result = common::run_logos(source);
-    assert!(result.success, "ackermann benchmark should compile and run.\nstderr: {}\nrust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "ackermann benchmark should compile and run.\nstderr: {}\nrust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert_eq!(result.stdout.trim(), "509");
 }
 
@@ -382,7 +438,11 @@ Let limit be parseInt("100").
 Show sieve(limit).
 "#;
     let result = common::run_logos(source);
-    assert!(result.success, "sieve benchmark should compile and run.\nstderr: {}\nrust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "sieve benchmark should compile and run.\nstderr: {}\nrust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert_eq!(result.stdout.trim(), "25");
 }
 
@@ -409,7 +469,11 @@ While i is less than n:
 Show found.
 "#;
     let result = common::run_logos(source);
-    assert!(result.success, "collect benchmark should compile and run.\nstderr: {}\nrust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "collect benchmark should compile and run.\nstderr: {}\nrust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert_eq!(result.stdout.trim(), "100");
 }
 
@@ -442,9 +506,20 @@ While i is less than n - 1:
 Show item 1 of arr.
 "#;
     let result = common::run_logos(source);
-    assert!(result.success, "bubble_sort benchmark should compile and run.\nstderr: {}\nrust:\n{}", result.stderr, result.rust_code);
-    let first: i64 = result.stdout.trim().parse().expect("Should produce an integer");
-    assert!(first >= 0 && first < 32768, "First element should be in range [0, 32768)");
+    assert!(
+        result.success,
+        "bubble_sort benchmark should compile and run.\nstderr: {}\nrust:\n{}",
+        result.stderr, result.rust_code
+    );
+    let first: i64 = result
+        .stdout
+        .trim()
+        .parse()
+        .expect("Should produce an integer");
+    assert!(
+        first >= 0 && first < 32768,
+        "First element should be in range [0, 32768)"
+    );
 }
 
 /// Test strings benchmark compiles and produces correct output.
@@ -465,7 +540,11 @@ Let count: Int be Escape to Rust:
 Show count.
 "#;
     let result = common::run_logos(source);
-    assert!(result.success, "strings benchmark should compile and run.\nstderr: {}\nrust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "strings benchmark should compile and run.\nstderr: {}\nrust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert_eq!(result.stdout.trim(), "10");
 }
 

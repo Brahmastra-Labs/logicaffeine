@@ -1,0 +1,11 @@
+{
+  "name": "mergesort",
+  "lang": "c",
+  "n": "55386315",
+  "samples_weight": 24797824624,
+  "alloc_pct": 17.235,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 82.765
+}

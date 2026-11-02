@@ -62,12 +62,12 @@ fn test_prop_universe() {
     assert!(result.is_ok());
     let ty = result.unwrap();
     assert!(
-        matches!(ty, Term::Sort(Universe::Type(1))),
-        "Prop should have type Type 1, got: {}",
+        matches!(ty, Term::Sort(Universe::Type(0))),
+        "Prop should have type Type 0, got: {}",
         ty
     );
 
-    println!("✓ Prop : Type 1");
+    println!("✓ Prop : Type 0");
 }
 
 // =============================================================================
@@ -271,7 +271,11 @@ fn test_pi_type_well_formed() {
     };
 
     let result = infer_type(&ctx, &pi_type);
-    assert!(result.is_ok(), "Pi type should be well-formed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Pi type should be well-formed: {:?}",
+        result
+    );
 
     let ty = result.unwrap();
     // Nat : Type 0, so Π(x:Nat).Nat : Type 0
@@ -302,7 +306,11 @@ fn test_dependent_pi_type() {
     };
 
     let result = infer_type(&ctx, &poly_type);
-    assert!(result.is_ok(), "Dependent Pi should be well-formed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Dependent Pi should be well-formed: {:?}",
+        result
+    );
 
     let ty = result.unwrap();
     // ΠA:Type₀. (A → A) : Type₁

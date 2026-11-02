@@ -1,0 +1,11 @@
+{
+  "name": "mergesort",
+  "lang": "logos_cbc",
+  "n": "55386315",
+  "samples_weight": 51120912056,
+  "alloc_pct": 7.6,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 92.4
+}

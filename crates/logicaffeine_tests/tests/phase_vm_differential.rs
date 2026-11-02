@@ -1,7 +1,7 @@
 //! Differential tests for the register bytecode VM against the production
 //! tree-walker, over REAL parsed LOGOS source. Every program is executed by both
 //! engines and their observable output must be identical. The tree-walker is the
-//! independent oracle (work/VM_PLAN.md / EXODIA two-runtime split).
+//! independent oracle (the EXODIA two-runtime split).
 
 use logicaffeine_compile::compile::{interpret_program, vm_run_source};
 
@@ -15,9 +15,15 @@ fn norm(s: &str) -> String {
 
 /// Run `src` through both engines and assert identical output.
 fn assert_vm_matches_treewalk(src: &str) {
-    let tw = interpret_program(src).unwrap_or_else(|e| panic!("tree-walker failed on:\n{}\n{:?}", src, e));
+    let tw = interpret_program(src)
+        .unwrap_or_else(|e| panic!("tree-walker failed on:\n{}\n{:?}", src, e));
     let vm = vm_run_source(src).unwrap_or_else(|e| panic!("vm failed on:\n{}\n{}", src, e));
-    assert_eq!(norm(&vm), norm(&tw), "VM diverged from tree-walker for:\n{}", src);
+    assert_eq!(
+        norm(&vm),
+        norm(&tw),
+        "VM diverged from tree-walker for:\n{}",
+        src
+    );
 }
 
 #[test]
@@ -27,9 +33,7 @@ fn vm_diff_arithmetic() {
 
 #[test]
 fn vm_diff_arithmetic_precedence() {
-    assert_vm_matches_treewalk(
-        "## Main\nLet a be 6.\nLet b be a * 4.\nLet c be b - 2.\nShow c.\n",
-    );
+    assert_vm_matches_treewalk("## Main\nLet a be 6.\nLet b be a * 4.\nLet c be b - 2.\nShow c.\n");
 }
 
 #[test]

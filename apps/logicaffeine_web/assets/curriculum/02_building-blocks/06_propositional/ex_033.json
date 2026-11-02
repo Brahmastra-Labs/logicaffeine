@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're cheap and frivolous, or else generous",
   "options": [
-    "$ ((C \\cdot F) \\vee G) $",
-    "$ C \\cdot F \\vee G $",
-    "$ (C \\cdot (F \\vee G)) $",
-    "$ (C \\cdot F) \\vee G $"
+    "(C ∧ F) ∨ G",
+    "C ∧ (F ∨ G)",
+    "C ∧ F ∧ G",
+    "(C ∧ F) → G"
   ],
   "correct": 0,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining C ∧ F and G: (C ∧ F) ∨ G.",
+  "section": "6.2"
 }

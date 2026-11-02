@@ -1,7 +1,7 @@
 //! Sprint 2B: RTL KG + Spec-RTL Linking
 
 use logicaffeine_compile::codegen_sva::rtl_extract::parse_verilog_module;
-use logicaffeine_compile::codegen_sva::rtl_kg::{rtl_to_kg, link_kg};
+use logicaffeine_compile::codegen_sva::rtl_kg::{link_kg, rtl_to_kg};
 use logicaffeine_language::semantics::knowledge_graph::{HwKnowledgeGraph, SignalRole};
 
 #[test]
@@ -17,7 +17,10 @@ fn rtl_to_kg_input_port_is_input_role() {
     let src = "module m (\n  input req\n);\nendmodule";
     let module = parse_verilog_module(src).unwrap();
     let kg = rtl_to_kg(&module);
-    assert!(kg.signals.iter().any(|s| s.name == "req" && s.role == SignalRole::Input));
+    assert!(kg
+        .signals
+        .iter()
+        .any(|s| s.name == "req" && s.role == SignalRole::Input));
 }
 
 #[test]
@@ -25,7 +28,10 @@ fn rtl_to_kg_output_port_is_output_role() {
     let src = "module m (\n  output ack\n);\nendmodule";
     let module = parse_verilog_module(src).unwrap();
     let kg = rtl_to_kg(&module);
-    assert!(kg.signals.iter().any(|s| s.name == "ack" && s.role == SignalRole::Output));
+    assert!(kg
+        .signals
+        .iter()
+        .any(|s| s.name == "ack" && s.role == SignalRole::Output));
 }
 
 #[test]
@@ -33,8 +39,13 @@ fn rtl_to_kg_clock_detected() {
     let src = "module m (\n  input clk\n);\n  always @(posedge clk) begin end\nendmodule";
     let module = parse_verilog_module(src).unwrap();
     let kg = rtl_to_kg(&module);
-    assert!(kg.signals.iter().any(|s| s.name == "clk" && s.role == SignalRole::Clock),
-        "Clock should be detected. Signals: {:?}", kg.signals);
+    assert!(
+        kg.signals
+            .iter()
+            .any(|s| s.name == "clk" && s.role == SignalRole::Clock),
+        "Clock should be detected. Signals: {:?}",
+        kg.signals
+    );
 }
 
 #[test]
@@ -50,7 +61,10 @@ fn rtl_to_kg_internal_signals() {
     let src = "module m;\n  wire internal_wire;\nendmodule";
     let module = parse_verilog_module(src).unwrap();
     let kg = rtl_to_kg(&module);
-    assert!(kg.signals.iter().any(|s| s.name == "internal_wire" && s.role == SignalRole::Internal));
+    assert!(kg
+        .signals
+        .iter()
+        .any(|s| s.name == "internal_wire" && s.role == SignalRole::Internal));
 }
 
 #[test]
@@ -78,7 +92,11 @@ fn link_case_insensitive() {
     rtl_kg.add_signal("clk", 1, SignalRole::Clock);
 
     let result = link_kg(&spec_kg, &rtl_kg);
-    assert_eq!(result.matched.len(), 1, "CLK should match clk case-insensitively");
+    assert_eq!(
+        result.matched.len(),
+        1,
+        "CLK should match clk case-insensitively"
+    );
 }
 
 #[test]

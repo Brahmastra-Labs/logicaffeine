@@ -6,10 +6,10 @@
 
 mod common;
 
+use logicaffeine_base::Interner;
 use logicaffeine_compile::compile::compile_to_rust;
 use logicaffeine_language::lexer::Lexer;
 use logicaffeine_language::token::TokenType;
-use logicaffeine_base::Interner;
 
 // Helper to tokenize and collect token types
 fn tokenize(source: &str) -> Vec<TokenType> {
@@ -45,7 +45,8 @@ fn e2e_test_tokenize_tally() {
 
 #[test]
 fn e2e_test_tokenize_shared_set() {
-    let source = "## Definition\nA Party is Shared and has:\n    a guests, which is a SharedSet of Text.";
+    let source =
+        "## Definition\nA Party is Shared and has:\n    a guests, which is a SharedSet of Text.";
     let tokens = tokenize(source);
     assert!(
         tokens.iter().any(|t| *t == TokenType::SharedSet),
@@ -56,7 +57,8 @@ fn e2e_test_tokenize_shared_set() {
 
 #[test]
 fn e2e_test_tokenize_shared_sequence() {
-    let source = "## Definition\nA Doc is Shared and has:\n    a lines, which is a SharedSequence of Text.";
+    let source =
+        "## Definition\nA Doc is Shared and has:\n    a lines, which is a SharedSequence of Text.";
     let tokens = tokenize(source);
     assert!(
         tokens.iter().any(|t| *t == TokenType::SharedSequence),
@@ -67,7 +69,8 @@ fn e2e_test_tokenize_shared_sequence() {
 
 #[test]
 fn e2e_test_tokenize_divergent() {
-    let source = "## Definition\nA Page is Shared and has:\n    a title, which is a Divergent Text.";
+    let source =
+        "## Definition\nA Page is Shared and has:\n    a title, which is a Divergent Text.";
     let tokens = tokenize(source);
     assert!(
         tokens.iter().any(|t| *t == TokenType::Divergent),
@@ -295,11 +298,7 @@ Show g's score.
     let result = run_logos_e2e(source);
     assert!(result.is_ok(), "Compile failed: {:?}", result.err());
     let output = result.unwrap();
-    assert!(
-        output.contains("70"),
-        "Expected 70 in output:\n{}",
-        output
-    );
+    assert!(output.contains("70"), "Expected 70 in output:\n{}", output);
 }
 
 #[test]
@@ -345,11 +344,7 @@ Show length of d's lines.
     let result = run_logos_e2e(source);
     assert!(result.is_ok(), "Compile failed: {:?}", result.err());
     let output = result.unwrap();
-    assert!(
-        output.contains("2"),
-        "Expected 2 in output:\n{}",
-        output
-    );
+    assert!(output.contains("2"), "Expected 2 in output:\n{}", output);
 }
 
 #[test]

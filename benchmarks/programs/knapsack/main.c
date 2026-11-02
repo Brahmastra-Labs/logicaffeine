@@ -7,22 +7,28 @@ int main(int argc, char *argv[]) {
     long capacity = n * 5;
     long *weight = malloc(n * sizeof(long));
     long *value = malloc(n * sizeof(long));
+    long seed = 42;
     for (long i = 0; i < n; i++) {
-        weight[i] = (i * 17 + 3) % 50 + 1;
-        value[i] = (i * 31 + 7) % 100 + 1;
+        seed = (seed * 1103515245 + 12345) % 2147483648L;
+        weight[i] = (seed >> 16) % 50 + 1;
+        seed = (seed * 1103515245 + 12345) % 2147483648L;
+        value[i] = (seed >> 16) % 100 + 1;
     }
     long cols = capacity + 1;
     long *prev = calloc(cols, sizeof(long));
     long *curr = calloc(cols, sizeof(long));
     for (long i = 0; i < n; i++) {
-        for (long w = 0; w <= capacity; w++) {
-            curr[w] = prev[w];
-            if (w >= weight[i] && prev[w - weight[i]] + value[i] > curr[w])
-                curr[w] = prev[w - weight[i]] + value[i];
+        long w = weight[i];
+        long v = value[i];
+        for (long j = 0; j <= capacity; j++) {
+            curr[j] = prev[j];
+            if (j >= w && prev[j - w] + v > curr[j]) curr[j] = prev[j - w] + v;
         }
         long *tmp = prev; prev = curr; curr = tmp;
     }
-    printf("%ld\n", prev[capacity]);
+    long h = 0;
+    for (long j = 0; j <= capacity; j++) h = (h * 31 + prev[j]) & 268435455;
+    printf("%ld %ld\n", prev[capacity], h);
     free(weight); free(value); free(prev); free(curr);
     return 0;
 }

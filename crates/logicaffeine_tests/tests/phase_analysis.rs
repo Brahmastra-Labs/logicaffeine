@@ -1,11 +1,11 @@
 use logicaffeine_base::{Arena, Interner, Symbol};
-use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, Stmt};
-use logicaffeine_language::ast::stmt::{ClosureBody, TypeExpr};
 use logicaffeine_compile::analysis::callgraph::CallGraph;
 use logicaffeine_compile::analysis::liveness::LivenessResult;
 use logicaffeine_compile::analysis::readonly::ReadonlyParams;
-use logicaffeine_compile::analysis::types::{TypeEnv, LogosType};
+use logicaffeine_compile::analysis::types::TypeEnv;
 use logicaffeine_language::analysis::TypeRegistry;
+use logicaffeine_language::ast::stmt::{ClosureBody, TypeExpr};
+use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, Stmt};
 
 // =============================================================================
 // Helpers
@@ -15,7 +15,11 @@ fn make_registry(interner: &mut Interner) -> TypeRegistry {
     TypeRegistry::with_primitives(interner)
 }
 
-fn funcdef<'a>(name: Symbol, params: Vec<(Symbol, &'a TypeExpr<'a>)>, body: &'a [Stmt<'a>]) -> Stmt<'a> {
+fn funcdef<'a>(
+    name: Symbol,
+    params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+    body: &'a [Stmt<'a>],
+) -> Stmt<'a> {
     Stmt::FunctionDef {
         name,
         generics: vec![],
@@ -57,22 +61,28 @@ fn callgraph_direct_call() {
     let foo = interner.intern("foo");
     let bar = interner.intern("bar");
 
-    let call = arena.alloc(Stmt::Call { function: bar, args: vec![] });
+    let call = arena.alloc(Stmt::Call {
+        function: bar,
+        args: vec![],
+    });
     let foo_body = std::slice::from_ref(call);
 
-    let stmts = vec![
-        funcdef(foo, vec![], foo_body),
-        funcdef(bar, vec![], &[]),
-    ];
+    let stmts = vec![funcdef(foo, vec![], foo_body), funcdef(bar, vec![], &[])];
 
     let cg = CallGraph::build(&stmts, &interner);
 
     assert!(
-        cg.edges.get(&foo).map(|s| s.contains(&bar)).unwrap_or(false),
+        cg.edges
+            .get(&foo)
+            .map(|s| s.contains(&bar))
+            .unwrap_or(false),
         "foo should have a direct edge to bar"
     );
     assert!(
-        !cg.edges.get(&foo).map(|s| s.contains(&foo)).unwrap_or(false),
+        !cg.edges
+            .get(&foo)
+            .map(|s| s.contains(&foo))
+            .unwrap_or(false),
         "foo should not have a self-edge"
     );
 }
@@ -86,8 +96,14 @@ fn callgraph_transitive() {
     let bar = interner.intern("bar");
     let baz = interner.intern("baz");
 
-    let foo_call = arena.alloc(Stmt::Call { function: bar, args: vec![] });
-    let bar_call = arena.alloc(Stmt::Call { function: baz, args: vec![] });
+    let foo_call = arena.alloc(Stmt::Call {
+        function: bar,
+        args: vec![],
+    });
+    let bar_call = arena.alloc(Stmt::Call {
+        function: baz,
+        args: vec![],
+    });
 
     let stmts = vec![
         funcdef(foo, vec![], std::slice::from_ref(foo_call)),
@@ -98,9 +114,18 @@ fn callgraph_transitive() {
     let cg = CallGraph::build(&stmts, &interner);
     let reachable = cg.reachable_from(foo);
 
-    assert!(reachable.contains(&bar), "foo should transitively reach bar");
-    assert!(reachable.contains(&baz), "foo should transitively reach baz (via bar)");
-    assert!(!reachable.contains(&foo), "foo should not reach itself (no recursion)");
+    assert!(
+        reachable.contains(&bar),
+        "foo should transitively reach bar"
+    );
+    assert!(
+        reachable.contains(&baz),
+        "foo should transitively reach baz (via bar)"
+    );
+    assert!(
+        !reachable.contains(&foo),
+        "foo should not reach itself (no recursion)"
+    );
 }
 
 #[test]
@@ -115,12 +140,22 @@ fn callgraph_recursive_detected() {
     let int_ty = TypeExpr::Primitive(int_sym);
 
     let n_expr = expr_arena.alloc(Expr::Identifier(n));
-    let self_call = arena.alloc(Stmt::Call { function: factorial, args: vec![n_expr] });
+    let self_call = arena.alloc(Stmt::Call {
+        function: factorial,
+        args: vec![n_expr],
+    });
 
-    let stmts = vec![funcdef(factorial, vec![(n, &int_ty)], std::slice::from_ref(self_call))];
+    let stmts = vec![funcdef(
+        factorial,
+        vec![(n, &int_ty)],
+        std::slice::from_ref(self_call),
+    )];
 
     let cg = CallGraph::build(&stmts, &interner);
-    assert!(cg.is_recursive(factorial), "factorial should be detected as self-recursive");
+    assert!(
+        cg.is_recursive(factorial),
+        "factorial should be detected as self-recursive"
+    );
 }
 
 #[test]
@@ -131,8 +166,14 @@ fn callgraph_mutual_recursive() {
     let is_even = interner.intern("isEven");
     let is_odd = interner.intern("isOdd");
 
-    let even_calls_odd = arena.alloc(Stmt::Call { function: is_odd, args: vec![] });
-    let odd_calls_even = arena.alloc(Stmt::Call { function: is_even, args: vec![] });
+    let even_calls_odd = arena.alloc(Stmt::Call {
+        function: is_odd,
+        args: vec![],
+    });
+    let odd_calls_even = arena.alloc(Stmt::Call {
+        function: is_even,
+        args: vec![],
+    });
 
     let stmts = vec![
         funcdef(is_even, vec![], std::slice::from_ref(even_calls_odd)),
@@ -141,8 +182,14 @@ fn callgraph_mutual_recursive() {
 
     let cg = CallGraph::build(&stmts, &interner);
 
-    assert!(cg.is_recursive(is_even), "isEven should be recursive (mutual with isOdd)");
-    assert!(cg.is_recursive(is_odd), "isOdd should be recursive (mutual with isEven)");
+    assert!(
+        cg.is_recursive(is_even),
+        "isEven should be recursive (mutual with isOdd)"
+    );
+    assert!(
+        cg.is_recursive(is_odd),
+        "isOdd should be recursive (mutual with isEven)"
+    );
 }
 
 #[test]
@@ -153,7 +200,10 @@ fn callgraph_native_marked() {
     let stmts = vec![native_funcdef(printf, vec![])];
 
     let cg = CallGraph::build(&stmts, &interner);
-    assert!(cg.native_fns.contains(&printf), "Native function should be in native_fns set");
+    assert!(
+        cg.native_fns.contains(&printf),
+        "Native function should be in native_fns set"
+    );
 }
 
 #[test]
@@ -171,13 +221,21 @@ fn callgraph_closure_calls_counted() {
 
     // foo body: Let f be (x: Int) -> helper(x)
     let x_expr = expr_arena.alloc(Expr::Identifier(x));
-    let helper_call_expr = expr_arena.alloc(Expr::Call { function: helper, args: vec![x_expr] });
+    let helper_call_expr = expr_arena.alloc(Expr::Call {
+        function: helper,
+        args: vec![x_expr],
+    });
     let closure_expr = expr_arena.alloc(Expr::Closure {
         params: vec![(x, &int_ty)],
         body: ClosureBody::Expression(helper_call_expr),
         return_type: None,
     });
-    let let_stmt = arena.alloc(Stmt::Let { var: f, ty: None, value: closure_expr, mutable: false });
+    let let_stmt = arena.alloc(Stmt::Let {
+        var: f,
+        ty: None,
+        value: closure_expr,
+        mutable: false,
+    });
 
     let stmts = vec![
         funcdef(foo, vec![], std::slice::from_ref(let_stmt)),
@@ -187,7 +245,10 @@ fn callgraph_closure_calls_counted() {
     let cg = CallGraph::build(&stmts, &interner);
 
     assert!(
-        cg.edges.get(&foo).map(|s| s.contains(&helper)).unwrap_or(false),
+        cg.edges
+            .get(&foo)
+            .map(|s| s.contains(&helper))
+            .unwrap_or(false),
         "foo should have an edge to helper via closure call expression"
     );
 }
@@ -209,21 +270,38 @@ fn readonly_pure_reader() {
     let n = interner.intern("n");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
 
     // Body: only reads arr — Let n be length of arr.
     let arr_expr = expr_arena.alloc(Expr::Identifier(arr));
-    let len_expr = expr_arena.alloc(Expr::Length { collection: arr_expr });
-    let let_stmt = arena.alloc(Stmt::Let { var: n, ty: None, value: len_expr, mutable: false });
+    let len_expr = expr_arena.alloc(Expr::Length {
+        collection: arr_expr,
+    });
+    let let_stmt = arena.alloc(Stmt::Let {
+        var: n,
+        ty: None,
+        value: len_expr,
+        mutable: false,
+    });
 
-    let stmts = vec![funcdef(foo, vec![(arr, &seq_ty)], std::slice::from_ref(let_stmt))];
+    let stmts = vec![funcdef(
+        foo,
+        vec![(arr, &seq_ty)],
+        std::slice::from_ref(let_stmt),
+    )];
 
     let registry = make_registry(&mut interner);
     let type_env = TypeEnv::infer_program(&stmts, &interner, &registry);
     let cg = CallGraph::build(&stmts, &interner);
     let readonly = ReadonlyParams::analyze(&stmts, &cg, &type_env);
 
-    assert!(readonly.is_readonly(foo, arr), "arr is only read in foo — should be readonly");
+    assert!(
+        readonly.is_readonly(foo, arr),
+        "arr is only read in foo — should be readonly"
+    );
 }
 
 #[test]
@@ -238,21 +316,34 @@ fn readonly_pusher_not_readonly() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
 
     // Body: Push 1 to arr.
     let one = expr_arena.alloc(Expr::Literal(Literal::Number(1)));
     let arr_expr = expr_arena.alloc(Expr::Identifier(arr));
-    let push_stmt = arena.alloc(Stmt::Push { value: one, collection: arr_expr });
+    let push_stmt = arena.alloc(Stmt::Push {
+        value: one,
+        collection: arr_expr,
+    });
 
-    let stmts = vec![funcdef(foo, vec![(arr, &seq_ty)], std::slice::from_ref(push_stmt))];
+    let stmts = vec![funcdef(
+        foo,
+        vec![(arr, &seq_ty)],
+        std::slice::from_ref(push_stmt),
+    )];
 
     let registry = make_registry(&mut interner);
     let type_env = TypeEnv::infer_program(&stmts, &interner, &registry);
     let cg = CallGraph::build(&stmts, &interner);
     let readonly = ReadonlyParams::analyze(&stmts, &cg, &type_env);
 
-    assert!(!readonly.is_readonly(foo, arr), "arr is pushed to in foo — should NOT be readonly");
+    assert!(
+        !readonly.is_readonly(foo, arr),
+        "arr is pushed to in foo — should NOT be readonly"
+    );
 }
 
 #[test]
@@ -271,21 +362,41 @@ fn readonly_transitive_mutation() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
-    let seq_ty2 = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
+    let seq_ty2 = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
 
     // caller body: Call pusher(arr)
     let arr_id = expr_arena.alloc(Expr::Identifier(arr));
-    let call_pusher = arena.alloc(Stmt::Call { function: pusher, args: vec![arr_id] });
+    let call_pusher = arena.alloc(Stmt::Call {
+        function: pusher,
+        args: vec![arr_id],
+    });
 
     // pusher body: Push 1 to xs.
     let one = expr_arena.alloc(Expr::Literal(Literal::Number(1)));
     let xs_id = expr_arena.alloc(Expr::Identifier(xs));
-    let push_stmt = arena.alloc(Stmt::Push { value: one, collection: xs_id });
+    let push_stmt = arena.alloc(Stmt::Push {
+        value: one,
+        collection: xs_id,
+    });
 
     let stmts = vec![
-        funcdef(caller, vec![(arr, &seq_ty)], std::slice::from_ref(call_pusher)),
-        funcdef(pusher, vec![(xs, &seq_ty2)], std::slice::from_ref(push_stmt)),
+        funcdef(
+            caller,
+            vec![(arr, &seq_ty)],
+            std::slice::from_ref(call_pusher),
+        ),
+        funcdef(
+            pusher,
+            vec![(xs, &seq_ty2)],
+            std::slice::from_ref(push_stmt),
+        ),
     ];
 
     let registry = make_registry(&mut interner);
@@ -293,7 +404,10 @@ fn readonly_transitive_mutation() {
     let cg = CallGraph::build(&stmts, &interner);
     let readonly = ReadonlyParams::analyze(&stmts, &cg, &type_env);
 
-    assert!(!readonly.is_readonly(pusher, xs), "xs is directly pushed to — NOT readonly");
+    assert!(
+        !readonly.is_readonly(pusher, xs),
+        "xs is directly pushed to — NOT readonly"
+    );
     assert!(
         !readonly.is_readonly(caller, arr),
         "arr is passed to pusher which mutates xs — NOT readonly (transitive)"
@@ -317,20 +431,38 @@ fn readonly_transitive_pure() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
-    let seq_ty2 = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
+    let seq_ty2 = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
 
     // caller body: Call reader(arr)
     let arr_id = expr_arena.alloc(Expr::Identifier(arr));
-    let call_reader = arena.alloc(Stmt::Call { function: reader_fn, args: vec![arr_id] });
+    let call_reader = arena.alloc(Stmt::Call {
+        function: reader_fn,
+        args: vec![arr_id],
+    });
 
     // reader body: Let n be length of xs.
     let xs_id = expr_arena.alloc(Expr::Identifier(xs));
     let len_expr = expr_arena.alloc(Expr::Length { collection: xs_id });
-    let let_n = arena.alloc(Stmt::Let { var: n, ty: None, value: len_expr, mutable: false });
+    let let_n = arena.alloc(Stmt::Let {
+        var: n,
+        ty: None,
+        value: len_expr,
+        mutable: false,
+    });
 
     let stmts = vec![
-        funcdef(caller, vec![(arr, &seq_ty)], std::slice::from_ref(call_reader)),
+        funcdef(
+            caller,
+            vec![(arr, &seq_ty)],
+            std::slice::from_ref(call_reader),
+        ),
         funcdef(reader_fn, vec![(xs, &seq_ty2)], std::slice::from_ref(let_n)),
     ];
 
@@ -339,7 +471,10 @@ fn readonly_transitive_pure() {
     let cg = CallGraph::build(&stmts, &interner);
     let readonly = ReadonlyParams::analyze(&stmts, &cg, &type_env);
 
-    assert!(readonly.is_readonly(reader_fn, xs), "xs is only read — readonly");
+    assert!(
+        readonly.is_readonly(reader_fn, xs),
+        "xs is only read — readonly"
+    );
     assert!(
         readonly.is_readonly(caller, arr),
         "arr is passed to reader which is pure — readonly (transitive)"
@@ -364,17 +499,29 @@ fn readonly_fixed_point_convergence() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
-    let seq_ty2 = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
+    let seq_ty2 = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
 
     // f body: Call g(arr)
     let arr_id = expr_arena.alloc(Expr::Identifier(arr));
-    let call_g = arena.alloc(Stmt::Call { function: g, args: vec![arr_id] });
+    let call_g = arena.alloc(Stmt::Call {
+        function: g,
+        args: vec![arr_id],
+    });
 
     // g body: Push 1 to xs.
     let one = expr_arena.alloc(Expr::Literal(Literal::Number(1)));
     let xs_id = expr_arena.alloc(Expr::Identifier(xs));
-    let push_stmt = arena.alloc(Stmt::Push { value: one, collection: xs_id });
+    let push_stmt = arena.alloc(Stmt::Push {
+        value: one,
+        collection: xs_id,
+    });
 
     let stmts = vec![
         funcdef(f, vec![(arr, &seq_ty)], std::slice::from_ref(call_g)),
@@ -409,7 +556,10 @@ fn readonly_closure_read_only() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
     let int_ty = TypeExpr::Primitive(int_sym);
 
     // Closure: (x: Int) -> length of arr
@@ -420,9 +570,18 @@ fn readonly_closure_read_only() {
         body: ClosureBody::Expression(len_of_arr),
         return_type: None,
     });
-    let let_f = arena.alloc(Stmt::Let { var: f, ty: None, value: closure, mutable: false });
+    let let_f = arena.alloc(Stmt::Let {
+        var: f,
+        ty: None,
+        value: closure,
+        mutable: false,
+    });
 
-    let stmts = vec![funcdef(foo, vec![(arr, &seq_ty)], std::slice::from_ref(let_f))];
+    let stmts = vec![funcdef(
+        foo,
+        vec![(arr, &seq_ty)],
+        std::slice::from_ref(let_f),
+    )];
 
     let registry = make_registry(&mut interner);
     let type_env = TypeEnv::infer_program(&stmts, &interner, &registry);
@@ -453,28 +612,49 @@ fn readonly_closure_mutates() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
-    let seq_ty2 = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
+    let seq_ty2 = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
     let int_ty = TypeExpr::Primitive(int_sym);
 
     // Closure in foo: (x: Int) -> pusher(arr)
     let arr_id = expr_arena.alloc(Expr::Identifier(arr));
-    let call_pusher_expr = expr_arena.alloc(Expr::Call { function: pusher, args: vec![arr_id] });
+    let call_pusher_expr = expr_arena.alloc(Expr::Call {
+        function: pusher,
+        args: vec![arr_id],
+    });
     let closure = expr_arena.alloc(Expr::Closure {
         params: vec![(x, &int_ty)],
         body: ClosureBody::Expression(call_pusher_expr),
         return_type: None,
     });
-    let let_f = arena.alloc(Stmt::Let { var: f, ty: None, value: closure, mutable: false });
+    let let_f = arena.alloc(Stmt::Let {
+        var: f,
+        ty: None,
+        value: closure,
+        mutable: false,
+    });
 
     // pusher body: Push 1 to xs.
     let one = expr_arena.alloc(Expr::Literal(Literal::Number(1)));
     let xs_id = expr_arena.alloc(Expr::Identifier(xs));
-    let push_stmt = arena.alloc(Stmt::Push { value: one, collection: xs_id });
+    let push_stmt = arena.alloc(Stmt::Push {
+        value: one,
+        collection: xs_id,
+    });
 
     let stmts = vec![
         funcdef(foo, vec![(arr, &seq_ty)], std::slice::from_ref(let_f)),
-        funcdef(pusher, vec![(xs, &seq_ty2)], std::slice::from_ref(push_stmt)),
+        funcdef(
+            pusher,
+            vec![(xs, &seq_ty2)],
+            std::slice::from_ref(push_stmt),
+        ),
     ];
 
     let registry = make_registry(&mut interner);
@@ -482,7 +662,10 @@ fn readonly_closure_mutates() {
     let cg = CallGraph::build(&stmts, &interner);
     let readonly = ReadonlyParams::analyze(&stmts, &cg, &type_env);
 
-    assert!(!readonly.is_readonly(pusher, xs), "pusher.xs is directly mutated");
+    assert!(
+        !readonly.is_readonly(pusher, xs),
+        "pusher.xs is directly mutated"
+    );
     assert!(
         !readonly.is_readonly(foo, arr),
         "foo.arr passed to pusher via closure call edge — NOT readonly"
@@ -506,15 +689,28 @@ fn readonly_native_trusted() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
-    let seq_ty2 = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
+    let seq_ty2 = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
 
     // caller body: Call nativeReader(arr)
     let arr_id = expr_arena.alloc(Expr::Identifier(arr));
-    let call_native = arena.alloc(Stmt::Call { function: native_reader, args: vec![arr_id] });
+    let call_native = arena.alloc(Stmt::Call {
+        function: native_reader,
+        args: vec![arr_id],
+    });
 
     let stmts = vec![
-        funcdef(caller, vec![(arr, &seq_ty)], std::slice::from_ref(call_native)),
+        funcdef(
+            caller,
+            vec![(arr, &seq_ty)],
+            std::slice::from_ref(call_native),
+        ),
         native_funcdef(native_reader, vec![(xs, &seq_ty2)]),
     ];
 
@@ -555,18 +751,37 @@ fn liveness_simple_sequential() {
     let n_expr = expr_arena.alloc(Expr::Identifier(n));
     let x_expr = expr_arena.alloc(Expr::Identifier(x));
 
-    let stmt0 = Stmt::Let { var: x, ty: None, value: n_expr, mutable: false };
-    let stmt1 = Stmt::Return { value: Some(x_expr) };
+    let stmt0 = Stmt::Let {
+        var: x,
+        ty: None,
+        value: n_expr,
+        mutable: false,
+    };
+    let stmt1 = Stmt::Return {
+        value: Some(x_expr),
+    };
 
     let body = [stmt0, stmt1];
     let stmts = vec![funcdef(foo, vec![(n, &int_ty)], &body)];
 
     let result = LivenessResult::analyze(&stmts);
 
-    assert!(result.is_live_after(foo, 0, x), "x should be live after stmt 0 (used in Return)");
-    assert!(!result.is_live_after(foo, 0, n), "n should NOT be live after stmt 0");
-    assert!(!result.is_live_after(foo, 1, x), "Nothing live after Return");
-    assert!(!result.is_live_after(foo, 1, n), "Nothing live after Return");
+    assert!(
+        result.is_live_after(foo, 0, x),
+        "x should be live after stmt 0 (used in Return)"
+    );
+    assert!(
+        !result.is_live_after(foo, 0, n),
+        "n should NOT be live after stmt 0"
+    );
+    assert!(
+        !result.is_live_after(foo, 1, x),
+        "Nothing live after Return"
+    );
+    assert!(
+        !result.is_live_after(foo, 1, n),
+        "Nothing live after Return"
+    );
 }
 
 #[test]
@@ -588,18 +803,37 @@ fn liveness_reassignment_kills() {
     let two_expr = expr_arena.alloc(Expr::Literal(Literal::Number(2)));
     let a_expr = expr_arena.alloc(Expr::Identifier(a));
 
-    let stmt0 = Stmt::Let { var: a, ty: None, value: one_expr, mutable: false };
-    let stmt1 = Stmt::Set { target: a, value: two_expr };
-    let stmt2 = Stmt::Return { value: Some(a_expr) };
+    let stmt0 = Stmt::Let {
+        var: a,
+        ty: None,
+        value: one_expr,
+        mutable: false,
+    };
+    let stmt1 = Stmt::Set {
+        target: a,
+        value: two_expr,
+    };
+    let stmt2 = Stmt::Return {
+        value: Some(a_expr),
+    };
 
     let body = [stmt0, stmt1, stmt2];
     let stmts = vec![funcdef(foo, vec![], &body)];
 
     let result = LivenessResult::analyze(&stmts);
 
-    assert!(!result.is_live_after(foo, 0, a), "a NOT live after stmt 0: killed by stmt 1 before read");
-    assert!(result.is_live_after(foo, 1, a), "a IS live after stmt 1: used in Return");
-    assert!(!result.is_live_after(foo, 2, a), "Nothing live after Return");
+    assert!(
+        !result.is_live_after(foo, 0, a),
+        "a NOT live after stmt 0: killed by stmt 1 before read"
+    );
+    assert!(
+        result.is_live_after(foo, 1, a),
+        "a IS live after stmt 1: used in Return"
+    );
+    assert!(
+        !result.is_live_after(foo, 2, a),
+        "Nothing live after Return"
+    );
 }
 
 #[test]
@@ -634,10 +868,21 @@ fn liveness_branch_union() {
         right: zero_expr,
     });
 
-    let call_x = stmt_arena.alloc(Stmt::Call { function: use_x, args: vec![x_expr] });
-    let call_y = stmt_arena.alloc(Stmt::Call { function: use_y, args: vec![y_expr] });
+    let call_x = stmt_arena.alloc(Stmt::Call {
+        function: use_x,
+        args: vec![x_expr],
+    });
+    let call_y = stmt_arena.alloc(Stmt::Call {
+        function: use_y,
+        args: vec![y_expr],
+    });
 
-    let stmt0 = Stmt::Let { var: z, ty: None, value: one_expr, mutable: false };
+    let stmt0 = Stmt::Let {
+        var: z,
+        ty: None,
+        value: one_expr,
+        mutable: false,
+    };
     let stmt1 = Stmt::If {
         cond: cond_expr,
         then_block: std::slice::from_ref(call_x),
@@ -649,9 +894,18 @@ fn liveness_branch_union() {
 
     let result = LivenessResult::analyze(&stmts);
 
-    assert!(result.is_live_after(foo, 0, x), "x should be live after stmt 0 (used in then-branch)");
-    assert!(result.is_live_after(foo, 0, y), "y should be live after stmt 0 (used in else-branch)");
-    assert!(result.is_live_after(foo, 0, z), "z should be live after stmt 0 (used in condition)");
+    assert!(
+        result.is_live_after(foo, 0, x),
+        "x should be live after stmt 0 (used in then-branch)"
+    );
+    assert!(
+        result.is_live_after(foo, 0, y),
+        "y should be live after stmt 0 (used in else-branch)"
+    );
+    assert!(
+        result.is_live_after(foo, 0, z),
+        "z should be live after stmt 0 (used in condition)"
+    );
 }
 
 #[test]
@@ -685,9 +939,17 @@ fn liveness_while_loop_fixed_point() {
         right: one_expr,
     });
 
-    let set_i = stmt_arena.alloc(Stmt::Set { target: i, value: incr_expr });
+    let set_i = stmt_arena.alloc(Stmt::Set {
+        target: i,
+        value: incr_expr,
+    });
 
-    let stmt0 = Stmt::Let { var: i, ty: None, value: zero_expr, mutable: false };
+    let stmt0 = Stmt::Let {
+        var: i,
+        ty: None,
+        value: zero_expr,
+        mutable: false,
+    };
     let stmt1 = Stmt::While {
         cond: cond_expr,
         body: std::slice::from_ref(set_i),
@@ -699,7 +961,10 @@ fn liveness_while_loop_fixed_point() {
 
     let result = LivenessResult::analyze(&stmts);
 
-    assert!(result.is_live_after(foo, 0, i), "i should be live after stmt 0 (needed in While condition)");
+    assert!(
+        result.is_live_after(foo, 0, i),
+        "i should be live after stmt 0 (needed in While condition)"
+    );
 }
 
 #[test]
@@ -722,16 +987,27 @@ fn liveness_return_terminates() {
     let x_expr = expr_arena.alloc(Expr::Identifier(x));
     let y_expr = expr_arena.alloc(Expr::Identifier(y));
 
-    let stmt0 = Stmt::Return { value: Some(x_expr) };
-    let stmt1 = Stmt::Call { function: do_something, args: vec![y_expr] };
+    let stmt0 = Stmt::Return {
+        value: Some(x_expr),
+    };
+    let stmt1 = Stmt::Call {
+        function: do_something,
+        args: vec![y_expr],
+    };
 
     let body = [stmt0, stmt1];
     let stmts = vec![funcdef(foo, vec![(x, &int_ty), (y, &int_ty2)], &body)];
 
     let result = LivenessResult::analyze(&stmts);
 
-    assert!(!result.is_live_after(foo, 0, x), "Nothing live after Return — x not live");
-    assert!(!result.is_live_after(foo, 0, y), "Nothing live after Return — dead code y not live");
+    assert!(
+        !result.is_live_after(foo, 0, x),
+        "Nothing live after Return — x not live"
+    );
+    assert!(
+        !result.is_live_after(foo, 0, y),
+        "Nothing live after Return — dead code y not live"
+    );
 }
 
 #[test]
@@ -752,7 +1028,10 @@ fn liveness_last_use_detected() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
     let int_ty = TypeExpr::Primitive(int_sym);
 
     let arr_expr = expr_arena.alloc(Expr::Identifier(arr));
@@ -764,18 +1043,35 @@ fn liveness_last_use_detected() {
         args: vec![arr_expr, n_expr],
     });
 
-    let stmt0 = Stmt::Set { target: result, value: call_expr };
-    let stmt1 = Stmt::Return { value: Some(result_expr) };
+    let stmt0 = Stmt::Set {
+        target: result,
+        value: call_expr,
+    };
+    let stmt1 = Stmt::Return {
+        value: Some(result_expr),
+    };
 
     let body = [stmt0, stmt1];
     let stmts = vec![funcdef(foo, vec![(arr, &seq_ty), (n, &int_ty)], &body)];
 
     let result_liveness = LivenessResult::analyze(&stmts);
 
-    assert!(!result_liveness.is_live_after(foo, 0, arr), "arr NOT live after stmt 0 — last use");
-    assert!(!result_liveness.is_live_after(foo, 0, n), "n NOT live after stmt 0 — last use");
-    assert!(result_liveness.is_live_after(foo, 0, result), "result IS live after stmt 0 (used in Return)");
-    assert!(!result_liveness.is_live_after(foo, 1, result), "Nothing live after Return");
+    assert!(
+        !result_liveness.is_live_after(foo, 0, arr),
+        "arr NOT live after stmt 0 — last use"
+    );
+    assert!(
+        !result_liveness.is_live_after(foo, 0, n),
+        "n NOT live after stmt 0 — last use"
+    );
+    assert!(
+        result_liveness.is_live_after(foo, 0, result),
+        "result IS live after stmt 0 (used in Return)"
+    );
+    assert!(
+        !result_liveness.is_live_after(foo, 1, result),
+        "Nothing live after Return"
+    );
 }
 
 #[test]
@@ -798,7 +1094,10 @@ fn liveness_not_last_use() {
     let int_sym = interner.intern("Int");
 
     let inner_ty = TypeExpr::Primitive(int_sym);
-    let seq_ty = TypeExpr::Generic { base: seq_sym, params: std::slice::from_ref(&inner_ty) };
+    let seq_ty = TypeExpr::Generic {
+        base: seq_sym,
+        params: std::slice::from_ref(&inner_ty),
+    };
     let int_ty = TypeExpr::Primitive(int_sym);
 
     let arr0 = expr_arena.alloc(Expr::Identifier(arr));
@@ -811,16 +1110,197 @@ fn liveness_not_last_use() {
         args: vec![arr0, n0],
     });
 
-    let stmt0 = Stmt::Set { target: result, value: call_count };
-    let stmt1 = Stmt::Call { function: print, args: vec![arr1] };
-    let stmt2 = Stmt::Return { value: Some(result_expr) };
+    let stmt0 = Stmt::Set {
+        target: result,
+        value: call_count,
+    };
+    let stmt1 = Stmt::Call {
+        function: print,
+        args: vec![arr1],
+    };
+    let stmt2 = Stmt::Return {
+        value: Some(result_expr),
+    };
 
     let body = [stmt0, stmt1, stmt2];
     let stmts = vec![funcdef(foo, vec![(arr, &seq_ty), (n, &int_ty)], &body)];
 
     let result_liveness = LivenessResult::analyze(&stmts);
 
-    assert!(result_liveness.is_live_after(foo, 0, arr), "arr IS live after stmt 0 (used in print at stmt 1)");
-    assert!(result_liveness.is_live_after(foo, 0, result), "result IS live after stmt 0 (used in Return)");
-    assert!(!result_liveness.is_live_after(foo, 0, n), "n NOT live after stmt 0");
+    assert!(
+        result_liveness.is_live_after(foo, 0, arr),
+        "arr IS live after stmt 0 (used in print at stmt 1)"
+    );
+    assert!(
+        result_liveness.is_live_after(foo, 0, result),
+        "result IS live after stmt 0 (used in Return)"
+    );
+    assert!(
+        !result_liveness.is_live_after(foo, 0, n),
+        "n NOT live after stmt 0"
+    );
+}
+
+#[test]
+fn liveness_a_while_break_keeps_values_read_after_the_loop() {
+    liveness_break_exit(false);
+}
+
+#[test]
+fn liveness_a_repeat_break_keeps_values_read_after_the_loop() {
+    liveness_break_exit(true);
+}
+
+fn liveness_break_exit(repeat: bool) {
+    let mut interner = Interner::new();
+    let exprs: Arena<Expr> = Arena::new();
+    let foo = interner.intern("foo");
+    let xs = interner.intern("xs");
+    let consume = interner.intern("consume");
+    let condition = exprs.alloc(Expr::Identifier(interner.intern("condition")));
+    let value = exprs.alloc(Expr::Identifier(xs));
+    let empty = exprs.alloc(Expr::List(vec![]));
+    let break_arm = [Stmt::Break];
+    let loop_body = [
+        Stmt::Call {
+            function: consume,
+            args: vec![value],
+        },
+        Stmt::If {
+            cond: condition,
+            then_block: &break_arm,
+            else_block: None,
+        },
+        Stmt::Set {
+            target: xs,
+            value: empty,
+        },
+    ];
+    let loop_stmt = if repeat {
+        Stmt::Repeat {
+            pattern: logicaffeine_language::ast::stmt::Pattern::Identifier(interner.intern("item")),
+            iterable: exprs.alloc(Expr::Identifier(interner.intern("items"))),
+            body: &loop_body,
+        }
+    } else {
+        Stmt::While {
+            cond: condition,
+            body: &loop_body,
+            decreasing: None,
+        }
+    };
+    let body = [loop_stmt, Stmt::Return { value: Some(value) }];
+    let program = [funcdef(foo, vec![], &body)];
+    let liveness = LivenessResult::analyze(&program);
+    assert!(
+        liveness.after(&loop_body[0]).unwrap().contains(&xs),
+        "a break bypasses the reassignment: the earlier use cannot move xs"
+    );
+    assert!(
+        liveness.after(&break_arm[0]).unwrap().contains(&xs),
+        "the successor of Break is the loop exit, where xs is read"
+    );
+}
+
+#[test]
+fn liveness_an_inner_break_uses_its_own_exit_not_the_outer_exit() {
+    let mut interner = Interner::new();
+    let exprs: Arena<Expr> = Arena::new();
+    let foo = interner.intern("foo");
+    let xs = interner.intern("xs");
+    let consume = interner.intern("consume");
+    let condition = exprs.alloc(Expr::Identifier(interner.intern("condition")));
+    let value = exprs.alloc(Expr::Identifier(xs));
+    let empty = exprs.alloc(Expr::List(vec![]));
+    let inner = [
+        Stmt::Call {
+            function: consume,
+            args: vec![value],
+        },
+        Stmt::Break,
+    ];
+    let outer = [
+        Stmt::While {
+            cond: condition,
+            body: &inner,
+            decreasing: None,
+        },
+        Stmt::Set {
+            target: xs,
+            value: empty,
+        },
+        Stmt::Break,
+    ];
+    let body = [
+        Stmt::While {
+            cond: condition,
+            body: &outer,
+            decreasing: None,
+        },
+        Stmt::Return { value: Some(value) },
+    ];
+    let program = [funcdef(foo, vec![], &body)];
+    let liveness = LivenessResult::analyze(&program);
+    assert!(
+        !liveness.after(&inner[0]).unwrap().contains(&xs),
+        "the inner exit reassigns xs before its next read, so this use may still move it"
+    );
+    assert!(
+        liveness.after(&outer[2]).unwrap().contains(&xs),
+        "after the inner loop, Break must again target the outer exit"
+    );
+}
+
+#[test]
+fn liveness_an_outer_break_before_an_inner_loop_keeps_the_outer_exit() {
+    let mut interner = Interner::new();
+    let exprs: Arena<Expr> = Arena::new();
+    let foo = interner.intern("foo");
+    let xs = interner.intern("xs");
+    let consume = interner.intern("consume");
+    let condition = exprs.alloc(Expr::Identifier(interner.intern("condition")));
+    let value = exprs.alloc(Expr::Identifier(xs));
+    let empty = exprs.alloc(Expr::List(vec![]));
+    let early_exit = [Stmt::Break];
+    let inner = [
+        Stmt::Call {
+            function: consume,
+            args: vec![value],
+        },
+        Stmt::Break,
+    ];
+    let outer = [
+        Stmt::If {
+            cond: condition,
+            then_block: &early_exit,
+            else_block: None,
+        },
+        Stmt::While {
+            cond: condition,
+            body: &inner,
+            decreasing: None,
+        },
+        Stmt::Set {
+            target: xs,
+            value: empty,
+        },
+    ];
+    let body = [
+        Stmt::While {
+            cond: condition,
+            body: &outer,
+            decreasing: None,
+        },
+        Stmt::Return { value: Some(value) },
+    ];
+    let program = [funcdef(foo, vec![], &body)];
+    let liveness = LivenessResult::analyze(&program);
+    assert!(
+        liveness.after(&early_exit[0]).unwrap().contains(&xs),
+        "a later inner loop cannot change this Break's outer exit"
+    );
+    assert!(
+        !liveness.after(&inner[0]).unwrap().contains(&xs),
+        "the inner exit reassigns xs before reading it"
+    );
 }

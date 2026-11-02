@@ -130,10 +130,8 @@ fn test_lift_lambda_body_bound() {
     //   = SLam (SSort UProp) (SVar 0)
     // The SVar 0 in the body is bound by the lambda, so it doesn't shift
     // Cutoff increments to 1 when we go under the binder
-    repl.execute(
-        "Definition lifted : Syntax := syn_lift 1 0 (SLam (SSort UProp) (SVar 0)).",
-    )
-    .expect("Define");
+    repl.execute("Definition lifted : Syntax := syn_lift 1 0 (SLam (SSort UProp) (SVar 0)).")
+        .expect("Define");
 
     let result = repl.execute("Eval lifted.").expect("Eval");
     assert_eq!(result, "((SLam (SSort UProp)) (SVar 0))");
@@ -147,10 +145,8 @@ fn test_lift_lambda_body_free() {
     //   = SLam (SSort UProp) (SVar 2)
     // The SVar 1 in the body is free (refers to outside the lambda)
     // Under the binder, cutoff is 1, so SVar 1 >= 1 means shift
-    repl.execute(
-        "Definition lifted : Syntax := syn_lift 1 0 (SLam (SSort UProp) (SVar 1)).",
-    )
-    .expect("Define");
+    repl.execute("Definition lifted : Syntax := syn_lift 1 0 (SLam (SSort UProp) (SVar 1)).")
+        .expect("Define");
 
     let result = repl.execute("Eval lifted.").expect("Eval");
     assert_eq!(result, "((SLam (SSort UProp)) (SVar 2))");

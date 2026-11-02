@@ -1,0 +1,38 @@
+{
+  "case": "T12-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 4,
+  "declarations": [
+    {
+      "type": "\u2200 (P Q : Prop), P \u2227 Q \u2192 Q \u2227 P",
+      "name": "T12_003.andCommutative",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), (P \u2192 Q) \u2192 P \u2192 Q",
+      "name": "T12_003.needsTermExact",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), P \u2228 Q \u2192 Q \u2228 P",
+      "name": "T12_003.orCommutative",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), Q \u2192 P \u2192 Q",
+      "name": "T12_003.sadImpliesHappy",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -13,7 +13,7 @@
 //! both `logicaffeine_language` and `logicaffeine_compile` can reach it without
 //! a dependency cycle.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use logicaffeine_kernel::{
     double_check, infer_type, is_subtype, prelude::StandardLibrary, Context, DoubleCheck, Term,
@@ -21,6 +21,7 @@ use logicaffeine_kernel::{
 };
 
 use crate::certifier::{certify, proof_expr_to_type, proof_expr_to_type_ctx, CertificationContext};
+use crate::symbols::{KernelNames, SymbolCollector};
 use crate::{BackwardChainer, DerivationTree, ProofExpr, ProofTerm};
 
 /// Outcome of running a goal through prove → certify → kernel type-check.
@@ -41,6 +42,121 @@ pub struct VerifiedProof {
     pub verified: bool,
     /// Where the chain broke (search, certification, or type-check), if it did.
     pub verification_error: Option<String>,
+}
+
+impl VerifiedProof {
+    /// The axioms this proof transitively rests on — see [`AxiomFootprint`].
+    ///
+    /// Read off the kernel TERM, never the derivation: the derivation is producer
+    /// data the kernel has not vouched for, while the term is exactly what
+    /// `infer_type` accepted. An unverified proof has no term, so it reports
+    /// nothing — there is no proof for anything to rest on.
+    ///
+    /// Transitive through definitions, which is the half no per-declaration
+    /// warning can reach: a term whose body is the bare name `taintedLemma` rests
+    /// on everything `taintedLemma` rests on, and mentions none of it.
+    pub fn axiom_footprint(&self) -> AxiomFootprint {
+        let Some(term) = self.proof_term.as_ref() else {
+            return AxiomFootprint::default();
+        };
+
+        let usage = logicaffeine_kernel::axiom_dependencies(&self.kernel_ctx, term);
+        let cited: BTreeSet<String> = usage.axioms.into_iter().chain(usage.unresolved).collect();
+
+        // The split: ask the trusted base, the standard library's own registration. A
+        // name the prelude declares AT THE SAME TYPE is trusted; anything else — absent,
+        // or present at a different type — was introduced by this run, and that is the
+        // list an admission lands in.
+        let trusted_axioms: HashMap<&str, &Term> =
+            StandardLibrary::context().iter_declarations().collect();
+        let mut footprint = AxiomFootprint::default();
+        for name in cited {
+            let here = self.kernel_ctx.get_global(&name);
+            match trusted_axioms.get(name.as_str()) {
+                Some(prelude_type) if Some(*prelude_type) == here => footprint.trusted.push(name),
+                _ => footprint.introduced.push(name),
+            }
+        }
+        footprint
+    }
+}
+
+/// Every `Global`/`Const` name occurring in `term`, in traversal order (duplicates
+/// included — the caller deduplicates). Exhaustive over [`Term`]: a variant added
+/// without an arm here would silently drop the axioms underneath it.
+fn collect_global_names(term: &Term, out: &mut Vec<String>) {
+    match term {
+        Term::Global(name) => out.push(name.clone()),
+        Term::Const { name, .. } => out.push(name.clone()),
+        Term::Sort(_) | Term::Var(_) | Term::Lit(_) | Term::Hole => {}
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => {
+            collect_global_names(param_type, out);
+            collect_global_names(body_type, out);
+        }
+        Term::Lambda {
+            param_type, body, ..
+        } => {
+            collect_global_names(param_type, out);
+            collect_global_names(body, out);
+        }
+        Term::App(f, a) => {
+            collect_global_names(f, out);
+            collect_global_names(a, out);
+        }
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            collect_global_names(discriminant, out);
+            collect_global_names(motive, out);
+            for case in cases {
+                collect_global_names(case, out);
+            }
+        }
+        Term::Fix { body, .. } => collect_global_names(body, out),
+        Term::MutualFix { defs, .. } => {
+            for (_, body) in defs {
+                collect_global_names(body, out);
+            }
+        }
+        Term::Let {
+            ty, value, body, ..
+        } => {
+            collect_global_names(ty, out);
+            collect_global_names(value, out);
+            collect_global_names(body, out);
+        }
+        Term::Annotated { term, .. } => collect_global_names(term, out),
+    }
+}
+
+/// What a certified proof term actually RESTS ON — the `#print axioms` analogue.
+///
+/// Two kernels give ZERO protection against an added axiom: `double_check` asks
+/// both the same question against the same context, so
+/// `double_check(ctx, sorryAx (2 = 3))` returns `Agreed`. The only thing that
+/// catches an admission is asking what the proof term CITES and comparing that
+/// against a freshly rebuilt trusted base — which is what this report does.
+///
+/// The split is the point. `trusted` is the part of the prelude the proof used,
+/// so a classical theorem is distinguishable from a constructive one by reading
+/// its certificate rather than its prose. `introduced` is everything else the
+/// term cites: this theorem's premise hypotheses and symbols — and anything
+/// smuggled into the context, which is the slot a `sorryAx` lands in.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AxiomFootprint {
+    /// Declarations the term cites that a freshly-registered [`StandardLibrary`]
+    /// also declares, with the same type: the trusted base this proof used.
+    /// Sorted, deduplicated.
+    pub trusted: Vec<String>,
+    /// Declarations the term cites that a rebuilt prelude does NOT declare (or
+    /// declares at a different type). Sorted, deduplicated.
+    pub introduced: Vec<String>,
 }
 
 /// A user-introduced predicate definition (Rung 0a), expressed in the proof
@@ -175,7 +291,11 @@ pub fn prove_library_with_axioms(
 
     theorems
         .iter()
-        .map(|t| by_name.remove(t.name.as_str()).expect("every theorem produces a result"))
+        .map(|t| {
+            by_name
+                .remove(t.name.as_str())
+                .expect("every theorem produces a result")
+        })
         .collect()
 }
 
@@ -205,7 +325,7 @@ pub fn prove_certify_check_bounded(
 /// definitions in the context, then the goal is proved and kernel-checked. The
 /// engine still treats the definiendum opaquely during *search* (Stride 3 adds
 /// expand-for-search); δ reconciles the certified term with the folded goal type
-/// at the [`finish_check`] root.
+/// at the `finish_check` root.
 pub fn prove_certify_check_bounded_with_defs(
     premises: &[ProofExpr],
     goal: &ProofExpr,
@@ -259,7 +379,7 @@ fn prove_certify_check_bounded_with_defs_inner(
 
     // Build the context and hypotheses from the (expanded) search premises so the
     // certifier's PremiseMatch leaves resolve.
-    let (kernel_ctx, flat_premises, prepared_goal) =
+    let (kernel_ctx, flat_premises, prepared_goal, names) =
         prepare_ctx_with_defs(search_premises, search_goal, definitions);
     // Folded goal type: when nothing was expanded, `prepared_goal` is already the
     // folded form; otherwise re-abstract the ORIGINAL goal (the definiendum stays
@@ -273,6 +393,11 @@ fn prove_certify_check_bounded_with_defs_inner(
     // === Prove ===
     let mut engine = BackwardChainer::new();
     engine.set_max_depth(max_depth);
+    // The premises of a THEOREM are the kernel hypotheses registered just above, whose types
+    // mention this statement's free variables as context LOCALS. An instance of one is a
+    // proposition no context carries, so a search that used it would hand `finish_check` a
+    // tree the kernel must refuse. Read them as stated — see `PremiseVariables`.
+    engine.set_premise_variables(crate::PremiseVariables::Local);
     for premise in &flat_premises {
         engine.add_axiom(premise.clone());
     }
@@ -292,7 +417,7 @@ fn prove_certify_check_bounded_with_defs_inner(
         }
     };
 
-    finish_check(kernel_ctx, &abstracted_goal, derivation)
+    finish_check(kernel_ctx, &names, &abstracted_goal, derivation)
 }
 
 /// Certify and kernel-check a derivation built EXTERNALLY (e.g. by the fast grid
@@ -322,6 +447,43 @@ pub fn check_derivation_with_defs(
     on_big_stack(|| check_derivation_with_defs_inner(premises, goal, definitions, derivation))
 }
 
+/// A kernel context prepared ONCE from a scope, against which many candidate derivations can
+/// then be checked — the reusable half of [`check_derivation`].
+///
+/// `check_derivation` rebuilds the standard library, the premise hypotheses and every
+/// referenced symbol on every call. That is right for a one-shot trust door and wrong for a
+/// SEARCH: [`crate::tactic::ProofState::by_rule`] proposes one node per candidate premise
+/// tuple and must ask the kernel about each of them. The scope does not change between those
+/// questions, so it is built once and the per-question cost is the certification itself.
+///
+/// This is the same check `check_derivation` performs — certify, infer, compare to the goal —
+/// so a tactic that consults it before reporting success cannot hand `qed` a tree the kernel
+/// will refuse.
+pub struct ScopedChecker {
+    ctx: Context,
+    goal: ProofExpr,
+    names: KernelNames,
+}
+
+impl ScopedChecker {
+    /// Prepare the context for a goal and the facts in scope.
+    pub fn new(premises: &[ProofExpr], goal: &ProofExpr) -> Self {
+        let (ctx, _flat, abstracted_goal, names) = prepare_ctx_with_defs(premises, goal, &[]);
+        Self {
+            ctx,
+            goal: abstracted_goal,
+            names,
+        }
+    }
+
+    /// Does this derivation certify as a proof of the scope's goal?
+    pub fn certifies(&self, derivation: DerivationTree) -> bool {
+        on_big_stack(|| {
+            finish_check(self.ctx.clone(), &self.names, &self.goal, derivation).verified
+        })
+    }
+}
+
 fn check_derivation_with_defs_inner(
     premises: &[ProofExpr],
     goal: &ProofExpr,
@@ -333,32 +495,24 @@ fn check_derivation_with_defs_inner(
     if let Err(e) = validate_definitions(definitions) {
         return definition_error(e);
     }
-    let (kernel_ctx, _flat_premises, abstracted_goal) =
+    let (kernel_ctx, _flat_premises, abstracted_goal, names) =
         prepare_ctx_with_defs(premises, goal, definitions);
-    finish_check(kernel_ctx, &abstracted_goal, derivation)
+    finish_check(kernel_ctx, &names, &abstracted_goal, derivation)
 }
 
 /// Build the kernel context shared by [`prove_certify_check_bounded`] and
 /// [`check_derivation`]: register the standard library, any user [`Definition`]s
-/// (Rung 0a), the event-ABSTRACTED, conjunction-SPLIT premises as hypotheses
-/// `h1, h2, …`, and every predicate/constant referenced. Returns the context, the
-/// flattened premises, and the abstracted goal.
+/// (Rung 0a), the event-ABSTRACTED, conjunction-SPLIT premises and what their
+/// definite descriptions presuppose as hypotheses `h1, h2, …`, and every
+/// predicate/constant referenced, each predicate under its [`KernelNames`] name.
+/// Returns the context, the flattened premises (presuppositions last), the
+/// abstracted goal, and the kernel names the goal and derivation are read with.
 fn prepare_ctx_with_defs(
     premises: &[ProofExpr],
     goal: &ProofExpr,
     definitions: &[Definition],
-) -> (Context, Vec<ProofExpr>, ProofExpr) {
-    let mut kernel_ctx = Context::new();
-    StandardLibrary::register(&mut kernel_ctx);
-
-    // Rung 0a: register user definitions FIRST, so a definiendum becomes a
-    // δ-unfoldable definition (with a body) rather than an opaque axiom. The
-    // opaque `register_predicate` pass below then skips it (idempotent on
-    // `get_global`). `validate_definitions` already rejected recursive /
-    // unlowerable definitions, so registration here cannot loop.
-    for def in definitions {
-        register_definition(&mut kernel_ctx, def);
-    }
+) -> (Context, Vec<ProofExpr>, ProofExpr, KernelNames) {
+    let mut kernel_ctx = StandardLibrary::context().clone();
 
     // The search, the hypotheses, and the goal type must all live in ONE
     // language: the engine's event-ABSTRACTED form (∃e(Lie(e) ∧ Agent(e, m))
@@ -392,17 +546,33 @@ fn prepare_ctx_with_defs(
         collector.collect(premise);
     }
     collector.collect(&abstracted_goal);
+    // What the problem's definite descriptions presuppose is a premise the engine searches with, so
+    // it is a hypothesis the certifier can cite. Its symbols are the description's own, collected.
+    let presupposed = collector.presuppositions(&flat_premises);
+    flat_premises.extend(presupposed);
     // Definiens bodies reference atomic predicates (and constants) that must be
-    // registered opaquely too, or kernel type-checking of the definition body
-    // fails. The definiendum itself is already a global (registered above), so
-    // `register_predicate` skips it.
+    // registered opaquely too, BEFORE the definitions below, so each definition
+    // body type-checks the moment it is registered. A definiendum is never
+    // registered opaquely: it is collected from an unexpanded goal or premise
+    // exactly like an atom, but it is the δ-unfoldable definition registered
+    // below, and an opaque declaration of the same name would displace it. It is
+    // noted as a predicate even where the δ-expanded premises no longer apply it,
+    // so the kernel names it like any other.
     for def in definitions {
         collector.collect(&def.definiens);
+        collector.collect_definiendum(&def.name, def.params.len());
     }
+    collector.settle_sorts();
+    let names = collector.kernel_names(|name| kernel_ctx.get_global(name).is_some());
+    let definienda: HashSet<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
     // Inductive-domain predicates first (the induction motive needs `P : Ind → Prop`,
     // e.g. `Nat → Prop` or `List → Prop`); the generic `Entity` registration below is
     // idempotent and skips them.
     for (name, ind) in collector.inductive_predicates() {
+        if definienda.contains(name.as_str()) {
+            continue;
+        }
+        let name = names.predicate(name);
         if kernel_ctx.get_global(name).is_none() {
             kernel_ctx.add_declaration(
                 name,
@@ -415,10 +585,24 @@ fn prepare_ctx_with_defs(
         }
     }
     for (name, arity) in collector.predicates() {
-        register_predicate(&mut kernel_ctx, name, arity);
+        if definienda.contains(name.as_str()) {
+            continue;
+        }
+        register_predicate(&mut kernel_ctx, names.predicate(name), arity);
     }
+    let int_valued: HashSet<String> = collector
+        .functions()
+        .filter(|(n, _)| collector.is_int_valued(n))
+        .map(|(n, _)| n.clone())
+        .collect();
     for (name, arity) in collector.functions() {
-        register_function(&mut kernel_ctx, name, arity);
+        register_function(
+            &mut kernel_ctx,
+            name,
+            arity,
+            int_valued.contains(name),
+            &collector.int_domain(name),
+        );
     }
     // Temporal modalities `Op : Prop → Prop` (`Past`, `Future`, …), so a tensed
     // proposition `Past(P)` type-checks as a distinct proposition from `P`.
@@ -430,6 +614,13 @@ fn prepare_ctx_with_defs(
     for name in collector.int_atoms() {
         if kernel_ctx.get_global(name).is_none() {
             kernel_ctx.add_declaration(name, Term::Global("Int".to_string()));
+        }
+    }
+    // FREE proof-variables are kernel LOCALS (see `free_variables`), registered before the
+    // hypothesis types below so a premise mentioning one type-checks.
+    for (name, domain) in collector.free_variables() {
+        if kernel_ctx.get(name).is_none() {
+            kernel_ctx.add(name, Term::Global(domain.to_string()));
         }
     }
     // Definition parameters are λ-bound in the registered body, not constants;
@@ -445,8 +636,22 @@ fn prepare_ctx_with_defs(
         register_constant(&mut kernel_ctx, name);
     }
 
+    // Rung 0a: register user definitions as δ-unfoldable kernel definitions
+    // (with a body) rather than opaque axioms — after every atom a definiens
+    // mentions is declared, so the kernel checks each body here and now instead
+    // of holding it as a pending obligation. `validate_definitions` already
+    // rejected recursive / unlowerable definitions, so registration cannot loop.
+    for def in definitions {
+        let kernel_def = Definition {
+            name: names.predicate(&def.name).to_string(),
+            params: def.params.clone(),
+            definiens: names.expr(&def.definiens).into_owned(),
+        };
+        register_definition(&mut kernel_ctx, &kernel_def);
+    }
+
     for (i, premise) in flat_premises.iter().enumerate() {
-        if let Ok(hyp_type) = proof_expr_to_type_ctx(premise, &kernel_ctx) {
+        if let Ok(hyp_type) = proof_expr_to_type_ctx(&names.expr(premise), &kernel_ctx) {
             let hyp_name = format!("h{}", i + 1);
             kernel_ctx.add_declaration(&hyp_name, hyp_type);
         }
@@ -459,13 +664,13 @@ fn prepare_ctx_with_defs(
     for (i, premise) in premises.iter().enumerate() {
         let whole = expand_iff(&engine_for_abstraction.abstract_all_events(premise));
         if matches!(whole, ProofExpr::And(_, _)) {
-            if let Ok(hyp_type) = proof_expr_to_type(&whole) {
+            if let Ok(hyp_type) = proof_expr_to_type(&names.expr(&whole)) {
                 kernel_ctx.add_declaration(&format!("hw{}", i + 1), hyp_type);
             }
         }
     }
 
-    (kernel_ctx, flat_premises, abstracted_goal)
+    (kernel_ctx, flat_premises, abstracted_goal, names)
 }
 
 /// Certify `derivation` and require its inferred kernel type to be the goal type —
@@ -500,6 +705,7 @@ pub(crate) fn on_big_stack<T: Send>(f: impl FnOnce() -> T + Send) -> T {
 
 fn finish_check(
     kernel_ctx: Context,
+    names: &KernelNames,
     abstracted_goal: &ProofExpr,
     derivation: DerivationTree,
 ) -> VerifiedProof {
@@ -508,7 +714,7 @@ fn finish_check(
     let t_cert = trace.then(std::time::Instant::now);
     let proof_term = {
         let cert_ctx = CertificationContext::new(&kernel_ctx);
-        match certify(&derivation, &cert_ctx) {
+        match certify(&names.tree(&derivation), &cert_ctx) {
             Ok(t) => t,
             Err(e) => {
                 return VerifiedProof {
@@ -551,7 +757,7 @@ fn finish_check(
         eprintln!("[cert] infer_type(check) {:.2?}", t_infer.elapsed());
     }
 
-    let goal_type = match proof_expr_to_type_ctx(abstracted_goal, &kernel_ctx) {
+    let goal_type = match proof_expr_to_type_ctx(&names.expr(abstracted_goal), &kernel_ctx) {
         Ok(t) => t,
         Err(e) => {
             return VerifiedProof {
@@ -587,7 +793,27 @@ fn finish_check(
     // opaque) leaves the main kernel authoritative. Only a genuine `Disagree` — one kernel
     // accepts, the other rejects, or they infer different types — rejects the proof: that
     // is exactly the soundness alarm a second kernel exists to raise.
-    if let DoubleCheck::Disagree(why) = double_check(&kernel_ctx, &proof_term) {
+    // The re-checker translates to de Bruijn indices and has no notion of a context's LOCAL
+    // bindings, so a term mentioning a statement's FREE variable (`∃m. m = n + 1`, Lean's
+    // `variable (n : Int)`) is rejected by it as "unbound local variable" even though the main
+    // kernel — which does consult `bindings` — accepted it. Closing the term over exactly those
+    // locals gives the two kernels the same CLOSED object to check, and the closure's type is
+    // the universal quantification of the theorem, so agreement on it is strictly stronger than
+    // agreement on the open judgement. The stored `proof_term` stays the open one: it is what
+    // `is_subtype` compared against the goal, and what the axiom footprint is read from.
+    // Closing the TERM is necessary and was not sufficient: a hypothesis registered from a
+    // premise that mentions a free variable has a TYPE mentioning it too (`h3 : P n`), and the
+    // re-checker converts a declaration's type to de Bruijn in an EMPTY scope — so it reported
+    // `unbound local variable 'n'` about a proof the main kernel had just accepted, and
+    // `double_check` called that a DISAGREEMENT. See [`recheck_view`].
+    let (recheck_ctx, closed) = match recheck_view(&kernel_ctx, &proof_term) {
+        Some(pair) => pair,
+        None => (
+            kernel_ctx.clone(),
+            close_over_context_locals(&kernel_ctx, &proof_term),
+        ),
+    };
+    if let DoubleCheck::Disagree(why) = double_check(&recheck_ctx, &closed) {
         return VerifiedProof {
             derivation: Some(derivation),
             proof_term: None,
@@ -603,6 +829,256 @@ fn finish_check(
         kernel_ctx,
         verified: true,
         verification_error: None,
+    }
+}
+
+/// The RE-CHECKER'S VIEW of a proof: every context LOCAL the proof depends on promoted to an
+/// opaque DECLARATION, and every `Var` naming one rewritten to the matching `Global` — in the
+/// proof term AND in the declaration types that mention it. `None` when no local is involved,
+/// which is the ordinary case and costs nothing.
+///
+/// [`close_over_context_locals`] closes the TERM, and that is not enough. A premise that
+/// mentions a statement's free variable is registered as a hypothesis whose TYPE mentions it
+/// too — `h3 : P n` — and the re-checker lowers a declaration's type to de Bruijn in an EMPTY
+/// scope, so it rejects `unbound local variable 'n'` about a proof the main kernel (which
+/// consults `bindings`) has just accepted. `double_check` then reports a DISAGREEMENT, and a
+/// disagreement is the SOUNDNESS ALARM a second kernel exists to raise: raising it on a valid
+/// proof is the one answer that is wrong either way. Measured on `induction n` over a free
+/// local, whose premises are the induction principle and whose goal is `P n`.
+///
+/// Promotion rather than λ-closure is what reaches the types. A local of a closed type is
+/// interchangeable with an opaque constant of that type — it is exactly what Lean's
+/// `variable (n : Nat)` is — so the two kernels are handed the same CLOSED object in a context
+/// where nothing is a local at all, and neither has to know what a local is.
+fn recheck_view(ctx: &Context, term: &Term) -> Option<(Context, Term)> {
+    // Which locals can be reached: the ones the TERM mentions, plus the ones mentioned by the
+    // type of any global the term cites (that is where a hypothesis about a free variable is).
+    let mut names = BTreeSet::new();
+    collect_free_kernel_vars(term, &mut Vec::new(), &mut names);
+    let mut globals = Vec::new();
+    collect_global_names(term, &mut globals);
+    for g in &globals {
+        if let Some(ty) = ctx.get_global(g) {
+            collect_free_kernel_vars(ty, &mut Vec::new(), &mut names);
+        }
+    }
+    names.retain(|n| ctx.get(n).is_some());
+    if names.is_empty() {
+        return None;
+    }
+
+    let mut out = ctx.clone();
+    for name in &names {
+        if let Some(ty) = ctx.get(name) {
+            out.add_declaration(name, ty.clone());
+        }
+    }
+    let rewritten: Vec<(String, Term)> = ctx
+        .iter_declarations()
+        .filter_map(|(decl, ty)| {
+            let fresh = vars_to_globals(ty, &names, &mut Vec::new());
+            (fresh != *ty).then(|| (decl.to_string(), fresh))
+        })
+        .collect();
+    for (decl, ty) in rewritten {
+        out.add_declaration(&decl, ty);
+    }
+    Some((out, vars_to_globals(term, &names, &mut Vec::new())))
+}
+
+/// Rewrite every free `Var(n)` with `n` in `names` to `Global(n)`. A binder of the same name
+/// SHADOWS the local, so `bound` is tracked exactly as [`collect_free_kernel_vars`] tracks it —
+/// the eliminator's own `λn` must keep binding its own `n`.
+fn vars_to_globals(term: &Term, names: &BTreeSet<String>, bound: &mut Vec<String>) -> Term {
+    match term {
+        Term::Var(name) => {
+            if names.contains(name) && !bound.iter().any(|b| b == name) {
+                Term::Global(name.clone())
+            } else {
+                term.clone()
+            }
+        }
+        Term::App(f, a) => Term::App(
+            Box::new(vars_to_globals(f, names, bound)),
+            Box::new(vars_to_globals(a, names, bound)),
+        ),
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => {
+            let dom = vars_to_globals(param_type, names, bound);
+            bound.push(param.clone());
+            let cod = vars_to_globals(body_type, names, bound);
+            bound.pop();
+            Term::Pi {
+                param: param.clone(),
+                param_type: Box::new(dom),
+                body_type: Box::new(cod),
+            }
+        }
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => {
+            let dom = vars_to_globals(param_type, names, bound);
+            bound.push(param.clone());
+            let inner = vars_to_globals(body, names, bound);
+            bound.pop();
+            Term::Lambda {
+                param: param.clone(),
+                param_type: Box::new(dom),
+                body: Box::new(inner),
+            }
+        }
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => Term::Match {
+            discriminant: Box::new(vars_to_globals(discriminant, names, bound)),
+            motive: Box::new(vars_to_globals(motive, names, bound)),
+            cases: cases
+                .iter()
+                .map(|c| vars_to_globals(c, names, bound))
+                .collect(),
+        },
+        Term::Fix { name, body } => {
+            bound.push(name.clone());
+            let inner = vars_to_globals(body, names, bound);
+            bound.pop();
+            Term::Fix {
+                name: name.clone(),
+                body: Box::new(inner),
+            }
+        }
+        Term::MutualFix { defs, index } => {
+            for (n, _) in defs {
+                bound.push(n.clone());
+            }
+            let out = defs
+                .iter()
+                .map(|(n, b)| (n.clone(), vars_to_globals(b, names, bound)))
+                .collect();
+            for _ in defs {
+                bound.pop();
+            }
+            Term::MutualFix {
+                defs: out,
+                index: *index,
+            }
+        }
+        Term::Let {
+            name,
+            ty,
+            value,
+            body,
+        } => {
+            let t = vars_to_globals(ty, names, bound);
+            let v = vars_to_globals(value, names, bound);
+            bound.push(name.clone());
+            let b = vars_to_globals(body, names, bound);
+            bound.pop();
+            Term::Let {
+                name: name.clone(),
+                ty: Box::new(t),
+                value: Box::new(v),
+                body: Box::new(b),
+            }
+        }
+        Term::Annotated { annotation, term } => Term::Annotated {
+            annotation: annotation.clone(),
+            term: Box::new(vars_to_globals(term, names, bound)),
+        },
+        Term::Sort(_) | Term::Global(_) | Term::Const { .. } | Term::Lit(_) | Term::Hole => {
+            term.clone()
+        }
+    }
+}
+
+/// The UNIVERSAL CLOSURE of a proof term: `term` wrapped in a λ for every LOCAL binding of
+/// `ctx` that occurs free in it, so the result is closed.
+///
+/// A statement may mention variables free — Lean's `variable (n : Int)`, our
+/// `∃m. m = n + 1` — and the certifier lowers those to `Term::Var`, which the main kernel
+/// resolves through the context's `bindings`. The independent RE-CHECKER translates to de
+/// Bruijn indices and has no notion of a context's locals at all, so it rejects any such term
+/// as "unbound local variable" and `double_check` reports a disagreement about a proof both
+/// kernels would accept in closed form. Closing the term hands them the same closed object;
+/// its type is the theorem's universal quantification, so agreement on it is strictly stronger
+/// than agreement on the open judgement.
+///
+/// Order is the deterministic sorted order of the names; every such binding's type is a closed
+/// `Global` (`Int`/`Entity`), so the binders are independent and the order does not matter.
+pub fn close_over_context_locals(ctx: &Context, term: &Term) -> Term {
+    let mut free = std::collections::BTreeSet::new();
+    collect_free_kernel_vars(term, &mut Vec::new(), &mut free);
+    let mut out = term.clone();
+    for name in free.iter().rev() {
+        let Some(ty) = ctx.get(name) else { continue };
+        out = Term::Lambda {
+            param: (*name).clone(),
+            param_type: Box::new(ty.clone()),
+            body: Box::new(out),
+        };
+    }
+    out
+}
+
+/// Every `Term::Var` of `term` that no enclosing binder introduces.
+fn collect_free_kernel_vars(
+    term: &Term,
+    bound: &mut Vec<String>,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    match term {
+        Term::Var(name) => {
+            if !bound.iter().any(|b| b == name) {
+                out.insert(name.clone());
+            }
+        }
+        Term::App(f, a) => {
+            collect_free_kernel_vars(f, bound, out);
+            collect_free_kernel_vars(a, bound, out);
+        }
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => {
+            collect_free_kernel_vars(param_type, bound, out);
+            bound.push(param.clone());
+            collect_free_kernel_vars(body_type, bound, out);
+            bound.pop();
+        }
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => {
+            collect_free_kernel_vars(param_type, bound, out);
+            bound.push(param.clone());
+            collect_free_kernel_vars(body, bound, out);
+            bound.pop();
+        }
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            collect_free_kernel_vars(discriminant, bound, out);
+            collect_free_kernel_vars(motive, bound, out);
+            for c in cases {
+                collect_free_kernel_vars(c, bound, out);
+            }
+        }
+        Term::Fix { name, body } => {
+            bound.push(name.clone());
+            collect_free_kernel_vars(body, bound, out);
+            bound.pop();
+        }
+        _ => {}
     }
 }
 
@@ -683,232 +1159,8 @@ fn collect_premise_leaves<'a>(tree: &'a DerivationTree, out: &mut Vec<&'a ProofE
 }
 
 // =============================================================================
-// Symbol collection & registration (proof + kernel only — no language dep)
+// Symbol registration (proof + kernel only — no language dep)
 // =============================================================================
-
-/// Collects predicate and constant names from a `ProofExpr`. Predicates are
-/// keyed to their arity (the max seen) so they register with the right type
-/// `Entity → … → Entity → Prop`, which is what lets relations like `shaves(a,b)`
-/// type-check.
-struct SymbolCollector {
-    predicates: HashMap<String, usize>,
-    functions: HashMap<String, usize>,
-    constants: HashSet<String>,
-    /// Lowercase `Constant` names — candidate individual constants. The pipeline
-    /// capitalizes proper names, but a definite description ("the butler") yields
-    /// a lowercase `Constant("butler")`. Such a name IS an individual constant
-    /// unless the SAME name is also used as a genuine variable (a quantifier
-    /// binder or a `Variable` occurrence), in which case the lowercase `Constant`
-    /// is a stray variable spelling and must stay unregistered.
-    weak_constants: HashSet<String>,
-    /// Names that occur as a genuine variable — a quantifier binder or a
-    /// `ProofTerm::Variable`. A `weak_constants` candidate colliding with one of
-    /// these is NOT registered as a constant.
-    variables: HashSet<String>,
-    /// Atoms that occur in an arithmetic/comparison argument position, so must be
-    /// typed `Int` (not the `Entity` default) — `le`/`lt`/… need `Int` operands.
-    int_atoms: HashSet<String>,
-    /// Unary predicates applied to an inductive-type constructor (`Zero`/`Succ` →
-    /// `Nat`, `Nil`/`Cons` → `List`), mapped to that inductive type's name, so they
-    /// are typed `<Ind> → Prop` (not the `Entity` default) — the motive of a
-    /// structural-`induction` proof is `λx:Ind. P(x)`, so `P` must accept `Ind`.
-    inductive_predicates: HashMap<String, &'static str>,
-    /// Temporal modality operators (`Past`, `Future`, …) seen wrapping a
-    /// proposition, each registered as an opaque `Op : Prop → Prop`.
-    modalities: HashSet<String>,
-}
-
-impl SymbolCollector {
-    fn new() -> Self {
-        SymbolCollector {
-            predicates: HashMap::new(),
-            functions: HashMap::new(),
-            constants: HashSet::new(),
-            weak_constants: HashSet::new(),
-            variables: HashSet::new(),
-            int_atoms: HashSet::new(),
-            inductive_predicates: HashMap::new(),
-            modalities: HashSet::new(),
-        }
-    }
-
-    /// Mark a term that sits in an Int position. Atoms become `Int`; nested
-    /// arithmetic propagates the Int-ness to its own operands.
-    fn mark_int(&mut self, term: &ProofTerm) {
-        match term {
-            // Numeric literals lower to `Lit(Int)` (certifier) — no declaration.
-            ProofTerm::Constant(s) if s.parse::<i64>().is_ok() => {}
-            ProofTerm::Constant(s) | ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => {
-                self.int_atoms.insert(s.clone());
-            }
-            ProofTerm::Function(name, args)
-                if matches!(name.as_str(), "add" | "sub" | "mul" | "div" | "mod") =>
-            {
-                for a in args {
-                    self.mark_int(a);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn note_predicate(&mut self, name: &str, arity: usize) {
-        self.predicates
-            .entry(name.to_string())
-            .and_modify(|a| *a = (*a).max(arity))
-            .or_insert(arity);
-    }
-
-    /// A `ProofTerm::Function` is Entity-valued (a function on entities), never a
-    /// proposition — only `ProofExpr::Predicate` is propositional. Registering it
-    /// as `Entity → … → Entity` (not `… → Prop`) lets `F(a)` appear inside terms
-    /// like `Eq Entity (F a) (F b)`, the basis for congruence.
-    fn note_function(&mut self, name: &str, arity: usize) {
-        self.functions
-            .entry(name.to_string())
-            .and_modify(|a| *a = (*a).max(arity))
-            .or_insert(arity);
-    }
-
-    fn collect(&mut self, expr: &ProofExpr) {
-        match expr {
-            ProofExpr::Predicate { name, args, .. } => {
-                self.note_predicate(name, args.len());
-                // A unary predicate applied to an inductive-type constructor is
-                // `<Ind> → Prop`, so it can be the motive of a structural induction.
-                if args.len() == 1 {
-                    if let Some(ind) = constructor_domain(&args[0]) {
-                        self.inductive_predicates.insert(name.clone(), ind);
-                    }
-                }
-                for arg in args {
-                    self.collect_term(arg);
-                }
-            }
-            ProofExpr::And(l, r)
-            | ProofExpr::Or(l, r)
-            | ProofExpr::Implies(l, r)
-            | ProofExpr::Iff(l, r) => {
-                self.collect(l);
-                self.collect(r);
-            }
-            ProofExpr::Not(inner) => self.collect(inner),
-            ProofExpr::ForAll { variable, body } | ProofExpr::Exists { variable, body } => {
-                self.variables.insert(variable.clone());
-                self.collect(body);
-            }
-            // A temporal modality `Op(P)`: note the operator (registered as
-            // `Op : Prop → Prop`) and recurse so `P`'s own predicates register.
-            ProofExpr::Temporal { operator, body } => {
-                self.modalities.insert(operator.clone());
-                self.collect(body);
-            }
-            ProofExpr::Identity(l, r) => {
-                self.collect_term(l);
-                self.collect_term(r);
-            }
-            // Atoms are propositional constants, not FOL predicates.
-            _ => {}
-        }
-    }
-
-    fn collect_term(&mut self, term: &ProofTerm) {
-        match term {
-            ProofTerm::Constant(name) => {
-                // Proper names (capitalized) and numeric labels (a year like `2004`)
-                // are unambiguously Entity constants. A lowercase name — a definite
-                // description's referent ("the butler" → `Constant("butler")`) — is a
-                // constant TOO, but only if it is never used as a genuine variable
-                // (a binder or `Variable` occurrence); that collision is resolved in
-                // `constants()`, once every symbol has been seen.
-                if name
-                    .chars()
-                    .next()
-                    .map(|c| c.is_uppercase() || c.is_ascii_digit())
-                    .unwrap_or(false)
-                {
-                    self.constants.insert(name.clone());
-                } else {
-                    self.weak_constants.insert(name.clone());
-                }
-            }
-            ProofTerm::Variable(name) | ProofTerm::BoundVarRef(name) => {
-                self.variables.insert(name.clone());
-            }
-            ProofTerm::Function(name, args) => {
-                // Arithmetic / comparison builtins are prelude globals (typed
-                // `Int → … → Int`/`Bool`); don't re-declare them, but type their
-                // operands as `Int`. Other functions are uninterpreted (Entity).
-                if matches!(
-                    name.as_str(),
-                    "le" | "lt" | "ge" | "gt" | "add" | "sub" | "mul" | "div" | "mod"
-                ) {
-                    for arg in args {
-                        self.mark_int(arg);
-                    }
-                } else {
-                    self.note_function(name, args.len());
-                }
-                for arg in args {
-                    self.collect_term(arg);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn predicates(&self) -> impl Iterator<Item = (&String, usize)> {
-        self.predicates.iter().map(|(n, a)| (n, *a))
-    }
-
-    fn functions(&self) -> impl Iterator<Item = (&String, usize)> {
-        self.functions.iter().map(|(n, a)| (n, *a))
-    }
-
-    fn int_atoms(&self) -> impl Iterator<Item = &String> {
-        self.int_atoms.iter()
-    }
-
-    fn inductive_predicates(&self) -> impl Iterator<Item = (&String, &'static str)> {
-        self.inductive_predicates.iter().map(|(n, d)| (n, *d))
-    }
-
-    fn constants(&self) -> Vec<&String> {
-        // Capitalized/numeric constants always register; a lowercase candidate
-        // registers only when the name is never a genuine variable.
-        self.constants
-            .iter()
-            .chain(
-                self.weak_constants
-                    .iter()
-                    .filter(|n| !self.variables.contains(*n)),
-            )
-            .collect()
-    }
-
-    fn modalities(&self) -> impl Iterator<Item = &String> {
-        self.modalities.iter()
-    }
-}
-
-/// The inductive type whose constructor `t` is — `Zero`/`Succ` ⇒ `Nat`,
-/// `ENil`/`ECons` ⇒ `EList` — or `None` if `t` is not a recognized prelude
-/// constructor. The signal that a unary predicate applied to `t` ranges over that
-/// inductive type, not `Entity`, so it can serve as a structural-induction motive
-/// `λx:Ind. P(x)`. (The `E`-prefixed list names are the prelude's monomorphic
-/// `EList`, distinct from a user program's parametric `List`/`Nil`/`Cons`.)
-fn constructor_domain(t: &ProofTerm) -> Option<&'static str> {
-    let name = match t {
-        ProofTerm::Constant(s) => s.as_str(),
-        ProofTerm::Function(n, _) => n.as_str(),
-        _ => return None,
-    };
-    match name {
-        "Zero" | "Succ" => Some("Nat"),
-        "ENil" | "ECons" => Some("EList"),
-        _ => None,
-    }
-}
 
 /// Register a predicate `P : Entity → … → Entity → Prop` of the given arity
 /// (idempotent). Arity 0 registers a propositional constant `P : Prop`.
@@ -916,10 +1168,21 @@ fn constructor_domain(t: &ProofTerm) -> Option<&'static str> {
 fn count_term_nodes(t: &Term) -> usize {
     match t {
         Term::App(f, a) => 1 + count_term_nodes(f) + count_term_nodes(a),
-        Term::Pi { param_type, body_type, .. } => 1 + count_term_nodes(param_type) + count_term_nodes(body_type),
-        Term::Lambda { param_type, body, .. } => 1 + count_term_nodes(param_type) + count_term_nodes(body),
-        Term::Match { discriminant, motive, cases } => {
-            1 + count_term_nodes(discriminant) + count_term_nodes(motive)
+        Term::Pi {
+            param_type,
+            body_type,
+            ..
+        } => 1 + count_term_nodes(param_type) + count_term_nodes(body_type),
+        Term::Lambda {
+            param_type, body, ..
+        } => 1 + count_term_nodes(param_type) + count_term_nodes(body),
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => {
+            1 + count_term_nodes(discriminant)
+                + count_term_nodes(motive)
                 + cases.iter().map(count_term_nodes).sum::<usize>()
         }
         Term::Fix { body, .. } => 1 + count_term_nodes(body),
@@ -942,18 +1205,31 @@ fn register_predicate(ctx: &mut Context, name: &str, arity: usize) {
     ctx.add_declaration(name, ty);
 }
 
-/// Register a function symbol `f : Entity → … → Entity → Entity` of the given arity
-/// (idempotent). Unlike a predicate, a function is Entity-valued, so `f(a)` is a
-/// term that can be compared by equality and rewritten under congruence.
-fn register_function(ctx: &mut Context, name: &str, arity: usize) {
+/// Register a function symbol of the given arity (idempotent): an argument position the
+/// statement passes an `Int` (`int_domain`, settled by [`SymbolCollector::settle_sorts`])
+/// takes `Int` and every other `Entity`, and the result is `Int` when `int_valued` and
+/// `Entity` otherwise. Unlike a predicate, a function is term-valued, so `f(a)` can be
+/// compared by equality and rewritten under congruence.
+fn register_function(
+    ctx: &mut Context,
+    name: &str,
+    arity: usize,
+    int_valued: bool,
+    int_domain: &std::collections::BTreeSet<usize>,
+) {
     if ctx.get_global(name).is_some() {
         return;
     }
-    let mut ty = Term::Global("Entity".to_string());
-    for _ in 0..arity {
+    let mut ty = Term::Global(if int_valued { "Int" } else { "Entity" }.to_string());
+    for position in (0..arity).rev() {
+        let domain = if int_domain.contains(&position) {
+            "Int"
+        } else {
+            "Entity"
+        };
         ty = Term::Pi {
             param: "_".to_string(),
-            param_type: Box::new(Term::Global("Entity".to_string())),
+            param_type: Box::new(Term::Global(domain.to_string())),
             body_type: Box::new(ty),
         };
     }
@@ -1099,22 +1375,40 @@ fn subst_global_to_var(term: Term, name: &str) -> Term {
             Box::new(subst_global_to_var(*f, name)),
             Box::new(subst_global_to_var(*a, name)),
         ),
-        Term::Pi { param, param_type, body_type } => Term::Pi {
+        Term::Pi {
+            param,
+            param_type,
+            body_type,
+        } => Term::Pi {
             param,
             param_type: Box::new(subst_global_to_var(*param_type, name)),
             body_type: Box::new(subst_global_to_var(*body_type, name)),
         },
-        Term::Lambda { param, param_type, body } => Term::Lambda {
+        Term::Lambda {
+            param,
+            param_type,
+            body,
+        } => Term::Lambda {
             param,
             param_type: Box::new(subst_global_to_var(*param_type, name)),
             body: Box::new(subst_global_to_var(*body, name)),
         },
-        Term::Match { discriminant, motive, cases } => Term::Match {
+        Term::Match {
+            discriminant,
+            motive,
+            cases,
+        } => Term::Match {
             discriminant: Box::new(subst_global_to_var(*discriminant, name)),
             motive: Box::new(subst_global_to_var(*motive, name)),
-            cases: cases.into_iter().map(|c| subst_global_to_var(c, name)).collect(),
+            cases: cases
+                .into_iter()
+                .map(|c| subst_global_to_var(c, name))
+                .collect(),
         },
-        Term::Fix { name: fix_name, body } => Term::Fix {
+        Term::Fix {
+            name: fix_name,
+            body,
+        } => Term::Fix {
             name: fix_name,
             body: Box::new(subst_global_to_var(*body, name)),
         },
@@ -1168,8 +1462,10 @@ fn def_edges(definitions: &[Definition]) -> Vec<(String, Vec<String>)> {
 /// for a DAG. O(V + E).
 fn find_definition_cycle(definitions: &[Definition]) -> Option<Vec<String>> {
     let edges = def_edges(definitions);
-    let adj: HashMap<&str, &[String]> =
-        edges.iter().map(|(n, u)| (n.as_str(), u.as_slice())).collect();
+    let adj: HashMap<&str, &[String]> = edges
+        .iter()
+        .map(|(n, u)| (n.as_str(), u.as_slice()))
+        .collect();
 
     let mut indeg: HashMap<&str, usize> = adj.keys().map(|n| (*n, 0usize)).collect();
     for deps in adj.values() {
@@ -1307,7 +1603,11 @@ fn expand_defs_in_expr(
 /// definiens, when δ-expanding a definition occurrence.
 fn substitute_params(expr: &ProofExpr, params: &[String], args: &[ProofTerm]) -> ProofExpr {
     match expr {
-        ProofExpr::Predicate { name, args: pargs, world } => ProofExpr::Predicate {
+        ProofExpr::Predicate {
+            name,
+            args: pargs,
+            world,
+        } => ProofExpr::Predicate {
             name: name.clone(),
             args: pargs.iter().map(|t| subst_term(t, params, args)).collect(),
             world: world.clone(),
@@ -1358,9 +1658,7 @@ fn expand_iff(expr: &ProofExpr) -> ProofExpr {
                 Box::new(ProofExpr::Implies(Box::new(q), Box::new(p))),
             )
         }
-        ProofExpr::And(l, r) => {
-            ProofExpr::And(Box::new(expand_iff(l)), Box::new(expand_iff(r)))
-        }
+        ProofExpr::And(l, r) => ProofExpr::And(Box::new(expand_iff(l)), Box::new(expand_iff(r))),
         ProofExpr::Or(l, r) => ProofExpr::Or(Box::new(expand_iff(l)), Box::new(expand_iff(r))),
         ProofExpr::Implies(l, r) => {
             ProofExpr::Implies(Box::new(expand_iff(l)), Box::new(expand_iff(r)))

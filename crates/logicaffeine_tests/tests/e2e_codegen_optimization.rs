@@ -68,10 +68,16 @@ Show sumL(10000, 0).
 "#;
     assert_exact_output(code, "50005000");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("loop {"),
-        "Let-Return pair tail call should be lowered to a TCE loop, got:\n{}", rust);
-    assert!(rust.contains("continue;"),
-        "TCE loop-back should reassign params and continue, got:\n{}", rust);
+    assert!(
+        rust.contains("loop {"),
+        "Let-Return pair tail call should be lowered to a TCE loop, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("continue;"),
+        "TCE loop-back should reassign params and continue, got:\n{}",
+        rust
+    );
 }
 
 /// The `Set x to self(args); Return x` pair (mutable binding) is the quicksort
@@ -91,10 +97,16 @@ Show sumS(10000, 0).
 "#;
     assert_exact_output(code, "50005000");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("loop {"),
-        "Set-Return pair tail call should be lowered to a TCE loop, got:\n{}", rust);
-    assert!(rust.contains("continue;"),
-        "TCE loop-back should reassign params and continue, got:\n{}", rust);
+    assert!(
+        rust.contains("loop {"),
+        "Set-Return pair tail call should be lowered to a TCE loop, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("continue;"),
+        "TCE loop-back should reassign params and continue, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -315,9 +327,17 @@ Show sum.
     let rust = compile_to_rust(code).unwrap();
     // The for-range pattern should fire, and since `i` is not used after the loop,
     // there should be no dead `let mut i = 10;` post-loop counter.
-    assert!(rust.contains("for i in 0..10"), "Should use for-range pattern, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in 0..10"),
+        "Should use for-range pattern, got:\n{}",
+        rust
+    );
     // After the for loop, i should NOT be re-declared since it's unused
-    assert!(!rust.contains("let mut i = 10;"), "Dead post-loop counter should be eliminated, got:\n{}", rust);
+    assert!(
+        !rust.contains("let mut i = 10;"),
+        "Dead post-loop counter should be eliminated, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -333,9 +353,17 @@ Show i.
 "#;
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("for i in 0..5"), "Should use for-range pattern, got:\n{}", rust);
+    assert!(
+        rust.contains("for i in 0..5"),
+        "Should use for-range pattern, got:\n{}",
+        rust
+    );
     // i IS used after the loop (in Show), so the post-loop binding must exist
-    assert!(rust.contains("let mut i = 5;"), "Post-loop counter should be kept when used, got:\n{}", rust);
+    assert!(
+        rust.contains("let mut i: i64 = 5;"),
+        "Post-loop counter should be kept when used, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -364,8 +392,11 @@ Show sumTo(10).
     let has_for_range = rust.contains("for i in");
     let has_closed_form = (rust.contains("n + 1") || rust.contains("logos_add_exact(n, 1)"))
         && (rust.contains("/ 2") || rust.contains("logos_div_exact"));
-    assert!(has_for_range || has_closed_form,
-        "Should use for-range pattern or closed-form formula, got:\n{}", rust);
+    assert!(
+        has_for_range || has_closed_form,
+        "Should use for-range pattern or closed-form formula, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -388,8 +419,11 @@ Show item 1 of counts.
     let rust = compile_to_rust(code).unwrap();
     // The codegen should NOT emit std::collections::HashMap — it uses the Map alias
     // (FxHashMap-backed) or the specialized LogosI64Map.
-    assert!(!rust.contains("std::collections::HashMap"),
-        "Map codegen should not use std::collections::HashMap, got:\n{}", rust);
+    assert!(
+        !rust.contains("std::collections::HashMap"),
+        "Map codegen should not use std::collections::HashMap, got:\n{}",
+        rust
+    );
     // The type registration uses FxHashMap (Map alias) or a specialized map tier
     // (open-addressing LogosI64Map, or the i32-narrowed LogosI32Map for bounded
     // keys/values).
@@ -416,10 +450,16 @@ If items contains 42:
     assert_exact_output(code, "found");
     let rust = compile_to_rust(code).unwrap();
     // The codegen should NOT emit std::collections::HashSet
-    assert!(!rust.contains("std::collections::HashSet"),
-        "Set codegen should not use std::collections::HashSet, got:\n{}", rust);
-    assert!(rust.contains("FxHashSet") || rust.contains("Set::<"),
-        "Set codegen should use FxHashSet or Set alias, got:\n{}", rust);
+    assert!(
+        !rust.contains("std::collections::HashSet"),
+        "Set codegen should not use std::collections::HashSet, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("FxHashSet") || rust.contains("Set::<"),
+        "Set codegen should use FxHashSet or Set alias, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -445,8 +485,11 @@ Show sumList(nums).
     assert_exact_output(code, "15");
     let rust = compile_to_rust(code).unwrap();
     // Readonly param: items is never mutated → borrow as &[i64]
-    assert!(rust.contains("items: &[i64]"),
-        "Readonly param should be &[i64], got:\n{}", rust);
+    assert!(
+        rust.contains("items: &[i64]"),
+        "Readonly param should be &[i64], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -468,8 +511,11 @@ Show addAndSum(nums).
 "#;
     assert_exact_output(code, "105");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("items: LogosSeq<i64>"),
-        "Mutated LogosSeq param should stay LogosSeq<T>, got:\n{}", rust);
+    assert!(
+        rust.contains("items: LogosSeq<i64>"),
+        "Mutated LogosSeq param should stay LogosSeq<T>, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -497,8 +543,11 @@ If isSafe(queens, 3, 5):
     assert_exact_output(code, "safe");
     let rust = compile_to_rust(code).unwrap();
     // Readonly param: queens is never mutated → borrow as &[i64]
-    assert!(rust.contains("queens: &[i64]"),
-        "Readonly param should be &[i64], got:\n{}", rust);
+    assert!(
+        rust.contains("queens: &[i64]"),
+        "Readonly param should be &[i64], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -515,8 +564,11 @@ Show identity(nums).
     assert_exact_output(code, "[1, 2, 3]");
     let rust = compile_to_rust(code).unwrap();
     // Readonly param: items is only returned, never mutated → borrow as &[i64]
-    assert!(rust.contains("items: &[i64]"),
-        "Readonly param should be &[i64], got:\n{}", rust);
+    assert!(
+        rust.contains("items: &[i64]"),
+        "Readonly param should be &[i64], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -559,10 +611,16 @@ Show mergeSort(nums).
     assert_exact_output(code, "[1, 2, 3, 5, 8]");
     let rust = compile_to_rust(code).unwrap();
     // Readonly params: left and right are only read → borrow as &[i64]
-    assert!(rust.contains("left: &[i64]"),
-        "merge() param 'left' should be &[i64] (readonly borrow), got:\n{}", rust);
-    assert!(rust.contains("right: &[i64]"),
-        "merge() param 'right' should be &[i64] (readonly borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("left: &[i64]"),
+        "merge() param 'left' should be &[i64] (readonly borrow), got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("right: &[i64]"),
+        "merge() param 'right' should be &[i64] (readonly borrow), got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -580,8 +638,11 @@ Show item 1 of items.
 "#;
     assert_exact_output(code, "35");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("__set_tmp"),
-        "Different index assignment should not use __set_tmp, got:\n{}", rust);
+    assert!(
+        !rust.contains("__set_tmp"),
+        "Different index assignment should not use __set_tmp, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -596,8 +657,11 @@ Show item 1 of dest.
 "#;
     assert_exact_output(code, "105");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("__set_tmp"),
-        "Different-collection assignment should not use __set_tmp, got:\n{}", rust);
+    assert!(
+        !rust.contains("__set_tmp"),
+        "Different-collection assignment should not use __set_tmp, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -621,10 +685,16 @@ Show doubleFirst(nums).
     assert_exact_output(code, "[20, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
     // result should use direct indexing, not LogosIndex/LogosIndexMut
-    assert!(!rust.contains("LogosIndex"),
-        "Should use direct indexing for result, not LogosIndex, got:\n{}", rust);
-    assert!(!rust.contains("LogosIndexMut"),
-        "Should use direct indexing for result, not LogosIndexMut, got:\n{}", rust);
+    assert!(
+        !rust.contains("LogosIndex"),
+        "Should use direct indexing for result, not LogosIndex, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("LogosIndexMut"),
+        "Should use direct indexing for result, not LogosIndexMut, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -660,10 +730,16 @@ Show items.
 "#;
     assert_exact_output(code, "[10, 40, 30, 20, 50]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Unconditional swap should use __swap_tmp, got:\n{}", rust);
-    assert!(!rust.contains(".swap("),
-        "Should not use .swap() method, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Unconditional swap should use __swap_tmp, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".swap("),
+        "Should not use .swap() method, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -681,10 +757,16 @@ Show items.
 "#;
     assert_exact_output(code, "[10, 40, 30, 20, 50]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Unconditional swap with expr indices should use __swap_tmp, got:\n{}", rust);
-    assert!(!rust.contains(".swap("),
-        "Should not use .swap() method, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Unconditional swap with expr indices should use __swap_tmp, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".swap("),
+        "Should not use .swap() method, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -719,13 +801,26 @@ Show arr.
 "#;
     assert_exact_output(code, "[1, 2, 3, 5, 7, 8, 9]");
     let rust = compile_to_rust(code).unwrap();
-    // Should use direct indexing (no LogosIndex) and manual swap
-    assert!(!rust.contains("LogosIndex"),
-        "quicksort should use direct indexing, got:\n{}", rust);
-    assert!(rust.contains("__swap_tmp"),
-        "quicksort should use manual swap with __swap_tmp, got:\n{}", rust);
-    assert!(!rust.contains(".swap("),
-        "quicksort should not use .swap() method, got:\n{}", rust);
+    // Should use direct indexing (no LogosIndex) and a manual swap — now fully
+    // bounds-eliminated: the entry-guard precondition + the loop-exit induction
+    // bound prove every partition index (compare-swap AND pivot swap) in range, so
+    // the swaps lower to `get_unchecked` with no checked `__swap_tmp` surviving.
+    assert!(
+        !rust.contains("LogosIndex"),
+        "quicksort should use direct indexing, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("get_unchecked") && !rust.contains("__swap_tmp"),
+        "quicksort's swaps should be bounds-eliminated to a manual `get_unchecked` \
+         swap (no checked `__swap_tmp`), got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".swap("),
+        "quicksort should not use .swap() method, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -751,8 +846,11 @@ Show data.
     // The call in main should NOT clone data since it's immediately reassigned.
     // Look for `append42(data)` without `.clone()`.
     // The function takes ownership (arr is mutated via Push), so it's not a borrow param.
-    assert!(!rust.contains("append42(data.clone())"),
-        "Last-use clone elimination: should move data, not clone, got:\n{}", rust);
+    assert!(
+        !rust.contains("append42(data.clone())"),
+        "Last-use clone elimination: should move data, not clone, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -773,8 +871,11 @@ Show data.
     // `data` appears in arg 0 (direct) AND in arg 1 (sub-expression via length of data).
     // The clone should be preserved for safety.
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("data.clone()"),
-        "Clone should be preserved when target appears in other arg exprs, got:\n{}", rust);
+    assert!(
+        rust.contains("data.clone()"),
+        "Clone should be preserved when target appears in other arg exprs, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -794,10 +895,16 @@ If item 2 of text equals item 1 of pattern:
 "#;
     assert_exact_output(code, "match");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("as_bytes()"),
-        "String char comparison should use as_bytes() byte comparison, got:\n{}", rust);
-    assert!(!rust.contains("logos_get_char"),
-        "Should NOT use logos_get_char() anymore, got:\n{}", rust);
+    assert!(
+        rust.contains("as_bytes()"),
+        "String char comparison should use as_bytes() byte comparison, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("logos_get_char"),
+        "Should NOT use logos_get_char() anymore, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -821,11 +928,17 @@ Show dp.
     assert_exact_output(code, "[1, 0, 0, 0, 0, 0]");
     let rust = compile_to_rust(code).unwrap();
     // Should use vec![] allocation, not a push loop
-    assert!(rust.contains("vec!["),
-        "Prefix+fill pattern should use vec![], got:\n{}", rust);
+    assert!(
+        rust.contains("vec!["),
+        "Prefix+fill pattern should use vec![], got:\n{}",
+        rust
+    );
     // Should override dp[0] = 1
-    assert!(rust.contains("[0] = 1"),
-        "Should override prefix element, got:\n{}", rust);
+    assert!(
+        rust.contains("[0] = 1"),
+        "Should override prefix element, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -843,11 +956,17 @@ Show arr.
 "#;
     assert_exact_output(code, "[0, 0, 0, 0, 0]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("vec!["),
-        "Same-fill prefix should use vec![], got:\n{}", rust);
+    assert!(
+        rust.contains("vec!["),
+        "Same-fill prefix should use vec![], got:\n{}",
+        rust
+    );
     // No override needed since prefix value matches fill value
-    assert!(!rust.contains("arr[0] = 0"),
-        "Should skip redundant override when prefix == fill, got:\n{}", rust);
+    assert!(
+        !rust.contains("arr[0] = 0"),
+        "Should skip redundant override when prefix == fill, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -896,8 +1015,15 @@ While j is less than 5:
 Show found.
 "#;
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("break"), "Expected `break` in generated code for sentinel pattern, got:\n{}", rust);
-    assert!(!rust.contains("j = 5"), "Sentinel `j = 5` should have been replaced by `break`");
+    assert!(
+        rust.contains("break"),
+        "Expected `break` in generated code for sentinel pattern, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("j = 5"),
+        "Sentinel `j = 5` should have been replaced by `break`"
+    );
     assert_exact_output(code, "1");
 }
 
@@ -946,7 +1072,10 @@ While j is less than 5:
 Show result.
 "#;
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("break"), "Sentinel should NOT be applied when If has an else block");
+    assert!(
+        !rust.contains("break"),
+        "Sentinel should NOT be applied when If has an else block"
+    );
     assert_exact_output(code, "1");
 }
 
@@ -1103,10 +1232,16 @@ Show length of arr.
 "#;
     assert_exact_output(code, "10");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("with_capacity(") || rust.contains("vec!["),
-        "Pre-allocation should fire with intervening stmt, got:\n{}", rust);
-    assert!(!rust.contains("Seq::<i64>::default()") && !rust.contains("Vec::<i64>::new()"),
-        "Should not use default/new (no pre-alloc), got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity(") || rust.contains("vec!["),
+        "Pre-allocation should fire with intervening stmt, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("Seq::<i64>::default()") && !rust.contains("Vec::<i64>::new()"),
+        "Should not use default/new (no pre-alloc), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1125,8 +1260,11 @@ Show length of arr.
 "#;
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("with_capacity(") || rust.contains("vec!["),
-        "Pre-allocation should fire with 2 intervening stmts, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity(") || rust.contains("vec!["),
+        "Pre-allocation should fire with 2 intervening stmts, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1143,8 +1281,11 @@ Show length of arr.
 "#;
     assert_exact_output(code, "10");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("vec![0; ") || rust.contains("vec![0i64; "),
-        "Copy type constant fill should use vec![0; N], got:\n{}", rust);
+    assert!(
+        rust.contains("vec![0; ") || rust.contains("vec![0i64; "),
+        "Copy type constant fill should use vec![0; N], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1161,8 +1302,11 @@ Show arr.
 "#;
     assert_exact_output(code, "[0, 1, 4, 9, 16]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("with_capacity("),
-        "Computed push should use Vec::with_capacity, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity("),
+        "Computed push should use Vec::with_capacity, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1194,10 +1338,14 @@ Show length of prev.
     assert_exact_output(code, "6");
     let rust = compile_to_rust(code).unwrap();
     // At minimum, the outer `prev` should be pre-allocated
-    let prealloc_count = rust.matches("Vec::with_capacity(").count()
-        + rust.matches("vec![").count();
-    assert!(prealloc_count >= 1,
-        "At least outer Seq should be pre-allocated, found {} pre-allocs, got:\n{}", prealloc_count, rust);
+    let prealloc_count =
+        rust.matches("Vec::with_capacity(").count() + rust.matches("vec![").count();
+    assert!(
+        prealloc_count >= 1,
+        "At least outer Seq should be pre-allocated, found {} pre-allocs, got:\n{}",
+        prealloc_count,
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1214,8 +1362,18 @@ Show length of flags.
 "#;
     assert_exact_output(code, "8");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("vec![true; ") || rust.contains("with_capacity("),
-        "Bool fill should use vec![true; N] or with_capacity, got:\n{}", rust);
+    assert!(
+        rust.contains("vec![true; ")
+            || rust.contains("with_capacity(")
+            || rust.contains("LogosBits::filled("),
+        "Bool fill should be one bulk fill (vec![true; N], with_capacity or LogosBits::filled), got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("flags.push("),
+        "The fill loop is gone, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1235,8 +1393,11 @@ Show length of arr.
 "#;
     assert_exact_output(code, "20");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("with_capacity(") || rust.contains("vec!["),
-        "prefix_sum pattern should pre-allocate, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity(") || rust.contains("vec!["),
+        "prefix_sum pattern should pre-allocate, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1253,10 +1414,16 @@ Show item 1 of arr.
 "#;
     assert_exact_output(code, "10");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("[0]"),
-        "Literal index 1 should simplify to [0], got:\n{}", rust);
-    assert!(!rust.contains("(1 - 1)"),
-        "Should not contain (1 - 1), got:\n{}", rust);
+    assert!(
+        rust.contains("[0]"),
+        "Literal index 1 should simplify to [0], got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("(1 - 1)"),
+        "Should not contain (1 - 1), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1269,10 +1436,16 @@ Show item 3 of arr.
 "#;
     assert_exact_output(code, "30");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("[2]"),
-        "Literal index 3 should simplify to [2], got:\n{}", rust);
-    assert!(!rust.contains("(3 - 1)"),
-        "Should not contain (3 - 1), got:\n{}", rust);
+    assert!(
+        rust.contains("[2]"),
+        "Literal index 3 should simplify to [2], got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("(3 - 1)"),
+        "Should not contain (3 - 1), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1286,8 +1459,11 @@ Show item (child + 2) of arr.
 "#;
     assert_exact_output(code, "30");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("((child + 2) - 1)"),
-        "(child+2)-1 should simplify to (child+1), got:\n{}", rust);
+    assert!(
+        !rust.contains("((child + 2) - 1)"),
+        "(child+2)-1 should simplify to (child+1), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1306,8 +1482,11 @@ Show arr.
     // additionally elides the bounds check: `get_unchecked_mut(0)`. Either the
     // checked `[0]` or the unchecked `get_unchecked_mut(0)` carries the
     // simplified index.
-    assert!(rust.contains("[0]") || rust.contains("get_unchecked_mut(0)"),
-        "SetIndex literal 1 should simplify to index 0, got:\n{}", rust);
+    assert!(
+        rust.contains("[0]") || rust.contains("get_unchecked_mut(0)"),
+        "SetIndex literal 1 should simplify to index 0, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1322,8 +1501,11 @@ Show arr.
 "#;
     assert_exact_output(code, "[10, 20, 99, 40, 50]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("((child + 2) - 1)"),
-        "SetIndex (child+2)-1 should simplify to (child+1), got:\n{}", rust);
+    assert!(
+        !rust.contains("((child + 2) - 1)"),
+        "SetIndex (child+2)-1 should simplify to (child+1), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1341,13 +1523,22 @@ Show arr.
 "#;
     assert_exact_output(code, "[10, 40, 30, 20, 50]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Should use __swap_tmp, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Should use __swap_tmp, got:\n{}",
+        rust
+    );
     // The swap indices should be simplified: (i+1)-1 -> i, (j+1)-1 -> j
-    assert!(!rust.contains("((i + 1) - 1)"),
-        "swap index (i+1)-1 should simplify to i, got:\n{}", rust);
-    assert!(!rust.contains("((j + 1) - 1)"),
-        "swap index (j+1)-1 should simplify to j, got:\n{}", rust);
+    assert!(
+        !rust.contains("((i + 1) - 1)"),
+        "swap index (i+1)-1 should simplify to i, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("((j + 1) - 1)"),
+        "swap index (j+1)-1 should simplify to j, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1363,13 +1554,22 @@ Show arr.
 "#;
     assert_exact_output(code, "[30, 20, 10]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Should use __swap_tmp, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Should use __swap_tmp, got:\n{}",
+        rust
+    );
     // Literal swap indices should simplify: item 1 -> [0], item 3 -> [2]
-    assert!(rust.contains("[0]"),
-        "Literal swap index 1 should simplify to [0], got:\n{}", rust);
-    assert!(rust.contains("[2]"),
-        "Literal swap index 3 should simplify to [2], got:\n{}", rust);
+    assert!(
+        rust.contains("[0]"),
+        "Literal swap index 1 should simplify to [0], got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("[2]"),
+        "Literal swap index 3 should simplify to [2], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1388,11 +1588,17 @@ Show arr.
 "#;
     assert_exact_output(code, "[1, 3, 2]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Conditional swap should use __swap_tmp, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Conditional swap should use __swap_tmp, got:\n{}",
+        rust
+    );
     // The comparison should use simplified indices
-    assert!(!rust.contains("((j + 1) - 1)"),
-        "Conditional swap comparison should simplify (j+1)-1, got:\n{}", rust);
+    assert!(
+        !rust.contains("((j + 1) - 1)"),
+        "Conditional swap comparison should simplify (j+1)-1, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1426,8 +1632,11 @@ Show item 1 of arr.
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
     // (child + 2) - 1 should simplify to (child + 1)
-    assert!(!rust.contains("((child + 2) - 1)"),
-        "heap_sort (child+2)-1 should simplify, got:\n{}", rust);
+    assert!(
+        !rust.contains("((child + 2) - 1)"),
+        "heap_sort (child+2)-1 should simplify, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1473,10 +1682,16 @@ Show "done".
 "#;
     assert_exact_output(code, "done");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("logos_get_char"),
-        "String char comparison should use as_bytes() instead of logos_get_char(), got:\n{}", rust);
-    assert!(rust.contains("as_bytes()"),
-        "String char comparison should use as_bytes(), got:\n{}", rust);
+    assert!(
+        !rust.contains("logos_get_char"),
+        "String char comparison should use as_bytes() instead of logos_get_char(), got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("as_bytes()"),
+        "String char comparison should use as_bytes(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1496,8 +1711,11 @@ Show mismatches.
 "#;
     assert_exact_output(code, "1");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("logos_get_char"),
-        "NotEq string comparison should use as_bytes(), got:\n{}", rust);
+    assert!(
+        !rust.contains("logos_get_char"),
+        "NotEq string comparison should use as_bytes(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1525,8 +1743,11 @@ Show found.
 "#;
     assert_exact_output(code, "1");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("logos_get_char"),
-        "String search should use byte comparison, got:\n{}", rust);
+    assert!(
+        !rust.contains("logos_get_char"),
+        "String search should use byte comparison, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1571,10 +1792,16 @@ Show count.
 "#;
     assert_exact_output(code, "1");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("logos_get_char"),
-        "String-vs-char-literal comparison should use logos_get_char(), got:\n{}", rust);
-    assert!(!rust.contains("String::from(\" \")"),
-        "Should NOT allocate String::from for single char comparison, got:\n{}", rust);
+    assert!(
+        rust.contains("logos_get_char"),
+        "String-vs-char-literal comparison should use logos_get_char(), got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("String::from(\" \")"),
+        "Should NOT allocate String::from for single char comparison, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1593,8 +1820,11 @@ Show spaces.
 "#;
     assert_exact_output(code, "2");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("logos_get_char"),
-        "Reverse-order string-vs-char comparison should use logos_get_char(), got:\n{}", rust);
+    assert!(
+        rust.contains("logos_get_char"),
+        "Reverse-order string-vs-char comparison should use logos_get_char(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1613,8 +1843,11 @@ Show non_x.
 "#;
     assert_exact_output(code, "3");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("logos_get_char"),
-        "NotEq string-vs-char-literal should use logos_get_char(), got:\n{}", rust);
+    assert!(
+        rust.contains("logos_get_char"),
+        "NotEq string-vs-char-literal should use logos_get_char(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1631,8 +1864,11 @@ Otherwise:
     assert_exact_output(code, "no match");
     let rust = compile_to_rust(code).unwrap();
     // Multi-char literal should NOT use logos_get_char
-    assert!(!rust.contains("logos_get_char"),
-        "Multi-char literal should NOT use logos_get_char(), got:\n{}", rust);
+    assert!(
+        !rust.contains("logos_get_char"),
+        "Multi-char literal should NOT use logos_get_char(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1648,8 +1884,11 @@ Otherwise:
 "#;
     assert_exact_output(code, "not empty");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("logos_get_char"),
-        "Empty string literal should NOT use logos_get_char(), got:\n{}", rust);
+    assert!(
+        !rust.contains("logos_get_char"),
+        "Empty string literal should NOT use logos_get_char(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1670,10 +1909,16 @@ Show spaces.
 "#;
     assert_exact_output(code, "8");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("logos_get_char"),
-        "Hot loop string comparison should use logos_get_char(), got:\n{}", rust);
-    assert!(rust.contains("'"),
-        "Should use char literal with single quotes, got:\n{}", rust);
+    assert!(
+        rust.contains("logos_get_char"),
+        "Hot loop string comparison should use logos_get_char(), got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("'"),
+        "Should use char literal with single quotes, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1726,11 +1971,19 @@ Show arr.
 "#;
     assert_exact_output(code, "[1, 2, 3, 4, 5]");
     let rust = compile_to_rust(code).unwrap();
-    // Should use direct indexing swap, not .swap() method
-    assert!(!rust.contains(".swap("),
-        "Should use manual swap instead of .swap() method, got:\n{}", rust);
-    assert!(rust.contains("__swap_tmp"),
-        "Manual swap should use __swap_tmp variable, got:\n{}", rust);
+    // Should use direct indexing swap, not .swap() method. Inside `While j is greater than i` with `i >= 1`, `j` is at
+    // least 2, so `item (j - 1)` and `item j` are both proven in range and the manual swap reads them unchecked.
+    assert!(
+        !rust.contains(".swap("),
+        "Should use manual swap instead of .swap() method, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("__cs_e1") && rust.contains("get_unchecked") && !rust.contains("__swap_tmp"),
+        "The proven manual swap should read through `get_unchecked` into `__cs_e1`, with no checked \
+         `__swap_tmp`, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1746,8 +1999,11 @@ Show arr.
 "#;
     assert_exact_output(code, "[2, 1, 3]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains(".swap("),
-        "Unconditional swap should use manual swap, got:\n{}", rust);
+    assert!(
+        !rust.contains(".swap("),
+        "Unconditional swap should use manual swap, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1771,10 +2027,16 @@ Show arr.
 "#;
     assert_exact_output(code, "[1, 2, 3]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Ascending (j, j+1) swap should use __swap_tmp, got:\n{}", rust);
-    assert!(!rust.contains(".swap("),
-        "Ascending swap should not use .swap(), got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Ascending (j, j+1) swap should use __swap_tmp, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".swap("),
+        "Ascending swap should not use .swap(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1792,8 +2054,11 @@ Show arr.
 "#;
     assert_exact_output(code, "[1, 2, 3, 4, 5]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Arbitrary index conditional swap should use __swap_tmp, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Arbitrary index conditional swap should use __swap_tmp, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1812,8 +2077,11 @@ Show arr.
     // a=2, b=1, 2 < 1 is false, so no swap
     assert_exact_output(code, "[2, 1]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Less-than conditional swap should use __swap_tmp, got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Less-than conditional swap should use __swap_tmp, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1831,10 +2099,16 @@ Show arr.
 "#;
     assert_exact_output(code, "[10, 40, 30, 20, 50]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("__swap_tmp"),
-        "Unconditional swap with variable indices should use __swap_tmp, got:\n{}", rust);
-    assert!(!rust.contains(".swap("),
-        "Should not use .swap(), got:\n{}", rust);
+    assert!(
+        rust.contains("__swap_tmp"),
+        "Unconditional swap with variable indices should use __swap_tmp, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(".swap("),
+        "Should not use .swap(), got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1858,10 +2132,16 @@ Show fib(10).
     assert_exact_output(code, "55");
     let rust = compile_to_rust(code).unwrap();
     // Should NOT contain memoization infrastructure
-    assert!(!rust.contains("thread_local!"),
-        "## No Memo should prevent memoization, got:\n{}", rust);
-    assert!(!rust.contains("MEMO_"),
-        "## No Memo should prevent memoization cache, got:\n{}", rust);
+    assert!(
+        !rust.contains("thread_local!"),
+        "## No Memo should prevent memoization, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("MEMO_"),
+        "## No Memo should prevent memoization cache, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1879,8 +2159,11 @@ Show fib(10).
     assert_exact_output(code, "55");
     let rust = compile_to_rust(code).unwrap();
     // Should contain memoization since no annotation prevents it
-    assert!(rust.contains("thread_local!") || rust.contains("MEMO_"),
-        "Fib without ## No Memo should be memoized, got:\n{}", rust);
+    assert!(
+        rust.contains("thread_local!") || rust.contains("MEMO_"),
+        "Fib without ## No Memo should be memoized, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1899,10 +2182,16 @@ Show countDown(100).
     assert_exact_output(code, "0");
     let rust = compile_to_rust(code).unwrap();
     // Without TCO, the function should use regular recursion (not a loop)
-    assert!(!rust.contains("loop {"),
-        "## No TCO should prevent tail-call loop conversion, got:\n{}", rust);
-    assert!(rust.contains("countDown("),
-        "Should still have recursive call, got:\n{}", rust);
+    assert!(
+        !rust.contains("loop {"),
+        "## No TCO should prevent tail-call loop conversion, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("countDown("),
+        "Should still have recursive call, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1921,8 +2210,11 @@ Show fib(10).
     assert_exact_output(code, "55");
     let rust = compile_to_rust(code).unwrap();
     // No Optimize implies No Memo
-    assert!(!rust.contains("thread_local!"),
-        "## No Optimize should prevent memoization, got:\n{}", rust);
+    assert!(
+        !rust.contains("thread_local!"),
+        "## No Optimize should prevent memoization, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1947,8 +2239,11 @@ Show fib(10).
     assert_exact_output(code, "15\n55");
     let rust = compile_to_rust(code).unwrap();
     // fib should still be memoized (no annotation on it)
-    assert!(rust.contains("MEMO_") || rust.contains("thread_local!"),
-        "Fib should still be memoized when only makeCheck has ## No Memo, got:\n{}", rust);
+    assert!(
+        rust.contains("MEMO_") || rust.contains("thread_local!"),
+        "Fib should still be memoized when only makeCheck has ## No Memo, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1973,10 +2268,16 @@ Show sumAll(data).
     assert_exact_output(code, "15");
     let rust = compile_to_rust(code).unwrap();
     // Should NOT use borrow param — takes owned Vec
-    assert!(!rust.contains("&[i64]"),
-        "## No Borrow should prevent borrow optimization, got:\n{}", rust);
-    assert!(rust.contains("LogosSeq<i64>") || rust.contains("items: LogosSeq<i64>"),
-        "Should take owned LogosSeq<i64> with ## No Borrow, got:\n{}", rust);
+    assert!(
+        !rust.contains("&[i64]"),
+        "## No Borrow should prevent borrow optimization, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("LogosSeq<i64>") || rust.contains("items: LogosSeq<i64>"),
+        "Should take owned LogosSeq<i64> with ## No Borrow, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1996,10 +2297,16 @@ Show helper(10).
     assert_exact_output(code, "0");
     let rust = compile_to_rust(code).unwrap();
     // Both memo and TCO should be disabled
-    assert!(!rust.contains("thread_local!"),
-        "## No Memo should prevent memoization with stacked annotations, got:\n{}", rust);
-    assert!(!rust.contains("loop {"),
-        "## No TCO should prevent loop conversion with stacked annotations, got:\n{}", rust);
+    assert!(
+        !rust.contains("thread_local!"),
+        "## No Memo should prevent memoization with stacked annotations, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("loop {"),
+        "## No TCO should prevent loop conversion with stacked annotations, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -2049,8 +2356,11 @@ Show data.
     assert_exact_output(code, "[99, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
     // SetIndex-only mutation + return → mutable borrow as &mut [i64]
-    assert!(rust.contains("arr: &mut [i64]"),
-        "Should take &mut [i64] param (mutable borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("arr: &mut [i64]"),
+        "Should take &mut [i64] param (mutable borrow), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2069,8 +2379,11 @@ Show data.
 "#;
     assert_exact_output(code, "[10, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("&mut [i64]"),
-        "Push function should NOT use &mut [T], got:\n{}", rust);
+    assert!(
+        !rust.contains("&mut [i64]"),
+        "Push function should NOT use &mut [T], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2104,8 +2417,11 @@ Show item 1 of data.
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
     // SetIndex-only mutation + return → mutable borrow as &mut [i64]
-    assert!(rust.contains("arr: &mut [i64]"),
-        "siftDown should use &mut [i64] (mutable borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("arr: &mut [i64]"),
+        "siftDown should use &mut [i64] (mutable borrow), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2167,11 +2483,17 @@ Show total.
     assert_exact_output(code, "150");
     let rust = compile_to_rust(code).unwrap();
     // Should use 0-based range
-    assert!(rust.contains("0..5") || rust.contains("0..5_"),
-        "Loop starting at 1 with index-only counter should be 0-based, got:\n{}", rust);
+    assert!(
+        rust.contains("0..5") || rust.contains("0..5_"),
+        "Loop starting at 1 with index-only counter should be 0-based, got:\n{}",
+        rust
+    );
     // Should NOT have the (i - 1) subtraction pattern
-    assert!(!rust.contains("(i - 1)"),
-        "0-based counter should not need (i - 1) subtraction, got:\n{}", rust);
+    assert!(
+        !rust.contains("(i - 1)"),
+        "0-based counter should not need (i - 1) subtraction, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2190,8 +2512,11 @@ Show data.
 "#;
     assert_exact_output(code, "[10, 20, 30, 40, 50]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("0..5") || rust.contains("0..5_"),
-        "SetIndex loop should use 0-based range, got:\n{}", rust);
+    assert!(
+        rust.contains("0..5") || rust.contains("0..5_"),
+        "SetIndex loop should use 0-based range, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2215,8 +2540,11 @@ Show total.
     // Accept either: 1-based range preserved, or loop eliminated by closed-form
     let has_1based = rust.contains("1..6") || rust.contains("1..(5 + 1)");
     let has_closed_form = rust.contains("total = 15") || rust.contains("show(&15)");
-    assert!(has_1based || has_closed_form,
-        "Counter used in arithmetic should keep 1-based range or be closed-form'd, got:\n{}", rust);
+    assert!(
+        has_1based || has_closed_form,
+        "Counter used in arithmetic should keep 1-based range or be closed-form'd, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2300,11 +2628,17 @@ Show sum.
     assert_exact_output(code, "120");
     let rust = compile_to_rust(code).unwrap();
     // Zero-based should fire: range should be 0..5
-    assert!(rust.contains("0..5"),
-        "Zero-based with comparison should produce 0..5 range, got:\n{}", rust);
+    assert!(
+        rust.contains("0..5"),
+        "Zero-based with comparison should produce 0..5 range, got:\n{}",
+        rust
+    );
     // The index should use `i as usize` (no -1 subtraction)
-    assert!(rust.contains("i as usize") || rust.contains("(i) as usize"),
-        "Zero-based should skip -1 subtraction in index, got:\n{}", rust);
+    assert!(
+        rust.contains("i as usize") || rust.contains("(i) as usize"),
+        "Zero-based should skip -1 subtraction in index, got:\n{}",
+        rust
+    );
 }
 
 /// When a counter is used in arithmetic (not just a bare comparison), zero-based
@@ -2325,8 +2659,11 @@ Show sum.
     assert_exact_output(code, "400");
     let rust = compile_to_rust(code).unwrap();
     // Should NOT use 0-based: counter appears in arithmetic `(i - 1)`
-    assert!(!rust.contains("0..5"),
-        "Counter in arithmetic should block zero-based, got:\n{}", rust);
+    assert!(
+        !rust.contains("0..5"),
+        "Counter in arithmetic should block zero-based, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -2353,8 +2690,11 @@ Show data.
     assert_exact_output(code, "[99, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
     // Consume-alias + SetIndex + return → mutable borrow as &mut [i64]
-    assert!(rust.contains("arr: &mut [i64]"),
-        "Should use &mut [i64] (mutable borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("arr: &mut [i64]"),
+        "Should use &mut [i64] (mutable borrow), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2393,8 +2733,11 @@ Show arr.
     assert_exact_output(code, "[1, 2, 3, 5, 7, 8, 9]");
     let rust = compile_to_rust(code).unwrap();
     // Consume-alias + SetIndex + self-recursion + return → mutable borrow as &mut [i64]
-    assert!(rust.contains("arr: &mut [i64]"),
-        "Quicksort should use &mut [i64] (mutable borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("arr: &mut [i64]"),
+        "Quicksort should use &mut [i64] (mutable borrow), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2431,8 +2774,11 @@ Show item 1 of arr.
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
     // Consume-alias + SetIndex + return → mutable borrow as &mut [i64]
-    assert!(rust.contains("arr: &mut [i64]"),
-        "Heapsort should use &mut [i64] (mutable borrow), got:\n{}", rust);
+    assert!(
+        rust.contains("arr: &mut [i64]"),
+        "Heapsort should use &mut [i64] (mutable borrow), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2451,8 +2797,11 @@ Show data.
 "#;
     assert_exact_output(code, "[10, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("fn extend(arr: &mut [i64]"),
-        "Push on alias should NOT use &mut [T], got:\n{}", rust);
+    assert!(
+        !rust.contains("fn extend(arr: &mut [i64]"),
+        "Push on alias should NOT use &mut [T], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2471,8 +2820,11 @@ Show data.
 "#;
     assert_exact_output(code, "[10, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("fn identity(arr: &mut [i64]"),
-        "No SetIndex on alias should NOT use &mut [T], got:\n{}", rust);
+    assert!(
+        !rust.contains("fn identity(arr: &mut [i64]"),
+        "No SetIndex on alias should NOT use &mut [T], got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2580,8 +2932,11 @@ Show left.
 "#;
     assert_exact_output(code, "[10, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains(".to_vec()"),
-        "Seq-from-slice should fire with intervening stmt, got:\n{}", rust);
+    assert!(
+        rust.contains(".to_vec()"),
+        "Seq-from-slice should fire with intervening stmt, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2608,8 +2963,11 @@ Show right.
     assert_exact_output(code, "[10, 20, 30]\n[40, 50]");
     let rust = compile_to_rust(code).unwrap();
     // At minimum, the first (left) half should use .to_vec()
-    assert!(rust.contains(".to_vec()"),
-        "Two-seq split should use .to_vec() slice, got:\n{}", rust);
+    assert!(
+        rust.contains(".to_vec()"),
+        "Two-seq split should use .to_vec() slice, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2681,10 +3039,18 @@ Show text.
 "#;
     assert_exact_output(code, "hello world");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("push_str(\" world\")"),
-        "Single literal append should use push_str, got:\n{}", rust);
-    assert!(!rust.contains("write!("),
-        "Single literal append should NOT use write!, got:\n{}", rust);
+    // A constant append folds to the final constant (optimal); a runtime string lowers to push_str.
+    // Either is correct — the forbidden form is a heap-thrashing write!.
+    assert!(
+        rust.contains("push_str(\" world\")") || rust.contains("String::from(\"hello world\")"),
+        "Single literal append should fold to the constant or use push_str, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("write!("),
+        "Single literal append should NOT use write!, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2698,8 +3064,12 @@ Show text.
 "#;
     assert_exact_output(code, "abcx");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("push('x')"),
-        "Single char append should use push('c'), got:\n{}", rust);
+    // A constant append folds to the final constant (optimal); a runtime string lowers to push(char).
+    assert!(
+        rust.contains("push('x')") || rust.contains("String::from(\"abcx\")"),
+        "Single char append should fold to the constant or use push('x'), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2714,8 +3084,11 @@ Show text.
 "#;
     assert_exact_output(code, "hello world");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("push_str") || rust.contains("hello world"),
-        "String append should use push_str or be folded to constant, got:\n{}", rust);
+    assert!(
+        rust.contains("push_str") || rust.contains("hello world"),
+        "String append should use push_str or be folded to constant, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2731,8 +3104,12 @@ Show text.
 "#;
     assert_exact_output(code, "abc");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("write!("),
-        "Multi-operand append should use write!, got:\n{}", rust);
+    // Constant operands fold to the final constant (optimal); runtime operands lower to a single write!.
+    assert!(
+        rust.contains("write!(") || rust.contains("String::from(\"abc\")"),
+        "Multi-operand append should fold to the constant or use write!, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -2758,8 +3135,11 @@ Show result.
 "#;
     assert_exact_output(code, "[5, 0, 8, 0, 9]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("with_capacity("),
-        "All-branch push loop should use Vec::with_capacity, got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity("),
+        "All-branch push loop should use Vec::with_capacity, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3011,10 +3391,16 @@ Show merge(a, b).
 "#;
     assert_exact_output(code, "[1, 2, 3, 4, 5, 6]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("with_capacity("),
-        "Merge result should use Vec::with_capacity, got:\n{}", rust);
-    assert!(rust.contains("left.len()") && rust.contains("right.len()"),
-        "Capacity should reference left.len() + right.len(), got:\n{}", rust);
+    assert!(
+        rust.contains("with_capacity("),
+        "Merge result should use Vec::with_capacity, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("left.len()") && rust.contains("right.len()"),
+        "Capacity should reference left.len() + right.len(), got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3110,8 +3496,11 @@ Show merge([1, 3, 5], [2, 4, 6]).
 "#;
     assert_exact_output(code, "[1, 2, 3, 4, 5, 6]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("let left_len"),
-        "Unmodified collection length should be hoisted, got:\n{}", rust);
+    assert!(
+        rust.contains("let left_len"),
+        "Unmodified collection length should be hoisted, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3146,10 +3535,16 @@ Show collect([1, 3, 5], [2, 4]).
     let rust = compile_to_rust(code).unwrap();
     // `left` and `right` are NOT modified — their lengths SHOULD be hoisted.
     // `result` IS modified (pushed to) — if it appeared in a condition, it should NOT be hoisted.
-    assert!(rust.contains("let left_len"),
-        "Unmodified left length should be hoisted, got:\n{}", rust);
-    assert!(rust.contains("let right_len"),
-        "Unmodified right length should be hoisted, got:\n{}", rust);
+    assert!(
+        rust.contains("let left_len"),
+        "Unmodified left length should be hoisted, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("let right_len"),
+        "Unmodified right length should be hoisted, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -3242,10 +3637,16 @@ Show outer.
 "#;
     assert_exact_output(code, "[5, 10, 15]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("mem::swap") || rust.contains("std::mem::swap"),
-        "Buffer reuse should emit mem::swap, got:\n{}", rust);
-    assert!(rust.contains(".clear()"),
-        "Buffer reuse should emit .clear() instead of new allocation, got:\n{}", rust);
+    assert!(
+        rust.contains("mem::swap") || rust.contains("std::mem::swap"),
+        "Buffer reuse should emit mem::swap, got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains(".clear()"),
+        "Buffer reuse should emit .clear() instead of new allocation, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3292,8 +3693,11 @@ Show outer.
 "#;
     assert_exact_output(code, "[0]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("mem::swap") && !rust.contains("std::mem::swap"),
-        "Buffer reuse should NOT fire for different element types, got:\n{}", rust);
+    assert!(
+        !rust.contains("mem::swap") && !rust.contains("std::mem::swap"),
+        "Buffer reuse should NOT fire for different element types, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3317,8 +3721,11 @@ Show outer.
 "#;
     assert_exact_output(code, "[0, 1, 99]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(!rust.contains("mem::swap") && !rust.contains("std::mem::swap"),
-        "Buffer reuse should NOT fire when Set is not last meaningful stmt, got:\n{}", rust);
+    assert!(
+        !rust.contains("mem::swap") && !rust.contains("std::mem::swap"),
+        "Buffer reuse should NOT fire when Set is not last meaningful stmt, got:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -3380,8 +3787,11 @@ Show item (capacity + 1) of prev.
 "#;
     assert_exact_output(code, "3");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("mem::swap") || rust.contains("std::mem::swap"),
-        "Fresh-buffer double-buffer should emit mem::swap, got:\n{}", rust);
+    assert!(
+        rust.contains("mem::swap") || rust.contains("std::mem::swap"),
+        "Fresh-buffer double-buffer should emit mem::swap, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3517,14 +3927,23 @@ Show item 1 of merged.
     // The drain-tail optimization should emit extend_from_slice + break
     // inside the while loop's If branch, replacing the element-by-element push.
     // Without this optimization, the If-then branch has push() + increment.
-    assert!(rust.contains("break"),
-        "Drain tail should emit break (inside while loop), got:\n{}", rust);
+    assert!(
+        rust.contains("break"),
+        "Drain tail should emit break (inside while loop), got:\n{}",
+        rust
+    );
     // The while body should NOT have a push for the drain side
     // after the optimization fires — it should be replaced with extend_from_slice.
     // Check that within the while block, we have extend_from_slice.
-    let while_block = rust.split("while (li").nth(1).expect("should have while loop");
-    assert!(while_block.contains("extend_from_slice"),
-        "While loop body should have extend_from_slice for drain tail, got:\n{}", while_block);
+    let while_block = rust
+        .split("while (li")
+        .nth(1)
+        .expect("should have while loop");
+    assert!(
+        while_block.contains("extend_from_slice"),
+        "While loop body should have extend_from_slice for drain tail, got:\n{}",
+        while_block
+    );
 }
 
 // =============================================================================
@@ -3617,12 +4036,14 @@ Show sumArray(items).
     // Should have an assert_unchecked hint before the while loop for arr
     assert!(
         code.contains("assert_unchecked") && code.contains(".len()"),
-        "Expected assert_unchecked bounds hint before while loop, got:\n{}", code
+        "Expected assert_unchecked bounds hint before while loop, got:\n{}",
+        code
     );
     // Should still be a while loop (NOT for-range)
     assert!(
         code.contains("while "),
-        "Expected a while loop (not for-range), got:\n{}", code
+        "Expected a while loop (not for-range), got:\n{}",
+        code
     );
 }
 
@@ -3684,7 +4105,8 @@ Show countUp(5).
             let between = &code_before_while[pos..];
             assert!(
                 between.contains("for ") || between.len() > 200,
-                "Found assert! hint near while loop with no array indexing:\n{}", code
+                "Found assert! hint near while loop with no array indexing:\n{}",
+                code
             );
         }
     }
@@ -3722,12 +4144,14 @@ Show sumArray(items).
     // This loop should be converted to zero-based (for i in 0..n)
     assert!(
         code.contains("for ") && code.contains("0.."),
-        "Expected zero-based for-range loop, got:\n{}", code
+        "Expected zero-based for-range loop, got:\n{}",
+        code
     );
     // AND it should have assert_unchecked for the indexed array
     assert!(
         code.contains("assert_unchecked"),
-        "Expected assert_unchecked hint on zero-based loop with array indexing, got:\n{}", code
+        "Expected assert_unchecked hint on zero-based loop with array indexing, got:\n{}",
+        code
     );
 }
 
@@ -3775,7 +4199,9 @@ Show addArrays(x, y).
     let assert_count = code.matches("assert_unchecked").count();
     assert!(
         assert_count >= 2,
-        "Expected assert_unchecked for each indexed array (a, b), found {} occurrences in:\n{}", assert_count, code
+        "Expected assert_unchecked for each indexed array (a, b), found {} occurrences in:\n{}",
+        assert_count,
+        code
     );
 }
 
@@ -3823,7 +4249,8 @@ Show doubleInPlace([3, 5, 7]).
     let code = compile_to_rust(source).unwrap();
     assert!(
         code.contains("assert_unchecked"),
-        "Expected assert_unchecked on zero-based loop with SetIndex, got:\n{}", code
+        "Expected assert_unchecked on zero-based loop with SetIndex, got:\n{}",
+        code
     );
 }
 
@@ -3850,7 +4277,8 @@ Show sumRange(10).
     // Note: this loop uses counter in arithmetic, so it won't be zero-based anyway.
     assert!(
         !code.contains("assert_unchecked"),
-        "Should NOT have assert_unchecked when no array indexing, got:\n{}", code
+        "Should NOT have assert_unchecked when no array indexing, got:\n{}",
+        code
     );
 }
 
@@ -3906,7 +4334,9 @@ Show fillTwo(5).
     let with_cap_count = code.matches("with_capacity(").count();
     assert!(
         with_cap_count >= 2,
-        "Expected with_capacity for both a and b, found {} occurrences in:\n{}", with_cap_count, code
+        "Expected with_capacity for both a and b, found {} occurrences in:\n{}",
+        with_cap_count,
+        code
     );
 }
 
@@ -3934,7 +4364,8 @@ Show initArrays(5).
     // Both should get vec![0; n] or Vec::with_capacity
     assert!(
         !code.contains("Seq::<i64>::default()"),
-        "Should not have Seq::default() for either collection, got:\n{}", code
+        "Should not have Seq::default() for either collection, got:\n{}",
+        code
     );
 }
 
@@ -3959,11 +4390,13 @@ Show arr.
     // The folded value should appear as -1 and 5, not as (0 - 1) and (2 + 3)
     assert!(
         code.contains("-1") && !code.contains("0 - 1"),
-        "Expected folded push argument (0 - 1 -> -1), got:\n{}", code
+        "Expected folded push argument (0 - 1 -> -1), got:\n{}",
+        code
     );
     assert!(
         code.contains("5") && !code.contains("2 + 3"),
-        "Expected folded push argument (2 + 3 -> 5), got:\n{}", code
+        "Expected folded push argument (2 + 3 -> 5), got:\n{}",
+        code
     );
 }
 
@@ -4057,7 +4490,8 @@ Show total.
     let main_fn = common::llvm_ir_function(&ir, "_logos_main");
     let checks = main_fn.matches("panic_bounds_check").count();
     assert_eq!(
-        checks, 0,
+        checks,
+        0,
         "prefix-sum scan should keep zero bounds checks in _logos_main; found {}.\nIR excerpt:\n{}",
         checks,
         &main_fn[..main_fn.len().min(4000)]

@@ -1,0 +1,8 @@
+{
+  "capability": "bignum.div",
+  "workload": "modular accumulator of (BIGDIV+i)/D - a big truncated-division stress loop; dividend ~10^53 and divisor ~10^20 are both arbitrary-precision",
+  "arg": "3000000",
+  "expected": "2999999999999999999910000000000000000000",
+  "logos_uses_stdlib": false,
+  "note": "bignum.div is a CORE LOGOS Int operator (Int transparently promotes to BigInt), so main.lg uses it directly - no stdlib import. The >i64 constants are BUILT via arithmetic from i64-safe pieces (LOGOS Int literals cap at i64; bignums come from overflow promotion). Go hand-implements the identical loop with math/big using PREALLOCATED big.Ints and in-place operations (the fast idiomatic form) so any LOGOS win is honest."
+}

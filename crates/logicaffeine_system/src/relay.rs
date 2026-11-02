@@ -51,7 +51,10 @@ struct Hub {
 
 impl Hub {
     fn new(gossip_out: Option<mpsc::UnboundedSender<(String, Vec<u8>)>>) -> Self {
-        Hub { inner: Arc::new(Mutex::new(HashMap::new())), gossip_out }
+        Hub {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            gossip_out,
+        }
     }
 
     async fn subscribe(&self, conn: ConnId, topic: String, tx: mpsc::UnboundedSender<RelayFrame>) {
@@ -76,15 +79,22 @@ impl Hub {
     /// subscribers received it.
     async fn deliver_except(&self, topic: &str, data: &[u8], except: Option<ConnId>) -> usize {
         let mut map = self.inner.lock().await;
-        let Some(subs) = map.get_mut(topic) else { return 0 };
-        let event = RelayFrame::Event { topic: topic.to_string(), data: data.to_vec() };
+        let Some(subs) = map.get_mut(topic) else {
+            return 0;
+        };
+        let event = RelayFrame::Event {
+            topic: topic.to_string(),
+            data: data.to_vec(),
+        };
         subs.retain(|(conn, tx)| {
             if Some(*conn) == except {
                 return true; // keep the subscription, just don't echo to it
             }
             tx.send(event.clone()).is_ok()
         });
-        subs.iter().filter(|(conn, _)| Some(*conn) != except).count()
+        subs.iter()
+            .filter(|(conn, _)| Some(*conn) != except)
+            .count()
     }
 
     /// Deliver to every subscriber (no skip) — the inbound path (a mesh message or
@@ -199,7 +209,23 @@ async fn serve_inner(addr: &str, hub: Hub) -> std::io::Result<RelayServer> {
 }
 
 async fn handle_conn(stream: TcpStream, hub: Hub, id: ConnId) -> Result<(), ()> {
-    let ws = tokio_tungstenite::accept_async(stream).await.map_err(|_| ())?;
+    let ws = tokio_tungstenite::accept_async(stream)
+        .await
+        .map_err(|_| ())?;
+    run_conn(ws, hub, id).await;
+    Ok(())
+}
+
+/// The pub/sub protocol loop, over ANY already-framing-ready WebSocket stream — the one
+/// implementation both [`handle_conn`] (which does its own handshake on a raw TCP connection to
+/// this module's own listener) and [`RelayHub::accept`] (which takes over a stream an EMBEDDING
+/// server already upgraded) run once framing is ready. Subscribe/unsubscribe/publish and the
+/// per-connection outbox writer pump are exactly the same either way — a WebSocket frame carries
+/// no memory of who answered its handshake.
+async fn run_conn<S>(ws: tokio_tungstenite::WebSocketStream<S>, hub: Hub, id: ConnId)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let (mut write, mut read) = ws.split();
 
     // Per-connection outbox: the hub pushes Events/SubAcks here; a writer pump
@@ -220,7 +246,9 @@ async fn handle_conn(stream: TcpStream, hub: Hub, id: ConnId) -> Result<(), ()> 
             Message::Close(_) => break,
             _ => continue,
         };
-        let Some(frame) = decode(&bytes) else { continue };
+        let Some(frame) = decode(&bytes) else {
+            continue;
+        };
         match frame {
             RelayFrame::Subscribe { topic } => {
                 hub.subscribe(id, topic.clone(), out_tx.clone()).await;
@@ -237,7 +265,125 @@ async fn handle_conn(stream: TcpStream, hub: Hub, id: ConnId) -> Result<(), ()> 
 
     hub.drop_conn(id).await;
     writer.abort();
-    Ok(())
+}
+
+/// A `Hub` with no listener of its own — for embedding inside ANOTHER server's accept loop
+/// (`largo serve`'s `/_relay` upgrade, registered on `logicaffeine_system::http::server`'s
+/// shared loop, or a compiled full-stack binary's own `Serve`). [`serve`] is bind-a-listener plus
+/// exactly this; the pub/sub semantics — subscribe, publish (never echoed to the publisher),
+/// unsubscribe on drop — are the identical `Hub` either way.
+#[derive(Clone)]
+pub struct RelayHub {
+    hub: Hub,
+    next_id: Arc<AtomicU64>,
+}
+
+impl Default for RelayHub {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RelayHub {
+    /// A hub with no bridge to the libp2p mesh — the browser↔browser-via-relay path, the same
+    /// pub/sub [`serve`] itself runs.
+    pub fn new() -> Self {
+        RelayHub {
+            hub: Hub::new(None),
+            next_id: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Take over an ALREADY-UPGRADED stream: the embedding server has already answered the
+    /// client's `101 Switching Protocols` off a request it parsed itself — `prefix` is whatever
+    /// bytes it had already read past that request (almost always empty; a client waits for the
+    /// `101` before framing its first message). Runs the connection's pub/sub loop until it
+    /// closes. Spawns nothing itself — the caller decides whether to await it inline or spawn it,
+    /// exactly the choice an embedding accept loop already makes for an ordinary connection.
+    pub async fn accept(&self, stream: TcpStream, prefix: Vec<u8>) {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            PrefixedStream::new(prefix, stream),
+            tokio_tungstenite::tungstenite::protocol::Role::Server,
+            None,
+        )
+        .await;
+        run_conn(ws, self.hub.clone(), id).await;
+    }
+
+    /// This hub as the upgrade table a server registers: [`RELAY_PATH`], the one path every LOGOS
+    /// page dials for `Publish`, `When a message arrives` and a `shared on` store.
+    #[cfg(feature = "http")]
+    pub fn upgrades(&self) -> Vec<(&'static str, crate::http::server::UpgradeHandler)> {
+        let hub = self.clone();
+        let handler: crate::http::server::UpgradeHandler = Arc::new(move |stream, prefix| {
+            let hub = hub.clone();
+            Box::pin(async move { hub.accept(stream, prefix).await })
+        });
+        vec![(RELAY_PATH, handler)]
+    }
+}
+
+/// The path a page's relay connection dials on the server that served it.
+pub const RELAY_PATH: &str = "/_relay";
+
+/// A stream that reads `prefix` before it reads anything from `inner` — writes always go straight
+/// to `inner`. The wrapper an already-upgraded WebSocket stream needs when a caller handed over a
+/// few bytes read past the HTTP request it parsed, so those bytes are not lost to the framing that
+/// begins right where the HTTP parse left off.
+struct PrefixedStream {
+    prefix: Vec<u8>,
+    at: usize,
+    inner: TcpStream,
+}
+
+impl PrefixedStream {
+    fn new(prefix: Vec<u8>, inner: TcpStream) -> Self {
+        PrefixedStream {
+            prefix,
+            at: 0,
+            inner,
+        }
+    }
+}
+
+impl tokio::io::AsyncRead for PrefixedStream {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if this.at < this.prefix.len() {
+            let take = (this.prefix.len() - this.at).min(buf.remaining());
+            buf.put_slice(&this.prefix[this.at..this.at + take]);
+            this.at += take;
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::pin::Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for PrefixedStream {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
 }
 
 /// A native relay client — and the reference for what the browser does over
@@ -290,14 +436,21 @@ impl RelayClient {
             }
         });
 
-        Ok(RelayClient { out: out_tx, events: ev_rx, acks: ack_rx, _pump: pump })
+        Ok(RelayClient {
+            out: out_tx,
+            events: ev_rx,
+            acks: ack_rx,
+            _pump: pump,
+        })
     }
 
     /// Subscribe to `topic` and await the relay's acknowledgement, so a
     /// subsequent publish from anyone cannot race ahead of the registration.
     pub async fn subscribe(&mut self, topic: &str) -> Result<(), String> {
         self.out
-            .send(RelayFrame::Subscribe { topic: topic.to_string() })
+            .send(RelayFrame::Subscribe {
+                topic: topic.to_string(),
+            })
             .map_err(|_| "relay connection closed".to_string())?;
         loop {
             match self.acks.recv().await {
@@ -311,7 +464,10 @@ impl RelayClient {
     /// Publish `data` to `topic`.
     pub fn publish(&self, topic: &str, data: Vec<u8>) -> Result<(), String> {
         self.out
-            .send(RelayFrame::Publish { topic: topic.to_string(), data })
+            .send(RelayFrame::Publish {
+                topic: topic.to_string(),
+                data,
+            })
             .map_err(|_| "relay connection closed".to_string())
     }
 
@@ -335,69 +491,5 @@ impl RelayClient {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Two clients on one relay: a subscriber receives a publisher's message —
-    /// the browser↔browser-via-relay path, end to end.
-    #[tokio::test]
-    async fn relay_pubsub_roundtrip() {
-        let relay = serve("127.0.0.1:0").await.expect("relay binds");
-        let url = relay.url();
-
-        let mut sub = RelayClient::connect(&url).await.expect("subscriber dials");
-        let pubr = RelayClient::connect(&url).await.expect("publisher dials");
-
-        sub.subscribe("chat").await.expect("subscribe acked");
-        pubr.publish("chat", b"hello".to_vec()).expect("publish");
-
-        let (topic, data) = tokio::time::timeout(std::time::Duration::from_secs(5), sub.next_event())
-            .await
-            .expect("event arrives in time")
-            .expect("event present");
-        assert_eq!(topic, "chat");
-        assert_eq!(data, b"hello");
-    }
-
-    /// A message on a topic nobody subscribes to reaches no one, and a second
-    /// topic is isolated from the first.
-    #[tokio::test]
-    async fn relay_topics_are_isolated() {
-        let relay = serve("127.0.0.1:0").await.expect("relay binds");
-        let url = relay.url();
-        let mut a = RelayClient::connect(&url).await.unwrap();
-        let b = RelayClient::connect(&url).await.unwrap();
-
-        a.subscribe("alpha").await.unwrap();
-        b.publish("beta", b"nope".to_vec()).unwrap(); // different topic
-        b.publish("alpha", b"yes".to_vec()).unwrap();
-
-        let (topic, data) = tokio::time::timeout(std::time::Duration::from_secs(5), a.next_event())
-            .await
-            .expect("event arrives")
-            .unwrap();
-        // The first event a receives must be the `alpha` one — `beta` was never
-        // delivered to it.
-        assert_eq!(topic, "alpha");
-        assert_eq!(data, b"yes");
-    }
-
-    /// The server-side `inject` hook (used by the gossip bridge) delivers to WS
-    /// subscribers exactly like a client publish.
-    #[tokio::test]
-    async fn relay_inject_reaches_subscribers() {
-        let relay = serve("127.0.0.1:0").await.expect("relay binds");
-        let mut sub = RelayClient::connect(&relay.url()).await.unwrap();
-        sub.subscribe("mesh").await.unwrap();
-
-        let delivered = relay.inject("mesh", b"from-gossip").await;
-        assert_eq!(delivered, 1, "one WS subscriber received the injected message");
-
-        let (topic, data) = tokio::time::timeout(std::time::Duration::from_secs(5), sub.next_event())
-            .await
-            .expect("event arrives")
-            .unwrap();
-        assert_eq!(topic, "mesh");
-        assert_eq!(data, b"from-gossip");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_system/relay/tests.rs"]
+mod tests;

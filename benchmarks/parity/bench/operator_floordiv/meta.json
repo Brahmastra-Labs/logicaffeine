@@ -1,0 +1,10 @@
+{
+  "capability": "operator.floordiv",
+  "workload": "sum of opFloorDiv(i, 7) over 1..n",
+  "arg": "3000000",
+  "expected": "642856071429",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

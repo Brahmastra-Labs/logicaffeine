@@ -31,13 +31,19 @@
 //! The `'a` lifetime parameter tracks the arena lifetime.
 
 pub mod axiom;
+pub mod component;
 pub mod definition;
 pub mod logic;
 pub mod stmt;
 pub mod theorem;
+pub mod view;
 
 pub use axiom::{AxiomBlock, TheoryBlock};
 pub use definition::DefinitionBlock;
 pub use logic::*;
-pub use stmt::{Stmt, Expr, Literal, Block, BinaryOpKind, CompressionCodec, SendLayout, TypeExpr, MatchArm, SecurePad, SecureRole};
-pub use theorem::{TheoremBlock, ProofStrategy};
+pub use stmt::{
+    BinaryOpKind, Block, CaseTable, CompressionCodec, ExpectedOutput, Expr, Literal, MatchArm,
+    ObsCategory, PropDomain, SecurePad, SecureRole, SendLayout, Stmt, StmtId, TestCapabilities,
+    TypeExpr,
+};
+pub use theorem::{ProofStrategy, TheoremBlock};

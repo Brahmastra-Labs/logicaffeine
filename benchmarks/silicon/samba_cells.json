@@ -1,0 +1,385 @@
+{
+ "schema": 1,
+ "approved": null,
+ "measures": [
+  {
+   "id": "tpot_ms",
+   "unit": "ms",
+   "better": "lower",
+   "definition": "Steady-state time per output token of one sequence.",
+   "heading": "Time per output token and decode throughput",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "tok_s_user",
+   "unit": "tok/s",
+   "better": "higher",
+   "definition": "Output tokens a second as one sequence sees them; at batch 1, the decode throughput.",
+   "heading": "Time per output token and decode throughput",
+   "sources": [
+    "DIAYN26",
+    "HC26"
+   ]
+  },
+  {
+   "id": "tok_s_total",
+   "unit": "tok/s",
+   "better": "higher",
+   "definition": "Output tokens a second over every sequence of the batch.",
+   "heading": "Time per output token and decode throughput",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "roofline_share",
+   "unit": "fraction",
+   "better": "higher",
+   "definition": "Achieved decode throughput over Perf_RL = samples × HBM_bw / (weights_size + KV_cache × samples).",
+   "heading": "Share of the roofline",
+   "sources": [
+    "DIAYN26",
+    "KL24"
+   ]
+  },
+  {
+   "id": "mbu",
+   "unit": "fraction",
+   "better": "higher",
+   "definition": "Achieved model-data bandwidth (weights and KV cache) over the system's peak memory bandwidth.",
+   "heading": "Model bandwidth utilization (MBU)",
+   "sources": [
+    "HC26"
+   ]
+  },
+  {
+   "id": "model_bandwidth_tb_s",
+   "unit": "TB/s",
+   "better": "higher",
+   "definition": "Installed memory bandwidth times MBU: the effective model bandwidth.",
+   "heading": "Model bandwidth utilization (MBU)",
+   "sources": [
+    "HC26"
+   ]
+  },
+  {
+   "id": "kernel_calls_per_token",
+   "unit": "calls",
+   "better": "lower",
+   "definition": "Kernel calls a generated token; each call boundary is a synchronization point.",
+   "heading": "Kernel calls per output token",
+   "sources": [
+    "KL24"
+   ]
+  },
+  {
+   "id": "sync_share",
+   "unit": "fraction",
+   "better": "lower",
+   "definition": "The share of the time per token spent synchronizing.",
+   "heading": "Kernel calls per output token",
+   "sources": [
+    "KL24"
+   ]
+  },
+  {
+   "id": "scaling_speedup",
+   "unit": "ratio",
+   "better": "higher",
+   "definition": "Decode speed at the cell's socket count over the speed at the base count the row states.",
+   "heading": "Socket scaling",
+   "sources": [
+    "KL24",
+    "HC26"
+   ]
+  },
+  {
+   "id": "acceptance_rate",
+   "unit": "fraction",
+   "better": "higher",
+   "definition": "AR = (a + 1) / (k + 1) for a accepted of k draft tokens, averaged over the prompt sets the row states.",
+   "heading": "Speculative decoding",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "spec_step_ms",
+   "unit": "ms",
+   "better": "lower",
+   "definition": "One speculative step: k draft runs and one target run.",
+   "heading": "Speculative decoding",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "spec_speedup",
+   "unit": "ratio",
+   "better": "higher",
+   "definition": "Speculative decoding's speed over the baseline the row states.",
+   "heading": "Speculative decoding",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "kernels",
+   "unit": "kernels",
+   "better": "lower",
+   "definition": "Kernels (fused subgraphs) the compiler emits for the program.",
+   "heading": "The compiler's units",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "schedules",
+   "unit": "schedules",
+   "better": "none",
+   "definition": "Schedules (kernel orders) the compiled artifact carries.",
+   "heading": "The compiler's units",
+   "sources": [
+    "DIAYN26"
+   ]
+  },
+  {
+   "id": "samples_s",
+   "unit": "samples/s",
+   "better": "higher",
+   "definition": "Throughput of a spatial mapping: one over its stage latency.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "stage_latency_us",
+   "unit": "µs",
+   "better": "lower",
+   "definition": "Latency of one pipeline stage of the mapped network.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "model_latency_ms",
+   "unit": "ms",
+   "better": "lower",
+   "definition": "Latency of one sample through the mapped network: its depth times the stage latency.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "flops",
+   "unit": "FLOPs",
+   "better": "none",
+   "definition": "Floating-point operations of one sample.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "flops_utilization",
+   "unit": "fraction",
+   "better": "higher",
+   "definition": "Achieved over peak FLOPS of the chips the mapping uses.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "compute_units",
+   "unit": "units",
+   "better": "none",
+   "definition": "Compute units the mapping uses.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "memory_units",
+   "unit": "units",
+   "better": "none",
+   "definition": "Memory units the mapping uses.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "memory_bytes",
+   "unit": "bytes",
+   "better": "none",
+   "definition": "Bytes the mapping holds in memory units.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "memory_utilization",
+   "unit": "fraction",
+   "better": "none",
+   "definition": "The share of the used memory units' capacity the mapping fills.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "nodes",
+   "unit": "nodes",
+   "better": "none",
+   "definition": "Nodes of the traced graph.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "merged_nodes",
+   "unit": "nodes",
+   "better": "none",
+   "definition": "Nodes of the traced graph after merging.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "function_nodes",
+   "unit": "nodes",
+   "better": "none",
+   "definition": "Function nodes of the traced graph.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "depth",
+   "unit": "nodes",
+   "better": "none",
+   "definition": "The longest chain of merged nodes.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "power_w",
+   "unit": "W",
+   "better": "lower",
+   "definition": "Power the estimator reports.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT"
+   ]
+  },
+  {
+   "id": "cycles",
+   "unit": "cycles",
+   "better": "lower",
+   "definition": "Cycles of a trace-driven run.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT",
+    "STUBBED"
+   ]
+  },
+  {
+   "id": "runtime_s",
+   "unit": "s",
+   "better": "lower",
+   "definition": "Seconds of a trace-driven run at the configuration's clock.",
+   "heading": "The Plasticine evaluation kit's measures",
+   "sources": [
+    "PTUT",
+    "STUBBED"
+   ]
+  },
+  {
+   "id": "ttft_ms",
+   "unit": "ms",
+   "better": "lower",
+   "definition": "Time from a prompt's arrival to its first output token.",
+   "regimes": [
+    "TTFT-8K",
+    "PD"
+   ]
+  },
+  {
+   "id": "compile_s",
+   "unit": "s",
+   "better": "lower",
+   "definition": "Wall seconds from a checkpoint to a deployable bundle.",
+   "regimes": [
+    "COMPILE"
+   ]
+  },
+  {
+   "id": "bringup_s",
+   "unit": "s",
+   "better": "lower",
+   "definition": "Wall seconds from an unseen checkpoint to the first token equal to the reference, every code change counted.",
+   "regimes": [
+    "BRINGUP"
+   ]
+  },
+  {
+   "id": "sync_boundaries_per_token",
+   "unit": "boundaries",
+   "better": "lower",
+   "definition": "Barriers, kernel calls and host returns a generated token.",
+   "regimes": [
+    "SYNC"
+   ]
+  },
+  {
+   "id": "kernel_looping_speedup",
+   "unit": "ratio",
+   "better": "higher",
+   "definition": "Decode speed with KernelLooping over the speed without it.",
+   "sources": [
+    "KL24"
+   ],
+   "regimes": [
+    "KL"
+   ]
+  },
+  {
+   "id": "expert_bandwidth_share",
+   "unit": "fraction",
+   "better": "none",
+   "definition": "The share of memory bandwidth decode spends loading experts.",
+   "sources": [
+    "STH26"
+   ],
+   "regimes": [
+    "EXPERT-BW"
+   ]
+  },
+  {
+   "id": "peak_flops_share",
+   "unit": "fraction",
+   "better": "higher",
+   "definition": "A kernel's achieved FLOPs over the chip's peak.",
+   "sources": [
+    "HC26"
+   ],
+   "regimes": [
+    "PEAK"
+   ]
+  }
+ ],
+ "rows": []
+}

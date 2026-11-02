@@ -1,0 +1,28 @@
+# What a browser does with a click on a link and a submit of a form
+
+## Component App
+State:
+    Let n be 0.
+Actions:
+    To note:
+        Set n to n + 1.
+View:
+    <main>
+      <a id="plain" href="/somewhere">go</a>
+      <a id="kept" href="/nowhere" on-click.prevent={note}>stay</a>
+      <form id="search" action="/search"><input name="q" value="milk tea"></form>
+      <p id="n">{n}</p>
+    </main>
+
+## Test: a link is followed and a prevented one is not
+    Mount App.
+    Click "#kept".
+    Expect that the URL is equal to "/".
+    Expect that the text of "#n" is equal to "1".
+    Click "#plain".
+    Expect that the URL is equal to "/somewhere".
+
+## Test: a form nothing prevents submits itself
+    Mount App.
+    Submit "#search".
+    Expect that the URL is equal to "/search?q=milk+tea".

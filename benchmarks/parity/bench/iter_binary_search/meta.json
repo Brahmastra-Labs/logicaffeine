@@ -1,0 +1,11 @@
+{
+  "capability": "iter.binary_search",
+  "workload": "binarySearchSeq(sorted xs, key) \u2014 1-based index or 0",
+  "arg": "200000",
+  "expected": "303031",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust",
+    "go"
+  ]
+}

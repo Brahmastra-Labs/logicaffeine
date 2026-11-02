@@ -1,0 +1,81 @@
+{
+  "case": "T05-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t05_elaboration/T05-011_coe_coercion.lean",
+  "source_sha256": "a0db1727d0fb112d2649e260c6203fcf328c735ac1621173b11ad07dae1e2886",
+  "ledger_sha256": "49648970a85c4a66a93bd657f7fe581a4628233501a9e7ad32b4feb469f3dc8f",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T05_011.Bit",
+    "T05_011.Bit.one",
+    "T05_011.Bit.zero",
+    "T05_011.Wrapped",
+    "T05_011.Wrapped.mk",
+    "T05_011.Wrapped.unwrap",
+    "T05_011.bitSum",
+    "T05_011.bitToBool",
+    "T05_011.bits",
+    "T05_011.boolToNat",
+    "T05_011.boolToNat'",
+    "T05_011.instCoeBitBool",
+    "T05_011.instCoeBoolNat__stdin",
+    "T05_011.instCoeWrapped",
+    "T05_011.sumWith",
+    "T05_011.takesNat",
+    "T05_011.unwrapNat"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "e459c5494ccad2cc0c82e2db7548a4cbb90db76778a10e64bcec633889d83e1e",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1310,
+  "harvest": {
+    "roots": [
+      "T05_011.Bit",
+      "T05_011.Bit.one",
+      "T05_011.Bit.zero",
+      "T05_011.Wrapped",
+      "T05_011.Wrapped.mk",
+      "T05_011.Wrapped.unwrap",
+      "T05_011.bitSum",
+      "T05_011.bitToBool",
+      "T05_011.bits",
+      "T05_011.boolToNat",
+      "T05_011.boolToNat'",
+      "T05_011.instCoeBitBool",
+      "T05_011.instCoeWrapped",
+      "T05_011.sumWith",
+      "T05_011.takesNat",
+      "T05_011.unwrapNat"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

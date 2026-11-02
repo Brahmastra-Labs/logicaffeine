@@ -1,0 +1,5 @@
+read_verilog rev_alu.v
+synth -top rev_alu
+abc -g AND,OR,XOR,NAND,NOR,NOT
+opt; clean
+stat

@@ -45,7 +45,9 @@ fn on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T 
 /// A deterministic pseudo-random program generator over the variant
 /// families (no Date/random: a fixed LCG seed walks the space).
 fn lcg(state: &mut u64) -> u64 {
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     *state >> 33
 }
 
@@ -66,7 +68,10 @@ fn random_program(seed: u64, len: usize, slots: u16) -> Vec<MicroOp> {
             6 => MicroOp::Lt { dst, lhs, rhs },
             7 => MicroOp::Eq { dst, lhs, rhs },
             8 => MicroOp::Move { dst, src: lhs },
-            _ => MicroOp::LoadConst { dst, value: (lcg(&mut s) as i64).wrapping_sub(1 << 30) },
+            _ => MicroOp::LoadConst {
+                dst,
+                value: (lcg(&mut s) as i64).wrapping_sub(1 << 30),
+            },
         };
         ops.push(op);
     }
@@ -92,14 +97,12 @@ fn pinned_chains_match_reference_on_random_programs() {
         // Pin rotations: none, the first four, a shifted four.
         let pin_sets: [&[u16]; 3] = [&[], &[0, 1, 2, 3], &[2, 3, 4, 5]];
         for pins in pin_sets {
-            let chain = compile_straightline_pinned(&ops, pins)
-                .expect("pinned chain must compile");
+            let chain = compile_straightline_pinned(&ops, pins).expect("pinned chain must compile");
             let mut frame = ref_frame.clone();
             match (chain.run_with_frame(&mut frame), expected) {
-                (ChainOutcome::Return(v), Some(e)) => assert_eq!(
-                    v, e,
-                    "seed {seed}, pins {pins:?}: pinned chain diverged"
-                ),
+                (ChainOutcome::Return(v), Some(e)) => {
+                    assert_eq!(v, e, "seed {seed}, pins {pins:?}: pinned chain diverged")
+                }
                 // Overflow: the native chain side-exits and the exact reference is
                 // None — they AGREE that the program leaves the i64 fast path.
                 (ChainOutcome::Deopt(_), None) => {}
@@ -117,15 +120,27 @@ fn pinned_chains_match_reference_on_random_programs() {
 fn pinned_loop_matches_reference() {
     // frame[0] = counter, frame[1] = accumulator, frame[2] = limit.
     let ops = vec![
-        MicroOp::Lt { dst: 3, lhs: 0, rhs: 2 },
+        MicroOp::Lt {
+            dst: 3,
+            lhs: 0,
+            rhs: 2,
+        },
         MicroOp::JumpIfFalse { cond: 3, target: 6 },
-        MicroOp::Add { dst: 1, lhs: 1, rhs: 0 },
+        MicroOp::Add {
+            dst: 1,
+            lhs: 1,
+            rhs: 0,
+        },
         MicroOp::LoadConst { dst: 4, value: 1 },
-        MicroOp::Add { dst: 0, lhs: 0, rhs: 4 },
+        MicroOp::Add {
+            dst: 0,
+            lhs: 0,
+            rhs: 4,
+        },
         MicroOp::Jump { target: 0 },
         MicroOp::Return { src: 1 },
     ];
-    let mut ref_frame = vec![0i64, 0, 100_000, 0, 0];
+    let ref_frame = vec![0i64, 0, 100_000, 0, 0];
     let expected = reference_eval(&ops, &mut ref_frame.clone(), 10_000_000).unwrap();
     for pins in [&[][..], &[0, 1][..], &[0, 1, 2, 4][..]] {
         let chain = compile_straightline_pinned(&ops, pins).expect("compile");
@@ -194,7 +209,10 @@ fn nqueens_with_regalloc_is_exact() {
     let (out, err, fn_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "40");
-    assert!(fn_ok >= 1, "the solver must JIT under the allocator (got {fn_ok})");
+    assert!(
+        fn_ok >= 1,
+        "the solver must JIT under the allocator (got {fn_ok})"
+    );
 }
 
 /// Deopt parity survives the allocator: replay re-enters from the boundary
@@ -600,13 +618,8 @@ fn graph_bfs_program(n: i64) -> String {
 fn graph_bfs_inline_push_timing() {
     let n = 600_000i64;
     let src = graph_bfs_program(n);
-    let inline = std::env::var("LOGOS_NO_INLINE_PUSH").map_or("ON", |v| {
-        if v == "1" {
-            "OFF"
-        } else {
-            "ON"
-        }
-    });
+    let inline =
+        std::env::var("LOGOS_NO_INLINE_PUSH").map_or("ON", |v| if v == "1" { "OFF" } else { "ON" });
     let out = on_big_stack(move || {
         let tier = ForgeTier::new();
         let t0 = std::time::Instant::now();
@@ -628,9 +641,10 @@ fn graph_bfs_inline_push_timing() {
 #[ignore]
 #[cfg(target_arch = "x86_64")]
 fn nbody_float_codegen_probe() {
-    let base = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/nbody/interp.lg"),
-    )
+    let base = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/programs/nbody/interp.lg"
+    ))
     .expect("read nbody interp.lg");
     let src = base.replace("Let n be 1000.", "Let n be 4000.");
     let out = on_big_stack(move || {
@@ -673,7 +687,12 @@ fn tiered_fn(src: &str) -> (String, Option<String>, u32, u32) {
             "tiered VM diverged from tree-walker on:\n{src}"
         );
         let (_, fn_ok) = tier.function_counts();
-        (norm(&vm.output), vm.error, fn_ok, tier.regalloc_function_count())
+        (
+            norm(&vm.output),
+            vm.error,
+            fn_ok,
+            tier.regalloc_function_count(),
+        )
     })
 }
 
@@ -801,7 +820,10 @@ fn regalloc_function_deopt_inside_recursion() {
             (norm(&tw.output), &tw.error),
             "regalloc-function recursive deopt replay diverged"
         );
-        assert!(vm.error.is_some(), "division by zero at the base case must error");
+        assert!(
+            vm.error.is_some(),
+            "division by zero at the base case must error"
+        );
         // dig(40,5) = 100/5 - 40 = -20; summed 4000 times = -80000.
         assert_eq!(norm(&vm.output), "-80000");
         assert!(
@@ -861,7 +883,10 @@ fn regalloc_dead_after_call_temp_is_bit_identical_and_tiers() {
             (norm(&tw.output), &tw.error),
             "dead-after-call / live-across self-call regalloc replay diverged"
         );
-        assert!(vm.error.is_some(), "acc(50, 0) must divide by zero at the base");
+        assert!(
+            vm.error.is_some(),
+            "acc(50, 0) must divide by zero at the base"
+        );
         assert!(
             tier.regalloc_function_count() >= 1,
             "acc must tier through the regalloc FUNCTION backend (got {})",
@@ -993,7 +1018,7 @@ mod contiguous_backend {
     fn run_regalloc(ops: &[MicroOp], frame: &[i64]) -> (ChainOutcome, Vec<i64>) {
         let status = Arc::new(AtomicI64::new(0));
         let chain =
-            compile_region_regalloc(ops, Some(status)).expect("supported region must compile");
+            compile_region_regalloc(ops, Some(status), &[]).expect("supported region must compile");
         let mut f = frame.to_vec();
         let out = chain.run_with_frame(&mut f);
         (out, f)
@@ -1013,10 +1038,26 @@ mod contiguous_backend {
     #[test]
     fn straightline_arith_three_way_identical() {
         let ops = vec![
-            MicroOp::Add { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::Mul { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::Sub { dst: 5, lhs: 4, rhs: 0 },
-            MicroOp::BitXor { dst: 6, lhs: 5, rhs: 1 },
+            MicroOp::Add {
+                dst: 3,
+                lhs: 0,
+                rhs: 1,
+            },
+            MicroOp::Mul {
+                dst: 4,
+                lhs: 3,
+                rhs: 2,
+            },
+            MicroOp::Sub {
+                dst: 5,
+                lhs: 4,
+                rhs: 0,
+            },
+            MicroOp::BitXor {
+                dst: 6,
+                lhs: 5,
+                rhs: 1,
+            },
             MicroOp::Return { src: 6 },
         ];
         let frame = vec![7i64, 11, 13, 0, 0, 0, 0];
@@ -1031,10 +1072,23 @@ mod contiguous_backend {
     #[test]
     fn counting_loop_identical() {
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 2, target: 5 },
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 0 },
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 2,
+                target: 5,
+            },
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 0,
+            },
             MicroOp::LoadConst { dst: 3, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 3,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 1 },
         ];
@@ -1050,10 +1104,23 @@ mod contiguous_backend {
     fn branches_identical() {
         // r = if a < b { a + b } else { a - b }; also exercise JumpIfTrue.
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 3 }, // !(a<b) -> else
-            MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 3,
+            }, // !(a<b) -> else
+            MicroOp::Add {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             MicroOp::Jump { target: 4 },
-            MicroOp::Sub { dst: 2, lhs: 0, rhs: 1 },
+            MicroOp::Sub {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
             MicroOp::Return { src: 2 },
         ];
         for (a, b) in [(3i64, 9), (9, 3), (5, 5)] {
@@ -1074,10 +1141,15 @@ mod contiguous_backend {
     #[test]
     fn unsupported_op_falls_back() {
         let ops = vec![
-            MicroOp::MapGet { dst: 1, key: 0, map_slot: 2, helper_addr: 0 },
+            MicroOp::MapGet {
+                dst: 1,
+                key: 0,
+                map_slot: 2,
+                helper_addr: 0,
+            },
             MicroOp::Return { src: 1 },
         ];
-        assert!(compile_region_regalloc(&ops, None).is_none());
+        assert!(compile_region_regalloc(&ops, None, &[]).is_none());
         // …and the fallback tier still produces output for the same program.
         assert!(compile_straightline_coded(&ops, None, None, 0).is_ok());
     }
@@ -1087,8 +1159,16 @@ mod contiguous_backend {
     #[test]
     fn div_by_zero_side_exit_matches_stencil() {
         let ops = vec![
-            MicroOp::Add { dst: 3, lhs: 0, rhs: 1 },
-            MicroOp::Div { dst: 4, lhs: 3, rhs: 2 },
+            MicroOp::Add {
+                dst: 3,
+                lhs: 0,
+                rhs: 1,
+            },
+            MicroOp::Div {
+                dst: 4,
+                lhs: 3,
+                rhs: 2,
+            },
             MicroOp::Return { src: 4 },
         ];
         let frame = vec![10i64, 20, 0, 0, 0];
@@ -1188,8 +1268,7 @@ mod contiguous_backend {
         buf_slots: Vec<(usize, &mut Vec<i64>)>,
     ) -> (ChainOutcome, Vec<i64>) {
         let status = Arc::new(AtomicI64::new(0));
-        let chain =
-            compile_region_regalloc(ops, Some(status)).expect("array region must compile");
+        let chain = compile_region_regalloc(ops, Some(status), &[]).expect("array region must compile");
         let mut f = frame.to_vec();
         for (ptr_slot, buf) in buf_slots {
             f[ptr_slot] = buf.as_mut_ptr() as i64;
@@ -1222,10 +1301,31 @@ mod contiguous_backend {
         // frame: 0=i(1-based) 1=acc 2=n(=len) 3=tmp 4=ptr 5=len 6=one
         // while i <= n: acc += arr[i]; i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 2, target: 5 }, // i<=n
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 3 }, // acc += arr[i]
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 6 }, // i += 1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 2,
+                target: 5,
+            }, // i<=n
+            MicroOp::ArrLoad {
+                dst: 3,
+                idx: 0,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 3,
+            }, // acc += arr[i]
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 6,
+            }, // i += 1
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 1 },
         ];
@@ -1237,7 +1337,10 @@ mod contiguous_backend {
         let expected = vref.expect("reference terminates");
         let (out, _f) = run_regalloc_buf(&ops, &frame, vec![(4, &mut buf)]);
         assert_eq!(out, ChainOutcome::Return(expected));
-        assert_eq!(out, ChainOutcome::Return((1..=n as i64).map(|k| k * 3 - 5).sum()));
+        assert_eq!(
+            out,
+            ChainOutcome::Return((1..=n as i64).map(|k| k * 3 - 5).sum())
+        );
     }
 
     /// RED: write a computed value into every cell via `arr[i] = expr` — the
@@ -1247,10 +1350,31 @@ mod contiguous_backend {
         // frame: 0=i 1=n 2=val 3=ptr 4=len 5=one
         // while i <= n: arr[i] = i*i; i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::Mul { dst: 2, lhs: 0, rhs: 0 }, // val = i*i
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 5 },
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 5,
+            },
+            MicroOp::Mul {
+                dst: 2,
+                lhs: 0,
+                rhs: 0,
+            }, // val = i*i
+            MicroOp::ArrStore {
+                src: 2,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 5,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::LoadConst { dst: 2, value: 0 },
             MicroOp::Return { src: 2 },
@@ -1261,7 +1385,10 @@ mod contiguous_backend {
 
         let (vref, _fref, bref) = run_reference_buf(&ops, &frame, &[vec![0i64; n]], &[3]);
         let (out, _f) = run_regalloc_buf(&ops, &frame, vec![(3, &mut buf)]);
-        assert_eq!(out, ChainOutcome::Return(vref.expect("reference terminates")));
+        assert_eq!(
+            out,
+            ChainOutcome::Return(vref.expect("reference terminates"))
+        );
         assert_eq!(out, ChainOutcome::Return(0));
         assert_eq!(buf, bref[0], "written buffer diverged from reference");
         let want: Vec<i64> = (1..=n as i64).map(|k| k * k).collect();
@@ -1278,42 +1405,119 @@ mod contiguous_backend {
         //        9=o_ptr 10=o_len 11=one
         let ops = vec![
             // outer: while r <= n
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 2, target: 16 }, // 0
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 2,
+                target: 16,
+            }, // 0
             MicroOp::LoadConst { dst: 1, value: 1 }, // c = 1                  1
             // inner: while c <= n
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 1, rhs: 2, target: 14 }, // 2
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 1,
+                rhs: 2,
+                target: 14,
+            }, // 2
             // src_lin = (r-1)*n + c
-            MicroOp::LoadConst { dst: 6, value: 1 },                        // 3
-            MicroOp::Sub { dst: 3, lhs: 0, rhs: 6 },                        // 4 r-1
-            MicroOp::Mul { dst: 3, lhs: 3, rhs: 2 },                        // 5 (r-1)*n
-            MicroOp::Add { dst: 3, lhs: 3, rhs: 1 },                        // 6 +c
+            MicroOp::LoadConst { dst: 6, value: 1 }, // 3
+            MicroOp::Sub {
+                dst: 3,
+                lhs: 0,
+                rhs: 6,
+            }, // 4 r-1
+            MicroOp::Mul {
+                dst: 3,
+                lhs: 3,
+                rhs: 2,
+            }, // 5 (r-1)*n
+            MicroOp::Add {
+                dst: 3,
+                lhs: 3,
+                rhs: 1,
+            }, // 6 +c
             // dst_lin = (c-1)*n + r
-            MicroOp::Sub { dst: 4, lhs: 1, rhs: 6 },                        // 7 c-1
-            MicroOp::Mul { dst: 4, lhs: 4, rhs: 2 },                        // 8 (c-1)*n
-            MicroOp::Add { dst: 4, lhs: 4, rhs: 0 },                        // 9 +r
-            MicroOp::ArrLoad { dst: 5, idx: 3, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 10
-            MicroOp::ArrStore { src: 5, idx: 4, ptr_slot: 9, len_slot: 10, byte: false, narrow32: false, checked: true }, // 11
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 11 }, // c += 1               12
-            MicroOp::Jump { target: 2 },              //                      13
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 11 }, // r += 1               14
-            MicroOp::Jump { target: 0 },              //                      15
-            MicroOp::LoadConst { dst: 5, value: 0 },  //                      16 (unreachable filler)
-            MicroOp::Return { src: 5 },               //                      17
+            MicroOp::Sub {
+                dst: 4,
+                lhs: 1,
+                rhs: 6,
+            }, // 7 c-1
+            MicroOp::Mul {
+                dst: 4,
+                lhs: 4,
+                rhs: 2,
+            }, // 8 (c-1)*n
+            MicroOp::Add {
+                dst: 4,
+                lhs: 4,
+                rhs: 0,
+            }, // 9 +r
+            MicroOp::ArrLoad {
+                dst: 5,
+                idx: 3,
+                ptr_slot: 7,
+                len_slot: 8,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 10
+            MicroOp::ArrStore {
+                src: 5,
+                idx: 4,
+                ptr_slot: 9,
+                len_slot: 10,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 11
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 11,
+            }, // c += 1               12
+            MicroOp::Jump { target: 2 }, //                      13
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 11,
+            }, // r += 1               14
+            MicroOp::Jump { target: 0 }, //                      15
+            MicroOp::LoadConst { dst: 5, value: 0 }, //                      16 (unreachable filler)
+            MicroOp::Return { src: 5 },  //                      17
         ];
         let n = 23usize;
         let total = n * n;
         let a: Vec<i64> = (0..total).map(|k| (k as i64) * 7 + 1).collect();
         let mut a_run = a.clone();
         let mut out_run = vec![0i64; total];
-        let frame = vec![1i64, 1, n as i64, 0, 0, 0, 0, 0, total as i64, 0, total as i64, 1];
+        let frame = vec![
+            1i64,
+            1,
+            n as i64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            total as i64,
+            0,
+            total as i64,
+            1,
+        ];
 
         let (vref, _fref, bref) =
             run_reference_buf(&ops, &frame, &[a.clone(), vec![0i64; total]], &[7, 9]);
         let (out, _f) = run_regalloc_buf(&ops, &frame, vec![(7, &mut a_run), (9, &mut out_run)]);
-        assert_eq!(out, ChainOutcome::Return(vref.expect("reference terminates")));
+        assert_eq!(
+            out,
+            ChainOutcome::Return(vref.expect("reference terminates"))
+        );
         assert_eq!(out, ChainOutcome::Return(0));
         assert_eq!(a_run, bref[0], "source buffer must be unchanged");
-        assert_eq!(out_run, bref[1], "transposed buffer diverged from reference");
+        assert_eq!(
+            out_run, bref[1],
+            "transposed buffer diverged from reference"
+        );
         // Spot-check the transpose at one cell.
         let r = 5i64;
         let c = 9i64;
@@ -1330,13 +1534,58 @@ mod contiguous_backend {
         // frame: 0=lo 1=hi 2=tlo 3=thi 4=ptr 5=len 6=one
         // while lo < hi: t=a[lo]; a[lo]=a[hi]; a[hi]=t; lo+=1; hi-=1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 9 }, // 0
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 1 t=a[lo]
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 2 u=a[hi]
-            MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 3 a[lo]=u
-            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 4 a[hi]=t
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 6 }, // 5 lo += 1
-            MicroOp::Sub { dst: 1, lhs: 1, rhs: 6 }, // 6 hi -= 1
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 9,
+            }, // 0
+            MicroOp::ArrLoad {
+                dst: 2,
+                idx: 0,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 1 t=a[lo]
+            MicroOp::ArrLoad {
+                dst: 3,
+                idx: 1,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 2 u=a[hi]
+            MicroOp::ArrStore {
+                src: 3,
+                idx: 0,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 3 a[lo]=u
+            MicroOp::ArrStore {
+                src: 2,
+                idx: 1,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 4 a[hi]=t
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 6,
+            }, // 5 lo += 1
+            MicroOp::Sub {
+                dst: 1,
+                lhs: 1,
+                rhs: 6,
+            }, // 6 hi -= 1
             MicroOp::Jump { target: 0 },             // 7
             MicroOp::LoadConst { dst: 2, value: 0 }, // 8 filler
             MicroOp::Return { src: 0 },              // 9 returns lo
@@ -1362,7 +1611,15 @@ mod contiguous_backend {
     fn array_oob_load_side_exit_matches() {
         // arr has len 4; index 5 is OOB → must side-exit before writing dst.
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrLoad {
+                dst: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         let mut buf = vec![10i64, 20, 30, 40];
@@ -1374,7 +1631,7 @@ mod contiguous_backend {
 
         // regalloc must side-exit (deopt), leaving dst untouched.
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
         let mut f = frame.clone();
         f[2] = buf.as_mut_ptr() as i64;
         let rout = chain.run_with_frame(&mut f);
@@ -1398,7 +1655,15 @@ mod contiguous_backend {
     fn array_oob_store_side_exit_no_effect() {
         // store into index 0 (1-based → im1 = -1, OOB) must not write.
         let ops = vec![
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrStore {
+                src: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         let mut buf = vec![1i64, 2, 3, 4];
@@ -1406,7 +1671,7 @@ mod contiguous_backend {
         let frame = vec![0i64, 999, 0, 4]; // idx=0 → OOB (1-based)
 
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
         let mut f = frame.clone();
         f[2] = buf.as_mut_ptr() as i64;
         let rout = chain.run_with_frame(&mut f);
@@ -1420,10 +1685,35 @@ mod contiguous_backend {
     fn array_unchecked_load_store_identical() {
         // a[i] (unchecked) copied to b[i] (unchecked) across a known-safe range.
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: false },
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: false },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 7 },
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 5,
+            },
+            MicroOp::ArrLoad {
+                dst: 2,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: false,
+            },
+            MicroOp::ArrStore {
+                src: 2,
+                idx: 0,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: false,
+                narrow32: false,
+                checked: false,
+            },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 7,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::LoadConst { dst: 2, value: 0 },
             MicroOp::Return { src: 2 },
@@ -1436,7 +1726,7 @@ mod contiguous_backend {
         let frame = vec![1i64, n as i64, 0, 0, n as i64, 0, n as i64, 1];
 
         // No status cell needed for an all-unchecked region.
-        let chain = compile_region_regalloc(&ops, None).expect("unchecked compiles without status");
+        let chain = compile_region_regalloc(&ops, None, &[]).expect("unchecked compiles without status");
         let mut f = frame.clone();
         f[3] = a_run.as_mut_ptr() as i64;
         f[5] = b_run.as_mut_ptr() as i64;
@@ -1465,7 +1755,7 @@ mod contiguous_backend {
         buf_slots: Vec<(usize, &mut Vec<u8>)>,
     ) -> (ChainOutcome, Vec<i64>) {
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(ops, Some(status))
+        let chain = compile_region_regalloc(ops, Some(status), &[])
             .expect("byte-array region must compile (regalloc covers Seq of Bool)");
         let mut f = frame.to_vec();
         for (ptr_slot, buf) in buf_slots {
@@ -1497,12 +1787,28 @@ mod contiguous_backend {
     fn byte_array_load_store_now_regallocs() {
         // a load AND a store over a Seq of Bool buffer in one region.
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrLoad {
+                dst: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            },
+            MicroOp::ArrStore {
+                src: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         assert!(
-            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0)))).is_some(),
+            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0))), &[]).is_some(),
             "Seq of Bool load/store must now compile through the regalloc backend"
         );
     }
@@ -1515,15 +1821,40 @@ mod contiguous_backend {
         // frame: 0=i(1-based) 1=count 2=n(=len) 3=v 4=ptr 5=len 6=one 7=zero 8=isclear
         // while i <= n: v = flags[i]; if v == 0 { count += 1 }; i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 2, target: 8 }, // 0
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: true, narrow32: false, checked: true }, // 1
-            MicroOp::Eq { dst: 8, lhs: 3, rhs: 7 }, // 2 isclear = (v == 0)
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 2,
+                target: 8,
+            }, // 0
+            MicroOp::ArrLoad {
+                dst: 3,
+                idx: 0,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            }, // 1
+            MicroOp::Eq {
+                dst: 8,
+                lhs: 3,
+                rhs: 7,
+            }, // 2 isclear = (v == 0)
             MicroOp::JumpIfFalse { cond: 8, target: 5 }, // 3
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 6 }, // 4 count += 1
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 6 }, // 5 i += 1
-            MicroOp::Jump { target: 0 },             // 6
-            MicroOp::LoadConst { dst: 3, value: 0 }, // 7 filler
-            MicroOp::Return { src: 1 },              // 8
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 6,
+            }, // 4 count += 1
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 6,
+            }, // 5 i += 1
+            MicroOp::Jump { target: 0 },                 // 6
+            MicroOp::LoadConst { dst: 3, value: 0 },     // 7 filler
+            MicroOp::Return { src: 1 },                  // 8
         ];
         let n = 1000usize;
         // half the cells set (1), half clear (0): every third clear.
@@ -1548,11 +1879,28 @@ mod contiguous_backend {
         // frame: 0=j(1-based) 1=limit 2=step 3=trueval 4=ptr 5=len
         // while j <= limit: flags[j] = true; j += step
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 4 }, // 0
-            MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: true, narrow32: false, checked: true }, // 1
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // 2 j += step
-            MicroOp::Jump { target: 0 },             // 3
-            MicroOp::Return { src: 0 },              // 4
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 4,
+            }, // 0
+            MicroOp::ArrStore {
+                src: 3,
+                idx: 0,
+                ptr_slot: 4,
+                len_slot: 5,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            }, // 1
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 2,
+            }, // 2 j += step
+            MicroOp::Jump { target: 0 }, // 3
+            MicroOp::Return { src: 0 },  // 4
         ];
         let n = 997usize;
         let step = 7i64;
@@ -1569,7 +1917,11 @@ mod contiguous_backend {
         // (NOT 0x78, the low byte of trueval) — the boolean normalization.
         let mut j = step;
         while j <= n as i64 {
-            assert_eq!(run_buf[(j - 1) as usize], 1u8, "cell j={j} not normalized to 1");
+            assert_eq!(
+                run_buf[(j - 1) as usize],
+                1u8,
+                "cell j={j} not normalized to 1"
+            );
             j += step;
         }
         assert_eq!(run_buf[0], 0u8, "cell 1 (never marked) stays 0");
@@ -1583,17 +1935,25 @@ mod contiguous_backend {
     fn byte_array_store_normalizes_to_zero_one() {
         // frame: 0=idx(=1) 1=val 2=ptr 3=len ; store val into cell 1.
         let ops = vec![
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrStore {
+                src: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         for (val, want) in [
             (0i64, 0u8),
             (1, 1),
-            (256, 1),           // low byte 0 but nonzero → 1
-            (-1, 1),            // all-ones → 1
-            (0x100, 1),         // 256
-            (i64::MIN, 1),      // high bit only → 1
-            (0xFF00, 1),        // low byte 0, nonzero → 1
+            (256, 1),      // low byte 0 but nonzero → 1
+            (-1, 1),       // all-ones → 1
+            (0x100, 1),    // 256
+            (i64::MIN, 1), // high bit only → 1
+            (0xFF00, 1),   // low byte 0, nonzero → 1
         ] {
             let frame = vec![1i64, val, 0, 1];
             let (_vref, bref) = run_reference_bytebuf(&ops, &frame, &[vec![0xAAu8; 1]], &[2]);
@@ -1611,7 +1971,15 @@ mod contiguous_backend {
     fn byte_array_load_zero_extends() {
         // frame: 0=idx 1=dst 2=ptr 3=len ; dst = flags[idx] (byte).
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrLoad {
+                dst: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         // A buffer with 0xFF in it: a SIGN-extending load would give -1; a
@@ -1623,7 +1991,11 @@ mod contiguous_backend {
             let mut run_buf = buf.clone();
             let (out, _f) = run_regalloc_bytebuf(&ops, &frame, vec![(2, &mut run_buf)]);
             assert_eq!(out, ChainOutcome::Return(want), "idx={idx1}");
-            assert_eq!(out, ChainOutcome::Return(vref.expect("ref ok")), "idx={idx1} vs reference");
+            assert_eq!(
+                out,
+                ChainOutcome::Return(vref.expect("ref ok")),
+                "idx={idx1} vs reference"
+            );
         }
     }
 
@@ -1633,7 +2005,15 @@ mod contiguous_backend {
     fn byte_array_oob_side_exit_matches() {
         // OOB load: index 6 into a len-5 buffer.
         let load_ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrLoad {
+                dst: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         let mut buf = vec![1u8, 0, 1, 0, 1];
@@ -1641,23 +2021,37 @@ mod contiguous_backend {
         let (vref, _b) = run_reference_bytebuf(&load_ops, &frame, &[buf.clone()], &[2]);
         assert!(vref.is_none(), "reference rejects OOB byte load");
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&load_ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&load_ops, Some(status), &[]).expect("compiles");
         let mut f = frame.clone();
         f[2] = buf.as_mut_ptr() as i64;
-        assert!(chain.run_with_frame(&mut f).is_deopt(), "regalloc OOB byte load must deopt");
+        assert!(
+            chain.run_with_frame(&mut f).is_deopt(),
+            "regalloc OOB byte load must deopt"
+        );
 
         // OOB store: index 0 (1-based → im1 = -1) must not write.
         let store_ops = vec![
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrStore {
+                src: 1,
+                idx: 0,
+                ptr_slot: 2,
+                len_slot: 3,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            },
             MicroOp::Return { src: 1 },
         ];
         let before = buf.clone();
         let sframe = vec![0i64, 1, 0, 5]; // idx 0 → im1 = -1 OOB
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&store_ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&store_ops, Some(status), &[]).expect("compiles");
         let mut sf = sframe.clone();
         sf[2] = buf.as_mut_ptr() as i64;
-        assert!(chain.run_with_frame(&mut sf).is_deopt(), "regalloc OOB byte store must deopt");
+        assert!(
+            chain.run_with_frame(&mut sf).is_deopt(),
+            "regalloc OOB byte store must deopt"
+        );
         assert_eq!(buf, before, "OOB byte store must not mutate the buffer");
     }
 
@@ -1671,11 +2065,40 @@ mod contiguous_backend {
         //        6=a_ptr 7=a_len 8=f_ptr 9=f_len
         // while i <= n: t = arr[i]; ispos = (t > 0); flags[i] = ispos; i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true }, // 1
-            MicroOp::Gt { dst: 4, lhs: 2, rhs: 3 }, // 2 ispos = (t > 0)
-            MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 8, len_slot: 9, byte: true, narrow32: false, checked: true }, // 3
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 5 }, // 4 i += 1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            }, // 0
+            MicroOp::ArrLoad {
+                dst: 2,
+                idx: 0,
+                ptr_slot: 6,
+                len_slot: 7,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 1
+            MicroOp::Gt {
+                dst: 4,
+                lhs: 2,
+                rhs: 3,
+            }, // 2 ispos = (t > 0)
+            MicroOp::ArrStore {
+                src: 4,
+                idx: 0,
+                ptr_slot: 8,
+                len_slot: 9,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            }, // 3
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 5,
+            }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
             MicroOp::LoadConst { dst: 2, value: 0 }, // 6 filler
             MicroOp::Return { src: 0 },              // 7
@@ -1695,11 +2118,11 @@ mod contiguous_backend {
 
         // Regalloc run with its own buffers.
         assert!(
-            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0)))).is_some(),
+            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0))), &[]).is_some(),
             "mixed byte+int region must regalloc"
         );
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
         let mut a_run = a.clone();
         let mut f_run = vec![0u8; n];
         let mut f = frame.clone();
@@ -1732,11 +2155,40 @@ mod contiguous_backend {
         //        6=adj_ptr 7=adj_len 8=out_ptr 9=out_len
         // while e <= cnt: gidx = v_start + e; val = adj[gidx]; out[e] = val; e += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::Add { dst: 3, lhs: 2, rhs: 0 }, // 1 gidx = v_start + e
-            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true }, // 2 val = adj[gidx]
-            MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true }, // 3 out[e] = val
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 5 }, // 4 e += 1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            }, // 0
+            MicroOp::Add {
+                dst: 3,
+                lhs: 2,
+                rhs: 0,
+            }, // 1 gidx = v_start + e
+            MicroOp::ArrLoad {
+                dst: 4,
+                idx: 3,
+                ptr_slot: 6,
+                len_slot: 7,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 2 val = adj[gidx]
+            MicroOp::ArrStore {
+                src: 4,
+                idx: 0,
+                ptr_slot: 8,
+                len_slot: 9,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 3 out[e] = val
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 5,
+            }, // 4 e += 1
             MicroOp::Jump { target: 0 },             // 5
             MicroOp::LoadConst { dst: 4, value: 0 }, // 6 filler
             MicroOp::Return { src: 1 },              // 7
@@ -1748,11 +2200,15 @@ mod contiguous_backend {
         let frame = vec![1i64, cnt, v_start, 0, 0, 1, 0, total as i64, 0, cnt];
 
         assert!(
-            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0)))).is_some(),
+            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0))), &[]).is_some(),
             "BFS indirect-gather region must regalloc"
         );
-        let (vref, _fref, bref) =
-            run_reference_buf(&ops, &frame, &[adj.clone(), vec![0i64; cnt as usize]], &[6, 8]);
+        let (vref, _fref, bref) = run_reference_buf(
+            &ops,
+            &frame,
+            &[adj.clone(), vec![0i64; cnt as usize]],
+            &[6, 8],
+        );
         let mut adj_run = adj.clone();
         let mut out_run = vec![0i64; cnt as usize];
         let (out, _f) = run_regalloc_buf(&ops, &frame, vec![(6, &mut adj_run), (8, &mut out_run)]);
@@ -1790,16 +2246,41 @@ mod contiguous_backend {
         // slots: 0=i 1=n 2=one 3=s(f) 4=dx(f) 5=prod(f) 6=i_f(f)
         // while i < n: i_f = (f64)i; dx = i_f; prod = dx*dx; s = s + prod; i+=1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 7 },
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            },
             MicroOp::IntToFloat { dst: 6, src: 0 },
             MicroOp::Move { dst: 4, src: 6 },
-            MicroOp::MulF { dst: 5, lhs: 4, rhs: 4 },
-            MicroOp::AddF { dst: 3, lhs: 3, rhs: 5 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 },
+            MicroOp::MulF {
+                dst: 5,
+                lhs: 4,
+                rhs: 4,
+            },
+            MicroOp::AddF {
+                dst: 3,
+                lhs: 3,
+                rhs: 5,
+            },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 2,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 3 },
         ];
-        let frame = vec![0i64, 2000, 1, fbits(0.0), fbits(0.0), fbits(0.0), fbits(0.0)];
+        let frame = vec![
+            0i64,
+            2000,
+            1,
+            fbits(0.0),
+            fbits(0.0),
+            fbits(0.0),
+            fbits(0.0),
+        ];
         let expected = reference_eval(&ops, &mut frame.clone(), 1_000_000).unwrap();
         let (rout, rframe) = run_regalloc(&ops, &frame);
         let mut ref_frame = frame.clone();
@@ -1825,11 +2306,27 @@ mod contiguous_backend {
     fn float_div_sqrt_chain_identical() {
         // slots: 0=a(f) 1=b(f) 2=one(f) 3=aa(f) 4=bb(f) 5=sum(f) 6=r(f) 7=q(f)
         let ops = vec![
-            MicroOp::MulF { dst: 3, lhs: 0, rhs: 0 }, // a*a
-            MicroOp::MulF { dst: 4, lhs: 1, rhs: 1 }, // b*b
-            MicroOp::AddF { dst: 5, lhs: 3, rhs: 4 }, // a*a + b*b
-            MicroOp::SqrtF { dst: 6, src: 5 },         // sqrt(..)
-            MicroOp::DivF { dst: 7, lhs: 2, rhs: 6 },  // 1.0 / r
+            MicroOp::MulF {
+                dst: 3,
+                lhs: 0,
+                rhs: 0,
+            }, // a*a
+            MicroOp::MulF {
+                dst: 4,
+                lhs: 1,
+                rhs: 1,
+            }, // b*b
+            MicroOp::AddF {
+                dst: 5,
+                lhs: 3,
+                rhs: 4,
+            }, // a*a + b*b
+            MicroOp::SqrtF { dst: 6, src: 5 }, // sqrt(..)
+            MicroOp::DivF {
+                dst: 7,
+                lhs: 2,
+                rhs: 6,
+            }, // 1.0 / r
             MicroOp::Return { src: 7 },
         ];
         for (a, b) in [(3.0, 4.0), (1.5, -2.25), (1e-8, 1e8), (0.1, 0.2)] {
@@ -1849,21 +2346,57 @@ mod contiguous_backend {
     fn float_mandelbrot_step_identical() {
         // slots: 0=zr 1=zi 2=cr 3=ci 4=two | scratch 5=t1 6=t2 7=t3 | out 8=zr2 9=zi2
         let ops = vec![
-            MicroOp::MulF { dst: 5, lhs: 0, rhs: 0 }, // zr*zr
-            MicroOp::MulF { dst: 6, lhs: 1, rhs: 1 }, // zi*zi
-            MicroOp::SubF { dst: 7, lhs: 5, rhs: 6 }, // zr*zr - zi*zi
-            MicroOp::AddF { dst: 8, lhs: 7, rhs: 2 }, // + cr  => zr2
-            MicroOp::MulF { dst: 5, lhs: 0, rhs: 1 }, // zr*zi
-            MicroOp::MulF { dst: 6, lhs: 4, rhs: 5 }, // 2*(zr*zi)
-            MicroOp::AddF { dst: 9, lhs: 6, rhs: 3 }, // + ci  => zi2
+            MicroOp::MulF {
+                dst: 5,
+                lhs: 0,
+                rhs: 0,
+            }, // zr*zr
+            MicroOp::MulF {
+                dst: 6,
+                lhs: 1,
+                rhs: 1,
+            }, // zi*zi
+            MicroOp::SubF {
+                dst: 7,
+                lhs: 5,
+                rhs: 6,
+            }, // zr*zr - zi*zi
+            MicroOp::AddF {
+                dst: 8,
+                lhs: 7,
+                rhs: 2,
+            }, // + cr  => zr2
+            MicroOp::MulF {
+                dst: 5,
+                lhs: 0,
+                rhs: 1,
+            }, // zr*zi
+            MicroOp::MulF {
+                dst: 6,
+                lhs: 4,
+                rhs: 5,
+            }, // 2*(zr*zi)
+            MicroOp::AddF {
+                dst: 9,
+                lhs: 6,
+                rhs: 3,
+            }, // + ci  => zi2
             MicroOp::Move { dst: 0, src: 8 },
             MicroOp::Move { dst: 1, src: 9 },
             MicroOp::Return { src: 0 },
         ];
         for (zr, zi, cr, ci) in [(0.0, 0.0, -0.5, 0.5), (0.3, -0.2, 0.1, 0.7)] {
             let frame = vec![
-                fbits(zr), fbits(zi), fbits(cr), fbits(ci), fbits(2.0),
-                0, 0, 0, 0, 0,
+                fbits(zr),
+                fbits(zi),
+                fbits(cr),
+                fbits(ci),
+                fbits(2.0),
+                0,
+                0,
+                0,
+                0,
+                0,
             ];
             let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
             let (rout, rframe) = run_regalloc(&ops, &frame);
@@ -1882,12 +2415,24 @@ mod contiguous_backend {
         // slots: 0=mag(f) 1=limit(f) 2=step(f) 3=cnt(i) 4=one(i)
         // value-form LtEqF into a guard, then JumpIfFalse.
         let ops = vec![
-            MicroOp::LtEqF { dst: 5, lhs: 0, rhs: 1 },     // 0: cond = mag <= limit
-            MicroOp::JumpIfFalse { cond: 5, target: 5 },   // 1: !cond -> exit
-            MicroOp::AddF { dst: 0, lhs: 0, rhs: 2 },       // 2: mag += step
-            MicroOp::Add { dst: 3, lhs: 3, rhs: 4 },        // 3: cnt += 1
-            MicroOp::Jump { target: 0 },                    // 4
-            MicroOp::Return { src: 3 },                      // 5
+            MicroOp::LtEqF {
+                dst: 5,
+                lhs: 0,
+                rhs: 1,
+            }, // 0: cond = mag <= limit
+            MicroOp::JumpIfFalse { cond: 5, target: 5 }, // 1: !cond -> exit
+            MicroOp::AddF {
+                dst: 0,
+                lhs: 0,
+                rhs: 2,
+            }, // 2: mag += step
+            MicroOp::Add {
+                dst: 3,
+                lhs: 3,
+                rhs: 4,
+            }, // 3: cnt += 1
+            MicroOp::Jump { target: 0 },                 // 4
+            MicroOp::Return { src: 3 },                  // 5
         ];
         let frame = vec![fbits(0.0), fbits(4.0), fbits(0.01), 0, 1, 0];
         let expected = reference_eval(&ops, &mut frame.clone(), 10_000_000).unwrap();
@@ -1919,29 +2464,64 @@ mod contiguous_backend {
         //   az = az * if          (in-place mulsd)
         //   i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 9 }, // 0
-            MicroOp::IntToFloat { dst: 6, src: 0 },                      // 1
-            MicroOp::MulF { dst: 7, lhs: 6, rhs: 6 },                    // 2  t1 = if*if
-            MicroOp::AddF { dst: 3, lhs: 3, rhs: 7 },                    // 3  ax += t1
-            MicroOp::AddF { dst: 8, lhs: 6, rhs: 3 },                    // 4  t2 = if+ax
-            MicroOp::SubF { dst: 4, lhs: 4, rhs: 8 },                    // 5  ay -= t2
-            MicroOp::MulF { dst: 5, lhs: 5, rhs: 6 },                    // 6  az *= if
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 },                     // 7  i += 1
-            MicroOp::Jump { target: 0 },                                 // 8
-            MicroOp::Return { src: 3 },                                  // 9  return ax bits
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 9,
+            }, // 0
+            MicroOp::IntToFloat { dst: 6, src: 0 }, // 1
+            MicroOp::MulF {
+                dst: 7,
+                lhs: 6,
+                rhs: 6,
+            }, // 2  t1 = if*if
+            MicroOp::AddF {
+                dst: 3,
+                lhs: 3,
+                rhs: 7,
+            }, // 3  ax += t1
+            MicroOp::AddF {
+                dst: 8,
+                lhs: 6,
+                rhs: 3,
+            }, // 4  t2 = if+ax
+            MicroOp::SubF {
+                dst: 4,
+                lhs: 4,
+                rhs: 8,
+            }, // 5  ay -= t2
+            MicroOp::MulF {
+                dst: 5,
+                lhs: 5,
+                rhs: 6,
+            }, // 6  az *= if
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 2,
+            }, // 7  i += 1
+            MicroOp::Jump { target: 0 },            // 8
+            MicroOp::Return { src: 3 },             // 9  return ax bits
         ];
         // az starts at 1.0 (the multiplicative identity); a modest n keeps it
         // finite. ay starts at 0.0; ax at 0.0.
         let frame = vec![
-            0i64, 64, 1,
-            fbits(0.0), fbits(0.0), fbits(1.0),
-            fbits(0.0), fbits(0.0), fbits(0.0),
+            0i64,
+            64,
+            1,
+            fbits(0.0),
+            fbits(0.0),
+            fbits(1.0),
+            fbits(0.0),
+            fbits(0.0),
+            fbits(0.0),
         ];
         let expected = reference_eval(&ops, &mut frame.clone(), 1_000_000).unwrap();
         // The region MUST compile through the regalloc backend (no fallback) —
         // otherwise the fast paths under test never run.
         assert!(
-            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0)))).is_some(),
+            compile_region_regalloc(&ops, Some(Arc::new(AtomicI64::new(0))), &[]).is_some(),
             "the float loop must regalloc (else the fast paths are not exercised)"
         );
         let (rout, rframe) = run_regalloc(&ops, &frame);
@@ -1962,8 +2542,16 @@ mod contiguous_backend {
             az *= f;
         }
         assert_eq!(f64::from_bits(rout_bits(rout) as u64), ax, "ax diverged");
-        assert_eq!(f64::from_bits(rframe[4] as u64), ay, "ay (subsd order) diverged");
-        assert_eq!(f64::from_bits(rframe[5] as u64), az, "az (mulsd in-place) diverged");
+        assert_eq!(
+            f64::from_bits(rframe[4] as u64),
+            ay,
+            "ay (subsd order) diverged"
+        );
+        assert_eq!(
+            f64::from_bits(rframe[5] as u64),
+            az,
+            "az (mulsd in-place) diverged"
+        );
     }
 
     /// RED: a BranchF compare-and-branch (every Cmp) bit-identical, including
@@ -1973,7 +2561,12 @@ mod contiguous_backend {
         for cmp in [Cmp::Lt, Cmp::Gt, Cmp::LtEq, Cmp::GtEq] {
             // r = if cmp(a,b) { 111 } else { 222 } via BranchF (false -> else).
             let ops = vec![
-                MicroOp::BranchF { cmp, lhs: 0, rhs: 1, target: 3 },
+                MicroOp::BranchF {
+                    cmp,
+                    lhs: 0,
+                    rhs: 1,
+                    target: 3,
+                },
                 MicroOp::LoadConst { dst: 2, value: 111 },
                 MicroOp::Jump { target: 4 },
                 MicroOp::LoadConst { dst: 2, value: 222 },
@@ -1981,14 +2574,24 @@ mod contiguous_backend {
             ];
             let nan = f64::NAN;
             for (a, b) in [
-                (1.0, 2.0), (2.0, 1.0), (3.0, 3.0), (-0.0, 0.0),
-                (nan, 1.0), (1.0, nan), (nan, nan),
-                (f64::INFINITY, 1.0), (1.0, f64::NEG_INFINITY),
+                (1.0, 2.0),
+                (2.0, 1.0),
+                (3.0, 3.0),
+                (-0.0, 0.0),
+                (nan, 1.0),
+                (1.0, nan),
+                (nan, nan),
+                (f64::INFINITY, 1.0),
+                (1.0, f64::NEG_INFINITY),
             ] {
                 let frame = vec![fbits(a), fbits(b), 0];
                 let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
                 let (rout, _) = run_regalloc(&ops, &frame);
-                assert_eq!(rout, ChainOutcome::Return(expected), "cmp={cmp:?} a={a} b={b}");
+                assert_eq!(
+                    rout,
+                    ChainOutcome::Return(expected),
+                    "cmp={cmp:?} a={a} b={b}"
+                );
             }
         }
     }
@@ -2001,27 +2604,87 @@ mod contiguous_backend {
         let nan = f64::NAN;
         let inf = f64::INFINITY;
         let cases = [
-            (1.0, 2.0), (2.0, 1.0), (3.0, 3.0),
-            (-0.0, 0.0), (0.0, -0.0),
-            (nan, 1.0), (1.0, nan), (nan, nan),
-            (inf, inf), (inf, -inf), (-inf, inf), (inf, 1.0),
+            (1.0, 2.0),
+            (2.0, 1.0),
+            (3.0, 3.0),
+            (-0.0, 0.0),
+            (0.0, -0.0),
+            (nan, 1.0),
+            (1.0, nan),
+            (nan, nan),
+            (inf, inf),
+            (inf, -inf),
+            (-inf, inf),
+            (inf, 1.0),
         ];
         for (a, b) in cases {
             let ops = vec![
-                MicroOp::LtF { dst: 2, lhs: 0, rhs: 1 },
-                MicroOp::GtF { dst: 3, lhs: 0, rhs: 1 },
-                MicroOp::LtEqF { dst: 4, lhs: 0, rhs: 1 },
-                MicroOp::GtEqF { dst: 5, lhs: 0, rhs: 1 },
+                MicroOp::LtF {
+                    dst: 2,
+                    lhs: 0,
+                    rhs: 1,
+                },
+                MicroOp::GtF {
+                    dst: 3,
+                    lhs: 0,
+                    rhs: 1,
+                },
+                MicroOp::LtEqF {
+                    dst: 4,
+                    lhs: 0,
+                    rhs: 1,
+                },
+                MicroOp::GtEqF {
+                    dst: 5,
+                    lhs: 0,
+                    rhs: 1,
+                },
                 // pack the four 0/1 results into one return: l + 2*g + 4*le + 8*ge
-                MicroOp::Add { dst: 6, lhs: 3, rhs: 3 },  // 2*g
-                MicroOp::Add { dst: 6, lhs: 6, rhs: 2 },  // + l
-                MicroOp::Add { dst: 7, lhs: 4, rhs: 4 },  // 2*le
-                MicroOp::Add { dst: 7, lhs: 7, rhs: 7 },  // 4*le
-                MicroOp::Add { dst: 6, lhs: 6, rhs: 7 },
-                MicroOp::Add { dst: 7, lhs: 5, rhs: 5 },  // 2*ge
-                MicroOp::Add { dst: 7, lhs: 7, rhs: 7 },  // 4*ge
-                MicroOp::Add { dst: 7, lhs: 7, rhs: 7 },  // 8*ge
-                MicroOp::Add { dst: 6, lhs: 6, rhs: 7 },
+                MicroOp::Add {
+                    dst: 6,
+                    lhs: 3,
+                    rhs: 3,
+                }, // 2*g
+                MicroOp::Add {
+                    dst: 6,
+                    lhs: 6,
+                    rhs: 2,
+                }, // + l
+                MicroOp::Add {
+                    dst: 7,
+                    lhs: 4,
+                    rhs: 4,
+                }, // 2*le
+                MicroOp::Add {
+                    dst: 7,
+                    lhs: 7,
+                    rhs: 7,
+                }, // 4*le
+                MicroOp::Add {
+                    dst: 6,
+                    lhs: 6,
+                    rhs: 7,
+                },
+                MicroOp::Add {
+                    dst: 7,
+                    lhs: 5,
+                    rhs: 5,
+                }, // 2*ge
+                MicroOp::Add {
+                    dst: 7,
+                    lhs: 7,
+                    rhs: 7,
+                }, // 4*ge
+                MicroOp::Add {
+                    dst: 7,
+                    lhs: 7,
+                    rhs: 7,
+                }, // 8*ge
+                MicroOp::Add {
+                    dst: 6,
+                    lhs: 6,
+                    rhs: 7,
+                },
                 MicroOp::Return { src: 6 },
             ];
             let frame = vec![fbits(a), fbits(b), 0, 0, 0, 0, 0, 0];
@@ -2039,20 +2702,36 @@ mod contiguous_backend {
         let eps = f64::EPSILON;
         let cases = [
             (1.0, 1.0),
-            (1.0, 1.0 + eps * 0.5),  // within epsilon -> equal
-            (1.0, 1.0 + eps * 2.0),  // outside epsilon -> not equal
-            (0.0, -0.0),             // |0 - (-0)| = 0 < eps -> equal
-            (f64::NAN, f64::NAN),    // |NaN| not < eps -> not equal
+            (1.0, 1.0 + eps * 0.5), // within epsilon -> equal
+            (1.0, 1.0 + eps * 2.0), // outside epsilon -> not equal
+            (0.0, -0.0),            // |0 - (-0)| = 0 < eps -> equal
+            (f64::NAN, f64::NAN),   // |NaN| not < eps -> not equal
             (f64::NAN, 1.0),
             (1e300, 1e300),
             (-5.0, -5.0 + eps * 0.25),
         ];
         for (a, b) in cases {
             let ops = vec![
-                MicroOp::EqF { dst: 2, lhs: 0, rhs: 1 },
-                MicroOp::NeqF { dst: 3, lhs: 0, rhs: 1 },
-                MicroOp::Add { dst: 4, lhs: 3, rhs: 3 }, // 2*neq
-                MicroOp::Add { dst: 4, lhs: 4, rhs: 2 }, // + eq
+                MicroOp::EqF {
+                    dst: 2,
+                    lhs: 0,
+                    rhs: 1,
+                },
+                MicroOp::NeqF {
+                    dst: 3,
+                    lhs: 0,
+                    rhs: 1,
+                },
+                MicroOp::Add {
+                    dst: 4,
+                    lhs: 3,
+                    rhs: 3,
+                }, // 2*neq
+                MicroOp::Add {
+                    dst: 4,
+                    lhs: 4,
+                    rhs: 2,
+                }, // + eq
                 MicroOp::Return { src: 4 },
             ];
             let frame = vec![fbits(a), fbits(b), 0, 0, 0];
@@ -2069,14 +2748,21 @@ mod contiguous_backend {
     fn float_div_by_zero_side_exits() {
         for z in [0.0f64, -0.0f64] {
             let ops = vec![
-                MicroOp::DivF { dst: 2, lhs: 0, rhs: 1 },
+                MicroOp::DivF {
+                    dst: 2,
+                    lhs: 0,
+                    rhs: 1,
+                },
                 MicroOp::Return { src: 2 },
             ];
             let frame = vec![fbits(7.0), fbits(z), 0];
             // reference rejects.
-            assert!(reference_eval(&ops, &mut frame.clone(), 1000).is_none(), "z={z}");
+            assert!(
+                reference_eval(&ops, &mut frame.clone(), 1000).is_none(),
+                "z={z}"
+            );
             let status = Arc::new(AtomicI64::new(0));
-            let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+            let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
             let mut f = frame.clone();
             let rout = chain.run_with_frame(&mut f);
             assert!(rout.is_deopt(), "DivF/0 must deopt z={z}: {rout:?}");
@@ -2090,7 +2776,12 @@ mod contiguous_backend {
     #[test]
     fn float_fma_is_two_roundings_not_fused() {
         let ops = vec![
-            MicroOp::FmaF { dst: 3, a: 0, b: 1, c: 2 },
+            MicroOp::FmaF {
+                dst: 3,
+                a: 0,
+                b: 1,
+                c: 2,
+            },
             MicroOp::Return { src: 3 },
         ];
         // Walk an LCG over magnitudes that lose low product bits; collect the
@@ -2102,7 +2793,11 @@ mod contiguous_backend {
                 let m = lcg(st);
                 // a finite, non-tiny f64 in a range that exercises rounding.
                 let v = f64::from_bits((m & 0x000F_FFFF_FFFF_FFFF) | 0x3FE0_0000_0000_0000);
-                if lcg(st) & 1 == 0 { v } else { -v }
+                if lcg(st) & 1 == 0 {
+                    v
+                } else {
+                    -v
+                }
             };
             let a = bits(&mut s);
             let b = bits(&mut s);
@@ -2133,18 +2828,50 @@ mod contiguous_backend {
     /// (raw bits preserved, no canonicalization).
     #[test]
     fn float_special_values_roundtrip() {
-        let specials = [0.0f64, -0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.0, -1.0];
+        let specials = [
+            0.0f64,
+            -0.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            1.0,
+            -1.0,
+        ];
         for &a in &specials {
             for &b in &specials {
                 let ops = vec![
-                    MicroOp::AddF { dst: 4, lhs: 0, rhs: 1 },
-                    MicroOp::SubF { dst: 5, lhs: 0, rhs: 1 },
-                    MicroOp::MulF { dst: 6, lhs: 0, rhs: 1 },
+                    MicroOp::AddF {
+                        dst: 4,
+                        lhs: 0,
+                        rhs: 1,
+                    },
+                    MicroOp::SubF {
+                        dst: 5,
+                        lhs: 0,
+                        rhs: 1,
+                    },
+                    MicroOp::MulF {
+                        dst: 6,
+                        lhs: 0,
+                        rhs: 1,
+                    },
                     MicroOp::Move { dst: 7, src: 0 },
                     // combine the bit patterns so a divergence in ANY is caught.
-                    MicroOp::BitXor { dst: 4, lhs: 4, rhs: 5 },
-                    MicroOp::BitXor { dst: 4, lhs: 4, rhs: 6 },
-                    MicroOp::BitXor { dst: 4, lhs: 4, rhs: 7 },
+                    MicroOp::BitXor {
+                        dst: 4,
+                        lhs: 4,
+                        rhs: 5,
+                    },
+                    MicroOp::BitXor {
+                        dst: 4,
+                        lhs: 4,
+                        rhs: 6,
+                    },
+                    MicroOp::BitXor {
+                        dst: 4,
+                        lhs: 4,
+                        rhs: 7,
+                    },
                     MicroOp::Return { src: 4 },
                 ];
                 let frame = vec![fbits(a), fbits(b), 0, 0, 0, 0, 0, 0];
@@ -2176,7 +2903,12 @@ mod contiguous_backend {
                         1 => MicroOp::SubF { dst, lhs, rhs },
                         2 => MicroOp::MulF { dst, lhs, rhs },
                         3 => MicroOp::SqrtF { dst, src: lhs },
-                        4 => MicroOp::FmaF { dst, a: lhs, b: rhs, c: dst },
+                        4 => MicroOp::FmaF {
+                            dst,
+                            a: lhs,
+                            b: rhs,
+                            c: dst,
+                        },
                         5 => MicroOp::Move { dst, src: lhs },
                         6 => MicroOp::LtF { dst, lhs, rhs },
                         7 => MicroOp::GtF { dst, lhs, rhs },
@@ -2223,16 +2955,38 @@ mod contiguous_backend {
         // frame: 0=i 1=n 2=one(i) 3=elem(f) 4=acc(f) 5=ptr 6=len
         // while i <= n: elem = arr[i]; acc = acc + elem; i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true },
-            MicroOp::AddF { dst: 4, lhs: 4, rhs: 3 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 },
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 5,
+            },
+            MicroOp::ArrLoad {
+                dst: 3,
+                idx: 0,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
+            MicroOp::AddF {
+                dst: 4,
+                lhs: 4,
+                rhs: 3,
+            },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 2,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 4 },
         ];
         let n = 1000usize;
-        let mut buf: Vec<i64> =
-            (0..n).map(|k| ((k as f64) * 0.5 - 3.0).to_bits() as i64).collect();
+        let mut buf: Vec<i64> = (0..n)
+            .map(|k| ((k as f64) * 0.5 - 3.0).to_bits() as i64)
+            .collect();
         let frame = vec![1i64, n as i64, 1, fbits(0.0), fbits(0.0), 0, n as i64];
 
         let (vref, _f, _b) = run_reference_buf(&ops, &frame, &[buf.clone()], &[5]);
@@ -2249,23 +3003,54 @@ mod contiguous_backend {
     fn float_array_write_loop_identical() {
         // frame: 0=i 1=n 2=one(i) 3=i_f(f) 4=q(f) 5=v(f) 6=ptr 7=len
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 6 },
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 6,
+            },
             MicroOp::IntToFloat { dst: 3, src: 0 },
-            MicroOp::MulF { dst: 5, lhs: 3, rhs: 4 }, // i_f * 0.25
-            MicroOp::ArrStore { src: 5, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 2 },
+            MicroOp::MulF {
+                dst: 5,
+                lhs: 3,
+                rhs: 4,
+            }, // i_f * 0.25
+            MicroOp::ArrStore {
+                src: 5,
+                idx: 0,
+                ptr_slot: 6,
+                len_slot: 7,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 2,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 0 },
         ];
         let n = 500usize;
         let mut buf = vec![0i64; n];
-        let frame = vec![1i64, n as i64, 1, fbits(0.0), fbits(0.25), fbits(0.0), 0, n as i64];
+        let frame = vec![
+            1i64,
+            n as i64,
+            1,
+            fbits(0.0),
+            fbits(0.25),
+            fbits(0.0),
+            0,
+            n as i64,
+        ];
 
         let (_vref, _f, bref) = run_reference_buf(&ops, &frame, &[vec![0i64; n]], &[6]);
         let (_out, _) = run_regalloc_buf(&ops, &frame, vec![(6, &mut buf)]);
         assert_eq!(buf, bref[0], "float-written buffer diverged from reference");
-        let want: Vec<i64> =
-            (1..=n as i64).map(|k| ((k as f64) * 0.25).to_bits() as i64).collect();
+        let want: Vec<i64> = (1..=n as i64)
+            .map(|k| ((k as f64) * 0.25).to_bits() as i64)
+            .collect();
         assert_eq!(buf, want);
     }
 
@@ -2298,7 +3083,9 @@ mod contiguous_backend {
     }
     impl LiveVec {
         fn new(init: Vec<i64>) -> Self {
-            LiveVec { boxed: Box::new(init) }
+            LiveVec {
+                boxed: Box::new(init),
+            }
         }
         fn handle(&mut self) -> i64 {
             self.boxed.as_mut() as *mut Vec<i64> as i64
@@ -2329,7 +3116,12 @@ mod contiguous_backend {
     }
     impl ListPin {
         fn new(vec_slot: usize, ptr_slot: usize, len_slot: usize, init: Vec<i64>) -> Self {
-            ListPin { vec_slot, ptr_slot, len_slot, buf: LiveVec::new(init) }
+            ListPin {
+                vec_slot,
+                ptr_slot,
+                len_slot,
+                buf: LiveVec::new(init),
+            }
         }
     }
 
@@ -2376,7 +3168,7 @@ mod contiguous_backend {
         pins: &mut [ListPin],
     ) -> (ChainOutcome, Vec<i64>) {
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(ops, Some(status))
+        let chain = compile_region_regalloc(ops, Some(status), &[])
             .expect("list-mutation region must compile under regalloc");
         let mut f = frame.to_vec();
         seed_pins(&mut f, pins);
@@ -2409,9 +3201,22 @@ mod contiguous_backend {
     fn push_build_loop_regalloc_matches_stencil() {
         // frame: 0=i 1=n 2=val 3=three 4=vec 5=ptr 6=len 7=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::Mul { dst: 2, lhs: 0, rhs: 3 },                     // 1 val = i*3
-            MicroOp::Sub { dst: 2, lhs: 2, rhs: 7 },                     // 2 val -= 1
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            }, // 0
+            MicroOp::Mul {
+                dst: 2,
+                lhs: 0,
+                rhs: 3,
+            }, // 1 val = i*3
+            MicroOp::Sub {
+                dst: 2,
+                lhs: 2,
+                rhs: 7,
+            }, // 2 val -= 1
             MicroOp::ArrPush {
                 src: 2,
                 vec_slot: 4,
@@ -2421,7 +3226,11 @@ mod contiguous_backend {
                 byte: false,
                 narrow32: false,
             }, // 3
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 7 }, // 4 i += 1
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 7,
+            }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
             MicroOp::LoadConst { dst: 2, value: 0 }, // 6 filler
             MicroOp::Return { src: 6 },              // 7 return len
@@ -2440,10 +3249,18 @@ mod contiguous_backend {
             mask_ptr_cells(sframe, &sp),
             "push-build post-frame diverged (ptr/len drift?)"
         );
-        assert_eq!(rout, ChainOutcome::Return(n), "should return the final length");
+        assert_eq!(
+            rout,
+            ChainOutcome::Return(n),
+            "should return the final length"
+        );
         let want: Vec<i64> = (0..n).map(|k| k * 3 - 1).collect();
         assert_eq!(rp[0].buf.snapshot(), want, "regalloc buffer wrong");
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "buffers diverged");
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "buffers diverged"
+        );
     }
 
     /// RED: the KNAPSACK DP-ROW shape — `Let mutable curr be a new Seq`
@@ -2458,29 +3275,102 @@ mod contiguous_backend {
         // frame: 0=r 1=rows 2=c 3=cols 4=p_vec 5=p_ptr 6=p_len 7=tmp
         //        8=q_vec 9=q_ptr 10=q_len 11=elem 12=one 13=base
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 22 }, // 0 while r<rows
-            MicroOp::ListClear { vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: clear_i64_addr() }, // 1 clear curr(q)
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 22,
+            }, // 0 while r<rows
+            MicroOp::ListClear {
+                vec_slot: 8,
+                ptr_slot: 9,
+                len_slot: 10,
+                helper_addr: clear_i64_addr(),
+            }, // 1 clear curr(q)
             MicroOp::LoadConst { dst: 2, value: 1 }, // 2  c = 1
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 2, rhs: 3, target: 11 }, // 3 while c<=cols
-            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // 4 elem=prev[c]
-            MicroOp::Add { dst: 11, lhs: 11, rhs: 0 }, // 5 elem += r
-            MicroOp::ArrPush { src: 11, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 6 push elem to q
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 12 }, // 7 c += 1
-            MicroOp::Jump { target: 3 },              // 8
-            MicroOp::LoadConst { dst: 7, value: 0 },  // 9 filler
-            MicroOp::Jump { target: 11 },             // 10
-            MicroOp::ListClear { vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: clear_i64_addr() }, // 11 clear prev(p)
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 2,
+                rhs: 3,
+                target: 11,
+            }, // 3 while c<=cols
+            MicroOp::ArrLoad {
+                dst: 11,
+                idx: 2,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 4 elem=prev[c]
+            MicroOp::Add {
+                dst: 11,
+                lhs: 11,
+                rhs: 0,
+            }, // 5 elem += r
+            MicroOp::ArrPush {
+                src: 11,
+                vec_slot: 8,
+                ptr_slot: 9,
+                len_slot: 10,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 6 push elem to q
+            MicroOp::Add {
+                dst: 2,
+                lhs: 2,
+                rhs: 12,
+            }, // 7 c += 1
+            MicroOp::Jump { target: 3 },             // 8
+            MicroOp::LoadConst { dst: 7, value: 0 }, // 9 filler
+            MicroOp::Jump { target: 11 },            // 10
+            MicroOp::ListClear {
+                vec_slot: 4,
+                ptr_slot: 5,
+                len_slot: 6,
+                helper_addr: clear_i64_addr(),
+            }, // 11 clear prev(p)
             MicroOp::LoadConst { dst: 2, value: 1 }, // 12 c = 1
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 2, rhs: 3, target: 20 }, // 13 while c<=cols
-            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 9, len_slot: 10, byte: false, narrow32: false, checked: true }, // 14 elem=q[c]
-            MicroOp::ArrPush { src: 11, vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 15 push to prev
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 12 }, // 16 c += 1
-            MicroOp::Jump { target: 13 },             // 17
-            MicroOp::LoadConst { dst: 7, value: 0 },  // 18 filler
-            MicroOp::Jump { target: 20 },             // 19
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 12 }, // 20 r += 1
-            MicroOp::Jump { target: 0 },              // 21
-            MicroOp::Return { src: 6 },               // 22 return len(prev)
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 2,
+                rhs: 3,
+                target: 20,
+            }, // 13 while c<=cols
+            MicroOp::ArrLoad {
+                dst: 11,
+                idx: 2,
+                ptr_slot: 9,
+                len_slot: 10,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 14 elem=q[c]
+            MicroOp::ArrPush {
+                src: 11,
+                vec_slot: 4,
+                ptr_slot: 5,
+                len_slot: 6,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 15 push to prev
+            MicroOp::Add {
+                dst: 2,
+                lhs: 2,
+                rhs: 12,
+            }, // 16 c += 1
+            MicroOp::Jump { target: 13 },            // 17
+            MicroOp::LoadConst { dst: 7, value: 0 }, // 18 filler
+            MicroOp::Jump { target: 20 },            // 19
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 12,
+            }, // 20 r += 1
+            MicroOp::Jump { target: 0 },             // 21
+            MicroOp::Return { src: 6 },              // 22 return len(prev)
         ];
         let rows = 40i64;
         let cols = 60i64;
@@ -2506,8 +3396,16 @@ mod contiguous_backend {
             mask_ptr_cells(sframe, &sp),
             "knapsack-DP post-frame diverged"
         );
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "prev buffer diverged");
-        assert_eq!(rp[1].buf.snapshot(), sp[1].buf.snapshot(), "curr buffer diverged");
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "prev buffer diverged"
+        );
+        assert_eq!(
+            rp[1].buf.snapshot(),
+            sp[1].buf.snapshot(),
+            "curr buffer diverged"
+        );
         // The DP recurrence adds `r` to each cell once per row → +sum(0..rows).
         let bump = (0..rows).sum::<i64>();
         let want: Vec<i64> = prev_init.iter().map(|&v| v + bump).collect();
@@ -2523,15 +3421,53 @@ mod contiguous_backend {
     fn bfs_queue_push_regalloc_matches_stencil() {
         // frame: 0=i 1=n 2=q_vec 3=q_ptr 4=q_len 5=head 6=acc 7=elem 8=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 }, // 0 while i<=n
-            MicroOp::ArrPush { src: 0, vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 1
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 8 }, // 2 i += 1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 5,
+            }, // 0 while i<=n
+            MicroOp::ArrPush {
+                src: 0,
+                vec_slot: 2,
+                ptr_slot: 3,
+                len_slot: 4,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 1
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 8,
+            }, // 2 i += 1
             MicroOp::Jump { target: 0 },             // 3
             MicroOp::LoadConst { dst: 7, value: 0 }, // 4 filler
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 5, rhs: 4, target: 11 }, // 5 while head<=len
-            MicroOp::ArrLoad { dst: 7, idx: 5, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 6 elem=queue[head]
-            MicroOp::Add { dst: 6, lhs: 6, rhs: 7 }, // 7 acc += elem
-            MicroOp::Add { dst: 5, lhs: 5, rhs: 8 }, // 8 head += 1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 5,
+                rhs: 4,
+                target: 11,
+            }, // 5 while head<=len
+            MicroOp::ArrLoad {
+                dst: 7,
+                idx: 5,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 6 elem=queue[head]
+            MicroOp::Add {
+                dst: 6,
+                lhs: 6,
+                rhs: 7,
+            }, // 7 acc += elem
+            MicroOp::Add {
+                dst: 5,
+                lhs: 5,
+                rhs: 8,
+            }, // 8 head += 1
             MicroOp::Jump { target: 5 },             // 9
             MicroOp::LoadConst { dst: 7, value: 0 }, // 10 filler
             MicroOp::Return { src: 6 },              // 11 return acc
@@ -2551,7 +3487,11 @@ mod contiguous_backend {
             mask_ptr_cells(sframe, &sp),
             "bfs-queue post-frame diverged"
         );
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "queue buffer diverged");
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "queue buffer diverged"
+        );
         let want: i64 = (1..=n).sum();
         assert_eq!(rout, ChainOutcome::Return(want), "bfs-queue sum wrong");
     }
@@ -2564,9 +3504,18 @@ mod contiguous_backend {
     fn float_push_loop_regalloc_matches_stencil() {
         // frame: 0=i 1=n 2=i_f(f) 3=q(f) 4=v(f) 5=vec 6=ptr 7=len 8=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::IntToFloat { dst: 2, src: 0 },                       // 1 i_f = (f64)i
-            MicroOp::MulF { dst: 4, lhs: 2, rhs: 3 },                     // 2 v = i_f * 0.5
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            }, // 0
+            MicroOp::IntToFloat { dst: 2, src: 0 }, // 1 i_f = (f64)i
+            MicroOp::MulF {
+                dst: 4,
+                lhs: 2,
+                rhs: 3,
+            }, // 2 v = i_f * 0.5
             MicroOp::ArrPush {
                 src: 4,
                 vec_slot: 5,
@@ -2576,10 +3525,14 @@ mod contiguous_backend {
                 byte: false,
                 narrow32: false,
             }, // 3
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 8 }, // 4 i += 1
-            MicroOp::Jump { target: 0 },             // 5
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 8,
+            }, // 4 i += 1
+            MicroOp::Jump { target: 0 },            // 5
             MicroOp::LoadConst { dst: 2, value: 0 }, // 6 filler
-            MicroOp::Return { src: 7 },              // 7 return len
+            MicroOp::Return { src: 7 },             // 7 return len
         ];
         let n = 2000i64;
         let frame = vec![0i64, n, fbits(0.0), fbits(0.5), fbits(0.0), 0, 0, 0, 1];
@@ -2595,9 +3548,14 @@ mod contiguous_backend {
             mask_ptr_cells(sframe, &sp),
             "float-push post-frame diverged"
         );
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "float buffer diverged");
-        let want: Vec<i64> =
-            (0..n).map(|k| ((k as f64) * 0.5).to_bits() as i64).collect();
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "float buffer diverged"
+        );
+        let want: Vec<i64> = (0..n)
+            .map(|k| ((k as f64) * 0.5).to_bits() as i64)
+            .collect();
         assert_eq!(rp[0].buf.snapshot(), want, "float-push values wrong");
     }
 
@@ -2656,9 +3614,18 @@ mod contiguous_backend {
             MicroOp::LoadConst { dst: 3, value: 2 }, // 0
             MicroOp::LoadConst { dst: 4, value: 1 }, // 1
             // if !(n < 2) goto 4  (Branch jumps to target when cmp is FALSE)
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 3, target: 4 }, // 2
-            MicroOp::Return { src: 0 },                                  // 3: return n
-            MicroOp::Sub { dst: window, lhs: 0, rhs: 4 },                // 4: arg = n - 1
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 3,
+                target: 4,
+            }, // 2
+            MicroOp::Return { src: 0 }, // 3: return n
+            MicroOp::Sub {
+                dst: window,
+                lhs: 0,
+                rhs: 4,
+            }, // 4: arg = n - 1
             MicroOp::CallSelfCopy {
                 dst: 1,
                 args_start: window,
@@ -2669,7 +3636,11 @@ mod contiguous_backend {
                 limit_slot,
                 frame_size: fs,
             }, // 5: t1 = fib(n-1)
-            MicroOp::Sub { dst: window, lhs: 0, rhs: 3 },                // 6: arg = n - 2
+            MicroOp::Sub {
+                dst: window,
+                lhs: 0,
+                rhs: 3,
+            }, // 6: arg = n - 2
             MicroOp::CallSelfCopy {
                 dst: 2,
                 args_start: window,
@@ -2680,8 +3651,12 @@ mod contiguous_backend {
                 limit_slot,
                 frame_size: fs,
             }, // 7: t2 = fib(n-2)
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 2 },                     // 8: t1 + t2
-            MicroOp::Return { src: 1 },                                  // 9
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 2,
+            }, // 8: t1 + t2
+            MicroOp::Return { src: 1 }, // 9
         ];
         (ops, limit_slot)
     }
@@ -2703,10 +3678,8 @@ mod contiguous_backend {
     fn self_call_fib_matches_reference() {
         let status = Arc::new(AtomicI64::new(0));
         let depth = Arc::new(AtomicI64::new(0));
-        let (ops, limit_slot) = fib_self_program_with(
-            Arc::as_ptr(&depth) as i64,
-            Arc::as_ptr(&status) as i64,
-        );
+        let (ops, limit_slot) =
+            fib_self_program_with(Arc::as_ptr(&depth) as i64, Arc::as_ptr(&status) as i64);
         let chain =
             compile_function_regalloc(&ops, Some(status.clone()), Arc::as_ptr(&depth) as i64)
                 .expect("fib function compiles");
@@ -2737,9 +3710,18 @@ mod contiguous_backend {
         let ops = vec![
             MicroOp::LoadConst { dst: 2, value: 1 }, // 0: one
             MicroOp::LoadConst { dst: 3, value: 0 }, // 1: zero
-            MicroOp::Branch { cmp: Cmp::Eq, lhs: 0, rhs: 3, target: 4 }, // 2: if !(n==0) goto 4
-            MicroOp::Return { src: 3 },                                  // 3: return 0
-            MicroOp::Sub { dst: window, lhs: 0, rhs: 2 },                // 4: arg = n - 1
+            MicroOp::Branch {
+                cmp: Cmp::Eq,
+                lhs: 0,
+                rhs: 3,
+                target: 4,
+            }, // 2: if !(n==0) goto 4
+            MicroOp::Return { src: 3 },              // 3: return 0
+            MicroOp::Sub {
+                dst: window,
+                lhs: 0,
+                rhs: 2,
+            }, // 4: arg = n - 1
             MicroOp::CallSelfCopy {
                 dst: 1,
                 args_start: window,
@@ -2750,7 +3732,11 @@ mod contiguous_backend {
                 limit_slot,
                 frame_size: fs,
             }, // 5
-            MicroOp::Sub { dst: 1, lhs: 1, rhs: 2 }, // 6: t = sink(n-1) - 1
+            MicroOp::Sub {
+                dst: 1,
+                lhs: 1,
+                rhs: 2,
+            }, // 6: t = sink(n-1) - 1
             MicroOp::Return { src: 1 },              // 7
         ];
         (ops, limit_slot)
@@ -2760,10 +3746,8 @@ mod contiguous_backend {
     fn self_call_deep_linear_recursion() {
         let status = Arc::new(AtomicI64::new(0));
         let depth = Arc::new(AtomicI64::new(0));
-        let (ops, limit_slot) = sink_self_program_with(
-            Arc::as_ptr(&depth) as i64,
-            Arc::as_ptr(&status) as i64,
-        );
+        let (ops, limit_slot) =
+            sink_self_program_with(Arc::as_ptr(&depth) as i64, Arc::as_ptr(&status) as i64);
         let chain =
             compile_function_regalloc(&ops, Some(status.clone()), Arc::as_ptr(&depth) as i64)
                 .expect("sink function compiles");
@@ -2788,10 +3772,8 @@ mod contiguous_backend {
     fn self_call_depth_limit_side_exits() {
         let status = Arc::new(AtomicI64::new(0));
         let depth = Arc::new(AtomicI64::new(0));
-        let (ops, limit_slot) = sink_self_program_with(
-            Arc::as_ptr(&depth) as i64,
-            Arc::as_ptr(&status) as i64,
-        );
+        let (ops, limit_slot) =
+            sink_self_program_with(Arc::as_ptr(&depth) as i64, Arc::as_ptr(&status) as i64);
         let chain =
             compile_function_regalloc(&ops, Some(status.clone()), Arc::as_ptr(&depth) as i64)
                 .expect("sink function compiles");
@@ -2803,7 +3785,10 @@ mod contiguous_backend {
         depth.store(max - 2, std::sync::atomic::Ordering::SeqCst);
         status.store(0, std::sync::atomic::Ordering::SeqCst);
         let out = chain.run_with_frame(&mut frame);
-        assert!(out.is_deopt(), "crossing MAX_CALL_DEPTH must side-exit, got {out:?}");
+        assert!(
+            out.is_deopt(),
+            "crossing MAX_CALL_DEPTH must side-exit, got {out:?}"
+        );
     }
 
     /// RED: ARENA-BOUND side-exit. A tiny limit slot (callee window past the
@@ -2814,10 +3799,8 @@ mod contiguous_backend {
     fn self_call_arena_bound_side_exits() {
         let status = Arc::new(AtomicI64::new(0));
         let depth = Arc::new(AtomicI64::new(0));
-        let (ops, limit_slot) = sink_self_program_with(
-            Arc::as_ptr(&depth) as i64,
-            Arc::as_ptr(&status) as i64,
-        );
+        let (ops, limit_slot) =
+            sink_self_program_with(Arc::as_ptr(&depth) as i64, Arc::as_ptr(&status) as i64);
         let chain =
             compile_function_regalloc(&ops, Some(status.clone()), Arc::as_ptr(&depth) as i64)
                 .expect("sink function compiles");
@@ -2851,9 +3834,22 @@ mod contiguous_backend {
             MicroOp::LoadConst { dst: 2, value: 1 },   // 0: one
             MicroOp::LoadConst { dst: 3, value: 0 },   // 1: zero
             MicroOp::LoadConst { dst: 4, value: 100 }, // 2: hundred
-            MicroOp::Branch { cmp: Cmp::Eq, lhs: 0, rhs: 3, target: 5 }, // 3: if !(n==0) goto 5
-            MicroOp::Div { dst: 1, lhs: 4, rhs: 3 },                     // 4: 100 / 0 -> deopt
-            MicroOp::Sub { dst: window, lhs: 0, rhs: 2 }, // 5: arg = n - 1
+            MicroOp::Branch {
+                cmp: Cmp::Eq,
+                lhs: 0,
+                rhs: 3,
+                target: 5,
+            }, // 3: if !(n==0) goto 5
+            MicroOp::Div {
+                dst: 1,
+                lhs: 4,
+                rhs: 3,
+            }, // 4: 100 / 0 -> deopt
+            MicroOp::Sub {
+                dst: window,
+                lhs: 0,
+                rhs: 2,
+            }, // 5: arg = n - 1
             MicroOp::CallSelfCopy {
                 dst: 1,
                 args_start: window,
@@ -2864,8 +3860,12 @@ mod contiguous_backend {
                 limit_slot,
                 frame_size: fs,
             }, // 6
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 2 }, // 7
-            MicroOp::Return { src: 1 },              // 8
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 2,
+            }, // 7
+            MicroOp::Return { src: 1 },                // 8
         ];
         let chain =
             compile_function_regalloc(&ops, Some(status.clone()), Arc::as_ptr(&depth) as i64)
@@ -2877,7 +3877,10 @@ mod contiguous_backend {
         depth.store(0, std::sync::atomic::Ordering::SeqCst);
         status.store(0, std::sync::atomic::Ordering::SeqCst);
         let out = chain.run_with_frame(&mut frame);
-        assert!(out.is_deopt(), "inner div-by-zero must propagate as a deopt, got {out:?}");
+        assert!(
+            out.is_deopt(),
+            "inner div-by-zero must propagate as a deopt, got {out:?}"
+        );
     }
 
     /// RED: the multi-argument `CallSelf` path (args pre-staged with explicit
@@ -2893,12 +3896,27 @@ mod contiguous_backend {
         // gcd(a,b) = b==0 ? a : gcd(b, a mod b).
         // slots: 0=a 1=b 2=t 3=zero ; window=9,10 staged via Move
         let ops = vec![
-            MicroOp::LoadConst { dst: 3, value: 0 },                     // 0: zero
-            MicroOp::Branch { cmp: Cmp::Eq, lhs: 1, rhs: 3, target: 3 }, // 1: if !(b==0) goto 3
-            MicroOp::Return { src: 0 },                                  // 2: return a
-            MicroOp::Mod { dst: 2, lhs: 0, rhs: 1 },                     // 3: t = a mod b
-            MicroOp::Move { dst: window, src: 1 },                       // 4: arg0 = b
-            MicroOp::Move { dst: window + 1, src: 2 },                   // 5: arg1 = t
+            MicroOp::LoadConst { dst: 3, value: 0 }, // 0: zero
+            MicroOp::Branch {
+                cmp: Cmp::Eq,
+                lhs: 1,
+                rhs: 3,
+                target: 3,
+            }, // 1: if !(b==0) goto 3
+            MicroOp::Return { src: 0 },              // 2: return a
+            MicroOp::Mod {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            }, // 3: t = a mod b
+            MicroOp::Move {
+                dst: window,
+                src: 1,
+            }, // 4: arg0 = b
+            MicroOp::Move {
+                dst: window + 1,
+                src: 2,
+            }, // 5: arg1 = t
             MicroOp::CallSelf {
                 dst: 2,
                 args_start: window,
@@ -2907,13 +3925,17 @@ mod contiguous_backend {
                 limit_slot,
                 frame_size: fs,
             }, // 6
-            MicroOp::Return { src: 2 }, // 7
+            MicroOp::Return { src: 2 },              // 7
         ];
         let chain =
             compile_function_regalloc(&ops, Some(status.clone()), Arc::as_ptr(&depth) as i64)
                 .expect("gcd function compiles");
         fn gcd(a: i64, b: i64) -> i64 {
-            if b == 0 { a } else { gcd(b, a % b) }
+            if b == 0 {
+                a
+            } else {
+                gcd(b, a % b)
+            }
         }
         for (a, b) in [(48i64, 36i64), (1071, 462), (17, 5), (100, 0), (0, 7)] {
             let mut frame = vec![0i64; SELF_ARENA];
@@ -2948,29 +3970,59 @@ mod contiguous_backend {
     fn poly_kernel() -> (Vec<MicroOp>, Vec<i64>) {
         // slots: 0=i 1=N 2=s 3=A 4=B 5=C 6=MASK 7=t 8=u 9=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 10 }, // i<N
-            MicroOp::Mul { dst: 7, lhs: 2, rhs: 3 },                       // t = s*A
-            MicroOp::Mul { dst: 8, lhs: 0, rhs: 4 },                       // u = i*B
-            MicroOp::Add { dst: 7, lhs: 7, rhs: 8 },                       // t += u
-            MicroOp::Sub { dst: 2, lhs: 7, rhs: 5 },                       // s = t - C
-            MicroOp::BitAnd { dst: 2, lhs: 2, rhs: 6 },                    // s &= MASK (bound s)
-            MicroOp::Mul { dst: 2, lhs: 2, rhs: 3 },                       // s *= A
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 10,
+            }, // i<N
+            MicroOp::Mul {
+                dst: 7,
+                lhs: 2,
+                rhs: 3,
+            }, // t = s*A
+            MicroOp::Mul {
+                dst: 8,
+                lhs: 0,
+                rhs: 4,
+            }, // u = i*B
+            MicroOp::Add {
+                dst: 7,
+                lhs: 7,
+                rhs: 8,
+            }, // t += u
+            MicroOp::Sub {
+                dst: 2,
+                lhs: 7,
+                rhs: 5,
+            }, // s = t - C
+            MicroOp::BitAnd {
+                dst: 2,
+                lhs: 2,
+                rhs: 6,
+            }, // s &= MASK (bound s)
+            MicroOp::Mul {
+                dst: 2,
+                lhs: 2,
+                rhs: 3,
+            }, // s *= A
             MicroOp::LoadConst { dst: 9, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 9 }, // i += 1
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 9,
+            }, // i += 1
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 2 },
         ];
         let frame = vec![
-            0i64,
-            60_000_000, // N
+            0i64, 60_000_000, // N
             1,          // s
             1_000_003,  // A — small multiplier: with s masked to 16 bits, s*A stays < 2^57
             1_000_033,  // B — small multiplier: i*B over i<N=6e7 stays < 2^57
             12345,      // C
             0xFFFF,     // MASK — bound s to 16 bits each iteration (no i64 overflow)
-            0,
-            0,
-            0,
+            0, 0, 0,
         ];
         (ops, frame)
     }
@@ -2979,10 +4031,23 @@ mod contiguous_backend {
     /// stay roughly the same between tiers (already at V8 parity per the log).
     fn loop_sum_kernel() -> (Vec<MicroOp>, Vec<i64>) {
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 2, target: 5 },
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 0 },
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 2,
+                target: 5,
+            },
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 0,
+            },
             MicroOp::LoadConst { dst: 3, value: 1 },
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 3,
+            },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 1 },
         ];
@@ -2998,7 +4063,7 @@ mod contiguous_backend {
     ) -> (i64, std::time::Duration) {
         let status = Arc::new(AtomicI64::new(0));
         let chain = if contiguous {
-            compile_region_regalloc(ops, Some(status)).expect("regalloc compiles")
+            compile_region_regalloc(ops, Some(status), &[]).expect("regalloc compiles")
         } else {
             compile_straightline_coded(ops, Some(status), None, 0).expect("stencil compiles")
         };
@@ -3056,8 +4121,7 @@ mod contiguous_backend {
                     v_s, v_r,
                     "{name}: contiguous and stencil tiers must agree bit-for-bit"
                 );
-                let speedup =
-                    best_stencil.as_secs_f64() / best_regalloc.as_secs_f64();
+                let speedup = best_stencil.as_secs_f64() / best_regalloc.as_secs_f64();
                 eprintln!(
                     "{name:>14}:  stencil {:>9.3} ms   regalloc {:>9.3} ms   => {:.2}x faster (result {})",
                     best_stencil.as_secs_f64() * 1e3,
@@ -3113,8 +4177,7 @@ mod contiguous_backend {
     /// assertions about how many index recomputes the CSE collapsed).
     fn region_bytes(ops: &[MicroOp]) -> Vec<u8> {
         let status = Arc::new(AtomicI64::new(0));
-        let chain =
-            compile_region_regalloc(ops, Some(status)).expect("region must compile");
+        let chain = compile_region_regalloc(ops, Some(status), &[]).expect("region must compile");
         chain.bytes().to_vec()
     }
 
@@ -3139,7 +4202,12 @@ mod contiguous_backend {
         //   i += 1
         let one = 10u16;
         let mut ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 99 }, // patched below
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 99,
+            }, // patched below
         ];
         // seven loads at index i.
         let in_ptr = [11u16, 13, 15, 17, 19, 21, 23];
@@ -3157,16 +4225,60 @@ mod contiguous_backend {
         }
         // s = t0+..+t6 accumulated into t0 (slot 2).
         for k in 1..7u16 {
-            ops.push(MicroOp::Add { dst: 2, lhs: 2, rhs: 2 + k });
+            ops.push(MicroOp::Add {
+                dst: 2,
+                lhs: 2,
+                rhs: 2 + k,
+            });
         }
-        ops.push(MicroOp::Add { dst: 9, lhs: 9, rhs: 2 }); // acc += s
-        // x[i]=s ; y[i]=s+1 ; z[i]=s+2 (three stores at index i).
-        ops.push(MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 25, len_slot: 26, byte: false, narrow32: false, checked: true });
-        ops.push(MicroOp::Add { dst: 3, lhs: 2, rhs: one }); // s+1
-        ops.push(MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 27, len_slot: 28, byte: false, narrow32: false, checked: true });
-        ops.push(MicroOp::Add { dst: 4, lhs: 3, rhs: one }); // s+2
-        ops.push(MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 29, len_slot: 30, byte: false, narrow32: false, checked: true });
-        ops.push(MicroOp::Add { dst: 0, lhs: 0, rhs: one }); // i += 1
+        ops.push(MicroOp::Add {
+            dst: 9,
+            lhs: 9,
+            rhs: 2,
+        }); // acc += s
+            // x[i]=s ; y[i]=s+1 ; z[i]=s+2 (three stores at index i).
+        ops.push(MicroOp::ArrStore {
+            src: 2,
+            idx: 0,
+            ptr_slot: 25,
+            len_slot: 26,
+            byte: false,
+            narrow32: false,
+            checked: true,
+        });
+        ops.push(MicroOp::Add {
+            dst: 3,
+            lhs: 2,
+            rhs: one,
+        }); // s+1
+        ops.push(MicroOp::ArrStore {
+            src: 3,
+            idx: 0,
+            ptr_slot: 27,
+            len_slot: 28,
+            byte: false,
+            narrow32: false,
+            checked: true,
+        });
+        ops.push(MicroOp::Add {
+            dst: 4,
+            lhs: 3,
+            rhs: one,
+        }); // s+2
+        ops.push(MicroOp::ArrStore {
+            src: 4,
+            idx: 0,
+            ptr_slot: 29,
+            len_slot: 30,
+            byte: false,
+            narrow32: false,
+            checked: true,
+        });
+        ops.push(MicroOp::Add {
+            dst: 0,
+            lhs: 0,
+            rhs: one,
+        }); // i += 1
         let jump_back = ops.len();
         ops.push(MicroOp::Jump { target: 0 });
         let exit = ops.len();
@@ -3190,7 +4302,11 @@ mod contiguous_backend {
         };
         // Seven input buffers, three output buffers.
         let inputs: Vec<Vec<i64>> = (0..7)
-            .map(|b| (0..n).map(|k| (k as i64 + 1) * (b as i64 + 2) - 3).collect())
+            .map(|b| {
+                (0..n)
+                    .map(|k| (k as i64 + 1) * (b as i64 + 2) - 3)
+                    .collect()
+            })
             .collect();
         let outputs_zero: Vec<Vec<i64>> = (0..3).map(|_| vec![0i64; n]).collect();
 
@@ -3211,7 +4327,11 @@ mod contiguous_backend {
             .map(|(&s, b)| (s, b))
             .collect();
         let (out, _f) = run_regalloc_buf(&ops, &frame_proto, buf_slots);
-        assert_eq!(out, ChainOutcome::Return(expected), "co-indexed value diverged");
+        assert_eq!(
+            out,
+            ChainOutcome::Return(expected),
+            "co-indexed value diverged"
+        );
         for (k, (got, want)) in run_bufs.iter().zip(ref_post.iter()).enumerate() {
             assert_eq!(got, want, "buffer {k} diverged from reference");
         }
@@ -3244,19 +4364,68 @@ mod contiguous_backend {
         // frame: 0=i 1=j 2=n 3=ti 4=tj 5=ti2 6=acc 7=ptr 8=len 9=one
         // body: ti=a[i]; tj=a[j]; ti2=a[i]; acc += ti+tj+ti2; i+=1; j-=1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 12 }, // 0  while i < j
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 1 a[i]
-            MicroOp::ArrLoad { dst: 4, idx: 1, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 2 a[j]
-            MicroOp::ArrLoad { dst: 5, idx: 0, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 3 a[i] again
-            MicroOp::Add { dst: 3, lhs: 3, rhs: 4 },  // 4 ti+tj
-            MicroOp::Add { dst: 3, lhs: 3, rhs: 5 },  // 5 +ti2
-            MicroOp::Add { dst: 6, lhs: 6, rhs: 3 },  // 6 acc += ...
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 9 },  // 7 i += 1
-            MicroOp::Sub { dst: 1, lhs: 1, rhs: 9 },  // 8 j -= 1
-            MicroOp::Jump { target: 0 },              // 9
-            MicroOp::LoadConst { dst: 6, value: 0 },  // 10 filler
-            MicroOp::LoadConst { dst: 6, value: 0 },  // 11 filler
-            MicroOp::Return { src: 6 },               // 12
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 12,
+            }, // 0  while i < j
+            MicroOp::ArrLoad {
+                dst: 3,
+                idx: 0,
+                ptr_slot: 7,
+                len_slot: 8,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 1 a[i]
+            MicroOp::ArrLoad {
+                dst: 4,
+                idx: 1,
+                ptr_slot: 7,
+                len_slot: 8,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 2 a[j]
+            MicroOp::ArrLoad {
+                dst: 5,
+                idx: 0,
+                ptr_slot: 7,
+                len_slot: 8,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 3 a[i] again
+            MicroOp::Add {
+                dst: 3,
+                lhs: 3,
+                rhs: 4,
+            }, // 4 ti+tj
+            MicroOp::Add {
+                dst: 3,
+                lhs: 3,
+                rhs: 5,
+            }, // 5 +ti2
+            MicroOp::Add {
+                dst: 6,
+                lhs: 6,
+                rhs: 3,
+            }, // 6 acc += ...
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 9,
+            }, // 7 i += 1
+            MicroOp::Sub {
+                dst: 1,
+                lhs: 1,
+                rhs: 9,
+            }, // 8 j -= 1
+            MicroOp::Jump { target: 0 },             // 9
+            MicroOp::LoadConst { dst: 6, value: 0 }, // 10 filler
+            MicroOp::LoadConst { dst: 6, value: 0 }, // 11 filler
+            MicroOp::Return { src: 6 },              // 12
         ];
         let n = 400usize;
         let buf: Vec<i64> = (0..n).map(|k| (k as i64 + 1) * 5 - 7).collect();
@@ -3266,7 +4435,11 @@ mod contiguous_backend {
         let expected = vref.expect("reference terminates");
         let mut run_buf = buf.clone();
         let (out, _f) = run_regalloc_buf(&ops, &frame, vec![(7, &mut run_buf)]);
-        assert_eq!(out, ChainOutcome::Return(expected), "index-change value diverged");
+        assert_eq!(
+            out,
+            ChainOutcome::Return(expected),
+            "index-change value diverged"
+        );
         assert_eq!(run_buf, buf, "read-only buffer must be unchanged");
 
         // STRUCTURAL: a[i], a[j], a[i] — three runs, each a distinct index slot
@@ -3291,11 +4464,43 @@ mod contiguous_backend {
         // ops: t=a[i]; a[i]=t (no-op write); i=a[i] (overwrite index!);
         //      t2=a[i]; return t2
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 0 t=a[i]
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 1 a[i]=t
-            MicroOp::ArrLoad { dst: 0, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 2 i=a[i]  (writes idx slot 0)
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 3 t2=a[i] (NEW i)
-            MicroOp::Return { src: 2 },                                                                  // 4
+            MicroOp::ArrLoad {
+                dst: 1,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 0 t=a[i]
+            MicroOp::ArrStore {
+                src: 1,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 1 a[i]=t
+            MicroOp::ArrLoad {
+                dst: 0,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 2 i=a[i]  (writes idx slot 0)
+            MicroOp::ArrLoad {
+                dst: 2,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 3 t2=a[i] (NEW i)
+            MicroOp::Return { src: 2 }, // 4
         ];
         // a = [3, 1, 4, 1, 5, 9, 2, 6]; start i=2 (1-based). a[2]=1, so i becomes
         // 1, then t2 = a[1] = 3. The cache MUST recompute or it would read a[2].
@@ -3307,7 +4512,11 @@ mod contiguous_backend {
         assert_eq!(expected, 3, "sanity: result is a[a[2]] = a[1] = 3");
         let mut run_a = a.clone();
         let (out, _f) = run_regalloc_buf(&ops, &frame, vec![(3, &mut run_a)]);
-        assert_eq!(out, ChainOutcome::Return(expected), "index-overwrite diverged");
+        assert_eq!(
+            out,
+            ChainOutcome::Return(expected),
+            "index-overwrite diverged"
+        );
         assert_eq!(run_a, bref[0], "buffer diverged");
     }
 
@@ -3321,31 +4530,102 @@ mod contiguous_backend {
         // frame: 0=r 1=col 2=n 3=lin 4=va 5=vb 6=t 7=a_ptr 8=a_len
         //        9=b_ptr 10=b_len 11=c_ptr 12=c_len 13=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 2, target: 17 }, // 0 while r<=n
-            MicroOp::LoadConst { dst: 1, value: 1 },                        // 1 col=1
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 1, rhs: 2, target: 15 }, // 2 while col<=n
-            MicroOp::Sub { dst: 3, lhs: 0, rhs: 13 },                       // 3 r-1
-            MicroOp::Mul { dst: 3, lhs: 3, rhs: 2 },                        // 4 (r-1)*n
-            MicroOp::Add { dst: 3, lhs: 3, rhs: 1 },                        // 5 +col -> lin
-            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 6 va=a[lin]
-            MicroOp::ArrLoad { dst: 5, idx: 3, ptr_slot: 9, len_slot: 10, byte: false, narrow32: false, checked: true }, // 7 vb=b[lin]
-            MicroOp::Add { dst: 6, lhs: 4, rhs: 5 },                        // 8 t = va+vb
-            MicroOp::ArrStore { src: 6, idx: 3, ptr_slot: 11, len_slot: 12, byte: false, narrow32: false, checked: true }, // 9 c[lin]=t
-            MicroOp::Add { dst: 1, lhs: 1, rhs: 13 },                       // 10 col+=1
-            MicroOp::Jump { target: 2 },                                    // 11
-            MicroOp::LoadConst { dst: 6, value: 0 },                        // 12 filler
-            MicroOp::LoadConst { dst: 6, value: 0 },                        // 13 filler
-            MicroOp::LoadConst { dst: 6, value: 0 },                        // 14 filler
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 13 },                       // 15 r+=1
-            MicroOp::Jump { target: 0 },                                    // 16
-            MicroOp::Return { src: 6 },                                     // 17
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 2,
+                target: 17,
+            }, // 0 while r<=n
+            MicroOp::LoadConst { dst: 1, value: 1 }, // 1 col=1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 1,
+                rhs: 2,
+                target: 15,
+            }, // 2 while col<=n
+            MicroOp::Sub {
+                dst: 3,
+                lhs: 0,
+                rhs: 13,
+            }, // 3 r-1
+            MicroOp::Mul {
+                dst: 3,
+                lhs: 3,
+                rhs: 2,
+            }, // 4 (r-1)*n
+            MicroOp::Add {
+                dst: 3,
+                lhs: 3,
+                rhs: 1,
+            }, // 5 +col -> lin
+            MicroOp::ArrLoad {
+                dst: 4,
+                idx: 3,
+                ptr_slot: 7,
+                len_slot: 8,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 6 va=a[lin]
+            MicroOp::ArrLoad {
+                dst: 5,
+                idx: 3,
+                ptr_slot: 9,
+                len_slot: 10,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 7 vb=b[lin]
+            MicroOp::Add {
+                dst: 6,
+                lhs: 4,
+                rhs: 5,
+            }, // 8 t = va+vb
+            MicroOp::ArrStore {
+                src: 6,
+                idx: 3,
+                ptr_slot: 11,
+                len_slot: 12,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 9 c[lin]=t
+            MicroOp::Add {
+                dst: 1,
+                lhs: 1,
+                rhs: 13,
+            }, // 10 col+=1
+            MicroOp::Jump { target: 2 },             // 11
+            MicroOp::LoadConst { dst: 6, value: 0 }, // 12 filler
+            MicroOp::LoadConst { dst: 6, value: 0 }, // 13 filler
+            MicroOp::LoadConst { dst: 6, value: 0 }, // 14 filler
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 13,
+            }, // 15 r+=1
+            MicroOp::Jump { target: 0 },             // 16
+            MicroOp::Return { src: 6 },              // 17
         ];
         let n = 17usize;
         let total = n * n;
         let a: Vec<i64> = (0..total).map(|k| (k as i64) * 3 + 1).collect();
         let b: Vec<i64> = (0..total).map(|k| (k as i64) * 7 - 2).collect();
         let frame = vec![
-            1i64, 1, n as i64, 0, 0, 0, 0, 0, total as i64, 0, total as i64, 0, total as i64, 1,
+            1i64,
+            1,
+            n as i64,
+            0,
+            0,
+            0,
+            0,
+            0,
+            total as i64,
+            0,
+            total as i64,
+            0,
+            total as i64,
+            1,
         ];
 
         let (vref, _f, bref) = run_reference_buf(
@@ -3358,9 +4638,16 @@ mod contiguous_backend {
         let mut a_run = a.clone();
         let mut b_run = b.clone();
         let mut c_run = vec![0i64; total];
-        let (out, _f) =
-            run_regalloc_buf(&ops, &frame, vec![(7, &mut a_run), (9, &mut b_run), (11, &mut c_run)]);
-        assert_eq!(out, ChainOutcome::Return(expected), "2D co-indexed value diverged");
+        let (out, _f) = run_regalloc_buf(
+            &ops,
+            &frame,
+            vec![(7, &mut a_run), (9, &mut b_run), (11, &mut c_run)],
+        );
+        assert_eq!(
+            out,
+            ChainOutcome::Return(expected),
+            "2D co-indexed value diverged"
+        );
         assert_eq!(a_run, bref[0], "a buffer changed");
         assert_eq!(b_run, bref[1], "b buffer changed");
         assert_eq!(c_run, bref[2], "c buffer diverged from reference");
@@ -3393,8 +4680,24 @@ mod contiguous_backend {
         // t=a[i] (len 8, valid); b[i]=t (len 4, OOB at i=5) -> must deopt before
         // writing b, and a is untouched after the load (read-only).
         let ops = vec![
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // a[i]
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // b[i] OOB
+            MicroOp::ArrLoad {
+                dst: 2,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // a[i]
+            MicroOp::ArrStore {
+                src: 2,
+                idx: 0,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // b[i] OOB
             MicroOp::Return { src: 2 },
         ];
         let mut a = vec![10i64, 20, 30, 40, 50, 60, 70, 80];
@@ -3404,17 +4707,19 @@ mod contiguous_backend {
         let frame = vec![5i64, 0, 0, 0, 8, 0, 4];
 
         // Reference rejects the OOB store (None).
-        let (vref, _f, _bs) =
-            run_reference_buf(&ops, &frame, &[a.clone(), b.clone()], &[3, 5]);
+        let (vref, _f, _bs) = run_reference_buf(&ops, &frame, &[a.clone(), b.clone()], &[3, 5]);
         assert!(vref.is_none(), "reference must reject the OOB store");
 
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
         let mut f = frame.clone();
         f[3] = a.as_mut_ptr() as i64;
         f[5] = b.as_mut_ptr() as i64;
         let out = chain.run_with_frame(&mut f);
-        assert!(out.is_deopt(), "OOB store in a co-indexed run must deopt: {out:?}");
+        assert!(
+            out.is_deopt(),
+            "OOB store in a co-indexed run must deopt: {out:?}"
+        );
         assert_eq!(b, b_before, "OOB store must not mutate the shorter buffer");
     }
 
@@ -3427,14 +4732,47 @@ mod contiguous_backend {
         // acc += (flags1[i] != 0) as i64 + (flags2[i] != 0) as i64 over i in 1..=n
         // frame: 0=i 1=n 2=v1 3=v2 4=acc 5=p1 6=l1 7=p2 8=l2 9=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: true, narrow32: false, checked: true }, // 1
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 7, len_slot: 8, byte: true, narrow32: false, checked: true }, // 2
-            MicroOp::Add { dst: 4, lhs: 4, rhs: 2 }, // 3
-            MicroOp::Add { dst: 4, lhs: 4, rhs: 3 }, // 4
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 9 }, // 5
-            MicroOp::Jump { target: 0 },             // 6
-            MicroOp::Return { src: 4 },              // 7
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            }, // 0
+            MicroOp::ArrLoad {
+                dst: 2,
+                idx: 0,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            }, // 1
+            MicroOp::ArrLoad {
+                dst: 3,
+                idx: 0,
+                ptr_slot: 7,
+                len_slot: 8,
+                byte: true,
+                narrow32: false,
+                checked: true,
+            }, // 2
+            MicroOp::Add {
+                dst: 4,
+                lhs: 4,
+                rhs: 2,
+            }, // 3
+            MicroOp::Add {
+                dst: 4,
+                lhs: 4,
+                rhs: 3,
+            }, // 4
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 9,
+            }, // 5
+            MicroOp::Jump { target: 0 }, // 6
+            MicroOp::Return { src: 4 },  // 7
         ];
         let n = 100usize;
         let f1: Vec<i64> = (0..n).map(|k| (k % 2) as i64).collect();
@@ -3449,12 +4787,16 @@ mod contiguous_backend {
         let want: i64 = b1.iter().chain(b2.iter()).map(|&x| x as i64).sum();
 
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
         let mut f = frame.clone();
         f[5] = b1.as_mut_ptr() as i64;
         f[7] = b2.as_mut_ptr() as i64;
         let out = chain.run_with_frame(&mut f);
-        assert_eq!(out, ChainOutcome::Return(want), "byte co-indexed sum diverged");
+        assert_eq!(
+            out,
+            ChainOutcome::Return(want),
+            "byte co-indexed sum diverged"
+        );
 
         // STRUCTURAL: two byte loads at index 0 — one `idx-1` compute (byte
         // stride uses `im1` directly, so NO `shl rax, 3` at all).
@@ -3543,15 +4885,56 @@ mod contiguous_backend {
         //   push val to out          (ArrPush ptr=9 — reallocs, writes frame[9]/[10])
         //   i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 8 }, // 0
-            MicroOp::ArrLoad { dst: 5, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 1 a = src[i]
-            MicroOp::Add { dst: 12, lhs: 0, rhs: 11 }, // 2 idx2 = i+1
-            MicroOp::ArrLoad { dst: 6, idx: 12, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 3 b = src[i+1]
-            MicroOp::Add { dst: 7, lhs: 5, rhs: 6 }, // 4 val = a+b
-            MicroOp::ArrPush { src: 7, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 5 push val to out
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 11 }, // 6 i += 1
-            MicroOp::Jump { target: 0 },              // 7
-            MicroOp::Return { src: 10 },              // 8 return len(out)
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 8,
+            }, // 0
+            MicroOp::ArrLoad {
+                dst: 5,
+                idx: 0,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 1 a = src[i]
+            MicroOp::Add {
+                dst: 12,
+                lhs: 0,
+                rhs: 11,
+            }, // 2 idx2 = i+1
+            MicroOp::ArrLoad {
+                dst: 6,
+                idx: 12,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 3 b = src[i+1]
+            MicroOp::Add {
+                dst: 7,
+                lhs: 5,
+                rhs: 6,
+            }, // 4 val = a+b
+            MicroOp::ArrPush {
+                src: 7,
+                vec_slot: 8,
+                ptr_slot: 9,
+                len_slot: 10,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 5 push val to out
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 11,
+            }, // 6 i += 1
+            MicroOp::Jump { target: 0 }, // 7
+            MicroOp::Return { src: 10 }, // 8 return len(out)
         ];
 
         let n = 2000i64;
@@ -3577,10 +4960,19 @@ mod contiguous_backend {
             mask_ptr_cells(sframe, &sp),
             "map-with-push post-frame diverged (stale ptr/len?)"
         );
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "src buffer diverged");
-        assert_eq!(rp[1].buf.snapshot(), sp[1].buf.snapshot(), "out buffer diverged");
-        let want: Vec<i64> =
-            (1..=n).map(|i| src_init[(i - 1) as usize] + src_init[i as usize]).collect();
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "src buffer diverged"
+        );
+        assert_eq!(
+            rp[1].buf.snapshot(),
+            sp[1].buf.snapshot(),
+            "out buffer diverged"
+        );
+        let want: Vec<i64> = (1..=n)
+            .map(|i| src_init[(i - 1) as usize] + src_init[i as usize])
+            .collect();
         assert_eq!(rp[1].buf.snapshot(), want, "map output wrong");
 
         // SOUNDNESS: src's ptr is invariant and read across a reallocating push
@@ -3609,23 +5001,95 @@ mod contiguous_backend {
         // frame: 0=r 1=rows 2=w 3=cap 4=p_vec 5=p_ptr 6=p_len 7=best
         //        8=q_vec 9=q_ptr 10=q_len 11=take 12=one 13=widx 14=tidx
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 16 }, // 0 while r<rows -> exit 16
-            MicroOp::ListClear { vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: clear_i64_addr() }, // 1 clear curr
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 16,
+            }, // 0 while r<rows -> exit 16
+            MicroOp::ListClear {
+                vec_slot: 8,
+                ptr_slot: 9,
+                len_slot: 10,
+                helper_addr: clear_i64_addr(),
+            }, // 1 clear curr
             MicroOp::LoadConst { dst: 2, value: 1 }, // 2 w = 1
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 2, rhs: 3, target: 12 }, // 3 INNER head -> exit 12
-            MicroOp::Add { dst: 13, lhs: 2, rhs: 12 }, // 4 widx = w+1
-            MicroOp::ArrLoad { dst: 7, idx: 13, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // 5 best=prev[w+1]
-            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // 6 take=prev[w]
-            MicroOp::Add { dst: 11, lhs: 11, rhs: 0 }, // 7 take += r
-            MicroOp::Add { dst: 7, lhs: 7, rhs: 11 }, // 8 best += take (deterministic combine)
-            MicroOp::ArrPush { src: 7, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 9 push best to curr
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 12 }, // 10 w += 1
-            MicroOp::Jump { target: 3 }, // 11 inner back-edge
-            MicroOp::ListClear { vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: clear_i64_addr() }, // 12 clear prev
-            MicroOp::ArrPush { src: 0, vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 13 push r to prev
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 12 }, // 14 r += 1
-            MicroOp::Jump { target: 0 }, // 15 outer back-edge
-            MicroOp::Return { src: 6 }, // 16 return len(prev)
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 2,
+                rhs: 3,
+                target: 12,
+            }, // 3 INNER head -> exit 12
+            MicroOp::Add {
+                dst: 13,
+                lhs: 2,
+                rhs: 12,
+            }, // 4 widx = w+1
+            MicroOp::ArrLoad {
+                dst: 7,
+                idx: 13,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 5 best=prev[w+1]
+            MicroOp::ArrLoad {
+                dst: 11,
+                idx: 2,
+                ptr_slot: 5,
+                len_slot: 6,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 6 take=prev[w]
+            MicroOp::Add {
+                dst: 11,
+                lhs: 11,
+                rhs: 0,
+            }, // 7 take += r
+            MicroOp::Add {
+                dst: 7,
+                lhs: 7,
+                rhs: 11,
+            }, // 8 best += take (deterministic combine)
+            MicroOp::ArrPush {
+                src: 7,
+                vec_slot: 8,
+                ptr_slot: 9,
+                len_slot: 10,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 9 push best to curr
+            MicroOp::Add {
+                dst: 2,
+                lhs: 2,
+                rhs: 12,
+            }, // 10 w += 1
+            MicroOp::Jump { target: 3 },             // 11 inner back-edge
+            MicroOp::ListClear {
+                vec_slot: 4,
+                ptr_slot: 5,
+                len_slot: 6,
+                helper_addr: clear_i64_addr(),
+            }, // 12 clear prev
+            MicroOp::ArrPush {
+                src: 0,
+                vec_slot: 4,
+                ptr_slot: 5,
+                len_slot: 6,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 13 push r to prev
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 12,
+            }, // 14 r += 1
+            MicroOp::Jump { target: 0 },             // 15 outer back-edge
+            MicroOp::Return { src: 6 },              // 16 return len(prev)
         ];
 
         let rows = 30i64;
@@ -3651,8 +5115,16 @@ mod contiguous_backend {
             mask_ptr_cells(sframe, &sp),
             "knapsack inner-loop post-frame diverged (stale ptr/len?)"
         );
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "prev buffer diverged");
-        assert_eq!(rp[1].buf.snapshot(), sp[1].buf.snapshot(), "curr buffer diverged");
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "prev buffer diverged"
+        );
+        assert_eq!(
+            rp[1].buf.snapshot(),
+            sp[1].buf.snapshot(),
+            "curr buffer diverged"
+        );
 
         // STRUCTURAL: in the INNER loop (ops 3..11), prev's ptr (slot 5) feeds two
         // ArrLoads each iteration but is invariant there (it is only written at op
@@ -3684,11 +5156,40 @@ mod contiguous_backend {
         //   acc += elem
         //   i += 1
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::ArrPush { src: 0, vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 1 push i (realloc)
-            MicroOp::ArrLoad { dst: 6, idx: 8, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 2 elem = a[1]
-            MicroOp::Add { dst: 7, lhs: 7, rhs: 6 }, // 3 acc += elem
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 8 }, // 4 i += 1
+            MicroOp::Branch {
+                cmp: Cmp::LtEq,
+                lhs: 0,
+                rhs: 1,
+                target: 7,
+            }, // 0
+            MicroOp::ArrPush {
+                src: 0,
+                vec_slot: 2,
+                ptr_slot: 3,
+                len_slot: 4,
+                helper_addr: push_i64_addr(),
+                byte: false,
+                narrow32: false,
+            }, // 1 push i (realloc)
+            MicroOp::ArrLoad {
+                dst: 6,
+                idx: 8,
+                ptr_slot: 3,
+                len_slot: 4,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 2 elem = a[1]
+            MicroOp::Add {
+                dst: 7,
+                lhs: 7,
+                rhs: 6,
+            }, // 3 acc += elem
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 8,
+            }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
             MicroOp::LoadConst { dst: 6, value: 0 }, // 6 filler
             MicroOp::Return { src: 7 },              // 7 return acc
@@ -3702,15 +5203,26 @@ mod contiguous_backend {
         let mut sp = [ListPin::new(2, 3, 4, Vec::new())];
         let (sout, sframe) = run_stencil_lists(&ops, &frame, &mut sp);
 
-        assert_eq!(rout, sout, "reassigned-array return diverged (stale hoisted ptr?)");
+        assert_eq!(
+            rout, sout,
+            "reassigned-array return diverged (stale hoisted ptr?)"
+        );
         assert_eq!(
             mask_ptr_cells(rframe, &rp),
             mask_ptr_cells(sframe, &sp),
             "reassigned-array post-frame diverged"
         );
-        assert_eq!(rp[0].buf.snapshot(), sp[0].buf.snapshot(), "buffer diverged");
+        assert_eq!(
+            rp[0].buf.snapshot(),
+            sp[0].buf.snapshot(),
+            "buffer diverged"
+        );
         // a[1] is always 1 (the first push), read every iteration → acc = n.
-        assert_eq!(rout, ChainOutcome::Return(n), "expected acc == n (a[1] == 1 each iter)");
+        assert_eq!(
+            rout,
+            ChainOutcome::Return(n),
+            "expected acc == n (a[1] == 1 each iter)"
+        );
 
         // STRUCTURAL: the array is reassigned in the loop (the push refreshes
         // frame[3]/frame[4]), so it is NOT hoisted — the ArrLoad at op 2 still
@@ -3794,7 +5306,7 @@ mod contiguous_backend {
             std::env::set_var("LOGOS_NO_CONST_HOIST", "1");
         }
         let status = Arc::new(AtomicI64::new(0));
-        let bytes = compile_region_regalloc(ops, Some(status))
+        let bytes = compile_region_regalloc(ops, Some(status), &[])
             .expect("region must compile")
             .bytes()
             .to_vec();
@@ -3816,38 +5328,115 @@ mod contiguous_backend {
         const TWO: i64 = 4611686018427387904;
         const FOUR: i64 = 4616189618054758400;
         const STEP: i64 = 777; // a distinctive INTEGER invariant const (the step)
-        // A self-contained carried-float loop with both invariant FLOAT consts, an
-        // escape branch, and an INTEGER invariant const materialized inside the
-        // loop (the `iter += STEP` step), looping until iter >= N.
-        // frame: 0=iter 1=zr 2=zi 3=cr 4=ci 5=count 6=N 7=zr2 8=p1 9=p2
-        //        10=two 11=q1 12=q2 13=mag 14=four 15=step
+                               // A self-contained carried-float loop with both invariant FLOAT consts, an
+                               // escape branch, and an INTEGER invariant const materialized inside the
+                               // loop (the `iter += STEP` step), looping until iter >= N.
+                               // frame: 0=iter 1=zr 2=zi 3=cr 4=ci 5=count 6=N 7=zr2 8=p1 9=p2
+                               //        10=two 11=q1 12=q2 13=mag 14=four 15=step
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 6, target: 17 }, // 0: while iter<N
-            MicroOp::MulF { dst: 8, lhs: 1, rhs: 1 },                     // 1
-            MicroOp::MulF { dst: 9, lhs: 2, rhs: 2 },                     // 2
-            MicroOp::SubF { dst: 7, lhs: 8, rhs: 9 },                     // 3
-            MicroOp::AddF { dst: 7, lhs: 7, rhs: 3 },                     // 4: zr2
-            MicroOp::LoadConst { dst: 10, value: TWO },                   // 5: 2.0 (NOT hoisted)
-            MicroOp::MulF { dst: 11, lhs: 10, rhs: 1 },                   // 6
-            MicroOp::MulF { dst: 12, lhs: 11, rhs: 2 },                   // 7
-            MicroOp::AddF { dst: 2, lhs: 12, rhs: 4 },                    // 8: zi
-            MicroOp::Move { dst: 1, src: 7 },                            // 9: zr=zr2
-            MicroOp::MulF { dst: 8, lhs: 1, rhs: 1 },                     // 10
-            MicroOp::MulF { dst: 9, lhs: 2, rhs: 2 },                     // 11
-            MicroOp::AddF { dst: 13, lhs: 8, rhs: 9 },                    // 12: mag
-            MicroOp::LoadConst { dst: 14, value: FOUR },                  // 13: 4.0 (NOT hoisted)
-            MicroOp::BranchF { cmp: Cmp::GtEq, lhs: 13, rhs: 14, target: 16 }, // 14: escape
-            MicroOp::Add { dst: 5, lhs: 5, rhs: 0 },                      // 15: count += iter
-            MicroOp::LoadConst { dst: 15, value: STEP },                  // 16: step (HOIST, int)
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 15 },                     // 17: iter += step
-            MicroOp::Jump { target: 0 },                                 // 18: back-edge
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 6,
+                target: 17,
+            }, // 0: while iter<N
+            MicroOp::MulF {
+                dst: 8,
+                lhs: 1,
+                rhs: 1,
+            }, // 1
+            MicroOp::MulF {
+                dst: 9,
+                lhs: 2,
+                rhs: 2,
+            }, // 2
+            MicroOp::SubF {
+                dst: 7,
+                lhs: 8,
+                rhs: 9,
+            }, // 3
+            MicroOp::AddF {
+                dst: 7,
+                lhs: 7,
+                rhs: 3,
+            }, // 4: zr2
+            MicroOp::LoadConst {
+                dst: 10,
+                value: TWO,
+            }, // 5: 2.0 (NOT hoisted)
+            MicroOp::MulF {
+                dst: 11,
+                lhs: 10,
+                rhs: 1,
+            }, // 6
+            MicroOp::MulF {
+                dst: 12,
+                lhs: 11,
+                rhs: 2,
+            }, // 7
+            MicroOp::AddF {
+                dst: 2,
+                lhs: 12,
+                rhs: 4,
+            }, // 8: zi
+            MicroOp::Move { dst: 1, src: 7 }, // 9: zr=zr2
+            MicroOp::MulF {
+                dst: 8,
+                lhs: 1,
+                rhs: 1,
+            }, // 10
+            MicroOp::MulF {
+                dst: 9,
+                lhs: 2,
+                rhs: 2,
+            }, // 11
+            MicroOp::AddF {
+                dst: 13,
+                lhs: 8,
+                rhs: 9,
+            }, // 12: mag
+            MicroOp::LoadConst {
+                dst: 14,
+                value: FOUR,
+            }, // 13: 4.0 (NOT hoisted)
+            MicroOp::BranchF {
+                cmp: Cmp::GtEq,
+                lhs: 13,
+                rhs: 14,
+                target: 16,
+            }, // 14: escape
+            MicroOp::Add {
+                dst: 5,
+                lhs: 5,
+                rhs: 0,
+            }, // 15: count += iter
+            MicroOp::LoadConst {
+                dst: 15,
+                value: STEP,
+            }, // 16: step (HOIST, int)
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 15,
+            }, // 17: iter += step
+            MicroOp::Jump { target: 0 },      // 18: back-edge
         ];
         let mut ops = ops;
         let ret_idx = ops.len();
-        ops[0] = MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 6, target: ret_idx };
+        ops[0] = MicroOp::Branch {
+            cmp: Cmp::Lt,
+            lhs: 0,
+            rhs: 6,
+            target: ret_idx,
+        };
         // The escape target (op 14) must skip count but still take the step: point
         // it at op 16 (the step LoadConst), so escape still terminates.
-        ops[14] = MicroOp::BranchF { cmp: Cmp::GtEq, lhs: 13, rhs: 14, target: 16 };
+        ops[14] = MicroOp::BranchF {
+            cmp: Cmp::GtEq,
+            lhs: 13,
+            rhs: 14,
+            target: 16,
+        };
         ops.push(MicroOp::Return { src: 5 });
 
         let n = 4000i64;
@@ -3860,7 +5449,7 @@ mod contiguous_backend {
 
         let expected = reference_eval(&ops, &mut frame.clone(), 1_000_000).expect("reference runs");
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("mandel region compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("mandel region compiles");
         let mut f = frame.clone();
         let out = chain.run_with_frame(&mut f);
         assert_eq!(
@@ -3877,8 +5466,7 @@ mod contiguous_backend {
         // stays in the body (after the loop guard's jcc) regardless of the switch.
         // Holding them resident in the saturated XMM file is measured net-negative.
         for &val in &[TWO, FOUR] {
-            let pos = first_subseq(&on, &movabs_rax(val))
-                .expect("float const movabs present");
+            let pos = first_subseq(&on, &movabs_rax(val)).expect("float const movabs present");
             assert!(
                 pos > guard_on,
                 "FLOAT const {val:#x} movabs (@{pos}) must STAY in the body \
@@ -3913,21 +5501,39 @@ mod contiguous_backend {
         // while i < n: t = 7; acc += t; t = 9; acc += t; i += 1
         // frame: 0=i 1=n 2=acc 3=t 4=one
         let ops = vec![
-            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 8 }, // 0
-            MicroOp::LoadConst { dst: 3, value: 7 },                     // 1: t=7
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 3 },                     // 2: acc+=7
-            MicroOp::LoadConst { dst: 3, value: 9 },                     // 3: t=9 (SECOND writer of 3)
-            MicroOp::Add { dst: 2, lhs: 2, rhs: 3 },                     // 4: acc+=9
-            MicroOp::LoadConst { dst: 4, value: 1 },                     // 5: one=1 (HOISTABLE)
-            MicroOp::Add { dst: 0, lhs: 0, rhs: 4 },                     // 6: i+=1
-            MicroOp::Jump { target: 0 },                                // 7
-            MicroOp::Return { src: 2 },                                  // 8
+            MicroOp::Branch {
+                cmp: Cmp::Lt,
+                lhs: 0,
+                rhs: 1,
+                target: 8,
+            }, // 0
+            MicroOp::LoadConst { dst: 3, value: 7 }, // 1: t=7
+            MicroOp::Add {
+                dst: 2,
+                lhs: 2,
+                rhs: 3,
+            }, // 2: acc+=7
+            MicroOp::LoadConst { dst: 3, value: 9 }, // 3: t=9 (SECOND writer of 3)
+            MicroOp::Add {
+                dst: 2,
+                lhs: 2,
+                rhs: 3,
+            }, // 4: acc+=9
+            MicroOp::LoadConst { dst: 4, value: 1 }, // 5: one=1 (HOISTABLE)
+            MicroOp::Add {
+                dst: 0,
+                lhs: 0,
+                rhs: 4,
+            }, // 6: i+=1
+            MicroOp::Jump { target: 0 },             // 7
+            MicroOp::Return { src: 2 },              // 8
         ];
         let n = 1000i64;
         let frame = vec![0i64, n, 0, 0, 0];
-        let expected = reference_eval(&ops, &mut frame.clone(), 10_000_000).expect("reference runs");
+        let expected =
+            reference_eval(&ops, &mut frame.clone(), 10_000_000).expect("reference runs");
         let status = Arc::new(AtomicI64::new(0));
-        let chain = compile_region_regalloc(&ops, Some(status)).expect("compiles");
+        let chain = compile_region_regalloc(&ops, Some(status), &[]).expect("compiles");
         let mut f = frame.clone();
         let out = chain.run_with_frame(&mut f);
         assert_eq!(out, ChainOutcome::Return(expected));
@@ -3939,8 +5545,7 @@ mod contiguous_backend {
         let on = region_bytes_const_hoist(&ops, true);
         let guard = first_jcc_offset(&on).expect("loop guard jcc exists");
         for &reused in &[7i64, 9] {
-            let off = first_subseq(&on, &movabs_rax(reused))
-                .expect("reused-const movabs present");
+            let off = first_subseq(&on, &movabs_rax(reused)).expect("reused-const movabs present");
             assert!(
                 off > guard,
                 "reused scratch const {reused} must NOT be hoisted (movabs @{off} vs guard @{guard})"
@@ -3991,7 +5596,9 @@ mod precise_list_recursion {
     }
     impl LiveVec {
         fn new(init: Vec<i64>) -> Self {
-            LiveVec { boxed: Box::new(init) }
+            LiveVec {
+                boxed: Box::new(init),
+            }
         }
         fn handle(&mut self) -> i64 {
             self.boxed.as_mut() as *mut Vec<i64> as i64
@@ -4024,7 +5631,10 @@ mod precise_list_recursion {
         // slots: 0=arr handle, 1=idx (1-based), 2=value, 3=ret-handle scratch
         // Body: plant the param's triple, store value at idx, return the handle.
         let ops = vec![
-            MicroOp::LoadConst { dst: plant_window, value: -1 }, // 0: invalidate plant
+            MicroOp::LoadConst {
+                dst: plant_window,
+                value: -1,
+            }, // 0: invalidate plant
             MicroOp::ListTriple {
                 handle_slot: 0,
                 vec_slot,
@@ -4032,9 +5642,20 @@ mod precise_list_recursion {
                 len_slot,
                 helper_addr: list_triple_addr(),
             }, // 1: refresh pin triple from the param handle
-            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot, len_slot, byte: false, narrow32: false, checked: true }, // 2: arr[idx-1] = value
-            MicroOp::Move { dst: 3, src: vec_slot },             // 3: return the vec handle
-            MicroOp::Return { src: 3 },                          // 4
+            MicroOp::ArrStore {
+                src: 2,
+                idx: 1,
+                ptr_slot,
+                len_slot,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 2: arr[idx-1] = value
+            MicroOp::Move {
+                dst: 3,
+                src: vec_slot,
+            }, // 3: return the vec handle
+            MicroOp::Return { src: 3 }, // 4
         ];
         // Precise deopt codes: each micro tagged with its bytecode pc `(pc<<2)|3`.
         // Op 2 (the store) carries the precise resume tag; the rest are 1.
@@ -4060,9 +5681,16 @@ mod precise_list_recursion {
         depth.store(0, std::sync::atomic::Ordering::SeqCst);
         status.store(0, std::sync::atomic::Ordering::SeqCst);
         let out = chain.run_with_frame(&mut frame);
-        assert!(matches!(out, ChainOutcome::Return(_)), "expected a return, got {out:?}");
+        assert!(
+            matches!(out, ChainOutcome::Return(_)),
+            "expected a return, got {out:?}"
+        );
         // The in-place store landed EXACTLY once.
-        assert_eq!(buf.snapshot(), vec![10, 20, 999, 40, 50], "store double-applied or missing");
+        assert_eq!(
+            buf.snapshot(),
+            vec![10, 20, 999, 40, 50],
+            "store double-applied or missing"
+        );
         let _ = frame_size;
     }
 
@@ -4080,7 +5708,10 @@ mod precise_list_recursion {
         let len_slot = rc + 5;
         let limit_slot = rc + 6;
         let ops = vec![
-            MicroOp::LoadConst { dst: plant_window, value: -1 },
+            MicroOp::LoadConst {
+                dst: plant_window,
+                value: -1,
+            },
             MicroOp::ListTriple {
                 handle_slot: 0,
                 vec_slot,
@@ -4088,8 +5719,19 @@ mod precise_list_recursion {
                 len_slot,
                 helper_addr: list_triple_addr(),
             },
-            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot, len_slot, byte: false, narrow32: false, checked: true },
-            MicroOp::Move { dst: 3, src: vec_slot },
+            MicroOp::ArrStore {
+                src: 2,
+                idx: 1,
+                ptr_slot,
+                len_slot,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            },
+            MicroOp::Move {
+                dst: 3,
+                src: vec_slot,
+            },
             MicroOp::Return { src: 3 },
         ];
         let store_pc = 2i64;
@@ -4118,7 +5760,11 @@ mod precise_list_recursion {
         let out = chain.run_with_frame(&mut frame);
         match out {
             ChainOutcome::Deopt(raw) => {
-                assert_eq!(raw & 0b11, 0b11, "OOB store must side-exit PRECISELY (low bits 11)");
+                assert_eq!(
+                    raw & 0b11,
+                    0b11,
+                    "OOB store must side-exit PRECISELY (low bits 11)"
+                );
                 let resume_pc = (raw & 0xFFFF_FFFF) >> 2;
                 assert_eq!(resume_pc, store_pc, "resume pc must be the store op");
                 assert_eq!(raw >> 32, want_depth, "high bits must carry the live depth");
@@ -4148,15 +5794,28 @@ mod precise_list_recursion {
         let limit_slot = rc + 6;
         let frame_size = (limit_slot + 1) as i64;
         let window = (limit_slot + 1) as u16; // disjoint callee window at frame_size
-        // f(arr, k): if k == 0 { store at OOB idx -> deopt } else { f(arr, k-1) }.
-        // slots: 0=arr 1=k 2=zero 3=one 4=ret/result-handle 5=bigidx 6=val
-        let table_addr_placeholder = 0i64; // patched by the backend's entry cell
+                                              // f(arr, k): if k == 0 { store at OOB idx -> deopt } else { f(arr, k-1) }.
+                                              // slots: 0=arr 1=k 2=zero 3=one 4=ret/result-handle 5=bigidx 6=val
         let depth = Arc::new(AtomicI64::new(0));
         let status = Arc::new(AtomicI64::new(0));
+        // A precise `Call` always dispatches through the callee's production
+        // table pair: [entry address, published register count]. Keep the pair
+        // live while the chain runs, then publish this chain into its own slot
+        // after compilation to model recursive dispatch.
+        let call_table = Box::new([AtomicI64::new(0), AtomicI64::new(frame_size - 3)]);
+        let table_addr = call_table.as_ptr() as i64;
         let ops = vec![
-            MicroOp::LoadConst { dst: plant_window, value: -1 }, // 0
-            MicroOp::LoadConst { dst: 2, value: 0 },             // 1: zero
-            MicroOp::Branch { cmp: Cmp::Eq, lhs: 1, rhs: 2, target: 5 }, // 2: if !(k==0) goto 5
+            MicroOp::LoadConst {
+                dst: plant_window,
+                value: -1,
+            }, // 0
+            MicroOp::LoadConst { dst: 2, value: 0 }, // 1: zero
+            MicroOp::Branch {
+                cmp: Cmp::Eq,
+                lhs: 1,
+                rhs: 2,
+                target: 5,
+            }, // 2: if !(k==0) goto 5
             // base case (k==0): OOB store -> precise deopt.
             MicroOp::ListTriple {
                 handle_slot: 0,
@@ -4165,26 +5824,53 @@ mod precise_list_recursion {
                 len_slot,
                 helper_addr: list_triple_addr(),
             }, // 3
-            MicroOp::ArrStore { src: 6, idx: 5, ptr_slot, len_slot, byte: false, narrow32: false, checked: true }, // 4: OOB
+            MicroOp::ArrStore {
+                src: 6,
+                idx: 5,
+                ptr_slot,
+                len_slot,
+                byte: false,
+                narrow32: false,
+                checked: true,
+            }, // 4: OOB
             // recursive case: arg0 = arr, arg1 = k-1, call self.
-            MicroOp::LoadConst { dst: 3, value: 1 },     // 5: one
-            MicroOp::Sub { dst: window + 1, lhs: 1, rhs: 3 }, // 6: arg1 = k-1
-            MicroOp::Move { dst: window, src: 0 },       // 7: arg0 = arr (handle)
+            MicroOp::LoadConst { dst: 3, value: 1 }, // 5: one
+            MicroOp::Sub {
+                dst: window + 1,
+                lhs: 1,
+                rhs: 3,
+            }, // 6: arg1 = k-1
+            MicroOp::Move {
+                dst: window,
+                src: 0,
+            }, // 7: arg0 = arr (handle)
             // plant the call linkage.
-            MicroOp::LoadConst { dst: plant_window, value: frame_size }, // 8
-            MicroOp::LoadConst { dst: plant_resume, value: 12 },          // 9: resume after call
-            MicroOp::LoadConst { dst: plant_dst, value: 4 },             // 10: result slot
+            MicroOp::LoadConst {
+                dst: plant_window,
+                value: frame_size,
+            }, // 8
+            MicroOp::LoadConst {
+                dst: plant_resume,
+                value: 12,
+            }, // 9: resume after call
+            MicroOp::LoadConst {
+                dst: plant_dst,
+                value: 4,
+            }, // 10: result slot
             MicroOp::Call {
                 dst: 4,
                 args_start: window,
-                table_addr: table_addr_placeholder,
+                table_addr,
                 depth_addr: Arc::as_ptr(&depth) as i64,
                 status_addr: Arc::as_ptr(&status) as i64,
                 limit_slot,
                 depth_limit: logicaffeine_compile::semantics::MAX_CALL_DEPTH as i64,
             }, // 11
-            MicroOp::LoadConst { dst: plant_window, value: -1 },         // 12: invalidate plant
-            MicroOp::Return { src: 4 },                                  // 13
+            MicroOp::LoadConst {
+                dst: plant_window,
+                value: -1,
+            }, // 12: invalidate plant
+            MicroOp::Return { src: 4 }, // 13
         ];
         // Precise codes: deoptable ops (the store at 4 and the call at 11) carry
         // their tags; everything else is 1.
@@ -4199,6 +5885,7 @@ mod precise_list_recursion {
             &codes,
         )
         .expect("precise recursive list-param function must compile");
+        call_table[0].store(chain.base() as i64, std::sync::atomic::Ordering::SeqCst);
 
         let mut buf = LiveVec::new(vec![1, 2, 3, 4]);
         let mut frame = vec![0i64; SELF_ARENA];
@@ -4217,7 +5904,11 @@ mod precise_list_recursion {
             }
             other => panic!("expected a precise deopt to propagate, got {other:?}"),
         }
-        assert_eq!(buf.snapshot(), vec![1, 2, 3, 4], "no in-place write should land (OOB at base)");
+        assert_eq!(
+            buf.snapshot(),
+            vec![1, 2, 3, 4],
+            "no in-place write should land (OOB at base)"
+        );
     }
 }
 
@@ -4235,9 +5926,10 @@ mod precise_list_recursion {
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn heap_sort_tiers_via_precise_regalloc_function() {
-    let src = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/heap_sort/main.lg"),
-    )
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/programs/heap_sort/main.lg"
+    ))
     .expect("heap_sort source");
     let src = src.to_string();
     on_big_stack(move || {
@@ -4269,9 +5961,10 @@ fn heap_sort_tiers_via_precise_regalloc_function() {
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn quicksort_tiers_via_precise_regalloc_function() {
-    let src = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/quicksort/main.lg"),
-    )
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../benchmarks/programs/quicksort/main.lg"
+    ))
     .expect("quicksort source");
     let src = src.to_string();
     on_big_stack(move || {
@@ -4340,7 +6033,10 @@ fn precise_list_recursion_oob_parity() {
             (norm(&tw.output), &tw.error),
             "precise list-recursion OOB replay diverged from tree-walker"
         );
-        assert!(vm.error.is_some(), "the out-of-range end must raise an error");
+        assert!(
+            vm.error.is_some(),
+            "the out-of-range end must raise an error"
+        );
     });
 }
 
@@ -4387,7 +6083,10 @@ mod ptr_hoist_timing {
         if !timing_enabled() {
             return;
         }
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/knapsack/main.lg");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../benchmarks/programs/knapsack/main.lg"
+        );
         let n = std::env::var("WF27A_N").unwrap_or_else(|_| "2000".to_string());
         let mut best = f64::INFINITY;
         let mut out = String::new();
@@ -4396,7 +6095,11 @@ mod ptr_hoist_timing {
             out = o;
             best = best.min(dt);
         }
-        let hoist = if std::env::var("LOGOS_NO_PTR_HOIST").as_deref() == Ok("1") { "OFF" } else { "ON " };
+        let hoist = if std::env::var("LOGOS_NO_PTR_HOIST").as_deref() == Ok("1") {
+            "OFF"
+        } else {
+            "ON "
+        };
         eprintln!("KNAPSACK n={n} hoist={hoist} best={best:.1}ms out={out}");
     }
 
@@ -4406,7 +6109,10 @@ mod ptr_hoist_timing {
         if !timing_enabled() {
             return;
         }
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/coins/main.lg");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../benchmarks/programs/coins/main.lg"
+        );
         let n = std::env::var("WF27A_N").unwrap_or_else(|_| "100000".to_string());
         let mut best = f64::INFINITY;
         let mut out = String::new();
@@ -4415,7 +6121,11 @@ mod ptr_hoist_timing {
             out = o;
             best = best.min(dt);
         }
-        let hoist = if std::env::var("LOGOS_NO_PTR_HOIST").as_deref() == Ok("1") { "OFF" } else { "ON " };
+        let hoist = if std::env::var("LOGOS_NO_PTR_HOIST").as_deref() == Ok("1") {
+            "OFF"
+        } else {
+            "ON "
+        };
         eprintln!("COINS    n={n} hoist={hoist} best={best:.1}ms out={out}");
     }
 
@@ -4426,8 +6136,11 @@ mod ptr_hoist_timing {
             return;
         }
         let prog = std::env::var("WF27A_PROG").unwrap_or_else(|_| "matrix_mult".to_string());
-        let path =
-            format!("{}/../../benchmarks/programs/{}/main.lg", env!("CARGO_MANIFEST_DIR"), prog);
+        let path = format!(
+            "{}/../../benchmarks/programs/{}/main.lg",
+            env!("CARGO_MANIFEST_DIR"),
+            prog
+        );
         let n = std::env::var("WF27A_N").unwrap_or_else(|_| "300".to_string());
         let mut best = f64::INFINITY;
         let mut out = String::new();
@@ -4436,7 +6149,11 @@ mod ptr_hoist_timing {
             out = o;
             best = best.min(dt);
         }
-        let hoist = if std::env::var("LOGOS_NO_PTR_HOIST").as_deref() == Ok("1") { "OFF" } else { "ON " };
+        let hoist = if std::env::var("LOGOS_NO_PTR_HOIST").as_deref() == Ok("1") {
+            "OFF"
+        } else {
+            "ON "
+        };
         let short: String = out.chars().take(24).collect();
         eprintln!("{prog:<14} n={n} hoist={hoist} best={best:.1}ms out={short}");
     }
@@ -4484,8 +6201,11 @@ mod const_hoist_timing {
     /// Best-of-5 wall time for `prog` at size `n` with the const-hoist set to
     /// `on` (read live per compile). Output is returned to confirm parity.
     fn best5(prog: &str, n: &str, on: bool) -> (String, f64) {
-        let path =
-            format!("{}/../../benchmarks/programs/{}/main.lg", env!("CARGO_MANIFEST_DIR"), prog);
+        let path = format!(
+            "{}/../../benchmarks/programs/{}/main.lg",
+            env!("CARGO_MANIFEST_DIR"),
+            prog
+        );
         let src = std::fs::read_to_string(&path).expect("read benchmark program");
         let args = vec![path.clone(), n.to_string()];
         if on {
@@ -4551,9 +6271,11 @@ mod const_hoist_timing {
         if !timing_enabled() {
             return;
         }
-        for (prog, n) in
-            [("mandelbrot", "2000"), ("nbody", "200000"), ("spectral_norm", "1500")]
-        {
+        for (prog, n) in [
+            ("mandelbrot", "2000"),
+            ("nbody", "200000"),
+            ("spectral_norm", "1500"),
+        ] {
             let (on, off, _) = ab(prog, n);
             eprintln!(
                 "{prog:<14} n={n} const_hoist ON={on:.1}ms OFF={off:.1}ms ratio(on/off)={:.3}",

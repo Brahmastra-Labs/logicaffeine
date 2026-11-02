@@ -1,0 +1,40 @@
+	Output: 1 chan 329
+Router 83
+	Output: 0 chan 332
+	Output: 1 chan 333
+Router 84
+	Output: 3 chan 339
+Router 85
+	Output: 2 chan 342
+	Output: 1 chan 341
+Router 86
+	Output: 1 chan 345
+Router 93
+	Output: 3 chan 375
+Router 94
+	Output: 1 chan 377
+Router 95
+	Output: 0 chan 380
+	Output: 1 chan 381
+Router 96
+	Output: 4 ej port 96
+	Output: 1 chan 385
+	Output: 3 chan 387
+../plastisim/final.place> Elapsed seconds: 0.411721
+Exiting... 😊
+script> verbose
+script> log2files
+script> stepall
+Tick sep: 1.25
+memTicks: 4 simTicks: 5 gcd: 200
+Caught exception on cycle 309: /DUT/Top/net/router43: no route for packet 403
+script> dumpstate logs/state.json
+script> stat
+Average DRAM Read Bandwidth: 10.7702 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script> Elapsed seconds: 2.44839
+Exiting... 😊
+Destruct DRAM.
+PASS: true (BlackSholes)
+Complete Simulation
+Runtime:0:02.59

@@ -68,7 +68,12 @@ fn rewrite_block<'a>(
 ) -> Vec<Stmt<'a>> {
     let mut out: Vec<Stmt<'a>> = Vec::with_capacity(stmts.len());
     for stmt in stmts {
-        if let Stmt::While { cond, body, decreasing } = &stmt {
+        if let Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } = &stmt
+        {
             if let Some(ind) = detect(cond, body) {
                 out.push(build_guarded(cond, body, *decreasing, &ind, ea, sa, it));
                 *changed = true;
@@ -92,17 +97,29 @@ fn recurse_stmt<'a>(
         sa.alloc_slice(v)
     };
     match stmt {
-        Stmt::If { cond, then_block, else_block } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => Stmt::If {
             cond,
             then_block: recur(then_block, it, changed),
             else_block: else_block.map(|b| recur(b, it, changed)),
         },
-        Stmt::While { cond, body, decreasing } => Stmt::While {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => Stmt::While {
             cond,
             body: recur(body, it, changed),
             decreasing,
         },
-        Stmt::Repeat { pattern, iterable, body } => Stmt::Repeat {
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => Stmt::Repeat {
             pattern,
             iterable,
             body: recur(body, it, changed),
@@ -118,12 +135,14 @@ fn recurse_stmt<'a>(
 fn detect(cond: &Expr, body: &[Stmt]) -> Option<AffineInduction> {
     // The loop test must be `k < n` (`k`, `n` identifiers).
     let (k, bound) = match cond {
-        Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
-            match (left, right) {
-                (Expr::Identifier(k), Expr::Identifier(n)) => (*k, *n),
-                _ => return None,
-            }
-        }
+        Expr::BinaryOp {
+            op: BinaryOpKind::Lt,
+            left,
+            right,
+        } => match (left, right) {
+            (Expr::Identifier(k), Expr::Identifier(n)) => (*k, *n),
+            _ => return None,
+        },
         _ => return None,
     };
     // The body must increment `k` by an integer literal exactly once: `k = k + s`.
@@ -146,7 +165,13 @@ fn detect(cond: &Expr, body: &[Stmt]) -> Option<AffineInduction> {
     {
         return None;
     }
-    Some(AffineInduction { k, bound, c1, c2, step })
+    Some(AffineInduction {
+        k,
+        bound,
+        c1,
+        c2,
+        step,
+    })
 }
 
 /// `true` iff `f` is a finite integer-valued `f64`.
@@ -162,7 +187,11 @@ fn find_int_step(body: &[Stmt], k: Symbol) -> Option<i64> {
         if let Stmt::Set { target, value } = s {
             if *target == k {
                 let add = match value {
-                    Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => match (left, right) {
+                    Expr::BinaryOp {
+                        op: BinaryOpKind::Add,
+                        left,
+                        right,
+                    } => match (left, right) {
                         (Expr::Identifier(a), Expr::Literal(Literal::Number(n))) if *a == k => *n,
                         (Expr::Literal(Literal::Number(n)), Expr::Identifier(a)) if *a == k => *n,
                         _ => return None, // k mutated some other way -> bail
@@ -202,7 +231,12 @@ fn expr_find_affine(e: &Expr, k: Symbol) -> Option<(f64, f64)> {
 
 /// Match `c1*k + c2` (with the multiply and add operands in either order).
 fn match_affine(e: &Expr, k: Symbol) -> Option<(f64, f64)> {
-    let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = e else {
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left,
+        right,
+    } = e
+    else {
         return None;
     };
     // One side is `c1*k`, the other a float constant `c2`.
@@ -216,7 +250,12 @@ fn match_affine(e: &Expr, k: Symbol) -> Option<(f64, f64)> {
 
 /// Match `c1 * k` (operands either order) -> `c1`.
 fn match_scaled_k(e: &Expr, k: Symbol) -> Option<f64> {
-    let Expr::BinaryOp { op: BinaryOpKind::Multiply, left, right } = e else {
+    let Expr::BinaryOp {
+        op: BinaryOpKind::Multiply,
+        left,
+        right,
+    } = e
+    else {
         return None;
     };
     match (&**left, &**right) {
@@ -258,7 +297,10 @@ fn build_guarded<'a>(
         left: ea.alloc(Expr::Identifier(denom)),
         right: ea.alloc(Expr::Literal(Literal::Float(ind.c1 * ind.step as f64))),
     });
-    new_body.push(Stmt::Set { target: denom, value: incr });
+    new_body.push(Stmt::Set {
+        target: denom,
+        value: incr,
+    });
 
     // `Let mutable denom be (c1*k + c2)` — seed from the actual entry `k`.
     let seed = ea.alloc(Expr::BinaryOp {
@@ -270,7 +312,12 @@ fn build_guarded<'a>(
         }),
         right: ea.alloc(Expr::Literal(Literal::Float(ind.c2))),
     });
-    let seed_let = Stmt::Let { var: denom, ty: None, value: seed, mutable: true };
+    let seed_let = Stmt::Let {
+        var: denom,
+        ty: None,
+        value: seed,
+        mutable: true,
+    };
     let fast_while = Stmt::While {
         cond,
         body: sa.alloc_slice(new_body),
@@ -279,7 +326,11 @@ fn build_guarded<'a>(
     let then_block: Block<'a> = sa.alloc_slice(vec![seed_let, fast_while]);
 
     // Slow path: the original loop, untouched.
-    let orig_while = Stmt::While { cond, body, decreasing };
+    let orig_while = Stmt::While {
+        cond,
+        body,
+        decreasing,
+    };
     let else_block: Block<'a> = sa.alloc_slice(vec![orig_while]);
 
     // Guard: `n < floor(2^52 / |c1|)`.
@@ -289,7 +340,11 @@ fn build_guarded<'a>(
         left: ea.alloc(Expr::Identifier(ind.bound)),
         right: ea.alloc(Expr::Literal(Literal::Number(lit))),
     });
-    Stmt::If { cond: guard, then_block, else_block: Some(else_block) }
+    Stmt::If {
+        cond: guard,
+        then_block,
+        else_block: Some(else_block),
+    }
 }
 
 /// Rewrite one statement, replacing every `c1*k+c2` with `denom`.
@@ -304,7 +359,12 @@ fn substitute_stmt<'a>(
             target: *target,
             value: substitute_expr(value, ind, denom, ea),
         },
-        Stmt::Let { var, ty, value, mutable } => Stmt::Let {
+        Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        } => Stmt::Let {
             var: *var,
             ty: *ty,
             value: substitute_expr(value, ind, denom, ea),
@@ -336,82 +396,5 @@ fn substitute_expr<'a>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct B<'a> {
-        ea: &'a Arena<Expr<'a>>,
-    }
-    impl<'a> B<'a> {
-        fn id(&self, s: Symbol) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Identifier(s))
-        }
-        fn fl(&self, f: f64) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Literal(Literal::Float(f)))
-        }
-        fn num(&self, n: i64) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::Literal(Literal::Number(n)))
-        }
-        fn bin(&self, op: BinaryOpKind, l: &'a Expr<'a>, r: &'a Expr<'a>) -> &'a Expr<'a> {
-            self.ea.alloc(Expr::BinaryOp { op, left: l, right: r })
-        }
-    }
-
-    // pi_leibniz's loop: `While k < n { sum = sum + sign/(2.0*k+1.0); sign = 0-sign; k = k+1 }`.
-    fn pi_loop<'a>(b: &B<'a>, sa: &'a Arena<Stmt<'a>>, syms: (Symbol, Symbol, Symbol, Symbol)) -> Stmt<'a> {
-        let (k, n, sum, sign) = syms;
-        let affine = b.bin(BinaryOpKind::Add, b.bin(BinaryOpKind::Multiply, b.fl(2.0), b.id(k)), b.fl(1.0));
-        let term = b.bin(BinaryOpKind::Divide, b.id(sign), affine);
-        let set_sum = Stmt::Set { target: sum, value: b.bin(BinaryOpKind::Add, b.id(sum), term) };
-        let set_sign = Stmt::Set { target: sign, value: b.bin(BinaryOpKind::Subtract, b.fl(0.0), b.id(sign)) };
-        let set_k = Stmt::Set { target: k, value: b.bin(BinaryOpKind::Add, b.id(k), b.num(1)) };
-        Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(k), b.id(n)),
-            body: sa.alloc_slice(vec![set_sum, set_sign, set_k]),
-            decreasing: None,
-        }
-    }
-
-    #[test]
-    fn fires_on_pi_leibniz_and_guards() {
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let (k, n, sum, sign) = (it.intern("k"), it.intern("n"), it.intern("sum"), it.intern("sign"));
-        let b = B { ea: &ea };
-        let loop_stmt = pi_loop(&b, &sa, (k, n, sum, sign));
-        let (out, changed) = float_induction_sr_stmts(vec![loop_stmt], &ea, &sa, &mut it);
-        assert!(changed, "pi_leibniz affine-float induction must fire");
-        // Output is a guarded `If { then: [Let denom, While], else: [While] }`.
-        let denom = it.intern("__fsr_k_denom");
-        match &out[0] {
-            Stmt::If { then_block, else_block, .. } => {
-                assert!(matches!(then_block[0], Stmt::Let { var, .. } if var == denom), "denom seeded");
-                assert!(matches!(then_block[1], Stmt::While { .. }), "fast loop");
-                let els = else_block.expect("slow path present");
-                assert!(matches!(els[0], Stmt::While { .. }), "original loop preserved");
-            }
-            other => panic!("expected guarded If, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rejects_non_integer_coefficient() {
-        // c1 = 0.1 (not integer-valued) -> accumulation would drift -> must NOT fire.
-        let ea = Arena::new();
-        let sa = Arena::new();
-        let mut it = Interner::new();
-        let (k, n, sum) = (it.intern("k"), it.intern("n"), it.intern("sum"));
-        let b = B { ea: &ea };
-        let affine = b.bin(BinaryOpKind::Add, b.bin(BinaryOpKind::Multiply, b.fl(0.1), b.id(k)), b.fl(1.0));
-        let set_sum = Stmt::Set { target: sum, value: b.bin(BinaryOpKind::Add, b.id(sum), affine) };
-        let set_k = Stmt::Set { target: k, value: b.bin(BinaryOpKind::Add, b.id(k), b.num(1)) };
-        let loop_stmt = Stmt::While {
-            cond: b.bin(BinaryOpKind::Lt, b.id(k), b.id(n)),
-            body: sa.alloc_slice(vec![set_sum, set_k]),
-            decreasing: None,
-        };
-        let (_, changed) = float_induction_sr_stmts(vec![loop_stmt], &ea, &sa, &mut it);
-        assert!(!changed, "non-integer c1 must be rejected (drift unsound)");
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/float_induction_sr/tests.rs"]
+mod tests;

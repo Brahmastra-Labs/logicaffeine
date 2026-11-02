@@ -4,17 +4,17 @@
 ## Main
 Let arguments be args().
 Let n be parseInt(item 2 of arguments).
-Let mutable count be 0.
-Let mutable y be 0.
+Let count be 0.
+Let y be 0.
 While y is less than n:
-    Let mutable x be 0.
+    Let x be 0.
     While x is less than n:
         Let cr be 2.0 * x / n - 1.5.
         Let ci be 2.0 * y / n - 1.0.
-        Let mutable zr be 0.0.
-        Let mutable zi be 0.0.
-        Let mutable isInside be 1.
-        Let mutable iter be 0.
+        Let zr be 0.0.
+        Let zi be 0.0.
+        Let isInside be 1.
+        Let iter be 0.
         While iter is less than 50:
             Let zr2 be zr * zr - zi * zi + cr.
             Let zi2 be 2.0 * zr * zi + ci.

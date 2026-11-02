@@ -13,8 +13,8 @@
 //! 5. If real: return Unsafe
 //! 6. If spurious: extract new predicates from the infeasibility proof, refine
 
-use crate::ir::{VerifyExpr, VerifyOp};
 use crate::equivalence::Trace;
+use crate::ir::{VerifyExpr, VerifyOp};
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
 use z3::{ast::Bool, SatResult};
@@ -39,10 +39,7 @@ pub enum AbstractionResult {
 /// Without the transition relation, the abstract transition cannot be computed
 /// properly, so it defaults to the conjunction of predicates as a conservative
 /// overapproximation.
-pub fn abstract_model(
-    init: &VerifyExpr,
-    predicates: &[VerifyExpr],
-) -> AbstractModel {
+pub fn abstract_model(init: &VerifyExpr, predicates: &[VerifyExpr]) -> AbstractModel {
     let abstract_init = if predicates.is_empty() {
         init.clone()
     } else {
@@ -97,7 +94,6 @@ pub fn abstract_model_full(
     let mut abstract_trans_parts: Vec<VerifyExpr> = Vec::new();
     abstract_trans_parts.push(transition.clone());
 
-
     for pred in predicates {
         let pred_next = replace_t_with_t1(pred);
 
@@ -105,17 +101,12 @@ pub fn abstract_model_full(
         // Equivalently: is (pred@t AND T AND NOT pred@t1) unsatisfiable?
         let check = VerifyExpr::and(
             pred.clone(),
-            VerifyExpr::and(
-                transition.clone(),
-                VerifyExpr::not(pred_next.clone()),
-            ),
+            VerifyExpr::and(transition.clone(), VerifyExpr::not(pred_next.clone())),
         );
 
         // Instantiate at step 0 for the Z3 check
-        let check_inst = kinduction::instantiate_transition(
-            &kinduction::instantiate_at(&check, 0),
-            0,
-        );
+        let check_inst =
+            kinduction::instantiate_transition(&kinduction::instantiate_at(&check, 0), 0);
 
         let is_inductive = {
             let solver = crate::solver::new_solver();
@@ -126,10 +117,8 @@ pub fn abstract_model_full(
 
         if is_inductive {
             // Predicate is preserved by transition: include as hard constraint
-            let implication = VerifyExpr::implies(
-                VerifyExpr::and(pred.clone(), transition.clone()),
-                pred_next,
-            );
+            let implication =
+                VerifyExpr::implies(VerifyExpr::and(pred.clone(), transition.clone()), pred_next);
             abstract_trans_parts.push(implication);
         } else {
             // Predicate is NOT inductive: include a weaker constraint.
@@ -171,23 +160,19 @@ fn replace_t_with_t1(expr: &VerifyExpr) -> VerifyExpr {
                 VerifyExpr::Var(name.clone())
             }
         }
-        VerifyExpr::Binary { op, left, right } => VerifyExpr::binary(
-            *op,
-            replace_t_with_t1(left),
-            replace_t_with_t1(right),
-        ),
+        VerifyExpr::Binary { op, left, right } => {
+            VerifyExpr::binary(*op, replace_t_with_t1(left), replace_t_with_t1(right))
+        }
         VerifyExpr::Not(inner) => VerifyExpr::not(replace_t_with_t1(inner)),
         VerifyExpr::Bool(b) => VerifyExpr::Bool(*b),
         VerifyExpr::Int(n) => VerifyExpr::Int(*n),
         VerifyExpr::Iff(l, r) => VerifyExpr::iff(replace_t_with_t1(l), replace_t_with_t1(r)),
-        VerifyExpr::ForAll { vars, body } => VerifyExpr::forall(
-            vars.clone(),
-            replace_t_with_t1(body),
-        ),
-        VerifyExpr::Exists { vars, body } => VerifyExpr::exists(
-            vars.clone(),
-            replace_t_with_t1(body),
-        ),
+        VerifyExpr::ForAll { vars, body } => {
+            VerifyExpr::forall(vars.clone(), replace_t_with_t1(body))
+        }
+        VerifyExpr::Exists { vars, body } => {
+            VerifyExpr::exists(vars.clone(), replace_t_with_t1(body))
+        }
         VerifyExpr::ApplyInt { name, args } => VerifyExpr::apply_int(
             name.clone(),
             args.iter().map(|a| replace_t_with_t1(a)).collect(),
@@ -197,11 +182,9 @@ fn replace_t_with_t1(expr: &VerifyExpr) -> VerifyExpr {
             args.iter().map(|a| replace_t_with_t1(a)).collect(),
         ),
         VerifyExpr::BitVecConst { width, value } => VerifyExpr::bv_const(*width, *value),
-        VerifyExpr::BitVecBinary { op, left, right } => VerifyExpr::bv_binary(
-            *op,
-            replace_t_with_t1(left),
-            replace_t_with_t1(right),
-        ),
+        VerifyExpr::BitVecBinary { op, left, right } => {
+            VerifyExpr::bv_binary(*op, replace_t_with_t1(left), replace_t_with_t1(right))
+        }
         VerifyExpr::BitVecExtract { high, low, operand } => VerifyExpr::BitVecExtract {
             high: *high,
             low: *low,
@@ -215,7 +198,11 @@ fn replace_t_with_t1(expr: &VerifyExpr) -> VerifyExpr {
             array: Box::new(replace_t_with_t1(array)),
             index: Box::new(replace_t_with_t1(index)),
         },
-        VerifyExpr::Store { array, index, value } => VerifyExpr::Store {
+        VerifyExpr::Store {
+            array,
+            index,
+            value,
+        } => VerifyExpr::Store {
             array: Box::new(replace_t_with_t1(array)),
             index: Box::new(replace_t_with_t1(index)),
             value: Box::new(replace_t_with_t1(value)),
@@ -272,18 +259,23 @@ pub fn cegar_verify(
             kinduction::KInductionResult::Counterexample { trace: _, k } => {
                 // Abstract counterexample found. Check if it is concrete
                 // by running k-induction on the concrete model.
-                let concrete_result = kinduction::k_induction(
-                    init, transition, property, &[], k.max(10),
-                );
+                let concrete_result =
+                    kinduction::k_induction(init, transition, property, &[], k.max(10));
 
                 match concrete_result {
                     kinduction::KInductionResult::Counterexample { trace: ctrace, .. } => {
-                        return AbstractionResult::Unsafe { concrete_trace: ctrace };
+                        return AbstractionResult::Unsafe {
+                            concrete_trace: ctrace,
+                        };
                     }
                     kinduction::KInductionResult::Proven { .. } => {
                         // Spurious. Refine.
                         let new_preds = extract_refinement_predicates(
-                            init, transition, property, &predicates, k,
+                            init,
+                            transition,
+                            property,
+                            &predicates,
+                            k,
                         );
                         if new_preds.is_empty() {
                             return AbstractionResult::SpuriousRefined {
@@ -295,7 +287,11 @@ pub fn cegar_verify(
                     _ => {
                         // Inconclusive — try refining.
                         let new_preds = extract_refinement_predicates(
-                            init, transition, property, &predicates, k,
+                            init,
+                            transition,
+                            property,
+                            &predicates,
+                            k,
                         );
                         if new_preds.is_empty() {
                             return AbstractionResult::SpuriousRefined {
@@ -309,19 +305,24 @@ pub fn cegar_verify(
             kinduction::KInductionResult::InductionFailed { k, .. } => {
                 // k-induction couldn't prove or disprove on abstract model.
                 // Fall back to concrete check.
-                let concrete_result = kinduction::k_induction(
-                    init, transition, property, &[], k.max(10),
-                );
+                let concrete_result =
+                    kinduction::k_induction(init, transition, property, &[], k.max(10));
                 match concrete_result {
                     kinduction::KInductionResult::Proven { .. } => {
                         return AbstractionResult::Safe;
                     }
                     kinduction::KInductionResult::Counterexample { trace, .. } => {
-                        return AbstractionResult::Unsafe { concrete_trace: trace };
+                        return AbstractionResult::Unsafe {
+                            concrete_trace: trace,
+                        };
                     }
                     _ => {
                         let new_preds = extract_refinement_predicates(
-                            init, transition, property, &predicates, k,
+                            init,
+                            transition,
+                            property,
+                            &predicates,
+                            k,
                         );
                         if new_preds.is_empty() {
                             return AbstractionResult::Unknown;
@@ -340,9 +341,9 @@ pub fn cegar_verify(
     let final_result = kinduction::k_induction(init, transition, property, &[], 10);
     match final_result {
         kinduction::KInductionResult::Proven { .. } => AbstractionResult::Safe,
-        kinduction::KInductionResult::Counterexample { trace, .. } => {
-            AbstractionResult::Unsafe { concrete_trace: trace }
-        }
+        kinduction::KInductionResult::Counterexample { trace, .. } => AbstractionResult::Unsafe {
+            concrete_trace: trace,
+        },
         _ => AbstractionResult::Unknown,
     }
 }
@@ -379,8 +380,16 @@ fn extract_refinement_predicates(
             match op {
                 VerifyOp::Gte | VerifyOp::Gt | VerifyOp::Lte | VerifyOp::Lt => {
                     if let VerifyExpr::Int(n) = right.as_ref() {
-                        candidates.push(VerifyExpr::binary(*op, *left.clone(), VerifyExpr::int(n + 1)));
-                        candidates.push(VerifyExpr::binary(*op, *left.clone(), VerifyExpr::int(n - 1)));
+                        candidates.push(VerifyExpr::binary(
+                            *op,
+                            *left.clone(),
+                            VerifyExpr::int(n + 1),
+                        ));
+                        candidates.push(VerifyExpr::binary(
+                            *op,
+                            *left.clone(),
+                            VerifyExpr::int(n - 1),
+                        ));
                     }
                 }
                 _ => {}
@@ -389,7 +398,8 @@ fn extract_refinement_predicates(
     }
 
     // Deduplicate and remove existing predicates (and remove the property itself)
-    let existing_dbg: HashSet<String> = existing_predicates.iter()
+    let existing_dbg: HashSet<String> = existing_predicates
+        .iter()
         .map(|p| format!("{:?}", p))
         .collect();
 
@@ -410,8 +420,12 @@ fn collect_comparison_predicates(expr: &VerifyExpr, out: &mut Vec<VerifyExpr>) {
     match expr {
         VerifyExpr::Binary { op, left, right } => {
             match op {
-                VerifyOp::Gte | VerifyOp::Gt | VerifyOp::Lte | VerifyOp::Lt
-                | VerifyOp::Eq | VerifyOp::Neq => {
+                VerifyOp::Gte
+                | VerifyOp::Gt
+                | VerifyOp::Lte
+                | VerifyOp::Lt
+                | VerifyOp::Eq
+                | VerifyOp::Neq => {
                     out.push(expr.clone());
                 }
                 _ => {}

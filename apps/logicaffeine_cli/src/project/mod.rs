@@ -13,6 +13,7 @@
 //! | [`build`][mod@build] | Compile and run LOGOS projects |
 //! | [`credentials`] | Store and retrieve API tokens |
 //! | [`registry`] | Communicate with the package registry |
+//! | [`shape`] | What a project is — the one decision every command reads |
 //!
 //! # Re-exports
 //!
@@ -32,15 +33,18 @@
 pub use logicaffeine_compile::loader::{Loader, ModuleSource};
 
 // CLI-specific project modules
-pub mod manifest;
 pub mod build;
+pub mod build_c;
 pub mod credentials;
+pub mod deps;
+pub mod manifest;
 pub mod registry;
+pub mod shape;
 
-pub use manifest::{Manifest, ManifestError};
 pub use build::{
     build, classify_cargo_failure, find_project_root, run, BuildConfig, BuildError, BuildResult,
     CargoFailure, CargoFailureKind,
 };
-pub use credentials::{Credentials, get_token as get_registry_token};
-pub use registry::{RegistryClient, create_tarball, is_git_dirty};
+pub use credentials::{get_token as get_registry_token, Credentials};
+pub use manifest::{Manifest, ManifestError};
+pub use registry::{create_tarball, is_git_dirty, RegistryClient};

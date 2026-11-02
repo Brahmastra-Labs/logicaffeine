@@ -1,0 +1,104 @@
+{
+  "tier": "t07_typeclasses",
+  "test_binary": "lean_conformance_t07_typeclasses",
+  "cases": [
+    {
+      "id": "T07-001",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_class_with_no_instances_is_still_a_class",
+      "why": ""
+    },
+    {
+      "id": "T07-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_instance_is_a_definition_plus_a_search_entry",
+      "why": ""
+    },
+    {
+      "id": "T07-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "instance_resolution_waits_for_the_explicit_arguments",
+      "why": ""
+    },
+    {
+      "id": "T07-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_recursive_instance_chain_resolves_and_stays_structured",
+      "why": ""
+    },
+    {
+      "id": "T07-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_child_class_discharges_its_parents_obligation",
+      "why": ""
+    },
+    {
+      "id": "T07-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_output_parameter_takes_no_part_in_instance_matching",
+      "why": ""
+    },
+    {
+      "id": "T07-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_default_instance_fires_when_nothing_pins_the_class_variable",
+      "why": ""
+    },
+    {
+      "id": "T07-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_later_declared_instance_wins_the_tie",
+      "why": ""
+    },
+    {
+      "id": "T07-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "decidable_equality_is_synthesised_for_a_user_inductive",
+      "why": ""
+    },
+    {
+      "id": "T07-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "the_prelude_carries_inhabited_and_nonempty",
+      "why": "Inhabited (a Type 0 structure carrying data, with Inhabited_mk/Inhabited_default and the StructInfo that gates eta) and Nonempty (an indexed inductive at Prop with a checked constructor, so it cannot large-eliminate and choice stays an axiom) ARE now in the prelude. The case still fails on its last clause: resolve(Inhabited Nat) needs an add_instance, and Context::instances() is a push-only Vec resolved first-match, so a prelude entry would be entry zero and outrank every user instance. Measured cost of adding it: t02's instances().len() == 4 plus two elaborate resolution-order tests. Unblocks when a prelude instance can be a FALLBACK (lowest priority, or a keyed table) instead of a first match."
+    },
+    {
+      "id": "T07-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "one_class_declaration_serves_two_universe_levels",
+      "why": ""
+    },
+    {
+      "id": "T07-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_bundled_structure_is_declared_at_the_sort_its_carrier_forces",
+      "why": ""
+    },
+    {
+      "id": "T07-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_incoherent_diamond_is_not_silently_resolved",
+      "why": ""
+    },
+    {
+      "id": "T07-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_method_call_is_a_projection_applied_parameters_first",
+      "why": ""
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "capability": "iter.reduce",
+  "workload": "reduceSeq((acc,x)->acc+x, 0, xs)",
+  "arg": "80000",
+  "expected": "16845761708032",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

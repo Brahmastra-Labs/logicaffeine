@@ -1,0 +1,11 @@
+{
+  "name": "counting_sort",
+  "lang": "logos_jit",
+  "n": "565125712",
+  "samples_weight": 17880719221,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

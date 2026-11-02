@@ -1,0 +1,11 @@
+{
+  "capability": "iter.scan",
+  "workload": "scanSeq(xs) prefix sums, positional fold",
+  "arg": "40000",
+  "expected": "1526799175840",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" uuid="6ff5346e-0366-4567-8d35-f0d264f5ef5b" timestamp="2026-09-23T03:14:59.909+00:00" tests="4" failures="4" errors="0" skipped="0">
+  <testsuite name="logicaffeine-web" tests="3" failures="3" errors="0" skipped="0">
+    <testcase name="content::tests::a_malformed_exercise_is_reported_by_path" classname="logicaffeine-web" timestamp="2026-09-23T03:14:59.912+00:00" time="0.006">
+      <failure message="thread 'content::tests::a_malformed_exercise_is_reported_by_path' (60943) panicked at apps/logicaffeine_web/src/content.rs:309:9" type="test failure with exit code 101">thread 'content::tests::a_malformed_exercise_is_reported_by_path' (60943) panicked at apps/logicaffeine_web/src/content.rs:309:9:
+assertion `left == right` failed: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+      <system-out>
+running 1 test
+test content::tests::a_malformed_exercise_is_reported_by_path ... FAILED
+
+failures:
+
+failures:
+    content::tests::a_malformed_exercise_is_reported_by_path
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 281 filtered out; finished in 0.00s
+
+</system-out>
+      <system-err>
+thread 'content::tests::a_malformed_exercise_is_reported_by_path' (60943) panicked at apps/logicaffeine_web/src/content.rs:309:9:
+assertion `left == right` failed: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+    </testcase>
+    <testcase name="grader::tests::readings_in_either_order_are_all_correct" classname="logicaffeine-web" timestamp="2026-09-23T03:14:59.976+00:00" time="0.010">
+      <failure message="thread 'grader::tests::readings_in_either_order_are_all_correct' (60981) panicked at apps/logicaffeine_web/src/grader.rs:316:5" type="test failure with exit code 101">thread 'grader::tests::readings_in_either_order_are_all_correct' (60981) panicked at apps/logicaffeine_web/src/grader.rs:316:5:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+      <system-out>
+running 1 test
+test grader::tests::readings_in_either_order_are_all_correct ... FAILED
+
+failures:
+
+failures:
+    grader::tests::readings_in_either_order_are_all_correct
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 281 filtered out; finished in 0.00s
+
+</system-out>
+      <system-err>
+thread 'grader::tests::readings_in_either_order_are_all_correct' (60981) panicked at apps/logicaffeine_web/src/grader.rs:316:5:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+    </testcase>
+    <testcase name="learn_state::tests::first_correct_answer_earns_base_xp" classname="logicaffeine-web" timestamp="2026-09-23T03:15:00.037+00:00" time="0.011">
+      <failure message="thread 'learn_state::tests::first_correct_answer_earns_base_xp' (61021) panicked at apps/logicaffeine_web/src/learn_state.rs:52:86" type="test failure with exit code 101">thread 'learn_state::tests::first_correct_answer_earns_base_xp' (61021) panicked at apps/logicaffeine_web/src/learn_state.rs:52:86:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+      <system-out>
+running 1 test
+test learn_state::tests::first_correct_answer_earns_base_xp ... FAILED
+
+failures:
+
+failures:
+    learn_state::tests::first_correct_answer_earns_base_xp
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 281 filtered out; finished in 0.00s
+
+</system-out>
+      <system-err>
+thread 'learn_state::tests::first_correct_answer_earns_base_xp' (61021) panicked at apps/logicaffeine_web/src/learn_state.rs:52:86:
+not yet implemented
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+    </testcase>
+  </testsuite>
+  <testsuite name="logicaffeine-web::learn_page" tests="1" failures="1" errors="0" skipped="0">
+    <testcase name="every_card_counts_its_real_exercises" classname="logicaffeine-web::learn_page" timestamp="2026-09-23T03:15:00.222+00:00" time="0.110">
+      <failure message="thread 'every_card_counts_its_real_exercises' (61111) panicked at crates/logicaffeine_tests/tests/learn_page.rs:114:5" type="test failure with exit code 101">thread 'every_card_counts_its_real_exercises' (61111) panicked at crates/logicaffeine_tests/tests/learn_page.rs:114:5:
+
+introduction: card says None exercises, the curriculum has 5
+syllogistic: card says None exercises, the curriculum has 98
+definitions: card says None exercises, the curriculum has 48
+fallacies: card says None exercises, the curriculum has 16
+inductive: card says None exercises, the curriculum has 12
+propositional: card says None exercises, the curriculum has 120
+proofs: card says None exercises, the curriculum has 19
+quantificational: card says None exercises, the curriculum has 17
+relations: card says None exercises, the curriculum has 14
+modal: card says None exercises, the curriculum has 36
+further_modal: card says None exercises, the curriculum has 2
+deontic: card says None exercises, the curriculum has 38
+belief: card says None exercises, the curriculum has 15
+ethics: card says None exercises, the curriculum has 8
+metalogic: card says None exercises, the curriculum has 11
+history: card says None exercises, the curriculum has 8
+deviant: card says None exercises, the curriculum has 8
+philosophy: card says None exercises, the curriculum has 8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+      <system-out>
+running 1 test
+test every_card_counts_its_real_exercises ... FAILED
+
+failures:
+
+failures:
+    every_card_counts_its_real_exercises
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.10s
+
+</system-out>
+      <system-err>
+thread 'every_card_counts_its_real_exercises' (61111) panicked at crates/logicaffeine_tests/tests/learn_page.rs:114:5:
+
+introduction: card says None exercises, the curriculum has 5
+syllogistic: card says None exercises, the curriculum has 98
+definitions: card says None exercises, the curriculum has 48
+fallacies: card says None exercises, the curriculum has 16
+inductive: card says None exercises, the curriculum has 12
+propositional: card says None exercises, the curriculum has 120
+proofs: card says None exercises, the curriculum has 19
+quantificational: card says None exercises, the curriculum has 17
+relations: card says None exercises, the curriculum has 14
+modal: card says None exercises, the curriculum has 36
+further_modal: card says None exercises, the curriculum has 2
+deontic: card says None exercises, the curriculum has 38
+belief: card says None exercises, the curriculum has 15
+ethics: card says None exercises, the curriculum has 8
+metalogic: card says None exercises, the curriculum has 11
+history: card says None exercises, the curriculum has 8
+deviant: card says None exercises, the curriculum has 8
+philosophy: card says None exercises, the curriculum has 8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+    </testcase>
+  </testsuite>
+</testsuites>

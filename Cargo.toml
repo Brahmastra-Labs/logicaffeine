@@ -1,25 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/logicaffeine_base",
-    "crates/logicaffeine_lexicon",
-    "crates/logicaffeine_kernel",
-    "crates/logicaffeine_data",
-    "crates/logicaffeine_system",
-    "crates/logicaffeine_language",
-    "crates/logicaffeine_proof",
-    "crates/logicaffeine_compile",
-    "crates/logicaffeine_forge",
-    "crates/logicaffeine_jit",
-    "crates/logicaffeine_runtime",
-    "crates/logicaffeine_tests",
+    "crates/*",
     "apps/logicaffeine_cli",
     "apps/logicaffeine_web",
-    "crates/logicaffeine_lsp",
-    "crates/logicaffeine_verify",
-    "crates/logicaffeine_tv",
-    "crates/logicaffeine_synth",
-    "crates/logicaffeine_wirebench",
     "scripts/wiki_trace",
 ]
 
@@ -27,6 +11,7 @@ members = [
 # `cargo test` / `cargo build` need no Z3 toolchain. They still build whenever
 # the `verification` feature pulls them in, and their own unit tests run under
 # `cargo test --workspace` (CI and the all-tests command, which provide Z3).
+# `members` names crates by glob, so a checkout loads whichever crates it carries.
 default-members = [
     "crates/logicaffeine_base",
     "crates/logicaffeine_lexicon",
@@ -51,16 +36,18 @@ default-members = [
 # tools (wirebench, wiki_trace). Members inherit it via `version.workspace = true`;
 # a release bump edits this line and the [workspace.dependencies] internal
 # entries below (scripts/bump-version.sh does both).
-version = "0.10.1"
-authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
-license = "BUSL-1.1"
+version = "0.11.0"
+authors = ["Tristen Harr <tristen@datacenter.dev>"]
+license = "MIT"
 repository = "https://github.com/Brahmastra-Labs/logicaffeine"
 homepage = "https://logicaffeine.com"
 documentation = "https://docs.logicaffeine.com"
 keywords = ["logic", "proof-assistant", "theorem-prover", "first-order-logic", "formal-methods"]
 categories = ["mathematics", "compilers", "science"]
 edition = "2021"
-rust-version = "1.75"
+# Measured, not chosen: the oldest toolchain that builds every published crate against the locked
+# dependency graph. The `msrv` job in .github/workflows/test.yml builds them on exactly this version.
+rust-version = "1.88"
 
 [workspace.lints.rust]
 missing_docs = "warn"
@@ -71,26 +58,30 @@ bare_urls = "warn"
 
 [workspace.dependencies]
 bumpalo = "3.19"
+fancy-regex = "0.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Internal crates — members depend on these via `{ workspace = true }` so the
 # version+path pair lives in exactly one place.
-logicaffeine-base = { version = "0.10.1", path = "crates/logicaffeine_base" }
-logicaffeine-lexicon = { version = "0.10.1", path = "crates/logicaffeine_lexicon" }
-logicaffeine-kernel = { version = "0.10.1", path = "crates/logicaffeine_kernel" }
-logicaffeine-data = { version = "0.10.1", path = "crates/logicaffeine_data" }
-logicaffeine-system = { version = "0.10.1", path = "crates/logicaffeine_system" }
-logicaffeine-language = { version = "0.10.1", path = "crates/logicaffeine_language" }
-logicaffeine-proof = { version = "0.10.1", path = "crates/logicaffeine_proof" }
-logicaffeine-compile = { version = "0.10.1", path = "crates/logicaffeine_compile" }
-logicaffeine-runtime = { version = "0.10.1", path = "crates/logicaffeine_runtime" }
-logicaffeine-verify = { version = "0.10.1", path = "crates/logicaffeine_verify" }
-logicaffeine-forge = { version = "0.10.1", path = "crates/logicaffeine_forge" }
-logicaffeine-jit = { version = "0.10.1", path = "crates/logicaffeine_jit" }
-logicaffeine-tv = { version = "0.10.1", path = "crates/logicaffeine_tv" }
-logicaffeine-synth = { version = "0.10.1", path = "crates/logicaffeine_synth" }
-logicaffeine-web = { version = "0.10.1", path = "apps/logicaffeine_web" }
+logicaffeine-base = { version = "0.11.0", path = "crates/logicaffeine_base" }
+logicaffeine-lexicon = { version = "0.11.0", path = "crates/logicaffeine_lexicon" }
+logicaffeine-kernel = { version = "0.11.0", path = "crates/logicaffeine_kernel" }
+logicaffeine-data = { version = "0.11.0", path = "crates/logicaffeine_data" }
+logicaffeine-system = { version = "0.11.0", path = "crates/logicaffeine_system" }
+logicaffeine-language = { version = "0.11.0", path = "crates/logicaffeine_language" }
+logicaffeine-proof = { version = "0.11.0", path = "crates/logicaffeine_proof" }
+logicaffeine-compile = { version = "0.11.0", path = "crates/logicaffeine_compile" }
+# The LOGOS language server. Members take its analysis alone; the `server` feature (the
+# crate's own default) adds the stdio transport the editor extensions launch.
+logicaffeine-lsp = { version = "0.11.0", path = "crates/logicaffeine_lsp", default-features = false }
+logicaffeine-runtime = { version = "0.11.0", path = "crates/logicaffeine_runtime" }
+logicaffeine-verify = { version = "0.11.0", path = "crates/logicaffeine_verify" }
+logicaffeine-forge = { version = "0.11.0", path = "crates/logicaffeine_forge" }
+logicaffeine-jit = { version = "0.11.0", path = "crates/logicaffeine_jit" }
+logicaffeine-tv = { version = "0.11.0", path = "crates/logicaffeine_tv" }
+logicaffeine-synth = { version = "0.11.0", path = "crates/logicaffeine_synth" }
+logicaffeine-web = { version = "0.11.0", path = "apps/logicaffeine_web" }
 
 # KNUTH DOCUMENTATION STANDARD (Section 1.8)
 [workspace.metadata.docs.rs]
@@ -100,6 +91,24 @@ cargo-args = ["--workspace"]
 rustdoc-args = ["--document-private-items", "--enable-index-page", "-Zunstable-options"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
+# `unpacked` (one .dwo per codegen unit) — with ext4's `large_dir` feature enabled on the build volume.
+#
+# ★ BOTH HALVES OF THIS ARE LOAD-BEARING, AND EACH ALONE IS A FAILURE MODE WE HAVE MET.
+#
+# Without `large_dir`: a .dwo per codegen unit across 600+ integration-test binaries put 4.48 MILLION
+# files in `target/debug/deps`, exhausting ext4's 2-level directory hash-tree. Every build then failed
+# with `No space left on device` while the disk had 1.2 TB free and inodes at 2% — the errno names the
+# wrong resource, which is what made it expensive to diagnose. Fixed at the filesystem:
+# `sudo tune2fs -O large_dir /dev/nvme1n1p2`, which lifts the index to 3 levels (~2e9 entries).
+#
+# Switching to `packed` instead was tried, and it is MUCH worse. Measured on this tree:
+#     .dwo (unpacked)   3,697,794 files    13.6 GB
+#     .dwp (packed)         7,068 files   382.7 GB     ← 28x the bytes
+# One .dwp per binary duplicates its dependencies' debug info into every binary, so 7,000 binaries pay
+# for the same information 7,000 times. It fixed the file count and then filled a 3.6 TB volume to
+# 100%. `unpacked` + `large_dir` is cheap on both axes; `packed` trades a solved problem for a worse one.
+#
+# `profile.test-opt` keeps `packed` deliberately — it builds a far smaller artifact set.
 [profile.dev]
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
@@ -111,16 +120,17 @@ split-debuginfo = "unpacked"
 # Optimized test profile for the full-suite GATE only — selected by
 # scripts/run-all-tests-fast.sh via `--cargo-profile test-opt`. The heavy tests
 # are CPU-bound inside the compiler / VM / optimizer / partial-evaluator
-# libraries; building THOSE at opt-level 2 — while the 550+ integration-test
-# harness crates stay at opt-level 0 for fast linking — cuts the suite's
-# wall-clock by several×. It is gated to the runner so the tight per-crate inner
-# loop (`cargo nextest run -p X`) keeps using the default unoptimized `test`
-# profile and its fast compile. Debug info is `packed` (not `test`'s `unpacked`)
-# so this profile's separate target dir never spawns the per-CGU `.dwo` sea that
-# fills the ext4 directory htree.
+# libraries; building THOSE at opt-level 2 — while the ~2,400 integration-test
+# binaries stay at opt-level 0 for fast linking — cuts the suite's wall-clock by
+# several×. It is gated to the runner so the tight per-crate inner loop
+# (`cargo nextest run -p X`) keeps using the default unoptimized `test` profile,
+# its fast compile and its line tables. No debug info: it was ~95% of the gate's
+# 400 GB target (each binary's DWARF plus its `.dwp`, measured), and nothing the
+# gate runs reads it — a panic's file:line is compiled data, and a backtrace keeps
+# its symbol names.
 [profile.test-opt]
 inherits = "test"
-split-debuginfo = "packed"
+debug = false
 
 [profile.test-opt.package.logicaffeine-compile]
 opt-level = 2
@@ -138,10 +148,42 @@ opt-level = 2
 opt-level = 2
 [profile.test-opt.package.logicaffeine-runtime]
 opt-level = 2
+# Every dependency too: a heavy test is as often CPU-bound inside one (the WebAssembly interpreter `wasmi`, a codec a
+# lock races ours against) as inside the libraries above. MEASURED 2026-10-22, wasm_heap_soak_lock: the million-turn
+# soak spent its time in wasmi's unoptimized stack accessors, 1,515-1,800 s in the gate (terminated at the 30-min
+# backstop on 10-17) and past 1,200 s alone; with its dependencies at opt-level 2, 157 s alone, and every lock that
+# races a dependency still wins (Z3 50-137x, bincode, capnp). Dependencies change only when Cargo.lock does, so the
+# gate builds them once. `overflow-checks` and `debug-assertions` stay on, inherited from `test`.
+[profile.test-opt.package."*"]
+opt-level = 2
 
+# Shipped binaries (`largo`, `logicaffeine-lsp`, as release.yml builds them): `release` plus
+# whole-program optimization across every crate and no symbol table. `panic` stays `unwind`:
+# production code recovers from panics (`catch_unwind` in the interpreter, the code generators and
+# the servers). `release` itself stays as it is for benchmarks and local builds.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
+# The Lean Kernel Arena checker (`logos_kernel`): ranked on instructions executed, so every
+# whole-program optimization applies. Line tables only, so profiles resolve to source lines.
+[profile.arena]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = "line-tables-only"
+
+# The dev server's wasm (`dx serve`): optimized enough that the in-browser LOGOS compiler and the
+# Studio answer at once, and without debug info, which made the module 260 MB and every reload a
+# wait. Panics still name their line through the runtime's own messages.
 [profile.wasm-dev]
 inherits = "dev"
-opt-level = 1
+opt-level = 2
+debug = false
+strip = "debuginfo"
 
 # Web release build (dx `--release`). opt-level stays at release's 3 so the in-wasm
 # LOGOS interpreter keeps its speed. debug=true is required by dx's wasm-split pass

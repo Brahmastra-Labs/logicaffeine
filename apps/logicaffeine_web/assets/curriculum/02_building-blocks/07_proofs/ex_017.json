@@ -11,5 +11,6 @@
   ],
   "correct": 0,
   "hint": "Conjunction BUILDS an 'and' from two things you already have.",
-  "explanation": "Conjunction (∧-introduction): from P and Q (each established) infer P ∧ Q. Option 2 is Simplification (∧-elimination), option 3 is Addition (∨-introduction), and option 4 is Modus Ponens."
+  "explanation": "Conjunction (∧-introduction): from P and Q (each established) infer P ∧ Q. Option 2 is Simplification (∧-elimination), option 3 is Addition (∨-introduction), and option 4 is Modus Ponens.",
+  "section": "7.1"
 }

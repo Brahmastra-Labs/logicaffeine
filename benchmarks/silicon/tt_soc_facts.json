@@ -1,0 +1,44 @@
+{
+  "_what": "Tenstorrent SoC facts, extracted from the vendor's own descriptors by scripts/accel/tt-soc-facts.py. Every field is READ from the yaml named in `source`; none is estimated. `spatial_chip_facts_lock` holds SpatialTarget presets to these numbers, and re-derives them whenever the SDK is present so this file cannot rot.",
+  "chips": {
+    "blackhole": {
+      "arch_name": "BLACKHOLE",
+      "dest_num_tiles_fp16": 16,
+      "dest_num_tiles_fp16_half": 8,
+      "dest_types_sha256": "196dadaebbcbc196515b2029da8ff0673854368d552b2fb3d600f18a20a4c501",
+      "dest_types_source": "tt_metal/hw/inc/internal/tt-1xx/blackhole/tensix_types.h",
+      "dram_bank_size_bytes": 4278190080,
+      "dram_channels": 8,
+      "dram_noc_endpoints_per_channel": 3,
+      "dram_total_gib": 31,
+      "eth_l1_bytes": 524288,
+      "functional_workers": 140,
+      "harvested_workers": 0,
+      "sha256": "2aa71c2d4321c186d2958ee05a82db4c4c405c4420ed31c1d592f490994942ef",
+      "source": "tt_metal/soc_descriptors/blackhole_140_arch.yaml",
+      "worker_grid_x": 14,
+      "worker_grid_y": 10,
+      "worker_l1_bytes": 1572864
+    },
+    "wormhole_b0": {
+      "arch_name": "WORMHOLE_B0",
+      "dest_num_tiles_fp16": 16,
+      "dest_num_tiles_fp16_half": 8,
+      "dest_types_sha256": "6cb40eb1db5ee38528c5e11d2eedc4fb9808fe6873075ccf563e89fbb5a76055",
+      "dest_types_source": "tt_metal/hw/inc/internal/tt-1xx/wormhole/wormhole_b0_defines/tensix_types.h",
+      "dram_bank_size_bytes": 2147483648,
+      "dram_channels": 6,
+      "dram_noc_endpoints_per_channel": 3,
+      "dram_total_gib": 12,
+      "eth_l1_bytes": 262144,
+      "functional_workers": 80,
+      "harvested_workers": 0,
+      "sha256": "24fd3dfae80435a7d9113e255d6d6af9cdf83f6ae3b1c385e1d48a24795ccf49",
+      "source": "tt_metal/soc_descriptors/wormhole_b0_80_arch.yaml",
+      "worker_grid_x": 8,
+      "worker_grid_y": 10,
+      "worker_l1_bytes": 1499136
+    }
+  },
+  "tt_metal_home": "$TT_METAL_HOME"
+}

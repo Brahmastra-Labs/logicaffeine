@@ -1,0 +1,62 @@
+{
+  "case": "T06-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "Bool",
+      "name": "T06_014.bigCheck",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_014.bigCheck = true",
+      "name": "T06_014.bigCheckHolds",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "\u2200 (a b : Bool), reduceBool a = b \u2192 a = b",
+      "name": "T06_014.bridgeShape",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.trustCompiler",
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "7 % 2 = 1",
+      "name": "T06_014.smallByDecide",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Bool), reduceBool a = b \u2192 a = b",
+      "name": "T06_014.theBridgeAxiom",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Lean.trustCompiler",
+        "Lean.ofReduceBool"
+      ]
+    },
+    {
+      "type": "Bool \u2192 Bool",
+      "name": "T06_014.theEvaluatorAxiom",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "Lean.trustCompiler"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

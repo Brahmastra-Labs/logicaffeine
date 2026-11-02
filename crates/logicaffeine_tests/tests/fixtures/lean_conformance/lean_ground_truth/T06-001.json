@@ -1,0 +1,61 @@
+{
+  "case": "T06-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 7,
+  "declarations": [
+    {
+      "type": "3 = 3",
+      "name": "T06_001.explicitRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(fun n => n) = fun n => n",
+      "name": "T06_001.funRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat = Nat",
+      "name": "T06_001.largeEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T06_001.natCompute",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "3 = 3",
+      "name": "T06_001.natRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Sort u} (a : \u03b1), a = a",
+      "name": "T06_001.polyRefl",
+      "levels": [
+        "u"
+      ],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "True = True",
+      "name": "T06_001.propEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

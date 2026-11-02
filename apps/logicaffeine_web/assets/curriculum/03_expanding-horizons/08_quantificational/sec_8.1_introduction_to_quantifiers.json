@@ -1,0 +1,36 @@
+{
+  "id": "8.1",
+  "title": "Introduction to Quantifiers",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Quantifiers** say how many things have a property. ∀x means 'for every x'. ∃x means 'there is at least one x'."
+    },
+    {
+      "type": "paragraph",
+      "text": "A variable such as x stands for any individual at all. The quantifier says how many of them make the formula true."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "Every student is happy.",
+      "formula": "∀x((Student(x) → Happy(x)))",
+      "note": "For every x: if x is a student, then x is happy."
+    },
+    {
+      "type": "formula",
+      "sentence": "A student is happy.",
+      "formula": "∃x((Student(x) ∧ Happy(x)))",
+      "note": "There is an x that is a student and is happy."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Every logician is wise.",
+    "answer": "∀x((Logician(x) → Wise(x)))",
+    "hint": "Start with ∀x. Then say: if x is a logician, x is wise.",
+    "explanation": "∀x covers every individual, and → limits the claim to the logicians among them."
+  }
+}

@@ -14,9 +14,43 @@
 //! `ModusPonens` per discharged condition — so the kernel re-checks every
 //! rewrite like any hand-written proof. Nothing here is trusted.
 
+use logicaffeine_kernel::{Context, Literal, Term};
+
 use crate::discrimination::DiscTree;
-use crate::unify::{apply_subst_to_expr, match_expr_pattern, match_term_pattern, Substitution};
+use crate::unify::{
+    apply_subst_to_expr, instantiate_expr, match_expr_pattern, match_term_pattern, Substitution,
+};
 use crate::{DerivationTree, InferenceRule, ProofExpr, ProofTerm};
+
+/// Lower a kernel `Term` back into the proof layer's first-order `ProofTerm`.
+///
+/// The inverse of `certifier::proof_term_to_kernel_term` over the fragment a rewrite rule can
+/// live in: variables, globals, literals, and applications with a global head. Anything else —
+/// a binder, a `Match`, a partially-applied variable head — has no first-order image and the
+/// rule is simply not available to this layer, which is a capability gap and never a silent
+/// mis-lowering.
+fn proof_term_of_kernel(t: &Term) -> Option<ProofTerm> {
+    match t {
+        Term::Var(name) => Some(ProofTerm::Variable(name.clone())),
+        Term::Global(name) => Some(ProofTerm::Constant(name.clone())),
+        Term::Lit(Literal::Int(n)) => Some(ProofTerm::Constant(n.to_string())),
+        Term::Lit(Literal::BigInt(n)) => Some(ProofTerm::Constant(n.to_string())),
+        Term::App(..) => {
+            let mut args = Vec::new();
+            let mut head = t;
+            while let Term::App(f, a) = head {
+                args.push(proof_term_of_kernel(a)?);
+                head = f;
+            }
+            args.reverse();
+            let Term::Global(name) = head else {
+                return None;
+            };
+            Some(ProofTerm::Function(name.clone(), args))
+        }
+        _ => None,
+    }
+}
 
 /// The rewriting core of a rule: a term equation or a propositional
 /// equivalence.
@@ -73,6 +107,48 @@ impl SimpSet {
         self.rules.is_empty()
     }
 
+    /// Compile every `@[simp]` lemma REGISTERED in a kernel context into this rule set.
+    ///
+    /// [`Context::simp_rules`] is the one door a simplifier consults — `@[simp]`, a `local
+    /// simp` inside a section, and an equational `auto` hint all arrive through it — and it
+    /// holds its rules as kernel `Term`s. The proof layer rewrites `ProofExpr`s, so each rule
+    /// is lowered back into the shape [`SimpSet::register_lemma`] orients:
+    /// `Π(x̄). Eq A lhs rhs` becomes `∀x̄. lhs = rhs`.
+    ///
+    /// Registration makes a lemma a RULE; it does not make it true. The compiled rule's
+    /// derivation base is a `PremiseMatch` on the lemma, so a rewrite fires into a certificate
+    /// only where the lemma is also in scope — as a premise, a hypothesis, or a declaration the
+    /// certifier can find. That separation is deliberate: a `@[simp]` attribute is an
+    /// instruction to the simplifier, never an assumption.
+    ///
+    /// Returns how many rules were added. A registry rule that does not lower is one whose
+    /// terms are outside the proof layer's first-order fragment (a `Π`, a `Match`, a `Lambda`
+    /// inside the pattern), not one the registry let through: the shapes that would make a
+    /// rewriter WRONG — a bare-variable left-hand side, an undetermined right-hand-side
+    /// variable, a self-rewrite — are already refused, loudly and by name, at the door.
+    pub fn register_context_lemmas(&mut self, ctx: &Context) -> usize {
+        let mut added = 0;
+        for rule in ctx.simp_rules() {
+            let (Some(lhs), Some(rhs)) = (
+                proof_term_of_kernel(&rule.lhs),
+                proof_term_of_kernel(&rule.rhs),
+            ) else {
+                continue;
+            };
+            let mut lemma = ProofExpr::Identity(lhs, rhs);
+            for (binder, _) in rule.binders.iter().rev() {
+                lemma = ProofExpr::ForAll {
+                    variable: binder.clone(),
+                    body: Box::new(lemma),
+                };
+            }
+            if self.register_lemma(&rule.name, &lemma) {
+                added += 1;
+            }
+        }
+        added
+    }
+
     /// Compile and index `lemma` as a rewrite rule. Returns `false` (and
     /// registers nothing) if the lemma is not an oriented rule: no equational
     /// or iff core, a bare-variable lhs, rhs/condition variables the lhs does
@@ -84,7 +160,11 @@ impl SimpSet {
         // Peel the ∀-prefix.
         let mut params: Vec<String> = Vec::new();
         let mut body = lemma;
-        while let ProofExpr::ForAll { variable, body: inner } = body {
+        while let ProofExpr::ForAll {
+            variable,
+            body: inner,
+        } = body
+        {
             if params.contains(variable) {
                 return false; // shadowed binder — instantiation would be ambiguous
             }
@@ -102,11 +182,15 @@ impl SimpSet {
                 if matches!(l, ProofTerm::Variable(_)) {
                     return false; // a bare-variable lhs matches everything
                 }
-                RuleCore::TermEq { lhs: l.clone(), rhs: r.clone() }
+                RuleCore::TermEq {
+                    lhs: l.clone(),
+                    rhs: r.clone(),
+                }
             }
-            ProofExpr::Iff(l, r) => {
-                RuleCore::PropIff { lhs: (**l).clone(), rhs: (**r).clone() }
-            }
+            ProofExpr::Iff(l, r) => RuleCore::PropIff {
+                lhs: (**l).clone(),
+                rhs: (**r).clone(),
+            },
             _ => return false,
         };
         // Orientation: everything the rhs and the conditions mention, the lhs
@@ -159,7 +243,12 @@ impl SimpSet {
         let mut subterms = Vec::new();
         collect_goal_terms(goal, &mut subterms);
         for t in subterms {
-            let mut cand: Vec<usize> = self.term_index.candidates_term(t).into_iter().copied().collect();
+            let mut cand: Vec<usize> = self
+                .term_index
+                .candidates_term(t)
+                .into_iter()
+                .copied()
+                .collect();
             cand.sort_unstable();
             cand.dedup();
             for idx in cand {
@@ -178,15 +267,28 @@ impl SimpSet {
         goal: &ProofExpr,
         hyps: &[(&ProofExpr, &DerivationTree)],
     ) -> Option<IffStep> {
-        let mut cand: Vec<usize> = self.iff_index.candidates_expr(goal).into_iter().copied().collect();
+        let mut cand: Vec<usize> = self
+            .iff_index
+            .candidates_expr(goal)
+            .into_iter()
+            .copied()
+            .collect();
         cand.sort_unstable();
         cand.dedup();
         for idx in cand {
             let rule = &self.rules[idx];
-            let RuleCore::PropIff { lhs, .. } = &rule.core else { continue };
-            let Some(subst) = match_expr_pattern(lhs, goal) else { continue };
-            let Some((tree, concl)) = instantiate_rule(rule, &subst, hyps) else { continue };
-            let ProofExpr::Iff(l, r) = &concl else { continue };
+            let RuleCore::PropIff { lhs, .. } = &rule.core else {
+                continue;
+            };
+            let Some(subst) = match_expr_pattern(lhs, goal) else {
+                continue;
+            };
+            let Some((tree, concl)) = instantiate_rule(rule, &subst, hyps) else {
+                continue;
+            };
+            let ProofExpr::Iff(l, r) = &concl else {
+                continue;
+            };
             if l.as_ref() != goal {
                 continue;
             }
@@ -196,7 +298,10 @@ impl SimpSet {
                 InferenceRule::ConjunctionElim,
                 vec![tree],
             );
-            return Some(IffStep { imp, rhs: (**r).clone() });
+            return Some(IffStep {
+                imp,
+                rhs: (**r).clone(),
+            });
         }
         None
     }
@@ -208,10 +313,14 @@ impl SimpSet {
         hyps: &[(&ProofExpr, &DerivationTree)],
     ) -> Option<RewriteStep> {
         let rule = &self.rules[idx];
-        let RuleCore::TermEq { lhs, rhs } = &rule.core else { return None };
+        let RuleCore::TermEq { lhs, rhs } = &rule.core else {
+            return None;
+        };
         let subst = match_term_pattern(lhs, t)?;
         let (tree, concl) = instantiate_rule(rule, &subst, hyps)?;
-        let ProofExpr::Identity(from, to) = concl else { return None };
+        let ProofExpr::Identity(from, to) = concl else {
+            return None;
+        };
         if &from != t {
             return None;
         }
@@ -236,11 +345,11 @@ fn instantiate_rule(
     let mut expr = rule.lemma.clone();
     for param in &rule.params {
         let witness = subst.get(param)?.clone();
-        let ProofExpr::ForAll { variable, body } = expr else { return None };
+        let ProofExpr::ForAll { variable, body } = expr else {
+            return None;
+        };
         debug_assert_eq!(&variable, param);
-        let mut single = Substitution::new();
-        single.insert(param.clone(), witness.clone());
-        let inst = apply_subst_to_expr(&body, &single);
+        let inst = instantiate_expr(&body, param, &witness);
         tree = DerivationTree::new(
             inst.clone(),
             InferenceRule::UniversalInstTerm(witness),
@@ -249,7 +358,9 @@ fn instantiate_rule(
         expr = inst;
     }
     for _ in 0..rule.conds.len() {
-        let ProofExpr::Implies(cond, rest) = expr else { return None };
+        let ProofExpr::Implies(cond, rest) = expr else {
+            return None;
+        };
         let cond_proof = discharge_condition(&cond, hyps)?;
         tree = DerivationTree::new(
             (*rest).clone(),
@@ -273,7 +384,10 @@ fn discharge_condition(
     }
     if let ProofExpr::Identity(l, r) = cond {
         if ground_int(l).is_some() && ground_int(r).is_some() {
-            return Some(DerivationTree::leaf(cond.clone(), InferenceRule::ArithDecision));
+            return Some(DerivationTree::leaf(
+                cond.clone(),
+                InferenceRule::ArithDecision,
+            ));
         }
     }
     None
@@ -286,7 +400,9 @@ pub(crate) fn find_ground_fold(goal: &ProofExpr) -> Option<RewriteStep> {
     let mut subterms = Vec::new();
     collect_goal_terms(goal, &mut subterms);
     for t in subterms {
-        let ProofTerm::Function(op, args) = t else { continue };
+        let ProofTerm::Function(op, args) = t else {
+            continue;
+        };
         if args.len() != 2 {
             continue;
         }
@@ -307,7 +423,11 @@ pub(crate) fn find_ground_fold(goal: &ProofExpr) -> Option<RewriteStep> {
             ProofExpr::Identity(t.clone(), to.clone()),
             InferenceRule::ArithDecision,
         );
-        return Some(RewriteStep { eq, from: t.clone(), to });
+        return Some(RewriteStep {
+            eq,
+            from: t.clone(),
+            to,
+        });
     }
     None
 }
@@ -418,4 +538,3 @@ fn collect_expr_vars(e: &ProofExpr, out: &mut Vec<String>) {
         _ => {}
     }
 }
-

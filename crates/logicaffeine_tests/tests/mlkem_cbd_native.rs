@@ -12,7 +12,11 @@ mod common;
 use common::run_logos_with_args;
 
 fn program(call: &str, input: &[i64]) -> String {
-    let lit = input.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
+    let lit = input
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!("## Main\nLet buf be [{lit}].\nLet result be {call}.\nRepeat for i from 1 to 256:\n    Show item i of result.\n")
 }
 
@@ -38,12 +42,19 @@ fn run_coeffs(prog: &str) -> Vec<i64> {
 fn cbd2_stdlib_compiles_to_the_runtime_kernel() {
     // η=2 consumes 128 bytes.
     let input: Vec<i64> = (0..128).map(|i| (i * 181 + 17) % 256).collect();
-    let want: Vec<i64> =
-        logicaffeine_system::mlkem_cbd2(&input).to_vec();
-    assert!(want.iter().all(|&c| (-2..=2).contains(&c)), "CBD_2 coefficients in [−2, 2]");
+    let want: Vec<i64> = logicaffeine_system::mlkem_cbd2(&input)
+        .expect("in-contract arguments")
+        .to_vec();
+    assert!(
+        want.iter().all(|&c| (-2..=2).contains(&c)),
+        "CBD_2 coefficients in [−2, 2]"
+    );
 
     let got = run_coeffs(&program("cbd2(buf)", &input));
-    assert_eq!(got, want, "compiled cbd2 must equal the verified runtime CBD sampler");
+    assert_eq!(
+        got, want,
+        "compiled cbd2 must equal the verified runtime CBD sampler"
+    );
 }
 
 #[test]
@@ -51,10 +62,17 @@ fn cbd2_stdlib_compiles_to_the_runtime_kernel() {
 fn cbd3_stdlib_compiles_to_the_runtime_kernel() {
     // η=3 consumes 192 bytes.
     let input: Vec<i64> = (0..192).map(|i| (i * 149 + 31) % 256).collect();
-    let want: Vec<i64> =
-        logicaffeine_system::mlkem_cbd3(&input).to_vec();
-    assert!(want.iter().all(|&c| (-3..=3).contains(&c)), "CBD_3 coefficients in [−3, 3]");
+    let want: Vec<i64> = logicaffeine_system::mlkem_cbd3(&input)
+        .expect("in-contract arguments")
+        .to_vec();
+    assert!(
+        want.iter().all(|&c| (-3..=3).contains(&c)),
+        "CBD_3 coefficients in [−3, 3]"
+    );
 
     let got = run_coeffs(&program("cbd3(buf)", &input));
-    assert_eq!(got, want, "compiled cbd3 must equal the verified runtime CBD sampler");
+    assert_eq!(
+        got, want,
+        "compiled cbd3 must equal the verified runtime CBD sampler"
+    );
 }

@@ -1,0 +1,30 @@
+274 launches a token
+embedding (1): gather_norm
+layer 0 (11): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm gemv_glu gemv_norm
+layer 1 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 2 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 3 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 4 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 5 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 6 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 7 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 8 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 9 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 10 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 11 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 12 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 13 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 14 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 15 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 16 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 17 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 18 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 19 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 20 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 21 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 22 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 23 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 24 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 25 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+layer 26 (10): gemv_q8 gemv_q8 rmsnorm head_gemv rope attention head_gemv quant gemv_norm moe_norm
+head (2): gemv_q8 argmax

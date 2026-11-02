@@ -17,5 +17,5 @@ n.times { seed = (seed * 1103515245 + 12345) % 2147483648; arr << ((seed >> 16) 
 ((n - 2) / 2).downto(0) { |s| sift_down(arr, s, n - 1) }
 (n - 1).downto(1) { |e| arr[0], arr[e] = arr[e], arr[0]; sift_down(arr, 0, e - 1) }
 checksum = 0
-arr.each { |v| checksum = (checksum + v) % 1000000007 }
+arr.each { |v| checksum = (checksum * 31 + v) & 268435455 }
 puts "#{arr[0]} #{arr[-1]} #{checksum}"

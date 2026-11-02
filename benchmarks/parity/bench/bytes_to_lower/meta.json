@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.to_lower",
+  "workload": "bytesToLower(xs) ASCII byte-wise, positional fold",
+  "arg": "40000",
+  "expected": "5223648",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

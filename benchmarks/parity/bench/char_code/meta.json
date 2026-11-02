@@ -1,0 +1,1 @@
+{"capability":"convert.char_code","workload":"sum of ord('A')+ord('z') over 1..n","arg":"20000000","expected":"3740000000","note":"LOGOS convert.lg ord vs Python ord; native loop vs interpreted."}

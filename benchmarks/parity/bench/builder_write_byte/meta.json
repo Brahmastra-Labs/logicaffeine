@@ -1,0 +1,10 @@
+{
+  "capability": "builder.write_byte",
+  "arg": "30000",
+  "expected": "30000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ],
+  "note": "LOGOS builder is O(n^2) here (move-opt does not fire on builderWrite* in the accumulate loop) \u2014 Phase-D optimization target; arg kept small so correctness completes"
+}

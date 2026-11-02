@@ -1,0 +1,110 @@
+# Static
+
+Serving a frontend bundle off disk, written entirely in LOGOS over the
+`readBytes` builtin and `http.lg`'s `bytesResponse`/`notFound`. Three helpers:
+`contentTypeFor` maps a path's extension to its MIME type, `fileResponse` reads
+a file's raw bytes and answers with that type, and `staticUnder` serves a file
+rooted at a directory behind a HARD path-traversal guard — any `..` segment in
+the requested path is refused with a 404 before a single byte reaches disk, so a
+crafted `../../etc/passwd` can never climb above the served root.
+
+## Note
+The MIME type for `path`, chosen by its file extension (matched case-insensitively so a wire path in any casing resolves the same).
+
+An unknown or absent extension is `application/octet-stream` — the generic
+binary type, never a guess.
+## To contentTypeFor (path: Text) -> Text:
+    Let p be lower(path).
+    If endsWith(p, ".html") is equal to true:
+        Return "text/html; charset=utf-8".
+    If endsWith(p, ".htm") is equal to true:
+        Return "text/html; charset=utf-8".
+    If endsWith(p, ".js") is equal to true:
+        Return "text/javascript".
+    If endsWith(p, ".mjs") is equal to true:
+        Return "text/javascript".
+    If endsWith(p, ".wasm") is equal to true:
+        Return "application/wasm".
+    If endsWith(p, ".css") is equal to true:
+        Return "text/css; charset=utf-8".
+    If endsWith(p, ".svg") is equal to true:
+        Return "image/svg+xml".
+    If endsWith(p, ".xml") is equal to true:
+        Return "application/xml".
+    If endsWith(p, ".png") is equal to true:
+        Return "image/png".
+    If endsWith(p, ".jpg") is equal to true:
+        Return "image/jpeg".
+    If endsWith(p, ".jpeg") is equal to true:
+        Return "image/jpeg".
+    If endsWith(p, ".gif") is equal to true:
+        Return "image/gif".
+    If endsWith(p, ".webp") is equal to true:
+        Return "image/webp".
+    If endsWith(p, ".json") is equal to true:
+        Return "application/json".
+    If endsWith(p, ".txt") is equal to true:
+        Return "text/plain; charset=utf-8".
+    If endsWith(p, ".ico") is equal to true:
+        Return "image/x-icon".
+    If endsWith(p, ".woff") is equal to true:
+        Return "font/woff".
+    If endsWith(p, ".woff2") is equal to true:
+        Return "font/woff2".
+    If endsWith(p, ".pdf") is equal to true:
+        Return "application/pdf".
+    Return "application/octet-stream".
+
+## Note
+A 200 OK response carrying the raw bytes of the file at `path`, typed by its extension through `contentTypeFor`.
+
+This is the byte-exact serving path — the file is delivered verbatim
+(`bytesResponse` puts the bytes in the response's `bytes` field and leaves the
+text `body` empty), so a `.wasm` or `.png` is never mangled by a text round-
+trip. A MISSING file is a 404, never a trap: `tryReadBytes` answers a `Result`,
+so the read either hands over the bytes or says why it could not.
+
+This used to probe with the recoverable `read` first and then call the aborting
+`readBytes`, because there was no total byte reader. That cost two things on the
+hot path of every asset a site serves: a RACE — a file removed between the probe
+and the read aborted the whole server rather than the request — and TWICE THE
+WORK, since the probe fully decoded the file as lossy UTF-8, a String the size of
+the file, only to look at its Ok/Err verdict and throw it away.
+## To fileResponse (path: Text) -> Response:
+    Inspect tryReadBytes(path):
+        When Ok (payload):
+            Return bytesResponse(contentTypeFor(path), payload).
+        When Err (why):
+            Return notFound().
+
+## Note
+True when `path` contains a `..` segment — the directory-traversal guard.
+
+The path is split on `/` and each segment tested for exact equality with `..`,
+so a leading (`../x`), interior (`a/../b`), or climbing (`a/../../x`) traversal
+is all caught. A bare `..`, or a `..` amid otherwise-benign names, is caught
+too. Prefix tricks like `..foo` are NOT a traversal (they name a real file) and
+pass.
+## To hasTraversal (path: Text) -> Bool:
+    Let segs be split(path, "/").
+    Repeat for seg in segs:
+        If seg is equal to "..":
+            Return true.
+    Return false.
+
+## Note
+Serves the file at `path` rooted under `dir`, behind the path-traversal guard.
+
+A `path` carrying any `..` segment is refused with `notFound()` (404) BEFORE the
+file layer is touched — the security contract. A safe path is joined under the
+root (`dir/path`); a leading `/` on the request path (handlers see
+`/index.html`, not `index.html`) is stripped first so the join never doubles the
+separator. The resolved file is served byte-exact through `fileResponse`.
+Percent-decoding is the wire parser's job (the handler already sees a decoded
+path); this guard is the last line of defence on the decoded value.
+## To staticUnder (dir: Text) and (path: Text) -> Response:
+    If hasTraversal(path) is equal to true:
+        Return notFound().
+    Let rel be removePrefix(path, "/").
+    Let full be "{dir}/{rel}".
+    Return fileResponse(full).

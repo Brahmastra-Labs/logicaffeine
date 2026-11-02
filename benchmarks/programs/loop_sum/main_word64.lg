@@ -1,0 +1,12 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be word64(parseInt(item 2 of arguments)).
+Let sum be word64(0).
+Let i be word64(1).
+While i is at most n:
+    Set sum to (sum + i) % word64(1000000007).
+    Set i to i + word64(1).
+Show sum.

@@ -5,50 +5,54 @@
   "content": [
     {
       "type": "paragraph",
-      "text": "A **proof** demonstrates that a conclusion follows necessarily from premises. In natural deduction, we build proofs step by step, applying inference rules until we reach our goal."
+      "text": "A **proof** derives a conclusion from premises one step at a time. Each step names a rule and the lines it uses."
     },
     {
       "type": "definition",
-      "term": "Direct Proof",
-      "definition": "A proof that proceeds directly from premises to conclusion using inference rules, without assuming the negation of what we want to prove."
+      "term": "Modus ponens",
+      "definition": "From P → Q and P, infer Q."
     },
     {
-      "type": "paragraph",
-      "text": "The simplest proofs use basic rules like **Modus Ponens** (from P and P → Q, infer Q) and **conjunction elimination** (from P ∧ Q, infer P or Q)."
-    },
-    {
-      "type": "example",
-      "title": "A Simple Proof",
-      "premises": [
-        "1. P → Q          (premise)",
-        "2. Q → R          (premise)",
-        "3. P              (premise)",
-        "4. Q              (from 1, 3 by MP)",
-        "5. R              (from 2, 4 by MP)"
-      ],
-      "conclusion": "Therefore: P → Q, Q → R, P ⊢ R",
-      "note": "Each step follows from previous lines by a stated rule."
-    },
-    {
-      "type": "paragraph",
-      "text": "Always state which rule you're using and which lines it applies to. This makes your proof checkable — anyone can verify each step is valid."
-    },
-    {
-      "type": "paragraph",
-      "text": "Strategy tip: Work backwards from your goal. Ask 'What would give me this conclusion?' Then try to derive that from what you have."
-    },
-    {
-      "type": "quiz",
-      "question": "What is Modus Ponens?",
-      "options": [
-        "From P ∧ Q, infer P",
-        "From P and P → Q, infer Q",
-        "From P ∨ Q and ¬P, infer Q",
-        "From P, infer P ∨ Q"
-      ],
-      "correct": 1,
-      "explanation": "Modus Ponens (MP) says: if you have P and P → Q, you can conclude Q. It's the most basic rule for using conditionals."
+      "type": "definition",
+      "term": "Simplification",
+      "definition": "From P ∧ Q, infer P, or infer Q."
     }
   ],
-  "key_symbols": ["→", "⊢", "∧"]
+  "examples": [
+    {
+      "type": "worked",
+      "title": "A short proof",
+      "lines": [
+        "1. P → Q (premise)",
+        "2. Q → R (premise)",
+        "3. P (premise)",
+        "4. Q (from 1 and 3, modus ponens)",
+        "5. R (from 2 and 4, modus ponens)"
+      ],
+      "note": "Every line follows from lines above it."
+    },
+    {
+      "type": "worked",
+      "title": "Working backward",
+      "lines": [
+        "The goal is R.",
+        "R would follow from Q → R if we had Q.",
+        "Q would follow from P → Q and P."
+      ],
+      "note": "Ask what would give you the goal, then what would give you that."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does modus ponens let you infer?",
+    "options": [
+      "P from P ∧ Q",
+      "Q from P → Q and P",
+      "Q from P ∨ Q and ¬P",
+      "P ∨ Q from P"
+    ],
+    "correct": 1,
+    "hint": "Modus ponens uses a conditional together with its if part.",
+    "explanation": "From P → Q and P, modus ponens infers Q."
+  }
 }

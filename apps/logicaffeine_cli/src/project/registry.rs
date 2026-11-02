@@ -123,7 +123,8 @@ impl RegistryClient {
                 e => RegistryError::Network(e.to_string()),
             })?;
 
-        let user: UserInfo = response.into_json()
+        let user: UserInfo = response
+            .into_json()
             .map_err(|e| RegistryError::Network(e.to_string()))?;
 
         Ok(user)
@@ -165,10 +166,13 @@ impl RegistryClient {
         let mut body = Vec::new();
 
         // Add metadata field
-        body.extend_from_slice(format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n{}\r\n",
-            boundary, metadata_json
-        ).as_bytes());
+        body.extend_from_slice(
+            format!(
+                "--{}\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n{}\r\n",
+                boundary, metadata_json
+            )
+            .as_bytes(),
+        );
 
         // Add tarball field
         body.extend_from_slice(format!(
@@ -180,7 +184,10 @@ impl RegistryClient {
 
         let response = ureq::post(&url)
             .set("Authorization", &format!("Bearer {}", self.token))
-            .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+            .set(
+                "Content-Type",
+                &format!("multipart/form-data; boundary={}", boundary),
+            )
             .send_bytes(&body)
             .map_err(|e| match e {
                 ureq::Error::Status(401, _) => RegistryError::Unauthorized,
@@ -200,7 +207,8 @@ impl RegistryClient {
                 e => RegistryError::Network(e.to_string()),
             })?;
 
-        let result: PublishResult = response.into_json()
+        let result: PublishResult = response
+            .into_json()
             .map_err(|e| RegistryError::Network(e.to_string()))?;
 
         Ok(result)
@@ -260,7 +268,8 @@ pub fn create_tarball(project_dir: &Path) -> Result<Vec<u8>, PackageError> {
             add_file_to_tar(&mut builder, project_dir, "LICENSE")?;
         }
 
-        builder.finish()
+        builder
+            .finish()
             .map_err(|e| PackageError::TarError(e.to_string()))?;
     }
 
@@ -273,18 +282,20 @@ fn add_file_to_tar<W: std::io::Write>(
     rel_path: &str,
 ) -> Result<(), PackageError> {
     let full_path = base_dir.join(rel_path);
-    let content = std::fs::read(&full_path)
-        .map_err(|e| PackageError::Io(format!("{}: {}", rel_path, e)))?;
+    let content =
+        std::fs::read(&full_path).map_err(|e| PackageError::Io(format!("{}: {}", rel_path, e)))?;
 
     let mut header = tar::Header::new_gnu();
-    header.set_path(rel_path)
+    header
+        .set_path(rel_path)
         .map_err(|e| PackageError::TarError(e.to_string()))?;
     header.set_size(content.len() as u64);
     header.set_mode(0o644);
     header.set_mtime(0); // Reproducible builds
     header.set_cksum();
 
-    builder.append(&header, content.as_slice())
+    builder
+        .append(&header, content.as_slice())
         .map_err(|e| PackageError::TarError(e.to_string()))?;
 
     Ok(())
@@ -297,8 +308,8 @@ fn add_dir_recursive<W: std::io::Write>(
 ) -> Result<(), PackageError> {
     let full_dir = base_dir.join(rel_dir);
 
-    for entry in std::fs::read_dir(&full_dir)
-        .map_err(|e| PackageError::Io(format!("{}: {}", rel_dir, e)))?
+    for entry in
+        std::fs::read_dir(&full_dir).map_err(|e| PackageError::Io(format!("{}: {}", rel_dir, e)))?
     {
         let entry = entry.map_err(|e| PackageError::Io(e.to_string()))?;
         let path = entry.path();

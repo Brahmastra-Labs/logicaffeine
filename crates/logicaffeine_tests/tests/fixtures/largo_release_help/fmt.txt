@@ -1,0 +1,40 @@
+Format LOGOS source files.
+
+Applies the canonical style (4-space indentation, no tabs, no trailing whitespace) — the same rules the language server uses. Without paths, formats the whole project; with paths, exactly those files. `--check` writes nothing and exits 1 if anything would change.
+
+Usage: largo fmt [OPTIONS] [PATHS]...
+
+Arguments:
+  [PATHS]...
+          Specific files to format (defaults to all project sources)
+
+Options:
+      --check
+          Check only: list files that need formatting, exit 1 if any
+
+      --json
+          With --check: print one `logos-fmt/1` JSON envelope on stdout
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo fmt
+  largo fmt src/main.lg
+  largo fmt --check    # CI gate, writes nothing

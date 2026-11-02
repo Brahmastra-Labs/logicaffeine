@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "You're tall and naive, or else dangerous",
   "options": [
-    "$ ((T \\vee N) \\vee D) $",
-    "$ T \\cdot N \\vee D $",
-    "$ (T \\cdot N) \\vee D $",
-    "$ (T \\cdot (N \\vee D)) $"
+    "T ∨ N ∨ D",
+    "T ∧ (N ∨ D)",
+    "(T ∧ N) ∨ D",
+    "T ∧ N ∧ D"
   ],
   "correct": 2,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining T ∧ N and D: (T ∧ N) ∨ D.",
+  "section": "6.2"
 }

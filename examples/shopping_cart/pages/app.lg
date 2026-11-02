@@ -1,0 +1,167 @@
+# Shopping cart
+
+A small catalog, a running cart of line items, a header badge counting them,
+and a cart that survives a reload — its line items and its count alike.
+
+## Note
+
+The cart lives in one place. `## Store Cart persisted as "cart"` holds the line
+items, `lines`, a `Seq of CartLine`; its two-parameter action `addLine` is called
+as `Call Cart's addLine with name and price.`, and gives each new line the id one
+past the highest in the cart (`nextIdFor`). The header's `CartBadge` and the side
+panel both read `Cart's lines`, so the count, the list and the total never
+disagree. A persisted store keeps its fields in local storage through the JSON
+codec derived from their types, so a reload brings back the same cart.
+
+`CartPanel` draws the cart and takes what "remove" means as a prop,
+`remove: fn(Int) -> Unit`: the page hands it `removeLine`, and each row's button
+calls `remove(line's id)` — `docs/frontend.md`'s "Passing actions down".
+
+## A CartLine has:
+    an id, which is Int.
+    a name, which is Text.
+    a price, which is Int.
+
+## To nextIdFor (lines: Seq of CartLine) -> Int:
+    Let mutable highest be 0.
+    Repeat for line in lines:
+        If line's id is greater than highest:
+            Set highest to line's id.
+    Return highest + 1.
+
+## To sumPrices (lines: Seq of CartLine) -> Int:
+    Let mutable total be 0.
+    Repeat for t in lines:
+        Set total to total + t's price.
+    Return total.
+
+## To formatCents (cents: Int) -> Text:
+    Let dollars be cents / 100.
+    Let remainder be cents - dollars * 100.
+    If remainder is less than 10:
+        Return "${dollars}.0{remainder}".
+    Return "${dollars}.{remainder}".
+
+## Store Cart persisted as "cart"
+
+State:
+    Let lines be a new Seq of CartLine.
+
+Actions:
+    To addLine (name: Text) and (price: Int):
+        Push (a new CartLine with id nextIdFor(lines) and name name and price price) to lines.
+
+    To removeLine (id: Int):
+        Remove every line from lines where line's id is equal to id.
+
+## Component CartBadge
+
+Use Cart.
+
+View:
+    <span id="badge">{length of Cart's lines} in cart</span>
+
+## Component CartPanel (remove: fn(Int) -> Unit)
+
+Use Cart.
+
+View:
+    <aside>
+      <h2>Cart</h2>
+      <ul class="panel">
+        {for each line in Cart's lines, keyed by line's id:}
+          <li id="line-{line's id}"><span class="name">{line's name} — {formatCents(line's price)}</span> <button id="remove-{line's id}" on-click={remove(line's id)}>remove</button></li>
+        {else:}
+          <li class="empty">Your cart is empty.</li>
+        {end}
+      </ul>
+      <p id="total">Total: {formatCents(sumPrices(Cart's lines))}</p>
+    </aside>
+
+## Page /
+
+Use Cart.
+
+Actions:
+    To addProduct (name: Text) and (price: Int):
+        Call Cart's addLine with name and price.
+
+    To removeLine (id: Int):
+        Call Cart's removeLine with id.
+
+View:
+    <header>
+      <h1>The Corner Store</h1>
+      <CartBadge/>
+    </header>
+    <main class="catalog">
+      <ul>
+        <li>Tea — {formatCents(300)} <button id="add-tea" on-click={addProduct("Tea", 300)}>add</button></li>
+        <li>Coffee — {formatCents(450)} <button id="add-coffee" on-click={addProduct("Coffee", 450)}>add</button></li>
+        <li>Muffin — {formatCents(250)} <button id="add-muffin" on-click={addProduct("Muffin", 250)}>add</button></li>
+      </ul>
+    </main>
+    <CartPanel remove={removeLine}/>
+
+Style:
+    header { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border); }
+    main.catalog ul, .panel { list-style: none; padding: 0; }
+    .panel .empty { color: var(--muted); }
+
+## Test: the cart starts empty
+
+Expect that the text of "#badge" is equal to "0 in cart".
+Expect that the text of ".empty" is equal to "Your cart is empty.".
+Expect that the text of "#total" is equal to "Total: $0.00".
+
+## Test: adding a product lists it, counts it and totals it
+
+Click "#add-tea".
+Expect that the text of "#line-1 .name" is equal to "Tea — $3.00".
+Expect that the text of "#badge" is equal to "1 in cart".
+Expect that the text of "#total" is equal to "Total: $3.00".
+Expect that the count of ".empty" is equal to 0.
+Click "#add-coffee".
+Click "#add-tea".
+Expect that the count of ".panel li" is equal to 3.
+Expect that the text of "#line-2 .name" is equal to "Coffee — $4.50".
+Expect that the text of "#line-3 .name" is equal to "Tea — $3.00".
+Expect that the text of "#badge" is equal to "3 in cart".
+Expect that the text of "#total" is equal to "Total: $10.50".
+
+## Test: a row's remove button drops exactly that line
+
+Click "#add-tea".
+Click "#add-coffee".
+Click "#remove-1".
+Expect that the count of ".panel li" is equal to 1.
+Expect that the text of "#line-2 .name" is equal to "Coffee — $4.50".
+Expect that the text of "#badge" is equal to "1 in cart".
+Expect that the text of "#total" is equal to "Total: $4.50".
+Click "#remove-2".
+Expect that the text of ".empty" is equal to "Your cart is empty.".
+Expect that the text of "#badge" is equal to "0 in cart".
+Expect that the text of "#total" is equal to "Total: $0.00".
+
+## Test: the cart and its count survive a reload
+
+Click "#add-tea".
+Click "#add-coffee".
+Click "#remove-1".
+Click "#add-muffin".
+Reload the page.
+Expect that the text of "#badge" is equal to "2 in cart".
+Expect that the count of ".panel li" is equal to 2.
+Expect that the text of "#line-2 .name" is equal to "Coffee — $4.50".
+Expect that the text of "#line-3 .name" is equal to "Muffin — $2.50".
+Expect that the text of "#total" is equal to "Total: $7.00".
+
+## Test: a line added after a reload takes the next free id
+
+Click "#add-tea".
+Click "#add-coffee".
+Reload the page.
+Click "#add-muffin".
+Expect that the count of ".panel li" is equal to 3.
+Expect that the text of "#line-3 .name" is equal to "Muffin — $2.50".
+Expect that the text of "#badge" is equal to "3 in cart".

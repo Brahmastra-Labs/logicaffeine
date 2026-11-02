@@ -96,6 +96,14 @@ pub fn info(msg: impl fmt::Display) {
     }
 }
 
+/// Print a note to stderr unless `--quiet` is active — the line that accompanies
+/// an artifact on stdout (which lane, which chip) without polluting a redirect.
+pub fn note(msg: impl fmt::Display) {
+    if !is_quiet() {
+        anstream::eprintln!("{msg}");
+    }
+}
+
 /// Print a cargo-style phase header (right-aligned bold-green verb) to
 /// stderr unless `--quiet` is active.
 ///
@@ -106,6 +114,19 @@ pub fn info(msg: impl fmt::Display) {
 pub fn phase(verb: &str, rest: impl fmt::Display) {
     if !is_quiet() {
         anstream::eprintln!("{PHASE_STYLE}{verb:>12}{PHASE_STYLE:#} {rest}");
+    }
+}
+
+/// Print one `error:` block to stderr — for a command that reports several errors before it
+/// returns the last as its own.
+pub fn error(msg: impl fmt::Display) {
+    anstream::eprintln!("{ERROR_STYLE}error:{ERROR_STYLE:#} {msg}");
+}
+
+/// Print one `warning:` block to stderr unless `--quiet` is active.
+pub fn warning(msg: impl fmt::Display) {
+    if !is_quiet() {
+        anstream::eprintln!("{WARN_STYLE}warning:{WARN_STYLE:#} {msg}");
     }
 }
 
@@ -132,12 +153,20 @@ pub struct CliError {
 impl CliError {
     /// Create an error with the default failure exit code and no hint.
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), hint: None, exit_code: EXIT_FAILURE }
+        Self {
+            message: message.into(),
+            hint: None,
+            exit_code: EXIT_FAILURE,
+        }
     }
 
     /// Create an error carrying an actionable `help:` hint.
     pub fn with_hint(message: impl Into<String>, hint: impl Into<String>) -> Self {
-        Self { message: message.into(), hint: Some(hint.into()), exit_code: EXIT_FAILURE }
+        Self {
+            message: message.into(),
+            hint: Some(hint.into()),
+            exit_code: EXIT_FAILURE,
+        }
     }
 
     /// Override the exit code (builder style).
@@ -162,46 +191,29 @@ impl std::error::Error for CliError {}
 /// renders as a bare `error:` line with [`EXIT_FAILURE`].
 pub fn render_error(e: &(dyn std::error::Error + 'static)) -> i32 {
     if let Some(cli_err) = e.downcast_ref::<CliError>() {
-        anstream::eprintln!("{ERROR_STYLE}error:{ERROR_STYLE:#} {}", cli_err.message);
-        if let Some(hint) = &cli_err.hint {
-            anstream::eprintln!("{HELP_STYLE}help:{HELP_STYLE:#} {hint}");
-        }
+        anstream::eprint!("{}", error_block(&cli_err.message, cli_err.hint.as_deref()));
         cli_err.exit_code
     } else {
-        anstream::eprintln!("{ERROR_STYLE}error:{ERROR_STYLE:#} {e}");
+        anstream::eprint!("{}", error_block(&e.to_string(), None));
         EXIT_FAILURE
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cli_error_defaults_to_failure_exit_code() {
-        let e = CliError::new("boom");
-        assert_eq!(e.exit_code, EXIT_FAILURE);
-        assert!(e.hint.is_none());
-        assert_eq!(e.to_string(), "boom");
+/// The `error:` line and the optional `help:` line, styled for a terminal (anstream drops the styles when
+/// the stream is not one).
+pub(crate) fn error_block(message: &str, hint: Option<&str>) -> String {
+    let mut out = format!("{ERROR_STYLE}error:{ERROR_STYLE:#} {message}\n");
+    if let Some(hint) = hint {
+        out.push_str(&format!("{HELP_STYLE}help:{HELP_STYLE:#} {hint}\n"));
     }
-
-    #[test]
-    fn cli_error_carries_hint_and_custom_code() {
-        let e = CliError::with_hint("boom", "try --fix").exit_code(EXIT_USAGE);
-        assert_eq!(e.hint.as_deref(), Some("try --fix"));
-        assert_eq!(e.exit_code, EXIT_USAGE);
-    }
-
-    #[test]
-    fn render_error_uses_cli_error_exit_code() {
-        let boxed: Box<dyn std::error::Error> =
-            Box::new(CliError::new("x").exit_code(EXIT_USAGE));
-        assert_eq!(render_error(boxed.as_ref()), EXIT_USAGE);
-    }
-
-    #[test]
-    fn render_error_defaults_other_errors_to_failure() {
-        let boxed: Box<dyn std::error::Error> = "plain".into();
-        assert_eq!(render_error(boxed.as_ref()), EXIT_FAILURE);
-    }
+    out
 }
+
+/// `styled` with its terminal styles removed: what a stream that is not a terminal receives.
+pub(crate) fn plain(styled: &str) -> String {
+    anstream::adapter::strip_str(styled).to_string()
+}
+
+#[cfg(test)]
+#[path = "../../../crates/logicaffeine_tests/unit/logicaffeine_cli/ui/tests.rs"]
+mod tests;

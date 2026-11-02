@@ -12,5 +12,6 @@
   "correct": 1,
   "hint": "Identity of Indiscernibles: things sharing all properties are identical.",
   "explanation": "Leibniz's Law (Identity of Indiscernibles): a = b iff for every property P, P(a) ↔ P(b). Two things are identical if and only if they share ALL properties. This is the logical foundation of identity.",
-  "visual_concept": "If you can't find ANY difference between a and b - not one property different - then a and b must be the very same thing."
+  "visual_concept": "If you can't find ANY difference between a and b - not one property different - then a and b must be the very same thing.",
+  "section": "9.2"
 }

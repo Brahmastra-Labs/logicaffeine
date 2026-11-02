@@ -1,12 +1,12 @@
 //! SEO utilities and JSON-LD structured data generators.
 //!
 //! Provides structured data schemas for rich results in search engines:
-//! - Organization schema (sitewide)
+//! - Organization schema (sitewide), and with a sales contact point (Pricing page)
 //! - WebSite schema with search action
 //! - SoftwareApplication schema (Studio page)
 //! - Course schema (Learn page)
 //! - Article schema (News articles)
-//! - FAQPage schema (Guide page)
+//! - FAQPage schema (Landing and Pricing pages)
 //! - BreadcrumbList schema (all pages)
 //! - TechArticle schema (Crates page)
 //!
@@ -29,19 +29,35 @@ const LOGO_URL: &str = "https://logicaffeine.com/assets/logo.jpeg";
 const ORG_NAME: &str = "LOGICAFFEINE";
 const GITHUB_URL: &str = "https://github.com/Brahmastra-Labs/logicaffeine";
 
+fn organization() -> serde_json::Value {
+    serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": ORG_NAME,
+        "url": BASE_URL,
+        "logo": LOGO_URL,
+        "description": "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision.",
+        "sameAs": [GITHUB_URL, "https://x.com/logicaffeine"],
+    })
+}
+
 /// Generate Organization schema (used on all pages)
 pub fn organization_schema() -> String {
-    format!(
-        r#"{{
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  "name": "{ORG_NAME}",
-  "url": "{BASE_URL}",
-  "logo": "{LOGO_URL}",
-  "description": "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision.",
-  "sameAs": ["{GITHUB_URL}", "https://x.com/logicaffeine"]
-}}"#
-    )
+    organization().to_string()
+}
+
+/// Generate Organization schema that names where to ask for a price: the sales `ContactPoint`
+/// reached at `email` and at the page `contact_path`.
+pub fn organization_contact_schema(email: &str, contact_path: &str) -> String {
+    let mut org = organization();
+    org["contactPoint"] = serde_json::json!({
+        "@type": "ContactPoint",
+        "contactType": "sales",
+        "email": email,
+        "url": format!("{BASE_URL}{contact_path}"),
+        "availableLanguage": "English",
+    });
+    org.to_string()
 }
 
 /// Generate WebSite schema with search action
@@ -142,35 +158,25 @@ pub fn article_schema(
     )
 }
 
-/// Generate FAQPage schema
+/// Generate FAQPage schema from (question, answer) pairs. Built as JSON, so a quote in an
+/// answer is escaped rather than ending the string.
 pub fn faq_schema(questions: &[(&str, &str)]) -> String {
-    let qa_items: Vec<String> = questions
+    let items: Vec<serde_json::Value> = questions
         .iter()
-        .map(|(q, a)| {
-            format!(
-                r#"{{
-      "@type": "Question",
-      "name": "{}",
-      "acceptedAnswer": {{
-        "@type": "Answer",
-        "text": "{}"
-      }}
-    }}"#,
-                q, a
-            )
+        .map(|(question, answer)| {
+            serde_json::json!({
+                "@type": "Question",
+                "name": question,
+                "acceptedAnswer": { "@type": "Answer", "text": answer },
+            })
         })
         .collect();
-
-    format!(
-        r#"{{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    {}
-  ]
-}}"#,
-        qa_items.join(",\n    ")
-    )
+    serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": items,
+    })
+    .to_string()
 }
 
 /// Generate TechArticle schema (for Crates documentation)
@@ -195,24 +201,6 @@ pub fn tech_article_schema(title: &str, description: &str, path: &str) -> String
     }}
   }},
   "proficiencyLevel": "Expert"
-}}"#
-    )
-}
-
-/// Generate ContactPage schema (for Contact page)
-pub fn contact_schema() -> String {
-    format!(
-        r#"{{
-  "@context": "https://schema.org",
-  "@type": "ContactPage",
-  "name": "Contact {ORG_NAME}",
-  "description": "Get in touch about commercial licensing, partnerships, or enterprise needs. Free for individuals, universities, and teams under 25.",
-  "url": "{BASE_URL}/pricing",
-  "publisher": {{
-    "@type": "Organization",
-    "name": "{ORG_NAME}",
-    "url": "{BASE_URL}"
-  }}
 }}"#
     )
 }
@@ -256,29 +244,41 @@ pub fn breadcrumb_schema(items: &[BreadcrumbItem]) -> String {
     )
 }
 
-/// Generate ItemList schema for Roadmap page
+/// Generate ItemList schema for Roadmap page: one `ListItem` per timeline card, in page order,
+/// each described by its status and the first sentence of its card, so search engines read the
+/// roadmap the page shows.
 pub fn roadmap_schema() -> String {
-    format!(
-        r#"{{
-  "@context": "https://schema.org",
-  "@type": "ItemList",
-  "name": "LOGICAFFEINE Development Roadmap",
-  "description": "Development milestones from English-to-Logic transpiler to universal compilation",
-  "url": "{BASE_URL}/roadmap",
-  "numberOfItems": 9,
-  "itemListElement": [
-    {{"@type": "ListItem", "position": 1, "name": "Core Transpiler", "description": "Parse English, produce First-Order Logic. 53+ linguistic phenomena."}},
-    {{"@type": "ListItem", "position": 2, "name": "Web Platform", "description": "Interactive learning, studio playground, gamification."}},
-    {{"@type": "ListItem", "position": 3, "name": "Imperative Language", "description": "Functions, structs, enums, pattern matching, standard library, I/O."}},
-    {{"@type": "ListItem", "position": 4, "name": "Type System", "description": "Refinement types, generics, type inference, sum types."}},
-    {{"@type": "ListItem", "position": 5, "name": "Concurrency & Actors", "description": "Channels, agents, structured parallelism, async/await."}},
-    {{"@type": "ListItem", "position": 6, "name": "Distributed Systems", "description": "CRDTs, P2P networking, persistent storage, conflict resolution."}},
-    {{"@type": "ListItem", "position": 7, "name": "Security & Policies", "description": "Capability-based security with policy blocks in plain English."}},
-    {{"@type": "ListItem", "position": 8, "name": "Proof Assistant", "description": "Curry-Howard in English. Trust statements, termination proofs, Z3 verification."}},
-    {{"@type": "ListItem", "position": 9, "name": "Universal Compilation", "description": "Compile to WASM. Live Codex IDE for real-time proof visualization."}}
-  ]
-}}"#
-    )
+    let milestones = crate::ui::pages::roadmap_data::get_milestones();
+    let items: Vec<serde_json::Value> = milestones
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            serde_json::json!({
+                "@type": "ListItem",
+                "position": i + 1,
+                "name": m.title,
+                "description": format!("{} — {}", m.status.label(), first_sentence(m.description)),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "LOGICAFFEINE Development Roadmap",
+        "description": "Where LOGOS stands: finished milestones, work in progress, and what is planned next.",
+        "url": format!("{BASE_URL}/roadmap"),
+        "numberOfItems": milestones.len(),
+        "itemListElement": items,
+    })
+    .to_string()
+}
+
+/// A description's first sentence: up to and including the first period that ends a word.
+fn first_sentence(text: &str) -> &str {
+    match text.find(". ") {
+        Some(end) => &text[..=end],
+        None => text,
+    }
 }
 
 /// Generate WebPage schema for generic pages
@@ -297,24 +297,6 @@ pub fn webpage_schema(name: &str, description: &str, path: &str) -> String {
   }},
   "publisher": {{
     "@type": "Organization",
-    "name": "{ORG_NAME}",
-    "url": "{BASE_URL}"
-  }}
-}}"#
-    )
-}
-
-/// Generate ProfilePage schema for user profile
-pub fn profile_page_schema() -> String {
-    format!(
-        r#"{{
-  "@context": "https://schema.org",
-  "@type": "ProfilePage",
-  "name": "User Profile - {ORG_NAME}",
-  "description": "Track your logic learning progress, achievements, and streaks.",
-  "url": "{BASE_URL}/profile",
-  "isPartOf": {{
-    "@type": "WebSite",
     "name": "{ORG_NAME}",
     "url": "{BASE_URL}"
   }}
@@ -347,8 +329,8 @@ pub mod pages {
     use super::PageMeta;
 
     pub const LANDING: PageMeta = PageMeta {
-        title: "LOGICAFFEINE | Debug Your Thoughts",
-        description: "Humanity's last programming language. Transform plain English into compiled Rust code with Z3-powered verification. Debug your thoughts with mathematical certainty.",
+        title: "LOGICAFFEINE | Code we can all read",
+        description: "LOGOS is an English programming language with logic and mathematics built in. Bring your own coding agent: give it the instructions, then read every line it writes.",
         canonical_path: "/",
         og_image: Some("/assets/OG-photo.png"),
     };
@@ -369,28 +351,30 @@ pub mod pages {
 
     pub const GUIDE: PageMeta = PageMeta {
         title: "Documentation | LOGICAFFEINE",
-        description: "Comprehensive guide to LOGICAFFEINE syntax, features, and First-Order Logic concepts.",
+        description:
+            "Comprehensive guide to LOGICAFFEINE syntax, features, and First-Order Logic concepts.",
         canonical_path: "/guide",
         og_image: Some("/assets/OG-photo.png"),
     };
 
-    pub const PRICING: PageMeta = PageMeta {
+    pub const CONTACT: PageMeta = PageMeta {
         title: "Contact | LOGICAFFEINE",
-        description: "Get in touch about commercial licensing, partnerships, or enterprise needs. Free for individuals, universities, and teams under 25.",
-        canonical_path: "/pricing",
+        description: "Reach the team behind LOGOS, the open source English programming language under the MIT License: questions, bugs, working together.",
+        canonical_path: "/contact",
         og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const CRATES: PageMeta = PageMeta {
         title: "Crates Documentation | LOGICAFFEINE",
-        description: "Technical documentation for LOGICAFFEINE Rust crates. Integrate First-Order Logic parsing into your applications.",
+        description: "The Rust crates behind LOGOS: the English-to-logic front end, the compiler and its execution tiers, the proof kernel, and the tools.",
         canonical_path: "/crates",
         og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const ROADMAP: PageMeta = PageMeta {
         title: "Roadmap | LOGICAFFEINE",
-        description: "See what's coming next for LOGICAFFEINE. Track our progress and upcoming features.",
+        description:
+            "See what's coming next for LOGICAFFEINE. Track our progress and upcoming features.",
         canonical_path: "/roadmap",
         og_image: Some("/assets/OG-photo.png"),
     };
@@ -411,21 +395,15 @@ pub mod pages {
 
     pub const TERMS: PageMeta = PageMeta {
         title: "Terms of Service | LOGICAFFEINE",
-        description: "Terms and conditions for using LOGICAFFEINE. Business Source License details and usage policies.",
+        description: "Terms and conditions for using LOGICAFFEINE and its MIT-licensed software.",
         canonical_path: "/terms",
-        og_image: Some("/assets/OG-photo.png"),
-    };
-
-    pub const PROFILE: PageMeta = PageMeta {
-        title: "Your Profile | LOGICAFFEINE",
-        description: "Track your logic learning progress, achievements, XP, and streaks on LOGICAFFEINE.",
-        canonical_path: "/profile",
         og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const REGISTRY: PageMeta = PageMeta {
         title: "Package Registry | LOGICAFFEINE",
-        description: "Browse and discover community-contributed logic modules and packages for LOGICAFFEINE.",
+        description:
+            "Browse and discover community-contributed logic modules and packages for LOGICAFFEINE.",
         canonical_path: "/registry",
         og_image: Some("/assets/OG-photo.png"),
     };
@@ -451,8 +429,7 @@ pub fn PageHead(
     title: String,
     description: String,
     canonical_path: String,
-    #[props(default = String::from("/assets/OG-photo.png"))]
-    og_image: String,
+    #[props(default = String::from("/assets/OG-photo.png"))] og_image: String,
 ) -> Element {
     let canonical_url = format!("{}{}", BASE_URL, canonical_path);
     let image_url = format!("{}{}", BASE_URL, og_image);
@@ -478,7 +455,7 @@ pub fn PageHead(
             if default_card {
                 document::Meta { property: "og:image:width", content: "1200" }
                 document::Meta { property: "og:image:height", content: "630" }
-                document::Meta { property: "og:image:alt", content: "LOGICAFFEINE — Debug Your Thoughts" }
+                document::Meta { property: "og:image:alt", content: "LOGICAFFEINE | Debug Your Thoughts" }
             }
             document::Meta { name: "twitter:url", content: canonical_url.clone() }
             document::Meta { name: "twitter:title", content: title.clone() }
@@ -495,7 +472,9 @@ pub fn PageHead(
 /// served by the SPA fallback shell has none, so missing elements are created.
 #[cfg(target_arch = "wasm32")]
 fn update_head_meta(title: &str, description: &str, canonical_url: &str, image_url: &str) {
-    let Some(window) = web_sys::window() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
     let Some(doc) = window.document() else { return };
     let Some(head) = doc.head() else { return };
 
@@ -509,10 +488,22 @@ fn update_head_meta(title: &str, description: &str, canonical_url: &str, image_u
         }
     };
     let set_name = |name: &str, value: &str| {
-        set(&format!("meta[name='{name}']"), "name", name, "content", value);
+        set(
+            &format!("meta[name='{name}']"),
+            "name",
+            name,
+            "content",
+            value,
+        );
     };
     let set_property = |property: &str, value: &str| {
-        set(&format!("meta[property='{property}']"), "property", property, "content", value);
+        set(
+            &format!("meta[property='{property}']"),
+            "property",
+            property,
+            "content",
+            value,
+        );
     };
 
     // Primary
@@ -530,7 +521,13 @@ fn update_head_meta(title: &str, description: &str, canonical_url: &str, image_u
     set_name("twitter:description", description);
     set_name("twitter:image", image_url);
     // Canonical
-    set("link[rel='canonical']", "rel", "canonical", "href", canonical_url);
+    set(
+        "link[rel='canonical']",
+        "rel",
+        "canonical",
+        "href",
+        canonical_url,
+    );
 }
 
 /// Render JSON-LD script tag for a schema

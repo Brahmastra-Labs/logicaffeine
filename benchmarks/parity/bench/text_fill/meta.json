@@ -1,0 +1,10 @@
+{
+  "capability": "text.fill",
+  "workload": "fillText(s,40)=wrap+join('\\n') \u2014 length fold",
+  "arg": "6000",
+  "expected": "24291000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

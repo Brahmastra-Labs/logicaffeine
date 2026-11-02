@@ -1,0 +1,10 @@
+{
+  "capability": "heap.fix",
+  "workload": "len(fix(heapify(xs), pos)) = M",
+  "arg": "40000",
+  "expected": "163840000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

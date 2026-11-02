@@ -1,0 +1,160 @@
+{
+  "tier": "t00_terms",
+  "test_binary": "lean_conformance_t00_terms",
+  "cases": [
+    {
+      "id": "T00-001",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "three_binders_named_x_resolve_innermost_and_freshening_recovers_the_outer",
+      "why": "LOGOS's term layer is NAMED, not de Bruijn: one `Term::Var(String)`, no `bvar`/`fvar` split. Every `Expr` in the case file is expressible \u2014 the shadowed-innermost reading directly, the shadowed-outermost reading after a freshening pass \u2014 and both kernels agree on them. The named form is what makes the second kernel worth having: `recheck.rs` converts to de Bruijn and re-derives the type independently, so a botched freshening surfaces as a DISAGREEMENT between two checkers written on two representations, a redundancy Lean has no equivalent of. The cost is real and bounded: `Context` is a name-keyed map with no stack to pop, and a binder whose name starts with `?` collides with the elaborator's metavariable convention, so an emitter owes a freshening pass and an injective sanitiser. That is an obligation on the emitter, not a term Lean can write and we cannot."
+    },
+    {
+      "id": "T00-002",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "prop_is_not_type_zero_and_the_sort_ladder_climbs_one_level_at_a_time",
+      "why": ""
+    },
+    {
+      "id": "T00-003",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_monomorphic_reference_resolves_as_a_global_and_a_const_at_no_levels_does_not",
+      "why": ""
+    },
+    {
+      "id": "T00-004",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_dependent_pi_keeps_a_real_binder_name_where_a_plain_arrow_needs_none",
+      "why": ""
+    },
+    {
+      "id": "T00-005",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_lambda_telescope_keeps_its_order_but_cannot_carry_its_binder_kind",
+      "why": ""
+    },
+    {
+      "id": "T00-006",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_application_spine_is_left_nested_and_its_argument_order_is_positional",
+      "why": ""
+    },
+    {
+      "id": "T00-007",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_let_is_zeta_transparent_and_is_not_sugar_for_a_beta_redex",
+      "why": ""
+    },
+    {
+      "id": "T00-008",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_nat_literal_bridges_to_peano_where_an_int_literal_stays_opaque",
+      "why": ""
+    },
+    {
+      "id": "T00-009",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_translated_term_cannot_remember_where_it_came_from",
+      "why": ""
+    },
+    {
+      "id": "T00-010",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_uninstantiated_metavariable_is_reported_as_a_metavariable_not_an_unbound_variable",
+      "why": ""
+    },
+    {
+      "id": "T00-011",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_manufactured_sigma_projects_dependently_but_only_at_type_zero",
+      "why": ""
+    },
+    {
+      "id": "T00-012",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_conversion_check_lean_discharges_must_not_depend_on_the_step_budget",
+      "why": ""
+    },
+    {
+      "id": "T00-013",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "an_irreducible_definition_must_keep_its_body_and_still_refuse_to_unfold",
+      "why": ""
+    },
+    {
+      "id": "T00-014",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "eta_decides_in_defeq_and_is_invisible_to_normalize",
+      "why": ""
+    },
+    {
+      "id": "T00-015",
+      "verdict": "DIVERGE",
+      "status": "Native",
+      "test": "alpha_equivalent_telescopes_convert_and_generated_binder_names_never_capture",
+      "why": "Alpha-equivalence over NAMED binders is decided by renaming rather than by index: `types_equal` compares `Var` names literally and then substitutes the first binder's name into the second's body, and `substitute_avoiding` freshens any binder that would capture a free variable of the replacement. Every shape in the case file works \u2014 five-deep shadowing, a `let` shadowing a `lambda`, alpha-variants converting \u2014 and the de Bruijn re-checker agrees on all of them. The case's second guard does not bite today: `derive_recursor` regenerates every binder it emits (`A0`, `P`, `f0`, `x`, `a0`), so a source binder spelled like a generated one is renamed away rather than merged, verified here by a constructor field literally named `A0`. What remains is a genuine obligation on an emitter \u2014 `Context::extend` is a map insert with no stack to pop, so the outer binding of a shadowed name is unreachable BY NAME \u2014 not a term Lean can express and we cannot."
+    },
+    {
+      "id": "T00-016",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_hole_must_not_make_every_comparison_succeed",
+      "why": ""
+    },
+    {
+      "id": "T00-017",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_dependent_let_body_types_only_because_zeta_runs_before_inference",
+      "why": ""
+    },
+    {
+      "id": "T00-018",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "match_cases_are_positional_so_source_order_computes_the_wrong_answer",
+      "why": ""
+    },
+    {
+      "id": "T00-019",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "have_is_the_opaque_beta_redex_and_let_is_the_transparent_one",
+      "why": ""
+    },
+    {
+      "id": "T00-020",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_type_ascription_leaves_no_trace_in_the_emitted_term",
+      "why": ""
+    },
+    {
+      "id": "T00-021",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_deep_spine_costs_linearly_in_its_depth_and_not_quadratically",
+      "why": ""
+    },
+    {
+      "id": "T00-022",
+      "verdict": "MUST",
+      "status": "Native",
+      "test": "a_shared_subterm_is_checked_once_and_not_once_per_occurrence",
+      "why": ""
+    }
+  ]
+}

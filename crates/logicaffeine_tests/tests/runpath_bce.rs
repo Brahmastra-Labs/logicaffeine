@@ -111,9 +111,15 @@ fn prog_src(name: &str) -> String {
 fn bubble_sort_reads_and_stores_elide() {
     let src = prog_src("bubble_sort");
     let (ru, _rc, su, _sc) = bce_counts(&src);
-    assert!(ru >= 2, "bubble_sort: both adjacent reads must elide (got {ru})");
-    assert!(su >= 2, "bubble_sort: both swap STORES must elide (got {su})");
-    assert_eq!(assert_runpath_parity(&src, "30"), "1071");
+    assert!(
+        ru >= 2,
+        "bubble_sort: both adjacent reads must elide (got {ru})"
+    );
+    assert!(
+        su >= 2,
+        "bubble_sort: both swap STORES must elide (got {su})"
+    );
+    assert_eq!(assert_runpath_parity(&src, "30"), "1071 30133 229525345");
 }
 
 /// knapsack 0/1 DP: `item (w+1) of prev` (bare offset) AND the multi-variable
@@ -128,7 +134,7 @@ fn knapsack_dp_reads_elide() {
         ru >= 4,
         "knapsack: weights/vals reads + prev[w+1] + prev[w-wi+1] must elide (got {ru})"
     );
-    assert_eq!(assert_runpath_parity(&src, "12"), "260");
+    assert_eq!(assert_runpath_parity(&src, "12"), "278 268256888");
 }
 
 /// heap_sort Main: the sift/checksum reads/stores on the locally-built `arr`
@@ -140,9 +146,15 @@ fn knapsack_dp_reads_elide() {
 fn heap_sort_main_reads_and_stores_elide() {
     let src = prog_src("heap_sort");
     let (ru, _rc, su, _sc) = bce_counts(&src);
-    assert!(ru >= 3, "heap_sort Main: item 1/item (end+1)/item i must elide (got {ru})");
-    assert!(su >= 2, "heap_sort Main: the two swap STORES must elide (got {su})");
-    assert_eq!(assert_runpath_parity(&src, "20"), "1093 30133 319067");
+    assert!(
+        ru >= 3,
+        "heap_sort Main: item 1/item (end+1)/item i must elide (got {ru})"
+    );
+    assert!(
+        su >= 2,
+        "heap_sort Main: the two swap STORES must elide (got {su})"
+    );
+    assert_eq!(assert_runpath_parity(&src, "20"), "1093 30133 250164549");
 }
 
 /// graph_bfs: the CSR/dist reads through the locally-built length-`n` arrays
@@ -154,9 +166,15 @@ fn heap_sort_main_reads_and_stores_elide() {
 fn graph_bfs_csr_reads_elide() {
     let src = prog_src("graph_bfs");
     let (ru, _rc, su, _sc) = bce_counts(&src);
-    assert!(ru >= 6, "graph_bfs: the CSR/dist reads must elide (got {ru})");
-    assert!(su >= 1, "graph_bfs: the dist[u+1] store must elide (got {su})");
-    assert_eq!(assert_runpath_parity(&src, "40"), "40 98");
+    assert!(
+        ru >= 6,
+        "graph_bfs: the CSR/dist reads must elide (got {ru})"
+    );
+    assert!(
+        su >= 1,
+        "graph_bfs: the dist[u+1] store must elide (got {su})"
+    );
+    assert_eq!(assert_runpath_parity(&src, "40"), "40 98 43456770");
 }
 
 // ───────────────────────── NEGATIVE / SOUNDNESS BOUNDARY ──────────────────
@@ -175,8 +193,11 @@ fn matrix_mult_nonlinear_index_stays_checked() {
         (0, 0),
         "matrix_mult's variable-stride indices must NOT be elided (got {ru} reads, {su} stores)"
     );
-    assert!(rc >= 4 && sc >= 1, "the nonlinear accesses stay checked ({rc} reads, {sc} stores)");
-    assert_eq!(assert_runpath_parity(&src, "6"), "66780");
+    assert!(
+        rc >= 4 && sc >= 1,
+        "the nonlinear accesses stay checked ({rc} reads, {sc} stores)"
+    );
+    assert_eq!(assert_runpath_parity(&src, "6"), "20432945");
 }
 
 /// heap_sort's `siftDown` helper reads `arr`/`result` PARAMETERS at indices
@@ -247,16 +268,25 @@ fn user_supplied_oob_index_stays_checked_and_errors_identically() {
                \x20   Set i to i + 1.\n\
                Show item k of arr.\n";
     let (ru, rc, _su, _sc) = bce_counts(src);
-    assert_eq!(ru, 0, "a user-supplied index must never be proven in-bounds (got {ru})");
+    assert_eq!(
+        ru, 0,
+        "a user-supplied index must never be proven in-bounds (got {ru})"
+    );
     assert!(rc >= 1, "the user-index read must stay CHECKED (got {rc})");
 
     let in_argv = vec!["bench".to_string(), "3".to_string()];
-    assert_eq!(assert_runpath_parity_argv(src, &in_argv), ("9".to_string(), None));
+    assert_eq!(
+        assert_runpath_parity_argv(src, &in_argv),
+        ("9".to_string(), None)
+    );
 
     // OUT OF BOUNDS: the kept check must error IDENTICALLY on both engines.
     let oob_argv = vec!["bench".to_string(), "99".to_string()];
     let (out, err) = assert_runpath_parity_argv(src, &oob_argv);
-    assert!(err.is_some(), "index 99 of a 10-element array must error, not read OOB (out={out:?})");
+    assert!(
+        err.is_some(),
+        "index 99 of a 10-element array must error, not read OOB (out={out:?})"
+    );
 }
 
 /// Run the tiered VM+JIT run path AND the tree-walker on `argv`, assert they

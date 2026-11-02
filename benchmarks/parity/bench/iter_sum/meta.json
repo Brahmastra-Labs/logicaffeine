@@ -1,0 +1,11 @@
+{
+  "capability": "iter.sum",
+  "workload": "sumSeq over a perturbed 4096-int Seq, amortized",
+  "arg": "100000",
+  "expected": "24050789548032",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

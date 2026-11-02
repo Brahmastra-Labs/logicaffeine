@@ -68,10 +68,27 @@ impl CompilerENode {
         match *self {
             Int(_) | Bool(_) | Float(_) | Var(..) | Opaque(_) => vec![],
             Not(a) | Len(a) | Copy(a) => vec![a],
-            Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Mod(a, b) | Shl(a, b)
-            | Shr(a, b) | BitXor(a, b) | BitAnd(a, b) | BitOr(a, b) | And(a, b) | Or(a, b)
-            | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b)
-            | Concat(a, b) | Index(a, b) | Contains(a, b) => {
+            Add(a, b)
+            | Sub(a, b)
+            | Mul(a, b)
+            | Div(a, b)
+            | Mod(a, b)
+            | Shl(a, b)
+            | Shr(a, b)
+            | BitXor(a, b)
+            | BitAnd(a, b)
+            | BitOr(a, b)
+            | And(a, b)
+            | Or(a, b)
+            | Eq(a, b)
+            | Ne(a, b)
+            | Lt(a, b)
+            | Le(a, b)
+            | Gt(a, b)
+            | Ge(a, b)
+            | Concat(a, b)
+            | Index(a, b)
+            | Contains(a, b) => {
                 vec![a, b]
             }
             Slice(a, b, c) => vec![a, b, c],

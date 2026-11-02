@@ -1,0 +1,15 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let reps be parseInt(item 2 of arguments).
+Let cells be 400.
+Let base be repeatText("abcABC012 ", cells).
+Let mutable checksum be 0.
+Let mutable r be 0.
+While r is less than reps:
+    Let s be repeatText("a", r % 100) + base.
+    Set checksum to checksum + length of trim(s).
+    Set r to r + 1.
+Show checksum.

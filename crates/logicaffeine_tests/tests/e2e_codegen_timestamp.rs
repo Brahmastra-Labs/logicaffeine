@@ -51,14 +51,14 @@ Show year_of(m).\nShow month_of(m).\nShow day_of(m).\nShow weekday_of(m).";
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn date_components_on_interpreter_vm_and_treewalker() {
-    // 0 = Sunday. interpret_for_ui cross-checks VM vs tree-walker.
-    assert_interpreter_output(COMPONENTS, "2024\n3\n10\n0");
+    // ISO 8601: 7 = Sunday. interpret_for_ui cross-checks VM vs tree-walker.
+    assert_interpreter_output(COMPONENTS, "2024\n3\n10\n7");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn date_components_on_aot() {
-    common::assert_output_lines(COMPONENTS, &["2024", "3", "10", "0"]);
+    common::assert_output_lines(COMPONENTS, &["2024", "3", "10", "7"]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -103,13 +103,13 @@ Show the year of m.\nShow the month of m.\nShow the day of m.\nShow the weekday 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_date_components_on_interpreter_vm_and_treewalker() {
-    assert_interpreter_output(NATURAL, "2024\n3\n10\n0");
+    assert_interpreter_output(NATURAL, "2024\n3\n10\n7");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_date_components_on_aot() {
-    common::assert_output_lines(NATURAL, &["2024", "3", "10", "0"]);
+    common::assert_output_lines(NATURAL, &["2024", "3", "10", "7"]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -158,7 +158,10 @@ fn natural_moment_plus_duration_on_interpreter_vm_and_treewalker() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_moment_plus_duration_on_aot() {
-    common::assert_output_lines(NATURAL_PLUS, &["2024-03-10T07:31:30Z", "2024-03-10T07:29:30Z"]);
+    common::assert_output_lines(
+        NATURAL_PLUS,
+        &["2024-03-10T07:31:30Z", "2024-03-10T07:29:30Z"],
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -170,8 +173,7 @@ fn natural_moment_plus_duration_all_tiers_agree() {
 // ---- NATURAL construction: `timestamp "…"` literal (not parse_timestamp("…")). ----
 
 #[cfg(not(target_arch = "wasm32"))]
-const NATURAL_LITERAL: &str =
-    "## Main\nShow the year of timestamp \"2024-03-10T07:30:00Z\".\n\
+const NATURAL_LITERAL: &str = "## Main\nShow the year of timestamp \"2024-03-10T07:30:00Z\".\n\
 Show format_timestamp(timestamp \"2024-03-10T07:30:00Z\" + 90 seconds).";
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -215,7 +217,11 @@ fn natural_zoned_time_on_interpreter_vm_and_treewalker() {
 fn natural_zoned_time_on_aot() {
     common::assert_output_lines(
         NATURAL_ZONE,
-        &["2024-07-01T08:00:00-04:00", "2024-01-01T07:00:00-05:00", "2024-01-01T05:30:00+05:30"],
+        &[
+            "2024-07-01T08:00:00-04:00",
+            "2024-01-01T07:00:00-05:00",
+            "2024-01-01T05:30:00+05:30",
+        ],
     );
 }
 
@@ -274,7 +280,11 @@ fn natural_moment_plus_span_on_interpreter_vm_and_treewalker() {
 fn natural_moment_plus_span_on_aot() {
     common::assert_output_lines(
         NATURAL_SPAN,
-        &["2024-02-29T12:30:00Z", "2025-02-28T12:30:00Z", "2023-12-31T12:30:00Z"],
+        &[
+            "2024-02-29T12:30:00Z",
+            "2025-02-28T12:30:00Z",
+            "2023-12-31T12:30:00Z",
+        ],
     );
 }
 
@@ -453,14 +463,17 @@ Show the year of m in \"America/New_York\".";
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_zoned_all_extractors_on_interpreter_vm_and_treewalker() {
-    // Local = 2024-06-30T22:00 EDT: date 06-30, time 22:00:00, weekday Sun(0) vs UTC Mon(1).
-    assert_interpreter_output(NATURAL_ZONED_ALL, "2024-06-30\n22:00:00\n0\n1\n2024");
+    // Local = 2024-06-30T22:00 EDT: date 06-30, time 22:00:00, ISO weekday Sun(7) vs UTC Mon(1).
+    assert_interpreter_output(NATURAL_ZONED_ALL, "2024-06-30\n22:00:00\n7\n1\n2024");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_zoned_all_extractors_on_aot() {
-    common::assert_output_lines(NATURAL_ZONED_ALL, &["2024-06-30", "22:00:00", "0", "1", "2024"]);
+    common::assert_output_lines(
+        NATURAL_ZONED_ALL,
+        &["2024-06-30", "22:00:00", "7", "1", "2024"],
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -547,7 +560,15 @@ fn natural_pre_epoch_on_interpreter_vm_and_treewalker() {
 fn natural_pre_epoch_on_aot() {
     common::assert_output_lines(
         NATURAL_PRE_EPOCH,
-        &["1969", "12", "31", "23", "58", "1969-12-31T23:59:58Z", "1970-01-01T00:00:01Z"],
+        &[
+            "1969",
+            "12",
+            "31",
+            "23",
+            "58",
+            "1969-12-31T23:59:58Z",
+            "1970-01-01T00:00:01Z",
+        ],
     );
 }
 
@@ -601,7 +622,7 @@ Show m is before (m + 1 month).\nShow m is after (m + 1 month).\n\
 Show m in \"America/New_York\".";
 
 #[cfg(not(target_arch = "wasm32"))]
-const NATURAL_KITCHEN_SINK_EXPECTED: &str = "2024\n3\n10\n0\n7\n30\n45\n10\n1\n\
+const NATURAL_KITCHEN_SINK_EXPECTED: &str = "2024\n3\n10\n7\n7\n30\n45\n10\n1\n\
 2024-03-10\n07:30:45\n2024-04-10T07:30:45Z\n2024-03-10T07:29:15Z\n2678400\ntrue\nfalse\n\
 2024-03-10T03:30:45-04:00";
 
@@ -725,13 +746,13 @@ Show the day of 2024-03-10.\nShow the weekday of 2024-03-10.";
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_date_literal_components_on_interpreter_vm_and_treewalker() {
-    assert_interpreter_output(NATURAL_DATE, "2024\n3\n10\n0"); // 2024-03-10 is a Sunday
+    assert_interpreter_output(NATURAL_DATE, "2024\n3\n10\n7"); // 2024-03-10 is a Sunday (ISO 7)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_date_literal_components_on_aot() {
-    common::assert_output_lines(NATURAL_DATE, &["2024", "3", "10", "0"]);
+    common::assert_output_lines(NATURAL_DATE, &["2024", "3", "10", "7"]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

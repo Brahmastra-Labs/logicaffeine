@@ -20,39 +20,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 PROGRAMS_DIR="$SCRIPT_DIR/programs"
 
-BENCHMARKS=(
-    fib ackermann nqueens
-    bubble_sort mergesort quicksort counting_sort heap_sort
-    nbody mandelbrot spectral_norm pi_leibniz
-    gcd collatz primes
-    sieve matrix_mult prefix_sum array_reverse array_fill
-    collect two_sum histogram
-    knapsack coins
-    fannkuch
-    strings binary_trees
-    loop_sum fib_iterative graph_bfs string_search
-)
+# The benchmark list is the suite registry (benchmarks/lib/benchmarks.tsv), loaded here with the rest of it.
+. "$SCRIPT_DIR/lib/suite.sh"
 
 # Small, interpreter-friendly sizes — correctness doesn't need scale, and the
 # interpreter is slow. Exponential benchmarks (fib/ackermann/nqueens) stay tiny.
 small_size() {
-    case "$1" in
-        fib) echo 12 ;; ackermann) echo 2 ;; nqueens) echo 6 ;;
-        bubble_sort) echo 60 ;; mergesort) echo 200 ;; quicksort) echo 200 ;;
-        counting_sort) echo 500 ;; heap_sort) echo 200 ;;
-        nbody) echo 50 ;; mandelbrot) echo 20 ;; spectral_norm) echo 20 ;;
-        pi_leibniz) echo 5000 ;;
-        gcd) echo 50 ;; collatz) echo 2000 ;; primes) echo 500 ;;
-        sieve) echo 5000 ;; matrix_mult) echo 12 ;; prefix_sum) echo 5000 ;;
-        array_reverse) echo 5000 ;; array_fill) echo 5000 ;;
-        collect) echo 2000 ;; two_sum) echo 200 ;; histogram) echo 5000 ;;
-        knapsack) echo 20 ;; coins) echo 2000 ;;
-        fannkuch) echo 6 ;;
-        strings) echo 500 ;; binary_trees) echo 8 ;;
-        loop_sum) echo 5000 ;; fib_iterative) echo 5000 ;;
-        graph_bfs) echo 100 ;; string_search) echo 2000 ;;
-        *) echo 100 ;;
-    esac
+    echo "${BENCH_SMALL_SIZE[$1]}"
 }
 
 bench_size() { local v="SIZE_${1}"; echo "${!v:-$(small_size "$1")}"; }
@@ -71,11 +45,8 @@ export LOGOS_WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
 export CARGO_TARGET_DIR="$SCRIPT_DIR/.logos-bench-target"
 
 info "Building largo (release)..."
-cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$CARGO_TARGET_DIR/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$CARGO_TARGET_DIR/release/largo"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/largo"
-if [ ! -f "$LARGO" ]; then fail "no largo binary"; exit 1; fi
+. "$SCRIPT_DIR/lib/largo.sh"
+largo_build || exit 1
 ok "largo built"
 
 TMP_BASE=$(mktemp -d); trap 'rm -rf "$TMP_BASE"' EXIT

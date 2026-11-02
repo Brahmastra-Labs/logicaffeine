@@ -1,0 +1,10 @@
+{
+  "capability": "convert.format_uint",
+  "workload": "len formatUint(i)",
+  "arg": "2000000",
+  "expected": "12888896",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

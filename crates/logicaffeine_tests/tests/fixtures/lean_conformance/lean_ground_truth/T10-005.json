@@ -1,0 +1,45 @@
+{
+  "case": "T10-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "String \u2192 String",
+      "name": "T10_005.echo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "String",
+      "name": "T10_005.empty",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "String",
+      "name": "T10_005.escaped",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "String",
+      "name": "T10_005.greeting",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "String",
+      "name": "T10_005.unicode",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -4,18 +4,16 @@
 pub use logicaffeine_compile::AstNode;
 
 // Game/learning modules
-pub mod achievements;
-pub mod audio;
+pub mod composer;
 pub mod content;
-pub mod game;
 pub mod generator;
 pub mod grader;
+pub mod guide_review;
 pub mod learn_state;
 pub mod progress;
 pub mod srs;
 pub mod storage;
 pub mod struggle;
-pub mod unlock;
 
 // SEO and sitemap
 pub mod sitemap;

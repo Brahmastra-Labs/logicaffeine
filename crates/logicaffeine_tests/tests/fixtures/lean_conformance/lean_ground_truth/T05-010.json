@@ -1,0 +1,361 @@
+{
+  "case": "T05-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 45,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T05_010.Color",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Color",
+      "name": "T05_010.Color.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T05_010.Color.blue = 1",
+      "name": "T05_010.Color.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_010.Color \u2192 Sort u} \u2192\n  (t : T05_010.Color) \u2192 motive T05_010.Color.red \u2192 motive T05_010.Color.green \u2192 motive T05_010.Color.blue \u2192 motive t",
+      "name": "T05_010.Color.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Color",
+      "name": "T05_010.Color.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T05_010.Color.green = 1",
+      "name": "T05_010.Color.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T05_010.Color} \u2192 x = y \u2192 T05_010.Color.noConfusionType P x y",
+      "name": "T05_010.Color.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.245"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T05_010.Color \u2192 T05_010.Color \u2192 Sort v\u271d",
+      "name": "T05_010.Color.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.244"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_010.Color \u2192 Sort u} \u2192\n  motive T05_010.Color.red \u2192 motive T05_010.Color.green \u2192 motive T05_010.Color.blue \u2192 (t : T05_010.Color) \u2192 motive t",
+      "name": "T05_010.Color.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_010.Color \u2192 Sort u} \u2192\n  (t : T05_010.Color) \u2192 motive T05_010.Color.red \u2192 motive T05_010.Color.green \u2192 motive T05_010.Color.blue \u2192 motive t",
+      "name": "T05_010.Color.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Color",
+      "name": "T05_010.Color.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T05_010.Color.red = 1",
+      "name": "T05_010.Color.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Color \u2192 Nat",
+      "name": "T05_010.Color.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_010.MyPoint",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type \u2192 Type",
+      "name": "T05_010.Pair",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_010.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T05_010.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T05_010.Pair.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_010.Pair \u03b1 \u03b2 \u2192 \u03b1",
+      "name": "T05_010.Pair.fst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 T05_010.Pair \u03b1 \u03b2",
+      "name": "T05_010.Pair.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} {fst : \u03b1} {snd : \u03b2} {fst_1 : \u03b1} {snd_1 : \u03b2},\n  { fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 } \u2192 fst = fst_1 \u2227 snd = snd_1",
+      "name": "T05_010.Pair.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} (fst : \u03b1) (snd : \u03b2) (fst_1 : \u03b1) (snd_1 : \u03b2),\n  ({ fst := fst, snd := snd } = { fst := fst_1, snd := snd_1 }) = (fst = fst_1 \u2227 snd = snd_1)",
+      "name": "T05_010.Pair.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 \u03b2 : Type} [inst : SizeOf \u03b1] [inst_1 : SizeOf \u03b2] (fst : \u03b1) (snd : \u03b2),\n  sizeOf { fst := fst, snd := snd } = 1 + sizeOf fst + sizeOf snd",
+      "name": "T05_010.Pair.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_010.Pair \u03b1 \u03b2} \u2192 v1 = v2 \u2192 T05_010.Pair.noConfusionType P v1 v2",
+      "name": "T05_010.Pair.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 Sort u \u2192 T05_010.Pair \u03b1 \u03b2 \u2192 T05_010.Pair \u03b1 \u03b2 \u2192 Sort u",
+      "name": "T05_010.Pair.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_010.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 (t : T05_010.Pair \u03b1 \u03b2) \u2192 motive t",
+      "name": "T05_010.Pair.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192\n  {motive : T05_010.Pair \u03b1 \u03b2 \u2192 Sort u} \u2192\n    (t : T05_010.Pair \u03b1 \u03b2) \u2192 ((fst : \u03b1) \u2192 (snd : \u03b2) \u2192 motive { fst := fst, snd := snd }) \u2192 motive t",
+      "name": "T05_010.Pair.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_010.Pair \u03b1 \u03b2 \u2192 \u03b2",
+      "name": "T05_010.Pair.snd",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_010.Point",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_010.Point \u2192 Sort u} \u2192 (t : T05_010.Point) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T05_010.Point.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T05_010.Point",
+      "name": "T05_010.Point.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {x y x_1 y_1 : Nat}, { x := x, y := y } = { x := x_1, y := y_1 } \u2192 x = x_1 \u2227 y = y_1",
+      "name": "T05_010.Point.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y x_1 y_1 : Nat), ({ x := x, y := y } = { x := x_1, y := y_1 }) = (x = x_1 \u2227 y = y_1)",
+      "name": "T05_010.Point.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Nat), sizeOf { x := x, y := y } = 1 + sizeOf x + sizeOf y",
+      "name": "T05_010.Point.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_010.Point} \u2192 v1 = v2 \u2192 T05_010.Point.noConfusionType P v1 v2",
+      "name": "T05_010.Point.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_010.Point \u2192 T05_010.Point \u2192 Sort u",
+      "name": "T05_010.Point.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Point \u2192 Nat",
+      "name": "T05_010.Point.norm1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_010.Point \u2192 Sort u} \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 (t : T05_010.Point) \u2192 motive t",
+      "name": "T05_010.Point.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_010.Point \u2192 Sort u} \u2192 (t : T05_010.Point) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T05_010.Point.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T05_010.Point \u2192 T05_010.Point",
+      "name": "T05_010.Point.shift",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Point \u2192 Nat",
+      "name": "T05_010.Point.x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Point \u2192 Nat",
+      "name": "T05_010.Point.y",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.Color",
+      "name": "T05_010.c",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List T05_010.Color \u2192 T05_010.Color",
+      "name": "T05_010.firstOrRed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List T05_010.Color \u2192 Sort u_1) \u2192\n  (x : List T05_010.Color) \u2192\n    (Unit \u2192 motive []) \u2192 ((x : T05_010.Color) \u2192 (tail : List T05_010.Color) \u2192 motive (x :: tail)) \u2192 motive x",
+      "name": "T05_010.firstOrRed.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 T05_010.Pair \u03b1 \u03b2 \u2192 \u03b1",
+      "name": "T05_010.getFst",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_010.MyPoint",
+      "name": "T05_010.mp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

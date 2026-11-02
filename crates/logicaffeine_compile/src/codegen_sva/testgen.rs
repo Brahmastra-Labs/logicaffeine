@@ -3,7 +3,7 @@
 //! Extracts directed test vectors from Z3 counterexample traces and generates
 //! SystemVerilog testbenches that reproduce the violation scenario.
 
-use logicaffeine_verify::equivalence::{Trace, CycleState, SignalValue};
+use logicaffeine_verify::equivalence::{SignalValue, Trace};
 use logicaffeine_verify::kinduction::SignalDecl;
 
 /// Generate a complete SystemVerilog testbench from a counterexample trace.
@@ -36,7 +36,9 @@ pub fn trace_to_testbench(trace: &Trace, module_name: &str) -> String {
     // Declare signals
     for sig in &all_signals {
         // Determine width from first occurrence
-        let width = trace.cycles.iter()
+        let width = trace
+            .cycles
+            .iter()
             .find_map(|c| c.signals.get(sig))
             .map(|v| match v {
                 SignalValue::BitVec { width, .. } => *width,
@@ -74,7 +76,10 @@ pub fn trace_to_testbench(trace: &Trace, module_name: &str) -> String {
 
         // Display violation at last cycle
         if let Some(last) = trace.cycles.last() {
-            tb.push_str(&format!("\n    $display(\"Violation at cycle {}\");\n", last.cycle));
+            tb.push_str(&format!(
+                "\n    $display(\"Violation at cycle {}\");\n",
+                last.cycle
+            ));
         }
     }
 

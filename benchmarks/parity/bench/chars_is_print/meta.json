@@ -1,0 +1,10 @@
+{
+  "capability": "chars.is_print",
+  "workload": "count codepoints (i%128) where is_print",
+  "arg": "20000000",
+  "expected": "14843750",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c"
+  ]
+}

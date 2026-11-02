@@ -29,14 +29,23 @@ fn ci_pass_result() {
 fn ci_fail_result() {
     let report = run_ci_verification(&[""], &[], &CiConfig::default());
     let result = &report.sarif["runs"][0]["results"][0];
-    assert_eq!(result["level"], "error", "Empty spec (failing) should be 'error'");
+    assert_eq!(
+        result["level"], "error",
+        "Empty spec (failing) should be 'error'"
+    );
 }
 
 #[test]
 fn ci_summary_readable() {
     let report = run_ci_verification(&["spec1", "spec2"], &[], &CiConfig::default());
-    assert!(report.summary.contains("passed"), "Summary should mention 'passed'");
-    assert!(report.summary.contains("failed"), "Summary should mention 'failed'");
+    assert!(
+        report.summary.contains("passed"),
+        "Summary should mention 'passed'"
+    );
+    assert!(
+        report.summary.contains("failed"),
+        "Summary should mention 'failed'"
+    );
 }
 
 #[test]
@@ -72,7 +81,10 @@ fn ci_counterexample_in_sarif() {
 fn ci_property_location() {
     let report = run_ci_verification(&["spec"], &[], &CiConfig::default());
     let result = &report.sarif["runs"][0]["results"][0];
-    assert!(result["locations"].is_array(), "Should have locations array");
+    assert!(
+        result["locations"].is_array(),
+        "Should have locations array"
+    );
 }
 
 #[test]
@@ -97,9 +109,15 @@ fn ci_report_serializable() {
 #[test]
 fn ci_template_generated() {
     let template = generate_github_actions_template();
-    assert!(template.contains("logicaffeine"), "Template should mention logicaffeine");
+    assert!(
+        template.contains("logicaffeine"),
+        "Template should mention logicaffeine"
+    );
     assert!(template.contains("sarif"), "Template should mention SARIF");
-    assert!(template.contains("github"), "Template should mention GitHub");
+    assert!(
+        template.contains("github"),
+        "Template should mention GitHub"
+    );
 }
 
 #[test]

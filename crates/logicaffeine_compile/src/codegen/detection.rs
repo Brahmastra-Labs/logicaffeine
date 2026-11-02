@@ -4,7 +4,7 @@ use crate::analysis::registry::{FieldType, TypeDef, TypeRegistry};
 use crate::ast::stmt::{Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 
-use super::is_recursive_field;
+use super::field_is_boxed;
 use super::types::codegen_type_expr;
 
 pub(super) fn is_result_type(ty: &TypeExpr, interner: &Interner) -> bool {
@@ -13,6 +13,17 @@ pub(super) fn is_result_type(ty: &TypeExpr, interner: &Interner) -> bool {
     } else {
         false
     }
+}
+
+/// Whether the program serves HTTP requests: a `Serve` anywhere in it, at the top level or in a function.
+pub(super) fn serves(stmts: &[Stmt]) -> bool {
+    let mut found = false;
+    logicaffeine_language::ast_depth::for_each_node(stmts, |node| {
+        if let logicaffeine_language::ast_depth::Visited::Stmt(Stmt::Serve { .. }) = node {
+            found = true;
+        }
+    });
+    found
 }
 
 /// Phase 51: Detect if any statements require async execution.
@@ -24,17 +35,22 @@ pub(super) fn requires_async(stmts: &[Stmt]) -> bool {
 pub(super) fn requires_async_stmt(stmt: &Stmt) -> bool {
     match stmt {
         // Phase 9: Concurrent blocks use tokio::join!
-        Stmt::Concurrent { tasks } => true,
+        Stmt::Concurrent { tasks: _ } => true,
         // Phase 51: Network operations and Sleep are async
         Stmt::Listen { .. } => true,
         Stmt::ConnectTo { .. } => true,
+        // HTTP server binds a tokio listener and awaits per-request handling.
+        Stmt::Serve { .. } => true,
         Stmt::Sleep { .. } => true,
         // Phase 52: Sync is async (GossipSub subscription)
         Stmt::Sync { .. } => true,
         // Phase 53: Mount is async (VFS file operations)
         Stmt::Mount { .. } => true,
         // Phase 53: File I/O is async (VFS operations)
-        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::ReadFrom {
+            source: ReadSource::File(_),
+            ..
+        } => true,
         Stmt::WriteFile { .. } => true,
         // Phase 54: Go-like concurrency is async
         Stmt::LaunchTask { .. } => true,
@@ -42,10 +58,21 @@ pub(super) fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::SendPipe { .. } => true,
         Stmt::ReceivePipe { .. } => true,
         Stmt::Select { .. } => true,
+        Stmt::AwaitTask { .. } => true,
+        // Mode B: every scheduler operation is an awaited step on the replay executor.
+        Stmt::CreatePipe { .. }
+        | Stmt::TrySendPipe { .. }
+        | Stmt::TryReceivePipe { .. }
+        | Stmt::StopTask { .. }
+        | Stmt::CloseChannel { .. } => super::deterministic_replay_enabled(),
         // While and Repeat are now always async due to check_preemption()
         // (handled below in recursive check)
         // Recursively check nested blocks
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             then_block.iter().any(|s| requires_async_stmt(s))
                 || else_block.map_or(false, |b| b.iter().any(|s| requires_async_stmt(s)))
         }
@@ -55,9 +82,9 @@ pub(super) fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
         // Check Inspect arms for async operations
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| arm.body.iter().any(|s| requires_async_stmt(s)))
-        }
+        Stmt::Inspect { arms, .. } => arms
+            .iter()
+            .any(|arm| arm.body.iter().any(|s| requires_async_stmt(s))),
         _ => false,
     }
 }
@@ -73,10 +100,17 @@ pub(super) fn requires_vfs_stmt(stmt: &Stmt) -> bool {
         // Phase 53: Mount uses VFS for persistent storage
         Stmt::Mount { .. } => true,
         // Phase 53: File I/O uses VFS
-        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::ReadFrom {
+            source: ReadSource::File(_),
+            ..
+        } => true,
         Stmt::WriteFile { .. } => true,
         // Recursively check nested blocks
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             then_block.iter().any(|s| requires_vfs_stmt(s))
                 || else_block.map_or(false, |b| b.iter().any(|s| requires_vfs_stmt(s)))
         }
@@ -90,21 +124,8 @@ pub(super) fn requires_vfs_stmt(stmt: &Stmt) -> bool {
     }
 }
 
-/// Phase 49b: Extract root identifier from expression for mutability analysis.
-/// Works with both simple identifiers and field accesses.
-pub(super) fn get_root_identifier_for_mutability(expr: &Expr) -> Option<Symbol> {
-    match expr {
-        Expr::Identifier(sym) => Some(*sym),
-        Expr::FieldAccess { object, .. } => get_root_identifier_for_mutability(object),
-        _ => None,
-    }
-}
-
-/// Grand Challenge: Collect all variables that need `let mut` in Rust.
-/// This includes:
-/// - Variables that are targets of `Set` statements (reassignment)
-/// - Variables that are targets of `Push` statements (mutation via push)
-/// - Variables that are targets of `Pop` statements (mutation via pop)
+/// Every variable that needs `let mut` in Rust: each name the block reassigns (`Set`, `Swap`) or changes in place
+/// (`Push`, `Pop`, `SetIndex`, …), and each binding lent to a `mutable` parameter (the callee writes it in place).
 pub(super) fn collect_mutable_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
     let mut targets = HashSet::new();
     for stmt in stmts {
@@ -114,104 +135,30 @@ pub(super) fn collect_mutable_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
 }
 
 pub(super) fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
-    match stmt {
-        Stmt::Set { target, .. } => {
-            targets.insert(*target);
-        }
-        Stmt::Push { collection, .. } => {
-            // If collection is an identifier or field access, root needs to be mutable
-            if let Some(sym) = get_root_identifier_for_mutability(collection) {
-                targets.insert(sym);
+    collect_written_vars_stmt(stmt, targets);
+    collect_lent_vars(std::slice::from_ref(stmt), targets);
+}
+
+/// Every binding `stmts` passes to a `mutable` parameter, wherever the call sits
+/// ([`crate::analysis::callgraph::lent_positions`]). The callee writes a lent binding, and a lend
+/// copies the binding on write first, so the binding is written like any `Push` target.
+fn collect_lent_vars(stmts: &[Stmt], targets: &mut HashSet<Symbol>) {
+    crate::analysis::callgraph::for_each_call_site(stmts, &mut |function, args| {
+        for at in crate::analysis::callgraph::lent_positions(function) {
+            if let Some(Expr::Identifier(sym)) = args.get(at) {
+                targets.insert(*sym);
             }
         }
-        Stmt::Pop { collection, .. } => {
-            // If collection is an identifier or field access, root needs to be mutable
-            if let Some(sym) = get_root_identifier_for_mutability(collection) {
-                targets.insert(sym);
-            }
-        }
-        Stmt::Add { collection, .. } => {
-            // If collection is an identifier (Set) or field access, root needs to be mutable
-            if let Some(sym) = get_root_identifier_for_mutability(collection) {
-                targets.insert(sym);
-            }
-        }
-        Stmt::Remove { collection, .. } => {
-            // If collection is an identifier (Set) or field access, root needs to be mutable
-            if let Some(sym) = get_root_identifier_for_mutability(collection) {
-                targets.insert(sym);
-            }
-        }
-        Stmt::SetIndex { collection, .. } => {
-            // If collection is an identifier or field access, root needs to be mutable
-            if let Some(sym) = get_root_identifier_for_mutability(collection) {
-                targets.insert(sym);
-            }
-        }
-        Stmt::If { then_block, else_block, .. } => {
-            for s in *then_block {
-                collect_mutable_vars_stmt(s, targets);
-            }
-            if let Some(else_stmts) = else_block {
-                for s in *else_stmts {
-                    collect_mutable_vars_stmt(s, targets);
-                }
-            }
-        }
-        Stmt::While { body, .. } => {
-            for s in *body {
-                collect_mutable_vars_stmt(s, targets);
-            }
-        }
-        Stmt::Repeat { body, .. } => {
-            for s in *body {
-                collect_mutable_vars_stmt(s, targets);
-            }
-        }
-        Stmt::Zone { body, .. } => {
-            for s in *body {
-                collect_mutable_vars_stmt(s, targets);
-            }
-        }
-        // Inspect (pattern match) arms may contain mutations
-        Stmt::Inspect { arms, .. } => {
-            for arm in arms.iter() {
-                for s in arm.body.iter() {
-                    collect_mutable_vars_stmt(s, targets);
-                }
-            }
-        }
-        // Phase 9: Structured Concurrency blocks
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-            for s in *tasks {
-                collect_mutable_vars_stmt(s, targets);
-            }
-        }
-        // Phase 49b: CRDT operations require mutable access
-        Stmt::IncreaseCrdt { object, .. } | Stmt::DecreaseCrdt { object, .. } => {
-            // Extract root variable from field access (e.g., g.score -> g)
-            if let Some(sym) = get_root_identifier_for_mutability(object) {
-                targets.insert(sym);
-            }
-        }
-        Stmt::AppendToSequence { sequence, .. } => {
-            if let Some(sym) = get_root_identifier_for_mutability(sequence) {
-                targets.insert(sym);
-            }
-        }
-        Stmt::ResolveConflict { object, .. } => {
-            if let Some(sym) = get_root_identifier_for_mutability(object) {
-                targets.insert(sym);
-            }
-        }
-        // Phase 49b: SetField on MVRegister/LWWRegister uses .set() which requires &mut self
-        Stmt::SetField { object, .. } => {
-            if let Some(sym) = get_root_identifier_for_mutability(object) {
-                targets.insert(sym);
-            }
-        }
-        _ => {}
-    }
+    });
+}
+
+/// Every name `stmt` reassigns (`Set`, `Swap`, a lend to a `mutable` parameter) or changes in place (the root of a
+/// `Push`, `SetIndex`, `SetField`, CRDT update, …), nested blocks included: the optimizer's one exhaustive write walk,
+/// so a statement kind cannot write a name here and not in the passes that ask the same question.
+fn collect_written_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
+    let writes = crate::optimize::WriteSet::of_stmt(stmt);
+    targets.extend(writes.assigned().iter().copied());
+    targets.extend(writes.mutated().iter().copied());
 }
 
 /// Detect mutable Text variables that are only ever assigned single-character
@@ -225,7 +172,10 @@ pub(super) fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbo
 /// 2. Every `Set ch to "y"` assigns a single-char text literal
 /// 3. It is never used in a context that requires String (e.g., function call args,
 ///    Return, field access) — only push_str (→ push), Show, or comparison
-pub(super) fn collect_single_char_text_vars(stmts: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
+pub(super) fn collect_single_char_text_vars(
+    stmts: &[Stmt],
+    interner: &Interner,
+) -> HashSet<Symbol> {
     let mut candidates: HashSet<Symbol> = HashSet::new();
     let mut disqualified: HashSet<Symbol> = HashSet::new();
 
@@ -246,6 +196,8 @@ pub(super) fn collect_single_char_text_vars(stmts: &[Stmt], interner: &Interner)
         candidates.remove(sym);
     }
 
+    // A swap exchanges the two texts whole: both are one byte, or neither is.
+    crate::optimize::SwapClasses::of(stmts, interner).close_set(&mut candidates, interner);
     candidates
 }
 
@@ -266,7 +218,12 @@ fn scan_single_char_candidates(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { var, value, mutable, .. } => {
+            Stmt::Let {
+                var,
+                value,
+                mutable,
+                ..
+            } => {
                 if *mutable && is_single_char_text_literal(value, interner) {
                     candidates.insert(*var);
                 }
@@ -280,7 +237,11 @@ fn scan_single_char_candidates(
                     }
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 scan_single_char_candidates(then_block, interner, candidates, disqualified);
                 if let Some(eb) = else_block {
                     scan_single_char_candidates(eb, interner, candidates, disqualified);
@@ -328,8 +289,13 @@ fn check_single_char_usage(
                 }
             }
             Stmt::Show { object, .. } => {
-                // Show ch is fine — we'll emit `println!("{}", ch as char)`
-                // But don't check deeper — identifiers in Show are OK
+                // A BARE candidate is fine — Show emits `println!("{}", ch as char)`.
+                // Any deeper appearance (an interpolated string, arithmetic, a
+                // call) would format the raw u8 as its byte code, so it
+                // disqualifies.
+                if !matches!(object, Expr::Identifier(_)) {
+                    check_expr_usage_strict(object, candidates, disqualified);
+                }
             }
             Stmt::Let { value, .. } => {
                 // `Let y be ch` would assign a u8 to y, which may not work.
@@ -348,7 +314,11 @@ fn check_single_char_usage(
                 // `Push ch to list` — disqualify since list expects String
                 check_expr_usage_strict(value, candidates, disqualified);
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond: _,
+                then_block,
+                else_block,
+            } => {
                 // Comparisons in conditions are fine for u8
                 check_single_char_usage(then_block, candidates, disqualified);
                 if let Some(eb) = else_block {
@@ -376,7 +346,11 @@ fn check_expr_usage(
     is_self_append: bool,
 ) {
     match expr {
-        Expr::BinaryOp { op: crate::ast::stmt::BinaryOpKind::Add, left, right } if is_self_append => {
+        Expr::BinaryOp {
+            op: crate::ast::stmt::BinaryOpKind::Add,
+            left,
+            right,
+        } if is_self_append => {
             // In self-append: `text + ch` — ch as a direct identifier is fine
             check_expr_usage(left, candidates, disqualified, true);
             // right side: if it's a bare candidate identifier, that's fine (push)
@@ -390,12 +364,24 @@ fn check_expr_usage(
                 disqualified.insert(*sym);
             }
         }
+        // A candidate inside an interpolation would format as its byte code.
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                    check_expr_usage_strict(value, candidates, disqualified);
+                }
+            }
+        }
         _ => {}
     }
 }
 
 /// Strictly disqualify any candidate that appears anywhere in this expression.
-fn check_expr_usage_strict(expr: &Expr, candidates: &HashSet<Symbol>, disqualified: &mut HashSet<Symbol>) {
+fn check_expr_usage_strict(
+    expr: &Expr,
+    candidates: &HashSet<Symbol>,
+    disqualified: &mut HashSet<Symbol>,
+) {
     match expr {
         Expr::Identifier(sym) => {
             if candidates.contains(sym) {
@@ -416,17 +402,30 @@ fn check_expr_usage_strict(expr: &Expr, candidates: &HashSet<Symbol>, disqualifi
             check_expr_usage_strict(collection, candidates, disqualified);
             check_expr_usage_strict(index, candidates, disqualified);
         }
-        Expr::Length { collection } => check_expr_usage_strict(collection, candidates, disqualified),
+        Expr::Length { collection } => {
+            check_expr_usage_strict(collection, candidates, disqualified)
+        }
         Expr::List(items) => {
             for item in items.iter() {
                 check_expr_usage_strict(item, candidates, disqualified);
+            }
+        }
+        // A candidate inside an interpolation would format as its byte code.
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                    check_expr_usage_strict(value, candidates, disqualified);
+                }
             }
         }
         _ => {}
     }
 }
 
-pub(super) fn collect_crdt_register_fields(registry: &TypeRegistry, interner: &Interner) -> (HashSet<(String, String)>, HashSet<(String, String)>) {
+pub(super) fn collect_crdt_register_fields(
+    registry: &TypeRegistry,
+    interner: &Interner,
+) -> (HashSet<(String, String)>, HashSet<(String, String)>) {
     let mut lww_fields = HashSet::new();
     let mut mv_fields = HashSet::new();
     for (type_sym, def) in registry.iter_types() {
@@ -448,9 +447,11 @@ pub(super) fn collect_crdt_register_fields(registry: &TypeRegistry, interner: &I
     (lww_fields, mv_fields)
 }
 
-/// Phase 102: Collect enum fields that need Box<T> for recursion.
-/// Returns a set of (EnumName, VariantName, FieldName) tuples.
-pub(super) fn collect_boxed_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String, String)> {
+/// The enum fields stored in a box of their own ([`field_is_boxed`]), as (EnumName, VariantName, FieldName).
+pub(super) fn collect_boxed_fields(
+    registry: &TypeRegistry,
+    interner: &Interner,
+) -> HashSet<(String, String, String)> {
     let mut boxed_fields = HashSet::new();
     for (type_sym, def) in registry.iter_types() {
         if let TypeDef::Enum { variants, .. } = def {
@@ -458,7 +459,7 @@ pub(super) fn collect_boxed_fields(registry: &TypeRegistry, interner: &Interner)
             for variant in variants {
                 let variant_name = interner.resolve(variant.name);
                 for field in &variant.fields {
-                    if is_recursive_field(&field.ty, enum_name, interner) {
+                    if field_is_boxed(&field.ty, enum_name, interner) {
                         let field_name = interner.resolve(field.name).to_string();
                         boxed_fields.insert((
                             enum_name.to_string(),
@@ -525,12 +526,22 @@ pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> 
         Stmt::Call { function, args } => {
             // Check if the called function is async OR if any argument expression calls an async function
             async_fns.contains(function)
-                || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
+                || args
+                    .iter()
+                    .any(|a| calls_async_function_in_expr(a, async_fns))
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             calls_async_function_in_expr(cond, async_fns)
-                || then_block.iter().any(|s| calls_async_function(s, async_fns))
-                || else_block.map_or(false, |b| b.iter().any(|s| calls_async_function(s, async_fns)))
+                || then_block
+                    .iter()
+                    .any(|s| calls_async_function(s, async_fns))
+                || else_block.map_or(false, |b| {
+                    b.iter().any(|s| calls_async_function(s, async_fns))
+                })
         }
         Stmt::While { cond, body, .. } => {
             calls_async_function_in_expr(cond, async_fns)
@@ -540,23 +551,19 @@ pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> 
             calls_async_function_in_expr(iterable, async_fns)
                 || body.iter().any(|s| calls_async_function(s, async_fns))
         }
-        Stmt::Zone { body, .. } => {
-            body.iter().any(|s| calls_async_function(s, async_fns))
-        }
+        Stmt::Zone { body, .. } => body.iter().any(|s| calls_async_function(s, async_fns)),
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             tasks.iter().any(|s| calls_async_function(s, async_fns))
         }
-        Stmt::FunctionDef { body, .. } => {
-            body.iter().any(|s| calls_async_function(s, async_fns))
-        }
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| calls_async_function(s, async_fns)),
         // Check Let statements for async function calls in the value expression
         Stmt::Let { value, .. } => calls_async_function_in_expr(value, async_fns),
         // Check Set statements for async function calls in the value expression
         Stmt::Set { value, .. } => calls_async_function_in_expr(value, async_fns),
         // Check Return statements for async function calls in the return value
-        Stmt::Return { value } => {
-            value.as_ref().map_or(false, |v| calls_async_function_in_expr(v, async_fns))
-        }
+        Stmt::Return { value } => value
+            .as_ref()
+            .map_or(false, |v| calls_async_function_in_expr(v, async_fns)),
         // Check RuntimeAssert condition for async calls
         Stmt::RuntimeAssert { condition, .. } => calls_async_function_in_expr(condition, async_fns),
         // Check Show for async calls
@@ -567,7 +574,11 @@ pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> 
                 || calls_async_function_in_expr(value, async_fns)
         }
         // Check SetIndex for async calls
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             calls_async_function_in_expr(collection, async_fns)
                 || calls_async_function_in_expr(index, async_fns)
                 || calls_async_function_in_expr(value, async_fns)
@@ -580,7 +591,9 @@ pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> 
         // Check Inspect arms for async function calls
         Stmt::Inspect { target, arms, .. } => {
             calls_async_function_in_expr(target, async_fns)
-                || arms.iter().any(|arm| arm.body.iter().any(|s| calls_async_function(s, async_fns)))
+                || arms
+                    .iter()
+                    .any(|arm| arm.body.iter().any(|s| calls_async_function(s, async_fns)))
         }
         _ => false,
     }
@@ -591,7 +604,9 @@ fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> boo
     match expr {
         Expr::Call { function, args } => {
             async_fns.contains(function)
-                || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
+                || args
+                    .iter()
+                    .any(|a| calls_async_function_in_expr(a, async_fns))
         }
         Expr::BinaryOp { left, right, .. } => {
             calls_async_function_in_expr(left, async_fns)
@@ -602,26 +617,28 @@ fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> boo
                 || calls_async_function_in_expr(index, async_fns)
         }
         Expr::FieldAccess { object, .. } => calls_async_function_in_expr(object, async_fns),
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().any(|i| calls_async_function_in_expr(i, async_fns))
-        }
-        Expr::Closure { body, .. } => {
-            match body {
-                crate::ast::stmt::ClosureBody::Expression(expr) => calls_async_function_in_expr(expr, async_fns),
-                crate::ast::stmt::ClosureBody::Block(_) => false,
+        Expr::List(items) | Expr::Tuple(items) => items
+            .iter()
+            .any(|i| calls_async_function_in_expr(i, async_fns)),
+        Expr::Closure { body, .. } => match body {
+            crate::ast::stmt::ClosureBody::Expression(expr) => {
+                calls_async_function_in_expr(expr, async_fns)
             }
-        }
+            crate::ast::stmt::ClosureBody::Block(_) => false,
+        },
         Expr::CallExpr { callee, args } => {
             calls_async_function_in_expr(callee, async_fns)
-                || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
+                || args
+                    .iter()
+                    .any(|a| calls_async_function_in_expr(a, async_fns))
         }
-        Expr::InterpolatedString(parts) => {
-            parts.iter().any(|p| {
-                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
-                    calls_async_function_in_expr(value, async_fns)
-                } else { false }
-            })
-        }
+        Expr::InterpolatedString(parts) => parts.iter().any(|p| {
+            if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                calls_async_function_in_expr(value, async_fns)
+            } else {
+                false
+            }
+        }),
         _ => false,
     }
 }
@@ -630,153 +647,10 @@ fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> boo
 // Purity Analysis
 // =============================================================================
 
-pub(super) fn collect_pure_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
-    let mut func_bodies: HashMap<Symbol, &[Stmt]> = HashMap::new();
-    for stmt in stmts {
-        if let Stmt::FunctionDef { name, body, .. } = stmt {
-            func_bodies.insert(*name, *body);
-        }
-    }
-
-    // Pass 1: Mark functions as impure if they directly contain impure statements
-    let mut impure_fns = HashSet::new();
-    for (func_name, body) in &func_bodies {
-        if body.iter().any(|s| is_directly_impure_stmt(s)) {
-            impure_fns.insert(*func_name);
-        }
-    }
-
-    // Pass 2: Propagate impurity through call graph until fixed point
-    loop {
-        let mut changed = false;
-        for (func_name, body) in &func_bodies {
-            if impure_fns.contains(func_name) {
-                continue;
-            }
-            if body.iter().any(|s| calls_impure_function(s, &impure_fns)) {
-                impure_fns.insert(*func_name);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    // Pure = all functions NOT in impure set
-    let mut pure_fns = HashSet::new();
-    for func_name in func_bodies.keys() {
-        if !impure_fns.contains(func_name) {
-            pure_fns.insert(*func_name);
-        }
-    }
-    pure_fns
-}
-
-fn is_directly_impure_stmt(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::Show { .. }
-        | Stmt::Give { .. }
-        | Stmt::WriteFile { .. }
-        | Stmt::ReadFrom { .. }
-        | Stmt::Listen { .. }
-        | Stmt::ConnectTo { .. }
-        | Stmt::SendMessage { .. }
-        | Stmt::StreamMessage { .. }
-        | Stmt::AwaitMessage { .. }
-        | Stmt::Sleep { .. }
-        | Stmt::Sync { .. }
-        | Stmt::Mount { .. }
-        | Stmt::MergeCrdt { .. }
-        | Stmt::IncreaseCrdt { .. }
-        | Stmt::DecreaseCrdt { .. }
-        | Stmt::AppendToSequence { .. }
-        | Stmt::ResolveConflict { .. }
-        | Stmt::CreatePipe { .. }
-        | Stmt::SendPipe { .. }
-        | Stmt::ReceivePipe { .. }
-        | Stmt::TrySendPipe { .. }
-        | Stmt::TryReceivePipe { .. }
-        | Stmt::LaunchTask { .. }
-        | Stmt::LaunchTaskWithHandle { .. }
-        | Stmt::StopTask { .. }
-        | Stmt::Concurrent { .. }
-        | Stmt::Parallel { .. } => true,
-        Stmt::If { then_block, else_block, .. } => {
-            then_block.iter().any(|s| is_directly_impure_stmt(s))
-                || else_block.map_or(false, |b| b.iter().any(|s| is_directly_impure_stmt(s)))
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            body.iter().any(|s| is_directly_impure_stmt(s))
-        }
-        Stmt::Zone { body, .. } => {
-            body.iter().any(|s| is_directly_impure_stmt(s))
-        }
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| arm.body.iter().any(|s| is_directly_impure_stmt(s)))
-        }
-        _ => false,
-    }
-}
-
-fn calls_impure_function(stmt: &Stmt, impure_fns: &HashSet<Symbol>) -> bool {
-    match stmt {
-        Stmt::Call { function, args } => {
-            impure_fns.contains(function)
-                || args.iter().any(|a| expr_calls_impure(a, impure_fns))
-        }
-        Stmt::Let { value, .. } => expr_calls_impure(value, impure_fns),
-        Stmt::Set { value, .. } => expr_calls_impure(value, impure_fns),
-        Stmt::Return { value } => value.as_ref().map_or(false, |v| expr_calls_impure(v, impure_fns)),
-        Stmt::If { cond, then_block, else_block } => {
-            expr_calls_impure(cond, impure_fns)
-                || then_block.iter().any(|s| calls_impure_function(s, impure_fns))
-                || else_block.map_or(false, |b| b.iter().any(|s| calls_impure_function(s, impure_fns)))
-        }
-        Stmt::While { cond, body, .. } => {
-            expr_calls_impure(cond, impure_fns)
-                || body.iter().any(|s| calls_impure_function(s, impure_fns))
-        }
-        Stmt::Repeat { body, .. } => body.iter().any(|s| calls_impure_function(s, impure_fns)),
-        Stmt::Zone { body, .. } => body.iter().any(|s| calls_impure_function(s, impure_fns)),
-        Stmt::Inspect { arms, .. } => {
-            arms.iter().any(|arm| arm.body.iter().any(|s| calls_impure_function(s, impure_fns)))
-        }
-        Stmt::Show { object, .. } => expr_calls_impure(object, impure_fns),
-        Stmt::Push { value, collection } | Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
-            expr_calls_impure(value, impure_fns) || expr_calls_impure(collection, impure_fns)
-        }
-        _ => false,
-    }
-}
-
-fn expr_calls_impure(expr: &Expr, impure_fns: &HashSet<Symbol>) -> bool {
-    match expr {
-        Expr::Call { function, args } => {
-            impure_fns.contains(function)
-                || args.iter().any(|a| expr_calls_impure(a, impure_fns))
-        }
-        Expr::BinaryOp { left, right, .. } => {
-            expr_calls_impure(left, impure_fns) || expr_calls_impure(right, impure_fns)
-        }
-        Expr::Index { collection, index } => {
-            expr_calls_impure(collection, impure_fns) || expr_calls_impure(index, impure_fns)
-        }
-        Expr::FieldAccess { object, .. } => expr_calls_impure(object, impure_fns),
-        Expr::List(items) | Expr::Tuple(items) => items.iter().any(|i| expr_calls_impure(i, impure_fns)),
-        Expr::CallExpr { callee, args } => {
-            expr_calls_impure(callee, impure_fns)
-                || args.iter().any(|a| expr_calls_impure(a, impure_fns))
-        }
-        Expr::InterpolatedString(parts) => {
-            parts.iter().any(|p| {
-                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
-                    expr_calls_impure(value, impure_fns)
-                } else { false }
-            })
-        }
-        _ => false,
-    }
+/// The program's pure functions: the shared optimizer's one definition ([`crate::optimize::purity::Purity`]), which
+/// memoization asks of a recursion before it caches one.
+pub(crate) fn collect_pure_functions(stmts: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
+    crate::optimize::purity::Purity::of_program(stmts, interner).into_set()
 }
 
 // =============================================================================
@@ -798,10 +672,17 @@ fn count_self_calls_in_stmt(func_name: Symbol, stmt: &Stmt) -> usize {
         Stmt::Set { value, .. } => count_self_calls_in_expr(func_name, value),
         Stmt::Call { function, args } => {
             let mut c = if *function == func_name { 1 } else { 0 };
-            c += args.iter().map(|a| count_self_calls_in_expr(func_name, a)).sum::<usize>();
+            c += args
+                .iter()
+                .map(|a| count_self_calls_in_expr(func_name, a))
+                .sum::<usize>();
             c
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             let mut c = count_self_calls_in_expr(func_name, cond);
             c += count_self_calls(func_name, then_block);
             if let Some(else_stmts) = else_block {
@@ -822,26 +703,34 @@ fn count_self_calls_in_expr(func_name: Symbol, expr: &Expr) -> usize {
     match expr {
         Expr::Call { function, args } => {
             let mut c = if *function == func_name { 1 } else { 0 };
-            c += args.iter().map(|a| count_self_calls_in_expr(func_name, a)).sum::<usize>();
+            c += args
+                .iter()
+                .map(|a| count_self_calls_in_expr(func_name, a))
+                .sum::<usize>();
             c
         }
         Expr::BinaryOp { left, right, .. } => {
             count_self_calls_in_expr(func_name, left) + count_self_calls_in_expr(func_name, right)
         }
         Expr::Index { collection, index } => {
-            count_self_calls_in_expr(func_name, collection) + count_self_calls_in_expr(func_name, index)
+            count_self_calls_in_expr(func_name, collection)
+                + count_self_calls_in_expr(func_name, index)
         }
         Expr::FieldAccess { object, .. } => count_self_calls_in_expr(func_name, object),
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().map(|i| count_self_calls_in_expr(func_name, i)).sum()
-        }
-        Expr::InterpolatedString(parts) => {
-            parts.iter().map(|p| {
+        Expr::List(items) | Expr::Tuple(items) => items
+            .iter()
+            .map(|i| count_self_calls_in_expr(func_name, i))
+            .sum(),
+        Expr::InterpolatedString(parts) => parts
+            .iter()
+            .map(|p| {
                 if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
                     count_self_calls_in_expr(func_name, value)
-                } else { 0 }
-            }).sum()
-        }
+                } else {
+                    0
+                }
+            })
+            .sum(),
         _ => 0,
     }
 }
@@ -850,8 +739,21 @@ pub(super) fn is_hashable_type(ty: &TypeExpr, interner: &Interner) -> bool {
     match ty {
         TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
             let name = interner.resolve(*sym);
-            matches!(name, "Int" | "Nat" | "Bool" | "Char" | "Byte" | "Text"
-                | "i64" | "u64" | "bool" | "char" | "u8" | "String")
+            matches!(
+                name,
+                "Int"
+                    | "Nat"
+                    | "Bool"
+                    | "Char"
+                    | "Byte"
+                    | "Text"
+                    | "i64"
+                    | "u64"
+                    | "bool"
+                    | "char"
+                    | "u8"
+                    | "String"
+            )
         }
         TypeExpr::Refinement { base, .. } => is_hashable_type(base, interner),
         _ => false,
@@ -862,8 +764,10 @@ pub(super) fn is_copy_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
     match ty {
         TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
             let name = interner.resolve(*sym);
-            matches!(name, "Int" | "Nat" | "Bool" | "Char" | "Byte"
-                | "i64" | "u64" | "bool" | "char" | "u8")
+            matches!(
+                name,
+                "Int" | "Nat" | "Bool" | "Char" | "Byte" | "i64" | "u64" | "bool" | "char" | "u8"
+            )
         }
         TypeExpr::Refinement { base, .. } => is_copy_type_expr(base, interner),
         _ => false,
@@ -912,18 +816,24 @@ fn stmt_contains_self_call(func_name: Symbol, stmt: &Stmt) -> bool {
         Stmt::Call { function, args } => {
             *function == func_name || args.iter().any(|a| expr_contains_self_call(func_name, a))
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_contains_self_call(func_name, cond)
-                || then_block.iter().any(|s| stmt_contains_self_call(func_name, s))
-                || else_block.map_or(false, |b| b.iter().any(|s| stmt_contains_self_call(func_name, s)))
+                || then_block
+                    .iter()
+                    .any(|s| stmt_contains_self_call(func_name, s))
+                || else_block.map_or(false, |b| {
+                    b.iter().any(|s| stmt_contains_self_call(func_name, s))
+                })
         }
         Stmt::While { cond, body, .. } => {
             expr_contains_self_call(func_name, cond)
                 || body.iter().any(|s| stmt_contains_self_call(func_name, s))
         }
-        Stmt::Repeat { body, .. } => {
-            body.iter().any(|s| stmt_contains_self_call(func_name, s))
-        }
+        Stmt::Repeat { body, .. } => body.iter().any(|s| stmt_contains_self_call(func_name, s)),
         Stmt::Show { object, .. } => expr_contains_self_call(func_name, object),
         _ => false,
     }
@@ -938,46 +848,20 @@ pub(super) fn expr_contains_self_call(func_name: Symbol, expr: &Expr) -> bool {
             expr_contains_self_call(func_name, left) || expr_contains_self_call(func_name, right)
         }
         Expr::Index { collection, index } => {
-            expr_contains_self_call(func_name, collection) || expr_contains_self_call(func_name, index)
+            expr_contains_self_call(func_name, collection)
+                || expr_contains_self_call(func_name, index)
         }
         Expr::FieldAccess { object, .. } => expr_contains_self_call(func_name, object),
         Expr::List(items) | Expr::Tuple(items) => {
             items.iter().any(|i| expr_contains_self_call(func_name, i))
         }
-        Expr::InterpolatedString(parts) => {
-            parts.iter().any(|p| {
-                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
-                    expr_contains_self_call(func_name, value)
-                } else { false }
-            })
-        }
-        _ => false,
-    }
-}
-
-/// Check if an expression contains an `Expr::Index` that reads from the given collection symbol.
-/// Used by SetIndex to decide whether the value expression aliases the collection being written to,
-/// which requires a temporary binding to avoid borrow conflicts.
-pub(super) fn expr_indexes_collection(expr: &Expr, coll_sym: Symbol) -> bool {
-    match expr {
-        Expr::Index { collection, index } => {
-            let indexes_this = matches!(collection, Expr::Identifier(sym) if *sym == coll_sym);
-            indexes_this
-                || expr_indexes_collection(collection, coll_sym)
-                || expr_indexes_collection(index, coll_sym)
-        }
-        Expr::BinaryOp { left, right, .. } => {
-            expr_indexes_collection(left, coll_sym) || expr_indexes_collection(right, coll_sym)
-        }
-        Expr::Call { args, .. } => {
-            args.iter().any(|a| expr_indexes_collection(a, coll_sym))
-        }
-        Expr::FieldAccess { object, .. } => expr_indexes_collection(object, coll_sym),
-        Expr::Length { collection } => expr_indexes_collection(collection, coll_sym),
-        Expr::Not { operand } => expr_indexes_collection(operand, coll_sym),
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().any(|i| expr_indexes_collection(i, coll_sym))
-        }
+        Expr::InterpolatedString(parts) => parts.iter().any(|p| {
+            if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                expr_contains_self_call(func_name, value)
+            } else {
+                false
+            }
+        }),
         _ => false,
     }
 }
@@ -999,7 +883,9 @@ pub(super) fn expr_reads_any_collection(expr: &Expr) -> bool {
         Expr::Call { args, .. } => args.iter().any(|a| expr_reads_any_collection(a)),
         Expr::FieldAccess { object, .. } => expr_reads_any_collection(object),
         Expr::Not { operand } => expr_reads_any_collection(operand),
-        Expr::List(items) | Expr::Tuple(items) => items.iter().any(|i| expr_reads_any_collection(i)),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| expr_reads_any_collection(i))
+        }
         _ => false,
     }
 }
@@ -1008,8 +894,16 @@ pub(super) fn expr_reads_any_collection(expr: &Expr) -> bool {
 // Inline Annotation Detection
 // =============================================================================
 
-pub(super) fn should_inline(name: Symbol, body: &[Stmt], is_native: bool, is_exported: bool, is_async: bool) -> bool {
-    !is_native && !is_exported && !is_async
+pub(super) fn should_inline(
+    name: Symbol,
+    body: &[Stmt],
+    is_native: bool,
+    is_exported: bool,
+    is_async: bool,
+) -> bool {
+    !is_native
+        && !is_exported
+        && !is_async
         && body.len() <= 10
         && !body_contains_self_call(name, body)
 }
@@ -1033,7 +927,11 @@ fn collect_pipe_sender_params_stmt(stmt: &Stmt, senders: &mut HashSet<Symbol>) {
                 senders.insert(*sym);
             }
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             for s in *then_block {
                 collect_pipe_sender_params_stmt(s, senders);
             }
@@ -1072,7 +970,11 @@ fn collect_pipe_vars_stmt(stmt: &Stmt, pipe_vars: &mut HashSet<Symbol>) {
         Stmt::CreatePipe { var, .. } => {
             pipe_vars.insert(*var);
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             for s in *then_block {
                 collect_pipe_vars_stmt(s, pipe_vars);
             }
@@ -1100,6 +1002,16 @@ fn collect_pipe_vars_stmt(stmt: &Stmt, pipe_vars: &mut HashSet<Symbol>) {
 /// Used by Concurrent/Parallel codegen to find variables that need cloning.
 pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
     match expr {
+        Expr::Dom(q) => {
+            if let Some(sel) = q.selector() {
+                collect_expr_identifiers(sel, identifiers);
+            }
+        }
+        Expr::View(v) => {
+            for e in v.exprs_and_blocks().0 {
+                collect_expr_identifiers(e, identifiers);
+            }
+        }
         Expr::Identifier(sym) => {
             identifiers.insert(*sym);
         }
@@ -1116,16 +1028,30 @@ pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Sy
             collect_expr_identifiers(collection, identifiers);
             collect_expr_identifiers(index, identifiers);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             collect_expr_identifiers(collection, identifiers);
             collect_expr_identifiers(start, identifiers);
             collect_expr_identifiers(end, identifiers);
         }
-        Expr::Copy { expr: inner } | Expr::Give { value: inner } | Expr::Length { collection: inner }
+        Expr::Copy { expr: inner }
+        | Expr::Give { value: inner }
+        | Expr::Length { collection: inner }
         | Expr::Not { operand: inner } => {
             collect_expr_identifiers(inner, identifiers);
         }
-        Expr::Contains { collection, value } | Expr::Union { left: collection, right: value } | Expr::Intersection { left: collection, right: value } => {
+        Expr::Contains { collection, value }
+        | Expr::Union {
+            left: collection,
+            right: value,
+        }
+        | Expr::Intersection {
+            left: collection,
+            right: value,
+        } => {
             collect_expr_identifiers(collection, identifiers);
             collect_expr_identifiers(value, identifiers);
         }
@@ -1161,12 +1087,12 @@ pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Sy
             collect_expr_identifiers(value, identifiers);
             collect_expr_identifiers(capacity, identifiers);
         }
-        Expr::Closure { body, .. } => {
-            match body {
-                crate::ast::stmt::ClosureBody::Expression(expr) => collect_expr_identifiers(expr, identifiers),
-                crate::ast::stmt::ClosureBody::Block(_) => {}
+        Expr::Closure { body, .. } => match body {
+            crate::ast::stmt::ClosureBody::Expression(expr) => {
+                collect_expr_identifiers(expr, identifiers)
             }
-        }
+            crate::ast::stmt::ClosureBody::Block(_) => {}
+        },
         Expr::CallExpr { callee, args } => {
             collect_expr_identifiers(callee, identifiers);
             for arg in args {
@@ -1188,113 +1114,32 @@ pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Sy
 
 /// Check if a symbol appears anywhere in a slice of statements (expressions or targets).
 /// Used by dead-counter elimination to decide if a post-loop counter binding is needed.
-pub(super) fn symbol_appears_in_stmts(sym: Symbol, stmts: &[&Stmt]) -> bool {
+pub(crate) fn symbol_appears_in_stmts(sym: Symbol, stmts: &[&Stmt]) -> bool {
     stmts.iter().any(|s| symbol_appears_in_stmt(sym, s))
 }
 
+/// Whether the value `sym` holds once `block[..at]` has run can still be read. A variable a `Let` in `block[..at]`
+/// declares lives only in the block, so only a later statement of the block reads it; any other variable belongs to
+/// an enclosing scope, whose code past this block (after an enclosing loop, or on its next pass) can read it.
+pub(crate) fn value_read_after(sym: Symbol, block: &[&Stmt], at: usize) -> bool {
+    let declared_here = block[..at]
+        .iter()
+        .any(|s| matches!(s, Stmt::Let { var, .. } if *var == sym));
+    !declared_here || symbol_appears_in_stmts(sym, &block[at..])
+}
+
+/// Whether `sym` appears anywhere in `stmt` — read, written, declared, captured — from the optimizer's one exhaustive
+/// walk. A nested function body is searched too: callers ask whether a NAME is still spoken of.
 pub(super) fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Let { value, .. } => symbol_appears_in_expr(sym, value),
-        Stmt::Set { target, value, .. } => *target == sym || symbol_appears_in_expr(sym, value),
-        Stmt::Show { object, .. } => symbol_appears_in_expr(sym, object),
-        Stmt::Return { value } => value.as_ref().map_or(false, |v| symbol_appears_in_expr(sym, v)),
-        Stmt::Call { function, args } => *function == sym || args.iter().any(|a| symbol_appears_in_expr(sym, a)),
-        Stmt::If { cond, then_block, else_block } => {
-            symbol_appears_in_expr(sym, cond)
-                || then_block.iter().any(|s| symbol_appears_in_stmt(sym, s))
-                || else_block.map_or(false, |b| b.iter().any(|s| symbol_appears_in_stmt(sym, s)))
-        }
-        Stmt::While { cond, body, .. } => {
-            symbol_appears_in_expr(sym, cond)
-                || body.iter().any(|s| symbol_appears_in_stmt(sym, s))
-        }
-        Stmt::Repeat { iterable, body, .. } => {
-            symbol_appears_in_expr(sym, iterable)
-                || body.iter().any(|s| symbol_appears_in_stmt(sym, s))
-        }
-        Stmt::Zone { body, .. } => body.iter().any(|s| symbol_appears_in_stmt(sym, s)),
-        Stmt::Push { collection, value } => {
-            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, value)
-        }
-        Stmt::Pop { collection, .. } => symbol_appears_in_expr(sym, collection),
-        Stmt::Add { collection, value } | Stmt::Remove { collection, value } => {
-            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, value)
-        }
-        Stmt::SetIndex { collection, index, value } => {
-            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, index) || symbol_appears_in_expr(sym, value)
-        }
-        Stmt::Inspect { target, arms, .. } => {
-            symbol_appears_in_expr(sym, target)
-                || arms.iter().any(|arm| arm.body.iter().any(|s| symbol_appears_in_stmt(sym, s)))
-        }
-        Stmt::RuntimeAssert { condition, .. } => symbol_appears_in_expr(sym, condition),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| symbol_appears_in_stmt(sym, s)),
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-            tasks.iter().any(|s| symbol_appears_in_stmt(sym, s))
-        }
-        _ => false,
+        other => crate::optimize::stmt_touches(other, sym),
     }
 }
 
+/// Whether `sym` appears anywhere in `expr`, closures included.
 pub(super) fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
-    match expr {
-        Expr::Identifier(s) => *s == sym,
-        Expr::BinaryOp { left, right, .. } => {
-            symbol_appears_in_expr(sym, left) || symbol_appears_in_expr(sym, right)
-        }
-        Expr::Call { function, args } => {
-            *function == sym || args.iter().any(|a| symbol_appears_in_expr(sym, a))
-        }
-        Expr::Index { collection, index } => {
-            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, index)
-        }
-        Expr::Slice { collection, start, end } => {
-            symbol_appears_in_expr(sym, collection)
-                || symbol_appears_in_expr(sym, start)
-                || symbol_appears_in_expr(sym, end)
-        }
-        Expr::Length { collection } | Expr::Copy { expr: collection } | Expr::Give { value: collection } => {
-            symbol_appears_in_expr(sym, collection)
-        }
-        Expr::Contains { collection, value } | Expr::Union { left: collection, right: value } | Expr::Intersection { left: collection, right: value } => {
-            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, value)
-        }
-        Expr::FieldAccess { object, .. } => symbol_appears_in_expr(sym, object),
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().any(|i| symbol_appears_in_expr(sym, i))
-        }
-        Expr::Range { start, end } => {
-            symbol_appears_in_expr(sym, start) || symbol_appears_in_expr(sym, end)
-        }
-        Expr::New { init_fields, .. } => {
-            init_fields.iter().any(|(_, v)| symbol_appears_in_expr(sym, v))
-        }
-        Expr::NewVariant { fields, .. } => {
-            fields.iter().any(|(_, v)| symbol_appears_in_expr(sym, v))
-        }
-        Expr::OptionSome { value } => symbol_appears_in_expr(sym, value),
-        Expr::WithCapacity { value, capacity } => {
-            symbol_appears_in_expr(sym, value) || symbol_appears_in_expr(sym, capacity)
-        }
-        Expr::CallExpr { callee, args } => {
-            symbol_appears_in_expr(sym, callee)
-                || args.iter().any(|a| symbol_appears_in_expr(sym, a))
-        }
-        Expr::InterpolatedString(parts) => {
-            parts.iter().any(|p| {
-                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
-                    symbol_appears_in_expr(sym, value)
-                } else { false }
-            })
-        }
-        Expr::Closure { body, .. } => {
-            match body {
-                crate::ast::stmt::ClosureBody::Expression(e) => symbol_appears_in_expr(sym, e),
-                crate::ast::stmt::ClosureBody::Block(stmts) => stmts.iter().any(|s| symbol_appears_in_stmt(sym, s)),
-            }
-        }
-        _ => false,
-    }
+    crate::optimize::expr_touches(expr, sym)
 }
 
 /// Check if a TypeExpr is a Vec/Seq/List type (collection that could be borrowed as &[T]).
@@ -1308,31 +1153,23 @@ pub(crate) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
     }
 }
 
-/// For a function's parameters and body, return the set of parameter indices
-/// whose Vec<T> params are read-only (never mutated in the body).
-/// These can safely be borrowed as &[T] instead of owned Vec<T>.
-pub(super) fn collect_readonly_vec_param_indices(
-    params: &[(Symbol, &TypeExpr)],
-    body: &[Stmt],
-    interner: &Interner,
-) -> HashSet<usize> {
-    let mutable_vars = collect_mutable_vars(body);
-    let mut readonly_indices = HashSet::new();
-    for (i, (param_sym, param_ty)) in params.iter().enumerate() {
-        if is_vec_type_expr(param_ty, interner) && !mutable_vars.contains(param_sym) {
-            readonly_indices.insert(i);
-        }
-    }
-    readonly_indices
-}
-
 /// Convert a Vec<T> or LogosSeq<T> type string to a slice &[T] type string.
 /// E.g., "Vec<i64>" → "&[i64]", "LogosSeq<i64>" → "&[i64]"
 pub(super) fn vec_to_slice_type(vec_type: &str) -> String {
-    if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+    if let Some(inner) = vec_type
+        .strip_prefix("Vec<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
         format!("&[{}]", inner)
-    } else if let Some(inner) = vec_type.strip_prefix("LogosSeq<").and_then(|s| s.strip_suffix('>')) {
+    } else if let Some(inner) = vec_type
+        .strip_prefix("LogosSeq<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
         format!("&[{}]", inner)
+    } else if vec_type == "String" {
+        // A readonly Text param borrows as `&str` — the caller passes `&s` (no clone), matching
+        // Rust's string ops which take `&str`. `text_bytes`/reads work through deref.
+        "&str".to_string()
     } else {
         vec_type.to_string()
     }
@@ -1340,9 +1177,15 @@ pub(super) fn vec_to_slice_type(vec_type: &str) -> String {
 
 /// Convert `Vec<T>` or `LogosSeq<T>` to `&mut [T]` for mutable borrow parameters.
 pub(super) fn vec_to_mut_slice_type(vec_type: &str) -> String {
-    if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+    if let Some(inner) = vec_type
+        .strip_prefix("Vec<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
         format!("&mut [{}]", inner)
-    } else if let Some(inner) = vec_type.strip_prefix("LogosSeq<").and_then(|s| s.strip_suffix('>')) {
+    } else if let Some(inner) = vec_type
+        .strip_prefix("LogosSeq<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
         format!("&mut [{}]", inner)
     } else {
         vec_type.to_string()
@@ -1410,21 +1253,34 @@ pub(crate) fn collect_de_rc_seqs(
     collect_buffer_swap_pairs(stmts, interner, &mut swaps);
 
     let mut disqualified = HashSet::new();
-    derc_scan_uses(stmts, &candidates, &swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, &mut disqualified);
+    derc_scan_uses(
+        stmts,
+        &candidates,
+        &swaps,
+        borrow_params,
+        mut_borrow_params,
+        vec_return_fns,
+        returns_vec,
+        interner,
+        &mut disqualified,
+    );
     candidates.retain(|c| !disqualified.contains(c));
 
     // A swap pair must de-Rc together — `std::mem::swap` needs both partners to
-    // be the same type. If either is disqualified, drop both. Iterate to a
-    // fixpoint so chained pairs settle.
+    // be the same type. If either is disqualified, drop both; the same holds for
+    // the names a `Swap` statement exchanges. Iterate to a fixpoint so chained
+    // pairs settle.
+    let classes = crate::optimize::SwapClasses::of(stmts, interner);
     loop {
-        let mut changed = false;
+        let before = candidates.len();
         for (outer, inner) in &swaps {
             if candidates.contains(outer) != candidates.contains(inner) {
-                changed |= candidates.remove(outer);
-                changed |= candidates.remove(inner);
+                candidates.remove(outer);
+                candidates.remove(inner);
             }
         }
-        if !changed {
+        classes.close_set(&mut candidates, interner);
+        if candidates.len() == before {
             break;
         }
     }
@@ -1458,7 +1314,12 @@ pub(super) fn collect_vec_return_fns(
     let mut seq_fns: Vec<(Symbol, &[Stmt], &[(Symbol, &TypeExpr)])> = Vec::new();
     for s in stmts {
         if let Stmt::FunctionDef {
-            name, body, params, return_type: Some(rt), is_native: false, ..
+            name,
+            body,
+            params,
+            return_type: Some(rt),
+            is_native: false,
+            ..
         } = s
         {
             if is_vec_type_expr(rt, interner) {
@@ -1500,11 +1361,25 @@ pub(super) fn collect_vec_return_fns(
         // CURRENT candidate set. Main's scope is the whole program slice
         // (`collect_de_rc_seqs` skips nested fn defs); each function's scope is
         // its own body with `returns_vec` = whether it is still a candidate.
-        let main_de_rc = collect_de_rc_seqs(stmts, interner, borrow_params, mut_borrow_params, &vec_fns, false);
+        let main_de_rc = collect_de_rc_seqs(
+            stmts,
+            interner,
+            borrow_params,
+            mut_borrow_params,
+            &vec_fns,
+            false,
+        );
         collect_unsound_vec_returns(stmts, &vec_fns, &main_de_rc, &mut remove);
         for (name, body, params) in &seq_fns {
             let rv = vec_fns.contains(name);
-            let de_rc = collect_de_rc_seqs(body, interner, borrow_params, mut_borrow_params, &vec_fns, rv);
+            let de_rc = collect_de_rc_seqs(
+                body,
+                interner,
+                borrow_params,
+                mut_borrow_params,
+                &vec_fns,
+                rv,
+            );
             collect_unsound_vec_returns(body, &vec_fns, &de_rc, &mut remove);
             if rv && !all_returns_vec_ownable(body, params, borrow_params.get(name), &de_rc) {
                 remove.insert(*name);
@@ -1543,7 +1418,11 @@ fn collect_unsound_vec_returns(
             }
         }
         match stmt {
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_unsound_vec_returns(then_block, vec_fns, de_rc, remove);
                 if let Some(eb) = else_block {
                     collect_unsound_vec_returns(eb, vec_fns, de_rc, remove);
@@ -1587,7 +1466,11 @@ fn all_returns_vec_ownable(
                     }
                 }
                 Stmt::Return { value: None } => *ok = false,
-                Stmt::If { then_block, else_block, .. } => {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     walk(then_block, params, borrow_idx, de_rc, ok);
                     if let Some(eb) = else_block {
                         walk(eb, params, borrow_idx, de_rc, ok);
@@ -1629,11 +1512,7 @@ fn is_vec_ownable_return(
 /// expects a `LogosSeq`, so an owned `Vec` return would not type-check.
 /// Recurses into nested function bodies. Uses `symbol_appears_in_*` (the same
 /// complete walker the de-Rc disqualification rests on) so its coverage matches.
-fn flag_inline_vec_calls(
-    stmts: &[Stmt],
-    vec_fns: &HashSet<Symbol>,
-    remove: &mut HashSet<Symbol>,
-) {
+fn flag_inline_vec_calls(stmts: &[Stmt], vec_fns: &HashSet<Symbol>, remove: &mut HashSet<Symbol>) {
     let flag_in_expr = |e: &Expr, remove: &mut HashSet<Symbol>| {
         for &f in vec_fns {
             if symbol_appears_in_expr(f, e) {
@@ -1656,7 +1535,11 @@ fn flag_inline_vec_calls(
                     flag_in_expr(value, remove);
                 }
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 flag_in_expr(cond, remove);
                 flag_inline_vec_calls(then_block, vec_fns, remove);
                 if let Some(eb) = else_block {
@@ -1730,7 +1613,11 @@ fn collect_buffer_swap_pairs(
                 detect_swap_in_body(body, interner, out);
                 collect_buffer_swap_pairs(body, interner, out);
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_buffer_swap_pairs(then_block, interner, out);
                 if let Some(eb) = else_block {
                     collect_buffer_swap_pairs(eb, interner, out);
@@ -1745,7 +1632,13 @@ fn collect_buffer_swap_pairs(
 fn detect_swap_in_body(body: &[Stmt], interner: &Interner, out: &mut HashSet<(Symbol, Symbol)>) {
     let mut fresh_inner: HashSet<Symbol> = HashSet::new();
     for stmt in body {
-        if let Stmt::Let { var, value, mutable: true, .. } = stmt {
+        if let Stmt::Let {
+            var,
+            value,
+            mutable: true,
+            ..
+        } = stmt
+        {
             if is_fresh_seq_value(value, interner) {
                 fresh_inner.insert(*var);
             }
@@ -1755,7 +1648,11 @@ fn detect_swap_in_body(body: &[Stmt], interner: &Interner, out: &mut HashSet<(Sy
         return;
     }
     for (idx, stmt) in body.iter().enumerate() {
-        if let Stmt::Set { target, value: Expr::Identifier(src) } = stmt {
+        if let Stmt::Set {
+            target,
+            value: Expr::Identifier(src),
+        } = stmt
+        {
             if *target != *src && fresh_inner.contains(src) {
                 let used_after = body[idx + 1..]
                     .iter()
@@ -1782,7 +1679,17 @@ fn derc_scan_uses(
     dq: &mut HashSet<Symbol>,
 ) {
     for stmt in stmts {
-        derc_scan_stmt(stmt, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+        derc_scan_stmt(
+            stmt,
+            cands,
+            swaps,
+            borrow_params,
+            mut_borrow_params,
+            vec_return_fns,
+            returns_vec,
+            interner,
+            dq,
+        );
     }
 }
 
@@ -1814,7 +1721,11 @@ fn derc_scan_call_args(
 /// True if `value` is a fresh Seq/List allocation (a safe decl/reassign source).
 fn is_fresh_seq_value(value: &Expr, interner: &Interner) -> bool {
     match value {
-        Expr::New { type_name, init_fields, .. } if init_fields.is_empty() => {
+        Expr::New {
+            type_name,
+            init_fields,
+            ..
+        } if init_fields.is_empty() => {
             matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec")
         }
         Expr::WithCapacity { value: inner, .. } => is_fresh_seq_value(inner, interner),
@@ -1892,33 +1803,93 @@ fn derc_scan_stmt(
             derc_scan_collection_slot(collection, cands, borrow_params, dq);
             derc_scan_expr(value, cands, borrow_params, dq);
         }
-        Stmt::Pop { collection, .. } => derc_scan_collection_slot(collection, cands, borrow_params, dq),
+        Stmt::Pop { collection, .. } => {
+            derc_scan_collection_slot(collection, cands, borrow_params, dq)
+        }
         Stmt::Remove { value, collection } => {
             derc_scan_collection_slot(collection, cands, borrow_params, dq);
             derc_scan_expr(value, cands, borrow_params, dq);
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             derc_scan_collection_slot(collection, cands, borrow_params, dq);
             derc_scan_expr(index, cands, borrow_params, dq);
             derc_scan_expr(value, cands, borrow_params, dq);
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             derc_scan_expr(cond, cands, borrow_params, dq);
-            derc_scan_uses(then_block, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+            derc_scan_uses(
+                then_block,
+                cands,
+                swaps,
+                borrow_params,
+                mut_borrow_params,
+                vec_return_fns,
+                returns_vec,
+                interner,
+                dq,
+            );
             if let Some(eb) = else_block {
-                derc_scan_uses(eb, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+                derc_scan_uses(
+                    eb,
+                    cands,
+                    swaps,
+                    borrow_params,
+                    mut_borrow_params,
+                    vec_return_fns,
+                    returns_vec,
+                    interner,
+                    dq,
+                );
             }
         }
         Stmt::While { cond, body, .. } => {
             derc_scan_expr(cond, cands, borrow_params, dq);
-            derc_scan_uses(body, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+            derc_scan_uses(
+                body,
+                cands,
+                swaps,
+                borrow_params,
+                mut_borrow_params,
+                vec_return_fns,
+                returns_vec,
+                interner,
+                dq,
+            );
         }
         Stmt::Repeat { iterable, body, .. } => {
             // Iterating a de-Rc'd Vec is not lowered in v1 → treat as a use.
             derc_scan_expr(iterable, cands, borrow_params, dq);
-            derc_scan_uses(body, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+            derc_scan_uses(
+                body,
+                cands,
+                swaps,
+                borrow_params,
+                mut_borrow_params,
+                vec_return_fns,
+                returns_vec,
+                interner,
+                dq,
+            );
         }
-        Stmt::Zone { body, .. } => derc_scan_uses(body, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq),
+        Stmt::Zone { body, .. } => derc_scan_uses(
+            body,
+            cands,
+            swaps,
+            borrow_params,
+            mut_borrow_params,
+            vec_return_fns,
+            returns_vec,
+            interner,
+            dq,
+        ),
         // Statements that carry expressions which may legitimately pass a
         // candidate to a borrow-param: scan position-aware.
         Stmt::Call { function, args } => {
@@ -1944,6 +1915,9 @@ fn derc_scan_stmt(
         // call args, which are checked at the call site. Skipping keeps a
         // name-collision from spuriously disqualifying an outer candidate.
         Stmt::FunctionDef { .. } => {}
+        // A swap exchanges two uniquely-owned buffers whole (`std::mem::swap`);
+        // `SwapClasses` keeps the two the same type.
+        Stmt::Swap { .. } => {}
         // Every other statement kind (SetField, Concurrent, …): any candidate
         // that appears anywhere in it is an unsafe use. `symbol_appears_in_stmt`
         // is a complete walker.
@@ -1991,7 +1965,9 @@ fn derc_scan_expr(
             derc_scan_collection_slot(collection, cands, borrow_params, dq);
             derc_scan_expr(index, cands, borrow_params, dq);
         }
-        Expr::Length { collection } => derc_scan_collection_slot(collection, cands, borrow_params, dq),
+        Expr::Length { collection } => {
+            derc_scan_collection_slot(collection, cands, borrow_params, dq)
+        }
         Expr::BinaryOp { left, right, .. } => {
             derc_scan_expr(left, cands, borrow_params, dq);
             derc_scan_expr(right, cands, borrow_params, dq);
@@ -2040,16 +2016,22 @@ pub(crate) fn homogeneous_scalar_literal_elem(items: &[&Expr]) -> Option<String>
 /// The Rust element type string if `value` freshly allocates a Seq of scalars.
 fn fresh_scalar_seq_elem(value: &Expr, interner: &Interner) -> Option<String> {
     match value {
-        Expr::New { type_name, type_args, init_fields } if init_fields.is_empty() => {
-            match interner.resolve(*type_name) {
-                "Seq" | "List" | "Vec" => {
-                    let elem = type_args.first()?;
-                    let ty = codegen_type_expr(elem, interner);
-                    if is_scalar_elem_type(&ty) { Some(ty) } else { None }
+        Expr::New {
+            type_name,
+            type_args,
+            init_fields,
+        } if init_fields.is_empty() => match interner.resolve(*type_name) {
+            "Seq" | "List" | "Vec" => {
+                let elem = type_args.first()?;
+                let ty = codegen_type_expr(elem, interner);
+                if is_scalar_elem_type(&ty) {
+                    Some(ty)
+                } else {
+                    None
                 }
-                _ => None,
             }
-        }
+            _ => None,
+        },
         Expr::WithCapacity { value: inner, .. } => fresh_scalar_seq_elem(inner, interner),
         // A homogeneous SCALAR-literal list (`[1,2,3]`, `[1.0,…]`, `[true,…]`, `['a',…]`) is a
         // uniquely-owned fresh Seq — de-Rc it to a plain `Vec<T>` so indexed access skips the
@@ -2088,7 +2070,11 @@ fn collect_de_rc_candidates_block(
                     out.insert(*var);
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_de_rc_candidates_block(then_block, interner, vec_return_fns, out);
                 if let Some(eb) = else_block {
                     collect_de_rc_candidates_block(eb, interner, vec_return_fns, out);
@@ -2110,7 +2096,7 @@ fn collect_de_rc_candidates_block(
 /// - Passed to a function call (without `copy of` wrapper)
 /// - Returned from the function
 /// Variables NOT in the returned set can safely use `Vec<T>` instead of `LogosSeq<T>`.
-pub(super) fn collect_escaping_collection_vars(stmts: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
+pub(super) fn collect_escaping_collection_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
     let mut escaped = HashSet::new();
     collect_escaping_vars_block(stmts, &mut escaped);
     escaped
@@ -2134,7 +2120,11 @@ fn collect_escaping_vars_stmt(stmt: &Stmt, escaped: &mut HashSet<Symbol>) {
                 escaped.insert(*sym);
             }
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             collect_escaping_vars_block(then_block, escaped);
             if let Some(else_stmts) = else_block {
                 collect_escaping_vars_block(else_stmts, escaped);
@@ -2156,7 +2146,9 @@ fn collect_escaping_vars_stmt(stmt: &Stmt, escaped: &mut HashSet<Symbol>) {
 /// Check if an expression is a direct call arg (not wrapped in Copy).
 fn collect_escaping_vars_from_call_arg(expr: &Expr, escaped: &mut HashSet<Symbol>) {
     match expr {
-        Expr::Identifier(sym) => { escaped.insert(*sym); }
+        Expr::Identifier(sym) => {
+            escaped.insert(*sym);
+        }
         Expr::Copy { .. } => { /* copy of X does not cause X to escape */ }
         _ => {
             // For complex expressions, check nested identifiers
@@ -2184,7 +2176,9 @@ fn collect_escaping_vars_from_expr_calls(expr: &Expr, escaped: &mut HashSet<Symb
 /// Collect direct identifier references from a non-Copy expression used as a call arg.
 fn collect_escaping_vars_from_expr_ids(expr: &Expr, escaped: &mut HashSet<Symbol>) {
     match expr {
-        Expr::Identifier(sym) => { escaped.insert(*sym); }
+        Expr::Identifier(sym) => {
+            escaped.insert(*sym);
+        }
         Expr::BinaryOp { left, right, .. } => {
             collect_escaping_vars_from_expr_ids(left, escaped);
             collect_escaping_vars_from_expr_ids(right, escaped);
@@ -2249,7 +2243,11 @@ fn scan_give_args_stmt(fn_sym: Symbol, stmt: &Stmt, result: &mut HashSet<usize>)
                 scan_give_args_stmt(fn_sym, s, result);
             }
         }
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             for s in *then_block {
                 scan_give_args_stmt(fn_sym, s, result);
             }
@@ -2370,7 +2368,11 @@ pub(super) fn detect_double_recursion_closed_form<'a>(
 
     // First statement: base case check
     let base_value = match &body[0] {
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             if else_block.is_some() {
                 return None;
             }
@@ -2382,10 +2384,16 @@ pub(super) fn detect_double_recursion_closed_form<'a>(
                 _ => return None,
             };
             match cond {
-                Expr::BinaryOp { op: BinaryOpKind::Eq, left, right } => {
+                Expr::BinaryOp {
+                    op: BinaryOpKind::Eq,
+                    left,
+                    right,
+                } => {
                     let ok = (cf_is_identifier(left, param_sym) && cf_is_literal_int(right, 0))
                         || (cf_is_literal_int(left, 0) && cf_is_identifier(right, param_sym));
-                    if !ok { return None; }
+                    if !ok {
+                        return None;
+                    }
                 }
                 _ => return None,
             }
@@ -2404,7 +2412,13 @@ pub(super) fn detect_double_recursion_closed_form<'a>(
     // arg (param - 1), and any number of integer literal addends.
     let mut self_call_count = 0usize;
     let mut constant_sum = 0i64;
-    if !cf_analyze_add_tree(recursive_expr, func_name, param_sym, &mut self_call_count, &mut constant_sum) {
+    if !cf_analyze_add_tree(
+        recursive_expr,
+        func_name,
+        param_sym,
+        &mut self_call_count,
+        &mut constant_sum,
+    ) {
         return None;
     }
 
@@ -2412,7 +2426,10 @@ pub(super) fn detect_double_recursion_closed_form<'a>(
         return None;
     }
 
-    Some(ClosedFormInfo { base: base_value, k: constant_sum })
+    Some(ClosedFormInfo {
+        base: base_value,
+        k: constant_sum,
+    })
 }
 
 fn cf_extract_literal_int(expr: &Expr) -> Option<i64> {
@@ -2437,7 +2454,12 @@ fn cf_is_self_call_with_decrement(expr: &Expr, func_name: Symbol, param_sym: Sym
         if *function != func_name || args.len() != 1 {
             return false;
         }
-        if let Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } = args[0] {
+        if let Expr::BinaryOp {
+            op: BinaryOpKind::Subtract,
+            left,
+            right,
+        } = args[0]
+        {
             cf_is_identifier(left, param_sym) && cf_is_literal_int(right, 1)
         } else {
             false
@@ -2458,7 +2480,11 @@ fn cf_analyze_add_tree(
 ) -> bool {
     use crate::ast::stmt::BinaryOpKind;
     match expr {
-        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+        Expr::BinaryOp {
+            op: BinaryOpKind::Add,
+            left,
+            right,
+        } => {
             cf_analyze_add_tree(left, func_name, param_sym, self_calls, constant_sum)
                 && cf_analyze_add_tree(right, func_name, param_sym, self_calls, constant_sum)
         }
@@ -2500,7 +2526,12 @@ struct ScalarCand {
 
 /// `a new Seq of {Int|Nat|Float|Bool}` → the Rust element type, else None.
 fn scalar_seq_elem_ty(value: &Expr, interner: &Interner) -> Option<String> {
-    if let Expr::New { type_name, type_args, .. } = value {
+    if let Expr::New {
+        type_name,
+        type_args,
+        ..
+    } = value
+    {
         if matches!(interner.resolve(*type_name), "Seq" | "List") && type_args.len() == 1 {
             if let TypeExpr::Primitive(t) | TypeExpr::Named(t) = &type_args[0] {
                 return match interner.resolve(*t) {
@@ -2531,16 +2562,26 @@ pub(crate) fn collect_scalarizable_seqs(
     }
     let mut cand: HashMap<Symbol, ScalarCand> = HashMap::new();
     scalar_walk_block(stmts, true, &mut cand, interner);
-    let result: HashMap<Symbol, ScalarizableSeq> = cand
+    let mut result: HashMap<Symbol, ScalarizableSeq> = cand
         .into_iter()
         .filter_map(|(sym, c)| {
             if c.disqualified || c.len == 0 || c.len > MAX_SCALARIZE_LEN {
                 None
             } else {
-                Some((sym, ScalarizableSeq { elem_ty: c.elem_ty, len: c.len }))
+                Some((
+                    sym,
+                    ScalarizableSeq {
+                        elem_ty: c.elem_ty,
+                        len: c.len,
+                    },
+                ))
             }
         })
         .collect();
+    // A swap exchanges two arrays whole: both stay `[T; N]` only as the same `[T; N]`.
+    crate::optimize::SwapClasses::of(stmts, interner).close_by(&mut result, interner, |x, y| {
+        x.elem_ty == y.elem_ty && x.len == y.len
+    });
     if !result.is_empty() {
         crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
     }
@@ -2596,7 +2637,7 @@ pub(super) struct InterleaveGroup {
 pub(super) fn collect_interleaved_groups(
     stmts: &[Stmt],
     scalarizable: &HashMap<Symbol, ScalarizableSeq>,
-    _interner: &Interner,
+    interner: &Interner,
 ) -> Vec<InterleaveGroup> {
     // Kill switch for A/B measurement (`LOGOS_AOS=0`).
     if !crate::optimize::active_config().is_on(crate::optimization::Opt::Interleave) {
@@ -2635,6 +2676,11 @@ pub(super) fn collect_interleaved_groups(
     if !group.iter().all(|s| seen.insert(*s)) {
         return Vec::new();
     }
+    // A column of a fused backing is not a variable a swap can exchange.
+    let swaps = crate::optimize::SwapClasses::of(stmts, interner);
+    if group.iter().any(|m| swaps.is_swapped(interner.resolve(*m))) {
+        return Vec::new();
+    }
     // Every round must repeat the same column order exactly.
     let rounds = push_seq.len() / w;
     for r in 0..rounds {
@@ -2664,7 +2710,9 @@ pub(super) fn collect_interleaved_groups(
     // AoS there only perturbs LLVM's SLP for the worse (measured: nbody
     // 1.12×→1.19×). Leave those to the unroller.
     // `LOGOS_AOS_FORCE=1` bypasses the regime gate for A/B measurement.
-    let force = std::env::var("LOGOS_AOS_FORCE").map(|v| v == "1").unwrap_or(false);
+    let force = std::env::var("LOGOS_AOS_FORCE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let members: std::collections::HashSet<Symbol> = group.iter().copied().collect();
     if !force && block_has_const_member_index(stmts, &members) {
         // A const-index access means the kernel has been unrolled / will SROA into
@@ -2680,59 +2728,92 @@ pub(super) fn collect_interleaved_groups(
         return Vec::new();
     }
     crate::optimize::mark_fired(crate::optimization::Opt::Interleave);
-    vec![InterleaveGroup { members: group, len: rounds, elem_ty }]
+    vec![InterleaveGroup {
+        members: group,
+        len: rounds,
+        elem_ty,
+    }]
 }
 
 /// True if any member of `members` is indexed by a constant literal anywhere in
 /// `stmts` (evidence the kernel unrolled / will SROA — the register regime).
-fn block_has_const_member_index(stmts: &[Stmt], members: &std::collections::HashSet<Symbol>) -> bool {
-    stmts.iter().any(|s| stmt_has_const_member_index(s, members))
+fn block_has_const_member_index(
+    stmts: &[Stmt],
+    members: &std::collections::HashSet<Symbol>,
+) -> bool {
+    stmts
+        .iter()
+        .any(|s| stmt_has_const_member_index(s, members))
 }
 
-fn is_member_const_index(collection: &Expr, index: &Expr, members: &std::collections::HashSet<Symbol>) -> bool {
+fn is_member_const_index(
+    collection: &Expr,
+    index: &Expr,
+    members: &std::collections::HashSet<Symbol>,
+) -> bool {
     matches!(collection, Expr::Identifier(s) if members.contains(s))
         && matches!(index, Expr::Literal(Literal::Number(_)))
 }
 
 fn stmt_has_const_member_index(s: &Stmt, members: &std::collections::HashSet<Symbol>) -> bool {
     match s {
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             is_member_const_index(collection, index, members)
                 || expr_has_const_member_index(collection, members)
                 || expr_has_const_member_index(index, members)
                 || expr_has_const_member_index(value, members)
         }
-        Stmt::Let { value, .. } | Stmt::Set { value, .. } => expr_has_const_member_index(value, members),
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } => {
+            expr_has_const_member_index(value, members)
+        }
         Stmt::Push { value, collection } => {
-            expr_has_const_member_index(value, members) || expr_has_const_member_index(collection, members)
+            expr_has_const_member_index(value, members)
+                || expr_has_const_member_index(collection, members)
         }
         Stmt::Show { object, .. } => expr_has_const_member_index(object, members),
         Stmt::SetField { object, value, .. } => {
-            expr_has_const_member_index(object, members) || expr_has_const_member_index(value, members)
+            expr_has_const_member_index(object, members)
+                || expr_has_const_member_index(value, members)
         }
         Stmt::Give { object, recipient } => {
-            expr_has_const_member_index(object, members) || expr_has_const_member_index(recipient, members)
+            expr_has_const_member_index(object, members)
+                || expr_has_const_member_index(recipient, members)
         }
         Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
-            expr_has_const_member_index(value, members) || expr_has_const_member_index(collection, members)
+            expr_has_const_member_index(value, members)
+                || expr_has_const_member_index(collection, members)
         }
         Stmt::RuntimeAssert { condition, .. } => expr_has_const_member_index(condition, members),
-        Stmt::Return { value } => matches!(value, Some(v) if expr_has_const_member_index(v, members)),
+        Stmt::Return { value } => {
+            matches!(value, Some(v) if expr_has_const_member_index(v, members))
+        }
         Stmt::Call { args, .. } => args.iter().any(|a| expr_has_const_member_index(a, members)),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_has_const_member_index(cond, members)
                 || block_has_const_member_index(then_block, members)
                 || matches!(else_block, Some(eb) if block_has_const_member_index(eb, members))
         }
         Stmt::While { cond, body, .. } => {
-            expr_has_const_member_index(cond, members) || block_has_const_member_index(body, members)
+            expr_has_const_member_index(cond, members)
+                || block_has_const_member_index(body, members)
         }
         Stmt::Repeat { iterable, body, .. } => {
-            expr_has_const_member_index(iterable, members) || block_has_const_member_index(body, members)
+            expr_has_const_member_index(iterable, members)
+                || block_has_const_member_index(body, members)
         }
         Stmt::Inspect { target, arms, .. } => {
             expr_has_const_member_index(target, members)
-                || arms.iter().any(|a| block_has_const_member_index(a.body, members))
+                || arms
+                    .iter()
+                    .any(|a| block_has_const_member_index(a.body, members))
         }
         _ => false,
     }
@@ -2745,39 +2826,51 @@ fn expr_has_const_member_index(e: &Expr, members: &std::collections::HashSet<Sym
                 || expr_has_const_member_index(collection, members)
                 || expr_has_const_member_index(index, members)
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             expr_has_const_member_index(collection, members)
                 || expr_has_const_member_index(start, members)
                 || expr_has_const_member_index(end, members)
         }
         Expr::BinaryOp { left, right, .. } => {
-            expr_has_const_member_index(left, members) || expr_has_const_member_index(right, members)
+            expr_has_const_member_index(left, members)
+                || expr_has_const_member_index(right, members)
         }
         Expr::Not { operand } => expr_has_const_member_index(operand, members),
         Expr::Length { collection } => expr_has_const_member_index(collection, members),
         Expr::Contains { collection, value } => {
-            expr_has_const_member_index(collection, members) || expr_has_const_member_index(value, members)
+            expr_has_const_member_index(collection, members)
+                || expr_has_const_member_index(value, members)
         }
         Expr::Union { left, right } | Expr::Intersection { left, right } => {
-            expr_has_const_member_index(left, members) || expr_has_const_member_index(right, members)
+            expr_has_const_member_index(left, members)
+                || expr_has_const_member_index(right, members)
         }
         Expr::Call { args, .. } | Expr::CallExpr { args, .. } => {
             args.iter().any(|a| expr_has_const_member_index(a, members))
         }
         Expr::FieldAccess { object, .. } => expr_has_const_member_index(object, members),
         Expr::Copy { expr } => expr_has_const_member_index(expr, members),
-        Expr::Give { value } | Expr::OptionSome { value } => expr_has_const_member_index(value, members),
+        Expr::Give { value } | Expr::OptionSome { value } => {
+            expr_has_const_member_index(value, members)
+        }
         Expr::WithCapacity { value, capacity } => {
-            expr_has_const_member_index(value, members) || expr_has_const_member_index(capacity, members)
+            expr_has_const_member_index(value, members)
+                || expr_has_const_member_index(capacity, members)
         }
         Expr::Range { start, end } => {
             expr_has_const_member_index(start, members) || expr_has_const_member_index(end, members)
         }
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().any(|i| expr_has_const_member_index(i, members))
-        }
+        Expr::List(items) | Expr::Tuple(items) => items
+            .iter()
+            .any(|i| expr_has_const_member_index(i, members)),
         Expr::InterpolatedString(parts) => parts.iter().any(|p| match p {
-            crate::ast::stmt::StringPart::Expr { value, .. } => expr_has_const_member_index(value, members),
+            crate::ast::stmt::StringPart::Expr { value, .. } => {
+                expr_has_const_member_index(value, members)
+            }
             _ => false,
         }),
         _ => false,
@@ -2807,7 +2900,13 @@ pub(super) fn parse_aos_tag(ty: Option<&String>) -> Option<AosTag> {
     let width = parts.next()?.parse().ok()?;
     let len = parts.next()?.parse().ok()?;
     let elem = parts.next()?.to_string();
-    Some(AosTag { backing, col, width, len, elem })
+    Some(AosTag {
+        backing,
+        col,
+        width,
+        len,
+        elem,
+    })
 }
 
 fn scalar_mark_use(cand: &mut HashMap<Symbol, ScalarCand>, sym: Symbol) {
@@ -2838,7 +2937,11 @@ fn scalar_note_value(e: &Expr, cand: &mut HashMap<Symbol, ScalarCand>) {
             scalar_note_value(index, cand);
         }
         Expr::Length { collection } => scalar_note_access(collection, cand),
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             // A slice yields a new Seq — the handle escapes into it.
             if let Expr::Identifier(s) = collection {
                 scalar_disq(cand, *s);
@@ -2866,7 +2969,10 @@ fn scalar_note_value(e: &Expr, cand: &mut HashMap<Symbol, ScalarCand>) {
         Expr::BinaryOp { left, right, .. }
         | Expr::Union { left, right }
         | Expr::Intersection { left, right }
-        | Expr::Range { start: left, end: right } => {
+        | Expr::Range {
+            start: left,
+            end: right,
+        } => {
             scalar_note_value(left, cand);
             scalar_note_value(right, cand);
         }
@@ -2916,14 +3022,14 @@ fn scalar_note_value(e: &Expr, cand: &mut HashMap<Symbol, ScalarCand>) {
             scalar_note_value(zone, cand);
         }
         // Closures and escape hatches are opaque — they may capture or
-        // reference any handle in scope. Conservatively disqualify every
-        // candidate rather than risk scalarizing a captured Seq.
-        Expr::Closure { .. } | Expr::Escape { .. } => {
+        // reference any handle in scope — and so is any form this walk has no
+        // case for. Conservatively disqualify every candidate rather than risk
+        // scalarizing a Seq it holds.
+        _ => {
             for c in cand.values_mut() {
                 c.disqualified = true;
             }
         }
-        _ => {}
     }
 }
 
@@ -2935,12 +3041,22 @@ fn scalar_walk_block(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { var, value, mutable, .. } => {
+            Stmt::Let {
+                var,
+                value,
+                mutable,
+                ..
+            } => {
                 if top_level && *mutable {
                     if let Some(elem) = scalar_seq_elem_ty(value, interner) {
                         cand.insert(
                             *var,
-                            ScalarCand { elem_ty: elem, len: 0, seen_use: false, disqualified: false },
+                            ScalarCand {
+                                elem_ty: elem,
+                                len: 0,
+                                seen_use: false,
+                                disqualified: false,
+                            },
                         );
                         continue;
                     }
@@ -2977,7 +3093,11 @@ fn scalar_walk_block(
                     scalar_note_value(collection, cand);
                 }
             }
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 if let Expr::Identifier(x) = collection {
                     scalar_mark_use(cand, *x);
                 } else {
@@ -3033,7 +3153,11 @@ fn scalar_walk_block(
                 scalar_note_value(object, cand);
                 scalar_note_value(value, cand);
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 scalar_note_value(cond, cand);
                 scalar_walk_block(then_block, false, cand, interner);
                 if let Some(eb) = else_block {
@@ -3072,9 +3196,27 @@ fn scalar_walk_block(
             Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
                 scalar_walk_block(tasks, false, cand, interner)
             }
-            // FunctionDef and other forms: candidates are Main-locals; a
-            // function body cannot reference them. Nothing to do.
-            _ => {}
+            // Scope-transparent desugar output (`Push a, b to xs`): its statements
+            // are the enclosing block's.
+            Stmt::Splice { body } => scalar_walk_block(body, top_level, cand, interner),
+            // A swap exchanges the two handles whole; neither may grow after it,
+            // and `SwapClasses` keeps the pair alike.
+            Stmt::Swap { a, b } => {
+                scalar_mark_use(cand, *a);
+                scalar_mark_use(cand, *b);
+            }
+            // Candidates are Main-locals; a function body cannot reference them.
+            Stmt::FunctionDef { .. } => {}
+            // Any other form hands what it touches somewhere this walk does not
+            // model, so every candidate it touches is disqualified.
+            other => {
+                let touched = crate::optimize::Mentions::of_stmt(other);
+                for (sym, c) in cand.iter_mut() {
+                    if touched.touches(interner.resolve(*sym), interner) {
+                        c.disqualified = true;
+                    }
+                }
+            }
         }
     }
 }

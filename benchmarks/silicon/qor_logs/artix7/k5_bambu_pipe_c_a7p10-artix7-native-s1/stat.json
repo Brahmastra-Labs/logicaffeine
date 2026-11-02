@@ -1,0 +1,77 @@
+{
+   "creator": "Yosys 0.33 (git sha1 2584903a060)",
+   "invocation": "stat -json ",
+   "modules": {
+      "\\ntt_bfly": {
+         "num_wires":         383,
+         "num_wire_bits":     6089,
+         "num_pub_wires":     351,
+         "num_pub_wire_bits": 5535,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         347,
+         "num_cells_by_type": {
+            "CARRY4": 48,
+            "DSP48E1": 1,
+            "FDRE": 121,
+            "INV": 24,
+            "LUT2": 137,
+            "SRL16E": 16
+         }
+      },
+      "\\qorsyn_k5_bambu_pipe_c_a7p10": {
+         "num_wires":         230,
+         "num_wire_bits":     792,
+         "num_pub_wires":     16,
+         "num_pub_wire_bits": 548,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         486,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "FDRE": 142,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 18,
+            "LUT2": 39,
+            "LUT3": 7,
+            "LUT4": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "ntt_bfly": 1
+         }
+      }
+   },
+      "design": {
+         "num_wires":         613,
+         "num_wire_bits":     6881,
+         "num_pub_wires":     367,
+         "num_pub_wire_bits": 6083,
+         "num_memories":      0,
+         "num_memory_bits":   0,
+         "num_processes":     0,
+         "num_cells":         832,
+         "num_cells_by_type": {
+            "BUFG": 1,
+            "CARRY4": 48,
+            "DSP48E1": 1,
+            "FDRE": 263,
+            "FDSE": 33,
+            "IBUF": 2,
+            "INV": 42,
+            "LUT2": 176,
+            "LUT3": 7,
+            "LUT4": 4,
+            "LUT6": 135,
+            "MUXF7": 61,
+            "MUXF8": 27,
+            "OBUF": 16,
+            "SRL16E": 16
+         }
+      }
+}
+

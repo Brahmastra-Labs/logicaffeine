@@ -10,6 +10,7 @@
     "A function"
   ],
   "correct": 1,
-  "hint": "Equivalence relations are symmetric; this combination uses antisymmetry instead.",
-  "explanation": "Reflexive + antisymmetric + transitive defines a PARTIAL ORDER (e.g. ⊆ on sets, ≤ on numbers). Swapping antisymmetry for symmetry would instead give an equivalence relation. A strict order is irreflexive, not reflexive."
+  "hint": "Equivalence relations are symmetric. This combination uses antisymmetry instead.",
+  "explanation": "Reflexive + antisymmetric + transitive defines a PARTIAL ORDER (e.g. ⊆ on sets, ≤ on numbers). Swapping antisymmetry for symmetry would instead give an equivalence relation. A strict order is irreflexive, not reflexive.",
+  "section": "9.3"
 }

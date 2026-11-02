@@ -1,0 +1,43 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable text be "".
+Let mutable pos be 0.
+While pos is less than n:
+    If pos is greater than 0:
+        If pos % 1000 equals 0:
+            If pos + 5 is at most n:
+                Set text to text + "XXXXX".
+                Set pos to pos + 5.
+    If pos is less than n:
+        Let mutable ch be "a".
+        If pos % 5 equals 1:
+            Set ch to "b".
+        If pos % 5 equals 2:
+            Set ch to "c".
+        If pos % 5 equals 3:
+            Set ch to "d".
+        If pos % 5 equals 4:
+            Set ch to "e".
+        Set text to text + ch.
+        Set pos to pos + 1.
+Let needle be "XXXXX".
+Let needleLen be 5.
+Let textLen be length of text.
+Let mutable count be 0.
+Let mutable i be 1.
+While i is at most textLen - needleLen + 1:
+    Let mutable match be 1.
+    Let mutable j be 0.
+    While j is less than needleLen:
+        If item (i + j) of text is not item (j + 1) of needle:
+            Set match to 0.
+            Set j to needleLen.
+        Set j to j + 1.
+    If match equals 1:
+        Set count to count + 1.
+    Set i to i + 1.
+Show count.

@@ -13,7 +13,8 @@ fn maximal_verb_stack() {
 
     match result {
         Ok(output) => {
-            let has_aspect = output.contains("Perf") || output.contains("Prog") || output.contains("Pass");
+            let has_aspect =
+                output.contains("Perf") || output.contains("Prog") || output.contains("Pass");
             let has_verb = output.contains("Eat") || output.contains("E(");
             assert!(
                 has_aspect || has_verb,
@@ -189,7 +190,8 @@ fn donkey_sentence_with_ditransitive() {
 fn counterfactual_with_causal_chain() {
     // "If the glass had fallen because John pushed it, it would have broken."
     // This requires combining counterfactual with causal subordinate clause
-    let output = compile("If the glass had fallen because John pushed it, it would have broken.").unwrap();
+    let output =
+        compile("If the glass had fallen because John pushed it, it would have broken.").unwrap();
 
     assert!(
         output.contains("□→") || output.contains("→"),
@@ -205,7 +207,10 @@ fn simple_counterfactual() {
     let output = compile("If the glass had fallen, it would have broken.").unwrap();
 
     assert!(
-        output.contains("□→") || output.contains("→") || output.contains("Fall") || output.contains("Break"),
+        output.contains("□→")
+            || output.contains("→")
+            || output.contains("Fall")
+            || output.contains("Break"),
         "Should contain conditional structure: got '{}'",
         output
     );
@@ -298,7 +303,10 @@ fn simple_presupposition() {
 
     // Should produce presupposition structure
     assert!(
-        output.contains("Stop") || output.contains("Smoke") || output.contains("Presup") || output.len() > 1,
+        output.contains("Stop")
+            || output.contains("Smoke")
+            || output.contains("Presup")
+            || output.len() > 1,
         "Should handle presupposition trigger: got '{}'",
         output
     );
@@ -354,7 +362,9 @@ fn np_coordination_in_object_position() {
     // Parser abbreviates: D for Dog, C for Cat
     // Check for conjunction or group symbol
     assert!(
-        output.contains("∧") || output.contains("⊕") || (output.contains("D") && output.contains("C")),
+        output.contains("∧")
+            || output.contains("⊕")
+            || (output.contains("D") && output.contains("C")),
         "Should contain conjunction or both D and C: got '{}'",
         output
     );
@@ -420,8 +430,8 @@ fn two_quantifier_scope_ambiguity() {
     for reading in &readings {
         assert!(
             (reading.contains("W(") || reading.contains("Woman"))
-            && (reading.contains("M(") || reading.contains("M)") || reading.contains("Man"))
-            && (reading.contains("L(") || reading.contains("Love")),
+                && (reading.contains("M(") || reading.contains("M)") || reading.contains("Man"))
+                && (reading.contains("L(") || reading.contains("Love")),
             "Each reading should contain Woman, Man, and Love (possibly abbreviated): got '{}'",
             reading
         );
@@ -434,7 +444,8 @@ fn single_quantifier_has_one_reading() {
     let readings = compile_all_scopes("All dogs bark.").unwrap();
 
     assert_eq!(
-        readings.len(), 1,
+        readings.len(),
+        1,
         "Single quantifier should have exactly 1 reading: got {}",
         readings.len()
     );

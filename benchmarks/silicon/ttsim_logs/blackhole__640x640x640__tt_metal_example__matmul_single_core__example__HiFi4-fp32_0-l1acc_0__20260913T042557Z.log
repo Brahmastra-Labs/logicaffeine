@@ -1,0 +1,31 @@
+LOGOS_TT_ENV chip=blackhole so=libttsim_bh.so so_sha256=f4b4dde358257341c3e1b0b27eaa1031476b3ebbf14d3c614eb17854e0ca244f ttsim_version=v1.10.2 tt_metal_sha=9aa797dec5ed247251aa142deb3cea0af2df4321
+== ttsim (blackhole) : $TT_METAL_HOME/build/programming_examples/metal_example_matmul_single_core ==
+2026-09-13 04:25:46.986 | info     |           Metal | Disabling multi-erisc mode with simulator/emule target device (rtoptions.cpp:377)
+2026-09-13 04:25:46.994 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-09-13 04:25:46.998 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-09-13 04:25:47.000 | warning  |             UMD | Chip 0 has inconsistent ETH harvesting information between harvest mask and number of harvested. Board unknown expects 0 units, but harvesting mask indicates 2 units. (cluster_descriptor.cpp:1338)
+2026-09-13 04:25:47.005 | info     |             UMD | Creating Simulation device (cluster.cpp:266)
+2026-09-13 04:25:47.017 | info     | EmulationDriver | TTSimTTDevice chip_id=0 PCI vendor_id=0x1e52 device_id=0xb140 (tt_sim_tt_device.cpp:138)
+2026-09-13 04:25:47.017 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-09-13 04:25:47.018 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-09-13 04:25:47.025 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-09-13 04:25:47.702 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-13 04:25:47.702 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-13 04:25:47.703 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-09-13 04:25:47.703 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+2026-09-13 04:25:47.796 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+2026-09-13 04:25:47.800 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+Output vector of size 409600
+Metalium vs Golden -- PCC = 0.9814127
+2026-09-13 04:25:57.413 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+2026-09-13 04:25:57.418 | warning  |           Metal | Dispatch telemetry SMC buffer unavailable (no firmware info provider, e.g. simulator) (dispatch_telemetry.cpp:45)
+Test Passed
+2026-09-13 04:25:57.419 | info     |    BuildKernels | JIT cache stats: 13/13 hits (100.0%) [13 cached, 0 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-09-13 04:25:57.419 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-09-13 04:25:57.428 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-09-13 04:25:57.428 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-09-13 04:25:57.428 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-09-13 04:25:57.428 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-09-13 04:25:57.428 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)
+2026-09-13 04:25:57.428 | info     | EmulationDriver | Sending exit signal to remote... (tt_sim_communicator.cpp:289)
+[309062] 10.4 seconds (29.7 KHz)

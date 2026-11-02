@@ -1,0 +1,10 @@
+{
+  "capability": "text.contains_any",
+  "workload": "containsAny(s,'XYZ')",
+  "arg": "40000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

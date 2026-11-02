@@ -1,4 +1,4 @@
-use logicaffeine_language::scope::{ScopeStack, ScopeEntry};
+use logicaffeine_language::scope::{ScopeEntry, ScopeStack};
 
 #[test]
 fn scope_stack_starts_empty() {

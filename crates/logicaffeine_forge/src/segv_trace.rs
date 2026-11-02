@@ -28,11 +28,7 @@ pub fn install() {
 pub fn install() {}
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-extern "C" fn handler(
-    sig: libc::c_int,
-    info: *mut libc::siginfo_t,
-    ucontext: *mut libc::c_void,
-) {
+extern "C" fn handler(sig: libc::c_int, info: *mut libc::siginfo_t, ucontext: *mut libc::c_void) {
     unsafe {
         // si_addr lives at offset 16 of siginfo_t on x86-64 Linux (after
         // si_signo/si_errno/si_code = 3 * i32 + padding to 8).

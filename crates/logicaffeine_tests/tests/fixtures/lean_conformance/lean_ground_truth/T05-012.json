@@ -1,0 +1,541 @@
+{
+  "case": "T05-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 67,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T05_012.Arity",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Arity \u2192 Sort u} \u2192 (t : T05_012.Arity) \u2192 ((n : Nat) \u2192 motive { n := n }) \u2192 motive t",
+      "name": "T05_012.Arity.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T05_012.Arity",
+      "name": "T05_012.Arity.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {n n_1 : Nat}, { n := n } = { n := n_1 } \u2192 n = n_1",
+      "name": "T05_012.Arity.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n n_1 : Nat), ({ n := n } = { n := n_1 }) = (n = n_1)",
+      "name": "T05_012.Arity.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), sizeOf { n := n } = 1 + sizeOf n",
+      "name": "T05_012.Arity.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Arity \u2192 Nat",
+      "name": "T05_012.Arity.n",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_012.Arity} \u2192 v1 = v2 \u2192 T05_012.Arity.noConfusionType P v1 v2",
+      "name": "T05_012.Arity.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_012.Arity \u2192 T05_012.Arity \u2192 Sort u",
+      "name": "T05_012.Arity.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Arity \u2192 Sort u} \u2192 ((n : Nat) \u2192 motive { n := n }) \u2192 (t : T05_012.Arity) \u2192 motive t",
+      "name": "T05_012.Arity.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Arity \u2192 Sort u} \u2192 (t : T05_012.Arity) \u2192 ((n : Nat) \u2192 motive { n := n }) \u2192 motive t",
+      "name": "T05_012.Arity.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Arity \u2192 Type",
+      "name": "T05_012.ArityFun",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : T05_012.Arity \u2192 Sort u_1) \u2192\n  (x : T05_012.Arity) \u2192 (Unit \u2192 motive { n := 0 }) \u2192 ((n : Nat) \u2192 motive { n := n.succ }) \u2192 motive x",
+      "name": "T05_012.ArityFun.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_012.Fn",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Fn \u2192 Sort u} \u2192 (t : T05_012.Fn) \u2192 ((f : Nat \u2192 Nat) \u2192 motive { f := f }) \u2192 motive t",
+      "name": "T05_012.Fn.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Fn \u2192 Nat \u2192 Nat",
+      "name": "T05_012.Fn.f",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat) \u2192 T05_012.Fn",
+      "name": "T05_012.Fn.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {f f_1 : Nat \u2192 Nat}, { f := f } = { f := f_1 } \u2192 f = f_1",
+      "name": "T05_012.Fn.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (f f_1 : Nat \u2192 Nat), ({ f := f } = { f := f_1 }) = (f = f_1)",
+      "name": "T05_012.Fn.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (f : Nat \u2192 Nat), sizeOf { f := f } = 1",
+      "name": "T05_012.Fn.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_012.Fn} \u2192 v1 = v2 \u2192 T05_012.Fn.noConfusionType P v1 v2",
+      "name": "T05_012.Fn.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_012.Fn \u2192 T05_012.Fn \u2192 Sort u",
+      "name": "T05_012.Fn.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Fn \u2192 Sort u} \u2192 ((f : Nat \u2192 Nat) \u2192 motive { f := f }) \u2192 (t : T05_012.Fn) \u2192 motive t",
+      "name": "T05_012.Fn.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Fn \u2192 Sort u} \u2192 (t : T05_012.Fn) \u2192 ((f : Nat \u2192 Nat) \u2192 motive { f := f }) \u2192 motive t",
+      "name": "T05_012.Fn.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_012.Named",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Named \u2192 Sort u} \u2192\n  (t : T05_012.Named) \u2192 ((name : Nat) \u2192 (run : Nat \u2192 Nat) \u2192 motive { name := name, run := run }) \u2192 motive t",
+      "name": "T05_012.Named.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 (Nat \u2192 Nat) \u2192 T05_012.Named",
+      "name": "T05_012.Named.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {name : Nat} {run : Nat \u2192 Nat} {name_1 : Nat} {run_1 : Nat \u2192 Nat},\n  { name := name, run := run } = { name := name_1, run := run_1 } \u2192 name = name_1 \u2227 run = run_1",
+      "name": "T05_012.Named.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (name : Nat) (run : Nat \u2192 Nat) (name_1 : Nat) (run_1 : Nat \u2192 Nat),\n  ({ name := name, run := run } = { name := name_1, run := run_1 }) = (name = name_1 \u2227 run = run_1)",
+      "name": "T05_012.Named.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (name : Nat) (run : Nat \u2192 Nat), sizeOf { name := name, run := run } = 1 + sizeOf name",
+      "name": "T05_012.Named.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Named \u2192 Nat",
+      "name": "T05_012.Named.name",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_012.Named} \u2192 v1 = v2 \u2192 T05_012.Named.noConfusionType P v1 v2",
+      "name": "T05_012.Named.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_012.Named \u2192 T05_012.Named \u2192 Sort u",
+      "name": "T05_012.Named.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Named \u2192 Sort u} \u2192\n  ((name : Nat) \u2192 (run : Nat \u2192 Nat) \u2192 motive { name := name, run := run }) \u2192 (t : T05_012.Named) \u2192 motive t",
+      "name": "T05_012.Named.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Named \u2192 Sort u} \u2192\n  (t : T05_012.Named) \u2192 ((name : Nat) \u2192 (run : Nat \u2192 Nat) \u2192 motive { name := name, run := run }) \u2192 motive t",
+      "name": "T05_012.Named.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Named \u2192 Nat \u2192 Nat",
+      "name": "T05_012.Named.run",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_012.PropLike",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.PropLike \u2192 Sort u} \u2192 (t : T05_012.PropLike) \u2192 ((holds : Prop) \u2192 motive { holds := holds }) \u2192 motive t",
+      "name": "T05_012.PropLike.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.PropLike \u2192 Prop",
+      "name": "T05_012.PropLike.holds",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 T05_012.PropLike",
+      "name": "T05_012.PropLike.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {holds holds_1 : Prop}, { holds := holds } = { holds := holds_1 } \u2192 holds = holds_1",
+      "name": "T05_012.PropLike.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (holds holds_1 : Prop), ({ holds := holds } = { holds := holds_1 }) = (holds = holds_1)",
+      "name": "T05_012.PropLike.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (holds : Prop), sizeOf { holds := holds } = 1 + sizeOf holds",
+      "name": "T05_012.PropLike.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_012.PropLike} \u2192 v1 = v2 \u2192 T05_012.PropLike.noConfusionType P v1 v2",
+      "name": "T05_012.PropLike.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_012.PropLike \u2192 T05_012.PropLike \u2192 Sort u",
+      "name": "T05_012.PropLike.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.PropLike \u2192 Sort u} \u2192 ((holds : Prop) \u2192 motive { holds := holds }) \u2192 (t : T05_012.PropLike) \u2192 motive t",
+      "name": "T05_012.PropLike.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.PropLike \u2192 Sort u} \u2192 (t : T05_012.PropLike) \u2192 ((holds : Prop) \u2192 motive { holds := holds }) \u2192 motive t",
+      "name": "T05_012.PropLike.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T05_012.Ty",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Ty \u2192 Type",
+      "name": "T05_012.Ty.carrier",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Ty \u2192 Sort u} \u2192 (t : T05_012.Ty) \u2192 ((carrier : Type) \u2192 motive { carrier := carrier }) \u2192 motive t",
+      "name": "T05_012.Ty.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 T05_012.Ty",
+      "name": "T05_012.Ty.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {carrier carrier_1 : Type}, { carrier := carrier } = { carrier := carrier_1 } \u2192 carrier = carrier_1",
+      "name": "T05_012.Ty.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (carrier carrier_1 : Type), ({ carrier := carrier } = { carrier := carrier_1 }) = (carrier = carrier_1)",
+      "name": "T05_012.Ty.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (carrier : Type), sizeOf { carrier := carrier } = 1 + sizeOf carrier",
+      "name": "T05_012.Ty.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_012.Ty} \u2192 v1 = v2 \u2192 T05_012.Ty.noConfusionType P v1 v2",
+      "name": "T05_012.Ty.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_012.Ty \u2192 T05_012.Ty \u2192 Sort u",
+      "name": "T05_012.Ty.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Ty \u2192 Sort u} \u2192 ((carrier : Type) \u2192 motive { carrier := carrier }) \u2192 (t : T05_012.Ty) \u2192 motive t",
+      "name": "T05_012.Ty.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_012.Ty \u2192 Sort u} \u2192 (t : T05_012.Ty) \u2192 ((carrier : Type) \u2192 motive { carrier := carrier }) \u2192 motive t",
+      "name": "T05_012.Ty.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.PropLike \u2192 Prop",
+      "name": "T05_012.assertIt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(t : T05_012.Ty) \u2192 t.carrier \u2192 t.carrier",
+      "name": "T05_012.idOfTy",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "CoeFun T05_012.Arity T05_012.ArityFun",
+      "name": "T05_012.instCoeFunArityArityFun",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "CoeFun T05_012.Fn fun x => Nat \u2192 Nat",
+      "name": "T05_012.instCoeFunFnForallNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "CoeFun T05_012.Named fun x => Nat \u2192 Nat",
+      "name": "T05_012.instCoeFunNamedForallNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "CoeSort T05_012.PropLike Prop",
+      "name": "T05_012.instCoeSortPropLikeProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "CoeSort T05_012.Ty Type",
+      "name": "T05_012.instCoeSortTyType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Fn \u2192 Nat",
+      "name": "T05_012.useFn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_012.Named \u2192 Nat",
+      "name": "T05_012.useNamed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -1,0 +1,91 @@
+# TCP
+
+Client sockets for byte-level protocols — the substrate the pure-LOGOS protocol
+libraries (postgres.lg) are written on. A connection is an opaque `Int` handle;
+bytes travel as `Seq of Int` (each element 0–255); every operation returns a
+`Result` so network failure is a value a program handles, never a trap.
+
+## Note
+Opens a TCP connection to `host:port`. `Ok` carries the connection handle.
+
+## To native tcpConnect (host: Text) and (port: Int) -> Result of Int and Text
+
+## Note
+Opens a TCP connection to `host:port` and completes a TLS handshake over it, verifying the
+server's certificate against the bundled roots.
+
+Any authority named by `LOGOS_TLS_EXTRA_ROOT` is trusted as well. `Ok` carries the same kind of
+handle `tcpConnect` answers, so every other operation here works on it unchanged — `tcpSend`,
+`tcpRecv` and `tcpClose` do not know whether a connection is secured.
+
+An unverifiable certificate is an `Err`, never a warning: TLS that accepts any certificate
+leaves a program exactly as exposed as cleartext while looking secure.
+
+## To native tcpConnectTls (host: Text) and (port: Int) -> Result of Int and Text
+
+## Note
+Secures a connection that is already open, in place. `host` is the name the certificate must
+match.
+
+This is what a protocol that negotiates in the clear needs. PostgreSQL is the reason it exists:
+a client sends an 8-byte SSLRequest over the plain socket, reads a single `S` or `N`, and only
+then hands that same socket to TLS — which a connect-with-TLS call cannot express. SMTP's
+STARTTLS and an HTTP proxy's `CONNECT` have the same shape.
+
+Securing an already-secured connection is an `Err` rather than a no-op: it is a mistake about
+what the program has, and quietly doing nothing would hide it.
+
+## To native tcpUpgradeTls (conn: Int) and (host: Text) -> Result of Unit and Text
+
+## Note
+Sends every byte of `data`. `Ok` carries the number of bytes sent.
+
+## To native tcpSend (conn: Int) and (data: Seq of Int) -> Result of Int and Text
+
+## Note
+Blocks until at least one byte arrives (or the peer closes), returning up to
+`maxLen` bytes. A clean close is `Ok` of the empty Seq — end-of-stream is a
+value, distinguishable from an error.
+
+## To native tcpRecv (conn: Int) and (maxLen: Int) -> Result of Seq of Int and Text
+
+## Note
+Blocks until exactly `len` bytes arrive. A peer closing early is an `Err` — a
+torn frame is never silently truncated (protocol framing depends on this).
+
+## To native tcpRecvExact (conn: Int) and (len: Int) -> Result of Seq of Int and Text
+
+## Note
+Binds a listening socket on `port` (RFC 9293 LISTEN; `0` picks an ephemeral port,
+read back with `tcpListenerPort`). `Ok` carries the listener handle.
+
+## To native tcpListen (port: Int) -> Result of Int and Text
+
+## Note
+Accepts one queued connection from a listener (blocks; a timeout set on the
+listener applies). `Ok` carries the new connection handle.
+
+## To native tcpAccept (listener: Int) -> Result of Int and Text
+
+## Note
+The local port a listener is bound to — how an ephemeral (`0`) bind is learned.
+
+## To native tcpListenerPort (listener: Int) -> Result of Int and Text
+
+## Note
+Half-close (RFC 9293 half-open; `shutdown(SHUT_WR)`): sends FIN so the peer
+sees end-of-stream, while THIS side keeps reading — the peer can still reply.
+
+## To native tcpShutdownWrite (conn: Int) -> Result of Unit and Text
+
+## Note
+Sets the connection's receive/send timeout in milliseconds (`0` clears it); a
+later `tcpRecv`/`tcpSend` that expires returns the `tcp: operation timed out` error.
+
+## To native tcpSetTimeout (conn: Int) and (millis: Int) -> Result of Unit and Text
+
+## Note
+Closes the connection. The handle is dead afterwards: closing again, or sending
+or receiving on it, is an `Err`.
+
+## To native tcpClose (conn: Int) -> Result of Unit and Text

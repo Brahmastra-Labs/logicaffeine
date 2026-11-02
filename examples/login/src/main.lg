@@ -1,0 +1,81 @@
+# Login
+
+A signed-in session, CSRF-checked forms, a protected route that redirects an
+anonymous visitor, and the POST/redirect/GET pattern throughout — every
+piece from `docs/web.md`'s Sessions section, with a real (if tiny) user
+table.
+
+## Note
+
+Real credentials never live in source; this is a demo with exactly one
+account, `ada` / `correct horse`, checked in LOGOS rather than a database —
+`docs/web.md`'s own PostgreSQL section is how a real app would look this up.
+
+## To checkCredentials (username: Text) and (password: Text) -> Bool:
+    If username is not equal to "ada":
+        Return false.
+    Return password is equal to "correct horse".
+
+## Session
+    a user, which is Text.
+
+## Route GET / -> View:
+    <main>
+      <h1>Login demo</h1>
+      {if the session's user is equal to "":}
+        <p id="anonymous">Nobody is signed in. <a href="/login">Sign in</a></p>
+      {else:}
+        <p id="signed-in">Signed in as {the session's user}. <a href="/dashboard">Dashboard</a></p>
+      {end}
+    </main>
+
+## Route GET /login -> View:
+    <main>
+      <h1>Sign in</h1>
+      {if the session's user is not equal to "":}
+        <p id="already">Already signed in as {the session's user}.</p>
+      {end}
+      <form method="post" action="/login">
+        <input type="hidden" name="_csrf" value={csrf()}>
+        <label>Username <input name="username"></label>
+        <label>Password <input type="password" name="password"></label>
+        <button type="submit">Sign in</button>
+      </form>
+    </main>
+
+## Route POST /login (username: Text) and (password: Text) -> Response:
+    If checkCredentials(username, password):
+        Set the session's user to username.
+        Return redirectTo("/dashboard").
+    Return redirectTo("/login?failed=1").
+
+## Route GET /dashboard -> Response:
+    If the session's user is equal to "":
+        Return redirectTo("/login").
+    Return html("<main><h1>Welcome, " + the session's user + "</h1>" + "<form method=\"post\" action=\"/logout\"><input type=\"hidden\" name=\"_csrf\" value=\"" + csrf() + "\"><button type=\"submit\">Sign out</button></form></main>").
+
+## Route POST /logout -> Response:
+    Set the session's user to "".
+    Return redirectTo("/login").
+
+## Main
+
+Serve on port 8080.
+
+## Test: the front page tells an anonymous visitor to sign in
+
+Expect that route("GET", "/") contains "Nobody is signed in.".
+
+## Test: the login form carries this visitor's own CSRF token
+
+Expect that route("GET", "/login") contains "name=\"_csrf\"".
+
+## Test: an anonymous visitor is redirected away from the dashboard
+
+Expect that routeStatus("GET", "/dashboard") is equal to 302.
+Expect that routeHeader("GET", "/dashboard", "location") is equal to "/login".
+
+## Test: a login form with no CSRF token is refused before the route runs
+
+Expect that routeStatus("POST", "/login") is equal to 403.
+

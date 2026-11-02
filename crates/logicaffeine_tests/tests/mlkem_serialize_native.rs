@@ -25,7 +25,11 @@ fn coeffs_out(prog: &str) -> Vec<i64> {
 }
 
 fn lit(input: &[i64]) -> String {
-    input.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")
+    input
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[test]
@@ -39,7 +43,10 @@ fn byte_encode_decode_round_trips_in_compiled_logos() {
     );
     let got = coeffs_out(&prog);
     assert_eq!(got.len(), 256, "256 coefficients survive the round-trip");
-    assert_eq!(got, input, "compiled byteDecode∘byteEncode (d=12) must be the identity");
+    assert_eq!(
+        got, input,
+        "compiled byteDecode∘byteEncode (d=12) must be the identity"
+    );
 }
 
 #[test]
@@ -47,15 +54,21 @@ fn byte_encode_decode_round_trips_in_compiled_logos() {
 fn compress_in_compiled_logos_matches_runtime() {
     // d = 10 (ML-KEM-768 ciphertext u). Compress maps [0, q) → [0, 1024).
     let input: Vec<i64> = (0..256).map(|i| (i * 101 + 5) % 3329).collect();
-    let want: Vec<i64> =
-        logicaffeine_system::mlkem_compress(&input, 10)
-            .to_vec();
-    assert!(want.iter().all(|&c| (0..1024).contains(&c)), "Compress_10 ∈ [0, 1024)");
+    let want: Vec<i64> = logicaffeine_system::mlkem_compress(&input, 10)
+        .expect("in-contract arguments")
+        .to_vec();
+    assert!(
+        want.iter().all(|&c| (0..1024).contains(&c)),
+        "Compress_10 ∈ [0, 1024)"
+    );
 
     let prog = format!(
         "## Main\nLet coeffs be [{}].\nLet c be compress(coeffs, 10).\nRepeat for i from 1 to 256:\n    Show item i of c.\n",
         lit(&input)
     );
     let got = coeffs_out(&prog);
-    assert_eq!(got, want, "compiled compress(coeffs, 10) must equal the verified runtime kernel");
+    assert_eq!(
+        got, want,
+        "compiled compress(coeffs, 10) must equal the verified runtime kernel"
+    );
 }

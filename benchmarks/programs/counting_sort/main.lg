@@ -32,6 +32,6 @@ While v is less than 1000:
 Let mutable checksum be 0.
 Set i to 1.
 While i is at most n:
-    Set checksum to (checksum + item i of sorted) % 1000000007.
+    Set checksum to (checksum * 31 + item i of sorted) & 268435455.
     Set i to i + 1.
 Show "" + item 1 of sorted + " " + item n of sorted + " " + checksum.

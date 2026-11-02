@@ -1,6 +1,6 @@
 //! Concurrency memory model — the normative determinacy table.
 //!
-//! See `docs/CONCURRENCY_MODEL.md` and `work/FINISH_INTERPRETER.md` §3 for the full
+//! See `docs/CONCURRENCY_MODEL.md` for the full
 //! specification. The short version:
 //!
 //! - **Determinate fragment** = `LaunchTask` + FIFO `Pipe`/`Send`/`Receive` +
@@ -81,16 +81,26 @@ pub enum NondetKind {
 pub(crate) fn direct_nondet_witnesses(stmt: &Stmt, out: &mut Vec<NondetWitness>) {
     match stmt {
         Stmt::Select { branches } => {
-            out.push(NondetWitness { kind: NondetKind::Select });
+            out.push(NondetWitness {
+                kind: NondetKind::Select,
+            });
             for branch in branches {
                 if let SelectBranch::Timeout { .. } = branch {
-                    out.push(NondetWitness { kind: NondetKind::AfterTimer });
+                    out.push(NondetWitness {
+                        kind: NondetKind::AfterTimer,
+                    });
                 }
             }
         }
-        Stmt::TryReceivePipe { .. } => out.push(NondetWitness { kind: NondetKind::TryRecv }),
-        Stmt::TrySendPipe { .. } => out.push(NondetWitness { kind: NondetKind::TrySend }),
-        Stmt::StopTask { .. } => out.push(NondetWitness { kind: NondetKind::StopTask }),
+        Stmt::TryReceivePipe { .. } => out.push(NondetWitness {
+            kind: NondetKind::TryRecv,
+        }),
+        Stmt::TrySendPipe { .. } => out.push(NondetWitness {
+            kind: NondetKind::TrySend,
+        }),
+        Stmt::StopTask { .. } => out.push(NondetWitness {
+            kind: NondetKind::StopTask,
+        }),
         _ => {}
     }
 }

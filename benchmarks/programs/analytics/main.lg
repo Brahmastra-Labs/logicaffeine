@@ -1,0 +1,32 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable groups be a new Seq of Int.
+Let mutable gi be 0.
+While gi is less than 32768:
+    Push 0 to groups.
+    Set gi to gi + 1.
+Let mutable seed be 42.
+Let mutable kept be 0.
+Let mutable r be 0.
+While r is less than n:
+    Set seed to (seed * 1103515245 + 12345) % 2147483648.
+    Let key be (seed / 65536) % 32768.
+    Set seed to (seed * 1103515245 + 12345) % 2147483648.
+    Let value be (seed / 65536) % 32768.
+    If value % 3 is greater than 0:
+        Let contrib be (value * key + 7) % 1000000007.
+        Let g be key % 32768.
+        Set item (g + 1) of groups to (item (g + 1) of groups + contrib) % 1000000007.
+        Set kept to kept + 1.
+    Set r to r + 1.
+Let mutable checksum be 0.
+Let mutable g be 0.
+While g is less than 32768:
+    Set checksum to (checksum * 31 + item (g + 1) of groups) & 268435455.
+    Set g to g + 1.
+Show kept.
+Show checksum.

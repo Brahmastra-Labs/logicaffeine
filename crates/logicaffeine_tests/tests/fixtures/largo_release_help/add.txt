@@ -1,0 +1,42 @@
+Add a dependency to Largo.toml.
+
+Accepts `name` (any version), `name@version`, or `logos:name` (the registry URI form). `--path` and `--git` record local and git dependencies. Edits preserve the manifest's comments and formatting.
+
+Usage: largo add [OPTIONS] <SPEC>
+
+Arguments:
+  <SPEC>
+          The dependency: `name`, `name@version`, or `logos:name`
+
+Options:
+      --path <PATH>
+          Use a local path dependency
+
+      --git <GIT>
+          Use a git dependency
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo add math_utils
+  largo add math_utils@1.2
+  largo add logos:std
+  largo add local_lib --path ../local_lib
+  largo add remote --git https://example.com/remote.git

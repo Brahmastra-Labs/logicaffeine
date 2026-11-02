@@ -29,7 +29,16 @@ fn main() {
     // metadata is honest about exactly what it benched (keys sanitized for the env-var name).
     println!("cargo:rerun-if-changed=../../Cargo.lock");
     if let Ok(lock) = std::fs::read_to_string("../../Cargo.lock") {
-        for want in ["bincode", "postcard", "rmp-serde", "ciborium", "serde_json", "arrow", "prost", "capnp"] {
+        for want in [
+            "bincode",
+            "postcard",
+            "rmp-serde",
+            "ciborium",
+            "serde_json",
+            "arrow",
+            "prost",
+            "capnp",
+        ] {
             if let Some(ver) = lockfile_version(&lock, want) {
                 let key = want.replace('-', "_");
                 println!("cargo:rustc-env=WIREBENCH_VER_{key}={ver}");

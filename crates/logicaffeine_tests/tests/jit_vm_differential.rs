@@ -113,7 +113,10 @@ fn jit_bails_outside_the_subset() {
     // Text and bool observation are bails.
     assert_eq!(jit_run("## Main\nShow \"hi\".\n"), None);
     // Showing a comparison result must bail (VM prints `true`, not 1).
-    assert_eq!(jit_run("## Main\nLet a be 1.\nLet b be 2.\nShow a is less than b.\n"), None);
+    assert_eq!(
+        jit_run("## Main\nLet a be 1.\nLet b be 2.\nShow a is less than b.\n"),
+        None
+    );
 }
 
 #[test]
@@ -131,7 +134,9 @@ struct SplitMix64 {
 }
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
-        SplitMix64 { state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15) }
+        SplitMix64 {
+            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+        }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -196,11 +201,84 @@ fn jit_seeded_source_programs_with_loops_match_vm() {
 // J3: tier-up + deopt — the forge backend behind the VM's NativeTier seam.
 // ===========================================================================
 
-use logicaffeine_compile::vm::{Vm, NATIVE_TIER_THRESHOLD, REGION_TIER_THRESHOLD};
+use logicaffeine_compile::vm::{NativeTier, Vm, NATIVE_TIER_THRESHOLD, REGION_TIER_THRESHOLD};
+
+#[test]
+fn native_trace_names_mixed_list_mutation_call_declines() {
+    let source = "\
+## To first (xs: Seq of Int) -> Int:
+    Return item 1 of xs.
+
+## Main
+Let mutable i be 0.
+Let mutable total be 0.
+While i is less than 200:
+    Let mutable xs be a new Seq of Int.
+    Push i to xs.
+    Set item 1 of xs to i + 1.
+    Set total to total + first(xs).
+    Set i to i + 1.
+Show total.
+";
+    with_parsed_program(source, |parsed, interner| {
+        let (stmts, types, _) = parsed.expect("parse");
+        let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compile");
+        let tier = ForgeTier::new();
+        let mut vm = Vm::new(&program).with_native_tier(&tier);
+        vm.run().expect("tiered run");
+        assert_eq!(vm.output(), "20100\n");
+        assert!(
+            tier.decline_summary()
+                .contains("loops[list-push-with-call=1]"),
+            "native fallback must be actionable: {}",
+            tier.decline_summary()
+        );
+        assert!(!tier.decline_summary().contains("unclassified"));
+    });
+}
+
+#[test]
+fn native_trace_names_fresh_list_return_call_declines() {
+    let source = "\
+## To one (x: Int) -> Seq of Int:
+    Let mutable xs be a new Seq of Int.
+    Push x to xs.
+    Return xs.
+
+## Main
+Let mutable i be 0.
+Let mutable total be 0.
+While i is less than 200:
+    Let xs be one(i).
+    Set total to total + (item 1 of xs).
+    Set i to i + 1.
+Show total.
+";
+    with_parsed_program(source, |parsed, interner| {
+        let (stmts, types, _) = parsed.expect("parse");
+        let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compile");
+        let tier = ForgeTier::new();
+        let mut vm = Vm::new(&program).with_native_tier(&tier);
+        vm.run().expect("tiered run");
+        assert!(
+            tier.decline_summary()
+                .contains("loops[fresh-list-return-call=1]"),
+            "native fallback must name its unsupported ABI: {}",
+            tier.decline_summary()
+        );
+        assert!(!tier.decline_summary().contains("unclassified"));
+    });
+}
 
 /// Run `source` twice — tiered and pure-bytecode — and return both outcomes
 /// plus (compile attempts, compile successes).
-fn tiered_vs_pure(source: &str) -> ((String, Option<String>), (String, Option<String>), (u32, u32)) {
+fn tiered_vs_pure(
+    source: &str,
+) -> (
+    (String, Option<String>),
+    (String, Option<String>),
+    (u32, u32),
+) {
     with_parsed_program(source, |parsed, interner| {
         let (stmts, types, _) = parsed.expect("parse");
         let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compile");
@@ -225,7 +303,11 @@ fn tiered_vs_pure(source: &str) -> ((String, Option<String>), (String, Option<St
 /// Like tiered_vs_pure but reporting the REGION counters (Main-loop tiering).
 fn tiered_vs_pure_regions(
     source: &str,
-) -> ((String, Option<String>), (String, Option<String>), (u32, u32)) {
+) -> (
+    (String, Option<String>),
+    (String, Option<String>),
+    (u32, u32),
+) {
     with_parsed_program(source, |parsed, interner| {
         let (stmts, types, _) = parsed.expect("parse");
         let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compile");
@@ -265,7 +347,11 @@ Show acc.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure(src);
     assert_eq!(tiered, pure, "tiered run diverged from bytecode");
-    assert_eq!(compiles, (1, 1), "the hot function should compile exactly once");
+    assert_eq!(
+        compiles,
+        (1, 1),
+        "the hot function should compile exactly once"
+    );
     assert_eq!(tiered.1, None);
 }
 
@@ -348,7 +434,11 @@ Show out.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure(src);
     assert_eq!(tiered, pure);
-    assert_eq!(compiles, (1, 0), "one failed attempt, then Failed is sticky");
+    assert_eq!(
+        compiles,
+        (1, 0),
+        "one failed attempt, then Failed is sticky"
+    );
 }
 
 #[test]
@@ -425,7 +515,11 @@ Show isBig(500).
 ";
     let (tiered, pure, compiles) = tiered_vs_pure(src);
     assert_eq!(tiered, pure, "bool-returning function diverged");
-    assert_eq!(compiles, (1, 1), "isBig should COMPILE under kind inference");
+    assert_eq!(
+        compiles,
+        (1, 1),
+        "isBig should COMPILE under kind inference"
+    );
 }
 
 // ===========================================================================
@@ -475,8 +569,15 @@ Show total.
     assert_eq!(compiles, (1, 1), "work() must really tier up");
 
     eprintln!("tree-walker : {tw_ms:9.1} ms");
-    eprintln!("bytecode VM : {vm_ms:9.1} ms  ({:.1}x vs TW)", tw_ms / vm_ms);
-    eprintln!("tiered (JIT): {jit_ms:9.1} ms  ({:.1}x vs TW, {:.1}x vs VM)", tw_ms / jit_ms, vm_ms / jit_ms);
+    eprintln!(
+        "bytecode VM : {vm_ms:9.1} ms  ({:.1}x vs TW)",
+        tw_ms / vm_ms
+    );
+    eprintln!(
+        "tiered (JIT): {jit_ms:9.1} ms  ({:.1}x vs TW, {:.1}x vs VM)",
+        tw_ms / jit_ms,
+        vm_ms / jit_ms
+    );
 }
 
 /// Like tiered_vs_pure but only timing the TIERED run (no pure double-run).
@@ -519,35 +620,42 @@ While i is less than 2000:
     Set i to i + 1.
 Show total.
 ";
-    let h = std::thread::Builder::new().stack_size(256 * 1024 * 1024).spawn(move || {
-        let truth = logicaffeine_compile::compile::tw_outcome(program);
+    let h = std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(move || {
+            let truth = logicaffeine_compile::compile::tw_outcome(program);
 
-        let t = Instant::now();
-        let plain = logicaffeine_compile::compile::vm_outcome(program);
-        let plain_ms = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let plain = logicaffeine_compile::compile::vm_outcome(program);
+            let plain_ms = t.elapsed().as_secs_f64() * 1e3;
 
-        // Futamura: specialize first.
-        let t = Instant::now();
-        let residual = logicaffeine_compile::compile::projection1_source_real_fast("", "", program)
-            .expect("PE should specialize");
-        let pe_ms = t.elapsed().as_secs_f64() * 1e3;
+            // Futamura: specialize first.
+            let t = Instant::now();
+            let residual =
+                logicaffeine_compile::compile::projection1_source_real_fast("", "", program)
+                    .expect("PE should specialize");
+            let pe_ms = t.elapsed().as_secs_f64() * 1e3;
 
-        let t = Instant::now();
-        let specialized = logicaffeine_compile::compile::vm_outcome(&residual);
-        let resid_ms = t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            let specialized = logicaffeine_compile::compile::vm_outcome(&residual);
+            let resid_ms = t.elapsed().as_secs_f64() * 1e3;
 
-        assert_eq!(truth.error, None);
-        assert_eq!(truth.output.trim(), plain.output.trim(), "VM vs TW");
-        assert_eq!(
-            truth.output.trim(),
-            specialized.output.trim(),
-            "RESIDUAL diverged from the original!\nresidual:\n{residual}"
-        );
-        eprintln!("original on VM   : {plain_ms:8.2} ms");
-        eprintln!("PE (one-time)    : {pe_ms:8.2} ms");
-        eprintln!("residual on VM   : {resid_ms:8.2} ms  ({:.0}x)", plain_ms / resid_ms.max(0.001));
-        eprintln!("residual program :\n{residual}");
-    }).unwrap();
+            assert_eq!(truth.error, None);
+            assert_eq!(truth.output.trim(), plain.output.trim(), "VM vs TW");
+            assert_eq!(
+                truth.output.trim(),
+                specialized.output.trim(),
+                "RESIDUAL diverged from the original!\nresidual:\n{residual}"
+            );
+            eprintln!("original on VM   : {plain_ms:8.2} ms");
+            eprintln!("PE (one-time)    : {pe_ms:8.2} ms");
+            eprintln!(
+                "residual on VM   : {resid_ms:8.2} ms  ({:.0}x)",
+                plain_ms / resid_ms.max(0.001)
+            );
+            eprintln!("residual program :\n{residual}");
+        })
+        .unwrap();
     h.join().unwrap();
 }
 
@@ -569,7 +677,11 @@ Show total.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered, pure, "region-tiered Main diverged");
-    assert_eq!(compiles, (1, 1), "the hot MAIN loop must compile as a region");
+    assert_eq!(
+        compiles,
+        (1, 1),
+        "the hot MAIN loop must compile as a region"
+    );
 }
 
 #[test]
@@ -585,7 +697,11 @@ While i is less than 150:
 ";
     let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered, pure, "failed-closed region run diverged");
-    assert_eq!(compiles, (1, 0), "one failed attempt, then Failed is sticky");
+    assert_eq!(
+        compiles,
+        (1, 0),
+        "one failed attempt, then Failed is sticky"
+    );
 }
 
 #[test]
@@ -604,7 +720,10 @@ Show x.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered, pure, "float-loop region run diverged");
-    assert!(compiles.1 >= 1, "the float loop must now compile as a region");
+    assert!(
+        compiles.1 >= 1,
+        "the float loop must now compile as a region"
+    );
 }
 
 #[test]
@@ -629,7 +748,11 @@ Show total.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered, pure, "region deopt diverged");
-    assert_eq!(compiles, (1, 1), "the inner loop compiles once, then guards");
+    assert_eq!(
+        compiles,
+        (1, 1),
+        "the inner loop compiles once, then guards"
+    );
 }
 
 #[test]
@@ -650,7 +773,10 @@ Show total.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered, pure, "nested-loop region run diverged");
-    assert!(compiles.1 >= 1, "at least the inner loop must tier up: {compiles:?}");
+    assert!(
+        compiles.1 >= 1,
+        "at least the inner loop must tier up: {compiles:?}"
+    );
 }
 
 #[test]
@@ -683,16 +809,19 @@ fn region_seeded_main_loops_match_pure_bytecode() {
 }
 
 /// Regression: the JIT lowered an in-loop `Let curr be a new Seq` on a PINNED
-/// list into an in-place buffer REUSE (`ListClear`). That is unsound when the
-/// list is ALIASED — knapsack's `Set prev to curr` makes `prev` point at curr's
-/// buffer, so the next iteration's reuse wiped prev's live DP row (the JIT
-/// produced 395*n instead of the real knapsack value; the VM was correct). The
-/// fix bails such a function to the VM. The tiered (JIT) run must match the
-/// pure-bytecode (VM) run.
+/// list into an in-place buffer REUSE (`ListClear`). That was unsound when the
+/// list was ALIASED — knapsack's former `Move prev, curr` left both names on one
+/// buffer, so the next iteration wiped prev's live DP row (the JIT produced
+/// 395*n instead of the real knapsack value; the VM was correct). The bytecode
+/// compiler now proves this ping-pong shape and emits `RevSwap`, letting every
+/// attempted region tier while preserving value semantics.
 #[test]
 fn knapsack_list_reuse_with_alias_jit_matches_vm() {
+    // The odd trip count makes the final native ping-pong identity differ
+    // from the entry identity, exercising the region-boundary list rebind as
+    // well as value correctness.
     let src = r#"## Main
-Let n be 300.
+Let n be 301.
 Let capacity be n * 5.
 Let mutable weights be a new Seq of Int.
 Let mutable vals be a new Seq of Int.
@@ -725,11 +854,19 @@ While i is less than n:
     Set i to i + 1.
 Show item (capacity + 1) of prev.
 "#;
-    let (tiered, pure, _compiles) = tiered_vs_pure_regions(src);
+    let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered.1, None, "tiered (JIT) run errored: {:?}", tiered.1);
     assert_eq!(pure.1, None, "pure (VM) run errored: {:?}", pure.1);
     assert_eq!(
         tiered.0, pure.0,
         "JIT (tiered) diverged from VM (pure) on knapsack list-reuse+alias"
+    );
+    assert!(
+        compiles.0 > 0,
+        "the knapsack run must attempt at least one native region: {compiles:?}"
+    );
+    assert_eq!(
+        compiles.0, compiles.1,
+        "the proven ping-pong swap must let every attempted knapsack loop tier: {compiles:?}"
     );
 }

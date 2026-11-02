@@ -15,7 +15,7 @@ public class Main {
             for (long c = 0; c < counts[v]; c++)
                 sorted[idx++] = v;
         long checksum = 0;
-        for (long v : sorted) checksum = (checksum + v) % 1000000007;
+        for (long v : sorted) checksum = (checksum * 31 + v) & 268435455;
         System.out.println(sorted[0] + " " + sorted[n - 1] + " " + checksum);
     }
 }

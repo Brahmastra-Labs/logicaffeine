@@ -2,7 +2,7 @@
   "id": "F_1.1",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "\"You can't trust John's opinion on climate change - he failed chemistry in high school.\"",
+  "prompt": "\"You can't trust John's opinion on climate change. He failed chemistry in high school.\"",
   "options": [
     "Ad Hominem",
     "Straw Man",
@@ -11,6 +11,7 @@
   ],
   "correct": 0,
   "hint": "This argument attacks the person making the claim rather than the claim itself.",
-  "explanation": "This is an Ad Hominem fallacy - attacking John's character (his high school grades) instead of addressing his actual argument about climate change. A person's past academic performance doesn't automatically invalidate their current opinions.",
-  "visual_concept": "Ad Hominem: Instead of fighting the argument (a shield), someone attacks the person holding it (throws mud at them)."
+  "explanation": "This is ad hominem. It attacks John's school record instead of his reasons about the climate.",
+  "visual_concept": "Ad Hominem: Instead of fighting the argument (a shield), someone attacks the person holding it (throws mud at them).",
+  "section": "4.2"
 }

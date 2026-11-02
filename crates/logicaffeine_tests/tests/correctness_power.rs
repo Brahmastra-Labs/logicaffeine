@@ -13,7 +13,11 @@ use logicaffeine_compile::compile::{tw_outcome, vm_outcome};
 fn assert_vm_matches_tw(src: &str) {
     let tw = tw_outcome(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim_end(), tw.output.trim_end(), "VM/tw output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}");
+    assert_eq!(
+        vm.output.trim_end(),
+        tw.output.trim_end(),
+        "VM/tw output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}"
+    );
     assert_eq!(vm.error, tw.error, "VM/tw error diverged for:\n{src}");
 }
 
@@ -24,10 +28,10 @@ fn vm_matches_tw_on_power() {
         "## Main\nShow 5 ** 0.\n",
         "## Main\nShow 2 * 3 ** 2.\n",
         "## Main\nShow 2 ** 3 ** 2.\n",
-        "## Main\nShow 2 ** 100.\n",       // BigInt promotion on the VM
-        "## Main\nShow 2.0 ** 0.5.\n",     // float powf
+        "## Main\nShow 2 ** 100.\n",   // BigInt promotion on the VM
+        "## Main\nShow 2.0 ** 0.5.\n", // float powf
         "## Main\nLet b be 3.\nLet e be 4.\nShow b ** e.\n",
-        "## Main\nShow 2 ** -1.\n",        // negative Int exponent — loud error, both tiers
+        "## Main\nShow 2 ** -1.\n", // negative Int exponent — loud error, both tiers
     ] {
         assert_vm_matches_tw(src);
     }
@@ -81,7 +85,14 @@ fn power_on_a_variable() {
 fn negative_int_exponent_is_loud() {
     let src = "## Main\nShow 2 ** -1.\n";
     let interp = run_interpreter(src);
-    assert!(!interp.success, "interp must reject a negative Int exponent");
+    assert!(
+        !interp.success,
+        "interp must reject a negative Int exponent"
+    );
     let compiled = run_logos(src);
-    assert!(!compiled.success, "compiled must reject a negative Int exponent: {}", compiled.stdout);
+    assert!(
+        !compiled.success,
+        "compiled must reject a negative Int exponent: {}",
+        compiled.stdout
+    );
 }

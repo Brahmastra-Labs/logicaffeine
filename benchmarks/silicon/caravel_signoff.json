@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "flow": "OpenLane v1 fixed-die Caravel user_project_wrapper harden"
+  },
+  "user_project_wrapper": {
+    "die_area": "0 0 2920 3520",
+    "gds_bytes": 57732922,
+    "macro": "dram_user_project",
+    "macro_gds_bytes": 55957328,
+    "flow_status": "flow completed",
+    "magic_drc_violations": 0,
+    "lvs_errors": 0,
+    "lvs_clean": true,
+    "golden_drc_violations": 0,
+    "xor_self": 0,
+    "routing_violations": 0,
+    "antenna_violations": 0,
+    "antenna_violators": 0,
+    "setup_worst_slack_ns": 9.52,
+    "hold_worst_slack_ns": 0.43,
+    "setup_violated_paths": 0,
+    "hold_violated_paths": 0,
+    "multi_corner": true,
+    "max_slew_violations": 0,
+    "max_fanout_violations": 0,
+    "max_cap_violations": 0,
+    "sta_netlist_missing_cells": 0,
+    "sta_netlist_extra_cells": 0,
+    "clock_period_ns": 25.0,
+    "max_transition_constraint": 1.5,
+    "max_fanout_constraint": 10.0,
+    "max_cap_constraint": 0.2,
+    "pdk": "sky130A",
+    "std_cell_library": "sky130_fd_sc_hd",
+    "signoff_clean": true
+  }
+}

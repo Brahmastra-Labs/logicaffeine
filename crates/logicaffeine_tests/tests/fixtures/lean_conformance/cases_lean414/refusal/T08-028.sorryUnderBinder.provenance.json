@@ -1,0 +1,60 @@
+{
+  "case": "T08-028",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t08_tactics/T08-028_sorry_admit.lean",
+  "source_sha256": "5c702a3e99d5de93bd27f1e3f890266d59710a2def195e290e5572b4341265a8",
+  "ledger_sha256": "a8ac2705fc198222a130a965f013aee43581282534476ad62f2f88ad22d75600",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T08_028.sorryUnderBinder"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "41119a1b0b46229460fb08613f24e16c5b44b0831590cd5d5b6185762a9ec6f4",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 108,
+  "refusal": {
+    "root": "T08_028.sorryUnderBinder",
+    "kind": "theorem",
+    "ground_truth": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/lean_ground_truth/T08-028.json",
+    "lean_print_axioms": [
+      "sorryAx"
+    ],
+    "escapes": [
+      "sorryAx"
+    ],
+    "lean_taint": {
+      "sorryAx": [
+        "T08_028.sorryUnderBinder",
+        "sorryAx"
+      ]
+    },
+    "taint_rule": "breadth first from the root along Lean's CollectAxioms edges (definition, theorem, opaque: type and value; inductive: type and constructors; constructor, recursor: type; axiom, quotient: none), each declaration's constants in ascending Lean-name order; the first path found to each escape"
+  }
+}

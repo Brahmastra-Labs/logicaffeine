@@ -45,7 +45,10 @@ fn solve_state_cell_by_question() {
          Proof: Auto.\n",
     )
     .expect("a locative question should be answerable");
-    assert!(ans.contains(&"Beta".to_string()), "the trip in Maine is Beta; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "the trip in Maine is Beta; got: {ans:?}"
+    );
 }
 
 /// TWO categories coexisting (year × state), solved by a question. The answer
@@ -72,5 +75,8 @@ fn solve_two_category_grid_by_question() {
          Proof: Auto.\n",
     )
     .expect("the two-category grid should be answerable");
-    assert!(ans.contains(&"Beta".to_string()), "Beta is in Maine; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "Beta is in Maine; got: {ans:?}"
+    );
 }

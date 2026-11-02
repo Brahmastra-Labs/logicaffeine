@@ -116,7 +116,10 @@ fn run_corpus_output_shard(shard: usize) {
             ));
         }
     }
-    assert!(checked > 0, "corpus output shard {shard}/{CORPUS_SHARDS} checked no programs");
+    assert!(
+        checked > 0,
+        "corpus output shard {shard}/{CORPUS_SHARDS} checked no programs"
+    );
     assert!(
         failures.is_empty(),
         "differential corpus divergences (shard {shard}/{CORPUS_SHARDS}, {} of them):\n{}",
@@ -144,7 +147,10 @@ fn run_corpus_strict_shard(shard: usize) {
             }
         }
     }
-    assert!(owned > 0, "corpus strict shard {shard}/{CORPUS_SHARDS} owns no programs");
+    assert!(
+        owned > 0,
+        "corpus strict shard {shard}/{CORPUS_SHARDS} owns no programs"
+    );
     assert!(
         failures.is_empty(),
         "strict differential divergences (shard {shard}/{CORPUS_SHARDS}, {} of them):\n{}",
@@ -188,7 +194,10 @@ fn corpus_partition_tiles_corpus() {
         "corpus not tiled exactly once by {CORPUS_SHARDS} shards: {hits:?}"
     );
     for shard in 0..CORPUS_SHARDS {
-        assert!(corpus_shard(shard).count() > 0, "corpus shard {shard} owns no programs");
+        assert!(
+            corpus_shard(shard).count() > 0,
+            "corpus shard {shard} owns no programs"
+        );
     }
 }
 
@@ -223,7 +232,10 @@ fn run_generative_shard(shard: u64) {
             }
         }
     }
-    assert!(checked > 0, "generative shard {shard}/{GEN_SHARDS} explored no seeds");
+    assert!(
+        checked > 0,
+        "generative shard {shard}/{GEN_SHARDS} explored no seeds"
+    );
     assert!(
         failures.is_empty(),
         "generative differential divergences (shard {shard}/{GEN_SHARDS}):\n{}",
@@ -269,6 +281,9 @@ fn generative_partition_tiles_seed_space() {
     );
     for shard in 0..GEN_SHARDS {
         let n = (0..GEN_SEEDS).filter(|s| s % GEN_SHARDS == shard).count();
-        assert!(n > 0, "generative shard {shard}/{GEN_SHARDS} would explore no seeds");
+        assert!(
+            n > 0,
+            "generative shard {shard}/{GEN_SHARDS} would explore no seeds"
+        );
     }
 }

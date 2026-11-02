@@ -1,0 +1,72 @@
+{
+  "case": "T04-010",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t04_recursion/T04-010_wildcard_pattern.lean",
+  "source_sha256": "bac58b0f24e2edfcecea6b86b2df6ec32f3a67f514982e870ec0712343af1700",
+  "ledger_sha256": "ab5db2f53dd148d86a83725f91b1a2b50236427f59db7aff1be36194ab3df58d",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T04_010.Color",
+    "T04_010.Color.blue",
+    "T04_010.Color.cyan",
+    "T04_010.Color.green",
+    "T04_010.Color.magenta",
+    "T04_010.Color.red",
+    "T04_010.countReds",
+    "T04_010.isNil",
+    "T04_010.isRed",
+    "T04_010.notRed",
+    "T04_010.pickCol",
+    "T04_010.rank"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "1fa058781282dbdbe8e942bb3d1aaff53d98be43380bd23c6efaabd872d2fbc7",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1258,
+  "harvest": {
+    "roots": [
+      "T04_010.Color",
+      "T04_010.Color.blue",
+      "T04_010.Color.cyan",
+      "T04_010.Color.green",
+      "T04_010.Color.magenta",
+      "T04_010.Color.red",
+      "T04_010.countReds",
+      "T04_010.isNil",
+      "T04_010.isRed",
+      "T04_010.notRed",
+      "T04_010.pickCol",
+      "T04_010.rank"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

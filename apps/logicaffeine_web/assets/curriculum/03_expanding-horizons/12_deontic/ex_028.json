@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Sleep only if you laugh",
   "options": [
-    "$ (S\\underline{u}\\supset L\\underline{u}  ) $",
-    "$ (S\\underline{u}\\supset Lu ) $",
-    "$ (OS\\underline{u}\\supset Lu ) $",
-    "$ (Su\\supset Lu) $"
+    "S(u̲) → L(u̲)",
+    "S(u̲) → L(u)",
+    "O S(u̲) → L(u)",
+    "S(u) → L(u)"
   ],
   "correct": 1,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "'A only if B' is A ⊃ B. The command S͟u ('you sleep') is conditioned on Lu ('you laugh'): (S͟u ⊃ Lu)."
+  "hint": "'A only if B' is A → B. Which part is the command?",
+  "explanation": "Sleeping is commanded, so S(u̲), and laughing is described, so L(u): S(u̲) → L(u).",
+  "section": "12.2"
 }

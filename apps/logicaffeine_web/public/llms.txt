@@ -1,109 +1,103 @@
-# LOGICAFFEINE
+# Logicaffeine
 
-> Debug your thoughts. Turn everyday English into rigorous First-Order Logic.
+> LOGOS is an English programming language. Write English sentences and get First-Order Logic; write English programs and get running code, a web app, or Rust, C, WASM and RISC-V. Current release: 0.11.0.
 
-## What is LOGICAFFEINE?
+## What it is
 
-LOGICAFFEINE is an English-to-First-Order-Logic transpiler and full programming language. It parses natural language sentences and outputs formal logic formulas in Unicode or LaTeX notation, and extends into a complete imperative language with CRDT-based distributed systems, formal verification, and more.
+Logicaffeine is a natural-language compiler with two modes that share one parser.
 
-The tool helps users:
-- Debug arguments and reasoning with formal logic
-- Learn formal logic interactively through a gamified curriculum
-- Prove logical structures with a pure-Rust, kernel-certified prover (runs in the browser, no Z3 required; Z3-backed static verification is available natively)
-- Translate between natural language and formal notation
-- Write full programs in English that compile to Rust/WASM and run at 2.5x the speed of C (2.544x geometric-mean speedup vs C, fastest in an 11-language benchmark suite — see /benchmarks)
+- **Logic mode** turns English into First-Order Logic (Unicode, LaTeX, ASCII or Kripke form) with neo-Davidsonian event semantics, modal and temporal logic, and every reading of an ambiguous sentence: "Every woman loves a man." comes back with both quantifier scopes.
+- **Imperative mode** compiles LOGOS programs: static types, ownership, generics, pattern matching, contracts, modules, tests written in the language (`## Test`, `Expect that …`, `For all` properties), structured concurrency on a seeded, replayable scheduler, and CRDTs for shared state.
+- **LGX**, the web framework: a page is one file (`State:`, `Actions:` in English, `View:` HTML, `Style:` CSS) compiled to WebAssembly, and `## Route`s ending in `Serve on port 8080.` are the server.
+- **Execution:** a tree-walking interpreter, a register bytecode VM, EXODIA (a copy-and-patch JIT), and ahead-of-time Rust, C, direct WASM and RISC-V backends; `largo emit` writes CUDA, Tenstorrent and other device bundles.
+- **Proofs:** a Calculus of Constructions kernel with an independent second checker, SAT solving with DRAT/LRAT certificates, Lean 4 import re-checked by both kernels, and optional Z3 static verification.
 
-## Key Features
+A model asked to formalize a sentence guesses one reading; LOGOS parses, so it returns them all, and a proof counts only when the kernel checks it.
 
-### Natural Language to Logic
-Parse English sentences into First-Order Logic (FOL). Handles 53+ linguistic phenomena including quantifiers, connectives, predicates, tense, aspect, modal logic, and more.
+## Get started
 
-Example:
-- Input: "All humans are mortal"
-- Output: ∀x(Human(x) → Mortal(x))
+- Install (Linux, macOS): `curl -fsSL https://logicaffeine.com/install.sh | sh`
+- Install (Windows, in PowerShell): `irm https://logicaffeine.com/install.ps1 | iex`
+- Pairing with a person, step by step (install, learn the language, start a project, then code, logic, math and hardware): https://logicaffeine.com/agent.txt
+- First program, no Rust toolchain needed: `largo new hello && cd hello && largo run --interpret`
+- Getting started guide: https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/getting-started.md
+- In the browser, no install: https://logicaffeine.com/studio
 
-### Multiple Output Formats
-- Unicode symbols (∀, ∃, →, ∧, ∨, ¬)
-- LaTeX notation (\forall, \exists, \rightarrow)
-- Simple FOL representation
+## Documentation
 
-### Interactive Learning Platform
-Progressive curriculum from basic syllogisms to advanced modal logic. Gamified with XP, streaks, achievements, and adaptive difficulty. Four eras covering 20+ modules.
-
-### Studio Playground
-Real-time translation with four modes:
-- **Logic Mode**: English to FOL with AST visualization
-- **Code Mode**: Imperative LOGOS programs with REPL and Rust codegen
-- **Math Mode**: Vernacular theorem proving with tactic guidance
-- **Hardware Mode**: English hardware specs to SystemVerilog Assertions (SVA + PSL + Rust monitors) with in-browser, Z3-free certified proving, BMC/k-induction, and counterexample waveforms
-
-### Full Programming Language
-LOGOS extends beyond logic into a complete language with:
-- Functions, structs, enums, pattern matching
-- Refinement types and generics
-- Channels, actors, structured concurrency
-- CRDTs for distributed systems
-- Capability-based security with English policy blocks
-- Curry-Howard proof assistant with Z3 verification
-
-### Package Registry
-Community-contributed logic modules and packages. GitHub OAuth for publishing.
+- Guides: https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md
+- Every construct on one page: https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LOGOS_QUICKGUIDE.md
+- Rust API documentation: https://docs.logicaffeine.com
+- Everything in one file for language models: /llms-full.txt
+- Machine-readable companions: /errors.json (every diagnostic code with its Socratic explanation) and /examples.json (the runtime-verified example corpus with expected outputs)
+- The toolchain is an MCP server: `claude mcp add logos -- largo mcp`
 
 ## Main Pages
 
 ### / (Homepage)
-Marketing landing page with interactive demos, feature highlights, and FAQ. Showcases Logic, Code, and Math modes with live examples.
+"Code we can all read. Logic and mathematics built in. Bring your own agent." The agent instructions a person pastes into their coding agent (install largo, read /llms-full.txt, start a project, then code, logic, math and hardware with the released largo), copied in one click. Below them, a mini Studio: a LOGOS web page in the Studio's editor beside its live preview, and a Logic, a Math and a Hardware example to run.
 
 ### /studio
-Interactive three-panel IDE:
+Interactive three-panel IDE with Logic, Code, Math, Hardware and Web modes:
 - File browser with example files
 - Live editor with syntax highlighting
 - Context-sensitive output (FOL formulas, AST trees, REPL, proofs)
 Free to use, no account required.
 
 ### /learn
-Gamified curriculum for learning First-Order Logic:
+A roadmap for learning First-Order Logic, one lesson at a time:
 - Era 1: First Steps (Introduction, Syllogistic Logic, Fallacies)
 - Era 2: Building Blocks (Propositional Logic, Proofs)
 - Era 3: Expanding Horizons (Quantificational, Modal, Deontic, Belief Logic)
 - Era 4: Mastery (Ethics, Metalogic, History, Deviant Logic, Philosophy)
-Features XP system, streaks, achievements, spaced repetition, and adaptive hints.
+Each lesson gives two examples and one question, with a hint after a wrong answer and optional extra practice.
 
 ### /guide
-Comprehensive documentation with 22 interactive sections covering:
-- LOGICAFFEINE syntax and grammar
+The interactive syntax guide; every example runs in place:
+- LOGOS syntax and grammar
 - Lexicon configuration
 - First-Order Logic concepts
 - Code examples with Run/Copy/Reset
 
-### /pricing
-Commercial licensing. Free for individuals and organizations under 25 employees. Paid tiers: Supporter ($5/mo), Pro ($10/mo), Premium ($25/mo), Enterprise (custom). Lifetime license available.
+### /contact
+Contact the team. LOGOS is open source under the MIT License. The page holds the install commands, a form that reaches the team, and the FAQ.
 
 ### /crates
-Technical documentation for Rust crates:
-- logicaffeine-base: Foundation types and utilities
-- logicaffeine-lexicon: Vocabulary database with 2000+ entries
-- logicaffeine-kernel: Dependent type theory proof kernel
-- logicaffeine-data: Content and curriculum engine
-- logicaffeine-system: Platform abstraction (VFS, persistence)
-- logicaffeine-language: Parser, transpiler, and compiler
-- logicaffeine-proof: Backward chaining proof engine
-- logicaffeine-compile: Full compilation pipeline
+The crates published to crates.io, each described in its own manifest's words:
+- logicaffeine-base: Foundation types for Logicaffeine: arenas, string interning, spans, and exact integers, decimals, quantities, money, dates and UUIDs
+- logicaffeine-cli: largo — the LOGOS build tool: projects, builds, tests, serving, proofs, and the package registry
+- logicaffeine-compile: The LOGOS compiler: type checking, the optimizer, the interpreter and bytecode VM, and the Rust, C, WASM, RISC-V, CUDA and hardware backends
+- logicaffeine-data: LOGOS runtime values, collections, wire format and CRDTs, shared by native and WASM builds
+- logicaffeine-forge: The machine-code layer of the LOGOS copy-and-patch JIT: W^X executable memory, build-time stencils, a register-allocating x86-64 backend
+- logicaffeine-jit: Native execution tier for the LOGOS bytecode VM: hot functions and loops tier up to x86-64 machine code
+- logicaffeine-kernel: Calculus of Constructions proof kernel with inductive types, universes, quotients, a second checker and Lean 4 import
+- logicaffeine-language: The LOGOS front end: English sentences to first-order logic, and the parser for LOGOS programs and LGX pages
+- logicaffeine-lexicon: The English vocabulary behind LOGOS: verb, noun and adjective metadata for build-time lookup tables, plus an optional runtime JSON index
+- logicaffeine-lsp: The LOGOS language server (LSP): diagnostics, completion, hover, navigation and refactoring for .lg files, literate .md files and LGX pages
+- logicaffeine-proof: Kernel-checked proof search and tactics, certified SAT/CDCL with DRAT/LRAT output, and a number-theory and cryptanalysis library
+- logicaffeine-runtime: Deterministic, replayable concurrency runtime for the LOGOS interpreter and VM: task scheduler, channels, Select, timers, seed and trace
+- logicaffeine-system: Platform IO, networking, HTTP serving, persistence, and post-quantum crypto (Keccak/SHA-3, ChaCha20-Poly1305, ML-KEM, ML-DSA) for LOGOS
+- logicaffeine-tv: Translation validation for LOGOS: a symbolic encoder of the source, checked with Z3 against the tree-walking interpreter per program
+- logicaffeine-verify: Z3-based static verification and model checking for Logicaffeine
 
 ### /roadmap
-Development roadmap with 9 milestones:
-1. Core Transpiler (Complete) - 53+ linguistic phenomena
-2. Web Platform (Complete) - Interactive learning and studio
-3. Imperative Language (Complete) - Functions, structs, enums, I/O
-4. Type System (Complete) - Refinement types, generics, inference
-5. Concurrency & Actors (Complete) - Channels, agents, async/await
-6. Distributed Systems (Complete) - CRDTs, P2P, conflict resolution
-7. Security & Policies (Complete) - Capability-based security
-8. Proof Assistant (Complete) - Curry-Howard, Z3 verification
-9. Universal Compilation (In Progress) - WASM target, Live Codex IDE
+Development roadmap with 13 milestones:
+1. Core Transpiler (Complete)
+2. Web Platform (Complete)
+3. Imperative Language (Complete)
+4. Type System (Complete)
+5. Concurrency & Actors (Complete)
+6. Distributed Systems (Complete)
+7. Security & Policies (Complete)
+8. Proof Assistant (Complete)
+9. Native Compilation Tier (Complete)
+10. Hardware Verification (Complete)
+11. Translation Validation (In Progress)
+12. Quantum Backend (Planned)
+13. Silicon (In Progress)
 
 ### /benchmarks
-Live benchmark results with full methodology: 32 programs across 11 languages (C, C++, Rust, Zig, Go, Java, JavaScript, Python, Ruby, Nim, LOGOS), the certified-solver-vs-the-field comparison (Z3, Kissat, SaDiCaL, CaDiCaL, CryptoMiniSat), and the wire-codec head-to-head (Protobuf, Cap'n Proto, MessagePack, bincode, postcard, CBOR, Arrow, JSON). Every number links to raw JSON and reproducible harnesses.
+Live benchmark results with full methodology: 35 programs across 11 languages (C, C++, Rust, Zig, Go, Java, JavaScript, Python, Ruby, Nim, LOGOS), the certified-solver-vs-the-field comparison (Z3, Kissat, SaDiCaL, CaDiCaL, CryptoMiniSat), and the wire-codec head-to-head (Protobuf, Cap'n Proto, MessagePack, bincode, postcard, CBOR, Arrow, JSON). Every number links to raw JSON and reproducible harnesses.
 
 ### /registry
 Package registry for community-contributed logic modules. Search, browse, and publish packages with GitHub authentication.
@@ -111,14 +105,11 @@ Package registry for community-contributed logic modules. Search, browse, and pu
 ### /news
 Release notes, tutorials, and announcements — one article per release with engineering deep-dives (each article is statically served at /news/<slug>; the full list is in /sitemap.xml).
 
-### /profile
-User profile with XP, level, streaks, module progress, and achievements.
-
 ### /privacy
 Privacy policy.
 
 ### /terms
-Terms of service. Business Source License (BUSL-1.1).
+Terms of service.
 
 ## Technical Details
 
@@ -138,8 +129,8 @@ Terms of service. Business Source License (BUSL-1.1).
 - **Proof Engine**: pure-Rust certified prover (SAT/CDCL, GF(2)/GF(p) algebraic routes, SR symmetry proofs) checked by a CoC proof kernel; Z3 powers the optional native static-verification tier
 
 ### Performance
-Measured by the open benchmark suite (32 programs x 11 languages, results at /benchmarks):
-- LOGOS release binaries: 2.544x geometric-mean speedup vs C — faster than Rust (1.21x), Zig (1.157x), and C++ (1.033x) on the same suite
+Measured by the open benchmark suite (35 programs x 11 languages, results at /benchmarks):
+- LOGOS release binaries: 4.16x geometric-mean speedup vs C — faster than Rust (1.05x), Zig (1.09x), and C++ (0.99x) on the same suite
 - The certified solver beats Z3, Kissat, CaDiCaL, and CryptoMiniSat by orders of magnitude on structured UNSAT families (pigeonhole, Tseitin parity, mod-p counting)
 - The wire codec produces the smallest encoding on every fair workload vs Protobuf, Cap'n Proto, MessagePack, bincode, postcard, and CBOR
 
@@ -150,33 +141,70 @@ Vocabulary database (lexicon.json) defining:
 - Adjectives with intersective/subsective properties
 - 2000+ vocabulary entries
 
+## Technical Details
+
+### Supported Logic Systems
+- Classical propositional logic
+- First-order predicate logic
+- Modal logic (necessity, possibility)
+- Deontic logic (obligation, permission)
+- Epistemic logic (belief, knowledge)
+- Temporal logic (past, future, always)
+
+### Architecture
+- **Frontend**: Dioxus 0.7 (Rust) compiled to WebAssembly; content pages are statically prerendered for crawlers
+- **Engine**: Rust, with an arena-allocated AST and symbol interning; the same engine runs natively and in the browser as WebAssembly
+- **Logic pipeline**: Input → Lexer → Parser → AST → Transpiler → FOL Output
+- **Imperative pipeline**: a tree-walking interpreter, a register bytecode VM, a copy-and-patch JIT, and ahead-of-time Rust, C, direct WASM and RISC-V backends
+- **Proof Engine**: pure-Rust certified prover (SAT/CDCL, GF(2)/GF(p) algebraic routes, SR symmetry proofs) checked by a CoC proof kernel; Z3 powers the optional native static-verification tier
+
+### Performance
+Measured by the open benchmark suite (35 programs x 11 languages, results at /benchmarks):
+- LOGOS release binaries: 4.16x geometric-mean speedup vs C — faster than Rust (1.05x), Zig (1.09x), and C++ (0.99x) on the same suite
+- The certified solver beats Z3, Kissat, CaDiCaL, and CryptoMiniSat by orders of magnitude on structured UNSAT families (pigeonhole, Tseitin parity, mod-p counting)
+- The wire codec produces the smallest encoding on every fair workload vs Protobuf, Cap'n Proto, MessagePack, bincode, postcard, and CBOR
+
+### Lexicon System
+Vocabulary database (lexicon.json) defining:
+- Verbs with Vendler class and transitivity
+- Nouns with animacy, gender, and number
+- Adjectives with intersective/subsective properties
+
 ## Links
 
 - Website: https://logicaffeine.com
 - GitHub: https://github.com/Brahmastra-Labs/logicaffeine
-- X (Twitter): https://x.com/logicaffeine
-- Documentation: https://logicaffeine.com/guide
-- API Crates: https://logicaffeine.com/crates
+- Getting started: https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/getting-started.md
+- Guides: https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md
+- Rust API documentation: https://docs.logicaffeine.com
+- Syntax guide: https://logicaffeine.com/guide
+- Crates: https://logicaffeine.com/crates
 - Studio: https://logicaffeine.com/studio
 - Learn: https://logicaffeine.com/learn
 - Benchmarks: https://logicaffeine.com/benchmarks
 - News: https://logicaffeine.com/news
+- Changelog: https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md
+- X (Twitter): https://x.com/logicaffeine
 - All indexable pages: https://logicaffeine.com/sitemap.xml
 
 ## Contact
 
-- Email: tristen@brahmastra-labs.com
-- Support: https://logicaffeine.com/pricing
+- Email: team@datacenter.dev
+- Reach the team: https://logicaffeine.com/contact#contact
 - Discord: https://discord.gg/logicaffeine
+
+## Full documentation in one file
+
+The quick guide, every guide and the error catalog, as one file for language models: /llms-full.txt.
 
 ## Organization
 
-LOGICAFFEINE is developed by Brahmastra Labs.
+Logicaffeine is developed by Datacenter.Dev.
 
 ## License
 
-Business Source License 1.1 (BUSL-1.1). Free for individuals and organizations under 25 employees. Commercial licenses available at https://logicaffeine.com/pricing.
+MIT License. The whole of it is LICENSE.md in the repository.
 
 ---
 
-This file is optimized for AI search engines and LLM indexing. For human-readable documentation, visit https://logicaffeine.com/guide
+This file follows the llms.txt convention for language models and AI search. People should start at https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/getting-started.md

@@ -1,0 +1,40 @@
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          12423 Hz
+     20000          14580 Hz
+     30000          14565 Hz
+     40000          14929 Hz
+     50000          13737 Hz
+     60000          10145 Hz
+     70000          14758 Hz
+     80000          14453 Hz
+     90000          14707 Hz
+    100000           9975 Hz
+    110000          10876 Hz
+    120000          11896 Hz
+    130000          10733 Hz
+    140000          10303 Hz
+    150000          11159 Hz
+    160000          18484 Hz
+    170000          18366 Hz
+    180000          11201 Hz
+    190000          11833 Hz
+    200000          13419 Hz
+    210000          13348 Hz
+    220000          13700 Hz
+    230000           8500 Hz
+    240000           9306 Hz
+    250000          18638 Hz
+    260000          11180 Hz
+Simulation complete at cycle 269468
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 85.5018 GB/s
+Average DRAM Write Bandwidth: 14.2503 GB/s
+script Elapsed seconds: 23.4571
+Exiting... 😊
+Destruct DRAM.
+PASS: true (BlackSholes)
+Complete Simulation
+Runtime:0:23.63

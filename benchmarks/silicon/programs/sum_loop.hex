@@ -1,0 +1,11 @@
+05000000  // LoadConst r0, 0     (sum)
+05010001  // LoadConst r1, 1     (i)
+05020005  // LoadConst r2, 5     (n)
+05030001  // LoadConst r3, 1     (step)
+1b040102  // LtEq r4 = (i <= n)
+23090400  // JumpIfFalse r4 -> word 9 (Show)
+08000001  // Add r0 = sum + i
+08010103  // Add r1 = i + 1
+22040000  // Jump -> word 4 (loop test)
+59000000  // Show r0
+2b000000  // Halt

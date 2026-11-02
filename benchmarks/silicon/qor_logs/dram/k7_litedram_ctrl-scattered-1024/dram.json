@@ -1,0 +1,17 @@
+{
+ "bl": 4,
+ "candidate": "k7_litedram_ctrl",
+ "cl": 3,
+ "cols_per_part": 4,
+ "every": 0,
+ "files": [
+  "words.hex",
+  "tb_qor_dram.v"
+ ],
+ "part": "MT47H64M16-25",
+ "parts": 1,
+ "pattern": "scattered",
+ "row_bits": 6,
+ "tck_ps": 5000,
+ "words": 1024
+}

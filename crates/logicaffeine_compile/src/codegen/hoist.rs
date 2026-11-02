@@ -39,8 +39,16 @@
 //!
 //! Refusal is always the default: no oracle, no snapshot, an unknown
 //! statement kind, an unknown expression kind — hoist nothing.
+//!
+//! VALUE SEMANTICS. A copy (`Let mutable b be a.`) shares `a`'s buffer until
+//! its first write, and the un-hoisted body copies-on-write before each one.
+//! The hoisted body writes through a slice or `&mut Vec` that the copy-on-write
+//! gate cannot see, so a mut hoist passes the handle through that same gate
+//! ([`emit_cow`]) before it takes the loop's `borrow_mut()`: the held borrow is
+//! on the handle's own buffer, and a `mutable` parameter still writes through
+//! to its caller.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::analysis::types::RustNames;
@@ -49,6 +57,7 @@ use crate::intern::{Interner, Symbol};
 
 use super::context::RefinementContext;
 use super::peephole::body_modifies_var;
+use super::stmt::emit_cow;
 
 thread_local! {
     /// Per-thread test override for the borrow-hoist kill switch. Tests set
@@ -82,8 +91,19 @@ fn could_alias_seq(ty: Option<&String>) -> bool {
     let base = t.split("|__hl:").next().unwrap_or(t.as_str());
     let definitely_not = matches!(
         base,
-        "i64" | "f64" | "bool" | "char" | "u8" | "usize" | "i32" | "u64"
-            | "String" | "&str" | "()" | "__zero_based_i64" | "__single_char_u8"
+        "i64"
+            | "f64"
+            | "bool"
+            | "char"
+            | "u8"
+            | "usize"
+            | "i32"
+            | "u64"
+            | "String"
+            | "&str"
+            | "()"
+            | "__zero_based_i64"
+            | "__single_char_u8"
     ) || base.starts_with("LogosMap")
         || base.starts_with("LogosI64Map")
         || base.starts_with("LogosI64Set")
@@ -126,8 +146,17 @@ pub(crate) struct HoistEntry {
 fn is_pure_scalar_builtin(name: &str, argc: usize) -> bool {
     matches!(
         (name, argc),
-        ("sqrt", 1) | ("abs", 1) | ("floor", 1) | ("ceil", 1) | ("round", 1)
-            | ("pow", 2) | ("min", 2) | ("max", 2)
+        ("sqrt", 1)
+            | ("abs", 1)
+            | ("conjugate", 1)
+            | ("re", 1)
+            | ("im", 1)
+            | ("floor", 1)
+            | ("ceil", 1)
+            | ("round", 1)
+            | ("pow", 2)
+            | ("min", 2)
+            | ("max", 2)
     )
 }
 
@@ -204,7 +233,11 @@ fn scan_value_expr(e: &Expr, roles: &mut AccessRoles) {
             scan_collection_pos(collection, roles);
             scan_value_expr(index, roles);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             scan_collection_pos(collection, roles);
             scan_value_expr(start, roles);
             scan_value_expr(end, roles);
@@ -300,7 +333,11 @@ fn scan_stmts(stmts: &[Stmt], roles: &mut AccessRoles) {
                 let _ = target;
                 scan_value_expr(value, roles);
             }
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 if let Expr::Identifier(s) = collection {
                     roles.written(*s);
                 } else {
@@ -331,7 +368,11 @@ fn scan_stmts(stmts: &[Stmt], roles: &mut AccessRoles) {
                     roles.rebound.insert(*v);
                 }
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 scan_value_expr(cond, roles);
                 scan_stmts(then_block, roles);
                 if let Some(eb) = else_block {
@@ -342,7 +383,11 @@ fn scan_stmts(stmts: &[Stmt], roles: &mut AccessRoles) {
                 scan_value_expr(cond, roles);
                 scan_stmts(body, roles);
             }
-            Stmt::Repeat { pattern, iterable, body } => {
+            Stmt::Repeat {
+                pattern,
+                iterable,
+                body,
+            } => {
                 if let Expr::Identifier(s) = iterable {
                     roles.other(*s);
                 } else {
@@ -446,9 +491,15 @@ pub(crate) fn plan_borrow_hoist<'a>(
         // slice directly (no borrow) — both give LLVM the noalias `&[T]`.
         // `is_de_rc` is authoritative: the registered type string can lag a
         // de-Rc'd decl, but the emitted variable is the `Vec`.
-        let elem_ty = if let Some(e) = base_ty.strip_prefix("LogosSeq<").and_then(|s| s.strip_suffix('>')) {
+        let elem_ty = if let Some(e) = base_ty
+            .strip_prefix("LogosSeq<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
             e.to_string()
-        } else if let Some(e) = base_ty.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        } else if let Some(e) = base_ty
+            .strip_prefix("Vec<")
+            .and_then(|s| s.strip_suffix('>'))
+        {
             e.to_string()
         } else {
             continue;
@@ -537,11 +588,23 @@ pub(crate) fn plan_borrow_hoist<'a>(
 
     let entries: Vec<HoistEntry> = derc_hoisted
         .into_iter()
-        .map(|(sym, kind, elem_ty, old_type)| HoistEntry { sym, kind, elem_ty, old_type, is_vec: true })
+        .map(|(sym, kind, elem_ty, old_type)| HoistEntry {
+            sym,
+            kind,
+            elem_ty,
+            old_type,
+            is_vec: true,
+        })
         .chain(
             hoisted
                 .into_iter()
-                .map(|(sym, kind, elem_ty, old_type)| HoistEntry { sym, kind, elem_ty, old_type, is_vec: false }),
+                .map(|(sym, kind, elem_ty, old_type)| HoistEntry {
+                    sym,
+                    kind,
+                    elem_ty,
+                    old_type,
+                    is_vec: false,
+                }),
         )
         .collect();
     // Reaching here with entries means the oracle is present, which (per the kill
@@ -566,6 +629,7 @@ pub(crate) fn emit_hoist_open(
         return;
     }
     let names = RustNames::new(interner);
+    let inner = format!("{indent_str}    ");
     writeln!(output, "{}{{", indent_str).unwrap();
     for e in entries {
         let n = names.ident(e.sym);
@@ -577,7 +641,13 @@ pub(crate) fn emit_hoist_open(
                 ctx.register_variable_type(e.sym, format!("&[{}]", e.elem_ty));
             }
             (HoistKind::MutSlice, false) => {
-                writeln!(output, "{}    let mut __{}_g = {}.borrow_mut();", indent_str, n, n).unwrap();
+                emit_cow(&Expr::Identifier(e.sym), ctx, &names, &inner, output);
+                writeln!(
+                    output,
+                    "{}    let mut __{}_g = {}.borrow_mut();",
+                    indent_str, n, n
+                )
+                .unwrap();
                 writeln!(output, "{}    let {} = &mut __{}_g[..];", indent_str, n, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("&mut [{}]", e.elem_ty));
             }
@@ -586,7 +656,13 @@ pub(crate) fn emit_hoist_open(
                 // without a per-call borrow. Registered as `Vec<T>` to reuse
                 // the existing owned-Vec emission (index, push, length all
                 // auto-deref through the `&mut Vec` shadow).
-                writeln!(output, "{}    let mut __{}_g = {}.borrow_mut();", indent_str, n, n).unwrap();
+                emit_cow(&Expr::Identifier(e.sym), ctx, &names, &inner, output);
+                writeln!(
+                    output,
+                    "{}    let mut __{}_g = {}.borrow_mut();",
+                    indent_str, n, n
+                )
+                .unwrap();
                 writeln!(output, "{}    let {} = &mut *__{}_g;", indent_str, n, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("Vec<{}>", e.elem_ty));
             }

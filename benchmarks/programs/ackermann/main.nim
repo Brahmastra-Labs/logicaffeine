@@ -5,5 +5,8 @@ proc ackermann(m, n: int64): int64 =
   if n == 0: return ackermann(m - 1, 1)
   return ackermann(m - 1, ackermann(m, n - 1))
 
-let m = parseInt(paramStr(1)).int64
-echo ackermann(3, m)
+proc main() =
+  let m = parseInt(paramStr(1)).int64
+  echo ackermann(3, m)
+
+main()

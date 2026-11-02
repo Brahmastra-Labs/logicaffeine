@@ -1,6 +1,6 @@
 //! Arena allocation for stable AST references.
 //!
-//! This module provides bump allocation for AST nodes, ensuring references
+//! This module provides owning allocation for AST nodes, ensuring references
 //! remain valid throughout parsing and semantic analysis. The arena pattern
 //! eliminates reference counting overhead and enables zero-copy parsing.
 //!
@@ -23,49 +23,115 @@
 //! For interactive use, call [`Arena::reset`] between evaluations to
 //! reclaim memory while keeping allocated capacity.
 
-use bumpalo::Bump;
+use std::cell::RefCell;
 
-/// A bump allocator for stable, arena-allocated references.
+/// An owning arena for stable references.
 ///
-/// Values allocated in an arena live until the arena is dropped or reset.
-/// References remain valid across subsequent allocations, making this ideal
-/// for AST nodes that reference each other.
+/// Values stay at their allocated addresses until the arena is dropped or reset.
+/// Their destructors run at that boundary, including destructors of owned AST
+/// vectors and strings.
 pub struct Arena<T> {
-    bump: Bump,
-    _marker: std::marker::PhantomData<T>,
+    chunks: RefCell<Chunks<T>>,
+}
+
+// Owning Vec<T>s give both ordinary drop glue and Rust's drop checking access to T.
+// Moving a Vec header never moves its elements; a published chunk never reallocates.
+struct Chunks<T> {
+    values: Vec<Vec<T>>,
+    active: usize,
 }
 
 impl<T> Arena<T> {
     /// Creates an empty arena.
     pub fn new() -> Self {
-        Arena {
-            bump: Bump::new(),
-            _marker: std::marker::PhantomData,
+        Self {
+            chunks: RefCell::new(Chunks {
+                values: Vec::new(),
+                active: 0,
+            }),
         }
     }
 
     /// Allocates a value and returns a reference valid for the arena's lifetime.
     pub fn alloc(&self, value: T) -> &T {
-        self.bump.alloc(value)
+        let mut chunks = self.chunks.borrow_mut();
+        let has_room = chunks.active > 0 && {
+            let current = &chunks.values[chunks.active - 1];
+            current.len() < current.capacity()
+        };
+        if !has_room {
+            let next = chunks.active;
+            if next == chunks.values.len() {
+                let initial = (4096 / std::mem::size_of::<T>().max(1)).max(1);
+                let previous = chunks.values.last().map_or(0, Vec::capacity);
+                let capacity = previous.saturating_mul(2).max(initial);
+                chunks.values.push(Vec::with_capacity(capacity));
+            }
+            debug_assert!(chunks.values[next].is_empty());
+            chunks.active += 1;
+        }
+        let current = chunks.active - 1;
+        let chunk = &mut chunks.values[current];
+        let index = chunk.len();
+        debug_assert!(index < chunk.capacity());
+        chunk.push(value);
+        // SAFETY: push stayed within the existing capacity. This and every later
+        // allocation leave previously published elements at their addresses. The
+        // buffer is owned by self; reset needs exclusive access and drop ends the
+        // borrow. Do not index through a mutable slice spanning earlier values.
+        unsafe { &*chunk.as_ptr().add(index) }
     }
 
-    /// Allocates a slice from an iterator.
+    /// Allocates a contiguous slice from an iterator.
     ///
-    /// The iterator must implement [`ExactSizeIterator`] so the arena can
-    /// pre-allocate the correct amount of space.
+    /// The iterator must implement ExactSizeIterator so its allocation can be
+    /// reserved up front. It may itself allocate from this arena.
     pub fn alloc_slice<I>(&self, items: I) -> &[T]
     where
         I: IntoIterator<Item = T>,
         I::IntoIter: ExactSizeIterator,
     {
-        self.bump.alloc_slice_fill_iter(items)
+        let iter = items.into_iter();
+        let length = iter.len();
+        // Take an unused buffer without holding the RefCell borrow while user
+        // iterator code runs. Its Vec owns partial initialization if that code
+        // panics; no initialized element can be forgotten.
+        let mut buffer = {
+            let mut chunks = self.chunks.borrow_mut();
+            let spare = (chunks.active..chunks.values.len())
+                .find(|&i| chunks.values[i].capacity() >= length);
+            match spare {
+                Some(i) => chunks.values.swap_remove(i),
+                None => Vec::with_capacity(length),
+            }
+        };
+        debug_assert!(buffer.is_empty());
+        buffer.extend(iter);
+        if buffer.is_empty() {
+            return &[];
+        }
+        let pointer = buffer.as_ptr();
+        let length = buffer.len();
+        let mut chunks = self.chunks.borrow_mut();
+        let next = chunks.active;
+        chunks.values.insert(next, buffer);
+        chunks.active += 1;
+        // SAFETY: moving the Vec into the arena preserves its buffer address.
+        // Future scalar allocations check its capacity before pushing, and slice
+        // allocations use separate unused buffers. The shared arena borrow keeps
+        // reset and drop from running while the returned slice is live.
+        unsafe { std::slice::from_raw_parts(pointer, length) }
     }
 
-    /// Resets the arena, invalidating all references but keeping allocated capacity.
+    /// Drops every value, invalidating references while retaining reusable storage.
     ///
-    /// This enables zero-allocation REPL loops by reusing memory.
+    /// Repeated evaluations can reuse the arena without retaining AST-owned data.
     pub fn reset(&mut self) {
-        self.bump.reset();
+        let chunks = self.chunks.get_mut();
+        for chunk in &mut chunks.values {
+            chunk.clear();
+        }
+        chunks.active = 0;
     }
 }
 
@@ -76,62 +142,5 @@ impl<T> Default for Arena<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn alloc_returns_stable_reference() {
-        let arena: Arena<i32> = Arena::new();
-        let r1 = arena.alloc(42);
-        let r2 = arena.alloc(100);
-        assert_eq!(*r1, 42);
-        assert_eq!(*r2, 100);
-    }
-
-    #[test]
-    fn references_remain_valid_after_many_allocations() {
-        let arena: Arena<i32> = Arena::new();
-        let refs: Vec<&i32> = (0..10000).map(|i| arena.alloc(i)).collect();
-        for (i, r) in refs.iter().enumerate() {
-            assert_eq!(**r, i as i32);
-        }
-    }
-
-    #[test]
-    fn works_with_structs() {
-        #[derive(Debug, PartialEq)]
-        struct Point {
-            x: i32,
-            y: i32,
-        }
-
-        let arena: Arena<Point> = Arena::new();
-        let p1 = arena.alloc(Point { x: 1, y: 2 });
-        let p2 = arena.alloc(Point { x: 3, y: 4 });
-        assert_eq!(p1, &Point { x: 1, y: 2 });
-        assert_eq!(p2, &Point { x: 3, y: 4 });
-    }
-
-    #[test]
-    fn alloc_slice_works() {
-        let arena: Arena<i32> = Arena::new();
-        let slice = arena.alloc_slice([1, 2, 3]);
-        assert_eq!(slice, &[1, 2, 3]);
-    }
-
-    #[test]
-    fn alloc_slice_from_vec() {
-        let arena: Arena<i32> = Arena::new();
-        let vec = vec![10, 20, 30];
-        let slice = arena.alloc_slice(vec);
-        assert_eq!(slice, &[10, 20, 30]);
-    }
-
-    #[test]
-    fn alloc_empty_slice() {
-        let arena: Arena<i32> = Arena::new();
-        let empty: Vec<i32> = vec![];
-        let slice = arena.alloc_slice(empty);
-        assert!(slice.is_empty());
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/arena/tests.rs"]
+mod tests;

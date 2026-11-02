@@ -47,7 +47,8 @@ fn test_primitive_add() {
     let mut repl = Repl::new();
 
     // Define using add builtin
-    repl.execute("Definition sum : Int := add 2 3.").expect("Define sum");
+    repl.execute("Definition sum : Int := add 2 3.")
+        .expect("Define sum");
 
     let result = repl.execute("Eval sum.").expect("Eval sum");
     assert_eq!(result, "5");
@@ -58,7 +59,8 @@ fn test_primitive_mul() {
     let mut repl = Repl::new();
 
     // Large multiplication (instant via ALU)
-    repl.execute("Definition big : Int := mul 10000 10000.").expect("Define big");
+    repl.execute("Definition big : Int := mul 10000 10000.")
+        .expect("Define big");
 
     let result = repl.execute("Eval big.").expect("Eval big");
     assert_eq!(result, "100000000");
@@ -68,7 +70,8 @@ fn test_primitive_mul() {
 fn test_primitive_sub() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition diff : Int := sub 100 42.").expect("Define diff");
+    repl.execute("Definition diff : Int := sub 100 42.")
+        .expect("Define diff");
 
     let result = repl.execute("Eval diff.").expect("Eval diff");
     assert_eq!(result, "58");
@@ -78,7 +81,8 @@ fn test_primitive_sub() {
 fn test_primitive_div() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition quot : Int := div 100 7.").expect("Define quot");
+    repl.execute("Definition quot : Int := div 100 7.")
+        .expect("Define quot");
 
     let result = repl.execute("Eval quot.").expect("Eval quot");
     assert_eq!(result, "14"); // Integer division
@@ -88,7 +92,8 @@ fn test_primitive_div() {
 fn test_primitive_mod() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition rem : Int := mod 100 7.").expect("Define rem");
+    repl.execute("Definition rem : Int := mod 100 7.")
+        .expect("Define rem");
 
     let result = repl.execute("Eval rem.").expect("Eval rem");
     assert_eq!(result, "2");
@@ -103,7 +108,8 @@ fn test_nested_operations() {
     let mut repl = Repl::new();
 
     // (3 + 4) * 2 = 14
-    repl.execute("Definition nested : Int := mul (add 3 4) 2.").expect("Define nested");
+    repl.execute("Definition nested : Int := mul (add 3 4) 2.")
+        .expect("Define nested");
 
     let result = repl.execute("Eval nested.").expect("Eval nested");
     assert_eq!(result, "14");
@@ -114,7 +120,8 @@ fn test_complex_expression() {
     let mut repl = Repl::new();
 
     // ((100 - 10) * 2) + 5 = 185
-    repl.execute("Definition complex : Int := add (mul (sub 100 10) 2) 5.").expect("Define");
+    repl.execute("Definition complex : Int := add (mul (sub 100 10) 2) 5.")
+        .expect("Define");
 
     let result = repl.execute("Eval complex.").expect("Eval");
     assert_eq!(result, "185");
@@ -132,7 +139,8 @@ fn test_function_with_int() {
     repl.execute("Definition double : Int -> Int := fun n : Int => add n n.")
         .expect("Define double");
 
-    repl.execute("Definition four : Int := double 2.").expect("Define four");
+    repl.execute("Definition four : Int := double 2.")
+        .expect("Define four");
 
     let result = repl.execute("Eval four.").expect("Eval four");
     assert_eq!(result, "4");
@@ -143,10 +151,13 @@ fn test_function_with_two_ints() {
     let mut repl = Repl::new();
 
     // A function taking two Ints
-    repl.execute("Definition add3 : Int -> Int -> Int := fun a : Int => fun b : Int => add (add a b) 1.")
-        .expect("Define add3");
+    repl.execute(
+        "Definition add3 : Int -> Int -> Int := fun a : Int => fun b : Int => add (add a b) 1.",
+    )
+    .expect("Define add3");
 
-    repl.execute("Definition result : Int := add3 10 20.").expect("Define result");
+    repl.execute("Definition result : Int := add3 10 20.")
+        .expect("Define result");
 
     let result = repl.execute("Eval result.").expect("Eval result");
     assert_eq!(result, "31");
@@ -206,7 +217,8 @@ fn test_instant_large_computation() {
 
     // This must complete instantly, not hang
     // 1000000 * 1000000 = 1000000000000
-    repl.execute("Definition trillion : Int := mul 1000000 1000000.").expect("Define");
+    repl.execute("Definition trillion : Int := mul 1000000 1000000.")
+        .expect("Define");
 
     let result = repl.execute("Eval trillion.").expect("Eval");
     assert_eq!(result, "1000000000000");

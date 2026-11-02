@@ -1,0 +1,13 @@
+{
+  "capability": "math.dist",
+  "workload": "math.dist",
+  "arg": "1000000",
+  "expected": "866914818573414",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

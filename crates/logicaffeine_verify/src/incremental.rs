@@ -31,7 +31,9 @@ pub struct ChangeEvent {
 
 impl VerificationCache {
     pub fn new() -> Self {
-        Self { entries: HashMap::new() }
+        Self {
+            entries: HashMap::new(),
+        }
     }
 
     /// Store a result in the cache.
@@ -48,7 +50,10 @@ impl VerificationCache {
     pub fn invalidate(&mut self, changes: &[ChangeEvent]) {
         let changed_items: Vec<&str> = changes.iter().map(|c| c.changed_item.as_str()).collect();
         self.entries.retain(|_, result| {
-            !result.dependencies.iter().any(|dep| changed_items.contains(&dep.as_str()))
+            !result
+                .dependencies
+                .iter()
+                .any(|dep| changed_items.contains(&dep.as_str()))
         });
     }
 
@@ -92,11 +97,14 @@ pub fn verify_incremental(
             // For now, just mark as safe if the property is a tautology
             let is_safe = matches!(prop, VerifyExpr::Bool(true));
 
-            cache.store(hash, CachedResult {
-                is_safe,
-                dependencies: deps.clone(),
-                timestamp: 0,
-            });
+            cache.store(
+                hash,
+                CachedResult {
+                    is_safe,
+                    dependencies: deps.clone(),
+                    timestamp: 0,
+                },
+            );
 
             results.push((hash, is_safe));
         }

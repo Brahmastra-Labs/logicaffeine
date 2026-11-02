@@ -9,7 +9,11 @@ fn interpret_hello_world() {
 Show "Hello, world!".
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "Hello, world!");
 }
 
@@ -22,7 +26,11 @@ Let y be 10.
 Show x + y.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "15");
 }
 
@@ -36,7 +44,11 @@ fn interpret_function_call() {
 Show double(3).
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "6");
 }
 
@@ -51,7 +63,11 @@ Otherwise:
     Show "small".
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "big");
 }
 
@@ -70,7 +86,11 @@ Repeat for n in items:
 Show total.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "6");
 }
 
@@ -85,7 +105,11 @@ Push 30 to items.
 Show items.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "[10, 20, 30]");
 }
 
@@ -102,7 +126,11 @@ Show p's x.
 Show p's y.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "3\n4");
 }
 
@@ -115,7 +143,11 @@ Show "line2".
 Show "line3".
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret without error: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret without error: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "line1\nline2\nline3");
 }
 
@@ -144,7 +176,11 @@ fn interpret_string_index_utf8() {
     // After fix: should return out-of-bounds error.
     let source = "## Main\nLet s be \"éé\".\nShow item 3 of s.";
     let result = interpret_program(source);
-    assert!(result.is_err(), "Should return error for out-of-bounds char index on multi-byte string: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Should return error for out-of-bounds char index on multi-byte string: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -172,7 +208,11 @@ Let y be 2.0.
 Show x + y.
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret float arithmetic: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret float arithmetic: {:?}",
+        result
+    );
     // Shortest round-trip display: 3.14 + 2.0 is inexact in IEEE binary64 and
     // the artifact is SHOWN, not hidden — identical on every engine (the old
     // `{:.6}`-trimmed display masked it as "5.14").
@@ -193,7 +233,11 @@ Otherwise:
         Show "small".
 "#;
     let result = interpret_program(source);
-    assert!(result.is_ok(), "Should interpret nested if-else: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should interpret nested if-else: {:?}",
+        result
+    );
     assert_eq!(result.unwrap().trim(), "medium");
 }
 
@@ -278,6 +322,10 @@ Let y be x * 2.
 Show y.
 "#;
     let interp_result = interpret_program(source);
-    assert!(interp_result.is_ok(), "Should interpret without error: {:?}", interp_result);
+    assert!(
+        interp_result.is_ok(),
+        "Should interpret without error: {:?}",
+        interp_result
+    );
     assert_eq!(interp_result.unwrap().trim(), "84");
 }

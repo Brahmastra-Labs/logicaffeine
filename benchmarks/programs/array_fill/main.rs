@@ -6,9 +6,9 @@ fn main() {
     for i in 0..n {
         arr.push((i as i64 * 7 + 3) % 1000000);
     }
-    let mut sum: i64 = 0;
+    let mut h: i64 = 0;
     for &v in &arr {
-        sum = (sum + v) % 1000000007;
+        h = (h * 31 + v) & 268435455;
     }
-    println!("{}", sum);
+    println!("{}", h);
 }

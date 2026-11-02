@@ -11,6 +11,7 @@
   ],
   "correct": 1,
   "hint": "This argument tries to change the subject to something emotionally compelling but unrelated.",
-  "explanation": "This is a Red Herring fallacy - diverting attention away from the actual topic (tax policy) by introducing an emotionally charged but irrelevant issue (world hunger). Both topics may be important, but one doesn't invalidate discussing the other.",
-  "visual_concept": "Red Herring: A smelly fish dragged across the trail to throw tracking dogs off the scent of the real target."
+  "explanation": "This is a red herring. It turns from tax policy to a different, moving issue without answering anything.",
+  "visual_concept": "Red Herring: A smelly fish dragged across the trail to throw tracking dogs off the scent of the real target.",
+  "section": "4.2"
 }

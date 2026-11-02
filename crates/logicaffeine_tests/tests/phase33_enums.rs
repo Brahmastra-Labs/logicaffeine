@@ -2,10 +2,10 @@
 //!
 //! Tests for enum definitions, variant discovery, Inspect statements, and pattern matching.
 
-use logicaffeine_compile::compile::compile_to_rust;
-use logicaffeine_language::Lexer;
 use logicaffeine_base::Interner;
+use logicaffeine_compile::compile::compile_to_rust;
 use logicaffeine_language::token::TokenType;
+use logicaffeine_language::Lexer;
 
 #[test]
 fn test_enum_definition_tokenized() {
@@ -20,11 +20,12 @@ fn test_enum_definition_tokenized() {
     }
 
     // Should tokenize "either" as Either keyword
-    let has_either = tokens.iter().any(|t| {
-        matches!(t.kind, TokenType::Either)
-    });
-    assert!(has_either, "Should tokenize 'either' as Either keyword: {:?}",
-        tokens.iter().map(|t| &t.kind).collect::<Vec<_>>());
+    let has_either = tokens.iter().any(|t| matches!(t.kind, TokenType::Either));
+    assert!(
+        has_either,
+        "Should tokenize 'either' as Either keyword: {:?}",
+        tokens.iter().map(|t| &t.kind).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -41,9 +42,17 @@ Return.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     // Registry should discover Color with 3 unit variants
-    assert!(rust.contains("enum Color"), "Should define enum Color: {}", rust);
+    assert!(
+        rust.contains("enum Color"),
+        "Should define enum Color: {}",
+        rust
+    );
     assert!(rust.contains("Red"), "Should have Red variant: {}", rust);
-    assert!(rust.contains("Green"), "Should have Green variant: {}", rust);
+    assert!(
+        rust.contains("Green"),
+        "Should have Green variant: {}",
+        rust
+    );
     assert!(rust.contains("Blue"), "Should have Blue variant: {}", rust);
 }
 
@@ -61,11 +70,31 @@ Return.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     // Registry should discover Shape with payload variants
-    assert!(rust.contains("enum Shape"), "Should define enum Shape: {}", rust);
-    assert!(rust.contains("Circle"), "Should have Circle variant: {}", rust);
-    assert!(rust.contains("radius"), "Circle should have radius field: {}", rust);
-    assert!(rust.contains("Rectangle"), "Should have Rectangle variant: {}", rust);
-    assert!(rust.contains("Point"), "Should have Point variant: {}", rust);
+    assert!(
+        rust.contains("enum Shape"),
+        "Should define enum Shape: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Circle"),
+        "Should have Circle variant: {}",
+        rust
+    );
+    assert!(
+        rust.contains("radius"),
+        "Circle should have radius field: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Rectangle"),
+        "Should have Rectangle variant: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Point"),
+        "Should have Point variant: {}",
+        rust
+    );
 }
 
 #[test]
@@ -80,9 +109,21 @@ A Shape is either:
 Return.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("enum Shape {"), "Should emit enum declaration: {}", rust);
-    assert!(rust.contains("Circle { radius: i64 }"), "Should emit Circle with i64 radius: {}", rust);
-    assert!(rust.contains("Point,") || rust.contains("Point }"), "Should emit Point as unit variant: {}", rust);
+    assert!(
+        rust.contains("enum Shape {"),
+        "Should emit enum declaration: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Circle { radius: i64 }"),
+        "Should emit Circle with i64 radius: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Point,") || rust.contains("Point }"),
+        "Should emit Point as unit variant: {}",
+        rust
+    );
 }
 
 #[test]
@@ -102,8 +143,11 @@ Inspect s:
         Show "point".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("match s {") || rust.contains("match s{"),
-        "Should emit match expression: {}", rust);
+    assert!(
+        rust.contains("match s {") || rust.contains("match s{"),
+        "Should emit match expression: {}",
+        rust
+    );
 }
 
 #[test]
@@ -119,10 +163,16 @@ Let c be a new Circle with radius 10.
 Let p be a new Point.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("Shape::Circle { radius: 10 }"),
-        "Should emit variant constructor with field: {}", rust);
-    assert!(rust.contains("Shape::Point"),
-        "Should emit unit variant constructor: {}", rust);
+    assert!(
+        rust.contains("Shape::Circle { radius: 10 }"),
+        "Should emit variant constructor with field: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Shape::Point"),
+        "Should emit unit variant constructor: {}",
+        rust
+    );
 }
 
 #[test]
@@ -142,11 +192,17 @@ Inspect s:
         Show "point".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("Shape::Circle { radius: ref r }") ||
-            rust.contains("Shape::Circle { radius: r }"),
-        "Should emit pattern with binding: {}", rust);
-    assert!(rust.contains("Shape::Point =>"),
-        "Should emit Point pattern: {}", rust);
+    assert!(
+        rust.contains("Shape::Circle { radius: ref r }")
+            || rust.contains("Shape::Circle { radius: r }"),
+        "Should emit pattern with binding: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Shape::Point =>"),
+        "Should emit Point pattern: {}",
+        rust
+    );
 }
 
 #[test]
@@ -167,8 +223,16 @@ Inspect c:
         Show "not red".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("Color::Red =>"), "Should emit Red pattern: {}", rust);
-    assert!(rust.contains("_ =>"), "Should emit wildcard for Otherwise: {}", rust);
+    assert!(
+        rust.contains("Color::Red =>"),
+        "Should emit Red pattern: {}",
+        rust
+    );
+    assert!(
+        rust.contains("_ =>"),
+        "Should emit wildcard for Otherwise: {}",
+        rust
+    );
 }
 
 #[test]
@@ -183,8 +247,51 @@ A Result is either:
 Return.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("Success { value: i64 }"),
-        "Should parse concise syntax for Success: {}", rust);
-    assert!(rust.contains("Failure { message: String }"),
-        "Should parse concise syntax for Failure: {}", rust);
+    assert!(
+        rust.contains("Success { value: i64 }"),
+        "Should parse concise syntax for Success: {}",
+        rust
+    );
+    assert!(
+        rust.contains("Failure { message: String }"),
+        "Should parse concise syntax for Failure: {}",
+        rust
+    );
+}
+
+/// A variant's field list names its fields by position, as a struct's does: `first` is an
+/// ordinal to the lexer, yet it is the field — and the fields after it are not lost with it.
+#[test]
+fn natural_variant_fields_named_by_ordinals_are_fields() {
+    let source = "## A Result is either:\n    A Finish with a first, which is Int, and a second, which is Int.\n\n## Main\nReturn.\n";
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(
+        rust.contains("Finish { first: i64, second: i64 }"),
+        "Should keep both fields: {}",
+        rust
+    );
+}
+
+#[test]
+fn bare_variant_fields_named_by_ordinals_are_fields() {
+    let source =
+        "## A Result is either:\n    A Finish with first Int and second Int.\n\n## Main\nReturn.\n";
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(
+        rust.contains("Finish { first: i64, second: i64 }"),
+        "Should keep both fields: {}",
+        rust
+    );
+}
+
+#[test]
+fn concise_variant_fields_named_by_ordinals_are_fields() {
+    let source =
+        "## A Result is either:\n    A Finish (first: Int, second: Int).\n\n## Main\nReturn.\n";
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(
+        rust.contains("Finish { first: i64, second: i64 }"),
+        "Should keep both fields: {}",
+        rust
+    );
 }

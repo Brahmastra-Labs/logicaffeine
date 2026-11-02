@@ -1,0 +1,10 @@
+{
+  "capability": "math.mulrange",
+  "workload": "mulRange(a,a+3) product",
+  "arg": "2000000",
+  "expected": "404014020009600000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

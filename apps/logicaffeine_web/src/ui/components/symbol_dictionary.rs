@@ -1,283 +1,115 @@
-//! Symbol Dictionary component for displaying FOL symbol meanings.
+//! The Symbol Dictionary: what each symbol of a First-Order Logic formula means.
 //!
-//! Automatically extracts symbols from a First-Order Logic formula
-//! and displays them grouped by category with descriptions.
+//! [`symbols_in`] reads the symbols a formula shows, named as the view that printed it names them;
+//! [`SymbolGroups`] lists them, each kind of symbol a group. The Studio sets the groups in a
+//! collapsible block of its Logic column.
 
+use crate::ui::components::logic_output::OutputFormat;
 use dioxus::prelude::*;
-use logicaffeine_language::symbol_dict::{extract_symbols, group_symbols_by_kind, SymbolKind};
+use logicaffeine_language::formatter::{KripkeFormatter, SimpleFOLFormatter, UnicodeFormatter};
+use logicaffeine_language::symbol_dict::{
+    extract_symbols_for, group_symbols_by_kind, SymbolEntry, SymbolKind,
+};
 
-const SYMBOL_DICT_STYLE: &str = r#"
-.symbol-dictionary {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 16px;
-    margin-top: 16px;
-}
-
-.symbol-dictionary.collapsed {
-    padding: 12px 16px;
-    cursor: pointer;
-}
-
-.symbol-dictionary.collapsed:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.symbol-dict-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: rgba(229, 231, 235, 0.56);
-    margin-bottom: 12px;
-}
-
-.symbol-dictionary.collapsed .symbol-dict-header {
-    margin-bottom: 0;
-}
-
-.symbol-dict-toggle {
-    color: rgba(229, 231, 235, 0.4);
-    font-size: 14px;
-    cursor: pointer;
-    transition: transform 0.2s ease;
-}
-
-.symbol-dictionary.collapsed .symbol-dict-toggle {
-    transform: rotate(-90deg);
-}
-
-.symbol-dict-content {
+const SYMBOL_GROUPS_STYLE: &str = r#"
+.symbol-groups {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
 }
 
-.symbol-group {
-    margin-bottom: 0;
-}
-
+/* Each kind is one group: its name, then every symbol beside what it means. */
 .symbol-group-title {
     font-size: 11px;
     font-weight: 600;
-    color: #a78bfa;
-    margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-}
-
-.symbol-group-title.quantifier {
-    color: #60a5fa;
-}
-
-.symbol-group-title.connective {
-    color: #f472b6;
-}
-
-.symbol-group-title.modal {
-    color: #c084fc;
-}
-
-.symbol-group-title.predicate {
-    color: #4ade80;
-}
-
-.symbol-group-title.variable {
-    color: #fbbf24;
-}
-
-.symbol-group-title.constant {
-    color: #fb923c;
+    margin-bottom: 6px;
 }
 
 .symbol-entries {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 16px;
+    row-gap: 4px;
+    align-items: baseline;
 }
 
 .symbol-entry {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    transition: background 0.15s ease;
-}
-
-.symbol-entry:hover {
-    background: rgba(255, 255, 255, 0.05);
+    display: contents;
 }
 
 .symbol-glyph {
-    font-size: 18px;
     font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
-    color: #60a5fa;
-    min-width: 32px;
-    text-align: center;
-}
-
-.symbol-glyph.quantifier {
-    color: #60a5fa;
-}
-
-.symbol-glyph.connective {
-    color: #f472b6;
-}
-
-.symbol-glyph.modal {
-    color: #c084fc;
-}
-
-.symbol-glyph.predicate {
-    color: #4ade80;
-}
-
-.symbol-glyph.variable {
-    color: #fbbf24;
-}
-
-.symbol-glyph.constant {
-    color: #fb923c;
+    font-size: 14px;
+    white-space: nowrap;
 }
 
 .symbol-desc {
     font-size: 13px;
+    line-height: 1.45;
     color: rgba(229, 231, 235, 0.72);
 }
 
-.symbol-dictionary-empty {
-    color: rgba(229, 231, 235, 0.4);
-    font-size: 13px;
-    text-align: center;
-    padding: 8px;
-}
-
-/* Compact inline variant */
-.symbol-dictionary.inline {
-    padding: 12px;
-    margin-top: 8px;
-}
-
-.symbol-dictionary.inline .symbol-dict-header {
-    margin-bottom: 8px;
-}
-
-.symbol-dictionary.inline .symbol-entries {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.symbol-dictionary.inline .symbol-entry {
-    padding: 4px 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 4px;
-}
-
-.symbol-dictionary.inline .symbol-glyph {
-    font-size: 14px;
-    min-width: 20px;
-}
-
-.symbol-dictionary.inline .symbol-desc {
-    font-size: 11px;
-}
+.quantifier { color: #60a5fa; }
+.connective { color: #f472b6; }
+.modal { color: #c084fc; }
+.temporal { color: #22d3ee; }
+.predicate { color: #4ade80; }
+.role { color: #fda4af; }
+.variable { color: #fbbf24; }
+.constant { color: #fb923c; }
 "#;
 
-/// Props for the SymbolDictionary component
-#[derive(Props, Clone, PartialEq)]
-pub struct SymbolDictionaryProps {
-    /// The FOL formula to extract symbols from
-    logic: String,
-    /// Whether to start collapsed
-    #[props(default = false)]
-    collapsed: bool,
-    /// Use compact inline variant
-    #[props(default = false)]
-    inline: bool,
+/// The symbols `logic` shows, named as `view` — the view that printed it — names them: each view
+/// names its tense and aspect operators its own way.
+pub fn symbols_in(logic: &str, view: OutputFormat) -> Vec<SymbolEntry> {
+    match view {
+        OutputFormat::Unicode | OutputFormat::LaTeX => {
+            extract_symbols_for(logic, &UnicodeFormatter)
+        }
+        OutputFormat::SimpleFOL => extract_symbols_for(logic, &SimpleFOLFormatter),
+        OutputFormat::Kripke => extract_symbols_for(logic, &KripkeFormatter),
+    }
 }
 
-/// Symbol Dictionary component that auto-generates from FOL output
-#[component]
-pub fn SymbolDictionary(props: SymbolDictionaryProps) -> Element {
-    let mut is_collapsed = use_signal(|| props.collapsed);
-
-    let symbols = extract_symbols(&props.logic);
-
-    if symbols.is_empty() {
-        return rsx! { "" };
+/// A group's heading and colour class.
+fn group_look(kind: SymbolKind) -> (&'static str, &'static str) {
+    match kind {
+        SymbolKind::Quantifier => ("Quantifiers", "quantifier"),
+        SymbolKind::Connective => ("Connectives", "connective"),
+        SymbolKind::Modal => ("Modality", "modal"),
+        SymbolKind::Temporal => ("Tense & aspect", "temporal"),
+        SymbolKind::Identity => ("Identity", "connective"),
+        SymbolKind::Predicate => ("Predicates", "predicate"),
+        SymbolKind::Role => ("Thematic roles", "role"),
+        SymbolKind::Variable => ("Variables", "variable"),
+        SymbolKind::Constant => ("Individuals", "constant"),
+        SymbolKind::Punctuation => ("Punctuation", "variable"),
     }
+}
 
+/// The dictionary's entries: each kind of symbol a group, its name over every symbol beside what
+/// it means.
+#[component]
+pub fn SymbolGroups(symbols: Vec<SymbolEntry>) -> Element {
     let grouped = group_symbols_by_kind(&symbols);
-
-    let container_class = format!(
-        "symbol-dictionary{}{}",
-        if *is_collapsed.read() { " collapsed" } else { "" },
-        if props.inline { " inline" } else { "" }
-    );
-
     rsx! {
-        style { "{SYMBOL_DICT_STYLE}" }
-        div {
-            class: "{container_class}",
-            onclick: move |_| {
-                if *is_collapsed.read() {
-                    is_collapsed.set(false);
-                }
-            },
-
-            div { class: "symbol-dict-header",
-                span { "Symbol Dictionary" }
-                span {
-                    class: "symbol-dict-toggle",
-                    onclick: move |e| {
-                        e.stop_propagation();
-                        let current = *is_collapsed.read();
-                        is_collapsed.set(!current);
-                    },
-                    "▼"
-                }
-            }
-
-            if !*is_collapsed.read() {
-                div { class: "symbol-dict-content",
-                    for (kind, entries) in grouped {
-                        {
-                            let kind_class = match kind {
-                                SymbolKind::Quantifier => "quantifier",
-                                SymbolKind::Connective => "connective",
-                                SymbolKind::Modal => "modal",
-                                SymbolKind::Predicate => "predicate",
-                                SymbolKind::Variable => "variable",
-                                SymbolKind::Constant => "constant",
-                                SymbolKind::Temporal => "temporal",
-                                SymbolKind::Identity => "connective",
-                                SymbolKind::Punctuation => "variable",
-                            };
-
-                            rsx! {
-                                div { class: "symbol-group",
-                                    key: "{kind_class}",
-                                    div { class: "symbol-group-title {kind_class}",
-                                        "{kind.label()}"
-                                    }
-                                    div { class: "symbol-entries",
-                                        for entry in entries {
-                                            div { class: "symbol-entry",
-                                                key: "{entry.symbol}",
-                                                span { class: "symbol-glyph {kind_class}",
-                                                    "{entry.symbol}"
-                                                }
-                                                span { class: "symbol-desc",
-                                                    "{entry.description}"
-                                                }
-                                            }
-                                        }
+        style { "{SYMBOL_GROUPS_STYLE}" }
+        div { class: "symbol-groups",
+            for (kind, entries) in grouped {
+                {
+                    let (heading, kind_class) = group_look(kind);
+                    rsx! {
+                        div { class: "symbol-group",
+                            key: "{kind_class}-{heading}",
+                            div { class: "symbol-group-title {kind_class}", "{heading}" }
+                            div { class: "symbol-entries",
+                                for entry in entries {
+                                    div { class: "symbol-entry",
+                                        key: "{entry.symbol}",
+                                        span { class: "symbol-glyph {kind_class}", "{entry.usage}" }
+                                        span { class: "symbol-desc", "{entry.description}" }
                                     }
                                 }
                             }
@@ -289,25 +121,6 @@ pub fn SymbolDictionary(props: SymbolDictionaryProps) -> Element {
     }
 }
 
-/// Compact inline symbol legend for quick reference
-#[component]
-pub fn SymbolLegend(logic: String) -> Element {
-    rsx! {
-        SymbolDictionary {
-            logic: logic,
-            inline: true,
-            collapsed: false,
-        }
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_symbol_kind_class_names() {
-        assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
-        assert_eq!(SymbolKind::Connective.label(), "Connective");
-    }
-}
+#[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/components/symbol_dictionary/tests.rs"]
+mod tests;

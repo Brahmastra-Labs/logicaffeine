@@ -1,0 +1,47 @@
+# Contact
+
+Import Layout.
+
+## Page /contact
+
+Head:
+    <title>Contact — Acme</title>
+    <meta name="description" content="Say hello.">
+
+State:
+    Let note be "".
+    Let sent be false.
+
+Actions:
+    To send:
+        Set sent to true.
+
+View:
+    {extends Site}
+    {block content:}
+      <h1>Contact</h1>
+      {if sent:}
+        <p id="thanks">Thank you — we will write back.</p>
+      {else:}
+        <form id="say" on-submit.prevent={send}>
+          <label for="note">Your message</label>
+          <input id="note" type="text" bind={note}>
+          <button type="submit">Send</button>
+        </form>
+      {end}
+    {end}
+
+## Test: a message is sent and thanked, with Contact the active link
+
+Type "hello" into "#note".
+Submit "#say".
+Expect that the text of "#thanks" is equal to "Thank you — we will write back.".
+Expect that the count of "#say" is equal to 0.
+Expect that the count of "nav a" is equal to 4.
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "Contact".
+
+## Test: the form is there until something is sent
+
+Expect that the count of "#say" is equal to 1.
+Expect that the count of "#thanks" is equal to 0.

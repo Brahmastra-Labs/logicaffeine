@@ -1,3 +1,7 @@
+# The full profile runs every test through a wrapper script (`[scripts.wrapper.test-ledger]` below), which nextest
+# takes only with the experiment on.
+experimental = ["wrapper-scripts"]
+
 [profile.default]
 retries = 0
 # Warn every 60s, then TERMINATE at 20 min (60s × 20). No single test may hang an
@@ -10,6 +14,17 @@ fail-fast = false
 [profile.ci]
 retries = 1
 fail-fast = true
+
+# Mutation-testing profile (driven by
+# scripts/test/run-mutation-core.sh via `cargo mutants --test-tool nextest`). A tight timeout
+# so an infinite-loop mutant (a flipped loop condition) is killed in ~2 min instead of
+# hitting the 30-min full-suite backstop, and fail-fast so a mutant that a test catches
+# stops the run immediately. Baseline correctness-core tests finish in seconds, so this
+# only ever fires on a genuinely-hanging mutant.
+[profile.mutants]
+retries = 0
+fail-fast = true
+slow-timeout = { period = "30s", terminate-after = 4 }
 
 # Full-baseline profile: every test, no retries, no early exit. Used by
 # scripts/run-all-tests-fast.sh for parity with the cargo-test baseline run.
@@ -24,12 +39,119 @@ slow-timeout = { period = "120s", terminate-after = 15 }
 fail-fast = false
 final-status-level = "slow"
 
-# Start the wall-clock monsters at t=0 so they overlap the rest of the suite:
+# Every test of a full run goes through scripts/test/test-ledger.sh, which appends what it cost (wall clock, CPU with
+# every process it waited for, peak memory, how it ended) to the run's ledger when `LOGOS_TEST_LEDGER` names one, as
+# run-all-tests-fast.sh does for its first pass, and otherwise only runs it. A gate's load is read from the ledger test
+# by test (scripts/test/test-ledger-report.py): nextest counts each test as one thread, and the tests that fan out
+# inside are what crowd the box. test_ledger_lock holds the wrapper transparent and the wiring here.
+[scripts.wrapper.test-ledger]
+command = { command-line = "scripts/test/test-ledger.sh", relative-to = "workspace-root" }
+
+[[profile.full.scripts]]
+filter = 'all()'
+run-wrapper = 'test-ledger'
+
+# The research campaign: scripts/run-research-tests.sh, and work/research through
+# `--config-file <repo>/.config/nextest.toml --profile research`. Its probes run for minutes to hours,
+# so `full`'s 30-min terminate would fail a sound probe. The 6 h cap (600s × 36) is a runaway guard
+# only, not a measured bound: no run of the campaign has been timed yet.
+[profile.research]
+retries = 0
+slow-timeout = { period = "600s", terminate-after = 36 }
+fail-fast = false
+final-status-level = "slow"
+
+# The kernel-pending specs: scripts/run-kernel-pending-tests.sh. The baseline's timeouts, plus the JUnit report
+# its verdict reads (scripts/test/kernel-pending-verdict.py): each spec must fail with exactly its gap.
+[profile.kernel-pending]
+retries = 0
+slow-timeout = { period = "120s", terminate-after = 15 }
+fail-fast = false
+final-status-level = "slow"
+
+[profile.kernel-pending.junit]
+path = "junit.xml"
+store-failure-output = true
+
+# The RED/GREEN profile behind scripts/test/tdd.sh. Every selected test runs (no fail-fast), and
+# nothing is retried — a retry could turn a genuine RED into a flaky GREEN. The JUnit report
+# is the structured record tdd.sh reads its verdict from, so the verdict never depends on
+# scraping human-readable output.
+[profile.tdd]
+retries = 0
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 10 }
+final-status-level = "fail"
+
+[profile.tdd.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true
+
+# Start the wall-clock monsters right behind the timing group so they overlap the rest of the suite:
 # jit_mega_fuzz (~325s, pure CPU) is the suite's floor, and the phase_futamura /
-# phase_pe_differential heavies (60-220s each) otherwise queue up in the tail.
+# phase_pe_differential heavies (60-220s each) otherwise queue up in the tail. Every early heavy sits at
+# 90, one step below the `cpu-timing` group (see there).
 [[profile.full.overrides]]
 filter = 'binary(phase_futamura) | binary(phase_pe_differential) | test(jit_mega_fuzz) | test(vm_fuzz_overnight)'
-priority = 100
+priority = 90
+
+# The Lean imports of T00-017's export. The export carries Lean's `omega` library, and `omega`'s proof of
+# `n < n + k + 1` (`T00_017.letUnderBinder.proof_1`) is checked four times on import (Lean-mode inference, the
+# audit's independent recheck, then registration in both kernels) over owned term trees each substitution copies.
+# MEASURED 2026-10-22: 254-620 s alone (P-core or E-core), 1,382-1,800+ s under the full run, whose 30-min backstop
+# terminated `original_dependent_lets_replay_all_seven_actual_bodies_and_axiom_sets` in three of five runs. They
+# start with the wall-clock heavies under a 60-min backstop; the kernel's copying is its own work.
+[[profile.default.overrides]]
+filter = '(binary(original_dependent_terms) & test(/^original_(dependent_lets_replay_all_seven_actual_bodies_and_axiom_sets|type_let_cannot_be_replaced_by_an_opaque_lambda_parameter)$/)) | (binary(vernacular_roundtrip) & test(=fixture_t00_017_round_trips))'
+slow-timeout = { period = "300s", terminate-after = 12 }
+
+[[profile.full.overrides]]
+filter = '(binary(original_dependent_terms) & test(/^original_(dependent_lets_replay_all_seven_actual_bodies_and_axiom_sets|type_let_cannot_be_replaced_by_an_opaque_lambda_parameter)$/)) | (binary(vernacular_roundtrip) & test(=fixture_t00_017_round_trips))'
+slow-timeout = { period = "300s", terminate-after = 12 }
+priority = 90
+
+# The D5005 engine build under Verilator (d5005_engine_card_lock): the whole engine behind the card port and the
+# shell, its core stepping in the user clock at an eighth of it, simulated as its twin (`sim/logos_engine_gated.v`, the
+# core's clock gated to the user cycles it acts in), so a core cycle costs eight user cycles of the shell and some
+# thirty of the four memory channels'. MEASURED 2026-10-22 on the twin at -O3, four at once beside a Quartus fit and a
+# mutant batch: `the_engine_runs_a_step_with_its_memory_on_the_card` 788 s, `a_faulting_step_is_reported_by_the_engines_run`
+# 262 s. A 40-minute backstop.
+[[profile.default.overrides]]
+filter = 'binary(d5005_engine_card_lock) & test(/^(the_engine_runs_a_step_with_its_memory_on_the_card|a_faulting_step_is_reported_by_the_engines_run)$/)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary(d5005_engine_card_lock) & test(/^(the_engine_runs_a_step_with_its_memory_on_the_card|a_faulting_step_is_reported_by_the_engines_run)$/)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+priority = 90
+
+# The step program decoding the tiny model on the reference engine's AFU under Verilator, seven positions of a whole
+# step each, every matvec on the engine's own array: data lines, SECDED lines, and a flip in every SECDED line.
+# MEASURED 2026-10-22 on the twin at -O3 beside the same load: the data lines 1,930 s, the SECDED decodes past
+# 2,000 s. A 60-minute backstop.
+[[profile.default.overrides]]
+filter = 'binary(d5005_engine_card_lock) & test(/^the_step_program_decodes_(on_data_lines|on_secded_lines|through_a_flip_in_every_secded_line)_as_the_machine_does$/)'
+slow-timeout = { period = "300s", terminate-after = 12 }
+
+[[profile.full.overrides]]
+filter = 'binary(d5005_engine_card_lock) & test(/^the_step_program_decodes_(on_data_lines|on_secded_lines|through_a_flip_in_every_secded_line)_as_the_machine_does$/)'
+slow-timeout = { period = "300s", terminate-after = 12 }
+priority = 90
+
+# Two locks whose time is another toolchain's, not ours. Qwen3.8's batched step in Spatial's own simulator: Spatial
+# compiles the 316-section app (666 s), sbt compiles the 9,229 Scala sources it generates (244 s) and the run takes 48 s.
+# Every emitted batched lane compiled by nvcc for sm_90a: four whole programs, one nvcc after another. MEASURED
+# 2026-10-22 alone: 995 s and 347 s; in the full gate since 10-10: 1,322-1,683 s and 754-1,493 s, the simulator within
+# 117 s of the 30-min backstop on 10-20. They start with the wall-clock heavies under a 60-min backstop.
+[[profile.default.overrides]]
+filter = '(binary(qwen38_batched_decode_lock) & test(=the_batched_step_is_the_vms_in_spatials_simulator)) | (binary(qwen38_authored_lock) & test(=every_emitted_batched_lane_compiles_for_hopper))'
+slow-timeout = { period = "300s", terminate-after = 12 }
+
+[[profile.full.overrides]]
+filter = '(binary(qwen38_batched_decode_lock) & test(=the_batched_step_is_the_vms_in_spatials_simulator)) | (binary(qwen38_authored_lock) & test(=every_emitted_batched_lane_compiles_for_hopper))'
+slow-timeout = { period = "300s", terminate-after = 12 }
+priority = 90
 
 # The subprocess-harness e2e tests spawn `cargo build/run` against per-slot
 # sharded target dirs (/tmp/logos_e2e_cache_<NEXTEST_TEST_GROUP_SLOT>, see
@@ -77,3 +199,489 @@ retries = 2
 filter = 'binary(/^(aot_native_tier|aot_native_corpus|hotswap_p14_slice|hotswap_p15_aot_load|hotswap_p16_bundle|hotswap_p16_cache|hotswap_p17_wasm|hotswap_p18_bg_aot)$/)'
 test-group = 'aot-cdylib'
 retries = 2
+
+# `largo check --deep` regression tests share ONE temp workbench (`$TMP/logos_check_deep_regression`)
+# and serialize its `cargo check`s with a process-local mutex — which nextest's process-per-test
+# scheduler cannot see, so two tests would race: one process `remove_dir_all`s the workbench while
+# another's cargo check is still inside it ("cannot determine the current directory" /
+# "No such file or directory" at workbench init). One cargo check at a time is the test's own
+# stated contract; the group enforces it across processes. No retries: a failure here is real.
+[test-groups.check-deep]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & binary(check_deep_regression)'
+test-group = 'check-deep'
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & binary(check_deep_regression)'
+test-group = 'check-deep'
+
+# The mutation-safety lock drives a LOGOS HTTP handler against ONE hermetic file store at a fixed
+# path (`/tmp/logos_mutation_safety.txt`). Its own `GUARD` mutex serializes the tests inside a
+# process, but nextest runs each test in a process of its OWN, so that mutex cannot see the others:
+# concurrently, one test's fresh store lands mid-way through another's sequence and both read
+# versions neither wrote (a first request answering `2|10`, a stored value reverting to `0|0`). The
+# store is the shared resource, so the group serializes every test that touches it — the same shape
+# as `check-deep` above. No retries: a failure here is real.
+[test-groups.mutation-store]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & binary(mutation_safety_lock)'
+test-group = 'mutation-store'
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & binary(mutation_safety_lock)'
+test-group = 'mutation-store'
+
+# Every heavy CUDA lock shells out to `nvcc` and launches a real kernel on the SINGLE local GPU
+# (this box's RTX 3060, 12 GB). nextest's default scheduler runs many at once, oversubscribing the
+# one device: the 8 GB Qwen-forward lock races the big-GEMM benches for VRAM, and the timing-gated
+# locks (the "…climbs" speed assertions, the tok/s and GOPS floors) degrade 2–13× under concurrent
+# load and trip — a self-inflicted flake, NOT a regression (each PASSES in isolation; MEASURED: the
+# real-Qwen8B forward took 347s racing the sweep vs 149s alone, mma_k32 107s vs 8s). There is only
+# one GPU, so the correct schedule is one GPU test at a time, and that holds only when EVERY test that
+# reaches the device is in the group: a GPU lock outside it runs beside a member and measures the
+# contention, not its kernel. The group is every test binary whose source probes the device
+# (`common::require_gpu()`, `common::require_tool("gpu")` or `"/dev/nvidia0"`): the whole cuda_* class
+# by PREFIX, so a future cuda lock is covered by its name, and each GPU binary outside the prefix by name.
+# nextest_schedule_lock derives that list from the sources and holds the filter to it exactly, in every
+# profile. The chain is long, so the full run starts it first (priority 80, below the timing group's).
+# NO retries: a serialized timing lock that still fails is a genuine perf regression and must fail
+# loud, never be masked. Applied to every profile so no invocation — ad-hoc, CI, or the fast script
+# — can oversubscribe the GPU.
+[test-groups.cuda-gpu]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & (binary(/^cuda_/) | binary(/^(batched_equivalence_lock|c_family_scheduler_conformance_lock|decode_gpu_lock|fused_launch_equivalence_lock|gated_delta_mechanism_lock|matmul_multibackend_lock|moe_mechanism_lock|qwen38_golden_lock|sass_control_assign_gpu_lock|sass_optimize_gemm_gpu_lock|sass_reuse_optimizer_gpu_lock|spatial_forward_lock|spatial_one_ir_lock|spatial_section_accumulator_lock|tensor_reduction_ops_lock|tensor_sugar_all_backends_lock)$/))'
+test-group = 'cuda-gpu'
+
+[[profile.ci.overrides]]
+filter = 'package(logicaffeine-tests) & (binary(/^cuda_/) | binary(/^(batched_equivalence_lock|c_family_scheduler_conformance_lock|decode_gpu_lock|fused_launch_equivalence_lock|gated_delta_mechanism_lock|matmul_multibackend_lock|moe_mechanism_lock|qwen38_golden_lock|sass_control_assign_gpu_lock|sass_optimize_gemm_gpu_lock|sass_reuse_optimizer_gpu_lock|spatial_forward_lock|spatial_one_ir_lock|spatial_section_accumulator_lock|tensor_reduction_ops_lock|tensor_sugar_all_backends_lock)$/))'
+test-group = 'cuda-gpu'
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & (binary(/^cuda_/) | binary(/^(batched_equivalence_lock|c_family_scheduler_conformance_lock|decode_gpu_lock|fused_launch_equivalence_lock|gated_delta_mechanism_lock|matmul_multibackend_lock|moe_mechanism_lock|qwen38_golden_lock|sass_control_assign_gpu_lock|sass_optimize_gemm_gpu_lock|sass_reuse_optimizer_gpu_lock|spatial_forward_lock|spatial_one_ir_lock|spatial_section_accumulator_lock|tensor_reduction_ops_lock|tensor_sugar_all_backends_lock)$/))'
+test-group = 'cuda-gpu'
+priority = 80
+
+# A REAL DATABASE IS A SHARED RESOURCE, exactly like the single GPU and the one ttsim tree above.
+# `postgres_live` DOWNLOADS AND RUNS an actual PostgreSQL (9 tests, all `#[ignore = "live: …"]`, so they
+# only appear under `--run-ignored all` — which the full baseline uses). Nothing serialized them, so they
+# ran against the other ~22,000 tests and against each other.
+#
+# MEASURED 2026-09-13: `live_cancel_request_best_effort` FAILED in the full baseline and PASSES in 4.5s
+# alone. Its assertion is that a cancel leaves the session usable; under load the cancel packet lands
+# after the statement it targeted has already finished, so the error surfaces on the NEXT query —
+# `["pid captured", "cancel sent", "ERROR 57014: canceling statement…", "done"]` where `"42"` was
+# expected. That is the race the test's own name calls "best effort", widened by contention until it
+# reported a product failure that does not exist.
+#
+# Serializing does NOT weaken the assertion — it stays exactly as strict. It removes the one condition
+# under which a correct implementation cannot satisfy it.
+[test-groups.live-db]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(postgres_live)'
+test-group = 'live-db'
+
+[[profile.ci.overrides]]
+filter = 'binary(postgres_live)'
+test-group = 'live-db'
+
+[[profile.full.overrides]]
+filter = 'binary(postgres_live)'
+test-group = 'live-db'
+
+# CPU TIMING LOCKS — the same self-inflicted flake the `cuda-gpu` group fixes for the GPU, one level
+# down. A lock that compares two wall-clock timings degrades under concurrent load, and MEASURED tonight:
+# `c_bytecode_perf_lock` reported `fib_rec` at 1.89x over a 1.30x ceiling in the full baseline and 0.90x
+# in isolation (the bytecode emitter is FASTER than the AST one); `columnar_field_scan` reported 3.375x
+# over a 3.0x ceiling and 1.65x in isolation. Both messages say "fix the implementation, do NOT loosen the
+# ceiling" — correct instructions that would have sent someone optimising an emitter that was already
+# winning. `fib_rec` runs in 2.81 ms; a timing that small is scheduler noise under load.
+#
+# ★ WHAT THIS GROUP DOES. `max-threads = 1` stops the timing locks racing EACH OTHER, and
+# `threads-required = "num-test-threads"` stops every OTHER test of the run racing them: a member needs every test
+# thread, so nextest starts it only when nothing else of the run is running and starts nothing beside it. The
+# contended resource is the CPU and everything uses it, so a timing lock is measured alone or not at all. What it
+# cannot stop is load from outside the run (another build on the box) — a timing failure is still re-run alone
+# before it is believed. `priority = 100` starts every member ahead of the rest of the run, one after another
+# while nothing else is in flight, so none of them waits mid-run for the slowest test to drain. Every other early
+# start sits below it: a member waiting for every thread holds back each test queued behind it, so a heavy that
+# started first (a minutes-long simulator, a fuzzer) would leave the box idle until it ended. `ssr_bench_lock`,
+# the T00-021 deep-spine scaling test and the wire codec's build-in-place parity lock assert wall-clock time under
+# other names and are listed by name.
+#
+# The filter matches SUFFIXES (`_perf_lock`, `_timing_lock`) so future timing locks are covered without
+# anyone remembering to add them — deliberately NOT `binary(/perf/)`, which would catch
+# `phase107_performatives` (speech acts, not performance) and serialize it for nothing.
+[test-groups.cpu-timing]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(/_perf_lock$/) | binary(/_timing_lock$/) | binary(perf_gate) | binary(off_cse_timing) | binary(ssr_bench_lock) | (package(logicaffeine-compile) & test(/columnar_field_scan/)) | (package(logicaffeine-tests) & test(/structural_sharing_keeps_the_bit_blast_linear/)) | (package(logicaffeine-tests) & test(/a_deep_spine_costs_linearly_in_its_depth_and_not_quadratically$/)) | (package(logicaffeine-compile) & test(/build_in_place_encode_is_at_capnp_parity$/))'
+test-group = 'cpu-timing'
+threads-required = "num-test-threads"
+priority = 100
+
+[[profile.ci.overrides]]
+filter = 'binary(/_perf_lock$/) | binary(/_timing_lock$/) | binary(perf_gate) | binary(off_cse_timing) | binary(ssr_bench_lock) | (package(logicaffeine-compile) & test(/columnar_field_scan/)) | (package(logicaffeine-tests) & test(/structural_sharing_keeps_the_bit_blast_linear/)) | (package(logicaffeine-tests) & test(/a_deep_spine_costs_linearly_in_its_depth_and_not_quadratically$/)) | (package(logicaffeine-compile) & test(/build_in_place_encode_is_at_capnp_parity$/))'
+test-group = 'cpu-timing'
+threads-required = "num-test-threads"
+priority = 100
+
+[[profile.full.overrides]]
+filter = 'binary(/_perf_lock$/) | binary(/_timing_lock$/) | binary(perf_gate) | binary(off_cse_timing) | binary(ssr_bench_lock) | (package(logicaffeine-compile) & test(/columnar_field_scan/)) | (package(logicaffeine-tests) & test(/structural_sharing_keeps_the_bit_blast_linear/)) | (package(logicaffeine-tests) & test(/a_deep_spine_costs_linearly_in_its_depth_and_not_quadratically$/)) | (package(logicaffeine-compile) & test(/build_in_place_encode_is_at_capnp_parity$/))'
+test-group = 'cpu-timing'
+threads-required = "num-test-threads"
+priority = 100
+
+# The ttsim-backed spatial locks build and run tt-metal programs under Tenstorrent's simulator: ONE simulator,
+# ONE build tree, minutes per case. Serialize them across every profile and cap each case at 30 minutes so a
+# hung simulation fails loud instead of stalling the run; start them early in the full baseline, behind the
+# timing group.
+[test-groups.ttsim]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(/^spatial_(tensix_ttsim|p6_ttsim)_lock$/)'
+test-group = 'ttsim'
+slow-timeout = { period = "300s", terminate-after = 6 }
+
+[[profile.ci.overrides]]
+filter = 'binary(/^spatial_(tensix_ttsim|p6_ttsim)_lock$/)'
+test-group = 'ttsim'
+slow-timeout = { period = "300s", terminate-after = 6 }
+
+[[profile.full.overrides]]
+filter = 'binary(/^spatial_(tensix_ttsim|p6_ttsim)_lock$/)'
+test-group = 'ttsim'
+slow-timeout = { period = "300s", terminate-after = 6 }
+priority = 90
+
+# The Plasticine-chain gates run an EMITTED Spatial app through the public Spatial → PIR → plastiroute →
+# Tungsten toolchain in ONE container over ONE build tree (`target/plasticine-toolchain/spatial`: sbt's
+# lock, the ivy/coursier caches under `.home`, and a per-app `gen/Tst_pirTest/<App>` dir that `gate.sh`
+# wipes and regenerates on every run). Two gates at once would race the sbt lock and each other's
+# generated dirs — the same shape as the `ttsim` group above, one simulator and one build tree. So they
+# are serialized in every profile and the backstop is sized to a chain run (a 128³ GEMM took minutes end
+# to end; a stalled PIR partitioner has been observed to make no progress for forty minutes, which is
+# exactly what a terminate-after must catch loud). The filter matches the NAME SUFFIX every chain gate
+# carries (`…passes_pir_in_the_container`, and `…in_spatials_simulator` for the Scala-backend runs of an app
+# too large for PIR — same container, same sbt tree) so the next lane's gate is covered without anyone
+# remembering to add it. Each gate is honestly tool-gated (`docker` + `plasticine-toolchain` through require_tool):
+# an absent chain is a counted `LOGOS_TOOL_SKIP:`, never a silent pass.
+[test-groups.plasticine-chain]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & test(/(passes_pir_in_the_container|in_spatials_simulator)$/)'
+test-group = 'plasticine-chain'
+slow-timeout = { period = "600s", terminate-after = 6 }
+
+[[profile.ci.overrides]]
+filter = 'package(logicaffeine-tests) & test(/(passes_pir_in_the_container|in_spatials_simulator)$/)'
+test-group = 'plasticine-chain'
+slow-timeout = { period = "600s", terminate-after = 6 }
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & test(/(passes_pir_in_the_container|in_spatials_simulator)$/)'
+test-group = 'plasticine-chain'
+slow-timeout = { period = "600s", terminate-after = 6 }
+priority = 90
+
+# The SambaNova Cloud live smoke spends a real API key and the network: one request at a time, opted in
+# explicitly (`LOGOS_SAMBACLOUD_LIVE=1` plus a key), never by accident — an absent key or opt-in is a counted
+# `LOGOS_CAP_SKIP:`. Serialized so two runs never race the account's rate limit into a false timing.
+[test-groups.sambacloud-live]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & binary(sn50_scripts_lock) & test(/the_live_smoke/)'
+test-group = 'sambacloud-live'
+
+[[profile.ci.overrides]]
+filter = 'package(logicaffeine-tests) & binary(sn50_scripts_lock) & test(/the_live_smoke/)'
+test-group = 'sambacloud-live'
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & binary(sn50_scripts_lock) & test(/the_live_smoke/)'
+test-group = 'sambacloud-live'
+
+# ★ A LOAD-SENSITIVE SERVER TEST IS NOT A FLAKY ONE. `bind_address_lock` SPAWNS a real `largo run`
+# and dials the answer over the machine's LAN address — the assertion a deployed binary actually
+# depends on, since a loopback-only bind is unreachable from any container. Under the full baseline
+# it shares a box with ~22,600 other tests, and an interpreted server losing its race to a 180-second
+# boot budget reports `got: None`, which reads exactly like a binding regression and is none.
+#
+# MEASURED, not assumed: it fails in-suite and passes ISOLATED in 42.5s against that same budget.
+# So the fix is to stop it competing, not to widen the clock — the budget is already generous and
+# raising it would only delay the same false red.
+#
+# ★ AND IT IS DELIBERATELY NOT `#[ignore]`d. That was the tempting move: the test is "flaky", so
+# park it. But a flaky test is not a weaker passing test, it is a result nobody can read — and a
+# sibling lock in this tree hid a REAL defect for however long behind exactly that classification
+# (two tests raced on one relative store path; once isolation made the red honest, a second bug was
+# sitting underneath it in plain sight). Serialising keeps the assertion running on every baseline,
+# which is the point: this is the lock that caught a binary answering only on loopback.
+[test-groups.bind-address]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(bind_address_lock)'
+test-group = 'bind-address'
+
+[[profile.full.overrides]]
+filter = 'binary(bind_address_lock)'
+test-group = 'bind-address'
+
+# The post-synthesis gate-level silicon locks run a REAL `synth_xilinx` yosys flow and then
+# gate-level simulate a ~90-RAMB/tens-of-thousands-of-LUT netlist under iverilog. Their own
+# `#[ignore]` reasons declare the cost — "~20-30min" for the seven PHASE-1 localization probes
+# and "~30-60min" for the four gold-standard result sims — and the file's header says plainly:
+# "Run it single-threaded so the heavy sims never overlap." Nothing enforced that, so all eleven
+# ran CONCURRENTLY, each starved the others of CPU, and every one hit the `full` profile's 30-min
+# backstop: 11 identical `TIMEOUT [1800.0xx s]` rows, which read as eleven code regressions and
+# were none. This group enforces the contract the file already stated. The budget (600s × 43)
+# is derived: the largest test's worst case, 25162 s, is its gate sims' cycle budgets at the slowest
+# core measured (14 cycles/s) plus 600 s of synthesis and compile per sim, and each test re-checks
+# the budget before synthesizing (wpe_postsynth_silicon_lock::postsynth_wall_cap_s). A REAL hang
+# still fails loud — it is a backstop, not a licence. These are also excluded from the routine baseline by
+# run-all-tests-fast.sh (see HEAVY_ONDEMAND_EXCLUDE) and run on purpose via
+# scripts/run-silicon-tests.sh; the file's FAST construction locks — which enforce the exact
+# invariant each silicon fix establishes, in milliseconds, with no yosys — keep running every push.
+[test-groups.wpe-postsynth]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(wpe_postsynth_silicon_lock) & test(/^postsynth_/)'
+test-group = 'wpe-postsynth'
+slow-timeout = { period = "600s", terminate-after = 43 }
+
+[[profile.full.overrides]]
+filter = 'binary(wpe_postsynth_silicon_lock) & test(/^postsynth_/)'
+test-group = 'wpe-postsynth'
+slow-timeout = { period = "600s", terminate-after = 43 }
+
+# The S1 decode board's gate-level sims (fabric_postsynth_lock): the same class — a real synth_xilinx, then a netlist
+# stepped on its serial line, about an hour — in the same group, so no two gate-level sims ever run at once, and under
+# the same backstop.
+[[profile.default.overrides]]
+filter = 'binary(fabric_postsynth_lock) & test(/^postsynth_/)'
+test-group = 'wpe-postsynth'
+slow-timeout = { period = "600s", terminate-after = 43 }
+
+[[profile.full.overrides]]
+filter = 'binary(fabric_postsynth_lock) & test(/^postsynth_/)'
+test-group = 'wpe-postsynth'
+slow-timeout = { period = "600s", terminate-after = 43 }
+
+# The RISC-V corpus differentials cross-check every benchmark program against the VM inside `qemu-riscv64`:
+# 70 programs (35 directories under benchmarks/programs/, each contributing `main.lg` and `interp.lg`),
+# each at the sizes no larger than its smallest declared workload (tests/support/riscv_runner.rs), which
+# counts 274 runs for riscv_aot_lock's and 344 for riscv_qemu_corpus_differential's. Every run is linked
+# once per program and executed under a 512 MB address space and a 60 s limit, so a runaway program fails
+# in seconds and names itself. MEASURED: 134 s and 150 s at the test profile on a shared machine.
+#
+# They are EXCLUDED from the routine baseline (`QEMU_CORPUS_EXCLUDE` in run-all-tests-fast.sh) and run on
+# purpose via scripts/run-qemu-corpus-tests.sh. The group serializes the two binaries' tests, and the
+# budget below is a HANG backstop well above the measured cost, not a target. `riscv_aot_lock`'s static
+# `BENCHMARK_FLOOR` compile-coverage ratchet is a separate assertion reached before the toolchain check,
+# so it keeps running in every baseline.
+[test-groups.qemu-corpus]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(riscv_aot_lock|riscv_qemu_corpus_differential)$/)'
+test-group = 'qemu-corpus'
+slow-timeout = { period = "300s", terminate-after = 4 }
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(riscv_aot_lock|riscv_qemu_corpus_differential)$/)'
+test-group = 'qemu-corpus'
+slow-timeout = { period = "300s", terminate-after = 4 }
+
+# The Arena mathlib cases (`case_mathlib` in the five binaries that include `arena_corpus/cases.rs`) each
+# check the whole Mathlib export: ~85 minutes for one check, and `dag_sem_probe` checks it twice. They are
+# EXCLUDED from the routine baseline (`ARENA_MATHLIB_EXCLUDE`) and run on purpose via
+# scripts/run-arena-mathlib-tests.sh, one at a time — whole-Mathlib checks side by side only multiply each
+# other's memory and time. The budget is a HANG backstop above the measured cost, not a target.
+[test-groups.arena-mathlib]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(arena_corpus|dag_dual_agreement|dag_dual_corpus|dag_sem_corpus|dag_sem_probe)$/) & test(=case_mathlib)'
+test-group = 'arena-mathlib'
+slow-timeout = { period = "900s", terminate-after = 24 }
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(arena_corpus|dag_dual_agreement|dag_dual_corpus|dag_sem_corpus|dag_sem_probe)$/) & test(=case_mathlib)'
+test-group = 'arena-mathlib'
+slow-timeout = { period = "900s", terminate-after = 24 }
+
+# `largo serve` builds and runs a REAL AOT backend: the dev server compiles the project's Rust
+# backend into a temp target dir, spawns it, and — for the watch tests — kills and REBUILDS it on
+# every source edit. Each of these tests therefore carries one or more full Rust compiles inside
+# its own wall-clock budget.
+#
+# MEASURED, on this box: `edits_to_pages_backend_and_static_hot_reload` takes 12.9s alone and
+# FAILED at 38s under the crate's 448-test parallel run — starved of CPU by its own suite, then
+# reported as "generation never ticked", which reads as a broken hot reload and is not one. The
+# same shape as the `aot-cdylib` group above: the code is correct, the schedule was not.
+#
+# Serializing them costs the crate almost nothing (they are a handful of tests that mostly WAIT on
+# a compiler) and removes the only way this class can flake. NO retries: a serialized dev-server
+# test that still fails is a real regression and must fail loud. Applied to every profile, so no
+# invocation — ad hoc, CI, or the fast script — can starve them.
+# `bitblast_budget_lock::structural_sharing_keeps_the_bit_blast_linear` joined for the same reason,
+# measured the same way: it asserts a 5-block bit-blast finishes in under 5s (the bound exists because an
+# UNSHARED blaster cannot finish three blocks at all). It takes ~6.2s for the whole binary in isolation and
+# took 10.057s inside the 23,100-test baseline. Its DAG/tree node counts — the assertion that actually
+# proves the sharing — are deterministic and were correct in that same failing run; only the wall clock
+# degraded. Serializing the ONE timing test keeps the measurement honest without weakening the bound.
+# `bind_address_lock` joined them for the same reason and was measured the same way:
+# 26s alone, TIMED OUT at 30s inside a 579-test parallel run. It starts a real `largo
+# serve` and waits for it to bind, so what it measures under contention is the machine.
+[test-groups.dev-server]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(serve|serve_watch|serve_fullstack|serve_fullstack_watch|bind_address_lock)$/)'
+test-group = 'dev-server'
+
+[[profile.ci.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(serve|serve_watch|serve_fullstack|serve_fullstack_watch|bind_address_lock)$/)'
+test-group = 'dev-server'
+
+[[profile.full.overrides]]
+filter = 'package(logicaffeine-tests) & binary(/^(serve|serve_watch|serve_fullstack|serve_fullstack_watch|bind_address_lock)$/)'
+test-group = 'dev-server'
+
+# BEGIN test widths. Generated by `scripts/test/test-ledger-report.py <ledger> --widths 4 --min-cpu 120` from the full
+# gate of 2026-10-24 (logs/test-run-fast-20261024-063551.ledger.tsv). nextest counts every test as one thread; each test
+# here kept n cores busy in that gate (its CPU, with every process it waited for, over its wall clock), so it takes n of
+# the run's threads and the run's load stays near its threads. Regenerate the block from a later full run's ledger;
+# test_ledger_lock holds every entry to a test that exists.
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::aot_native_tier) & test(=aot_native_tier_executes_and_is_dispatched)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::benchmark_logos_tiers_lock) & test(=every_benchmark_built_through_rust_prints_its_expected_bytes)'
+threads-required = 6
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::bind_address_lock) & test(=a_server_binds_an_address_a_container_can_be_reached_on)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::bind_address_lock) & test(=the_default_is_loopback_so_running_a_program_does_not_publish_it)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::build_passthrough) & test(=build_streams_cargo_output_and_phase_headers)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::build_passthrough) & test(=quiet_build_suppresses_phase_headers)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::check_deep_multifile_lock) & test(=a_call_to_an_imported_function_is_not_a_phantom_deep_finding)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::check_deep_regression) & test(=crlf_entry_with_title_head_deep_checks_clean)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::code_examples_all_tiers) & test(=every_code_example_builds_and_runs_identically_when_compiled)'
+threads-required = 7
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::cuda_lane_lock) & test(=a_branched_step_computes_what_its_launches_compute_in_order)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::diagnostic_bridge) & test(=e2e_test_no_rustc_error_codes_leak_e0382)'
+threads-required = 6
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::e2e_codegen_optimization) & test(=e2e_o5a_inclusive_dp_zero_panic_bounds_check)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::e2e_codegen_optimization) & test(=e2e_o5a_prefix_sum_keeps_zero_panic_bounds_check)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::e2e_deterministic_replay) & test(=e2e_every_program_replays_the_interpreter_at_every_seed)'
+threads-required = 9
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::generated_project_target_isolation) & test(=programs_checked_at_once_under_one_shared_target_each_get_their_own_findings)'
+threads-required = 6
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::generated_project_target_isolation) & test(=programs_run_at_once_under_one_shared_target_each_run_themselves)'
+threads-required = 9
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::hotswap_p15_aot_load) & test(=aot_native_function_executes_in_the_interpreter)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::lane_compile_lock) & test(=every_row_reading_kernel_keeps_its_decode_in_registers)'
+threads-required = 11
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::native_pe_wire) & test(=native_pe_inprocess_is_not_slower_than_the_server)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::project) & test(=test_build_simple_project)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::project) & test(=test_build_with_md_fallback)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::served_address_lock) & test(=every_tier_announces_the_port_it_bound)'
+threads-required = 6
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::sourcemap_remap) & test(=multifile_rustc_error_names_the_source_file)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::sourcemap_remap) & test(=rustc_error_remaps_to_logos_source)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::ssr_requests_do_not_share_instances) & test(=concurrent_requests_on_the_compiled_server_render_their_own_instances)'
+threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::stdlib_user_name_hygiene) & test(=every_stdlib_name_can_be_the_programs_own)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::ux) & test(=check_deep_passes_on_a_clean_program)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::view_function_server_lock) & test(=the_compiled_server_answers_the_tree_walkers_bytes_and_content_type)'
+threads-required = 7
+
+# END test widths
+
+# The Samba book's 64-bit lowering proofs (KERNEL-6): spatial_int64_lock's sweep deals its lowerings to four workers,
+# each checking its share's identities with both kernels.
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::spatial_int64_lock) & test(=every_lowering_carries_a_proof)'
+threads-required = 4

@@ -1,0 +1,11 @@
+{
+  "name": "histogram",
+  "lang": "logos_release",
+  "n": "2386643440",
+  "samples_weight": 11023271090,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

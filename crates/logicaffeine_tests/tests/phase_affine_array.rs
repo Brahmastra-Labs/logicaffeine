@@ -114,7 +114,11 @@ While v is at most length of starts:
 Show acc.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    assert!(rust.contains("starts"), "an array read via `length of` must stay a Vec. Got:\n{}", rust);
+    assert!(
+        rust.contains("starts"),
+        "an array read via `length of` must stay a Vec. Got:\n{}",
+        rust
+    );
     // v=1..10 reads item v (1-based, starts[v-1]=3*(v-1)) → 3*(0..9) = 135.
     assert_exact_output(src, "135");
 }
@@ -146,7 +150,11 @@ While v is less than n:
 Show acc.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    assert!(rust.contains("starts"), "a mutated array must stay a Vec. Got:\n{}", rust);
+    assert!(
+        rust.contains("starts"),
+        "a mutated array must stay a Vec. Got:\n{}",
+        rust
+    );
     assert_exact_output(src, "324");
 }
 
@@ -170,7 +178,11 @@ While v is less than length of starts:
 Show acc.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    assert!(rust.contains("starts"), "a conditionally-built array must stay a Vec. Got:\n{}", rust);
+    assert!(
+        rust.contains("starts"),
+        "a conditionally-built array must stay a Vec. Got:\n{}",
+        rust
+    );
     // i=0..4 push 0,5,10,15,20 → sum 50.
     assert_exact_output(src, "50");
 }
@@ -194,7 +206,11 @@ While v is less than n:
 Show acc.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    assert!(rust.contains("starts"), "a non-affine array must stay a Vec. Got:\n{}", rust);
+    assert!(
+        rust.contains("starts"),
+        "a non-affine array must stay a Vec. Got:\n{}",
+        rust
+    );
     // 0+1+4+9+16 = 30.
     assert_exact_output(src, "30");
 }
@@ -220,7 +236,11 @@ While v is less than length of starts:
 Show acc.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    assert!(rust.contains("starts"), "a step-2 build must stay a Vec. Got:\n{}", rust);
+    assert!(
+        rust.contains("starts"),
+        "a step-2 build must stay a Vec. Got:\n{}",
+        rust
+    );
     assert_exact_output(src, "100");
 }
 
@@ -240,7 +260,11 @@ Let other be starts.
 Show length of other.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    assert!(rust.contains("starts"), "an aliased array must stay a Vec. Got:\n{}", rust);
+    assert!(
+        rust.contains("starts"),
+        "an aliased array must stay a Vec. Got:\n{}",
+        rust
+    );
     assert_exact_output(src, "10");
 }
 

@@ -40,7 +40,11 @@ fn is_surjective(v: &[u8], n: usize) -> bool {
 }
 
 fn drop_coord(v: &[u8], i: usize) -> Vec<u8> {
-    v.iter().enumerate().filter(|&(t, _)| t != i).map(|(_, &x)| x).collect()
+    v.iter()
+        .enumerate()
+        .filter(|&(t, _)| t != i)
+        .map(|(_, &x)| x)
+        .collect()
 }
 
 /// Face map `dᵢ : Γ_m → Γ_{m-1}` of `K(A, n)` over `A = Z/modulus`. Basis surjection `σ ↦ σ∘δᵢ` when it
@@ -48,7 +52,12 @@ fn drop_coord(v: &[u8], i: usize) -> Vec<u8> {
 fn face(modulus: usize, m: usize, n: usize, i: usize, x: &[usize]) -> Vec<usize> {
     let sm = surjections(m, n);
     let sm1 = surjections(m - 1, n);
-    let idx: HashMap<Vec<u8>, usize> = sm1.iter().cloned().enumerate().map(|(k, v)| (v, k)).collect();
+    let idx: HashMap<Vec<u8>, usize> = sm1
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(k, v)| (v, k))
+        .collect();
     let mut out = vec![0usize; sm1.len()];
     for (k, sigma) in sm.iter().enumerate() {
         let d = drop_coord(sigma, i);
@@ -87,7 +96,11 @@ fn positions(m: usize, k: usize) -> Vec<usize> {
 fn kernel_size(modulus: usize, m: usize, n: usize, k: usize) -> usize {
     gamma(modulus, m, n)
         .iter()
-        .filter(|y| positions(m, k).iter().all(|&p| face(modulus, m, n, p, y).iter().all(|&c| c == 0)))
+        .filter(|y| {
+            positions(m, k)
+                .iter()
+                .all(|&p| face(modulus, m, n, p, y).iter().all(|&c| c == 0))
+        })
         .count()
 }
 
@@ -95,7 +108,12 @@ fn kernel_size(modulus: usize, m: usize, n: usize, k: usize) -> usize {
 fn image_size(modulus: usize, m: usize, n: usize, k: usize) -> usize {
     let mut images: HashSet<Vec<Vec<usize>>> = HashSet::new();
     for y in gamma(modulus, m, n) {
-        images.insert(positions(m, k).iter().map(|&p| face(modulus, m, n, p, &y)).collect());
+        images.insert(
+            positions(m, k)
+                .iter()
+                .map(|&p| face(modulus, m, n, p, &y))
+                .collect(),
+        );
     }
     images.len()
 }
@@ -119,7 +137,9 @@ fn compatible_horn_count(modulus: usize, m: usize, n: usize, k: usize) -> usize 
             })
             .collect();
         let ok = pos.iter().enumerate().all(|(ai, &a)| {
-            pos[ai + 1..].iter().all(|&b| face(modulus, m - 1, n, a, &horn[&b]) == face(modulus, m - 1, n, b - 1, &horn[&a]))
+            pos[ai + 1..].iter().all(|&b| {
+                face(modulus, m - 1, n, a, &horn[&b]) == face(modulus, m - 1, n, b - 1, &horn[&a])
+            })
         });
         if ok {
             count += 1;
@@ -144,7 +164,9 @@ pub fn homotopy_group_size(modulus: usize, n: usize, k: usize) -> usize {
 /// (`π_k(K(A,n)) = π_{k+1}(K(A,n+1))`). That deloopability is what makes the sequence a spectrum.
 pub fn is_omega_spectrum(modulus: usize, n_count: usize, k_range: usize) -> bool {
     (2..(2 + n_count)).all(|n| {
-        (0..k_range).all(|k| homotopy_group_size(modulus, n, k) == homotopy_group_size(modulus, n + 1, k + 1))
+        (0..k_range).all(|k| {
+            homotopy_group_size(modulus, n, k) == homotopy_group_size(modulus, n + 1, k + 1)
+        })
     })
 }
 
@@ -184,135 +206,5 @@ pub fn homology_size(modulus: usize, n: usize, k: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hurewicz_homology_equals_homotopy_for_k_a_n() {
-        // HUREWICZ — the two halves of the machinery meet. K(A,n) is (n−1)-connected, so the Hurewicz
-        // theorem predicts π_k ≅ H_k. We compute HOMOLOGY (Moore complex, `homology_size`) and HOMOTOPY
-        // (horn-filling, `homotopy_group_size`) by INDEPENDENT algorithms and confirm they agree exactly:
-        // both are A at k = n and trivial elsewhere. (Honest ceiling, checked elsewhere: above the
-        // connectivity range Hurewicz fails — H_3(S²)=0 while π_3(S²)=Z — so this agreement is content,
-        // not a tautology.)
-        for n in 2..=3 {
-            for k in 0..=(n + 1) {
-                assert_eq!(
-                    homology_size(2, n, k),
-                    homotopy_group_size(2, n, k),
-                    "Hurewicz over Z/2: H_{k}(K(A,{n})) = π_{k}"
-                );
-            }
-            // a second coefficient group, at the Hurewicz degree k = n
-            assert_eq!(homology_size(3, n, n), homotopy_group_size(3, n, n), "Hurewicz over Z/3 at k = n");
-        }
-    }
-
-    #[test]
-    fn we_get_prove_and_extract_the_infinity_groupoid_homotopy_hypothesis_both_ways() {
-        // THE CAPSTONE — get it, prove it, extract it.
-        //   GET:     we CONSTRUCT K(A, n), an actual ∞-groupoid object (a simplicial set).
-        //   PROVE:   it is a Kan complex — every horn fills (the `k_a_n_is_a_kan_complex` test).
-        //   EXTRACT: we read its COMPLETE homotopy back out of the object by horn-filling, recovering the
-        //            exact signature (π_0, π_1, …) = (1, 1, …, A at degree n, …, 1).
-        // Construction from the groups and extraction of the groups are inverse — the homotopy hypothesis,
-        // both directions, on a concrete object we hold. This is what "getting the ∞-groupoid" means
-        // honestly: not a single finite object carrying all of an arbitrary tower at once (that is the
-        // unbounded Postnikov colimit), but the ∞-groupoid OBJECT for each building block, possessed and
-        // fully read out — and these blocks (with the k-invariants) assemble every rung of the tower.
-        for n in 2..=3 {
-            for modulus in [2usize, 3] {
-                let signature: Vec<usize> = (0..=n + 1).map(|k| homotopy_group_size(modulus, n, k)).collect();
-                let mut expected = vec![1usize; n + 2];
-                expected[n] = modulus; // π_n = A
-                assert_eq!(signature, expected, "extracted homotopy of K(Z/{modulus}, {n}) is exactly π_n = A");
-            }
-        }
-    }
-
-    #[test]
-    fn k_a_n_has_pi_n_equal_to_A_for_n_2_and_3() {
-        // πₙ = A, INSIDE the object: the inner horn at degree n has exactly |A| fillers (the n-cells).
-        // n = 3 is the first genuine 3-type the framework holds — π₃ ≠ 0 in an actual Kan complex.
-        for n in 2..=3 {
-            for modulus in [2usize, 3] {
-                for k in 1..n {
-                    // inner horn 0 < k < n
-                    assert_eq!(
-                        kernel_size(modulus, n, n, k),
-                        modulus,
-                        "K(Z/{modulus}, {n}): inner horn at degree n has |A| fillers ⇒ πₙ = A"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn k_a_n_is_a_kan_complex_for_n_2_and_3() {
-        // Kan: every horn fills (image of hₖ = all compatible horns), checked at degrees n and n+1.
-        let modulus = 2;
-        for n in 2..=3 {
-            for m in n..=(n + 1) {
-                for k in 0..=m {
-                    assert_eq!(
-                        image_size(modulus, m, n, k),
-                        compatible_horn_count(modulus, m, n, k),
-                        "K(Z/2, {n}): horn Λ^{m}_{k} fills"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn k_a_n_is_exactly_n_truncated_for_n_2_and_3() {
-        // Exactly n-truncated: inner horns at degree n+2 fill UNIQUELY (kernel = 1), so there is no
-        // π_{n+1}. The higher homotopy stops precisely at level n — a genuine n-type, no more.
-        let modulus = 2;
-        for n in 2..=3 {
-            for k in 1..(n + 2) {
-                assert_eq!(
-                    kernel_size(modulus, n + 2, n, k),
-                    1,
-                    "K(Z/2, {n}): inner horn at degree n+2 fills uniquely ⇒ exactly {n}-truncated"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn the_eilenberg_maclane_spaces_form_an_omega_spectrum() {
-        // NEW + POWERFUL: {K(A,n)} is an Ω-SPECTRUM — each space deloops to the next (ΩK(A,n) ≃
-        // K(A,n−1)), so the homotopy is stable under the (n→n+1, k→k+1) shift. An Ω-spectrum is the
-        // modern object of stable homotopy theory and the representing object of a cohomology theory:
-        // the infinitely-deloopable, fully-stabilized symmetry object.
-        for modulus in [2usize, 3] {
-            assert!(
-                is_omega_spectrum(modulus, 2, 4),
-                "K(Z/{modulus}, n) deloops to K(Z/{modulus}, n−1) — the EM spaces form an Ω-spectrum"
-            );
-        }
-    }
-
-    #[test]
-    fn the_em_spectrum_has_stable_homotopy_concentrated_in_degree_zero() {
-        // The spectrum HA has π_k(HA) = A at k = 0 and 0 elsewhere — concentrated in a single degree,
-        // which is exactly what makes HA represent ORDINARY cohomology Hⁿ(−; A). We read the stable
-        // homotopy off the deloop-invariant tower.
-        for modulus in [2usize, 3] {
-            assert_eq!(stable_homotopy(modulus, 0), modulus, "π_0(HA) = A");
-            for k in [-2i32, -1, 1, 2, 3] {
-                assert_eq!(stable_homotopy(modulus, k), 1, "π_{k}(HA) = 0 for k ≠ 0");
-            }
-        }
-    }
-
-    #[test]
-    fn the_general_engine_reproduces_two_type_at_n_equals_2() {
-        // Cross-check the general K(A,n) against the bespoke K(A,2): the inner horn Λ²₁ has |A| fillers.
-        for modulus in [2usize, 3, 4] {
-            assert_eq!(kernel_size(modulus, 2, 2, 1), modulus, "general K(A,2) agrees: π₂ = A");
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/eilenberg_maclane/tests.rs"]
+mod tests;

@@ -1,21 +1,51 @@
+mod dce;
 mod defunctionalize;
+pub(crate) mod dependence;
+pub(crate) mod facts;
 mod fold;
-mod splice_fuse;
-mod inline_tiny;
+mod gvn;
 mod inline_leaf;
 mod inline_recursive;
+mod inline_tiny;
+pub(crate) mod iteration;
+pub(crate) mod item_growth;
+pub(crate) mod kinds;
 mod popcount_leaf;
-mod symmetry;
-mod dce;
 mod propagate;
-mod gvn;
-mod loop_carried_cse;
-mod float_induction_sr;
-mod licm;
+pub(crate) mod purity;
+mod sccp;
+pub(crate) mod sequence;
+mod splice_fuse;
+mod symmetry;
+pub(crate) mod version;
+pub(crate) mod writes;
+pub(crate) use writes::WriteSet;
+pub(crate) mod mentions;
+pub(crate) mod modwrap;
+pub(crate) use mentions::{expr_touches, stmt_touches, use_counts, Mentions};
+mod swap_classes;
+pub(crate) use swap_classes::{swapped_pairs, SwapClasses};
+mod accum_bound;
 mod bound_version;
+pub(crate) mod capture;
 mod closed_form;
 mod ctfe;
+mod divmod_fuse;
+mod float_induction_sr;
+mod int_induction_sr;
+mod licm;
+mod loop_carried_cse;
+mod loop_interchange;
+mod memoize_run;
+mod reg_promote;
+mod specialize_loop;
+pub(crate) use ctfe::ascii_class_masks;
 mod deforest;
+mod ast_build;
+mod divisor_sieve;
+mod fold_fusion;
+mod sort_nest;
+mod trace_memo;
 // Loop unrolling reuses the codegen peephole's counted-loop recognizer, so it
 // rides the same feature gate; the AOT (Rust-emitting) pipeline is its consumer.
 #[cfg(feature = "codegen")]
@@ -35,19 +65,20 @@ mod scalarize;
 mod affine_scalarize;
 // Guard-based loop index-set splitting reuses the same recognizer (its emitted
 // sub-loops must satisfy it to vectorize), so it rides the same gate; AOT-only.
+mod abstract_interp;
+mod affine;
+mod karr;
 #[cfg(feature = "codegen")]
 mod loop_split;
-mod affine;
-mod abstract_interp;
 pub use abstract_interp::{
-    lin_to_rust, oracle_analyze, oracle_analyze_with, oracle_analyze_with_entry_guards, OracleFacts,
-    ScalarKind, VarProvenFacts,
+    lin_to_rust, oracle_analyze, oracle_analyze_with, oracle_analyze_with_entry_guards,
+    OracleFacts, ScalarKind, VarProvenFacts,
 };
-pub mod egraph;
-pub mod supercompile;
-pub mod effects;
 pub mod bta;
+pub mod effects;
+pub mod egraph;
 pub mod partial_eval;
+pub mod supercompile;
 
 use std::collections::HashMap;
 
@@ -55,7 +86,8 @@ use crate::arena::Arena;
 use crate::ast::stmt::{Expr, Stmt};
 use crate::intern::{Interner, Symbol};
 use crate::optimization::{
-    admits_pinned, FiredOptimizations, HotswapConfig, Opt, OptimizationConfig, Pin, Tier,
+    admits_pinned, BackendOptimizationTrace, FiredOptimizations, HotswapConfig, Opt,
+    OptimizationBackend, OptimizationConfig, OptimizationDecline, OptimizationFallback, Pin, Tier,
 };
 
 thread_local! {
@@ -78,34 +110,65 @@ pub fn set_active_config(cfg: OptimizationConfig) {
     ACTIVE_CONFIG.with(|c| c.set(cfg));
 }
 
+/// Whether `a` and `b` are the same expression, written alike: one literal, one name, one operator over the same
+/// operands, one read of the same item. Syntax only: whether the two evaluate alike where they stand is the
+/// caller's question, since a write between them can change what a read sees.
+pub(crate) fn same_expr(a: &crate::ast::stmt::Expr, b: &crate::ast::stmt::Expr) -> bool {
+    use crate::ast::stmt::Expr;
+    match (a, b) {
+        (Expr::Literal(x), Expr::Literal(y)) => x == y,
+        (Expr::Identifier(x), Expr::Identifier(y)) => x == y,
+        (
+            Expr::BinaryOp {
+                op: o1,
+                left: l1,
+                right: r1,
+            },
+            Expr::BinaryOp {
+                op: o2,
+                left: l2,
+                right: r2,
+            },
+        ) => o1 == o2 && same_expr(l1, l2) && same_expr(r1, r2),
+        (Expr::Not { operand: x }, Expr::Not { operand: y }) => same_expr(x, y),
+        (
+            Expr::Index {
+                collection: c1,
+                index: i1,
+            },
+            Expr::Index {
+                collection: c2,
+                index: i2,
+            },
+        ) => same_expr(c1, c2) && same_expr(i1, i2),
+        (Expr::Length { collection: x }, Expr::Length { collection: y }) => same_expr(x, y),
+        _ => false,
+    }
+}
+
 thread_local! {
-    /// Expr node addresses whose Int op is PROVEN in-range by the pass that
-    /// CONSTRUCTED them — the proof lives where the knowledge lives (e.g.
-    /// `try_defer_modulus` sizes its version guard so no op in the guarded
-    /// chunk can overflow, a relation the interval oracle's widening cannot
-    /// re-derive). Codegen consults this BEFORE the interval oracle and
-    /// lowers a registered op as raw i64. Cleared at every optimizer entry
-    /// so a freed arena's reused addresses can never leak a stale proof
-    /// into a later program on the same thread.
-    static PROVEN_RAW_INT_OPS: std::cell::RefCell<std::collections::HashSet<usize>> =
+    /// The functions defunctionalization lifted out of closures: function values the program wrote, whose
+    /// integers every tier keeps exact as it keeps a closure's. Cleared at optimizer entry (symbols are reused
+    /// across programs on a thread).
+    static LIFTED_CLOSURES: std::cell::RefCell<std::collections::HashSet<crate::intern::Symbol>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
-/// Forget all constructed-proof registrations (call at optimizer entry).
-pub(crate) fn clear_proven_raw_int_ops() {
-    PROVEN_RAW_INT_OPS.with(|s| s.borrow_mut().clear());
+/// Forget the lifted closures (call at optimizer entry).
+pub(crate) fn clear_lifted_closures() {
+    LIFTED_CLOSURES.with(|s| s.borrow_mut().clear());
 }
 
-/// Register an Int op the CONSTRUCTING pass proved can never leave i64.
-pub(crate) fn mark_proven_raw_int_op(e: &crate::ast::stmt::Expr) {
-    PROVEN_RAW_INT_OPS.with(|s| {
-        s.borrow_mut().insert(e as *const crate::ast::stmt::Expr as usize);
+/// Record `f` as a function lifted out of a closure.
+pub(crate) fn mark_lifted_closure(f: crate::intern::Symbol) {
+    LIFTED_CLOSURES.with(|s| {
+        s.borrow_mut().insert(f);
     });
 }
 
-/// Was this exact op node proven in-range by its constructing pass?
-pub fn expr_proven_raw_int_op(e: &crate::ast::stmt::Expr) -> bool {
-    PROVEN_RAW_INT_OPS.with(|s| s.borrow().contains(&(e as *const crate::ast::stmt::Expr as usize)))
+/// Was `f` lifted out of a closure by defunctionalization?
+pub fn is_lifted_closure(f: crate::intern::Symbol) -> bool {
+    LIFTED_CLOSURES.with(|s| s.borrow().contains(&f))
 }
 
 /// The current compile's optimization config (all-on if unset).
@@ -121,7 +184,7 @@ thread_local! {
     /// normal compile path pays nothing. Opt-in, set once per traced compile by
     /// [`begin_fired_trace`]; lives on the same thread that runs both the
     /// optimizer and codegen, so codegen-time marks are recorded too.
-    static FIRED: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    static FIRED: std::cell::Cell<Option<crate::optimization::OptBits>> = const { std::cell::Cell::new(None) };
 
     /// The PRECEDENCE decisions recorded during the current trace: each
     /// `(winner, loser)` pair is a spot where the code chose `winner` and skipped
@@ -131,14 +194,131 @@ thread_local! {
     /// [`FIRED`] — both reset by [`begin_fired_trace`].
     static PREEMPTED: std::cell::RefCell<Option<Vec<(Opt, Opt)>>> =
         const { std::cell::RefCell::new(None) };
+
+    /// Stage-separated evidence layered over the legacy union above. These are
+    /// populated only by `begin_backend_trace`; ordinary compilation and the
+    /// original fired-trace API retain their previous single-bitset behavior.
+    static TRACE_BACKEND: std::cell::Cell<Option<OptimizationBackend>> =
+        const { std::cell::Cell::new(None) };
+    static TRACE_STAGE: std::cell::Cell<TraceStage> =
+        const { std::cell::Cell::new(TraceStage::Optimizer) };
+    static OPTIMIZER_FIRED: std::cell::Cell<Option<crate::optimization::OptBits>> =
+        const { std::cell::Cell::new(None) };
+    static LOWERING_FIRED: std::cell::Cell<Option<crate::optimization::OptBits>> =
+        const { std::cell::Cell::new(None) };
+    static TRACE_DECLINES: std::cell::RefCell<Option<Vec<OptimizationDecline>>> =
+        const { std::cell::RefCell::new(None) };
+    static TRACE_FALLBACKS: std::cell::RefCell<Option<Vec<OptimizationFallback>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[derive(Clone, Copy)]
+enum TraceStage {
+    Optimizer,
+    Lowering,
 }
 
 /// Begin recording which optimizations fire AND which they preempt for the
 /// current compile. Resets both accumulators; pair with [`end_fired_trace`] /
 /// [`end_preempted_trace`].
 pub fn begin_fired_trace() {
-    FIRED.with(|f| f.set(Some(0)));
+    FIRED.with(|f| f.set(Some(crate::optimization::OptBits::EMPTY)));
     PREEMPTED.with(|p| *p.borrow_mut() = Some(Vec::new()));
+}
+
+/// Begin a stage-separated trace for one concrete backend. The legacy `FIRED`
+/// union is opened too, preserving `## Require` and existing tooling exactly.
+pub fn begin_backend_trace(backend: OptimizationBackend) {
+    begin_fired_trace();
+    TRACE_BACKEND.with(|b| b.set(Some(backend)));
+    TRACE_STAGE.with(|s| s.set(TraceStage::Optimizer));
+    OPTIMIZER_FIRED.with(|f| f.set(Some(crate::optimization::OptBits::EMPTY)));
+    LOWERING_FIRED.with(|f| f.set(Some(crate::optimization::OptBits::EMPTY)));
+    TRACE_DECLINES.with(|f| *f.borrow_mut() = Some(Vec::new()));
+    TRACE_FALLBACKS.with(|f| *f.borrow_mut() = Some(Vec::new()));
+}
+
+/// Close a stage-separated trace. Always clears every accumulator, including
+/// after a failed compile, so a later compile on the same thread starts clean.
+pub fn end_backend_trace() -> Option<BackendOptimizationTrace> {
+    let backend = TRACE_BACKEND.with(|b| b.take());
+    let optimizer = OPTIMIZER_FIRED.with(|f| f.take().map(FiredOptimizations::from_bits));
+    let lowering = LOWERING_FIRED.with(|f| f.take().map(FiredOptimizations::from_bits));
+    let declines = TRACE_DECLINES.with(|f| f.borrow_mut().take().unwrap_or_default());
+    let fallbacks = TRACE_FALLBACKS.with(|f| f.borrow_mut().take().unwrap_or_default());
+    TRACE_STAGE.with(|s| s.set(TraceStage::Optimizer));
+    let _ = end_fired_trace();
+    let _ = end_preempted_trace();
+    backend.map(|backend| BackendOptimizationTrace {
+        backend,
+        optimizer: optimizer.unwrap_or_default(),
+        lowering: lowering.unwrap_or_default(),
+        declines,
+        fallbacks,
+    })
+}
+
+struct TraceStageGuard(TraceStage);
+
+impl Drop for TraceStageGuard {
+    fn drop(&mut self) {
+        TRACE_STAGE.with(|s| s.set(self.0));
+    }
+}
+
+/// Attribute every `mark_fired` in `f` to backend lowering rather than the
+/// shared optimizer. Outside a backend trace this is a zero-behavior wrapper.
+pub fn with_backend_lowering<T>(f: impl FnOnce() -> T) -> T {
+    let previous = TRACE_STAGE.with(|s| {
+        let previous = s.get();
+        if TRACE_BACKEND.with(|b| b.get().is_some()) {
+            s.set(TraceStage::Lowering);
+        }
+        previous
+    });
+    let _guard = TraceStageGuard(previous);
+    f()
+}
+
+/// Record an explicit backend fallback. Outside a backend trace this is a
+/// no-op, so production compilation pays neither allocation nor formatting.
+pub fn mark_backend_fallback(to: OptimizationBackend, reason: impl Into<String>) {
+    let Some(from) = TRACE_BACKEND.with(|b| b.get()) else {
+        return;
+    };
+    TRACE_FALLBACKS.with(|f| {
+        if let Some(fallbacks) = f.borrow_mut().as_mut() {
+            fallbacks.push(OptimizationFallback {
+                from,
+                to,
+                reason: reason.into(),
+            });
+        }
+    });
+}
+
+/// Record that the current backend deliberately declined one optimization.
+/// Outside a backend trace this is a no-op. Duplicate decisions are collapsed
+/// so a loop containing many equivalent candidates produces one audit reason.
+pub fn mark_backend_decline(opt: Opt, reason: impl Into<String>) {
+    let Some(backend) = TRACE_BACKEND.with(|b| b.get()) else {
+        return;
+    };
+    let reason = reason.into();
+    TRACE_DECLINES.with(|f| {
+        if let Some(declines) = f.borrow_mut().as_mut() {
+            if !declines
+                .iter()
+                .any(|d| d.backend == backend && d.opt == opt && d.reason == reason)
+            {
+                declines.push(OptimizationDecline {
+                    backend,
+                    opt,
+                    reason,
+                });
+            }
+        }
+    });
 }
 
 /// Stop recording and take the fired set (`None` if no trace was active).
@@ -147,7 +327,7 @@ pub fn end_fired_trace() -> Option<FiredOptimizations> {
 }
 
 /// Whether a firing trace is currently active. Gates the cost of the
-/// before/after fingerprint in [`run_traced`].
+/// before/after fingerprint in `run_traced`.
 #[inline]
 pub fn fired_trace_active() -> bool {
     FIRED.with(|f| f.get().is_some())
@@ -158,9 +338,107 @@ pub fn fired_trace_active() -> bool {
 pub fn mark_fired(opt: Opt) {
     FIRED.with(|f| {
         if let Some(bits) = f.get() {
-            f.set(Some(bits | opt.bit()));
+            f.set(Some(bits.with(opt)));
         }
     });
+    if TRACE_BACKEND.with(|b| b.get().is_some()) {
+        TRACE_STAGE.with(|stage| match stage.get() {
+            TraceStage::Optimizer => OPTIMIZER_FIRED.with(|f| {
+                if let Some(bits) = f.get() {
+                    f.set(Some(bits.with(opt)));
+                }
+            }),
+            TraceStage::Lowering => LOWERING_FIRED.with(|f| {
+                if let Some(bits) = f.get() {
+                    f.set(Some(bits.with(opt)));
+                }
+            }),
+        });
+    }
+}
+
+/// The file-level optimization-decorator contract (`## No <opt>` / `## Require <opt>`) in ONE
+/// place, so no compile/run/emit tier can silently drop it — the drift that let the decorators
+/// be ignored on the C, VM, wasm and isa paths. Every tier does the same two steps:
+/// `install_decorators(...)` at scope entry, then `gate.verify()?` after compilation.
+#[must_use = "a DecoratorGate must be `.verify()`-ed after codegen so `## Require` is enforced"]
+pub struct DecoratorGate {
+    required: Vec<Opt>,
+    owns_trace: bool,
+}
+
+/// Merge the file's `## No` flags into `env`, install the result as the thread-local active
+/// config (so EVERY backend's `active_config().is_on(..)` gate honors them — AOT codegen, the
+/// VM compiler, the JIT), and open a fired-trace when any `## Require` was declared. Returns
+/// the merged config to hand to the optimizer/codegen plus the gate to `verify()` after the
+/// compile has run. When a trace is already active (a nested compile), the outer gate owns the
+/// verification, so this one is a no-op `verify()`.
+pub fn install_decorators(
+    env: OptimizationConfig,
+    flags: &OptimizationConfig,
+    required: Vec<Opt>,
+) -> (OptimizationConfig, DecoratorGate) {
+    let mut cfg = env.merged(flags);
+    cfg.normalize();
+    set_active_config(cfg);
+    let owns_trace = !required.is_empty() && !fired_trace_active();
+    if owns_trace {
+        begin_fired_trace();
+    }
+    (
+        cfg,
+        DecoratorGate {
+            required,
+            owns_trace,
+        },
+    )
+}
+
+impl DecoratorGate {
+    /// Open a fired-trace for `required` (when non-empty and no trace is already active) WITHOUT
+    /// touching the active config — for the run/VM/wasm/isa seam, where `## No` was already
+    /// installed upstream (`parse_seam`) and only `## Require` remains to enforce. Pair with
+    /// [`verify`](Self::verify) (checks) or [`close`](Self::close) (discards on a prior error).
+    pub fn for_required(required: Vec<Opt>) -> DecoratorGate {
+        let owns_trace = !required.is_empty() && !fired_trace_active();
+        if owns_trace {
+            begin_fired_trace();
+        }
+        DecoratorGate {
+            required,
+            owns_trace,
+        }
+    }
+
+    /// End the trace this gate owns without checking `## Require` — used when compilation already
+    /// failed so its own error propagates instead of a spurious `## Require` message.
+    pub fn close(self) {
+        if self.owns_trace {
+            let _ = end_fired_trace();
+        }
+    }
+
+    /// Close the trace this gate owns and fail loudly on any `## Require <opt>` whose
+    /// optimization did not fire for the program — the honest answer when a backend cannot
+    /// provide a demanded optimization (e.g. `## Require memo` under the VM/wasm tier, where
+    /// memoization is an AOT-codegen construct). Returns the ready-to-surface error message.
+    pub fn verify(self) -> Result<(), String> {
+        if !self.owns_trace {
+            return Ok(());
+        }
+        let fired = end_fired_trace().unwrap_or_default();
+        for opt in &self.required {
+            if !fired.fired(*opt) {
+                let kw = opt.meta().keyword;
+                return Err(format!(
+                    "`## Require {kw}` was declared, but the `{kw}` optimization did not \
+                     fire for this program — the optimizer found nowhere to apply it. \
+                     Rewrite so `{kw}` has something to optimize, or remove the `## Require {kw}`."
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Record that `winner` took precedence over `loser` here — the exact spot the
@@ -230,6 +508,7 @@ pub fn optimize_for_projection<'a>(
     interner: &mut Interner,
     cfg: &OptimizationConfig,
 ) -> Vec<Stmt<'a>> {
+    crate::analysis::callgraph::install_lending_parameters(&stmts);
     let bta_cache = bta::analyze_with_sccs(&stmts, interner);
     let mut current = stmts;
     if cfg.is_on(Opt::Specialize) {
@@ -238,7 +517,11 @@ pub fn optimize_for_projection<'a>(
             let folded = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
             let propagated = propagate::propagate_stmts(folded, expr_arena, stmt_arena, interner);
             let (specialized, changes) = partial_eval::specialize_stmts_with_state(
-                propagated, expr_arena, stmt_arena, interner, &mut variant_count,
+                propagated,
+                expr_arena,
+                stmt_arena,
+                interner,
+                &mut variant_count,
                 Some(&bta_cache),
             );
             current = specialized;
@@ -249,6 +532,7 @@ pub fn optimize_for_projection<'a>(
     }
     if cfg.is_on(Opt::Comptime) {
         current = ctfe::ctfe_stmts(current, expr_arena, stmt_arena, interner);
+        current = ctfe::tableize_stmts(current, expr_arena, stmt_arena, interner);
     }
     fold::fold_stmts(current, expr_arena, stmt_arena, interner)
 }
@@ -313,7 +597,8 @@ pub fn optimize_for_run_tiered<'a>(
     tier: Tier,
 ) -> Vec<Stmt<'a>> {
     set_active_config(*cfg);
-    clear_proven_raw_int_ops();
+    clear_lifted_closures();
+    crate::analysis::callgraph::install_lending_parameters(&stmts);
     if cfg.is_all_off() || tier == Tier::T0 {
         return stmts;
     }
@@ -323,6 +608,17 @@ pub fn optimize_for_run_tiered<'a>(
     }
     let bta_cache = bta::analyze_with_sccs(&stmts, interner);
     let mut current = stmts;
+    // Range-specialize helper calls before the general inliners erase the
+    // counted-loop context that proves their arguments non-negative. This is
+    // a backend-neutral AST rewrite: the run/VM/JIT family benefits from the
+    // same call-free arithmetic residual as AOT, while the tier/cost gate keeps
+    // it out of cold units.
+    #[cfg(feature = "codegen")]
+    if admits_pinned(cfg, hs, tier, Opt::SpecializeLoop) {
+        current = run_traced(Opt::SpecializeLoop, current, |c| {
+            specialize_loop::specialize_loop_stmts(c, expr_arena, stmt_arena, interner)
+        });
+    }
     if admits_pinned(cfg, hs, tier, Opt::Inline) {
         // Tiny pure helpers inline first, so PE/fold/GVN/LICM see straight
         // arithmetic and the loop regions compile call-free.
@@ -335,6 +631,27 @@ pub fn optimize_for_run_tiered<'a>(
             inline_leaf::inline_leaf_fns(c, expr_arena, stmt_arena, interner)
         });
     }
+    // Sparse conditional constant propagation before the PE fixpoint: prune
+    // dead branches so specialization/fold/GVN see the smaller, no-poison
+    // residual (the branch a proven-constant guard can never take is gone, and
+    // its `Set`s can no longer force a variable to ⊥).
+    if admits_pinned(cfg, hs, tier, Opt::Sccp) {
+        current = run_traced(Opt::Sccp, current, |c| {
+            sccp::sccp_stmts(c, expr_arena, stmt_arena, interner)
+        });
+    }
+    // Loop interchange on the RAW affine nest — before specialization/IntStrength
+    // linearize the indices — reorders an integer commutative-reduction nest to
+    // put the unit-stride access innermost. Bit-identical (integer +/% reduction
+    // is order-invariant) and only toward better locality.
+    if admits_pinned(cfg, hs, tier, Opt::Interchange) {
+        let (c, fired) =
+            loop_interchange::interchange_stmts(current, expr_arena, stmt_arena, interner);
+        current = c;
+        if fired {
+            mark_fired(Opt::Interchange);
+        }
+    }
     if admits_pinned(cfg, hs, tier, Opt::Specialize) {
         let mut variant_count: HashMap<Symbol, usize> = HashMap::new();
         let mut specialized_any = false;
@@ -344,7 +661,11 @@ pub fn optimize_for_run_tiered<'a>(
             let folded = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
             let propagated = propagate::propagate_stmts(folded, expr_arena, stmt_arena, interner);
             let (specialized, changes) = partial_eval::specialize_stmts_with_state(
-                propagated, expr_arena, stmt_arena, interner, &mut variant_count,
+                propagated,
+                expr_arena,
+                stmt_arena,
+                interner,
+                &mut variant_count,
                 Some(&bta_cache),
             );
             current = specialized;
@@ -371,7 +692,8 @@ pub fn optimize_for_run_tiered<'a>(
     }
     if admits_pinned(cfg, hs, tier, Opt::Comptime) {
         current = run_traced(Opt::Comptime, current, |c| {
-            ctfe::ctfe_stmts(c, expr_arena, stmt_arena, interner)
+            let c = ctfe::ctfe_stmts(c, expr_arena, stmt_arena, interner);
+            ctfe::tableize_stmts(c, expr_arena, stmt_arena, interner)
         });
         current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
     }
@@ -401,12 +723,43 @@ pub fn optimize_for_run_tiered<'a>(
     // 0.891->0.879), bit-identical, no regression (the runtime trip-count guard
     // keeps it bit-identical for ALL inputs). Found via the stencil investigation.
     if admits_pinned(cfg, hs, tier, Opt::FloatStrength) {
-        let (c, fired) = float_induction_sr::float_induction_sr_stmts(
-            current, expr_arena, stmt_arena, interner,
-        );
+        let (c, fired) =
+            float_induction_sr::float_induction_sr_stmts(current, expr_arena, stmt_arena, interner);
         current = c;
         if fired {
             mark_fired(Opt::FloatStrength);
+            current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+            current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
+        }
+    }
+    // Integer induction strength reduction: a counted loop's affine index
+    // `coeff*j + base` (base loop-invariant) becomes a seeded accumulator
+    // advanced by `coeff*step`, removing the per-iteration multiply. Runs after
+    // float strength reduction (its integer sibling) and BEFORE GVN, so the
+    // linearized single-identifier indices are what GVN value-numbers. Exact —
+    // no runtime guard (integer arithmetic promotes to BigInt identically).
+    if admits_pinned(cfg, hs, tier, Opt::IntStrength) {
+        // Run path: no codegen tiler downstream, so reduce every affine index
+        // (the interpreter has no cache-tiling to defer to).
+        let (c, fired) = int_induction_sr::int_induction_sr_stmts(
+            current, expr_arena, stmt_arena, interner, false,
+        );
+        current = c;
+        if fired {
+            mark_fired(Opt::IntStrength);
+            current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+            current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
+        }
+    }
+    // Register-promote an invariant-indexed RMW element (store-to-load
+    // forwarding across the loop) BEFORE GVN, so GVN never restructures the
+    // `item IDX of C` read/write pair this pass recognizes. Its `loads_equal`
+    // alias check benefits from IntStrength having just linearized the index.
+    if admits_pinned(cfg, hs, tier, Opt::RegPromote) {
+        let (c, fired) = reg_promote::reg_promote_stmts(current, expr_arena, stmt_arena, interner);
+        current = c;
+        if fired {
+            mark_fired(Opt::RegPromote);
             current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
             current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
         }
@@ -485,6 +838,19 @@ pub fn optimize_for_run_tiered<'a>(
             closed_form::closed_form_stmts(c, expr_arena, stmt_arena, interner)
         });
     }
+    // Run-path memoization: cache a pure single-arg self-recursive function in a
+    // module-level `Map` global (the interpreter/VM analog of the AOT thread-local
+    // cache). AFTER ClosedForm, so a function ClosedForm already solved has no
+    // self-calls left and this declines — the natural ClosedForm-preempts-Memo.
+    if admits_pinned(cfg, hs, tier, Opt::Memo) {
+        let (c, fired) = memoize_run::memoize_run_stmts(current, expr_arena, stmt_arena, interner);
+        current = c;
+        if fired {
+            mark_fired(Opt::Memo);
+            current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+            current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
+        }
+    }
     if admits_pinned(cfg, hs, tier, Opt::Fuse) {
         current = run_traced(Opt::Fuse, current, |c| {
             deforest::deforest_stmts(c, expr_arena, stmt_arena, interner)
@@ -535,6 +901,29 @@ pub fn optimize_for_run_tiered<'a>(
 /// then defunctionalization, deforestation, interval analysis, DCE, and
 /// supercompilation. GVN/LICM/closed-form STILL run after the e-graph until it
 /// subsumes their cross-statement and loop-recurrence reach (the EG waves).
+/// Memoize the pure single-argument self-recursive functions of an already-optimized program for a
+/// lowering that has no native memoization construct. Rust emits its own cache during codegen; direct C
+/// and bytecode-derived backends instead consume this explicit Map-based residual. Keeping the transform
+/// here makes `Memo` one optimization with one eligibility rule and firing trace across those backends.
+pub fn memoize_for_explicit_lowering<'a>(
+    stmts: Vec<Stmt<'a>>,
+    expr_arena: &'a Arena<Expr<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
+    cfg: &OptimizationConfig,
+) -> Vec<Stmt<'a>> {
+    if !cfg.is_on(Opt::Memo) {
+        return stmts;
+    }
+    let (current, fired) = memoize_run::memoize_run_stmts(stmts, expr_arena, stmt_arena, interner);
+    if !fired {
+        return current;
+    }
+    mark_fired(Opt::Memo);
+    let current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+    propagate::propagate_stmts(current, expr_arena, stmt_arena, interner)
+}
+
 pub fn optimize_program<'a>(
     stmts: Vec<Stmt<'a>>,
     expr_arena: &'a Arena<Expr<'a>>,
@@ -543,17 +932,72 @@ pub fn optimize_program<'a>(
     cfg: &OptimizationConfig,
 ) -> Vec<Stmt<'a>> {
     set_active_config(*cfg);
-    clear_proven_raw_int_ops();
+    clear_lifted_closures();
+    crate::analysis::callgraph::install_lending_parameters(&stmts);
     // De-desugar FIRST: under reference semantics the parser's place-write
     // Splices fuse back to the direct nested writes every downstream pass
     // (BTA, borrow-hoist, bounds elision) pattern-matches.
     let stmts = splice_fuse::fuse_place_splices(stmts, expr_arena, stmt_arena, interner);
+    // Fold/build fusion on the program as written: a consumer of a datatype applied to what a builder builds of it
+    // compiles to one function that never builds it, before any pass inlines or specializes either function.
+    let stmts = if cfg.is_on(Opt::FoldFusion) {
+        let (fused, fired) =
+            fold_fusion::fold_fusion_stmts(stmts, expr_arena, stmt_arena, interner);
+        if fired {
+            mark_fired(Opt::FoldFusion);
+        }
+        fused
+    } else {
+        stmts
+    };
+    // A bubble sort's nest, before any loop pass reshapes it, sorts its window by one heap sort behind a guard.
+    let stmts = if cfg.is_on(Opt::SortNest) {
+        let (sorted, fired) = sort_nest::sort_nest_stmts(stmts, expr_arena, stmt_arena, interner);
+        if fired {
+            mark_fired(Opt::SortNest);
+        }
+        sorted
+    } else {
+        stmts
+    };
+    // A per-number search for a divisor up to its square root reads one sieve of the range, behind a size guard.
+    let stmts = if cfg.is_on(Opt::DivisorSieve) {
+        let (sieved, fired) =
+            divisor_sieve::divisor_sieve_stmts(stmts, expr_arena, stmt_arena, interner);
+        if fired {
+            mark_fired(Opt::DivisorSieve);
+        }
+        sieved
+    } else {
+        stmts
+    };
+    // A pure iteration run from every start of a range stops where it reaches a start already finished.
+    let stmts = if cfg.is_on(Opt::TraceMemo) {
+        let (memo, fired) = trace_memo::trace_memo_stmts(stmts, expr_arena, stmt_arena, interner);
+        if fired {
+            mark_fired(Opt::TraceMemo);
+        }
+        memo
+    } else {
+        stmts
+    };
     // NOTE: no early tiny-fn inliner here — that is a RUN-PATH device
     // (optimize_for_run skips supercompile for budget). This AOT pipeline
     // inlines through supercompile at the end exactly like v1, so the PE
     // machinery keeps its subjects.
     let bta_cache = bta::analyze_with_sccs(&stmts, interner);
     let mut current = stmts;
+    // Loop interchange on the raw affine nest, before the e-graph / IntStrength
+    // touch the indices: reorder an integer commutative-reduction nest toward
+    // the unit-stride-innermost order. Bit-identical and locality-improving only.
+    if cfg.is_on(Opt::Interchange) {
+        let (c, fired) =
+            loop_interchange::interchange_stmts(current, expr_arena, stmt_arena, interner);
+        current = c;
+        if fired {
+            mark_fired(Opt::Interchange);
+        }
+    }
     if cfg.is_on(Opt::Specialize) {
         let mut variant_count: HashMap<Symbol, usize> = HashMap::new();
         let mut specialized_any = false;
@@ -561,7 +1005,11 @@ pub fn optimize_program<'a>(
             let folded = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
             let propagated = propagate::propagate_stmts(folded, expr_arena, stmt_arena, interner);
             let (specialized, changes) = partial_eval::specialize_stmts_with_state(
-                propagated, expr_arena, stmt_arena, interner, &mut variant_count,
+                propagated,
+                expr_arena,
+                stmt_arena,
+                interner,
+                &mut variant_count,
                 Some(&bta_cache),
             );
             current = specialized;
@@ -576,10 +1024,23 @@ pub fn optimize_program<'a>(
     }
     if cfg.is_on(Opt::Comptime) {
         current = run_traced(Opt::Comptime, current, |c| {
-            ctfe::ctfe_stmts(c, expr_arena, stmt_arena, interner)
+            let c = ctfe::ctfe_stmts(c, expr_arena, stmt_arena, interner);
+            ctfe::tableize_stmts(c, expr_arena, stmt_arena, interner)
         });
     }
     current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+    // Sparse conditional constant propagation: fold constants and prune
+    // unreachable branches in one lattice sweep — the reachability half the
+    // e-graph does not do. Runs on the folded PE residual, BEFORE the Architect,
+    // so a dead branch (and any `Set` inside it that would otherwise poison a
+    // variable) is gone before saturation / GVN / the recurrence passes see it.
+    if cfg.is_on(Opt::Sccp) {
+        current = run_traced(Opt::Sccp, current, |c| {
+            sccp::sccp_stmts(c, expr_arena, stmt_arena, interner)
+        });
+        current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+        current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
+    }
     // Reflection symmetry-breaking: halve a bitmask counting search's first-row
     // enumeration (×2 + odd-n middle) when the kernel proves the reflection
     // invariance for all n. Runs on the clean specialized entry, before the
@@ -620,6 +1081,18 @@ pub fn optimize_program<'a>(
     // until the e-graph's cross-statement runs (M13's SSA versioning)
     // subsume their capabilities — the structural suite pins them, and a
     // capability superset is the honest sprint-22 wiring.
+    // Register-promote an invariant-indexed RMW element BEFORE the Architect:
+    // the e-graph canonicalizes the `item IDX of C` read/write pair out of the
+    // shape this pass recognizes, so it must run on the pre-saturation form.
+    if cfg.is_on(Opt::RegPromote) {
+        let (c, fired) = reg_promote::reg_promote_stmts(current, expr_arena, stmt_arena, interner);
+        current = c;
+        if fired {
+            mark_fired(Opt::RegPromote);
+            current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+            current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
+        }
+    }
     if cfg.is_on(Opt::Saturate) {
         current = run_traced(Opt::Saturate, current, |c| {
             egraph::convert::egraph_stmts(c, expr_arena, stmt_arena, interner)
@@ -634,6 +1107,24 @@ pub fn optimize_program<'a>(
         current = run_traced(Opt::LoopHoist, current, |c| {
             licm::licm_stmts(c, expr_arena, stmt_arena, interner)
         });
+    }
+    // Integer induction strength reduction on the post-LICM index arithmetic:
+    // what LICM hoisted as invariant is gone, leaving the `coeff*j + base` form
+    // this pass folds into an accumulator. Before ClosedForm so its accumulator
+    // recurrences are visible to the recurrence solver.
+    if cfg.is_on(Opt::IntStrength) {
+        // AOT/Rust-codegen path: defer the square matmul nest to the codegen
+        // tiler (`peephole::try_emit_tiled_inner`), whose L1 cache tiling beats
+        // removing the index multiply and needs the nest's exact raw shape.
+        let (c, fired) = int_induction_sr::int_induction_sr_stmts(
+            current, expr_arena, stmt_arena, interner, true,
+        );
+        current = c;
+        if fired {
+            mark_fired(Opt::IntStrength);
+            current = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
+            current = propagate::propagate_stmts(current, expr_arena, stmt_arena, interner);
+        }
     }
     if cfg.is_on(Opt::ClosedForm) {
         current = run_traced(Opt::ClosedForm, current, |c| {
@@ -709,10 +1200,51 @@ pub fn optimize_program<'a>(
     // LAST among the rewriters so nothing rebuilds its proven-raw-marked
     // clone nodes before codegen. Versioning is guard-based loop cloning, the
     // LoopSplit family; AOT-only like its sibling (the payoff is SIMD).
+    // Range-aware helper specialization: symbolically inline pure integer helper calls
+    // (`divModQ`/`divModM`/…) in a counted-accumulator loop under the counter's proven
+    // `>= 0` range and fold the dead sign branches, turning the function-based term into
+    // bare arithmetic. Runs FIRST so its inlined output flows through the accumulator
+    // versioner (guard elision) and div-mod fusion below.
+    #[cfg(feature = "codegen")]
+    let propagated = if cfg.is_on(Opt::SpecializeLoop) {
+        run_traced(Opt::SpecializeLoop, propagated, |c| {
+            specialize_loop::specialize_loop_stmts(c, expr_arena, stmt_arena, interner)
+        })
+    } else {
+        propagated
+    };
+    // Pass 1 — bounded-accumulator overflow-guard elision: proves a hot integer loop
+    // stays i64-safe once its inputs fit a compile-time bound, versions it, and marks
+    // the fast branch's arithmetic proven-raw so codegen drops the per-iteration
+    // overflow guard. Runs BEFORE bound_version so the tighter accumulator bound
+    // (`n <= 2e9`, marking the GROWING accumulator too) wins over bound_version's
+    // coarser counter-only split (`n <= 2^62`, which cannot bound a growing sum and so
+    // leaves its per-iteration guard); bound_version then skips the loop accum_bound
+    // already versioned (its body arith is all proven-raw) and only splits the fallback.
+    #[cfg(feature = "codegen")]
+    let propagated = if cfg.is_on(Opt::AccumBound) {
+        run_traced(Opt::AccumBound, propagated, |c| {
+            accum_bound::accum_bound_stmts(c, expr_arena, stmt_arena, interner)
+        })
+    } else {
+        propagated
+    };
     #[cfg(feature = "codegen")]
     let propagated = if cfg.is_on(Opt::LoopSplit) {
         run_traced(Opt::LoopSplit, propagated, |c| {
             bound_version::bound_version_stmts(c, expr_arena, stmt_arena)
+        })
+    } else {
+        propagated
+    };
+    // Div-mod fusion: restore the `a/b`+`a%b` CSE that rustc/LLVM won't do — bind the shared
+    // quotient once and derive the remainder. Runs LAST among the rewriters (after the bounded-
+    // loop versioners have marked the accumulator fast branch proven-raw) so its rewritten nodes
+    // inherit those marks and stay bare-i64; AOT-only.
+    #[cfg(feature = "codegen")]
+    let propagated = if cfg.is_on(Opt::DivModFuse) {
+        run_traced(Opt::DivModFuse, propagated, |c| {
+            divmod_fuse::divmod_fuse_stmts(c, expr_arena, stmt_arena, interner)
         })
     } else {
         propagated

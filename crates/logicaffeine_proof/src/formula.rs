@@ -38,7 +38,9 @@ pub struct FormulaError {
 
 impl FormulaError {
     pub(crate) fn new(message: impl Into<String>) -> Self {
-        FormulaError { message: message.into() }
+        FormulaError {
+            message: message.into(),
+        }
     }
 }
 
@@ -56,7 +58,10 @@ impl std::error::Error for FormulaError {}
 /// [`FormulaError`] on malformed input (the whole string must be consumed).
 pub fn parse_formula(input: &str) -> Result<ProofExpr, FormulaError> {
     let tokens = tokenize(input)?;
-    let mut p = Parser { tokens: &tokens, pos: 0 };
+    let mut p = Parser {
+        tokens: &tokens,
+        pos: 0,
+    };
     let expr = p.parse_formula()?;
     if p.pos != p.tokens.len() {
         return Err(FormulaError::new(format!(
@@ -78,13 +83,13 @@ enum Tok {
     RParen,
     Comma,
     Eq,
-    Arrow,    // -> →   (implication)
-    Iff,      // <-> ↔
-    And,      // ∧
-    Or,       // ∨
-    Not,      // ¬
-    Forall,   // ∀
-    Exists,   // ∃
+    Arrow,  // -> →   (implication)
+    Iff,    // <-> ↔
+    And,    // ∧
+    Or,     // ∨
+    Not,    // ¬
+    Forall, // ∀
+    Exists, // ∃
 }
 
 fn tokenize(input: &str) -> Result<Vec<Tok>, FormulaError> {
@@ -281,9 +286,15 @@ impl<'a> Parser<'a> {
         let body = self.parse_formula()?;
         Ok(vars.into_iter().rev().fold(body, |acc, var| {
             if universal {
-                ProofExpr::ForAll { variable: var, body: Box::new(acc) }
+                ProofExpr::ForAll {
+                    variable: var,
+                    body: Box::new(acc),
+                }
             } else {
-                ProofExpr::Exists { variable: var, body: Box::new(acc) }
+                ProofExpr::Exists {
+                    variable: var,
+                    body: Box::new(acc),
+                }
             }
         }))
     }
@@ -410,9 +421,25 @@ impl<'a> Parser<'a> {
                 }
             }
             if !matches!(self.advance(), Some(Tok::RParen)) {
-                return Err(FormulaError::new("expected ')' to close a relation's arguments"));
+                return Err(FormulaError::new(
+                    "expected ')' to close a relation's arguments",
+                ));
             }
-            return Ok(ProofExpr::Predicate { name, args, world: None });
+            // An equality between ARITHMETIC terms is a ring identity (the oracle decides it), like the
+            // `a = b` infix form — not an uninterpreted `Eq` relation. Gated on an arithmetic side, so a
+            // general `Eq(x, y)` predicate in a development is untouched.
+            if name.eq_ignore_ascii_case("eq")
+                && args.len() == 2
+                && (is_arith_term(&args[0]) || is_arith_term(&args[1]))
+            {
+                let mut it = args.into_iter();
+                return Ok(ProofExpr::Identity(it.next().unwrap(), it.next().unwrap()));
+            }
+            return Ok(ProofExpr::Predicate {
+                name,
+                args,
+                world: None,
+            });
         }
 
         // Identity: `a = b`.
@@ -427,11 +454,51 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_term(&mut self) -> Result<ProofTerm, FormulaError> {
-        match self.advance() {
-            Some(Tok::Ident(s)) => Ok(ident_to_term(s)),
-            other => Err(FormulaError::new(format!("expected a term, found {other:?}"))),
+        let name = match self.advance() {
+            Some(Tok::Ident(s)) => s.clone(),
+            other => {
+                return Err(FormulaError::new(format!(
+                    "expected a term, found {other:?}"
+                )))
+            }
+        };
+        // Function application: `Name(t1, t2, …)` — a nested (possibly arithmetic) function term, so
+        // `Eq(Mul(a, b), Mul(b, a))` parses its `Mul(a, b)` arguments rather than stopping at the `(`.
+        if matches!(self.peek(), Some(Tok::LParen)) {
+            self.advance();
+            let mut args = Vec::new();
+            if !matches!(self.peek(), Some(Tok::RParen)) {
+                loop {
+                    args.push(self.parse_term()?);
+                    if matches!(self.peek(), Some(Tok::Comma)) {
+                        self.advance();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if !matches!(self.advance(), Some(Tok::RParen)) {
+                return Err(FormulaError::new(
+                    "expected ')' to close a function's arguments",
+                ));
+            }
+            return Ok(ProofTerm::Function(name, args));
         }
+        Ok(ident_to_term(&name))
     }
+}
+
+/// Is `t` an arithmetic function term (`Add`/`Mul`/… in either case)? Used to recognise an equality
+/// between ring expressions, which is a proof-layer `Identity` rather than an uninterpreted relation.
+fn is_arith_term(t: &ProofTerm) -> bool {
+    matches!(
+        t,
+        ProofTerm::Function(n, _)
+            if matches!(
+                n.as_str(),
+                "Add" | "Sub" | "Mul" | "Div" | "add" | "sub" | "mul" | "div" | "mod"
+            )
+    )
 }
 
 /// An uppercase- or digit-leading identifier is a CONSTANT; a lowercase-leading one is a

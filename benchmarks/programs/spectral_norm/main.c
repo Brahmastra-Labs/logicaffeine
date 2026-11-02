@@ -8,15 +8,17 @@ double A(int i, int j) {
 
 void mul_Av(int n, double *v, double *Av) {
     for (int i = 0; i < n; i++) {
-        Av[i] = 0.0;
-        for (int j = 0; j < n; j++) Av[i] += A(i, j) * v[j];
+        double sum = 0.0;
+        for (int j = 0; j < n; j++) sum += A(i, j) * v[j];
+        Av[i] = sum;
     }
 }
 
 void mul_Atv(int n, double *v, double *Atv) {
     for (int i = 0; i < n; i++) {
-        Atv[i] = 0.0;
-        for (int j = 0; j < n; j++) Atv[i] += A(j, i) * v[j];
+        double sum = 0.0;
+        for (int j = 0; j < n; j++) sum += A(j, i) * v[j];
+        Atv[i] = sum;
     }
 }
 

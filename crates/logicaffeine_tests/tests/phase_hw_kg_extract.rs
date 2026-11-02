@@ -4,7 +4,7 @@
 //! LogicExpr trees to populate HwKnowledgeGraph.
 
 use logicaffeine_language::compile_kripke_with;
-use logicaffeine_language::semantics::knowledge_graph::{extract_from_kripke_ast, KgRelation, SignalRole};
+use logicaffeine_language::semantics::knowledge_graph::{extract_from_kripke_ast, SignalRole};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SIGNAL EXTRACTION
@@ -85,7 +85,10 @@ fn kg_extract_produces_valid_json() {
 
     let json = kg.to_json();
     assert!(json.contains("\"signals\""), "JSON should have signals key");
-    assert!(json.contains("\"properties\""), "JSON should have properties key");
+    assert!(
+        json.contains("\"properties\""),
+        "JSON should have properties key"
+    );
     assert!(json.contains("\"edges\""), "JSON should have edges key");
 }
 
@@ -104,10 +107,16 @@ fn kg_extract_non_temporal_still_works() {
     // The KG may or may not have properties depending on quantifier patterns.
     // Key assertion: the KG is structurally valid and serializes to JSON.
     let json = kg.to_json();
-    assert!(json.contains("signals") || json.contains("properties"),
-        "KG must produce valid JSON structure. Got: {}", json);
-    assert!(json.starts_with('{') && json.ends_with('}'),
-        "KG JSON must be a valid object. Got: {}", json);
+    assert!(
+        json.contains("signals") || json.contains("properties"),
+        "KG must produce valid JSON structure. Got: {}",
+        json
+    );
+    assert!(
+        json.starts_with('{') && json.ends_with('}'),
+        "KG JSON must be a valid object. Got: {}",
+        json
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -151,10 +160,9 @@ fn kg_extract_conjunction_in_temporal_produces_signals() {
 #[test]
 fn kg_extract_nested_modal_in_temporal() {
     // "Always, every dog can run." — temporal + alethic nesting
-    let kg = compile_kripke_with(
-        "Always, every dog can run.",
-        |ast, interner| extract_from_kripke_ast(ast, interner),
-    )
+    let kg = compile_kripke_with("Always, every dog can run.", |ast, interner| {
+        extract_from_kripke_ast(ast, interner)
+    })
     .unwrap();
 
     // Should still classify as safety (G is outermost)
@@ -269,9 +277,8 @@ fn kg_extract_complex_spec_does_not_panic() {
     ];
 
     for spec in specs {
-        let result = compile_kripke_with(spec, |ast, interner| {
-            extract_from_kripke_ast(ast, interner)
-        });
+        let result =
+            compile_kripke_with(spec, |ast, interner| extract_from_kripke_ast(ast, interner));
         assert!(
             result.is_ok(),
             "KG extraction should not panic on '{}'. Error: {:?}",
@@ -294,7 +301,9 @@ fn kg_clock_signal_detected_by_name() {
     })
     .unwrap();
 
-    let clock_signals: Vec<_> = kg.signals.iter()
+    let clock_signals: Vec<_> = kg
+        .signals
+        .iter()
         .filter(|s| s.role == SignalRole::Clock)
         .collect();
     assert!(
@@ -314,7 +323,9 @@ fn kg_antecedent_is_input() {
     .unwrap();
 
     // The antecedent variable (from "every dog runs") should be Input
-    let input_signals: Vec<_> = kg.signals.iter()
+    let input_signals: Vec<_> = kg
+        .signals
+        .iter()
         .filter(|s| s.role == SignalRole::Input)
         .collect();
     assert!(
@@ -333,7 +344,9 @@ fn kg_consequent_is_output() {
     )
     .unwrap();
 
-    let output_signals: Vec<_> = kg.signals.iter()
+    let output_signals: Vec<_> = kg
+        .signals
+        .iter()
         .filter(|s| s.role == SignalRole::Output)
         .collect();
     assert!(
@@ -352,7 +365,9 @@ fn kg_bidirectional_stays_internal() {
     )
     .unwrap();
 
-    let internal_signals: Vec<_> = kg.signals.iter()
+    let internal_signals: Vec<_> = kg
+        .signals
+        .iter()
         .filter(|s| s.role == SignalRole::Internal)
         .collect();
     assert!(
@@ -365,10 +380,9 @@ fn kg_bidirectional_stays_internal() {
 #[test]
 fn kg_property_name_from_predicate() {
     // Property names should come from predicate names, not be hardcoded "Safety".
-    let kg = compile_kripke_with(
-        "Always, every handshake is complete.",
-        |ast, interner| extract_from_kripke_ast(ast, interner),
-    )
+    let kg = compile_kripke_with("Always, every handshake is complete.", |ast, interner| {
+        extract_from_kripke_ast(ast, interner)
+    })
     .unwrap();
 
     // At least one property should have a name derived from the predicate,

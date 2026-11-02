@@ -1,0 +1,7 @@
+## Main
+    Let s be "abc".
+    Show item 2 of s.
+    Show s equals "abc".
+    Show "n=" + 42.
+    Show "".
+    Show length of s + 1.

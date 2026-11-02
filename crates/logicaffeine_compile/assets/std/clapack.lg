@@ -1,0 +1,721 @@
+# Complex BLAS / LAPACK
+
+Dense complex linear algebra over the native floating-point complex scalar (`ComplexF`, the
+LAPACK `Z`/`C` precision). The numerical *algorithms* mirror the reference netlib complex BLAS /
+LAPACK (`ZDOTC`, `ZGEMM`, `ZGESV`, …); the reference's hand-unrolled Fortran is not — the LOGOS
+source stays the naive mathematics and the supercompiler earns the optimization.
+
+Vectors and matrices are flattened row-major `Seq of ComplexF`; a matrix argument carries its
+dimensions as explicit `Int`s (the reference's `(M, N, A, LDA)` convention). Indexing is 1-based
+(`item i of x`). The complex conjugate is `conjugate(z)`, the modulus is `abs(z)` (a `Float`).
+Auto-imported on first reference, like every stdlib module.
+
+(NOTE for editors: keep all prose ABOVE the first `## To` — literate Logos strips only the
+leading prose; a paragraph BETWEEN `## To` sections is parsed as code and breaks the module.
+A struct declaration must live under a `## Definition` heading so the prelude splice — which drops
+everything before the first `## ` section — keeps it and the AOT backend can emit its `struct`.)
+
+## Note
+The complex factorization result records: LU factors + pivots, QR's `Q`/`R`, the Hermitian eigenpairs (real eigenvalues, complex eigenvectors), and the complex SVD's `U`/`S`/`V`.
+
+## Definition
+A CLuResult has:
+    a lu, which is Seq of ComplexF.
+    a piv, which is Seq of Int.
+
+A CQrResult has:
+    a q, which is Seq of ComplexF.
+    a r, which is Seq of ComplexF.
+
+A CHermEig has:
+    a vals, which is Seq of Float.
+    a vecs, which is Seq of ComplexF.
+
+A CSvdResult has:
+    a u, which is Seq of ComplexF.
+    a s, which is Seq of Float.
+    a v, which is Seq of ComplexF.
+
+## Note
+The UNCONJUGATED dot product `Σ x[i]·y[i]` of the first `n` elements (reference BLAS `ZDOTU`).
+This is the bilinear form — not an inner product — so it is not conjugate-symmetric.
+
+## To cdotu (n: Int, x: Seq of ComplexF, y: Seq of ComplexF) -> ComplexF:
+    Let mutable sum be complex(0.0, 0.0).
+    Repeat for i from 1 to n:
+        Set sum to sum + (item i of x) * (item i of y).
+    Return sum.
+
+## Note
+The CONJUGATED dot product `Σ conj(x[i])·y[i]` of the first `n` elements (reference BLAS `ZDOTC`).
+This is the Hermitian inner product `⟨x, y⟩`; `cdotc(n, x, x)` is the real non-negative `‖x‖²`.
+
+## To cdotc (n: Int, x: Seq of ComplexF, y: Seq of ComplexF) -> ComplexF:
+    Let mutable sum be complex(0.0, 0.0).
+    Repeat for i from 1 to n:
+        Set sum to sum + conjugate(item i of x) * (item i of y).
+    Return sum.
+
+## Note
+`x := alpha·x` over the first `n` elements (reference BLAS `ZSCAL`). Value-semantic: a fresh
+vector; the caller's `x` is untouched.
+
+## To cscal (n: Int, alpha: ComplexF, x: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be x.
+    Repeat for i from 1 to n:
+        Set item i of result to alpha * (item i of result).
+    Return result.
+
+## Note
+`y := alpha·x + y` over the first `n` elements (reference BLAS `ZAXPY`). Value-semantic: the
+result is a fresh vector; the caller's `y` is untouched.
+
+## To caxpy (n: Int, alpha: ComplexF, x: Seq of ComplexF, y: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be y.
+    Repeat for i from 1 to n:
+        Set item i of result to (item i of result) + alpha * (item i of x).
+    Return result.
+
+## Note
+The Euclidean norm `‖x‖₂ = √(Σ |x[i]|²)` of the first `n` elements (reference BLAS `DZNRM2`),
+returned as a real `Float`. `|x[i]|` is the complex modulus `abs`.
+
+## To cnrm2 (n: Int, x: Seq of ComplexF) -> Float:
+    Let mutable sum be 0.0.
+    Repeat for i from 1 to n:
+        Let m be abs(item i of x).
+        Set sum to sum + m * m.
+    Return sqrt(sum).
+
+## Note
+`y := alpha·A·x + beta·y` for a complex `m × n` matrix `A` (row-major) and vectors `x` (length
+`n`) and `y` (length `m`) — reference BLAS `ZGEMV` with no transpose.
+
+## To cgemv (m: Int, n: Int, alpha: ComplexF, a: Seq of ComplexF, x: Seq of ComplexF, beta: ComplexF, y: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be y.
+    Repeat for i from 1 to m:
+        Let mutable sum be complex(0.0, 0.0).
+        Repeat for j from 1 to n:
+            Set sum to sum + (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of result to beta * (item i of result) + alpha * sum.
+    Return result.
+
+## Note
+`C := alpha·A·B + beta·C` for complex `A` (`m × k`), `B` (`k × n`), `C` (`m × n`), all row-major —
+reference BLAS `ZGEMM` with no transpose on either factor.
+
+## To cgemm (m: Int, n: Int, k: Int, alpha: ComplexF, a: Seq of ComplexF, b: Seq of ComplexF, beta: ComplexF, c: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be c.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Let mutable sum be complex(0.0, 0.0).
+            Repeat for p from 1 to k:
+                Set sum to sum + (item ((i - 1) * k + p) of a) * (item ((p - 1) * n + j) of b).
+            Set item ((i - 1) * n + j) of result to beta * (item ((i - 1) * n + j) of result) + alpha * sum.
+    Return result.
+
+## Note
+The conjugate (Hermitian) transpose `Aᴴ` of a complex `m × n` matrix `A` (row-major): the
+returned `n × m` matrix has `Aᴴ[j][i] = conj(A[i][j])`.
+
+## To cconjtranspose (m: Int, n: Int, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be a.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Set item ((j - 1) * m + i) of result to conjugate(item ((i - 1) * n + j) of a).
+    Return result.
+
+## Note
+LU factorization `P·A = L·U` of a general `n × n` complex matrix with partial pivoting (reference
+LAPACK `ZGETRF`): packed unit-lower `L` and `U` in one row-major matrix plus row-pivot vector `piv`.
+
+## To cgetrf (n: Int, a: Seq of ComplexF) -> CLuResult:
+    Let mutable fac be a.
+    Let mutable pv be a new Seq of Int.
+    Repeat for t from 1 to n:
+        Push 0 to pv.
+    Repeat for k from 1 to n:
+        Let mutable p be k.
+        Let mutable maxv be abs(item ((k - 1) * n + k) of fac).
+        Repeat for i from (k + 1) to n:
+            Let v be abs(item ((i - 1) * n + k) of fac).
+            If v is greater than maxv:
+                Set maxv to v.
+                Set p to i.
+        Set item k of pv to p.
+        If p is not k:
+            Repeat for j from 1 to n:
+                Let tmp be item ((k - 1) * n + j) of fac.
+                Set item ((k - 1) * n + j) of fac to item ((p - 1) * n + j) of fac.
+                Set item ((p - 1) * n + j) of fac to tmp.
+        Let pivot be item ((k - 1) * n + k) of fac.
+        Repeat for i from (k + 1) to n:
+            Let factor be (item ((i - 1) * n + k) of fac) / pivot.
+            Set item ((i - 1) * n + k) of fac to factor.
+            Repeat for j from (k + 1) to n:
+                Set item ((i - 1) * n + j) of fac to (item ((i - 1) * n + j) of fac) - factor * (item ((k - 1) * n + j) of fac).
+    Return a new CLuResult with lu fac and piv pv.
+
+## Note
+Solve `A·x = b` from an existing `cgetrf` factorization (reference LAPACK `ZGETRS`): pivot `b`, then
+forward-substitute through unit-lower `L` and back-substitute through upper `U` (both packed).
+
+## To cgetrs (n: Int, f: CLuResult, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let fac be f's lu.
+    Let pv be f's piv.
+    Let mutable x be b.
+    Repeat for k from 1 to n:
+        Let p be item k of pv.
+        If p is not k:
+            Let tmp be item k of x.
+            Set item k of x to item p of x.
+            Set item p of x to tmp.
+    Repeat for i from 1 to n:
+        Let mutable s be item i of x.
+        Repeat for j from 1 to (i - 1):
+            Set s to s - (item ((i - 1) * n + j) of fac) * (item j of x).
+        Set item i of x to s.
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set s to s - (item ((i - 1) * n + j) of fac) * (item j of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of fac).
+    Return x.
+
+## Note
+Solve the complex linear system `A·x = b` for a single right-hand side (reference LAPACK `ZGESV`):
+factor with `cgetrf`, then solve with `cgetrs`. `A` and `b` are untouched (value-semantic).
+
+## To cgesv (n: Int, a: Seq of ComplexF, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let f be cgetrf(n, a).
+    Return cgetrs(n, f, b).
+
+## Note
+The Cholesky factorization `A = L·Lᴴ` of a Hermitian positive-definite `n × n` matrix (reference
+LAPACK `ZPOTRF`, lower): lower-triangular `L`, real positive diagonal, upper zeroed, row-major.
+
+## To cpotrf (n: Int, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable l be a.
+    Repeat for j from 1 to n:
+        Let mutable s be item ((j - 1) * n + j) of a.
+        Repeat for k from 1 to (j - 1):
+            Let ljk be item ((j - 1) * n + k) of l.
+            Set s to s - conjugate(ljk) * ljk.
+        Let ljj be sqrt(s).
+        Set item ((j - 1) * n + j) of l to ljj.
+        Repeat for i from (j + 1) to n:
+            Let mutable t be item ((i - 1) * n + j) of a.
+            Repeat for k from 1 to (j - 1):
+                Set t to t - (item ((i - 1) * n + k) of l) * conjugate(item ((j - 1) * n + k) of l).
+            Set item ((i - 1) * n + j) of l to t / ljj.
+    Repeat for r from 1 to n:
+        Repeat for c from (r + 1) to n:
+            Set item ((r - 1) * n + c) of l to complex(0.0, 0.0).
+    Return l.
+
+## Note
+Solve the Hermitian positive-definite system `A·x = b` for a single right-hand side (reference
+LAPACK `ZPOSV`): factor `A = L·Lᴴ` with `cpotrf`, then substitute through `L` and `Lᴴ`.
+
+## To cposv (n: Int, a: Seq of ComplexF, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let l be cpotrf(n, a).
+    Let mutable x be b.
+    Repeat for i from 1 to n:
+        Let mutable s be item i of x.
+        Repeat for k from 1 to (i - 1):
+            Set s to s - (item ((i - 1) * n + k) of l) * (item k of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of l).
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for k from (i + 1) to n:
+            Set s to s - conjugate(item ((k - 1) * n + i) of l) * (item k of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of l).
+    Return x.
+
+## Note
+The eigenvalues of a general complex `n × n` matrix (reference LAPACK `ZGEEV`, values only), a
+length-`n` `Seq of ComplexF` via shifted QR iteration to complex Schur form (the diagonal).
+
+## To cgeev (n: Int, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable h be a.
+    Repeat for iter from 1 to 500:
+        Let mutable mu be item ((n - 1) * n + n) of h.
+        If n is greater than 1:
+            Let aa be item ((n - 2) * n + (n - 1)) of h.
+            Let bb be item ((n - 2) * n + n) of h.
+            Let cc be item ((n - 1) * n + (n - 1)) of h.
+            Let dd be item ((n - 1) * n + n) of h.
+            Let tr2 be (aa + dd) / complex(2.0, 0.0).
+            Let md be (aa - dd) / complex(2.0, 0.0).
+            Let sq be sqrt(md * md + bb * cc).
+            Let e1 be tr2 + sq.
+            Let e2 be tr2 - sq.
+            Set mu to e1.
+            If abs(e2 - dd) is less than abs(e1 - dd):
+                Set mu to e2.
+        Let mutable q be h.
+        Let mutable r be h.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Set item ((i - 1) * n + j) of r to complex(0.0, 0.0).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + i) of q to (item ((i - 1) * n + i) of q) - mu.
+        Repeat for j from 1 to n:
+            Repeat for i from 1 to (j - 1):
+                Let mutable dot be complex(0.0, 0.0).
+                Repeat for k from 1 to n:
+                    Set dot to dot + conjugate(item ((k - 1) * n + i) of q) * (item ((k - 1) * n + j) of q).
+                Set item ((i - 1) * n + j) of r to dot.
+                Repeat for k from 1 to n:
+                    Set item ((k - 1) * n + j) of q to (item ((k - 1) * n + j) of q) - dot * (item ((k - 1) * n + i) of q).
+            Let mutable nrm be 0.0.
+            Repeat for k from 1 to n:
+                Let m be abs(item ((k - 1) * n + j) of q).
+                Set nrm to nrm + m * m.
+            Let rjj be sqrt(nrm).
+            Set item ((j - 1) * n + j) of r to complex(rjj, 0.0).
+            If rjj is greater than 0.0:
+                Repeat for k from 1 to n:
+                    Set item ((k - 1) * n + j) of q to (item ((k - 1) * n + j) of q) / complex(rjj, 0.0).
+        Let mutable hn be a new Seq of ComplexF.
+        Repeat for t from 1 to (n * n):
+            Push complex(0.0, 0.0) to hn.
+        Repeat for i from 1 to n:
+            Repeat for j from 1 to n:
+                Let mutable s be complex(0.0, 0.0).
+                Repeat for kk from 1 to n:
+                    Set s to s + (item ((i - 1) * n + kk) of r) * (item ((kk - 1) * n + j) of q).
+                Set item ((i - 1) * n + j) of hn to s.
+        Repeat for d from 1 to n:
+            Set item ((d - 1) * n + d) of hn to (item ((d - 1) * n + d) of hn) + mu.
+        Set h to hn.
+    Let mutable eigs be a new Seq of ComplexF.
+    Repeat for i from 1 to n:
+        Push item ((i - 1) * n + i) of h to eigs.
+    Return eigs.
+
+## Note
+Rank-1 update `A := alpha·x·yᵀ + A` (UNCONJUGATED, reference BLAS `ZGERU`) for `x` (length `m`),
+`y` (length `n`), `A` (`m × n`, row-major).
+
+## To cgeru (m: Int, n: Int, alpha: ComplexF, x: Seq of ComplexF, y: Seq of ComplexF, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be a.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Set item ((i - 1) * n + j) of result to (item ((i - 1) * n + j) of a) + alpha * (item i of x) * (item j of y).
+    Return result.
+
+## Note
+Rank-1 update `A := alpha·x·yᴴ + A` (CONJUGATED, reference BLAS `ZGERC`): the outer product uses the
+conjugate of `y`. `x` is length `m`, `y` length `n`, `A` is `m × n` row-major.
+
+## To cgerc (m: Int, n: Int, alpha: ComplexF, x: Seq of ComplexF, y: Seq of ComplexF, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be a.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Set item ((i - 1) * n + j) of result to (item ((i - 1) * n + j) of a) + alpha * (item i of x) * conjugate(item j of y).
+    Return result.
+
+## Note
+Hermitian matrix-vector product `y := alpha·A·x + beta·y` for a full Hermitian `A` (`n × n`,
+row-major) — reference BLAS `ZHEMV`.
+
+## To chemv (n: Int, alpha: ComplexF, a: Seq of ComplexF, x: Seq of ComplexF, beta: ComplexF, y: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be y.
+    Repeat for i from 1 to n:
+        Let mutable s be complex(0.0, 0.0).
+        Repeat for j from 1 to n:
+            Set s to s + (item ((i - 1) * n + j) of a) * (item j of x).
+        Set item i of result to beta * (item i of result) + alpha * s.
+    Return result.
+
+## Note
+Hermitian matrix-matrix product `C := alpha·A·B + beta·C` for a full Hermitian `A` (`m × m`) and a
+general `B` (`m × n`), row-major — reference BLAS `ZHEMM`, side='L'.
+
+## To chemm (m: Int, n: Int, alpha: ComplexF, a: Seq of ComplexF, b: Seq of ComplexF, beta: ComplexF, c: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be c.
+    Repeat for i from 1 to m:
+        Repeat for j from 1 to n:
+            Let mutable s be complex(0.0, 0.0).
+            Repeat for kk from 1 to m:
+                Set s to s + (item ((i - 1) * m + kk) of a) * (item ((kk - 1) * n + j) of b).
+            Set item ((i - 1) * n + j) of result to beta * (item ((i - 1) * n + j) of result) + alpha * s.
+    Return result.
+
+## Note
+Hermitian rank-k update `C := alpha·A·Aᴴ + beta·C` (reference BLAS `ZHERK`; `alpha`, `beta` are REAL).
+`A` is `m × k`, `C` is `n × n` Hermitian, row-major.
+
+## To cherk (n: Int, k: Int, alpha: Float, a: Seq of ComplexF, beta: Float, c: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be c.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let mutable s be complex(0.0, 0.0).
+            Repeat for p from 1 to k:
+                Set s to s + (item ((i - 1) * k + p) of a) * conjugate(item ((j - 1) * k + p) of a).
+            Set item ((i - 1) * n + j) of result to complex(beta, 0.0) * (item ((i - 1) * n + j) of result) + complex(alpha, 0.0) * s.
+    Return result.
+
+## Note
+Triangular matrix-matrix product `B := alpha·A·B` for an upper-triangular complex `A` (`m × m`) and a
+general `B` (`m × n`), row-major — reference BLAS `ZTRMM`, side='L', uplo='U'.
+
+## To ctrmm (m: Int, n: Int, alpha: ComplexF, a: Seq of ComplexF, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable result be b.
+    Repeat for j from 1 to n:
+        Repeat for i from 1 to m:
+            Let mutable s be complex(0.0, 0.0).
+            Repeat for kk from i to m:
+                Set s to s + (item ((i - 1) * m + kk) of a) * (item ((kk - 1) * n + j) of b).
+            Set item ((i - 1) * n + j) of result to alpha * s.
+    Return result.
+
+## Note
+Triangular solve `A·X = alpha·B` for an upper-triangular complex `A` (`m × m`), `B` (`m × n`),
+returning `X` (`m × n`), row-major — reference BLAS `ZTRSM`, side='L', uplo='U'.
+
+## To ctrsm (m: Int, n: Int, alpha: ComplexF, a: Seq of ComplexF, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable x be b.
+    Repeat for j from 1 to n:
+        Repeat for ii from 1 to m:
+            Let i be m + 1 - ii.
+            Let mutable s be alpha * (item ((i - 1) * n + j) of b).
+            Repeat for kk from (i + 1) to m:
+                Set s to s - (item ((i - 1) * m + kk) of a) * (item ((kk - 1) * n + j) of x).
+            Set item ((i - 1) * n + j) of x to s / (item ((i - 1) * m + i) of a).
+    Return x.
+
+## Note
+Inverse of a complex `n × n` matrix (reference LAPACK `ZGETRI` composed with `ZGETRF`): factor once,
+then solve `A·xⱼ = eⱼ` for each unit column to build `A⁻¹` column by column, row-major.
+
+## To cgetri (n: Int, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let f be cgetrf(n, a).
+    Let mutable inv be a.
+    Repeat for j from 1 to n:
+        Let mutable e be a new Seq of ComplexF.
+        Repeat for t from 1 to n:
+            Push complex(0.0, 0.0) to e.
+        Set item j of e to complex(1.0, 0.0).
+        Let col be cgetrs(n, f, e).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + j) of inv to item i of col.
+    Return inv.
+
+## Note
+QR factorization `A = Q·R` of a complex `m × n` matrix (reference LAPACK `ZGEQRF` + `ZUNGQR`) via
+complex modified Gram–Schmidt: `Q` is `m × n` unitary (`Qᴴ·Q = I`), `R` is `n × n` upper-triangular.
+
+## To cgeqrf (m: Int, n: Int, a: Seq of ComplexF) -> CQrResult:
+    Let mutable qmat be a.
+    Let mutable rmat be a new Seq of ComplexF.
+    Repeat for t from 1 to (n * n):
+        Push complex(0.0, 0.0) to rmat.
+    Repeat for j from 1 to n:
+        Repeat for i from 1 to (j - 1):
+            Let mutable dot be complex(0.0, 0.0).
+            Repeat for k from 1 to m:
+                Set dot to dot + conjugate(item ((k - 1) * n + i) of qmat) * (item ((k - 1) * n + j) of qmat).
+            Set item ((i - 1) * n + j) of rmat to dot.
+            Repeat for k from 1 to m:
+                Set item ((k - 1) * n + j) of qmat to (item ((k - 1) * n + j) of qmat) - dot * (item ((k - 1) * n + i) of qmat).
+        Let mutable nrm be 0.0.
+        Repeat for k from 1 to m:
+            Let mg be abs(item ((k - 1) * n + j) of qmat).
+            Set nrm to nrm + mg * mg.
+        Let rjj be sqrt(nrm).
+        Set item ((j - 1) * n + j) of rmat to complex(rjj, 0.0).
+        If rjj is greater than 0.0:
+            Repeat for k from 1 to m:
+                Set item ((k - 1) * n + j) of qmat to (item ((k - 1) * n + j) of qmat) / complex(rjj, 0.0).
+    Return a new CQrResult with q qmat and r rmat.
+
+## Note
+Induced 1-norm `‖A‖₁ = max column-sum of |aᵢⱼ|` of a complex `n × n` matrix (reference LAPACK
+`ZLANGE`, '1'), a real `Float`.
+
+## To clange1 (n: Int, a: Seq of ComplexF) -> Float:
+    Let mutable best be 0.0.
+    Repeat for j from 1 to n:
+        Let mutable colsum be 0.0.
+        Repeat for i from 1 to n:
+            Set colsum to colsum + abs(item ((i - 1) * n + j) of a).
+        If colsum is greater than best:
+            Set best to colsum.
+    Return best.
+
+## Note
+1-norm condition number `κ₁(A) = ‖A‖₁ · ‖A⁻¹‖₁` of a complex `n × n` matrix (reference LAPACK
+`ZGECON`, computed here directly from the explicit inverse rather than an estimator).
+
+## To cgecon (n: Int, a: Seq of ComplexF) -> Float:
+    Let inv be cgetri(n, a).
+    Return clange1(n, a) * clange1(n, inv).
+
+## Note
+Eigenvalues of a Hermitian `n × n` matrix (reference LAPACK `ZHEEV`, values only), ascending real
+`Seq of Float`, via a real-symmetric `2n × 2n` embedding diagonalized by Jacobi.
+
+## To cheev (n: Int, a: Seq of ComplexF) -> Seq of Float:
+    Let n2 be 2 * n.
+    Let mutable m be a new Seq of Float.
+    Repeat for t from 1 to (n2 * n2):
+        Push 0.0 to m.
+    Repeat for i from 1 to n:
+        Repeat for j from 1 to n:
+            Let z be item ((i - 1) * n + j) of a.
+            Let rr be re(z).
+            Let iz be im(z).
+            Set item ((i - 1) * n2 + j) of m to rr.
+            Set item (((n + i) - 1) * n2 + (n + j)) of m to rr.
+            Set item ((i - 1) * n2 + (n + j)) of m to 0.0 - iz.
+            Set item (((n + i) - 1) * n2 + j) of m to iz.
+    Repeat for sweep from 1 to 100:
+        Repeat for p from 1 to (n2 - 1):
+            Repeat for q from (p + 1) to n2:
+                Let apq be item ((p - 1) * n2 + q) of m.
+                If abs(apq) is greater than 0.0000000001:
+                    Let app be item ((p - 1) * n2 + p) of m.
+                    Let aqq be item ((q - 1) * n2 + q) of m.
+                    Let tau be (aqq - app) / (2.0 * apq).
+                    Let mutable t be 1.0 / (abs(tau) + sqrt(tau * tau + 1.0)).
+                    If tau is less than 0.0:
+                        Set t to 0.0 - t.
+                    Let cc be 1.0 / sqrt(t * t + 1.0).
+                    Let ss be t * cc.
+                    Repeat for r from 1 to n2:
+                        Let mrp be item ((r - 1) * n2 + p) of m.
+                        Let mrq be item ((r - 1) * n2 + q) of m.
+                        Set item ((r - 1) * n2 + p) of m to cc * mrp - ss * mrq.
+                        Set item ((r - 1) * n2 + q) of m to ss * mrp + cc * mrq.
+                    Repeat for r from 1 to n2:
+                        Let mpr be item ((p - 1) * n2 + r) of m.
+                        Let mqr be item ((q - 1) * n2 + r) of m.
+                        Set item ((p - 1) * n2 + r) of m to cc * mpr - ss * mqr.
+                        Set item ((q - 1) * n2 + r) of m to ss * mpr + cc * mqr.
+    Let mutable vals be a new Seq of Float.
+    Repeat for i from 1 to n2:
+        Push item ((i - 1) * n2 + i) of m to vals.
+    Repeat for i from 1 to n2:
+        Let mutable mi be i.
+        Repeat for j from (i + 1) to n2:
+            If (item j of vals) is less than (item mi of vals):
+                Set mi to j.
+        Let tmp be item i of vals.
+        Set item i of vals to item mi of vals.
+        Set item mi of vals to tmp.
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Push item (2 * i - 1) of vals to out.
+    Return out.
+
+## Note
+The singular values of a complex `m × n` matrix (reference LAPACK `ZGESVD`, values only), a real
+`Seq of Float`: the `√` of the eigenvalues of the Gram matrix `AᴴA` (`n × n`), ascending.
+
+## To csvdvals (m: Int, n: Int, a: Seq of ComplexF) -> Seq of Float:
+    Let ah be cconjtranspose(m, n, a).
+    Let mutable zeros be a new Seq of ComplexF.
+    Repeat for t from 1 to (n * n):
+        Push complex(0.0, 0.0) to zeros.
+    Let gram be cgemm(n, n, m, complex(1.0, 0.0), ah, a, complex(0.0, 0.0), zeros).
+    Let evals be cheev(n, gram).
+    Let mutable out be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Let ev be item i of evals.
+        Let mutable sv be 0.0.
+        If ev is greater than 0.0:
+            Set sv to sqrt(ev).
+        Push sv to out.
+    Return out.
+
+## Note
+Determinant of a complex `n × n` matrix (via `ZGETRF`): the product of the `U` diagonal times the
+pivot sign `(−1)^swaps`.
+
+## To cdet (n: Int, a: Seq of ComplexF) -> ComplexF:
+    Let f be cgetrf(n, a).
+    Let lu be f's lu.
+    Let pv be f's piv.
+    Let mutable d be complex(1.0, 0.0).
+    Repeat for i from 1 to n:
+        Set d to d * (item ((i - 1) * n + i) of lu).
+    Let mutable sign be 1.
+    Repeat for i from 1 to n:
+        If (item i of pv) is not i:
+            Set sign to 0 - sign.
+    If sign is less than 0:
+        Set d to complex(0.0, 0.0) - d.
+    Return d.
+
+## Note
+Trace (sum of the diagonal) of a complex `n × n` matrix.
+
+## To ctrace (n: Int, a: Seq of ComplexF) -> ComplexF:
+    Let mutable s be complex(0.0, 0.0).
+    Repeat for i from 1 to n:
+        Set s to s + (item ((i - 1) * n + i) of a).
+    Return s.
+
+## Note
+The complex `n × n` identity matrix (row-major).
+
+## To ceye (n: Int) -> Seq of ComplexF:
+    Let mutable a be a new Seq of ComplexF.
+    Repeat for t from 1 to (n * n):
+        Push complex(0.0, 0.0) to a.
+    Repeat for i from 1 to n:
+        Set item ((i - 1) * n + i) of a to complex(1.0, 0.0).
+    Return a.
+
+## Note
+The diagonal of a complex `n × n` matrix as a length-`n` vector.
+
+## To cdiagOf (n: Int, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable out be a new Seq of ComplexF.
+    Repeat for i from 1 to n:
+        Push item ((i - 1) * n + i) of a to out.
+    Return out.
+
+## Note
+Solve `A·x = b` for a Hermitian positive-definite `A` from an existing `cpotrf` lower factor `L`
+(reference LAPACK `ZPOTRS`): forward-substitute through `L`, back-substitute through `Lᴴ`.
+
+## To cpotrs (n: Int, l: Seq of ComplexF, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let mutable x be b.
+    Repeat for i from 1 to n:
+        Let mutable s be item i of x.
+        Repeat for k from 1 to (i - 1):
+            Set s to s - (item ((i - 1) * n + k) of l) * (item k of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of l).
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for k from (i + 1) to n:
+            Set s to s - conjugate(item ((k - 1) * n + i) of l) * (item k of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of l).
+    Return x.
+
+## Note
+Inverse of a Hermitian positive-definite complex `n × n` matrix (reference LAPACK `ZPOTRI` via
+`ZPOTRF`): factor `A = L·Lᴴ`, then solve `A·xⱼ = eⱼ` for each unit column.
+
+## To cpotri (n: Int, a: Seq of ComplexF) -> Seq of ComplexF:
+    Let l be cpotrf(n, a).
+    Let mutable inv be a.
+    Repeat for j from 1 to n:
+        Let mutable e be a new Seq of ComplexF.
+        Repeat for t from 1 to n:
+            Push complex(0.0, 0.0) to e.
+        Set item j of e to complex(1.0, 0.0).
+        Let col be cpotrs(n, l, e).
+        Repeat for i from 1 to n:
+            Set item ((i - 1) * n + j) of inv to item i of col.
+    Return inv.
+
+## Note
+Least-squares solution of an overdetermined complex system `min ‖A·x − b‖₂` (reference LAPACK
+`ZGELS`, no transpose): `A` is `m × n` (`m ≥ n`), solved via the QR factorization `x = R⁻¹·(Qᴴ·b)`.
+
+## To cgels (m: Int, n: Int, a: Seq of ComplexF, b: Seq of ComplexF) -> Seq of ComplexF:
+    Let f be cgeqrf(m, n, a).
+    Let qmat be f's q.
+    Let rmat be f's r.
+    Let mutable y be a new Seq of ComplexF.
+    Repeat for j from 1 to n:
+        Let mutable s be complex(0.0, 0.0).
+        Repeat for k from 1 to m:
+            Set s to s + conjugate(item ((k - 1) * n + j) of qmat) * (item k of b).
+        Push s to y.
+    Let mutable x be y.
+    Repeat for ii from 1 to n:
+        Let i be n + 1 - ii.
+        Let mutable s be item i of x.
+        Repeat for j from (i + 1) to n:
+            Set s to s - (item ((i - 1) * n + j) of rmat) * (item j of x).
+        Set item i of x to s / (item ((i - 1) * n + i) of rmat).
+    Return x.
+
+## Note
+Hermitian eigendecomposition WITH eigenvectors (reference LAPACK `ZHEEV`, jobz='V'): real `vals`
+(ascending) and unitary `vecs` (eigenvector columns), via a cyclic complex-Jacobi sweep.
+
+## To cheevv (n: Int, a: Seq of ComplexF) -> CHermEig:
+    Let mutable h be a.
+    Let mutable v be ceye(n).
+    Repeat for sweep from 1 to 100:
+        Repeat for p from 1 to (n - 1):
+            Repeat for q from (p + 1) to n:
+                Let apq be item ((p - 1) * n + q) of h.
+                Let off be abs(apq).
+                If off is greater than 0.0000000001:
+                    Let app be re(item ((p - 1) * n + p) of h).
+                    Let aqq be re(item ((q - 1) * n + q) of h).
+                    Let tau be (aqq - app) / (2.0 * off).
+                    Let mutable tt be 1.0 / (abs(tau) + sqrt(tau * tau + 1.0)).
+                    If tau is less than 0.0:
+                        Set tt to 0.0 - tt.
+                    Let cc be 1.0 / sqrt(tt * tt + 1.0).
+                    Let ccx be complex(cc, 0.0).
+                    Let sc be complex(tt * cc, 0.0) * (apq / complex(off, 0.0)).
+                    Let nsc be complex(0.0, 0.0) - sc.
+                    Let ncsc be complex(0.0, 0.0) - conjugate(sc).
+                    Repeat for r from 1 to n:
+                        Let hrp be item ((r - 1) * n + p) of h.
+                        Let hrq be item ((r - 1) * n + q) of h.
+                        Set item ((r - 1) * n + p) of h to hrp * ccx + hrq * sc.
+                        Set item ((r - 1) * n + q) of h to hrp * ncsc + hrq * ccx.
+                    Repeat for col from 1 to n:
+                        Let hpc be item ((p - 1) * n + col) of h.
+                        Let hqc be item ((q - 1) * n + col) of h.
+                        Set item ((p - 1) * n + col) of h to ccx * hpc + conjugate(sc) * hqc.
+                        Set item ((q - 1) * n + col) of h to nsc * hpc + ccx * hqc.
+                    Repeat for r from 1 to n:
+                        Let vrp be item ((r - 1) * n + p) of v.
+                        Let vrq be item ((r - 1) * n + q) of v.
+                        Set item ((r - 1) * n + p) of v to vrp * ccx + vrq * sc.
+                        Set item ((r - 1) * n + q) of v to vrp * ncsc + vrq * ccx.
+    Let mutable vals be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Push re(item ((i - 1) * n + i) of h) to vals.
+    Return a new CHermEig with vals vals and vecs v.
+
+## Note
+Full SVD `A = U·Σ·Vᴴ` of a complex `m × n` matrix (`m ≥ n`, reference LAPACK `ZGESVD`). `V` is the
+`AᴴA` eigenbasis via `cheevv`, `s` the `√` eigenvalues DESCENDING, `U` is `A·vⱼ / σⱼ`.
+
+## To cgesvd (m: Int, n: Int, a: Seq of ComplexF) -> CSvdResult:
+    Let ah be cconjtranspose(m, n, a).
+    Let mutable zeros be a new Seq of ComplexF.
+    Repeat for t from 1 to (n * n):
+        Push complex(0.0, 0.0) to zeros.
+    Let gram be cgemm(n, n, m, complex(1.0, 0.0), ah, a, complex(0.0, 0.0), zeros).
+    Let e be cheevv(n, gram).
+    Let ev be e's vals.
+    Let vmat be e's vecs.
+    Let mutable smat be a new Seq of Float.
+    Repeat for i from 1 to n:
+        Let lam be item (n + 1 - i) of ev.
+        Let mutable sv be 0.0.
+        If lam is greater than 0.0:
+            Set sv to sqrt(lam).
+        Push sv to smat.
+    Let mutable vout be vmat.
+    Repeat for i from 1 to n:
+        Repeat for r from 1 to n:
+            Set item ((r - 1) * n + i) of vout to item ((r - 1) * n + (n + 1 - i)) of vmat.
+    Let mutable umat be a new Seq of ComplexF.
+    Repeat for t from 1 to (m * n):
+        Push complex(0.0, 0.0) to umat.
+    Repeat for i from 1 to n:
+        Let sig be item i of smat.
+        If sig is greater than 0.0:
+            Repeat for r from 1 to m:
+                Let mutable acc be complex(0.0, 0.0).
+                Repeat for kk from 1 to n:
+                    Set acc to acc + (item ((r - 1) * n + kk) of a) * (item ((kk - 1) * n + i) of vout).
+                Set item ((r - 1) * n + i) of umat to acc / complex(sig, 0.0).
+    Return a new CSvdResult with u umat and s smat and v vout.

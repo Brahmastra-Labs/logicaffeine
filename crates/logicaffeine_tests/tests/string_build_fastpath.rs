@@ -21,7 +21,9 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use logicaffeine_compile::compile::{tw_outcome, tw_outcome_with_args, vm_outcome, vm_outcome_with_args};
+use logicaffeine_compile::compile::{
+    tw_outcome, tw_outcome_with_args, vm_outcome, vm_outcome_with_args,
+};
 
 fn assert_vm_matches_tw(src: &str) {
     let vm = vm_outcome(src);
@@ -57,7 +59,12 @@ fn single_char_literal_append_matches_treewalker() {
                Show length of text.\n";
     assert_vm_matches_tw(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim(), "aaaaaaaaaa\n10", "built string wrong:\n{}", vm.output);
+    assert_eq!(
+        vm.output.trim(),
+        "aaaaaaaaaa\n10",
+        "built string wrong:\n{}",
+        vm.output
+    );
 }
 
 /// A branch-selected 1-char literal (`string_search`'s `ch`), appended to the
@@ -82,7 +89,12 @@ fn branch_selected_char_append_matches_treewalker() {
                Show text.\n";
     assert_vm_matches_tw(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim(), "abcdeabcdeabcdeabcdeabcde", "built string wrong:\n{}", vm.output);
+    assert_eq!(
+        vm.output.trim(),
+        "abcdeabcdeabcdeabcdeabcde",
+        "built string wrong:\n{}",
+        vm.output
+    );
 }
 
 /// A multi-char literal appended (`text + "XXXXX"`) — the in-place path must
@@ -102,7 +114,12 @@ fn multi_char_literal_append_does_not_corrupt_constant() {
                Show other.\n";
     assert_vm_matches_tw(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim(), "XYXYXY\nXY", "constant corrupted:\n{}", vm.output);
+    assert_eq!(
+        vm.output.trim(),
+        "XYXYXY\nXY",
+        "constant corrupted:\n{}",
+        vm.output
+    );
 }
 
 /// A LARGE build (50_000 single-char appends). With the amortized-O(1)
@@ -156,5 +173,10 @@ fn one_char_literal_equality_and_keying_unchanged() {
                Show item b of m.\n";
     assert_vm_matches_tw(src);
     let vm = vm_outcome(src);
-    assert_eq!(vm.output.trim(), "equal\n7", "equality/keying drifted:\n{}", vm.output);
+    assert_eq!(
+        vm.output.trim(),
+        "equal\n7",
+        "equality/keying drifted:\n{}",
+        vm.output
+    );
 }

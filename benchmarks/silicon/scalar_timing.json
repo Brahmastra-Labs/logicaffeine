@@ -1,0 +1,61 @@
+{
+  "note": "scalar SoC on-chip timing, Nexys A7-100T. cycles are deterministic (==VM op count); FPGA clock 6.25 MHz (open-flow conservative /16 divider), tapeout projection at the soft_core_scalar Sky130 signoff clock — the period every corner meets (66.67 MHz / 15 ns).",
+  "board": "Nexys A7-100T (xc7a100t)",
+  "fpga_mhz": 6.25,
+  "tapeout_mhz": 66.67,
+  "demos": [
+    {
+      "program": "const_7_42",
+      "result": [
+        7,
+        42
+      ],
+      "cycles": 6,
+      "fpga_us": 0.96,
+      "tapeout_ns": 90.0,
+      "host_ms": 15.73
+    },
+    {
+      "program": "three_show",
+      "result": [
+        1,
+        2,
+        3
+      ],
+      "cycles": 8,
+      "fpga_us": 1.28,
+      "tapeout_ns": 120.0,
+      "host_ms": 12.69
+    },
+    {
+      "program": "expr_13",
+      "result": [
+        13
+      ],
+      "cycles": 10,
+      "fpga_us": 1.6,
+      "tapeout_ns": 150.0,
+      "host_ms": 9.22
+    },
+    {
+      "program": "sum_loop",
+      "result": [
+        15
+      ],
+      "cycles": 34,
+      "fpga_us": 5.44,
+      "tapeout_ns": 510.0,
+      "host_ms": 15.04
+    },
+    {
+      "program": "sumsq (from .lg)",
+      "result": [
+        30
+      ],
+      "cycles": 42,
+      "fpga_us": 6.72,
+      "tapeout_ns": 630.0,
+      "host_ms": 14.99
+    }
+  ]
+}

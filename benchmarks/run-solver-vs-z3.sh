@@ -9,14 +9,13 @@
 # External solvers run as subprocesses on the byte-identical DIMACS, each emitting a clausal proof to
 # disk whose size is recorded; OUR proof size is the certified artifact (SR proof / compact GF-ring
 # certificate) measured in memory. A solver that cannot finish in its timeout is recorded `timeout`
-# (the wall); a missing binary is simply omitted.
+# (the wall).
 #
-# Requirements: Z3 (Linux: /usr/include/z3.h) + the `verification` feature; python3 (sanity check).
-# Optional external solvers via env (defaults to the /tmp build locations):
-#   KISSAT_BIN  (default /tmp/kissat/build/kissat)
-#   SADICAL_BIN (default /tmp/sadical/sadical/sadical)
-#   CADICAL_BIN (default /tmp/cadical/build/cadical)
-#   CMS_BIN     (default /tmp/cryptominisat/build/cryptominisat5)
+# Requirements: Z3 (Linux: /usr/include/z3.h) + the `verification` feature; python3 (sanity check); git,
+# curl, cmake and a C/C++ toolchain for the first run, which builds every external solver at the pinned
+# revision benchmarks/sat/external-solvers.sh names, under $SATBENCH_EXT (else <repo>/external/solvers). A
+# solver that fails to build stops the run: the published table never loses a competitor silently.
+# KISSAT_BIN / SADICAL_BIN / CADICAL_BIN / CMS_BIN still point solver_bench at other binaries.
 #
 # Usage: bash benchmarks/run-solver-vs-z3.sh
 
@@ -28,14 +27,20 @@ cd "$ROOT_DIR"
 
 export Z3_SYS_Z3_HEADER="${Z3_SYS_Z3_HEADER:-/usr/include/z3.h}"
 export SOLVERS_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export SOLVERS_COMMIT="$(git -C "$ROOT_DIR" describe --always --dirty --abbrev=12 2>/dev/null)"
 
 OUT="$SCRIPT_DIR/results/solvers.json"
 mkdir -p "$SCRIPT_DIR/logs"
 LOG="$SCRIPT_DIR/logs/solver-vs-z3-$(date +%Y%m%d-%H%M%S).log"
 
+ROOT="$ROOT_DIR"
+. "$SCRIPT_DIR/sat/external-solvers.sh"
+require_solvers kissat sadical cadical cryptominisat
+export SATBENCH_EXT="$EXT"
+
 echo "Building + running solver_bench (release, verification) … progress → $LOG"
 cargo run --release -p logicaffeine-proof --example solver_bench --features verification \
-  2> "$LOG" > "$OUT.tmp"
+  2>> "$LOG" > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
 echo "Wrote $OUT"
 

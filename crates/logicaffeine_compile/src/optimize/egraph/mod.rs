@@ -127,20 +127,30 @@ impl CompilerEGraph {
             CompilerENode::Bool(_) => {
                 self.facts.insert(
                     id,
-                    ClassFact { scalar: Some(ScalarKind::Bool), ..ClassFact::default() },
+                    ClassFact {
+                        scalar: Some(ScalarKind::Bool),
+                        ..ClassFact::default()
+                    },
                 );
             }
             CompilerENode::Float(_) => {
                 self.facts.insert(
                     id,
-                    ClassFact { scalar: Some(ScalarKind::Float), ..ClassFact::default() },
+                    ClassFact {
+                        scalar: Some(ScalarKind::Float),
+                        ..ClassFact::default()
+                    },
                 );
             }
             // A slice that evaluates successfully ALWAYS yields a list.
             CompilerENode::Slice(..) => {
                 self.facts.insert(
                     id,
-                    ClassFact { collection: true, list: true, ..ClassFact::default() },
+                    ClassFact {
+                        collection: true,
+                        list: true,
+                        ..ClassFact::default()
+                    },
                 );
             }
             // A copy that evaluates preserves its operand's kind; the
@@ -165,7 +175,10 @@ impl CompilerEGraph {
         let loser = if root == ra { rb } else { ra };
 
         let mut members = self.class_nodes.remove(&loser).unwrap_or_default();
-        self.class_nodes.entry(root).or_default().append(&mut members);
+        self.class_nodes
+            .entry(root)
+            .or_default()
+            .append(&mut members);
         let mut moved_uses = self.uses.remove(&loser).unwrap_or_default();
         self.uses.entry(root).or_default().append(&mut moved_uses);
 
@@ -177,7 +190,11 @@ impl CompilerEGraph {
                         let lo = al.max(bl);
                         let hi = ah.min(bh);
                         debug_assert!(lo <= hi, "contradictory ranges merged — unsound rule?");
-                        if lo <= hi { Some((lo, hi)) } else { Some((al, ah)) }
+                        if lo <= hi {
+                            Some((lo, hi))
+                        } else {
+                            Some((al, ah))
+                        }
                     }
                     (r, None) | (None, r) => r,
                 },

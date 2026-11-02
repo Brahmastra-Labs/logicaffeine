@@ -53,6 +53,9 @@ use rand::Rng;
 /// ```
 #[allow(non_snake_case)]
 pub fn randomInt(min: i64, max: i64) -> i64 {
+    if let Some(sealed) = crate::testworld::intercept_random_int(min, max) {
+        return sealed;
+    }
     let mut rng = rand::thread_rng();
     rng.gen_range(min..=max)
 }
@@ -73,6 +76,15 @@ pub fn randomInt(min: i64, max: i64) -> i64 {
 /// ```
 #[allow(non_snake_case)]
 pub fn randomFloat() -> f64 {
+    if let Some(sealed) = crate::testworld::intercept_random_float() {
+        return sealed;
+    }
     let mut rng = rand::thread_rng();
     rng.gen()
+}
+
+/// Fill `buf` from the operating system's entropy: what a nonce or a key is drawn from. A sealed test
+/// world never decides it, since a nonce a test world fixed would repeat across seals.
+pub fn fill_from_entropy(buf: &mut [u8]) -> Result<(), String> {
+    getrandom::getrandom(buf).map_err(|e| format!("the system gave no entropy: {e}"))
 }

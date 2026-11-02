@@ -3,8 +3,8 @@
 //! Tests for Set type registration.
 //! Full parsing and runtime tests are in e2e_sets.rs
 
-use logicaffeine_language::analysis::{TypeRegistry, TypeDef};
 use logicaffeine_base::Interner;
+use logicaffeine_language::analysis::{TypeDef, TypeRegistry};
 
 // === SET TYPE REGISTRATION ===
 
@@ -14,7 +14,10 @@ fn set_is_registered_as_generic() {
     let registry = TypeRegistry::with_primitives(&mut interner);
 
     let set_sym = interner.intern("Set");
-    assert!(registry.is_type(set_sym), "Set should be registered as a type");
+    assert!(
+        registry.is_type(set_sym),
+        "Set should be registered as a type"
+    );
     assert!(registry.is_generic(set_sym), "Set should be a generic type");
 
     if let Some(def) = registry.get(set_sym) {

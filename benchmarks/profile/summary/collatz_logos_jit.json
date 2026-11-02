@@ -1,0 +1,11 @@
+{
+  "name": "collatz",
+  "lang": "logos_jit",
+  "n": "29177848",
+  "samples_weight": 36149376714,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

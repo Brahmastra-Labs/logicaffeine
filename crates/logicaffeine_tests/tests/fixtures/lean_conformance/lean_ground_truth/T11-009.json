@@ -1,0 +1,211 @@
+{
+  "case": "T11-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 27,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T11_009.Bounded",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_009.Bounded \u2192 Sort u} \u2192\n  (t : T11_009.Bounded) \u2192 ((val : Nat) \u2192 (small : val < 10) \u2192 motive { val := val, small := small }) \u2192 motive t",
+      "name": "T11_009.Bounded.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(val : Nat) \u2192 val < 10 \u2192 T11_009.Bounded",
+      "name": "T11_009.Bounded.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {val : Nat} {small : val < 10} {val_1 : Nat} {small_1 : val_1 < 10},\n  { val := val, small := small } = { val := val_1, small := small_1 } \u2192 val = val_1",
+      "name": "T11_009.Bounded.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (val : Nat) (small : val < 10) (val_1 : Nat) (small_1 : val_1 < 10),\n  ({ val := val, small := small } = { val := val_1, small := small_1 }) = (val = val_1)",
+      "name": "T11_009.Bounded.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (val : Nat) (small : val < 10), sizeOf { val := val, small := small } = 1 + sizeOf val + sizeOf small",
+      "name": "T11_009.Bounded.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T11_009.Bounded} \u2192 v1 = v2 \u2192 T11_009.Bounded.noConfusionType P v1 v2",
+      "name": "T11_009.Bounded.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T11_009.Bounded \u2192 T11_009.Bounded \u2192 Sort u",
+      "name": "T11_009.Bounded.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_009.Bounded \u2192 Sort u} \u2192\n  ((val : Nat) \u2192 (small : val < 10) \u2192 motive { val := val, small := small }) \u2192 (t : T11_009.Bounded) \u2192 motive t",
+      "name": "T11_009.Bounded.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T11_009.Bounded \u2192 Sort u} \u2192\n  (t : T11_009.Bounded) \u2192 ((val : Nat) \u2192 (small : val < 10) \u2192 motive { val := val, small := small }) \u2192 motive t",
+      "name": "T11_009.Bounded.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T11_009.Bounded), self.val < 10",
+      "name": "T11_009.Bounded.small",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_009.Bounded \u2192 Nat",
+      "name": "T11_009.Bounded.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_009.Bounded",
+      "name": "T11_009.b1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "3 < 10",
+      "name": "T11_009.b1.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_009.Bounded",
+      "name": "T11_009.b2",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "3 < 10",
+      "name": "T11_009.b2.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T11_009.bigProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T11_009.bigProp",
+      "name": "T11_009.bp1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T11_009.bigProp",
+      "name": "T11_009.bp2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T11_009.eq1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T11_009.eq2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 \u2264 n",
+      "name": "T11_009.f1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 \u2264 n",
+      "name": "T11_009.f2",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{ n // 0 < n }",
+      "name": "T11_009.pos1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{ n // 0 < n }",
+      "name": "T11_009.pos2",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "0 \u2264 1",
+      "name": "T11_009.proofA",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "0 \u2264 1",
+      "name": "T11_009.proofB",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

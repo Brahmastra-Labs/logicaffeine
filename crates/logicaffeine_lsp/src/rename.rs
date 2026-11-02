@@ -1,5 +1,5 @@
+use lsp_types::{Position, Range, TextEdit, Url, WorkspaceEdit};
 use std::collections::HashMap;
-use tower_lsp::lsp_types::{Position, Range, TextEdit, Url, WorkspaceEdit};
 
 use crate::document::DocumentState;
 
@@ -17,9 +17,26 @@ pub fn validate_new_name(new_name: &str) -> Option<String> {
         return Some("Name must start with a letter or underscore".to_string());
     }
     let reserved = [
-        "Let", "Set", "If", "While", "Repeat", "Return", "Show", "Give",
-        "Push", "Pop", "Call", "Inspect", "Check", "Assert", "Trust",
-        "Escape", "Be", "New", "Otherwise", "Else",
+        "Let",
+        "Set",
+        "If",
+        "While",
+        "Repeat",
+        "Return",
+        "Show",
+        "Give",
+        "Push",
+        "Pop",
+        "Call",
+        "Inspect",
+        "Check",
+        "Assert",
+        "Trust",
+        "Escape",
+        "Be",
+        "New",
+        "Otherwise",
+        "Else",
     ];
     if reserved.contains(&new_name) {
         return Some(format!("'{}' is a reserved keyword", new_name));
@@ -43,12 +60,10 @@ pub fn rename(
 
     let offset = doc.line_index.offset(position);
 
-    // Find the token at cursor
-    let token = doc.tokens.iter().find(|t| {
-        offset >= t.span.start && offset < t.span.end
-    })?;
-
-    let old_name = doc.source.get(token.span.start..token.span.end)?;
+    // ★ THROUGH THE SHARED RULE, so a name written inside a `View:` renames like any other. The
+    // token under the cursor there is the whole `RawBlock`, which is not a name anything defines.
+    let (old_name, _) = crate::document::name_at(doc, offset)?;
+    let old_name = old_name.as_str();
 
     let mut edits = Vec::new();
 
@@ -92,15 +107,32 @@ pub fn rename(
 /// Handle prepare rename request.
 ///
 /// Returns the range and placeholder text for the rename.
-pub fn prepare_rename(
-    doc: &DocumentState,
-    position: Position,
-) -> Option<(Range, String)> {
+pub fn prepare_rename(doc: &DocumentState, position: Position) -> Option<(Range, String)> {
     let offset = doc.line_index.offset(position);
 
-    let token = doc.tokens.iter().find(|t| {
-        offset >= t.span.start && offset < t.span.end
-    })?;
+    // ★ A NAME RECORDED FROM INSIDE A TEMPLATE IS ALREADY KNOWN TO BE A NAME — the parser put it
+    // there because the template MENTIONS it. So the token-kind gate below, which exists to stop
+    // an author renaming a period, is asked only of a name that came from a token in the first
+    // place; asking it of a `RawBlock` would refuse every rename inside a `View:`.
+    if let Some(reference) = doc
+        .symbol_index
+        .references
+        .iter()
+        .find(|r| offset >= r.span.start && offset < r.span.end)
+    {
+        return Some((
+            Range {
+                start: doc.line_index.position(reference.span.start),
+                end: doc.line_index.position(reference.span.end),
+            },
+            reference.name.clone(),
+        ));
+    }
+
+    let token = doc
+        .tokens
+        .iter()
+        .find(|t| offset >= t.span.start && offset < t.span.end)?;
 
     let text = doc.source.get(token.span.start..token.span.end)?;
 
@@ -124,145 +156,5 @@ pub fn prepare_rename(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::document::DocumentState;
-
-    fn make_doc(source: &str) -> DocumentState {
-        DocumentState::new(source.to_string(), 1)
-    }
-
-    fn test_uri() -> Url {
-        Url::parse("file:///test.logos").unwrap()
-    }
-
-    #[test]
-    fn rename_variable_produces_edits() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        // Position on "x" in "Show x."
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "y".to_string(), &test_uri());
-        assert!(result.is_some(), "Expected rename edits");
-        let ws_edit = result.unwrap();
-        let changes = ws_edit.changes.unwrap();
-        let edits = changes.get(&test_uri()).unwrap();
-        assert!(edits.len() >= 2, "Expected edits for definition and reference, got {}", edits.len());
-        for edit in edits {
-            assert_eq!(edit.new_text, "y");
-        }
-    }
-
-    #[test]
-    fn rename_unknown_returns_none() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position in whitespace
-        let pos = Position { line: 0, character: 50 };
-        let result = rename(&doc, pos, "y".to_string(), &test_uri());
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn prepare_rename_for_variable() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        // Position on "x" in "Show x."
-        let pos = Position { line: 2, character: 9 };
-        let result = prepare_rename(&doc, pos);
-        assert!(result.is_some(), "Expected prepare_rename to succeed for variable 'x'");
-        let (range, text) = result.unwrap();
-        assert_eq!(text, "x");
-        assert_eq!(range.start.line, 2);
-    }
-
-    #[test]
-    fn rename_edits_at_correct_positions() {
-        let source = "## Main\n    Let x be 5.\n    Show x.\n";
-        let doc = make_doc(source);
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "y".to_string(), &test_uri());
-        assert!(result.is_some());
-        let ws_edit = result.unwrap();
-        let changes = ws_edit.changes.unwrap();
-        let edits = changes.get(&test_uri()).unwrap();
-        for edit in edits {
-            let start = doc.line_index.offset(edit.range.start);
-            let end = doc.line_index.offset(edit.range.end);
-            let old_text = &source[start..end];
-            assert_eq!(old_text, "x", "Edit range should point to 'x', got '{}'", old_text);
-        }
-    }
-
-    #[test]
-    fn rename_includes_definition_and_references() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "y".to_string(), &test_uri());
-        assert!(result.is_some());
-        let ws_edit = result.unwrap();
-        let changes = ws_edit.changes.unwrap();
-        let edits = changes.get(&test_uri()).unwrap();
-        // Should include at least: 1 definition + 1+ references
-        assert!(edits.len() >= 2,
-            "Expected at least 2 edits (def + ref), got {}", edits.len());
-    }
-
-    #[test]
-    fn prepare_rename_rejects_more_tokens() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position on "be" (a keyword)
-        let pos = Position { line: 1, character: 10 };
-        let result = prepare_rename(&doc, pos);
-        assert!(result.is_none(), "'Be' keyword should not be renameable");
-        // Position on "5" (a Number)
-        let pos2 = Position { line: 1, character: 14 };
-        let result2 = prepare_rename(&doc, pos2);
-        assert!(result2.is_none(), "Number should not be renameable");
-    }
-
-    #[test]
-    fn rename_rejects_empty_name() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "".to_string(), &test_uri());
-        assert!(result.is_none(), "Empty name should be rejected");
-    }
-
-    #[test]
-    fn rename_rejects_whitespace_name() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "foo bar".to_string(), &test_uri());
-        assert!(result.is_none(), "Name with spaces should be rejected");
-    }
-
-    #[test]
-    fn rename_rejects_reserved_keyword() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "Let".to_string(), &test_uri());
-        assert!(result.is_none(), "Reserved keyword should be rejected");
-    }
-
-    #[test]
-    fn rename_rejects_numeric_start() {
-        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
-        let pos = Position { line: 2, character: 9 };
-        let result = rename(&doc, pos, "3abc".to_string(), &test_uri());
-        assert!(result.is_none(), "Name starting with digit should be rejected");
-    }
-
-    #[test]
-    fn rename_accepts_valid_name() {
-        assert!(validate_new_name("myVar").is_none());
-        assert!(validate_new_name("_private").is_none());
-        assert!(validate_new_name("x").is_none());
-    }
-
-    #[test]
-    fn prepare_rename_rejects_keywords() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
-        // Position on "Let" keyword (line 1, character 4)
-        let pos = Position { line: 1, character: 4 };
-        let result = prepare_rename(&doc, pos);
-        assert!(result.is_none(), "Keywords should not be renameable");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/rename/tests.rs"]
+mod tests;

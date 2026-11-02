@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use tower_lsp::lsp_types::{SemanticToken, Url};
+use lsp_types::{SemanticToken, Url};
 
 use crate::document::DocumentState;
 
@@ -55,7 +55,8 @@ impl ServerState {
             .next_result_id
             .fetch_add(1, Ordering::Relaxed)
             .to_string();
-        self.semantic_cache.insert(uri, (id.clone(), Arc::new(data)));
+        self.semantic_cache
+            .insert(uri, (id.clone(), Arc::new(data)));
         id
     }
 

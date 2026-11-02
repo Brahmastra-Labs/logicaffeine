@@ -5,54 +5,47 @@
   "content": [
     {
       "type": "paragraph",
-      "text": "**Truth trees** (semantic tableaux) provide a mechanical method for checking validity. Instead of constructing a proof, we try to find a counterexample — and show it's impossible."
-    },
-    {
-      "type": "definition",
-      "term": "Truth Tree",
-      "definition": "A tree-structured search for counterexamples. We assume premises true and conclusion false, then systematically decompose formulas. If all branches close (contain contradictions), the argument is valid."
+      "text": "A **truth tree** tests an argument by searching for a counterexample. Write the premises and the denied conclusion, then break the formulas apart."
     },
     {
       "type": "paragraph",
-      "text": "Each formula type has a decomposition rule. Conjunctions add both conjuncts on the same branch. Disjunctions split into two branches. Negated formulas push the negation inward."
-    },
-    {
-      "type": "example",
-      "title": "Tree Decomposition Rules",
-      "premises": [
-        "A ∧ B: Add A and B on same branch",
-        "A ∨ B: Split into two branches, one with A, one with B",
-        "A → B: Split into ¬A branch and B branch",
-        "¬(A ∧ B): Split into ¬A branch and ¬B branch",
-        "¬¬A: Add A on same branch"
-      ],
-      "note": "Keep decomposing until all formulas are atoms or their negations."
-    },
-    {
-      "type": "definition",
-      "term": "Closed Branch",
-      "definition": "A branch containing both P and ¬P for some formula P. A closed branch represents an impossible scenario and is marked ×."
-    },
-    {
-      "type": "paragraph",
-      "text": "If all branches close, no counterexample exists — the argument is valid. If any branch stays open (no contradiction), the open branch describes a counterexample — the argument is invalid."
-    },
-    {
-      "type": "paragraph",
-      "text": "Truth trees are mechanical: just follow the rules. They're especially useful for checking validity quickly without the creativity needed for natural deduction proofs."
-    },
-    {
-      "type": "quiz",
-      "question": "What does a closed branch in a truth tree mean?",
-      "options": [
-        "The argument is invalid",
-        "We found a counterexample",
-        "That scenario is impossible (contains a contradiction)",
-        "We made an error"
-      ],
-      "correct": 2,
-      "explanation": "A closed branch contains P and ¬P — a contradiction. This means that scenario is impossible. If ALL branches close, no counterexample exists and the argument is valid."
+      "text": "P ∧ Q adds P and Q to the branch. P ∨ Q splits the branch in two. A branch that holds a formula and its denial closes. If every branch closes, the argument is valid."
     }
   ],
-  "key_symbols": ["∧", "∨", "¬"]
+  "examples": [
+    {
+      "type": "worked",
+      "title": "The rules",
+      "lines": [
+        "A ∧ B: write A and B on the branch.",
+        "A ∨ B: split into A and B.",
+        "A → B: split into ¬A and B.",
+        "¬¬A: write A."
+      ]
+    },
+    {
+      "type": "worked",
+      "title": "A closed tree",
+      "lines": [
+        "Test P → Q, P, so Q.",
+        "Write P → Q, P and ¬Q.",
+        "P → Q splits into ¬P and Q.",
+        "¬P closes against P. Q closes against ¬Q."
+      ],
+      "conclusion": "Every branch closes, so the argument is valid."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does a closed branch mean?",
+    "options": [
+      "The argument is invalid",
+      "We found a counterexample",
+      "That case is impossible",
+      "We made a mistake"
+    ],
+    "correct": 2,
+    "hint": "A closed branch holds a formula and its denial.",
+    "explanation": "A branch with both P and ¬P describes an impossible case. If every branch closes, there is no counterexample."
+  }
 }

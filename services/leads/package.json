@@ -1,0 +1,22 @@
+{
+  "name": "logos-leads",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "db:create": "wrangler d1 create logos-leads",
+    "db:migrate": "wrangler d1 migrations apply logos-leads --remote",
+    "db:migrate:local": "wrangler d1 migrations apply logos-leads --local"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.3.4",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.145.0"
+  }
+}

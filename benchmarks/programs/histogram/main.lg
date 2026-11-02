@@ -18,13 +18,15 @@ While i is less than n:
     Set i to i + 1.
 Let mutable maxFreq be 0.
 Let mutable maxIndex be 0.
-Let mutable distinct be 0.
 Set i to 0.
 While i is less than 1000:
-    If item (i + 1) of counts is greater than 0:
-        Set distinct to distinct + 1.
     If item (i + 1) of counts is greater than maxFreq:
         Set maxFreq to item (i + 1) of counts.
         Set maxIndex to i.
     Set i to i + 1.
-Show "" + maxFreq + " " + maxIndex + " " + distinct.
+Let mutable h be 0.
+Set i to 0.
+While i is less than 1000:
+    Set h to (h * 31 + item (i + 1) of counts) & 268435455.
+    Set i to i + 1.
+Show "" + maxFreq + " " + maxIndex + " " + h.

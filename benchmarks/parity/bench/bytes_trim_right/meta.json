@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.trim_right",
+  "workload": "bytesTrimRight(xs,0) \u2014 length fold",
+  "arg": "40000",
+  "expected": "163840000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

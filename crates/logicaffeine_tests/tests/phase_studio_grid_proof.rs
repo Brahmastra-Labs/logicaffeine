@@ -35,7 +35,9 @@ fn grid_cell_proves_via_studio_path() {
         "the grid cell must prove (kernel-certified), no Z3; err: {:?}",
         r.verification_error
     );
-    let tree = r.derivation.expect("a verified grid cell yields a derivation tree");
+    let tree = r
+        .derivation
+        .expect("a verified grid cell yields a derivation tree");
     let rendered = tree.display_tree();
     // A real multi-step grid derivation — closure elimination reaches a Contradiction
     // (Beta in Florida would force Beta = Alpha) and a disjunctive step.
@@ -56,7 +58,11 @@ fn socrates_keeps_universal_inst_trace() {
          Prove: Socrates is mortal.\n\
          Proof: Auto.\n",
     );
-    assert!(r.verified, "Socrates must prove; err: {:?}", r.verification_error);
+    assert!(
+        r.verified,
+        "Socrates must prove; err: {:?}",
+        r.verification_error
+    );
     let rendered = r.derivation.expect("Socrates yields a tree").display_tree();
     assert!(
         rendered.contains("UniversalInst"),

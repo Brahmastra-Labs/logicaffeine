@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If P, then C or D",
   "options": [
-    "$ (P \\supset (C \\vee D)) $",
-    "$ ((P \\supset C) \\vee D) $",
-    "$ P \\supset C \\vee D $",
-    "$ (P \\supset C) \\vee D $"
+    "P → (C ∨ D)",
+    "P ∧ (C ∨ D)",
+    "P ∨ C ∨ D",
+    "(C ∨ D) → P"
   ],
   "correct": 0,
-  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
-  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part P to the then part C ∨ D: P → (C ∨ D).",
+  "section": "6.2"
 }

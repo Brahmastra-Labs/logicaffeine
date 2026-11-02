@@ -7,13 +7,13 @@ pub fn main() !void {
     _ = args.skip();
     const n_str = args.next() orelse return;
     const n: usize = @intCast(try std.fmt.parseInt(i64, n_str, 10));
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.smp_allocator;
     var arr = try allocator.alloc(i64, n);
     defer allocator.free(arr);
     var seed: i64 = 42;
     for (0..n) |i| {
-        seed = @mod(seed *% 1103515245 + 12345, 2147483648);
-        arr[i] = @mod(@divTrunc(seed, 65536), 1000);
+        seed = @rem(seed *% 1103515245 + 12345, 2147483648);
+        arr[i] = @rem(seed >> 16, 1000);
     }
     var counts = [_]i64{0} ** 1000;
     for (arr) |v| { counts[@intCast(v)] += 1; }
@@ -28,7 +28,7 @@ pub fn main() !void {
         }
     }
     var checksum: i64 = 0;
-    for (sorted) |v| { checksum = @mod(checksum + v, 1000000007); }
+    for (sorted) |v| { checksum = (checksum * 31 + v) & 268435455; }
     try stdout.interface.print("{} {} {}\n", .{ sorted[0], sorted[n - 1], checksum });
     try stdout.interface.flush();
 }

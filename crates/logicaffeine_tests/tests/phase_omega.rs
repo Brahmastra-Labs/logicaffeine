@@ -161,7 +161,8 @@ fn test_omega_coefficient_bound() {
     let mut repl = Repl::new();
     // 3x <= 10 implies x <= 3 (floor(10/3) = 3)
     repl.execute("Definition x : Syntax := SVar 0.").unwrap();
-    repl.execute("Definition three : Syntax := SLit 3.").unwrap();
+    repl.execute("Definition three : Syntax := SLit 3.")
+        .unwrap();
     repl.execute("Definition ten : Syntax := SLit 10.").unwrap();
     repl.execute("Definition three_x : Syntax := SApp (SApp (SName \"mul\") three) x.")
         .unwrap();

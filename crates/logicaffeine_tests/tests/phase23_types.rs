@@ -4,10 +4,10 @@
 // - "Stack of Integers" → Generic Type instantiation
 // - "Owner of House" → Possessive field access
 
-use logicaffeine_language::analysis::{TypeRegistry, TypeDef, DiscoveryPass};
 use logicaffeine_base::Interner;
-use logicaffeine_language::Lexer;
+use logicaffeine_language::analysis::{DiscoveryPass, TypeDef, TypeRegistry};
 use logicaffeine_language::mwe;
+use logicaffeine_language::Lexer;
 
 // =============================================================================
 // Step 1: TypeRegistry Unit Tests
@@ -18,7 +18,10 @@ fn type_registry_new() {
     let mut interner = Interner::new();
     let registry = TypeRegistry::new();
     let unknown = interner.intern("UnknownType");
-    assert!(!registry.is_type(unknown), "New registry should have no types");
+    assert!(
+        !registry.is_type(unknown),
+        "New registry should have no types"
+    );
 }
 
 #[test]
@@ -50,7 +53,10 @@ fn type_registry_with_primitives_has_bool() {
     let mut interner = Interner::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
     let bool_sym = interner.intern("Bool");
-    assert!(registry.is_type(bool_sym), "Bool should be a primitive type");
+    assert!(
+        registry.is_type(bool_sym),
+        "Bool should be a primitive type"
+    );
 }
 
 #[test]
@@ -59,7 +65,10 @@ fn type_registry_register_type() {
     let mut registry = TypeRegistry::new();
     let stack = interner.intern("Stack");
     registry.register(stack, TypeDef::Generic { param_count: 1 });
-    assert!(registry.is_type(stack), "Stack should be registered as a type");
+    assert!(
+        registry.is_type(stack),
+        "Stack should be registered as a type"
+    );
 }
 
 #[test]
@@ -71,7 +80,15 @@ fn type_registry_is_generic() {
     let user = interner.intern("User");
 
     registry.register(stack, TypeDef::Generic { param_count: 1 });
-    registry.register(user, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false, is_shared: false });
+    registry.register(
+        user,
+        TypeDef::Struct {
+            fields: vec![],
+            generics: vec![],
+            is_portable: false,
+            is_shared: false,
+        },
+    );
 
     assert!(registry.is_generic(stack), "Stack should be generic");
     assert!(!registry.is_generic(user), "User should not be generic");
@@ -98,9 +115,18 @@ fn type_registry_intrinsic_generics() {
     let option = interner.intern("Option");
     let result = interner.intern("Result");
 
-    assert!(registry.is_generic(list), "List should be intrinsic generic");
-    assert!(registry.is_generic(option), "Option should be intrinsic generic");
-    assert!(registry.is_generic(result), "Result should be intrinsic generic");
+    assert!(
+        registry.is_generic(list),
+        "List should be intrinsic generic"
+    );
+    assert!(
+        registry.is_generic(option),
+        "Option should be intrinsic generic"
+    );
+    assert!(
+        registry.is_generic(result),
+        "Result should be intrinsic generic"
+    );
 }
 
 // =============================================================================
@@ -136,8 +162,14 @@ fn discovery_pass_finds_generic_definition() {
     let registry = discovery.run();
 
     let stack = interner.intern("Stack");
-    assert!(registry.is_type(stack), "Stack should be discovered as type");
-    assert!(registry.is_generic(stack), "Stack should be discovered as generic");
+    assert!(
+        registry.is_type(stack),
+        "Stack should be discovered as type"
+    );
+    assert!(
+        registry.is_generic(stack),
+        "Stack should be discovered as generic"
+    );
 }
 
 #[test]
@@ -164,7 +196,10 @@ fn discovery_pass_finds_enum_definition() {
     let registry = discovery.run();
 
     let shape = interner.intern("Shape");
-    assert!(registry.is_type(shape), "Shape should be discovered as type");
+    assert!(
+        registry.is_type(shape),
+        "Shape should be discovered as type"
+    );
 }
 
 #[test]
@@ -178,18 +213,21 @@ fn discovery_pass_ignores_non_definition_blocks() {
 
     let stack = interner.intern("Stack");
     // Stack should NOT be discovered because it's in ## Main, not ## Definition
-    assert!(!registry.is_type(stack), "Types in ## Main should not be discovered");
+    assert!(
+        !registry.is_type(stack),
+        "Types in ## Main should not be discovered"
+    );
 }
 
 // =============================================================================
 // Step 3: Integration Tests - Parser with TypeRegistry
 // =============================================================================
 
-use logicaffeine_language::Parser;
 use logicaffeine_base::Arena;
-use logicaffeine_language::drs::WorldState;
 use logicaffeine_language::arena_ctx::AstContext;
 use logicaffeine_language::ast::NounPhrase;
+use logicaffeine_language::drs::WorldState;
+use logicaffeine_language::Parser;
 
 #[test]
 fn parser_has_type_registry() {
@@ -218,7 +256,10 @@ fn parser_has_type_registry() {
     );
 
     let parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
-    assert!(parser.is_generic_type(stack), "Parser should know Stack is generic");
+    assert!(
+        parser.is_generic_type(stack),
+        "Parser should know Stack is generic"
+    );
 }
 
 #[test]
@@ -244,8 +285,17 @@ fn parser_without_registry_returns_false() {
         &pp_arena,
     );
 
-    let parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
-    assert!(!parser.is_generic_type(stack), "Without registry, nothing is generic");
+    let parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
+    assert!(
+        !parser.is_generic_type(stack),
+        "Without registry, nothing is generic"
+    );
 }
 
 #[test]
@@ -254,7 +304,10 @@ fn intrinsic_list_is_generic() {
     let registry = TypeRegistry::with_primitives(&mut interner);
 
     let list = interner.intern("List");
-    assert!(registry.is_generic(list), "List should be intrinsic generic");
+    assert!(
+        registry.is_generic(list),
+        "List should be intrinsic generic"
+    );
 }
 
 #[test]
@@ -291,6 +344,8 @@ fn possessive_still_works_without_type() {
     assert!(np.is_ok(), "Should parse possessive: {:?}", np);
 
     let np = np.unwrap();
-    assert!(np.possessor.is_some(), "owner of house should have possessor");
+    assert!(
+        np.possessor.is_some(),
+        "owner of house should have possessor"
+    );
 }
-

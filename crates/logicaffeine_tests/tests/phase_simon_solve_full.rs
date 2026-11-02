@@ -49,11 +49,21 @@ fn full_simon_solves_by_question() {
     doc.push_str("Given: 2001, 2002, 2003, and 2004 are four different years.\n");
     doc.push_str("Given: Connecticut, Florida, Kentucky, and Maine are four different states.\n");
     doc.push_str("Given: Bill, Lillie, Neal, and Yvonne are four different friends.\n");
-    doc.push_str("Given: Cycling, hunting, kayaking, and skydiving are four different activities.\n");
+    doc.push_str(
+        "Given: Cycling, hunting, kayaking, and skydiving are four different activities.\n",
+    );
     doc.push_str(&category("in", &["2001", "2002", "2003", "2004"]));
-    doc.push_str(&category("in", &["Connecticut", "Florida", "Kentucky", "Maine"]));
+    doc.push_str(&category(
+        "in",
+        &["Connecticut", "Florida", "Kentucky", "Maine"],
+    ));
     doc.push_str(&category("with", &["Bill", "Lillie", "Neal", "Yvonne"]));
-    doc.push_str(&predicate_category(&["cycling", "hunting", "kayaking", "skydiving"]));
+    doc.push_str(&predicate_category(&[
+        "cycling",
+        "hunting",
+        "kayaking",
+        "skydiving",
+    ]));
     // Anchor names to years (break the name symmetry).
     doc.push_str("Given: Alpha is in 2001.\nGiven: Beta is in 2002.\n");
     doc.push_str("Given: Gamma is in 2003.\nGiven: Delta is in 2004.\n");
@@ -73,13 +83,35 @@ fn full_simon_solves_by_question() {
         answer_question(&format!("{doc}Prove: {q}\nProof: Auto.\n"))
             .expect("the full Simon puzzle should be answerable")
     };
-    assert_eq!(ask("Who is in Florida?"), vec!["Beta".to_string()], "2002 ↔ Florida");
-    assert_eq!(ask("Who is in Kentucky?"), vec!["Alpha".to_string()], "2001 ↔ Kentucky");
-    assert_eq!(ask("Who is in Maine?"), vec!["Gamma".to_string()], "2003 ↔ Maine");
-    assert_eq!(ask("Who is in Connecticut?"), vec!["Delta".to_string()], "2004 ↔ Connecticut");
+    assert_eq!(
+        ask("Who is in Florida?"),
+        vec!["Beta".to_string()],
+        "2002 ↔ Florida"
+    );
+    assert_eq!(
+        ask("Who is in Kentucky?"),
+        vec!["Alpha".to_string()],
+        "2001 ↔ Kentucky"
+    );
+    assert_eq!(
+        ask("Who is in Maine?"),
+        vec!["Gamma".to_string()],
+        "2003 ↔ Maine"
+    );
+    assert_eq!(
+        ask("Who is in Connecticut?"),
+        vec!["Delta".to_string()],
+        "2004 ↔ Connecticut"
+    );
     // Cross-category: the 2002 trip (Beta) is the one with Neal and hunting.
-    assert!(ask("Who is with Neal?").contains(&"Beta".to_string()), "2002 ↔ Neal");
-    assert!(ask("Who is hunting?").contains(&"Beta".to_string()), "2002 ↔ hunting");
+    assert!(
+        ask("Who is with Neal?").contains(&"Beta".to_string()),
+        "2002 ↔ Neal"
+    );
+    assert!(
+        ask("Who is hunting?").contains(&"Beta".to_string()),
+        "2002 ↔ hunting"
+    );
 }
 
 /// The 2-category grid that the kernel prover could NOT do (see
@@ -102,7 +134,10 @@ fn two_category_grid_solves_via_oracle() {
          Proof: Auto.\n",
     )
     .expect("the two-category grid should be answerable");
-    assert!(ans.contains(&"Beta".to_string()), "Beta is in Maine; got: {ans:?}");
+    assert!(
+        ans.contains(&"Beta".to_string()),
+        "Beta is in Maine; got: {ans:?}"
+    );
 }
 
 /// FULL-SIZE category: 4 trips, 4 states (the real Simon column width). Three
@@ -125,7 +160,10 @@ fn four_value_state_grid_solves() {
          Proof: Auto.\n",
     )
     .expect("the four-value grid should be answerable");
-    assert!(ans.contains(&"Delta".to_string()), "Delta is in Maine; got: {ans:?}");
+    assert!(
+        ans.contains(&"Delta".to_string()),
+        "Delta is in Maine; got: {ans:?}"
+    );
 }
 
 /// FULL SIMON SIZE: 4 trips × 3 categories (year, state, friend), each a 4-value
@@ -134,10 +172,14 @@ fn four_value_state_grid_solves() {
 /// categories' constraints present. Solved by a question.
 #[test]
 fn three_category_four_value_grid_solves() {
-    let mut doc =
-        String::from("## Theorem: Trips\nGiven: Alpha, Beta, Gamma, and Delta are four different trips.\n");
+    let mut doc = String::from(
+        "## Theorem: Trips\nGiven: Alpha, Beta, Gamma, and Delta are four different trips.\n",
+    );
     doc.push_str(&category("in", &["2001", "2002", "2003", "2004"]));
-    doc.push_str(&category("in", &["Connecticut", "Florida", "Kentucky", "Maine"]));
+    doc.push_str(&category(
+        "in",
+        &["Connecticut", "Florida", "Kentucky", "Maine"],
+    ));
     doc.push_str(&category("with", &["Bill", "Lillie", "Neal", "Yvonne"]));
     doc.push_str("Given: Alpha is in Connecticut.\n");
     doc.push_str("Given: Beta is in Florida.\n");
@@ -145,5 +187,8 @@ fn three_category_four_value_grid_solves() {
     doc.push_str("Prove: Who is in Maine?\n");
     doc.push_str("Proof: Auto.\n");
     let ans = answer_question(&doc).expect("the multi-category grid should be answerable");
-    assert!(ans.contains(&"Delta".to_string()), "Delta is in Maine; got: {ans:?}");
+    assert!(
+        ans.contains(&"Delta".to_string()),
+        "Delta is in Maine; got: {ans:?}"
+    );
 }

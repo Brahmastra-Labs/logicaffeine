@@ -1,0 +1,10 @@
+{
+  "capability": "math.modsqrt",
+  "workload": "min-root of modSqrt(i^2 mod p, p)",
+  "arg": "500000",
+  "expected": "125000250000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

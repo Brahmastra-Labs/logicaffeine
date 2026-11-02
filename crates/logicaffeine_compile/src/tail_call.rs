@@ -21,11 +21,9 @@
 //! in its own way (the tree-walker into `RuntimeValue`s, the VM into registers,
 //! the AOT into Rust temporaries) before reassigning the parameters and looping.
 
-use std::collections::HashSet;
-
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
-use crate::optimization::Opt;
 use crate::intern::{Interner, Symbol};
+use crate::optimization::Opt;
 use crate::Arena;
 
 /// The argument expressions of a direct self-tail-call `Return self(args)`:
@@ -136,7 +134,11 @@ fn expr_contains_self_call(func: Symbol, e: &Expr) -> bool {
 fn has_non_return_self_calls(func: Symbol, body: &[Stmt]) -> bool {
     body.iter().any(|s| match s {
         Stmt::Return { .. } => false,
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_contains_self_call(func, cond)
                 || has_non_return_self_calls(func, then_block)
                 || else_block.is_some_and(|e| has_non_return_self_calls(func, e))
@@ -169,7 +171,11 @@ fn count_recursive_returns(func: Symbol, body: &[Stmt]) -> (usize, usize) {
                 }
             }
             Stmt::Return { value: None } => base += 1,
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 let (tb, tr) = count_recursive_returns(func, then_block);
                 base += tb;
                 recursive += tr;
@@ -189,21 +195,39 @@ fn count_recursive_returns(func: Symbol, body: &[Stmt]) -> (usize, usize) {
 fn find_accumulator_return(func: Symbol, body: &[Stmt]) -> Option<AccumulatorInfo> {
     for s in body {
         match s {
-            Stmt::Return { value: Some(Expr::BinaryOp { op, left, right }) } => {
+            Stmt::Return {
+                value: Some(Expr::BinaryOp { op, left, right }),
+            } => {
                 if !matches!(op, BinaryOpKind::Add | BinaryOpKind::Multiply) {
                     continue;
                 }
-                let identity = if matches!(op, BinaryOpKind::Add) { 0 } else { 1 };
+                let identity = if matches!(op, BinaryOpKind::Add) {
+                    0
+                } else {
+                    1
+                };
                 let left_call = expr_is_self_call(func, left);
                 let right_call = expr_is_self_call(func, right);
                 if left_call && !expr_contains_self_call(func, right) {
-                    return Some(AccumulatorInfo { op: *op, identity, non_recursive_side: NonRecSide::Right });
+                    return Some(AccumulatorInfo {
+                        op: *op,
+                        identity,
+                        non_recursive_side: NonRecSide::Right,
+                    });
                 }
                 if right_call && !expr_contains_self_call(func, left) {
-                    return Some(AccumulatorInfo { op: *op, identity, non_recursive_side: NonRecSide::Left });
+                    return Some(AccumulatorInfo {
+                        op: *op,
+                        identity,
+                        non_recursive_side: NonRecSide::Left,
+                    });
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 if let Some(info) = find_accumulator_return(func, then_block) {
                     return Some(info);
                 }
@@ -276,7 +300,16 @@ fn accumulator_rewrite_of<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     interner: &mut Interner,
 ) -> Option<Stmt<'a>> {
-    let Stmt::FunctionDef { name, params, body, is_native, is_exported, opt_flags, .. } = s else {
+    let Stmt::FunctionDef {
+        name,
+        params,
+        body,
+        is_native,
+        is_exported,
+        opt_flags,
+        ..
+    } = s
+    else {
         return None;
     };
     let body: &'a [Stmt<'a>] = *body;
@@ -292,7 +325,15 @@ fn accumulator_rewrite_of<'a>(
     // stack lowering and never reach here.
     let acc = detect_accumulator_pattern(*name, body)?;
     let param_syms: Vec<Symbol> = params.iter().map(|(p, _)| *p).collect();
-    let new_body = build_accumulator_loop(body, *name, &param_syms, acc, stmt_arena, expr_arena, interner);
+    let new_body = build_accumulator_loop(
+        body,
+        *name,
+        &param_syms,
+        acc,
+        stmt_arena,
+        expr_arena,
+        interner,
+    );
     let mut fd = s.clone();
     if let Stmt::FunctionDef { body: b, .. } = &mut fd {
         *b = new_body;
@@ -312,10 +353,21 @@ fn build_accumulator_loop<'a>(
 ) -> &'a [Stmt<'a>] {
     let acc_sym = interner.intern("__acc");
     let identity = expr_arena.alloc(Expr::Literal(Literal::Number(acc.identity)));
-    let let_acc = Stmt::Let { var: acc_sym, ty: None, value: identity, mutable: true };
-    let inner = rewrite_accumulator_body(body, func, params, acc, acc_sym, stmt_arena, expr_arena, interner);
+    let let_acc = Stmt::Let {
+        var: acc_sym,
+        ty: None,
+        value: identity,
+        mutable: true,
+    };
+    let inner = rewrite_accumulator_body(
+        body, func, params, acc, acc_sym, stmt_arena, expr_arena, interner,
+    );
     let cond = expr_arena.alloc(Expr::Literal(Literal::Boolean(true)));
-    let while_stmt = Stmt::While { cond, body: inner, decreasing: None };
+    let while_stmt = Stmt::While {
+        cond,
+        body: inner,
+        decreasing: None,
+    };
     stmt_arena.alloc_slice(vec![let_acc, while_stmt])
 }
 
@@ -341,41 +393,76 @@ fn rewrite_accumulator_body<'a>(
                     out.push(s.clone());
                     continue;
                 };
-                let (call_expr, nonrec): (&'a Expr<'a>, &'a Expr<'a>) = match acc.non_recursive_side {
+                let (call_expr, nonrec): (&'a Expr<'a>, &'a Expr<'a>) = match acc.non_recursive_side
+                {
                     NonRecSide::Left => (*right, *left),
                     NonRecSide::Right => (*left, *right),
                 };
                 let acc_id = expr_arena.alloc(Expr::Identifier(acc_sym));
-                let folded = expr_arena.alloc(Expr::BinaryOp { op: *op, left: acc_id, right: nonrec });
-                out.push(Stmt::Set { target: acc_sym, value: folded });
+                let folded = expr_arena.alloc(Expr::BinaryOp {
+                    op: *op,
+                    left: acc_id,
+                    right: nonrec,
+                });
+                out.push(Stmt::Set {
+                    target: acc_sym,
+                    value: folded,
+                });
                 if let Expr::Call { args, .. } = call_expr {
                     let temps: Vec<Symbol> = (0..args.len())
                         .map(|i| interner.intern(&format!("__acc_arg{}", i)))
                         .collect();
                     for (t, arg) in temps.iter().zip(args.iter()) {
-                        out.push(Stmt::Let { var: *t, ty: None, value: *arg, mutable: false });
+                        out.push(Stmt::Let {
+                            var: *t,
+                            ty: None,
+                            value: *arg,
+                            mutable: false,
+                        });
                     }
                     for (p, t) in params.iter().zip(temps.iter()) {
                         let t_id = expr_arena.alloc(Expr::Identifier(*t));
-                        out.push(Stmt::Set { target: *p, value: t_id });
+                        out.push(Stmt::Set {
+                            target: *p,
+                            value: t_id,
+                        });
                     }
                 }
                 // No `Return` — control falls through to the `while` head.
             }
             Stmt::Return { value: Some(e) } => {
                 let acc_id = expr_arena.alloc(Expr::Identifier(acc_sym));
-                let ret = expr_arena.alloc(Expr::BinaryOp { op: acc.op, left: acc_id, right: *e });
+                let ret = expr_arena.alloc(Expr::BinaryOp {
+                    op: acc.op,
+                    left: acc_id,
+                    right: *e,
+                });
                 out.push(Stmt::Return { value: Some(ret) });
             }
             Stmt::Return { value: None } => {
                 let acc_id = expr_arena.alloc(Expr::Identifier(acc_sym));
-                out.push(Stmt::Return { value: Some(acc_id) });
+                out.push(Stmt::Return {
+                    value: Some(acc_id),
+                });
             }
-            Stmt::If { cond, then_block, else_block } => {
-                let then_b = rewrite_accumulator_body(then_block, func, params, acc, acc_sym, stmt_arena, expr_arena, interner);
-                let else_b = (*else_block)
-                    .map(|e| rewrite_accumulator_body(e, func, params, acc, acc_sym, stmt_arena, expr_arena, interner));
-                out.push(Stmt::If { cond: *cond, then_block: then_b, else_block: else_b });
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let then_b = rewrite_accumulator_body(
+                    then_block, func, params, acc, acc_sym, stmt_arena, expr_arena, interner,
+                );
+                let else_b = (*else_block).map(|e| {
+                    rewrite_accumulator_body(
+                        e, func, params, acc, acc_sym, stmt_arena, expr_arena, interner,
+                    )
+                });
+                out.push(Stmt::If {
+                    cond: *cond,
+                    then_block: then_b,
+                    else_block: else_b,
+                });
             }
             other => out.push(other.clone()),
         }

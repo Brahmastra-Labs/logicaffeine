@@ -1,0 +1,14 @@
+# Shared
+
+The one shape both halves of this app agree on.
+
+Declaring it ONCE is what makes the wire a contract rather than two hand-written
+serialisers that agree until they don't: the server answers `Seq of Todo` and the
+page asks for `Seq of Todo`, and the JSON in between is DERIVED from this block —
+`toJsonSeq_Todo` on the way out, `fromJsonSeq_Todo` on the way back. Nobody writes
+a serialiser, and nobody can forget to update one.
+
+## A Todo has:
+    an id, which is Int.
+    a text, which is Text.
+    a done, which is Bool.

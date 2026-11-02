@@ -1,0 +1,30 @@
+{
+  "capability": "math.remainder",
+  "arg": "1000000",
+  "timing_n": "38114059",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 145.084,
+    "c": 493.444,
+    "rust": 68.56,
+    "go": 1784.829,
+    "python": 4335.291
+  },
+  "wall_ms": {
+    "logos": 146.197,
+    "c": 493.942,
+    "rust": 68.858,
+    "go": 1786.933,
+    "python": 4373.51
+  },
+  "logos_ms": 145.084,
+  "speedups_vs_logos": {
+    "c": 3.401,
+    "rust": 0.473,
+    "go": 12.302,
+    "python": 29.881
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.473
+}

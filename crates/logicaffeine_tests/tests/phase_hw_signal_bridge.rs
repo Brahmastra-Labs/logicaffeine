@@ -6,10 +6,9 @@
 //! Sprint 3: Z3 end-to-end equivalence (feature-gated)
 //! Sprint 4: Real-world protocol benchmarks (feature-gated)
 
-use logicaffeine_language::compile_kripke_with;
 use logicaffeine_compile::codegen_sva::fol_to_verify::FolTranslator;
-use logicaffeine_compile::codegen_sva::sva_to_verify::{BoundedExpr, TranslateResult};
-use logicaffeine_compile::codegen_sva::hw_pipeline;
+use logicaffeine_compile::codegen_sva::sva_to_verify::BoundedExpr;
+use logicaffeine_language::compile_kripke_with;
 use std::collections::HashSet;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -25,11 +24,17 @@ fn collect_vars(expr: &BoundedExpr) -> HashSet<String> {
 
 fn collect_vars_inner(expr: &BoundedExpr, out: &mut HashSet<String>) {
     match expr {
-        BoundedExpr::Var(name) => { out.insert(name.clone()); }
-        BoundedExpr::And(l, r) | BoundedExpr::Or(l, r)
-        | BoundedExpr::Implies(l, r) | BoundedExpr::Eq(l, r)
-        | BoundedExpr::Lt(l, r) | BoundedExpr::Gt(l, r)
-        | BoundedExpr::Lte(l, r) | BoundedExpr::Gte(l, r) => {
+        BoundedExpr::Var(name) => {
+            out.insert(name.clone());
+        }
+        BoundedExpr::And(l, r)
+        | BoundedExpr::Or(l, r)
+        | BoundedExpr::Implies(l, r)
+        | BoundedExpr::Eq(l, r)
+        | BoundedExpr::Lt(l, r)
+        | BoundedExpr::Gt(l, r)
+        | BoundedExpr::Lte(l, r)
+        | BoundedExpr::Gte(l, r) => {
             collect_vars_inner(l, out);
             collect_vars_inner(r, out);
         }
@@ -52,7 +57,8 @@ fn max_timestep(vars: &HashSet<String>) -> Option<u32> {
 /// Extract timesteps for a specific signal base name.
 fn timesteps_for_signal(vars: &HashSet<String>, base: &str) -> Vec<u32> {
     let prefix = format!("{}@", base);
-    let mut ts: Vec<u32> = vars.iter()
+    let mut ts: Vec<u32> = vars
+        .iter()
         .filter(|v| v.starts_with(&prefix))
         .filter_map(|v| v[prefix.len()..].parse::<u32>().ok())
         .collect();
@@ -73,23 +79,31 @@ fn s0_eventually_excludes_current_timestep() {
     let result = compile_kripke_with("Eventually, Req is valid.", |ast, interner| {
         let mut translator = FolTranslator::new(interner, 5);
         translator.translate_property(ast)
-    }).unwrap();
+    })
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
 
     // Should have Valid_Req_ variables at future timesteps (1..=5), NOT at timestep 0
-    let req_vars: Vec<_> = vars.iter()
+    let req_vars: Vec<_> = vars
+        .iter()
         .filter(|v| v.contains("Req") || v.contains("Valid"))
         .cloned()
         .collect();
 
-    assert!(!req_vars.is_empty(),
-        "Should have Valid/Req variables. All vars: {:?}", vars);
+    assert!(
+        !req_vars.is_empty(),
+        "Should have Valid/Req variables. All vars: {:?}",
+        vars
+    );
 
     // None of the variables should be at timestep 0 (Reachable = strictly future)
     let has_t0 = req_vars.iter().any(|v| v.ends_with("@0"));
-    assert!(!has_t0,
-        "Eventually should exclude current timestep (t=0). Req vars: {:?}", req_vars);
+    assert!(
+        !has_t0,
+        "Eventually should exclude current timestep (t=0). Req vars: {:?}",
+        req_vars
+    );
 }
 
 #[test]
@@ -100,21 +114,29 @@ fn s0_always_includes_current_timestep() {
     let result = compile_kripke_with("Always, Req is valid.", |ast, interner| {
         let mut translator = FolTranslator::new(interner, 3);
         translator.translate_property(ast)
-    }).unwrap();
+    })
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
-    let req_vars: Vec<_> = vars.iter()
+    let req_vars: Vec<_> = vars
+        .iter()
         .filter(|v| v.contains("Req") || v.contains("Valid"))
         .cloned()
         .collect();
 
-    assert!(!req_vars.is_empty(),
-        "Should have Valid/Req variables. All vars: {:?}", vars);
+    assert!(
+        !req_vars.is_empty(),
+        "Should have Valid/Req variables. All vars: {:?}",
+        vars
+    );
 
     // Should include t=0
     let has_t0 = req_vars.iter().any(|v| v.ends_with("@0"));
-    assert!(has_t0,
-        "Always should include current timestep (t=0). Req vars: {:?}", req_vars);
+    assert!(
+        has_t0,
+        "Always should include current timestep (t=0). Req vars: {:?}",
+        req_vars
+    );
 }
 
 #[test]
@@ -130,21 +152,23 @@ fn s0_nested_always_eventually_has_future_only_inner() {
         |ast, interner| {
             let mut translator = FolTranslator::new(interner, 5);
             translator.translate_property(ast)
-        }
-    ).unwrap();
+        },
+    )
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
 
     // The Ack variables should reach BEYOND the base bound (up to outer_t + bound)
-    let ack_vars: Vec<_> = vars.iter()
-        .filter(|v| v.contains("Ack"))
-        .cloned()
-        .collect();
+    let ack_vars: Vec<_> = vars.iter().filter(|v| v.contains("Ack")).cloned().collect();
 
-    assert!(!ack_vars.is_empty(),
-        "Should have Ack variables. All vars: {:?}", vars);
+    assert!(
+        !ack_vars.is_empty(),
+        "Should have Ack variables. All vars: {:?}",
+        vars
+    );
 
-    let max_t = ack_vars.iter()
+    let max_t = ack_vars
+        .iter()
         .filter_map(|v| {
             let at = v.find('@')?;
             v[at + 1..].parse::<u32>().ok()
@@ -154,9 +178,11 @@ fn s0_nested_always_eventually_has_future_only_inner() {
 
     // Inner eventually at outer t=4 should reach at least t=5 (one step ahead)
     // Ideally reaches t=4+5=9 (matching SVA's s_eventually semantics)
-    assert!(max_t > 5,
+    assert!(
+        max_t > 5,
         "Inner 'eventually' should look beyond base bound. Max Ack timestep: {}, expected > 5",
-        max_t);
+        max_t
+    );
 }
 
 #[test]
@@ -173,21 +199,23 @@ fn s0_eventually_range_matches_sva_s_eventually() {
         |ast, interner| {
             let mut translator = FolTranslator::new(interner, 3);
             translator.translate_property(ast)
-        }
-    ).unwrap();
+        },
+    )
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
-    let ack_vars: Vec<_> = vars.iter()
-        .filter(|v| v.contains("Ack"))
-        .cloned()
-        .collect();
+    let ack_vars: Vec<_> = vars.iter().filter(|v| v.contains("Ack")).cloned().collect();
 
-    assert!(!ack_vars.is_empty(),
-        "Should have Ack variables. All vars: {:?}", vars);
+    assert!(
+        !ack_vars.is_empty(),
+        "Should have Ack variables. All vars: {:?}",
+        vars
+    );
 
     // At outer t=2 (the last outer step), inner eventually with bound=3
     // should reach t=5 (2 + 3). So max ack timestep should be 5.
-    let max_t = ack_vars.iter()
+    let max_t = ack_vars
+        .iter()
         .filter_map(|v| {
             let at = v.find('@')?;
             v[at + 1..].parse::<u32>().ok()
@@ -196,9 +224,11 @@ fn s0_eventually_range_matches_sva_s_eventually() {
         .unwrap_or(0);
 
     // With bound=3: outer goes 0,1,2; inner at t=2 goes 3,4,5; max = 5
-    assert_eq!(max_t, 5,
+    assert_eq!(
+        max_t, 5,
         "Max ack timestep should be outer_max + bound = 2 + 3 = 5. Got: {}. Ack vars: {:?}",
-        max_t, ack_vars);
+        max_t, ack_vars
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -232,19 +262,28 @@ fn s1_fol_translator_with_signal_map_produces_signal_vars() {
         let mut translator = FolTranslator::new(interner, 3);
         translator.set_signal_map(&map);
         translator.translate_property(ast)
-    }).unwrap();
+    })
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
 
     // Should have req@t variables
     let has_req = vars.iter().any(|v| v.starts_with("req@"));
-    assert!(has_req,
-        "Signal map should produce 'req@t' variables. All vars: {:?}", vars);
+    assert!(
+        has_req,
+        "Signal map should produce 'req@t' variables. All vars: {:?}",
+        vars
+    );
 
     // Should NOT have the old-style predicate naming
-    let has_old_style = vars.iter().any(|v| v.contains("Valid_Req") || v.contains("valid_Req"));
-    assert!(!has_old_style,
-        "Signal map should suppress predicate-prefixed naming. All vars: {:?}", vars);
+    let has_old_style = vars
+        .iter()
+        .any(|v| v.contains("Valid_Req") || v.contains("valid_Req"));
+    assert!(
+        !has_old_style,
+        "Signal map should suppress predicate-prefixed naming. All vars: {:?}",
+        vars
+    );
 }
 
 #[test]
@@ -254,16 +293,20 @@ fn s1_fol_translator_without_signal_map_backward_compatible() {
         let mut translator = FolTranslator::new(interner, 3);
         // No signal map set
         translator.translate_property(ast)
-    }).unwrap();
+    })
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
     // Should have predicate-style naming: Valid_Req_@0 (not just req@0)
     // Predicate name may be lowercase ("valid") while proper noun stays capitalized ("Req")
-    let has_predicate_naming = vars.iter().any(|v|
+    let has_predicate_naming = vars.iter().any(|v| {
         (v.contains("Valid") || v.contains("valid")) && v.contains("Req") && v.contains('@')
+    });
+    assert!(
+        has_predicate_naming,
+        "Without signal map, should use predicate naming (valid_Req_@t). All vars: {:?}",
+        vars
     );
-    assert!(has_predicate_naming,
-        "Without signal map, should use predicate naming (valid_Req_@t). All vars: {:?}", vars);
 }
 
 #[test]
@@ -278,12 +321,20 @@ fn s1_signal_map_multiple_predicates_same_signal() {
         let mut translator = FolTranslator::new(interner, 3);
         translator.set_signal_map(&map);
         translator.translate_property(ast)
-    }).unwrap();
+    })
+    .unwrap();
 
     let vars = collect_vars(&result.expr);
-    let req_vars: Vec<_> = vars.iter().filter(|v| v.starts_with("req@")).cloned().collect();
-    assert!(req_vars.len() >= 3,
-        "Should have req@0, req@1, req@2. Got: {:?}", req_vars);
+    let req_vars: Vec<_> = vars
+        .iter()
+        .filter(|v| v.starts_with("req@"))
+        .cloned()
+        .collect();
+    assert!(
+        req_vars.len() >= 3,
+        "Should have req@0, req@1, req@2. Got: {:?}",
+        req_vars
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -306,7 +357,7 @@ fn s2_hw_signal_decl_builds_signal_map() {
 
 #[test]
 fn s2_compile_hw_property_with_proper_noun_signals() {
-    use logicaffeine_compile::codegen_sva::hw_pipeline::{HwSignalDecl, compile_hw_property};
+    use logicaffeine_compile::codegen_sva::hw_pipeline::{compile_hw_property, HwSignalDecl};
     use logicaffeine_language::semantics::knowledge_graph::SignalRole;
 
     let decls = vec![
@@ -317,43 +368,61 @@ fn s2_compile_hw_property_with_proper_noun_signals() {
         "Always, if Req is valid then eventually Ack is valid.",
         &decls,
         5,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Declarations should reference "req" and "ack"
     let has_req = result.declarations.iter().any(|d| d.starts_with("req@"));
     let has_ack = result.declarations.iter().any(|d| d.starts_with("ack@"));
-    assert!(has_req, "Should have req@ declarations. Got: {:?}", result.declarations);
-    assert!(has_ack, "Should have ack@ declarations. Got: {:?}", result.declarations);
+    assert!(
+        has_req,
+        "Should have req@ declarations. Got: {:?}",
+        result.declarations
+    );
+    assert!(
+        has_ack,
+        "Should have ack@ declarations. Got: {:?}",
+        result.declarations
+    );
 
     // Should NOT have old-style predicate naming
-    let has_old = result.declarations.iter().any(|d|
-        d.contains("Valid_Req") || d.contains("Valid_Ack")
+    let has_old = result
+        .declarations
+        .iter()
+        .any(|d| d.contains("Valid_Req") || d.contains("Valid_Ack"));
+    assert!(
+        !has_old,
+        "Should not have predicate-prefixed declarations. Got: {:?}",
+        result.declarations
     );
-    assert!(!has_old,
-        "Should not have predicate-prefixed declarations. Got: {:?}", result.declarations);
 }
 
 #[test]
 fn s2_compile_hw_property_implication_structure() {
-    use logicaffeine_compile::codegen_sva::hw_pipeline::{HwSignalDecl, compile_hw_property};
+    use logicaffeine_compile::codegen_sva::hw_pipeline::{compile_hw_property, HwSignalDecl};
     use logicaffeine_language::semantics::knowledge_graph::SignalRole;
 
     let decls = vec![
         HwSignalDecl::new("Req", "req", 1, SignalRole::Input),
         HwSignalDecl::new("Ack", "ack", 1, SignalRole::Output),
     ];
-    let result = compile_hw_property(
-        "Always, if Req is valid then Ack is valid.",
-        &decls,
-        3,
-    ).unwrap();
+    let result =
+        compile_hw_property("Always, if Req is valid then Ack is valid.", &decls, 3).unwrap();
 
     // Should have req@t and ack@t for each timestep 0..3
     for t in 0..3u32 {
-        assert!(result.declarations.contains(&format!("req@{}", t)),
-            "Missing req@{}. Decls: {:?}", t, result.declarations);
-        assert!(result.declarations.contains(&format!("ack@{}", t)),
-            "Missing ack@{}. Decls: {:?}", t, result.declarations);
+        assert!(
+            result.declarations.contains(&format!("req@{}", t)),
+            "Missing req@{}. Decls: {:?}",
+            t,
+            result.declarations
+        );
+        assert!(
+            result.declarations.contains(&format!("ack@{}", t)),
+            "Missing ack@{}. Decls: {:?}",
+            t,
+            result.declarations
+        );
     }
 }
 
@@ -363,9 +432,7 @@ fn s2_compile_hw_property_implication_structure() {
 
 #[cfg(feature = "verification")]
 mod z3_bridge {
-    use logicaffeine_compile::codegen_sva::hw_pipeline::{
-        HwSignalDecl, check_z3_hw_equivalence,
-    };
+    use logicaffeine_compile::codegen_sva::hw_pipeline::{check_z3_hw_equivalence, HwSignalDecl};
     use logicaffeine_language::semantics::knowledge_graph::SignalRole;
     use logicaffeine_verify::equivalence::EquivalenceResult;
 
@@ -380,9 +447,13 @@ mod z3_bridge {
             "req |-> s_eventually(ack)",
             &decls,
             5,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "English handshake must be equivalent to SVA. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "English handshake must be equivalent to SVA. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -396,9 +467,13 @@ mod z3_bridge {
             "!(grant_a && grant_b)",
             &decls,
             3,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "English mutex must be equivalent to SVA. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "English mutex must be equivalent to SVA. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -412,9 +487,13 @@ mod z3_bridge {
             "req |-> ack", // Wrong: immediate, not eventual
             &decls,
             5,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "Immediate ack should NOT be equivalent to eventual ack. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "Immediate ack should NOT be equivalent to eventual ack. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -428,9 +507,13 @@ mod z3_bridge {
             "en |-> data",
             &decls,
             3,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Safety implication must be equivalent. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Safety implication must be equivalent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -444,13 +527,21 @@ mod z3_bridge {
             "req |-> ack",
             &decls,
             5,
-        ).unwrap();
+        )
+        .unwrap();
         if let EquivalenceResult::NotEquivalent { counterexample } = result {
-            let all_signals: Vec<_> = counterexample.cycles.iter()
+            let all_signals: Vec<_> = counterexample
+                .cycles
+                .iter()
                 .flat_map(|c| c.signals.keys())
                 .collect();
-            assert!(all_signals.iter().any(|s| s.contains("req") || s.contains("ack")),
-                "Counterexample should use signal names. Got: {:?}", all_signals);
+            assert!(
+                all_signals
+                    .iter()
+                    .any(|s| s.contains("req") || s.contains("ack")),
+                "Counterexample should use signal names. Got: {:?}",
+                all_signals
+            );
         }
     }
 }
@@ -461,9 +552,7 @@ mod z3_bridge {
 
 #[cfg(feature = "verification")]
 mod protocol_benchmarks {
-    use logicaffeine_compile::codegen_sva::hw_pipeline::{
-        HwSignalDecl, check_z3_hw_equivalence,
-    };
+    use logicaffeine_compile::codegen_sva::hw_pipeline::{check_z3_hw_equivalence, HwSignalDecl};
     use logicaffeine_language::semantics::knowledge_graph::SignalRole;
     use logicaffeine_verify::equivalence::EquivalenceResult;
 
@@ -478,9 +567,13 @@ mod protocol_benchmarks {
             "AWVALID |-> s_eventually(AWREADY)",
             &decls,
             10,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "AXI write address handshake must be equivalent. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "AXI write address handshake must be equivalent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -494,9 +587,13 @@ mod protocol_benchmarks {
             "full |-> !wr_en",
             &decls,
             5,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "FIFO overflow protection must be equivalent. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "FIFO overflow protection must be equivalent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -510,9 +607,13 @@ mod protocol_benchmarks {
             "!(grant_0 && grant_1)",
             &decls,
             5,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Arbiter mutex must be equivalent. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Arbiter mutex must be equivalent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -526,8 +627,12 @@ mod protocol_benchmarks {
             "req_0 |-> s_eventually(grant_0)",
             &decls,
             8,
-        ).unwrap();
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Arbiter liveness must be equivalent. Got: {:?}", result);
+        )
+        .unwrap();
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Arbiter liveness must be equivalent. Got: {:?}",
+            result
+        );
     }
 }

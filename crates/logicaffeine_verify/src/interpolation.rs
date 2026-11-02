@@ -7,8 +7,8 @@
 //! Since Z3's Rust bindings don't directly expose interpolation, we approximate
 //! using variable-restricted weakening: project A onto shared variables.
 
-use crate::ir::VerifyExpr;
 use crate::equivalence::Trace;
+use crate::ir::VerifyExpr;
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
 use z3::{ast::Bool, ast::Int, SatResult, Solver};
@@ -85,7 +85,11 @@ pub fn interpolate(a: &VerifyExpr, b: &VerifyExpr) -> Option<VerifyExpr> {
 /// Extracts sub-expressions that only mention shared variables.
 fn project_to_shared(expr: &VerifyExpr, shared: &HashSet<&String>) -> VerifyExpr {
     match expr {
-        VerifyExpr::Binary { op: crate::ir::VerifyOp::And, left, right } => {
+        VerifyExpr::Binary {
+            op: crate::ir::VerifyOp::And,
+            left,
+            right,
+        } => {
             let l = project_to_shared(left, shared);
             let r = project_to_shared(right, shared);
             match (&l, &r) {
@@ -117,10 +121,13 @@ fn build_interpolant_from_clauses(
     let clauses = extract_conjuncts(a);
 
     // Keep only clauses that use exclusively shared variables
-    let shared_clauses: Vec<VerifyExpr> = clauses.into_iter().filter(|c| {
-        let vars = collect_expr_vars(c);
-        vars.iter().all(|v| shared.contains(v))
-    }).collect();
+    let shared_clauses: Vec<VerifyExpr> = clauses
+        .into_iter()
+        .filter(|c| {
+            let vars = collect_expr_vars(c);
+            vars.iter().all(|v| shared.contains(v))
+        })
+        .collect();
 
     if shared_clauses.is_empty() {
         // No shared-variable clauses — try negating B's structure
@@ -171,7 +178,11 @@ fn try_interpolant_from_b_negation(
 /// Extract top-level conjuncts from an expression.
 fn extract_conjuncts(expr: &VerifyExpr) -> Vec<VerifyExpr> {
     match expr {
-        VerifyExpr::Binary { op: crate::ir::VerifyOp::And, left, right } => {
+        VerifyExpr::Binary {
+            op: crate::ir::VerifyOp::And,
+            left,
+            right,
+        } => {
             let mut v = extract_conjuncts(left);
             v.extend(extract_conjuncts(right));
             v
@@ -189,7 +200,9 @@ fn collect_expr_vars(expr: &VerifyExpr) -> HashSet<String> {
 
 fn collect_vars_recursive(expr: &VerifyExpr, vars: &mut HashSet<String>) {
     match expr {
-        VerifyExpr::Var(name) => { vars.insert(name.clone()); }
+        VerifyExpr::Var(name) => {
+            vars.insert(name.clone());
+        }
         VerifyExpr::Binary { left, right, .. } => {
             collect_vars_recursive(left, vars);
             collect_vars_recursive(right, vars);
@@ -219,7 +232,6 @@ pub fn itp_model_check(
     property: &VerifyExpr,
     bound: u32,
 ) -> InterpolationResult {
-
     // Phase 1: BMC check — is there a counterexample within bound?
     for k in 0..bound {
         let solver = crate::solver::new_solver();
@@ -260,9 +272,7 @@ pub fn itp_model_check(
         SatResult::Unsat => InterpolationResult::Safe,
         _ => {
             // Try k-induction as fallback
-            let kind_result = kinduction::k_induction(
-                init, transition, property, &[], bound,
-            );
+            let kind_result = kinduction::k_induction(init, transition, property, &[], bound);
             match kind_result {
                 kinduction::KInductionResult::Proven { k } => {
                     InterpolationResult::Fixpoint { iterations: k }

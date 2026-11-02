@@ -130,7 +130,11 @@ fn assert_folds_to(program: &str, expected: &str, banned_op: &str) {
 #[test]
 fn int_xor_folds() {
     // 12 ^ 10 = 6
-    assert_folds_to("## Main\nLet a be 12.\nLet b be 10.\nShow a xor b.", "6", " xor ");
+    assert_folds_to(
+        "## Main\nLet a be 12.\nLet b be 10.\nShow a xor b.",
+        "6",
+        " xor ",
+    );
 }
 
 #[test]
@@ -218,9 +222,18 @@ fn float_sub_mul_div_fold() {
 #[test]
 fn float_comparisons_fold() {
     assert_run_equals("## Main\nLet a be 5.0.\nLet b be 6.0.\nShow a < b.", "true");
-    assert_run_equals("## Main\nLet a be 5.0.\nLet b be 6.0.\nShow a > b.", "false");
-    assert_run_equals("## Main\nLet a be 5.0.\nLet b be 5.0.\nShow a == b.", "true");
-    assert_run_equals("## Main\nLet a be 5.0.\nLet b be 6.0.\nShow a != b.", "true");
+    assert_run_equals(
+        "## Main\nLet a be 5.0.\nLet b be 6.0.\nShow a > b.",
+        "false",
+    );
+    assert_run_equals(
+        "## Main\nLet a be 5.0.\nLet b be 5.0.\nShow a == b.",
+        "true",
+    );
+    assert_run_equals(
+        "## Main\nLet a be 5.0.\nLet b be 6.0.\nShow a != b.",
+        "true",
+    );
 }
 
 #[test]
@@ -266,7 +279,11 @@ fn float_fold_roundtrip_fidelity() {
 fn text_plus_int_folds() {
     let program = "## Main\nLet a be 5.\nShow \"n=\" + a.";
     let residual = decompile(program).expect("PE should not fail");
-    assert!(residual.contains("n=5"), "should fold to \"n=5\":\n{}", residual);
+    assert!(
+        residual.contains("n=5"),
+        "should fold to \"n=5\":\n{}",
+        residual
+    );
     assert_run_equals(program, "n=5");
 }
 

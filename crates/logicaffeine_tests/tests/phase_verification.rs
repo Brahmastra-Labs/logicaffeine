@@ -5,7 +5,7 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::{LicensePlan, Verifier};
+use logicaffeine_verify::Verifier;
 
 #[test]
 fn test_verifier_tautology() {
@@ -63,20 +63,6 @@ fn test_integer_equals_invalid() {
     // 1 == 2 is not valid
     let result = verifier.check_int_equals(1, 2);
     assert!(result.is_err());
-}
-
-#[test]
-fn test_license_plan_verification_access() {
-    // Pro, Premium, Lifetime, Enterprise can verify
-    assert!(LicensePlan::Pro.can_verify());
-    assert!(LicensePlan::Premium.can_verify());
-    assert!(LicensePlan::Lifetime.can_verify());
-    assert!(LicensePlan::Enterprise.can_verify());
-
-    // Free, Supporter cannot verify
-    assert!(!LicensePlan::None.can_verify());
-    assert!(!LicensePlan::Free.can_verify());
-    assert!(!LicensePlan::Supporter.can_verify());
 }
 
 #[test]

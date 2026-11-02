@@ -46,7 +46,7 @@ use logicaffeine_base::Symbol;
 use std::fmt;
 
 // Re-export lexicon types for DRS usage
-pub use logicaffeine_lexicon::types::{Gender, Number, Case};
+pub use logicaffeine_lexicon::types::{Case, Gender, Number};
 
 // ============================================
 // CORE DISCOURSE TYPES (moved from context.rs)
@@ -87,22 +87,29 @@ pub enum ScopeError {
         reason: String,
     },
     /// No matching referent found at all
-    NoMatchingReferent {
-        gender: Gender,
-        number: Number,
-    },
+    NoMatchingReferent { gender: Gender, number: Number },
 }
 
 impl fmt::Display for ScopeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ScopeError::InaccessibleReferent { gender, blocking_scope, reason } => {
-                write!(f, "Cannot resolve {:?} pronoun: referent is trapped in {:?} scope. {}",
-                    gender, blocking_scope, reason)
+            ScopeError::InaccessibleReferent {
+                gender,
+                blocking_scope,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "Cannot resolve {:?} pronoun: referent is trapped in {:?} scope. {}",
+                    gender, blocking_scope, reason
+                )
             }
             ScopeError::NoMatchingReferent { gender, number } => {
-                write!(f, "Cannot resolve {:?} {:?} pronoun: no matching referent in accessible scope",
-                    gender, number)
+                write!(
+                    f,
+                    "Cannot resolve {:?} {:?} pronoun: no matching referent in accessible scope",
+                    gender, number
+                )
             }
         }
     }
@@ -224,12 +231,18 @@ impl WorldState {
 
     /// Get current reference time
     pub fn current_reference_time(&self) -> String {
-        self.current_reference_time.clone().unwrap_or_else(|| "S".to_string())
+        self.current_reference_time
+            .clone()
+            .unwrap_or_else(|| "S".to_string())
     }
 
     /// Add a temporal constraint
     pub fn add_time_constraint(&mut self, left: String, relation: TimeRelation, right: String) {
-        self.time_constraints.push(TimeConstraint { left, relation, right });
+        self.time_constraints.push(TimeConstraint {
+            left,
+            relation,
+            right,
+        });
     }
 
     /// Get all time constraints
@@ -284,7 +297,6 @@ impl WorldState {
         let can_access_modal = self.in_modal_context();
 
         #[cfg(debug_assertions)]
-
         // Apply same Gender Accommodation rules as resolve_pronoun:
         // - Exact match (Male=Male, Female=Female, etc)
         // - Unknown referent matches any pronoun (Gender Accommodation)
@@ -460,11 +472,11 @@ impl BoxType {
         matches!(
             self,
             BoxType::Main
-            | BoxType::UniversalScope
-            | BoxType::UniversalRestrictor
-            | BoxType::ConditionalConsequent
-            | BoxType::ConditionalAntecedent
-            | BoxType::ModalScope  // Modal subordination allows cross-sentence access
+                | BoxType::UniversalScope
+                | BoxType::UniversalRestrictor
+                | BoxType::ConditionalConsequent
+                | BoxType::ConditionalAntecedent
+                | BoxType::ModalScope // Modal subordination allows cross-sentence access
         )
         // NegationScope and Disjunct return false implicitly
     }
@@ -501,10 +513,19 @@ pub struct Referent {
     /// coreference: two definite descriptions that share their distinguishing
     /// modifier AND have sort-compatible head nouns denote the same entity.
     pub modifiers: Vec<Symbol>,
+    /// An event the clause's verb introduced, not an individual: a pronoun reaches for an
+    /// individual first ("If a dog barks, IT runs" is the dog, not the barking).
+    pub is_event: bool,
 }
 
 impl Referent {
-    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) -> Self {
+    pub fn new(
+        variable: Symbol,
+        noun_class: Symbol,
+        gender: Gender,
+        number: Number,
+        source: ReferentSource,
+    ) -> Self {
         Self {
             variable,
             noun_class,
@@ -514,6 +535,7 @@ impl Referent {
             used_by_pronoun: false,
             ownership: OwnershipState::Owned,
             modifiers: Vec::new(),
+            is_event: false,
         }
     }
 
@@ -541,6 +563,15 @@ pub struct DrsBox {
     pub universe: Vec<Referent>,
     pub box_type: Option<BoxType>,
     pub parent: Option<usize>,
+}
+
+/// A point in the DRS's growth: the box the parse was in, and how many referents each box then
+/// held. A parse that backtracks rewinds to it, so a referent registered on an abandoned path
+/// does not outlive the path — no pronoun finds it, and no conditional quantifies over it.
+#[derive(Debug, Clone)]
+pub struct DrsMark {
+    current_box: usize,
+    universes: Vec<usize>,
 }
 
 impl DrsBox {
@@ -594,6 +625,24 @@ impl Drs {
         }
     }
 
+    /// The DRS as it stands, for a speculative parse to rewind to.
+    pub fn mark(&self) -> DrsMark {
+        DrsMark {
+            current_box: self.current_box,
+            universes: self.boxes.iter().map(|b| b.universe.len()).collect(),
+        }
+    }
+
+    /// Undo what an abandoned parse added since `mark`: the boxes it opened, the referents it
+    /// introduced, and the box it was in.
+    pub fn rewind(&mut self, mark: &DrsMark) {
+        self.boxes.truncate(mark.universes.len());
+        for (drs_box, &len) in self.boxes.iter_mut().zip(&mark.universes) {
+            drs_box.universe.truncate(len);
+        }
+        self.current_box = mark.current_box;
+    }
+
     pub fn current_box_index(&self) -> usize {
         self.current_box
     }
@@ -602,7 +651,13 @@ impl Drs {
         self.boxes.get(self.current_box).and_then(|b| b.box_type)
     }
 
-    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number) {
+    pub fn introduce_referent(
+        &mut self,
+        variable: Symbol,
+        noun_class: Symbol,
+        gender: Gender,
+        number: Number,
+    ) {
         let source = self.boxes[self.current_box]
             .box_type
             .map(|bt| bt.to_referent_source())
@@ -612,8 +667,24 @@ impl Drs {
         self.boxes[self.current_box].universe.push(referent);
     }
 
+    /// Introduce the event a verb describes, so a conditional antecedent gives it universal
+    /// force like any referent of its box.
+    pub fn introduce_event_referent(&mut self, variable: Symbol, event_class: Symbol) {
+        self.introduce_referent(variable, event_class, Gender::Neuter, Number::Singular);
+        if let Some(event) = self.boxes[self.current_box].universe.last_mut() {
+            event.is_event = true;
+        }
+    }
+
     /// Introduce a referent with an explicit source (used for negative quantifiers like "No X")
-    pub fn introduce_referent_with_source(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) {
+    pub fn introduce_referent_with_source(
+        &mut self,
+        variable: Symbol,
+        noun_class: Symbol,
+        gender: Gender,
+        number: Number,
+        source: ReferentSource,
+    ) {
         let referent = Referent::new(variable, noun_class, gender, number, source);
         self.boxes[self.current_box].universe.push(referent);
     }
@@ -639,14 +710,27 @@ impl Drs {
     /// Accommodate a referent at the MAIN (highest) box. Definites presuppose
     /// existence, so they project globally even when first mentioned inside
     /// an embedded box (Van der Sandt global accommodation).
-    pub fn introduce_referent_global(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) {
+    pub fn introduce_referent_global(
+        &mut self,
+        variable: Symbol,
+        noun_class: Symbol,
+        gender: Gender,
+        number: Number,
+        source: ReferentSource,
+    ) {
         let referent = Referent::new(variable, noun_class, gender, number, source);
         self.boxes[self.main_box].universe.push(referent);
     }
 
     pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
         // Proper names are always singular
-        let referent = Referent::new(variable, name, gender, Number::Singular, ReferentSource::ProperName);
+        let referent = Referent::new(
+            variable,
+            name,
+            gender,
+            Number::Singular,
+            ReferentSource::ProperName,
+        );
         self.boxes[self.current_box].universe.push(referent);
     }
 
@@ -731,7 +815,12 @@ impl Drs {
     }
 
     /// Resolve a pronoun by finding accessible referents matching gender and number
-    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender, number: Number) -> Result<Symbol, ScopeError> {
+    pub fn resolve_pronoun(
+        &mut self,
+        from_box: usize,
+        gender: Gender,
+        number: Number,
+    ) -> Result<Symbol, ScopeError> {
         // Phase 1: Search accessible referents
         // A referent is accessible if:
         //   - It's in an accessible box, OR
@@ -745,13 +834,19 @@ impl Drs {
             for referent in &drs_box.universe {
                 // Skip referents that are from negative quantifiers (No X) or disjuncts
                 // Both are inaccessible outward per DRS accessibility
-                if matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct) {
+                if matches!(
+                    referent.source,
+                    ReferentSource::NegationScope | ReferentSource::Disjunct
+                ) {
                     continue;
                 }
 
                 // Check if this referent is accessible:
                 // Either the box is accessible, or the referent has globally accessible source
-                let has_global_source = matches!(referent.source, ReferentSource::MainClause | ReferentSource::ProperName);
+                let has_global_source = matches!(
+                    referent.source,
+                    ReferentSource::MainClause | ReferentSource::ProperName
+                );
                 if !box_accessible && !has_global_source {
                     continue;
                 }
@@ -769,15 +864,28 @@ impl Drs {
                 let number_match = referent.number == number;
 
                 if gender_match && number_match {
-                    candidates.push((box_idx, referent.variable));
+                    // Agreement the pronoun names outright ("he" for John), not accommodates.
+                    let exact = gender != Gender::Unknown && referent.gender == gender;
+                    let rank = if referent.is_event {
+                        2
+                    } else if exact {
+                        0
+                    } else {
+                        1
+                    };
+                    candidates.push((box_idx, referent.variable, rank));
                 }
             }
         }
 
-        // If found in accessible scope, return success
-        if let Some((box_idx, var)) = candidates.last() {
-            let box_idx = *box_idx;
-            let var = *var;
+        // An individual whose gender the pronoun names, then one whose gender it accommodates,
+        // then an event — and within a rank, the most recent.
+        let chosen = candidates
+            .iter()
+            .rev()
+            .min_by_key(|(_, _, rank)| *rank)
+            .map(|(box_idx, var, _)| (*box_idx, *var));
+        if let Some((box_idx, var)) = chosen {
             for referent in &mut self.boxes[box_idx].universe {
                 if referent.variable == var {
                     referent.used_by_pronoun = true;
@@ -792,14 +900,19 @@ impl Drs {
             for referent in &drs_box.universe {
                 // Referents with MainClause or ProperName source are ALWAYS accessible
                 // (definite descriptions presuppose existence and are globally accessible)
-                if matches!(referent.source, ReferentSource::MainClause | ReferentSource::ProperName) {
+                if matches!(
+                    referent.source,
+                    ReferentSource::MainClause | ReferentSource::ProperName
+                ) {
                     continue;
                 }
 
                 // Check for referents with NegationScope/Disjunct source (from "No X" or disjuncts)
                 // OR referents in inaccessible boxes
-                let is_inaccessible = matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct)
-                    || !self.is_accessible(_box_idx, from_box);
+                let is_inaccessible = matches!(
+                    referent.source,
+                    ReferentSource::NegationScope | ReferentSource::Disjunct
+                ) || !self.is_accessible(_box_idx, from_box);
 
                 if is_inaccessible {
                     // Same matching as Phase 1
@@ -810,19 +923,22 @@ impl Drs {
 
                     if gender_match && number_match {
                         // Found a matching referent but it's inaccessible
-                        let blocking_scope = if matches!(referent.source, ReferentSource::NegationScope) {
-                            BoxType::NegationScope
-                        } else if matches!(referent.source, ReferentSource::Disjunct) {
-                            BoxType::Disjunct
-                        } else {
-                            drs_box.box_type.unwrap_or(BoxType::Main)
-                        };
+                        let blocking_scope =
+                            if matches!(referent.source, ReferentSource::NegationScope) {
+                                BoxType::NegationScope
+                            } else if matches!(referent.source, ReferentSource::Disjunct) {
+                                BoxType::Disjunct
+                            } else {
+                                drs_box.box_type.unwrap_or(BoxType::Main)
+                            };
                         let noun_class_str = format!("{:?}", referent.noun_class);
                         return Err(ScopeError::InaccessibleReferent {
                             gender,
                             blocking_scope,
-                            reason: format!("'{}' is trapped in {:?} scope and cannot be accessed",
-                                noun_class_str, blocking_scope),
+                            reason: format!(
+                                "'{}' is trapped in {:?} scope and cannot be accessed",
+                                noun_class_str, blocking_scope
+                            ),
                         });
                     }
                 }
@@ -830,10 +946,7 @@ impl Drs {
         }
 
         // Phase 3: Not found anywhere
-        Err(ScopeError::NoMatchingReferent {
-            gender,
-            number,
-        })
+        Err(ScopeError::NoMatchingReferent { gender, number })
     }
 
     /// Resolve a definite description by finding accessible referent matching noun class
@@ -940,7 +1053,11 @@ impl Drs {
 
     /// Resolve bridging anaphora by finding referents whose type contains the noun as a part.
     /// Returns matching referent and whole name for PartOf relation.
-    pub fn resolve_bridging(&self, interner: &crate::Interner, noun_class: Symbol) -> Option<(Symbol, &'static str)> {
+    pub fn resolve_bridging(
+        &self,
+        interner: &crate::Interner,
+        noun_class: Symbol,
+    ) -> Option<(Symbol, &'static str)> {
         use crate::ontology::find_bridging_wholes;
 
         let noun_str = interner.resolve(noun_class);
@@ -968,9 +1085,12 @@ impl Drs {
         for drs_box in &self.boxes {
             for referent in &drs_box.universe {
                 // Proper names are rigid constants, never universally bound — a
-                // counterfactual "If John had studied…" must not become ∀John.
+                // counterfactual "If John had studied…" must not become ∀John. Nor are
+                // events: the transpiler binds every event of a conditional, and a second
+                // binder here would bind it twice.
                 if referent.should_be_universal()
                     && !matches!(referent.source, ReferentSource::ProperName)
+                    && !referent.is_event
                 {
                     result.push(referent.variable);
                 }
@@ -1060,7 +1180,10 @@ impl Drs {
             for referent in &drs_box.universe {
                 // Skip referents that are marked with NegationScope or Disjunct source
                 // These are trapped inside negation/disjunction and cannot telescope
-                if matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct) {
+                if matches!(
+                    referent.source,
+                    ReferentSource::NegationScope | ReferentSource::Disjunct
+                ) {
                     continue;
                 }
 
@@ -1080,7 +1203,11 @@ impl Drs {
 
     /// Find a referent that matches but is blocked by scope.
     /// Used to generate informative error messages.
-    pub fn find_blocked_referent(&self, from_box: usize, gender: Gender) -> Option<(Symbol, BoxType)> {
+    pub fn find_blocked_referent(
+        &self,
+        from_box: usize,
+        gender: Gender,
+    ) -> Option<(Symbol, BoxType)> {
         for (box_idx, drs_box) in self.boxes.iter().enumerate() {
             // Only check boxes that are NOT accessible
             if self.is_accessible(box_idx, from_box) {
@@ -1171,128 +1298,5 @@ impl Default for Drs {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_base::Interner;
-
-    #[test]
-    fn referent_source_universal_force() {
-        assert!(ReferentSource::ConditionalAntecedent.gets_universal_force());
-        assert!(ReferentSource::UniversalRestrictor.gets_universal_force());
-        assert!(!ReferentSource::MainClause.gets_universal_force());
-        assert!(!ReferentSource::ProperName.gets_universal_force());
-    }
-
-    #[test]
-    fn drs_new_has_main_box() {
-        let drs = Drs::new();
-        assert_eq!(drs.boxes.len(), 1);
-        assert_eq!(drs.current_box, 0);
-        assert_eq!(drs.boxes[0].box_type, Some(BoxType::Main));
-    }
-
-    #[test]
-    fn drs_enter_exit_box() {
-        let mut drs = Drs::new();
-        assert_eq!(drs.current_box, 0);
-
-        let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
-        assert_eq!(ant_idx, 1);
-        assert_eq!(drs.current_box, 1);
-        assert_eq!(drs.boxes[1].parent, Some(0));
-
-        drs.exit_box();
-        assert_eq!(drs.current_box, 0);
-    }
-
-    #[test]
-    fn drs_introduce_referent_tracks_source() {
-        let mut interner = Interner::new();
-        let mut drs = Drs::new();
-
-        let x = interner.intern("x");
-        let farmer = interner.intern("Farmer");
-
-        // In main box - should be MainClause
-        drs.introduce_referent(x, farmer, Gender::Male, Number::Singular);
-        assert_eq!(drs.boxes[0].universe[0].source, ReferentSource::MainClause);
-
-        // Enter conditional antecedent
-        drs.enter_box(BoxType::ConditionalAntecedent);
-        let y = interner.intern("y");
-        let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
-        assert_eq!(
-            drs.boxes[1].universe[0].source,
-            ReferentSource::ConditionalAntecedent
-        );
-    }
-
-    #[test]
-    fn drs_conditional_antecedent_accessible_from_consequent() {
-        let mut interner = Interner::new();
-        let mut drs = Drs::new();
-
-        // Enter conditional antecedent
-        let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
-        let y = interner.intern("y");
-        let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
-        drs.exit_box();
-
-        // Enter conditional consequent
-        let cons_idx = drs.enter_box(BoxType::ConditionalConsequent);
-
-        // Consequent should be able to access antecedent
-        assert!(drs.is_accessible(ant_idx, cons_idx));
-    }
-
-    #[test]
-    fn drs_negation_blocks_accessibility() {
-        let mut drs = Drs::new();
-
-        // Enter negation scope
-        let neg_idx = drs.enter_box(BoxType::NegationScope);
-        drs.exit_box();
-
-        // Main box should NOT be able to access negation scope
-        assert!(!drs.is_accessible(neg_idx, 0));
-    }
-
-    #[test]
-    fn drs_get_universal_referents() {
-        let mut interner = Interner::new();
-        let mut drs = Drs::new();
-
-        let x = interner.intern("x");
-        let farmer = interner.intern("Farmer");
-        drs.introduce_referent(x, farmer, Gender::Male, Number::Singular);
-
-        drs.enter_box(BoxType::ConditionalAntecedent);
-        let y = interner.intern("y");
-        let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
-
-        let universals = drs.get_universal_referents();
-        assert_eq!(universals.len(), 1);
-        assert_eq!(universals[0], y);
-    }
-
-    #[test]
-    fn drs_pronoun_resolution_marks_used() {
-        let mut interner = Interner::new();
-        let mut drs = Drs::new();
-
-        drs.enter_box(BoxType::UniversalRestrictor);
-        let y = interner.intern("y");
-        let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
-
-        // Resolve "it" - should find donkey
-        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter, Number::Singular);
-        assert_eq!(resolved, Ok(y));
-
-        // Should be marked as used
-        assert!(drs.boxes[1].universe[0].used_by_pronoun);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/drs/tests.rs"]
+mod tests;

@@ -1,0 +1,1321 @@
+{
+ "count": 219,
+ "entries": [
+  {
+   "kind": "function",
+   "module": "assert.h",
+   "signature": "",
+   "symbol": "assert"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isalnum"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isalpha"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isblank"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "iscntrl"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isdigit"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isgraph"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "islower"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isprint"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "ispunct"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isspace"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isupper"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "isxdigit"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "tolower"
+  },
+  {
+   "kind": "function",
+   "module": "ctype.h",
+   "signature": "",
+   "symbol": "toupper"
+  },
+  {
+   "kind": "function",
+   "module": "inttypes.h",
+   "signature": "",
+   "symbol": "imaxabs"
+  },
+  {
+   "kind": "function",
+   "module": "inttypes.h",
+   "signature": "",
+   "symbol": "imaxdiv"
+  },
+  {
+   "kind": "function",
+   "module": "inttypes.h",
+   "signature": "",
+   "symbol": "strtoimax"
+  },
+  {
+   "kind": "function",
+   "module": "inttypes.h",
+   "signature": "",
+   "symbol": "strtoumax"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "acos"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "acosh"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "asin"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "asinh"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "atan"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "atan2"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "atanh"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "cbrt"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "ceil"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "copysign"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "cos"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "cosh"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "erf"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "erfc"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "exp"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "exp2"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "expm1"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fabs"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fdim"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "floor"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fma"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fmax"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fmin"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fmod"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "fpclassify"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "frexp"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "hypot"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "ilogb"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "isfinite"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "isinf"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "isnan"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "isnormal"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "ldexp"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "lgamma"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "llround"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "log"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "log10"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "log1p"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "log2"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "logb"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "lrint"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "lround"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "modf"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "nan"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "nearbyint"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "nextafter"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "pow"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "remainder"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "remquo"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "rint"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "round"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "scalbn"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "signbit"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "sin"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "sinh"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "sqrt"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "tan"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "tanh"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "tgamma"
+  },
+  {
+   "kind": "function",
+   "module": "math.h",
+   "signature": "",
+   "symbol": "trunc"
+  },
+  {
+   "kind": "function",
+   "module": "setjmp.h",
+   "signature": "",
+   "symbol": "longjmp"
+  },
+  {
+   "kind": "function",
+   "module": "setjmp.h",
+   "signature": "",
+   "symbol": "setjmp"
+  },
+  {
+   "kind": "function",
+   "module": "signal.h",
+   "signature": "",
+   "symbol": "raise"
+  },
+  {
+   "kind": "function",
+   "module": "signal.h",
+   "signature": "",
+   "symbol": "signal"
+  },
+  {
+   "kind": "function",
+   "module": "stdarg.h",
+   "signature": "",
+   "symbol": "va_arg"
+  },
+  {
+   "kind": "function",
+   "module": "stdarg.h",
+   "signature": "",
+   "symbol": "va_copy"
+  },
+  {
+   "kind": "function",
+   "module": "stdarg.h",
+   "signature": "",
+   "symbol": "va_end"
+  },
+  {
+   "kind": "function",
+   "module": "stdarg.h",
+   "signature": "",
+   "symbol": "va_start"
+  },
+  {
+   "kind": "function",
+   "module": "stdbit.h",
+   "signature": "",
+   "symbol": "stdc_bit_ceil"
+  },
+  {
+   "kind": "function",
+   "module": "stdbit.h",
+   "signature": "",
+   "symbol": "stdc_bit_floor"
+  },
+  {
+   "kind": "function",
+   "module": "stdbit.h",
+   "signature": "",
+   "symbol": "stdc_bit_width"
+  },
+  {
+   "kind": "function",
+   "module": "stdbit.h",
+   "signature": "",
+   "symbol": "stdc_count_ones"
+  },
+  {
+   "kind": "function",
+   "module": "stdbit.h",
+   "signature": "",
+   "symbol": "stdc_leading_zeros"
+  },
+  {
+   "kind": "function",
+   "module": "stdbit.h",
+   "signature": "",
+   "symbol": "stdc_trailing_zeros"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "clearerr"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fclose"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "feof"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "ferror"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fflush"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fgetc"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fgetpos"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fgets"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fopen"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fprintf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fputc"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fputs"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fread"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "freopen"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fscanf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fseek"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fsetpos"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "ftell"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "fwrite"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "getc"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "getchar"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "perror"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "printf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "putc"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "putchar"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "puts"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "remove"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "rename"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "rewind"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "scanf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "setbuf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "setvbuf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "snprintf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "sprintf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "sscanf"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "tmpfile"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "tmpnam"
+  },
+  {
+   "kind": "function",
+   "module": "stdio.h",
+   "signature": "",
+   "symbol": "ungetc"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "_Exit"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "abort"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "abs"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "aligned_alloc"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "at_quick_exit"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "atexit"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "atof"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "atoi"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "atol"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "atoll"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "bsearch"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "calloc"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "div"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "exit"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "free"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "getenv"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "labs"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "ldiv"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "llabs"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "lldiv"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "malloc"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "mblen"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "mbstowcs"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "mbtowc"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "qsort"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "quick_exit"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "rand"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "realloc"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "srand"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtod"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtof"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtol"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtold"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtoll"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtoul"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "strtoull"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "system"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "wcstombs"
+  },
+  {
+   "kind": "function",
+   "module": "stdlib.h",
+   "signature": "",
+   "symbol": "wctomb"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "memchr"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "memcmp"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "memcpy"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "memmove"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "memset"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strcat"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strchr"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strcmp"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strcoll"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strcpy"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strcspn"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strerror"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strlen"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strncat"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strncmp"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strncpy"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strpbrk"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strrchr"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strspn"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strstr"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strtok"
+  },
+  {
+   "kind": "function",
+   "module": "string.h",
+   "signature": "",
+   "symbol": "strxfrm"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "cnd_init"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "cnd_signal"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "cnd_wait"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "mtx_init"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "mtx_lock"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "mtx_unlock"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "thrd_create"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "thrd_join"
+  },
+  {
+   "kind": "function",
+   "module": "threads.h",
+   "signature": "",
+   "symbol": "thrd_sleep"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "asctime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "clock"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "ctime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "difftime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "gmtime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "localtime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "mktime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "strftime"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "time"
+  },
+  {
+   "kind": "function",
+   "module": "time.h",
+   "signature": "",
+   "symbol": "timespec_get"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "iswalnum"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "iswalpha"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "iswdigit"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "iswlower"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "iswspace"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "iswupper"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "towlower"
+  },
+  {
+   "kind": "function",
+   "module": "wctype.h",
+   "signature": "",
+   "symbol": "towupper"
+  }
+ ],
+ "language": "c",
+ "version": "C23 (WG14 N3220)"
+}

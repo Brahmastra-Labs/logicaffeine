@@ -1,0 +1,11 @@
+{
+  "capability": "calendar.days_in_month",
+  "workload": "sum daysInMonth(year,month) over a rolling year/month sweep",
+  "arg": "3000000",
+  "expected": "91250000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "Pure-LOGOS calendar switch-lookup (calendar.days_in_month). Python rival present; C/Rust/Go rivals not yet authored, so perf stays pending. Sized so the Python rival is tolerable."
+}

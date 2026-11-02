@@ -2,7 +2,8 @@
 //! error are part of the LOGOS spec. Every program here runs through BOTH
 //! engines via the SAME front-end; outcome (output + error) must be identical.
 
-use logicaffeine_compile::compile::{tw_outcome, vm_outcome};
+use logicaffeine_compile::compile::{tw_outcome, vm_outcome, RunOutcome};
+use logicaffeine_system::testworld::{self, Capabilities, TestWorld};
 
 fn norm(s: &str) -> String {
     s.lines()
@@ -51,9 +52,7 @@ fn err_parity_index_zero() {
 fn err_parity_negative_index_prints_wrapped_usize() {
     // A negative index wraps through `as usize`; both engines print the
     // wrapped number — pinned behavior.
-    assert_outcome_parity(
-        "## Main\nLet xs be [1, 2].\nLet i be 0 - 1.\nShow item i of xs.\n",
-    );
+    assert_outcome_parity("## Main\nLet xs be [1, 2].\nLet i be 0 - 1.\nShow item i of xs.\n");
 }
 
 #[test]
@@ -65,9 +64,7 @@ fn err_parity_set_undefined_variable() {
 
 #[test]
 fn err_parity_partial_output_before_error() {
-    assert_outcome_parity(
-        "## Main\nShow \"a\".\nShow \"b\".\nLet x be 1 / 0.\nShow \"c\".\n",
-    );
+    assert_outcome_parity("## Main\nShow \"a\".\nShow \"b\".\nLet x be 1 / 0.\nShow \"c\".\n");
 }
 
 #[test]
@@ -209,4 +206,224 @@ fn outcome_parity_struct_field_set_via_index_syntax() {
          poke().\n\
          Show b's x.\n",
     );
+}
+
+// ── The file model ──────────────────────────────────────────────────────────────
+//
+// `Read … from file`, `Write … to file` and `Mount … at` are one model on both tiers: the
+// tree-walker's `Interpreter::with_vfs(MemVfs)` and the VM's `Vfs*` builtins read and write the
+// SAME in-memory filesystem — the sealed world `largo test` installs around a `## Test`
+// (`logicaffeine_system::testworld`). Outside a sealed world that filesystem holds nothing, so a
+// write lands nowhere and a read finds nothing, identically on both tiers.
+
+/// `src` on `run` inside a fresh sealed world of its own (each tier writes into its own world, so
+/// a file one tier wrote can never be what the other reads back).
+fn sealed(run: fn(&str) -> RunOutcome, src: &str) -> RunOutcome {
+    testworld::install(TestWorld::new(Capabilities::default(), 0));
+    let out = run(src);
+    testworld::uninstall();
+    out
+}
+
+/// The differential contract inside a sealed world, pinned to the tree-walker's OWN outcome first:
+/// a row is satisfied only by both tiers doing what the reference does, never by both failing
+/// alike.
+fn assert_sealed_parity(src: &str, output: &str, error: Option<&str>) {
+    let tw = sealed(tw_outcome, src);
+    assert_eq!(
+        norm(&tw.output),
+        norm(output),
+        "the tree-walker's own output for:\n{src}\ntw: {tw:?}"
+    );
+    assert_eq!(
+        tw.error.as_deref(),
+        error,
+        "the tree-walker's own error for:\n{src}\ntw: {tw:?}"
+    );
+    let vm = sealed(vm_outcome, src);
+    assert_eq!(
+        norm(&vm.output),
+        norm(&tw.output),
+        "partial output diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}"
+    );
+    assert_eq!(
+        vm.error, tw.error,
+        "error diverged for:\n{src}\nvm: {vm:?}\ntw: {tw:?}"
+    );
+}
+
+/// The VM's file statements finish where they run, whatever drives the VM: on the networking driver
+/// (`vm_outcome_net`, the one a program with `Listen`/`Send` takes, run by an executor of its own) a write
+/// and a read do exactly what the tree-walker does, in a sealed world and outside one, as on the plain driver.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn outcome_parity_files_on_the_networking_driver() {
+    use logicaffeine_compile::compile::vm_outcome_net;
+    let rows = [
+        (
+            "## Main\nShow \"start\".\nWrite \"hi\" to file \"a.txt\".\nRead x from file \"a.txt\".\nShow x.\n",
+            "start\nhi",
+            false,
+        ),
+        ("## Main\nShow \"start\".\nRead x from file \"missing.txt\".\nShow x.\n", "start", true),
+    ];
+    for (src, output, fails) in rows {
+        let tw = sealed(tw_outcome, src);
+        assert_eq!(
+            norm(&tw.output),
+            norm(output),
+            "the tree-walker's own output for:\n{src}\ntw: {tw:?}"
+        );
+        assert_eq!(
+            tw.error.is_some(),
+            fails,
+            "whether the tree-walker fails:\n{src}\ntw: {tw:?}"
+        );
+        for (driver, run) in [
+            ("plain", vm_outcome as fn(&str) -> RunOutcome),
+            ("networking", vm_outcome_net),
+        ] {
+            let vm = sealed(run, src);
+            assert_eq!(
+                (norm(&vm.output), vm.error.as_deref()),
+                (norm(&tw.output), tw.error.as_deref()),
+                "the VM's {driver} driver in a sealed world diverged for:\n{src}"
+            );
+        }
+        let (net, plain) = (vm_outcome_net(src), vm_outcome(src));
+        assert_eq!(
+            (norm(&net.output), net.error),
+            (norm(&plain.output), plain.error),
+            "the two VM drivers outside a sealed world for:\n{src}"
+        );
+    }
+}
+
+#[test]
+fn outcome_parity_file_write_then_read_back() {
+    // The round trip: what `Write` put there is what `Read` hands back.
+    assert_sealed_parity(
+        "## Main\nWrite \"hi\" to file \"a.txt\".\nRead x from file \"a.txt\".\nShow x.\n",
+        "hi",
+        None,
+    );
+    // Content and path are displayed, not typed: a number writes as its text.
+    assert_sealed_parity(
+        "## Main\nWrite 42 to file \"n.txt\".\nRead x from file \"n.txt\".\nShow x.\n",
+        "42",
+        None,
+    );
+    // The path can come from a binding.
+    assert_sealed_parity(
+        "## Main\nLet p be \"v.txt\".\nWrite \"via\" to file p.\nRead x from file p.\nShow x.\n",
+        "via",
+        None,
+    );
+    // The program goes on after a write, and a write reports nothing of its own.
+    assert_sealed_parity(
+        "## Main\nShow \"before\".\nWrite \"hi\" to file \"a.txt\".\nShow \"after\".\n",
+        "before\nafter",
+        None,
+    );
+    // Outside a sealed world there is no filesystem at all: the write lands nowhere and the read
+    // finds nothing — on both tiers, in the same words.
+    assert_outcome_parity(
+        "## Main\nWrite \"hi\" to file \"a.txt\".\nRead x from file \"a.txt\".\nShow x.\n",
+    );
+}
+
+#[test]
+fn outcome_parity_file_write_replaces_and_reads_the_last_content() {
+    // A second `Write` to the same path replaces the first: the language has no file-append
+    // statement (`Append … to …` is the sequence operation), so replacement IS the write model.
+    assert_sealed_parity(
+        "## Main\n\
+         Write \"first\" to file \"a.txt\".\n\
+         Write \"second\" to file \"a.txt\".\n\
+         Read x from file \"a.txt\".\n\
+         Show x.\n",
+        "second",
+        None,
+    );
+    // Two paths are two files.
+    assert_sealed_parity(
+        "## Main\n\
+         Write \"one\" to file \"1.txt\".\n\
+         Write \"two\" to file \"2.txt\".\n\
+         Read a from file \"1.txt\".\n\
+         Read b from file \"2.txt\".\n\
+         Show a.\n\
+         Show b.\n",
+        "one\ntwo",
+        None,
+    );
+}
+
+#[test]
+fn outcome_parity_file_write_then_read_a_missing_file() {
+    // The write succeeds; the read of ANOTHER path fails in the tree-walker's words, after the
+    // partial output.
+    assert_sealed_parity(
+        "## Main\nShow \"start\".\nWrite \"hi\" to file \"a.txt\".\nRead y from file \"b.txt\".\nShow y.\n",
+        "start",
+        Some("Read error: Not found: b.txt"),
+    );
+    // And the same program outside a sealed world.
+    assert_outcome_parity(
+        "## Main\nShow \"start\".\nWrite \"hi\" to file \"a.txt\".\nRead y from file \"b.txt\".\nShow y.\n",
+    );
+}
+
+#[test]
+fn outcome_parity_mount_reads_the_journal_or_starts_empty() {
+    // `Mount c at "…"` binds `c` to the file's text when it exists …
+    assert_sealed_parity(
+        "## Main\nWrite \"7\" to file \"c.journal\".\nMount c at \"c.journal\".\nShow c.\n",
+        "7",
+        None,
+    );
+    // … and to empty Text when it does not — no error, the program goes on.
+    assert_sealed_parity(
+        "## Main\nMount c at \"missing.journal\".\nShow length of c.\nShow \"after\".\n",
+        "0\nafter",
+        None,
+    );
+    // The path can come from a binding.
+    assert_sealed_parity(
+        "## Main\nLet p be \"e.journal\".\nWrite \"e\" to file p.\nMount c at p.\nShow c.\n",
+        "e",
+        None,
+    );
+    // The `Let … be mounted at …` spelling is the same statement.
+    assert_sealed_parity(
+        "## Main\n\
+         Write \"9\" to file \"d.journal\".\n\
+         Let d: Persistent Text be mounted at \"d.journal\".\n\
+         Show d.\n",
+        "9",
+        None,
+    );
+    // Outside a sealed world a mount starts empty on both tiers.
+    assert_outcome_parity("## Main\nMount c at \"c.journal\".\nShow length of c.\n");
+}
+
+#[test]
+fn vm_file_statements_never_name_the_interpreter_api() {
+    // Whatever a file statement answers on the VM, it is never the tree-walker's constructor: an
+    // author reads what the program did, not how an engine was built.
+    for src in [
+        "## Main\nWrite \"hi\" to file \"a.txt\".\n",
+        "## Main\nRead x from file \"a.txt\".\n",
+        "## Main\nMount c at \"c.journal\".\n",
+    ] {
+        for out in [vm_outcome(src), sealed(vm_outcome, src)] {
+            if let Some(error) = &out.error {
+                assert!(
+                    !error.contains("Interpreter::with_vfs")
+                        && !error.contains("VFS not initialized"),
+                    "the VM leaked an engine API for:\n{src}\n{error}"
+                );
+            }
+        }
+    }
 }

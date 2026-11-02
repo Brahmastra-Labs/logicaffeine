@@ -1,0 +1,208 @@
+{
+ "candidate": {
+  "batch": 8,
+  "clock": "clock",
+  "inputs": [],
+  "kernel": "K3",
+  "mems": [
+   {
+    "contract": [
+     "a@0",
+     "a@1",
+     "a@2",
+     "a@3",
+     "a@4",
+     "a@5",
+     "a@6",
+     "a@7"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "a",
+    "words_per_port": 8
+   },
+   {
+    "contract": [
+     "w@0"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "w",
+    "words_per_port": 64
+   },
+   {
+    "contract": [
+     "o@0",
+     "o@1",
+     "o@2",
+     "o@3",
+     "o@4",
+     "o@5",
+     "o@6",
+     "o@7"
+    ],
+    "kind": {
+     "Bram": {
+      "ports": 2
+     }
+    },
+    "prefix": "o",
+    "words_per_port": 8
+   }
+  ],
+  "name": "k3_bambu_fsm_array_nangate4p5",
+  "outputs": [],
+  "ports": [
+   {
+    "bits": 6,
+    "dir": "Out",
+    "name": "a_address0"
+   },
+   {
+    "bits": 6,
+    "dir": "Out",
+    "name": "a_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "a_ce1"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "a_q0"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "a_q1"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "done_port"
+   },
+   {
+    "bits": 6,
+    "dir": "Out",
+    "name": "o_address0"
+   },
+   {
+    "bits": 6,
+    "dir": "Out",
+    "name": "o_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o_ce1"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o_d0"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "o_d1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o_we0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "o_we1"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "start_port"
+   },
+   {
+    "bits": 6,
+    "dir": "Out",
+    "name": "w_address0"
+   },
+   {
+    "bits": 6,
+    "dir": "Out",
+    "name": "w_address1"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "w_ce0"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "w_ce1"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "w_q0"
+   },
+   {
+    "bits": 8,
+    "dir": "In",
+    "name": "w_q1"
+   }
+  ],
+  "protocol": {
+   "StartDone": {
+    "done": "done_port",
+    "start": "start_port"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "gemm8_arrays"
+ },
+ "files": [
+  "gemm8_arrays.v"
+ ],
+ "golden_signature": "d0c75b80a9766503",
+ "harness": "qorbist_k3_bambu_fsm_array_nangate4p5.v",
+ "harness_top": "qorbist_k3_bambu_fsm_array_nangate4p5",
+ "kernel": "K3",
+ "kernel_name": "gemm8",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "start/done",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

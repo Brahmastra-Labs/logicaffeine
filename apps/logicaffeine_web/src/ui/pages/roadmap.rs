@@ -8,20 +8,30 @@
 //! interactive English → FOL examples (toggle between Simple FOL and Unicode
 //! output).
 //!
+//! Each card draws its own status dot (a check, a hammer, a drafting compass)
+//! and the stretch of timeline down to the next card, placed from one set of
+//! CSS variables so the dots stay on the line at every width. The release
+//! history opens with the Next release block, which the build bakes from the
+//! CHANGELOG's `[Unreleased]` section ([`changelog`](super::changelog)).
+//!
 //! # Route
 //!
 //! Accessed via [`Route::Roadmap`].
 
-use dioxus::prelude::*;
-#[cfg(all(feature = "split", target_arch = "wasm32"))]
-use dioxus::wasm_split;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
-use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+use crate::ui::components::icon::{Icon, IconSize, IconVariant};
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::pages::news::get_articles;
 use crate::ui::pages::roadmap_data::{get_milestones, Milestone, Status};
 use crate::ui::pages::roadmap_history::{get_history, news_slug_for, Release};
 use crate::ui::router::Route;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, roadmap_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, roadmap_schema, BreadcrumbItem,
+    JsonLdMultiple, PageHead,
+};
+use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 
 const ROADMAP_STYLE: &str = r#"
 .roadmap-container {
@@ -123,48 +133,73 @@ const ROADMAP_STYLE: &str = r#"
     line-height: 1.6;
 }
 
+/* The timeline's geometry, set once. Each card draws its own dot and the stretch of line from
+   that dot down to the next card's, both placed from these values inside the card, so the dots
+   sit on the line and the line runs from the first dot to the last at every width. */
 .timeline {
+    --rail-x: 28px;
+    --rail-w: 3px;
+    --dot: 28px;
+    --card-x: 70px;
+    --card-border: 1px;
+    --card-pad: 24px;
+    --title-line: 28px;
+    --gap: 40px;
+    --dot-center: calc(var(--card-border) + var(--card-pad) + var(--title-line) / 2);
+    --rail-done: #22c55e;
+    --rail-progress: #a78bfa;
+    --rail-planned: rgba(148, 163, 184, 0.45);
     max-width: 700px;
     margin: 0 auto;
     padding: 0 20px 80px;
-    position: relative;
-}
-
-.timeline::before {
-    content: "";
-    position: absolute;
-    left: 28px;
-    top: 0;
-    bottom: 80px;
-    width: 3px;
-    background: linear-gradient(
-        180deg,
-        #22c55e 0%,
-        #22c55e 86%,
-        #a78bfa 90%,
-        #a78bfa 100%
-    );
-    border-radius: 2px;
 }
 
 .milestone {
     position: relative;
-    padding-left: 70px;
-    margin-bottom: 40px;
+    padding-left: var(--card-x);
+    margin-bottom: var(--gap);
 }
+
+.milestone:last-child {
+    margin-bottom: 0;
+}
+
+/* The line from this card's dot to the next card's, in this card's status colour fading into
+   the next one's. */
+.milestone::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--rail-x) - var(--rail-w) / 2);
+    top: var(--dot-center);
+    width: var(--rail-w);
+    height: calc(100% + var(--gap));
+    border-radius: 2px;
+    background: linear-gradient(var(--rail-from), var(--rail-to));
+}
+
+.milestone:last-child::before {
+    display: none;
+}
+
+.milestone.from-done { --rail-from: var(--rail-done); }
+.milestone.from-progress { --rail-from: var(--rail-progress); }
+.milestone.from-planned { --rail-from: var(--rail-planned); }
+.milestone.to-done { --rail-to: var(--rail-done); }
+.milestone.to-progress { --rail-to: var(--rail-progress); }
+.milestone.to-planned { --rail-to: var(--rail-planned); }
 
 .milestone-dot {
     position: absolute;
-    left: 16px;
-    top: 4px;
-    width: 24px;
-    height: 24px;
+    z-index: 1;
+    left: calc(var(--rail-x) - var(--dot) / 2);
+    top: calc(var(--dot-center) - var(--dot) / 2);
+    width: var(--dot);
+    height: var(--dot);
+    box-sizing: border-box;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    font-weight: 600;
 }
 
 .milestone-dot.done {
@@ -178,9 +213,10 @@ const ROADMAP_STYLE: &str = r#"
     animation: pulse 2s ease-in-out infinite;
 }
 
+/* Planned work is a sketch: an opaque disc, so the line stops at its rim, drawn in dashes. */
 .milestone-dot.planned {
-    background: rgba(255,255,255,0.1);
-    border: 2px solid rgba(255,255,255,0.2);
+    background: #151b2e;
+    border: 2px dashed rgba(148, 163, 184, 0.6);
 }
 
 @keyframes pulse {
@@ -190,9 +226,9 @@ const ROADMAP_STYLE: &str = r#"
 
 .milestone-content {
     background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
+    border: var(--card-border) solid rgba(255,255,255,0.08);
     border-radius: 16px;
-    padding: 24px;
+    padding: var(--card-pad);
     transition: all 0.2s ease;
 }
 
@@ -203,14 +239,18 @@ const ROADMAP_STYLE: &str = r#"
 
 .milestone-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    gap: 6px 12px;
+    min-height: var(--title-line);
     margin-bottom: 12px;
 }
 
+/* A fixed first line box: the dot centres on it, whether or not the header wraps. */
 .milestone-title {
     font-size: 20px;
     font-weight: 700;
+    line-height: var(--title-line);
     color: #fff;
 }
 
@@ -325,16 +365,12 @@ const ROADMAP_STYLE: &str = r#"
 }
 
 @media (max-width: 600px) {
-    .timeline::before {
-        left: 18px;
-    }
-    .milestone {
-        padding-left: 50px;
-    }
-    .milestone-dot {
-        left: 6px;
-        width: 20px;
-        height: 20px;
+    .timeline {
+        --rail-x: 14px;
+        --dot: 24px;
+        --card-x: 40px;
+        --card-pad: 18px;
+        --title-line: 26px;
     }
     .milestone-title {
         font-size: 18px;
@@ -510,17 +546,50 @@ fn MilestoneExamples(examples: &'static [crate::ui::pages::roadmap_data::Example
     }
 }
 
+/// The line that closes the Next release block: how many other changes and fixes `[Unreleased]`
+/// holds beside its additions. `None` when it holds none.
+pub fn next_release_summary(changed: usize, fixed: usize, since: &str) -> Option<String> {
+    let counts: Vec<String> = [(changed, "change", "changes"), (fixed, "fix", "fixes")]
+        .into_iter()
+        .filter(|&(n, _, _)| n > 0)
+        .map(|(n, one, many)| format!("{n} {}", if n == 1 { one } else { many }))
+        .collect();
+    if counts.is_empty() {
+        return None;
+    }
+    Some(format!("Plus {} since v{since}.", counts.join(" and ")))
+}
+
+/// Each status's dot: done, being built, on the drawing board.
 fn milestone_dot_icon(status: Status) -> IconVariant {
     match status {
         Status::Complete => IconVariant::Check,
-        Status::InProgress => IconVariant::Clock,
-        Status::Planned => IconVariant::Sparkles,
+        Status::InProgress => IconVariant::Hammer,
+        Status::Planned => IconVariant::DraftingCompass,
     }
 }
 
+/// The glyph's colour: white on the filled dots, a muted slate on a planned card's sketch.
+fn milestone_dot_color(status: Status) -> &'static str {
+    match status {
+        Status::Planned => "#cbd5e1",
+        _ => "#fff",
+    }
+}
+
+/// One card on the timeline. `next` is the status of the card below it, which the stretch of line
+/// from this card's dot down to that card's fades into; the last card has none and draws no line.
 #[component]
-fn MilestoneItem(milestone: &'static Milestone) -> Element {
+fn MilestoneItem(milestone: &'static Milestone, next: Option<Status>) -> Element {
     let status = milestone.status;
+    let card_class = match next {
+        Some(next) => format!(
+            "milestone from-{} to-{}",
+            status.css_class(),
+            next.css_class()
+        ),
+        None => format!("milestone from-{}", status.css_class()),
+    };
     let dot_class = format!("milestone-dot {}", status.css_class());
     let badge_class = format!("milestone-badge {}", status.css_class());
     let tag_class = match status {
@@ -529,9 +598,9 @@ fn MilestoneItem(milestone: &'static Milestone) -> Element {
     };
 
     rsx! {
-        div { class: "milestone",
+        div { class: "{card_class}",
             div { class: "{dot_class}",
-                Icon { variant: milestone_dot_icon(status), size: IconSize::Small, color: "#fff" }
+                Icon { variant: milestone_dot_icon(status), size: IconSize::Small, color: milestone_dot_color(status) }
             }
             div { class: "milestone-content",
                 div { class: "milestone-header",
@@ -568,6 +637,56 @@ const RELEASE_HISTORY_STYLE: &str = r#"
     max-width: 700px;
     margin: 0 auto;
     padding: 0 20px 80px;
+}
+
+.next-release {
+    margin: 0 0 20px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(167,139,250,0.25);
+    background: rgba(167,139,250,0.05);
+}
+
+.next-release-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.next-release-title {
+    font-weight: 700;
+    font-size: 15px;
+    color: #fff;
+}
+
+.next-release-list {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: rgba(229,231,235,0.85);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.next-release-summary {
+    margin: 10px 0 0;
+    color: rgba(229,231,235,0.55);
+    font-size: 13px;
+}
+
+.next-release-news {
+    display: inline-block;
+    margin-top: 10px;
+    color: #a78bfa;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.next-release-news:hover {
+    text-decoration: underline;
 }
 
 .release-list {
@@ -685,7 +804,11 @@ fn ReleaseRowBody(release: &'static Release, unreleased: bool) -> Element {
 
 #[component]
 fn ReleaseRow(release: &'static Release, unreleased: bool) -> Element {
-    let maint = if release.maintenance { " maintenance" } else { "" };
+    let maint = if release.maintenance {
+        " maintenance"
+    } else {
+        ""
+    };
     match news_slug_for(&release.version) {
         Some(slug) => rsx! {
             Link {
@@ -703,11 +826,58 @@ fn ReleaseRow(release: &'static Release, unreleased: bool) -> Element {
     }
 }
 
+/// `[Unreleased]` from the root CHANGELOG, as the build baked it (see `build.rs`): each addition's
+/// headline, and how many other changes and fixes there are.
+mod next {
+    include!(concat!(env!("OUT_DIR"), "/roadmap_next.rs"));
+}
+
+/// What the next release holds so far, read off `[Unreleased]`, with the newest news article
+/// written since the last release.
+#[component]
+fn NextRelease() -> Element {
+    let last = get_history().first();
+    let since = last.map(|r| r.version.as_str()).unwrap_or_default();
+    let since_date = last.map(|r| r.date.as_str()).unwrap_or_default();
+    let summary = next_release_summary(next::CHANGED, next::FIXED, since);
+    let article = get_articles().into_iter().find(|a| a.date > since_date);
+
+    rsx! {
+        div { class: "next-release",
+            div { class: "next-release-header",
+                span { class: "next-release-title", "Next release" }
+                span { class: "release-unreleased", "In progress" }
+            }
+            ul { class: "next-release-list",
+                for (i, headline) in next::ADDED.iter().enumerate() {
+                    li { key: "{i}", "{headline}" }
+                }
+            }
+            if let Some(summary) = summary {
+                p { class: "next-release-summary", "{summary}" }
+            }
+            if let Some(article) = article {
+                Link {
+                    to: Route::NewsArticle { slug: article.slug.to_string() },
+                    class: "next-release-news",
+                    "Read: {article.title} →"
+                }
+            }
+        }
+    }
+}
+
 #[component(lazy)]
 pub fn Roadmap() -> Element {
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Roadmap", path: "/roadmap" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "Roadmap",
+            path: "/roadmap",
+        },
     ];
     let schemas = vec![
         organization_schema(),
@@ -718,8 +888,12 @@ pub fn Roadmap() -> Element {
     // Releases are newest-first; the ones above the newest git tag are genuinely
     // unreleased (prepared, not yet cut). Older untagged releases predate tagging
     // and were released, so they are not badged.
+    let milestones = get_milestones();
     let history = get_history();
-    let first_tagged = history.iter().position(|r| r.tagged).unwrap_or(history.len());
+    let first_tagged = history
+        .iter()
+        .position(|r| r.tagged)
+        .unwrap_or(history.len());
     let maint_count = history.iter().filter(|r| r.maintenance).count();
     let mut show_maint = use_signal(|| false);
 
@@ -738,19 +912,20 @@ pub fn Roadmap() -> Element {
 
             section { class: "roadmap-hero",
                 h1 { "LOGOS Roadmap" }
-                span { class: "version", "v0.10.0" }
-                p { "From English sentences to a verified compilation stack: first-order logic, a native execution tier, hardware model checking, and a kernel-certified proof core." }
+                span { class: "version", "v0.11.0" }
+                p { "From English sentences to a verified compilation stack: first-order logic, full-stack websites, native, GPU and WebAssembly backends, hardware model checking, a kernel-certified proof core, and circuits compiled from the program itself." }
             }
 
             h2 { class: "roadmap-section-title", "Featured milestones" }
             div { class: "timeline",
-                for (i, milestone) in get_milestones().iter().enumerate() {
-                    MilestoneItem { key: "{i}", milestone }
+                for (i, milestone) in milestones.iter().enumerate() {
+                    MilestoneItem { key: "{i}", milestone, next: milestones.get(i + 1).map(|m| m.status) }
                 }
             }
 
             h2 { class: "roadmap-section-title", "Release history" }
             section { class: "release-history",
+                NextRelease {}
                 if maint_count > 0 {
                     button {
                         class: "maint-toggle",
@@ -775,3 +950,7 @@ pub fn Roadmap() -> Element {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/roadmap/tests.rs"]
+mod tests;

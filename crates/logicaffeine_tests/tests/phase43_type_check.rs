@@ -2,12 +2,12 @@
 
 use logicaffeine_base::{Arena, Interner};
 use logicaffeine_language::{
-    Lexer, Token, Parser,
-    ast::{Stmt, Expr},
-    drs::WorldState,
-    arena_ctx::AstContext,
     analysis::TypeRegistry,
+    arena_ctx::AstContext,
+    ast::{Expr, Stmt},
+    drs::WorldState,
     error::ParseErrorKind,
+    Lexer, Parser, Token,
 };
 
 fn make_parser(source: &str) -> (Interner, Vec<Token>) {
@@ -49,7 +49,13 @@ fn type_mismatch_int_with_text_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -93,7 +99,13 @@ fn type_mismatch_text_with_int_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -137,7 +149,13 @@ fn type_mismatch_bool_with_int_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -185,11 +203,21 @@ fn correct_int_type_annotation() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "Correct type annotation should pass: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Correct type annotation should pass: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -220,11 +248,21 @@ fn correct_text_type_annotation() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "Correct type annotation should pass: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Correct type annotation should pass: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -255,11 +293,21 @@ fn correct_bool_type_annotation() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "Correct type annotation should pass: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Correct type annotation should pass: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -294,11 +342,21 @@ fn no_type_annotation_allowed() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "No type annotation should be allowed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "No type annotation should be allowed: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -333,9 +391,19 @@ fn nat_accepts_int_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
+    let mut parser = Parser::new(
+        tokens,
+        &mut world_state,
+        &mut interner,
+        ast_ctx,
+        TypeRegistry::default(),
+    );
     parser.process_block_headers();
 
     let result = parser.parse_program();
-    assert!(result.is_ok(), "Nat should accept Int literals: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Nat should accept Int literals: {:?}",
+        result
+    );
 }

@@ -1,0 +1,54 @@
+{
+  "id": "3.4",
+  "title": "Analytic and Synthetic Statements",
+  "order": 4,
+  "content": [
+    {
+      "type": "definition",
+      "term": "Analytic",
+      "definition": "True or false by the meanings of its words alone, like 'All bachelors are unmarried'."
+    },
+    {
+      "type": "definition",
+      "term": "Synthetic",
+      "definition": "True or false depending on how the world is, like 'Some swans are black'."
+    },
+    {
+      "type": "paragraph",
+      "text": "A priori knowledge comes from reason alone. A posteriori knowledge needs experience. The first pair is about what makes a statement true. The second is about how we know it."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Analytic",
+      "lines": [
+        "A triangle has three sides.",
+        "Nothing is red all over and green all over at once."
+      ],
+      "note": "No observation is needed. Denying these contradicts what the words mean."
+    },
+    {
+      "type": "worked",
+      "title": "Synthetic",
+      "lines": [
+        "Water boils at 100 °C under standard air pressure.",
+        "Some swans are black."
+      ],
+      "note": "You have to look at the world to know these."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which statement is analytic?",
+    "options": [
+      "Gold is heavier than silver",
+      "All sisters are female",
+      "Dogs are loyal",
+      "The sun rises in the east"
+    ],
+    "correct": 1,
+    "hint": "Which one can you know from the meanings of its words alone?",
+    "explanation": "Being female is part of what 'sister' means, so 'All sisters are female' is analytic. The others need observation."
+  }
+}

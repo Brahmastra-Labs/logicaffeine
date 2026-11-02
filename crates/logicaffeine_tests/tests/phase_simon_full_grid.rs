@@ -31,7 +31,7 @@ struct Category {
 fn load_simon() -> Puzzle {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json"
+        "/tests/fixtures/puzzles/3cf932ef3e458bf4fcba3081d831f5ae.json"
     );
     let raw = std::fs::read_to_string(path).expect("read Simon puzzle JSON");
     serde_json::from_str(&raw).expect("parse Simon puzzle JSON")
@@ -68,7 +68,11 @@ fn phrase(item: &str, rel: &Relation) -> String {
 }
 
 fn bijection(items: &[String], rel: &Relation) -> String {
-    let disjuncts = items.iter().map(|i| phrase(i, rel)).collect::<Vec<_>>().join(" or ");
+    let disjuncts = items
+        .iter()
+        .map(|i| phrase(i, rel))
+        .collect::<Vec<_>>()
+        .join(" or ");
     let mut s = format!("Given: Every trip is {disjuncts}.\n");
     for i in items {
         s.push_str(&format!("Given: Exactly one trip is {}.\n", phrase(i, rel)));
@@ -111,7 +115,10 @@ fn build_theorem(p: &Puzzle) -> String {
         let rel = infer_relation(&cat.items, &p.clues);
         doc.push_str(&declaration(&cat.items, category_noun(&cat.items, &rel)));
         if matches!(rel, Relation::In)
-            && cat.items.iter().all(|i| i.chars().all(|c| c.is_ascii_digit()))
+            && cat
+                .items
+                .iter()
+                .all(|i| i.chars().all(|c| c.is_ascii_digit()))
         {
             year_items = Some(cat.items.clone());
         }
@@ -123,7 +130,10 @@ fn build_theorem(p: &Puzzle) -> String {
     if let Some(years) = year_items {
         let mut sorted = years.clone();
         sorted.sort();
-        for (name, y) in ["Alpha", "Beta", "Gamma", "Delta"].iter().zip(sorted.iter()) {
+        for (name, y) in ["Alpha", "Beta", "Gamma", "Delta"]
+            .iter()
+            .zip(sorted.iter())
+        {
             doc.push_str(&format!("Given: {name} is in {y}.\n"));
         }
     }

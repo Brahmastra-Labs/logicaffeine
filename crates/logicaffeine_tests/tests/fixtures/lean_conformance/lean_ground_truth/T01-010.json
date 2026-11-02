@@ -1,0 +1,398 @@
+{
+  "case": "T01-010",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 50,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T01_010.Box",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T01_010.Box \u03b1 \u2192 Sort u} \u2192 (t : T01_010.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_010.Box.mk a)) \u2192 motive t",
+      "name": "T01_010.Box.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T01_010.Box \u03b1",
+      "name": "T01_010.Box.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T01_010.Box.mk a = T01_010.Box.mk a_1 \u2192 a = a_1",
+      "name": "T01_010.Box.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T01_010.Box.mk a = T01_010.Box.mk a_1) = (a = a_1)",
+      "name": "T01_010.Box.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T01_010.Box.mk a) = 1 + sizeOf a",
+      "name": "T01_010.Box.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T01_010.Box \u03b1} \u2192 v1 = v2 \u2192 T01_010.Box.noConfusionType P v1 v2",
+      "name": "T01_010.Box.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T01_010.Box \u03b1 \u2192 T01_010.Box \u03b1 \u2192 Sort u",
+      "name": "T01_010.Box.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T01_010.Box \u03b1 \u2192 Sort u} \u2192 ((a : \u03b1) \u2192 motive (T01_010.Box.mk a)) \u2192 (t : T01_010.Box \u03b1) \u2192 motive t",
+      "name": "T01_010.Box.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T01_010.Box \u03b1 \u2192 Sort u} \u2192 (t : T01_010.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T01_010.Box.mk a)) \u2192 motive t",
+      "name": "T01_010.Box.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.Holder",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_010.Holder \u2192 Sort u} \u2192 (t : T01_010.Holder) \u2192 ((p : Prop) \u2192 motive { p := p }) \u2192 motive t",
+      "name": "T01_010.Holder.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 T01_010.Holder",
+      "name": "T01_010.Holder.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p p_1 : Prop}, { p := p } = { p := p_1 } \u2192 p = p_1",
+      "name": "T01_010.Holder.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p p_1 : Prop), ({ p := p } = { p := p_1 }) = (p = p_1)",
+      "name": "T01_010.Holder.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (p : Prop), sizeOf { p := p } = 1 + sizeOf p",
+      "name": "T01_010.Holder.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T01_010.Holder} \u2192 v1 = v2 \u2192 T01_010.Holder.noConfusionType P v1 v2",
+      "name": "T01_010.Holder.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T01_010.Holder \u2192 T01_010.Holder \u2192 Sort u",
+      "name": "T01_010.Holder.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_010.Holder \u2192 Prop",
+      "name": "T01_010.Holder.p",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_010.Holder \u2192 Sort u} \u2192 ((p : Prop) \u2192 motive { p := p }) \u2192 (t : T01_010.Holder) \u2192 motive t",
+      "name": "T01_010.Holder.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_010.Holder \u2192 Sort u} \u2192 (t : T01_010.Holder) \u2192 ((p : Prop) \u2192 motive { p := p }) \u2192 motive t",
+      "name": "T01_010.Holder.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.Mixed",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_010.Mixed \u2192 Sort u} \u2192\n  (t : T01_010.Mixed) \u2192 ((n : Nat) \u2192 (q : Prop) \u2192 motive { n := n, q := q }) \u2192 motive t",
+      "name": "T01_010.Mixed.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop \u2192 T01_010.Mixed",
+      "name": "T01_010.Mixed.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {n : Nat} {q : Prop} {n_1 : Nat} {q_1 : Prop}, { n := n, q := q } = { n := n_1, q := q_1 } \u2192 n = n_1 \u2227 q = q_1",
+      "name": "T01_010.Mixed.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat) (q : Prop) (n_1 : Nat) (q_1 : Prop), ({ n := n, q := q } = { n := n_1, q := q_1 }) = (n = n_1 \u2227 q = q_1)",
+      "name": "T01_010.Mixed.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat) (q : Prop), sizeOf { n := n, q := q } = 1 + sizeOf n + sizeOf q",
+      "name": "T01_010.Mixed.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T01_010.Mixed \u2192 Nat",
+      "name": "T01_010.Mixed.n",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T01_010.Mixed} \u2192 v1 = v2 \u2192 T01_010.Mixed.noConfusionType P v1 v2",
+      "name": "T01_010.Mixed.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T01_010.Mixed \u2192 T01_010.Mixed \u2192 Sort u",
+      "name": "T01_010.Mixed.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_010.Mixed \u2192 Prop",
+      "name": "T01_010.Mixed.q",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_010.Mixed \u2192 Sort u} \u2192\n  ((n : Nat) \u2192 (q : Prop) \u2192 motive { n := n, q := q }) \u2192 (t : T01_010.Mixed) \u2192 motive t",
+      "name": "T01_010.Mixed.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T01_010.Mixed \u2192 Sort u} \u2192\n  (t : T01_010.Mixed) \u2192 ((n : Nat) \u2192 (q : Prop) \u2192 motive { n := n, q := q }) \u2192 motive t",
+      "name": "T01_010.Mixed.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_010.Holder",
+      "name": "T01_010.aHolder",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_010.Box Prop",
+      "name": "T01_010.boxOfProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Prop \u2192 Type) \u2192 Type",
+      "name": "T01_010.familyOverProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_010.forallOverProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.holderIsAType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "List Prop",
+      "name": "T01_010.listOfProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.mixedIsAType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Sort u} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T01_010.polyId",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "True \u2192 True",
+      "name": "T01_010.polyIdAtProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Prop",
+      "name": "T01_010.polyIdOnProp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T01_010.predicateOnProps",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.propIsAType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Nat",
+      "name": "T01_010.propToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.propToNatType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T01_010.propToPropType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type 1",
+      "name": "T01_010.propToTypeType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T01_010.forallOverProps",
+      "name": "T01_010.usesForallOverProps",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

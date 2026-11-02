@@ -1,0 +1,85 @@
+{
+  "case": "T08-012",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T08_012.bareSimp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n * 1 = n",
+      "name": "T08_012.localSimpLemma",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop) (a : Nat), p a \u2192 p (a + 0)",
+      "name": "T08_012.residueMatters",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat), n + 0 = m \u2192 n = m",
+      "name": "T08_012.simpAll",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = 3 \u2192 n = 3",
+      "name": "T08_012.simpAt",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T08_012.simpOnly",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (f : Nat \u2192 Nat) (a : Nat), f a = a \u2192 f (f a) = a",
+      "name": "T08_012.simpWithHyp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (a b : Nat), a + 0 + (b + 0) = a + b",
+      "name": "T08_012.stagedNormalisation",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (k : Nat), k * 1 = k",
+      "name": "T08_012.usesLocalSimpLemma",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

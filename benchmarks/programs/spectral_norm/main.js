@@ -1,6 +1,6 @@
 function A(i,j){return 1/((i+j)*(i+j+1)/2+i+1)}
-function mulAv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(i,j)*v[j]}}
-function mulAtv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(j,i)*v[j]}}
+function mulAv(n,v,r){for(let i=0;i<n;i++){let s=0;for(let j=0;j<n;j++)s+=A(i,j)*v[j];r[i]=s}}
+function mulAtv(n,v,r){for(let i=0;i<n;i++){let s=0;for(let j=0;j<n;j++)s+=A(j,i)*v[j];r[i]=s}}
 function mulAtAv(n,v,r,t){mulAv(n,v,t);mulAtv(n,t,r)}
 const n=parseInt(process.argv[2]);
 const u=new Float64Array(n).fill(1),v=new Float64Array(n),t=new Float64Array(n);

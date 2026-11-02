@@ -23,7 +23,11 @@ const PROG: &str = "\
 Show add(1, 2).
 ";
 
-fn add_fi(stmts: &[Stmt], interner: &logicaffeine_compile::intern::Interner, program: &logicaffeine_compile::vm::CompiledProgram) -> usize {
+fn add_fi(
+    stmts: &[Stmt],
+    interner: &logicaffeine_compile::intern::Interner,
+    program: &logicaffeine_compile::vm::CompiledProgram,
+) -> usize {
     let sym = stmts
         .iter()
         .find_map(|s| match s {
@@ -43,8 +47,7 @@ fn aot_native_function_executes_in_the_interpreter() {
         .expect("scalar target yields a module");
     let tmp = std::env::temp_dir().join(format!("logos_aot_p15_{}", std::process::id()));
     let so = build_native_cdylib(&module.rust, "logos_aot_add_p15", &tmp).expect("cdylib builds");
-    let (aot_fn, calls) =
-        load_aot_native(&so, &module.symbol, module.arity).expect("symbol loads");
+    let (aot_fn, calls) = load_aot_native(&so, &module.symbol, module.arity).expect("symbol loads");
 
     // Baseline: the pure VM (forge tier, no AOT).
     let baseline = with_parsed_program(PROG, |parsed, interner| {

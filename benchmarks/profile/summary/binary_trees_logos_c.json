@@ -1,0 +1,11 @@
+{
+  "name": "binary_trees",
+  "lang": "logos_c",
+  "n": "23",
+  "samples_weight": 205397534178,
+  "alloc_pct": 1.22,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 98.78
+}

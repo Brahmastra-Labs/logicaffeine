@@ -26,8 +26,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::compile::compile_project;
-use logicaffeine_compile::compile::{copy_runtime_crates, CompileError};
+use crate::compile::compile_project_with_deps;
+use logicaffeine_compile::compile::{copy_runtime_crates, CompileError, RuntimeCrateSource};
 
 use super::manifest::{Manifest, ManifestError};
 
@@ -64,6 +64,26 @@ pub struct BuildConfig {
     pub target: Option<String>,
 }
 
+/// Native executable backend selected by `largo build` / `largo run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    /// The existing LOGOS → Rust → rustc pipeline.
+    Rust,
+    /// A LOGOS → C lowering compiled by the host C compiler.
+    C(super::build_c::CLowering),
+}
+
+impl Backend {
+    /// Parse a native C backend name accepted by `--emit`.
+    pub fn from_emit(emit: &str) -> Option<Self> {
+        match emit {
+            "c" => Some(Self::C(super::build_c::CLowering::Ast)),
+            "c-bytecode" => Some(Self::C(super::build_c::CLowering::Bytecode)),
+            _ => None,
+        }
+    }
+}
+
 /// Result of a successful build operation.
 ///
 /// Contains paths to the build outputs, used by subsequent commands
@@ -83,6 +103,8 @@ pub enum BuildError {
     Manifest(ManifestError),
     /// LOGOS-to-Rust compilation failed.
     Compile(CompileError),
+    /// The program does not compile: the diagnostic, rendered at the author's `file:line:col`.
+    Diagnostic(String),
     /// File system operation failed.
     Io(String),
     /// Cargo build command failed (classified; the raw output already
@@ -90,6 +112,12 @@ pub enum BuildError {
     Cargo(CargoFailure),
     /// Cargo itself was not found on PATH (no Rust toolchain installed).
     Toolchain(String),
+    /// The selected C compiler was not found.
+    CToolchain(String),
+    /// The selected C compiler rejected generated code.
+    CCompiler(String),
+    /// The selected backend does not support this build shape.
+    Unsupported(String),
     /// A required file or directory was not found.
     NotFound(String),
 }
@@ -99,9 +127,13 @@ impl std::fmt::Display for BuildError {
         match self {
             BuildError::Manifest(e) => write!(f, "{}", e),
             BuildError::Compile(e) => write!(f, "{}", e),
+            BuildError::Diagnostic(rendered) => write!(f, "{rendered}"),
             BuildError::Io(e) => write!(f, "IO error: {}", e),
             BuildError::Cargo(e) => write!(f, "{}", e),
             BuildError::Toolchain(e) => write!(f, "{}", e),
+            BuildError::CToolchain(e) => write!(f, "{}", e),
+            BuildError::CCompiler(e) => write!(f, "{}", e),
+            BuildError::Unsupported(e) => write!(f, "{}", e),
             BuildError::NotFound(e) => write!(f, "Not found: {}", e),
         }
     }
@@ -157,7 +189,11 @@ impl std::fmt::Display for CargoFailure {
 pub fn requires_component_is_safe(s: &str) -> bool {
     !s.is_empty()
         && s.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '^' | '~' | '*' | '<' | '>' | '=' | '+' | ',' | ' ')
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    '-' | '_' | '.' | '^' | '~' | '*' | '<' | '>' | '=' | '+' | ',' | ' '
+                )
         })
 }
 
@@ -232,6 +268,33 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Plan the embedded site for a full-stack project, or `None` when this is not one — the
+/// project's own [`BuildPlan`](super::shape::BuildPlan), the same decision `largo serve` routes on.
+/// A broken page (or an unassemblable import) is a LOUD build error here, before cargo — never a
+/// silently-dropped asset.
+///
+/// The returned table is the whole site in the dev router's URL namespace, so a binary built from
+/// it serves BYTE-for-byte what `largo serve` serves from memory (dev ≡ prod by construction).
+fn plan_web_bundle(
+    project_dir: &Path,
+) -> Result<Option<Vec<crate::commands::web_bundle::Asset>>, BuildError> {
+    // An entry whose shape cannot be decided does not parse; the compile step below reports that
+    // at its line, so it is not reported twice here.
+    let embeds_site = super::shape::Project::load(project_dir)
+        .and_then(|project| project.shape())
+        .map(|shape| shape.build_plan() == super::shape::BuildPlan::Binary { embeds_site: true })
+        .unwrap_or(false);
+    if !embeds_site {
+        return Ok(None);
+    }
+    let assets = crate::commands::web_bundle::plan_site(
+        &project_dir.join("pages"),
+        &project_dir.join("static"),
+    )
+    .map_err(|e| BuildError::Io(e.to_string()))?;
+    Ok(Some(assets))
+}
+
 /// Build a LOGOS project.
 ///
 /// Compiles the project specified in `config` through the full build pipeline:
@@ -251,25 +314,27 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
 /// - LOGOS compilation fails
 /// - Cargo build fails
 pub fn build(config: BuildConfig) -> Result<BuildResult, BuildError> {
+    build_backend(config, Backend::Rust)
+}
+
+/// Build through an explicitly selected native executable backend.
+pub fn build_backend(config: BuildConfig, backend: Backend) -> Result<BuildResult, BuildError> {
     // Load manifest
     let manifest = Manifest::load(&config.project_dir)?;
 
-    // Resolve entry point (supports .lg and .md)
-    let entry_path = config.project_dir.join(&manifest.package.entry);
-    if entry_path.exists() {
-        return build_with_entry(&config, &manifest, &entry_path);
+    // The entry program (`.lg`, else its `.md` sibling), confined to the project. A site has
+    // none to build: `largo build` exports it instead, and a binary of it is not a thing.
+    let entry_path = super::shape::entry_file(&config.project_dir, &manifest)
+        .map_err(|e| BuildError::NotFound(e.message))?
+        .ok_or_else(|| {
+            BuildError::NotFound(super::shape::site_without_entry(&config.project_dir).message)
+        })?;
+    match backend {
+        Backend::Rust => build_with_entry(&config, &manifest, &entry_path),
+        Backend::C(lowering) => {
+            super::build_c::build_c_with_entry(&config, &manifest, &entry_path, lowering)
+        }
     }
-
-    // Try .md fallback if .lg not found
-    let md_path = entry_path.with_extension("md");
-    if md_path.exists() {
-        return build_with_entry(&config, &manifest, &md_path);
-    }
-
-    Err(BuildError::NotFound(format!(
-        "Entry point not found: {} (also tried .md)",
-        entry_path.display()
-    )))
 }
 
 fn build_with_entry(
@@ -301,8 +366,49 @@ fn build_with_entry(
     }
     fs::create_dir_all(&rust_project_dir).map_err(|e| BuildError::Io(e.to_string()))?;
 
-    // Compile LOGOS to Rust using Phase 36 compile_project
-    let output = compile_project(entry_path)?;
+    // B4 — full-stack embed. A web project (a `Serve` entry alongside `pages/`
+    // or `static/`) bundles its whole site INTO the binary: every page compiled
+    // to wasm/js/html and every static asset collected, planned into ONE table
+    // in the dev router's URL namespace. `None` for a plain program (or a
+    // library build — a cdylib does not serve), where the build stays exactly as
+    // before. A broken page fails the build LOUDLY here, before cargo.
+    let site_assets = if config.lib_mode {
+        None
+    } else {
+        plan_web_bundle(&config.project_dir)?
+    };
+
+    // Link the declared local (`path`/`git`) dependencies: their roots are
+    // admitted by the loader so a bare `Import <Dep>.` resolves outside the
+    // project, threaded identically to every other tier. A floating git rev or
+    // a missing path fails the build loudly here.
+    let dep_roots = manifest
+        .resolve_dependencies(&config.project_dir)
+        .map_err(|e| BuildError::Io(e.to_string()))?
+        .into_iter()
+        .map(|d| logicaffeine_compile::loader::DepRoot {
+            name: d.name,
+            root: d.root,
+        })
+        .collect::<Vec<_>>();
+
+    // Compile LOGOS to Rust using Phase 36 compile_project. For a web build the
+    // `Serve` closure must consult the embedded `logos_assets` table before the
+    // handler (assets-first, the dev router's precedence) — a thread-local
+    // codegen scope threads that in without touching the plain-program path.
+    let compiled = if site_assets.is_some() {
+        logicaffeine_compile::codegen::with_embed_assets(|| {
+            compile_project_with_deps(entry_path, dep_roots.clone())
+        })
+    } else {
+        compile_project_with_deps(entry_path, dep_roots.clone())
+    };
+    let output = compiled.map_err(|e| match e {
+        CompileError::Parse(_) => BuildError::Diagnostic(
+            crate::diagnostics::compile_error(&e, entry_path, &dep_roots).message,
+        ),
+        other => BuildError::Compile(other),
+    })?;
 
     // Write generated Rust code
     let src_dir = rust_project_dir.join("src");
@@ -314,8 +420,28 @@ fn build_with_entry(
         // Library mode: strip fn main() wrapper, write to lib.rs
         let lib_code = strip_main_wrapper(&rust_code);
         fs::write(src_dir.join("lib.rs"), lib_code).map_err(|e| BuildError::Io(e.to_string()))?;
+    } else if let Some(ref assets) = site_assets {
+        // Emit the `logos_assets` module + stage each asset's bytes beside it in
+        // `src/`, and declare the module at the top of the generated program so
+        // its `Serve` closure's `logos_assets::lookup` resolves. The assets ride
+        // via `include_bytes!` — the binary is genuinely one self-contained file.
+        use crate::commands::web_bundle::{page_patterns, site_assets_module, staged_asset_files};
+        // The page patterns the binary must answer — read from the SAME `pages/` the assets were
+        // planned from, so the shipped table and the shipped documents cannot disagree.
+        let patterns = page_patterns(&config.project_dir.join("pages"));
+        fs::write(
+            src_dir.join("logos_assets.rs"),
+            site_assets_module(&config.project_dir.join("pages"), assets, &patterns),
+        )
+        .map_err(|e| BuildError::Io(e.to_string()))?;
+        for (name, bytes) in staged_asset_files(assets) {
+            fs::write(src_dir.join(&name), bytes).map_err(|e| BuildError::Io(e.to_string()))?;
+        }
+        let main_code = format!("mod logos_assets;\n{rust_code}");
+        fs::write(src_dir.join("main.rs"), main_code).map_err(|e| BuildError::Io(e.to_string()))?;
     } else {
-        fs::write(src_dir.join("main.rs"), &rust_code).map_err(|e| BuildError::Io(e.to_string()))?;
+        fs::write(src_dir.join("main.rs"), &rust_code)
+            .map_err(|e| BuildError::Io(e.to_string()))?;
     }
 
     // Universal ABI: Write C header alongside generated code if present
@@ -334,25 +460,54 @@ fn build_with_entry(
         }
     });
 
-    // Write Cargo.toml for the generated project
+    // Write Cargo.toml for the generated project. Its one target carries the project's
+    // [`artifact_identity`], never the bare package name: every project that shares a
+    // `CARGO_TARGET_DIR` writes into one directory, and two projects called `app` would otherwise
+    // be two builds of one file.
+    let identity = artifact_identity(&manifest.package.name, &config.project_dir);
     let mut cargo_toml = format!(
         r#"[package]
 name = "{}"
 version = "{}"
 edition = "2021"
+autobins = false
 "#,
         manifest.package.name, manifest.package.version
     );
-
-    // Library mode: add [lib] section with cdylib crate type
     if config.lib_mode {
-        let _ = writeln!(cargo_toml, "\n[lib]\ncrate-type = [\"cdylib\"]");
+        let _ = writeln!(
+            cargo_toml,
+            "\n[lib]\nname = \"{}\"\npath = \"src/lib.rs\"\ncrate-type = [\"cdylib\"]",
+            identity.replace('-', "_")
+        );
+    } else {
+        let _ = writeln!(
+            cargo_toml,
+            "\n[[bin]]\nname = \"{identity}\"\npath = \"src/main.rs\""
+        );
     }
 
+    // In a checkout we stage runtime sources and path-depend on them; an
+    // installed `largo` (no checkout) depends on the matching crates.io release.
+    let runtime_source = RuntimeCrateSource::detect();
     let _ = writeln!(cargo_toml, "\n[dependencies]");
-    let _ = writeln!(cargo_toml, "logicaffeine-data = {{ path = \"./crates/logicaffeine_data\" }}");
-    let _ = writeln!(cargo_toml, "logicaffeine-system = {{ path = \"./crates/logicaffeine_system\", features = [\"full\"] }}");
-    let _ = writeln!(cargo_toml, "tokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\"] }}");
+    let _ = writeln!(cargo_toml, "{}", runtime_source.data_dep());
+    let _ = writeln!(
+        cargo_toml,
+        "{}",
+        runtime_source.system_dep(&["full", "http"])
+    );
+    let _ = writeln!(
+        cargo_toml,
+        "tokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\"] }}"
+    );
+
+    // Third-party crates the generated code names directly (rayon, memchr, serde) — the one list
+    // the staged checking manifest shares, so a program that checks is a program that builds.
+    for line in logicaffeine_compile::compile::implied_crate_deps(&rust_code, &output.dependencies)
+    {
+        let _ = writeln!(cargo_toml, "{line}");
+    }
 
     // Auto-inject wasm-bindgen when targeting wasm32
     let mut has_wasm_bindgen = false;
@@ -382,7 +537,9 @@ edition = "2021"
         if dep.features.is_empty() {
             let _ = writeln!(cargo_toml, "{} = \"{}\"", dep.name, dep.version);
         } else {
-            let feats = dep.features.iter()
+            let feats = dep
+                .features
+                .iter()
                 .map(|f| format!("\"{}\"", f))
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -394,8 +551,14 @@ edition = "2021"
         }
     }
 
+    let _ = write!(cargo_toml, "\n{}", runtime_source.linux_engine_section());
+
     // Release profile: maximize optimization for compiled programs
-    let _ = writeln!(cargo_toml, "\n[profile.release]\nlto = true\nopt-level = 3\ncodegen-units = 1\npanic = \"abort\"\nstrip = true");
+    let _ = writeln!(
+        cargo_toml,
+        "\n[profile.release]\nlto = true\nopt-level = 3\ncodegen-units = 1\npanic = \"{}\"\nstrip = true",
+        logicaffeine_compile::codegen::release_panic_strategy(&rust_code)
+    );
 
     fs::write(rust_project_dir.join("Cargo.toml"), &cargo_toml)
         .map_err(|e| BuildError::Io(e.to_string()))?;
@@ -404,8 +567,7 @@ edition = "2021"
     // Only when not cross-compiling (target-cpu=native refers to the host CPU).
     if config.release && resolved_target.is_none() {
         let cargo_config_dir = rust_project_dir.join(".cargo");
-        fs::create_dir_all(&cargo_config_dir)
-            .map_err(|e| BuildError::Io(e.to_string()))?;
+        fs::create_dir_all(&cargo_config_dir).map_err(|e| BuildError::Io(e.to_string()))?;
         fs::write(
             cargo_config_dir.join("config.toml"),
             "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
@@ -413,15 +575,23 @@ edition = "2021"
         .map_err(|e| BuildError::Io(e.to_string()))?;
     }
 
-    // Copy runtime crates
-    copy_runtime_crates(&rust_project_dir)?;
+    // Stage runtime sources only inside a checkout; a standalone install pulls
+    // them from crates.io, so there is nothing to copy.
+    if runtime_source.is_workspace() {
+        copy_runtime_crates(&rust_project_dir)?;
+    }
 
     // Run cargo build: stdout inherits, stderr streams through a tee so the
     // user watches cargo's progress live while we retain a bounded tail for
     // failure classification.
     crate::ui::phase("Building", "generated Rust (cargo)");
     let mut cmd = Command::new("cargo");
-    cmd.arg("build").current_dir(&rust_project_dir);
+    // `json-render-diagnostics`: cargo still renders every diagnostic and its progress to stderr
+    // for the author, and reports each file it produced as a JSON message on stdout — which is
+    // how this build learns the path of ITS artifact rather than assuming one.
+    cmd.arg("build")
+        .arg("--message-format=json-render-diagnostics")
+        .current_dir(&rust_project_dir);
     if config.release {
         cmd.arg("--release");
     }
@@ -440,7 +610,7 @@ edition = "2021"
     } else if crate::ui::verbosity() > 0 {
         cmd.arg("--verbose");
     }
-    cmd.stdout(std::process::Stdio::inherit());
+    cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| {
@@ -480,13 +650,45 @@ edition = "2021"
         tail
     });
 
+    let mut child_out = child.stdout.take().expect("stdout was piped");
+    let messages = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut all = String::new();
+        let _ = child_out.read_to_string(&mut all);
+        all
+    });
+
     let status = child.wait().map_err(|e| BuildError::Io(e.to_string()))?;
     let tail_bytes = tee.join().unwrap_or_default();
+    let messages = messages.join().unwrap_or_default();
 
     if !status.success() {
         let tail = String::from_utf8_lossy(&tail_bytes).into_owned();
+        let kind = classify_cargo_failure(&tail);
+
+        // A generated-code error points at the emitted Rust; re-check with the
+        // source-mapped codegen and show the user WHERE in their LOGOS source it
+        // came from. Best-effort: on any failure to remap, the raw cargo output
+        // (already streamed above) stands alone.
+        if kind == CargoFailureKind::GeneratedCode {
+            if let Ok(assembled) = logicaffeine_compile::analysis::assemble_project(&entry_path) {
+                if let Ok(remapped) = logicaffeine_compile::compile::remap_project_errors(
+                    &assembled.source,
+                    &rust_project_dir,
+                    Some(&assembled.source_map),
+                ) {
+                    if !remapped.is_empty() {
+                        eprintln!("\n— in your LOGOS source —");
+                        for err in &remapped {
+                            eprintln!("{err}");
+                        }
+                    }
+                }
+            }
+        }
+
         return Err(BuildError::Cargo(CargoFailure {
-            kind: classify_cargo_failure(&tail),
+            kind,
             tail,
             project_dir: rust_project_dir,
         }));
@@ -501,59 +703,118 @@ edition = "2021"
         ),
     );
 
-    // Determine binary/library path
-    let cargo_target_str = if config.release { "release" } else { "debug" };
-    let binary_path = if config.lib_mode {
-        // Library output
-        let lib_name = format!("lib{}", manifest.package.name.replace('-', "_"));
-        let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
-        if let Some(target) = resolved_target {
-            rust_project_dir
-                .join("target")
-                .join(target)
-                .join(cargo_target_str)
-                .join(format!("{}.{}", lib_name, ext))
-        } else {
-            rust_project_dir
-                .join("target")
-                .join(cargo_target_str)
-                .join(format!("{}.{}", lib_name, ext))
-        }
+    // The file this build wrote, as cargo reports it — whatever `CARGO_TARGET_DIR`, `--target` or
+    // a cargo config moved it to — published at the project's stable `target/<mode>/`, which only
+    // this project writes. The published file is the one reported and the one `largo run` runs.
+    let built = built_artifact(&messages, &identity, config.lib_mode).ok_or_else(|| {
+        BuildError::Io(format!(
+            "cargo finished but reported no {} named `{identity}`; its output is in {}",
+            if config.lib_mode { "library" } else { "binary" },
+            rust_project_dir.display()
+        ))
+    })?;
+    let built_name = built
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stable_name = if config.lib_mode {
+        built_name.replacen(
+            &identity.replace('-', "_"),
+            &manifest.package.name.replace('-', "_"),
+            1,
+        )
     } else {
-        let binary_name = if cfg!(windows) {
-            format!("{}.exe", manifest.package.name)
-        } else {
-            manifest.package.name.clone()
-        };
-        if let Some(target) = resolved_target {
-            rust_project_dir
-                .join("target")
-                .join(target)
-                .join(cargo_target_str)
-                .join(&binary_name)
-        } else {
-            rust_project_dir
-                .join("target")
-                .join(cargo_target_str)
-                .join(&binary_name)
-        }
+        built_name.replacen(&identity, &manifest.package.name, 1)
     };
+    let binary_path = build_dir.join(&stable_name);
+    // A failed publish fails the build: whatever sits at the stable path would be an EARLIER
+    // build's, and there is no correct thing to do with a half-published one.
+    fs::copy(&built, &binary_path).map_err(|e| {
+        BuildError::Io(format!(
+            "the build succeeded but its artifact could not be published to {}: {e}\n\
+             The freshly built file is at {}. Anything at the stable path is from an EARLIER \
+             build — do not ship it.",
+            binary_path.display(),
+            built.display()
+        ))
+    })?;
 
-    // Universal ABI: Copy .h file to the same directory as the binary/library
-    if let Some(ref _c_header) = output.c_header {
+    // Universal ABI: the C header rides beside the published library or binary.
+    if output.c_header.is_some() {
         let header_name = format!("{}.h", manifest.package.name);
         let src_header = rust_project_dir.join(&header_name);
         if src_header.exists() {
-            if let Some(parent) = binary_path.parent() {
-                let _ = fs::copy(&src_header, parent.join(&header_name));
-            }
+            let _ = fs::copy(&src_header, build_dir.join(&header_name));
         }
+    }
+
+    // A web binary is self-contained — its whole site rides inside via `include_bytes!`, runtime
+    // deps resolve from version pins, and the LOGOS stdlib is embedded in the compiler — so it
+    // deploys by copying this ONE file.
+    if let Some(assets) = &site_assets {
+        crate::ui::phase(
+            "Bundled",
+            format!(
+                "{} embedded asset(s) — self-contained web server",
+                assets.len()
+            ),
+        );
+    }
+    if !config.lib_mode {
+        crate::ui::phase("Artifact", binary_path.display().to_string());
     }
 
     Ok(BuildResult {
         target_dir: build_dir,
         binary_path,
     })
+}
+
+/// The name a project's cargo target builds under: its package name and a digest of its
+/// canonical directory, so two projects that share a name never share an output file in a shared
+/// `CARGO_TARGET_DIR`, and one project always rebuilds the same file.
+fn artifact_identity(name: &str, project_dir: &Path) -> String {
+    let dir = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let digest = crate::commands::web_bundle::content_hash(dir.to_string_lossy().as_bytes());
+    format!("{name}-{digest}")
+}
+
+/// The file cargo reports producing for the target named `identity`: a binary's `executable`, or
+/// a library's shared object — read from cargo's own `compiler-artifact` messages.
+fn built_artifact(messages: &str, identity: &str, lib: bool) -> Option<PathBuf> {
+    let lib_name = identity.replace('-', "_");
+    messages
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|m| m["reason"] == "compiler-artifact")
+        .filter(|m| {
+            let name = m["target"]["name"].as_str().unwrap_or("");
+            if lib {
+                name == lib_name
+            } else {
+                name == identity
+            }
+        })
+        .find_map(|m| {
+            if lib {
+                m["filenames"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(|f| f.as_str())
+                    .find(|f| {
+                        let f = f.to_ascii_lowercase();
+                        f.ends_with(".so")
+                            || f.ends_with(".dylib")
+                            || f.ends_with(".dll")
+                            || f.ends_with(".wasm")
+                    })
+                    .map(PathBuf::from)
+            } else {
+                m["executable"].as_str().map(PathBuf::from)
+            }
+        })
 }
 
 /// Strip the `fn main() { ... }` wrapper from generated code for library mode.
@@ -567,7 +828,8 @@ fn strip_main_wrapper(code: &str) -> String {
         if let Some(close_pos) = after_opening.rfind('}') {
             let main_body = &after_opening[..close_pos];
             // Dedent main body
-            let dedented: Vec<&str> = main_body.lines()
+            let dedented: Vec<&str> = main_body
+                .lines()
                 .map(|line| line.strip_prefix("    ").unwrap_or(line))
                 .collect();
             format!("{}\n{}", before_main.trim_end(), dedented.join("\n"))
@@ -607,138 +869,5 @@ pub fn run(build_result: &BuildResult, args: &[String]) -> Result<i32, BuildErro
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn requires_components_reject_toml_structure() {
-        assert!(requires_component_is_safe("itoa"));
-        assert!(requires_component_is_safe("1.0.11"));
-        assert!(requires_component_is_safe(">=1.2, <2.0"));
-        assert!(requires_component_is_safe("wasm-bindgen"));
-        assert!(!requires_component_is_safe("evil\"\n[patch.crates-io]"));
-        assert!(!requires_component_is_safe("x = { path"));
-        assert!(!requires_component_is_safe(""));
-    }
-
-    #[test]
-    fn classify_missing_package_is_dependency_resolution() {
-        let stderr = "    Updating crates.io index\n\
-                      error: no matching package named `nonexistent-xyz` found\n\
-                      location searched: registry `crates-io`\n\
-                      required by package `demo v0.1.0`\n";
-        assert_eq!(
-            classify_cargo_failure(stderr),
-            CargoFailureKind::DependencyResolution
-        );
-    }
-
-    #[test]
-    fn classify_version_selection_is_dependency_resolution() {
-        let stderr = "error: failed to select a version for the requirement `itoa = \"^99\"`\n\
-                      candidate versions found which didn't match: 1.0.11, 1.0.10\n\
-                      location searched: crates.io index\n";
-        assert_eq!(
-            classify_cargo_failure(stderr),
-            CargoFailureKind::DependencyResolution
-        );
-    }
-
-    #[test]
-    fn classify_network_fetch_is_dependency_resolution() {
-        let stderr = "error: failed to get `itoa` as a dependency of package `demo v0.1.0`\n\
-                      Caused by:\n  failed to fetch `https://github.com/rust-lang/crates.io-index`\n";
-        assert_eq!(
-            classify_cargo_failure(stderr),
-            CargoFailureKind::DependencyResolution
-        );
-    }
-
-    #[test]
-    fn classify_rustc_error_is_generated_code() {
-        let stderr = "   Compiling demo v0.1.0\n\
-                      error[E0425]: cannot find value `undefined_x` in this scope\n\
-                        --> src/main.rs:10:5\n\
-                      error: could not compile `demo` (bin \"demo\") due to 1 previous error\n";
-        assert_eq!(classify_cargo_failure(stderr), CargoFailureKind::GeneratedCode);
-    }
-
-    #[test]
-    fn classify_unknown_output_defaults_to_generated_code() {
-        assert_eq!(
-            classify_cargo_failure("something exploded"),
-            CargoFailureKind::GeneratedCode
-        );
-    }
-
-    #[test]
-    fn find_project_root_finds_largo_toml() {
-        let temp = tempdir().unwrap();
-        let sub = temp.path().join("a/b/c");
-        fs::create_dir_all(&sub).unwrap();
-        fs::write(temp.path().join("Largo.toml"), "[package]\nname=\"test\"\n").unwrap();
-
-        let found = find_project_root(&sub);
-        assert!(found.is_some());
-        assert_eq!(found.unwrap(), temp.path());
-    }
-
-    #[test]
-    fn find_project_root_returns_none_if_not_found() {
-        let temp = tempdir().unwrap();
-        let found = find_project_root(temp.path());
-        assert!(found.is_none());
-    }
-
-    #[test]
-    fn strip_main_wrapper_extracts_body() {
-        let code = r#"use logicaffeine_data::*;
-
-fn add(a: i64, b: i64) -> i64 {
-    a + b
-}
-
-fn main() {
-    let x = add(1, 2);
-    println!("{}", x);
-}"#;
-        let result = strip_main_wrapper(code);
-        assert!(result.contains("fn add(a: i64, b: i64) -> i64"));
-        assert!(result.contains("let x = add(1, 2);"));
-        assert!(result.contains("println!(\"{}\", x);"));
-        assert!(!result.contains("fn main()"));
-    }
-
-    #[test]
-    fn strip_main_wrapper_preserves_imports() {
-        let code = "use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn main() {\n    println!(\"hello\");\n}\n";
-        let result = strip_main_wrapper(code);
-        assert!(result.contains("use logicaffeine_data::*;"));
-        assert!(result.contains("use logicaffeine_system::*;"));
-        assert!(result.contains("println!(\"hello\");"));
-        assert!(!result.contains("fn main()"));
-    }
-
-    #[test]
-    fn strip_main_wrapper_no_main_returns_unchanged() {
-        let code = "fn add(a: i64, b: i64) -> i64 { a + b }";
-        let result = strip_main_wrapper(code);
-        assert_eq!(result, code);
-    }
-
-    #[test]
-    fn strip_main_wrapper_dedents_body() {
-        let code = "fn main() {\n    let x = 1;\n    let y = 2;\n}\n";
-        let result = strip_main_wrapper(code);
-        // Body lines should be dedented by 4 spaces
-        assert!(result.contains("let x = 1;"));
-        assert!(result.contains("let y = 2;"));
-        // Should not have leading 4-space indent
-        for line in result.lines() {
-            if line.contains("let x") || line.contains("let y") {
-                assert!(!line.starts_with("    "), "Line should be dedented: {}", line);
-            }
-        }
-    }
-}
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_cli/project/build/tests.rs"]
+mod tests;

@@ -1,0 +1,153 @@
+{
+  "case": "T11-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 17,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T11_014.Trivial'",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T11_014.Trivial' \u03b1 \u2192 Sort u} \u2192\n    (t : T11_014.Trivial' \u03b1) \u2192 ((witness : \u03b1) \u2192 motive { witness := witness }) \u2192 motive t",
+      "name": "T11_014.Trivial'.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T11_014.Trivial' \u03b1",
+      "name": "T11_014.Trivial'.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T11_014.Trivial' \u03b1} \u2192 v1 = v2 \u2192 T11_014.Trivial'.noConfusionType P v1 v2",
+      "name": "T11_014.Trivial'.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T11_014.Trivial' \u03b1 \u2192 T11_014.Trivial' \u03b1 \u2192 Sort u",
+      "name": "T11_014.Trivial'.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T11_014.Trivial' \u03b1 \u2192 Sort u} \u2192\n    ((witness : \u03b1) \u2192 motive { witness := witness }) \u2192 (t : T11_014.Trivial' \u03b1) \u2192 motive t",
+      "name": "T11_014.Trivial'.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T11_014.Trivial' \u03b1 \u2192 Sort u} \u2192\n    (t : T11_014.Trivial' \u03b1) \u2192 ((witness : \u03b1) \u2192 motive { witness := witness }) \u2192 motive t",
+      "name": "T11_014.Trivial'.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T11_014.Trivial' \u03b1] \u2192 \u03b1",
+      "name": "T11_014.Trivial'.witness",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 \u2264 n",
+      "name": "T11_014.actuallyProved",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 = 3",
+      "name": "T11_014.alsoUnproved",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), 0 \u2264 n",
+      "name": "T11_014.deliberateAssumption",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T11_014.deliberateAssumption"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n + 1",
+      "name": "T11_014.dependsOnIt",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "0 = 1",
+      "name": "T11_014.dependsTransitively",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "T11_014.Trivial' Nat",
+      "name": "T11_014.instTrivial'Nat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n + 1",
+      "name": "T11_014.obviouslyUnproved",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "Nat",
+      "name": "T11_014.sorryNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "sorryAx"
+      ]
+    },
+    {
+      "type": "[inst : T11_014.Trivial' Nat] \u2192 Nat",
+      "name": "T11_014.usesInstance",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "/tmp/tmp.1kDTrbXKSc/T11_014.lean:84:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T11_014.lean:88:8: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T11_014.lean:92:4: warning: declaration uses 'sorry'\n/tmp/tmp.1kDTrbXKSc/T11_014.lean:106:0: warning: declaration uses 'sorry'\n'T11_014.obviouslyUnproved' depends on axioms: [sorryAx]"
+}

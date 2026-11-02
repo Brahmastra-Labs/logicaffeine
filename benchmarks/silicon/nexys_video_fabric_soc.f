@@ -1,0 +1,4 @@
+nexys_video_fabric_soc.v
+ft245_uart_bridge.v
+nexys_fabric_soc.v
+config_fabric.v

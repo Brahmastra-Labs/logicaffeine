@@ -78,8 +78,10 @@ pub mod encode;
 pub mod func;
 
 /// Shared control-flow lowering (basic blocks + the `block`/`loop`/`br_table` dispatch loop)
-/// used by both `func` (the JIT region emitter) and the AOT whole-program emitter.
-mod cfg;
+/// used by both `func` (the JIT region emitter) and the AOT whole-program emitter. `pub(crate)` so the
+/// spatial-fabric CFG controller (`codegen_sva::fabric_cfg`) reuses the SAME basic-block partition
+/// (`Blocks`) that the WASM backend proves out — one control-flow-structure source of truth.
+pub(crate) mod cfg;
 
 /// Static per-register kind inference (Int/Bool/Float/…) for the AOT backend — the bytecode's
 /// arithmetic/`Show` ops are runtime-polymorphic, so a standalone module needs the static
@@ -93,6 +95,11 @@ mod module;
 /// disjoint live ranges of different wasm value types one local per range (so kind inference, which
 /// soundly refuses a single conflicting local, succeeds). Identity on programs already accepted.
 mod regsplit;
+
+/// The post-pass that hands a value read once straight on: a store into a local and the one load
+/// that reads it back, when nothing needs the local between them, become the value left on the
+/// operand stack.
+mod stackify;
 
 /// The P2 linker: emit LLVM-compatible RELOCATABLE wasm objects (linking + `reloc.CODE` sections)
 /// that call the prebuilt Rust runtime by undefined `logos_rt_*` symbol, and link them with the Rust
@@ -121,15 +128,19 @@ mod reloc;
 #[cfg(feature = "wasm-jit")]
 pub mod region_jit;
 
-pub use module::assemble_program;
+pub use module::{
+    assemble_program, assemble_program_checked, assemble_program_with, host_import_names,
+    host_import_signatures, host_seq_import_names, host_text_import_names, runtime_export_names,
+    VFS_IN_THE_BROWSER,
+};
 
+#[cfg(feature = "wasm-jit")]
+pub(crate) use link::link_relocatable_bigint;
 /// The linker-tier entry points ([`crate::compile::compile_to_wasm_linked`]): the BigInt-aware emitter,
 /// the relocatable transform, and the `rust-lld` link against the real `logicaffeine_base` runtime.
 pub(crate) use module::assemble_program_linked;
 #[cfg(feature = "wasm-jit")]
 pub(crate) use reloc::module_to_relocatable;
-#[cfg(feature = "wasm-jit")]
-pub(crate) use link::link_relocatable_bigint;
 
 /// Why the AOT WebAssembly backend declined to lower a program. The backend is *total* on its
 /// supported fragment and rejects everything else explicitly (never miscompiles): the corpus
@@ -140,11 +151,18 @@ pub enum WasmLowerError {
     /// An op, type, or shape outside the current phase's supported fragment (the `&str` names
     /// what is not yet handled, e.g. `"collection op"`, `"non-scalar parameter"`).
     Unsupported(&'static str),
+    /// The same, when the refusal can say something SPECIFIC about this program — the two kinds
+    /// that met on one register, say. A fixed string cannot carry that, and the specific half is
+    /// usually the only part a reader can act on.
+    UnsupportedOwned(String),
 }
 
 impl std::fmt::Display for WasmLowerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            WasmLowerError::UnsupportedOwned(what) => {
+                write!(f, "wasm AOT backend: unsupported {what}")
+            }
             WasmLowerError::Unsupported(what) => {
                 write!(f, "wasm AOT backend: unsupported {what}")
             }

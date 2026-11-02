@@ -59,6 +59,11 @@ impl VClock {
         }
     }
 
+    /// The sum of every replica's counter — the number of events the clock covers.
+    pub fn total(&self) -> u64 {
+        self.entries.values().sum()
+    }
+
     /// Get all replicas in this clock.
     pub fn replicas(&self) -> impl Iterator<Item = &ReplicaId> {
         self.entries.keys()
@@ -72,59 +77,5 @@ impl Merge for VClock {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_vclock_new() {
-        let clock = VClock::new();
-        assert_eq!(clock.get(42), 0);
-    }
-
-    #[test]
-    fn test_vclock_increment() {
-        let mut clock = VClock::new();
-        assert_eq!(clock.increment(42), 1);
-        assert_eq!(clock.increment(42), 2);
-        assert_eq!(clock.get(42), 2);
-    }
-
-    #[test]
-    fn test_vclock_merge() {
-        let mut a = VClock::new();
-        let mut b = VClock::new();
-
-        a.increment(1);
-        a.increment(1);
-        b.increment(2);
-
-        a.merge(&b);
-
-        assert_eq!(a.get(1), 2);
-        assert_eq!(a.get(2), 1);
-    }
-
-    #[test]
-    fn test_vclock_dominates() {
-        let mut a = VClock::new();
-        let mut b = VClock::new();
-
-        a.increment(1);
-        a.increment(1);
-        b.increment(1);
-
-        assert!(a.dominates(&b));
-        assert!(!b.dominates(&a));
-    }
-
-    #[test]
-    fn test_vclock_concurrent() {
-        let mut a = VClock::new();
-        let mut b = VClock::new();
-
-        a.increment(1);
-        b.increment(2);
-
-        assert!(a.concurrent(&b));
-    }
-}
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_data/crdt/causal/vclock/tests.rs"]
+mod tests;

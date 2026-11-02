@@ -1,0 +1,40 @@
+   1930000           9414 Hz
+   1940000           9669 Hz
+   1950000          10780 Hz
+   1960000          11201 Hz
+   1970000          10913 Hz
+   1980000          10719 Hz
+   1990000          10918 Hz
+   2000000           9686 Hz
+   2010000          10308 Hz
+   2020000          10442 Hz
+   2030000          10739 Hz
+   2040000          15943 Hz
+   2050000          19238 Hz
+   2060000          18396 Hz
+   2070000          17654 Hz
+   2080000          18144 Hz
+   2090000          18398 Hz
+   2100000          19289 Hz
+   2110000          19517 Hz
+   2120000          18926 Hz
+   2130000          18724 Hz
+   2140000          18817 Hz
+   2150000          19447 Hz
+   2160000          20267 Hz
+   2170000          18863 Hz
+   2180000          15470 Hz
+   2190000          20053 Hz
+   2200000          19724 Hz
+   2210000          19692 Hz
+Simulation complete at cycle 2217076
+script> dumpstate logs/state.json
+script> stat
+Average DRAM Read Bandwidth: 10.3921 GB/s
+Average DRAM Write Bandwidth: 1.73201 GB/s
+script> Elapsed seconds: 101.05
+Exiting... 😊
+Destruct DRAM.
+PASS: true (BlackSholes)
+Complete Simulation
+Runtime:1:41.24

@@ -1,0 +1,758 @@
+{
+  "case": "T11-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 95,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T11_011.EvenT",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} \u2192\n  {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} \u2192 {a : Nat} \u2192 T11_011.EvenT a \u2192 Prop",
+      "name": "T11_011.EvenT.below",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop}\n  {motive_1_1 : {a : Nat} \u2192 (x : T11_011.EvenT a) \u2192 x.below \u2192 Prop} {a : Nat} {x : T11_011.EvenT a} (t : x.below),\n  motive_1_1 T11_011.EvenT.zero \u22ef \u2192\n    (\u2200 (n : Nat) {a : T11_011.OddT n} (a_1 : a.below) (a_2 : motive_2 n a), motive_1_1 \u22ef \u22ef) \u2192 motive_1_1 x t",
+      "name": "T11_011.EvenT.below.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop}\n  {motive_1_1 : {a : Nat} \u2192 (x : T11_011.EvenT a) \u2192 x.below \u2192 Prop}\n  {motive_2_1 : {a : Nat} \u2192 (x : T11_011.OddT a) \u2192 x.below \u2192 Prop},\n  motive_1_1 T11_011.EvenT.zero \u22ef \u2192\n    (\u2200 (n : Nat) {a : T11_011.OddT n} (a_1 : a.below) (a_2 : motive_2 n a), motive_2_1 a a_1 \u2192 motive_1_1 \u22ef \u22ef) \u2192\n      (\u2200 (n : Nat) {a : T11_011.EvenT n} (a_1 : a.below) (a_2 : motive_1 n a), motive_1_1 a a_1 \u2192 motive_2_1 \u22ef \u22ef) \u2192\n        \u2200 {a : Nat} {x : T11_011.EvenT a} (t : x.below), motive_1_1 x t",
+      "name": "T11_011.EvenT.below.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} (n : Nat)\n  {a : T11_011.OddT n}, a.below \u2192 motive_2 n a \u2192 \u22ef.below",
+      "name": "T11_011.EvenT.below.succ",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop},\n  T11_011.EvenT.zero.below",
+      "name": "T11_011.EvenT.below.zero",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} {a : Nat}\n  (x : T11_011.EvenT a),\n  (\u2200 (a : Nat) (x : T11_011.EvenT a), x.below \u2192 motive_1 a x) \u2192\n    (\u2200 (a : Nat) (x : T11_011.OddT a), x.below \u2192 motive_2 a x) \u2192 motive_1 a x",
+      "name": "T11_011.EvenT.brecOn",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {a : Nat} (t : T11_011.EvenT a),\n  motive_1 0 T11_011.EvenT.zero \u2192 (\u2200 (n : Nat) (a : T11_011.OddT n), motive_1 (n + 1) \u22ef) \u2192 motive_1 a t",
+      "name": "T11_011.EvenT.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop},\n  motive_1 0 T11_011.EvenT.zero \u2192\n    (\u2200 (n : Nat) (a : T11_011.OddT n), motive_2 n a \u2192 motive_1 (n + 1) \u22ef) \u2192\n      (\u2200 (n : Nat) (a : T11_011.EvenT n), motive_1 n a \u2192 motive_2 (n + 1) \u22ef) \u2192\n        \u2200 {a : Nat} (t : T11_011.EvenT a), motive_1 a t",
+      "name": "T11_011.EvenT.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} {a : Nat}\n  (t : T11_011.EvenT a),\n  motive_1 0 T11_011.EvenT.zero \u2192\n    (\u2200 (n : Nat) (a : T11_011.OddT n), motive_2 n a \u2192 motive_1 (n + 1) \u22ef) \u2192\n      (\u2200 (n : Nat) (a : T11_011.EvenT n), motive_1 n a \u2192 motive_2 (n + 1) \u22ef) \u2192 motive_1 a t",
+      "name": "T11_011.EvenT.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_011.OddT n \u2192 T11_011.EvenT (n + 1)",
+      "name": "T11_011.EvenT.succ",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "T11_011.EvenT 0",
+      "name": "T11_011.EvenT.zero",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T11_011.Expr'",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Stmt' \u03b1 0 \u2192 T11_011.Expr' \u03b1",
+      "name": "T11_011.Expr'.app",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : T11_011.Stmt' \u03b1 0}, T11_011.Expr'.app a = T11_011.Expr'.app a_1 \u2192 a = a_1",
+      "name": "T11_011.Expr'.app.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : T11_011.Stmt' \u03b1 0), (T11_011.Expr'.app a = T11_011.Expr'.app a_1) = (a = a_1)",
+      "name": "T11_011.Expr'.app.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : T11_011.Stmt' \u03b1 0), sizeOf (T11_011.Expr'.app a) = 1 + sizeOf a",
+      "name": "T11_011.Expr'.app.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192 T11_011.Expr' \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T11_011.Expr'.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive_1 : T11_011.Expr' \u03b1 \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Prop}\n  (t : T11_011.Expr' \u03b1),\n  (\u2200 (t : T11_011.Expr' \u03b1), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (a : Nat) (t : T11_011.Stmt' \u03b1 a), t.ibelow \u2192 motive_2 a t) \u2192 motive_1 t",
+      "name": "T11_011.Expr'.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n      (t : T11_011.Expr' \u03b1) \u2192\n        ((t : T11_011.Expr' \u03b1) \u2192 t.below \u2192 motive_1 t) \u2192\n          ((a : Nat) \u2192 (t : T11_011.Stmt' \u03b1 a) \u2192 t.below \u2192 motive_2 a t) \u2192 motive_1 t",
+      "name": "T11_011.Expr'.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    (t : T11_011.Expr' \u03b1) \u2192\n      ((a : \u03b1) \u2192 motive_1 (T11_011.Expr'.lit a)) \u2192\n        ((a : T11_011.Stmt' \u03b1 0) \u2192 motive_1 (T11_011.Expr'.app a)) \u2192 motive_1 t",
+      "name": "T11_011.Expr'.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Prop} \u2192 {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Prop} \u2192 T11_011.Expr' \u03b1 \u2192 Prop",
+      "name": "T11_011.Expr'.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T11_011.Expr' \u03b1",
+      "name": "T11_011.Expr'.lit",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T11_011.Expr'.lit a = T11_011.Expr'.lit a_1 \u2192 a = a_1",
+      "name": "T11_011.Expr'.lit.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T11_011.Expr'.lit a = T11_011.Expr'.lit a_1) = (a = a_1)",
+      "name": "T11_011.Expr'.lit.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T11_011.Expr'.lit a) = 1 + sizeOf a",
+      "name": "T11_011.Expr'.lit.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T11_011.Expr' \u03b1} \u2192 v1 = v2 \u2192 T11_011.Expr'.noConfusionType P v1 v2",
+      "name": "T11_011.Expr'.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T11_011.Expr' \u03b1 \u2192 T11_011.Expr' \u03b1 \u2192 Sort u",
+      "name": "T11_011.Expr'.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n      ((a : \u03b1) \u2192 motive_1 (T11_011.Expr'.lit a)) \u2192\n        ((a : T11_011.Stmt' \u03b1 0) \u2192 motive_2 0 a \u2192 motive_1 (T11_011.Expr'.app a)) \u2192\n          motive_2 0 T11_011.Stmt'.skip \u2192\n            ((a : T11_011.Expr' \u03b1) \u2192\n                (a_1 : T11_011.Stmt' \u03b1 0) \u2192 motive_1 a \u2192 motive_2 0 a_1 \u2192 motive_2 0 (T11_011.Stmt'.seq a a_1)) \u2192\n              (t : T11_011.Expr' \u03b1) \u2192 motive_1 t",
+      "name": "T11_011.Expr'.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n      (t : T11_011.Expr' \u03b1) \u2192\n        ((a : \u03b1) \u2192 motive_1 (T11_011.Expr'.lit a)) \u2192\n          ((a : T11_011.Stmt' \u03b1 0) \u2192 motive_2 0 a \u2192 motive_1 (T11_011.Expr'.app a)) \u2192\n            motive_2 0 T11_011.Stmt'.skip \u2192\n              ((a : T11_011.Expr' \u03b1) \u2192\n                  (a_1 : T11_011.Stmt' \u03b1 0) \u2192 motive_1 a \u2192 motive_2 0 a_1 \u2192 motive_2 0 (T11_011.Stmt'.seq a a_1)) \u2192\n                motive_1 t",
+      "name": "T11_011.Expr'.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T11_011.Forest",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192 {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192 T11_011.Forest \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T11_011.Forest.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive_1 : T11_011.Tree \u03b1 \u2192 Prop} {motive_2 : T11_011.Forest \u03b1 \u2192 Prop} (t : T11_011.Forest \u03b1),\n  (\u2200 (t : T11_011.Tree \u03b1), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T11_011.Forest \u03b1), t.ibelow \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T11_011.Forest.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n      (t : T11_011.Forest \u03b1) \u2192\n        ((t : T11_011.Tree \u03b1) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T11_011.Forest \u03b1) \u2192 t.below \u2192 motive_2 t) \u2192 motive_2 t",
+      "name": "T11_011.Forest.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n    (t : T11_011.Forest \u03b1) \u2192\n      motive_2 T11_011.Forest.nil \u2192\n        ((a : T11_011.Tree \u03b1) \u2192 (a_1 : T11_011.Forest \u03b1) \u2192 motive_2 (T11_011.Forest.cons a a_1)) \u2192 motive_2 t",
+      "name": "T11_011.Forest.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Tree \u03b1 \u2192 T11_011.Forest \u03b1 \u2192 T11_011.Forest \u03b1",
+      "name": "T11_011.Forest.cons",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : T11_011.Tree \u03b1} {a_1 : T11_011.Forest \u03b1} {a_2 : T11_011.Tree \u03b1} {a_3 : T11_011.Forest \u03b1},\n  T11_011.Forest.cons a a_1 = T11_011.Forest.cons a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T11_011.Forest.cons.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : T11_011.Tree \u03b1) (a_1 : T11_011.Forest \u03b1) (a_2 : T11_011.Tree \u03b1) (a_3 : T11_011.Forest \u03b1),\n  (T11_011.Forest.cons a a_1 = T11_011.Forest.cons a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T11_011.Forest.cons.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : T11_011.Tree \u03b1) (a_1 : T11_011.Forest \u03b1),\n  sizeOf (T11_011.Forest.cons a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T11_011.Forest.cons.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive_1 : T11_011.Tree \u03b1 \u2192 Prop} \u2192 {motive_2 : T11_011.Forest \u03b1 \u2192 Prop} \u2192 T11_011.Forest \u03b1 \u2192 Prop",
+      "name": "T11_011.Forest.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Forest \u03b1",
+      "name": "T11_011.Forest.nil",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T11_011.Forest.nil = 1",
+      "name": "T11_011.Forest.nil.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T11_011.Forest \u03b1} \u2192 v1 = v2 \u2192 T11_011.Forest.noConfusionType P v1 v2",
+      "name": "T11_011.Forest.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T11_011.Forest \u03b1 \u2192 T11_011.Forest \u03b1 \u2192 Sort u",
+      "name": "T11_011.Forest.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n      ((a : \u03b1) \u2192 (a_1 : T11_011.Forest \u03b1) \u2192 motive_2 a_1 \u2192 motive_1 (T11_011.Tree.node a a_1)) \u2192\n        motive_2 T11_011.Forest.nil \u2192\n          ((a : T11_011.Tree \u03b1) \u2192\n              (a_1 : T11_011.Forest \u03b1) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T11_011.Forest.cons a a_1)) \u2192\n            (t : T11_011.Forest \u03b1) \u2192 motive_2 t",
+      "name": "T11_011.Forest.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n      (t : T11_011.Forest \u03b1) \u2192\n        ((a : \u03b1) \u2192 (a_1 : T11_011.Forest \u03b1) \u2192 motive_2 a_1 \u2192 motive_1 (T11_011.Tree.node a a_1)) \u2192\n          motive_2 T11_011.Forest.nil \u2192\n            ((a : T11_011.Tree \u03b1) \u2192\n                (a_1 : T11_011.Forest \u03b1) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T11_011.Forest.cons a a_1)) \u2192\n              motive_2 t",
+      "name": "T11_011.Forest.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T11_011.OddT",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} \u2192\n  {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} \u2192 {a : Nat} \u2192 T11_011.OddT a \u2192 Prop",
+      "name": "T11_011.OddT.below",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop}\n  {motive_2_1 : {a : Nat} \u2192 (x : T11_011.OddT a) \u2192 x.below \u2192 Prop} {a : Nat} {x : T11_011.OddT a} (t : x.below),\n  (\u2200 (n : Nat) {a : T11_011.EvenT n} (a_1 : a.below) (a_2 : motive_1 n a), motive_2_1 \u22ef \u22ef) \u2192 motive_2_1 x t",
+      "name": "T11_011.OddT.below.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop}\n  {motive_1_1 : {a : Nat} \u2192 (x : T11_011.EvenT a) \u2192 x.below \u2192 Prop}\n  {motive_2_1 : {a : Nat} \u2192 (x : T11_011.OddT a) \u2192 x.below \u2192 Prop},\n  motive_1_1 T11_011.EvenT.zero \u22ef \u2192\n    (\u2200 (n : Nat) {a : T11_011.OddT n} (a_1 : a.below) (a_2 : motive_2 n a), motive_2_1 a a_1 \u2192 motive_1_1 \u22ef \u22ef) \u2192\n      (\u2200 (n : Nat) {a : T11_011.EvenT n} (a_1 : a.below) (a_2 : motive_1 n a), motive_1_1 a a_1 \u2192 motive_2_1 \u22ef \u22ef) \u2192\n        \u2200 {a : Nat} {x : T11_011.OddT a} (t : x.below), motive_2_1 x t",
+      "name": "T11_011.OddT.below.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} (n : Nat)\n  {a : T11_011.EvenT n}, a.below \u2192 motive_1 n a \u2192 \u22ef.below",
+      "name": "T11_011.OddT.below.succ",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} {a : Nat}\n  (x : T11_011.OddT a),\n  (\u2200 (a : Nat) (x : T11_011.EvenT a), x.below \u2192 motive_1 a x) \u2192\n    (\u2200 (a : Nat) (x : T11_011.OddT a), x.below \u2192 motive_2 a x) \u2192 motive_2 a x",
+      "name": "T11_011.OddT.brecOn",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} {a : Nat} (t : T11_011.OddT a),\n  (\u2200 (n : Nat) (a : T11_011.EvenT n), motive_2 (n + 1) \u22ef) \u2192 motive_2 a t",
+      "name": "T11_011.OddT.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop},\n  motive_1 0 T11_011.EvenT.zero \u2192\n    (\u2200 (n : Nat) (a : T11_011.OddT n), motive_2 n a \u2192 motive_1 (n + 1) \u22ef) \u2192\n      (\u2200 (n : Nat) (a : T11_011.EvenT n), motive_1 n a \u2192 motive_2 (n + 1) \u22ef) \u2192\n        \u2200 {a : Nat} (t : T11_011.OddT a), motive_2 a t",
+      "name": "T11_011.OddT.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive_1 : (a : Nat) \u2192 T11_011.EvenT a \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.OddT a \u2192 Prop} {a : Nat}\n  (t : T11_011.OddT a),\n  motive_1 0 T11_011.EvenT.zero \u2192\n    (\u2200 (n : Nat) (a : T11_011.OddT n), motive_2 n a \u2192 motive_1 (n + 1) \u22ef) \u2192\n      (\u2200 (n : Nat) (a : T11_011.EvenT n), motive_1 n a \u2192 motive_2 (n + 1) \u22ef) \u2192 motive_2 a t",
+      "name": "T11_011.OddT.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_011.EvenT n \u2192 T11_011.OddT (n + 1)",
+      "name": "T11_011.OddT.succ",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Nat \u2192 Type",
+      "name": "T11_011.Stmt'",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192 {a : Nat} \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort (max 1 u)",
+      "name": "T11_011.Stmt'.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive_1 : T11_011.Expr' \u03b1 \u2192 Prop} {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Prop} {a : Nat}\n  (t : T11_011.Stmt' \u03b1 a),\n  (\u2200 (t : T11_011.Expr' \u03b1), t.ibelow \u2192 motive_1 t) \u2192\n    (\u2200 (a : Nat) (t : T11_011.Stmt' \u03b1 a), t.ibelow \u2192 motive_2 a t) \u2192 motive_2 a t",
+      "name": "T11_011.Stmt'.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n      {a : Nat} \u2192\n        (t : T11_011.Stmt' \u03b1 a) \u2192\n          ((t : T11_011.Expr' \u03b1) \u2192 t.below \u2192 motive_1 t) \u2192\n            ((a : Nat) \u2192 (t : T11_011.Stmt' \u03b1 a) \u2192 t.below \u2192 motive_2 a t) \u2192 motive_2 a t",
+      "name": "T11_011.Stmt'.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n    {a : Nat} \u2192\n      (t : T11_011.Stmt' \u03b1 a) \u2192\n        motive_2 0 T11_011.Stmt'.skip \u2192\n          ((a : T11_011.Expr' \u03b1) \u2192 (a_1 : T11_011.Stmt' \u03b1 0) \u2192 motive_2 0 (T11_011.Stmt'.seq a a_1)) \u2192 motive_2 a t",
+      "name": "T11_011.Stmt'.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Prop} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Prop} \u2192 {a : Nat} \u2192 T11_011.Stmt' \u03b1 a \u2192 Prop",
+      "name": "T11_011.Stmt'.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 {P : Sort u} \u2192 {v1 v2 : T11_011.Stmt' \u03b1 a} \u2192 v1 = v2 \u2192 T11_011.Stmt'.noConfusionType P v1 v2",
+      "name": "T11_011.Stmt'.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {a : Nat} \u2192 Sort u \u2192 T11_011.Stmt' \u03b1 a \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u",
+      "name": "T11_011.Stmt'.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n      ((a : \u03b1) \u2192 motive_1 (T11_011.Expr'.lit a)) \u2192\n        ((a : T11_011.Stmt' \u03b1 0) \u2192 motive_2 0 a \u2192 motive_1 (T11_011.Expr'.app a)) \u2192\n          motive_2 0 T11_011.Stmt'.skip \u2192\n            ((a : T11_011.Expr' \u03b1) \u2192\n                (a_1 : T11_011.Stmt' \u03b1 0) \u2192 motive_1 a \u2192 motive_2 0 a_1 \u2192 motive_2 0 (T11_011.Stmt'.seq a a_1)) \u2192\n              {a : Nat} \u2192 (t : T11_011.Stmt' \u03b1 a) \u2192 motive_2 a t",
+      "name": "T11_011.Stmt'.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Expr' \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : (a : Nat) \u2192 T11_011.Stmt' \u03b1 a \u2192 Sort u} \u2192\n      {a : Nat} \u2192\n        (t : T11_011.Stmt' \u03b1 a) \u2192\n          ((a : \u03b1) \u2192 motive_1 (T11_011.Expr'.lit a)) \u2192\n            ((a : T11_011.Stmt' \u03b1 0) \u2192 motive_2 0 a \u2192 motive_1 (T11_011.Expr'.app a)) \u2192\n              motive_2 0 T11_011.Stmt'.skip \u2192\n                ((a : T11_011.Expr' \u03b1) \u2192\n                    (a_1 : T11_011.Stmt' \u03b1 0) \u2192 motive_1 a \u2192 motive_2 0 a_1 \u2192 motive_2 0 (T11_011.Stmt'.seq a a_1)) \u2192\n                  motive_2 a t",
+      "name": "T11_011.Stmt'.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Expr' \u03b1 \u2192 T11_011.Stmt' \u03b1 0 \u2192 T11_011.Stmt' \u03b1 0",
+      "name": "T11_011.Stmt'.seq",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : T11_011.Expr' \u03b1} {a_1 : T11_011.Stmt' \u03b1 0} {a_2 : T11_011.Expr' \u03b1} {a_3 : T11_011.Stmt' \u03b1 0},\n  T11_011.Stmt'.seq a a_1 = T11_011.Stmt'.seq a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T11_011.Stmt'.seq.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : T11_011.Expr' \u03b1) (a_1 : T11_011.Stmt' \u03b1 0) (a_2 : T11_011.Expr' \u03b1) (a_3 : T11_011.Stmt' \u03b1 0),\n  (T11_011.Stmt'.seq a a_1 = T11_011.Stmt'.seq a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T11_011.Stmt'.seq.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : T11_011.Expr' \u03b1) (a_1 : T11_011.Stmt' \u03b1 0),\n  sizeOf (T11_011.Stmt'.seq a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T11_011.Stmt'.seq.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Stmt' \u03b1 0",
+      "name": "T11_011.Stmt'.skip",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1], sizeOf T11_011.Stmt'.skip = 1",
+      "name": "T11_011.Stmt'.skip.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T11_011.Tree",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192 {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192 T11_011.Tree \u03b1 \u2192 Sort (max 1 u)",
+      "name": "T11_011.Tree.below",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {motive_1 : T11_011.Tree \u03b1 \u2192 Prop} {motive_2 : T11_011.Forest \u03b1 \u2192 Prop} (t : T11_011.Tree \u03b1),\n  (\u2200 (t : T11_011.Tree \u03b1), t.ibelow \u2192 motive_1 t) \u2192 (\u2200 (t : T11_011.Forest \u03b1), t.ibelow \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T11_011.Tree.binductionOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n      (t : T11_011.Tree \u03b1) \u2192\n        ((t : T11_011.Tree \u03b1) \u2192 t.below \u2192 motive_1 t) \u2192 ((t : T11_011.Forest \u03b1) \u2192 t.below \u2192 motive_2 t) \u2192 motive_1 t",
+      "name": "T11_011.Tree.brecOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    (t : T11_011.Tree \u03b1) \u2192 ((a : \u03b1) \u2192 (a_1 : T11_011.Forest \u03b1) \u2192 motive_1 (T11_011.Tree.node a a_1)) \u2192 motive_1 t",
+      "name": "T11_011.Tree.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive_1 : T11_011.Tree \u03b1 \u2192 Prop} \u2192 {motive_2 : T11_011.Forest \u03b1 \u2192 Prop} \u2192 T11_011.Tree \u03b1 \u2192 Prop",
+      "name": "T11_011.Tree.ibelow",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T11_011.Tree \u03b1} \u2192 v1 = v2 \u2192 T11_011.Tree.noConfusionType P v1 v2",
+      "name": "T11_011.Tree.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T11_011.Tree \u03b1 \u2192 T11_011.Tree \u03b1 \u2192 Sort u",
+      "name": "T11_011.Tree.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T11_011.Forest \u03b1 \u2192 T11_011.Tree \u03b1",
+      "name": "T11_011.Tree.node",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} {a_1 : T11_011.Forest \u03b1} {a_2 : \u03b1} {a_3 : T11_011.Forest \u03b1},\n  T11_011.Tree.node a a_1 = T11_011.Tree.node a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T11_011.Tree.node.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1) (a_1 : T11_011.Forest \u03b1) (a_2 : \u03b1) (a_3 : T11_011.Forest \u03b1),\n  (T11_011.Tree.node a a_1 = T11_011.Tree.node a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T11_011.Tree.node.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1) (a_1 : T11_011.Forest \u03b1),\n  sizeOf (T11_011.Tree.node a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T11_011.Tree.node.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n      ((a : \u03b1) \u2192 (a_1 : T11_011.Forest \u03b1) \u2192 motive_2 a_1 \u2192 motive_1 (T11_011.Tree.node a a_1)) \u2192\n        motive_2 T11_011.Forest.nil \u2192\n          ((a : T11_011.Tree \u03b1) \u2192\n              (a_1 : T11_011.Forest \u03b1) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T11_011.Forest.cons a a_1)) \u2192\n            (t : T11_011.Tree \u03b1) \u2192 motive_1 t",
+      "name": "T11_011.Tree.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive_1 : T11_011.Tree \u03b1 \u2192 Sort u} \u2192\n    {motive_2 : T11_011.Forest \u03b1 \u2192 Sort u} \u2192\n      (t : T11_011.Tree \u03b1) \u2192\n        ((a : \u03b1) \u2192 (a_1 : T11_011.Forest \u03b1) \u2192 motive_2 a_1 \u2192 motive_1 (T11_011.Tree.node a a_1)) \u2192\n          motive_2 T11_011.Forest.nil \u2192\n            ((a : T11_011.Tree \u03b1) \u2192\n                (a_1 : T11_011.Forest \u03b1) \u2192 motive_1 a \u2192 motive_2 a_1 \u2192 motive_2 (T11_011.Forest.cons a a_1)) \u2192\n              motive_1 t",
+      "name": "T11_011.Tree.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), T11_011.EvenT n \u2192 T11_011.OddT n \u2192 False",
+      "name": "T11_011.evenNotOdd",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Expr' \u03b1 \u2192 Nat",
+      "name": "T11_011.exprDepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T11_011.Expr' \u03b1 \u2192 Sort u_1) \u2192\n    (x : T11_011.Expr' \u03b1) \u2192\n      ((a : \u03b1) \u2192 motive (T11_011.Expr'.lit a)) \u2192 ((s : T11_011.Stmt' \u03b1 0) \u2192 motive (T11_011.Expr'.app s)) \u2192 motive x",
+      "name": "T11_011.exprDepth.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Forest \u03b1 \u2192 Nat",
+      "name": "T11_011.forestSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T11_011.Forest \u03b1 \u2192 Sort u_1) \u2192\n    (x : T11_011.Forest \u03b1) \u2192\n      (Unit \u2192 motive T11_011.Forest.nil) \u2192\n        ((t : T11_011.Tree \u03b1) \u2192 (f : T11_011.Forest \u03b1) \u2192 motive (T11_011.Forest.cons t f)) \u2192 motive x",
+      "name": "T11_011.forestSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Stmt' \u03b1 0 \u2192 Nat",
+      "name": "T11_011.stmtDepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T11_011.Stmt' \u03b1 0 \u2192 Sort u_1) \u2192\n    (x : T11_011.Stmt' \u03b1 0) \u2192\n      (Unit \u2192 motive T11_011.Stmt'.skip) \u2192\n        ((e : T11_011.Expr' \u03b1) \u2192 (s : T11_011.Stmt' \u03b1 0) \u2192 motive (T11_011.Stmt'.seq e s)) \u2192 motive x",
+      "name": "T11_011.stmtDepth.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T11_011.Tree \u03b1 \u2192 Nat",
+      "name": "T11_011.treeSize",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T11_011.Tree \u03b1 \u2192 Sort u_1) \u2192\n    (x : T11_011.Tree \u03b1) \u2192 ((a : \u03b1) \u2192 (f : T11_011.Forest \u03b1) \u2192 motive (T11_011.Tree.node a f)) \u2192 motive x",
+      "name": "T11_011.treeSize.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

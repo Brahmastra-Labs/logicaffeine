@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "Adulthood is gradual and context-dependent, not a switch that flips at exactly 17. A sharp numeric cutoff is more precise than the word 'adult', so it fails to MATCH THE VAGUENESS. (Legal age limits are stipulated, not what 'adult' actually means.)"
+  "hint": "Is the word vague while the definition draws a sharp line?",
+  "explanation": "Adulthood comes gradually. A cutoff at 17 is sharper than the word.",
+  "section": "3.2"
 }

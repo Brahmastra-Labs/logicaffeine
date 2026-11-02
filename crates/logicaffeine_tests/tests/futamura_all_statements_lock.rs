@@ -108,7 +108,13 @@ fn statement_catalog() -> BTreeSet<String> {
 fn source_ast_catalog() -> BTreeSet<String> {
     let catalog = core_types_for_pe_source();
     let mut s = BTreeSet::new();
-    for ty in ["CExpr", "CStmt", "CSelectBranch", "CMatchArm", "CStringPart"] {
+    for ty in [
+        "CExpr",
+        "CStmt",
+        "CSelectBranch",
+        "CMatchArm",
+        "CStringPart",
+    ] {
         s.extend(catalog_constructors(catalog, ty));
     }
     s
@@ -184,6 +190,7 @@ fn opaque_statement_builders() -> Vec<(&'static str, &'static str)> {
         ("CTrust", "a new CTrust with proposition (a new CVar with name \"src\") and justification \"axiom\""),
         ("CRequire", "a new CRequire with dependency \"math\""),
         ("CMerge", "a new CMerge with target \"x\" and other (a new CVar with name \"src\")"),
+        ("CJoin", "a new CJoin with target \"x\" and other (a new CVar with name \"src\")"),
         ("CIncrease", "a new CIncrease with target \"x\" and amount (a new CVar with name \"src\")"),
         ("CDecrease", "a new CDecrease with target \"x\" and amount (a new CVar with name \"src\")"),
         ("CAppendToSeq", "a new CAppendToSeq with target \"items\" and value (a new CVar with name \"src\")"),
@@ -214,18 +221,54 @@ fn opaque_statement_builders() -> Vec<(&'static str, &'static str)> {
 /// elsewhere. The guard below proves `behavioural ∪ excluded == catalog`, so a NEW statement cannot
 /// be silently omitted from the behavioural sweep — it must be added to one list or the other.
 const EXCLUDED_FROM_OPAQUE_BATCH: &[(&str, &str)] = &[
-    ("CIf", "control flow — PE legitimately specializes branches; covered by static lock + the_trick"),
-    ("CWhile", "control flow — PE may unroll/transform; covered by static lock + factorial PE tests"),
-    ("CRepeat", "control flow — PE may unroll a static collection; covered by static lock"),
-    ("CRepeatRange", "control flow — PE may unroll a static range; covered by static lock"),
-    ("CInspect", "the surface encoder desugars Inspect to flat CIf chains; covered by static lock"),
-    ("CForceDynamic", "PE-internal binding-time hint, never an opaque body statement; static lock"),
-    ("CStructDef", "declaration encoded at program level, not a body statement; static lock"),
-    ("CEnumDef", "declaration encoded at program level, not a body statement; static lock"),
-    ("CReturn", "block-terminating — dead-code-after-return changes residual count; static lock"),
-    ("CBreak", "loop-terminating control flow; covered by static lock"),
-    ("CSelectRecv", "select arm — exercised NESTED inside the CSelect batch entry, not at top level"),
-    ("CSelectTimeout", "select arm — exercised NESTED inside the CSelect batch entry, not at top level"),
+    (
+        "CIf",
+        "control flow — PE legitimately specializes branches; covered by static lock + the_trick",
+    ),
+    (
+        "CWhile",
+        "control flow — PE may unroll/transform; covered by static lock + factorial PE tests",
+    ),
+    (
+        "CRepeat",
+        "control flow — PE may unroll a static collection; covered by static lock",
+    ),
+    (
+        "CRepeatRange",
+        "control flow — PE may unroll a static range; covered by static lock",
+    ),
+    (
+        "CInspect",
+        "the surface encoder desugars Inspect to flat CIf chains; covered by static lock",
+    ),
+    (
+        "CForceDynamic",
+        "PE-internal binding-time hint, never an opaque body statement; static lock",
+    ),
+    (
+        "CStructDef",
+        "declaration encoded at program level, not a body statement; static lock",
+    ),
+    (
+        "CEnumDef",
+        "declaration encoded at program level, not a body statement; static lock",
+    ),
+    (
+        "CReturn",
+        "block-terminating — dead-code-after-return changes residual count; static lock",
+    ),
+    (
+        "CBreak",
+        "loop-terminating control flow; covered by static lock",
+    ),
+    (
+        "CSelectRecv",
+        "select arm — exercised NESTED inside the CSelect batch entry, not at top level",
+    ),
+    (
+        "CSelectTimeout",
+        "select arm — exercised NESTED inside the CSelect batch entry, not at top level",
+    ),
 ];
 
 /// Build the `## Main` setup that constructs `testStmts` (a `Seq of CStmt`) holding one of every
@@ -261,7 +304,12 @@ fn build_setup(builders: &[(&'static str, &'static str)]) -> String {
 /// Residualize `testStmts` through one dialect's block specializer and return the residual statement
 /// count (`length of residual`). `block_call` is the dialect's entry point; `catalog` is the type
 /// catalog the dialect is paired with (pe_bti needs the memoizing-PEState rename).
-fn residual_count(catalog: &str, dialect_text: &str, block_call: &str, setup: &str) -> (bool, String) {
+fn residual_count(
+    catalog: &str,
+    dialect_text: &str,
+    block_call: &str,
+    setup: &str,
+) -> (bool, String) {
     let source = format!(
         "{catalog}\n{dialect_text}\n## Main\n{setup}\
          \x20   Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
@@ -269,7 +317,14 @@ fn residual_count(catalog: &str, dialect_text: &str, block_call: &str, setup: &s
          \x20   Show length of residual.\n"
     );
     let r = common::run_logos(&source);
-    (r.success, if r.success { r.stdout.trim().to_string() } else { r.stderr })
+    (
+        r.success,
+        if r.success {
+            r.stdout.trim().to_string()
+        } else {
+            r.stderr
+        },
+    )
 }
 
 /// Guard: the opaque behavioural batch plus the documented exclusions EXACTLY partition the statement
@@ -278,14 +333,21 @@ fn residual_count(catalog: &str, dialect_text: &str, block_call: &str, setup: &s
 #[test]
 fn opaque_batch_plus_exclusions_partition_the_statement_catalog() {
     let catalog = statement_catalog();
-    let behavioural: BTreeSet<String> =
-        opaque_statement_builders().iter().map(|(n, _)| n.to_string()).collect();
-    let excluded: BTreeSet<String> =
-        EXCLUDED_FROM_OPAQUE_BATCH.iter().map(|(n, _)| n.to_string()).collect();
+    let behavioural: BTreeSet<String> = opaque_statement_builders()
+        .iter()
+        .map(|(n, _)| n.to_string())
+        .collect();
+    let excluded: BTreeSet<String> = EXCLUDED_FROM_OPAQUE_BATCH
+        .iter()
+        .map(|(n, _)| n.to_string())
+        .collect();
 
     // Disjoint: a constructor is either residualized 1:1 or explicitly excluded, never both.
     let overlap: Vec<&String> = behavioural.intersection(&excluded).collect();
-    assert!(overlap.is_empty(), "a constructor is in BOTH the opaque batch and the exclusions: {overlap:?}");
+    assert!(
+        overlap.is_empty(),
+        "a constructor is in BOTH the opaque batch and the exclusions: {overlap:?}"
+    );
 
     // Every builder/exclusion names a REAL catalog constructor (no typos).
     let union: BTreeSet<String> = behavioural.union(&excluded).cloned().collect();
@@ -317,12 +379,29 @@ fn every_opaque_statement_survives_residualization_through_every_dialect() {
     let setup = build_setup(&builders);
     let base_catalog = core_types_for_pe_source().to_string();
     // pe_bti pairs with the memoizing PEState (specResults→memoCache, onStack→callGuard).
-    let bti_catalog = base_catalog.replace("specResults", "memoCache").replace("onStack", "callGuard");
+    let bti_catalog = base_catalog
+        .replace("specResults", "memoCache")
+        .replace("onStack", "callGuard");
 
     for (name, catalog, dialect, block_call) in [
-        ("pe_source", base_catalog.as_str(), pe_source_text(), "peBlock"),
-        ("pe_mini", base_catalog.as_str(), pe_mini_source_text(), "peBlockM"),
-        ("pe_bti", bti_catalog.as_str(), pe_bti_source_text(), "peBlockB"),
+        (
+            "pe_source",
+            base_catalog.as_str(),
+            pe_source_text(),
+            "peBlock",
+        ),
+        (
+            "pe_mini",
+            base_catalog.as_str(),
+            pe_mini_source_text(),
+            "peBlockM",
+        ),
+        (
+            "pe_bti",
+            bti_catalog.as_str(),
+            pe_bti_source_text(),
+            "peBlockB",
+        ),
     ] {
         let (ok, out) = residual_count(catalog, dialect, block_call, &setup);
         assert!(

@@ -1,0 +1,11 @@
+{
+  "capability": "text.join",
+  "workload": "join(split(s,'0'),'-') \u2014 length fold",
+  "arg": "15000",
+  "expected": "60742500",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

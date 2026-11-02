@@ -102,7 +102,20 @@ pub extern "C" fn logos_stencil_add(a: i64, b: i64) -> i64 {
 /// # Safety
 /// `sp` must point into an operand stack with at least one free slot.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_const(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_const(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *sp = LOGOS_HOLE_I64_0;
     logos_hole_cont_0(base, sp.add(1), r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -113,7 +126,20 @@ pub unsafe extern "C" fn logos_stencil_const(base: *mut i64, sp: *mut i64, r0: i
 /// `base` must point at a frame with more than K slots; `sp` must have a free
 /// slot.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_slot_get(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_slot_get(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *sp = *base.add(LOGOS_HOLE_I64_0 as usize);
     logos_hole_cont_0(base, sp.add(1), r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -124,7 +150,20 @@ pub unsafe extern "C" fn logos_stencil_slot_get(base: *mut i64, sp: *mut i64, r0
 /// `base` must point at a frame with more than K slots; `sp` must point one
 /// past at least one live operand slot.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_slot_set(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_slot_set(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *base.add(LOGOS_HOLE_I64_0 as usize) = *sp.sub(1);
     logos_hole_cont_0(base, sp.sub(1), r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -134,7 +173,20 @@ pub unsafe extern "C" fn logos_stencil_slot_set(base: *mut i64, sp: *mut i64, r0
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_addi(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_addi(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     *sp.sub(2) = a.wrapping_add(b);
@@ -146,7 +198,20 @@ pub unsafe extern "C" fn logos_stencil_addi(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_subi(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_subi(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     *sp.sub(2) = a.wrapping_sub(b);
@@ -158,7 +223,20 @@ pub unsafe extern "C" fn logos_stencil_subi(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_muli(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_muli(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     *sp.sub(2) = a.wrapping_mul(b);
@@ -170,7 +248,20 @@ pub unsafe extern "C" fn logos_stencil_muli(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_lti(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_lti(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     *sp.sub(2) = (a < b) as i64;
@@ -182,7 +273,20 @@ pub unsafe extern "C" fn logos_stencil_lti(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_eqi(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_eqi(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     *sp.sub(2) = (a == b) as i64;
@@ -200,7 +304,20 @@ pub unsafe extern "C" fn logos_stencil_eqi(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_movss(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_movss(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *base.add(LOGOS_HOLE_I64_1 as usize) = *base.add(LOGOS_HOLE_I64_0 as usize);
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -210,7 +327,20 @@ pub unsafe extern "C" fn logos_stencil_movss(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than the patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_constst(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_constst(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *base.add(LOGOS_HOLE_I64_1 as usize) = LOGOS_HOLE_I64_0;
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -220,7 +350,20 @@ pub unsafe extern "C" fn logos_stencil_constst(base: *mut i64, sp: *mut i64, r0:
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_add3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_add3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     // EXACT: signed overflow side-exits (cont_1) so the VM recomputes and promotes.
@@ -238,7 +381,20 @@ pub unsafe extern "C" fn logos_stencil_add3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_sub3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_sub3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     match a.checked_sub(b) {
@@ -255,7 +411,20 @@ pub unsafe extern "C" fn logos_stencil_sub3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_mul3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_mul3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     match a.checked_mul(b) {
@@ -272,7 +441,20 @@ pub unsafe extern "C" fn logos_stencil_mul3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_lt3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_lt3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a < b) as i64;
@@ -284,7 +466,20 @@ pub unsafe extern "C" fn logos_stencil_lt3(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_le3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_le3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a <= b) as i64;
@@ -296,7 +491,20 @@ pub unsafe extern "C" fn logos_stencil_le3(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_eq3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_eq3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a == b) as i64;
@@ -308,7 +516,20 @@ pub unsafe extern "C" fn logos_stencil_eq3(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_ne3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_ne3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a != b) as i64;
@@ -322,7 +543,20 @@ pub unsafe extern "C" fn logos_stencil_ne3(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_div3c(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_div3c(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     if b == 0 || (b == -1 && a == i64::MIN) {
@@ -338,7 +572,20 @@ pub unsafe extern "C" fn logos_stencil_div3c(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_mod3c(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_mod3c(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     if b == 0 {
         return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
@@ -360,7 +607,20 @@ pub unsafe extern "C" fn logos_stencil_mod3c(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than every patched slot index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_divpow2(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_divpow2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let x = *base.add(LOGOS_HOLE_I64_0 as usize);
     let k = LOGOS_HOLE_I64_1;
     let mask = LOGOS_HOLE_I64_2;
@@ -383,7 +643,20 @@ pub unsafe extern "C" fn logos_stencil_divpow2(base: *mut i64, sp: *mut i64, r0:
 /// # Safety
 /// `base` must point at a frame larger than every patched slot index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_magicdiv(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_magicdiv(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let x = *base.add(LOGOS_HOLE_I64_0 as usize);
     let magic = LOGOS_HOLE_I64_1 as u64;
     let more = LOGOS_HOLE_I64_2 as u8;
@@ -416,7 +689,20 @@ pub unsafe extern "C" fn logos_stencil_magicdiv(base: *mut i64, sp: *mut i64, r0
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_brlt(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_brlt(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     if a < b {
@@ -431,7 +717,20 @@ pub unsafe extern "C" fn logos_stencil_brlt(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_breq(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_breq(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     if a == b {
@@ -447,7 +746,20 @@ pub unsafe extern "C" fn logos_stencil_breq(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than the patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_brz(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_brz(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     if *base.add(LOGOS_HOLE_I64_0 as usize) != 0 {
         logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
     } else {
@@ -476,7 +788,20 @@ pub unsafe extern "C" fn logos_stencil_ret2(base: *mut i64, _sp: *mut i64) -> i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_and3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_and3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = a & b;
@@ -488,7 +813,20 @@ pub unsafe extern "C" fn logos_stencil_and3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_or3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_or3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = a | b;
@@ -500,7 +838,20 @@ pub unsafe extern "C" fn logos_stencil_or3(base: *mut i64, sp: *mut i64, r0: i64
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_xor3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_xor3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = a ^ b;
@@ -512,7 +863,20 @@ pub unsafe extern "C" fn logos_stencil_xor3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_shl3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_shl3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = a.wrapping_shl(b as u32);
@@ -524,19 +888,101 @@ pub unsafe extern "C" fn logos_stencil_shl3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_shr3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_shr3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = a.wrapping_shr(b as u32);
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 
+/// `frame[D] = ((frame[L] as u64).wrapping_shr(frame[R] as u32)) as i64` — LOGICAL (unsigned) shift-right;
+/// the count masks to `& 63`. The Word64 substrate for a variable `word64Shr` and the `rotl`/`rotr` composition.
+///
+/// # Safety
+/// `base` must point at a frame larger than every patched index.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_ushr3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let a = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let b = *base.add(LOGOS_HOLE_I64_1 as usize);
+    *base.add(LOGOS_HOLE_I64_2 as usize) = ((a as u64).wrapping_shr(b as u32)) as i64;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+macro_rules! rotate_stencil {
+    ($name:ident, $ty:ty, $method:ident) => {
+        #[no_mangle]
+        pub unsafe extern "C" fn $name(
+            base: *mut i64,
+            sp: *mut i64,
+            r0: i64,
+            r1: i64,
+            r2: i64,
+            r3: i64,
+            f0: f64,
+            f1: f64,
+            f2: f64,
+            f3: f64,
+            f4: f64,
+            f5: f64,
+        ) -> i64 {
+            let a = *base.add(LOGOS_HOLE_I64_0 as usize) as $ty;
+            let b = *base.add(LOGOS_HOLE_I64_1 as usize) as u32;
+            *base.add(LOGOS_HOLE_I64_2 as usize) = a.$method(b) as i64;
+            logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+        }
+    };
+}
+
+rotate_stencil!(logos_stencil_rol32_3, u32, rotate_left);
+rotate_stencil!(logos_stencil_ror32_3, u32, rotate_right);
+rotate_stencil!(logos_stencil_rol64_3, u64, rotate_left);
+rotate_stencil!(logos_stencil_ror64_3, u64, rotate_right);
+
 /// `frame[D] = !frame[S]` — bitwise NOT (the kernel's Int `not`).
 ///
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_noti2(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_noti2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *base.add(LOGOS_HOLE_I64_1 as usize) = !*base.add(LOGOS_HOLE_I64_0 as usize);
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -546,7 +992,20 @@ pub unsafe extern "C" fn logos_stencil_noti2(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_notb2(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_notb2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     *base.add(LOGOS_HOLE_I64_1 as usize) = *base.add(LOGOS_HOLE_I64_0 as usize) ^ 1;
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
@@ -562,7 +1021,20 @@ pub unsafe extern "C" fn logos_stencil_notb2(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_addf3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_addf3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a + b).to_bits() as i64;
@@ -577,7 +1049,20 @@ pub unsafe extern "C" fn logos_stencil_addf3(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_sqrtf2(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_sqrtf2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let v = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let r: f64;
     #[cfg(target_arch = "x86_64")]
@@ -588,12 +1073,342 @@ pub unsafe extern "C" fn logos_stencil_sqrtf2(base: *mut i64, sp: *mut i64, r0: 
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 
+/// `frame[D] = (frame[S] as u64).count_ones()` — population count (Hamming weight). The `popcnt`
+/// instruction is written directly (inline asm) so it is ONE instruction regardless of the build's
+/// enabled CPU features — a bare `.count_ones()` would otherwise fall back to a slow SWAR sequence. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_popcnt2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let v = *base.add(LOGOS_HOLE_I64_0 as usize);
+    #[allow(unused_assignments)]
+    let mut r: i64 = 0;
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("popcnt {r}, {v}", r = out(reg) r, v = in(reg) v);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        r = (v as u64).count_ones() as i64;
+    }
+    *base.add(LOGOS_HOLE_I64_1 as usize) = r;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// `frame[D] = (frame[S] as u64).leading_zeros()` — high zero-bit count (64 for 0). The `lzcnt`
+/// instruction is written directly (inline asm) so it is the real ABM opcode, never `bsr` (which is
+/// undefined for 0). The lowering guards on the `lzcnt` CPU feature before emitting this. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_lzcnt2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let v = *base.add(LOGOS_HOLE_I64_0 as usize);
+    #[allow(unused_assignments)]
+    let mut r: i64 = 0;
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("lzcnt {r}, {v}", r = out(reg) r, v = in(reg) v);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        r = (v as u64).leading_zeros() as i64;
+    }
+    *base.add(LOGOS_HOLE_I64_1 as usize) = r;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// `frame[D] = (frame[S] as u64).trailing_zeros()` — low zero-bit count (64 for 0). The `tzcnt`
+/// instruction is written directly (inline asm) so it is the real BMI1 opcode, never `bsf` (which is
+/// undefined for 0). The lowering guards on the `bmi1` CPU feature before emitting this. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_tzcnt2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let v = *base.add(LOGOS_HOLE_I64_0 as usize);
+    #[allow(unused_assignments)]
+    let mut r: i64 = 0;
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("tzcnt {r}, {v}", r = out(reg) r, v = in(reg) v);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        r = (v as u64).trailing_zeros() as i64;
+    }
+    *base.add(LOGOS_HOLE_I64_1 as usize) = r;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// Saturating f64 → i64 exactly matching Rust's `as i64` cast, but WITHOUT the constant-pool bounds that
+/// `fptosi.sat` emits (a `.LCPI` rip-relative load would break stencil leaf-purity). The guards are pure
+/// integer immediates on the IEEE-754 fields; `to_int_unchecked` is a bare `cvttsd2si` on the in-range
+/// path (safe because `exp < 1086 ⇒ |r| < 2^63`, and `r` is already integral from `roundsd`). NaN → 0,
+/// `+inf`/`≥ 2^63` → `i64::MAX`, `−inf`/`< −2^63` → `i64::MIN`.
+#[inline(always)]
+fn logos_sat_f64_i64(r: f64) -> i64 {
+    let bits = r.to_bits();
+    let exp = (bits >> 52) & 0x7FF;
+    if exp == 0x7FF && (bits & 0x000F_FFFF_FFFF_FFFF) != 0 {
+        0
+    } else if exp >= 1086 {
+        if (bits >> 63) != 0 {
+            i64::MIN
+        } else {
+            i64::MAX
+        }
+    } else {
+        unsafe { r.to_int_unchecked::<i64>() }
+    }
+}
+
+/// `frame[D] = frame[S].floor() as i64` — floor a Float to an Int. `roundsd …, 1` (round toward −∞) is
+/// written directly so it is the real SSE4.1 opcode; `logos_sat_f64_i64` is a leaf-pure `cvttsd2si` with
+/// integer-immediate saturation guards. The lowering guards on the `sse4.1` CPU feature before emitting. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_floorf2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let v = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
+    let r: f64;
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("roundsd {r}, {v}, 1", r = out(xmm_reg) r, v = in(xmm_reg) v);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        r = v.floor();
+    }
+    *base.add(LOGOS_HOLE_I64_1 as usize) = logos_sat_f64_i64(r);
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// `frame[D] = frame[S].ceil() as i64` — ceil a Float to an Int. `roundsd …, 2` (round toward +∞). Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_ceilf2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let v = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
+    let r: f64;
+    #[cfg(target_arch = "x86_64")]
+    core::arch::asm!("roundsd {r}, {v}, 2", r = out(xmm_reg) r, v = in(xmm_reg) v);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        r = v.ceil();
+    }
+    *base.add(LOGOS_HOLE_I64_1 as usize) = logos_sat_f64_i64(r);
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// `v.round() as i64` — round-half-AWAY-from-zero, byte-exact vs Rust's `as i64`, with ZERO floating-point
+/// constants (any `0.5`/`1.0` literal — even via `from_bits` — the optimizer folds to a `.LCPI` pool load
+/// that breaks stencil leaf-purity). Strategy: `roundsd` NEAREST-even gives the answer for every non-tie;
+/// it differs from ties-away ONLY at an exact half, which we detect as "`2v` is an ODD integer" (a pure
+/// float-compare + integer test, no `0.5`), then step to `trunc(v) ± 1` in the integer domain by v's sign
+/// bit. Ties only exist for `|v| < 2^52` (exp < 1075) where the `to_int_unchecked` casts are all in range;
+/// larger/inf/NaN take the saturating path (`roundsd` is the identity on an already-integral `v`).
+///
+/// # Safety
+/// x86_64 requires SSE4.1 (the caller guards on it); the `to_int_unchecked` casts are range-guarded above.
+#[inline(always)]
+unsafe fn logos_round_to_i64(v: f64) -> i64 {
+    let bits = v.to_bits();
+    let exp = (bits >> 52) & 0x7FF;
+    if exp < 1075 {
+        let n: f64;
+        let dt: f64;
+        let d = v + v;
+        #[cfg(target_arch = "x86_64")]
+        {
+            core::arch::asm!("roundsd {n}, {v}, 0", n = out(xmm_reg) n, v = in(xmm_reg) v);
+            core::arch::asm!("roundsd {t}, {d}, 3", t = out(xmm_reg) dt, d = in(xmm_reg) d);
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            n = v.round_ties_even();
+            dt = d.trunc();
+        }
+        if d == dt && (dt.to_int_unchecked::<i64>() & 1) != 0 {
+            // `2v` is an odd integer ⇒ `v = k + 0.5` (a tie): step one AWAY from zero from trunc(v).
+            let base = v.to_int_unchecked::<i64>();
+            if (bits >> 63) == 0 {
+                base + 1
+            } else {
+                base - 1
+            }
+        } else {
+            n.to_int_unchecked::<i64>()
+        }
+    } else {
+        logos_sat_f64_i64(v)
+    }
+}
+
+/// `frame[D] = frame[S].round() as i64` — round-half-away a Float to an Int via `logos_round_to_i64` (a
+/// constant-pool-free leaf). The lowering guards on `sse4.1` before emitting this. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_roundf2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let v = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
+    *base.add(LOGOS_HOLE_I64_1 as usize) = logos_round_to_i64(v);
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// `chr(code)` guard: if `frame[S]` is a VALID Unicode scalar (`≤ 0x10FFFF`, not a surrogate `[0xD800,
+/// 0xDFFF]`), carry it to `frame[D]` (a `Kind::CharText` slot re-boxed to a 1-char `Text` at exit) and
+/// continue; otherwise DEOPT to `logos_hole_cont_1` so the VM re-runs `chr` and TRAPS exactly like the
+/// tree-walker. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_chrguard(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let code = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let u = code as u64;
+    if u > 0x10_FFFF || (0xD800..=0xDFFF).contains(&u) {
+        return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
+    }
+    *base.add(LOGOS_HOLE_I64_1 as usize) = code;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// `frame[D] = utf8_len(frame[S] as u32)` — the UTF-8 byte length of a Unicode scalar: 1 for `< 0x80`,
+/// 2 for `< 0x800`, 3 for `< 0x10000`, else 4. This is the byte-count `Length` of `chr(code)` (a single
+/// scalar boxes to a 1..4-byte `Text`), computed branchlessly from the code point with pure integer
+/// immediate compares (no constant pool → leaf). The code was already validated by the producing
+/// `chr` guard, so every input here is a legal scalar. Leaf.
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_utf8len2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let u = *base.add(LOGOS_HOLE_I64_0 as usize) as u32;
+    let len = 1 + (u >= 0x80) as i64 + (u >= 0x800) as i64 + (u >= 0x1_0000) as i64;
+    *base.add(LOGOS_HOLE_I64_1 as usize) = len;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
 /// `frame[D] = bits(f(L) - f(R))`.
 ///
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_subf3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_subf3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a - b).to_bits() as i64;
@@ -605,7 +1420,20 @@ pub unsafe extern "C" fn logos_stencil_subf3(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_mulf3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_mulf3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a * b).to_bits() as i64;
@@ -619,7 +1447,20 @@ pub unsafe extern "C" fn logos_stencil_mulf3(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_divf3c(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_divf3c(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     if b == 0.0 {
         return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
@@ -634,7 +1475,20 @@ pub unsafe extern "C" fn logos_stencil_divf3c(base: *mut i64, sp: *mut i64, r0: 
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_ltf3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_ltf3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a < b) as i64;
@@ -646,7 +1500,20 @@ pub unsafe extern "C" fn logos_stencil_ltf3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_lef3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_lef3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     *base.add(LOGOS_HOLE_I64_2 as usize) = (a <= b) as i64;
@@ -659,7 +1526,20 @@ pub unsafe extern "C" fn logos_stencil_lef3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_eqf3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_eqf3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     // |a-b| < EPSILON via the bit ordering of non-negative IEEE floats
@@ -676,7 +1556,20 @@ pub unsafe extern "C" fn logos_stencil_eqf3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_nef3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_nef3(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     let d = ((a - b).to_bits() & 0x7FFF_FFFF_FFFF_FFFF) < f64::EPSILON.to_bits();
@@ -690,7 +1583,20 @@ pub unsafe extern "C" fn logos_stencil_nef3(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_brltf(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_brltf(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     if a < b {
@@ -705,7 +1611,20 @@ pub unsafe extern "C" fn logos_stencil_brltf(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_brlef(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_brlef(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     if a <= b {
@@ -720,7 +1639,20 @@ pub unsafe extern "C" fn logos_stencil_brlef(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_breqf(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_breqf(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = f64::from_bits(*base.add(LOGOS_HOLE_I64_0 as usize) as u64);
     let b = f64::from_bits(*base.add(LOGOS_HOLE_I64_1 as usize) as u64);
     if ((a - b).to_bits() & 0x7FFF_FFFF_FFFF_FFFF) < f64::EPSILON.to_bits() {
@@ -740,7 +1672,20 @@ pub unsafe extern "C" fn logos_stencil_breqf(base: *mut i64, sp: *mut i64, r0: i
 /// The pointer/length slots must hold a live buffer pinned by the caller for
 /// the duration of the run.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let len = *base.add(LOGOS_HOLE_I64_2 as usize);
     let im1 = i.wrapping_sub(1);
@@ -762,7 +1707,20 @@ pub unsafe extern "C" fn logos_stencil_arrld(base: *mut i64, sp: *mut i64, r0: i
 /// As `logos_stencil_arrld`, AND the index must be a proven-in-bounds value
 /// — emitted solely from `Op::IndexUnchecked`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *const i64;
     *base.add(LOGOS_HOLE_I64_3 as usize) = *ptr.add(i.wrapping_sub(1) as usize);
@@ -774,7 +1732,20 @@ pub unsafe extern "C" fn logos_stencil_arrld_u(base: *mut i64, sp: *mut i64, r0:
 /// # Safety
 /// As `logos_stencil_arrld_u`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldb_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldb_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *const u8;
     *base.add(LOGOS_HOLE_I64_3 as usize) = *ptr.add(i.wrapping_sub(1) as usize) as i64;
@@ -794,7 +1765,20 @@ pub unsafe extern "C" fn logos_stencil_arrldb_u(base: *mut i64, sp: *mut i64, r0
 /// The pointer/length slots must hold a live buffer pinned by the caller for
 /// the duration of the run.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_addf(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_addf(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let len = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -816,7 +1800,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_addf(base: *mut i64, sp: *mut i64,
 /// # Safety
 /// See [`logos_stencil_arrld2_addf`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_subf(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_subf(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let len = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -838,7 +1835,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_subf(base: *mut i64, sp: *mut i64,
 /// # Safety
 /// See [`logos_stencil_arrld2_addf`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_mulf(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_mulf(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let len = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -867,7 +1877,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_mulf(base: *mut i64, sp: *mut i64,
 /// Both pointer/length slots must hold live buffers pinned by the caller for
 /// the duration of the run.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_add(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_add(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let lena = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -891,7 +1914,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_add(base: *mut i64, sp: *mut i64, 
 /// # Safety
 /// See [`logos_stencil_arrld2_add`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_sub(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_sub(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let lena = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -915,7 +1951,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_sub(base: *mut i64, sp: *mut i64, 
 /// # Safety
 /// See [`logos_stencil_arrld2_add`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_mul(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_mul(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let lena = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -941,7 +1990,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_mul(base: *mut i64, sp: *mut i64, 
 /// # Safety
 /// As [`logos_stencil_arrld2_add`], AND both indices must be proven in bounds.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_add_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_add_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let pa = *base.add(LOGOS_HOLE_I64_2 as usize) as *const i64;
@@ -958,7 +2020,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_add_u(base: *mut i64, sp: *mut i64
 /// # Safety
 /// See [`logos_stencil_arrld2_add_u`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_sub_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_sub_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let pa = *base.add(LOGOS_HOLE_I64_2 as usize) as *const i64;
@@ -975,7 +2050,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_sub_u(base: *mut i64, sp: *mut i64
 /// # Safety
 /// See [`logos_stencil_arrld2_add_u`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld2_mul_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld2_mul_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let j = *base.add(LOGOS_HOLE_I64_1 as usize);
     let pa = *base.add(LOGOS_HOLE_I64_2 as usize) as *const i64;
@@ -996,7 +2084,20 @@ pub unsafe extern "C" fn logos_stencil_arrld2_mul_u(base: *mut i64, sp: *mut i64
 /// # Safety
 /// The pointer/length slots must hold a live buffer pinned by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_none(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_none(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let c = LOGOS_HOLE_I64_2;
     let len = *base.add(LOGOS_HOLE_I64_4 as usize);
@@ -1017,7 +2118,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_none(base: *mut i64, sp: *mut i6
 /// # Safety
 /// As `logos_stencil_arrldaff_none`, AND the computed index must be in range.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_none_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_none_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let c = LOGOS_HOLE_I64_2;
     let ptr = *base.add(LOGOS_HOLE_I64_3 as usize) as *const i64;
@@ -1034,7 +2148,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_none_u(base: *mut i64, sp: *mut 
 /// # Safety
 /// The pointer/length slots must hold a live buffer pinned by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_add(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_add(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let c = LOGOS_HOLE_I64_2;
@@ -1055,7 +2182,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_add(base: *mut i64, sp: *mut i64
 /// # Safety
 /// As `logos_stencil_arrldaff_add`, AND the computed index must be in range.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_add_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_add_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let c = LOGOS_HOLE_I64_2;
@@ -1071,7 +2211,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_add_u(base: *mut i64, sp: *mut i
 /// # Safety
 /// The pointer/length slots must hold a live buffer pinned by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_sub(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_sub(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let c = LOGOS_HOLE_I64_2;
@@ -1091,7 +2244,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_sub(base: *mut i64, sp: *mut i64
 /// # Safety
 /// As `logos_stencil_arrldaff_sub`, AND the computed index must be in range.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_sub_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_sub_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let c = LOGOS_HOLE_I64_2;
@@ -1107,7 +2273,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_sub_u(base: *mut i64, sp: *mut i
 /// # Safety
 /// The pointer/length slots must hold a live buffer pinned by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_mul(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_mul(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let c = LOGOS_HOLE_I64_2;
@@ -1127,7 +2306,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_mul(base: *mut i64, sp: *mut i64
 /// # Safety
 /// As `logos_stencil_arrldaff_mul`, AND the computed index must be in range.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldaff_mul_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldaff_mul_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
     let c = LOGOS_HOLE_I64_2;
@@ -1143,7 +2335,20 @@ pub unsafe extern "C" fn logos_stencil_arrldaff_mul_u(base: *mut i64, sp: *mut i
 /// # Safety
 /// See [`logos_stencil_arrld`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrst(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrst(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let len = *base.add(LOGOS_HOLE_I64_2 as usize);
     let im1 = i.wrapping_sub(1);
@@ -1164,7 +2369,20 @@ pub unsafe extern "C" fn logos_stencil_arrst(base: *mut i64, sp: *mut i64, r0: i
 /// # Safety
 /// As `logos_stencil_arrst`, AND the index must be a proven-in-bounds value.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrst_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrst_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *mut i64;
     *ptr.add(i.wrapping_sub(1) as usize) = *base.add(LOGOS_HOLE_I64_3 as usize);
@@ -1176,7 +2394,20 @@ pub unsafe extern "C" fn logos_stencil_arrst_u(base: *mut i64, sp: *mut i64, r0:
 /// # Safety
 /// As `logos_stencil_arrst_u`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrstb_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrstb_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *mut u8;
     *ptr.add(i.wrapping_sub(1) as usize) = (*base.add(LOGOS_HOLE_I64_3 as usize) != 0) as u8;
@@ -1201,7 +2432,20 @@ pub unsafe extern "C" fn logos_stencil_arrstb_u(base: *mut i64, sp: *mut i64, r0
 /// The table/depth/status addresses must point at the program's live
 /// `NativeCtx` cells; the arena-end slot must bound the caller's frame.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_call(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_call(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let table = LOGOS_HOLE_I64_0 as *const i64;
     let entry_raw = core::ptr::read_volatile(table);
     let depth = LOGOS_HOLE_I64_3 as *mut i64;
@@ -1244,7 +2488,20 @@ pub unsafe extern "C" fn logos_stencil_call(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// The vec-handle slot must hold a live `*mut Vec<…>` pinned by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_push(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_push(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let helper: unsafe extern "C" fn(*mut i64, i64, i64, i64, i64) =
         core::mem::transmute(LOGOS_HOLE_I64_4);
     helper(
@@ -1265,7 +2522,20 @@ pub unsafe extern "C" fn logos_stencil_push(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// The vec-handle slot must hold a live `*mut Vec<…>` pinned by the caller.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_list_clear(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_list_clear(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let helper: unsafe extern "C" fn(*mut i64, i64, i64, i64) =
         core::mem::transmute(LOGOS_HOLE_I64_3);
     helper(base, LOGOS_HOLE_I64_0, LOGOS_HOLE_I64_1, LOGOS_HOLE_I64_2);
@@ -1278,7 +2548,20 @@ pub unsafe extern "C" fn logos_stencil_list_clear(base: *mut i64, sp: *mut i64, 
 /// # Safety
 /// See [`logos_stencil_arrld`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrldb(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrldb(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let len = *base.add(LOGOS_HOLE_I64_2 as usize);
     let im1 = i.wrapping_sub(1);
@@ -1295,7 +2578,20 @@ pub unsafe extern "C" fn logos_stencil_arrldb(base: *mut i64, sp: *mut i64, r0: 
 /// # Safety
 /// See [`logos_stencil_arrld`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrstb(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrstb(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let len = *base.add(LOGOS_HOLE_I64_2 as usize);
     let im1 = i.wrapping_sub(1);
@@ -1315,7 +2611,20 @@ pub unsafe extern "C" fn logos_stencil_arrstb(base: *mut i64, sp: *mut i64, r0: 
 /// See [`logos_stencil_arrld`]; the pinned buffer must hold 4-byte `i32`
 /// elements (the `IntsI32` repr the VM pins for this lane).
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld_i32(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld_i32(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let len = *base.add(LOGOS_HOLE_I64_2 as usize);
     let im1 = i.wrapping_sub(1);
@@ -1333,7 +2642,20 @@ pub unsafe extern "C" fn logos_stencil_arrld_i32(base: *mut i64, sp: *mut i64, r
 /// # Safety
 /// See [`logos_stencil_arrld_i32`]; the index is proven in bounds.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrld_i32_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrld_i32_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let im1 = i.wrapping_sub(1);
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *const i32;
@@ -1348,7 +2670,20 @@ pub unsafe extern "C" fn logos_stencil_arrld_i32_u(base: *mut i64, sp: *mut i64,
 /// # Safety
 /// See [`logos_stencil_arrld_i32`].
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrst_i32(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrst_i32(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let len = *base.add(LOGOS_HOLE_I64_2 as usize);
     let im1 = i.wrapping_sub(1);
@@ -1366,7 +2701,20 @@ pub unsafe extern "C" fn logos_stencil_arrst_i32(base: *mut i64, sp: *mut i64, r
 /// # Safety
 /// See [`logos_stencil_arrst_i32`]; the index is proven in bounds.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_arrst_i32_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_arrst_i32_u(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let i = *base.add(LOGOS_HOLE_I64_0 as usize);
     let im1 = i.wrapping_sub(1);
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *mut i32;
@@ -1379,7 +2727,20 @@ pub unsafe extern "C" fn logos_stencil_arrst_i32_u(base: *mut i64, sp: *mut i64,
 /// # Safety
 /// `base` must point at a frame larger than both patched indices.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_i2f2(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_i2f2(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let v = *base.add(LOGOS_HOLE_I64_0 as usize);
     *base.add(LOGOS_HOLE_I64_1 as usize) = (v as f64).to_bits() as i64;
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
@@ -1393,7 +2754,20 @@ pub unsafe extern "C" fn logos_stencil_i2f2(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_divi_checked(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_divi_checked(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     if b == 0 {
@@ -1409,7 +2783,20 @@ pub unsafe extern "C" fn logos_stencil_divi_checked(base: *mut i64, sp: *mut i64
 /// # Safety
 /// `sp` must point one past at least two live operand slots.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_modi_checked(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_modi_checked(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let b = *sp.sub(1);
     let a = *sp.sub(2);
     if b == 0 {
@@ -1428,7 +2815,20 @@ pub unsafe extern "C" fn logos_stencil_modi_checked(base: *mut i64, sp: *mut i64
 /// The patched constant must be the address of a live, 8-byte-aligned i64
 /// owned by the chain (it outlives every run).
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_deopt(_base: *mut i64, _sp: *mut i64, _r0: i64, _r1: i64, _r2: i64, _r3: i64, _f0: f64, _f1: f64, _f2: f64, _f3: f64, _f4: f64, _f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_deopt(
+    _base: *mut i64,
+    _sp: *mut i64,
+    _r0: i64,
+    _r1: i64,
+    _r2: i64,
+    _r3: i64,
+    _f0: f64,
+    _f1: f64,
+    _f2: f64,
+    _f3: f64,
+    _f4: f64,
+    _f5: f64,
+) -> i64 {
     core::ptr::write_volatile(LOGOS_HOLE_I64_0 as *mut i64, 1);
     0
 }
@@ -1441,9 +2841,25 @@ pub unsafe extern "C" fn logos_stencil_deopt(_base: *mut i64, _sp: *mut i64, _r0
 /// # Safety
 /// The patched status address must be the chain's live status cell.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_deopt_at(_base: *mut i64, _sp: *mut i64, _r0: i64, _r1: i64, _r2: i64, _r3: i64, _f0: f64, _f1: f64, _f2: f64, _f3: f64, _f4: f64, _f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_deopt_at(
+    _base: *mut i64,
+    _sp: *mut i64,
+    _r0: i64,
+    _r1: i64,
+    _r2: i64,
+    _r3: i64,
+    _f0: f64,
+    _f1: f64,
+    _f2: f64,
+    _f3: f64,
+    _f4: f64,
+    _f5: f64,
+) -> i64 {
     let depth = core::ptr::read_volatile(LOGOS_HOLE_I64_2 as *const i64);
-    core::ptr::write_volatile(LOGOS_HOLE_I64_0 as *mut i64, LOGOS_HOLE_I64_1 | (depth << 32));
+    core::ptr::write_volatile(
+        LOGOS_HOLE_I64_0 as *mut i64,
+        LOGOS_HOLE_I64_1 | (depth << 32),
+    );
     0
 }
 
@@ -1458,7 +2874,20 @@ pub unsafe extern "C" fn logos_stencil_deopt_at(_base: *mut i64, _sp: *mut i64, 
 /// # Safety
 /// As for `logos_stencil_call`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_call_precise(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_call_precise(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let table = LOGOS_HOLE_I64_0 as *const i64;
     let entry_raw = core::ptr::read_volatile(table);
     let depth = LOGOS_HOLE_I64_3 as *mut i64;
@@ -1503,7 +2932,20 @@ pub unsafe extern "C" fn logos_stencil_call_precise(base: *mut i64, sp: *mut i64
 /// The map-pointer slot must hold a live `*mut MapStorage` pinned by the
 /// caller for the whole run.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_maphget(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_maphget(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     // The helper writes the destination FRAME slot itself — no local
     // out-parameter, so both continuations stay sibling calls.
     let helper: unsafe extern "C" fn(i64, i64, *mut i64, i64) -> i64 =
@@ -1516,6 +2958,42 @@ pub unsafe extern "C" fn logos_stencil_maphget(base: *mut i64, sp: *mut i64, r0:
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 
+/// A runtime helper over the frame: `helper(frame, dst, src, count, imm)` reads the slots `src..src + count`, writes
+/// the slot `dst`, and answers 0 to side-exit (the VM re-runs the op). Holes: 0 = dst, 1 = src, 2 = count, 3 = imm,
+/// 4 = helper address.
+///
+/// # Safety
+/// The helper must read and write only the slots its operands name, inside the live frame.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_host(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let helper: unsafe extern "C" fn(*mut i64, i64, i64, i64, i64) -> i64 =
+        core::mem::transmute(LOGOS_HOLE_I64_4);
+    if helper(
+        base,
+        LOGOS_HOLE_I64_0,
+        LOGOS_HOLE_I64_1,
+        LOGOS_HOLE_I64_2,
+        LOGOS_HOLE_I64_3,
+    ) == 0
+    {
+        return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
+    }
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
 /// Map SET through a runtime helper: `helper(map_ptr, key, value)` —
 /// inserts always succeed. Holes: 0 = map pointer slot, 1 = key slot,
 /// 2 = value slot, 3 = helper address.
@@ -1523,9 +3001,21 @@ pub unsafe extern "C" fn logos_stencil_maphget(base: *mut i64, sp: *mut i64, r0:
 /// # Safety
 /// As for `logos_stencil_maphget`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_maphset(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
-    let helper: unsafe extern "C" fn(i64, i64, i64) =
-        core::mem::transmute(LOGOS_HOLE_I64_3);
+pub unsafe extern "C" fn logos_stencil_maphset(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let helper: unsafe extern "C" fn(i64, i64, i64) = core::mem::transmute(LOGOS_HOLE_I64_3);
     helper(
         *base.add(LOGOS_HOLE_I64_0 as usize),
         *base.add(LOGOS_HOLE_I64_1 as usize),
@@ -1541,9 +3031,21 @@ pub unsafe extern "C" fn logos_stencil_maphset(base: *mut i64, sp: *mut i64, r0:
 /// # Safety
 /// As for `logos_stencil_maphget`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_maphhas(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
-    let helper: unsafe extern "C" fn(i64, i64) -> i64 =
-        core::mem::transmute(LOGOS_HOLE_I64_3);
+pub unsafe extern "C" fn logos_stencil_maphhas(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let helper: unsafe extern "C" fn(i64, i64) -> i64 = core::mem::transmute(LOGOS_HOLE_I64_3);
     let hit = helper(
         *base.add(LOGOS_HOLE_I64_0 as usize),
         *base.add(LOGOS_HOLE_I64_1 as usize),
@@ -1568,7 +3070,20 @@ pub unsafe extern "C" fn logos_stencil_maphhas(base: *mut i64, sp: *mut i64, r0:
 /// The pin slots must hold live pinned buffer pointers/lengths borrowed for the
 /// whole run; the helper must be the runtime's frame-driven memmem counter.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_memmem(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_memmem(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let helper: unsafe extern "C" fn(*mut i64, i64, i64, i64, i64, i64, i64, i64) -> i64 =
         core::mem::transmute(LOGOS_HOLE_I64_7);
     if helper(
@@ -1595,7 +3110,20 @@ pub unsafe extern "C" fn logos_stencil_memmem(base: *mut i64, sp: *mut i64, r0: 
 /// The helper must be the runtime's allocator taking `(frame, vec, ptr,
 /// len)` slot indexes.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_alloclist(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_alloclist(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let helper: unsafe extern "C" fn(*mut i64, i64, i64, i64) =
         core::mem::transmute(LOGOS_HOLE_I64_3);
     helper(base, LOGOS_HOLE_I64_0, LOGOS_HOLE_I64_1, LOGOS_HOLE_I64_2);
@@ -1609,7 +3137,20 @@ pub unsafe extern "C" fn logos_stencil_alloclist(base: *mut i64, sp: *mut i64, r
 /// # Safety
 /// `frame[handle slot]` must hold a live `*mut Vec<i64>`.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_listtriple(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_listtriple(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let helper: unsafe extern "C" fn(*mut i64, i64, i64, i64, i64) =
         core::mem::transmute(LOGOS_HOLE_I64_4);
     helper(
@@ -1634,7 +3175,20 @@ pub unsafe extern "C" fn logos_stencil_listtriple(base: *mut i64, sp: *mut i64, 
 /// As for `logos_stencil_call`; hole 0's pool word must be patched before
 /// the chain runs.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_call_self(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_call_self(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let entry_raw = LOGOS_HOLE_I64_0;
     let depth = LOGOS_HOLE_I64_3 as *mut i64;
     let callee_base = base.add(LOGOS_HOLE_I64_1 as usize);
@@ -1691,7 +3245,20 @@ pub unsafe extern "C" fn logos_stencil_call_self(base: *mut i64, sp: *mut i64, r
 /// block must not overlap the callee window (the JIT stages the window past
 /// the caller's live registers, so they are disjoint).
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_call_self_copy(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_call_self_copy(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let entry_raw = LOGOS_HOLE_I64_0;
     let depth = LOGOS_HOLE_I64_3 as *mut i64;
     let callee_base = base.add(LOGOS_HOLE_I64_1 as usize);
@@ -1738,7 +3305,20 @@ pub unsafe extern "C" fn logos_stencil_call_self_copy(base: *mut i64, sp: *mut i
 /// # Safety
 /// Trivially safe; `base`/`sp` pass through untouched.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_jump(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_jump(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 
@@ -1747,7 +3327,20 @@ pub unsafe extern "C" fn logos_stencil_jump(base: *mut i64, sp: *mut i64, r0: i6
 /// # Safety
 /// `sp` must point one past at least one live operand slot.
 #[no_mangle]
-pub unsafe extern "C" fn logos_stencil_branch_if(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+pub unsafe extern "C" fn logos_stencil_branch_if(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
     let c = *sp.sub(1);
     if c != 0 {
         logos_hole_cont_0(base, sp.sub(1), r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)

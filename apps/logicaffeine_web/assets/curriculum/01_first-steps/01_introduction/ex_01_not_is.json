@@ -2,10 +2,14 @@
   "id": "I_1.2",
   "type": "translation",
   "difficulty": 2,
-  "prompt": "Translate this negated action:",
-  "template": "{ProperName} does not {Verb}.",
+  "prompt": "Write this sentence in logic.",
+  "template": "{ProperName} is not {Adjective}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Adjective": [
+      "Intersective"
+    ]
   },
-  "hint": "An action verb becomes an event with the subject as its Agent: ∃e(Verb(e) ∧ Agent(e, subject)). Negation wraps the whole thing: ¬∃e(Verb(e) ∧ Agent(e, subject))."
+  "hint": "Put ¬ in front of the predicate applied to the name.",
+  "explanation": "'Not' denies the predicate, so ¬ goes in front of it.",
+  "section": "1.4"
 }

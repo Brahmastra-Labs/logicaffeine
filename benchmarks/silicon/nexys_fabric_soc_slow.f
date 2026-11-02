@@ -1,0 +1,3 @@
+nexys_fabric_soc_slow.v
+nexys_fabric_soc.v
+config_fabric.v

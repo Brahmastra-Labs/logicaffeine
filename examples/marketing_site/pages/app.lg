@@ -1,0 +1,29 @@
+# Front page
+
+Import Layout.
+
+## Page /
+
+Head:
+    <title>Acme — tools that stay out of the way</title>
+    <meta name="description" content="Acme builds small, sharp tools for people who ship.">
+    <meta property="og:title" content="Acme">
+    <meta property="og:description" content="Small, sharp tools for people who ship.">
+
+State:
+    Let tagline be "Small, sharp tools for people who ship.".
+
+View:
+    {extends Site}
+    {block content:}
+      <h1>Acme</h1>
+      <p class="lede">{tagline}</p>
+    {end}
+
+## Test: the front page says what Acme is and marks Home active
+
+Expect that the text of "h1" is equal to "Acme".
+Expect that the text of ".lede" is equal to "Small, sharp tools for people who ship.".
+Expect that the count of "nav a" is equal to 4.
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "Home".

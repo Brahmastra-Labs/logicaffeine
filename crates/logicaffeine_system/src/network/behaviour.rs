@@ -59,13 +59,11 @@ impl MeshBehaviour {
     /// Create a new mesh behaviour with default configuration.
     pub fn new(local_peer_id: libp2p::PeerId, keypair: &Keypair) -> Self {
         // Configure request-response
-        let rr_config = request_response::Config::default()
-            .with_request_timeout(Duration::from_secs(30));
+        let rr_config =
+            request_response::Config::default().with_request_timeout(Duration::from_secs(30));
 
-        let request_response = request_response::Behaviour::new(
-            [(LOGOS_PROTOCOL, ProtocolSupport::Full)],
-            rr_config,
-        );
+        let request_response =
+            request_response::Behaviour::new([(LOGOS_PROTOCOL, ProtocolSupport::Full)], rr_config);
 
         // Configure mDNS
         let mdns_config = mdns::Config::default();
@@ -82,7 +80,8 @@ impl MeshBehaviour {
         let gossipsub = gossipsub::Behaviour::new(
             MessageAuthenticity::Signed(keypair.clone()),
             gossipsub_config,
-        ).expect("Valid gossipsub behaviour");
+        )
+        .expect("Valid gossipsub behaviour");
 
         Self {
             request_response,
@@ -98,7 +97,11 @@ impl MeshBehaviour {
     }
 
     /// Publish to a GossipSub topic.
-    pub fn publish(&mut self, topic: &str, data: Vec<u8>) -> Result<gossipsub::MessageId, gossipsub::PublishError> {
+    pub fn publish(
+        &mut self,
+        topic: &str,
+        data: Vec<u8>,
+    ) -> Result<gossipsub::MessageId, gossipsub::PublishError> {
         let topic = IdentTopic::new(topic);
         self.gossipsub.publish(topic, data)
     }

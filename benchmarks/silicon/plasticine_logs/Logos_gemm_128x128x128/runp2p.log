@@ -1,0 +1,35 @@
+Allocate a_dram of size 128 * 128 at 0x5e2575b85480 (103514981815424)
+Allocate b_dram of size 128 * 128 at 0x5e2575b964c0 (103514981885120)
+Allocate c_dram of size 128 * 128 at 0x5e2575ba6500 (103514981950720)
+Run simulation with with 316 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 316 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.196338
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          13794 Hz
+     20000          15255 Hz
+     30000          13063 Hz
+     40000          13428 Hz
+     50000          12632 Hz
+     60000          15172 Hz
+Simulation complete at cycle 66498
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 3.94213 GB/s
+Average DRAM Write Bandwidth: 0.985533 GB/s
+script Elapsed seconds: 6.43387
+Exiting... 😊
+Destruct DRAM.
+PASS: true (Logos_gemm_128x128x128)
+Complete Simulation
+Runtime:0:07.07

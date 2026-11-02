@@ -1,0 +1,32 @@
+/-!
+# LOGOS source for the Lean declaration `T06_002.transport`
+
+The declaration `T06_002.transport` and the 2 declarations it depends on, written in LOGOS from a checked import. Where a literate English form states a declaration exactly it is written that way; every other declaration is written in the kernel vernacular. Before this document was published it was read back in a fresh LOGOS context and every declaration was compared with the imported one.
+
+## Assumptions
+
+Nothing below is assumed: every declaration is a definition, a type or a checked proof.
+
+## Names
+
+Lean names are kept. A Lean root namespace the LOGOS prelude already uses is placed, with everything inside it, under `Lean`; Lean `Nat` is the prelude's own `Nat`, `Zero` and `Succ`. The correspondence index lists every pair.
+
+## Not carried
+
+Binder annotations (implicit, strict-implicit and instance binders) are not written: every application below is fully explicit, exactly as the kernel checked it.
+-/
+
+/-! ## Types -/
+
+/-- Inductive `Eq`. -/
+Inductive Lean.Eq.{u_1} (α : Sort u_1) (x : α) : α -> Prop := Eq.refl : Lean.Eq.{u_1} α x x.
+
+/-! ## Definitions -/
+
+/-- Recursor `Eq.rec`, derived by LOGOS from its inductive and checked. -/
+Definition Lean.Eq.rec.{u, u_1} : (α : Sort u_1) -> (x : α) -> (f : (x1 : α) -> Lean.Eq.{u_1} α x x1 -> Sort u) -> f x (Lean.Eq.refl.{u_1} α x) -> (x1 : α) -> (x2 : Lean.Eq.{u_1} α x x1) -> f x1 x2 := fun (α : Sort u_1) (x : α) (f : (x1 : α) -> Lean.Eq.{u_1} α x x1 -> Sort u) (f0 : f x (Lean.Eq.refl.{u_1} α x)) (x1 : α) (x2 : Lean.Eq.{u_1} α x x1) => match x2 return (fun (mj0 : α) (x3 : Lean.Eq.{u_1} α x mj0) => f mj0 x3) with f0 end.
+
+/-! ## The target -/
+
+/-- Theorem `T06_002.transport`: its checked proof is written; like Lean's kernel, LOGOS unfolds it. -/
+Theorem T06_002.transport : (α : Type) -> (P : α -> Prop) -> (x : α) -> (b : α) -> Lean.Eq.{1} α x b -> P x -> P b := fun (α : Type) (P : α -> Prop) (x : α) (b : α) (h : Lean.Eq.{1} α x b) (pa : P x) => Lean.Eq.rec.{0, 1} α x (fun (x1 : α) (e : Lean.Eq.{1} α x x1) => P x1) pa b h.

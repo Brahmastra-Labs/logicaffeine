@@ -167,14 +167,12 @@ impl Vfs for OpfsVfs {
             .unchecked_into();
 
         let promise = file.array_buffer();
-        let array_buffer = JsFuture::from(promise)
-            .await
-            .map_err(|e| {
-                VfsError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Read failed: {:?}", e),
-                ))
-            })?;
+        let array_buffer = JsFuture::from(promise).await.map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Read failed: {:?}", e),
+            ))
+        })?;
 
         let uint8_array = js_sys::Uint8Array::new(&array_buffer);
         Ok(uint8_array.to_vec())
@@ -202,11 +200,12 @@ impl Vfs for OpfsVfs {
 
         // Write content
         let data = js_sys::Uint8Array::from(contents);
-        let promise = writable.write_with_buffer_source(&data)
-            .map_err(|e| VfsError::IoError(std::io::Error::new(
+        let promise = writable.write_with_buffer_source(&data).map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("Write setup failed: {:?}", e),
-            )))?;
+            ))
+        })?;
         JsFuture::from(promise).await.map_err(|e| {
             VfsError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -290,34 +289,43 @@ impl Vfs for OpfsVfs {
         let dir = self.get_dir(path, false).await?;
 
         // Get async iterator via entries()
-        let iterator: js_sys::AsyncIterator = js_sys::Reflect::get(&dir, &JsValue::from_str("entries"))
-            .ok()
-            .and_then(|f| f.dyn_ref::<js_sys::Function>().cloned())
-            .ok_or_else(|| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "entries() not available",
-            )))?
-            .call0(&dir)
-            .map_err(|_| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to call entries()",
-            )))?
-            .unchecked_into();
+        let iterator: js_sys::AsyncIterator =
+            js_sys::Reflect::get(&dir, &JsValue::from_str("entries"))
+                .ok()
+                .and_then(|f| f.dyn_ref::<js_sys::Function>().cloned())
+                .ok_or_else(|| {
+                    VfsError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "entries() not available",
+                    ))
+                })?
+                .call0(&dir)
+                .map_err(|_| {
+                    VfsError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Failed to call entries()",
+                    ))
+                })?
+                .unchecked_into();
 
         let mut entries = Vec::new();
 
         loop {
-            let next_promise = iterator.next().map_err(|_| VfsError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Iterator next() failed",
-            )))?;
+            let next_promise = iterator.next().map_err(|_| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Iterator next() failed",
+                ))
+            })?;
 
             let result: AsyncIteratorResult = JsFuture::from(next_promise)
                 .await
-                .map_err(|_| VfsError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Async iteration failed",
-                )))?
+                .map_err(|_| {
+                    VfsError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Async iteration failed",
+                    ))
+                })?
                 .unchecked_into();
 
             if result.done() {
@@ -343,12 +351,10 @@ impl Vfs for OpfsVfs {
         }
 
         // Sort entries: directories first, then alphabetically
-        entries.sort_by(|a, b| {
-            match (a.is_directory, b.is_directory) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            }
+        entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         });
 
         Ok(entries)

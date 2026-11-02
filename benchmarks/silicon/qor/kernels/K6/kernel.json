@@ -1,0 +1,230 @@
+{
+ "bambu": {
+  "array": {
+   "file": "bambu_array.c",
+   "inputs": [
+    [
+     "a",
+     "a"
+    ],
+    [
+     "b",
+     "b"
+    ],
+    [
+     "mask",
+     "mask"
+    ]
+   ],
+   "mems": [
+    {
+     "contract": [
+      "x0",
+      "x1",
+      "x2",
+      "x3"
+     ],
+     "kind": {
+      "Bram": {
+       "ports": 2
+      }
+     },
+     "prefix": "x",
+     "words_per_port": 1
+    },
+    {
+     "contract": [
+      "y0",
+      "y1",
+      "y2",
+      "y3"
+     ],
+     "kind": {
+      "Bram": {
+       "ports": 2
+      }
+     },
+     "prefix": "y",
+     "words_per_port": 1
+    }
+   ],
+   "outputs": [
+    [
+     "sum",
+     "sum",
+     0,
+     64
+    ]
+   ],
+   "pragmas": true,
+   "top": "simt_arrays"
+  },
+  "ports": {
+   "file": "bambu_ports.c",
+   "inputs": [
+    [
+     "a",
+     "a"
+    ],
+    [
+     "b",
+     "b"
+    ],
+    [
+     "mask",
+     "mask"
+    ],
+    [
+     "x0",
+     "x0"
+    ],
+    [
+     "x1",
+     "x1"
+    ],
+    [
+     "x2",
+     "x2"
+    ],
+    [
+     "x3",
+     "x3"
+    ]
+   ],
+   "mems": [],
+   "outputs": [
+    [
+     "y0",
+     "y0",
+     0,
+     64
+    ],
+    [
+     "y1",
+     "y1",
+     0,
+     64
+    ],
+    [
+     "y2",
+     "y2",
+     0,
+     64
+    ],
+    [
+     "y3",
+     "y3",
+     0,
+     64
+    ],
+    [
+     "sum",
+     "sum",
+     0,
+     64
+    ]
+   ],
+   "pragmas": true,
+   "strobe": true,
+   "top": "simt_ports"
+  }
+ },
+ "dahlia": {
+  "file": "kernel.fuse",
+  "mems": [
+   {
+    "contract": [
+     "a"
+    ],
+    "kind": "SeqMem",
+    "prefix": "a",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "b"
+    ],
+    "kind": "SeqMem",
+    "prefix": "b",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "mask"
+    ],
+    "kind": "SeqMem",
+    "prefix": "mask",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "x0",
+     "x1",
+     "x2",
+     "x3"
+    ],
+    "kind": "SeqMem",
+    "prefix": "x",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "y0",
+     "y1",
+     "y2",
+     "y3"
+    ],
+    "kind": "SeqMem",
+    "prefix": "y",
+    "words_per_port": 1
+   },
+   {
+    "contract": [
+     "sum"
+    ],
+    "kind": "SeqMem",
+    "prefix": "sum",
+    "words_per_port": 1
+   }
+  ]
+ },
+ "vortex": {
+  "1c1w4t_b32": {
+   "batch": 32,
+   "defines": [
+    "VX_CFG_NUM_CLUSTERS=1",
+    "VX_CFG_NUM_CORES=1",
+    "VX_CFG_NUM_WARPS=1",
+    "VX_CFG_NUM_THREADS=4",
+    "VX_CFG_EXT_F_DISABLE"
+   ],
+   "xlen": 64
+  },
+  "1c1w4t_b8": {
+   "batch": 8,
+   "defines": [
+    "VX_CFG_NUM_CLUSTERS=1",
+    "VX_CFG_NUM_CORES=1",
+    "VX_CFG_NUM_WARPS=1",
+    "VX_CFG_NUM_THREADS=4",
+    "VX_CFG_EXT_F_DISABLE"
+   ],
+   "xlen": 64
+  },
+  "1c4w4t_b32": {
+   "batch": 32,
+   "defines": [
+    "VX_CFG_NUM_CLUSTERS=1",
+    "VX_CFG_NUM_CORES=1",
+    "VX_CFG_NUM_WARPS=4",
+    "VX_CFG_NUM_THREADS=4",
+    "VX_CFG_EXT_F_DISABLE"
+   ],
+   "xlen": 64
+  },
+  "kernel": "vortex/kernel.S",
+  "operand_line": "0x400",
+  "result_line": "0x800",
+  "startup_addr": "0x180000000"
+ }
+}

@@ -1,0 +1,41 @@
+# Detached fuzz crate. Its own [workspace] table +
+# the parent workspace's EXPLICIT members list (no glob) keep it invisible to
+# `cargo build`/`cargo test --workspace` and the publish set. Built only under
+# `cargo +nightly fuzz run <target>`. libFuzzer catches the aborts / stack-overflows /
+# OOM that the in-suite `catch_unwind` never-panic lock cannot.
+[package]
+name = "logicaffeine-language-fuzz"
+version = "0.0.0"
+publish = false
+license = "MIT"
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+logicaffeine-language = { path = ".." }
+logicaffeine-base = { path = "../../logicaffeine_base" }
+
+[profile.release]
+debug = 1
+
+# The lexer — its byte-slicing on adversarial/truncated multibyte input was the source of
+# the front-door crashes Wave 1 found; fuzz it relentlessly.
+[[bin]]
+name = "fuzz_lex"
+path = "fuzz_targets/fuzz_lex.rs"
+test = false
+doc = false
+bench = false
+
+# The full front-end: lex → parse → transpile-to-FOL. Must never panic on any input.
+[[bin]]
+name = "fuzz_parse"
+path = "fuzz_targets/fuzz_parse.rs"
+test = false
+doc = false
+bench = false

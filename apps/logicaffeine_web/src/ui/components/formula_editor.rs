@@ -14,8 +14,8 @@
 //! - `on_change` - Callback when source changes
 //! - `on_insert` - Optional callback for quick-insert buttons
 
-use dioxus::prelude::*;
 use super::katex::KatexSpan;
+use dioxus::prelude::*;
 
 const FORMULA_EDITOR_STYLE: &str = r#"
 .formula-editor {

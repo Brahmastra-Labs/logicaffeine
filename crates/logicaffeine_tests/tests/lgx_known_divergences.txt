@@ -1,0 +1,25 @@
+# ★ LGX TIER DIVERGENCES — shrink-only ledger shared by `lowered_vm_tier_lock` and
+# `browser_tier_lock`'s tree-walker/VM/Chrome corpus lock (both in `crates/logicaffeine_tests/tests/`),
+# read through ONE parser (`page_host::parse_ledger`).
+#
+# Every page scenario the corpus discovers runs on the reference tier and on a candidate tier, and the
+# page after every statement is compared axis by axis. Each line below is one way a scenario is KNOWN to
+# differ, or one scenario a tier refuses:
+#
+#     <scenario> | <axis> @ <first differing statement> | <one line of cause>
+#     <scenario> | refused @ <statement> | <one line of cause>
+#     <scenario> | browser:<axis> @ <first differing statement> | <one line of cause>
+#
+# The row's TAG names the pair of tiers it is about (`page_host::LedgerTier`):
+#   - plain `<axis>`/`refused` — `lowered_vm_tier_lock`: the reference (the page's lowered LOGOS on the
+#     tree-walker that runs the test) vs. the same LOGOS on the bytecode VM;
+#   - `browser:` — `browser_tier_lock`'s corpus lock: the reference vs. the page in a real Chrome.
+# A difference in how two tiers ARRIVE is never a row.
+# Each lock reads and shrinks only its own rows, so listing a divergence for one pair never claims
+# anything about another. <scenario> is `<source>::<owner>::<test>` for a page read out of a lock file's
+# literals, and `<examples/…/pages/file.lg>::<test>` for an example page; statement 0 is the page the
+# program itself leaves, before the test's first statement.
+#
+# A divergence NOT listed here fails its lock (fix the tier, or list it with its cause). A listed line
+# that no longer happens fails it too — delete it: the ledger only shrinks, toward every tier running
+# every page exactly as the reference does.

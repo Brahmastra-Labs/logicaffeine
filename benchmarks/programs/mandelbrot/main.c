@@ -4,7 +4,7 @@
 int main(int argc, char *argv[]) {
     if (argc < 2) return 1;
     int n = atoi(argv[1]);
-    int count = 0;
+    long count = 0;
     for (int y = 0; y < n; y++) {
         for (int x = 0; x < n; x++) {
             double cr = 2.0 * x / n - 1.5;
@@ -21,6 +21,6 @@ int main(int argc, char *argv[]) {
             if (inside) count++;
         }
     }
-    printf("%d\n", count);
+    printf("%ld\n", count);
     return 0;
 }

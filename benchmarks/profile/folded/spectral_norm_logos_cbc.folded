@@ -1,0 +1,3 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main;fn_3.constprop.0 23220145320
+_start;__libc_start_main_impl;__libc_start_call_main;main;fn_4.constprop.0 23215860510
+_start;__libc_start_main_impl;__libc_start_call_main;main 485908

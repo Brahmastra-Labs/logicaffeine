@@ -1,0 +1,10 @@
+{
+  "capability": "iter.drop",
+  "workload": "dropSeq(1000,xs), positional fold",
+  "arg": "40000",
+  "expected": "2289780576",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

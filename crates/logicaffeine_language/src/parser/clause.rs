@@ -12,43 +12,45 @@
 //!
 //! The [`ClauseParsing`] trait defines the interface implemented by [`Parser`].
 
+use super::math::MathParsing;
 use super::modal::ModalParsing;
 use super::noun::NounParsing;
 use super::pragmatics::PragmaticsParsing;
 use super::quantifier::QuantifierParsing;
 use super::question::QuestionParsing;
 use super::verb::LogicVerbParsing;
-use super::{EventTemplate, ParseResult, Parser};
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term, ThematicRole};
-use crate::lexer::Lexer;
-use crate::lexicon::Time;
-use crate::drs::{BoxType, Gender, Number};
 use super::ParserMode;
+use super::{EventTemplate, ParseResult, Parser};
+use crate::ast::{
+    AspectOperator, LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term,
+    ThematicRole,
+};
+use crate::drs::{BoxType, Gender, Number};
 use crate::error::{ParseError, ParseErrorKind};
-use logicaffeine_base::Symbol;
+use crate::lexer::Lexer;
 use crate::lexicon::Definiteness;
-use crate::token::TokenType;
+use crate::lexicon::Time;
+use crate::token::{Token, TokenType};
+use logicaffeine_base::Symbol;
 
 /// Whether `kind` can BEGIN a clause subject (an NP head/determiner), as opposed to
 /// a copula or verb. Used to tell a fronted temporal adjunct ("Every year SIMON
 /// takes …") from a temporal SUBJECT ("Every year IS long").
 fn starts_clause_subject(kind: &TokenType) -> bool {
-    matches!(
-        kind,
-        TokenType::ProperName(_)
-            | TokenType::Noun(_)
-            | TokenType::Article(_)
-            | TokenType::Pronoun { .. }
-            | TokenType::All
-            | TokenType::No
-            | TokenType::Some
-            | TokenType::Any
-            | TokenType::Most
-            | TokenType::Few
-            | TokenType::Many
-            | TokenType::Cardinal(_)
-            | TokenType::Number(_)
-    )
+    kind.is_generalized_quantifier()
+        || matches!(
+            kind,
+            TokenType::ProperName(_)
+                | TokenType::Noun(_)
+                | TokenType::Article(_)
+                | TokenType::Pronoun { .. }
+                | TokenType::All
+                | TokenType::No
+                | TokenType::Some
+                | TokenType::Any
+                | TokenType::Cardinal(_)
+                | TokenType::Number(_)
+        )
 }
 
 /// One side of an "Of A and B, …" pair. A bare proper name is a referring
@@ -70,7 +72,13 @@ struct OfEntity<'a> {
 /// and other clause-level constructs.
 pub trait ClauseParsing<'a, 'ctx, 'int> {
     /// Parses a complete sentence, handling imperatives, ellipsis, and questions.
+    /// Depth-guarded wrapper (the parse-time half of the AST depth gate for the
+    /// LOGIC descent): a parenthesized / nested sentence recurses back through
+    /// here once per level, so a nesting tower becomes a graceful `AstTooDeep`
+    /// instead of a parser stack overflow. The body lives in `parse_sentence_inner`.
     fn parse_sentence(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
+    /// The real body of [`Self::parse_sentence`]; call the guarded wrapper, never this.
+    fn parse_sentence_inner(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses "if P then Q" conditionals with DRS scope handling.
     fn parse_conditional(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses "either P or Q" exclusive disjunctions.
@@ -82,7 +90,10 @@ pub trait ClauseParsing<'a, 'ctx, 'int> {
     /// Extracts the subject of a copular predication, for non-parallel coordination.
     fn extract_copular_subject(&self, expr: &'a LogicExpr<'a>) -> Option<Symbol>;
     /// Parses a bare copular-predicate remnant ("wealthy" / "a philanthropist").
-    fn try_parse_copular_predicate(&mut self, subject: Symbol) -> ParseResult<Option<&'a LogicExpr<'a>>>;
+    fn try_parse_copular_predicate(
+        &mut self,
+        subject: Symbol,
+    ) -> ParseResult<Option<&'a LogicExpr<'a>>>;
     /// Parses "who/that/which" relative clauses attaching to noun phrases.
     fn parse_relative_clause(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses a clause with a gap filled by borrowed verb (for VP coordination).
@@ -144,7 +155,7 @@ pub trait ClauseParsing<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn try_parse_imperative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
-        let start = self.current;
+        let start = self.backtrack_point();
         let mut negated = false;
         // The covert subject of an imperative is the addressee (the hearer); the
         // hortative "let's" makes it the inclusive group (speaker + addressee).
@@ -206,14 +217,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // yes/no questions begin with an auxiliary (Do/Is/...) rather than a Verb
         // token, so a Verb in initial position is the command verb.
         if !self.check_verb() {
-            self.current = start;
+            self.backtrack_to(&start);
             return Ok(None);
         }
 
         // Even when the initial word is a Verb token, a later finite verb means it is
         // really a subject (e.g. "Set" in "Set A has cardinality 5."), not a command.
         if self.clause_has_later_finite_verb(self.current + 1) {
-            self.current = start;
+            self.backtrack_to(&start);
             return Ok(None);
         }
 
@@ -270,9 +281,25 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     let lex = self.interner.resolve(self.tokens[j].lexeme).to_lowercase();
                     if matches!(
                         lex.as_str(),
-                        "has" | "have" | "had" | "is" | "are" | "was" | "were"
-                            | "do" | "does" | "did" | "will" | "would" | "can"
-                            | "could" | "should" | "shall" | "may" | "might" | "must"
+                        "has"
+                            | "have"
+                            | "had"
+                            | "is"
+                            | "are"
+                            | "was"
+                            | "were"
+                            | "do"
+                            | "does"
+                            | "did"
+                            | "will"
+                            | "would"
+                            | "can"
+                            | "could"
+                            | "should"
+                            | "shall"
+                            | "may"
+                            | "might"
+                            | "must"
                     ) {
                         return true;
                     }
@@ -309,9 +336,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let head = subj - 1;
         if !matches!(
             self.tokens[head].kind,
-            TokenType::Noun(_)
-                | TokenType::CalendarUnit(_)
-                | TokenType::Ambiguous { .. }
+            TokenType::Noun(_) | TokenType::CalendarUnit(_) | TokenType::Ambiguous { .. }
         ) {
             return false;
         }
@@ -321,15 +346,13 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let mut k = head;
         loop {
             match self.tokens[k].kind {
+                ref determiner if determiner.is_generalized_quantifier() => return true,
                 TokenType::Article(_)
                 | TokenType::Possessive
                 | TokenType::All
                 | TokenType::Some
                 | TokenType::No
-                | TokenType::Any
-                | TokenType::Most
-                | TokenType::Few
-                | TokenType::Many => return true,
+                | TokenType::Any => return true,
                 TokenType::Noun(_)
                 | TokenType::CalendarUnit(_)
                 | TokenType::Adjective(_)
@@ -345,13 +368,20 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn try_parse_cleft(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
-        let start = self.current;
+        let start = self.backtrack_point();
         // "It was/is X who/that VP." — the expletive "it" + copula + focus + relative.
-        if !self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("it") {
+        if !self
+            .interner
+            .resolve(self.peek().lexeme)
+            .eq_ignore_ascii_case("it")
+        {
             return Ok(None);
         }
         if self.current + 1 >= self.tokens.len()
-            || !matches!(self.tokens[self.current + 1].kind, TokenType::Is | TokenType::Was)
+            || !matches!(
+                self.tokens[self.current + 1].kind,
+                TokenType::Is | TokenType::Was
+            )
         {
             return Ok(None);
         }
@@ -362,12 +392,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let focus_np = match self.parse_noun_phrase(false) {
             Ok(np) => np,
             Err(_) => {
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
         };
         if !self.check(&TokenType::Who) && !self.check(&TokenType::That) {
-            self.current = start;
+            self.backtrack_to(&start);
             return Ok(None);
         }
         self.advance(); // who/that
@@ -411,14 +441,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn try_parse_exclamative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
-        let start = self.current;
+        let start = self.backtrack_point();
         let lead = self.interner.resolve(self.peek().lexeme).to_lowercase();
         if lead != "how" && lead != "what" {
             return Ok(None);
         }
         // An exclamative is "!"-terminated and has NO subject-aux inversion. A
         // wh-question ("How tall is she?") inverts and ends with "?"; require "!".
-        let ends_with_exclamation = self.tokens[start..]
+        let ends_with_exclamation = self.tokens[start.pos..]
             .iter()
             .take_while(|t| !matches!(t.kind, TokenType::EOF))
             .any(|t| matches!(t.kind, TokenType::Exclamation));
@@ -427,7 +457,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         }
         let is_what = lead == "what";
         self.advance(); // How / What
-        // optional "a"/"an"
+                        // optional "a"/"an"
         if self.check_article() {
             self.advance();
         }
@@ -435,7 +465,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let pred_sym = match self.consume_content_word() {
             Ok(s) => s,
             Err(_) => {
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
         };
@@ -456,7 +486,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             match self.consume_content_word() {
                 Ok(s) => s,
                 Err(_) => {
-                    self.current = start;
+                    self.backtrack_to(&start);
                     return Ok(None);
                 }
             }
@@ -490,13 +520,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 world: None,
             })
         };
-        Ok(Some(self.ctx.exprs.alloc(LogicExpr::Exclamative { degree_var, body })))
+        Ok(Some(
+            self.ctx
+                .exprs
+                .alloc(LogicExpr::Exclamative { degree_var, body }),
+        ))
     }
 
     fn try_parse_optative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
-        let start = self.current;
+        let start = self.backtrack_point();
         // Optatives are "!"-terminated wishes.
-        let ends_with_exclamation = self.tokens[start..]
+        let ends_with_exclamation = self.tokens[start.pos..]
             .iter()
             .take_while(|t| !matches!(t.kind, TokenType::EOF))
             .any(|t| matches!(t.kind, TokenType::Exclamation));
@@ -511,7 +545,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // genuine month reading ("May 3 is a holiday.") from matching.
         let is_may_fronting = self.check(&TokenType::May)
             || matches!(self.peek().kind, TokenType::ProperName(_))
-                && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("may");
+                && self
+                    .interner
+                    .resolve(self.peek().lexeme)
+                    .eq_ignore_ascii_case("may");
         if is_may_fronting {
             self.advance(); // May
             let subj_sym = if let TokenType::ProperName(s) = self.peek().kind {
@@ -524,14 +561,18 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     "you" => self.interner.intern("Addressee"),
                     "i" | "me" => self.interner.intern("Speaker"),
                     other => self.interner.intern(
-                        &(other.chars().next().map(|c| c.to_uppercase().collect::<String>() + &other[1..]).unwrap_or_default()),
+                        &(other
+                            .chars()
+                            .next()
+                            .map(|c| c.to_uppercase().collect::<String>() + &other[1..])
+                            .unwrap_or_default()),
                     ),
                 }
             } else {
                 match self.parse_noun_phrase(false) {
                     Ok(np) => np.noun,
                     Err(_) => {
-                        self.current = start;
+                        self.backtrack_to(&start);
                         return Ok(None);
                     }
                 }
@@ -539,7 +580,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // The wish verb may be a rare/unlisted word ("prosper"), so capture it
             // by lexeme rather than requiring a recognized verb token.
             if self.is_at_end() || self.check(&TokenType::Exclamation) {
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
             let vlex = self.interner.resolve(self.peek().lexeme).to_string();
@@ -550,7 +591,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 .unwrap_or(vlex);
             let verb_sym = self.interner.intern(&vname);
             self.advance(); // consume the wish verb
-            // Optional object (a pronoun / proper name).
+                            // Optional object (a pronoun / proper name).
             let wish = if let TokenType::ProperName(o) = self.peek().kind {
                 self.advance();
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -575,7 +616,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let lead = self.interner.resolve(self.peek().lexeme).to_lowercase();
         if lead == "long"
             && self.current + 1 < self.tokens.len()
-            && self.interner.resolve(self.tokens[self.current + 1].lexeme).eq_ignore_ascii_case("live")
+            && self
+                .interner
+                .resolve(self.tokens[self.current + 1].lexeme)
+                .eq_ignore_ascii_case("live")
         {
             self.advance(); // Long
             self.advance(); // live
@@ -592,7 +636,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // "If only S!" — counterfactual wish.
         if self.check(&TokenType::If)
             && self.current + 1 < self.tokens.len()
-            && self.interner.resolve(self.tokens[self.current + 1].lexeme).eq_ignore_ascii_case("only")
+            && self
+                .interner
+                .resolve(self.tokens[self.current + 1].lexeme)
+                .eq_ignore_ascii_case("only")
         {
             self.advance(); // If
             self.advance(); // only
@@ -604,7 +651,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn try_parse_correlative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
-        let start = self.current;
+        let start = self.backtrack_point();
         let lead = self.interner.resolve(self.peek().lexeme).to_lowercase();
         let is_neither = lead == "neither";
         let is_either = lead == "either";
@@ -665,7 +712,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             } else {
                 None
             };
-            Ok(OfEntity { sym, is_var, term, restrictor })
+            Ok(OfEntity {
+                sym,
+                is_var,
+                term,
+                restrictor,
+            })
         }
 
         // A disjunct's predicate becomes its branch: a description asserts its
@@ -699,14 +751,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let e1 = match self.try_parse(|p| build_disjunct(p)) {
             Some(e) => e,
             None => {
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
         };
 
         let conj = self.interner.resolve(self.peek().lexeme).to_lowercase();
         if conj != "nor" && conj != "or" {
-            self.current = start;
+            self.backtrack_to(&start);
             return Ok(None);
         }
         self.advance(); // nor / or
@@ -714,20 +766,20 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let e2 = match self.try_parse(|p| build_disjunct(p)) {
             Some(e) => e,
             None => {
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
         };
 
         // The shared predicate is parsed once per subject by re-parsing from the
         // same position (parallel structure), so "Neither X nor Y VP" distributes VP.
-        let vp_start = self.current;
+        let vp_start = self.backtrack_point();
         let pred1 = if e1.is_var {
             self.parse_predicate_with_subject_as_var(e1.sym)?
         } else {
             self.parse_predicate_with_subject(e1.sym)?
         };
-        self.current = vp_start;
+        self.backtrack_to(&vp_start);
         let pred2 = if e2.is_var {
             self.parse_predicate_with_subject_as_var(e2.sym)?
         } else {
@@ -737,22 +789,47 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let result = if is_neither {
             // ¬pred1 ∧ ¬pred2 — a description binds its (asserted) restrictor and
             // the negated predicate under its own existential.
-            let n1 = self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pred1 });
+            let n1 = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: pred1,
+            });
             let b1 = wrap_branch(self, &e1, n1);
-            let n2 = self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pred2 });
+            let n2 = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: pred2,
+            });
             let b2 = wrap_branch(self, &e2, n2);
-            self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: b1, op: TokenType::And, right: b2 })
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: b1,
+                op: TokenType::And,
+                right: b2,
+            })
         } else {
             // "either…or" is the inclusive disjunction by default (so the proof engine
             // and existing tests see a plain ∨); its EXCLUSIVITY implicature
             // `∧ ¬(branch1 ∧ branch2)` is a pragmatic enrichment, added only in that mode.
             let b1 = wrap_branch(self, &e1, pred1);
             let b2 = wrap_branch(self, &e2, pred2);
-            let disj = self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: b1, op: TokenType::Or, right: b2 });
+            let disj = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: b1,
+                op: TokenType::Or,
+                right: b2,
+            });
             if self.pragmatic {
-                let both = self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: b1, op: TokenType::And, right: b2 });
-                let not_both = self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: both });
-                self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: disj, op: TokenType::And, right: not_both })
+                let both = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: b1,
+                    op: TokenType::And,
+                    right: b2,
+                });
+                let not_both = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: both,
+                });
+                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: disj,
+                    op: TokenType::And,
+                    right: not_both,
+                })
             } else {
                 disj
             }
@@ -790,8 +867,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             .map(|p| start + p)
             .unwrap_or(self.tokens.len());
 
-        let first_verb = (start..comma_at)
-            .find(|&j| matches!(self.tokens[j].kind, TokenType::Verb { .. }));
+        let first_verb =
+            (start..comma_at).find(|&j| matches!(self.tokens[j].kind, TokenType::Verb { .. }));
 
         // Subject-NP head: optional determiners/adjectives then a nominal head (or, after
         // a determiner, any content word — "soldiers" is verb/noun-ambiguous here).
@@ -861,7 +938,13 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let clause = self.parse_sentence()?;
         // A present-tense clause ("Simon takes …") already carries HAB; the fronted
         // "every <unit>" then adds nothing — don't double-wrap.
-        if matches!(clause, LogicExpr::Aspectual { operator: AspectOperator::Habitual, .. }) {
+        if matches!(
+            clause,
+            LogicExpr::Aspectual {
+                operator: AspectOperator::Habitual,
+                ..
+            }
+        ) {
             return Ok(Some(clause));
         }
         Ok(Some(self.ctx.exprs.alloc(LogicExpr::Aspectual {
@@ -871,6 +954,19 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_sentence(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        self.enter_recursion()?;
+        let result = self.parse_sentence_inner();
+        self.leave_recursion();
+        let sentence = result?;
+        // A sentence-final "infinitely often" scopes over the sentence it ends: G F.
+        if self.check(&TokenType::InfinitelyOften) {
+            self.advance();
+            return Ok(self.infinitely_often(sentence));
+        }
+        Ok(sentence)
+    }
+
+    fn parse_sentence_inner(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         // In imperative mode, handle Let statements by converting to LogicExpr
         // This supports declarative parser being called after process_block_headers()
         // Let x is/= value -> returns the value expression (the test just checks parsing succeeds)
@@ -878,11 +974,26 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance(); // consume "Let"
             let _var = self.expect_identifier()?;
             // Accept "is", "be", "=" as assignment operators
-            if self.check(&TokenType::Is) || self.check(&TokenType::Be) || self.check(&TokenType::Equals) || self.check(&TokenType::Identity) || self.check(&TokenType::Assign) {
+            if self.check(&TokenType::Is)
+                || self.check(&TokenType::Be)
+                || self.check(&TokenType::Equals)
+                || self.check(&TokenType::Identity)
+                || self.check(&TokenType::Assign)
+            {
                 self.advance(); // consume the operator
             }
             // Parse the value and return it (test just checks parsing succeeds)
             return self.parse_disjunction();
+        }
+
+        // The MATH layer: a quantified arithmetic proposition ("For all n, n plus 0
+        // equals n."). Tried first because it is the one production whose vocabulary
+        // (`plus`, `equals`) the English parser reads as ordinary words; it self-rewinds
+        // unless it consumes the whole sentence, so everything else is untouched.
+        if self.mode != ParserMode::Imperative {
+            if let Some(math) = self.try_parse_math_sentence() {
+                return math;
+            }
         }
 
         // Check for ellipsis pattern: "Mary does too." / "Mary can too."
@@ -975,7 +1086,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 self.advance();
             }
             let main = self.parse_sentence()?;
-            return Ok(self.ctx.exprs.alloc(LogicExpr::Concessive { main, concession }));
+            return Ok(self
+                .ctx
+                .exprs
+                .alloc(LogicExpr::Concessive { main, concession }));
         }
 
         // "While X, Y" as temporal duration subordinator
@@ -998,11 +1112,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // "When X, Y" as temporal subordinator (before wh-question check)
         // Disambiguate: subordinator has comma-separated clauses, question does not
         if self.check(&TokenType::When) {
-            let saved = self.current;
+            let saved = self.backtrack_point();
             let mut found_comma = false;
             for i in (self.current + 1)..self.tokens.len() {
                 match &self.tokens[i].kind {
-                    TokenType::Comma => { found_comma = true; break; }
+                    TokenType::Comma => {
+                        found_comma = true;
+                        break;
+                    }
                     TokenType::Period => break,
                     _ => {}
                 }
@@ -1020,7 +1137,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     right: consequent,
                 }));
             }
-            self.current = saved;
+            self.backtrack_to(&saved);
         }
 
         // "Whenever X, Y" → same as "When X, Y"
@@ -1095,12 +1212,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Both) {
             // Peek at token after "both" — if it's a quantifier, this is clausal
             let next_is_clausal = if self.current + 1 < self.tokens.len() {
-                matches!(self.tokens[self.current + 1].kind,
-                    TokenType::All | TokenType::No | TokenType::Some | TokenType::Any
-                    | TokenType::Most | TokenType::Few | TokenType::Many
-                    | TokenType::Cardinal(_) | TokenType::AtLeast(_) | TokenType::AtMost(_)
-                    | TokenType::Article(_)
-                )
+                let next = &self.tokens[self.current + 1].kind;
+                matches!(next, TokenType::Any | TokenType::Article(_))
+                    || QuantifierKind::of_determiner(next).is_some()
             } else {
                 false
             };
@@ -1126,7 +1240,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // "Never P" → Temporal { Always, ¬P }
         {
             let temporal_op = match &self.peek().kind {
-                TokenType::Adverb(sym) | TokenType::ScopalAdverb(sym) | TokenType::TemporalAdverb(sym) => {
+                TokenType::Adverb(sym)
+                | TokenType::ScopalAdverb(sym)
+                | TokenType::TemporalAdverb(sym) => {
                     let resolved = self.interner.resolve(*sym).to_string();
                     match resolved.as_str() {
                         "Always" => Some(crate::ast::logic::TemporalOperator::Always),
@@ -1148,21 +1264,30 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             };
             if let Some(op) = temporal_op {
                 self.advance(); // consume the token
-                // Optionally consume comma: "Always, P"
+                                // Optionally consume comma: "Always, P"
                 if self.check(&TokenType::Comma) {
                     self.advance();
                 }
                 let body = self.parse_sentence()?;
-                return Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
-                    operator: op,
-                    body,
-                }));
+                return Ok(self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::Temporal { operator: op, body }));
             }
+        }
+        // "Infinitely often, P" → G(F(P))
+        if self.check(&TokenType::InfinitelyOften) {
+            self.advance();
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            let body = self.parse_sentence()?;
+            return Ok(self.infinitely_often(body));
         }
         // "Never P" → G(¬P): Always { Not { P } }
         if self.check(&TokenType::Never) {
             self.advance(); // consume "Never"
-            // Optionally consume comma
+                            // Optionally consume comma
             if self.check(&TokenType::Comma) {
                 self.advance();
             }
@@ -1195,10 +1320,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     TokenType::Performative(s) => s,
                     TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => s,
                     TokenType::Verb { lemma, .. } => lemma,
-                    _ => return Err(crate::error::ParseError {
-                        kind: crate::error::ParseErrorKind::ExpectedContentWord { found: self.peek().kind.clone() },
-                        span: self.current_span(),
-                    }),
+                    _ => {
+                        return Err(crate::error::ParseError {
+                            kind: crate::error::ParseErrorKind::ExpectedContentWord {
+                                found: self.peek().kind.clone(),
+                            },
+                            span: self.current_span(),
+                        })
+                    }
                 };
                 self.ctx.exprs.alloc(LogicExpr::Atom(noun))
             } else {
@@ -1236,11 +1365,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn check_wh_word(&self) -> bool {
         if matches!(
             self.peek().kind,
-            TokenType::Who
-                | TokenType::What
-                | TokenType::Where
-                | TokenType::When
-                | TokenType::Why
+            TokenType::Who | TokenType::What | TokenType::Where | TokenType::When | TokenType::Why
         ) {
             return true;
         }
@@ -1265,7 +1390,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // hot." — an "if you <relevance-verb> …" antecedent restricts RELEVANCE, not
         // truth; the consequent is asserted unconditionally.
         let is_biscuit = self.check_pronoun()
-            && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("you")
+            && self
+                .interner
+                .resolve(self.peek().lexeme)
+                .eq_ignore_ascii_case("you")
             && self
                 .tokens
                 .get(self.current + 1)
@@ -1275,6 +1403,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     )
                 })
                 .unwrap_or(false);
+
+        self.retag_antecedent_any();
 
         // Enter DRS antecedent box - indefinites here get universal force
         self.drs.enter_box(BoxType::ConditionalAntecedent);
@@ -1402,7 +1532,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     /// guilty(Alice) ∨ guilty(Bob), not Alice ∨ guilty(Bob)
     fn parse_either_or(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         // Save position for potential backtracking
-        let start_pos = self.current;
+        let start_pos = self.backtrack_point();
 
         // Try to parse as "Either NP1 or NP2 VP"
         // First, try to parse just a proper name (not a full clause)
@@ -1433,16 +1563,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             // Create predicate for each NP
                             let pred1 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: adj,
-                                args: self.ctx.terms.alloc_slice(vec![
-                                    Term::Constant(name1)
-                                ]),
+                                args: self.ctx.terms.alloc_slice(vec![Term::Constant(name1)]),
                                 world: None,
                             });
                             let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: adj,
-                                args: self.ctx.terms.alloc_slice(vec![
-                                    Term::Constant(name2)
-                                ]),
+                                args: self.ctx.terms.alloc_slice(vec![Term::Constant(name2)]),
                                 world: None,
                             });
 
@@ -1475,7 +1601,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
 
             // Backtrack if the special case didn't match
-            self.current = start_pos;
+            self.backtrack_to(&start_pos);
         }
 
         // Fall back to general disjunction parsing
@@ -1486,7 +1612,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         if !self.check(&TokenType::Or) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "or".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "or".to_string(),
+                },
                 span: self.current_span(),
             });
         }
@@ -1532,7 +1660,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     // Look ahead for weather verb: "it rains" or "it is raining"
                     if self.current + 1 < self.tokens.len() {
                         // Check for "it + verb" pattern
-                        if let TokenType::Verb { lemma, time, .. } = &self.tokens[self.current + 1].kind {
+                        if let TokenType::Verb { lemma, time, .. } =
+                            &self.tokens[self.current + 1].kind
+                        {
                             let lemma_str = self.interner.resolve(*lemma);
                             if Lexer::is_weather_verb(lemma_str) {
                                 let verb = *lemma;
@@ -1546,14 +1676,16 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                 // Event var gets universal force from transpiler when suppress_existential=true
                                 let suppress_existential = self.drs.in_conditional_antecedent();
 
-                                let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                    event_var,
-                                    verb,
-                                    roles: self.ctx.roles.alloc_slice(vec![]),
-                                    modifiers: self.ctx.syms.alloc_slice(vec![]),
-                                    suppress_existential,
-                                    world: None,
-                                })));
+                                let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(
+                                    LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                        event_var,
+                                        verb,
+                                        roles: self.ctx.roles.alloc_slice(vec![]),
+                                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                        suppress_existential,
+                                        world: None,
+                                    })),
+                                );
 
                                 // Handle coordinated weather verbs: "rains and thunders" or "rains or thunders"
                                 // SHARE the same event_var for all coordinated verbs
@@ -1561,23 +1693,31 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     let is_disjunction = self.check(&TokenType::Or);
                                     self.advance(); // consume "and" or "or"
 
-                                    if let TokenType::Verb { lemma: lemma2, .. } = &self.peek().kind.clone() {
+                                    if let TokenType::Verb { lemma: lemma2, .. } =
+                                        &self.peek().kind.clone()
+                                    {
                                         let lemma2_str = self.interner.resolve(*lemma2);
                                         if Lexer::is_weather_verb(lemma2_str) {
                                             let verb2 = *lemma2;
                                             self.advance(); // consume second weather verb
 
                                             // REUSE same event_var - no new variable, no DRS registration
-                                            let neo_event2 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                                event_var,  // Same variable as first weather verb
-                                                verb: verb2,
-                                                roles: self.ctx.roles.alloc_slice(vec![]),
-                                                modifiers: self.ctx.syms.alloc_slice(vec![]),
-                                                suppress_existential,
-                                                world: None,
-                                            })));
+                                            let neo_event2 = self.ctx.exprs.alloc(
+                                                LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                                    event_var, // Same variable as first weather verb
+                                                    verb: verb2,
+                                                    roles: self.ctx.roles.alloc_slice(vec![]),
+                                                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                                    suppress_existential,
+                                                    world: None,
+                                                })),
+                                            );
 
-                                            let op = if is_disjunction { TokenType::Or } else { TokenType::And };
+                                            let op = if is_disjunction {
+                                                TokenType::Or
+                                            } else {
+                                                TokenType::And
+                                            };
                                             result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                                 left: result,
                                                 op,
@@ -1611,7 +1751,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                 TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
                             );
                             if is_copula {
-                                if let TokenType::Verb { lemma, .. } = &self.tokens[self.current + 2].kind {
+                                if let TokenType::Verb { lemma, .. } =
+                                    &self.tokens[self.current + 2].kind
+                                {
                                     let lemma_str = self.interner.resolve(*lemma);
                                     if Lexer::is_weather_verb(lemma_str) {
                                         let verb = *lemma;
@@ -1630,28 +1772,34 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                         let event_var = self.get_event_var();
                                         // Weather verbs are impersonal - no pronoun resolution needed
                                         // Event var gets universal force from transpiler when suppress_existential=true
-                                        let suppress_existential = self.drs.in_conditional_antecedent();
+                                        let suppress_existential =
+                                            self.drs.in_conditional_antecedent();
 
-                                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                            event_var,
-                                            verb,
-                                            roles: self.ctx.roles.alloc_slice(vec![]),
-                                            modifiers: self.ctx.syms.alloc_slice(vec![]),
-                                            suppress_existential,
-                                            world: None,
-                                        })));
+                                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(
+                                            Box::new(NeoEventData {
+                                                event_var,
+                                                verb,
+                                                roles: self.ctx.roles.alloc_slice(vec![]),
+                                                modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                                suppress_existential,
+                                                world: None,
+                                            }),
+                                        ));
 
                                         // Progressive aspect for "is raining"
-                                        let with_aspect = self.ctx.exprs.alloc(LogicExpr::Aspectual {
-                                            operator: AspectOperator::Progressive,
-                                            body: neo_event,
-                                        });
+                                        let with_aspect =
+                                            self.ctx.exprs.alloc(LogicExpr::Aspectual {
+                                                operator: AspectOperator::Progressive,
+                                                body: neo_event,
+                                            });
 
                                         return Ok(match verb_time {
-                                            Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
-                                                operator: TemporalOperator::Past,
-                                                body: with_aspect,
-                                            }),
+                                            Time::Past => {
+                                                self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                                    operator: TemporalOperator::Past,
+                                                    body: with_aspect,
+                                                })
+                                            }
                                             _ => with_aspect,
                                         });
                                     }
@@ -1662,7 +1810,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 }
             }
 
-            // Track if subject is an indefinite that needs DRS registration
+            // Track if subject is an indefinite that needs DRS registration. A pronoun that
+            // resolves to a bound referent is that referent's variable, not a constant.
+            let mut bound = false;
             let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
                 let token_text = self.interner.resolve(token.lexeme);
@@ -1672,9 +1822,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 } else if token_text.eq_ignore_ascii_case("you") {
                     self.interner.intern("Addressee")
                 } else if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    let resolved_pronoun = self.resolve_pronoun(gender, number)?;
-                    match resolved_pronoun {
-                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    match self.resolve_pronoun(gender, number)? {
+                        super::ResolvedPronoun::Variable(s) => {
+                            bound = true;
+                            s
+                        }
+                        super::ResolvedPronoun::Constant(s) => s,
                     }
                 } else {
                     unknown
@@ -1687,7 +1840,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 // Both indefinites ("a dog") and definites ("the dog") introduce referents
                 // For definites without antecedent, this implements "global accommodation"
                 if np.definiteness == Some(Definiteness::Definite)
-                    || np.definiteness == Some(Definiteness::Distal) {
+                    || np.definiteness == Some(Definiteness::Distal)
+                {
                     // A definite description ("the butler") denotes a UNIQUE
                     // individual: like a proper name it is a RIGID constant, and
                     // every co-referring pronoun ("…he…") must resolve to that
@@ -1719,18 +1873,19 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         Number::Singular
                     };
 
-                    // Register in DRS using noun as variable (for pronoun resolution)
-                    // INDEFINITES ("a X") use default source (universal force in antecedent)
-                    self.drs.introduce_referent(np.noun, np.noun, gender, number);
+                    // An indefinite ("a farmer") introduces a fresh variable, like every other
+                    // indefinite, and registers it in the DRS for the consequent's pronouns; the
+                    // antecedent box gives it universal force over the whole conditional.
+                    let var = self.next_var_name();
+                    self.drs.introduce_referent(var, np.noun, gender, number);
 
-                    // Create type predicate: Farmer(noun)
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: np.noun,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(np.noun)]),
+                        args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
                         world: None,
                     });
 
-                    (np.noun, Some(type_pred))
+                    (var, Some(type_pred))
                 } else {
                     // Proper name - use as constant (proper names have their own registration)
                     (np.noun, None)
@@ -1738,7 +1893,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             };
 
             // Determine the subject term type
-            let subject_term = if subject_type_pred.is_some() {
+            let subject_is_var = bound || subject_type_pred.is_some();
+            let subject_term = if subject_is_var {
                 Term::Variable(subject)
             } else {
                 Term::Constant(subject)
@@ -1756,15 +1912,16 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     }
                     _ => panic!("Expected presupposition trigger"),
                 };
-                let np = NounPhrase {
-                    noun: subject,
-                    definiteness: None,
-                    adjectives: &[],
-                    possessor: None,
-                    pps: &[],
-                    superlative: None,
-                };
-                return self.parse_presupposition(&np, presup_kind, false);
+                let presupposition =
+                    self.parse_presupposition_for_term(subject_term, presup_kind, false)?;
+                return Ok(match subject_type_pred {
+                    Some(type_pred) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: type_pred,
+                        op: TokenType::And,
+                        right: presupposition,
+                    }),
+                    None => presupposition,
+                });
             }
 
             if self.check(&TokenType::Were) {
@@ -1780,7 +1937,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         } else {
                             let resolved_pronoun = self.resolve_pronoun(gender, number)?;
                             match resolved_pronoun {
-                                super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                                super::ResolvedPronoun::Variable(s)
+                                | super::ResolvedPronoun::Constant(s) => s,
                             }
                         }
                     } else {
@@ -1792,10 +1950,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let be = self.interner.intern("Be");
                 let be_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: be,
-                    args: self.ctx.terms.alloc_slice([
-                        subject_term,
-                        Term::Constant(predicate),
-                    ]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([subject_term, Term::Constant(predicate)]),
                     world: None,
                 });
                 // Combine with type predicate if indefinite subject
@@ -1818,12 +1976,11 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     self.advance();
                 }
                 let verb = self.consume_content_word()?;
-                let mut main_pred: &'a LogicExpr<'a> =
-                    self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: verb,
-                        args: self.ctx.terms.alloc_slice([subject_term]),
-                        world: None,
-                    });
+                let mut main_pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: verb,
+                    args: self.ctx.terms.alloc_slice([subject_term]),
+                    world: None,
+                });
                 if negated {
                     main_pred = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
@@ -1866,7 +2023,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
             // Parse verb phrase with subject
             // Use variable term for indefinite subjects, constant for definites/proper names
-            let verb_phrase = if subject_type_pred.is_some() {
+            let verb_phrase = if subject_is_var {
                 self.parse_predicate_with_subject_as_var(subject)?
             } else {
                 self.parse_predicate_with_subject(subject)?
@@ -1937,39 +2094,57 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     let adj_lemma = self.interner.intern(meta.lemma);
 
                                     // Get event variable from DRS (introduced in antecedent)
-                                    let event_var = self.drs.get_last_event_referent(self.interner)
+                                    let event_var = self
+                                        .drs
+                                        .get_last_event_referent(self.interner)
                                         .unwrap_or_else(|| self.interner.intern("e"));
 
                                     // First weather adjective predicate
-                                    let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                        name: adj_lemma,
-                                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
-                                        world: None,
-                                    });
+                                    let mut result: &'a LogicExpr<'a> =
+                                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                            name: adj_lemma,
+                                            args: self
+                                                .ctx
+                                                .terms
+                                                .alloc_slice([Term::Variable(event_var)]),
+                                            world: None,
+                                        });
 
                                     // Handle coordinated adjectives: "wet and cold"
                                     while self.check(&TokenType::And) {
                                         self.advance(); // consume "and"
                                         if self.check_content_word() {
                                             let adj2_lexeme = self.peek().lexeme;
-                                            let adj2_str = self.interner.resolve(adj2_lexeme).to_lowercase();
+                                            let adj2_str =
+                                                self.interner.resolve(adj2_lexeme).to_lowercase();
 
                                             // Check if it's also a weather adjective
-                                            if let Some(meta2) = crate::lexicon::lookup_adjective_db(&adj2_str) {
-                                                if meta2.features.contains(&crate::lexicon::Feature::Weather) {
+                                            if let Some(meta2) =
+                                                crate::lexicon::lookup_adjective_db(&adj2_str)
+                                            {
+                                                if meta2
+                                                    .features
+                                                    .contains(&crate::lexicon::Feature::Weather)
+                                                {
                                                     self.advance(); // consume adjective token
-                                                    // Use the canonical lemma from lexicon (e.g., "Cold" not "cold")
-                                                    let adj2_lemma = self.interner.intern(meta2.lemma);
-                                                    let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                                        name: adj2_lemma,
-                                                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
-                                                        world: None,
-                                                    });
-                                                    result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                                        left: result,
-                                                        op: TokenType::And,
-                                                        right: pred2,
-                                                    });
+                                                                    // Use the canonical lemma from lexicon (e.g., "Cold" not "cold")
+                                                    let adj2_lemma =
+                                                        self.interner.intern(meta2.lemma);
+                                                    let pred2 = self.ctx.exprs.alloc(
+                                                        LogicExpr::Predicate {
+                                                            name: adj2_lemma,
+                                                            args: self.ctx.terms.alloc_slice([
+                                                                Term::Variable(event_var),
+                                                            ]),
+                                                            world: None,
+                                                        },
+                                                    );
+                                                    result =
+                                                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                                            left: result,
+                                                            op: TokenType::And,
+                                                            right: pred2,
+                                                        });
                                                     continue;
                                                 }
                                             }
@@ -1985,6 +2160,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 }
             }
 
+            // A pronoun that resolves to a referent of the antecedent ("If a farmer owns a
+            // donkey, HE beats it") is that referent's bound variable, not a constant.
+            let mut bound = false;
             let subject = if self.check_pronoun() {
                 let token = self.advance().clone();
                 let token_text = self.interner.resolve(token.lexeme);
@@ -1994,9 +2172,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 } else if token_text.eq_ignore_ascii_case("you") {
                     self.interner.intern("Addressee")
                 } else if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    let resolved_pronoun = self.resolve_pronoun(gender, number)?;
-                    match resolved_pronoun {
-                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    match self.resolve_pronoun(gender, number)? {
+                        super::ResolvedPronoun::Variable(s) => {
+                            bound = true;
+                            s
+                        }
+                        super::ResolvedPronoun::Constant(s) => s,
                     }
                 } else {
                     unknown
@@ -2046,11 +2227,18 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 );
                 let mut pred: &'a LogicExpr<'a> = if clause_ends_after_verb {
                     let verb = self.consume_content_word()?;
+                    let subject_term = if bound {
+                        Term::Variable(subject)
+                    } else {
+                        Term::Constant(subject)
+                    };
                     self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
-                        args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+                        args: self.ctx.terms.alloc_slice([subject_term]),
                         world: None,
                     })
+                } else if bound {
+                    self.parse_predicate_with_subject_as_var(subject)?
                 } else {
                     self.parse_predicate_with_subject(subject)?
                 };
@@ -2063,7 +2251,11 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 return Ok(pred);
             }
 
-            return self.parse_predicate_with_subject(subject);
+            return if bound {
+                self.parse_predicate_with_subject_as_var(subject)
+            } else {
+                self.parse_predicate_with_subject(subject)
+            };
         }
 
         self.parse_sentence()
@@ -2107,7 +2299,19 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     /// Phase 46: Generalized gapping with template-guided reconstruction.
     /// Handles NPs, PPs, temporal adverbs, and preserves roles from EventTemplate.
     fn parse_gapped_clause(&mut self, borrowed_verb: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
-        let subject = self.parse_noun_phrase(true)?;
+        let subject = if self.remnant_names_two_people() {
+            let name = self.consume_content_word()?;
+            NounPhrase {
+                definiteness: None,
+                adjectives: &[],
+                noun: name,
+                possessor: None,
+                pps: &[],
+                superlative: None,
+            }
+        } else {
+            self.parse_noun_phrase(true)?
+        };
 
         if self.check(&TokenType::Comma) {
             self.advance();
@@ -2173,14 +2377,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             (None, None) => vec![],
         };
 
-        Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-            event_var,
-            verb: borrowed_verb,
-            roles: self.ctx.roles.alloc_slice(roles),
-            modifiers: self.ctx.syms.alloc_slice(modifiers),
-            suppress_existential,
-            world: None,
-        }))))
+        Ok(self
+            .ctx
+            .exprs
+            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                event_var,
+                verb: borrowed_verb,
+                roles: self.ctx.roles.alloc_slice(roles),
+                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                suppress_existential,
+                world: None,
+            }))))
     }
 
     fn is_complete_clause(&self, expr: &LogicExpr<'a>) -> bool {
@@ -2206,9 +2413,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_disjunction(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let mut expr = self.parse_conjunction()?;
 
-        while self.check(&TokenType::Comma)
-            || self.check(&TokenType::Or)
-        {
+        while self.check(&TokenType::Comma) || self.check(&TokenType::Or) {
             if self.check(&TokenType::Comma) {
                 self.advance();
             }
@@ -2220,7 +2425,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let operator = self.previous().kind.clone();
             self.current_island += 1;
 
-            let saved_pos = self.current;
+            let saved_pos = self.backtrack_point();
             let standard_attempt = self.try_parse(|p| p.parse_conjunction());
 
             // Gapping in disjunction: only for Or, not Iff. Use original (non-expanded) trigger.
@@ -2243,7 +2448,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     });
                 }
             } else {
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
 
                 let borrowed_verb = self.extract_verb_from_expr(expr).ok_or(ParseError {
                     kind: ParseErrorKind::GappingResolutionFailed,
@@ -2264,7 +2469,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // "P until Q" → TemporalBinary { Until, P, Q }
         // "P release Q" → TemporalBinary { Release, P, Q }
         // "P weak-until Q" → TemporalBinary { WeakUntil, P, Q }
-        if self.check(&TokenType::Until) || self.check(&TokenType::Release) || self.check(&TokenType::WeakUntil) {
+        if self.check(&TokenType::Until)
+            || self.check(&TokenType::Release)
+            || self.check(&TokenType::WeakUntil)
+        {
             let op = match self.peek().kind {
                 TokenType::Release => crate::ast::logic::BinaryTemporalOp::Release,
                 TokenType::WeakUntil => crate::ast::logic::BinaryTemporalOp::WeakUntil,
@@ -2290,17 +2498,26 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if let TokenType::TemporalAdverb(anchor) = self.peek().kind {
             if matches!(
                 self.tokens.get(self.current + 1).map(|t| &t.kind),
-                Some(TokenType::Period) | Some(TokenType::Exclamation) | Some(TokenType::EOF) | None
+                Some(TokenType::Period)
+                    | Some(TokenType::Exclamation)
+                    | Some(TokenType::EOF)
+                    | None
             ) {
                 self.advance();
-                expr = self.ctx.exprs.alloc(LogicExpr::TemporalAnchor { anchor, body: expr });
+                expr = self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::TemporalAnchor { anchor, body: expr });
             }
         }
 
         // Postposed necessary condition: "Y only when X." / "Y only if X." ⇔ Y → X (X is
         // *necessary* for Y — the textbook reading of "only if"). This is the converse direction
         // of the sufficient "Y when X" below, so it must be matched first.
-        if self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("only")
+        if self
+            .interner
+            .resolve(self.peek().lexeme)
+            .eq_ignore_ascii_case("only")
             && matches!(
                 self.tokens.get(self.current + 1).map(|t| &t.kind),
                 Some(TokenType::When) | Some(TokenType::If)
@@ -2414,6 +2631,18 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         }
 
         while self.check(&TokenType::Comma) || self.check(&TokenType::And) {
+            // A list of objects after the verb ("sees Mary, Bill and Sue") gives the verb
+            // to each of them, inside the subject's scope — not a clause per name.
+            if let Some(coordinated) = self.try_coordinated_objects(expr)? {
+                expr = coordinated;
+                continue;
+            }
+            // "…and sees Bill": a verb phrase with no subject of its own is the clause's
+            // subject doing a second thing, inside the same scope.
+            if let Some(coordinated) = self.try_coordinated_verb_phrase(expr)? {
+                expr = coordinated;
+                continue;
+            }
             if self.check(&TokenType::Comma) {
                 self.advance();
             }
@@ -2428,7 +2657,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // adjective or a predicate nominal) attributed to the SAME copular
             // subject, not a gapped event verb.
             if let Some(subj) = self.extract_copular_subject(expr) {
-                let cop_pos = self.current;
+                let cop_pos = self.backtrack_point();
                 if let Some(p2) = self.try_parse_copular_predicate(subj)? {
                     expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: expr,
@@ -2437,10 +2666,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     });
                     continue;
                 }
-                self.current = cop_pos;
+                self.backtrack_to(&cop_pos);
             }
 
-            let saved_pos = self.current;
+            let saved_pos = self.backtrack_point();
             let standard_attempt = self.try_parse(|p| p.parse_atom());
 
             // Phase 46: Expanded gapping trigger to support PP gapping, temporal override,
@@ -2467,7 +2696,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     });
                 }
             } else {
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
 
                 let borrowed_verb = self.extract_verb_from_expr(expr).ok_or(ParseError {
                     kind: ParseErrorKind::GappingResolutionFailed,
@@ -2568,7 +2797,11 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let lex = self.interner.resolve(self.peek().lexeme).to_lowercase();
             if matches!(lex.as_str(), "did" | "do" | "does") {
                 let do_lemma = self.interner.intern("Do");
-                let time = if lex == "did" { Time::Past } else { Time::Present };
+                let time = if lex == "did" {
+                    Time::Past
+                } else {
+                    Time::Present
+                };
                 self.tokens[self.current].kind = TokenType::Verb {
                     lemma: do_lemma,
                     time,
@@ -2611,8 +2844,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // the progressive, then parse the verb phrase as the restriction.
         if let TokenType::Auxiliary(time) = self.peek().kind {
             self.advance(); // "will" / "would" / "did"
-            // Drop the progressive's "be" ("will be studying"). It tokenizes
-            // either as TokenType::Be or as a verb with lemma "be".
+                            // Drop the progressive's "be" ("will be studying"). It tokenizes
+                            // either as TokenType::Be or as a verb with lemma "be".
             let is_be = self.check(&TokenType::Be)
                 || matches!(self.peek().kind, TokenType::Verb { lemma, .. }
                     if self.interner.resolve(lemma).eq_ignore_ascii_case("be"));
@@ -2678,12 +2911,18 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // passive/PP path below.
             if matches!(
                 self.peek().kind,
-                TokenType::Verb { aspect: crate::lexicon::Aspect::Progressive, .. }
+                TokenType::Verb {
+                    aspect: crate::lexicon::Aspect::Progressive,
+                    ..
+                }
             ) {
                 let vp = self.parse_verb_phrase_for_restriction(gap_var)?;
                 let vp = self.conjoin_relative_temporal_adverb(vp, gap_var, rel_temporal_adv);
                 let vp = if negated {
-                    self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: vp })
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: vp,
+                    })
                 } else {
                     vp
                 };
@@ -2755,7 +2994,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 };
                 let pp = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: prep,
-                    args: self.ctx.terms.alloc_slice([Term::Variable(gap_var), obj_term]),
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(gap_var), obj_term]),
                     world: None,
                 });
                 pred = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -2816,14 +3058,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
                 let event_var = self.get_event_var();
                 let suppress_existential = self.drs.in_conditional_antecedent();
-                let event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var,
-                    verb,
-                    roles: self.ctx.roles.alloc_slice(roles),
-                    modifiers: self.ctx.syms.alloc_slice(vec![]),
-                    suppress_existential,
-                    world: None,
-                })));
+                let event = self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(roles),
+                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                        suppress_existential,
+                        world: None,
+                    })));
 
                 if is_negated {
                     return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
@@ -2852,32 +3097,31 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 // paid FOR") makes the GAP the object of that preposition, not the
                 // verb's direct Theme. Detect a preposition with NO overt object (the
                 // matrix clause follows immediately) and bind the gap to it below.
-                let stranded_prep: Option<Symbol> = if self.check_preposition()
-                    && !self.check_to_preposition()
-                {
-                    let has_overt_object = matches!(
-                        self.tokens.get(self.current + 1).map(|t| &t.kind),
-                        Some(TokenType::Article(_))
-                            | Some(TokenType::Noun(_))
-                            | Some(TokenType::ProperName(_))
-                            | Some(TokenType::Number(_))
-                            | Some(TokenType::Cardinal(_))
-                            | Some(TokenType::Pronoun { .. })
-                            | Some(TokenType::Possessive)
-                    );
-                    let prep_sym = match &self.peek().kind {
-                        TokenType::Preposition(s) => Some(*s),
-                        _ => None,
-                    };
-                    if !has_overt_object && prep_sym.is_some() {
-                        self.advance();
-                        prep_sym
+                let stranded_prep: Option<Symbol> =
+                    if self.check_preposition() && !self.check_to_preposition() {
+                        let has_overt_object = matches!(
+                            self.tokens.get(self.current + 1).map(|t| &t.kind),
+                            Some(TokenType::Article(_))
+                                | Some(TokenType::Noun(_))
+                                | Some(TokenType::ProperName(_))
+                                | Some(TokenType::Number(_))
+                                | Some(TokenType::Cardinal(_))
+                                | Some(TokenType::Pronoun { .. })
+                                | Some(TokenType::Possessive)
+                        );
+                        let prep_sym = match &self.peek().kind {
+                            TokenType::Preposition(s) => Some(*s),
+                            _ => None,
+                        };
+                        if !has_overt_object && prep_sym.is_some() {
+                            self.advance();
+                            prep_sym
+                        } else {
+                            None
+                        }
                     } else {
                         None
-                    }
-                } else {
-                    None
-                };
+                    };
 
                 let mut roles: Vec<(ThematicRole, Term<'a>)> =
                     vec![(ThematicRole::Agent, Term::Constant(rel_subject.noun))];
@@ -2903,14 +3147,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 // The stranded preposition's object IS the gap ("Eva works with [x]" →
                 // With(e, x)); attach it over the event so it falls in the event scope.
                 if let Some(prep) = stranded_prep {
-                    pp_preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: prep,
-                        args: self
-                            .ctx
-                            .terms
-                            .alloc_slice([Term::Variable(event_var), Term::Variable(gap_var)]),
-                        world: None,
-                    }));
+                    pp_preds.push(self.ctx.exprs.alloc(
+                        LogicExpr::Predicate {
+                            name: prep,
+                            args:
+                                self.ctx.terms.alloc_slice([
+                                    Term::Variable(event_var),
+                                    Term::Variable(gap_var),
+                                ]),
+                            world: None,
+                        },
+                    ));
                 }
                 while self.check_preposition() {
                     let prep = if let TokenType::Preposition(s) = self.advance().kind {
@@ -2926,11 +3173,16 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         self.current -= 1;
                         break;
                     };
-                    pp_preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: prep,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var), obj_term]),
-                        world: None,
-                    }));
+                    pp_preds.push(
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep,
+                            args: self
+                                .ctx
+                                .terms
+                                .alloc_slice([Term::Variable(event_var), obj_term]),
+                            world: None,
+                        }),
+                    );
                 }
                 let has_pps = !pp_preds.is_empty();
 
@@ -2938,14 +3190,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 // the PP conjuncts fall inside the event's scope; without PPs, the
                 // NeoEvent emits its own ∃e exactly as before (byte-identical).
                 let suppress_existential = self.drs.in_conditional_antecedent() || has_pps;
-                let neo = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var,
-                    verb,
-                    roles: self.ctx.roles.alloc_slice(roles),
-                    modifiers: self.ctx.syms.alloc_slice(vec![]),
-                    suppress_existential,
-                    world: None,
-                })));
+                let neo = self
+                    .ctx
+                    .exprs
+                    .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(roles),
+                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                        suppress_existential,
+                        world: None,
+                    })));
                 let mut event_body = neo;
                 for pp in pp_preds {
                     event_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -3007,9 +3262,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn check_ellipsis_auxiliary(&self) -> bool {
         matches!(
             self.peek().kind,
-            TokenType::Does | TokenType::Do |
-            TokenType::Can | TokenType::Could | TokenType::Would |
-            TokenType::May | TokenType::Must | TokenType::Should
+            TokenType::Does
+                | TokenType::Do
+                | TokenType::Can
+                | TokenType::Could
+                | TokenType::Would
+                | TokenType::May
+                | TokenType::Must
+                | TokenType::Should
         )
     }
 
@@ -3030,7 +3290,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             return None;
         }
 
-        let saved_pos = self.current;
+        let saved_pos = self.backtrack_point();
 
         // Pattern: Subject + Auxiliary + (not)? + Terminator
         // Subject must be proper name or pronoun
@@ -3038,7 +3298,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             if let TokenType::ProperName(sym) = self.advance().kind {
                 sym
             } else {
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
                 return None;
             }
         } else if self.check_pronoun() {
@@ -3046,12 +3306,13 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             if let TokenType::Pronoun { gender, number, .. } = token.kind {
                 match self.resolve_pronoun(gender, number) {
                     Ok(resolved) => match resolved {
-                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                        super::ResolvedPronoun::Variable(s)
+                        | super::ResolvedPronoun::Constant(s) => s,
                     },
                     Err(e) => return Some(Err(e)),
                 }
             } else {
-                self.current = saved_pos;
+                self.backtrack_to(&saved_pos);
                 return None;
             }
         } else {
@@ -3060,7 +3321,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Must be followed by ellipsis auxiliary
         if !self.check_ellipsis_auxiliary() {
-            self.current = saved_pos;
+            self.backtrack_to(&saved_pos);
             return None;
         }
         let aux_token = self.advance().kind.clone();
@@ -3070,7 +3331,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Must end with terminator
         if !self.check_ellipsis_terminator() {
-            self.current = saved_pos;
+            self.backtrack_to(&saved_pos);
             return None;
         }
 
@@ -3088,19 +3349,21 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let suppress_existential = self.drs.in_conditional_antecedent();
 
         // Build roles with new subject as Agent
-        let mut roles: Vec<(ThematicRole, Term<'a>)> = vec![
-            (ThematicRole::Agent, Term::Constant(subject_sym))
-        ];
+        let mut roles: Vec<(ThematicRole, Term<'a>)> =
+            vec![(ThematicRole::Agent, Term::Constant(subject_sym))];
         roles.extend(template.non_agent_roles.iter().cloned());
 
-        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-            event_var,
-            verb: template.verb,
-            roles: self.ctx.roles.alloc_slice(roles),
-            modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
-            suppress_existential,
-            world: None,
-        })));
+        let neo_event = self
+            .ctx
+            .exprs
+            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                event_var,
+                verb: template.verb,
+                roles: self.ctx.roles.alloc_slice(roles),
+                modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                suppress_existential,
+                world: None,
+            })));
 
         // Apply modal if auxiliary is modal
         let with_modal = match aux_token {
@@ -3129,7 +3392,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn try_parse_of_pair_xor(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
-        let start = self.current;
+        let start = self.backtrack_point();
 
         // Must start with the preposition "of"
         let is_of = {
@@ -3187,33 +3450,39 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // ("stamp", "print") or an ambiguous noun/verb token can head a puzzle NP
         // too, so they count as heads here; the fallback yields a bare constant
         // (its modifiers are lost — only reached when the full parse failed).
-        fn scan_head<'a, 'ctx, 'int>(p: &mut Parser<'a, 'ctx, 'int>, lo: usize, hi: usize) -> Option<Symbol> {
+        fn scan_head<'a, 'ctx, 'int>(
+            p: &mut Parser<'a, 'ctx, 'int>,
+            lo: usize,
+            hi: usize,
+        ) -> Option<Symbol> {
             let mut i = hi;
             while i > lo {
                 i -= 1;
                 let head = match p.tokens[i].kind {
                     TokenType::ProperName(s) | TokenType::Noun(s) => Some(s),
                     TokenType::Verb { lemma, .. } => Some(lemma),
-                    TokenType::Ambiguous { ref primary, ref alternatives } => {
-                        match **primary {
-                            TokenType::Noun(s) | TokenType::ProperName(s) => Some(s),
-                            TokenType::Verb { lemma, .. } => Some(lemma),
-                            _ => alternatives.iter().find_map(|t| match t {
-                                TokenType::Noun(s) | TokenType::ProperName(s) => Some(*s),
-                                TokenType::Verb { lemma, .. } => Some(*lemma),
-                                _ => None,
-                            }),
-                        }
-                    }
+                    TokenType::Ambiguous {
+                        ref primary,
+                        ref alternatives,
+                    } => match **primary {
+                        TokenType::Noun(s) | TokenType::ProperName(s) => Some(s),
+                        TokenType::Verb { lemma, .. } => Some(lemma),
+                        _ => alternatives.iter().find_map(|t| match t {
+                            TokenType::Noun(s) | TokenType::ProperName(s) => Some(*s),
+                            TokenType::Verb { lemma, .. } => Some(*lemma),
+                            _ => None,
+                        }),
+                    },
                     _ => None,
                 };
                 if let Some(s) = head {
                     if i > lo {
                         if let TokenType::Cardinal(n) = p.tokens[i - 1].kind {
-                            return Some(
-                                p.interner
-                                    .intern(&format!("{}_{}", n, p.interner.resolve(s))),
-                            );
+                            return Some(p.interner.intern(&format!(
+                                "{}_{}",
+                                n,
+                                p.interner.resolve(s)
+                            )));
                         }
                     }
                     return Some(s);
@@ -3307,7 +3576,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             } else {
                 None
             };
-            Ok(OfEntity { sym, is_var, term, restrictor })
+            Ok(OfEntity {
+                sym,
+                is_var,
+                term,
+                restrictor,
+            })
         }
 
         self.advance(); // consume "of"
@@ -3318,9 +3592,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             None => {
                 self.current = and_pos;
                 match scan_head(self, scan_start, and_pos) {
-                    Some(h) => OfEntity { sym: h, is_var: false, term: Term::Constant(h), restrictor: None },
+                    Some(h) => OfEntity {
+                        sym: h,
+                        is_var: false,
+                        term: Term::Constant(h),
+                        restrictor: None,
+                    },
                     None => {
-                        self.current = start;
+                        self.backtrack_to(&start);
                         return Ok(None);
                     }
                 }
@@ -3334,9 +3613,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             None => {
                 self.current = comma_pos;
                 match scan_head(self, and_pos + 1, comma_pos) {
-                    Some(h) => OfEntity { sym: h, is_var: false, term: Term::Constant(h), restrictor: None },
+                    Some(h) => OfEntity {
+                        sym: h,
+                        is_var: false,
+                        term: Term::Constant(h),
+                        restrictor: None,
+                    },
                     None => {
-                        self.current = start;
+                        self.backtrack_to(&start);
                         return Ok(None);
                     }
                 }
@@ -3344,10 +3628,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         };
         self.advance(); // ","
         self.advance(); // "one" (validated above)
-        // "one TYPE is …" / "one PERSON did …" — a redundant classifier noun
-        // after "one" (the of-pair already binds the entity); skip it so VP₁
-        // starts at the real predicate. Only when a Noun is directly followed by
-        // a copula / auxiliary / verb (the predicate), never a bare object NP.
+                        // "one TYPE is …" / "one PERSON did …" — a redundant classifier noun
+                        // after "one" (the of-pair already binds the entity); skip it so VP₁
+                        // starts at the real predicate. Only when a Noun is directly followed by
+                        // a copula / auxiliary / verb (the predicate), never a bare object NP.
         {
             // A classifier is a generic noun ("one PERSON …") or a noun-or-verb
             // ambiguous word the lexicon also reads as a verb ("one TYPE …", "one
@@ -3369,8 +3653,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             if cur_is_classifier
                 && matches!(
                     self.tokens.get(self.current + 1).map(|t| &t.kind),
-                    Some(TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
-                        | TokenType::Verb { .. } | TokenType::Auxiliary(_))
+                    Some(
+                        TokenType::Is
+                            | TokenType::Are
+                            | TokenType::Was
+                            | TokenType::Were
+                            | TokenType::Verb { .. }
+                            | TokenType::Auxiliary(_)
+                    )
                 )
             {
                 self.advance(); // skip the classifier noun
@@ -3444,17 +3734,19 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Expect the "and the other" marker. When bounded, VP₁ stopped at the
         // Period that replaced "and"; an optional comma may precede it.
-        if self.check(&TokenType::Comma) { self.advance(); }
+        if self.check(&TokenType::Comma) {
+            self.advance();
+        }
         if let Some(marker) = other_and_pos {
             if self.current != marker || !self.check(&TokenType::Period) {
                 restore_and!();
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
             self.advance(); // the bounded "and"
         } else {
             if self.interner.resolve(self.peek().lexeme).to_lowercase() != "and" {
-                self.current = start;
+                self.backtrack_to(&start);
                 return Ok(None);
             }
             self.advance(); // consume "and"
@@ -3463,7 +3755,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // Expect "the"
         if !self.check_article() {
             restore_and!();
-            self.current = start;
+            self.backtrack_to(&start);
             return Ok(None);
         }
         self.advance(); // consume "the"
@@ -3471,12 +3763,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // Expect "other"
         if self.interner.resolve(self.peek().lexeme).to_lowercase() != "other" {
             restore_and!();
-            self.current = start;
+            self.backtrack_to(&start);
             return Ok(None);
         }
         self.advance(); // consume "other"
-        // "the other TYPE is …" — skip the redundant classifier noun (mirrors the
-        // "one TYPE" skip above) so VP₂ starts at the real predicate.
+                        // "the other TYPE is …" — skip the redundant classifier noun (mirrors the
+                        // "one TYPE" skip above) so VP₂ starts at the real predicate.
         {
             // A classifier is a generic noun ("one PERSON …") or a noun-or-verb
             // ambiguous word the lexicon also reads as a verb ("one TYPE …", "one
@@ -3498,8 +3790,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             if cur_is_classifier
                 && matches!(
                     self.tokens.get(self.current + 1).map(|t| &t.kind),
-                    Some(TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
-                        | TokenType::Verb { .. } | TokenType::Auxiliary(_))
+                    Some(
+                        TokenType::Is
+                            | TokenType::Are
+                            | TokenType::Was
+                            | TokenType::Were
+                            | TokenType::Verb { .. }
+                            | TokenType::Auxiliary(_)
+                    )
                 )
             {
                 self.advance(); // skip the classifier noun
@@ -3509,10 +3807,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // VP₂ with e2 as subject, then re-parse each VP with the other entity.
         let vp2_start = self.current;
         let vp2_e2 = vp_with!(vp2_start, e2);
-        let end_pos = self.current;
+        let end_pos = self.backtrack_point();
         let vp1_e2 = vp_with!(vp1_start, e2);
         let vp2_e1 = vp_with!(vp2_start, e1);
-        self.current = end_pos;
+        self.backtrack_to(&end_pos);
 
         // All VP parses done — the bounded "and" is no longer needed; restore it
         // before building the result so the token stream is left pristine.
@@ -3592,17 +3890,470 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 }
 
+/// Where a coordinated object joins its clause ([`Parser::try_coordinated_objects`]).
+struct ObjectSite<'a> {
+    /// The subexpression the first object's verb phrase occupies; each further object's is
+    /// conjoined beside it.
+    node: &'a LogicExpr<'a>,
+    /// The event whose Theme the first object is.
+    template: &'a NeoEventData<'a>,
+    /// Whether that event's own ∃e is written in the clause (it holds conditions such as a PP),
+    /// rather than bound by an if-clause outside it.
+    event_bound_in_clause: bool,
+}
+
 // Phase 46: Helper methods for generalized gapping (not part of trait)
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// "Any" in an if-clause is the indefinite: "If any dog barks, John runs" says what "If a
+    /// dog barks, John runs" says — whichever dog barks, John runs — not "if every dog barks".
+    /// Retag each determiner "any" of the if-clause as the indefinite article, so the DRS gives
+    /// it the antecedent indefinite's universal force over the whole conditional and a pronoun
+    /// in the consequent ("…, it runs") finds the individual it introduces. The if-clause runs
+    /// to its comma or its "then" (written without either, to the end of the sentence), and
+    /// "any time" keeps its temporal reading.
+    fn retag_antecedent_any(&mut self) {
+        let mut i = self.current;
+        while let Some(token) = self.tokens.get(i) {
+            match token.kind {
+                TokenType::Comma
+                | TokenType::Then
+                | TokenType::Period
+                | TokenType::Exclamation
+                | TokenType::EOF => break,
+                TokenType::Any
+                    if self
+                        .tokens
+                        .get(i + 1)
+                        .is_some_and(|next| self.heads_a_noun_phrase(next)) =>
+                {
+                    self.tokens[i].kind = TokenType::Article(Definiteness::Indefinite);
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+
+    /// Whether `token`, just after a determiner, begins the noun phrase it determines — and is
+    /// not the "time" of the temporal "any time".
+    fn heads_a_noun_phrase(&self, token: &Token) -> bool {
+        matches!(
+            token.kind,
+            TokenType::Noun(_)
+                | TokenType::Adjective(_)
+                | TokenType::NonIntersectiveAdjective(_)
+                | TokenType::Ambiguous { .. }
+        ) && !self
+            .interner
+            .resolve(token.lexeme)
+            .eq_ignore_ascii_case("time")
+    }
+
+    /// A gapped clause's remnant of two names side by side — "…and Bill Susan" after "John loves
+    /// Mary" — is its subject and its object: Bill loves Susan. It is when the lexicon knows both
+    /// names as people, nothing more of a name follows them, the borrowed verb takes one object,
+    /// and the first name contrasts with the subject of the clause it echoes. "Bill Smith" (a
+    /// surname the lexicon does not know) and "John Paul" after "John loves Mary" stay one name.
+    fn remnant_names_two_people(&self) -> bool {
+        let kind_at = |offset: usize| self.tokens.get(self.current + offset).map(|t| &t.kind);
+        let (Some(TokenType::ProperName(first)), Some(TokenType::ProperName(second))) =
+            (kind_at(0), kind_at(1))
+        else {
+            return false;
+        };
+        let known = |name: &Symbol| crate::lexicon::is_proper_name(self.interner.resolve(*name));
+        if !known(first)
+            || !known(second)
+            || kind_at(2).is_some_and(|k| self.is_proper_name_or_label(k))
+        {
+            return false;
+        }
+        let Some(template) = &self.last_event_template else {
+            return false;
+        };
+        let objects = template
+            .non_agent_roles
+            .iter()
+            .filter(|(role, _)| {
+                matches!(
+                    role,
+                    ThematicRole::Theme | ThematicRole::Recipient | ThematicRole::Patient
+                )
+            })
+            .count();
+        objects == 1 && !matches!(&template.agent, Some(Term::Constant(agent)) if agent == first)
+    }
+
+    /// A list of objects coordinated after a clause's verb — "John sees Mary, Bill and Sue",
+    /// "Every man sees Mary and Bill", "John sees a cat and a dog" — ends the sentence and is
+    /// nothing but noun phrases. Each one gets the verb: the clause's event is rebuilt with that
+    /// object as its Theme (in its own determiner's scope) and conjoined beside the first
+    /// object, inside the subject's scope. `None`, consuming nothing, when what follows is not
+    /// such a list (a new clause, a gapped one, a coordinated verb phrase).
+    fn try_coordinated_objects(
+        &mut self,
+        left: &'a LogicExpr<'a>,
+    ) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let Some(site) = self.object_coordination_site(left, &mut Vec::new(), true) else {
+            return Ok(None);
+        };
+        let start = self.checkpoint();
+        // A list has the shape "A, B and C" (or "A, B, and C", or "A and B"): commas between
+        // its members and one "and" before the last. "…, and Mary, a pear" is a gapped clause.
+        let mut objects: Vec<NounPhrase<'a>> = Vec::new();
+        let mut closed_by_and = false;
+        loop {
+            let mut saw_comma = false;
+            if self.check(&TokenType::Comma) {
+                self.advance();
+                saw_comma = true;
+            }
+            let saw_and = self.check(&TokenType::And);
+            if saw_and {
+                self.advance();
+            }
+            if !saw_comma && !saw_and {
+                break;
+            }
+            let object_start = self.current;
+            // A verb after the coordinator starts a verb phrase ("…and loves Sue"), not an object.
+            let opens_verb_phrase = self
+                .tokens
+                .get(self.current)
+                .is_some_and(|t| self.kind_is_verb(&t.kind));
+            let object = if !closed_by_and
+                && !opens_verb_phrase
+                && (self.check_content_word() || self.check_article())
+            {
+                self.parse_noun_phrase(false).ok()
+            } else {
+                None
+            };
+            // Two names side by side ("… and Bill Susan") are a gapped clause's subject and
+            // object — Bill loves Susan — not one object with a two-word name.
+            let names_read = self.tokens[object_start..self.current]
+                .iter()
+                .filter(|t| matches!(t.kind, TokenType::ProperName(_)))
+                .count();
+            match object {
+                Some(np) if np.pps.is_empty() && np.superlative.is_none() && names_read <= 1 => {
+                    objects.push(np)
+                }
+                _ => {
+                    self.restore(start);
+                    return Ok(None);
+                }
+            }
+            closed_by_and = saw_and;
+        }
+        let ends_sentence = self.check(&TokenType::Period)
+            || self.check(&TokenType::Exclamation)
+            || self.is_at_end();
+        if !closed_by_and || !(ends_sentence || self.check(&TokenType::Respectively)) {
+            self.restore(start);
+            return Ok(None);
+        }
+        if self.check(&TokenType::Respectively) {
+            return Err(ParseError {
+                kind: ParseErrorKind::RespectivelyLengthMismatch {
+                    subject_count: 1,
+                    object_count: objects.len() + 1,
+                },
+                span: self.current_span(),
+            });
+        }
+
+        let mut coordinated = site.node;
+        for object in &objects {
+            let vp = self.event_with_object(site.template, site.event_bound_in_clause, object)?;
+            coordinated = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: coordinated,
+                op: TokenType::And,
+                right: vp,
+            });
+        }
+        match self.replace_subexpr(left, site.node, coordinated) {
+            Some(rebuilt) => Ok(Some(rebuilt)),
+            None => {
+                self.restore(start);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Where `expr`'s most recent event with a Theme meets its object: the event itself, or —
+    /// when the event's own ∃e (holding its PP conditions) or the object's determiner binds
+    /// inside `expr` — the outermost of those quantifiers, so the whole verb phrase for the
+    /// first object sits under the site. Descends only through what keeps a coordinated object
+    /// in the same clause and scope: conjunction (most recent conjunct first), the consequent
+    /// of an implication, quantifiers, and tense, aspect and voice.
+    fn object_coordination_site(
+        &self,
+        expr: &'a LogicExpr<'a>,
+        binders: &mut Vec<&'a LogicExpr<'a>>,
+        needs_theme: bool,
+    ) -> Option<ObjectSite<'a>> {
+        match expr {
+            LogicExpr::NeoEvent(data) => {
+                let theme = data
+                    .roles
+                    .iter()
+                    .find(|(role, _)| *role == ThematicRole::Theme);
+                if needs_theme && theme.is_none() {
+                    return None;
+                }
+                let bound_at = |v: Symbol| {
+                    binders.iter().rposition(
+                        |b| matches!(b, LogicExpr::Quantifier { variable, .. } if *variable == v),
+                    )
+                };
+                let object_binder = match theme.map(|(_, term)| *term) {
+                    Some(Term::Variable(v)) => bound_at(v),
+                    _ => None,
+                };
+                let event_binder = bound_at(data.event_var);
+                let node = match (object_binder, event_binder) {
+                    (Some(o), Some(e)) => binders[o.min(e)],
+                    (Some(i), None) | (None, Some(i)) => binders[i],
+                    (None, None) => expr,
+                };
+                Some(ObjectSite {
+                    node,
+                    template: data,
+                    event_bound_in_clause: event_binder.is_some(),
+                })
+            }
+            LogicExpr::BinaryOp {
+                left,
+                op: TokenType::And,
+                right,
+            } => self
+                .object_coordination_site(right, binders, needs_theme)
+                .or_else(|| self.object_coordination_site(left, binders, needs_theme)),
+            LogicExpr::BinaryOp {
+                right,
+                op: TokenType::Implies,
+                ..
+            } => self.object_coordination_site(right, binders, needs_theme),
+            LogicExpr::Quantifier { body, .. } => {
+                binders.push(expr);
+                let found = self.object_coordination_site(body, binders, needs_theme);
+                binders.pop();
+                found
+            }
+            LogicExpr::Temporal { body, .. }
+            | LogicExpr::Aspectual { body, .. }
+            | LogicExpr::Voice { body, .. } => {
+                self.object_coordination_site(body, binders, needs_theme)
+            }
+            _ => None,
+        }
+    }
+
+    /// "…and sees Bill", "…and loves Sue": a verb phrase after "and" with no subject of its own
+    /// is the clause's subject — its most recent event's Agent, a variable or a name — doing a
+    /// second thing. It is parsed for that subject and conjoined beside the first verb phrase,
+    /// inside the subject's scope, so "Some man sees Mary and sees Bill" is one man seeing both.
+    /// `None`, consuming nothing, when no verb follows the "and" or the clause has no agent.
+    fn try_coordinated_verb_phrase(
+        &mut self,
+        left: &'a LogicExpr<'a>,
+    ) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let at_and = if self.check(&TokenType::Comma) {
+            self.current + 1
+        } else {
+            self.current
+        };
+        if !matches!(
+            self.tokens.get(at_and).map(|t| &t.kind),
+            Some(TokenType::And)
+        ) {
+            return Ok(None);
+        }
+        let verb_follows = self
+            .tokens
+            .get(at_and + 1)
+            .is_some_and(|t| self.kind_is_verb(&t.kind));
+        if !verb_follows {
+            return Ok(None);
+        }
+        let Some(site) = self.object_coordination_site(left, &mut Vec::new(), false) else {
+            return Ok(None);
+        };
+        let Some((_, subject)) = site
+            .template
+            .roles
+            .iter()
+            .find(|(role, _)| *role == ThematicRole::Agent)
+        else {
+            return Ok(None);
+        };
+        let start = self.checkpoint();
+        self.current = at_and + 1;
+        let second = match *subject {
+            Term::Variable(v) => self.parse_predicate_with_subject_as_var(v),
+            Term::Constant(c) => self.parse_predicate_with_subject(c),
+            _ => {
+                self.restore(start);
+                return Ok(None);
+            }
+        };
+        let Ok(second) = second else {
+            self.restore(start);
+            return Ok(None);
+        };
+        let coordinated = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: site.node,
+            op: TokenType::And,
+            right: second,
+        });
+        match self.replace_subexpr(left, site.node, coordinated) {
+            Some(rebuilt) => Ok(Some(rebuilt)),
+            None => {
+                self.restore(start);
+                Ok(None)
+            }
+        }
+    }
+
+    /// The event of `template` with `object` as its Theme, in the object's own scope: a name
+    /// or a definite is the constant the clause's builders give it, an indefinite brings its
+    /// own existential, and the object's adjectives come with it. The event is its own: bound
+    /// by its own ∃e — or, in an if-clause, by the DRS under a fresh variable.
+    fn event_with_object(
+        &mut self,
+        template: &'a NeoEventData<'a>,
+        event_bound_in_clause: bool,
+        object: &NounPhrase<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
+        let object_term = self.noun_phrase_to_term(object);
+        let roles: Vec<(ThematicRole, Term<'a>)> = template
+            .roles
+            .iter()
+            .map(|(role, term)| {
+                if *role == ThematicRole::Theme {
+                    (*role, object_term)
+                } else {
+                    (*role, *term)
+                }
+            })
+            .collect();
+        let in_if_clause = template.suppress_existential && !event_bound_in_clause;
+        let event_var = if in_if_clause {
+            // In an if-clause the DRS binds each event; this one is its own.
+            let fresh = self.world_state.next_event_var();
+            let fresh = self.interner.intern(&fresh);
+            let event_class = self.interner.intern("Event");
+            self.drs.introduce_event_referent(fresh, event_class);
+            fresh
+        } else {
+            template.event_var
+        };
+        let mut vp: &'a LogicExpr<'a> =
+            self.ctx
+                .exprs
+                .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb: template.verb,
+                    roles: self.ctx.roles.alloc_slice(roles),
+                    modifiers: template.modifiers,
+                    suppress_existential: in_if_clause,
+                    world: template.world,
+                })));
+        for &adjective in object.adjectives.iter().rev() {
+            let described = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: adjective,
+                args: self.ctx.terms.alloc_slice([object_term]),
+                world: None,
+            });
+            vp = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: described,
+                op: TokenType::And,
+                right: vp,
+            });
+        }
+        if object.definiteness == Some(Definiteness::Indefinite) && object.possessor.is_none() {
+            return self.wrap_with_definiteness_for_object(object.definiteness, object.noun, vp);
+        }
+        Ok(vp)
+    }
+
+    /// `expr` with the subexpression `target` (by identity) replaced by `with`, rebuilding the
+    /// path to it through the containers `object_coordination_site` descends.
+    fn replace_subexpr(
+        &self,
+        expr: &'a LogicExpr<'a>,
+        target: &'a LogicExpr<'a>,
+        with: &'a LogicExpr<'a>,
+    ) -> Option<&'a LogicExpr<'a>> {
+        if std::ptr::eq(expr, target) {
+            return Some(with);
+        }
+        let rebuilt = match expr {
+            LogicExpr::BinaryOp { left, op, right } => {
+                if let Some(right) = self.replace_subexpr(right, target, with) {
+                    LogicExpr::BinaryOp {
+                        left,
+                        op: op.clone(),
+                        right,
+                    }
+                } else {
+                    let left = self.replace_subexpr(left, target, with)?;
+                    LogicExpr::BinaryOp {
+                        left,
+                        op: op.clone(),
+                        right,
+                    }
+                }
+            }
+            LogicExpr::Quantifier {
+                kind,
+                variable,
+                body,
+                island_id,
+            } => LogicExpr::Quantifier {
+                kind: *kind,
+                variable: *variable,
+                body: self.replace_subexpr(body, target, with)?,
+                island_id: *island_id,
+            },
+            LogicExpr::Temporal { operator, body } => LogicExpr::Temporal {
+                operator: *operator,
+                body: self.replace_subexpr(body, target, with)?,
+            },
+            LogicExpr::Aspectual { operator, body } => LogicExpr::Aspectual {
+                operator: *operator,
+                body: self.replace_subexpr(body, target, with)?,
+            },
+            LogicExpr::Voice { operator, body } => LogicExpr::Voice {
+                operator: *operator,
+                body: self.replace_subexpr(body, target, with)?,
+            },
+            _ => return None,
+        };
+        Some(self.ctx.exprs.alloc(rebuilt))
+    }
+
+    /// `body` recurring without end: G(F(body)).
+    fn infinitely_often(&self, body: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+        let eventually = self.ctx.exprs.alloc(LogicExpr::Temporal {
+            operator: TemporalOperator::Eventually,
+            body,
+        });
+        self.ctx.exprs.alloc(LogicExpr::Temporal {
+            operator: TemporalOperator::Always,
+            body: eventually,
+        })
+    }
+
     /// Helper to extract verb specifically from NeoEvent structures
     fn extract_neo_event_verb(&self, expr: &LogicExpr<'a>) -> Option<Symbol> {
         match expr {
             LogicExpr::NeoEvent(data) => Some(data.verb),
             LogicExpr::Quantifier { body, .. } => self.extract_neo_event_verb(body),
-            LogicExpr::BinaryOp { left, right, .. } => {
-                self.extract_neo_event_verb(left)
-                    .or_else(|| self.extract_neo_event_verb(right))
-            }
+            LogicExpr::BinaryOp { left, right, .. } => self
+                .extract_neo_event_verb(left)
+                .or_else(|| self.extract_neo_event_verb(right)),
             LogicExpr::Temporal { body, .. } => self.extract_neo_event_verb(body),
             LogicExpr::Aspectual { body, .. } => self.extract_neo_event_verb(body),
             _ => None,

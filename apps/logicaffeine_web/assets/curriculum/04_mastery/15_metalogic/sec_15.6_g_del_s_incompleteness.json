@@ -1,0 +1,47 @@
+{
+  "id": "15.6",
+  "title": "Gödel's Incompleteness",
+  "order": 6,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In 1931 Kurt Gödel showed that any consistent formal system strong enough for basic arithmetic is **incomplete**: some true statements of arithmetic cannot be proved in it."
+    },
+    {
+      "type": "paragraph",
+      "text": "He also showed that such a system cannot prove its own consistency."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "The Gödel sentence",
+      "lines": [
+        "G says, in effect, 'G cannot be proved in this system'.",
+        "If the system proved G, it would prove something false."
+      ],
+      "conclusion": "So a sound system cannot prove G, and G is true."
+    },
+    {
+      "type": "worked",
+      "title": "The second theorem",
+      "lines": [
+        "A consistent system strong enough for arithmetic cannot prove 'this system is consistent'."
+      ],
+      "note": "To trust such a system, we must reason outside it."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What did Gödel's first incompleteness theorem show?",
+    "options": [
+      "All mathematical systems are inconsistent",
+      "Some truths cannot be proved in any consistent system strong enough for arithmetic",
+      "Logic is unreliable",
+      "Mathematics should be given up"
+    ],
+    "correct": 1,
+    "hint": "It is about a limit, not a flaw.",
+    "explanation": "In any consistent system that can express basic arithmetic, some true statements cannot be proved."
+  }
+}

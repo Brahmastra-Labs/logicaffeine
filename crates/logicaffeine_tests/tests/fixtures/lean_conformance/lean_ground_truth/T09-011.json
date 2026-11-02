@@ -1,0 +1,108 @@
+{
+  "case": "T09-011",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 14,
+  "declarations": [
+    {
+      "type": "Nat",
+      "name": "T09_011.Inner.value",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), p \u2227 q \u2192 p \u2192 p",
+      "name": "T09_011.collisionHazard",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T09_011.Inner.value = 9",
+      "name": "T09_011.dotted",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T09_011.idAlpha",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u0393 : Type} \u2192 \u0393 \u2192 \u0393",
+      "name": "T09_011.idGamma",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u0393 : Type} \u2192 \u03b1 \u2192 \u0393 \u2192 \u03b1 \u00d7 \u0393",
+      "name": "T09_011.pairAlphaGamma",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p \u2227 p",
+      "name": "T09_011.primed",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T09_011.x\u2081 + T09_011.x\u2082 = 3",
+      "name": "T09_011.subscripted",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T09_011.\u00aba name with spaces\u00bb = 7",
+      "name": "T09_011.usesGuillemet",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T09_011.weird?!name",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T09_011.x\u2081",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T09_011.x\u2082",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T09_011.\u00aba name with spaces\u00bb",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_011.\u2115plus",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

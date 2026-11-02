@@ -19,7 +19,12 @@ fn assert_both_engines(src: &str, expected: &str) {
     let tw = interpret_program(src)
         .unwrap_or_else(|e| panic!("tree-walker failed on:\n{}\n{:?}", src, e));
     let vm = vm_run_source(src).unwrap_or_else(|e| panic!("vm failed on:\n{}\n{}", src, e));
-    assert_eq!(norm(&tw), expected, "tree-walker output wrong for:\n{}", src);
+    assert_eq!(
+        norm(&tw),
+        expected,
+        "tree-walker output wrong for:\n{}",
+        src
+    );
     assert_eq!(norm(&vm), expected, "vm output wrong for:\n{}", src);
 }
 

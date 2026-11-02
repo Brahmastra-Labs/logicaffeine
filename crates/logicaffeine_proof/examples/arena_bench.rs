@@ -13,7 +13,8 @@
 //!
 //! Usage:  cargo run --release -p logicaffeine-proof --example arena_bench -- [instances_dir]
 //! Env:    ARENA_TIMEOUT=<secs>  ARENA_CAP=<per-category cap>
-//!         OURS_BIN  KISSAT_BIN  CADICAL_BIN   (paths; absent binaries are skipped)
+//!         OURS_BIN  KISSAT_BIN  CADICAL_BIN   (paths; absent binaries are skipped; the defaults are the
+//!         builds under `$SATBENCH_EXT`, else `<repo>/external/solvers`)
 //! Out:    benchmarks/results/arena/sat.json  + a summary table on stdout.
 
 use std::collections::BTreeMap;
@@ -61,14 +62,23 @@ struct Outcome {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let dir = args.get(1).cloned().unwrap_or_else(|| "benchmarks/arena/instances/sat".to_string());
+    let dir = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| "benchmarks/arena/instances/sat".to_string());
     let timeout_s: f64 = env_f64("ARENA_TIMEOUT", 10.0);
     let cap: usize = env_f64("ARENA_CAP", 4.0) as usize;
 
     let candidates = [
         ("ours", env_str("OURS_BIN", "target/release/logos-sat")),
-        ("kissat", env_str("KISSAT_BIN", "/tmp/kissat/build/kissat")),
-        ("cadical", env_str("CADICAL_BIN", "/tmp/cadical/build/cadical")),
+        (
+            "kissat",
+            env_str("KISSAT_BIN", &external_solver("kissat/build/kissat")),
+        ),
+        (
+            "cadical",
+            env_str("CADICAL_BIN", &external_solver("cadical/build/cadical")),
+        ),
     ];
     let solvers: Vec<Solver> = candidates
         .into_iter()
@@ -88,12 +98,17 @@ fn main() {
 
     eprintln!(
         "arena=sat  solvers=[{}]  timeout={timeout_s}s  cap/category={cap}  instances={}",
-        solvers.iter().map(|s| s.name).collect::<Vec<_>>().join(", "),
+        solvers
+            .iter()
+            .map(|s| s.name)
+            .collect::<Vec<_>>()
+            .join(", "),
         instances.len()
     );
 
     // Accumulators.
-    let mut summary: BTreeMap<&str, Stat> = solvers.iter().map(|s| (s.name, Stat::default())).collect();
+    let mut summary: BTreeMap<&str, Stat> =
+        solvers.iter().map(|s| (s.name, Stat::default())).collect();
     let mut cat_solved: BTreeMap<(String, &str), usize> = BTreeMap::new();
     let mut cat_count: BTreeMap<String, usize> = BTreeMap::new();
     let mut conflicts: Vec<String> = Vec::new();
@@ -135,17 +150,28 @@ fn main() {
             let stat = summary.get_mut(s.name).unwrap();
             stat.record(verdict, seconds, timeout_s, verified);
             if verdict.solved() {
-                *cat_solved.entry((inst.category.clone(), s.name)).or_default() += 1;
+                *cat_solved
+                    .entry((inst.category.clone(), s.name))
+                    .or_default() += 1;
             }
-            per_solver.push((s.name, Outcome { verdict, seconds, verified }));
+            per_solver.push((
+                s.name,
+                Outcome {
+                    verdict,
+                    seconds,
+                    verified,
+                },
+            ));
         }
 
         // Cross-check: any SAT-vs-UNSAT disagreement is a correctness bug somewhere.
         let sat = definite.iter().any(|(_, v)| *v == Verdict::Sat);
         let unsat = definite.iter().any(|(_, v)| *v == Verdict::Unsat);
         if sat && unsat {
-            let detail: Vec<String> =
-                definite.iter().map(|(n, v)| format!("{n}={}", v.as_str())).collect();
+            let detail: Vec<String> = definite
+                .iter()
+                .map(|(n, v)| format!("{n}={}", v.as_str()))
+                .collect();
             conflicts.push(format!("{}: {}", inst.name, detail.join(" ")));
         }
 
@@ -165,14 +191,34 @@ fn main() {
         );
     }
 
-    print_summary(&solvers, &summary, &cat_count, &cat_solved, &conflicts, timeout_s);
+    print_summary(
+        &solvers,
+        &summary,
+        &cat_count,
+        &cat_solved,
+        &conflicts,
+        timeout_s,
+    );
     if !skipped.is_empty() {
-        println!("\nskipped {} instance(s) (unreadable/unparseable):", skipped.len());
+        println!(
+            "\nskipped {} instance(s) (unreadable/unparseable):",
+            skipped.len()
+        );
         for s in &skipped {
             println!("  {s}");
         }
     }
-    write_json(&solvers, &summary, &cat_count, &cat_solved, &conflicts, &skipped, &rows, timeout_s, cap);
+    write_json(
+        &solvers,
+        &summary,
+        &cat_count,
+        &cat_solved,
+        &conflicts,
+        &skipped,
+        &rows,
+        timeout_s,
+        cap,
+    );
 }
 
 #[derive(Default)]
@@ -229,12 +275,17 @@ fn collect_instances(root: &str, cap: usize) -> Vec<Instance> {
     let mut by_cat: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     let mut stack = vec![PathBuf::from(root)];
     while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.is_dir() {
                 // Skip `_`-prefixed dirs (e.g. _malformed quarantine from normalize-sat.sh).
-                let skip = p.file_name().map(|n| n.to_string_lossy().starts_with('_')).unwrap_or(false);
+                let skip = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with('_'))
+                    .unwrap_or(false);
                 if !skip {
                     stack.push(p);
                 }
@@ -252,8 +303,15 @@ fn collect_instances(root: &str, cap: usize) -> Vec<Instance> {
     for (cat, mut paths) in by_cat {
         paths.sort();
         for p in paths.into_iter().take(cap) {
-            let name = p.file_stem().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
-            out.push(Instance { name, category: cat.clone(), path: p });
+            let name = p
+                .file_stem()
+                .map(|x| x.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            out.push(Instance {
+                name,
+                category: cat.clone(),
+                path: p,
+            });
         }
     }
     out
@@ -262,7 +320,11 @@ fn collect_instances(root: &str, cap: usize) -> Vec<Instance> {
 /// Run `bin` on `cnf` under a wall-clock `timeout`, returning (verdict, seconds, stdout).
 fn run_one(bin: &str, cnf: &Path, timeout_s: f64) -> (Verdict, f64, String) {
     let mut cmd = Command::new("timeout");
-    cmd.arg("-k").arg("2").arg(format!("{timeout_s}")).arg(bin).arg(cnf);
+    cmd.arg("-k")
+        .arg("2")
+        .arg(format!("{timeout_s}"))
+        .arg(bin)
+        .arg(cnf);
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::null());
@@ -300,10 +362,14 @@ fn model_satisfies(stdout: &str, cnf: &DimacsCnf) -> bool {
     let mut assign = vec![false; cnf.num_vars];
     let mut saw_model = false;
     for line in stdout.lines() {
-        let Some(rest) = line.strip_prefix("v") else { continue };
+        let Some(rest) = line.strip_prefix("v") else {
+            continue;
+        };
         saw_model = true;
         for tok in rest.split_whitespace() {
-            let Ok(n) = tok.parse::<i64>() else { return false };
+            let Ok(n) = tok.parse::<i64>() else {
+                return false;
+            };
             if n == 0 {
                 continue;
             }
@@ -317,9 +383,10 @@ fn model_satisfies(stdout: &str, cnf: &DimacsCnf) -> bool {
     if !saw_model {
         return false;
     }
-    cnf.clauses
-        .iter()
-        .all(|c| c.iter().any(|l: &Lit| assign[l.var() as usize] == l.is_positive()))
+    cnf.clauses.iter().all(|c| {
+        c.iter()
+            .any(|l: &Lit| assign[l.var() as usize] == l.is_positive())
+    })
 }
 
 // --- reporting ---------------------------------------------------------------------------------
@@ -334,13 +401,26 @@ fn print_summary(
 ) {
     let total: usize = cat_count.values().sum();
     println!("\n=== arena: SAT  ({total} instances, timeout {timeout_s}s, PAR-2) ===\n");
-    println!("{:<10} {:>7} {:>5} {:>6} {:>8} {:>10} {:>9}", "solver", "solved", "sat", "unsat", "timeout", "PAR-2", "verified");
+    println!(
+        "{:<10} {:>7} {:>5} {:>6} {:>8} {:>10} {:>9}",
+        "solver", "solved", "sat", "unsat", "timeout", "PAR-2", "verified"
+    );
     for s in solvers {
         let st = &summary[s.name];
         println!(
             "{:<10} {:>6}/{} {:>5} {:>6} {:>8} {:>10.1} {:>9}",
-            s.name, st.solved, total, st.sat, st.unsat, st.timeout, st.par2,
-            if st.verify_fail > 0 { format!("{}!FAIL", st.verified) } else { st.verified.to_string() }
+            s.name,
+            st.solved,
+            total,
+            st.sat,
+            st.unsat,
+            st.timeout,
+            st.par2,
+            if st.verify_fail > 0 {
+                format!("{}!FAIL", st.verified)
+            } else {
+                st.verified.to_string()
+            }
         );
     }
 
@@ -362,7 +442,10 @@ fn print_summary(
     if conflicts.is_empty() {
         println!("\ncross-check: no SAT/UNSAT disagreements ✓");
     } else {
-        println!("\ncross-check: {} DISAGREEMENT(S) — correctness bug:", conflicts.len());
+        println!(
+            "\ncross-check: {} DISAGREEMENT(S) — correctness bug:",
+            conflicts.len()
+        );
         for c in conflicts {
             println!("  {c}");
         }
@@ -387,7 +470,11 @@ fn write_json(
     s.push_str(&format!("  \"cap_per_category\": {cap},\n"));
     s.push_str(&format!(
         "  \"solvers\": [{}],\n",
-        solvers.iter().map(|x| format!("\"{}\"", x.name)).collect::<Vec<_>>().join(", ")
+        solvers
+            .iter()
+            .map(|x| format!("\"{}\"", x.name))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
     // summary
     s.push_str("  \"summary\": {\n");
@@ -407,20 +494,40 @@ fn write_json(
     for (cat, n) in cat_count {
         let solved: Vec<String> = solvers
             .iter()
-            .map(|sv| format!("\"{}\": {}", sv.name, cat_solved.get(&(cat.clone(), sv.name)).copied().unwrap_or(0)))
+            .map(|sv| {
+                format!(
+                    "\"{}\": {}",
+                    sv.name,
+                    cat_solved
+                        .get(&(cat.clone(), sv.name))
+                        .copied()
+                        .unwrap_or(0)
+                )
+            })
             .collect();
-        cparts.push(format!("    \"{cat}\": {{\"count\": {n}, {}}}", solved.join(", ")));
+        cparts.push(format!(
+            "    \"{cat}\": {{\"count\": {n}, {}}}",
+            solved.join(", ")
+        ));
     }
     s.push_str(&cparts.join(",\n"));
     s.push_str("\n  },\n");
     // conflicts + skipped
     s.push_str(&format!(
         "  \"conflicts\": [{}],\n",
-        conflicts.iter().map(|c| format!("\"{}\"", json_escape(c))).collect::<Vec<_>>().join(", ")
+        conflicts
+            .iter()
+            .map(|c| format!("\"{}\"", json_escape(c)))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
     s.push_str(&format!(
         "  \"skipped\": [{}],\n",
-        skipped.iter().map(|c| format!("\"{}\"", json_escape(c))).collect::<Vec<_>>().join(", ")
+        skipped
+            .iter()
+            .map(|c| format!("\"{}\"", json_escape(c)))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
     // instances
     s.push_str("  \"instances\": [\n");
@@ -475,6 +582,20 @@ fn env_str(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+/// `<external solvers>/<rel>`: `$SATBENCH_EXT`, else the repo's `external/solvers/` (the layout
+/// `benchmarks/sat/run-satbench.sh` builds).
+fn external_solver(rel: &str) -> String {
+    let ext = std::env::var("SATBENCH_EXT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../external/solvers")
+        });
+    ext.join(rel).to_string_lossy().into_owned()
+}
+
 fn env_f64(key: &str, default: f64) -> f64 {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }

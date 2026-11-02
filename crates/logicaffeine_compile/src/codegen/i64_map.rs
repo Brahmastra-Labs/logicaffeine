@@ -21,9 +21,9 @@
 //! it. Exotic statements (concurrency / CRDT / networking / IO) that this pass
 //! does not model conservatively disqualify *every* candidate.
 
-use crate::ast::stmt::{Block, ClosureBody, Expr, MatchArm, Stmt, StringPart, TypeExpr};
 use super::context::RefinementContext;
 use super::types::codegen_type_expr;
+use crate::ast::stmt::{Block, ClosureBody, Expr, MatchArm, Stmt, StringPart, TypeExpr};
 use logicaffeine_base::intern::{Interner, Symbol};
 use std::collections::{HashMap, HashSet};
 
@@ -115,10 +115,28 @@ pub fn detect_i64_maps(stmts: &[Stmt], interner: &Interner) -> I64MapClasses {
         value_sites: HashMap::new(),
     };
     walk.block(stmts);
-    let Disq { disq, inserted, got, has_contains, key_sites, value_sites, .. } = walk;
+    let Disq {
+        disq,
+        inserted,
+        got,
+        has_contains,
+        key_sites,
+        value_sites,
+        ..
+    } = walk;
     candidates.retain(|s| !disq.contains(s) && inserted.contains(s));
-    let sets: HashSet<Symbol> = candidates.iter().copied().filter(|s| !got.contains(s)).collect();
-    I64MapClasses { maps: candidates, sets, has_contains, key_sites, value_sites }
+    let sets: HashSet<Symbol> = candidates
+        .iter()
+        .copied()
+        .filter(|s| !got.contains(s))
+        .collect();
+    I64MapClasses {
+        maps: candidates,
+        sets,
+        has_contains,
+        key_sites,
+        value_sites,
+    }
 }
 
 /// The arena address of an expression — the identity the oracle keys its
@@ -181,14 +199,19 @@ pub fn detect_dense_i64_maps(
             Some(s) if !s.is_empty() => s,
             _ => continue,
         };
-        if sites.iter().all(|&addr| oracle.dense_map_key_proven_addr(addr, m)) {
+        if sites
+            .iter()
+            .all(|&addr| oracle.dense_map_key_proven_addr(addr, m))
+        {
             // Offset 0: the proof establishes `0 <= key <= capacity`, so the
             // array (sized `capacity + 1` at the constructor) indexes `data[key]`.
             let kind = if classes.sets.contains(&m) {
                 DenseKind::Set
             } else if !classes.has_contains.contains(&m)
                 && oracle.dense_map_has_full_coverage(m)
-                && sites.iter().all(|&addr| oracle.dense_key_covered_addr(addr, m))
+                && sites
+                    .iter()
+                    .all(|&addr| oracle.dense_key_covered_addr(addr, m))
             {
                 // Presence elision: a value-read map with no `contains`, whose
                 // inserts fully cover a contiguous range and whose every key is
@@ -250,7 +273,11 @@ pub fn detect_i32_maps(
             sets.insert(m);
         } else {
             // A value-read map also stores values — they must fit i32 too.
-            let vals = classes.value_sites.get(&m).map(|v| v.as_slice()).unwrap_or(&[]);
+            let vals = classes
+                .value_sites
+                .get(&m)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
             if vals.iter().all(|&a| fits_i32(a)) {
                 maps.insert(m);
             }
@@ -274,13 +301,22 @@ fn is_int_int_map(ty: Option<&TypeExpr>, value: &Expr, interner: &Interner) -> b
         }
     }
     match value {
-        Expr::New { type_name, type_args, .. } => {
+        Expr::New {
+            type_name,
+            type_args,
+            ..
+        } => {
             matches!(interner.resolve(*type_name), "Map" | "HashMap")
                 && type_args.len() >= 2
                 && both_i64(&type_args[0], &type_args[1])
         }
         Expr::WithCapacity { value: inner, .. } => {
-            if let Expr::New { type_name, type_args, .. } = inner {
+            if let Expr::New {
+                type_name,
+                type_args,
+                ..
+            } = inner
+            {
                 matches!(interner.resolve(*type_name), "Map" | "HashMap")
                     && type_args.len() >= 2
                     && both_i64(&type_args[0], &type_args[1])
@@ -319,16 +355,20 @@ fn collect_candidates(
 /// enclosing analysis.
 fn child_blocks<'a>(stmt: &Stmt<'a>) -> Vec<Block<'a>> {
     match stmt {
-        Stmt::If { then_block, else_block, .. } => {
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
             let mut v = vec![*then_block];
             if let Some(eb) = else_block {
                 v.push(*eb);
             }
             v
         }
-        Stmt::While { body, .. }
-        | Stmt::Repeat { body, .. }
-        | Stmt::Zone { body, .. } => vec![*body],
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            vec![*body]
+        }
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => vec![*tasks],
         Stmt::Inspect { arms, .. } => arms.iter().map(|a: &MatchArm<'a>| a.body).collect(),
         _ => Vec::new(),
@@ -404,14 +444,22 @@ impl<'c> Disq<'c> {
                 }
             }
 
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 self.expr(cond);
                 self.block(then_block);
                 if let Some(eb) = else_block {
                     self.block(eb);
                 }
             }
-            Stmt::While { cond, body, decreasing } => {
+            Stmt::While {
+                cond,
+                body,
+                decreasing,
+            } => {
                 self.expr(cond);
                 self.block(body);
                 if let Some(d) = decreasing {
@@ -474,11 +522,18 @@ impl<'c> Disq<'c> {
             }
 
             // The one writable whitelist position: `m.insert(index, value)`.
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 if let Some(m) = self.coll(collection) {
                     self.inserted.insert(m);
                     self.key_sites.entry(m).or_default().push(expr_addr(index));
-                    self.value_sites.entry(m).or_default().push(expr_addr(value));
+                    self.value_sites
+                        .entry(m)
+                        .or_default()
+                        .push(expr_addr(value));
                 }
                 self.expr(index);
                 self.expr(value);
@@ -494,6 +549,20 @@ impl<'c> Disq<'c> {
     /// here is a non-whitelisted use → disqualify.
     fn expr(&mut self, e: &Expr) {
         match e {
+            Expr::Dom(q) => {
+                if let Some(sel) = q.selector() {
+                    self.expr(sel);
+                }
+            }
+            Expr::View(v) => {
+                let (view_exprs, view_blocks) = v.exprs_and_blocks();
+                for x in view_exprs {
+                    self.expr(x);
+                }
+                for b in view_blocks {
+                    self.block(b);
+                }
+            }
             Expr::Identifier(s) => self.mark_disq(*s),
             Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => {}
 
@@ -516,7 +585,10 @@ impl<'c> Disq<'c> {
             Expr::BinaryOp { left, right, .. }
             | Expr::Union { left, right }
             | Expr::Intersection { left, right }
-            | Expr::Range { start: left, end: right } => {
+            | Expr::Range {
+                start: left,
+                end: right,
+            } => {
                 self.expr(left);
                 self.expr(right);
             }
@@ -532,7 +604,11 @@ impl<'c> Disq<'c> {
                     self.expr(a);
                 }
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.expr(collection);
                 self.expr(start);
                 self.expr(end);

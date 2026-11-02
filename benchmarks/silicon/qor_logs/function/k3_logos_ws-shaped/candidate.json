@@ -1,0 +1,1570 @@
+{
+ "candidate": {
+  "batch": 8,
+  "clock": "clk",
+  "inputs": [],
+  "kernel": "K3",
+  "mems": [],
+  "name": "k3_logos_ws",
+  "outputs": [
+   {
+    "contract": "o@0",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o1",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o2",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o3",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o4",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o5",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o6",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "o7",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": null,
+    "width": 32
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clk"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "rst"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "w_load"
+   },
+   {
+    "bits": 3,
+    "dir": "In",
+    "name": "w_row"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "w_data"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a2"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a3"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a4"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a5"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a6"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "a7"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o0"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o1"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o2"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o3"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o4"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o5"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o6"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "o7"
+   }
+  ],
+  "protocol": {
+   "Beats": {
+    "captures": [
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30
+    ],
+    "drives": [
+     {
+      "beat": 0,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 0,
+      "dut": "w_row",
+      "value": {
+       "Const": 0
+      }
+     },
+     {
+      "beat": 0,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 0,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 8,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@0",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 1,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 1,
+      "dut": "w_row",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 1,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 64,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 9,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@1",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 2,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 2,
+      "dut": "w_row",
+      "value": {
+       "Const": 2
+      }
+     },
+     {
+      "beat": 2,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 128,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 10,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@2",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 3,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 3,
+      "dut": "w_row",
+      "value": {
+       "Const": 3
+      }
+     },
+     {
+      "beat": 3,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 192,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 11,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@3",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 4,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 4,
+      "dut": "w_row",
+      "value": {
+       "Const": 4
+      }
+     },
+     {
+      "beat": 4,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 256,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 12,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@4",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 5,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 5,
+      "dut": "w_row",
+      "value": {
+       "Const": 5
+      }
+     },
+     {
+      "beat": 5,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 320,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 13,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@5",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 6,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 6,
+      "dut": "w_row",
+      "value": {
+       "Const": 6
+      }
+     },
+     {
+      "beat": 6,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 384,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 14,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@6",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 7,
+      "dut": "w_load",
+      "value": {
+       "Const": 1
+      }
+     },
+     {
+      "beat": 7,
+      "dut": "w_row",
+      "value": {
+       "Const": 7
+      }
+     },
+     {
+      "beat": 7,
+      "dut": "w_data",
+      "value": {
+       "Slice": {
+        "contract": "w@0",
+        "lsb": 448,
+        "width": 64
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a0",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 0,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a1",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 8,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a2",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 16,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a3",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 24,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a4",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 32,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a5",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 40,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a6",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 48,
+        "width": 8
+       }
+      }
+     },
+     {
+      "beat": 15,
+      "dut": "a7",
+      "value": {
+       "Slice": {
+        "contract": "a@7",
+        "lsb": 56,
+        "width": 8
+       }
+      }
+     }
+    ],
+    "period": 22
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "rst"
+  },
+  "top": "qor_k3_ws"
+ },
+ "files": [
+  "qor_k3_ws.v"
+ ],
+ "golden_signature": "d7cb601b8b645477",
+ "harness": "qorbist_k3_logos_ws.v",
+ "harness_top": "qorbist_k3_logos_ws",
+ "kernel": "K3",
+ "kernel_name": "gemm8",
+ "mode": "shaped",
+ "ops": 1000,
+ "protocol": "beat schedule: a call every 22 cycles, 8 results",
+ "source_kind": "rtl-generator",
+ "testbench": "tb_qor.v"
+}

@@ -1,0 +1,11 @@
+{
+  "capability": "iter.any",
+  "workload": "anySeq((n)->n>1048000, xs)",
+  "arg": "80000",
+  "expected": "2577",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "rust"
+  ]
+}

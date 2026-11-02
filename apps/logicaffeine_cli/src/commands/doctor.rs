@@ -11,7 +11,6 @@ use std::process::Command;
 use anstyle::AnsiColor;
 
 use crate::project::build::find_project_root;
-use crate::project::manifest::Manifest;
 use crate::project::registry::RegistryClient;
 use crate::ui::CliError;
 
@@ -106,7 +105,11 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
             name: "largo",
             detail: format!("{current} (v{latest} is available — re-run the installer to update)"),
         },
-        Some(_) => Check { status: Status::Ok, name: "largo", detail: format!("{current} (latest)") },
+        Some(_) => Check {
+            status: Status::Ok,
+            name: "largo",
+            detail: format!("{current} (latest)"),
+        },
         None => Check {
             status: Status::Warn,
             name: "largo",
@@ -116,7 +119,11 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
 
     // Rust toolchain — powers `largo build`/`run`; everything else works without.
     checks.push(match tool_version("cargo", "--version") {
-        Some(v) => Check { status: Status::Ok, name: "cargo", detail: v },
+        Some(v) => Check {
+            status: Status::Ok,
+            name: "cargo",
+            detail: v,
+        },
         None => Check {
             status: Status::Warn,
             name: "cargo",
@@ -134,7 +141,11 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
         .map(|o| String::from_utf8_lossy(&o.stdout).contains("wasm32-unknown-unknown"))
         .unwrap_or(false);
     checks.push(if wasm_target {
-        Check { status: Status::Ok, name: "wasm32", detail: "wasm32-unknown-unknown installed".into() }
+        Check {
+            status: Status::Ok,
+            name: "wasm32",
+            detail: "wasm32-unknown-unknown installed".into(),
+        }
     } else {
         Check {
             status: Status::Warn,
@@ -147,7 +158,11 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
 
     // node — runs the emitted host shim for `largo run --emit wasm`.
     checks.push(match tool_version("node", "--version") {
-        Some(v) => Check { status: Status::Ok, name: "node", detail: v },
+        Some(v) => Check {
+            status: Status::Ok,
+            name: "node",
+            detail: v,
+        },
         None => Check {
             status: Status::Warn,
             name: "node",
@@ -157,7 +172,11 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
 
     // Verification flavor.
     checks.push(if cfg!(feature = "verification") {
-        Check { status: Status::Ok, name: "verification", detail: "compiled in (full build)".into() }
+        Check {
+            status: Status::Ok,
+            name: "verification",
+            detail: "compiled in (full build)".into(),
+        }
     } else {
         Check {
             status: Status::Warn,
@@ -188,7 +207,11 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
             name: "registry",
             detail: format!(
                 "{registry_url} reachable ({})",
-                if token { "token stored" } else { "not logged in" }
+                if token {
+                    "token stored"
+                } else {
+                    "not logged in"
+                }
             ),
         }
     } else {
@@ -203,28 +226,28 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
     if let Ok(cwd) = std::env::current_dir() {
         if find_project_root(&cwd).is_some() || cwd.join("Largo.toml").exists() {
             let root = find_project_root(&cwd).unwrap_or(cwd);
-            match Manifest::load(&root) {
-                Ok(manifest) => {
-                    let entry = root.join(&manifest.package.entry);
-                    let md_fallback = entry.with_extension("md");
-                    if entry.exists() || md_fallback.exists() {
-                        checks.push(Check {
-                            status: Status::Ok,
-                            name: "project",
-                            detail: format!("{} v{}", manifest.package.name, manifest.package.version),
-                        });
-                    } else {
-                        checks.push(Check {
-                            status: Status::Fail,
-                            name: "project",
-                            detail: format!("entry point missing: {}", entry.display()),
-                        });
-                    }
-                }
+            match crate::project::shape::Project::load(&root) {
+                Ok(project) => match project.shape() {
+                    Ok(shape) => checks.push(Check {
+                        status: Status::Ok,
+                        name: "project",
+                        detail: format!(
+                            "{} v{} — {}",
+                            project.manifest.package.name,
+                            project.manifest.package.version,
+                            shape.describe()
+                        ),
+                    }),
+                    Err(e) => checks.push(Check {
+                        status: Status::Fail,
+                        name: "project",
+                        detail: e.message.lines().next().unwrap_or("").to_string(),
+                    }),
+                },
                 Err(e) => checks.push(Check {
                     status: Status::Fail,
                     name: "project",
-                    detail: format!("Largo.toml does not parse: {e}"),
+                    detail: e.message,
                 }),
             }
         }
@@ -251,30 +274,5 @@ pub(crate) fn cmd_doctor(registry: Option<String>) -> Result<(), Box<dyn std::er
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn newer_semver_is_detected() {
-        assert!(version_is_newer("0.10.1", "0.10.0"));
-        assert!(version_is_newer("0.11.0", "0.10.9"));
-        assert!(version_is_newer("1.0.0", "0.99.99"));
-        assert!(!version_is_newer("0.10.0", "0.10.0"));
-        assert!(!version_is_newer("0.9.9", "0.10.0"));
-        assert!(!version_is_newer("garbage", "0.10.0"));
-    }
-
-    #[test]
-    fn check_lines_align_and_carry_symbols() {
-        let ok = render_check(&Check { status: Status::Ok, name: "cargo", detail: "1.80".into() });
-        assert!(ok.starts_with("✓ cargo"), "{ok}");
-        let fail = render_check(&Check { status: Status::Fail, name: "project", detail: "broken".into() });
-        assert!(fail.starts_with("✗ project"), "{fail}");
-        let warn = render_check(&Check { status: Status::Warn, name: "node", detail: "x".into() });
-        // The detail column aligns in CHARACTER position across rows (the
-        // symbols differ in UTF-8 byte width, so compare past the symbol).
-        let rest_ok: String = ok.chars().skip(1).collect();
-        let rest_warn: String = warn.chars().skip(1).collect();
-        assert_eq!(rest_ok.find("1.80"), rest_warn.find('x'), "aligned detail column");
-    }
-}
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_cli/commands/doctor/tests.rs"]
+mod tests;

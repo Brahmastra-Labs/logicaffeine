@@ -1,0 +1,46 @@
+{
+  "case": "T10-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 4,
+  "declarations": [
+    {
+      "type": "UInt8",
+      "name": "T10_009.byteLit",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "List UInt8 \u2192 UInt8",
+      "name": "T10_009.checksum",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "USize",
+      "name": "T10_009.sizeLit",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "UInt64",
+      "name": "T10_009.wordLit",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

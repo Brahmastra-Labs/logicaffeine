@@ -1,0 +1,11 @@
+{
+  "capability": "bits.trailing_zeros",
+  "workload": "sum of trailing_zeros(i) over 1<=i<=n",
+  "arg": "5000000",
+  "expected": "4999992",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "rust"
+  ]
+}

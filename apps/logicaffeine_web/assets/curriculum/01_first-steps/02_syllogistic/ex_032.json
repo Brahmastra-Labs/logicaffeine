@@ -10,6 +10,7 @@
     "u is not c"
   ],
   "correct": 3,
-  "hint": "Could there be multiple 'wildest criminals' in the world? Or does 'THE wildest' pick out exactly one person?",
-  "explanation": "Both 'you' and 'the wildest criminal' refer to specific individuals, not categories. 'You' is the person being addressed (lowercase u). 'The wildest criminal' picks out ONE specific person — whoever holds that title — so it's also lowercase (c). Compare: 'You are A criminal' would use uppercase C because 'a criminal' means 'a member of the criminal class.'"
+  "hint": "Does 'the wildest criminal' pick out a kind of person, or one person?",
+  "explanation": "'You' and 'the wildest criminal' each pick out one person, so both get small letters: u is not c.",
+  "section": "2.1"
 }

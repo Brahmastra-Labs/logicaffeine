@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "'Mere cop' is dismissive in a way 'police officer' is not. The definition picks out the right people but with a belittling slant, so the EMOTIONAL TONE is off."
+  "hint": "Does the definition describe, or does it praise or sneer?",
+  "explanation": "'Mere cop' belittles. The neutral term 'police officer' does not.",
+  "section": "3.2"
 }

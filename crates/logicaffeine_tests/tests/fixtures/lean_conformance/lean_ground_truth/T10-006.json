@@ -1,0 +1,47 @@
+{
+  "case": "T10-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 5,
+  "declarations": [
+    {
+      "type": "UInt32",
+      "name": "T10_006.codePoint",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Char \u2192 List Char \u2192 Nat",
+      "name": "T10_006.countChar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : List Char \u2192 Sort u_1) \u2192\n  (x : List Char) \u2192 (Unit \u2192 motive []) \u2192 ((d : Char) \u2192 (rest : List Char) \u2192 motive (d :: rest)) \u2192 motive x",
+      "name": "T10_006.countChar.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "String \u2192 Char",
+      "name": "T10_006.firstChar",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Char",
+      "name": "T10_006.letterA",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

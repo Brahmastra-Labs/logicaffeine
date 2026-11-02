@@ -1,0 +1,10 @@
+{
+  "capability": "bits.rotate_right",
+  "workload": "sum of rotateRight(i,7,32) over 1..n",
+  "arg": "3000000",
+  "expected": "6392087878780365",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "rust"
+  ]
+}

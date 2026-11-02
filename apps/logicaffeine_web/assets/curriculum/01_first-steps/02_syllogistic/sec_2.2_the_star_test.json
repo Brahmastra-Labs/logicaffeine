@@ -1,0 +1,56 @@
+{
+  "id": "2.2",
+  "title": "The Star Test",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A syllogism is an argument in these forms where each capital letter appears twice. The star test checks one quickly."
+    },
+    {
+      "type": "definition",
+      "term": "Distributed",
+      "definition": "A letter is distributed when it comes right after all, or anywhere after no or not."
+    },
+    {
+      "type": "definition",
+      "term": "The star test",
+      "definition": "Star the distributed letters in the premises and the undistributed letters in the conclusion. The argument is valid when each capital is starred exactly once and exactly one star falls after is."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Valid",
+      "lines": [
+        "all A* is B",
+        "some C is A"
+      ],
+      "conclusion": "So some C* is B*",
+      "note": "A, B and C are each starred once, and only B* falls after is. Valid."
+    },
+    {
+      "type": "worked",
+      "title": "Invalid",
+      "lines": [
+        "no A* is B*",
+        "no C* is A*"
+      ],
+      "conclusion": "So no C is B",
+      "note": "A is starred twice, and two stars fall after is. Invalid."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "In 'all A is B', which letter is distributed?",
+    "options": [
+      "A only",
+      "B only",
+      "Both A and B",
+      "Neither"
+    ],
+    "correct": 0,
+    "hint": "A letter is distributed when it comes right after all, or anywhere after no or not.",
+    "explanation": "Only the letter right after all is distributed. 'all A is B' says something about every A, but not about every B."
+  }
+}

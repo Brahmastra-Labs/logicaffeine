@@ -67,7 +67,14 @@ pub fn run(
         Answer::Unsat => {
             let _ = writeln!(out, "s UNSATISFIABLE");
             if let Some(path) = proof_path {
-                write_proof(err, path, solved.via, cnf.num_vars, &cnf.clauses, &solved.proof);
+                write_proof(
+                    err,
+                    path,
+                    solved.via,
+                    cnf.num_vars,
+                    &cnf.clauses,
+                    &solved.proof,
+                );
             }
             20
         }
@@ -154,7 +161,10 @@ fn write_proof(
             }
         }
         Err(e) => {
-            let _ = writeln!(err, "c warning: proof not exportable ({e:?}) — verified internally");
+            let _ = writeln!(
+                err,
+                "c warning: proof not exportable ({e:?}) — verified internally"
+            );
         }
     }
 }
@@ -166,7 +176,11 @@ fn print_model(out: &mut dyn Write, model: &[bool], num_vars: usize) {
     let mut line = String::from("v");
     let mut on_line = 0usize;
     for v in 0..num_vars {
-        let lit = if model.get(v).copied().unwrap_or(false) { (v + 1) as i64 } else { -((v + 1) as i64) };
+        let lit = if model.get(v).copied().unwrap_or(false) {
+            (v + 1) as i64
+        } else {
+            -((v + 1) as i64)
+        };
         line.push(' ');
         line.push_str(&lit.to_string());
         on_line += 1;
@@ -178,4 +192,28 @@ fn print_model(out: &mut dyn Write, model: &[bool], num_vars: usize) {
     }
     line.push_str(" 0");
     let _ = writeln!(out, "{line}");
+}
+
+/// The `logos-sat` process: `logos-sat <input.cnf> [proof.drat]`, with `LOGOS_STATS` for solver
+/// statistics. `src/bin/logos-sat.rs` is exactly this call, and so is the test crate's
+/// `logos-sat-under-test`.
+pub fn main() -> std::process::ExitCode {
+    let args: Vec<String> = std::env::args().collect();
+    let positional: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with('-')).collect();
+
+    let Some(input) = positional.first() else {
+        eprintln!("usage: logos-sat <input.cnf> [proof.drat]");
+        return std::process::ExitCode::from(1);
+    };
+    let proof_path = positional.get(1).map(|p| std::path::Path::new(p.as_str()));
+    let stats = std::env::var("LOGOS_STATS").is_ok();
+
+    let code = run(
+        std::path::Path::new(input.as_str()),
+        proof_path,
+        stats,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    );
+    std::process::ExitCode::from(code)
 }

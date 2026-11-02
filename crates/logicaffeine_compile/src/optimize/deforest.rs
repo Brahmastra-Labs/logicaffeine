@@ -13,8 +13,9 @@
 
 use std::collections::HashSet;
 
+use super::writes::{CalleeGlobals, WriteSet};
 use crate::arena::Arena;
-use crate::ast::stmt::{Block, Expr, Pattern, StringPart, Stmt};
+use crate::ast::stmt::{Block, Expr, Pattern, Stmt, StringPart};
 use crate::intern::{Interner, Symbol};
 
 pub fn deforest_stmts<'a>(
@@ -23,11 +24,22 @@ pub fn deforest_stmts<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &Interner,
 ) -> Vec<Stmt<'a>> {
+    let globals = CalleeGlobals::of_program(&stmts);
+    deforest_block(stmts, expr_arena, stmt_arena, interner, &globals)
+}
+
+fn deforest_block<'a>(
+    stmts: Vec<Stmt<'a>>,
+    expr_arena: &'a Arena<Expr<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &Interner,
+    globals: &CalleeGlobals,
+) -> Vec<Stmt<'a>> {
     // Run iteratively for multi-stage fusion (A→B→C fuses in 2 passes)
     let mut current = stmts;
     for _ in 0..4 {
         let prev_len = current.len();
-        current = deforest_pass(current, expr_arena, stmt_arena, interner);
+        current = deforest_pass(current, expr_arena, stmt_arena, interner, globals);
         if current.len() >= prev_len {
             break;
         }
@@ -40,19 +52,24 @@ fn deforest_pass<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &Interner,
+    globals: &CalleeGlobals,
 ) -> Vec<Stmt<'a>> {
     let mut result = Vec::with_capacity(stmts.len());
     let mut i = 0;
 
     while i < stmts.len() {
-        if let Some((skip_to, fused)) = try_deforest(&stmts, i, expr_arena, stmt_arena, interner) {
+        if let Some((skip_to, fused)) =
+            try_deforest(&stmts, i, expr_arena, stmt_arena, interner, globals)
+        {
             result.extend(fused);
             i = skip_to;
             continue;
         }
 
         let stmt = stmts[i].clone();
-        result.push(recurse_deforest(stmt, expr_arena, stmt_arena, interner));
+        result.push(recurse_deforest(
+            stmt, expr_arena, stmt_arena, interner, globals,
+        ));
         i += 1;
     }
 
@@ -64,28 +81,62 @@ fn recurse_deforest<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &Interner,
+    globals: &CalleeGlobals,
 ) -> Stmt<'a> {
     match stmt {
-        Stmt::FunctionDef { name, generics, params, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
-            let new_body = deforest_stmts(body.to_vec(), expr_arena, stmt_arena, interner);
+        Stmt::FunctionDef {
+            name,
+            generics,
+            params,
+            body,
+            return_type,
+            is_native,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
+        } => {
+            let new_body = deforest_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
             Stmt::FunctionDef {
-                name, generics, params,
+                name,
+                generics,
+                params,
                 body: stmt_arena.alloc_slice(new_body),
-                return_type, is_native, native_path, is_exported, export_target, opt_flags,
+                return_type,
+                is_native,
+                native_path,
+                is_exported,
+                export_target,
+                opt_flags,
             }
         }
-        Stmt::While { cond, body, decreasing } => {
-            let new_body = deforest_stmts(body.to_vec(), expr_arena, stmt_arena, interner);
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
+            let new_body = deforest_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
             Stmt::While {
                 cond,
                 body: stmt_arena.alloc_slice(new_body),
                 decreasing,
             }
         }
-        Stmt::If { cond, then_block, else_block } => {
-            let new_then = deforest_stmts(then_block.to_vec(), expr_arena, stmt_arena, interner);
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let new_then = deforest_block(
+                then_block.to_vec(),
+                expr_arena,
+                stmt_arena,
+                interner,
+                globals,
+            );
             let new_else = else_block.map(|eb| {
-                let processed = deforest_stmts(eb.to_vec(), expr_arena, stmt_arena, interner);
+                let processed =
+                    deforest_block(eb.to_vec(), expr_arena, stmt_arena, interner, globals);
                 let b: Block = stmt_arena.alloc_slice(processed);
                 b
             });
@@ -95,8 +146,12 @@ fn recurse_deforest<'a>(
                 else_block: new_else,
             }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
-            let new_body = deforest_stmts(body.to_vec(), expr_arena, stmt_arena, interner);
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
+            let new_body = deforest_block(body.to_vec(), expr_arena, stmt_arena, interner, globals);
             Stmt::Repeat {
                 pattern,
                 iterable,
@@ -113,14 +168,19 @@ fn try_deforest<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &Interner,
+    globals: &CalleeGlobals,
 ) -> Option<(usize, Vec<Stmt<'a>>)> {
     // Step 1: stmts[start] must be `Let mutable temp = new Seq/List`
     let temp_sym = match_temp_init(&stmts[start], interner)?;
 
     // Step 2: stmts[start+1] must be a Repeat that pushes to temp
     let producer_idx = start + 1;
-    if producer_idx >= stmts.len() { return None; }
-    if !is_repeat_producer(&stmts[producer_idx], temp_sym) { return None; }
+    if producer_idx >= stmts.len() {
+        return None;
+    }
+    if !is_repeat_producer(&stmts[producer_idx], temp_sym) {
+        return None;
+    }
 
     // Step 3: Find the consumer Repeat over temp, collecting intermediates
     let mut consumer_idx = None;
@@ -149,21 +209,33 @@ fn try_deforest<'a>(
 
     // Step 5: Extract consumer details
     let (pattern_var, consumer_body) = match &stmts[consumer_idx] {
-        Stmt::Repeat { pattern: Pattern::Identifier(var), body, .. } => (*var, *body),
+        Stmt::Repeat {
+            pattern: Pattern::Identifier(var),
+            body,
+            ..
+        } => (*var, *body),
         _ => return None,
     };
 
-    // Step 6: Safety — consumer body must not write to producer's source symbols
+    // Step 6: Safety — consumer body must not write to producer's source symbols (directly, in a
+    // nested block, or through a call to a function that assigns one of them).
     let producer_source = collect_iterable_symbols(&stmts[producer_idx]);
-    let consumer_writes = collect_block_writes(consumer_body);
-    if !consumer_writes.is_disjoint(&producer_source) {
+    let consumer_writes = WriteSet::of_block(consumer_body).with_callee_globals(globals);
+    if producer_source
+        .iter()
+        .any(|sym| consumer_writes.may_write(*sym))
+    {
         return None;
     }
 
     // Step 7: Build the fused loop
     let fused = build_fused_repeat(
-        &stmts[producer_idx], temp_sym, pattern_var, consumer_body,
-        expr_arena, stmt_arena,
+        &stmts[producer_idx],
+        temp_sym,
+        pattern_var,
+        consumer_body,
+        expr_arena,
+        stmt_arena,
     )?;
 
     // Verify no residual pushes to temp remain
@@ -181,7 +253,12 @@ fn try_deforest<'a>(
 /// Check if stmt is `Let mutable <var> = new Seq/List`
 fn match_temp_init(stmt: &Stmt, interner: &Interner) -> Option<Symbol> {
     match stmt {
-        Stmt::Let { var, value, mutable: true, .. } => {
+        Stmt::Let {
+            var,
+            value,
+            mutable: true,
+            ..
+        } => {
             if let Expr::New { type_name, .. } = value {
                 let name = interner.resolve(*type_name);
                 if name == "Seq" || name == "List" {
@@ -208,13 +285,23 @@ fn block_pushes_to(block: &[Stmt], sym: Symbol) -> bool {
         match stmt {
             Stmt::Push { collection, .. } => {
                 if let Expr::Identifier(s) = collection {
-                    if *s == sym { return true; }
+                    if *s == sym {
+                        return true;
+                    }
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
-                if block_pushes_to(then_block, sym) { return true; }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                if block_pushes_to(then_block, sym) {
+                    return true;
+                }
                 if let Some(eb) = else_block {
-                    if block_pushes_to(eb, sym) { return true; }
+                    if block_pushes_to(eb, sym) {
+                        return true;
+                    }
                 }
             }
             _ => {}
@@ -226,7 +313,11 @@ fn block_pushes_to(block: &[Stmt], sym: Symbol) -> bool {
 /// Check if stmt is `Repeat for <var> in <sym>`
 fn is_repeat_over_sym(stmt: &Stmt, sym: Symbol) -> bool {
     match stmt {
-        Stmt::Repeat { pattern: Pattern::Identifier(_), iterable, .. } => {
+        Stmt::Repeat {
+            pattern: Pattern::Identifier(_),
+            iterable,
+            ..
+        } => {
             matches!(iterable, Expr::Identifier(s) if *s == sym)
         }
         _ => false,
@@ -248,78 +339,92 @@ fn collect_iterable_symbols(stmt: &Stmt) -> HashSet<Symbol> {
     syms
 }
 
-/// Collect all symbols written (Set targets, Push collections) in a block.
-fn collect_block_writes(block: &[Stmt]) -> HashSet<Symbol> {
-    let mut writes = HashSet::new();
-    for stmt in block {
-        collect_stmt_writes(stmt, &mut writes);
-    }
-    writes
-}
-
-fn collect_stmt_writes(stmt: &Stmt, writes: &mut HashSet<Symbol>) {
-    match stmt {
-        Stmt::Set { target, .. } => { writes.insert(*target); }
-        Stmt::Push { collection, .. } | Stmt::Pop { collection, .. }
-        | Stmt::Add { collection, .. } | Stmt::Remove { collection, .. } => {
-            if let Expr::Identifier(sym) = collection {
-                writes.insert(*sym);
-            }
-        }
-        Stmt::SetIndex { collection, .. } | Stmt::SetField { object: collection, .. } => {
-            if let Expr::Identifier(sym) = collection {
-                writes.insert(*sym);
-            }
-        }
-        Stmt::If { then_block, else_block, .. } => {
-            for s in then_block.iter() { collect_stmt_writes(s, writes); }
-            if let Some(eb) = else_block {
-                for s in eb.iter() { collect_stmt_writes(s, writes); }
-            }
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
-            for s in body.iter() { collect_stmt_writes(s, writes); }
-        }
-        _ => {}
-    }
-}
-
 fn collect_expr_symbols(expr: &Expr, syms: &mut HashSet<Symbol>) {
     match expr {
-        Expr::Identifier(s) => { syms.insert(*s); }
+        Expr::Dom(q) => {
+            if let Some(sel) = q.selector() {
+                collect_expr_symbols(sel, syms);
+            }
+        }
+        Expr::View(v) => {
+            let (view_exprs, view_blocks) = v.exprs_and_blocks();
+            for e in view_exprs {
+                collect_expr_symbols(e, syms);
+            }
+            let _ = view_blocks;
+        }
+        Expr::Identifier(s) => {
+            syms.insert(*s);
+        }
         Expr::Literal(_) | Expr::OptionNone => {}
         Expr::BinaryOp { left, right, .. } => {
             collect_expr_symbols(left, syms);
             collect_expr_symbols(right, syms);
         }
-        Expr::Not { operand } | Expr::Length { collection: operand }
-        | Expr::Copy { expr: operand } | Expr::Give { value: operand }
-        | Expr::OptionSome { value: operand } | Expr::ManifestOf { zone: operand }
-        | Expr::FieldAccess { object: operand, .. } => {
+        Expr::Not { operand }
+        | Expr::Length {
+            collection: operand,
+        }
+        | Expr::Copy { expr: operand }
+        | Expr::Give { value: operand }
+        | Expr::OptionSome { value: operand }
+        | Expr::ManifestOf { zone: operand }
+        | Expr::FieldAccess {
+            object: operand, ..
+        } => {
             collect_expr_symbols(operand, syms);
         }
-        Expr::Index { collection, index } | Expr::Contains { collection, value: index }
-        | Expr::Union { left: collection, right: index }
-        | Expr::Intersection { left: collection, right: index }
-        | Expr::Range { start: collection, end: index }
-        | Expr::WithCapacity { value: collection, capacity: index }
-        | Expr::ChunkAt { index, zone: collection } => {
+        Expr::Index { collection, index }
+        | Expr::Contains {
+            collection,
+            value: index,
+        }
+        | Expr::Union {
+            left: collection,
+            right: index,
+        }
+        | Expr::Intersection {
+            left: collection,
+            right: index,
+        }
+        | Expr::Range {
+            start: collection,
+            end: index,
+        }
+        | Expr::WithCapacity {
+            value: collection,
+            capacity: index,
+        }
+        | Expr::ChunkAt {
+            index,
+            zone: collection,
+        } => {
             collect_expr_symbols(collection, syms);
             collect_expr_symbols(index, syms);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             collect_expr_symbols(collection, syms);
             collect_expr_symbols(start, syms);
             collect_expr_symbols(end, syms);
         }
         Expr::List(items) | Expr::Tuple(items) => {
-            for item in items { collect_expr_symbols(item, syms); }
+            for item in items {
+                collect_expr_symbols(item, syms);
+            }
         }
         Expr::New { init_fields, .. } => {
-            for (_, val) in init_fields { collect_expr_symbols(val, syms); }
+            for (_, val) in init_fields {
+                collect_expr_symbols(val, syms);
+            }
         }
         Expr::NewVariant { fields, .. } => {
-            for (_, val) in fields { collect_expr_symbols(val, syms); }
+            for (_, val) in fields {
+                collect_expr_symbols(val, syms);
+            }
         }
         Expr::InterpolatedString(parts) => {
             for part in parts {
@@ -329,11 +434,15 @@ fn collect_expr_symbols(expr: &Expr, syms: &mut HashSet<Symbol>) {
             }
         }
         Expr::Call { args, .. } => {
-            for arg in args { collect_expr_symbols(arg, syms); }
+            for arg in args {
+                collect_expr_symbols(arg, syms);
+            }
         }
         Expr::CallExpr { callee, args } => {
             collect_expr_symbols(callee, syms);
-            for arg in args { collect_expr_symbols(arg, syms); }
+            for arg in args {
+                collect_expr_symbols(arg, syms);
+            }
         }
         Expr::Closure { .. } | Expr::Escape { .. } => {}
     }
@@ -342,58 +451,65 @@ fn collect_expr_symbols(expr: &Expr, syms: &mut HashSet<Symbol>) {
 /// Check if any expression in a statement references a given symbol.
 fn stmt_references_symbol(stmt: &Stmt, sym: Symbol) -> bool {
     match stmt {
-        Stmt::Let { var, value, .. } => {
-            *var == sym || expr_references_symbol(value, sym)
-        }
-        Stmt::Set { target, value } => {
-            *target == sym || expr_references_symbol(value, sym)
-        }
+        Stmt::Let { var, value, .. } => *var == sym || expr_references_symbol(value, sym),
+        Stmt::Set { target, value } => *target == sym || expr_references_symbol(value, sym),
         Stmt::Show { object, recipient } => {
             expr_references_symbol(object, sym) || expr_references_symbol(recipient, sym)
         }
-        Stmt::Push { collection, value } | Stmt::Add { collection, value }
+        Stmt::Push { collection, value }
+        | Stmt::Add { collection, value }
         | Stmt::Remove { collection, value } => {
             expr_references_symbol(collection, sym) || expr_references_symbol(value, sym)
         }
         Stmt::Pop { collection, into } => {
-            expr_references_symbol(collection, sym) ||
-            into.map_or(false, |s| s == sym)
+            expr_references_symbol(collection, sym) || into.map_or(false, |s| s == sym)
         }
-        Stmt::SetIndex { collection, index, value } => {
-            expr_references_symbol(collection, sym) ||
-            expr_references_symbol(index, sym) ||
-            expr_references_symbol(value, sym)
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
+            expr_references_symbol(collection, sym)
+                || expr_references_symbol(index, sym)
+                || expr_references_symbol(value, sym)
         }
         Stmt::SetField { object, value, .. } => {
             expr_references_symbol(object, sym) || expr_references_symbol(value, sym)
         }
-        Stmt::Return { value } => {
-            value.map_or(false, |v| expr_references_symbol(v, sym))
-        }
-        Stmt::Call { args, .. } => {
-            args.iter().any(|a| expr_references_symbol(a, sym))
-        }
-        Stmt::If { cond, then_block, else_block } => {
-            expr_references_symbol(cond, sym) ||
-            then_block.iter().any(|s| stmt_references_symbol(s, sym)) ||
-            else_block.map_or(false, |eb| eb.iter().any(|s| stmt_references_symbol(s, sym)))
+        Stmt::Return { value } => value.map_or(false, |v| expr_references_symbol(v, sym)),
+        Stmt::Call { args, .. } => args.iter().any(|a| expr_references_symbol(a, sym)),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            expr_references_symbol(cond, sym)
+                || then_block.iter().any(|s| stmt_references_symbol(s, sym))
+                || else_block.map_or(false, |eb| {
+                    eb.iter().any(|s| stmt_references_symbol(s, sym))
+                })
         }
         Stmt::While { cond, body, .. } => {
-            expr_references_symbol(cond, sym) ||
-            body.iter().any(|s| stmt_references_symbol(s, sym))
+            expr_references_symbol(cond, sym) || body.iter().any(|s| stmt_references_symbol(s, sym))
         }
-        Stmt::Repeat { iterable, body, pattern } => {
+        Stmt::Repeat {
+            iterable,
+            body,
+            pattern,
+        } => {
             let pattern_matches = match pattern {
                 Pattern::Identifier(s) => *s == sym,
                 Pattern::Tuple(syms) => syms.contains(&sym),
             };
-            pattern_matches ||
-            expr_references_symbol(iterable, sym) ||
-            body.iter().any(|s| stmt_references_symbol(s, sym))
+            pattern_matches
+                || expr_references_symbol(iterable, sym)
+                || body.iter().any(|s| stmt_references_symbol(s, sym))
         }
         Stmt::Inspect { target, arms, .. } => {
-            expr_references_symbol(target, sym) ||
-            arms.iter().any(|arm| arm.body.iter().any(|s| stmt_references_symbol(s, sym)))
+            expr_references_symbol(target, sym)
+                || arms
+                    .iter()
+                    .any(|arm| arm.body.iter().any(|s| stmt_references_symbol(s, sym)))
         }
         // Conservative: unknown statement types are assumed to reference the symbol
         _ => true,
@@ -402,52 +518,87 @@ fn stmt_references_symbol(stmt: &Stmt, sym: Symbol) -> bool {
 
 fn expr_references_symbol(expr: &Expr, sym: Symbol) -> bool {
     match expr {
+        Expr::Dom(q) => q
+            .selector()
+            .is_some_and(|sel| expr_references_symbol(sel, sym)),
+        Expr::View(v) => {
+            let (view_exprs, view_blocks) = v.exprs_and_blocks();
+            let _ = &view_blocks;
+            view_exprs.iter().any(|e| expr_references_symbol(e, sym))
+                || view_blocks
+                    .iter()
+                    .any(|b| b.iter().any(|st| stmt_references_symbol(st, sym)))
+        }
         Expr::Identifier(s) => *s == sym,
         Expr::Literal(_) | Expr::OptionNone => false,
         Expr::BinaryOp { left, right, .. } => {
             expr_references_symbol(left, sym) || expr_references_symbol(right, sym)
         }
-        Expr::Not { operand } | Expr::Length { collection: operand }
-        | Expr::Copy { expr: operand } | Expr::Give { value: operand }
-        | Expr::OptionSome { value: operand } | Expr::ManifestOf { zone: operand }
-        | Expr::FieldAccess { object: operand, .. } => {
-            expr_references_symbol(operand, sym)
+        Expr::Not { operand }
+        | Expr::Length {
+            collection: operand,
         }
-        Expr::Index { collection, index } | Expr::Contains { collection, value: index }
-        | Expr::Union { left: collection, right: index }
-        | Expr::Intersection { left: collection, right: index }
-        | Expr::Range { start: collection, end: index }
-        | Expr::WithCapacity { value: collection, capacity: index }
-        | Expr::ChunkAt { index, zone: collection } => {
-            expr_references_symbol(collection, sym) || expr_references_symbol(index, sym)
+        | Expr::Copy { expr: operand }
+        | Expr::Give { value: operand }
+        | Expr::OptionSome { value: operand }
+        | Expr::ManifestOf { zone: operand }
+        | Expr::FieldAccess {
+            object: operand, ..
+        } => expr_references_symbol(operand, sym),
+        Expr::Index { collection, index }
+        | Expr::Contains {
+            collection,
+            value: index,
         }
-        Expr::Slice { collection, start, end } => {
-            expr_references_symbol(collection, sym) ||
-            expr_references_symbol(start, sym) ||
-            expr_references_symbol(end, sym)
+        | Expr::Union {
+            left: collection,
+            right: index,
+        }
+        | Expr::Intersection {
+            left: collection,
+            right: index,
+        }
+        | Expr::Range {
+            start: collection,
+            end: index,
+        }
+        | Expr::WithCapacity {
+            value: collection,
+            capacity: index,
+        }
+        | Expr::ChunkAt {
+            index,
+            zone: collection,
+        } => expr_references_symbol(collection, sym) || expr_references_symbol(index, sym),
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
+            expr_references_symbol(collection, sym)
+                || expr_references_symbol(start, sym)
+                || expr_references_symbol(end, sym)
         }
         Expr::List(items) | Expr::Tuple(items) => {
             items.iter().any(|item| expr_references_symbol(item, sym))
         }
-        Expr::New { init_fields, .. } => {
-            init_fields.iter().any(|(_, val)| expr_references_symbol(val, sym))
-        }
-        Expr::NewVariant { fields, .. } => {
-            fields.iter().any(|(_, val)| expr_references_symbol(val, sym))
-        }
-        Expr::InterpolatedString(parts) => {
-            parts.iter().any(|part| {
-                if let StringPart::Expr { value, .. } = part {
-                    expr_references_symbol(value, sym)
-                } else {
-                    false
-                }
-            })
-        }
+        Expr::New { init_fields, .. } => init_fields
+            .iter()
+            .any(|(_, val)| expr_references_symbol(val, sym)),
+        Expr::NewVariant { fields, .. } => fields
+            .iter()
+            .any(|(_, val)| expr_references_symbol(val, sym)),
+        Expr::InterpolatedString(parts) => parts.iter().any(|part| {
+            if let StringPart::Expr { value, .. } = part {
+                expr_references_symbol(value, sym)
+            } else {
+                false
+            }
+        }),
         Expr::Call { args, .. } => args.iter().any(|a| expr_references_symbol(a, sym)),
         Expr::CallExpr { callee, args } => {
-            expr_references_symbol(callee, sym) ||
-            args.iter().any(|a| expr_references_symbol(a, sym))
+            expr_references_symbol(callee, sym)
+                || args.iter().any(|a| expr_references_symbol(a, sym))
         }
         // Conservative for opaque expressions
         Expr::Closure { .. } | Expr::Escape { .. } => true,
@@ -465,10 +616,12 @@ fn build_fused_repeat<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
 ) -> Option<Stmt<'a>> {
     match producer {
-        Stmt::Repeat { pattern, iterable, body } => {
-            let new_body = replace_pushes(
-                body, temp_sym, pattern_var, consumer_body, stmt_arena,
-            );
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
+            let new_body = replace_pushes(body, temp_sym, pattern_var, consumer_body, stmt_arena);
             Some(Stmt::Repeat {
                 pattern: pattern.clone(),
                 iterable,
@@ -507,14 +660,16 @@ fn replace_pushes<'a>(
                 }
                 result.push(stmt.clone());
             }
-            Stmt::If { cond, then_block, else_block } => {
-                let new_then = replace_pushes(
-                    then_block, temp_sym, pattern_var, consumer_body, stmt_arena,
-                );
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let new_then =
+                    replace_pushes(then_block, temp_sym, pattern_var, consumer_body, stmt_arena);
                 let new_else = else_block.map(|eb| {
-                    let replaced = replace_pushes(
-                        eb, temp_sym, pattern_var, consumer_body, stmt_arena,
-                    );
+                    let replaced =
+                        replace_pushes(eb, temp_sym, pattern_var, consumer_body, stmt_arena);
                     let b: Block = stmt_arena.alloc_slice(replaced);
                     b
                 });

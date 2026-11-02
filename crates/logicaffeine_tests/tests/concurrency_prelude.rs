@@ -1,4 +1,4 @@
-//! Phase 10 (work/FINISH_INTERPRETER.md) — stdlib prelude bundling.
+//! Stdlib prelude bundling.
 //!
 //! The concurrency/net/io/crdt vocabulary is embedded at compile time and made
 //! available WITHOUT an explicit import — but only to programs that actually
@@ -16,9 +16,15 @@ fn prelude_is_embedded_and_loads() {
     assert!(!p.is_empty(), "prelude is embedded at compile time");
     // Every module's code (its `##` sections) is present — titles + prose are
     // documentation and are not prepended.
-    assert!(p.contains("## To flush"), "concurrency helper `flush` defined");
+    assert!(
+        p.contains("## To flush"),
+        "concurrency helper `flush` defined"
+    );
     assert!(p.contains("A Message has"), "net `Message` type defined");
-    assert!(p.contains("A Severity is either"), "io `Severity` type defined");
+    assert!(
+        p.contains("A Severity is either"),
+        "io `Severity` type defined"
+    );
     assert!(p.contains("A Delta has"), "crdt `Delta` type defined");
 }
 
@@ -34,8 +40,16 @@ fn prelude_auto_prepended_enables_vocabulary() {
         \x20   Receive a from ch.\n\
         \x20   Show a.\n";
     let result = run_interpreter(src);
-    assert!(result.success, "stdlib helper resolved without import: {}", result.error);
-    assert_eq!(result.output.trim(), "1", "flush enqueued 1,2,3; first receive is 1");
+    assert!(
+        result.success,
+        "stdlib helper resolved without import: {}",
+        result.error
+    );
+    assert_eq!(
+        result.output.trim(),
+        "1",
+        "flush enqueued 1,2,3; first receive is 1"
+    );
 }
 
 #[test]
@@ -78,7 +92,11 @@ fn prelude_all_modules_parse_clean() {
     // confirm the whole thing parses and runs.
     let combined = format!("{}\n\n## Main\n    Show 1.\n", prelude());
     let result = run_interpreter(&combined);
-    assert!(result.success, "all prelude modules must parse clean: {}", result.error);
+    assert!(
+        result.success,
+        "all prelude modules must parse clean: {}",
+        result.error
+    );
     assert_eq!(result.output.trim(), "1");
 }
 

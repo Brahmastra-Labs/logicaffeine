@@ -1,0 +1,380 @@
+{
+  "case": "T07-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 46,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_004.Box",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_004.Box \u03b1 \u2192 Sort u} \u2192 (t : T07_004.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T07_004.Box.mk a)) \u2192 motive t",
+      "name": "T07_004.Box.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_004.Box \u03b1",
+      "name": "T07_004.Box.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 : \u03b1}, T07_004.Box.mk a = T07_004.Box.mk a_1 \u2192 a = a_1",
+      "name": "T07_004.Box.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 : \u03b1), (T07_004.Box.mk a = T07_004.Box.mk a_1) = (a = a_1)",
+      "name": "T07_004.Box.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a : \u03b1), sizeOf (T07_004.Box.mk a) = 1 + sizeOf a",
+      "name": "T07_004.Box.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_004.Box \u03b1} \u2192 v1 = v2 \u2192 T07_004.Box.noConfusionType P v1 v2",
+      "name": "T07_004.Box.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_004.Box \u03b1 \u2192 T07_004.Box \u03b1 \u2192 Sort u",
+      "name": "T07_004.Box.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_004.Box \u03b1 \u2192 Sort u} \u2192 ((a : \u03b1) \u2192 motive (T07_004.Box.mk a)) \u2192 (t : T07_004.Box \u03b1) \u2192 motive t",
+      "name": "T07_004.Box.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {motive : T07_004.Box \u03b1 \u2192 Sort u} \u2192 (t : T07_004.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T07_004.Box.mk a)) \u2192 motive t",
+      "name": "T07_004.Box.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_004.Pair2",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Pair2 \u03b1 \u2192 Sort u} \u2192\n    (t : T07_004.Pair2 \u03b1) \u2192 ((a a_1 : \u03b1) \u2192 motive (T07_004.Pair2.mk a a_1)) \u2192 motive t",
+      "name": "T07_004.Pair2.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1 \u2192 T07_004.Pair2 \u03b1",
+      "name": "T07_004.Pair2.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a a_1 a_2 a_3 : \u03b1}, T07_004.Pair2.mk a a_1 = T07_004.Pair2.mk a_2 a_3 \u2192 a = a_2 \u2227 a_1 = a_3",
+      "name": "T07_004.Pair2.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a a_1 a_2 a_3 : \u03b1), (T07_004.Pair2.mk a a_1 = T07_004.Pair2.mk a_2 a_3) = (a = a_2 \u2227 a_1 = a_3)",
+      "name": "T07_004.Pair2.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (a a_1 : \u03b1), sizeOf (T07_004.Pair2.mk a a_1) = 1 + sizeOf a + sizeOf a_1",
+      "name": "T07_004.Pair2.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_004.Pair2 \u03b1} \u2192 v1 = v2 \u2192 T07_004.Pair2.noConfusionType P v1 v2",
+      "name": "T07_004.Pair2.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_004.Pair2 \u03b1 \u2192 T07_004.Pair2 \u03b1 \u2192 Sort u",
+      "name": "T07_004.Pair2.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Pair2 \u03b1 \u2192 Sort u} \u2192\n    ((a a_1 : \u03b1) \u2192 motive (T07_004.Pair2.mk a a_1)) \u2192 (t : T07_004.Pair2 \u03b1) \u2192 motive t",
+      "name": "T07_004.Pair2.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Pair2 \u03b1 \u2192 Sort u} \u2192\n    (t : T07_004.Pair2 \u03b1) \u2192 ((a a_1 : \u03b1) \u2192 motive (T07_004.Pair2.mk a a_1)) \u2192 motive t",
+      "name": "T07_004.Pair2.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_004.Pair2Show",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Pair2Show \u03b1 \u2192 Sort u} \u2192\n    (t : T07_004.Pair2Show \u03b1) \u2192 ((render : \u03b1 \u2192 Nat) \u2192 motive { render := render }) \u2192 motive t",
+      "name": "T07_004.Pair2Show.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T07_004.Pair2Show \u03b1",
+      "name": "T07_004.Pair2Show.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_004.Pair2Show \u03b1} \u2192 v1 = v2 \u2192 T07_004.Pair2Show.noConfusionType P v1 v2",
+      "name": "T07_004.Pair2Show.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_004.Pair2Show \u03b1 \u2192 T07_004.Pair2Show \u03b1 \u2192 Sort u",
+      "name": "T07_004.Pair2Show.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Pair2Show \u03b1 \u2192 Sort u} \u2192\n    ((render : \u03b1 \u2192 Nat) \u2192 motive { render := render }) \u2192 (t : T07_004.Pair2Show \u03b1) \u2192 motive t",
+      "name": "T07_004.Pair2Show.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Pair2Show \u03b1 \u2192 Sort u} \u2192\n    (t : T07_004.Pair2Show \u03b1) \u2192 ((render : \u03b1 \u2192 Nat) \u2192 motive { render := render }) \u2192 motive t",
+      "name": "T07_004.Pair2Show.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_004.Pair2Show \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T07_004.Pair2Show.render",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_004.Sized",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Sized \u03b1 \u2192 Sort u} \u2192 (t : T07_004.Sized \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T07_004.Sized.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T07_004.Sized \u03b1",
+      "name": "T07_004.Sized.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_004.Sized \u03b1} \u2192 v1 = v2 \u2192 T07_004.Sized.noConfusionType P v1 v2",
+      "name": "T07_004.Sized.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_004.Sized \u03b1 \u2192 T07_004.Sized \u03b1 \u2192 Sort u",
+      "name": "T07_004.Sized.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Sized \u03b1 \u2192 Sort u} \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 (t : T07_004.Sized \u03b1) \u2192 motive t",
+      "name": "T07_004.Sized.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_004.Sized \u03b1 \u2192 Sort u} \u2192 (t : T07_004.Sized \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T07_004.Sized.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_004.Sized \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T07_004.Sized.size",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_004.boxedBoxedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_004.deepChain",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T07_004.Sized \u03b1] \u2192 [inst : T07_004.Pair2Show \u03b1] \u2192 T07_004.Pair2Show (T07_004.Box \u03b1)",
+      "name": "T07_004.instPair2ShowBoxOfSized",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_004.Pair2Show Nat",
+      "name": "T07_004.instPair2ShowNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : T07_004.Sized \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T07_004.sizeOf'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T07_004.Sized \u03b1] \u2192 T07_004.Sized (T07_004.Box \u03b1)",
+      "name": "T07_004.sizedBox",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T07_004.Box \u03b1 \u2192 Sort u_1) \u2192 (b : T07_004.Box \u03b1) \u2192 ((a : \u03b1) \u2192 motive (T07_004.Box.mk a)) \u2192 motive b",
+      "name": "T07_004.sizedBox.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_004.Sized Nat",
+      "name": "T07_004.sizedNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T07_004.Sized \u03b1] \u2192 T07_004.Sized (T07_004.Pair2 \u03b1)",
+      "name": "T07_004.sizedPair2",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  (motive : T07_004.Pair2 \u03b1 \u2192 Sort u_1) \u2192 (p : T07_004.Pair2 \u03b1) \u2192 ((a b : \u03b1) \u2192 motive (T07_004.Pair2.mk a b)) \u2192 motive p",
+      "name": "T07_004.sizedPair2.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

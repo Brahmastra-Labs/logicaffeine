@@ -1,0 +1,135 @@
+{
+  "case": "T06-014",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T06_014.bigCheck",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Bool",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "original_harvest_bridge::harvest_t06_014_1",
+      "logos": "Checked LOGOS Context artifact for T06_014.bigCheck imported by the production reader (interface::lean::import_audited) from crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/harvest/T06-014.ndjson (export sha256 b67002ca106c609dba116f75f58d2b4441990c6aaf1d35a94a3a9995eeaead0d); its statement is exactly convertible with the independent reference translation of the Lean type, accepted at that statement by both the primary kernel and the independent re-checker, with its transitive assumptions, computed under Lean's #print axioms rule (the rule the portable package applies), equal to Lean's recorded #print axioms.",
+      "why": "Original Lean 4.14.0 source unchanged (sha256 a515164b610cb4144afe0c16b8c30ce785d9005193d512079f3e76f7a46954f9), exported by pinned lean4export 20c4a64a with structural keys, selection explicit_authored_roots. The named test also refuses an altered statement in both checkers. Checks the kernel declaration; it does not claim the LOGOS source emission tier or a replayed package."
+    },
+    {
+      "lean": "T06_014.bigCheckHolds",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "T06_014.bigCheck = true",
+      "lean_axioms": [
+        "Lean.ofReduceBool"
+      ],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T06_014.bridgeShape",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "∀ (a b : Bool), reduceBool a = b → a = b",
+      "lean_axioms": [
+        "Lean.trustCompiler",
+        "Lean.ofReduceBool"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t06_014_bridge_shape",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T06_014.bridgeShape names Lean.trustCompiler, Lean.ofReduceBool, resting on the trust escape Lean.trustCompiler. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T06-014.bridgeShape.ndjson (sha256 82077f90eaac9318c45ec26a61ba3a77a30ee7858efa5447e02933102fe1ef2c; source sha256 a515164b610cb4144afe0c16b8c30ce785d9005193d512079f3e76f7a46954f9, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T06_014.bridgeShape → Lean.reduceBool → Lean.trustCompiler; T06_014.bridgeShape → Lean.ofReduceBool; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "Lean.trustCompiler",
+          "Lean.ofReduceBool"
+        ],
+        "taint": [
+          [
+            "T06_014.bridgeShape",
+            "Lean.reduceBool",
+            "Lean.trustCompiler"
+          ],
+          [
+            "T06_014.bridgeShape",
+            "Lean.ofReduceBool"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T06_014.smallByDecide",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "7 % 2 = 1",
+      "lean_axioms": [],
+      "status": "open",
+      "test": "",
+      "logos": "",
+      "why": ""
+    },
+    {
+      "lean": "T06_014.theBridgeAxiom",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "∀ (a b : Bool), reduceBool a = b → a = b",
+      "lean_axioms": [
+        "Lean.trustCompiler",
+        "Lean.ofReduceBool"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t06_014_the_bridge_axiom",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T06_014.theBridgeAxiom names Lean.trustCompiler, Lean.ofReduceBool, resting on the trust escape Lean.trustCompiler. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T06-014.theBridgeAxiom.ndjson (sha256 2fff5bef02b443bd45468c715b1669b6c1024a6ff184524335f43f0c2913fcef; source sha256 a515164b610cb4144afe0c16b8c30ce785d9005193d512079f3e76f7a46954f9, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T06_014.theBridgeAxiom → Lean.reduceBool → Lean.trustCompiler; T06_014.theBridgeAxiom → Lean.ofReduceBool; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "Lean.trustCompiler",
+          "Lean.ofReduceBool"
+        ],
+        "taint": [
+          [
+            "T06_014.theBridgeAxiom",
+            "Lean.reduceBool",
+            "Lean.trustCompiler"
+          ],
+          [
+            "T06_014.theBridgeAxiom",
+            "Lean.ofReduceBool"
+          ]
+        ]
+      }
+    },
+    {
+      "lean": "T06_014.theEvaluatorAxiom",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "Bool → Bool",
+      "lean_axioms": [
+        "Lean.trustCompiler"
+      ],
+      "status": "refused",
+      "test": "original_refusal_bridge::refusal_t06_014_the_evaluator_axiom",
+      "logos": "",
+      "why": "Lean 4.14.0's #print axioms for T06_014.theEvaluatorAxiom names Lean.trustCompiler, resting on the trust escape Lean.trustCompiler. From the pinned original export crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/refusal/T06-014.theEvaluatorAxiom.ndjson (sha256 c9766c010e75663592219f7bc0acdc42ff87371c5174afbe0bbc3819b5342243; source sha256 a515164b610cb4144afe0c16b8c30ce785d9005193d512079f3e76f7a46954f9, unchanged) the pipeline translates it and the primary kernel and the independent re-checker both check it; the assumption policy refuses it with outcome disallowed_assumptions, naming exactly Lean's axioms and the taint path T06_014.theEvaluatorAxiom → Lean.reduceBool → Lean.trustCompiler; nothing is published. The named test also shows that a Lean report leaving the escape out is caught (assumption_disagreement).",
+      "refusal": {
+        "outcome": "disallowed_assumptions",
+        "code": "disallowed_assumption",
+        "axioms": [
+          "Lean.trustCompiler"
+        ],
+        "taint": [
+          [
+            "T06_014.theEvaluatorAxiom",
+            "Lean.reduceBool",
+            "Lean.trustCompiler"
+          ]
+        ]
+      }
+    }
+  ]
+}

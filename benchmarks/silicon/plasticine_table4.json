@@ -1,0 +1,78 @@
+{
+ "source": "Koeplinger, Feldman, Prabhakar, Zhang, Hadjis, Fiszel, Zhao, Nardi, Pedram, Kozyrakis, Olukotun. Spatial: A Language and Compiler for Application Accelerators. PLDI 2018 (doi 10.1145/3192366.3192379), Table 4 (Plasticine DRAM bandwidth, resource utilization, runtime, and speedup over the VU9P FPGA), Table 2 (data sizes) and Table 3 (the tuned VU9P runtime each speedup divides).",
+ "transcribed": "verbatim from the paper's Table 4 and Table 2; the only file in this lane typed by hand, since it is the published reference the credibility gate is held to",
+ "machine": {
+  "array": "16 x 8",
+  "pcus": 64,
+  "pmus": 64,
+  "clock_ghz": 1.0,
+  "memory": "one DDR3-1600 channel, 12.8 GB/s peak"
+ },
+ "rows": [
+  {
+   "app": "BlackScholes",
+   "abbrev": "BS",
+   "data": "960,000 options",
+   "load_bw_pct": 77.4,
+   "store_bw_pct": 12.9,
+   "pcu_pct": 73.4,
+   "pmu_pct": 10.9,
+   "ag_pct": 20.6,
+   "time_ms": 2.33,
+   "speedup_over_vu9p": 1.6,
+   "vu9p_tuned_ms": 3.8
+  },
+  {
+   "app": "GDA",
+   "abbrev": "GDA",
+   "data": "1024 rows, 96 dimensions",
+   "load_bw_pct": 24.0,
+   "store_bw_pct": 0.2,
+   "pcu_pct": 95.3,
+   "pmu_pct": 73.4,
+   "ag_pct": 38.2,
+   "time_ms": 0.13,
+   "speedup_over_vu9p": 9.8,
+   "vu9p_tuned_ms": 1.3
+  },
+  {
+   "app": "GEMM",
+   "abbrev": "GEMM",
+   "data": "A: 1024x1024, B: 1024x1024",
+   "load_bw_pct": 20.5,
+   "store_bw_pct": 2.1,
+   "pcu_pct": 96.8,
+   "pmu_pct": 64.1,
+   "ag_pct": 11.7,
+   "time_ms": 15.98,
+   "speedup_over_vu9p": 55.0,
+   "vu9p_tuned_ms": 878.5
+  },
+  {
+   "app": "KMeans",
+   "abbrev": "KMeans",
+   "data": "200 iterations, 320 x 32-element points",
+   "load_bw_pct": 8.0,
+   "store_bw_pct": 0.4,
+   "pcu_pct": 89.1,
+   "pmu_pct": 57.8,
+   "ag_pct": 17.6,
+   "time_ms": 8.39,
+   "speedup_over_vu9p": 6.3,
+   "vu9p_tuned_ms": 53.3
+  },
+  {
+   "app": "TPCHQ6",
+   "abbrev": "TQ6",
+   "data": "6,400,000 records",
+   "load_bw_pct": 97.2,
+   "store_bw_pct": 0.0,
+   "pcu_pct": 29.7,
+   "pmu_pct": 37.5,
+   "ag_pct": 70.6,
+   "time_ms": 8.6,
+   "speedup_over_vu9p": 1.6,
+   "vu9p_tuned_ms": 14.0
+  }
+ ]
+}

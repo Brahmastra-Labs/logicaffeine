@@ -16,7 +16,7 @@
 //!
 //! Both representations expose the SAME public API and route non-inline operands
 //! through `crate::semantics` exactly the same way, so the VM↔tree-walker
-//! differential gate holds under either build. This is the seam work/VM_PLAN.md calls
+//! differential gate holds under either build. This is the seam the VM's design calls
 //! for: the representation swap touches only this file (plus the `as_runtime`
 //! borrow sites in `machine.rs`, which use [`RuntimeRef`] uniformly).
 
@@ -99,6 +99,13 @@ mod repr {
         #[inline]
         pub fn nothing() -> Self {
             Value(RuntimeValue::Nothing)
+        }
+        /// Whether this is the default/absent value — a register's pristine initial state. A write
+        /// that overwrites `Nothing` destroys no information (the default is known), so it costs zero
+        /// Landauer bits (see `HistoryTape::landauer_bytes`).
+        #[inline]
+        pub fn is_nothing(&self) -> bool {
+            matches!(&*self.as_runtime(), RuntimeValue::Nothing)
         }
 
         #[inline]
@@ -225,18 +232,18 @@ mod repr {
             compare::compare(BinaryOpKind::GtEq, &self.0, &rhs.0).map(Value)
         }
         #[inline]
-        pub fn eq_op(&self, rhs: &Value) -> Value {
+        pub fn eq_op(&self, rhs: &Value) -> Result<Value, String> {
             if let (RuntimeValue::Int(a), RuntimeValue::Int(b)) = (&self.0, &rhs.0) {
-                return Value::bool(a == b);
+                return Ok(Value::bool(a == b));
             }
-            Value::bool(self.values_equal(rhs))
+            compare::equality(&self.0, &rhs.0, false).map(Value)
         }
         #[inline]
-        pub fn neq_op(&self, rhs: &Value) -> Value {
+        pub fn neq_op(&self, rhs: &Value) -> Result<Value, String> {
             if let (RuntimeValue::Int(a), RuntimeValue::Int(b)) = (&self.0, &rhs.0) {
-                return Value::bool(a != b);
+                return Ok(Value::bool(a != b));
             }
-            Value::bool(!self.values_equal(rhs))
+            compare::equality(&self.0, &rhs.0, true).map(Value)
         }
     }
 }
@@ -270,6 +277,13 @@ mod repr {
         #[inline]
         pub fn nothing() -> Self {
             Value(Narrow::nothing())
+        }
+        /// Whether this is the default/absent value — a register's pristine initial state. A write
+        /// that overwrites `Nothing` destroys no information (the default is known), so it costs zero
+        /// Landauer bits (see `HistoryTape::landauer_bytes`).
+        #[inline]
+        pub fn is_nothing(&self) -> bool {
+            matches!(&*self.as_runtime(), RuntimeValue::Nothing)
         }
 
         #[inline]
@@ -381,30 +395,40 @@ mod repr {
             if let (Some(a), Some(b)) = (self.0.as_inline_int(), rhs.0.as_inline_int()) {
                 return Ok(Value::bool(a <= b));
             }
-            compare::compare(BinaryOpKind::LtEq, &self.0.to_runtime(), &rhs.0.to_runtime())
-                .map(Value::from_runtime)
+            compare::compare(
+                BinaryOpKind::LtEq,
+                &self.0.to_runtime(),
+                &rhs.0.to_runtime(),
+            )
+            .map(Value::from_runtime)
         }
         #[inline]
         pub fn gte(&self, rhs: &Value) -> Result<Value, String> {
             if let (Some(a), Some(b)) = (self.0.as_inline_int(), rhs.0.as_inline_int()) {
                 return Ok(Value::bool(a >= b));
             }
-            compare::compare(BinaryOpKind::GtEq, &self.0.to_runtime(), &rhs.0.to_runtime())
+            compare::compare(
+                BinaryOpKind::GtEq,
+                &self.0.to_runtime(),
+                &rhs.0.to_runtime(),
+            )
+            .map(Value::from_runtime)
+        }
+        #[inline]
+        pub fn eq_op(&self, rhs: &Value) -> Result<Value, String> {
+            if let Some(b) = self.0.int_eq(&rhs.0) {
+                return Ok(Value::bool(b));
+            }
+            compare::equality(&self.0.to_runtime(), &rhs.0.to_runtime(), false)
                 .map(Value::from_runtime)
         }
         #[inline]
-        pub fn eq_op(&self, rhs: &Value) -> Value {
+        pub fn neq_op(&self, rhs: &Value) -> Result<Value, String> {
             if let Some(b) = self.0.int_eq(&rhs.0) {
-                return Value::bool(b);
+                return Ok(Value::bool(!b));
             }
-            Value::bool(self.values_equal(rhs))
-        }
-        #[inline]
-        pub fn neq_op(&self, rhs: &Value) -> Value {
-            if let Some(b) = self.0.int_eq(&rhs.0) {
-                return Value::bool(!b);
-            }
-            Value::bool(!self.values_equal(rhs))
+            compare::equality(&self.0.to_runtime(), &rhs.0.to_runtime(), true)
+                .map(Value::from_runtime)
         }
     }
 }
@@ -419,6 +443,18 @@ impl Value {
     #[inline]
     pub fn text(s: String) -> Self {
         Value::from_runtime(RuntimeValue::Text(Rc::new(s)))
+    }
+
+    /// The truth of a value that decides a branch — [`RuntimeValue::decided_truth`].
+    #[inline]
+    pub fn decided_truth(&self) -> Result<bool, String> {
+        if let Some(b) = self.as_bool() {
+            return Ok(b);
+        }
+        if let Some(n) = self.as_int() {
+            return Ok(n != 0);
+        }
+        self.as_runtime().decided_truth()
     }
 
     #[inline]
@@ -483,9 +519,27 @@ impl Value {
         ))))
     }
 
+    /// A `Seq of Word32` holding these masked words, in the representation the VM gives one: packed words once it
+    /// holds any (the VM retags its empty list on the first word pushed), an empty list of Ints before that.
+    pub fn word32_list(items: Vec<i64>) -> Self {
+        if items.is_empty() {
+            return Value::empty_list();
+        }
+        Value::from_runtime(RuntimeValue::List(Rc::new(RefCell::new(
+            crate::interpreter::ListRepr::Words32(items),
+        ))))
+    }
+
     pub fn empty_list() -> Self {
         Value::from_runtime(RuntimeValue::List(Rc::new(RefCell::new(
             crate::interpreter::ListRepr::Ints(Vec::new()),
+        ))))
+    }
+    /// A fresh empty Int sequence whose statically-proven maximum length is
+    /// reserved once. The logical value remains the same as `empty_list`.
+    pub fn empty_list_with_capacity(capacity: usize) -> Self {
+        Value::from_runtime(RuntimeValue::List(Rc::new(RefCell::new(
+            crate::interpreter::ListRepr::Ints(Vec::with_capacity(capacity)),
         ))))
     }
     /// A fresh empty half-width Int sequence (`ListRepr::IntsI32`), backing a
@@ -502,6 +556,14 @@ impl Value {
         Value::from_runtime(RuntimeValue::Map(Rc::new(RefCell::new(
             crate::interpreter::MapStorage::default(),
         ))))
+    }
+    /// A fresh empty map with storage reserved for a runtime capacity hint.
+    /// A hint must never make an otherwise-valid program fail, so allocation
+    /// refusal degrades to the ordinary growable empty representation.
+    pub fn empty_map_with_capacity(capacity: usize) -> Self {
+        let mut map = crate::interpreter::MapStorage::default();
+        let _ = map.try_reserve(capacity);
+        Value::from_runtime(RuntimeValue::Map(Rc::new(RefCell::new(map))))
     }
     pub fn int_range(lo: i64, hi: i64) -> Self {
         Value::from_runtime(RuntimeValue::List(Rc::new(RefCell::new(
@@ -582,18 +644,30 @@ impl Value {
     }
 
     pub fn bitxor(&self, rhs: &Value) -> Result<Value, String> {
-        arith::binary_op(BinaryOpKind::BitXor, self.runtime_owned(), rhs.runtime_owned())
-            .map(Value::from_runtime)
+        arith::binary_op(
+            BinaryOpKind::BitXor,
+            self.runtime_owned(),
+            rhs.runtime_owned(),
+        )
+        .map(Value::from_runtime)
     }
 
     pub fn bitand(&self, rhs: &Value) -> Result<Value, String> {
-        arith::binary_op(BinaryOpKind::BitAnd, self.runtime_owned(), rhs.runtime_owned())
-            .map(Value::from_runtime)
+        arith::binary_op(
+            BinaryOpKind::BitAnd,
+            self.runtime_owned(),
+            rhs.runtime_owned(),
+        )
+        .map(Value::from_runtime)
     }
 
     pub fn bitor(&self, rhs: &Value) -> Result<Value, String> {
-        arith::binary_op(BinaryOpKind::BitOr, self.runtime_owned(), rhs.runtime_owned())
-            .map(Value::from_runtime)
+        arith::binary_op(
+            BinaryOpKind::BitOr,
+            self.runtime_owned(),
+            rhs.runtime_owned(),
+        )
+        .map(Value::from_runtime)
     }
 
     pub fn shl(&self, rhs: &Value) -> Result<Value, String> {
@@ -621,145 +695,9 @@ impl Value {
 }
 
 #[cfg(test)]
-mod fast_path_kernel_differential {
-    //! Every Value op with an Int×Int fast path must be BIT-IDENTICAL to the
-    //! kernel over the full edge grid — the fast path is a transcription of
-    //! the locked wrapping-i64 spec, and this test is the proof. It runs under
-    //! both representations (the narrow inline path re-boxes a wrap past ±2^47,
-    //! still landing on the kernel's wrapping-i64 answer).
-    use super::*;
-
-    const EDGES: [i64; 12] = [
-        i64::MIN,
-        i64::MIN + 1,
-        -4611686018427387904, // i64::MIN / 2
-        -1000003,
-        -2,
-        -1,
-        0,
-        1,
-        2,
-        1000003,
-        4611686018427387903, // i64::MAX / 2
-        i64::MAX,
-    ];
-
-    fn assert_same(op_name: &str, a: i64, b: i64, fast: Result<Value, String>, kernel: Result<RuntimeValue, String>) {
-        match (fast, kernel) {
-            (Ok(f), Ok(k)) => assert_eq!(
-                f.into_runtime(),
-                k,
-                "{op_name}({a}, {b}) fast path diverged from kernel"
-            ),
-            (Err(f), Err(k)) => assert_eq!(f, k, "{op_name}({a}, {b}) error strings diverged"),
-            (f, k) => panic!("{op_name}({a}, {b}): fast {f:?} vs kernel {k:?}"),
-        }
-    }
-
-    #[test]
-    fn int_arith_matches_kernel_over_edge_grid() {
-        for &a in &EDGES {
-            for &b in &EDGES {
-                let (va, vb) = (Value::int(a), Value::int(b));
-                assert_same("add", a, b, va.add(&vb), arith::add(RuntimeValue::Int(a), RuntimeValue::Int(b)));
-                assert_same("sub", a, b, va.sub(&vb), arith::subtract(RuntimeValue::Int(a), RuntimeValue::Int(b)));
-                assert_same("mul", a, b, va.mul(&vb), arith::multiply(RuntimeValue::Int(a), RuntimeValue::Int(b)));
-            }
-        }
-    }
-
-    #[test]
-    fn int_comparisons_match_kernel_over_edge_grid() {
-        for &a in &EDGES {
-            for &b in &EDGES {
-                let (va, vb) = (Value::int(a), Value::int(b));
-                assert_same("lt", a, b, va.lt(&vb), compare::compare(BinaryOpKind::Lt, &RuntimeValue::Int(a), &RuntimeValue::Int(b)));
-                assert_same("gt", a, b, va.gt(&vb), compare::compare(BinaryOpKind::Gt, &RuntimeValue::Int(a), &RuntimeValue::Int(b)));
-                assert_same("lte", a, b, va.lte(&vb), compare::compare(BinaryOpKind::LtEq, &RuntimeValue::Int(a), &RuntimeValue::Int(b)));
-                assert_same("gte", a, b, va.gte(&vb), compare::compare(BinaryOpKind::GtEq, &RuntimeValue::Int(a), &RuntimeValue::Int(b)));
-                assert_eq!(
-                    va.eq_op(&vb).is_truthy(),
-                    compare::values_equal(&RuntimeValue::Int(a), &RuntimeValue::Int(b)),
-                    "eq({a}, {b}) diverged"
-                );
-                assert_eq!(
-                    va.neq_op(&vb).is_truthy(),
-                    !compare::values_equal(&RuntimeValue::Int(a), &RuntimeValue::Int(b)),
-                    "neq({a}, {b}) diverged"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn value_width_matches_the_active_representation() {
-        // The headline of WS-F: under `narrow-value` the register-file cell is
-        // ONE machine word (the NaN-boxed `u64`); the default cell is the fat
-        // 16-byte `RuntimeValue` newtype. This pins the size each build promises.
-        let w = std::mem::size_of::<Value>();
-        #[cfg(feature = "narrow-value")]
-        assert_eq!(w, 8, "narrow Value must be 8 bytes (NaN-boxed u64)");
-        #[cfg(not(feature = "narrow-value"))]
-        assert_eq!(w, 16, "default Value must be 16 bytes (RuntimeValue newtype)");
-    }
-
-    #[test]
-    fn mixed_operands_still_route_through_the_kernel() {
-        // Int×Float promotion is kernel territory — the fast path must not
-        // capture it.
-        let sum = Value::int(2).add(&Value::float(0.5)).unwrap();
-        assert_eq!(sum.into_runtime(), RuntimeValue::Float(2.5));
-        assert!(Value::int(2).lt(&Value::float(2.5)).unwrap().is_truthy());
-        // Int×Text: whatever the kernel says (it concatenates), bit-for-bit.
-        let fast = Value::int(2).add(&Value::text("x".into()));
-        let kernel = arith::add(RuntimeValue::Int(2), RuntimeValue::Text(Rc::new("x".into())));
-        assert_eq!(fast.map(Value::into_runtime), kernel);
-        // Int×Bool arithmetic is a kernel ERROR — the fast path must not mask it.
-        let fast = Value::int(2).mul(&Value::bool(true));
-        let kernel = arith::multiply(RuntimeValue::Int(2), RuntimeValue::Bool(true));
-        assert_eq!(fast.map(Value::into_runtime), kernel);
-        assert!(matches!(Value::int(2).mul(&Value::bool(true)), Err(_)));
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/vm/value/fast_path_kernel_differential.rs"]
+mod fast_path_kernel_differential;
 
 #[cfg(test)]
-mod value_comparison_tests {
-    use super::*;
-
-    #[test]
-    fn float_relational_is_ieee() {
-        // -0.0 == 0.0 under IEEE 754.
-        assert!(!Value::float(-0.0).lt(&Value::float(0.0)).unwrap().is_truthy());
-        assert!(Value::float(-0.0).lte(&Value::float(0.0)).unwrap().is_truthy());
-        // NaN is unordered: every relational comparison is false (never an error).
-        let nan = Value::float(f64::NAN);
-        assert!(!nan.lt(&Value::float(1.0)).unwrap().is_truthy());
-        assert!(!nan.gt(&Value::float(1.0)).unwrap().is_truthy());
-        assert!(!nan.lte(&nan).unwrap().is_truthy());
-        assert!(!Value::float(1.0).gte(&nan).unwrap().is_truthy());
-        // Ordinary comparisons still hold.
-        assert!(Value::float(1.5).lt(&Value::float(2.5)).unwrap().is_truthy());
-        assert!(Value::int(2).lt(&Value::float(2.5)).unwrap().is_truthy());
-        assert!(Value::int(5).gte(&Value::int(5)).unwrap().is_truthy());
-    }
-
-    #[test]
-    fn float_equality_matches_treewalker() {
-        // NaN is never equal to itself (IEEE, both engines).
-        assert!(!Value::float(f64::NAN).eq_op(&Value::float(f64::NAN)).is_truthy());
-        assert!(Value::float(f64::NAN).neq_op(&Value::float(f64::NAN)).is_truthy());
-        // Exact equal floats are equal.
-        assert!(Value::float(1.5).eq_op(&Value::float(1.5)).is_truthy());
-        // IEEE equality: 0.1 + 0.2 is NOT 0.3 — matching the tree-walker
-        // (and the compiled backend; `is approximately` is the tolerant form).
-        let sum = Value::float(0.1).add(&Value::float(0.2)).unwrap(); // 0.30000000000000004
-        assert!(!sum.eq_op(&Value::float(0.3)).is_truthy());
-        assert!(sum.eq_op(&Value::float(0.30000000000000004)).is_truthy());
-        // Distinct floats are not equal.
-        assert!(!Value::float(1.0).eq_op(&Value::float(2.0)).is_truthy());
-        // Other types unaffected.
-        assert!(Value::int(5).eq_op(&Value::int(5)).is_truthy());
-        assert!(Value::text("hi".to_string()).eq_op(&Value::text("hi".to_string())).is_truthy());
-        assert!(!Value::int(5).eq_op(&Value::int(6)).is_truthy());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/vm/value/value_comparison_tests.rs"]
+mod value_comparison_tests;

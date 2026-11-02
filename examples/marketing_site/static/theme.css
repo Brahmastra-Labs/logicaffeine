@@ -1,0 +1,28 @@
+/* marketing_site - design tokens. Yours to change, or to delete entirely. */
+:root {
+  --accent: #cc785c;
+  --ink: #1a1a18;
+  --paper: #faf9f5;
+  --muted: #6b6b66;
+  --border: #e3e1d9;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .04);
+}
+
+/* Dark is a preference a visitor already expressed; honour it rather than asking again. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f2f0e8;
+    --paper: #14140f;
+    --muted: #a3a29a;
+    --border: #2e2e28;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .35);
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}

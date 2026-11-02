@@ -4,10 +4,12 @@
 //! CRDTs provide automatic conflict resolution - any two replicas can be
 //! merged to produce the same result regardless of order.
 //!
-//! This crate is WASM-safe: NO IO, NO SystemTime, NO network dependencies.
+//! This crate is WASM-safe: no IO and no network dependencies. Merging never reads a clock;
+//! only native `generate_replica_id` does, to seed a random replica id.
 //! The `Synced<T>` wrapper lives in `logicaffeine_system` (requires tokio/libp2p).
 
 mod gcounter;
+mod latest;
 mod lww;
 mod merge;
 mod replica;
@@ -20,18 +22,19 @@ mod delta;
 mod delta_buffer;
 
 // Additional CRDTs
-mod pncounter;
 mod mvregister;
+mod pncounter;
 
 // Complex CRDTs
-mod orset;
 mod ormap;
+mod orset;
 pub mod sequence;
 
 // NOTE: sync.rs (Synced<T>) is NOT in this crate - it's in logicaffeine_system
 // because it requires tokio and networking.
 
 pub use gcounter::GCounter;
+pub use latest::LatestWrite;
 pub use lww::LWWRegister;
 pub use merge::Merge;
 
@@ -46,10 +49,10 @@ pub use delta::DeltaCrdt;
 pub use delta_buffer::DeltaBuffer;
 
 // Additional CRDTs
-pub use pncounter::PNCounter;
 pub use mvregister::MVRegister;
+pub use pncounter::PNCounter;
 
 // Complex CRDTs
-pub use orset::{AddWins, ORSet, RemoveWins, SetBias};
 pub use ormap::ORMap;
+pub use orset::{AddWins, ORSet, RemoveWins, SetBias};
 pub use sequence::{RGA, YATA};

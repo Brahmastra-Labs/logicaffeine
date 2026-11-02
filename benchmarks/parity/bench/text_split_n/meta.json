@@ -1,0 +1,10 @@
+{
+  "capability": "text.split_n",
+  "workload": "splitN(s,'0',5) \u2014 #parts (<=5)",
+  "arg": "40000",
+  "expected": "200000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

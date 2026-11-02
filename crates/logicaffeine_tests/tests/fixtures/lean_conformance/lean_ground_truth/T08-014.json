@@ -1,0 +1,211 @@
+{
+  "case": "T08-014",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 27,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T08_014.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T08_014.Colour",
+      "name": "T08_014.Colour.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T08_014.Colour.blue = 1",
+      "name": "T08_014.Colour.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_014.Colour \u2192 Sort u} \u2192\n  (t : T08_014.Colour) \u2192 motive T08_014.Colour.red \u2192 motive T08_014.Colour.green \u2192 motive T08_014.Colour.blue \u2192 motive t",
+      "name": "T08_014.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T08_014.Colour",
+      "name": "T08_014.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T08_014.Colour.green = 1",
+      "name": "T08_014.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T08_014.Colour} \u2192 x = y \u2192 T08_014.Colour.noConfusionType P x y",
+      "name": "T08_014.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.81"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T08_014.Colour \u2192 T08_014.Colour \u2192 Sort v\u271d",
+      "name": "T08_014.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.80"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T08_014.Colour",
+      "name": "T08_014.Colour.ofNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : T08_014.Colour), T08_014.Colour.ofNat x.toCtorIdx = x",
+      "name": "T08_014.Colour.ofNat_toCtorIdx",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_014.Colour \u2192 Sort u} \u2192\n  motive T08_014.Colour.red \u2192 motive T08_014.Colour.green \u2192 motive T08_014.Colour.blue \u2192 (t : T08_014.Colour) \u2192 motive t",
+      "name": "T08_014.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T08_014.Colour \u2192 Sort u} \u2192\n  (t : T08_014.Colour) \u2192 motive T08_014.Colour.red \u2192 motive T08_014.Colour.green \u2192 motive T08_014.Colour.blue \u2192 motive t",
+      "name": "T08_014.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T08_014.Colour",
+      "name": "T08_014.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T08_014.Colour.red = 1",
+      "name": "T08_014.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T08_014.Colour \u2192 Nat",
+      "name": "T08_014.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "9223372036854775808 + 1 = 9223372036854775809",
+      "name": "T08_014.bigNumeral",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n < 3 \u2192 n * n < 9",
+      "name": "T08_014.boundedForall",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T08_014.Colour.red \u2260 T08_014.Colour.blue",
+      "name": "T08_014.enumEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T08_014.groundArith",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(true && false) = false",
+      "name": "T08_014.groundBool",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "3 < 5",
+      "name": "T08_014.groundComparison",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T08_014.Colour",
+      "name": "T08_014.instDecidableEqColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T08_014.Colour), x.toCtorIdx = y.toCtorIdx \u2192 x = y",
+      "name": "T08_014.instDecidableEqColour.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T08_014.Colour), \u00acx.toCtorIdx = y.toCtorIdx \u2192 x = y \u2192 False",
+      "name": "T08_014.instDecidableEqColour.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "([1, 2, 3].all fun x => decide (x < 4)) = true",
+      "name": "T08_014.listDecidable",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "1 < 2 \u2227 3 < 4",
+      "name": "T08_014.propStructure",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "100 * 100 = 10000",
+      "name": "T08_014.viaNative",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Lean.ofReduceBool"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

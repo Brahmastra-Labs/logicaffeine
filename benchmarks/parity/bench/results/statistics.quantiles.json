@@ -1,0 +1,15 @@
+{
+  "capability": "statistics.quantiles",
+  "arg": "20000",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "means_ms": {
+    "logos": 7470.405,
+    "python": 739.493
+  },
+  "logos_ms": 7470.405,
+  "speedups_vs_logos": {
+    "python": 0.099
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.099
+}

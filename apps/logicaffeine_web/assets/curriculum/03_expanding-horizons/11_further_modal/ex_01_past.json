@@ -2,10 +2,13 @@
   "id": "FM_1.1",
   "type": "translation",
   "difficulty": 4,
-  "prompt": "Translate this past event:",
+  "prompt": "Write this sentence in logic.",
   "template": "{ProperName} {Verb:Past}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Verb": [
+      "Intransitive"
+    ]
   },
-  "hint": "Past tense uses P operator: P(V(x)) means V(x) was true at some past time."
+  "hint": "LOGOS marks a past action on its event: ∃e(Verb(e) ∧ Agent(e, name) ∧ Past(e)).",
+  "section": "11.2"
 }

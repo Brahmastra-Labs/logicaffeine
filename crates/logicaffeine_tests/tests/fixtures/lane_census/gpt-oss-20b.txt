@@ -1,0 +1,98 @@
+99 launches a token
+embedding (2): gather_norm gemv_rope
+layer 0 (1): attention
+head (1): gemv_norm
+layer 0 (1): moe_norm
+head (1): gemv_rope
+layer 1 (1): attention
+head (1): gemv_norm
+layer 1 (1): moe_norm
+head (1): gemv_rope
+layer 2 (1): attention
+head (1): gemv_norm
+layer 2 (1): moe_norm
+head (1): gemv_rope
+layer 3 (1): attention
+head (1): gemv_norm
+layer 3 (1): moe_norm
+head (1): gemv_rope
+layer 4 (1): attention
+head (1): gemv_norm
+layer 4 (1): moe_norm
+head (1): gemv_rope
+layer 5 (1): attention
+head (1): gemv_norm
+layer 5 (1): moe_norm
+head (1): gemv_rope
+layer 6 (1): attention
+head (1): gemv_norm
+layer 6 (1): moe_norm
+head (1): gemv_rope
+layer 7 (1): attention
+head (1): gemv_norm
+layer 7 (1): moe_norm
+head (1): gemv_rope
+layer 8 (1): attention
+head (1): gemv_norm
+layer 8 (1): moe_norm
+head (1): gemv_rope
+layer 9 (1): attention
+head (1): gemv_norm
+layer 9 (1): moe_norm
+head (1): gemv_rope
+layer 10 (1): attention
+head (1): gemv_norm
+layer 10 (1): moe_norm
+head (1): gemv_rope
+layer 11 (1): attention
+head (1): gemv_norm
+layer 11 (1): moe_norm
+head (1): gemv_rope
+layer 12 (1): attention
+head (1): gemv_norm
+layer 12 (1): moe_norm
+head (1): gemv_rope
+layer 13 (1): attention
+head (1): gemv_norm
+layer 13 (1): moe_norm
+head (1): gemv_rope
+layer 14 (1): attention
+head (1): gemv_norm
+layer 14 (1): moe_norm
+head (1): gemv_rope
+layer 15 (1): attention
+head (1): gemv_norm
+layer 15 (1): moe_norm
+head (1): gemv_rope
+layer 16 (1): attention
+head (1): gemv_norm
+layer 16 (1): moe_norm
+head (1): gemv_rope
+layer 17 (1): attention
+head (1): gemv_norm
+layer 17 (1): moe_norm
+head (1): gemv_rope
+layer 18 (1): attention
+head (1): gemv_norm
+layer 18 (1): moe_norm
+head (1): gemv_rope
+layer 19 (1): attention
+head (1): gemv_norm
+layer 19 (1): moe_norm
+head (1): gemv_rope
+layer 20 (1): attention
+head (1): gemv_norm
+layer 20 (1): moe_norm
+head (1): gemv_rope
+layer 21 (1): attention
+head (1): gemv_norm
+layer 21 (1): moe_norm
+head (1): gemv_rope
+layer 22 (1): attention
+head (1): gemv_norm
+layer 22 (1): moe_norm
+head (1): gemv_rope
+layer 23 (1): attention
+head (1): gemv_norm
+layer 23 (1): moe_norm
+head (2): gemv_q8 argmax

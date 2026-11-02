@@ -62,24 +62,49 @@ fn fuse_stmt<'a>(
             }
             // Not the place-write shape (e.g. a multi-push) — keep the
             // Splice, fusing anything nested inside it.
-            Stmt::Splice { body: fuse_block(body, expr_arena, stmt_arena, interner) }
+            Stmt::Splice {
+                body: fuse_block(body, expr_arena, stmt_arena, interner),
+            }
         }
-        Stmt::If { cond, then_block, else_block } => Stmt::If {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => Stmt::If {
             cond,
             then_block: fuse_block(then_block, expr_arena, stmt_arena, interner),
             else_block: else_block.map(|b| fuse_block(b, expr_arena, stmt_arena, interner)),
         },
-        Stmt::While { cond, body, decreasing } => Stmt::While {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => Stmt::While {
             cond,
             body: fuse_block(body, expr_arena, stmt_arena, interner),
             decreasing,
         },
-        Stmt::Repeat { pattern, iterable, body } => Stmt::Repeat {
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => Stmt::Repeat {
             pattern,
             iterable,
             body: fuse_block(body, expr_arena, stmt_arena, interner),
         },
-        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => Stmt::FunctionDef {
+        Stmt::FunctionDef {
+            name,
+            params,
+            generics,
+            body,
+            return_type,
+            is_native,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
+        } => Stmt::FunctionDef {
             name,
             params,
             generics,
@@ -91,7 +116,11 @@ fn fuse_stmt<'a>(
             export_target,
             opt_flags,
         },
-        Stmt::Inspect { target, arms, has_otherwise } => Stmt::Inspect {
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        } => Stmt::Inspect {
             target,
             arms: arms
                 .into_iter()
@@ -104,7 +133,12 @@ fn fuse_stmt<'a>(
                 .collect(),
             has_otherwise,
         },
-        Stmt::Zone { name, capacity, source_file, body } => Stmt::Zone {
+        Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body,
+        } => Stmt::Zone {
             name,
             capacity,
             source_file,
@@ -139,16 +173,31 @@ fn try_fuse_place_splice<'a>(
     match body {
         // Set-shape: Let __place_i / __place_v / __place_k / __place_t, the
         // element write, then the write-back.
-        [Stmt::Let { var: ti, value: index_expr, .. },
-         Stmt::Let { var: tv, value: value_expr, .. },
-         Stmt::Let { var: tk, value: key_expr, .. },
-         Stmt::Let { var: tt, value: Expr::Index { collection: base, index: Expr::Identifier(read_k) }, .. },
-         Stmt::SetIndex {
-             collection: Expr::Identifier(w_t),
-             index: Expr::Identifier(w_i),
-             value: Expr::Identifier(w_v),
-         },
-         _write_back]
+        [Stmt::Let {
+            var: ti,
+            value: index_expr,
+            ..
+        }, Stmt::Let {
+            var: tv,
+            value: value_expr,
+            ..
+        }, Stmt::Let {
+            var: tk,
+            value: key_expr,
+            ..
+        }, Stmt::Let {
+            var: tt,
+            value:
+                Expr::Index {
+                    collection: base,
+                    index: Expr::Identifier(read_k),
+                },
+            ..
+        }, Stmt::SetIndex {
+            collection: Expr::Identifier(w_t),
+            index: Expr::Identifier(w_i),
+            value: Expr::Identifier(w_v),
+        }, _write_back]
             if is_place_temp(interner, *ti, "__place_i")
                 && is_place_temp(interner, *tv, "__place_v")
                 && is_place_temp(interner, *tk, "__place_k")
@@ -158,17 +207,39 @@ fn try_fuse_place_splice<'a>(
                 && w_i == ti
                 && w_v == tv =>
         {
-            let place = expr_arena.alloc(Expr::Index { collection: *base, index: *key_expr });
-            Some(Stmt::SetIndex { collection: place, index: *index_expr, value: *value_expr })
+            let place = expr_arena.alloc(Expr::Index {
+                collection: *base,
+                index: *key_expr,
+            });
+            Some(Stmt::SetIndex {
+                collection: place,
+                index: *index_expr,
+                value: *value_expr,
+            })
         }
         // Push-shape: Let __place_v / __place_k / __place_t, the push, then
         // the write-back. Only fused under REFERENCE semantics (its value-semantic
         // through-write is not implemented); under value semantics the desugar stays.
-        [Stmt::Let { var: tv, value: value_expr, .. },
-         Stmt::Let { var: tk, value: key_expr, .. },
-         Stmt::Let { var: tt, value: Expr::Index { collection: base, index: Expr::Identifier(read_k) }, .. },
-         Stmt::Push { value: Expr::Identifier(w_v), collection: Expr::Identifier(w_t) },
-         _write_back]
+        [Stmt::Let {
+            var: tv,
+            value: value_expr,
+            ..
+        }, Stmt::Let {
+            var: tk,
+            value: key_expr,
+            ..
+        }, Stmt::Let {
+            var: tt,
+            value:
+                Expr::Index {
+                    collection: base,
+                    index: Expr::Identifier(read_k),
+                },
+            ..
+        }, Stmt::Push {
+            value: Expr::Identifier(w_v),
+            collection: Expr::Identifier(w_t),
+        }, _write_back]
             if !crate::semantics::collections::value_semantics_enabled()
                 && is_place_temp(interner, *tv, "__place_v")
                 && is_place_temp(interner, *tk, "__place_k")
@@ -177,8 +248,14 @@ fn try_fuse_place_splice<'a>(
                 && w_v == tv
                 && w_t == tt =>
         {
-            let place = expr_arena.alloc(Expr::Index { collection: *base, index: *key_expr });
-            Some(Stmt::Push { value: *value_expr, collection: place })
+            let place = expr_arena.alloc(Expr::Index {
+                collection: *base,
+                index: *key_expr,
+            });
+            Some(Stmt::Push {
+                value: *value_expr,
+                collection: place,
+            })
         }
         _ => None,
     }

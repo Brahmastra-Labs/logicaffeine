@@ -16,7 +16,9 @@ fn absolute_measurement() {
     let output = compile("The rope is 5 meters long.").unwrap();
     eprintln!("DEBUG absolute_measurement: {}", output);
     assert!(
-        (output.contains("Long(") || output.contains("L(")) && output.contains("5") && output.contains("meter"),
+        (output.contains("Long(") || output.contains("L("))
+            && output.contains("5")
+            && output.contains("meter"),
         "Should produce absolute measurement: got '{}'",
         output
     );

@@ -96,15 +96,13 @@ impl<T: Clone + PartialEq> Merge for MVRegister<T> {
         let mut result: Vec<(T, VClock)> = Vec::new();
 
         for (value, clock) in &all_values {
-            let is_dominated = all_values.iter().any(|(_, other_clock)| {
-                other_clock.dominates(clock) && other_clock != clock
-            });
+            let is_dominated = all_values
+                .iter()
+                .any(|(_, other_clock)| other_clock.dominates(clock) && other_clock != clock);
 
             if !is_dominated {
                 // Check if we already have this exact value+clock
-                let already_exists = result
-                    .iter()
-                    .any(|(v, c)| v == value && c == clock);
+                let already_exists = result.iter().any(|(v, c)| v == value && c == clock);
 
                 if !already_exists {
                     result.push((value.clone(), clock.clone()));
@@ -141,9 +139,9 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Send + 'static> Delta
         let mut result: Vec<(T, VClock)> = Vec::new();
 
         for (value, clock) in &all_values {
-            let is_dominated = all_values.iter().any(|(_, other_clock)| {
-                other_clock.dominates(clock) && other_clock != clock
-            });
+            let is_dominated = all_values
+                .iter()
+                .any(|(_, other_clock)| other_clock.dominates(clock) && other_clock != clock);
 
             if !is_dominated {
                 let already_exists = result.iter().any(|(v, c)| v == value && c == clock);
@@ -173,50 +171,8 @@ impl<T: Clone + PartialEq + Default> Default for MVRegister<T> {
     }
 }
 
-
 // NOTE: Showable impl is in logicaffeine_system (io module)
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mvregister_new() {
-        let reg: MVRegister<String> = MVRegister::new(1);
-        assert!(reg.values().is_empty());
-    }
-
-    #[test]
-    fn test_mvregister_set_get() {
-        let mut reg: MVRegister<String> = MVRegister::new(1);
-        reg.set("hello".to_string());
-        assert_eq!(reg.values().len(), 1);
-        assert_eq!(reg.values()[0], &"hello".to_string());
-    }
-
-    #[test]
-    fn test_mvregister_concurrent() {
-        let mut a: MVRegister<String> = MVRegister::new(1);
-        let mut b: MVRegister<String> = MVRegister::new(2);
-
-        a.set("from-a".to_string());
-        b.set("from-b".to_string());
-        a.merge(&b);
-
-        assert_eq!(a.values().len(), 2);
-    }
-
-    #[test]
-    fn test_mvregister_resolve() {
-        let mut a: MVRegister<String> = MVRegister::new(1);
-        let mut b: MVRegister<String> = MVRegister::new(2);
-
-        a.set("from-a".to_string());
-        b.set("from-b".to_string());
-        a.merge(&b);
-        a.resolve("resolved".to_string());
-
-        assert_eq!(a.values().len(), 1);
-        assert_eq!(a.values()[0], &"resolved".to_string());
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_data/crdt/mvregister/tests.rs"]
+mod tests;

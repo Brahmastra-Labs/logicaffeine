@@ -15,14 +15,14 @@
 //!
 //! Accessed via [`Route::Workspace`](crate::ui::router::Route::Workspace).
 
+use crate::ui::components::chat::ChatDisplay;
+use crate::ui::components::input::InputArea;
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::seo::PageHead;
+use crate::ui::state::AppState;
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::state::AppState;
-use crate::ui::components::chat::ChatDisplay;
-use crate::ui::components::input::InputArea;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::seo::PageHead;
 
 const WORKSPACE_STYLE: &str = r#"
 .workspace {

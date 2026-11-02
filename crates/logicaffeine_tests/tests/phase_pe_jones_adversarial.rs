@@ -72,9 +72,13 @@ fn cheaters_carry_detectable_overhead() {
     for (name, program) in cheater_corpus() {
         let d = count_dispatch(program);
         if d == 0 {
-            failures.push(format!("[{name}] overhead SLIPPED PAST the oracle (count 0)"));
+            failures.push(format!(
+                "[{name}] overhead SLIPPED PAST the oracle (count 0)"
+            ));
         } else if d == usize::MAX {
-            failures.push(format!("[{name}] probe failed to parse (count MAX) — fix the probe"));
+            failures.push(format!(
+                "[{name}] probe failed to parse (count MAX) — fix the probe"
+            ));
         }
     }
     assert!(
@@ -96,6 +100,10 @@ fn clean_programs_score_zero() {
         "## Main\nLet m be a new Map of Text to Int.\nSet item \"a\" of m to 1.\nShow item \"a\" of m.",
     ];
     for p in clean {
-        assert_eq!(count_dispatch(p), 0, "clean program falsely flagged as overhead:\n{p}");
+        assert_eq!(
+            count_dispatch(p),
+            0,
+            "clean program falsely flagged as overhead:\n{p}"
+        );
     }
 }

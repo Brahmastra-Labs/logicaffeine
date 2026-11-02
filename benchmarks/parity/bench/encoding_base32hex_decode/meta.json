@@ -1,0 +1,10 @@
+{
+  "capability": "encoding.base32hex_decode",
+  "workload": "base32hexDecode round-trip",
+  "arg": "30000",
+  "expected": "121485000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

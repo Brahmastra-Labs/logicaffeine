@@ -21,9 +21,7 @@ fn test_literate_theorem_without_proof() {
     let mut repl = Repl::new();
 
     // This should parse without error (backward compatibility)
-    let result = repl.execute(
-        "## Theorem: SimpleTheorem\n    Statement: True implies True.",
-    );
+    let result = repl.execute("## Theorem: SimpleTheorem\n    Statement: True implies True.");
     assert!(result.is_ok(), "Theorem without proof should parse");
 }
 
@@ -40,7 +38,11 @@ fn test_literate_ring_reflexivity() {
     let result = repl.execute(
         "## Theorem: Reflexivity\n    Statement: (add x x) equals (add x x).\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove reflexive equality: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove reflexive equality: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -55,7 +57,11 @@ fn test_literate_ring_commutativity_add() {
     let result = repl.execute(
         "## Theorem: Commutativity_Add\n    Statement: (add x y) equals (add y x).\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove commutativity of addition: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove commutativity of addition: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -66,7 +72,11 @@ fn test_literate_ring_commutativity_mul() {
     let result = repl.execute(
         "## Theorem: Commutativity_Mul\n    Statement: (mul x y) equals (mul y x).\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove commutativity of multiplication: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove commutativity of multiplication: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -81,7 +91,11 @@ fn test_literate_ring_associativity_add() {
     let result = repl.execute(
         "## Theorem: Associativity_Add\n    Statement: (add (add x y) z) equals (add x (add y z)).\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove associativity of addition: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove associativity of addition: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -96,7 +110,11 @@ fn test_literate_ring_distributivity() {
     let result = repl.execute(
         "## Theorem: Distributivity\n    Statement: (mul x (add y z)) equals (add (mul x y) (mul x z)).\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove distributivity: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove distributivity: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -112,7 +130,11 @@ fn test_literate_ring_collatz_algebra() {
     let result = repl.execute(
         "## Theorem: Collatz_Step\n    Statement: (add (mul 3 (add (mul 2 k) 1)) 1) equals (add (mul 6 k) 4).\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove Collatz algebra step: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove Collatz algebra step: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -124,10 +146,13 @@ fn test_literate_ring_constant_arithmetic() {
     let mut repl = Repl::new();
 
     // Simple constant arithmetic: (add 2 3) equals 5
-    let result = repl.execute(
-        "## Theorem: Constant_Add\n    Statement: (add 2 3) equals 5.\n    Proof: ring.",
+    let result = repl
+        .execute("## Theorem: Constant_Add\n    Statement: (add 2 3) equals 5.\n    Proof: ring.");
+    assert!(
+        result.is_ok(),
+        "Ring should prove constant arithmetic: {:?}",
+        result
     );
-    assert!(result.is_ok(), "Ring should prove constant arithmetic: {:?}", result);
 }
 
 #[test]
@@ -135,10 +160,13 @@ fn test_literate_ring_constant_mul() {
     let mut repl = Repl::new();
 
     // Multiplication: (mul 3 4) equals 12
-    let result = repl.execute(
-        "## Theorem: Constant_Mul\n    Statement: (mul 3 4) equals 12.\n    Proof: ring.",
+    let result = repl
+        .execute("## Theorem: Constant_Mul\n    Statement: (mul 3 4) equals 12.\n    Proof: ring.");
+    assert!(
+        result.is_ok(),
+        "Ring should prove constant multiplication: {:?}",
+        result
     );
-    assert!(result.is_ok(), "Ring should prove constant multiplication: {:?}", result);
 }
 
 // =============================================================================
@@ -153,7 +181,11 @@ fn test_literate_ring_subtraction_cancel() {
     let result = repl.execute(
         "## Theorem: Subtraction_Cancel\n    Statement: (sub x x) equals 0.\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove subtraction cancellation: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove subtraction cancellation: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -168,7 +200,11 @@ fn test_literate_ring_add_zero_identity() {
     let result = repl.execute(
         "## Theorem: Add_Zero_Identity\n    Statement: (add x 0) equals x.\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove additive identity: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove additive identity: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -179,7 +215,11 @@ fn test_literate_ring_mul_one_identity() {
     let result = repl.execute(
         "## Theorem: Mul_One_Identity\n    Statement: (mul x 1) equals x.\n    Proof: ring.",
     );
-    assert!(result.is_ok(), "Ring should prove multiplicative identity: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Ring should prove multiplicative identity: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -191,13 +231,14 @@ fn test_literate_ring_fails_on_inequality() {
     let mut repl = Repl::new();
 
     // This should fail - x does not equal y in general
-    let result = repl.execute(
-        "## Theorem: Wrong\n    Statement: x equals y.\n    Proof: ring.",
-    );
+    let result = repl.execute("## Theorem: Wrong\n    Statement: x equals y.\n    Proof: ring.");
     // The proof should fail during type-checking (the proof term won't match the statement)
     // The exact behavior depends on how the kernel handles failed ring proofs
     // For now, we just verify that the parser works
-    assert!(result.is_err() || result.is_ok(), "Parser should handle ring on non-equal terms");
+    assert!(
+        result.is_err() || result.is_ok(),
+        "Parser should handle ring on non-equal terms"
+    );
 }
 
 // =============================================================================
@@ -209,10 +250,11 @@ fn test_literate_parser_term_to_syntax() {
     use logicaffeine_kernel::interface::literate_parser::parse_theorem;
 
     // Test that the parser can handle theorem with proof
-    let result = parse_theorem(
-        "## Theorem: Test\n    Statement: x equals x.\n    Proof: ring.",
+    let result = parse_theorem("## Theorem: Test\n    Statement: x equals x.\n    Proof: ring.");
+    assert!(
+        result.is_ok(),
+        "Parser should handle theorem with ring proof"
     );
-    assert!(result.is_ok(), "Parser should handle theorem with ring proof");
 }
 
 // =============================================================================
@@ -224,9 +266,8 @@ fn test_literate_ring_infix_add_commutativity() {
     let mut repl = Repl::new();
 
     // x + y equals y + x using infix syntax
-    let result = repl.execute(
-        "## Theorem: AddCommInfix\n    Statement: x + y equals y + x.\n    Proof: ring.",
-    );
+    let result = repl
+        .execute("## Theorem: AddCommInfix\n    Statement: x + y equals y + x.\n    Proof: ring.");
     assert!(
         result.is_ok(),
         "Ring should prove x + y = y + x with infix syntax: {:?}",
@@ -239,9 +280,8 @@ fn test_literate_ring_infix_mul_commutativity() {
     let mut repl = Repl::new();
 
     // x * y equals y * x using infix syntax
-    let result = repl.execute(
-        "## Theorem: MulCommInfix\n    Statement: x * y equals y * x.\n    Proof: ring.",
-    );
+    let result = repl
+        .execute("## Theorem: MulCommInfix\n    Statement: x * y equals y * x.\n    Proof: ring.");
     assert!(
         result.is_ok(),
         "Ring should prove x * y = y * x with infix syntax: {:?}",
@@ -269,9 +309,8 @@ fn test_literate_ring_infix_subtraction_cancel() {
     let mut repl = Repl::new();
 
     // x - x equals 0 using infix syntax
-    let result = repl.execute(
-        "## Theorem: SubCancelInfix\n    Statement: x - x equals 0.\n    Proof: ring.",
-    );
+    let result = repl
+        .execute("## Theorem: SubCancelInfix\n    Statement: x - x equals 0.\n    Proof: ring.");
     assert!(
         result.is_ok(),
         "Ring should prove x - x = 0 with infix syntax: {:?}",
@@ -284,9 +323,8 @@ fn test_literate_ring_infix_constant_arithmetic() {
     let mut repl = Repl::new();
 
     // 2 + 3 equals 5 using infix syntax
-    let result = repl.execute(
-        "## Theorem: ConstAddInfix\n    Statement: 2 + 3 equals 5.\n    Proof: ring.",
-    );
+    let result =
+        repl.execute("## Theorem: ConstAddInfix\n    Statement: 2 + 3 equals 5.\n    Proof: ring.");
     assert!(
         result.is_ok(),
         "Ring should prove 2 + 3 = 5 with infix syntax: {:?}",
@@ -314,9 +352,8 @@ fn test_literate_ring_infix_identity_laws() {
     let mut repl = Repl::new();
 
     // x + 0 equals x
-    let result = repl.execute(
-        "## Theorem: AddZeroInfix\n    Statement: x + 0 equals x.\n    Proof: ring.",
-    );
+    let result =
+        repl.execute("## Theorem: AddZeroInfix\n    Statement: x + 0 equals x.\n    Proof: ring.");
     assert!(
         result.is_ok(),
         "Ring should prove x + 0 = x with infix syntax: {:?}",
@@ -329,9 +366,8 @@ fn test_literate_ring_infix_mul_one() {
     let mut repl = Repl::new();
 
     // x * 1 equals x
-    let result = repl.execute(
-        "## Theorem: MulOneInfix\n    Statement: x * 1 equals x.\n    Proof: ring.",
-    );
+    let result =
+        repl.execute("## Theorem: MulOneInfix\n    Statement: x * 1 equals x.\n    Proof: ring.");
     assert!(
         result.is_ok(),
         "Ring should prove x * 1 = x with infix syntax: {:?}",

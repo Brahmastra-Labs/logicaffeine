@@ -1,0 +1,2701 @@
+{
+ "candidate": {
+  "batch": 8,
+  "clock": "clock",
+  "inputs": [
+   {
+    "contract": "a@0",
+    "dut": "io_argIns_0",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@1",
+    "dut": "io_argIns_1",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@2",
+    "dut": "io_argIns_2",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@3",
+    "dut": "io_argIns_3",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@4",
+    "dut": "io_argIns_4",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@5",
+    "dut": "io_argIns_5",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@6",
+    "dut": "io_argIns_6",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "a@7",
+    "dut": "io_argIns_7",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_8",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_9",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_10",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_11",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_12",
+    "dut_lsb": 0,
+    "lsb": 256,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_13",
+    "dut_lsb": 0,
+    "lsb": 320,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_14",
+    "dut_lsb": 0,
+    "lsb": 384,
+    "valid": null,
+    "width": 64
+   },
+   {
+    "contract": "w@0",
+    "dut": "io_argIns_15",
+    "dut_lsb": 0,
+    "lsb": 448,
+    "valid": null,
+    "width": 64
+   }
+  ],
+  "kernel": "K3",
+  "mems": [],
+  "name": "k3_spatial_zynq",
+  "outputs": [
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_0_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_0_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_1_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_1_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_2_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_2_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_3_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_3_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_4_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_4_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_5_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_5_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_6_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_6_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@0",
+    "dut": "io_argOuts_7_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_7_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_8_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_8_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_9_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_9_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_10_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_10_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_11_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_11_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_12_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_12_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_13_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_13_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_14_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_14_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@1",
+    "dut": "io_argOuts_15_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_15_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_16_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_16_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_17_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_17_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_18_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_18_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_19_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_19_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_20_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_20_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_21_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_21_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_22_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_22_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@2",
+    "dut": "io_argOuts_23_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_23_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_24_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_24_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_25_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_25_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_26_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_26_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_27_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_27_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_28_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_28_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_29_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_29_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_30_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_30_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@3",
+    "dut": "io_argOuts_31_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_31_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_32_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_32_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_33_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_33_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_34_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_34_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_35_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_35_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_36_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_36_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_37_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_37_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_38_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_38_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@4",
+    "dut": "io_argOuts_39_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_39_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_40_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_40_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_41_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_41_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_42_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_42_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_43_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_43_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_44_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_44_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_45_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_45_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_46_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_46_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@5",
+    "dut": "io_argOuts_47_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_47_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_48_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_48_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_49_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_49_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_50_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_50_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_51_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_51_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_52_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_52_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_53_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_53_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_54_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_54_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@6",
+    "dut": "io_argOuts_55_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_55_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_56_port_bits",
+    "dut_lsb": 0,
+    "lsb": 0,
+    "valid": "io_argOuts_56_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_57_port_bits",
+    "dut_lsb": 0,
+    "lsb": 32,
+    "valid": "io_argOuts_57_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_58_port_bits",
+    "dut_lsb": 0,
+    "lsb": 64,
+    "valid": "io_argOuts_58_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_59_port_bits",
+    "dut_lsb": 0,
+    "lsb": 96,
+    "valid": "io_argOuts_59_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_60_port_bits",
+    "dut_lsb": 0,
+    "lsb": 128,
+    "valid": "io_argOuts_60_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_61_port_bits",
+    "dut_lsb": 0,
+    "lsb": 160,
+    "valid": "io_argOuts_61_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_62_port_bits",
+    "dut_lsb": 0,
+    "lsb": 192,
+    "valid": "io_argOuts_62_port_valid",
+    "width": 32
+   },
+   {
+    "contract": "o@7",
+    "dut": "io_argOuts_63_port_bits",
+    "dut_lsb": 0,
+    "lsb": 224,
+    "valid": "io_argOuts_63_port_valid",
+    "width": 32
+   }
+  ],
+  "ports": [
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "clock"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_0"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_1"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_10"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_11"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_12"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_13"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_14"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_15"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_2"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_3"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_4"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_5"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_6"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_7"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_8"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argIns_9"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_0_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_0_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_0_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_0_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_10_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_10_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_10_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_10_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_11_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_11_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_11_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_11_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_12_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_12_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_12_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_12_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_13_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_13_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_13_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_13_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_14_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_14_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_14_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_14_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_15_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_15_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_15_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_15_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_16_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_16_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_16_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_16_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_17_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_17_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_17_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_17_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_18_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_18_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_18_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_18_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_19_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_19_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_19_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_19_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_1_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_1_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_1_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_1_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_20_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_20_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_20_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_20_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_21_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_21_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_21_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_21_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_22_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_22_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_22_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_22_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_23_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_23_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_23_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_23_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_24_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_24_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_24_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_24_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_25_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_25_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_25_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_25_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_26_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_26_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_26_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_26_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_27_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_27_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_27_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_27_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_28_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_28_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_28_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_28_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_29_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_29_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_29_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_29_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_2_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_2_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_2_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_2_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_30_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_30_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_30_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_30_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_31_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_31_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_31_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_31_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_32_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_32_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_32_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_32_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_33_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_33_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_33_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_33_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_34_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_34_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_34_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_34_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_35_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_35_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_35_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_35_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_36_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_36_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_36_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_36_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_37_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_37_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_37_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_37_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_38_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_38_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_38_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_38_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_39_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_39_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_39_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_39_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_3_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_3_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_3_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_3_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_40_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_40_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_40_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_40_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_41_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_41_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_41_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_41_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_42_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_42_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_42_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_42_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_43_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_43_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_43_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_43_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_44_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_44_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_44_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_44_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_45_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_45_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_45_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_45_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_46_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_46_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_46_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_46_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_47_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_47_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_47_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_47_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_48_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_48_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_48_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_48_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_49_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_49_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_49_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_49_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_4_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_4_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_4_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_4_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_50_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_50_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_50_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_50_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_51_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_51_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_51_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_51_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_52_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_52_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_52_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_52_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_53_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_53_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_53_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_53_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_54_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_54_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_54_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_54_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_55_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_55_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_55_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_55_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_56_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_56_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_56_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_56_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_57_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_57_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_57_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_57_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_58_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_58_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_58_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_58_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_59_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_59_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_59_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_59_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_5_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_5_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_5_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_5_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_60_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_60_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_60_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_60_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_61_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_61_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_61_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_61_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_62_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_62_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_62_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_62_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_63_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_63_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_63_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_63_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_6_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_6_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_6_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_6_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_7_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_7_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_7_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_7_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_8_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_8_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_8_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_8_port_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_argOuts_9_echo"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_argOuts_9_port_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_argOuts_9_port_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_argOuts_9_port_valid"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_done"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_enable"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_heap_0_req_bits_allocDealloc"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_heap_0_req_bits_sizeAddr"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_heap_0_req_valid"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_heap_0_resp_bits_allocDealloc"
+   },
+   {
+    "bits": 64,
+    "dir": "In",
+    "name": "io_heap_0_resp_bits_sizeAddr"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_heap_0_resp_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_0"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_1"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_10"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_11"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_12"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_13"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_14"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_15"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_2"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_3"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_4"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_5"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_6"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_7"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_8"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_bits_addr_9"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_cmd_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_cmd_valid"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_0"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_1"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_10"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_11"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_12"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_13"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_14"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_15"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_2"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_3"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_4"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_5"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_6"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_7"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_8"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_bits_9"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_gathers_0_data_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_gathers_0_data_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_loads_0_cmd_bits_addr"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_loads_0_cmd_bits_size"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_cmd_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_loads_0_cmd_valid"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_0"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_1"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_10"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_11"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_12"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_13"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_14"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_15"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_2"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_3"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_4"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_5"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_6"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_7"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_8"
+   },
+   {
+    "bits": 32,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_bits_rdata_9"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_loads_0_data_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_loads_0_data_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_0"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_1"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_10"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_11"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_12"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_13"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_14"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_15"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_2"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_3"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_4"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_5"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_6"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_7"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_8"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_addr_addr_9"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_0"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_1"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_10"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_11"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_12"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_13"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_14"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_15"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_2"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_3"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_4"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_5"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_6"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_7"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_8"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_bits_wdata_9"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_scatters_0_cmd_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_cmd_valid"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_scatters_0_wresp_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_scatters_0_wresp_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_scatters_0_wresp_valid"
+   },
+   {
+    "bits": 64,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_cmd_bits_addr"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_cmd_bits_size"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_stores_0_cmd_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_cmd_valid"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_0"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_1"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_10"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_11"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_12"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_13"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_14"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_15"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_2"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_3"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_4"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_5"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_6"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_7"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_8"
+   },
+   {
+    "bits": 32,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wdata_9"
+   },
+   {
+    "bits": 16,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_bits_wstrb"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_stores_0_data_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_data_valid"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_stores_0_wresp_bits"
+   },
+   {
+    "bits": 1,
+    "dir": "Out",
+    "name": "io_memStreams_stores_0_wresp_ready"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_memStreams_stores_0_wresp_valid"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "io_reset"
+   },
+   {
+    "bits": 1,
+    "dir": "In",
+    "name": "reset"
+   }
+  ],
+  "protocol": {
+   "EnableDone": {
+    "clear": "io_reset",
+    "done": "io_done",
+    "enable": "io_enable"
+   }
+  },
+  "reset": {
+   "active_high": true,
+   "port": "reset"
+  },
+  "top": "AccelTop"
+ },
+ "files": [
+  "Top.v",
+  "RetimeShiftRegister.sv"
+ ],
+ "golden_signature": "d0c75b80a9766503",
+ "harness": "qorbist_k3_spatial_zynq.v",
+ "harness_top": "qorbist_k3_spatial_zynq",
+ "kernel": "K3",
+ "kernel_name": "gemm8",
+ "mode": "edge",
+ "ops": 1000,
+ "protocol": "enable held until a sticky done, then cleared",
+ "source_kind": "third-party",
+ "testbench": "tb_qor.v"
+}

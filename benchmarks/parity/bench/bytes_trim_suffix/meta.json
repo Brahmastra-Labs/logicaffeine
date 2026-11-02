@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.trim_suffix",
+  "workload": "bytesTrimSuffix(xs,suffix) \u2014 length fold",
+  "arg": "80000",
+  "expected": "327680000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

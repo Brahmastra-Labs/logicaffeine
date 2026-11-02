@@ -1,0 +1,27 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To axpy (a: Float, x: Seq of Float, y: Seq of Float) -> Seq of Float:
+    Let mutable result be y.
+    Repeat for i from 1 to length of x:
+        Set item i of result to a * item i of x + item i of result.
+    Return result.
+
+## To total (xs: Seq of Float) -> Float:
+    Let mutable s be 0.0.
+    Repeat for v in xs:
+        Set s to s + v.
+    Return s.
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable x be a new Seq of Float.
+Let mutable y be a new Seq of Float.
+Repeat for i from 1 to n:
+    Push ((i * 5) % 8) / 8.0 to x.
+    Push ((i * 3 + 1) % 8) / 8.0 to y.
+Let apart be axpy(0.5, x, y).
+Let together be axpy(0.5, x, x).
+Show total(apart).
+Show total(together).
+Show total(x).

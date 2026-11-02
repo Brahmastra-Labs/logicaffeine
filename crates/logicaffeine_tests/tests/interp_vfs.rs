@@ -1,4 +1,4 @@
-//! Phase 3c (work/FINISH_INTERPRETER.md) — VFS threaded into the interpreter.
+//! VFS threaded into the interpreter.
 //!
 //! The browser Studio holds a `WebVfs`; the interpreter must route file I/O
 //! (`Write`/`Read`/`Mount`) to whatever VFS it is handed. This proves the native
@@ -15,7 +15,9 @@ use logicaffeine_system::fs::{NativeVfs, Vfs};
 fn sink() -> (Rc<RefCell<Vec<String>>>, Rc<RefCell<impl FnMut(String)>>) {
     let lines = Rc::new(RefCell::new(Vec::<String>::new()));
     let collected = lines.clone();
-    let callback = Rc::new(RefCell::new(move |line: String| collected.borrow_mut().push(line)));
+    let callback = Rc::new(RefCell::new(move |line: String| {
+        collected.borrow_mut().push(line)
+    }));
     (lines, callback)
 }
 
@@ -31,8 +33,16 @@ async fn interp_streaming_threads_vfs_write_read_roundtrip() {
 
     let (_lines, callback) = sink();
     let result = interpret_streaming_with_vfs(src, callback, Some(vfs)).await;
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["hello world".to_string()], "file roundtrip through the VFS");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["hello world".to_string()],
+        "file roundtrip through the VFS"
+    );
 }
 
 #[tokio::test]
@@ -54,8 +64,16 @@ async fn interp_streaming_runs_concurrency_and_streams_live() {
         \x20   Show second.\n";
     let (lines, callback) = sink();
     let result = interpret_streaming_with_vfs(src, callback, None).await;
-    assert!(result.error.is_none(), "unexpected error: {:?}", result.error);
-    assert_eq!(result.lines, vec!["1".to_string(), "2".to_string()], "scheduler-driven result");
+    assert!(
+        result.error.is_none(),
+        "unexpected error: {:?}",
+        result.error
+    );
+    assert_eq!(
+        result.lines,
+        vec!["1".to_string(), "2".to_string()],
+        "scheduler-driven result"
+    );
     assert_eq!(
         *lines.borrow(),
         vec!["1".to_string(), "2".to_string()],

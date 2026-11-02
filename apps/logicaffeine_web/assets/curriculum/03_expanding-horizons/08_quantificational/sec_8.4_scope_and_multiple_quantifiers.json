@@ -1,0 +1,36 @@
+{
+  "id": "8.4",
+  "title": "Scope and Multiple Quantifiers",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A sentence can carry two quantifiers, and their order matters. The first one has the widest **scope**."
+    },
+    {
+      "type": "paragraph",
+      "text": "∀x ∃y lets each x have its own y. ∃y ∀x needs one y that works for every x."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "Every student loves some teacher.",
+      "formula": "∀x((Student(x) → ∃y((Teacher(y) ∧ ∃e(Love(e) ∧ Agent(e, x) ∧ Theme(e, y))))))",
+      "note": "Each student loves a teacher, perhaps a different one for each. The loving is an event, as in lesson 1.5."
+    },
+    {
+      "type": "formula",
+      "sentence": "Some student loves every teacher.",
+      "formula": "∃x((Student(x) ∧ ∀y((Teacher(y) → ∃e(Love(e) ∧ Agent(e, x) ∧ Theme(e, y))))))",
+      "note": "One student loves all the teachers. Now ∃ comes first."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Every man loves a woman.",
+    "answer": "∀x((Man(x) → ∃y((Woman(y) ∧ ∃e(Love(e) ∧ Agent(e, x) ∧ Theme(e, y))))))",
+    "hint": "Follow the first example: ∀ for the men, then ∃ for a woman, then the loving event.",
+    "explanation": "For every man x there is a woman y, and an event in which x loves y."
+  }
+}

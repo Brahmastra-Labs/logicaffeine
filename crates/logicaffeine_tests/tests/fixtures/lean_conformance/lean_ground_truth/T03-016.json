@@ -1,0 +1,317 @@
+{
+  "case": "T03-016",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 41,
+  "declarations": [
+    {
+      "type": "Prop",
+      "name": "T03_016.AllProps",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_016.AllProps \u2192 Sort u} \u2192 (t : T03_016.AllProps) \u2192 ((a : \u2200 (P : Prop), P \u2192 P) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T03_016.AllProps.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u2200 (P : Prop), P \u2192 P) \u2192 T03_016.AllProps",
+      "name": "T03_016.AllProps.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_016.AllProps} \u2192 v1 = v2 \u2192 T03_016.AllProps.noConfusionType P v1 v2",
+      "name": "T03_016.AllProps.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_016.AllProps \u2192 T03_016.AllProps \u2192 Sort u",
+      "name": "T03_016.AllProps.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_016.AllProps \u2192 Sort u} \u2192 ((a : \u2200 (P : Prop), P \u2192 P) \u2192 motive \u22ef) \u2192 (t : T03_016.AllProps) \u2192 motive t",
+      "name": "T03_016.AllProps.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_016.AllProps \u2192 Sort u} \u2192 (t : T03_016.AllProps) \u2192 ((a : \u2200 (P : Prop), P \u2192 P) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T03_016.AllProps.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop \u2192 Prop",
+      "name": "T03_016.Choice",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop} {motive : T03_016.Choice P Q \u2192 Prop} (t : T03_016.Choice P Q),\n  (\u2200 (a : P), motive \u22ef) \u2192 (\u2200 (a : Q), motive \u22ef) \u2192 motive t",
+      "name": "T03_016.Choice.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop} {motive : T03_016.Choice P Q \u2192 Prop},\n  (\u2200 (a : P), motive \u22ef) \u2192 (\u2200 (a : Q), motive \u22ef) \u2192 \u2200 (t : T03_016.Choice P Q), motive t",
+      "name": "T03_016.Choice.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop} {motive : T03_016.Choice P Q \u2192 Prop} (t : T03_016.Choice P Q),\n  (\u2200 (a : P), motive \u22ef) \u2192 (\u2200 (a : Q), motive \u22ef) \u2192 motive t",
+      "name": "T03_016.Choice.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop}, P \u2192 T03_016.Choice P Q",
+      "name": "T03_016.Choice.takeLeft",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop}, Q \u2192 T03_016.Choice P Q",
+      "name": "T03_016.Choice.takeRight",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T03_016.Positive",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} \u2192 {a : Nat} \u2192 T03_016.Positive a \u2192 Prop",
+      "name": "T03_016.Positive.below",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} {motive_1 : {a : Nat} \u2192 (x : T03_016.Positive a) \u2192 x.below \u2192 Prop}\n  {a : Nat} {x : T03_016.Positive a} (t : x.below),\n  motive_1 T03_016.Positive.one \u22ef \u2192\n    (\u2200 {n : Nat} {a : T03_016.Positive n} (a_1 : a.below) (a_2 : motive n a), motive_1 \u22ef \u22ef) \u2192 motive_1 x t",
+      "name": "T03_016.Positive.below.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} {n : Nat} {a : T03_016.Positive n}, a.below \u2192 motive n a \u2192 \u22ef.below",
+      "name": "T03_016.Positive.below.more",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop}, T03_016.Positive.one.below",
+      "name": "T03_016.Positive.below.one",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} {motive_1 : {a : Nat} \u2192 (x : T03_016.Positive a) \u2192 x.below \u2192 Prop},\n  motive_1 T03_016.Positive.one \u22ef \u2192\n    (\u2200 {n : Nat} {a : T03_016.Positive n} (a_1 : a.below) (a_2 : motive n a), motive_1 a a_1 \u2192 motive_1 \u22ef \u22ef) \u2192\n      \u2200 {a : Nat} {x : T03_016.Positive a} (t : x.below), motive_1 x t",
+      "name": "T03_016.Positive.below.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} {a : Nat} (x : T03_016.Positive a),\n  (\u2200 (a : Nat) (x : T03_016.Positive a), x.below \u2192 motive a x) \u2192 motive a x",
+      "name": "T03_016.Positive.brecOn",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} {a : Nat} (t : T03_016.Positive a),\n  motive 1 T03_016.Positive.one \u2192 (\u2200 {n : Nat} (a : T03_016.Positive n), motive (n + 1) \u22ef) \u2192 motive a t",
+      "name": "T03_016.Positive.casesOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {n : Nat}, T03_016.Positive n \u2192 T03_016.Positive (n + 1)",
+      "name": "T03_016.Positive.more",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "T03_016.Positive 1",
+      "name": "T03_016.Positive.one",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop},\n  motive 1 T03_016.Positive.one \u2192\n    (\u2200 {n : Nat} (a : T03_016.Positive n), motive n a \u2192 motive (n + 1) \u22ef) \u2192\n      \u2200 {a : Nat} (t : T03_016.Positive a), motive a t",
+      "name": "T03_016.Positive.rec",
+      "levels": [],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {motive : (a : Nat) \u2192 T03_016.Positive a \u2192 Prop} {a : Nat} (t : T03_016.Positive a),\n  motive 1 T03_016.Positive.one \u2192 (\u2200 {n : Nat} (a : T03_016.Positive n), motive n a \u2192 motive (n + 1) \u22ef) \u2192 motive a t",
+      "name": "T03_016.Positive.recOn",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Prop \u2192 Prop",
+      "name": "T03_016.Wrapped",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{P : Prop} \u2192 {motive : T03_016.Wrapped P \u2192 Sort u} \u2192 (t : T03_016.Wrapped P) \u2192 ((a : P) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T03_016.Wrapped.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Prop} \u2192 {P_1 : Sort u} \u2192 {v1 v2 : T03_016.Wrapped P} \u2192 v1 = v2 \u2192 T03_016.Wrapped.noConfusionType P_1 v1 v2",
+      "name": "T03_016.Wrapped.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Prop} \u2192 Sort u \u2192 T03_016.Wrapped P \u2192 T03_016.Wrapped P \u2192 Sort u",
+      "name": "T03_016.Wrapped.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{P : Prop} \u2192 {motive : T03_016.Wrapped P \u2192 Sort u} \u2192 ((a : P) \u2192 motive \u22ef) \u2192 (t : T03_016.Wrapped P) \u2192 motive t",
+      "name": "T03_016.Wrapped.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{P : Prop} \u2192 {motive : T03_016.Wrapped P \u2192 Sort u} \u2192 (t : T03_016.Wrapped P) \u2192 ((a : P) \u2192 motive \u22ef) \u2192 motive t",
+      "name": "T03_016.Wrapped.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P : Prop}, P \u2192 T03_016.Wrapped P",
+      "name": "T03_016.Wrapped.wrap",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop}, T03_016.Choice P Q \u2192 T03_016.Choice Q P",
+      "name": "T03_016.choiceSwap",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {P Q : Prop} (motive : T03_016.Choice P Q \u2192 Prop) (h : T03_016.Choice P Q),\n  (\u2200 (p : P), motive \u22ef) \u2192 (\u2200 (q : Q), motive \u22ef) \u2192 motive h",
+      "name": "T03_016.choiceSwap.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u03b1 : Type) \u2192 False \u2192 \u03b1",
+      "name": "T03_016.exFalso",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p : Prop}, p \u2228 p \u2192 p",
+      "name": "T03_016.orIdem",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p : Prop} (motive : p \u2228 p \u2192 Prop) (h : p \u2228 p), (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hp : p), motive \u22ef) \u2192 motive h",
+      "name": "T03_016.orIdem.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop}, p \u2228 q \u2192 q \u2228 p",
+      "name": "T03_016.orSwap",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {p q : Prop} (motive : p \u2228 q \u2192 Prop) (h : p \u2228 q), (\u2200 (hp : p), motive \u22ef) \u2192 (\u2200 (hq : q), motive \u22ef) \u2192 motive h",
+      "name": "T03_016.orSwap.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Prop), T03_016.Wrapped P \u2192 P",
+      "name": "T03_016.unwrapToType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Prop) (motive : T03_016.Wrapped P \u2192 Prop) (h : T03_016.Wrapped P), (\u2200 (p : P), motive \u22ef) \u2192 motive h",
+      "name": "T03_016.unwrapToType.match_1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

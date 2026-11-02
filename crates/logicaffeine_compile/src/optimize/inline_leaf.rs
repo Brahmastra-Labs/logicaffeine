@@ -28,7 +28,11 @@
 //! the duplicated body so many call sites cannot bloat the code.
 //!
 //! Parameters and locals are alpha-renamed per call instance, so inlining a
-//! helper twice — or into a caller that reuses its names — never captures.
+//! helper twice — or into a caller that reuses its names — never captures;
+//! and a helper inlines only where none of its FREE names (the program's
+//! bindings it reads) is bound in the call site's frame ([`super::capture`]),
+//! and never a helper that SETS one of its free names — its effect leaves
+//! its frame, and a prelude would run it before the statement's earlier reads.
 //! Like every inliner (the AOT supercompiler included), this erases the
 //! call-depth accounting a bytecode call would perform — the kernel's
 //! resource limit, not a semantic boundary.
@@ -36,8 +40,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::arena::Arena;
-use crate::ast::stmt::{Block, BinaryOpKind, Expr, Stmt};
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Stmt};
 use crate::intern::{Interner, Symbol};
+
+use super::capture;
 
 /// Helpers larger than this stay as calls — inlining a big body at many sites
 /// is code bloat with no region-tiering payoff.
@@ -49,6 +55,15 @@ struct Candidate<'a> {
     params: Vec<Symbol>,
     prefix: Block<'a>,
     ret: &'a Expr<'a>,
+    /// The names the helper resolves where it is declared (see [`super::capture`]).
+    free: HashSet<Symbol>,
+}
+
+/// Where a call is rewritten: the helpers that may inline, and the names bound in the frame around it,
+/// which a helper's free name must not be.
+struct Site<'c, 'a> {
+    cands: &'c HashMap<Symbol, Candidate<'a>>,
+    frame: &'c HashSet<Symbol>,
 }
 
 /// The pure, duplication-safe expression fragment (no calls, no effects).
@@ -69,18 +84,37 @@ fn stmt_pure_nonreturn(s: &Stmt) -> bool {
     match s {
         Stmt::Let { value, .. } => expr_pure(value),
         Stmt::Set { value, .. } => expr_pure(value),
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             expr_pure(cond)
                 && then_block.iter().all(stmt_pure_nonreturn)
                 && else_block.map_or(true, |b| b.iter().all(stmt_pure_nonreturn))
         }
-        Stmt::While { cond, body, decreasing } => {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
             expr_pure(cond)
                 && decreasing.map_or(true, |d| expr_pure(d))
                 && body.iter().all(stmt_pure_nonreturn)
         }
         _ => false,
     }
+}
+
+/// Whether `block` sets any of `names` (a `Set` at any depth; the prefix admits no other write).
+fn sets_any(block: &[Stmt], names: &HashSet<Symbol>) -> bool {
+    let mut sets = false;
+    logicaffeine_language::ast_depth::for_each_node(block, |node| {
+        if let logicaffeine_language::ast_depth::Visited::Stmt(Stmt::Set { target, .. }) = node {
+            sets |= names.contains(target);
+        }
+    });
+    sets
 }
 
 /// Recognise `[prefix…] ++ [Return Some(ret)]` with an all-pure prefix.
@@ -111,7 +145,11 @@ fn bound_names_unique(params: &[Symbol], prefix: Block) -> bool {
                         return false;
                     }
                 }
-                Stmt::If { then_block, else_block, .. } => {
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     if !walk(then_block, seen) {
                         return false;
                     }
@@ -147,7 +185,11 @@ fn collect_locals(stmts: &[Stmt], out: &mut HashSet<Symbol>) {
             Stmt::Let { var, .. } => {
                 out.insert(*var);
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_locals(then_block, out);
                 if let Some(b) = else_block {
                     collect_locals(b, out);
@@ -181,14 +223,16 @@ fn rename_expr<'a>(
             left: rename_expr(left, map, ea),
             right: rename_expr(right, map, ea),
         }),
-        Expr::Not { operand } => ea.alloc(Expr::Not { operand: rename_expr(operand, map, ea) }),
+        Expr::Not { operand } => ea.alloc(Expr::Not {
+            operand: rename_expr(operand, map, ea),
+        }),
         Expr::Index { collection, index } => ea.alloc(Expr::Index {
             collection: rename_expr(collection, map, ea),
             index: rename_expr(index, map, ea),
         }),
-        Expr::Length { collection } => {
-            ea.alloc(Expr::Length { collection: rename_expr(collection, map, ea) })
-        }
+        Expr::Length { collection } => ea.alloc(Expr::Length {
+            collection: rename_expr(collection, map, ea),
+        }),
         _ => e,
     }
 }
@@ -210,21 +254,35 @@ fn rename_stmt<'a>(
     sa: &'a Arena<Stmt<'a>>,
 ) -> Stmt<'a> {
     match s {
-        Stmt::Let { var, ty, value, mutable } => Stmt::Let {
+        Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        } => Stmt::Let {
             var: ren(*var, map),
             ty: *ty,
             value: rename_expr(value, map, ea),
             mutable: *mutable,
         },
-        Stmt::Set { target, value } => {
-            Stmt::Set { target: ren(*target, map), value: rename_expr(value, map, ea) }
-        }
-        Stmt::If { cond, then_block, else_block } => Stmt::If {
+        Stmt::Set { target, value } => Stmt::Set {
+            target: ren(*target, map),
+            value: rename_expr(value, map, ea),
+        },
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => Stmt::If {
             cond: rename_expr(cond, map, ea),
             then_block: rename_block(then_block, map, ea, sa),
             else_block: else_block.map(|b| rename_block(b, map, ea, sa)),
         },
-        Stmt::While { cond, body, decreasing } => Stmt::While {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => Stmt::While {
             cond: rename_expr(cond, map, ea),
             body: rename_block(body, map, ea, sa),
             decreasing: decreasing.map(|d| rename_expr(d, map, ea)),
@@ -286,7 +344,7 @@ fn expand<'a>(
 /// and accumulating their bodies into `prelude` (in left-to-right order).
 fn rewrite_expr<'a>(
     e: &'a Expr<'a>,
-    cands: &HashMap<Symbol, Candidate<'a>>,
+    site: &Site<'_, 'a>,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
@@ -297,37 +355,47 @@ fn rewrite_expr<'a>(
         Expr::Call { function, args } => {
             let new_args: Vec<&'a Expr<'a>> = args
                 .iter()
-                .map(|a| rewrite_expr(a, cands, ea, sa, interner, counter, prelude))
+                .map(|a| rewrite_expr(a, site, ea, sa, interner, counter, prelude))
                 .collect();
-            if let Some(c) = cands.get(function) {
-                if c.params.len() == new_args.len() {
+            if let Some(c) = site.cands.get(function) {
+                if c.params.len() == new_args.len() && !capture::captures(&c.free, site.frame) {
                     return expand(c, &new_args, ea, sa, interner, counter, prelude);
                 }
             }
-            ea.alloc(Expr::Call { function: *function, args: new_args })
+            ea.alloc(Expr::Call {
+                function: *function,
+                args: new_args,
+            })
         }
         Expr::BinaryOp { op, left, right } => {
-            let l = rewrite_expr(left, cands, ea, sa, interner, counter, prelude);
+            let l = rewrite_expr(left, site, ea, sa, interner, counter, prelude);
             // The right operand of `and`/`or` is conditionally evaluated;
             // hoisting a call out of it would always run it. Leave it intact.
             let r = if matches!(op, BinaryOpKind::And | BinaryOpKind::Or) {
                 *right
             } else {
-                rewrite_expr(right, cands, ea, sa, interner, counter, prelude)
+                rewrite_expr(right, site, ea, sa, interner, counter, prelude)
             };
-            ea.alloc(Expr::BinaryOp { op: *op, left: l, right: r })
+            ea.alloc(Expr::BinaryOp {
+                op: *op,
+                left: l,
+                right: r,
+            })
         }
         Expr::Not { operand } => {
-            let o = rewrite_expr(operand, cands, ea, sa, interner, counter, prelude);
+            let o = rewrite_expr(operand, site, ea, sa, interner, counter, prelude);
             ea.alloc(Expr::Not { operand: o })
         }
         Expr::Index { collection, index } => {
-            let c = rewrite_expr(collection, cands, ea, sa, interner, counter, prelude);
-            let i = rewrite_expr(index, cands, ea, sa, interner, counter, prelude);
-            ea.alloc(Expr::Index { collection: c, index: i })
+            let c = rewrite_expr(collection, site, ea, sa, interner, counter, prelude);
+            let i = rewrite_expr(index, site, ea, sa, interner, counter, prelude);
+            ea.alloc(Expr::Index {
+                collection: c,
+                index: i,
+            })
         }
         Expr::Length { collection } => {
-            let c = rewrite_expr(collection, cands, ea, sa, interner, counter, prelude);
+            let c = rewrite_expr(collection, site, ea, sa, interner, counter, prelude);
             ea.alloc(Expr::Length { collection: c })
         }
         _ => e,
@@ -337,7 +405,7 @@ fn rewrite_expr<'a>(
 /// Rewrite one statement, returning its prelude-prepended replacement(s).
 fn rewrite_stmt<'a>(
     s: &Stmt<'a>,
-    cands: &HashMap<Symbol, Candidate<'a>>,
+    site: &Site<'_, 'a>,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
@@ -348,78 +416,126 @@ fn rewrite_stmt<'a>(
     // a prelude evaluated immediately before it — sound because the calls are
     // pure and these positions are evaluated exactly once when control arrives.
     match s {
-        Stmt::Let { var, ty, value, mutable } => {
+        Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        } => {
             let mut prelude = Vec::new();
-            let v = rewrite_expr(value, cands, ea, sa, interner, counter, &mut prelude);
+            let v = rewrite_expr(value, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::Let { var: *var, ty: *ty, value: v, mutable: *mutable });
+            out.push(Stmt::Let {
+                var: *var,
+                ty: *ty,
+                value: v,
+                mutable: *mutable,
+            });
         }
         Stmt::Set { target, value } => {
             let mut prelude = Vec::new();
-            let v = rewrite_expr(value, cands, ea, sa, interner, counter, &mut prelude);
+            let v = rewrite_expr(value, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::Set { target: *target, value: v });
+            out.push(Stmt::Set {
+                target: *target,
+                value: v,
+            });
         }
         Stmt::Return { value } => {
             let mut prelude = Vec::new();
-            let v = value.map(|e| rewrite_expr(e, cands, ea, sa, interner, counter, &mut prelude));
+            let v = value.map(|e| rewrite_expr(e, site, ea, sa, interner, counter, &mut prelude));
             out.extend(prelude);
             out.push(Stmt::Return { value: v });
         }
         Stmt::Show { object, recipient } => {
             let mut prelude = Vec::new();
-            let o = rewrite_expr(object, cands, ea, sa, interner, counter, &mut prelude);
+            let o = rewrite_expr(object, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::Show { object: o, recipient: *recipient });
+            out.push(Stmt::Show {
+                object: o,
+                recipient: *recipient,
+            });
         }
         Stmt::Push { value, collection } => {
             let mut prelude = Vec::new();
-            let v = rewrite_expr(value, cands, ea, sa, interner, counter, &mut prelude);
+            let v = rewrite_expr(value, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::Push { value: v, collection: *collection });
+            out.push(Stmt::Push {
+                value: v,
+                collection: *collection,
+            });
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             let mut prelude = Vec::new();
-            let i = rewrite_expr(index, cands, ea, sa, interner, counter, &mut prelude);
-            let v = rewrite_expr(value, cands, ea, sa, interner, counter, &mut prelude);
+            let i = rewrite_expr(index, site, ea, sa, interner, counter, &mut prelude);
+            let v = rewrite_expr(value, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::SetIndex { collection: *collection, index: i, value: v });
+            out.push(Stmt::SetIndex {
+                collection: *collection,
+                index: i,
+                value: v,
+            });
         }
-        Stmt::RuntimeAssert { condition, hard } => {
+        Stmt::RuntimeAssert {
+            condition,
+            hard,
+            dim,
+            reason,
+        } => {
             let mut prelude = Vec::new();
-            let c = rewrite_expr(condition, cands, ea, sa, interner, counter, &mut prelude);
+            let c = rewrite_expr(condition, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::RuntimeAssert { condition: c , hard: *hard });
+            out.push(Stmt::RuntimeAssert {
+                condition: c,
+                hard: *hard,
+                dim: *dim,
+                reason: *reason,
+            });
         }
-        Stmt::If { cond, then_block, else_block } => {
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             // The condition is evaluated once on arrival → safe to lift.
             let mut prelude = Vec::new();
-            let c = rewrite_expr(cond, cands, ea, sa, interner, counter, &mut prelude);
+            let c = rewrite_expr(cond, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
             out.push(Stmt::If {
                 cond: c,
-                then_block: rewrite_block(then_block, cands, ea, sa, interner, counter),
-                else_block: else_block
-                    .map(|b| rewrite_block(b, cands, ea, sa, interner, counter)),
+                then_block: rewrite_block(then_block, site, ea, sa, interner, counter),
+                else_block: else_block.map(|b| rewrite_block(b, site, ea, sa, interner, counter)),
             });
         }
-        Stmt::While { cond, body, decreasing } => {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
             // The condition re-evaluates each iteration → do NOT lift from it.
             out.push(Stmt::While {
                 cond: *cond,
-                body: rewrite_block(body, cands, ea, sa, interner, counter),
+                body: rewrite_block(body, site, ea, sa, interner, counter),
                 decreasing: *decreasing,
             });
         }
-        Stmt::Repeat { pattern, iterable, body } => {
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
             // The iterable is evaluated once → safe to lift.
             let mut prelude = Vec::new();
-            let it = rewrite_expr(iterable, cands, ea, sa, interner, counter, &mut prelude);
+            let it = rewrite_expr(iterable, site, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
             out.push(Stmt::Repeat {
                 pattern: pattern.clone(),
                 iterable: it,
-                body: rewrite_block(body, cands, ea, sa, interner, counter),
+                body: rewrite_block(body, site, ea, sa, interner, counter),
             });
         }
         Stmt::FunctionDef {
@@ -434,11 +550,17 @@ fn rewrite_stmt<'a>(
             export_target,
             opt_flags,
         } => {
+            let own: Vec<Symbol> = params.iter().map(|(p, _)| *p).collect();
+            let frame = capture::frame_names(&own, body);
+            let inner = Site {
+                cands: site.cands,
+                frame: &frame,
+            };
             out.push(Stmt::FunctionDef {
                 name: *name,
                 generics: generics.clone(),
                 params: params.clone(),
-                body: rewrite_block(body, cands, ea, sa, interner, counter),
+                body: rewrite_block(body, &inner, ea, sa, interner, counter),
                 return_type: *return_type,
                 is_native: *is_native,
                 native_path: *native_path,
@@ -453,7 +575,7 @@ fn rewrite_stmt<'a>(
 
 fn rewrite_block<'a>(
     block: Block<'a>,
-    cands: &HashMap<Symbol, Candidate<'a>>,
+    site: &Site<'_, 'a>,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
@@ -461,7 +583,7 @@ fn rewrite_block<'a>(
 ) -> Block<'a> {
     let mut out: Vec<Stmt<'a>> = Vec::with_capacity(block.len());
     for s in block {
-        rewrite_stmt(s, cands, ea, sa, interner, counter, &mut out);
+        rewrite_stmt(s, site, ea, sa, interner, counter, &mut out);
     }
     sa.alloc_slice(out)
 }
@@ -485,7 +607,14 @@ pub fn inline_leaf_fns<'a>(
             ..
         } = s
         {
-            if !generics.is_empty() {
+            // This inliner builds a prelude of independent parameter values.
+            // A mutable parameter lends a caller's place, so its writes cannot
+            // be represented by that value-only prelude.
+            if !generics.is_empty()
+                || params
+                    .iter()
+                    .any(|(_, ty)| matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. }))
+            {
                 continue;
             }
             if let Some((prefix, ret)) = as_candidate(body) {
@@ -493,7 +622,22 @@ pub fn inline_leaf_fns<'a>(
                 if !bound_names_unique(&param_syms, prefix) {
                     continue;
                 }
-                cands.insert(*name, Candidate { params: param_syms, prefix, ret });
+                let free = capture::free_names(&param_syms, body);
+                // A helper that sets one of its free names — a program binding — has an effect outside its
+                // frame: hoisted into a prelude, it would run before the expression's earlier operands read
+                // that binding. It stays a call.
+                if sets_any(prefix, &free) {
+                    continue;
+                }
+                cands.insert(
+                    *name,
+                    Candidate {
+                        params: param_syms,
+                        prefix,
+                        ret,
+                        free,
+                    },
+                );
             }
         }
     }
@@ -502,198 +646,25 @@ pub fn inline_leaf_fns<'a>(
     }
     let mut counter: usize = 0;
     let mut out: Vec<Stmt<'a>> = Vec::with_capacity(stmts.len());
+    let frame = capture::main_frame_names(&stmts);
+    let main = Site {
+        cands: &cands,
+        frame: &frame,
+    };
     for s in &stmts {
-        rewrite_stmt(s, &cands, expr_arena, stmt_arena, interner, &mut counter, &mut out);
+        rewrite_stmt(
+            s,
+            &main,
+            expr_arena,
+            stmt_arena,
+            interner,
+            &mut counter,
+            &mut out,
+        );
     }
     out
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::stmt::{Literal, TypeExpr};
-
-    fn expr_has_call(e: &Expr, target: Symbol) -> bool {
-        match e {
-            Expr::Call { function, args } => {
-                *function == target || args.iter().any(|a| expr_has_call(a, target))
-            }
-            Expr::BinaryOp { left, right, .. } => {
-                expr_has_call(left, target) || expr_has_call(right, target)
-            }
-            Expr::Not { operand } => expr_has_call(operand, target),
-            Expr::Index { collection, index } => {
-                expr_has_call(collection, target) || expr_has_call(index, target)
-            }
-            Expr::Length { collection } => expr_has_call(collection, target),
-            _ => false,
-        }
-    }
-
-    fn stmt_has_call(s: &Stmt, target: Symbol) -> bool {
-        match s {
-            Stmt::Let { value, .. } | Stmt::Set { value, .. } => expr_has_call(value, target),
-            Stmt::Show { object, .. } => expr_has_call(object, target),
-            _ => false,
-        }
-    }
-
-    /// `dec(a) { Let mutable v be a. While v > 100: Set v to v - 100. Return v. }`
-    /// — a loopy leaf — called as `Let y be dec(5).` inlines: the call is
-    /// replaced by an identifier and the body is spliced in ahead of the use,
-    /// alpha-renamed.
-    #[test]
-    fn inlines_statement_body_leaf_and_removes_call() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let ta: Arena<TypeExpr> = Arena::new();
-        let mut it = Interner::new();
-
-        let dec = it.intern("dec");
-        let a = it.intern("a");
-        let v = it.intern("v");
-        let y = it.intern("y");
-        let int_ty: &TypeExpr = ta.alloc(TypeExpr::Primitive(it.intern("Int")));
-
-        let loop_stmt = Stmt::While {
-            cond: ea.alloc(Expr::BinaryOp {
-                op: BinaryOpKind::Gt,
-                left: ea.alloc(Expr::Identifier(v)),
-                right: ea.alloc(Expr::Literal(Literal::Number(100))),
-            }),
-            body: sa.alloc_slice(vec![Stmt::Set {
-                target: v,
-                value: ea.alloc(Expr::BinaryOp {
-                    op: BinaryOpKind::Subtract,
-                    left: ea.alloc(Expr::Identifier(v)),
-                    right: ea.alloc(Expr::Literal(Literal::Number(100))),
-                }),
-            }]),
-            decreasing: None,
-        };
-        let body = sa.alloc_slice(vec![
-            Stmt::Let { var: v, ty: None, value: ea.alloc(Expr::Identifier(a)), mutable: true },
-            loop_stmt,
-            Stmt::Return { value: Some(ea.alloc(Expr::Identifier(v))) },
-        ]);
-        let func = Stmt::FunctionDef {
-            name: dec,
-            generics: vec![],
-            params: vec![(a, int_ty)],
-            body,
-            return_type: Some(int_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let call = &*ea.alloc(Expr::Call {
-            function: dec,
-            args: vec![ea.alloc(Expr::Literal(Literal::Number(5)))],
-        });
-        let main_let = Stmt::Let { var: y, ty: None, value: call, mutable: false };
-
-        let out = inline_leaf_fns(vec![func, main_let], &ea, &sa, &mut it);
-
-        // func + (param bind, `Let v`, `While`, result bind) + `Let y` = 6.
-        assert_eq!(out.len(), 6, "expected the loopy body spliced ahead of the use");
-        // No call to `dec` survives outside the (retained) definition.
-        assert!(
-            out[1..].iter().all(|s| !stmt_has_call(s, dec)),
-            "the call should be inlined away"
-        );
-        // The final `Let y` now binds an identifier (the inlined result), not a call.
-        match out.last().unwrap() {
-            Stmt::Let { value, var, .. } => {
-                assert_eq!(*var, y);
-                assert!(matches!(value, Expr::Identifier(_)), "y should bind the result temp");
-            }
-            other => panic!("expected `Let y`, got {other:?}"),
-        }
-    }
-
-    /// A loop-free leaf (`sq(n) { Let t be n * n. Return t. }`) inlines too —
-    /// every eligible pure leaf folds in so a hot-path call never crosses the
-    /// frame boundary.
-    #[test]
-    fn loop_free_leaf_also_inlines() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let ta: Arena<TypeExpr> = Arena::new();
-        let mut it = Interner::new();
-
-        let sq = it.intern("sq");
-        let n = it.intern("n");
-        let t = it.intern("t");
-        let y = it.intern("y");
-        let int_ty: &TypeExpr = ta.alloc(TypeExpr::Primitive(it.intern("Int")));
-
-        let body = sa.alloc_slice(vec![
-            Stmt::Let {
-                var: t,
-                ty: None,
-                value: ea.alloc(Expr::BinaryOp {
-                    op: BinaryOpKind::Multiply,
-                    left: ea.alloc(Expr::Identifier(n)),
-                    right: ea.alloc(Expr::Identifier(n)),
-                }),
-                mutable: false,
-            },
-            Stmt::Return { value: Some(ea.alloc(Expr::Identifier(t))) },
-        ]);
-        let func = Stmt::FunctionDef {
-            name: sq,
-            generics: vec![],
-            params: vec![(n, int_ty)],
-            body,
-            return_type: Some(int_ty),
-            is_native: false,
-            native_path: None,
-            is_exported: false,
-            export_target: None,
-            opt_flags: Default::default(),
-        };
-        let call = &*ea.alloc(Expr::Call {
-            function: sq,
-            args: vec![ea.alloc(Expr::Literal(Literal::Number(5)))],
-        });
-        let main_let = Stmt::Let { var: y, ty: None, value: call, mutable: false };
-
-        let out = inline_leaf_fns(vec![func, main_let], &ea, &sa, &mut it);
-
-        // func + (param bind, renamed `Let t`, result bind) + `Let y` = 5.
-        assert_eq!(out.len(), 5, "loop-free leaf body should be spliced in");
-        assert!(
-            out[1..].iter().all(|s| !stmt_has_call(s, sq)),
-            "the call to a loop-free leaf must be inlined away"
-        );
-    }
-
-    /// A helper with a `While` loop and a trailing return (the gcd shape) is a
-    /// candidate; one with an early return inside the loop is rejected.
-    #[test]
-    fn early_return_body_is_not_a_candidate() {
-        let ea: Arena<Expr> = Arena::new();
-        let sa: Arena<Stmt> = Arena::new();
-        let mut it = Interner::new();
-        let n = it.intern("n");
-
-        // `If n > 0: Return n.  Return 0.` — an early return → rejected.
-        let early = sa.alloc_slice(vec![
-            Stmt::If {
-                cond: ea.alloc(Expr::BinaryOp {
-                    op: BinaryOpKind::Gt,
-                    left: ea.alloc(Expr::Identifier(n)),
-                    right: ea.alloc(Expr::Literal(Literal::Number(0))),
-                }),
-                then_block: sa.alloc_slice(vec![Stmt::Return {
-                    value: Some(ea.alloc(Expr::Identifier(n))),
-                }]),
-                else_block: None,
-            },
-            Stmt::Return { value: Some(ea.alloc(Expr::Literal(Literal::Number(0)))) },
-        ]);
-        assert!(as_candidate(early).is_none(), "early return must not be inlinable");
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/inline_leaf/tests.rs"]
+mod tests;

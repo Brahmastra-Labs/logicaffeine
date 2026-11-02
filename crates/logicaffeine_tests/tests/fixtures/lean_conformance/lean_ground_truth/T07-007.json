@@ -1,0 +1,228 @@
+{
+  "case": "T07-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 28,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T07_007.Money",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_007.Money \u2192 Sort u} \u2192 (t : T07_007.Money) \u2192 ((cents : Nat) \u2192 motive { cents := cents }) \u2192 motive t",
+      "name": "T07_007.Money.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_007.Money \u2192 Nat",
+      "name": "T07_007.Money.cents",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T07_007.Money",
+      "name": "T07_007.Money.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {cents cents_1 : Nat}, { cents := cents } = { cents := cents_1 } \u2192 cents = cents_1",
+      "name": "T07_007.Money.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (cents cents_1 : Nat), ({ cents := cents } = { cents := cents_1 }) = (cents = cents_1)",
+      "name": "T07_007.Money.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (cents : Nat), sizeOf { cents := cents } = 1 + sizeOf cents",
+      "name": "T07_007.Money.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T07_007.Money} \u2192 v1 = v2 \u2192 T07_007.Money.noConfusionType P v1 v2",
+      "name": "T07_007.Money.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T07_007.Money \u2192 T07_007.Money \u2192 Sort u",
+      "name": "T07_007.Money.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_007.Money \u2192 Sort u} \u2192 ((cents : Nat) \u2192 motive { cents := cents }) \u2192 (t : T07_007.Money) \u2192 motive t",
+      "name": "T07_007.Money.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T07_007.Money \u2192 Sort u} \u2192 (t : T07_007.Money) \u2192 ((cents : Nat) \u2192 motive { cents := cents }) \u2192 motive t",
+      "name": "T07_007.Money.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T07_007.Zeroish",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_007.Zeroish \u03b1 \u2192 Sort u} \u2192 (t : T07_007.Zeroish \u03b1) \u2192 ((zero : \u03b1) \u2192 motive { zero := zero }) \u2192 motive t",
+      "name": "T07_007.Zeroish.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T07_007.Zeroish \u03b1",
+      "name": "T07_007.Zeroish.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T07_007.Zeroish \u03b1} \u2192 v1 = v2 \u2192 T07_007.Zeroish.noConfusionType P v1 v2",
+      "name": "T07_007.Zeroish.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T07_007.Zeroish \u03b1 \u2192 T07_007.Zeroish \u03b1 \u2192 Sort u",
+      "name": "T07_007.Zeroish.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_007.Zeroish \u03b1 \u2192 Sort u} \u2192 ((zero : \u03b1) \u2192 motive { zero := zero }) \u2192 (t : T07_007.Zeroish \u03b1) \u2192 motive t",
+      "name": "T07_007.Zeroish.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T07_007.Zeroish \u03b1 \u2192 Sort u} \u2192 (t : T07_007.Zeroish \u03b1) \u2192 ((zero : \u03b1) \u2192 motive { zero := zero }) \u2192 motive t",
+      "name": "T07_007.Zeroish.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T07_007.Zeroish \u03b1] \u2192 \u03b1",
+      "name": "T07_007.Zeroish.zero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u00d7 Nat",
+      "name": "T07_007.defaulted",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{n : Nat} \u2192 OfNat T07_007.Money n",
+      "name": "T07_007.instOfNatMoney",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int",
+      "name": "T07_007.intLit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T07_007.lit",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool",
+      "name": "T07_007.notDefaulted",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T07_007.plus",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_007.Money",
+      "name": "T07_007.price",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_007.Zeroish Bool",
+      "name": "T07_007.zeroishBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T07_007.Zeroish Nat",
+      "name": "T07_007.zeroishNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

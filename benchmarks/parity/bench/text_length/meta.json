@@ -1,0 +1,12 @@
+{
+  "capability": "text.length",
+  "workload": "length of s (varying-length)",
+  "arg": "200000",
+  "expected": "809900000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "rust"
+  ]
+}

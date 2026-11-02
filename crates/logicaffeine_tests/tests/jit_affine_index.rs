@@ -74,7 +74,10 @@ fn matmul_affine_index_tiers_and_matches() {
     let (out, err, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "158944000", "matmul checksum (n=40)");
-    assert!(region_ok >= 1, "the matmul inner loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the matmul inner loop must tier (got {region_ok})"
+    );
 }
 
 /// THE KNAPSACK DP SHAPE — `prev[w+1]` and `prev[w - wi + 1]` are read-only
@@ -118,7 +121,10 @@ fn knapsack_affine_index_tiers_and_matches() {
     let (out, err, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "4928", "knapsack value (n=200)");
-    assert!(region_ok >= 1, "the knapsack DP loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the knapsack DP loop must tier (got {region_ok})"
+    );
 }
 
 /// THE HEAP-SIFT SHAPE — a region carrying `2*root+1` / `2*root+2` indexed reads
@@ -201,7 +207,10 @@ fn bubble_swap_offset_index_tiers_and_matches() {
     let (out, err, region_ok) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "1", "bubble sort must fully sort the array");
-    assert!(region_ok >= 1, "the bubble inner loop must tier (got {region_ok})");
+    assert!(
+        region_ok >= 1,
+        "the bubble inner loop must tier (got {region_ok})"
+    );
 }
 
 /// OOB-INDEX DEOPT PARITY — an affine-indexed load whose computed index walks
@@ -234,7 +243,10 @@ fn affine_index_oob_deopts_identically() {
         (norm(&tw.output), &tw.error),
         "affine OOB must deopt and raise the identical index error as the tree-walker"
     );
-    assert!(vm.error.is_some(), "the affine index must walk off the end and error");
+    assert!(
+        vm.error.is_some(),
+        "the affine index must walk off the end and error"
+    );
 }
 
 /// KILL-SWITCH PARITY — with the affine fusion disabled, every shape still runs
@@ -271,7 +283,19 @@ fn affine_fusion_killswitch_preserves_results() {
         vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier))
     };
     let tw = tw_outcome_with_args(src, &[]);
-    assert_eq!(norm(&baseline.output), norm(&tw.output), "kill-switch path matches tree-walker");
-    assert_eq!(norm(&fused.output), norm(&tw.output), "fused path matches tree-walker");
-    assert_eq!(norm(&baseline.output), norm(&fused.output), "fusion changes no observable result");
+    assert_eq!(
+        norm(&baseline.output),
+        norm(&tw.output),
+        "kill-switch path matches tree-walker"
+    );
+    assert_eq!(
+        norm(&fused.output),
+        norm(&tw.output),
+        "fused path matches tree-walker"
+    );
+    assert_eq!(
+        norm(&baseline.output),
+        norm(&fused.output),
+        "fusion changes no observable result"
+    );
 }

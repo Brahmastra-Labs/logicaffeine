@@ -2,12 +2,15 @@
 
 #![cfg(feature = "verification")]
 
-use logicaffeine_verify::strategy::{select_strategy, verify_auto, Strategy, VerificationResult};
 use logicaffeine_verify::kinduction::SignalDecl;
+use logicaffeine_verify::strategy::{select_strategy, verify_auto, Strategy, VerificationResult};
 use logicaffeine_verify::{VerifyExpr, VerifyOp};
 
 fn sig(name: &str) -> SignalDecl {
-    SignalDecl { name: name.into(), width: None }
+    SignalDecl {
+        name: name.into(),
+        width: None,
+    }
 }
 
 #[test]
@@ -15,8 +18,11 @@ fn strategy_small_selects_kind() {
     // Small property → k-induction
     let prop = VerifyExpr::var("p@t");
     let strategy = select_strategy(&prop, &[sig("p")]);
-    assert!(matches!(strategy, Strategy::KInduction(_)),
-        "Small property should select k-induction. Got: {:?}", strategy);
+    assert!(
+        matches!(strategy, Strategy::KInduction(_)),
+        "Small property should select k-induction. Got: {:?}",
+        strategy
+    );
 }
 
 #[test]
@@ -26,8 +32,11 @@ fn strategy_auto_proves_safety() {
     let transition = VerifyExpr::iff(VerifyExpr::var("safe@t1"), VerifyExpr::var("safe@t"));
     let property = VerifyExpr::var("safe@t");
     let result = verify_auto(&init, &transition, &property, &[sig("safe")]);
-    assert!(matches!(result, VerificationResult::Safe { .. }),
-        "Auto should prove safety. Got: {:?}", result);
+    assert!(
+        matches!(result, VerificationResult::Safe { .. }),
+        "Auto should prove safety. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -37,8 +46,11 @@ fn strategy_auto_finds_bug() {
     let transition = VerifyExpr::bool(true);
     let property = VerifyExpr::var("ok@t");
     let result = verify_auto(&init, &transition, &property, &[sig("ok")]);
-    assert!(matches!(result, VerificationResult::Unsafe { .. }),
-        "Auto should find bug. Got: {:?}", result);
+    assert!(
+        matches!(result, VerificationResult::Unsafe { .. }),
+        "Auto should find bug. Got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -60,8 +72,11 @@ fn strategy_auto_integer_property() {
     );
     let property = VerifyExpr::gte(VerifyExpr::var("c@t"), VerifyExpr::int(0));
     let result = verify_auto(&init, &transition, &property, &[sig("c")]);
-    assert!(matches!(result, VerificationResult::Safe { .. }),
-        "Counter >= 0 should be proved. Got: {:?}", result);
+    assert!(
+        matches!(result, VerificationResult::Safe { .. }),
+        "Counter >= 0 should be proved. Got: {:?}",
+        result
+    );
 }
 
 #[test]

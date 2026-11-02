@@ -46,7 +46,11 @@ impl SpannedError {
 
 impl fmt::Display for SpannedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} at {}..{}", self.message, self.span.start, self.span.end)
+        write!(
+            f,
+            "{} at {}..{}",
+            self.message, self.span.start, self.span.end
+        )
     }
 }
 
@@ -58,14 +62,5 @@ impl std::error::Error for SpannedError {}
 pub type Result<T> = std::result::Result<T, SpannedError>;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spanned_error_display() {
-        let err = SpannedError::new("test error", Span::new(5, 10));
-        let display = format!("{}", err);
-        assert!(display.contains("test error"));
-        assert!(display.contains("5..10"));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/error/tests.rs"]
+mod tests;

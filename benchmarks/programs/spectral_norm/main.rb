@@ -2,15 +2,17 @@ def a(i,j); 1.0/((i+j)*(i+j+1)/2+i+1); end
 
 def mul_av(n, v, out)
   n.times do |i|
-    out[i] = 0.0
-    n.times { |j| out[i] += a(i,j) * v[j] }
+    s = 0.0
+    n.times { |j| s += a(i,j) * v[j] }
+    out[i] = s
   end
 end
 
 def mul_atv(n, v, out)
   n.times do |i|
-    out[i] = 0.0
-    n.times { |j| out[i] += a(j,i) * v[j] }
+    s = 0.0
+    n.times { |j| s += a(j,i) * v[j] }
+    out[i] = s
   end
 end
 

@@ -1,0 +1,47 @@
+Publish the package to the LOGOS registry.
+
+Packages the project as a tarball and uploads it to the specified registry. Requires authentication via `largo login`.
+
+# Pre-flight Checks
+
+Before publishing, the command verifies: - The entry point exists - No uncommitted git changes (unless `--allow-dirty`) - Valid authentication token
+
+# Example
+
+```bash largo publish              # Publish to default registry largo publish --dry-run    # Validate without uploading ```
+
+Usage: largo publish [OPTIONS]
+
+Options:
+      --registry <REGISTRY>
+          Registry URL. Defaults to `registry.logicaffeine.com`
+
+      --dry-run
+          Perform all validation without actually uploading. Useful for testing the publish process
+
+      --allow-dirty
+          Allow publishing with uncommitted git changes. By default, publishing requires a clean working directory
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo publish --dry-run
+  largo publish
+  largo publish --allow-dirty

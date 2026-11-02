@@ -1,0 +1,12 @@
+{
+  "capability": "text.split_whitespace",
+  "workload": "words(s) \u2014 #words",
+  "arg": "20000",
+  "expected": "8000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python",
+    "rust"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "mergesort",
+  "lang": "logos_jit",
+  "n": "55386315",
+  "samples_weight": 94746414814,
+  "alloc_pct": 9.696,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 90.304
+}

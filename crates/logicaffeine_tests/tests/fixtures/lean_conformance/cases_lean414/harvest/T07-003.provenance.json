@@ -1,0 +1,78 @@
+{
+  "case": "T07-003",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t07_typeclasses/T07-003_simple_instance_resolution.lean",
+  "source_sha256": "49c70159738f435a9b296ec8f24788c19d50e1b3bae7f0b35c3bdb1f6ae140c3",
+  "ledger_sha256": "3bde0e065360e108380a1f555c0110ae802cbc3ba62ca7519a13e53c28cffafa",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T07_003.Pointed",
+    "T07_003.Pointed.mk",
+    "T07_003.Pointed.point",
+    "T07_003.Sized",
+    "T07_003.Sized.mk",
+    "T07_003.Sized.size",
+    "T07_003.earlyResolution",
+    "T07_003.fromExpectedType",
+    "T07_003.generic",
+    "T07_003.instPointedBool",
+    "T07_003.instPointedNat",
+    "T07_003.nested",
+    "T07_003.sizedBool",
+    "T07_003.sizedNat",
+    "T07_003.twoPremises"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "52d0296fb56a2a95436b90762027d1e2023a48650bf7bc0d7a50319bd9eea0c3",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 844,
+  "harvest": {
+    "roots": [
+      "T07_003.Pointed",
+      "T07_003.Pointed.mk",
+      "T07_003.Pointed.point",
+      "T07_003.Sized",
+      "T07_003.Sized.mk",
+      "T07_003.Sized.size",
+      "T07_003.earlyResolution",
+      "T07_003.fromExpectedType",
+      "T07_003.generic",
+      "T07_003.instPointedBool",
+      "T07_003.instPointedNat",
+      "T07_003.nested",
+      "T07_003.sizedBool",
+      "T07_003.sizedNat",
+      "T07_003.twoPremises"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

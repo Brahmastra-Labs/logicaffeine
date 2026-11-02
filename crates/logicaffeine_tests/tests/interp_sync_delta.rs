@@ -18,7 +18,9 @@ async fn capture_two_syncs() -> (Vec<u8>, Vec<u8>) {
     let relay = serve("127.0.0.1:0").await.expect("relay binds");
     let url = relay.url();
     let mut peer = RelayClient::connect(&url).await.expect("peer dials");
-    peer.subscribe(&canonical_topic("room")).await.expect("peer subscribes to the room");
+    peer.subscribe(&canonical_topic("room"))
+        .await
+        .expect("peer subscribes to the room");
 
     let program = format!(
         "## Definition\n\
@@ -56,7 +58,11 @@ async fn capture_two_syncs() -> (Vec<u8>, Vec<u8>) {
     };
 
     let (result, pair) = tokio::join!(run, recv);
-    assert!(result.error.is_none(), "the sync program ran: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "the sync program ran: {:?}",
+        result.error
+    );
     pair
 }
 

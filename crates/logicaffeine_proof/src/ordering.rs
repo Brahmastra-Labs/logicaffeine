@@ -80,8 +80,16 @@ pub fn ordering_certificate(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Ord
                 _ => {}
             },
             3 => {
-                let negs: Vec<u32> = c.iter().filter(|l| !l.is_positive()).map(|l| l.var()).collect();
-                let poss: Vec<u32> = c.iter().filter(|l| l.is_positive()).map(|l| l.var()).collect();
+                let negs: Vec<u32> = c
+                    .iter()
+                    .filter(|l| !l.is_positive())
+                    .map(|l| l.var())
+                    .collect();
+                let poss: Vec<u32> = c
+                    .iter()
+                    .filter(|l| l.is_positive())
+                    .map(|l| l.var())
+                    .collect();
                 if negs.len() == 2 && poss.len() == 1 {
                     trans.insert((negs[0], negs[1], poss[0]));
                     trans.insert((negs[1], negs[0], poss[0]));
@@ -165,7 +173,10 @@ pub fn ordering_certificate(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Ord
     }
     // each group must be EXACTLY element i's outgoing set {edge[(i,j)] : j≠i}.
     for (i, g) in groups.iter().enumerate() {
-        let expected: HashSet<u32> = (0..n).filter(|&j| j != i).map(|j| edge[i * n + j]).collect();
+        let expected: HashSet<u32> = (0..n)
+            .filter(|&j| j != i)
+            .map(|j| edge[i * n + j])
+            .collect();
         if expected != g.iter().copied().collect() {
             return None;
         }
@@ -237,8 +248,16 @@ pub fn check_ordering_cert(cert: &OrderingCert, clauses: &[Vec<Lit>]) -> bool {
                 _ => {}
             },
             3 => {
-                let negs: Vec<u32> = c.iter().filter(|l| !l.is_positive()).map(|l| l.var()).collect();
-                let poss: Vec<u32> = c.iter().filter(|l| l.is_positive()).map(|l| l.var()).collect();
+                let negs: Vec<u32> = c
+                    .iter()
+                    .filter(|l| !l.is_positive())
+                    .map(|l| l.var())
+                    .collect();
+                let poss: Vec<u32> = c
+                    .iter()
+                    .filter(|l| l.is_positive())
+                    .map(|l| l.var())
+                    .collect();
                 if negs.len() == 2 && poss.len() == 1 {
                     trans.insert((negs[0], negs[1], poss[0]));
                 }

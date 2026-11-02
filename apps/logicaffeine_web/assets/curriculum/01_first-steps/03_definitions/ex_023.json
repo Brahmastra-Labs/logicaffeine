@@ -2,17 +2,18 @@
   "id": "Q_3.24",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "Cars are vehicles powered by gasoline.",
+  "prompt": "A car is a vehicle with wheels.",
   "options": [
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Cars?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+  "hint": "Can you think of something that fits this definition but is not a car?",
+  "explanation": "Bicycles and trucks have wheels too, so the definition lets in vehicles that are not cars.",
+  "section": "3.2"
 }

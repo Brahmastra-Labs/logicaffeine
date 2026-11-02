@@ -2,25 +2,34 @@ import sys
 sys.setrecursionlimit(1000000)
 
 def merge_sort(arr):
-    if len(arr) < 2: return arr
-    mid = len(arr) // 2
-    left = merge_sort(arr[:mid])
-    right = merge_sort(arr[mid:])
-    result = []
-    i = j = 0
-    while i < len(left) and j < len(right):
-        if left[i] <= right[j]: result.append(left[i]); i += 1
-        else: result.append(right[j]); j += 1
-    result.extend(left[i:]); result.extend(right[j:])
-    return result
+    n = len(arr)
+    if n < 2: return
+    mid = n // 2
+    left = arr[:mid]
+    right = arr[mid:]
+    merge_sort(left)
+    merge_sort(right)
+    i = j = k = 0
+    while i < mid and j < n - mid:
+        if left[i] <= right[j]: arr[k] = left[i]; i += 1
+        else: arr[k] = right[j]; j += 1
+        k += 1
+    while i < mid: arr[k] = left[i]; i += 1; k += 1
+    while j < n - mid: arr[k] = right[j]; j += 1; k += 1
 
-n = int(sys.argv[1])
-arr = []
-seed = 42
-for _ in range(n):
-    seed = (seed * 1103515245 + 12345) % 2147483648
-    arr.append((seed >> 16) & 0x7fff)
-arr = merge_sort(arr)
-checksum = 0
-for v in arr: checksum = (checksum + v) % 1000000007
-print(f"{arr[0]} {arr[-1]} {checksum}")
+
+def main():
+    n = int(sys.argv[1])
+    arr = []
+    seed = 42
+    for _ in range(n):
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        arr.append((seed >> 16) & 0x7fff)
+    merge_sort(arr)
+    checksum = 0
+    for v in arr: checksum = (checksum * 31 + v) & 268435455
+    print(f"{arr[0]} {arr[-1]} {checksum}")
+
+
+if __name__ == "__main__":
+    main()

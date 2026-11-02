@@ -1,0 +1,360 @@
+{
+  "source": "OFS ofs-d5005 2024.1-1 ipss/mem/ip/emif_ddr4_no_ecc.ip",
+  "timing": {
+    "grade": {
+      "part": "d5005-emif-ddr4-2400",
+      "bank_groups": 4,
+      "banks_per_group": 4,
+      "row_bits": 16,
+      "col_bits": 10,
+      "dq_bits": 72,
+      "rate": 4,
+      "mem_mhz": 1200,
+      "cl": 21,
+      "cwl": 16,
+      "pl": 4,
+      "trcd_ps": 14160,
+      "trp_ps": 14160,
+      "tras_ps": 32000,
+      "trc_ps": null,
+      "trrd_s_ck": 4,
+      "trrd_l_ck": 6,
+      "tfaw_ps": 21000,
+      "tccd_s_ck": 4,
+      "tccd_l_ck": 6,
+      "twr_ps": 15000,
+      "twtr_s_ck": 3,
+      "twtr_l_ck": 9,
+      "trtp_ps": 7500,
+      "trfc_ps": 350000,
+      "trefi_ps": 7800000
+    },
+    "rl": 25,
+    "wl": 20,
+    "trcd": 17,
+    "trp": 17,
+    "tras": 39,
+    "trc": 56,
+    "trrd_s": 4,
+    "trrd_l": 6,
+    "tfaw": 26,
+    "tccd_s": 4,
+    "tccd_l": 6,
+    "twr": 18,
+    "twtr_s": 3,
+    "twtr_l": 9,
+    "trtp": 9,
+    "trfc": 420,
+    "trefi": 9360
+  },
+  "lookahead": 16,
+  "header": "qwen3.8-27b-q4_k_m",
+  "state_bytes": 1634304,
+  "position_bytes": 2048,
+  "rows": [
+    {
+      "pattern": "weights: one read of 65536 lines",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 628,
+        "reads": 65536,
+        "writes": 0,
+        "precharges": 185,
+        "refreshes": 29,
+        "turnarounds": 0,
+        "data_ck": 262144,
+        "end": 275498
+      },
+      "efficiency": 0.9515277787860529,
+      "controller_ck": 68875,
+      "channel_bytes_per_s": 18269333352.692215,
+      "card_bytes_per_s": 73077333410.76886
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 25536 lines, read and written back 8 lines at a time",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 1336,
+        "reads": 102144,
+        "writes": 102144,
+        "precharges": 134,
+        "refreshes": 134,
+        "turnarounds": 25535,
+        "data_ck": 817152,
+        "end": 1262867
+      },
+      "efficiency": 0.6470610127590634,
+      "controller_ck": 315717,
+      "channel_bytes_per_s": 12423571444.974016,
+      "card_bytes_per_s": 49694285779.896065
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 25536 lines, read and written back 32 lines at a time",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 1203,
+        "reads": 102144,
+        "writes": 102144,
+        "precharges": 102,
+        "refreshes": 102,
+        "turnarounds": 6383,
+        "data_ck": 817152,
+        "end": 962962
+      },
+      "efficiency": 0.8485817716586948,
+      "controller_ck": 240741,
+      "channel_bytes_per_s": 16292770015.84694,
+      "card_bytes_per_s": 65171080063.38776
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 25536 lines, read and written back 128 lines at a time",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 1202,
+        "reads": 102144,
+        "writes": 102144,
+        "precharges": 94,
+        "refreshes": 94,
+        "turnarounds": 1599,
+        "data_ck": 817152,
+        "end": 885772
+      },
+      "efficiency": 0.9225308544410977,
+      "controller_ck": 221443,
+      "channel_bytes_per_s": 17712592405.269077,
+      "card_bytes_per_s": 70850369621.07631
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 25536 lines, read and written back 512 lines at a time",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 1312,
+        "reads": 102144,
+        "writes": 102144,
+        "precharges": 92,
+        "refreshes": 92,
+        "turnarounds": 399,
+        "data_ck": 817152,
+        "end": 866952
+      },
+      "efficiency": 0.9425573734185976,
+      "controller_ck": 216738,
+      "channel_bytes_per_s": 18097101569.637074,
+      "card_bytes_per_s": 72388406278.5483
+    },
+    {
+      "pattern": "attention cache: 4 sequences of 256 positions read, one appended",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 314,
+        "reads": 32768,
+        "writes": 128,
+        "precharges": 88,
+        "refreshes": 14,
+        "turnarounds": 7,
+        "data_ck": 131584,
+        "end": 138155
+      },
+      "efficiency": 0.9524374796424306,
+      "controller_ck": 34539,
+      "channel_bytes_per_s": 18286799609.134666,
+      "card_bytes_per_s": 73147198436.53867
+    },
+    {
+      "pattern": "attention cache: 4 sequences of 2048 positions read, one appended",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 2517,
+        "reads": 262144,
+        "writes": 128,
+        "precharges": 746,
+        "refreshes": 117,
+        "turnarounds": 7,
+        "data_ck": 1049088,
+        "end": 1102936
+      },
+      "efficiency": 0.9511775841934618,
+      "controller_ck": 275734,
+      "channel_bytes_per_s": 18262609616.514465,
+      "card_bytes_per_s": 73050438466.05786
+    },
+    {
+      "pattern": "attention cache: 4 sequences of 8192 positions read, one appended",
+      "beat": "Data64",
+      "line_bytes": 64,
+      "facts": {
+        "activates": 10069,
+        "reads": 1048576,
+        "writes": 128,
+        "precharges": 2996,
+        "refreshes": 471,
+        "turnarounds": 7,
+        "data_ck": 4194816,
+        "end": 4411164
+      },
+      "efficiency": 0.9509544419568169,
+      "controller_ck": 1102791,
+      "channel_bytes_per_s": 18258325285.570885,
+      "card_bytes_per_s": 73033301142.28354
+    },
+    {
+      "pattern": "weights: one read of 65536 lines",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 628,
+        "reads": 65536,
+        "writes": 0,
+        "precharges": 185,
+        "refreshes": 29,
+        "turnarounds": 0,
+        "data_ck": 262144,
+        "end": 275498
+      },
+      "efficiency": 0.9515277787860529,
+      "controller_ck": 68875,
+      "channel_bytes_per_s": 20553000021.778744,
+      "card_bytes_per_s": 82212000087.11497
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 22699 lines, read and written back 8 lines at a time",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 1188,
+        "reads": 90796,
+        "writes": 90796,
+        "precharges": 119,
+        "refreshes": 119,
+        "turnarounds": 22703,
+        "data_ck": 726368,
+        "end": 1122940
+      },
+      "efficiency": 0.6468448893084225,
+      "controller_ck": 280735,
+      "channel_bytes_per_s": 13971849609.061928,
+      "card_bytes_per_s": 55887398436.24771
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 22699 lines, read and written back 32 lines at a time",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 1085,
+        "reads": 90796,
+        "writes": 90796,
+        "precharges": 91,
+        "refreshes": 91,
+        "turnarounds": 5679,
+        "data_ck": 726368,
+        "end": 856196
+      },
+      "efficiency": 0.8483664955220533,
+      "controller_ck": 214049,
+      "channel_bytes_per_s": 18324716303.276352,
+      "card_bytes_per_s": 73298865213.10541
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 22699 lines, read and written back 128 lines at a time",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 1066,
+        "reads": 90796,
+        "writes": 90796,
+        "precharges": 84,
+        "refreshes": 84,
+        "turnarounds": 1423,
+        "data_ck": 726368,
+        "end": 787655
+      },
+      "efficiency": 0.9221905529705264,
+      "controller_ck": 196914,
+      "channel_bytes_per_s": 19919315944.163372,
+      "card_bytes_per_s": 79677263776.65349
+    },
+    {
+      "pattern": "Gated-DeltaNet state: 4 memories of 22699 lines, read and written back 512 lines at a time",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 1132,
+        "reads": 90796,
+        "writes": 90796,
+        "precharges": 82,
+        "refreshes": 82,
+        "turnarounds": 359,
+        "data_ck": 726368,
+        "end": 770807
+      },
+      "efficiency": 0.9423474358691605,
+      "controller_ck": 192702,
+      "channel_bytes_per_s": 20354704614.773865,
+      "card_bytes_per_s": 81418818459.09546
+    },
+    {
+      "pattern": "attention cache: 4 sequences of 256 positions read, one appended",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 284,
+        "reads": 29128,
+        "writes": 120,
+        "precharges": 81,
+        "refreshes": 13,
+        "turnarounds": 7,
+        "data_ck": 116992,
+        "end": 123094
+      },
+      "efficiency": 0.9504281280972265,
+      "controller_ck": 30774,
+      "channel_bytes_per_s": 20529247566.900093,
+      "card_bytes_per_s": 82116990267.60037
+    },
+    {
+      "pattern": "attention cache: 4 sequences of 2048 positions read, one appended",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 2239,
+        "reads": 233020,
+        "writes": 116,
+        "precharges": 663,
+        "refreshes": 104,
+        "turnarounds": 7,
+        "data_ck": 932544,
+        "end": 980425
+      },
+      "efficiency": 0.9511630160389627,
+      "controller_ck": 245107,
+      "channel_bytes_per_s": 20545121146.441593,
+      "card_bytes_per_s": 82180484585.76637
+    },
+    {
+      "pattern": "attention cache: 4 sequences of 8192 positions read, one appended",
+      "beat": "Full72",
+      "line_bytes": 72,
+      "facts": {
+        "activates": 8952,
+        "reads": 932068,
+        "writes": 120,
+        "precharges": 2666,
+        "refreshes": 418,
+        "turnarounds": 7,
+        "data_ck": 3728752,
+        "end": 3920783
+      },
+      "efficiency": 0.9510222830490747,
+      "controller_ck": 980196,
+      "channel_bytes_per_s": 20542081313.860012,
+      "card_bytes_per_s": 82168325255.44005
+    }
+  ]
+}

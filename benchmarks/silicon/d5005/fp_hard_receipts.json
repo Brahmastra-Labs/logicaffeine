@@ -1,0 +1,173 @@
+{
+ "_what": "The D5005's floating-point DSP block as the card measured it: each receipt one run of the oracle persona (codegen_sva::fp_oracle) on the image the build compiled, recorded by the d5005_fp_receipt example only when the build passed, its discriminator ledger regenerates the engine it compiled, the card configured that image without error and the measurement finished. Its inputs are kept beside it in fp_receipts/<build>-<measurement>/.",
+ "receipts": [
+  {
+   "recorded": "2026-10-25T02:38:39Z",
+   "build": "fp-oracle5",
+   "gbs_sha256": "984b31665a42f04d0588e3bae4ac3d00ec57b7a10604bb86e6bf961d8ab04657",
+   "engine_sha256": "525305b06c1a1afb023ef53ef099c66722158df2e27d55715e3284f79f4adb6b",
+   "discriminators_sha256": "221158e3512c5e6cbdf78eb7e0371bd160495004a68dab613491ccc8191ea06d",
+   "measurement_sha256": "19a6c0bbb318256fa27171b73f06694256821e4d37f69fb386f4ff52ea83e7f0",
+   "started": "2026-10-25T00:40:44Z",
+   "finished": "2026-10-25T00:40:49Z",
+   "user_clock_mhz": 100.0,
+   "seed": 1592651789,
+   "steps": {
+    "vectors": 867,
+    "random": 16777216,
+    "near": 16777216
+   },
+   "product_classes": 84,
+   "sum_classes": 36,
+   "multiply": {
+    "full": 4,
+    "least": 1,
+    "agreeing": 0,
+    "class": [],
+    "unexplained": 0,
+    "nearest": [
+     {
+      "class": "din-flush.dout-flush.tiny-after-unbounded.sign-kept.nan-ffc00000",
+      "differing": 1086916
+     },
+     {
+      "class": "din-flush.dout-flush.tiny-after-denormals.sign-kept.nan-ffc00000",
+      "differing": 1086917
+     },
+     {
+      "class": "din-flush.dout-flush.tiny-before.sign-kept.nan-ffc00000",
+      "differing": 1086917
+     }
+    ],
+    "unit": {
+     "refused": {
+      "latency": 3,
+      "why": "the block's multiply is no member of the family: every class differs somewhere (0 steps no class explains)"
+     }
+    }
+   },
+   "add": {
+    "full": 3,
+    "least": 1,
+    "agreeing": 1,
+    "class": [
+     "din-flush.dout-flush.tiny-after-denormals.sign-kept.nan-7fc00000",
+     "din-flush.dout-flush.tiny-before.sign-kept.nan-7fc00000",
+     "din-flush.dout-flush.tiny-after-unbounded.sign-kept.nan-7fc00000"
+    ],
+    "unexplained": 0,
+    "nearest": [
+     {
+      "class": "din-flush.dout-flush.tiny-after-denormals.sign-kept.nan-7fc00000",
+      "differing": 0
+     },
+     {
+      "class": "din-flush.dout-flush.tiny-after-denormals.sign-pos.nan-7fc00000",
+      "differing": 345412
+     },
+     {
+      "class": "din-flush.dout-keep.nan-7fc00000",
+      "differing": 690304
+     }
+    ],
+    "unit": {
+     "hard": {
+      "latency": 4,
+      "registering": "full",
+      "pads": 1,
+      "flush_operands": false,
+      "flush_results": false,
+      "canonical_nan": false
+     }
+    }
+   },
+   "multiply_add_latency": 5,
+   "multiply_add_rounding": "twice"
+  },
+  {
+   "recorded": "2026-10-26T02:48:40Z",
+   "build": "fp-oracle6",
+   "gbs_sha256": "e1b20d4e4da62f010297e55e1e35d5ac99a530db54b26ef210fac64537f7ceca",
+   "engine_sha256": "12c87b3a63dcdf06d7c833f27ca132dac59e4a317a709d24659efbad2568ec4e",
+   "discriminators_sha256": "39ca18c1d56cbdd0c6ffe36d4297dbea05e9f44c328c4149658d0240ff50d0a7",
+   "measurement_sha256": "c9b581499d2e192ec8ddf0047cda6999cea2f6a4e4e4644fc774fcc3e5c712cb",
+   "started": "2026-10-26T02:42:08Z",
+   "finished": "2026-10-26T02:42:13Z",
+   "user_clock_mhz": 100.0,
+   "seed": 1592651789,
+   "steps": {
+    "vectors": 867,
+    "random": 16777216,
+    "near": 16777216
+   },
+   "product_classes": 98,
+   "sum_classes": 42,
+   "multiply": {
+    "full": 4,
+    "least": 1,
+    "agreeing": 1,
+    "class": [
+     "din-flush.dout-flush.tiny-after-unbounded.sign-kept.nan-xor-7fc00000"
+    ],
+    "unexplained": 0,
+    "nearest": [
+     {
+      "class": "din-flush.dout-flush.tiny-after-unbounded.sign-kept.nan-xor-7fc00000",
+      "differing": 0
+     },
+     {
+      "class": "din-flush.dout-flush.tiny-after-denormals.sign-kept.nan-xor-7fc00000",
+      "differing": 1
+     },
+     {
+      "class": "din-flush.dout-flush.tiny-before.sign-kept.nan-xor-7fc00000",
+      "differing": 1
+     }
+    ],
+    "unit": {
+     "refused": {
+      "latency": 3,
+      "why": "the block's multiply (din-flush.dout-flush.tiny-after-unbounded.sign-kept.nan-xor-7fc00000) decides a result tiny before the engine does, and flushes what the engine would round into the least normal"
+     }
+    }
+   },
+   "add": {
+    "full": 3,
+    "least": 1,
+    "agreeing": 1,
+    "class": [
+     "din-flush.dout-flush.tiny-after-denormals.sign-kept.nan-7fc00000",
+     "din-flush.dout-flush.tiny-before.sign-kept.nan-7fc00000",
+     "din-flush.dout-flush.tiny-after-unbounded.sign-kept.nan-7fc00000"
+    ],
+    "unexplained": 0,
+    "nearest": [
+     {
+      "class": "din-flush.dout-flush.tiny-after-denormals.sign-kept.nan-7fc00000",
+      "differing": 0
+     },
+     {
+      "class": "din-flush.dout-flush.tiny-after-denormals.sign-pos.nan-7fc00000",
+      "differing": 345412
+     },
+     {
+      "class": "din-flush.dout-keep.nan-7fc00000",
+      "differing": 690304
+     }
+    ],
+    "unit": {
+     "hard": {
+      "latency": 4,
+      "registering": "full",
+      "pads": 1,
+      "flush_operands": false,
+      "flush_results": false,
+      "canonical_nan": false
+     }
+    }
+   },
+   "multiply_add_latency": 5,
+   "multiply_add_rounding": "twice"
+  }
+ ]
+}

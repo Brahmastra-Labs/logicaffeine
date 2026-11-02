@@ -1,0 +1,66 @@
+{
+  "case": "T12-008",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (x y : Nat), x + y = y + x",
+      "name": "T12_008.addComm'",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "5 \u2265 3",
+      "name": "T12_008.fiveGeThree",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), x > 0 \u2192 x \u2265 1",
+      "name": "T12_008.gtToGe",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), x \u2264 x",
+      "name": "T12_008.leRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), 2 * x \u2264 2 * x + 1",
+      "name": "T12_008.linearCoeff",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : Nat), x < x + 1",
+      "name": "T12_008.ltSucc",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 * 3 + (4 - 1) = 9",
+      "name": "T12_008.mixedArith",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "2 < 5",
+      "name": "T12_008.twoLtFive",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

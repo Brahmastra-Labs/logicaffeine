@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Either both W and C or D",
   "options": [
-    "$ ((W \\cdot C) \\vee D) $",
-    "$ (W \\cdot (C \\vee D)) $",
-    "$ (W \\cdot C) \\vee D $",
-    "$ W \\cdot C \\cdot D $"
+    "(W ∧ C) ∨ D",
+    "W ∧ (C ∨ D)",
+    "W ∧ C ∧ D",
+    "(W ∧ C) → D"
   ],
   "correct": 0,
-  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
-  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining W ∧ C and D: (W ∧ C) ∨ D.",
+  "section": "6.2"
 }

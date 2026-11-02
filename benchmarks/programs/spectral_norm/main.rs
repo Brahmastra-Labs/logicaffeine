@@ -1,7 +1,7 @@
 use std::env;
 fn a(i: usize, j: usize) -> f64 { 1.0 / ((i+j)*(i+j+1)/2+i+1) as f64 }
-fn mul_av(n: usize, v: &[f64], r: &mut [f64]) { for i in 0..n { r[i]=0.0; for j in 0..n { r[i]+=a(i,j)*v[j]; } } }
-fn mul_atv(n: usize, v: &[f64], r: &mut [f64]) { for i in 0..n { r[i]=0.0; for j in 0..n { r[i]+=a(j,i)*v[j]; } } }
+fn mul_av(n: usize, v: &[f64], r: &mut [f64]) { for i in 0..n { let mut s = 0.0; for j in 0..n { s+=a(i,j)*v[j]; } r[i]=s; } }
+fn mul_atv(n: usize, v: &[f64], r: &mut [f64]) { for i in 0..n { let mut s = 0.0; for j in 0..n { s+=a(j,i)*v[j]; } r[i]=s; } }
 fn mul_atav(n: usize, v: &[f64], r: &mut [f64], t: &mut [f64]) { mul_av(n,v,t); mul_atv(n,t,r); }
 fn main() {
     let n: usize = env::args().nth(1).unwrap().parse().unwrap();

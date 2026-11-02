@@ -13,14 +13,13 @@
 //! - if...else                             — conditional property
 
 use logicaffeine_compile::codegen_sva::sva_model::{
-    parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent, SvaExpr, ClockEdge,
-};
-use logicaffeine_compile::codegen_sva::sva_to_verify::{
-    BoundedExpr, SvaTranslator, count_and_leaves, count_or_leaves,
-    extract_signal_names,
+    parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent, ClockEdge, SvaExpr,
 };
 #[cfg(feature = "verification")]
 use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+use logicaffeine_compile::codegen_sva::sva_to_verify::{
+    count_and_leaves, count_or_leaves, extract_signal_names, BoundedExpr, SvaTranslator,
+};
 
 // ============================================================================
 // SECTION 1: $stable and $changed — System Functions
@@ -41,7 +40,12 @@ fn parse_changed_system_function() {
 #[test]
 fn parse_stable_in_implication() {
     let expr = parse_sva("valid |-> $stable(data)").unwrap();
-    if let SvaExpr::Implication { consequent, overlapping, .. } = &expr {
+    if let SvaExpr::Implication {
+        consequent,
+        overlapping,
+        ..
+    } = &expr
+    {
         assert!(matches!(consequent.as_ref(), SvaExpr::Stable(_)));
         assert!(*overlapping);
     } else {
@@ -52,7 +56,12 @@ fn parse_stable_in_implication() {
 #[test]
 fn parse_changed_in_implication() {
     let expr = parse_sva("enable |=> $changed(counter)").unwrap();
-    if let SvaExpr::Implication { consequent, overlapping, .. } = &expr {
+    if let SvaExpr::Implication {
+        consequent,
+        overlapping,
+        ..
+    } = &expr
+    {
         assert!(matches!(consequent.as_ref(), SvaExpr::Changed(_)));
         assert!(!*overlapping);
     } else {
@@ -210,7 +219,8 @@ fn repetition_roundtrip() {
         let reparsed = parse_sva(&text).unwrap();
         assert!(
             sva_exprs_structurally_equivalent(&expr, &reparsed),
-            "roundtrip failed for '{}'", input
+            "roundtrip failed for '{}'",
+            input
         );
     }
 }
@@ -254,7 +264,10 @@ fn parse_disable_iff() {
             assert_eq!(clock, "clk");
             assert_eq!(*edge, ClockEdge::Posedge);
             match body.as_ref() {
-                SvaExpr::DisableIff { condition, body: inner } => {
+                SvaExpr::DisableIff {
+                    condition,
+                    body: inner,
+                } => {
                     assert!(matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "reset"));
                     assert!(matches!(inner.as_ref(), SvaExpr::Implication { .. }));
                 }
@@ -307,8 +320,11 @@ fn parse_negedge_clock_strips_sensitivity() {
         SvaExpr::Clocked { clock, edge, body } => {
             assert_eq!(clock, "clk");
             assert_eq!(*edge, ClockEdge::Negedge);
-            assert!(matches!(**body, SvaExpr::Implication { .. }),
-                "Clocked body should be Implication. Got: {:?}", body);
+            assert!(
+                matches!(**body, SvaExpr::Implication { .. }),
+                "Clocked body should be Implication. Got: {:?}",
+                body
+            );
         }
         _ => panic!("Expected Clocked. Got: {:?}", expr),
     }
@@ -424,7 +440,8 @@ fn nexttime_roundtrips() {
         let reparsed = parse_sva(&text).unwrap();
         assert!(
             sva_exprs_structurally_equivalent(&expr, &reparsed),
-            "roundtrip failed for '{}'", input
+            "roundtrip failed for '{}'",
+            input
         );
     }
 }
@@ -455,7 +472,12 @@ fn translate_nexttime_n_shifts_by_n() {
 fn parse_if_else_property() {
     let expr = parse_sva("if (mode) req |-> ack else req |-> nack").unwrap();
     assert!(matches!(expr, SvaExpr::IfElse { .. }));
-    if let SvaExpr::IfElse { condition, then_expr, else_expr } = &expr {
+    if let SvaExpr::IfElse {
+        condition,
+        then_expr,
+        else_expr,
+    } = &expr
+    {
         assert!(matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "mode"));
         assert!(matches!(then_expr.as_ref(), SvaExpr::Implication { .. }));
         assert!(matches!(else_expr.as_ref(), SvaExpr::Implication { .. }));
@@ -469,8 +491,10 @@ fn parse_if_without_else() {
     assert!(matches!(expr, SvaExpr::IfElse { .. }));
     if let SvaExpr::IfElse { else_expr, .. } = &expr {
         // No else clause → vacuously true when condition is false
-        assert!(matches!(else_expr.as_ref(), SvaExpr::Signal(_) | SvaExpr::And(_, _))
-            || matches!(else_expr.as_ref(), _)); // accept any valid default
+        assert!(
+            matches!(else_expr.as_ref(), SvaExpr::Signal(_) | SvaExpr::And(_, _))
+                || matches!(else_expr.as_ref(), _)
+        ); // accept any valid default
     }
 }
 
@@ -509,7 +533,12 @@ fn parse_handshake_with_reset() {
 fn parse_data_integrity_with_stable() {
     let expr = parse_sva("valid |=> $stable(data)").unwrap();
     assert!(matches!(expr, SvaExpr::Implication { .. }));
-    if let SvaExpr::Implication { consequent, overlapping, .. } = &expr {
+    if let SvaExpr::Implication {
+        consequent,
+        overlapping,
+        ..
+    } = &expr
+    {
         assert!(matches!(consequent.as_ref(), SvaExpr::Stable(_)));
         assert!(!*overlapping); // |=> is non-overlapping
     }
@@ -527,7 +556,12 @@ fn parse_arbiter_fairness() {
     // If request is held, grant must eventually come
     let expr = parse_sva("s_always(req) |-> s_eventually(grant)").unwrap();
     assert!(matches!(expr, SvaExpr::Implication { .. }));
-    if let SvaExpr::Implication { antecedent, consequent, .. } = &expr {
+    if let SvaExpr::Implication {
+        antecedent,
+        consequent,
+        ..
+    } = &expr
+    {
         assert!(matches!(antecedent.as_ref(), SvaExpr::SAlways(_)));
         assert!(matches!(consequent.as_ref(), SvaExpr::SEventually(_)));
     }
@@ -541,8 +575,11 @@ fn parse_spi_protocol_pattern() {
         SvaExpr::Clocked { clock, edge, body } => {
             assert_eq!(clock, "sclk");
             assert_eq!(*edge, ClockEdge::Negedge);
-            assert!(matches!(**body, SvaExpr::Implication { .. }),
-                "Clocked body should be Implication. Got: {:?}", body);
+            assert!(
+                matches!(**body, SvaExpr::Implication { .. }),
+                "Clocked body should be Implication. Got: {:?}",
+                body
+            );
         }
         _ => panic!("Expected Clocked. Got: {:?}", expr),
     }
@@ -550,9 +587,7 @@ fn parse_spi_protocol_pattern() {
 
 #[test]
 fn parse_conditional_protocol_mode() {
-    let expr = parse_sva(
-        "if (dma_mode) req |-> ##[1:3] ack else req |-> ##[1:10] ack"
-    ).unwrap();
+    let expr = parse_sva("if (dma_mode) req |-> ##[1:3] ack else req |-> ##[1:10] ack").unwrap();
     assert!(matches!(expr, SvaExpr::IfElse { .. }));
 }
 
@@ -577,7 +612,11 @@ fn translate_property_stable_over_all_timesteps() {
     // Property translation conjoins over timesteps:
     // t=0: true (no prior), t=1: data@1==data@0, t=2: data@2==data@1, t=3: data@3==data@2
     let leaves = count_and_leaves(&result.expr);
-    assert!(leaves >= 3, "expected at least 3 and-leaves, got {}", leaves);
+    assert!(
+        leaves >= 3,
+        "expected at least 3 and-leaves, got {}",
+        leaves
+    );
 }
 
 #[test]
@@ -614,7 +653,8 @@ fn stable_bounded_to_verify_produces_eq() {
     assert!(matches!(
         verify,
         logicaffeine_verify::VerifyExpr::Binary {
-            op: logicaffeine_verify::VerifyOp::Eq, ..
+            op: logicaffeine_verify::VerifyOp::Eq,
+            ..
         }
     ));
 }

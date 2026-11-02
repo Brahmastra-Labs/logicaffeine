@@ -48,11 +48,9 @@ impl Credentials {
             return Ok(Self::default());
         }
 
-        let content = fs::read_to_string(&path)
-            .map_err(|e| CredentialsError::Io(e.to_string()))?;
+        let content = fs::read_to_string(&path).map_err(|e| CredentialsError::Io(e.to_string()))?;
 
-        toml::from_str(&content)
-            .map_err(|e| CredentialsError::Parse(e.to_string()))
+        toml::from_str(&content).map_err(|e| CredentialsError::Parse(e.to_string()))
     }
 
     /// Save credentials to the default location
@@ -61,23 +59,20 @@ impl Credentials {
 
         // Create parent directory if needed
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| CredentialsError::Io(e.to_string()))?;
+            fs::create_dir_all(parent).map_err(|e| CredentialsError::Io(e.to_string()))?;
         }
 
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| CredentialsError::Serialize(e.to_string()))?;
+        let content =
+            toml::to_string_pretty(self).map_err(|e| CredentialsError::Serialize(e.to_string()))?;
 
-        fs::write(&path, content)
-            .map_err(|e| CredentialsError::Io(e.to_string()))?;
+        fs::write(&path, content).map_err(|e| CredentialsError::Io(e.to_string()))?;
 
         // Set restrictive permissions on Unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o600);
-            fs::set_permissions(&path, perms)
-                .map_err(|e| CredentialsError::Io(e.to_string()))?;
+            fs::set_permissions(&path, perms).map_err(|e| CredentialsError::Io(e.to_string()))?;
         }
 
         Ok(())
@@ -90,7 +85,8 @@ impl Credentials {
 
     /// Set token for a registry
     pub fn set_token(&mut self, registry_url: &str, token: &str) {
-        self.registries.insert(registry_url.to_string(), token.to_string());
+        self.registries
+            .insert(registry_url.to_string(), token.to_string());
     }
 
     /// Remove token for a registry

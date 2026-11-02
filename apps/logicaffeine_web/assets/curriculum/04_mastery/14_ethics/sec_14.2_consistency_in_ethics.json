@@ -1,0 +1,49 @@
+{
+  "id": "14.2",
+  "title": "Consistency in Ethics",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Rational ethics asks for **consistency**. If an act is wrong in one case, it is wrong in any case exactly like it, unless some relevant difference sets them apart."
+    },
+    {
+      "type": "definition",
+      "term": "Universalizability",
+      "definition": "Making the same judgment about cases that are alike in every relevant way, whoever is involved."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Cutting in line",
+      "lines": [
+        "I say it is fine for me to cut in line because I am in a hurry.",
+        "Would I accept everyone in a hurry cutting in front of me?"
+      ],
+      "note": "If not, my principle fails the consistency test."
+    },
+    {
+      "type": "worked",
+      "title": "Lying",
+      "lines": [
+        "It is wrong for you to lie to me.",
+        "It is fine for me to lie to you."
+      ],
+      "note": "Inconsistent, unless I can name a relevant difference between the two cases."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "What does consistency in ethics require?",
+    "options": [
+      "Always doing the same thing",
+      "Judging alike cases alike",
+      "Never changing your mind",
+      "Agreeing with everyone"
+    ],
+    "correct": 1,
+    "hint": "Think about two cases that differ only in who is involved.",
+    "explanation": "Consistency means making the same judgment about cases that are alike in every relevant way."
+  }
+}

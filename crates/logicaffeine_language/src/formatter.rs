@@ -12,12 +12,40 @@
 
 use std::fmt::Write;
 
-use crate::ast::{AspectOperator, BinaryTemporalOp, ModalDomain, QuantifierKind, TemporalOperator, Term, VoiceOperator};
-use logicaffeine_base::Interner;
+use crate::ast::{
+    AspectOperator, BinaryTemporalOp, ModalDomain, QuantifierKind, TemporalOperator, Term,
+    VoiceOperator,
+};
 use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
+use logicaffeine_base::Interner;
 
 /// Trait for formatting logical expressions in various notations.
+/// The connectives a formula joins its parts with, whatever token the parser read each from:
+/// `If`, `Then` and `Implies` are all the implication. Every printer asks this one mapping, so the
+/// Logic Output, the Syntax Tree and the generated Rust can never draw a connective differently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Connective {
+    And,
+    Or,
+    Implies,
+    Iff,
+    Not,
+}
+
+impl Connective {
+    pub fn of(op: &TokenType) -> Option<Connective> {
+        match op {
+            TokenType::And => Some(Connective::And),
+            TokenType::Or => Some(Connective::Or),
+            TokenType::If | TokenType::Then | TokenType::Implies => Some(Connective::Implies),
+            TokenType::Iff => Some(Connective::Iff),
+            TokenType::Not => Some(Connective::Not),
+            _ => None,
+        }
+    }
+}
+
 pub trait LogicFormatter {
     // Quantifiers
     fn quantifier(&self, kind: &QuantifierKind, var: &str, body: &str) -> String {
@@ -31,6 +59,9 @@ pub trait LogicFormatter {
             QuantifierKind::AtLeast(n) => self.at_least(*n),
             QuantifierKind::AtMost(n) => self.at_most(*n),
             QuantifierKind::Generic => "Gen ".to_string(),
+            QuantifierKind::InfinitelyMany => self.infinitely_many(),
+            QuantifierKind::FinitelyMany => self.finitely_many(),
+            QuantifierKind::AllButFinitelyMany => self.all_but_finitely_many(),
         };
         format!("{}{}({})", sym, var, body)
     }
@@ -40,15 +71,21 @@ pub trait LogicFormatter {
     fn cardinal(&self, n: u32) -> String;
     fn at_least(&self, n: u32) -> String;
     fn at_most(&self, n: u32) -> String;
+    /// ∃^∞
+    fn infinitely_many(&self) -> String;
+    /// ∃^<∞
+    fn finitely_many(&self) -> String;
+    /// ∀^∞
+    fn all_but_finitely_many(&self) -> String;
 
     // Binary operators
     fn binary_op(&self, op: &TokenType, left: &str, right: &str) -> String {
-        match op {
-            TokenType::And => format!("({} {} {})", left, self.and(), right),
-            TokenType::Or => format!("({} {} {})", left, self.or(), right),
-            TokenType::If | TokenType::Implies => format!("({} {} {})", left, self.implies(), right),
-            TokenType::Iff => format!("({} {} {})", left, self.iff(), right),
-            _ => String::new(),
+        match Connective::of(op) {
+            Some(Connective::And) => format!("({} {} {})", left, self.and(), right),
+            Some(Connective::Or) => format!("({} {} {})", left, self.or(), right),
+            Some(Connective::Implies) => format!("({} {} {})", left, self.implies(), right),
+            Some(Connective::Iff) => format!("({} {} {})", left, self.iff(), right),
+            Some(Connective::Not) | None => String::new(),
         }
     }
 
@@ -59,9 +96,10 @@ pub trait LogicFormatter {
 
     // Unary operators
     fn unary_op(&self, op: &TokenType, operand: &str) -> String {
-        match op {
-            TokenType::Not => format!("{}{}", self.not(), operand),
-            _ => String::new(),
+        match Connective::of(op) {
+            Some(Connective::Not) => format!("{}{}", self.not(), operand),
+            Some(Connective::And | Connective::Or | Connective::Implies | Connective::Iff)
+            | None => String::new(),
         }
     }
 
@@ -245,29 +283,76 @@ pub trait LogicFormatter {
 pub struct UnicodeFormatter;
 
 impl LogicFormatter for UnicodeFormatter {
-    fn universal(&self) -> String { "∀".to_string() }
-    fn existential(&self) -> String { "∃".to_string() }
-    fn cardinal(&self, n: u32) -> String { format!("∃={}.", n) }
-    fn at_least(&self, n: u32) -> String { format!("∃≥{}", n) }
-    fn at_most(&self, n: u32) -> String { format!("∃≤{}", n) }
+    fn universal(&self) -> String {
+        "∀".to_string()
+    }
+    fn existential(&self) -> String {
+        "∃".to_string()
+    }
+    fn cardinal(&self, n: u32) -> String {
+        format!("∃={}.", n)
+    }
+    fn at_least(&self, n: u32) -> String {
+        format!("∃≥{}", n)
+    }
+    fn at_most(&self, n: u32) -> String {
+        format!("∃≤{}", n)
+    }
+    fn infinitely_many(&self) -> String {
+        "∃^∞".to_string()
+    }
+    fn finitely_many(&self) -> String {
+        "∃^<∞".to_string()
+    }
+    fn all_but_finitely_many(&self) -> String {
+        "∀^∞".to_string()
+    }
 
-    fn and(&self) -> &'static str { "∧" }
-    fn or(&self) -> &'static str { "∨" }
-    fn implies(&self) -> &'static str { "→" }
-    fn iff(&self) -> &'static str { "↔" }
-    fn not(&self) -> &'static str { "¬" }
+    fn and(&self) -> &'static str {
+        "∧"
+    }
+    fn or(&self) -> &'static str {
+        "∨"
+    }
+    fn implies(&self) -> &'static str {
+        "→"
+    }
+    fn iff(&self) -> &'static str {
+        "↔"
+    }
+    fn not(&self) -> &'static str {
+        "¬"
+    }
 
-    fn necessity(&self) -> &'static str { "□" }
-    fn possibility(&self) -> &'static str { "◇" }
+    fn necessity(&self) -> &'static str {
+        "□"
+    }
+    fn possibility(&self) -> &'static str {
+        "◇"
+    }
 
-    fn past(&self) -> &'static str { "P" }
-    fn future(&self) -> &'static str { "F" }
+    fn past(&self) -> &'static str {
+        "P"
+    }
+    fn future(&self) -> &'static str {
+        "F"
+    }
 
-    fn progressive(&self) -> &'static str { "Prog" }
-    fn perfect(&self) -> &'static str { "Perf" }
-    fn habitual(&self) -> &'static str { "HAB" }
-    fn iterative(&self) -> &'static str { "ITER" }
-    fn passive(&self) -> &'static str { "Pass" }
+    fn progressive(&self) -> &'static str {
+        "Prog"
+    }
+    fn perfect(&self) -> &'static str {
+        "Perf"
+    }
+    fn habitual(&self) -> &'static str {
+        "HAB"
+    }
+    fn iterative(&self) -> &'static str {
+        "ITER"
+    }
+    fn passive(&self) -> &'static str {
+        "Pass"
+    }
 
     fn lambda(&self, var: &str, body: &str) -> String {
         format!("λ{}.{}", var, body)
@@ -284,41 +369,98 @@ impl LogicFormatter for UnicodeFormatter {
         )
     }
 
-    fn categorical_all(&self) -> &'static str { "∀" }
-    fn categorical_no(&self) -> &'static str { "∀¬" }
-    fn categorical_some(&self) -> &'static str { "∃" }
-    fn categorical_not(&self) -> &'static str { "¬" }
+    fn categorical_all(&self) -> &'static str {
+        "∀"
+    }
+    fn categorical_no(&self) -> &'static str {
+        "∀¬"
+    }
+    fn categorical_some(&self) -> &'static str {
+        "∃"
+    }
+    fn categorical_not(&self) -> &'static str {
+        "¬"
+    }
 
     // Use full predicate names (e.g., "Wet" not "W")
-    fn use_full_names(&self) -> bool { true }
+    fn use_full_names(&self) -> bool {
+        true
+    }
 }
 
 pub struct LatexFormatter;
 
 impl LogicFormatter for LatexFormatter {
-    fn universal(&self) -> String { "\\forall ".to_string() }
-    fn existential(&self) -> String { "\\exists ".to_string() }
-    fn cardinal(&self, n: u32) -> String { format!("\\exists_{{={}}} ", n) }
-    fn at_least(&self, n: u32) -> String { format!("\\exists_{{\\geq {}}} ", n) }
-    fn at_most(&self, n: u32) -> String { format!("\\exists_{{\\leq {}}} ", n) }
+    fn universal(&self) -> String {
+        "\\forall ".to_string()
+    }
+    fn existential(&self) -> String {
+        "\\exists ".to_string()
+    }
+    fn cardinal(&self, n: u32) -> String {
+        format!("\\exists_{{={}}} ", n)
+    }
+    fn at_least(&self, n: u32) -> String {
+        format!("\\exists_{{\\geq {}}} ", n)
+    }
+    fn at_most(&self, n: u32) -> String {
+        format!("\\exists_{{\\leq {}}} ", n)
+    }
+    fn infinitely_many(&self) -> String {
+        "\\exists^{\\infty} ".to_string()
+    }
+    fn finitely_many(&self) -> String {
+        "\\exists^{<\\infty} ".to_string()
+    }
+    fn all_but_finitely_many(&self) -> String {
+        "\\forall^{\\infty} ".to_string()
+    }
 
-    fn and(&self) -> &'static str { "\\cdot" }
-    fn or(&self) -> &'static str { "\\vee" }
-    fn implies(&self) -> &'static str { "\\supset" }
-    fn iff(&self) -> &'static str { "\\equiv" }
-    fn not(&self) -> &'static str { "\\sim " }
+    fn and(&self) -> &'static str {
+        "\\cdot"
+    }
+    fn or(&self) -> &'static str {
+        "\\vee"
+    }
+    fn implies(&self) -> &'static str {
+        "\\supset"
+    }
+    fn iff(&self) -> &'static str {
+        "\\equiv"
+    }
+    fn not(&self) -> &'static str {
+        "\\sim "
+    }
 
-    fn necessity(&self) -> &'static str { "\\Box" }
-    fn possibility(&self) -> &'static str { "\\Diamond" }
+    fn necessity(&self) -> &'static str {
+        "\\Box"
+    }
+    fn possibility(&self) -> &'static str {
+        "\\Diamond"
+    }
 
-    fn past(&self) -> &'static str { "\\mathsf{P}" }
-    fn future(&self) -> &'static str { "\\mathsf{F}" }
+    fn past(&self) -> &'static str {
+        "\\mathsf{P}"
+    }
+    fn future(&self) -> &'static str {
+        "\\mathsf{F}"
+    }
 
-    fn progressive(&self) -> &'static str { "\\mathsf{Prog}" }
-    fn perfect(&self) -> &'static str { "\\mathsf{Perf}" }
-    fn habitual(&self) -> &'static str { "\\mathsf{HAB}" }
-    fn iterative(&self) -> &'static str { "\\mathsf{ITER}" }
-    fn passive(&self) -> &'static str { "\\mathsf{Pass}" }
+    fn progressive(&self) -> &'static str {
+        "\\mathsf{Prog}"
+    }
+    fn perfect(&self) -> &'static str {
+        "\\mathsf{Perf}"
+    }
+    fn habitual(&self) -> &'static str {
+        "\\mathsf{HAB}"
+    }
+    fn iterative(&self) -> &'static str {
+        "\\mathsf{ITER}"
+    }
+    fn passive(&self) -> &'static str {
+        "\\mathsf{Pass}"
+    }
 
     fn lambda(&self, var: &str, body: &str) -> String {
         format!("\\lambda {}.{}", var, body)
@@ -335,10 +477,18 @@ impl LogicFormatter for LatexFormatter {
         )
     }
 
-    fn categorical_all(&self) -> &'static str { "All" }
-    fn categorical_no(&self) -> &'static str { "No" }
-    fn categorical_some(&self) -> &'static str { "Some" }
-    fn categorical_not(&self) -> &'static str { "not" }
+    fn categorical_all(&self) -> &'static str {
+        "All"
+    }
+    fn categorical_no(&self) -> &'static str {
+        "No"
+    }
+    fn categorical_some(&self) -> &'static str {
+        "Some"
+    }
+    fn categorical_not(&self) -> &'static str {
+        "not"
+    }
 
     fn sanitize(&self, s: &str) -> String {
         s.replace('_', r"\_")
@@ -353,29 +503,76 @@ impl LogicFormatter for LatexFormatter {
 pub struct SimpleFOLFormatter;
 
 impl LogicFormatter for SimpleFOLFormatter {
-    fn universal(&self) -> String { "∀".to_string() }
-    fn existential(&self) -> String { "∃".to_string() }
-    fn cardinal(&self, n: u32) -> String { format!("∃={}", n) }
-    fn at_least(&self, n: u32) -> String { format!("∃≥{}", n) }
-    fn at_most(&self, n: u32) -> String { format!("∃≤{}", n) }
+    fn universal(&self) -> String {
+        "∀".to_string()
+    }
+    fn existential(&self) -> String {
+        "∃".to_string()
+    }
+    fn cardinal(&self, n: u32) -> String {
+        format!("∃={}", n)
+    }
+    fn at_least(&self, n: u32) -> String {
+        format!("∃≥{}", n)
+    }
+    fn at_most(&self, n: u32) -> String {
+        format!("∃≤{}", n)
+    }
+    fn infinitely_many(&self) -> String {
+        "∃^∞".to_string()
+    }
+    fn finitely_many(&self) -> String {
+        "∃^<∞".to_string()
+    }
+    fn all_but_finitely_many(&self) -> String {
+        "∀^∞".to_string()
+    }
 
-    fn and(&self) -> &'static str { "∧" }
-    fn or(&self) -> &'static str { "∨" }
-    fn implies(&self) -> &'static str { "→" }
-    fn iff(&self) -> &'static str { "↔" }
-    fn not(&self) -> &'static str { "¬" }
+    fn and(&self) -> &'static str {
+        "∧"
+    }
+    fn or(&self) -> &'static str {
+        "∨"
+    }
+    fn implies(&self) -> &'static str {
+        "→"
+    }
+    fn iff(&self) -> &'static str {
+        "↔"
+    }
+    fn not(&self) -> &'static str {
+        "¬"
+    }
 
-    fn necessity(&self) -> &'static str { "□" }
-    fn possibility(&self) -> &'static str { "◇" }
+    fn necessity(&self) -> &'static str {
+        "□"
+    }
+    fn possibility(&self) -> &'static str {
+        "◇"
+    }
 
-    fn past(&self) -> &'static str { "Past" }
-    fn future(&self) -> &'static str { "Future" }
+    fn past(&self) -> &'static str {
+        "Past"
+    }
+    fn future(&self) -> &'static str {
+        "Future"
+    }
 
-    fn progressive(&self) -> &'static str { "" }
-    fn perfect(&self) -> &'static str { "" }
-    fn habitual(&self) -> &'static str { "" }
-    fn iterative(&self) -> &'static str { "" }
-    fn passive(&self) -> &'static str { "" }
+    fn progressive(&self) -> &'static str {
+        ""
+    }
+    fn perfect(&self) -> &'static str {
+        ""
+    }
+    fn habitual(&self) -> &'static str {
+        ""
+    }
+    fn iterative(&self) -> &'static str {
+        ""
+    }
+    fn passive(&self) -> &'static str {
+        ""
+    }
 
     fn lambda(&self, var: &str, body: &str) -> String {
         format!("λ{}.{}", var, body)
@@ -392,10 +589,18 @@ impl LogicFormatter for SimpleFOLFormatter {
         )
     }
 
-    fn categorical_all(&self) -> &'static str { "∀" }
-    fn categorical_no(&self) -> &'static str { "∀¬" }
-    fn categorical_some(&self) -> &'static str { "∃" }
-    fn categorical_not(&self) -> &'static str { "¬" }
+    fn categorical_all(&self) -> &'static str {
+        "∀"
+    }
+    fn categorical_no(&self) -> &'static str {
+        "∀¬"
+    }
+    fn categorical_some(&self) -> &'static str {
+        "∃"
+    }
+    fn categorical_not(&self) -> &'static str {
+        "¬"
+    }
 
     fn modal(&self, _domain: ModalDomain, _force: f32, body: &str) -> String {
         body.to_string()
@@ -420,29 +625,76 @@ impl LogicFormatter for SimpleFOLFormatter {
 pub struct KripkeFormatter;
 
 impl LogicFormatter for KripkeFormatter {
-    fn universal(&self) -> String { "ForAll ".to_string() }
-    fn existential(&self) -> String { "Exists ".to_string() }
-    fn cardinal(&self, n: u32) -> String { format!("Exists={} ", n) }
-    fn at_least(&self, n: u32) -> String { format!("Exists>={} ", n) }
-    fn at_most(&self, n: u32) -> String { format!("Exists<={} ", n) }
+    fn universal(&self) -> String {
+        "ForAll ".to_string()
+    }
+    fn existential(&self) -> String {
+        "Exists ".to_string()
+    }
+    fn cardinal(&self, n: u32) -> String {
+        format!("Exists={} ", n)
+    }
+    fn at_least(&self, n: u32) -> String {
+        format!("Exists>={} ", n)
+    }
+    fn at_most(&self, n: u32) -> String {
+        format!("Exists<={} ", n)
+    }
+    fn infinitely_many(&self) -> String {
+        "Exists^inf ".to_string()
+    }
+    fn finitely_many(&self) -> String {
+        "Exists^<inf ".to_string()
+    }
+    fn all_but_finitely_many(&self) -> String {
+        "ForAll^inf ".to_string()
+    }
 
-    fn and(&self) -> &'static str { " And " }
-    fn or(&self) -> &'static str { " Or " }
-    fn implies(&self) -> &'static str { " Implies " }
-    fn iff(&self) -> &'static str { " Iff " }
-    fn not(&self) -> &'static str { "Not " }
+    fn and(&self) -> &'static str {
+        " And "
+    }
+    fn or(&self) -> &'static str {
+        " Or "
+    }
+    fn implies(&self) -> &'static str {
+        " Implies "
+    }
+    fn iff(&self) -> &'static str {
+        " Iff "
+    }
+    fn not(&self) -> &'static str {
+        "Not "
+    }
 
-    fn necessity(&self) -> &'static str { "Box" }
-    fn possibility(&self) -> &'static str { "Diamond" }
+    fn necessity(&self) -> &'static str {
+        "Box"
+    }
+    fn possibility(&self) -> &'static str {
+        "Diamond"
+    }
 
-    fn past(&self) -> &'static str { "Past" }
-    fn future(&self) -> &'static str { "Future" }
+    fn past(&self) -> &'static str {
+        "Past"
+    }
+    fn future(&self) -> &'static str {
+        "Future"
+    }
 
-    fn progressive(&self) -> &'static str { "Prog" }
-    fn perfect(&self) -> &'static str { "Perf" }
-    fn habitual(&self) -> &'static str { "HAB" }
-    fn iterative(&self) -> &'static str { "ITER" }
-    fn passive(&self) -> &'static str { "Pass" }
+    fn progressive(&self) -> &'static str {
+        "Prog"
+    }
+    fn perfect(&self) -> &'static str {
+        "Perf"
+    }
+    fn habitual(&self) -> &'static str {
+        "HAB"
+    }
+    fn iterative(&self) -> &'static str {
+        "ITER"
+    }
+    fn passive(&self) -> &'static str {
+        "Pass"
+    }
 
     fn lambda(&self, var: &str, body: &str) -> String {
         format!("Lambda {}.{}", var, body)
@@ -459,19 +711,31 @@ impl LogicFormatter for KripkeFormatter {
         )
     }
 
-    fn categorical_all(&self) -> &'static str { "ForAll" }
-    fn categorical_no(&self) -> &'static str { "ForAll Not" }
-    fn categorical_some(&self) -> &'static str { "Exists" }
-    fn categorical_not(&self) -> &'static str { "Not" }
+    fn categorical_all(&self) -> &'static str {
+        "ForAll"
+    }
+    fn categorical_no(&self) -> &'static str {
+        "ForAll Not"
+    }
+    fn categorical_some(&self) -> &'static str {
+        "Exists"
+    }
+    fn categorical_not(&self) -> &'static str {
+        "Not"
+    }
 
     fn modal(&self, _domain: ModalDomain, _force: f32, body: &str) -> String {
         // Modals already lowered to quantifiers - just pass through
         body.to_string()
     }
 
-    fn use_full_names(&self) -> bool { true }
+    fn use_full_names(&self) -> bool {
+        true
+    }
 
-    fn include_world_arguments(&self) -> bool { true }
+    fn include_world_arguments(&self) -> bool {
+        true
+    }
 }
 
 /// Formatter that produces Rust boolean expressions for runtime assertions.
@@ -480,39 +744,102 @@ pub struct RustFormatter;
 
 impl LogicFormatter for RustFormatter {
     // Operators map to Rust boolean operators
-    fn and(&self) -> &'static str { "&&" }
-    fn or(&self) -> &'static str { "||" }
-    fn not(&self) -> &'static str { "!" }
-    fn implies(&self) -> &'static str { "||" } // Handled via binary_op override
-    fn iff(&self) -> &'static str { "==" }
-    fn identity(&self) -> &'static str { " == " } // Rust equality
-    fn wrap_identity(&self) -> bool { true } // Wrap in parens for valid Rust
+    fn and(&self) -> &'static str {
+        "&&"
+    }
+    fn or(&self) -> &'static str {
+        "||"
+    }
+    fn not(&self) -> &'static str {
+        "!"
+    }
+    fn implies(&self) -> &'static str {
+        "||"
+    } // Handled via binary_op override
+    fn iff(&self) -> &'static str {
+        "=="
+    }
+    fn identity(&self) -> &'static str {
+        " == "
+    } // Rust equality
+    fn wrap_identity(&self) -> bool {
+        true
+    } // Wrap in parens for valid Rust
 
     // Use full variable names, not abbreviations
-    fn use_full_names(&self) -> bool { true }
-    fn preserve_case(&self) -> bool { true } // Keep original variable case
+    fn use_full_names(&self) -> bool {
+        true
+    }
+    fn preserve_case(&self) -> bool {
+        true
+    } // Keep original variable case
 
     // Quantifiers: runtime can't check universal quantification, emit comments
-    fn universal(&self) -> String { "/* ∀ */".to_string() }
-    fn existential(&self) -> String { "/* ∃ */".to_string() }
-    fn cardinal(&self, n: u32) -> String { format!("/* ∃={} */", n) }
-    fn at_least(&self, n: u32) -> String { format!("/* ∃≥{} */", n) }
-    fn at_most(&self, n: u32) -> String { format!("/* ∃≤{} */", n) }
+    fn universal(&self) -> String {
+        "/* ∀ */".to_string()
+    }
+    fn existential(&self) -> String {
+        "/* ∃ */".to_string()
+    }
+    fn cardinal(&self, n: u32) -> String {
+        format!("/* ∃={} */", n)
+    }
+    fn at_least(&self, n: u32) -> String {
+        format!("/* ∃≥{} */", n)
+    }
+    fn at_most(&self, n: u32) -> String {
+        format!("/* ∃≤{} */", n)
+    }
+    fn infinitely_many(&self) -> String {
+        "/* ∃^∞ */".to_string()
+    }
+    fn finitely_many(&self) -> String {
+        "/* ∃^<∞ */".to_string()
+    }
+    fn all_but_finitely_many(&self) -> String {
+        "/* ∀^∞ */".to_string()
+    }
 
     // Modal/Temporal operators are stripped for runtime (not checkable)
-    fn necessity(&self) -> &'static str { "" }
-    fn possibility(&self) -> &'static str { "" }
-    fn past(&self) -> &'static str { "" }
-    fn future(&self) -> &'static str { "" }
-    fn progressive(&self) -> &'static str { "" }
-    fn perfect(&self) -> &'static str { "" }
-    fn habitual(&self) -> &'static str { "" }
-    fn iterative(&self) -> &'static str { "" }
-    fn passive(&self) -> &'static str { "" }
-    fn categorical_all(&self) -> &'static str { "" }
-    fn categorical_no(&self) -> &'static str { "" }
-    fn categorical_some(&self) -> &'static str { "" }
-    fn categorical_not(&self) -> &'static str { "" }
+    fn necessity(&self) -> &'static str {
+        ""
+    }
+    fn possibility(&self) -> &'static str {
+        ""
+    }
+    fn past(&self) -> &'static str {
+        ""
+    }
+    fn future(&self) -> &'static str {
+        ""
+    }
+    fn progressive(&self) -> &'static str {
+        ""
+    }
+    fn perfect(&self) -> &'static str {
+        ""
+    }
+    fn habitual(&self) -> &'static str {
+        ""
+    }
+    fn iterative(&self) -> &'static str {
+        ""
+    }
+    fn passive(&self) -> &'static str {
+        ""
+    }
+    fn categorical_all(&self) -> &'static str {
+        ""
+    }
+    fn categorical_no(&self) -> &'static str {
+        ""
+    }
+    fn categorical_some(&self) -> &'static str {
+        ""
+    }
+    fn categorical_not(&self) -> &'static str {
+        ""
+    }
 
     fn lambda(&self, var: &str, body: &str) -> String {
         format!("|{}| {{ {} }}", var, body)
@@ -543,7 +870,7 @@ impl LogicFormatter for RustFormatter {
             "small" | "little" | "short" | "young" | "low" | "less" | "fewer" => {
                 write!(w, "({} < {})", subject, object)
             }
-            _ => write!(w, "({} > {})", subject, object) // default to greater-than
+            _ => write!(w, "({} > {})", subject, object), // default to greater-than
         }
     }
 
@@ -557,12 +884,12 @@ impl LogicFormatter for RustFormatter {
 
     // Override binary_op for implication desugaring: A → B = !A || B
     fn binary_op(&self, op: &TokenType, left: &str, right: &str) -> String {
-        match op {
-            TokenType::If | TokenType::Implies | TokenType::Then => format!("(!({}) || ({}))", left, right),
-            TokenType::And => format!("({} && {})", left, right),
-            TokenType::Or => format!("({} || {})", left, right),
-            TokenType::Iff => format!("({} == {})", left, right),
-            _ => "/* unknown op */".to_string(),
+        match Connective::of(op) {
+            Some(Connective::Implies) => format!("(!({}) || ({}))", left, right),
+            Some(Connective::And) => format!("({} && {})", left, right),
+            Some(Connective::Or) => format!("({} || {})", left, right),
+            Some(Connective::Iff) => format!("({} == {})", left, right),
+            Some(Connective::Not) | None => "/* unknown op */".to_string(),
         }
     }
 
@@ -589,9 +916,15 @@ impl LogicFormatter for RustFormatter {
             "greater" if args.len() == 2 => write!(w, "({} > {})", render(0), render(1)),
             "less" if args.len() == 2 => write!(w, "({} < {})", render(0), render(1)),
             "equal" | "equals" if args.len() == 2 => write!(w, "({} == {})", render(0), render(1)),
-            "notequal" | "not_equal" if args.len() == 2 => write!(w, "({} != {})", render(0), render(1)),
-            "greaterequal" | "atleast" | "at_least" if args.len() == 2 => write!(w, "({} >= {})", render(0), render(1)),
-            "lessequal" | "atmost" | "at_most" if args.len() == 2 => write!(w, "({} <= {})", render(0), render(1)),
+            "notequal" | "not_equal" if args.len() == 2 => {
+                write!(w, "({} != {})", render(0), render(1))
+            }
+            "greaterequal" | "atleast" | "at_least" if args.len() == 2 => {
+                write!(w, "({} >= {})", render(0), render(1))
+            }
+            "lessequal" | "atmost" | "at_most" if args.len() == 2 => {
+                write!(w, "({} <= {})", render(0), render(1))
+            }
 
             // Unary checks
             "positive" if args.len() == 1 => write!(w, "({} > 0)", render(0)),
@@ -608,7 +941,9 @@ impl LogicFormatter for RustFormatter {
             _ => {
                 write!(w, "{}(", name.to_lowercase())?;
                 for i in 0..args.len() {
-                    if i > 0 { write!(w, ", ")?; }
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
                     write!(w, "{}", render(i))?;
                 }
                 write!(w, ")")
@@ -618,106 +953,5 @@ impl LogicFormatter for RustFormatter {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unicode_binary_operators() {
-        let f = UnicodeFormatter;
-        assert_eq!(f.binary_op(&TokenType::And, "P", "Q"), "(P ∧ Q)");
-        assert_eq!(f.binary_op(&TokenType::Or, "P", "Q"), "(P ∨ Q)");
-        assert_eq!(f.binary_op(&TokenType::If, "P", "Q"), "(P → Q)");
-        assert_eq!(f.binary_op(&TokenType::Iff, "P", "Q"), "(P ↔ Q)");
-    }
-
-    #[test]
-    fn latex_binary_operators() {
-        let f = LatexFormatter;
-        assert_eq!(f.binary_op(&TokenType::And, "P", "Q"), r"(P \cdot Q)");
-        assert_eq!(f.binary_op(&TokenType::Or, "P", "Q"), r"(P \vee Q)");
-        assert_eq!(f.binary_op(&TokenType::If, "P", "Q"), r"(P \supset Q)");
-        assert_eq!(f.binary_op(&TokenType::Iff, "P", "Q"), r"(P \equiv Q)");
-    }
-
-    #[test]
-    fn unicode_quantifiers() {
-        let f = UnicodeFormatter;
-        assert_eq!(f.quantifier(&QuantifierKind::Universal, "x", "P(x)"), "∀x(P(x))");
-        assert_eq!(f.quantifier(&QuantifierKind::Existential, "x", "P(x)"), "∃x(P(x))");
-        assert_eq!(f.quantifier(&QuantifierKind::Cardinal(3), "x", "P(x)"), "∃=3.x(P(x))");
-    }
-
-    #[test]
-    fn latex_quantifiers() {
-        let f = LatexFormatter;
-        assert_eq!(f.quantifier(&QuantifierKind::Universal, "x", "P(x)"), "\\forall x(P(x))");
-        assert_eq!(f.quantifier(&QuantifierKind::Existential, "x", "P(x)"), "\\exists x(P(x))");
-    }
-
-    #[test]
-    fn latex_sanitization() {
-        let f = LatexFormatter;
-        assert_eq!(f.sanitize("foo_bar"), r"foo\_bar");
-        assert_eq!(f.sanitize("x^2"), r"x\^{}2");
-        assert_eq!(f.sanitize("a&b"), r"a\&b");
-    }
-
-    #[test]
-    fn unicode_no_sanitization() {
-        let f = UnicodeFormatter;
-        assert_eq!(f.sanitize("foo_bar"), "foo_bar");
-    }
-
-    #[test]
-    fn unicode_lambda() {
-        let f = UnicodeFormatter;
-        assert_eq!(f.lambda("x", "P(x)"), "λx.P(x)");
-    }
-
-    #[test]
-    fn latex_lambda() {
-        let f = LatexFormatter;
-        assert_eq!(f.lambda("x", "P(x)"), "\\lambda x.P(x)");
-    }
-
-    #[test]
-    fn unicode_counterfactual() {
-        let f = UnicodeFormatter;
-        assert_eq!(f.counterfactual("P", "Q"), "(P □→ Q)");
-    }
-
-    #[test]
-    fn latex_counterfactual() {
-        let f = LatexFormatter;
-        assert_eq!(f.counterfactual("P", "Q"), r"(P \boxright Q)");
-    }
-
-    // RustFormatter tests
-    #[test]
-    fn rust_binary_operators() {
-        let f = RustFormatter;
-        assert_eq!(f.binary_op(&TokenType::And, "P", "Q"), "(P && Q)");
-        assert_eq!(f.binary_op(&TokenType::Or, "P", "Q"), "(P || Q)");
-        assert_eq!(f.binary_op(&TokenType::Iff, "P", "Q"), "(P == Q)");
-    }
-
-    #[test]
-    fn rust_implication_desugaring() {
-        let f = RustFormatter;
-        // A → B desugars to !A || B
-        assert_eq!(f.binary_op(&TokenType::If, "P", "Q"), "(!(P) || (Q))");
-    }
-
-    #[test]
-    fn rust_lambda() {
-        let f = RustFormatter;
-        assert_eq!(f.lambda("x", "x > 0"), "|x| { x > 0 }");
-    }
-
-    #[test]
-    fn rust_quantifiers_as_comments() {
-        let f = RustFormatter;
-        assert_eq!(f.universal(), "/* ∀ */");
-        assert_eq!(f.existential(), "/* ∃ */");
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/formatter/tests.rs"]
+mod tests;

@@ -1,0 +1,85 @@
+{
+  "case": "T09-005",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "Syntax",
+      "name": "T09_005.builtSyntax",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Syntax \u2192 Nat",
+      "name": "T09_005.countArgs",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "2 + 2 = 4",
+      "name": "T09_005.expansionTranslates",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "MetaM (TSyntax `tactic)",
+      "name": "T09_005.quotedTactic",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "MetaM Syntax",
+      "name": "T09_005.quotedTerm",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "Term \u2192 MetaM Syntax",
+      "name": "T09_005.spliced",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T09_005.tacticExpansionTranslates",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_005.tacticJustRfl",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "ParserDescr",
+      "name": "T09_005.termTwoPlusTwo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

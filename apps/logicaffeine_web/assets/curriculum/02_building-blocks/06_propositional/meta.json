@@ -2,5 +2,6 @@
   "id": "propositional",
   "title": "Basic Propositional Logic",
   "pedagogy": "Learn to translate English into propositional logic using connectives (AND, OR, NOT, IF-THEN). Master truth tables, S-rules, and I-rules.",
-  "order": 1
+  "order": 1,
+  "summary": "Join sentences with not, and, or, if and if and only if, and work out truth tables."
 }

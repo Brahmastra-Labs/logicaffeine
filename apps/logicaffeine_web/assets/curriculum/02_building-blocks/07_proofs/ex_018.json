@@ -11,5 +11,6 @@
   ],
   "correct": 1,
   "hint": "'Destructive' applies Modus Tollens to each conditional, so it negates the antecedents.",
-  "explanation": "Destructive Dilemma: from two conditionals (P → Q) and (R → S) plus the negated-consequents disjunction (¬Q ∨ ¬S), conclude (¬P ∨ ¬R) — Modus Tollens applied across a disjunction. Option 1 is Constructive Dilemma, option 3 is Hypothetical Syllogism, option 4 is Simplification."
+  "explanation": "Destructive dilemma: from P → Q, R → S and ¬Q ∨ ¬S, conclude ¬P ∨ ¬R. It applies modus tollens across a disjunction.",
+  "section": "7.5"
 }

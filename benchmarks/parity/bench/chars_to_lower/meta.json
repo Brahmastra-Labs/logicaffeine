@@ -1,0 +1,11 @@
+{
+  "capability": "chars.to_lower",
+  "workload": "sum of to_lower(i%128)",
+  "arg": "20000000",
+  "expected": "1400000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "language": "rust",
+  "version": "1.96.0",
+  "note": "Curated Rust std surface (no rust-docs-json/rust-src on the build box). Grouped by type/module; the most-used parity-relevant methods. Method names are the join keys the superset catalog dedupes against.",
+  "modules": {
+    "str": ["len", "is_empty", "chars", "char_indices", "bytes", "as_bytes", "split", "splitn", "rsplit", "split_whitespace", "split_once", "rsplit_once", "lines", "trim", "trim_start", "trim_end", "trim_matches", "strip_prefix", "strip_suffix", "starts_with", "ends_with", "contains", "find", "rfind", "replace", "replacen", "to_uppercase", "to_lowercase", "to_ascii_uppercase", "to_ascii_lowercase", "repeat", "parse", "chars_count", "get", "char_at", "matches", "match_indices", "concat", "join"],
+    "String": ["new", "with_capacity", "from", "push", "push_str", "pop", "insert", "insert_str", "remove", "truncate", "clear", "len", "is_empty", "capacity", "as_str", "chars", "split_off", "retain", "drain"],
+    "char": ["is_alphabetic", "is_alphanumeric", "is_numeric", "is_ascii_digit", "is_whitespace", "is_uppercase", "is_lowercase", "is_ascii", "is_control", "to_uppercase", "to_lowercase", "to_ascii_uppercase", "to_ascii_lowercase", "to_digit", "from_digit", "from_u32", "as u32"],
+    "Iterator": ["map", "filter", "filter_map", "flat_map", "flatten", "fold", "reduce", "for_each", "sum", "product", "count", "min", "max", "min_by", "max_by", "min_by_key", "max_by_key", "any", "all", "find", "position", "enumerate", "zip", "chain", "rev", "take", "take_while", "skip", "skip_while", "step_by", "collect", "peekable", "scan", "cycle", "last", "nth", "chunks", "windows", "partition", "unzip", "cloned", "copied", "inspect", "by_ref"],
+    "Vec": ["new", "with_capacity", "push", "pop", "insert", "remove", "swap_remove", "len", "is_empty", "clear", "contains", "get", "first", "last", "iter", "iter_mut", "sort", "sort_by", "sort_by_key", "sort_unstable", "dedup", "reverse", "truncate", "retain", "extend", "append", "drain", "split_at", "concat", "join", "binary_search", "resize", "fill", "rotate_left", "rotate_right", "chunks", "windows"],
+    "slice": ["len", "is_empty", "first", "last", "get", "iter", "sort", "sort_by", "sort_unstable", "binary_search", "contains", "starts_with", "ends_with", "split_at", "chunks", "windows", "concat", "join", "reverse", "rotate_left", "fill", "swap"],
+    "HashMap": ["new", "with_capacity", "insert", "get", "get_mut", "remove", "contains_key", "keys", "values", "values_mut", "iter", "iter_mut", "len", "is_empty", "clear", "entry", "or_insert", "retain", "drain", "extend"],
+    "HashSet": ["new", "insert", "remove", "contains", "len", "is_empty", "clear", "iter", "union", "intersection", "difference", "symmetric_difference", "is_subset", "is_superset", "is_disjoint", "extend", "retain"],
+    "BTreeMap": ["new", "insert", "get", "remove", "contains_key", "keys", "values", "iter", "range", "len", "is_empty", "first_key_value", "last_key_value", "entry"],
+    "VecDeque": ["new", "push_back", "push_front", "pop_back", "pop_front", "front", "back", "len", "is_empty", "iter", "contains", "rotate_left", "rotate_right"],
+    "BinaryHeap": ["new", "push", "pop", "peek", "len", "is_empty", "into_sorted_vec"],
+    "Option": ["is_some", "is_none", "unwrap", "unwrap_or", "unwrap_or_else", "unwrap_or_default", "map", "map_or", "and_then", "or", "or_else", "filter", "take", "get_or_insert", "ok_or", "expect", "flatten", "zip"],
+    "Result": ["is_ok", "is_err", "ok", "err", "unwrap", "unwrap_or", "unwrap_or_else", "unwrap_err", "expect", "map", "map_err", "and_then", "or_else", "unwrap_or_default"],
+    "f64": ["sqrt", "cbrt", "powi", "powf", "exp", "exp2", "ln", "log", "log2", "log10", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "hypot", "abs", "signum", "copysign", "floor", "ceil", "round", "trunc", "fract", "recip", "to_degrees", "to_radians", "max", "min", "clamp", "is_nan", "is_infinite", "is_finite", "mul_add", "rem_euclid", "div_euclid"],
+    "i64": ["abs", "signum", "pow", "checked_add", "checked_sub", "checked_mul", "checked_div", "wrapping_add", "wrapping_mul", "saturating_add", "overflowing_add", "min", "max", "clamp", "count_ones", "count_zeros", "leading_zeros", "trailing_zeros", "rotate_left", "rotate_right", "swap_bytes", "to_string", "gcd", "rem_euclid", "div_euclid", "isqrt"],
+    "cmp": ["min", "max", "Ordering", "Reverse", "min_by", "max_by"],
+    "fs": ["read", "read_to_string", "write", "File", "create_dir", "create_dir_all", "remove_file", "remove_dir", "remove_dir_all", "rename", "copy", "metadata", "read_dir", "canonicalize"],
+    "io": ["stdin", "stdout", "stderr", "BufReader", "BufWriter", "Read", "Write", "BufRead", "read_line", "lines"],
+    "path": ["Path", "PathBuf", "join", "parent", "file_name", "extension", "exists", "is_file", "is_dir", "components"],
+    "env": ["var", "vars", "args", "set_var", "remove_var", "current_dir", "set_current_dir", "temp_dir"],
+    "process": ["exit", "abort", "Command", "id"],
+    "time": ["Instant", "Duration", "SystemTime", "now", "elapsed", "as_secs", "as_millis", "as_nanos", "from_secs", "from_millis"],
+    "mem": ["swap", "replace", "take", "size_of", "drop"],
+    "fmt": ["format", "Display", "Debug"]
+  }
+}

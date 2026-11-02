@@ -11,5 +11,6 @@
   ],
   "correct": 0,
   "hint": "'No A are B' says: for everything, if it's an A then it is NOT a B.",
-  "explanation": "'No A are B' = ∀x(A(x) → ¬B(x)), equivalently ¬∃x(A(x) ∧ B(x)) — there is no A that is also a B. Option 2 (∀x(A(x) ∧ ¬B(x))) wrongly claims everything is a non-B A; option 4 (∃x(A(x) ∧ ¬B(x))) is 'some A is not B', a different (weaker) statement."
+  "explanation": "'No A are B' is ∀x(A(x) → ¬B(x)), the same as ¬∃x(A(x) ∧ B(x)). The last option says only that some A is not B.",
+  "section": "8.3"
 }

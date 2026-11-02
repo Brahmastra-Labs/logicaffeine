@@ -1,0 +1,196 @@
+{
+  "note": "module-instantiation graph extracted from benchmarks/silicon/*.v by scripts/extract-netlist-topology.py; pinned by netlist_topology_lock",
+  "modules": [
+    "alu",
+    "bigint_alu",
+    "bigint_div",
+    "bigint_mul",
+    "chan_fifo",
+    "coproc_core",
+    "coproc_soc",
+    "crdt_merge",
+    "double_buffer",
+    "dram_executor",
+    "fabric_horner",
+    "isa_core_decoder",
+    "keccak_core",
+    "keccak_round",
+    "keccak_top",
+    "nexys_soc",
+    "ntt_butterfly",
+    "rev_alu",
+    "rev_alu32",
+    "rev_alu_core",
+    "rev_core",
+    "secded_dec",
+    "secded_enc",
+    "seeded_arbiter_prng",
+    "shared_divider",
+    "soft_core",
+    "soft_core_scalar"
+  ],
+  "graph": {
+    "alu": {
+      "file": "alu.v",
+      "instantiates": {}
+    },
+    "bigint_alu": {
+      "file": "bigint_alu.v",
+      "instantiates": {}
+    },
+    "bigint_div": {
+      "file": "bigint_div.v",
+      "instantiates": {}
+    },
+    "bigint_mul": {
+      "file": "bigint_mul.v",
+      "instantiates": {}
+    },
+    "chan_fifo": {
+      "file": "chan_fifo.v",
+      "instantiates": {}
+    },
+    "coproc_core": {
+      "file": "coproc_core.v",
+      "instantiates": {
+        "bigint_alu": [
+          "u_alu"
+        ],
+        "bigint_mul": [
+          "u_mul"
+        ],
+        "crdt_merge": [
+          "u_cm"
+        ]
+      }
+    },
+    "coproc_soc": {
+      "file": "coproc_soc.v",
+      "instantiates": {
+        "coproc_core": [
+          "u_core"
+        ]
+      }
+    },
+    "crdt_merge": {
+      "file": "crdt_merge.v",
+      "instantiates": {}
+    },
+    "double_buffer": {
+      "file": "secded.v",
+      "instantiates": {}
+    },
+    "dram_executor": {
+      "file": "dram_executor.v",
+      "instantiates": {}
+    },
+    "fabric_horner": {
+      "file": "fabric_horner.v",
+      "instantiates": {}
+    },
+    "isa_core_decoder": {
+      "file": "isa_core_decoder.v",
+      "instantiates": {}
+    },
+    "keccak_core": {
+      "file": "keccak_core.v",
+      "instantiates": {
+        "keccak_round": [
+          "rnd",
+          "rnd"
+        ]
+      }
+    },
+    "keccak_round": {
+      "file": "keccak_core.v",
+      "instantiates": {}
+    },
+    "keccak_top": {
+      "file": "keccak_top.v",
+      "instantiates": {
+        "keccak_core": [
+          "core"
+        ]
+      }
+    },
+    "nexys_soc": {
+      "file": "nexys_soc.v",
+      "instantiates": {
+        "soft_core": [
+          "u_core"
+        ]
+      }
+    },
+    "ntt_butterfly": {
+      "file": "ntt_butterfly.v",
+      "instantiates": {}
+    },
+    "rev_alu": {
+      "file": "rev_alu.v",
+      "instantiates": {}
+    },
+    "rev_alu32": {
+      "file": "rev_alu32.v",
+      "instantiates": {}
+    },
+    "rev_alu_core": {
+      "file": "rev_alu_core.v",
+      "instantiates": {}
+    },
+    "rev_core": {
+      "file": "rev_core.v",
+      "instantiates": {
+        "isa_core_decoder": [
+          "dec"
+        ],
+        "rev_alu_core": [
+          "alu"
+        ]
+      }
+    },
+    "secded_dec": {
+      "file": "secded.v",
+      "instantiates": {}
+    },
+    "secded_enc": {
+      "file": "secded.v",
+      "instantiates": {}
+    },
+    "seeded_arbiter_prng": {
+      "file": "seeded_arbiter_prng.v",
+      "instantiates": {}
+    },
+    "shared_divider": {
+      "file": "shared_divider.v",
+      "instantiates": {}
+    },
+    "soft_core": {
+      "file": "soft_core.v",
+      "instantiates": {
+        "alu": [
+          "the_alu"
+        ],
+        "shared_divider": [
+          "u_div"
+        ],
+        "crdt_merge": [
+          "u_cm"
+        ],
+        "bigint_alu": [
+          "u_bi"
+        ],
+        "bigint_div": [
+          "u_bd"
+        ]
+      }
+    },
+    "soft_core_scalar": {
+      "file": "soft_core_scalar.v",
+      "instantiates": {
+        "alu": [
+          "the_alu"
+        ]
+      }
+    }
+  }
+}

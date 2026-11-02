@@ -1,0 +1,24 @@
+{
+  "case": "T09-009",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 2,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_009.realDef",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_009.realDef 3 = 6",
+      "name": "T09_009.realTheorem",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": "T09_009.realDef (n : Nat) : Nat\nrealDef 3 : Nat\nfun n => n + 1 : Nat \u2192 Nat\n42\n4\n3\ndef T09_009.realDef : Nat \u2192 Nat :=\nfun n => n * 2\n'T09_009.realTheorem' does not depend on any axioms\n10\nSort v : Type v\ntranslated"
+}

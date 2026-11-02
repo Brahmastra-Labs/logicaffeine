@@ -8,8 +8,8 @@
 //! Pipeline:
 //! Input → Parse → Engine → Certify → Type-Check → Verified
 
-use logicaffeine_kernel::{infer_type, Term};
 use logicaffeine_compile::verify_theorem;
+use logicaffeine_kernel::{infer_type, Term};
 
 // =============================================================================
 // THE SOCRATES VERIFICATION

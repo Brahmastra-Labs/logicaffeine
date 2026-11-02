@@ -57,9 +57,7 @@ pub const MIN_AST_DEPTH: usize = 16;
 /// per process.
 pub fn max_ast_depth() -> usize {
     static LIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *LIMIT.get_or_init(|| {
-        limit_from(std::env::var("LOGOS_MAX_AST_DEPTH").ok().as_deref())
-    })
+    *LIMIT.get_or_init(|| limit_from(std::env::var("LOGOS_MAX_AST_DEPTH").ok().as_deref()))
 }
 
 /// Pure resolution of the override value (unit-testable without touching
@@ -72,18 +70,30 @@ pub fn limit_from(env_value: Option<&str>) -> usize {
     }
 }
 
-/// The parse-time recursion budget: a quarter of the AST limit (min the
-/// floor).
+/// The parse-time recursion budget: an EIGHTH of the AST limit (min the floor).
 ///
-/// The parser's own descent is BY FAR the fattest stack consumer — each
-/// parenthesis level re-enters the whole precedence/condition chain,
-/// measured at ~32 KiB per level in debug builds — so it gets a much
-/// tighter budget than the built-tree limit (32 levels of parens at the
-/// default, deeper than any sane expression). Scales with
-/// `LOGOS_MAX_AST_DEPTH` like everything else, so deep-stack machines can
-/// raise both together.
+/// The parser's own descent is BY FAR the fattest stack consumer — each parenthesis level
+/// re-enters the whole precedence/condition chain — so it gets a much tighter budget than the
+/// built-tree limit. The number that matters is the ratio between one level's frame and the
+/// smallest stack the parser must survive on:
+///
+/// | measured                                    | value       |
+/// |---------------------------------------------|-------------|
+/// | one level of descent, debug build (2026-09) | ~64 KiB     |
+/// | smallest stack the gate is tested on        | 2 MiB       |
+/// | levels before the real stack dies           | 32          |
+/// | this budget at the default limit            | 16          |
+///
+/// The budget must fire BEFORE the stack dies, or the guard is decorative: a `SIGABRT` is
+/// exactly the crash it exists to prevent. It was a QUARTER of the limit, which put it at 32 —
+/// the cliff itself, with no margin — so any growth of the descent's frame turned a graceful
+/// rejection into a stack overflow, and one did. An eighth spends half the stack instead of
+/// all of it, which is room for the parser to keep growing.
+///
+/// Still scales with `LOGOS_MAX_AST_DEPTH`: raising it asserts a deeper stack, and raises both
+/// together as before.
 pub fn max_parse_recursion() -> usize {
-    (max_ast_depth() / 4).max(MIN_AST_DEPTH)
+    (max_ast_depth() / 8).max(MIN_AST_DEPTH)
 }
 
 /// A work-stack node: any AST reference that can contain further nesting.
@@ -112,6 +122,86 @@ pub fn program_depth(stmts: &[Stmt<'_>]) -> usize {
     max_depth
 }
 
+/// A node [`for_each_node`] hands its visitor.
+pub enum Visited<'w, 'a> {
+    Stmt(&'w Stmt<'a>),
+    Expr(&'w Expr<'a>),
+}
+
+/// Visit every statement and expression in `stmts`, each once — the same exhaustive child
+/// enumeration the depth gate walks, so a new variant's children are reached here the moment the
+/// gate reaches them. Iterative, like the gate: visiting must never be what overflows.
+pub fn for_each_node<'w, 'a>(stmts: &'w [Stmt<'a>], mut visit: impl FnMut(Visited<'w, 'a>)) {
+    walk_nodes(stmts, |node| {
+        visit(node);
+        Walk::Into
+    });
+}
+
+/// Whether a [`walk_nodes`] visitor goes on into the children of the node it was handed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Walk {
+    /// Visit the node's children too.
+    Into,
+    /// Leave the node's children unvisited — another scope's, say: a function's body is not the
+    /// scope that defines the function.
+    Past,
+}
+
+/// [`for_each_node`], with the visitor answering for each statement and expression whether the walk
+/// goes on into its children. Exhaustive in the same way: a child is left unvisited only because a
+/// visitor said so, never because the walk does not know the kind of node it is in.
+pub fn walk_nodes<'w, 'a>(stmts: &'w [Stmt<'a>], mut visit: impl FnMut(Visited<'w, 'a>) -> Walk) {
+    let mut work: Vec<(Node<'w, 'a>, usize)> = stmts.iter().map(|s| (Node::S(s), 1)).collect();
+    while let Some((node, depth)) = work.pop() {
+        let d = depth + 1;
+        match node {
+            Node::S(stmt) => {
+                if visit(Visited::Stmt(stmt)) == Walk::Into {
+                    push_stmt_children(stmt, d, &mut work);
+                }
+            }
+            Node::E(expr) => {
+                if visit(Visited::Expr(expr)) == Walk::Into {
+                    push_expr_children(expr, d, &mut work);
+                }
+            }
+            Node::T(ty) => push_type_children(ty, d, &mut work),
+            Node::L(logic) => push_logic_children(logic, d, &mut work),
+        }
+    }
+}
+
+/// The expressions an expression evaluates directly — its operands, arguments, elements — in the same
+/// exhaustive enumeration the depth gate walks. A closure's body is not among them: it runs when the
+/// closure is called, not when the closure expression is evaluated.
+pub fn expr_children<'w, 'a>(expr: &'w Expr<'a>) -> Vec<&'w Expr<'a>> {
+    if matches!(expr, Expr::Closure { .. }) {
+        return Vec::new();
+    }
+    let mut work = Vec::new();
+    push_expr_children(expr, 0, &mut work);
+    work.into_iter()
+        .filter_map(|(node, _)| match node {
+            Node::E(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The expressions a statement evaluates directly (its value, condition, target, arguments — not the
+/// statements of its nested blocks).
+pub fn stmt_expr_children<'w, 'a>(stmt: &'w Stmt<'a>) -> Vec<&'w Expr<'a>> {
+    let mut work = Vec::new();
+    push_stmt_children(stmt, 0, &mut work);
+    work.into_iter()
+        .filter_map(|(node, _)| match node {
+            Node::E(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Validate a parsed program against the effective limit
 /// ([`max_ast_depth`]).
 pub fn validate_program_depth(stmts: &[Stmt<'_>], span: Span) -> Result<(), ParseError> {
@@ -119,7 +209,10 @@ pub fn validate_program_depth(stmts: &[Stmt<'_>], span: Span) -> Result<(), Pars
     let depth = program_depth(stmts);
     if depth > limit {
         return Err(ParseError {
-            kind: ParseErrorKind::AstTooDeep { depth, max_depth: limit },
+            kind: ParseErrorKind::AstTooDeep {
+                depth,
+                max_depth: limit,
+            },
             span,
         });
     }
@@ -127,19 +220,8 @@ pub fn validate_program_depth(stmts: &[Stmt<'_>], span: Span) -> Result<(), Pars
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn override_resolution() {
-        assert_eq!(limit_from(None), DEFAULT_MAX_AST_DEPTH);
-        assert_eq!(limit_from(Some("1000")), 1000);
-        assert_eq!(limit_from(Some(" 2048 ")), 2048);
-        assert_eq!(limit_from(Some("3")), MIN_AST_DEPTH, "floor applies");
-        assert_eq!(limit_from(Some("potato")), DEFAULT_MAX_AST_DEPTH);
-        assert_eq!(limit_from(Some("")), DEFAULT_MAX_AST_DEPTH);
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/ast_depth/tests.rs"]
+mod tests;
 
 fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node<'w, 'a>, usize)>) {
     macro_rules! e {
@@ -155,29 +237,52 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
         };
     }
     match stmt {
-        Stmt::Let { ty, value, var: _, mutable: _ } => {
+        Stmt::Let {
+            ty,
+            value,
+            var: _,
+            mutable: _,
+        } => {
             if let Some(t) = ty {
                 work.push((Node::T(t), d));
             }
             e!(value);
         }
         Stmt::Set { value, target: _ } => e!(value),
-        Stmt::Call { args, function: _ } => for a in args { e!(a); },
-        Stmt::If { cond, then_block, else_block } => {
+        // `Swap a and b` has only two symbol operands — no child expressions to bound.
+        Stmt::Swap { a: _, b: _ } => {}
+        Stmt::Call { args, function: _ } => {
+            for a in args {
+                e!(a);
+            }
+        }
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
             e!(cond);
             block!(then_block);
             if let Some(b) = else_block {
                 block!(b);
             }
         }
-        Stmt::While { cond, body, decreasing } => {
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
             e!(cond);
             if let Some(x) = decreasing {
                 e!(x);
             }
             block!(body);
         }
-        Stmt::Repeat { iterable, body, pattern: _ } => {
+        Stmt::Repeat {
+            iterable,
+            body,
+            pattern: _,
+        } => {
             e!(iterable);
             block!(body);
         }
@@ -188,8 +293,22 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
         }
         Stmt::Break => {}
         Stmt::Assert { proposition } => work.push((Node::L(proposition), d)),
-        Stmt::Trust { proposition, justification: _ } => work.push((Node::L(proposition), d)),
-        Stmt::RuntimeAssert { condition, hard: _ } => e!(condition),
+        Stmt::Trust {
+            proposition,
+            justification: _,
+        } => work.push((Node::L(proposition), d)),
+        Stmt::RuntimeAssert {
+            condition,
+            hard: _,
+            dim: _,
+            reason,
+        } => {
+            e!(condition);
+            if let Some(r) = reason {
+                e!(r);
+            }
+        }
+        Stmt::Fail { reason } => e!(reason),
         Stmt::Give { object, recipient } => {
             e!(object);
             e!(recipient);
@@ -198,12 +317,50 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             e!(object);
             e!(recipient);
         }
-        Stmt::SetField { object, value, field: _ } => {
+        Stmt::SetField {
+            object,
+            value,
+            field: _,
+        } => {
             e!(object);
             e!(value);
         }
         Stmt::StructDef { .. } => {}
-        Stmt::FunctionDef { params, body, return_type, .. } => {
+        Stmt::TestDef { cases, body, .. } => {
+            if let Some(table) = cases {
+                for row in &table.rows {
+                    for cell in row {
+                        e!(cell);
+                    }
+                }
+            }
+            block!(body);
+        }
+        Stmt::Expect { condition } => e!(condition),
+        Stmt::ExpectFail { body, message: _ } => block!(body),
+        Stmt::ExpectOutput { .. } => {}
+        Stmt::AdvanceTime { millis } => e!(millis),
+        Stmt::GivenFile { .. } => {}
+        Stmt::Observe { payloads, .. } => {
+            for (_, expr) in payloads {
+                e!(expr);
+            }
+        }
+        Stmt::During { body, .. } => block!(body),
+        Stmt::ForAll {
+            constraint, body, ..
+        } => {
+            if let Some(c) = constraint {
+                e!(c);
+            }
+            block!(body);
+        }
+        Stmt::FunctionDef {
+            params,
+            body,
+            return_type,
+            ..
+        } => {
             for (_, t) in params {
                 work.push((Node::T(t), d));
             }
@@ -212,7 +369,11 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             }
             block!(body);
         }
-        Stmt::Inspect { target, arms, has_otherwise: _ } => {
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise: _,
+        } => {
             e!(target);
             for arm in arms {
                 block!(arm.body);
@@ -222,7 +383,10 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             e!(value);
             e!(collection);
         }
-        Stmt::Pop { collection, into: _ } => e!(collection),
+        Stmt::Pop {
+            collection,
+            into: _,
+        } => e!(collection),
         Stmt::Add { value, collection } => {
             e!(value);
             e!(collection);
@@ -231,13 +395,123 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             e!(value);
             e!(collection);
         }
-        Stmt::SetIndex { collection, index, value } => {
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => {
             e!(collection);
             e!(index);
             e!(value);
         }
         Stmt::Splice { body } => block!(body),
-        Stmt::Zone { body, name: _, capacity: _, source_file: _ } => block!(body),
+        Stmt::ComponentDef(def) => {
+            for (_, t) in &def.props {
+                work.push((Node::T(t), d));
+            }
+            if let crate::ast::component::ComponentKind::Page { params, .. } = &def.kind {
+                for (_, t) in params {
+                    work.push((Node::T(t), d));
+                }
+            }
+            for f in &def.state {
+                if let Some(t) = f.ty {
+                    work.push((Node::T(t), d));
+                }
+                e!(f.init);
+            }
+            for ev in &def.events {
+                block!(ev.body);
+            }
+            for a in &def.actions {
+                for (_, t) in &a.params {
+                    work.push((Node::T(t), d));
+                }
+                block!(a.body);
+            }
+            if let Some(v) = &def.view {
+                let (es, bs) = v.exprs_and_blocks();
+                for x in es {
+                    e!(x);
+                }
+                for b in bs {
+                    block!(b);
+                }
+            }
+        }
+        Stmt::DirectiveDef {
+            params,
+            body,
+            removed,
+            ..
+        } => {
+            for (_, t) in params {
+                work.push((Node::T(t), d));
+            }
+            block!(body);
+            if let Some(r) = removed {
+                block!(r);
+            }
+        }
+        Stmt::RouteDef {
+            params,
+            return_type,
+            body,
+            ..
+        } => {
+            for (_, t) in params {
+                work.push((Node::T(t), d));
+            }
+            if let Some(t) = return_type {
+                work.push((Node::T(t), d));
+            }
+            match &**body {
+                crate::ast::component::RouteBody::Statements(b) => block!(b),
+                crate::ast::component::RouteBody::View(v) => {
+                    let (es, bs) = v.exprs_and_blocks();
+                    for x in es {
+                        e!(x);
+                    }
+                    for b in bs {
+                        block!(b);
+                    }
+                }
+            }
+        }
+        Stmt::MiddlewareDef { param, body } => {
+            work.push((Node::T(param.1), d));
+            block!(body);
+        }
+        Stmt::RedirectDef { .. } => {}
+        Stmt::Ui(u) => {
+            for x in u.exprs() {
+                e!(x);
+            }
+        }
+        Stmt::ServeFetches | Stmt::Replay { .. } => {}
+        Stmt::GivenFetch {
+            url, status, body, ..
+        } => {
+            e!(url);
+            e!(status);
+            e!(body);
+        }
+        Stmt::Fetch {
+            url, body, as_type, ..
+        } => {
+            e!(url);
+            if let Some(b) = body {
+                e!(b);
+            }
+            work.push((Node::T(as_type), d));
+        }
+        Stmt::Reversibly { body } => block!(body),
+        Stmt::Zone {
+            body,
+            name: _,
+            capacity: _,
+            source_file: _,
+        } => block!(body),
         Stmt::Concurrent { tasks } => block!(tasks),
         Stmt::Parallel { tasks } => block!(tasks),
         Stmt::ReadFrom { source, var: _ } => match source {
@@ -249,24 +523,39 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             e!(path);
         }
         Stmt::Spawn { .. } => {}
-        Stmt::SendMessage { message, destination, .. } => {
+        Stmt::SendMessage {
+            message,
+            destination,
+            ..
+        } => {
             e!(message);
             e!(destination);
         }
         Stmt::AwaitMessage { source, .. } => e!(source),
-        Stmt::StreamMessage { values, destination } => {
+        Stmt::StreamMessage {
+            values,
+            destination,
+        } => {
             e!(values);
             e!(destination);
         }
-        Stmt::MergeCrdt { source, target } => {
+        Stmt::MergeCrdt { source, target } | Stmt::JoinCrdt { source, target } => {
             e!(source);
             e!(target);
         }
-        Stmt::IncreaseCrdt { object, amount, field: _ } => {
+        Stmt::IncreaseCrdt {
+            object,
+            amount,
+            field: _,
+        } => {
             e!(object);
             e!(amount);
         }
-        Stmt::DecreaseCrdt { object, amount, field: _ } => {
+        Stmt::DecreaseCrdt {
+            object,
+            amount,
+            field: _,
+        } => {
             e!(object);
             e!(amount);
         }
@@ -274,7 +563,11 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             e!(sequence);
             e!(value);
         }
-        Stmt::ResolveConflict { object, value, field: _ } => {
+        Stmt::ResolveConflict {
+            object,
+            value,
+            field: _,
+        } => {
             e!(object);
             e!(value);
         }
@@ -284,6 +577,10 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             if let Some(pad) = secure {
                 e!(pad.pad);
             }
+        }
+        Stmt::Serve { port, handler } => {
+            e!(port);
+            e!(handler);
         }
         Stmt::ConnectTo { address, secure } => {
             e!(address);
@@ -295,9 +592,19 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
         Stmt::Sleep { milliseconds } => e!(milliseconds),
         Stmt::Sync { topic, var: _ } => e!(topic),
         Stmt::Mount { path, var: _ } => e!(path),
-        Stmt::LaunchTask { args, function: _ } => for a in args { e!(a); },
-        Stmt::LaunchTaskWithHandle { args, handle: _, function: _ } => {
-            for a in args { e!(a); }
+        Stmt::LaunchTask { args, function: _ } => {
+            for a in args {
+                e!(a);
+            }
+        }
+        Stmt::LaunchTaskWithHandle {
+            args,
+            handle: _,
+            function: _,
+        } => {
+            for a in args {
+                e!(a);
+            }
         }
         Stmt::CreatePipe { .. } => {}
         Stmt::SendPipe { value, pipe } => {
@@ -305,12 +612,18 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
             e!(pipe);
         }
         Stmt::ReceivePipe { pipe, var: _ } => e!(pipe),
-        Stmt::TrySendPipe { value, pipe, result: _ } => {
+        Stmt::TrySendPipe {
+            value,
+            pipe,
+            result: _,
+        } => {
             e!(value);
             e!(pipe);
         }
         Stmt::TryReceivePipe { pipe, var: _ } => e!(pipe),
         Stmt::StopTask { handle } => e!(handle),
+        Stmt::CloseChannel { channel } => e!(channel),
+        Stmt::AwaitTask { handle, result: _ } => e!(handle),
         Stmt::Select { branches } => {
             for branch in branches {
                 match branch {
@@ -330,6 +643,8 @@ fn push_stmt_children<'w, 'a>(stmt: &'w Stmt<'a>, d: usize, work: &mut Vec<(Node
         Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => {}
         Stmt::Escape { .. } => {}
         Stmt::Require { .. } => {}
+        // An opaque failure-site marker: an id, no expression or nested block to bound.
+        Stmt::Site(_) => {}
     }
 }
 
@@ -341,17 +656,41 @@ fn push_expr_children<'w, 'a>(expr: &'w Expr<'a>, d: usize, work: &mut Vec<(Node
     }
     match expr {
         Expr::Literal(_) | Expr::Identifier(_) | Expr::OptionNone | Expr::Escape { .. } => {}
+        Expr::Dom(q) => {
+            if let Some(sel) = q.selector() {
+                e!(sel);
+            }
+        }
+        Expr::View(v) => {
+            let (es, bs) = v.exprs_and_blocks();
+            for x in es {
+                e!(x);
+            }
+            for b in bs {
+                for st in b.iter() {
+                    work.push((Node::S(st), d));
+                }
+            }
+        }
         Expr::BinaryOp { left, right, op: _ } => {
             e!(left);
             e!(right);
         }
         Expr::Not { operand } => e!(operand),
-        Expr::Call { args, function: _ } => for a in args { e!(a); },
+        Expr::Call { args, function: _ } => {
+            for a in args {
+                e!(a);
+            }
+        }
         Expr::Index { collection, index } => {
             e!(collection);
             e!(index);
         }
-        Expr::Slice { collection, start, end } => {
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => {
             e!(collection);
             e!(start);
             e!(end);
@@ -376,14 +715,26 @@ fn push_expr_children<'w, 'a>(expr: &'w Expr<'a>, d: usize, work: &mut Vec<(Node
             e!(index);
             e!(zone);
         }
-        Expr::List(items) => for x in items { e!(x); },
-        Expr::Tuple(items) => for x in items { e!(x); },
+        Expr::List(items) => {
+            for x in items {
+                e!(x);
+            }
+        }
+        Expr::Tuple(items) => {
+            for x in items {
+                e!(x);
+            }
+        }
         Expr::Range { start, end } => {
             e!(start);
             e!(end);
         }
         Expr::FieldAccess { object, field: _ } => e!(object),
-        Expr::New { type_args, init_fields, type_name: _ } => {
+        Expr::New {
+            type_args,
+            init_fields,
+            type_name: _,
+        } => {
             for t in type_args {
                 work.push((Node::T(t), d));
             }
@@ -391,7 +742,11 @@ fn push_expr_children<'w, 'a>(expr: &'w Expr<'a>, d: usize, work: &mut Vec<(Node
                 e!(x);
             }
         }
-        Expr::NewVariant { fields, enum_name: _, variant: _ } => {
+        Expr::NewVariant {
+            fields,
+            enum_name: _,
+            variant: _,
+        } => {
             for (_, x) in fields {
                 e!(x);
             }
@@ -401,7 +756,11 @@ fn push_expr_children<'w, 'a>(expr: &'w Expr<'a>, d: usize, work: &mut Vec<(Node
             e!(value);
             e!(capacity);
         }
-        Expr::Closure { params, body, return_type } => {
+        Expr::Closure {
+            params,
+            body,
+            return_type,
+        } => {
             for (_, t) in params {
                 work.push((Node::T(t), d));
             }
@@ -419,24 +778,44 @@ fn push_expr_children<'w, 'a>(expr: &'w Expr<'a>, d: usize, work: &mut Vec<(Node
         }
         Expr::CallExpr { callee, args } => {
             e!(callee);
-            for a in args { e!(a); };
+            for a in args {
+                e!(a);
+            }
         }
         Expr::InterpolatedString(parts) => {
             for part in parts {
                 match part {
                     StringPart::Literal(_) => {}
-                    StringPart::Expr { value, format_spec: _, debug: _ } => e!(value),
+                    StringPart::Expr {
+                        value,
+                        format_spec: _,
+                        debug: _,
+                    } => e!(value),
                 }
             }
         }
     }
 }
 
-fn push_type_children<'w, 'a>(ty: &'w TypeExpr<'a>, d: usize, work: &mut Vec<(Node<'w, 'a>, usize)>) {
+fn push_type_children<'w, 'a>(
+    ty: &'w TypeExpr<'a>,
+    d: usize,
+    work: &mut Vec<(Node<'w, 'a>, usize)>,
+) {
     match ty {
         TypeExpr::Primitive(_) | TypeExpr::Named(_) => {}
         TypeExpr::Generic { params, base: _ } => {
             for t in *params {
+                work.push((Node::T(t), d));
+            }
+        }
+        TypeExpr::Tuple(params) => {
+            for t in *params {
+                work.push((Node::T(t), d));
+            }
+        }
+        TypeExpr::Record { field_types, .. } => {
+            for t in *field_types {
                 work.push((Node::T(t), d));
             }
         }
@@ -446,7 +825,11 @@ fn push_type_children<'w, 'a>(ty: &'w TypeExpr<'a>, d: usize, work: &mut Vec<(No
             }
             work.push((Node::T(output), d));
         }
-        TypeExpr::Refinement { base, predicate, var: _ } => {
+        TypeExpr::Refinement {
+            base,
+            predicate,
+            var: _,
+        } => {
             work.push((Node::T(base), d));
             work.push((Node::L(predicate), d));
         }
@@ -504,12 +887,18 @@ fn push_logic_children<'w, 'a>(
         LogicExpr::Imperative { action } => l!(action),
         LogicExpr::Exclamative { body, .. } => l!(body),
         LogicExpr::Optative { wish } => l!(wish),
-        LogicExpr::Implicature { assertion, implicature } => {
+        LogicExpr::Implicature {
+            assertion,
+            implicature,
+        } => {
             l!(assertion);
             l!(implicature);
         }
         LogicExpr::SpeechAct { content, .. } => l!(content),
-        LogicExpr::Counterfactual { antecedent, consequent } => {
+        LogicExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
             l!(antecedent);
             l!(consequent);
         }
@@ -523,14 +912,19 @@ fn push_logic_children<'w, 'a>(
         }
         LogicExpr::Scopal { body, .. } => l!(body),
         LogicExpr::Control { infinitive, .. } => l!(infinitive),
-        LogicExpr::Presupposition { assertion, presupposition } => {
+        LogicExpr::Presupposition {
+            assertion,
+            presupposition,
+        } => {
             l!(assertion);
             l!(presupposition);
         }
         LogicExpr::Focus { scope, .. } => l!(scope),
         LogicExpr::TemporalAnchor { body, .. } => l!(body),
         LogicExpr::Distributive { predicate } => l!(predicate),
-        LogicExpr::GroupQuantifier { restriction, body, .. } => {
+        LogicExpr::GroupQuantifier {
+            restriction, body, ..
+        } => {
             l!(restriction);
             l!(body);
         }

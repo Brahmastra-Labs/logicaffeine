@@ -1,0 +1,11 @@
+{
+  "name": "strings",
+  "lang": "c",
+  "n": "125882141",
+  "samples_weight": 23826976584,
+  "alloc_pct": 0.0,
+  "stdout_pct": 39.863,
+  "fmt_pct": 0.0,
+  "output_pct": 39.863,
+  "compute_pct": 60.137
+}

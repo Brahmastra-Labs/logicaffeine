@@ -1,0 +1,13 @@
+## Main
+    Let mutable count be 0.
+    Let mutable n be 2.
+    While n is at most 100:
+        Let mutable isprime be 1.
+        Let mutable d be 2.
+        While d * d is at most n:
+            If n % d is equal to 0:
+                Set isprime to 0.
+            Set d to d + 1.
+        Set count to count + isprime.
+        Set n to n + 1.
+    Show count.

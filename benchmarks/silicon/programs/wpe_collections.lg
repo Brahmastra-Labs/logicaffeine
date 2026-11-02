@@ -1,0 +1,4 @@
+## To f (x: Int) -> Int:
+    Let mutable xs be [10, x, 30].
+    Set item 1 of xs to 99.
+    Return item 1 of xs + item 2 of xs.

@@ -1,23 +1,136 @@
 //! Programmer's Guide page.
 //!
 //! A beautiful, interactive guide to the LOGOS programming language with:
-//! - 22 sections from work/PROGRAMMERS_LANGUAGE_STARTER.md
+//! - 22 sections, from the basics to the full language
 //! - Sticky sidebar navigation
 //! - Interactive code examples with Run/Copy/Reset
 //! - Dual mode: Logic (FOL output) and Imperative (WASM execution)
+//! - Every example, exercise and quoted snippet in the Studio's editor, with the language server
 
 pub mod content;
 
+use crate::progress::UserProgress;
+use crate::ui::components::code_editor::Language;
+use crate::ui::components::exercise_block::ExerciseBlock;
+use crate::ui::components::footer::Footer;
+use crate::ui::components::guide_code_block::GuideCodeBlock;
+use crate::ui::components::guide_sidebar::{GuideSidebar, SectionInfo};
+use crate::ui::components::guide_snippet::GuideSnippet;
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::components::misconception_box::MisconceptionBox;
+use crate::ui::components::recall_block::RecallBlock;
+use crate::ui::inline_markup::inline_markup_html;
+use crate::ui::markdown_blocks::{blocks, Block};
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, tech_article_schema,
+    BreadcrumbItem, JsonLdMultiple, PageHead,
+};
+use content::SECTIONS;
 use dioxus::prelude::*;
 #[cfg(all(feature = "split", target_arch = "wasm32"))]
 use dioxus::wasm_split;
-use crate::ui::router::Route;
-use crate::ui::components::guide_code_block::GuideCodeBlock;
-use crate::ui::components::guide_sidebar::{GuideSidebar, SectionInfo};
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, tech_article_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
-use content::SECTIONS;
+
+/// Today as `YYYY-MM-DD` — the date the SM-2 deck schedules against.
+pub fn today_string() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+
+        #[wasm_bindgen]
+        extern "C" {
+            #[wasm_bindgen(js_namespace = Date, js_name = now)]
+            fn date_now() -> f64;
+        }
+
+        let ms = date_now() as i64;
+        let days_since_epoch = ms / 86400000;
+        let year = 1970 + (days_since_epoch / 365) as i32;
+        let day_of_year = (days_since_epoch % 365) as i32;
+        let month = (day_of_year / 30).min(11) + 1;
+        let day = (day_of_year % 30) + 1;
+        format!("{:04}-{:02}-{:02}", year, month, day)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        "2025-01-01".to_string()
+    }
+}
+
+/// The canonical rendering of a theorem run — shared by the Run button and
+/// the test harness, so the locked expected output IS what the reader sees.
+pub fn theorem_verdict(r: &logicaffeine_compile::TheoremCompileResult) -> Result<String, String> {
+    if let Some(e) = &r.error {
+        return Err(e.clone());
+    }
+    let mut out = if r.verified {
+        format!("Proved: {} — kernel-certified.", r.name)
+    } else {
+        format!("Not proved: {}.", r.name)
+    };
+    if let Some(goal) = &r.goal_string {
+        out.push_str(&format!("\nGoal: {goal}"));
+    }
+    Ok(out)
+}
+
+/// The verdict on a web page's own `## Test` blocks — shared by the web exercise grader and the
+/// test harness, so what the reader is told is what the suite checked. `Ok` carries how many tests
+/// passed; a page with no test, or with any failing one, is an `Err` naming what went wrong.
+///
+/// Host-only because the test runner it reads (`logicaffeine_compile::testrun`) is: the runner
+/// seals each test's world with the in-memory filesystem, which `logicaffeine_system` builds for
+/// native targets only.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn page_verdict(source: &str) -> Result<usize, String> {
+    use logicaffeine_compile::testrun::{run_tests, TestConfig, Verdict};
+    let report = run_tests(source, &TestConfig::default())?;
+    if report.outcomes.is_empty() {
+        return Err(
+            "the page has no `## Test` — a test is how a page proves what it does".to_string(),
+        );
+    }
+    let failed: Vec<String> = report
+        .outcomes
+        .iter()
+        .filter(|o| o.verdict != Verdict::Passed)
+        .map(|o| format!("`{}`: {}", o.name, o.failures.join("; ")))
+        .collect();
+    if failed.is_empty() {
+        Ok(report.passed)
+    } else {
+        Err(failed.join("\n"))
+    }
+}
+
+/// Case-insensitive full-text search over section titles, prose, hooks,
+/// objectives, misconceptions, recap questions, and example labels/code, in
+/// display order. Blank queries match nothing (no noise).
+pub fn search_sections(query: &str) -> Vec<&'static content::Section> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    SECTIONS
+        .iter()
+        .filter(|s| {
+            s.title.to_lowercase().contains(&q)
+                || s.content.to_lowercase().contains(&q)
+                || s.hook.to_lowercase().contains(&q)
+                || s.objectives.iter().any(|o| o.to_lowercase().contains(&q))
+                || s.misconceptions.iter().any(|m| {
+                    m.expectation.to_lowercase().contains(&q)
+                        || m.reality.to_lowercase().contains(&q)
+                })
+                || s.recap.iter().any(|r| {
+                    r.question.to_lowercase().contains(&q) || r.answer.to_lowercase().contains(&q)
+                })
+                || s.examples.iter().any(|e| {
+                    e.label.to_lowercase().contains(&q) || e.code.to_lowercase().contains(&q)
+                })
+        })
+        .collect()
+}
 
 const GUIDE_STYLE: &str = r#"
 .guide-page {
@@ -150,6 +263,12 @@ const GUIDE_STYLE: &str = r#"
     margin-bottom: var(--spacing-sm);
 }
 
+.guide-section hr {
+    border: 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    margin: var(--spacing-xxl) 0;
+}
+
 .guide-section code {
     font-family: var(--font-mono);
     background: rgba(255,255,255,0.08);
@@ -159,13 +278,14 @@ const GUIDE_STYLE: &str = r#"
     color: var(--color-accent-purple);
 }
 
-/* Fenced code blocks (install commands etc.) — copyable, one command per block */
-.guide-section .guide-code-block {
+/* Plain fences (install commands, config) — copyable, one command per block. A class of their
+   own, apart from the live example component's. */
+.guide-section .guide-fence {
     position: relative;
     margin: 0 0 var(--spacing-lg);
 }
 
-.guide-section .guide-code-block pre {
+.guide-section .guide-fence pre {
     font-family: var(--font-mono);
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.08);
@@ -178,7 +298,7 @@ const GUIDE_STYLE: &str = r#"
     margin: 0;
 }
 
-.guide-section .guide-code-block code {
+.guide-section .guide-fence code {
     background: none;
     padding: 0;
     color: var(--text-primary);
@@ -200,6 +320,25 @@ const GUIDE_STYLE: &str = r#"
 .guide-section .guide-code-copy:hover {
     color: var(--text-primary);
     background: rgba(255,255,255,0.12);
+}
+
+/* LOGOS quoted in the prose: the shared editor, read-only, on a command block's surface */
+.guide-section .guide-snippet {
+    position: relative;
+    margin: 0 0 var(--spacing-lg);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+}
+
+.guide-section .guide-snippet .code-editor-highlight,
+.guide-section .guide-snippet .code-editor-textarea {
+    padding-right: 72px;
+}
+
+/* Above the editor's text area, which lies over the whole snippet */
+.guide-section .guide-snippet .guide-code-copy {
+    z-index: 3;
 }
 
 .guide-section strong {
@@ -415,6 +554,69 @@ const GUIDE_STYLE: &str = r#"
     background: rgba(167,139,250,0.14);
     border-color: rgba(167,139,250,0.5);
 }
+
+/* The hook: the headache before the aspirin */
+.guide-hook {
+    font-size: var(--font-body-md);
+    color: var(--text-primary);
+    line-height: 1.7;
+    padding: var(--spacing-lg) var(--spacing-xl);
+    margin: 0 0 var(--spacing-xl);
+    border-left: 3px solid var(--color-accent-purple);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: rgba(167,139,250,0.07);
+}
+
+/* "After this section you can" */
+.guide-objectives {
+    margin: 0 0 var(--spacing-xl);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-md);
+    background: rgba(255,255,255,0.03);
+}
+
+.guide-objectives-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: rgba(229,231,235,0.55);
+    margin-bottom: var(--spacing-sm);
+}
+
+.guide-objectives ul {
+    margin: 0;
+    padding-left: var(--spacing-xl);
+}
+
+.guide-objectives li {
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm);
+    margin-bottom: 4px;
+}
+
+/* Blockquote callouts */
+.guide-section blockquote {
+    margin: 0 0 var(--spacing-lg);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-left: 3px solid rgba(255,255,255,0.2);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: rgba(255,255,255,0.03);
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm);
+    line-height: 1.7;
+}
+
+.guide-section blockquote.guide-mental-model {
+    border-left-color: #22c55e;
+    background: rgba(34,197,94,0.06);
+}
+
+.guide-section blockquote.guide-look-back {
+    border-left-color: #60a5fa;
+    background: rgba(96,165,250,0.06);
+}
 "#;
 
 // `lazy`: with the `split` feature + dx `--wasm-split`, this page's body (and the
@@ -422,14 +624,68 @@ const GUIDE_STYLE: &str = r#"
 #[component(lazy)]
 pub fn Guide() -> Element {
     let mut active_section = use_signal(|| "introduction".to_string());
+    let mut search_query = use_signal(String::new);
+    // Example groups default to EXPANDED; this set holds the ids the reader
+    // (or the collapse-all control) has closed.
+    let mut collapsed_groups = use_signal(std::collections::HashSet::<String>::new);
+    let mut completed = use_signal(Vec::<String>::new);
+    // The SM-2 progress store, shared with every exercise block and recall
+    // card on the page (they write through it, the mastery ring reads it).
+    let progress = use_context_provider(|| Signal::new(UserProgress::load()));
 
-    // Build section info for sidebar
-    let sections_info: Vec<SectionInfo> = SECTIONS.iter().map(|s| SectionInfo {
-        id: s.id.to_string(),
-        number: s.number,
-        title: s.title.to_string(),
-        part: s.part.to_string(),
-    }).collect();
+    // Completion checkmarks persist per browser via localStorage.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_storage::Storage;
+        use_effect(move || {
+            if let Ok(saved) = gloo_storage::LocalStorage::get::<Vec<String>>("guide-completed") {
+                completed.set(saved);
+            }
+        });
+    }
+    let toggle_completed = move |id: String| {
+        let mut list = completed.read().clone();
+        if let Some(pos) = list.iter().position(|x| *x == id) {
+            list.remove(pos);
+        } else {
+            list.push(id);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use gloo_storage::Storage;
+            let _ = gloo_storage::LocalStorage::set("guide-completed", &list);
+        }
+        completed.set(list);
+    };
+
+    // Build section info for sidebar — the mastery ring counts exercises
+    // passed (correct at least once) via their namespaced SM-2 entries.
+    let sections_info: Vec<SectionInfo> = {
+        let prog = progress.read();
+        SECTIONS
+            .iter()
+            .map(|s| {
+                let exercise_total = s.exercises.len();
+                let exercise_passed = s
+                    .exercises
+                    .iter()
+                    .filter(|e| {
+                        prog.exercises
+                            .get(&crate::guide_review::exercise_key(e.id))
+                            .is_some_and(|p| p.correct_count > 0)
+                    })
+                    .count();
+                SectionInfo {
+                    id: s.id.to_string(),
+                    number: s.number,
+                    title: s.title.to_string(),
+                    part: s.part.to_string(),
+                    exercise_total,
+                    exercise_passed,
+                }
+            })
+            .collect()
+    };
 
     // Collect all section IDs for intersection observer
     #[allow(unused_variables)]
@@ -465,7 +721,10 @@ pub fn Guide() -> Element {
                     // Simple approach: when a section crosses the threshold line,
                     // it becomes active
                     for i in 0..entries.length() {
-                        if let Ok(entry) = entries.get(i).dyn_into::<web_sys::IntersectionObserverEntry>() {
+                        if let Ok(entry) = entries
+                            .get(i)
+                            .dyn_into::<web_sys::IntersectionObserverEntry>()
+                        {
                             if entry.is_intersecting() {
                                 let target = entry.target();
                                 let id = target.id();
@@ -511,8 +770,14 @@ pub fn Guide() -> Element {
     let mut current_part = String::new();
 
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Syntax Guide", path: "/guide" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "Syntax Guide",
+            path: "/guide",
+        },
     ];
     let schemas = vec![
         organization_schema(),
@@ -546,6 +811,40 @@ pub fn Guide() -> Element {
                 p {
                     "Write English. Get Logic. Run Code. A comprehensive guide to programming in LOGOS, from basics to advanced features."
                 }
+
+                // In-guide search
+                div {
+                    style: "max-width: 560px; margin: 18px auto 0; position: relative;",
+                    input {
+                        class: "guide-search-input",
+                        style: "width: 100%; padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.35); color: rgba(229,231,235,0.95); font-size: 14px; outline: none;",
+                        placeholder: "Search the guide — sections, prose, code…",
+                        value: "{search_query}",
+                        oninput: move |evt| search_query.set(evt.value()),
+                    }
+                    {
+                        let q = search_query.read().clone();
+                        let hits = search_sections(&q);
+                        if !hits.is_empty() {
+                            rsx! {
+                                div {
+                                    style: "position: absolute; z-index: 30; left: 0; right: 0; margin-top: 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: #0b1022; box-shadow: 0 12px 40px rgba(0,0,0,0.5); text-align: left; max-height: 300px; overflow-y: auto;",
+                                    for hit in hits.into_iter().take(8) {
+                                        a {
+                                            style: "display: block; padding: 9px 14px; color: rgba(229,231,235,0.9); text-decoration: none; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.05);",
+                                            href: "#{hit.id}",
+                                            onclick: move |_| search_query.set(String::new()),
+                                            span { style: "opacity: 0.55; margin-right: 8px;", "{hit.number}." }
+                                            "{hit.title}"
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            rsx! {}
+                        }
+                    }
+                }
             }
 
             // Main layout
@@ -557,10 +856,32 @@ pub fn Guide() -> Element {
                     on_section_click: move |id: String| {
                         active_section.set(id);
                     },
+                    completed: completed.read().clone(),
+                    on_toggle_complete: toggle_completed,
                 }
 
                 // Content
                 main { class: "guide-content",
+                    div {
+                        style: "display: flex; justify-content: flex-end; margin-bottom: 4px;",
+                        button {
+                            class: "guide-expand-all",
+                            style: "padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: rgba(229,231,235,0.75); font-size: 12px; cursor: pointer;",
+                            onclick: move |_| {
+                                if collapsed_groups.read().is_empty() {
+                                    let all: std::collections::HashSet<String> = SECTIONS
+                                        .iter()
+                                        .filter(|s| s.examples.len() > 3)
+                                        .map(|s| s.id.to_string())
+                                        .collect();
+                                    collapsed_groups.set(all);
+                                } else {
+                                    collapsed_groups.set(std::collections::HashSet::new());
+                                }
+                            },
+                            if collapsed_groups.read().is_empty() { "Collapse example groups" } else { "Expand all examples" }
+                        }
+                    }
                     for section in SECTIONS.iter() {
                         {
                             // Check if we need a part divider
@@ -585,9 +906,39 @@ pub fn Guide() -> Element {
                                         "{section.title}"
                                     }
 
-                                    // Render content as HTML
-                                    div {
-                                        dangerous_inner_html: render_markdown(section.content)
+                                    // The headache before the aspirin — the hook
+                                    // opens the section, before any definition.
+                                    if !section.hook.is_empty() {
+                                        div { class: "guide-hook", "{section.hook}" }
+                                    }
+
+                                    // "After this section you can:" — the contract
+                                    // the recap questions collect on.
+                                    if !section.objectives.is_empty() {
+                                        div { class: "guide-objectives",
+                                            div { class: "guide-objectives-title", "After this section you can" }
+                                            ul {
+                                                for objective in section.objectives.iter() {
+                                                    li { "{objective}" }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // The prose, the LOGOS it quotes in the shared editor
+                                    for block in prose_blocks(section.content) {
+                                        {prose_block(block)}
+                                    }
+
+                                    // Imported beliefs, confronted before the
+                                    // examples that settle them.
+                                    for m in section.misconceptions.iter() {
+                                        MisconceptionBox {
+                                            id: m.id.to_string(),
+                                            expectation: m.expectation.to_string(),
+                                            reality: m.reality.to_string(),
+                                            evidence: m.evidence.to_string(),
+                                        }
                                     }
 
                                     // Render code examples - collapsible if many
@@ -601,6 +952,14 @@ pub fn Guide() -> Element {
                                                     CollapsibleExamples {
                                                         section_id: section.id.to_string(),
                                                         examples: section.examples,
+                                                        is_open: !collapsed_groups.read().contains(section.id),
+                                                        on_toggle: move |id: String| {
+                                                            let mut set = collapsed_groups.read().clone();
+                                                            if !set.remove(&id) {
+                                                                set.insert(id);
+                                                            }
+                                                            collapsed_groups.set(set);
+                                                        },
                                                     }
                                                 }
                                             } else {
@@ -611,12 +970,39 @@ pub fn Guide() -> Element {
                                                                 id: example.id.to_string(),
                                                                 label: example.label.to_string(),
                                                                 mode: example.mode,
+                                                                runnability: example.runnability,
+                                                                expected_output: example.expected_output.map(|s| s.to_string()),
+                                                                predict: example.predict_first,
                                                                 initial_code: example.code.to_string(),
                                                             }
                                                         }
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    // "Now you try" exercises, graded in place
+                                    for ex in section.exercises.iter() {
+                                        ExerciseBlock {
+                                            id: ex.id.to_string(),
+                                            prompt: ex.prompt.to_string(),
+                                            mode: ex.mode,
+                                            expected: ex.expected.to_string(),
+                                            starter: ex.starter.to_string(),
+                                            kind: ex.kind,
+                                            concepts: ex.concepts.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+                                            hints: ex.hints.iter().map(|h| h.to_string()).collect::<Vec<_>>(),
+                                        }
+                                    }
+
+                                    // "Check yourself" — free recall with reveal;
+                                    // self-marks feed the SM-2 review deck.
+                                    if !section.recap.is_empty() {
+                                        RecallBlock {
+                                            cards: section.recap.iter().map(|r| {
+                                                (r.id.to_string(), r.question.to_string(), r.answer.to_string())
+                                            }).collect::<Vec<_>>(),
                                         }
                                     }
                                 }
@@ -640,19 +1026,27 @@ pub fn Guide() -> Element {
     }
 }
 
-/// Collapsible examples component for sections with many examples
+/// Collapsible examples component for sections with many examples. Controlled
+/// by the page: open by default, closable per group or via collapse-all.
 #[component]
-fn CollapsibleExamples(section_id: String, examples: &'static [content::CodeExample]) -> Element {
-    let mut expanded = use_signal(|| false);
+fn CollapsibleExamples(
+    section_id: String,
+    examples: &'static [content::CodeExample],
+    is_open: bool,
+    on_toggle: EventHandler<String>,
+) -> Element {
     let example_count = examples.len();
 
     rsx! {
         div {
-            class: if *expanded.read() { "guide-examples-collapsible expanded" } else { "guide-examples-collapsible" },
+            class: if is_open { "guide-examples-collapsible expanded" } else { "guide-examples-collapsible" },
 
             div {
                 class: "guide-examples-header",
-                onclick: move |_| expanded.toggle(),
+                onclick: {
+                    let id = section_id.clone();
+                    move |_| on_toggle.call(id.clone())
+                },
 
                 div { class: "guide-examples-header-left",
                     span { class: "guide-examples-title", "Code Examples" }
@@ -668,6 +1062,9 @@ fn CollapsibleExamples(section_id: String, examples: &'static [content::CodeExam
                             id: example.id.to_string(),
                             label: example.label.to_string(),
                             mode: example.mode,
+                            runnability: example.runnability,
+                            expected_output: example.expected_output.map(|s| s.to_string()),
+                            predict: example.predict_first,
                             initial_code: example.code.to_string(),
                         }
                     }
@@ -677,144 +1074,159 @@ fn CollapsibleExamples(section_id: String, examples: &'static [content::CodeExam
     }
 }
 
-/// Simple markdown to HTML converter
-/// Handles: fenced code blocks, headers, paragraphs, lists, tables, inline code, bold
+/// A section's prose as one piece of static markup, every fence a plain copyable block — the
+/// form the markdown locks read. The page itself renders [`prose_blocks`], quoting LOGOS fences
+/// in the shared editor.
 fn render_markdown(content: &str) -> String {
-    let mut html = String::new();
-    let mut in_list = false;
-    let mut in_table = false;
-    let mut in_table_header = false;
-    let mut in_code_block = false;
-    let mut code_buf = String::new();
+    prose_blocks(content)
+        .into_iter()
+        .map(|block| match block {
+            ProseBlock::Html(html) => html,
+            ProseBlock::Code { code, .. } => code_block_html(&code),
+        })
+        .collect()
+}
 
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        // Fenced code blocks — raw lines, indentation and blank lines preserved
-        if in_code_block {
-            if trimmed.starts_with("```") {
-                html.push_str(&code_block_html(&code_buf));
-                code_buf.clear();
-                in_code_block = false;
-            } else {
-                code_buf.push_str(line);
-                code_buf.push('\n');
-            }
-            continue;
+/// A block of guide prose as markup, its text marked up by the site's one inline renderer. A quote that opens with
+/// `**Mental model:**` or `**Look back:**` is styled as that callout; the pedagogy battery rides
+/// on those conventions.
+fn prose_html(block: &Block) -> String {
+    match block {
+        Block::Heading { level, text } => {
+            format!("<h{level}>{}</h{level}>", inline_markup_html(text))
         }
-        if trimmed.starts_with("```") {
-            if in_list { html.push_str("</ul>"); in_list = false; }
-            if in_table { html.push_str("</tbody></table></div>"); in_table = false; }
-            in_code_block = true;
-            continue;
-        }
-
-        // Skip empty lines
-        if trimmed.is_empty() {
-            if in_list {
-                html.push_str("</ul>");
-                in_list = false;
-            }
-            if in_table {
-                html.push_str("</tbody></table></div>");
-                in_table = false;
-            }
-            continue;
-        }
-
-        // Headers
-        if trimmed.starts_with("### ") {
-            if in_list { html.push_str("</ul>"); in_list = false; }
-            if in_table { html.push_str("</tbody></table></div>"); in_table = false; }
-            html.push_str(&format!("<h3>{}</h3>", inline_markdown(&trimmed[4..])));
-            continue;
-        }
-
-        // Table row
-        if trimmed.starts_with('|') && trimmed.ends_with('|') {
-            // Check if this is a separator row (|---|---|)
-            if trimmed.contains("---") {
-                in_table_header = false;
-                continue;
-            }
-
-            if !in_table {
-                html.push_str("<div class=\"table-wrapper\"><table><thead>");
-                in_table = true;
-                in_table_header = true;
-            }
-
-            let cells: Vec<&str> = trimmed[1..trimmed.len()-1]
-                .split('|')
-                .map(|s| s.trim())
+        Block::Paragraph(text) => format!("<p>{}</p>", inline_markup_html(text)),
+        Block::List { ordered, items } => {
+            let tag = if *ordered { "ol" } else { "ul" };
+            let items: String = items
+                .iter()
+                .map(|item| format!("<li>{}</li>", inline_markup_html(item)))
                 .collect();
-
-            if in_table_header {
-                html.push_str("<tr>");
-                for cell in &cells {
-                    html.push_str(&format!("<th>{}</th>", inline_markdown(cell)));
-                }
-                html.push_str("</tr></thead><tbody>");
+            format!("<{tag}>{items}</{tag}>")
+        }
+        Block::Quote(paragraphs) => {
+            let opener = paragraphs.first().map_or("", String::as_str);
+            let class = if opener.contains("**Mental model:**") {
+                " class=\"guide-callout guide-mental-model\""
+            } else if opener.contains("**Look back:**") {
+                " class=\"guide-callout guide-look-back\""
             } else {
-                html.push_str("<tr>");
-                for cell in &cells {
-                    html.push_str(&format!("<td>{}</td>", inline_markdown(cell)));
+                ""
+            };
+            let body: Vec<String> = paragraphs.iter().map(|p| inline_markup_html(p)).collect();
+            format!(
+                "<blockquote{class}>{}</blockquote>",
+                body.join("<br/><br/>")
+            )
+        }
+        Block::Table { header, rows } => {
+            let row = |cells: &[String], tag: &str| -> String {
+                let cells: String = cells
+                    .iter()
+                    .map(|cell| format!("<{tag}>{}</{tag}>", inline_markup_html(cell)))
+                    .collect();
+                format!("<tr>{cells}</tr>")
+            };
+            let head = header.as_ref().map_or(String::new(), |h| {
+                format!("<thead>{}</thead>", row(h, "th"))
+            });
+            let body: String = rows.iter().map(|r| row(r, "td")).collect();
+            format!("<div class=\"table-wrapper\"><table>{head}<tbody>{body}</tbody></table></div>")
+        }
+        Block::Fence { code, .. } => code_block_html(code),
+        Block::Rule => "<hr/>".to_string(),
+    }
+}
+
+/// The markdown renderer, exported for the render locks — the blockquote
+/// callout conventions (`> **Mental model:**`, `> **Look back:**`) are load-
+/// bearing for the pedagogy battery and must never silently stop parsing.
+pub fn render_markdown_for_test(content: &str) -> String {
+    render_markdown(content)
+}
+
+/// One piece of a section's prose, in page order: rendered markup, or a fenced code block.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProseBlock {
+    Html(String),
+    /// The language its opening fence names (empty when it names none) and its lines as written.
+    Code {
+        tag: String,
+        code: String,
+    },
+}
+
+/// How the page shows a fenced block, by the language its opening fence names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fence {
+    /// ```` ```logos ````: LOGOS code, in the shared editor with the language server.
+    Logos,
+    /// ```` ```logic ````: sentences and theorems, in the same editor, read as Logic.
+    Logic,
+    /// Shell commands and configuration: plain, copyable text.
+    Plain,
+}
+
+impl Fence {
+    /// The editor language the block is read in; plain text has none.
+    pub fn language(self) -> Option<Language> {
+        match self {
+            Fence::Logos => Some(Language::Logos),
+            Fence::Logic => Some(Language::Logic),
+            Fence::Plain => None,
+        }
+    }
+}
+
+/// The fence a tag names, or `None` for a tag the guide does not render.
+pub fn fence(tag: &str) -> Option<Fence> {
+    match tag {
+        "logos" => Some(Fence::Logos),
+        "logic" => Some(Fence::Logic),
+        "bash" | "powershell" | "toml" => Some(Fence::Plain),
+        _ => None,
+    }
+}
+
+/// A section's prose split at its fences, in page order. A fence's lines are kept exactly as
+/// written, blank lines and indentation included; whatever prose was open before it (a list, a
+/// table, a quote) ends where it begins.
+pub fn prose_blocks(content: &str) -> Vec<ProseBlock> {
+    let mut out = Vec::new();
+    let mut html = String::new();
+    for block in blocks(content) {
+        match block {
+            Block::Fence { tag, code } => {
+                if !html.is_empty() {
+                    out.push(ProseBlock::Html(std::mem::take(&mut html)));
                 }
-                html.push_str("</tr>");
+                out.push(ProseBlock::Code { tag, code });
             }
-            continue;
+            block => html.push_str(&prose_html(&block)),
         }
-
-        // Close table if not a table row
-        if in_table && !trimmed.starts_with('|') {
-            html.push_str("</tbody></table></div>");
-            in_table = false;
-        }
-
-        // List items
-        if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-            if !in_list {
-                html.push_str("<ul>");
-                in_list = true;
-            }
-            html.push_str(&format!("<li>{}</li>", inline_markdown(&trimmed[2..])));
-            continue;
-        }
-
-        // Numbered list
-        if trimmed.chars().next().map_or(false, |c| c.is_ascii_digit()) {
-            if let Some(dot_pos) = trimmed.find(". ") {
-                if !in_list {
-                    html.push_str("<ul>");
-                    in_list = true;
-                }
-                html.push_str(&format!("<li>{}</li>", inline_markdown(&trimmed[dot_pos + 2..])));
-                continue;
-            }
-        }
-
-        // Close list if not a list item
-        if in_list {
-            html.push_str("</ul>");
-            in_list = false;
-        }
-
-        // Paragraph
-        html.push_str(&format!("<p>{}</p>", inline_markdown(trimmed)));
     }
+    if !html.is_empty() {
+        out.push(ProseBlock::Html(html));
+    }
+    out
+}
 
-    // Close any open tags
-    if in_list {
-        html.push_str("</ul>");
+/// One piece of a section's prose on the page: markup as it renders, LOGOS and Logic quoted in
+/// the shared editor, and shell and config text as a plain copyable block.
+fn prose_block(block: ProseBlock) -> Element {
+    match block {
+        ProseBlock::Html(html) => rsx! {
+            div { dangerous_inner_html: html }
+        },
+        ProseBlock::Code { tag, code } => match fence(&tag).and_then(Fence::language) {
+            Some(language) => rsx! {
+                GuideSnippet { code, language }
+            },
+            None => rsx! {
+                div { dangerous_inner_html: code_block_html(&code) }
+            },
+        },
     }
-    if in_table {
-        html.push_str("</tbody></table></div>");
-    }
-    if in_code_block {
-        html.push_str(&code_block_html(&code_buf));
-    }
-
-    html
 }
 
 /// A fenced code block as copy-friendly HTML: a Copy button (clipboard API, inline
@@ -822,7 +1234,7 @@ fn render_markdown(content: &str) -> String {
 /// Dioxus listener) over an escaped `<pre><code>`.
 fn code_block_html(code: &str) -> String {
     format!(
-        "<div class=\"guide-code-block\">\
+        "<div class=\"guide-fence\">\
          <button class=\"guide-code-copy\" \
          onclick=\"navigator.clipboard.writeText(this.nextElementSibling.textContent);\
          this.textContent='Copied!';setTimeout(()=>{{this.textContent='Copy'}},1200)\">Copy</button>\
@@ -832,82 +1244,15 @@ fn code_block_html(code: &str) -> String {
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-/// Process inline markdown: **bold**, `code`, [links]
-fn inline_markdown(text: &str) -> String {
-    let mut result = text.to_string();
-
-    // Escape HTML entities
-    result = result.replace('&', "&amp;");
-    result = result.replace('<', "&lt;");
-    result = result.replace('>', "&gt;");
-
-    // Bold: **text**
-    while let Some(start) = result.find("**") {
-        if let Some(end) = result[start + 2..].find("**") {
-            let before = &result[..start];
-            let inner = &result[start + 2..start + 2 + end];
-            let after = &result[start + 2 + end + 2..];
-            result = format!("{}<strong>{}</strong>{}", before, inner, after);
-        } else {
-            break;
-        }
-    }
-
-    // Inline code: `code`
-    while let Some(start) = result.find('`') {
-        if let Some(end) = result[start + 1..].find('`') {
-            let before = &result[..start];
-            let inner = &result[start + 1..start + 1 + end];
-            let after = &result[start + 1 + end + 1..];
-            result = format!("{}<code>{}</code>{}", before, inner, after);
-        } else {
-            break;
-        }
-    }
-
-    result
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[cfg(test)]
-mod render_markdown_tests {
-    use super::{render_markdown, SECTIONS};
+#[path = "../../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/guide/render_markdown_tests.rs"]
+mod render_markdown_tests;
 
-    /// A fenced block becomes one copyable `<pre><code>` unit — never a paragraph
-    /// of mangled inline code (the install-command regression).
-    #[test]
-    fn fenced_block_renders_as_pre_code_with_copy_button() {
-        let md = "Install it:\n\n```bash\ncurl -fsSL https://logicaffeine.com/install.sh | sh\n```\n\nDone.";
-        let html = render_markdown(md);
-        assert!(html.contains("<pre><code>curl -fsSL https://logicaffeine.com/install.sh | sh</code></pre>"), "{html}");
-        assert!(html.contains("guide-code-copy"), "{html}");
-        assert!(!html.contains("```"), "fence markers must never leak into the page: {html}");
-    }
-
-    /// Blank lines and indentation inside a fence are content, not structure.
-    #[test]
-    fn fenced_block_preserves_blank_lines_and_indentation() {
-        let md = "```logos\n## Main\n    Show 1.\n\n    Show 2.\n```";
-        let html = render_markdown(md);
-        assert!(html.contains("## Main\n    Show 1.\n\n    Show 2."), "{html}");
-    }
-
-    /// Code is escaped, and the fence's language tag is not rendered as text.
-    #[test]
-    fn fenced_block_escapes_html_and_drops_language_tag() {
-        let html = render_markdown("```powershell\nirm https://x | iex && a < b\n```");
-        assert!(html.contains("&amp;&amp; a &lt; b"), "{html}");
-        assert!(!html.contains("powershell"), "language tag must not render: {html}");
-    }
-
-    /// The whole shipped guide renders with zero leaked fence markers.
-    #[test]
-    fn no_section_leaks_fence_markers() {
-        for section in SECTIONS {
-            let html = render_markdown(section.content);
-            assert!(!html.contains("```"), "section '{}' leaks fence markers", section.id);
-        }
-    }
-}
+#[cfg(test)]
+#[path = "../../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/guide/prose_block_tests.rs"]
+mod prose_block_tests;

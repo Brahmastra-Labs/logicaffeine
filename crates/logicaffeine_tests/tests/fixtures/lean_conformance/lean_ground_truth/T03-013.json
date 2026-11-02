@@ -1,0 +1,820 @@
+{
+  "case": "T03-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 102,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T03_013.Base",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Base \u2192 Sort u} \u2192 (t : T03_013.Base) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T03_013.Base.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 T03_013.Base",
+      "name": "T03_013.Base.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {x y x_1 y_1 : Nat}, { x := x, y := y } = { x := x_1, y := y_1 } \u2192 x = x_1 \u2227 y = y_1",
+      "name": "T03_013.Base.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y x_1 y_1 : Nat), ({ x := x, y := y } = { x := x_1, y := y_1 }) = (x = x_1 \u2227 y = y_1)",
+      "name": "T03_013.Base.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (x y : Nat), sizeOf { x := x, y := y } = 1 + sizeOf x + sizeOf y",
+      "name": "T03_013.Base.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_013.Base} \u2192 v1 = v2 \u2192 T03_013.Base.noConfusionType P v1 v2",
+      "name": "T03_013.Base.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_013.Base \u2192 T03_013.Base \u2192 Sort u",
+      "name": "T03_013.Base.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Base \u2192 Sort u} \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 (t : T03_013.Base) \u2192 motive t",
+      "name": "T03_013.Base.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Base \u2192 Sort u} \u2192 (t : T03_013.Base) \u2192 ((x y : Nat) \u2192 motive { x := x, y := y }) \u2192 motive t",
+      "name": "T03_013.Base.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Base \u2192 Nat",
+      "name": "T03_013.Base.x",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Base \u2192 Nat",
+      "name": "T03_013.Base.y",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_013.Checked",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Checked \u2192 Sort u} \u2192\n  (t : T03_013.Checked) \u2192\n    ((toBase : T03_013.Base) \u2192 (ok : toBase.x \u2264 toBase.y) \u2192 motive { toBase := toBase, ok := ok }) \u2192 motive t",
+      "name": "T03_013.Checked.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(toBase : T03_013.Base) \u2192 toBase.x \u2264 toBase.y \u2192 T03_013.Checked",
+      "name": "T03_013.Checked.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {toBase : T03_013.Base} {ok : toBase.x \u2264 toBase.y} {toBase_1 : T03_013.Base} {ok_1 : toBase_1.x \u2264 toBase_1.y},\n  { toBase := toBase, ok := ok } = { toBase := toBase_1, ok := ok_1 } \u2192 toBase = toBase_1",
+      "name": "T03_013.Checked.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (ok : toBase.x \u2264 toBase.y) (toBase_1 : T03_013.Base) (ok_1 : toBase_1.x \u2264 toBase_1.y),\n  ({ toBase := toBase, ok := ok } = { toBase := toBase_1, ok := ok_1 }) = (toBase = toBase_1)",
+      "name": "T03_013.Checked.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (ok : toBase.x \u2264 toBase.y),\n  sizeOf { toBase := toBase, ok := ok } = 1 + sizeOf toBase + sizeOf ok",
+      "name": "T03_013.Checked.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_013.Checked} \u2192 v1 = v2 \u2192 T03_013.Checked.noConfusionType P v1 v2",
+      "name": "T03_013.Checked.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_013.Checked \u2192 T03_013.Checked \u2192 Sort u",
+      "name": "T03_013.Checked.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (self : T03_013.Checked), self.x \u2264 self.y",
+      "name": "T03_013.Checked.ok",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Checked \u2192 Sort u} \u2192\n  ((toBase : T03_013.Base) \u2192 (ok : toBase.x \u2264 toBase.y) \u2192 motive { toBase := toBase, ok := ok }) \u2192\n    (t : T03_013.Checked) \u2192 motive t",
+      "name": "T03_013.Checked.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Checked \u2192 Sort u} \u2192\n  (t : T03_013.Checked) \u2192\n    ((toBase : T03_013.Base) \u2192 (ok : toBase.x \u2264 toBase.y) \u2192 motive { toBase := toBase, ok := ok }) \u2192 motive t",
+      "name": "T03_013.Checked.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Checked \u2192 T03_013.Base",
+      "name": "T03_013.Checked.toBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_013.Diamond",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Diamond \u2192 Sort u} \u2192\n  (t : T03_013.Diamond) \u2192\n    ((toLeftArm : T03_013.LeftArm) \u2192 (r : Nat) \u2192 motive { toLeftArm := toLeftArm, r := r }) \u2192 motive t",
+      "name": "T03_013.Diamond.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.LeftArm \u2192 Nat \u2192 T03_013.Diamond",
+      "name": "T03_013.Diamond.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {toLeftArm : T03_013.LeftArm} {r : Nat} {toLeftArm_1 : T03_013.LeftArm} {r_1 : Nat},\n  { toLeftArm := toLeftArm, r := r } = { toLeftArm := toLeftArm_1, r := r_1 } \u2192 toLeftArm = toLeftArm_1 \u2227 r = r_1",
+      "name": "T03_013.Diamond.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (toLeftArm : T03_013.LeftArm) (r : Nat) (toLeftArm_1 : T03_013.LeftArm) (r_1 : Nat),\n  ({ toLeftArm := toLeftArm, r := r } = { toLeftArm := toLeftArm_1, r := r_1 }) = (toLeftArm = toLeftArm_1 \u2227 r = r_1)",
+      "name": "T03_013.Diamond.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (toLeftArm : T03_013.LeftArm) (r : Nat), sizeOf { toLeftArm := toLeftArm, r := r } = 1 + sizeOf toLeftArm + sizeOf r",
+      "name": "T03_013.Diamond.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_013.Diamond} \u2192 v1 = v2 \u2192 T03_013.Diamond.noConfusionType P v1 v2",
+      "name": "T03_013.Diamond.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_013.Diamond \u2192 T03_013.Diamond \u2192 Sort u",
+      "name": "T03_013.Diamond.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Diamond \u2192 Nat",
+      "name": "T03_013.Diamond.r",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Diamond \u2192 Sort u} \u2192\n  ((toLeftArm : T03_013.LeftArm) \u2192 (r : Nat) \u2192 motive { toLeftArm := toLeftArm, r := r }) \u2192\n    (t : T03_013.Diamond) \u2192 motive t",
+      "name": "T03_013.Diamond.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Diamond \u2192 Sort u} \u2192\n  (t : T03_013.Diamond) \u2192\n    ((toLeftArm : T03_013.LeftArm) \u2192 (r : Nat) \u2192 motive { toLeftArm := toLeftArm, r := r }) \u2192 motive t",
+      "name": "T03_013.Diamond.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Diamond \u2192 T03_013.LeftArm",
+      "name": "T03_013.Diamond.toLeftArm",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Diamond \u2192 T03_013.RightArm",
+      "name": "T03_013.Diamond.toRightArm",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_013.Extended",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Extended \u2192 Sort u} \u2192\n  (t : T03_013.Extended) \u2192 ((toBase : T03_013.Base) \u2192 (z : Nat) \u2192 motive { toBase := toBase, z := z }) \u2192 motive t",
+      "name": "T03_013.Extended.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Base \u2192 Nat \u2192 T03_013.Extended",
+      "name": "T03_013.Extended.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {toBase : T03_013.Base} {z : Nat} {toBase_1 : T03_013.Base} {z_1 : Nat},\n  { toBase := toBase, z := z } = { toBase := toBase_1, z := z_1 } \u2192 toBase = toBase_1 \u2227 z = z_1",
+      "name": "T03_013.Extended.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (z : Nat) (toBase_1 : T03_013.Base) (z_1 : Nat),\n  ({ toBase := toBase, z := z } = { toBase := toBase_1, z := z_1 }) = (toBase = toBase_1 \u2227 z = z_1)",
+      "name": "T03_013.Extended.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (z : Nat), sizeOf { toBase := toBase, z := z } = 1 + sizeOf toBase + sizeOf z",
+      "name": "T03_013.Extended.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_013.Extended} \u2192 v1 = v2 \u2192 T03_013.Extended.noConfusionType P v1 v2",
+      "name": "T03_013.Extended.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_013.Extended \u2192 T03_013.Extended \u2192 Sort u",
+      "name": "T03_013.Extended.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Extended \u2192 Sort u} \u2192\n  ((toBase : T03_013.Base) \u2192 (z : Nat) \u2192 motive { toBase := toBase, z := z }) \u2192 (t : T03_013.Extended) \u2192 motive t",
+      "name": "T03_013.Extended.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.Extended \u2192 Sort u} \u2192\n  (t : T03_013.Extended) \u2192 ((toBase : T03_013.Base) \u2192 (z : Nat) \u2192 motive { toBase := toBase, z := z }) \u2192 motive t",
+      "name": "T03_013.Extended.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Extended \u2192 T03_013.Base",
+      "name": "T03_013.Extended.toBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Extended \u2192 Nat",
+      "name": "T03_013.Extended.z",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_013.LeftArm",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.LeftArm \u2192 Sort u} \u2192\n  (t : T03_013.LeftArm) \u2192 ((toBase : T03_013.Base) \u2192 (l : Nat) \u2192 motive { toBase := toBase, l := l }) \u2192 motive t",
+      "name": "T03_013.LeftArm.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.LeftArm \u2192 Nat",
+      "name": "T03_013.LeftArm.l",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Base \u2192 Nat \u2192 T03_013.LeftArm",
+      "name": "T03_013.LeftArm.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {toBase : T03_013.Base} {l : Nat} {toBase_1 : T03_013.Base} {l_1 : Nat},\n  { toBase := toBase, l := l } = { toBase := toBase_1, l := l_1 } \u2192 toBase = toBase_1 \u2227 l = l_1",
+      "name": "T03_013.LeftArm.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (l : Nat) (toBase_1 : T03_013.Base) (l_1 : Nat),\n  ({ toBase := toBase, l := l } = { toBase := toBase_1, l := l_1 }) = (toBase = toBase_1 \u2227 l = l_1)",
+      "name": "T03_013.LeftArm.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (l : Nat), sizeOf { toBase := toBase, l := l } = 1 + sizeOf toBase + sizeOf l",
+      "name": "T03_013.LeftArm.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_013.LeftArm} \u2192 v1 = v2 \u2192 T03_013.LeftArm.noConfusionType P v1 v2",
+      "name": "T03_013.LeftArm.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_013.LeftArm \u2192 T03_013.LeftArm \u2192 Sort u",
+      "name": "T03_013.LeftArm.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.LeftArm \u2192 Sort u} \u2192\n  ((toBase : T03_013.Base) \u2192 (l : Nat) \u2192 motive { toBase := toBase, l := l }) \u2192 (t : T03_013.LeftArm) \u2192 motive t",
+      "name": "T03_013.LeftArm.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.LeftArm \u2192 Sort u} \u2192\n  (t : T03_013.LeftArm) \u2192 ((toBase : T03_013.Base) \u2192 (l : Nat) \u2192 motive { toBase := toBase, l := l }) \u2192 motive t",
+      "name": "T03_013.LeftArm.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.LeftArm \u2192 T03_013.Base",
+      "name": "T03_013.LeftArm.toBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_013.PBase",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_013.PBase \u03b1 \u2192 Sort u} \u2192 (t : T03_013.PBase \u03b1) \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T03_013.PBase.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T03_013.PBase \u03b1",
+      "name": "T03_013.PBase.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {val val_1 : \u03b1}, { val := val } = { val := val_1 } \u2192 val = val_1",
+      "name": "T03_013.PBase.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (val val_1 : \u03b1), ({ val := val } = { val := val_1 }) = (val = val_1)",
+      "name": "T03_013.PBase.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (val : \u03b1), sizeOf { val := val } = 1 + sizeOf val",
+      "name": "T03_013.PBase.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_013.PBase \u03b1} \u2192 v1 = v2 \u2192 T03_013.PBase.noConfusionType P v1 v2",
+      "name": "T03_013.PBase.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_013.PBase \u03b1 \u2192 T03_013.PBase \u03b1 \u2192 Sort u",
+      "name": "T03_013.PBase.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_013.PBase \u03b1 \u2192 Sort u} \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 (t : T03_013.PBase \u03b1) \u2192 motive t",
+      "name": "T03_013.PBase.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_013.PBase \u03b1 \u2192 Sort u} \u2192 (t : T03_013.PBase \u03b1) \u2192 ((val : \u03b1) \u2192 motive { val := val }) \u2192 motive t",
+      "name": "T03_013.PBase.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_013.PBase \u03b1 \u2192 \u03b1",
+      "name": "T03_013.PBase.val",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T03_013.PExt",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_013.PExt \u03b1 \u2192 Sort u} \u2192\n    (t : T03_013.PExt \u03b1) \u2192\n      ((toPBase : T03_013.PBase \u03b1) \u2192 (count : Nat) \u2192 motive { toPBase := toPBase, count := count }) \u2192 motive t",
+      "name": "T03_013.PExt.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_013.PExt \u03b1 \u2192 Nat",
+      "name": "T03_013.PExt.count",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_013.PBase \u03b1 \u2192 Nat \u2192 T03_013.PExt \u03b1",
+      "name": "T03_013.PExt.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {toPBase : T03_013.PBase \u03b1} {count : Nat} {toPBase_1 : T03_013.PBase \u03b1} {count_1 : Nat},\n  { toPBase := toPBase, count := count } = { toPBase := toPBase_1, count := count_1 } \u2192\n    toPBase = toPBase_1 \u2227 count = count_1",
+      "name": "T03_013.PExt.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (toPBase : T03_013.PBase \u03b1) (count : Nat) (toPBase_1 : T03_013.PBase \u03b1) (count_1 : Nat),\n  ({ toPBase := toPBase, count := count } = { toPBase := toPBase_1, count := count_1 }) =\n    (toPBase = toPBase_1 \u2227 count = count_1)",
+      "name": "T03_013.PExt.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} [inst : SizeOf \u03b1] (toPBase : T03_013.PBase \u03b1) (count : Nat),\n  sizeOf { toPBase := toPBase, count := count } = 1 + sizeOf toPBase + sizeOf count",
+      "name": "T03_013.PExt.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T03_013.PExt \u03b1} \u2192 v1 = v2 \u2192 T03_013.PExt.noConfusionType P v1 v2",
+      "name": "T03_013.PExt.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T03_013.PExt \u03b1 \u2192 T03_013.PExt \u03b1 \u2192 Sort u",
+      "name": "T03_013.PExt.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_013.PExt \u03b1 \u2192 Sort u} \u2192\n    ((toPBase : T03_013.PBase \u03b1) \u2192 (count : Nat) \u2192 motive { toPBase := toPBase, count := count }) \u2192\n      (t : T03_013.PExt \u03b1) \u2192 motive t",
+      "name": "T03_013.PExt.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T03_013.PExt \u03b1 \u2192 Sort u} \u2192\n    (t : T03_013.PExt \u03b1) \u2192\n      ((toPBase : T03_013.PBase \u03b1) \u2192 (count : Nat) \u2192 motive { toPBase := toPBase, count := count }) \u2192 motive t",
+      "name": "T03_013.PExt.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 T03_013.PExt \u03b1 \u2192 T03_013.PBase \u03b1",
+      "name": "T03_013.PExt.toPBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T03_013.RightArm",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.RightArm \u2192 Sort u} \u2192\n  (t : T03_013.RightArm) \u2192 ((toBase : T03_013.Base) \u2192 (r : Nat) \u2192 motive { toBase := toBase, r := r }) \u2192 motive t",
+      "name": "T03_013.RightArm.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Base \u2192 Nat \u2192 T03_013.RightArm",
+      "name": "T03_013.RightArm.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {toBase : T03_013.Base} {r : Nat} {toBase_1 : T03_013.Base} {r_1 : Nat},\n  { toBase := toBase, r := r } = { toBase := toBase_1, r := r_1 } \u2192 toBase = toBase_1 \u2227 r = r_1",
+      "name": "T03_013.RightArm.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (r : Nat) (toBase_1 : T03_013.Base) (r_1 : Nat),\n  ({ toBase := toBase, r := r } = { toBase := toBase_1, r := r_1 }) = (toBase = toBase_1 \u2227 r = r_1)",
+      "name": "T03_013.RightArm.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (toBase : T03_013.Base) (r : Nat), sizeOf { toBase := toBase, r := r } = 1 + sizeOf toBase + sizeOf r",
+      "name": "T03_013.RightArm.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T03_013.RightArm} \u2192 v1 = v2 \u2192 T03_013.RightArm.noConfusionType P v1 v2",
+      "name": "T03_013.RightArm.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T03_013.RightArm \u2192 T03_013.RightArm \u2192 Sort u",
+      "name": "T03_013.RightArm.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.RightArm \u2192 Nat",
+      "name": "T03_013.RightArm.r",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.RightArm \u2192 Sort u} \u2192\n  ((toBase : T03_013.Base) \u2192 (r : Nat) \u2192 motive { toBase := toBase, r := r }) \u2192 (t : T03_013.RightArm) \u2192 motive t",
+      "name": "T03_013.RightArm.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T03_013.RightArm \u2192 Sort u} \u2192\n  (t : T03_013.RightArm) \u2192 ((toBase : T03_013.Base) \u2192 (r : Nat) \u2192 motive { toBase := toBase, r := r }) \u2192 motive t",
+      "name": "T03_013.RightArm.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.RightArm \u2192 T03_013.Base",
+      "name": "T03_013.RightArm.toBase",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Base \u2192 Nat",
+      "name": "T03_013.baseSum",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Checked",
+      "name": "T03_013.c1",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{ x := 1, y := 2 }.x \u2264 { x := 1, y := 2 }.y",
+      "name": "T03_013.c1.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Diamond",
+      "name": "T03_013.d",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.Extended",
+      "name": "T03_013.e",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T03_013.PExt Nat",
+      "name": "T03_013.pe",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

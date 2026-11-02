@@ -1,0 +1,124 @@
+# Modal, toast and keyboard
+
+A modal dialog (Escape closes it, focus moves to it on open and back to the
+opener on close) and a toast (shown, dismissed by hand).
+
+## Note
+
+The backdrop and the modal card are SIBLINGS, not a parent/child pair, each
+positioned with CSS. `on-click.stop` would be the more obvious way to keep a
+click inside the card from also closing it via the backdrop's own handler,
+but `.stop` refuses to build for the browser at all
+(`work/lgx-ease/gauntlet.md` finding G9) — siblings need no event modifier
+this tier cannot lower, since a click inside the card never reaches an
+ancestor it does not have.
+
+The close button focuses itself from `After 100ms:` rather than
+`When this component appears:` — the latter runs before the component's own
+markup reaches the DOM, so it cannot focus its own element yet (finding
+G13). 100ms is imperceptible and still a real, later turn.
+
+## Component Modal (close: fn() -> Unit)
+
+Actions:
+    After 100ms:
+        Focus "#close-modal".
+
+    To noop:
+        Return.
+
+View:
+    <div id="backdrop" class="backdrop" on-click={close}></div>
+    <div id="modal" class="modal">
+      <h2 id="modal-title" on-click={noop}>Delete this item?</h2>
+      <p>This cannot be undone.</p>
+      <button id="close-modal" on-click={close}>Cancel</button>
+    </div>
+
+## Page /
+
+State:
+    Let modalOpen be false.
+    Let toastMessage be "".
+    Let toastVisible be false.
+
+Actions:
+    To openModal:
+        Set modalOpen to true.
+
+    To closeModal:
+        Set modalOpen to false.
+        Focus "#open-modal".
+
+    When the user presses Escape:
+        Set modalOpen to false.
+
+    To showToast:
+        Set toastMessage to "Saved.".
+        Set toastVisible to true.
+
+    To dismissToast:
+        Set toastVisible to false.
+
+View:
+    <main class="page">
+      <h1>Modal, toast and keyboard</h1>
+      <button id="open-modal" on-click={openModal}>Open modal</button>
+      {if modalOpen:}<Modal close={closeModal}/>{end}
+      <button id="show-toast" on-click={showToast}>Show toast</button>
+      {if toastVisible:}
+        <div id="toast" class="toast">
+          <span id="toast-message">{toastMessage}</span>
+          <button id="dismiss-toast" on-click={dismissToast}>&times;</button>
+        </div>
+      {end}
+    </main>
+
+Style:
+    .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .4); }
+    .modal { position: fixed; top: 30%; left: 50%; transform: translateX(-50%); background: var(--paper); border-radius: var(--radius); padding: 1.5rem; }
+    .toast { position: fixed; bottom: 1rem; right: 1rem; background: var(--ink); color: var(--paper); border-radius: var(--radius); padding: .5rem 1rem; }
+
+## Test: the modal starts closed
+
+Expect that "#modal" is hidden.
+
+## Test: opening the modal shows it and moves focus inside it after it mounts
+
+Click "#open-modal".
+Expect that "#modal" is visible.
+Advance time by 200ms.
+Expect that "#close-modal" is focused.
+
+## Test: clicking the backdrop closes the modal
+
+Click "#open-modal".
+Click "#backdrop".
+Expect that "#modal" is hidden.
+
+## Test: clicking inside the modal does not close it, because it is not inside the backdrop
+
+Click "#open-modal".
+Click "#modal-title".
+Expect that "#modal" is visible.
+
+## Test: the close button closes the modal and returns focus to the opener
+
+Click "#open-modal".
+Click "#close-modal".
+Expect that "#modal" is hidden.
+Expect that "#open-modal" is focused.
+
+## Test: Escape closes the modal from the keyboard
+
+Click "#open-modal".
+Press "Escape".
+Expect that "#modal" is hidden.
+
+## Test: the toast shows and dismisses by hand
+
+Expect that "#toast" is hidden.
+Click "#show-toast".
+Expect that the text of "#toast-message" is equal to "Saved.".
+Click "#dismiss-toast".
+Expect that "#toast" is hidden.

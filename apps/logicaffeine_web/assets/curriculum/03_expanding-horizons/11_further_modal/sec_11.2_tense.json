@@ -1,0 +1,36 @@
+{
+  "id": "11.2",
+  "title": "Tense",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "LOGOS marks tense on the event. Past(e) says that e happened before now. Future(e) says that e will happen."
+    },
+    {
+      "type": "paragraph",
+      "text": "Tense logic studies how such claims combine, much as modal logic studies □ and ◇."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "John will run.",
+      "formula": "∃e(Run(e) ∧ Agent(e, John) ∧ Future(e))",
+      "note": "Future(e) puts the running after now."
+    },
+    {
+      "type": "formula",
+      "sentence": "John saw Mary.",
+      "formula": "∃e(See(e) ∧ Agent(e, John) ∧ Theme(e, Mary) ∧ Past(e))",
+      "note": "Past(e) puts the seeing before now, and Mary is its Theme."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Mary will sleep.",
+    "answer": "∃e(Sleep(e) ∧ Agent(e, Mary) ∧ Future(e))",
+    "hint": "Write the sleeping event with Mary as its Agent, then say when it happens.",
+    "explanation": "Sleep(e) and Agent(e, Mary) describe the event, and Future(e) says it lies ahead."
+  }
+}

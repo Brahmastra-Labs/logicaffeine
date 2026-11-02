@@ -19,7 +19,11 @@ fn run_both(ops: &[MicroOp], inputs: &[i64]) -> (i64, i64) {
 fn jit_add_two_arguments() {
     // The J1 headline: add(a, b) compiled from patched stencils.
     let ops = [
-        MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
+        MicroOp::Add {
+            dst: 2,
+            lhs: 0,
+            rhs: 1,
+        },
         MicroOp::Return { src: 2 },
     ];
     let chain = compile_straightline(&ops).expect("compile");
@@ -31,7 +35,10 @@ fn jit_add_two_arguments() {
     // native chain side-exits (deopt) so the exact tier can promote to BigInt.
     frame[0] = i64::MAX;
     frame[1] = 1;
-    assert!(chain.run_with_frame(&mut frame).is_deopt(), "i64::MAX + 1 overflows → deopt");
+    assert!(
+        chain.run_with_frame(&mut frame).is_deopt(),
+        "i64::MAX + 1 overflows → deopt"
+    );
 }
 
 #[test]
@@ -53,8 +60,16 @@ fn jit_slot_set_writes_are_visible_in_the_frame() {
 fn jit_same_register_as_src_and_dst() {
     // dst == lhs == rhs — the in-place patterns a register VM emits constantly.
     let ops = [
-        MicroOp::Add { dst: 0, lhs: 0, rhs: 0 },
-        MicroOp::Add { dst: 0, lhs: 0, rhs: 1 },
+        MicroOp::Add {
+            dst: 0,
+            lhs: 0,
+            rhs: 0,
+        },
+        MicroOp::Add {
+            dst: 0,
+            lhs: 0,
+            rhs: 1,
+        },
         MicroOp::Return { src: 0 },
     ];
     let (jit, reference) = run_both(&ops, &[7, 100]);
@@ -66,9 +81,21 @@ fn jit_same_register_as_src_and_dst() {
 fn jit_comparisons_and_gt_swap() {
     for (a, b) in [(1i64, 2i64), (2, 1), (2, 2), (i64::MIN, i64::MAX)] {
         for op in [
-            MicroOp::Lt { dst: 2, lhs: 0, rhs: 1 },
-            MicroOp::Gt { dst: 2, lhs: 0, rhs: 1 },
-            MicroOp::Eq { dst: 2, lhs: 0, rhs: 1 },
+            MicroOp::Lt {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
+            MicroOp::Gt {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
+            MicroOp::Eq {
+                dst: 2,
+                lhs: 0,
+                rhs: 1,
+            },
         ] {
             let ops = [op, MicroOp::Return { src: 2 }];
             let (jit, reference) = run_both(&ops, &[a, b]);
@@ -79,7 +106,10 @@ fn jit_comparisons_and_gt_swap() {
 
 #[test]
 fn jit_structural_validation() {
-    assert_eq!(compile_straightline(&[]).unwrap_err(), JitCompileError::Empty);
+    assert_eq!(
+        compile_straightline(&[]).unwrap_err(),
+        JitCompileError::Empty
+    );
     // Execution must not run off the end.
     assert_eq!(
         compile_straightline(&[MicroOp::LoadConst { dst: 0, value: 1 }]).unwrap_err(),
@@ -94,10 +124,7 @@ fn jit_structural_validation() {
         JitCompileError::FallsOffTheEnd
     );
     // An early Return mid-program is legal (J2: multiple exits).
-    let early = [
-        MicroOp::Return { src: 0 },
-        MicroOp::Return { src: 1 },
-    ];
+    let early = [MicroOp::Return { src: 0 }, MicroOp::Return { src: 1 }];
     assert!(compile_straightline(&early).is_ok());
 }
 
@@ -106,7 +133,9 @@ struct SplitMix64 {
 }
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
-        SplitMix64 { state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15) }
+        SplitMix64 {
+            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+        }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -149,7 +178,9 @@ fn jit_ten_thousand_seeded_programs_match_reference() {
                 _ => MicroOp::Eq { dst, lhs, rhs },
             });
         }
-        ops.push(MicroOp::Return { src: rng.below(SLOTS) as u16 });
+        ops.push(MicroOp::Return {
+            src: rng.below(SLOTS) as u16,
+        });
 
         // Random initial frame contents, identical for both engines.
         let inputs: Vec<i64> = (0..SLOTS).map(|_| rng.next_u64() as i64).collect();

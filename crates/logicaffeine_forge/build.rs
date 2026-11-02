@@ -82,6 +82,13 @@ fn main() {
             ("le", "(a <= b) as i64", None),
             ("eq", "(a == b) as i64", None),
             ("ne", "(a != b) as i64", None),
+            // LOGICAL (unsigned) shift-right: `(x as u64) >> (n & 63)`. Distinct from `shr` (arithmetic /
+            // sign-extending) — this is the Word64 substrate for `word64Shr`(variable) + `rotl`/`rotr`.
+            ("ushr", "((a as u64).wrapping_shr(b as u32)) as i64", None),
+            ("rol32", "((a as u32).rotate_left(b as u32)) as i64", None),
+            ("ror32", "((a as u32).rotate_right(b as u32)) as i64", None),
+            ("rol64", "((a as u64).rotate_left(b as u32)) as i64", None),
+            ("ror64", "((a as u64).rotate_right(b as u32)) as i64", None),
         ];
         for (fam, expr, checked) in binops {
             for d in 0..5usize {
@@ -109,6 +116,65 @@ fn main() {
                         ));
                     }
                 }
+            }
+        }
+        // UNARY bit-count families threaded through the GP pins: popcnt (population count), lzcnt
+        // (leading zeros, 64 for 0), tzcnt (trailing zeros, 64 for 0). src at loc `s`, dst at loc `d`.
+        // The instruction is written directly (inline asm) so it is the REAL opcode regardless of the
+        // build's CPU features — a bare `.count_ones()` SWARs, and a bare `.leading_zeros()` on a
+        // non-ABM build would compile to `bsr` (undefined for 0). Hole 0 = src slot, hole 1 = dst slot
+        // (frame). A register dst SHADOWS its `rN` param with the result, threading the updated pin to
+        // cont_0. The lowering guards each on its CPU feature (`popcnt`/`lzcnt`/`bmi1`) before emitting.
+        let unary_bitcount: &[(&str, &str, &str)] = &[
+            ("popcnt", "popcnt", "count_ones"),
+            ("lzcnt", "lzcnt", "leading_zeros"),
+            ("tzcnt", "tzcnt", "trailing_zeros"),
+        ];
+        for (fam, asm, method) in unary_bitcount {
+            for d in 0..5usize {
+                for s in 0..5usize {
+                    let a = loc_read(s, 0);
+                    let store = if d == 0 {
+                        "    *base.add(LOGOS_HOLE_I64_1 as usize) = pc;\n".to_string()
+                    } else {
+                        format!("    let {} = pc;\n", regs[d - 1])
+                    };
+                    gen.push_str(&format!(
+                        "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_{fam}_{d}{s}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n    let a = {a};\n    #[allow(unused_assignments)]\n    let mut pc: i64 = 0;\n    #[cfg(target_arch = \"x86_64\")]\n    core::arch::asm!(\"{asm} {{r}}, {{v}}\", r = out(reg) pc, v = in(reg) a);\n    #[cfg(not(target_arch = \"x86_64\"))]\n    {{ pc = (a as u64).{method}() as i64; }}\n{store}    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n}}\n",
+                    ));
+                }
+            }
+        }
+        // UNARY `chr` guard threaded through the GP pins WITH A DEOPT. Reads `code` at src loc `s`; an
+        // invalid Unicode scalar routes to cont_1 (the VM re-runs `chr` and traps), else the code is carried
+        // to dst loc `d` and cont_0. Hole 0 = src slot, hole 1 = dst slot; a register dst shadows its `rN`.
+        for d in 0..5usize {
+            for s in 0..5usize {
+                let a = loc_read(s, 0);
+                let store = if d == 0 {
+                    "        *base.add(LOGOS_HOLE_I64_1 as usize) = code;\n".to_string()
+                } else {
+                    format!("        let {} = code;\n", regs[d - 1])
+                };
+                gen.push_str(&format!(
+                    "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_chrguard_{d}{s}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n    let code = {a};\n    let u = code as u64;\n    if u > 0x10_FFFF || (0xD800..=0xDFFF).contains(&u) {{\n        logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n    }} else {{\n{store}        logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n    }}\n}}\n",
+                ));
+            }
+        }
+        // UNARY `utf8_len` threaded through the GP pins (no side-exit): reads the (already-validated) code
+        // at src loc `s`, computes its UTF-8 byte length (1..4) with pure integer immediate compares, and
+        // carries it to dst loc `d`. Hole 0 = src slot, hole 1 = dst slot; a register dst shadows its `rN`.
+        for d in 0..5usize {
+            for s in 0..5usize {
+                let a = loc_read(s, 0);
+                let store = if d == 0 {
+                    "    *base.add(LOGOS_HOLE_I64_1 as usize) = len;\n".to_string()
+                } else {
+                    format!("    let {} = len;\n", regs[d - 1])
+                };
+                gen.push_str(&format!(
+                    "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_utf8len_{d}{s}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n    let u = ({a}) as u32;\n    let len = 1 + (u >= 0x80) as i64 + (u >= 0x800) as i64 + (u >= 0x1_0000) as i64;\n{store}    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n}}\n",
+                ));
             }
         }
         // FLOAT 3-address families threaded through the XMM PINS (f0..f3).
@@ -143,11 +209,7 @@ fn main() {
             }
             parts.join(", ")
         };
-        let fbinops: &[(&str, &str)] = &[
-            ("addf", "a + b"),
-            ("subf", "a - b"),
-            ("mulf", "a * b"),
-        ];
+        let fbinops: &[(&str, &str)] = &[("addf", "a + b"), ("subf", "a - b"), ("mulf", "a * b")];
         for (fam, expr) in fbinops {
             for d in 0..7usize {
                 for l in 0..7usize {
@@ -220,7 +282,8 @@ fn main() {
                 let i_read = loc_read(s, 0);
                 let (body, floats) = if d == 0 {
                     (
-                        "    *base.add(LOGOS_HOLE_I64_1 as usize) = (i as f64).to_bits() as i64;\n".to_string(),
+                        "    *base.add(LOGOS_HOLE_I64_1 as usize) = (i as f64).to_bits() as i64;\n"
+                            .to_string(),
                         fregs.join(", "),
                     )
                 } else {
@@ -231,13 +294,52 @@ fn main() {
                 ));
             }
         }
+        // Float→Int rounding threaded through the pins: FLOAT src from an XMM pin / frame (floc 0..6),
+        // INT result to a GP pin / frame (loc 0..4). `roundsd` writes the real SSE4.1 opcode (mode 1=floor,
+        // 2=ceil); the `as i64` is `cvttsd2si`. The int dst shadows its `rN` param (or writes the frame);
+        // the float pins are untouched, forwarded verbatim. Holes: 0 = src slot, 1 = dst slot.
+        let round_int: &[(&str, u8, &str)] = &[("floorf", 1, "floor"), ("ceilf", 2, "ceil")];
+        for (fam, mode, method) in round_int {
+            for d in 0..5usize {
+                for s in 0..7usize {
+                    let a = floc_read(s, 0);
+                    let store = if d == 0 {
+                        "    *base.add(LOGOS_HOLE_I64_1 as usize) = iv;\n".to_string()
+                    } else {
+                        format!("    let {} = iv;\n", regs[d - 1])
+                    };
+                    gen.push_str(&format!(
+                        "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_{fam}_{d}{s}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n    let a = {a};\n    let r: f64;\n    #[cfg(target_arch = \"x86_64\")]\n    core::arch::asm!(\"roundsd {{r}}, {{v}}, {mode}\", r = out(xmm_reg) r, v = in(xmm_reg) a);\n    #[cfg(not(target_arch = \"x86_64\"))]\n    {{ r = a.{method}(); }}\n    let iv = logos_sat_f64_i64(r);\n{store}    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n}}\n",
+                    ));
+                }
+            }
+        }
+        // Float→Int round-half-AWAY (`roundf`): `roundsd …,3` truncates toward zero, `logos_round_finish`
+        // applies the ties-away adjustment, `logos_sat_f64_i64` converts. Same XMM-src(0..6)→GP-dst(0..4)
+        // threading as floorf/ceilf but a distinct body (roundsd's nearest mode is ties-EVEN, not away).
+        for d in 0..5usize {
+            for s in 0..7usize {
+                let a = floc_read(s, 0);
+                let store = if d == 0 {
+                    "    *base.add(LOGOS_HOLE_I64_1 as usize) = iv;\n".to_string()
+                } else {
+                    format!("    let {} = iv;\n", regs[d - 1])
+                };
+                gen.push_str(&format!(
+                    "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_roundf_{d}{s}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n    let a = {a};\n    let iv = logos_round_to_i64(a);\n{store}    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n}}\n",
+                ));
+            }
+        }
         // FUSED float compare-and-branch threaded through XMM pins: operands at
         // floc l/r; TRUE → cont 0, FALSE (incl. NaN-unordered) → cont 1. The
         // epsilon-equality branch uses integer immediates only (leaf-purity).
         let fbrops: &[(&str, &str)] = &[
             ("brltf", "a < b"),
             ("brlef", "a <= b"),
-            ("breqf", "((a - b).to_bits() & 0x7FFF_FFFF_FFFF_FFFF) < f64::EPSILON.to_bits()"),
+            (
+                "breqf",
+                "((a - b).to_bits() & 0x7FFF_FFFF_FFFF_FFFF) < f64::EPSILON.to_bits()",
+            ),
         ];
         for (fam, cond) in fbrops {
             for l in 0..7usize {
@@ -270,11 +372,7 @@ fn main() {
             }
         }
         // Fused branches: lhs/rhs in 5 locations; TRUE -> cont 0, FALSE -> cont 1.
-        let brops: &[(&str, &str)] = &[
-            ("brlt", "a < b"),
-            ("brle", "a <= b"),
-            ("breq", "a == b"),
-        ];
+        let brops: &[(&str, &str)] = &[("brlt", "a < b"), ("brle", "a <= b"), ("breq", "a == b")];
         for (fam, cond) in brops {
             for l in 0..5usize {
                 for r in 0..5usize {
@@ -461,7 +559,12 @@ fn main() {
             Some(s) => s,
             None => continue,
         };
-        stencil_syms.push(SymExtent { name: name.to_string(), section, addr: sym.address(), size: sym.size() });
+        stencil_syms.push(SymExtent {
+            name: name.to_string(),
+            section,
+            addr: sym.address(),
+            size: sym.size(),
+        });
     }
     assert!(!stencil_syms.is_empty(), "no logos_stencil_* symbols found");
 
@@ -521,7 +624,11 @@ fn main() {
             // - Mach-O x86 pcrel relocs use rip = field + 4 with addend 0.
             // - COFF REL32_N additionally encodes N trailing bytes in the type.
             match reloc.flags() {
-                object::RelocationFlags::MachO { r_type, r_pcrel: true, .. } if !is_aarch64 => {
+                object::RelocationFlags::MachO {
+                    r_type,
+                    r_pcrel: true,
+                    ..
+                } if !is_aarch64 => {
                     let _ = r_type;
                     addend -= 4;
                 }
@@ -546,7 +653,10 @@ fn main() {
                         (raw.strip_prefix('_').unwrap_or(raw).to_string(), false)
                     }
                 }
-                other => panic!("stencil '{}': unsupported reloc target {:?}", sym.name, other),
+                other => panic!(
+                    "stencil '{}': unsupported reloc target {:?}",
+                    sym.name, other
+                ),
             };
 
             let hole = classify_hole(&sym.name, &target_name);
@@ -592,7 +702,10 @@ fn main() {
 
         // Back-compat: the relocation-free leaf used by the headline test.
         if sym.name == "logos_stencil_add" {
-            assert!(relocs.is_empty(), "logos_stencil_add must stay relocation-free");
+            assert!(
+                relocs.is_empty(),
+                "logos_stencil_add must stay relocation-free"
+            );
             out.push_str(&format!(
                 "/// The relocation-free leaf-add stencil (headline smoke test).\n\
                  pub const ADD_STENCIL: &[u8] = &{:?};\n",
@@ -601,7 +714,9 @@ fn main() {
         }
     }
 
-    out.push_str("/// Every extracted stencil, in object-file order.\npub static STENCILS: &[&Stencil] = &[");
+    out.push_str(
+        "/// Every extracted stencil, in object-file order.\npub static STENCILS: &[&Stencil] = &[",
+    );
     for e in &table_entries {
         out.push_str(&format!("&{e}, "));
     }
@@ -610,8 +725,11 @@ fn main() {
     // The register-threading variant tables, indexed by location digits.
     // Binops/cmps: [family][dst][lhs][rhs]; branches: [family][lhs][rhs];
     // moves: [dst][src]; const/ret: [reg].
-    let fam_list = ["add", "sub", "mul", "band", "bor", "bxor", "shl", "shr", "lt", "le", "eq", "ne"];
-    out.push_str("pub static V_BINOP: [[[[&Stencil; 5]; 5]; 5]; 12] = [\n");
+    let fam_list = [
+        "add", "sub", "mul", "band", "bor", "bxor", "shl", "shr", "lt", "le", "eq", "ne", "ushr",
+        "rol32", "ror32", "rol64", "ror64",
+    ];
+    out.push_str("pub static V_BINOP: [[[[&Stencil; 5]; 5]; 5]; 17] = [\n");
     for fam in fam_list {
         out.push_str("    [");
         for d in 0..5 {
@@ -657,6 +775,51 @@ fn main() {
         out.push_str("], ");
     }
     out.push_str("];\n");
+    // GP-register-threaded unary bit-count families: V_POPCNT / V_LZCNT / V_TZCNT [dst_loc][src_loc],
+    // 5 locations each (0 = frame, 1..4 = r0..r3). Each reads its src from the pinned register directly,
+    // so a hot register-pinned induction variable is correct (the frame stencil would read a stale slot).
+    for (name, fam) in [
+        ("V_POPCNT", "POPCNT"),
+        ("V_LZCNT", "LZCNT"),
+        ("V_TZCNT", "TZCNT"),
+        ("V_UTF8LEN", "UTF8LEN"),
+    ] {
+        out.push_str(&format!("pub static {name}: [[&Stencil; 5]; 5] = ["));
+        for d in 0..5 {
+            out.push_str("[");
+            for s in 0..5 {
+                out.push_str(&format!("&ST_V_{fam}_{d}{s}, "));
+            }
+            out.push_str("], ");
+        }
+        out.push_str("];\n");
+    }
+    // GP-register-threaded chr-guard with deopt: V_CHRGUARD[dst_loc][src_loc], 5 locations each.
+    out.push_str("pub static V_CHRGUARD: [[&Stencil; 5]; 5] = [");
+    for d in 0..5 {
+        out.push_str("[");
+        for s in 0..5 {
+            out.push_str(&format!("&ST_V_CHRGUARD_{d}{s}, "));
+        }
+        out.push_str("], ");
+    }
+    out.push_str("];\n");
+    // Float→Int rounding register-forms: V_FLOORF / V_CEILF / V_ROUNDF [int_dst_loc(0..4)][float_src_loc(0..6)].
+    for (name, fam) in [
+        ("V_FLOORF", "FLOORF"),
+        ("V_CEILF", "CEILF"),
+        ("V_ROUNDF", "ROUNDF"),
+    ] {
+        out.push_str(&format!("pub static {name}: [[&Stencil; 7]; 5] = ["));
+        for d in 0..5 {
+            out.push_str("[");
+            for s in 0..7 {
+                out.push_str(&format!("&ST_V_{fam}_{d}{s}, "));
+            }
+            out.push_str("], ");
+        }
+        out.push_str("];\n");
+    }
     out.push_str("pub static V_DIVF: [[[&Stencil; 7]; 7]; 7] = [\n");
     for d in 0..7 {
         out.push_str("    [");
@@ -745,7 +908,9 @@ fn main() {
         ("V_ARRST_RPTR", "arrst_rptr"),
         ("V_ARRST_RPTR_C", "arrst_rptr_c"),
     ] {
-        out.push_str(&format!("pub static {name}: [&Stencil; 5] = [&ST_V_RET_1, "));
+        out.push_str(&format!(
+            "pub static {name}: [&Stencil; 5] = [&ST_V_RET_1, "
+        ));
         for loc in 1..5 {
             out.push_str(&format!("&ST_V_{}_{loc}, ", sfx.to_uppercase()));
         }
@@ -909,7 +1074,11 @@ fn assert_tail_call(stencil: &str, code: &[u8], off: u32, kind: &str, is_aarch64
             top6 == 0b000101,
             "stencil '{stencil}': continuation at {off} is {} (insn {insn:#010x}), not a tail \
              call — rustc stopped emitting sibling calls; the stencil chain would grow the stack",
-            if top6 == 0b100101 { "BL (a call)" } else { "not a branch" }
+            if top6 == 0b100101 {
+                "BL (a call)"
+            } else {
+                "not a branch"
+            }
         );
     } else if kind == "RelocKind::Rel32" {
         // Direct: `jmp rel32` (E9) or a conditional `jcc rel32` (0F 8x) —
@@ -983,6 +1152,8 @@ fn assert_tail_call(stencil: &str, code: &[u8], off: u32, kind: &str, is_aarch64
              emitting sibling calls"
         );
     } else {
-        panic!("stencil '{stencil}': continuation reloc at {off} is {kind}, expected Rel32/GotRel32");
+        panic!(
+            "stencil '{stencil}': continuation reloc at {off} is {kind}, expected Rel32/GotRel32"
+        );
     }
 }

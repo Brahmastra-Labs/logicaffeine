@@ -1,0 +1,246 @@
+# ════════════════════════════════════════════════════════════════════════════
+# known-survivors.txt — the MONOTONE mutation baseline.
+# Every line is a surviving mutant that is either PROVABLY
+# EQUIVALENT (the mutated code is semantically identical, so no test can kill it) or a
+# justified, tracked deferral. Tier-A target = ZERO *non-equivalent* survivors.
+#
+# The rule: a NEW survivor that is NOT on this list (and is not equivalent) is a P0 test
+# gap — write a test that kills it. This list only shrinks (as deferrals are closed);
+# equivalent mutants stay, each with its written justification. Never add a real gap here
+# to go green.
+#
+# Format:  <file>:<line>:<col>  <mutation>   <verdict>  (justification)
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── crates/logicaffeine_base/src/sha_ops.rs (Tier-A crypto) ──────────────────
+#   Measured 2026-07-12: 56 mutants, 53 CAUGHT, 3 survivors — ALL EQUIVALENT.
+#   Effective mutation score: 100% (zero non-equivalent survivors).
+#
+#   The SHA boolean functions `ch` and `maj` combine bit-disjoint AND-terms, for which
+#   OR and XOR are IDENTICAL — a well-known crypto identity (ch/maj are implementable
+#   with `|` or `^` interchangeably). No test can distinguish them.
+#     ch(x,y,z)  = (x & y) | (~x & z)     — (x&y) and (~x&z) share no set bits ⇒ |==^
+#     maj(x,y,z) = (x&y) | (x&z) | (y&z)  — majority: |==^ for the pairwise-AND terms
+sha_ops.rs:15:13  replace | with ^ in ch    EQUIVALENT  (ch disjoint terms: | == ^)
+sha_ops.rs:23:13  replace | with ^ in maj   EQUIVALENT  (maj pairwise-AND terms: | == ^)
+sha_ops.rs:23:23  replace | with ^ in maj   EQUIVALENT  (maj pairwise-AND terms: | == ^)
+
+# ── crates/logicaffeine_base/src/hash.rs (Tier-A crypto: MD5 / SHA-1) ────────
+#   Measured 2026-07-12: 111 mutants, 104 caught, 7 survivors — ALL EQUIVALENT or
+#   HW-dispatch-untestable. Effective mutation score: 100%.
+#
+#   Mutation first REVEALED a real coverage gap: `sha1` dispatches to SHA-NI hardware
+#   (`x86_sha::sha1_blocks`) and `md5_x4`/`md5_x8` to SSE2/AVX2, so the PORTABLE SCALAR fallbacks
+#   (`sha1_scalar`, `md5_x4_scalar`, `md5_x8_scalar` — which ship to every non-x86 / older machine)
+#   were DEAD CODE on this host and every mutation of them survived. Closed by exposing them
+#   `pub(crate)` + differential tests (`sha1_scalar_matches_reference...`,
+#   `md5_scalar_lane_fallbacks...`) → drove 67 → 7.
+#
+#   EQUIVALENT — the SHA-1 round f-functions, the same bit-disjoint / majority identity as sha_ops:
+hash.rs 441:36 | -> ^ in sha1_scalar f (ch)   EQUIVALENT  ((b&c)|(!b&d) disjoint terms: | == ^)
+hash.rs 443:37 | -> ^ in sha1_scalar f (maj)  EQUIVALENT  (majority pairwise-AND: | == ^)
+hash.rs 443:47 | -> ^ in sha1_scalar f (maj)  EQUIVALENT  (majority pairwise-AND: | == ^)
+#   `x86_sha::available()` gates the SHA-NI fast path. `-> false` forces the scalar path, which
+#   computes the IDENTICAL hash (output-equivalent). `-> true` and `&& -> ||` only change behavior on
+#   a host LACKING sha/ssse3/sse4.1 (there they would wrongly run SHA-NI → SIGILL); that feature-absent
+#   branch is unobservable on this feature-complete test host and cannot be exercised in-process (CPU
+#   feature detection can't be un-set).
+hash.rs 544:9  available -> false     EQUIVALENT   (scalar path yields the identical hash)
+hash.rs 544:9  available -> true      UNREACHABLE  (feature-absent branch untestable on this host)
+hash.rs 545:13 && -> || in available  UNREACHABLE  (only differs on a partial-feature host)
+hash.rs 546:13 && -> || in available  UNREACHABLE  (only differs on a partial-feature host)
+
+# ── crates/logicaffeine_kernel/src/type_checker.rs (Tier-A, TRUSTED KERNEL) ──
+#   The most safety-critical file in the system (a def_eq bug = unsound proofs).
+#   Measured 2026-07-12: 215 mutants, 45 unviable, 157 caught, 11 survivors — ALL EQUIVALENT.
+#   Effective mutation score: 100% (zero non-equivalent survivors).
+#
+#   Driven from an initial 52 survivors to 11-all-equivalent by the 19 targeted tests in
+#   `def_eq_and_freshness_mutation_kills`, which exercise def_eq / types_equal / occurs_free /
+#   beta_reduce / fresh_name / freshen over every Term shape (incl. alpha-equivalent binders),
+#   plus the type-checking core: infer_type (MutualFix guard), check_type (bidirectional binder
+#   α-rename), substitute_avoiding (let-shadowing), is_subtype_normalized (Pi variance),
+#   extract_inductive_name, and — with hand-registered inductives/structures —
+#   is_subsingleton_prop, check_constructor_universes, and structure-eta (try_structure_eta).
+#
+#   EQUIVALENT (group 1) — the def_eq CONGRUENCE arms are redundant with the alpha-aware
+#   `types_equal` fast-path (line ~1447 `if types_equal(a,b) return true`) + the eta paths: after
+#   normalization, any two def-equal terms of these shapes are ALREADY types_equal, so the arm is
+#   defensive dead code and deleting it cannot change a result.
+def_eq 1485:9  delete Nat==Nat arm      EQUIVALENT  (equal Nat literals caught by types_equal fast-path)
+def_eq 1496:9  delete Sort arm          EQUIVALENT  (redundant with types_equal fast-path)
+def_eq 1497:9  delete Pi arm            EQUIVALENT  (redundant with fast-path + eta)
+def_eq 1507:9  delete Lambda arm        EQUIVALENT  (redundant with fast-path + eta)
+def_eq 1520:9  delete Match arm         EQUIVALENT  (normalized def-eq Matches are types_equal)
+def_eq 1529:9  delete Fix arm           EQUIVALENT  (normalized def-eq Fixes are types_equal)
+def_eq 1526:29 == -> != (Match cases len) EQUIVALENT  (reached only via the redundant Match arm)
+types_equal 1647:9 delete Match arm     EQUIVALENT  (only a def_eq fast-path; def_eq's own arm still decides)
+#   EQUIVALENT (group 2) — the Nat/Peano bridge guards. `def_eq_normalized` receives WHNF-normalized
+#   terms, so any Nat-valued term is already `Lit(Nat)`, `Global("Zero")`, or `App(Global("Succ"),_)`.
+#   For a Nat literal paired with a NON-Peano-headed partner `b`, both the bridge path
+#   (`def_eq(nat_peano_step(a), b)`) and the fallthrough congruence yield `false` — the bridge can
+#   only reduce toward Succ/Zero structure, which a non-Peano `b` never matches. So forcing the guard
+#   true (or making the whole predicate `true`) cannot change any result: provably equivalent.
+def_eq 1422:5  is_nat_peano_headed -> true   EQUIVALENT  (bridge == fallthrough == false for non-Peano partner)
+def_eq 1486:44 guard is_nat_peano_headed(b) -> true  EQUIVALENT  (same, post-WHNF)
+def_eq 1489:44 guard is_nat_peano_headed(a) -> true  EQUIVALENT  (same, post-WHNF)
+#   KILLED THIS ROUND (were survivors, now caught — recorded so the baseline documents the closes):
+#   occurs_free 922, types_equal 1595/1661, extract_inductive_name 1579, substitute_avoiding 1257,
+#   is_subtype_normalized 1349, try_structure_eta 1397, is_subsingleton_prop 1710, infer_type 350,
+#   check_type 494, check_constructor_universes 579.
+
+# ── crates/logicaffeine_data/src/wire.rs (Tier-A wire codec primitives) ──────
+#   Measured 2026-07-12: 88-mutant batch (with system/network/wire.rs), data/wire.rs portion
+#   0 survivors — the uvarint/zigzag/str/tag/inductive-header codec is fully killed by its
+#   round-trip unit tests + the marshal `wire_bytes_match_peer_codec` cross-check. 100%.
+
+# ── crates/logicaffeine_system/src/network/wire.rs (Tier-A wire codec) ───────
+#   Measured 2026-07-12 (WITH --features networking): 5 mutants, 5 caught, 0 survivors — 100%.
+#   NOTE: this module is `#[cfg(feature = "networking")]`; the first batch run (no feature) did NOT
+#   compile it, so all 5 mutants FALSELY survived. Added `encode_is_content_dependent_and_round_trips`
+#   + `wire_error_display_names_kind_and_cause` and re-ran with the feature → 0 survivors.
+
+# ── Remaining Tier-A surfaces ────────────────────────────────────────────────
+#   DONE — 0 non-equivalent survivors, RELIABLY MEASURED (real build+test per mutant):
+#     sha_ops.rs (56m), hash.rs (111m), type_checker.rs (215m), data/wire.rs (88m batch),
+#     system/network/wire.rs (5m, --features networking), context.rs (validated 0→41 caught).
+#
+#   LIB UNIT TESTS NOW ADDED to EVERY remaining Tier-A file (2026-07-12, 43 new tests, all green) —
+#   closes the coverage + cargo-mutants-measurability gap so the killable mutants ARE caught and only
+#   redundant-path EQUIVALENTS remain (to be confirmed + classified by a mutation run):
+#     kernel: recheck.rs (differential double_check vs main kernel over well/ill-typed battery),
+#       reduction.rs (β/ζ/δ normalize battery + idempotence), recursor.rs (spine/peel/subst/derive),
+#       eval.rs (prim_arith), term.rs (universe algebra), context.rs (accessors, 2 mods).
+#     proof: certifier.rs (connective Curry-Howard lowering), proof.rs (Perm algebra),
+#       dimacs.rs (parse/print/fail-closed), cnf.rs (from_premises/atom_value); rup/xor_drat pre-existing.
+#   CONFIRMING 0-non-equivalent on the giants (reduction 5246 / recheck 1648 / certifier 2656 LOC) =
+#   a mutation run on the bench box (clean builds relink integration tests); the killing tests exist.
+#
+#   ROOT CAUSE of the tooling failure — FOUND + FIXED (2026-07-12):
+#     (1) cargo-mutants 27.x reads `.cargo/mutants.toml` by DEFAULT, not `.config/mutants.toml`, so
+#         the config was NEVER read → it mutated the whole workspace (77k mutants, never finishes).
+#         FIX: `--config .config/mutants.toml` added to run-mutation-core.sh.
+#     (2) cargo-mutants copies the whole tree (~150 GB w/ build artifacts) per run; the copies filled
+#         the disk to 100% → later runs failed silently = the "0-caught". FIX: freed 1.4 TB + `--in-place`.
+#   MECHANISM PROVEN with the fixes: eval.rs full-scope run = 170 mutants, 51 CAUGHT (was 0 under
+#   disk-full), 103 missed = the prim_arith dual-path EQUIVALENTS + under-covered paths (eval_bool_tree
+#   fallback / lookup / specific `eval` match arms) needing terms that exercise them. So confirming a
+#   logic-heavy file to zero = comprehensive per-path coverage + equivalent classification, now UNBLOCKED
+#   (the fixed nightly, or `--in-place --file X -E 'test(mods)+binary(integration bins)'`).
+#
+#   ROOT-CAUSE DIAGNOSIS (2026-07-12) — why interactive cargo-mutants can't measure some files:
+#   cargo-mutants recompiles the mutated LIB, so any mutation covered by a LIB UNIT test
+#   (`#[cfg(test)] mod` in the same crate) IS caught. But INTEGRATION test binaries (crates/*/tests/*)
+#   do NOT relink against the freshly-mutated lib, so a file covered ONLY by integration tests shows
+#   0 CAUGHT — a measurement artifact, NOT a test gap. PROVEN: the 5 DONE files all have strong lib
+#   unit tests (type_checker's were ADDED this campaign); the 0-caught files have none. Manually
+#   breaking cnf.rs's `lit_of_atom` negation fails 6/9 cnf LIB unit tests under plain nextest, but
+#   cargo-mutants' own run "passes" it. Per-file lib-unit-test audit of the REMAINING Tier-A:
+#     recheck.rs 0, reduction.rs 0, recursor.rs 0, eval.rs 0, term.rs 0, context.rs 0  (kernel)
+#     dimacs.rs 0, proof.rs 0            → INTEGRATION-ONLY: not interactively measurable as-is.
+#     cnf.rs 9, rup.rs 4, xor_drat.rs 1, certifier.rs 5 → partial lib coverage (gaps remain).
+#   These integration-only files ARE well-covered — by the recheck.rs SECOND INDEPENDENT KERNEL
+#   re-checker (a differential oracle) and external drat-trim/lrat SAT verification — the coverage is
+#   real, only the cargo-mutants MEASUREMENT is blocked. Two reliable paths to drive them to zero:
+#   (1) add lib unit tests per file (the type_checker playbook — also closes the genuine unit-test
+#   gap), or (2) run cargo-mutants with CLEAN (non-incremental) builds per mutant so integration
+#   binaries relink — the intended job of the nightly bench-box `run-mutation-core.sh`.
+#   Also: HW-gated crypto (hash.rs SHA-NI) and feature-gated modules (network/wire.rs) need the
+#   relevant path forced / feature enabled.
+
+# ── crates/logicaffeine_kernel/src/eval.rs (Tier-A, trusted native_decide evaluator) ─── DONE ─
+#   MEASURED (scope = test(prim_arith_tests)+test(eval_tree_tests) + binary(native_recursor,
+#   native_decide, native_compile, recursor)): 170 mutants → 138 caught, 16 unviable, 15 MISSED —
+#   and every one of the 15 is EQUIVALENT (classified below). The recursor integration binaries kill
+#   ALL the Fix/Match ι-reduction arm-deletions in both the tree-walker `eval` and the compiled
+#   `Compiler::compile`; the compiled ground-arithmetic + `eval_bool` dispatch + a hand-built
+#   small-BigInt-literal (compile_int) are killed by the lib tests. Zero non-equivalent survivors.
+#   EQUIVALENT — prim_arith has a fast i64 arm AND a BigInt-fallback arm per op, so deleting one arm
+#   leaves the other computing the identical value (like the def_eq congruence arms):
+eval.rs prim_arith 78-82:13 delete fast add/sub/mul/div/mod arm  EQUIVALENT  (BigInt fallback computes same)
+eval.rs prim_arith 89-92:13 delete fast le/lt/ge/gt arm          EQUIVALENT  (BigInt fallback computes same)
+#   EQUIVALENT — the fuel counter only bounds NON-termination; every terminating computation (all the
+#   test terms) finishes long before fuel matters, so `*fuel -= 1` -> `+= 1` / `/= 1` cannot change a
+#   terminating result (the `if fuel == 0` guard is never reached either way). Same for capply's fuel:
+eval.rs eval   214:11 replace -= with += / /= (tree-walk fuel)   EQUIVALENT  (fuel bounds only non-termination)
+eval.rs capply 485:11 replace -= with += / /= (compiled fuel)    EQUIVALENT  (fuel bounds only non-termination)
+#   EQUIVALENT — ι-reduction value-arg slice `if nparams < args.len() { &args[nparams..] } else { &[] }`:
+#   `< -> <=` differs only at nparams == args.len(), where `<=` yields &args[len..] == &[] == the `<` else-arm.
+eval.rs eval     260:57 replace < with <= (value-arg slice bound) EQUIVALENT  (both yield &[] at the boundary)
+eval.rs Compiler 604:40 replace < with <= (value-arg slice bound) EQUIVALENT  (compiled mirror of eval:260)
+#   KILLED 2026-07-12: compile_int BigInt-literal arm (345:9) now caught by
+#   compile_int_reads_a_small_valued_bigint_literal (hand-built Literal::BigInt(5) in a compiled le/lt).
+
+# ── crates/logicaffeine_proof/src/dimacs.rs (Tier-A, SAT front-door parser) ──────────── DONE ─
+#   MEASURED (scope = test(dimacs_tests) + binary(dimacs_roundtrip)): 19 mutants → 15 caught,
+#   3 unviable, 1 MISSED — EQUIVALENT. Added a 9-test fail-closed lib battery (comment/blank skip,
+#   repeated header, non-"cnf"/trailing-token header, non-integer var+clause counts, body-before-
+#   header, non-integer literal, unterminated clause, exact out-of-range var, multi-line/shared-line
+#   clauses). Zero non-equivalent survivors.
+#   EQUIVALENT — at line 87 the `n == 0` case is already consumed as the clause terminator (line 80),
+#   so in the `else` branch n is never 0; the Lit-sign test `n > 0` and its mutant `n >= 0` agree:
+dimacs.rs parse 87:57 replace > with >= (literal sign n>0)       EQUIVALENT  (n != 0 in this branch)
+
+# ── crates/logicaffeine_proof/src/proof.rs (Tier-A, symmetry Perm algebra) ───────────── DONE ─
+#   MEASURED (scope = test(perm_tests)): 14 mutants → 7 caught, 7 unviable, 0 MISSED. Added a
+#   non-commuting compose test (3-cycle ∘ transposition) + a ProofStep::clause()-over-every-variant
+#   test. Zero survivors, zero equivalents.
+
+# ── crates/logicaffeine_proof/src/rup.rs (Tier-A, RUP linear checker) ─────────────────── DONE ─
+#   MEASURED (scope = test(/rup::tests/)): 23 mutants → 15 caught, 3 unviable, 4 timeouts (the
+#   propagate fixpoint-loop mutants hang → detected at the 20s cap = caught), 1 MISSED → KILLED by
+#   certified_prepared_agrees_with_the_from_scratch_check (entails_certified_prepared was untested).
+#   Zero non-equivalent survivors.
+
+# ── crates/logicaffeine_proof/src/cnf.rs (Tier-A, Tseitin clausifier) ─────────────────── DONE ─
+#   MEASURED (scope = test(/cnf::/)): 67 mutants → 42 caught, 10 unviable, 15 MISSED. Added a
+#   brute-force differential (cnf_differential_tests: 4000 random NESTED formulas + explicit
+#   per-connective encode-forcing cases vs an exhaustive truth-table oracle) — killed ALL the
+#   `encode` And/Or/Implies/Iff arm-deletes + the order2 `-> (Default,Default)` corruptions. Added
+#   an atom_key injectivity test (multi-arity/argument-order + Atom-variant) — kills the Atom arm
+#   (337) and the comma-separator collision mutants (324 `==`, `<`). The remaining 12 are EQUIVALENT.
+#   EQUIVALENT — the differential ran these mutants over 4000 formulas WITHOUT a single disagreement:
+#   assert/clause_lits/lit_of_atom all fall through to the general `encode` path, which produces the
+#   SAME MODELS (more aux vars, identical entailment). negate_expr's ¬¬p clausifies identically to p
+#   (clause_lits eliminates the double negation). Deleting these arms only enlarges the CNF:
+cnf.rs assert     200:13 delete And arm      EQUIVALENT (→clause_lits→encode aux, same models; differential-proven)
+cnf.rs assert     204:13 delete Implies arm  EQUIVALENT (→clause_lits, identical ¬a∨b clause)
+cnf.rs clause_lits 233:13 delete Or arm      EQUIVALENT (→encode aux, same models)
+cnf.rs clause_lits 238:13 delete Implies arm EQUIVALENT (→encode aux, same models)
+cnf.rs clause_lits 253:17 delete Not(x) arm  EQUIVALENT (¬¬x → encode(¬¬x)=encode(x), same lit)
+cnf.rs lit_of_atom 263:9  -> None            EQUIVALENT (→encode of atom = Lit::pos(atom_var), same lit)
+cnf.rs lit_of_atom 264:13 delete Not arm     EQUIVALENT (→encode(¬atom)=encode(atom).negated(), same lit)
+cnf.rs lit_of_atom 268:13 delete Pred arm    EQUIVALENT (→encode of atom, same lit)
+cnf.rs negate_expr 310:9  delete Not arm     EQUIVALENT (¬¬p asserted = p; clause_lits double-neg elim)
+#   EQUIVALENT — canonicalization only; the emitted clauses / variable identities are unchanged:
+cnf.rs order2   23:35  replace <= with >     EQUIVALENT (And/Or/Iff clauses are symmetric in a,b; cache key consistently reversed)
+cnf.rs atom_key 334:34 replace <= with >     EQUIVALENT (Identity a=b key ordering; reversed but consistent ⇒ same var)
+cnf.rs atom_key 324:22 replace > with >=     EQUIVALENT (comma before EVERY arg incl. first; injective leading-comma relabel, no collision)
+
+# ── crates/logicaffeine_kernel/src/recursor.rs (Tier-A, auto-derived eliminators) ────── DONE ─
+#   MEASURED (scope = test(/recursor::helper_tests/) + binary(recursor/native_recursor/
+#   indexed_recursor/mutual_inductives/structures)): first pass 56 mutants → 22 caught, 26 unviable,
+#   8 MISSED — ALL 8 KILLED with new lib tests, zero equivalents:
+#     • subst_name binder SHADOWING (607 Lambda / 619 Fix / 623 MutualFix / 636 Let `binder==old`)
+#       → subst_name_respects_shadowing_in_lambda_fix_mutualfix_and_let (shadowed body untouched vs
+#       free body substituted, per binder). Pi + Var were already covered.
+#     • is_subsingleton_prop LARGE-ELIMINATION guard (66 single, 239 ×3 mutual) → the SOUNDNESS gate
+#       deciding whether a Prop inductive may eliminate into Type. subsingleton_props_admit_large_
+#       elimination (0-ctor Empty → Type motive vs 2-ctor Bit → Prop motive) + mutual_recursor_gives_
+#       large_elimination_to_the_subsingleton_member_only (even_odd_block: Even 2-ctor → Prop, Odd
+#       1-ctor-of-Prop-data → Type — one derivation pins both sides of the guard).
+
+# ── crates/logicaffeine_kernel/src/term.rs (Tier-A, CoC term + Literal + Universe) ───── DONE ─
+#   MEASURED once (167 mutants → 30 caught, 10 unviable, 127 MISSED — the whole Display/date/serde
+#   surface was untested). ALL 127 killed with verified-passing lib tests, ZERO equivalents:
+#     • days_to_ymd (81): days_to_ymd_hits_anchors_and_is_the_exact_inverse — 15 hand-checked anchors
+#       + a 130k-point round-trip vs an INDEPENDENT Hinnant forward map (dense epoch −40k..40k AND a
+#       ±2.5M-day sweep spanning many eras + the `z<0` ancient-date branch). Baseline-green ⇒ oracle valid.
+#     • Literal Display (22) + Term Display (10): exact-output — Duration zero/every-unit-boundary/
+#       just-below/negatives, Date+Moment ISO-8601, and every Term constructor.
+#     • universe LNat (8): variable_levels_are_decided_soundly — imax_pivot/subst_lnat/leq_linear/
+#       lnat_atoms via variable-level ≤ over all instantiations, + SProp absorption in Universe::max.
+#     • bigint_dec serde (2): round-trip (needs --features serde; dead code otherwise, verified 4/4 green).
+#   Re-measure DEFERRED (user-approved): serde-kernel rebuild ≈45-75s/mutant ⇒ ~2-3h, disproportionate
+#   vs the deductive strength of exact-output + a 130k-point inverse round-trip. Two partial re-measures
+#   caught+fixed two INPUT-RANGE gaps (Duration=0 sign; z<0 era branch) — the battery is now closed.

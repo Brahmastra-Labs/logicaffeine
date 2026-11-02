@@ -1,0 +1,160 @@
+{
+  "board": "ZCU104 (XCZU7EV-2FFVC1156)",
+  "part": "xczu7ev",
+  "ctx": 512,
+  "on_chip_bytes": 4976640.0,
+  "ddr_bytes": 2147483648.0,
+  "points": [
+    {
+      "name": "zcu104",
+      "pl_mhz": 100.0,
+      "pl_provenance": "Modeled",
+      "hp_ports": 4,
+      "ddr_read_gb_s": 6.4,
+      "ddr_read_provenance": "Derived",
+      "sram_read_gb_s": 453.6,
+      "int8_tops": 0.6912
+    },
+    {
+      "name": "zcu104-pl300",
+      "pl_mhz": 300.0,
+      "pl_provenance": "Modeled",
+      "hp_ports": 3,
+      "ddr_read_gb_s": 14.4,
+      "ddr_read_provenance": "Derived",
+      "sram_read_gb_s": 1360.8,
+      "int8_tops": 2.0736
+    },
+    {
+      "name": "zcu104-ddr-peak",
+      "pl_mhz": 300.0,
+      "pl_provenance": "Modeled",
+      "hp_ports": 4,
+      "ddr_read_gb_s": 19.2,
+      "ddr_read_provenance": "Derived",
+      "sram_read_gb_s": 1360.8,
+      "int8_tops": 2.0736
+    }
+  ],
+  "models": [
+    {
+      "model": "qwen3.5-0.8b-q8_0",
+      "file_bytes": 833592096,
+      "tied_head": true,
+      "held_bytes": 827374848.0,
+      "weight_bytes_per_token": 800883008.0,
+      "state_bytes_per_token": 46706688.0,
+      "fit": {
+        "Resident": {
+          "rows": [
+            {
+              "point": "zcu104",
+              "floor_tok_s": 7.639265751754009,
+              "binds": "Memory",
+              "on_chip_share": 0.006014976176795744,
+              "provenance": "Modeled"
+            },
+            {
+              "point": "zcu104-pl300",
+              "floor_tok_s": 17.18906828079621,
+              "binds": "Memory",
+              "on_chip_share": 0.006014976176795744,
+              "provenance": "Modeled"
+            },
+            {
+              "point": "zcu104-ddr-peak",
+              "floor_tok_s": 22.917797255262013,
+              "binds": "Memory",
+              "on_chip_share": 0.006014976176795744,
+              "provenance": "Modeled"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "model": "gemma-3-1b-it-q8_0",
+      "file_bytes": 1069306368,
+      "tied_head": true,
+      "held_bytes": 1076404736.0,
+      "weight_bytes_per_token": 1062774472.0,
+      "state_bytes_per_token": 13658112.0,
+      "fit": {
+        "Resident": {
+          "rows": [
+            {
+              "point": "zcu104",
+              "floor_tok_s": 5.972842725624612,
+              "binds": "Memory",
+              "on_chip_share": 0.004623391029004168,
+              "provenance": "Modeled"
+            },
+            {
+              "point": "zcu104-pl300",
+              "floor_tok_s": 13.43911673107573,
+              "binds": "Memory",
+              "on_chip_share": 0.004623391029004168,
+              "provenance": "Modeled"
+            },
+            {
+              "point": "zcu104-ddr-peak",
+              "floor_tok_s": 17.918528176873842,
+              "binds": "Memory",
+              "on_chip_share": 0.004623391029004168,
+              "provenance": "Modeled"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "model": "llama-3.2-1b-instruct-q8_0",
+      "file_bytes": 1321083008,
+      "tied_head": true,
+      "held_bytes": 1330028672.0,
+      "weight_bytes_per_token": 1313253632.0,
+      "state_bytes_per_token": 16809984.0,
+      "fit": {
+        "Resident": {
+          "rows": [
+            {
+              "point": "zcu104",
+              "floor_tok_s": 4.829650636897801,
+              "binds": "Memory",
+              "on_chip_share": 0.003741753922128981,
+              "provenance": "Modeled"
+            },
+            {
+              "point": "zcu104-pl300",
+              "floor_tok_s": 10.866858167903485,
+              "binds": "Memory",
+              "on_chip_share": 0.003741753922128981,
+              "provenance": "Modeled"
+            },
+            {
+              "point": "zcu104-ddr-peak",
+              "floor_tok_s": 14.48895191069341,
+              "binds": "Memory",
+              "on_chip_share": 0.003741753922128981,
+              "provenance": "Modeled"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "model": "qwen3-8b-q8_0",
+      "file_bytes": 8709518880,
+      "tied_head": false,
+      "held_bytes": 8779059200.0,
+      "weight_bytes_per_token": 8042340608.0,
+      "state_bytes_per_token": 75644928.0,
+      "fit": {
+        "NotResident": {
+          "needed": 8779059200.0,
+          "capacity": 2152460288.0
+        }
+      }
+    }
+  ]
+}

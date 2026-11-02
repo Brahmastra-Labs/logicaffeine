@@ -1,0 +1,36 @@
+Generate shell completions for largo.
+
+Writes a completion script for the given shell to stdout. Source it from your shell's configuration to get tab completion for every largo command and flag.
+
+Usage: largo completions [OPTIONS] <SHELL>
+
+Arguments:
+  <SHELL>
+          The shell to generate completions for
+          
+          [possible values: bash, elvish, fish, powershell, zsh]
+
+Options:
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo completions bash > ~/.local/share/bash-completion/completions/largo
+  largo completions zsh > ~/.zfunc/_largo
+  largo completions fish > ~/.config/fish/completions/largo.fish

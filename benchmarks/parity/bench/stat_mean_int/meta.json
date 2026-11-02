@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.mean_int",
+  "workload": "statistics.mean_int",
+  "arg": "20000",
+  "expected": "9919167474",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

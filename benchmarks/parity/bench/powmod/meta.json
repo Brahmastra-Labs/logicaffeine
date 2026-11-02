@@ -1,0 +1,8 @@
+{
+  "capability": "math.pow_mod",
+  "workload": "sum of powMod(i,i,1000000007) over 1<=i<=n — a modular-exponentiation integer stress loop",
+  "arg": "5000000",
+  "expected": "2499398576184529",
+  "logos_uses_stdlib": true,
+  "note": "main.lg calls powMod() WITHOUT defining it — auto-imported from the pure-LOGOS math.lg stdlib module. Python/Go hand-implement the identical binary modular-exponentiation algorithm (no builtins) for an apples-to-apples comparison."
+}

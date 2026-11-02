@@ -79,7 +79,10 @@ pub enum ModmOutcome {
     /// whose left side cancels mod `modulus` while the right side does not. Because `modulus | m`, any
     /// solution mod `m` would reduce to one mod `modulus`, so this certifies UNSAT mod `m`. Re-checkable
     /// via [`is_refutation`].
-    Unsat { modulus: u64, combo: Vec<(usize, u64)> },
+    Unsat {
+        modulus: u64,
+        combo: Vec<(usize, u64)>,
+    },
 }
 
 /// Re-check a refutation over `ℤ/modulus`: the chosen combination of equations has every variable
@@ -115,7 +118,11 @@ pub fn is_refutation(
 /// `None` only when `m` is not squarefree (the prime-power ring is a separate rung). The first prime
 /// factor whose system is inconsistent is reported as the witness — by CRT, the whole composite system
 /// is then inconsistent.
-pub fn solve_squarefree(equations: &[ModpEquation], num_vars: usize, m: u64) -> Option<ModmOutcome> {
+pub fn solve_squarefree(
+    equations: &[ModpEquation],
+    num_vars: usize,
+    m: u64,
+) -> Option<ModmOutcome> {
     let primes = squarefree_primes(m)?;
     let mut per_prime: Vec<(u64, Vec<u64>)> = Vec::with_capacity(primes.len());
     for &p in &primes {
@@ -163,21 +170,33 @@ pub enum ForcedM {
 /// ([`crate::modp::solve_space`] — its kernel never moves it), and the value is the CRT of those residues.
 /// `None` if `m` is not squarefree (the prime-power case needs Smith normal form, not handled here). This
 /// is the substrate of the composite affine SAT-side break.
-pub fn forced_values_squarefree(equations: &[ModpEquation], num_vars: usize, m: u64) -> Option<ForcedM> {
+pub fn forced_values_squarefree(
+    equations: &[ModpEquation],
+    num_vars: usize,
+    m: u64,
+) -> Option<ForcedM> {
     let primes = squarefree_primes(m)?;
     let mut per_prime: Vec<(u64, Vec<Option<u64>>)> = Vec::with_capacity(primes.len());
     for &p in &primes {
         let Some(ss) = crate::modp::solve_space(equations, num_vars, p) else {
             return Some(ForcedM::Inconsistent);
         };
-        let forced_p: Vec<Option<u64>> =
-            (0..num_vars).map(|g| ss.kernel_basis.iter().all(|k| k[g] == 0).then(|| ss.particular[g])).collect();
+        let forced_p: Vec<Option<u64>> = (0..num_vars)
+            .map(|g| {
+                ss.kernel_basis
+                    .iter()
+                    .all(|k| k[g] == 0)
+                    .then(|| ss.particular[g])
+            })
+            .collect();
         per_prime.push((p, forced_p));
     }
     let forced: Vec<Option<u64>> = (0..num_vars)
         .map(|g| {
-            let residues: Option<Vec<(u64, u64)>> =
-                per_prime.iter().map(|(p, f)| f[g].map(|v| (v, *p))).collect();
+            let residues: Option<Vec<(u64, u64)>> = per_prime
+                .iter()
+                .map(|(p, f)| f[g].map(|v| (v, *p)))
+                .collect();
             residues.map(|res| crt(&res))
         })
         .collect();
@@ -206,8 +225,13 @@ pub enum PrimePowerSpace {
 /// analogue of [`crate::modp::solve_space`] over a prime-power ring (where `p` is a zero-divisor, so field
 /// Gaussian fails). Returns the particular solution plus the kernel generators (so a variable the kernel
 /// never moves is forced), or `Inconsistent`. `None` only when the integer Smith reduction overflows
-/// [`GROWTH_CAP`]. `k = 1` delegates to the prime-field solver.
-pub fn solve_space_prime_power(equations: &[ModpEquation], num_vars: usize, p: u64, k: u32) -> Option<PrimePowerSpace> {
+/// `GROWTH_CAP`. `k = 1` delegates to the prime-field solver.
+pub fn solve_space_prime_power(
+    equations: &[ModpEquation],
+    num_vars: usize,
+    p: u64,
+    k: u32,
+) -> Option<PrimePowerSpace> {
     if k == 1 {
         return Some(match crate::modp::solve_space(equations, num_vars, p) {
             None => PrimePowerSpace::Inconsistent,
@@ -240,7 +264,10 @@ pub fn solve_space_prime_power(equations: &[ModpEquation], num_vars: usize, p: u
         b[i] = (eq.rhs as i128).rem_euclid(q);
     }
     let exceeds = |a: &[Vec<i128>], u: &[Vec<i128>], v: &[Vec<i128>]| {
-        a.iter().chain(u).chain(v).any(|r| r.iter().any(|&x| x.abs() > GROWTH_CAP))
+        a.iter()
+            .chain(u)
+            .chain(v)
+            .any(|r| r.iter().any(|&x| x.abs() > GROWTH_CAP))
     };
     let mut rank = 0usize;
     for t in 0..m.min(n) {
@@ -306,7 +333,13 @@ pub fn solve_space_prime_power(equations: &[ModpEquation], num_vars: usize, p: u
             break;
         }
     }
-    let ub: Vec<i128> = (0..m).map(|i| (0..m).fold(0i128, |acc, r| acc + u[i][r] * b[r]).rem_euclid(q)).collect();
+    let ub: Vec<i128> = (0..m)
+        .map(|i| {
+            (0..m)
+                .fold(0i128, |acc, r| acc + u[i][r] * b[r])
+                .rem_euclid(q)
+        })
+        .collect();
 
     // Solve D·y ≡ ub for the particular y, recording each coordinate's freedom step hₜ = q/gcd(dₜ,q)
     // (= q ⇒ forced; < q ⇒ the kernel can move yₜ by hₜ). Free columns (t ≥ rank) move by 1.
@@ -319,7 +352,11 @@ pub fn solve_space_prime_power(equations: &[ModpEquation], num_vars: usize, p: u
             return Some(PrimePowerSpace::Inconsistent);
         }
         let qg = q / g;
-        y[t] = if qg == 1 { 0 } else { (ub[t] / g).rem_euclid(qg) * modinv(d / g, qg) % qg };
+        y[t] = if qg == 1 {
+            0
+        } else {
+            (ub[t] / g).rem_euclid(qg) * modinv(d / g, qg) % qg
+        };
         freedom[t] = qg;
     }
     for &ubt in ub.iter().skip(rank) {
@@ -327,20 +364,32 @@ pub fn solve_space_prime_power(equations: &[ModpEquation], num_vars: usize, p: u
             return Some(PrimePowerSpace::Inconsistent); // a zero row with nonzero rhs ⇒ UNSAT
         }
     }
-    let particular: Vec<u64> =
-        (0..n).map(|i| (0..n).fold(0i128, |acc, j| acc + v[i][j] * y[j]).rem_euclid(q) as u64).collect();
+    let particular: Vec<u64> = (0..n)
+        .map(|i| {
+            (0..n)
+                .fold(0i128, |acc, j| acc + v[i][j] * y[j])
+                .rem_euclid(q) as u64
+        })
+        .collect();
     // Kernel generators: δx = hₜ·(t-th column of V), for every coordinate with genuine freedom (hₜ < q).
     let mut kernel_basis: Vec<Vec<u64>> = Vec::new();
     for t in 0..n {
         if freedom[t] >= q {
             continue;
         }
-        let gen: Vec<u64> = (0..n).map(|i| (v[i][t] * freedom[t]).rem_euclid(q) as u64).collect();
+        let gen: Vec<u64> = (0..n)
+            .map(|i| (v[i][t] * freedom[t]).rem_euclid(q) as u64)
+            .collect();
         if gen.iter().any(|&x| x != 0) {
             kernel_basis.push(gen);
         }
     }
-    Some(PrimePowerSpace::Space(SolutionSpaceM { num_vars: n, m: q as u64, particular, kernel_basis }))
+    Some(PrimePowerSpace::Space(SolutionSpaceM {
+        num_vars: n,
+        m: q as u64,
+        particular,
+        kernel_basis,
+    }))
 }
 
 /// Which variables a `ℤ/m` system forces, for **any** composite `m` — by CRT over its prime-power
@@ -349,7 +398,11 @@ pub fn solve_space_prime_power(equations: &[ModpEquation], num_vars: usize, p: u
 /// component, and the value is the CRT of the residues. This is the Smith-form generalization that
 /// replaces the old bounded brute force — no size cap; `None` only on Smith overflow. `Inconsistent` when
 /// any component is.
-pub fn forced_values_prime_power(equations: &[ModpEquation], num_vars: usize, m: u64) -> Option<ForcedM> {
+pub fn forced_values_prime_power(
+    equations: &[ModpEquation],
+    num_vars: usize,
+    m: u64,
+) -> Option<ForcedM> {
     let factors = prime_power_factorize(m)?;
     let mut per_component: Vec<(u64, Vec<Option<u64>>)> = Vec::with_capacity(factors.len());
     for (p, k) in factors {
@@ -357,7 +410,12 @@ pub fn forced_values_prime_power(equations: &[ModpEquation], num_vars: usize, m:
             PrimePowerSpace::Inconsistent => return Some(ForcedM::Inconsistent),
             PrimePowerSpace::Space(ss) => {
                 let forced_c: Vec<Option<u64>> = (0..num_vars)
-                    .map(|g| ss.kernel_basis.iter().all(|kk| kk[g] == 0).then(|| ss.particular[g]))
+                    .map(|g| {
+                        ss.kernel_basis
+                            .iter()
+                            .all(|kk| kk[g] == 0)
+                            .then(|| ss.particular[g])
+                    })
                     .collect();
                 per_component.push((p.pow(k), forced_c));
             }
@@ -365,8 +423,10 @@ pub fn forced_values_prime_power(equations: &[ModpEquation], num_vars: usize, m:
     }
     let forced: Vec<Option<u64>> = (0..num_vars)
         .map(|g| {
-            let residues: Option<Vec<(u64, u64)>> =
-                per_component.iter().map(|(q, f)| f[g].map(|v| (v, *q))).collect();
+            let residues: Option<Vec<(u64, u64)>> = per_component
+                .iter()
+                .map(|(q, f)| f[g].map(|v| (v, *q)))
+                .collect();
             residues.map(|res| crt(&res))
         })
         .collect();
@@ -385,7 +445,11 @@ pub enum AllowedOutcome {
 }
 
 /// See [`AllowedOutcome`]. `None` only on Smith overflow.
-pub fn allowed_residues(equations: &[ModpEquation], num_vars: usize, m: u64) -> Option<AllowedOutcome> {
+pub fn allowed_residues(
+    equations: &[ModpEquation],
+    num_vars: usize,
+    m: u64,
+) -> Option<AllowedOutcome> {
     let factors = prime_power_factorize(m)?;
     let mut per_component: Vec<Vec<(u64, u64)>> = Vec::with_capacity(factors.len());
     for (p, k) in factors {
@@ -397,7 +461,10 @@ pub fn allowed_residues(equations: &[ModpEquation], num_vars: usize, m: u64) -> 
                     .map(|g| {
                         // The coset modulus in this component: gcd of the ring order with the kernel's
                         // moves of x_g (an empty kernel ⇒ gcd = q ⇒ fully pinned).
-                        let d = ss.kernel_basis.iter().fold(q, |acc, kk| gcd_i128(acc as i128, kk[g] as i128) as u64);
+                        let d = ss
+                            .kernel_basis
+                            .iter()
+                            .fold(q, |acc, kk| gcd_i128(acc as i128, kk[g] as i128) as u64);
                         (ss.particular[g] % d, d)
                     })
                     .collect();
@@ -409,7 +476,11 @@ pub fn allowed_residues(equations: &[ModpEquation], num_vars: usize, m: u64) -> 
         .map(|g| {
             // CRT the constrained components (their moduli are pairwise-coprime prime powers); a component
             // that leaves x_g free (modulus 1) contributes nothing.
-            let pairs: Vec<(u64, u64)> = per_component.iter().map(|pv| pv[g]).filter(|&(_, d)| d > 1).collect();
+            let pairs: Vec<(u64, u64)> = per_component
+                .iter()
+                .map(|pv| pv[g])
+                .filter(|&(_, d)| d > 1)
+                .collect();
             if pairs.is_empty() {
                 (0, 1)
             } else {
@@ -473,7 +544,7 @@ const GROWTH_CAP: i128 = 1i128 << 60;
 /// which each `dₜ·yₜ ≡ (U·b)ₜ (mod pᵏ)` is an independent 1-D congruence, solvable iff
 /// `gcd(dₜ, pᵏ) ∣ (U·b)ₜ`. `U` yields both the satisfying assignment (`x = V·y`) and, on failure, the
 /// re-checkable refutation (a row of `U`, scaled to annihilate the coefficients mod `pᵏ`). Returns
-/// `None` only if the integer entries would exceed [`GROWTH_CAP`].
+/// `None` only if the integer entries would exceed `GROWTH_CAP`.
 pub fn solve_prime_power(
     equations: &[ModpEquation],
     num_vars: usize,
@@ -515,7 +586,10 @@ pub fn solve_prime_power(
     }
 
     let exceeds_cap = |a: &[Vec<i128>], u: &[Vec<i128>], v: &[Vec<i128>]| {
-        a.iter().chain(u).chain(v).any(|r| r.iter().any(|&x| x.abs() > GROWTH_CAP))
+        a.iter()
+            .chain(u)
+            .chain(v)
+            .any(|r| r.iter().any(|&x| x.abs() > GROWTH_CAP))
     };
 
     let mut rank = 0usize;
@@ -586,8 +660,13 @@ pub fn solve_prime_power(
         }
     }
 
-    let ub: Vec<i128> =
-        (0..m).map(|i| (0..m).fold(0i128, |acc, r| acc + u[i][r] * b[r]).rem_euclid(q)).collect();
+    let ub: Vec<i128> = (0..m)
+        .map(|i| {
+            (0..m)
+                .fold(0i128, |acc, r| acc + u[i][r] * b[r])
+                .rem_euclid(q)
+        })
+        .collect();
     let combo_from_row = |row: &[i128], lambda: i128| -> Vec<(usize, u64)> {
         row.iter()
             .enumerate()
@@ -603,21 +682,39 @@ pub fn solve_prime_power(
         let g = gcd_i128(d, q);
         if rhs.rem_euclid(g) != 0 {
             // No solution to dₜ·yₜ ≡ rhs: scale this row by q/g to annihilate the coefficients mod q.
-            return Some(ModmOutcome::Unsat { modulus: q as u64, combo: combo_from_row(&u[t], q / g) });
+            return Some(ModmOutcome::Unsat {
+                modulus: q as u64,
+                combo: combo_from_row(&u[t], q / g),
+            });
         }
         let qg = q / g;
-        y[t] = if qg == 1 { 0 } else { (rhs / g).rem_euclid(qg) * modinv(d / g, qg) % qg };
+        y[t] = if qg == 1 {
+            0
+        } else {
+            (rhs / g).rem_euclid(qg) * modinv(d / g, qg) % qg
+        };
     }
     for (t, &ubt) in ub.iter().enumerate().skip(rank) {
         // A zero row of D with a nonzero transformed rhs: uₜ·A = 0 over ℤ, so uₜ is the refutation.
         if ubt != 0 {
-            return Some(ModmOutcome::Unsat { modulus: q as u64, combo: combo_from_row(&u[t], 1) });
+            return Some(ModmOutcome::Unsat {
+                modulus: q as u64,
+                combo: combo_from_row(&u[t], 1),
+            });
         }
     }
 
-    let x: Vec<u64> =
-        (0..n).map(|i| (0..n).fold(0i128, |acc, j| acc + v[i][j] * y[j]).rem_euclid(q) as u64).collect();
-    debug_assert!(satisfies(equations, &x, q as u64), "the ring model must satisfy mod p^k");
+    let x: Vec<u64> = (0..n)
+        .map(|i| {
+            (0..n)
+                .fold(0i128, |acc, j| acc + v[i][j] * y[j])
+                .rem_euclid(q) as u64
+        })
+        .collect();
+    debug_assert!(
+        satisfies(equations, &x, q as u64),
+        "the ring model must satisfy mod p^k"
+    );
     Some(ModmOutcome::Sat(x))
 }
 
@@ -648,236 +745,5 @@ pub fn solve(equations: &[ModpEquation], num_vars: usize, m: u64) -> Option<Modm
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn splitmix(state: &mut u64) -> u64 {
-        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = *state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    fn brute_force_sat(equations: &[ModpEquation], num_vars: usize, m: u64) -> bool {
-        let total = (m as u128).pow(num_vars as u32);
-        for code in 0..total {
-            let mut a = vec![0u64; num_vars];
-            let mut c = code;
-            for slot in a.iter_mut() {
-                *slot = (c % m as u128) as u64;
-                c /= m as u128;
-            }
-            if satisfies(equations, &a, m) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// **Squarefree factorization is exact, and rejects non-squarefree moduli.** The CRT decision
-    /// procedure is complete precisely on squarefree `m`, so the gate must be precise.
-    #[test]
-    fn squarefree_primes_is_exact() {
-        assert_eq!(squarefree_primes(6), Some(vec![2, 3]));
-        assert_eq!(squarefree_primes(30), Some(vec![2, 3, 5]));
-        assert_eq!(squarefree_primes(15), Some(vec![3, 5]));
-        assert_eq!(squarefree_primes(7), Some(vec![7]));
-        assert_eq!(squarefree_primes(105), Some(vec![3, 5, 7])); // 3·5·7
-        assert_eq!(squarefree_primes(1), None);
-        assert_eq!(squarefree_primes(4), None); // 2²
-        assert_eq!(squarefree_primes(12), None); // 2²·3
-        assert_eq!(squarefree_primes(9), None); // 3²
-        assert_eq!(squarefree_primes(60), None); // 2²·3·5
-    }
-
-    /// **The composite cut, verified to the point of absurdity against brute force.** Over squarefree
-    /// moduli `m ∈ {6, 10, 15, 30}`, on a fuzz of random systems, `solve_squarefree`'s verdict always
-    /// matches exhaustive search over all `m^vars` assignments — every `Sat` recombination re-checks
-    /// mod `m`, every `Unsat` re-checks as a GF(prime) refutation at its witnessing prime.
-    #[test]
-    fn solve_squarefree_matches_brute_force_over_composites() {
-        for &m in &[6u64, 10, 15, 30] {
-            let mut state = 0xC0DE_1234u64 ^ m;
-            for _ in 0..40 {
-                let num_vars = 2 + (splitmix(&mut state) % 2) as usize; // 2..3 vars
-                let num_eqs = 1 + (splitmix(&mut state) % 4) as usize; // 1..4 eqs
-                let equations: Vec<ModpEquation> = (0..num_eqs)
-                    .map(|_| {
-                        let coeffs: Vec<(usize, u64)> = (0..num_vars)
-                            .map(|v| (v, splitmix(&mut state) % m))
-                            .filter(|&(_, a)| a != 0)
-                            .collect();
-                        ModpEquation::new(coeffs, splitmix(&mut state) % m)
-                    })
-                    .collect();
-                let brute = brute_force_sat(&equations, num_vars, m);
-                match solve_squarefree(&equations, num_vars, m).expect("m is squarefree") {
-                    ModmOutcome::Sat(a) => {
-                        assert!(brute, "m={m}: Sat but brute force UNSAT: {equations:?}");
-                        assert!(satisfies(&equations, &a, m), "m={m}: the model must satisfy mod m: {a:?}");
-                        assert!(a.iter().all(|&v| v < m), "m={m}: residues lie in 0..m");
-                    }
-                    ModmOutcome::Unsat { modulus, combo } => {
-                        assert!(!brute, "m={m}: Unsat but a model exists: {equations:?}");
-                        assert!(
-                            is_refutation(&equations, num_vars, modulus, &combo),
-                            "m={m}: the witness must re-check over ℤ/{modulus}: {combo:?}"
-                        );
-                        assert_eq!(m % modulus, 0, "m={m}: the witnessing modulus must divide m");
-                    }
-                }
-            }
-        }
-    }
-
-    /// **The composite obstruction is found via a prime field GF(2) is blind to.** The mod-6 4-cycle is
-    /// inconsistent (4 is not a multiple of 6). By CRT this is invisible to the GF(2) component (4 ≡ 0
-    /// mod 2 ⟹ that field is consistent) and is caught only in the GF(3) component (4 ≡ 1 mod 3 ⟹
-    /// `0 ≡ 1`). The witness is the GF(3) refutation, and it re-checks. The multiplicative split reaches
-    /// a composite obstruction neither prime field reaches alone.
-    #[test]
-    fn the_mod_6_cycle_obstruction_is_caught_through_the_gf3_factor() {
-        let eqs = cycle_system(4, 6);
-        match solve_squarefree(&eqs, 4, 6).expect("6 is squarefree") {
-            ModmOutcome::Unsat { modulus, combo } => {
-                assert_eq!(modulus, 3, "the mod-6 obstruction lives in the GF(3) factor");
-                assert!(is_refutation(&eqs, 4, modulus, &combo), "the GF(3) refutation re-checks");
-            }
-            other => panic!("the mod-6 4-cycle must be UNSAT, got {other:?}"),
-        }
-        // The GF(2) factor on its own is perfectly consistent — the parity cut sees nothing here.
-        assert!(matches!(modp::solve(&eqs, 4, 2), ModpOutcome::Sat(_)), "GF(2) factor is consistent");
-        // And a 6-cycle (n = 6, a multiple of 6) is satisfiable mod 6, recombined across both fields.
-        let eqs6 = cycle_system(6, 6);
-        match solve_squarefree(&eqs6, 6, 6).expect("6 is squarefree") {
-            ModmOutcome::Sat(a) => assert!(satisfies(&eqs6, &a, 6), "the 6-cycle model satisfies mod 6"),
-            other => panic!("the mod-6 6-cycle must be SAT, got {other:?}"),
-        }
-    }
-
-    /// The CRT recombination is genuine: a system consistent over each prime factor but with *different*
-    /// residues per factor is solved by stitching them into one value mod m. `x ≡ 1 (mod 2)` and
-    /// `x ≡ 2 (mod 3)` ⟹ `x ≡ 5 (mod 6)`.
-    #[test]
-    fn crt_recombines_distinct_residues_across_factors() {
-        // Single variable pinned to 5 mod 6 (1 mod 2, 2 mod 3).
-        let eqs = vec![ModpEquation::new(vec![(0, 1)], 5)];
-        match solve_squarefree(&eqs, 1, 6).expect("6 is squarefree") {
-            ModmOutcome::Sat(a) => {
-                assert_eq!(a, vec![5], "CRT(1 mod 2, 2 mod 3) = 5 mod 6");
-                assert!(satisfies(&eqs, &a, 6));
-            }
-            other => panic!("expected Sat, got {other:?}"),
-        }
-        // Direct CRT check on the primitive.
-        assert_eq!(crt(&[(1, 2), (2, 3)]), 5);
-        assert_eq!(crt(&[(2, 3), (4, 5)]), 14); // 14 ≡ 2 mod 3, ≡ 4 mod 5
-        assert_eq!(crt(&[(0, 2), (0, 3), (0, 5)]), 0);
-        // CRT over PRIME POWERS (coprime), the new closure.
-        assert_eq!(crt(&[(3, 4), (2, 9)]), 11); // 11 ≡ 3 mod 4, ≡ 2 mod 9
-    }
-
-    /// **The residue-ring solver, verified to the point of absurdity against brute force.** Over genuine
-    /// rings `ℤ/pᵏ` (`k ≥ 2`, where `p` is a zero divisor and field Gaussian does not apply), on a fuzz
-    /// of random systems the integer-Smith solver always matches exhaustive search: every `Sat` model
-    /// satisfies mod `pᵏ`, every `Unsat` witness re-checks as a refutation over `ℤ/pᵏ`.
-    #[test]
-    fn solve_prime_power_matches_brute_force_over_residue_rings() {
-        for &(p, k) in &[(2u64, 2u32), (2, 3), (2, 4), (3, 2), (3, 3), (5, 2)] {
-            let q = p.pow(k);
-            let mut state = 0xBEEF_0001u64 ^ q;
-            for _ in 0..40 {
-                let num_vars = 2 + (splitmix(&mut state) % 2) as usize;
-                let num_eqs = 1 + (splitmix(&mut state) % 4) as usize;
-                let equations: Vec<ModpEquation> = (0..num_eqs)
-                    .map(|_| {
-                        let coeffs: Vec<(usize, u64)> = (0..num_vars)
-                            .map(|v| (v, splitmix(&mut state) % q))
-                            .filter(|&(_, a)| a != 0)
-                            .collect();
-                        ModpEquation::new(coeffs, splitmix(&mut state) % q)
-                    })
-                    .collect();
-                let brute = brute_force_sat(&equations, num_vars, q);
-                match solve_prime_power(&equations, num_vars, p, k).expect("within the growth cap") {
-                    ModmOutcome::Sat(a) => {
-                        assert!(brute, "q={q}: Sat but brute force UNSAT: {equations:?}");
-                        assert!(satisfies(&equations, &a, q), "q={q}: the ring model must satisfy: {a:?}");
-                        assert!(a.iter().all(|&val| val < q), "q={q}: residues lie in 0..q");
-                    }
-                    ModmOutcome::Unsat { modulus, combo } => {
-                        assert!(!brute, "q={q}: Unsat but a model exists: {equations:?}");
-                        assert_eq!(modulus, q, "q={q}: the witness modulus is the prime power");
-                        assert!(
-                            is_refutation(&equations, num_vars, modulus, &combo),
-                            "q={q}: the ring refutation must re-check: {combo:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    /// **The full closure over every composite.** Squarefree, prime-power, and mixed moduli alike — the
-    /// general `solve` (CRT over the prime-power components) matches brute force on a fuzz of systems.
-    #[test]
-    fn solve_matches_brute_force_over_all_composites() {
-        for &m in &[4u64, 8, 9, 12, 18, 24, 36] {
-            let mut state = 0xABCD_0002u64 ^ m;
-            for _ in 0..30 {
-                let num_vars = 2 + (splitmix(&mut state) % 2) as usize;
-                let num_eqs = 1 + (splitmix(&mut state) % 4) as usize;
-                let equations: Vec<ModpEquation> = (0..num_eqs)
-                    .map(|_| {
-                        let coeffs: Vec<(usize, u64)> = (0..num_vars)
-                            .map(|v| (v, splitmix(&mut state) % m))
-                            .filter(|&(_, a)| a != 0)
-                            .collect();
-                        ModpEquation::new(coeffs, splitmix(&mut state) % m)
-                    })
-                    .collect();
-                let brute = brute_force_sat(&equations, num_vars, m);
-                match solve(&equations, num_vars, m).expect("m ≥ 2 and within the cap") {
-                    ModmOutcome::Sat(a) => {
-                        assert!(brute, "m={m}: Sat but brute force UNSAT: {equations:?}");
-                        assert!(satisfies(&equations, &a, m), "m={m}: the model must satisfy mod m: {a:?}");
-                    }
-                    ModmOutcome::Unsat { modulus, combo } => {
-                        assert!(!brute, "m={m}: Unsat but a model exists: {equations:?}");
-                        assert_eq!(m % modulus, 0, "m={m}: the witnessing modulus must divide m");
-                        assert!(
-                            is_refutation(&equations, num_vars, modulus, &combo),
-                            "m={m}: the witness must re-check over ℤ/{modulus}: {combo:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    /// **The prime-power obstruction needs the RING, not the field.** `2x ≡ 1 (mod 4)` is unsatisfiable —
-    /// the left side is always even — yet this is a `ℤ/4` fact: the witness `2·(2x − 1) = 4x − 2 ≡ −2 ≢ 0
-    /// (mod 4)` annihilates the coefficient while leaving a nonzero residue, the residue-ring refutation.
-    /// `2x ≡ 2 (mod 4)` is satisfiable (`x = 1`). Field reasoning over GF(2) cannot tell these apart
-    /// (both reduce to `0 ≡ ·`); the local ring decides.
-    #[test]
-    fn the_mod_4_obstruction_needs_the_ring_not_the_field() {
-        let unsat = vec![ModpEquation::new(vec![(0, 2)], 1)];
-        match solve(&unsat, 1, 4).unwrap() {
-            ModmOutcome::Unsat { modulus, combo } => {
-                assert_eq!(modulus, 4);
-                assert!(is_refutation(&unsat, 1, 4, &combo), "the ℤ/4 refutation re-checks: {combo:?}");
-            }
-            other => panic!("2x ≡ 1 (mod 4) is UNSAT, got {other:?}"),
-        }
-        let sat = vec![ModpEquation::new(vec![(0, 2)], 2)];
-        match solve(&sat, 1, 4).unwrap() {
-            ModmOutcome::Sat(a) => assert!(satisfies(&sat, &a, 4), "2x ≡ 2 (mod 4) has a model"),
-            other => panic!("2x ≡ 2 (mod 4) is SAT, got {other:?}"),
-        }
-        assert_eq!(prime_power_factorize(36), Some(vec![(2, 2), (3, 2)]));
-        assert_eq!(prime_power_factorize(8), Some(vec![(2, 3)]));
-        assert_eq!(prime_power_factorize(30), Some(vec![(2, 1), (3, 1), (5, 1)]));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/modm/tests.rs"]
+mod tests;

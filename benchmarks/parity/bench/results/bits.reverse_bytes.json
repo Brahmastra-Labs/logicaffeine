@@ -1,0 +1,12 @@
+{
+  "capability": "bits.reverse_bytes",
+  "timing_n": "686200539",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), reusing built bins",
+  "logos_strictly_fastest": true,
+  "speedups_vs_logos": {
+    "c": 1.66,
+    "go": 3.863,
+    "rust": 10.08
+  },
+  "min_speedup": 1.66
+}

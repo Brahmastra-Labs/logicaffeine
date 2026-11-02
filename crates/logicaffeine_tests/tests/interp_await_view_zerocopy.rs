@@ -21,7 +21,10 @@ use logicaffeine_system::relay::{serve, RelayClient};
 fn reading(score: i64) -> RuntimeValue {
     let mut fields = HashMap::new();
     fields.insert("score".to_string(), RuntimeValue::Int(score));
-    RuntimeValue::Struct(Box::new(StructValue { type_name: "Reading".to_string(), fields }))
+    RuntimeValue::Struct(Box::new(StructValue {
+        type_name: "Reading".to_string(),
+        fields,
+    }))
 }
 
 #[tokio::test]
@@ -52,15 +55,26 @@ async fn await_view_receives_a_record_list_and_reads_a_field_zero_copy() {
             reading(33),
         ]))));
         let bytes = with_struct_view(true, || {
-            message_to_wire_with(&canonical_topic("sensor"), &list, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            message_to_wire_with(
+                &canonical_topic("sensor"),
+                &list,
+                WireCodec::Native,
+                WireIntegrity::Raw,
+            )
+            .unwrap()
         });
-        peer.publish(&canonical_topic("me"), bytes).expect("peer publishes the record list");
+        peer.publish(&canonical_topic("me"), bytes)
+            .expect("peer publishes the record list");
     };
 
     let (result, ()) = tokio::join!(interp, inject);
     let result = result.expect("interpreter did not hang");
 
-    assert!(result.error.is_none(), "`Await view` ran without error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "`Await view` ran without error: {:?}",
+        result.error
+    );
     assert!(
         result.lines.iter().any(|l| l == "11"),
         "the interpreter read the first row's score (11) from the zero-copy received list; output: {:?}",

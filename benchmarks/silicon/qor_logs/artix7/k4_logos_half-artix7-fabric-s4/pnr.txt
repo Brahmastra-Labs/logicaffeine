@@ -1,0 +1,60 @@
+Info: Device utilisation:
+Info: 	          SLICE_LUTX:  6087/126800     4%
+Info: 	           SLICE_FFX:  5071/126800     3%
+Info: 	              CARRY4:     2/15850     0%
+Info: 	          PSEUDO_GND:     1/30932     0%
+Info: 	          PSEUDO_VCC:     1/30932     0%
+Info: 	               HARD0:     0/ 2376     0%
+Info: 	   RAMB18E1_RAMB18E1:     0/  270     0%
+Info: 	   FIFO18E1_FIFO18E1:     0/  135     0%
+Info: 	RAMBFIFO36E1_RAMBFIFO36E1:     0/  135     0%
+Info: 	   RAMB36E1_RAMB36E1:     0/  135     0%
+Info: 	     DSP48E1_DSP48E1:     0/  240     0%
+Info: 	                 PAD:    18/  876     2%
+Info: 	       IOB33M_OUTBUF:     0/  144     0%
+Info: 	       IOB33S_OUTBUF:     0/  144     0%
+Info: 	        IOB33_OUTBUF:    16/  300     5%
+Info: 	     IOB33M_INBUF_EN:     0/  144     0%
+Info: 	     IOB33S_INBUF_EN:     0/  144     0%
+Info: 	      IOB33_INBUF_EN:     2/  300     0%
+Info: 	IOB33M_TERM_OVERRIDE:     0/  144     0%
+Info: 	IOB33S_TERM_OVERRIDE:     0/  144     0%
+Info: 	 IOB33_TERM_OVERRIDE:     0/  300     0%
+Info: 	       PULL_OR_KEEP1:     0/  588     0%
+Info: 	   IDELAYE2_IDELAYE2:     0/  300     0%
+Info: 	        OLOGICE3_TFF:     0/  300     0%
+Info: 	      OLOGICE3_OUTFF:     0/  300     0%
+Info: 	       OLOGICE3_MISR:     0/  300     0%
+Info: 	 OSERDESE2_OSERDESE2:     0/  300     0%
+Info: 	        ILOGICE3_IFF:     0/  300     0%
+Info: 	ILOGICE3_ZHOLD_DELAY:     0/  300     0%
+Info: 	 ISERDESE2_ISERDESE2:     0/  300     0%
+Info: 	         BUFIO_BUFIO:     0/   24     0%
+Info: 	IDELAYCTRL_IDELAYCTRL:     0/    6     0%
+Info: 	            BUFGCTRL:     1/   32     3%
+Info: 	           BUFG_BUFG:     0/   32     0%
+Info: 	            INVERTER:     0/  144     0%
+Info: 	        OLOGICE2_TFF:     0/  300     0%
+Info: 	      OLOGICE2_OUTFF:     0/  300     0%
+Info: 	 PLLE2_ADV_PLLE2_ADV:     0/    6     0%
+Info: 	           SELMUX2_1:   465/48750     0%
+Info: 	       BUFHCE_BUFHCE:     0/   96     0%
+Info: 	              BUFFER:     0/  288     0%
+Info: 	        ILOGICE2_IFF:     0/  300     0%
+Info: 	       OLOGICE2_MISR:     0/  300     0%
+Info: Running router2...
+Info:     iter=2 wires=197197 overused=1345 overuse=1351 archfail=NA
+Info:     iter=3 wires=197838 overused=140 overuse=140 archfail=NA
+Info:     iter=4 wires=197895 overused=16 overuse=16 archfail=NA
+Info:     iter=5 wires=197908 overused=10 overuse=10 archfail=NA
+Info:     iter=6 wires=197916 overused=0 overuse=0 archfail=0
+Info: Max frequency for clock '$iopadmap$clk': 128.82 MHz (PASS at 100.00 MHz)
+Info: Routing complete.
+Info: Max frequency for clock '$iopadmap$clk': 143.55 MHz (PASS at 100.00 MHz)
+Info: Critical path report for clock '$iopadmap$clk' (posedge -> posedge):
+Info:  0.1  0.1  Source $auto$ff.cc:266:slice$6891.Q
+Info:                Sink u_dut.$abc$23477$auto$blifparse.cc:525:parse_blif$23481.A2
+Info:  0.2  2.6  Source u_dut.$abc$23477$auto$blifparse.cc:525:parse_blif$23481.O5
+Info:                Sink u_dut.$abc$23477$auto$blifparse.cc:525:parse_blif$23483.A5
+Info:  0.1  3.3  Source u_dut.$abc$23477$auto$blifparse.cc:525:parse_blif$23483.O6
+Info:                Sink u_dut.$auto$ff.cc:266:slice$11874.CE

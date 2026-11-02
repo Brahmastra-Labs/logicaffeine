@@ -10,7 +10,9 @@
 //! - **Fact stability**: Oracle facts are seeded only on subtrees whose
 //!   value cannot change WITHIN one evaluation of the enclosing
 //!   expression — literals, variables (no `Set` can run mid-expression),
-//!   and pure arithmetic over those. `Index`/`Length`/opaque subtrees can
+//!   and pure arithmetic over those. A call can write a variable
+//!   mid-expression by lending it to a `mutable` parameter: each read of
+//!   a name the expression writes so is an opaque leaf of its own. `Index`/`Length`/opaque subtrees can
 //!   observe a collection mutated by a sibling call, and two occurrences
 //!   share one e-class, so per-site facts must not be intersected there.
 
@@ -19,6 +21,7 @@ use std::collections::HashMap;
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
 use crate::intern::{Interner, Symbol};
+use crate::optimize::writes::{pattern_symbols, CalleeGlobals, WriteSet};
 use crate::optimize::OracleFacts;
 
 use super::extract::{best_tree, best_tree_filtered, ExtractTree};
@@ -51,6 +54,21 @@ pub struct Converter<'a> {
     /// (`d * d → 4` collapsed primes). KIND facts (is-collection) stay; they
     /// are mutation-immune.
     suppressed: std::collections::HashSet<u32>,
+    /// Symbol indices the expression being converted writes while it is evaluated (a binding a call lends to a
+    /// `mutable` parameter, the root of a lent element or field): every read of one is a fresh opaque leaf, so
+    /// no two reads of it unify and none takes a fact from before the write.
+    volatile: std::collections::HashSet<u32>,
+}
+
+/// The symbol indices evaluating `exprs` may write: what their calls lend to `mutable` parameters.
+fn written_while_evaluating<'e, 'a: 'e>(
+    exprs: impl IntoIterator<Item = &'e Expr<'a>>,
+) -> std::collections::HashSet<u32> {
+    exprs
+        .into_iter()
+        .flat_map(|e| WriteSet::of_expr(e).symbols().collect::<Vec<_>>())
+        .map(|s| s.index() as u32)
+        .collect()
 }
 
 impl<'a> Converter<'a> {
@@ -64,6 +82,7 @@ impl<'a> Converter<'a> {
             versions: HashMap::new(),
             coll_read_vars: std::collections::HashSet::new(),
             suppressed: std::collections::HashSet::new(),
+            volatile: std::collections::HashSet::new(),
         }
     }
 
@@ -111,7 +130,11 @@ impl<'a> Converter<'a> {
             }
             Expr::Length { collection } => self.mentions_suppressed(collection),
             Expr::Copy { expr } => self.mentions_suppressed(expr),
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.mentions_suppressed(collection)
                     || self.mentions_suppressed(start)
                     || self.mentions_suppressed(end)
@@ -154,6 +177,9 @@ impl<'a> Converter<'a> {
             Expr::Literal(Literal::Float(f)) => {
                 (self.eg.add(CompilerENode::Float(f.to_bits())), true)
             }
+            Expr::Identifier(sym) if self.volatile.contains(&(sym.index() as u32)) => {
+                self.opaque(expr)
+            }
             Expr::Identifier(sym) => {
                 let ix = sym.index() as u32;
                 self.symbols.insert(ix, *sym);
@@ -171,20 +197,38 @@ impl<'a> Converter<'a> {
             // ExactDivide (exact Rational division) has no integer e-node model and must
             // NEVER be floor-folded by the e-graph — treat the whole division as an opaque
             // leaf so the optimizer leaves it verbatim for the runtime.
-            Expr::BinaryOp { op: BinaryOpKind::ExactDivide, .. } => self.opaque(expr),
+            Expr::BinaryOp {
+                op: BinaryOpKind::ExactDivide,
+                ..
+            } => self.opaque(expr),
             // Sequence concatenation has no arithmetic e-node model — leave it opaque so the
             // optimizer never tries to fold it.
-            Expr::BinaryOp { op: BinaryOpKind::SeqConcat, .. } => self.opaque(expr),
+            Expr::BinaryOp {
+                op: BinaryOpKind::SeqConcat,
+                ..
+            } => self.opaque(expr),
             // Tolerant float comparison: opaque — no algebraic rewrites apply.
-            Expr::BinaryOp { op: BinaryOpKind::ApproxEq, .. } => self.opaque(expr),
+            Expr::BinaryOp {
+                op: BinaryOpKind::ApproxEq,
+                ..
+            } => self.opaque(expr),
             // `&`/`|` are type-dispatched (Int bitwise / Set ops): opaque to
             // the numeric e-graph.
-            Expr::BinaryOp { op: BinaryOpKind::BitAnd | BinaryOpKind::BitOr, .. } => self.opaque(expr),
+            Expr::BinaryOp {
+                op: BinaryOpKind::BitAnd | BinaryOpKind::BitOr,
+                ..
+            } => self.opaque(expr),
             // `**` has no e-node model (BigInt-promoting / Float): opaque.
-            Expr::BinaryOp { op: BinaryOpKind::Pow, .. } => self.opaque(expr),
+            Expr::BinaryOp {
+                op: BinaryOpKind::Pow,
+                ..
+            } => self.opaque(expr),
             // `//` floors toward -inf (distinct from `Div`'s truncation) and can promote
             // to BigInt — no e-node model, so it stays opaque (never algebraically rewritten).
-            Expr::BinaryOp { op: BinaryOpKind::FloorDivide, .. } => self.opaque(expr),
+            Expr::BinaryOp {
+                op: BinaryOpKind::FloorDivide,
+                ..
+            } => self.opaque(expr),
             Expr::BinaryOp { op, left, right } => {
                 let (l, ls) = self.to_node(left, facts);
                 let (r, rs) = self.to_node(right, facts);
@@ -193,11 +237,19 @@ impl<'a> Converter<'a> {
                     BinaryOpKind::Subtract => CompilerENode::Sub(l, r),
                     BinaryOpKind::Multiply => CompilerENode::Mul(l, r),
                     BinaryOpKind::Divide => CompilerENode::Div(l, r),
-                    BinaryOpKind::ExactDivide => unreachable!("ExactDivide handled by the opaque arm above"),
+                    BinaryOpKind::ExactDivide => {
+                        unreachable!("ExactDivide handled by the opaque arm above")
+                    }
                     BinaryOpKind::Pow => unreachable!("Pow handled by the opaque arm above"),
-                    BinaryOpKind::FloorDivide => unreachable!("FloorDivide handled by the opaque arm above"),
-                    BinaryOpKind::ApproxEq => unreachable!("ApproxEq handled by the opaque arm above"),
-                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr => unreachable!("BitAnd/BitOr handled by the opaque arm above"),
+                    BinaryOpKind::FloorDivide => {
+                        unreachable!("FloorDivide handled by the opaque arm above")
+                    }
+                    BinaryOpKind::ApproxEq => {
+                        unreachable!("ApproxEq handled by the opaque arm above")
+                    }
+                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                        unreachable!("BitAnd/BitOr handled by the opaque arm above")
+                    }
                     BinaryOpKind::Modulo => CompilerENode::Mod(l, r),
                     BinaryOpKind::Eq => CompilerENode::Eq(l, r),
                     BinaryOpKind::NotEq => CompilerENode::Ne(l, r),
@@ -208,7 +260,9 @@ impl<'a> Converter<'a> {
                     BinaryOpKind::And => CompilerENode::And(l, r),
                     BinaryOpKind::Or => CompilerENode::Or(l, r),
                     BinaryOpKind::Concat => CompilerENode::Concat(l, r),
-                    BinaryOpKind::SeqConcat => unreachable!("SeqConcat handled by the opaque arm above"),
+                    BinaryOpKind::SeqConcat => {
+                        unreachable!("SeqConcat handled by the opaque arm above")
+                    }
                     BinaryOpKind::BitXor => CompilerENode::BitXor(l, r),
                     BinaryOpKind::Shl => CompilerENode::Shl(l, r),
                     BinaryOpKind::Shr => CompilerENode::Shr(l, r),
@@ -254,7 +308,11 @@ impl<'a> Converter<'a> {
                 }
                 (id, false)
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.note_collection_read(collection);
                 let (c, _) = self.to_node(collection, facts);
                 let (s, _) = self.to_node(start, facts);
@@ -284,11 +342,7 @@ impl<'a> Converter<'a> {
         (id, stable)
     }
 
-    pub fn tree_to_expr(
-        &self,
-        t: &ExtractTree,
-        arena: &'a Arena<Expr<'a>>,
-    ) -> &'a Expr<'a> {
+    pub fn tree_to_expr(&self, t: &ExtractTree, arena: &'a Arena<Expr<'a>>) -> &'a Expr<'a> {
         let bin = |op: BinaryOpKind, s: &Self| -> &'a Expr<'a> {
             arena.alloc(Expr::BinaryOp {
                 op,
@@ -363,23 +417,51 @@ fn expr_struct_eq(a: &Expr, b: &Expr) -> bool {
         }
         (Expr::Identifier(x), Expr::Identifier(y)) => x == y,
         (
-            Expr::BinaryOp { op: oa, left: la, right: ra },
-            Expr::BinaryOp { op: ob, left: lb, right: rb },
+            Expr::BinaryOp {
+                op: oa,
+                left: la,
+                right: ra,
+            },
+            Expr::BinaryOp {
+                op: ob,
+                left: lb,
+                right: rb,
+            },
         ) => oa == ob && expr_struct_eq(la, lb) && expr_struct_eq(ra, rb),
         (Expr::Not { operand: x }, Expr::Not { operand: y }) => expr_struct_eq(x, y),
         (Expr::Length { collection: x }, Expr::Length { collection: y }) => expr_struct_eq(x, y),
         (
-            Expr::Index { collection: ca, index: ia },
-            Expr::Index { collection: cb, index: ib },
+            Expr::Index {
+                collection: ca,
+                index: ia,
+            },
+            Expr::Index {
+                collection: cb,
+                index: ib,
+            },
         ) => expr_struct_eq(ca, cb) && expr_struct_eq(ia, ib),
         (Expr::Copy { expr: a }, Expr::Copy { expr: b }) => expr_struct_eq(a, b),
         (
-            Expr::Slice { collection: ca, start: sa, end: ea },
-            Expr::Slice { collection: cb, start: sb, end: eb },
+            Expr::Slice {
+                collection: ca,
+                start: sa,
+                end: ea,
+            },
+            Expr::Slice {
+                collection: cb,
+                start: sb,
+                end: eb,
+            },
         ) => expr_struct_eq(ca, cb) && expr_struct_eq(sa, sb) && expr_struct_eq(ea, eb),
         (
-            Expr::Contains { collection: ca, value: va },
-            Expr::Contains { collection: cb, value: vb },
+            Expr::Contains {
+                collection: ca,
+                value: va,
+            },
+            Expr::Contains {
+                collection: cb,
+                value: vb,
+            },
         ) => expr_struct_eq(ca, cb) && expr_struct_eq(va, vb),
         _ => false,
     }
@@ -396,12 +478,12 @@ fn worth_modeling(expr: &Expr) -> bool {
         }
         Expr::Length { collection } => fusable(collection) || worth_modeling(collection),
         Expr::Copy { expr } => fusable(expr) || worth_modeling(expr),
-        Expr::Slice { collection, start, end } => {
-            worth_modeling(collection) || worth_modeling(start) || worth_modeling(end)
-        }
-        Expr::Contains { collection, value } => {
-            worth_modeling(collection) || worth_modeling(value)
-        }
+        Expr::Slice {
+            collection,
+            start,
+            end,
+        } => worth_modeling(collection) || worth_modeling(start) || worth_modeling(end),
+        Expr::Contains { collection, value } => worth_modeling(collection) || worth_modeling(value),
         _ => false,
     }
 }
@@ -419,7 +501,13 @@ pub fn simplify_expr<'a>(
     rule_set: &[rules::Rewrite],
     arena: &'a Arena<Expr<'a>>,
 ) -> &'a Expr<'a> {
-    simplify_expr_in(expr, facts, rule_set, arena, &std::collections::HashSet::new())
+    simplify_expr_in(
+        expr,
+        facts,
+        rule_set,
+        arena,
+        &std::collections::HashSet::new(),
+    )
 }
 
 /// As [`simplify_expr`], but suppresses value facts for the `suppressed`
@@ -437,6 +525,7 @@ fn simplify_expr_in<'a>(
     }
     let mut cv = Converter::new();
     cv.suppressed = suppressed.clone();
+    cv.volatile = written_while_evaluating([expr]);
     let (root, _) = cv.to_node(expr, Some(facts));
     cv.finish_facts();
     cv.eg.saturate(rule_set);
@@ -463,13 +552,22 @@ pub fn egraph_stmts<'a>(
 ) -> Vec<Stmt<'a>> {
     let facts = crate::optimize::oracle_analyze_with(&stmts, interner);
     let rule_set = rules::all();
-    walk_stmts(stmts, &facts, &rule_set, expr_arena, stmt_arena, &std::collections::HashSet::new())
+    let globals = CalleeGlobals::of_program(&stmts);
+    walk_stmts(
+        stmts,
+        &facts,
+        &rule_set,
+        expr_arena,
+        stmt_arena,
+        &std::collections::HashSet::new(),
+        &globals,
+    )
 }
 
 /// Statements a cross-statement run can model EXACTLY (effects and kills
 /// understood). Anything else flushes the run.
-fn run_modeled(s: &Stmt) -> bool {
-    matches!(
+fn run_modeled(s: &Stmt, globals: &CalleeGlobals) -> bool {
+    let shape = matches!(
         s,
         Stmt::Let { .. }
             | Stmt::Set { .. }
@@ -479,7 +577,10 @@ fn run_modeled(s: &Stmt) -> bool {
             | Stmt::Push { .. }
             | Stmt::SetIndex { .. }
             | Stmt::Call { .. }
-    )
+    );
+    // A call into a callee holding raw foreign code may rewrite any name: no version bookkeeping
+    // can express that, so such a statement ends the run.
+    shape && !(globals.opaque && WriteSet::of_stmt(s).has_calls())
 }
 
 /// One extraction site inside a run: the converted root, the VERSION
@@ -499,18 +600,25 @@ fn walk_stmts<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     suppressed: &std::collections::HashSet<u32>,
+    globals: &CalleeGlobals,
 ) -> Vec<Stmt<'a>> {
     let mut out: Vec<Stmt<'a>> = Vec::new();
     let mut run: Vec<Stmt<'a>> = Vec::new();
     for s in stmts {
-        if run_modeled(&s) {
+        if run_modeled(&s, globals) {
             run.push(s);
         } else {
-            flush_run(&mut run, &mut out, facts, rule_set, expr_arena, suppressed);
-            out.push(walk_stmt(s, facts, rule_set, expr_arena, stmt_arena, suppressed));
+            flush_run(
+                &mut run, &mut out, facts, rule_set, expr_arena, suppressed, globals,
+            );
+            out.push(walk_stmt(
+                s, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+            ));
         }
     }
-    flush_run(&mut run, &mut out, facts, rule_set, expr_arena, suppressed);
+    flush_run(
+        &mut run, &mut out, facts, rule_set, expr_arena, suppressed, globals,
+    );
     out
 }
 
@@ -524,6 +632,7 @@ fn flush_run<'a>(
     rule_set: &[rules::Rewrite],
     expr_arena: &'a Arena<Expr<'a>>,
     suppressed: &std::collections::HashSet<u32>,
+    globals: &CalleeGlobals,
 ) {
     if run.is_empty() {
         return;
@@ -535,24 +644,40 @@ fn flush_run<'a>(
     // Per statement: the site indices feeding its rebuild, in field order.
     let mut plans: Vec<Vec<usize>> = Vec::with_capacity(stmts.len());
 
-    let mut convert_site = |cv: &mut Converter<'a>,
-                            sites: &mut Vec<SiteRec<'a>>,
-                            e: &'a Expr<'a>|
-     -> usize {
-        let opq_start = cv.opaques.len();
-        let (root, _) = cv.to_node(e, Some(facts));
-        let opq_end = cv.opaques.len();
-        sites.push(SiteRec {
-            root,
-            ctx: cv.versions.clone(),
-            opq: (opq_start, opq_end),
-            original: e,
-        });
-        sites.len() - 1
-    };
+    let convert_site =
+        |cv: &mut Converter<'a>, sites: &mut Vec<SiteRec<'a>>, e: &'a Expr<'a>| -> usize {
+            let opq_start = cv.opaques.len();
+            let (root, _) = cv.to_node(e, Some(facts));
+            let opq_end = cv.opaques.len();
+            sites.push(SiteRec {
+                root,
+                ctx: cv.versions.clone(),
+                opq: (opq_start, opq_end),
+                original: e,
+            });
+            sites.len() - 1
+        };
 
     for s in &stmts {
         let mut plan: Vec<usize> = Vec::new();
+        // A call anywhere in the statement may assign any callee-written global: later reads see a
+        // FRESH version, so nothing computed from the pre-call value is reused past it.
+        if WriteSet::of_stmt(s).has_calls() {
+            for g in &globals.symbols {
+                cv.bump(*g);
+            }
+        }
+        // A name a call in the statement writes mid-evaluation is read as its own opaque leaf here, and holds a
+        // fresh version from here on; a lent element or field changes its collection's contents.
+        cv.volatile =
+            written_while_evaluating(logicaffeine_language::ast_depth::stmt_expr_children(s));
+        if !cv.volatile.is_empty() {
+            let written: Vec<u32> = cv.volatile.iter().copied().collect();
+            for ix in written {
+                *cv.versions.entry(ix).or_insert(0) += 1;
+            }
+            cv.bump_collection_reads();
+        }
         match s {
             Stmt::Let { var, value, .. } => {
                 let site = convert_site(&mut cv, &mut sites, value);
@@ -609,7 +734,11 @@ fn flush_run<'a>(
                 }
                 cv.bump_collection_reads();
             }
-            Stmt::SetIndex { collection, index, value } => {
+            Stmt::SetIndex {
+                collection,
+                index,
+                value,
+            } => {
                 plan.push(convert_site(&mut cv, &mut sites, index));
                 plan.push(convert_site(&mut cv, &mut sites, value));
                 if let Expr::Identifier(sym) = collection {
@@ -632,7 +761,7 @@ fn flush_run<'a>(
     cv.finish_facts();
     cv.eg.saturate(rule_set);
 
-    let mut extract = |cv: &mut Converter<'a>, site: usize| -> &'a Expr<'a> {
+    let extract = |cv: &mut Converter<'a>, site: usize| -> &'a Expr<'a> {
         let rec = &sites[site];
         if !worth_modeling(rec.original) {
             return rec.original;
@@ -659,28 +788,54 @@ fn flush_run<'a>(
 
     for (s, plan) in stmts.into_iter().zip(plans) {
         let rebuilt = match s {
-            Stmt::Let { var, ty, value: _, mutable } => Stmt::Let {
+            Stmt::Let {
+                var,
+                ty,
+                value: _,
+                mutable,
+            } => Stmt::Let {
                 var,
                 ty,
                 value: extract(&mut cv, plan[0]),
                 mutable,
             },
-            Stmt::Set { target, value: _ } => {
-                Stmt::Set { target, value: extract(&mut cv, plan[0]) }
-            }
-            Stmt::Show { object: _, recipient } => {
-                Stmt::Show { object: extract(&mut cv, plan[0]), recipient }
-            }
-            Stmt::RuntimeAssert { condition: _ , hard } => {
-                Stmt::RuntimeAssert { condition: extract(&mut cv, plan[0]) , hard }
-            }
+            Stmt::Set { target, value: _ } => Stmt::Set {
+                target,
+                value: extract(&mut cv, plan[0]),
+            },
+            Stmt::Show {
+                object: _,
+                recipient,
+            } => Stmt::Show {
+                object: extract(&mut cv, plan[0]),
+                recipient,
+            },
+            Stmt::RuntimeAssert {
+                condition: _,
+                hard,
+                dim,
+                reason,
+            } => Stmt::RuntimeAssert {
+                condition: extract(&mut cv, plan[0]),
+                hard,
+                dim,
+                reason,
+            },
             Stmt::Return { value } => Stmt::Return {
                 value: value.map(|_| extract(&mut cv, plan[0])),
             },
-            Stmt::Push { value: _, collection } => {
-                Stmt::Push { value: extract(&mut cv, plan[0]), collection }
-            }
-            Stmt::SetIndex { collection, index: _, value: _ } => Stmt::SetIndex {
+            Stmt::Push {
+                value: _,
+                collection,
+            } => Stmt::Push {
+                value: extract(&mut cv, plan[0]),
+                collection,
+            },
+            Stmt::SetIndex {
+                collection,
+                index: _,
+                value: _,
+            } => Stmt::SetIndex {
                 collection,
                 index: extract(&mut cv, plan[0]),
                 value: extract(&mut cv, plan[1]),
@@ -702,6 +857,7 @@ fn walk_block<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     suppressed: &std::collections::HashSet<u32>,
+    globals: &CalleeGlobals,
 ) -> &'a [Stmt<'a>] {
     let walked = walk_stmts(
         block.to_vec(),
@@ -710,66 +866,9 @@ fn walk_block<'a>(
         expr_arena,
         stmt_arena,
         suppressed,
+        globals,
     );
     stmt_arena.alloc_slice(walked)
-}
-
-/// Accumulate the symbol indices ASSIGNED or BOUND anywhere in `stmts`
-/// (recursively): `Set`/`Let` targets, `Pop`/`Read` bindings, and the
-/// collections that `Push`/`Pop`/`Add`/`Remove`/`SetIndex`/`SetField` mutate.
-/// A variable in this set is loop-variant, so inside the loop its Oracle
-/// per-occurrence facts must not drive a universal rewrite.
-fn collect_mutated(stmts: &[Stmt], out: &mut std::collections::HashSet<u32>) {
-    for s in stmts {
-        match s {
-            Stmt::Set { target, .. } => {
-                out.insert(target.index() as u32);
-            }
-            Stmt::Let { var, .. } => {
-                out.insert(var.index() as u32);
-            }
-            Stmt::If { then_block, else_block, .. } => {
-                collect_mutated(then_block, out);
-                if let Some(e) = else_block {
-                    collect_mutated(e, out);
-                }
-            }
-            Stmt::While { body, .. }
-            | Stmt::Repeat { body, .. }
-            | Stmt::Zone { body, .. } => collect_mutated(body, out),
-            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => collect_mutated(tasks, out),
-            Stmt::Inspect { arms, .. } => {
-                for a in arms {
-                    collect_mutated(a.body, out);
-                }
-            }
-            Stmt::Push { collection, .. }
-            | Stmt::Add { collection, .. }
-            | Stmt::Remove { collection, .. }
-            | Stmt::SetIndex { collection, .. } => {
-                if let Expr::Identifier(sym) = collection {
-                    out.insert(sym.index() as u32);
-                }
-            }
-            Stmt::Pop { collection, into } => {
-                if let Expr::Identifier(sym) = collection {
-                    out.insert(sym.index() as u32);
-                }
-                if let Some(v) = into {
-                    out.insert(v.index() as u32);
-                }
-            }
-            Stmt::SetField { object, .. } => {
-                if let Expr::Identifier(sym) = object {
-                    out.insert(sym.index() as u32);
-                }
-            }
-            Stmt::ReadFrom { var, .. } => {
-                out.insert(var.index() as u32);
-            }
-            _ => {}
-        }
-    }
 }
 
 fn walk_stmt<'a>(
@@ -779,40 +878,93 @@ fn walk_stmt<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     suppressed: &std::collections::HashSet<u32>,
+    globals: &CalleeGlobals,
 ) -> Stmt<'a> {
     let se = |e: &'a Expr<'a>| simplify_expr_in(e, facts, rule_set, expr_arena, suppressed);
     match stmt {
-        Stmt::Let { var, ty, value, mutable } => {
-            Stmt::Let { var, ty, value: se(value), mutable }
-        }
-        Stmt::Set { target, value } => Stmt::Set { target, value: se(value) },
-        Stmt::If { cond, then_block, else_block } => Stmt::If {
-            cond: se(cond),
-            then_block: walk_block(then_block, facts, rule_set, expr_arena, stmt_arena, suppressed),
-            else_block: else_block
-                .map(|b| walk_block(b, facts, rule_set, expr_arena, stmt_arena, suppressed)),
+        Stmt::Let {
+            var,
+            ty,
+            value,
+            mutable,
+        } => Stmt::Let {
+            var,
+            ty,
+            value: se(value),
+            mutable,
         },
-        Stmt::While { cond, body, decreasing } => {
+        Stmt::Set { target, value } => Stmt::Set {
+            target,
+            value: se(value),
+        },
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => Stmt::If {
+            cond: se(cond),
+            then_block: walk_block(
+                then_block, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+            ),
+            else_block: else_block.map(|b| {
+                walk_block(
+                    b, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+                )
+            }),
+        },
+        Stmt::While {
+            cond,
+            body,
+            decreasing,
+        } => {
             // Inside the loop, every variable the body mutates is loop-variant;
             // its Oracle per-occurrence facts (a single-iteration snapshot) must
             // not seed a universal rewrite — `cond` is re-evaluated each pass.
+            let body_writes = WriteSet::of_block(body).with_callee_globals(globals);
+            if body_writes.is_opaque() {
+                // Foreign code in the body may rewrite anything: no fact is a loop invariant here.
+                return Stmt::While {
+                    cond,
+                    body,
+                    decreasing,
+                };
+            }
             let mut inner = suppressed.clone();
-            collect_mutated(body, &mut inner);
+            inner.extend(body_writes.symbols().map(|sym| sym.index() as u32));
             Stmt::While {
                 cond: simplify_expr_in(cond, facts, rule_set, expr_arena, &inner),
-                body: walk_block(body, facts, rule_set, expr_arena, stmt_arena, &inner),
+                body: walk_block(
+                    body, facts, rule_set, expr_arena, stmt_arena, &inner, globals,
+                ),
                 decreasing,
             }
         }
-        Stmt::Repeat { pattern, iterable, body } => {
+        Stmt::Repeat {
+            pattern,
+            iterable,
+            body,
+        } => {
             // `iterable` is evaluated ONCE in the outer context; the body runs
             // per element, so loop-mutated vars are suppressed within it.
+            let body_writes = WriteSet::of_block(body).with_callee_globals(globals);
+            if body_writes.is_opaque() {
+                return Stmt::Repeat {
+                    pattern,
+                    iterable,
+                    body,
+                };
+            }
             let mut inner = suppressed.clone();
-            collect_mutated(body, &mut inner);
+            inner.extend(body_writes.symbols().map(|sym| sym.index() as u32));
+            for sym in pattern_symbols(&pattern) {
+                inner.insert(sym.index() as u32);
+            }
             Stmt::Repeat {
                 pattern,
                 iterable: se(iterable),
-                body: walk_block(body, facts, rule_set, expr_arena, stmt_arena, &inner),
+                body: walk_block(
+                    body, facts, rule_set, expr_arena, stmt_arena, &inner, globals,
+                ),
             }
         }
         Stmt::FunctionDef {
@@ -830,7 +982,9 @@ fn walk_stmt<'a>(
             name,
             params,
             generics,
-            body: walk_block(body, facts, rule_set, expr_arena, stmt_arena, suppressed),
+            body: walk_block(
+                body, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+            ),
             return_type,
             is_native,
             native_path,
@@ -838,24 +992,59 @@ fn walk_stmt<'a>(
             export_target,
             opt_flags,
         },
-        Stmt::Show { object, recipient } => Stmt::Show { object: se(object), recipient },
-        Stmt::Return { value } => Stmt::Return { value: value.map(se) },
-        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert { condition: se(condition) , hard },
-        Stmt::Push { value, collection } => Stmt::Push { value: se(value), collection },
-        Stmt::SetField { object, field, value } => {
-            Stmt::SetField { object, field, value: se(value) }
-        }
-        Stmt::SetIndex { collection, index, value } => {
-            Stmt::SetIndex { collection, index: se(index), value: se(value) }
-        }
+        Stmt::Show { object, recipient } => Stmt::Show {
+            object: se(object),
+            recipient,
+        },
+        Stmt::Return { value } => Stmt::Return {
+            value: value.map(se),
+        },
+        Stmt::RuntimeAssert {
+            condition,
+            hard,
+            dim,
+            reason,
+        } => Stmt::RuntimeAssert {
+            condition: se(condition),
+            hard,
+            dim,
+            reason: reason.map(|r| se(r)),
+        },
+        Stmt::Push { value, collection } => Stmt::Push {
+            value: se(value),
+            collection,
+        },
+        Stmt::SetField {
+            object,
+            field,
+            value,
+        } => Stmt::SetField {
+            object,
+            field,
+            value: se(value),
+        },
+        Stmt::SetIndex {
+            collection,
+            index,
+            value,
+        } => Stmt::SetIndex {
+            collection,
+            index: se(index),
+            value: se(value),
+        },
         Stmt::Call { function, args } => Stmt::Call {
             function,
             args: args.into_iter().map(se).collect(),
         },
-        Stmt::Give { object, recipient } => {
-            Stmt::Give { object: se(object), recipient: se(recipient) }
-        }
-        Stmt::Inspect { target, arms, has_otherwise } => Stmt::Inspect {
+        Stmt::Give { object, recipient } => Stmt::Give {
+            object: se(object),
+            recipient: se(recipient),
+        },
+        Stmt::Inspect {
+            target,
+            arms,
+            has_otherwise,
+        } => Stmt::Inspect {
             target: se(target),
             arms: arms
                 .into_iter()
@@ -863,49 +1052,113 @@ fn walk_stmt<'a>(
                     enum_name: arm.enum_name,
                     variant: arm.variant,
                     bindings: arm.bindings,
-                    body: walk_block(arm.body, facts, rule_set, expr_arena, stmt_arena, suppressed),
+                    body: walk_block(
+                        arm.body, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+                    ),
                 })
                 .collect(),
             has_otherwise,
         },
-        Stmt::Pop { collection, into } => Stmt::Pop { collection: se(collection), into },
-        Stmt::Add { value, collection } => {
-            Stmt::Add { value: se(value), collection: se(collection) }
-        }
-        Stmt::Remove { value, collection } => {
-            Stmt::Remove { value: se(value), collection: se(collection) }
-        }
-        Stmt::Zone { name, capacity, source_file, body } => Stmt::Zone {
+        Stmt::Pop { collection, into } => Stmt::Pop {
+            collection: se(collection),
+            into,
+        },
+        Stmt::Add { value, collection } => Stmt::Add {
+            value: se(value),
+            collection: se(collection),
+        },
+        Stmt::Remove { value, collection } => Stmt::Remove {
+            value: se(value),
+            collection: se(collection),
+        },
+        Stmt::Zone {
             name,
             capacity,
             source_file,
-            body: walk_block(body, facts, rule_set, expr_arena, stmt_arena, suppressed),
+            body,
+        } => Stmt::Zone {
+            name,
+            capacity,
+            source_file,
+            body: walk_block(
+                body, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+            ),
         },
         Stmt::Concurrent { tasks } => Stmt::Concurrent {
-            tasks: walk_block(tasks, facts, rule_set, expr_arena, stmt_arena, suppressed),
+            tasks: walk_block(
+                tasks, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+            ),
         },
         Stmt::Parallel { tasks } => Stmt::Parallel {
-            tasks: walk_block(tasks, facts, rule_set, expr_arena, stmt_arena, suppressed),
+            tasks: walk_block(
+                tasks, facts, rule_set, expr_arena, stmt_arena, suppressed, globals,
+            ),
         },
-        Stmt::WriteFile { content, path } => {
-            Stmt::WriteFile { content: se(content), path: se(path) }
-        }
-        Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed, indexed, deduped } => {
-            Stmt::SendMessage { message: se(message), destination: se(destination), compression, cached, unchecked, layout, shared, computed, indexed, deduped }
-        }
-        Stmt::StreamMessage { values, destination } => {
-            Stmt::StreamMessage { values: se(values), destination: se(destination) }
-        }
-        Stmt::IncreaseCrdt { object, field, amount } => {
-            Stmt::IncreaseCrdt { object: se(object), field, amount: se(amount) }
-        }
-        Stmt::DecreaseCrdt { object, field, amount } => {
-            Stmt::DecreaseCrdt { object: se(object), field, amount: se(amount) }
-        }
-        Stmt::Sleep { milliseconds } => Stmt::Sleep { milliseconds: se(milliseconds) },
-        Stmt::MergeCrdt { source, target } => {
-            Stmt::MergeCrdt { source: se(source), target: se(target) }
-        }
+        Stmt::WriteFile { content, path } => Stmt::WriteFile {
+            content: se(content),
+            path: se(path),
+        },
+        Stmt::SendMessage {
+            message,
+            destination,
+            compression,
+            cached,
+            unchecked,
+            layout,
+            shared,
+            computed,
+            indexed,
+            deduped,
+            unreliable,
+        } => Stmt::SendMessage {
+            message: se(message),
+            destination: se(destination),
+            compression,
+            cached,
+            unchecked,
+            layout,
+            shared,
+            computed,
+            indexed,
+            deduped,
+            unreliable,
+        },
+        Stmt::StreamMessage {
+            values,
+            destination,
+        } => Stmt::StreamMessage {
+            values: se(values),
+            destination: se(destination),
+        },
+        Stmt::IncreaseCrdt {
+            object,
+            field,
+            amount,
+        } => Stmt::IncreaseCrdt {
+            object: se(object),
+            field,
+            amount: se(amount),
+        },
+        Stmt::DecreaseCrdt {
+            object,
+            field,
+            amount,
+        } => Stmt::DecreaseCrdt {
+            object: se(object),
+            field,
+            amount: se(amount),
+        },
+        Stmt::Sleep { milliseconds } => Stmt::Sleep {
+            milliseconds: se(milliseconds),
+        },
+        Stmt::MergeCrdt { source, target } => Stmt::MergeCrdt {
+            source: se(source),
+            target: se(target),
+        },
+        Stmt::JoinCrdt { source, target } => Stmt::JoinCrdt {
+            source: se(source),
+            target: se(target),
+        },
         other => other,
     }
 }

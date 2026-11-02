@@ -1,0 +1,61 @@
+// The generics corpus: every shape of generic code an author can write, each with the exact output
+// it must print on EVERY tier. Shared by `generics_all_tiers.rs` (tree-walker, VM, AOT-Rust, C) and
+// `wasm_aot_lock.rs` (WASM). A program here is a promise; a tier that cannot keep it is a bug.
+&[
+    // ── Generic functions, instantiated at every value type ─────────────────────────────
+    ("identity_int", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nShow identity(5).\n", "5"),
+    ("identity_text", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nShow identity(\"hi\").\n", "hi"),
+    ("identity_real", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nShow identity(2.5).\n", "2.5"),
+    ("identity_bool", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nShow identity(true).\n", "true"),
+    ("identity_seq", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nShow identity([1, 2, 3]).\n", "[1, 2, 3]"),
+    ("identity_record", "## A Point has:\n    an x, which is Int.\n    a y, which is Int.\n\n## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nLet p be identity(a new Point with x 3 and y 4).\nShow p's x + p's y.\n", "7"),
+    ("identity_at_two_types_in_one_program", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## Main\nShow identity(5).\nShow identity(\"five\").\nShow identity(5.5).\n", "5\nfive\n5.5"),
+    ("two_type_params", "## To first of [T] and [U] (x: T, y: U) -> T:\n    Return x.\n\n## To second of [T] and [U] (x: T, y: U) -> U:\n    Return y.\n\n## Main\nShow first(1, \"a\").\nShow second(1, \"a\").\n", "1\na"),
+    ("generic_calls_generic", "## To identity of [T] (x: T) -> T:\n    Return x.\n\n## To twice of [T] (x: T) -> T:\n    Return identity(identity(x)).\n\n## Main\nShow twice(\"deep\").\nShow twice(9).\n", "deep\n9"),
+    ("generic_recursion", "## To lastOf of [T] (xs: Seq of T, i: Int) -> T:\n    If i equals length of xs:\n        Return item i of xs.\n    Return lastOf(xs, i + 1).\n\n## Main\nShow lastOf([4, 5, 6], 1).\nShow lastOf([\"a\", \"b\"], 1).\n", "6\nb"),
+
+    // ── Generics through sequences ──────────────────────────────────────────────────────
+    ("seq_head", "## To head of [T] (xs: Seq of T) -> T:\n    Return item 1 of xs.\n\n## Main\nShow head([7, 8]).\nShow head([\"x\", \"y\"]).\n", "7\nx"),
+    ("seq_size", "## To size of [T] (xs: Seq of T) -> Int:\n    Return length of xs.\n\n## Main\nShow size([1, 2, 3]).\nShow size([\"a\"]).\n", "3\n1"),
+    ("seq_build", "## To replicate of [T] (x: T, n: Int) -> Seq of T:\n    Let out be a new Seq of T.\n    Let mutable i be 0.\n    While i is less than n:\n        Push x to out.\n        Set i to i + 1.\n    Return out.\n\n## Main\nShow replicate(\"ab\", 3).\nShow length of replicate(0, 4).\n", "[ab, ab, ab]\n4"),
+    ("seq_reverse", "## To reversed of [T] (xs: Seq of T) -> Seq of T:\n    Let out be a new Seq of T.\n    Let mutable i be length of xs.\n    While i is at least 1:\n        Push item i of xs to out.\n        Set i to i - 1.\n    Return out.\n\n## Main\nShow reversed([1, 2, 3]).\nShow reversed([\"x\", \"y\"]).\n", "[3, 2, 1]\n[y, x]"),
+    ("seq_of_seq", "## To flat of [T] (xss: Seq of Seq of T) -> Seq of T:\n    Let out be a new Seq of T.\n    Repeat for xs in xss:\n        Repeat for x in xs:\n            Push x to out.\n    Return out.\n\n## Main\nShow flat([[1, 2], [3]]).\n", "[1, 2, 3]"),
+    ("seq_contains", "## To has of [T] (xs: Seq of T, v: T) -> Bool:\n    Repeat for x in xs:\n        If x equals v:\n            Return true.\n    Return false.\n\n## Main\nShow has([1, 2], 2).\nShow has([\"a\"], \"b\").\n", "true\nfalse"),
+
+    // ── Generics with closures (the toolkit's shape) ────────────────────────────────────
+    ("map_closure", "## To mapped of [T] and [U] (xs: Seq of T, f: fn(T) -> U) -> Seq of U:\n    Let out be a new Seq of U.\n    Repeat for x in xs:\n        Push f(x) to out.\n    Return out.\n\n## Main\nShow mapped([1, 2, 3], (n: Int) -> n * 10).\n", "[10, 20, 30]"),
+    ("map_changes_type", "## To mapped of [T] and [U] (xs: Seq of T, f: fn(T) -> U) -> Seq of U:\n    Let out be a new Seq of U.\n    Repeat for x in xs:\n        Push f(x) to out.\n    Return out.\n\n## Main\nShow mapped([1, 22], (n: Int) -> format(n) + \"!\").\n", "[1!, 22!]"),
+    ("filter_closure", "## To kept of [T] (xs: Seq of T, keep: fn(T) -> Bool) -> Seq of T:\n    Let out be a new Seq of T.\n    Repeat for x in xs:\n        If keep(x):\n            Push x to out.\n    Return out.\n\n## Main\nShow kept([1, 2, 3, 4], (n: Int) -> n % 2 equals 0).\n", "[2, 4]"),
+    ("fold_closure", "## To folded of [T] and [U] (xs: Seq of T, init: U, f: fn(U, T) -> U) -> U:\n    Let mutable acc be init.\n    Repeat for x in xs:\n        Set acc to f(acc, x).\n    Return acc.\n\n## Main\nShow folded([1, 2, 3], 0, (a: Int, x: Int) -> a + x).\nShow folded([\"a\", \"b\"], \"\", (a: Text, x: Text) -> a + x).\n", "6\nab"),
+    ("apply_twice", "## To applyTwice of [T] (f: fn(T) -> T, x: T) -> T:\n    Return f(f(x)).\n\n## Main\nShow applyTwice((n: Int) -> n + 3, 1).\nShow applyTwice((s: Text) -> s + s, \"ab\").\n", "7\nabababab"),
+
+    // ── Generic records ─────────────────────────────────────────────────────────────────
+    ("box_int", "## A Box of [T] has:\n    a value, which is T.\n\n## Main\nLet b be a new Box of Int with value 5.\nShow b's value.\n", "5"),
+    ("box_text", "## A Box of [T] has:\n    a value, which is T.\n\n## Main\nLet b be a new Box of Text with value \"inside\".\nShow b's value.\n", "inside"),
+    ("box_unbox_generic", "## A Box of [T] has:\n    a value, which is T.\n\n## To unbox of [T] (b: Box of T) -> T:\n    Return b's value.\n\n## Main\nShow unbox(a new Box of Int with value 11).\nShow unbox(a new Box of Text with value \"t\").\n", "11\nt"),
+    ("box_make_generic", "## A Box of [T] has:\n    a value, which is T.\n\n## To boxed of [T] (x: T) -> Box of T:\n    Return a new Box of T with value x.\n\n## Main\nLet b be boxed(\"made\").\nShow b's value.\nLet c be boxed(3).\nShow c's value + 1.\n", "made\n4"),
+    ("pair_record", "## A Pair of [A] and [B] has:\n    a left, which is A.\n    a right, which is B.\n\n## Main\nLet p be a new Pair of Int and Text with left 1 and right \"one\".\nShow p's left.\nShow p's right.\n", "1\none"),
+    ("record_of_seq", "## A Bag of [T] has:\n    an items, which is Seq of T.\n\n## Main\nLet b be a new Bag of Int with items [1, 2].\nShow length of b's items.\n", "2"),
+    ("seq_of_generic_records", "## A Box of [T] has:\n    a value, which is T.\n\n## Main\nLet bs be a new Seq of Box of Int.\nPush a new Box of Int with value 1 to bs.\nPush a new Box of Int with value 2 to bs.\nLet mutable total be 0.\nRepeat for b in bs:\n    Set total to total + b's value.\nShow total.\n", "3"),
+    ("generic_record_mutation", "## A Box of [T] has:\n    a value, which is T.\n\n## Main\nLet mutable b be a new Box of Int with value 1.\nSet b's value to 41.\nShow b's value + 1.\n", "42"),
+
+    // ── Generic enums ───────────────────────────────────────────────────────────────────
+    ("maybe_int", "## A Maybe of [T] is either:\n    A Nothing.\n    A Just with value T.\n\n## Main\nLet x be a new Just with value 42.\nInspect x:\n    When Nothing: Show \"none\".\n    When Just (v): Show v.\n", "42"),
+    ("maybe_nothing", "## A Maybe of [T] is either:\n    A Nothing.\n    A Just with value T.\n\n## To orZero (m: Maybe of Int) -> Int:\n    Inspect m:\n        When Nothing: Return 0.\n        When Just (v): Return v.\n\n## Main\nShow orZero(a new Nothing).\nShow orZero(a new Just with value 5).\n", "0\n5"),
+    ("maybe_generic_fn", "## A Maybe of [T] is either:\n    A Nothing.\n    A Just with value T.\n\n## To withDefault of [T] (m: Maybe of T, d: T) -> T:\n    Inspect m:\n        When Nothing: Return d.\n        When Just (v): Return v.\n\n## Main\nShow withDefault(a new Just with value \"got\", \"none\").\nShow withDefault(a new Nothing, 7).\n", "got\n7"),
+    ("either_two_params", "## An Either of [L] and [R] is either:\n    A Left with value L.\n    A Right with value R.\n\n## To describe of [L] and [R] (e: Either of L and R) -> Text:\n    Inspect e:\n        When Left (v): Return \"left \" + format(v).\n        When Right (v): Return \"right \" + format(v).\n\n## Main\nShow describe(a new Left with value 1).\nShow describe(a new Right with value \"r\").\n", "left 1\nright r"),
+    ("outcome_user_result", "## An Outcome of [S] and [E] is either:\n    A Success with value S.\n    A Failure with error E.\n\n## To safeDiv (a: Int, b: Int) -> Outcome of Int and Text:\n    If b equals 0:\n        Return a new Failure with error \"divide by zero\".\n    Return a new Success with value a / b.\n\n## Main\nInspect safeDiv(10, 2):\n    When Success (v): Show v.\n    When Failure (e): Show e.\nInspect safeDiv(1, 0):\n    When Success (v): Show v.\n    When Failure (e): Show e.\n", "5\ndivide by zero"),
+    ("recursive_list_sum", "## A MyList of [T] is either:\n    An Empty.\n    A Cons with head T and tail MyList of T.\n\n## To total (l: MyList of Int) -> Int:\n    Inspect l:\n        When Empty: Return 0.\n        When Cons (h, t): Return h + total(t).\n\n## Main\nLet l be a new Cons with head 1 and tail a new Cons with head 2 and tail a new Cons with head 3 and tail a new Empty.\nShow total(l).\n", "6"),
+    ("recursive_list_generic_length", "## A MyList of [T] is either:\n    An Empty.\n    A Cons with head T and tail MyList of T.\n\n## To len of [T] (l: MyList of T) -> Int:\n    Inspect l:\n        When Empty: Return 0.\n        When Cons (h, t): Return 1 + len(t).\n\n## Main\nShow len(a new Cons with head \"a\" and tail a new Cons with head \"b\" and tail a new Empty).\n", "2"),
+    ("tree_depth", "## A Tree of [T] is either:\n    A Leaf.\n    A Node with value T and left Tree of T and right Tree of T.\n\n## To depth of [T] (t: Tree of T) -> Int:\n    Inspect t:\n        When Leaf: Return 0.\n        When Node (v, l, r):\n            Return 1 + max(depth(l), depth(r)).\n\n## Main\nLet leaf be a new Leaf.\nLet t be a new Node with value 1 and left a new Node with value 2 and left leaf and right leaf and right leaf.\nShow depth(t).\n", "2"),
+
+    // ── Core Option / Result through generic code ───────────────────────────────────────
+    ("core_option_generic", "## To orElse of [T] (o: Option of T, d: T) -> T:\n    Inspect o:\n        When Some (v): Return v.\n        When None: Return d.\n\n## Main\nShow orElse(some 3, 0).\nShow orElse(none, \"d\").\n", "3\nd"),
+    ("core_result_generic_unwrap_or", "## To valueOr of [T] and [E] (r: Result of T and E, d: T) -> T:\n    Inspect r:\n        When Ok (v): Return v.\n        When Err (e): Return d.\n\n## Main\nShow valueOr(a new Ok with value 8, 0).\nShow valueOr(a new Err with error \"bad\", 0).\n", "8\n0"),
+    ("core_result_generic_map", "## To mapOk of [T] and [U] and [E] (r: Result of T and E, f: fn(T) -> U) -> Result of U and E:\n    Inspect r:\n        When Ok (v): Return a new Ok with value f(v).\n        When Err (e): Return a new Err with error e.\n\n## Main\nInspect mapOk(a new Ok with value 4, (n: Int) -> n * n):\n    When Ok (v): Show v.\n    When Err (e): Show e.\n", "16"),
+    ("core_result_is_ok_generic", "## To okay of [T] and [E] (r: Result of T and E) -> Bool:\n    Inspect r:\n        When Ok (v): Return true.\n        When Err (e): Return false.\n\n## Main\nShow okay(a new Ok with value \"x\").\nShow okay(a new Err with error 3).\n", "true\nfalse"),
+
+    // ── Generics through maps ───────────────────────────────────────────────────────────
+    ("map_lookup_generic", "## To lookupOr of [V] (m: Map of Text to V, k: Text, d: V) -> V:\n    If m contains k:\n        Return item k of m.\n    Return d.\n\n## Main\nLet ages be a new Map of Text to Int.\nSet item \"ann\" of ages to 30.\nShow lookupOr(ages, \"ann\", 0).\nShow lookupOr(ages, \"bob\", 0).\n", "30\n0"),
+    ("map_keys_generic", "## To countKeys of [K] and [V] (m: Map of K to V) -> Int:\n    Return length of m.\n\n## Main\nLet m be a new Map of Int to Text.\nSet item 1 of m to \"a\".\nSet item 2 of m to \"b\".\nShow countKeys(m).\n", "2"),
+]

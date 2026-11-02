@@ -1,0 +1,3078 @@
+# vdom
+
+The retained-tree reconciler every tier renders through. A render writes a flat pre-order TAPE;
+`vdCommit` diffs that tape against the retained children of one node and appends the minimal
+PATCH STREAM (wire format v2: `Int` words indexing a `Text` string table) a host applies by the
+node ids the stream names. The emitter is the id authority: a node keeps its id for its whole
+life, and a freed id is reused only after the stream that frees it.
+
+One retained tree serves the whole program, held in module-level `Seq`s: node `n` lives at item
+`n + 1` of every node field, children are doubly linked, attributes and listeners sit in pooled
+chains with free lists, and every scratch array keeps a logical length, so a steady-state repaint
+grows nothing. No `Map` and no record: dense `Int` ids and non-empty-seeded `Seq of Int`/`Seq of
+Text` lower alike on every backend.
+
+Node kinds: 1 element, 2 text, 3 fragment (a component boundary with no host node of its own),
+4 root (a host node the tree renders into), 0 free. Tape records: 1 OPEN tag key end, 2 TEXT
+text, 17 TEXT text site (a text child carrying a site), 3 CLOSE, 5 FRAG_OPEN frag end, 6
+FRAG_CLOSE, 7 KEEP frag; an OPEN's modifier run follows it directly: 9 SITE site, 10 ATTR name
+value, 11 VALUE value, 12 CHECKED on, 13 LISTEN event flags, 14 HTML html. A caller's children
+are drawn where the caller is and placed where the callee says: 15 RANGE end … 16 RANGE_CLOSE
+holds them apart from the tape around it, and 8 SLOT range places them; `vdCommit` copies every
+range into its slot before anything else reads the tape. A listener or site found for an element
+AFTER its open (a sentence naming it by selector) rides beside the tape, keyed by the open's
+position (`vdListenAt`/`vdSiteAt`).
+
+A path only some pages take is named for its feature and runs only on a tape holding records the
+feature's writers laid down: firm-key checks (`vdKeyed…`, written by `vdOpenKeyed`), matching by
+key (`vdKeys…`, by `vdOpenKeyed` and `vdOpenSoft`), range resolution (`vdSlots…`, by `vdRangeOpen`
+and `vdSlot`) and hydration (`vdAdopt…`, by `vdHydrate`). The module's dead-code analysis follows a
+call into a feature only once one of its writers is reached (`lgx_lower::VDOM_FEATURES`), so a page
+that never writes a feature's records ships none of its code.
+
+Auto-imported on reference.
+
+## Main
+Let mutable __VD_KIND be [0].
+Let mutable __VD_TAG be [""].
+Let mutable __VD_TEXT be [""].
+Let mutable __VD_HTML be [""].
+Let mutable __VD_VALUE be [""].
+Let mutable __VD_KEY be [""].
+Let mutable __VD_FLAGS be [0].
+Let mutable __VD_IDENT be [0].
+Let mutable __VD_KH be [0].
+Let mutable __VD_PARENT be [-1].
+Let mutable __VD_FIRST be [-1].
+Let mutable __VD_LAST be [-1].
+Let mutable __VD_NEXT be [-1].
+Let mutable __VD_PREV be [-1].
+Let mutable __VD_ATTR be [0].
+Let mutable __VD_LSN be [0].
+Let mutable __VD_SITE be [0].
+Let mutable __VD_POS be [0].
+Let mutable __VD_MARK be [0].
+Let mutable __VD_FREE be [0].
+Let mutable __VD_FREEN be 0.
+Let mutable __VD_LIVE be 0.
+Let mutable __VD_AN be [""].
+Let mutable __VD_AV be [""].
+Let mutable __VD_ANEXT be [0].
+Let mutable __VD_AMARK be [0].
+Let mutable __VD_AFREE be 0.
+Let mutable __VD_LE be [""].
+Let mutable __VD_LF be [0].
+Let mutable __VD_LNEXT be [0].
+Let mutable __VD_LMARK be [0].
+Let mutable __VD_LFREE be 0.
+Let mutable __VD_FRAGNODE be [0].
+Let mutable __VD_WANT be [0].
+Let mutable __VD_FRAGFREE be [0].
+Let mutable __VD_FRAGFREEN be 0.
+Let mutable __VD_GONE be [0].
+Let mutable __VD_GONEN be 0.
+Let mutable __VD_SITENODE be [0].
+Let mutable __VD_TP be [0].
+Let mutable __VD_TPN be 0.
+Let mutable __VD_TS be [""].
+Let mutable __VD_TSN be 0.
+Let mutable __VD_OPENS be [0].
+Let mutable __VD_ON be 0.
+Let mutable __VD_MODOK be 0.
+Let mutable __VD_TAPEERR be "".
+Let mutable __VD_PW be [0].
+Let mutable __VD_PWN be 0.
+Let mutable __VD_PS be [""].
+Let mutable __VD_PSN be 0.
+Let mutable __VD_SERIAL be 0.
+Let mutable __VD_MODN be 0.
+Let mutable __VD_DIFFN be 0.
+Let mutable __VD_R be [0].
+Let mutable __VD_F be [0].
+Let mutable __VD_M be [0].
+Let mutable __VD_KJ be [0].
+Let mutable __VD_SEQ be [0].
+Let mutable __VD_SEQJ be [0].
+Let mutable __VD_LKEEP be [0].
+Let mutable __VD_TAILS be [0].
+Let mutable __VD_PREVI be [0].
+Let mutable __VD_CT be [""].
+Let mutable __VD_CP be [0].
+Let mutable __VD_SORT be [0].
+Let mutable __VD_SORTH be [0].
+Let mutable __VD_WP be [0].
+Let mutable __VD_WS be [0].
+Let mutable __VD_WE be [0].
+Let mutable __VD_WN be 0.
+Let mutable __VD_DOOM be [0].
+Let mutable __VD_DOOMN be 0.
+Let mutable __VD_VS be [0].
+Let mutable __VD_VE be [0].
+Let mutable __VD_VN be 0.
+Let mutable __VD_KP be [0].
+Let mutable __VD_STK be [0].
+Let mutable __VD_STKN be 0.
+Let mutable __VD_SN be [0].
+Let mutable __VD_SPH be [0].
+Let mutable __VD_SNN be 0.
+Let mutable __VD_SLOTS be 0.
+Let mutable __VD_TQ be [0].
+Let mutable __VD_TQN be 0.
+Let mutable __VD_RELOC be [0].
+Let mutable __VD_RELOCN be 0.
+Let mutable __VD_SEGS be [0].
+Let mutable __VD_SEGE be [0].
+Let mutable __VD_SEGN be 0.
+Let mutable __VD_SITEFREE be [0].
+Let mutable __VD_SITEFREEN be 0.
+Let mutable __VD_FRAGANCH be [0].
+Let mutable __VD_ANCHSITE be [0].
+Let mutable __VD_ANCHNEXT be [0].
+Let mutable __VD_ANCHFREE be 0.
+Let mutable __VD_ROOTS be [0].
+Let mutable __VD_ROOTN be 0.
+Let mutable __VD_XP be [0].
+Let mutable __VD_XQ be [0].
+Let mutable __VD_XOP be [0].
+Let mutable __VD_XA be [0].
+Let mutable __VD_XB be [0].
+Let mutable __VD_XN be 0.
+Let mutable __VD_QS be [0].
+Let mutable __VD_HYDRATING be 0.
+Let mutable __VD_LATE be [0].
+Let mutable __VD_LATEN be 0.
+Let mutable __VD_STI be [0].
+Let mutable __VD_STIN be 0.
+Let mutable __VD_STS be [""].
+Let mutable __VD_STSN be 0.
+Let mutable __VD_STE be [""].
+Let mutable __VD_STEN be 0.
+
+## Note
+Allocates a node id: the most recently freed one first, else a fresh id one past the end of every node field.
+
+## To vdAlloc() -> Int:
+    Set __VD_LIVE to __VD_LIVE + 1.
+    If __VD_FREEN > 0:
+        Let reused be item __VD_FREEN of __VD_FREE.
+        Set __VD_FREEN to __VD_FREEN - 1.
+        Return reused.
+    Let id be length of __VD_KIND.
+    Push 0 to __VD_KIND.
+    Push "" to __VD_TAG.
+    Push "" to __VD_TEXT.
+    Push "" to __VD_HTML.
+    Push "" to __VD_VALUE.
+    Push "" to __VD_KEY.
+    Push 0 to __VD_FLAGS.
+    Push 0 to __VD_IDENT.
+    Push 0 to __VD_KH.
+    Push -1 to __VD_PARENT.
+    Push -1 to __VD_FIRST.
+    Push -1 to __VD_LAST.
+    Push -1 to __VD_NEXT.
+    Push -1 to __VD_PREV.
+    Push 0 to __VD_ATTR.
+    Push 0 to __VD_LSN.
+    Push 0 to __VD_SITE.
+    Push 0 to __VD_POS.
+    Push 0 to __VD_MARK.
+    Return id.
+
+## Note
+Releases `node`: its attribute and listener chains, its site, a fragment's identity (reported gone), then lists the id for reuse. The caller detached it.
+
+## To vdFree(node: Int):
+    Let i be node + 1.
+    Let mutable e be item i of __VD_ATTR.
+    While e != 0:
+        Let nextE be item (e + 1) of __VD_ANEXT.
+        vdAttrRelease(e).
+        Set e to nextE.
+    Set e to item i of __VD_LSN.
+    While e != 0:
+        Let nextE be item (e + 1) of __VD_LNEXT.
+        vdListenRelease(e).
+        Set e to nextE.
+    Let site be item i of __VD_SITE.
+    If site != 0:
+        If item (site + 1) of __VD_SITENODE == node:
+            Set item (site + 1) of __VD_SITENODE to 0.
+    If item i of __VD_KIND == 3:
+        Let frag be item i of __VD_IDENT.
+        If item (frag + 1) of __VD_FRAGNODE == node:
+            Set item (frag + 1) of __VD_FRAGNODE to 0.
+            vdPutGone(frag).
+    Set item i of __VD_KIND to 0.
+    Set item i of __VD_TAG to "".
+    Set item i of __VD_TEXT to "".
+    Set item i of __VD_HTML to "".
+    Set item i of __VD_VALUE to "".
+    Set item i of __VD_KEY to "".
+    Set item i of __VD_FLAGS to 0.
+    Set item i of __VD_IDENT to 0.
+    Set item i of __VD_KH to 0.
+    Set item i of __VD_PARENT to -1.
+    Set item i of __VD_FIRST to -1.
+    Set item i of __VD_LAST to -1.
+    Set item i of __VD_NEXT to -1.
+    Set item i of __VD_PREV to -1.
+    Set item i of __VD_ATTR to 0.
+    Set item i of __VD_LSN to 0.
+    Set item i of __VD_SITE to 0.
+    Set item i of __VD_POS to 0.
+    Set item i of __VD_MARK to 0.
+    Set __VD_FREEN to __VD_FREEN + 1.
+    If __VD_FREEN > length of __VD_FREE:
+        Push node to __VD_FREE.
+    Otherwise:
+        Set item __VD_FREEN of __VD_FREE to node.
+    Set __VD_LIVE to __VD_LIVE - 1.
+
+## Note
+How many nodes are allocated right now — a page's retained tree size, which a steady-state repaint must not grow.
+
+## To vdLiveNodes() -> Int:
+    Return __VD_LIVE.
+
+## Note
+How many slots every array this module keeps holds in total; a steady-state repaint leaves it unchanged.
+
+## To vdFootprint() -> Int:
+    Let nodes be length of __VD_KIND + length of __VD_TAG + length of __VD_TEXT + length of __VD_HTML + length of __VD_VALUE + length of __VD_KEY + length of __VD_FLAGS + length of __VD_IDENT + length of __VD_KH + length of __VD_PARENT + length of __VD_FIRST + length of __VD_LAST + length of __VD_NEXT + length of __VD_PREV + length of __VD_ATTR + length of __VD_LSN + length of __VD_SITE + length of __VD_POS + length of __VD_MARK + length of __VD_FREE.
+    Let pools be length of __VD_AN + length of __VD_AV + length of __VD_ANEXT + length of __VD_AMARK + length of __VD_LE + length of __VD_LF + length of __VD_LNEXT + length of __VD_LMARK + length of __VD_FRAGNODE + length of __VD_WANT + length of __VD_FRAGFREE + length of __VD_GONE + length of __VD_SITENODE + length of __VD_SITEFREE + length of __VD_ROOTS + length of __VD_FRAGANCH + length of __VD_ANCHSITE + length of __VD_ANCHNEXT.
+    Let tape be length of __VD_TP + length of __VD_TS + length of __VD_OPENS + length of __VD_PW + length of __VD_PS + length of __VD_TQ + length of __VD_RELOC + length of __VD_SEGS + length of __VD_SEGE + length of __VD_XP + length of __VD_XQ + length of __VD_XOP + length of __VD_XA + length of __VD_XB + length of __VD_QS.
+    Let scratch be length of __VD_R + length of __VD_F + length of __VD_M + length of __VD_KJ + length of __VD_SEQ + length of __VD_SEQJ + length of __VD_LKEEP + length of __VD_TAILS + length of __VD_PREVI + length of __VD_CT + length of __VD_CP + length of __VD_SORT + length of __VD_SORTH + length of __VD_WP + length of __VD_WS + length of __VD_WE + length of __VD_DOOM + length of __VD_VS + length of __VD_VE + length of __VD_KP + length of __VD_STK + length of __VD_SN + length of __VD_SPH + length of __VD_LATE + length of __VD_STI + length of __VD_STS + length of __VD_STE.
+    Return nodes + pools + tape + scratch.
+
+## Note
+A new retained root standing for host node `host` (the body is `0`); what `vdCommit` renders into.
+
+## To vdNewRoot(host: Int) -> Int:
+    Let node be vdAlloc().
+    Set item (node + 1) of __VD_KIND to 4.
+    Set item (node + 1) of __VD_IDENT to host.
+    Set __VD_ROOTN to __VD_ROOTN + 1.
+    If __VD_ROOTN > length of __VD_ROOTS:
+        Push node to __VD_ROOTS.
+    Otherwise:
+        Set item __VD_ROOTN of __VD_ROOTS to node.
+    Return node.
+
+## Note
+Makes the first commit into fresh root `root` adopt the markup its host already holds (the page's
+pre-rendered first paint) instead of creating it.
+
+## To vdHydrate(root: Int):
+    Let i be root + 1.
+    If ((item i of __VD_FLAGS) & 16) == 0:
+        Set item i of __VD_FLAGS to (item i of __VD_FLAGS) + 16.
+
+## Note
+Forgets root `root` whole (its retained subtree, its instance fragments, reported gone, and its
+pending patch stream) as a render drawn only to be serialized is.
+
+## To vdDiscardRoot(root: Int):
+    Let mutable c be item (root + 1) of __VD_FIRST.
+    While c != -1:
+        Let nextC be item (c + 1) of __VD_NEXT.
+        vdDetach(c).
+        vdFreeSubtree(c).
+        Set c to nextC.
+    Let mutable k be 1.
+    While k <= __VD_ROOTN:
+        If item k of __VD_ROOTS == root:
+            Set item k of __VD_ROOTS to item __VD_ROOTN of __VD_ROOTS.
+            Set __VD_ROOTN to __VD_ROOTN - 1.
+            Set k to __VD_ROOTN + 1.
+        Otherwise:
+            Set k to k + 1.
+    If __VD_HYDRATING == root:
+        Set __VD_HYDRATING to 0.
+    vdFree(root).
+    vdDropPatches().
+
+## Note
+The node the host knows as `wire` — the inverse of `vdWire` — or `-1` when no retained node is.
+
+## To vdNodeOfWire(wire: Int) -> Int:
+    If wire >= 2147483648:
+        Let node be wire - 2147483648.
+        If node >= length of __VD_KIND:
+            Return -1.
+        If item (node + 1) of __VD_KIND == 0:
+            Return -1.
+        Return node.
+    Let mutable k be 1.
+    While k <= __VD_ROOTN:
+        Let root be item k of __VD_ROOTS.
+        If item (root + 1) of __VD_IDENT == wire:
+            Return root.
+        Set k to k + 1.
+    Return -1.
+
+## Note
+A site no node carries yet, for `vdSite`/`vdTextSite`/`vdSiteAt` to give one; `vdFreeSite` hands it back.
+
+## To vdNewSite() -> Int:
+    If __VD_SITEFREEN > 0:
+        Let reused be item __VD_SITEFREEN of __VD_SITEFREE.
+        Set __VD_SITEFREEN to __VD_SITEFREEN - 1.
+        Return reused.
+    Let site be length of __VD_SITENODE.
+    Push 0 to __VD_SITENODE.
+    Return site.
+
+## Note
+Hands `site` back for reuse; the node carrying it, if any, carries none from now on.
+
+## To vdFreeSite(site: Int):
+    If site < 1 or site >= length of __VD_SITENODE:
+        Return.
+    Let node be item (site + 1) of __VD_SITENODE.
+    If node != 0:
+        If item (node + 1) of __VD_SITE == site:
+            Set item (node + 1) of __VD_SITE to 0.
+        Set item (site + 1) of __VD_SITENODE to 0.
+    Set __VD_SITEFREEN to __VD_SITEFREEN + 1.
+    If __VD_SITEFREEN > length of __VD_SITEFREE:
+        Push site to __VD_SITEFREE.
+    Otherwise:
+        Set item __VD_SITEFREEN of __VD_SITEFREE to site.
+
+## Note
+Records a site for this paint of instance fragment `frag`, kept in `frag`'s pooled chain until
+`vdReleaseAnchors(frag)` hands it back.
+
+## To vdAnchor(frag: Int) -> Int:
+    Let site be vdNewSite().
+    Let mutable e be __VD_ANCHFREE.
+    If e != 0:
+        Set __VD_ANCHFREE to item (e + 1) of __VD_ANCHNEXT.
+    Otherwise:
+        Set e to length of __VD_ANCHSITE.
+        Push 0 to __VD_ANCHSITE.
+        Push 0 to __VD_ANCHNEXT.
+    While length of __VD_FRAGANCH <= frag:
+        Push 0 to __VD_FRAGANCH.
+    Set item (e + 1) of __VD_ANCHSITE to site.
+    Set item (e + 1) of __VD_ANCHNEXT to item (frag + 1) of __VD_FRAGANCH.
+    Set item (frag + 1) of __VD_FRAGANCH to e.
+    Return site.
+
+## Note
+Hands back every site `vdAnchor` gave fragment `frag`'s instance — what its next paint, or its leaving, does first.
+
+## To vdReleaseAnchors(frag: Int):
+    If frag < 1 or frag + 1 > length of __VD_FRAGANCH:
+        Return.
+    Let mutable e be item (frag + 1) of __VD_FRAGANCH.
+    While e != 0:
+        vdFreeSite(item (e + 1) of __VD_ANCHSITE).
+        Let after be item (e + 1) of __VD_ANCHNEXT.
+        Set item (e + 1) of __VD_ANCHNEXT to __VD_ANCHFREE.
+        Set __VD_ANCHFREE to e.
+        Set e to after.
+    Set item (frag + 1) of __VD_FRAGANCH to 0.
+
+## Note
+The site retained `node` carries, or `0`; `-1` (no node) carries none.
+
+## To vdSiteOf(node: Int) -> Int:
+    If node < 0 or node >= length of __VD_KIND:
+        Return 0.
+    Return item (node + 1) of __VD_SITE.
+
+## Note
+The site retained `node` carries, giving it a fresh one when it has none — for a node no tape marks, a root.
+
+## To vdEnsureSite(node: Int) -> Int:
+    Let held be item (node + 1) of __VD_SITE.
+    If held != 0:
+        Return held.
+    Let site be vdNewSite().
+    Set item (node + 1) of __VD_SITE to site.
+    vdPutSiteNode(site, node).
+    Return site.
+
+## Note
+Writes `text` into retained text `node` in place, as a patch that redraws nothing else would; the stream carries the change.
+
+## To vdPatchText(node: Int, text: Text):
+    If node < 1 or node >= length of __VD_KIND:
+        Return.
+    If item (node + 1) of __VD_TEXT != text:
+        Set item (node + 1) of __VD_TEXT to text.
+        vdEmitSetText(node, text).
+
+## Note
+Writes `value` into retained element `node`'s live value in place.
+
+## To vdPatchValue(node: Int, value: Text):
+    If node < 1 or node >= length of __VD_KIND:
+        Return.
+    Let i be node + 1.
+    Let flags be item i of __VD_FLAGS.
+    If (flags & 1) == 0 or item i of __VD_VALUE != value:
+        vdEmitSetValue(node, value).
+    Set item i of __VD_VALUE to value.
+    Set item i of __VD_FLAGS to flags | 1.
+
+## Note
+Writes `checked` into retained element `node`'s live checked state in place.
+
+## To vdPatchChecked(node: Int, checked: Bool):
+    If node < 1 or node >= length of __VD_KIND:
+        Return.
+    Let i be node + 1.
+    Let flags be item i of __VD_FLAGS.
+    Let mutable on be 0.
+    If checked:
+        Set on to 1.
+    Let mutable wasOn be 0.
+    If (flags & 4) != 0:
+        Set wasOn to 1.
+    If (flags & 2) == 0 or wasOn != on:
+        vdEmitSetChecked(node, on).
+    If on == 1:
+        Set item i of __VD_FLAGS to flags | 6.
+    Otherwise:
+        Set item i of __VD_FLAGS to (flags | 2) & 11.
+
+## Note
+A fresh fragment identity for one component instance, matched across renders by `vdFragOpen`/`vdKeep`.
+
+## To vdNewFrag() -> Int:
+    If __VD_FRAGFREEN > 0:
+        Let reused be item __VD_FRAGFREEN of __VD_FRAGFREE.
+        Set __VD_FRAGFREEN to __VD_FRAGFREEN - 1.
+        Return reused.
+    Let frag be length of __VD_FRAGNODE.
+    Push 0 to __VD_FRAGNODE.
+    Push 0 to __VD_WANT.
+    Return frag.
+
+## Note
+The retained node fragment `frag` is committed as, or `0` while it is not in the tree.
+
+## To vdFragNode(frag: Int) -> Int:
+    If frag < 1 or frag >= length of __VD_FRAGNODE:
+        Return 0.
+    Return item (frag + 1) of __VD_FRAGNODE.
+
+## Note
+The node carrying site `site` after the last commit, or `0` when no retained element carries it.
+
+## To vdSiteNode(site: Int) -> Int:
+    If site < 1 or site >= length of __VD_SITENODE:
+        Return 0.
+    Return item (site + 1) of __VD_SITENODE.
+
+## Note
+How many fragments left the tree since `vdClearGone` — the instances whose components were removed.
+
+## To vdGoneCount() -> Int:
+    Return __VD_GONEN.
+
+## Note
+The `k`-th gone fragment identity, 1-based, in the order the commits removed them.
+
+## To vdGone(k: Int) -> Int:
+    Return item k of __VD_GONE.
+
+## Note
+Forgets the gone list and hands those fragment identities back to `vdNewFrag` for reuse.
+
+## To vdClearGone():
+    Let mutable k be 1.
+    While k <= __VD_GONEN:
+        Let frag be item k of __VD_GONE.
+        Set __VD_FRAGFREEN to __VD_FRAGFREEN + 1.
+        If __VD_FRAGFREEN > length of __VD_FRAGFREE:
+            Push frag to __VD_FRAGFREE.
+        Otherwise:
+            Set item __VD_FRAGFREEN of __VD_FRAGFREE to frag.
+        Set k to k + 1.
+    Set __VD_GONEN to 0.
+
+## Note
+Appends `frag` to the gone list.
+
+## To vdPutGone(frag: Int):
+    Set __VD_GONEN to __VD_GONEN + 1.
+    If __VD_GONEN > length of __VD_GONE:
+        Push frag to __VD_GONE.
+    Otherwise:
+        Set item __VD_GONEN of __VD_GONE to frag.
+
+## Note
+Records `node` as the carrier of site `site`, growing the site table as far as `site` needs.
+
+## To vdPutSiteNode(site: Int, node: Int):
+    While length of __VD_SITENODE <= site:
+        Push 0 to __VD_SITENODE.
+    Set item (site + 1) of __VD_SITENODE to node.
+
+## Note
+Takes an attribute pool entry for `name`/`value`, reusing a released one first.
+
+## To vdAttrAlloc(name: Text, value: Text) -> Int:
+    If __VD_AFREE != 0:
+        Let e be __VD_AFREE.
+        Set __VD_AFREE to item (e + 1) of __VD_ANEXT.
+        Set item (e + 1) of __VD_AN to name.
+        Set item (e + 1) of __VD_AV to value.
+        Set item (e + 1) of __VD_ANEXT to 0.
+        Set item (e + 1) of __VD_AMARK to 0.
+        Return e.
+    Let e be length of __VD_AN.
+    Push name to __VD_AN.
+    Push value to __VD_AV.
+    Push 0 to __VD_ANEXT.
+    Push 0 to __VD_AMARK.
+    Return e.
+
+## Note
+Returns attribute pool entry `e` to the free chain.
+
+## To vdAttrRelease(e: Int):
+    Set item (e + 1) of __VD_AN to "".
+    Set item (e + 1) of __VD_AV to "".
+    Set item (e + 1) of __VD_AMARK to 0.
+    Set item (e + 1) of __VD_ANEXT to __VD_AFREE.
+    Set __VD_AFREE to e.
+
+## Note
+Takes a listener pool entry for `event`/`flags`, reusing a released one first.
+
+## To vdListenAlloc(event: Text, flags: Int) -> Int:
+    If __VD_LFREE != 0:
+        Let e be __VD_LFREE.
+        Set __VD_LFREE to item (e + 1) of __VD_LNEXT.
+        Set item (e + 1) of __VD_LE to event.
+        Set item (e + 1) of __VD_LF to flags.
+        Set item (e + 1) of __VD_LNEXT to 0.
+        Set item (e + 1) of __VD_LMARK to 0.
+        Return e.
+    Let e be length of __VD_LE.
+    Push event to __VD_LE.
+    Push flags to __VD_LF.
+    Push 0 to __VD_LNEXT.
+    Push 0 to __VD_LMARK.
+    Return e.
+
+## Note
+Returns listener pool entry `e` to the free chain.
+
+## To vdListenRelease(e: Int):
+    Set item (e + 1) of __VD_LE to "".
+    Set item (e + 1) of __VD_LF to 0.
+    Set item (e + 1) of __VD_LMARK to 0.
+    Set item (e + 1) of __VD_LNEXT to __VD_LFREE.
+    Set __VD_LFREE to e.
+
+## Note
+Removes `node` from its parent's child list; `node` and its own children stay intact.
+
+## To vdDetach(node: Int):
+    Let i be node + 1.
+    Let parent be item i of __VD_PARENT.
+    If parent == -1:
+        Return.
+    Let prev be item i of __VD_PREV.
+    Let next be item i of __VD_NEXT.
+    If prev == -1:
+        Set item (parent + 1) of __VD_FIRST to next.
+    Otherwise:
+        Set item (prev + 1) of __VD_NEXT to next.
+    If next == -1:
+        Set item (parent + 1) of __VD_LAST to prev.
+    Otherwise:
+        Set item (next + 1) of __VD_PREV to prev.
+    Set item i of __VD_PARENT to -1.
+    Set item i of __VD_PREV to -1.
+    Set item i of __VD_NEXT to -1.
+
+## Note
+True unless `node` is a fragment — the one kind with no host node of its own.
+
+## To vdIsReal(node: Int) -> Bool:
+    Return item (node + 1) of __VD_KIND != 3.
+
+## Note
+`node` itself when it has a host node, else its nearest ancestor that does, or `-1` when it hangs from nothing.
+
+## To vdRealOf(node: Int) -> Int:
+    Let mutable n be node.
+    While item (n + 1) of __VD_KIND == 3:
+        Let up be item (n + 1) of __VD_PARENT.
+        If up == -1:
+            Return -1.
+        Set n to up.
+    Return n.
+
+## Note
+The id the host knows `node` by: a root's own host node, every other node its id in the stream range from 2^31 up, where a host mints none of its own.
+
+## To vdWire(node: Int) -> Int:
+    If item (node + 1) of __VD_KIND == 4:
+        Return item (node + 1) of __VD_IDENT.
+    Return node + 2147483648.
+
+## Note
+The node after `c` in a pre-order walk that skips `c`'s own subtree and never leaves `top`, or `-1`.
+
+## To vdAfter(c: Int, top: Int) -> Int:
+    Let mutable n be c.
+    While n != top:
+        Let s be item (n + 1) of __VD_NEXT.
+        If s != -1:
+            Return s.
+        Set n to item (n + 1) of __VD_PARENT.
+    Return -1.
+
+## Note
+The first node with a host node at or under `node`, in document order, or `-1` for an empty fragment.
+
+## To vdFirstReal(node: Int) -> Int:
+    If item (node + 1) of __VD_KIND != 3:
+        Return node.
+    Let mutable c be item (node + 1) of __VD_FIRST.
+    While c != -1:
+        If item (c + 1) of __VD_KIND != 3:
+            Return c.
+        Let down be item (c + 1) of __VD_FIRST.
+        If down != -1:
+            Set c to down.
+        Otherwise:
+            Set c to vdAfter(c, node).
+    Return -1.
+
+## Note
+The first host node after fragment `node`'s own range under its real parent, or `-1` when the range ends that parent.
+
+## To vdAnchorAfter(node: Int) -> Int:
+    Let mutable n be node.
+    While item (n + 1) of __VD_KIND == 3:
+        Let mutable s be item (n + 1) of __VD_NEXT.
+        While s != -1:
+            Let first be vdFirstReal(s).
+            If first != -1:
+                Return first.
+            Set s to item (s + 1) of __VD_NEXT.
+        Set n to item (n + 1) of __VD_PARENT.
+        If n == -1:
+            Return -1.
+    Return -1.
+
+## Note
+Appends word `v` to the pending patch stream.
+
+## To vdEmitInt(v: Int):
+    Set __VD_PWN to __VD_PWN + 1.
+    If __VD_PWN > length of __VD_PW:
+        Push v to __VD_PW.
+    Otherwise:
+        Set item __VD_PWN of __VD_PW to v.
+
+## Note
+Appends `s` to the pending stream's string table and returns its 1-based position there.
+
+## To vdEmitStr(s: Text) -> Int:
+    Set __VD_PSN to __VD_PSN + 1.
+    If __VD_PSN > length of __VD_PS:
+        Push s to __VD_PS.
+    Otherwise:
+        Set item __VD_PSN of __VD_PS to s.
+    Return __VD_PSN.
+
+## Note
+Emits `CreateElement(node, tag)` (wire opcode 1).
+
+## To vdEmitCreateElement(node: Int, tag: Text):
+    vdEmitInt(1).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(tag)).
+
+## Note
+Emits `CreateTextNode(node, text)` (wire opcode 2).
+
+## To vdEmitCreateText(node: Int, text: Text):
+    vdEmitInt(2).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(text)).
+
+## Note
+Emits `SetText(node, text)` (wire opcode 3).
+
+## To vdEmitSetText(node: Int, text: Text):
+    vdEmitInt(3).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(text)).
+
+## Note
+Emits `SetHtml(node, markup)` (wire opcode 4).
+
+## To vdEmitSetHtml(node: Int, markup: Text):
+    vdEmitInt(4).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(markup)).
+
+## Note
+Emits `SetAttribute(node, name, value)` (wire opcode 6).
+
+## To vdEmitSetAttribute(node: Int, name: Text, value: Text):
+    vdEmitInt(6).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(name)).
+    vdEmitInt(vdEmitStr(value)).
+
+## Note
+Emits `AppendChild(parent, child)` (wire opcode 7).
+
+## To vdEmitAppendChild(parent: Int, child: Int):
+    vdEmitInt(7).
+    vdEmitInt(vdWire(parent)).
+    vdEmitInt(vdWire(child)).
+
+## Note
+Emits `SetValue(node, value)` (wire opcode 8).
+
+## To vdEmitSetValue(node: Int, value: Text):
+    vdEmitInt(8).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(value)).
+
+## Note
+Emits `SetChecked(node, on)` (wire opcode 9).
+
+## To vdEmitSetChecked(node: Int, on: Int):
+    vdEmitInt(9).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(on).
+
+## Note
+Emits `InsertBefore(parent, child, before)` (wire opcode 15); `before` is `-1` to append, which the wire spells `u32::MAX`.
+
+## To vdEmitInsertBefore(parent: Int, child: Int, before: Int):
+    vdEmitInt(15).
+    vdEmitInt(vdWire(parent)).
+    vdEmitInt(vdWire(child)).
+    If before == -1:
+        vdEmitInt(4294967295).
+    Otherwise:
+        vdEmitInt(vdWire(before)).
+
+## Note
+Emits `RemoveAttribute(node, name)` (wire opcode 16).
+
+## To vdEmitRemoveAttribute(node: Int, name: Text):
+    vdEmitInt(16).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(name)).
+
+## Note
+Emits `Listen(node, event, flags)` (wire opcode 19).
+
+## To vdEmitListen(node: Int, event: Text, flags: Int):
+    vdEmitInt(19).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(event)).
+    vdEmitInt(flags).
+
+## Note
+Emits `Unlisten(node, event)` (wire opcode 20).
+
+## To vdEmitUnlisten(node: Int, event: Text):
+    vdEmitInt(20).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(event)).
+
+## Note
+Emits `FreeNode(node)` (wire opcode 21): the host detaches it and forgets it and every descendant.
+
+## To vdEmitFreeNode(node: Int):
+    vdEmitInt(21).
+    vdEmitInt(vdWire(node)).
+
+## Note
+Emits `Adopt(parent, node, tag)` (wire opcode 17): the host binds `node` to the next element of `tag` its markup holds under `parent`.
+
+## To vdAdoptEmitElement(parent: Int, node: Int, tag: Text):
+    vdEmitInt(17).
+    vdEmitInt(vdWire(parent)).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(tag)).
+
+## Note
+Emits `AdoptText(parent, node, text)` (wire opcode 18): the host binds `node` to its place in the markup's text under `parent`.
+
+## To vdAdoptEmitText(parent: Int, node: Int, text: Text):
+    vdEmitInt(18).
+    vdEmitInt(vdWire(parent)).
+    vdEmitInt(vdWire(node)).
+    vdEmitInt(vdEmitStr(text)).
+
+## Note
+Emits `Hydrate(root)` (wire opcode 22): the stream's claims adopt the markup `root`'s host node holds.
+
+## To vdAdoptEmitHydrate(root: Int):
+    vdEmitInt(22).
+    vdEmitInt(vdWire(root)).
+
+## Note
+Emits `SetValue(node, value)` — for a `<select>`, once the commit has placed every option it can choose from, since a browser's select takes only a value one of its options offers.
+
+## To vdSetValueOf(node: Int, value: Text):
+    If item (node + 1) of __VD_TAG != "select":
+        vdEmitSetValue(node, value).
+        Return.
+    Set __VD_LATEN to __VD_LATEN + 1.
+    If __VD_LATEN > length of __VD_LATE:
+        Push node to __VD_LATE.
+    Otherwise:
+        Set item __VD_LATEN of __VD_LATE to node.
+
+## Note
+Emits the values `vdSetValueOf` held back for the `<select>`s this commit wrote, their options now in place.
+
+## To vdEmitLate():
+    Let mutable k be 1.
+    While k <= __VD_LATEN:
+        Let node be item k of __VD_LATE.
+        vdEmitSetValue(node, item (node + 1) of __VD_VALUE).
+        Set k to k + 1.
+    Set __VD_LATEN to 0.
+
+## Note
+Emits every write retained element `node` carries — its attributes, value, checked state, raw markup and listeners.
+
+## To vdAdoptState(node: Int):
+    Let i be node + 1.
+    Let mutable e be item i of __VD_ATTR.
+    While e != 0:
+        vdEmitSetAttribute(node, item (e + 1) of __VD_AN, item (e + 1) of __VD_AV).
+        Set e to item (e + 1) of __VD_ANEXT.
+    Let flags be item i of __VD_FLAGS.
+    If (flags & 1) != 0:
+        vdSetValueOf(node, item i of __VD_VALUE).
+    If (flags & 2) != 0:
+        If (flags & 4) != 0:
+            vdEmitSetChecked(node, 1).
+        Otherwise:
+            vdEmitSetChecked(node, 0).
+    If item i of __VD_HTML != "":
+        vdEmitSetHtml(node, item i of __VD_HTML).
+    Set e to item i of __VD_LSN.
+    While e != 0:
+        vdEmitListen(node, item (e + 1) of __VD_LE, item (e + 1) of __VD_LF).
+        Set e to item (e + 1) of __VD_LNEXT.
+
+## Note
+Emits root `root`'s retained subtree in document order: with `adopt`, a claim per node for the host
+to bind its markup; without, a create, the writes and an append per node.
+
+## To vdAdoptTree(root: Int, adopt: Bool):
+    If adopt:
+        vdAdoptEmitHydrate(root).
+    Let mutable n be item (root + 1) of __VD_FIRST.
+    While n != -1:
+        Let i be n + 1.
+        Let kind be item i of __VD_KIND.
+        Let host be vdRealOf(item i of __VD_PARENT).
+        Let mutable descend be true.
+        If kind == 1:
+            If adopt:
+                vdAdoptEmitElement(host, n, item i of __VD_TAG).
+            Otherwise:
+                vdEmitCreateElement(n, item i of __VD_TAG).
+            vdAdoptState(n).
+            If not adopt:
+                vdEmitAppendChild(host, n).
+            If item i of __VD_HTML != "":
+                Set descend to false.
+        Otherwise If kind == 2:
+            If adopt:
+                vdAdoptEmitText(host, n, item i of __VD_TEXT).
+            Otherwise:
+                vdEmitCreateText(n, item i of __VD_TEXT).
+                vdEmitAppendChild(host, n).
+        Let mutable next be -1.
+        If descend:
+            Set next to item i of __VD_FIRST.
+        If next == -1:
+            Set next to vdAfter(n, root).
+        Set n to next.
+    vdEmitLate().
+
+## Note
+How many words the pending patch stream holds.
+
+## To vdPatchLength() -> Int:
+    Return __VD_PWN.
+
+## Note
+A copy of the pending patch stream's words — what a host decodes against `vdPatchStrings`.
+
+## To vdPatchWords() -> Seq of Int:
+    Let out be a new Seq of Int.
+    Let mutable k be 1.
+    While k <= __VD_PWN:
+        Push (item k of __VD_PW) to out.
+        Set k to k + 1.
+    Return out.
+
+## Note
+A copy of the pending patch stream's string table; a word naming text holds a 1-based position into it.
+
+## To vdPatchStrings() -> Seq of Text:
+    Let out be a new Seq of Text.
+    Let mutable k be 1.
+    While k <= __VD_PSN:
+        Push (item k of __VD_PS) to out.
+        Set k to k + 1.
+    Return out.
+
+## Note
+Forgets the pending patch stream, as a host does once it has applied it.
+
+## To vdDropPatches():
+    Set __VD_PWN to 0.
+    Set __VD_PSN to 0.
+
+## Note
+Hands the pending patch stream to the page's host in one call and forgets it; answers how many of a
+hydration's claims found no markup to bind.
+
+## To vdApply() -> Int:
+    Let mismatches be applyPatchWords(__VD_PW, __VD_PWN, __VD_PS, __VD_PSN).
+    vdDropPatches().
+    If __VD_HYDRATING == 0:
+        Return mismatches.
+    Return vdAdoptSettle(mismatches).
+
+## Note
+Ends the hydration the stream just applied: when claims found no markup, the host frees what it
+bound and the root is drawn afresh. Answers the mismatches.
+
+## To vdAdoptSettle(mismatches: Int) -> Int:
+    Let root be __VD_HYDRATING.
+    Set __VD_HYDRATING to 0.
+    If mismatches == 0:
+        Return 0.
+    Let mutable c be item (root + 1) of __VD_FIRST.
+    While c != -1:
+        vdEmitFreeTops(c).
+        Set c to item (c + 1) of __VD_NEXT.
+    vdAdoptTree(root, false).
+    Let redrawn be applyPatchWords(__VD_PW, __VD_PWN, __VD_PS, __VD_PSN).
+    vdDropPatches().
+    Return mismatches + redrawn.
+
+## Note
+Appends word `v` to the tape being rendered.
+
+## To vdTapeInt(v: Int):
+    Set __VD_TPN to __VD_TPN + 1.
+    If __VD_TPN > length of __VD_TP:
+        Push v to __VD_TP.
+    Otherwise:
+        Set item __VD_TPN of __VD_TP to v.
+
+## Note
+Appends `s` to the tape's string table and returns its 1-based position there.
+
+## To vdTapeStr(s: Text) -> Int:
+    Set __VD_TSN to __VD_TSN + 1.
+    If __VD_TSN > length of __VD_TS:
+        Push s to __VD_TS.
+    Otherwise:
+        Set item __VD_TSN of __VD_TS to s.
+    Return __VD_TSN.
+
+## Note
+How many words the tape being rendered holds.
+
+## To vdTapeLength() -> Int:
+    Return __VD_TPN.
+
+## Note
+The tape word at 1-based position `p`.
+
+## To vdTapeItem(p: Int) -> Int:
+    Return item p of __VD_TP.
+
+## Note
+Records the first thing wrong with the tape being rendered; `vdCommit` refuses it by this message.
+
+## To vdTapeFault(message: Text):
+    If __VD_TAPEERR == "":
+        Set __VD_TAPEERR to message.
+
+## Note
+Pushes the 1-based tape position of the OPEN or FRAG_OPEN record now open.
+
+## To vdPushOpen(p: Int):
+    Set __VD_ON to __VD_ON + 1.
+    If __VD_ON > length of __VD_OPENS:
+        Push p to __VD_OPENS.
+    Otherwise:
+        Set item __VD_ON of __VD_OPENS to p.
+
+## Note
+Opens an unkeyed element `tag`.
+
+## To vdOpen(tag: Text):
+    Let tagIdx be vdTapeStr(tag).
+    vdOpenRecord(tagIdx, vdTapeStr("")).
+
+## Note
+Opens element `tag` identified among its siblings by `key` (a `keyed by` row), reused across renders by that key.
+
+## To vdOpenKeyed(tag: Text, key: Text):
+    Let tagIdx be vdTapeStr(tag).
+    vdOpenRecord(tagIdx, vdTapeStr(key)).
+
+## Note
+Opens element `tag` identified among its siblings by `key` (an element's `id`): matched across
+renders like `vdOpenKeyed`, but a repeated key draws the later sibling fresh.
+
+## To vdOpenSoft(tag: Text, key: Text):
+    Let tagIdx be vdTapeStr(tag).
+    vdOpenRecord(tagIdx, 0 - vdTapeStr(key)).
+
+## Note
+Writes an OPEN record for the tag at string `tagIdx` with key slot `keySlot` — a key string's index, negated for a key that is the element's own identity — and makes it the open element.
+
+## To vdOpenRecord(tagIdx: Int, keySlot: Int):
+    vdTapeInt(1).
+    Let at be __VD_TPN.
+    vdTapeInt(tagIdx).
+    vdTapeInt(keySlot).
+    vdTapeInt(0).
+    vdPushOpen(at).
+    Set __VD_MODOK to 1.
+
+## Note
+Closes the element `vdOpen`/`vdOpenKeyed` opened last, recording where it ends.
+
+## To vdClose():
+    Set __VD_MODOK to 0.
+    If __VD_ON == 0:
+        vdTapeFault("vdom: vdClose with no element open").
+        Return.
+    Let p be item __VD_ON of __VD_OPENS.
+    If item p of __VD_TP != 1:
+        vdTapeFault("vdom: vdClose would close a fragment; a fragment ends with vdFragClose").
+        Return.
+    Set __VD_ON to __VD_ON - 1.
+    vdTapeInt(3).
+    Set item (p + 3) of __VD_TP to __VD_TPN.
+
+## Note
+Appends a text child `text`.
+
+## To vdText(text: Text):
+    Set __VD_MODOK to 0.
+    Let textIdx be vdTapeStr(text).
+    vdTapeInt(2).
+    vdTapeInt(textIdx).
+
+## Note
+Appends a text child `text` carrying `site`, so `vdSiteNode(site)` finds its node after the commit.
+
+## To vdTextSite(text: Text, site: Int):
+    Set __VD_MODOK to 0.
+    Let textIdx be vdTapeStr(text).
+    vdTapeInt(17).
+    vdTapeInt(textIdx).
+    vdTapeInt(site).
+
+## Note
+Opens a detached range for a caller's children: drawn here, placed where a `vdSlot` of the returned position says.
+
+## To vdRangeOpen() -> Int:
+    Set __VD_MODOK to 0.
+    vdTapeInt(15).
+    Let at be __VD_TPN.
+    vdTapeInt(0).
+    vdPushOpen(at).
+    Set __VD_SLOTS to __VD_SLOTS + 1.
+    Return at.
+
+## Note
+Closes the range `vdRangeOpen` opened last.
+
+## To vdRangeClose():
+    Set __VD_MODOK to 0.
+    If __VD_ON == 0:
+        vdTapeFault("vdom: vdRangeClose with no range open").
+        Return.
+    Let p be item __VD_ON of __VD_OPENS.
+    If item p of __VD_TP != 15:
+        vdTapeFault("vdom: vdRangeClose would close an element or a fragment").
+        Return.
+    Set __VD_ON to __VD_ON - 1.
+    vdTapeInt(16).
+    Set item (p + 1) of __VD_TP to __VD_TPN.
+
+## Note
+Places the range opened at tape position `range` here, as this position's children.
+
+## To vdSlot(range: Int):
+    Set __VD_MODOK to 0.
+    vdTapeInt(8).
+    vdTapeInt(range).
+    Set __VD_SLOTS to __VD_SLOTS + 1.
+
+## Note
+Opens the boundary of component instance `frag` (from `vdNewFrag`), matched across renders by that identity.
+
+## To vdFragOpen(frag: Int):
+    Set __VD_MODOK to 0.
+    vdTapeInt(5).
+    Let at be __VD_TPN.
+    vdTapeInt(frag).
+    vdTapeInt(0).
+    vdPushOpen(at).
+
+## Note
+Closes the fragment `vdFragOpen` opened last, recording where it ends.
+
+## To vdFragClose():
+    Set __VD_MODOK to 0.
+    If __VD_ON == 0:
+        vdTapeFault("vdom: vdFragClose with no fragment open").
+        Return.
+    Let p be item __VD_ON of __VD_OPENS.
+    If item p of __VD_TP != 5:
+        vdTapeFault("vdom: vdFragClose would close an element; an element ends with vdClose").
+        Return.
+    Set __VD_ON to __VD_ON - 1.
+    vdTapeInt(6).
+    Set item (p + 2) of __VD_TP to __VD_TPN.
+
+## Note
+Places retained fragment `frag` unchanged — its instance did not re-render — wherever the tree last held it.
+
+## To vdKeep(frag: Int):
+    Set __VD_MODOK to 0.
+    vdTapeInt(7).
+    vdTapeInt(frag).
+
+## Note
+Refuses a modifier written anywhere but straight after its element's open.
+
+## To vdModifierAllowed(what: Text) -> Bool:
+    If __VD_MODOK == 1:
+        Return true.
+    vdTapeFault("vdom: " + what + " must follow its element's vdOpen, before any child").
+    Return false.
+
+## Note
+Marks the element just opened with site `site`, so `vdSiteNode(site)` finds its node after the commit.
+
+## To vdSite(site: Int):
+    If vdModifierAllowed("vdSite"):
+        vdTapeInt(9).
+        vdTapeInt(site).
+
+## Note
+Sets attribute `name` to `value` on the element just opened.
+
+## To vdSetAttribute(name: Text, value: Text):
+    If vdModifierAllowed("vdSetAttribute"):
+        Let nameIdx be vdTapeStr(name).
+        Let valueIdx be vdTapeStr(value).
+        vdTapeInt(10).
+        vdTapeInt(nameIdx).
+        vdTapeInt(valueIdx).
+
+## Note
+Binds `value` as the live `value` property of the element just opened.
+
+## To vdSetValue(value: Text):
+    If vdModifierAllowed("vdSetValue"):
+        Let valueIdx be vdTapeStr(value).
+        vdTapeInt(11).
+        vdTapeInt(valueIdx).
+
+## Note
+Binds `checked` as the live checked state of the element just opened.
+
+## To vdSetChecked(checked: Bool):
+    If vdModifierAllowed("vdSetChecked"):
+        vdTapeInt(12).
+        If checked:
+            vdTapeInt(1).
+        Otherwise:
+            vdTapeInt(0).
+
+## Note
+Listens for `event` on the element just opened, with its behaviour `flags` (prevent 1, stop 2, capture 8, passive 16).
+
+## To vdListen(event: Text, flags: Int):
+    If vdModifierAllowed("vdListen"):
+        Let eventIdx be vdTapeStr(event).
+        vdTapeInt(13).
+        vdTapeInt(eventIdx).
+        vdTapeInt(flags).
+
+## Note
+Gives the element just opened raw `markup` as its whole content; it takes no children of its own.
+
+## To vdSetHtml(markup: Text):
+    If vdModifierAllowed("vdSetHtml"):
+        Let htmlIdx be vdTapeStr(markup).
+        vdTapeInt(14).
+        vdTapeInt(htmlIdx).
+
+## Note
+Records a side modifier `op` (13 LISTEN, 9 SITE) for the OPEN at tape position `p`, with its operands.
+
+## To vdPutSide(p: Int, op: Int, a: Int, b: Int):
+    Set __VD_XN to __VD_XN + 1.
+    If __VD_XN > length of __VD_XP:
+        Push p to __VD_XP.
+        Push 0 to __VD_XQ.
+        Push op to __VD_XOP.
+        Push a to __VD_XA.
+        Push b to __VD_XB.
+    Otherwise:
+        Set item __VD_XN of __VD_XP to p.
+        Set item __VD_XN of __VD_XQ to 0.
+        Set item __VD_XN of __VD_XOP to op.
+        Set item __VD_XN of __VD_XA to a.
+        Set item __VD_XN of __VD_XB to b.
+
+## Note
+Listens for `event` with `flags` on the element OPENed at tape position `p`, found after its open.
+
+## To vdListenAt(p: Int, event: Text, flags: Int):
+    If p < 1 or p > __VD_TPN or item p of __VD_TP != 1:
+        vdTapeFault("vdom: vdListenAt names tape position " + "{p}" + ", which is no element's open").
+        Return.
+    vdPutSide(p, 13, vdTapeStr(event), flags).
+
+## Note
+Marks the element OPENed at tape position `p` with `site`, found after its open.
+
+## To vdSiteAt(p: Int, site: Int):
+    If p < 1 or p > __VD_TPN or item p of __VD_TP != 1:
+        vdTapeFault("vdom: vdSiteAt names tape position " + "{p}" + ", which is no element's open").
+        Return.
+    vdPutSide(p, 9, site, 0).
+
+## Note
+The site the OPEN at tape position `p` carries — its own SITE modifier or one beside the tape — or `0`.
+
+## To vdTapeSite(p: Int) -> Int:
+    Let mutable c be p + 4.
+    Let mutable more be true.
+    While more:
+        Let op be item c of __VD_TP.
+        If op == 9:
+            Return item (c + 1) of __VD_TP.
+        If op == 10 or op == 13:
+            Set c to c + 3.
+        Otherwise If op == 11 or op == 12 or op == 14:
+            Set c to c + 2.
+        Otherwise:
+            Set more to false.
+    Let mutable k be 1.
+    While k <= __VD_XN:
+        If item k of __VD_XP == p and item k of __VD_XOP == 9:
+            Return item k of __VD_XA.
+        Set k to k + 1.
+    Return 0.
+
+## Note
+The tape position of the ATTR record named `name` in the modifier run of the OPEN at position `p`, or `0`.
+
+## To vdOpenAttr(p: Int, name: Text) -> Int:
+    Let mutable c be p + 4.
+    Let mutable more be true.
+    While more:
+        Let op be item c of __VD_TP.
+        If op == 10:
+            If item (item (c + 1) of __VD_TP) of __VD_TS == name:
+                Return c.
+            Set c to c + 3.
+        Otherwise If op == 13:
+            Set c to c + 3.
+        Otherwise If op == 9 or op == 11 or op == 12 or op == 14:
+            Set c to c + 2.
+        Otherwise:
+            Set more to false.
+    Return 0.
+
+## Note
+True when every space-separated word of `wanted` is a word of `have`, compared byte for byte.
+
+## To vdWordsIn(wanted: Text, have: Text) -> Bool:
+    Let want be text_bytes(wanted).
+    Let wn be length of want.
+    Let held be text_bytes(have).
+    Let hn be length of held.
+    Let mutable at be 1.
+    While at <= wn:
+        Let mutable stop be at.
+        While stop <= wn and item stop of want != 32:
+            Set stop to stop + 1.
+        If stop > at:
+            Let width be stop - at.
+            Let mutable found be false.
+            Let mutable h be 1.
+            While not found and h <= hn:
+                Let mutable hs be h.
+                While hs <= hn and item hs of held != 32:
+                    Set hs to hs + 1.
+                If hs - h == width:
+                    Let mutable same be true.
+                    Let mutable k be 0.
+                    While same and k < width:
+                        If item (at + k) of want != item (h + k) of held:
+                            Set same to false.
+                        Set k to k + 1.
+                    If same:
+                        Set found to true.
+                Set h to hs + 1.
+            If not found:
+                Return false.
+        Set at to stop + 1.
+    Return true.
+
+## Note
+True when compound `i` of a selector holds of the element OPENed at tape position `p`: its tag (any case), its id, every class, every attribute (present, or equal when `attrValued` says so).
+
+## To vdCompoundHolds(p: Int, i: Int, tags: Seq of Text, ids: Seq of Text, classes: Seq of Text, attrFrom: Seq of Int, attrNames: Seq of Text, attrValues: Seq of Text, attrValued: Seq of Int) -> Bool:
+    Let tag be item i of tags.
+    If tag != "" and not vdTagIn(vdTapeTag(p), tag):
+        Return false.
+    Let id be item i of ids.
+    If id != "":
+        Let a be vdOpenAttr(p, "id").
+        If a == 0:
+            Return false.
+        If item (item (a + 2) of __VD_TP) of __VD_TS != id:
+            Return false.
+    Let wanted be item i of classes.
+    If wanted != "":
+        Let a be vdOpenAttr(p, "class").
+        If a == 0:
+            Return false.
+        If not vdWordsIn(wanted, item (item (a + 2) of __VD_TP) of __VD_TS):
+            Return false.
+    Let mutable j be item i of attrFrom.
+    Let last be item (i + 1) of attrFrom.
+    While j < last:
+        Let a be vdOpenAttr(p, item j of attrNames).
+        If a == 0:
+            Return false.
+        If item j of attrValued == 1:
+            If item (item (a + 2) of __VD_TP) of __VD_TS != item j of attrValues:
+                Return false.
+        Set j to j + 1.
+    Return true.
+
+## Note
+The tape position of the first element, from `from` on, that a parsed selector's compound chain
+names, or `0`: what `querySelector` answers, asked of the tape.
+
+## To vdQuery(from: Int, tags: Seq of Text, ids: Seq of Text, classes: Seq of Text, attrFrom: Seq of Int, attrNames: Seq of Text, attrValues: Seq of Text, attrValued: Seq of Int) -> Int:
+    Let n be length of tags.
+    Let mutable depth be 0.
+    Let mutable p be from.
+    While p <= __VD_TPN:
+        Let op be item p of __VD_TP.
+        If op == 1:
+            If vdCompoundHolds(p, n, tags, ids, classes, attrFrom, attrNames, attrValues, attrValued):
+                Let mutable i be n - 1.
+                Let mutable a be depth.
+                While i >= 1 and a >= 1:
+                    If vdCompoundHolds(item a of __VD_QS, i, tags, ids, classes, attrFrom, attrNames, attrValues, attrValued):
+                        Set i to i - 1.
+                    Set a to a - 1.
+                If i < 1:
+                    Return p.
+            Set depth to depth + 1.
+            If depth > length of __VD_QS:
+                Push p to __VD_QS.
+            Otherwise:
+                Set item depth of __VD_QS to p.
+        Otherwise If op == 3:
+            If depth > 0:
+                Set depth to depth - 1.
+        Set p to vdTapeSkipRecord(p).
+    Return 0.
+
+## Note
+The characters `from` up to `to` (exclusive) of `chars`, joined, with any quote or space trimmed from both ends.
+
+## To vdCharsText(chars: Seq of Text, from: Int, to: Int) -> Text:
+    Let mutable lo be from.
+    Let mutable hi be to.
+    While lo < hi and (item lo of chars == " " or item lo of chars == "\"" or item lo of chars == "'"):
+        Set lo to lo + 1.
+    While hi > lo and (item (hi - 1) of chars == " " or item (hi - 1) of chars == "\"" or item (hi - 1) of chars == "'"):
+        Set hi to hi - 1.
+    Let mutable out be "".
+    Let mutable k be lo.
+    While k < hi:
+        Set out to out + item k of chars.
+        Set k to k + 1.
+    Return out.
+
+## Note
+`vdQuery` for a selector given as text, parsed as `lgx::selector` parses it, or `0` for one outside
+that subset (a combinator, a list, a pseudo-class, `*`).
+
+## To vdQueryText(from: Int, sel: Text) -> Int:
+    Let mutable chars be a new Seq of Text.
+    For each ch in sel:
+        Push ch to chars.
+    Let n be length of chars.
+    Let mutable bracket be false.
+    Let mutable c be 1.
+    While c <= n:
+        Let x be item c of chars.
+        If x == "[":
+            Set bracket to true.
+        Otherwise If x == "]":
+            Set bracket to false.
+        Otherwise If not bracket and (x == ">" or x == "+" or x == "~" or x == "," or x == ":" or x == "*"):
+            Return 0.
+        Set c to c + 1.
+    Let mutable tags be a new Seq of Text.
+    Let mutable ids be a new Seq of Text.
+    Let mutable classes be a new Seq of Text.
+    Let mutable attrFrom be [1].
+    Let mutable attrNames be a new Seq of Text.
+    Let mutable attrValues be a new Seq of Text.
+    Let mutable attrValued be a new Seq of Int.
+    Let mutable i be 1.
+    While i <= n:
+        While i <= n and item i of chars == " ":
+            Set i to i + 1.
+        If i <= n:
+            Let start be i.
+            While i <= n and item i of chars != " ":
+                Set i to i + 1.
+            Let stop be i.
+            Let mutable j be start.
+            While j < stop and item j of chars != "#" and item j of chars != "." and item j of chars != "[":
+                Set j to j + 1.
+            Let mutable tag be "".
+            Let mutable t be start.
+            While t < j:
+                Set tag to tag + vdLowerChar(item t of chars).
+                Set t to t + 1.
+            Push tag to tags.
+            Let mutable id be "".
+            Let mutable wanted be "".
+            Let attrsBefore be length of attrNames.
+            While j < stop:
+                Let mark be item j of chars.
+                If mark == "#" or mark == ".":
+                    Let nameFrom be j + 1.
+                    Set j to j + 1.
+                    While j < stop and item j of chars != "#" and item j of chars != "." and item j of chars != "[":
+                        Set j to j + 1.
+                    If j == nameFrom:
+                        Return 0.
+                    Let name be vdCharsText(chars, nameFrom, j).
+                    If mark == "#":
+                        Set id to name.
+                    Otherwise If wanted == "":
+                        Set wanted to name.
+                    Otherwise:
+                        Set wanted to wanted + " " + name.
+                Otherwise If mark == "[":
+                    Let innerFrom be j + 1.
+                    Set j to j + 1.
+                    While j < stop and item j of chars != "]":
+                        Set j to j + 1.
+                    If j >= stop:
+                        Return 0.
+                    Let mutable eq be innerFrom.
+                    While eq < j and item eq of chars != "=":
+                        Set eq to eq + 1.
+                    If eq < j:
+                        Push vdCharsText(chars, innerFrom, eq) to attrNames.
+                        Push vdCharsText(chars, eq + 1, j) to attrValues.
+                        Push 1 to attrValued.
+                    Otherwise:
+                        Push vdCharsText(chars, innerFrom, j) to attrNames.
+                        Push "" to attrValues.
+                        Push 0 to attrValued.
+                    Set j to j + 1.
+                Otherwise:
+                    Return 0.
+            If tag == "" and id == "" and wanted == "" and length of attrNames == attrsBefore:
+                Return 0.
+            Push id to ids.
+            Push wanted to classes.
+            Push length of attrNames + 1 to attrFrom.
+    If length of tags == 0:
+        Return 0.
+    Return vdQuery(from, tags, ids, classes, attrFrom, attrNames, attrValues, attrValued).
+
+## Note
+`ch` in lower case when it is an ASCII capital, else `ch` itself.
+
+## To vdLowerChar(ch: Text) -> Text:
+    Let caps be "ABCDEFGHIJKLMNOPQRSTUVWXYZ".
+    Let small be "abcdefghijklmnopqrstuvwxyz".
+    Let mutable k be 1.
+    For each c in caps:
+        If c == ch:
+            Let mutable m be 1.
+            For each s in small:
+                If m == k:
+                    Return s.
+                Set m to m + 1.
+        Set k to k + 1.
+    Return ch.
+
+## Note
+Appends word `v` to the stash's int words.
+
+## To vdStashInt(v: Int):
+    Set __VD_STIN to __VD_STIN + 1.
+    If __VD_STIN > length of __VD_STI:
+        Push v to __VD_STI.
+    Otherwise:
+        Set item __VD_STIN of __VD_STI to v.
+
+## Note
+Appends `s` to the stash's text words.
+
+## To vdStashStr(s: Text):
+    Set __VD_STSN to __VD_STSN + 1.
+    If __VD_STSN > length of __VD_STS:
+        Push s to __VD_STS.
+    Otherwise:
+        Set item __VD_STSN of __VD_STS to s.
+
+## Note
+Moves the tape in flight aside and leaves an empty one, for a render drawn inside another; answers
+the handle `vdTapeUnstash` restores it by.
+
+## To vdTapeStash() -> Int:
+    Let mutable k be 1.
+    While k <= __VD_TPN:
+        vdStashInt(item k of __VD_TP).
+        Set k to k + 1.
+    Set k to 1.
+    While k <= __VD_ON:
+        vdStashInt(item k of __VD_OPENS).
+        Set k to k + 1.
+    Set k to 1.
+    While k <= __VD_XN:
+        vdStashInt(item k of __VD_XP).
+        vdStashInt(item k of __VD_XOP).
+        vdStashInt(item k of __VD_XA).
+        vdStashInt(item k of __VD_XB).
+        Set k to k + 1.
+    Set k to 1.
+    While k <= __VD_PWN:
+        vdStashInt(item k of __VD_PW).
+        Set k to k + 1.
+    Set k to 1.
+    While k <= __VD_TSN:
+        vdStashStr(item k of __VD_TS).
+        Set k to k + 1.
+    Set k to 1.
+    While k <= __VD_PSN:
+        vdStashStr(item k of __VD_PS).
+        Set k to k + 1.
+    vdStashInt(__VD_TPN).
+    vdStashInt(__VD_ON).
+    vdStashInt(__VD_XN).
+    vdStashInt(__VD_PWN).
+    vdStashInt(__VD_TSN).
+    vdStashInt(__VD_PSN).
+    vdStashInt(__VD_MODOK).
+    vdStashInt(__VD_SLOTS).
+    vdStashInt(__VD_HYDRATING).
+    vdStashStr(__VD_TAPEERR).
+    Set __VD_STEN to __VD_STEN + 1.
+    vdAbort().
+    vdDropPatches().
+    Set __VD_HYDRATING to 0.
+    Return __VD_STEN.
+
+## Note
+Puts back the tape `vdTapeStash` moved aside under `handle` — the last one stashed — exactly as it was, discarding whatever tape and stream are in flight.
+
+## To vdTapeUnstash(handle: Int):
+    If handle != __VD_STEN or handle < 1:
+        vdTapeFault("vdom: vdTapeUnstash of " + "{handle}" + ", which is not the last tape stashed").
+        Return.
+    Set __VD_STEN to __VD_STEN - 1.
+    vdAbort().
+    vdDropPatches().
+    Let base be __VD_STIN - 9.
+    Let tpn be item (base + 1) of __VD_STI.
+    Let on be item (base + 2) of __VD_STI.
+    Let xn be item (base + 3) of __VD_STI.
+    Let pwn be item (base + 4) of __VD_STI.
+    Let tsn be item (base + 5) of __VD_STI.
+    Let psn be item (base + 6) of __VD_STI.
+    Let modok be item (base + 7) of __VD_STI.
+    Let slots be item (base + 8) of __VD_STI.
+    Let hydrating be item (base + 9) of __VD_STI.
+    Let mutable at be base - pwn - 4 * xn - on - tpn.
+    Set __VD_STIN to at.
+    Let mutable k be 1.
+    While k <= tpn:
+        vdTapeInt(item (at + k) of __VD_STI).
+        Set k to k + 1.
+    Set at to at + tpn.
+    Set k to 1.
+    While k <= on:
+        vdPushOpen(item (at + k) of __VD_STI).
+        Set k to k + 1.
+    Set at to at + on.
+    Set k to 1.
+    While k <= xn:
+        Let x be at + 4 * (k - 1).
+        vdPutSide(item (x + 1) of __VD_STI, item (x + 2) of __VD_STI, item (x + 3) of __VD_STI, item (x + 4) of __VD_STI).
+        Set k to k + 1.
+    Set at to at + 4 * xn.
+    Set k to 1.
+    While k <= pwn:
+        vdEmitInt(item (at + k) of __VD_STI).
+        Set k to k + 1.
+    Let sbase be __VD_STSN - 1 - psn - tsn.
+    Set k to 1.
+    While k <= tsn:
+        Let restored be vdTapeStr(item (sbase + k) of __VD_STS).
+        Set k to k + 1.
+    Set k to 1.
+    While k <= psn:
+        Let emitted be vdEmitStr(item (sbase + tsn + k) of __VD_STS).
+        Set k to k + 1.
+    Set __VD_TAPEERR to item __VD_STSN of __VD_STS.
+    Set __VD_STSN to sbase.
+    Set __VD_MODOK to modok.
+    Set __VD_SLOTS to slots.
+    Set __VD_HYDRATING to hydrating.
+
+## Note
+Discards the tape being rendered — a failed render — leaving the retained tree and the stream untouched.
+
+## To vdAbort():
+    Set __VD_TPN to 0.
+    Set __VD_TSN to 0.
+    Set __VD_ON to 0.
+    Set __VD_MODOK to 0.
+    Set __VD_TAPEERR to "".
+    Set __VD_SLOTS to 0.
+    Set __VD_XN to 0.
+
+## Note
+The 1-based tape position just past the whole record starting at 1-based position `p`.
+
+## To vdTapeSkip(p: Int) -> Int:
+    Let op be item p of __VD_TP.
+    If op == 1:
+        Return (item (p + 3) of __VD_TP) + 1.
+    If op == 5:
+        Return (item (p + 2) of __VD_TP) + 1.
+    If op == 15:
+        Return (item (p + 1) of __VD_TP) + 1.
+    If op == 10 or op == 13 or op == 17:
+        Return p + 3.
+    If op == 3 or op == 6 or op == 16:
+        Return p + 1.
+    Return p + 2.
+
+## Note
+The 1-based tape position where the children of the OPEN at 1-based position `p` start, past its modifier run.
+
+## To vdChildrenStart(p: Int) -> Int:
+    Let mutable c be p + 4.
+    Let mutable more be true.
+    While more:
+        Let op be item c of __VD_TP.
+        If op == 10 or op == 13:
+            Set c to c + 3.
+        Otherwise If op == 9 or op == 11 or op == 12 or op == 14:
+            Set c to c + 2.
+        Otherwise:
+            Set more to false.
+    Return c.
+
+## Note
+True when the OPEN at 1-based tape position `p` sets raw html.
+
+## To vdOpensHtml(p: Int) -> Bool:
+    Let mutable c be p + 4.
+    Let mutable more be true.
+    While more:
+        Let op be item c of __VD_TP.
+        If op == 14:
+            Return true.
+        If op == 10 or op == 13:
+            Set c to c + 3.
+        Otherwise If op == 9 or op == 11 or op == 12:
+            Set c to c + 2.
+        Otherwise:
+            Set more to false.
+    Return false.
+
+## Note
+The key text the OPEN at 1-based tape position `p` carries.
+
+## To vdTapeKey(p: Int) -> Text:
+    Let at be item (p + 2) of __VD_TP.
+    If at < 0:
+        Return item (0 - at) of __VD_TS.
+    Return item at of __VD_TS.
+
+## Note
+The tag the OPEN at 1-based tape position `p` names.
+
+## To vdTapeTag(p: Int) -> Text:
+    Return item (item (p + 1) of __VD_TP) of __VD_TS.
+
+## Note
+A deterministic nonzero hash of `s`'s UTF-8 bytes, the same on every tier.
+
+## To vdKeysHash(s: Text) -> Int:
+    Let mutable h be 7.
+    For each b in text_bytes(s):
+        Set h to (h * 31 + b) % 1000000007.
+    Return h + 1.
+
+## Note
+Writes slot `k` (1-based) of the sort scratch: entry `v` ordered by hash `h`.
+
+## To vdPutSort(k: Int, v: Int, h: Int):
+    If k > length of __VD_SORT:
+        Push v to __VD_SORT.
+        Push h to __VD_SORTH.
+    Otherwise:
+        Set item k of __VD_SORT to v.
+        Set item k of __VD_SORTH to h.
+
+## Note
+True when sort slot `a` (1-based) orders before slot `b`: by hash, then by entry.
+
+## To vdKeysSortBefore(a: Int, b: Int) -> Bool:
+    Let ha be item a of __VD_SORTH.
+    Let hb be item b of __VD_SORTH.
+    If ha != hb:
+        Return ha < hb.
+    Return item a of __VD_SORT < item b of __VD_SORT.
+
+## Note
+Swaps sort slots `a` and `b` (1-based).
+
+## To vdSortSwap(a: Int, b: Int):
+    Let va be item a of __VD_SORT.
+    Let ha be item a of __VD_SORTH.
+    Set item a of __VD_SORT to item b of __VD_SORT.
+    Set item a of __VD_SORTH to item b of __VD_SORTH.
+    Set item b of __VD_SORT to va.
+    Set item b of __VD_SORTH to ha.
+
+## Note
+Sifts 1-based sort slot `start` down a max-heap of the first `n` slots.
+
+## To vdKeysSiftDown(start: Int, n: Int):
+    Let mutable root be start.
+    Let mutable going be true.
+    While going:
+        Let child be root * 2.
+        If child > n:
+            Set going to false.
+        Otherwise:
+            Let mutable big be child.
+            If child + 1 <= n:
+                If vdKeysSortBefore(child, child + 1):
+                    Set big to child + 1.
+            If vdKeysSortBefore(root, big):
+                vdSortSwap(root, big).
+                Set root to big.
+            Otherwise:
+                Set going to false.
+
+## Note
+Heap-sorts the first `n` sort slots by hash, then entry, in place.
+
+## To vdKeysHeapSort(n: Int):
+    Let mutable i be n / 2.
+    While i >= 1:
+        vdKeysSiftDown(i, n).
+        Set i to i - 1.
+    Let mutable last be n.
+    While last > 1:
+        vdSortSwap(1, last).
+        Set last to last - 1.
+        vdKeysSiftDown(1, last).
+
+## Note
+The first 1-based sort slot among the first `n` whose hash is at least `h`, or `n + 1`.
+
+## To vdKeysSortSeek(h: Int, n: Int) -> Int:
+    Let mutable lo be 1.
+    Let mutable hi be n + 1.
+    While lo < hi:
+        Let mid be (lo + hi) / 2.
+        If item mid of __VD_SORTH < h:
+            Set lo to mid + 1.
+        Otherwise:
+            Set hi to mid.
+    Return lo.
+
+## Note
+Writes slot `k` (1-based) of the keyed-position scratch.
+
+## To vdKeyedPut(k: Int, p: Int):
+    If k > length of __VD_KP:
+        Push p to __VD_KP.
+    Otherwise:
+        Set item k of __VD_KP to p.
+
+## Note
+The duplicate-key refusal naming `key` and both 1-based tape positions.
+
+## To vdKeyedDuplicate(key: Text, first: Int, second: Int) -> Text:
+    Return "vdom: duplicate key \"" + key + "\" on siblings at tape positions " + "{first}" + " and " + "{second}".
+
+## Note
+Refuses the first repeated key among the `n` keyed siblings in the keyed-position scratch, else `""`.
+
+## To vdKeyedCheck(n: Int) -> Text:
+    If n <= 32:
+        Let mutable j be 2.
+        While j <= n:
+            Let pj be item j of __VD_KP.
+            Let kj be vdTapeKey(pj).
+            Let mutable i be 1.
+            While i < j:
+                Let earlier be item i of __VD_KP.
+                If vdTapeKey(earlier) == kj:
+                    Return vdKeyedDuplicate(kj, earlier, pj).
+                Set i to i + 1.
+            Set j to j + 1.
+        Return "".
+    Let mutable k be 1.
+    While k <= n:
+        Let p be item k of __VD_KP.
+        vdPutSort(k, p, vdKeysHash(vdTapeKey(p))).
+        Set k to k + 1.
+    vdKeysHeapSort(n).
+    Let mutable bestFirst be 0.
+    Let mutable bestSecond be 0.
+    Let mutable bestKey be "".
+    Let mutable runStart be 1.
+    While runStart <= n:
+        Let mutable runEnd be runStart.
+        While runEnd < n and item (runEnd + 1) of __VD_SORTH == item runStart of __VD_SORTH:
+            Set runEnd to runEnd + 1.
+        Let mutable j be runStart + 1.
+        While j <= runEnd:
+            Let pj be item j of __VD_SORT.
+            Let kj be vdTapeKey(pj).
+            Let mutable i be runStart.
+            Let mutable seeking be true.
+            While seeking and i < j:
+                Let earlier be item i of __VD_SORT.
+                If vdTapeKey(earlier) == kj:
+                    If bestSecond == 0 or pj < bestSecond:
+                        Set bestFirst to earlier.
+                        Set bestSecond to pj.
+                        Set bestKey to kj.
+                    Set seeking to false.
+                Set i to i + 1.
+            Set j to j + 1.
+        Set runStart to runEnd + 1.
+    If bestSecond != 0:
+        Return vdKeyedDuplicate(bestKey, bestFirst, bestSecond).
+    Return "".
+
+## Note
+Pushes one tape range onto the validation worklist.
+
+## To vdPushRange(start: Int, end: Int):
+    Set __VD_VN to __VD_VN + 1.
+    If __VD_VN > length of __VD_VS:
+        Push start to __VD_VS.
+        Push end to __VD_VE.
+    Otherwise:
+        Set item __VD_VN of __VD_VS to start.
+        Set item __VD_VN of __VD_VE to end.
+
+## Note
+Everything `vdCommit` refuses before touching the tree: tape faults, an unclosed element, a bad target, duplicate keys or fragments, a keep of nothing.
+
+## To vdValidate(target: Int) -> Text:
+    If __VD_TAPEERR != "":
+        Return __VD_TAPEERR.
+    If __VD_ON > 0:
+        Let p be item __VD_ON of __VD_OPENS.
+        If item p of __VD_TP == 1:
+            Return "vdom: <" + vdTapeTag(p) + "> was opened and never closed".
+        Return "vdom: fragment " + "{item (p + 1) of __VD_TP}" + " was opened and never closed".
+    If target < 1 or target >= length of __VD_KIND:
+        Return "vdom: commit into node " + "{target}" + ", which does not exist".
+    Let kind be item (target + 1) of __VD_KIND.
+    If kind != 1 and kind != 3 and kind != 4:
+        Return "vdom: commit into node " + "{target}" + ", which is not a root, element or fragment".
+    If vdRealOf(target) == -1:
+        Return "vdom: commit into fragment node " + "{target}" + ", which hangs from no host node".
+    Set __VD_SERIAL to __VD_SERIAL + 1.
+    Set __VD_VN to 0.
+    vdPushRange(1, __VD_TPN + 1).
+    While __VD_VN > 0:
+        Let start be item __VD_VN of __VD_VS.
+        Let end be item __VD_VN of __VD_VE.
+        Set __VD_VN to __VD_VN - 1.
+        Let mutable keyed be 0.
+        Let mutable p be start.
+        While p < end:
+            Let op be item p of __VD_TP.
+            If op == 1:
+                If item (p + 2) of __VD_TP > 0 and vdTapeKey(p) != "":
+                    Set keyed to keyed + 1.
+                    vdKeyedPut(keyed, p).
+                Let cs be vdChildrenStart(p).
+                Let close be item (p + 3) of __VD_TP.
+                If close <= p or close >= end:
+                    Return "vdom: <" + vdTapeTag(p) + "> at tape position " + "{p}" + " is not closed inside its parent".
+                If cs < close and vdOpensHtml(p):
+                    Return "vdom: <" + vdTapeTag(p) + "> at tape position " + "{p}" + " sets raw html and also has children".
+                vdPushRange(cs, close).
+            Otherwise If op == 5 or op == 7:
+                Let frag be item (p + 1) of __VD_TP.
+                If frag < 1 or frag >= length of __VD_FRAGNODE:
+                    Return "vdom: fragment " + "{frag}" + " was never made by vdNewFrag".
+                If item (frag + 1) of __VD_WANT == __VD_SERIAL:
+                    Return "vdom: fragment " + "{frag}" + " is placed twice in one render".
+                Set item (frag + 1) of __VD_WANT to __VD_SERIAL.
+                If op == 7:
+                    If item (frag + 1) of __VD_FRAGNODE == 0:
+                        Return "vdom: keep of fragment " + "{frag}" + ", which is not retained".
+                Otherwise:
+                    Let fragClose be item (p + 2) of __VD_TP.
+                    If fragClose <= p or fragClose >= end:
+                        Return "vdom: fragment " + "{frag}" + " at tape position " + "{p}" + " is not closed inside its parent".
+                    vdPushRange(p + 3, fragClose).
+            Otherwise If op != 2 and op != 17:
+                Return "vdom: tape position " + "{p}" + " holds record " + "{op}" + " where a child belongs".
+            Set p to vdTapeSkip(p).
+        If keyed > 1:
+            Let problem be vdKeyedCheck(keyed).
+            If problem != "":
+                Return problem.
+    Return "".
+
+## Note
+Queues a diff of `parent`'s children against the 1-based tape range from `start` up to `end`.
+
+## To vdPushWork(parent: Int, start: Int, end: Int):
+    Set __VD_WN to __VD_WN + 1.
+    If __VD_WN > length of __VD_WP:
+        Push parent to __VD_WP.
+        Push start to __VD_WS.
+        Push end to __VD_WE.
+    Otherwise:
+        Set item __VD_WN of __VD_WP to parent.
+        Set item __VD_WN of __VD_WS to start.
+        Set item __VD_WN of __VD_WE to end.
+
+## Note
+Marks `node` for release when the commit ends; nothing is freed while a later diff might still re-place a fragment.
+
+## To vdDoom(node: Int):
+    Set __VD_DOOMN to __VD_DOOMN + 1.
+    If __VD_DOOMN > length of __VD_DOOM:
+        Push node to __VD_DOOM.
+    Otherwise:
+        Set item __VD_DOOMN of __VD_DOOM to node.
+
+## Note
+True when `node` is a fragment this commit's tape places again, so leaving here must not free it.
+
+## To vdWanted(node: Int) -> Bool:
+    If item (node + 1) of __VD_KIND != 3:
+        Return false.
+    Return item ((item (node + 1) of __VD_IDENT) + 1) of __VD_WANT == __VD_SERIAL.
+
+## Note
+Detaches every child of `node` and dooms each one this commit does not place again.
+
+## To vdDoomChildren(node: Int):
+    Let mutable c be item (node + 1) of __VD_FIRST.
+    While c != -1:
+        Let nextC be item (c + 1) of __VD_NEXT.
+        vdDetach(c).
+        If not vdWanted(c):
+            vdDoom(c).
+        Set c to nextC.
+
+## Note
+Pushes `node` onto the node-walk scratch stack.
+
+## To vdPushNode(node: Int):
+    Set __VD_STKN to __VD_STKN + 1.
+    If __VD_STKN > length of __VD_STK:
+        Push node to __VD_STK.
+    Otherwise:
+        Set item __VD_STKN of __VD_STK to node.
+
+## Note
+Frees `root` and every node under it, with an explicit stack rather than the call stack.
+
+## To vdFreeSubtree(root: Int):
+    Set __VD_STKN to 0.
+    vdPushNode(root).
+    While __VD_STKN > 0:
+        Let node be item __VD_STKN of __VD_STK.
+        Set __VD_STKN to __VD_STKN - 1.
+        Let mutable c be item (node + 1) of __VD_FIRST.
+        While c != -1:
+            vdPushNode(c).
+            Set c to item (c + 1) of __VD_NEXT.
+        vdFree(node).
+
+## Note
+Emits one `FreeNode` per host node at the top of `node`'s range: `node` itself, or a fragment's real top-level descendants.
+
+## To vdEmitFreeTops(node: Int):
+    If item (node + 1) of __VD_KIND != 3:
+        vdEmitFreeNode(node).
+        Return.
+    Let mutable c be item (node + 1) of __VD_FIRST.
+    While c != -1:
+        If item (c + 1) of __VD_KIND != 3:
+            vdEmitFreeNode(c).
+            Set c to vdAfter(c, node).
+        Otherwise:
+            Let down be item (c + 1) of __VD_FIRST.
+            If down != -1:
+                Set c to down.
+            Otherwise:
+                Set c to vdAfter(c, node).
+
+## Note
+Emits `InsertBefore` for every host node at the top of `node`'s range, in order, under `host` before `next`.
+
+## To vdMoveTops(node: Int, host: Int, next: Int):
+    If item (node + 1) of __VD_KIND != 3:
+        vdEmitInsertBefore(host, node, next).
+        Return.
+    Let mutable c be item (node + 1) of __VD_FIRST.
+    While c != -1:
+        If item (c + 1) of __VD_KIND != 3:
+            vdEmitInsertBefore(host, c, next).
+            Set c to vdAfter(c, node).
+        Otherwise:
+            Let down be item (c + 1) of __VD_FIRST.
+            If down != -1:
+                Set c to down.
+            Otherwise:
+                Set c to vdAfter(c, node).
+
+## Note
+Frees every doomed node, emitting its `FreeNode`s after every create and move of the commit.
+
+## To vdReleaseDoomed():
+    Let mutable d be 1.
+    While d <= __VD_DOOMN:
+        Let node be item d of __VD_DOOM.
+        vdEmitFreeTops(node).
+        vdFreeSubtree(node).
+        Set d to d + 1.
+    Set __VD_DOOMN to 0.
+
+## Note
+The attribute entry on `node` named `name`, or `0`.
+
+## To vdFindAttr(node: Int, name: Text) -> Int:
+    Let mutable e be item (node + 1) of __VD_ATTR.
+    While e != 0:
+        If item (e + 1) of __VD_AN == name:
+            Return e.
+        Set e to item (e + 1) of __VD_ANEXT.
+    Return 0.
+
+## Note
+Appends a new attribute `name`/`value` at the end of `node`'s chain, where a host puts a new attribute.
+
+## To vdAddAttr(node: Int, name: Text, value: Text) -> Int:
+    Let e be vdAttrAlloc(name, value).
+    Let mutable last be item (node + 1) of __VD_ATTR.
+    If last == 0:
+        Set item (node + 1) of __VD_ATTR to e.
+        Return e.
+    While item (last + 1) of __VD_ANEXT != 0:
+        Set last to item (last + 1) of __VD_ANEXT.
+    Set item (last + 1) of __VD_ANEXT to e.
+    Return e.
+
+## Note
+Removes, and emits `RemoveAttribute` for, every attribute of `node` the current modifier pass did not write.
+
+## To vdSweepAttrs(node: Int):
+    Let mutable prev be 0.
+    Let mutable e be item (node + 1) of __VD_ATTR.
+    While e != 0:
+        Let nextE be item (e + 1) of __VD_ANEXT.
+        If item (e + 1) of __VD_AMARK != __VD_MODN:
+            vdEmitRemoveAttribute(node, item (e + 1) of __VD_AN).
+            If prev == 0:
+                Set item (node + 1) of __VD_ATTR to nextE.
+            Otherwise:
+                Set item (prev + 1) of __VD_ANEXT to nextE.
+            vdAttrRelease(e).
+        Otherwise:
+            Set prev to e.
+        Set e to nextE.
+
+## Note
+The listener entry on `node` for `event`, or `0`.
+
+## To vdFindListen(node: Int, event: Text) -> Int:
+    Let mutable e be item (node + 1) of __VD_LSN.
+    While e != 0:
+        If item (e + 1) of __VD_LE == event:
+            Return e.
+        Set e to item (e + 1) of __VD_LNEXT.
+    Return 0.
+
+## Note
+Appends a new listener `event`/`flags` at the end of `node`'s chain.
+
+## To vdAddListen(node: Int, event: Text, flags: Int) -> Int:
+    Let e be vdListenAlloc(event, flags).
+    Let mutable last be item (node + 1) of __VD_LSN.
+    If last == 0:
+        Set item (node + 1) of __VD_LSN to e.
+        Return e.
+    While item (last + 1) of __VD_LNEXT != 0:
+        Set last to item (last + 1) of __VD_LNEXT.
+    Set item (last + 1) of __VD_LNEXT to e.
+    Return e.
+
+## Note
+Removes, and emits `Unlisten` for, every listener of `node` the current modifier pass did not write.
+
+## To vdSweepListens(node: Int):
+    Let mutable prev be 0.
+    Let mutable e be item (node + 1) of __VD_LSN.
+    While e != 0:
+        Let nextE be item (e + 1) of __VD_LNEXT.
+        If item (e + 1) of __VD_LMARK != __VD_MODN:
+            vdEmitUnlisten(node, item (e + 1) of __VD_LE).
+            If prev == 0:
+                Set item (node + 1) of __VD_LSN to nextE.
+            Otherwise:
+                Set item (prev + 1) of __VD_LNEXT to nextE.
+            vdListenRelease(e).
+        Otherwise:
+            Set prev to e.
+        Set e to nextE.
+
+## Note
+Brings element `node` in line with the modifier run of the OPEN at 1-based tape position `p`; returns where its children start.
+
+## To vdModifiers(node: Int, p: Int) -> Int:
+    Let i be node + 1.
+    Set __VD_MODN to __VD_MODN + 1.
+    Let mutable sawHtml be false.
+    Let mutable site be 0.
+    Let mutable c be p + 4.
+    Let mutable more be true.
+    While more:
+        Let op be item c of __VD_TP.
+        If op == 10:
+            Let name be item (item (c + 1) of __VD_TP) of __VD_TS.
+            Let value be item (item (c + 2) of __VD_TP) of __VD_TS.
+            Let mutable e be vdFindAttr(node, name).
+            If e == 0:
+                Set e to vdAddAttr(node, name, value).
+                vdEmitSetAttribute(node, name, value).
+            Otherwise If item (e + 1) of __VD_AV != value:
+                Set item (e + 1) of __VD_AV to value.
+                vdEmitSetAttribute(node, name, value).
+            Set item (e + 1) of __VD_AMARK to __VD_MODN.
+            Set c to c + 3.
+        Otherwise If op == 11:
+            Let value be item (item (c + 1) of __VD_TP) of __VD_TS.
+            Let flags be item i of __VD_FLAGS.
+            If (flags & 1) == 0 or item i of __VD_VALUE != value:
+                vdSetValueOf(node, value).
+            Set item i of __VD_VALUE to value.
+            Set item i of __VD_FLAGS to flags | 1.
+            Set c to c + 2.
+        Otherwise If op == 12:
+            Let on be item (c + 1) of __VD_TP.
+            Let flags be item i of __VD_FLAGS.
+            Let mutable wasOn be 0.
+            If (flags & 4) != 0:
+                Set wasOn to 1.
+            If (flags & 2) == 0 or wasOn != on:
+                vdEmitSetChecked(node, on).
+            If on == 1:
+                Set item i of __VD_FLAGS to flags | 6.
+            Otherwise:
+                Set item i of __VD_FLAGS to (flags | 2) & 11.
+            Set c to c + 2.
+        Otherwise If op == 13:
+            vdApplyListen(node, item (item (c + 1) of __VD_TP) of __VD_TS, item (c + 2) of __VD_TP).
+            Set c to c + 3.
+        Otherwise If op == 14:
+            Let markup be item (item (c + 1) of __VD_TP) of __VD_TS.
+            Set sawHtml to true.
+            If item i of __VD_HTML != markup:
+                vdEmitSetHtml(node, markup).
+                Set item i of __VD_HTML to markup.
+            Set c to c + 2.
+        Otherwise If op == 9:
+            Set site to item (c + 1) of __VD_TP.
+            Set c to c + 2.
+        Otherwise:
+            Set more to false.
+    Let mutable k be 1.
+    While k <= __VD_XN:
+        If item k of __VD_XP == p:
+            If item k of __VD_XOP == 13:
+                vdApplyListen(node, item (item k of __VD_XA) of __VD_TS, item k of __VD_XB).
+            Otherwise:
+                Set site to item k of __VD_XA.
+        Set k to k + 1.
+    vdSweepAttrs(node).
+    vdSweepListens(node).
+    If not sawHtml and item i of __VD_HTML != "":
+        vdEmitSetHtml(node, "").
+        Set item i of __VD_HTML to "".
+    vdMarkSite(node, site).
+    Return c.
+
+## Note
+Listens for `event` with `flags` on retained `node` this paint, emitting only what changed.
+
+## To vdApplyListen(node: Int, event: Text, flags: Int):
+    Let mutable e be vdFindListen(node, event).
+    If e == 0:
+        Set e to vdAddListen(node, event, flags).
+        vdEmitListen(node, event, flags).
+    Otherwise If item (e + 1) of __VD_LF != flags:
+        Set item (e + 1) of __VD_LF to flags.
+        vdEmitListen(node, event, flags).
+    Set item (e + 1) of __VD_LMARK to __VD_MODN.
+
+## Note
+Makes `site` (or none, `0`) the site retained `node` carries after this paint.
+
+## To vdMarkSite(node: Int, site: Int):
+    Let i be node + 1.
+    Let old be item i of __VD_SITE.
+    If old != 0 and old != site:
+        If item (old + 1) of __VD_SITENODE == node:
+            Set item (old + 1) of __VD_SITENODE to 0.
+    Set item i of __VD_SITE to site.
+    If site != 0:
+        vdPutSiteNode(site, node).
+
+## Note
+Makes a fresh node for the tape record at 1-based position `p`, emits its creation, and queues its children.
+
+## To vdMount(p: Int) -> Int:
+    Let op be item p of __VD_TP.
+    Let node be vdAlloc().
+    Let i be node + 1.
+    If op == 2 or op == 17:
+        Let text be item (item (p + 1) of __VD_TP) of __VD_TS.
+        Set item i of __VD_KIND to 2.
+        Set item i of __VD_TEXT to text.
+        vdEmitCreateText(node, text).
+        If op == 17:
+            vdMarkSite(node, item (p + 2) of __VD_TP).
+        Return node.
+    If op == 5:
+        Let frag be item (p + 1) of __VD_TP.
+        Set item i of __VD_KIND to 3.
+        Set item i of __VD_IDENT to frag.
+        Set item (frag + 1) of __VD_FRAGNODE to node.
+        vdPushWork(node, p + 3, item (p + 2) of __VD_TP).
+        Return node.
+    Let tag be vdTapeTag(p).
+    Set item i of __VD_KIND to 1.
+    Set item i of __VD_TAG to tag.
+    Set item i of __VD_KEY to vdTapeKey(p).
+    vdEmitCreateElement(node, tag).
+    Let cs be vdModifiers(node, p).
+    If item i of __VD_HTML == "":
+        vdPushWork(node, cs, item (p + 3) of __VD_TP).
+    Return node.
+
+## Note
+Reuses `node` for the tape record at 1-based position `p`: emits what changed and queues its children.
+
+## To vdPatch(node: Int, p: Int):
+    Let op be item p of __VD_TP.
+    Let i be node + 1.
+    If op == 2 or op == 17:
+        Let text be item (item (p + 1) of __VD_TP) of __VD_TS.
+        If item i of __VD_TEXT != text:
+            Set item i of __VD_TEXT to text.
+            vdEmitSetText(node, text).
+        If op == 17:
+            vdMarkSite(node, item (p + 2) of __VD_TP).
+        Otherwise:
+            vdMarkSite(node, 0).
+        Return.
+    If op == 5:
+        vdPushWork(node, p + 3, item (p + 2) of __VD_TP).
+        Return.
+    If op == 7:
+        Return.
+    Let cs be vdModifiers(node, p).
+    If item i of __VD_HTML == "":
+        vdPushWork(node, cs, item (p + 3) of __VD_TP).
+    Otherwise:
+        vdDoomChildren(node).
+
+## Note
+True when retained `node` is the same child as the tape record at 1-based position `p`: one fragment, or one kind, tag and key.
+
+## To vdSame(node: Int, p: Int) -> Bool:
+    Let op be item p of __VD_TP.
+    Let kind be item (node + 1) of __VD_KIND.
+    If op == 5 or op == 7:
+        Return kind == 3 and item (node + 1) of __VD_IDENT == item (p + 1) of __VD_TP.
+    If op == 2 or op == 17:
+        Return kind == 2.
+    If kind != 1:
+        Return false.
+    Return item (node + 1) of __VD_TAG == vdTapeTag(p) and item (node + 1) of __VD_KEY == vdTapeKey(p).
+
+## Note
+The tag positional matching compares an unkeyed retained `node` by.
+
+## To vdMatchTag(node: Int) -> Text:
+    Let kind be item (node + 1) of __VD_KIND.
+    If kind == 1:
+        Return item (node + 1) of __VD_TAG.
+    If kind == 2:
+        Return "#text".
+    Return "#fragment".
+
+## Note
+Writes 1-based slot `k` of the retained-children scratch.
+
+## To vdPutR(k: Int, node: Int):
+    If k > length of __VD_R:
+        Push node to __VD_R.
+    Otherwise:
+        Set item k of __VD_R to node.
+
+## Note
+Writes 1-based fresh slot `k`: tape position `p`, no match yet.
+
+## To vdPutFresh(k: Int, p: Int):
+    If k > length of __VD_F:
+        Push p to __VD_F.
+        Push 0 to __VD_M.
+        Push 0 to __VD_KJ.
+    Otherwise:
+        Set item k of __VD_F to p.
+        Set item k of __VD_M to 0.
+        Set item k of __VD_KJ to 0.
+
+## Note
+Pairs 1-based fresh slot `j` with `node` in `state` (0 matched, 1 in place, 2 new, 3 re-placed from elsewhere).
+
+## To vdMatch(j: Int, node: Int, state: Int, serial: Int):
+    Set item j of __VD_M to node.
+    Set item j of __VD_KJ to state.
+    Set item (node + 1) of __VD_MARK to serial.
+
+## Note
+Writes 1-based slot `k` of the cursor scratch: positional matching for `tag` resumes at retained slot `at`.
+
+## To vdPutCursor(k: Int, tag: Text, at: Int):
+    If k > length of __VD_CT:
+        Push tag to __VD_CT.
+        Push at to __VD_CP.
+    Otherwise:
+        Set item k of __VD_CT to tag.
+        Set item k of __VD_CP to at.
+
+## Note
+The key hash of retained `node`, computed once and kept.
+
+## To vdKeysNodeHash(node: Int) -> Int:
+    Let h be item (node + 1) of __VD_KH.
+    If h != 0:
+        Return h.
+    Let fresh be vdKeysHash(item (node + 1) of __VD_KEY).
+    Set item (node + 1) of __VD_KH to fresh.
+    Return fresh.
+
+## Note
+Sorts the keyed elements among retained slots from 1-based `lo` to `hi` by key hash; returns how many.
+
+## To vdKeysSortRetained(lo: Int, hi: Int) -> Int:
+    Let mutable n be 0.
+    Let mutable ri be lo.
+    While ri <= hi:
+        Let node be item ri of __VD_R.
+        If item (node + 1) of __VD_KIND == 1 and item (node + 1) of __VD_KEY != "":
+            Set n to n + 1.
+            vdPutSort(n, node, vdKeysNodeHash(node)).
+        Set ri to ri + 1.
+    vdKeysHeapSort(n).
+    Return n.
+
+## Note
+The unmatched retained element keyed `key` with tag `tag` among retained slots `lo` to `hi` (1-based), or `0`.
+
+## To vdKeysFind(key: Text, tag: Text, lo: Int, hi: Int, sorted: Int, serial: Int) -> Int:
+    If sorted < 0:
+        Let mutable ri be lo.
+        While ri <= hi:
+            Let node be item ri of __VD_R.
+            If item (node + 1) of __VD_MARK != serial and item (node + 1) of __VD_KIND == 1:
+                If item (node + 1) of __VD_KEY == key and item (node + 1) of __VD_TAG == tag:
+                    Return node.
+            Set ri to ri + 1.
+        Return 0.
+    Let h be vdKeysHash(key).
+    Let mutable k be vdKeysSortSeek(h, sorted).
+    While k <= sorted:
+        If item k of __VD_SORTH != h:
+            Return 0.
+        Let node be item k of __VD_SORT.
+        If item (node + 1) of __VD_MARK != serial and item (node + 1) of __VD_KEY == key and item (node + 1) of __VD_TAG == tag:
+            Return node.
+        Set k to k + 1.
+    Return 0.
+
+## Note
+The unmatched unkeyed retained child with match tag `tag`, scanning slots up to `hi` from where the last match of that tag stopped.
+
+## To vdFindPositional(tag: Text, lo: Int, hi: Int, cursors: Int, serial: Int) -> Int:
+    Let mutable slot be 0.
+    Let mutable k be 1.
+    While k <= cursors:
+        If item k of __VD_CT == tag:
+            Set slot to k.
+            Set k to cursors.
+        Set k to k + 1.
+    Let mutable ri be lo.
+    If slot != 0:
+        Set ri to item slot of __VD_CP.
+    Let mutable found be 0.
+    While ri <= hi and found == 0:
+        Let node be item ri of __VD_R.
+        If item (node + 1) of __VD_MARK != serial and item (node + 1) of __VD_KEY == "" and item (node + 1) of __VD_KIND != 3:
+            If vdMatchTag(node) == tag:
+                Set found to node.
+        Set ri to ri + 1.
+    If slot == 0:
+        vdPutCursor(cursors + 1, tag, ri).
+    Otherwise:
+        Set item slot of __VD_CP to ri.
+    Return found.
+
+## Note
+Writes 1-based slot `k` of the reorder scratch: retained position `pos` of fresh slot `j`.
+
+## To vdPutSeq(k: Int, pos: Int, j: Int):
+    If k > length of __VD_SEQ:
+        Push pos to __VD_SEQ.
+        Push j to __VD_SEQJ.
+        Push 0 to __VD_LKEEP.
+        Push 0 to __VD_TAILS.
+        Push -1 to __VD_PREVI.
+    Otherwise:
+        Set item k of __VD_SEQ to pos.
+        Set item k of __VD_SEQJ to j.
+
+## Note
+Marks, over reorder slots 1 to `n` (1-based), a longest strictly increasing run of retained positions: those children stay put.
+
+## To vdLis(n: Int):
+    Let mutable i be 1.
+    While i <= n:
+        Set item i of __VD_LKEEP to 0.
+        Set item i of __VD_PREVI to -1.
+        Set i to i + 1.
+    Let mutable tails be 0.
+    Set i to 1.
+    While i <= n:
+        Let vi be item i of __VD_SEQ.
+        Let mutable lo be 1.
+        Let mutable hi be tails + 1.
+        While lo < hi:
+            Let mid be (lo + hi) / 2.
+            If item (item mid of __VD_TAILS) of __VD_SEQ < vi:
+                Set lo to mid + 1.
+            Otherwise:
+                Set hi to mid.
+        If lo > 1:
+            Set item i of __VD_PREVI to item (lo - 1) of __VD_TAILS.
+        If lo > tails:
+            Set tails to tails + 1.
+        Set item lo of __VD_TAILS to i.
+        Set i to i + 1.
+    If tails == 0:
+        Return.
+    Let mutable cursor be item tails of __VD_TAILS.
+    While cursor != -1:
+        Set item cursor of __VD_LKEEP to 1.
+        Set cursor to item cursor of __VD_PREVI.
+
+## Note
+Which 1-based entries of `seq` lie on a longest strictly increasing run (1) and which must move (0).
+
+## To vdLongestIncreasingRun(seq: Seq of Int) -> Seq of Int:
+    Let n be length of seq.
+    Let mutable k be 1.
+    While k <= n:
+        vdPutSeq(k, item k of seq, k).
+        Set k to k + 1.
+    vdLis(n).
+    Let out be a new Seq of Int.
+    Set k to 1.
+    While k <= n:
+        Push (item k of __VD_LKEEP) to out.
+        Set k to k + 1.
+    Return out.
+
+## Note
+Links fresh slots 1 to `f` (1-based) under `parent` as its children, in order.
+
+## To vdRelink(parent: Int, f: Int):
+    Let mutable prev be -1.
+    Let mutable j be 1.
+    While j <= f:
+        Let node be item j of __VD_M.
+        Set item (node + 1) of __VD_PARENT to parent.
+        Set item (node + 1) of __VD_PREV to prev.
+        If prev == -1:
+            Set item (parent + 1) of __VD_FIRST to node.
+        Otherwise:
+            Set item (prev + 1) of __VD_NEXT to node.
+        Set prev to node.
+        Set j to j + 1.
+    If prev == -1:
+        Set item (parent + 1) of __VD_FIRST to -1.
+    Otherwise:
+        Set item (prev + 1) of __VD_NEXT to -1.
+    Set item (parent + 1) of __VD_LAST to prev.
+
+## Note
+Diffs `parent`'s children against the fresh tape range from 1-based `start` up to `end`, queuing their own children.
+
+## To vdDiff(parent: Int, start: Int, end: Int):
+    Set __VD_DIFFN to __VD_DIFFN + 1.
+    Let serial be __VD_DIFFN.
+    Let mutable r be 0.
+    Let mutable c be item (parent + 1) of __VD_FIRST.
+    While c != -1:
+        Set r to r + 1.
+        vdPutR(r, c).
+        Set item (c + 1) of __VD_POS to r.
+        Set c to item (c + 1) of __VD_NEXT.
+    Let mutable f be 0.
+    Let mutable p be start.
+    While p < end:
+        Set f to f + 1.
+        vdPutFresh(f, p).
+        Set p to vdTapeSkip(p).
+    Let mutable h be 0.
+    Let mutable trimming be true.
+    While trimming:
+        If h >= r or h >= f:
+            Set trimming to false.
+        Otherwise If vdSame(item (h + 1) of __VD_R, item (h + 1) of __VD_F):
+            Set h to h + 1.
+            vdMatch(h, item h of __VD_R, 1, serial).
+        Otherwise:
+            Set trimming to false.
+    Let mutable t be 0.
+    Set trimming to true.
+    While trimming:
+        If h + t >= r or h + t >= f:
+            Set trimming to false.
+        Otherwise If vdSame(item (r - t) of __VD_R, item (f - t) of __VD_F):
+            vdMatch(f - t, item (r - t) of __VD_R, 1, serial).
+            Set t to t + 1.
+        Otherwise:
+            Set trimming to false.
+    Let lo be h + 1.
+    Let hiR be r - t.
+    Let hiF be f - t.
+    Let mutable sorted be -1.
+    If hiR - lo + 1 > 32:
+        Set sorted to -2.
+    Let mutable cursors be 0.
+    Let mutable fj be lo.
+    While fj <= hiF:
+        Let fp be item fj of __VD_F.
+        Let op be item fp of __VD_TP.
+        If op == 5 or op == 7:
+            Let node be item ((item (fp + 1) of __VD_TP) + 1) of __VD_FRAGNODE.
+            If node != 0:
+                If item (node + 1) of __VD_PARENT == parent and item (node + 1) of __VD_MARK != serial:
+                    vdMatch(fj, node, 0, serial).
+                Otherwise:
+                    vdDetach(node).
+                    vdMatch(fj, node, 3, serial).
+        Otherwise If op == 1 and vdTapeKey(fp) != "":
+            If sorted == -2:
+                Set sorted to vdKeysSortRetained(lo, hiR).
+            Let found be vdKeysFind(vdTapeKey(fp), vdTapeTag(fp), lo, hiR, sorted, serial).
+            If found != 0:
+                vdMatch(fj, found, 0, serial).
+        Otherwise:
+            Let mutable tag be "#text".
+            If op == 1:
+                Set tag to vdTapeTag(fp).
+            Let found be vdFindPositional(tag, lo, hiR, cursors, serial).
+            Set cursors to length of __VD_CT.
+            If found != 0:
+                vdMatch(fj, found, 0, serial).
+        Set fj to fj + 1.
+    Let mutable ri be lo.
+    While ri <= hiR:
+        Let gone be item ri of __VD_R.
+        If item (gone + 1) of __VD_MARK != serial:
+            vdDetach(gone).
+            If not vdWanted(gone):
+                vdDoom(gone).
+        Set ri to ri + 1.
+    Set fj to 1.
+    While fj <= f:
+        Let node be item fj of __VD_M.
+        If node == 0:
+            vdMatch(fj, vdMount(item fj of __VD_F), 2, serial).
+        Otherwise:
+            vdPatch(node, item fj of __VD_F).
+        Set fj to fj + 1.
+    Let mutable n be 0.
+    Set fj to lo.
+    While fj <= hiF:
+        If item fj of __VD_KJ == 0:
+            Set n to n + 1.
+            vdPutSeq(n, item ((item fj of __VD_M) + 1) of __VD_POS, fj).
+        Set fj to fj + 1.
+    vdLis(n).
+    Let mutable k be 1.
+    While k <= n:
+        If item k of __VD_LKEEP == 1:
+            Set item (item k of __VD_SEQJ) of __VD_KJ to 1.
+        Set k to k + 1.
+    Let host be vdRealOf(parent).
+    Let mutable next be -1.
+    If item (parent + 1) of __VD_KIND == 3:
+        Set next to vdAnchorAfter(parent).
+    Let mutable tail be f + 1.
+    If next == -1:
+        While tail > 1 and item (tail - 1) of __VD_KJ == 2:
+            Set tail to tail - 1.
+        Set fj to tail.
+        While fj <= f:
+            Let node be item fj of __VD_M.
+            If item (node + 1) of __VD_KIND != 3:
+                vdEmitAppendChild(host, node).
+                If next == -1:
+                    Set next to node.
+            Set fj to fj + 1.
+    Set fj to tail - 1.
+    While fj >= 1:
+        Let node be item fj of __VD_M.
+        Let state be item fj of __VD_KJ.
+        If state == 2:
+            If item (node + 1) of __VD_KIND != 3:
+                If next == -1:
+                    vdEmitAppendChild(host, node).
+                Otherwise:
+                    vdEmitInsertBefore(host, node, next).
+        Otherwise If state == 0 or state == 3:
+            vdMoveTops(node, host, next).
+        Let first be vdFirstReal(node).
+        If first != -1:
+            Set next to first.
+        Set fj to fj - 1.
+    vdRelink(parent, f).
+
+## Note
+Appends word `v` to the resolved tape `vdSlotsResolve` builds.
+
+## To vdSlotsTqInt(v: Int):
+    Set __VD_TQN to __VD_TQN + 1.
+    If __VD_TQN > length of __VD_TQ:
+        Push v to __VD_TQ.
+    Otherwise:
+        Set item __VD_TQN of __VD_TQ to v.
+
+## Note
+Pushes the 1-based position of an OPEN or FRAG_OPEN just copied, whose end is written when its close is.
+
+## To vdSlotsPushReloc(q: Int):
+    Set __VD_RELOCN to __VD_RELOCN + 1.
+    If __VD_RELOCN > length of __VD_RELOC:
+        Push q to __VD_RELOC.
+    Otherwise:
+        Set item __VD_RELOCN of __VD_RELOC to q.
+
+## Note
+Pushes the tape segment from `start` up to `end` to be copied next.
+
+## To vdSlotsPushSeg(start: Int, end: Int):
+    Set __VD_SEGN to __VD_SEGN + 1.
+    If __VD_SEGN > length of __VD_SEGS:
+        Push start to __VD_SEGS.
+        Push end to __VD_SEGE.
+    Otherwise:
+        Set item __VD_SEGN of __VD_SEGS to start.
+        Set item __VD_SEGN of __VD_SEGE to end.
+
+## Note
+Copies every range into the slot that places it, so the tape every later step reads holds no slot.
+Answers `""`, or why the tape cannot be resolved.
+
+## To vdSlotsResolve() -> Text:
+    If __VD_TAPEERR != "":
+        Return __VD_TAPEERR.
+    Set __VD_TQN to 0.
+    Set __VD_RELOCN to 0.
+    Set __VD_SEGN to 0.
+    Let mutable k be 1.
+    While k <= __VD_XN:
+        Set item k of __VD_XQ to 0.
+        Set k to k + 1.
+    vdSlotsPushSeg(1, __VD_TPN + 1).
+    Let mutable placed be 0.
+    While __VD_SEGN > 0:
+        Let p be item __VD_SEGN of __VD_SEGS.
+        Let end be item __VD_SEGN of __VD_SEGE.
+        If p >= end:
+            Set __VD_SEGN to __VD_SEGN - 1.
+        Otherwise:
+            Let op be item p of __VD_TP.
+            Let after be vdTapeSkipRecord(p).
+            Set item __VD_SEGN of __VD_SEGS to after.
+            If op == 15:
+                Set item __VD_SEGN of __VD_SEGS to (item (p + 1) of __VD_TP) + 1.
+            Otherwise If op == 8:
+                Let range be item (p + 1) of __VD_TP.
+                If range < 1 or range > __VD_TPN or item range of __VD_TP != 15:
+                    Return "vdom: a slot names tape position " + "{range}" + ", which opens no range".
+                Set placed to placed + 1.
+                If placed > __VD_TPN:
+                    Return "vdom: a slot places a range inside itself".
+                vdSlotsPushSeg(range + 2, item (range + 1) of __VD_TP).
+            Otherwise If op != 16:
+                Let q be __VD_TQN + 1.
+                Let mutable w be p.
+                While w < after:
+                    vdSlotsTqInt(item w of __VD_TP).
+                    Set w to w + 1.
+                If op == 1:
+                    vdSlotsPushReloc(q).
+                    Set k to 1.
+                    While k <= __VD_XN:
+                        If item k of __VD_XP == p:
+                            Set item k of __VD_XQ to q.
+                        Set k to k + 1.
+                Otherwise If op == 5:
+                    vdSlotsPushReloc(q).
+                Otherwise If op == 3:
+                    Let o be item __VD_RELOCN of __VD_RELOC.
+                    Set __VD_RELOCN to __VD_RELOCN - 1.
+                    Set item (o + 3) of __VD_TQ to q.
+                Otherwise If op == 6:
+                    Let o be item __VD_RELOCN of __VD_RELOC.
+                    Set __VD_RELOCN to __VD_RELOCN - 1.
+                    Set item (o + 2) of __VD_TQ to q.
+    Let resolved be __VD_TQ.
+    Set __VD_TQ to __VD_TP.
+    Set __VD_TP to resolved.
+    Set __VD_TPN to __VD_TQN.
+    Set k to 1.
+    While k <= __VD_XN:
+        Set item k of __VD_XP to item k of __VD_XQ.
+        Set k to k + 1.
+    Set __VD_SLOTS to 0.
+    Return "".
+
+## Note
+The 1-based tape position just past the ONE record at `p` — an OPEN's header or a FRAG_OPEN's, not the subtree behind it.
+
+## To vdTapeSkipRecord(p: Int) -> Int:
+    Let op be item p of __VD_TP.
+    If op == 1:
+        Return p + 4.
+    If op == 5 or op == 10 or op == 13 or op == 17:
+        Return p + 3.
+    If op == 3 or op == 6 or op == 16:
+        Return p + 1.
+    Return p + 2.
+
+## Note
+Diffs the tape against `node`'s retained children and appends the minimal patch stream; answers
+`""`, or the refusal with the tree untouched.
+
+## To vdCommit(node: Int) -> Text:
+    If __VD_SLOTS != 0:
+        Let resolveProblem be vdSlotsResolve().
+        If resolveProblem != "":
+            vdAbort().
+            Return resolveProblem.
+    Let problem be vdValidate(node).
+    If problem != "":
+        vdAbort().
+        Return problem.
+    Let mutable adopting be false.
+    If ((item (node + 1) of __VD_FLAGS) & 16) != 0:
+        Set item (node + 1) of __VD_FLAGS to (item (node + 1) of __VD_FLAGS) - 16.
+        Set adopting to item (node + 1) of __VD_FIRST == -1.
+    Let wordsBefore be __VD_PWN.
+    Let stringsBefore be __VD_PSN.
+    Set __VD_WN to 0.
+    Set __VD_DOOMN to 0.
+    vdPushWork(node, 1, __VD_TPN + 1).
+    While __VD_WN > 0:
+        Let parent be item __VD_WN of __VD_WP.
+        Let start be item __VD_WN of __VD_WS.
+        Let end be item __VD_WN of __VD_WE.
+        Set __VD_WN to __VD_WN - 1.
+        vdDiff(parent, start, end).
+    vdEmitLate().
+    vdReleaseDoomed().
+    If adopting:
+        Set __VD_PWN to wordsBefore.
+        Set __VD_PSN to stringsBefore.
+        vdAdoptTree(node, true).
+        Set __VD_HYDRATING to node.
+    Set __VD_TPN to 0.
+    Set __VD_TSN to 0.
+    Set __VD_XN to 0.
+    Return "".
+
+## Note
+True when `tag` names a void element, which has no content and no closing tag.
+
+## To vdIsVoid(tag: Text) -> Bool:
+    Return vdTagIn(tag, "area base br col embed hr img input link meta param source track wbr").
+
+## Note
+True when `tag` names a raw text element, whose text is not markup.
+
+## To vdIsRawText(tag: Text) -> Bool:
+    Return vdTagIn(tag, "style script").
+
+## Note
+True when `tag`, compared without ASCII case, is one of the space-separated lowercase `names`.
+
+## To vdTagIn(tag: Text, names: Text) -> Bool:
+    Let bytes be text_bytes(tag).
+    Let n be length of bytes.
+    Let list be text_bytes(names).
+    Let total be length of list.
+    Let mutable at be 1.
+    While at <= total:
+        Let mutable stop be at.
+        While stop <= total and item stop of list != 32:
+            Set stop to stop + 1.
+        If stop - at == n:
+            Let mutable same be true.
+            Let mutable k be 1.
+            While same and k <= n:
+                Let mutable b be item k of bytes.
+                If b >= 65 and b <= 90:
+                    Set b to b + 32.
+                If b != item (at + k - 1) of list:
+                    Set same to false.
+                Set k to k + 1.
+            If same:
+                Return true.
+        Set at to stop + 1.
+    Return false.
+
+## Note
+`s` escaped for an HTML text node (`&`, `<`, `>`), or for an attribute value too when `quote` (`"` as well).
+
+## To vdEscape(s: Text, quote: Bool) -> Text:
+    Let mutable out be "".
+    For each ch in s:
+        If ch == "&":
+            Set out to out + "&amp;".
+        Otherwise If ch == "<":
+            Set out to out + "&lt;".
+        Otherwise If ch == ">":
+            Set out to out + "&gt;".
+        Otherwise If quote and ch == "\"":
+            Set out to out + "&quot;".
+        Otherwise:
+            Set out to out + ch.
+    Return out.
+
+## Note
+True when text `a` sorts before `b` byte by byte, the order a host lists attributes in.
+
+## To vdBytesBefore(a: Text, b: Text) -> Bool:
+    Let x be text_bytes(a).
+    Let y be text_bytes(b).
+    Let nx be length of x.
+    Let ny be length of y.
+    Let mutable k be 1.
+    While k <= nx and k <= ny:
+        If item k of x != item k of y:
+            Return item k of x < item k of y.
+        Set k to k + 1.
+    Return nx < ny.
+
+## Note
+`node`'s attributes as markup, sorted by name the way a host serializes them.
+
+## To vdAttrMarkup(node: Int) -> Text:
+    Let mutable n be 0.
+    Let mutable e be item (node + 1) of __VD_ATTR.
+    While e != 0:
+        Set n to n + 1.
+        vdPutSort(n, e, 0).
+        Set e to item (e + 1) of __VD_ANEXT.
+    Let mutable j be 2.
+    While j <= n:
+        Let mutable k be j.
+        While k > 1 and vdBytesBefore(item ((item k of __VD_SORT) + 1) of __VD_AN, item ((item (k - 1) of __VD_SORT) + 1) of __VD_AN):
+            vdSortSwap(k, k - 1).
+            Set k to k - 1.
+        Set j to j + 1.
+    Let mutable out be "".
+    Set j to 1.
+    While j <= n:
+        Let a be item j of __VD_SORT.
+        Set out to out + " " + item (a + 1) of __VD_AN + "=\"" + vdEscape(item (a + 1) of __VD_AV, true) + "\"".
+        Set j to j + 1.
+    Return out.
+
+## Note
+The text content of `node`: every text node under it, in order.
+
+## To vdTextContent(node: Int) -> Text:
+    If item (node + 1) of __VD_KIND == 2:
+        Return item (node + 1) of __VD_TEXT.
+    Let mutable out be "".
+    Let mutable c be item (node + 1) of __VD_FIRST.
+    While c != -1:
+        If item (c + 1) of __VD_KIND == 2:
+            Set out to out + item (c + 1) of __VD_TEXT.
+            Set c to vdAfter(c, node).
+        Otherwise:
+            Let down be item (c + 1) of __VD_FIRST.
+            If down != -1:
+                Set c to down.
+            Otherwise:
+                Set c to vdAfter(c, node).
+    Return out.
+
+## Note
+The value `select` shows before anyone chooses: its `selected` option's, else its first option's (an option's value attribute, else its text).
+
+## To vdDefaultChoice(select: Int) -> Text:
+    Let mutable first be "".
+    Let mutable seen be false.
+    Let mutable c be item (select + 1) of __VD_FIRST.
+    While c != -1:
+        Let mutable descend be true.
+        If item (c + 1) of __VD_KIND == 1:
+            If vdTagIn(item (c + 1) of __VD_TAG, "option"):
+                Set descend to false.
+                Let mutable value be vdTextContent(c).
+                Let v be vdFindAttr(c, "value").
+                If v != 0:
+                    Set value to item (v + 1) of __VD_AV.
+                If vdFindAttr(c, "selected") != 0:
+                    Return value.
+                If not seen:
+                    Set first to value.
+                    Set seen to true.
+        Let down be item (c + 1) of __VD_FIRST.
+        If descend and down != -1:
+            Set c to down.
+        Otherwise:
+            Set c to vdAfter(c, select).
+    Return first.
+
+## Note
+Pushes `node` at walk `phase` onto the serializer's stack.
+
+## To vdPushSerial(node: Int, phase: Int):
+    Set __VD_SNN to __VD_SNN + 1.
+    If __VD_SNN > length of __VD_SN:
+        Push node to __VD_SN.
+        Push phase to __VD_SPH.
+    Otherwise:
+        Set item __VD_SNN of __VD_SN to node.
+        Set item __VD_SNN of __VD_SPH to phase.
+
+## Note
+Pushes `node`'s children onto the serializer's stack so the first comes off first.
+
+## To vdPushChildren(node: Int):
+    Let mutable c be item (node + 1) of __VD_LAST.
+    While c != -1:
+        vdPushSerial(c, 0).
+        Set c to item (c + 1) of __VD_PREV.
+
+## Note
+`node` rendered to markup as a host serializes it — an element with its tag, a fragment or root as its children.
+
+## To vdSerialize(node: Int) -> Text:
+    Let mutable out be "".
+    Set __VD_SNN to 0.
+    vdPushSerial(node, 0).
+    While __VD_SNN > 0:
+        Let n be item __VD_SNN of __VD_SN.
+        Let phase be item __VD_SNN of __VD_SPH.
+        Set __VD_SNN to __VD_SNN - 1.
+        Let i be n + 1.
+        Let kind be item i of __VD_KIND.
+        If kind == 2:
+            Let up be vdRealOf(item i of __VD_PARENT).
+            If up != -1 and item (up + 1) of __VD_KIND == 1 and vdIsRawText(item (up + 1) of __VD_TAG):
+                Set out to out + item i of __VD_TEXT.
+            Otherwise:
+                Set out to out + vdEscape(item i of __VD_TEXT, false).
+        Otherwise If kind == 1 and phase == 1:
+            Set out to out + "</" + item i of __VD_TAG + ">".
+        Otherwise If kind == 1:
+            Let tag be item i of __VD_TAG.
+            Set out to out + "<" + tag + vdAttrMarkup(n).
+            Let flags be item i of __VD_FLAGS.
+            If (flags & 4) != 0:
+                Set out to out + " checked".
+            Let value be item i of __VD_VALUE.
+            If value != "":
+                If not vdTagIn(tag, "select") or vdDefaultChoice(n) != value:
+                    Set out to out + " value=\"" + vdEscape(value, true) + "\"".
+            Set out to out + ">".
+            If not vdIsVoid(tag):
+                Set out to out + item i of __VD_HTML.
+                vdPushSerial(n, 1).
+                vdPushChildren(n).
+        Otherwise:
+            vdPushChildren(n).
+    Return out.
+
+## Note
+Every child of `node` rendered to markup, in order.
+
+## To vdSerializeChildren(node: Int) -> Text:
+    Let mutable out be "".
+    Let mutable c be item (node + 1) of __VD_FIRST.
+    While c != -1:
+        Set out to out + vdSerialize(c).
+        Set c to item (c + 1) of __VD_NEXT.
+    Return out.

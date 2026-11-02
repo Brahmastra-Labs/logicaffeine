@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're bright, then you're polite or demented",
   "options": [
-    "$ (B \\supset P) \\vee D $",
-    "$ B \\supset P \\vee D $",
-    "$ ((B \\supset P) \\vee D) $",
-    "$ (B \\supset (P \\vee D)) $"
+    "B ∧ (P ∨ D)",
+    "B ∨ P ∨ D",
+    "(P ∨ D) → B",
+    "B → (P ∨ D)"
   ],
   "correct": 3,
-  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
-  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
+  "hint": "Find the whole if part and the whole then part.",
+  "explanation": "The main connective is →, from the if part B to the then part P ∨ D: B → (P ∨ D).",
+  "section": "6.2"
 }

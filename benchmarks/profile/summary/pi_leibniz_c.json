@@ -1,0 +1,11 @@
+{
+  "name": "pi_leibniz",
+  "lang": "c",
+  "n": "5833224944",
+  "samples_weight": 23341086916,
+  "alloc_pct": 0.013,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 99.987
+}

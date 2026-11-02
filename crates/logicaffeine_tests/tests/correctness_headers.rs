@@ -19,7 +19,10 @@ fn typo_main_header_errors_with_suggestion() {
 Show 1.
 "#,
     );
-    assert!(!r.success, "a typo'd code header must not run to empty output");
+    assert!(
+        !r.success,
+        "a typo'd code header must not run to empty output"
+    );
     assert!(
         r.error.contains("Main"),
         "the error should suggest the intended header, got: {}",

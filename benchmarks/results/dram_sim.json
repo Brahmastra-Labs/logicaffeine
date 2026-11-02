@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "model": "LPDDR5X-class 16-bank closed-page, bank-rotated, background per-bank refresh",
+    "timings": { "trcd": 15, "trp": 15, "tras": 34, "trc": 49, "trrd": 8, "tfaw": 40, "tccd": 8, "trfc_pb": 112, "trefi_pb": 3906, "twr": 18, "tturn": 6, "banks": 16, "row_bytes": 2048, "burst_bytes": 32 },
+    "note": "pure function of the timing table — regenerate with DRAM_RECORD=1 cargo test dram_sim_artifact", "unmodeled": "bank-group tCCD_L/S, ZQ calibration, command-bus contention — flagged for the memory-architect review"
+  },
+  "scenarios": {
+    "sequential_read_1mb": { "efficiency": 0.9966, "bursts": 32768, "activates": 512, "refreshes": 1077, "span_cycles": 263034 },
+    "soa7_rowtiled_nbody": { "efficiency": 0.9253, "bursts": 28672, "activates": 448, "refreshes": 1015, "span_cycles": 247898 },
+    "merge3_rowtiled": { "efficiency": 0.9537, "bursts": 32768, "activates": 512, "refreshes": 1125, "span_cycles": 274881 },
+    "gather_4096_random": { "efficiency": 0.4908, "bursts": 4096, "activates": 4096, "refreshes": 273, "span_cycles": 66758 },
+    "sequential_read_1mb_hot": { "efficiency": 0.9989, "bursts": 32768, "activates": 512, "refreshes": 2149, "span_cycles": 262424 }
+  }
+}

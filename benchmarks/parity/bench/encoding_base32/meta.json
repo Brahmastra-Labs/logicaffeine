@@ -1,0 +1,11 @@
+{
+  "capability": "encoding.base32",
+  "workload": "base32Encode(s) length fold",
+  "arg": "30000",
+  "expected": "194472000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python",
+    "go"
+  ]
+}

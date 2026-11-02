@@ -212,7 +212,9 @@ fn eval_expr(e: &ProofExpr, env: &BTreeMap<String, i64>) -> Option<bool> {
 }
 
 fn eval_cmp(t: &ProofTerm, env: &BTreeMap<String, i64>) -> Option<bool> {
-    let ProofTerm::Function(name, args) = t else { return None };
+    let ProofTerm::Function(name, args) = t else {
+        return None;
+    };
     if args.len() != 2 {
         return None;
     }
@@ -229,10 +231,7 @@ fn eval_cmp(t: &ProofTerm, env: &BTreeMap<String, i64>) -> Option<bool> {
 
 fn eval_term(t: &ProofTerm, env: &BTreeMap<String, i64>) -> Option<i64> {
     match t {
-        ProofTerm::Constant(s) => s
-            .parse::<i64>()
-            .ok()
-            .or_else(|| env.get(s).copied()),
+        ProofTerm::Constant(s) => s.parse::<i64>().ok().or_else(|| env.get(s).copied()),
         ProofTerm::Variable(s) => env.get(s).copied(),
         ProofTerm::Function(name, args) if args.len() == 2 => {
             let a = eval_term(&args[0], env)?;

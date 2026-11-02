@@ -1,0 +1,281 @@
+{
+  "case": "T05-017",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 35,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T05_017.MyNum",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_017.MyNum \u2192 Sort u} \u2192 (t : T05_017.MyNum) \u2192 ((v : Nat) \u2192 motive { v := v }) \u2192 motive t",
+      "name": "T05_017.MyNum.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T05_017.MyNum",
+      "name": "T05_017.MyNum.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {v v_1 : Nat}, { v := v } = { v := v_1 } \u2192 v = v_1",
+      "name": "T05_017.MyNum.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (v v_1 : Nat), ({ v := v } = { v := v_1 }) = (v = v_1)",
+      "name": "T05_017.MyNum.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (v : Nat), sizeOf { v := v } = 1 + sizeOf v",
+      "name": "T05_017.MyNum.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_017.MyNum} \u2192 v1 = v2 \u2192 T05_017.MyNum.noConfusionType P v1 v2",
+      "name": "T05_017.MyNum.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_017.MyNum \u2192 T05_017.MyNum \u2192 Sort u",
+      "name": "T05_017.MyNum.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_017.MyNum \u2192 Sort u} \u2192 ((v : Nat) \u2192 motive { v := v }) \u2192 (t : T05_017.MyNum) \u2192 motive t",
+      "name": "T05_017.MyNum.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_017.MyNum \u2192 Sort u} \u2192 (t : T05_017.MyNum) \u2192 ((v : Nat) \u2192 motive { v := v }) \u2192 motive t",
+      "name": "T05_017.MyNum.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_017.MyNum \u2192 Nat",
+      "name": "T05_017.MyNum.v",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_017.WrapNat",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_017.WrapNat \u2192 Sort u} \u2192 (t : T05_017.WrapNat) \u2192 ((unwrap : Nat) \u2192 motive { unwrap := unwrap }) \u2192 motive t",
+      "name": "T05_017.WrapNat.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T05_017.WrapNat",
+      "name": "T05_017.WrapNat.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {unwrap unwrap_1 : Nat}, { unwrap := unwrap } = { unwrap := unwrap_1 } \u2192 unwrap = unwrap_1",
+      "name": "T05_017.WrapNat.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (unwrap unwrap_1 : Nat), ({ unwrap := unwrap } = { unwrap := unwrap_1 }) = (unwrap = unwrap_1)",
+      "name": "T05_017.WrapNat.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (unwrap : Nat), sizeOf { unwrap := unwrap } = 1 + sizeOf unwrap",
+      "name": "T05_017.WrapNat.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_017.WrapNat} \u2192 v1 = v2 \u2192 T05_017.WrapNat.noConfusionType P v1 v2",
+      "name": "T05_017.WrapNat.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_017.WrapNat \u2192 T05_017.WrapNat \u2192 Sort u",
+      "name": "T05_017.WrapNat.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_017.WrapNat \u2192 Sort u} \u2192 ((unwrap : Nat) \u2192 motive { unwrap := unwrap }) \u2192 (t : T05_017.WrapNat) \u2192 motive t",
+      "name": "T05_017.WrapNat.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_017.WrapNat \u2192 Sort u} \u2192 (t : T05_017.WrapNat) \u2192 ((unwrap : Nat) \u2192 motive { unwrap := unwrap }) \u2192 motive t",
+      "name": "T05_017.WrapNat.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_017.WrapNat \u2192 Nat",
+      "name": "T05_017.WrapNat.unwrap",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Float",
+      "name": "T05_017.atFloat",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Int",
+      "name": "T05_017.atInt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_017.MyNum",
+      "name": "T05_017.atMyNum",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_017.MyNum",
+      "name": "T05_017.atMyNum7",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T05_017.atNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T05_017.bare",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T05_017.huge",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 OfNat T05_017.MyNum n",
+      "name": "T05_017.instAllNums",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "OfNat T05_017.MyNum 3",
+      "name": "T05_017.instOfNatMyNumOfNatNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n : Nat) \u2192 OfNat T05_017.WrapNat n",
+      "name": "T05_017.instOfNatWrapNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int",
+      "name": "T05_017.negFive",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int \u2192 Int",
+      "name": "T05_017.takesInt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_017.WrapNat",
+      "name": "T05_017.wrapped",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

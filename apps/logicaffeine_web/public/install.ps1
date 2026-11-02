@@ -1,9 +1,9 @@
 # largo installer (Windows) — the LOGOS build tool.
 #
-#   powershell -ExecutionPolicy Bypass -c "irm https://logicaffeine.com/install.ps1 | iex"
+#   irm https://logicaffeine.com/install.ps1 | iex        (in PowerShell)
 #
 # Pinned version / full flavor:
-#   & ([scriptblock]::Create((irm https://logicaffeine.com/install.ps1))) -Full -Version v0.10.0
+#   & ([scriptblock]::Create((irm https://logicaffeine.com/install.ps1))) -Full -Version v0.11.0
 #
 # Installs largo.exe to %LOCALAPPDATA%\Programs\largo and adds that folder
 # to your *user* PATH. Downloads are verified against the release's

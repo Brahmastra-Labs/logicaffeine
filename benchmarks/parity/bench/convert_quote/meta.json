@@ -1,0 +1,10 @@
+{
+  "capability": "convert.quote",
+  "workload": "len quoteText(numText(i))",
+  "arg": "1500000",
+  "expected": "12388896",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

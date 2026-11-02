@@ -39,17 +39,18 @@
 //! ```
 
 // Sipping requires persistence (sha2, memmap2) AND concurrency (Zone/bumpalo)
+mod behaviour;
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/e2e_tests.rs"]
+mod e2e_tests;
+pub mod gossip;
+mod mesh;
+mod protocol;
 #[cfg(all(feature = "persistence", feature = "concurrency"))]
 mod sipping;
 pub mod wire;
-mod protocol;
-mod behaviour;
-mod mesh;
-pub mod gossip;
-#[cfg(test)]
-mod e2e_tests;
 
-#[cfg(all(feature = "persistence", feature = "concurrency"))]
-pub use sipping::{FileSipper, FileManifest, FileChunk, DEFAULT_CHUNK_SIZE};
-pub use mesh::{listen, connect, send, local_peer_id, PeerAgent, MeshNode, NetworkError};
+pub use mesh::{connect, listen, local_peer_id, send, MeshNode, NetworkError, PeerAgent};
 pub use mesh::{gossip_publish, gossip_subscribe};
+#[cfg(all(feature = "persistence", feature = "concurrency"))]
+pub use sipping::{FileChunk, FileManifest, FileSipper, DEFAULT_CHUNK_SIZE};

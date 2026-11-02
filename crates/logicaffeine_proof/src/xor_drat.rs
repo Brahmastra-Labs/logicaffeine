@@ -35,7 +35,11 @@ pub fn gadget_clauses(eq: &XorEquation) -> Vec<Vec<Lit>> {
         // `mask` is the assignment (bit i = value of vars[i]); it violates the parity when its
         // popcount-parity disagrees with the rhs. The forbidding clause is false under `mask`.
         if (mask.count_ones() % 2 == 1) != eq.rhs {
-            out.push((0..k).map(|i| Lit::new(eq.vars[i] as u32, (mask >> i) & 1 == 0)).collect());
+            out.push(
+                (0..k)
+                    .map(|i| Lit::new(eq.vars[i] as u32, (mask >> i) & 1 == 0))
+                    .collect(),
+            );
         }
     }
     out
@@ -43,7 +47,10 @@ pub fn gadget_clauses(eq: &XorEquation) -> Vec<Vec<Lit>> {
 
 /// Canonical key for a clause (sorted, deduped literal codes), for dedup/subsumption-free bookkeeping.
 fn key(c: &[Lit]) -> Vec<u32> {
-    let mut k: Vec<u32> = c.iter().map(|l| l.var() * 2 + u32::from(!l.is_positive())).collect();
+    let mut k: Vec<u32> = c
+        .iter()
+        .map(|l| l.var() * 2 + u32::from(!l.is_positive()))
+        .collect();
     k.sort_unstable();
     k.dedup();
     k
@@ -65,7 +72,10 @@ fn resolve(a: &[Lit], b: &[Lit], v: u32) -> Option<Vec<Lit>> {
             seen.insert(l.var(), l.is_positive());
         }
     }
-    let mut out: Vec<Lit> = seen.into_iter().map(|(var, pos)| Lit::new(var, pos)).collect();
+    let mut out: Vec<Lit> = seen
+        .into_iter()
+        .map(|(var, pos)| Lit::new(var, pos))
+        .collect();
     out.sort_by_key(|l| l.var() * 2 + u32::from(!l.is_positive()));
     Some(out)
 }
@@ -106,7 +116,10 @@ fn resolution_refutation(support: &[Vec<Lit>]) -> Option<Vec<Vec<Lit>>> {
     }
 
     loop {
-        let vars: BTreeSet<u32> = active.iter().flat_map(|c| c.iter().map(|l| l.var())).collect();
+        let vars: BTreeSet<u32> = active
+            .iter()
+            .flat_map(|c| c.iter().map(|l| l.var()))
+            .collect();
         if vars.is_empty() {
             return None; // nothing left to eliminate but no empty clause: input was satisfiable
         }
@@ -146,7 +159,9 @@ fn resolution_refutation(support: &[Vec<Lit>]) -> Option<Vec<Vec<Lit>>> {
                 if work > RESOLUTION_WORK_BUDGET {
                     return None; // raw-work blowup: bail fast, fail-closed.
                 }
-                let Some(r) = resolve(cp, cn, v) else { continue };
+                let Some(r) = resolve(cp, cn, v) else {
+                    continue;
+                };
                 if r.is_empty() {
                     emitted.push(Vec::new());
                     return Some(emitted);
@@ -182,7 +197,10 @@ pub fn emit_xor_drat(equations: &[XorEquation], refutation: &[usize]) -> Option<
 /// The emitted clauses are resolvents of *real* CNF clauses, so each is RUP against the original
 /// formula by construction and a `drat-trim` check holds. `None` if that sub-CNF is not UNSAT (so the
 /// caller's algebraic verdict could not be reproduced clausally — a fail-closed signal).
-pub fn emit_drat_over_support(clauses: &[Vec<Lit>], support: &BTreeSet<u32>) -> Option<Vec<Vec<Lit>>> {
+pub fn emit_drat_over_support(
+    clauses: &[Vec<Lit>],
+    support: &BTreeSet<u32>,
+) -> Option<Vec<Vec<Lit>>> {
     let sub: Vec<Vec<Lit>> = clauses
         .iter()
         .filter(|c| c.iter().all(|l| support.contains(&l.var())))
@@ -217,38 +235,13 @@ pub fn emit_modp_drat(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Vec<Vec<L
             groups_involved.insert(g);
         }
     }
-    let support: BTreeSet<u32> =
-        groups_involved.iter().flat_map(|&g| rec.groups[g].iter().copied()).collect();
+    let support: BTreeSet<u32> = groups_involved
+        .iter()
+        .flat_map(|&g| rec.groups[g].iter().copied())
+        .collect();
     emit_drat_over_support(clauses, &support)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::xorsat::{self, XorOutcome};
-
-    #[test]
-    fn xor_linear_dependency_compiles_to_a_drat_refutation_checked_by_rup() {
-        // x0⊕x1=0, x1⊕x2=0, x0⊕x2=1 — their GF(2) sum is 0=1, so UNSAT. The CNF is the union of the
-        // three parity gadgets. We compile the linear-dependency certificate to DRAT and require our
-        // INDEPENDENT RUP checker to accept it, ending in the empty clause.
-        let eqs = vec![
-            XorEquation::new(vec![0, 1], false),
-            XorEquation::new(vec![1, 2], false),
-            XorEquation::new(vec![0, 2], true),
-        ];
-        let num_vars = 3;
-        let clauses: Vec<Vec<Lit>> = eqs.iter().flat_map(gadget_clauses).collect();
-
-        let refutation = match xorsat::solve(&eqs, num_vars) {
-            XorOutcome::Unsat(s) => s,
-            XorOutcome::Sat(_) => panic!("the system is UNSAT"),
-        };
-        let drat = emit_xor_drat(&eqs, &refutation).expect("a linear dependency must compile to DRAT");
-        assert!(drat.last().is_some_and(|c| c.is_empty()), "the proof must end in the empty clause");
-        assert!(
-            crate::rup::check_refutation(num_vars, &clauses, &drat),
-            "every DRAT line must be RUP and the proof must refute the CNF"
-        );
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_proof/xor_drat/tests.rs"]
+mod tests;

@@ -1,0 +1,239 @@
+{
+  "meta": {
+    "date": "2026-07-15T00:00:00Z",
+    "yosys": "Yosys 0.33 (git sha1 2584903a060)",
+    "nextpnr": "unknown",
+    "note": "soft_core_scalar refreshed 2026-07-15; rev_core/alu/rev_*/keccak/ntt/dram_executor/seeded_arbiter/secded from 2026-07-14. The routable soft-core is soft_core_scalar (full 113-op soft_core.v no longer routes). | 2026-07-24: coprocessor datapaths crdt_merge, chan_fifo, bigint_alu (add/sub/cmp), bigint_mul (64x64), fabric_horner (64-bit) \u2014 each == its software oracle under iverilog AND proven exhaustively by our own certified SAT / k-induction; and coproc_core, a routed core that ISSUES these as CPU instructions (fetch/decode/route/retire), == shipped BigInt/GCounter.",
+    "bitstreams": {
+      "produced": [
+        "soft_core_scalar.bit",
+        "rev_core.bit",
+        "rev_alu32.bit",
+        "dram_executor.bit",
+        "coproc_soc.bit"
+      ],
+      "bytes_each": 1927725,
+      "tool": "ecppack (prjtrellis, built from source in tools/ with BUILD_PYTHON=OFF + local boost symlinks)",
+      "note": "Flash the routable scalar soft-core to a ULX3S with: openFPGALoader -b ulx3s soft_core_scalar.bit. (soft_core.bit is a superseded 2026-07-14 pre-refactor bitstream of an earlier op-limited core; do not cite it as the current full CPU.)"
+    }
+  },
+  "blocks": {
+    "rev_alu32": {
+      "trellis_io": 65,
+      "trellis_ff": 32,
+      "trellis_comb": 38,
+      "fmax_mhz": 293.77
+    },
+    "rev_alu_core": {
+      "trellis_io": 68,
+      "trellis_ff": 64,
+      "trellis_comb": 336,
+      "fmax_mhz": 142.65,
+      "sim": "PASS"
+    },
+    "rev_core": {
+      "trellis_io": 74,
+      "trellis_ff": 64,
+      "trellis_comb": 507,
+      "fmax_mhz": 150.78,
+      "sim": "PASS"
+    },
+    "alu": {
+      "sim": "PASS",
+      "trellis_io": 104,
+      "trellis_ff": 0,
+      "trellis_comb": 1467,
+      "note": "the combinational general ALU (add/sub, DSP-mapped multiply, DivPow2 shift, barrel shifts, signed compares, bitwise). Div/ExactDiv/Mod/FloorDiv were REMOVED (division is sequential): the soft-core now issues those to the shared_divider, dropping the ALU from 20,010 -> 1,467 LUT (~13.6x; the ~18,500-LUT combinational divider is gone). == the VM under iverilog (tb_alu) AND certified by our own SAT (the_general_alu_datapath_is_proven_correct_by_our_sat, which now also asserts the combinational divide is absent)."
+    },
+    "soft_core_scalar": {
+      "sim": "PASS",
+      "trellis_io": 36,
+      "trellis_ff": 746,
+      "trellis_comb": 966,
+      "fmax_mhz": 63.93,
+      "note": "scalar-ISA fetch-decode-execute CPU (reversible core + LoadConst/Move + branches + Call/Return register-window recursion + the proven ALU); places-and-routes with 0 errors -> soft_core_scalar.bit. The routable soft-core today."
+    },
+    "soft_core_full": {
+      "sim": "PASS",
+      "trellis_comb": 130011,
+      "dp16kd": 1,
+      "timing_loops": 0,
+      "note": "the full 113-op soft_core.v: iverilog-verified across 58 auto-generated testbenches == the VM (drift-free). The sync-read/BRAM refactor (E2f) is COMPLETE: all 113 ops read through one synchronous port, so dmem now maps to block RAM (DP16KD=1) and nextpnr reports ZERO combinatorial loops (the async-memory blocker is solved). It does NOT fit the ECP5-85K purely on SIZE: 130011 TRELLIS_COMB vs 83640 (155%) \u2014 a full 113-op CPU with a 32-bit multiply/divide ALU is large; the biggest ECP5 is the 85K. The whole core is now a valid, block-RAM-mapped, timing-clean, formally-==VM design that routes on a larger fabric (Artix-7 100T class); soft_core_scalar + the crypto/DRAM/SECDED blocks route on the ULX3S ECP5-85K today."
+    },
+    "keccak_core": {
+      "trellis_comb": 7096,
+      "trellis_ff": 3214,
+      "sim": "PASS",
+      "note": "iterative Keccak-f[1600] round logic; SYNTH estimate (bare core has a 1600-bit parallel state port, too many IOs to PnR standalone); bit-exact vs native oracle under iverilog"
+    },
+    "ntt_butterfly": {
+      "trellis_comb": 78,
+      "trellis_ff": 0,
+      "note": "combinational Montgomery fqmul + CT butterfly; bit-exact vs native fqmul"
+    },
+    "dram_executor": {
+      "trellis_comb": 91,
+      "trellis_ff": 106,
+      "fmax_mhz": 144.99,
+      "sim": "PASS",
+      "note": "rung-3 in-order command-stream FSM"
+    },
+    "seeded_arbiter": {
+      "trellis_comb": 1751,
+      "trellis_ff": 64,
+      "fmax_mhz": 21.15,
+      "sim": "PASS",
+      "note": "SplitMix64 NoC arbiter; draws bit-identical to seeded_pick"
+    },
+    "secded_enc": {
+      "trellis_comb": 238,
+      "trellis_ff": 0,
+      "note": "SECDED(72,64) encoder (Hamming SEC + parity)"
+    },
+    "secded_dec": {
+      "trellis_comb": 368,
+      "trellis_ff": 0,
+      "sim": "PASS",
+      "note": "SECDED(72,64) decoder/corrector; 44 fault cases bit-exact vs oracle (SEC+DED)"
+    },
+    "double_buffer": {
+      "trellis_comb": 2,
+      "trellis_ff": 1,
+      "note": "ping-pong scratchpad bank select; read!=fill by construction"
+    },
+    "keccak_top": {
+      "trellis_comb": 25388,
+      "trellis_ff": 4815,
+      "trellis_io": 138,
+      "fmax_mhz": 95.09,
+      "sim": "PASS",
+      "note": "narrow-bus (64-bit lane) streaming wrapper around keccak_core; genuinely place-and-routes on ECP5 (0 errors); incl. 1600-bit state reg + lane mux"
+    },
+    "crdt_merge": {
+      "trellis_comb": 817,
+      "trellis_ff": 0,
+      "sim": "PASS",
+      "note": "CRDT (G-Counter) join-semilattice merge unit: per-replica max + value, 4x32-bit combinational. == logicaffeine_data::crdt::GCounter::merge under iverilog (crdt_merge_unit_matches_the_gcounter_oracle)."
+    },
+    "chan_fifo": {
+      "trellis_comb": 75,
+      "trellis_ff": 13,
+      "fmax_mhz": 180.25,
+      "sim": "PASS",
+      "note": "the language Pipe as a bounded FIFO channel (DEPTH 8, 32-bit). A 200-step send/recv trace == the software channel's VecDeque discipline under iverilog (chan_fifo_matches_the_runtime_channel)."
+    },
+    "fabric_horner": {
+      "trellis_comb": 1712,
+      "trellis_ff": 0,
+      "sim": "PASS",
+      "note": "Futamura P1: the REAL compiler residualizes a program dispatch-free (count_dispatch==0); we lower that actual register bytecode register->SSA to a 64-bit fixed dataflow circuit (no fetch/decode/dispatch). == the RUNNING VM reduced mod 2^64 for the full i64 range incl. overflow (a_specialized_residual...), across a BATTERY of distinct programs, AND a multiply-free residual is certified == its closed form exhaustively by our own SAT (a_multiply_free_residual_lowers_to_a_certified_circuit). 64-bit = width-exact to the VM's Int projected to the machine word."
+    },
+    "bigint_alu": {
+      "trellis_comb": 769,
+      "trellis_ff": 0,
+      "sim": "PASS",
+      "note": "256-bit (4x64 limb) BigInt datapath: add (carry) + subtract (borrow) + unsigned compare over one shared chain. == the software limb ops under iverilog AND a certified abelian group + total order by our own SAT (the_bigint_alu_is_a_certified_group_and_order). 1028 datapath pins overflow the 365 ECP5 IO standalone; on-die it is internal to the register bus (coproc_core)."
+    },
+    "bigint_mul": {
+      "trellis_comb": 1277,
+      "trellis_ff": 0,
+      "sim": "PASS",
+      "note": "the 64x64->128 limb multiplier mag_mul iterates; the full 256-bit product is this composed with the proven bigint_alu carry-adds. == (a as u128)*(b as u128) under iverilog AND certified commutative + distributive over add by our own SAT (the_bigint_multiplier_is_certified_by_our_sat)."
+    },
+    "bigint_div": {
+      "trellis_comb": 4340,
+      "trellis_ff": 1548,
+      "sim": "PASS",
+      "note": "the 256-bit BigInt divide block: a SEQUENTIAL unsigned long divider (1 bit/cycle restoring, 256 cycles) computing q = a/b, r = a%b over magnitudes, b==0 -> q=r=0 -- the wide analogue of shared_divider's magnitude core (no signed fixup; BigInt carries its sign separately). 4,340 LUT / 1,548 FF on the ECP5-85K. == the reference 256-bit magnitude div/mod (numeric::mag_div) under iverilog (tb_bigint_div, edge cases + 2000 random pairs) AND == the reference by the cycle-faithful Rust model the_bigint_divider_computes_magnitude_div_like_the_reference. Feeds the numeric-tower BigInt divide the way shared_divider feeds the 32-bit ALU."
+    },
+    "coproc_core": {
+      "trellis_comb": 4576,
+      "trellis_ff": 2053,
+      "fmax_mhz": 42.59,
+      "sim": "PASS",
+      "note": "a minimal core that ISSUES coprocessor instructions (BADD/BSUB/BMUL/CMERGE) to the real bigint_alu/bigint_mul/crdt_merge blocks and RETIRES to an 8x256-bit register file (fetch->decode->route->retire), routed on the ECP5-85K. == the software oracle under iverilog (coproc_core issued ... matching the oracle) and each retired register == shipped BigInt/GCounter (coproc_core_retires_shipped_bigint_and_gcounter_results). Demonstrator; full 113-op soft-core integration is in progress."
+    },
+    "coproc_soc": {
+      "trellis_comb": 7602,
+      "trellis_ff": 2107,
+      "fmax_mhz": 35.96,
+      "sim": "PASS",
+      "note": "the ULX3S-flashable wrapper around coproc_core: a 7-state UART-TX sequencer holds the core in reset, runs it to halt, then streams the four retired result registers (R2..R5 = BADD/BSUB/BMUL/CMERGE, 256-bit each) MSB byte first behind a 0xA5 sync byte. Placed-and-routed on the ECP5-85K with the real ulx3s_coproc.lpf pins (clk G2 25MHz, rst FIRE1, uart_tx->FTDI RXD, 8 LEDs) -> coproc_soc.bit (388 KB). == run_core under iverilog (tb_coproc_soc streamed R2..R5 matching run_core, sync + 128 bytes); scripts/coproc-host.py reconstructs R2..R5 from the UART stream off a flashed board and matches the model. 11 external pins vs coproc_core's 262 -> the coprocessor-issuing core now boots on real hardware. Fmax placement-dependent (~36-44 MHz across runs), always above the 25 MHz board clock."
+    },
+    "shared_divider": {
+      "trellis_comb": 833,
+      "trellis_ff": 204,
+      "fmax_mhz": 99.86,
+      "sim": "PASS",
+      "note": "ONE sequential restoring divider computing signed quotient AND remainder (Div/Mod/FloorDiv), replacing the ~22,000-LUT COMBINATIONAL $signed(a)/$signed(b) + $signed(a)%$signed(b) the ALU instantiates per-op: 833 LUT / 204 FF at ~100 MHz -> a ~26x LUT drop (the standalone combinational div+mod synthesizes to 24,614 yosys cells; this is 1,178). Truncated round-toward-zero semantics matching the VM (quotient sign = sign(a)^sign(b), remainder sign = sign(a); b==0 -> q=r=0), a 1-bit/cycle restoring loop over |a|/|b| then a sign fixup; the soft-core pulses start and stalls until done. == the combinational $signed div/mod oracle under iverilog (tb_shared_divider, all sign/edge cases + 4000 random pairs) AND == the VM's truncated i32 div/mod by the Rust model the_shared_divider_computes_truncated_signed_div_mod_like_the_vm. The LUT lever that fits the full 113-op CPU under 83,640."
+    },
+    "cgra_sumto": {
+      "sim": "PASS",
+      "trellis_io": 131,
+      "trellis_ff": 129,
+      "trellis_comb": 406,
+      "fmax_mhz": 95.17,
+      "note": "the Futamura counted-loop CGRA: a compiled `Repeat for i from lo to hi` loop as a fixed spatial body datapath (wired SSA) streamed by a sequential loop counter \u2014 no fetch/decode/dispatch. == the running VM under iverilog (tb_cgra_sumto, 48 trip counts incl. 0-iteration), across a battery of loops (sumto/fact/sumsq/wsum, i64-overflow included), and the body's one-step transition proven == total+i EXHAUSTIVELY by our own certified SAT (the induction step). Routes on the ECP5-85K."
+    },
+    "cgra_altsum": {
+      "trellis_io": 131,
+      "trellis_ff": 129,
+      "trellis_comb": 607,
+      "fmax_mhz": 98.29,
+      "sim": "PASS",
+      "note": "the Futamura predicated CGRA: a compiled loop whose body has a data-dependent `If \u2026 Otherwise \u2026` branch, if-converted to a mux tile (both arms compute, the signed predicate selects). == the VM under iverilog (tb_cgra_altsum, 48 trip counts) and the predicated one-step transition proven == its closed form EXHAUSTIVELY by our own certified SAT. Routes on the ECP5-85K."
+    },
+    "while_accw": {
+      "trellis_io": 131,
+      "trellis_ff": 129,
+      "trellis_comb": 365,
+      "fmax_mhz": 92.75,
+      "sim": "PASS",
+      "note": "the Futamura while-loop CGRA: a `While a is less than n` loop whose CONTINUE condition is a fabric-computed predicate over the loop-carried state (not a counter) \u2014 the trip count is decided by the datapath. == the VM under iverilog (tb_while_accw, 48 data-dependent trip counts); the body step certified by our own SAT. Routes on the ECP5-85K."
+    },
+    "while_clampw": {
+      "trellis_io": 131,
+      "trellis_ff": 129,
+      "trellis_comb": 437,
+      "fmax_mhz": 90.56,
+      "sim": "PASS",
+      "note": "the Futamura while-loop CGRA with a BRANCH body: a data-dependent `while` whose body ALSO if-converts an inner `If` to a mux (predicate controller + mux combined). == the VM under iverilog (tb_while_clampw, 48 runs). Routes on the ECP5-85K."
+    },
+    "nested_nsum": {
+      "trellis_io": 131,
+      "trellis_ff": 195,
+      "trellis_comb": 634,
+      "fmax_mhz": 93.84,
+      "sim": "PASS",
+      "note": "the Futamura nested-loop CGRA (hierarchical outer+inner controller, 3-state SETUP/RUN/DONE FSM): the outer counter runs the inner loop to completion each iteration; fixed inner bound \u2192 n\u00b2. == the VM under iverilog (tb_nested_nsum, 24 sizes); inner body-step certified by our own SAT (double induction). Routes on the ECP5-85K."
+    },
+    "nested_tri": {
+      "trellis_io": 131,
+      "trellis_ff": 195,
+      "trellis_comb": 646,
+      "fmax_mhz": 91.36,
+      "sim": "PASS",
+      "note": "the Futamura nested-loop CGRA with the inner range wired to the OUTER induction variable (`for j from 1 to i`, `wire ihi = oi`) \u2192 n(n+1)/2. == the VM under iverilog (tb_nested_tri, 24 sizes); sound by double induction (certified inner body-step). Routes on the ECP5-85K."
+    },
+    "grid_horner": {
+      "trellis_comb": 1712,
+      "dsp_mult18": 20,
+      "sim": "PASS",
+      "note": "the placed-and-routed CGRA tile array: the REAL compiled Horner residual mapped onto a 14x6 array of identical tiles with a two-channel switchbox interconnect (independent vertical/horizontal nearest-neighbour wires) by our own placer+router. == the RUNNING VM under iverilog (tb_grid_horner, 48 evaluations) AND the placed+routed array proven == the abstract datapath EXHAUSTIVELY by our own certified SAT (place-and-route is semantics-preserving). 1712 LUT / 20 DSP on the ECP5-85K \u2014 the SAME cost as the hand-wired datapath (fabric_horner), since the switchbox passthroughs are wires; a true reconfigurable array, the culmination of Futamura\u2192silicon."
+    },
+    "tmux_linsq": {
+      "trellis_comb": 1189,
+      "dsp_mult18": 14,
+      "sim": "PASS",
+      "note": "the time-multiplexed CGRA array: ONE placed+routed tile array running TWO fabrics (lin 3x+7 and sq x^2+1) selected by a ctx configuration bit, every tile muxed on ctx. == the VM under iverilog across BOTH contexts (tb_tmux_linsq, 48 runs each) AND proven ctx=1==>fabricA and ctx=0==>fabricB EXHAUSTIVELY by our own certified SAT. The reconfigurable-array payoff: one silicon array runs any program by loading a config. 1189 LUT / 14 DSP on ECP5-85K."
+    },
+    "storage_controller": {
+      "trellis_comb": 92,
+      "trellis_ff": 59,
+      "trellis_io": 85,
+      "fmax_mhz": 150.88,
+      "sim": "PASS",
+      "note": "in-order NAND storage command-stream executor (the storage analog of dram_executor); replays a host-managed-flash plan zero-jitter"
+    }
+  }
+}

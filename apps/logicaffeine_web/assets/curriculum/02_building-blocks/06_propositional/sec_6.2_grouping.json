@@ -1,0 +1,94 @@
+{
+  "id": "6.2",
+  "title": "Grouping",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Letters like P and Q stand for whole sentences. Parentheses show what each connective joins: 'both A and either B or C' is A ∧ (B ∨ C)."
+    },
+    {
+      "type": "paragraph",
+      "text": "¬ applies to the smallest formula after it: ¬P ∨ Q denies only P, while ¬(P ∨ Q) denies the whole disjunction."
+    },
+    {
+      "type": "symbols",
+      "title": "Other ways to say it",
+      "symbols": [
+        {
+          "symbol": "A only if B",
+          "name": "A → B",
+          "meaning": "What follows 'only if' is the then part."
+        },
+        {
+          "symbol": "A if B",
+          "name": "B → A",
+          "meaning": "What follows 'if' is the if part."
+        },
+        {
+          "symbol": "A unless B",
+          "name": "A ∨ B",
+          "meaning": "Unless means or."
+        },
+        {
+          "symbol": "A is sufficient for B",
+          "name": "A → B",
+          "meaning": "A guarantees B."
+        },
+        {
+          "symbol": "A is necessary for B",
+          "name": "B → A",
+          "meaning": "Without A, no B."
+        },
+        {
+          "symbol": "A just if B",
+          "name": "A ↔ B",
+          "meaning": "Each holds exactly when the other does."
+        }
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Not both",
+      "lines": [
+        "You are not both rich and famous.",
+        "¬(R ∧ F)"
+      ],
+      "note": "The denial covers the whole conjunction."
+    },
+    {
+      "type": "worked",
+      "title": "Neither",
+      "lines": [
+        "You are neither rich nor famous.",
+        "¬(R ∨ F)"
+      ],
+      "conclusion": "The same as ¬R ∧ ¬F",
+      "note": "Neither A nor B denies the disjunction. That comes to not A and not B."
+    },
+    {
+      "type": "worked",
+      "title": "A grouped conditional",
+      "lines": [
+        "If you study, then you pass and you graduate.",
+        "S → (P ∧ G)"
+      ],
+      "note": "The and belongs inside the then part."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which formula says 'If it rains, then the game is off or the field is covered'?",
+    "options": [
+      "R → (O ∨ C)",
+      "(R → O) ∨ C",
+      "R ∧ (O ∨ C)",
+      "(R ∨ O) → C"
+    ],
+    "correct": 0,
+    "hint": "Which part is the then part: the whole or sentence, or only its first half?",
+    "explanation": "Everything after 'then' is the consequent, so the disjunction is grouped: R → (O ∨ C)."
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "capability": "chars.to_upper",
+  "workload": "sum of to_upper(i%128)",
+  "arg": "20000000",
+  "expected": "1140000000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go"
+  ]
+}

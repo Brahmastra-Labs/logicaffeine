@@ -1,0 +1,204 @@
+{
+  "case": "T06-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 26,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T06_013.Colour",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "T06_013.Colour",
+      "name": "T06_013.Colour.blue",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T06_013.Colour.blue = 1",
+      "name": "T06_013.Colour.blue.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T06_013.Colour \u2192 Sort u} \u2192\n  (t : T06_013.Colour) \u2192 motive T06_013.Colour.red \u2192 motive T06_013.Colour.green \u2192 motive T06_013.Colour.blue \u2192 motive t",
+      "name": "T06_013.Colour.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_013.Colour",
+      "name": "T06_013.Colour.green",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T06_013.Colour.green = 1",
+      "name": "T06_013.Colour.green.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort v\u271d} \u2192 {x y : T06_013.Colour} \u2192 x = y \u2192 T06_013.Colour.noConfusionType P x y",
+      "name": "T06_013.Colour.noConfusion",
+      "levels": [
+        "v._@._stdin._hyg.175"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort v\u271d \u2192 T06_013.Colour \u2192 T06_013.Colour \u2192 Sort v\u271d",
+      "name": "T06_013.Colour.noConfusionType",
+      "levels": [
+        "v._@._stdin._hyg.174"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T06_013.Colour",
+      "name": "T06_013.Colour.ofNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x : T06_013.Colour), T06_013.Colour.ofNat x.toCtorIdx = x",
+      "name": "T06_013.Colour.ofNat_toCtorIdx",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T06_013.Colour \u2192 Sort u} \u2192\n  motive T06_013.Colour.red \u2192 motive T06_013.Colour.green \u2192 motive T06_013.Colour.blue \u2192 (t : T06_013.Colour) \u2192 motive t",
+      "name": "T06_013.Colour.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T06_013.Colour \u2192 Sort u} \u2192\n  (t : T06_013.Colour) \u2192 motive T06_013.Colour.red \u2192 motive T06_013.Colour.green \u2192 motive T06_013.Colour.blue \u2192 motive t",
+      "name": "T06_013.Colour.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T06_013.Colour",
+      "name": "T06_013.Colour.red",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "sizeOf T06_013.Colour.red = 1",
+      "name": "T06_013.Colour.red.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "T06_013.Colour \u2192 Nat",
+      "name": "T06_013.Colour.toCtorIdx",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop) [inst : Decidable p], decide p = true \u2192 p",
+      "name": "T06_013.bridge",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(p : Prop) \u2192 [inst : Decidable p] \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T06_013.choose",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(p : Prop) \u2192\n  (motive : Decidable p \u2192 Sort u_1) \u2192\n    (inst : Decidable p) \u2192 ((h : p) \u2192 motive (isTrue h)) \u2192 ((h : \u00acp) \u2192 motive (isFalse h)) \u2192 motive inst",
+      "name": "T06_013.choose.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T06_013.cmp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Bool",
+      "name": "T06_013.decideCustom",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "DecidableEq T06_013.Colour",
+      "name": "T06_013.instDecidableEqColour",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T06_013.Colour), x.toCtorIdx = y.toCtorIdx \u2192 x = y",
+      "name": "T06_013.instDecidableEqColour.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (x y : T06_013.Colour), \u00acx.toCtorIdx = y.toCtorIdx \u2192 x = y \u2192 False",
+      "name": "T06_013.instDecidableEqColour.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "3 = 3",
+      "name": "T06_013.natDecide",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Decidable False",
+      "name": "T06_013.no",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Decidable True",
+      "name": "T06_013.yes",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

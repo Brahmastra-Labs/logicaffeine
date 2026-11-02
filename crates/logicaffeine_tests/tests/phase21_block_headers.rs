@@ -32,7 +32,10 @@ fn main_block_detected() {
 #[test]
 fn definition_block_detected() {
     let mut interner = Interner::new();
-    let mut lexer = Lexer::new("## Definition\nA bachelor is an unmarried man.", &mut interner);
+    let mut lexer = Lexer::new(
+        "## Definition\nA bachelor is an unmarried man.",
+        &mut interner,
+    );
     let tokens = lexer.tokenize();
 
     assert!(!tokens.is_empty(), "Expected tokens from input");
@@ -52,7 +55,10 @@ fn block_header_preserves_content() {
     // After the BlockHeader, we should have normal tokens
     // "All" should be a quantifier
     let has_all = tokens.iter().any(|t| matches!(t.kind, TokenType::All));
-    assert!(has_all, "Should have 'All' quantifier token after block header");
+    assert!(
+        has_all,
+        "Should have 'All' quantifier token after block header"
+    );
 }
 
 #[test]

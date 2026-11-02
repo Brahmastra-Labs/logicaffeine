@@ -1,0 +1,11 @@
+{
+  "capability": "math.fmin",
+  "workload": "math.fmin",
+  "arg": "1000000",
+  "expected": "499500998501499",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go"
+  ]
+}

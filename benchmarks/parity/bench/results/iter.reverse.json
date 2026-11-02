@@ -1,0 +1,24 @@
+{
+  "capability": "iter.reverse",
+  "arg": "40000",
+  "timing_n": "119899",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "method": "op-dominated: op-time = wall(timing_n) - wall(1), timing_n scaled so wall>>startup",
+  "means_ms": {
+    "logos": 340.616,
+    "rust": 71.376,
+    "go": 689.544
+  },
+  "wall_ms": {
+    "logos": 341.193,
+    "rust": 71.867,
+    "go": 690.366
+  },
+  "logos_ms": 340.616,
+  "speedups_vs_logos": {
+    "rust": 0.21,
+    "go": 2.024
+  },
+  "logos_strictly_fastest": false,
+  "min_speedup": 0.21
+}

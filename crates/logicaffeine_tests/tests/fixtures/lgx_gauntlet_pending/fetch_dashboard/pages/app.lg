@@ -1,0 +1,112 @@
+# Fetch dashboard
+
+Loading, error and retry states around a typed `Get`, plus a page-wide
+`When a fetch fails` counter independent of how each caller handles its own
+`Err`.
+
+## Note
+
+The error banner shows a fixed message rather than `e's message`: reading a
+typed fetch's `Err` binding's own field crashes the WASM AOT backend for any
+`Ok` type (`work/lgx-ease/gauntlet.md` finding G10) — this is the documented
+pattern in `docs/frontend.md`'s Fetching section, not a guess.
+
+## A Metric has:
+    a label, which is Text.
+    a value, which is Int.
+
+## Page /
+
+State:
+    Let status be "idle".
+    Let metrics be a new Seq of Metric.
+    Let lastError be "".
+    Let failedFetches be 0.
+
+Actions:
+    To load:
+        Set status to "loading".
+        Get "/api/metrics" as Seq of Metric, then loaded.
+
+    To retry:
+        Set status to "loading".
+        Get "/api/metrics" as Seq of Metric, then loaded.
+
+    To loaded (answer: Result of Seq of Metric and HttpError):
+        Inspect answer:
+            When Ok (list):
+                Set metrics to list.
+                Set status to "loaded".
+            When Err (e):
+                Set status to "failed".
+                Set lastError to "Something went wrong. Try again.".
+
+    When a fetch fails (url: Text) and (error: Text):
+        Set failedFetches to failedFetches + 1.
+
+View:
+    <main class="dashboard">
+      <h1>Dashboard</h1>
+      <button id="load" on-click={load}>Load metrics</button>
+      <p id="status">{status}</p>
+      {if status is equal to "loading":}
+        <p id="spinner">Loading…</p>
+      {end}
+      {if status is equal to "failed":}
+        <p id="error">{lastError}</p>
+        <button id="retry" on-click={retry}>Retry</button>
+      {end}
+      <ul>
+        {for each m in metrics, keyed by m's label:}
+          <li id="metric-{m's label}">{m's label}: {m's value}</li>
+        {end}
+      </ul>
+      <p id="fail-count">{failedFetches} failed fetches</p>
+    </main>
+
+Style:
+    .dashboard { max-width: 28rem; margin: 3rem auto; }
+    #error { color: var(--accent); }
+
+## Test: idle before anything is loaded
+
+Expect that the text of "#status" is equal to "idle".
+Expect that the count of "li" is equal to 0.
+
+## Test: a successful load shows the metrics
+
+Given that GET "/api/metrics" answers 200 with "[{{\"label\": \"users\", \"value\": 42}}, {{\"label\": \"errors\", \"value\": 0}}]".
+Click "#load".
+Expect that the text of "#status" is equal to "loaded".
+Expect that the text of "#metric-users" is equal to "users: 42".
+Expect that the text of "#metric-errors" is equal to "errors: 0".
+Expect that "#error" is hidden.
+
+## Test: a failed load shows the error, offers retry, and counts the failure
+
+Given that GET "/api/metrics" answers 500 with "server exploded".
+Click "#load".
+Expect that the text of "#status" is equal to "failed".
+Expect that the text of "#error" is equal to "Something went wrong. Try again.".
+Expect that "#retry" is visible.
+Expect that the text of "#fail-count" is equal to "1 failed fetches".
+Expect that the count of "li" is equal to 0.
+
+## Test: retrying after a failure can still succeed
+
+Given that GET "/api/metrics" answers 500 with "server exploded".
+Click "#load".
+Expect that the text of "#status" is equal to "failed".
+Given that GET "/api/metrics" answers 200 with "[{{\"label\": \"users\", \"value\": 7}}]".
+Click "#retry".
+Expect that the text of "#status" is equal to "loaded".
+Expect that the text of "#metric-users" is equal to "users: 7".
+Expect that "#error" is hidden.
+
+## Test: the page-wide failure counter is independent of each call's own handling
+
+Given that GET "/api/metrics" answers 500 with "first".
+Click "#load".
+Given that GET "/api/metrics" answers 500 with "second".
+Click "#retry".
+Expect that the text of "#fail-count" is equal to "2 failed fetches".

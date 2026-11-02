@@ -1,5 +1,5 @@
-use logicaffeine_compile::compile::compile_to_rust;
 use logicaffeine_base::Interner;
+use logicaffeine_compile::compile::compile_to_rust;
 use logicaffeine_language::{Lexer, ParseError, ParseErrorKind, TokenType};
 
 #[test]
@@ -37,7 +37,9 @@ fn item_followed_by_zero_tokenizes() {
     let has_item = tokens.iter().any(|t| matches!(t.kind, TokenType::Item));
     assert!(has_item, "Should have Item token");
 
-    let has_number = tokens.iter().any(|t| matches!(t.kind, TokenType::Number(_)));
+    let has_number = tokens
+        .iter()
+        .any(|t| matches!(t.kind, TokenType::Number(_)));
     assert!(has_number, "Should have Number token for 0: {:?}", tokens);
 }
 
@@ -56,7 +58,10 @@ fn item_1_lexer_valid() {
     let mut lexer = Lexer::new("item 1 of list", &mut interner);
     let tokens = lexer.tokenize();
 
-    let item_count = tokens.iter().filter(|t| matches!(t.kind, TokenType::Item)).count();
+    let item_count = tokens
+        .iter()
+        .filter(|t| matches!(t.kind, TokenType::Item))
+        .count();
     assert_eq!(item_count, 1, "Should have 1 Item token");
 }
 
@@ -64,7 +69,11 @@ fn item_1_lexer_valid() {
 fn slice_parses() {
     let source = "## Main\nLet x be items 2 through 5 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_ok(), "Should parse 'items 2 through 5 of list': {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should parse 'items 2 through 5 of list': {:?}",
+        result
+    );
 }
 
 #[test]
@@ -73,23 +82,34 @@ fn slice_codegen() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should compile: {:?}", result);
     let code = result.unwrap();
-    // Phase 43D: Slice codegen now uses explicit conversion with dynamic expressions
-    // "items 2 through 5" becomes &list[(2 - 1) as usize..5 as usize] = &list[1..5]
-    assert!(code.contains("(2 - 1) as usize..5 as usize"), "Should have 1-indexed slice: {}", code);
+    // The helper applies the language's inclusive, 1-based slice bounds.
+    assert!(
+        code.contains("list.logos_slice(2, 5)"),
+        "Should use the 1-indexed slice helper: {}",
+        code
+    );
 }
 
 #[test]
 fn slice_rejects_zero_start() {
     let source = "## Main\nLet x be items 0 through 5 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "Should reject 'items 0 through 5': {:?}", result);
+    assert!(
+        result.is_err(),
+        "Should reject 'items 0 through 5': {:?}",
+        result
+    );
 }
 
 #[test]
 fn slice_rejects_zero_end() {
     let source = "## Main\nLet x be items 2 through 0 of list.";
     let result = compile_to_rust(source);
-    assert!(result.is_err(), "Should reject 'items 2 through 0': {:?}", result);
+    assert!(
+        result.is_err(),
+        "Should reject 'items 2 through 0': {:?}",
+        result
+    );
 }
 
 // `item`/`items` is the indexing keyword in imperative code regardless of the
@@ -123,5 +143,8 @@ fn item_keyword_gating_by_mode_and_context() {
 #[test]
 fn variable_index_compiles_in_imperative() {
     let result = compile_to_rust("## Main\nLet x be item i of arr.");
-    assert!(result.is_ok(), "variable index `item i of arr` should compile: {result:?}");
+    assert!(
+        result.is_ok(),
+        "variable index `item i of arr` should compile: {result:?}"
+    );
 }

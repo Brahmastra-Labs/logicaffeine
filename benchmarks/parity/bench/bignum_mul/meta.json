@@ -1,0 +1,8 @@
+{
+  "capability": "bignum.mul",
+  "workload": "modular accumulator acc=(acc*K+i) mod MOD - a big-multiply stress loop; acc and K each exceed 2^63 so every product is arbitrary-precision",
+  "arg": "3000000",
+  "expected": "4378158087057142441729824333908779020961",
+  "logos_uses_stdlib": false,
+  "note": "bignum.mul is a CORE LOGOS Int operator (Int transparently promotes to BigInt), so main.lg uses it directly - no stdlib import. The >i64 constants are BUILT via arithmetic from i64-safe pieces (LOGOS Int literals cap at i64; bignums come from overflow promotion). Go hand-implements the identical loop with math/big using PREALLOCATED big.Ints and in-place operations (the fast idiomatic form) so any LOGOS win is honest."
+}

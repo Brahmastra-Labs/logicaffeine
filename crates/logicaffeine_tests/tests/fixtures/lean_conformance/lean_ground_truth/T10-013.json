@@ -1,0 +1,127 @@
+{
+  "case": "T10-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 15,
+  "declarations": [
+    {
+      "type": "(n : Nat) \u00d7 Fin (n + 1)",
+      "name": "T10_013.dependentPair",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "NeZero (2 + 1)",
+      "name": "T10_013.dependentPair.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Fin 3",
+      "name": "T10_013.index",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "NeZero (2 + 1)",
+      "name": "T10_013.index.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "Nat \u2295 Bool",
+      "name": "T10_013.leftVal",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat",
+      "name": "T10_013.maybeFive",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat",
+      "name": "T10_013.nothing",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Option Nat \u2192 Nat",
+      "name": "T10_013.orZero",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Option Nat \u2192 Sort u_1) \u2192 (x : Option Nat) \u2192 (Unit \u2192 motive none) \u2192 ((n : Nat) \u2192 motive (some n)) \u2192 motive x",
+      "name": "T10_013.orZero.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u00d7 Bool",
+      "name": "T10_013.pair",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{ n // 0 < n }",
+      "name": "T10_013.positive",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{ p // p }",
+      "name": "T10_013.propSubtype",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2295 Bool \u2192 Nat",
+      "name": "T10_013.sumToNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2295 Bool \u2192 Sort u_1) \u2192\n  (x : Nat \u2295 Bool) \u2192 ((n : Nat) \u2192 motive (Sum.inl n)) \u2192 ((b : Bool) \u2192 motive (Sum.inr b)) \u2192 motive x",
+      "name": "T10_013.sumToNat.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u00d7 Type",
+      "name": "T10_013.typePair",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

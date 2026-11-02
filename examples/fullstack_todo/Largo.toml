@@ -1,0 +1,7 @@
+[package]
+name = "fullstack_todo"
+version = "0.1.0"
+authors = []
+entry = "src/server.lg"
+
+[dependencies]

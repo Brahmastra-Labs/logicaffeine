@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "It isn't evident to you that you're charitable",
   "options": [
-    "$ \\sim Ou:Cu $",
-    "$ \\sim Ou:C\\underline{u} $",
-    "$ \\sim O\\underline{u} :Cu $",
-    "$ \\sim OCu $"
+    "¬O u:C(u)",
+    "¬O u:C(u̲)",
+    "¬O u̲:C(u)",
+    "¬O C(u)"
   ],
   "correct": 2,
-  "hint": "Evidentiality (O) is like belief but stronger. What is or isn't evident, and to whom?",
-  "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P \u2014 the evidence operator is negated, not the content."
+  "hint": "Evident to you means you ought to believe it. How is that written?",
+  "explanation": "'Evident to you' is O u̲:A, you ought to believe A. Denying it gives ¬O u̲:C(u).",
+  "section": "13.2"
 }

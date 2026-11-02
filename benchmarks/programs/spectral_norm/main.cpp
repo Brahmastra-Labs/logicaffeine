@@ -2,8 +2,8 @@
 #include <cstdlib>
 #include <cmath>
 double A(int i, int j) { return 1.0/((double)((i+j)*(i+j+1)/2+i+1)); }
-void mulAv(int n, double *v, double *r) { for (int i=0;i<n;i++){r[i]=0;for(int j=0;j<n;j++)r[i]+=A(i,j)*v[j];} }
-void mulAtv(int n, double *v, double *r) { for (int i=0;i<n;i++){r[i]=0;for(int j=0;j<n;j++)r[i]+=A(j,i)*v[j];} }
+void mulAv(int n, double *v, double *r) { for (int i=0;i<n;i++){double s=0;for(int j=0;j<n;j++)s+=A(i,j)*v[j];r[i]=s;} }
+void mulAtv(int n, double *v, double *r) { for (int i=0;i<n;i++){double s=0;for(int j=0;j<n;j++)s+=A(j,i)*v[j];r[i]=s;} }
 void mulAtAv(int n, double *v, double *r, double *t) { mulAv(n,v,t); mulAtv(n,t,r); }
 int main(int argc, char *argv[]) {
     if (argc<2) return 1;

@@ -1,0 +1,84 @@
+{
+  "case": "T09-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 9,
+  "declarations": [
+    {
+      "type": "IO.Ref Nat",
+      "name": "T09_007.counterRef",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "Nonempty (ST.Ref IO.RealWorld Nat)",
+      "name": "T09_007.counterRef.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "Classical.choice"
+      ]
+    },
+    {
+      "type": "\u2200 (k : Nat), k + 0 = k",
+      "name": "T09_007.dependsOnAttribute",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (k : Nat), k * 1 = k",
+      "name": "T09_007.dependsOnLaterAttribute",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (n : Nat), n * 1 = n",
+      "name": "T09_007.laterTagged",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "SimplePersistentEnvExtension Name (Array Name)",
+      "name": "T09_007.myExt",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T09_007.plainDef",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T09_007.plainDef 1 = 2",
+      "name": "T09_007.plainDefTranslates",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n + 0 = n",
+      "name": "T09_007.tagged",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -21,8 +21,11 @@ fn z3_forall_not_true() {
         VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "forall x. x>0 should NOT be true, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "forall x. x>0 should NOT be true, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -36,8 +39,11 @@ fn z3_forall_valid() {
         ),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "forall x. (x>0 -> x>=0) should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "forall x. (x>0 -> x>=0) should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -48,8 +54,10 @@ fn z3_forall_invalid() {
         VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(!matches!(result, EquivalenceResult::Equivalent),
-        "forall x. x>0 should NOT be valid");
+    assert!(
+        !matches!(result, EquivalenceResult::Equivalent),
+        "forall x. x>0 should NOT be valid"
+    );
 }
 
 #[test]
@@ -60,8 +68,11 @@ fn z3_exists_satisfiable() {
         VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5)),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "exists x. x==5 should be equivalent to true, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "exists x. x==5 should be equivalent to true, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -75,8 +86,11 @@ fn z3_exists_unsatisfiable() {
         ),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "exists x. (x>5 AND x<3) should NOT be true, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "exists x. (x>5 AND x<3) should NOT be true, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -90,8 +104,11 @@ fn z3_nested_quantifiers() {
         ),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "forall x. exists y. y>x should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "forall x. exists y. y>x should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -99,14 +116,14 @@ fn z3_quantifier_bool_typed() {
     // forall p:Bool. (p OR NOT p) is valid (law of excluded middle)
     let expr = VerifyExpr::forall(
         vec![("p".into(), VerifyType::Bool)],
-        VerifyExpr::or(
-            VerifyExpr::var("p"),
-            VerifyExpr::not(VerifyExpr::var("p")),
-        ),
+        VerifyExpr::or(VerifyExpr::var("p"), VerifyExpr::not(VerifyExpr::var("p"))),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "forall p. (p OR NOT p) should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "forall p. (p OR NOT p) should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -122,21 +139,23 @@ fn z3_quantifier_mixed_free_bound() {
         VerifyExpr::gt(VerifyExpr::var("y"), VerifyExpr::int(0)),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(!matches!(result, EquivalenceResult::Equivalent),
-        "Formula with false universal should not be true");
+    assert!(
+        !matches!(result, EquivalenceResult::Equivalent),
+        "Formula with false universal should not be true"
+    );
 }
 
 #[test]
 fn z3_empty_quantifier() {
     // forall. P (no vars) equiv P
-    let expr = VerifyExpr::forall(
-        vec![],
-        VerifyExpr::var("p"),
-    );
+    let expr = VerifyExpr::forall(vec![], VerifyExpr::var("p"));
     let just_p = VerifyExpr::var("p");
     let result = check_equivalence(&expr, &just_p, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "Empty quantifier should equal its body, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "Empty quantifier should equal its body, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -151,8 +170,11 @@ fn z3_quantifier_in_equivalence() {
     );
     let b = VerifyExpr::bool(true); // This implication is a tautology
     let result = check_equivalence(&a, &b, &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "forall x. (x>10 -> x>5) should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "forall x. (x>10 -> x>5) should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -179,8 +201,11 @@ fn z3_quantifier_alternation() {
         ),
     );
     let result = check_equivalence(&expr2, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "forall x. exists y. y==x should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "forall x. exists y. y==x should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -195,8 +220,11 @@ fn z3_quantifier_scope_correct() {
         VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
     );
     let result = check_equivalence(&forall_expr, &exists_expr, &[], 1);
-    assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-        "forall x. x>0 should NOT equal exists x. x>0, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::NotEquivalent { .. }),
+        "forall x. x>0 should NOT equal exists x. x>0, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -210,8 +238,11 @@ fn z3_forall_with_arith() {
         ),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "forall x. x+0==x should be valid, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "forall x. x+0==x should be valid, got: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -225,8 +256,11 @@ fn z3_exists_with_constraint() {
         ),
     );
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
-    assert!(matches!(result, EquivalenceResult::Equivalent),
-        "exists x. (x>3 AND x<5) should be satisfiable, got: {:?}", result);
+    assert!(
+        matches!(result, EquivalenceResult::Equivalent),
+        "exists x. (x>3 AND x<5) should be satisfiable, got: {:?}",
+        result
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -263,7 +297,11 @@ fn solver_forall_assumption_not_vacuous() {
         &VerifyExpr::lt(VerifyExpr::var("y"), VerifyExpr::int(0)),
     );
     // This should pass: -5 < 0 is true, and the assumption shouldn't interfere
-    assert!(result.is_ok(), "verify_with_binding should handle quantified assumptions: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "verify_with_binding should handle quantified assumptions: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -276,16 +314,15 @@ fn solver_exists_in_predicate() {
         vec![("x".into(), VerifyType::Int)],
         VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5)),
     );
-    let result = session.verify_with_binding(
-        "dummy",
-        VerifyType::Int,
-        &VerifyExpr::int(0),
-        &exists_expr,
-    );
+    let result =
+        session.verify_with_binding("dummy", VerifyType::Int, &VerifyExpr::int(0), &exists_expr);
     // With proper quantifier encoding: exists x. x==5 is satisfiable/valid
     // With bug: x==5 with free x is not valid (x could be != 5)
-    assert!(result.is_ok(),
-        "solver should properly encode exists in predicate: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "solver should properly encode exists in predicate: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -296,16 +333,15 @@ fn solver_forall_in_predicate_invalid() {
         vec![("x".into(), VerifyType::Int)],
         VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
     );
-    let result = session.verify_with_binding(
-        "dummy",
-        VerifyType::Int,
-        &VerifyExpr::int(0),
-        &forall_expr,
-    );
+    let result =
+        session.verify_with_binding("dummy", VerifyType::Int, &VerifyExpr::int(0), &forall_expr);
     // With proper encoding: forall x. x>0 is NOT valid → should fail
     // With bug: "x > 0" with free x, and dummy=0, x is undeclared → unpredictable
-    assert!(result.is_err(),
-        "forall x. x>0 should NOT be valid through solver path: {:?}", result);
+    assert!(
+        result.is_err(),
+        "forall x. x>0 should NOT be valid through solver path: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -319,14 +355,12 @@ fn solver_nested_quantifier_valid() {
             VerifyExpr::gt(VerifyExpr::var("y"), VerifyExpr::var("x")),
         ),
     );
-    let result = session.verify_with_binding(
-        "dummy",
-        VerifyType::Int,
-        &VerifyExpr::int(0),
-        &expr,
+    let result = session.verify_with_binding("dummy", VerifyType::Int, &VerifyExpr::int(0), &expr);
+    assert!(
+        result.is_ok(),
+        "forall x. exists y. y>x should be valid through solver path: {:?}",
+        result
     );
-    assert!(result.is_ok(),
-        "forall x. exists y. y>x should be valid through solver path: {:?}", result);
 }
 
 #[test]
@@ -340,12 +374,10 @@ fn solver_forall_tautology_valid() {
             VerifyExpr::gte(VerifyExpr::var("x"), VerifyExpr::int(0)),
         ),
     );
-    let result = session.verify_with_binding(
-        "dummy",
-        VerifyType::Int,
-        &VerifyExpr::int(0),
-        &expr,
+    let result = session.verify_with_binding("dummy", VerifyType::Int, &VerifyExpr::int(0), &expr);
+    assert!(
+        result.is_ok(),
+        "forall x. (x>0 -> x>=0) should be valid through solver path: {:?}",
+        result
     );
-    assert!(result.is_ok(),
-        "forall x. (x>0 -> x>=0) should be valid through solver path: {:?}", result);
 }

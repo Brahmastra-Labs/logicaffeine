@@ -48,7 +48,10 @@ pub(crate) fn cmd_logic(
     discourse: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let input = read_input(sentence, file)?;
-    let options = CompileOptions { format: format.into(), pragmatic };
+    let options = CompileOptions {
+        format: format.into(),
+        pragmatic,
+    };
 
     if discourse {
         let sentences: Vec<&str> = input
@@ -145,5 +148,8 @@ fn read_input(
 /// Render a parse failure with the caret-underlined source excerpt the
 /// engine produces.
 fn parse_failure(e: &logicaffeine_language::ParseError, source: &str) -> CliError {
-    CliError::new(format!("could not parse the sentence\n{}", e.display_with_source(source)))
+    CliError::new(format!(
+        "could not parse the sentence\n{}",
+        e.display_with_source(source)
+    ))
 }

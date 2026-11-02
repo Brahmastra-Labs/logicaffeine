@@ -34,7 +34,14 @@ fn money_on_interpreter_vm_and_treewalker() {
 fn money_on_aot() {
     common::assert_output_lines(
         MONEY,
-        &["24.99 USD", "14.99 USD", "59.97 USD", "2.50 USD", "100 JPY", "0.30 USD"],
+        &[
+            "24.99 USD",
+            "14.99 USD",
+            "59.97 USD",
+            "2.50 USD",
+            "100 JPY",
+            "0.30 USD",
+        ],
     );
 }
 
@@ -62,7 +69,10 @@ fn natural_money_on_interpreter_vm_and_treewalker() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn natural_money_on_aot() {
-    common::assert_output_lines(NATURAL_MONEY, &["24.99 USD", "59.97 USD", "100 JPY", "19.98 USD"]);
+    common::assert_output_lines(
+        NATURAL_MONEY,
+        &["24.99 USD", "59.97 USD", "100 JPY", "19.98 USD"],
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -96,7 +106,11 @@ fn currency_mismatch_rejected_before_execution_on_interpreter() {
     let r = common::run_interpreter("## Main\nShow \"starting\".\nShow 5.00 USD + 1.00 EUR.");
     assert!(!r.success, "interpreter must reject a currency mismatch");
     assert!(r.error.contains("different currencies"), "got: {}", r.error);
-    assert!(!r.output.contains("starting"), "should reject before any output; got: {:?}", r.output);
+    assert!(
+        !r.output.contains("starting"),
+        "should reject before any output; got: {:?}",
+        r.output
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -146,7 +160,10 @@ Show $1,250.50.";
 #[test]
 fn symbol_money_on_interpreter_vm_and_treewalker() {
     // $ → USD, € → EUR, £ → GBP, ¥ → JPY (no minor unit); thousands separators allowed.
-    assert_interpreter_output(SYMBOL_MONEY, "24.99 USD\n5.00 EUR\n20.00 GBP\n100 JPY\n1250.50 USD");
+    assert_interpreter_output(
+        SYMBOL_MONEY,
+        "24.99 USD\n5.00 EUR\n20.00 GBP\n100 JPY\n1250.50 USD",
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -154,7 +171,13 @@ fn symbol_money_on_interpreter_vm_and_treewalker() {
 fn symbol_money_on_aot() {
     common::assert_output_lines(
         SYMBOL_MONEY,
-        &["24.99 USD", "5.00 EUR", "20.00 GBP", "100 JPY", "1250.50 USD"],
+        &[
+            "24.99 USD",
+            "5.00 EUR",
+            "20.00 GBP",
+            "100 JPY",
+            "1250.50 USD",
+        ],
     );
 }
 
@@ -191,10 +214,7 @@ Show 42.00 USD in USD.";
 fn money_conversion_on_interpreter_vm_and_treewalker() {
     // 1 EUR = 1.10 USD, 1 GBP = 1.25 USD, reference USD. Exact, lossless round-trip.
     // 10 EUR → 11.00 USD; 11 USD → 10.00 EUR; 10 GBP = 12.50 USD = 11.36 EUR; identity 42.00 USD.
-    assert_interpreter_output(
-        MONEY_CONVERT,
-        "11.00 USD\n10.00 EUR\n11.36 EUR\n42.00 USD",
-    );
+    assert_interpreter_output(MONEY_CONVERT, "11.00 USD\n10.00 EUR\n11.36 EUR\n42.00 USD");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -265,6 +285,9 @@ fn converting_to_a_currency_with_no_rate_is_an_error() {
     // Rates exist, but not for the target currency — still refuse, never guess.
     let src = "## Main\nCall set_rate with \"USD\" and 1.\nShow 5.00 USD in EUR.";
     let r = common::run_interpreter(src);
-    assert!(!r.success, "must error when the target currency has no rate");
+    assert!(
+        !r.success,
+        "must error when the target currency has no rate"
+    );
     assert!(r.error.contains("no exchange rate"), "got: {}", r.error);
 }

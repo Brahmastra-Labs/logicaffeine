@@ -149,7 +149,10 @@ fn off_by_one_is_not_elided_and_errors_exactly() {
     let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
-    assert!(vm.error.is_some(), "index 101 of a 100-element list must error");
+    assert!(
+        vm.error.is_some(),
+        "index 101 of a 100-element list must error"
+    );
 }
 
 /// RESIZE-IN-LOOP: the array grows inside the loop, so `length` is not
@@ -268,7 +271,10 @@ fn built_array_affine_plus_one_overflow_not_elided() {
                \x20   Set i to i + 1.\n\
                Show acc.\n";
     let (unchecked, _) = index_op_counts(src);
-    assert_eq!(unchecked, 0, "`item (i + 1) of arr` reaches n+1 — must stay checked");
+    assert_eq!(
+        unchecked, 0,
+        "`item (i + 1) of arr` reaches n+1 — must stay checked"
+    );
     // It errors (index n+1 of an n-element list); both engines agree.
     let argv = vec!["bench".to_string(), "50".to_string()];
     let tier = ForgeTier::new();
@@ -301,7 +307,10 @@ fn built_array_bound_reassigned_not_elided() {
                \x20   Set i to i + 1.\n\
                Show acc.\n";
     let (unchecked, _) = index_op_counts(src);
-    assert_eq!(unchecked, 0, "n was grown after the build — the length fact is stale");
+    assert_eq!(
+        unchecked, 0,
+        "n was grown after the build — the length fact is stale"
+    );
     let argv = vec!["bench".to_string(), "50".to_string()];
     let tier = ForgeTier::new();
     let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
@@ -332,7 +341,10 @@ fn built_array_conditional_push_not_elided() {
                \x20   Set i to i + 1.\n\
                Show acc.\n";
     let (unchecked, _) = index_op_counts(src);
-    assert_eq!(unchecked, 0, "conditional push → length < n possible → must stay checked");
+    assert_eq!(
+        unchecked, 0,
+        "conditional push → length < n possible → must stay checked"
+    );
     let argv = vec!["bench".to_string(), "50".to_string()];
     let tier = ForgeTier::new();
     let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
@@ -392,8 +404,14 @@ fn passed_array_hoists() {
     );
     let guards = region_guard_count(&src);
     let (unchecked, _) = index_op_counts(&src);
-    assert!(guards >= 1, "scan's loop must emit a region-entry bounds guard (got {guards})");
-    assert!(unchecked >= 1, "the parameter-array read must elide speculatively (got {unchecked})");
+    assert!(
+        guards >= 1,
+        "scan's loop must emit a region-entry bounds guard (got {guards})"
+    );
+    assert!(
+        unchecked >= 1,
+        "the parameter-array read must elide speculatively (got {unchecked})"
+    );
 }
 
 /// The offsets `(add_max, add_min)` of the first `RegionBoundsGuard` emitted.
@@ -404,7 +422,9 @@ fn first_region_guard(src: &str) -> Option<(i32, i32)> {
         let prog = Compiler::compile_with_oracle(stmts, interner, Some(types), Some(oracle))
             .expect("compile");
         prog.code.iter().find_map(|op| match op {
-            Op::RegionBoundsGuard { add_max, add_min, .. } => Some((*add_max, *add_min)),
+            Op::RegionBoundsGuard {
+                add_max, add_min, ..
+            } => Some((*add_max, *add_min)),
             _ => None,
         })
     })
@@ -459,7 +479,10 @@ fn hoist_guard_rejects_off_by_one_short() {
     );
     // hi = n + 1 but the array has exactly n elements → reading item n+1 is
     // out of bounds by one. The entry guard `len >= hi` must reject it.
-    assert!(vm_tw_agree(&src, "300"), "one element short must still error on both engines");
+    assert!(
+        vm_tw_agree(&src, "300"),
+        "one element short must still error on both engines"
+    );
 }
 
 /// Diagnostic: how many region guards + unchecked accesses each passed-array
@@ -478,7 +501,9 @@ fn passed_array_hoist_breadth_report() {
         "two_sum",
     ] {
         let path = format!("{dir}/{name}/main.lg");
-        let Ok(src) = std::fs::read_to_string(&path) else { continue };
+        let Ok(src) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         let guards = region_guard_count(&src);
         let (un_r, _) = index_op_counts(&src);
         let (un_s, _) = store_op_counts(&src);
@@ -492,12 +517,14 @@ fn passed_array_hoist_breadth_report() {
         region_guard_count(&qs) >= 1,
         "quicksort's passed-array loop must emit a region-entry bounds guard"
     );
-    // mergesort builds `left`/`right` from the `arr` parameter — the
-    // "build B from A" loops hoist the parameter reads.
+    // mergesort builds `left`/`right` from the `arr` parameter. Its reads run
+    // unchecked, behind a region-entry guard or proven in range outright (the
+    // affine-equality oracle proves them, so no guard is needed): all eight.
     let ms = std::fs::read_to_string(format!("{dir}/mergesort/main.lg")).unwrap();
+    let (ms_reads, _) = index_op_counts(&ms);
     assert!(
-        region_guard_count(&ms) >= 1,
-        "mergesort's build-from-parameter loops must emit region-entry guards"
+        ms_reads >= 8,
+        "mergesort's build-from-parameter reads must run unchecked, by a region-entry guard or a static proof: {ms_reads} unchecked reads"
     );
 }
 
@@ -549,7 +576,10 @@ fn passed_array_too_short_is_exact_and_errors() {
          \x20   Set r to r + 1.\n\
          Show total.\n"
     );
-    assert!(vm_tw_agree(&src, "300"), "reading past the array must error on BOTH engines");
+    assert!(
+        vm_tw_agree(&src, "300"),
+        "reading past the array must error on BOTH engines"
+    );
 }
 
 /// Run on both engines with a symbolic size; assert exact agreement and
@@ -599,12 +629,26 @@ fn pop_through_value_copy_leaves_original_intact() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert_eq!(unchecked, 0, "the optimizer stays conservative around a copy+pop");
+    assert_eq!(
+        unchecked, 0,
+        "the optimizer stays conservative around a copy+pop"
+    );
     // No error, and acc = 0 + 1 + … + (n-1); for n = 50 that is 1225.
-    assert!(!vm_tw_agree(&src, "50"), "reading all n elements of the untouched original must succeed");
+    assert!(
+        !vm_tw_agree(&src, "50"),
+        "reading all n elements of the untouched original must succeed"
+    );
     let tier = ForgeTier::new();
-    let out = vm_outcome_with_args(&src, &["bench".to_string(), "50".to_string()], Some(&tier as &dyn NativeTier));
-    assert_eq!(norm(&out.output), "1225", "arr is untouched by the copy's pop");
+    let out = vm_outcome_with_args(
+        &src,
+        &["bench".to_string(), "50".to_string()],
+        Some(&tier as &dyn NativeTier),
+    );
+    assert_eq!(
+        norm(&out.output),
+        "1225",
+        "arr is untouched by the copy's pop"
+    );
 }
 
 /// An aliased READ stays correct (a missed elision is fine; a wrong one is
@@ -626,7 +670,10 @@ fn aliased_read_stays_correct() {
          \x20   Set i to i + 1.\n\
          Show acc.\n"
     );
-    assert!(!vm_tw_agree(&src, "200"), "the aliased read is in bounds — no error");
+    assert!(
+        !vm_tw_agree(&src, "200"),
+        "the aliased read is in bounds — no error"
+    );
 }
 
 /// ADVERSARIAL — the induction variable is mutated (by more than the step)
@@ -649,8 +696,14 @@ fn induction_mutated_before_read_not_elided() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert_eq!(unchecked, 0, "index mutated before the read — guard bound is stale");
-    assert!(vm_tw_agree(&src, "50"), "i overshoots n → out of bounds → error");
+    assert_eq!(
+        unchecked, 0,
+        "index mutated before the read — guard bound is stale"
+    );
+    assert!(
+        vm_tw_agree(&src, "50"),
+        "i overshoots n → out of bounds → error"
+    );
 }
 
 /// A strict `<` guard with a bare index starting at 1: `i ∈ [1, n-1]`,
@@ -672,7 +725,10 @@ fn strict_guard_bare_from_one_elides() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert!(unchecked >= 1, "i<n from 1 with length>=n must elide (got {unchecked})");
+    assert!(
+        unchecked >= 1,
+        "i<n from 1 with length>=n must elide (got {unchecked})"
+    );
     assert!(!vm_tw_agree(&src, "200"), "in bounds — no error");
 }
 
@@ -695,7 +751,10 @@ fn bare_index_from_zero_not_elided() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert_eq!(unchecked, 0, "`item 0 of arr` is out of bounds (1-based) — must stay checked");
+    assert_eq!(
+        unchecked, 0,
+        "`item 0 of arr` is out of bounds (1-based) — must stay checked"
+    );
     assert!(vm_tw_agree(&src, "50"), "item 0 errors on both engines");
 }
 
@@ -717,7 +776,10 @@ fn flipped_ge_guard_elides() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert!(unchecked >= 1, "`n >= i` is the same bound as `i <= n` (got {unchecked})");
+    assert!(
+        unchecked >= 1,
+        "`n >= i` is the same bound as `i <= n` (got {unchecked})"
+    );
     assert!(!vm_tw_agree(&src, "200"));
 }
 
@@ -745,7 +807,10 @@ fn two_arrays_both_elide() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert!(unchecked >= 2, "both `item i of a` and `item i of b` must elide (got {unchecked})");
+    assert!(
+        unchecked >= 2,
+        "both `item i of a` and `item i of b` must elide (got {unchecked})"
+    );
     assert!(!vm_tw_agree(&src, "200"));
 }
 
@@ -774,7 +839,10 @@ fn conjunction_guards_elide() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert!(unchecked >= 2, "each conjunct proves its own array (got {unchecked})");
+    assert!(
+        unchecked >= 2,
+        "each conjunct proves its own array (got {unchecked})"
+    );
     assert!(!vm_tw_agree(&src, "200"));
 }
 
@@ -798,7 +866,10 @@ fn proven_store_elides_and_is_exact() {
          Show item n of arr.\n"
     );
     let (unchecked, _) = store_op_counts(&src);
-    assert!(unchecked >= 1, "proven store must elide its bounds check (got {unchecked})");
+    assert!(
+        unchecked >= 1,
+        "proven store must elide its bounds check (got {unchecked})"
+    );
     assert!(!vm_tw_agree(&src, "200"), "in-bounds store — no error");
 }
 
@@ -821,7 +892,10 @@ fn store_affine_overflow_not_elided() {
     );
     let (unchecked, _) = store_op_counts(&src);
     assert_eq!(unchecked, 0, "store at n+1 must stay checked");
-    assert!(vm_tw_agree(&src, "50"), "the overrun store errors on both engines");
+    assert!(
+        vm_tw_agree(&src, "50"),
+        "the overrun store errors on both engines"
+    );
 }
 
 /// A data-dependent store index stays checked (still in bounds, just not
@@ -844,8 +918,14 @@ fn store_dynamic_index_not_elided() {
          Show item 1 of arr.\n"
     );
     let (unchecked, _) = store_op_counts(&src);
-    assert_eq!(unchecked, 0, "a data-dependent store index must not be elided");
-    assert!(!vm_tw_agree(&src, "200"), "the dynamic store stays in bounds");
+    assert_eq!(
+        unchecked, 0,
+        "a data-dependent store index must not be elided"
+    );
+    assert!(
+        !vm_tw_agree(&src, "200"),
+        "the dynamic store stays in bounds"
+    );
 }
 
 /// ADVERSARIAL — a guard `j <= n - e` where the subtracted term `e` can be
@@ -869,8 +949,14 @@ fn negative_subtrahend_bound_not_elided() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert_eq!(unchecked, 0, "`n - e` with e possibly negative exceeds n — must stay checked");
-    assert!(vm_tw_agree(&src, "50"), "j reaches n+5 > length → out of bounds → error");
+    assert_eq!(
+        unchecked, 0,
+        "`n - e` with e possibly negative exceeds n — must stay checked"
+    );
+    assert!(
+        vm_tw_agree(&src, "50"),
+        "j reaches n+5 > length → out of bounds → error"
+    );
 }
 
 /// STORE BREADTH RATCHET — prefix_sum's `Set item i of arr` and sieve's inner
@@ -942,7 +1028,10 @@ fn modulo_index_into_exact_length_elides() {
                \x20   Set i to i + 1.\n\
                Show acc.\n";
     let (unchecked, _) = index_op_counts(src);
-    assert!(unchecked >= 1, "`seed % 1000` ∈ [0,999] into a 1000-element array is provable");
+    assert!(
+        unchecked >= 1,
+        "`seed % 1000` ∈ [0,999] into a 1000-element array is provable"
+    );
     // The elision must be CORRECT: VM (eliding) ≡ tree-walker (checked).
     let tier = ForgeTier::new();
     let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
@@ -978,7 +1067,10 @@ fn variable_divisor_index_stays_checked() {
                \x20   Set i to i + 1.\n\
                Show acc.\n";
     let (unchecked, _) = index_op_counts(src);
-    assert_eq!(unchecked, 0, "a modulo by a VARIABLE divisor must not be elided");
+    assert_eq!(
+        unchecked, 0,
+        "a modulo by a VARIABLE divisor must not be elided"
+    );
     let argv = vec!["bench".to_string(), "1000".to_string()];
     let tier = ForgeTier::new();
     let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));

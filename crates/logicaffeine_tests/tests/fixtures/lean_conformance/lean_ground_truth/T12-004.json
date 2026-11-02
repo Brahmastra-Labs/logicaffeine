@@ -1,0 +1,62 @@
+{
+  "case": "T12-004",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T12_004.Entity",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_004.Entity"
+      ]
+    },
+    {
+      "type": "T12_004.Entity \u2192 Prop",
+      "name": "T12_004.Man",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_004.Man"
+      ]
+    },
+    {
+      "type": "T12_004.Entity \u2192 Prop",
+      "name": "T12_004.Mortal",
+      "levels": [],
+      "kind": "axiom",
+      "axioms": [
+        "T12_004.Mortal"
+      ]
+    },
+    {
+      "type": "\u2200 (P Q : Prop), P \u2228 Q \u2192 (Q \u2192 P) \u2192 P",
+      "name": "T12_004.mixedNaming",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P Q : Prop), P \u2228 Q \u2192 Q \u2228 P",
+      "name": "T12_004.orCommNamed",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "(\u2203 x, T12_004.Man x \u2227 T12_004.Mortal x) \u2192 \u2203 x, T12_004.Mortal x \u2227 T12_004.Man x",
+      "name": "T12_004.someMortalIsAMan",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "T12_004.Entity",
+        "T12_004.Man",
+        "T12_004.Mortal"
+      ]
+    }
+  ],
+  "diagnostics": ""
+}

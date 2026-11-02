@@ -268,7 +268,8 @@ fn test_diag_simple() {
     //   syn_quote (SVar 0) = SApp (SName "SVar") (SLit 0)
     //   syn_subst that for var 0 in (SVar 0)
     //   = SApp (SName "SVar") (SLit 0)
-    repl.execute("Definition x : Syntax := SVar 0.").expect("Define");
+    repl.execute("Definition x : Syntax := SVar 0.")
+        .expect("Define");
     repl.execute("Definition quoted_x : Syntax := syn_quote x.")
         .expect("Define");
     repl.execute("Definition diag_x : Syntax := syn_subst quoted_x 0 x.")

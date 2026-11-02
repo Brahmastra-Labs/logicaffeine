@@ -1,0 +1,10 @@
+{
+  "capability": "bytes.equal",
+  "workload": "bytesEqual(xs,ys) \u2014 fast unequal compare",
+  "arg": "200000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

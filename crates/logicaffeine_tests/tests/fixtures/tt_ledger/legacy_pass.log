@@ -1,0 +1,9 @@
+LOGOS_TT_ENV chip=wormhole_b0 so=libttsim_wh.so so_sha256=590f6d38aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4194 ttsim_version=v1.10.2 tt_metal_sha=9aa797dec5ed247251aa142deb3cea0af2df4321
+== ttsim (wormhole_b0) : /home/x/tt-metal/build_Release/programming_examples/metal_example_logos_matmul ==
+                 Metal | INFO     | Initializing device 0
+LOGOS_MM_CFG strategy=ReuseMcast grid=5x5 per_core=4x4 out_block=4x4 in0_block_w=4 subblock=2x2
+LOGOS compiler-generated matmul (wormhole_b0, ReuseMcast) -- PCC = 0.9992974
+LOGOS_MM_PASS
+                 Metal | INFO     | Closing device 0
+                 BuildKernels | JIT cache stats: 13/13 hits (100.0%) [13 cached, 0 build-once dedup] (build_cache_telemetry.cpp:207)
+[9394] 11.0 seconds (0.9 KHz)

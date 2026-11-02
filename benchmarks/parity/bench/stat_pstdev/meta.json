@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.pstdev",
+  "workload": "statistics.pstdev",
+  "arg": "20000",
+  "expected": "5762615521",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

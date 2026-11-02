@@ -1,0 +1,13 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let base be repeatText("héllo wörld ", 200).
+Let mutable sum be 0.
+Let mutable r be 0.
+While r is less than n:
+    Set sum to (sum + runeCount(base)) % 1000000007.
+    Set r to r + 1.
+Show sum.

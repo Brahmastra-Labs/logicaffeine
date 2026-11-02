@@ -1,0 +1,68 @@
+{
+  "case": "T00-021",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_021.bump",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(n1 : Nat) \u2192\n  (n2 : Fin (n1 + 1)) \u2192\n    (n3 : Fin (\u2191n2 + 1)) \u2192 (n4 : Fin (\u2191n3 + 1)) \u2192 (n5 : Fin (\u2191n4 + 1)) \u2192 (n6 : Fin (\u2191n5 + 1)) \u2192 Fin (\u2191n6 + 1) \u2192 Nat",
+      "name": "T00_021.depTelescope",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192\n  Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat \u2192 Nat",
+      "name": "T00_021.f20",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_021.nestedHeadSpine",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_021.saturated20",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_021.sharedSubterm",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T00_021.tower",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : Nat \u2192 Sort u_1) \u2192 (x : Nat) \u2192 (Unit \u2192 motive 0) \u2192 ((k : Nat) \u2192 motive k.succ) \u2192 motive x",
+      "name": "T00_021.tower.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

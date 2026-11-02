@@ -11,6 +11,7 @@
   ],
   "correct": 2,
   "hint": "This mathematician created Boolean algebra, foundational to digital computing.",
-  "explanation": "George Boole (1815-1864) published 'The Laws of Thought' (1854), creating Boolean algebra - the first mathematical treatment of logic using symbols and equations. This became the foundation for digital circuits and computer science.",
-  "visual_concept": "Boole turned logical reasoning into math: AND became multiplication, OR became addition. Your computer runs on Boolean logic!"
+  "explanation": "George Boole's Laws of Thought (1854) treated logic as algebra. Boolean algebra later became the basis of digital circuits.",
+  "visual_concept": "Boole turned logical reasoning into math: AND became multiplication, OR became addition. Your computer runs on Boolean logic!",
+  "section": "16.3"
 }

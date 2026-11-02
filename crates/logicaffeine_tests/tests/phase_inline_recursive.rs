@@ -14,11 +14,11 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
+use logicaffeine_base::Interner;
 use logicaffeine_compile::ast::stmt::{Block, Stmt};
 use logicaffeine_compile::compile::tw_outcome_with_args;
 use logicaffeine_compile::ui_bridge::with_v2_optimized_program;
 use logicaffeine_compile::vm::NativeTier;
-use logicaffeine_base::Interner;
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
@@ -152,9 +152,11 @@ fn count_whiles(block: Block) -> usize {
         .iter()
         .map(|s| match s {
             Stmt::While { body, .. } => 1 + count_whiles(body),
-            Stmt::If { then_block, else_block, .. } => {
-                count_whiles(then_block) + else_block.map_or(0, count_whiles)
-            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => count_whiles(then_block) + else_block.map_or(0, count_whiles),
             _ => 0,
         })
         .sum()

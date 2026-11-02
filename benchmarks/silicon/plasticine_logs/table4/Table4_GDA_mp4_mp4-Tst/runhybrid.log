@@ -1,0 +1,40 @@
+Router 124
+	Output: 0 chan 496
+	Output: 4 ej port 124
+Router 125
+	Output: 0 chan 500
+	Output: 3 chan 503
+Router 126
+	Output: 3 chan 507
+	Output: 4 ej port 126
+Router 133
+	Output: 4 ej port 133
+Router 135
+	Output: 3 chan 543
+Router 145
+	Output: 3 chan 583
+../plastisim/final.place Elapsed seconds: 1.19523
+Exiting... 😊
+script verbose
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Caught exception on cycle 12: /DUT/Top/net/router34: no route for packet 529
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 0 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 3.24212
+Exiting... 😊
+Destruct DRAM.
+gold: 
+result: 
+PASS: false (GDA)
+Assertion fail:
+GDA.scala:109:11: Assertion failure
+tungsten: plasticine/templates/cppgenutil.cc:35: void ASSERT(bool, const char*): Assertion `false' failed.
+Command terminated by signal 6
+Runtime:0:03.62

@@ -1,0 +1,10 @@
+{
+  "capability": "heap.merge",
+  "workload": "peek(merge(heapify(xs),heapify(ys))) = min(xs+ys)",
+  "arg": "25000",
+  "expected": "5593350",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

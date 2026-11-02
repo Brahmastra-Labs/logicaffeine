@@ -1,0 +1,11 @@
+logos::main::loop@51 [jit] 73787416127
+logos::main::loop@55 [jit] 3899887437
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter;<core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::fold;__memcpy_avx_unaligned_erms 1108285147
+logos::main::loop@13 [jit] 44167920
+logos::main::loop@31 [jit] 43916291
+logos::main::loop@104 [jit] 19920058
+logos::main::loop@77 [jit] 19864293
+[unknown];logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter;<core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::fold;__memcpy_avx_unaligned_erms;[unknown] 16271538
+logos::main::loop@31 [jit];[unknown] 13071151
+[unknown];_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_jit::adapt_region;logicaffeine_jit::kind_flow;logicaffeine_jit::kind_flow_sited;__GI___libc_malloc 1006967
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela;elf_machine_rela;[unknown] 838926

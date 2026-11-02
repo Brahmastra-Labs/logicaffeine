@@ -4,6 +4,27 @@ All notable changes to the LOGOS VSCode extension.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-02
+
+### Added
+- **Debug a LOGOS file, backwards too.** A `logos` debug type ("LOGOS Debug") runs `largo dap` from `PATH`. A launch configuration takes `program` (default `${file}`), with inline `source` overriding it; an initial configuration and a "LOGOS: Launch file" snippet are provided, and breakpoints are enabled for LOGOS files. Step back and reverse continue come from the adapter, which replays the recorded history (`dap_lock`); breakpoints are acknowledged but not yet mapped to operations.
+- **LGX pages highlight as HTML and CSS.** `View:` and `Head:` bodies are embedded HTML with each `{…}` hole highlighted as LOGOS, and `Style:` bodies are embedded CSS; `State:` and `Actions:` read as sections, and a section keyword keeps its highlighting where the embedded grammar is unavailable. The block headers `## Page`, `## Component`, `## Store`, `## Directive`, `## Route`, `## Redirect`, `## Before each request` and `## Error page` are recognized. `vscode_grammar_lock`.
+- **The server's `tag` and `attribute` tokens paint as HTML.** Both are declared as semantic token types and mapped to the HTML tag and attribute-name scopes. `lgx_editor_lock::every_semantic_token_type_is_mapped_by_the_vscode_manifest`.
+- **LGX snippets.** `page`, `component`, `store`, `route`, `session` and `errorpage`; every view snippet builds for the browser. `vscode_grammar_lock`.
+- **Template tags and page statements highlight.** A hole whose first word is one the template reader treats as a tag (`{if …:}`, `{for each …:}`, `{else:}`, `{end}`, `{children}`, `{extends Layout}`, `{block name:}`, `{inspect …:}`, `{when …:}`, `{let … be …}`, `{raw …}`) paints that word as a keyword and a layout or slot name as a name, its body still LOGOS; `Use Cart.`, `Navigate to …` and `Go back.` read as statements. The quickguide ratchet (`npm run test:grammar`) holds every quickguide form to a scope.
+
+### Changed
+
+- Licensed under the MIT License, which replaces the Business Source License 1.1; `package-lock.json` says MIT too,
+  where it still said `SEE LICENSE IN LICENSE.md`.
+
+### Removed
+
+- The `LOGOS: Set Verification License Key` command and the prompt before Verify Project. Verify runs `largo verify`
+  with nothing added to its environment.
+
+## [0.10.0] - 2026-07-08
+
 ### Added
 - Bundled per-platform language server with settings-override and PATH
   fallback; language status item; output channel + `logicaffeine.trace.server`.

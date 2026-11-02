@@ -1,0 +1,3 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 17966387245
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_heap_alloc;__libc_calloc;tcache_init;tcache_init;_int_malloc;sysmalloc;__glibc_morecore;__GI___sbrk;__brk;[unknown] 224613
+_start;__libc_start_main_impl;__libc_start_call_main;main;lc_gc_resize.constprop.0;__GI___libc_realloc;_int_realloc;__GI_memcpy;__memcpy_avx_unaligned_erms;[unknown] 224613

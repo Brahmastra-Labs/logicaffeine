@@ -14,7 +14,7 @@
 
 mod common;
 
-use common::{run_logos, run_interpreter};
+use common::{run_all_tiers, run_interpreter, run_logos};
 use logicaffeine_compile::loader::apply_prelude;
 
 // ─── Value-type modules auto-import (mechanism + end-to-end compiled) ────────
@@ -38,7 +38,11 @@ fn net_message_compiles_end_to_end() {
         \x20   Let m be a new Message with sender 7 and payload \"hi\".\n\
         \x20   Show m's sender.\n";
     let result = run_logos(src);
-    assert!(result.success, "net `Message` must compile invisibly.\nstderr: {}", result.stderr);
+    assert!(
+        result.success,
+        "net `Message` must compile invisibly.\nstderr: {}",
+        result.stderr
+    );
     assert!(result.stdout.contains('7'), "expected 7: {}", result.stdout);
 }
 
@@ -122,7 +126,11 @@ fn user_message_type_shadows_net_module() {
         "net module must NOT be prepended when the program defines its own `Message`"
     );
     let result = run_interpreter(src);
-    assert!(result.success, "user's Message must compile: {}", result.error);
+    assert!(
+        result.success,
+        "user's Message must compile: {}",
+        result.error
+    );
     assert_eq!(result.output.trim(), "9");
 }
 
@@ -161,5 +169,35 @@ fn no_prelude_opts_out_for_net() {
     assert!(
         !applied.contains("a sender, which is Int"),
         "## NoPrelude must suppress the net auto-import"
+    );
+}
+
+// ─── Leading title/comment headers survive the auto-import splice ────────────
+
+/// A Studio-style program header (`# Title` + `--` notes BEFORE the first
+/// `## Main`) must not break when a stdlib module auto-imports. The splice has
+/// to land the module code AFTER the leading prose — prepending it pushes the
+/// header into the middle of the assembled program, where the parser rejects
+/// the `--` lines ("I expected a statement here").
+#[test]
+fn leading_comment_header_survives_autoimport() {
+    let src = "# Stable IDs\n-- A perfectly ordinary comment before the first section.\n\n## Main\n\nLet dns be uuidParse(\"6ba7b810-9dad-11d1-80b4-00c04fd430c8\").\nShow \"parsed: {dns}\".\n";
+    let spliced = apply_prelude(src);
+    assert!(
+        spliced.contains("uuidParse"),
+        "uuid module must auto-import for the uuidParse call"
+    );
+    let agreed = run_all_tiers(src);
+    assert!(
+        agreed.error.is_none(),
+        "leading-comment program must run after auto-import on every tier.\nerror: {}",
+        agreed.error.as_deref().unwrap_or("")
+    );
+    assert!(
+        agreed
+            .output
+            .contains("parsed: 6ba7b810-9dad-11d1-80b4-00c04fd430c8"),
+        "wrong output: {}",
+        agreed.output
     );
 }

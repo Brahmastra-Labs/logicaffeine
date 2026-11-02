@@ -1,0 +1,11 @@
+{
+  "capability": "calendar.isleap",
+  "workload": "count Gregorian leap years in [1,n] via isLeapYear",
+  "arg": "4000000",
+  "expected": "970000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ],
+  "note": "Pure-LOGOS calendar switch-lookup (calendar.isleap). Python rival present; C/Rust/Go rivals not yet authored, so perf stays pending. Sized so the Python rival is tolerable."
+}

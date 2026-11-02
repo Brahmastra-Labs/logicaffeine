@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "D if C",
   "options": [
-    "$ (D \\supset C) $",
-    "$ D \\supset C $",
-    "$ (D \\equiv C) $",
-    "$ (C \\supset D) $"
+    "D → C",
+    "D ↔ C",
+    "C ∧ D",
+    "C → D"
   ],
   "correct": 3,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A if B' means B → A: the part after 'if' is the if part.",
+  "explanation": "The part after 'if' is the condition, so the formula is C → D.",
+  "section": "6.2"
 }

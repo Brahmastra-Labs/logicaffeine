@@ -3,9 +3,12 @@
   "type": "translation",
   "difficulty": 3,
   "prompt": "Translate this universal statement:",
-  "template": "Every {Noun} {Verb}.",
+  "template": "Every {Noun} {Verb:Present3s}.",
   "constraints": {
-    "Verb": ["Intransitive"]
+    "Verb": [
+      "Intransitive"
+    ]
   },
-  "hint": "Universal joined by →: ∀x(Noun(x) → ∃e(Verb(e) ∧ Agent(e, x))). The verb becomes an event with x as its Agent."
+  "hint": "Every joins with →. The verb becomes an event with x as its Agent: ∀x(Noun(x) → ∃e(Verb(e) ∧ Agent(e, x))).",
+  "section": "8.1"
 }

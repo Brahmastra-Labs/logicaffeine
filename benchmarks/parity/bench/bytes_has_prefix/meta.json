@@ -1,0 +1,11 @@
+{
+  "capability": "bytes.has_prefix",
+  "workload": "bytesHasPrefix(xs,prefix)",
+  "arg": "120000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

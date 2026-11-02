@@ -1,0 +1,52 @@
+{
+  "case": "T06-002",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "{a b : Nat} \u2192 a = b \u2192 (F : Nat \u2192 Type) \u2192 F a \u2192 F b",
+      "name": "T06_002.bigMotive",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a : \u03b1} (motive : (b : \u03b1) \u2192 a = b \u2192 Prop), motive a \u22ef \u2192 \u2200 (b : \u03b1) (h : a = b), motive b h",
+      "name": "T06_002.jDependent",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} {a b : \u03b1}, a = b \u2192 b = a",
+      "name": "T06_002.symmViaRec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (P : \u03b1 \u2192 Prop) {a b : \u03b1}, a = b \u2192 P a \u2192 P b",
+      "name": "T06_002.transport",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (P : \u03b1 \u2192 Prop) {a b : \u03b1}, a = b \u2192 P a \u2192 P b",
+      "name": "T06_002.transportRaw",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (a b : Nat), a = b \u2192 b = b \u2192 a = a",
+      "name": "T06_002.viaMpr",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

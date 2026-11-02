@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use dashmap::DashMap;
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
+use lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
 
 use logicaffeine_language::token::Span;
 
@@ -74,13 +74,17 @@ impl Flycheck {
             .unwrap_or(false)
     }
 
-    /// Edits invalidate findings outright — their positions would lie.
-    pub fn clear(&self, uri: &Url) {
-        self.results.remove(uri);
+    /// Edits invalidate findings outright — their positions would lie. Returns
+    /// whether stored findings were actually dropped, so the caller can retract
+    /// them from the editor NOW (republish the interactive-only set) instead of
+    /// leaving them pinned to pre-edit positions until the analysis debounce.
+    pub fn clear(&self, uri: &Url) -> bool {
+        let had_findings = self.results.remove(uri).is_some();
         // Bump so an in-flight save result from before the edit is dropped.
         if let Some(generation) = self.generations.get(uri) {
             generation.fetch_add(1, Ordering::SeqCst);
         }
+        had_findings
     }
 
     pub fn forget(&self, uri: &Url) {
@@ -258,3 +262,7 @@ impl FlycheckRunner for CargoFlycheck {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_lsp/flycheck/tests.rs"]
+mod tests;

@@ -17,5 +17,9 @@ func main() {
 	for i := 1; i < n; i++ {
 		arr[i] = (arr[i] + arr[i-1]) % 1000000007
 	}
-	fmt.Println(arr[n-1])
+	h := int64(0)
+	for _, v := range arr {
+		h = (h*31 + v) & 268435455
+	}
+	fmt.Println(arr[n-1], h)
 }

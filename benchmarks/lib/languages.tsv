@@ -1,0 +1,17 @@
+id	label	color	tier	source	build	run	version	mem	size	profile	shown	engine
+c	C (gcc)	#555555	systems	main.c	gcc -O3 -march=native -flto -ffp-contract=off -o {bin} {src} -lm	{bin} {n}	gcc --version	1	1	1	gcc -O3 -march=native -flto -ffp-contract=off -o bench main.c -lm	
+c_clang	C (clang)	#8b95a3	systems	main.c	clang -O3 -march=native -flto -ffp-contract=off -o {bin} {src} -lm	{bin} {n}	clang --version	1	1	0	clang -O3 -march=native -flto -ffp-contract=off -o bench main.c -lm	
+cpp	C++ (gcc)	#f34b7d	systems	main.cpp	g++ -O3 -march=native -flto -ffp-contract=off -std=c++17 -o {bin} {src}	{bin} {n}	g++ --version	1	1	0	g++ -O3 -march=native -flto -ffp-contract=off -std=c++17 -o bench main.cpp	
+cpp_clang	C++ (clang)	#d9709a	systems	main.cpp	clang++ -O3 -march=native -flto -ffp-contract=off -std=c++17 -o {bin} {src}	{bin} {n}	clang++ --version	1	1	0	clang++ -O3 -march=native -flto -ffp-contract=off -std=c++17 -o bench main.cpp	
+rust	Rust	#dea584	systems	main.rs	rustc --edition 2021 -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native -C panic=abort -o {bin} {src}	{bin} {n}	rustc --version	1	1	0	rustc --edition 2021 -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native -C panic=abort -o bench main.rs	
+zig	Zig	#f7a41d	systems	main.zig	cd {tmp} && zig build-exe -O ReleaseFast -mcpu native -femit-bin={bin} {src}	{bin} {n}	zig version	1	1	0	zig build-exe -O ReleaseFast -mcpu native -femit-bin=bench main.zig	
+go	Go	#3fb950	managed	main.go	GOAMD64={goamd64} go build -o {bin} {src}	{bin} {n}	go version	1	1	0	GOAMD64={goamd64} go build -o bench main.go	
+java	Java	#b07219	managed	Main.java	mkdir -p {dir} && javac -d {dir} {src}	java -cp {dir} Main {n}	java --version	1	1	0	javac -d classes Main.java	
+js	JavaScript	#f7df1e	managed	main.js	-	node --stack-size=4000 {src} {n}	node --version	1	0	0	node --stack-size=4000 main.js	
+nim	Nim	#ffe953	transpiled	main.nim	nim c -d:danger --passC:"-O3 -march=native -flto -ffp-contract=off" --passL:"-O3 -march=native -flto" --hints:off --nimcache:{tmp} -o:{bin} {src}	{bin} {n}	nim --version	1	1	0	nim c -d:danger --passC:"-O3 -march=native -flto -ffp-contract=off" --passL:"-O3 -march=native -flto" --hints:off -o:bench main.nim	
+logos_release	LOGOS (Rust)	#00d4ff	logos	main.lg	logos_build rust {bench} {bin}	{bin} {n}	{largo} --version	1	1	1	largo build --release	
+logos_c	LOGOS (C)	#67e8f9	logos	main.lg	logos_build c {bench} {bin}	{bin} {n}	{largo} --version	1	1	1	largo build --release --emit c	
+logos_cbc	LOGOS (C, bytecode)	#a5f3fc	logos	main.lg	logos_build cbc {bench} {bin}	{bin} {n}	{largo} --version	1	1	1	largo build --release --emit c-bytecode	
+logos_jit	LOGOS (JIT)	#0891b2	logos	main.lg	logos_jit_image {bench} {dir}	{dir}/run-jit {n}	{largo} --version	1	0	1	logos-jit-image-build; logos-jit-run	vm+jit
+logos_vm	LOGOS (VM)	#06b6d4	logos	main.lg	logos_project {bench} {dir}	cd {dir} && {largo} -q run --interpret --engine vm -- {n}	{largo} --version	1	0	0	largo run --interpret --engine vm	vm
+logos_tw	LOGOS (tree-walker)	#2dd4bf	logos	main.lg	logos_project {bench} {dir}	cd {dir} && {largo} -q run --interpret --engine tree -- {n}	{largo} --version	1	0	0	largo run --interpret --engine tree	treewalker

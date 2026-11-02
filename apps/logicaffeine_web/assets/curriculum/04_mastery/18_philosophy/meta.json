@@ -2,5 +2,6 @@
   "id": "philosophy",
   "title": "Philosophy of Logic",
   "pedagogy": "Examine philosophical foundations: abstract entities, metaphysical structures, the basis for logical laws, truth, paradoxes, and logic's scope.",
-  "order": 5
+  "order": 5,
+  "summary": "What logic is about: abstract objects, structure, the ground of its laws, truth and scope."
 }

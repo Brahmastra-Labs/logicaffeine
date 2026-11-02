@@ -1,0 +1,71 @@
+{
+ "charts": {
+  "codec-board.svg": {
+   "codecs": 11
+  },
+  "codec-size.svg": {
+   "fair_total": 6,
+   "fair_wins": 6,
+   "geomean_smaller": 1.464
+  },
+  "codec-speed.svg": {
+   "dec_max": 9.94,
+   "enc_max": 3.5,
+   "ra_logos_ns": 15.0
+  },
+  "compiled-vs-c.svg": {
+   "collapse_max": 4471.742,
+   "collapse_min": 1.927,
+   "collapses": 8,
+   "geomean_vs_c": 4.161,
+   "parity_max": 2.539,
+   "parity_min": 0.947,
+   "parity_n": 9,
+   "same_algo_geomean": 1.485
+  },
+  "interp-vs-v8.svg": {
+   "coldstart_logos_ms": 2.0,
+   "coldstart_node_ms": 11.4,
+   "coldstart_x": 5.79,
+   "eager_vs_v8": 0.879
+  },
+  "overall-vs-c.svg": {
+   "benchmarks": 35,
+   "collapses": 8,
+   "cpp": 0.986,
+   "go": 0.826,
+   "java": 0.718,
+   "js": 0.518,
+   "logos_all": 4.161,
+   "logos_apples": 1.485,
+   "nim": 1.097,
+   "rust": 1.051,
+   "zig": 1.093
+  },
+  "sat-arena.svg": {
+   "cadical_par2": 921,
+   "cadical_proofs": 0,
+   "cadical_solved": 112,
+   "families": 20,
+   "instances": 133,
+   "kissat_par2": 971,
+   "kissat_proofs": 0,
+   "kissat_solved": 111,
+   "ours_par2": 522,
+   "ours_proofs": 48,
+   "ours_solved": 121
+  },
+  "sat-solvers.svg": {
+   "families": 7
+  }
+ },
+ "generated_by": "benchmarks/gen-readme-charts.py",
+ "input_digest": "fnv1a64",
+ "inputs": {
+  "arena/sat.json": "80f3837bc2a4086f",
+  "latest-codec.json": "95872e5b29665bc6",
+  "latest-interp.json": "2efa34dc62ba0d83",
+  "latest.json": "6910b33f128336e1",
+  "solvers.json": "8a7aca57ee093cf5"
+ }
+}

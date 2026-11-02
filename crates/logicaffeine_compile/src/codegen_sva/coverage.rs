@@ -3,7 +3,7 @@
 //! Computes how well a set of SVA properties covers the specification KG.
 
 use logicaffeine_language::semantics::knowledge_graph::HwKnowledgeGraph;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Coverage metrics for a specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,11 +22,15 @@ pub fn compute_coverage(kg: &HwKnowledgeGraph, covered_signals: &[String]) -> Sp
     let total_properties = kg.properties.len();
     let total_edges = kg.edges.len();
 
-    let covered_count = kg.signals.iter()
+    let covered_count = kg
+        .signals
+        .iter()
         .filter(|s| covered_signals.iter().any(|c| c == &s.name))
         .count();
 
-    let uncovered_signals: Vec<String> = kg.signals.iter()
+    let uncovered_signals: Vec<String> = kg
+        .signals
+        .iter()
         .filter(|s| !covered_signals.iter().any(|c| c == &s.name))
         .map(|s| s.name.clone())
         .collect();
@@ -38,9 +42,13 @@ pub fn compute_coverage(kg: &HwKnowledgeGraph, covered_signals: &[String]) -> Sp
     };
 
     // Edge coverage: fraction of edges where BOTH endpoints are covered
-    let covered_edges = kg.edges.iter()
-        .filter(|e| covered_signals.iter().any(|c| c == &e.from)
-            && covered_signals.iter().any(|c| c == &e.to))
+    let covered_edges = kg
+        .edges
+        .iter()
+        .filter(|e| {
+            covered_signals.iter().any(|c| c == &e.from)
+                && covered_signals.iter().any(|c| c == &e.to)
+        })
         .count();
     let edge_coverage = if total_edges > 0 {
         covered_edges as f64 / total_edges as f64
@@ -49,7 +57,9 @@ pub fn compute_coverage(kg: &HwKnowledgeGraph, covered_signals: &[String]) -> Sp
     };
 
     // Property coverage: fraction of properties whose associated edge signals are covered
-    let covered_props = kg.properties.iter()
+    let covered_props = kg
+        .properties
+        .iter()
         .filter(|p| {
             // A property is covered if its associated edge has both endpoints covered
             kg.edges.iter().any(|e| {
@@ -66,10 +76,14 @@ pub fn compute_coverage(kg: &HwKnowledgeGraph, covered_signals: &[String]) -> Sp
     };
 
     // Temporal coverage: temporal properties (safety/liveness) that are covered
-    let temporal_props = kg.properties.iter()
+    let temporal_props = kg
+        .properties
+        .iter()
         .filter(|p| p.property_type == "safety" || p.property_type == "liveness")
         .count();
-    let covered_temporal = kg.properties.iter()
+    let covered_temporal = kg
+        .properties
+        .iter()
         .filter(|p| {
             (p.property_type == "safety" || p.property_type == "liveness")
                 && kg.edges.iter().any(|e| {
@@ -86,7 +100,9 @@ pub fn compute_coverage(kg: &HwKnowledgeGraph, covered_signals: &[String]) -> Sp
     };
 
     // Uncovered properties: only those NOT covered
-    let uncovered_properties: Vec<String> = kg.properties.iter()
+    let uncovered_properties: Vec<String> = kg
+        .properties
+        .iter()
         .filter(|p| {
             !kg.edges.iter().any(|e| {
                 e.property.as_deref() == Some(&p.name)

@@ -20,7 +20,11 @@ Show result.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("50"), "Should output 50, got: {}", result.output);
+    assert!(
+        result.output.contains("50"),
+        "Should output 50, got: {}",
+        result.output
+    );
 }
 
 // =============================================================================
@@ -38,8 +42,16 @@ Show not x.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("false"), "Should output false for x and y, got: {}", result.output);
-    assert!(result.output.contains("true"), "Should output true for x or y, got: {}", result.output);
+    assert!(
+        result.output.contains("false"),
+        "Should output false for x and y, got: {}",
+        result.output
+    );
+    assert!(
+        result.output.contains("true"),
+        "Should output true for x or y, got: {}",
+        result.output
+    );
 }
 
 // =============================================================================
@@ -61,7 +73,11 @@ Show sum.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("60"), "Should output 60, got: {}", result.output);
+    assert!(
+        result.output.contains("60"),
+        "Should output 60, got: {}",
+        result.output
+    );
 }
 
 // =============================================================================
@@ -86,5 +102,9 @@ Show local's views.
 "#;
     let result = run_interpreter(source);
     assert!(result.success, "Should run without error: {}", result.error);
-    assert!(result.output.contains("150"), "Should output 150, got: {}", result.output);
+    assert!(
+        result.output.contains("150"),
+        "Should output 150, got: {}",
+        result.output
+    );
 }

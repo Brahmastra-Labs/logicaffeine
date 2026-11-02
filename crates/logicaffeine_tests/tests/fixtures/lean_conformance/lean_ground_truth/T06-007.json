@@ -1,0 +1,66 @@
+{
+  "case": "T06-007",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 8,
+  "declarations": [
+    {
+      "type": "\u2200 (n : Nat), \u2203 m, \u2200 (k : Nat), n + 0 = n \u2227 m = n \u2227 k = k",
+      "name": "T06_007.alternating",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (\u03b1 : Type), \u03b1 = \u03b1",
+      "name": "T06_007.bigDomainProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), (\u2200 (n : Nat), P n) \u2192 P 7",
+      "name": "T06_007.forallDependent",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n : Nat), n = n",
+      "name": "T06_007.forallRefl",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (P : Nat \u2192 Prop), (\u2200 (n : Nat), P n) \u2192 P 0",
+      "name": "T06_007.higherOrder",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 p \u2192 q",
+      "name": "T06_007.implication",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), p \u2192 p",
+      "name": "T06_007.quantifyOverProp",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 \u2200 (n : Nat), n = n",
+      "name": "T06_007.shadowed",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

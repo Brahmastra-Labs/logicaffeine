@@ -1,0 +1,8 @@
+logos::main::loop@14 [jit] 8717798116
+logos::main::loop@27 [jit] 6464564933
+logos::main::loop@14 [jit];[unknown] 639034281
+logos::main::loop@14 [jit];logicaffeine_jit::logos_rt_push_i32;alloc::raw_vec::RawVec<T,A>::grow_one;_ZN5alloc7raw_vec20RawVecInner$LT$A$GT$11finish_grow17he345050986223117E.llvm.3633060652544628759;__GI___libc_realloc;mremap_chunk 1604628
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela 708517
+_start;__libc_start_main_impl;__libc_start_call_main;main;_RNvNtCs75vJTIYSa2J_3std2rt19lang_start_internal;std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h51f0bc37981b2549;std::sys::backtrace::__rust_begin_short_backtrace;logos_jit_run::native::main;logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::semantics::collections::list_push;[unknown] 544499
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_find_object_init;_dlfo_process_initial 249999
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_map_object_deps;__GI__dl_catch_exception;openaux;_dl_map_object;_dl_load_cache_lookup;search_cache 238453

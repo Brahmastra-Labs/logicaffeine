@@ -1,0 +1,3 @@
+nexys_video_wpe_stream.v
+wpe_soc_stream.v
+ft245_uart_bridge.v

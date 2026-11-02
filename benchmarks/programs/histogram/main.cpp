@@ -11,11 +11,12 @@ int main(int argc, char *argv[]) {
         seed = (seed * 1103515245 + 12345) % 2147483648L;
         counts[((seed >> 16) & 0x7fff) % 1000]++;
     }
-    long max_freq = 0, max_idx = 0, distinct = 0;
+    long max_freq = 0, max_idx = 0;
     for (long i = 0; i < 1000; i++) {
-        if (counts[i] > 0) distinct++;
         if (counts[i] > max_freq) { max_freq = counts[i]; max_idx = i; }
     }
-    printf("%ld %ld %ld\n", max_freq, max_idx, distinct);
+    long h = 0;
+    for (long i = 0; i < 1000; i++) h = (h * 31 + counts[i]) & 268435455;
+    printf("%ld %ld %ld\n", max_freq, max_idx, h);
     return 0;
 }

@@ -1,0 +1,10 @@
+{
+  "capability": "math.jacobi",
+  "workload": "jacobi(i,2i+1)",
+  "arg": "2000000",
+  "expected": "0",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -86,9 +86,15 @@ fn main() {
 
         summary.push_str(&format!("[{status}] {n:02}. {sentence}\n"));
         if let Some(err) = &result.error {
-            summary.push_str(&format!("           ↳ {}\n", err.replace('\n', "\n           ")));
+            summary.push_str(&format!(
+                "           ↳ {}\n",
+                err.replace('\n', "\n           ")
+            ));
         } else {
-            summary.push_str(&format!("           ⊢ {}\n", result.logic.as_deref().unwrap_or("")));
+            summary.push_str(&format!(
+                "           ⊢ {}\n",
+                result.logic.as_deref().unwrap_or("")
+            ));
             if other_nodes > 0 {
                 summary.push_str(&format!(
                     "           ⚠ {other_nodes}/{total_nodes} AST nodes are unhandled variants\n"

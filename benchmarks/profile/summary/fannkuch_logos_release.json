@@ -1,0 +1,11 @@
+{
+  "name": "fannkuch",
+  "lang": "logos_release",
+  "n": "10",
+  "samples_weight": 741909021,
+  "alloc_pct": 0.0,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 100.0
+}

@@ -34,8 +34,8 @@
 //! # }
 //! ```
 
-use logicaffeine_data::crdt::Merge;
 use crate::network::wire;
+use logicaffeine_data::crdt::Merge;
 use once_cell::sync::Lazy;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
@@ -174,70 +174,9 @@ pub async fn unsubscribe(topic: &str) {
 // =============================================================================
 
 #[cfg(test)]
-pub mod test_hooks {
-    use once_cell::sync::Lazy;
-    use std::sync::Mutex;
-
-    pub struct MessageLog {
-        pub received: Vec<(String, Vec<u8>)>,
-    }
-
-    static LOG: Lazy<Mutex<MessageLog>> = Lazy::new(|| {
-        Mutex::new(MessageLog {
-            received: Vec::new(),
-        })
-    });
-
-    pub fn log_received(topic: &str, data: &[u8]) {
-        if let Ok(mut log) = LOG.lock() {
-            log.received.push((topic.to_string(), data.to_vec()));
-        }
-    }
-
-    pub fn get_received() -> Vec<(String, Vec<u8>)> {
-        LOG.lock().map(|l| l.received.clone()).unwrap_or_default()
-    }
-
-    pub fn clear_log() {
-        if let Ok(mut log) = LOG.lock() {
-            log.received.clear();
-        }
-    }
-
-    pub fn received_count() -> usize {
-        LOG.lock().map(|l| l.received.len()).unwrap_or(0)
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/gossip/test_hooks.rs"]
+pub mod test_hooks;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use logicaffeine_data::crdt::GCounter;
-
-    #[tokio::test]
-    async fn test_subscriptions_registry() {
-        let counter = Arc::new(Mutex::new(GCounter::new()));
-
-        // Spawn a subscription task
-        let topic = "test-sub";
-        let counter_clone = Arc::clone(&counter);
-        let handle = tokio::spawn(async move {
-            // This would block forever in real use, but we'll cancel it
-            tokio::select! {
-                _ = subscribe_and_merge::<GCounter>(topic, counter_clone) => {}
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
-            }
-        });
-
-        // Wait a bit for subscription to register
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Check subscription exists
-        let subs = SUBSCRIPTIONS.lock().await;
-        assert!(subs.contains_key(topic), "Subscription should be registered");
-        drop(subs);
-
-        // Cleanup
-        handle.abort();
-    }
-}
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_system/network/gossip/tests.rs"]
+mod tests;

@@ -1,0 +1,49 @@
+# GEMM — C = A matmul B over the tensor sugar (4×4 · 4×4, integer).
+#
+# RDU lane: tensor. `Let C be A matmul B.` desugars to the row-major triple loop the tensor recognizer reads;
+# `largo emit rdu` lifts it to the spatial IR (loads, a MatmulTiles stage, a store), runs the pinned passes
+# (fuse, tile, place, fuse readers, size buffers, synthesize handshakes, persist, verify) on the SN50
+# descriptor, and emits the certified neutral placement (`logos.spatial.neutral` v2) — SDK-gated for the
+# vendor config bytes.
+
+## Main
+
+Let A be a 4 by 4 tensor of Int.
+Set item 1 of A to 1.
+Set item 2 of A to 2.
+Set item 3 of A to 3.
+Set item 4 of A to 4.
+Set item 5 of A to -1.
+Set item 6 of A to 0.
+Set item 7 of A to 2.
+Set item 8 of A to 5.
+Set item 9 of A to 3.
+Set item 10 of A to -2.
+Set item 11 of A to 1.
+Set item 12 of A to 0.
+Set item 13 of A to 4.
+Set item 14 of A to 1.
+Set item 15 of A to -3.
+Set item 16 of A to 2.
+Let B be a 4 by 4 tensor of Int.
+Set item 1 of B to 2.
+Set item 2 of B to 0.
+Set item 3 of B to 1.
+Set item 4 of B to -1.
+Set item 5 of B to 3.
+Set item 6 of B to 1.
+Set item 7 of B to 0.
+Set item 8 of B to 2.
+Set item 9 of B to -2.
+Set item 10 of B to 4.
+Set item 11 of B to 1.
+Set item 12 of B to 1.
+Set item 13 of B to 0.
+Set item 14 of B to -1.
+Set item 15 of B to 3.
+Set item 16 of B to 2.
+Let C be A matmul B.
+Show item 1 of C.
+Show item 6 of C.
+Show item 11 of C.
+Show item 16 of C.

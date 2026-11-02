@@ -41,351 +41,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vm::instruction::{CompiledFunction, Op, Reg};
-
-/// How an op touches a register operand.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Role {
-    /// Written (the prior value is dead).
-    Def,
-    /// Read.
-    Use,
-    /// Read AND written through the SAME single field (`x += …`) — must rename to one local.
-    DefUse,
-}
-
-/// A visitor over an op's register operands. `scalar` is a single register field; `range` is a
-/// `count`-wide block of consecutive registers starting at `*start` (the members past `*start` are
-/// implicit — not fields — so only `*start` is handed over, but the whole block is pinned).
-trait RegVisitor {
-    fn scalar(&mut self, r: &mut Reg, role: Role);
-    fn range(&mut self, start: &mut Reg, count: u16, role: Role);
-    /// A register block that must stay CONTIGUOUS only when it has ≥2 members — a range of ONE has
-    /// no positional constraint, so its lone operand is a plain renamable scalar (the op reads it
-    /// through `args_start`, which the rename updates). Visiting it as a scalar lets a single-arg
-    /// call/builtin operand split off a register that a wider call reuses (spectral_norm's `Sqrt`
-    /// arg sharing a slot with a 4-arg call's `Seq of Float` argument).
-    fn members(&mut self, start: &mut Reg, count: u16, role: Role) {
-        if count == 1 {
-            self.scalar(start, role);
-        } else {
-            self.range(start, count, role);
-        }
-    }
-}
-
-/// THE exhaustive enumeration of every op's register operands (compiler-enforced total match: a new
-/// `Op` variant fails to build until classified here). `functions` resolves a `MakeClosure`'s
-/// capture count, whose register range is not stored in the op. Takes `&mut Op` so the same routine
-/// drives both read-only analysis and in-place renaming.
-fn visit_regs(op: &mut Op, functions: &[CompiledFunction], v: &mut dyn RegVisitor) {
-    use Role::{Def, DefUse, Use};
-    match op {
-        Op::LoadConst { dst, .. } => v.scalar(dst, Def),
-        Op::Move { dst, src } => {
-            v.scalar(src, Use);
-            v.scalar(dst, Def);
-        }
-        Op::EnsureOwned { reg } => v.scalar(reg, Role::DefUse),
-        Op::Add { dst, lhs, rhs }
-        | Op::Sub { dst, lhs, rhs }
-        | Op::Mul { dst, lhs, rhs }
-        | Op::Pow { dst, lhs, rhs }
-        | Op::Div { dst, lhs, rhs }
-        | Op::ExactDiv { dst, lhs, rhs }
-        | Op::FloorDiv { dst, lhs, rhs }
-        | Op::Mod { dst, lhs, rhs }
-        | Op::Lt { dst, lhs, rhs }
-        | Op::Gt { dst, lhs, rhs }
-        | Op::LtEq { dst, lhs, rhs }
-        | Op::GtEq { dst, lhs, rhs }
-        | Op::Eq { dst, lhs, rhs }
-        | Op::NotEq { dst, lhs, rhs }
-        | Op::ApproxEq { dst, lhs, rhs }
-        | Op::Concat { dst, lhs, rhs }
-        | Op::SeqConcat { dst, lhs, rhs }
-        | Op::BitXor { dst, lhs, rhs }
-        | Op::BitAnd { dst, lhs, rhs }
-        | Op::BitOr { dst, lhs, rhs }
-        | Op::Shl { dst, lhs, rhs }
-        | Op::Shr { dst, lhs, rhs }
-        | Op::UnionOp { dst, lhs, rhs }
-        | Op::IntersectOp { dst, lhs, rhs } => {
-            v.scalar(lhs, Use);
-            v.scalar(rhs, Use);
-            v.scalar(dst, Def);
-        }
-        Op::AddAssign { dst, src } => {
-            v.scalar(src, Use);
-            v.scalar(dst, DefUse);
-        }
-        Op::DivPow2 { dst, lhs, .. } | Op::MagicDivU { dst, lhs, .. } => {
-            v.scalar(lhs, Use);
-            v.scalar(dst, Def);
-        }
-        Op::Not { dst, src } | Op::DeepClone { dst, src } => {
-            v.scalar(src, Use);
-            v.scalar(dst, Def);
-        }
-        Op::Jump { .. } => {}
-        Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => {
-            v.scalar(cond, Use)
-        }
-        Op::Call { dst, args_start, arg_count, .. } => {
-            v.members(args_start, *arg_count, Use);
-            v.scalar(dst, Def);
-        }
-        Op::CallBuiltin { dst, args_start, arg_count, .. } => {
-            v.members(args_start, *arg_count, Use);
-            v.scalar(dst, Def);
-        }
-        Op::CallValue { dst, callee, args_start, arg_count, .. } => {
-            v.scalar(callee, Use);
-            v.members(args_start, *arg_count, Use);
-            v.scalar(dst, Def);
-        }
-        Op::MakeClosure { dst, func, locals_start } => {
-            let cap_n = functions.get(*func as usize).map_or(0, |f| f.captures.len() as u16);
-            v.members(locals_start, cap_n, Use);
-            v.scalar(dst, Def);
-        }
-        Op::CheckPolicy { subject, object, .. } => {
-            v.scalar(subject, Use);
-            if *object != Reg::MAX {
-                v.scalar(object, Use);
-            }
-        }
-        Op::ListPushField { obj, src, .. } => {
-            v.scalar(obj, Use);
-            v.scalar(src, Use);
-        }
-        Op::GlobalGet { dst, .. } => v.scalar(dst, Def),
-        Op::GlobalSet { src, .. } => v.scalar(src, Use),
-        Op::Return { src } => v.scalar(src, Use),
-        Op::ReturnNothing => {}
-        Op::NewList { dst, start, count } | Op::NewTuple { dst, start, count } => {
-            v.members(start, *count, Use);
-            v.scalar(dst, Def);
-        }
-        Op::NewEmptyList { dst }
-        | Op::NewEmptyListI32 { dst }
-        | Op::NewEmptySet { dst }
-        | Op::NewEmptyMap { dst }
-        | Op::LoadToday { dst }
-        | Op::LoadNow { dst }
-        | Op::NewStruct { dst, .. }
-        | Op::NewCrdt { dst, .. }
-        | Op::Args { dst }
-        | Op::ChanNew { dst, .. }
-        | Op::SelectWait { dst_arm: dst } => v.scalar(dst, Def),
-        Op::NewRange { dst, start, end } => {
-            v.scalar(start, Use);
-            v.scalar(end, Use);
-            v.scalar(dst, Def);
-        }
-        Op::ListPush { list, value } => {
-            v.scalar(list, Use);
-            v.scalar(value, Use);
-        }
-        Op::SetAdd { set, value } => {
-            v.scalar(set, Use);
-            v.scalar(value, Use);
-        }
-        Op::RemoveFrom { collection, value } => {
-            v.scalar(collection, Use);
-            v.scalar(value, Use);
-        }
-        Op::Contains { dst, collection, value } => {
-            v.scalar(collection, Use);
-            v.scalar(value, Use);
-            v.scalar(dst, Def);
-        }
-        Op::SetIndex { collection, index, value } | Op::SetIndexUnchecked { collection, index, value } => {
-            v.scalar(collection, Use);
-            v.scalar(index, Use);
-            v.scalar(value, Use);
-        }
-        Op::Index { dst, collection, index } | Op::IndexUnchecked { dst, collection, index } => {
-            v.scalar(collection, Use);
-            v.scalar(index, Use);
-            v.scalar(dst, Def);
-        }
-        Op::RegionBoundsGuard { array, bound, iv, .. } => {
-            v.scalar(array, Use);
-            v.scalar(bound, Use);
-            v.scalar(iv, Use);
-        }
-        Op::Length { dst, collection } => {
-            v.scalar(collection, Use);
-            v.scalar(dst, Def);
-        }
-        Op::FormatValue { dst, src, .. } => {
-            v.scalar(src, Use);
-            v.scalar(dst, Def);
-        }
-        Op::SliceOp { dst, collection, start, end } => {
-            v.scalar(collection, Use);
-            v.scalar(start, Use);
-            v.scalar(end, Use);
-            v.scalar(dst, Def);
-        }
-        Op::StructInsert { obj, value, .. } => {
-            v.scalar(obj, Use);
-            v.scalar(value, Use);
-        }
-        Op::GetField { dst, obj, .. } => {
-            v.scalar(obj, Use);
-            v.scalar(dst, Def);
-        }
-        Op::NewInductive { dst, args_start, count, .. } => {
-            v.members(args_start, *count, Use);
-            v.scalar(dst, Def);
-        }
-        Op::TestArm { dst, target, .. } | Op::BindArm { dst, target, .. } => {
-            v.scalar(target, Use);
-            v.scalar(dst, Def);
-        }
-        Op::CrdtBump { obj, amount, .. } => {
-            v.scalar(obj, Use);
-            v.scalar(amount, Use);
-        }
-        Op::CrdtMerge { target, source } => {
-            v.scalar(target, Use);
-            v.scalar(source, Use);
-        }
-        Op::CrdtAppend { seq, value } => {
-            v.scalar(seq, Use);
-            v.scalar(value, Use);
-        }
-        Op::CrdtResolve { obj, value, .. } => {
-            v.scalar(obj, Use);
-            v.scalar(value, Use);
-        }
-        Op::IterPrepare { iterable } => v.scalar(iterable, Use),
-        Op::IterNext { dst, .. } => v.scalar(dst, Def),
-        Op::IterPop => {}
-        Op::ListPop { list, dst } => {
-            v.scalar(list, Use);
-            v.scalar(dst, Def);
-        }
-        Op::Sleep { duration } => v.scalar(duration, Use),
-        Op::DestructureTuple { src, start, count } => {
-            v.scalar(src, Use);
-            v.members(start, *count, Def);
-        }
-        Op::Show { src } => v.scalar(src, Use),
-        Op::ChanSend { chan, val } => {
-            v.scalar(chan, Use);
-            v.scalar(val, Use);
-        }
-        Op::ChanRecv { dst, chan } | Op::ChanTryRecv { dst, chan } => {
-            v.scalar(chan, Use);
-            v.scalar(dst, Def);
-        }
-        Op::ChanTrySend { dst, chan, val } => {
-            v.scalar(chan, Use);
-            v.scalar(val, Use);
-            v.scalar(dst, Def);
-        }
-        Op::ChanClose { chan } => v.scalar(chan, Use),
-        Op::Spawn { args_start, arg_count, .. } => v.members(args_start, *arg_count, Use),
-        Op::SpawnHandle { dst, args_start, arg_count, .. } => {
-            v.members(args_start, *arg_count, Use);
-            v.scalar(dst, Def);
-        }
-        Op::TaskAwait { dst, handle } => {
-            v.scalar(handle, Use);
-            v.scalar(dst, Def);
-        }
-        Op::TaskAbort { handle } => v.scalar(handle, Use),
-        Op::SelectArmRecv { chan, var } => {
-            v.scalar(chan, Use);
-            v.scalar(var, Def);
-        }
-        Op::SelectArmTimeout { ticks } => v.scalar(ticks, Use),
-        Op::NetConnect { url } => v.scalar(url, Use),
-        Op::NetListen { topic } => v.scalar(topic, Use),
-        Op::NetSend { to, msg } => {
-            v.scalar(to, Use);
-            v.scalar(msg, Use);
-        }
-        Op::NetStream { to, values } => {
-            v.scalar(to, Use);
-            v.scalar(values, Use);
-        }
-        Op::NetAwait { dst, from, .. } => {
-            v.scalar(from, Use);
-            v.scalar(dst, Def);
-        }
-        Op::NetMakePeer { dst, addr } => {
-            v.scalar(addr, Use);
-            v.scalar(dst, Def);
-        }
-        Op::NetSync { dst, topic } => {
-            v.scalar(topic, Use);
-            v.scalar(dst, DefUse);
-        }
-        Op::FailWith { .. } | Op::Halt => {}
-    }
-}
-
-/// Every register an op DEFINES and every register it USES (register ranges expanded to members),
-/// for analyses outside the splitter that need an op's full data-flow footprint and must not miss
-/// an operand — it reuses the same exhaustive [`visit_regs`] enumeration, so a new op cannot slip
-/// past. A `DefUse` operand appears in both lists.
-pub(crate) fn op_def_uses(op: &Op, functions: &[CompiledFunction]) -> (Vec<Reg>, Vec<Reg>) {
-    struct Collect {
-        defs: Vec<Reg>,
-        uses: Vec<Reg>,
-    }
-    impl RegVisitor for Collect {
-        fn scalar(&mut self, r: &mut Reg, role: Role) {
-            match role {
-                Role::Def => self.defs.push(*r),
-                Role::Use => self.uses.push(*r),
-                Role::DefUse => {
-                    self.defs.push(*r);
-                    self.uses.push(*r);
-                }
-            }
-        }
-        fn range(&mut self, start: &mut Reg, count: u16, role: Role) {
-            for i in 0..count {
-                self.scalar(&mut start.wrapping_add(i), role);
-            }
-        }
-    }
-    let mut tmp = op.clone();
-    let mut c = Collect { defs: Vec::new(), uses: Vec::new() };
-    visit_regs(&mut tmp, functions, &mut c);
-    (c.defs, c.uses)
-}
-
-/// Successors of `ops[pc]` in the op CFG. Every non-control-flow op simply falls through, so the
-/// explicit arms cover exactly the control-flow ops (mirroring [`super::cfg::Blocks`]).
-fn successors(ops: &[Op], pc: usize) -> Vec<usize> {
-    let n = ops.len();
-    let fallthrough = |out: &mut Vec<usize>| {
-        if pc + 1 < n {
-            out.push(pc + 1);
-        }
-    };
-    let mut out = Vec::new();
-    match ops[pc] {
-        Op::Jump { target } => out.push(target),
-        Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => {
-            out.push(target);
-            fallthrough(&mut out);
-        }
-        Op::IterNext { exit, .. } => {
-            out.push(exit);
-            fallthrough(&mut out);
-        }
-        Op::Return { .. } | Op::ReturnNothing | Op::Halt | Op::FailWith { .. } => {}
-        _ => fallthrough(&mut out),
-    }
-    out
-}
+use crate::vm::instruction::{
+    op_successors, visit_regs, CompiledFunction, Op, Reg, RegVisitor, Role,
+};
 
 /// Minimal union-find over `0..n`.
 struct UnionFind {
@@ -393,7 +51,9 @@ struct UnionFind {
 }
 impl UnionFind {
     fn new(n: usize) -> Self {
-        UnionFind { parent: (0..n as u32).collect() }
+        UnionFind {
+            parent: (0..n as u32).collect(),
+        }
     }
     fn find(&mut self, x: u32) -> u32 {
         let mut r = x;
@@ -448,7 +108,10 @@ fn op_reg_roles(op: &Op, functions: &[CompiledFunction]) -> (Vec<(Reg, Role)>, V
     }
     // `visit_regs` needs `&mut Op`; analysis never writes, so operate on a throwaway clone.
     let mut tmp = op.clone();
-    let mut c = Collect { roles: Vec::new(), range_idx: Vec::new() };
+    let mut c = Collect {
+        roles: Vec::new(),
+        range_idx: Vec::new(),
+    };
     visit_regs(&mut tmp, functions, &mut c);
     (c.roles, c.range_idx)
 }
@@ -521,7 +184,7 @@ fn materialize_ranges(
     num_regs: u32,
     targets: &[(usize, Reg, u16)],
     functions: &[CompiledFunction],
-) -> (Vec<Op>, u32) {
+) -> (Vec<Op>, u32, Vec<usize>) {
     // A fresh contiguous block per target pc, assigned in pc order so the output is deterministic.
     let mut sorted: Vec<(usize, Reg, u16)> = targets.to_vec();
     sorted.sort_unstable();
@@ -539,28 +202,49 @@ fn materialize_ranges(
     // ORIGINAL op landed (at its first inserted copy, if any) so jump targets can be remapped.
     let mut new_ops: Vec<Op> = Vec::with_capacity(ops.len() + block_of.len());
     let mut new_index: Vec<usize> = vec![0; ops.len()];
+    let mut placed: Vec<usize> = vec![0; ops.len()];
     for (pc, op) in ops.iter().enumerate() {
         new_index[pc] = new_ops.len();
         if let Some(&(base, count)) = block_of.get(&pc) {
-            let old_start = use_range_start(op, functions).expect("materialized op has a use range");
+            let old_start =
+                use_range_start(op, functions).expect("materialized op has a use range");
             for i in 0..count {
-                new_ops.push(Op::Move { dst: base.wrapping_add(i), src: old_start.wrapping_add(i) });
+                new_ops.push(Op::Move {
+                    dst: base.wrapping_add(i),
+                    src: old_start.wrapping_add(i),
+                });
             }
             let mut relocated = op.clone();
             set_use_range_start(&mut relocated, functions, base);
+            placed[pc] = new_ops.len();
             new_ops.push(relocated);
+            // A call leaves each `mutable` parameter's final value in its argument register, which the code after
+            // it reads at the ORIGINAL position: copy those members back out of the fresh block.
+            if let Op::Call { func, .. } = op {
+                if let Some(f) = functions.get(*func as usize) {
+                    for &p in f.mutable_param_regs.iter().filter(|p| **p < count) {
+                        new_ops.push(Op::Move {
+                            dst: old_start.wrapping_add(p),
+                            src: base.wrapping_add(p),
+                        });
+                    }
+                }
+            }
         } else {
+            placed[pc] = new_ops.len();
             new_ops.push(op.clone());
         }
     }
     for op in &mut new_ops {
         remap_target(op, &new_index);
     }
-    (new_ops, next)
+    (new_ops, next, placed)
 }
 
 /// Split registers reused across disjoint live ranges into one local each. Returns the rewritten op
-/// stream and the new register-file size (`num_regs` plus one local per extra web). The identity
+/// stream, the new register-file size (`num_regs` plus one local per extra web), and where each
+/// original op landed in the rewritten stream (materializing a register range inserts copies ahead
+/// of the op that reads it; anything keyed by op position is read through this). The identity
 /// transform (same ops, same `num_regs`) whenever nothing is safely splittable — which is every
 /// program the backend already compiles.
 pub(crate) fn split_registers(
@@ -568,10 +252,11 @@ pub(crate) fn split_registers(
     num_regs: u32,
     num_params: u32,
     functions: &[CompiledFunction],
-) -> (Vec<Op>, u32) {
+) -> (Vec<Op>, u32, Vec<usize>) {
     let n = ops.len();
+    let identity = || (0..n).collect::<Vec<usize>>();
     if n == 0 {
-        return (ops.to_vec(), num_regs);
+        return (ops.to_vec(), num_regs, identity());
     }
 
     // ---- 1. Per-pc def/use roles, the range-operand indices (webs that must keep their number),
@@ -602,7 +287,7 @@ pub(crate) fn split_registers(
     }
     let num_sites = def_sites.len();
     if num_sites == 0 {
-        return (ops.to_vec(), num_regs);
+        return (ops.to_vec(), num_regs, identity());
     }
     // All def-sites of a given register (for KILL).
     let mut sites_of_reg: HashMap<Reg, Vec<u32>> = HashMap::new();
@@ -613,7 +298,7 @@ pub(crate) fn split_registers(
     // ---- 2. Reaching definitions (instruction-level forward dataflow over the op CFG). ----
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
     for pc in 0..n {
-        for s in successors(ops, pc) {
+        for s in op_successors(&ops[pc], pc, ops.len()) {
             if s < n {
                 preds[s].push(pc);
             }
@@ -662,8 +347,11 @@ pub(crate) fn split_registers(
         }
         for (idx, &(r, role)) in rs.iter().enumerate() {
             if matches!(role, Role::Use | Role::DefUse) {
-                let reaching: Vec<u32> =
-                    reach_in[pc].iter().copied().filter(|&s| def_sites[s as usize].1 == r).collect();
+                let reaching: Vec<u32> = reach_in[pc]
+                    .iter()
+                    .copied()
+                    .filter(|&s| def_sites[s as usize].1 == r)
+                    .collect();
                 if reaching.is_empty() {
                     if !pinned.contains(&r) {
                         unsplittable.insert(r);
@@ -704,34 +392,6 @@ pub(crate) fn split_registers(
         }
     }
 
-    // ---- 4a. Argument materialization. A contiguous USE range (`Call`/`CallBuiltin`/… args) whose
-    //          member register the allocator REUSED across ≥2 webs cannot both keep its range
-    //          position (the lowering reads `args_start + i` by number) AND split its disjoint,
-    //          possibly differently-typed live ranges. The two constraints collide when the same slot
-    //          is, say, one call's `i64` shift-count and another call's `i32` word value. Resolve it
-    //          by copying each such range's members into a FRESH dedicated contiguous block right
-    //          before the op and repointing the op there: the range now reads private single-use
-    //          temps, and the reused member becomes a plain scalar the free-web split (below) can
-    //          separate. Then re-run on the rewritten ops — those members are no longer range members,
-    //          so this fires at most once. The transform is the identity unless a reused register is
-    //          also a multi-arg range member, so a program the backend already compiles is untouched. ----
-    let recycled = |r: Reg| webs_of_reg.get(&r).map_or(false, |w| w.len() >= 2);
-    let mut to_materialize: Vec<(usize, Reg, u16)> = Vec::new();
-    for (pc, op) in ops.iter().enumerate() {
-        for (start, count) in op_use_ranges(op, functions) {
-            if (0..count).any(|i| recycled(start.wrapping_add(i))) {
-                to_materialize.push((pc, start, count));
-            }
-        }
-    }
-    // Skip (fall through to the in-place split) if the fresh blocks would not fit the `u16` register
-    // index — a clean refusal beats a truncating miscompile, and re-running would loop forever.
-    let extra: u32 = to_materialize.iter().map(|&(_, _, c)| u32::from(c)).sum();
-    if !to_materialize.is_empty() && num_regs + extra <= u32::from(u16::MAX) + 1 {
-        let (new_ops, new_regs) = materialize_ranges(ops, num_regs, &to_materialize, functions);
-        return split_registers(&new_ops, new_regs, num_params, functions);
-    }
-
     // Webs anchored to a contiguous register range (a `Call` arg, a closure capture, a
     // `DestructureTuple` target) must keep their register's number — the lowering reads
     // `args_start + i` by position. Disjoint anchored webs of one register share its slot (taking
@@ -757,6 +417,45 @@ pub(crate) fn split_registers(
         }
     }
 
+    // ---- 4a. Argument materialization. A contiguous USE range (`Call`/`CallBuiltin`/… args) whose
+    //          member register holds TWO anchored webs — the slot is, say, one call's `i64`
+    //          shift-count and another call's `i32` word value — cannot keep both at its position
+    //          (the lowering reads `args_start + i` by number) and still give them different local
+    //          types. Resolve it by copying each such range's members into a FRESH dedicated
+    //          contiguous block right before the op and repointing the op there: the range now reads
+    //          private single-use temps, and the member becomes a plain scalar the free-web split
+    //          (below) can separate. Then re-run on the rewritten ops — those members are no longer
+    //          range members, so this fires at most once. A member whose OTHER webs are all free
+    //          needs no copy: its anchored web keeps the number and the free webs move (step 5), so a
+    //          list literal pays no per-element `Move` for a slot an earlier scalar also used. ----
+    let conflicting = |r: Reg| {
+        webs_of_reg.get(&r).map_or(false, |ws| {
+            ws.iter().filter(|w| anchored_webs.contains(w)).count() >= 2
+        })
+    };
+    let mut to_materialize: Vec<(usize, Reg, u16)> = Vec::new();
+    for (pc, op) in ops.iter().enumerate() {
+        for (start, count) in op_use_ranges(op, functions) {
+            if (0..count).any(|i| conflicting(start.wrapping_add(i))) {
+                to_materialize.push((pc, start, count));
+            }
+        }
+    }
+    // Skip (fall through to the in-place split) if the fresh blocks would not fit the `u16` register
+    // index — a clean refusal beats a truncating miscompile, and re-running would loop forever.
+    let extra: u32 = to_materialize.iter().map(|&(_, _, c)| u32::from(c)).sum();
+    if !to_materialize.is_empty() && num_regs + extra <= u32::from(u16::MAX) + 1 {
+        let (new_ops, new_regs, materialized) =
+            materialize_ranges(ops, num_regs, &to_materialize, functions);
+        let (split, split_regs, placed) =
+            split_registers(&new_ops, new_regs, num_params, functions);
+        return (
+            split,
+            split_regs,
+            materialized.iter().map(|&at| placed[at]).collect(),
+        );
+    }
+
     // ---- 5. Split a non-param, fully analyzed, multi-web register: its anchored webs keep the
     //         register number (disjoint, so they share it); each free web moves to a fresh appended
     //         local. A register with no movable free web is left untouched. Sorted order keeps the
@@ -766,19 +465,30 @@ pub(crate) fn split_registers(
         let anchored = webs.iter().filter(|w| anchored_webs.contains(w)).count();
         let free = webs.len() - anchored;
         // One web keeps the original number: an anchored web if any, else the first free web.
-        if anchored >= 1 { free as u32 } else { free.saturating_sub(1) as u32 }
+        if anchored >= 1 {
+            free as u32
+        } else {
+            free.saturating_sub(1) as u32
+        }
     };
     let splittable = |r: Reg| {
-        !pinned.contains(&r) && !unsplittable.contains(&r) && webs_of_reg[&r].len() >= 2 && fresh_count(r) >= 1
+        !pinned.contains(&r)
+            && !unsplittable.contains(&r)
+            && webs_of_reg[&r].len() >= 2
+            && fresh_count(r) >= 1
     };
-    let mut regs: Vec<Reg> = webs_of_reg.keys().copied().filter(|&r| splittable(r)).collect();
+    let mut regs: Vec<Reg> = webs_of_reg
+        .keys()
+        .copied()
+        .filter(|&r| splittable(r))
+        .collect();
     if regs.is_empty() {
-        return (ops.to_vec(), num_regs);
+        return (ops.to_vec(), num_regs, identity());
     }
     regs.sort_unstable();
     let extra: u32 = regs.iter().map(|&r| fresh_count(r)).sum();
     if num_regs + extra > u16::MAX as u32 + 1 {
-        return (ops.to_vec(), num_regs); // would not fit the u16 register index — safe identity
+        return (ops.to_vec(), num_regs, identity()); // would not fit the u16 register index — safe identity
     }
 
     // web representative → assigned local (absent ⇒ keep the register's own number). Anchored webs
@@ -807,7 +517,7 @@ pub(crate) fn split_registers(
     }
 
     let new_ops = rename_ops(ops, &local_of_web, &use_web, &mut uf, &def_sites, functions);
-    (new_ops, next_local)
+    (new_ops, next_local, identity())
 }
 
 /// Build the renamed op stream. A `Def`/`DefUse` field renames to its def-site's web-local; a `Use`
@@ -866,241 +576,116 @@ fn rename_ops(
     let mut out = Vec::with_capacity(ops.len());
     for (pc, op) in ops.iter().enumerate() {
         let mut op = op.clone();
-        let mut rn = Rename { pc, op_idx: 0, local_of_web, use_web, def_local_at: &def_local_at };
+        let mut rn = Rename {
+            pc,
+            op_idx: 0,
+            local_of_web,
+            use_web,
+            def_local_at: &def_local_at,
+        };
         visit_regs(&mut op, functions, &mut rn);
         out.push(op);
     }
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `{:?}` of each op — `Op` is not `PartialEq`, and the renaming is entirely about register
-    /// fields, which the Debug rendering captures exactly.
-    fn fmt(ops: &[Op]) -> Vec<String> {
-        ops.iter().map(|o| format!("{o:?}")).collect()
+/// Nothing written only to relinquish a register's old value does not change
+/// that local's payload type. Prove the new absence is unread along every CFG
+/// path before a replacement definition. In-out results are implicit reads at
+/// function exits; calls' argument reads/writes come from the shared operand map.
+pub(crate) fn unobserved_nothing_writes(
+    ops: &[Op],
+    constants: &[crate::vm::instruction::Constant],
+    functions: &[CompiledFunction],
+    inout: &[Reg],
+) -> HashSet<usize> {
+    use crate::vm::instruction::{op_def_uses, Constant};
+    let candidates: Vec<_> = ops
+        .iter()
+        .enumerate()
+        .filter_map(|(pc, op)| match op {
+            Op::LoadConst { dst, idx }
+                if matches!(constants.get(*idx as usize), Some(Constant::Nothing)) =>
+            {
+                Some((pc, *dst))
+            }
+            _ => None,
+        })
+        .collect();
+    if candidates.is_empty() {
+        return HashSet::new();
     }
-
-    fn split(ops: &[Op], num_regs: u32, num_params: u32) -> (Vec<Op>, u32) {
-        split_registers(ops, num_regs, num_params, &[])
-    }
-
-    #[test]
-    fn identity_when_every_register_is_single_web() {
-        // A straight-line program: each register is defined once and used in one connected range, so
-        // there is nothing to split — the pass must be the exact identity (same ops, same count).
-        let ops = vec![
-            Op::LoadConst { dst: 0, idx: 0 },
-            Op::LoadConst { dst: 1, idx: 1 },
-            Op::Add { dst: 2, lhs: 0, rhs: 1 },
-            Op::Show { src: 2 },
-            Op::Halt,
-        ];
-        let (out, n) = split(&ops, 3, 0);
-        assert_eq!(fmt(&out), fmt(&ops), "single-web program must be untouched");
-        assert_eq!(n, 3, "no locals added");
-    }
-
-    #[test]
-    fn disjoint_ranges_of_one_register_split_into_separate_locals() {
-        // reg1 is written+read in two disjoint ranges: [pc0 def, pc1 use] then [pc2 def, pc3 use].
-        // The second range must move to a fresh local (3); the first keeps the number.
-        let ops = vec![
-            Op::LoadConst { dst: 1, idx: 0 },
-            Op::Show { src: 1 },
-            Op::LoadConst { dst: 1, idx: 1 },
-            Op::Show { src: 1 },
-            Op::Halt,
-        ];
-        let (out, n) = split(&ops, 2, 0);
-        assert_eq!(n, 3, "one extra local for the second web");
-        let got = fmt(&out);
-        assert_eq!(got[0], format!("{:?}", Op::LoadConst { dst: 1, idx: 0 }), "first web keeps reg 1");
-        assert_eq!(got[1], format!("{:?}", Op::Show { src: 1 }));
-        assert_eq!(got[2], format!("{:?}", Op::LoadConst { dst: 2, idx: 1 }), "second web → local 2");
-        assert_eq!(got[3], format!("{:?}", Op::Show { src: 2 }), "its use follows");
-    }
-
-    #[test]
-    fn loop_carried_accumulator_is_one_web_not_split() {
-        // `acc` is initialized then incremented across a back-edge — the body use is reached by both
-        // the init and the back-edge def, so they are one web (a single local), never split.
-        let ops = vec![
-            Op::LoadConst { dst: 0, idx: 0 }, // acc = 0
-            Op::LoadConst { dst: 1, idx: 1 }, // bound
-            Op::Lt { dst: 2, lhs: 0, rhs: 1 }, // acc < bound  (header, pc2)
-            Op::JumpIfFalse { cond: 2, target: 6 },
-            Op::AddAssign { dst: 0, src: 1 }, // acc += bound
-            Op::Jump { target: 2 },           // back-edge
-            Op::Show { src: 0 },              // pc6
-            Op::Halt,
-        ];
-        let (out, n) = split(&ops, 3, 0);
-        assert_eq!(fmt(&out), fmt(&ops), "loop-carried accumulator must not split");
-        assert_eq!(n, 3);
-    }
-
-    #[test]
-    fn parameters_are_pinned_and_never_split() {
-        // reg0 is a parameter reused across two disjoint ranges. Parameters are pinned (they ARE the
-        // function signature), so even a genuine conflict leaves them on their declared number.
-        let ops = vec![
-            Op::Show { src: 0 },
-            Op::LoadConst { dst: 0, idx: 0 },
-            Op::Show { src: 0 },
-            Op::Return { src: 0 },
-        ];
-        let (out, n) = split(&ops, 1, 1); // num_params = 1 ⇒ reg0 pinned
-        assert_eq!(fmt(&out), fmt(&ops), "a parameter register is never renamed");
-        assert_eq!(n, 1);
-    }
-
-    #[test]
-    fn split_is_deterministic_across_runs() {
-        // A diamond merges two definitions of reg1 into one web (so the union has multiple reaching
-        // defs — the exact shape whose representative once depended on `HashSet` iteration order),
-        // then a disjoint third definition forms a second web that must split out. Running the pass
-        // many times must yield byte-identical ops AND a stable new register count.
-        let ops = vec![
-            Op::LoadConst { dst: 0, idx: 0 },        // cond
-            Op::JumpIfFalse { cond: 0, target: 4 },
-            Op::LoadConst { dst: 1, idx: 1 },        // def reg1 (branch A) — web W
-            Op::Jump { target: 5 },
-            Op::LoadConst { dst: 1, idx: 2 },        // def reg1 (branch B) — web W
-            Op::Move { dst: 2, src: 1 },             // use reg1: reached by BOTH A and B
-            Op::LoadConst { dst: 1, idx: 3 },        // def reg1 — web W2 (disjoint)
-            Op::Return { src: 1 },                   // use reg1: reached by W2 only
-        ];
-        let (first, first_n) = split(&ops, 3, 0);
-        assert_eq!(first_n, 4, "the second web of reg1 splits to one new local");
-        // The disjoint third range moved to local 3; the merged-diamond range kept reg 1.
-        let got = fmt(&first);
-        assert_eq!(got[6], format!("{:?}", Op::LoadConst { dst: 3, idx: 3 }), "W2 def → local 3");
-        assert_eq!(got[7], format!("{:?}", Op::Return { src: 3 }), "W2 use → local 3");
-        assert_eq!(got[2], format!("{:?}", Op::LoadConst { dst: 1, idx: 1 }), "W def keeps reg 1");
-        assert_eq!(got[5], format!("{:?}", Op::Move { dst: 2, src: 1 }), "W use keeps reg 1");
-        for _ in 0..64 {
-            let (again, again_n) = split(&ops, 3, 0);
-            assert_eq!(fmt(&again), got, "splitting must be deterministic run-to-run");
-            assert_eq!(again_n, first_n);
+    let mut registers: Vec<_> = candidates.iter().map(|&(_, r)| r).collect();
+    registers.sort_unstable();
+    registers.dedup();
+    let index: HashMap<_, _> = registers.iter().enumerate().map(|(i, &r)| (r, i)).collect();
+    let words = registers.len().div_ceil(64);
+    let n = ops.len();
+    let mut defs = vec![0_u64; n * words];
+    let mut uses = vec![0_u64; n * words];
+    let mut exit = vec![0_u64; words];
+    for r in inout {
+        if let Some(&i) = index.get(r) {
+            exit[i / 64] |= 1 << (i % 64);
         }
     }
-
-    /// The MD5 pattern: a register the allocator reused across two disjoint live ranges where EACH
-    /// range is a member of a DIFFERENT multi-argument call (once a `Rotl` shift-count on `i64`, once
-    /// a `Rotl` word value on `i32`). Both anchored uses want the same slot number, so the plain split
-    /// cannot separate them. Argument materialization copies each call's arguments into a fresh
-    /// dedicated block, turning the reused member into a plain scalar the def-use split then splits.
-    #[test]
-    fn recycled_range_member_across_two_calls_is_materialized_and_split() {
-        let ops = vec![
-            Op::LoadConst { dst: 2, idx: 0 },                          // reg2 web A def
-            Op::LoadConst { dst: 3, idx: 1 },
-            Op::Call { dst: 0, func: 0, args_start: 2, arg_count: 2 }, // reads reg2 as member 0
-            Op::LoadConst { dst: 1, idx: 2 },
-            Op::LoadConst { dst: 2, idx: 3 },                          // reg2 web B def (reused slot)
-            Op::Call { dst: 0, func: 0, args_start: 1, arg_count: 2 }, // reads reg2 as member 1
-            Op::Halt,
-        ];
-        let (out, n) = split(&ops, 4, 0);
-        // Each call's argument block was relocated to a fresh contiguous block (>= the original 4),
-        // populated by `arg_count` Moves in the immediately preceding slots.
-        let calls: Vec<usize> =
-            out.iter().enumerate().filter(|(_, o)| matches!(o, Op::Call { .. })).map(|(i, _)| i).collect();
-        assert_eq!(calls.len(), 2, "both calls survive");
-        for &ci in &calls {
-            let Op::Call { args_start, arg_count, .. } = out[ci] else { unreachable!() };
-            assert!(args_start >= 4, "call args relocated to a fresh block, got {args_start}");
-            for j in 0..arg_count {
-                let mv = &out[ci - arg_count as usize + j as usize];
-                assert!(
-                    matches!(mv, Op::Move { dst, .. } if *dst == args_start + j),
-                    "arg slot {} populated by a preceding Move, got {mv:?}", args_start + j
-                );
+    let mut successors = Vec::with_capacity(n);
+    for (pc, op) in ops.iter().enumerate() {
+        let (d, u) = op_def_uses(op, functions);
+        for (bits, regs) in [(&mut defs, d), (&mut uses, u)] {
+            for r in regs {
+                if let Some(&i) = index.get(&r) {
+                    bits[pc * words + i / 64] |= 1 << (i % 64);
+                }
             }
         }
-        // reg2's two disjoint definitions now write DISTINCT locals — the reuse was split.
-        let dsts: Vec<Reg> = out
-            .iter()
-            .filter_map(|o| match o {
-                Op::LoadConst { dst, idx } if *idx == 0 || *idx == 3 => Some(*dst),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(dsts.len(), 2);
-        assert_ne!(dsts[0], dsts[1], "the reused register was split into two locals");
-        assert!(n > 4, "register file grew for the fresh blocks and the split web");
+        successors.push(op_successors(op, pc, n));
     }
-
-    /// A multi-argument call whose members are each single-web (defined once, used once) has no reuse
-    /// to resolve — materialization must be the exact identity, so a program the backend already
-    /// compiles is never perturbed.
-    #[test]
-    fn single_web_range_members_are_not_materialized() {
-        let ops = vec![
-            Op::LoadConst { dst: 1, idx: 0 },
-            Op::LoadConst { dst: 2, idx: 1 },
-            Op::Call { dst: 0, func: 0, args_start: 1, arg_count: 2 },
-            Op::Halt,
-        ];
-        let (out, n) = split(&ops, 3, 0);
-        assert_eq!(fmt(&out), fmt(&ops), "no reused range member ⇒ no materialization");
-        assert_eq!(n, 3);
-    }
-
-    /// Materialization inserts copy ops, shifting every later instruction, so a jump whose target sits
-    /// past an inserted block must be remapped or it lands on the wrong op. The remapped target must
-    /// resolve to the argument setup of the same call it named before the transform.
-    #[test]
-    fn materialization_remaps_jump_targets() {
-        let ops = vec![
-            Op::LoadConst { dst: 2, idx: 0 },                          // reg2 web A def
-            Op::LoadConst { dst: 3, idx: 1 },
-            Op::Call { dst: 0, func: 0, args_start: 2, arg_count: 2 }, // materialized (reg2 reused)
-            Op::LoadConst { dst: 2, idx: 2 },                          // reg2 web B def
-            Op::Jump { target: 6 },                                    // → the second call
-            Op::LoadConst { dst: 9, idx: 3 },                          // skipped
-            Op::Call { dst: 0, func: 0, args_start: 2, arg_count: 2 }, // materialized; the jump target
-            Op::Halt,
-        ];
-        let (out, _n) = split(&ops, 4, 0);
-        let Some(Op::Jump { target }) =
-            out.iter().find(|o| matches!(o, Op::Jump { .. })).copied()
-        else {
-            panic!("jump survived materialization");
-        };
-        // The target lands on the relocated call's argument setup (a Move), and a call reading a
-        // materialized block (fresh args_start) follows — the same call the jump originally named.
-        assert!(matches!(out[target], Op::Move { .. }), "jump lands on the call's arg setup, got {:?}", out[target]);
-        let next_call = out[target..].iter().find(|o| matches!(o, Op::Call { .. }));
-        assert!(
-            matches!(next_call, Some(Op::Call { args_start, .. }) if *args_start >= 4),
-            "the targeted call reads a materialized block, got {next_call:?}"
-        );
-    }
-
-    /// Materialization + the follow-on split must be byte-identical run-to-run (fresh blocks assigned
-    /// in pc order, webs canonicalized deterministically) — a nondeterministic pass would break the
-    /// tier cache keyed by source.
-    #[test]
-    fn materialization_is_deterministic() {
-        let ops = vec![
-            Op::LoadConst { dst: 2, idx: 0 },
-            Op::LoadConst { dst: 3, idx: 1 },
-            Op::Call { dst: 0, func: 0, args_start: 2, arg_count: 2 },
-            Op::LoadConst { dst: 1, idx: 2 },
-            Op::LoadConst { dst: 2, idx: 3 },
-            Op::Call { dst: 0, func: 0, args_start: 1, arg_count: 2 },
-            Op::Halt,
-        ];
-        let (first, first_n) = split(&ops, 4, 0);
-        let got = fmt(&first);
-        for _ in 0..64 {
-            let (again, again_n) = split(&ops, 4, 0);
-            assert_eq!(fmt(&again), got, "materialization must be deterministic run-to-run");
-            assert_eq!(again_n, first_n);
+    let mut live = vec![0_u64; n * words];
+    loop {
+        let mut changed = false;
+        for pc in (0..n).rev() {
+            for w in 0..words {
+                let out = (if successors[pc].is_empty() || pc + 1 == n {
+                    exit[w]
+                } else {
+                    0
+                }) | {
+                    successors[pc].iter().fold(0, |bits, &next| {
+                        bits | if next < n {
+                            live[next * words + w]
+                        } else {
+                            u64::MAX
+                        }
+                    })
+                };
+                let value = uses[pc * words + w] | (out & !defs[pc * words + w]);
+                if live[pc * words + w] != value {
+                    live[pc * words + w] = value;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
         }
     }
+    candidates
+        .into_iter()
+        .filter_map(|(pc, r)| {
+            let i = index[&r];
+            let mask = 1_u64 << (i % 64);
+            let read = ((successors[pc].is_empty() || pc + 1 == n) && exit[i / 64] & mask != 0)
+                || {
+                    successors[pc]
+                        .iter()
+                        .any(|&next| next >= n || live[next * words + i / 64] & mask != 0)
+                };
+            (!read).then_some(pc)
+        })
+        .collect()
 }
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_compile/vm/wasm/regsplit/tests.rs"]
+mod tests;

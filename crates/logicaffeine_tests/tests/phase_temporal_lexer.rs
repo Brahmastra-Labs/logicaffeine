@@ -18,9 +18,16 @@ fn assert_duration_nanos(input: &str, expected_nanos: i64) {
     let tokens = lexer.tokenize();
     match &tokens[0].kind {
         TokenType::DurationLiteral { nanos, .. } => {
-            assert_eq!(*nanos, expected_nanos, "Input '{}': expected {} nanos, got {}", input, expected_nanos, nanos);
+            assert_eq!(
+                *nanos, expected_nanos,
+                "Input '{}': expected {} nanos, got {}",
+                input, expected_nanos, nanos
+            );
         }
-        other => panic!("Input '{}': Expected DurationLiteral, got {:?}", input, other),
+        other => panic!(
+            "Input '{}': Expected DurationLiteral, got {:?}",
+            input, other
+        ),
     }
 }
 
@@ -114,8 +121,20 @@ fn lex_compound_duration_as_separate_tokens() {
     let tokens = tokenize("1s 500ms");
 
     // Lexer emits TWO tokens; parser will combine them
-    assert!(matches!(tokens[0].kind, TokenType::DurationLiteral { nanos: 1_000_000_000, .. }));
-    assert!(matches!(tokens[1].kind, TokenType::DurationLiteral { nanos: 500_000_000, .. }));
+    assert!(matches!(
+        tokens[0].kind,
+        TokenType::DurationLiteral {
+            nanos: 1_000_000_000,
+            ..
+        }
+    ));
+    assert!(matches!(
+        tokens[1].kind,
+        TokenType::DurationLiteral {
+            nanos: 500_000_000,
+            ..
+        }
+    ));
 }
 
 // =============================================================================
@@ -134,7 +153,10 @@ fn lex_greek_mu_and_ascii_u_are_equivalent() {
 
     // Both produce identical nanosecond values
     match (&tokens1[0].kind, &tokens2[0].kind) {
-        (TokenType::DurationLiteral { nanos: n1, .. }, TokenType::DurationLiteral { nanos: n2, .. }) => {
+        (
+            TokenType::DurationLiteral { nanos: n1, .. },
+            TokenType::DurationLiteral { nanos: n2, .. },
+        ) => {
             assert_eq!(n1, n2, "Greek μ and ASCII u should produce same nanos");
         }
         _ => panic!("Expected DurationLiteral tokens"),
@@ -150,8 +172,13 @@ fn lex_duration_in_sentence() {
     let tokens = tokenize("Wait for 100ms.");
 
     // Find the duration token
-    let duration_token = tokens.iter().find(|t| matches!(t.kind, TokenType::DurationLiteral { .. }));
-    assert!(duration_token.is_some(), "Should find a DurationLiteral in 'Wait for 100ms.'");
+    let duration_token = tokens
+        .iter()
+        .find(|t| matches!(t.kind, TokenType::DurationLiteral { .. }));
+    assert!(
+        duration_token.is_some(),
+        "Should find a DurationLiteral in 'Wait for 100ms.'"
+    );
 
     match &duration_token.unwrap().kind {
         TokenType::DurationLiteral { nanos, .. } => {
@@ -217,7 +244,11 @@ fn assert_date_days(input: &str, expected_days: i32) {
     let tokens = lexer.tokenize();
     match &tokens[0].kind {
         TokenType::DateLiteral { days } => {
-            assert_eq!(*days, expected_days, "Input '{}': expected {} days, got {}", input, expected_days, days);
+            assert_eq!(
+                *days, expected_days,
+                "Input '{}': expected {} days, got {}",
+                input, expected_days, days
+            );
         }
         other => panic!("Input '{}': Expected DateLiteral, got {:?}", input, other),
     }
@@ -284,8 +315,13 @@ fn lex_various_dates() {
 fn lex_date_in_sentence() {
     let tokens = tokenize("Let graduation be 2026-05-20.");
 
-    let date_token = tokens.iter().find(|t| matches!(t.kind, TokenType::DateLiteral { .. }));
-    assert!(date_token.is_some(), "Should find a DateLiteral in sentence");
+    let date_token = tokens
+        .iter()
+        .find(|t| matches!(t.kind, TokenType::DateLiteral { .. }));
+    assert!(
+        date_token.is_some(),
+        "Should find a DateLiteral in sentence"
+    );
 }
 
 /// Test 3.6: Leap year date

@@ -1,0 +1,10 @@
+## Main
+    Let mutable count be 0.
+    Let mutable n be 2.
+    While n is at most 1000:
+        Let mutable d be 2.
+        While n % d is not equal to 0:
+            Set d to d + 1.
+        Set count to count + d / n.
+        Set n to n + 1.
+    Show count.

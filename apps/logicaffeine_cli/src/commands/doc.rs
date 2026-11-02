@@ -78,7 +78,7 @@ fn extract_blocks(source: &str) -> (String, Vec<Block>) {
         } else if let Some(block) = blocks.last_mut() {
             block.body.push_str(line);
             block.body.push('\n');
-        } else if !line.starts_with("# ") {
+        } else if !line.starts_with("# ") && !(is_import_declaration(line) && !in_fence) {
             preamble.push_str(line);
             preamble.push('\n');
         }
@@ -130,6 +130,15 @@ fn render_markdown(name: &str, description: Option<&str>, source: &str) -> Strin
     md
 }
 
+/// An `Import …` declaration line — build plumbing (the module is already spliced
+/// into the assembled unit, so the directive is vestigial), never documentation
+/// prose. Omitted from the doc preamble so a project's imports don't render as body
+/// text. Mirrors how `## Main` / `## Requires` blocks are skipped.
+fn is_import_declaration(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("Import ") || t.starts_with("import ")
+}
+
 /// Strip the common 4-space indent literate bodies carry.
 fn dedent(body: &str) -> String {
     body.lines()
@@ -143,8 +152,13 @@ pub(crate) fn cmd_doc(out: Option<PathBuf>) -> Result<(), Box<dyn std::error::Er
     let root = require_project_root()?;
     let manifest = Manifest::load(&root)?;
     let entry = crate::commands::resolve_entry_path(&root, &manifest)?;
-    let source = fs::read_to_string(&entry)
-        .map_err(|e| CliError::new(format!("cannot read {}: {e}", entry.display())))?;
+    // Document the ASSEMBLED module closure — the same source every other command
+    // consumes — so an IMPORTED module's definitions appear in the docs, not just
+    // the entry file's. Byte-identical to the raw entry for a single-file project.
+    let dep_roots = crate::project::deps::resolve_dep_roots(&root, &manifest)?;
+    let source = crate::closure::assemble_closure_with_deps(&entry, dep_roots)
+        .map_err(|e| CliError::new(format!("could not assemble project: {e}")))?
+        .source;
 
     let md = render_markdown(
         &manifest.package.name,
@@ -168,55 +182,14 @@ pub(crate) fn cmd_doc(out: Option<PathBuf>) -> Result<(), Box<dyn std::error::Er
         .map_err(|e| CliError::new(format!("cannot create {}: {e}", out_dir.display())))?;
     let out_path = out_dir.join(format!("{}.md", manifest.package.name));
     fs::write(&out_path, md)?;
-    ui::info(format!("Documented {} -> {}", manifest.package.name, out_path.display()));
+    ui::info(format!(
+        "Documented {} -> {}",
+        manifest.package.name,
+        out_path.display()
+    ));
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classify_recognizes_block_families() {
-        assert_eq!(classify("To double (n: Int) -> Int:"), BlockKind::Function);
-        assert_eq!(classify("A Point has"), BlockKind::TypeDef);
-        assert_eq!(classify("An Agent has"), BlockKind::TypeDef);
-        assert_eq!(classify("Note"), BlockKind::Note);
-        assert_eq!(classify("Example"), BlockKind::Example);
-        assert_eq!(classify("Definition"), BlockKind::Definition);
-        assert_eq!(classify("Theorem pythagoras"), BlockKind::Formal);
-        assert_eq!(classify("Main"), BlockKind::Skip);
-        assert_eq!(classify("Requires"), BlockKind::Skip);
-        assert_eq!(classify("Policy access"), BlockKind::Other);
-    }
-
-    #[test]
-    fn extract_blocks_keeps_order_and_bodies() {
-        let src = "# Title\n\nintro prose\n\n## To f:\n    Return 1.\n\n## Note\n\nhello\n";
-        let (preamble, blocks) = extract_blocks(src);
-        assert_eq!(preamble, "intro prose");
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].kind, BlockKind::Function);
-        assert!(blocks[0].body.contains("Return 1."));
-        assert_eq!(blocks[1].kind, BlockKind::Note);
-        assert!(blocks[1].body.contains("hello"));
-    }
-
-    #[test]
-    fn render_omits_main_and_fences_examples() {
-        let src = "## Example\n\n    Show 1.\n\n## Main\n\n    Show 99.\n";
-        let md = render_markdown("demo", None, src);
-        assert!(md.contains("```logos\nShow 1.\n```"));
-        assert!(!md.contains("Show 99."));
-    }
-
-    #[test]
-    fn fenced_code_never_starts_blocks() {
-        // A `## Main` INSIDE a fenced example is content, not a header.
-        let src = "## Note\n\nUsage:\n\n```\n## Main\nShow 1.\n```\n\nafter the fence.\n";
-        let (_, blocks) = extract_blocks(src);
-        assert_eq!(blocks.len(), 1, "one Note block only: {blocks:?}");
-        assert!(blocks[0].body.contains("## Main"), "fence content preserved");
-        assert!(blocks[0].body.contains("after the fence."));
-    }
-}
+#[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_cli/commands/doc/tests.rs"]
+mod tests;

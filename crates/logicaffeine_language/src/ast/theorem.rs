@@ -46,16 +46,54 @@ pub enum ProofStrategy {
     Auto,
 
     /// Induction on a variable (for inductive types like Nat, List).
-    /// Example: `Proof: Induction on n.`
+    /// Example: `Proof: By induction on n.`
+    ///
+    /// Driven by lowering to the tactic script `induction <variable>`, so there is one
+    /// proof engine rather than a second, divergent one — and the bare
+    /// [`Script`](ProofStrategy::Script) spelling `Proof: Induction on n.` reaches exactly
+    /// the same proof by the same route. What the structured variant adds is that the METHOD
+    /// and its ARGUMENT are readable without re-parsing prose.
+    ///
+    /// Only the WHOLE line qualifies: `By induction on n. Automatically.` is a two-step
+    /// script and stays one.
     Induction(String),
 
-    /// Direct application of a specific rule.
-    /// Example: `Proof: ModusPonens.`
+    /// A one-word `Proof:` line: the proof is a SINGLE named step.
+    /// Example: `Proof: Assumption.`
+    ///
+    /// The classification is by SHAPE — one word is one step, more than one word is a
+    /// [`Script`](ProofStrategy::Script) — so it cannot drift against the inference-rule
+    /// enum or the tactic table. The vernacular has exactly ONE proof-step namespace (the
+    /// tactics), and the step runs through the same engine a script does.
+    ///
+    /// A word that names a kernel INFERENCE RULE rather than a tactic — `Proof:
+    /// ModusPonens.` — is reported as exactly that and is NOT applied here. A rule is not a
+    /// step, exactly as Lean answers `by modus_ponens` with "unknown tactic" and wants
+    /// `apply`; the diagnostic names the spelling that DOES apply it, `Proof: By ModusPonens.`,
+    /// which lowers to the `by_rule` tactic and is certified before it reports success.
     ByRule(String),
 
-    /// An explicit tactic-script proof, written in the English-esque vernacular and
-    /// run by the tactic framework. Example:
-    /// `Proof: Assume h. By cases on h, right, by assumption. Left, by assumption.`
+    /// An explicit tactic-script proof, written in the English-esque vernacular and run by
+    /// the tactic framework. Over the block
+    ///
+    /// ```text
+    /// ## Theorem: Or_Commutes
+    /// Given (h): Bob is happy or Bob is sad.
+    /// Prove: Bob is sad or Bob is happy.
+    /// Proof: By cases on h. Right, by assumption. Left, by assumption.
+    /// ```
+    ///
+    /// the script is `Proof: By cases on h. Right, by assumption. Left, by assumption.`
+    ///
+    /// The example names its BLOCK because a proof step is only meaningful against a goal:
+    /// the spelling taught here before, which opened with `Assume h.`, wanted a goal
+    /// that was BOTH an implication (for `Assume`) and a disjunction (for `cases`), a shape
+    /// this surface has no sentence for, so the one worked example of the one open-ended
+    /// variant could not be run on anything. That is the same defect as T12-005 one variant
+    /// over. Every `Proof:` spelling quoted in this file is now extracted from the file and
+    /// run against the surface by
+    /// `logicaffeine-tests::L_language_extra::every_proof_spelling_our_own_doc_comments_teach_is_checked_against_the_surface`,
+    /// so a doc comment cannot teach a spelling the surface does not accept.
     Script(String),
 }
 

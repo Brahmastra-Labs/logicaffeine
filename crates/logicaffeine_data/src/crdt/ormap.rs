@@ -5,6 +5,7 @@
 
 use super::causal::{Dot, DotContext, VClock};
 use super::delta::DeltaCrdt;
+use super::latest::LatestWrite;
 use super::replica::{generate_replica_id, ReplicaId};
 use super::Merge;
 use serde::de::DeserializeOwned;
@@ -14,7 +15,9 @@ use std::hash::Hash;
 
 /// Delta for ORMap synchronization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound = "K: Serialize + serde::de::DeserializeOwned + Hash + Eq, V: Serialize + serde::de::DeserializeOwned")]
+#[serde(
+    bound = "K: Serialize + serde::de::DeserializeOwned + Hash + Eq, V: Serialize + serde::de::DeserializeOwned"
+)]
 pub struct ORMapDelta<K, V> {
     pub keys: HashMap<K, HashSet<Dot>>,
     pub values: HashMap<K, V>,
@@ -26,7 +29,9 @@ pub struct ORMapDelta<K, V> {
 /// Keys are managed with OR-Set add-wins semantics.
 /// Values are merged using their CRDT merge function.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(bound = "K: Serialize + serde::de::DeserializeOwned + Hash + Eq, V: Serialize + serde::de::DeserializeOwned + Merge + Default + Clone")]
+#[serde(
+    bound = "K: Serialize + serde::de::DeserializeOwned + Hash + Eq, V: Serialize + serde::de::DeserializeOwned + Merge + Default + Clone"
+)]
 pub struct ORMap<K, V: Merge + Default + Clone> {
     /// Map of active keys to their dots
     keys: HashMap<K, HashSet<Dot>>,
@@ -86,9 +91,7 @@ impl<K: Hash + Eq + Clone, V: Merge + Default + Clone> ORMap<K, V> {
 
     /// Check if a key exists in the map.
     pub fn contains_key(&self, key: &K) -> bool {
-        self.keys
-            .get(key)
-            .map_or(false, |dots| !dots.is_empty())
+        self.keys.get(key).map_or(false, |dots| !dots.is_empty())
     }
 
     /// Remove a key from the map.
@@ -98,10 +101,7 @@ impl<K: Hash + Eq + Clone, V: Merge + Default + Clone> ORMap<K, V> {
 
     /// Get the number of keys.
     pub fn len(&self) -> usize {
-        self.keys
-            .values()
-            .filter(|dots| !dots.is_empty())
-            .count()
+        self.keys.values().filter(|dots| !dots.is_empty()).count()
     }
 
     /// Check if the map is empty.
@@ -123,6 +123,35 @@ impl<K: Hash + Eq + Clone, V: Merge + Default + Clone> ORMap<K, V> {
             .iter()
             .filter(|(_, dots)| !dots.is_empty())
             .filter_map(|(k, _)| self.values.get(k).map(|v| (k, v)))
+    }
+}
+
+impl<K: Hash + Eq + Clone + Ord, V: Merge + Default + Clone> ORMap<K, V> {
+    /// The present entries sorted by key. A merged map has no global insertion order, so this is the
+    /// order every replica holding the same state renders and iterates in.
+    pub fn sorted_entries(&self) -> Vec<(&K, &V)> {
+        let mut entries: Vec<(&K, &V)> = self.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        entries
+    }
+}
+
+/// A map to plain values: each value is a [`LatestWrite`] stamped with this map's Lamport time (the
+/// events its causal context has observed), so a write that has seen another beats it on every replica.
+impl<K: Hash + Eq + Clone, T: Ord + Clone + Default> ORMap<K, LatestWrite<T>> {
+    /// `Set m[key] to value`.
+    pub fn put(&mut self, key: K, value: T) {
+        self.get_or_insert(key.clone());
+        let stamp = self.context.observed();
+        self.values
+            .get_mut(&key)
+            .expect("get_or_insert created the entry")
+            .write(value, stamp);
+    }
+
+    /// The value under `key`, if the key is present.
+    pub fn value(&self, key: &K) -> Option<&T> {
+        self.get(key).map(LatestWrite::get)
     }
 }
 
@@ -229,35 +258,61 @@ impl<K: Hash + Eq + Clone, V: Merge + Default + Clone> Default for ORMap<K, V> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::crdt::PNCounter;
+/// Owned iteration over a map to plain values visits `(key, value)` pairs by key.
+impl<K: Hash + Eq + Clone + Ord, T: Ord + Clone + Default> IntoIterator
+    for ORMap<K, LatestWrite<T>>
+{
+    type Item = (K, T);
+    type IntoIter = std::vec::IntoIter<(K, T)>;
 
-    #[test]
-    fn test_ormap_get_or_insert() {
-        let mut map: ORMap<String, PNCounter> = ORMap::new(1);
-        map.get_or_insert("score".to_string()).increment(10);
-        assert_eq!(map.get(&"score".to_string()).unwrap().value(), 10);
-    }
-
-    #[test]
-    fn test_ormap_remove() {
-        let mut map: ORMap<String, PNCounter> = ORMap::new(1);
-        map.get_or_insert("key".to_string()).increment(5);
-        map.remove(&"key".to_string());
-        assert!(map.get(&"key".to_string()).is_none());
-    }
-
-    #[test]
-    fn test_ormap_concurrent_update() {
-        let mut a: ORMap<String, PNCounter> = ORMap::new(1);
-        let mut b: ORMap<String, PNCounter> = ORMap::new(2);
-
-        a.get_or_insert("score".to_string()).increment(10);
-        b.get_or_insert("score".to_string()).increment(5);
-
-        a.merge(&b);
-        assert_eq!(a.get(&"score".to_string()).unwrap().value(), 15);
+    fn into_iter(self) -> Self::IntoIter {
+        self.sorted_entries()
+            .into_iter()
+            .map(|(k, v)| (k.clone(), v.get().clone()))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
+
+/// Two maps are equal when they hold the same convergent state (keys with their dots, values, and
+/// causal context) — the same rule as `ORSet`; the replica id is identity, not state.
+impl<K: Hash + Eq, V: Merge + Default + Clone + PartialEq> PartialEq for ORMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.keys == other.keys && self.values == other.values && self.context == other.context
+    }
+}
+
+/// `m[key]` on a map to plain values: the value under a PRESENT key; a missing key traps with the
+/// same message the interpreter raises.
+impl<K: Hash + Eq + Clone + std::fmt::Display, T: Ord + Clone + Default> crate::LogosIndex<K>
+    for ORMap<K, LatestWrite<T>>
+{
+    type Output = T;
+
+    fn logos_get(&self, key: K) -> T {
+        match self.value(&key) {
+            Some(v) => v.clone(),
+            None => panic!("Key '{key}' not found in map"),
+        }
+    }
+}
+
+/// `Set m[key] to value` on a map to plain values.
+impl<K: Hash + Eq + Clone + std::fmt::Display, T: Ord + Clone + Default> crate::LogosIndexMut<K>
+    for ORMap<K, LatestWrite<T>>
+{
+    fn logos_set(&mut self, key: K, value: T) {
+        self.put(key, value);
+    }
+}
+
+/// `m contains key` — observed-remove key membership.
+impl<K: Hash + Eq + Clone, V: Merge + Default + Clone> crate::LogosContains<K> for ORMap<K, V> {
+    fn logos_contains(&self, key: &K) -> bool {
+        self.contains_key(key)
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_data/crdt/ormap/tests.rs"]
+mod tests;

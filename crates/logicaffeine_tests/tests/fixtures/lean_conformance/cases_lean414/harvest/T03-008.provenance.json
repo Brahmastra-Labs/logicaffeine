@@ -1,0 +1,110 @@
+{
+  "case": "T03-008",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-008_nested_inductive_list.lean",
+  "source_sha256": "0a910fbb844348f5407d63db313402b33abad4840543825e777505ec9541016b",
+  "ledger_sha256": "78b4ee61907f459a4c8e737e2ea4e2dde802f2bc5b6065cac9db92940a66f4e5",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_008.Labelled",
+    "T03_008.Labelled.below_1",
+    "T03_008.Labelled.ibelow_1",
+    "T03_008.Labelled.lnode",
+    "T03_008.Labelled.rec_1",
+    "T03_008.PRTree",
+    "T03_008.PRTree.below_1",
+    "T03_008.PRTree.ibelow_1",
+    "T03_008.PRTree.pnode",
+    "T03_008.PRTree.rec_1",
+    "T03_008.RTree",
+    "T03_008.RTree.below_1",
+    "T03_008.RTree.ibelow_1",
+    "T03_008.RTree.rec_1",
+    "T03_008.RTree.rnode",
+    "T03_008.RTree2",
+    "T03_008.RTree2.below_1",
+    "T03_008.RTree2.below_2",
+    "T03_008.RTree2.ibelow_1",
+    "T03_008.RTree2.ibelow_2",
+    "T03_008.RTree2.rec_1",
+    "T03_008.RTree2.rec_2",
+    "T03_008.RTree2.rnode2",
+    "T03_008.TList",
+    "T03_008.TList.tcons",
+    "T03_008.TList.tnil",
+    "T03_008.WithNats",
+    "T03_008.WithNats.wn",
+    "T03_008.leafR",
+    "T03_008.leafR2",
+    "T03_008.pleaf"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "289d81a425aeb66662e548a074e36bc2201f28631eb7732203028d9248c89e77",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1080,
+  "harvest": {
+    "roots": [
+      "T03_008.Labelled",
+      "T03_008.Labelled.below_1",
+      "T03_008.Labelled.ibelow_1",
+      "T03_008.Labelled.lnode",
+      "T03_008.Labelled.rec_1",
+      "T03_008.PRTree",
+      "T03_008.PRTree.below_1",
+      "T03_008.PRTree.ibelow_1",
+      "T03_008.PRTree.pnode",
+      "T03_008.PRTree.rec_1",
+      "T03_008.RTree",
+      "T03_008.RTree.below_1",
+      "T03_008.RTree.ibelow_1",
+      "T03_008.RTree.rec_1",
+      "T03_008.RTree.rnode",
+      "T03_008.RTree2",
+      "T03_008.RTree2.below_1",
+      "T03_008.RTree2.below_2",
+      "T03_008.RTree2.ibelow_1",
+      "T03_008.RTree2.ibelow_2",
+      "T03_008.RTree2.rec_1",
+      "T03_008.RTree2.rec_2",
+      "T03_008.RTree2.rnode2",
+      "T03_008.TList",
+      "T03_008.TList.tcons",
+      "T03_008.TList.tnil",
+      "T03_008.WithNats",
+      "T03_008.WithNats.wn",
+      "T03_008.leafR",
+      "T03_008.leafR2",
+      "T03_008.pleaf"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

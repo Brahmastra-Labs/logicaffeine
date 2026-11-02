@@ -1,0 +1,12 @@
+{
+  "capability": "math.acosh",
+  "workload": "math.acosh",
+  "arg": "1000000",
+  "expected": "6608507403172",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

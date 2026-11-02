@@ -1,0 +1,52 @@
+{
+  "case": "T08-003",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "\u2200 (p q r : Prop), (p \u2192 q) \u2192 (q \u2192 r) \u2192 p \u2192 r",
+      "name": "T08_003.applyChain",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Prop), (p \u2192 p) \u2192 p \u2192 p",
+      "name": "T08_003.applyConclusionIsGoal",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (n m : Nat), n \u2264 m \u2192 n \u2264 m + 1",
+      "name": "T08_003.applyGlobal",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p : Nat \u2192 Prop), (\u2200 {n : Nat}, p n) \u2192 p 7",
+      "name": "T08_003.applyImplicit",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q : Prop), (p \u2192 q) \u2192 p \u2192 q",
+      "name": "T08_003.applyOnePremise",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (p q r : Prop), (p \u2192 q \u2192 r) \u2192 p \u2192 q \u2192 r",
+      "name": "T08_003.applyTwoPremises",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

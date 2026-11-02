@@ -12,7 +12,7 @@ pub fn main() !void {
     var i: i64 = 0;
     while (i < n) : (i += 1) {
         const temp = b;
-        b = @mod(a + b, 1000000007);
+        b = @rem(a + b, 1000000007);
         a = temp;
     }
     try stdout.interface.print("{}\n", .{a});

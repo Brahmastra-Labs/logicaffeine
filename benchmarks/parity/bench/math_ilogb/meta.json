@@ -1,0 +1,10 @@
+{
+  "capability": "math.ilogb",
+  "workload": "math.ilogb",
+  "arg": "1000000",
+  "expected": "7976019",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

@@ -1,0 +1,36 @@
+Allocate types of size 131072 at 0x70099ce49040 (123186589241408)
+Allocate prices of size 131072 at 0x70099cdc8040 (123186588713024)
+Allocate strike of size 131072 at 0x70099cd47040 (123186588184640)
+Allocate rate of size 131072 at 0x70099ccc6040 (123186587656256)
+Allocate vol of size 131072 at 0x70099cc45040 (123186587127872)
+Allocate times of size 131072 at 0x70099cbc4040 (123186586599488)
+Allocate optprice of size 131072 at 0x70099cb43040 (123186586071104)
+Run simulation with with 933 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 933 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.219295
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+     10000          16570 Hz
+     20000          16150 Hz
+     30000          16734 Hz
+Simulation complete at cycle 36442
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 86.3215 GB/s
+Average DRAM Write Bandwidth: 14.3869 GB/s
+script Elapsed seconds: 4.26212
+Exiting... 😊
+Destruct DRAM.
+PASS: true (BlackSholes)
+Complete Simulation
+Runtime:0:04.38

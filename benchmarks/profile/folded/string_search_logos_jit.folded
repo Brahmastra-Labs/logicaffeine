@@ -1,0 +1,8 @@
+logos::main::loop@12 [jit] 42743909934
+logos::main::loop@62 [jit] 21829176426
+logos::main::loop@12 [jit];logicaffeine_jit::logos_rt_str_append 14639248276
+__memcpy_avx_unaligned_erms 2963442213
+[unknown];main;_RNvNtCs75vJTIYSa2J_3std2rt19lang_start_internal;std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h51f0bc37981b2549;std::sys::backtrace::__rust_begin_short_backtrace;logos_jit_run::native::main;logicaffeine_jit::image::run;logicaffeine_compile::vm::machine::Vm::run;_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::semantics::collections::index_get;_ZN20logicaffeine_compile9semantics11collections12text_metrics17h613cede7391479f8E.llvm.6567582517366887255 301502657
+__memcpy_avx_unaligned_erms;[unknown] 112643128
+_start;_dl_start;_dl_start_final;_dl_sysdep_start;dl_main;_dl_relocate_object;elf_dynamic_do_Rela 922067
+[unknown];_ZN20logicaffeine_compile2vm7machine2Vm20run_until_block_impl17h991df1ae5a57c510E.llvm.1614230994762950198;logicaffeine_compile::vm::machine::Vm::try_region;<logicaffeine_jit::ForgeTier as logicaffeine_compile::vm::native_tier::NativeTier>::compile_region;logicaffeine_jit::adapt_region;logicaffeine_jit::kind_flow;logicaffeine_jit::kind_flow_sited 922067

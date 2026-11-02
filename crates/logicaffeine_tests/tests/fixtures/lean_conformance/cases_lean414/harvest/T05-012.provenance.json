@@ -1,0 +1,100 @@
+{
+  "case": "T05-012",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t05_elaboration/T05-012_coe_fun_coe_sort.lean",
+  "source_sha256": "df69008658354c4eb43ea6d2b18ca444b632cbfbab35eeb90d2ac736e0c6883c",
+  "ledger_sha256": "973b9a9217c38c65ad67f05c832821e82fa14167af29fe9bcd72405da2d17c13",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T05_012.Arity",
+    "T05_012.Arity.mk",
+    "T05_012.Arity.n",
+    "T05_012.ArityFun",
+    "T05_012.Fn",
+    "T05_012.Fn.f",
+    "T05_012.Fn.mk",
+    "T05_012.Named",
+    "T05_012.Named.mk",
+    "T05_012.Named.name",
+    "T05_012.Named.run",
+    "T05_012.PropLike",
+    "T05_012.PropLike.holds",
+    "T05_012.PropLike.mk",
+    "T05_012.Ty",
+    "T05_012.Ty.carrier",
+    "T05_012.Ty.mk",
+    "T05_012.assertIt",
+    "T05_012.idOfTy",
+    "T05_012.instCoeFunArityArityFun",
+    "T05_012.instCoeFunFnForallNat",
+    "T05_012.instCoeFunNamedForallNat",
+    "T05_012.instCoeSortPropLikeProp",
+    "T05_012.instCoeSortTyType",
+    "T05_012.useFn",
+    "T05_012.useNamed"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "22a56b0e551579be26a43323233d8e7bb264ef91ce80cf43c254fee8a1b37881",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 940,
+  "harvest": {
+    "roots": [
+      "T05_012.Arity",
+      "T05_012.Arity.mk",
+      "T05_012.Arity.n",
+      "T05_012.ArityFun",
+      "T05_012.Fn",
+      "T05_012.Fn.f",
+      "T05_012.Fn.mk",
+      "T05_012.Named",
+      "T05_012.Named.mk",
+      "T05_012.Named.name",
+      "T05_012.Named.run",
+      "T05_012.PropLike",
+      "T05_012.PropLike.holds",
+      "T05_012.PropLike.mk",
+      "T05_012.Ty",
+      "T05_012.Ty.carrier",
+      "T05_012.Ty.mk",
+      "T05_012.assertIt",
+      "T05_012.idOfTy",
+      "T05_012.instCoeFunArityArityFun",
+      "T05_012.instCoeFunFnForallNat",
+      "T05_012.instCoeFunNamedForallNat",
+      "T05_012.instCoeSortPropLikeProp",
+      "T05_012.instCoeSortTyType",
+      "T05_012.useFn",
+      "T05_012.useNamed"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

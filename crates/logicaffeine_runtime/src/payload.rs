@@ -23,20 +23,36 @@ pub enum RtPayload {
     /// An exact integer that does not fit `i64`, carried as its sign + little-endian
     /// magnitude bytes — a dependency-free, `Send` form of `BigInt` (reconstructed
     /// with `BigInt::from_le_bytes` on the far side).
-    BigInt { negative: bool, magnitude: Vec<u8> },
+    BigInt {
+        negative: bool,
+        magnitude: Vec<u8>,
+    },
     /// An exact rational: the signed numerator and the (always positive) denominator,
     /// each as little-endian magnitude bytes — a dependency-free, `Send` form of
     /// `Rational` (reconstructed with `Rational::new` on the far side). `1/3` survives
     /// here exactly, where a JSON `0.333…` would round.
-    Rational { num_negative: bool, num_magnitude: Vec<u8>, den_magnitude: Vec<u8> },
+    Rational {
+        num_negative: bool,
+        num_magnitude: Vec<u8>,
+        den_magnitude: Vec<u8>,
+    },
     /// An exact base-10 fixed-point number (money): its signed coefficient as
     /// little-endian magnitude bytes plus the base-10 `scale` (decimal places) — a
     /// dependency-free, `Send` form of `Decimal` (reconstructed with
     /// `Decimal::from_le_bytes` on the far side). `19.99` survives exactly, scale and all.
-    Decimal { negative: bool, magnitude: Vec<u8>, scale: u32 },
+    Decimal {
+        negative: bool,
+        magnitude: Vec<u8>,
+        scale: u32,
+    },
     /// An exact monetary amount: its `Decimal` amount (sign + LE magnitude + base-10 scale) plus the
     /// ISO-4217 currency code. Reconstructed as `Money { Decimal::from_le_bytes, currency::by_code }`.
-    Money { negative: bool, magnitude: Vec<u8>, scale: u32, currency: String },
+    Money {
+        negative: bool,
+        magnitude: Vec<u8>,
+        scale: u32,
+        currency: String,
+    },
     /// A 128-bit UUID — its 16 big-endian bytes verbatim. Reconstructed with `Uuid::from_bytes`.
     Uuid([u8; 16]),
     /// An exact complex number `re + im·i`: each part a rational (signed numerator + a
@@ -50,9 +66,18 @@ pub enum RtPayload {
         im_num: Vec<u8>,
         im_den: Vec<u8>,
     },
+    /// A floating-point complex (LAPACK `Z`): the real and imaginary parts as plain `f64`s. The
+    /// inexact dual of `Complex` — it is what the sqrt-based complex decompositions run on.
+    ComplexF {
+        re: f64,
+        im: f64,
+    },
     /// An element of ℤ/nℤ: its (non-negative) residue and modulus as little-endian magnitude
     /// bytes. Reconstructed with `Modular::new` on the far side; the ring is preserved.
-    Modular { value: Vec<u8>, modulus: Vec<u8> },
+    Modular {
+        value: Vec<u8>,
+        modulus: Vec<u8>,
+    },
     /// A dimensioned physical quantity: its SI-base magnitude as an exact rational (signed
     /// numerator + positive denominator, little-endian bytes), its dimension as the exponent
     /// vector (`dim_num[i]/dim_den[i]` over the base axes), and the display unit's symbol. The far
@@ -97,12 +122,18 @@ pub enum RtPayload {
     /// A moment in time.
     Moment(i64),
     /// A calendar span (months + days).
-    Span { months: i32, days: i32 },
+    Span {
+        months: i32,
+        days: i32,
+    },
     /// A time-of-day.
     Time(i64),
     /// A fixed-width wrapping integer (`Word32`/`Word64`): its bit width (32 or 64) and the
     /// value zero-extended to `u64`. Reconstructed via `WordVal::from_u64` on the far side.
-    Word { width: u32, bits: u64 },
+    Word {
+        width: u32,
+        bits: u64,
+    },
     /// A channel handle (a `Pipe`) — an opaque scheduler token. `Send` (just an
     /// id), so a channel can be passed as a spawn argument across worker threads;
     /// the receiving task resolves it against the one shared scheduler.
@@ -112,46 +143,43 @@ pub enum RtPayload {
     /// A remote-peer handle — its canonical relay topic. A `String` is trivially
     /// `Send`, so a peer can be passed as a spawn argument across worker threads.
     Peer(String),
+    /// A CRDT value carried as its KIND-TAGGED full convergent STATE (the bytes
+    /// `CrdtValue::delta_since_bytes(&VClock::new())` produces — a valid state-based delta). Unlike
+    /// the other variants, a CRDT does NOT move its `Rc`/`Arc` handle across the boundary (that would
+    /// alias one replica's live cell); it ships its STATE, and the far side rebuilds a fresh replica
+    /// and merges. State-based ⇒ re-applying the same bytes is IDEMPOTENT (per-replica MAX), so a
+    /// redelivered payload never double-counts — the property `Sync`/`Merge` over a lossy relay needs.
+    Crdt(Vec<u8>),
+    /// A real algebraic number (`kind` 0), a computable real (1) or an ordinal (2), as its
+    /// canonical `logicaffeine_base::exact_codec` bytes.
+    Exact { kind: u8, bytes: Vec<u8> },
+    /// A hyperreal (`kind` 0) or an infinite integer (1) with the infinitesimal it is written in:
+    /// the infinitesimal's name, the residue facts about its reciprocal, and the value, each as
+    /// canonical bytes.
+    Scaled {
+        kind: u8,
+        name: String,
+        residues: Vec<u8>,
+        bytes: Vec<u8>,
+    },
+    /// A value that depends on the residue of the infinite generator: the infinitesimal's name, the
+    /// residue facts, the modulus, and each class's value (`None` for a class the facts rule out).
+    Depends {
+        name: String,
+        residues: Vec<u8>,
+        modulus: u64,
+        branches: Vec<Option<RtPayload>>,
+    },
+    /// The answer of a search over every natural: its value, the cases it checked, how often it
+    /// changed, and the certificate that settled it when one did.
+    Converging {
+        value: Box<RtPayload>,
+        steps: u64,
+        revisions: u64,
+        certificate: Option<String>,
+    },
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_send<T: Send>() {}
-
-    #[test]
-    fn rtpayload_is_send() {
-        // Compile-time guarantee: payloads can cross thread boundaries. This is
-        // the property the M:N work-stealing driver depends on (only `RtPayload`
-        // and small ids ever cross a worker boundary).
-        assert_send::<RtPayload>();
-    }
-
-    #[test]
-    fn rtpayload_roundtrips_structurally() {
-        let v = RtPayload::Struct {
-            type_name: "Point".into(),
-            fields: vec![
-                ("x".into(), RtPayload::Int(1)),
-                (
-                    "y".into(),
-                    RtPayload::List(vec![RtPayload::Bool(true), RtPayload::Text("hi".into())]),
-                ),
-            ],
-        };
-        assert_eq!(v.clone(), v);
-    }
-
-    #[test]
-    fn rtpayload_nested_collections() {
-        let m = RtPayload::Map(vec![
-            (RtPayload::Text("a".into()), RtPayload::Int(1)),
-            (RtPayload::Text("b".into()), RtPayload::Set(vec![RtPayload::Char('x')])),
-        ]);
-        match m {
-            RtPayload::Map(entries) => assert_eq!(entries.len(), 2),
-            _ => panic!("expected map"),
-        }
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_runtime/payload/tests.rs"]
+mod tests;

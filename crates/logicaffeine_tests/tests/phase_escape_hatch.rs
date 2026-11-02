@@ -12,7 +12,11 @@ Escape to Rust:
     println!("hello from rust");
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains(r#"println!("hello from rust");"#), "Generated:\n{}", rust);
+    assert!(
+        rust.contains(r#"println!("hello from rust");"#),
+        "Generated:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -39,9 +43,9 @@ Let c be 20.
 Show c.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("let a = 5"), "Before escape:\n{}", rust);
+    assert!(rust.contains("let a: i64 = 5"), "Before escape:\n{}", rust);
     assert!(rust.contains("let b = a + 10;"), "Inside escape:\n{}", rust);
-    assert!(rust.contains("let c = 20"), "After escape:\n{}", rust);
+    assert!(rust.contains("let c: i64 = 20"), "After escape:\n{}", rust);
 }
 
 #[test]
@@ -55,7 +59,11 @@ Call greet with "World".
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(rust.contains("fn greet"), "Has function:\n{}", rust);
-    assert!(rust.contains(r#"println!("Hello, {}!", name)"#), "Escape in body:\n{}", rust);
+    assert!(
+        rust.contains(r#"println!("Hello, {}!", name)"#),
+        "Escape in body:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -82,7 +90,11 @@ Escape to Rust:
     println!("{:?}", map);
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("use std::collections::HashMap;"), "Use:\n{}", rust);
+    assert!(
+        rust.contains("use std::collections::HashMap;"),
+        "Use:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -108,10 +120,14 @@ Escape to Rust:
     let y = 1;
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    let x_pos = rust.find("let x = 5").unwrap();
+    let x_pos = rust.find("let x: i64 = 5").unwrap();
     let y_pos = rust.find("let y = 1;").unwrap();
     let between = &rust[x_pos..y_pos];
-    assert!(between.contains("{"), "Escape block wrapped in braces:\n{}", rust);
+    assert!(
+        between.contains("{"),
+        "Escape block wrapped in braces:\n{}",
+        rust
+    );
 }
 
 // ─────────────────────────────────────────────────────────
@@ -510,15 +526,19 @@ Escape to Rust:
 
 #[test]
 fn interpreter_rejects_escape_blocks() {
-    let result = run_interpreter(r#"## Main
+    let result = run_interpreter(
+        r#"## Main
 Escape to Rust:
     println!("hello");
-"#);
+"#,
+    );
     assert!(!result.success, "Interpreter should reject escape blocks");
     assert!(
-        result.error.contains("compil") || result.error.contains("Escape")
+        result.error.contains("compil")
+            || result.error.contains("Escape")
             || result.error.contains("interpreted"),
-        "Error should mention compilation requirement: {}", result.error,
+        "Error should mention compilation requirement: {}",
+        result.error,
     );
 }
 
@@ -534,9 +554,21 @@ Let x: Int be Escape to Rust:
 Show x.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("let x: i64"), "Should have typed let binding:\n{}", rust);
-    assert!(rust.contains("42_i64"), "Should contain raw code:\n{}", rust);
-    assert!(rust.contains("{"), "Should have block expression:\n{}", rust);
+    assert!(
+        rust.contains("let x: i64"),
+        "Should have typed let binding:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("42_i64"),
+        "Should contain raw code:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("{"),
+        "Should have block expression:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -563,7 +595,11 @@ Set x to Escape to Rust:
 Show x.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("42 * 2"), "Should contain escape code:\n{}", rust);
+    assert!(
+        rust.contains("42 * 2"),
+        "Should contain escape code:\n{}",
+        rust
+    );
     assert!(rust.contains("x ="), "Should have assignment:\n{}", rust);
 }
 
@@ -577,7 +613,11 @@ Let y: Int be Escape to Rust:
 Show y.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains(r#"println!("side-effect")"#), "Statement escape:\n{}", rust);
+    assert!(
+        rust.contains(r#"println!("side-effect")"#),
+        "Statement escape:\n{}",
+        rust
+    );
     assert!(rust.contains("99_i64"), "Expression escape:\n{}", rust);
 }
 
@@ -630,10 +670,15 @@ Let pi: Real be Escape to Rust:
 Show pi.
 "#,
     );
-    assert!(result.success, "Should run.\nstderr: {}\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should run.\nstderr: {}\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.stdout.trim().starts_with("3.14159"),
-        "Expected pi to start with 3.14159, got: {}", result.stdout.trim()
+        "Expected pi to start with 3.14159, got: {}",
+        result.stdout.trim()
     );
 }
 
@@ -813,10 +858,15 @@ Escape to Rust:
     println!("{:.4}", pi);
 "#,
     );
-    assert!(result.success, "Should run.\nstderr: {}\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.success,
+        "Should run.\nstderr: {}\nGenerated Rust:\n{}",
+        result.stderr, result.rust_code
+    );
     assert!(
         result.stdout.trim().starts_with("3.1415"),
-        "Expected pi approximation starting with 3.1415, got: {}", result.stdout.trim()
+        "Expected pi approximation starting with 3.1415, got: {}",
+        result.stdout.trim()
     );
 }
 
@@ -1043,15 +1093,22 @@ Show x.
 
 #[test]
 fn interpreter_rejects_escape_expressions() {
-    let result = run_interpreter(r#"## Main
+    let result = run_interpreter(
+        r#"## Main
 Let x: Int be Escape to Rust:
     42_i64
 Show x.
-"#);
-    assert!(!result.success, "Interpreter should reject escape expressions");
+"#,
+    );
     assert!(
-        result.error.contains("compil") || result.error.contains("Escape")
+        !result.success,
+        "Interpreter should reject escape expressions"
+    );
+    assert!(
+        result.error.contains("compil")
+            || result.error.contains("Escape")
             || result.error.contains("interpreted"),
-        "Error should mention compilation requirement: {}", result.error,
+        "Error should mention compilation requirement: {}",
+        result.error,
     );
 }

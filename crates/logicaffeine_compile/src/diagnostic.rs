@@ -119,7 +119,9 @@ pub struct RustcSpanText {
 #[serde(tag = "reason")]
 #[serde(rename_all = "kebab-case")]
 pub enum RustcMessage {
-    CompilerMessage { message: RustcDiagnostic },
+    CompilerMessage {
+        message: RustcDiagnostic,
+    },
     #[serde(other)]
     Other,
 }
@@ -145,7 +147,7 @@ pub fn parse_rustc_json(stderr: &str) -> Vec<RustcDiagnostic> {
                 }
             }
             Ok(RustcMessage::Other) => {} // Ignore artifacts, build-finished, etc.
-            Err(_) => {} // Ignore malformed lines
+            Err(_) => {}                  // Ignore malformed lines
         }
     }
 
@@ -194,7 +196,10 @@ pub struct DiagnosticBridge<'a> {
 
 impl<'a> DiagnosticBridge<'a> {
     pub fn new(source_map: &'a SourceMap, interner: &'a Interner) -> Self {
-        Self { source_map, interner }
+        Self {
+            source_map,
+            interner,
+        }
     }
 
     /// Translate a rustc diagnostic into a LOGOS error.
@@ -212,7 +217,11 @@ impl<'a> DiagnosticBridge<'a> {
 
     /// E0382: "use of moved value: `x`"
     /// LOGOS: "You already gave X away - you can't use it anymore"
-    fn translate_use_after_move(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+    fn translate_use_after_move(
+        &self,
+        diag: &RustcDiagnostic,
+        span: Option<&RustcSpan>,
+    ) -> Option<LogosError> {
         let var_name = extract_var_from_message(&diag.message, "value: `", "`")
             .or_else(|| extract_var_from_message(&diag.message, "value `", "`"))?;
 
@@ -220,7 +229,10 @@ impl<'a> DiagnosticBridge<'a> {
 
         // Look up variable origin if available
         let (logos_name, role) = if let Some(origin) = self.source_map.get_var_origin(&var_name) {
-            (self.interner.resolve(origin.logos_name).to_string(), Some(origin.role))
+            (
+                self.interner.resolve(origin.logos_name).to_string(),
+                Some(origin.role),
+            )
         } else {
             (var_name.clone(), None)
         };
@@ -260,7 +272,11 @@ impl<'a> DiagnosticBridge<'a> {
 
     /// E0505: "cannot move out of `x` because it is borrowed"
     /// LOGOS: "You're trying to give X away while someone is still looking at it"
-    fn translate_move_while_borrowed(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+    fn translate_move_while_borrowed(
+        &self,
+        diag: &RustcDiagnostic,
+        span: Option<&RustcSpan>,
+    ) -> Option<LogosError> {
         let var_name = extract_var_from_message(&diag.message, "out of `", "`")
             .or_else(|| extract_var_from_message(&diag.message, "move out of `", "`"))?;
 
@@ -295,8 +311,12 @@ impl<'a> DiagnosticBridge<'a> {
     }
 
     /// E0597: "borrowed value does not live long enough"
-    /// LOGOS: "You can't take a reference outside its zone" (Hotel California)
-    fn translate_lifetime_error(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+    /// LOGOS: "You can't take a reference outside its zone" (the zone containment rule)
+    fn translate_lifetime_error(
+        &self,
+        diag: &RustcDiagnostic,
+        span: Option<&RustcSpan>,
+    ) -> Option<LogosError> {
         let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
 
         // Check if this is zone-related by looking at the message and children
@@ -307,17 +327,20 @@ impl<'a> DiagnosticBridge<'a> {
             "A value created inside a Zone cannot be referenced from outside.\n\
             Zones are memory arenas - when the Zone ends, everything inside it is released.\n\
             This is the 'Hotel California' rule: data can check in (be created),\n\
-            but references can't check out (escape the Zone).".to_string()
+            but references can't check out (escape the Zone)."
+                .to_string()
         } else {
             "A borrowed reference is being used after the original value has gone away.\n\
-            References are temporary views - they can't outlive what they're viewing.".to_string()
+            References are temporary views - they can't outlive what they're viewing."
+                .to_string()
         };
 
         let suggestion = Some(
             "If you need the data after the Zone ends, either:\n\
              1. Move the data out with 'Give' before the Zone closes\n\
              2. Copy the data: 'Let result be a copy of zone_data'\n\
-             3. Restructure so the computation completes inside the Zone".to_string()
+             3. Restructure so the computation completes inside the Zone"
+                .to_string(),
         );
 
         Some(LogosError {
@@ -329,7 +352,11 @@ impl<'a> DiagnosticBridge<'a> {
     }
 
     /// Fallback for other errors - provide the raw message with context.
-    fn translate_generic(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+    fn translate_generic(
+        &self,
+        diag: &RustcDiagnostic,
+        span: Option<&RustcSpan>,
+    ) -> Option<LogosError> {
         let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
 
         // Try to extract any variable name
@@ -392,90 +419,100 @@ pub fn translate_diagnostics_all(
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// A rustc error remapped to the LOGOS source location it originated from — the
+/// GENERIC path for any diagnostic (the [`DiagnosticBridge`] only gives the
+/// ownership errors a bespoke English reading; every other rustc error still
+/// deserves to point at the LOGOS line the user wrote, not the generated Rust).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemappedError {
+    /// rustc's message, verbatim.
+    pub message: String,
+    /// The originating LOGOS file (a `.lg`/`.md` in a multi-file project), if the
+    /// location could be attributed to one.
+    pub file: Option<String>,
+    /// 1-based LOGOS line the generated Rust line maps back to.
+    pub line: u32,
+    /// 1-based column within that LOGOS line.
+    pub column: u32,
+    /// The LOGOS source line's text, for the caret excerpt.
+    pub source_line: String,
+}
 
-    #[test]
-    fn parse_rustc_json_extracts_errors() {
-        let json_output = r#"{"reason":"compiler-message","message":{"message":"use of moved value: `x`","code":{"code":"E0382"},"level":"error","spans":[{"file_name":"src/main.rs","line_start":5,"line_end":5,"column_start":10,"column_end":11,"is_primary":true,"label":null,"text":[]}],"children":[]}}
-{"reason":"build-finished","success":false}"#;
-
-        let diagnostics = parse_rustc_json(json_output);
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "use of moved value: `x`");
-        assert_eq!(get_error_code(&diagnostics[0]), Some("E0382"));
-    }
-
-    #[test]
-    fn extract_var_from_message_works() {
-        assert_eq!(
-            extract_var_from_message("use of moved value: `data`", "value: `", "`"),
-            Some("data".to_string())
-        );
-        assert_eq!(
-            extract_var_from_message("cannot move out of `x` because", "out of `", "`"),
-            Some("x".to_string())
-        );
-    }
-
-    #[test]
-    fn translate_e0382_creates_friendly_error() {
-        let interner = Interner::new();
-        let source_map = SourceMap::new("Let data be 5.\nGive data to processor.".to_string());
-
-        let diag = RustcDiagnostic {
-            message: "use of moved value: `data`".to_string(),
-            code: Some(RustcCode { code: "E0382".to_string() }),
-            level: "error".to_string(),
-            spans: vec![RustcSpan {
-                file_name: "src/main.rs".to_string(),
-                line_start: 3,
-                line_end: 3,
-                column_start: 10,
-                column_end: 14,
-                is_primary: true,
-                label: None,
-                text: vec![],
-            }],
-            children: vec![],
+impl std::fmt::Display for RemappedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}: {}", Style::bold_red("error"), self.message)?;
+        let location = match &self.file {
+            Some(file) => format!("{file}:{}:{}", self.line, self.column),
+            None => format!("{}:{}", self.line, self.column),
         };
-
-        let bridge = DiagnosticBridge::new(&source_map, &interner);
-        let error = bridge.translate(&diag).expect("Should translate");
-
-        assert!(error.title.contains("data"));
-        assert!(error.title.contains("giving it away"));
-        assert!(error.explanation.contains("moved"));
-        assert!(error.suggestion.is_some());
-    }
-
-    #[test]
-    fn translate_e0597_creates_hotel_california_error() {
-        let interner = Interner::new();
-        let source_map = SourceMap::new("Inside a zone:\n    Let x be 5.".to_string());
-
-        let diag = RustcDiagnostic {
-            message: "borrowed value does not live long enough".to_string(),
-            code: Some(RustcCode { code: "E0597".to_string() }),
-            level: "error".to_string(),
-            spans: vec![RustcSpan {
-                file_name: "src/main.rs".to_string(),
-                line_start: 5,
-                line_end: 5,
-                column_start: 1,
-                column_end: 10,
-                is_primary: true,
-                label: None,
-                text: vec![],
-            }],
-            children: vec![],
-        };
-
-        let bridge = DiagnosticBridge::new(&source_map, &interner);
-        let error = bridge.translate(&diag).expect("Should translate");
-
-        assert!(error.title.contains("outlive"));
-        assert!(error.explanation.contains("Zone") || error.explanation.contains("borrowed"));
+        writeln!(f, "  --> {location}")?;
+        let gutter = format!("{} | ", self.line);
+        writeln!(f, "{gutter}{}", self.source_line)?;
+        let caret_pad = " ".repeat(gutter.len() + self.column.saturating_sub(1) as usize);
+        writeln!(f, "{caret_pad}{}", Style::bold_red("^"))
     }
 }
+
+/// Remap every rustc error diagnostic to its originating LOGOS line via the
+/// `SourceMap`. Diagnostics whose Rust line can't be mapped are dropped (better
+/// silent than pointing at generated Rust). Uses each diagnostic's PRIMARY span.
+pub fn remap_rustc_diagnostics(
+    diagnostics: &[RustcDiagnostic],
+    source_map: &SourceMap,
+    file_of: &dyn Fn(usize) -> Option<String>,
+) -> Vec<RemappedError> {
+    let source = source_map.logos_source();
+    diagnostics
+        .iter()
+        .filter_map(|diag| {
+            let primary = diag
+                .spans
+                .iter()
+                .find(|s| s.is_primary)
+                .or_else(|| diag.spans.first())?;
+            let span = source_map.find_nearest_span(primary.line_start)?;
+            let offset = span.start as usize;
+            let (line, column, source_line) = byte_offset_to_line_col(source, offset);
+            Some(RemappedError {
+                message: diag.message.clone(),
+                file: file_of(offset),
+                line,
+                column,
+                source_line,
+            })
+        })
+        .collect()
+}
+
+/// Translate a byte offset in the LOGOS source into (1-based line, 1-based
+/// column, the whole source line's text). Panic-proof for any offset — the
+/// column is counted char-by-char (never a slice at a possibly-mid-char offset),
+/// and `line_start` is always a char boundary (`0` or just after a `\n`).
+fn byte_offset_to_line_col(source: &str, offset: usize) -> (u32, u32, String) {
+    let clamped = offset.min(source.len());
+    let mut line = 1u32;
+    let mut column = 1u32;
+    let mut line_start = 0usize;
+    for (i, ch) in source.char_indices() {
+        if i >= clamped {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+            line_start = i + 1;
+        } else {
+            column += 1;
+        }
+    }
+    let source_line = source[line_start..]
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
+    (line, column, source_line)
+}
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_compile/diagnostic/tests.rs"]
+mod tests;

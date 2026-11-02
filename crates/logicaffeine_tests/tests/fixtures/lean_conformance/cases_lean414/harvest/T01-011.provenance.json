@@ -1,0 +1,92 @@
+{
+  "case": "T01-011",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t01_universes/T01-011_autobound_universes.lean",
+  "source_sha256": "ca1a94c5e18e4f0f00b518ccab6e8530572cc82b22cf98c5fe886116f573a1ea",
+  "ledger_sha256": "89f49caf910ea4c76b70fc4e33dbf769164a923fbca9085cb1f4b600f51c97c0",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T01_011.AutoBox",
+    "T01_011.AutoBox.mk",
+    "T01_011.AutoCell",
+    "T01_011.AutoCell.mk",
+    "T01_011.AutoCell.val",
+    "T01_011.autoAtProp",
+    "T01_011.autoAtType",
+    "T01_011.autoAxiom",
+    "T01_011.autoBoxNat",
+    "T01_011.autoBoxType",
+    "T01_011.autoCellNat",
+    "T01_011.autoId",
+    "T01_011.autoPair",
+    "T01_011.autoSecond",
+    "T01_011.autoSecondAt01",
+    "T01_011.autoSecondAt10",
+    "T01_011.autoSortId",
+    "T01_011.occurrenceOrder",
+    "T01_011.solvedLevel",
+    "T01_011.underscoreLevel",
+    "T01_011.usesAutoAxiom",
+    "T01_011.usesSolvedLevel"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "63860981dd82b1a3e35cc0791c1c59f06afeb9dedd1bb654020aa6b23b4f484c",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 320,
+  "harvest": {
+    "roots": [
+      "T01_011.AutoBox",
+      "T01_011.AutoBox.mk",
+      "T01_011.AutoCell",
+      "T01_011.AutoCell.mk",
+      "T01_011.AutoCell.val",
+      "T01_011.autoAtProp",
+      "T01_011.autoAtType",
+      "T01_011.autoAxiom",
+      "T01_011.autoBoxNat",
+      "T01_011.autoBoxType",
+      "T01_011.autoCellNat",
+      "T01_011.autoId",
+      "T01_011.autoPair",
+      "T01_011.autoSecond",
+      "T01_011.autoSecondAt01",
+      "T01_011.autoSecondAt10",
+      "T01_011.autoSortId",
+      "T01_011.occurrenceOrder",
+      "T01_011.solvedLevel",
+      "T01_011.underscoreLevel",
+      "T01_011.usesAutoAxiom",
+      "T01_011.usesSolvedLevel"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

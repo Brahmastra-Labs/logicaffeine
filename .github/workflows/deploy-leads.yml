@@ -1,0 +1,99 @@
+name: Deploy Leads
+
+# The pricing form's lead worker (services/leads). Its tests walk the validation vectors the page's
+# Rust validator also walks, so a change to either side reruns them here.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/leads/**'
+      - 'crates/logicaffeine_tests/tests/fixtures/lead_vectors.json'
+      - '.github/workflows/deploy-leads.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/leads/**'
+      - 'crates/logicaffeine_tests/tests/fixtures/lead_vectors.json'
+      - '.github/workflows/deploy-leads.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-leads-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test Lead Worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The release services/leads/package-lock.json was verified with: its bundled npm 10.9.8
+      # installs the lockfile cleanly under `npm ci`.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+          cache-dependency-path: services/leads/package-lock.json
+
+      - name: Install dependencies
+        working-directory: services/leads
+        run: npm ci
+
+      - name: Run the worker's tests
+        working-directory: services/leads
+        run: npx vitest run
+
+      - name: Bundle without deploying
+        working-directory: services/leads
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    name: Deploy Lead Worker
+    # Deploys only from main: a push there, or a manual run on main.
+    if: >
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The release services/leads/package-lock.json was verified with: its bundled npm 10.9.8
+      # installs the lockfile cleanly under `npm ci`.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+          cache-dependency-path: services/leads/package-lock.json
+
+      - name: Install dependencies
+        working-directory: services/leads
+        run: npm ci
+
+      # Without a real id, wrangler would provision a new, empty database on deploy.
+      - name: Refuse the placeholder database id
+        working-directory: services/leads
+        run: |
+          if grep -q '^database_id = "00000000-0000-0000-0000-000000000000"$' wrangler.toml; then
+            echo "::error file=services/leads/wrangler.toml::database_id is still the placeholder. Run 'npm run db:create' and put the id it prints in wrangler.toml."
+            exit 1
+          fi
+
+      - name: Run D1 migrations
+        working-directory: services/leads
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 migrations apply logos-leads --remote
+
+      - name: Deploy to Cloudflare
+        working-directory: services/leads
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy

@@ -1,0 +1,74 @@
+{
+  "case": "T08-010",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t08_tactics/T08-010_induction_on_list.lean",
+  "source_sha256": "84ee679f137b60c9fe77e41050b161a1811c98b4a71d31fa7febad5f7f877025",
+  "ledger_sha256": "a0199600dc22064703823b56c3505e87e861e6c1203ec31e99280456a0f5663c",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T08_010.LList",
+    "T08_010.LList.cons",
+    "T08_010.LList.nil",
+    "T08_010.Tree",
+    "T08_010.Tree.leaf",
+    "T08_010.Tree.node",
+    "T08_010.Tree.tip",
+    "T08_010.app",
+    "T08_010.insensitive",
+    "T08_010.len",
+    "T08_010.size",
+    "T08_010.sizeNonneg",
+    "T08_010.strongOnNat"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "c0e26f0a6b62a8fabbaa11f9539295ebbe4751255ac06502a9c0041651ebe9f7",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 5429,
+  "harvest": {
+    "roots": [
+      "T08_010.LList",
+      "T08_010.LList.cons",
+      "T08_010.LList.nil",
+      "T08_010.Tree",
+      "T08_010.Tree.leaf",
+      "T08_010.Tree.node",
+      "T08_010.Tree.tip",
+      "T08_010.app",
+      "T08_010.insensitive",
+      "T08_010.len",
+      "T08_010.size",
+      "T08_010.sizeNonneg",
+      "T08_010.strongOnNat"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

@@ -95,7 +95,74 @@ fn quicksort_with_list_param_tiers() {
                Show checksum.\n";
     let (_, err, fn_ok) = tiered(src);
     assert_eq!(err, None);
-    assert!(fn_ok >= 1, "quicksort must JIT with its list parameter (got {fn_ok})");
+    assert!(
+        fn_ok >= 1,
+        "quicksort must JIT with its list parameter (got {fn_ok})"
+    );
+}
+
+/// A scalar-returning function whose loop bound is `length of <list-param>` must TIER and stay
+/// byte-exact when reached through a HOT CALLER. This is the regression lock for the pin-length
+/// bug: a region LEVER-B cross-function call stages only the arg handle and skips the boundary
+/// pin scatter, so the callee's `length of xs` read a stale (zero) length and its loop never ran
+/// (`sumLen` returned 0 for the hot calls → 3100 instead of 15500; `firstGE` returned 0 hot). The
+/// callee now refreshes its own pin triple from the handle at entry, so it tiers correctly. This
+/// asserts BOTH: `fn_ok >= 1` (it TIERS — never silently declined back to a slow-but-correct VM),
+/// and full output parity with the tree-walker (the `tiered` helper). Two shapes: a no-early-return
+/// reducer and an early-return search, each with a `length of` bound.
+#[test]
+fn length_bounded_scalar_fn_tiers_through_hot_caller() {
+    // Reducer: `length of xs` bound, no early return.
+    let sum_src = "## To sumLen (xs: Seq of Int) -> Int:\n\
+               \x20   Let n be length of xs.\n\
+               \x20   Let mutable s be 0.\n\
+               \x20   Let mutable i be 1.\n\
+               \x20   While i is at most n:\n\
+               \x20       Set s to s + (item i of xs).\n\
+               \x20       Set i to i + 1.\n\
+               \x20   Return s.\n\
+               \n\
+               ## Main\n\
+               Let xs be [3, 1, 4, 1, 5, 9, 2, 6].\n\
+               Let mutable acc be 0.\n\
+               Let mutable k be 0.\n\
+               While k is less than 500:\n\
+               \x20   Set acc to acc + sumLen(xs).\n\
+               \x20   Set k to k + 1.\n\
+               Show acc.\n";
+    let (out, err, fn_ok) = tiered(sum_src);
+    assert_eq!(err, None);
+    assert_eq!(out, "15500", "500 × Σ[3,1,4,1,5,9,2,6] = 500 × 31");
+    assert!(
+        fn_ok >= 1,
+        "the `length of xs`-bounded reducer must TIER, not decline (got {fn_ok})"
+    );
+
+    // Search: `length of xs` bound with an early return out of the loop (firstGE shape).
+    let find_src = "## To firstGE (xs: Seq of Int, t: Int) -> Int:\n\
+               \x20   Let n be length of xs.\n\
+               \x20   Let mutable i be 1.\n\
+               \x20   While i is at most n:\n\
+               \x20       If (item i of xs) is at least t:\n\
+               \x20           Return i.\n\
+               \x20       Set i to i + 1.\n\
+               \x20   Return 0.\n\
+               \n\
+               ## Main\n\
+               Let xs be [3, 1, 4, 1, 5, 9, 2, 6].\n\
+               Let mutable acc be 0.\n\
+               Let mutable k be 0.\n\
+               While k is less than 500:\n\
+               \x20   Set acc to acc + firstGE(xs, 5).\n\
+               \x20   Set k to k + 1.\n\
+               Show acc.\n";
+    let (out, err, fn_ok) = tiered(find_src);
+    assert_eq!(err, None);
+    assert_eq!(out, "2500", "firstGE([3,1,4,1,5,9,2,6], 5) = 5, × 500");
+    assert!(
+        fn_ok >= 1,
+        "the `length of xs`-bounded search must TIER, not decline (got {fn_ok})"
+    );
 }
 
 /// A read-only `Seq of Float` parameter (the nbody energy shape): bit-exact
@@ -179,7 +246,10 @@ fn list_return_through_mutable_param() {
                Show item 2 of xs.\n";
     let (out, err, _) = tiered(src);
     assert_eq!(err, None);
-    assert_eq!(out, "400\n200", "writes accumulate in xs; r is an independent value");
+    assert_eq!(
+        out, "400\n200",
+        "writes accumulate in xs; r is an independent value"
+    );
 }
 
 /// THE precise-state gate: a recursive function lands writes through its
@@ -226,7 +296,10 @@ fn oob_after_writes_inside_native_recursion_is_precise() {
         );
         assert!(vm.error.is_some(), "item 99 of a 2-list must error");
         let (_, fn_ok) = tier.function_counts();
-        assert!(fn_ok >= 1, "wreck must have tiered before the bad call (got {fn_ok})");
+        assert!(
+            fn_ok >= 1,
+            "wreck must have tiered before the bad call (got {fn_ok})"
+        );
     });
 }
 

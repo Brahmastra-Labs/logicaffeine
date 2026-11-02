@@ -1,0 +1,944 @@
+# JSON
+
+An RFC 8259 JSON value type, strict parser, and canonical serializer in pure LOGOS,
+compiled through every execution tier. Auto-imported on reference.
+
+The locked profile (see `json_conformance_lock.rs`):
+numbers are exact scaled decimals (integer-valued numbers become `JNum`, non-integer
+values become `JDec` = `mant × 10^scale` with `scale < 0` and `mant` not divisible by
+10; a mantissa beyond i64 is rejected as out of range — no floats, no silent
+precision loss); duplicate object keys keep the FIRST position with the LAST value;
+strings decode all eight standard escapes plus `\uXXXX` (surrogate pairs decode to
+their supplementary code point, lone surrogates are rejected); whitespace between
+tokens is exactly space/tab/LF/CR; anything else — trailing input, unterminated
+strings or containers, bare words, control characters in strings, leading zeros,
+lone minus — is rejected with a positioned message.
+
+## Note
+A recursive JSON value: null, boolean, exact integer or decimal, string, array, or object.
+
+A recursive JSON value: null, a boolean, an exact integer, an exact scaled decimal
+(`mant × 10^scale`), a string, an array of `Json` values, or an object (a sequence
+of `JEntry` key/value pairs in first-appearance order).
+
+## A Json is either:
+    A JNull.
+    A JBool (b: Bool).
+    A JNum (n: Int).
+    A JDec with mant Int and scale Int.
+    A JStr (s: Text).
+    A JArr (elems: Seq of Json).
+    A JObj (entries: Seq of JEntry).
+
+## Note
+One object member: a Text `key` and its `Json` `val`.
+
+## A JEntry has:
+    a key, which is Text.
+    a val, which is Json.
+
+## Note
+The strict parse outcome: `JOk` carries the parsed value, `JErr` carries a
+positioned error message (1-based byte positions).
+
+## A JsonResult is either:
+    A JOk (v: Json).
+    A JErr (msg: Text).
+
+## Note
+Parser state threaded through the recursive descent: the parsed `node`, `nextpos`
+(the byte position just past what was consumed), and the `ok`/`err` error channel.
+
+## A ParseState has:
+    a node, which is Json.
+    a nextpos, which is Int.
+    an ok, which is Bool.
+    an err, which is Text.
+
+## Note
+A successful step: wraps `nd` and the next position.
+
+## To jsonOkAt (nd: Json) and (p: Int) -> ParseState:
+    Return a new ParseState with node nd and nextpos p and ok true and err "".
+
+## Note
+A failed step: carries the diagnostic message.
+
+## To jsonFailAt (msg: Text) -> ParseState:
+    Return a new ParseState with node (a new JNull) and nextpos 0 and ok false and err msg.
+
+## Note
+Advances past RFC whitespace (space 32, tab 9, LF 10, CR 13) from `pos`, returning
+the first non-whitespace position.
+
+## To jsonSkipWs (bytes: Seq of Int) and (pos: Int) -> Int:
+    Let total be length of bytes.
+    Let mutable p be pos.
+    Let mutable go be true.
+    While go is equal to true:
+        If p is greater than total:
+            Set go to false.
+        Otherwise:
+            Let b be item p of bytes.
+            If b is equal to 32:
+                Set p to p + 1.
+            Otherwise:
+                If b is equal to 9:
+                    Set p to p + 1.
+                Otherwise:
+                    If b is equal to 10:
+                        Set p to p + 1.
+                    Otherwise:
+                        If b is equal to 13:
+                            Set p to p + 1.
+                        Otherwise:
+                            Set go to false.
+    Return p.
+
+## Note
+True when the bytes at `pos` match `word` exactly, in bounds.
+
+## To jsonMatchWord (bytes: Seq of Int) and (pos: Int) and (word: Seq of Int) -> Bool:
+    Let total be length of bytes.
+    Let k be length of word.
+    If ((pos + k) - 1) is greater than total:
+        Return false.
+    Let mutable i be 1.
+    While i is at most k:
+        If item ((pos + i) - 1) of bytes is equal to item i of word:
+            Set i to i + 1.
+        Otherwise:
+            Return false.
+    Return true.
+
+## Note
+The value of one hex digit byte (`0-9`/`A-F`/`a-f`), or -1 when not a hex digit.
+
+## To jsonHexDigit (b: Int) -> Int:
+    If b is at least 48:
+        If b is at most 57:
+            Return b - 48.
+    If b is at least 65:
+        If b is at most 70:
+            Return b - 55.
+    If b is at least 97:
+        If b is at most 102:
+            Return b - 87.
+    Return 0 - 1.
+
+## Note
+Reads four hex digit bytes starting at `pos` into their value, or -1 when out of
+bounds or not hex.
+
+## To jsonHex4 (bytes: Seq of Int) and (pos: Int) -> Int:
+    Let total be length of bytes.
+    If (pos + 3) is greater than total:
+        Return 0 - 1.
+    Let mutable v be 0.
+    Let mutable i be 0.
+    While i is at most 3:
+        Let d be jsonHexDigit(item (pos + i) of bytes).
+        If d is less than 0:
+            Return 0 - 1.
+        Set v to (v * 16) + d.
+        Set i to i + 1.
+    Return v.
+
+## Note
+The UTF-8 encoding of code point `cp` (1 to 4 bytes).
+
+## To jsonUtf8Bytes (cp: Int) -> Seq of Int:
+    Let out be a new Seq of Int.
+    If cp is less than 128:
+        Push cp to out.
+        Return out.
+    If cp is less than 2048:
+        Push (192 + (cp / 64)) to out.
+        Push (128 + (cp % 64)) to out.
+        Return out.
+    If cp is less than 65536:
+        Push (224 + (cp / 4096)) to out.
+        Push (128 + ((cp / 64) % 64)) to out.
+        Push (128 + (cp % 64)) to out.
+        Return out.
+    Push (240 + (cp / 262144)) to out.
+    Push (128 + ((cp / 4096) % 64)) to out.
+    Push (128 + ((cp / 64) % 64)) to out.
+    Push (128 + (cp % 64)) to out.
+    Return out.
+
+## Note
+Parses the `"..."` string whose opening quote is at `pos` into a `JStr`.
+
+Decodes the eight standard escapes and `\uXXXX` (surrogate pairs included, lone surrogates rejected), and rejects raw control bytes.
+## To jsonParseString (bytes: Seq of Int) and (pos: Int) -> ParseState:
+    Let total be length of bytes.
+    Let out be a new Seq of Int.
+    Let mutable p be pos + 1.
+    Let mutable go be true.
+    While go is equal to true:
+        If p is greater than total:
+            Return jsonFailAt("unterminated string starting at byte {pos}").
+        Let b be item p of bytes.
+        If b is equal to 34:
+            Let txt be text_from_bytes(out).
+            Let nd be a new JStr with s txt.
+            Return jsonOkAt(nd, p + 1).
+        If b is equal to 92:
+            If (p + 1) is greater than total:
+                Return jsonFailAt("unterminated string starting at byte {pos}").
+            Let c be item (p + 1) of bytes.
+            Let mutable simple be 0 - 1.
+            If c is equal to 34:
+                Set simple to 34.
+            If c is equal to 92:
+                Set simple to 92.
+            If c is equal to 47:
+                Set simple to 47.
+            If c is equal to 98:
+                Set simple to 8.
+            If c is equal to 102:
+                Set simple to 12.
+            If c is equal to 110:
+                Set simple to 10.
+            If c is equal to 114:
+                Set simple to 13.
+            If c is equal to 116:
+                Set simple to 9.
+            If simple is at least 0:
+                Push simple to out.
+                Set p to p + 2.
+            Otherwise:
+                If c is equal to 117:
+                    Let hi be jsonHex4(bytes, p + 2).
+                    If hi is less than 0:
+                        Return jsonFailAt("invalid unicode escape at byte {p}").
+                    Let mutable ishi be false.
+                    If hi is at least 55296:
+                        If hi is at most 56319:
+                            Set ishi to true.
+                    Let mutable islo be false.
+                    If hi is at least 56320:
+                        If hi is at most 57343:
+                            Set islo to true.
+                    If islo is equal to true:
+                        Return jsonFailAt("lone surrogate at byte {p}").
+                    If ishi is equal to true:
+                        Let mutable pair be false.
+                        If (p + 7) is at most total:
+                            If item (p + 6) of bytes is equal to 92:
+                                If item (p + 7) of bytes is equal to 117:
+                                    Set pair to true.
+                        If pair is equal to false:
+                            Return jsonFailAt("lone surrogate at byte {p}").
+                        Let lo be jsonHex4(bytes, p + 8).
+                        If lo is less than 56320:
+                            Return jsonFailAt("lone surrogate at byte {p}").
+                        If lo is greater than 57343:
+                            Return jsonFailAt("lone surrogate at byte {p}").
+                        Let cp be (65536 + ((hi - 55296) * 1024)) + (lo - 56320).
+                        Let eb be jsonUtf8Bytes(cp).
+                        Let ebn be length of eb.
+                        Let mutable k be 1.
+                        While k is at most ebn:
+                            Push item k of eb to out.
+                            Set k to k + 1.
+                        Set p to p + 12.
+                    Otherwise:
+                        Let eb2 be jsonUtf8Bytes(hi).
+                        Let ebn2 be length of eb2.
+                        Let mutable k2 be 1.
+                        While k2 is at most ebn2:
+                            Push item k2 of eb2 to out.
+                            Set k2 to k2 + 1.
+                        Set p to p + 6.
+                Otherwise:
+                    Return jsonFailAt("invalid escape at byte {p}").
+        Otherwise:
+            If b is less than 32:
+                Return jsonFailAt("control character in string at byte {p}").
+            Push b to out.
+            Set p to p + 1.
+    Return jsonFailAt("unterminated string starting at byte {pos}").
+
+## Note
+Parses an RFC number at `pos`: optional minus, integer part (leading zeros rejected), optional fraction, optional exponent — folded EXACTLY into `mant × 10^scale`.
+
+Integer-valued results normalize to `JNum`; others to canonical `JDec` (`scale <
+0`, `mant` not divisible by 10). A mantissa beyond i64 is out of range.
+## To jsonParseNumber (bytes: Seq of Int) and (pos: Int) -> ParseState:
+    Let total be length of bytes.
+    Let mutable p be pos.
+    Let mutable neg be false.
+    If item p of bytes is equal to 45:
+        Set neg to true.
+        Set p to p + 1.
+    If p is greater than total:
+        Return jsonFailAt("unexpected end of input").
+    Let first be item p of bytes.
+    If first is less than 48:
+        Return jsonFailAt("invalid number at byte {p}").
+    If first is greater than 57:
+        Return jsonFailAt("invalid number at byte {p}").
+    Let mutable m be 0.
+    If first is equal to 48:
+        Set p to p + 1.
+        If p is at most total:
+            Let d2 be item p of bytes.
+            If d2 is at least 48:
+                If d2 is at most 57:
+                    Return jsonFailAt("invalid number at byte {p}").
+    Otherwise:
+        Let mutable igo be true.
+        While igo is equal to true:
+            If p is greater than total:
+                Set igo to false.
+            Otherwise:
+                Let d be item p of bytes.
+                If d is at least 48:
+                    If d is at most 57:
+                        If m is greater than 922337203685477580:
+                            Return jsonFailAt("number out of range at byte {pos}").
+                        If m is equal to 922337203685477580:
+                            If d is greater than 55:
+                                Return jsonFailAt("number out of range at byte {pos}").
+                        Set m to (m * 10) + (d - 48).
+                        Set p to p + 1.
+                    Otherwise:
+                        Set igo to false.
+                Otherwise:
+                    Set igo to false.
+    Let mutable sc be 0.
+    If p is at most total:
+        If item p of bytes is equal to 46:
+            Set p to p + 1.
+            If p is greater than total:
+                Return jsonFailAt("unexpected end of input").
+            Let fd be item p of bytes.
+            If fd is less than 48:
+                Return jsonFailAt("invalid number at byte {p}").
+            If fd is greater than 57:
+                Return jsonFailAt("invalid number at byte {p}").
+            Let mutable fgo be true.
+            While fgo is equal to true:
+                If p is greater than total:
+                    Set fgo to false.
+                Otherwise:
+                    Let d3 be item p of bytes.
+                    If d3 is at least 48:
+                        If d3 is at most 57:
+                            If m is greater than 922337203685477580:
+                                Return jsonFailAt("number out of range at byte {pos}").
+                            If m is equal to 922337203685477580:
+                                If d3 is greater than 55:
+                                    Return jsonFailAt("number out of range at byte {pos}").
+                            Set m to (m * 10) + (d3 - 48).
+                            Set sc to sc - 1.
+                            Set p to p + 1.
+                        Otherwise:
+                            Set fgo to false.
+                    Otherwise:
+                        Set fgo to false.
+    If p is at most total:
+        Let eb be item p of bytes.
+        Let mutable isexp be false.
+        If eb is equal to 101:
+            Set isexp to true.
+        If eb is equal to 69:
+            Set isexp to true.
+        If isexp is equal to true:
+            Set p to p + 1.
+            Let mutable esign be 1.
+            If p is at most total:
+                Let sb be item p of bytes.
+                If sb is equal to 43:
+                    Set p to p + 1.
+                Otherwise:
+                    If sb is equal to 45:
+                        Set esign to 0 - 1.
+                        Set p to p + 1.
+            If p is greater than total:
+                Return jsonFailAt("unexpected end of input").
+            Let ed be item p of bytes.
+            If ed is less than 48:
+                Return jsonFailAt("invalid number at byte {p}").
+            If ed is greater than 57:
+                Return jsonFailAt("invalid number at byte {p}").
+            Let mutable ev be 0.
+            Let mutable ego be true.
+            While ego is equal to true:
+                If p is greater than total:
+                    Set ego to false.
+                Otherwise:
+                    Let d4 be item p of bytes.
+                    If d4 is at least 48:
+                        If d4 is at most 57:
+                            If ev is less than 10000000:
+                                Set ev to (ev * 10) + (d4 - 48).
+                            Set p to p + 1.
+                        Otherwise:
+                            Set ego to false.
+                    Otherwise:
+                        Set ego to false.
+            Set sc to sc + (esign * ev).
+    If m is equal to 0:
+        Set sc to 0.
+    Let mutable sgo be true.
+    While sgo is equal to true:
+        If sc is less than 0:
+            If (m % 10) is equal to 0:
+                Set m to m / 10.
+                Set sc to sc + 1.
+            Otherwise:
+                Set sgo to false.
+        Otherwise:
+            Set sgo to false.
+    Let mutable ugo be true.
+    While ugo is equal to true:
+        If sc is greater than 0:
+            If m is greater than 922337203685477580:
+                Return jsonFailAt("number out of range at byte {pos}").
+            Set m to m * 10.
+            Set sc to sc - 1.
+        Otherwise:
+            Set ugo to false.
+    If neg is equal to true:
+        Set m to 0 - m.
+    If sc is equal to 0:
+        Let nd be a new JNum with n m.
+        Return jsonOkAt(nd, p).
+    Let nd2 be a new JDec with mant m and scale sc.
+    Return jsonOkAt(nd2, p).
+
+## Note
+Parses a `[...]` array at `pos`: values separated by commas until `]`, each element parsed by `jsonParseValue`.
+
+`strict` (0 lenient, 1 strict) is threaded to every element so duplicate-key
+rejection reaches nested objects.
+## To jsonParseArray (bytes: Seq of Int) and (pos: Int) and (strict: Int) -> ParseState:
+    Let total be length of bytes.
+    Let items be a new Seq of Json.
+    Let mutable p be jsonSkipWs(bytes, pos + 1).
+    If p is greater than total:
+        Return jsonFailAt("unexpected end of input").
+    If item p of bytes is equal to 93:
+        Let nd be a new JArr with elems items.
+        Return jsonOkAt(nd, p + 1).
+    Let mutable go be true.
+    While go is equal to true:
+        Let st be jsonParseValue(bytes, p, strict).
+        If st's ok is equal to false:
+            Return st.
+        Push st's node to items.
+        Set p to jsonSkipWs(bytes, st's nextpos).
+        If p is greater than total:
+            Return jsonFailAt("unexpected end of input").
+        Let b be item p of bytes.
+        If b is equal to 44:
+            Set p to p + 1.
+        Otherwise:
+            If b is equal to 93:
+                Let nd2 be a new JArr with elems items.
+                Return jsonOkAt(nd2, p + 1).
+            Otherwise:
+                Return jsonFailAt("expected a comma or closing bracket at byte {p}").
+    Return jsonFailAt("unexpected end of input").
+
+## Note
+Parses a `{...}` object at `pos`: string keys, colons, values, commas until the closing brace.
+
+In the LENIENT mode (`strict` 0) duplicate keys keep the FIRST position with the
+LAST value; in STRICT mode (`strict` 1) a duplicate key is REJECTED with a
+positioned message (the byte of the offending key's opening quote).
+## To jsonParseObject (bytes: Seq of Int) and (pos: Int) and (strict: Int) -> ParseState:
+    Let total be length of bytes.
+    Let es be a new Seq of JEntry.
+    Let mutable p be jsonSkipWs(bytes, pos + 1).
+    If p is greater than total:
+        Return jsonFailAt("unexpected end of input").
+    If item p of bytes is equal to 125:
+        Let nd be a new JObj with entries es.
+        Return jsonOkAt(nd, p + 1).
+    Let mutable go be true.
+    While go is equal to true:
+        Set p to jsonSkipWs(bytes, p).
+        If p is greater than total:
+            Return jsonFailAt("unexpected end of input").
+        If item p of bytes is equal to 34:
+            Let kquote be p.
+            Let kst be jsonParseString(bytes, p).
+            If kst's ok is equal to false:
+                Return kst.
+            Let knode be kst's node.
+            Let mutable kname be "".
+            Inspect knode:
+                When JStr (s):
+                    Set kname to s.
+                Otherwise:
+                    Set kname to "".
+            Set p to jsonSkipWs(bytes, kst's nextpos).
+            If p is greater than total:
+                Return jsonFailAt("unexpected end of input").
+            If item p of bytes is equal to 58:
+                Set p to p + 1.
+            Otherwise:
+                Return jsonFailAt("expected a colon at byte {p}").
+            Let vst be jsonParseValue(bytes, p, strict).
+            If vst's ok is equal to false:
+                Return vst.
+            Let vnode be vst's node.
+            Let en be a new JEntry with key kname and val vnode.
+            Let n be length of es.
+            Let mutable i be 1.
+            Let mutable found be false.
+            While i is at most n:
+                Let old be item i of es.
+                If old's key is equal to kname:
+                    Set item i of es to en.
+                    Set found to true.
+                    Set i to n + 1.
+                Otherwise:
+                    Set i to i + 1.
+            If found is equal to true:
+                If strict is equal to 1:
+                    Return jsonFailAt("duplicate object key \"{kname}\" at byte {kquote}").
+            If found is equal to false:
+                Push en to es.
+            Set p to jsonSkipWs(bytes, vst's nextpos).
+            If p is greater than total:
+                Return jsonFailAt("unexpected end of input").
+            Let b be item p of bytes.
+            If b is equal to 44:
+                Set p to p + 1.
+            Otherwise:
+                If b is equal to 125:
+                    Let nd2 be a new JObj with entries es.
+                    Return jsonOkAt(nd2, p + 1).
+                Otherwise:
+                    Return jsonFailAt("expected a comma or closing brace at byte {p}").
+        Otherwise:
+            Return jsonFailAt("expected an object key at byte {p}").
+    Return jsonFailAt("unexpected end of input").
+
+## Note
+Skips whitespace, then dispatches on the next byte: object, array, string, number, `true`, `false`, or `null` — anything else is rejected with its position.
+
+`strict` (0 lenient, 1 strict) is threaded to the container arms so duplicate-
+key rejection reaches every nested object.
+## To jsonParseValue (bytes: Seq of Int) and (pos: Int) and (strict: Int) -> ParseState:
+    Let total be length of bytes.
+    Let p be jsonSkipWs(bytes, pos).
+    If p is greater than total:
+        Return jsonFailAt("unexpected end of input").
+    Let c be item p of bytes.
+    If c is equal to 123:
+        Return jsonParseObject(bytes, p, strict).
+    If c is equal to 91:
+        Return jsonParseArray(bytes, p, strict).
+    If c is equal to 34:
+        Return jsonParseString(bytes, p).
+    If c is equal to 45:
+        Return jsonParseNumber(bytes, p).
+    If c is at least 48:
+        If c is at most 57:
+            Return jsonParseNumber(bytes, p).
+    If c is equal to 116:
+        Let wt be [116, 114, 117, 101].
+        If jsonMatchWord(bytes, p, wt) is equal to true:
+            Let nd be a new JBool with b true.
+            Return jsonOkAt(nd, p + 4).
+        Return jsonFailAt("invalid literal at byte {p}").
+    If c is equal to 102:
+        Let wf be [102, 97, 108, 115, 101].
+        If jsonMatchWord(bytes, p, wf) is equal to true:
+            Let nd2 be a new JBool with b false.
+            Return jsonOkAt(nd2, p + 5).
+        Return jsonFailAt("invalid literal at byte {p}").
+    If c is equal to 110:
+        Let wn be [110, 117, 108, 108].
+        If jsonMatchWord(bytes, p, wn) is equal to true:
+            Let nd3 be a new JNull.
+            Return jsonOkAt(nd3, p + 4).
+        Return jsonFailAt("invalid literal at byte {p}").
+    Return jsonFailAt("unexpected character at byte {p}").
+
+## Note
+Parses one complete document: a value, then only whitespace to the end — anything else is trailing input.
+
+`strict` (0 lenient, 1 strict) is threaded to the value so duplicate object keys
+are rejected when strict.
+## To jsonParseDoc (bytes: Seq of Int) and (strict: Int) -> ParseState:
+    Let st be jsonParseValue(bytes, 1, strict).
+    If st's ok is equal to false:
+        Return st.
+    Let total be length of bytes.
+    Let p be jsonSkipWs(bytes, st's nextpos).
+    If p is at most total:
+        Return jsonFailAt("trailing characters after the JSON value at byte {p}").
+    Return st.
+
+## Note
+The non-trapping parser: `JOk` with the value, or `JErr` with a positioned message.
+
+LENIENT on duplicate object keys — the last value wins, the first position is
+kept (JS `JSON.parse` compatible). Use `jsonParseStrict` when a colliding key
+must be an error rather than a silent last-write-wins.
+## To jsonTryParse (text: Text) -> JsonResult:
+    Let st be jsonParseDoc(text_bytes(text), 0).
+    If st's ok is equal to true:
+        Let nd be st's node.
+        Return a new JOk with v nd.
+    Let m be st's err.
+    Return a new JErr with msg m.
+
+## Note
+The strict non-trapping parser: like `jsonTryParse`, but a duplicate object key anywhere in the document is rejected.
+
+The rejection is a `JErr` with a positioned message rather than a silent collapse. The typed-decode path
+uses this so no decision is ever taken on a document that dropped a colliding
+key.
+## To jsonParseStrict (text: Text) -> JsonResult:
+    Let st be jsonParseDoc(text_bytes(text), 1).
+    If st's ok is equal to true:
+        Let nd be st's node.
+        Return a new JOk with v nd.
+    Let m be st's err.
+    Return a new JErr with msg m.
+
+## Note
+The trapping parser: returns the value of a valid document and stops the program on an invalid one.
+
+Use `jsonTryParse` to handle errors instead. Lenient on duplicate keys (last value wins).
+## To jsonParse (text: Text) -> Json:
+    Let st be jsonParseDoc(text_bytes(text), 0).
+    Assert that st's ok is equal to true.
+    Return st's node.
+
+## Note
+True iff `text` is one complete, well-formed JSON document (`encoding/json.Valid`); lenient on duplicate keys.
+
+## To jsonValid (text: Text) -> Bool:
+    Let st be jsonParseDoc(text_bytes(text), 0).
+    Return st's ok.
+
+## Note
+Object member lookup: the value under `key`, or `JNull` when `j` is not an object
+or has no such member (pair with `jsonHas` to tell a stored null from a missing key).
+
+## To jsonGet (j: Json) and (key: Text) -> Json:
+    Inspect j:
+        When JObj (entries):
+            Let n be length of entries.
+            Let mutable i be 1.
+            While i is at most n:
+                Let en be item i of entries.
+                If en's key is equal to key:
+                    Return en's val.
+                Set i to i + 1.
+            Return a new JNull.
+        Otherwise:
+            Return a new JNull.
+    Return a new JNull.
+
+## Note
+True when `j` is an object with a member under `key`.
+
+## To jsonHas (j: Json) and (key: Text) -> Bool:
+    Inspect j:
+        When JObj (entries):
+            Let n be length of entries.
+            Let mutable i be 1.
+            While i is at most n:
+                Let en be item i of entries.
+                If en's key is equal to key:
+                    Return true.
+                Set i to i + 1.
+            Return false.
+        Otherwise:
+            Return false.
+    Return false.
+
+## Note
+The lowercase hex digit byte for `v` in 0..15.
+
+## To jsonHexByte (v: Int) -> Int:
+    If v is less than 10:
+        Return 48 + v.
+    Return 87 + v.
+
+## Note
+Quotes and escapes a string body per the canonical profile: `"` and `\` escaped,
+controls as `\b \f \n \r \t` or lowercase `\u00xx`; everything else (including raw
+UTF-8) passes through.
+
+## To jsonQuote (s: Text) -> Text:
+    Let sb be text_bytes(s).
+    Let n be length of sb.
+    Let out be a new Seq of Int.
+    Push 34 to out.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b be item i of sb.
+        If b is equal to 34:
+            Push 92 to out.
+            Push 34 to out.
+        Otherwise:
+            If b is equal to 92:
+                Push 92 to out.
+                Push 92 to out.
+            Otherwise:
+                If b is less than 32:
+                    Let mutable esc be 0 - 1.
+                    If b is equal to 8:
+                        Set esc to 98.
+                    If b is equal to 12:
+                        Set esc to 102.
+                    If b is equal to 10:
+                        Set esc to 110.
+                    If b is equal to 13:
+                        Set esc to 114.
+                    If b is equal to 9:
+                        Set esc to 116.
+                    If esc is at least 0:
+                        Push 92 to out.
+                        Push esc to out.
+                    Otherwise:
+                        Push 92 to out.
+                        Push 117 to out.
+                        Push 48 to out.
+                        Push 48 to out.
+                        Let h1 be jsonHexByte(b / 16).
+                        Let h2 be jsonHexByte(b % 16).
+                        Push h1 to out.
+                        Push h2 to out.
+                Otherwise:
+                    Push b to out.
+        Set i to i + 1.
+    Push 34 to out.
+    Return text_from_bytes(out).
+
+## Note
+Renders a canonical `JDec` (`sc < 0`) in plain decimal notation, never exponent form.
+
+The mantissa's digits get the point inserted, zero-padded as needed. A non-canonical `sc >= 0` renders as the
+mantissa followed by `sc` zeros.
+## To jsonRenderDec (m: Int) and (sc: Int) -> Text:
+    Let mutable neg be false.
+    Let mutable mag be m.
+    If m is less than 0:
+        Set neg to true.
+        Set mag to 0 - m.
+    Let dtxt be "{mag}".
+    Let db be text_bytes(dtxt).
+    Let n be length of db.
+    Let out be a new Seq of Int.
+    If neg is equal to true:
+        Push 45 to out.
+    If sc is at least 0:
+        Let mutable i be 1.
+        While i is at most n:
+            Push item i of db to out.
+            Set i to i + 1.
+        Let mutable z be sc.
+        While z is greater than 0:
+            Push 48 to out.
+            Set z to z - 1.
+        Return text_from_bytes(out).
+    Let k be 0 - sc.
+    If n is greater than k:
+        Let cut be n - k.
+        Let mutable i2 be 1.
+        While i2 is at most cut:
+            Push item i2 of db to out.
+            Set i2 to i2 + 1.
+        Push 46 to out.
+        Let mutable i3 be cut + 1.
+        While i3 is at most n:
+            Push item i3 of db to out.
+            Set i3 to i3 + 1.
+        Return text_from_bytes(out).
+    Push 48 to out.
+    Push 46 to out.
+    Let mutable z2 be k - n.
+    While z2 is greater than 0:
+        Push 48 to out.
+        Set z2 to z2 - 1.
+    Let mutable i4 be 1.
+    While i4 is at most n:
+        Push item i4 of db to out.
+        Set i4 to i4 + 1.
+    Return text_from_bytes(out).
+
+## Note
+Serializes a `Json` value to its canonical JSON text: no whitespace, strings
+escaped per profile, objects in stored member order, numbers in plain decimal.
+
+## To jsonSerialize (j: Json) -> Text:
+    Inspect j:
+        When JNull:
+            Return "null".
+        When JBool (b):
+            If b is equal to true:
+                Return "true".
+            Return "false".
+        When JNum (n):
+            Return "{n}".
+        When JDec (dm, dsc):
+            Return jsonRenderDec(dm, dsc).
+        When JStr (s):
+            Return jsonQuote(s).
+        When JArr (elems):
+            Let mutable out be "[".
+            Let n2 be length of elems.
+            Let mutable i be 1.
+            While i is at most n2:
+                Set out to out combined with jsonSerialize(item i of elems).
+                If i is less than n2:
+                    Set out to out combined with ",".
+                Set i to i + 1.
+            Return out combined with "]".
+        When JObj (entries):
+            Let mutable out2 be text_from_bytes([123]).
+            Let n3 be length of entries.
+            Let mutable i2 be 1.
+            While i2 is at most n3:
+                Let en be item i2 of entries.
+                Let ek be en's key.
+                Let ev be en's val.
+                Set out2 to out2 combined with jsonQuote(ek).
+                Set out2 to out2 combined with ":".
+                Set out2 to out2 combined with jsonSerialize(ev).
+                If i2 is less than n3:
+                    Set out2 to out2 combined with ",".
+                Set i2 to i2 + 1.
+            Return out2 combined with text_from_bytes([125]).
+    Return "null".
+
+## Note
+Typed structured decoding.
+
+Every extractor returns a `Result` (`Ok value` / `Err message`): the right
+type/shape decodes, the wrong one is REJECTED — never silently defaulted. A
+caller composes these to read a document into typed fields, so no authorization
+or money decision is ever made on an untyped JSON field.
+## Note
+The Text inside a `JStr`, or `Err` when `v` is any other JSON type.
+
+## To jsonString (v: Json) -> Result of Text and Text:
+    Inspect v:
+        When JStr (s):
+            Return a new Ok with value s.
+        Otherwise:
+            Return a new Err with error "expected a JSON string".
+    Return a new Err with error "expected a JSON string".
+
+## Note
+The Int inside a `JNum`, or `Err` when `v` is any other JSON type (a non-integer
+`JDec` is NOT an integer — it is rejected, never truncated).
+
+## To jsonInt (v: Json) -> Result of Int and Text:
+    Inspect v:
+        When JNum (n):
+            Return a new Ok with value n.
+        Otherwise:
+            Return a new Err with error "expected a JSON integer".
+    Return a new Err with error "expected a JSON integer".
+
+## Note
+The Bool inside a `JBool`, or `Err` when `v` is any other JSON type.
+
+## To jsonBool (v: Json) -> Result of Bool and Text:
+    Inspect v:
+        When JBool (b):
+            Return a new Ok with value b.
+        Otherwise:
+            Return a new Err with error "expected a JSON boolean".
+    Return a new Err with error "expected a JSON boolean".
+
+## Note
+The element sequence inside a `JArr`, or `Err` when `v` is any other JSON type.
+
+## To jsonArray (v: Json) -> Result of Seq of Json and Text:
+    Inspect v:
+        When JArr (elems):
+            Return a new Ok with value elems.
+        Otherwise:
+            Return a new Err with error "expected a JSON array".
+    Return a new Err with error "expected a JSON array".
+
+## Note
+The member sequence inside a `JObj`, or `Err` when `v` is any other JSON type. Use
+this to REQUIRE an object shape before reading fields.
+
+## To jsonRequireObject (v: Json) -> Result of Seq of JEntry and Text:
+    Inspect v:
+        When JObj (entries):
+            Return a new Ok with value entries.
+        Otherwise:
+            Return a new Err with error "expected a JSON object".
+    Return a new Err with error "expected a JSON object".
+
+## Note
+The value under `key`, or `Err "missing field …"` when `v` is not an object or has no such member.
+
+Unlike `jsonGet` (which returns `JNull` for a missing key), this distinguishes
+ABSENT from a stored null: an absent required field is a REJECTION.
+## To jsonField (v: Json) and (key: Text) -> Result of Json and Text:
+    Inspect v:
+        When JObj (entries):
+            Let n be length of entries.
+            Let mutable i be 1.
+            While i is at most n:
+                Let en be item i of entries.
+                If en's key is equal to key:
+                    Return a new Ok with value (en's val).
+                Set i to i + 1.
+            Return a new Err with error "missing field \"{key}\"".
+        Otherwise:
+            Return a new Err with error "expected a JSON object".
+    Return a new Err with error "expected a JSON object".
+
+## Note
+`Ok true` when every key of the object `v` is present in `allowed`; `Err "unexpected key …"` on the FIRST key that is not (positioned on the name, not the byte).
+
+Pairs with `jsonField` to enforce a CLOSED shape — extra keys are rejected,
+never ignored.
+## To jsonNoExtraKeys (v: Json) and (allowed: Seq of Text) -> Result of Bool and Text:
+    Inspect v:
+        When JObj (entries):
+            Let n be length of entries.
+            Let m be length of allowed.
+            Let mutable i be 1.
+            While i is at most n:
+                Let en be item i of entries.
+                Let ek be en's key.
+                Let mutable ok be false.
+                Let mutable j be 1.
+                While j is at most m:
+                    If item j of allowed is equal to ek:
+                        Set ok to true.
+                        Set j to m + 1.
+                    Otherwise:
+                        Set j to j + 1.
+                If ok is equal to false:
+                    Return a new Err with error "unexpected key \"{ek}\"".
+                Set i to i + 1.
+            Return a new Ok with value true.
+        Otherwise:
+            Return a new Err with error "expected a JSON object".
+    Return a new Err with error "expected a JSON object".
+
+## Note
+Whether this value is JSON `null`.
+
+`jsonGet` answers `JNull` for a key an object does not carry, so this is true for an
+explicit `null` AND for an absent key — the two a reader of an OPTIONAL field treats
+alike, since both mean the sender has nothing there.
+
+## To jsonIsNull (v: Json) -> Bool:
+    Inspect v:
+        When JNull:
+            Return true.
+        Otherwise:
+            Return false.
+    Return false.

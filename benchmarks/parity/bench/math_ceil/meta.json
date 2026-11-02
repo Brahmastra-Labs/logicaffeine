@@ -1,0 +1,12 @@
+{
+  "capability": "math.ceil",
+  "workload": "math.ceil",
+  "arg": "1000000",
+  "expected": "71429071429",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python"
+  ]
+}

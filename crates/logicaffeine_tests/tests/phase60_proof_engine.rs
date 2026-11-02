@@ -10,11 +10,11 @@
 // - A Proof is a Program
 // - Verification is Type Checking
 
+use logicaffeine_proof::error::ProofError;
+use logicaffeine_proof::unify::unify_terms;
 use logicaffeine_proof::{
     BackwardChainer, DerivationTree, InferenceRule, ProofExpr, ProofGoal, ProofTerm,
 };
-use logicaffeine_proof::error::ProofError;
-use logicaffeine_proof::unify::{unify_terms, Substitution};
 
 // =============================================================================
 // UNIFICATION TESTS
@@ -51,16 +51,16 @@ fn test_unify_variable_with_constant() {
     assert!(result.is_ok());
 
     let subst = result.unwrap();
-    assert_eq!(subst.get("x"), Some(&ProofTerm::Constant("Socrates".into())));
+    assert_eq!(
+        subst.get("x"),
+        Some(&ProofTerm::Constant("Socrates".into()))
+    );
 }
 
 #[test]
 fn test_unify_function_terms() {
     // father(x) = father(Socrates) should produce {x -> Socrates}
-    let t1 = ProofTerm::Function(
-        "father".into(),
-        vec![ProofTerm::Variable("x".into())],
-    );
+    let t1 = ProofTerm::Function("father".into(), vec![ProofTerm::Variable("x".into())]);
     let t2 = ProofTerm::Function(
         "father".into(),
         vec![ProofTerm::Constant("Socrates".into())],
@@ -70,7 +70,10 @@ fn test_unify_function_terms() {
     assert!(result.is_ok());
 
     let subst = result.unwrap();
-    assert_eq!(subst.get("x"), Some(&ProofTerm::Constant("Socrates".into())));
+    assert_eq!(
+        subst.get("x"),
+        Some(&ProofTerm::Constant("Socrates".into()))
+    );
 }
 
 #[test]
@@ -232,7 +235,9 @@ fn test_socrates_is_mortal() {
         world: None,
     };
 
-    let proof = engine.prove(goal).expect("Should find proof for Mortal(Socrates)");
+    let proof = engine
+        .prove(goal)
+        .expect("Should find proof for Mortal(Socrates)");
 
     // The top-level rule should be Modus Ponens
     assert_eq!(proof.rule, InferenceRule::ModusPonens);
@@ -303,7 +308,9 @@ fn test_disjunction_elimination() {
     // Goal: Q
     let goal = ProofExpr::Atom("Q".into());
 
-    let proof = engine.prove(goal).expect("Should prove Q via disjunction elimination");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove Q via disjunction elimination");
 
     assert_eq!(proof.rule, InferenceRule::DisjunctionElim);
 }
@@ -327,7 +334,9 @@ fn test_disjunction_elimination_other_direction() {
     // Goal: P
     let goal = ProofExpr::Atom("P".into());
 
-    let proof = engine.prove(goal).expect("Should prove P via disjunction elimination");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove P via disjunction elimination");
 
     assert_eq!(proof.rule, InferenceRule::DisjunctionElim);
 }
@@ -336,13 +345,15 @@ fn test_disjunction_elimination_other_direction() {
 #[test]
 fn test_debug_modus_tollens_parsing() {
     // Test modus tollens with proper name for pure inference testing
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Modus_Tollens_Chain
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Modus_Tollens_Chain
 Given: If Butler is guilty, then Butler is arrested.
 Given: If Butler is arrested, then Butler is jailed.
 Given: Butler is not jailed.
 Prove: Butler is not guilty.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Modus Tollens Chain ===");
     println!("Name: {}", result.name);
@@ -357,8 +368,15 @@ Proof: Auto.
     println!("Error: {:?}", result.error);
 
     // Should parse and prove
-    assert!(result.error.is_none(), "Modus tollens should not have errors: {:?}", result.error);
-    assert!(result.derivation.is_some(), "Modus tollens chain should prove");
+    assert!(
+        result.error.is_none(),
+        "Modus tollens should not have errors: {:?}",
+        result.error
+    );
+    assert!(
+        result.derivation.is_some(),
+        "Modus tollens chain should prove"
+    );
 }
 
 /// Debug test for alternative modus tollens phrasing
@@ -369,13 +387,15 @@ Proof: Auto.
 #[test]
 fn test_debug_modus_tollens_alternative_phrasing() {
     // Use explicit predicate phrasing that the parser understands
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Modus_Tollens_Alt
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Modus_Tollens_Alt
 Given: If the butler committed the crime, then the butler was seen.
 Given: If the butler was seen, then the butler was caught.
 Given: The butler was not caught.
 Prove: The butler did not commit the crime.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Modus Tollens (Alternative Phrasing) ===");
     println!("Name: {}", result.name);
@@ -396,13 +416,15 @@ Proof: Auto.
 /// Test "did it" phrasing - requires lexicon support for "do" as transitive verb
 #[test]
 fn test_butler_did_it_phrasing() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Butler_Did_It
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Butler_Did_It
 Given: If the butler did it, then the butler was seen.
 Given: If the butler was seen, then the butler was caught.
 Given: The butler was not caught.
 Prove: The butler did not do it.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Butler Did It Test ===");
     println!("Name: {}", result.name);
@@ -417,19 +439,24 @@ Proof: Auto.
     println!("Error: {:?}", result.error);
 
     // Should parse successfully with the Do verb in lexicon
-    assert!(result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
-        "Butler did it should parse: {:?}", result.error);
+    assert!(
+        result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
+        "Butler did it should parse: {:?}",
+        result.error
+    );
 }
 
 /// Debug test: print parsed premises and goal for barber paradox
 #[test]
 fn test_debug_barber_paradox_parsing() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Barber_Paradox
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Barber_Paradox
 Given: The barber shaves all men who do not shave themselves.
 Given: The barber does not shave any man who shaves himself.
 Prove: The barber does not exist.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Barber Paradox Parsing Debug ===");
     println!("Name: {}", result.name);
@@ -445,19 +472,24 @@ Proof: Auto.
 
     // For Barber Paradox, we expect parsing to succeed but proof may fail
     // The paradox is inherently unprovable in simple FOL
-    assert!(result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
-        "Barber paradox should not have parse error: {:?}", result.error);
+    assert!(
+        result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
+        "Barber paradox should not have parse error: {:?}",
+        result.error
+    );
 }
 
 /// Debug test: print parsed premises and goal for disjunctive syllogism
 #[test]
 fn test_debug_disjunctive_syllogism_parsing() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Disjunctive_Syllogism
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Disjunctive_Syllogism
 Given: Either Alice or Bob is guilty.
 Given: Alice is not guilty.
 Prove: Bob is guilty.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Disjunctive Syllogism Parsing Debug ===");
     println!("Name: {}", result.name);
@@ -473,8 +505,11 @@ Proof: Auto.
     println!("Error: {:?}", result.error);
 
     // The theorem should prove successfully now
-    assert!(result.error.is_none() || result.derivation.is_some(),
-        "Should prove or at least not have a parse error: {:?}", result.error);
+    assert!(
+        result.error.is_none() || result.derivation.is_some(),
+        "Should prove or at least not have a parse error: {:?}",
+        result.error
+    );
 }
 
 #[test]
@@ -512,7 +547,9 @@ fn test_disjunction_elimination_with_predicates() {
         world: None,
     };
 
-    let proof = engine.prove(goal).expect("Should prove guilty(Bob) via disjunction elimination");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove guilty(Bob) via disjunction elimination");
 
     assert_eq!(proof.rule, InferenceRule::DisjunctionElim);
     println!("Disjunctive Syllogism Proof:\n{}", proof.display_tree());
@@ -537,7 +574,9 @@ fn test_modus_tollens_simple() {
     // Goal: ¬P
     let goal = ProofExpr::Not(Box::new(ProofExpr::Atom("P".into())));
 
-    let proof = engine.prove(goal).expect("Should prove ¬P via modus tollens");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬P via modus tollens");
 
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
     println!("Modus Tollens Proof:\n{}", proof.display_tree());
@@ -577,10 +616,15 @@ fn test_modus_tollens_with_predicates() {
         world: None,
     }));
 
-    let proof = engine.prove(goal).expect("Should prove ¬guilty(Butler) via modus tollens");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬guilty(Butler) via modus tollens");
 
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
-    println!("Modus Tollens with Predicates Proof:\n{}", proof.display_tree());
+    println!(
+        "Modus Tollens with Predicates Proof:\n{}",
+        proof.display_tree()
+    );
 }
 
 #[test]
@@ -612,7 +656,9 @@ fn test_modus_tollens_chain() {
     // 2. To prove ¬Q, find Q → R, need ¬R
     // 3. ¬R is known, so ¬Q follows
     // 4. Therefore ¬P follows
-    let proof = engine.prove(goal).expect("Should prove ¬P via chained modus tollens");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬P via chained modus tollens");
 
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
     println!("Modus Tollens Chain Proof:\n{}", proof.display_tree());
@@ -754,8 +800,12 @@ fn test_reductio_ad_absurdum_simple() {
         Ok(proof) => {
             println!("Reductio Ad Absurdum Proof:\n{}", proof.display_tree());
             assert!(
-                matches!(proof.rule, InferenceRule::ReductioAdAbsurdum | InferenceRule::ModusTollens),
-                "Expected ReductioAdAbsurdum or ModusTollens, got {:?}", proof.rule
+                matches!(
+                    proof.rule,
+                    InferenceRule::ReductioAdAbsurdum | InferenceRule::ModusTollens
+                ),
+                "Expected ReductioAdAbsurdum or ModusTollens, got {:?}",
+                proof.rule
             );
         }
         Err(e) => {
@@ -830,10 +880,7 @@ fn test_barber_paradox_simplified() {
 #[test]
 fn test_derivation_tree_display() {
     // Create a simple tree and verify it displays correctly
-    let leaf = DerivationTree::leaf(
-        ProofExpr::Atom("P".into()),
-        InferenceRule::PremiseMatch,
-    );
+    let leaf = DerivationTree::leaf(ProofExpr::Atom("P".into()), InferenceRule::PremiseMatch);
 
     let display = leaf.display_tree();
     assert!(display.contains("PremiseMatch"));
@@ -901,7 +948,9 @@ fn test_existential_introduction() {
     let proof = engine.prove(goal).expect("Should prove ∃x Human(x)");
 
     // Should use ExistentialIntro with witness "Socrates"
-    assert!(matches!(proof.rule, InferenceRule::ExistentialIntro { witness: ref w, .. } if w == "Socrates"));
+    assert!(
+        matches!(proof.rule, InferenceRule::ExistentialIntro { witness: ref w, .. } if w == "Socrates")
+    );
 }
 
 // =============================================================================
@@ -959,7 +1008,10 @@ fn test_cyclic_implication_contradiction() {
     }
 
     // The proof should succeed via ReductioAdAbsurdum
-    assert!(result.is_ok(), "Should prove ¬shaves(b, b) from cyclic implications");
+    assert!(
+        result.is_ok(),
+        "Should prove ¬shaves(b, b) from cyclic implications"
+    );
 }
 
 /// Test event abstraction converts ∃e(Shave(e) ∧ Agent(e, x) ∧ Theme(e, y)) → shaves(x, y)
@@ -998,12 +1050,14 @@ fn test_event_abstraction_basic() {
 /// Test the full Barber Paradox with detailed debugging
 #[test]
 fn test_barber_paradox_full_debug() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Barber_Paradox
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Barber_Paradox
 Given: The barber shaves all men who do not shave themselves.
 Given: The barber does not shave any man who shaves himself.
 Prove: The barber does not exist.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("\n=== BARBER PARADOX FULL DEBUG ===");
     println!("Name: {}", result.name);
@@ -1023,8 +1077,11 @@ Proof: Auto.
     }
 
     // For now, just verify parsing succeeds
-    assert!(result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
-        "Barber paradox should not have parse error: {:?}", result.error);
+    assert!(
+        result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
+        "Barber paradox should not have parse error: {:?}",
+        result.error
+    );
 }
 
 /// Test simplified Barber Paradox with direct predicates (no events)
@@ -1052,7 +1109,10 @@ fn test_barber_paradox_simplified_predicates() {
 
     let shaves_bx = |x: &str| ProofExpr::Predicate {
         name: "shaves".into(),
-        args: vec![ProofTerm::Constant("b".into()), ProofTerm::Variable(x.into())],
+        args: vec![
+            ProofTerm::Constant("b".into()),
+            ProofTerm::Variable(x.into()),
+        ],
         world: None,
     };
 
@@ -1215,7 +1275,10 @@ fn test_barber_paradox_with_definite_description() {
         }
     }
 
-    assert!(result.is_ok(), "Barber Paradox with definite description should prove");
+    assert!(
+        result.is_ok(),
+        "Barber Paradox with definite description should prove"
+    );
 }
 
 // =============================================================================
@@ -1247,7 +1310,11 @@ fn test_temporal_unification_same_operator() {
     };
 
     let result = unify_exprs(&e1, &e2);
-    assert!(result.is_ok(), "Past(guilty(butler)) should unify with itself: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Past(guilty(butler)) should unify with itself: {:?}",
+        result.err()
+    );
 }
 
 /// Test temporal unification with variable substitution
@@ -1275,11 +1342,18 @@ fn test_temporal_unification_with_variable() {
     };
 
     let result = unify_exprs(&e1, &e2);
-    assert!(result.is_ok(), "Past(guilty(x)) should unify with Past(guilty(butler)): {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Past(guilty(x)) should unify with Past(guilty(butler)): {:?}",
+        result.err()
+    );
 
     let subst = result.unwrap();
-    assert_eq!(subst.get("x"), Some(&ProofTerm::Constant("butler".into())),
-        "Should have substitution x -> butler");
+    assert_eq!(
+        subst.get("x"),
+        Some(&ProofTerm::Constant("butler".into())),
+        "Should have substitution x -> butler"
+    );
 }
 
 /// Test different temporal operators do not unify
@@ -1332,9 +1406,14 @@ fn test_modus_tollens_with_temporal_consequent() {
     // Goal: ¬P
     let goal = ProofExpr::Not(Box::new(ProofExpr::Atom("P".into())));
 
-    let proof = engine.prove(goal).expect("Should prove ¬P via modus tollens with temporal");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬P via modus tollens with temporal");
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
-    println!("Modus Tollens with Temporal Consequent:\n{}", proof.display_tree());
+    println!(
+        "Modus Tollens with Temporal Consequent:\n{}",
+        proof.display_tree()
+    );
 }
 
 /// Test modus tollens chain with temporal: P → Past(Q), Past(Q) → Past(R), ¬Past(R) ⊢ ¬P
@@ -1375,9 +1454,14 @@ fn test_modus_tollens_chain_with_temporal() {
     // Goal: ¬P
     let goal = ProofExpr::Not(Box::new(ProofExpr::Atom("P".into())));
 
-    let proof = engine.prove(goal).expect("Should prove ¬P via chained modus tollens with temporal");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬P via chained modus tollens with temporal");
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
-    println!("Modus Tollens Chain with Temporal:\n{}", proof.display_tree());
+    println!(
+        "Modus Tollens Chain with Temporal:\n{}",
+        proof.display_tree()
+    );
 }
 
 /// Test modus tollens with predicates inside temporal:
@@ -1420,9 +1504,14 @@ fn test_modus_tollens_temporal_predicates() {
         world: None,
     }));
 
-    let proof = engine.prove(goal).expect("Should prove ¬guilty(butler) via MT with temporal predicates");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬guilty(butler) via MT with temporal predicates");
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
-    println!("Modus Tollens with Temporal Predicates:\n{}", proof.display_tree());
+    println!(
+        "Modus Tollens with Temporal Predicates:\n{}",
+        proof.display_tree()
+    );
 }
 
 // =============================================================================
@@ -1466,9 +1555,14 @@ fn test_modus_tollens_quantified_implication() {
         world: None,
     }));
 
-    let proof = engine.prove(goal).expect("Should prove ¬guilty(butler) from quantified implication");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬guilty(butler) from quantified implication");
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
-    println!("Modus Tollens with Quantified Implication:\n{}", proof.display_tree());
+    println!(
+        "Modus Tollens with Quantified Implication:\n{}",
+        proof.display_tree()
+    );
 }
 
 /// Test modus tollens chain with quantified temporal implications:
@@ -1537,9 +1631,14 @@ fn test_modus_tollens_chain_quantified_temporal() {
         world: None,
     }));
 
-    let proof = engine.prove(goal).expect("Should prove ¬guilty(butler) from quantified temporal chain");
+    let proof = engine
+        .prove(goal)
+        .expect("Should prove ¬guilty(butler) from quantified temporal chain");
     assert_eq!(proof.rule, InferenceRule::ModusTollens);
-    println!("Modus Tollens Chain with Quantified Temporal:\n{}", proof.display_tree());
+    println!(
+        "Modus Tollens Chain with Quantified Temporal:\n{}",
+        proof.display_tree()
+    );
 }
 
 // =============================================================================
@@ -1557,13 +1656,15 @@ fn test_modus_tollens_chain_quantified_temporal() {
 /// Proof: Auto.
 #[test]
 fn test_butler_theorem_natural_language() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Butler_Modus_Tollens
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Butler_Modus_Tollens
 Given: If Butler is guilty, then Butler is arrested.
 Given: If Butler is arrested, then Butler is jailed.
 Given: Butler is not jailed.
 Prove: Butler is not guilty.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Butler Theorem (Predicative) ===");
     println!("Name: {}", result.name);
@@ -1581,21 +1682,30 @@ Proof: Auto.
     println!("Error: {:?}", result.error);
 
     // Should parse and prove successfully
-    assert!(result.error.is_none(), "Butler theorem should not have errors: {:?}", result.error);
-    assert!(result.derivation.is_some(), "Butler theorem should prove via modus tollens chain");
+    assert!(
+        result.error.is_none(),
+        "Butler theorem should not have errors: {:?}",
+        result.error
+    );
+    assert!(
+        result.derivation.is_some(),
+        "Butler theorem should prove via modus tollens chain"
+    );
 }
 
 /// Test butler theorem with "committed the crime" phrasing
 /// This tests more complex verb phrases that generate event semantics
 #[test]
 fn test_butler_theorem_committed_crime() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Butler_Crime
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Butler_Crime
 Given: If the butler committed the crime, then the butler was seen.
 Given: If the butler was seen, then the butler was caught.
 Given: The butler was not caught.
 Prove: The butler did not commit the crime.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Butler Theorem (Event Semantics) ===");
     println!("Name: {}", result.name);
@@ -1613,8 +1723,11 @@ Proof: Auto.
     println!("Error: {:?}", result.error);
 
     // This should parse - proof success depends on event semantics handling
-    assert!(result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
-        "Butler crime theorem should not have parse errors: {:?}", result.error);
+    assert!(
+        result.error.is_none() || !result.error.as_ref().unwrap().contains("Parse error"),
+        "Butler crime theorem should not have parse errors: {:?}",
+        result.error
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1674,7 +1787,10 @@ fn test_event_conjunction_abstraction_in_axiom() {
     };
 
     let result = engine.prove(goal);
-    assert!(result.is_ok(), "Event conjunction should be abstracted to commit(butler, crime)");
+    assert!(
+        result.is_ok(),
+        "Event conjunction should be abstracted to commit(butler, crime)"
+    );
 }
 
 /// Test MT chain with simple predicates (no events, no temporal)
@@ -1742,7 +1858,11 @@ fn test_simple_mt_chain() {
         }
     }
 
-    assert!(result.is_ok(), "Simple MT chain should prove: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Simple MT chain should prove: {:?}",
+        result.err()
+    );
 }
 
 /// Test MT chain with temporal operators
@@ -1822,7 +1942,11 @@ fn test_temporal_mt_chain() {
         }
     }
 
-    assert!(result.is_ok(), "Temporal MT chain should prove: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Temporal MT chain should prove: {:?}",
+        result.err()
+    );
 }
 
 /// Test MT with universal quantifiers
@@ -1896,7 +2020,11 @@ fn test_quantified_mt_chain() {
         }
     }
 
-    assert!(result.is_ok(), "Quantified MT chain should prove: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Quantified MT chain should prove: {:?}",
+        result.err()
+    );
 }
 
 /// Test the exact butler theorem from user
@@ -2041,19 +2169,25 @@ fn test_butler_did_it_theorem() {
         }
     }
 
-    assert!(result.is_ok(), "Butler theorem should prove via modus tollens chain: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Butler theorem should prove via modus tollens chain: {:?}",
+        result.err()
+    );
 }
 
 /// Test the butler theorem with actual parser output
 #[test]
 fn test_butler_theorem_parsed() {
-    let result = logicaffeine_compile::compile_theorem_for_ui(r#"## Theorem: Modus_Tollens_Chain
+    let result = logicaffeine_compile::compile_theorem_for_ui(
+        r#"## Theorem: Modus_Tollens_Chain
 Given: If the butler did it, he was seen.
 Given: If he was seen, he was caught.
 Given: He was not caught.
 Prove: The butler did not do it.
 Proof: Auto.
-"#);
+"#,
+    );
 
     println!("=== Butler Theorem (Full Parser) ===");
     println!("Name: {}", result.name);
@@ -2071,10 +2205,17 @@ Proof: Auto.
     println!("Error: {:?}", result.error);
 
     // Check parsing worked
-    assert!(result.error.is_none(), "Should parse without error: {:?}", result.error);
+    assert!(
+        result.error.is_none(),
+        "Should parse without error: {:?}",
+        result.error
+    );
 
     // Check proof succeeded
-    assert!(result.derivation.is_some(), "Butler theorem should prove via modus tollens chain");
+    assert!(
+        result.derivation.is_some(),
+        "Butler theorem should prove via modus tollens chain"
+    );
 }
 
 // =============================================================================
@@ -2088,7 +2229,11 @@ Proof: Auto.
 // antecedent against the knowledge base, threading that binding across conjuncts.
 
 fn pred(name: &str, args: Vec<ProofTerm>) -> ProofExpr {
-    ProofExpr::Predicate { name: name.into(), args, world: None }
+    ProofExpr::Predicate {
+        name: name.into(),
+        args,
+        world: None,
+    }
 }
 fn var(name: &str) -> ProofTerm {
     ProofTerm::Variable(name.into())
@@ -2109,7 +2254,10 @@ fn middle_term_rule(p: &str, q: &str) -> ProofExpr {
         variable: "a".into(),
         body: Box::new(ProofExpr::ForAll {
             variable: "b".into(),
-            body: Box::new(ProofExpr::ForAll { variable: "c".into(), body: Box::new(body) }),
+            body: Box::new(ProofExpr::ForAll {
+                variable: "c".into(),
+                body: Box::new(body),
+            }),
         }),
     }
 }
@@ -2141,7 +2289,9 @@ fn test_transitivity_one_hop() {
     engine.add_axiom(pred("above", vec![konst("b"), konst("c")]));
 
     let goal = pred("above", vec![konst("a"), konst("c")]);
-    let proof = engine.prove(goal).expect("transitivity must prove above(a,c) from the chain");
+    let proof = engine
+        .prove(goal)
+        .expect("transitivity must prove above(a,c) from the chain");
     println!("Transitivity (1 hop) proof:\n{}", proof.display_tree());
 }
 
@@ -2156,7 +2306,9 @@ fn test_transitivity_three_hops() {
     engine.add_axiom(pred("above", vec![konst("c"), konst("d")]));
 
     let goal = pred("above", vec![konst("a"), konst("d")]);
-    let proof = engine.prove(goal).expect("transitivity must chain to prove above(a,d)");
+    let proof = engine
+        .prove(goal)
+        .expect("transitivity must chain to prove above(a,d)");
     println!("Transitivity (3 hops) proof:\n{}", proof.display_tree());
 }
 
@@ -2170,5 +2322,8 @@ fn test_transitivity_does_not_prove_false_ordering() {
     engine.add_axiom(pred("above", vec![konst("b"), konst("c")]));
 
     let goal = pred("above", vec![konst("c"), konst("a")]);
-    assert!(engine.prove(goal).is_err(), "above(c,a) must remain unprovable");
+    assert!(
+        engine.prove(goal).is_err(),
+        "above(c,a) must remain unprovable"
+    );
 }

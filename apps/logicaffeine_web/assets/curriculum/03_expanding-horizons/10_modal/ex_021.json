@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If Einstein is a foreigner, then Einstein must be clean",
   "options": [
-    "Ambiguous between 2 & 4",
-    "$ (F \\supset \\square C) $",
-    "$ \\square F \\supset C $",
-    "$ \\square (F \\supset C) $"
+    "Ambiguous between 2 and 4",
+    "F → □C",
+    "□F → C",
+    "□(F → C)"
   ],
   "correct": 0,
-  "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
-  "explanation": "Scope-ambiguous. 'Must be clean' is □C. NARROW scope gives F ⊃ □C, 'if Einstein is a foreigner then he must be clean' (option 2); WIDE scope gives □(F ⊃ C), 'necessarily, foreigners are clean' (option 4). Both readings are defensible. (□F ⊃ C, necessity on the antecedent, is not natural.)"
+  "hint": "Can the modal cover only the then part, or the whole if then?",
+  "explanation": "It is ambiguous. Narrow scope gives F → □C. Wide scope gives □(F → C).",
+  "section": "10.2"
 }

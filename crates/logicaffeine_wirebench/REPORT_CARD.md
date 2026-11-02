@@ -300,5 +300,5 @@ which knobs the sender turned.
    integer today; widening it to multiple args and exact rationals lets more real functions ship as
    computation (and the acceptance contract already has the typed-bounds machinery to gate them).
 4. **`Send best` cost amortization.** The auto-tuner pays N encode passes for the true minimum; a
-   cheap cost-model pre-filter (skip dominated candidates by a size estimate) would make `best` the
-   effortless default even on the hot path.
+   cheap cost-model pre-filter (skip dominated candidates by a size estimate) would make `best` cheap
+   enough to be the default even on the hot path.

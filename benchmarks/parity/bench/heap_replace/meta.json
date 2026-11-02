@@ -1,0 +1,10 @@
+{
+  "capability": "heap.replace",
+  "workload": "peek(replace(heapify(xs), r%1000))",
+  "arg": "25000",
+  "expected": "10404055",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

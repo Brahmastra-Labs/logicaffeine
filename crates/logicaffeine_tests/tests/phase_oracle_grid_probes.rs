@@ -14,9 +14,7 @@
 //! translation cannot force values through tense, the puzzle door must
 //! erase tense (a grid puzzle is a single static scenario).
 
-use logicaffeine_proof::oracle::{
-    oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict,
-};
+use logicaffeine_proof::oracle::{oracle_consistent, oracle_entails, SmtConsistency, SmtVerdict};
 use logicaffeine_proof::{ProofExpr, ProofTerm};
 
 fn c(name: &str) -> ProofTerm {
@@ -83,10 +81,7 @@ fn past(e: ProofExpr) -> ProofExpr {
 /// {a = b, P(a)} ⊨ P(b) — definite descriptions resolve through equality.
 #[test]
 fn equality_congruence() {
-    let premises = vec![
-        ident(c("A"), c("B")),
-        pred("Dancer", vec![c("A")]),
-    ];
+    let premises = vec![ident(c("A"), c("B")), pred("Dancer", vec![c("A")])];
     let goal = pred("Dancer", vec![c("B")]);
     assert_eq!(oracle_entails(&premises, &goal), SmtVerdict::Entailed);
 }

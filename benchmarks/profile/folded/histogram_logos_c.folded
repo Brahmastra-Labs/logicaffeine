@@ -1,0 +1,2 @@
+_start;__libc_start_main_impl;__libc_start_call_main;main 13487952926
+[unknown];_int_malloc;sysmalloc;[unknown] 249999

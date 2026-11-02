@@ -7,10 +7,11 @@
     "Appeal to Tradition",
     "Appeal to Authority",
     "Status Quo Bias",
-    "Both A and C"
+    "Appeal to Tradition and Status Quo Bias"
   ],
   "correct": 3,
   "hint": "This combines resistance to change with the assumption that tradition equals correctness.",
-  "explanation": "This combines Appeal to Tradition (assuming old ways are correct) with Status Quo Bias (preferring the current state simply because it's current). Neither provides actual reasons why the current approach is better than alternatives.",
-  "visual_concept": "Like refusing to upgrade from a horse and buggy because 'we've always traveled this way' - ignoring whether the alternative might be better."
+  "explanation": "It treats the old way as right because it is old, and prefers it because it is current. That is appeal to tradition and status quo bias together.",
+  "visual_concept": "Like refusing to upgrade from a horse and buggy because 'we've always traveled this way' - ignoring whether the alternative might be better.",
+  "section": "4.2"
 }

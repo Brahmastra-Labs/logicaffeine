@@ -1,0 +1,30 @@
+Allocate a of size 65536 at 0x77c93a10f040 (131706146320448)
+Allocate b of size 65536 at 0x77c93a0ce040 (131706146054208)
+Run simulation with with 101 children
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+script quiet
+Tungsten REPL started, commit tarball-snapshot-2023-01-31
+Run simulation with with 101 children
+Toggle module: statnet
+Toggle module: net
+Elapsed seconds: 0.0692944
+Exiting... 😊
+script log2files
+script stepall
+Tick sep: 1
+Tick sep: 1
+Tick sep: 7.5188
+memTicks: 2133 simTicks: 1000 gcd: 1
+Simulation complete at cycle 6030
+script dumpstate logs/state.json
+script stat
+Average DRAM Read Bandwidth: 86.9466 GB/s
+Average DRAM Write Bandwidth: 0 GB/s
+script Elapsed seconds: 2.15341
+Exiting... 😊
+Destruct DRAM.
+out Result: -715816960
+out Gold: -715816960
+PASS: true (DotProduct)
+Complete Simulation
+Runtime:0:02.39

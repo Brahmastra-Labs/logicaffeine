@@ -1,0 +1,10 @@
+{
+  "capability": "operator.sub",
+  "workload": "sum of opSub(i, 7) over 1..n",
+  "arg": "3000000",
+  "expected": "4499980500000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

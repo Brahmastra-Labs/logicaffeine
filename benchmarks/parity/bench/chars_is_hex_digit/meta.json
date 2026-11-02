@@ -1,0 +1,10 @@
+{
+  "capability": "chars.is_hex_digit",
+  "workload": "count codepoints (i%128) where is_hex_digit",
+  "arg": "20000000",
+  "expected": "3437500",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c"
+  ]
+}

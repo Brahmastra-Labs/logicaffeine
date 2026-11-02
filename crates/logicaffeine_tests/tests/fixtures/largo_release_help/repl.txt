@@ -1,0 +1,47 @@
+Start the interactive LOGOS REPL.
+
+Two modes in one session: imperative statements against a persistent interpreter session (`logos>`), and English→FOL logic mode with discourse-aware anaphora (`logic>`). Type `:help` inside for the meta-commands (`:mode`, `:format`, `:readings`, `:vars`, `:save`, …). Works on a pipe too — no terminal required.
+
+Usage: largo repl [OPTIONS]
+
+Options:
+      --logic
+          Start in logic mode (English → FOL)
+
+      --format <FORMAT>
+          Initial logic output format
+
+          Possible values:
+          - unicode: Unicode logic symbols: ∀, ∃, ∧, ∨, ¬, →
+          - latex:   LaTeX markup: \forall, \exists, \land, ...
+          - ascii:   Plain ASCII FOL
+          - kripke:  Kripke semantics: modals lowered to explicit world quantification
+
+      --load <LOAD>
+          Load a saved session/program on startup
+
+  -q, --quiet
+          Suppress informational output (errors still print)
+
+  -v, --verbose...
+          Increase output verbosity (repeatable)
+
+      --color <WHEN>
+          When to use terminal colors
+
+          Possible values:
+          - auto:   Color when stdout/stderr is a terminal and `NO_COLOR` is unset
+          - always: Always emit ANSI, even into pipes (CI logs, `less -R`)
+          - never:  Never emit ANSI
+          
+          [default: auto]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  largo repl
+  largo repl --logic
+  largo repl --logic --format latex
+  largo repl --load session.lg
+  printf 'Let x be 5.\nShow x.\n' | largo repl

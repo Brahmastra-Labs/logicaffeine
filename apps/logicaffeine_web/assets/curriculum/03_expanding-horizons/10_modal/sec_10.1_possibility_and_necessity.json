@@ -1,0 +1,42 @@
+{
+  "id": "10.1",
+  "title": "Possibility and Necessity",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Modal logic** adds ◇ (possibly) and □ (necessarily). ◇P says P is true in at least one possible world. □P says P is true in every one."
+    },
+    {
+      "type": "paragraph",
+      "text": "LOGOS prints how strong the modal word is: 'can' gives ◇_{0.5} and 'must' gives □_{1.0}. You can leave the number out."
+    }
+  ],
+  "examples": [
+    {
+      "type": "formula",
+      "sentence": "John can run.",
+      "formula": "◇_{0.5} ∃e(Run(e) ∧ Agent(e, John))",
+      "note": "◇ says the running is possible. The event is written as in lesson 1.5."
+    },
+    {
+      "type": "formula",
+      "sentence": "John must run.",
+      "formula": "□_{1.0} ∃e(Run(e) ∧ Agent(e, John))",
+      "note": "□ says the running is necessary."
+    },
+    {
+      "type": "formula",
+      "sentence": "Mary might sleep.",
+      "formula": "◇_{0.3} ∃e(Sleep(e) ∧ Agent(e, Mary))",
+      "note": "'Might' is a weaker possibility, so the number is smaller."
+    }
+  ],
+  "question": {
+    "type": "translate",
+    "sentence": "Mary can swim.",
+    "answer": "◇_{0.5} ∃e(Swim(e) ∧ Agent(e, Mary))",
+    "hint": "Put ◇ in front of the event. The number is optional.",
+    "explanation": "'Can' is possibility, so ◇ goes in front of the swimming event, with Mary as its Agent."
+  }
+}

@@ -72,10 +72,14 @@ fn test_syn_eval_nested_arithmetic() {
     let mut repl = Repl::new();
 
     // (2 * 5) + 2 = 12
-    repl.execute(r#"Definition two_times_five : Syntax := SApp (SApp (SName "mul") (SLit 2)) (SLit 5)."#)
-        .expect("Define two_times_five");
-    repl.execute(r#"Definition expr : Syntax := SApp (SApp (SName "add") two_times_five) (SLit 2)."#)
-        .expect("Define expr");
+    repl.execute(
+        r#"Definition two_times_five : Syntax := SApp (SApp (SName "mul") (SLit 2)) (SLit 5)."#,
+    )
+    .expect("Define two_times_five");
+    repl.execute(
+        r#"Definition expr : Syntax := SApp (SApp (SName "add") two_times_five) (SLit 2)."#,
+    )
+    .expect("Define expr");
 
     let result = repl.execute("Eval (syn_eval 100 expr).").expect("Eval");
     assert_eq!(result, "(SLit 12)");
@@ -99,7 +103,9 @@ fn test_dcompute_type() {
 #[test]
 fn test_try_compute_type() {
     let mut repl = Repl::new();
-    let result = repl.execute("Check try_compute.").expect("Check try_compute");
+    let result = repl
+        .execute("Check try_compute.")
+        .expect("Check try_compute");
     assert_eq!(result, "try_compute : Syntax -> Derivation");
 }
 
@@ -116,8 +122,10 @@ fn test_try_compute_one_plus_one() {
         .expect("Define lhs");
     repl.execute(r#"Definition rhs : Syntax := SLit 2."#)
         .expect("Define rhs");
-    repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#)
-        .expect("Define goal");
+    repl.execute(
+        r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#,
+    )
+    .expect("Define goal");
 
     repl.execute("Definition d : Derivation := try_compute goal.")
         .expect("Define d");
@@ -136,8 +144,10 @@ fn test_try_compute_ten_plus_ten() {
         .expect("Define lhs");
     repl.execute(r#"Definition rhs : Syntax := SLit 20."#)
         .expect("Define rhs");
-    repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#)
-        .expect("Define goal");
+    repl.execute(
+        r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#,
+    )
+    .expect("Define goal");
 
     repl.execute("Definition d : Derivation := try_compute goal.")
         .expect("Define d");
@@ -152,14 +162,20 @@ fn test_try_compute_complex_expression() {
     let mut repl = Repl::new();
 
     // Goal: Eq Int ((2 * 5) + 2) 12
-    repl.execute(r#"Definition two_times_five : Syntax := SApp (SApp (SName "mul") (SLit 2)) (SLit 5)."#)
-        .expect("Define two_times_five");
-    repl.execute(r#"Definition lhs : Syntax := SApp (SApp (SName "add") two_times_five) (SLit 2)."#)
-        .expect("Define lhs");
+    repl.execute(
+        r#"Definition two_times_five : Syntax := SApp (SApp (SName "mul") (SLit 2)) (SLit 5)."#,
+    )
+    .expect("Define two_times_five");
+    repl.execute(
+        r#"Definition lhs : Syntax := SApp (SApp (SName "add") two_times_five) (SLit 2)."#,
+    )
+    .expect("Define lhs");
     repl.execute(r#"Definition rhs : Syntax := SLit 12."#)
         .expect("Define rhs");
-    repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#)
-        .expect("Define goal");
+    repl.execute(
+        r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#,
+    )
+    .expect("Define goal");
 
     repl.execute("Definition d : Derivation := try_compute goal.")
         .expect("Define d");
@@ -179,8 +195,10 @@ fn test_try_compute_both_sides_compute() {
         .expect("Define lhs");
     repl.execute(r#"Definition rhs : Syntax := SApp (SApp (SName "sub") (SLit 10)) (SLit 5)."#)
         .expect("Define rhs");
-    repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#)
-        .expect("Define goal");
+    repl.execute(
+        r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#,
+    )
+    .expect("Define goal");
 
     repl.execute("Definition d : Derivation := try_compute goal.")
         .expect("Define d");
@@ -203,14 +221,19 @@ fn test_try_compute_fails_on_inequality() {
         .expect("Define lhs");
     repl.execute(r#"Definition rhs : Syntax := SLit 3."#)
         .expect("Define rhs");
-    repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#)
-        .expect("Define goal");
+    repl.execute(
+        r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) lhs) rhs."#,
+    )
+    .expect("Define goal");
 
     repl.execute("Definition d : Derivation := try_compute goal.")
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "try_compute should fail on 1 + 1 = 3");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "try_compute should fail on 1 + 1 = 3"
+    );
 }
 
 #[test]
@@ -225,7 +248,10 @@ fn test_try_compute_fails_on_non_equality() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "try_compute should fail on non-equality");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "try_compute should fail on non-equality"
+    );
 }
 
 // =============================================================================
@@ -236,8 +262,10 @@ fn test_try_compute_fails_on_non_equality() {
 fn test_solve_arith_type() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.")
-        .expect("Define solve_arith");
+    repl.execute(
+        "Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.",
+    )
+    .expect("Define solve_arith");
 
     let result = repl.execute("Check solve_arith.").expect("Check");
     assert_eq!(result, "solve_arith : Syntax -> Derivation");
@@ -247,8 +275,10 @@ fn test_solve_arith_type() {
 fn test_solve_arith_reflexive() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.")
-        .expect("Define solve_arith");
+    repl.execute(
+        "Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.",
+    )
+    .expect("Define solve_arith");
 
     // Goal: Eq Int 5 5 (reflexivity handles this)
     repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Int")) (SLit 5)) (SLit 5)."#)
@@ -259,15 +289,20 @@ fn test_solve_arith_reflexive() {
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(result, expected, "solve_arith should prove 5 = 5 via reflexivity");
+    assert_eq!(
+        result, expected,
+        "solve_arith should prove 5 = 5 via reflexivity"
+    );
 }
 
 #[test]
 fn test_solve_arith_computation() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.")
-        .expect("Define solve_arith");
+    repl.execute(
+        "Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.",
+    )
+    .expect("Define solve_arith");
 
     // Goal: Eq Int (add 1 1) 2 (computation handles this)
     repl.execute(r#"Definition lhs : Syntax := SApp (SApp (SName "add") (SLit 1)) (SLit 1)."#)
@@ -280,15 +315,20 @@ fn test_solve_arith_computation() {
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(result, expected, "solve_arith should prove 1 + 1 = 2 via computation");
+    assert_eq!(
+        result, expected,
+        "solve_arith should prove 1 + 1 = 2 via computation"
+    );
 }
 
 #[test]
 fn test_solve_arith_fails() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.")
-        .expect("Define solve_arith");
+    repl.execute(
+        "Definition solve_arith : Syntax -> Derivation := tact_orelse try_refl try_compute.",
+    )
+    .expect("Define solve_arith");
 
     // Goal: Eq Int (add 1 1) 3 (false!)
     repl.execute(r#"Definition lhs : Syntax := SApp (SApp (SName "add") (SLit 1)) (SLit 1)."#)
@@ -300,7 +340,10 @@ fn test_solve_arith_fails() {
         .expect("Apply solve_arith");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "solve_arith should fail on 1 + 1 = 3");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "solve_arith should fail on 1 + 1 = 3"
+    );
 }
 
 // =============================================================================
@@ -331,13 +374,37 @@ fn test_try_compute_type_error() {
 fn test_syn_eval_div_by_zero() {
     let mut repl = Repl::new();
 
-    // Division by zero should remain stuck (not crash)
-    repl.execute(r#"Definition expr : Syntax := SApp (SApp (SName "div") (SLit 10)) (SLit 0)."#)
-        .expect("Define expr");
+    // Division is total, as in the kernel and in Lean: x / 0 = 0 and x % 0 = x.
+    repl.execute(
+        r#"Definition quotient : Syntax := SApp (SApp (SName "div") (SLit 10)) (SLit 0)."#,
+    )
+    .expect("Define quotient");
+    repl.execute(
+        r#"Definition remainder : Syntax := SApp (SApp (SName "mod") (SLit 10)) (SLit 0)."#,
+    )
+    .expect("Define remainder");
+    assert_eq!(
+        repl.execute("Eval (syn_eval 100 quotient).").expect("Eval"),
+        "(SLit 0)"
+    );
+    assert_eq!(
+        repl.execute("Eval (syn_eval 100 remainder).")
+            .expect("Eval"),
+        "(SLit 10)"
+    );
 
-    let result = repl.execute("Eval (syn_eval 100 expr).").expect("Eval");
-    // Should remain unreduced (stuck)
-    assert!(result.contains("div"), "Division by zero should remain stuck");
+    // A divisor that is not a literal leaves the division unreduced.
+    repl.execute(
+        r#"Definition opaque_divisor : Syntax := SApp (SApp (SName "div") (SLit 10)) (SVar 0)."#,
+    )
+    .expect("Define opaque_divisor");
+    let stuck = repl
+        .execute("Eval (syn_eval 100 opaque_divisor).")
+        .expect("Eval");
+    assert!(
+        stuck.contains("div"),
+        "a non-literal divisor must stay unreduced: {stuck}"
+    );
 }
 
 #[test]
@@ -350,7 +417,10 @@ fn test_syn_eval_partial_application() {
 
     let result = repl.execute("Eval (syn_eval 100 expr).").expect("Eval");
     // Should remain unreduced (partial application)
-    assert!(result.contains("add"), "Partial application should remain stuck");
+    assert!(
+        result.contains("add"),
+        "Partial application should remain stuck"
+    );
 }
 
 #[test]
@@ -363,5 +433,8 @@ fn test_syn_eval_non_literal_args() {
 
     let result = repl.execute("Eval (syn_eval 100 expr).").expect("Eval");
     // Should remain unreduced (variable not a literal)
-    assert!(result.contains("add"), "Non-literal args should remain stuck");
+    assert!(
+        result.contains("add"),
+        "Non-literal args should remain stuck"
+    );
 }

@@ -1,0 +1,80 @@
+{
+  "case": "T00-013",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 10,
+  "declarations": [
+    {
+      "type": "Type",
+      "name": "T00_013.BoolAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_013.NatAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T00_013.OpaqueType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_013.genuinelyOpaque",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T00_013.OpaqueType",
+      "name": "T00_013.intoOpaque",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_013.ordinary",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_013.secret",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_013.BoolAlias \u2192 Bool",
+      "name": "T00_013.usesAbbrev",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T00_013.NatAlias \u2192 Nat",
+      "name": "T00_013.usesAlias",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T00_013.usesSecret",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

@@ -8,11 +8,11 @@ pub fn main() !void {
     const arg = args.next() orelse return;
     const n = try std.fmt.parseInt(i64, arg, 10);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    const allocator = std.heap.smp_allocator;
 
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(allocator);
+    try list.ensureTotalCapacity(allocator, @intCast(n * 6));
 
     var i: i64 = 0;
     while (i < n) : (i += 1) {
@@ -25,6 +25,10 @@ pub fn main() !void {
     for (list.items) |c| {
         if (c == ' ') spaces += 1;
     }
-    try stdout.interface.print("{}\n", .{spaces});
+    var h: i64 = 0;
+    for (list.items) |c| {
+        h = (h * 31 + @as(i64, c)) & 268435455;
+    }
+    try stdout.interface.print("{} {}\n", .{ spaces, h });
     try stdout.interface.flush();
 }

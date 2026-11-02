@@ -1,0 +1,1772 @@
+{
+  "config_fabric": {
+    "cfg_width": 3,
+    "cols": 3,
+    "islands": [
+      {
+        "cfg": 0,
+        "cols": 3,
+        "extra_outs": [],
+        "n_in": 1,
+        "name": "affine",
+        "out": [
+          4,
+          1,
+          "vs"
+        ],
+        "rows": 8,
+        "source": "## To affine (x: Int) -> Int:\n    Return 3 * x + 7.\n",
+        "tiles": [
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": {
+                "a": "C3",
+                "b": "In0",
+                "kind": "Arith",
+                "op": "Mul"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "N",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "W"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": {
+                "a": "N",
+                "b": "C7",
+                "kind": "Arith",
+                "op": "Add"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ]
+        ],
+        "used_channels": 8,
+        "used_tiles": 7
+      },
+      {
+        "cfg": 1,
+        "cols": 3,
+        "extra_outs": [],
+        "n_in": 3,
+        "name": "clamp",
+        "out": [
+          4,
+          1,
+          "vs"
+        ],
+        "rows": 8,
+        "source": "## To clamp (x: Int, lo: Int, hi: Int) -> Int:\n    Let result be x.\n    If x is less than lo:\n        Set result to lo.\n    If x is greater than hi:\n        Set result to hi.\n    Return result.\n",
+        "tiles": [
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": {
+                "ca": "In0",
+                "cb": "In1",
+                "cmp": "Lt",
+                "e": "In0",
+                "kind": "Select",
+                "t": "In1"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "N",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "W"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": {
+                "ca": "In0",
+                "cb": "In2",
+                "cmp": "Gt",
+                "e": "N",
+                "kind": "Select",
+                "t": "In2"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ]
+        ],
+        "used_channels": 8,
+        "used_tiles": 7
+      },
+      {
+        "cfg": 2,
+        "cols": 3,
+        "extra_outs": [],
+        "n_in": 1,
+        "name": "sign",
+        "out": [
+          6,
+          2,
+          "vs"
+        ],
+        "rows": 8,
+        "source": "## To sign (n: Int) -> Int:\n    Let result be 0.\n    If n is less than 0:\n        Set result to 0 - 1.\n    If n is greater than 0:\n        Set result to 1.\n    Return result.\n",
+        "tiles": [
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": {
+                "a": "C0",
+                "b": "C1",
+                "kind": "Arith",
+                "op": "Sub"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "N",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "W"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": {
+                "ca": "In0",
+                "cb": "C0",
+                "cmp": "Lt",
+                "e": "C0",
+                "kind": "Select",
+                "t": "N"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "N",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "W"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": {
+                "ca": "In0",
+                "cb": "C0",
+                "cmp": "Gt",
+                "e": "N",
+                "kind": "Select",
+                "t": "C1"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            }
+          ]
+        ],
+        "used_channels": 16,
+        "used_tiles": 14
+      },
+      {
+        "cfg": 3,
+        "cols": 3,
+        "extra_outs": [],
+        "n_in": 2,
+        "name": "min2",
+        "out": [
+          2,
+          0,
+          "vs"
+        ],
+        "rows": 8,
+        "source": "## To min2 (a: Int, b: Int) -> Int:\n    Let result be b.\n    If a is less than b:\n        Set result to a.\n    Return result.\n",
+        "tiles": [
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": {
+                "ca": "In0",
+                "cb": "In1",
+                "cmp": "Lt",
+                "e": "In1",
+                "kind": "Select",
+                "t": "In0"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ]
+        ],
+        "used_channels": 2,
+        "used_tiles": 2
+      },
+      {
+        "cfg": 4,
+        "cols": 3,
+        "extra_outs": [],
+        "n_in": 2,
+        "name": "ratio",
+        "out": [
+          2,
+          0,
+          "vs"
+        ],
+        "rows": 8,
+        "source": "## To ratio (a: Int, b: Int) -> Int:\n    Return a / b.\n",
+        "tiles": [
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": {
+                "a": "In0",
+                "b": "In1",
+                "kind": "Func",
+                "op": "DivS"
+              },
+              "he": "Zero",
+              "vs": "Alu"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "N"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ],
+          [
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            },
+            {
+              "alu": null,
+              "he": "Zero",
+              "vs": "Zero"
+            }
+          ]
+        ],
+        "used_channels": 2,
+        "used_tiles": 2
+      }
+    ],
+    "rows": 8,
+    "width": 8
+  },
+  "horner": {
+    "cells": [
+      {
+        "a": "Const(2)",
+        "b": "In(0)",
+        "i": 0,
+        "op": "Mul"
+      },
+      {
+        "a": "Val(0)",
+        "b": "Const(5)",
+        "i": 1,
+        "op": "Add"
+      },
+      {
+        "a": "Val(1)",
+        "b": "In(0)",
+        "i": 2,
+        "op": "Mul"
+      },
+      {
+        "a": "Val(2)",
+        "b": "Const(3)",
+        "i": 3,
+        "op": "Sub"
+      },
+      {
+        "a": "Val(3)",
+        "b": "In(0)",
+        "i": 4,
+        "op": "Mul"
+      },
+      {
+        "a": "Val(4)",
+        "b": "Const(100)",
+        "i": 5,
+        "op": "Add"
+      }
+    ],
+    "diagonal": {
+      "cols": 6,
+      "extra_outs": [],
+      "n_in": 1,
+      "name": "horner_diagonal",
+      "out": [
+        12,
+        5,
+        "vs"
+      ],
+      "rows": 14,
+      "source": "## To poly (x: Int) -> Int:\n    Return (((2 * x + 5) * x - 3) * x + 100).\n## Main\n    Show poly(4).",
+      "tiles": [
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": {
+              "a": "C2",
+              "b": "In0",
+              "kind": "Arith",
+              "op": "Mul"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "C5",
+              "kind": "Arith",
+              "op": "Add"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "In0",
+              "kind": "Arith",
+              "op": "Mul"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "C3",
+              "kind": "Arith",
+              "op": "Sub"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "In0",
+              "kind": "Arith",
+              "op": "Mul"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "C100",
+              "kind": "Arith",
+              "op": "Add"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          }
+        ]
+      ],
+      "used_channels": 52,
+      "used_tiles": 47
+    },
+    "leveled": {
+      "cols": 6,
+      "extra_outs": [],
+      "n_in": 1,
+      "name": "horner_leveled",
+      "out": [
+        10,
+        5,
+        "vs"
+      ],
+      "rows": 11,
+      "source": "## To poly (x: Int) -> Int:\n    Return (((2 * x + 5) * x - 3) * x + 100).\n## Main\n    Show poly(4).",
+      "tiles": [
+        [
+          {
+            "alu": {
+              "a": "C2",
+              "b": "In0",
+              "kind": "Arith",
+              "op": "Mul"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "C5",
+              "kind": "Arith",
+              "op": "Add"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "In0",
+              "kind": "Arith",
+              "op": "Mul"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "C3",
+              "kind": "Arith",
+              "op": "Sub"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "In0",
+              "kind": "Arith",
+              "op": "Mul"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "Zero"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "N",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "W"
+          }
+        ],
+        [
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": null,
+            "he": "Zero",
+            "vs": "N"
+          },
+          {
+            "alu": {
+              "a": "N",
+              "b": "C100",
+              "kind": "Arith",
+              "op": "Add"
+            },
+            "he": "Zero",
+            "vs": "Alu"
+          }
+        ]
+      ],
+      "used_channels": 46,
+      "used_tiles": 41
+    },
+    "n_in": 1,
+    "result": 5,
+    "source": "## To poly (x: Int) -> Int:\n    Return (((2 * x + 5) * x - 3) * x + 100).\n## Main\n    Show poly(4)."
+  }
+}

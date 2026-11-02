@@ -1,0 +1,81 @@
+# ════════════════════════════════════════════════════════════════════════════
+# .config/mutants.toml — the mutation-testing SCOPE-OF-TRUTH.
+#
+# A SURVIVING mutant is a proof-by-counterexample that "if the suite passes you cannot
+# break the code" is false at that point: cargo-mutants changed the source and the suite
+# still passed. So this file scopes mutation to the CORRECTNESS CORE — the surfaces where
+# a silent wrong answer is catastrophic — where driving survivors to zero is both
+# tractable and load-bearing. Full-workspace mutation is infeasible and NOT attempted.
+#
+# Tiers:
+#   • Tier A → 100% kill target  — the trusted kernel, the SAT/DRAT certifier, the wire
+#     codec, and the crypto primitives. Listed in `examine_globs` below.
+#   • Tier B → monotone ratchet   — VM opcode semantics, codegen, interpreter, CDCL. Added
+#     to `examine_globs` LATER, once it stabilises (the VM is under active development).
+#   • Tier C → excluded entirely  — research campaign, web UI, LSP, TV, synth (exploratory
+#     or presentation, not correctness locks). Listed in `exclude_globs`.
+#
+# The per-mutant test run is driven fast by scripts/test/run-mutation-core.sh (per-package
+# `--test-tool nextest` + a tight [profile.mutants] timeout); this file only defines WHAT
+# gets mutated. The mutation LOCK (crates/logicaffeine_tests/tests/mutation_lock.rs +
+# .config/mutants/known-survivors.txt) enforces Tier-A = 0 survivors, monotone.
+#
+# NOTE: validate the exact keys against `cargo mutants --help` once cargo-mutants is
+# installed (Wave 4); config keys below follow the documented schema.
+# ════════════════════════════════════════════════════════════════════════════
+
+# Run each mutant's tests through cargo-nextest (faster scheduling + our [profile.mutants]).
+test_tool = "nextest"
+# The Tier-A crates' unit tests live in their own packages; their integration suites live in
+# logicaffeine-tests. Every mutant runs both, narrowed by scripts/test/run-mutation-core.sh to the
+# filterset in .config/mutants/test-scope.txt (the Tier-A packages + the suites that moved out of them).
+test_package = ["logicaffeine-base", "logicaffeine-data", "logicaffeine-kernel", "logicaffeine-proof", "logicaffeine-system", "logicaffeine-tests"]
+
+# Give a mutant's tests 3× the baseline time, with a 30s floor, so an infinite-loop mutant
+# (a flipped loop condition) is caught by a timeout — not left to hit the suite backstop.
+timeout_multiplier = 3.0
+minimum_test_timeout = 30
+
+# ── Tier A: the correctness core that must reach ZERO surviving (non-equivalent) mutants ──
+examine_globs = [
+  # Trusted CoC kernel — a silent type-checker bug forges proofs.
+  "crates/logicaffeine_kernel/src/type_checker.rs",
+  "crates/logicaffeine_kernel/src/recheck.rs",
+  "crates/logicaffeine_kernel/src/reduction.rs",
+  "crates/logicaffeine_kernel/src/recursor.rs",
+  "crates/logicaffeine_kernel/src/eval.rs",
+  "crates/logicaffeine_kernel/src/term.rs",
+  "crates/logicaffeine_kernel/src/context.rs",
+  # SAT / DRAT certifier — a silent bug accepts an unsound refutation.
+  "crates/logicaffeine_proof/src/certifier.rs",
+  "crates/logicaffeine_proof/src/proof.rs",
+  "crates/logicaffeine_proof/src/dimacs.rs",
+  "crates/logicaffeine_proof/src/cnf.rs",
+  "crates/logicaffeine_proof/src/xor_drat.rs",
+  "crates/logicaffeine_proof/src/rup.rs",
+  # Wire codec — a silent bug corrupts peer messages (or crashes on hostile frames).
+  "crates/logicaffeine_data/src/wire.rs",
+  # NOTE: network/wire.rs is behind `#[cfg(feature = "networking")]` — mutating it REQUIRES
+  # `--features networking` (else the module isn't compiled and every mutant falsely "survives").
+  "crates/logicaffeine_system/src/network/wire.rs",
+  # Crypto primitives — a silent bug is a broken hash/cipher.
+  "crates/logicaffeine_base/src/sha_ops.rs",
+  "crates/logicaffeine_base/src/hash.rs",
+]
+
+# ── Tier C: never mutate (exploratory research, presentation, or non-correctness) ──
+exclude_globs = [
+  # SAT/coNP research campaign — exploratory, not a correctness lock.
+  "crates/logicaffeine_proof/src/steenrod.rs",
+  "crates/logicaffeine_proof/src/eilenberg_maclane.rs",
+  "crates/logicaffeine_proof/src/two_type.rs",
+  # Presentation / non-correctness-core crates.
+  "apps/logicaffeine_web/**",
+  "crates/logicaffeine_lsp/**",
+  "crates/logicaffeine_verify/**",
+  "crates/logicaffeine_tv/**",
+  "crates/logicaffeine_synth/**",
+]
+
+# Never mutate test modules themselves.
+exclude_re = ["#\\[cfg\\(test\\)\\]"]

@@ -1,0 +1,74 @@
+{
+  "id": "6.3",
+  "title": "Truth Tables",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **truth table** lists every way the letters can be true (T) or false (F), and works out the formula on each row."
+    },
+    {
+      "type": "definition",
+      "term": "Tautology",
+      "definition": "True on every row, like P ∨ ¬P."
+    },
+    {
+      "type": "definition",
+      "term": "Contradiction",
+      "definition": "False on every row, like P ∧ ¬P."
+    },
+    {
+      "type": "definition",
+      "term": "Contingent",
+      "definition": "True on some rows and false on others."
+    }
+  ],
+  "examples": [
+    {
+      "type": "worked",
+      "title": "And",
+      "lines": [
+        "P is T, Q is T: P ∧ Q is T",
+        "P is T, Q is F: P ∧ Q is F",
+        "P is F, Q is T: P ∧ Q is F",
+        "P is F, Q is F: P ∧ Q is F"
+      ],
+      "note": "∧ is true only when both parts are true."
+    },
+    {
+      "type": "worked",
+      "title": "If then",
+      "lines": [
+        "P is T, Q is T: P → Q is T",
+        "P is T, Q is F: P → Q is F",
+        "P is F, Q is T: P → Q is T",
+        "P is F, Q is F: P → Q is T"
+      ],
+      "note": "→ is false only when P is true and Q is false."
+    },
+    {
+      "type": "worked",
+      "title": "Or",
+      "lines": [
+        "P is T, Q is T: P ∨ Q is T",
+        "P is T, Q is F: P ∨ Q is T",
+        "P is F, Q is T: P ∨ Q is T",
+        "P is F, Q is F: P ∨ Q is F"
+      ],
+      "note": "∨ is false only when both parts are false."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "Which formula is a tautology?",
+    "options": [
+      "P ∧ ¬P",
+      "P ∨ ¬P",
+      "P → ¬P",
+      "P ∧ Q"
+    ],
+    "correct": 1,
+    "hint": "Try P true, then P false. Which formula is true both times?",
+    "explanation": "P ∨ ¬P is true whether P is true or false, so it is true on every row."
+  }
+}

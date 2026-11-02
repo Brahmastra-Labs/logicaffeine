@@ -1,0 +1,88 @@
+{
+  "case": "T03-007",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t03_inductives/T03-007_mutual_param_mismatch.lean",
+  "source_sha256": "8558f31f8aa08ca3e047f781470c742beb881fb59042f454e87ac9c72eab7d0c",
+  "ledger_sha256": "8cda21cbc9e8dd5ffb938a283295f158a423ef0dbe7ad93f51aa0bdf5f6b7d6a",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T03_007.Chain",
+    "T03_007.Chain.more",
+    "T03_007.Chain.stop",
+    "T03_007.EvenL",
+    "T03_007.EvenL.below.succ",
+    "T03_007.EvenL.below.zero",
+    "T03_007.EvenL.succ",
+    "T03_007.EvenL.zero",
+    "T03_007.OddL",
+    "T03_007.OddL.below.succ",
+    "T03_007.OddL.succ",
+    "T03_007.PA",
+    "T03_007.PA.branch",
+    "T03_007.PA.leaf",
+    "T03_007.PB",
+    "T03_007.PB.empty",
+    "T03_007.PB.hold",
+    "T03_007.Tag",
+    "T03_007.Tag.t1",
+    "T03_007.Tag.t2"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "d7cbb422584bffb8192fca752d049c1dc45cfb65326ac2f18fae337f5c70e9b7",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 1196,
+  "harvest": {
+    "roots": [
+      "T03_007.Chain",
+      "T03_007.Chain.more",
+      "T03_007.Chain.stop",
+      "T03_007.EvenL",
+      "T03_007.EvenL.below.succ",
+      "T03_007.EvenL.below.zero",
+      "T03_007.EvenL.succ",
+      "T03_007.EvenL.zero",
+      "T03_007.OddL",
+      "T03_007.OddL.below.succ",
+      "T03_007.OddL.succ",
+      "T03_007.PA",
+      "T03_007.PA.branch",
+      "T03_007.PA.leaf",
+      "T03_007.PB",
+      "T03_007.PB.empty",
+      "T03_007.PB.hold",
+      "T03_007.Tag",
+      "T03_007.Tag.t1",
+      "T03_007.Tag.t2"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

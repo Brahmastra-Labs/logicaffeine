@@ -1,0 +1,10 @@
+{
+  "capability": "text.trim_func",
+  "workload": "trimFuncText((c)->c==97, s) \u2014 length fold",
+  "arg": "40000",
+  "expected": "159960000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

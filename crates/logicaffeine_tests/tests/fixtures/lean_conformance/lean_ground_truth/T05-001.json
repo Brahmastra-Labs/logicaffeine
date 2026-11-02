@@ -1,0 +1,52 @@
+{
+  "case": "T05-001",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 6,
+  "declarations": [
+    {
+      "type": "{\u03b1 : Type} \u2192 {\u03b2 : \u03b1 \u2192 Type} \u2192 ((x : \u03b1) \u2192 \u03b2 x) \u2192 (a : \u03b1) \u2192 \u03b2 a",
+      "name": "T05_001.applyTo",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 {\u03b2 : Type} \u2192 \u03b2 \u2192 \u03b2",
+      "name": "T05_001.constMid",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 List \u03b1",
+      "name": "T05_001.emptyOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 \u03b1",
+      "name": "T05_001.idf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {\u03b1 : Type} (a : \u03b1), T05_001.idf a = a",
+      "name": "T05_001.idfEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 \u03b2 : Type} \u2192 \u03b1 \u2192 \u03b2 \u2192 \u03b1 \u00d7 \u03b2",
+      "name": "T05_001.pairUp",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

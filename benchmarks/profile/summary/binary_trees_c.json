@@ -1,0 +1,11 @@
+{
+  "name": "binary_trees",
+  "lang": "c",
+  "n": "23",
+  "samples_weight": 128239950535,
+  "alloc_pct": 63.696,
+  "stdout_pct": 0.0,
+  "fmt_pct": 0.0,
+  "output_pct": 0.0,
+  "compute_pct": 36.304
+}

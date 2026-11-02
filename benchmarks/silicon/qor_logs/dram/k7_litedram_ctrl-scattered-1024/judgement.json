@@ -1,0 +1,50 @@
+{
+ "bus_span": 39660,
+ "candidate": "k7_litedram_ctrl",
+ "commands": {
+  "activate": 2043,
+  "precharge": 1597,
+  "read": 1024,
+  "refresh": 25,
+  "write": 1024
+ },
+ "data_cycles": 4096,
+ "pattern": "scattered",
+ "payload_cycles": 4096,
+ "read_bus": {
+  "max": 100,
+  "mean": 44.705078125,
+  "min": 26,
+  "n": 1024,
+  "p50": 44,
+  "p99": 86
+ },
+ "read_latency": {
+  "max": 77,
+  "mean": 22.669921875,
+  "min": 9,
+  "n": 1024,
+  "p50": 21,
+  "p99": 67
+ },
+ "read_service": {
+  "max": 110,
+  "mean": 54.705078125,
+  "min": 36,
+  "n": 1024,
+  "p50": 54,
+  "p99": 96
+ },
+ "requests": 2048,
+ "row_hits": 23,
+ "stream_cycles": 39690,
+ "words": 1024,
+ "write_latency": {
+  "max": 110,
+  "mean": 22.38671875,
+  "min": 8,
+  "n": 1024,
+  "p50": 20,
+  "p99": 82
+ }
+}

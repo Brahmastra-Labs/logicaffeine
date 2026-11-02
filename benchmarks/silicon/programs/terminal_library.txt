@@ -1,0 +1,14 @@
+# The Fabric Terminal's program library (scripts/logos-terminal.py, and the `term` board kit): one program a line,
+#   title | program file in this directory | function | arguments
+# A `## Main` program has no function and no arguments. fabric_terminal_lock holds that every entry fits Board B's
+# engine and that the engine answers what the VM answers.
+hello fabric     | hello_fabric.lg    |   |
+spin             | spin.lg            |   |
+primes to 1000   | prime_count.lg     |   |
+collatz 27       | collatz.lg         |   |
+fib, recursive   | wpe_fib_rec.lg     | f | 8
+collections      | wpe_collections.lg | f | 7
+gcd              | gcd.lg             |   |
+floats           | float_show.lg      |   |
+text             | text_small.lg      |   |
+loop sum         | wpe_loop.lg        | f | 5

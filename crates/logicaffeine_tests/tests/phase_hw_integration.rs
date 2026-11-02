@@ -4,14 +4,12 @@
 //! parse → KG → SVA codegen → equivalence checking.
 
 use logicaffeine_compile::codegen_sva::{
-    SvaProperty, SvaAssertionKind, emit_sva_property, emit_sva_module,
-    sanitize_property_name,
+    emit_sva_module, emit_sva_property, sanitize_property_name,
     sva_model::{parse_sva, sva_exprs_structurally_equivalent},
-};
-use logicaffeine_language::semantics::knowledge_graph::{
-    HwKnowledgeGraph, KgRelation, SignalRole,
+    SvaAssertionKind, SvaProperty,
 };
 use logicaffeine_language::compile_kripke;
+use logicaffeine_language::semantics::knowledge_graph::{HwKnowledgeGraph, KgRelation, SignalRole};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // END-TO-END: ENGLISH → FOL (existing Kripke pipeline)
@@ -67,7 +65,12 @@ fn api_full_pipeline_mutex_example() {
     kg.add_signal("grant_b", 1, SignalRole::Internal);
     kg.add_signal("clk", 1, SignalRole::Clock);
     kg.add_property("Mutex", "safety", "G(!(grant_a & grant_b))");
-    kg.add_edge("grant_a", "grant_b", KgRelation::Constrains, Some("Mutex".into()));
+    kg.add_edge(
+        "grant_a",
+        "grant_b",
+        KgRelation::Constrains,
+        Some("Mutex".into()),
+    );
 
     let prop = SvaProperty {
         name: sanitize_property_name("Mutex"),

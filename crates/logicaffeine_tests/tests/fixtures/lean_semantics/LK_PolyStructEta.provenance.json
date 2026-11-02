@@ -1,0 +1,47 @@
+{
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_semantics/LK_PolyStructEta.lean",
+  "source_sha256": "af8af52065001e3e44dae107147c0f2145e1d2feef31ac7c8196b4d59b06febf",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b"
+  },
+  "exporter_olean_sha256": "49d73051495cae9b48b65442e84d7b1a76a78d66ad694720a80cf2d463c24add",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "LK_PSE.Pt",
+    "LK_PSE.ptEta",
+    "LK_PSE.ptEtaSymm",
+    "LK_PSE.ptEtaNat"
+  ],
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "18d2547f273e58a884cde3629b03497f0aa689557a719c481d2c23f1e2ec7ffd",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 222,
+  "declaration_selection": "explicit_witness_roots",
+  "conformance_status": "not_evaluated",
+  "compile_log": "ptEtaSwapped: kernel REJECTED: (kernel) declaration type mismatch, 'LK_PSE.ptEtaSwapped' has type\n  \u2200 (A : Type u) (p : LK_PSE.Pt A), p = p\nbut it is expected to have type\n  \u2200 (A : Type u) (p : LK_PSE.Pt A), p = { x := p.y, y := p.x }\n",
+  "kernel_controls": {
+    "LK_PSE.ptEtaSwapped": "REJECTED (declaration type mismatch): the kernel refuses rfl against the field-swapped reconstruction"
+  }
+}

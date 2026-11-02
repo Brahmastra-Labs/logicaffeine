@@ -58,7 +58,11 @@ fn test_simple_induction_fails_gracefully() {
     Proof: induction."#,
     );
     // Should fail because 'induction' tactic doesn't exist
-    assert!(result.is_err(), "Induction should fail (not implemented): {:?}", result);
+    assert!(
+        result.is_err(),
+        "Induction should fail (not implemented): {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -79,7 +83,11 @@ fn test_induction_wrong_bullet_count_too_many() {
         - auto."#,
     );
     // Should error (either parse error now, or case count error later)
-    assert!(result.is_err(), "Too many bullets should error: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Too many bullets should error: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -93,7 +101,11 @@ fn test_induction_wrong_bullet_count_too_few() {
         - auto."#,
     );
     // Should error
-    assert!(result.is_err(), "Too few bullets should error: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Too few bullets should error: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -106,7 +118,11 @@ fn test_induction_no_bullets() {
         induction n."#,
     );
     // Should error - induction requires cases
-    assert!(result.is_err(), "Induction without bullets should error: {:?}", result);
+    assert!(
+        result.is_err(),
+        "Induction without bullets should error: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -119,7 +135,11 @@ fn test_induction_tactic_not_recognized() {
     Proof: induction."#,
     );
     // Should fail because induction is not a valid tactic
-    assert!(result.is_err(), "induction should not be recognized: {:?}", result);
+    assert!(
+        result.is_err(),
+        "induction should not be recognized: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -156,5 +176,9 @@ fn test_multi_tactic_in_bullet() {
         - auto."#,
     );
     // Should error because induction doesn't exist yet
-    assert!(result.is_err(), "Multi-tactic bullets should error (induction not impl): {:?}", result);
+    assert!(
+        result.is_err(),
+        "Multi-tactic bullets should error (induction not impl): {:?}",
+        result
+    );
 }

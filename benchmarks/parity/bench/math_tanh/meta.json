@@ -1,0 +1,13 @@
+{
+  "capability": "math.tanh",
+  "workload": "math.tanh",
+  "arg": "1000000",
+  "expected": "930685190227",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "python",
+    "go",
+    "rust"
+  ]
+}

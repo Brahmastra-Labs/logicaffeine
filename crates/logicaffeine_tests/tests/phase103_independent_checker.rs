@@ -140,7 +140,10 @@ fn json_byte_tampering_is_rejected() {
 fn checker_rejects_smuggled_axiom() {
     // Claim a proof of False whose term is a made-up global the prelude never
     // declares. With no carried context to trust, the kernel finds it unbound.
-    let cert = Certificate::new(Term::Global("my_free_false".into()), Term::Global("False".into()));
+    let cert = Certificate::new(
+        Term::Global("my_free_false".into()),
+        Term::Global("False".into()),
+    );
     assert!(
         recheck(&cert).is_err(),
         "a certificate referencing an undeclared axiom must be REJECTED"

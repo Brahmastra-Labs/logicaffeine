@@ -26,13 +26,9 @@ fn test_literate_omega_constant_le() {
 #[test]
 fn test_literate_omega_variable_lt() {
     let mut repl = Repl::new();
-    let result =
-        repl.execute("## Theorem: XLtXPlusOne\n    Statement: (Lt x (add x 1)).\n    Proof: omega.");
-    assert!(
-        result.is_ok(),
-        "omega should prove x < x+1: {:?}",
-        result
-    );
+    let result = repl
+        .execute("## Theorem: XLtXPlusOne\n    Statement: (Lt x (add x 1)).\n    Proof: omega.");
+    assert!(result.is_ok(), "omega should prove x < x+1: {:?}", result);
 }
 
 #[test]
@@ -45,13 +41,9 @@ fn test_literate_omega_variable_le() {
 #[test]
 fn test_literate_omega_gt() {
     let mut repl = Repl::new();
-    let result =
-        repl.execute("## Theorem: XPlusOneGtX\n    Statement: (Gt (add x 1) x).\n    Proof: omega.");
-    assert!(
-        result.is_ok(),
-        "omega should prove x+1 > x: {:?}",
-        result
-    );
+    let result = repl
+        .execute("## Theorem: XPlusOneGtX\n    Statement: (Gt (add x 1) x).\n    Proof: omega.");
+    assert!(result.is_ok(), "omega should prove x+1 > x: {:?}", result);
 }
 
 #[test]
@@ -160,29 +152,17 @@ fn test_literate_omega_transitivity_le() {
 #[test]
 fn test_literate_omega_fails_false() {
     let mut repl = Repl::new();
-    repl.execute("## Theorem: Wrong\n    Statement: (Lt 5 2).\n    Proof: omega.")
-        .unwrap();
-    repl.execute("Definition result : Syntax := concludes Wrong.")
-        .unwrap();
-    let result = repl.execute("Eval result.").unwrap();
+    // The false 5 < 2 concludes to the error sentinel; the hardened surface rejects it outright.
+    let result = repl.execute("## Theorem: Wrong\n    Statement: (Lt 5 2).\n    Proof: omega.");
     assert!(
-        result.contains("Error"),
-        "omega should fail on 5 < 2: {:?}",
-        result
+        result.is_err(),
+        "omega must reject the false 5 < 2: {result:?}"
     );
 }
 
 #[test]
 fn test_literate_omega_fails_strict_reflexive() {
     let mut repl = Repl::new();
-    repl.execute("## Theorem: XLtX\n    Statement: (Lt x x).\n    Proof: omega.")
-        .unwrap();
-    repl.execute("Definition result : Syntax := concludes XLtX.")
-        .unwrap();
-    let result = repl.execute("Eval result.").unwrap();
-    assert!(
-        result.contains("Error"),
-        "omega should fail on x < x: {:?}",
-        result
-    );
+    let result = repl.execute("## Theorem: XLtX\n    Statement: (Lt x x).\n    Proof: omega.");
+    assert!(result.is_err(), "omega must reject x < x: {result:?}");
 }

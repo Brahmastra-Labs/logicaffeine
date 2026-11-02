@@ -65,10 +65,13 @@ pub enum MeasureKind {
     Little,
 }
 
-/// Calendar time units for Span expressions.
+/// Calendar and clock time units for Span/Duration expressions.
 ///
-/// These represent variable-length calendar durations, as opposed to
-/// fixed SI time units (ns, ms, s, etc.) used in Duration.
+/// `Day`/`Week`/`Month`/`Year` are variable-length CALENDAR units (they feed a `Span`);
+/// `Hour`/`Minute`/`Second`/`Millisecond`/`Microsecond`/`Nanosecond` are fixed CLOCK units
+/// (they feed a nanosecond `Duration`) — see `parse_span_literal_from_num`'s own split. One
+/// enum drives the whole word-form duration grammar (`3 seconds`, `1 millisecond`, `5 days
+/// and 2 hours`); the compact suffix spellings (`100ms`, `50ns`) are a separate lexer path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalendarUnit {
     Second,
@@ -78,6 +81,9 @@ pub enum CalendarUnit {
     Week,
     Month,
     Year,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
 }
 
 /// Document structure block type markers.
@@ -117,8 +123,19 @@ pub enum BlockType {
     Note,
     /// `## To` - Function definition block.
     Function,
+    /// `## Component <Name> (props)` - An LGX component: `State:`/`Actions:`/`View:`/
+    /// `Style:` sections lowered to a `__mount_<Name>`/`__render_<Name>` pair the runtime
+    /// drives through turns (an action runs, the view repaints, the DOM commits).
+    Component,
     /// Inline type definition: `## A Point has:` or `## A Color is one of:`.
     TypeDef,
+    /// `## Session` — the fields a visitor's session carries between requests.
+    ///
+    /// A RECORD, declared in the same words a record is (`a user, which is Text.`), which the
+    /// router loads from a signed cookie before dispatch and saves back when a route wrote to it.
+    /// Distinct from `## Store`, which is shared state inside ONE running page: a session belongs
+    /// to a visitor and outlives the request, and lives on the server.
+    Session,
     /// `## Policy` - Security policy rule definitions.
     Policy,
     /// `## Requires` - External crate dependency declarations.
@@ -132,12 +149,53 @@ pub enum BlockType {
     /// `## Tier` - Tiered-optimizer pin: `## Tier <opt> <eager|t1|t2|t3|never>` overrides
     /// the hotness tier at which that optimization runs (HOTSWAP §8).
     Tier,
+    /// `## Require <opt>` - Optimization DEMAND: the inverse of `## No`. Compilation
+    /// FAILS if the named optimization did not fire for this program (so a program
+    /// can declare it depends on an optimization, and losing it becomes an error).
+    Require,
+    /// `## Test: <prose sentence>` - An independent test entry point with an
+    /// imperative body. The prose name is captured RAW at the lexer (never
+    /// tokenized as code) and carried on the header — it is the test's
+    /// identity.
+    Test { name: Symbol },
+    /// `## Page /path (params)` — an LGX page component mounted at `path`. The path is
+    /// read RAW off the header line (a URL is not LOGOS words); the typed params that
+    /// follow lex normally.
+    Page { path: Symbol },
+    /// `## Store <Name> [persisted as "key" | shared on "topic"]` — a shared model.
+    Store,
+    /// `## Directive <name> (el: Element) and (value: T):` — a custom attribute behavior.
+    Directive,
+    /// `## Route <METHOD> /path (params) -> T:` — a typed HTTP route; method and path are
+    /// read RAW off the header line, the params and return type lex normally.
+    Route { method: Symbol, path: Symbol },
+    /// `## Before each request (r: Request) -> Option of Response:` — middleware.
+    Middleware,
+    /// `## Redirect /from -> /to.` — both paths read raw; the whole line is the header.
+    Redirect { from: Symbol, to: Symbol },
+    /// `## Error page <status>` — the view served for an HTTP error status.
+    ErrorPage { status: u16 },
+}
+
+/// Which LGX section a [`TokenType::RawBlock`] body belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawKind {
+    /// A `View:` body (or a `-> View:` function body): HTML with `{…}` template tags.
+    View,
+    /// A `Style:` body: CSS.
+    Style,
+    /// A `Head:` body: the head HTML a page declares for its own document
+    /// (title, description, social card, canonical). Parsed by the same
+    /// template machinery as a `View:`, because it is HTML with holes.
+    Head,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
     // Document Structure
-    BlockHeader { block_type: BlockType },
+    BlockHeader {
+        block_type: BlockType,
+    },
 
     // Quantifiers
     All,
@@ -151,6 +209,12 @@ pub enum TokenType {
     Cardinal(u32),
     AtLeast(u32),
     AtMost(u32),
+    /// "infinitely many": ∃^∞.
+    InfinitelyMany,
+    /// "finitely many", "only finitely many": ∃^<∞.
+    FinitelyMany,
+    /// "all but finitely many": ∀^∞, the cofinite quantifier.
+    AllButFinitelyMany,
 
     // Negative Polarity Items (NPIs)
     Anything,
@@ -161,6 +225,9 @@ pub enum TokenType {
     Nowhere,
     Ever,
     Never,
+
+    /// "infinitely often": G F, the scope recurring without end.
+    InfinitelyOften,
 
     // Logical Connectives
     And,
@@ -199,6 +266,8 @@ pub enum TokenType {
     // Imperative Statement Keywords
     Let,
     Set,
+    /// "Swap x and y." — the zero-garbage reversible register exchange (`Op::RevSwap`).
+    Swap,
     Return,
     /// Exits the innermost while loop: `Break.`
     Break,
@@ -218,6 +287,21 @@ pub enum TokenType {
     Requires,
     /// Function postcondition clause: `Ensures <check>.` (checked before return).
     Ensures,
+    /// Test-only assertion: `Expect that <cond>.` — records-and-continues
+    /// inside `## Test`/`## Example` bodies; refused elsewhere.
+    Expect,
+    /// Virtual-clock control: `Advance time by <duration>.` (test-only).
+    Advance,
+    /// Loud skip: `Skip this test because "<reason>".` (test-only).
+    Skip,
+    /// Observation statement (developer): `Note that <clause>.`
+    Note,
+    /// Observation statement (operator): `Warn that <clause>.`
+    Warn,
+    /// Observation statement (audit): `Record that <clause>.`
+    Record,
+    /// Trace span block: `During <gerund>:` (statement-initial, imperative).
+    During,
     Otherwise,
     /// Alias for `Otherwise` - Pythonic else clause
     Else,
@@ -237,6 +321,17 @@ pub enum TokenType {
     /// Raw code block captured verbatim from an escape hatch body.
     /// The Symbol holds the interned raw foreign code (indentation-stripped).
     EscapeBlock(Symbol),
+    /// An LGX `View:` / `Style:` section body captured verbatim (base indentation
+    /// stripped, inner indentation and blank lines preserved). `content_start` is the byte
+    /// offset of the body's first character in the source and `indent` the whitespace
+    /// stripped from each of its lines, so an offset inside the body maps back to the file
+    /// and a template error points into the HTML.
+    RawBlock {
+        kind: RawKind,
+        body: Symbol,
+        content_start: usize,
+        indent: usize,
+    },
 
     // Theorem Keywords
     /// Premise marker in theorem blocks.
@@ -331,6 +426,8 @@ pub enum TokenType {
     Shared,
     /// "Merge remote into local" → CRDT merge
     Merge,
+    /// "Converge remote into local" → CRDT idempotent lattice join
+    Converge,
     /// "Increase x's count by 10" → GCounter increment
     Increase,
 
@@ -600,7 +697,7 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
-    Percent,  // Modulo operator
+    Percent, // Modulo operator
     /// Compound assignment operators — `x += e` desugars to `Set x to x <op> e`.
     PlusEq,
     MinusEq,
@@ -663,6 +760,21 @@ impl TokenType {
         TokenType::Why,
     ];
 
+    /// A determiner beyond `all`, `no`, `some`, `any` and the counted ones, binding a quantifier
+    /// of its own: `most`, `few`, `many`, `infinitely many`, `finitely many`, `all but finitely
+    /// many`.
+    pub fn is_generalized_quantifier(&self) -> bool {
+        matches!(
+            self,
+            TokenType::Most
+                | TokenType::Few
+                | TokenType::Many
+                | TokenType::InfinitelyMany
+                | TokenType::FinitelyMany
+                | TokenType::AllButFinitelyMany
+        )
+    }
+
     pub const MODALS: &'static [TokenType] = &[
         TokenType::Must,
         TokenType::Shall,
@@ -677,54 +789,5 @@ impl TokenType {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn span_new_stores_positions() {
-        let span = Span::new(5, 10);
-        assert_eq!(span.start, 5);
-        assert_eq!(span.end, 10);
-    }
-
-    #[test]
-    fn span_default_is_zero() {
-        let span = Span::default();
-        assert_eq!(span.start, 0);
-        assert_eq!(span.end, 0);
-    }
-
-    #[test]
-    fn token_has_span_field() {
-        use logicaffeine_base::Interner;
-        let mut interner = Interner::new();
-        let lexeme = interner.intern("test");
-        let token = Token::new(TokenType::Noun(lexeme), lexeme, Span::new(0, 4));
-        assert_eq!(token.span.start, 0);
-        assert_eq!(token.span.end, 4);
-    }
-
-    #[test]
-    fn wh_words_contains_all_wh_tokens() {
-        assert_eq!(TokenType::WH_WORDS.len(), 5);
-        assert!(TokenType::WH_WORDS.contains(&TokenType::Who));
-        assert!(TokenType::WH_WORDS.contains(&TokenType::What));
-        assert!(TokenType::WH_WORDS.contains(&TokenType::Where));
-        assert!(TokenType::WH_WORDS.contains(&TokenType::When));
-        assert!(TokenType::WH_WORDS.contains(&TokenType::Why));
-    }
-
-    #[test]
-    fn modals_contains_all_modal_tokens() {
-        assert_eq!(TokenType::MODALS.len(), 9);
-        assert!(TokenType::MODALS.contains(&TokenType::Must));
-        assert!(TokenType::MODALS.contains(&TokenType::Shall));
-        assert!(TokenType::MODALS.contains(&TokenType::Should));
-        assert!(TokenType::MODALS.contains(&TokenType::Can));
-        assert!(TokenType::MODALS.contains(&TokenType::May));
-        assert!(TokenType::MODALS.contains(&TokenType::Cannot));
-        assert!(TokenType::MODALS.contains(&TokenType::Would));
-        assert!(TokenType::MODALS.contains(&TokenType::Could));
-        assert!(TokenType::MODALS.contains(&TokenType::Might));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/token/tests.rs"]
+mod tests;

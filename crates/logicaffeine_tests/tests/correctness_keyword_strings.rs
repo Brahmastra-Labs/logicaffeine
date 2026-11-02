@@ -28,10 +28,7 @@ fn show_string_in() {
 
 #[test]
 fn string_or_in_a_variable() {
-    assert_compiled_equals_interpreted_eq(
-        "## Main\nLet w be \"or\".\nShow w.\n",
-        "or",
-    );
+    assert_compiled_equals_interpreted_eq("## Main\nLet w be \"or\".\nShow w.\n", "or");
 }
 
 #[test]

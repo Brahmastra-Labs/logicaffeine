@@ -1,0 +1,31 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt(item 2 of args()).
+Let mutable data be a new Seq of Int.
+Let mutable seed be 7.
+Repeat for i from 1 to n:
+    Set seed to (seed * 1103515245 + 12345) % 2147483648.
+    Push (seed / 65536) % 256 to data.
+Let mutable counts be a new Seq of Int.
+Repeat for v from 1 to 256:
+    Push 0 to counts.
+Repeat for x in data:
+    Set item (x + 1) of counts to item (x + 1) of counts + 1.
+Let mutable sorted be a new Seq of Int.
+Repeat for v from 1 to 256:
+    Let mutable c be item v of counts.
+    While c is greater than 0:
+        Push v - 1 to sorted.
+        Set c to c - 1.
+Let mutable unsortedTotal be 0.
+Repeat for x in data:
+    If x is at least 128:
+        Set unsortedTotal to unsortedTotal + x.
+Let mutable sortedTotal be 0.
+Repeat for x in sorted:
+    If x is at least 128:
+        Set sortedTotal to sortedTotal + x.
+Show unsortedTotal.
+Show sortedTotal.

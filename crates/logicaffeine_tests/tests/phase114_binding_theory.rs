@@ -1,4 +1,4 @@
-//! Phase 114 — §8.1 Binding theory (work/MISSING_ENGLISH.md).
+//! Phase 114 — Binding theory.
 //!
 //! Structural constraints on anaphora:
 //!   Principle A — a reflexive is bound in its local clause:
@@ -17,7 +17,10 @@ fn principle_a_reflexive_binds_subject() {
     eprintln!("himself: {out}");
     assert!(out.contains("See"), "the verb: {out}");
     assert!(out.contains("Agent(e, John)"), "John is the agent: {out}");
-    assert!(out.contains("Theme(e, John)"), "reflexive bound to the subject: {out}");
+    assert!(
+        out.contains("Theme(e, John)"),
+        "reflexive bound to the subject: {out}"
+    );
 }
 
 #[test]
@@ -26,8 +29,14 @@ fn principle_b_pronoun_not_local_subject() {
     eprintln!("him: {out}");
     assert!(out.contains("See"), "the verb: {out}");
     assert!(out.contains("Agent(e, John)"), "John is the agent: {out}");
-    assert!(!out.contains("Theme(e, John)"), "Principle B: 'him' must NOT be John: {out}");
-    assert!(out.contains("Theme"), "the object still has a Theme (a distinct individual): {out}");
+    assert!(
+        !out.contains("Theme(e, John)"),
+        "Principle B: 'him' must NOT be John: {out}"
+    );
+    assert!(
+        out.contains("Theme"),
+        "the object still has a Theme (a distinct individual): {out}"
+    );
 }
 
 #[test]
@@ -41,7 +50,10 @@ fn principle_a_with_love() {
 fn principle_b_with_love() {
     let out = compile("John loves him.").unwrap();
     eprintln!("loves-him: {out}");
-    assert!(!out.contains("Theme(e, John)"), "Principle B: 'him' ≠ John: {out}");
+    assert!(
+        !out.contains("Theme(e, John)"),
+        "Principle B: 'him' ≠ John: {out}"
+    );
     assert!(out.contains("Theme"), "distinct Theme present: {out}");
 }
 
@@ -49,7 +61,10 @@ fn principle_b_with_love() {
 fn reflexive_feminine_binds() {
     let out = compile("Mary saw herself.").unwrap();
     eprintln!("herself: {out}");
-    assert!(out.contains("Theme(e, Mary)"), "herself bound to Mary: {out}");
+    assert!(
+        out.contains("Theme(e, Mary)"),
+        "herself bound to Mary: {out}"
+    );
 }
 
 // ============================================================================

@@ -38,24 +38,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-BIN_DIR="$SCRIPT_DIR/bin"
 PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
 RAW_DIR="$RESULTS_DIR/raw-logos-vs-interp"
-GENERATED_DIR="$SCRIPT_DIR/generated"
 
-BENCHMARKS=(
-    fib ackermann nqueens
-    bubble_sort mergesort quicksort counting_sort heap_sort
-    nbody mandelbrot spectral_norm pi_leibniz
-    gcd collatz primes
-    sieve matrix_mult prefix_sum array_reverse array_fill
-    collect two_sum histogram
-    knapsack coins
-    fannkuch
-    strings binary_trees
-    loop_sum fib_iterative graph_bfs string_search
-)
+# The benchmark list is the suite registry (benchmarks/lib/benchmarks.tsv), loaded here with the rest of it.
+. "$SCRIPT_DIR/lib/suite.sh"
+BIN_DIR="$SUITE_BIN"
+GENERATED_DIR="$SUITE_GENERATED"
 
 WARMUP="${WARMUP:-2}"
 RUNS="${RUNS:-10}"
@@ -136,23 +126,7 @@ min_size() {
 # calibrated file pins one. Kept small so the (much slower) interpreter stays
 # sub-second; the real workflow calibrates first.
 fallback_size() {
-    case "$1" in
-        fib) echo 28 ;; ackermann) echo 7 ;; nqueens) echo 9 ;;
-        bubble_sort) echo 800 ;; mergesort) echo 50000 ;; quicksort) echo 50000 ;;
-        counting_sort) echo 200000 ;; heap_sort) echo 50000 ;;
-        nbody) echo 1000 ;; mandelbrot) echo 100 ;; spectral_norm) echo 100 ;;
-        pi_leibniz) echo 1000000 ;;
-        gcd) echo 300 ;; collatz) echo 100000 ;; primes) echo 10000 ;;
-        sieve) echo 1000000 ;; matrix_mult) echo 50 ;; prefix_sum) echo 500000 ;;
-        array_reverse) echo 500000 ;; array_fill) echo 500000 ;;
-        collect) echo 200000 ;; two_sum) echo 1000 ;; histogram) echo 1000000 ;;
-        knapsack) echo 300 ;; coins) echo 100000 ;;
-        fannkuch) echo 7 ;;
-        strings) echo 50000 ;; binary_trees) echo 16 ;;
-        loop_sum) echo 1000000 ;; fib_iterative) echo 1000000 ;;
-        graph_bfs) echo 1000 ;; string_search) echo 500000 ;;
-        *) min_size "$1" ;;
-    esac
+    echo "${BENCH_INTERP_SIZE[$1]}"
 }
 
 bench_size() {
@@ -175,21 +149,9 @@ bench_size() {
 # ===========================================================================
 info "Phase 1: Building largo (release), native LOGOS binaries, interpret projects..."
 
-cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$LOGOS_TARGET_DIR/release/largo"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
-[ -f "$LARGO" ] || LARGO="$SCRIPT_DIR/../target/release/largo"
-if [ ! -f "$LARGO" ]; then fail "Could not find largo binary"; exit 1; fi
+. "$SCRIPT_DIR/lib/largo.sh"
+largo_build || exit 1
 ok "largo built"
-
-logos_cached() {
-    [ "${FORCE_BUILD:-}" = "1" ] && return 1
-    [ -f "$BIN_DIR/${1}_logos_release" ] && \
-        [ "$BIN_DIR/${1}_logos_release" -nt "$PROGRAMS_DIR/$1/main.lg" ] && \
-        [ "$BIN_DIR/${1}_logos_release" -nt "$LARGO" ] || return 1
-    return 0
-}
 
 # Persistent interpret projects for the whole run (one per benchmark), each
 # feeding the same main.lg the native build compiles.
@@ -218,32 +180,11 @@ for bench in "${BENCHMARKS[@]}"; do
 
     setup_project "$bench"
 
-    if logos_cached "$bench"; then
-        ok "  LOGOS (compiled) (cached)"
+    log="$RAW_DIR/build_${bench}_logos_release.log"
+    if suite_build "$bench" logos_release > "$log" 2>&1; then
+        if [ "$SUITE_BUILD_REUSED" = 1 ]; then ok "  LOGOS (compiled) (cached)"; else ok "  LOGOS (compiled)"; fi
     else
-        LOGOS_TMP=$(mktemp -d)
-        mkdir -p "$LOGOS_TMP/src"
-        cp "$PROGRAMS_DIR/$bench/main.lg" "$LOGOS_TMP/src/main.lg"
-        cat > "$LOGOS_TMP/Largo.toml" << 'TOML'
-[package]
-name = "bench"
-version = "0.1.0"
-entry = "src/main.lg"
-TOML
-        (cd "$LOGOS_TMP" && "$LARGO" build --release 2>/dev/null) && {
-            LOGOS_BIN=""
-            if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -f "$CARGO_TARGET_DIR/release/bench" ]; then
-                LOGOS_BIN="$CARGO_TARGET_DIR/release/bench"
-            elif [[ "$(uname -s)" == "Darwin" ]]; then
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -perm +111 -name "bench" 2>/dev/null | head -1)
-            else
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -executable -name "bench" 2>/dev/null | head -1)
-            fi
-            [ -n "$LOGOS_BIN" ] && rm -f "$BIN_DIR/${bench}_logos_release" && cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_release" && ok "  LOGOS (compiled)" || true
-            GENERATED_RS=$(find "$LOGOS_TMP" -name "main.rs" -path "*/build/src/*" 2>/dev/null | head -1)
-            [ -n "$GENERATED_RS" ] && cp "$GENERATED_RS" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
-        } || true
-        rm -rf "$LOGOS_TMP"
+        warn "  LOGOS (compiled) build failed ($log)"
     fi
 done
 
@@ -347,7 +288,7 @@ try_bench() {
     fi
     local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
     local rc=0
-    run_timeout "$HYPERFINE_TIMEOUT" hyperfine $extra \
+    run_timeout "$HYPERFINE_TIMEOUT" taskset -c "$(suite_cpus)" hyperfine $extra \
         --warmup "$WARMUP" --runs "$RUNS" \
         --export-json "$pf" --time-unit millisecond \
         -n "$label" "$cmd" || rc=$?
@@ -427,22 +368,7 @@ lang_id() {
 }
 
 bench_name() {
-    case "$1" in
-        fib) echo "Recursive Fibonacci" ;; ackermann) echo "Ackermann Function" ;; nqueens) echo "N-Queens" ;;
-        bubble_sort) echo "Bubble Sort" ;; mergesort) echo "Merge Sort" ;; quicksort) echo "Quicksort" ;;
-        counting_sort) echo "Counting Sort" ;; heap_sort) echo "Heap Sort" ;;
-        nbody) echo "N-Body Simulation" ;; mandelbrot) echo "Mandelbrot Set" ;;
-        spectral_norm) echo "Spectral Norm" ;; pi_leibniz) echo "Pi (Leibniz Series)" ;;
-        gcd) echo "GCD Sum" ;; collatz) echo "Collatz Conjecture" ;; primes) echo "Primes (Trial Division)" ;;
-        sieve) echo "Sieve of Eratosthenes" ;; matrix_mult) echo "Matrix Multiply" ;;
-        prefix_sum) echo "Prefix Sum" ;; array_reverse) echo "Array Reverse" ;; array_fill) echo "Array Fill & Sum" ;;
-        collect) echo "Collection Operations" ;; two_sum) echo "Two Sum" ;; histogram) echo "Histogram" ;;
-        knapsack) echo "0/1 Knapsack" ;; coins) echo "Coin Change" ;;
-        fannkuch) echo "Fannkuch Redux" ;;
-        strings) echo "String Assembly" ;; binary_trees) echo "Binary Trees" ;;
-        loop_sum) echo "Loop Sum" ;; fib_iterative) echo "Iterative Fibonacci" ;;
-        graph_bfs) echo "Graph BFS" ;; string_search) echo "Naive String Search" ;;
-    esac
+    echo "${BENCH_NAME[$1]}"
 }
 
 extract_name() { echo "$1" | jq -r '.command' 2>/dev/null; }

@@ -34,7 +34,10 @@ fn test_tact_fail_returns_error() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "tact_fail should always return Error");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "tact_fail should always return Error"
+    );
 }
 
 // =============================================================================
@@ -44,7 +47,9 @@ fn test_tact_fail_returns_error() {
 #[test]
 fn test_tact_orelse_type() {
     let mut repl = Repl::new();
-    let result = repl.execute("Check tact_orelse.").expect("Check tact_orelse");
+    let result = repl
+        .execute("Check tact_orelse.")
+        .expect("Check tact_orelse");
     // Note: The kernel prints function types without parentheses for parameters
     assert_eq!(
         result,
@@ -131,12 +136,17 @@ fn test_tact_orelse_chaining() {
 
     // Chain: tact_orelse tact_fail (tact_orelse tact_fail try_refl)
     // First tact_fail fails, then inner tact_orelse tries tact_fail (fails), then try_refl (succeeds)
-    repl.execute("Definition d : Derivation := tact_orelse tact_fail (tact_orelse tact_fail try_refl) goal.")
-        .expect("Define d");
+    repl.execute(
+        "Definition d : Derivation := tact_orelse tact_fail (tact_orelse tact_fail try_refl) goal.",
+    )
+    .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(result, expected, "Chained tactics should eventually succeed");
+    assert_eq!(
+        result, expected,
+        "Chained tactics should eventually succeed"
+    );
 }
 
 // =============================================================================
@@ -211,8 +221,10 @@ fn test_solve_trivial_definition() {
     let mut repl = Repl::new();
 
     // Define a composite tactic that tries reflexivity
-    repl.execute("Definition solve_trivial : Syntax -> Derivation := tact_orelse try_refl tact_fail.")
-        .expect("Define solve_trivial");
+    repl.execute(
+        "Definition solve_trivial : Syntax -> Derivation := tact_orelse try_refl tact_fail.",
+    )
+    .expect("Define solve_trivial");
 
     // Test on reflexive equality
     repl.execute(r#"Definition goal1 : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Bool")) (SName "True")) (SName "True")."#)
@@ -223,15 +235,20 @@ fn test_solve_trivial_definition() {
 
     let result = repl.execute("Eval (concludes d1).").expect("Eval");
     let expected = repl.execute("Eval goal1.").expect("Eval goal1");
-    assert_eq!(result, expected, "solve_trivial should prove Eq Bool True True");
+    assert_eq!(
+        result, expected,
+        "solve_trivial should prove Eq Bool True True"
+    );
 }
 
 #[test]
 fn test_solve_trivial_fails_on_inequality() {
     let mut repl = Repl::new();
 
-    repl.execute("Definition solve_trivial : Syntax -> Derivation := tact_orelse try_refl tact_fail.")
-        .expect("Define solve_trivial");
+    repl.execute(
+        "Definition solve_trivial : Syntax -> Derivation := tact_orelse try_refl tact_fail.",
+    )
+    .expect("Define solve_trivial");
 
     // Test on non-reflexive equality (should fail)
     repl.execute(r#"Definition goal2 : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Bool")) (SName "True")) (SName "False")."#)
@@ -241,7 +258,10 @@ fn test_solve_trivial_fails_on_inequality() {
         .expect("Apply solve_trivial");
 
     let result = repl.execute("Eval (concludes d2).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "solve_trivial should fail on True != False");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "solve_trivial should fail on True != False"
+    );
 }
 
 // =============================================================================
@@ -295,7 +315,10 @@ fn test_tact_try_failure_becomes_identity() {
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
     // Should NOT be Error - should be the original goal (identity via DAxiom)
-    assert_eq!(result, expected, "try should return identity on failure, not Error");
+    assert_eq!(
+        result, expected,
+        "try should return identity on failure, not Error"
+    );
 }
 
 #[test]
@@ -311,7 +334,10 @@ fn test_tact_try_never_fails() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_ne!(result, "(SName \"Error\")", "tact_try should never return Error");
+    assert_ne!(
+        result, "(SName \"Error\")",
+        "tact_try should never return Error"
+    );
 }
 
 // =============================================================================
@@ -328,7 +354,9 @@ fn test_tact_repeat_exists() {
 #[test]
 fn test_tact_repeat_type() {
     let mut repl = Repl::new();
-    let result = repl.execute("Check tact_repeat.").expect("Check tact_repeat");
+    let result = repl
+        .execute("Check tact_repeat.")
+        .expect("Check tact_repeat");
     assert_eq!(
         result,
         "tact_repeat : Syntax -> Derivation -> Syntax -> Derivation"
@@ -349,7 +377,10 @@ fn test_tact_repeat_immediate_failure_returns_identity() {
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(result, expected, "repeat should return identity when tactic fails immediately");
+    assert_eq!(
+        result, expected,
+        "repeat should return identity when tactic fails immediately"
+    );
 }
 
 #[test]
@@ -384,7 +415,10 @@ fn test_tact_repeat_no_infinite_loop() {
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     // Should terminate and return the goal
-    assert!(result.len() > 0, "Should not hang - must detect fixed point");
+    assert!(
+        result.len() > 0,
+        "Should not hang - must detect fixed point"
+    );
 }
 
 // =============================================================================
@@ -437,7 +471,10 @@ fn test_tact_then_first_fails() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "then should fail if first fails");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "then should fail if first fails"
+    );
 }
 
 #[test]
@@ -453,7 +490,10 @@ fn test_tact_then_second_fails() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "then should fail if second fails");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "then should fail if second fails"
+    );
 }
 
 // =============================================================================
@@ -496,7 +536,10 @@ fn test_tact_first_first_succeeds() {
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(result, expected, "first should use first tactic that succeeds");
+    assert_eq!(
+        result, expected,
+        "first should use first tactic that succeeds"
+    );
 }
 
 #[test]
@@ -534,7 +577,10 @@ fn test_tact_first_all_fail() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "first should fail if all tactics fail");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "first should fail if all tactics fail"
+    );
 }
 
 #[test]
@@ -552,7 +598,10 @@ fn test_tact_first_empty_list() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "first with empty list should fail");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "first with empty list should fail"
+    );
 }
 
 // =============================================================================
@@ -604,7 +653,10 @@ fn test_tact_solve_rejects_failure() {
         .expect("Define d");
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
-    assert_eq!(result, "(SName \"Error\")", "solve should reject failing tactic");
+    assert_eq!(
+        result, "(SName \"Error\")",
+        "solve should reject failing tactic"
+    );
 }
 
 #[test]
@@ -640,11 +692,14 @@ fn test_nuclear_code_reflexive() {
     let mut repl = Repl::new();
 
     // Define the "nuclear option" - a tactic that tries everything
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition nuclear : Syntax -> Derivation :=
             tact_first (TacCons try_refl
                        (TacCons tact_fail TacNil)).
-    "#).expect("Define nuclear");
+    "#,
+    )
+    .expect("Define nuclear");
 
     // Test on reflexive equality
     repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Nat")) (SName "Zero")) (SName "Zero")."#)
@@ -655,7 +710,10 @@ fn test_nuclear_code_reflexive() {
 
     let result = repl.execute("Eval (concludes d).").expect("Eval");
     let expected = repl.execute("Eval goal.").expect("Eval goal");
-    assert_eq!(result, expected, "Nuclear option should prove reflexive equality");
+    assert_eq!(
+        result, expected,
+        "Nuclear option should prove reflexive equality"
+    );
 }
 
 #[test]
@@ -663,10 +721,13 @@ fn test_composite_tactic_with_then() {
     let mut repl = Repl::new();
 
     // Sequence of try -> refl (should work on reflexive goals)
-    repl.execute(r#"
+    repl.execute(
+        r#"
         Definition try_then_refl : Syntax -> Derivation :=
             tact_then (tact_try tact_fail) try_refl.
-    "#).expect("Define try_then_refl");
+    "#,
+    )
+    .expect("Define try_then_refl");
 
     // Test on reflexive equality
     repl.execute(r#"Definition goal : Syntax := SApp (SApp (SApp (SName "Eq") (SName "Nat")) (SName "Zero")) (SName "Zero")."#)

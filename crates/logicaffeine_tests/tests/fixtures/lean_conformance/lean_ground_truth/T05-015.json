@@ -1,0 +1,322 @@
+{
+  "case": "T05-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 40,
+  "declarations": [
+    {
+      "type": "Type \u2192 Type",
+      "name": "T05_015.Defaultable",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_015.Defaultable \u03b1 \u2192 Sort u} \u2192\n    (t : T05_015.Defaultable \u03b1) \u2192 ((dflt : \u03b1) \u2192 motive { dflt := dflt }) \u2192 motive t",
+      "name": "T05_015.Defaultable.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T05_015.Defaultable \u03b1] \u2192 \u03b1",
+      "name": "T05_015.Defaultable.dflt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 \u03b1 \u2192 T05_015.Defaultable \u03b1",
+      "name": "T05_015.Defaultable.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_015.Defaultable \u03b1} \u2192 v1 = v2 \u2192 T05_015.Defaultable.noConfusionType P v1 v2",
+      "name": "T05_015.Defaultable.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T05_015.Defaultable \u03b1 \u2192 T05_015.Defaultable \u03b1 \u2192 Sort u",
+      "name": "T05_015.Defaultable.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_015.Defaultable \u03b1 \u2192 Sort u} \u2192\n    ((dflt : \u03b1) \u2192 motive { dflt := dflt }) \u2192 (t : T05_015.Defaultable \u03b1) \u2192 motive t",
+      "name": "T05_015.Defaultable.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_015.Defaultable \u03b1 \u2192 Sort u} \u2192\n    (t : T05_015.Defaultable \u03b1) \u2192 ((dflt : \u03b1) \u2192 motive { dflt := dflt }) \u2192 motive t",
+      "name": "T05_015.Defaultable.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type",
+      "name": "T05_015.MyNum",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_015.MyNum \u2192 Sort u} \u2192 (t : T05_015.MyNum) \u2192 ((v : Nat) \u2192 motive { v := v }) \u2192 motive t",
+      "name": "T05_015.MyNum.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 T05_015.MyNum",
+      "name": "T05_015.MyNum.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 {v v_1 : Nat}, { v := v } = { v := v_1 } \u2192 v = v_1",
+      "name": "T05_015.MyNum.mk.inj",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (v v_1 : Nat), ({ v := v } = { v := v_1 }) = (v = v_1)",
+      "name": "T05_015.MyNum.mk.injEq",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": [
+        "propext"
+      ]
+    },
+    {
+      "type": "\u2200 (v : Nat), sizeOf { v := v } = 1 + sizeOf v",
+      "name": "T05_015.MyNum.mk.sizeOf_spec",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{P : Sort u} \u2192 {v1 v2 : T05_015.MyNum} \u2192 v1 = v2 \u2192 T05_015.MyNum.noConfusionType P v1 v2",
+      "name": "T05_015.MyNum.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Sort u \u2192 T05_015.MyNum \u2192 T05_015.MyNum \u2192 Sort u",
+      "name": "T05_015.MyNum.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_015.MyNum \u2192 Sort u} \u2192 ((v : Nat) \u2192 motive { v := v }) \u2192 (t : T05_015.MyNum) \u2192 motive t",
+      "name": "T05_015.MyNum.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{motive : T05_015.MyNum \u2192 Sort u} \u2192 (t : T05_015.MyNum) \u2192 ((v : Nat) \u2192 motive { v := v }) \u2192 motive t",
+      "name": "T05_015.MyNum.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_015.MyNum \u2192 Nat",
+      "name": "T05_015.MyNum.v",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Type \u2192 Type",
+      "name": "T05_015.Sizeable",
+      "levels": [],
+      "kind": "inductive",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_015.Sizeable \u03b1 \u2192 Sort u} \u2192\n    (t : T05_015.Sizeable \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T05_015.Sizeable.casesOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 (\u03b1 \u2192 Nat) \u2192 T05_015.Sizeable \u03b1",
+      "name": "T05_015.Sizeable.mk",
+      "levels": [],
+      "kind": "ctor",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {P : Sort u} \u2192 {v1 v2 : T05_015.Sizeable \u03b1} \u2192 v1 = v2 \u2192 T05_015.Sizeable.noConfusionType P v1 v2",
+      "name": "T05_015.Sizeable.noConfusion",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 Sort u \u2192 T05_015.Sizeable \u03b1 \u2192 T05_015.Sizeable \u03b1 \u2192 Sort u",
+      "name": "T05_015.Sizeable.noConfusionType",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_015.Sizeable \u03b1 \u2192 Sort u} \u2192\n    ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 (t : T05_015.Sizeable \u03b1) \u2192 motive t",
+      "name": "T05_015.Sizeable.rec",
+      "levels": [
+        "u"
+      ],
+      "kind": "rec",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192\n  {motive : T05_015.Sizeable \u03b1 \u2192 Sort u} \u2192\n    (t : T05_015.Sizeable \u03b1) \u2192 ((size : \u03b1 \u2192 Nat) \u2192 motive { size := size }) \u2192 motive t",
+      "name": "T05_015.Sizeable.recOn",
+      "levels": [
+        "u"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [self : T05_015.Sizeable \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T05_015.Sizeable.size",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T05_015.addOne",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T05_015.addOne'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int \u2192 Int",
+      "name": "T05_015.addOneInt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(Nat \u2192 Nat) \u2192 Nat",
+      "name": "T05_015.applyIt",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T05_015.Defaultable \u03b1] \u2192 \u03b1",
+      "name": "T05_015.defaultOf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_015.Defaultable Bool",
+      "name": "T05_015.instDefaultableBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_015.Defaultable Nat",
+      "name": "T05_015.instDefaultableNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "OfNat T05_015.MyNum 3",
+      "name": "T05_015.instOfNatMyNumOfNatNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_015.Sizeable Bool",
+      "name": "T05_015.instSizeableBool",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_015.Sizeable Nat",
+      "name": "T05_015.instSizeableNat",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int",
+      "name": "T05_015.laterPin",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 [inst : T05_015.Sizeable \u03b1] \u2192 \u03b1 \u2192 Nat",
+      "name": "T05_015.sizeOf'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "T05_015.MyNum",
+      "name": "T05_015.three",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

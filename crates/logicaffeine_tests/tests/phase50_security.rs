@@ -105,10 +105,10 @@ To verify (user: User):
 
     let rust = compile_to_rust(source).expect("Should compile Check statements");
 
-    // Assert should use debug_assert! (can be optimized out)
+    // Assert is checked in every build, as every tier checks it
     assert!(
-        rust.contains("debug_assert!("),
-        "Assert should compile to debug_assert!. Got:\n{}",
+        rust.contains("panic!(\"Assertion failed\")") && !rust.contains("cfg!(debug_assertions)"),
+        "Assert must be checked in every build. Got:\n{}",
         rust
     );
 
@@ -125,8 +125,11 @@ To verify (user: User):
     );
 }
 
+/// A failed `Check` stops the program with the sentence every tier reports, the one
+/// `semantics::policy::check_failed` writes, naming the policy it checked. The compiled program
+/// carries that sentence verbatim rather than a wording of its own.
 #[test]
-fn test_check_includes_source_location() {
+fn test_check_failure_reads_as_on_every_tier() {
     let source = r#"## Definition
 A User has:
     a role, which is Text.
@@ -142,17 +145,14 @@ To verify (user: User):
 
     let rust = compile_to_rust(source).expect("Should compile");
 
-    // Error message should include line number
+    let sentence = logicaffeine_compile::semantics::policy::check_failed("user is admin");
     assert!(
-        rust.contains("Security Check Failed at line"),
-        "Error message should include source location. Got:\n{}",
-        rust
+        rust.contains(&format!("panic_with({sentence:?})")),
+        "the compiled Check must stop with {sentence:?}, the words every tier reports. Got:\n{rust}"
     );
-    // Error message should include policy description
     assert!(
-        rust.contains("user is admin"),
-        "Error message should include policy text. Got:\n{}",
-        rust
+        !rust.contains("Check Failed at line"),
+        "a failed Check reads the same on every tier; no tier adds a location of its own. Got:\n{rust}"
     );
 }
 
@@ -319,13 +319,28 @@ To remove_post (user: User, post: Post):
     let rust = compile_to_rust(source).expect("Should compile full security flow");
 
     // Verify all policy methods are generated
-    assert!(rust.contains("fn is_admin(&self) -> bool"), "Missing is_admin");
-    assert!(rust.contains("fn can_edit(&self, post: &Post) -> bool"), "Missing can_edit");
-    assert!(rust.contains("fn can_delete(&self, post: &Post) -> bool"), "Missing can_delete");
+    assert!(
+        rust.contains("fn is_admin(&self) -> bool"),
+        "Missing is_admin"
+    );
+    assert!(
+        rust.contains("fn can_edit(&self, post: &Post) -> bool"),
+        "Missing can_edit"
+    );
+    assert!(
+        rust.contains("fn can_delete(&self, post: &Post) -> bool"),
+        "Missing can_delete"
+    );
 
     // Verify Check statements are enforced
-    assert!(rust.contains("user.can_edit(&post)"), "Missing can_edit check");
-    assert!(rust.contains("user.can_delete(&post)"), "Missing can_delete check");
+    assert!(
+        rust.contains("user.can_edit(&post)"),
+        "Missing can_edit check"
+    );
+    assert!(
+        rust.contains("user.can_delete(&post)"),
+        "Missing can_delete check"
+    );
 
     // Verify panic_with is used (not debug_assert)
     let panic_count = rust.matches("logicaffeine_system::panic_with").count();
@@ -379,9 +394,18 @@ A User is active if the user's active equals true.
     Let u be a new User."#;
 
     let rust = compile_to_rust(source).expect("Should compile multiple predicates");
-    assert!(rust.contains("fn is_admin(&self) -> bool"), "Missing is_admin");
-    assert!(rust.contains("fn is_moderator(&self) -> bool"), "Missing is_moderator");
-    assert!(rust.contains("fn is_active(&self) -> bool"), "Missing is_active");
+    assert!(
+        rust.contains("fn is_admin(&self) -> bool"),
+        "Missing is_admin"
+    );
+    assert!(
+        rust.contains("fn is_moderator(&self) -> bool"),
+        "Missing is_moderator"
+    );
+    assert!(
+        rust.contains("fn is_active(&self) -> bool"),
+        "Missing is_active"
+    );
 }
 
 #[test]
@@ -406,9 +430,18 @@ A User can delete the Document if the user is admin.
     Let d be a new Document."#;
 
     let rust = compile_to_rust(source).expect("Should compile multiple capabilities");
-    assert!(rust.contains("fn can_view(&self, document: &Document)"), "Missing can_view");
-    assert!(rust.contains("fn can_edit(&self, document: &Document)"), "Missing can_edit");
-    assert!(rust.contains("fn can_delete(&self, document: &Document)"), "Missing can_delete");
+    assert!(
+        rust.contains("fn can_view(&self, document: &Document)"),
+        "Missing can_view"
+    );
+    assert!(
+        rust.contains("fn can_edit(&self, document: &Document)"),
+        "Missing can_edit"
+    );
+    assert!(
+        rust.contains("fn can_delete(&self, document: &Document)"),
+        "Missing can_delete"
+    );
 }
 
 #[test]
@@ -450,5 +483,8 @@ A User has:
     Let u be a new User."#;
 
     let rust = compile_to_rust(source).expect("Should compile empty policy block");
-    assert!(rust.contains("pub struct User"), "Should still generate struct");
+    assert!(
+        rust.contains("pub struct User"),
+        "Should still generate struct"
+    );
 }

@@ -1,0 +1,330 @@
+{
+  "schema": "logos.rdu.fit",
+  "version": 1,
+  "_generated_by": "cargo run -p logicaffeine-compile --example emit_rdu_fit_gemm",
+  "provenance": "modeled",
+  "no_speed_claim": true,
+  "honesty": "Every number is a model's: sizes from the config and the authored program, the chip from its published facts (cited) or its modeled unit model (labeled). Nothing here ran on an RDU; no field is a time and no throughput is claimed.",
+  "workload": {
+    "kind": "int8_gemm",
+    "m": 256,
+    "n": 256,
+    "k": 128,
+    "macs": 8388608,
+    "tile": [
+      32,
+      32
+    ],
+    "tiles": {
+      "rows_t": 8,
+      "cols_t": 8,
+      "k_tiles": 4
+    },
+    "source": "spatial::programs::gemm_program — the canonical LOGOS matmul with deterministic fills, lifted by the tensor recognizer",
+    "provenance": "modeled"
+  },
+  "chip": {
+    "part": "SN50",
+    "chip": "sn50",
+    "target": "sn50-rdu",
+    "peak_bf16_tflops": {
+      "value": 1600,
+      "provenance": "published",
+      "cite": "[SN50WEB] 1600 TFLOPS at BF16"
+    },
+    "peak_fp8_tflops": {
+      "value": 3200,
+      "provenance": "published",
+      "cite": "[SN50WEB] 3200 TFLOPS at FP8"
+    },
+    "sram_bytes": {
+      "value": 452984832,
+      "provenance": "published",
+      "cite": "[SN50WEB] 432 MB of on-chip SRAM; read in powers of two, as the vendor counts (1040 PMUs × 512 KB = 520 MB [DIAYN26])"
+    },
+    "hbm_bytes": {
+      "value": 68719476736,
+      "provenance": "published",
+      "cite": "[SN50WEB] 64 GB of HBM2E; read in powers of two, as the vendor counts (1040 PMUs × 512 KB = 520 MB [DIAYN26])"
+    },
+    "ddr_bytes_max": {
+      "value": 549755813888,
+      "provenance": "published",
+      "cite": "[SN50WEB] up to 512 GB of DDR5; read in powers of two, as the vendor counts (1040 PMUs × 512 KB = 520 MB [DIAYN26])"
+    },
+    "node_nm": {
+      "value": 5,
+      "provenance": "published",
+      "cite": "[SN50WEB] 5 nm TSMC"
+    },
+    "dies": {
+      "value": 2,
+      "provenance": "published",
+      "cite": "[STH26] two max reticle dies for the logic"
+    },
+    "chips_per_node": {
+      "value": 8,
+      "provenance": "published",
+      "cite": "[SN50WEB] chips per node: 8"
+    },
+    "chips_per_rack": {
+      "value": 16,
+      "provenance": "published",
+      "cite": "[HC26] seven integrated 800G Ethernet links make the eight-socket node's full mesh, two more 800G ports reach the inter-node fabric, ten 800G ports carry an aggregate 2 TB/s per RDU, a 400G RoCEv2 NIC scales out; [STH26] 16 RDUs in a rack, two nodes"
+    },
+    "tensor_parallel_width": {
+      "value": 16,
+      "provenance": "published",
+      "cite": "[HC26] seven integrated 800G Ethernet links make the eight-socket node's full mesh, two more 800G ports reach the inter-node fabric, ten 800G ports carry an aggregate 2 TB/s per RDU, a 400G RoCEv2 NIC scales out; [STH26] 16 RDUs in a rack, two nodes"
+    },
+    "scale_up": {
+      "value": {
+        "chips_per_rack": 16,
+        "intra_node_links": 7,
+        "inter_node_links": 2,
+        "link_gbps": 800,
+        "tb_s_per_chip": 2.0,
+        "scale_out": "400G RoCEv2"
+      },
+      "provenance": "published",
+      "cite": "[HC26] seven integrated 800G Ethernet links make the eight-socket node's full mesh, two more 800G ports reach the inter-node fabric, ten 800G ports carry an aggregate 2 TB/s per RDU, a 400G RoCEv2 NIC scales out; [STH26] 16 RDUs in a rack, two nodes"
+    },
+    "pcu_count": {
+      "value": 1040,
+      "provenance": "modeled",
+      "cite": "not public; inherited from SN40L (1040 PCUs [HC24]) — the SN50 describes a sea of PCUs and PMUs without a count"
+    },
+    "pmu_count": {
+      "value": 1040,
+      "provenance": "modeled",
+      "cite": "not public; inherited from SN40L (1040 PMUs [HC24]) — the SN50 describes a sea of PCUs and PMUs without a count"
+    },
+    "local_mem_bytes_per_pcu": 435562,
+    "witnessed_precisions": [
+      "Int8",
+      "Bf16"
+    ],
+    "witness_pending_precisions": [
+      "Fp8",
+      "Fp32"
+    ],
+    "modeled_fields": [
+      "ddr_bandwidth_gbps",
+      "hbm_bandwidth_gbps",
+      "index_datatype",
+      "pcu_count",
+      "pmu_count",
+      "unit_model.acc_tiles",
+      "unit_model.counter_nest",
+      "unit_model.datapath_bits",
+      "unit_model.fusion_window",
+      "unit_model.mesh_columns",
+      "unit_model.pcu_envelope",
+      "unit_model.pcu_lanes",
+      "unit_model.pcu_stages",
+      "unit_model.pmu"
+    ],
+    "cites": [
+      "DIAYN26",
+      "HC24",
+      "HC26",
+      "ISCA17",
+      "SN40L24",
+      "SN50DS",
+      "SN50WEB",
+      "STH26"
+    ],
+    "provenance": "modeled"
+  },
+  "arithmetic": {
+    "operands": [
+      {
+        "name": "a",
+        "role": "Input",
+        "rows": 256,
+        "cols": 128,
+        "dtype": "Int8",
+        "bytes": 32768
+      },
+      {
+        "name": "b",
+        "role": "Param",
+        "rows": 128,
+        "cols": 256,
+        "dtype": "Int8",
+        "bytes": 32768
+      },
+      {
+        "name": "c",
+        "role": "Output",
+        "rows": 256,
+        "cols": 256,
+        "dtype": "Int32",
+        "bytes": 262144
+      }
+    ],
+    "bytes": 327680,
+    "arithmetic_intensity_macs_per_byte": 25.6,
+    "provenance": "modeled"
+  },
+  "residency": {
+    "working_set_bytes": 327680,
+    "sram_bytes": 452984832,
+    "sram_fit": true,
+    "local_mem_bytes_per_pcu": 435562,
+    "fits_one_pcu": true,
+    "buffer_bytes_on_mesh": 393216,
+    "sites_used": 1,
+    "sites_available": 1040,
+    "provenance": "modeled"
+  },
+  "program": {
+    "name": "matmul_256x256x128",
+    "phase": "Verified",
+    "tensors": 3,
+    "stages": 4,
+    "buffers": 3,
+    "semaphores": 0,
+    "edges": 3,
+    "census": {
+      "buffer_templates": 3,
+      "fifos": 3,
+      "semaphores": 0,
+      "barrier_semaphores": 0,
+      "mcast_groups": 0,
+      "kernels": 2,
+      "sites": 1
+    },
+    "provenance": "modeled"
+  },
+  "certificate": {
+    "schedule_digest": 5113631665721045445,
+    "digest_hex": "46f744e8237df1c5",
+    "rechecked": true,
+    "places": 852,
+    "transitions": 652,
+    "provenance": "modeled"
+  },
+  "gated": "RDA/SambaFlow config emission is gated on the vendor SDK; the certified placement and schedule are ready to bridge",
+  "ii_report": {
+    "chip": "sn50",
+    "program": "matmul_256x256x128",
+    "source": "the GEMM itself (matmul_256x256x128), placed on the sn50-rdu",
+    "unit_model": {
+      "pcu_stages": {
+        "value": 6,
+        "provenance": "modeled",
+        "cite": "not public; inherited from Plasticine [ISCA17] §3.1 — the six-stage PCU pipeline"
+      },
+      "pcu_lanes": {
+        "value": 16,
+        "provenance": "modeled",
+        "cite": "not public; inherited from Plasticine [ISCA17] Table 3 — sixteen SIMD lanes"
+      },
+      "pcu_envelope": {
+        "value": [
+          64,
+          64
+        ],
+        "provenance": "modeled",
+        "cite": "not public; the per-PCU systolic dimension is not tabulated — a 64×64 placement envelope keeps every bounded-family body placeable"
+      },
+      "datapath_bits": {
+        "value": 64,
+        "provenance": "modeled",
+        "cite": "not public; the descriptor's proof width — the PCU's own FU width is not tabulated"
+      },
+      "acc_tiles": {
+        "value": 8,
+        "provenance": "modeled",
+        "cite": "not public; the per-PCU accumulator depth is not tabulated — eight native tiles, the Tensix-class DST budget the passes were calibrated on"
+      },
+      "mesh_columns": {
+        "value": 40,
+        "provenance": "modeled",
+        "cite": "not public; the mesh aspect is not tabulated — 40 columns lay the 1040 PCUs out as 40×26"
+      },
+      "fusion_window": {
+        "value": 64,
+        "provenance": "modeled",
+        "cite": "not public; the RDU fuses a long dataflow pipeline (operator fusion, [HC26]) — 64 ops, at least a whole fused block"
+      },
+      "counter_nest": {
+        "value": 1,
+        "provenance": "modeled",
+        "cite": "not public; the counter chain's depth is not tabulated ([ISCA17]) — one counter is certain"
+      },
+      "pmu": {
+        "value": {
+          "banks": 16,
+          "words_per_bank": 4096,
+          "n_buffers": 2,
+          "stages": 4
+        },
+        "provenance": "modeled",
+        "cite": "not public; inherited from Plasticine [ISCA17] Table 3 — 16 banks × 4096 words, 4 address-datapath stages; double-buffered memory units per the SN50's description [HC26]"
+      },
+      "credit": null
+    },
+    "banking": {
+      "Strided": {
+        "granularity": 1
+      }
+    },
+    "credit_declared": false,
+    "pipeline_ii": 1,
+    "stages": [
+      {
+        "stage": 2,
+        "name": "mm@0,0",
+        "op": "matmul_tiles",
+        "reduce": false,
+        "carried": false,
+        "lanes": 16,
+        "cells": 2,
+        "resource_ii": 1,
+        "recurrence_ii": 0,
+        "memory_ii": 1,
+        "result_cycles": 6
+      }
+    ],
+    "buffer_depths": [],
+    "credit_depths": [
+      {
+        "edge": 0,
+        "from": 0,
+        "to": 2,
+        "hops": 0,
+        "forward_cycles": 0,
+        "backward_cycles": 0,
+        "n_buffer_depth": 2,
+        "credit_depth": 1,
+        "depth": 2
+      },
+      {
+        "edge": 1,
+        "from": 1,
+        "to": 2,
+        "hops": 0,
+        "forward_cycles": 0,
+        "backward_cycles": 0,
+        "n_buffer_depth": 2,
+        "credit_depth": 1,
+        "depth": 2
+      },
+      {
+        "edge": 2,
+        "from": 2,
+        "to": 3,
+        "hops": 0,
+        "forward_cycles": 6,
+        "backward_cycles": 0,
+        "n_buffer_depth": 2,
+        "credit_depth": 6,
+        "depth": 6
+      }
+    ],
+    "cycles_are": "cycles of the modeled unit model (Plasticine-inherited PCU/PMU), never a measurement of the chip",
+    "provenance": "modeled"
+  }
+}

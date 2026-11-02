@@ -1,0 +1,94 @@
+{
+  "case": "T04-015",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 11,
+  "declarations": [
+    {
+      "type": "{x : Nat} \u2192 Acc Nat.lt x \u2192 Nat",
+      "name": "T04_015.accCount",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive :\n    (y : Nat) \u2192\n      (x : \u2200 (y_1 : Nat), y_1.lt y \u2192 Acc Nat.lt y_1) \u2192\n        ((y_1 : Nat) \u2192 (a : y_1.lt y) \u2192 (fun x x => Nat) y_1 \u22ef) \u2192 Sort u_1) \u2192\n  (y : Nat) \u2192\n    (x : \u2200 (y_1 : Nat), y_1.lt y \u2192 Acc Nat.lt y_1) \u2192\n      (ih : (y_1 : Nat) \u2192 (a : y_1.lt y) \u2192 (fun x x => Nat) y_1 \u22ef) \u2192\n        ((x : \u2200 (y : Nat), y.lt 0 \u2192 Acc Nat.lt y) \u2192\n            (ih : (y : Nat) \u2192 (a : y.lt 0) \u2192 (fun x x => Nat) y \u22ef) \u2192 motive 0 x ih) \u2192\n          ((m : Nat) \u2192\n              (x : \u2200 (y : Nat), y.lt (m + 1) \u2192 Acc Nat.lt y) \u2192\n                (ih : (y : Nat) \u2192 (a : y.lt (m + 1)) \u2192 (fun x x => Nat) y \u22ef) \u2192 motive m.succ x ih) \u2192\n            motive y x ih",
+      "name": "T04_015.accCount.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(\u2200 (y : Nat), y.lt 0 \u2192 Acc Nat.lt y) \u2192 Acc Nat.lt 0",
+      "name": "T04_015.accCount.proof_1",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (m : Nat), (\u2200 (y : Nat), y.lt (m + 1) \u2192 Acc Nat.lt y) \u2192 Acc Nat.lt m",
+      "name": "T04_015.accCount.proof_2",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "\u2200 (m : Nat), (\u2200 (y : Nat), y.lt (m + 1) \u2192 Acc Nat.lt y) \u2192 Acc Nat.lt (m + 1)",
+      "name": "T04_015.accCount.proof_3",
+      "levels": [],
+      "kind": "theorem",
+      "axioms": []
+    },
+    {
+      "type": "{\u03b1 : Type} \u2192 {r : \u03b1 \u2192 \u03b1 \u2192 Prop} \u2192 {x : \u03b1} \u2192 Acc r x \u2192 Nat",
+      "name": "T04_015.accDepth",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Prop",
+      "name": "T04_015.accIsAType",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "WellFounded Nat.lt",
+      "name": "T04_015.ltWf",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat \u2192 Nat",
+      "name": "T04_015.wfDiv",
+      "levels": [],
+      "kind": "def",
+      "axioms": [
+        "propext",
+        "Quot.sound"
+      ]
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T04_015.wfSum",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "(motive : (x : Nat) \u2192 ((y : Nat) \u2192 y.lt x \u2192 Nat) \u2192 Sort u_1) \u2192\n  (x : Nat) \u2192\n    (ih : (y : Nat) \u2192 y.lt x \u2192 Nat) \u2192\n      ((x : (y : Nat) \u2192 y.lt 0 \u2192 Nat) \u2192 motive 0 x) \u2192\n        ((m : Nat) \u2192 (ih : (y : Nat) \u2192 y.lt (m + 1) \u2192 Nat) \u2192 motive m.succ ih) \u2192 motive x ih",
+      "name": "T04_015.wfSum.match_1",
+      "levels": [
+        "u_1"
+      ],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

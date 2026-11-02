@@ -14,17 +14,17 @@
 //! ```
 
 use crate::analysis;
-use logicaffeine_base::Arena;
 use crate::arena_ctx::AstContext;
 use crate::drs::WorldState;
 use crate::error::ParseError;
-use logicaffeine_base::Interner;
 use crate::lexer::Lexer;
 use crate::mwe;
 use crate::parser::Parser;
 use crate::registry::SymbolRegistry;
 use crate::semantics;
 use crate::OutputFormat;
+use logicaffeine_base::Arena;
+use logicaffeine_base::Interner;
 
 /// A persistent session for incremental sentence evaluation.
 ///
@@ -171,7 +171,11 @@ impl Session {
         let event_history = self.world_state.event_history();
         let mut precedes = Vec::new();
         for i in 0..event_history.len().saturating_sub(1) {
-            precedes.push(format!("Precedes({}, {})", event_history[i], event_history[i + 1]));
+            precedes.push(format!(
+                "Precedes({}, {})",
+                event_history[i],
+                event_history[i + 1]
+            ));
         }
 
         if precedes.is_empty() {
@@ -205,27 +209,5 @@ impl Session {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_session_basic() {
-        let mut session = Session::new();
-        let out = session.eval("John walked.").unwrap();
-        assert!(out.contains("Walk"), "Should have Walk predicate");
-    }
-
-    #[test]
-    fn test_session_multiple_sentences() {
-        let mut session = Session::new();
-        session.eval("John walked.").unwrap();
-        session.eval("Mary ran.").unwrap();
-
-        assert_eq!(session.turn_count(), 2);
-
-        let history = session.history();
-        assert!(history.contains("Walk"));
-        assert!(history.contains("Run"));
-        assert!(history.contains("Precedes"));
-    }
-}
+#[path = "../../logicaffeine_tests/unit/logicaffeine_language/session/tests.rs"]
+mod tests;

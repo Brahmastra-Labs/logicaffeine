@@ -2,10 +2,8 @@
 //!
 //! Converts RtlModule → HwKnowledgeGraph and links spec KG to RTL KG.
 
-use super::rtl_extract::{RtlModule, PortDirection};
-use logicaffeine_language::semantics::knowledge_graph::{
-    HwKnowledgeGraph, SignalRole, KgRelation,
-};
+use super::rtl_extract::{PortDirection, RtlModule};
+use logicaffeine_language::semantics::knowledge_graph::{HwKnowledgeGraph, SignalRole};
 
 /// Convert an RtlModule to a HwKnowledgeGraph.
 pub fn rtl_to_kg(module: &RtlModule) -> HwKnowledgeGraph {
@@ -57,22 +55,33 @@ pub fn link_kg(spec_kg: &HwKnowledgeGraph, rtl_kg: &HwKnowledgeGraph) -> LinkRes
             continue;
         }
         // Case-insensitive match
-        if let Some(rtl_name) = rtl_names.iter().find(|n| n.to_lowercase() == spec_sig.name.to_lowercase()) {
+        if let Some(rtl_name) = rtl_names
+            .iter()
+            .find(|n| n.to_lowercase() == spec_sig.name.to_lowercase())
+        {
             matched.push((spec_sig.name.clone(), rtl_name.clone()));
             used_rtl.insert(rtl_name.clone());
             continue;
         }
     }
 
-    let unmatched_spec: Vec<String> = spec_kg.signals.iter()
+    let unmatched_spec: Vec<String> = spec_kg
+        .signals
+        .iter()
         .filter(|s| !matched.iter().any(|(spec, _)| spec == &s.name))
         .map(|s| s.name.clone())
         .collect();
 
-    let unmatched_rtl: Vec<String> = rtl_kg.signals.iter()
+    let unmatched_rtl: Vec<String> = rtl_kg
+        .signals
+        .iter()
         .filter(|s| !used_rtl.contains(&s.name))
         .map(|s| s.name.clone())
         .collect();
 
-    LinkResult { matched, unmatched_spec, unmatched_rtl }
+    LinkResult {
+        matched,
+        unmatched_spec,
+        unmatched_rtl,
+    }
 }

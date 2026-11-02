@@ -1,0 +1,38 @@
+{
+  "case": "T02-006",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 4,
+  "declarations": [
+    {
+      "type": "(\u03b1 : Type) \u2192 [inst : Inhabited \u03b1] \u2192 \u03b1",
+      "name": "T02_006.defaultOf",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    },
+    {
+      "type": "Nat \u2192 Nat",
+      "name": "T02_006.hash",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_006.sealed",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Nat",
+      "name": "T02_006.secretNat",
+      "levels": [],
+      "kind": "opaque",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

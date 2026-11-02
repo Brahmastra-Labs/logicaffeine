@@ -1,0 +1,31 @@
+{
+  "case": "T00-014",
+  "lean": "4.14.0",
+  "lean_compiles": true,
+  "declarations": [
+    {
+      "lean": "T00_014.etaInType",
+      "lean_kind": "def",
+      "lean_levels": [],
+      "lean_type": "(F : (Nat \u2192 Nat) \u2192 Type) \u2192 (f : Nat \u2192 Nat) \u2192 (F fun n => f n) \u2192 F f",
+      "lean_axioms": [],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_eta_bridge.rs::original_eta_in_type_uses_conversion_without_rewriting_the_source_body",
+      "logos": "Original Lean 4.14.0 structural export in crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-014.ndjson; actual imported closed body and declared type checked by infer_type and independent recheck, with exact Lean logical axiom dependencies.",
+      "why": ""
+    },
+    {
+      "lean": "T00_014.needsFunext",
+      "lean_kind": "theorem",
+      "lean_levels": [],
+      "lean_type": "\u2200 (f g : Nat \u2192 Nat), (\u2200 (n : Nat), f n = g n) \u2192 f = g",
+      "lean_axioms": [
+        "Quot.sound"
+      ],
+      "status": "bridged",
+      "test": "crates/logicaffeine_tests/tests/original_eta_bridge.rs::original_function_extensionality_retains_its_actual_proof_and_exact_logical_axiom",
+      "logos": "Original Lean 4.14.0 structural export in crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases_lean414/T00-014.ndjson; actual imported closed body and declared type checked by infer_type and independent recheck, with exact Lean logical axiom dependencies.",
+      "why": ""
+    }
+  ]
+}

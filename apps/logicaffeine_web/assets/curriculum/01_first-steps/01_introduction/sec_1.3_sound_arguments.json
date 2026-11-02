@@ -5,73 +5,46 @@
   "content": [
     {
       "type": "paragraph",
-      "text": "A **sound** argument is one that is both valid AND has true premises. Soundness guarantees that the conclusion is actually true - it's the gold standard for arguments."
-    },
-    {
-      "type": "definition",
-      "term": "Sound Argument",
-      "definition": "An argument that is (1) valid (the conclusion follows from the premises) AND (2) has all true premises. A sound argument guarantees a true conclusion."
-    },
-    {
-      "type": "example",
-      "title": "A Sound Argument",
-      "premises": [
-        "All humans are mortal. (TRUE - empirically verified)",
-        "Socrates was a human. (TRUE - historically verified)"
-      ],
-      "conclusion": "Therefore, Socrates was mortal. (TRUE - guaranteed!)",
-      "note": "This argument is sound because: (1) The form is valid (All A are B, X is A, therefore X is B), and (2) both premises are actually true."
-    },
-    {
-      "type": "example",
-      "title": "Valid but Unsound",
-      "premises": [
-        "All birds can fly. (FALSE - penguins, ostriches, kiwis can't)",
-        "Tweety is a bird. (TRUE)"
-      ],
-      "conclusion": "Therefore, Tweety can fly. (UNCERTAIN)",
-      "note": "The form is valid, but the first premise is false, making the argument unsound. We can't trust the conclusion."
+      "text": "A **sound** argument is valid and has only true premises. So the conclusion of a sound argument is true."
     },
     {
       "type": "paragraph",
-      "text": "Logic focuses primarily on **validity** because we can analyze argument structure without knowing whether premises are actually true. Determining truth often requires empirical investigation - science, history, observation."
-    },
-    {
-      "type": "symbols",
-      "title": "Validity vs Soundness",
-      "symbols": [
-        {
-          "symbol": "✓",
-          "name": "Valid Form",
-          "meaning": "Conclusion follows from premises",
-          "example": "Structural correctness"
-        },
-        {
-          "symbol": "✓✓",
-          "name": "Sound",
-          "meaning": "Valid + True premises",
-          "example": "Guaranteed true conclusion"
-        },
-        {
-          "symbol": "✗",
-          "name": "Invalid",
-          "meaning": "Conclusion doesn't follow",
-          "example": "Bad argument structure"
-        }
-      ]
-    },
-    {
-      "type": "quiz",
-      "question": "An argument has a valid form but one false premise. What do we call this argument?",
-      "options": [
-        "Sound",
-        "Valid but unsound",
-        "Invalid",
-        "Contradictory"
-      ],
-      "correct": 1,
-      "explanation": "A valid argument with at least one false premise is called 'valid but unsound.' The conclusion may or may not be true - we just can't trust the argument to guarantee it."
+      "text": "A valid argument can still have a false premise. Then it is valid but unsound, and its conclusion may be false."
     }
   ],
-  "key_symbols": ["→", "∧"]
+  "examples": [
+    {
+      "type": "worked",
+      "title": "Sound",
+      "lines": [
+        "All humans are mortal.",
+        "Socrates was human."
+      ],
+      "conclusion": "So Socrates was mortal.",
+      "note": "The form is valid and both premises are true, so the argument is sound."
+    },
+    {
+      "type": "worked",
+      "title": "Valid but unsound",
+      "lines": [
+        "All birds can fly.",
+        "Penguins are birds."
+      ],
+      "conclusion": "So penguins can fly.",
+      "note": "The form is valid, but the first premise is false. Penguins cannot fly."
+    }
+  ],
+  "question": {
+    "type": "choice",
+    "prompt": "An argument has a valid form and one false premise. What is it?",
+    "options": [
+      "Sound",
+      "Valid but unsound",
+      "Invalid",
+      "Inconsistent"
+    ],
+    "correct": 1,
+    "hint": "Soundness needs two things. Which one does this argument lack?",
+    "explanation": "Soundness needs a valid form and true premises. With a false premise, the argument is valid but unsound."
+  }
 }

@@ -1,0 +1,10 @@
+{
+  "capability": "statistics.stdev",
+  "workload": "statistics.stdev",
+  "arg": "20000",
+  "expected": "5763318960",
+  "beat": [
+    "python"
+  ],
+  "logos_uses_stdlib": true
+}

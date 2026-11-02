@@ -1,0 +1,1727 @@
+{
+  "_generated_by": "the private place-and-route engine's report emitter, emit_plasticine_report (codegen_sva::plasticine_report::calibration) — joins benchmarks/silicon/plasticine_toolchain.json with the model; never hand-edited",
+  "rows": [
+    {
+      "app": "DotProduct_0",
+      "difference_pct": 0.017,
+      "key": "DotProduct_0/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 1.0,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6056,
+        "cycles_ideal_network": 6030,
+        "pass": true,
+        "pir_dags": 3,
+        "pir_mcs": 2,
+        "pir_pcus": 1,
+        "pir_pmus": 2,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_1",
+      "difference_pct": 0.109,
+      "key": "DotProduct_1/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 81927,
+        "lanes": 1,
+        "operand_stall_cycles": 16384,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.999,
+      "shape": {
+        "k": 65536,
+        "lanes": 1,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 82016,
+        "cycles_ideal_network": 81979,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 2,
+        "pir_pcus": 4,
+        "pir_pmus": 2,
+        "plastiroute_best_score": 0.52,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_2",
+      "difference_pct": 0.337,
+      "key": "DotProduct_2/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 49159,
+        "lanes": 1,
+        "operand_stall_cycles": 16384,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.997,
+      "shape": {
+        "k": 65536,
+        "lanes": 1,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 49325,
+        "cycles_ideal_network": 49288,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 4,
+        "pir_pcus": 7,
+        "pir_pmus": 4,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_3",
+      "difference_pct": 10.323,
+      "key": "DotProduct_3/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.897,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6752,
+        "cycles_ideal_network": 6524,
+        "pass": true,
+        "pir_dags": 5,
+        "pir_mcs": 4,
+        "pir_pcus": 2,
+        "pir_pmus": 4,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_4",
+      "difference_pct": 1.768,
+      "key": "DotProduct_4/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.982,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6164,
+        "cycles_ideal_network": 6422,
+        "pass": true,
+        "pir_dags": 9,
+        "pir_mcs": 8,
+        "pir_pcus": 4,
+        "pir_pmus": 8,
+        "plastiroute_best_score": 1.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_5",
+      "difference_pct": 4.751,
+      "key": "DotProduct_5/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.952,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6357,
+        "cycles_ideal_network": 6091,
+        "pass": true,
+        "pir_dags": 8,
+        "pir_mcs": 6,
+        "pir_pcus": 11,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 1.52,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_6",
+      "difference_pct": 0.492,
+      "key": "DotProduct_6/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 16395,
+        "lanes": 5,
+        "operand_stall_cycles": 3277,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.995,
+      "shape": {
+        "k": 65536,
+        "lanes": 5,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 16476,
+        "cycles_ideal_network": 16447,
+        "pass": true,
+        "pir_dags": 3,
+        "pir_mcs": 2,
+        "pir_pcus": 5,
+        "pir_pmus": 2,
+        "plastiroute_best_score": 1.01,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "DotProduct_7",
+      "difference_pct": 8.26,
+      "key": "DotProduct_7/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 9841,
+        "lanes": 5,
+        "operand_stall_cycles": 3277,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.917,
+      "shape": {
+        "k": 65536,
+        "lanes": 5,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 10727,
+        "cycles_ideal_network": 10518,
+        "pass": true,
+        "pir_dags": 8,
+        "pir_mcs": 6,
+        "pir_pcus": 19,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 4.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_0",
+      "difference_pct": 0.552,
+      "key": "GEMM_0/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 131339,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.994,
+      "shape": {
+        "k": 128,
+        "lanes": 16,
+        "m": 128,
+        "n": 128,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 132068,
+        "cycles_ideal_network": 132068,
+        "pass": true,
+        "pir_dags": 7,
+        "pir_mcs": 3,
+        "pir_pcus": 7,
+        "pir_pmus": 5,
+        "plastiroute_best_score": 1.01,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_10",
+      "difference_pct": 7.373,
+      "key": "GEMM_10/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 8455,
+        "lanes": 1,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.926,
+      "shape": {
+        "k": 32,
+        "lanes": 1,
+        "m": 32,
+        "n": 32,
+        "tile": 16
+      },
+      "simulated": {
+        "cycles_hybrid_network": 9128,
+        "cycles_ideal_network": 9065,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 4,
+        "pir_pcus": 28,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 1.52,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_2",
+      "difference_pct": 1.177,
+      "key": "GEMM_2/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 65803,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.988,
+      "shape": {
+        "k": 128,
+        "lanes": 16,
+        "m": 128,
+        "n": 128,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 66587,
+        "cycles_ideal_network": 66526,
+        "pass": true,
+        "pir_dags": 9,
+        "pir_mcs": 3,
+        "pir_pcus": 10,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 2.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_3",
+      "difference_pct": 2.802,
+      "key": "GEMM_3/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 65803,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.972,
+      "shape": {
+        "k": 128,
+        "lanes": 16,
+        "m": 128,
+        "n": 128,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 67700,
+        "cycles_ideal_network": 67686,
+        "pass": true,
+        "pir_dags": 12,
+        "pir_mcs": 5,
+        "pir_pcus": 9,
+        "pir_pmus": 7,
+        "plastiroute_best_score": 1.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_4",
+      "difference_pct": 1.364,
+      "key": "GEMM_4/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 65803,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.986,
+      "shape": {
+        "k": 128,
+        "lanes": 16,
+        "m": 128,
+        "n": 128,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 66713,
+        "cycles_ideal_network": 66616,
+        "pass": true,
+        "pir_dags": 11,
+        "pir_mcs": 4,
+        "pir_pcus": 10,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 3.03,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_7",
+      "difference_pct": 3.83,
+      "key": "GEMM_7/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 16647,
+        "lanes": 1,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.962,
+      "shape": {
+        "k": 32,
+        "lanes": 1,
+        "m": 32,
+        "n": 32,
+        "tile": 16
+      },
+      "simulated": {
+        "cycles_hybrid_network": 17310,
+        "cycles_ideal_network": 17248,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 3,
+        "pir_pcus": 18,
+        "pir_pmus": 5,
+        "plastiroute_best_score": 1.01,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "GEMM_9",
+      "difference_pct": 4.461,
+      "key": "GEMM_9/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 8267,
+        "lanes": 16,
+        "operand_stall_cycles": 64,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.955,
+      "shape": {
+        "k": 64,
+        "lanes": 16,
+        "m": 64,
+        "n": 64,
+        "tile": 32
+      },
+      "simulated": {
+        "cycles_hybrid_network": 8653,
+        "cycles_ideal_network": 8567,
+        "pass": true,
+        "pir_dags": 9,
+        "pir_mcs": 3,
+        "pir_pcus": 10,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 1.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip16_op1",
+      "difference_pct": 3.858,
+      "key": "Logos_dot_65536_ts16384_ip16_op1/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.961,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6298,
+        "cycles_ideal_network": 6087,
+        "pass": true,
+        "pir_dags": 3,
+        "pir_mcs": 2,
+        "pir_pcus": 1,
+        "pir_pmus": 2,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip16_op2",
+      "difference_pct": 12.17,
+      "key": "Logos_dot_65536_ts16384_ip16_op2/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.878,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6894,
+        "cycles_ideal_network": 6503,
+        "pass": true,
+        "pir_dags": 5,
+        "pir_mcs": 4,
+        "pir_pcus": 2,
+        "pir_pmus": 4,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip16_op3",
+      "difference_pct": 3.151,
+      "key": "Logos_dot_65536_ts16384_ip16_op3/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.968,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6252,
+        "cycles_ideal_network": 6167,
+        "pass": true,
+        "pir_dags": 7,
+        "pir_mcs": 6,
+        "pir_pcus": 12,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 2.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip16_op8",
+      "difference_pct": 1.752,
+      "key": "Logos_dot_65536_ts16384_ip16_op8/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "dram",
+        "compute_pcus": 1,
+        "cycles": 6055,
+        "lanes": 16,
+        "operand_stall_cycles": 1024,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.982,
+      "shape": {
+        "k": 65536,
+        "lanes": 16,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 6163,
+        "cycles_ideal_network": 6219,
+        "pass": true,
+        "pir_dags": 9,
+        "pir_mcs": 8,
+        "pir_pcus": 4,
+        "pir_pmus": 8,
+        "plastiroute_best_score": 1.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip1_op1",
+      "difference_pct": 0.115,
+      "key": "Logos_dot_65536_ts16384_ip1_op1/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 81927,
+        "lanes": 1,
+        "operand_stall_cycles": 16384,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.999,
+      "shape": {
+        "k": 65536,
+        "lanes": 1,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 82021,
+        "cycles_ideal_network": 81979,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 2,
+        "pir_pcus": 4,
+        "pir_pmus": 2,
+        "plastiroute_best_score": 0.56,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip1_op2",
+      "difference_pct": 0.337,
+      "key": "Logos_dot_65536_ts16384_ip1_op2/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 49159,
+        "lanes": 1,
+        "operand_stall_cycles": 16384,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.997,
+      "shape": {
+        "k": 65536,
+        "lanes": 1,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 49325,
+        "cycles_ideal_network": 49288,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 4,
+        "pir_pcus": 7,
+        "pir_pmus": 4,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip5_op1",
+      "difference_pct": 0.492,
+      "key": "Logos_dot_65536_ts16384_ip5_op1/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 16395,
+        "lanes": 5,
+        "operand_stall_cycles": 3277,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.995,
+      "shape": {
+        "k": 65536,
+        "lanes": 5,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 16476,
+        "cycles_ideal_network": 16452,
+        "pass": true,
+        "pir_dags": 3,
+        "pir_mcs": 2,
+        "pir_pcus": 5,
+        "pir_pmus": 2,
+        "plastiroute_best_score": 1.01,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_dot_65536_ts16384_ip5_op3",
+      "difference_pct": 8.182,
+      "key": "Logos_dot_65536_ts16384_ip5_op3/20x20",
+      "kind": "dot",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 9841,
+        "lanes": 5,
+        "operand_stall_cycles": 3277,
+        "pipeline_ii": 1,
+        "pmus": 5,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.918,
+      "shape": {
+        "k": 65536,
+        "lanes": 5,
+        "m": 1,
+        "n": 1,
+        "tile": 16384
+      },
+      "simulated": {
+        "cycles_hybrid_network": 10718,
+        "cycles_ideal_network": 10518,
+        "pass": true,
+        "pir_dags": 8,
+        "pir_mcs": 6,
+        "pir_pcus": 19,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 4.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_gemm_1024x512x512",
+      "difference_pct": 0.005,
+      "key": "Logos_gemm_1024x512x512/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 16777483,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 3,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 1.0,
+      "shape": {
+        "k": 512,
+        "lanes": 16,
+        "m": 1024,
+        "n": 512,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 16778302,
+        "cycles_ideal_network": 16778243,
+        "pass": true,
+        "pir_dags": 7,
+        "pir_mcs": 3,
+        "pir_pcus": 7,
+        "pir_pmus": 5,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_gemm_128x128x128",
+      "difference_pct": 1.186,
+      "key": "Logos_gemm_128x128x128/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 65803,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.988,
+      "shape": {
+        "k": 128,
+        "lanes": 16,
+        "m": 128,
+        "n": 128,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 66593,
+        "cycles_ideal_network": 66498,
+        "pass": true,
+        "pir_dags": 9,
+        "pir_mcs": 3,
+        "pir_pcus": 10,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 2.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_gemm_256x256x256",
+      "difference_pct": 0.07,
+      "key": "Logos_gemm_256x256x256/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 1048843,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.999,
+      "shape": {
+        "k": 256,
+        "lanes": 16,
+        "m": 256,
+        "n": 256,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 1049577,
+        "cycles_ideal_network": 1049559,
+        "pass": true,
+        "pir_dags": 7,
+        "pir_mcs": 3,
+        "pir_pcus": 7,
+        "pir_pmus": 5,
+        "plastiroute_best_score": 1.01,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_gemm_32x32x32",
+      "difference_pct": 7.383,
+      "key": "Logos_gemm_32x32x32/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 8455,
+        "lanes": 1,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.926,
+      "shape": {
+        "k": 32,
+        "lanes": 1,
+        "m": 32,
+        "n": 32,
+        "tile": 16
+      },
+      "simulated": {
+        "cycles_hybrid_network": 9129,
+        "cycles_ideal_network": 9065,
+        "pass": true,
+        "pir_dags": 0,
+        "pir_mcs": 4,
+        "pir_pcus": 28,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 1.52,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_gemm_640x640x640",
+      "difference_pct": 0.004,
+      "key": "Logos_gemm_640x640x640/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 16384267,
+        "lanes": 16,
+        "operand_stall_cycles": 256,
+        "pipeline_ii": 1,
+        "pmus": 4,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 1.0,
+      "shape": {
+        "k": 640,
+        "lanes": 16,
+        "m": 640,
+        "n": 640,
+        "tile": 64
+      },
+      "simulated": {
+        "cycles_hybrid_network": 16384986,
+        "cycles_ideal_network": 16384953,
+        "pass": true,
+        "pir_dags": 7,
+        "pir_mcs": 3,
+        "pir_pcus": 7,
+        "pir_pmus": 5,
+        "plastiroute_best_score": 0.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_gemm_64x64x64",
+      "difference_pct": 4.395,
+      "key": "Logos_gemm_64x64x64/20x20",
+      "kind": "gemm",
+      "lanes_agree": true,
+      "modeled": {
+        "ag_stages": 2,
+        "bound": "compute",
+        "compute_pcus": 1,
+        "cycles": 8267,
+        "lanes": 16,
+        "operand_stall_cycles": 64,
+        "pipeline_ii": 1,
+        "pmus": 2,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.956,
+      "shape": {
+        "k": 64,
+        "lanes": 16,
+        "m": 64,
+        "n": 64,
+        "tile": 32
+      },
+      "simulated": {
+        "cycles_hybrid_network": 8647,
+        "cycles_ideal_network": 8578,
+        "pass": true,
+        "pir_dags": 9,
+        "pir_mcs": 3,
+        "pir_pcus": 10,
+        "pir_pmus": 6,
+        "plastiroute_best_score": 1.51,
+        "provenance": "simulated_tungsten"
+      },
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_loop_affine",
+      "difference_pct": 1.878,
+      "key": "Logos_loop_affine/20x20",
+      "kind": "counted_loop",
+      "loop": {
+        "fn": "f",
+        "iterations": 30,
+        "params": [
+          30
+        ],
+        "vm_answer": 360309481165620
+      },
+      "modeled": {
+        "compute_pcus": 1,
+        "cycles": 209,
+        "fill_cycles": 6,
+        "pipeline_ii": 7,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.981,
+      "simulated": {
+        "cycles_hybrid_network": 213,
+        "cycles_ideal_network": 213,
+        "pass": true,
+        "pir_pcus": 0,
+        "pir_pmus": 1,
+        "provenance": "simulated_tungsten"
+      },
+      "simulated_cycles_per_iteration": 7.1,
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_loop_affine_deep",
+      "difference_pct": 2.797,
+      "key": "Logos_loop_affine_deep/20x20",
+      "kind": "counted_loop",
+      "loop": {
+        "fn": "f",
+        "iterations": 20,
+        "params": [
+          20
+        ],
+        "vm_answer": 5411114491293196
+      },
+      "modeled": {
+        "compute_pcus": 1,
+        "cycles": 139,
+        "fill_cycles": 6,
+        "pipeline_ii": 7,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.972,
+      "simulated": {
+        "cycles_hybrid_network": 143,
+        "cycles_ideal_network": 143,
+        "pass": true,
+        "pir_pcus": 0,
+        "pir_pmus": 1,
+        "provenance": "simulated_tungsten"
+      },
+      "simulated_cycles_per_iteration": 7.15,
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_loop_mul_chain",
+      "difference_pct": 4.598,
+      "key": "Logos_loop_mul_chain/20x20",
+      "kind": "counted_loop",
+      "loop": {
+        "fn": "f",
+        "iterations": 12,
+        "params": [
+          12
+        ],
+        "vm_answer": 550398467300832342
+      },
+      "modeled": {
+        "compute_pcus": 1,
+        "cycles": 83,
+        "fill_cycles": 6,
+        "pipeline_ii": 7,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.954,
+      "simulated": {
+        "cycles_hybrid_network": 87,
+        "cycles_ideal_network": 87,
+        "pass": true,
+        "pir_pcus": 0,
+        "pir_pmus": 1,
+        "provenance": "simulated_tungsten"
+      },
+      "simulated_cycles_per_iteration": 7.25,
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_loop_no_carry",
+      "difference_pct": 0.396,
+      "key": "Logos_loop_no_carry/20x20",
+      "kind": "counted_loop",
+      "loop": {
+        "fn": "f",
+        "iterations": 1000,
+        "params": [
+          1000
+        ],
+        "vm_answer": 7001
+      },
+      "modeled": {
+        "compute_pcus": 1,
+        "cycles": 1005,
+        "fill_cycles": 6,
+        "pipeline_ii": 1,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.996,
+      "simulated": {
+        "cycles_hybrid_network": 1009,
+        "cycles_ideal_network": 1009,
+        "pass": true,
+        "pir_pcus": 0,
+        "pir_pmus": 1,
+        "provenance": "simulated_tungsten"
+      },
+      "simulated_cycles_per_iteration": 1.009,
+      "target": "plasticine-tungsten-20x20-ddr4"
+    },
+    {
+      "app": "Logos_loop_sum",
+      "difference_pct": 0.057,
+      "key": "Logos_loop_sum/20x20",
+      "kind": "counted_loop",
+      "loop": {
+        "fn": "f",
+        "iterations": 1000,
+        "params": [
+          1000
+        ],
+        "vm_answer": 500501
+      },
+      "modeled": {
+        "compute_pcus": 1,
+        "cycles": 6999,
+        "fill_cycles": 6,
+        "pipeline_ii": 7,
+        "provenance": "modeled"
+      },
+      "modeled_over_simulated": 0.999,
+      "simulated": {
+        "cycles_hybrid_network": 7003,
+        "cycles_ideal_network": 7003,
+        "pass": true,
+        "pir_pcus": 0,
+        "pir_pmus": 1,
+        "provenance": "simulated_tungsten"
+      },
+      "simulated_cycles_per_iteration": 7.003,
+      "target": "plasticine-tungsten-20x20-ddr4"
+    }
+  ],
+  "tolerance_pct": 15.0,
+  "uncalibrated": [
+    {
+      "app": "BlackScholes_0",
+      "key": "BlackScholes_0/20x20",
+      "kind": "blackscholes",
+      "why": "the model has no elementwise-map row: Black-Scholes streams six columns through FIFOs into a chain of several hundred scalar operations per element, a dataflow graph the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_0",
+      "key": "GDA_0/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_1",
+      "key": "GDA_1/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_2",
+      "key": "GDA_2/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_3",
+      "key": "GDA_3/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_4",
+      "key": "GDA_4/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_5",
+      "key": "GDA_5/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_6",
+      "key": "GDA_6/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_7",
+      "key": "GDA_7/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "GDA_8",
+      "key": "GDA_8/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_0",
+      "key": "Kmeans_0/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_1",
+      "key": "Kmeans_1/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_2",
+      "key": "Kmeans_2/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_3",
+      "key": "Kmeans_3/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_4",
+      "key": "Kmeans_4/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_5",
+      "key": "Kmeans_5/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_6",
+      "key": "Kmeans_6/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_7",
+      "key": "Kmeans_7/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_8",
+      "key": "Kmeans_8/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Kmeans_9",
+      "key": "Kmeans_9/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_bs_131072_ts256_op1_ip16",
+      "key": "Logos_bs_131072_ts256_op1_ip16/20x20",
+      "kind": "blackscholes",
+      "why": "the model has no elementwise-map row: Black-Scholes streams six columns through FIFOs into a chain of several hundred scalar operations per element, a dataflow graph the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_256x128_ts128_op1_mp1x1_ip16",
+      "key": "Logos_gda_256x128_ts128_op1_mp1x1_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_256x128_ts128_op1_mp1x4_ip16",
+      "key": "Logos_gda_256x128_ts128_op1_mp1x4_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_256x128_ts128_op1_mp2x2_ip16",
+      "key": "Logos_gda_256x128_ts128_op1_mp2x2_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_256x128_ts128_op3_mp3x3_ip16",
+      "key": "Logos_gda_256x128_ts128_op3_mp3x3_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_64x32_ts32_op1_mp1x1_ip16",
+      "key": "Logos_gda_64x32_ts32_op1_mp1x1_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_64x32_ts32_op1_mp1x2_ip16",
+      "key": "Logos_gda_64x32_ts32_op1_mp1x2_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_64x32_ts32_op1_mp1x2_ip8",
+      "key": "Logos_gda_64x32_ts32_op1_mp1x2_ip8/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_64x32_ts32_op1_mp2x1_ip16",
+      "key": "Logos_gda_64x32_ts32_op1_mp2x1_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_gda_64x32_ts32_op1_mp2x2_ip16",
+      "key": "Logos_gda_64x32_ts32_op1_mp2x2_ip16/20x20",
+      "kind": "gda",
+      "why": "the model has no scatter-accumulation row: GDA centres each row and adds its outer product to a C x C tile under two nested MemReduces, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x1x1",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x1x1/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x1x2",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x1x2/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x2x1",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x2x1/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x2x2",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp1x2x2/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x1x1",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x1x1/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x1x2",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x1x2/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x2x1",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x2x1/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x2x2",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp2x2x2/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp3x3x3",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip16_op1_mp3x3x3/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_kmeans_256x64_k64_i2_ts128_ip1_op1_mp1x1x1",
+      "key": "Logos_kmeans_256x64_k64_i2_ts128_ip1_op1_mp1x1x1/20x20",
+      "kind": "kmeans",
+      "why": "the model has no clustering row: k-means runs epochs of a distance reduce per point and centroid, a min and an index reduce, and a one-hot MemReduce into the centroids, a pipeline the GEMM metapipeline does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x16x1_op1x1",
+      "key": "Logos_outer_256x256_ts64x32_ip16x16x1_op1x1/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x16x1_op1x3",
+      "key": "Logos_outer_256x256_ts64x32_ip16x16x1_op1x3/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x16x1_op2x2",
+      "key": "Logos_outer_256x256_ts64x32_ip16x16x1_op2x2/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x16x1_op3x1",
+      "key": "Logos_outer_256x256_ts64x32_ip16x16x1_op3x1/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x16x1_op3x3",
+      "key": "Logos_outer_256x256_ts64x32_ip16x16x1_op3x3/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x2x8_op1x1",
+      "key": "Logos_outer_256x256_ts64x32_ip16x2x8_op1x1/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x2x8_op1x2",
+      "key": "Logos_outer_256x256_ts64x32_ip16x2x8_op1x2/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip16x4x4_op1x2",
+      "key": "Logos_outer_256x256_ts64x32_ip16x4x4_op1x2/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip1x16x1_op1x1",
+      "key": "Logos_outer_256x256_ts64x32_ip1x16x1_op1x1/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip1x16x1_op1x2",
+      "key": "Logos_outer_256x256_ts64x32_ip1x16x1_op1x2/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip1x16x1_op2x1",
+      "key": "Logos_outer_256x256_ts64x32_ip1x16x1_op2x1/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_outer_256x256_ts64x32_ip1x16x1_op2x2",
+      "key": "Logos_outer_256x256_ts64x32_ip1x16x1_op2x2/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "Logos_tpchq6_1024_ts64_ip16_op1",
+      "key": "Logos_tpchq6_1024_ts64_ip16_op1/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "Logos_tpchq6_1024_ts64_ip16_op2",
+      "key": "Logos_tpchq6_1024_ts64_ip16_op2/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "Logos_tpchq6_1024_ts64_ip16_op3",
+      "key": "Logos_tpchq6_1024_ts64_ip16_op3/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "Logos_tpchq6_1024_ts64_ip16_op4",
+      "key": "Logos_tpchq6_1024_ts64_ip16_op4/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "Logos_tpchq6_1024_ts64_ip1_op1",
+      "key": "Logos_tpchq6_1024_ts64_ip1_op1/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "Logos_tpchq6_1024_ts64_ip1_op2",
+      "key": "Logos_tpchq6_1024_ts64_ip1_op2/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "OuterProduct_0",
+      "key": "OuterProduct_0/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_1",
+      "key": "OuterProduct_1/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_10",
+      "key": "OuterProduct_10/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_11",
+      "key": "OuterProduct_11/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_2",
+      "key": "OuterProduct_2/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_3",
+      "key": "OuterProduct_3/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_4",
+      "key": "OuterProduct_4/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_5",
+      "key": "OuterProduct_5/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_6",
+      "key": "OuterProduct_6/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_7",
+      "key": "OuterProduct_7/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_8",
+      "key": "OuterProduct_8/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "OuterProduct_9",
+      "key": "OuterProduct_9/20x20",
+      "kind": "outer",
+      "why": "the model has no outer-product row: its pipeline computes a ts1 x ts2 product tile and stores it whole, a store-bound pipeline the GEMM metapipeline (a MemReduce over K) does not describe"
+    },
+    {
+      "app": "TPCHQ6_0",
+      "key": "TPCHQ6_0/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "TPCHQ6_1",
+      "key": "TPCHQ6_1/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "TPCHQ6_2",
+      "key": "TPCHQ6_2/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "TPCHQ6_3",
+      "key": "TPCHQ6_3/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "TPCHQ6_4",
+      "key": "TPCHQ6_4/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    },
+    {
+      "app": "TPCHQ6_5",
+      "key": "TPCHQ6_5/20x20",
+      "kind": "tpchq6",
+      "why": "the model has no guarded-sum row: TPC-H Q6 streams four columns and selects per element, which the two-stream 1 x 1 x N GEMM a dot product is modeled as does not describe"
+    }
+  ],
+  "what": "For each app the public Plasticine toolchain simulated (Spatial → PIR → plastiroute → Tungsten), our MODELED row for the same shape, tile and unroll on the same mesh — the calibration an RDU engineer asks for before trusting a model. `simulated` numbers are the toolchain's (a cycle-accurate simulation of the paper's architecture, not silicon); `modeled` numbers are ours."
+}

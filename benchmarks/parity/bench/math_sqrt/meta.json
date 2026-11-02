@@ -1,0 +1,13 @@
+{
+  "capability": "math.sqrt",
+  "workload": "math.sqrt",
+  "arg": "1000000",
+  "expected": "666666665548",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "c",
+    "go",
+    "python",
+    "rust"
+  ]
+}

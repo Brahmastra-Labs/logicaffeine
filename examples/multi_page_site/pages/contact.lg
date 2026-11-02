@@ -1,0 +1,22 @@
+# Contact
+
+Import Layout.
+
+## Page /contact
+
+Head:
+    <title>Contact — Acme</title>
+
+View:
+    {extends Site}
+    {block content:}
+      <h1 id="title">Contact</h1>
+      <p id="body">reach us at hello@acme.example</p>
+    {end}
+
+## Test: the layout wraps the page and marks Contact active
+
+Expect that the text of "#title" is equal to "Contact".
+Expect that the count of "nav a" is equal to 3.
+Expect that the count of "nav a.active" is equal to 1.
+Expect that the text of "nav a.active" is equal to "Contact".

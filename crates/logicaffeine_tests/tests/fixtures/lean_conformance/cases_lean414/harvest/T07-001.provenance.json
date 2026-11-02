@@ -1,0 +1,92 @@
+{
+  "case": "T07-001",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t07_typeclasses/T07-001_class_declaration.lean",
+  "source_sha256": "b3d20677b27a784443f642412543c0352b93ceffaedcbc334907ac03ba6c6c8f",
+  "ledger_sha256": "2db4bddcc519dfd2b6751718f1075561bb957bfece267fa04b13de98f621d37b",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "expression_equality": "structural",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "5fecc2ebc45c62b618ec47705d47479117533676ae2f8e1e7e6740d941153224"
+  },
+  "exporter_olean_sha256": "1fa13a6a1051da6ee408ef0e558fa0dd73a2ce8d7aab25748081f9c75ed9e747",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T07_001.BigClass",
+    "T07_001.BigClass.mk",
+    "T07_001.BigClass.pick",
+    "T07_001.Lonely",
+    "T07_001.Lonely.mk",
+    "T07_001.Lonely.witness",
+    "T07_001.Magma",
+    "T07_001.Magma.mk",
+    "T07_001.Magma.op",
+    "T07_001.Magma.unit",
+    "T07_001.Pointed",
+    "T07_001.Pointed.mk",
+    "T07_001.Pointed.point",
+    "T07_001.PropClass",
+    "T07_001.PropClass.holds",
+    "T07_001.PropClass.mk",
+    "T07_001.combine",
+    "T07_001.getPoint",
+    "T07_001.instMagmaNat",
+    "T07_001.instPointedNat",
+    "T07_001.instPropClassNat",
+    "T07_001.useLonely"
+  ],
+  "declaration_selection": "explicit_authored_roots",
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "a8c59a0d168d49c51336bf9cef32a19548be534e9ae1d02994e8b5cde0e2ead4",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 696,
+  "harvest": {
+    "roots": [
+      "T07_001.BigClass",
+      "T07_001.BigClass.mk",
+      "T07_001.BigClass.pick",
+      "T07_001.Lonely",
+      "T07_001.Lonely.mk",
+      "T07_001.Lonely.witness",
+      "T07_001.Magma",
+      "T07_001.Magma.mk",
+      "T07_001.Magma.op",
+      "T07_001.Magma.unit",
+      "T07_001.Pointed",
+      "T07_001.Pointed.mk",
+      "T07_001.Pointed.point",
+      "T07_001.PropClass",
+      "T07_001.PropClass.holds",
+      "T07_001.PropClass.mk",
+      "T07_001.combine",
+      "T07_001.getPoint",
+      "T07_001.instMagmaNat",
+      "T07_001.instPointedNat",
+      "T07_001.instPropClassNat",
+      "T07_001.useLonely"
+    ],
+    "probe_binary_sha256": "bc0911f0cec1daff721f0c15636adcfa44a1a327e1a222e2a9accc8d1a20ab8a",
+    "reader_source_revision": "d09928932bfc82316b7f19b878766e27ddbc3a33+worktree reader-sha256:51b0a68295abf0e725dbd69793e5f60398aef15b56db5a60ab9d751acb943b5c",
+    "joint_export": true
+  }
+}

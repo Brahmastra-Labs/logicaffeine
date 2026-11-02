@@ -1,0 +1,24 @@
+{
+  "case": "T10-018",
+  "lean": "4.14.0",
+  "compiles": true,
+  "exit_code": 0,
+  "declaration_count": 2,
+  "declarations": [
+    {
+      "type": "Int \u2192 Int \u2192 Int",
+      "name": "T10_018.ediv'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    },
+    {
+      "type": "Int \u2192 Int \u2192 Int",
+      "name": "T10_018.emod'",
+      "levels": [],
+      "kind": "def",
+      "axioms": []
+    }
+  ],
+  "diagnostics": ""
+}

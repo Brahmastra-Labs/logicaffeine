@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "If you're bright then you're cheerful, or you're powerful",
   "options": [
-    "$ (B \\supset (C \\vee P)) $",
-    "$ ((B \\supset C) \\vee P) $",
-    "$ B \\supset C \\vee P $",
-    "$ (B \\supset C) \\vee P $"
+    "(B → C) ∧ P",
+    "(B → C) ∨ P",
+    "(B → C) → P",
+    "(B → C) ∨ ¬P"
   ],
   "correct": 1,
-  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
-  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Find the main connective: which 'or' joins the two largest parts?",
+  "explanation": "The main connective is ∨, joining B → C and P: (B → C) ∨ P.",
+  "section": "6.2"
 }

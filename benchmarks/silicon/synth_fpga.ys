@@ -1,0 +1,3 @@
+read_verilog rev_alu.v
+synth_ecp5 -top rev_alu
+stat

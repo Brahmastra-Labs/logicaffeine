@@ -15,8 +15,9 @@ on:
 
 # Architecture: archive once, run partitioned.
 #
-#   archive — compile every test binary ONCE and package them into a single
-#             ~3 GB nextest archive (NOT the 115 GB target/ dir, which blows
+#   archive — compile every test binary ONCE (the gate's test-opt profile) and package them
+#             into a single nextest archive in the runner's temp dir, never the checkout
+#             (NOT the target/ dir, which blows
 #             past the 10 GB cache limit). Uploaded as a short-lived artifact.
 #   test    — 3 jobs download the archive and run `--partition hash:K/3` against
 #             it via `--workspace-remap` (so the cargo-spawning e2e tests still
@@ -24,6 +25,8 @@ on:
 #             suite into 3 disjoint shards whose union is the whole thing, so
 #             every test runs exactly once across the matrix.
 #   extras  — web tests + doctests (the doc harness can't be archived).
+#   packaging — every published crate built from its own crates.io tarball.
+#   msrv    — every published crate checked on the declared minimum Rust.
 #   badge   — main only; publishes the test-count (suite-size) badge. Depends on
 #             `archive` alone (which computes the count), NOT on the test/extras
 #             passing — so the count never freezes behind a red suite.
@@ -57,14 +60,8 @@ env:
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Clink-arg=-fuse-ld=mold
   # Feature set for the main suite (kept in one place so every job agrees).
-  SUITE_FEATURES: logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification
+  SUITE_FEATURES: logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification,logicaffeine-tests/web-tests
   ARCHIVE: nextest-archive.tar.zst
-  # The SAT/coNP "P-vs-NP" research campaign probes are exploratory (minutes-to-HOURS
-  # each) and NOT correctness locks — run on purpose via scripts/run-research-tests.sh,
-  # never in the per-PR baseline. This mirrors RESEARCH_EXCLUDE in
-  # scripts/run-all-tests-fast.sh; keep the two in sync. Without it these probes hit the
-  # 30-min per-test terminate-after and fail the partitioned run.
-  RESEARCH_EXCLUDE: 'not binary(/^(cofactor_mirror|cofactor_climb|cofactor_lens|cofactor_family_counting|rigid_residue_census|sat_census|frege_generator_ladder|martin_lof_omega_kernel|reflection_mirror|orbit_stability_kernel|ultimate_symmetry_finder|hardness_retreat|hardness_witness_ladder|uniform_transfer_theorem|no_randomness_at_infinity|no_finite_randomness_infinity|family_emergence|pvnp_gunsight|ef_class_probe)$/)'
 
 jobs:
   archive:
@@ -79,7 +76,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Z3, mold, clang
-        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang jq
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang jq gcc-riscv64-linux-gnu qemu-user-static
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -91,12 +88,12 @@ jobs:
         run: |
           set -o pipefail
           cargo nextest archive --workspace --features "$SUITE_FEATURES" \
-            --profile full --archive-file "$ARCHIVE"
+            --profile full --cargo-profile test-opt --archive-file "$RUNNER_TEMP/$ARCHIVE"
 
       - name: Count tests (for badge)
         id: count
         run: |
-          N=$(cargo nextest list --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+          N=$(cargo nextest list --archive-file "$RUNNER_TEMP/$ARCHIVE" --workspace-remap "$PWD" \
                 --message-format json 2>/dev/null | jq '."test-count"' 2>/dev/null || true)
           if [ -z "$N" ] || [ "$N" = "null" ]; then N=0; fi
           echo "count=$N" >> "$GITHUB_OUTPUT"
@@ -106,7 +103,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nextest-archive
-          path: ${{ env.ARCHIVE }}
+          path: ${{ runner.temp }}/${{ env.ARCHIVE }}
           retention-days: 1
 
       - name: Build LSP binary
@@ -137,7 +134,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install Z3, mold, clang
-        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang gcc-riscv64-linux-gnu qemu-user-static iverilog qemu-user
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -149,8 +146,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: nextest-archive
+          path: ${{ runner.temp }}
 
       - name: Run tests — partition ${{ matrix.partition }}/3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # The tools this job installs, demanded: a test that needs one fails here if it is missing,
+          # rather than recording a skip, so the job cannot slide back into not running them.
+          LOGOS_REQUIRE_TOOLS: iverilog,qemu-riscv64,riscv64-linux-gnu-gcc
         run: |
           set -o pipefail
           # Nightly/on-demand: --run-ignored all so the fuzz/bench monsters run too.
@@ -158,9 +161,15 @@ jobs:
           case "${{ github.event_name }}" in
             schedule|workflow_dispatch) IGNORED="--run-ignored all" ;;
           esac
-          cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+          # The baseline's exclusions (the research campaign, the optimization audit, the heavy on-demand locks, the kernel-pending specs, the qemu corpus, the Arena
+          # mathlib cases, the real-checkpoint model bars) are read from scripts/run-all-tests-fast.sh
+          # itself, never restated here, so CI excludes exactly what the local gate excludes and
+          # each class keeps its one companion runner (ondemand_exclusion_lock pins both halves).
+          eval "$(grep -E '^(RESEARCH|OPT_AUDIT|HEAVY_ONDEMAND|KERNEL_PENDING|QEMU_CORPUS|ARENA_MATHLIB|MODEL_BARS)_EXCLUDE=' scripts/run-all-tests-fast.sh)"
+          BASELINE_FILTER="$RESEARCH_EXCLUDE and $OPT_AUDIT_EXCLUDE and $HEAVY_ONDEMAND_EXCLUDE and $KERNEL_PENDING_EXCLUDE and $QEMU_CORPUS_EXCLUDE and $ARENA_MATHLIB_EXCLUDE and $MODEL_BARS_EXCLUDE"
+          cargo nextest run --archive-file "$RUNNER_TEMP/$ARCHIVE" --workspace-remap "$PWD" \
             --profile full --retries 1 $IGNORED \
-            -E "$RESEARCH_EXCLUDE" \
+            -E "$BASELINE_FILTER" \
             --partition hash:${{ matrix.partition }}/3
 
       # The forge `mul` grounding gate is `#[ignore]`d so the LOCAL --no-ignored
@@ -172,7 +181,7 @@ jobs:
         if: matrix.partition == 1 && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
         run: |
           set -o pipefail
-          cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+          cargo nextest run --archive-file "$RUNNER_TEMP/$ARCHIVE" --workspace-remap "$PWD" \
             --profile full --run-ignored ignored-only \
             -E 'test(witness_three_way_agreement_heavy) + test(all_specs_satisfiable_heavy)'
 
@@ -190,7 +199,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Install Z3, mold, clang
-        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang gcc-riscv64-linux-gnu qemu-user-static iverilog qemu-user
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -202,12 +211,12 @@ jobs:
         run: |
           set -o pipefail
           # The web-tests feature pulls in the whole logicaffeine-web (Dioxus) crate.
-          # Scope to the three web-gated test binaries so this step compiles the web
+          # Scope to the two web-gated test binaries so this step compiles the web
           # app + those tests ONLY — not a second full run of the entire
           # logicaffeine-tests suite (already covered by the partitions), whose slow
           # e2e cargo-build tests pushed this step past the 45-min job timeout.
-          cargo nextest run -p logicaffeine-tests --features web-tests --profile full --retries 1 \
-            --test struggle_tests --test unlock_logic_tests --test learn_state_tests
+          cargo nextest run -p logicaffeine-tests --features web-tests --profile full --cargo-profile test-opt --retries 1 \
+            --test struggle_tests --test learn_state_tests
 
       # The CLI's verification feature (largo-full's substrate) must keep
       # compiling — release.yml builds it only on tags, so gate it per-PR
@@ -238,13 +247,96 @@ jobs:
           case "${{ github.event_name }}" in
             schedule|workflow_dispatch) IGNORED="--run-ignored all" ;;
           esac
-          cargo nextest run -p logicaffeine-compile --features wasm-jit --profile full --retries 1 $IGNORED \
-            -E 'binary(wasm_jit_differential) + test(wasm_jit)'
+          # The filterset is the ONE source of truth shared with the local runner;
+          # `wasm_gated_suite_lock` derives it from the gated test sources, so a new
+          # gated binary that is not listed fails the default pass instead of going dark.
+          cargo nextest run -p logicaffeine-compile -p logicaffeine-tests --features wasm-jit --profile full --cargo-profile test-opt --retries 1 $IGNORED \
+            --lib $(scripts/test/wasm-jit-targets.sh) \
+            -E "$(cat scripts/test/wasm-jit-filter.txt)"
+
+      # A LOGOS page in a REAL browser: the only check that is not one tier compared against
+      # another. The ubuntu runners ship Chrome, and `LOGOS_REQUIRE_TOOLS=chrome` (set inside the
+      # script) makes a MISSING browser a loud failure here rather than a skip — a smoke test that
+      # can silently skip in CI is a smoke test that stops being run.
+      - name: Browser smoke (a built LOGOS page in headless Chrome)
+        run: ./scripts/web/test-web-smoke.sh
+
+  # Every published crate builds from exactly the tarball crates.io would receive
+  # (scripts/check-packaging.sh): an embed reaching outside its crate, a file its
+  # `include` allowlist leaves out, a docs.rs feature set that no longer builds, or an
+  # oversized tarball fails here, not on docs.rs or in `cargo install` after a release.
+  packaging:
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build every published crate from its own tarball
+        run: ./scripts/check-packaging.sh
+
+  # The declared minimum Rust (`rust-version` in the root Cargo.toml) is built here on exactly that
+  # toolchain, against the locked dependency graph, so the number a downstream user trusts is one CI
+  # proves. packaging_lock pins this toolchain to the declared value.
+  msrv:
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the declared minimum Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check every published crate on the declared minimum
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLISHED=$(cargo metadata --format-version 1 --no-deps | python3 -c '
+          import json, sys
+          print(" ".join("-p " + p["name"] for p in json.load(sys.stdin)["packages"] if p["publish"] is None))
+          ')
+          cargo check --locked $PUBLISHED
+
+  # The docs site exactly as deploy-docs builds it, rustdoc lints included (build.sh sets them: a dead intra-doc
+  # link or a bare URL fails the build), on every push and PR; deploy-docs itself runs only after Tests pass on main.
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the docs site
+        run: ./apps/logicaffeine_docs/build.sh
 
   # VSCode extension: lint, typecheck, packaging/version locks (vsce ls — no
   # VSCode download), then the real editor under xvfb against a debug LSP build.
   extension:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
       run:
@@ -299,7 +391,7 @@ jobs:
   badge:
     needs: [archive]
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

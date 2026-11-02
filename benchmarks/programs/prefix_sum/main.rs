@@ -11,5 +11,9 @@ fn main() {
     for i in 1..n {
         arr[i] = (arr[i] + arr[i - 1]) % 1000000007;
     }
-    println!("{}", arr[n - 1]);
+    let mut h: i64 = 0;
+    for &v in &arr {
+        h = (h * 31 + v) & 268435455;
+    }
+    println!("{} {}", arr[n - 1], h);
 }

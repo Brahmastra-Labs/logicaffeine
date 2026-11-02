@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Necessarily, if you're a biologist then you're cruel",
   "options": [
-    "$ \\square (B \\supset C) $",
-    "Ambiguous between 1 & 4",
-    "$ \\square B \\supset C $",
-    "$ (B \\supset \\square C) $"
+    "□(B → C)",
+    "Ambiguous between 1 and 4",
+    "□B → C",
+    "B → □C"
   ],
   "correct": 0,
-  "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
-  "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
+  "hint": "Does 'necessarily' come before the whole if then?",
+  "explanation": "'Necessarily' leads the sentence, so it covers the whole conditional: □(B → C).",
+  "section": "10.2"
 }

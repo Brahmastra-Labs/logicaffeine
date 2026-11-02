@@ -1,0 +1,11 @@
+{
+  "capability": "text.cut_before",
+  "workload": "cutBefore(s,'0') \u2014 length of prefix",
+  "arg": "60000",
+  "expected": "3330000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go",
+    "python"
+  ]
+}

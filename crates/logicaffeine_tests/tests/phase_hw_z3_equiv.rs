@@ -5,9 +5,8 @@
 //! Z3-dependent tests are behind #[cfg(feature = "verification")].
 
 use logicaffeine_compile::codegen_sva::hw_pipeline::{
-    check_structural_equivalence, check_bounded_equivalence,
-    translate_sva_to_bounded, translate_spec_to_bounded,
-    compile_hw_spec, emit_hw_sva, EquivalenceResult,
+    check_bounded_equivalence, check_structural_equivalence, compile_hw_spec, emit_hw_sva,
+    translate_spec_to_bounded, translate_sva_to_bounded,
 };
 use logicaffeine_compile::codegen_sva::sva_to_verify::BoundedExpr;
 use logicaffeine_compile::codegen_sva::SvaAssertionKind;
@@ -18,32 +17,27 @@ use logicaffeine_compile::codegen_sva::SvaAssertionKind;
 
 #[test]
 fn structural_equiv_identical_mutex() {
-    let result = check_structural_equivalence(
-        "!(grant_a && grant_b)",
-        "!(grant_a && grant_b)",
-    )
-    .unwrap();
-    assert!(result, "Identical mutex SVAs should be structurally equivalent");
+    let result =
+        check_structural_equivalence("!(grant_a && grant_b)", "!(grant_a && grant_b)").unwrap();
+    assert!(
+        result,
+        "Identical mutex SVAs should be structurally equivalent"
+    );
 }
 
 #[test]
 fn structural_equiv_different_signals_fail() {
-    let result = check_structural_equivalence(
-        "req |-> ack",
-        "req |-> done",
-    )
-    .unwrap();
+    let result = check_structural_equivalence("req |-> ack", "req |-> done").unwrap();
     assert!(!result, "Different signals should not be equivalent");
 }
 
 #[test]
 fn structural_equiv_different_operators_fail() {
-    let result = check_structural_equivalence(
-        "req |-> ack",
-        "req |=> ack",
-    )
-    .unwrap();
-    assert!(!result, "Different implication types should not be equivalent");
+    let result = check_structural_equivalence("req |-> ack", "req |=> ack").unwrap();
+    assert!(
+        !result,
+        "Different implication types should not be equivalent"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -54,15 +48,21 @@ fn structural_equiv_different_operators_fail() {
 fn translate_sva_to_bounded_mutex() {
     let result = translate_sva_to_bounded("!(grant_a && grant_b)", 5).unwrap();
     // Should produce a conjunction of 5 timesteps, each with !(ga && gb)
-    let leaf_count = logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&result.expr);
+    let leaf_count =
+        logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&result.expr);
     assert_eq!(leaf_count, 5, "Mutex at bound=5 should have 5 And-leaves");
 }
 
 #[test]
 fn translate_spec_to_bounded_always() {
     let result = translate_spec_to_bounded("Always, every dog runs.", 3).unwrap();
-    let leaf_count = logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&result.expr);
-    assert!(leaf_count >= 3, "G at bound=3 should have >= 3 And-leaves, got {}", leaf_count);
+    let leaf_count =
+        logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&result.expr);
+    assert!(
+        leaf_count >= 3,
+        "G at bound=3 should have >= 3 And-leaves, got {}",
+        leaf_count
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -80,7 +80,10 @@ fn bounded_equiv_identical_exprs() {
         Box::new(BoundedExpr::Var("req@1".into())),
     );
     let result = check_bounded_equivalence(&a, &b, 2);
-    assert!(result.equivalent, "Identical bounded exprs should be equivalent");
+    assert!(
+        result.equivalent,
+        "Identical bounded exprs should be equivalent"
+    );
 }
 
 #[test]
@@ -88,7 +91,10 @@ fn bounded_equiv_different_exprs() {
     let a = BoundedExpr::Var("req@0".into());
     let b = BoundedExpr::Var("ack@0".into());
     let result = check_bounded_equivalence(&a, &b, 1);
-    assert!(!result.equivalent, "Different vars should not be equivalent");
+    assert!(
+        !result.equivalent,
+        "Different vars should not be equivalent"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -98,15 +104,29 @@ fn bounded_equiv_different_exprs() {
 #[test]
 fn compile_hw_spec_returns_fol() {
     let fol = compile_hw_spec("Every dog runs.").unwrap();
-    assert!(fol.contains("Run") || fol.contains("run"), "FOL should contain Run predicate");
+    assert!(
+        fol.contains("Run") || fol.contains("run"),
+        "FOL should contain Run predicate"
+    );
 }
 
 #[test]
 fn emit_hw_sva_generates_property() {
-    let sva = emit_hw_sva("Mutex", "clk", "!(grant_a && grant_b)", SvaAssertionKind::Assert);
-    assert!(sva.contains("property p_mutex"), "Should contain property name");
+    let sva = emit_hw_sva(
+        "Mutex",
+        "clk",
+        "!(grant_a && grant_b)",
+        SvaAssertionKind::Assert,
+    );
+    assert!(
+        sva.contains("property p_mutex"),
+        "Should contain property name"
+    );
     assert!(sva.contains("@(posedge clk)"), "Should contain clock edge");
-    assert!(sva.contains("assert property"), "Should have assert wrapper");
+    assert!(
+        sva.contains("assert property"),
+        "Should have assert wrapper"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -117,10 +137,18 @@ fn emit_hw_sva_generates_property() {
 fn e2e_spec_and_sva_translate_to_bounded() {
     // Both sides should translate without error
     let spec_bounded = translate_spec_to_bounded("Always, John runs.", 3);
-    assert!(spec_bounded.is_ok(), "Spec should translate: {:?}", spec_bounded.err());
+    assert!(
+        spec_bounded.is_ok(),
+        "Spec should translate: {:?}",
+        spec_bounded.err()
+    );
 
     let sva_bounded = translate_sva_to_bounded("req |-> ack", 3);
-    assert!(sva_bounded.is_ok(), "SVA should translate: {:?}", sva_bounded.err());
+    assert!(
+        sva_bounded.is_ok(),
+        "SVA should translate: {:?}",
+        sva_bounded.err()
+    );
 }
 
 #[test]
@@ -135,10 +163,10 @@ fn e2e_sva_parse_error_propagates() {
 
 #[cfg(feature = "verification")]
 mod z3_semantic {
+    use logicaffeine_compile::codegen_sva::hw_pipeline::translate_sva_to_bounded;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
     use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
     use logicaffeine_verify::{VerifyExpr, VerifyOp};
-    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
-    use logicaffeine_compile::codegen_sva::hw_pipeline::translate_sva_to_bounded;
 
     // ═══════════════════════════════════════════════════
     // SIMPLE BOOLEAN EQUIVALENCE
@@ -146,55 +174,72 @@ mod z3_semantic {
 
     #[test]
     fn z3_identical_formulas_are_equivalent() {
-        let expr = VerifyExpr::binary(VerifyOp::Implies,
+        let expr = VerifyExpr::binary(
+            VerifyOp::Implies,
             VerifyExpr::Var("req@0".into()),
             VerifyExpr::Var("ack@0".into()),
         );
         let result = check_equivalence(&expr, &expr, &["req".into(), "ack".into()], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Identical formulas must be equivalent. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Identical formulas must be equivalent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_different_formulas_are_not_equivalent() {
         // req@0 → ack@0 ≢ ack@0 → req@0
-        let fol = VerifyExpr::binary(VerifyOp::Implies,
+        let fol = VerifyExpr::binary(
+            VerifyOp::Implies,
             VerifyExpr::Var("req@0".into()),
             VerifyExpr::Var("ack@0".into()),
         );
-        let sva = VerifyExpr::binary(VerifyOp::Implies,
+        let sva = VerifyExpr::binary(
+            VerifyOp::Implies,
             VerifyExpr::Var("ack@0".into()),
             VerifyExpr::Var("req@0".into()),
         );
         let result = check_equivalence(&fol, &sva, &["req".into(), "ack".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "req→ack must NOT equal ack→req. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "req→ack must NOT equal ack→req. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_tautology_equivalent_to_true() {
         // (p ∨ ¬p) ≡ true
-        let taut = VerifyExpr::binary(VerifyOp::Or,
+        let taut = VerifyExpr::binary(
+            VerifyOp::Or,
             VerifyExpr::Var("p@0".into()),
             VerifyExpr::not(VerifyExpr::Var("p@0".into())),
         );
         let t = VerifyExpr::Bool(true);
         let result = check_equivalence(&taut, &t, &["p".into()], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "(p ∨ ¬p) must equal true. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "(p ∨ ¬p) must equal true. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_contradiction_not_equivalent_to_true() {
         // (p ∧ ¬p) ≢ true
-        let contra = VerifyExpr::binary(VerifyOp::And,
+        let contra = VerifyExpr::binary(
+            VerifyOp::And,
             VerifyExpr::Var("p@0".into()),
             VerifyExpr::not(VerifyExpr::Var("p@0".into())),
         );
         let t = VerifyExpr::Bool(true);
         let result = check_equivalence(&contra, &t, &["p".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "(p ∧ ¬p) must NOT equal true. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "(p ∧ ¬p) must NOT equal true. Got: {:?}",
+            result
+        );
     }
 
     // ═══════════════════════════════════════════════════
@@ -203,7 +248,8 @@ mod z3_semantic {
 
     #[test]
     fn z3_counterexample_has_signal_values() {
-        let fol = VerifyExpr::binary(VerifyOp::Implies,
+        let fol = VerifyExpr::binary(
+            VerifyOp::Implies,
             VerifyExpr::Var("req@0".into()),
             VerifyExpr::Var("ack@0".into()),
         );
@@ -211,11 +257,15 @@ mod z3_semantic {
         let result = check_equivalence(&fol, &sva, &["req".into(), "ack".into()], 1);
         match result {
             EquivalenceResult::NotEquivalent { counterexample } => {
-                assert!(!counterexample.cycles.is_empty(),
-                    "Counterexample must have at least one cycle");
+                assert!(
+                    !counterexample.cycles.is_empty(),
+                    "Counterexample must have at least one cycle"
+                );
                 let first = &counterexample.cycles[0];
-                assert!(!first.signals.is_empty(),
-                    "Counterexample cycle must have signal assignments");
+                assert!(
+                    !first.signals.is_empty(),
+                    "Counterexample cycle must have signal assignments"
+                );
             }
             _ => panic!("req→ack should NOT equal bare ack. Got: {:?}", result),
         }
@@ -225,11 +275,13 @@ mod z3_semantic {
     fn z3_counterexample_identifies_divergent_signals() {
         // FOL: req@0 → ack@0 (if req then ack)
         // SVA: ack@0 → req@0 (if ack then req) — REVERSED
-        let fol = VerifyExpr::binary(VerifyOp::Implies,
+        let fol = VerifyExpr::binary(
+            VerifyOp::Implies,
             VerifyExpr::Var("req@0".into()),
             VerifyExpr::Var("ack@0".into()),
         );
-        let sva = VerifyExpr::binary(VerifyOp::Implies,
+        let sva = VerifyExpr::binary(
+            VerifyOp::Implies,
             VerifyExpr::Var("ack@0".into()),
             VerifyExpr::Var("req@0".into()),
         );
@@ -238,10 +290,16 @@ mod z3_semantic {
             EquivalenceResult::NotEquivalent { counterexample } => {
                 let cycle = &counterexample.cycles[0];
                 // The counterexample should have values for req and ack
-                assert!(cycle.signals.contains_key("req"),
-                    "Counterexample must include req. Got signals: {:?}", cycle.signals);
-                assert!(cycle.signals.contains_key("ack"),
-                    "Counterexample must include ack. Got signals: {:?}", cycle.signals);
+                assert!(
+                    cycle.signals.contains_key("req"),
+                    "Counterexample must include req. Got signals: {:?}",
+                    cycle.signals
+                );
+                assert!(
+                    cycle.signals.contains_key("ack"),
+                    "Counterexample must include ack. Got signals: {:?}",
+                    cycle.signals
+                );
             }
             _ => panic!("Should be not equivalent"),
         }
@@ -259,11 +317,16 @@ mod z3_semantic {
         let verify_a = bounded_to_verify(&sva_a.expr);
         let verify_b = bounded_to_verify(&sva_b.expr);
         let result = check_equivalence(
-            &verify_a, &verify_b,
-            &["grant_a".into(), "grant_b".into()], 3,
+            &verify_a,
+            &verify_b,
+            &["grant_a".into(), "grant_b".into()],
+            3,
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Same SVA must be semantically equivalent. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Same SVA must be semantically equivalent. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -273,12 +336,12 @@ mod z3_semantic {
         let sva_b = translate_sva_to_bounded("ack |-> req", 3).unwrap();
         let verify_a = bounded_to_verify(&sva_a.expr);
         let verify_b = bounded_to_verify(&sva_b.expr);
-        let result = check_equivalence(
-            &verify_a, &verify_b,
-            &["req".into(), "ack".into()], 3,
+        let result = check_equivalence(&verify_a, &verify_b, &["req".into(), "ack".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "req|->ack must NOT equal ack|->req. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "req|->ack must NOT equal ack|->req. Got: {:?}", result);
     }
 
     #[test]
@@ -288,12 +351,12 @@ mod z3_semantic {
         let sva_b = translate_sva_to_bounded("req |=> ack", 3).unwrap();
         let verify_a = bounded_to_verify(&sva_a.expr);
         let verify_b = bounded_to_verify(&sva_b.expr);
-        let result = check_equivalence(
-            &verify_a, &verify_b,
-            &["req".into(), "ack".into()], 3,
+        let result = check_equivalence(&verify_a, &verify_b, &["req".into(), "ack".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "|-> must differ from |=> (overlapping vs non-overlapping). Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "|-> must differ from |=> (overlapping vs non-overlapping). Got: {:?}", result);
     }
 
     #[test]
@@ -303,12 +366,12 @@ mod z3_semantic {
         let sva_b = translate_sva_to_bounded("req |-> ack", 5).unwrap();
         let verify_a = bounded_to_verify(&sva_a.expr);
         let verify_b = bounded_to_verify(&sva_b.expr);
-        let result = check_equivalence(
-            &verify_a, &verify_b,
-            &["req".into(), "ack".into()], 5,
+        let result = check_equivalence(&verify_a, &verify_b, &["req".into(), "ack".into()], 5);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "s_eventually(ack) should differ from immediate ack. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "s_eventually(ack) should differ from immediate ack. Got: {:?}", result);
     }
 
     // ═══════════════════════════════════════════════════
@@ -323,11 +386,16 @@ mod z3_semantic {
         let verify_lhs = bounded_to_verify(&lhs.expr);
         let verify_rhs = bounded_to_verify(&rhs_a.expr);
         let result = check_equivalence(
-            &verify_lhs, &verify_rhs,
-            &["grant_a".into(), "grant_b".into()], 3,
+            &verify_lhs,
+            &verify_rhs,
+            &["grant_a".into(), "grant_b".into()],
+            3,
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "De Morgan: !(a&&b) must equal (!a||!b). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "De Morgan: !(a&&b) must equal (!a||!b). Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -337,12 +405,12 @@ mod z3_semantic {
         let rhs = translate_sva_to_bounded("!req && !ack", 3).unwrap();
         let verify_lhs = bounded_to_verify(&lhs.expr);
         let verify_rhs = bounded_to_verify(&rhs.expr);
-        let result = check_equivalence(
-            &verify_lhs, &verify_rhs,
-            &["req".into(), "ack".into()], 3,
+        let result = check_equivalence(&verify_lhs, &verify_rhs, &["req".into(), "ack".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "De Morgan: !(a||b) must equal (!a&&!b). Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "De Morgan: !(a||b) must equal (!a&&!b). Got: {:?}", result);
     }
 
     #[test]
@@ -352,12 +420,12 @@ mod z3_semantic {
         let rhs = translate_sva_to_bounded("!req || ack", 3).unwrap();
         let verify_lhs = bounded_to_verify(&lhs.expr);
         let verify_rhs = bounded_to_verify(&rhs.expr);
-        let result = check_equivalence(
-            &verify_lhs, &verify_rhs,
-            &["req".into(), "ack".into()], 3,
+        let result = check_equivalence(&verify_lhs, &verify_rhs, &["req".into(), "ack".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Implication: (a→b) must equal (¬a∨b). Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Implication: (a→b) must equal (¬a∨b). Got: {:?}", result);
     }
 
     #[test]
@@ -367,12 +435,12 @@ mod z3_semantic {
         let rhs = translate_sva_to_bounded("valid", 3).unwrap();
         let verify_lhs = bounded_to_verify(&lhs.expr);
         let verify_rhs = bounded_to_verify(&rhs.expr);
-        let result = check_equivalence(
-            &verify_lhs, &verify_rhs,
-            &["valid".into()], 3,
+        let result = check_equivalence(&verify_lhs, &verify_rhs, &["valid".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "!!p must equal p. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "!!p must equal p. Got: {:?}", result);
     }
 
     // ═══════════════════════════════════════════════════
@@ -386,12 +454,13 @@ mod z3_semantic {
         let form2 = translate_sva_to_bounded("!grant_a || !grant_b", 5).unwrap();
         let verify1 = bounded_to_verify(&form1.expr);
         let verify2 = bounded_to_verify(&form2.expr);
-        let result = check_equivalence(
-            &verify1, &verify2,
-            &["grant_a".into(), "grant_b".into()], 5,
+        let result =
+            check_equivalence(&verify1, &verify2, &["grant_a".into(), "grant_b".into()], 5);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Mutex formulations must be equivalent. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Mutex formulations must be equivalent. Got: {:?}", result);
     }
 
     #[test]
@@ -403,11 +472,16 @@ mod z3_semantic {
         let verify_strong = bounded_to_verify(&strong.expr);
         let verify_weak = bounded_to_verify(&weak.expr);
         let result = check_equivalence(
-            &verify_strong, &verify_weak,
-            &["req".into(), "ack".into()], 5,
+            &verify_strong,
+            &verify_weak,
+            &["req".into(), "ack".into()],
+            5,
         );
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "##[1:3] must NOT equal ##[1:5]. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "##[1:3] must NOT equal ##[1:5]. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -418,28 +492,40 @@ mod z3_semantic {
         let b = translate_sva_to_bounded("req |-> ##1 ack", 3).unwrap();
         let verify_a = bounded_to_verify(&a.expr);
         let verify_b = bounded_to_verify(&b.expr);
-        let result = check_equivalence(
-            &verify_a, &verify_b,
-            &["req".into(), "ack".into()], 3,
+        let result = check_equivalence(&verify_a, &verify_b, &["req".into(), "ack".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "|=> must equal |-> ##1. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "|=> must equal |-> ##1. Got: {:?}", result);
     }
 
     #[test]
     fn z3_axi_write_handshake_self_consistent() {
         // Three AXI properties should be self-consistent
         let p1 = translate_sva_to_bounded("AWVALID |-> s_eventually(AWREADY)", 5).unwrap();
-        let p2 = translate_sva_to_bounded("(AWVALID && AWREADY) |-> s_eventually(WVALID)", 5).unwrap();
-        let p3 = translate_sva_to_bounded("(WVALID && WREADY) |-> s_eventually(BVALID)", 5).unwrap();
+        let p2 =
+            translate_sva_to_bounded("(AWVALID && AWREADY) |-> s_eventually(WVALID)", 5).unwrap();
+        let p3 =
+            translate_sva_to_bounded("(WVALID && WREADY) |-> s_eventually(BVALID)", 5).unwrap();
 
         // Each property should be self-equivalent
         let v1 = bounded_to_verify(&p1.expr);
         let v2 = bounded_to_verify(&p2.expr);
         let v3 = bounded_to_verify(&p3.expr);
         let r1 = check_equivalence(&v1, &v1, &["AWVALID".into(), "AWREADY".into()], 5);
-        let r2 = check_equivalence(&v2, &v2, &["AWVALID".into(), "AWREADY".into(), "WVALID".into()], 5);
-        let r3 = check_equivalence(&v3, &v3, &["WVALID".into(), "WREADY".into(), "BVALID".into()], 5);
+        let r2 = check_equivalence(
+            &v2,
+            &v2,
+            &["AWVALID".into(), "AWREADY".into(), "WVALID".into()],
+            5,
+        );
+        let r3 = check_equivalence(
+            &v3,
+            &v3,
+            &["WVALID".into(), "WREADY".into(), "BVALID".into()],
+            5,
+        );
         assert!(matches!(r1, EquivalenceResult::Equivalent));
         assert!(matches!(r2, EquivalenceResult::Equivalent));
         assert!(matches!(r3, EquivalenceResult::Equivalent));
@@ -456,12 +542,12 @@ mod z3_semantic {
         let past_eq = translate_sva_to_bounded("sig == $past(sig, 1)", 3).unwrap();
         let verify_stable = bounded_to_verify(&stable.expr);
         let verify_past = bounded_to_verify(&past_eq.expr);
-        let result = check_equivalence(
-            &verify_stable, &verify_past,
-            &["sig".into()], 3,
+        let result = check_equivalence(&verify_stable, &verify_past, &["sig".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "$stable(sig) must equal sig==$past(sig,1). Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "$stable(sig) must equal sig==$past(sig,1). Got: {:?}", result);
     }
 
     #[test]
@@ -471,12 +557,12 @@ mod z3_semantic {
         let not_stable = translate_sva_to_bounded("!$stable(sig)", 3).unwrap();
         let verify_changed = bounded_to_verify(&changed.expr);
         let verify_not_stable = bounded_to_verify(&not_stable.expr);
-        let result = check_equivalence(
-            &verify_changed, &verify_not_stable,
-            &["sig".into()], 3,
+        let result = check_equivalence(&verify_changed, &verify_not_stable, &["sig".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "$changed must equal !$stable. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "$changed must equal !$stable. Got: {:?}", result);
     }
 
     #[test]
@@ -486,12 +572,12 @@ mod z3_semantic {
         let delay = translate_sva_to_bounded("##1 valid", 3).unwrap();
         let verify_nt = bounded_to_verify(&nt.expr);
         let verify_delay = bounded_to_verify(&delay.expr);
-        let result = check_equivalence(
-            &verify_nt, &verify_delay,
-            &["valid".into()], 3,
+        let result = check_equivalence(&verify_nt, &verify_delay, &["valid".into()], 3);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "nexttime(P) must equal ##1 P. Got: {:?}",
+            result
         );
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "nexttime(P) must equal ##1 P. Got: {:?}", result);
     }
 
     #[test]
@@ -501,17 +587,19 @@ mod z3_semantic {
         let rhs = translate_sva_to_bounded("req |-> ##[1:10] ack", 10).unwrap();
         let verify_lhs = bounded_to_verify(&lhs.expr);
         let verify_rhs = bounded_to_verify(&rhs.expr);
-        let result = check_equivalence(
-            &verify_lhs, &verify_rhs,
-            &["req".into(), "ack".into()], 10,
-        );
+        let result = check_equivalence(&verify_lhs, &verify_rhs, &["req".into(), "ack".into()], 10);
         match result {
             EquivalenceResult::NotEquivalent { counterexample } => {
                 // Should have cycles up to bound
-                assert!(!counterexample.cycles.is_empty(),
-                    "Counterexample at bound=10 must have cycles");
+                assert!(
+                    !counterexample.cycles.is_empty(),
+                    "Counterexample at bound=10 must have cycles"
+                );
             }
-            _ => panic!("Should be not equivalent at different bounds. Got: {:?}", result),
+            _ => panic!(
+                "Should be not equivalent at different bounds. Got: {:?}",
+                result
+            ),
         }
     }
 
@@ -525,67 +613,88 @@ mod z3_semantic {
     fn z3_does_not_overapproximate_arithmetic() {
         // Gt(x, 5) is NOT equivalent to Lt(y, 3) — different variables, different predicates.
         // Before Sprint 0A fix, both would become `true` in Z3, making them falsely equivalent.
-        let lhs = VerifyExpr::binary(VerifyOp::Gt,
+        let lhs = VerifyExpr::binary(
+            VerifyOp::Gt,
             VerifyExpr::Var("x@0".into()),
             VerifyExpr::Int(5),
         );
-        let rhs = VerifyExpr::binary(VerifyOp::Lt,
+        let rhs = VerifyExpr::binary(
+            VerifyOp::Lt,
             VerifyExpr::Var("y@0".into()),
             VerifyExpr::Int(3),
         );
         let result = check_equivalence(&lhs, &rhs, &["x".into(), "y".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "Gt(x,5) must NOT equal Lt(y,3). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "Gt(x,5) must NOT equal Lt(y,3). Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_integer_equality_works() {
         // Eq(x, 5) should be equivalent to itself.
-        let expr = VerifyExpr::binary(VerifyOp::Eq,
+        let expr = VerifyExpr::binary(
+            VerifyOp::Eq,
             VerifyExpr::Var("x@0".into()),
             VerifyExpr::Int(5),
         );
         let result = check_equivalence(&expr, &expr, &["x".into()], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "Eq(x,5) must equal Eq(x,5). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "Eq(x,5) must equal Eq(x,5). Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_integer_inequality_detected() {
         // Gt(x, 5) is NOT equivalent to Lt(x, 5) — opposite predicates on same variable.
-        let lhs = VerifyExpr::binary(VerifyOp::Gt,
+        let lhs = VerifyExpr::binary(
+            VerifyOp::Gt,
             VerifyExpr::Var("x@0".into()),
             VerifyExpr::Int(5),
         );
-        let rhs = VerifyExpr::binary(VerifyOp::Lt,
+        let rhs = VerifyExpr::binary(
+            VerifyOp::Lt,
             VerifyExpr::Var("x@0".into()),
             VerifyExpr::Int(5),
         );
         let result = check_equivalence(&lhs, &rhs, &["x".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "Gt(x,5) must NOT equal Lt(x,5). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "Gt(x,5) must NOT equal Lt(x,5). Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_mixed_boolean_integer() {
         // And(valid, Gt(count, 0)) is NOT equivalent to And(valid, Lt(count, 0))
-        let lhs = VerifyExpr::binary(VerifyOp::And,
+        let lhs = VerifyExpr::binary(
+            VerifyOp::And,
             VerifyExpr::Var("valid@0".into()),
-            VerifyExpr::binary(VerifyOp::Gt,
+            VerifyExpr::binary(
+                VerifyOp::Gt,
                 VerifyExpr::Var("count@0".into()),
                 VerifyExpr::Int(0),
             ),
         );
-        let rhs = VerifyExpr::binary(VerifyOp::And,
+        let rhs = VerifyExpr::binary(
+            VerifyOp::And,
             VerifyExpr::Var("valid@0".into()),
-            VerifyExpr::binary(VerifyOp::Lt,
+            VerifyExpr::binary(
+                VerifyOp::Lt,
                 VerifyExpr::Var("count@0".into()),
                 VerifyExpr::Int(0),
             ),
         );
         let result = check_equivalence(&lhs, &rhs, &["valid".into(), "count".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "And(valid, Gt(count,0)) must NOT equal And(valid, Lt(count,0)). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "And(valid, Gt(count,0)) must NOT equal And(valid, Lt(count,0)). Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -595,8 +704,11 @@ mod z3_semantic {
         let lhs = VerifyExpr::apply("Foo", vec![VerifyExpr::Var("x@0".into())]);
         let rhs = VerifyExpr::apply("Bar", vec![VerifyExpr::Var("x@0".into())]);
         let result = check_equivalence(&lhs, &rhs, &["x".into()], 1);
-        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
-            "Apply(Foo,[x]) must NOT equal Apply(Bar,[x]). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "Apply(Foo,[x]) must NOT equal Apply(Bar,[x]). Got: {:?}",
+            result
+        );
     }
 
     // ═══════════════════════════════════════════════════
@@ -611,13 +723,20 @@ mod z3_semantic {
         // Before Sprint 0B, ForAll was silently encoded as true.
         let lhs = VerifyExpr::forall(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::Gt,
+                VerifyExpr::Var("x".into()),
+                VerifyExpr::Int(0),
+            ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
         // forall x. x > 0 is FALSE (x = -1 is a counterexample), so it must differ from true
-        assert!(!matches!(result, EquivalenceResult::Equivalent),
-            "forall x. x > 0 must NOT equal true. Got: {:?}", result);
+        assert!(
+            !matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x > 0 must NOT equal true. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -628,16 +747,28 @@ mod z3_semantic {
         // Use a contradiction: exists x. (x > 0 AND x < 0) ≢ true
         let lhs = VerifyExpr::exists(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::And,
-                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
-                VerifyExpr::binary(VerifyOp::Lt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::And,
+                VerifyExpr::binary(
+                    VerifyOp::Gt,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(0),
+                ),
+                VerifyExpr::binary(
+                    VerifyOp::Lt,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(0),
+                ),
             ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
         // exists x. (x > 0 AND x < 0) is FALSE, so must NOT equal true
-        assert!(!matches!(result, EquivalenceResult::Equivalent),
-            "exists x. (x>0 AND x<0) must NOT equal true. Got: {:?}", result);
+        assert!(
+            !matches!(result, EquivalenceResult::Equivalent),
+            "exists x. (x>0 AND x<0) must NOT equal true. Got: {:?}",
+            result
+        );
     }
 
     // ═══════════════════════════════════════════════════
@@ -650,15 +781,27 @@ mod z3_semantic {
         // forall x:Int. (x > 0 -> x >= 0) is VALID (equivalent to true)
         let lhs = VerifyExpr::forall(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Implies,
-                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
-                VerifyExpr::binary(VerifyOp::Gte, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::Implies,
+                VerifyExpr::binary(
+                    VerifyOp::Gt,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(0),
+                ),
+                VerifyExpr::binary(
+                    VerifyOp::Gte,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(0),
+                ),
             ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall x. (x>0 -> x>=0) should be valid. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall x. (x>0 -> x>=0) should be valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -667,12 +810,19 @@ mod z3_semantic {
         // forall x:Int. x > 0 is NOT valid (x could be negative)
         let lhs = VerifyExpr::forall(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::Gt,
+                VerifyExpr::Var("x".into()),
+                VerifyExpr::Int(0),
+            ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(!matches!(result, EquivalenceResult::Equivalent),
-            "forall x. x>0 is NOT valid. Got: {:?}", result);
+        assert!(
+            !matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x>0 is NOT valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -681,12 +831,19 @@ mod z3_semantic {
         // exists x:Int. x == 5 is true (satisfiable)
         let lhs = VerifyExpr::exists(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Eq, VerifyExpr::Var("x".into()), VerifyExpr::Int(5)),
+            VerifyExpr::binary(
+                VerifyOp::Eq,
+                VerifyExpr::Var("x".into()),
+                VerifyExpr::Int(5),
+            ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "exists x. x==5 should be satisfiable (equiv to true). Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "exists x. x==5 should be satisfiable (equiv to true). Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -697,13 +854,20 @@ mod z3_semantic {
             vec![("x".into(), VerifyType::Int)],
             VerifyExpr::exists(
                 vec![("y".into(), VerifyType::Int)],
-                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("y".into()), VerifyExpr::Var("x".into())),
+                VerifyExpr::binary(
+                    VerifyOp::Gt,
+                    VerifyExpr::Var("y".into()),
+                    VerifyExpr::Var("x".into()),
+                ),
             ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall x. exists y. y>x should be valid. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall x. exists y. y>x should be valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -714,24 +878,38 @@ mod z3_semantic {
             vec![("x".into(), VerifyType::Int)],
             VerifyExpr::exists(
                 vec![("y".into(), VerifyType::Int)],
-                VerifyExpr::binary(VerifyOp::Eq, VerifyExpr::Var("y".into()), VerifyExpr::Var("x".into())),
+                VerifyExpr::binary(
+                    VerifyOp::Eq,
+                    VerifyExpr::Var("y".into()),
+                    VerifyExpr::Var("x".into()),
+                ),
             ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall x. exists y. y==x should be valid. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall x. exists y. y==x should be valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
     fn z3_empty_quantifier_body_only() {
         use logicaffeine_verify::ir::VerifyType;
         // forall (no vars). P ≡ P
-        let body = VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0));
+        let body = VerifyExpr::binary(
+            VerifyOp::Gt,
+            VerifyExpr::Var("x".into()),
+            VerifyExpr::Int(0),
+        );
         let lhs = VerifyExpr::forall(vec![], body.clone());
         let result = check_equivalence(&lhs, &body, &["x".into()], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall (no vars). P should equal P. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall (no vars). P should equal P. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -739,17 +917,29 @@ mod z3_semantic {
         use logicaffeine_verify::ir::VerifyType;
         // (forall x. x > 0) AND (y > 0) — second y is free, first x is bound
         // This is NOT equivalent to true because forall x. x > 0 is false
-        let lhs = VerifyExpr::binary(VerifyOp::And,
+        let lhs = VerifyExpr::binary(
+            VerifyOp::And,
             VerifyExpr::forall(
                 vec![("x".into(), VerifyType::Int)],
-                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+                VerifyExpr::binary(
+                    VerifyOp::Gt,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(0),
+                ),
             ),
-            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("y".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::Gt,
+                VerifyExpr::Var("y".into()),
+                VerifyExpr::Int(0),
+            ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &["y".into()], 1);
-        assert!(!matches!(result, EquivalenceResult::Equivalent),
-            "(forall x. x>0) AND (y>0) is NOT valid. Got: {:?}", result);
+        assert!(
+            !matches!(result, EquivalenceResult::Equivalent),
+            "(forall x. x>0) AND (y>0) is NOT valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -758,15 +948,27 @@ mod z3_semantic {
         // exists x. (x > 3 AND x < 10) ≡ true
         let lhs = VerifyExpr::exists(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::And,
-                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(3)),
-                VerifyExpr::binary(VerifyOp::Lt, VerifyExpr::Var("x".into()), VerifyExpr::Int(10)),
+            VerifyExpr::binary(
+                VerifyOp::And,
+                VerifyExpr::binary(
+                    VerifyOp::Gt,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(3),
+                ),
+                VerifyExpr::binary(
+                    VerifyOp::Lt,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(10),
+                ),
             ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "exists x. (x>3 AND x<10) is satisfiable. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "exists x. (x>3 AND x<10) is satisfiable. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -775,12 +977,19 @@ mod z3_semantic {
         // forall x. (x == x) is valid (reflexivity)
         let lhs = VerifyExpr::forall(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Eq, VerifyExpr::Var("x".into()), VerifyExpr::Var("x".into())),
+            VerifyExpr::binary(
+                VerifyOp::Eq,
+                VerifyExpr::Var("x".into()),
+                VerifyExpr::Var("x".into()),
+            ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall x. x==x should be valid. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x==x should be valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -791,12 +1000,19 @@ mod z3_semantic {
         // Actually forall x:Int. x > y is false for any y (pick x = y - 1).
         let lhs = VerifyExpr::forall(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Var("y".into())),
+            VerifyExpr::binary(
+                VerifyOp::Gt,
+                VerifyExpr::Var("x".into()),
+                VerifyExpr::Var("y".into()),
+            ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &["y".into()], 1);
-        assert!(!matches!(result, EquivalenceResult::Equivalent),
-            "forall x. x>y is NOT valid. Got: {:?}", result);
+        assert!(
+            !matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x>y is NOT valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -805,15 +1021,19 @@ mod z3_semantic {
         // forall p:Bool. (p OR NOT p) is valid (excluded middle)
         let lhs = VerifyExpr::forall(
             vec![("p".into(), VerifyType::Bool)],
-            VerifyExpr::binary(VerifyOp::Or,
+            VerifyExpr::binary(
+                VerifyOp::Or,
                 VerifyExpr::Var("p".into()),
                 VerifyExpr::not(VerifyExpr::Var("p".into())),
             ),
         );
         let rhs = VerifyExpr::Bool(true);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall p. p OR NOT p should be valid. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall p. p OR NOT p should be valid. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -822,15 +1042,19 @@ mod z3_semantic {
         // exists p:Bool. (p AND NOT p) is unsatisfiable ≡ false
         let lhs = VerifyExpr::exists(
             vec![("p".into(), VerifyType::Bool)],
-            VerifyExpr::binary(VerifyOp::And,
+            VerifyExpr::binary(
+                VerifyOp::And,
                 VerifyExpr::Var("p".into()),
                 VerifyExpr::not(VerifyExpr::Var("p".into())),
             ),
         );
         let rhs = VerifyExpr::Bool(false);
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "exists p. (p AND NOT p) should equal false. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "exists p. (p AND NOT p) should equal false. Got: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -840,20 +1064,33 @@ mod z3_semantic {
         // forall x. (x + 0 == x) ≡ forall y. (y + 0 == y)
         let lhs = VerifyExpr::forall(
             vec![("x".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Eq,
-                VerifyExpr::binary(VerifyOp::Add, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::Eq,
+                VerifyExpr::binary(
+                    VerifyOp::Add,
+                    VerifyExpr::Var("x".into()),
+                    VerifyExpr::Int(0),
+                ),
                 VerifyExpr::Var("x".into()),
             ),
         );
         let rhs = VerifyExpr::forall(
             vec![("y".into(), VerifyType::Int)],
-            VerifyExpr::binary(VerifyOp::Eq,
-                VerifyExpr::binary(VerifyOp::Add, VerifyExpr::Var("y".into()), VerifyExpr::Int(0)),
+            VerifyExpr::binary(
+                VerifyOp::Eq,
+                VerifyExpr::binary(
+                    VerifyOp::Add,
+                    VerifyExpr::Var("y".into()),
+                    VerifyExpr::Int(0),
+                ),
                 VerifyExpr::Var("y".into()),
             ),
         );
         let result = check_equivalence(&lhs, &rhs, &[], 1);
-        assert!(matches!(result, EquivalenceResult::Equivalent),
-            "forall x. x+0==x should equal forall y. y+0==y. Got: {:?}", result);
+        assert!(
+            matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x+0==x should equal forall y. y+0==y. Got: {:?}",
+            result
+        );
     }
 }

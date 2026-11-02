@@ -1,0 +1,33 @@
+# NativeKernel codes: a kernel's POSITION here travels in bytecode and the binary wire format.
+# Append-only — never reorder, never remove.
+mlkemNtt
+mlkemBaseMulW16
+toMontW16
+cbd2W16
+compressW16
+decompressW16
+byteEncodeW16
+byteDecodeW16
+sampleAW16
+sampleMatrixW16
+mlkemNoiseBatch
+addModQW16
+subModQW16
+zerosW16
+mlkemInvNtt
+mlkemBaseMul
+cbd2
+cbd3
+compress
+decompress
+byteEncode
+byteDecode
+sampleNtt
+sampleA
+toMont
+mlkemKeypair
+mlkemEncapsKem
+mlkemDecapsKem
+mldsaKeypair
+mldsaSign
+mldsaVerify

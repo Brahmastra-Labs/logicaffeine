@@ -19,9 +19,8 @@ use std::collections::HashMap;
 use logicaffeine_base::quantity::units;
 use logicaffeine_base::Dimension;
 
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, StmtId, TypeExpr};
 use crate::intern::{Interner, Symbol};
-use crate::token::Span;
 
 /// The dimensional nature of an expression's value.
 #[derive(Clone, Copy, PartialEq)]
@@ -60,11 +59,12 @@ impl CurInfo {
     }
 }
 
-/// A dimension coherence error, with the same shape the other analysis passes use so `compile.rs`
-/// can convert it to a `ParseError` uniformly.
+/// A dimension coherence error. `trail` names the statements it propagated out through,
+/// innermost first — the statement that holds the incoherent arithmetic, then each block
+/// statement around it — so a diagnostic can point at the sentence at fault.
 pub struct DimensionError {
     pub message: String,
-    pub span: Span,
+    pub trail: Vec<StmtId>,
 }
 
 impl std::fmt::Display for DimensionError {
@@ -102,8 +102,13 @@ impl<'a> DimensionChecker<'a> {
 
     fn collect_fn_returns(&mut self, stmts: &[Stmt<'_>]) {
         for stmt in stmts {
-            if let Stmt::FunctionDef { name, return_type, .. } = stmt {
-                let qd = return_type.map(|t| self.dim_from_type(t)).unwrap_or(QDim::NotQuantity);
+            if let Stmt::FunctionDef {
+                name, return_type, ..
+            } = stmt
+            {
+                let qd = return_type
+                    .map(|t| self.dim_from_type(t))
+                    .unwrap_or(QDim::NotQuantity);
                 self.fn_returns.insert(*name, qd);
             }
         }
@@ -143,6 +148,13 @@ impl<'a> DimensionChecker<'a> {
     }
 
     fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), DimensionError> {
+        self.check_stmt_kind(stmt).map_err(|mut e| {
+            e.trail.push(StmtId::of(stmt));
+            e
+        })
+    }
+
+    fn check_stmt_kind(&mut self, stmt: &Stmt<'_>) -> Result<(), DimensionError> {
         match stmt {
             Stmt::Let { var, value, ty, .. } => {
                 let inferred = self.infer(value)?;
@@ -165,7 +177,11 @@ impl<'a> DimensionChecker<'a> {
                 self.infer(object)?;
                 self.infer(value)?;
             }
-            Stmt::If { cond, then_block, else_block } => {
+            Stmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 self.infer(cond)?;
                 self.check_block(then_block)?;
                 if let Some(e) = else_block {
@@ -282,12 +298,13 @@ impl<'a> DimensionChecker<'a> {
         right: &Expr<'_>,
         verb: &str,
     ) -> Result<(), DimensionError> {
-        if let (CurInfo::Known(a), CurInfo::Known(b)) = (self.currency_of(left), self.currency_of(right))
+        if let (CurInfo::Known(a), CurInfo::Known(b)) =
+            (self.currency_of(left), self.currency_of(right))
         {
             if a != b {
                 return Err(DimensionError {
                     message: format!("cannot {verb} money of different currencies ({a} vs {b})"),
-                    span: Span::default(),
+                    trail: Vec::new(),
                 });
             }
         }
@@ -308,7 +325,11 @@ impl<'a> DimensionChecker<'a> {
                     "quantity" | "convert" if args.len() == 2 => Ok(self.unit_dim(args[1])),
                     // A user function with a declared `Quantity of <Dim>` return is statically known;
                     // any other call may return a quantity we can't see into — polymorphic (Unknown).
-                    _ => Ok(self.fn_returns.get(function).copied().unwrap_or(QDim::Unknown)),
+                    _ => Ok(self
+                        .fn_returns
+                        .get(function)
+                        .copied()
+                        .unwrap_or(QDim::Unknown)),
                 }
             }
 
@@ -321,12 +342,20 @@ impl<'a> DimensionChecker<'a> {
                         self.check_currency_match(
                             left,
                             right,
-                            if matches!(op, BinaryOpKind::Add) { "add" } else { "subtract" },
+                            if matches!(op, BinaryOpKind::Add) {
+                                "add"
+                            } else {
+                                "subtract"
+                            },
                         )?;
                         if let (QDim::Known(a), QDim::Known(b)) = (l, r) {
                             if a != b {
                                 return Err(self.mismatch_err(
-                                    if matches!(op, BinaryOpKind::Add) { "add" } else { "subtract" },
+                                    if matches!(op, BinaryOpKind::Add) {
+                                        "add"
+                                    } else {
+                                        "subtract"
+                                    },
                                     a,
                                     b,
                                 ));
@@ -336,7 +365,10 @@ impl<'a> DimensionChecker<'a> {
                         Ok(self.propagate(l, r))
                     }
                     // Ordering two quantities/monies of provably-different kind is meaningless.
-                    BinaryOpKind::Lt | BinaryOpKind::Gt | BinaryOpKind::LtEq | BinaryOpKind::GtEq => {
+                    BinaryOpKind::Lt
+                    | BinaryOpKind::Gt
+                    | BinaryOpKind::LtEq
+                    | BinaryOpKind::GtEq => {
                         self.check_currency_match(left, right, "compare")?;
                         if let (QDim::Known(a), QDim::Known(b)) = (l, r) {
                             if a != b {
@@ -348,9 +380,8 @@ impl<'a> DimensionChecker<'a> {
                     // `×` combines dimensions (Length × Length = Area); scaling by a number keeps it.
                     BinaryOpKind::Multiply => Ok(match (l, r) {
                         (QDim::Known(a), QDim::Known(b)) => QDim::Known(a.mul(b)),
-                        (QDim::Known(a), QDim::NotQuantity) | (QDim::NotQuantity, QDim::Known(a)) => {
-                            QDim::Known(a)
-                        }
+                        (QDim::Known(a), QDim::NotQuantity)
+                        | (QDim::NotQuantity, QDim::Known(a)) => QDim::Known(a),
                         _ if l.is_quantity() || r.is_quantity() => QDim::Unknown,
                         _ => QDim::NotQuantity,
                     }),
@@ -376,7 +407,11 @@ impl<'a> DimensionChecker<'a> {
                 self.infer(index)?;
                 Ok(QDim::Unknown)
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.infer(collection)?;
                 self.infer(start)?;
                 self.infer(end)?;
@@ -409,7 +444,7 @@ impl<'a> DimensionChecker<'a> {
     fn mismatch_err(&self, verb: &str, a: Dimension, b: Dimension) -> DimensionError {
         DimensionError {
             message: format!("cannot {verb} quantities of different dimensions ({a} vs {b})"),
-            span: Span::default(),
+            trail: Vec::new(),
         }
     }
 }

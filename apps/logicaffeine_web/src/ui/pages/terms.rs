@@ -7,10 +7,13 @@
 //!
 //! Accessed via `Route::Terms`.
 
-use dioxus::prelude::*;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, webpage_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
+use crate::ui::components::main_nav::{ActivePage, MainNav};
+use crate::ui::seo::{
+    breadcrumb_schema, organization_schema, pages as seo_pages, webpage_schema, BreadcrumbItem,
+    JsonLdMultiple, PageHead,
+};
+use dioxus::prelude::*;
 
 // Compiled in natively (tests, SSG prerender); wasm fetches the staged /data copy
 // so the ~135 KB of legal prose never rides inside the shipped binary.
@@ -68,12 +71,18 @@ const LEGAL_STYLE: &str = r#"
 #[component]
 pub fn Terms() -> Element {
     let breadcrumbs = vec![
-        BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Terms of Service", path: "/terms" },
+        BreadcrumbItem {
+            name: "Home",
+            path: "/",
+        },
+        BreadcrumbItem {
+            name: "Terms of Service",
+            path: "/terms",
+        },
     ];
     let schemas = vec![
         organization_schema(),
-        webpage_schema("Terms of Service", "Terms and conditions for using LOGICAFFEINE. Business Source License details and usage policies.", "/terms"),
+        webpage_schema("Terms of Service", "Terms and conditions for using LOGICAFFEINE and its MIT-licensed software.", "/terms"),
         breadcrumb_schema(&breadcrumbs),
     ];
 

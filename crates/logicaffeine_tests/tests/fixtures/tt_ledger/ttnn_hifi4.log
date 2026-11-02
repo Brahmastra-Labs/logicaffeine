@@ -1,0 +1,7 @@
+LOGOS_TT_ENV chip=wormhole_b0 so=libttsim_wh.so so_sha256=590f6d38aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4194 ttsim_version=v1.10.2 tt_metal_sha=9aa797dec5ed247251aa142deb3cea0af2df4321
+== ttsim (wormhole_b0) : python scripts/tt-ttnn-matmul.py ==
+LOGOS_MM_CFG strategy=vendor grid=5x5 per_core=4x4 out_block=4x4 in0_block_w=4 subblock=2x2 origin="ttnn.matmul with LOGOS program config"
+LOGOS ttnn.matmul (wormhole_b0) -- PCC = 0.99940
+LOGOS_MM_PASS fidelity=HiFi4 fp32=0 l1acc=0 pcc=0.99940 floor=0.99
+                 BuildKernels | JIT cache stats: 13/13 hits (100.0%) [13 cached, 0 build-once dedup] (build_cache_telemetry.cpp:207)
+[7000] 29.0 seconds (0.2 KHz)

@@ -1,0 +1,10 @@
+{
+  "capability": "text.trim_chars",
+  "workload": "trimChars(s,'a') \u2014 length fold",
+  "arg": "20000",
+  "expected": "79980000",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ]
+}

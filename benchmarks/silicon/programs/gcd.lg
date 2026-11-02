@@ -1,0 +1,8 @@
+## Main
+    Let mutable a be 1071.
+    Let mutable b be 462.
+    While b is greater than 0:
+        Let t be b.
+        Set b to a % b.
+        Set a to t.
+    Show a.

@@ -1,0 +1,21 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let m be 300.
+Let mutable xs be a new Seq of Int.
+Let mutable k be 1.
+While k is at most m:
+    Push k to xs.
+    Set k to k + 1.
+Push 5 to xs.
+Push 5 to xs.
+Push 5 to xs.
+Let mutable sum be 0.
+Let mutable r be 0.
+While r is less than n:
+    Set sum to (sum + modeSeq(xs)) % 1000000007.
+    Set r to r + 1.
+Show sum.

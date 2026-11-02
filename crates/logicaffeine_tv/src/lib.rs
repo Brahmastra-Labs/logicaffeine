@@ -3,6 +3,7 @@
 pub mod equiv;
 pub mod parse;
 pub mod symexec;
+pub mod tensor;
 pub mod verdict;
 
 use logicaffeine_compile::compile::interpret_program;
@@ -35,7 +36,11 @@ pub fn check_encoder_sound(source: &str) -> SoundnessReport {
     // *Nondeterminate* program is validated by seeded replay — encoder(seed) vs
     // interpreter(seed) over a seed sweep, the `Select` winner drawn from the same SplitMix64.
     match logicaffeine_compile::classify_source(source) {
-        Err(e) => return SoundnessReport::ParseFailed { detail: format!("{e:?}") },
+        Err(e) => {
+            return SoundnessReport::ParseFailed {
+                detail: format!("{e:?}"),
+            }
+        }
         Ok(logicaffeine_compile::concurrency::Determinacy::Nondeterminate { .. }) => {
             return check_seeded_sweep(source);
         }
@@ -51,7 +56,10 @@ pub fn check_encoder_sound(source: &str) -> SoundnessReport {
             }
         }
     };
-    check_against_interp(&summary, interpret_program(source).map_err(|e| format!("{e:?}")))
+    check_against_interp(
+        &summary,
+        interpret_program(source).map_err(|e| format!("{e:?}")),
+    )
 }
 
 /// Prove the encoder's `summary` matches a single interpreter run (`Ok(output)`, or
@@ -65,7 +73,9 @@ fn check_against_interp(summary: &SymSummary, interp: Result<String, String>) ->
                 SoundnessReport::Agrees
             } else {
                 SoundnessReport::Disagrees {
-                    detail: format!("interpreter errored ({e}) but encoder did not prove `errored`"),
+                    detail: format!(
+                        "interpreter errored ({e}) but encoder did not prove `errored`"
+                    ),
                 }
             }
         }
@@ -95,8 +105,14 @@ fn check_seeded_sweep(source: &str) -> SoundnessReport {
             symexec::execute_seeded(stmts, interner, seed)
         }) {
             Ok(Ok(s)) => s,
-            Ok(Err(symexec::Unsupported(reason))) => return SoundnessReport::Unsupported { reason },
-            Err(e) => return SoundnessReport::ParseFailed { detail: format!("{e:?}") },
+            Ok(Err(symexec::Unsupported(reason))) => {
+                return SoundnessReport::Unsupported { reason }
+            }
+            Err(e) => {
+                return SoundnessReport::ParseFailed {
+                    detail: format!("{e:?}"),
+                }
+            }
         };
         let run = logicaffeine_compile::run_treewalker_concurrent_seeded(source, seed);
         let interp = match run.error {
@@ -161,7 +177,9 @@ fn compare_outputs(outputs: &[SymValue], interp_out: &str) -> SoundnessReport {
             (SymValue::Int(e), Expected::Int(n)) => {
                 VerifyExpr::bv_binary(BitVecOp::Eq, e.clone(), VerifyExpr::bv_const(64, n as u64))
             }
-            (SymValue::Bool(e), Expected::Bool(b)) => VerifyExpr::iff(e.clone(), VerifyExpr::bool(b)),
+            (SymValue::Bool(e), Expected::Bool(b)) => {
+                VerifyExpr::iff(e.clone(), VerifyExpr::bool(b))
+            }
             (slot, _) => {
                 return SoundnessReport::Disagrees {
                     detail: format!(

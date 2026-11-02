@@ -1,0 +1,19 @@
+{
+ "bl": 8,
+ "candidate": "k7_logos_ddr2_ctrl",
+ "cl": 3,
+ "cols_per_part": 1,
+ "every": 0,
+ "files": [
+  "words.hex",
+  "ddr2_ctrl.v",
+  "ddr2_device.v",
+  "tb_qor_dram.v"
+ ],
+ "part": "MT47H64M16-25",
+ "parts": 4,
+ "pattern": "sequential",
+ "row_bits": 1,
+ "tck_ps": 5000,
+ "words": 1024
+}

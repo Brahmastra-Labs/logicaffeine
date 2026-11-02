@@ -1,0 +1,102 @@
+{
+  "fabric_vs_softcore_cycle_reduction_x": 10.625,
+  "matmul_macs_per_token": {
+    "attention_scores": 3696,
+    "attention_weighted_sum": 3696,
+    "ffn": 21504,
+    "logits": 224,
+    "out_proj": 5376,
+    "qkv": 16128,
+    "total": 50624
+  },
+  "measured_cyc_per_mac": {
+    "fabric_unroll1": 1.0,
+    "soft_core_scalar": 10.625
+  },
+  "meta": {
+    "artifact": "baby-transformer fabric cycle ledger",
+    "note": "per-MAC rates are MEASURED (fabric 1 clock/MAC via transformer_fabric_lock::fabric_computes_one_mac_per_clock_measured, run under iverilog; soft-core 10.625 clock/MAC from gemm_fabric.json). The whole-token cycle figures are PROJECTED = matmul_MACs * cyc_per_mac / unroll. No wall-clock claim vs any vendor part."
+  },
+  "model": {
+    "context_len": 21,
+    "d_ff": 32,
+    "d_model": 16,
+    "n_heads": 2,
+    "vocab": 14
+  },
+  "projected_token_matmul_cycles": {
+    "fabric_unroll1": 50624,
+    "fabric_unroll8": 6328,
+    "soft_core_scalar": 537880
+  },
+  "throughput": {
+    "by_unroll": {
+      "unroll_1": {
+        "matmul_cycles_per_token": 50624,
+        "tokens_per_sec_board_100MHz": 1975,
+        "tokens_per_sec_core_6p25MHz": 123,
+        "tokens_per_sec_fabric_66MHz": 1317
+      },
+      "unroll_128": {
+        "matmul_cycles_per_token": 396,
+        "tokens_per_sec_board_100MHz": 252525,
+        "tokens_per_sec_core_6p25MHz": 15783,
+        "tokens_per_sec_fabric_66MHz": 168359
+      },
+      "unroll_16": {
+        "matmul_cycles_per_token": 3164,
+        "tokens_per_sec_board_100MHz": 31606,
+        "tokens_per_sec_core_6p25MHz": 1975,
+        "tokens_per_sec_fabric_66MHz": 21071
+      },
+      "unroll_32": {
+        "matmul_cycles_per_token": 1582,
+        "tokens_per_sec_board_100MHz": 63211,
+        "tokens_per_sec_core_6p25MHz": 3951,
+        "tokens_per_sec_fabric_66MHz": 42143
+      },
+      "unroll_64": {
+        "matmul_cycles_per_token": 791,
+        "tokens_per_sec_board_100MHz": 126422,
+        "tokens_per_sec_core_6p25MHz": 7901,
+        "tokens_per_sec_fabric_66MHz": 84286
+      },
+      "unroll_8": {
+        "matmul_cycles_per_token": 6328,
+        "tokens_per_sec_board_100MHz": 15803,
+        "tokens_per_sec_core_6p25MHz": 988,
+        "tokens_per_sec_fabric_66MHz": 10536
+      }
+    },
+    "headline_tokens_per_sec": 252525,
+    "matmul_macs_per_token": 50624,
+    "note": "per-MAC = 1 clock is MEASURED (fabric_computes_one_mac_per_clock_measured, iverilog). tokens/sec is PROJECTED = clock / (matmul_MACs / unroll) for the matmul work (softmax/argmax orchestration extra). Unroll places u independent multiply tiles = u MACs/clock (proven ≡VM above). No wall-clock claim vs any vendor part; achievable Fmax at high unroll needs a place-and-route measurement."
+  },
+  "whole_net_spatial": {
+    "board_dsps": 240,
+    "by_datapath": {
+      "datapath_64bit": {
+        "cycles_per_token": 2110,
+        "macs_per_clock": 24,
+        "reduction_vs_sequential_x": 59,
+        "why": "64-bit datapath, ~10 DSP/MAC (synth-measured, old)"
+      },
+      "datapath_int8_native": {
+        "cycles_per_token": 211,
+        "macs_per_clock": 240,
+        "reduction_vs_sequential_x": 590,
+        "why": "int8-native datapath, 1 DSP/MAC — BUILT (emit_loop_fabric_verilog_int8; synth-measured 8 DSP for the 8-wide array; routed at 66-128 MHz)"
+      },
+      "lut_multipliers_1024": {
+        "cycles_per_token": 50,
+        "macs_per_clock": 1024,
+        "reduction_vs_sequential_x": 2491,
+        "why": "int8 LUT-multipliers, ~whole chip (no DSP)"
+      }
+    },
+    "matmul_macs_per_token": 50624,
+    "note": "The WHOLE net on the fabric, as few cycles as the board allows. 1 cycle is impossible (50,624 multipliers needed). Board-bound array width = 240 DSPs / (DSPs per MAC). The int8-native datapath is BUILT: emit_loop_fabric_verilog_int8 makes each MAC ONE DSP48E1 (synth-measured 8 DSP for the 8-wide array, vs 80 for the 64-bit datapath), so P≈240 fits the 240 DSPs → ~211 cyc/token; the routed int8-DSP bitstream (fabric_matmul_i8_r8.bit) is 8 DSP + 953 LUT at 66-128 MHz (the open nextpnr DSP-packer bug was patched). cycles/token = ceil(MACs/P). Per-MAC=1-clock is MEASURED (iverilog); the array is AUTO-EMITTED from LOGOS. No wall-clock claim vs any vendor part.",
+    "sequential_engine_cycles_per_token": 124559,
+    "synth_measured_dsps_per_mac_64bit": 10
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "case": "T00-005",
+  "source": "crates/logicaffeine_tests/tests/fixtures/lean_conformance/cases/t00_terms/T00-005_lambda_binder_info.lean",
+  "source_sha256": "f3541627653dbb7833a877f45d3f4fa99b600edf446f90cbf0faf7deef6a2878",
+  "ledger_sha256": "ea1e9df3e5392f944cf2ccbe6440a6242a941f7ccaf11f72281d7069ff7548f1",
+  "toolchain": "leanprover/lean4:v4.14.0",
+  "exporter_commit": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+  "exporter_source_sha256": {
+    "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+    "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b"
+  },
+  "exporter_olean_sha256": "49d73051495cae9b48b65442e84d7b1a76a78d66ad694720a80cf2d463c24add",
+  "exporter_flags": [
+    "--export-mdata",
+    "--export-unsafe"
+  ],
+  "declarations": [
+    "T00_005.anonymousImplicit",
+    "T00_005.applyToPolyFn",
+    "T00_005.domainFromExpectedType",
+    "T00_005.idNat",
+    "T00_005.implicitId",
+    "T00_005.instanceDefault",
+    "T00_005.mixedKinds",
+    "T00_005.mixedTelescope",
+    "T00_005.pickMiddle",
+    "T00_005.strictImplicitId"
+  ],
+  "conformance_status": "not_evaluated",
+  "compiler_exit": 0,
+  "exporter_exit": 0,
+  "export_sha256": "16c054a4680eaef95b2e7ff19c559bfb7c4e8db362a305e9c84349099800e55d",
+  "export_header": {
+    "meta": {
+      "lean": {
+        "version": "4.14.0",
+        "githash": "410fab7284703f41660ca2454218dcca9b2ec896"
+      },
+      "format": {
+        "version": "3.1.0"
+      },
+      "exporter": {
+        "version": "3.1.0",
+        "name": "lean4export"
+      }
+    }
+  },
+  "records": 751,
+  "exporter_repository": "https://github.com/leanprover/lean4export.git",
+  "scope": "Byte-identical original source export; case-specific bridge oracle tracked separately."
+}

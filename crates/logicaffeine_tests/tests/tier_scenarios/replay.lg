@@ -1,0 +1,15 @@
+# Replaying the journal
+
+## Component App
+State:
+    Let n be 0.
+Actions:
+    To bump:
+        Set n to n + 1.
+View:
+    <p id="n">{n}</p><button id="b" on-click={bump}>+</button>
+
+## Test: replay runs the named actions
+    Mount App.
+    Replay these actions: bump, bump.
+    Expect that the text of "#n" is equal to "2".

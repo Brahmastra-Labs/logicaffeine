@@ -1,0 +1,10 @@
+{
+  "capability": "operator.mod",
+  "workload": "sum of opMod(i, 7) over 1..n",
+  "arg": "3000000",
+  "expected": "8999997",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "python"
+  ]
+}

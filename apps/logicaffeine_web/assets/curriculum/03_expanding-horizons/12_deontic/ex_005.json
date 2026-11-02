@@ -4,12 +4,13 @@
   "difficulty": 1,
   "prompt": "Insult Donna",
   "options": [
-    "$ Iud $",
-    "$ Oi\\underline{u} d $",
-    "$ I\\underline{u} d $",
-    "$ I\\underline{d} $"
+    "I(u, d)",
+    "O I(u̲, d)",
+    "I(u̲, d)",
+    "I(d̲)"
   ],
   "correct": 2,
-  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "An imperative to you: insult Donna. You are the underlined agent and Donna the object, giving I͟u d. No O or R operator is needed for a bare command."
+  "hint": "Who is told to act? Underline that person's letter.",
+  "explanation": "A command to you to insult Donna: you are underlined, Donna is the object, and there is no operator: I(u̲, d).",
+  "section": "12.2"
 }

@@ -1,8 +1,8 @@
 package main
 import ("fmt";"math";"os";"strconv")
 func a(i,j int) float64 { return 1.0/float64((i+j)*(i+j+1)/2+i+1) }
-func mulAv(n int, v, r []float64) { for i:=0;i<n;i++{r[i]=0;for j:=0;j<n;j++{r[i]+=a(i,j)*v[j]}} }
-func mulAtv(n int, v, r []float64) { for i:=0;i<n;i++{r[i]=0;for j:=0;j<n;j++{r[i]+=a(j,i)*v[j]}} }
+func mulAv(n int, v, r []float64) { for i:=0;i<n;i++{s:=0.0;for j:=0;j<n;j++{s+=a(i,j)*v[j]};r[i]=s} }
+func mulAtv(n int, v, r []float64) { for i:=0;i<n;i++{s:=0.0;for j:=0;j<n;j++{s+=a(j,i)*v[j]};r[i]=s} }
 func mulAtAv(n int, v, r, t []float64) { mulAv(n,v,t); mulAtv(n,t,r) }
 func main() {
 	n, _ := strconv.Atoi(os.Args[1])

@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 0,
-  "hint": "Can you think of any water-dwelling animals that AREN'T fish? Would this definition accidentally include them?",
-  "explanation": "This definition captures TOO MUCH. Whales, dolphins, and otters all 'live mainly in water' but aren't fish. The definition fails to exclude things that shouldn't be included. A better definition would specify what MAKES something a fish (cold-blooded, gills, scales) rather than just where it lives."
+  "hint": "Can you think of something that fits this definition but is not a fish?",
+  "explanation": "Whales, dolphins and otters live mainly in water, but they are not fish.",
+  "section": "3.2"
 }

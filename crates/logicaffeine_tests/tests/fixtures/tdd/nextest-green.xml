@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" uuid="7aa7a1ed-94d1-4239-b899-cbaba6a06cbd" timestamp="2026-09-23T03:15:01.570+00:00" tests="3" failures="0" errors="0" skipped="0">
+  <testsuite name="logicaffeine-web" tests="1" failures="0" errors="0" skipped="0">
+    <testcase name="content::tests::a_clean_tree_loads_with_no_issues" classname="logicaffeine-web" timestamp="2026-09-23T03:15:01.572+00:00" time="0.006" />
+  </testsuite>
+  <testsuite name="logicaffeine-web::learn_page" tests="2" failures="0" errors="0" skipped="0">
+    <testcase name="cards_render_in_curriculum_order" classname="logicaffeine-web::learn_page" timestamp="2026-09-23T03:15:01.614+00:00" time="0.090" />
+    <testcase name="every_card_offers_start_learning" classname="logicaffeine-web::learn_page" timestamp="2026-09-23T03:15:01.624+00:00" time="0.101" />
+  </testsuite>
+</testsuites>

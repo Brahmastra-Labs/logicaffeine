@@ -1,0 +1,3378 @@
+{
+  "card": {
+    "name": "d5005",
+    "memory": {
+      "kind": "Ddr",
+      "capacity": {
+        "value": 34359738368.0,
+        "provenance": "Derived",
+        "cite": "cdrdv2-public.intel.com/691516/ds-pac-d5005-683568-691516.pdf: \"4x 8GB DDR4-2400 with ECC\"; ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005: \"8GB RDIMM modules organized as 1 Gb × 72\", 1 Gi words of 64 data bits each, four channels"
+      },
+      "bandwidth": {
+        "value": 76800000000.0,
+        "provenance": "Derived",
+        "cite": "cdrdv2-public.intel.com/691516/ds-pac-d5005-683568-691516.pdf: \"4x 8GB DDR4-2400 with ECC\"; four channels of 2400 MT/s, 8 data bytes a transfer"
+      }
+    },
+    "on_chip": {
+      "kind": "Sram",
+      "capacity": {
+        "value": 30005760.0,
+        "provenance": "Derived",
+        "cite": "S10-OVERVIEW (2020.09.28) Intel Stratix 10 GX/SX Device Overview, Table 4: GX 2800/ SX 2800 \"M20K Blocks 11,721\", \"M20K Mbits 229\""
+      },
+      "bandwidth": {
+        "value": 26372250000000.0,
+        "provenance": "Modeled",
+        "cite": "not published: every M20K block's one widest read port at the standard engine plan's modeled clock"
+      }
+    },
+    "streams": {
+      "read": {
+        "value": 0.9515277787860529,
+        "provenance": "Modeled",
+        "cite": "not published: the share of DDR4 peak the shell's controllers sustain on one long read, as the JESD79-4 controller model issues it at the shell's EMIF timing (benchmarks/silicon/d5005/ddr4_efficiency.json, the weights row of the plan's beat); replaced by the card's measured stream receipt"
+      },
+      "rewrite": {
+        "value": 0.9425573734185976,
+        "provenance": "Modeled",
+        "cite": "not published: the share of DDR4 peak the shell's controllers sustain on a memory read and written back a chunk at a time, as the JESD79-4 controller model issues it at the shell's EMIF timing (benchmarks/silicon/d5005/ddr4_efficiency.json, the state row of the plan's chunk and beat); replaced by the card's measured stream receipt"
+      },
+      "append": {
+        "value": 0.9509544419568169,
+        "provenance": "Modeled",
+        "cite": "not published: the share of DDR4 peak the shell's controllers sustain on a long read with a row appended after it, as the JESD79-4 controller model issues it at the shell's EMIF timing (benchmarks/silicon/d5005/ddr4_efficiency.json, the least of the cache rows of the plan's beat); replaced by the card's measured stream receipt"
+      }
+    },
+    "array": {
+      "value": 18986400000000.0,
+      "provenance": "Modeled",
+      "cite": "not published: the plan's array DSP blocks at 4 multiply-adds a cycle plus its soft multiply-adds, at its modeled clock"
+    },
+    "vector": {
+      "value": 345600000000.0,
+      "provenance": "Modeled",
+      "cite": "not published: the plan's f32 DSP blocks, one multiply-add a cycle each (S10-OVERVIEW Table 11: one single precision multiplier and adder a block), at its modeled clock"
+    },
+    "scale": {
+      "value": 88200000000.0,
+      "provenance": "Modeled",
+      "cite": "not published: the plan's block-scale lanes, one lane cycle each a cycle, at its modeled clock"
+    },
+    "host": {
+      "capacity": {
+        "value": 68719476736.0,
+        "provenance": "Modeled",
+        "cite": "not published: the host memory a serving pins for the card, 64 GiB; the card's host server is not yet chosen"
+      },
+      "read": {
+        "value": 15753846153.846153,
+        "provenance": "Derived",
+        "cite": "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005: \"AXI Streaming (AXI-S) interface to the Host via PCIe Gen3x16\"; PCI-SIG PCI Express Base Specification Revision 3.0: 8.0 GT/s a lane, 128b/130b encoding; 16 lanes host to card"
+      },
+      "write": {
+        "value": 15753846153.846153,
+        "provenance": "Derived",
+        "cite": "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005: \"AXI Streaming (AXI-S) interface to the Host via PCIe Gen3x16\"; PCI-SIG PCI Express Base Specification Revision 3.0: 8.0 GT/s a lane, 128b/130b encoding; 16 lanes card to host"
+      },
+      "stream": {
+        "value": 0.8,
+        "provenance": "Modeled",
+        "cite": "not published: the share of a PCIe Gen3 x16 direction the card's DMA sustains with 256-byte payloads; replaced by the card's measured host-stream receipt"
+      }
+    },
+    "sources": [
+      "cdrdv2-public.intel.com/691516/ds-pac-d5005-683568-691516.pdf",
+      "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005",
+      "OFS ofs-d5005 2024.1-1 ipss/mem/ip/emif_ddr4_no_ecc.ip",
+      "S10-OVERVIEW (2020.09.28) Intel Stratix 10 GX/SX Device Overview",
+      "GEN-1023-1.0 (May 2015) Stratix 10 Product Table",
+      "PCI-SIG PCI Express Base Specification Revision 3.0"
+    ]
+  },
+  "plan": {
+    "clock_hz": {
+      "value": 450000000.0,
+      "provenance": "Modeled",
+      "cite": "not published: the clock a Hyperflex-retimed array is planned to close at; replaced by the fitted engine's timing"
+    },
+    "array_dsp_blocks": 4404,
+    "array_soft_macs": {
+      "value": 24576.0,
+      "provenance": "Modeled",
+      "cite": "not tabulated: soft multiply-adds of a 4-bit code and an 8-bit code in compressor trees, about 15 ALMs each over 40% of the device's ALMs; replaced by the engine's synthesized census"
+    },
+    "scale_lanes": 196,
+    "scale_lane_alms": {
+      "value": 650.0,
+      "provenance": "Modeled",
+      "cite": "not tabulated: sixteen radix-4 Booth products of a 6-to-8-bit multiplier and a 17-to-26-bit sum, the activation scale's 11×8 product, a two-term exact sum over 29 binary places and its rounding to f32; replaced by the engine's synthesized census"
+    },
+    "vector_dsp_blocks": 768,
+    "beat": "Data64",
+    "state_chunk_lines": 512
+  },
+  "rows": [
+    {
+      "label": "2k: Q8_0, f16 KV, f32 state, two-word activations",
+      "header": "qwen3.8-27b-q8_0",
+      "serving": {
+        "batch": 19,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 4.0,
+        "activation_words": 2,
+        "scaling": "Sub32",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 19,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 27303316416.0,
+        "sequence_bytes": 377028608.0,
+        "rewrite_bytes": 301989888.0,
+        "array_macs": 1945475481600.0,
+        "vector_macs": 6543636480.0,
+        "scale_cycles": 30398054400.0,
+        "memory_s": 0.47240813517050617,
+        "host_s": 0.0,
+        "array_s": 0.1024667910504361,
+        "vector_s": 0.018934133333333332,
+        "scale_s": 0.3446491428571429,
+        "pass_s": 0.47240813517050617,
+        "binds": "Memory",
+        "held_bytes": 34222536704.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1245184.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 40.21945979643711
+    },
+    {
+      "label": "2k: Q4_K_M",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 18,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 4.0,
+        "activation_words": 2,
+        "scaling": "Sub32",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 18,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477311616.0,
+        "sequence_bytes": 377028608.0,
+        "rewrite_bytes": 301989888.0,
+        "array_macs": 1156055040000.0,
+        "vector_macs": 6199234560.0,
+        "scale_cycles": 28798156800.0,
+        "memory_s": 0.319064380111071,
+        "host_s": 0.0,
+        "array_s": 0.060888585513841485,
+        "vector_s": 0.0179376,
+        "scale_s": 0.3265097142857143,
+        "pass_s": 0.3265097142857143,
+        "binds": "Scale",
+        "held_bytes": 22467807232.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1179648.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 55.12852822580645
+    },
+    {
+      "label": "2k: + activations scaled per weight block",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 58,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 4.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 58,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477426816.0,
+        "sequence_bytes": 377028608.0,
+        "rewrite_bytes": 301989888.0,
+        "array_macs": 3725066240000.0,
+        "vector_macs": 19975311360.0,
+        "scale_cycles": 15756697600.0,
+        "memory_s": 0.5270362790318502,
+        "host_s": 0.0,
+        "array_s": 0.19619655332237812,
+        "vector_s": 0.05779893333333333,
+        "scale_s": 0.17864736507936507,
+        "pass_s": 0.5270362790318502,
+        "binds": "Memory",
+        "held_bytes": 34190886912.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 3801088.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 110.04935012546812
+    },
+    {
+      "label": "2k: + f16 state",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 80,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 80,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477490176.0,
+        "sequence_bytes": 222101504.0,
+        "rewrite_bytes": 150994944.0,
+        "array_macs": 5138022400000.0,
+        "vector_macs": 27552153600.0,
+        "scale_cycles": 21733376000.0,
+        "memory_s": 0.47024160797229786,
+        "host_s": 0.0,
+        "array_s": 0.27061593561707326,
+        "vector_s": 0.07972266666666666,
+        "scale_s": 0.24641015873015873,
+        "pass_s": 0.47024160797229786,
+        "binds": "Memory",
+        "held_bytes": 34284210176.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 5242880.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 170.12531142227814
+    },
+    {
+      "label": "2k: + int8 KV, rotated",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 116,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 116,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477593856.0,
+        "sequence_bytes": 188776704.0,
+        "rewrite_bytes": 150994944.0,
+        "array_macs": 7450132480000.0,
+        "vector_macs": 40163483648.0,
+        "scale_cycles": 31513395200.0,
+        "memory_s": 0.5274553390890085,
+        "host_s": 0.0,
+        "array_s": 0.39239310664475624,
+        "vector_s": 0.11621378370370371,
+        "scale_s": 0.35729473015873014,
+        "pass_s": 0.5274553390890085,
+        "binds": "Memory",
+        "held_bytes": 34251704320.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 7602176.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 219.92383317296347
+    },
+    {
+      "label": "2k: + state flushed every 16 tokens",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 106,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": null,
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 106,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477565056.0,
+        "sequence_bytes": 124760832.0,
+        "rewrite_bytes": 9437184.0,
+        "array_macs": 6807879680000.0,
+        "vector_macs": 37404479488.0,
+        "scale_cycles": 28796723200.0,
+        "memory_s": 0.406680188232025,
+        "host_s": 0.0,
+        "array_s": 0.35856611469262206,
+        "vector_s": 0.10823055407407407,
+        "scale_s": 0.3264934603174603,
+        "pass_s": 0.406680188232025,
+        "binds": "Memory",
+        "held_bytes": 34214834176.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 6946816.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 260.6470712547309
+    },
+    {
+      "label": "2k: + one MTP draft",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 47,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": null
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 47,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 17759593024.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 6316118507520.0,
+        "vector_macs": 33511350059.007984,
+        "scale_cycles": 27251036160.0,
+        "memory_s": 0.32851424565865506,
+        "host_s": 0.0,
+        "array_s": 0.33266540826697005,
+        "vector_s": 0.09696571197629625,
+        "scale_s": 0.3089686639455782,
+        "pass_s": 0.33266540826697005,
+        "binds": "Array",
+        "held_bytes": 25261348864.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 6160384.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 271.82868357454794
+    },
+    {
+      "label": "2k: + one-word activations",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 101,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": null
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 101,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 17760059584.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 6786467758080.0,
+        "vector_macs": 72013752254.46396,
+        "scale_cycles": 29280368640.0,
+        "memory_s": 0.42674272427699544,
+        "host_s": 0.0,
+        "array_s": 0.3574383642017444,
+        "vector_s": 0.20837312573629618,
+        "scale_s": 0.331976968707483,
+        "pass_s": 0.42674272427699544,
+        "binds": "Memory",
+        "held_bytes": 34257455104.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 8687616.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 455.36570149902724
+    },
+    {
+      "label": "2k: + 32k-row drafting head",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 101,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 101,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854741184.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 6563535257600.0,
+        "vector_macs": 72013752254.46396,
+        "scale_cycles": 28844953600.0,
+        "memory_s": 0.414354226260638,
+        "host_s": 0.0,
+        "array_s": 0.34569667012177135,
+        "vector_s": 0.20837312573629618,
+        "scale_s": 0.3270402902494331,
+        "pass_s": 0.414354226260638,
+        "binds": "Memory",
+        "held_bytes": 34257455104.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 8687616.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 468.98037399953023
+    },
+    {
+      "label": "2k: + paged KV",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 125,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 125,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854948544.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 8123187200000.0,
+        "vector_macs": 89125931007.99995,
+        "scale_cycles": 35699200000.0,
+        "memory_s": 0.45801132786878934,
+        "host_s": 0.0,
+        "array_s": 0.4278424135170438,
+        "vector_s": 0.2578875318518517,
+        "scale_s": 0.4047528344671202,
+        "pass_s": 0.45801132786878934,
+        "binds": "Memory",
+        "held_bytes": 34325868544.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 10752000.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 525.0961829243189
+    },
+    {
+      "label": "2k: + host memory as a fifth channel",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 103,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 103,
+        "host_sequences": 37,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854758464.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 6693506252800.0,
+        "vector_macs": 73439767150.59196,
+        "scale_cycles": 29416140800.0,
+        "memory_s": 0.35069199429260833,
+        "host_s": 0.35222585628749964,
+        "array_s": 0.35254214873804407,
+        "vector_s": 0.21249932624592582,
+        "scale_s": 0.33351633560090704,
+        "pass_s": 0.35254214873804407,
+        "binds": "Array",
+        "held_bytes": 26351681536.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 5000761344.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 8859648.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 562.1228573927239
+    },
+    {
+      "label": "2k, every trick: Q8_0",
+      "header": "qwen3.8-27b-q8_0",
+      "serving": {
+        "batch": 21,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 21,
+        "host_sequences": 21,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 27933133504.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 2175145082880.0,
+        "vector_macs": 14973156409.343992,
+        "scale_cycles": 33986641920.0,
+        "memory_s": 0.38224073321049373,
+        "host_s": 0.19991197248749978,
+        "array_s": 0.11456332337251927,
+        "vector_s": 0.04332510535111109,
+        "scale_s": 0.3853360761904762,
+        "pass_s": 0.3853360761904762,
+        "binds": "Scale",
+        "held_bytes": 29105393664.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 2838269952.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1806336.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 104.85392491521561
+    },
+    {
+      "label": "2k, every trick: Q6_K",
+      "header": "qwen3.8-27b-q6_k",
+      "serving": {
+        "batch": 58,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 58,
+        "host_sequences": 37,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 22944982704.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 5982912512000.0,
+        "vector_macs": 41354431987.71198,
+        "scale_cycles": 31581102080.0,
+        "memory_s": 0.3521796918622687,
+        "host_s": 0.35222585628749964,
+        "array_s": 0.31511568870349305,
+        "vector_s": 0.11965981477925922,
+        "scale_s": 0.3580623818594104,
+        "pass_s": 0.3580623818594104,
+        "binds": "Scale",
+        "held_bytes": 26687840256.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 5000761344.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 4988928.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 311.65519097679316
+    },
+    {
+      "label": "2k, every trick: Q5_K_M",
+      "header": "qwen3.8-27b-q5_k_m",
+      "serving": {
+        "batch": 58,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 58,
+        "host_sequences": 33,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 20177033344.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 5982912512000.0,
+        "vector_macs": 41354431987.71198,
+        "scale_cycles": 28371558400.0,
+        "memory_s": 0.3215784134544278,
+        "host_s": 0.3141473853374997,
+        "array_s": 0.31511568870349305,
+        "vector_s": 0.11965981477925922,
+        "scale_s": 0.3216729977324263,
+        "pass_s": 0.3216729977324263,
+        "binds": "Scale",
+        "held_bytes": 24291774464.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4460138496.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 4988928.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 346.9113067824995
+    },
+    {
+      "label": "2k, every trick: IQ4_XS",
+      "header": "qwen3.8-27b-iq4_xs",
+      "serving": {
+        "batch": 45,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 45,
+        "host_sequences": 25,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 14927518304.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 4624927948800.0,
+        "vector_macs": 32085335162.879986,
+        "scale_cycles": 10271232000.0,
+        "memory_s": 0.24064870949958234,
+        "host_s": 0.23799044343749975,
+        "array_s": 0.24359162078119076,
+        "vector_s": 0.09283951146666662,
+        "scale_s": 0.11645387755102041,
+        "pass_s": 0.24359162078119076,
+        "binds": "Array",
+        "held_bytes": 18168070144.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 3378892800.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 3870720.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 355.4309451299705
+    },
+    {
+      "label": "2k, every trick: Q4_0",
+      "header": "qwen3.8-27b-q4_0",
+      "serving": {
+        "batch": 13,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 13,
+        "host_sequences": 13,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 15760348864.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 741212160000.0,
+        "vector_macs": 9269096824.831995,
+        "scale_cycles": 19718000640.0,
+        "memory_s": 0.21566672083408991,
+        "host_s": 0.12375503058749987,
+        "array_s": 0.039039110099860955,
+        "vector_s": 0.026820303312592577,
+        "scale_s": 0.22356009795918366,
+        "pass_s": 0.22356009795918366,
+        "binds": "Scale",
+        "held_bytes": 16337772544.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 1757024256.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1118208.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 111.88043048973144
+    },
+    {
+      "label": "2k, every trick: Q3_K_M",
+      "header": "qwen3.8-27b-q3_k_m",
+      "serving": {
+        "batch": 97,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 1024.0,
+              "limit": 2048
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 97,
+        "host_sequences": 31,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 12794075584.0,
+        "sequence_bytes": 132680533.63199987,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 5631277793280.0,
+        "vector_macs": 69161722462.20796,
+        "scale_cycles": 20916490240.0,
+        "memory_s": 0.2951250668956433,
+        "host_s": 0.29510814986249967,
+        "array_s": 0.2965953415750221,
+        "vector_s": 0.20012072471703693,
+        "scale_s": 0.23714841541950113,
+        "pass_s": 0.2965953415750221,
+        "binds": "Array",
+        "held_bytes": 22313332736.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4189827072.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 8343552.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 629.2344276512971
+    },
+    {
+      "label": "8k: Q8_0, f16 KV, f32 state, two-word activations",
+      "header": "qwen3.8-27b-q8_0",
+      "serving": {
+        "batch": 8,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 4.0,
+        "activation_words": 2,
+        "scaling": "Sub32",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 8,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 27303256576.0,
+        "sequence_bytes": 578355200.0,
+        "rewrite_bytes": 301989888.0,
+        "array_macs": 819147571200.0,
+        "vector_macs": 7657832448.0,
+        "scale_cycles": 12799180800.0,
+        "memory_s": 0.4372686055898645,
+        "host_s": 0.0,
+        "array_s": 0.043143912021236255,
+        "vector_s": 0.02215808,
+        "scale_s": 0.14511542857142856,
+        "pass_s": 0.4372686055898645,
+        "binds": "Memory",
+        "held_bytes": 34219915264.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 524288.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 18.295390745485143
+    },
+    {
+      "label": "8k: Q4_K_M",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 23,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 4.0,
+        "activation_words": 2,
+        "scaling": "Sub32",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 23,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477326016.0,
+        "sequence_bytes": 578355200.0,
+        "rewrite_bytes": 301989888.0,
+        "array_macs": 1477181440000.0,
+        "vector_macs": 22016268288.0,
+        "scale_cycles": 36797644800.0,
+        "memory_s": 0.40846361038352835,
+        "host_s": 0.0,
+        "array_s": 0.07780208148990857,
+        "vector_s": 0.06370448,
+        "scale_s": 0.41720685714285716,
+        "pass_s": 0.41720685714285716,
+        "binds": "Scale",
+        "held_bytes": 33194215424.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1507328.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 55.12852822580645
+    },
+    {
+      "label": "8k: + activations scaled per weight block",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 24,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 4.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 24,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477328896.0,
+        "sequence_bytes": 578355200.0,
+        "rewrite_bytes": 301989888.0,
+        "array_macs": 1541406720000.0,
+        "vector_macs": 22973497344.0,
+        "scale_cycles": 6520012800.0,
+        "memory_s": 0.41641954885251997,
+        "host_s": 0.0,
+        "array_s": 0.08118478068512198,
+        "vector_s": 0.06647424,
+        "scale_s": 0.07392304761904762,
+        "pass_s": 0.41641954885251997,
+        "binds": "Memory",
+        "held_bytes": 33889945600.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1572864.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 57.63418183928702
+    },
+    {
+      "label": "8k: + f16 state",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 27,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 2.0,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": false,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 27,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477337536.0,
+        "sequence_bytes": 423428096.0,
+        "rewrite_bytes": 150994944.0,
+        "array_macs": 1734082560000.0,
+        "vector_macs": 25845184512.0,
+        "scale_cycles": 7335014400.0,
+        "memory_s": 0.3825143790397264,
+        "host_s": 0.0,
+        "array_s": 0.09133287827076222,
+        "vector_s": 0.07478352,
+        "scale_s": 0.08316342857142857,
+        "pass_s": 0.3825143790397264,
+        "binds": "Memory",
+        "held_bytes": 33832536064.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1769472.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 70.58558182252251
+    },
+    {
+      "label": "8k: + int8 KV, rotated",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 49,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": null,
+        "flush": "EveryPass",
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 49,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477400896.0,
+        "sequence_bytes": 290226432.0,
+        "rewrite_bytes": 150994944.0,
+        "array_macs": 3147038720000.0,
+        "vector_macs": 46994139136.0,
+        "scale_cycles": 13311692800.0,
+        "memory_s": 0.4211021731509335,
+        "host_s": 0.0,
+        "array_s": 0.1657522605654574,
+        "vector_s": 0.13597841185185186,
+        "scale_s": 0.1509262222222222,
+        "pass_s": 0.4211021731509335,
+        "binds": "Memory",
+        "held_bytes": 34340571136.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 3211264.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 116.36130878488052
+    },
+    {
+      "label": "8k: + state flushed every 16 tokens",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 47,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": null,
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 47,
+        "host_sequences": 0,
+        "rows_per_sequence": 1,
+        "emitted_per_sequence": 1.0,
+        "weight_bytes": 16477395136.0,
+        "sequence_bytes": 226210560.0,
+        "rewrite_bytes": 9437184.0,
+        "array_macs": 3018588160000.0,
+        "vector_macs": 45387880448.0,
+        "scale_cycles": 12768358400.0,
+        "memory_s": 0.37110898958689537,
+        "host_s": 0.0,
+        "array_s": 0.15898686217503055,
+        "vector_s": 0.1313306725925926,
+        "scale_s": 0.14476596825396826,
+        "pass_s": 0.37110898958689537,
+        "binds": "Memory",
+        "held_bytes": 34276369408.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 3080192.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 126.64743058991549
+    },
+    {
+      "label": "8k: + one MTP draft",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 44,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 2,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": null
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 44,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 17759567104.0,
+        "sequence_bytes": 240470869.63200012,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 5912962007040.0,
+        "vector_macs": 86986390306.81598,
+        "scale_cycles": 25511608320.0,
+        "memory_s": 0.3879970012641174,
+        "host_s": 0.0,
+        "array_s": 0.31143144603716344,
+        "vector_s": 0.25169673121185177,
+        "scale_s": 0.28924725986394556,
+        "pass_s": 0.3879970012641174,
+        "binds": "Memory",
+        "held_bytes": 34247114752.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 5767168.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 218.18725331429286
+    },
+    {
+      "label": "8k: + one-word activations",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 44,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": null
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 44,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 17759567104.0,
+        "sequence_bytes": 240470869.63200012,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 2956481003520.0,
+        "vector_macs": 86986390306.81598,
+        "scale_cycles": 12755804160.0,
+        "memory_s": 0.3879970012641174,
+        "host_s": 0.0,
+        "array_s": 0.15571572301858172,
+        "vector_s": 0.25169673121185177,
+        "scale_s": 0.14462362993197278,
+        "pass_s": 0.3879970012641174,
+        "binds": "Memory",
+        "held_bytes": 34247114752.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 3784704.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 218.18725331429286
+    },
+    {
+      "label": "8k: + 32k-row drafting head",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 44,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": null,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 44,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854248704.0,
+        "sequence_bytes": 240470869.63200012,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 2859361894400.0,
+        "vector_macs": 86986390306.81598,
+        "scale_cycles": 12566118400.0,
+        "memory_s": 0.37560850324775996,
+        "host_s": 0.0,
+        "array_s": 0.1506005295579994,
+        "vector_s": 0.25169673121185177,
+        "scale_s": 0.1424729977324263,
+        "pass_s": 0.37560850324775996,
+        "binds": "Memory",
+        "held_bytes": 34247114752.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 3784704.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 225.38360891196055
+    },
+    {
+      "label": "8k: + paged KV",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 69,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": false
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 69,
+        "host_sequences": 0,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854464704.0,
+        "sequence_bytes": 240470869.63200012,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 4483999334400.0,
+        "vector_macs": 136410475708.41595,
+        "scale_cycles": 19705958400.0,
+        "memory_s": 0.45798231740766077,
+        "host_s": 0.0,
+        "array_s": 0.23616901226140816,
+        "vector_s": 0.39470623758222206,
+        "scale_s": 0.22342356462585033,
+        "pass_s": 0.45798231740766077,
+        "binds": "Memory",
+        "held_bytes": 34194681856.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 0.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 5935104.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 289.8714534470351
+    },
+    {
+      "label": "8k: + host memory as a fifth channel",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 67,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 4096.0,
+              "limit": 8192
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 67,
+        "host_sequences": 21,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854447424.0,
+        "sequence_bytes": 240470869.63200012,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 4354028339200.0,
+        "vector_macs": 132456548876.28796,
+        "scale_cycles": 19134771200.0,
+        "memory_s": 0.3822008912297685,
+        "host_s": 0.3795186724875002,
+        "array_s": 0.22932353364513547,
+        "vector_s": 0.3832654770725925,
+        "scale_s": 0.21694751927437642,
+        "pass_s": 0.3832654770725925,
+        "binds": "Vector",
+        "held_bytes": 28606922752.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 5101867008.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 5763072.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 336.3412770297183
+    },
+    {
+      "label": "context 512 of 1024, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 93,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 512.0,
+              "limit": 1024
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 93,
+        "host_sequences": 39,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854672064.0,
+        "sequence_bytes": 114715477.63199988,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 6043651276800.0,
+        "vector_macs": 46718375165.95198,
+        "scale_cycles": 26560204800.0,
+        "memory_s": 0.3155805199558553,
+        "host_s": 0.31567254176249965,
+        "array_s": 0.31831475565668055,
+        "vector_s": 0.13518048369777771,
+        "scale_s": 0.3011361088435374,
+        "pass_s": 0.31831475565668055,
+        "binds": "Array",
+        "held_bytes": 23759699968.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4570435584.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 7999488.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 562.1228573927239
+    },
+    {
+      "label": "context 512 of 1024, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 92,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 512.0,
+              "limit": 1024
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 92,
+        "host_sequences": 39,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854663424.0,
+        "sequence_bytes": 114715477.63199988,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 6016867500032.0,
+        "vector_macs": 27115166629.888016,
+        "scale_cycles": 26610368512.0,
+        "memory_s": 0.3140074584998584,
+        "host_s": 0.31567254176249965,
+        "array_s": 0.3169040734437281,
+        "vector_s": 0.07845823677629635,
+        "scale_s": 0.3017048584126984,
+        "pass_s": 0.3169040734437281,
+        "binds": "Array",
+        "held_bytes": 23642509312.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4570435584.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 7913472.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 558.5538806001838
+    },
+    {
+      "label": "context 2048 of 4096, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 133,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 2048.0,
+              "limit": 4096
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 133,
+        "host_sequences": 36,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16855017664.0,
+        "sequence_bytes": 168610645.63199994,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 8643071180800.0,
+        "vector_macs": 150865371840.51193,
+        "scale_cycles": 37983948800.0,
+        "memory_s": 0.454803281174712,
+        "host_s": 0.4453386385499999,
+        "array_s": 0.4552243279821346,
+        "vector_s": 0.4365317472237035,
+        "scale_s": 0.43065701587301586,
+        "pass_s": 0.4552243279821346,
+        "binds": "Array",
+        "held_bytes": 34026729472.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 6159089664.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 11440128.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 562.1228573927239
+    },
+    {
+      "label": "context 2048 of 4096, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 125,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 2048.0,
+              "limit": 4096
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 125,
+        "host_sequences": 35,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854948544.0,
+        "sequence_bytes": 168610645.63199994,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 8330805248000.0,
+        "vector_macs": 37981739008.000015,
+        "scale_cycles": 37523968000.0,
+        "memory_s": 0.4386260594206213,
+        "host_s": 0.43296812081249986,
+        "array_s": 0.43877750642565205,
+        "vector_s": 0.10990086518518523,
+        "scale_s": 0.4254418140589569,
+        "pass_s": 0.43877750642565205,
+        "binds": "Array",
+        "held_bytes": 32829128704.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 5988003840.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 10752000.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 548.1137854106273
+    },
+    {
+      "label": "context 8192 of 16384, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 33,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 8192.0,
+              "limit": 16384
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 33,
+        "host_sequences": 11,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854153664.0,
+        "sequence_bytes": 384191317.6320003,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 2144521420800.0,
+        "vector_macs": 120853855322.11214,
+        "scale_cycles": 9424588800.0,
+        "memory_s": 0.3464141095314339,
+        "host_s": 0.32423509511250026,
+        "array_s": 0.11295039716849956,
+        "vector_s": 0.3496928684088893,
+        "scale_s": 0.10685474829931972,
+        "pass_s": 0.3496928684088893,
+        "binds": "Vector",
+        "held_bytes": 25938067456.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4253331456.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 2838528.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 181.56504102840321
+    },
+    {
+      "label": "context 8192 of 16384, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 58,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 8192.0,
+              "limit": 16384
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 58,
+        "host_sequences": 15,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854369664.0,
+        "sequence_bytes": 384191317.6320003,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 4154497957888.0,
+        "vector_macs": 19740257779.712006,
+        "scale_cycles": 19951198208.0,
+        "memory_s": 0.45693397299898975,
+        "host_s": 0.44213876606250035,
+        "array_s": 0.21881441231028526,
+        "vector_s": 0.05711880144592594,
+        "scale_s": 0.22620406131519274,
+        "pass_s": 0.45693397299898975,
+        "binds": "Memory",
+        "held_bytes": 34058063872.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 5799997440.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 4988928.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 244.21909202239755
+    },
+    {
+      "label": "context 16384 of 32768, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 16,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 16384.0,
+              "limit": 32768
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 16,
+        "host_sequences": 6,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854006784.0,
+        "sequence_bytes": 671632213.6320003,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 1039767961600.0,
+        "vector_macs": 112524596609.0241,
+        "scale_cycles": 4569497600.0,
+        "memory_s": 0.32261709201804095,
+        "host_s": 0.31369870642500014,
+        "array_s": 0.054763828930181606,
+        "vector_s": 0.3255920040770373,
+        "scale_s": 0.05180836281179138,
+        "pass_s": 0.3255920040770373,
+        "binds": "Vector",
+        "held_bytes": 24172478464.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4044644352.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1376256.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 94.5477764027531
+    },
+    {
+      "label": "context 16384 of 32768, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 34,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 16384.0,
+              "limit": 32768
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 34,
+        "host_sequences": 9,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854162304.0,
+        "sequence_bytes": 671632213.6320003,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 2661283790848.0,
+        "vector_macs": 13226331570.175999,
+        "scale_cycles": 13680877568.0,
+        "memory_s": 0.46059613517011005,
+        "host_s": 0.47054805963750024,
+        "array_s": 0.1401678986457675,
+        "vector_s": 0.03827063533037037,
+        "scale_s": 0.15511199056689343,
+        "pass_s": 0.47054805963750024,
+        "binds": "Host",
+        "held_bytes": 34284089344.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 6066966528.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 2924544.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 139.02086866619965
+    },
+    {
+      "label": "context 32768 of 65536, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 8,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 32768.0,
+              "limit": 65536
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 8,
+        "host_sequences": 3,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16853937664.0,
+        "sequence_bytes": 1246514005.6320004,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 519883980800.0,
+        "vector_macs": 110191086272.51196,
+        "scale_cycles": 2284748800.0,
+        "memory_s": 0.31598135226702484,
+        "host_s": 0.29369255321250015,
+        "array_s": 0.027381914465090803,
+        "vector_s": 0.31883994870518506,
+        "scale_s": 0.02590418140589569,
+        "pass_s": 0.31883994870518506,
+        "binds": "Vector",
+        "held_bytes": 23676350464.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 3746967552.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 688128.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 48.27500463008853
+    },
+    {
+      "label": "context 32768 of 65536, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 17,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 32768.0,
+              "limit": 65536
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 17,
+        "host_sequences": 4,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854015424.0,
+        "sequence_bytes": 1246514005.6320004,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 1556530331648.0,
+        "vector_macs": 8267622105.0879965,
+        "scale_cycles": 8825786368.0,
+        "memory_s": 0.45254212209465194,
+        "host_s": 0.39159007095000015,
+        "array_s": 0.08198133040744954,
+        "vector_s": 0.023922517665185175,
+        "scale_s": 0.10006560507936509,
+        "pass_s": 0.45254212209465194,
+        "binds": "Memory",
+        "held_bytes": 33668263936.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4995956736.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 1462272.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 72.27614492239226
+    },
+    {
+      "label": "context 65536 of 131072, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 5,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 65536.0,
+              "limit": 131072
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 5,
+        "host_sequences": 2,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16853911744.0,
+        "sequence_bytes": 2396277589.6320004,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 324927488000.0,
+        "vector_macs": 136280413880.3199,
+        "scale_cycles": 1427968000.0,
+        "memory_s": 0.32907008445073627,
+        "host_s": 0.3782526354750001,
+        "array_s": 0.01711369654068175,
+        "vector_s": 0.3943299012740738,
+        "scale_s": 0.016190113378684808,
+        "pass_s": 0.3943299012740738,
+        "binds": "Vector",
+        "held_bytes": 24627662848.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4797505536.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 430080.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 24.395816723301806
+    },
+    {
+      "label": "context 65536 of 131072, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 9,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 65536.0,
+              "limit": 131072
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 9,
+        "host_sequences": 2,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16853946304.0,
+        "sequence_bytes": 2396277589.6320004,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 1063221460992.0,
+        "vector_macs": 6128753688.575996,
+        "scale_cycles": 6774607872.0,
+        "memory_s": 0.46032242800083156,
+        "host_s": 0.3782526354750001,
+        "array_s": 0.0559991078346606,
+        "vector_s": 0.017733662293333324,
+        "scale_s": 0.0768096130612245,
+        "pass_s": 0.46032242800083156,
+        "binds": "Memory",
+        "held_bytes": 34222673920.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4797505536.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 774144.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 37.61711128263496
+    },
+    {
+      "label": "context 131072 of 262144, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 3,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 131072.0,
+              "limit": 262144
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 3,
+        "host_sequences": 1,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16853894464.0,
+        "sequence_bytes": 4695804757.632001,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 194956492800.0,
+        "vector_macs": 162661430280.19193,
+        "scale_cycles": 856780800.0,
+        "memory_s": 0.3592288980840367,
+        "host_s": 0.37158391773750005,
+        "array_s": 0.01026821792440905,
+        "vector_s": 0.4706638607644442,
+        "scale_s": 0.009714068027210884,
+        "pass_s": 0.4706638607644442,
+        "binds": "Vector",
+        "held_bytes": 26827964416.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4698279936.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 258048.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 12.263529200277278
+    },
+    {
+      "label": "context 131072 of 262144, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 4,
+        "contexts": {
+          "classes": [
+            {
+              "share": 1.0,
+              "position": 131072.0,
+              "limit": 262144
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 4,
+        "host_sequences": 1,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16853903104.0,
+        "sequence_bytes": 4695804757.632001,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 685143752704.0,
+        "vector_macs": 4281025888.255998,
+        "scale_cycles": 4879499264.0,
+        "memory_s": 0.42352799284743015,
+        "host_s": 0.37158391773750005,
+        "array_s": 0.03608602750937513,
+        "vector_s": 0.012387227685925921,
+        "scale_s": 0.055323120907029476,
+        "pass_s": 0.42352799284743015,
+        "binds": "Memory",
+        "held_bytes": 31526244352.0,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4698279936.0,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 344064.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 18.17117198855938
+    },
+    {
+      "label": "mixed contexts, attention on the vector units",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 59,
+        "contexts": {
+          "classes": [
+            {
+              "share": 0.7,
+              "position": 512.0,
+              "limit": 2048
+            },
+            {
+              "share": 0.25,
+              "position": 4096.0,
+              "limit": 8192
+            },
+            {
+              "share": 0.05,
+              "position": 65536.0,
+              "limit": 131072
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Vector",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 59,
+        "host_sequences": 19,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854378304.0,
+        "sequence_bytes": 260232431.23200026,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 3834144358400.0,
+        "vector_macs": 130312631934.976,
+        "scale_cycles": 16850022400.0,
+        "memory_s": 0.37325425492064246,
+        "host_s": 0.3731659420125004,
+        "array_s": 0.20194161918004466,
+        "vector_s": 0.3770620137007407,
+        "scale_s": 0.19104333786848074,
+        "pass_s": 0.3770620137007407,
+        "binds": "Vector",
+        "held_bytes": 27939708928.000004,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 4991444582.400002,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 5074944.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 301.05392714020024
+    },
+    {
+      "label": "mixed contexts, attention on the array",
+      "header": "qwen3.8-27b-q4_k_m",
+      "serving": {
+        "batch": 87,
+        "contexts": {
+          "classes": [
+            {
+              "share": 0.7,
+              "position": 512.0,
+              "limit": 2048
+            },
+            {
+              "share": 0.25,
+              "position": 4096.0,
+              "limit": 8192
+            },
+            {
+              "share": 0.05,
+              "position": 65536.0,
+              "limit": 131072
+            }
+          ]
+        },
+        "kv_page": 256,
+        "attention": "Array",
+        "kv_bytes": 1.0078125,
+        "state_bytes": 2.0,
+        "activation_words": 1,
+        "scaling": "PerBlock",
+        "kv_rotated": true,
+        "draft": {
+          "tokens": 1,
+          "acceptance": [
+            {
+              "value": 0.924,
+              "provenance": "Measured",
+              "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+            }
+          ],
+          "head_rows": 32768
+        },
+        "flush": {
+          "Every": {
+            "tokens": 16
+          }
+        },
+        "host_memory": true
+      },
+      "cost": {
+        "card": "d5005",
+        "batch": 87,
+        "host_sequences": 23,
+        "rows_per_sequence": 2,
+        "emitted_per_sequence": 1.924,
+        "weight_bytes": 16854620224.0,
+        "sequence_bytes": 260232431.23200026,
+        "rewrite_bytes": 18157142.01599999,
+        "array_macs": 5982480708403.2,
+        "vector_macs": 27784706285.568005,
+        "scale_cycles": 27735980851.2,
+        "memory_s": 0.4588275787684556,
+        "host_s": 0.45172719296250047,
+        "array_s": 0.31509294591935283,
+        "vector_s": 0.0803955621688889,
+        "scale_s": 0.31446690307482994,
+        "pass_s": 0.4588275787684556,
+        "binds": "Memory",
+        "held_bytes": 34244691558.400005,
+        "capacity_bytes": 34359738368.0,
+        "host_held_bytes": 6042275020.800002,
+        "host_capacity_bytes": 68719476736.0,
+        "on_chip_bytes": 7483392.0,
+        "on_chip_capacity": 30005760.0,
+        "provenance": "Modeled"
+      },
+      "tokens_per_s": 364.81678030184685
+    }
+  ],
+  "full_beat": {
+    "card": {
+      "name": "d5005",
+      "memory": {
+        "kind": "Ddr",
+        "capacity": {
+          "value": 38654705664.0,
+          "provenance": "Derived",
+          "cite": "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005: \"8GB RDIMM modules organized as 1 Gb × 72\"; OFS ofs-d5005 2024.1-1 ipss/mem/ip/emif_ddr4_no_ecc.ip: MEM_DDR4_DQ_WIDTH 72, CTRL_DDR4_ECC_EN false; 1 Gi words of all 72 bits each, four channels"
+        },
+        "bandwidth": {
+          "value": 86400000000.0,
+          "provenance": "Derived",
+          "cite": "OFS ofs-d5005 2024.1-1 ipss/mem/ip/emif_ddr4_no_ecc.ip: MEM_DDR4_DQ_WIDTH 72, CTRL_DDR4_ECC_EN false, MEM_DDR4_SPEEDBIN_ENUM DDR4_SPEEDBIN_2400; ipss/mem/includes/ofs_fim_emif_cfg_pkg.sv: AVMM_DATA_WIDTH 576; four channels of 2400 MT/s, 9 bytes a transfer"
+        }
+      },
+      "on_chip": {
+        "kind": "Sram",
+        "capacity": {
+          "value": 30005760.0,
+          "provenance": "Derived",
+          "cite": "S10-OVERVIEW (2020.09.28) Intel Stratix 10 GX/SX Device Overview, Table 4: GX 2800/ SX 2800 \"M20K Blocks 11,721\", \"M20K Mbits 229\""
+        },
+        "bandwidth": {
+          "value": 26372250000000.0,
+          "provenance": "Modeled",
+          "cite": "not published: every M20K block's one widest read port at the standard engine plan's modeled clock"
+        }
+      },
+      "streams": {
+        "read": {
+          "value": 0.9515277787860529,
+          "provenance": "Modeled",
+          "cite": "not published: the share of DDR4 peak the shell's controllers sustain on one long read, as the JESD79-4 controller model issues it at the shell's EMIF timing (benchmarks/silicon/d5005/ddr4_efficiency.json, the weights row of the plan's beat); replaced by the card's measured stream receipt"
+        },
+        "rewrite": {
+          "value": 0.9423474358691605,
+          "provenance": "Modeled",
+          "cite": "not published: the share of DDR4 peak the shell's controllers sustain on a memory read and written back a chunk at a time, as the JESD79-4 controller model issues it at the shell's EMIF timing (benchmarks/silicon/d5005/ddr4_efficiency.json, the state row of the plan's chunk and beat); replaced by the card's measured stream receipt"
+        },
+        "append": {
+          "value": 0.9504281280972265,
+          "provenance": "Modeled",
+          "cite": "not published: the share of DDR4 peak the shell's controllers sustain on a long read with a row appended after it, as the JESD79-4 controller model issues it at the shell's EMIF timing (benchmarks/silicon/d5005/ddr4_efficiency.json, the least of the cache rows of the plan's beat); replaced by the card's measured stream receipt"
+        }
+      },
+      "array": {
+        "value": 18986400000000.0,
+        "provenance": "Modeled",
+        "cite": "not published: the plan's array DSP blocks at 4 multiply-adds a cycle plus its soft multiply-adds, at its modeled clock"
+      },
+      "vector": {
+        "value": 345600000000.0,
+        "provenance": "Modeled",
+        "cite": "not published: the plan's f32 DSP blocks, one multiply-add a cycle each (S10-OVERVIEW Table 11: one single precision multiplier and adder a block), at its modeled clock"
+      },
+      "scale": {
+        "value": 88200000000.0,
+        "provenance": "Modeled",
+        "cite": "not published: the plan's block-scale lanes, one lane cycle each a cycle, at its modeled clock"
+      },
+      "host": {
+        "capacity": {
+          "value": 68719476736.0,
+          "provenance": "Modeled",
+          "cite": "not published: the host memory a serving pins for the card, 64 GiB; the card's host server is not yet chosen"
+        },
+        "read": {
+          "value": 15753846153.846153,
+          "provenance": "Derived",
+          "cite": "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005: \"AXI Streaming (AXI-S) interface to the Host via PCIe Gen3x16\"; PCI-SIG PCI Express Base Specification Revision 3.0: 8.0 GT/s a lane, 128b/130b encoding; 16 lanes host to card"
+        },
+        "write": {
+          "value": 15753846153.846153,
+          "provenance": "Derived",
+          "cite": "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005: \"AXI Streaming (AXI-S) interface to the Host via PCIe Gen3x16\"; PCI-SIG PCI Express Base Specification Revision 3.0: 8.0 GT/s a lane, 128b/130b encoding; 16 lanes card to host"
+        },
+        "stream": {
+          "value": 0.8,
+          "provenance": "Modeled",
+          "cite": "not published: the share of a PCIe Gen3 x16 direction the card's DMA sustains with 256-byte payloads; replaced by the card's measured host-stream receipt"
+        }
+      },
+      "sources": [
+        "cdrdv2-public.intel.com/691516/ds-pac-d5005-683568-691516.pdf",
+        "ofs.github.io/ofs-2024.2-1/hw/d5005/dev_guides/afu_dev/ug_dev_afu_d5005",
+        "OFS ofs-d5005 2024.1-1 ipss/mem/ip/emif_ddr4_no_ecc.ip",
+        "S10-OVERVIEW (2020.09.28) Intel Stratix 10 GX/SX Device Overview",
+        "GEN-1023-1.0 (May 2015) Stratix 10 Product Table",
+        "PCI-SIG PCI Express Base Specification Revision 3.0"
+      ]
+    },
+    "plan": {
+      "clock_hz": {
+        "value": 450000000.0,
+        "provenance": "Modeled",
+        "cite": "not published: the clock a Hyperflex-retimed array is planned to close at; replaced by the fitted engine's timing"
+      },
+      "array_dsp_blocks": 4404,
+      "array_soft_macs": {
+        "value": 24576.0,
+        "provenance": "Modeled",
+        "cite": "not tabulated: soft multiply-adds of a 4-bit code and an 8-bit code in compressor trees, about 15 ALMs each over 40% of the device's ALMs; replaced by the engine's synthesized census"
+      },
+      "scale_lanes": 196,
+      "scale_lane_alms": {
+        "value": 650.0,
+        "provenance": "Modeled",
+        "cite": "not tabulated: sixteen radix-4 Booth products of a 6-to-8-bit multiplier and a 17-to-26-bit sum, the activation scale's 11×8 product, a two-term exact sum over 29 binary places and its rounding to f32; replaced by the engine's synthesized census"
+      },
+      "vector_dsp_blocks": 768,
+      "beat": "Full72",
+      "state_chunk_lines": 512
+    },
+    "rows": [
+      {
+        "label": "2k: + host memory as a fifth channel, all 72 bits of every beat",
+        "header": "qwen3.8-27b-q4_k_m",
+        "serving": {
+          "batch": 87,
+          "contexts": {
+            "classes": [
+              {
+                "share": 1.0,
+                "position": 1024.0,
+                "limit": 2048
+              }
+            ]
+          },
+          "kv_page": 256,
+          "attention": "Vector",
+          "kv_bytes": 1.0078125,
+          "state_bytes": 2.0,
+          "activation_words": 1,
+          "scaling": "PerBlock",
+          "kv_rotated": true,
+          "draft": {
+            "tokens": 1,
+            "acceptance": [
+              {
+                "value": 0.924,
+                "provenance": "Measured",
+                "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+              }
+            ],
+            "head_rows": 32768
+          },
+          "flush": {
+            "Every": {
+              "tokens": 16
+            }
+          },
+          "host_memory": true
+        },
+        "cost": {
+          "card": "d5005",
+          "batch": 87,
+          "host_sequences": 31,
+          "rows_per_sequence": 2,
+          "emitted_per_sequence": 1.924,
+          "weight_bytes": 16854620224.0,
+          "sequence_bytes": 132680533.63199987,
+          "rewrite_bytes": 18157142.01599999,
+          "array_macs": 5653738291200.0,
+          "vector_macs": 62031647981.56797,
+          "scale_cycles": 24846643200.0,
+          "memory_s": 0.29560229621191464,
+          "host_s": 0.29510814986249967,
+          "array_s": 0.29777831980786246,
+          "vector_s": 0.1794897221688888,
+          "scale_s": 0.28170797278911563,
+          "pass_s": 0.29777831980786246,
+          "binds": "Array",
+          "held_bytes": 25000124416.0,
+          "capacity_bytes": 38654705664.0,
+          "host_held_bytes": 4189827072.0,
+          "host_capacity_bytes": 68719476736.0,
+          "on_chip_bytes": 7483392.0,
+          "on_chip_capacity": 30005760.0,
+          "provenance": "Modeled"
+        },
+        "tokens_per_s": 562.122857392724
+      },
+      {
+        "label": "8k: + host memory as a fifth channel, all 72 bits of every beat",
+        "header": "qwen3.8-27b-q4_k_m",
+        "serving": {
+          "batch": 56,
+          "contexts": {
+            "classes": [
+              {
+                "share": 1.0,
+                "position": 4096.0,
+                "limit": 8192
+              }
+            ]
+          },
+          "kv_page": 256,
+          "attention": "Vector",
+          "kv_bytes": 1.0078125,
+          "state_bytes": 2.0,
+          "activation_words": 1,
+          "scaling": "PerBlock",
+          "kv_rotated": true,
+          "draft": {
+            "tokens": 1,
+            "acceptance": [
+              {
+                "value": 0.924,
+                "provenance": "Measured",
+                "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+              }
+            ],
+            "head_rows": 32768
+          },
+          "flush": {
+            "Every": {
+              "tokens": 16
+            }
+          },
+          "host_memory": true
+        },
+        "cost": {
+          "card": "d5005",
+          "batch": 56,
+          "host_sequences": 17,
+          "rows_per_sequence": 2,
+          "emitted_per_sequence": 1.924,
+          "weight_bytes": 16854352384.0,
+          "sequence_bytes": 240470869.63200012,
+          "rewrite_bytes": 18157142.01599999,
+          "array_macs": 3639187865600.0,
+          "vector_macs": 110709951299.58397,
+          "scale_cycles": 15993241600.0,
+          "memory_s": 0.319292151593228,
+          "host_s": 0.30722940153750017,
+          "array_s": 0.19167340125563562,
+          "vector_s": 0.32034129426962954,
+          "scale_s": 0.18132926984126985,
+          "pass_s": 0.32034129426962954,
+          "binds": "Vector",
+          "held_bytes": 26906300416.0,
+          "capacity_bytes": 38654705664.0,
+          "host_held_bytes": 4130082816.0,
+          "host_capacity_bytes": 68719476736.0,
+          "on_chip_bytes": 4816896.0,
+          "on_chip_capacity": 30005760.0,
+          "provenance": "Modeled"
+        },
+        "tokens_per_s": 336.34127702971836
+      },
+      {
+        "label": "mixed contexts, attention on the vector units, all 72 bits of every beat",
+        "header": "qwen3.8-27b-q4_k_m",
+        "serving": {
+          "batch": 49,
+          "contexts": {
+            "classes": [
+              {
+                "share": 0.7,
+                "position": 512.0,
+                "limit": 2048
+              },
+              {
+                "share": 0.25,
+                "position": 4096.0,
+                "limit": 8192
+              },
+              {
+                "share": 0.05,
+                "position": 65536.0,
+                "limit": 131072
+              }
+            ]
+          },
+          "kv_page": 256,
+          "attention": "Vector",
+          "kv_bytes": 1.0078125,
+          "state_bytes": 2.0,
+          "activation_words": 1,
+          "scaling": "PerBlock",
+          "kv_rotated": true,
+          "draft": {
+            "tokens": 1,
+            "acceptance": [
+              {
+                "value": 0.924,
+                "provenance": "Measured",
+                "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+              }
+            ],
+            "head_rows": 32768
+          },
+          "flush": {
+            "Every": {
+              "tokens": 16
+            }
+          },
+          "host_memory": true
+        },
+        "cost": {
+          "card": "d5005",
+          "batch": 49,
+          "host_sequences": 15,
+          "rows_per_sequence": 2,
+          "emitted_per_sequence": 1.924,
+          "weight_bytes": 16854291904.0,
+          "sequence_bytes": 260232431.23200026,
+          "rewrite_bytes": 18157142.01599999,
+          "array_macs": 3184289382400.0,
+          "vector_macs": 108225745166.336,
+          "scale_cycles": 13994086400.0,
+          "memory_s": 0.312822112254672,
+          "host_s": 0.2946046910625003,
+          "array_s": 0.16771422609868117,
+          "vector_s": 0.31315319781925927,
+          "scale_s": 0.15866311111111112,
+          "pass_s": 0.31315319781925927,
+          "binds": "Vector",
+          "held_bytes": 26363463270.4,
+          "capacity_bytes": 38654705664.0,
+          "host_held_bytes": 3940614144.0000014,
+          "host_capacity_bytes": 68719476736.0,
+          "on_chip_bytes": 4214784.0,
+          "on_chip_capacity": 30005760.0,
+          "provenance": "Modeled"
+        },
+        "tokens_per_s": 301.05392714020024
+      },
+      {
+        "label": "mixed contexts, attention on the array, all 72 bits of every beat",
+        "header": "qwen3.8-27b-q4_k_m",
+        "serving": {
+          "batch": 103,
+          "contexts": {
+            "classes": [
+              {
+                "share": 0.7,
+                "position": 512.0,
+                "limit": 2048
+              },
+              {
+                "share": 0.25,
+                "position": 4096.0,
+                "limit": 8192
+              },
+              {
+                "share": 0.05,
+                "position": 65536.0,
+                "limit": 131072
+              }
+            ]
+          },
+          "kv_page": 256,
+          "attention": "Array",
+          "kv_bytes": 1.0078125,
+          "state_bytes": 2.0,
+          "activation_words": 1,
+          "scaling": "PerBlock",
+          "kv_rotated": true,
+          "draft": {
+            "tokens": 1,
+            "acceptance": [
+              {
+                "value": 0.924,
+                "provenance": "Measured",
+                "cite": "benchmarks/results/qwen38_27b.json /logos/speculative_decode_2026_09_21/b1/accept_rate: the blk.64 draft verified against the main model, H100 NVL, 512 prompt tokens and 128 generated"
+              }
+            ],
+            "head_rows": 32768
+          },
+          "flush": {
+            "Every": {
+              "tokens": 16
+            }
+          },
+          "host_memory": true
+        },
+        "cost": {
+          "card": "d5005",
+          "batch": 103,
+          "host_sequences": 23,
+          "rows_per_sequence": 2,
+          "emitted_per_sequence": 1.924,
+          "weight_bytes": 16854758464.0,
+          "sequence_bytes": 260232431.23200026,
+          "rewrite_bytes": 18157142.01599999,
+          "array_macs": 7082707045580.801,
+          "vector_macs": 32894537326.592007,
+          "scale_cycles": 32836850892.800003,
+          "memory_s": 0.45869107261141406,
+          "host_s": 0.45172719296250047,
+          "array_s": 0.3730410739045212,
+          "vector_s": 0.09518095291259261,
+          "scale_s": 0.3722998967437642,
+          "pass_s": 0.45869107261141406,
+          "binds": "Memory",
+          "held_bytes": 38448013312.00001,
+          "capacity_bytes": 38654705664.0,
+          "host_held_bytes": 6042275020.800002,
+          "host_capacity_bytes": 68719476736.0,
+          "on_chip_bytes": 8859648.0,
+          "on_chip_capacity": 30005760.0,
+          "provenance": "Modeled"
+        },
+        "tokens_per_s": 432.0380574920932
+      }
+    ]
+  }
+}

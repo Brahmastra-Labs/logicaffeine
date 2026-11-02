@@ -1,0 +1,163 @@
+# Modal, toasts and the keyboard
+
+A settings page whose name is edited in a modal dialog. The dialog closes on
+Cancel, on a click on the backdrop around it, and on Escape; a click inside it
+stays inside it (`.stop`). Saving posts a toast that dismisses itself after
+three seconds, or at once from its own close button.
+
+## A Note has:
+    a number, which is Int.
+    a message, which is Text.
+
+## Store Toasts
+
+State:
+    Let notes be a new Seq of Note.
+    Let nextNumber be 1.
+
+Actions:
+    To post (text: Text):
+        Push (a new Note with number nextNumber and message text) to notes.
+        Set nextNumber to nextNumber + 1.
+
+    To dismiss (number: Int):
+        Let mutable kept be a new Seq of Note.
+        Repeat for n in notes:
+            If n's number is not equal to number:
+                Push n to kept.
+        Set notes to kept.
+
+## Component Toast (number: Int) and (message: Text)
+
+Use Toasts.
+
+Actions:
+    After 3 seconds:
+        Call Toasts's dismiss with number.
+
+    To close:
+        Call Toasts's dismiss with number.
+
+View:
+    <p class="toast" role="status"><span class="message">{message}</span> <button id="close-{number}" on-click={close}>dismiss</button></p>
+
+## Component Tray
+
+Use Toasts.
+
+View:
+    <div id="tray">{for each n in Toasts's notes, keyed by n's number:}<Toast number={n's number} message={n's message}/>{end}</div>
+
+## Page /
+
+Use Toasts.
+
+State:
+    Let open be false.
+    Let draft be "".
+    Let name be "nobody".
+    Let insideClicks be 0.
+
+Actions:
+    To edit:
+        Set draft to name.
+        Set open to true.
+
+    To cancel:
+        Set open to false.
+
+    To stay:
+        Set insideClicks to insideClicks + 1.
+
+    To save:
+        If draft is equal to "":
+            Return.
+        Set name to draft.
+        Set open to false.
+        Call Toasts's post with "Saved {draft}".
+
+    When the user presses Escape:
+        Set open to false.
+
+View:
+    <main>
+      <h1>Settings</h1>
+      <p id="name">Name: {name}</p>
+      <button id="edit" on-click={edit}>Edit name</button>
+      {if open:}
+        <div id="backdrop" class="backdrop" on-click={cancel}>
+          <div id="dialog" class="dialog" role="dialog" on-click.stop={stay}>
+            <label>Name <input id="draft" bind={draft} on-keydown.enter={save}></label>
+            <button id="save" on-click.stop={save}>Save</button>
+            <button id="cancel" on-click.stop={cancel}>Cancel</button>
+          </div>
+        </div>
+      {end}
+      <Tray/>
+    </main>
+
+## Test: the dialog opens with the current name and Cancel closes it
+
+Expect that the count of "#dialog" is equal to 0.
+Click "#edit".
+Expect that the count of "#dialog" is equal to 1.
+Click "#cancel".
+Expect that the count of "#dialog" is equal to 0.
+Expect that the text of "#name" is equal to "Name: nobody".
+
+## Test: Escape closes the dialog without saving
+
+Click "#edit".
+Type "Ada" into "#draft".
+Press "Escape".
+Expect that the count of "#dialog" is equal to 0.
+Expect that the text of "#name" is equal to "Name: nobody".
+
+## Test: a click on the backdrop closes the dialog, a click inside it does not
+
+Click "#edit".
+Click "#dialog".
+Expect that the count of "#dialog" is equal to 1.
+Click "#backdrop".
+Expect that the count of "#dialog" is equal to 0.
+
+## Test: saving records the name, closes the dialog and posts a toast that leaves on its own
+
+Click "#edit".
+Type "Ada" into "#draft".
+Click "#save".
+Expect that the text of "#name" is equal to "Name: Ada".
+Expect that the count of "#dialog" is equal to 0.
+Expect that the count of ".toast" is equal to 1.
+Expect that the text of ".message" is equal to "Saved Ada".
+Advance time by 3 seconds.
+Expect that the count of ".toast" is equal to 0.
+
+## Test: Enter in the field saves, and each toast keeps its own clock
+
+Click "#edit".
+Type "Ada" into "#draft".
+Press "Enter" in "#draft".
+Advance time by 2 seconds.
+Click "#edit".
+Type "Grace" into "#draft".
+Press "Enter" in "#draft".
+Expect that the count of ".toast" is equal to 2.
+Advance time by 1 second.
+Expect that the count of ".toast" is equal to 1.
+Expect that the text of ".message" is equal to "Saved Grace".
+Advance time by 2 seconds.
+Expect that the count of ".toast" is equal to 0.
+
+## Test: a toast can be dismissed before its time, and an empty name saves nothing
+
+Click "#edit".
+Type "Ada" into "#draft".
+Click "#save".
+Click "#close-1".
+Expect that the count of ".toast" is equal to 0.
+Click "#edit".
+Type "" into "#draft".
+Click "#save".
+Expect that the count of "#dialog" is equal to 1.
+Expect that the count of ".toast" is equal to 0.

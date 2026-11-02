@@ -7,12 +7,13 @@
     "Too broad",
     "Too narrow",
     "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
+    "Unclear terms",
+    "Wrong vagueness",
+    "Wrong tone",
+    "Extra features"
   ],
   "correct": 3,
-  "hint": "Would an average person understand all the words in this definition?",
-  "explanation": "'Interstitial vacuities' is far more obscure than the plain word 'net'. Explaining the familiar with the unfamiliar USES POORLY UNDERSTOOD TERMS."
+  "hint": "Are the words in the definition harder to understand than the word itself?",
+  "explanation": "'Interstitial vacuities' is far harder to understand than the plain word 'net'.",
+  "section": "3.2"
 }

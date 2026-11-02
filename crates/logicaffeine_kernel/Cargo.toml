@@ -8,25 +8,44 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-license = "BUSL-1.1"
-description = "Pure Calculus of Constructions type theory - NO LEXICON"
+license = "MIT"
+description = "Calculus of Constructions proof kernel with inductive types, universes, quotients, a second checker and Lean 4 import"
 readme = "README.md"
+include = ["src/**", "/build.rs", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [dependencies]
 logicaffeine-base = { workspace = true }
+# The fast non-cryptographic hasher the rest of the workspace already uses for id-keyed tables.
+rustc-hash = "2"
+# Inline argument vectors for application spines (already in the workspace lockfile).
+smallvec = "1"
 # CRITICAL: NO LEXICON DEPENDENCY - Milner Invariant
 # Optional serde, off by default so the trusted core stays dependency-free
 # unless proof certificates are being (de)serialized.
 serde = { version = "1", features = ["derive"], optional = true }
+# Certificates are JSON documents; the Lean export reader parses NDJSON. Off by default like serde.
+serde_json = { version = "1", optional = true }
 
 [features]
-serde = ["dep:serde"]
+# Proof certificates: (de)serialization and reading a certificate document of any kind.
+serde = ["dep:serde", "dep:serde_json"]
+# Lean 4 kernel export as an input surface of the kernel interface. An untrusted reader: every
+# declaration it builds is re-decided by the kernel.
+lean = ["serde"]
+# The dag core's closure-based (NbE) conversion engine, opt-in while it is under construction so
+# an unfinished engine never breaks the default build.
+nbe = []
+# Shadow mode: the dag core re-decides every declaration the `Term` kernel's checked doors decide, and a
+# disagreement panics with both verdicts.
+shadow = []
 
-# serde_json is dev-only: it powers the example re-checker and the certificate
-# tests, but never enters the published library's dependency graph — the trusted
-# kernel stays pure.
+# serde_json enters the library only through the opt-in `serde`/`lean` features; with default
+# features the trusted kernel has no serialization dependency at all.
 [dev-dependencies]
 serde_json = "1"
+# Tests, examples and benches of this crate always see the Lean reader, so no Lean test can be
+# silently compiled out by a missing `--features lean`. The library itself stays feature-gated.
+logicaffeine-kernel = { path = ".", features = ["lean"] }
 
 # The standalone, independently-auditable proof re-checker. Its only trusted
 # inputs are this kernel and a JSON parser. Run with:

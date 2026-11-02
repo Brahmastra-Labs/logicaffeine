@@ -19,8 +19,16 @@ pub enum TypeError {
 impl std::fmt::Display for TypeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypeError::Conflict { var, expected, found } => {
-                write!(f, "Type conflict for '{}': expected {:?}, found {:?}", var, expected, found)
+            TypeError::Conflict {
+                var,
+                expected,
+                found,
+            } => {
+                write!(
+                    f,
+                    "Type conflict for '{}': expected {:?}, found {:?}",
+                    var, expected, found
+                )
             }
         }
     }
@@ -55,7 +63,11 @@ fn collect_constraints(
                     constrain_as_bool(right, constraints)?;
                 }
                 // Arithmetic operators: operands must be Int
-                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
+                VerifyOp::Add
+                | VerifyOp::Sub
+                | VerifyOp::Mul
+                | VerifyOp::Div
+                | VerifyOp::FloorDiv => {
                     constrain_as_int(left, constraints)?;
                     constrain_as_int(right, constraints)?;
                 }
@@ -115,7 +127,11 @@ fn collect_constraints(
             collect_constraints(right, constraints)
         }
 
-        VerifyExpr::BitVecExtract { high, low: _, operand } => {
+        VerifyExpr::BitVecExtract {
+            high,
+            low: _,
+            operand,
+        } => {
             // Operand must be a BV with width > high
             let min_width = high + 1;
             constrain_as_bv(operand, min_width, constraints)?;
@@ -132,17 +148,29 @@ fn collect_constraints(
             if let VerifyExpr::Var(name) = array.as_ref() {
                 let idx_ty = infer_sort_of(index);
                 let elem_ty = VerifyType::Int; // default
-                add_constraint(name, VerifyType::Array(Box::new(idx_ty), Box::new(elem_ty)), constraints)?;
+                add_constraint(
+                    name,
+                    VerifyType::Array(Box::new(idx_ty), Box::new(elem_ty)),
+                    constraints,
+                )?;
             }
             collect_constraints(array, constraints)?;
             collect_constraints(index, constraints)
         }
 
-        VerifyExpr::Store { array, index, value } => {
+        VerifyExpr::Store {
+            array,
+            index,
+            value,
+        } => {
             if let VerifyExpr::Var(name) = array.as_ref() {
                 let idx_ty = infer_sort_of(index);
                 let val_ty = infer_sort_of(value);
-                add_constraint(name, VerifyType::Array(Box::new(idx_ty), Box::new(val_ty)), constraints)?;
+                add_constraint(
+                    name,
+                    VerifyType::Array(Box::new(idx_ty), Box::new(val_ty)),
+                    constraints,
+                )?;
             }
             collect_constraints(array, constraints)?;
             collect_constraints(index, constraints)?;
@@ -261,7 +289,11 @@ fn expr_suggests_int(expr: &VerifyExpr) -> bool {
         expr,
         VerifyExpr::Int(_)
             | VerifyExpr::Binary {
-                op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv,
+                op: VerifyOp::Add
+                    | VerifyOp::Sub
+                    | VerifyOp::Mul
+                    | VerifyOp::Div
+                    | VerifyOp::FloorDiv,
                 ..
             }
     )
@@ -272,7 +304,10 @@ fn infer_sort_of(expr: &VerifyExpr) -> VerifyType {
         VerifyExpr::Int(_) => VerifyType::Int,
         VerifyExpr::Bool(_) => VerifyType::Bool,
         VerifyExpr::BitVecConst { width, .. } => VerifyType::BitVector(*width),
-        VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv, .. } => VerifyType::Int,
+        VerifyExpr::Binary {
+            op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv,
+            ..
+        } => VerifyType::Int,
         _ => VerifyType::Int, // default
     }
 }

@@ -1,0 +1,15 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be word64(parseInt(item 2 of arguments)).
+Let a be word64(0).
+Let b be word64(1).
+Let i be word64(0).
+While i is less than n:
+    Let temp be b.
+    Set b to (a + b) % word64(1000000007).
+    Set a to temp.
+    Set i to i + word64(1).
+Show a.

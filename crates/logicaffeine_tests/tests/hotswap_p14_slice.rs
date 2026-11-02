@@ -85,9 +85,12 @@ fn native_tier_export_emits_scalar_shim_and_skips_nonscalar() {
         let (stmts, _types, _policies) = parsed.expect("program parses");
         let get = |nm: &str| {
             stmts.iter().find_map(|s| match s {
-                Stmt::FunctionDef { name, params, return_type, .. }
-                    if interner.resolve(*name) == nm =>
-                {
+                Stmt::FunctionDef {
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } if interner.resolve(*name) == nm => {
                     let ps: Vec<_> = params.iter().map(|(s, t)| (*s, *t)).collect();
                     Some((*name, ps, *return_type))
                 }
@@ -97,7 +100,8 @@ fn native_tier_export_emits_scalar_shim_and_skips_nonscalar() {
 
         // Scalar function → a value-crossing shim, no C marshaling.
         let (an, ap, ar) = get("add").expect("add exists");
-        let shim = codegen_native_tier_export(an, &ap, ar, interner).expect("scalar fn gets a shim");
+        let shim =
+            codegen_native_tier_export(an, &ap, ar, interner).expect("scalar fn gets a shim");
         assert!(shim.contains("#[no_mangle]"), "shim:\n{shim}");
         assert!(shim.contains("extern \"C\""));
         assert!(shim.contains("logos_native_add"));
@@ -122,9 +126,16 @@ fn native_module_source_assembles_for_scalar_target() {
     let module = compile_function_to_native_rust(P14B_PROG, "add")
         .expect("source compiles")
         .expect("scalar target yields a module");
-    assert!(module.rust.contains("logos_native_add"), "export shim symbol present:\n{}", module.rust);
+    assert!(
+        module.rust.contains("logos_native_add"),
+        "export shim symbol present:\n{}",
+        module.rust
+    );
     assert!(module.rust.contains("#[no_mangle]"), "shim is no_mangle");
-    assert!(module.rust.contains("fn add"), "the sliced inner function is emitted");
+    assert!(
+        module.rust.contains("fn add"),
+        "the sliced inner function is emitted"
+    );
     assert_eq!(module.symbol, "logos_native_add", "exact export symbol");
     assert_eq!(module.arity, 2, "two scalar params");
 
@@ -136,11 +147,9 @@ fn native_module_source_assembles_for_scalar_target() {
         "non-scalar function → no AOT-native module"
     );
     // Absent target → no module.
-    assert!(
-        compile_function_to_native_rust(P14B_PROG, "does_not_exist")
-            .expect("source compiles")
-            .is_none()
-    );
+    assert!(compile_function_to_native_rust(P14B_PROG, "does_not_exist")
+        .expect("source compiles")
+        .is_none());
 }
 
 // P16 (build) — the AOT-native PROOF: the generated module must compile to a real

@@ -1,0 +1,11 @@
+{
+  "capability": "text.rune_len",
+  "workload": "sum runeLen(cp) over a surrogate-free codepoint sweep",
+  "arg": "2000000",
+  "expected": "7868672",
+  "logos_uses_stdlib": true,
+  "beat": [
+    "go"
+  ],
+  "note": "main.lg calls runeLen() WITHOUT defining it \u2014 auto-imported from strings.lg. Go counterpart uses utf8.RuneLen. The sweep skips the surrogate block so LOGOS runeLen (magnitude-only) agrees with Go RuneLen (which returns -1 for invalid runes)."
+}
